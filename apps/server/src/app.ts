@@ -8,6 +8,8 @@ import type { LoginThrottle } from "./auth/rate-limit.js";
 import type { CollabHooks } from "./collab/hooks.js";
 import type { SetupState } from "./auth/setup.js";
 import { setupRoutes } from "./routes/setup.js";
+import { authRoutes } from "./routes/auth.js";
+import { sendError } from "./http/errors.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -39,21 +41,10 @@ export interface BuildAppOptions {
 
 const CHANGE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
-// export：唯一定義處，routes/setup.ts（以及後續 Task 9/10/12 的路由）改從這裡 import，
-// 不要各自重複宣告同樣的 `{ error: { code, message } }` 包裝。
-//
-// 這造成 app.ts ↔ routes/setup.ts 的循環 import（app.ts import setupRoutes；
-// routes/setup.ts import sendError）——這是安全的：兩邊互相 import 的都是具名
-// `function` 宣告（不是 `const`/箭頭函式），ESM 模組連結階段會先把 function
-// 宣告整個 hoist 完成，才開始執行任何模組的頂層程式碼，所以無論哪個檔案先被
-// import，對方需要的具名函式在那個時間點都已經可用。若之後要把 `sendError`
-// 或 `setupRoutes` 改寫成 `const foo = (...) => {...}` 這種形式，這個安全性
-// 假設就不成立了（會變成暫時性死區、循環 import 的那一側讀到 undefined）——
-// 要嘛維持 function 宣告，要嘛把 `sendError` 抽到一個不被 routes/* 依賴的
-// 第三方模組，兩邊都改成從那個模組 import。
-export function sendError(reply: FastifyReply, statusCode: number, code: string, message: string): FastifyReply {
-  return reply.code(statusCode).send({ error: { code, message } });
-}
+// `sendError` 定義於 `./http/errors.js`（不被任何 routes/* 依賴的葉節點模組），
+// app.ts 與各路由模組（setup.ts、auth.ts、…）都從那裡 import，不在此重新宣告——
+// 避免 app.ts ↔ routes/* 之間的循環 import（前幾輪曾靠「具名 function 宣告會被
+// ESM 整個 hoist」規避，現在直接消除循環，不用再依賴那個前提）。
 
 /** 4xx 錯誤碼映射：已知的具體碼優先，其餘 4xx 一律歸類 bad_request（不可吞成 500）。 */
 function clientErrorCode(statusCode: number): string {
@@ -128,6 +119,9 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   app.get("/healthz", async () => ({ ok: true }));
 
   void app.register(setupRoutes({ db: deps.db, config: deps.config, setupState: deps.setupState }));
+  void app.register(
+    authRoutes({ db: deps.db, config: deps.config, gate: deps.gate, throttle: deps.throttle, collabHooks: deps.collabHooks })
+  );
 
   app.setNotFoundHandler((_request, reply) => {
     sendError(reply, 404, "not_found", "找不到此路由");
