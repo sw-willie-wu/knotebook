@@ -8,8 +8,8 @@ import { hashPassword } from "../auth/password.js";
 import { signSession } from "../auth/session.js";
 import { setSessionCookie } from "../auth/cookies.js";
 import type { SetupState } from "../auth/setup.js";
-
-const MIN_PASSWORD_LENGTH = 12;
+import { MIN_PASSWORD_LENGTH } from "../auth/constants.js";
+import { isUniqueViolation } from "../db/pg-errors.js";
 
 // 只驗結構（型別/存在），不驗內容（email 格式、密碼長度、displayName 非空）——內容層級
 // 的驗證要照 spec 規定的順序手動做（token 優先於 email/password/displayName 內容），
@@ -29,21 +29,6 @@ export interface SetupRouteDeps {
 
 /** POST /api/setup 交易內：instance_setup 的 atomic guard 沒拿到列時，用這個訊號中止交易並 rollback。 */
 class AlreadySetupError extends Error {}
-
-const PG_UNIQUE_VIOLATION = "23505";
-
-/**
- * pg 的 unique_violation（code 23505）在拋出時，可能是原始的 node-postgres
- * `DatabaseError`（`.code` 直接在最外層），也可能被 drizzle-orm 包成
- * `DrizzleQueryError`（原始 pg 錯誤落在 `.cause`）——兩種形狀都要認得，否則
- * users.email 唯一鍵違反會被 `throw err` 一路冒到最外層變成未預期的 500。
- */
-function isUniqueViolation(err: unknown): boolean {
-  const code = (err: unknown): unknown => (typeof err === "object" && err !== null && "code" in err ? (err as { code?: unknown }).code : undefined);
-  if (code(err) === PG_UNIQUE_VIOLATION) return true;
-  const cause = err instanceof Error ? err.cause : undefined;
-  return code(cause) === PG_UNIQUE_VIOLATION;
-}
 
 /**
  * 一次性 setup 流程路由：`GET /api/setup/status`（免認證，查目前是否需要 setup）與

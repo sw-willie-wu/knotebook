@@ -11,8 +11,7 @@ import { signSession, type UserGate } from "../auth/session.js";
 import { setSessionCookie } from "../auth/cookies.js";
 import type { LoginThrottle } from "../auth/rate-limit.js";
 import type { CollabHooks } from "../collab/hooks.js";
-
-const MIN_PASSWORD_LENGTH = 12;
+import { MIN_PASSWORD_LENGTH } from "../auth/constants.js";
 
 const INVALID_CREDENTIALS_MESSAGE = "帳號或密碼錯誤";
 
