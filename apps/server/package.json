@@ -1,0 +1,34 @@
+{
+  "name": "@knotebook/server",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "files": ["dist"],
+  "scripts": {
+    "dev": "pnpm --filter @knotebook/shared build && tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "test": "pnpm --filter @knotebook/shared build && vitest run --passWithNoTests",
+    "test:unit": "vitest run test/unit",
+    "typecheck:test": "tsc -p tsconfig.test.json --noEmit"
+  },
+  "dependencies": {
+    "@knotebook/shared": "workspace:*",
+    "fastify": "^5",
+    "@fastify/cookie": "^11",
+    "drizzle-orm": "^0.44",
+    "pg": "^8",
+    "argon2": "^0.44",
+    "jose": "^6",
+    "zod": "^3"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "tsx": "^4",
+    "vitest": "^3",
+    "@testcontainers/postgresql": "^11",
+    "drizzle-kit": "^0.31",
+    "@types/pg": "^8",
+    "@types/node": "^22"
+  }
+}
