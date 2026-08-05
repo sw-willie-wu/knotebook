@@ -29,7 +29,7 @@ export const notes = pgTable("notes", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),   // 保留欄位；v0.1 硬刪
-});
+}, t => [index("notes_owner_idx").on(t.ownerId)]);   // GET /api/notes 自有分支（owner_id = $u）用
 
 export const noteStates = pgTable("note_states", {
   noteId: uuid("note_id").primaryKey().references(() => notes.id, { onDelete: "cascade" }),
@@ -51,7 +51,11 @@ export const noteShares = pgTable("note_shares", {
   role: text().notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, t => [primaryKey({ columns: [t.noteId, t.userId] }),
-        check("note_shares_role_chk", sql`${t.role} in ('viewer','editor')`)]);
+        check("note_shares_role_chk", sql`${t.role} in ('viewer','editor')`),
+        // GET /api/notes 被分享分支（JOIN ... ON user_id = $u）用——(note_id, user_id) 的 PK
+        // 已能服務「查某 note 的分享名單」，但反向「查某 user 被分享的所有 note」需要
+        // user_id 開頭的獨立索引，否則會退化成全表掃描。
+        index("note_shares_user_idx").on(t.userId)]);
 
 export const noteLinks = pgTable("note_links", {
   sourceNoteId: uuid("source_note_id").notNull().references(() => notes.id, { onDelete: "cascade" }),
@@ -66,7 +70,7 @@ export const uploads = pgTable("uploads", {
   mime: text().notNull(),
   size: integer().notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, t => [index("uploads_note_idx").on(t.noteId)]);   // DELETE /api/notes/:id 交易內 `WHERE note_id = $1` 用
 
 export const aiProviders = pgTable("ai_providers", {
   id: uuid().primaryKey().defaultRandom(),

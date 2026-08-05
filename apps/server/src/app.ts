@@ -9,6 +9,7 @@ import type { CollabHooks } from "./collab/hooks.js";
 import type { SetupState } from "./auth/setup.js";
 import { setupRoutes } from "./routes/setup.js";
 import { authRoutes } from "./routes/auth.js";
+import { notesRoutes } from "./routes/notes.js";
 import { sendError } from "./http/errors.js";
 
 declare module "fastify" {
@@ -122,6 +123,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   void app.register(
     authRoutes({ db: deps.db, config: deps.config, gate: deps.gate, throttle: deps.throttle, collabHooks: deps.collabHooks })
   );
+  void app.register(notesRoutes({ db: deps.db, collabHooks: deps.collabHooks }));
 
   app.setNotFoundHandler((_request, reply) => {
     sendError(reply, 404, "not_found", "找不到此路由");

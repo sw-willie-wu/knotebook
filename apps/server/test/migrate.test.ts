@@ -37,4 +37,15 @@ describe("runMigrations", () => {
     const indexNames = r.rows.map(x => x.indexname);
     expect(indexNames).toContain("note_links_target_idx");
   });
+
+  it("notes_owner_idx／note_shares_user_idx／uploads_note_idx 存在（Task 10 審查 I1：GET /api/notes 改 UNION ALL 兩支各自的 index scan 用）", async () => {
+    const { pool } = await freshDb();
+    const r = await pool.query(
+      `select tablename, indexname from pg_indexes where indexname in ('notes_owner_idx', 'note_shares_user_idx', 'uploads_note_idx')`
+    );
+    const indexNames = r.rows.map(x => x.indexname);
+    expect(indexNames).toContain("notes_owner_idx");
+    expect(indexNames).toContain("note_shares_user_idx");
+    expect(indexNames).toContain("uploads_note_idx");
+  });
 });
