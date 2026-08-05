@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main, "dev/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Update corepack
+        run: npm i -g corepack@latest
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Prepare pnpm (align with packageManager)
+        run: corepack prepare pnpm@10.14.0 --activate
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Check licenses
+        run: pnpm check-licenses
+
+      - name: Verify LICENSE file exists
+        run: test -f LICENSE
+
+      - name: Test scripts (check-licenses)
+        run: pnpm test:scripts
+
+      - name: Test (unit + integration)
+        run: pnpm test

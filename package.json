@@ -10,6 +10,7 @@
     "typecheck": "pnpm -r build && pnpm -r exec tsc --noEmit && pnpm --filter @knotebook/server typecheck:test",
     "lint": "eslint .",
     "test": "pnpm -r test",
+    "test:scripts": "node --test scripts/*.test.mjs",
     "check-licenses": "node scripts/check-licenses.mjs"
   },
   "devDependencies": {
