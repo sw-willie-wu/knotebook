@@ -9,8 +9,10 @@
     "dev": "pnpm --filter @knotebook/shared build && tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "test": "pnpm --filter @knotebook/shared build && vitest run --passWithNoTests",
-    "test:unit": "vitest run test/unit",
-    "typecheck:test": "tsc -p tsconfig.test.json --noEmit"
+    "test:unit": "vitest run --config vitest.unit.config.ts",
+    "test:integration": "vitest run test/migrate.test.ts",
+    "typecheck:test": "tsc -p tsconfig.test.json --noEmit",
+    "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
     "@knotebook/shared": "workspace:*",
