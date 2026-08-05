@@ -1,18 +1,34 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { and, desc, eq, or, sql } from "drizzle-orm";
+import { and, desc, eq, ne, or, sql } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/pg-core";
-import type { NoteDto, Role } from "@knotebook/shared";
+import type { NoteDto, Role, ShareDto } from "@knotebook/shared";
 import { sendError } from "../http/errors.js";
 import type { Db } from "../db/index.js";
-import { noteLinks, noteShares, noteStateBackups, noteStates, notes, uploads } from "../db/schema.js";
+import { noteLinks, noteShares, noteStateBackups, noteStates, notes, uploads, users } from "../db/schema.js";
 import type { CollabHooks } from "../collab/hooks.js";
-import { resolveRole } from "../notes/service.js";
+import { resolveRole, UUID_RE } from "../notes/service.js";
 
 // 建立時 title 允許省略（DB 端有 default "Untitled"），但若有帶就不可為空字串——
 // 與 PATCH 的 title 驗證同一套規則，避免「傳空字串把標題清空」這種語意混淆的落地方式。
 const createBodySchema = z.object({ title: z.string().min(1).optional() });
 const updateBodySchema = z.object({ title: z.string().min(1) });
+const putShareBodySchema = z.object({ email: z.string().email(), role: z.enum(["viewer", "editor"]) });
+
+const PG_FOREIGN_KEY_VIOLATION = "23503";
+
+/**
+ * pg 的 foreign_key_violation（code 23503）在拋出時，與 setup.ts 的
+ * `isUniqueViolation` 同理：可能是原始 node-postgres `DatabaseError`（`.code` 在最外
+ * 層），也可能被 drizzle-orm 包成 `DrizzleQueryError`（原始 pg 錯誤落在 `.cause`）——
+ * 兩種形狀都要認得，否則會被 `throw err` 一路冒到全域錯誤 handler 變成未預期的 500。
+ */
+function isForeignKeyViolation(err: unknown): boolean {
+  const code = (e: unknown): unknown => (typeof e === "object" && e !== null && "code" in e ? (e as { code?: unknown }).code : undefined);
+  if (code(err) === PG_FOREIGN_KEY_VIOLATION) return true;
+  const cause = err instanceof Error ? err.cause : undefined;
+  return code(cause) === PG_FOREIGN_KEY_VIOLATION;
+}
 
 export interface NotesRouteDeps {
   db: Db;
@@ -78,10 +94,17 @@ export function notesRoutes(deps: NotesRouteDeps) {
       // 各自單純的查詢：自有分支 `WHERE owner_id=$u`（吃 notes_owner_idx）、被分享分支
       // `INNER JOIN note_shares ON note_id=notes.id AND user_id=$u`（吃
       // note_shares_user_idx），兩支各自可以走 index scan，讓索引真的生效。
-      // 兩分支不會重疊（一篇 note 若同時符合兩者，代表 owner 也把自己加進了
-      // note_shares——目前應用層不會這樣寫，即使發生，UNION ALL 會產生同一篇 note 的
-      // 兩列，這點與舊版 leftJoin 寫法的語意一致：都是「以 join 命中與否個別判斷」，
-      // 不特別去重）。
+      //
+      // Task 11 re-review（I1 補述）：兩分支結構上不保證互斥——note_shares 目前雖然靠
+      // PUT /api/notes/:id/shares 的 `cannot_share_with_self` 擋掉 owner 把自己加進
+      // 自己的分享名單，但那只是應用層的單一入口擋，不是資料庫層的不可能。若未來有
+      // 其他路徑（手動 SQL、資料修復腳本、之後新增的匯入功能等）繞過那層檢查，塞進一筆
+      // owner 對自己 note 的 note_shares 列，被分享分支就會多撈出同一篇 note 的第二列
+      // （role 還會是錯的：note_shares 上存的 'editor'/'viewer'，而非其實際身分
+      // 'owner'）。因此被分享分支額外加上 `ne(notes.ownerId, userId)`，在資料庫層面
+      // 直接排除這種自我分享列，讓「同一位使用者、同一篇 note 只會出現一列」在結構上
+      // 就不可能被打破，不依賴上層某個入口有沒有檢查到——防禦縱深（見
+      // test/shares.test.ts「GET /api/notes 清單去重」）。
       const ownedSelect = deps.db
         .select({
           id: notes.id,
@@ -104,7 +127,8 @@ export function notesRoutes(deps: NotesRouteDeps) {
           role: noteShares.role,
         })
         .from(notes)
-        .innerJoin(noteShares, and(eq(noteShares.noteId, notes.id), eq(noteShares.userId, userId)));
+        .innerJoin(noteShares, and(eq(noteShares.noteId, notes.id), eq(noteShares.userId, userId)))
+        .where(ne(notes.ownerId, userId));
 
       // 次要排序鍵 id desc（M3）：updatedAt 精度不足以保證唯一序，未來若加分頁
       // （keyset pagination），排序不穩定會讓同一批結果在跨頁時重複或漏掉列。
@@ -191,6 +215,125 @@ export function notesRoutes(deps: NotesRouteDeps) {
         await tx.delete(uploads).where(eq(uploads.noteId, id));
         await tx.delete(notes).where(eq(notes.id, id));
       });
+
+      return reply.code(204).send();
+    });
+
+    // 以下三支分享管理路由全部 authenticate + owner-only：none → 404 not_found（不
+    // 洩漏「note 是否存在」給無權限者，與其他 notes 路由的防列舉原則一致）；查得到但
+    // 角色不是 owner（editor/viewer）→ 403 forbidden。
+    app.get("/api/notes/:id/shares", { preHandler: app.authenticate }, async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const userId = request.user!.id;
+
+      const role = await resolveRole(deps.db, userId, id);
+      if (role === "none") {
+        return sendError(reply, 404, "not_found", "找不到此筆記");
+      }
+      if (role !== "owner") {
+        return sendError(reply, 403, "forbidden", "只有擁有者可以查看分享名單");
+      }
+
+      // orderBy(users.email)：回應順序確定性，比照 GET /api/notes 清單的次要排序鍵慣例
+      // （沒有穩定排序，測試斷言與前端渲染順序都會受 DB 實際回傳順序影響而不可靠）。
+      const rows = await deps.db
+        .select({ userId: noteShares.userId, email: users.email, displayName: users.displayName, role: noteShares.role })
+        .from(noteShares)
+        .innerJoin(users, eq(users.id, noteShares.userId))
+        .where(eq(noteShares.noteId, id))
+        .orderBy(users.email);
+
+      return rows.map((row): ShareDto => ({ userId: row.userId, email: row.email, displayName: row.displayName, role: row.role as ShareDto["role"] }));
+    });
+
+    app.put("/api/notes/:id/shares", { preHandler: app.authenticate }, async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const userId = request.user!.id;
+
+      const parsed = putShareBodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+      }
+
+      const role = await resolveRole(deps.db, userId, id);
+      if (role === "none") {
+        return sendError(reply, 404, "not_found", "找不到此筆記");
+      }
+      if (role !== "owner") {
+        return sendError(reply, 403, "forbidden", "只有擁有者可以管理分享");
+      }
+
+      const [target] = await deps.db.select().from(users).where(eq(users.email, parsed.data.email)).limit(1);
+      if (!target) {
+        return sendError(reply, 404, "user_not_found", "找不到此使用者");
+      }
+      if (target.id === userId) {
+        return sendError(reply, 400, "cannot_share_with_self", "不能分享給自己");
+      }
+
+      try {
+        await deps.db
+          .insert(noteShares)
+          .values({ noteId: id, userId: target.id, role: parsed.data.role })
+          .onConflictDoUpdate({ target: [noteShares.noteId, noteShares.userId], set: { role: parsed.data.role } });
+      } catch (err) {
+        // I2（審查）：resolveRole／email 查找完成到這個 insert 之間存在競態視窗——note
+        // 可能被 owner 自己在另一個分頁同時 DELETE 掉（note_shares.note_id 的 FK），或
+        // target user 剛好被管理員刪除／停用流程清掉（note_shares.user_id 的 FK，若
+        // 未來 users 刪除不再只是 soft delete）——兩種都會讓這個 insert 撞上
+        // foreign_key_violation，而不是「權限判斷落後於實際狀態」以外的真正伺服器錯誤。
+        // 用 `note!`/`target!` 賭「resolveRole／email 查找說有就一定還在」在併發下不
+        // 成立（同 GET/PATCH/DELETE /api/notes/:id 已有的 I2 慣例），這裡改成明確
+        // catch 住 FK violation 並映射成 404 not_found——不特別區分是 note 還是 user
+        // 消失，避免對 owner 洩漏「到底是哪一邊被刪除」的細節。
+        if (isForeignKeyViolation(err)) {
+          return sendError(reply, 404, "not_found", "找不到此筆記");
+        }
+        throw err;
+      }
+
+      // binding 規格：role 從 editor 降為 viewer（撤權）或任何變更都要呼叫
+      // onShareChanged 逼迫 Plan 2 重驗該使用者在此文件上的連線權限。這裡不特地去查
+      // upsert 前的舊 role 來判斷「這次到底算不算降級」——統一呼叫：對「其實是升級」或
+      // 「角色沒變」的情況，重驗只是多一次無害的握手（Plan 1 這裡注入的
+      // noopCollabHooks 甚至完全不做事）；反之若漏判某個實際上是降級的情況（例如未來
+      // 改壞這段判斷邏輯），代價是「已撤權的使用者還能繼續編輯進行中的連線」，遠比多餘
+      // 呼叫一次更危險。統一呼叫用簡單性換取這裡不會漏判。
+      deps.collabHooks.onShareChanged(id, target.id);
+
+      const dto: ShareDto = { userId: target.id, email: target.email, displayName: target.displayName, role: parsed.data.role };
+      return dto;
+    });
+
+    app.delete("/api/notes/:id/shares/:userId", { preHandler: app.authenticate }, async (request, reply) => {
+      const { id, userId: targetUserId } = request.params as { id: string; userId: string };
+      const userId = request.user!.id;
+
+      const role = await resolveRole(deps.db, userId, id);
+      if (role === "none") {
+        return sendError(reply, 404, "not_found", "找不到此筆記");
+      }
+      if (role !== "owner") {
+        return sendError(reply, 403, "forbidden", "只有擁有者可以管理分享");
+      }
+
+      // 與 resolveRole 內部對 noteId 的處理同理：`:userId` 路徑參數格式不可信任，先用
+      // UUID_RE 擋掉非法格式（否則 DELETE 的 WHERE 條件會讓 pg 直接 throw "invalid
+      // input syntax for type uuid"，被全域錯誤 handler 歸類成 500）。效果上等同「這個
+      // userId 沒有對應的分享列」，回同一個 404 share_not_found，不特別區分。
+      if (!UUID_RE.test(targetUserId)) {
+        return sendError(reply, 404, "share_not_found", "找不到此分享");
+      }
+
+      const [deleted] = await deps.db
+        .delete(noteShares)
+        .where(and(eq(noteShares.noteId, id), eq(noteShares.userId, targetUserId)))
+        .returning();
+      if (!deleted) {
+        return sendError(reply, 404, "share_not_found", "找不到此分享");
+      }
+
+      deps.collabHooks.onShareChanged(id, targetUserId);
 
       return reply.code(204).send();
     });
