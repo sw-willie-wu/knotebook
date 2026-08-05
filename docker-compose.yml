@@ -1,0 +1,48 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    env_file: .env
+    # 只綁 loopback：README「Reverse proxy and TLS are bring-your-own」的拓撲假設是
+    # app 只透過反代對外曝露；若直接 "3000:3000"（等同 0.0.0.0:3000），docker 會
+    # 直接在 iptables 開洞，繞過 host 防火牆規則，讓區網/公網能不經反代直接打到
+    # app。Quickstart 的 `curl http://localhost:3000/...` 不受影響（127.0.0.1 對本機
+    # 而言就是 localhost）。
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      # 用 127.0.0.1 而非 localhost：避免容器內 /etc/hosts 或 Node DNS 解析（部分
+      # image 的 getaddrinfo 在無 IPv6 時可能先嘗試 ::1）導致的額外延遲/失敗，
+      # 明確指定 loopback IPv4 位址。
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: knotebook
+      # 可用 shell/.env 的 POSTGRES_PASSWORD 覆寫預設值；注意 Postgres 只在「第一次
+      # 初始化空 data 目錄」時套用這個變數（見 README Known limitations），事後改這裡
+      # 不會自動生效。
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-knotebook}
+      POSTGRES_DB: knotebook
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U knotebook -d knotebook"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  db_data:

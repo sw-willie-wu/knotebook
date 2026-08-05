@@ -116,6 +116,7 @@ Today, in-memory state (login rate limiting, the password-hashing concurrency li
 - **Admins cannot delete user accounts, only disable them.** Account deletion (including note ownership transfer) is not implemented yet; see the roadmap.
 - **Note deletion is permanent.** `DELETE /api/notes/:id` hard-deletes the note and its shares/links immediately — there is no trash/recycle bin to recover from it.
 - **`429` responses have no `Retry-After` header.** The wait time is only communicated in the JSON body (`retryAfterMs`), not as a standard HTTP header.
+- **Setting `POSTGRES_PASSWORD` after the first `docker compose up` has no effect.** Postgres only applies that environment variable while initializing a brand-new (empty) data directory. If the `db` named volume already exists, changing `POSTGRES_PASSWORD` in `.env` and restarting does nothing — either run `docker compose exec db psql -U knotebook -c "ALTER USER knotebook WITH PASSWORD '...'"` and update `DATABASE_URL` in `.env` to match, or `docker compose down -v` to discard the volume and reinitialize from scratch (this deletes all data).
 
 ## Roadmap
 

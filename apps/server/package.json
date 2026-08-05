@@ -22,6 +22,7 @@
     "pg": "^8",
     "argon2": "^0.44",
     "jose": "^6",
+    "pino": "^10",
     "zod": "^3"
   },
   "devDependencies": {
