@@ -4,7 +4,12 @@ import { eq } from "drizzle-orm";
 import type { Db } from "../db/index.js";
 import { users } from "../db/schema.js";
 
-const SESSION_TTL = "7d";
+// 唯一定義處：session JWT 的 exp 與 session cookie 的 maxAge（見 `cookies.ts` 的
+// `setSessionCookie`）必須同源，不要各自寫死「7 天」——改這裡即可同時影響兩者。
+export const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
+// jose 的 duration 字串只認 "<數字><單位>"（s/m/h/d/w/y），這裡用 "s"（秒）而非 "7d"，
+// 讓字串直接由上面那個以秒為單位的常數算出，避免兩處各自寫一份「7 天」的字面量。
+const SESSION_TTL = `${SESSION_TTL_SECONDS}s`;
 
 function sessionKey(secret: string): Uint8Array {
   return createHash("sha256").update(`${secret}:session`).digest();

@@ -9,7 +9,7 @@ import { buildApp, type AppDeps, type BuildAppOptions } from "../src/app.js";
 import { UserGate } from "../src/auth/session.js";
 import { LoginThrottle } from "../src/auth/rate-limit.js";
 import { noopCollabHooks } from "../src/collab/hooks.js";
-import type { SetupState } from "../src/auth/setup.js";
+import { SetupState } from "../src/auth/setup.js";
 
 export interface FreshDb {
   db: Db;
@@ -77,40 +77,60 @@ export const testConfig: AppConfig = loadConfig({
   PUBLIC_URL: "http://localhost:3000",
 });
 
-// Task 8 才會實作真正的 SetupState；這裡先給一個固定回答（不需要 setup）的 stub，
-// 讓依賴 buildApp 的測試在 Task 8 之前也能跑。
-const stubSetupState: SetupState = {
-  isNeeded: async () => false,
-  verifyToken: () => false,
-};
-
 export interface TestApp {
   app: FastifyInstance;
   db: Db;
+  /** 實際掛進 app 的 setupState（預設是真 SetupState.init 的結果）——測試用它讀 `.token`，不必去 parse log。 */
+  setupState: SetupState;
   /** 手動關閉底層 pool（非測試情境用）。在 test 內呼叫 buildTestApp() 不必自己叫這個——已用 onTestFinished 自動掛好（見 freshDb）。 */
   close: () => Promise<void>;
 }
 
 /**
- * 建一個掛好預設 deps（freshDb + 真 UserGate/LoginThrottle + noop collab hooks + stub
- * setupState）的 FastifyInstance，供整合測試使用。任何 deps 都可用 `overrides` 覆寫。
+ * 掛幾條只給測試用的探針路由，供需要驗證 `authenticate`/`requireAdmin` decorator
+ * 實際生效（例如登入後憑 session cookie 通過）的整合測試共用——不屬於任何 production
+ * 路由模組。`/__test/protected` 回傳 `request.user`；setup.test.ts 用它驗證
+ * `POST /api/setup` 簽發的 session cookie 真的能通過 `authenticate`。
+ */
+export function withTestRoutes(app: FastifyInstance): FastifyInstance {
+  app.get("/__test/protected", { preHandler: app.authenticate }, async req => req.user);
+  app.get("/__test/admin", { preHandler: app.requireAdmin }, async () => ({ ok: true }));
+  app.get("/__test/throw", async () => {
+    throw new Error("boom");
+  });
+  app.post("/__test/echo", async req => req.body);
+  return app;
+}
+
+// buildTestApp 預設用的 SetupState logger：不印任何東西（測試輸出降噪）。要斷言
+// `log.info` 呼叫格式（`Setup token: <64hex>`）的測試，自行呼叫 `SetupState.init(db, spyLogger)`
+// 拿到帶 spy 的實例，再透過 `overrides.setupState` 傳入——不透過這個預設值。
+const silentSetupLogger = { info: () => {} };
+
+/**
+ * 建一個掛好預設 deps（freshDb + 真 UserGate/LoginThrottle + noop collab hooks + 真
+ * SetupState）的 FastifyInstance，供整合測試使用。任何 deps 都可用 `overrides` 覆寫。
  *
  * logger 預設關閉（測試輸出降噪），可用 `options.logger` 覆寫回開（例如要除錯某個
  * 測試的實際請求日誌時）。
  */
 export async function buildTestApp(overrides: Partial<AppDeps> = {}, options: BuildAppOptions = {}): Promise<TestApp> {
   const { db, close } = await freshDb();
+  // 預設 setupState 要對「overrides 換掉的 db」（若有）建立，而非永遠對 freshDb() 的
+  // 原始 db 建立——否則兩者不同步時，setupState 查到的 instance_setup 狀態會跟 app
+  // 實際在用的 db 對不上。
+  const effectiveDb = overrides.db ?? db;
   const deps: AppDeps = {
     config: testConfig,
     db,
     gate: new UserGate(db),
     throttle: new LoginThrottle(),
     collabHooks: noopCollabHooks,
-    setupState: stubSetupState,
+    setupState: await SetupState.init(effectiveDb, silentSetupLogger),
     ...overrides,
   };
   const app = buildApp(deps, { logger: false, ...options });
-  // 回傳 deps.db（而非上面 freshDb() 的原始 db）——若呼叫方透過 overrides 換掉了
-  // db，回傳值必須與 app 實際在用的一致，否則呼叫方用回傳的 db 操作會打到錯的資料庫。
-  return { app, db: deps.db, close };
+  // 回傳 deps.db／deps.setupState（而非上面本地變數）——若呼叫方透過 overrides 換掉了
+  // 它們，回傳值必須與 app 實際在用的一致，否則呼叫方用回傳值操作會跟 app 內部狀態不同步。
+  return { app, db: deps.db, setupState: deps.setupState, close };
 }

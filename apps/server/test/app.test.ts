@@ -1,20 +1,9 @@
 import { describe, it, expect } from "vitest";
-import type { FastifyInstance } from "fastify";
 import { SESSION_COOKIE } from "@knotebook/shared";
-import { buildTestApp, testConfig } from "./helpers.js";
+import { buildTestApp, testConfig, withTestRoutes } from "./helpers.js";
 import { signSession } from "../src/auth/session.js";
 import { users } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
-
-function withTestRoutes(app: FastifyInstance): FastifyInstance {
-  app.get("/__test/protected", { preHandler: app.authenticate }, async req => req.user);
-  app.get("/__test/admin", { preHandler: app.requireAdmin }, async () => ({ ok: true }));
-  app.get("/__test/throw", async () => {
-    throw new Error("boom");
-  });
-  app.post("/__test/echo", async req => req.body);
-  return app;
-}
 
 async function insertUser(
   db: Db,
