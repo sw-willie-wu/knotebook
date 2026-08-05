@@ -8,3 +8,4 @@ build/
 
 # 內部工作文件（spec/plan 不進版控）
 docs/superpowers/
+test-output.txt
