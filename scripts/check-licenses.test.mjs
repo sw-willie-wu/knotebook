@@ -1,7 +1,7 @@
 // scripts/check-licenses.test.mjs
 //
 // check-licenses.mjs 核心邏輯的常駐測試（node:test，不依賴真的跑 pnpm ——全部餵手造
-// mock data）。跑法：`pnpm test:scripts`（= `node --test scripts/`）。
+// mock data）。跑法：`pnpm test:scripts`（= `node --test scripts/*.test.mjs`）。
 //
 // 覆蓋範圍：
 //   - GPL/LGPL 授權命中（含 EXEMPTIONS 生效）

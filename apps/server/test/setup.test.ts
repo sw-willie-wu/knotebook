@@ -1,10 +1,23 @@
-import { describe, it, expect } from "vitest";
+import { vi, describe, it, expect, afterEach } from "vitest";
 import { eq } from "drizzle-orm";
 import { SESSION_COOKIE } from "@knotebook/shared";
 import { buildTestApp, freshDb, testConfig, withTestRoutes } from "./helpers.js";
 import { SetupState } from "../src/auth/setup.js";
 import { SESSION_TTL_SECONDS } from "../src/auth/session.js";
 import { instanceSetup, users } from "../src/db/schema.js";
+
+// hashPassword 包成 vi.fn(actual)：預設行為與真實實作一致，只有 HashBusyError 那條
+// 測試用 mockRejectedValueOnce 覆寫下一次呼叫——同 auth.test.ts / admin-users.test.ts 的手法。
+vi.mock("../src/auth/password.js", async () => {
+  const actual = await vi.importActual<typeof import("../src/auth/password.js")>("../src/auth/password.js");
+  return { ...actual, hashPassword: vi.fn(actual.hashPassword) };
+});
+
+import { hashPassword, HashBusyError } from "../src/auth/password.js";
+
+afterEach(() => {
+  vi.mocked(hashPassword).mockClear();
+});
 
 const VALID_PASSWORD = "correct-horse-battery";
 
@@ -148,6 +161,24 @@ describe("POST /api/setup", () => {
     const token = setupState.token!;
     const res = await app.inject({ method: "POST", url: "/api/setup", payload: validBody({ token, password: "x".repeat(12) }) });
     expect(res.statusCode).toBe(201);
+  });
+
+  it("hashPassword 拋出 HashBusyError（併發超限）→ 429 server_busy（不落地 DB，instance_setup 與 users 皆無新列）", async () => {
+    const { app, db, setupState } = await buildTestApp();
+    const token = setupState.token!;
+
+    vi.mocked(hashPassword).mockRejectedValueOnce(new HashBusyError());
+
+    const res = await app.inject({ method: "POST", url: "/api/setup", payload: validBody({ token, email: "busy@example.com" }) });
+    expect(res.statusCode).toBe(429);
+    expect(res.json()).toMatchObject({ error: { code: "server_busy" } });
+
+    expect(await db.select().from(instanceSetup)).toHaveLength(0);
+    expect(await db.select().from(users)).toHaveLength(0);
+
+    // 交易根本沒開始（hashPassword 在交易外先失敗），token 不該被消耗——同一個 token
+    // 應該還能再試一次。
+    expect(setupState.verifyToken(token)).toBe(true);
   });
 
   describe("BOOTSTRAP_ADMIN_EMAIL 設定時", () => {

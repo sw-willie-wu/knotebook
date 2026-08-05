@@ -4,7 +4,7 @@ import { sendError } from "../http/errors.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
 import { instanceSetup, users } from "../db/schema.js";
-import { hashPassword } from "../auth/password.js";
+import { hashPassword, HashBusyError } from "../auth/password.js";
 import { signSession } from "../auth/session.js";
 import { setSessionCookie } from "../auth/cookies.js";
 import type { SetupState } from "../auth/setup.js";
@@ -79,9 +79,18 @@ export function setupRoutes(deps: SetupRouteDeps) {
         return sendError(reply, 403, "bootstrap_email_mismatch", "email 與 BOOTSTRAP_ADMIN_EMAIL 不符");
       }
 
+      let passwordHash: string;
+      try {
+        passwordHash = await hashPassword(password);
+      } catch (err) {
+        if (err instanceof HashBusyError) {
+          return sendError(reply, 429, "server_busy", "伺服器忙碌，請稍後再試");
+        }
+        throw err;
+      }
+
       let admin: typeof users.$inferSelect;
       try {
-        const passwordHash = await hashPassword(password);
         admin = await deps.db.transaction(async tx => {
           const [setupRow] = await tx.insert(instanceSetup).values({ singleton: true }).onConflictDoNothing().returning();
           if (!setupRow) throw new AlreadySetupError();

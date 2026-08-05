@@ -139,7 +139,7 @@ All endpoints are served by the `app` container. Errors use the shape `{ "error"
 | Endpoint | Method | Auth | Notable status codes |
 |---|---|---|---|
 | `/api/setup/status` | GET | none | 200 |
-| `/api/setup` | POST | setup token (in body) | 201, 400 `invalid_body`/`password_too_short`/`invalid_email`/`invalid_display_name`, 403 `invalid_setup_token`/`bootstrap_email_mismatch`, 409 `already_setup` |
+| `/api/setup` | POST | setup token (in body) | 201, 400 `invalid_body`/`password_too_short`/`invalid_email`/`invalid_display_name`, 403 `invalid_setup_token`/`bootstrap_email_mismatch`, 409 `already_setup`, 429 `server_busy` |
 | `/api/auth/login` | POST | none | 200, 400 `invalid_body`, 401 `invalid_credentials`, 403 `account_disabled`, 429 `too_many_attempts` (body includes `retryAfterMs`)/`server_busy` |
 | `/api/auth/logout` | POST | none | 204 |
 | `/api/auth/me` | GET | Auth | 200, 401 `unauthorized` |
