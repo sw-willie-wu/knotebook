@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { SESSION_COOKIE } from "@knotebook/shared";
+import { SESSION_COOKIE, canonicalNotePath } from "@knotebook/shared";
 import { buildTestApp, testConfig } from "./helpers.js";
 import { users } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
@@ -307,6 +307,34 @@ describe("GET /api/notes/:ref", () => {
 
     const res = await app.inject({ method: "GET", url: "/api/notes/no-such-slug", cookies: { [SESSION_COOKIE]: cookie } });
     expect(res.statusCode).toBe(404);
+  });
+
+  it("astral 字元標題組出的 vanity ref（解碼後 UTF-16 長度 > 100）仍可查到（I1：maxParamLength）", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-ref-astral@example.com" });
+    const cookie = await cookieFor(owner.id);
+
+    // 𠮷（U+20BB7）是 astral-plane 字元，UTF-16 用 surrogate pair 編碼成 2 code unit，
+    // 但 titleSlug 是以 code point 計數截斷（上限 60）——40 個 astral 字沒被截斷，
+    // vanity slug 解碼後卻已經是 80 UTF-16 units，加上 `-<uuid>`（37 units）共 117，
+    // 超過 find-my-way maxParamLength 預設的 100（且是量「解碼後」的 UTF-16 長度，
+    // 不是 code point）。沒有 app.ts 的 maxParamLength: 512 修正，這支測試會在路由層
+    // 直接被拒絕（實測 414 URI Too Long，handler 完全不會被呼叫；mutation-check 已
+    // 驗證：暫時還原 app.ts 該行會讓下方 expect(200) 收到 414 而失敗）。
+    const title = "𠮷".repeat(40);
+    const note = (
+      await app.inject({ method: "POST", url: "/api/notes", cookies: { [SESSION_COOKIE]: cookie }, payload: { title } })
+    ).json();
+    expect(note.slug).toBeNull();
+
+    const path = canonicalNotePath(note); // "/notes/<vanity>-<id>"（無自訂 slug 時的第二態）
+    const ref = path.slice("/notes/".length);
+    expect(Array.from(ref).length).toBeGreaterThan(60); // 確認真的組出了非平凡的 vanity ref
+    expect(ref.length).toBeGreaterThan(100); // 解碼後 UTF-16 長度（find-my-way 量的尺）
+
+    const res = await app.inject({ method: "GET", url: `/api/notes/${encodeURIComponent(ref)}`, cookies: { [SESSION_COOKIE]: cookie } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ id: note.id });
   });
 });
 

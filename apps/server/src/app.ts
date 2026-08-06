@@ -94,7 +94,17 @@ function clientErrorCode(statusCode: number): ErrorCode {
  * （Task 8/9/10/12）以 `app.register(...)` 掛進來——本 task 只建骨架與接縫。
  */
 export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyInstance {
-  const app = Fastify({ logger: options.logger ?? true, trustProxy: true });
+  // maxParamLength 預設 100：find-my-way 是量「解碼後」的 UTF-16 code unit 數，跟
+  // `titleSlug`／`validateSlug` 量的是 code point 數（60／100）不是同一把尺——
+  // astral 字元（例如 𠮷）解碼後是 2 個 UTF-16 unit，60 個 astral 字算下來就破百，
+  // 會讓 `canonicalNotePath` 組出的 `<vanity>-<uuid>` ref 在路由層直接被 find-my-way
+  // 拒絕（414 URI Too Long，連 handler 都不會被呼叫，見 notes-slug.test.ts 的 astral
+  // 標題 regression test 實測）。512 給足與 slug 上限的落差當緩衝，不必跟著 slug 規則
+  // 同步微調。必須放進 `routerOptions`，不能當 Fastify 建構子的頂層選項——頂層
+  // `maxParamLength` 是 deprecated 寫法（FSTDEP022），fastify@6 會整個移除，屆時會
+  // 靜默退回預設值 100，等於這個修正自己失效又不出任何警告；`routerOptions` 這個
+  // 寫法才是不會過期、也不會印 deprecation warning 的形式。
+  const app = Fastify({ logger: options.logger ?? true, trustProxy: true, routerOptions: { maxParamLength: 512 } });
 
   // 不用 secret：session 是自帶簽章的 JWT，cookie 本身不需要再簽一次。
   void app.register(fastifyCookie);
