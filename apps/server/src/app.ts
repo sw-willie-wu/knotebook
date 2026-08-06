@@ -1,6 +1,6 @@
 import Fastify, { type FastifyError, type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import fastifyCookie from "@fastify/cookie";
-import { SESSION_COOKIE } from "@knotebook/shared";
+import { SESSION_COOKIE, type ErrorCode } from "@knotebook/shared";
 import type { AppConfig } from "./config.js";
 import type { Db } from "./db/index.js";
 import { verifySession, type GateUser, type UserGate } from "./auth/session.js";
@@ -56,7 +56,7 @@ const CHANGE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 // ESM 整個 hoist」規避，現在直接消除循環，不用再依賴那個前提）。
 
 /** 4xx 錯誤碼映射：已知的具體碼優先，其餘 4xx 一律歸類 bad_request（不可吞成 500）。 */
-function clientErrorCode(statusCode: number): string {
+function clientErrorCode(statusCode: number): ErrorCode {
   if (statusCode === 415) return "unsupported_media_type";
   return "bad_request";
 }

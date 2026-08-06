@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { eq, sql } from "drizzle-orm";
 import { SESSION_COOKIE } from "@knotebook/shared";
-import { sendError } from "../http/errors.js";
+import { sendError, sendLoginThrottled } from "../http/errors.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
 import { users } from "../db/schema.js";
@@ -56,10 +56,7 @@ export function authRoutes(deps: AuthRouteDeps) {
 
       const throttleCheck = deps.throttle.checkAllowed(email, request.ip);
       if (!throttleCheck.allowed) {
-        return reply.code(429).send({
-          error: { code: "too_many_attempts", message: "登入嘗試次數過多，請稍後再試" },
-          retryAfterMs: throttleCheck.retryAfterMs,
-        });
+        return sendLoginThrottled(reply, throttleCheck.retryAfterMs!);
       }
 
       const [user] = await deps.db.select().from(users).where(eq(users.email, email)).limit(1);
