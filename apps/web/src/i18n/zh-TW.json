@@ -1,0 +1,37 @@
+{
+  "app": {
+    "title": "Knotebook",
+    "loading": "載入中…"
+  },
+  "home": {
+    "title": "筆記",
+    "empty": "還沒有筆記。"
+  },
+  "errors": {
+    "unauthorized": "請先登入才能繼續。",
+    "forbidden": "你沒有權限執行這個操作。",
+    "not_found": "找不到你要的內容。",
+    "invalid_body": "請求格式不正確。",
+    "bad_request": "無法處理這個請求。",
+    "internal": "發生錯誤，請稍後再試。",
+    "unsupported_media_type": "不支援這種檔案類型。",
+    "server_busy": "伺服器忙碌中，請稍後再試。",
+    "too_many_attempts": "嘗試次數過多，請稍後再試。",
+    "too_many_requests": "請求過於頻繁，請放慢速度。",
+    "invalid_setup_token": "此設定連結無效或已過期。",
+    "already_setup": "此系統已完成設定。",
+    "invalid_email": "請輸入有效的電子郵件地址。",
+    "invalid_display_name": "請輸入有效的顯示名稱。",
+    "bootstrap_email_mismatch": "此電子郵件與受邀地址不符。",
+    "password_too_short": "密碼長度不足。",
+    "invalid_credentials": "電子郵件或密碼錯誤。",
+    "account_disabled": "此帳號已被停用。",
+    "email_taken": "此電子郵件已被使用。",
+    "user_not_found": "找不到該使用者。",
+    "cannot_disable_self": "無法停用自己的帳號。",
+    "cannot_share_with_self": "無法與自己共享筆記。",
+    "share_not_found": "此共享項目已不存在。",
+    "slug_taken": "此網址已被使用。",
+    "fallback": "發生未預期的錯誤。"
+  }
+}

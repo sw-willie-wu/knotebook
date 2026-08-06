@@ -41,6 +41,11 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Verify apps/web build output (hashed /assets)
+        run: |
+          test -d apps/web/dist/assets
+          ls apps/web/dist/assets | grep -qE '^index-[A-Za-z0-9_-]+\.(js|css)$'
+
       - name: Typecheck
         run: pnpm typecheck
 
