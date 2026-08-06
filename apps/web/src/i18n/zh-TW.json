@@ -7,6 +7,37 @@
     "title": "筆記",
     "empty": "還沒有筆記。"
   },
+  "login": {
+    "title": "登入",
+    "email": "電子郵件",
+    "password": "密碼",
+    "submit": "登入",
+    "submitting": "登入中…",
+    "retryAfter": "請在 {{seconds}} 秒後再試一次。"
+  },
+  "setup": {
+    "title": "設定 Knotebook",
+    "description": "建立第一個管理員帳號以完成此實例的設定。",
+    "token": "設定 token",
+    "email": "電子郵件",
+    "password": "密碼",
+    "passwordHint": "至少需要 12 個字元。",
+    "displayName": "顯示名稱",
+    "submit": "建立管理員帳號",
+    "submitting": "建立帳號中…"
+  },
+  "userMenu": {
+    "language": "語言",
+    "languageEn": "English",
+    "languageZhTW": "繁體中文",
+    "theme": "主題",
+    "logout": "登出"
+  },
+  "theme": {
+    "light": "淺色",
+    "dark": "深色",
+    "system": "跟隨系統"
+  },
   "errors": {
     "unauthorized": "請先登入才能繼續。",
     "forbidden": "你沒有權限執行這個操作。",

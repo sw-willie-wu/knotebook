@@ -8,6 +8,18 @@ export interface ApiError {
   error: { code: string; message: string };
 }
 
+/** `GET /api/auth/me`、login/setup 成功回應的使用者形狀（見 apps/server routes/{auth,setup}.ts）。 */
+export interface UserDto {
+  id: string;
+  email: string;
+  displayName: string;
+  isAdmin: boolean;
+}
+
+/** 密碼長度下限，鏡射 apps/server/src/auth/constants.ts 的同名常數——這裡是給
+ * web 端表單前端先驗用的唯一真相，兩邊刻意保持同一個數字（12）。 */
+export const MIN_PASSWORD_LENGTH = 12;
+
 export interface NoteDto {
   id: string;
   title: string;
