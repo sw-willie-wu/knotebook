@@ -8,6 +8,7 @@ WORKDIR /repo
 # 任何原始碼變動只會使該層之後的 layer 失效）。
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/server/package.json ./apps/server/package.json
+COPY apps/web/package.json ./apps/web/package.json
 COPY packages/shared/package.json ./packages/shared/package.json
 RUN pnpm install --frozen-lockfile
 
@@ -23,6 +24,12 @@ COPY --from=build /out .
 # `dist/db/../../drizzle` 解析路徑（即 /app/drizzle），必須顯式複製過來，
 # 否則 container 啟動時 runMigrations() 會找不到 migration 檔案而 fail fast。
 COPY --from=build /repo/apps/server/drizzle ./drizzle
+# 前端建置產物（Task 9，spec §11.5）：`pnpm -r build` 已經把 apps/web 一併建好
+# （`vite build` → apps/web/dist）；`src/index.ts` 用 `process.cwd()/web-dist`
+# （即 runtime WORKDIR /app 下的 ./web-dist）找它來做 SPA fallback + 靜態檔服務，
+# 目錄不存在時會 warn 後停用 fallback（不會啟動失敗），所以純 API 部署仍可省略
+# 這一層，但這裡是完整 image，必須複製。
+COPY --from=build /repo/apps/web/dist ./web-dist
 ENV NODE_ENV=production
 # 不以 root 執行 process：node 官方 image 內建 uid 1000 的 "node" 使用者；
 # 上面幾個 COPY 都在切換到這個 user 之前執行（此時仍是 root），複製出來的檔案
