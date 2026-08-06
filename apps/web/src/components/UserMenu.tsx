@@ -21,7 +21,8 @@ const LANGUAGES: { code: "en" | "zh-TW"; labelKey: string }[] = [
 const THEMES: Theme[] = ["light", "dark", "system"];
 
 /**
- * 顯示 displayName、語言切換（en/zh-TW）、主題切換（light/dark/system）、登出。
+ * 顯示 displayName、語言切換（en/zh-TW）、主題切換（light/dark/system）、
+ * 管理使用者入口（僅 `user.isAdmin` 時出現，導向 `/admin/users`，Task 15）、登出。
  * 未登入（`user` 為 `null`/`undefined`）時不渲染任何東西——這個元件只掛在
  * `<RequireAuth>` 底下的頁面，理論上此時一定已登入，但保留這道防呆，
  * 避免元件被單獨挪用到未受保護的頁面時炸掉。
@@ -75,6 +76,13 @@ export function UserMenu() {
             {t(`theme.${value}`)}
           </DropdownMenuItem>
         ))}
+
+        {user.isAdmin && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => navigate("/admin/users")}>{t("admin.entry")}</DropdownMenuItem>
+          </>
+        )}
 
         <DropdownMenuSeparator />
 
