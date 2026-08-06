@@ -6,7 +6,8 @@ import { runMigrations } from "./db/migrate.js";
 import { SetupState } from "./auth/setup.js";
 import { UserGate } from "./auth/session.js";
 import { LoginThrottle } from "./auth/rate-limit.js";
-import { noopCollabHooks } from "./collab/hooks.js";
+import { createCollabHooks } from "./collab/hooks-impl.js";
+import { createCollabServer } from "./collab/server.js";
 import { buildApp } from "./app.js";
 
 // 獨立的 pino instance：`SetupState.init` 在 `buildApp()` 之前就要跑（見下方
@@ -38,12 +39,19 @@ async function main(): Promise<void> {
   const gate = new UserGate(db);
   const throttle = new LoginThrottle();
 
+  // 即時協作（Hocuspocus）。`collab` 與 `collabHooks` 必須是同一個 CollabServer 實例：
+  // hooks 靠它的連線索引找出「哪些連線受這次權限變更影響」，指到別的實例等於撤權永遠
+  // 找不到人。`limiters` 刻意不傳——`buildApp` 內建的生產預設即唯一真相來源
+  // （`http/rate-limit.ts` 的 COLLAB_TOKEN_LIMIT/SLUG_PATCH_LIMIT）。
+  const collab = createCollabServer({ db, config, gate });
+
   const app = buildApp({
     config,
     db,
     gate,
     throttle,
-    collabHooks: noopCollabHooks,
+    collabHooks: createCollabHooks(collab, logger),
+    collab,
     setupState,
   });
 
@@ -56,14 +64,20 @@ async function main(): Promise<void> {
 
   // Graceful shutdown：`docker compose stop`/`down`（以及手動 Ctrl-C）送的都是
   // SIGTERM/SIGINT——不接住的話 Fastify 會被硬殺，進行中的請求與尚未 flush 的
-  // pg 連線可能被粗暴中斷。`app.close()` 等現有請求收尾、關閉 listener；接著
-  // `pool.end()` 排空並關閉底層 pg pool；兩者都做完（或任一步驟拋錯，被
-  // `.finally` 接住）才 `process.exit(0)`——不做 exit code 判斷是因為這是主動
-  // 收到終止訊號的正常關機路徑，非錯誤情境。
+  // pg 連線可能被粗暴中斷。
+  //
+  // 順序不可調換：**`collab.destroy()` 必須在 `app.close()` 之前 await**。Fastify 的
+  // `close()` 等的是「還在跑的 HTTP 請求 + listener 關閉」，它管不到已經 upgrade 成
+  // WebSocket 的 socket——那些連線只要還開著，`app.close()` 就會一直等下去（compose
+  // stop 只好等到 10s 的 SIGKILL 逾時）。`collab.destroy()` 會走正常斷線路徑關掉每條
+  // socket（讓最後一條連線離開時把 pending store 落地），逾時未關的直接 terminate。
+  // 全部做完（或任一步驟拋錯，被 `.finally` 接住）才 `process.exit(0)`——不做 exit code
+  // 判斷是因為這是主動收到終止訊號的正常關機路徑，非錯誤情境。
   for (const sig of ["SIGTERM", "SIGINT"] as const) {
     process.once(sig, () => {
-      void app
-        .close()
+      void collab
+        .destroy()
+        .then(() => app.close())
         .then(() => pool.end())
         .finally(() => process.exit(0));
     });
