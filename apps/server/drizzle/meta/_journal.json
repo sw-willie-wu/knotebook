@@ -15,6 +15,13 @@
       "when": 1785935559077,
       "tag": "0001_easy_masque",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786019630583,
+      "tag": "0002_note_slug",
+      "breakpoints": true
     }
   ]
 }

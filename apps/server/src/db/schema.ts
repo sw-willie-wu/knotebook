@@ -25,11 +25,20 @@ export const notes = pgTable("notes", {
   id: uuid().primaryKey().defaultRandom(),
   ownerId: uuid("owner_id").notNull().references(() => users.id, { onDelete: "restrict" }),
   title: text().notNull().default("Untitled"),
+  // 自訂網址代稱（spec §11.4）：全域唯一但可為 NULL（未設定），且多筆 NULL 彼此不視為
+  // 衝突——一般 unique index 會把 NULL 當作互異值處理（符合我們要的語意），但寫成
+  // partial index `WHERE slug IS NOT NULL` 更明確表達意圖，也讓索引本身更小。存進來的
+  // 值一律已經過 `normalizeSlug`（NFC + 小寫），查找（GET /api/notes/:ref）與寫入
+  // （PATCH）都用正規化後的字串比對，不依賴 pg collation 做大小寫/正規化處理。
+  slug: text(),
   linksClock: bigint("links_clock", { mode: "number" }).notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),   // 保留欄位；v0.1 硬刪
-}, t => [index("notes_owner_idx").on(t.ownerId)]);   // GET /api/notes 自有分支（owner_id = $u）用
+}, t => [
+  index("notes_owner_idx").on(t.ownerId),   // GET /api/notes 自有分支（owner_id = $u）用
+  uniqueIndex("notes_slug_idx").on(t.slug).where(sql`${t.slug} is not null`),
+]);
 
 export const noteStates = pgTable("note_states", {
   noteId: uuid("note_id").primaryKey().references(() => notes.id, { onDelete: "cascade" }),

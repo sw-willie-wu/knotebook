@@ -9,13 +9,28 @@ import type { Db } from "../db/index.js";
 import { noteLinks, noteShares, noteStateBackups, noteStates, notes, uploads, users } from "../db/schema.js";
 import type { CollabHooks } from "../collab/hooks.js";
 import { resolveRole, UUID_RE } from "../notes/service.js";
+import { prepareSlugForPatch, resolveNoteIdFromRef } from "../notes/slug.js";
 import { signCollabToken } from "../collab/token.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
+import { isUniqueViolation } from "../db/pg-errors.js";
 
 // 建立時 title 允許省略（DB 端有 default "Untitled"），但若有帶就不可為空字串——
 // 與 PATCH 的 title 驗證同一套規則，避免「傳空字串把標題清空」這種語意混淆的落地方式。
 const createBodySchema = z.object({ title: z.string().min(1).optional() });
-const updateBodySchema = z.object({ title: z.string().min(1) });
+
+// PATCH 契約（spec §11.4 逐字）：title／slug 皆選配，但至少要帶一項——兩者都缺時走
+// safeParse 失敗路徑，回 400 invalid_body（與其他 body schema 一致，不特地為「空
+// payload」開一條不同的錯誤碼）。`slug` 允許顯式 `null`（清除既有自訂網址代稱）與
+// 字串（新設定，routes 內再走 `prepareSlugForPatch` 正規化+驗證）——`undefined`
+// （鍵不存在）代表「這次 PATCH 不動 slug」，三態語意靠 zod 的 `nullable().optional()`
+// 表達，不能只用 `nullable()`（那樣呼叫端必須每次都明確傳 `slug: null` 才能不改動）。
+// 未知欄位一律被 z.object 預設的 strip 行為丟棄（不需要額外 `.strict()`/`.passthrough()`）。
+const updateBodySchema = z
+  .object({
+    title: z.string().min(1).optional(),
+    slug: z.string().nullable().optional(),
+  })
+  .refine(b => b.title !== undefined || b.slug !== undefined, { message: "title 與 slug 至少需帶一項" });
 const putShareBodySchema = z.object({ email: z.string().email(), role: z.enum(["viewer", "editor"]) });
 
 const PG_FOREIGN_KEY_VIOLATION = "23503";
@@ -37,18 +52,19 @@ export interface NotesRouteDeps {
   db: Db;
   collabHooks: CollabHooks;
   config: AppConfig;
-  /** Task 8 的 slugPatch 也取用同一包物件（見 `app.ts` 的接線註解），本檔目前只消費 collabToken。 */
+  /** `collabToken` 供 collab-token endpoint；`slugPatch` 供 PATCH 帶非 null slug 時節流（見該路由）。 */
   limiters: { collabToken: FixedWindowLimiter; slugPatch: FixedWindowLimiter };
 }
 
 // 只列出 toNoteDto 實際會用到的欄位（而非完整 `typeof notes.$inferSelect`）：GET
-// list 那支改走 UNION ALL 後，兩個分支各自的 select shape 只挑這五欄 + role，不含
+// list 那支改走 UNION ALL 後，兩個分支各自的 select shape 只挑這六欄 + role，不含
 // linksClock/deletedAt——用這個窄介面讓「完整 note row」與「union 出來的窄 row」都能
 // 結構相容地傳進來，不必為了餵同一個函式而多 select 用不到的欄位。
 interface NoteFields {
   id: string;
   title: string;
   ownerId: string;
+  slug: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -59,6 +75,7 @@ function toNoteDto(note: NoteFields, role: Role): NoteDto {
     title: note.title,
     ownerId: note.ownerId,
     role,
+    slug: note.slug,
     createdAt: note.createdAt.toISOString(),
     updatedAt: note.updatedAt.toISOString(),
   };
@@ -67,7 +84,8 @@ function toNoteDto(note: NoteFields, role: Role): NoteDto {
 /**
  * Notes CRUD 路由——皆需認證（`authenticate` preHandler）。
  *
- * `GET /api/notes/:id`／`PATCH`／`DELETE` 一律先經 `resolveRole` 判斷權限：查無權限
+ * `GET /api/notes/:ref`（Task 8 由 `:id` 改名，見 `resolveNoteIdFromRef`）／`PATCH`／
+ * `DELETE` 一律先經 `resolveRole` 判斷權限：查無權限
  * （'none'，涵蓋「note 不存在」與「存在但未分享給此使用者」兩種情況）一律回 404
  * `not_found`，不區分這兩者——避免把「note 是否存在」洩漏給無權限的使用者
  * （spec：防列舉）。403 `forbidden` 只用在「查得到、但角色不夠」的情況
@@ -116,6 +134,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
           id: notes.id,
           title: notes.title,
           ownerId: notes.ownerId,
+          slug: notes.slug,
           createdAt: notes.createdAt,
           updatedAt: notes.updatedAt,
           role: sql<string>`'owner'`.as("role"),
@@ -128,6 +147,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
           id: notes.id,
           title: notes.title,
           ownerId: notes.ownerId,
+          slug: notes.slug,
           createdAt: notes.createdAt,
           updatedAt: notes.updatedAt,
           role: noteShares.role,
@@ -143,11 +163,20 @@ export function notesRoutes(deps: NotesRouteDeps) {
       return rows.map((row): NoteDto => toNoteDto(row, row.role as Role));
     });
 
-    app.get("/api/notes/:id", { preHandler: app.authenticate }, async (request, reply) => {
-      const { id } = request.params as { id: string };
+    // 由 `GET /api/notes/:id` 改名（不並存——同一位置重複註冊 GET 會被 fastify throw
+    // "Method already declared"）。`:ref` 可以是 uuid，也可以是自訂 slug 或
+    // `<vanity>-<uuid>` 形式（`canonicalNotePath` 組出來的路徑），解析順序見
+    // `resolveNoteIdFromRef`（spec §11.4 逐字）。
+    app.get("/api/notes/:ref", { preHandler: app.authenticate }, async (request, reply) => {
+      const { ref } = request.params as { ref: string };
       const userId = request.user!.id;
 
-      const role = await resolveRole(deps.db, userId, id);
+      const noteId = await resolveNoteIdFromRef(deps.db, ref);
+      if (!noteId) {
+        return sendError(reply, 404, "not_found", "找不到此筆記");
+      }
+
+      const role = await resolveRole(deps.db, userId, noteId);
       if (role === "none") {
         return sendError(reply, 404, "not_found", "找不到此筆記");
       }
@@ -156,13 +185,32 @@ export function notesRoutes(deps: NotesRouteDeps) {
       // 另一個請求把這篇 note 刪了，這裡會查不到列。用 guard 明確回 404，不是拿
       // non-null assertion 賭「resolveRole 說有就一定還在」（那個賭注在併發下不成立，
       // `note!` 一旦落空會直接在 toNoteDto 內對 undefined 取欄位炸成 500）。
-      const [note] = await deps.db.select().from(notes).where(eq(notes.id, id)).limit(1);
+      const [note] = await deps.db.select().from(notes).where(eq(notes.id, noteId)).limit(1);
       if (!note) {
         return sendError(reply, 404, "not_found", "找不到此筆記");
       }
       return toNoteDto(note, role);
     });
 
+    /**
+     * PATCH 契約（spec §11.4 逐字）：`title`／`slug` 各自選配，至少帶一項（見
+     * `updateBodySchema`）。權限矩陣——`slug` 有出現在 body 內（不論其值是字串或
+     * `null`）一律要求 owner：none → 404、viewer/editor → 403，**整包拒絕**（即使
+     * 同時帶了合法的 title 也不套用，見下方單一 UPDATE 的說明）；body 只有 `title`
+     * 時維持既有規則（viewer → 403，editor/owner → 200）。
+     *
+     * `slug: null`＝清除既有自訂網址代稱，不驗證格式、也不計入節流器。`slug` 為非
+     * null 字串時：先計節流器（`limiters.slugPatch`，10 次/10 分鐘/user，超限 429
+     * `too_many_requests`；**成功與失敗都計數**——包含格式驗證失敗與唯一鍵衝突，故
+     * 節流判定必須在格式驗證與 UPDATE 之前），再用 `prepareSlugForPatch` 做
+     * `normalizeSlug` → `validateSlug`，違者 400 `invalid_body`。
+     *
+     * title 與 slug 一律組進同一個 `.update(...).set({...})`（單一 SQL 陳述式本身
+     * 即原子——不需要額外包 `db.transaction`）：唯一鍵衝突時整條 UPDATE 連同 title
+     * 一併回滾，捕捉 `isUniqueViolation` 映射成 409 `slug_taken`，不會發生「slug
+     * 衝突但 title 卻偷偷套用了」這種半套結果，也不做 pre-check SELECT
+     * （TOCTOU——並發送出同一個新 slug 時，交給 DB 唯一索引本身裁決恰好一次成功）。
+     */
     app.patch("/api/notes/:id", { preHandler: app.authenticate }, async (request, reply) => {
       const { id } = request.params as { id: string };
       const userId = request.user!.id;
@@ -171,23 +219,53 @@ export function notesRoutes(deps: NotesRouteDeps) {
       if (!parsed.success) {
         return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
       }
+      const { title, slug } = parsed.data;
+      const hasSlug = slug !== undefined;
 
       const role = await resolveRole(deps.db, userId, id);
       if (role === "none") {
         return sendError(reply, 404, "not_found", "找不到此筆記");
       }
-      if (role === "viewer") {
+      if (hasSlug && role !== "owner") {
+        return sendError(reply, 403, "forbidden", "只有擁有者可以變更網址代稱");
+      }
+      if (!hasSlug && role === "viewer") {
         return sendError(reply, 403, "forbidden", "沒有編輯權限");
       }
+
+      // undefined＝不動 slug 欄位；null＝清除；string＝已正規化驗證好的新值。
+      let normalizedSlug: string | null | undefined;
+      if (hasSlug) {
+        if (slug === null) {
+          normalizedSlug = null;
+        } else {
+          if (!deps.limiters.slugPatch.consume(userId)) {
+            return sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+          }
+          const result = prepareSlugForPatch(slug);
+          if (!result.ok) {
+            return sendError(reply, 400, "invalid_body", result.message);
+          }
+          normalizedSlug = result.value;
+        }
+      }
+
+      const setValues: { updatedAt: Date; title?: string; slug?: string | null } = { updatedAt: new Date() };
+      if (title !== undefined) setValues.title = title;
+      if (hasSlug) setValues.slug = normalizedSlug;
 
       // I2（審查）：同一個競態視窗（resolveRole 判定完到這裡的 UPDATE 之間可能被另一個
       // 請求刪除），`.returning()` 落空時代表 UPDATE 命中 0 列——明確回 404，不是拿
       // non-null assertion 賭一定有結果。
-      const [updated] = await deps.db
-        .update(notes)
-        .set({ title: parsed.data.title, updatedAt: new Date() })
-        .where(eq(notes.id, id))
-        .returning();
+      let updated;
+      try {
+        [updated] = await deps.db.update(notes).set(setValues).where(eq(notes.id, id)).returning();
+      } catch (err) {
+        if (isUniqueViolation(err)) {
+          return sendError(reply, 409, "slug_taken", "此網址代稱已被使用");
+        }
+        throw err;
+      }
       if (!updated) {
         return sendError(reply, 404, "not_found", "找不到此筆記");
       }

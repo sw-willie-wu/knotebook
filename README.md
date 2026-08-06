@@ -146,8 +146,8 @@ All endpoints are served by the `app` container. Errors use the shape `{ "error"
 | `/api/auth/password` | POST | Auth | 204, 400 `invalid_body`/`password_too_short`, 401 `invalid_credentials`, 429 `server_busy` |
 | `/api/notes` | POST | Auth | 201, 400 `invalid_body` |
 | `/api/notes` | GET | Auth | 200 |
-| `/api/notes/:id` | GET | Auth | 200, 404 `not_found` |
-| `/api/notes/:id` | PATCH | Auth | 200, 400 `invalid_body`, 403 `forbidden`, 404 `not_found` |
+| `/api/notes/:ref` | GET | Auth | 200, 404 `not_found` (`:ref` is a note id, custom slug, or `<vanity>-<id>` path) |
+| `/api/notes/:id` | PATCH | Auth | 200, 400 `invalid_body`, 403 `forbidden`, 404 `not_found`, 409 `slug_taken`, 429 `too_many_requests` (slug changes only) |
 | `/api/notes/:id` | DELETE | Auth | 204, 403 `forbidden`, 404 `not_found` |
 | `/api/notes/:id/shares` | GET | Auth (owner) | 200, 403 `forbidden`, 404 `not_found` |
 | `/api/notes/:id/shares` | PUT | Auth (owner) | 200, 400 `invalid_body`/`cannot_share_with_self`, 403 `forbidden`, 404 `not_found`/`user_not_found` |

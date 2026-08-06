@@ -15,9 +15,8 @@ export interface NoteDto {
   role: Role;
   createdAt: string;
   updatedAt: string;
-  // 選配:server 的 toNoteDto 要到 Task 8 才回填;設必填會讓 Task 3–7 的 tsc 全紅。
-  // Task 8 收緊為必填 `slug: string | null`。
-  slug?: string | null;
+  /** 自訂網址代稱（spec §11.4）；未設定為 `null`（Task 8：收緊為必填，server 的 toNoteDto 全點回填）。 */
+  slug: string | null;
 }
 
 // 分享名單上的角色只會是 'editor'/'viewer'——note_shares 表的 DB check constraint
