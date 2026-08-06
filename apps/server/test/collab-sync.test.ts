@@ -6,12 +6,10 @@ import { buildCollabTestApp } from "./helpers.js";
 
 const PASSWORD = "correct-horse-battery";
 
-// 本 task 的 onAuthenticate 是過渡實作（接受任意非空 token、`context.userId = token`），
-// 所以測試一律用 `tokenOverride` 直接指定「使用者身分」——`POST /api/notes/:id/collab-token`
-// 要到 Task 4 才存在。Task 5 把 onAuthenticate 換成真驗證後，這裡改走不帶 override 的
-// `connect()`（走真 endpoint 取 token）。
-const TOKEN_A = "spike-userA";
-const TOKEN_B = "spike-userB";
+// Task 5 把 onAuthenticate 換成真驗證後，本檔一律走不帶 override 的 `connect()`
+// （經 `POST /api/notes/:id/collab-token` 取真 token）；索引以 userId 辨識（不再是
+// Task 1 spike 那種「token 字面值即 userId」的過渡形狀），需要兩個不同身分的地方改用
+// 兩個真實使用者（owner + share 出去的 editor）。
 
 // 只在本檔用來辨識「這則 CLOSE 是我們主動送的」。真正的撤權 reason 常數（
 // COLLAB_CLOSE_REVOKED 等）由 Task 2 定義、Task 6 消費。
@@ -48,8 +46,8 @@ describe("Hocuspocus v4 × Fastify 共編同步", () => {
     const note = await ctx.createNote(alice.id);
     const session = await ctx.loginAs("alice@example.com", PASSWORD);
 
-    const a = await session.connect(note.id, { tokenOverride: TOKEN_A });
-    const b = await session.connect(note.id, { tokenOverride: TOKEN_B });
+    const a = await session.connect(note.id);
+    const b = await session.connect(note.id);
 
     insertParagraph(a.doc, "hello from A");
 
@@ -60,23 +58,26 @@ describe("Hocuspocus v4 × Fastify 共編同步", () => {
   it("連線索引隨連線建立/中斷增減（Task 5/6 撤權的地基）", async () => {
     const ctx = await buildCollabTestApp();
     const alice = await ctx.createUser({ email: "alice@example.com", password: PASSWORD });
+    const bob = await ctx.createUser({ email: "bob@example.com", password: PASSWORD });
     const note = await ctx.createNote(alice.id);
-    const session = await ctx.loginAs("alice@example.com", PASSWORD);
+    await ctx.share(note.id, bob.id, "editor");
+    const aliceSession = await ctx.loginAs("alice@example.com", PASSWORD);
+    const bobSession = await ctx.loginAs("bob@example.com", PASSWORD);
 
-    const a = await session.connect(note.id, { tokenOverride: TOKEN_A });
-    await session.connect(note.id, { tokenOverride: TOKEN_B });
+    const a = await aliceSession.connect(note.id);
+    await bobSession.connect(note.id);
 
     expect(ctx.collab.connectionsOfNote(note.id).size).toBe(2);
-    expect(ctx.collab.connectionsOf(TOKEN_A).size).toBe(1);
-    expect(ctx.collab.connectionsOf(TOKEN_B).size).toBe(1);
+    expect(ctx.collab.connectionsOf(alice.id).size).toBe(1);
+    expect(ctx.collab.connectionsOf(bob.id).size).toBe(1);
 
-    const handle = [...ctx.collab.connectionsOf(TOKEN_A)][0];
+    const handle = [...ctx.collab.connectionsOf(alice.id)][0];
     expect(handle.noteId).toBe(note.id);
-    expect(handle.userId).toBe(TOKEN_A);
+    expect(handle.userId).toBe(alice.id);
 
     a.disconnect();
 
-    await waitFor("A 斷線後索引移除該連線", 3_000, () => ctx.collab.connectionsOf(TOKEN_A).size === 0);
+    await waitFor("A 斷線後索引移除該連線", 3_000, () => ctx.collab.connectionsOf(alice.id).size === 0);
     expect(ctx.collab.connectionsOfNote(note.id).size).toBe(1);
   });
 
@@ -86,7 +87,7 @@ describe("Hocuspocus v4 × Fastify 共編同步", () => {
     const note = await ctx.createNote(alice.id);
     const session = await ctx.loginAs("alice@example.com", PASSWORD);
 
-    const a = await session.connect(note.id, { tokenOverride: TOKEN_A });
+    const a = await session.connect(note.id);
 
     // detach → attach 是 SPA 在筆記間導覽的形狀：**同一條 socket**（socketId 不變）先送
     // CLOSE 退訂，再重新訂閱同一篇筆記，於是前後兩次登記共用同一個
@@ -95,7 +96,7 @@ describe("Hocuspocus v4 × Fastify 共編同步", () => {
     a.provider.attach();
 
     await waitFor("重訂後索引恰有一條連線", 5_000, () => ctx.collab.connectionsOfNote(note.id).size === 1);
-    expect(ctx.collab.connectionsOf(TOKEN_A).size).toBe(1);
+    expect(ctx.collab.connectionsOf(alice.id).size).toBe(1);
 
     // 索引裡剩下的必須是**活著**的那條：拿它關線，client 要真的收得到。若索引誤留舊的
     // （已從 document 移除的）handle，`Connection.close` 的 hasConnection 守衛會讓它靜靜
@@ -114,8 +115,8 @@ describe("Hocuspocus v4 × Fastify 共編同步", () => {
     const note = await ctx.createNote(alice.id);
     const session = await ctx.loginAs("alice@example.com", PASSWORD);
 
-    await session.connect(note.id, { tokenOverride: TOKEN_A });
-    const handle = [...ctx.collab.connectionsOf(TOKEN_A)][0];
+    await session.connect(note.id);
+    const handle = [...ctx.collab.connectionsOf(alice.id)][0];
 
     // 同一連線登記兩個回呼：兩個都必須被觸發（Task 6 的 deadline 在 5s 內可能重覆
     // 登記，若實作用「單一 cb 覆寫」會讓第一個 timer 永不解除、誤殺已重驗成功者）。
@@ -142,10 +143,10 @@ describe("Hocuspocus v4 × Fastify 共編同步", () => {
     const session = await ctx.loginAs("alice@example.com", PASSWORD);
 
     ctx.collab.markDeleting(note.id);
-    await expect(session.connect(note.id, { tokenOverride: TOKEN_A })).rejects.toThrow(COLLAB_REJECT_NOTE_DELETING);
+    await expect(session.connect(note.id)).rejects.toThrow(COLLAB_REJECT_NOTE_DELETING);
 
     ctx.collab.unmarkDeleting(note.id);
-    const a = await session.connect(note.id, { tokenOverride: TOKEN_A });
+    const a = await session.connect(note.id);
     expect(a.provider.isAuthenticated).toBe(true);
   });
 });

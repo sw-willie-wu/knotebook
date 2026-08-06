@@ -70,9 +70,12 @@ import type { Duplex } from "node:stream";
 import type { FastifyInstance } from "fastify";
 import { Hocuspocus, type WebSocketLike } from "@hocuspocus/server";
 import { WebSocketServer, type RawData, type WebSocket as WsWebSocket } from "ws";
+import { COLLAB_CLOSE_NOTE_DELETED, COLLAB_CLOSE_REVOKED } from "@knotebook/shared";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
 import type { UserGate } from "../auth/session.js";
+import { resolveRole } from "../notes/service.js";
+import { verifyCollabToken } from "./token.js";
 
 /** 共編 WebSocket 的掛載路徑。前端 provider 與測試 harness 都以此組 URL。 */
 export const COLLAB_PATH = "/collab";
@@ -199,11 +202,6 @@ function sleep(ms: number): Promise<void> {
 }
 
 export function createCollabServer(deps: CollabDeps): CollabServer {
-  // Task 1 的 onAuthenticate 是過渡實作（接受任意非空 token），還沒有任何 hook 需要查
-  // DB／驗簽章，所以 deps 目前純粹是先固定住的簽名：Task 5 用 gate/db 做真授權、
-  // Task 7 用 db 做 onLoadDocument/onStoreDocument，都不必再改呼叫端。
-  void deps;
-
   const handles = new Map<string, ConnectionHandle>();
   const byUser = new Map<string, Set<ConnectionHandle>>();
   const byNote = new Map<string, Set<ConnectionHandle>>();
@@ -234,20 +232,53 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
     // 不印 Hocuspocus 自己的啟動畫面／噪音；本專案的日誌一律走 Fastify logger。
     quiet: true,
 
-    // ⚠ 過渡實作（Task 5 換成：驗 collab token 簽章 → 重跑 resolveRole + gate.check）。
-    // 現在只保證兩件事：token 非空、且該 note 不在刪除閘門內。
-    onAuthenticate: async ({ token, documentName }) => {
+    // 真授權：驗 token 簽章 → 重跑 resolveRole + gate.check——token 內帶的 role 只是
+    // 簽發當下的快照，絕不當作授權依據（N2）。這保證撤分享/停用帳號在 TTL 內對「舊而
+    // 未過期」的 token 立即生效，而不必等 token 自然過期。
+    onAuthenticate: async ({ token, documentName, connectionConfig }) => {
       if (deleting.has(documentName)) {
         throw new CollabAuthError(COLLAB_REJECT_NOTE_DELETING);
       }
-      if (!token) {
+
+      const claims = token ? await verifyCollabToken(deps.config.appSecret, token) : null;
+      // documentName 是「這條連線實際要連的文件」，claims.noteId 是 token 簽發當下綁定
+      // 的文件——兩者不符代表這份 token 被拿去連了別篇筆記（即使簽章本身有效），必須拒絕。
+      if (!claims || claims.noteId !== documentName) {
         throw new CollabAuthError(COLLAB_REJECT_INVALID_TOKEN);
       }
-      return { userId: token };
+
+      const role = await resolveRole(deps.db, claims.userId, documentName);
+      if (role === "none") {
+        throw new CollabAuthError(COLLAB_REJECT_INVALID_TOKEN);
+      }
+      const gateResult = await deps.gate.check(claims.userId, claims.tv);
+      if (gateResult.status !== "ok") {
+        throw new CollabAuthError(COLLAB_REJECT_INVALID_TOKEN);
+      }
+
+      // ⚠ v4 的 onAuthenticate payload 沒有 `connection` 物件（見檔頭註解）——連線期的
+      // 唯讀狀態只能經這裡的 connectionConfig.readOnly 設定；`connection.readOnly` 這個
+      // 可變欄位要到 connected/onTokenSync 才拿得到（Task 6 降級走 `setReadOnly`）。
+      if (role === "viewer") {
+        connectionConfig.readOnly = true;
+      }
+
+      return { userId: claims.userId };
     },
 
     // 索引只在 connected 建立（此時才拿得到 Connection 實例）。
     connected: async ({ connection, socketId, documentName, context }) => {
+      // ⚠ 競態窗口：onAuthenticate 通過之後、connected 抵達之前，Hocuspocus 已經在
+      // drain 佇列訊息——這條連線在這段期間是「活的」（能 apply update），但要到這裡
+      // 才會被登記進索引。若 markDeleting 剛好在這個窗口內被設定（onAuthenticate 當下
+      // 還沒 deleting，通過了檢查），這條連線會對 connectionsOfNote 永遠隱形，Task 6
+      // 的刪除清掃（枚舉 connectionsOfNote 逐一 close）找不到它，等於刪除中的筆記還能
+      // 被寫入。在這裡重查一次並直接關閉，不註冊進索引，堵掉這個窗口。
+      if (deleting.has(documentName)) {
+        connection.close({ code: APP_CLOSE_CODE, reason: COLLAB_CLOSE_NOTE_DELETED });
+        return;
+      }
+
       const key = connectionKey(socketId, documentName);
 
       // ⚠ 同一個複合鍵可能被重複登記：一條 socket 可承載多份文件，client 退訂某篇筆記
@@ -285,19 +316,65 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
       if (!connection.document.hasConnection(connection)) unregister(key, handle);
     },
 
-    // Task 5 會在這裡加上「重驗 token + resolveRole」的真邏輯；本 task 只做回呼派送。
-    // 每個回呼各自 try/catch：這個 hook 一旦 throw，Hocuspocus 會把該連線以
-    // Unauthorized 關掉——不能讓某個 deadline 清除回呼的意外錯誤變成踢人。
-    onTokenSync: async ({ socketId, documentName }) => {
+    // 重驗：與 onAuthenticate 同一套邏輯（驗簽章 → 重跑 resolveRole + gate.check，
+    // token 內 role 不作授權依據）。⚠ 不讀寫 `connection.context`——它是 hookPayload
+    // 快照，在 onTokenSync 觸發的當下已經 stale（§5）；「這條連線 onAuthenticate 當時
+    // 的 userId」改用我們自己的索引（`handle.userId`）比對，N6 要求新 token 的 userId
+    // 必須與它相同，否則視同借殼延續，一律 close。
+    //
+    // 拒絕走 `handle.close(COLLAB_CLOSE_REVOKED)`，不 throw：這個 hook 一旦 throw，
+    // Hocuspocus 會把該連線以 Unauthorized 關掉；throw 出來的錯誤還會被無條件
+    // console.error（見 CollabAuthError 的類別註解），撤權是正常營運事件不該噴 stderr。
+    //
+    // ⚠ onNextTokenSync 的回呼**不論本次重驗結果為何都要觸發**：它只是「這條連線收到一次
+    // token sync 了」的訊號（Task 6 拿來解除 5s deadline），驗證失敗一樣是有收到回應。
+    // 必須在驗證**之前**先取出＋清空 callbacks、驗證結果用 try/finally 派送——
+    // `handle.close()` 會同步觸發 `connection.onClose` → `unregister(key, handle)` →
+    // `tokenSyncCallbacks.delete(key)`；若照舊在驗證「之後」才去 `.get(key)`，reject
+    // 分支會發現這個 key 早已被 unregister 清掉，callbacks 靜靜地一個都不會觸發
+    // （Task 6 的 5s deadline 因此永遠等不到解除）。驗證中途若意外 throw（例如
+    // resolveRole/gate.check 撞到 DB 抖動），finally 仍保證 callbacks 被觸發，錯誤本身
+    // 照樣往外冒（與 onAuthenticate 對未預期例外的處理一致，不在此吞掉）。
+    onTokenSync: async ({ socketId, documentName, token }) => {
       const key = connectionKey(socketId, documentName);
       const callbacks = tokenSyncCallbacks.get(key);
-      if (!callbacks) return;
       tokenSyncCallbacks.delete(key);
-      for (const cb of callbacks) {
-        try {
-          cb();
-        } catch {
-          // 回呼是呼叫方（Task 6 的 clearTimeout）的責任，失敗不得影響連線。
+
+      try {
+        const handle = handles.get(key);
+        if (!handle) return;
+
+        if (deleting.has(documentName)) {
+          handle.close(COLLAB_CLOSE_NOTE_DELETED);
+          return;
+        }
+
+        const claims = token ? await verifyCollabToken(deps.config.appSecret, token) : null;
+        if (!claims || claims.userId !== handle.userId || claims.noteId !== documentName) {
+          handle.close(COLLAB_CLOSE_REVOKED);
+          return;
+        }
+
+        const role = await resolveRole(deps.db, claims.userId, documentName);
+        if (role === "none") {
+          handle.close(COLLAB_CLOSE_REVOKED);
+          return;
+        }
+
+        const gateResult = await deps.gate.check(claims.userId, claims.tv);
+        if (gateResult.status !== "ok") {
+          handle.close(COLLAB_CLOSE_REVOKED);
+          return;
+        }
+
+        handle.setReadOnly(role === "viewer");
+      } finally {
+        for (const cb of callbacks ?? []) {
+          try {
+            cb();
+          } catch {
+            // 回呼是呼叫方（Task 6 的 clearTimeout）的責任，失敗不得影響連線。
+          }
         }
       }
     },

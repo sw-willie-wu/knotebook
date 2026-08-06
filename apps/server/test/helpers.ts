@@ -312,7 +312,12 @@ export async function buildCollabTestApp(
       async fetch(path: string, init: RequestInit = {}): Promise<Response> {
         const headers = new Headers(init.headers);
         headers.set("cookie", cookie);
-        if (!headers.has("content-type")) headers.set("content-type", "application/json");
+        // 只在真的帶 body 時預設 content-type：Fastify 對「Content-Type: application/json
+        // 但 body 是空字串」的請求會直接回 400（FST_ERR_CTP_EMPTY_JSON_BODY，Fastify 內建
+        // 行為，非 app.ts 的 415 守衛）——`POST /api/notes/:id/collab-token`、
+        // `DELETE /api/notes/:id/shares/:userId` 這類無 body 的路由若被硬塞這個 header
+        // 會在還沒進到 app.ts 的路由處理常式前就被 Fastify 自己的 JSON body parser 擋下。
+        if (init.body !== undefined && !headers.has("content-type")) headers.set("content-type", "application/json");
         return fetch(`${baseUrl}${path}`, { ...init, headers });
       },
 
