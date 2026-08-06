@@ -6,6 +6,7 @@ import type { Db } from "./db/index.js";
 import { verifySession, type GateUser, type UserGate } from "./auth/session.js";
 import type { LoginThrottle } from "./auth/rate-limit.js";
 import type { CollabHooks } from "./collab/hooks.js";
+import type { CollabServer } from "./collab/server.js";
 import type { SetupState } from "./auth/setup.js";
 import { setupRoutes } from "./routes/setup.js";
 import { authRoutes } from "./routes/auth.js";
@@ -29,6 +30,12 @@ export interface AppDeps {
   gate: UserGate;
   throttle: LoginThrottle;
   collabHooks: CollabHooks;
+  /**
+   * 即時協作（Hocuspocus）server。**選配**：不傳就不掛 `/collab`，一般 REST 測試
+   * （`buildTestApp`）與只跑 REST 的情境完全不受影響；傳入時 `buildApp` 會把它的
+   * WebSocket upgrade handler 掛上本 app 的底層 http server。
+   */
+  collab?: CollabServer;
   setupState: SetupState;
 }
 
@@ -126,6 +133,10 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   );
   void app.register(notesRoutes({ db: deps.db, collabHooks: deps.collabHooks }));
   void app.register(adminUsersRoutes({ db: deps.db, gate: deps.gate, collabHooks: deps.collabHooks }));
+
+  // 共編的 WebSocket 掛在底層 http server 的 upgrade 事件上，不經 Fastify 路由——
+  // 因此與上面的路由註冊順序無關，也不會被 setNotFoundHandler／SPA fallback 攔到。
+  deps.collab?.attach(app);
 
   app.setNotFoundHandler((_request, reply) => {
     sendError(reply, 404, "not_found", "找不到此路由");

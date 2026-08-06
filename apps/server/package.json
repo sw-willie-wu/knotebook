@@ -23,7 +23,10 @@
     "argon2": "^0.44",
     "jose": "^6",
     "pino": "^10",
-    "zod": "^3"
+    "zod": "^3",
+    "@hocuspocus/server": "^4.5.0",
+    "yjs": "^13.6.32",
+    "ws": "^8.21.2"
   },
   "devDependencies": {
     "typescript": "^5.6.0",
@@ -32,6 +35,8 @@
     "@testcontainers/postgresql": "^11",
     "drizzle-kit": "^0.31",
     "@types/pg": "^8",
-    "@types/node": "^22"
+    "@types/node": "^22",
+    "@hocuspocus/provider": "^4.5.0",
+    "@types/ws": "^8.18.1"
   }
 }
