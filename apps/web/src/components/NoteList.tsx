@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Link } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 import { canonicalNotePath, type NoteDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
 import { useDeleteNote, useNotes } from "@/api/notes";
+import { matchesNoteRef } from "@/lib/note-ref";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -46,6 +48,8 @@ function RoleBadge({ role }: { role: NoteDto["role"] }) {
  * 會一併觸發外層 Link 的導航。 */
 function DeleteNoteButton({ note }: { note: NoteDto }) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
+  const { ref } = useParams<{ ref?: string }>();
   const deleteNote = useDeleteNote();
   const [open, setOpen] = useState(false);
 
@@ -53,6 +57,12 @@ function DeleteNoteButton({ note }: { note: NoteDto }) {
     try {
       await deleteNote.mutateAsync(note.id);
       setOpen(false);
+      // 刪掉的正好是右邊開著的那一篇 → 導回 `/`，否則編輯頁會停在一篇已經不存在的
+      // 筆記上（共編那條路徑由 close(NOTE_DELETED) 的 `deleted` 終態負責；這裡是
+      // 「自己動手刪」的那條，不會有 close 訊息送給發起者以外的自己）。
+      if (matchesNoteRef(ref, note)) {
+        void navigate("/", { replace: true });
+      }
     } catch (err) {
       toast({ title: errorMessage(t, err), variant: "destructive" });
     }
@@ -104,6 +114,7 @@ function DeleteNoteButton({ note }: { note: NoteDto }) {
  */
 export function NoteList() {
   const { t } = useTranslation();
+  const { ref } = useParams<{ ref?: string }>();
   const notesQuery = useNotes();
 
   if (notesQuery.isPending) {
@@ -125,15 +136,28 @@ export function NoteList() {
 
   return (
     <ul className="space-y-0.5">
-      {notes.map((note) => (
-        <li key={note.id} className="group flex items-center gap-1 rounded-md px-2 py-1.5 hover:bg-accent">
-          <Link to={canonicalNotePath(note)} className="min-w-0 flex-1 truncate text-sm">
-            {note.title}
-          </Link>
-          <RoleBadge role={note.role} />
-          {note.role === "owner" && <DeleteNoteButton note={note} />}
-        </li>
-      ))}
+      {notes.map((note) => {
+        const active = matchesNoteRef(ref, note);
+        return (
+          <li
+            key={note.id}
+            className={cn("group flex items-center gap-1 rounded-md px-2 py-1.5 hover:bg-accent", active && "bg-accent")}
+          >
+            {/* 刻意用 `<Link>` + 自算的 active，不用 `<NavLink>`：標題存檔後網址是靠
+                `history.replaceState` 換的，react-router 的 location 不會跟著更新，
+                NavLink 的比對會失準（見 `@/lib/note-ref` 的說明）。 */}
+            <Link
+              to={canonicalNotePath(note)}
+              aria-current={active ? "page" : undefined}
+              className={cn("min-w-0 flex-1 truncate text-sm", active && "font-medium")}
+            >
+              {note.title}
+            </Link>
+            <RoleBadge role={note.role} />
+            {note.role === "owner" && <DeleteNoteButton note={note} />}
+          </li>
+        );
+      })}
     </ul>
   );
 }

@@ -5,6 +5,7 @@ import { RequireAuth, SetupGate } from "./auth/guards";
 import LoginPage from "./pages/LoginPage";
 import SetupPage from "./pages/SetupPage";
 import HomePage from "./pages/HomePage";
+import NotePage from "./pages/NotePage";
 
 /**
  * 整棵 app 的 route 樹——唯一真相，`App`（production，包在 `<BrowserRouter>`）
@@ -28,6 +29,9 @@ export function AppRoutes() {
         <Route path="/setup" element={<SetupPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route element={<RequireAuth />}>
+          {/* `/notes/:ref` 排在 catch-all 之前：ref 可以是自訂 slug、
+              `<vanity>-<uuid>` 或純 uuid，一律由 `GET /api/notes/:ref` 解析。 */}
+          <Route path="/notes/:ref" element={<NotePage />} />
           <Route path="/*" element={<HomePage />} />
         </Route>
       </Route>

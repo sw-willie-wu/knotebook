@@ -20,6 +20,23 @@
     "editor": "Editor",
     "viewer": "Viewer"
   },
+  "note": {
+    "titleLabel": "Note title",
+    "titlePlaceholder": "Untitled",
+    "readOnly": "Read-only",
+    "imageUnsupported": "Image upload is coming in a later version.",
+    "accessRevoked": "You no longer have access to this note.",
+    "deleted": "This note has been deleted.",
+    "downgradedToViewer": "Your access changed to viewer. This note is now read-only.",
+    "restoredEditAccess": "Your edit access has been restored.",
+    "connection": {
+      "connecting": "Connecting…",
+      "connected": "Connected",
+      "reconnecting": "Reconnecting…",
+      "kicked": "Access revoked",
+      "deleted": "Note deleted"
+    }
+  },
   "login": {
     "title": "Sign in",
     "email": "Email",

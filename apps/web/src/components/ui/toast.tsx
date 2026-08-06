@@ -41,6 +41,12 @@ export function dismissToast(id: string): void {
   emit();
 }
 
+/** 清掉目前所有 toast。store 是模組層級的，測試之間必須自行歸零才不會互相污染。 */
+export function dismissAllToasts(): void {
+  toasts = [];
+  emit();
+}
+
 export function toast(item: Omit<ToastItem, "id">): string {
   const id = crypto.randomUUID();
   toasts = [...toasts, { id, durationMs: 5000, ...item }];

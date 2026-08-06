@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, Route, Routes } from "react-router";
 import { canonicalNotePath, type NoteDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { NoteList } from "./NoteList";
@@ -29,6 +29,21 @@ function renderNoteList(queryClient: QueryClient = new QueryClient({ defaultOpti
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
         <NoteList />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
+/** 掛在 `/notes/:ref` 路由底下渲染——側欄的「目前開啟中」判斷讀的是路由參數。 */
+function renderNoteListAtRef(ref: string) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[`/notes/${ref}`]}>
+        <Routes>
+          <Route path="/notes/:ref" element={<NoteList />} />
+          <Route path="/" element={<div>home landing</div>} />
+        </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -150,5 +165,84 @@ describe("NoteList", () => {
     expect(screen.getByText("Editor")).toBeInTheDocument();
     expect(screen.queryByText("Owner")).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Delete" })).toHaveLength(1);
+  });
+
+  // ── Task 12 review 指派給 Task 13 的兩項側欄待辦 ──────────────────────────
+
+  it("marks the currently open note with aria-current=page (slug ref)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([OWNER_NOTE, SHARED_NOTE]) })),
+      ),
+    );
+
+    renderNoteListAtRef("custom-slug");
+
+    await waitFor(() => expect(screen.getByRole("link", { name: "Has A Slug" })).toBeInTheDocument());
+    expect(screen.getByRole("link", { name: "Has A Slug" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "No Slug Note" })).not.toHaveAttribute("aria-current");
+  });
+
+  it("marks the currently open note when the ref is the vanity-slug+uuid form", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([OWNER_NOTE, SHARED_NOTE]) })),
+      ),
+    );
+
+    renderNoteListAtRef(canonicalNotePath(SHARED_NOTE).replace("/notes/", ""));
+
+    await waitFor(() => expect(screen.getByRole("link", { name: "No Slug Note" })).toBeInTheDocument());
+    expect(screen.getByRole("link", { name: "No Slug Note" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Has A Slug" })).not.toHaveAttribute("aria-current");
+  });
+
+  it("navigates home after deleting the note that is currently open", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (method === "DELETE") return Promise.resolve(fakeResponse({ ok: true, status: 204 }));
+        return Promise.resolve(
+          fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([OWNER_NOTE, SHARED_NOTE]) }),
+        );
+      }),
+    );
+
+    renderNoteListAtRef("custom-slug");
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    // dialog 打開後 Radix 會把背景整片標成 aria-hidden，確認鈕只能從 dialog 內找。
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => expect(screen.getByText("home landing")).toBeInTheDocument());
+  });
+
+  it("stays put after deleting a note that is not the one currently open", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (method === "DELETE") return Promise.resolve(fakeResponse({ ok: true, status: 204 }));
+        return Promise.resolve(
+          fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([OWNER_NOTE, SHARED_NOTE]) }),
+        );
+      }),
+    );
+
+    // 開著的是 SHARED_NOTE，刪的是 OWNER_NOTE（唯一有刪除鈕的那一篇）。
+    renderNoteListAtRef(canonicalNotePath(SHARED_NOTE).replace("/notes/", ""));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.queryByText("home landing")).not.toBeInTheDocument();
   });
 });
