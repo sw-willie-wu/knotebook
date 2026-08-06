@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { Pool } from "pg";
 import pino from "pino";
 import { loadConfig } from "./config.js";
@@ -45,15 +47,28 @@ async function main(): Promise<void> {
   // （`http/rate-limit.ts` 的 COLLAB_TOKEN_LIMIT/SLUG_PATCH_LIMIT）。
   const collab = createCollabServer({ db, config, gate, log: logger });
 
-  const app = buildApp({
-    config,
-    db,
-    gate,
-    throttle,
-    collabHooks: createCollabHooks(collab, logger),
-    collab,
-    setupState,
-  });
+  // SPA fallback（Task 9，spec §11.5）：docker build 把前端建置產物放在 `web-dist`
+  // （`process.cwd()` 相對——container 的 WORKDIR，見 Dockerfile）。啟動時檢查目錄
+  // 是否存在——不存在（例如純 API 部署、還沒 build 前端）就 warn 後不傳 webDist，
+  // `buildApp` 會維持未命中路由一律 JSON 404 的既有行為，不因為缺目錄而啟動失敗。
+  const webDistCandidate = path.resolve(process.cwd(), "web-dist");
+  const webDist = existsSync(webDistCandidate) ? webDistCandidate : undefined;
+  if (webDist === undefined) {
+    logger.warn({ webDistCandidate }, "web-dist 目錄不存在——停用 SPA fallback，未命中路由一律回 JSON 404");
+  }
+
+  const app = buildApp(
+    {
+      config,
+      db,
+      gate,
+      throttle,
+      collabHooks: createCollabHooks(collab, logger),
+      collab,
+      setupState,
+    },
+    { webDist }
+  );
 
   try {
     await app.listen({ host: "0.0.0.0", port: 3000 });

@@ -14,6 +14,7 @@ import { notesRoutes } from "./routes/notes.js";
 import { adminUsersRoutes } from "./routes/admin-users.js";
 import { sendError } from "./http/errors.js";
 import { COLLAB_TOKEN_LIMIT, FixedWindowLimiter, SLUG_PATCH_LIMIT } from "./http/rate-limit.js";
+import { registerSpaFallback } from "./http/spa.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -64,6 +65,14 @@ export interface BuildAppOptions {
    * （`test/helpers.ts` 的 `buildTestApp`）預設關閉以降低雜訊，可再覆寫回開。
    */
   logger?: boolean;
+  /**
+   * 前端建置產物目錄的絕對路徑（Task 9，spec §11.5 SPA fallback）。傳入時掛
+   * `@fastify/static` 服務 `/assets/*` 等實際存在的檔案，並讓未命中路由的 GET/HEAD
+   * （非 `/api`／`/collab`／`/healthz`／`/assets` 前綴、Accept 含 `text/html`）回
+   * `index.html`；不傳（或 production `src/index.ts` 啟動檢查發現目錄不存在）時，
+   * 未命中路由一律維持既有 JSON 404，行為與加這個 task 之前完全相同。見 `http/spa.ts`。
+   */
+  webDist?: string;
 }
 
 const CHANGE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
@@ -166,9 +175,9 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   // 因此與上面的路由註冊順序無關，也不會被 setNotFoundHandler／SPA fallback 攔到。
   deps.collab?.attach(app);
 
-  app.setNotFoundHandler((_request, reply) => {
-    sendError(reply, 404, "not_found", "找不到此路由");
-  });
+  // 擴充既有的 setNotFoundHandler（不是另開路由）：webDist 未傳時完全等同原本的
+  // 純 JSON 404；傳入時額外處理 SPA fallback（見 registerSpaFallback 內的完整說明）。
+  registerSpaFallback(app, options.webDist);
 
   // 4xx 不可吞成 500：fastify 內建錯誤（如壞 JSON body 的 FST_ERR_CTP_INVALID_JSON_BODY）
   // 帶有正確的 statusCode（400），只是訊息格式不是我們的統一格式；這裡沿用該
