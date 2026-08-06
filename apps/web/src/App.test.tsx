@@ -62,6 +62,13 @@ function mockFetch() {
       setupDone = true;
       return Promise.resolve(fakeResponse({ ok: true, status: 201, json: () => Promise.resolve(ADMIN_USER) }));
     }
+    // 送出成功後真的落在 HomePage（Task 12 起不再是佔位頁面），它會發起
+    // `GET /api/notes`（AppShell 的 NoteList + HomePage 自己各查一次，同一個
+    // query key 會被 react-query dedupe）——回空陣列即可，這裡驗證的是路由
+    // 落點，不是筆記列表內容。
+    if (url === "/api/notes" && method === "GET") {
+      return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+    }
     throw new Error(`unexpected fetch: ${method} ${url}`);
   });
 }
@@ -100,7 +107,9 @@ describe("App route tree — setup success (Critical 1 regression)", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Create admin account" }));
 
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Knotebook" })).toBeInTheDocument());
+    // HomePage（真正的首頁，非佔位）落地的證據：AppShell 的「New note」按鈕
+    // 與尚無筆記時的引導文案都渲染出來——不是又停在 setup 表單。
+    await waitFor(() => expect(screen.getByRole("button", { name: "New note" })).toBeInTheDocument());
     expect(screen.queryByLabelText("Setup token")).not.toBeInTheDocument();
   });
 });

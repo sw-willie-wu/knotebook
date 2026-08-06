@@ -5,7 +5,20 @@
   },
   "home": {
     "title": "筆記",
-    "empty": "還沒有筆記。"
+    "empty": "還沒有筆記。",
+    "emptyDescription": "建立你的第一篇筆記開始使用。",
+    "selectTitle": "尚未選取筆記",
+    "selectDescription": "從側欄選取一篇筆記，或建立新筆記。",
+    "newNote": "新增筆記",
+    "delete": "刪除",
+    "cancel": "取消",
+    "deleteTitle": "刪除筆記？",
+    "deleteDescription": "這將永久刪除「{{title}}」，此動作無法復原。"
+  },
+  "roles": {
+    "owner": "擁有者",
+    "editor": "可編輯",
+    "viewer": "檢視者"
   },
   "login": {
     "title": "登入",

@@ -1,26 +1,10 @@
 import { BrowserRouter, Route, Routes } from "react-router";
-import { useTranslation } from "react-i18next";
 import { ThemeProvider } from "./theme";
 import { Toaster } from "./components/ui/toast";
 import { RequireAuth, SetupGate } from "./auth/guards";
-import { UserMenu } from "./components/UserMenu";
 import LoginPage from "./pages/LoginPage";
 import SetupPage from "./pages/SetupPage";
-
-// 佔位首頁：Task 12+ 換成真正的筆記列表/編輯器頁面，這裡先確保 router、
-// i18n、theme、query client、toast container、路由守衛、UserMenu 全部串起來且能渲染。
-function HomePage() {
-  const { t } = useTranslation();
-  return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-2 p-8">
-      <div className="absolute right-4 top-4">
-        <UserMenu />
-      </div>
-      <h1 className="text-2xl font-semibold">{t("app.title")}</h1>
-      <p className="text-muted-foreground">{t("home.title")}</p>
-    </main>
-  );
-}
+import HomePage from "./pages/HomePage";
 
 /**
  * 整棵 app 的 route 樹——唯一真相，`App`（production，包在 `<BrowserRouter>`）
