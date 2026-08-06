@@ -12,6 +12,7 @@ import { loadConfig, type AppConfig } from "../src/config.js";
 import { buildApp, type AppDeps, type BuildAppOptions } from "../src/app.js";
 import { UserGate } from "../src/auth/session.js";
 import { LoginThrottle } from "../src/auth/rate-limit.js";
+import { COLLAB_TOKEN_LIMIT, FixedWindowLimiter, SLUG_PATCH_LIMIT } from "../src/http/rate-limit.js";
 import { hashPassword } from "../src/auth/password.js";
 import { noopCollabHooks, type CollabHooks } from "../src/collab/hooks.js";
 import { COLLAB_PATH, createCollabServer, type CollabServer } from "../src/collab/server.js";
@@ -109,6 +110,19 @@ export function withTestRoutes(app: FastifyInstance): FastifyInstance {
   return app;
 }
 
+// AppDeps.limiters 的測試預設：**每次呼叫都建全新實例**（`FixedWindowLimiter` 內部狀態
+// 是 in-memory Map，若在此改成 module-level 常數並跨測試共用，不同測試檔案／不同
+// buildTestApp() 呼叫之間的請求計數會互相汙染——例如本檔 Task 4 的「61 次觸發 429」
+// 測試會被同一份 map 上其他測試先前已消耗掉的計數影響，導致隨執行順序隨機紅綠。
+// 數值沿用 `buildApp` 未收到 overrides 時的生產預設（見 `http/rate-limit.ts` 匯出的
+// `COLLAB_TOKEN_LIMIT`/`SLUG_PATCH_LIMIT`），讓測試環境的節流行為與生產一致。
+function freshLimiters(): NonNullable<AppDeps["limiters"]> {
+  return {
+    collabToken: new FixedWindowLimiter(COLLAB_TOKEN_LIMIT),
+    slugPatch: new FixedWindowLimiter(SLUG_PATCH_LIMIT),
+  };
+}
+
 // buildTestApp 預設用的 SetupState logger：不印任何東西（測試輸出降噪）。要斷言
 // `log.info` 呼叫格式（`Setup token: <64hex>`）的測試，自行呼叫 `SetupState.init(db, spyLogger)`
 // 拿到帶 spy 的實例，再透過 `overrides.setupState` 傳入——不透過這個預設值。
@@ -134,6 +148,7 @@ export async function buildTestApp(overrides: Partial<AppDeps> = {}, options: Bu
     throttle: new LoginThrottle(),
     collabHooks: noopCollabHooks,
     setupState: await SetupState.init(effectiveDb, silentSetupLogger),
+    limiters: freshLimiters(),
     ...overrides,
   };
   const app = buildApp(deps, { logger: false, ...options });
@@ -218,6 +233,7 @@ export async function buildCollabTestApp(
     collabHooks: opts.collabHooks ? opts.collabHooks(collab) : noopCollabHooks,
     collab,
     setupState: await SetupState.init(db, silentSetupLogger),
+    limiters: freshLimiters(),
   };
   const app = buildApp(deps, { logger: false });
 

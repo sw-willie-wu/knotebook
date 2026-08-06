@@ -13,6 +13,7 @@ import { authRoutes } from "./routes/auth.js";
 import { notesRoutes } from "./routes/notes.js";
 import { adminUsersRoutes } from "./routes/admin-users.js";
 import { sendError } from "./http/errors.js";
+import { COLLAB_TOKEN_LIMIT, FixedWindowLimiter, SLUG_PATCH_LIMIT } from "./http/rate-limit.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -21,6 +22,13 @@ declare module "fastify" {
   }
   interface FastifyRequest {
     user?: GateUser;
+    /**
+     * `authenticate` 通過時一併記下當次 session JWT 的 `tv`（與 `request.user` 同時
+     * 設定，見下方 decorator）——`POST /api/notes/:id/collab-token`（Task 4）簽發
+     * collab token 時需要它塞進 `CollabTokenClaims.tv`，但 `GateUser`（`gate.check`
+     * 的回傳形狀）本身不帶 tv，故另開這個欄位，不擴充 `GateUser` 型別本身。
+     */
+    sessionTv?: number;
   }
 }
 
@@ -37,6 +45,16 @@ export interface AppDeps {
    */
   collab?: CollabServer;
   setupState: SetupState;
+  /**
+   * per-user 固定視窗節流器（Task 4：collab-token；Task 8：slug PATCH）。**選配**：
+   * `index.ts` 的 `AppDeps` 物件字面值不在 Task 4 的 Files 內，必填會讓 Task 4–6 之間
+   * `pnpm -r build` 全紅（vitest 不做型檢，會綠色假象）。未傳時 `buildApp` 內建生產
+   * 預設（見 `COLLAB_TOKEN_LIMIT`/`SLUG_PATCH_LIMIT`，`http/rate-limit.ts`）。
+   *
+   * `buildTestApp`/`buildCollabTestApp`（`test/helpers.ts`）每次呼叫一律注入**全新
+   * 實例**——嚴禁 module 單例，否則不同測試檔案共享同一份計數會互相汙染。
+   */
+  limiters?: { collabToken: FixedWindowLimiter; slugPatch: FixedWindowLimiter };
 }
 
 export interface BuildAppOptions {
@@ -115,6 +133,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       return;
     }
     request.user = result.user;
+    request.sessionTv = session.tv;
   });
 
   app.decorate("requireAdmin", async function requireAdmin(request: FastifyRequest, reply: FastifyReply): Promise<void> {
@@ -131,7 +150,16 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   void app.register(
     authRoutes({ db: deps.db, config: deps.config, gate: deps.gate, throttle: deps.throttle, collabHooks: deps.collabHooks })
   );
-  void app.register(notesRoutes({ db: deps.db, collabHooks: deps.collabHooks }));
+  // 未收到 AppDeps.limiters 時的生產預設（`buildTestApp`/`buildCollabTestApp` 一律自己
+  // 注入全新實例，不會走到這裡；見 AppDeps.limiters 的說明）。
+  const limiters =
+    deps.limiters ??
+    ({
+      collabToken: new FixedWindowLimiter(COLLAB_TOKEN_LIMIT),
+      slugPatch: new FixedWindowLimiter(SLUG_PATCH_LIMIT),
+    } satisfies NonNullable<AppDeps["limiters"]>);
+
+  void app.register(notesRoutes({ db: deps.db, collabHooks: deps.collabHooks, config: deps.config, limiters }));
   void app.register(adminUsersRoutes({ db: deps.db, gate: deps.gate, collabHooks: deps.collabHooks }));
 
   // 共編的 WebSocket 掛在底層 http server 的 upgrade 事件上，不經 Fastify 路由——

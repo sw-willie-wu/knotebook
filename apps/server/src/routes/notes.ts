@@ -4,10 +4,13 @@ import { and, desc, eq, ne, or, sql } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/pg-core";
 import type { NoteDto, Role, ShareDto } from "@knotebook/shared";
 import { sendError } from "../http/errors.js";
+import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
 import { noteLinks, noteShares, noteStateBackups, noteStates, notes, uploads, users } from "../db/schema.js";
 import type { CollabHooks } from "../collab/hooks.js";
 import { resolveRole, UUID_RE } from "../notes/service.js";
+import { signCollabToken } from "../collab/token.js";
+import type { FixedWindowLimiter } from "../http/rate-limit.js";
 
 // 建立時 title 允許省略（DB 端有 default "Untitled"），但若有帶就不可為空字串——
 // 與 PATCH 的 title 驗證同一套規則，避免「傳空字串把標題清空」這種語意混淆的落地方式。
@@ -33,6 +36,9 @@ function isForeignKeyViolation(err: unknown): boolean {
 export interface NotesRouteDeps {
   db: Db;
   collabHooks: CollabHooks;
+  config: AppConfig;
+  /** Task 8 的 slugPatch 也取用同一包物件（見 `app.ts` 的接線註解），本檔目前只消費 collabToken。 */
+  limiters: { collabToken: FixedWindowLimiter; slugPatch: FixedWindowLimiter };
 }
 
 // 只列出 toNoteDto 實際會用到的欄位（而非完整 `typeof notes.$inferSelect`）：GET
@@ -217,6 +223,43 @@ export function notesRoutes(deps: NotesRouteDeps) {
       });
 
       return reply.code(204).send();
+    });
+
+    /**
+     * 簽發共編（Hocuspocus）連線用的短效 token（spec §5 關鍵契約，逐字）。
+     *
+     * 與其他 notes 路由的「none → 404」慣例**刻意不同**：有 session 但對此 note 無權限
+     * （`resolveRole` 回 'none'）一律回 **200 + `role:'none'` 的 token**，絕不 403/404。
+     * 理由：此 endpoint 只是「幫你把目前的權限狀態簽成一份可攜的憑證」，本身不代表
+     * 「你正在存取這篇筆記的內容」；真正的存取控制在 Hocuspocus `onAuthenticate`
+     * （Task 5）憑 token 內的 role 執行——'none' token 會在那裡被拒連，而不是在這裡
+     * 提前用 HTTP 錯誤碼洩漏「有沒有權限」這件事的存在與否（此 endpoint 本身不因權限
+     * 高低而有不同的可觀察行為，防止被拿來當作權限探測 oracle）。
+     *
+     * body 的 `role` 與 JWT 內的 role 重複：client 不解 JWT（也不該解——那是 server 與
+     * Hocuspocus 之間的憑證），N4 降級通知要顯示的角色資訊改讀這個頂層欄位。
+     *
+     * per-user 節流（`limiters.collabToken`，預設 60 次/分鐘）：超限回標準 429
+     * `too_many_requests`——不像 `sendLoginThrottled` 額外帶 `retryAfterMs`（spec 沒有
+     * 要求 client 據此排程重試，維持標準錯誤 body 形狀即可）。
+     */
+    app.post("/api/notes/:id/collab-token", { preHandler: app.authenticate }, async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const userId = request.user!.id;
+
+      if (!deps.limiters.collabToken.consume(userId)) {
+        return sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+      }
+
+      const role = await resolveRole(deps.db, userId, id);
+      const token = await signCollabToken(deps.config.appSecret, {
+        noteId: id,
+        userId,
+        role,
+        tv: request.sessionTv!,
+      });
+
+      return { token, role };
     });
 
     // 以下三支分享管理路由全部 authenticate + owner-only：none → 404 not_found（不
