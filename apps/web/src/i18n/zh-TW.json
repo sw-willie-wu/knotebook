@@ -20,6 +20,31 @@
     "editor": "可編輯",
     "viewer": "檢視者"
   },
+  "share": {
+    "button": "分享",
+    "title": "分享筆記",
+    "description": "管理誰可以檢視或編輯這篇筆記。",
+    "peopleTitle": "有權存取的成員",
+    "noShares": "尚未與任何人分享。",
+    "roleLabel": "{{email}} 的角色",
+    "remove": "移除 {{email}}",
+    "emailPlaceholder": "電子郵件地址",
+    "newRoleLabel": "新分享的角色",
+    "add": "新增",
+    "copyLink": "複製連結",
+    "linkCopied": "已複製連結。",
+    "customLink": "自訂連結",
+    "slugPlaceholder": "custom-slug",
+    "slugSave": "儲存",
+    "slugClear": "清除",
+    "slugError": {
+      "length": "長度需為 1–100 字元。",
+      "charset": "只能包含文字、數字與連字號（-）。",
+      "dash": "不可以連字號開頭或結尾，也不可連續出現。",
+      "reserved": "此字詞為系統保留字，不可使用。",
+      "uuid_like": "這看起來像內部識別碼，不可使用。"
+    }
+  },
   "note": {
     "titleLabel": "筆記標題",
     "titlePlaceholder": "無標題",

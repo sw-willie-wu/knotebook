@@ -11,6 +11,7 @@ import { useCollab } from "@/collab/useCollab";
 import { AppShell } from "@/components/AppShell";
 import { ConnectionBadge } from "@/components/ConnectionBadge";
 import { NoteEditor } from "@/components/NoteEditor";
+import { ShareDialog } from "@/components/ShareDialog";
 import { TitleInput } from "@/components/TitleInput";
 import { toast } from "@/components/ui/toast";
 
@@ -189,6 +190,7 @@ export default function NotePage() {
       <div className="flex h-full flex-col">
         <header className="flex items-center gap-4 border-b border-border px-6 py-4">
           <TitleInput note={note!} readOnly={!editable} cacheRef={ref} />
+          <ShareDialog note={note!} cacheRef={ref} />
           <ConnectionBadge state={state} />
         </header>
         <div className="flex-1 overflow-y-auto px-2 py-4">

@@ -20,6 +20,31 @@
     "editor": "Editor",
     "viewer": "Viewer"
   },
+  "share": {
+    "button": "Share",
+    "title": "Share note",
+    "description": "Manage who can view or edit this note.",
+    "peopleTitle": "People with access",
+    "noShares": "No one else has access yet.",
+    "roleLabel": "Role for {{email}}",
+    "remove": "Remove {{email}}",
+    "emailPlaceholder": "Email address",
+    "newRoleLabel": "Role for new share",
+    "add": "Add",
+    "copyLink": "Copy link",
+    "linkCopied": "Link copied to clipboard.",
+    "customLink": "Custom link",
+    "slugPlaceholder": "custom-slug",
+    "slugSave": "Save",
+    "slugClear": "Clear",
+    "slugError": {
+      "length": "Must be 1–100 characters long.",
+      "charset": "Only letters, numbers, and hyphens are allowed.",
+      "dash": "Hyphens can't be at the start or end, or appear twice in a row.",
+      "reserved": "This word is reserved and can't be used.",
+      "uuid_like": "This looks like an internal ID and can't be used."
+    }
+  },
   "note": {
     "titleLabel": "Note title",
     "titlePlaceholder": "Untitled",

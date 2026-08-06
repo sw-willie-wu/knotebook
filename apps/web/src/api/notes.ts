@@ -45,7 +45,7 @@ export function useDeleteNote() {
 export function useUpdateNote() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...patch }: { id: string; title?: string; slug?: string }) =>
+    mutationFn: ({ id, ...patch }: { id: string; title?: string; slug?: string | null }) =>
       api<NoteDto>(`/api/notes/${encodeURIComponent(id)}`, {
         method: "PATCH",
         body: JSON.stringify(patch),
