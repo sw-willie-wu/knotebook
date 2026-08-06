@@ -43,7 +43,7 @@ async function main(): Promise<void> {
   // hooks 靠它的連線索引找出「哪些連線受這次權限變更影響」，指到別的實例等於撤權永遠
   // 找不到人。`limiters` 刻意不傳——`buildApp` 內建的生產預設即唯一真相來源
   // （`http/rate-limit.ts` 的 COLLAB_TOKEN_LIMIT/SLUG_PATCH_LIMIT）。
-  const collab = createCollabServer({ db, config, gate });
+  const collab = createCollabServer({ db, config, gate, log: logger });
 
   const app = buildApp({
     config,

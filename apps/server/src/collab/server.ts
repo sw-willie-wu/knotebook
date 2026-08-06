@@ -76,6 +76,17 @@ import type { Db } from "../db/index.js";
 import type { UserGate } from "../auth/session.js";
 import { resolveRole } from "../notes/service.js";
 import { verifyCollabToken } from "./token.js";
+import { createNoteStore, type StoreLogger } from "./store.js";
+
+/** Hocuspocus 的 `onStoreDocument` debounce（ms）。production 一律 2000——見 Task 7 brief。 */
+const STORE_DEBOUNCE_MS = 2_000;
+
+// store.ts 的 log.warn 目的地在 `createCollabServer` 未收到 `CollabDeps.log` 時的退路。
+// 比照 hooks-impl.ts 的 `consoleLogger`：不是靜默 no-op——樂觀鎖衝突是「本該是唯一寫入者
+// 卻撞到別的東西動過這一列」的異常事件，吞掉會讓問題無跡可循。
+const consoleStoreLogger: StoreLogger = {
+  warn: (obj, msg) => console.warn(msg, obj),
+};
 
 /** 共編 WebSocket 的掛載路徑。前端 provider 與測試 harness 都以此組 URL。 */
 export const COLLAB_PATH = "/collab";
@@ -115,6 +126,12 @@ export interface CollabDeps {
   db: Db;
   config: AppConfig;
   gate: UserGate;
+  /**
+   * Task 7（`collab/store.ts`）樂觀鎖衝突事件的 log.warn 目的地。`createCollabServer`
+   * 在 `buildApp()`（因而 `app.log`）存在之前就要建出來（見 `src/index.ts` 的呼叫順序），
+   * 故不能直接依賴 Fastify logger；未傳時退回 `console.warn`（見 `consoleStoreLogger`）。
+   */
+  log?: StoreLogger;
 }
 
 export interface ConnectionHandle {
@@ -228,9 +245,31 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
     removeFromIndex(byNote, handle.noteId, handle);
   }
 
+  // Task 7：note_states/note_state_backups 的唯一寫入者。建在 Hocuspocus 設定物件外面
+  // （而非 inline lambda 內 new 一份）純粹是可讀性考量，狀態（sv/lastBackupAt 快取）本來
+  // 就只需要一份，跟著整個 CollabServer 的生命週期走。
+  const noteStore = createNoteStore({ db: deps.db, log: deps.log ?? consoleStoreLogger });
+
   const hocuspocus = new Hocuspocus<CollabContext>({
     // 不印 Hocuspocus 自己的啟動畫面／噪音；本專案的日誌一律走 Fastify logger。
     quiet: true,
+
+    // Task 7：debounce `onStoreDocument`——單次連續編輯只在停手 2s 後落地一次，而不是
+    // 每個 keystroke 都寫 DB（`maxDebounce` 留預設 10s，保證持續打字時仍會定期落地）。
+    debounce: STORE_DEBOUNCE_MS,
+
+    // `document` 是 Hocuspocus 的 `Document`（`extends Y.Doc`），結構相容於
+    // `NoteStore` 兩個方法要的 `Y.Doc` 參數。
+    onLoadDocument: async ({ documentName, document }) => noteStore.onLoadDocument(documentName, document),
+    onStoreDocument: async ({ documentName, document }) => {
+      await noteStore.onStoreDocument(documentName, document);
+    },
+    // fix round 1 IMPORTANT 2：文件從記憶體卸載時清掉 noteStore 的 sv／lastBackupAt
+    // 快取，否則每篇曾經打開過的筆記都會在 process 存活期間永久占一個 Map entry（慢性
+    // 洩漏）。安全：下一次 onLoadDocument 會重新以 DB 現況初始化這兩個快取。
+    afterUnloadDocument: async ({ documentName }) => {
+      noteStore.afterUnloadDocument(documentName);
+    },
 
     // 真授權：驗 token 簽章 → 重跑 resolveRole + gate.check——token 內帶的 role 只是
     // 簽發當下的快照，絕不當作授權依據（N2）。這保證撤分享/停用帳號在 TTL 內對「舊而
