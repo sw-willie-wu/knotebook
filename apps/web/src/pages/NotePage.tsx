@@ -10,6 +10,7 @@ import { canEdit, isTerminal, type CollabState } from "@/collab/connection";
 import { createLinkSync, type LinkSync } from "@/collab/link-sync";
 import { useCollab } from "@/collab/useCollab";
 import { AppShell } from "@/components/AppShell";
+import { BacklinksSection } from "@/components/BacklinksSection";
 import { ConnectionBadge } from "@/components/ConnectionBadge";
 import { NoteEditor } from "@/components/NoteEditor";
 import { ShareDialog } from "@/components/ShareDialog";
@@ -249,6 +250,7 @@ export default function NotePage() {
             <p className="px-4 text-sm text-muted-foreground">{t("app.loading")}</p>
           )}
         </div>
+        <BacklinksSection noteId={noteId} />
       </div>
     );
   }

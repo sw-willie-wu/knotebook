@@ -113,6 +113,15 @@ function mockFetch(note: NoteDto | { status: number; code: string } = NOTE) {
     if (url === "/api/notes" && method === "GET") {
       return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
     }
+    // Task 6b：backlinks 折疊區塊的 fetch（`useBacklinks`）。必須放在下面的
+    // `GET /api/notes/` catch-all 之前——`/api/notes/:id/backlinks` 也會匹配那個
+    // `startsWith` 判斷，若順序反了，backlinks 請求會被誤餵成 NoteDto（catch-all
+    // 分支回的是 `note` 而不是 `{backlinks:[]}`），這支測試檔案裡的 NotePage 測試
+    // 全部不驗證 backlinks 內容，固定回空陣列即可（0 篇時 `BacklinksSection` 整塊
+    // 隱藏，不干擾既有斷言）。
+    if (url.endsWith("/backlinks") && method === "GET") {
+      return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ backlinks: [] }) }));
+    }
     if (url.startsWith("/api/notes/") && method === "GET") {
       if ("status" in note) {
         return Promise.resolve(

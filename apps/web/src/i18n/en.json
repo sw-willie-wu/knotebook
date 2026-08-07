@@ -57,6 +57,10 @@
     },
     "accessRevoked": "You no longer have access to this note.",
     "deleted": "This note has been deleted.",
+    "backlinks": {
+      "title_one": "{{count}} note mentions this page",
+      "title_other": "{{count}} notes mention this page"
+    },
     "downgradedToViewer": "Your access changed to viewer. This note is now read-only.",
     "restoredEditAccess": "Your edit access has been restored.",
     "connection": {

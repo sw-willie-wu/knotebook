@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
-import type { NoteDto } from "@knotebook/shared";
+import type { BacklinkDto, NoteDto } from "@knotebook/shared";
 import { api } from "./client";
 
 export function useNotes(): UseQueryResult<NoteDto[]> {
@@ -14,6 +14,26 @@ export function useNote(ref: string): UseQueryResult<NoteDto> {
     queryKey: ["note", ref],
     queryFn: () => api<NoteDto>(`/api/notes/${encodeURIComponent(ref)}`),
     enabled: ref.length > 0,
+  });
+}
+
+/**
+ * 反向連結（Task 6a `GET /api/notes/:id/backlinks` → `{backlinks: BacklinkDto[]}`）。
+ * `enabled: !!noteId`——與 `useNote` 的 `ref.length > 0` 同用意：`NotePage` 在 note
+ * 還沒載完時 `noteId` 是 `undefined`，不該對 `/undefined/backlinks` 發請求。
+ * React Query 預設 `refetchOnWindowFocus: true`（見 `main.tsx` 的 `new QueryClient()`
+ * 未覆寫這個選項），已滿足「focus refetch」——不需要在這裡額外指定。
+ */
+export function useBacklinks(noteId: string | undefined): UseQueryResult<BacklinkDto[]> {
+  return useQuery({
+    queryKey: ["backlinks", noteId],
+    queryFn: async () => {
+      const { backlinks } = await api<{ backlinks: BacklinkDto[] }>(
+        `/api/notes/${encodeURIComponent(noteId!)}/backlinks`,
+      );
+      return backlinks;
+    },
+    enabled: !!noteId,
   });
 }
 

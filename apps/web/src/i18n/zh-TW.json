@@ -57,6 +57,10 @@
     },
     "accessRevoked": "已失去存取權",
     "deleted": "此筆記已被刪除",
+    "backlinks": {
+      "title_one": "{{count}} 篇筆記提到本頁",
+      "title_other": "{{count}} 篇筆記提到本頁"
+    },
     "downgradedToViewer": "你的權限已改為檢視者，此筆記現在是唯讀。",
     "restoredEditAccess": "你的編輯權限已恢復。",
     "connection": {
