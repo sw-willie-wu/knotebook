@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultBlockSpecs } from "@blocknote/core";
+import { defaultBlockSpecs, defaultInlineContentSpecs } from "@blocknote/core";
 import { containsMediaDataUrl, isBlockedMediaTransfer, noteSchema } from "./schema";
 
 /** 最小的 DataTransfer 替身——jsdom 沒有可建構的 DataTransfer。 */
@@ -26,6 +26,18 @@ describe("noteSchema（§11.1 不啟用 image block）", () => {
 
   it("段落與標題這些基本 block 仍在（防止整份 schema 建錯）", () => {
     expect(Object.keys(noteSchema.blockSpecs)).toEqual(expect.arrayContaining(["paragraph", "heading", "table"]));
+  });
+});
+
+// Plan 3：`wikilink` inline content spec 掛載——防的正是「傳 `inlineContentSpecs` 忘了
+// spread `defaultInlineContentSpecs`」這個陷阱（見 schema.ts 頂端註解）：一旦漏掉，
+// `text`/`link` 會從 `noteSchema.inlineContentSpecs` 靜默消失，但不會有任何型別或
+// 執行期錯誤——只有這種明確列舉 key 的測試才擋得住。
+describe("noteSchema（Plan 3 wikilink inline content 掛載）", () => {
+  it("預設 inline content（text/link）全數保留，且新增了 wikilink", () => {
+    expect(Object.keys(noteSchema.inlineContentSpecs).sort()).toEqual(
+      [...Object.keys(defaultInlineContentSpecs), "wikilink"].sort(),
+    );
   });
 });
 

@@ -50,6 +50,7 @@
     "titlePlaceholder": "無標題",
     "readOnly": "唯讀",
     "imageUnsupported": "圖片上傳於後續版本支援",
+    "wikilinkBroken": "已連結的筆記不存在。",
     "accessRevoked": "已失去存取權",
     "deleted": "此筆記已被刪除",
     "downgradedToViewer": "你的權限已改為檢視者，此筆記現在是唯讀。",

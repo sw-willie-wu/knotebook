@@ -1,4 +1,5 @@
-import { BlockNoteSchema, defaultBlockSpecs } from "@blocknote/core";
+import { BlockNoteSchema, defaultBlockSpecs, defaultInlineContentSpecs } from "@blocknote/core";
+import { wikilinkSpec } from "@/components/wikilink/spec";
 
 // spec §11.1（P2 圖片行為）逐字：上傳是 Plan 3 的範圍，P2 **不啟用 image block**，
 // 並且**攔截並拒絕**圖片的貼上／拖放。理由不是 UI 潔癖而是儲存：BlockNote 沒有
@@ -11,8 +12,20 @@ import { BlockNoteSchema, defaultBlockSpecs } from "@blocknote/core";
 // 檔案／媒體 data URL 一視同仁，不分型別。
 const { image: _imageBlockSpecIntentionallyRemoved, ...blockSpecsWithoutImage } = defaultBlockSpecs;
 
-/** 本專案的 BlockNote schema：預設 block 全套**扣掉 image**。 */
-export const noteSchema = BlockNoteSchema.create({ blockSpecs: blockSpecsWithoutImage });
+/**
+ * 本專案的 BlockNote schema：預設 block 全套**扣掉 image**，inline content 全套
+ * **加上** `wikilink`（Plan 3）。
+ *
+ * ⚠ `BlockNoteSchema.create` 傳入 `inlineContentSpecs` 是**整組覆寫**，不是「疊加在
+ * 預設值上」——`BlockNoteSchema.create` 本體只有在完全不傳這個欄位時才會落回
+ * `defaultInlineContentSpecs`。這裡漏了 `...defaultInlineContentSpecs` 的 spread，
+ * 會靜默毀掉 `text`/`link` 兩個預設 inline spec（連最基本的文字輸入都會壞掉，且不會
+ * 有任何型別錯誤提示）。
+ */
+export const noteSchema = BlockNoteSchema.create({
+  blockSpecs: blockSpecsWithoutImage,
+  inlineContentSpecs: { ...defaultInlineContentSpecs, wikilink: wikilinkSpec },
+});
 
 export type NoteSchema = typeof noteSchema;
 
