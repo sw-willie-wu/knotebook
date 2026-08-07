@@ -99,6 +99,72 @@ export interface BuildAppOptions {
 
 const CHANGE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
+// PLAN3（§12.4）：JSON CSRF hook 對 multipart 上傳路由的白名單豁免——`"METHOD url"`
+// 形狀，`url` 用 `request.routeOptions.url`（route pattern，含 `:id` 這類參數佔位符，
+// 不是實際請求路徑）比對，故單一字面值即可涵蓋所有 note id。
+const MULTIPART_EXEMPT_ROUTES = new Set(["POST /api/notes/:id/uploads"]);
+
+/**
+ * 判定這個請求是否命中 multipart 豁免白名單。`request.is404` 必須先擋——404 請求的
+ * `routeOptions.url` 是 `undefined`（fastify 型別註記：is404 為真時 config.url 未設），
+ * 若不擋會讓 `undefined` 意外落進 Set.has 的比對（恆 false，但語意上不該讓 404 request
+ * 走到這段判定，容易在之後改動時踩雷）。
+ */
+function isMultipartExemptRoute(request: FastifyRequest): boolean {
+  if (request.is404) return false;
+  const url = request.routeOptions.url;
+  if (url === undefined) return false;
+  return MULTIPART_EXEMPT_ROUTES.has(`${request.method} ${url}`);
+}
+
+/**
+ * 兩側 `:80`/`:443` 預設 port 消去後再比對（spec §12.4：scheme 忽略、IPv6 方括號原樣）。
+ *
+ * 手寫 regex 而非借用 `new URL().host` 的內建預設 port 消去，是刻意選擇，不是偷懶：
+ * 1. 比對的另一側（`request.host`）根本不是 URL——它是裸的 `Host`/`X-Forwarded-Host`
+ *    header 值（例如 `example.com:443`），沒有 `URL` 物件可用，沒有 scheme 可言。
+ * 2. `URL.host` 的預設 port 消去是 **scheme-bound** 的（`https://x:443` 消去、
+ *    `http://x:443` 不會——443 不是 http 的預設 port）；但 spec 明文「scheme 忽略」——
+ *    若真要湊出一個 `URL` 來讓內建消去生效，得先幫 `request.host` 那側**假造一個
+ *    scheme**（例如硬套 `https://`）才能餵給 `new URL()`，這個假造的 scheme 會跟
+ *    「scheme 忽略」的契約直接打架（相當於偷偷把 scheme 又塞回比對邏輯裡）。
+ * 手寫、對稱地在兩側字面字串上剝 `:80`/`:443` 後綴，才是唯一不引入假 scheme 的作法。
+ */
+function stripDefaultPort(host: string): string {
+  return host.replace(/:(?:80|443)$/, "");
+}
+
+/**
+ * multipart 豁免路由的 CSRF 防線：Origin 驗證（spec §12.4）。比較對象是
+ * `new URL(origin).host` 與 **`request.host`**——不是 `hostname`：後者剝除 port，會讓
+ * LAN 形狀（`192.168.3.22:8006`）與 dev（`localhost:5173`）全部誤判不符。
+ *
+ * `Origin: "null"`（沙箱化 iframe 等情境瀏覽器字面送出的字串 "null"）與任何無法用
+ * `new URL()` 解析的 Origin 值一律視為不符——保守以對，不放行無法驗證的來源。
+ * 呼叫端負責「無 Origin header → 放行」（spec 明文；不在此函式內判定，因為
+ * `undefined` 不該被硬塞進來解讀成某種「值」）。
+ *
+ * **已知前提（trustProxy，非本次引入的漏洞，據實註記）**：`request.host` 在
+ * `trustProxy: true` 下，若請求帶 `X-Forwarded-Host` 且來源 socket 通過 trustProxy
+ * 判定（本專案設定下恆真——見 buildApp 的 `trustProxy: true`），會採信該 header 而非
+ * 實際的 `Host` header（fastify `buildRequestWithTrustProxy` 的既定行為，非本函式
+ * 決定）。**目前不可從瀏覽器利用**：本站無 CORS 設定，跨源請求若帶自訂 header（如
+ * `X-Forwarded-Host`）會觸發 preflight，瀏覽器在收不到允許的 CORS 回應前就會擋下、
+ * 不會把實際請求送達 server；`<form>` 提交（唯一免 preflight 的跨站攻擊面）無法附加
+ * 自訂 header。**若日後加 CORS，或部署在允許 client 端透傳自訂 `X-Forwarded-Host` 的
+ * 代理拓撲下，這個前提會失效**——見 backlog「trustProxy 可設定化」（Plan 1 遺留項）。
+ */
+function isOriginAllowed(origin: string, requestHost: string): boolean {
+  if (origin === "null") return false;
+  let originHost: string;
+  try {
+    originHost = new URL(origin).host;
+  } catch {
+    return false;
+  }
+  return stripDefaultPort(originHost) === stripDefaultPort(requestHost);
+}
+
 // `sendError` 定義於 `./http/errors.js`（不被任何 routes/* 依賴的葉節點模組），
 // app.ts 與各路由模組（setup.ts、auth.ts、…）都從那裡 import，不在此重新宣告——
 // 避免 app.ts ↔ routes/* 之間的循環 import（前幾輪曾靠「具名 function 宣告會被
@@ -154,9 +220,37 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     // MIME essence 等值比對（忽略 `;charset=...` 等參數）——不可用 substring
     // includes：`text/plain;charset=application/json` 是 CORS-safelisted 的
     // Content-Type，若用 includes 會被誤判為合法 JSON 請求而放行，等於繞過守衛。
-    // PLAN3: multipart 豁免時改驗 Origin header（spec §3 CSRF）
     const contentType = request.headers["content-type"];
     const essence = contentType?.split(";")[0]?.trim().toLowerCase();
+
+    // PLAN3（§12.4）：multipart 上傳路由豁免 JSON 檢查，改走「essence 必須是
+    // multipart/form-data，否則 415」+ Origin 驗證。豁免不等於不驗證——四輪 gate m7：
+    // 放行任意 Content-Type 會讓 `application/json` 打上傳端點落到 `@fastify/multipart`
+    // 丟出非契約錯誤（而非我們的 415 統一格式）。
+    //
+    // drain 通則（四輪 gate M3；五輪 n1）：這兩條早退路徑（essence 415、Origin 403）
+    // 回應前必須 `request.raw.resume()` 讓 Node 消費剩餘 body——不 await `end`（大檔
+    // 上傳中途拒絕不能白等整個 body 傳完才回應），也不能完全不 resume（完全不消費會讓
+    // client 在傳輸中收到 network error 而非結構化 error body，i18n toast 拿不到
+    // code）。下方既有的 JSON essence 415（非豁免路由）刻意不加 drain——spec §12.4 的
+    // drain 通則逐字列舉的早退路徑只有「onRequest 的 Origin 403 與 essence 415」（指
+    // multipart 豁免路由這兩條），不含一般路由的 JSON essence 415；後者在產品環境本來
+    // 就幾乎不可達（正常 client 打 JSON API 一律帶 `application/json`，這條分支只在
+    // 誤用/探測時觸發，非大檔上傳情境），不在這次擴充的 drain 範圍內。
+    if (isMultipartExemptRoute(request)) {
+      if (essence !== "multipart/form-data") {
+        request.raw.resume();
+        return sendError(reply, 415, "unsupported_media_type", "此請求需要 multipart/form-data");
+      }
+      const origin = request.headers.origin;
+      if (origin !== undefined && !isOriginAllowed(origin, request.host)) {
+        request.raw.resume();
+        return sendError(reply, 403, "forbidden", "Origin 驗證失敗");
+      }
+      // Origin 相符，或無 Origin header（spec 明文放行）——落到 preHandler/handler。
+      return;
+    }
+
     if (essence !== "application/json") {
       return sendError(reply, 415, "unsupported_media_type", "此請求需要 application/json");
     }
