@@ -81,6 +81,18 @@
     "submit": "Create admin account",
     "submitting": "Creating account…"
   },
+  "changePassword": {
+    "title": "Change your password",
+    "description": "Choose a new password for your account.",
+    "currentPassword": "Current password",
+    "newPassword": "New password",
+    "passwordHint": "At least 12 characters.",
+    "confirmNewPassword": "Confirm new password",
+    "mismatch": "The new password and confirmation don't match.",
+    "submit": "Change password",
+    "submitting": "Changing password…",
+    "successMessage": "Password updated."
+  },
   "userMenu": {
     "language": "Language",
     "languageEn": "English",
@@ -93,6 +105,7 @@
     "entry": "Manage users",
     "createUser": "Create user",
     "createUserDescription": "Add a new user account.",
+    "mustChangePasswordNotice": "The new account will be required to change its password on first login.",
     "email": "Email",
     "password": "Password",
     "passwordHint": "At least 12 characters.",

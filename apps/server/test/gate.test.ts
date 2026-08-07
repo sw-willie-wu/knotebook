@@ -30,7 +30,7 @@ describe("UserGate", () => {
     const result = await gate.check(u.id, 3);
     expect(result).toEqual({
       status: "ok",
-      user: { id: u.id, email: u.email, displayName: u.displayName, isAdmin: true },
+      user: { id: u.id, email: u.email, displayName: u.displayName, isAdmin: true, mustChangePassword: false },
     });
   });
 
@@ -150,6 +150,7 @@ describe("UserGate", () => {
               isAdmin: row.isAdmin,
               disabledAt: row.disabledAt,
               tokenVersion: row.tokenVersion,
+              mustChangePassword: row.mustChangePassword,
             }
           : null;
       },
@@ -163,7 +164,15 @@ describe("UserGate", () => {
     gate.invalidate(u.id);
 
     // 讓卡住的第一次查詢完成，回傳「撤銷前」查到的舊資料
-    resolveSlowFetch({ id: u.id, email: u.email, displayName: u.displayName, isAdmin: false, disabledAt: null, tokenVersion: 0 });
+    resolveSlowFetch({
+      id: u.id,
+      email: u.email,
+      displayName: u.displayName,
+      isAdmin: false,
+      disabledAt: null,
+      tokenVersion: 0,
+      mustChangePassword: false,
+    });
     const first = await firstCheck;
     expect(first.status).toBe("ok"); // 這次呼叫本身仍用它查到的資料正確回答
 

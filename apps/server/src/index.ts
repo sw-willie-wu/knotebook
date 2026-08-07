@@ -57,7 +57,12 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const setupState = await SetupState.init(db, logger);
+  // spec rev 5.7：ADMIN_EMAIL/ADMIN_PASSWORD 皆有值時才視為 env bootstrap admin 請求——
+  // `config.ts` 的 loadConfig 已保證兩者同時 defined 或同時 undefined，這裡只是把
+  // AppConfig 的兩個扁平欄位組回 SetupState.init 要的 envAdmin 物件形狀。是否真的據此
+  // 建立帳號（僅首次初始化生效）交給 SetupState.init 內部判斷，這裡不重複邏輯。
+  const envAdmin = config.adminEmail && config.adminPassword ? { email: config.adminEmail, password: config.adminPassword } : undefined;
+  const setupState = await SetupState.init(db, logger, envAdmin);
   const gate = new UserGate(db);
   const throttle = new LoginThrottle();
 

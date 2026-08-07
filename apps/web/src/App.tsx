@@ -1,9 +1,10 @@
 import { BrowserRouter, Route, Routes } from "react-router";
 import { ThemeProvider } from "./theme";
 import { Toaster } from "./components/ui/toast";
-import { RequireAdmin, RequireAuth, SetupGate } from "./auth/guards";
+import { ChangePasswordGate, RequireAdmin, RequireAuth, SetupGate } from "./auth/guards";
 import LoginPage from "./pages/LoginPage";
 import SetupPage from "./pages/SetupPage";
+import ChangePasswordPage from "./pages/ChangePasswordPage";
 import HomePage from "./pages/HomePage";
 import NotePage from "./pages/NotePage";
 import AdminUsersPage from "./pages/AdminUsersPage";
@@ -25,6 +26,13 @@ import AdminUsersPage from "./pages/AdminUsersPage";
  * <RequireAdmin>（非 admin 導 `/`）——巢狀在 <RequireAuth> 底下，即使 <RequireAdmin>
  * 自己也有未登入判斷（見 guards.tsx），這裡是雙保險而非依賴它獨立生效。這條路由必須
  * 排在 `/*` catch-all 之前，否則永遠會被 HomePage 吃掉。
+ *
+ * `/change-password`（spec rev 5.7）巢狀在 <RequireAuth> 底下、但刻意掛在
+ * <ChangePasswordGate> **外面**（與它平行，不是它的 <Outlet/> 子路由）——這條路由本身
+ * 就是 `mustChangePassword` 使用者被導去的目的地，若巢狀在 gate 裡面會造成「導向自己」
+ * 的迴圈。<ChangePasswordGate> 包住其餘（除 /setup、/login、/change-password 外）的
+ * 路由：`user.mustChangePassword === true` 時全部導向 `/change-password`——比照
+ * <RequireAdmin> 的模式。
  */
 export function AppRoutes() {
   return (
@@ -33,13 +41,16 @@ export function AppRoutes() {
         <Route path="/setup" element={<SetupPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route element={<RequireAuth />}>
-          {/* `/notes/:ref` 排在 catch-all 之前：ref 可以是自訂 slug、
-              `<vanity>-<uuid>` 或純 uuid，一律由 `GET /api/notes/:ref` 解析。 */}
-          <Route path="/notes/:ref" element={<NotePage />} />
-          <Route element={<RequireAdmin />}>
-            <Route path="/admin/users" element={<AdminUsersPage />} />
+          <Route path="/change-password" element={<ChangePasswordPage />} />
+          <Route element={<ChangePasswordGate />}>
+            {/* `/notes/:ref` 排在 catch-all 之前：ref 可以是自訂 slug、
+                `<vanity>-<uuid>` 或純 uuid，一律由 `GET /api/notes/:ref` 解析。 */}
+            <Route path="/notes/:ref" element={<NotePage />} />
+            <Route element={<RequireAdmin />}>
+              <Route path="/admin/users" element={<AdminUsersPage />} />
+            </Route>
+            <Route path="/*" element={<HomePage />} />
           </Route>
-          <Route path="/*" element={<HomePage />} />
         </Route>
       </Route>
     </Routes>

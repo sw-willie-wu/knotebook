@@ -63,8 +63,9 @@ describe("POST /api/setup", () => {
     expect(cookie?.maxAge).toBe(SESSION_TTL_SECONDS);
 
     const [dbUser] = await db.select().from(users).where(eq(users.email, "owner@example.com"));
-    expect(dbUser).toMatchObject({ email: "owner@example.com", displayName: "Admin", isAdmin: true });
+    expect(dbUser).toMatchObject({ email: "owner@example.com", displayName: "Admin", isAdmin: true, mustChangePassword: false });
     expect(dbUser.passwordHash).toBeTruthy();
+    expect(res.json()).toMatchObject({ mustChangePassword: false });
 
     const setupRows = await db.select().from(instanceSetup);
     expect(setupRows).toHaveLength(1);

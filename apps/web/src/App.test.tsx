@@ -30,7 +30,7 @@ function fakeResponse({ ok, status, json }: FakeResponseInit): Response {
   } as unknown as Response;
 }
 
-const ADMIN_USER: UserDto = { id: "u1", email: "admin@example.com", displayName: "Admin", isAdmin: true };
+const ADMIN_USER: UserDto = { id: "u1", email: "admin@example.com", displayName: "Admin", isAdmin: true, mustChangePassword: false };
 
 /** `needed` 只有在 POST /api/setup 成功後才會變 false——刻意用一個 closure 旗標
  * 模擬 server 端狀態轉換，而不是一開始就 mock 死 `{needed:false}`（那樣測不出

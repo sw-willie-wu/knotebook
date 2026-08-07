@@ -94,7 +94,13 @@ export function authRoutes(deps: AuthRouteDeps) {
       const token = await signSession(deps.config.appSecret, { userId: user!.id, tv: user!.tokenVersion });
       setSessionCookie(reply, deps.config, token);
 
-      return reply.send({ id: user!.id, email: user!.email, displayName: user!.displayName, isAdmin: user!.isAdmin });
+      return reply.send({
+        id: user!.id,
+        email: user!.email,
+        displayName: user!.displayName,
+        isAdmin: user!.isAdmin,
+        mustChangePassword: user!.mustChangePassword,
+      });
     });
 
     app.post("/api/auth/logout", async (_request, reply) => {
@@ -159,9 +165,12 @@ export function authRoutes(deps: AuthRouteDeps) {
       // 之間有 read-modify-write 競態（例如帳號被撤銷/改密碼的同時，另一個並發請求
       // 用同一份舊快照 +1 寫回，會把先前那次的遞增結果覆蓋掉，等於撤銷被回捲）。
       // 單一 UPDATE 陳述式本身已是原子操作，不需要額外包 `db.transaction`。
+      // 成功改密碼一併清 mustChangePassword（spec rev 5.7）：不論這次改密碼前是 true 或
+      // false，改完後一律 false——這是「自己主動改過密碼」這件事本身帶來的效果，不需要
+      // 額外判斷原本的值。
       const [updated] = await deps.db
         .update(users)
-        .set({ passwordHash: newPasswordHash, tokenVersion: sql`${users.tokenVersion} + 1` })
+        .set({ passwordHash: newPasswordHash, tokenVersion: sql`${users.tokenVersion} + 1`, mustChangePassword: false })
         .where(eq(users.id, userId))
         .returning();
 

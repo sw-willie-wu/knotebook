@@ -52,4 +52,48 @@ describe("loadConfig", () => {
     const config = loadConfig({ ...valid, BOOTSTRAP_ADMIN_EMAIL: "" });
     expect(config.bootstrapAdminEmail).toBeUndefined();
   });
+
+  describe("ADMIN_EMAIL / ADMIN_PASSWORD（env bootstrap admin，spec rev 5.7）", () => {
+    it("皆未設 → 通過，adminEmail/adminPassword 皆 undefined", () => {
+      const config = loadConfig(valid);
+      expect(config.adminEmail).toBeUndefined();
+      expect(config.adminPassword).toBeUndefined();
+    });
+
+    it("只設 ADMIN_EMAIL → fail-fast", () => {
+      expect(() => loadConfig({ ...valid, ADMIN_EMAIL: "admin@example.com" })).toThrow(
+        /ADMIN_EMAIL 與 ADMIN_PASSWORD 必須同時設定/
+      );
+    });
+
+    it("只設 ADMIN_PASSWORD → fail-fast", () => {
+      expect(() => loadConfig({ ...valid, ADMIN_PASSWORD: "correct-horse-battery" })).toThrow(
+        /ADMIN_EMAIL 與 ADMIN_PASSWORD 必須同時設定/
+      );
+    });
+
+    it("皆設但密碼 <12 字元 → fail-fast", () => {
+      expect(() =>
+        loadConfig({ ...valid, ADMIN_EMAIL: "admin@example.com", ADMIN_PASSWORD: "short" })
+      ).toThrow(/ADMIN_PASSWORD 至少需要 12 字元/);
+    });
+
+    it("皆設但 ADMIN_EMAIL 格式錯誤 → fail-fast", () => {
+      expect(() =>
+        loadConfig({ ...valid, ADMIN_EMAIL: "not-an-email", ADMIN_PASSWORD: "correct-horse-battery" })
+      ).toThrow(/ADMIN_EMAIL 格式錯誤/);
+    });
+
+    it("皆設且合法 → 通過，config 帶出兩個欄位", () => {
+      const config = loadConfig({ ...valid, ADMIN_EMAIL: "admin@example.com", ADMIN_PASSWORD: "correct-horse-battery" });
+      expect(config.adminEmail).toBe("admin@example.com");
+      expect(config.adminPassword).toBe("correct-horse-battery");
+    });
+
+    it("ADMIN_EMAIL 空字串 + ADMIN_PASSWORD 有值 → 視同半套，fail-fast（空字串等同未設）", () => {
+      expect(() =>
+        loadConfig({ ...valid, ADMIN_EMAIL: "", ADMIN_PASSWORD: "correct-horse-battery" })
+      ).toThrow(/ADMIN_EMAIL 與 ADMIN_PASSWORD 必須同時設定/);
+    });
+  });
 });

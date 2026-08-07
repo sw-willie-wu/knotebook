@@ -124,9 +124,12 @@ export function setupRoutes(deps: SetupRouteDeps) {
       const sessionToken = await signSession(deps.config.appSecret, { userId: admin.id, tv: admin.tokenVersion });
       setSessionCookie(reply, deps.config, sessionToken);
 
+      // admin.mustChangePassword 恆為 false（DB 預設，insert 未指定）——setup 頁自建的
+      // 第一個 admin 密碼是自己選的，不掛首登強制改密碼旗標（spec rev 5.7，與 env
+      // bootstrap／admin UI 代建的帳號刻意不同，見 auth/setup.ts、routes/admin-users.ts）。
       return reply
         .code(201)
-        .send({ id: admin.id, email: admin.email, displayName: admin.displayName, isAdmin: admin.isAdmin });
+        .send({ id: admin.id, email: admin.email, displayName: admin.displayName, isAdmin: admin.isAdmin, mustChangePassword: admin.mustChangePassword });
     });
   };
 }

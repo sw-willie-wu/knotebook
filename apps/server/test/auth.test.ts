@@ -37,6 +37,7 @@ async function insertUser(
     tokenVersion: number;
     disabledAt: Date | null;
     password: string | null;
+    mustChangePassword: boolean;
   }> = {}
 ) {
   const password = overrides.password === undefined ? VALID_PASSWORD : overrides.password;
@@ -50,6 +51,7 @@ async function insertUser(
       tokenVersion: overrides.tokenVersion ?? 0,
       disabledAt: overrides.disabledAt ?? null,
       passwordHash,
+      mustChangePassword: overrides.mustChangePassword ?? false,
     })
     .returning();
   return u;
@@ -66,7 +68,7 @@ describe("POST /api/auth/login", () => {
 
     const res = await app.inject({ method: "POST", url: "/api/auth/login", payload: loginPayload("alice@example.com", VALID_PASSWORD) });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ id: u.id, email: u.email, displayName: u.displayName, isAdmin: false });
+    expect(res.json()).toEqual({ id: u.id, email: u.email, displayName: u.displayName, isAdmin: false, mustChangePassword: false });
 
     const cookie = res.cookies.find(c => c.name === SESSION_COOKIE);
     expect(cookie).toBeDefined();
@@ -75,7 +77,7 @@ describe("POST /api/auth/login", () => {
 
     const meRes = await app.inject({ method: "GET", url: "/api/auth/me", cookies: { [SESSION_COOKIE]: cookie!.value } });
     expect(meRes.statusCode).toBe(200);
-    expect(meRes.json()).toEqual({ id: u.id, email: u.email, displayName: u.displayName, isAdmin: false });
+    expect(meRes.json()).toEqual({ id: u.id, email: u.email, displayName: u.displayName, isAdmin: false, mustChangePassword: false });
   });
 
   it("密碼錯 5 次 → 第 6 次前置 429 too_many_attempts，回應含正數 retryAfterMs", async () => {
@@ -390,6 +392,31 @@ describe("POST /api/auth/password", () => {
     });
     expect(res.statusCode).toBe(401);
     expect(res.json()).toMatchObject({ error: { code: "invalid_credentials" } });
+  });
+
+  it("成功改密碼 → mustChangePassword 由 true 清為 false（後續 me 反映）；tokenVersion 照常 +1", async () => {
+    const { app, db } = await buildTestApp();
+    const u = await insertUser(db, { email: "olga@example.com", mustChangePassword: true });
+    const loginRes = await app.inject({ method: "POST", url: "/api/auth/login", payload: loginPayload("olga@example.com", VALID_PASSWORD) });
+    expect(loginRes.statusCode).toBe(200);
+    expect(loginRes.json()).toMatchObject({ mustChangePassword: true });
+    const cookie = loginRes.cookies.find(c => c.name === SESSION_COOKIE)!.value;
+
+    const changeRes = await app.inject({
+      method: "POST",
+      url: "/api/auth/password",
+      cookies: { [SESSION_COOKIE]: cookie },
+      payload: { currentPassword: VALID_PASSWORD, newPassword: NEW_VALID_PASSWORD },
+    });
+    expect(changeRes.statusCode).toBe(204);
+    const newCookie = changeRes.cookies.find(c => c.name === SESSION_COOKIE)!.value;
+
+    const meRes = await app.inject({ method: "GET", url: "/api/auth/me", cookies: { [SESSION_COOKIE]: newCookie } });
+    expect(meRes.statusCode).toBe(200);
+    expect(meRes.json()).toMatchObject({ mustChangePassword: false });
+
+    const [row] = await db.select().from(users).where(eq(users.id, u.id));
+    expect(row.mustChangePassword).toBe(false);
   });
 
   it("hashPassword 拋出 HashBusyError（雜湊新密碼時併發超限）→ 429 server_busy（不落地 DB 變更）", async () => {

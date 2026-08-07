@@ -81,6 +81,18 @@
     "submit": "建立管理員帳號",
     "submitting": "建立帳號中…"
   },
+  "changePassword": {
+    "title": "修改密碼",
+    "description": "為你的帳號設定新密碼。",
+    "currentPassword": "目前密碼",
+    "newPassword": "新密碼",
+    "passwordHint": "至少需要 12 個字元。",
+    "confirmNewPassword": "確認新密碼",
+    "mismatch": "新密碼與確認密碼不一致。",
+    "submit": "修改密碼",
+    "submitting": "修改密碼中…",
+    "successMessage": "密碼已更新。"
+  },
   "userMenu": {
     "language": "語言",
     "languageEn": "English",
@@ -93,6 +105,7 @@
     "entry": "管理使用者",
     "createUser": "建立使用者",
     "createUserDescription": "新增一個使用者帳號。",
+    "mustChangePasswordNotice": "新帳號首次登入需修改密碼。",
     "email": "電子郵件",
     "password": "密碼",
     "passwordHint": "至少需要 12 個字元。",

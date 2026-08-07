@@ -104,9 +104,12 @@ export function adminUsersRoutes(deps: AdminUsersRouteDeps) {
 
       let created: AdminUserRow;
       try {
+        // spec rev 5.7：admin UI 代建的帳號一律掛 mustChangePassword=true（密碼是 admin
+        // 代選，非本人自訂）——與 setup 頁自建 admin（密碼自選，見 routes/setup.ts）刻意
+        // 不同，那邊維持 DB 預設 false。
         const [row] = await deps.db
           .insert(users)
-          .values({ email, passwordHash, displayName, isAdmin: isAdmin ?? false })
+          .values({ email, passwordHash, displayName, isAdmin: isAdmin ?? false, mustChangePassword: true })
           .returning(adminUserColumns);
         created = row;
       } catch (err) {

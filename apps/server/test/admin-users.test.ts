@@ -146,6 +146,23 @@ describe("POST /api/admin/users", () => {
     expect(loginRes.statusCode).toBe(200);
   });
 
+  it("代建的帳號 mustChangePassword=true（spec rev 5.7；DB 斷言，AdminUserDto 形狀本身不含此欄位）", async () => {
+    const { app, db } = await buildTestApp();
+    const admin = await insertUser(db, { isAdmin: true, email: "admin-c6@example.com" });
+    const cookie = await cookieFor(admin.id);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/admin/users",
+      cookies: { [SESSION_COOKIE]: cookie },
+      payload: { email: "newuser-c6@example.com", password: "a-strong-password", displayName: "New User" },
+    });
+    expect(res.statusCode).toBe(201);
+
+    const [row] = await db.select().from(users).where(eq(users.email, "newuser-c6@example.com"));
+    expect(row.mustChangePassword).toBe(true);
+  });
+
   it("isAdmin: true → 建立管理員帳號", async () => {
     const { app, db } = await buildTestApp();
     const admin = await insertUser(db, { isAdmin: true, email: "admin-c2@example.com" });

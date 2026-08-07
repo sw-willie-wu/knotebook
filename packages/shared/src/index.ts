@@ -14,6 +14,10 @@ export interface UserDto {
   email: string;
   displayName: string;
   isAdmin: boolean;
+  /** 首登強制改密碼旗標（spec rev 5.7）：env bootstrap 建立的 admin、admin UI 代建的
+   * 帳號皆為 true；setup 頁自建的第一個 admin（密碼自選）為 false。web 端的
+   * `ChangePasswordGate` 依此導向 `/change-password`——見 apps/web/src/auth/guards.tsx。 */
+  mustChangePassword: boolean;
 }
 
 /** 密碼長度下限，鏡射 apps/server/src/auth/constants.ts 的同名常數——這裡是給

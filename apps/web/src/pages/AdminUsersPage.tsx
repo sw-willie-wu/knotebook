@@ -151,6 +151,8 @@ function CreateUserDialog() {
             </label>
           </div>
 
+          <p className="text-xs text-muted-foreground">{t("admin.mustChangePasswordNotice")}</p>
+
           {error && (
             <p role="alert" className="text-sm text-destructive">
               {error}

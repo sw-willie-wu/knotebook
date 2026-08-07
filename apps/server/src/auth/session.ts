@@ -42,6 +42,9 @@ export interface GateUser {
   email: string;
   displayName: string;
   isAdmin: boolean;
+  /** 首登強制改密碼旗標（spec rev 5.7）——`GET /api/auth/me` 直接回傳 `request.user`
+   * （見 app.ts 的 `authenticate`），故此欄位需在此就撈出，login 回應才有得帶。 */
+  mustChangePassword: boolean;
 }
 
 export type GateResult = { status: "ok"; user: GateUser } | { status: "revoked" };
@@ -53,6 +56,7 @@ export interface GateRow {
   isAdmin: boolean;
   disabledAt: Date | null;
   tokenVersion: number;
+  mustChangePassword: boolean;
 }
 
 interface CacheEntry {
@@ -139,6 +143,7 @@ export class UserGate {
       isAdmin: row.isAdmin,
       disabledAt: row.disabledAt,
       tokenVersion: row.tokenVersion,
+      mustChangePassword: row.mustChangePassword,
     };
   }
 
@@ -163,7 +168,7 @@ export class UserGate {
     }
     return {
       status: "ok",
-      user: { id: row.id, email: row.email, displayName: row.displayName, isAdmin: row.isAdmin },
+      user: { id: row.id, email: row.email, displayName: row.displayName, isAdmin: row.isAdmin, mustChangePassword: row.mustChangePassword },
     };
   }
 }
