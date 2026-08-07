@@ -40,16 +40,73 @@ export function containsMediaDataUrl(text: string | null | undefined): boolean {
   return typeof text === "string" && MEDIA_DATA_URL_RE.test(text);
 }
 
+/** {@link classifyMediaTransfer} 攔下這次貼上／拖放的原因；`null`＝放行。 */
+export type BlockedTransferReason = "dataUrl" | "textRepresentation" | "nonImageFile";
+
 /**
- * 這次貼上／拖放該不該被攔下來（§11.1）。兩條判準：
- * 1. `dataTransfer.files` 非空——任何檔案（截圖貼上、拖曳圖片檔）一律擋。
- * 2. `text/html` 或 `text/plain` 裡含媒體 data URL——從別的網頁複製圖片時，剪貼簿
- *    常常只有 HTML 而沒有 file entry。
- *
- * 傳 `null`（某些合成事件沒有 dataTransfer）一律放行。
+ * `containsMediaDataUrl` 掃描的四種文字格式（§12.4 規則①）。刻意**不含**
+ * `vscode-editor-data`——那個管線只用 `text/plain` 造 code block，本身不會帶媒體
+ * data URL，掃了也是白掃。
  */
-export function isBlockedMediaTransfer(data: DataTransfer | null | undefined): boolean {
-  if (!data) return false;
-  if (data.files && data.files.length > 0) return true;
-  return containsMediaDataUrl(data.getData("text/html")) || containsMediaDataUrl(data.getData("text/plain"));
+const MEDIA_DATA_URL_TEXT_FORMATS = ["text/html", "text/plain", "text/markdown", "blocknote/html"] as const;
+
+/**
+ * BlockNote 內部 `acceptedMIMETypes`（`@blocknote/core/src/api/clipboard/fromClipboard/acceptedMIMETypes.ts`）
+ * 的前五種——該常數未從套件公開匯出，這裡按規則②需要的子集重寫一份（不含殿後的
+ * `"Files"`，那個交給下面的 `hasFiles` 另外判斷）。
+ *
+ * ⚠ 失效模式：這是手抄本，不是 import。BlockNote 升版異動 `acceptedMIMETypes`
+ * （增減格式、調整順序）時，這裡不會有任何測試變紅——規則②會靜默跟上游脫節，
+ * 直到有人手動比對兩邊才會發現。該常數不在套件的公開 exports map 裡，寫不出
+ * import 型的 parity 測試來守住這條同步關係；升級 `@blocknote/core` 版本時記得
+ * 回頭比對這份原始碼路徑。
+ */
+const TEXT_REPRESENTATION_MIME_TYPES = [
+  "vscode-editor-data",
+  "blocknote/html",
+  "text/markdown",
+  "text/html",
+  "text/plain",
+] as const;
+
+/**
+ * 這次貼上／拖放該不該被攔下來、為什麼（§12.4）。四條規則依序判斷，第一條命中
+ * 就回傳，全部不匹配則放行（`null`）：
+ *
+ * ① `text/html`／`text/plain`／`text/markdown`／`blocknote/html` 任一含媒體 data
+ *    URL → `"dataUrl"`——從別的網頁複製圖片時，剪貼簿常常只有 HTML 而沒有 file
+ *    entry；即使有 file entry，內嵌 data URL 一樣會讓 BlockNote 把它塞進 block
+ *    props（bytea 膨脹的源頭），所以這條的優先權在檔案判斷之前。
+ * ② 帶 `File` 且 `dataTransfer.types` 含 `TEXT_REPRESENTATION_MIME_TYPES` 任一
+ *    → `"textRepresentation"`——這種形狀代表來源本身還帶了一份可用的文字/HTML
+ *    表示法（例如編輯器內部拖曳、或來源網頁的一般 `<img src="https://…">`），
+ *    BlockNote 的 `handleFileInsertion` 一旦偵測到這些格式排在 `"Files"` 前面就會
+ *    直接放棄檔案插入路徑；我們沿用同一個判準，統一攔下引導使用者改用檔案本身。
+ * ③ `files` 非空且全部 `File.type` 以 `image/` 開頭（空字串＝非 image）→ 放行
+ *    （`null`）——純圖片檔案的貼上／拖放本身不會產生 data URL，交給後續
+ *    `uploadFile` 管線處理（Plan 3 Task 13/14）。
+ * ④ 其餘含檔案的情形（任一非 image 檔）→ `"nonImageFile"`。
+ *
+ * 傳 `null`／`undefined`（某些合成事件沒有 dataTransfer）一律放行。
+ */
+export function classifyMediaTransfer(data: DataTransfer | null | undefined): BlockedTransferReason | null {
+  if (!data) return null;
+
+  // ①
+  for (const format of MEDIA_DATA_URL_TEXT_FORMATS) {
+    if (containsMediaDataUrl(data.getData(format))) return "dataUrl";
+  }
+
+  const files = data.files;
+  const hasFiles = !!files && files.length > 0;
+  if (!hasFiles) return null;
+
+  // ②
+  const types = Array.from(data.types ?? []);
+  if (TEXT_REPRESENTATION_MIME_TYPES.some((mimeType) => types.includes(mimeType))) return "textRepresentation";
+
+  // ③④
+  const fileList = Array.from(files as unknown as ArrayLike<File>);
+  const allImages = fileList.every((file) => file.type.startsWith("image/"));
+  return allImages ? null : "nonImageFile";
 }

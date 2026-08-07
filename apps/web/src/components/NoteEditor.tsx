@@ -13,7 +13,7 @@ import { SuggestionMenuController, useCreateBlockNote } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/mantine";
 import { YDOC_FRAGMENT } from "@knotebook/shared";
 import { useCreateNote, useNotes } from "@/api/notes";
-import { isBlockedMediaTransfer, noteSchema } from "@/collab/schema";
+import { classifyMediaTransfer, type BlockedTransferReason, noteSchema } from "@/collab/schema";
 import { blocknoteZhTW } from "@/i18n/blocknote-zh-TW";
 import { toast } from "@/components/ui/toast";
 import { useTheme } from "@/theme";
@@ -35,8 +35,15 @@ export function collabUserColor(seed: string): string {
 /** i18n 查表函式的最小介面（`useTranslation()` 的 `t` 相容）。 */
 type Translate = (key: string) => string;
 
+/** {@link classifyMediaTransfer} 的攔截原因 → toast i18n key（§12.4）。 */
+const BLOCKED_TRANSFER_TOAST_KEYS: Record<BlockedTransferReason, string> = {
+  dataUrl: "note.transferDataUrl",
+  textRepresentation: "note.transferSaveFirst",
+  nonImageFile: "note.transferNonImage",
+};
+
 /**
- * 圖片阻擋（spec §11.1）的 tiptap `editorProps.handleDOMEvents`。
+ * 媒體 data URL／非圖片檔案阻擋（spec §12.4）的 tiptap `editorProps.handleDOMEvents`。
  *
  * ⚠ **必須是 `handleDOMEvents`，不能用 `handlePaste`/`handleDrop`**（瀏覽器實測踩過，
  * 用後者等於完全沒有防線）：BlockNote 自己註冊了 `handleDOMEvents.paste` 的外掛，
@@ -60,9 +67,10 @@ export function createMediaBlockingDOMEvents(translate: Translate): {
   drop: (view: unknown, event: DragEvent) => boolean;
 } {
   const block = (event: ClipboardEvent | DragEvent, data: DataTransfer | null): boolean => {
-    if (!isBlockedMediaTransfer(data)) return false;
+    const reason = classifyMediaTransfer(data);
+    if (!reason) return false;
     event.preventDefault();
-    toast({ title: translate("note.imageUnsupported") });
+    toast({ title: translate(BLOCKED_TRANSFER_TOAST_KEYS[reason]) });
     return true;
   };
   return {

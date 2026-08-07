@@ -11,15 +11,29 @@ vi.mock("@/components/ui/toast", () => ({ toast: toastMock }));
 
 const { buildNoteEditorOptions, collabUserColor, createMediaBlockingDOMEvents } = await import("./NoteEditor");
 
-/** jsdom 沒有可建構的 DataTransfer，做一個最小替身。 */
-function transfer(options: { files?: number; html?: string; text?: string }): DataTransfer {
+/**
+ * jsdom 沒有可建構的 DataTransfer，做一個最小替身。
+ *
+ * `types` 獨立於 `html`/`text` 之外由呼叫端明講（`classifyMediaTransfer` 規則②只看
+ * `dataTransfer.types` 有沒有列出格式名字，跟 `getData` 撈不撈得到內容是兩回事）；
+ * `files` 用真的 `File` 形狀（`new File([bytes], name, { type })`）——規則③④要讀
+ * `File.type`，舊版只帶 `{ length }` 的假替身撐不住。
+ */
+function transfer(options: { files?: File[]; types?: string[]; html?: string; text?: string }): DataTransfer {
   const map: Record<string, string> = {};
   if (options.html !== undefined) map["text/html"] = options.html;
   if (options.text !== undefined) map["text/plain"] = options.text;
+  const files = options.files ?? [];
   return {
-    files: { length: options.files ?? 0 } as unknown as FileList,
+    files: files as unknown as FileList,
+    types: options.types ?? [],
     getData: (type: string) => map[type] ?? "",
   } as unknown as DataTransfer;
+}
+
+/** 測試用真 `File`——`classifyMediaTransfer` 只讀 `.type`。 */
+function file(name: string, type: string): File {
+  return new File([new Uint8Array([1])], name, { type });
 }
 
 function clipboardEvent(data: DataTransfer): ClipboardEvent {
@@ -34,7 +48,7 @@ function dragEvent(data: DataTransfer): DragEvent {
 
 const translate = (key: string) => `t:${key}`;
 
-describe("createMediaBlockingDOMEvents（§11.1 貼上／拖放攔截）", () => {
+describe("createMediaBlockingDOMEvents（§12.4 貼上／拖放攔截）", () => {
   beforeEach(() => toastMock.mockClear());
 
   it("同時提供 paste 與 drop 兩個 handler", () => {
@@ -43,22 +57,24 @@ describe("createMediaBlockingDOMEvents（§11.1 貼上／拖放攔截）", () =>
     expect(typeof handlers.drop).toBe("function");
   });
 
-  it("貼上檔案 → 回傳 true、preventDefault、toast", () => {
+  it("貼上純 image 檔案 → 回傳 false、不 preventDefault、不 toast（規則③放行，交給 uploadFile 管線）", () => {
     const handlers = createMediaBlockingDOMEvents(translate);
-    const event = clipboardEvent(transfer({ files: 1 }));
+    const event = clipboardEvent(transfer({ files: [file("a.png", "image/png")], types: ["Files"] }));
 
-    expect(handlers.paste(null, event)).toBe(true);
-    expect(event.preventDefault).toHaveBeenCalledTimes(1);
-    expect(toastMock).toHaveBeenCalledWith({ title: "t:note.imageUnsupported" });
+    expect(handlers.paste(null, event)).toBe(false);
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(toastMock).not.toHaveBeenCalled();
   });
 
-  it("拖放檔案 → 回傳 true、preventDefault、toast", () => {
+  it("拖放混合／非 image 檔案 → 回傳 true、preventDefault、對應 toast（規則④）", () => {
     const handlers = createMediaBlockingDOMEvents(translate);
-    const event = dragEvent(transfer({ files: 1 }));
+    const event = dragEvent(
+      transfer({ files: [file("a.png", "image/png"), file("b.pdf", "application/pdf")], types: ["Files"] }),
+    );
 
     expect(handlers.drop(null, event)).toBe(true);
     expect(event.preventDefault).toHaveBeenCalledTimes(1);
-    expect(toastMock).toHaveBeenCalledWith({ title: "t:note.imageUnsupported" });
+    expect(toastMock).toHaveBeenCalledWith({ title: "t:note.transferNonImage" });
   });
 
   it("貼上 text/html 裡的 data URL 圖片（從網頁複製圖片的常見形狀）→ 擋下", () => {
@@ -106,13 +122,14 @@ describe("createMediaBlockingDOMEvents（§11.1 貼上／拖放攔截）", () =>
   it("每次 toast 的文案都是當下的翻譯（語言切換後不會沿用舊字串）", () => {
     let lang = "en";
     const handlers = createMediaBlockingDOMEvents((key) => `${lang}:${key}`);
+    const dataUrlEvent = () => clipboardEvent(transfer({ text: "data:image/png;base64,AAA" }));
 
-    handlers.paste(null, clipboardEvent(transfer({ files: 1 })));
-    expect(toastMock).toHaveBeenLastCalledWith({ title: "en:note.imageUnsupported" });
+    handlers.paste(null, dataUrlEvent());
+    expect(toastMock).toHaveBeenLastCalledWith({ title: "en:note.transferDataUrl" });
 
     lang = "zh";
-    handlers.paste(null, clipboardEvent(transfer({ files: 1 })));
-    expect(toastMock).toHaveBeenLastCalledWith({ title: "zh:note.imageUnsupported" });
+    handlers.paste(null, dataUrlEvent());
+    expect(toastMock).toHaveBeenLastCalledWith({ title: "zh:note.transferDataUrl" });
   });
 });
 
@@ -159,10 +176,20 @@ describe("buildNoteEditorOptions", () => {
     expect(typeof editorProps.handleDOMEvents.drop).toBe("function");
   });
 
-  it("掛上去的 handler 真的會擋檔案貼上（端到端接線，不只是型別對）", () => {
-    const event = clipboardEvent(transfer({ files: 1 }));
+  // spec 點名的假綠高危案例：早前這裡只驗過「有檔案就一律擋」，跟 §12.4 現行語意（純
+  // image 檔要放行）完全脫節，紅了也測不出來。改成兩條，涵蓋放行與攔截各一個真實
+  // File 形狀，確保掛在 `_tiptapOptions.editorProps.handleDOMEvents` 上的**同一個函式
+  // 參照**真的接到了 `classifyMediaTransfer` 的規則。
+  it("掛上去的 handler 真的會放行純 image 檔案貼上（端到端接線，不只是型別對）", () => {
+    const event = clipboardEvent(transfer({ files: [file("a.png", "image/png")], types: ["Files"] }));
+    expect(build()._tiptapOptions.editorProps.handleDOMEvents.paste(null, event)).toBe(false);
+    expect(toastMock).not.toHaveBeenCalled();
+  });
+
+  it("掛上去的 handler 真的會擋非 image 檔案貼上（端到端接線，不只是型別對）", () => {
+    const event = clipboardEvent(transfer({ files: [file("a.pdf", "application/pdf")], types: ["Files"] }));
     expect(build()._tiptapOptions.editorProps.handleDOMEvents.paste(null, event)).toBe(true);
-    expect(toastMock).toHaveBeenCalledWith({ title: "t:note.imageUnsupported" });
+    expect(toastMock).toHaveBeenCalledWith({ title: "t:note.transferNonImage" });
   });
 
   it("語言以 zh 開頭 → 掛繁中字典；其餘 → undefined（BlockNote 預設即英文）", () => {

@@ -49,7 +49,9 @@
     "titleLabel": "Note title",
     "titlePlaceholder": "Untitled",
     "readOnly": "Read-only",
-    "imageUnsupported": "Image upload is coming in a later version.",
+    "transferDataUrl": "Pasting embedded images isn't supported. Try dragging the image file instead.",
+    "transferSaveFirst": "This item can't be inserted directly here. Save it as a file first, then drag it in.",
+    "transferNonImage": "Only image files can be inserted here.",
     "wikilinkBroken": "This linked note no longer exists.",
     "wikilink": {
       "createAndLink": "Create \"{{query}}\" and link",

@@ -49,7 +49,9 @@
     "titleLabel": "筆記標題",
     "titlePlaceholder": "無標題",
     "readOnly": "唯讀",
-    "imageUnsupported": "圖片上傳於後續版本支援",
+    "transferDataUrl": "不支援直接貼上內嵌圖片，請改用拖曳圖片檔案。",
+    "transferSaveFirst": "無法直接插入此項目，請先另存為檔案再拖曳進來。",
+    "transferNonImage": "這裡目前只能插入圖片檔案。",
     "wikilinkBroken": "已連結的筆記不存在。",
     "wikilink": {
       "createAndLink": "建立「{{query}}」並連結",
