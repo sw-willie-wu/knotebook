@@ -302,7 +302,12 @@ describe("PATCH /api/notes/:id", () => {
 describe("DELETE /api/notes/:id", () => {
   it("editor → 403 forbidden；beforeNoteDeleted 未被呼叫（授權失敗須早於 collab teardown，不能被當成 DoS 面利用）", async () => {
     const beforeNoteDeleted = vi.fn(async () => {});
-    const collabHooks: CollabHooks = { onShareChanged: vi.fn(), onUserRevoked: vi.fn(), beforeNoteDeleted };
+    const collabHooks: CollabHooks = {
+      onShareChanged: vi.fn(),
+      onUserRevoked: vi.fn(),
+      beforeNoteDeleted,
+      linkSyncGate: () => ({ ok: false as const }),
+    };
     const { app, db } = await buildTestApp({ collabHooks });
     const owner = await insertUser(db, { email: "owner-del@example.com" });
     const editor = await insertUser(db, { email: "editor-del@example.com" });
@@ -321,7 +326,12 @@ describe("DELETE /api/notes/:id", () => {
 
   it("非相關者 → 404；beforeNoteDeleted 未被呼叫（同上，無權限者不該觸發任何 collab teardown 副作用）", async () => {
     const beforeNoteDeleted = vi.fn(async () => {});
-    const collabHooks: CollabHooks = { onShareChanged: vi.fn(), onUserRevoked: vi.fn(), beforeNoteDeleted };
+    const collabHooks: CollabHooks = {
+      onShareChanged: vi.fn(),
+      onUserRevoked: vi.fn(),
+      beforeNoteDeleted,
+      linkSyncGate: () => ({ ok: false as const }),
+    };
     const { app, db } = await buildTestApp({ collabHooks });
     const owner = await insertUser(db, { email: "owner-del2@example.com" });
     const stranger = await insertUser(db, { email: "stranger-del2@example.com" });
@@ -381,7 +391,12 @@ describe("DELETE /api/notes/:id", () => {
       const rows = await dbRef.current!.select().from(notes).where(eq(notes.id, noteId));
       expect(rows).toHaveLength(1);
     });
-    const collabHooks: CollabHooks = { onShareChanged: vi.fn(), onUserRevoked: vi.fn(), beforeNoteDeleted };
+    const collabHooks: CollabHooks = {
+      onShareChanged: vi.fn(),
+      onUserRevoked: vi.fn(),
+      beforeNoteDeleted,
+      linkSyncGate: () => ({ ok: false as const }),
+    };
 
     const built = await buildTestApp({ collabHooks });
     dbRef.current = built.db;
@@ -405,6 +420,7 @@ describe("DELETE /api/notes/:id", () => {
       beforeNoteDeleted: vi.fn(async () => {
         throw new Error("collab teardown failed");
       }),
+      linkSyncGate: () => ({ ok: false as const }),
     };
     const { app, db } = await buildTestApp({ collabHooks });
 

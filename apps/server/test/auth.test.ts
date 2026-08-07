@@ -361,6 +361,7 @@ describe("POST /api/auth/password", () => {
       onShareChanged: vi.fn(),
       onUserRevoked,
       beforeNoteDeleted: vi.fn(async () => {}),
+      linkSyncGate: () => ({ ok: false as const }),
     };
     const { app, db } = await buildTestApp({ collabHooks });
     const u = await insertUser(db, { email: "laura@example.com" });

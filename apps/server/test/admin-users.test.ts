@@ -54,7 +54,12 @@ async function cookieFor(userId: string, tv = 0): Promise<string> {
 }
 
 function spyCollabHooks(): CollabHooks {
-  return { onShareChanged: vi.fn(), onUserRevoked: vi.fn(), beforeNoteDeleted: vi.fn(async () => {}) };
+  return {
+    onShareChanged: vi.fn(),
+    onUserRevoked: vi.fn(),
+    beforeNoteDeleted: vi.fn(async () => {}),
+    linkSyncGate: () => ({ ok: false as const }),
+  };
 }
 
 const EXPECTED_KEYS = ["id", "email", "displayName", "isAdmin", "disabledAt", "createdAt"].sort();

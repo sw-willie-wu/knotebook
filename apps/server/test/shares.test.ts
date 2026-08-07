@@ -23,7 +23,12 @@ async function cookieFor(userId: string): Promise<string> {
 }
 
 function spyCollabHooks(): CollabHooks {
-  return { onShareChanged: vi.fn(), onUserRevoked: vi.fn(), beforeNoteDeleted: vi.fn(async () => {}) };
+  return {
+    onShareChanged: vi.fn(),
+    onUserRevoked: vi.fn(),
+    beforeNoteDeleted: vi.fn(async () => {}),
+    linkSyncGate: () => ({ ok: false as const }),
+  };
 }
 
 describe("GET /api/notes/:id/shares", () => {

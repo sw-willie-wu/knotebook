@@ -16,12 +16,30 @@
  *   `Y.encodeStateVector(doc)` 與快取不同才寫 `note_state_backups`；pruning
  *  （`backup-policy.selectPrunable`）在同一次寫入內順帶做掉（N10）。
  */
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import * as Y from "yjs";
 import type { Db } from "../db/index.js";
-import { noteStateBackups, noteStates } from "../db/schema.js";
+import { noteStateBackups, noteStates, notes } from "../db/schema.js";
 import { isForeignKeyViolation } from "../db/pg-errors.js";
 import { crossesBucketBoundary, selectPrunable } from "./backup-policy.js";
+
+/**
+ * 文件目前的「邏輯時鐘」——`Y.decodeStateVector(Y.encodeStateVector(doc))` 各 client
+ * 的 seq 值總和。**定於本檔、`collab/server.ts` 只 import 用**：反過來（server.ts 定義、
+ * store.ts import）會形成循環 import（store.ts 已被 server.ts import）。
+ *
+ * 單調不減：state vector 的每個 entry 只會隨編輯遞增，`Y.applyUpdate` 合併不同 client
+ * 的狀態時逐 entry 取兩者較大值，GC（`Y.encodeStateAsUpdate` → `applyUpdate` 往返）不影響
+ * state vector——因此這個總和可以拿來當「wikilink 索引是否已涵蓋此次編輯」的判定基準
+ * （`onLoadDocument` 尾端的 `notes.links_clock` 鉗制、以及 `CollabServer.linkSyncState`）。
+ */
+export function docClock(doc: Y.Doc): number {
+  let total = 0;
+  for (const seq of Y.decodeStateVector(Y.encodeStateVector(doc)).values()) {
+    total += seq;
+  }
+  return total;
+}
 
 export interface StoreLogger {
   warn(obj: object, msg: string): void;
@@ -107,6 +125,22 @@ export function createNoteStore(deps: NoteStoreDeps): NoteStore {
       .orderBy(desc(noteStateBackups.createdAt))
       .limit(1);
     lastBackupAtCache.set(noteId, backupRow?.createdAt ?? null);
+
+    // links_clock 鉗制：載入當下的 doc clock 是「wikilink 索引最多可能涵蓋到」的上界。
+    // ① 主因：note_links 交易是立即 commit 的，但產生該 clock 的 Y.Doc 內容要等
+    //   `onStoreDocument`（debounce 2s/max 10s）才真正落盤——若 process 在這個窗口內被
+    //   砍掉、且沒有 client 回填同一份編輯，重載時 doc 只能還原到「上次落盤」的舊狀態，
+    //   其 clock 會低於已經 commit 的 links_clock，導致 `>=` 閘門（Task 5/9 判斷「是否
+    //   需要重新索引」的比較）永遠鎖死——鉗制在載入當下把 links_clock 夾回 doc 現況，
+    //   解除這個鎖死。② 雙保險配對：還原（restore）runbook（spec §4 決策 2）在同一個
+    //   交易內把 links_clock 重置為 0，兩者一起保證 links_clock 不會卡在「比 doc 實際
+    //   內容更新」的狀態。`LEAST` 是唯一需要的方向：links_clock 若已經 ≤ 這個上界
+    //   （索引器正常運作、追得上或落後的常態）就不動它，不會反過來把落後的索引進度
+    //   提前拉高。
+    await db
+      .update(notes)
+      .set({ linksClock: sql`LEAST(${notes.linksClock}, ${docClock(doc)})` })
+      .where(eq(notes.id, noteId));
 
     return row?.ydoc;
   }

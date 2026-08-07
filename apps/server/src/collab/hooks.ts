@@ -15,10 +15,17 @@ export interface CollabHooks {
   onUserRevoked(userId: string): void;
   /** Plan 2：刪除 note 前 close→flush→unload→輪詢，確保無進行中連線；呼叫方必須在刪除交易前 await。 */
   beforeNoteDeleted(noteId: string): Promise<void>;
+  /**
+   * Plan 3：wikilink 索引器的同步點——委派 `CollabServer.linkSyncState`。`ok:false` 涵蓋
+   * 「文件不在記憶體裡」與「該使用者在這篇筆記上沒有開啟中的連線」兩種情況；呼叫方一律回
+   * 409 `not_loaded`，收斂交由 client 重試與載入後自我修復——沒有 `note_states` 回退路徑。
+   */
+  linkSyncGate(noteId: string, userId: string): { ok: true; clock: number } | { ok: false };
 }
 
 export const noopCollabHooks: CollabHooks = {
   onShareChanged: () => {},
   onUserRevoked: () => {},
   beforeNoteDeleted: async () => {},
+  linkSyncGate: () => ({ ok: false }),
 };

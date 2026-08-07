@@ -76,7 +76,7 @@ import type { Db } from "../db/index.js";
 import type { UserGate } from "../auth/session.js";
 import { resolveRole } from "../notes/service.js";
 import { verifyCollabToken } from "./token.js";
-import { createNoteStore, type StoreLogger } from "./store.js";
+import { createNoteStore, docClock, type StoreLogger } from "./store.js";
 
 /** Hocuspocus 的 `onStoreDocument` debounce（ms）。production 一律 2000——見 Task 7 brief。 */
 const STORE_DEBOUNCE_MS = 2_000;
@@ -152,6 +152,12 @@ export interface CollabServer {
   attach(app: FastifyInstance): void;
   connectionsOf(userId: string): ReadonlySet<ConnectionHandle>;
   connectionsOfNote(noteId: string): ReadonlySet<ConnectionHandle>;
+  /**
+   * wikilink 索引器同步點：`userId` 必須在該文件上有一條開啟中的連線才回傳目前的
+   * `docClock`（`ok: false` 涵蓋兩種情況——文件根本不在記憶體裡，或該使用者沒有任何一條
+   * 已登記的連線在這篇筆記上），否則回 `{ ok: false }`。
+   */
+  linkSyncState(noteId: string, userId: string): { ok: true; clock: number } | { ok: false };
   /**
    * 一次性回呼：該連線下一次 `onTokenSync` 抵達即觸發（Task 6 的 deadline 解除用）。
    *
@@ -499,6 +505,14 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
 
     connectionsOfNote(noteId: string): ReadonlySet<ConnectionHandle> {
       return byNote.get(noteId) ?? EMPTY_HANDLES;
+    },
+
+    linkSyncState(noteId: string, userId: string): { ok: true; clock: number } | { ok: false } {
+      const doc = hocuspocus.documents.get(noteId);
+      if (!doc) return { ok: false };
+      const hasConnection = [...(byNote.get(noteId) ?? EMPTY_HANDLES)].some(c => c.userId === userId);
+      if (!hasConnection) return { ok: false };
+      return { ok: true, clock: docClock(doc) };
     },
 
     onNextTokenSync(handle: ConnectionHandle, cb: () => void): void {

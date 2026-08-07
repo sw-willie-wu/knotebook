@@ -197,5 +197,9 @@ export function createCollabHooks(server: CollabServer, log: CollabHooksLogger =
         log.error({ err: error, noteId }, "collab beforeNoteDeleted 清場失敗，仍繼續刪除");
       }
     },
+
+    linkSyncGate(noteId: string, userId: string): { ok: true; clock: number } | { ok: false } {
+      return server.linkSyncState(noteId, userId);
+    },
   };
 }
