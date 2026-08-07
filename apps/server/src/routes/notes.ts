@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { and, desc, eq, ne, or, sql } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/pg-core";
-import { MAX_LINK_TARGETS, type NoteDto, type Role, type ShareDto } from "@knotebook/shared";
+import { MAX_LINK_TARGETS, type BacklinkDto, type NoteDto, type Role, type ShareDto } from "@knotebook/shared";
 import { sendError } from "../http/errors.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
@@ -10,7 +10,7 @@ import { noteLinks, noteShares, noteStateBackups, noteStates, notes, uploads, us
 import type { CollabHooks } from "../collab/hooks.js";
 import { resolveRole, UUID_RE } from "../notes/service.js";
 import { prepareSlugForPatch, resolveNoteIdFromRef } from "../notes/slug.js";
-import { normalizeLinkTargets, writeNoteLinks, type WriteNoteLinksHooks } from "../notes/links.js";
+import { fetchBacklinks, normalizeLinkTargets, writeNoteLinks, type WriteNoteLinksHooks } from "../notes/links.js";
 import { signCollabToken } from "../collab/token.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
 import { isForeignKeyViolation, isUniqueViolation } from "../db/pg-errors.js";
@@ -334,6 +334,30 @@ export function notesRoutes(deps: NotesRouteDeps) {
       }
 
       return reply.code(204).send();
+    });
+
+    /**
+     * 反向連結清單（spec §12.3）：查詢連到 `:id` 的來源筆記，供 backlinks 面板渲染。
+     *
+     * 這裡的 `resolveRole` 判斷的是「呼叫者對被查詢的筆記本身」有沒有讀取權（none →
+     * 404 `not_found`，與其他 notes 路由的防列舉慣例一致；非 uuid `:id` 經
+     * `resolveRole` 內部的 `UUID_RE` guard 天然落在同一個 404 分支，不需要另外判斷）。
+     * **不代表呼叫者對每篇來源筆記都有權**——來源筆記各自的可見範圍另外在
+     * `fetchBacklinks` 內用 owned ∪ shared 的授權述詞 inline 過濾（單一 SQL，見該函式
+     * 註解），避免把無權筆記的存在與標題洩漏給呼叫者（spec §12.3 逐字：「反向連結讀取
+     * 端同樣過濾」）。
+     */
+    app.get("/api/notes/:id/backlinks", { preHandler: app.authenticate }, async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const userId = request.user!.id;
+
+      const role = await resolveRole(deps.db, userId, id);
+      if (role === "none") {
+        return sendError(reply, 404, "not_found", "找不到此筆記");
+      }
+
+      const backlinks: BacklinkDto[] = await fetchBacklinks(deps.db, id, userId);
+      return { backlinks };
     });
 
     app.delete("/api/notes/:id", { preHandler: app.authenticate }, async (request, reply) => {

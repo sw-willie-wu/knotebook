@@ -3,9 +3,9 @@
  * body 驗證、權限矩陣與 `linkSyncGate` 呼叫；本檔專責「正規化目標集合」與「單一交易內
  * CAS clock + 批次授權 + 整組取代 note_links」。
  */
-import { and, eq, inArray, lte, notInArray } from "drizzle-orm";
+import { and, desc, eq, inArray, lte, notInArray } from "drizzle-orm";
 import { union } from "drizzle-orm/pg-core";
-import { MAX_LINK_TARGETS } from "@knotebook/shared";
+import { MAX_BACKLINKS, MAX_LINK_TARGETS, type BacklinkDto } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
 import { noteLinks, noteShares, notes } from "../db/schema.js";
 import { isForeignKeyViolation, isTransientTransactionError } from "../db/pg-errors.js";
@@ -124,4 +124,46 @@ export async function writeNoteLinks(db: Db, params: WriteNoteLinksParams, hooks
     if (isTransientTransactionError(err)) return "busy";
     throw err;
   }
+}
+
+/**
+ * `GET /api/notes/:id/backlinks` 的查詢核心（spec §12.3）：routes/notes.ts 只負責先用
+ * `resolveRole` 判斷呼叫者對「被查詢的筆記本身」有沒有讀取權（none → 404）；本函式回答
+ * 另一個問題——連到該筆記的**來源**筆記裡，哪些是呼叫者看得到的（owner 或有分享）。
+ *
+ * 單一 SQL、讀者授權述詞 inline：`note_links` JOIN `notes`（來源筆記）鎖定
+ * `target_note_id = :targetNoteId`，分成 `ownedSelect`（來源筆記 owner_id = 呼叫者）與
+ * `sharedSelect`（來源筆記在 `note_shares` 有呼叫者的一列）兩支，`union()`（非
+ * `unionAll`——形狀比照 `attemptOnce` 的批次授權查詢：owner 與 shared 理論上互斥，但用
+ * 真正的 SQL UNION 讓「同一來源筆記兩邊都命中」這種邊界情況天然被去重，不必額外加
+ * `ne(ownerId, userId)` 排除）。**不對每篇來源筆記各自呼叫 `resolveRole`**——那樣是
+ * N+1 查詢，且審查會抓到「來源筆記存在性/標題被無權限地個別洩漏」的風險。
+ *
+ * `ORDER BY notes.updated_at DESC, notes.id DESC LIMIT MAX_BACKLINKS`（spec 逐字）：次要
+ * 排序鍵 `id DESC` 必須有——`updated_at` 是 `defaultNow()`，同一交易內批次 insert 的
+ * fixture（測試造時序）時間戳會完全相同，缺了次要鍵會讓 LIMIT 邊界不確定、排序斷言
+ * flake（`routes/notes.ts` 的 `GET /api/notes` 列表查詢已踩過同一雷，見該處註解）。
+ * 過濾（讀者授權 WHERE 述詞）必須先於 LIMIT——此處自然滿足（`union()` 兩支各自的
+ * `where` 在 `union` 結果之上才 `orderBy`/`limit`，SQL 語意上濾動作發生在截斷之前）。
+ * `notes.updated_at` 只用來排序、不進 `BacklinkDto`（回應形狀是 `{id, title, slug}`）。
+ */
+export async function fetchBacklinks(db: Db, targetNoteId: string, userId: string): Promise<BacklinkDto[]> {
+  const ownedSelect = db
+    .select({ id: notes.id, title: notes.title, slug: notes.slug, updatedAt: notes.updatedAt })
+    .from(noteLinks)
+    .innerJoin(notes, eq(notes.id, noteLinks.sourceNoteId))
+    .where(and(eq(noteLinks.targetNoteId, targetNoteId), eq(notes.ownerId, userId)));
+
+  const sharedSelect = db
+    .select({ id: notes.id, title: notes.title, slug: notes.slug, updatedAt: notes.updatedAt })
+    .from(noteLinks)
+    .innerJoin(notes, eq(notes.id, noteLinks.sourceNoteId))
+    .innerJoin(noteShares, and(eq(noteShares.noteId, notes.id), eq(noteShares.userId, userId)))
+    .where(eq(noteLinks.targetNoteId, targetNoteId));
+
+  const rows = await union(ownedSelect, sharedSelect)
+    .orderBy(desc(notes.updatedAt), desc(notes.id))
+    .limit(MAX_BACKLINKS);
+
+  return rows.map(row => ({ id: row.id, title: row.title, slug: row.slug }));
 }

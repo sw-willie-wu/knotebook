@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { describe, it, expect } from "vitest";
 import { eq } from "drizzle-orm";
-import { MAX_LINK_TARGETS, SESSION_COOKIE } from "@knotebook/shared";
+import { MAX_BACKLINKS, MAX_LINK_TARGETS, SESSION_COOKIE } from "@knotebook/shared";
 import { buildTestApp, testConfig } from "./helpers.js";
 import { notes, noteLinks, noteShares, users } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
@@ -414,5 +414,148 @@ describe("POST /api/notes/:id/links", () => {
     expect(res.statusCode).toBe(409);
     expect(res.json()).toMatchObject({ error: { code: "not_loaded" } });
     expect(await linkedTargets(db, source.id)).toEqual([]);
+  });
+});
+
+describe("GET /api/notes/:id/backlinks", () => {
+  it("讀者過濾：只回讀者自己看得到的來源筆記（owned／shared 命中，陌生人未分享的來源被濾除）", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-backlinks1@example.com" });
+    const stranger = await insertUser(db, { email: "stranger-backlinks1@example.com" });
+    const editor = await insertUser(db, { email: "editor-backlinks1@example.com" });
+    const ownerCookie = await cookieFor(owner.id);
+    const editorCookie = await cookieFor(editor.id);
+
+    const target = await createNote(db, owner.id, "Target");
+    // owner 自己的來源筆記：owner 查詢時走 owned 分支可見。
+    const ownedSource = await createNote(db, owner.id, "Owned Source");
+    await db.insert(noteLinks).values({ sourceNoteId: ownedSource.id, targetNoteId: target.id });
+    // 陌生人的來源筆記，分享給 owner（viewer）：owner 查詢時走 shared 分支可見。
+    const sharedSource = await createNote(db, stranger.id, "Shared Source");
+    await db.insert(noteShares).values({ noteId: sharedSource.id, userId: owner.id, role: "viewer" });
+    await db.insert(noteLinks).values({ sourceNoteId: sharedSource.id, targetNoteId: target.id });
+    // 陌生人的來源筆記，未分享給任何人：owner 查詢時必須被濾除（即使它確實連到 target）。
+    const forbiddenSource = await createNote(db, stranger.id, "Forbidden Source");
+    await db.insert(noteLinks).values({ sourceNoteId: forbiddenSource.id, targetNoteId: target.id });
+
+    // editor 對 target 有分享權（editor 角色），但對 ownedSource／sharedSource 皆無權——
+    // editor 自己也擁有一篇連到 target 的筆記，驗證過濾是「以查詢者為準」而非「以 target
+    // owner 為準」：owner 看得到的三篇裡 editor 應該只看得到自己擁有的那篇。
+    await db.insert(noteShares).values({ noteId: target.id, userId: editor.id, role: "editor" });
+    const editorOwnSource = await createNote(db, editor.id, "Editor Own Source");
+    await db.insert(noteLinks).values({ sourceNoteId: editorOwnSource.id, targetNoteId: target.id });
+
+    const ownerRes = await app.inject({ method: "GET", url: `/api/notes/${target.id}/backlinks`, cookies: { [SESSION_COOKIE]: ownerCookie } });
+    expect(ownerRes.statusCode).toBe(200);
+    const ownerIds = ownerRes.json().backlinks.map((b: { id: string }) => b.id).sort();
+    expect(ownerIds).toEqual([ownedSource.id, sharedSource.id].sort());
+
+    const editorRes = await app.inject({ method: "GET", url: `/api/notes/${target.id}/backlinks`, cookies: { [SESSION_COOKIE]: editorCookie } });
+    expect(editorRes.statusCode).toBe(200);
+    expect(editorRes.json().backlinks).toEqual([{ id: editorOwnSource.id, title: "Editor Own Source", slug: null }]);
+  });
+
+  it("排序：updatedAt desc，同一交易內批次建立（同 defaultNow 時間戳）的來源筆記靠 id desc 打破平手", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-backlinks2@example.com" });
+    const cookie = await cookieFor(owner.id);
+    const target = await createNote(db, owner.id, "Target");
+
+    // 同一交易內批次 insert：三篇來源筆記的 updatedAt（defaultNow）彼此相同——若排序只靠
+    // updatedAt desc，這三筆的相對順序不確定，必須靠 id desc 次要鍵才能穩定斷言。
+    const tied = await db.transaction(async tx => {
+      const rows = await tx
+        .insert(notes)
+        .values([
+          { ownerId: owner.id, title: "Tied A" },
+          { ownerId: owner.id, title: "Tied B" },
+          { ownerId: owner.id, title: "Tied C" },
+        ])
+        .returning({ id: notes.id });
+      await tx.insert(noteLinks).values(rows.map(r => ({ sourceNoteId: r.id, targetNoteId: target.id })));
+      return rows;
+    });
+
+    // 另一筆交易稍後才建立：新交易的 defaultNow 時間戳必然晚於上面那批，應排在最前面。
+    const later = await createNote(db, owner.id, "Later");
+    await db.insert(noteLinks).values({ sourceNoteId: later.id, targetNoteId: target.id });
+
+    const res = await app.inject({ method: "GET", url: `/api/notes/${target.id}/backlinks`, cookies: { [SESSION_COOKIE]: cookie } });
+    expect(res.statusCode).toBe(200);
+    const ids = res.json().backlinks.map((b: { id: string }) => b.id);
+
+    const tiedIdsDesc = tied.map(r => r.id).sort().reverse();
+    expect(ids).toEqual([later.id, ...tiedIdsDesc]);
+  });
+
+  it(`上限：超過 MAX_BACKLINKS（${MAX_BACKLINKS}）篇來源筆記 → 截斷回 ${MAX_BACKLINKS} 篇，取 updatedAt/id 最新的那批`, async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-backlinks3@example.com" });
+    const cookie = await cookieFor(owner.id);
+    const target = await createNote(db, owner.id, "Target");
+
+    const total = MAX_BACKLINKS + 1;
+    const sourceIds = await db.transaction(async tx => {
+      const rows = await tx
+        .insert(notes)
+        .values(Array.from({ length: total }, (_, i) => ({ ownerId: owner.id, title: `Source ${i}` })))
+        .returning({ id: notes.id });
+      await tx.insert(noteLinks).values(rows.map(r => ({ sourceNoteId: r.id, targetNoteId: target.id })));
+      return rows.map(r => r.id);
+    });
+
+    const res = await app.inject({ method: "GET", url: `/api/notes/${target.id}/backlinks`, cookies: { [SESSION_COOKIE]: cookie } });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.backlinks).toHaveLength(MAX_BACKLINKS);
+
+    // 全部來源筆記在同一交易內建立（updatedAt 全平手），截斷只能靠 id desc 決定留下哪批。
+    const expectedTop = [...sourceIds].sort().reverse().slice(0, MAX_BACKLINKS);
+    expect(body.backlinks.map((b: { id: string }) => b.id)).toEqual(expectedTop);
+  });
+
+  it("未登入 → 401", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-backlinks4@example.com" });
+    const target = await createNote(db, owner.id);
+
+    const res = await app.inject({ method: "GET", url: `/api/notes/${target.id}/backlinks` });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("讀者對 :id 無讀取權（陌生人）→ 404", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-backlinks5@example.com" });
+    const stranger = await insertUser(db, { email: "stranger-backlinks5@example.com" });
+    const strangerCookie = await cookieFor(stranger.id);
+    const target = await createNote(db, owner.id);
+
+    const res = await app.inject({ method: "GET", url: `/api/notes/${target.id}/backlinks`, cookies: { [SESSION_COOKIE]: strangerCookie } });
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toMatchObject({ error: { code: "not_found" } });
+  });
+
+  it("不存在的 note → 404", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-backlinks6@example.com" });
+    const cookie = await cookieFor(owner.id);
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/notes/00000000-0000-0000-0000-000000000000/backlinks",
+      cookies: { [SESSION_COOKIE]: cookie },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toMatchObject({ error: { code: "not_found" } });
+  });
+
+  it("非 uuid 格式的 :id → 404（不 500）", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-backlinks7@example.com" });
+    const cookie = await cookieFor(owner.id);
+
+    const res = await app.inject({ method: "GET", url: "/api/notes/not-a-uuid/backlinks", cookies: { [SESSION_COOKIE]: cookie } });
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toMatchObject({ error: { code: "not_found" } });
   });
 });
