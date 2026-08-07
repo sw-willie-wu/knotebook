@@ -331,7 +331,14 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     } satisfies NonNullable<AppDeps["limiters"]>);
 
   void app.register(
-    notesRoutes({ db: deps.db, collabHooks: deps.collabHooks, config: deps.config, limiters, linkSyncTestHooks: deps.linkSyncTestHooks })
+    notesRoutes({
+      db: deps.db,
+      collabHooks: deps.collabHooks,
+      config: deps.config,
+      limiters,
+      linkSyncTestHooks: deps.linkSyncTestHooks,
+      uploadsDir: deps.uploadsDir,
+    })
   );
   void app.register(adminUsersRoutes({ db: deps.db, gate: deps.gate, collabHooks: deps.collabHooks }));
   // `NotesRouteDeps.limiters` 的型別只列 `collabToken`/`slugPatch`（刻意不改，見該

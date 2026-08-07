@@ -14,6 +14,7 @@ import { fetchBacklinks, normalizeLinkTargets, writeNoteLinks, type WriteNoteLin
 import { signCollabToken } from "../collab/token.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
 import { isForeignKeyViolation, isUniqueViolation } from "../db/pg-errors.js";
+import { deleteUploadFiles } from "../uploads/service.js";
 
 // 建立時 title 允許省略（DB 端有 default "Untitled"），但若有帶就不可為空字串——
 // 與 PATCH 的 title 驗證同一套規則，避免「傳空字串把標題清空」這種語意混淆的落地方式。
@@ -52,6 +53,12 @@ export interface NotesRouteDeps {
   limiters: { collabToken: FixedWindowLimiter; slugPatch: FixedWindowLimiter };
   /** Task 5：`POST /api/notes/:id/links` 寫入函式的測試注入縫，透傳自 `AppDeps.linkSyncTestHooks`。 */
   linkSyncTestHooks?: WriteNoteLinksHooks;
+  /**
+   * Task 11：DELETE note 交易 commit 後，補刪該筆記名下上傳 blob 檔案要用的目錄——
+   * 與 `UploadsRouteDeps.uploadsDir`／`AppConfig` 同一份，透傳自 `AppDeps.uploadsDir`
+   * （見 `app.ts` 註冊點）。
+   */
+  uploadsDir: string;
 }
 
 // 只列出 toNoteDto 實際會用到的欄位（而非完整 `typeof notes.$inferSelect`）：GET
@@ -378,14 +385,27 @@ export function notesRoutes(deps: NotesRouteDeps) {
       // Plan 1 這裡注入的是 noopCollabHooks，本身不做任何事；此呼叫只是先把接縫留好。
       await deps.collabHooks.beforeNoteDeleted(id);
 
-      await deps.db.transaction(async tx => {
+      // `.returning({ id })`（Task 11）：交易內只確定「哪些 upload 列被刪了」，實際的
+      // 磁碟檔案刪除留到 commit 之後才動手——DB rollback 救不回已經被刪掉的檔案，兩件
+      // 事不可合併在同一個交易語意下（見 `deleteUploadFiles` 的完整說明）。
+      const deletedUploads = await deps.db.transaction(async tx => {
         await tx.delete(noteStates).where(eq(noteStates.noteId, id));
         await tx.delete(noteStateBackups).where(eq(noteStateBackups.noteId, id));
         await tx.delete(noteShares).where(eq(noteShares.noteId, id));
         await tx.delete(noteLinks).where(or(eq(noteLinks.sourceNoteId, id), eq(noteLinks.targetNoteId, id)));
-        await tx.delete(uploads).where(eq(uploads.noteId, id));
+        const deleted = await tx.delete(uploads).where(eq(uploads.noteId, id)).returning({ id: uploads.id });
         await tx.delete(notes).where(eq(notes.id, id));
+        return deleted;
       });
+
+      // best-effort，commit 之後才動磁碟：單一檔案刪除失敗（含檔案本來就已經不存在）
+      // 只記 log，不影響這支 request 的成功回應——DB 端已經確定 commit 成功，這才是
+      // 呼叫端真正在意的結果（見 `deleteUploadFiles` 的完整說明）。
+      await deleteUploadFiles(
+        deps.uploadsDir,
+        deletedUploads.map(u => u.id),
+        request.log
+      );
 
       return reply.code(204).send();
     });

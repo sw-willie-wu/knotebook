@@ -1,3 +1,5 @@
+import { existsSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import { describe, it, expect, vi } from "vitest";
 import { eq, or } from "drizzle-orm";
 import { SESSION_COOKIE } from "@knotebook/shared";
@@ -445,5 +447,91 @@ describe("DELETE /api/notes/:id", () => {
 
     const res = await app.inject({ method: "DELETE", url: `/api/notes/${note.id}` });
     expect(res.statusCode).toBe(401);
+  });
+
+  it("owner → 204，交易 commit 後補刪已存在的上傳 blob 檔案（Task 11；含跨筆記引用同一 blob 的情況——intended，該檔案仍隨其唯一歸屬的來源筆記一起被刪，見 task-11-brief）", async () => {
+    const { app, db, uploadsDir } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-del6@example.com" });
+    const ownerCookie = await cookieFor(owner.id);
+
+    const createRes = await app.inject({ method: "POST", url: "/api/notes", cookies: { [SESSION_COOKIE]: ownerCookie }, payload: {} });
+    const note = createRes.json();
+
+    const [upload] = await db
+      .insert(uploads)
+      .values({ noteId: note.id, uploaderId: owner.id, mime: "image/png", size: 4 })
+      .returning();
+    const filePath = path.join(uploadsDir, upload.id);
+    writeFileSync(filePath, Buffer.from([1, 2, 3, 4]));
+    expect(existsSync(filePath)).toBe(true);
+
+    const delRes = await app.inject({ method: "DELETE", url: `/api/notes/${note.id}`, cookies: { [SESSION_COOKIE]: ownerCookie } });
+    expect(delRes.statusCode).toBe(204);
+
+    expect(await db.select().from(uploads).where(eq(uploads.id, upload.id))).toHaveLength(0);
+    expect(existsSync(filePath)).toBe(false);
+  });
+
+  it("上傳列存在但磁碟檔案已不存在 → DELETE 仍 204（best-effort 補刪失敗僅 log，不炸）", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-del7@example.com" });
+    const ownerCookie = await cookieFor(owner.id);
+
+    const createRes = await app.inject({ method: "POST", url: "/api/notes", cookies: { [SESSION_COOKIE]: ownerCookie }, payload: {} });
+    const note = createRes.json();
+
+    // 只塞 DB 列、不寫實際檔案——模擬磁碟上該檔案已經不存在（例如 volume 被清過、手動誤刪）。
+    await db.insert(uploads).values({ noteId: note.id, uploaderId: owner.id, mime: "image/png", size: 4 });
+
+    const delRes = await app.inject({ method: "DELETE", url: `/api/notes/${note.id}`, cookies: { [SESSION_COOKIE]: ownerCookie } });
+    expect(delRes.statusCode).toBe(204);
+  });
+
+  it("blob 補刪必須在交易 commit 之後才執行——commit 前的任何失敗（模擬用強制 rollback）都不能提前刪檔（Task 11 審查 Important-1 護欄：若刪檔被誤放進交易 callback 內，rollback 後 DB 列會復活，但檔案已經永久消失，形成資料與磁碟不一致）", async () => {
+    const { app, db, uploadsDir } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-del8@example.com" });
+    const ownerCookie = await cookieFor(owner.id);
+
+    const createRes = await app.inject({ method: "POST", url: "/api/notes", cookies: { [SESSION_COOKIE]: ownerCookie }, payload: {} });
+    const note = createRes.json();
+
+    const [upload] = await db
+      .insert(uploads)
+      .values({ noteId: note.id, uploaderId: owner.id, mime: "image/png", size: 4 })
+      .returning();
+    const filePath = path.join(uploadsDir, upload.id);
+    writeFileSync(filePath, Buffer.from([1, 2, 3, 4]));
+
+    // 強制交易在 callback（DELETE 交易本體）跑完之後 rollback，模擬「commit 前的任何
+    // 失敗」（例如 DB 連線在 commit 那一刻斷線）——不是真的走到我們自己程式碼裡任何
+    // 已知分支，純粹是測試替身逼出「callback 已跑完、但整個交易最終沒有 commit」這個
+    // 狀態，藉此檢驗「刪檔只能發生在交易確定 commit 之後」這個順序契約本身，而不是檢驗
+    // 某個特定的錯誤處理分支。
+    //
+    // db.transaction 是 drizzle 的泛型 overload（回呼型別與具體 schema/query 型別綁定），
+    // 這裡只是包一層「跑完 callback 後強制 throw」的測試替身，逐字對齊完整泛型簽章在這裡
+    // 沒有實質好處（同 repo 既有測試替身走 any 的慣例，見
+    // apps/web/src/components/wikilink/spec.tsx 等處）。
+    /* eslint-disable @typescript-eslint/no-explicit-any -- 見上方註解 */
+    const orig = db.transaction.bind(db);
+    const transactionSpy = vi.spyOn(db, "transaction").mockImplementation((cb: any, cfg?: any) =>
+      orig(async (tx: any) => {
+        await cb(tx);
+        throw new Error("forced rollback（測試替身，非真實錯誤）");
+      }, cfg)
+    );
+    /* eslint-enable @typescript-eslint/no-explicit-any */
+
+    try {
+      const delRes = await app.inject({ method: "DELETE", url: `/api/notes/${note.id}`, cookies: { [SESSION_COOKIE]: ownerCookie } });
+      expect(delRes.statusCode).toBe(500);
+
+      // rollback 生效：uploads 列復活。
+      expect(await db.select().from(uploads).where(eq(uploads.id, upload.id))).toHaveLength(1);
+      // 檔案未被提前刪除——這是本測試真正要護的契約：刪檔只能發生在 commit 確定成功之後。
+      expect(existsSync(filePath)).toBe(true);
+    } finally {
+      transactionSpy.mockRestore();
+    }
   });
 });

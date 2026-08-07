@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { rename, stat, unlink, writeFile } from "node:fs/promises";
-import path from "node:path";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { sendError } from "../http/errors.js";
@@ -11,6 +10,7 @@ import { uploads } from "../db/schema.js";
 import { resolveRole, UUID_RE } from "../notes/service.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
 import { detectImageMimeType } from "../uploads/magic-bytes.js";
+import { uploadFilePath } from "../uploads/service.js";
 
 export interface UploadsRouteDeps {
   db: Db;
@@ -18,14 +18,6 @@ export interface UploadsRouteDeps {
   /** per-user 節流（`UPLOAD_LIMIT`，同 collabToken/slugPatch 慣例，key=userId）。 */
   limiters: { upload: FixedWindowLimiter };
   uploadsDir: string;
-}
-
-/**
- * 上傳檔案在磁碟上的實際路徑——固定用 DB 主鍵 `id`（無副檔名）當檔名，`Content-Type`
- * 一律由 GET 端在回應時從 DB 的 `mime`（偵測值）欄位回填，不依賴檔名推斷。
- */
-function uploadFilePath(uploadsDir: string, id: string): string {
-  return path.join(uploadsDir, id);
 }
 
 /**
