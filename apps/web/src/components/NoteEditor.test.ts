@@ -143,7 +143,7 @@ describe("buildNoteEditorOptions", () => {
 
   afterEach(() => doc.destroy());
 
-  const build = (language = "en", editorRef: EditorRef = { current: null }) =>
+  const build = (language = "en", editorRef: EditorRef = { current: null }, noteId = "note-1") =>
     buildNoteEditorOptions({
       doc,
       provider: { awareness: null } as never,
@@ -151,6 +151,7 @@ describe("buildNoteEditorOptions", () => {
       language,
       translate,
       editorRef,
+      noteId,
     });
 
   it("共編 fragment 用 shared 的 YDOC_FRAGMENT（與 server 的 collab/store 同名）", () => {
@@ -162,6 +163,10 @@ describe("buildNoteEditorOptions", () => {
 
   it("schema 不含 image block（§11.1 第一道防線）", () => {
     expect(Object.keys(build().schema.blockSpecs)).not.toContain("image");
+  });
+
+  it("uploadFile 選項有掛上去（Task 13，接 createUploadFile）", () => {
+    expect(typeof build().uploadFile).toBe("function");
   });
 
   it("攔截掛在 editorProps.handleDOMEvents，**不是** handlePaste/handleDrop", () => {
@@ -239,6 +244,7 @@ describe("buildNoteEditorOptions 的 [[ 觸發偵測（handleTextInput）", () =
       language: "en",
       translate,
       editorRef,
+      noteId: "note-1",
     });
     handleTextInput = options._tiptapOptions.editorProps.handleTextInput as typeof handleTextInput;
 
@@ -295,5 +301,136 @@ describe("buildNoteEditorOptions 的 [[ 觸發偵測（handleTextInput）", () =
     expect(handled).toBe(false);
     expect(editor.getExtension(SuggestionMenu)!.shown()).toBe(false);
     expect(editor.transact((tr) => tr.doc.textContent)).toBe("Hello");
+  });
+});
+
+// ── uploadFile 真的接上 handleFileInsertion（Task 13）───────────────────────────
+//
+// `handleFileInsertion` 不是 `@blocknote/core` 的公開匯出，唯一「真的走它」的辦法是
+// mount 編輯器後派發真的 `paste` DOM 事件，讓 BlockNote 自己的 paste 外掛
+// （`pasteExtension.ts`，一律先跑我們的 `createMediaBlockingDOMEvents.paste`——純
+// image 檔放行，回傳 false 落回 BlockNote）接手，呼叫到 `editor.uploadFile`。
+//
+// jsdom 30 沒有可建構的 `ClipboardEvent`/`DataTransfer`：用最小替身（`types`/`items`/
+// `files`）掛在一個普通 `Event` 上派發，`handleFileInsertion` 只讀這三個欄位
+// （`acceptedMIMETypes` 判斷走 `types`，實際取檔案走 `items[i].getAsFile()`），
+// 不需要 `getData`（"Files" 分支不會呼叫它，見 `pasteExtension.ts` defaultPasteHandler）。
+//
+// 上傳失敗（4xx）的清除是 `setTimeout(…, 0)` 排的 macrotask，而
+// `editor.updateBlock(insertedBlockId, …)`（把 url 寫回 block）是 `await
+// editor.uploadFile(...)` resolve 後的**微任務續體**——都在我們自己這邊等待期間，用
+// 一個真的 `setTimeout(resolve, 0)` 就能把兩者一起沖掉（微任務保證先跑完）。清除本身
+// 是**另一個**排在後面的 macrotask，因此驗證「block 被清掉」要多等一輪。
+describe("buildNoteEditorOptions 的 uploadFile 真接線（handleFileInsertion，Task 13）", () => {
+  let doc: Y.Doc;
+  let editorRef: EditorRef;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 測試用編輯器，走 repo 慣例的 BlockNoteEditor<any,any,any>
+  let editor: BlockNoteEditor<any, any, any>;
+  let container: HTMLElement;
+
+  beforeEach(() => {
+    toastMock.mockClear();
+    doc = new Y.Doc();
+    editorRef = { current: null };
+    const options = buildNoteEditorOptions({
+      doc,
+      provider: { awareness: null } as never,
+      user: { id: "user-1", name: "Ann" },
+      language: "en",
+      translate,
+      editorRef,
+      noteId: "note-1",
+    });
+
+    editor = BlockNoteEditor.create(options);
+    editorRef.current = editor;
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    editor.mount(container);
+
+    // 讓游標所在的 block 已有內容——`handleFileInsertion` 的 `insertOrUpdateBlock` 對
+    // 「空 block」是原地 `updateBlock`（覆蓋掉整個唯一的 block，很難斷言生命週期），
+    // 對「非空 block」則是 `insertBlocks(...,"after")`，會多出一個全新的 block——後者
+    // 才有獨立的插入／移除可以觀察，且不用管它的內部 id。
+    editor.insertInlineContent(["hello"]);
+  });
+
+  afterEach(() => {
+    editor.unmount();
+    container.remove();
+    doc.destroy();
+    vi.unstubAllGlobals();
+  });
+
+  function fakeResponse({ ok, status, json }: { ok: boolean; status: number; json?: () => Promise<unknown> }): Response {
+    return { ok, status, json: json ?? (() => Promise.reject(new Error("no body"))) } as unknown as Response;
+  }
+
+  function pasteFile(file: File): void {
+    // `getData` 一定要在——`createMediaBlockingDOMEvents` 掛的 handler（規則③放行前）
+    // 先跑一手 `classifyMediaTransfer`，它會呼叫 `data.getData("text/html"/"text/plain")`
+    // 找內嵌 data URL；沒有這個方法會直接炸掉整個事件派發（真實瀏覽器的 DataTransfer
+    // 一律有這個方法，純圖片貼上時回空字串）。
+    const clipboardData = {
+      types: ["Files"],
+      items: [{ type: file.type, getAsFile: () => file }],
+      files: [file],
+      getData: () => "",
+    };
+    const event = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "clipboardData", { value: clipboardData });
+    editor._tiptapEditor.view.dom.dispatchEvent(event);
+  }
+
+  const imageFile = () => new File([new Uint8Array([1])], "a.png", { type: "image/png" });
+
+  async function flushMacrotask(): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  it("成功：貼上圖片檔案真的觸發 uploadFile，block 拿到回傳的 url（不釘 block type——image 尚未進 schema，Task 14）", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      fakeResponse({ ok: true, status: 201, json: () => Promise.resolve({ id: "u1", url: "/api/uploads/u1" }) }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const before = editor.document.length;
+
+    pasteFile(imageFile());
+
+    // placeholder block 是 `insertOrUpdateBlock` 同步插入的，不必等待任何非同步結果。
+    expect(editor.document.length).toBe(before + 1);
+
+    await flushMacrotask();
+
+    const placeholder = editor.document[editor.document.length - 1];
+    expect((placeholder.props as Record<string, unknown>).url).toBe("/api/uploads/u1");
+    expect(toastMock).not.toHaveBeenCalled();
+  });
+
+  it("失敗（4xx）：toast 一則、placeholder block 在下一輪 macrotask 後才被移除（排序：updateBlock 先跑完，才輪到移除）", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      fakeResponse({
+        ok: false,
+        status: 415,
+        json: () => Promise.resolve({ error: { code: "unsupported_media_type", message: "nope" } }),
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const before = editor.document.length;
+
+    pasteFile(imageFile());
+    expect(editor.document.length).toBe(before + 1);
+
+    await flushMacrotask();
+    // 這一輪：uploadFile 的 promise 已 resolve（sentinel ""）、toast 已觸發、
+    // `handleFileInsertion` 的 `editor.updateBlock(...)` 也已同步跑完——但清除排的是
+    // *另一個*、更晚註冊的 macrotask，這裡還沒到它。
+    expect(toastMock).toHaveBeenCalledWith({ title: "t:errors.unsupported_media_type" });
+    expect(editor.document.length).toBe(before + 1);
+
+    await flushMacrotask();
+
+    expect(editor.document.length).toBe(before);
   });
 });

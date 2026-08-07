@@ -18,6 +18,7 @@ import { blocknoteZhTW } from "@/i18n/blocknote-zh-TW";
 import { toast } from "@/components/ui/toast";
 import { useTheme } from "@/theme";
 import { buildWikilinkMenuItems, type EditorRef } from "@/components/wikilink/menu";
+import { createUploadFile } from "@/uploads/upload-file";
 
 /**
  * 共編游標的顏色。同一個使用者在任何裝置、任何筆記都要是同一色，所以不能用亂數——
@@ -91,6 +92,9 @@ export interface NoteEditorOptionsInput {
    * `[[` 觸發偵測要在使用者真的打字的當下才讀取 editor，只能透過這個 ref 取得
    * ——見 `@/components/wikilink/menu` 的 `EditorRef` 說明。 */
   editorRef: EditorRef;
+  /** 目前這篇筆記的 id（Task 13）：`createUploadFile` 組 `POST
+   * /api/notes/:noteId/uploads` 的路徑要用。 */
+  noteId: string;
 }
 
 /**
@@ -99,11 +103,16 @@ export interface NoteEditorOptionsInput {
  * §11.1（無 image block + 貼上攔截）、共編 fragment 名稱、字典選擇這幾條契約的所在，
  * 而且純粹是資料——測試可以直接呼叫並斷言，不必掛編輯器。
  */
-export function buildNoteEditorOptions({ doc, provider, user, language, translate, editorRef }: NoteEditorOptionsInput) {
+export function buildNoteEditorOptions({ doc, provider, user, language, translate, editorRef, noteId }: NoteEditorOptionsInput) {
   return withCollaboration({
     schema: noteSchema,
     // BlockNote 的預設字典就是英文，只有 zh-TW 需要換掉。
     dictionary: language.startsWith("zh") ? blocknoteZhTW : undefined,
+    // Task 13：貼上/拖放純圖片檔案時（上面 `createMediaBlockingDOMEvents` 規則③放行）
+    // BlockNote 自己的 paste/drop 外掛會呼叫 `handleFileInsertion`，進而呼叫這裡的
+    // `uploadFile`——`createUploadFile` 保證絕不 reject（見該模組檔頭），失敗時自行
+    // toast + 清除 placeholder block，`handleFileInsertion` 完全不必知道失敗發生過。
+    uploadFile: createUploadFile({ noteId, editorRef, translate }),
     collaboration: {
       provider: { awareness: provider.awareness ?? undefined },
       // fragment 名稱用 `@knotebook/shared` 的 `YDOC_FRAGMENT`——server 端
@@ -154,6 +163,8 @@ export interface NoteEditorProps {
   /** 目前角色能不能編輯（`canEdit(role)`）。false → BlockNoteView 會把 `editor.isEditable` 設成 false。 */
   editable: boolean;
   user: { id: string; name: string };
+  /** 目前這篇筆記的 id（Task 13）：轉交給 `buildNoteEditorOptions` 組上傳路徑。 */
+  noteId: string;
 }
 
 /**
@@ -165,7 +176,7 @@ export interface NoteEditorProps {
  * 共編綁定、圖片阻擋（spec §11.1）、字典選擇全部在 `buildNoteEditorOptions` 裡，
  * 那支是純函式且有專屬測試（`NoteEditor.test.ts`）——這個元件只負責把它接上 React。
  */
-export function NoteEditor({ doc, provider, editable, user }: NoteEditorProps) {
+export function NoteEditor({ doc, provider, editable, user, noteId }: NoteEditorProps) {
   const { t, i18n } = useTranslation();
   const { resolvedTheme } = useTheme();
 
@@ -188,9 +199,13 @@ export function NoteEditor({ doc, provider, editable, user }: NoteEditorProps) {
       language: i18n.language,
       translate: (key) => translateRef.current(key),
       editorRef,
+      noteId,
     }),
     // 語言不進 deps：字典只在建立時讀一次，換語言要重開頁面才生效（換成
-    // 「重建 editor」的代價是共編綁定重掛，不值得）。
+    // 「重建 editor」的代價是共編綁定重掛，不值得）。noteId 同理不進 deps——`useCollab`
+    // 的連線 effect 本身就是照 `noteId` 建新的 `Y.Doc`/`HocuspocusProvider`（見
+    // `collab/useCollab.ts`），noteId 一換，`doc`/`provider` 必然跟著換、這裡就會
+    // 重新跑，不會有「同一個 editor 實例、noteId 換手」這種情境。
     [doc, provider],
   );
   editorRef.current = editor;

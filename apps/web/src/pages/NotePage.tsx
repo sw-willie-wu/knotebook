@@ -245,6 +245,7 @@ export default function NotePage() {
               provider={provider}
               editable={editable}
               user={{ id: user.id, name: user.displayName }}
+              noteId={noteId!}
             />
           ) : (
             <p className="px-4 text-sm text-muted-foreground">{t("app.loading")}</p>

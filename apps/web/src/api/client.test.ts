@@ -53,6 +53,19 @@ describe("api()", () => {
     expect((init.headers as Headers).has("Content-Type")).toBe(false);
   });
 
+  it("does NOT set Content-Type on a FormData body (browser must set the multipart boundary itself)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(fakeResponse({ ok: true, status: 201, json: () => Promise.resolve({}) }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const fd = new FormData();
+    fd.append("file", new File([new Uint8Array([1])], "a.png", { type: "image/png" }));
+    await api("/api/notes/n1/uploads", { method: "POST", body: fd });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect((init.headers as Headers).has("Content-Type")).toBe(false);
+    expect(init.body).toBe(fd);
+  });
+
   it("does not override a caller-provided Content-Type", async () => {
     const fetchMock = vi.fn().mockResolvedValue(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({}) }));
     vi.stubGlobal("fetch", fetchMock);

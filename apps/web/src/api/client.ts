@@ -52,7 +52,16 @@ const SAFE_METHODS = new Set(["GET", "HEAD"]);
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const method = (init.method ?? "GET").toUpperCase();
   const headers = new Headers(init.headers);
-  if (!SAFE_METHODS.has(method) && init.body != null && !headers.has("Content-Type")) {
+  // `FormData` body（uploads，Task 13）：**不**補 `Content-Type`。瀏覽器的 `fetch`
+  // 對 `FormData` body 會自己算出 `multipart/form-data; boundary=...` 並設定—— 若我們
+  // 搶先補上不帶 boundary 的 `application/json`（或任何值），server 端的
+  // `@fastify/multipart` 解析器會直接判定格式錯誤，整個上傳都收不到檔案。
+  if (
+    !SAFE_METHODS.has(method) &&
+    init.body != null &&
+    !(init.body instanceof FormData) &&
+    !headers.has("Content-Type")
+  ) {
     headers.set("Content-Type", "application/json");
   }
 
