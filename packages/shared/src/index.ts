@@ -68,9 +68,15 @@ export const MAX_BACKLINKS = 200;
 // 權威清單：`grep -rn "sendError(" apps/server/src` + auth.ts 手寫 429（`too_many_attempts`）
 // 逐一核對後的全集，另加本 plan 新增碼 `too_many_requests`（Task 8 slug limiter）與
 // `slug_taken`（Task 8 slug unique violation）——這兩碼尚未落地於 grep 結果，屬預先保留。
-// Plan 3：`not_loaded`（links 409——POST /api/notes/:id/links 時該筆記尚未載入進
-// collab server 記憶體，或提交者無該筆記連線，`linkSyncGate` 回 `{ok:false}`）與
-// `file_too_large`（uploads 413——圖片上傳超過 MAX_UPLOAD_BYTES）同樣屬預先保留。
+// Plan 3：`not_loaded` 已落地（Task 5）——`POST /api/notes/:id/links` 409：該筆記尚未載入
+// 進 collab server 記憶體，或提交者無該筆記開啟中的連線，`linkSyncGate` 回 `{ok:false}`，
+// 不落地任何寫入。`server_busy` 除原本 setup/auth/admin-users 的 429（`HashBusyError`，
+// argon2 併發超限）外，Task 5 新增第二個發送點——同一個 `POST /api/notes/:id/links` 的
+// 409：`writeNoteLinks` 交易撞上 pg `serialization_failure`/`deadlock_detected`
+// （40001/40P01，剔除消失 target 重試一次後仍失敗才會落到這裡）；純 DB 層級的併發衝突，
+// 非邏輯錯誤，交給 client 重試（與 `not_loaded` 區分：後者無 note_states 回退路徑，client
+// 收斂方式不同，見 Task 7）。`file_too_large`（uploads 413——圖片上傳超過
+// `MAX_UPLOAD_BYTES`）尚未落地，仍屬預先保留。
 export const ERROR_CODES = [
   "unauthorized",
   "forbidden",

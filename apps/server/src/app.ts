@@ -11,6 +11,7 @@ import type { SetupState } from "./auth/setup.js";
 import { setupRoutes } from "./routes/setup.js";
 import { authRoutes } from "./routes/auth.js";
 import { notesRoutes } from "./routes/notes.js";
+import type { WriteNoteLinksHooks } from "./notes/links.js";
 import { adminUsersRoutes } from "./routes/admin-users.js";
 import { sendError } from "./http/errors.js";
 import { COLLAB_TOKEN_LIMIT, FixedWindowLimiter, SLUG_PATCH_LIMIT } from "./http/rate-limit.js";
@@ -56,6 +57,14 @@ export interface AppDeps {
    * 實例**——嚴禁 module 單例，否則不同測試檔案共享同一份計數會互相汙染。
    */
   limiters?: { collabToken: FixedWindowLimiter; slugPatch: FixedWindowLimiter };
+  /**
+   * Task 5：`POST /api/notes/:id/links` 寫入函式（`notes/links.ts` 的 `writeNoteLinks`）的
+   * 測試注入縫，透傳進 `NotesRouteDeps`。**選配**：production／未覆寫時整段為
+   * `undefined`，`writeNoteLinks` 的 `hooks` 參數預設 `{}`，等同 no-op。整合測試唯一的
+   * 注入面是 `buildTestApp({ linkSyncTestHooks })`——route deps 本身不對外暴露，不開這個
+   * `AppDeps` 欄位測試就碰不到 `beforeLinkWrite`（見 links.ts 的 FK race 測試注入縫說明）。
+   */
+  linkSyncTestHooks?: WriteNoteLinksHooks;
 }
 
 export interface BuildAppOptions {
@@ -178,7 +187,9 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       slugPatch: new FixedWindowLimiter(SLUG_PATCH_LIMIT),
     } satisfies NonNullable<AppDeps["limiters"]>);
 
-  void app.register(notesRoutes({ db: deps.db, collabHooks: deps.collabHooks, config: deps.config, limiters }));
+  void app.register(
+    notesRoutes({ db: deps.db, collabHooks: deps.collabHooks, config: deps.config, limiters, linkSyncTestHooks: deps.linkSyncTestHooks })
+  );
   void app.register(adminUsersRoutes({ db: deps.db, gate: deps.gate, collabHooks: deps.collabHooks }));
 
   // 共編的 WebSocket 掛在底層 http server 的 upgrade 事件上，不經 Fastify 路由——

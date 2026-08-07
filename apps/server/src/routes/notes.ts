@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { and, desc, eq, ne, or, sql } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/pg-core";
-import type { NoteDto, Role, ShareDto } from "@knotebook/shared";
+import { MAX_LINK_TARGETS, type NoteDto, type Role, type ShareDto } from "@knotebook/shared";
 import { sendError } from "../http/errors.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
@@ -10,9 +10,10 @@ import { noteLinks, noteShares, noteStateBackups, noteStates, notes, uploads, us
 import type { CollabHooks } from "../collab/hooks.js";
 import { resolveRole, UUID_RE } from "../notes/service.js";
 import { prepareSlugForPatch, resolveNoteIdFromRef } from "../notes/slug.js";
+import { normalizeLinkTargets, writeNoteLinks, type WriteNoteLinksHooks } from "../notes/links.js";
 import { signCollabToken } from "../collab/token.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
-import { isUniqueViolation } from "../db/pg-errors.js";
+import { isForeignKeyViolation, isUniqueViolation } from "../db/pg-errors.js";
 
 // 建立時 title 允許省略（DB 端有 default "Untitled"），但若有帶就不可為空字串——
 // 與 PATCH 的 title 驗證同一套規則，避免「傳空字串把標題清空」這種語意混淆的落地方式。
@@ -33,20 +34,15 @@ const updateBodySchema = z
   .refine(b => b.title !== undefined || b.slug !== undefined, { message: "title 與 slug 至少需帶一項" });
 const putShareBodySchema = z.object({ email: z.string().email(), role: z.enum(["viewer", "editor"]) });
 
-const PG_FOREIGN_KEY_VIOLATION = "23503";
+// POST /api/notes/:id/links body（spec §12.3）：`.max(MAX_LINK_TARGETS * 2)` 是提交前的
+// 效能粗閘（避免病態大陣列在正規化之前就先跑完整 uuid 格式驗證），**不是**語意上限本身
+// ——真正的 `MAX_LINK_TARGETS` 上限判定在 `normalizeLinkTargets`（去重、濾除 self-link
+// 之後）才算數，兩處數字不必相等/不可互相取代。
+const linksBodySchema = z.object({ link_target_ids: z.array(z.string().uuid()).max(MAX_LINK_TARGETS * 2) });
 
-/**
- * pg 的 foreign_key_violation（code 23503）在拋出時，與 setup.ts 的
- * `isUniqueViolation` 同理：可能是原始 node-postgres `DatabaseError`（`.code` 在最外
- * 層），也可能被 drizzle-orm 包成 `DrizzleQueryError`（原始 pg 錯誤落在 `.cause`）——
- * 兩種形狀都要認得，否則會被 `throw err` 一路冒到全域錯誤 handler 變成未預期的 500。
- */
-function isForeignKeyViolation(err: unknown): boolean {
-  const code = (e: unknown): unknown => (typeof e === "object" && e !== null && "code" in e ? (e as { code?: unknown }).code : undefined);
-  if (code(err) === PG_FOREIGN_KEY_VIOLATION) return true;
-  const cause = err instanceof Error ? err.cause : undefined;
-  return code(cause) === PG_FOREIGN_KEY_VIOLATION;
-}
+// `isForeignKeyViolation` 收在 `db/pg-errors.ts` 的共用版（原本這裡有一份邏輯等價的私有
+// 重複實作，Task 5 收掉——`notes/links.ts` 的 `writeNoteLinks` 也需要同一個判定，兩處各自
+// 維護一份會有漂移風險）。
 
 export interface NotesRouteDeps {
   db: Db;
@@ -54,6 +50,8 @@ export interface NotesRouteDeps {
   config: AppConfig;
   /** `collabToken` 供 collab-token endpoint；`slugPatch` 供 PATCH 帶非 null slug 時節流（見該路由）。 */
   limiters: { collabToken: FixedWindowLimiter; slugPatch: FixedWindowLimiter };
+  /** Task 5：`POST /api/notes/:id/links` 寫入函式的測試注入縫，透傳自 `AppDeps.linkSyncTestHooks`。 */
+  linkSyncTestHooks?: WriteNoteLinksHooks;
 }
 
 // 只列出 toNoteDto 實際會用到的欄位（而非完整 `typeof notes.$inferSelect`）：GET
@@ -271,6 +269,71 @@ export function notesRoutes(deps: NotesRouteDeps) {
       }
 
       return toNoteDto(updated, role);
+    });
+
+    /**
+     * wikilink 索引器提交同步點（spec §12.3 逐字，Task 5）：body `link_target_ids` 是該筆記
+     * 目前內容解析出的**完整**目標集合（client 每次送全量，不是增量 diff）——交易內整組
+     * 取代 `note_links`。
+     *
+     * 權限矩陣同 PATCH 的 title-only 分支（不含 slug 那條需要 owner 的線）：none → 404
+     * `not_found`、viewer → 403 `forbidden`、editor/owner → 受理。
+     *
+     * 驗證/正規化順序：zod 陣列格式（`.max(MAX_LINK_TARGETS * 2)` 粗閘）→ 權限矩陣 →
+     * `normalizeLinkTargets`（去重、濾 self-link，正規化後 > `MAX_LINK_TARGETS` → 400
+     * `invalid_body`）→ `linkSyncGate`。
+     *
+     * `linkSyncGate`（Task 4 接縫，委派 Hocuspocus 記憶體中的文件狀態）：`ok:false` 代表
+     * 這篇筆記目前不在記憶體裡、或提交者本身沒有該筆記的開啟中連線——一律 409 `not_loaded`，
+     * 不落地任何寫入（沒有 `note_states` 回退路徑，收斂交由 client 重試，見 Task 7）。
+     * `ok:true` 附帶的 `clock` 是本次寫入要 CAS 進 `notes.links_clock` 的候選值（LWW，見
+     * `notes/links.ts` 的 `attemptOnce` 說明）。
+     *
+     * `writeNoteLinks` 內部已處理 FK race 重試（一次）與 40001/40P01 → `"busy"`；這裡只需
+     * 把 `"busy"` 映射成 409 `server_busy`，其餘未預期錯誤 log 後回 500（不吞給呼叫端猜）。
+     */
+    app.post("/api/notes/:id/links", { preHandler: app.authenticate }, async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const userId = request.user!.id;
+
+      const parsed = linksBodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+      }
+
+      const role = await resolveRole(deps.db, userId, id);
+      if (role === "none") {
+        return sendError(reply, 404, "not_found", "找不到此筆記");
+      }
+      if (role === "viewer") {
+        return sendError(reply, 403, "forbidden", "沒有編輯權限");
+      }
+
+      const normalized = normalizeLinkTargets(id, parsed.data.link_target_ids);
+      if (!normalized.ok) {
+        return sendError(reply, 400, "invalid_body", "連結目標數量超過上限");
+      }
+
+      const gate = deps.collabHooks.linkSyncGate(id, userId);
+      if (!gate.ok) {
+        return sendError(reply, 409, "not_loaded", "筆記尚未就緒，請稍後再試");
+      }
+
+      try {
+        const outcome = await writeNoteLinks(
+          deps.db,
+          { sourceNoteId: id, userId, targetIds: normalized.targets, clock: gate.clock },
+          deps.linkSyncTestHooks
+        );
+        if (outcome === "busy") {
+          return sendError(reply, 409, "server_busy", "伺服器忙碌，請稍後再試");
+        }
+      } catch (err) {
+        request.log.error(err);
+        return sendError(reply, 500, "internal", "伺服器內部錯誤");
+      }
+
+      return reply.code(204).send();
     });
 
     app.delete("/api/notes/:id", { preHandler: app.authenticate }, async (request, reply) => {

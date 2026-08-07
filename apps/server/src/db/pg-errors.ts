@@ -1,5 +1,7 @@
 export const PG_UNIQUE_VIOLATION = "23505";
 export const PG_FOREIGN_KEY_VIOLATION = "23503";
+export const PG_SERIALIZATION_FAILURE = "40001";
+export const PG_DEADLOCK_DETECTED = "40P01";
 
 // 兩種錯誤形狀都要認得（見下方個別 export 的說明）：原始的 node-postgres
 // `DatabaseError`（`.code` 直接在最外層），或被 drizzle-orm 0.44 包成
@@ -33,4 +35,17 @@ export function isUniqueViolation(err: unknown): boolean {
  */
 export function isForeignKeyViolation(err: unknown): boolean {
   return matchesCode(err, PG_FOREIGN_KEY_VIOLATION);
+}
+
+/**
+ * pg 的 serialization_failure（40001）／deadlock_detected（40P01）——`notes/links.ts` 的
+ * `writeNoteLinks` 用它辨識「交易本身沒有邏輯錯誤，純粹是併發衝突」的情況，映射成 409
+ * `server_busy`（既有 code，setup/auth/admin-users 的 `HashBusyError` 已在用；此處是第二個
+ * 發送點，語意皆為「請稍後重試」，code 與 HTTP status 本非一對一）。與 `isForeignKeyViolation`
+ * 分開判定：FK violation 代表某個 target 筆記在授權查詢之後、寫入之前被刪除（可恢復——剔除
+ * 該 target 重試一次），這兩個 40001/40P01 代表 DB 層級的交易衝突（不可恢復，直接回應
+ * client 重試，不在 server 端重試第二次）。
+ */
+export function isTransientTransactionError(err: unknown): boolean {
+  return matchesCode(err, PG_SERIALIZATION_FAILURE) || matchesCode(err, PG_DEADLOCK_DETECTED);
 }
