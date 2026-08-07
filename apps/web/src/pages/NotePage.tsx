@@ -3,10 +3,11 @@ import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { canonicalNotePath, type NoteDto, type Role } from "@knotebook/shared";
-import { ApiFail } from "@/api/client";
+import { api, ApiFail } from "@/api/client";
 import { useNote } from "@/api/notes";
 import { SESSION_QUERY_KEY, useSession } from "@/auth/useSession";
 import { canEdit, isTerminal, type CollabState } from "@/collab/connection";
+import { createLinkSync, type LinkSync } from "@/collab/link-sync";
 import { useCollab } from "@/collab/useCollab";
 import { AppShell } from "@/components/AppShell";
 import { ConnectionBadge } from "@/components/ConnectionBadge";
@@ -96,6 +97,7 @@ export default function NotePage() {
 
   const noteQuery = useNote(ref);
   const note = noteQuery.data;
+  const noteId = note?.id;
 
   // 401：session 真的沒了（不是撤權）。清掉 ['me'] 並導去登入頁——與 UserMenu 的
   // 登出流程同一套終點，只是沒有 server round-trip 可打。
@@ -105,7 +107,50 @@ export default function NotePage() {
     void navigate("/login", { replace: true });
   }, [navigate, queryClient]);
 
-  const { state, doc, provider } = useCollab({ noteId: note?.id, onUnauthorized: handleUnauthorized });
+  const { state, doc, provider } = useCollab({ noteId, onUnauthorized: handleUnauthorized });
+
+  // wikilink 連結索引提交器（Task 7，spec §12.3 client 段）。掛載定案在這裡（不是
+  // NoteEditor）：`noteId`／`useCollab` 的 `doc`／`provider` 都在這一層。
+  //
+  // `canEditRef` 在 render 當下（非 effect 內）同步寫入——與 `useCollab.ts` 的
+  // `onUnauthorizedRef.current = onUnauthorized` 同一手法：下面的掛載 effect deps
+  // 刻意限定 `[noteId, doc, provider]`（五輪 plan-gate 定案的「synced 訂閱三護欄」
+  // 之一，見 `link-sync.ts` 檔頭），不能含 `state`/`note`——那樣連線本身沒換手也會
+  // 因為角色變動整個重訂閱，讓 provider 的 `synced` 事件（只在 false→true 邊緣
+  // emit 一次）錯過訂閱窗口，該連線就永遠不會提交。`canEdit` 判定因此只能透過 ref
+  // 在 effect「啟動當下」讀取一次快照（對應 brief「掛載時 canEdit 為真才 start()」），
+  // 不能進 deps。
+  const canEditRef = useRef(false);
+  canEditRef.current = note ? canEdit(effectiveRole(state, note)) : false;
+  const linkSyncRef = useRef<LinkSync | null>(null);
+
+  useEffect(() => {
+    if (!noteId || !doc || !provider) return;
+
+    const linkSync = createLinkSync({ noteId, doc, api });
+    linkSyncRef.current = linkSync;
+    if (canEditRef.current) linkSync.start();
+
+    // 護欄③：訂閱後立刻檢查一次目前的 synced 狀態並補呼叫——`synced` 是 public
+    // getter（`provider.synced`），若這個 effect 是在 provider 早已同步完成之後才
+    // 掛上去的（例如 StrictMode 重掛、或本來就慢了一步），false→true 的那個邊緣
+    // 事件已經 emit 過、不會再等到，必須自己補這一次才不會整條連線永遠不提交。
+    const handleSynced = () => linkSync.onSynced();
+    provider.on("synced", handleSynced);
+    if (provider.synced) handleSynced();
+
+    return () => {
+      provider.off("synced", handleSynced);
+      linkSync.stop();
+      linkSyncRef.current = null;
+    };
+  }, [noteId, doc, provider]);
+
+  // 403 閂的解閂觀察窗（spec §12.3）：獨立成一個 effect，deps 才能安全含 `state`
+  // 而不影響上面那個訂閱 effect 的 deps 限制。
+  useEffect(() => {
+    linkSyncRef.current?.onCollabState(state);
+  }, [state]);
 
   // canonical 網址：只在跟目前網址不同時才改寫，避免每次 render 都往 history 塞東西。
   useEffect(() => {
@@ -130,7 +175,6 @@ export default function NotePage() {
     void navigate("/", { replace: true });
   }, [navigate, notFound, t]);
 
-  const noteId = note?.id;
   useEffect(() => {
     if (!isTerminal(state) || leavingRef.current) return;
     leavingRef.current = true;

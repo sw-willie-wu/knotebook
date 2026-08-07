@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router";
+import * as Y from "yjs";
 import { COLLAB_CLOSE_REVOKED, canonicalNotePath, type NoteDto, type UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
@@ -16,17 +17,60 @@ vi.mock("@/components/NoteEditor", () => ({
   ),
 }));
 
+/** `provider.on("synced", …)`／`.off(…)`／`.synced` 的最小替身（Task 7）。多數既有測試
+ * 不主動 emit、`synced` 也維持預設 `false`——那些測試裡 link-sync 狀態機不會送出任何
+ * `POST .../links`（`onSynced()` 是它唯一的提交觸發點，見 `link-sync.ts`）。但「Task 7
+ * 接線」那組測試會主動呼叫 `.emit("synced", …)` 或把 `.synced` 直接設 `true`——這支替身
+ * 兩種用法都要撐得住，`mockFetch` 的 `POST .../links` → 204 分支正是那些測試依賴的
+ * 成功回應（不是單純防禦性備而不用）。 */
+function createStubProvider() {
+  const listeners = new Map<string, Set<(...args: unknown[]) => void>>();
+  return {
+    synced: false,
+    on(event: string, fn: (...args: unknown[]) => void) {
+      let set = listeners.get(event);
+      if (!set) {
+        set = new Set();
+        listeners.set(event, set);
+      }
+      set.add(fn);
+    },
+    off(event: string, fn: (...args: unknown[]) => void) {
+      listeners.get(event)?.delete(fn);
+    },
+    /** 直接呼叫所有透過 `.on(event, …)` 註冊過的 handler——**不是**先設
+     * `synced = true` 再讓 `NotePage` 掛載 effect 裡的
+     * `if (provider.synced) handleSynced()` 補呼叫那條路徑。用 `emit` 才是真的在戳
+     * `provider.on("synced", handleSynced)` 這行**訂閱本身**有沒有接上：若那行被拿掉，
+     * `listeners` 裡就不會有任何 handler，`emit` 什麼都不會發生。 */
+    emit(event: string, ...args: unknown[]) {
+      listeners.get(event)?.forEach((fn) => fn(...args));
+    },
+  };
+}
+
 // useCollab 的真實行為（HocuspocusProvider + WebSocket）不進 jsdom；狀態機本身
 // 有 connection.test.ts 全覆蓋。這裡把它換成一個可由測試直接擺弄的假回傳值，
 // 驗證 NotePage 對每個 phase 的反應。
+//
+// `doc`/`provider` 換成 Task 7 之前的 `{fake:"doc"}`/`{fake:"provider"}` 會讓
+// `NotePage` 的 link-sync 掛載 effect（`doc.on("update",…)`／`provider.on("synced",…)`）
+// 直接 TypeError（那兩個替身沒有 `.on`）：`doc` 換一個**真的** `Y.Doc`、`provider` 換
+// 上面的最小 `on`/`off`/`synced` 替身。兩者都放進這個 `vi.hoisted` 模組級物件、由
+// `beforeEach` 逐測試重建（見下）——**不能**改成 mock 工廠裡每次呼叫 `useCollab()`
+// 都新建一份：link-sync 的掛載 effect deps 是 `[noteId, doc, provider]`，逐 render
+// 給新物件會讓它每個 render 都 teardown 再重訂閱，在真實情境下會讓 provider 的
+// `synced`（只在 false→true 邊緣 emit 一次）被錯過訂閱窗口。
 const collab = vi.hoisted(() => ({
   state: { phase: "connecting" } as CollabState,
   onUnauthorized: undefined as (() => void) | undefined,
+  doc: undefined as unknown as Y.Doc,
+  provider: undefined as unknown as ReturnType<typeof createStubProvider>,
 }));
 vi.mock("@/collab/useCollab", () => ({
   useCollab: ({ onUnauthorized }: { onUnauthorized: () => void }) => {
     collab.onUnauthorized = onUnauthorized;
-    return { state: collab.state, doc: { fake: "doc" }, provider: { fake: "provider" } };
+    return { state: collab.state, doc: collab.doc, provider: collab.provider };
   },
 }));
 
@@ -81,6 +125,12 @@ function mockFetch(note: NoteDto | { status: number; code: string } = NOTE) {
       }
       return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(note) }));
     }
+    // Task 7：link-sync 的提交端點。「Task 7 接線」那組測試會主動 emit `"synced"`
+    // 事件（或直接把 `collab.provider.synced` 設 `true`）觸發真的提交，這支就是那些
+    // 測試依賴的成功回應（204）——不是備而不用的防禦性分支。
+    if (url.endsWith("/links") && method === "POST") {
+      return Promise.resolve(fakeResponse({ ok: true, status: 204 }));
+    }
     throw new Error(`unexpected fetch: ${method} ${url}`);
   });
 }
@@ -107,12 +157,15 @@ describe("NotePage", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     collab.state = { phase: "connecting" };
+    collab.doc = new Y.Doc();
+    collab.provider = createStubProvider();
     window.history.replaceState(null, "", "/");
     // toast store 是模組層級的，不歸零的話上一個測試的 toast 會留在畫面上。
     dismissAllToasts();
   });
 
   afterEach(() => {
+    collab.doc.destroy();
     vi.unstubAllGlobals();
   });
 
@@ -135,6 +188,62 @@ describe("NotePage", () => {
 
     await waitFor(() => expect(screen.getByTestId("note-editor")).toHaveAttribute("data-editable", "true"));
     expect(screen.getByText("Connecting…")).toBeInTheDocument();
+  });
+
+  it("Task 7 接線：owner 掛載後 provider 觸發 synced 事件 → 真的打 POST /api/notes/:id/links（驗證 provider.on(\"synced\",…) 掛載接線本身，不是只測 link-sync 內部狀態機）", async () => {
+    const fetchSpy = mockFetch();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    renderNotePage("my-note");
+    await waitFor(() => expect(screen.getByTestId("note-editor")).toHaveAttribute("data-editable", "true"));
+
+    // 用 `emit` 直接呼叫透過 `.on("synced", …)` 註冊的 handler——這條路徑非過
+    // `provider.synced` 這個 getter 補呼叫（見 `createStubProvider` 註解），專門戳
+    // NotePage 掛載 effect 裡 `provider.on("synced", handleSynced)` 這行訂閱本身。
+    collab.provider.emit("synced", { state: true });
+
+    await waitFor(() =>
+      expect(fetchSpy).toHaveBeenCalledWith(
+        `/api/notes/${NOTE.id}/links`,
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+  });
+
+  it("護欄③：effect 掛載前 provider 已 synced ⇒ 不靠事件也補提交一次", async () => {
+    // 掛載 effect 訂閱 `provider.on("synced", …)` 之後，緊接著檢查一次
+    // `if (provider.synced) handleSynced()`——這條補呼叫是專門對付「effect 是在
+    // provider 早已同步完成之後才掛上去」的邊緣情形（StrictMode 重掛、或本來就慢了
+    // 一步），false→true 那個邊緣事件已經 emit 過、不會再等到。這裡刻意**不** emit
+    // 任何事件，只把 `synced` 這個狀態設成 `true`，逼 NotePage 只能靠這條補呼叫線路
+    // 才會提交——若那行被拿掉，這裡永遠等不到 POST。
+    const fetchSpy = mockFetch();
+    vi.stubGlobal("fetch", fetchSpy);
+    collab.provider.synced = true;
+
+    renderNotePage("my-note");
+
+    await waitFor(() =>
+      expect(fetchSpy).toHaveBeenCalledWith(
+        `/api/notes/${NOTE.id}/links`,
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+  });
+
+  it("Task 7 啟動條件：viewer fixture（canEdit 為假）⇒ 不 start() ⇒ 即使 synced 事件觸發也不提交", async () => {
+    const fetchSpy = mockFetch({ ...NOTE, role: "viewer" });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    renderNotePage("my-note");
+    await waitFor(() => expect(screen.getByTestId("note-editor")).toHaveAttribute("data-editable", "false"));
+
+    collab.provider.emit("synced", { state: true });
+    // link-sync 的 `onSynced()` 在 `!started` 時完全同步 no-op（見 link-sync.ts），
+    // 這裡多等一輪 microtask/宏任務只是保守起見，避免漏抓任何非同步分支。
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(fetchSpy).not.toHaveBeenCalledWith(`/api/notes/${NOTE.id}/links`, expect.anything());
   });
 
   it("connected 且角色是 viewer → 編輯器唯讀、標題變純文字", async () => {
