@@ -15,7 +15,7 @@ import { loadConfig, type AppConfig } from "../src/config.js";
 import { buildApp, type AppDeps, type BuildAppOptions } from "../src/app.js";
 import { UserGate } from "../src/auth/session.js";
 import { LoginThrottle } from "../src/auth/rate-limit.js";
-import { COLLAB_TOKEN_LIMIT, FixedWindowLimiter, SLUG_PATCH_LIMIT } from "../src/http/rate-limit.js";
+import { COLLAB_TOKEN_LIMIT, FixedWindowLimiter, SLUG_PATCH_LIMIT, UPLOAD_LIMIT } from "../src/http/rate-limit.js";
 import { hashPassword } from "../src/auth/password.js";
 import { noopCollabHooks, type CollabHooks } from "../src/collab/hooks.js";
 import { COLLAB_PATH, createCollabServer, type CollabServer } from "../src/collab/server.js";
@@ -116,6 +116,8 @@ export interface TestApp {
   db: Db;
   /** 實際掛進 app 的 setupState（預設是真 SetupState.init 的結果）——測試用它讀 `.token`，不必去 parse log。 */
   setupState: SetupState;
+  /** 實際掛進 app 的 uploadsDir（Task 10b）——測試用它直接檢查磁碟狀態（例如 413 不落檔、GET 磁碟無檔 404 的 fixture）。 */
+  uploadsDir: string;
   /** 手動關閉底層 pool（非測試情境用）。在 test 內呼叫 buildTestApp() 不必自己叫這個——已用 onTestFinished 自動掛好（見 freshDb）。 */
   close: () => Promise<void>;
 }
@@ -146,6 +148,7 @@ function freshLimiters(): NonNullable<AppDeps["limiters"]> {
   return {
     collabToken: new FixedWindowLimiter(COLLAB_TOKEN_LIMIT),
     slugPatch: new FixedWindowLimiter(SLUG_PATCH_LIMIT),
+    upload: new FixedWindowLimiter(UPLOAD_LIMIT),
   };
 }
 
@@ -179,9 +182,10 @@ export async function buildTestApp(overrides: Partial<AppDeps> = {}, options: Bu
     ...overrides,
   };
   const app = buildApp(deps, { logger: false, ...options });
-  // 回傳 deps.db／deps.setupState（而非上面本地變數）——若呼叫方透過 overrides 換掉了
-  // 它們，回傳值必須與 app 實際在用的一致，否則呼叫方用回傳值操作會跟 app 內部狀態不同步。
-  return { app, db: deps.db, setupState: deps.setupState, close };
+  // 回傳 deps.db／deps.setupState／deps.uploadsDir（而非上面本地變數）——若呼叫方透過
+  // overrides 換掉了它們，回傳值必須與 app 實際在用的一致，否則呼叫方用回傳值操作會跟
+  // app 內部狀態不同步。
+  return { app, db: deps.db, setupState: deps.setupState, uploadsDir: deps.uploadsDir, close };
 }
 
 // ───────────────────────────── 共編（Hocuspocus）測試 harness ─────────────────────────────

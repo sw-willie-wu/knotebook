@@ -1,6 +1,7 @@
 import Fastify, { type FastifyError, type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import fastifyCookie from "@fastify/cookie";
-import { SESSION_COOKIE, type ErrorCode } from "@knotebook/shared";
+import fastifyMultipart from "@fastify/multipart";
+import { MAX_UPLOAD_BYTES, SESSION_COOKIE, type ErrorCode } from "@knotebook/shared";
 import type { AppConfig } from "./config.js";
 import type { Db } from "./db/index.js";
 import { verifySession, type GateUser, type UserGate } from "./auth/session.js";
@@ -13,8 +14,9 @@ import { authRoutes } from "./routes/auth.js";
 import { notesRoutes } from "./routes/notes.js";
 import type { WriteNoteLinksHooks } from "./notes/links.js";
 import { adminUsersRoutes } from "./routes/admin-users.js";
+import { uploadsRoutes } from "./routes/uploads.js";
 import { sendError } from "./http/errors.js";
-import { COLLAB_TOKEN_LIMIT, FixedWindowLimiter, SLUG_PATCH_LIMIT } from "./http/rate-limit.js";
+import { COLLAB_TOKEN_LIMIT, FixedWindowLimiter, SLUG_PATCH_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
 import { registerSpaFallback } from "./http/spa.js";
 import { assertUploadsDirWritable } from "./uploads/service.js";
 
@@ -49,15 +51,16 @@ export interface AppDeps {
   collab?: CollabServer;
   setupState: SetupState;
   /**
-   * per-user 固定視窗節流器（Task 4：collab-token；Task 8：slug PATCH）。**選配**：
-   * `index.ts` 的 `AppDeps` 物件字面值不在 Task 4 的 Files 內，必填會讓 Task 4–6 之間
-   * `pnpm -r build` 全紅（vitest 不做型檢，會綠色假象）。未傳時 `buildApp` 內建生產
-   * 預設（見 `COLLAB_TOKEN_LIMIT`/`SLUG_PATCH_LIMIT`，`http/rate-limit.ts`）。
+   * per-user 固定視窗節流器（Task 4：collab-token；Task 8：slug PATCH；Task 10b：
+   * uploads）。**選配**：`index.ts` 的 `AppDeps` 物件字面值不在 Task 4 的 Files 內，
+   * 必填會讓 Task 4–6 之間 `pnpm -r build` 全紅（vitest 不做型檢，會綠色假象）。未傳時
+   * `buildApp` 內建生產預設（見 `COLLAB_TOKEN_LIMIT`/`SLUG_PATCH_LIMIT`/`UPLOAD_LIMIT`，
+   * `http/rate-limit.ts`）。
    *
    * `buildTestApp`/`buildCollabTestApp`（`test/helpers.ts`）每次呼叫一律注入**全新
    * 實例**——嚴禁 module 單例，否則不同測試檔案共享同一份計數會互相汙染。
    */
-  limiters?: { collabToken: FixedWindowLimiter; slugPatch: FixedWindowLimiter };
+  limiters?: { collabToken: FixedWindowLimiter; slugPatch: FixedWindowLimiter; upload: FixedWindowLimiter };
   /**
    * Task 5：`POST /api/notes/:id/links` 寫入函式（`notes/links.ts` 的 `writeNoteLinks`）的
    * 測試注入縫，透傳進 `NotesRouteDeps`。**選配**：production／未覆寫時整段為
@@ -202,6 +205,33 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   // 不用 secret：session 是自帶簽章的 JWT，cookie 本身不需要再簽一次。
   void app.register(fastifyCookie);
 
+  // Task 10b：`@fastify/multipart` 必須註冊在頂層 `app`（這裡），**不可**移進
+  // `uploadsRoutes` 自己的 register 函式內——`app.register(uploadsRoutes(...))` 對
+  // `uploadsRoutes` 這個純函式（未用 `fastify-plugin` 包裝）而言會建立新的封裝
+  // 子情境，若在那個子情境內才註冊 multipart，`@fastify/multipart` 掛的
+  // content-type parser／decorator 只在該子情境內可見，不會外溢到 `app` 上其他
+  // 路由（例如 `/api/auth/login`）。這件事本身雖不影響功能正確性，但會讓「multipart
+  // parser 真的可用、只有白名單判定能擋下非豁免路由」這個不變量在生產拓撲下不成立
+  // ——`test/uploads.test.ts` 的 CSRF 迴歸測試（multipart body 打 `/api/auth/login`
+  // 仍 415）就是靠「parser 全域可用」這個前提才具備 mutation 鑑別力（見該測試檔說明），
+  // 註冊位置一旦挪動，測試看起來還是綠，但鑑別力已經悄悄消失。
+  //
+  // `limits`（spec §12.4）：`fileSize` 用 `MAX_UPLOAD_BYTES`（10 MiB）；`parts`/`fields`/
+  // `fieldSize` 是防病態 multipart body 的粗閘（32 parts、16 fields、每個 field 1 KiB）。
+  // 刻意**不設 `limits.files`**——`routes/uploads.ts` 自己處理「多個 file part 只取
+  // 第一個，其餘 drain」；設了 `files` 上限會讓外掛在偵測到第二個 file part 時自己
+  // 丟 `FilesLimitError`（413），直接逃逸出我們手動控制的「取第一個」邏輯。
+  //
+  // `throwFileSizeLimit:false`：超過 `fileSize` 不丟例外，只把該 file part 的
+  // `.truncated` 設為 true——`routes/uploads.ts` 自己判斷 truncated 狀態、映射成
+  // 契約要求的 413 `file_too_large`，不吃外掛預設丟出的 `RequestFileTooLargeError`
+  // （那個錯誤沒有我們要的錯誤碼語意，且會在其他 file part 還沒處理完時就中斷整個
+  // `parts()` 迭代，讓「其餘 drain」做不到）。
+  void app.register(fastifyMultipart, {
+    limits: { fileSize: MAX_UPLOAD_BYTES, parts: 32, fields: 16, fieldSize: 1024 },
+    throwFileSizeLimit: false,
+  });
+
   // 全域 onRequest hook：只要有呼叫 setNotFoundHandler，onRequest 就會對「未匹配路由」
   // 也執行（fastify#3120 結論）——不可把這段邏輯改掛進 setNotFoundHandler 的 options，
   // 其只接受 preValidation/preHandler，掛 onRequest 會直接報錯。
@@ -297,12 +327,18 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     ({
       collabToken: new FixedWindowLimiter(COLLAB_TOKEN_LIMIT),
       slugPatch: new FixedWindowLimiter(SLUG_PATCH_LIMIT),
+      upload: new FixedWindowLimiter(UPLOAD_LIMIT),
     } satisfies NonNullable<AppDeps["limiters"]>);
 
   void app.register(
     notesRoutes({ db: deps.db, collabHooks: deps.collabHooks, config: deps.config, limiters, linkSyncTestHooks: deps.linkSyncTestHooks })
   );
   void app.register(adminUsersRoutes({ db: deps.db, gate: deps.gate, collabHooks: deps.collabHooks }));
+  // `NotesRouteDeps.limiters` 的型別只列 `collabToken`/`slugPatch`（刻意不改，見該
+  // interface 說明）——這裡傳整包 `limiters`（含 `upload`）給它，屬於變數（非物件
+  // 字面值）賦值給較窄的結構型別，TS 不做 excess property check，不需要另外
+  // pick／窄化。`uploadsRoutes` 自己的 deps 只挑 `upload` 這一個節流器。
+  void app.register(uploadsRoutes({ db: deps.db, config: deps.config, limiters: { upload: limiters.upload }, uploadsDir: deps.uploadsDir }));
 
   // 共編的 WebSocket 掛在底層 http server 的 upgrade 事件上，不經 Fastify 路由——
   // 因此與上面的路由註冊順序無關，也不會被 setNotFoundHandler／SPA fallback 攔到。

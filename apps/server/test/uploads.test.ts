@@ -1,85 +1,156 @@
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, readdirSync } from "node:fs";
+import http from "node:http";
+import type { Socket } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { describe, it, expect } from "vitest";
-import fastifyMultipart from "@fastify/multipart";
-import type { FastifyInstance } from "fastify";
-import { buildTestApp } from "./helpers.js";
+import { eq } from "drizzle-orm";
+import { SESSION_COOKIE, MAX_UPLOAD_BYTES } from "@knotebook/shared";
+import { buildTestApp, testConfig } from "./helpers.js";
+import { notes, noteShares, uploads, users } from "../src/db/schema.js";
+import type { Db } from "../src/db/index.js";
+import { signSession } from "../src/auth/session.js";
+import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 
-// ───────────────────────────── Task 10a：CSRF hook（multipart 豁免 + Origin 驗證）─────────────────────────────
-//
-// 白名單命中的路由固定是 `POST /api/notes/:id/uploads`（見 `app.ts` 的
-// `MULTIPART_EXEMPT_ROUTES`，比對 `request.routeOptions.url` 這個 route pattern，不是
-// 實際請求路徑，故任何 `:id` 值都算命中）——本檔尚未有真實的 uploads 路由（Task 10b
-// 才落地），這裡先掛一支樁路由讓 CSRF hook 的白名單判定有東西可命中：未命中路由時
-// `is404` 為真、豁免不成立，任何 multipart body 會直接吃既有 JSON 415，Origin 矩陣一個
-// 案例都觀察不到。
+// ───────────────────────────── 共用 fixture helpers（比照 notes-links.test.ts／shares.test.ts 慣例）─────────────────────────────
 
-const NOTE_ID = "11111111-1111-1111-1111-111111111111";
-const UPLOAD_URL = `/api/notes/${NOTE_ID}/uploads`;
-/** C1 mutation 護欄專用（見 `withUploadStubRoute` 說明）：白名單**不含**這條路由。 */
-const NOT_EXEMPT_URL = "/__test/not-exempt";
-
-/**
- * 樁路由**僅存活於本 task**：Task 10b 落地真實 `POST /api/notes/:id/uploads` 時必須
- * 刪除這支樁並把下面的 Origin/essence 矩陣改掛真實路由重驗——同 URL 雙重註冊會
- * `FST_ERR_DUPLICATED_ROUTE`。
- *
- * 註冊順序明訂（task-10-brief）：`void app.register(fastifyMultipart)` →
- * `app.post(...)` → `await app.ready()`；不得 `await register()` 再加路由（await
- * register 觸發 avvio boot，之後 `route()` 呼叫丟 "Cannot add route!"）。
- *
- * 樁本身不驗證任何欄位（無 auth、無 magic bytes、無 limiter——那些是 Task 10b 的範圍）；
- * 唯一職責是「若有檔案 part 就真的讀完它」，比照真實路由最終會做的事，讓通過 CSRF
- * 檢查的 multipart 請求能被 `@fastify/multipart` 正常解析、不會因為 body 沒被消費而
- * 掛住。
- *
- * 順帶掛上 `POST /__test/not-exempt`（C1 mutation 護欄，審查回報方案②）：白名單判定
- * 的正確性不能只靠「essence 不符就 415」這條規則的既有測試觀察——如果把
- * `isMultipartExemptRoute` 誤改成單純的 Content-Type essence 判定（不比對
- * 路由白名單，等於「只要 essence 是 multipart/form-data 就當作豁免」），既有那組
- * 「multipart body 打 /api/auth/login 仍 415」regression 測試**看不出來**：那個
- * app 沒註冊 `fastifyMultipart`，即使 hook 被 mutation 誤放行，request 仍會在
- * Fastify 的 content-type parser 那層自己因為「沒有 multipart parser」而丟
- * `FST_ERR_CTP_INVALID_MEDIA_TYPE`（同樣映射成 415/unsupported_media_type）——
- * 「hook 擋」與「body parser 擋」在該測試下產出完全相同的 status/code，mutation 因此
- * 存活。要讓白名單邏輯本身（而非其他任何後備機制）被迫成為唯一的守門者，必須讓
- * multipart parser **確實可用**、但目標路由**不在白名單**：`@fastify/multipart`
- * 註冊在頂層 `app` 上（非 encapsulated plugin），對這個 app 內任何路由都生效，故
- * `/__test/not-exempt` 收到合法 multipart body 時，parser 不會報錯——若白名單判定
- * 正確擋下（essence 檢查要求 `application/json`），才會是本函式的 415；一旦白名單
- * 判定被 mutation 破壞而誤判它豁免，request 會直接流進這支 handler 拿到 200。
- */
-async function withUploadStubRoute(app: FastifyInstance): Promise<void> {
-  void app.register(fastifyMultipart);
-  app.post(UPLOAD_URL.replace(NOTE_ID, ":id"), async (request, reply) => {
-    const file = await request.file();
-    if (file) await file.toBuffer();
-    return reply.code(201).send({ ok: true });
-  });
-  app.post(NOT_EXEMPT_URL, async (_request, reply) => reply.code(200).send({ ok: true }));
-  await app.ready();
+async function insertUser(db: Db, overrides: Partial<{ email: string; displayName: string }> = {}) {
+  const [u] = await db
+    .insert(users)
+    .values({
+      email: overrides.email ?? `user-${Math.random().toString(36).slice(2)}@example.com`,
+      displayName: overrides.displayName ?? "Test User",
+    })
+    .returning();
+  return u;
 }
 
-/** 手組最小合法的 multipart/form-data body（單一 file part），回傳 Buffer——不可用字串往返（二進位內容會被破壞）。 */
-function buildMultipartBody(boundary: string): Buffer {
-  const header = Buffer.from(
-    `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="test.png"\r\nContent-Type: image/png\r\n\r\n`,
-    "utf-8"
-  );
-  const fileBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
-  const footer = Buffer.from(`\r\n--${boundary}--\r\n`, "utf-8");
-  return Buffer.concat([header, fileBytes, footer]);
+async function cookieFor(userId: string): Promise<string> {
+  return signSession(testConfig.appSecret, { userId, tv: 0 });
+}
+
+async function createNote(db: Db, ownerId: string, title?: string): Promise<{ id: string }> {
+  const values = title === undefined ? { ownerId } : { ownerId, title };
+  const [row] = await db.insert(notes).values(values).returning({ id: notes.id });
+  return row;
+}
+
+async function share(db: Db, noteId: string, userId: string, role: "editor" | "viewer"): Promise<void> {
+  await db.insert(noteShares).values({ noteId, userId, role });
+}
+
+// ───────────────────────────── multipart body 手組（不可字串往返，見 detectImageMimeType 之 magic bytes 皆為二進位）─────────────────────────────
+
+interface BodyPart {
+  name: string;
+  filename?: string;
+  contentType?: string;
+  data: Buffer | string;
 }
 
 const BOUNDARY = "knotebookTestBoundary";
 
-async function postMultipart(app: FastifyInstance, headers: Record<string, string>) {
+/** 手組任意組合的 multipart/form-data body（file part／field part 皆可混搭）。 */
+function buildMultipartBody(parts: BodyPart[], boundary = BOUNDARY): Buffer {
+  const chunks: Buffer[] = [];
+  for (const part of parts) {
+    const dispo =
+      part.filename !== undefined
+        ? `form-data; name="${part.name}"; filename="${part.filename}"`
+        : `form-data; name="${part.name}"`;
+    const headerLines = [`--${boundary}`, `Content-Disposition: ${dispo}`];
+    if (part.contentType !== undefined) headerLines.push(`Content-Type: ${part.contentType}`);
+    headerLines.push("", "");
+    chunks.push(Buffer.from(headerLines.join("\r\n"), "utf-8"));
+    chunks.push(typeof part.data === "string" ? Buffer.from(part.data, "utf-8") : part.data);
+    chunks.push(Buffer.from("\r\n", "utf-8"));
+  }
+  chunks.push(Buffer.from(`--${boundary}--\r\n`, "utf-8"));
+  return Buffer.concat(chunks);
+}
+
+// 完整 8-byte PNG signature（`detectImageMimeType` 要求完整簽章，不是任意前綴幾個 byte
+// 就算數）+ 一些任意內容，讓「檔案不是空的」這件事本身也順帶被覆蓋到。
+const PNG_BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01, 0x02, 0x03]);
+const JPEG_BYTES = Buffer.from([0xff, 0xd8, 0xff, 0x00, 0x01, 0x02]);
+const NOT_AN_IMAGE_BYTES = Buffer.from("this is definitely not an image, just plain text bytes", "utf-8");
+
+function singleFileBody(data: Buffer, opts: { filename?: string; contentType?: string; boundary?: string } = {}): Buffer {
+  return buildMultipartBody(
+    [{ name: "file", filename: opts.filename ?? "test.png", contentType: opts.contentType ?? "image/png", data }],
+    opts.boundary
+  );
+}
+
+function manyFileParts(count: number): BodyPart[] {
+  return Array.from({ length: count }, (_, i) => ({
+    name: `file${i}`,
+    filename: `f${i}.bin`,
+    contentType: "application/octet-stream",
+    data: Buffer.from([0x00]),
+  }));
+}
+
+function manyFieldParts(count: number): BodyPart[] {
+  return Array.from({ length: count }, (_, i) => ({ name: `field${i}`, data: "x" }));
+}
+
+async function postUpload(
+  app: Awaited<ReturnType<typeof buildTestApp>>["app"],
+  noteId: string,
+  body: Buffer,
+  opts: { cookie?: string; boundary?: string; headers?: Record<string, string> } = {}
+) {
+  const headers: Record<string, string> = {
+    "content-type": `multipart/form-data; boundary=${opts.boundary ?? BOUNDARY}`,
+    ...opts.headers,
+  };
   return app.inject({
     method: "POST",
-    url: UPLOAD_URL,
-    payload: buildMultipartBody(BOUNDARY),
-    headers: { "content-type": `multipart/form-data; boundary=${BOUNDARY}`, ...headers },
+    url: `/api/notes/${noteId}/uploads`,
+    payload: body,
+    cookies: opts.cookie !== undefined ? { [SESSION_COOKIE]: opts.cookie } : undefined,
+    headers,
+  });
+}
+
+// ───────────────────────────── 真 socket drain 驗證（Critical-2 review：`app.inject` 無真 socket，
+// 量不出「body 未 drain 導致連線卡住、graceful shutdown 吊死」這類問題）─────────────────────────────
+
+/**
+ * 用 `node:http` 直接發一個真的 TCP 請求（而非 `app.inject`）——`app.inject` 走
+ * light-my-request，整包 payload 在記憶體、沒有真的 socket，量不出「server 端沒把
+ * request body 讀完，導致底層連線卡住」這種問題（該問題只在真 socket 上才會拖住
+ * `server.close()`）。回傳值含 `socket`：呼叫端必須在斷言完 response 之後**先
+ * `socket.destroy()` 再 `app.close()`**——否則即使 server 端行為完全正確，client 端
+ * 自己維持住的 keep-alive 連線一樣會讓 `app.close()` 卡住等它自然關閉，造成偽陽性
+ * （這條連線的生死本來就不是我們要驗證的東西）。
+ */
+function rawSocketPost(opts: { port: number; path: string; headers: Record<string, string>; body: Buffer }): Promise<{
+  status: number;
+  body: string;
+  socket: Socket;
+}> {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        host: "127.0.0.1",
+        port: opts.port,
+        path: opts.path,
+        method: "POST",
+        headers: { ...opts.headers, "content-length": String(opts.body.length) },
+      },
+      res => {
+        const chunks: Buffer[] = [];
+        res.on("data", (c: Buffer) => chunks.push(c));
+        res.on("end", () => {
+          resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString("utf-8"), socket: req.socket! });
+        });
+        res.on("error", reject);
+      }
+    );
+    req.on("error", reject);
+    req.end(opts.body);
   });
 }
 
@@ -102,13 +173,31 @@ describe("uploadsDir 啟動期可寫性探測（Task 9，AppDeps.uploadsDir）",
   });
 });
 
-describe("CSRF hook：multipart 上傳路由豁免 + Origin 驗證（Task 10a，spec §12.4）", () => {
-  it("essence 不是 multipart/form-data（打上傳端點，沒帶 Origin）→ 415 unsupported_media_type（essence 先於 Origin 檢查——沒帶 Origin 若走到 Origin 分支會放行 201，這裡驗證的正是它先被 essence 擋下）", async () => {
+// ───────────────────────────── CSRF hook：multipart 豁免 + Origin 驗證（Task 10a，spec §12.4）─────────────────────────────
+//
+// Task 10b 落地真實路由後改掛真實 `POST /api/notes/:id/uploads`（Task 10a 的樁路由
+// `withUploadStubRoute`／`/__test/not-exempt` 已刪除——同 URL 雙註冊會 FST_ERR_DUPLICATED_ROUTE，
+// 見 task-10-brief）。essence／Origin 不符的分支在 CSRF hook 就被擋下，不需要真的登入或
+// 真的有這篇筆記——用假 UUID 當 noteId 即可，因為這兩條早退發生在路由參數被解析、
+// resolveRole 查 DB 之前。Origin 相符的正面案例則改成走完整真實流程（真登入 + 真筆記 +
+// 合法 PNG bytes），直接斷言 201，一次覆蓋「CSRF 放行」與「真實路由確實能吃這個請求」
+// 兩件事，不必再靠 Task 10a 那支只回字面 201 的樁路由。
+//
+// 白名單判定的 mutation 護欄（Task 10a 的 C1）不再需要專屬的 `/__test/not-exempt` 樁路由：
+// `@fastify/multipart` 現在確實註冊在生產 app 的頂層（`app.ts`，Task 10b），這件事本身讓
+// 下方「CSRF 迴歸」小節的既有測試（multipart body 打 `/api/auth/login` 仍 415）天然具備
+// 同等的鑑別力——若 `isMultipartExemptRoute` 被 mutation 成「只看 essence、不比對白名單」，
+// 這個請求會流進真正的 `/api/auth/login` handler（multipart 不會填 `request.body`，
+// zod safeParse 落在 undefined 上失敗）→ 400，而非正確實作的 415，status code 本身就
+// 足以讓測試變紅，不需要另外一支專門回 200 的樁路由才能觀察差異。
+describe("CSRF hook：multipart 上傳路由豁免 + Origin 驗證（Task 10a，掛真實路由重驗）", () => {
+  const FAKE_NOTE_ID = "11111111-1111-1111-1111-111111111111";
+
+  it("essence 不是 multipart/form-data（打上傳端點，沒帶 Origin）→ 415 unsupported_media_type（essence 先於 Origin 檢查）", async () => {
     const { app } = await buildTestApp();
-    await withUploadStubRoute(app);
     const res = await app.inject({
       method: "POST",
-      url: UPLOAD_URL,
+      url: `/api/notes/${FAKE_NOTE_ID}/uploads`,
       payload: "{}",
       headers: { "content-type": "application/json" },
     });
@@ -116,12 +205,11 @@ describe("CSRF hook：multipart 上傳路由豁免 + Origin 驗證（Task 10a，
     expect(res.json().error.code).toBe("unsupported_media_type");
   });
 
-  it("essence 偽裝（text/plain;charset=multipart/form-data 這種 essence 不符的變體）仍 415", async () => {
+  it("essence 偽裝（text/plain）仍 415", async () => {
     const { app } = await buildTestApp();
-    await withUploadStubRoute(app);
     const res = await app.inject({
       method: "POST",
-      url: UPLOAD_URL,
+      url: `/api/notes/${FAKE_NOTE_ID}/uploads`,
       payload: "x",
       headers: { "content-type": "text/plain" },
     });
@@ -131,79 +219,83 @@ describe("CSRF hook：multipart 上傳路由豁免 + Origin 驗證（Task 10a，
   describe("Origin 矩陣（essence 相符之後）", () => {
     it("Origin host 與 request.host 不符 → 403 forbidden", async () => {
       const { app } = await buildTestApp();
-      await withUploadStubRoute(app);
-      const res = await postMultipart(app, { origin: "https://evil.example.com", host: "localhost:3000" });
+      const res = await postUpload(app, FAKE_NOTE_ID, singleFileBody(PNG_BYTES), {
+        headers: { origin: "https://evil.example.com", host: "localhost:3000" },
+      });
       expect(res.statusCode).toBe(403);
       expect(res.json().error.code).toBe("forbidden");
     });
 
-    it("含 port 的 LAN 形狀（192.168.x.x:8006）Origin 與 host 相符 → 通過（不是 403/415）", async () => {
+    it("同 host 不同 port（都非 80/443）→ 403（LAN 形狀下 port 差異不可被忽略）", async () => {
       const { app } = await buildTestApp();
-      await withUploadStubRoute(app);
-      const res = await postMultipart(app, { origin: "http://192.168.3.22:8006", host: "192.168.3.22:8006" });
+      const res = await postUpload(app, FAKE_NOTE_ID, singleFileBody(PNG_BYTES), {
+        headers: { origin: "http://192.168.3.22:9999", host: "192.168.3.22:8006" },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().error.code).toBe("forbidden");
+    });
+
+    it("Origin: null（字面字串）→ 403", async () => {
+      const { app } = await buildTestApp();
+      const res = await postUpload(app, FAKE_NOTE_ID, singleFileBody(PNG_BYTES), {
+        headers: { origin: "null", host: "localhost:3000" },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().error.code).toBe("forbidden");
+    });
+
+    it("含 port 的 LAN 形狀（192.168.x.x:8006）Origin 與 host 相符 → 通過 CSRF 閘門，走到真實路由（登入+真筆記後 201）", async () => {
+      const { app, db } = await buildTestApp();
+      const owner = await insertUser(db, { email: "owner-lan@example.com" });
+      const cookie = await cookieFor(owner.id);
+      const note = await createNote(db, owner.id);
+
+      const res = await postUpload(app, note.id, singleFileBody(PNG_BYTES), {
+        cookie,
+        headers: { origin: "http://192.168.3.22:8006", host: "192.168.3.22:8006" },
+      });
       expect(res.statusCode).toBe(201);
     });
 
-    // I1：兩者都帶明確 port，但 port 本身不同（都非 80/443，不會被 stripDefaultPort
-    // 消掉）→ 必須不符。護住「比對邏輯不小心把 port 整段剝掉、只比 hostname」這種
-    // mutation——上面「LAN 相符」與「預設 port 正規化」兩案例都是「port 相同／消去後
-    // 相同」的正面案例，缺一個「port 不同就該判不符」的反例時，就算把 port 比較這段
-    // 邏輯整段刪掉（等同剝 port 比 hostname），這些既有案例仍然全線綠。
-    it("同 host 不同 port（都非 80/443）→ 403（LAN 形狀下 port 差異不可被忽略）", async () => {
-      const { app } = await buildTestApp();
-      await withUploadStubRoute(app);
-      const res = await postMultipart(app, { origin: "http://192.168.3.22:9999", host: "192.168.3.22:8006" });
-      expect(res.statusCode).toBe(403);
-      expect(res.json().error.code).toBe("forbidden");
-    });
-
     it("scheme 混合（https Origin vs http host）仍相符 → 通過（scheme 忽略）", async () => {
-      const { app } = await buildTestApp();
-      await withUploadStubRoute(app);
-      const res = await postMultipart(app, { origin: "https://example.com", host: "example.com" });
+      const { app, db } = await buildTestApp();
+      const owner = await insertUser(db, { email: "owner-scheme@example.com" });
+      const cookie = await cookieFor(owner.id);
+      const note = await createNote(db, owner.id);
+
+      const res = await postUpload(app, note.id, singleFileBody(PNG_BYTES), {
+        cookie,
+        headers: { origin: "https://example.com", host: "example.com" },
+      });
       expect(res.statusCode).toBe(201);
     });
 
     it("預設 port 正規化（example.com vs example.com:443）→ 通過", async () => {
-      const { app } = await buildTestApp();
-      await withUploadStubRoute(app);
-      const res = await postMultipart(app, { origin: "https://example.com", host: "example.com:443" });
-      expect(res.statusCode).toBe(201);
-    });
+      const { app, db } = await buildTestApp();
+      const owner = await insertUser(db, { email: "owner-port443@example.com" });
+      const cookie = await cookieFor(owner.id);
+      const note = await createNote(db, owner.id);
 
-    it("Origin: null（字面字串，沙箱化 iframe 等情境）→ 403", async () => {
-      const { app } = await buildTestApp();
-      await withUploadStubRoute(app);
-      const res = await postMultipart(app, { origin: "null", host: "localhost:3000" });
-      expect(res.statusCode).toBe(403);
-      expect(res.json().error.code).toBe("forbidden");
+      const res = await postUpload(app, note.id, singleFileBody(PNG_BYTES), {
+        cookie,
+        headers: { origin: "https://example.com", host: "example.com:443" },
+      });
+      expect(res.statusCode).toBe(201);
     });
 
     it("無 Origin header → 放行（不是 CSRF 閘門保護的向量，spec 明文）", async () => {
-      const { app } = await buildTestApp();
-      await withUploadStubRoute(app);
-      const res = await postMultipart(app, { host: "localhost:3000" });
-      expect(res.statusCode).toBe(201);
-    });
-  });
+      const { app, db } = await buildTestApp();
+      const owner = await insertUser(db, { email: "owner-noorigin@example.com" });
+      const cookie = await cookieFor(owner.id);
+      const note = await createNote(db, owner.id);
 
-  describe("白名單判定護欄（C1：mutation 護欄，審查回報方案②）", () => {
-    it("multipart parser 已註冊、但目標路由不在白名單（POST /__test/not-exempt）→ 仍 415，且訊息是白名單分支專屬文案（雙保險：光 415/unsupported_media_type 這組 status/code 不足以證明是白名單判定本身擋下的——見 withUploadStubRoute 說明）", async () => {
-      const { app } = await buildTestApp();
-      await withUploadStubRoute(app);
-      const res = await app.inject({
-        method: "POST",
-        url: NOT_EXEMPT_URL,
-        payload: buildMultipartBody(BOUNDARY),
-        headers: { "content-type": `multipart/form-data; boundary=${BOUNDARY}` },
-      });
-      expect(res.statusCode).toBe(415);
-      expect(res.json()).toMatchObject({ error: { code: "unsupported_media_type", message: "此請求需要 application/json" } });
+      const res = await postUpload(app, note.id, singleFileBody(PNG_BYTES), { cookie, headers: { host: "localhost:3000" } });
+      expect(res.statusCode).toBe(201);
     });
   });
 
   describe("CSRF 迴歸：既有 JSON 守衛不受本次擴充影響", () => {
-    it("非 multipart 路由（既有 /api/auth/login，此 app 未註冊 multipart parser）content-type 非 JSON → 415 行為不變", async () => {
+    it("非 multipart 路由（既有 /api/auth/login）content-type 非 JSON → 415 行為不變", async () => {
       const { app } = await buildTestApp();
       const res = await app.inject({
         method: "POST",
@@ -215,16 +307,399 @@ describe("CSRF hook：multipart 上傳路由豁免 + Origin 驗證（Task 10a，
       expect(res.json().error.code).toBe("unsupported_media_type");
     });
 
-    it("multipart body 打非豁免路由（既有 /api/auth/login，此 app 未註冊 multipart parser）→ 仍 415——注意：這條不足以單獨證明白名單判定正確，未註冊 parser 時 Fastify 自己也會用同一組 status/code 拒絕，見上方「白名單判定護欄」那組才是能鑑別 mutation 的版本", async () => {
+    it("multipart body 打非豁免路由（既有 /api/auth/login）→ 仍 415（白名單判定的 mutation 護欄，見上方 describe 說明）", async () => {
       const { app } = await buildTestApp();
       const res = await app.inject({
         method: "POST",
         url: "/api/auth/login",
-        payload: buildMultipartBody(BOUNDARY),
+        payload: singleFileBody(PNG_BYTES),
         headers: { "content-type": `multipart/form-data; boundary=${BOUNDARY}` },
       });
       expect(res.statusCode).toBe(415);
       expect(res.json().error.code).toBe("unsupported_media_type");
     });
   });
+});
+
+// ───────────────────────────── Task 10b：POST /api/notes/:id/uploads routes + limiter ─────────────────────────────
+
+describe("POST /api/notes/:id/uploads", () => {
+  it("201：DB 列 noteId/uploaderId/mime/size 正確，GET 往返位元組與原始上傳一致", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-201@example.com" });
+    const cookie = await cookieFor(owner.id);
+    const note = await createNote(db, owner.id);
+
+    const res = await postUpload(app, note.id, singleFileBody(PNG_BYTES), { cookie });
+    expect(res.statusCode).toBe(201);
+    const body = res.json() as { id: string; url: string };
+    expect(body.url).toBe(`/api/uploads/${body.id}`);
+
+    const [row] = await db.select().from(uploads).where(eq(uploads.id, body.id)).limit(1);
+    expect(row).toMatchObject({ noteId: note.id, uploaderId: owner.id, mime: "image/png", size: PNG_BYTES.length });
+
+    const getRes = await app.inject({ method: "GET", url: body.url, cookies: { [SESSION_COOKIE]: cookie } });
+    expect(getRes.statusCode).toBe(200);
+    expect(getRes.rawPayload.equals(PNG_BYTES)).toBe(true);
+  });
+
+  it("多 file part：只取第一個（mime/size 對應第一個），其餘 drain 不落地", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-multi@example.com" });
+    const cookie = await cookieFor(owner.id);
+    const note = await createNote(db, owner.id);
+
+    const body = buildMultipartBody([
+      { name: "file", filename: "a.png", contentType: "image/png", data: PNG_BYTES },
+      { name: "file2", filename: "b.jpg", contentType: "image/jpeg", data: JPEG_BYTES },
+    ]);
+    const res = await postUpload(app, note.id, body, { cookie });
+    expect(res.statusCode).toBe(201);
+    const { id } = res.json() as { id: string };
+    const [row] = await db.select().from(uploads).where(eq(uploads.id, id)).limit(1);
+    expect(row?.mime).toBe("image/png");
+    expect(row?.size).toBe(PNG_BYTES.length);
+    // 只有一筆 uploads 列——第二個 file part 被忽略，沒有另外落地一筆紀錄。
+    const allRows = await db.select().from(uploads).where(eq(uploads.noteId, note.id));
+    expect(allRows).toHaveLength(1);
+  });
+
+  it("400 invalid_body：parts 超過上限（32，用多個 file part 湊，避開 fields 上限先觸發）", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-parts@example.com" });
+    const cookie = await cookieFor(owner.id);
+    const note = await createNote(db, owner.id);
+
+    const res = await postUpload(app, note.id, buildMultipartBody(manyFileParts(33)), { cookie });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("invalid_body");
+  });
+
+  it("400 invalid_body：fields 超過上限（16）", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-fields@example.com" });
+    const cookie = await cookieFor(owner.id);
+    const note = await createNote(db, owner.id);
+
+    const res = await postUpload(app, note.id, buildMultipartBody(manyFieldParts(17)), { cookie });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("invalid_body");
+  });
+
+  it("400 invalid_body：缺 boundary（Content-Type 是 multipart/form-data 但沒帶 boundary=）", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-noboundary@example.com" });
+    const cookie = await cookieFor(owner.id);
+    const note = await createNote(db, owner.id);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/notes/${note.id}/uploads`,
+      payload: singleFileBody(PNG_BYTES),
+      cookies: { [SESSION_COOKIE]: cookie },
+      headers: { "content-type": "multipart/form-data" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("invalid_body");
+  });
+
+  it("401：未登入", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-401@example.com" });
+    const note = await createNote(db, owner.id);
+
+    const res = await postUpload(app, note.id, singleFileBody(PNG_BYTES));
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("未登入 + Origin 不符 → 403（不是 401——Origin 檢查在 CSRF hook 的 onRequest，早於 authenticate；測試禁區明列，不得斷言 401）", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-badorigin@example.com" });
+    const note = await createNote(db, owner.id);
+
+    const res = await postUpload(app, note.id, singleFileBody(PNG_BYTES), {
+      headers: { origin: "https://evil.example.com", host: "localhost:3000" },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("404：筆記不存在（合法 UUID 格式但查無此筆記）", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-404@example.com" });
+    const cookie = await cookieFor(owner.id);
+
+    const res = await postUpload(app, "22222222-2222-2222-2222-222222222222", singleFileBody(PNG_BYTES), { cookie });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error.code).toBe("not_found");
+  });
+
+  it("404：noteId 不是合法 UUID 格式", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-notuuid@example.com" });
+    const cookie = await cookieFor(owner.id);
+
+    const res = await postUpload(app, "not-a-uuid", singleFileBody(PNG_BYTES), { cookie });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error.code).toBe("not_found");
+  });
+
+  it("403：viewer 沒有上傳權限", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-viewer403@example.com" });
+    const viewer = await insertUser(db, { email: "viewer-403@example.com" });
+    const viewerCookie = await cookieFor(viewer.id);
+    const note = await createNote(db, owner.id);
+    await share(db, note.id, viewer.id, "viewer");
+
+    const res = await postUpload(app, note.id, singleFileBody(PNG_BYTES), { cookie: viewerCookie });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe("forbidden");
+  });
+
+  it("editor 可以上傳（非僅 owner）", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-editor201@example.com" });
+    const editor = await insertUser(db, { email: "editor-201@example.com" });
+    const editorCookie = await cookieFor(editor.id);
+    const note = await createNote(db, owner.id);
+    await share(db, note.id, editor.id, "editor");
+
+    const res = await postUpload(app, note.id, singleFileBody(PNG_BYTES), { cookie: editorCookie });
+    expect(res.statusCode).toBe(201);
+  });
+
+  it("415：magic bytes 偽裝（宣稱 image/png，實際內容不是任何支援的圖片格式）", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-415@example.com" });
+    const cookie = await cookieFor(owner.id);
+    const note = await createNote(db, owner.id);
+
+    const res = await postUpload(app, note.id, singleFileBody(NOT_AN_IMAGE_BYTES, { contentType: "image/png" }), { cookie });
+    expect(res.statusCode).toBe(415);
+    expect(res.json().error.code).toBe("unsupported_media_type");
+  });
+
+  it("413：檔案超過 MAX_UPLOAD_BYTES → file_too_large，不落檔（磁碟上沒有殘留任何檔案，含暫名檔）", async () => {
+    const { app, db, uploadsDir } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-413@example.com" });
+    const cookie = await cookieFor(owner.id);
+    const note = await createNote(db, owner.id);
+
+    const oversized = Buffer.concat([PNG_BYTES, Buffer.alloc(MAX_UPLOAD_BYTES, 0x41)]);
+    const res = await postUpload(app, note.id, singleFileBody(oversized), { cookie });
+    expect(res.statusCode).toBe(413);
+    expect(res.json().error.code).toBe("file_too_large");
+
+    const allRows = await db.select().from(uploads).where(eq(uploads.noteId, note.id));
+    expect(allRows).toHaveLength(0);
+    expect(readdirSync(uploadsDir)).toHaveLength(0);
+  }, 20_000);
+
+  it("429：超過節流上限（per-user，覆寫成 limit:1 讓測試不必真的發 121 次請求）", async () => {
+    const smallUploadLimiter = new FixedWindowLimiter({ limit: 1, windowMs: 600_000 });
+    const { app, db } = await buildTestApp({
+      limiters: {
+        collabToken: new FixedWindowLimiter({ limit: 60, windowMs: 60_000 }),
+        slugPatch: new FixedWindowLimiter({ limit: 10, windowMs: 600_000 }),
+        upload: smallUploadLimiter,
+      },
+    });
+    const owner = await insertUser(db, { email: "owner-429@example.com" });
+    const cookie = await cookieFor(owner.id);
+    const note = await createNote(db, owner.id);
+
+    const res1 = await postUpload(app, note.id, singleFileBody(PNG_BYTES), { cookie });
+    expect(res1.statusCode).toBe(201);
+
+    const res2 = await postUpload(app, note.id, singleFileBody(PNG_BYTES), { cookie });
+    expect(res2.statusCode).toBe(429);
+    expect(res2.json().error.code).toBe("too_many_requests");
+  });
+
+  // review 意見（Critical-1 附註）：這支用 `app.inject`（無真 socket），只能證明
+  // 「早退 4xx 收到結構化 error body」——**不能**當成「連線沒有卡住」的證據（`inject`
+  // 沒有真的 TCP 連線可以卡）。preHandler 這幾條早退分支（401/403/404/429）之所以在
+  // 真 socket 上也沒事，是因為它們完全沒碰過 `request.parts()`，Node 自己的
+  // `resOnFinish`／`_dump()` 機制會自動把未讀的 body 丟掉；真正需要真 socket 才量得出來
+  // 的是「已經開始解析、又中途出錯」那條路徑，見下方「真 socket drain 驗證」。
+  it("大 body + 早退 4xx（viewer 403，limiter/parts 都還沒碰到 body）仍收到結構化 error body", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-drain@example.com" });
+    const viewer = await insertUser(db, { email: "viewer-drain@example.com" });
+    const viewerCookie = await cookieFor(viewer.id);
+    const note = await createNote(db, owner.id);
+    await share(db, note.id, viewer.id, "viewer");
+
+    const bigBody = singleFileBody(Buffer.alloc(2 * MAX_UPLOAD_BYTES, 0x42));
+    const res = await postUpload(app, note.id, bigBody, { cookie: viewerCookie });
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ error: { code: "forbidden" } });
+  }, 20_000);
+});
+
+// ───────────────────────────── Task 10b：GET /api/uploads/:id ─────────────────────────────
+
+describe("GET /api/uploads/:id", () => {
+  async function uploadOne(
+    app: Awaited<ReturnType<typeof buildTestApp>>["app"],
+    noteId: string,
+    cookie: string
+  ): Promise<{ id: string; url: string }> {
+    const res = await postUpload(app, noteId, singleFileBody(PNG_BYTES), { cookie });
+    expect(res.statusCode).toBe(201);
+    return res.json() as { id: string; url: string };
+  }
+
+  it("200：Content-Type 為 DB mime、帶 nosniff + Cache-Control，位元組與原檔一致", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-get200@example.com" });
+    const cookie = await cookieFor(owner.id);
+    const note = await createNote(db, owner.id);
+    const { url } = await uploadOne(app, note.id, cookie);
+
+    const res = await app.inject({ method: "GET", url, cookies: { [SESSION_COOKIE]: cookie } });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toBe("image/png");
+    expect(res.headers["x-content-type-options"]).toBe("nosniff");
+    expect(res.headers["cache-control"]).toBe("private, max-age=31536000, immutable");
+    expect(res.rawPayload.equals(PNG_BYTES)).toBe(true);
+  });
+
+  it("401：未登入", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-getunauth@example.com" });
+    const cookie = await cookieFor(owner.id);
+    const note = await createNote(db, owner.id);
+    const { url } = await uploadOne(app, note.id, cookie);
+
+    const res = await app.inject({ method: "GET", url });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("403：登入使用者對該筆記無權限（DB 有列，只是不能看）", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-get403@example.com" });
+    const stranger = await insertUser(db, { email: "stranger-get403@example.com" });
+    const ownerCookie = await cookieFor(owner.id);
+    const strangerCookie = await cookieFor(stranger.id);
+    const note = await createNote(db, owner.id);
+    const { url } = await uploadOne(app, note.id, ownerCookie);
+
+    const res = await app.inject({ method: "GET", url, cookies: { [SESSION_COOKIE]: strangerCookie } });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe("forbidden");
+  });
+
+  it("404：非 UUID 格式的 id", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-getnotuuid@example.com" });
+    const cookie = await cookieFor(owner.id);
+
+    const res = await app.inject({ method: "GET", url: "/api/uploads/not-a-uuid", cookies: { [SESSION_COOKIE]: cookie } });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error.code).toBe("not_found");
+  });
+
+  it("404：合法 UUID 但查無此上傳紀錄", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-getmissing@example.com" });
+    const cookie = await cookieFor(owner.id);
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/uploads/33333333-3333-3333-3333-333333333333",
+      cookies: { [SESSION_COOKIE]: cookie },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error.code).toBe("not_found");
+  });
+
+  it("404：DB 有列但磁碟找不到對應檔案", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-getdiskmissing@example.com" });
+    const cookie = await cookieFor(owner.id);
+    const note = await createNote(db, owner.id);
+
+    // 直接插一筆 uploads DB 列，不經過真實 POST（不落地任何磁碟檔案），模擬「DB 有紀錄、
+    // 磁碟沒有對應檔案」（例如 volume 被清過、手動誤刪）。
+    const [row] = await db
+      .insert(uploads)
+      .values({ noteId: note.id, uploaderId: owner.id, mime: "image/png", size: PNG_BYTES.length })
+      .returning();
+
+    const res = await app.inject({ method: "GET", url: `/api/uploads/${row.id}`, cookies: { [SESSION_COOKIE]: cookie } });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error.code).toBe("not_found");
+  });
+});
+
+// ───────────────────────────── Task 10b：真 socket drain 驗證（Critical-2 review）─────────────────────────────
+//
+// 這個 describe 專門補 `app.inject` 量不出來的那類 bug：`request.parts()` 已經開始消費
+// （`request.pipe(bb)` 真的跑過），中途因為 parts/fields 超限而錯誤收尾——busboy 的
+// `cleanup(err)` 只 `request.unpipe(bb)`，不會 `resume()` 剩餘 body。一旦解析真的開始過，
+// Node 認定「應用層已接手消費這個 request」（`req._consuming`），關閉回應時的自動
+// `_dump()`（丟棄未讀 body）機制就不會生效——這與「preHandler 完全沒碰過 body 就早退」
+// （401/403/404/429）是不同的路徑：那幾條在真 socket 上也沒事（Node 自己會 dump），只有
+// 「已經開始解析、又中途出錯」這條路徑需要我們自己補 `resume()`（見 `routes/uploads.ts`
+// 的 catch 分支）。真 socket 才量得出「body 沒被讀完 → 連線卡住 → graceful shutdown
+// （`app.close()`）吊死」，`app.inject` 的 payload 整包在記憶體、沒有真 TCP 連線可卡。
+describe("Task 10b：真 socket drain 驗證（parts 超限走到 catch 分支，Critical-2 review）", () => {
+  it(
+    "400 invalid_body（33 個小 file part 觸發 parts 超限，後面還接一個 20MB 沒被解析到的 part）：" +
+      "client 收到結構化 error body，且 server graceful shutdown（app.close()）在合理時間內完成——" +
+      "不因為剩餘 body 未被 drain 而卡住（先 destroy client socket 才 close，避免 keep-alive 連線本身造成偽陽性）",
+    async () => {
+      const { app, db } = await buildTestApp();
+      const owner = await insertUser(db, { email: "owner-realsocket-drain@example.com" });
+      const cookie = await cookieFor(owner.id);
+      const note = await createNote(db, owner.id);
+
+      await app.listen({ port: 0, host: "127.0.0.1" });
+      const address = app.server.address();
+      if (address === null || typeof address === "string") {
+        throw new Error("app.listen 後取不到 TCP 位址——真 socket 測試需要真的 port");
+      }
+
+      // 33 個小 file part（parts 上限 32，第 33 個觸發 partsLimit）+ 一個 20MB 的
+      // file part（絕對不會被解析到——parts 超限一觸發，busboy 立刻 unpipe，這個
+      // part 的位元組原封不動留在 request 裡）。20MB 是刻意選的量級：太小的話即使
+      // 完全沒有 resume()，OS/Node 的 buffer 也可能剛好裝得下，觀察不到卡住。
+      const bigTail = { name: "big", filename: "big.bin", contentType: "application/octet-stream", data: Buffer.alloc(20 * 1024 * 1024, 0x41) };
+      const body = buildMultipartBody([...manyFileParts(33), bigTail]);
+
+      let socket: Socket | undefined;
+      try {
+        const res = await rawSocketPost({
+          port: address.port,
+          path: `/api/notes/${note.id}/uploads`,
+          headers: { "content-type": `multipart/form-data; boundary=${BOUNDARY}`, cookie: `${SESSION_COOKIE}=${cookie}` },
+          body,
+        });
+        socket = res.socket;
+
+        expect(res.status).toBe(400);
+        expect(JSON.parse(res.body)).toMatchObject({ error: { code: "invalid_body" } });
+      } finally {
+        // review 意見 2：先關 client 端連線，再關 server——否則即使 server 端完全正確
+        // drain 了 body，client 自己留著的 keep-alive 連線一樣會讓 app.close() 卡住等它
+        // 自然結束，把「與本測試無關的 keep-alive 存活」誤判成我們要抓的那個 bug。
+        socket?.destroy();
+      }
+
+      const closeStart = Date.now();
+      const CLOSE_TIMEOUT_MS = 10_000;
+      await Promise.race([
+        app.close(),
+        new Promise((_resolve, reject) =>
+          setTimeout(
+            () => reject(new Error(`app.close() 逾時（${CLOSE_TIMEOUT_MS}ms）——剩餘 request body 未被 drain，連線卡住`)),
+            CLOSE_TIMEOUT_MS
+          )
+        ),
+      ]);
+      expect(Date.now() - closeStart).toBeLessThan(CLOSE_TIMEOUT_MS);
+    },
+    30_000
+  );
 });

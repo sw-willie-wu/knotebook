@@ -9,6 +9,8 @@
  */
 export const COLLAB_TOKEN_LIMIT = { limit: 60, windowMs: 60_000 } as const;
 export const SLUG_PATCH_LIMIT = { limit: 10, windowMs: 600_000 } as const;
+/** Plan 3 Task 10b：`POST /api/notes/:id/uploads` 節流（key=userId，同 collabToken/slugPatch 慣例）。 */
+export const UPLOAD_LIMIT = { limit: 120, windowMs: 600_000 } as const;
 
 export interface FixedWindowLimiterOptions {
   limit: number;
