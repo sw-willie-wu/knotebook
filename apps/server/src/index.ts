@@ -23,6 +23,26 @@ const logger = pino();
 
 async function main(): Promise<void> {
   const config = loadConfig(process.env);
+
+  // spec rev 5.6：trusted-LAN plain-http 是支援的拓撲之一（PUBLIC_URL=http://<lan-ip>:3000，
+  // 不再拒絕啟動——見 config.ts 的 insecureHttpWarning 推導）。啟動時印一次警告，讓維運者
+  // 自行評估風險；不在這裡擋下啟動，決定權留給使用者。
+  //
+  // 這個 logger 是裸 pino（無 pretty transport），輸出是 NDJSON——不用多行字串排版
+  // （那樣只會變成 JSON 字串裡的跳脫 `\n`，在 `docker compose logs` 之類的原始輸出裡
+  // 讀起來反而更雜）。改用一行大寫、講重點的 `msg`，細節放進結構化欄位；
+  // README 對應說明也要講「一行 JSON 警告」而非「多行橫幅」，見那邊的用字。
+  if (config.insecureHttpWarning) {
+    logger.warn(
+      {
+        publicUrl: config.publicUrl.href,
+        risk: "credentials and session cookies travel in cleartext; session cookie has no Secure flag",
+        guidance: 'use only on a network where you trust every host; public deployments must use the reverse-proxy + TLS path — see README "Deployment prerequisites"',
+      },
+      "SECURITY WARNING: PUBLIC_URL uses plain http on a non-localhost host — credentials and session cookies travel in cleartext"
+    );
+  }
+
   const pool = new Pool({ connectionString: config.databaseUrl });
   const db = createDb(pool);
 

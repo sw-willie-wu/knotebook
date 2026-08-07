@@ -13,6 +13,7 @@ describe("loadConfig", () => {
       appSecret: "a".repeat(64),
       publicUrl: new URL("https://notes.example.com"),
       cookieSecure: true,
+      insecureHttpWarning: false,
     });
   });
   it("完整物件回傳 - 含 bootstrapAdminEmail", () => {
@@ -22,6 +23,7 @@ describe("loadConfig", () => {
       appSecret: "a".repeat(64),
       publicUrl: new URL("https://notes.example.com"),
       cookieSecure: true,
+      insecureHttpWarning: false,
       bootstrapAdminEmail: "admin@example.com",
     });
   });
@@ -32,8 +34,16 @@ describe("loadConfig", () => {
     const { PUBLIC_URL, ...rest } = valid;
     expect(() => loadConfig(rest)).toThrow(/PUBLIC_URL/);
   });
-  it("http 非 localhost → throw", () => {
-    expect(() => loadConfig({ ...valid, PUBLIC_URL: "http://notes.example.com" })).toThrow(/https/);
+  it("http 非 localhost → 接受但 insecureHttpWarning=true，cookieSecure 仍為 false（trusted-LAN 拓撲，spec rev 5.6）", () => {
+    const config = loadConfig({ ...valid, PUBLIC_URL: "http://notes.example.com" });
+    expect(config.insecureHttpWarning).toBe(true);
+    expect(config.cookieSecure).toBe(false);
+  });
+  it("http localhost → insecureHttpWarning=false", () => {
+    expect(loadConfig({ ...valid, PUBLIC_URL: "http://localhost:3000" }).insecureHttpWarning).toBe(false);
+  });
+  it("https → insecureHttpWarning=false", () => {
+    expect(loadConfig(valid).insecureHttpWarning).toBe(false);
   });
   it("無 scheme → throw", () => {
     expect(() => loadConfig({ ...valid, PUBLIC_URL: "localhost:3000" })).toThrow(/http\/https/);

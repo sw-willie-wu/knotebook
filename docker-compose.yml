@@ -4,13 +4,18 @@ services:
       context: .
       dockerfile: docker/Dockerfile
     env_file: .env
-    # 只綁 loopback：README「Reverse proxy and TLS are bring-your-own」的拓撲假設是
+    # 預設只綁 loopback：public 拓撲（README「Deployment prerequisites」）的假設是
     # app 只透過反代對外曝露；若直接 "3000:3000"（等同 0.0.0.0:3000），docker 會
     # 直接在 iptables 開洞，繞過 host 防火牆規則，讓區網/公網能不經反代直接打到
     # app。Quickstart 的 `curl http://localhost:3000/...` 不受影響（127.0.0.1 對本機
-    # 而言就是 localhost）。
+    # 而言就是 localhost）。要用 trusted-LAN plain-http 拓撲，改用下面註解掉的替代寫法。
     ports:
       - "127.0.0.1:3000:3000"
+      # LAN mode（trusted-LAN plain-http，見 README「Deployment prerequisites」）：
+      # 換成 "3000:3000" 會把 app 直接曝露到你的網段（等同 0.0.0.0:3000），並透過
+      # docker 自己在 iptables 開的洞繞過 host 防火牆規則——啟用前務必先讀過
+      # README 的風險清單（cleartext 密碼/session cookie、無 Secure flag）。
+      # - "3000:3000"
     depends_on:
       db:
         condition: service_healthy
