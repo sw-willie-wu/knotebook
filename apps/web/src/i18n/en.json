@@ -71,6 +71,19 @@
       "reconnecting": "Reconnecting…",
       "kicked": "Access revoked",
       "deleted": "Note deleted"
+    },
+    "filePanel": {
+      "upload": {
+        "tabLabel": "Upload",
+        "inputLabel": "Choose an image file to upload",
+        "error": "Couldn't upload the file. Please try again."
+      },
+      "embed": {
+        "tabLabel": "Embed link",
+        "urlLabel": "Link to embed",
+        "urlPlaceholder": "Paste a link…",
+        "embedButton": "Embed"
+      }
     }
   },
   "login": {

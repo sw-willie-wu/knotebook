@@ -42,15 +42,14 @@ function file(name: string, type: string): File {
   return new File([new Uint8Array([1])], name, { type });
 }
 
-describe("noteSchema（§11.1 不啟用 image block）", () => {
-  it("沒有 image block", () => {
-    expect(Object.keys(noteSchema.blockSpecs)).not.toContain("image");
-    expect("image" in noteSchema.blockSchema).toBe(false);
+describe("noteSchema（Plan 3 Task 14：image block 恢復啟用）", () => {
+  it("有 image block", () => {
+    expect(Object.keys(noteSchema.blockSpecs)).toContain("image");
+    expect("image" in noteSchema.blockSchema).toBe(true);
   });
 
-  it("其餘預設 block 全數保留", () => {
-    const expected = Object.keys(defaultBlockSpecs).filter((key) => key !== "image");
-    expect(Object.keys(noteSchema.blockSpecs).sort()).toEqual(expected.sort());
+  it("預設 block 全數保留（含 image）", () => {
+    expect(Object.keys(noteSchema.blockSpecs).sort()).toEqual(Object.keys(defaultBlockSpecs).sort());
   });
 
   it("段落與標題這些基本 block 仍在（防止整份 schema 建錯）", () => {

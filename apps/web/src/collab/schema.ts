@@ -1,20 +1,28 @@
 import { BlockNoteSchema, defaultBlockSpecs, defaultInlineContentSpecs } from "@blocknote/core";
 import { wikilinkSpec } from "@/components/wikilink/spec";
 
-// spec §11.1（P2 圖片行為）逐字：上傳是 Plan 3 的範圍，P2 **不啟用 image block**，
-// 並且**攔截並拒絕**圖片的貼上／拖放。理由不是 UI 潔癖而是儲存：BlockNote 沒有
-// `uploadFile` 時會把貼進來的圖片轉成 data URL 塞進 block props，那份 base64 會直接
-// 進 Y.Doc → 經 `onStoreDocument` 灌爆 `note_states` 與分桶備份（§4 設計分桶正是為了
-// 避免這類 bytea 膨脹）。
+// spec §11.1（P2 圖片行為）曾經逐字：上傳是 Plan 3 的範圍，P2 **不啟用 image
+// block**，並且**攔截並拒絕**圖片的貼上／拖放。理由不是 UI 潔癖而是儲存：BlockNote
+// 沒有 `uploadFile` 時會把貼進來的圖片轉成 data URL 塞進 block props，那份 base64
+// 會直接進 Y.Doc → 經 `onStoreDocument` 灌爆 `note_states` 與分桶備份（§4 設計分桶
+// 正是為了避免這類 bytea 膨脹）。
 //
-// 保留 `audio`/`video`/`file` 三個檔案類 block：本專案不設定 `uploadFile`，這些 block
-// 只剩「輸入網址嵌入」一途，不會有位元組進 Y.Doc；且下方的 transfer 守衛對所有
-// 檔案／媒體 data URL 一視同仁，不分型別。
-const { image: _imageBlockSpecIntentionallyRemoved, ...blockSpecsWithoutImage } = defaultBlockSpecs;
+// Plan 3 Task 14 起這段已經**不成立**：image block 恢復啟用，`NoteEditor.tsx` 的
+// `buildNoteEditorOptions` 掛了 `uploadFile`（Task 13 `createUploadFile`），純圖片
+// 檔案的貼上／拖放改走「先上傳、拿到 url 才寫回 block props」這條路，不會再有 base64
+// 進 Y.Doc。
+//
+// 下面 `classifyMediaTransfer` 的媒體 data URL 攔截**依然需要**：它擋的是「來源本身
+// 就是 data URL、沒有真正的 `File`」這種形狀（例如從網頁複製圖片，剪貼簿只給
+// HTML/文字表示法），這種情形完全繞過 `uploadFile` 管線，一旦放行一樣會把 base64 塞進
+// block props。`audio`/`video`/`file` 三個檔案類 block 沒有自家 Upload tab（本專案的
+// FilePanel 只給 image 掛 Upload tab，見 `components/FilePanel.tsx`），只剩「輸入
+// 網址嵌入」一途，同樣不會有位元組進 Y.Doc；下方的 transfer 守衛因此對所有檔案／
+// 媒體 data URL 一視同仁，不分型別。
 
 /**
- * 本專案的 BlockNote schema：預設 block 全套**扣掉 image**，inline content 全套
- * **加上** `wikilink`（Plan 3）。
+ * 本專案的 BlockNote schema：預設 block **全套**（Plan 3 Task 14 起含 image），
+ * inline content 全套**加上** `wikilink`（Plan 3）。
  *
  * ⚠ `BlockNoteSchema.create` 傳入 `inlineContentSpecs` 是**整組覆寫**，不是「疊加在
  * 預設值上」——`BlockNoteSchema.create` 本體只有在完全不傳這個欄位時才會落回
@@ -23,7 +31,7 @@ const { image: _imageBlockSpecIntentionallyRemoved, ...blockSpecsWithoutImage } 
  * 有任何型別錯誤提示）。
  */
 export const noteSchema = BlockNoteSchema.create({
-  blockSpecs: blockSpecsWithoutImage,
+  blockSpecs: defaultBlockSpecs,
   inlineContentSpecs: { ...defaultInlineContentSpecs, wikilink: wikilinkSpec },
 });
 

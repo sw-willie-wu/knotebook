@@ -3,13 +3,18 @@
 // `@blocknote/core/fonts/inter.css`——那是 latin-only 的自帶字型（9 個 woff 檔），
 // 對以中文為主的介面沒有幫助，只會讓 bundle 變大；字型交給 app 自己的 CSS 決定。
 import "@blocknote/mantine/style.css";
-import { useCallback, useRef } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type * as Y from "yjs";
 import type { HocuspocusProvider } from "@hocuspocus/provider";
-import { SuggestionMenu } from "@blocknote/core";
+import { BlockNoteEditor, SuggestionMenu } from "@blocknote/core";
 import { withCollaboration } from "@blocknote/core/yjs";
-import { SuggestionMenuController, useCreateBlockNote } from "@blocknote/react";
+import {
+  FilePanelController,
+  SuggestionMenuController,
+  useCreateBlockNote,
+  type DefaultReactSuggestionItem,
+} from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/mantine";
 import { YDOC_FRAGMENT } from "@knotebook/shared";
 import { useCreateNote, useNotes } from "@/api/notes";
@@ -19,6 +24,7 @@ import { toast } from "@/components/ui/toast";
 import { useTheme } from "@/theme";
 import { buildWikilinkMenuItems, type EditorRef } from "@/components/wikilink/menu";
 import { createUploadFile } from "@/uploads/upload-file";
+import { createFilePanel } from "@/components/FilePanel";
 
 /**
  * 共編游標的顏色。同一個使用者在任何裝置、任何筆記都要是同一色，所以不能用亂數——
@@ -100,8 +106,9 @@ export interface NoteEditorOptionsInput {
 /**
  * 組出交給 `useCreateBlockNote` 的完整選項。抽成獨立函式**是為了可測**：BlockNote
  * 本身依賴大量 jsdom 沒有的 DOM/Range API，掛起來只測得到環境；但這些選項才是
- * §11.1（無 image block + 貼上攔截）、共編 fragment 名稱、字典選擇這幾條契約的所在，
- * 而且純粹是資料——測試可以直接呼叫並斷言，不必掛編輯器。
+ * §11.1／§12.4（image block 已於 Plan 3 Task 14 恢復＋掛 `uploadFile`，其餘媒體
+ * data URL 仍攔截）、共編 fragment 名稱、字典選擇這幾條契約的所在，而且純粹是
+ * 資料——測試可以直接呼叫並斷言，不必掛編輯器。
  */
 export function buildNoteEditorOptions({ doc, provider, user, language, translate, editorRef, noteId }: NoteEditorOptionsInput) {
   return withCollaboration({
@@ -233,9 +240,57 @@ export function NoteEditor({ doc, provider, editable, user, noteId }: NoteEditor
     [notes, createNote, t],
   );
 
+  return <NoteEditorView editor={editor} editable={editable} theme={resolvedTheme} noteId={noteId} getItems={getItems} />;
+}
+
+export interface NoteEditorViewProps {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 編輯器泛型三元組，走 repo 慣例用 any（同 EditorRef/wikilink/menu.ts）
+  editor: BlockNoteEditor<any, any, any>;
+  /** 目前角色能不能編輯（`canEdit(role)`）。false → BlockNoteView 會把 `editor.isEditable` 設成 false。 */
+  editable: boolean;
+  theme: "light" | "dark";
+  /** 目前這篇筆記的 id（Task 13/14）：轉交給 `createFilePanel` 組 FilePanel 的 noteId 閉包。 */
+  noteId: string;
+  /** `SuggestionMenuController` 的候選來源（Task 3）——呼叫端（`NoteEditor`）組好
+   * notes cache／createNote／translate 的閉包後轉交進來，這裡不重新組。 */
+  getItems: (query: string) => Promise<DefaultReactSuggestionItem[]>;
+}
+
+/**
+ * `<BlockNoteView>` 本體 + 掛在它上面的兩個 controller（`SuggestionMenuController`／
+ * `FilePanelController`）。抽成獨立、**exported** 元件是為了可測——比照
+ * `buildNoteEditorOptions`「抽出來是為了可測」的既有慣例：`NoteEditor` 本體還要處理
+ * `useCreateBlockNote` 的建構、`editorRef`/`translateRef` 的 late-bound 閉包，這些
+ * 依賴大量 jsdom 沒有的 DOM/Range API；但「`filePanel={false}` 有沒有真的關掉內建
+ * 面板」「`useMemo` 有沒有真的釘住 `filePanel` 的元件身分」這兩條 Task 14 的核心契約，
+ * 只需要一個掛好的 `<BlockNoteView>` + 真編輯器就測得到（見
+ * `NoteEditorView.test.tsx`；jsdom 缺的 `ResizeObserver`/`window.matchMedia` 兩個
+ * mantine 內部會摸到的全域已經補進 `test/setup.ts`）。
+ */
+export function NoteEditorView({ editor, editable, theme, noteId, getItems }: NoteEditorViewProps) {
+  // Task 14：`createFilePanel(noteId)` 回傳一個新的元件型別——`FilePanelController`
+  // 拿它跟前一輪比對身分，身分一變就會整個卸載重掛（見 `createFilePanel` 檔頭的完整
+  // 說明），所以這裡必須 `useMemo` 釘住，只在 `noteId` 真的換手時才重建。`noteId`
+  // 在 `NoteEditor` 的生命週期內事實上不會變（同 `useCreateBlockNote` 上面的 deps
+  // 註解：noteId 一換，`doc`/`provider` 必然跟著換，等於整個 `NoteEditor` 重新掛載），
+  // 但依賴陣列仍誠實列出，不靠這個隱含假設省略。
+  const filePanel = useMemo(() => createFilePanel(noteId), [noteId]);
+
   return (
-    <BlockNoteView editor={editor} editable={editable} theme={resolvedTheme} data-testid="note-editor" className="min-h-full">
+    <BlockNoteView
+      editor={editor}
+      editable={editable}
+      theme={theme}
+      data-testid="note-editor"
+      className="min-h-full"
+      // 關掉 BlockNote 內建的 FilePanelController：下面接管的是我們自家的
+      // `filePanel`（自家 Upload tab 呼叫 `postUpload`，不用 `editor.uploadFile`，
+      // 理由見 `components/FilePanel.tsx` 檔頭）。不明確設 `false` 這裡會同時掛兩個
+      // file panel controller，使用者點開檔案 block 會看到兩份面板疊在一起。
+      filePanel={false}
+    >
       <SuggestionMenuController triggerCharacter="[[" getItems={getItems} />
+      <FilePanelController filePanel={filePanel} />
     </BlockNoteView>
   );
 }

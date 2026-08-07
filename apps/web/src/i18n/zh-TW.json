@@ -71,6 +71,19 @@
       "reconnecting": "重新連線中…",
       "kicked": "已失去存取權",
       "deleted": "筆記已刪除"
+    },
+    "filePanel": {
+      "upload": {
+        "tabLabel": "上傳",
+        "inputLabel": "選擇要上傳的圖片檔案",
+        "error": "上傳失敗，請再試一次。"
+      },
+      "embed": {
+        "tabLabel": "嵌入連結",
+        "urlLabel": "要嵌入的連結",
+        "urlPlaceholder": "貼上連結…",
+        "embedButton": "嵌入"
+      }
     }
   },
   "login": {

@@ -161,8 +161,8 @@ describe("buildNoteEditorOptions", () => {
     expect(options.collaboration.fragment).not.toBe(doc.getXmlFragment("default"));
   });
 
-  it("schema 不含 image block（§11.1 第一道防線）", () => {
-    expect(Object.keys(build().schema.blockSpecs)).not.toContain("image");
+  it("schema 含 image block（Plan 3 Task 14 起恢復啟用）", () => {
+    expect(Object.keys(build().schema.blockSpecs)).toContain("image");
   });
 
   it("uploadFile 選項有掛上去（Task 13，接 createUploadFile）", () => {
@@ -389,7 +389,7 @@ describe("buildNoteEditorOptions 的 uploadFile 真接線（handleFileInsertion�
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
 
-  it("成功：貼上圖片檔案真的觸發 uploadFile，block 拿到回傳的 url（不釘 block type——image 尚未進 schema，Task 14）", async () => {
+  it("成功：貼上圖片檔案真的觸發 uploadFile，block 拿到回傳的 url（Task 14 起 image 已進 schema，placeholder 真的是 image block）", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       fakeResponse({ ok: true, status: 201, json: () => Promise.resolve({ id: "u1", url: "/api/uploads/u1" }) }),
     );
@@ -404,6 +404,10 @@ describe("buildNoteEditorOptions 的 uploadFile 真接線（handleFileInsertion�
     await flushMacrotask();
 
     const placeholder = editor.document[editor.document.length - 1];
+    // `handleFileInsertion` 依 `editor.schema.blockSpecs` 逐一比對 `fileBlockAccept`
+    // 挑 block 型別（見 `@blocknote/core` 原始碼）；image 恢復進 schema 後，image/png
+    // 檔案會落在 image block（不再退回泛用的 file block）。
+    expect(placeholder.type).toBe("image");
     expect((placeholder.props as Record<string, unknown>).url).toBe("/api/uploads/u1");
     expect(toastMock).not.toHaveBeenCalled();
   });
