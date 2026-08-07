@@ -31,10 +31,17 @@ COPY --from=build /repo/apps/server/drizzle ./drizzle
 # 這一層，但這裡是完整 image，必須複製。
 COPY --from=build /repo/apps/web/dist ./web-dist
 ENV NODE_ENV=production
-# 不以 root 執行 process：node 官方 image 內建 uid 1000 的 "node" 使用者；
-# 上面幾個 COPY 都在切換到這個 user 之前執行（此時仍是 root），複製出來的檔案
-# 預設權限（644/755）本來就允許其他使用者讀取/執行，node 使用者不需要寫入
-# /app 下任何東西（log 走 stdout），純唯讀存取即可正常運作。
+# Task 9：上傳圖片存放目錄。仍在 root 底下先建好並 chown 給 node（root 才有權限
+# chown），因為 volume mount（見 docker-compose.yml 的 `uploads:/app/uploads`）在
+# container 啟動時才會蓋上去，屆時已經是 `USER node` 在跑——若沒有預先在 image
+# 裡建好目錄並正確授權，node 使用者對這個掛載點會沒有寫入權限，`src/index.ts`
+# 的 `mkdirSync`／`app.ts` 的 `assertUploadsDirWritable` 探測會直接 fail-fast。
+RUN mkdir -p /app/uploads && chown node:node /app/uploads
+# 不以 root 執行 process：node 官方 image 內建 uid 1000 的 "node" 使用者；上面
+# 幾個 COPY 都在切換到這個 user 之前執行（此時仍是 root），複製出來的檔案預設
+# 權限（644/755）本來就允許其他使用者讀取/執行——但 image 不再是純唯讀了：
+# `/app/uploads`（見上一行）是 node 使用者實際會寫入的目錄（Task 9 圖片上傳），
+# 其餘路徑仍維持唯讀存取即可正常運作。
 USER node
 EXPOSE 3000
 CMD ["node", "dist/index.js"]

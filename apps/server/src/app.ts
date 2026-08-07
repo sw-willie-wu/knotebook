@@ -16,6 +16,7 @@ import { adminUsersRoutes } from "./routes/admin-users.js";
 import { sendError } from "./http/errors.js";
 import { COLLAB_TOKEN_LIMIT, FixedWindowLimiter, SLUG_PATCH_LIMIT } from "./http/rate-limit.js";
 import { registerSpaFallback } from "./http/spa.js";
+import { assertUploadsDirWritable } from "./uploads/service.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -65,6 +66,18 @@ export interface AppDeps {
    * `AppDeps` 欄位測試就碰不到 `beforeLinkWrite`（見 links.ts 的 FK race 測試注入縫說明）。
    */
   linkSyncTestHooks?: WriteNoteLinksHooks;
+  /**
+   * Task 9：圖片上傳存放目錄的絕對路徑。**必填**——`buildApp` 啟動時會對它做一次
+   * 可寫性探測（`assertUploadsDirWritable`，見該函式說明為何不用 `accessSync`），
+   * 失敗即同步 throw、fail-fast，不等到第一個上傳請求才發現環境問題。
+   *
+   * 呼叫點：`src/index.ts`（production，目錄由 `mkdirSync(..., {recursive:true})`
+   * 保證存在後才傳入）、`test/helpers.ts` 的 `buildTestApp`/`buildCollabTestApp`
+   * （per-test 用 `mkdtempSync` 建真實 temp 目錄，`onTestFinished` 清理，比照
+   * `freshDb()` 的慣例）、`test/env-admin-bootstrap.test.ts`（手動組裝 deps，同樣
+   * 需要真實可寫目錄）。
+   */
+  uploadsDir: string;
 }
 
 export interface BuildAppOptions {
@@ -103,6 +116,11 @@ function clientErrorCode(statusCode: number): ErrorCode {
  * （Task 8/9/10/12）以 `app.register(...)` 掛進來——本 task 只建骨架與接縫。
  */
 export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyInstance {
+  // Task 9：uploads 目錄可寫性探測放在最前面、任何 Fastify 初始化之前——這是一個
+  // 獨立於 HTTP 框架的環境前置條件（同 index.ts 的 migration fail-fast 精神），
+  // 失敗就不該繼續往下建 app。
+  assertUploadsDirWritable(deps.uploadsDir);
+
   // maxParamLength 預設 100：find-my-way 是量「解碼後」的 UTF-16 code unit 數，跟
   // `titleSlug`／`validateSlug` 量的是 code point 數（60／100）不是同一把尺——
   // astral 字元（例如 𠮷）解碼後是 2 個 UTF-16 unit，60 個 astral 字算下來就破百，

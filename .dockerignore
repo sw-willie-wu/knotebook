@@ -7,3 +7,6 @@ docs
 .env
 test-output.txt
 *.log
+# Task 9：本機開發時累積在 apps/server/uploads/ 的上傳圖片不該被送進 build context
+# （docker build 的 volume 是 Task 9 compose 新增的 named volume，跟這個本機目錄無關）。
+apps/server/uploads/

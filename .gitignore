@@ -10,3 +10,7 @@ build/
 docs/superpowers/
 test-output.txt
 docker-compose.override.yml
+
+# Task 9：本機/裸執行（非 docker）情境下 src/index.ts 會在 repo 內建這個目錄存放
+# 上傳圖片——不進版控（docker 部署走 docker-compose.yml 的 named volume，不受此影響）。
+apps/server/uploads/

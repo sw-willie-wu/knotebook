@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { Pool } from "pg";
 import pino from "pino";
@@ -82,6 +82,14 @@ async function main(): Promise<void> {
     logger.warn({ webDistCandidate }, "web-dist 目錄不存在——停用 SPA fallback，未命中路由一律回 JSON 404");
   }
 
+  // Task 9：上傳檔案存放目錄。單一 `uploadsDir` 常數同時餵 `mkdirSync` 與
+  // `AppDeps.uploadsDir`——避免兩個獨立字面量各自打一次 `path.resolve(...)`
+  // 而漂移不同步。`mkdirSync(..., {recursive:true})` 確保目錄存在（冪等，容器
+  // 重啟／全新 volume 皆可），實際「是否真的可寫」的探測交給 `buildApp` 內部
+  // 的 `assertUploadsDirWritable`（見 `app.ts`），這裡只保證「目錄存在」。
+  const uploadsDir = path.resolve(process.cwd(), "uploads");
+  mkdirSync(uploadsDir, { recursive: true });
+
   const app = buildApp(
     {
       config,
@@ -91,6 +99,7 @@ async function main(): Promise<void> {
       collabHooks: createCollabHooks(collab, logger),
       collab,
       setupState,
+      uploadsDir,
     },
     { webDist }
   );

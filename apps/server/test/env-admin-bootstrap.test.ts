@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { eq } from "drizzle-orm";
 import { SESSION_COOKIE } from "@knotebook/shared";
 import { buildApp } from "../src/app.js";
-import { freshDb, testConfig } from "./helpers.js";
+import { freshDb, freshUploadsDir, testConfig } from "./helpers.js";
 import { UserGate } from "../src/auth/session.js";
 import { LoginThrottle } from "../src/auth/rate-limit.js";
 import { noopCollabHooks } from "../src/collab/hooks.js";
@@ -25,7 +25,15 @@ async function buildAppWithEnvAdmin(envAdmin?: { email: string; password: string
   const setupState = await SetupState.init(db, silentLogger, envAdmin);
   const gate = new UserGate(db);
   const app = buildApp(
-    { config: testConfig, db, gate, throttle: new LoginThrottle(), collabHooks: noopCollabHooks, setupState },
+    {
+      config: testConfig,
+      db,
+      gate,
+      throttle: new LoginThrottle(),
+      collabHooks: noopCollabHooks,
+      setupState,
+      uploadsDir: freshUploadsDir(),
+    },
     { logger: false }
   );
   return { app, db, setupState };

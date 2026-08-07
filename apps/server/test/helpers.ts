@@ -1,4 +1,7 @@
 import { randomBytes } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { onTestFinished } from "vitest";
 import { Pool } from "pg";
 import type { FastifyInstance } from "fastify";
@@ -75,6 +78,29 @@ export async function freshDb(): Promise<FreshDb> {
   return { db, pool, close };
 }
 
+/**
+ * 建一個全新的 uploads 測試目錄（per-test 唯一、真實存在——`AppDeps.uploadsDir` 是
+ * 必填欄位，`buildApp` 啟動時會對它做真實的可寫性探測（見 `app.ts` 的
+ * `assertUploadsDirWritable`），只給路徑字串不建目錄的話，每一支整合測試都會在
+ * `buildApp()` 那一步就同步 throw、當場全紅）。
+ *
+ * Teardown 契約比照 `freshDb()`：在 vitest test 內呼叫時用 `onTestFinished`
+ * 自動遞迴刪除；不在 test context 內呼叫（理論上不會發生，本檔內部呼叫點皆在
+ * `buildTestApp`/`buildCollabTestApp` 內，一律是 test 執行中）則靜默略過，
+ * 呼叫方需自行清理。
+ */
+export function freshUploadsDir(): string {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "knotebook-uploads-"));
+  try {
+    onTestFinished(() => {
+      rmSync(dir, { recursive: true, force: true });
+    });
+  } catch {
+    // 不在 test context 內——呼叫方需自行清理。
+  }
+  return dir;
+}
+
 // buildTestApp 用的固定測試設定：databaseUrl 只是通過 loadConfig 的格式驗證，實際的
 // db 連線一律走 freshDb()（每個測試獨立、全新的資料庫），與這裡的 DATABASE_URL 無關。
 // 匯出供需要簽發「真的能通過 buildTestApp() 那個 app 驗證」的 session cookie 的測試
@@ -149,6 +175,7 @@ export async function buildTestApp(overrides: Partial<AppDeps> = {}, options: Bu
     collabHooks: noopCollabHooks,
     setupState: await SetupState.init(effectiveDb, silentSetupLogger),
     limiters: freshLimiters(),
+    uploadsDir: freshUploadsDir(),
     ...overrides,
   };
   const app = buildApp(deps, { logger: false, ...options });
@@ -234,6 +261,7 @@ export async function buildCollabTestApp(
     collab,
     setupState: await SetupState.init(db, silentSetupLogger),
     limiters: freshLimiters(),
+    uploadsDir: freshUploadsDir(),
   };
   const app = buildApp(deps, { logger: false });
 
