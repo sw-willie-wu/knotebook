@@ -19,6 +19,14 @@ describe("i18n key parity", () => {
 
 // 保護 errors.<code> 對映全部 ERROR_CODES + errors.fallback 這個介面承諾
 // （Task 11+ 逐字依賴：任何 ApiFail.code 都要能在兩個語系裡查到對應文案）。
+//
+// 這把測試正是 `errors.not_loaded`／`errors.file_too_large` 兩個 key 存在的原因
+// （Plan 3，ERROR_CODES 新增碼，見 packages/shared/src/index.ts 的 provenance 註解）：
+// - `errors.not_loaded`：僅為 ERROR_CODES parity 而存在，目前**無 UI 呼叫路徑**——
+//   link-sync client（Task 7）收到 409 `not_loaded` 是靜默重試一次後放棄，不會把
+//   這則文案顯示給使用者；此文案暫不可能被真人看到。
+// - `errors.file_too_large`：**會**經 uploadFile 的錯誤處理路徑以 toast 顯示給使用者
+//   （Plan 3 圖片上傳流程，見該 task 的 i18n 段落）。
 describe("i18n error message coverage", () => {
   for (const [langName, resource] of [
     ["en", en],

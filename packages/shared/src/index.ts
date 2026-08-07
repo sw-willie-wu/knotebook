@@ -49,9 +49,28 @@ export interface ShareDto {
   role: ShareRole;
 }
 
+/** 反向連結清單項目（Plan 3）：連到目前筆記的來源筆記摘要，供 backlinks 面板渲染。 */
+export interface BacklinkDto {
+  id: string;
+  title: string;
+  slug: string | null;
+}
+
+/** 圖片上傳單檔大小上限（bytes，Plan 3）：10 MiB，超過回 `file_too_large`（413）。 */
+export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+
+/** 單篇筆記內容中可解析的 wikilink 目標數上限（Plan 3），避免病態文件拖垮解析。 */
+export const MAX_LINK_TARGETS = 1000;
+
+/** 單篇筆記 backlinks 面板回傳的來源筆記數上限（Plan 3）。 */
+export const MAX_BACKLINKS = 200;
+
 // 權威清單：`grep -rn "sendError(" apps/server/src` + auth.ts 手寫 429（`too_many_attempts`）
 // 逐一核對後的全集，另加本 plan 新增碼 `too_many_requests`（Task 8 slug limiter）與
 // `slug_taken`（Task 8 slug unique violation）——這兩碼尚未落地於 grep 結果，屬預先保留。
+// Plan 3：`not_loaded`（links 409——POST /api/notes/:id/links 時該筆記尚未載入進
+// collab server 記憶體，或提交者無該筆記連線，`linkSyncGate` 回 `{ok:false}`）與
+// `file_too_large`（uploads 413——圖片上傳超過 MAX_UPLOAD_BYTES）同樣屬預先保留。
 export const ERROR_CODES = [
   "unauthorized",
   "forbidden",
@@ -77,6 +96,8 @@ export const ERROR_CODES = [
   "cannot_share_with_self",
   "share_not_found",
   "slug_taken",
+  "not_loaded",
+  "file_too_large",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
