@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
+import { BlockNoteEditor, SuggestionMenu } from "@blocknote/core";
 import { YDOC_FRAGMENT } from "@knotebook/shared";
 import { blocknoteZhTW } from "@/i18n/blocknote-zh-TW";
+import type { EditorRef } from "@/components/wikilink/menu";
 
 // toast 換成 spy：這裡要斷言的是「有沒有提示使用者」，不必把 Radix 整套渲染起來。
 const toastMock = vi.hoisted(() => vi.fn());
@@ -124,13 +126,14 @@ describe("buildNoteEditorOptions", () => {
 
   afterEach(() => doc.destroy());
 
-  const build = (language = "en") =>
+  const build = (language = "en", editorRef: EditorRef = { current: null }) =>
     buildNoteEditorOptions({
       doc,
       provider: { awareness: null } as never,
       user: { id: "user-1", name: "Ann" },
       language,
       translate,
+      editorRef,
     });
 
   it("共編 fragment 用 shared 的 YDOC_FRAGMENT（與 server 的 collab/store 同名）", () => {
@@ -174,5 +177,96 @@ describe("buildNoteEditorOptions", () => {
     expect(options.collaboration.user).toEqual({ id: "user-1", name: "Ann", color: collabUserColor("user-1") });
     expect(collabUserColor("user-1")).toBe(collabUserColor("user-1"));
     expect(collabUserColor("user-1")).not.toBe(collabUserColor("user-2"));
+  });
+});
+
+// ── `[[` 觸發偵測（handleTextInput，Task 3 §12.2 recipe）─────────────────────────
+//
+// **mount harness**：`BlockNoteEditor.create` 後必須 `editor.mount(掛在
+// document.body 的元素)`，headless 下 `openSuggestionMenu` 會直接 early-return
+// （`SuggestionMenu.ts`：`if (editor.headless) return;`），不 mount 這裡的斷言全部
+// 都會是假綠。`test/setup.ts` 已墊好 `getBoundingClientRect` 的 shim，
+// `SuggestionMenuView.update()` 算 decoration 位置時才不會炸。
+//
+// `handleTextInput` 直接從 `buildNoteEditorOptions` 回傳的 options 物件取出來呼叫
+// ——不透過 `BlockNoteEditor.create` 之後的 `_tiptapEditor.options` 繞一手，因為那支
+// 就是我們自己傳進去、真正會被 ProseMirror 呼叫的同一個函式參照，直接呼叫等價於
+// 讓 ProseMirror 呼叫它，又不必依賴 tiptap 內部怎麼合併多個 editorProps 來源。
+describe("buildNoteEditorOptions 的 [[ 觸發偵測（handleTextInput）", () => {
+  let doc: Y.Doc;
+  let editorRef: EditorRef;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 測試用編輯器，走 repo 慣例的 BlockNoteEditor<any,any,any>
+  let editor: BlockNoteEditor<any, any, any>;
+  let container: HTMLElement;
+  // `view` 型別刻意寫 `unknown`（同 `createMediaBlockingDOMEvents` 的 house style）：
+  // 測試不必為了型別把 prosemirror-view 拉成直接依賴。
+  let handleTextInput: (view: unknown, from: number, to: number, text: string) => boolean | void;
+
+  beforeEach(() => {
+    doc = new Y.Doc();
+    editorRef = { current: null };
+    const options = buildNoteEditorOptions({
+      doc,
+      provider: { awareness: null } as never,
+      user: { id: "user-1", name: "Ann" },
+      language: "en",
+      translate,
+      editorRef,
+    });
+    handleTextInput = options._tiptapOptions.editorProps.handleTextInput as typeof handleTextInput;
+
+    editor = BlockNoteEditor.create(options);
+    editorRef.current = editor;
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    editor.mount(container);
+  });
+
+  afterEach(() => {
+    editor.unmount();
+    container.remove();
+    doc.destroy();
+  });
+
+  /** 模擬「使用者剛按下第二個 `[`」：`from`/`to` 是目前游標位置，PM 尚未真的插入這個字元。 */
+  function typeSecondBracket(): boolean | void {
+    const view = editor._tiptapEditor.view;
+    const from = editor.transact((tr) => tr.selection.from);
+    return handleTextInput(view, from, from, "[");
+  }
+
+  it("[[ 句中觸發：句子中間打出第二個 [ → 吞掉輸入、開啟選單、文件維持『Hello [[』", () => {
+    editor.insertInlineContent(["Hello ["]);
+
+    const handled = typeSecondBracket();
+
+    expect(handled).toBe(true);
+    const suggestionMenu = editor.getExtension(SuggestionMenu)!;
+    expect(suggestionMenu.shown()).toBe(true);
+    expect(suggestionMenu.store.state?.triggerCharacter).toBe("[[");
+    expect(suggestionMenu.store.state?.query).toBe("");
+    expect(editor.transact((tr) => tr.doc.textContent)).toBe("Hello [[");
+  });
+
+  it("block 開頭觸發：空白 block 只打了一個 [ → 一樣吞掉輸入、開啟選單、文件維持『[[』", () => {
+    editor.insertInlineContent(["["]);
+
+    const handled = typeSecondBracket();
+
+    expect(handled).toBe(true);
+    const suggestionMenu = editor.getExtension(SuggestionMenu)!;
+    expect(suggestionMenu.shown()).toBe(true);
+    expect(editor.transact((tr) => tr.doc.textContent)).toBe("[[");
+  });
+
+  it("前一個字元不是 [（same-parent guard 的另一半）：不吞輸入、不開選單", () => {
+    editor.insertInlineContent(["Hello"]);
+
+    const handled = typeSecondBracket();
+
+    expect(handled).toBe(false);
+    expect(editor.getExtension(SuggestionMenu)!.shown()).toBe(false);
+    expect(editor.transact((tr) => tr.doc.textContent)).toBe("Hello");
   });
 });

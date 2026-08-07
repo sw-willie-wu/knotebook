@@ -3,18 +3,21 @@
 // `@blocknote/core/fonts/inter.css`——那是 latin-only 的自帶字型（9 個 woff 檔），
 // 對以中文為主的介面沒有幫助，只會讓 bundle 變大；字型交給 app 自己的 CSS 決定。
 import "@blocknote/mantine/style.css";
-import { useRef } from "react";
+import { useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type * as Y from "yjs";
 import type { HocuspocusProvider } from "@hocuspocus/provider";
+import { SuggestionMenu } from "@blocknote/core";
 import { withCollaboration } from "@blocknote/core/yjs";
-import { useCreateBlockNote } from "@blocknote/react";
+import { SuggestionMenuController, useCreateBlockNote } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/mantine";
 import { YDOC_FRAGMENT } from "@knotebook/shared";
+import { useCreateNote, useNotes } from "@/api/notes";
 import { isBlockedMediaTransfer, noteSchema } from "@/collab/schema";
 import { blocknoteZhTW } from "@/i18n/blocknote-zh-TW";
 import { toast } from "@/components/ui/toast";
 import { useTheme } from "@/theme";
+import { buildWikilinkMenuItems, type EditorRef } from "@/components/wikilink/menu";
 
 /**
  * 共編游標的顏色。同一個使用者在任何裝置、任何筆記都要是同一色，所以不能用亂數——
@@ -75,6 +78,11 @@ export interface NoteEditorOptionsInput {
   /** i18next 目前的語言代碼（`i18n.language`）。 */
   language: string;
   translate: Translate;
+  /** late-bound 編輯器參照（Task 3）：`buildNoteEditorOptions` 是純函式，在
+   * `useCreateBlockNote` 真正建出 editor 之前就會被呼叫，下面 `handleTextInput` 的
+   * `[[` 觸發偵測要在使用者真的打字的當下才讀取 editor，只能透過這個 ref 取得
+   * ——見 `@/components/wikilink/menu` 的 `EditorRef` 說明。 */
+  editorRef: EditorRef;
 }
 
 /**
@@ -83,7 +91,7 @@ export interface NoteEditorOptionsInput {
  * §11.1（無 image block + 貼上攔截）、共編 fragment 名稱、字典選擇這幾條契約的所在，
  * 而且純粹是資料——測試可以直接呼叫並斷言，不必掛編輯器。
  */
-export function buildNoteEditorOptions({ doc, provider, user, language, translate }: NoteEditorOptionsInput) {
+export function buildNoteEditorOptions({ doc, provider, user, language, translate, editorRef }: NoteEditorOptionsInput) {
   return withCollaboration({
     schema: noteSchema,
     // BlockNote 的預設字典就是英文，只有 zh-TW 需要換掉。
@@ -99,6 +107,34 @@ export function buildNoteEditorOptions({ doc, provider, user, language, translat
     _tiptapOptions: {
       editorProps: {
         handleDOMEvents: createMediaBlockingDOMEvents(translate),
+        // `[[` 觸發偵測（Task 3 §12.2 recipe，逐字照做）。這裡刻意**不**倚賴
+        // `SuggestionMenu` extension 自己對多字元 trigger 的內建偵測（`addSuggestionMenu`
+        // 註冊後，它的 `handleTextInput` 一樣會嘗試比對「[[」）：我們的 handler 掛在
+        // `_tiptapOptions.editorProps` 這層，ProseMirror 對 `handleTextInput` 的查詢順序
+        // 是「先看直接傳入的 editorProps、才輪到各外掛」，所以會比 extension 內建的偵測
+        // 先跑一步，讓我們能加上下面這個 same-parent guard，並自己控制
+        // `deleteTriggerCharacter` 的語意。
+        //
+        // guard：`from >= 1` 且 `from-1` 與游標同 parent——防跨 block 邊界時
+        // `textBetween` 誤判（例如上一個 block 結尾字元恰好也是 `[`，那不該算數）。
+        handleTextInput: (view, from, to, text) => {
+          const $prev = view.state.doc.resolve(from - 1),
+            $cur = view.state.doc.resolve(from);
+          if (
+            text === "[" &&
+            from >= 1 &&
+            $prev.parent === $cur.parent &&
+            view.state.doc.textBetween(from - 1, from) === "["
+          ) {
+            // ② 刪掉文件中既存的那個 `[`（使用者剛打的第一個 `[` 已經被預設處理插入了）。
+            view.dispatch(view.state.tr.delete(from - 1, from));
+            // ③ `deleteTriggerCharacter: true`——由 plugin 當下把 `[[` 插入文件，
+            // `clearQuery` 屆時刪除範圍才會涵蓋 `[[`+query；省略/false 必然殘留 `[[`。
+            editorRef.current?.getExtension(SuggestionMenu)?.openSuggestionMenu("[[", { deleteTriggerCharacter: true });
+            return true; // ① 吞掉本次輸入
+          }
+          return false;
+        },
       },
     },
   });
@@ -130,6 +166,12 @@ export function NoteEditor({ doc, provider, editable, user }: NoteEditorProps) {
   const translateRef = useRef(t);
   translateRef.current = t;
 
+  // Task 3：`[[` 觸發（`handleTextInput`）與「建立並連結」的 item handler 都要在
+  // 使用者真的互動的當下讀取 editor，而 `buildNoteEditorOptions` 在 editor 存在之前
+  // 就會被呼叫——用這個 late-bound ref 打通（見 `buildNoteEditorOptions` 內註解、
+  // `@/components/wikilink/menu` 的 `EditorRef`）。
+  const editorRef = useRef<EditorRef["current"]>(null);
+
   const editor = useCreateBlockNote(
     buildNoteEditorOptions({
       doc,
@@ -137,19 +179,40 @@ export function NoteEditor({ doc, provider, editable, user }: NoteEditorProps) {
       user,
       language: i18n.language,
       translate: (key) => translateRef.current(key),
+      editorRef,
     }),
     // 語言不進 deps：字典只在建立時讀一次，換語言要重開頁面才生效（換成
     // 「重建 editor」的代價是共編綁定重掛，不值得）。
     [doc, provider],
   );
+  editorRef.current = editor;
+
+  const notes = useNotes().data;
+  const { mutateAsync: createNote } = useCreateNote();
+
+  // `getItems` 是 `SuggestionMenuController` 內部 `useLoadSuggestionMenuItems` 的
+  // effect 依賴——inline arrow 每次 render 都是新 identity，會讓那個 effect（連帶
+  // `getItems(query)` 的呼叫）在選單開著、`NoteEditor` 因任何理由重render（例如
+  // 這裡新加的 `useNotes()` 本身就是新的 render 來源）時重跑，選單出現 loading
+  // 閃動重繪。用 `useCallback` 釘住 identity，只在真的影響輸出的依賴變動時才換。
+  const getItems = useCallback(
+    (query: string) =>
+      Promise.resolve(
+        buildWikilinkMenuItems({
+          query,
+          notes: notes ?? [],
+          createNote: (title) => createNote({ title }),
+          editorRef,
+          translate: (key) => t(key, { query }),
+          toast,
+        }),
+      ),
+    [notes, createNote, t],
+  );
 
   return (
-    <BlockNoteView
-      editor={editor}
-      editable={editable}
-      theme={resolvedTheme}
-      data-testid="note-editor"
-      className="min-h-full"
-    />
+    <BlockNoteView editor={editor} editable={editable} theme={resolvedTheme} data-testid="note-editor" className="min-h-full">
+      <SuggestionMenuController triggerCharacter="[[" getItems={getItems} />
+    </BlockNoteView>
   );
 }

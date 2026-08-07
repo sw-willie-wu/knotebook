@@ -51,6 +51,10 @@
     "readOnly": "Read-only",
     "imageUnsupported": "Image upload is coming in a later version.",
     "wikilinkBroken": "This linked note no longer exists.",
+    "wikilink": {
+      "createAndLink": "Create \"{{query}}\" and link",
+      "createFailed": "Couldn't create the note. Please try again."
+    },
     "accessRevoked": "You no longer have access to this note.",
     "deleted": "This note has been deleted.",
     "downgradedToViewer": "Your access changed to viewer. This note is now read-only.",
