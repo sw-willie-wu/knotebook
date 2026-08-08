@@ -59,7 +59,7 @@ export interface BacklinkDto {
 /** 圖片上傳單檔大小上限（bytes，Plan 3）：10 MiB，超過回 `file_too_large`（413）。 */
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 
-/** 單篇筆記內容中可解析的 wikilink 目標數上限（Plan 3），避免病態文件拖垮解析。 */
+/** 單次 `POST /api/notes/:id/links` 提交的 target 集合上限（去重、過濾 self-link 正規化後計；超過回 400 `invalid_body`）。 */
 export const MAX_LINK_TARGETS = 1000;
 
 /** 單篇筆記 backlinks 面板回傳的來源筆記數上限（Plan 3）。 */
@@ -75,8 +75,7 @@ export const MAX_BACKLINKS = 200;
 // 409：`writeNoteLinks` 交易撞上 pg `serialization_failure`/`deadlock_detected`
 // （40001/40P01，剔除消失 target 重試一次後仍失敗才會落到這裡）；純 DB 層級的併發衝突，
 // 非邏輯錯誤，交給 client 重試（與 `not_loaded` 區分：後者無 note_states 回退路徑，client
-// 收斂方式不同，見 Task 7）。`file_too_large`（uploads 413——圖片上傳超過
-// `MAX_UPLOAD_BYTES`）尚未落地，仍屬預先保留。
+// 收斂方式不同，見 Task 7）。`file_too_large`＝`POST /api/notes/:id/uploads` 413 唯一發送點（Plan 3 已落地）。
 export const ERROR_CODES = [
   "unauthorized",
   "forbidden",

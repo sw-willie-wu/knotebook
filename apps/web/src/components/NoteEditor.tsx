@@ -180,7 +180,7 @@ export interface NoteEditorProps {
  * ② 頁面層的測試可以把整個模組 mock 掉——BlockNote 依賴大量 jsdom 沒有的
  *    DOM/Range API，硬掛進單元測試只會測到環境而不是行為。
  *
- * 共編綁定、圖片阻擋（spec §11.1）、字典選擇全部在 `buildNoteEditorOptions` 裡，
+ * 共編綁定、媒體 transfer 守衛（spec §12.4：data URL 與非圖片檔攔截、純圖片檔放行上傳）、字典選擇全部在 `buildNoteEditorOptions` 裡，
  * 那支是純函式且有專屬測試（`NoteEditor.test.ts`）——這個元件只負責把它接上 React。
  */
 export function NoteEditor({ doc, provider, editable, user, noteId }: NoteEditorProps) {
