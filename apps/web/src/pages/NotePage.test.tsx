@@ -385,6 +385,23 @@ describe("NotePage", () => {
     // 仍回得出使用者，所以快取會立刻被重新填回來——那正是正常行為，不該拿來斷言。
     await waitFor(() => expect(screen.getByText("login page")).toBeInTheDocument());
   });
+
+  // Task 6（MAJOR-2）：捲動容器從 `NotePage` 中段內移進 `NoteEditor`——這裡只驗證
+  // `NoteEditor`（mock）容器仍然掛在畫面上、且直接父層不再是原本自己捲動的
+  // `overflow-y-auto` 容器（改成 `flex-1 min-h-0`，捲動責任交給 `NoteEditor` 內部兩欄各自
+  // 的 `overflow-y-auto`，見 `NoteEditor.tsx`）。`NoteEditor` 介面（doc/provider/editable/
+  // user/noteId props）本身未變，檔頭的既有 mock 不用動。
+  it("Task 6：NoteEditor 容器存在，且外層捲動容器已改為 flex-1 min-h-0（捲動內移）", async () => {
+    vi.stubGlobal("fetch", mockFetch());
+
+    renderNotePage("my-note");
+
+    const editor = await screen.findByTestId("note-editor");
+    const scrollWrapper = editor.parentElement;
+    expect(scrollWrapper).not.toBeNull();
+    expect(scrollWrapper).toHaveClass("flex-1", "min-h-0");
+    expect(scrollWrapper).not.toHaveClass("overflow-y-auto");
+  });
 });
 
 /**

@@ -238,7 +238,12 @@ export default function NotePage() {
           <ShareDialog note={note!} cacheRef={ref} />
           <ConnectionBadge state={state} />
         </header>
-        <div className="flex-1 overflow-y-auto px-2 py-4">
+        {/* Task 6：捲動容器內移進 `NoteEditor`（左欄一份、右側 AI 側欄一份，各自獨立
+            捲動）——這裡只留 `flex-1 min-h-0`。`min-h-0` 是必要的：flex 子項預設
+            `min-height:auto` 會撐開到內容高度，讓 `NoteEditor` 內層的 `overflow-y-auto`
+            形同虛設，畫面變成整個外層一起捲、AI 側欄跟著正文捲走，寬螢幕並排的版面就壞了
+            （這類改法最常見的靜默失敗，brief 明文強調）。 */}
+        <div className="min-h-0 flex-1">
           {doc && provider && user ? (
             <NoteEditor
               doc={doc}
@@ -248,7 +253,7 @@ export default function NotePage() {
               noteId={noteId!}
             />
           ) : (
-            <p className="px-4 text-sm text-muted-foreground">{t("app.loading")}</p>
+            <p className="px-4 py-4 text-sm text-muted-foreground">{t("app.loading")}</p>
           )}
         </div>
         <BacklinksSection noteId={noteId} />

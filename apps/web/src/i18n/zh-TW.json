@@ -158,6 +158,28 @@
     "dark": "深色",
     "system": "跟隨系統"
   },
+  "ai": {
+    "toolbar": {
+      "trigger": "AI",
+      "menuLabel": "AI 動作"
+    },
+    "panel": {
+      "title": "AI",
+      "collapse": "收合 AI 面板",
+      "expand": "展開 AI 面板",
+      "idle": "選取文字後可用工具列做局部修改，或直接點下方動作套用在整篇筆記。",
+      "streaming": "產生中…",
+      "apply": "套用",
+      "revert": "還原",
+      "cancel": "取消",
+      "dismiss": "關閉",
+      "retry": "重試",
+      "applyGuardFailed": "原文在此結果產生後已被改動，因此未套用。",
+      "emptyResult": "AI 回傳空結果，未套用任何內容。",
+      "revertStale": "此變更已無法還原——內容可能已被改動。",
+      "rebindNotice": "結果中有部分 [[連結]] 無法自動連結。"
+    }
+  },
   "errors": {
     "unauthorized": "請先登入才能繼續。",
     "forbidden": "你沒有權限執行這個操作。",

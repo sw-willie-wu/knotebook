@@ -11,6 +11,7 @@ import { BlockNoteEditor, SuggestionMenu } from "@blocknote/core";
 import { withCollaboration } from "@blocknote/core/yjs";
 import {
   FilePanelController,
+  FormattingToolbarController,
   SuggestionMenuController,
   useCreateBlockNote,
   type DefaultReactSuggestionItem,
@@ -25,6 +26,9 @@ import { useTheme } from "@/theme";
 import { buildWikilinkMenuItems, type EditorRef } from "@/components/wikilink/menu";
 import { createUploadFile } from "@/uploads/upload-file";
 import { createFilePanel } from "@/components/FilePanel";
+import { AiSessionProvider } from "@/components/ai/AiSession";
+import { AiPanel } from "@/components/ai/AiPanel";
+import { AiToolbar } from "@/components/ai/AiToolbar";
 
 /**
  * 共編游標的顏色。同一個使用者在任何裝置、任何筆記都要是同一色，所以不能用亂數——
@@ -240,7 +244,22 @@ export function NoteEditor({ doc, provider, editable, user, noteId }: NoteEditor
     [notes, createNote, t],
   );
 
-  return <NoteEditorView editor={editor} editable={editable} theme={resolvedTheme} noteId={noteId} getItems={getItems} />;
+  // B1（plan gate 定案，不得偏離）：AI 狀態／側欄／toolbar 全部收在這裡，editor
+  // 建立點（上面 `useCreateBlockNote` 及其 deps）完全不動——`AiSessionProvider` 只是
+  // 包住既有的兩欄佈局，不會讓 `NotePage` 任何 re-render 有機會扯到 editor 重建。
+  // 左欄＝`NoteEditorView`（含編輯器本體＋現在也含 `AiToolbar`，見下方
+  // `formattingToolbar` 接線）、右欄＝`AiPanel`（`editable`/`actions` 是否渲染由它自己
+  // 透過 `useAiSession()` 判斷，這裡不重複判斷一次）。
+  return (
+    <AiSessionProvider editor={editor} noteId={noteId} editable={editable}>
+      <div className="flex h-full min-h-0">
+        <div className="min-w-0 flex-1 overflow-y-auto px-2 py-4">
+          <NoteEditorView editor={editor} editable={editable} theme={resolvedTheme} noteId={noteId} getItems={getItems} />
+        </div>
+        <AiPanel />
+      </div>
+    </AiSessionProvider>
+  );
 }
 
 export interface NoteEditorViewProps {
@@ -275,6 +294,13 @@ export function NoteEditorView({ editor, editable, theme, noteId, getItems }: No
   // 註解：noteId 一換，`doc`/`provider` 必然跟著換，等於整個 `NoteEditor` 重新掛載），
   // 但依賴陣列仍誠實列出，不靠這個隱含假設省略。
   const filePanel = useMemo(() => createFilePanel(noteId), [noteId]);
+  // Task 6：`AiToolbar` 本身是模組層級的具名匯出（不像 `createFilePanel` 是「依 noteId
+  // 生一個新元件型別」的工廠），identity 本來就跨 render 穩定——這裡仍然 `useMemo` 釘一次
+  // 是刻意逐字比照 filePanel 這支的既有寫法/註解風格（brief 明文要求）：
+  // `FormattingToolbarController` 拿 `formattingToolbar` prop 跟前一輪比對身分，同一套
+  // 「身分不穩會被當成換元件、整個卸載重掛」的風險模型也適用在它身上，`useMemo` 讓這個
+  // 不變量在原始碼層級直接可見，不必倚賴「反正它是模組層級函式」這個隱含事實。
+  const aiToolbar = useMemo(() => AiToolbar, []);
 
   return (
     <BlockNoteView
@@ -288,9 +314,14 @@ export function NoteEditorView({ editor, editable, theme, noteId, getItems }: No
       // 理由見 `components/FilePanel.tsx` 檔頭）。不明確設 `false` 這裡會同時掛兩個
       // file panel controller，使用者點開檔案 block 會看到兩份面板疊在一起。
       filePanel={false}
+      // 同理關掉內建的 FormattingToolbarController：下面接管的是我們自家的
+      // `AiToolbar`（`getFormattingToolbarItems()` 全數復原＋追加 AI 動作選單，見
+      // `components/ai/AiToolbar.tsx` 檔頭）。
+      formattingToolbar={false}
     >
       <SuggestionMenuController triggerCharacter="[[" getItems={getItems} />
       <FilePanelController filePanel={filePanel} />
+      <FormattingToolbarController formattingToolbar={aiToolbar} />
     </BlockNoteView>
   );
 }

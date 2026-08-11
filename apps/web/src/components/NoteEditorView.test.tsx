@@ -1,10 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BlockNoteEditor } from "@blocknote/core";
-import { FilePanelExtension } from "@blocknote/core/extensions";
+import { FilePanelExtension, FormattingToolbarExtension } from "@blocknote/core/extensions";
 import type { DefaultReactSuggestionItem } from "@blocknote/react";
+import type { AiActionDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { noteSchema } from "@/collab/schema";
+import { AiSessionProvider } from "@/components/ai/AiSession";
 import { NoteEditorView } from "./NoteEditor";
 
 /**
@@ -94,5 +97,120 @@ describe("NoteEditorView（Task 14：filePanel={false} + useMemo 接線）", () 
     rerender(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} />);
 
     expect(screen.getByPlaceholderText("Paste a link…")).toHaveValue("https://example.com/half-typed");
+  });
+});
+
+// ── Task 6：`formattingToolbar={false}` + 自家 `AiToolbar` 接線 ──────────────────
+//
+// `AiToolbar` 經 `useAiSession()` 讀 context（B1 架構決策：不拉 prop 通道），所以這裡
+// 必須額外包 `QueryClientProvider`（`AiSessionProvider` 內部的 `useQuery(["ai-actions"])`／
+// `useNotes()`）與 `AiSessionProvider` 本身；`NoteEditorView` 介面完全沒變，只是這組測試
+// 需要更完整的 context 包裝。
+//
+// `FormattingToolbarExtension` 的顯示與否是內部 store（`editor.onSelectionChange` 驅動），
+// 直接 `store.setState(true)` 強制顯示——比照上面 `FilePanelExtension.showMenu(blockId)`
+// 的既有手法，不必真的在 jsdom 裡模擬滑鼠選取。
+interface FakeResponseInit {
+  ok: boolean;
+  status: number;
+  json?: () => Promise<unknown>;
+}
+
+function fakeResponse({ ok, status, json }: FakeResponseInit): Response {
+  return { ok, status, json: json ?? (() => Promise.reject(new Error("no body"))) } as unknown as Response;
+}
+
+const AI_ACTION: AiActionDto = { id: "action-1", name: "Summarize", applyMode: "preview" };
+
+function stubAiFetch(actions: AiActionDto[]) {
+  return vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const method = (init?.method ?? "GET").toUpperCase();
+    if (url === "/api/ai/actions" && method === "GET") {
+      return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ actions }) }));
+    }
+    if (url === "/api/notes" && method === "GET") {
+      return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+    }
+    throw new Error(`unexpected fetch: ${method} ${url}`);
+  });
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 編輯器泛型三元組，走 repo 慣例用 any（同檔案開頭 mountedEditor）
+function renderWithAiSession(editor: BlockNoteEditor<any, any, any>, editable: boolean, actions: AiActionDto[]) {
+  vi.stubGlobal("fetch", stubAiFetch(actions));
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <AiSessionProvider editor={editor} noteId="note-1" editable={editable}>
+        <NoteEditorView editor={editor} editable={editable} theme="light" noteId="note-1" getItems={getItems} />
+      </AiSessionProvider>
+    </QueryClientProvider>,
+  );
+}
+
+describe("NoteEditorView（Task 6：formattingToolbar={false} + AiToolbar 接線）", () => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同上
+  let editor: BlockNoteEditor<any, any, any>;
+  let container: HTMLElement;
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    ({ editor, container } = mountedEditor());
+  });
+
+  afterEach(() => {
+    editor.unmount();
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
+  it("自訂 toolbar 仍含預設按鈕（getFormattingToolbarItems 復原迴歸釘），並追加 AI 動作選單", async () => {
+    renderWithAiSession(editor, true, [AI_ACTION]);
+
+    act(() => {
+      editor.getExtension(FormattingToolbarExtension)!.store.setState(true);
+    });
+
+    // 預設按鈕（BasicTextStyleButton "bold"）原樣復原——`getFormattingToolbarItems()`
+    // 沒有被我們的自訂 toolbar 意外漏掉任何一項。
+    expect(await screen.findByRole("button", { name: "Bold" })).toBeInTheDocument();
+
+    // 追加的 AI 動作選單：觸發鈕帶誠實的 aria-expanded（fix round 1 I-5：這顆清單刻意
+    // 不宣告 role="menu"/"menuitem"，見 `AiToolbar.tsx` 檔頭）；點開後動作清單以一般按鈕
+    // 呈現。`actions` query 是非同步的，觸發鈕本身要等它落地才會出現。
+    const trigger = await screen.findByRole("button", { name: "AI" });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(await screen.findByRole("button", { name: AI_ACTION.name })).toBeInTheDocument();
+  });
+
+  it("viewer（editable:false）→ AI 項不渲染", async () => {
+    renderWithAiSession(editor, false, [AI_ACTION]);
+
+    act(() => {
+      editor.getExtension(FormattingToolbarExtension)!.store.setState(true);
+    });
+
+    // AiSessionProvider 的 actions query 是非同步的——用一個穩定會出現的等待點
+    // （root 容器本身）確保已經走過至少一輪 render，才斷言 AI 觸發鈕缺席。
+    await screen.findByTestId("note-editor");
+    expect(screen.queryByRole("button", { name: "AI" })).not.toBeInTheDocument();
+  });
+
+  // fix round 1 M-2 後半：既有覆蓋只有 viewer 那半條（editable:false），`actions.length
+  // === 0`（editable:true 但沒有任何可用動作，例如全新安裝、admin 還沒設定任何 AI 動作）
+  // 這半條完全零覆蓋——`AiToolbar` 的 `showAi = editable && actions.length > 0` 兩個
+  // 因子任何一個關掉都要藏起來，各自需要獨立測試才不會漏掉其中一半的迴歸。
+  it("actions 為空陣列（editable:true）→ AI 項不渲染", async () => {
+    renderWithAiSession(editor, true, []);
+
+    act(() => {
+      editor.getExtension(FormattingToolbarExtension)!.store.setState(true);
+    });
+
+    await screen.findByRole("button", { name: "Bold" }); // 確認至少走過一輪含 actions 落地的 render
+    expect(screen.queryByRole("button", { name: "AI" })).not.toBeInTheDocument();
   });
 });

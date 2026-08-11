@@ -158,6 +158,28 @@
     "dark": "Dark",
     "system": "System"
   },
+  "ai": {
+    "toolbar": {
+      "trigger": "AI",
+      "menuLabel": "AI actions"
+    },
+    "panel": {
+      "title": "AI",
+      "collapse": "Collapse AI panel",
+      "expand": "Expand AI panel",
+      "idle": "Select some text and use the toolbar for a partial edit, or pick an action below to run it on the whole note.",
+      "streaming": "Generating…",
+      "apply": "Apply",
+      "revert": "Revert",
+      "cancel": "Cancel",
+      "dismiss": "Dismiss",
+      "retry": "Retry",
+      "applyGuardFailed": "The original text changed since this result was generated, so it wasn't applied.",
+      "emptyResult": "The AI returned an empty result. Nothing was applied.",
+      "revertStale": "This change can no longer be reverted — the text may have changed since.",
+      "rebindNotice": "Some [[links]] in the result couldn't be linked automatically."
+    }
+  },
   "errors": {
     "unauthorized": "You need to sign in to continue.",
     "forbidden": "You don't have permission to do that.",
