@@ -9,6 +9,7 @@ import { noopCollabHooks } from "../src/collab/hooks.js";
 import { SetupState } from "../src/auth/setup.js";
 import { instanceSetup, users } from "../src/db/schema.js";
 import { hashPassword } from "../src/auth/password.js";
+import { createAiRuntime } from "../src/ai/runtime.js";
 
 const silentLogger = { info: () => {} };
 
@@ -33,6 +34,7 @@ async function buildAppWithEnvAdmin(envAdmin?: { email: string; password: string
       collabHooks: noopCollabHooks,
       setupState,
       uploadsDir: freshUploadsDir(),
+      ai: createAiRuntime(),
     },
     { logger: false }
   );

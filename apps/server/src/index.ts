@@ -11,6 +11,7 @@ import { LoginThrottle } from "./auth/rate-limit.js";
 import { createCollabHooks } from "./collab/hooks-impl.js";
 import { createCollabServer } from "./collab/server.js";
 import { buildApp } from "./app.js";
+import { createAiRuntime, selfCheckAiKeys } from "./ai/runtime.js";
 
 // 獨立的 pino instance：`SetupState.init` 在 `buildApp()` 之前就要跑（見下方
 // main() 的呼叫順序），此時還沒有 Fastify app、也就還沒有 `app.log` 可用——
@@ -90,6 +91,14 @@ async function main(): Promise<void> {
   const uploadsDir = path.resolve(process.cwd(), "uploads");
   mkdirSync(uploadsDir, { recursive: true });
 
+  // Plan 4（spec §13）：AI 執行期狀態 + 啟動自檢——在 `buildApp()` 之前建好，讓每個
+  // 已設定 API key 的 enabled provider 在服務開始接請求前就先驗過一次「目前這把
+  // APP_SECRET 解得開」，壞掉的（例如 APP_SECRET 被更換過）直接進 `degraded`，不必
+  // 等到第一次真的呼叫該 provider 才發現。失敗不擋啟動——降級是「該 provider 暫時
+  // 不可用」，不是「整個 server 起不來」（同一份精神見 webDist 缺失時只 warn 不擋）。
+  const ai = createAiRuntime();
+  await selfCheckAiKeys(db, config.appSecret, ai, logger);
+
   const app = buildApp(
     {
       config,
@@ -100,6 +109,7 @@ async function main(): Promise<void> {
       collab,
       setupState,
       uploadsDir,
+      ai,
     },
     { webDist }
   );

@@ -21,6 +21,7 @@ import { noopCollabHooks, type CollabHooks } from "../src/collab/hooks.js";
 import { COLLAB_PATH, createCollabServer, type CollabServer } from "../src/collab/server.js";
 import { notes, noteShares, users } from "../src/db/schema.js";
 import { SetupState } from "../src/auth/setup.js";
+import { createAiRuntime } from "../src/ai/runtime.js";
 
 export interface FreshDb {
   db: Db;
@@ -179,6 +180,7 @@ export async function buildTestApp(overrides: Partial<AppDeps> = {}, options: Bu
     setupState: await SetupState.init(effectiveDb, silentSetupLogger),
     limiters: freshLimiters(),
     uploadsDir: freshUploadsDir(),
+    ai: createAiRuntime(),
     ...overrides,
   };
   const app = buildApp(deps, { logger: false, ...options });
@@ -266,6 +268,7 @@ export async function buildCollabTestApp(
     setupState: await SetupState.init(db, silentSetupLogger),
     limiters: freshLimiters(),
     uploadsDir: freshUploadsDir(),
+    ai: createAiRuntime(),
   };
   const app = buildApp(deps, { logger: false });
 

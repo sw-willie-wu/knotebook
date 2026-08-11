@@ -19,6 +19,7 @@ import { sendError } from "./http/errors.js";
 import { COLLAB_TOKEN_LIMIT, FixedWindowLimiter, SLUG_PATCH_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
 import { registerSpaFallback } from "./http/spa.js";
 import { assertUploadsDirWritable } from "./uploads/service.js";
+import type { AiRuntime } from "./ai/runtime.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -81,6 +82,17 @@ export interface AppDeps {
    * 需要真實可寫目錄）。
    */
   uploadsDir: string;
+  /**
+   * Plan 4（spec §13）：AI 執行期狀態（目前只有 `degraded` 降級集合）。**必填**——
+   * 本 task（Task 3）只建 runtime 本身與啟動自檢（`src/index.ts` 的
+   * `createAiRuntime()` + `selfCheckAiKeys`），路由層的實際消費（resolve provider/
+   * model、套用降級判斷）留給 Task 4；先把它擺進 `AppDeps` 而非暫存局部變數/TODO，
+   * 是為了不讓 Task 4 又要回頭補一輪全部 deps 建構點（比照 Task 9 `uploadsDir` 的
+   * 前車之鑑）。呼叫點同 `uploadsDir`：`src/index.ts`（production）、
+   * `test/helpers.ts` 的 `buildTestApp`/`buildCollabTestApp`、
+   * `test/env-admin-bootstrap.test.ts`（手動組裝 deps）。
+   */
+  ai: AiRuntime;
 }
 
 export interface BuildAppOptions {
