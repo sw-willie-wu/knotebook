@@ -158,6 +158,16 @@
     "dark": "Dark",
     "system": "System"
   },
+  "settings": {
+    "entry": "Settings",
+    "title": "Settings",
+    "description": "Manage your account and workspace settings.",
+    "nav": {
+      "account": "Account",
+      "users": "Users",
+      "ai": "AI"
+    }
+  },
   "ai": {
     "toolbar": {
       "trigger": "AI",

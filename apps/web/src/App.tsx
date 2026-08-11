@@ -1,4 +1,4 @@
-import { BrowserRouter, Route, Routes } from "react-router";
+import { BrowserRouter, Navigate, Route, Routes, useLocation, type Location } from "react-router";
 import { ThemeProvider } from "./theme";
 import { Toaster } from "./components/ui/toast";
 import { ChangePasswordGate, RequireAdmin, RequireAuth, SetupGate } from "./auth/guards";
@@ -7,20 +7,31 @@ import SetupPage from "./pages/SetupPage";
 import ChangePasswordPage from "./pages/ChangePasswordPage";
 import HomePage from "./pages/HomePage";
 import NotePage from "./pages/NotePage";
-import AdminUsersPage from "./pages/AdminUsersPage";
+import { SettingsModal } from "./settings/SettingsModal";
+import { SettingsAccountSection } from "./settings/SettingsAccountSection";
+import { SettingsUsersSection } from "./settings/SettingsUsersSection";
+import { SettingsAiSection } from "./settings/SettingsAiSection";
 
 /**
- * 整棵 app 的 route 樹——唯一真相，`App`（production，包在 `<BrowserRouter>`）
- * 與 `App.test.tsx`（包在 `<MemoryRouter>`）都吃這同一個匯出，不各自重建一份
- * 容易漂移的等價樹。用宣告式 `<Routes>/<Route>`（而非 `createBrowserRouter`
- * data router）：後者在 jsdom 測試環境下，navigate 時內部會建構一個帶
- * `AbortSignal` 的 Fetch `Request`（給 loader/action 用，即便這棵樹完全沒有
- * loader/action），jsdom 的 `AbortController` 與 Node/undici 的不同 realm，
- * `new Request(..., {signal})` 的 `instanceof AbortSignal` 檢查必炸——宣告式
- * router 沒有這條內部機制，production 瀏覽器環境兩種 router 行為對這棵樹
- * 而言等價。
+ * 兩棵 `<Routes>` 並列（spec §13.4，逐字落地——改這段前先讀那節，尤其
+ * modal-over-background 機制那段）：
  *
- * §11.3 逐字守衛規則：<SetupGate> 包住整棵樹（needed:true 全導 /setup；
+ * - **主樹**：render 背景頁，吃 `<Routes location={state?.backgroundLocation ?? location}>`
+ *   ——帶 `location` prop 的 `<Routes>` 會覆寫 React Router 的 `LocationContext`，
+ *   主樹底下 `SetupGate`/`RequireAuth`/`ChangePasswordGate`（guards.tsx 內部都用
+ *   `useLocation()`）因此讀到**背景** location，不是瀏覽器目前真實的 `/settings/*`
+ *   網址——這個相依是「開設定時背景頁繼續照它本來的路徑渲染」成立的前提，
+ *   **改動 guard 或這段 location 邏輯前務必先確認沒有破壞這個相依**。
+ * - **第二棵樹**：只含 `/settings/*`，吃真實 location（不帶 `location` prop）；
+ *   非 `/settings/*` 路徑下整棵 match 不到任何 route → render `null`，樹內的
+ *   guard 元件根本不會執行，不會有幽靈重導。guard 元件（`SetupGate` 等）在這裡
+ *   直接複用同一份，以 pathless layout route 掛上——不是塞進主樹。
+ *
+ * `/settings/*` **絕不可加進主樹**：加進去背景頁就不會渲染，modal-over-background
+ * 整個破功。既有 `/admin/users` route 改為 `<Navigate to="/settings/users" replace/>`
+ * （書籤不斷；`RequireAdmin` 包裹保留不動）。
+ *
+ * §11.3 逐字守衛規則（主樹）：<SetupGate> 包住整棵樹（needed:true 全導 /setup；
  * needed:false 時 /setup 依登入狀態導 /login 或 /）；<RequireAuth> 包住除
  * /setup、/login 外的其餘路由（未登入導 /login）；`/admin/users`（Task 15）再多包一層
  * <RequireAdmin>（非 admin 導 `/`）——巢狀在 <RequireAuth> 底下，即使 <RequireAdmin>
@@ -35,25 +46,56 @@ import AdminUsersPage from "./pages/AdminUsersPage";
  * <RequireAdmin> 的模式。
  */
 export function AppRoutes() {
+  const location = useLocation();
+  const state = location.state as { backgroundLocation?: Location } | null;
+
   return (
-    <Routes>
-      <Route element={<SetupGate />}>
-        <Route path="/setup" element={<SetupPage />} />
-        <Route path="/login" element={<LoginPage />} />
-        <Route element={<RequireAuth />}>
-          <Route path="/change-password" element={<ChangePasswordPage />} />
-          <Route element={<ChangePasswordGate />}>
-            {/* `/notes/:ref` 排在 catch-all 之前：ref 可以是自訂 slug、
-                `<vanity>-<uuid>` 或純 uuid，一律由 `GET /api/notes/:ref` 解析。 */}
-            <Route path="/notes/:ref" element={<NotePage />} />
-            <Route element={<RequireAdmin />}>
-              <Route path="/admin/users" element={<AdminUsersPage />} />
+    <>
+      <Routes location={state?.backgroundLocation ?? location}>
+        <Route element={<SetupGate />}>
+          <Route path="/setup" element={<SetupPage />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route element={<RequireAuth />}>
+            <Route path="/change-password" element={<ChangePasswordPage />} />
+            <Route element={<ChangePasswordGate />}>
+              {/* `/notes/:ref` 排在 catch-all 之前：ref 可以是自訂 slug、
+                  `<vanity>-<uuid>` 或純 uuid，一律由 `GET /api/notes/:ref` 解析。 */}
+              <Route path="/notes/:ref" element={<NotePage />} />
+              <Route element={<RequireAdmin />}>
+                <Route path="/admin/users" element={<Navigate to="/settings/users" replace />} />
+              </Route>
+              <Route path="/*" element={<HomePage />} />
             </Route>
-            <Route path="/*" element={<HomePage />} />
           </Route>
         </Route>
-      </Route>
-    </Routes>
+      </Routes>
+      {/* 第二棵樹：只含 /settings/*，吃真實 location；非 /settings/* 路徑下整棵
+          match 不到 → render null，guard 不會跑（無幽靈重導）。guard 元件直接複用。 */}
+      <Routes>
+        <Route element={<SetupGate />}>
+          <Route element={<RequireAuth />}>
+            <Route element={<ChangePasswordGate />}>
+              <Route element={<SettingsModal />}>
+                {/* Dialog 外殼＝layout route，區塊切換不重掛 */}
+                <Route path="/settings/account" element={<SettingsAccountSection />} />
+                <Route element={<RequireAdmin />}>
+                  <Route path="/settings/users" element={<SettingsUsersSection />} />
+                  <Route path="/settings/ai" element={<SettingsAiSection />} />
+                </Route>
+              </Route>
+            </Route>
+          </Route>
+        </Route>
+        {/* 與上面那棵 pathless `<SetupGate>` 平行（不是它的子路由）：純粹吸收
+            react-router 對非 /settings/* 路徑的「No routes matched」warning——
+            這棵樹本來就設計成那些路徑下什麼都不 render，這是預期行為，不是漏
+            接的路由。element 固定 `null`，**絕不可**塞進任何 guard 底下：guard
+            會在每個非 /settings/* 頁面都執行一次（session/setup-status query、
+            可能的 <Navigate>），那就是貨真價實的幽靈重導，違反本樹「非
+            /settings/* 時 guard 不跑」的設計前提。 */}
+        <Route path="*" element={null} />
+      </Routes>
+    </>
   );
 }
 

@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { useSession } from "@/auth/useSession";
 import { useTheme, type Theme } from "@/theme";
 import { Button } from "@/components/ui/button";
@@ -22,7 +22,10 @@ const THEMES: Theme[] = ["light", "dark", "system"];
 
 /**
  * 顯示 displayName、語言切換（en/zh-TW）、主題切換（light/dark/system）、
- * 管理使用者入口（僅 `user.isAdmin` 時出現，導向 `/admin/users`，Task 15）、登出。
+ * 設定入口（所有人皆可見，開 `/settings/account`，帶目前 location 當
+ * `backgroundLocation`——設定總 modal，spec §13.4）、登出。既有「管理使用者」入口
+ * 已移除（原本 admin only、導 `/admin/users`，Task 15；該路由現已改為
+ * `<Navigate to="/settings/users" replace/>`，功能併入設定 modal 的使用者區）。
  * 未登入（`user` 為 `null`/`undefined`）時不渲染任何東西——這個元件只掛在
  * `<RequireAuth>` 底下的頁面，理論上此時一定已登入，但保留這道防呆，
  * 避免元件被單獨挪用到未受保護的頁面時炸掉。
@@ -30,6 +33,7 @@ const THEMES: Theme[] = ["light", "dark", "system"];
 export function UserMenu() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, logout } = useSession();
   const { theme, setTheme } = useTheme();
 
@@ -77,12 +81,12 @@ export function UserMenu() {
           </DropdownMenuItem>
         ))}
 
-        {user.isAdmin && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={() => navigate("/admin/users")}>{t("admin.entry")}</DropdownMenuItem>
-          </>
-        )}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onSelect={() => navigate("/settings/account", { state: { backgroundLocation: location } })}
+        >
+          {t("settings.entry")}
+        </DropdownMenuItem>
 
         <DropdownMenuSeparator />
 

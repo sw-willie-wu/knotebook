@@ -158,6 +158,16 @@
     "dark": "深色",
     "system": "跟隨系統"
   },
+  "settings": {
+    "entry": "設定",
+    "title": "設定",
+    "description": "管理你的帳號與工作區設定。",
+    "nav": {
+      "account": "帳號",
+      "users": "使用者",
+      "ai": "AI"
+    }
+  },
   "ai": {
     "toolbar": {
       "trigger": "AI",
