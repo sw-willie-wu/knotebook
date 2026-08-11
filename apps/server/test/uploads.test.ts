@@ -502,6 +502,7 @@ describe("POST /api/notes/:id/uploads", () => {
         collabToken: new FixedWindowLimiter({ limit: 60, windowMs: 60_000 }),
         slugPatch: new FixedWindowLimiter({ limit: 10, windowMs: 600_000 }),
         upload: smallUploadLimiter,
+        ai: new FixedWindowLimiter({ limit: 30, windowMs: 60_000 }),
       },
     });
     const owner = await insertUser(db, { email: "owner-429@example.com" });

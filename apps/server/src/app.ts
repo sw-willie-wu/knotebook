@@ -18,7 +18,7 @@ import { adminAiRoutes } from "./routes/admin-ai.js";
 import { aiRoutes } from "./routes/ai.js";
 import { uploadsRoutes } from "./routes/uploads.js";
 import { sendError } from "./http/errors.js";
-import { COLLAB_TOKEN_LIMIT, FixedWindowLimiter, SLUG_PATCH_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
+import { AI_LIMIT, COLLAB_TOKEN_LIMIT, FixedWindowLimiter, SLUG_PATCH_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
 import { registerSpaFallback } from "./http/spa.js";
 import { assertUploadsDirWritable } from "./uploads/service.js";
 import type { AiRuntime } from "./ai/runtime.js";
@@ -63,7 +63,7 @@ export interface AppDeps {
    * `buildTestApp`/`buildCollabTestApp`（`test/helpers.ts`）每次呼叫一律注入**全新
    * 實例**——嚴禁 module 單例，否則不同測試檔案共享同一份計數會互相汙染。
    */
-  limiters?: { collabToken: FixedWindowLimiter; slugPatch: FixedWindowLimiter; upload: FixedWindowLimiter };
+  limiters?: { collabToken: FixedWindowLimiter; slugPatch: FixedWindowLimiter; upload: FixedWindowLimiter; ai: FixedWindowLimiter };
   /**
    * Task 5：`POST /api/notes/:id/links` 寫入函式（`notes/links.ts` 的 `writeNoteLinks`）的
    * 測試注入縫，透傳進 `NotesRouteDeps`。**選配**：production／未覆寫時整段為
@@ -342,6 +342,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       collabToken: new FixedWindowLimiter(COLLAB_TOKEN_LIMIT),
       slugPatch: new FixedWindowLimiter(SLUG_PATCH_LIMIT),
       upload: new FixedWindowLimiter(UPLOAD_LIMIT),
+      ai: new FixedWindowLimiter(AI_LIMIT),
     } satisfies NonNullable<AppDeps["limiters"]>);
 
   void app.register(
@@ -356,7 +357,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   );
   void app.register(adminUsersRoutes({ db: deps.db, gate: deps.gate, collabHooks: deps.collabHooks }));
   void app.register(adminAiRoutes({ db: deps.db, config: deps.config, runtime: deps.ai }));
-  void app.register(aiRoutes({ db: deps.db }));
+  void app.register(aiRoutes({ db: deps.db, config: deps.config, runtime: deps.ai, limiters: { ai: limiters.ai } }));
   // `NotesRouteDeps.limiters` 的型別只列 `collabToken`/`slugPatch`（刻意不改，見該
   // interface 說明）——這裡傳整包 `limiters`（含 `upload`）給它，屬於變數（非物件
   // 字面值）賦值給較窄的結構型別，TS 不做 excess property check，不需要另外

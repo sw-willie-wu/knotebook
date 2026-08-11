@@ -17,6 +17,7 @@
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.116.0",
     "@fastify/cookie": "^11",
     "@fastify/multipart": "^10.1.0",
     "@fastify/static": "^10.1.3",

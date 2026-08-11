@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { LoginThrottle } from "../../src/auth/rate-limit.js";
+import { AI_LIMIT, FixedWindowLimiter } from "../../src/http/rate-limit.js";
 
 describe("LoginThrottle", () => {
   describe("basic backoff mechanism", () => {
@@ -421,5 +422,28 @@ describe("LoginThrottle", () => {
       expect(result.allowed).toBe(false);
       expect(result.retryAfterMs).toBe(2000);
     });
+  });
+});
+
+// Plan 4 Task 5：POST /api/ai 節流參數形狀（比照 http/rate-limit.ts 其餘 *_LIMIT 匯出常數的
+// 驗證慣例）——鎖住「每分鐘 30 次」這個具體數字，不讓它被無感改動。
+describe("AI_LIMIT", () => {
+  it("形狀：limit=30、windowMs=60_000（每分鐘 30 次）", () => {
+    expect(AI_LIMIT).toEqual({ limit: 30, windowMs: 60_000 });
+  });
+
+  it("套進 FixedWindowLimiter：30 次放行，第 31 次擋", () => {
+    const limiter = new FixedWindowLimiter(AI_LIMIT);
+    for (let i = 0; i < 30; i++) {
+      expect(limiter.consume("user1")).toBe(true);
+    }
+    expect(limiter.consume("user1")).toBe(false);
+  });
+
+  it("不同 user 各自獨立計數", () => {
+    const limiter = new FixedWindowLimiter(AI_LIMIT);
+    for (let i = 0; i < 30; i++) limiter.consume("user1");
+    expect(limiter.consume("user1")).toBe(false);
+    expect(limiter.consume("user2")).toBe(true);
   });
 });

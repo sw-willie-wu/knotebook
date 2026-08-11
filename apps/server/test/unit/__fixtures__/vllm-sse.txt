@@ -1,0 +1,16 @@
+data: {"id":"1","choices":[{"delta":{"role":"assistant"},"index":0}]}
+
+data: {"id":"1","choices":[{"delta":{"reasoning_content":"Let me think about this. "},"index":0}]}
+
+data: {"id":"1","choices":[{"delta":{"reasoning_content":"Almost there."},"index":0}]}
+
+data: {"id":"1","choices":[{"delta":{"content":"Hello"},"index":0}]}
+
+data: {"id":"1","choices":[{"delta":{"content":", world"},"index":0}]}
+
+data: {"id":"1","choices":[{"delta":{"reasoning_content":" (still thinking mid-stream)","content":null},"index":0}]}
+
+data: {"id":"1","choices":[{"delta":{"content":"!"},"index":0}]}
+
+data: [DONE]
+
