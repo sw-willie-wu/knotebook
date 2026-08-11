@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import type pino from "pino";
 import { checkProviderKeys, createAiRuntime, type AiProviderRow } from "../../src/ai/runtime.js";
-import { encryptApiKey } from "../../src/ai/crypto.js";
+import { encryptApiKey, type EncryptedApiKey } from "../../src/ai/crypto.js";
 
 const secret = "a".repeat(64);
 
@@ -108,7 +108,10 @@ describe("checkProviderKeys（純函式，spec §13）", () => {
     const runtime = createAiRuntime();
     const log = fakeLog();
     expect(() =>
-      checkProviderKeys([provider({ id: "provider-corrupt", apiKeyEncrypted: "not-an-object" })], secret, runtime, log)
+      // Task 4 交接：schema.ts 的 apiKeyEncrypted 已加 `.$type<EncryptedApiKey>()`（純型別，見
+      // db/schema.ts 註解），這裡刻意模擬「執行期壞資料」（DB 被手動改壞的情境），型別上
+      // 本來就不合法——`as unknown as EncryptedApiKey` 是唯一正確的繞過方式，不是型別錯誤。
+      checkProviderKeys([provider({ id: "provider-corrupt", apiKeyEncrypted: "not-an-object" as unknown as EncryptedApiKey })], secret, runtime, log)
     ).not.toThrow();
     expect(runtime.degraded.has("provider-corrupt")).toBe(true);
     expect(log.warn).toHaveBeenCalledTimes(1);
@@ -123,7 +126,9 @@ describe("checkProviderKeys（純函式，spec §13）", () => {
     const encrypted = encryptApiKey(secret, "sk-good-key");
     const badVersion = { ...encrypted, v: 2 };
     expect(() =>
-      checkProviderKeys([provider({ id: "provider-bad-version", apiKeyEncrypted: badVersion })], secret, runtime, log)
+      // 同上：`v: 2` 在型別上不合法（`EncryptedApiKey.v` 鎖定字面值 1），刻意模擬未來
+      // 格式版本升級留下的舊密文，需要繞過型別。
+      checkProviderKeys([provider({ id: "provider-bad-version", apiKeyEncrypted: badVersion as unknown as EncryptedApiKey })], secret, runtime, log)
     ).not.toThrow();
     expect(runtime.degraded.has("provider-bad-version")).toBe(true);
     expect(log.warn).toHaveBeenCalledTimes(1);

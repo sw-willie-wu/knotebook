@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import type pino from "pino";
 import type { Db } from "../db/index.js";
 import { aiProviders } from "../db/schema.js";
-import { AiKeyDecryptError, decryptApiKey, type EncryptedApiKey } from "./crypto.js";
+import { AiKeyDecryptError, decryptApiKey } from "./crypto.js";
 
 /**
  * AI 執行期狀態（spec §13）：目前只有「降級集合」——啟動自檢或之後任何一次解密失敗
@@ -40,7 +40,7 @@ export function checkProviderKeys(providers: AiProviderRow[], appSecret: string,
     if (provider.apiKeyEncrypted == null) continue;
 
     try {
-      decryptApiKey(appSecret, provider.apiKeyEncrypted as EncryptedApiKey);
+      decryptApiKey(appSecret, provider.apiKeyEncrypted);
     } catch (err) {
       if (!(err instanceof AiKeyDecryptError)) throw err;
       log.warn(

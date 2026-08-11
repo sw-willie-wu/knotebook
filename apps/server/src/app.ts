@@ -14,6 +14,8 @@ import { authRoutes } from "./routes/auth.js";
 import { notesRoutes } from "./routes/notes.js";
 import type { WriteNoteLinksHooks } from "./notes/links.js";
 import { adminUsersRoutes } from "./routes/admin-users.js";
+import { adminAiRoutes } from "./routes/admin-ai.js";
+import { aiRoutes } from "./routes/ai.js";
 import { uploadsRoutes } from "./routes/uploads.js";
 import { sendError } from "./http/errors.js";
 import { COLLAB_TOKEN_LIMIT, FixedWindowLimiter, SLUG_PATCH_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
@@ -353,6 +355,8 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     })
   );
   void app.register(adminUsersRoutes({ db: deps.db, gate: deps.gate, collabHooks: deps.collabHooks }));
+  void app.register(adminAiRoutes({ db: deps.db, config: deps.config, runtime: deps.ai }));
+  void app.register(aiRoutes({ db: deps.db }));
   // `NotesRouteDeps.limiters` 的型別只列 `collabToken`/`slugPatch`（刻意不改，見該
   // interface 說明）——這裡傳整包 `limiters`（含 `upload`）給它，屬於變數（非物件
   // 字面值）賦值給較窄的結構型別，TS 不做 excess property check，不需要另外

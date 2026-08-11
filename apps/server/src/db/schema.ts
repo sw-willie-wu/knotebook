@@ -1,5 +1,6 @@
 import { pgTable, uuid, text, timestamp, boolean, integer, bigint, jsonb, customType, primaryKey, uniqueIndex, index, check } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import type { EncryptedApiKey } from "../ai/crypto.js";
 const bytea = customType<{ data: Buffer }>({ dataType: () => "bytea" });
 
 export const users = pgTable("users", {
@@ -89,7 +90,11 @@ export const aiProviders = pgTable("ai_providers", {
   name: text().notNull(),
   type: text().notNull(),
   baseUrl: text("base_url").notNull(),
-  apiKeyEncrypted: jsonb("api_key_encrypted"),
+  // 純型別鎖定（Task 4 交接）：無 migration 影響，只讓 drizzle 推斷出的 TS 型別是
+  // `EncryptedApiKey | null` 而非 `unknown | null`，讓 `runtime.ts`/`admin-ai.ts` 不必
+  // 各自 `as EncryptedApiKey` cast——執行期仍是裸 jsonb，實際存入的值是否真的符合這個
+  // 形狀不受此型別註記保護（`decryptApiKey` 對壞資料的防禦性檢查因此仍然必要，見該檔）。
+  apiKeyEncrypted: jsonb("api_key_encrypted").$type<EncryptedApiKey>(),
   enabled: boolean().notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, t => [check("ai_providers_type_chk", sql`${t.type} in ('openai_compatible','anthropic')`)]);
