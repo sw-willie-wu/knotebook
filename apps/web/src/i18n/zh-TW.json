@@ -185,6 +185,11 @@
     "slug_taken": "此網址已被使用。",
     "not_loaded": "此筆記目前尚未就緒，請稍後再試。",
     "file_too_large": "檔案過大，無法上傳。",
+    "ai_not_configured": "尚未設定 AI",
+    "provider_unavailable": "AI provider 無法使用——請管理員重新輸入 API key",
+    "upstream_error": "AI 服務回傳錯誤",
+    "builtin_action": "內建動作不可刪除",
+    "model_taken": "此 provider 已有相同模型",
     "fallback": "發生未預期的錯誤。"
   }
 }

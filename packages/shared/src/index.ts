@@ -103,8 +103,59 @@ export const ERROR_CODES = [
   "slug_taken",
   "not_loaded",
   "file_too_large",
+  "ai_not_configured",
+  "provider_unavailable",
+  "upstream_error",
+  "builtin_action",
+  "model_taken",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
+
+export const AI_SSE_EVENTS = { delta: "delta", done: "done", error: "error" } as const;
+export interface AiSseErrorPayload {
+  code: string;
+  message: string;
+}
+
+export interface AiActionDto {
+  id: string;
+  name: string;
+  applyMode: "direct" | "preview";
+}
+
+export interface AdminAiProviderDto {
+  id: string;
+  name: string;
+  type: "openai_compatible" | "anthropic";
+  baseUrl: string;
+  enabled: boolean;
+  hasKey: boolean;
+  degraded: boolean;
+  createdAt: string;
+}
+
+export interface AdminAiModelDto {
+  id: string;
+  providerId: string;
+  modelId: string;
+  displayName: string;
+  purpose: "chat";
+  isDefault: boolean;
+  enabled: boolean;
+  createdAt: string;
+}
+
+export interface AdminAiActionDto {
+  id: string;
+  name: string;
+  systemPrompt: string;
+  userTemplate: string;
+  modelId: string | null;
+  applyMode: "direct" | "preview";
+  sortOrder: number;
+  enabled: boolean;
+  builtin: boolean;
+}
 
 export const COLLAB_CLOSE_REVOKED = "knotebook:revoked";
 export const COLLAB_CLOSE_NOTE_DELETED = "knotebook:note-deleted";

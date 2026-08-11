@@ -185,6 +185,11 @@
     "slug_taken": "That URL is already taken.",
     "not_loaded": "This note isn't ready for that yet. Please try again.",
     "file_too_large": "That file is too large to upload.",
+    "ai_not_configured": "AI is not configured yet",
+    "provider_unavailable": "AI provider is unavailable — ask an admin to re-enter the API key",
+    "upstream_error": "The AI provider returned an error",
+    "builtin_action": "Built-in actions cannot be deleted",
+    "model_taken": "This model already exists for the provider",
     "fallback": "An unexpected error occurred."
   }
 }
