@@ -532,23 +532,49 @@ describe("POST /api/ai — 正常串流", () => {
 
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {
-      const resPromise = app.inject({
+      // `payloadAsStream: true`（light-my-request）：`app.inject()` 的 promise 在 handler
+      // `raw.writeHead()`（hijack 後立刻送出）當下就 resolve，不必等整段回應跑完——藉此避開
+      // 舊版靠固定 `realDelay(300)` 賭 pre-stream（DB 查詢等）一定在某個時間內跑完的假設。CI
+      // 慢 runner 上 pre-stream 一旦超過 300ms，假時鐘就會在 idle timer 真正 arm 之前被推完，
+      // 這條 setTimeout 從此掛在假時鐘上永不觸發，SSE 連線永不結束，拖死 `startFakeUpstream`
+      // 的 `onTestFinished` server.close()（hook timeout 180s）——這正是 CI 觀測到的 flake。
+      const res = await app.inject({
         method: "POST",
         url: "/api/ai",
         cookies: { [SESSION_COOKIE]: access.editorCookie },
         payload: { action_id: action.id, note_id: access.noteId, text: "hi" },
+        payloadAsStream: true,
+      });
+      expect(res.statusCode).toBe(200);
+
+      const stream = res.stream();
+      let body = "";
+      let deltaSeen = false;
+      let resolveFirstDelta: (() => void) | undefined;
+      const firstDelta = new Promise<void>(resolve => {
+        resolveFirstDelta = resolve;
+      });
+      const streamEnded = new Promise<void>(resolve => stream.once("end", resolve));
+      // 刻意用 stream.on("data") 手動累積而非較直覺的 `for await...of` + `break`：
+      // 迭代器中途 break 會觸發其 return() 進而 destroy() 掉串流，等於過早砍斷 SSE 連線。
+      stream.on("data", (chunk: Buffer) => {
+        body += chunk.toString("utf8");
+        if (!deltaSeen && eventSequence(body).includes("delta")) {
+          deltaSeen = true;
+          resolveFirstDelta?.();
+        }
       });
 
-      // 給 pre-stream DB 查詢／首個 delta 真實時間跑完，確保 handler 已至少呼叫過一次
-      // resetIdleTimer（用 node:timers/promises 的 setTimeout，不受 vi.useFakeTimers 影響）。
-      await realDelay(300);
+      // 等到「至少收到一個完整 delta 事件」為止（poll/await 實際資料，不用固定 sleep）——
+      // handler 的 for-await 迴圈每次迭代都 resetIdleTimer，收到第一個 delta 代表 idle timer
+      // 必然已 arm，此時才進假時鐘是安全的。
+      await firstDelta;
 
       await vi.advanceTimersByTimeAsync(60_000);
 
-      const res = await resPromise;
-      expect(res.statusCode).toBe(200);
-      expect(eventSequence(res.body)).toEqual(["delta", "error"]);
-      expect(res.body).toContain("upstream request failed");
+      await streamEnded; // idle timeout 觸發後的 error 事件＋raw.end() 皆已送達
+      expect(eventSequence(body)).toEqual(["delta", "error"]);
+      expect(body).toContain("upstream request failed");
     } finally {
       vi.useRealTimers();
     }
