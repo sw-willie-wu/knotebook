@@ -8,7 +8,7 @@ Three non-negotiables:
 - **Real-time CRDT collaboration** — Yjs-based multiplayer editing, not a commercial add-on.
 - **Bring your own AI endpoint** — point Knotebook at your own OpenAI-compatible or Anthropic endpoint (including a local/on-prem Ollama); no bundled vendor lock-in.
 
-**Honest status:** this is the v0.2 development preview — password auth, a browser UI (note list, block editor, sharing, admin user management), live multiplayer editing (Yjs/Hocuspocus) with role-based access control, `[[wikilinks]]` with backlinks, and image uploads, all on top of the Milestone 1 REST API. AI quick actions and OIDC login are still ahead — see the roadmap below. If you want to drive the API directly instead of the browser UI, it's still there (see [API contract summary](#api-contract-summary)).
+**Honest status:** this is the v0.2 development preview — password auth, a browser UI (note list, block editor, sharing, admin user management), live multiplayer editing (Yjs/Hocuspocus) with role-based access control, `[[wikilinks]]` with backlinks, image uploads, and bring-your-own-endpoint AI quick actions (rewrite/translate/summarize/continue, streamed, against an admin-configured OpenAI-compatible or Anthropic provider), all on top of the Milestone 1 REST API. OIDC login is the one piece left on the roadmap below. If you want to drive the API directly instead of the browser UI, it's still there (see [API contract summary](#api-contract-summary)).
 
 ## Quickstart (~10 minutes)
 
@@ -20,7 +20,7 @@ This brings up the server and a Postgres database with `docker compose`, then wa
    cp .env.example .env
    ```
 
-2. Generate an `APP_SECRET` (used to sign session cookies and collab tokens, and — from a future milestone — to encrypt stored AI provider credentials) and fill it into `.env`:
+2. Generate an `APP_SECRET` (used to sign session cookies and collab tokens, and to encrypt stored AI provider credentials — see [AI quick actions](#ai-quick-actions) below) and fill it into `.env`:
 
    ```sh
    openssl rand -hex 32
@@ -58,7 +58,7 @@ This brings up the server and a Postgres database with `docker compose`, then wa
 
    Alternatively, you can skip the setup page entirely: set `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `.env` before the first `docker compose up`, and the server creates that admin account at startup instead of waiting for the setup page — see the commented-out example in `.env.example` and the "Known limitations" note below (it only takes effect on first initialization, and the account must change its password on first login).
 
-7. You're in: create a note and open it in the block editor. To try live co-editing, use the admin page (linked from the user menu — you're an admin) to create a second account, then log that account in from a second browser or an incognito window, share the note with it, and watch edits sync live. There is no public sign-up; every account is created by an admin (or via `POST /api/setup` for the very first one).
+7. You're in: create a note and open it in the block editor. To try live co-editing, open **Settings → Users** (linked from the user menu — you're an admin) to create a second account, then log that account in from a second browser or an incognito window, share the note with it, and watch edits sync live. There is no public sign-up; every account is created by an admin (or via `POST /api/setup` for the very first one).
 
 If you'd rather drive the API directly than click through the browser — e.g. to script the whole flow or build another client — the same setup/login endpoints are available over `curl`; see [API contract summary](#api-contract-summary) for the full endpoint list. The loop is: setup token from logs → `POST /api/setup` → `POST /api/auth/login` → authenticated API calls, session cookie carried the same way the browser carries it.
 
@@ -101,12 +101,34 @@ Procedure, to evict a note from a running server and restore it without restarti
 
 There's no packaged tool for steps 2–5 today — running them live means attaching a one-off script to the running server process (the `hocuspocus` instance exposed by `CollabServer`, see `apps/server/src/collab/server.ts`). The eviction (steps 2–4) and `links_clock` reset (step 5) portion of this sequence — the mechanics, not the online-user failure mode above, which isn't something a test can safely reproduce — is exercised in `apps/server/test/collab-links.test.ts:375` (its client disconnects deliberately, sidestepping the auto-reconnect race described above, rather than exercising it).
 
+## AI quick actions
+
+Knotebook ships four built-in AI quick actions — rewrite, translate, summarize, continue — that run against a provider you configure yourself; there's no bundled AI vendor and nothing is sent anywhere until an admin sets one up.
+
+**Setup (admin only):** open **Settings → AI** (linked from the user menu). Configuration is three layers, in order:
+
+1. **Providers** — an upstream AI API. Two types:
+   - `anthropic` — talks to the Anthropic Messages API. `baseUrl` is the API **origin**, e.g. `https://api.anthropic.com` (no `/v1` suffix — Knotebook appends the versioned path itself).
+   - `openai_compatible` — talks to any OpenAI-compatible chat-completions API (OpenAI itself, a local/on-prem [Ollama](https://ollama.com) instance, vLLM, etc.). `baseUrl` **includes** the `/v1` suffix, e.g. `http://<host>:11434/v1` for Ollama. The API key is optional here — leave it blank for an unauthenticated local server.
+   - Use the **Test** button after saving a provider to confirm Knotebook can reach it with the stored key before relying on it.
+2. **Models** — a specific model ID under one of your providers (e.g. `claude-sonnet-4-5` or `llama3.1`), marked available for chat. One model per provider can be flagged as the default; quick actions that aren't bound to a specific model fall back to it.
+3. **Actions** — the four built-in ones (rename or disable them freely, but they can't be deleted — see "Known limitations" below), plus any custom actions you add with your own system prompt and a user-message template containing the literal placeholder `{{text}}` (the selected text is substituted in verbatim, special-character-safe).
+
+An action with no model configured for it, and no provider default to fall back to, simply doesn't appear in the editor — "not configured" fails closed and silently, not with an error.
+
+**API keys are encrypted at rest** with a key derived from `APP_SECRET` (AES-256-GCM; the ciphertext, IV, auth tag, a non-secret key fingerprint (used to detect a stale `APP_SECRET` before attempting to decrypt), and a format version number are the only things stored — the server process never even selects the ciphertext column back out of the database except on the one code path that needs to decrypt it to make an upstream call). **Rotating `APP_SECRET` invalidates every stored provider key** — Knotebook can no longer decrypt them, providers show as degraded in the Settings UI, and you'll need to re-enter each provider's API key (which re-encrypts it under the new secret) before quick actions using it work again.
+
+**Using it:** select text in the block editor and pick an action from the floating toolbar, or open the action list in the right-hand AI panel to run one over the whole note. The response streams in live. Each action is configured as either "direct" (built-in Rewrite/Translate: applies automatically as the response finishes) or "preview" (built-in Summarize/Continue writing: shows the result and waits for you to accept or discard it) — either way you can cancel mid-stream, and an applied direct action can still be reverted afterward. If the model's own extended-thinking/reasoning output is available upstream, it's filtered out server-side and never reaches the browser — only the final answer streams to the client.
+
 ## Known limitations
 
 - **In-memory rate limiting and login lockout reset on restart.** Failed-login backoff counters, the password-hashing concurrency semaphore, and the collab-token/slug-change rate limiters all live in process memory; restarting the `app` container clears them. This is also why they cannot be shared across instances — see the single-instance warning above.
 - **Email addresses are case-sensitive.** `alice@example.com` and `Alice@example.com` are treated as different accounts throughout the system (login, sharing, admin user creation). This is a known rough edge, not an intentional feature.
 - **A note's title is not part of the real-time collaborative document.** The block editor content syncs live over Yjs/Hocuspocus, but the title is a separate field updated via `PATCH /api/notes/:id` with last-write-wins semantics — two people renaming a note at the same moment can silently overwrite one another, unlike the CRDT-merged body.
-- **Admins cannot reset another user's password.** Self-service password change has a UI now (`/change-password`, reachable once signed in; any account with `mustChangePassword: true` — env-bootstrapped admins and accounts created via the admin UI — is routed there automatically on next login until they change it), but there is no UI or API for an admin to reset a password on someone else's behalf; the account holder must know their current password to change it themselves.
+- **Admins cannot reset another user's password.** Self-service password change has a UI now (**Settings → Account**, reachable once signed in via the user menu; any account with `mustChangePassword: true` — env-bootstrapped admins and accounts created via the admin UI — is instead routed to the standalone `/change-password` page automatically on next login until they change it), but there is no UI or API for an admin to reset a password on someone else's behalf; the account holder must know their current password to change it themselves.
+- **The old `/admin/users` page path redirects.** `/admin/users` redirects to `/settings/users` — admin-only user management moved into the same Settings modal as account and AI configuration (linked from the user menu). Bookmarks/links to the old path still work.
+- **Closing the Settings modal navigates forward, not back.** Opening Settings (account/users/AI) pushes a new browser history entry rather than replacing the current one; closing it (Esc, the ✕, or clicking outside) navigates back to wherever you were. If you then press your browser's own Back button, it reopens the modal instead of leaving the page you were on before Settings — one extra Back press gets you past it.
+- **A deleted built-in AI action reappears on the next server restart.** The four built-in quick actions (rewrite/translate/summarize/continue) are re-created idempotently on every startup if missing. Renaming or disabling a built-in action persists normally — only deletion is undone. If you don't want a built-in action available, disable it (or rename it to repurpose it) rather than deleting it.
 - **Custom slugs are global and first-come, first-served.** `PATCH /api/notes/:id` with a `slug` claims it instance-wide (`409 slug_taken` if someone got there first) — there is no per-user or per-namespace scoping.
 - **The setup token is valid until setup completes, or until the server restarts** (whichever comes first) — an unused token from a previous run is invalidated the next time the process starts, and a fresh one is logged.
 - **Admins cannot delete user accounts, only disable them.** Account deletion (including note ownership transfer) is not implemented yet; see the roadmap.
@@ -127,6 +149,9 @@ There's no packaged tool for steps 2–5 today — running them live means attac
 - **Revoked upload access can still be served from a browser's cache.** `GET /api/uploads/:id` sets `Cache-Control: private, max-age=31536000, immutable` so a browser never re-checks it — appropriate for a URL that never changes content, but it also means a viewer whose share was just revoked can keep seeing an image they already loaded until that cache entry is evicted on its own, well past any revocation SLA the rest of the system aims for.
 - **The uploads directory is a Docker named volume; if it isn't mounted, uploaded images vanish the next time the `app` container is rebuilt.** The default `docker-compose.yml` already mounts it (`uploads:/app/uploads`) — this only bites if you've customized the compose file and dropped that volume.
 - **Only image blocks can upload; audio, video, and file blocks are embed-by-URL only.** The block editor's file panel gives image blocks both an Upload tab and an Embed tab, but audio/video/file blocks only ever get the Embed tab — there's no server-side upload path for them, only pasting in a URL to an already-hosted file.
+- **AI quick-action requests are rate-limited to 30 per user per minute, in-memory.** Like the other in-memory limiters above, this counter lives in process memory and resets whenever the `app` container restarts (and can't be shared across instances — see the single-instance warning).
+- **AI quick actions round-trip your note content through Markdown, which can lose fidelity.** The selected block(s) are serialized to Markdown before being sent to the AI provider, and the response is parsed back from Markdown into blocks; formatting that doesn't survive that round-trip cleanly (e.g. some nested structures or block-specific attributes) can be altered by running a quick action over it, independent of anything the AI itself changed.
+- **Anthropic responses are capped at 4096 output tokens (`max_tokens`), with no error on truncation.** If a quick action's response hits that limit, Anthropic's API stops generating and Knotebook streams whatever was produced without surfacing an error — long outputs (e.g. "continue" on a lengthy selection) can be silently cut off mid-sentence. This is a fixed server-side constant today, not yet a configurable setting.
 
 ## Roadmap
 
@@ -134,8 +159,8 @@ There's no packaged tool for steps 2–5 today — running them live means attac
 |---|---|
 | Milestone 1 (v0.1) | API foundation: password auth + setup, notes CRUD, sharing/permissions, admin user management |
 | Milestone 2 | Web UI + real-time CRDT collaboration (Yjs/Hocuspocus) |
-| **Milestone 3 (v0.2, this release)** | Wikilinks (`[[...]]` + backlinks) and image uploads |
-| Milestone 4 | AI quick actions (bring-your-own OpenAI-compatible / Anthropic endpoints) |
+| Milestone 3 | Wikilinks (`[[...]]` + backlinks) and image uploads |
+| **Milestone 4 (v0.2, this release)** | AI quick actions (bring-your-own OpenAI-compatible / Anthropic endpoints), admin-configurable via the Settings modal |
 | Milestone 5 | OIDC login |
 
 ## License
@@ -172,6 +197,21 @@ All endpoints are served by the `app` container. Errors use the shape `{ "error"
 | `/api/admin/users/:id/disable` | POST | Admin | 204, 400 `cannot_disable_self`, 404 `user_not_found` |
 | `/api/admin/users/:id/enable` | POST | Admin | 204, 404 `user_not_found` |
 | `/api/admin/users/:id/promote` | POST | Admin | 204, 404 `user_not_found` |
+| `/api/admin/ai/providers` | GET | Admin | 200 (never includes the encrypted key; `hasKey` boolean instead) |
+| `/api/admin/ai/providers` | POST | Admin | 201, 400 `invalid_body` |
+| `/api/admin/ai/providers/:id` | PATCH | Admin | 200, 400 `invalid_body`, 404 `not_found` |
+| `/api/admin/ai/providers/:id` | DELETE | Admin | 204, 404 `not_found` (cascades: its models are deleted, and any action bound to one of them falls back to the next available chat model) |
+| `/api/admin/ai/providers/:id/test` | POST | Admin | 200 `{ok:true}` (fetches the provider's model list upstream with the stored key — never echoes upstream response bodies back), 404 `not_found`, 502 `upstream_error`, 503 `provider_unavailable` (key can't be decrypted with the current `APP_SECRET` — re-enter it) |
+| `/api/admin/ai/models` | GET | Admin | 200 |
+| `/api/admin/ai/models` | POST | Admin | 201, 400 `invalid_body` (bad `providerId`), 409 `model_taken` |
+| `/api/admin/ai/models/:id` | PATCH | Admin | 200, 400 `invalid_body`, 404 `not_found`, 409 `model_taken` |
+| `/api/admin/ai/models/:id` | DELETE | Admin | 204, 404 `not_found` |
+| `/api/admin/ai/actions` | GET | Admin | 200 |
+| `/api/admin/ai/actions` | POST | Admin | 201, 400 `invalid_body` (`userTemplate` must contain `{{text}}`) |
+| `/api/admin/ai/actions/:id` | PATCH | Admin | 200, 400 `invalid_body`, 404 `not_found` |
+| `/api/admin/ai/actions/:id` | DELETE | Admin | 204, 400 `builtin_action` (the four built-in actions can't be deleted, only renamed/disabled), 404 `not_found` |
+| `/api/ai/actions` | GET | Auth | 200 `{actions: [{id, name, applyMode}]}` (only actions that currently resolve to a usable model — i.e. "not configured" means "doesn't appear", same resolution logic as `POST /api/ai`) |
+| `/api/ai` | POST | Auth | Body `{action_id, note_id, text}` (snake_case, a deliberate exception to the rest of the API's camelCase). On success, streams `text/event-stream` (SSE `delta`/`done`/`error` events) proxying the resolved upstream provider; once streaming starts, failures surface only as an SSE `error` event, never an HTTP error status. Before streaming starts: 400 `invalid_body`, 403 `forbidden` (viewer), 404 `not_found` (no access to the note, or the action doesn't exist/is disabled), 429 `too_many_requests` (30 requests/minute per user), 503 `ai_not_configured` (action's model doesn't resolve to anything usable), 503 `provider_unavailable` (provider has no key yet, or its key can't be decrypted with the current `APP_SECRET`) |
 | `/collab` | WebSocket (upgrade) | collab token (Hocuspocus auth message, not a header/cookie — obtained from `POST /api/notes/:id/collab-token`) | Real-time collaboration endpoint (Yjs/Hocuspocus); a reverse proxy in front of Knotebook must forward WebSocket upgrades on this path — see [Deployment prerequisites](#deployment-prerequisites) |
 | `/healthz` | GET | none | 200 |
 
