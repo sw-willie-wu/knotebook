@@ -3,7 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router";
 import * as Y from "yjs";
-import { COLLAB_CLOSE_REVOKED, canonicalNotePath, type NoteDto, type UserDto } from "@knotebook/shared";
+import { COLLAB_CLOSE_REVOKED, canonicalNotePath, type BacklinkDto, type NoteDto, type UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
@@ -102,8 +102,13 @@ const NOTE: NoteDto = {
   slug: "my-note",
 };
 
-/** `/api/auth/me`、`/api/notes`（清單）、`/api/notes/:ref`（單篇）三支的假 server。 */
-function mockFetch(note: NoteDto | { status: number; code: string } = NOTE) {
+/** `/api/auth/me`、`/api/notes`（清單）、`/api/notes/:ref`（單篇）三支的假 server。
+ * `backlinks` 參數預設空陣列（既有測試全部維持「0 篇→整塊隱藏」不干擾），佈局回饋
+ * 那組新測試會傳非空陣列逼 `BacklinksSection` 真的渲染出 `<details>`。 */
+function mockFetch(
+  note: NoteDto | { status: number; code: string } = NOTE,
+  backlinks: BacklinkDto[] = [],
+) {
   return vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const method = (init?.method ?? "GET").toUpperCase();
@@ -117,10 +122,12 @@ function mockFetch(note: NoteDto | { status: number; code: string } = NOTE) {
     // `GET /api/notes/` catch-all 之前——`/api/notes/:id/backlinks` 也會匹配那個
     // `startsWith` 判斷，若順序反了，backlinks 請求會被誤餵成 NoteDto（catch-all
     // 分支回的是 `note` 而不是 `{backlinks:[]}`），這支測試檔案裡的 NotePage 測試
-    // 全部不驗證 backlinks 內容，固定回空陣列即可（0 篇時 `BacklinksSection` 整塊
-    // 隱藏，不干擾既有斷言）。
+    // 多數不驗證 backlinks 內容，固定回空陣列即可（0 篇時 `BacklinksSection` 整塊
+    // 隱藏，不干擾既有斷言）；佈局回饋那組測試會傳非空陣列。
     if (url.endsWith("/backlinks") && method === "GET") {
-      return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ backlinks: [] }) }));
+      return Promise.resolve(
+        fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ backlinks }) }),
+      );
     }
     if (url.startsWith("/api/notes/") && method === "GET") {
       if ("status" in note) {
@@ -401,6 +408,35 @@ describe("NotePage", () => {
     expect(scrollWrapper).not.toBeNull();
     expect(scrollWrapper).toHaveClass("flex-1", "min-h-0");
     expect(scrollWrapper).not.toHaveClass("overflow-y-auto");
+  });
+
+  // 手動 UI 驗收回饋：backlinks 區要固定高度上限、內文獨立捲動，不能讓篇數一多就把
+  // 版面往下推、逼出頁面級捲動。比照上面「Task 6」測試的 `parentElement` 斷言慣例：
+  // 用非空 backlinks 逼 `BacklinksSection` 真的渲染出 `<details>`，斷言它的直接父層
+  // （NotePage 新加的包裹容器）帶 `max-h-48`／`overflow-y-auto`，且這個容器跟中段
+  // 捲動容器（`flex-1 min-h-0`，裝 NoteEditor 那個）是兩個各自獨立的手足節點，不是
+  // 巢狀在裡面。
+  it("UI 回饋：backlinks 容器帶 max-h/overflow-y-auto，且獨立於中段捲動容器之外", async () => {
+    const backlink: BacklinkDto = { id: "22222222-2222-2222-2222-222222222222", title: "Other", slug: "other" };
+    vi.stubGlobal("fetch", mockFetch(NOTE, [backlink]));
+
+    renderNotePage("my-note");
+
+    const detailsSummary = await screen.findByText("1 note mentions this page");
+    const details = detailsSummary.closest("details");
+    expect(details).not.toBeNull();
+
+    const backlinksWrapper = details!.parentElement;
+    expect(backlinksWrapper).not.toBeNull();
+    expect(backlinksWrapper).toHaveClass("max-h-48", "shrink-0", "overflow-y-auto");
+
+    // 中段捲動容器（裝 NoteEditor）跟 backlinks 容器是同一個 `flex flex-col` 底下的
+    // 兩個手足節點，不是巢狀關係。
+    const editorScrollWrapper = (await screen.findByTestId("note-editor")).parentElement;
+    expect(editorScrollWrapper).not.toBeNull();
+    expect(editorScrollWrapper).not.toBe(backlinksWrapper);
+    expect(editorScrollWrapper!.contains(backlinksWrapper!)).toBe(false);
+    expect(backlinksWrapper!.parentElement).toBe(editorScrollWrapper!.parentElement);
   });
 });
 

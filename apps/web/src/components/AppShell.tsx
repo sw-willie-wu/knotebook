@@ -41,7 +41,15 @@ export function AppShell({ children }: AppShellProps) {
   }
 
   return (
-    <div className="flex min-h-screen">
+    // 手動 UI 驗收回饋：NotePage 的三個面板（編輯器欄／AI 側欄／backlinks 區）要各自
+    // 固定高度、內文獨立捲動，頁面本身不得整體捲動。根源在這裡——`min-h-screen`
+    // 只設下限，內容一旦比視口高，這個 row 容器（連帶下面 `main`）就會跟著撐高，
+    // 逼出**文件層級**的捲動，`main` 原本的 `overflow-y-auto` 或 `NotePage`/`NoteEditor`
+    // 內部各自的 `overflow-y-auto` 因此永遠沒有機會真的裁切（它們的高度從沒被鎖住過，
+    // 只是跟著內容長）。改成 `h-screen`（鎖視口）＋ `overflow-hidden`（防殘留捲軸）
+    // 才能讓 `h-full` 這條鏈從這裡開始真的是「視口高度」，下游 `main`／`NotePage`／
+    // `NoteEditor` 的 `min-h-0`＋`overflow-y-auto` 才會生效。
+    <div className="flex h-screen overflow-hidden">
       <aside className="flex w-64 shrink-0 flex-col border-r border-border">
         <div className="p-2">
           <Button className="w-full" onClick={() => void handleNewNote()} disabled={createNote.isPending}>
@@ -55,7 +63,11 @@ export function AppShell({ children }: AppShellProps) {
           <UserMenu />
         </div>
       </aside>
-      <main className="flex-1 overflow-y-auto">{children}</main>
+      {/* `min-h-0`：`main` 是這個 row 容器裡的 flex 子項，`h-screen` 讓它靠
+          `align-items: stretch` 拿到明確高度，但 Safari/舊版瀏覽器對「stretch 出來的
+          高度是否算明確」不一致；補一個 `min-h-0` 保險，確保它不會因為子孫內容
+          （`NotePage` 的 `h-full` 鏈）而被撐高。 */}
+      <main className="min-h-0 flex-1 overflow-y-auto">{children}</main>
     </div>
   );
 }

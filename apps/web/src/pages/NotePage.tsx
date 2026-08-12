@@ -256,7 +256,20 @@ export default function NotePage() {
             <p className="px-4 py-4 text-sm text-muted-foreground">{t("app.loading")}</p>
           )}
         </div>
-        <BacklinksSection noteId={noteId} />
+        {/* 手動 UI 驗收回饋：backlinks 區要固定高度上限、內文獨立捲動，不能讓篇數一多
+            就把版面往下推、逼出頁面級捲動——三面板（編輯器欄／AI 側欄／這一區）都要是
+            視口鎖定＋各自捲動（根本原因與修法見 `AppShell.tsx` 的同一則註解：那裡把
+            `h-full` 這條鏈從 `min-h-screen` 改成真正鎖視口的 `h-screen`，這裡才吃得到
+            效果）。`shrink-0` 讓這一區不被上面 `flex-1` 的中段吃掉高度、`max-h-48`
+            （12rem）是這次驗收目測抓的上限（不是精確量出來的數字，純觀感取捨，落在
+            brief 建議的 max-h-40~56 區間）、`overflow-y-auto` 讓超出上限的部分自己捲，
+            不再往外撐。`BacklinksSection` 內部（`<ul>` 上）其實已經有一份等效的
+            `max-h-48 overflow-y-auto`（Task 6b 就有），這裡加的是外層保險：0 篇時
+            `BacklinksSection` 回傳 `null`，這個容器沒有子內容、高度塌成 0，不影響
+            「0 篇整塊隱藏」的既有行為。 */}
+        <div className="max-h-48 shrink-0 overflow-y-auto">
+          <BacklinksSection noteId={noteId} />
+        </div>
       </div>
     );
   }
