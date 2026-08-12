@@ -172,6 +172,35 @@ describe("FilePanel（Task 14：image block 恢復＋自家 Upload/Embed tab）"
         expect(screen.getByRole("alert")).toHaveTextContent("Couldn't upload the file. Please try again.");
       });
     });
+
+    // review fix round 1（L-3）：image block 的 EmbedTab 是同一個元件，但只有透過
+    // 「切到 Embed tab」才會渲染網址輸入——scheme 白名單邏輯本身在 audio/video/file
+    // 三案已覆蓋，這裡補 image block 這條進入路徑本身的覆蓋面（純覆蓋面，不是新邏輯）。
+    it("Embed tab：javascript: 偽 URL → 拒收＋行內錯誤，props.url 未寫入", () => {
+      const blockId = insertBlock(editor, "image");
+      renderPanel(editor, "note-1", blockId);
+      fireEvent.click(screen.getByRole("tab", { name: "Embed link" }));
+
+      const input = screen.getByPlaceholderText("Paste a link…");
+      fireEvent.change(input, { target: { value: "javascript:alert(1)" } });
+      fireEvent.click(screen.getByRole("button", { name: "Embed" }));
+
+      expect(screen.getByRole("alert")).toHaveTextContent("Enter a valid http:// or https:// link.");
+      expect((editor.getBlock(blockId)!.props as Record<string, unknown>).url).toBe("");
+    });
+
+    it("Embed tab：https:// → 通過（不觸發錯誤）", () => {
+      const blockId = insertBlock(editor, "image");
+      renderPanel(editor, "note-1", blockId);
+      fireEvent.click(screen.getByRole("tab", { name: "Embed link" }));
+
+      const input = screen.getByPlaceholderText("Paste a link…");
+      fireEvent.change(input, { target: { value: "https://example.com/a.png" } });
+      fireEvent.click(screen.getByRole("button", { name: "Embed" }));
+
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect((editor.getBlock(blockId)!.props as Record<string, unknown>).url).toBe("https://example.com/a.png");
+    });
   });
 
   describe.each(["audio", "video", "file"])("%s block（只有 Embed，沒有 Upload tab）", (type) => {
@@ -218,6 +247,55 @@ describe("FilePanel（Task 14：image block 恢復＋自家 Upload/Embed tab）"
       fireEvent.keyDown(input, { key: "Enter" });
 
       expect((editor.getBlock(blockId)!.props as Record<string, unknown>).url).toBe("");
+    });
+
+    // 安全 backlog ④（spec §13.2/§13.5）：Embed tab 的 URL scheme 白名單。
+    it("javascript: 偽 URL → 拒收＋行內錯誤，props.url 未寫入", () => {
+      const blockId = insertBlock(editor, type);
+      renderPanel(editor, "note-1", blockId);
+
+      const input = screen.getByPlaceholderText("Paste a link…");
+      fireEvent.change(input, { target: { value: "javascript:alert(1)" } });
+      fireEvent.click(screen.getByRole("button", { name: "Embed" }));
+
+      expect(screen.getByRole("alert")).toHaveTextContent("Enter a valid http:// or https:// link.");
+      expect((editor.getBlock(blockId)!.props as Record<string, unknown>).url).toBe("");
+    });
+
+    it("無 scheme（new URL 解析失敗）→ 拒收＋行內錯誤，不自動補 scheme", () => {
+      const blockId = insertBlock(editor, type);
+      renderPanel(editor, "note-1", blockId);
+
+      const input = screen.getByPlaceholderText("Paste a link…");
+      fireEvent.change(input, { target: { value: "example.com/a.png" } });
+      fireEvent.click(screen.getByRole("button", { name: "Embed" }));
+
+      expect(screen.getByRole("alert")).toHaveTextContent("Enter a valid http:// or https:// link.");
+      expect((editor.getBlock(blockId)!.props as Record<string, unknown>).url).toBe("");
+    });
+
+    it("https:// → 通過（不觸發錯誤）", () => {
+      const blockId = insertBlock(editor, type);
+      renderPanel(editor, "note-1", blockId);
+
+      const input = screen.getByPlaceholderText("Paste a link…");
+      fireEvent.change(input, { target: { value: "https://example.com/clip.mp4" } });
+      fireEvent.click(screen.getByRole("button", { name: "Embed" }));
+
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect((editor.getBlock(blockId)!.props as Record<string, unknown>).url).toBe("https://example.com/clip.mp4");
+    });
+
+    it("http:// → 通過（不觸發錯誤）", () => {
+      const blockId = insertBlock(editor, type);
+      renderPanel(editor, "note-1", blockId);
+
+      const input = screen.getByPlaceholderText("Paste a link…");
+      fireEvent.change(input, { target: { value: "http://example.com/clip.mp4" } });
+      fireEvent.click(screen.getByRole("button", { name: "Embed" }));
+
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect((editor.getBlock(blockId)!.props as Record<string, unknown>).url).toBe("http://example.com/clip.mp4");
     });
   });
 });

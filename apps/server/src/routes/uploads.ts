@@ -3,6 +3,7 @@ import { createReadStream } from "node:fs";
 import { rename, stat, unlink, writeFile } from "node:fs/promises";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { drainWithCap } from "../http/drain.js";
 import { sendError } from "../http/errors.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
@@ -35,7 +36,7 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
   return async function register(app: FastifyInstance): Promise<void> {
     /**
      * 認證 + 授權 + 節流全部收在 preHandler，且**每個早退分支都要先 drain**
-     * （`request.raw.resume()`）——這幾個檢查都在真的開始解析 multipart body
+     * （`drainWithCap`，spec §13.2）——這幾個檢查都在真的開始解析 multipart body
      * （`request.parts()`）之前執行，而 `@fastify/multipart` 的 content-type parser
      * （`setMultipart`）本身完全不讀 body，只是設個旗標；若不主動 drain，未被消費的
      * request body 會讓底層 socket 卡住，client 收不到我們已經送出的結構化錯誤 body
@@ -44,7 +45,7 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
     async function authAndAuthorize(request: FastifyRequest, reply: FastifyReply): Promise<void> {
       await app.authenticate(request, reply);
       if (reply.sent) {
-        request.raw.resume();
+        drainWithCap(request);
         return;
       }
 
@@ -53,18 +54,18 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
 
       const role = await resolveRole(deps.db, userId, noteId);
       if (role === "none") {
-        request.raw.resume();
+        drainWithCap(request);
         sendError(reply, 404, "not_found", "找不到此筆記");
         return;
       }
       if (role === "viewer") {
-        request.raw.resume();
+        drainWithCap(request);
         sendError(reply, 403, "forbidden", "沒有編輯權限");
         return;
       }
 
       if (!deps.limiters.upload.consume(userId)) {
-        request.raw.resume();
+        drainWithCap(request);
         sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
         return;
       }
@@ -77,7 +78,7 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
       // 完整跑完這個迴圈（不提早 break）本身即是 drain 通則的落地：無論最終判定是
       // 成功、413、415 還是 400，迴圈跑到底代表整個 multipart body 已經從 socket
       // 讀完（file part 的 backpressure 是靠實際消費——`toBuffer()`／`.resume()`——
-      // 才會釋放，不是靠 `request.raw.resume()` 就能繞過的，那個只對「完全還沒進
+      // 才會釋放，不是靠 `drainWithCap` 就能繞過的，那個只對「完全還沒進
       // multipart 解析」的早退才有效，見上面 `authAndAuthorize`）。
       //
       // 「多 file part 取第一其餘 drain」（spec §12.4）：刻意不對 `request.parts()` 設
@@ -108,13 +109,13 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
         // 「應用層已接手消費」（`req._consuming`），關閉回應時內建的自動
         // `_dump()`（丟棄未讀 body）機制就不會生效了（那個機制只保護「完全沒被
         // 動過」的 request，例如 `authAndAuthorize` 的早退分支——那幾支不需要
-        // 這行也沒事，Node 自己會 dump）。這裡若不主動 `request.raw.resume()`，
+        // 這行也沒事，Node 自己會 dump）。這裡若不主動 drain（`drainWithCap`），
         // client 送到一半／送完但尚未被讀完的剩餘 body 會卡在 paused 狀態，
         // 底層 socket 遲遲不會真正結束——真 socket 實測會讓 `app.close()`
         // graceful shutdown 永遠等不到這個連線收尾（見 test/uploads.test.ts
         // 的「真 socket：parts 超限」測試，先前少這行時實測 app.close() 逾時
         // 10s 才觸發 timeout guard，加上這行後 100ms 內完成）。
-        request.raw.resume();
+        drainWithCap(request);
         // 外掛其餘錯誤（缺 boundary 的 `Multipart: Boundary not found`、
         // `FST_PARTS_LIMIT`、`FST_FIELDS_LIMIT` 等）一律在這裡接住，統一映射成
         // 400 invalid_body——不 rethrow，否則會逃到全域 errorHandler 被
@@ -127,14 +128,14 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
 
       if (!sawFile || fileBuf === undefined) {
         // 迴圈正常跑到底才會落到這裡（沒有 file part，但也沒有任何解析錯誤）——
-        // 邏輯上 body 應已被 busboy 完整消費過。仍補一行 `resume()`：零成本
-        // （已結束的 stream 上 `resume()` 是 no-op），且不依賴「迴圈一定跑到底」
+        // 邏輯上 body 應已被 busboy 完整消費過。仍補一行 `drainWithCap`：
+        // `drainWithCap` 本身冪等（見該 helper 說明），且不依賴「迴圈一定跑到底」
         // 這個前提在未來重構後繼續成立（防禦性，同 413/415 分支）。
-        request.raw.resume();
+        drainWithCap(request);
         return sendError(reply, 400, "invalid_body", "缺少上傳檔案");
       }
       if (truncated) {
-        request.raw.resume();
+        drainWithCap(request);
         return sendError(reply, 413, "file_too_large", "檔案超過大小上限");
       }
 
@@ -143,7 +144,7 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
       // 415，不做任何格式猜測。
       const mime = detectImageMimeType(fileBuf);
       if (mime === null) {
-        request.raw.resume();
+        drainWithCap(request);
         return sendError(reply, 415, "unsupported_media_type", "不支援的圖片格式");
       }
 

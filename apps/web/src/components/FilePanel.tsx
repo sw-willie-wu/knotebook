@@ -96,6 +96,24 @@ function UploadTab({ noteId, blockId }: { noteId: string; blockId: string }) {
 }
 
 /**
+ * 安全 backlog ④（spec §13.2/§13.5）：Embed tab 的 URL scheme 白名單。`new URL(raw)`
+ * throw（含最常見的「沒帶 scheme」，例如 `example.com/a.png`——`URL` 建構子不會替它
+ * 猜一個 scheme，而是直接丟例外）一律視為不合法；能成功解析的，`scheme` 只放行
+ * `http:`／`https:`，其餘（`javascript:`、`data:`、`file:`……）一律拒收。**刻意不自動
+ * 補 scheme**——單一行為、沒有猜測，使用者看到拒收就得自己把完整網址（含
+ * `http(s)://`）貼進來。
+ */
+function isAllowedEmbedUrl(raw: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return false;
+  }
+  return parsed.protocol === "http:" || parsed.protocol === "https:";
+}
+
+/**
  * Embed tab：貼網址直接寫回 block props，四種檔案類 block（image/audio/video/file）
  * 共用同一份實作——不區分型別，`filenameFromURL`（`@blocknote/core` 匯出）從網址猜
  * 檔名，跟 BlockNote 自己的 `EmbedTab` 邏輯一致。
@@ -105,14 +123,20 @@ function EmbedTab({ blockId }: { blockId: string }) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 編輯器泛型三元組，走 repo 慣例用 any（同上）
   const editor = useBlockNoteEditor<any, any, any>();
   const [url, setUrl] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   const submit = useCallback(() => {
     const trimmed = url.trim();
     if (!trimmed) {
       return;
     }
+    if (!isAllowedEmbedUrl(trimmed)) {
+      setError(t("note.filePanel.embed.invalidUrl"));
+      return;
+    }
+    setError(null);
     editor.updateBlock(blockId, { props: { name: filenameFromURL(trimmed), url: trimmed } });
-  }, [editor, blockId, url]);
+  }, [editor, blockId, url, t]);
 
   const handleKeyDown = useCallback(
     (event: KeyboardEvent<HTMLInputElement>) => {
@@ -135,9 +159,17 @@ function EmbedTab({ blockId }: { blockId: string }) {
         type="url"
         placeholder={t("note.filePanel.embed.urlPlaceholder")}
         value={url}
-        onChange={(event) => setUrl(event.target.value)}
+        onChange={(event) => {
+          setUrl(event.target.value);
+          if (error) setError(null);
+        }}
         onKeyDown={handleKeyDown}
       />
+      {error && (
+        <p role="alert" className="text-xs text-destructive">
+          {error}
+        </p>
+      )}
       <Button type="button" size="sm" onClick={submit} disabled={url.trim().length === 0}>
         {t("note.filePanel.embed.embedButton")}
       </Button>

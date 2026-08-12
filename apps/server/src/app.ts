@@ -17,6 +17,7 @@ import { adminUsersRoutes } from "./routes/admin-users.js";
 import { adminAiRoutes } from "./routes/admin-ai.js";
 import { aiRoutes } from "./routes/ai.js";
 import { uploadsRoutes } from "./routes/uploads.js";
+import { drainWithCap } from "./http/drain.js";
 import { sendError } from "./http/errors.js";
 import { AI_LIMIT, COLLAB_TOKEN_LIMIT, FixedWindowLimiter, SLUG_PATCH_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
 import { registerSpaFallback } from "./http/spa.js";
@@ -272,9 +273,10 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     // 放行任意 Content-Type 會讓 `application/json` 打上傳端點落到 `@fastify/multipart`
     // 丟出非契約錯誤（而非我們的 415 統一格式）。
     //
-    // drain 通則（四輪 gate M3；五輪 n1）：這兩條早退路徑（essence 415、Origin 403）
-    // 回應前必須 `request.raw.resume()` 讓 Node 消費剩餘 body——不 await `end`（大檔
-    // 上傳中途拒絕不能白等整個 body 傳完才回應），也不能完全不 resume（完全不消費會讓
+    // drain 通則（四輪 gate M3；五輪 n1；**rev 5.9 §13.2：改由 `drainWithCap` helper
+    // 承接**，語意不變、加位元組上限）：這兩條早退路徑（essence 415、Origin 403）
+    // 回應前必須 drain 讓 Node 消費剩餘 body——不 await `end`（大檔
+    // 上傳中途拒絕不能白等整個 body 傳完才回應），也不能完全不消費（完全不消費會讓
     // client 在傳輸中收到 network error 而非結構化 error body，i18n toast 拿不到
     // code）。下方既有的 JSON essence 415（非豁免路由）刻意不加 drain——spec §12.4 的
     // drain 通則逐字列舉的早退路徑只有「onRequest 的 Origin 403 與 essence 415」（指
@@ -283,12 +285,12 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     // 誤用/探測時觸發，非大檔上傳情境），不在這次擴充的 drain 範圍內。
     if (isMultipartExemptRoute(request)) {
       if (essence !== "multipart/form-data") {
-        request.raw.resume();
+        drainWithCap(request);
         return sendError(reply, 415, "unsupported_media_type", "此請求需要 multipart/form-data");
       }
       const origin = request.headers.origin;
       if (origin !== undefined && !isOriginAllowed(origin, request.host)) {
-        request.raw.resume();
+        drainWithCap(request);
         return sendError(reply, 403, "forbidden", "Origin 驗證失敗");
       }
       // Origin 相符，或無 Origin header（spec 明文放行）——落到 preHandler/handler。

@@ -82,7 +82,8 @@
         "tabLabel": "嵌入連結",
         "urlLabel": "要嵌入的連結",
         "urlPlaceholder": "貼上連結…",
-        "embedButton": "嵌入"
+        "embedButton": "嵌入",
+        "invalidUrl": "請輸入合法的 http:// 或 https:// 連結。"
       }
     }
   },

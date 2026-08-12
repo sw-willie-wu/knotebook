@@ -82,7 +82,8 @@
         "tabLabel": "Embed link",
         "urlLabel": "Link to embed",
         "urlPlaceholder": "Paste a link…",
-        "embedButton": "Embed"
+        "embedButton": "Embed",
+        "invalidUrl": "Enter a valid http:// or https:// link."
       }
     }
   },

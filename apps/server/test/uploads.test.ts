@@ -531,7 +531,11 @@ describe("POST /api/notes/:id/uploads", () => {
     const note = await createNote(db, owner.id);
     await share(db, note.id, viewer.id, "viewer");
 
-    const bigBody = singleFileBody(Buffer.alloc(2 * MAX_UPLOAD_BYTES, 0x42));
+    // review fix round 1（M-1）：`2 * MAX_UPLOAD_BYTES` 剛好等於 cap，multipart 框線
+    // 開銷（boundary/headers，實測約 147 bytes）會讓實際位元組數悄悄超過 cap，讓這支
+    // 「under cap」迴歸測試意外跟 Task 9 的「over cap」測試撞在同一個分支——扣掉
+    // 1 KiB 當緩衝，確定嚴格 under cap，讓新舊測試形成真正的 under/over 對照。
+    const bigBody = singleFileBody(Buffer.alloc(2 * MAX_UPLOAD_BYTES - 1024, 0x42));
     const res = await postUpload(app, note.id, bigBody, { cookie: viewerCookie });
     expect(res.statusCode).toBe(403);
     expect(res.json()).toMatchObject({ error: { code: "forbidden" } });
@@ -662,11 +666,21 @@ describe("Task 10b：真 socket drain 驗證（parts 超限走到 catch 分支�
         throw new Error("app.listen 後取不到 TCP 位址——真 socket 測試需要真的 port");
       }
 
-      // 33 個小 file part（parts 上限 32，第 33 個觸發 partsLimit）+ 一個 20MB 的
+      // 33 個小 file part（parts 上限 32，第 33 個觸發 partsLimit）+ 一個略小於 20MB 的
       // file part（絕對不會被解析到——parts 超限一觸發，busboy 立刻 unpipe，這個
-      // part 的位元組原封不動留在 request 裡）。20MB 是刻意選的量級：太小的話即使
+      // part 的位元組原封不動留在 request 裡）。~20MB 是刻意選的量級：太小的話即使
       // 完全沒有 resume()，OS/Node 的 buffer 也可能剛好裝得下，觀察不到卡住。
-      const bigTail = { name: "big", filename: "big.bin", contentType: "application/octet-stream", data: Buffer.alloc(20 * 1024 * 1024, 0x41) };
+      //
+      // review fix round 1（M-1）：`20 * 1024 * 1024` 剛好等於 cap（`MAX_UPLOAD_BYTES *
+      // 2`），33 個小 part 的 multipart 框線開銷（實測約 4.6 KB）會讓整包實際位元組數
+      // 悄悄超過 cap，讓這支「under cap」regression 意外撞進 Task 9 的「over cap」分支
+      // ——扣掉 64 KiB 當緩衝（遠大於實測開銷），確定嚴格 under cap。
+      const bigTail = {
+        name: "big",
+        filename: "big.bin",
+        contentType: "application/octet-stream",
+        data: Buffer.alloc(20 * 1024 * 1024 - 64 * 1024, 0x41),
+      };
       const body = buildMultipartBody([...manyFileParts(33), bigTail]);
 
       let socket: Socket | undefined;
@@ -695,6 +709,110 @@ describe("Task 10b：真 socket drain 驗證（parts 超限走到 catch 分支�
         new Promise((_resolve, reject) =>
           setTimeout(
             () => reject(new Error(`app.close() 逾時（${CLOSE_TIMEOUT_MS}ms）——剩餘 request body 未被 drain，連線卡住`)),
+            CLOSE_TIMEOUT_MS
+          )
+        ),
+      ]);
+      expect(Date.now() - closeStart).toBeLessThan(CLOSE_TIMEOUT_MS);
+    },
+    30_000
+  );
+});
+
+// ───────────────────────────── Task 9：drainWithCap 位元組上限（安全 backlog ③，spec §13.2）─────────────────────────────
+//
+// `app.inject` 量不出這裡要驗證的東西（沒有真 socket，`request.raw.destroy()` 對它
+// 而言只是銷毀一個記憶體內的假流）——必須用真 socket。
+//
+// **實測過的時序（不是猜測）**：`drainWithCap(request)` 與緊接著的 `sendError(...)`
+// 在同一個同步呼叫堆疊內執行、中間沒有 `await`；而掛 `data` listener 到真的開始收到
+// 位元組（進而累計超過 cap、呼叫 `destroy()`）至少要等一輪事件迴圈。這代表「回應」
+// 幾乎總是搶先「累計超限」完成寫入——**client 仍會收到完整、結構化的 403 body**（12.4
+// 的承諾在這條早退分支上並未被破壞），這點與「body < cap」的既有迴歸測試結果一致，
+// 不因為 body 超過 cap 而改變。
+//
+// 真正能觀察到的差異在**回應之後**：cap 的存在意義是避免對送出異常巨量 body 的 client
+// 繼續無上限地耗用 server 資源——`destroy()` 讓這個連線**不維持 keep-alive**，client
+// 端的 socket 會在很短時間內自己關閉，不像下方「body < cap」的既有測試那樣需要測試
+// 自己主動 `socket.destroy()`（那些測試的既有註解明講：不這樣做的話 client 自己留著
+// 的 keep-alive 連線會讓 `app.close()` 卡住等它自然結束）。這支測試斷言的就是這個
+// 「自己關閉」的行為，並限定在遠低於 Node 預設 `keepAliveTimeout`（5000ms）的時間窗
+// 內發生，藉此與「keep-alive 自然到期」區隔開來。
+describe("Task 9：drainWithCap 位元組上限（真 socket，超過 cap 的早退 body）", () => {
+  it(
+    "viewer 403 早退（preHandler，尚未進入 multipart 解析）＋ body 明顯超過 cap（cap + 8MiB）：" +
+      "回應仍完整送達（結構化 403 body，早於 drain 的非同步 destroy() 之前已送出），" +
+      "但連線隨後被 server 端 destroy()、不維持 keep-alive——client 端 socket 在遠短於" +
+      "keepAliveTimeout 的時間內自行關閉，不需要（也不是）測試主動 destroy",
+    async () => {
+      const { app, db } = await buildTestApp();
+      const owner = await insertUser(db, { email: "owner-drain-overcap@example.com" });
+      const viewer = await insertUser(db, { email: "viewer-drain-overcap@example.com" });
+      const viewerCookie = await cookieFor(viewer.id);
+      const note = await createNote(db, owner.id);
+      await share(db, note.id, viewer.id, "viewer");
+
+      await app.listen({ port: 0, host: "127.0.0.1" });
+      const address = app.server.address();
+      if (address === null || typeof address === "string") {
+        throw new Error("app.listen 後取不到 TCP 位址——真 socket 測試需要真的 port");
+      }
+
+      // cap = MAX_UPLOAD_BYTES * 2（20 MiB）。這裡送一個明顯超過 cap 的 body
+      // （cap + 8 MiB，留足夠 margin，不踩邊界湊巧值）。
+      const overCapBody = singleFileBody(Buffer.alloc(2 * MAX_UPLOAD_BYTES + 8 * 1024 * 1024, 0x42));
+
+      const res = await rawSocketPost({
+        port: address.port,
+        path: `/api/notes/${note.id}/uploads`,
+        headers: {
+          "content-type": `multipart/form-data; boundary=${BOUNDARY}`,
+          cookie: `${SESSION_COOKIE}=${viewerCookie}`,
+        },
+        body: overCapBody,
+      });
+
+      // 回應本身：與「body < cap」的既有迴歸測試（526 行）同一條分支、同樣的斷言——
+      // 超過 cap 不改變「早退仍收到結構化 error body」這個既有承諾。
+      expect(res.status).toBe(403);
+      expect(JSON.parse(res.body)).toMatchObject({ error: { code: "forbidden" } });
+
+      // 連線隨後被 drainWithCap 的 destroy() 砍斷：client socket 應在遠短於 Node 預設
+      // keepAliveTimeout（5000ms）的時間內自行 close——不是測試呼叫 socket.destroy()。
+      // review fix round 1（L-2）：通過側實測 close 只要 ~22ms，800ms 仍留 20 倍以上
+      // margin；同時把「真的卡住沒 destroy」這種失敗情境的偵測時間從原本 ~3s 壓到
+      // ~800ms（4 倍），不必為了容錯犧牲太多回饋速度。
+      const CLIENT_CLOSE_TIMEOUT_MS = 800;
+      await new Promise<void>((resolve, reject) => {
+        if (res.socket.destroyed) {
+          resolve();
+          return;
+        }
+        const timer = setTimeout(
+          () =>
+            reject(
+              new Error(
+                `client socket 未在 ${CLIENT_CLOSE_TIMEOUT_MS}ms 內自行關閉——drainWithCap 疑似沒有真的 destroy() 底層連線`
+              )
+            ),
+          CLIENT_CLOSE_TIMEOUT_MS
+        );
+        res.socket.once("close", () => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
+      expect(res.socket.destroyed).toBe(true);
+
+      // client 端此時已經自己關閉，不需要再 `socket.destroy()`；`app.close()` 應該
+      // 立刻完成（沒有殘留連線可等）。
+      const closeStart = Date.now();
+      const CLOSE_TIMEOUT_MS = 10_000;
+      await Promise.race([
+        app.close(),
+        new Promise((_resolve, reject) =>
+          setTimeout(
+            () => reject(new Error(`app.close() 逾時（${CLOSE_TIMEOUT_MS}ms）`)),
             CLOSE_TIMEOUT_MS
           )
         ),
