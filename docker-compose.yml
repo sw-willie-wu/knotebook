@@ -4,17 +4,17 @@ services:
       context: .
       dockerfile: docker/Dockerfile
     env_file: .env
-    # 預設只綁 loopback：public 拓撲（README「Deployment prerequisites」）的假設是
+    # 預設只綁 loopback：public 拓撲（docs/self-hosting.md「Deployment prerequisites」）的假設是
     # app 只透過反代對外曝露；若直接 "3000:3000"（等同 0.0.0.0:3000），docker 會
     # 直接在 iptables 開洞，繞過 host 防火牆規則，讓區網/公網能不經反代直接打到
     # app。Quickstart 的 `curl http://localhost:3000/...` 不受影響（127.0.0.1 對本機
     # 而言就是 localhost）。要用 trusted-LAN plain-http 拓撲，改用下面註解掉的替代寫法。
     ports:
       - "127.0.0.1:3000:3000"
-      # LAN mode（trusted-LAN plain-http，見 README「Deployment prerequisites」）：
+      # LAN mode（trusted-LAN plain-http，見 docs/self-hosting.md「Deployment prerequisites」）：
       # 換成 "3000:3000" 會把 app 直接曝露到你的網段（等同 0.0.0.0:3000），並透過
       # docker 自己在 iptables 開的洞繞過 host 防火牆規則——啟用前務必先讀過
-      # README 的風險清單（cleartext 密碼/session cookie、無 Secure flag）。
+      # docs/self-hosting.md 的風險清單（cleartext 密碼/session cookie、無 Secure flag）。
       # - "3000:3000"
     # Task 9：上傳圖片持久化——不掛 volume 的話，圖片只存在 container 的可寫層，
     # `docker compose down`／重建 container 會整批遺失。掛載點與 Dockerfile 建的
@@ -41,7 +41,7 @@ services:
     environment:
       POSTGRES_USER: knotebook
       # 可用 shell/.env 的 POSTGRES_PASSWORD 覆寫預設值；注意 Postgres 只在「第一次
-      # 初始化空 data 目錄」時套用這個變數（見 README Known limitations），事後改這裡
+      # 初始化空 data 目錄」時套用這個變數（見 docs/known-limitations.md），事後改這裡
       # 不會自動生效。
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-knotebook}
       POSTGRES_DB: knotebook
