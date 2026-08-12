@@ -13,7 +13,7 @@ export const BUILTIN_ACTION_IDS: readonly string[] = [REWRITE_ID, TRANSLATE_ID, 
 
 /**
  * 內建四動作定案內容（brief 逐字，不做 i18n key 映射——`name` 是 DB 資料、UI 原樣
- * 顯示，非 UI chrome；admin 可在後台自行改名，README 會說明）。`modelId` 留空
+ * 顯示，非 UI chrome；admin 可在後台自行改名，docs/ai.md 會說明）。`modelId` 留空
  * （NULL）：內建動作預設不綁特定 model，由 admin 於後台設定；`sortOrder` 依表列順序。
  */
 const BUILTIN_ACTIONS = [
