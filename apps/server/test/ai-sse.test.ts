@@ -1,6 +1,6 @@
 import { setTimeout as realDelay } from "node:timers/promises";
 import http from "node:http";
-import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 import { eq } from "drizzle-orm";
 import { SESSION_COOKIE } from "@knotebook/shared";
 import { buildTestApp, testConfig } from "./helpers.js";
@@ -162,10 +162,6 @@ const SSE_HEADERS = { "content-type": "text/event-stream" };
 function eventSequence(body: string): string[] {
   return [...body.matchAll(/^event: (\w+)$/gm)].map(m => m[1]!);
 }
-
-afterEach(() => {
-  vi.useRealTimers();
-});
 
 describe("POST /api/ai — 授權矩陣", () => {
   it("未登入 → 401", async () => {
@@ -518,26 +514,32 @@ describe("POST /api/ai — 正常串流", () => {
     releaseUpstream?.();
   });
 
-  it("idle timeout：fake upstream 停止吐 delta 60s → SSE error", async () => {
-    const fakeUpstream = await startFakeUpstream((_req, res) => {
-      res.writeHead(200, SSE_HEADERS);
-      res.write(sseDelta("only-one-chunk-then-silence"));
-      // 之後刻意不再吐任何 delta、也不 res.end()——模擬 upstream 卡住，逼出 idle timeout 分支。
-    });
-    const { app, db } = await buildTestApp();
-    const access = await setupNoteAccess(db);
-    const provider = await insertProvider(db, { baseUrl: fakeUpstream.baseUrl });
-    const model = await insertModel(db, provider.id);
-    const action = await insertAction(db, { modelId: model.id });
+  it(
+    "idle timeout：fake upstream 停止吐 delta 後短逾時 → SSE error（round 2：真實時間，見 aiIdleTimeoutMs 測試 seam）",
+    async () => {
+      const fakeUpstream = await startFakeUpstream((_req, res) => {
+        res.writeHead(200, SSE_HEADERS);
+        res.write(sseDelta("only-one-chunk-then-silence"));
+        // 之後刻意不再吐任何 delta、也不 res.end()——模擬 upstream 卡住，逼出 idle timeout 分支。
+      });
+      // round 2（CI flake 復發，Task 4 審查 N-5 同款建議）：round 1 靠 `vi.useFakeTimers` +
+      // `vi.advanceTimersByTimeAsync(60_000)` 把「idle timer 已 arm」變成確定性訊號（收到第
+      // 一個 delta 才推假時鐘），方向沒錯，但 CI 上兩次都仍在 `startFakeUpstream` 的
+      // `onTestFinished` server.close() 卡滿 180s hook timeout——且是在測試本體（含
+      // assertion）已經跑完之後才卡住，代表卡的是「SSE 連線沒被關掉」，指向假時鐘 × 真實
+      // SSE I/O（fake upstream 是真的 `http.createServer`，app 端打的是真 `fetch()`）在 CI
+      // 上的某個環節不可靠，本機兩輪全綠、CI 兩發全掛，繼續在假時鐘路線上猜成本太高。
+      // 改結構性修法：idle timeout 本身透過 `BuildAppOptions.aiIdleTimeoutMs`（見 app.ts／
+      // routes/ai.ts）變成可注入值，這裡給一個短的**真實**值，完全不碰 `vi.useFakeTimers`——
+      // idle timer 用它原本的真實 `setTimeout` 觸發，沒有任何假時鐘介入的空間。
+      const { app, db } = await buildTestApp({}, { aiIdleTimeoutMs: 400 });
+      const access = await setupNoteAccess(db);
+      const provider = await insertProvider(db, { baseUrl: fakeUpstream.baseUrl });
+      const model = await insertModel(db, provider.id);
+      const action = await insertAction(db, { modelId: model.id });
 
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    try {
       // `payloadAsStream: true`（light-my-request）：`app.inject()` 的 promise 在 handler
-      // `raw.writeHead()`（hijack 後立刻送出）當下就 resolve，不必等整段回應跑完——藉此避開
-      // 舊版靠固定 `realDelay(300)` 賭 pre-stream（DB 查詢等）一定在某個時間內跑完的假設。CI
-      // 慢 runner 上 pre-stream 一旦超過 300ms，假時鐘就會在 idle timer 真正 arm 之前被推完，
-      // 這條 setTimeout 從此掛在假時鐘上永不觸發，SSE 連線永不結束，拖死 `startFakeUpstream`
-      // 的 `onTestFinished` server.close()（hook timeout 180s）——這正是 CI 觀測到的 flake。
+      // `raw.writeHead()`（hijack 後立刻送出）當下就 resolve，不必等整段回應跑完。
       const res = await app.inject({
         method: "POST",
         url: "/api/ai",
@@ -567,18 +569,17 @@ describe("POST /api/ai — 正常串流", () => {
 
       // 等到「至少收到一個完整 delta 事件」為止（poll/await 實際資料，不用固定 sleep）——
       // handler 的 for-await 迴圈每次迭代都 resetIdleTimer，收到第一個 delta 代表 idle timer
-      // 必然已 arm，此時才進假時鐘是安全的。
+      // 必然已 arm，語意與 round 1 相同，這部分仍有價值、原樣保留。
       await firstDelta;
 
-      await vi.advanceTimersByTimeAsync(60_000);
-
-      await streamEnded; // idle timeout 觸發後的 error 事件＋raw.end() 皆已送達
+      // 不推假時鐘——單純等真實時間過去（400ms idle timeout + 些許排程餘裕），idle timer
+      // 觸發後的 error 事件＋raw.end() 會自然送達，`stream` 的 'end' 事件即代表連線已關閉。
+      await streamEnded;
       expect(eventSequence(body)).toEqual(["delta", "error"]);
       expect(body).toContain("upstream request failed");
-    } finally {
-      vi.useRealTimers();
-    }
-  });
+    },
+    15_000
+  );
 });
 
 describe("POST /api/ai — 閘門一致性三案（與 GET /api/ai/actions 共用 resolveActionModel）", () => {

@@ -19,6 +19,18 @@ export interface AiRouteDeps {
   runtime: AiRuntime;
   /** per-user 節流（`AI_LIMIT`，同 collabToken/slugPatch/upload 慣例，key=userId）。 */
   limiters: { ai: FixedWindowLimiter };
+  /**
+   * SSE 收流後的 idle 逾時（無 delta）覆寫值，毫秒。**測試 seam**——CI flake round 2
+   * 診斷：`vi.useFakeTimers` × 真實 SSE I/O（fake upstream 是真的 `http.createServer`，
+   * app 端打的是真 `fetch()`）在 CI 上互動不可靠（本機兩輪都綠、CI 兩次都在
+   * `startFakeUpstream` 的 `onTestFinished` server.close() 卡 180s hook timeout——代表
+   * 測試本體已經跑完、只是連線沒被關掉，指向假時鐘沒能可靠驅動這條 `setTimeout`）。round 1
+   * 的「確定性 arm 訊號」方向沒錯但沒治本，round 2 改結構：讓 idle timeout 這個數字可被
+   * 測試注入一個短的**真實**值，測試改用真實時間等待，完全不碰 `vi.useFakeTimers`。
+   * **選配**：不傳沿用生產預設 `IDLE_TIMEOUT_MS`（60s）——production（`src/app.ts`
+   * 未傳 `BuildAppOptions.aiIdleTimeoutMs` 時）與其餘測試（未特別覆寫時）行為不變。
+   */
+  idleTimeoutMs?: number;
 }
 
 // body 刻意 snake_case（spec §6 明文例外，與其他路由的 camelCase 慣例不同）。
@@ -29,14 +41,19 @@ const postAiBodySchema = z.object({
 });
 
 const AI_UNAVAILABLE_MESSAGE = "此 AI 服務目前無法使用，請聯絡管理員";
-/** SSE 收流後的 idle 逾時（無 delta）——與 fake upstream 停止吐 delta 的整合測試對齊。 */
-const IDLE_TIMEOUT_MS = 60_000;
+/** SSE 收流後的 idle 逾時（無 delta）生產預設值——`AiRouteDeps.idleTimeoutMs` 未傳時採用。
+ * 導出（非 module-private）：`test/unit` 有一條形狀測試釘住這個預設值，防止未來改動時
+ * 悄悄把預設值改壞卻沒有任何測試示警（見該測試檔說明）。 */
+export const IDLE_TIMEOUT_MS = 60_000;
 
 /**
  * 一般 session 用 AI 路由：`GET /api/ai/actions`（Task 4）＋`POST /api/ai` SSE 端點
  * （Task 5，spec §13.2/§13.5-1）。
  */
 export function aiRoutes(deps: AiRouteDeps) {
+  // 解析一次即定案（同一個 aiRoutes(...) 呼叫掛出來的所有請求共用同一個值）——
+  // `deps.idleTimeoutMs` 未傳（生產／未覆寫的測試）時採用生產預設。
+  const idleTimeoutMs = deps.idleTimeoutMs ?? IDLE_TIMEOUT_MS;
   return async function register(app: FastifyInstance): Promise<void> {
     // 依 sort_order, id 排序（次要鍵慣例，同 `admin-users.ts` GET 列表）；只帶
     // `{id, name, applyMode}`——systemPrompt/userTemplate 這些不需要洩給非 admin。
@@ -180,7 +197,7 @@ export function aiRoutes(deps: AiRouteDeps) {
       let idleTimer: NodeJS.Timeout | undefined;
       const resetIdleTimer = (): void => {
         clearTimeout(idleTimer);
-        idleTimer = setTimeout(() => upstreamAbort.abort(), IDLE_TIMEOUT_MS);
+        idleTimer = setTimeout(() => upstreamAbort.abort(), idleTimeoutMs);
       };
       // fix round 1 I-2：`UpstreamHandle.abort()` 骨架介面本來就有這個方法，但先前只讓
       // `upstreamAbort`（route 端擁有的 controller）驅動中止，從未呼叫過它——導致

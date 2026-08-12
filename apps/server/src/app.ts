@@ -113,6 +113,14 @@ export interface BuildAppOptions {
    * 未命中路由一律維持既有 JSON 404，行為與加這個 task 之前完全相同。見 `http/spa.ts`。
    */
   webDist?: string;
+  /**
+   * `POST /api/ai` SSE idle 逾時（無 delta 即中止）覆寫值，毫秒。**測試 seam**——見
+   * `routes/ai.ts` 的 `AiRouteDeps.idleTimeoutMs` 說明（CI flake round 2：假時鐘 × 真
+   * SSE I/O 在 CI 上不可靠，改用可注入的短真實逾時代替）。**選配**：不傳沿用生產預設
+   * 60s（`routes/ai.ts` 的 `IDLE_TIMEOUT_MS`）——production（`src/index.ts` 從不傳這個
+   * 選項）與既有測試（未特別覆寫時）行為不變。
+   */
+  aiIdleTimeoutMs?: number;
 }
 
 const CHANGE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
@@ -359,7 +367,9 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   );
   void app.register(adminUsersRoutes({ db: deps.db, gate: deps.gate, collabHooks: deps.collabHooks }));
   void app.register(adminAiRoutes({ db: deps.db, config: deps.config, runtime: deps.ai }));
-  void app.register(aiRoutes({ db: deps.db, config: deps.config, runtime: deps.ai, limiters: { ai: limiters.ai } }));
+  void app.register(
+    aiRoutes({ db: deps.db, config: deps.config, runtime: deps.ai, limiters: { ai: limiters.ai }, idleTimeoutMs: options.aiIdleTimeoutMs })
+  );
   // `NotesRouteDeps.limiters` 的型別只列 `collabToken`/`slugPatch`（刻意不改，見該
   // interface 說明）——這裡傳整包 `limiters`（含 `upload`）給它，屬於變數（非物件
   // 字面值）賦值給較窄的結構型別，TS 不做 excess property check，不需要另外
