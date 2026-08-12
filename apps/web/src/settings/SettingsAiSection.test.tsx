@@ -461,6 +461,56 @@ describe("SettingsAiSection（spec §13.4：provider／model／action 三層 CRU
     expect(JSON.parse(String(secondInit.body))).toEqual({ sortOrder: ACTION_CUSTOM.sortOrder });
   });
 
+  it("上下移鈕：mutation 進行中連點是 no-op，不送出第二組 PATCH（fix round 2 回歸釘）", async () => {
+    // 修法前上下移鈕只看 `!canMoveUp/Down`，沒鎖 in-flight——連點會用同一份 stale
+    // `actions` 陣列各自送出「跟相鄰項目對調」的第二組 PATCH，兩次對調彼此抵銷造成
+    // 兩列同 `sortOrder`（Edit 表單不送這個欄位救不回來）。這裡把第一支 PATCH 卡住不
+    // resolve，模擬「使用者在按鈕變 disabled 前又點了一次」，斷言全程只送出原本那
+    // 一組（2 支）PATCH，不會因為第二次點擊多出第二組。
+    let resolveFirstPatch!: (value: Response) => void;
+    const firstPatchPromise = new Promise<Response>((resolve) => {
+      resolveFirstPatch = resolve;
+    });
+
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      const res = defaultGetHandlers({ providers: [], models: [], actions: [ACTION_BUILTIN, ACTION_CUSTOM] })(url, method);
+      if (res) return Promise.resolve(res);
+      if (url === `/api/admin/ai/actions/${ACTION_CUSTOM.id}` && method === "PATCH") {
+        return firstPatchPromise;
+      }
+      if (url === `/api/admin/ai/actions/${ACTION_BUILTIN.id}` && method === "PATCH") {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(ACTION_BUILTIN) }));
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+
+    renderSection(fetchMock);
+
+    await waitFor(() => expect(screen.getByText(ACTION_CUSTOM.name)).toBeInTheDocument());
+    const moveUpButton = screen.getByRole("button", { name: `Move up ${ACTION_CUSTOM.name}` });
+
+    fireEvent.click(moveUpButton);
+    await waitFor(() => expect(moveUpButton).toBeDisabled());
+
+    // 第一支 PATCH 還卡著沒 resolve——按鈕此時應該已經 disabled，這次點擊要是 no-op。
+    fireEvent.click(moveUpButton);
+
+    resolveFirstPatch(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(ACTION_CUSTOM) }));
+
+    await waitFor(() => {
+      const patchCalls = fetchMock.mock.calls.filter(([, reqInit]) => (reqInit as RequestInit | undefined)?.method === "PATCH");
+      expect(patchCalls).toHaveLength(2);
+    });
+
+    // 給第二支（鄰居項）PATCH 一輪 microtask 機會送出並讓 mutateAsync 鏈 settle，
+    // 確認全程真的只有 2 支，不是因為斷言時機太早而漏數。
+    await waitFor(() => expect(moveUpButton).not.toBeDisabled());
+    const patchCalls = fetchMock.mock.calls.filter(([, reqInit]) => (reqInit as RequestInit | undefined)?.method === "PATCH");
+    expect(patchCalls).toHaveLength(2);
+  });
+
   it("任一 mutation 成功 → invalidate ['admin-ai'] 前綴與 ['ai-actions']", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);

@@ -1080,12 +1080,14 @@ function ActionRow({
   models,
   canMoveUp,
   canMoveDown,
+  movePending,
   onMove,
 }: {
   action: AdminAiActionDto;
   models: AdminAiModelDto[];
   canMoveUp: boolean;
   canMoveDown: boolean;
+  movePending: boolean;
   onMove: (direction: "up" | "down") => void;
 }) {
   const { t } = useTranslation();
@@ -1127,7 +1129,7 @@ function ActionRow({
             variant="ghost"
             size="sm"
             aria-label={t("settings.ai.moveUp", { name: action.name })}
-            disabled={!canMoveUp}
+            disabled={!canMoveUp || movePending}
             onClick={() => onMove("up")}
           >
             ↑
@@ -1137,7 +1139,7 @@ function ActionRow({
             variant="ghost"
             size="sm"
             aria-label={t("settings.ai.moveDown", { name: action.name })}
-            disabled={!canMoveDown}
+            disabled={!canMoveDown || movePending}
             onClick={() => onMove("down")}
           >
             ↓
@@ -1169,7 +1171,15 @@ function ActionRow({
 /** Actions 列表——照 `sortOrder` 排序（`GET /api/admin/ai/actions` 已經
  * `orderBy(sortOrder, id)`，這裡直接沿用回應順序，不再重排）。上下移鈕＝跟相鄰項目
  * 對調 `sortOrder` 值：兩支循序 PATCH（先目標項、後鄰居項），值取自目前已知的
- * `actions` 陣列（不必等第一支 PATCH 的回應/重新查詢），故意循序 await 避免競態。 */
+ * `actions` 陣列（不必等第一支 PATCH 的回應/重新查詢），故意循序 await 避免競態。
+ *
+ * fix round 2：上下移鈕在兩支 PATCH 進行中必須鎖死，否則連點會用同一組 stale
+ * `actions` 陣列送出第二組「跟相鄰項目對調」的 PATCH——兩次對調抵銷，UI 呈現原地
+ * 不動，但兩列已經同 `sortOrder`（PATCH body 不含 sortOrder 的 Edit 表單救不回來）。
+ * `patchAction`（本層 `usePatchAiAction()` 實例）才是 `handleMove` 實際呼叫
+ * `mutateAsync` 的那個——`ActionRow` 內部另有一個自己的 `usePatchAiAction()` 實例
+ * （給 enabled checkbox 用），彼此 `isPending` 不共享，所以 move 鈕的鎖必須從這層
+ * 往下傳，不能指望 `ActionRow` 自己那份。 */
 function ActionsSection({ actions, models }: { actions: AdminAiActionDto[]; models: AdminAiModelDto[] }) {
   const { t } = useTranslation();
   const patchAction = usePatchAiAction();
@@ -1210,6 +1220,7 @@ function ActionsSection({ actions, models }: { actions: AdminAiActionDto[]; mode
               models={models}
               canMoveUp={index > 0}
               canMoveDown={index < actions.length - 1}
+              movePending={patchAction.isPending}
               onMove={(direction) => void handleMove(action, direction)}
             />
           ))}
