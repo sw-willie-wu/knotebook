@@ -125,13 +125,34 @@ async function postUpload(
  * `socket.destroy()` 再 `app.close()`**——否則即使 server 端行為完全正確，client 端
  * 自己維持住的 keep-alive 連線一樣會讓 `app.close()` 卡住等它自然關閉，造成偽陽性
  * （這條連線的生死本來就不是我們要驗證的東西）。
+ *
+ * **`clientErrors`（CI unhandled `write ECONNRESET` 事故後補）**：`drainWithCap`
+ * 超過 cap 時對 `request.raw` 呼叫 `destroy()`（見 `src/http/drain.ts`），這是
+ * server 端主動砍線，client 端若此時仍在寫入大 body，底層 socket 會收到
+ * ECONNRESET／EPIPE（CI 實測過 `write ECONNRESET`，errno -104；本機 loopback 因為
+ * 太快，通常整包已經寫完才收到，測不出來，見 Task 9 測試內的時序註解）——這是
+ * `destroy()` 本來就預期的副作用，不是 bug，但**client 端必須有人接住**，否則
+ * Node 對沒有 `error` listener 的 EventEmitter 丟未接住的 'error' 視同
+ * uncaughtException，讓整個測試檔案炸掉（即使個別測試斷言全過）。舊版只在
+ * `req.on("error", reject)` 掛了一個 listener——這只擋得住「回應完成前」的錯誤
+ * （reject 會被呼叫，此時 Promise 還沒 settle）；回應完成、Promise 已經 resolve
+ * 之後才發生的 socket 層級錯誤（例如這裡 CI 撞到的情況：回應早就送達，client 還在
+ * 背景寫剩下的大 body），Node 官方文件明講 request-level 的 'error' proxy
+ * 不保證涵蓋這個時間點之後、底層 socket 自己發的 'error'——所以額外直接在
+ * `req.socket`（透過 `req.once("socket", …)` 拿到，比 `req.socket` 可能還沒賦值的
+ * 時機更早更保險）上掛一個常駐 `error` listener，把錯誤記進 `clientErrors` 陣列
+ * 而非裸吞：呼叫端可以視情境選擇性斷言（例如 over-cap 測試允許
+ * ECONNRESET/EPIPE），其他測試若跑出非預期的 client 錯誤仍看得見（陣列不是空的），
+ * 不會被靜音掉真正的迴歸。
  */
 function rawSocketPost(opts: { port: number; path: string; headers: Record<string, string>; body: Buffer }): Promise<{
   status: number;
   body: string;
   socket: Socket;
+  clientErrors: Error[];
 }> {
   return new Promise((resolve, reject) => {
+    const clientErrors: Error[] = [];
     const req = http.request(
       {
         host: "127.0.0.1",
@@ -144,12 +165,29 @@ function rawSocketPost(opts: { port: number; path: string; headers: Record<strin
         const chunks: Buffer[] = [];
         res.on("data", (c: Buffer) => chunks.push(c));
         res.on("end", () => {
-          resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString("utf-8"), socket: req.socket! });
+          resolve({
+            status: res.statusCode ?? 0,
+            body: Buffer.concat(chunks).toString("utf-8"),
+            socket: req.socket!,
+            clientErrors,
+          });
         });
         res.on("error", reject);
       }
     );
-    req.on("error", reject);
+    // 常駐在 socket 本身：涵蓋回應完成後（Promise 已 resolve）才發生的錯誤，這類
+    // 錯誤不會、也不需要再改變已經 settle 的 Promise 結果。
+    req.once("socket", socket => {
+      socket.on("error", err => {
+        clientErrors.push(err);
+      });
+    });
+    // 涵蓋回應完成前發生的錯誤（例如根本連不上）——維持原本 reject 語意；Promise
+    // 一旦已經 resolve，重複呼叫 reject 是標準 Promise 語意下的 no-op，不會出錯。
+    req.on("error", err => {
+      clientErrors.push(err);
+      reject(err);
+    });
     req.end(opts.body);
   });
 }
@@ -803,6 +841,16 @@ describe("Task 9：drainWithCap 位元組上限（真 socket，超過 cap 的早
         });
       });
       expect(res.socket.destroyed).toBe(true);
+
+      // server 端的 destroy() 對 client 而言是硬中斷：如果 client 此時仍在寫入剩餘的
+      // 大 body（CI 實測過的時序——本機 loopback 太快，通常整包已寫完才收到 destroy，
+      // 這裡量不出來，見 rawSocketPost 的 `clientErrors` 註解），底層 socket 會收到
+      // ECONNRESET／EPIPE。這是 destroy() 預期中的副作用，不是要擋下來的迴歸；只要
+      // 真的發生，種類必須落在這個白名單內——其他錯誤代碼代表別的、意外的問題，
+      // 不該被這支測試靜音掉。
+      for (const err of res.clientErrors) {
+        expect(["ECONNRESET", "EPIPE"]).toContain((err as NodeJS.ErrnoException).code);
+      }
 
       // client 端此時已經自己關閉，不需要再 `socket.destroy()`；`app.close()` 應該
       // 立刻完成（沒有殘留連線可等）。
