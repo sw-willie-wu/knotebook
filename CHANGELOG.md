@@ -50,6 +50,7 @@ Knotebook has not yet made a versioned release; everything to date is tracked un
 - Toast id generation no longer depends on `crypto.randomUUID`, which is unavailable in non-secure contexts such as LAN plain-http.
 - Viewport-locked app shell so the editor, AI panel, and backlinks regions scroll independently instead of the whole page.
 - `/admin/users` now redirects (`<Navigate replace>`) to `/settings/users` instead of 404ing, so old bookmarks/links keep working.
+- AI action reorder buttons are disabled while a move is in flight, preventing rapid double-clicks from writing duplicate `sortOrder` values that made ordering unrecoverable from the UI.
 
 ### Security
 - CSRF protection on uploads scoped to `Origin` header validation, with a documented exemption for requests that carry no `Origin` at all (matching legitimate non-browser clients).
