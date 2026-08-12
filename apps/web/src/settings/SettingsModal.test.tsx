@@ -204,7 +204,7 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
     await waitFor(() => expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument());
 
     fireEvent.click(within(screen.getByRole("navigation")).getByText("Users"));
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Users" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "User management" })).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
 
@@ -303,7 +303,7 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
 
     fireEvent.click(within(screen.getByRole("navigation")).getByText("Users"));
 
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Users" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "User management" })).toBeInTheDocument());
     expect(screen.getByRole("dialog")).toBe(dialogBefore);
   });
 

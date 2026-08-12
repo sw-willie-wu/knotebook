@@ -161,7 +161,7 @@ describe("App route tree — /admin/users redirects to /settings/users (Plan 4 �
       </QueryClientProvider>,
     );
 
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Users" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "User management" })).toBeInTheDocument());
     // Radix Dialog 開啟時背景兄弟節點會被標成 `aria-hidden`（focus trap），`getByRole`
     // 依可及性樹過濾會找不到——這裡改用不受影響的 `getByText`（見 SettingsModal.test.tsx
     // 同款斷言的說明），驗證主樹背景真的落在 HomePage。

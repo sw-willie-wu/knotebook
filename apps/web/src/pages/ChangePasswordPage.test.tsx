@@ -8,7 +8,7 @@ import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppRoutes } from "@/App";
 
-// 同 AdminUsersPage.test.tsx 的約定：mock 全域 fetch，走真正的 `AppRoutes`
+// 同 SettingsUsersSection.test.tsx 的約定：mock 全域 fetch，走真正的 `AppRoutes`
 // （App.tsx 的唯一真相樹），不 mock ChangePasswordPage 本身——驗證的是「有沒有接對」
 // （route 掛在 <RequireAuth> 底下、成功後 ['me'] refetch 到 mustChangePassword:false
 // 並落在 /，登出按鈕真的能逃出這頁），而不只是元件單獨渲染的行為。
