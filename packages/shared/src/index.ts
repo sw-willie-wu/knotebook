@@ -2,6 +2,10 @@ export const YDOC_FRAGMENT = "knotebook";
 
 export const SESSION_COOKIE = "knotebook_session";
 
+/** OIDC authorization request 期間的一次性 state cookie 名稱（Plan 5 §14.3）——存活
+ * 短暫（見 server 端 `OIDC_STATE_TTL_SECONDS`），只在 `/api/auth/oidc` 路徑下有效。 */
+export const OIDC_STATE_COOKIE = "knotebook_oidc";
+
 export type Role = "owner" | "editor" | "viewer" | "none";
 
 export interface ApiError {
