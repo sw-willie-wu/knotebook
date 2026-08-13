@@ -36,10 +36,13 @@ test("env admin 首登強改密 → 建筆記 → 重整後內容還在", async 
 
   // 筆記正文走 Y.Doc 共編，server 端 `onStoreDocument` 是 debounce 2000ms 才落地
   // 到 Postgres（`STORE_DEBOUNCE_MS`，見 apps/server/src/collab/server.ts）——重整
-  // 前要等這個窗口過去，否則重整後拿到的是還沒落盤的舊內容（假陰性）。
-  await page.waitForTimeout(2_500);
-  await page.reload();
-
-  await expect(page.getByLabel("Note title")).toHaveValue(title);
-  await expect(page.locator('[data-testid="note-editor"]')).toContainText(bodyText, { timeout: 15_000 });
+  // 前要等這個窗口過去，否則重整後拿到的是還沒落盤的舊內容（假陰性）。T12 審查遞延：
+  // 固定 `waitForTimeout(2_500)` 只是「賭」debounce 一定準時觸發＋落盤一定夠快，CI
+  // 較慢的跑者上這個賭注會輸——改用 `expect(...).toPass()` 主動重試「重整＋斷言」，
+  // 直到內容真的落盤為止，語意上等價但不再是固定睡眠賭時序。
+  await expect(async () => {
+    await page.reload();
+    await expect(page.getByLabel("Note title")).toHaveValue(title);
+    await expect(page.locator('[data-testid="note-editor"]')).toContainText(bodyText, { timeout: 2_000 });
+  }).toPass({ timeout: 20_000 });
 });

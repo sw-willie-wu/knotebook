@@ -11,34 +11,38 @@ import { ADMIN, createNote, editorLocator, loginAs } from "./helpers.js";
  */
 test("雙 browser context 即時共編：雙向文字同步", async ({ browser }) => {
   const contextA = await browser.newContext();
-  const pageA = await contextA.newPage();
-  await loginAs(pageA, ADMIN.email, ADMIN.newPassword);
-  await expect(pageA).toHaveURL(/\/$/);
-
-  const title = `E2E collab ${Date.now()}`;
-  await createNote(pageA, title);
-  const noteUrl = pageA.url();
-
   const contextB = await browser.newContext();
-  const pageB = await contextB.newPage();
-  await loginAs(pageB, ADMIN.email, ADMIN.newPassword);
-  await pageB.goto(noteUrl);
+  try {
+    const pageA = await contextA.newPage();
+    await loginAs(pageA, ADMIN.email, ADMIN.newPassword);
+    await expect(pageA).toHaveURL(/\/$/);
 
-  const editorA = editorLocator(pageA);
-  const editorB = editorLocator(pageB);
-  await editorB.waitFor({ timeout: 15_000 });
+    const title = `E2E collab ${Date.now()}`;
+    await createNote(pageA, title);
+    const noteUrl = pageA.url();
 
-  await editorA.click();
-  await editorA.pressSequentially("Hello from A");
-  await expect(editorB).toContainText("Hello from A", { timeout: 10_000 });
+    const pageB = await contextB.newPage();
+    await loginAs(pageB, ADMIN.email, ADMIN.newPassword);
+    await pageB.goto(noteUrl);
 
-  // 接著打字要接在既有內容之後（不是覆蓋掉剛同步進來的內容）——click 只保證聚焦，
-  // 光游標位置不定，用 End 把游標移到這個 block 的尾端再打字。
-  await editorB.click();
-  await editorB.press("End");
-  await editorB.pressSequentially(" and B");
-  await expect(editorA).toContainText("Hello from A and B", { timeout: 10_000 });
+    const editorA = editorLocator(pageA);
+    const editorB = editorLocator(pageB);
+    await editorB.waitFor({ timeout: 15_000 });
 
-  await contextA.close();
-  await contextB.close();
+    await editorA.click();
+    await editorA.pressSequentially("Hello from A");
+    await expect(editorB).toContainText("Hello from A", { timeout: 10_000 });
+
+    // 接著打字要接在既有內容之後（不是覆蓋掉剛同步進來的內容）——click 只保證聚焦，
+    // 光游標位置不定，用 End 把游標移到這個 block 的尾端再打字。
+    await editorB.click();
+    await editorB.press("End");
+    await editorB.pressSequentially(" and B");
+    await expect(editorA).toContainText("Hello from A and B", { timeout: 10_000 });
+  } finally {
+    // try/finally：斷言失敗時仍要釋放兩個 context（否則失敗案例會在同一個 worker
+    // 累積殘留 browser context，拖累後續 spec 的資源——T12 審查遞延項）。
+    await contextA.close();
+    await contextB.close();
+  }
 });
