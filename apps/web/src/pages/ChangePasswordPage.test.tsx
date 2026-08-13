@@ -29,6 +29,7 @@ const USER_MUST_CHANGE: UserDto = {
   displayName: "Alice",
   isAdmin: false,
   mustChangePassword: true,
+  hasPassword: true,
 };
 
 const CHANGE_PASSWORD_URL = "/api/auth/password";

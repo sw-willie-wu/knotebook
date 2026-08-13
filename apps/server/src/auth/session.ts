@@ -45,6 +45,8 @@ export interface GateUser {
   /** 首登強制改密碼旗標（spec rev 5.7）——`GET /api/auth/me` 直接回傳 `request.user`
    * （見 app.ts 的 `authenticate`），故此欄位需在此就撈出，login 回應才有得帶。 */
   mustChangePassword: boolean;
+  /** OIDC-only 帳號為 false（=`password_hash IS NULL`）——spec §14.4。 */
+  hasPassword: boolean;
 }
 
 export type GateResult = { status: "ok"; user: GateUser } | { status: "revoked" };
@@ -57,6 +59,7 @@ export interface GateRow {
   disabledAt: Date | null;
   tokenVersion: number;
   mustChangePassword: boolean;
+  hasPassword: boolean;
 }
 
 interface CacheEntry {
@@ -144,6 +147,7 @@ export class UserGate {
       disabledAt: row.disabledAt,
       tokenVersion: row.tokenVersion,
       mustChangePassword: row.mustChangePassword,
+      hasPassword: row.passwordHash !== null,
     };
   }
 
@@ -168,7 +172,14 @@ export class UserGate {
     }
     return {
       status: "ok",
-      user: { id: row.id, email: row.email, displayName: row.displayName, isAdmin: row.isAdmin, mustChangePassword: row.mustChangePassword },
+      user: {
+        id: row.id,
+        email: row.email,
+        displayName: row.displayName,
+        isAdmin: row.isAdmin,
+        mustChangePassword: row.mustChangePassword,
+        hasPassword: row.hasPassword,
+      },
     };
   }
 }

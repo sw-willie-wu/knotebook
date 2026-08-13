@@ -34,7 +34,14 @@ function fakeResponse({ ok, status, json }: FakeResponseInit): Response {
   return { ok, status, json: json ?? (() => Promise.reject(new Error("no body"))) } as unknown as Response;
 }
 
-const ADMIN_USER: UserDto = { id: "u-admin", email: "admin@example.com", displayName: "Admin", isAdmin: true, mustChangePassword: false };
+const ADMIN_USER: UserDto = {
+  id: "u-admin",
+  email: "admin@example.com",
+  displayName: "Admin",
+  isAdmin: true,
+  mustChangePassword: false,
+  hasPassword: true,
+};
 
 const ACTIVE_OTHER: AdminUserDto = {
   id: "u-active",

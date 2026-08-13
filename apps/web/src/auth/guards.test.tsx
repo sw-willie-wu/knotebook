@@ -33,7 +33,14 @@ function mockFetchMustChangePassword(mustChangePassword: boolean) {
           ok: true,
           status: 200,
           json: () =>
-            Promise.resolve({ id: "u1", email: "a@example.com", displayName: "Alice", isAdmin: false, mustChangePassword }),
+            Promise.resolve({
+              id: "u1",
+              email: "a@example.com",
+              displayName: "Alice",
+              isAdmin: false,
+              mustChangePassword,
+              hasPassword: true,
+            }),
         }),
       );
     }

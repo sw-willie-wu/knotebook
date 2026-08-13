@@ -7,7 +7,14 @@ import type { Db } from "../src/db/index.js";
 
 async function insertUser(
   db: Db,
-  overrides: Partial<{ email: string; displayName: string; isAdmin: boolean; tokenVersion: number; disabledAt: Date | null }> = {}
+  overrides: Partial<{
+    email: string;
+    displayName: string;
+    isAdmin: boolean;
+    tokenVersion: number;
+    disabledAt: Date | null;
+    passwordHash: string | null;
+  }> = {}
 ) {
   const [u] = await db
     .insert(users)
@@ -17,6 +24,7 @@ async function insertUser(
       isAdmin: overrides.isAdmin ?? false,
       tokenVersion: overrides.tokenVersion ?? 0,
       disabledAt: overrides.disabledAt ?? null,
+      passwordHash: overrides.passwordHash ?? null,
     })
     .returning();
   return u;
@@ -30,8 +38,30 @@ describe("UserGate", () => {
     const result = await gate.check(u.id, 3);
     expect(result).toEqual({
       status: "ok",
-      user: { id: u.id, email: u.email, displayName: u.displayName, isAdmin: true, mustChangePassword: false },
+      user: { id: u.id, email: u.email, displayName: u.displayName, isAdmin: true, mustChangePassword: false, hasPassword: false },
     });
+  });
+
+  it("hasPassword：OIDC-only（無 passwordHash）→ false（經真 DB 走 fetchRowFromDb 投影）", async () => {
+    const { db } = await freshDb();
+    const u = await insertUser(db, { tokenVersion: 0, passwordHash: null });
+    const gate = new UserGate(db);
+    const result = await gate.check(u.id, 0);
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.user.hasPassword).toBe(false);
+    }
+  });
+
+  it("hasPassword：有 passwordHash → true（經真 DB 走 fetchRowFromDb 投影）", async () => {
+    const { db } = await freshDb();
+    const u = await insertUser(db, { tokenVersion: 0, passwordHash: "some-argon2-hash" });
+    const gate = new UserGate(db);
+    const result = await gate.check(u.id, 0);
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.user.hasPassword).toBe(true);
+    }
   });
 
   it("tv 不符 → revoked", async () => {
@@ -151,6 +181,7 @@ describe("UserGate", () => {
               disabledAt: row.disabledAt,
               tokenVersion: row.tokenVersion,
               mustChangePassword: row.mustChangePassword,
+              hasPassword: row.passwordHash !== null,
             }
           : null;
       },
@@ -172,6 +203,7 @@ describe("UserGate", () => {
       disabledAt: null,
       tokenVersion: 0,
       mustChangePassword: false,
+      hasPassword: false,
     });
     const first = await firstCheck;
     expect(first.status).toBe("ok"); // 這次呼叫本身仍用它查到的資料正確回答

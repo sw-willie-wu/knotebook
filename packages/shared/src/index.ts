@@ -18,6 +18,8 @@ export interface UserDto {
    * 代建的帳號皆為 true；OIDC 自動建帳為 false。web 端的 `ChangePasswordGate` 依此
    * 導向 `/change-password`——見 apps/web/src/auth/guards.tsx。 */
   mustChangePassword: boolean;
+  /** OIDC-only 帳號為 false；設定 modal 據此隱藏改密表單——spec §14.4。 */
+  hasPassword: boolean;
 }
 
 /** 密碼長度下限，鏡射 apps/server/src/auth/constants.ts 的同名常數——這裡是給

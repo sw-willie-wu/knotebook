@@ -68,7 +68,14 @@ describe("POST /api/auth/login", () => {
 
     const res = await app.inject({ method: "POST", url: "/api/auth/login", payload: loginPayload("alice@example.com", VALID_PASSWORD) });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ id: u.id, email: u.email, displayName: u.displayName, isAdmin: false, mustChangePassword: false });
+    expect(res.json()).toEqual({
+      id: u.id,
+      email: u.email,
+      displayName: u.displayName,
+      isAdmin: false,
+      mustChangePassword: false,
+      hasPassword: true,
+    });
 
     const cookie = res.cookies.find(c => c.name === SESSION_COOKIE);
     expect(cookie).toBeDefined();
@@ -77,7 +84,14 @@ describe("POST /api/auth/login", () => {
 
     const meRes = await app.inject({ method: "GET", url: "/api/auth/me", cookies: { [SESSION_COOKIE]: cookie!.value } });
     expect(meRes.statusCode).toBe(200);
-    expect(meRes.json()).toEqual({ id: u.id, email: u.email, displayName: u.displayName, isAdmin: false, mustChangePassword: false });
+    expect(meRes.json()).toEqual({
+      id: u.id,
+      email: u.email,
+      displayName: u.displayName,
+      isAdmin: false,
+      mustChangePassword: false,
+      hasPassword: true,
+    });
   });
 
   it("Mixed-Case 輸入登入既有小寫帳號 → 200（spec §14.3 讀取端 lower() 對稱比對）", async () => {

@@ -114,6 +114,7 @@ export function authRoutes(deps: AuthRouteDeps) {
         displayName: user!.displayName,
         isAdmin: user!.isAdmin,
         mustChangePassword: user!.mustChangePassword,
+        hasPassword: user!.passwordHash !== null,
       });
     });
 

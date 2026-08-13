@@ -106,7 +106,14 @@ describe("buildApp", () => {
     const token = await signSession(testConfig.appSecret, { userId: u.id, tv: 0 });
     const res = await app.inject({ method: "GET", url: "/__test/protected", cookies: { [SESSION_COOKIE]: token } });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ id: u.id, email: u.email, displayName: u.displayName, isAdmin: false, mustChangePassword: false });
+    expect(res.json()).toEqual({
+      id: u.id,
+      email: u.email,
+      displayName: u.displayName,
+      isAdmin: false,
+      mustChangePassword: false,
+      hasPassword: false,
+    });
   });
 
   it("篡改 token → 401", async () => {

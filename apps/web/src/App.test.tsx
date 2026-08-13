@@ -21,7 +21,14 @@ function fakeResponse({ ok, status, json }: FakeResponseInit): Response {
   } as unknown as Response;
 }
 
-const ADMIN_USER: UserDto = { id: "u1", email: "admin@example.com", displayName: "Admin", isAdmin: true, mustChangePassword: false };
+const ADMIN_USER: UserDto = {
+  id: "u1",
+  email: "admin@example.com",
+  displayName: "Admin",
+  isAdmin: true,
+  mustChangePassword: false,
+  hasPassword: true,
+};
 
 // Plan 4（spec §13.4）：既有 `/admin/users` route 改為
 // `<Navigate to="/settings/users" replace/>`（書籤不斷）——功能併入設定總 modal 的
