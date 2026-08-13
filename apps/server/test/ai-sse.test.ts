@@ -10,7 +10,7 @@ import { signSession } from "../src/auth/session.js";
 import { hashPassword } from "../src/auth/password.js";
 import { encryptApiKey } from "../src/ai/crypto.js";
 import { createAiRuntime } from "../src/ai/runtime.js";
-import { COLLAB_TOKEN_LIMIT, FixedWindowLimiter, SLUG_PATCH_LIMIT, UPLOAD_LIMIT } from "../src/http/rate-limit.js";
+import { COLLAB_TOKEN_LIMIT, FixedWindowLimiter, OIDC_LIMIT, SLUG_PATCH_LIMIT, UPLOAD_LIMIT } from "../src/http/rate-limit.js";
 
 const VALID_PASSWORD = "correct-horse-battery";
 
@@ -107,6 +107,7 @@ function limitersWithAi(ai: FixedWindowLimiter) {
     slugPatch: new FixedWindowLimiter(SLUG_PATCH_LIMIT),
     upload: new FixedWindowLimiter(UPLOAD_LIMIT),
     ai,
+    oidc: new FixedWindowLimiter(OIDC_LIMIT),
   };
 }
 

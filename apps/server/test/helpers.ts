@@ -15,7 +15,7 @@ import { loadConfig, type AppConfig } from "../src/config.js";
 import { buildApp, type AppDeps, type BuildAppOptions } from "../src/app.js";
 import { UserGate } from "../src/auth/session.js";
 import { LoginThrottle } from "../src/auth/rate-limit.js";
-import { AI_LIMIT, COLLAB_TOKEN_LIMIT, FixedWindowLimiter, SLUG_PATCH_LIMIT, UPLOAD_LIMIT } from "../src/http/rate-limit.js";
+import { AI_LIMIT, COLLAB_TOKEN_LIMIT, FixedWindowLimiter, OIDC_LIMIT, SLUG_PATCH_LIMIT, UPLOAD_LIMIT } from "../src/http/rate-limit.js";
 import { hashPassword } from "../src/auth/password.js";
 import { noopCollabHooks, type CollabHooks } from "../src/collab/hooks.js";
 import { COLLAB_PATH, createCollabServer, type CollabServer } from "../src/collab/server.js";
@@ -148,6 +148,7 @@ function freshLimiters(): NonNullable<AppDeps["limiters"]> {
     slugPatch: new FixedWindowLimiter(SLUG_PATCH_LIMIT),
     upload: new FixedWindowLimiter(UPLOAD_LIMIT),
     ai: new FixedWindowLimiter(AI_LIMIT),
+    oidc: new FixedWindowLimiter(OIDC_LIMIT),
   };
 }
 

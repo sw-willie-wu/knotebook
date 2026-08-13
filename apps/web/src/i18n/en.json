@@ -262,6 +262,12 @@
     "upstream_error": "The AI provider returned an error",
     "builtin_action": "Built-in actions cannot be deleted",
     "model_taken": "This model already exists for the provider",
+    "oidc_unavailable": "Single sign-on is unavailable right now. Please try again later or sign in with your password.",
+    "oidc_state_mismatch": "Your sign-in session expired or is invalid. Please try signing in again.",
+    "oidc_exchange_failed": "We couldn't complete sign-in with your identity provider. Please try again.",
+    "oidc_email_unverified": "Your identity provider hasn't verified your email address yet.",
+    "oidc_email_missing": "Your identity provider didn't share an email address, which is required to sign in.",
+    "oidc_conflict": "This identity is already linked to a different account, or matches more than one account.",
     "fallback": "An unexpected error occurred."
   }
 }

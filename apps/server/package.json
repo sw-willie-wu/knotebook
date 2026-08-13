@@ -27,6 +27,7 @@
     "drizzle-orm": "^0.44",
     "fastify": "^5",
     "jose": "^6",
+    "openid-client": "^6.8.5",
     "pg": "^8",
     "pino": "^10",
     "ws": "^8.21.2",

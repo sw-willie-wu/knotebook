@@ -262,6 +262,12 @@
     "upstream_error": "AI 服務回傳錯誤",
     "builtin_action": "內建動作不可刪除",
     "model_taken": "此 provider 已有相同模型",
+    "oidc_unavailable": "單一登入目前無法使用，請稍後再試，或改用密碼登入。",
+    "oidc_state_mismatch": "登入流程已逾時或無效，請重新登入。",
+    "oidc_exchange_failed": "與身分提供者完成登入時發生錯誤，請重新嘗試。",
+    "oidc_email_unverified": "您的身分提供者尚未驗證此電子郵件地址。",
+    "oidc_email_missing": "您的身分提供者未提供電子郵件地址，登入需要此資訊。",
+    "oidc_conflict": "此身分已連結至其他帳號，或同時符合多個帳號。",
     "fallback": "發生未預期的錯誤。"
   }
 }

@@ -120,6 +120,18 @@ export const ERROR_CODES = [
   "upstream_error",
   "builtin_action",
   "model_taken",
+  // Plan 5（Task 8/9）：OIDC 登入流程。`oidc_unavailable`＝OIDC 未設定/discovery 失敗/
+  // 不可用（login route 302、callback route 對稱處理）；`oidc_state_mismatch`＝callback
+  // 的 state cookie 缺失/過期/與查詢字串不符（Task 9）；`oidc_exchange_failed`＝與 IdP
+  // 的 token/userinfo 交換失敗（Task 9）；`oidc_email_unverified`/`oidc_email_missing`/
+  // `oidc_conflict`＝`auth/oidc-decision.ts` 的 reject 分支碼（Task 7 已落地決策函式，
+  // 這裡補上型別/i18n 承諾）。
+  "oidc_unavailable",
+  "oidc_state_mismatch",
+  "oidc_exchange_failed",
+  "oidc_email_unverified",
+  "oidc_email_missing",
+  "oidc_conflict",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
