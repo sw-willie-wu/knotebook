@@ -95,17 +95,6 @@
     "submitting": "登入中…",
     "retryAfter": "請在 {{seconds}} 秒後再試一次。"
   },
-  "setup": {
-    "title": "設定 Knotebook",
-    "description": "建立第一個管理員帳號以完成此實例的設定。",
-    "token": "設定 token",
-    "email": "電子郵件",
-    "password": "密碼",
-    "passwordHint": "至少需要 12 個字元。",
-    "displayName": "顯示名稱",
-    "submit": "建立管理員帳號",
-    "submitting": "建立帳號中…"
-  },
   "changePassword": {
     "title": "修改密碼",
     "description": "為你的帳號設定新密碼。",

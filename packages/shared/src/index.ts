@@ -8,7 +8,7 @@ export interface ApiError {
   error: { code: string; message: string };
 }
 
-/** `GET /api/auth/me`、login/setup 成功回應的使用者形狀（見 apps/server routes/{auth,setup}.ts）。 */
+/** `GET /api/auth/me`、login/OIDC 成功回應的使用者形狀（見 apps/server routes/auth.ts）。 */
 export interface UserDto {
   id: string;
   email: string;

@@ -95,17 +95,6 @@
     "submitting": "Signing in…",
     "retryAfter": "Try again in {{seconds}}s."
   },
-  "setup": {
-    "title": "Set up Knotebook",
-    "description": "Create the first administrator account to finish setting up this instance.",
-    "token": "Setup token",
-    "email": "Email",
-    "password": "Password",
-    "passwordHint": "At least 12 characters.",
-    "displayName": "Display name",
-    "submit": "Create admin account",
-    "submitting": "Creating account…"
-  },
   "changePassword": {
     "title": "Change your password",
     "description": "Choose a new password for your account.",

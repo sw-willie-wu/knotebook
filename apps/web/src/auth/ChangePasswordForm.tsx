@@ -26,7 +26,7 @@ export interface ChangePasswordFormProps {
  * `confirmNewPassword` 只在 client 端比對，不送出。
  *
  * 新密碼長度在送出前先做 client 端 pre-validation（`MIN_PASSWORD_LENGTH`，鏡射
- * server 端同名常數，與 `SetupPage`/`CreateUserDialog` 同一套模式）——只是體驗
+ * server 端同名常數，與 `CreateUserDialog` 同一套模式）——只是體驗
  * 優化，server 一樣會再驗一次（`password_too_short`），不能省。兩次新密碼不一致
  * 同樣在 client 端擋下，不送出請求。
  *

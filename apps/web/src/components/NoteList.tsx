@@ -21,8 +21,8 @@ import { Trash } from "@/components/ui/icons";
 import { toast } from "@/components/ui/toast";
 import { EmptyState } from "@/components/EmptyState";
 
-/** ApiFail → errors.<code>；其餘（網路失敗等）→ errors.fallback。與 LoginPage/
- * SetupPage 逐字同一套對映規則（見 client.ts 的說明）。 */
+/** ApiFail → errors.<code>；其餘（網路失敗等）→ errors.fallback。與 LoginPage
+ * 逐字同一套對映規則（見 client.ts 的說明）。 */
 function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
   if (err instanceof ApiFail) {
     return t(`errors.${err.code}`, { defaultValue: t("errors.fallback") });

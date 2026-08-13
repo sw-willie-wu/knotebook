@@ -1,9 +1,8 @@
 import { BrowserRouter, Navigate, Route, Routes, useLocation, type Location } from "react-router";
 import { ThemeProvider } from "./theme";
 import { Toaster } from "./components/ui/toast";
-import { ChangePasswordGate, RequireAdmin, RequireAuth, SetupGate } from "./auth/guards";
+import { ChangePasswordGate, RequireAdmin, RequireAuth } from "./auth/guards";
 import LoginPage from "./pages/LoginPage";
-import SetupPage from "./pages/SetupPage";
 import ChangePasswordPage from "./pages/ChangePasswordPage";
 import HomePage from "./pages/HomePage";
 import NotePage from "./pages/NotePage";
@@ -18,30 +17,29 @@ import { SettingsAiSection } from "./settings/SettingsAiSection";
  *
  * - **主樹**：render 背景頁，吃 `<Routes location={state?.backgroundLocation ?? location}>`
  *   ——帶 `location` prop 的 `<Routes>` 會覆寫 React Router 的 `LocationContext`，
- *   主樹底下 `SetupGate`/`RequireAuth`/`ChangePasswordGate`（guards.tsx 內部都用
+ *   主樹底下 `RequireAuth`/`ChangePasswordGate`（guards.tsx 內部都用
  *   `useLocation()`）因此讀到**背景** location，不是瀏覽器目前真實的 `/settings/*`
  *   網址——這個相依是「開設定時背景頁繼續照它本來的路徑渲染」成立的前提，
  *   **改動 guard 或這段 location 邏輯前務必先確認沒有破壞這個相依**。
  * - **第二棵樹**：只含 `/settings/*`，吃真實 location（不帶 `location` prop）；
  *   非 `/settings/*` 路徑下整棵 match 不到任何 route → render `null`，樹內的
- *   guard 元件根本不會執行，不會有幽靈重導。guard 元件（`SetupGate` 等）在這裡
+ *   guard 元件根本不會執行，不會有幽靈重導。guard 元件在這裡
  *   直接複用同一份，以 pathless layout route 掛上——不是塞進主樹。
  *
  * `/settings/*` **絕不可加進主樹**：加進去背景頁就不會渲染，modal-over-background
  * 整個破功。既有 `/admin/users` route 改為 `<Navigate to="/settings/users" replace/>`
  * （書籤不斷；`RequireAdmin` 包裹保留不動）。
  *
- * §11.3 逐字守衛規則（主樹）：<SetupGate> 包住整棵樹（needed:true 全導 /setup；
- * needed:false 時 /setup 依登入狀態導 /login 或 /）；<RequireAuth> 包住除
- * /setup、/login 外的其餘路由（未登入導 /login）；`/admin/users`（Task 15）再多包一層
- * <RequireAdmin>（非 admin 導 `/`）——巢狀在 <RequireAuth> 底下，即使 <RequireAdmin>
- * 自己也有未登入判斷（見 guards.tsx），這裡是雙保險而非依賴它獨立生效。這條路由必須
- * 排在 `/*` catch-all 之前，否則永遠會被 HomePage 吃掉。
+ * 現行守衛集合（主樹）：<RequireAuth> 包住除 /login 外的其餘路由（未登入導
+ * /login）；`/admin/users`（Task 15）再多包一層 <RequireAdmin>（非 admin 導 `/`）
+ * ——巢狀在 <RequireAuth> 底下，即使 <RequireAdmin> 自己也有未登入判斷（見
+ * guards.tsx），這裡是雙保險而非依賴它獨立生效。這條路由必須排在 `/*` catch-all
+ * 之前，否則永遠會被 HomePage 吃掉。
  *
  * `/change-password`（spec rev 5.7）巢狀在 <RequireAuth> 底下、但刻意掛在
  * <ChangePasswordGate> **外面**（與它平行，不是它的 <Outlet/> 子路由）——這條路由本身
  * 就是 `mustChangePassword` 使用者被導去的目的地，若巢狀在 gate 裡面會造成「導向自己」
- * 的迴圈。<ChangePasswordGate> 包住其餘（除 /setup、/login、/change-password 外）的
+ * 的迴圈。<ChangePasswordGate> 包住其餘（除 /login、/change-password 外）的
  * 路由：`user.mustChangePassword === true` 時全部導向 `/change-password`——比照
  * <RequireAdmin> 的模式。
  */
@@ -52,46 +50,41 @@ export function AppRoutes() {
   return (
     <>
       <Routes location={state?.backgroundLocation ?? location}>
-        <Route element={<SetupGate />}>
-          <Route path="/setup" element={<SetupPage />} />
-          <Route path="/login" element={<LoginPage />} />
-          <Route element={<RequireAuth />}>
-            <Route path="/change-password" element={<ChangePasswordPage />} />
-            <Route element={<ChangePasswordGate />}>
-              {/* `/notes/:ref` 排在 catch-all 之前：ref 可以是自訂 slug、
-                  `<vanity>-<uuid>` 或純 uuid，一律由 `GET /api/notes/:ref` 解析。 */}
-              <Route path="/notes/:ref" element={<NotePage />} />
-              <Route element={<RequireAdmin />}>
-                <Route path="/admin/users" element={<Navigate to="/settings/users" replace />} />
-              </Route>
-              <Route path="/*" element={<HomePage />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route element={<RequireAuth />}>
+          <Route path="/change-password" element={<ChangePasswordPage />} />
+          <Route element={<ChangePasswordGate />}>
+            {/* `/notes/:ref` 排在 catch-all 之前：ref 可以是自訂 slug、
+                `<vanity>-<uuid>` 或純 uuid，一律由 `GET /api/notes/:ref` 解析。 */}
+            <Route path="/notes/:ref" element={<NotePage />} />
+            <Route element={<RequireAdmin />}>
+              <Route path="/admin/users" element={<Navigate to="/settings/users" replace />} />
             </Route>
+            <Route path="/*" element={<HomePage />} />
           </Route>
         </Route>
       </Routes>
       {/* 第二棵樹：只含 /settings/*，吃真實 location；非 /settings/* 路徑下整棵
           match 不到 → render null，guard 不會跑（無幽靈重導）。guard 元件直接複用。 */}
       <Routes>
-        <Route element={<SetupGate />}>
-          <Route element={<RequireAuth />}>
-            <Route element={<ChangePasswordGate />}>
-              <Route element={<SettingsModal />}>
-                {/* Dialog 外殼＝layout route，區塊切換不重掛 */}
-                <Route path="/settings/account" element={<SettingsAccountSection />} />
-                <Route element={<RequireAdmin />}>
-                  <Route path="/settings/users" element={<SettingsUsersSection />} />
-                  <Route path="/settings/ai" element={<SettingsAiSection />} />
-                </Route>
+        <Route element={<RequireAuth />}>
+          <Route element={<ChangePasswordGate />}>
+            <Route element={<SettingsModal />}>
+              {/* Dialog 外殼＝layout route，區塊切換不重掛 */}
+              <Route path="/settings/account" element={<SettingsAccountSection />} />
+              <Route element={<RequireAdmin />}>
+                <Route path="/settings/users" element={<SettingsUsersSection />} />
+                <Route path="/settings/ai" element={<SettingsAiSection />} />
               </Route>
             </Route>
           </Route>
         </Route>
-        {/* 與上面那棵 pathless `<SetupGate>` 平行（不是它的子路由）：純粹吸收
+        {/* 與上面那棵 pathless `<RequireAuth>` 平行（不是它的子路由）：純粹吸收
             react-router 對非 /settings/* 路徑的「No routes matched」warning——
             這棵樹本來就設計成那些路徑下什麼都不 render，這是預期行為，不是漏
             接的路由。element 固定 `null`，**絕不可**塞進任何 guard 底下：guard
-            會在每個非 /settings/* 頁面都執行一次（session/setup-status query、
-            可能的 <Navigate>），那就是貨真價實的幽靈重導，違反本樹「非
+            會在每個非 /settings/* 頁面都執行一次（session query、可能的
+            <Navigate>），那就是貨真價實的幽靈重導，違反本樹「非
             /settings/* 時 guard 不跑」的設計前提。 */}
         <Route path="*" element={null} />
       </Routes>

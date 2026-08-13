@@ -81,15 +81,12 @@ const NOTE: NoteDto = {
   slug: "my-note",
 };
 
-/** 基本 fetch mock：`/api/setup/status`（一律 needed:false）、`/api/auth/me`（依
+/** 基本 fetch mock：`/api/auth/me`（依
  * `getLoggedInAs` 回登入者或 401）、`/api/notes`（清單，空陣列）、`/api/notes/:ref`
  * （單篇，固定回 `NOTE`）、backlinks（空）——路由守衛與 HomePage/NotePage 共同需要
  * 這些。呼叫端可疊加其餘端點的處理（例如 `POST /api/auth/password`）。 */
 function baseFetchHandlers(getLoggedInAs: () => UserDto | null) {
   return (url: string, method: string): Response | null => {
-    if (url === "/api/setup/status") {
-      return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ needed: false }) });
-    }
     if (url === "/api/auth/me" && method === "GET") {
       const user = getLoggedInAs();
       if (user) return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(user) });
