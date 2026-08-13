@@ -14,8 +14,8 @@ export const users = pgTable("users", {
   isAdmin: boolean("is_admin").notNull().default(false),
   disabledAt: timestamp("disabled_at", { withTimezone: true }),
   tokenVersion: integer("token_version").notNull().default(0),
-  // 首登強制改密碼（spec rev 5.7）：env bootstrap 建立的 admin、admin UI 代建的帳號皆掛 true；
-  // setup 頁自建的第一個 admin（密碼自選，見 routes/setup.ts）刻意不掛，維持 false（DB 預設）。
+  // 首登強制改密碼（spec rev 5.7 / §14.2）：env bootstrap 建立的 admin、admin UI 代建的
+  // 帳號皆掛 true；OIDC 自動建帳維持 false（DB 預設）。
   mustChangePassword: boolean("must_change_password").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, t => [uniqueIndex("users_oidc_idx").on(t.oidcIssuer, t.oidcSub)]);

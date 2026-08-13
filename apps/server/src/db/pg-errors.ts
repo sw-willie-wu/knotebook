@@ -20,8 +20,8 @@ function matchesCode(err: unknown, target: string): boolean {
  * pg 的 unique_violation（code 23505）——否則唯一鍵違反會被 `throw err` 一路冒到
  * 最外層變成未預期的 500。
  *
- * 共用處：`routes/setup.ts`（users.email）、`routes/admin-users.ts`（users.email）
- * 皆從這裡 import，不各自重複宣告一份判定邏輯。
+ * 共用處：`routes/admin-users.ts`（users.email）、`routes/notes.ts`（slug 唯一鍵）、
+ * `routes/admin-ai.ts`（model 唯一鍵）皆從這裡 import，不各自重複宣告一份判定邏輯。
  */
 export function isUniqueViolation(err: unknown): boolean {
   return matchesCode(err, PG_UNIQUE_VIOLATION);

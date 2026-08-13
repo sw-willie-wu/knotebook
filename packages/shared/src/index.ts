@@ -14,9 +14,9 @@ export interface UserDto {
   email: string;
   displayName: string;
   isAdmin: boolean;
-  /** 首登強制改密碼旗標（spec rev 5.7）：env bootstrap 建立的 admin、admin UI 代建的
-   * 帳號皆為 true；setup 頁自建的第一個 admin（密碼自選）為 false。web 端的
-   * `ChangePasswordGate` 依此導向 `/change-password`——見 apps/web/src/auth/guards.tsx。 */
+  /** 首登強制改密碼旗標（spec rev 5.7 / §14.2）：env bootstrap 建立的 admin、admin UI
+   * 代建的帳號皆為 true；OIDC 自動建帳為 false。web 端的 `ChangePasswordGate` 依此
+   * 導向 `/change-password`——見 apps/web/src/auth/guards.tsx。 */
   mustChangePassword: boolean;
 }
 
@@ -70,12 +70,16 @@ export const MAX_BACKLINKS = 200;
 // `slug_taken`（Task 8 slug unique violation）——這兩碼尚未落地於 grep 結果，屬預先保留。
 // Plan 3：`not_loaded` 已落地（Task 5）——`POST /api/notes/:id/links` 409：該筆記尚未載入
 // 進 collab server 記憶體，或提交者無該筆記開啟中的連線，`linkSyncGate` 回 `{ok:false}`，
-// 不落地任何寫入。`server_busy` 除原本 setup/auth/admin-users 的 429（`HashBusyError`，
-// argon2 併發超限）外，Task 5 新增第二個發送點——同一個 `POST /api/notes/:id/links` 的
-// 409：`writeNoteLinks` 交易撞上 pg `serialization_failure`/`deadlock_detected`
+// 不落地任何寫入。`server_busy` 除 auth/admin-users 的 429（`HashBusyError`，argon2 併發
+// 超限）外，Task 5 新增第二個發送點——同一個 `POST /api/notes/:id/links` 的 409：
+// `writeNoteLinks` 交易撞上 pg `serialization_failure`/`deadlock_detected`
 // （40001/40P01，剔除消失 target 重試一次後仍失敗才會落到這裡）；純 DB 層級的併發衝突，
 // 非邏輯錯誤，交給 client 重試（與 `not_loaded` 區分：後者無 note_states 回退路徑，client
-// 收斂方式不同，見 Task 7）。`file_too_large`＝`POST /api/notes/:id/uploads` 413 唯一發送點（Plan 3 已落地）。
+// 收斂方式不同，見 Task 7）。`file_too_large`＝`POST /api/notes/:id/uploads` 413 唯一發送點
+// （Plan 3 已落地）。spec §14.2：setup token 流程退役，`invalid_setup_token`/
+// `already_setup`/`invalid_email`/`invalid_display_name`/`bootstrap_email_mismatch`
+// 五碼隨之刪除（唯一消費者已隨 setup token 路由一併移除；`password_too_short` 仍由
+// `routes/auth.ts`／`routes/admin-users.ts` 消費，留用）。
 export const ERROR_CODES = [
   "unauthorized",
   "forbidden",
@@ -87,11 +91,6 @@ export const ERROR_CODES = [
   "server_busy",
   "too_many_attempts",
   "too_many_requests",
-  "invalid_setup_token",
-  "already_setup",
-  "invalid_email",
-  "invalid_display_name",
-  "bootstrap_email_mismatch",
   "password_too_short",
   "invalid_credentials",
   "account_disabled",

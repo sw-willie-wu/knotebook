@@ -7,12 +7,11 @@ const schema = z.object({
   ),
   APP_SECRET: z.string().regex(/^[0-9a-fA-F]{64,}$/, "APP_SECRET 需 ≥64 hex 字元；用 `openssl rand -hex 32` 產生"),
   PUBLIC_URL: z.string().url("PUBLIC_URL 必須是有效的 http/https URL"),
-  BOOTSTRAP_ADMIN_EMAIL: z.string().email().optional().or(z.literal("").transform(() => undefined)),
-  // spec rev 5.7：ADMIN_EMAIL/ADMIN_PASSWORD 這裡故意只驗「有沒有值」（空字串視同未設，
-  // 同 BOOTSTRAP_ADMIN_EMAIL 既有模式），格式（email 合法性）與長度（密碼下限）留到下面
-  // 手動驗證——原因是「兩者必須成對」與「密碼太短」都需要在單一 Error 訊息裡講清楚是哪個
-  // 條件失敗，塞進 zod schema 本身的錯誤聚合格式反而不利閱讀（PUBLIC_URL 的 scheme 檢查
-  // 也是同一套手動驗證風格，見下方）。
+  // spec rev 5.7 / §14.2：ADMIN_EMAIL/ADMIN_PASSWORD 是實例初始化的唯一（env-only）
+  // 管道——這裡故意只驗「有沒有值」（空字串視同未設），格式（email 合法性）與長度
+  // （密碼下限）留到下面手動驗證——原因是「兩者必須成對」與「密碼太短」都需要在單一
+  // Error 訊息裡講清楚是哪個條件失敗，塞進 zod schema 本身的錯誤聚合格式反而不利閱讀
+  // （PUBLIC_URL 的 scheme 檢查也是同一套手動驗證風格，見下方）。
   // `.min(1)` 而非裸 `z.string()`：讓空字串在第一個分支就驗證失敗，才會落到後面
   // `z.literal("")` 那個分支正規化成 undefined——裸 `z.string()` 連空字串都算合法，
   // 空字串會直接留在第一分支變成值為 "" 的已設欄位，不會被當成「未設」處理。
@@ -25,11 +24,10 @@ export interface AppConfig {
   publicUrl: URL;
   cookieSecure: boolean;
   insecureHttpWarning: boolean;
-  bootstrapAdminEmail?: string;
-  /** env bootstrap admin（spec rev 5.7）：兩者必為同時存在或同時不存在（見下方 loadConfig
-   * 的 fail-fast 檢查），這兩個欄位永遠同時 defined 或同時 undefined，不會半套。
-   * 是否真的據此建立帳號、以及「僅首次初始化生效」的判斷，交給執行期的
-   * `SetupState.init`（見 `auth/setup.ts`）——loadConfig 本身不碰 DB。 */
+  /** env bootstrap admin（spec rev 5.7 / §14.2）：兩者必為同時存在或同時不存在（見下方
+   * loadConfig 的 fail-fast 檢查），這兩個欄位永遠同時 defined 或同時 undefined，不會
+   * 半套。是否真的據此建立帳號、以及「僅首次初始化生效」的判斷，交給執行期的
+   * `initializeInstance`（見 `auth/bootstrap.ts`）——loadConfig 本身不碰 DB。 */
   adminEmail?: string;
   adminPassword?: string;
 }
@@ -47,7 +45,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
   const insecureHttpWarning = publicUrl.protocol === "http:" && !isLocalHttp;
 
   // spec rev 5.7：ADMIN_EMAIL/ADMIN_PASSWORD 只設其中一個 → 半套設定必為誤設，
-  // 啟動時 fail-fast（不像 BOOTSTRAP_ADMIN_EMAIL 那樣是獨立可選欄位——這兩個是成對欄位）。
+  // 啟動時 fail-fast（兩者是成對欄位，不像一般獨立可選欄位）。
   const adminEmail = r.data.ADMIN_EMAIL;
   const adminPassword = r.data.ADMIN_PASSWORD;
   if ((adminEmail === undefined) !== (adminPassword === undefined)) {
@@ -56,8 +54,8 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     );
   }
   if (adminEmail !== undefined && adminPassword !== undefined) {
-    // 順序：密碼長度優先於 email 格式（比照 routes/setup.ts 的內容驗證順序慣例，
-    // 雖然這裡兩者都是 fail-fast，順序本身不影響行為，只是維持一致的檢查習慣）。
+    // 順序：密碼長度優先於 email 格式（雖然這裡兩者都是 fail-fast，順序本身不影響
+    // 行為，只是維持一致的檢查習慣）。
     if (adminPassword.length < MIN_PASSWORD_LENGTH) {
       throw new Error(`設定錯誤：ADMIN_PASSWORD 至少需要 ${MIN_PASSWORD_LENGTH} 字元`);
     }
@@ -68,6 +66,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
   }
 
   return { databaseUrl: r.data.DATABASE_URL, appSecret: r.data.APP_SECRET, publicUrl,
-           cookieSecure: publicUrl.protocol === "https:", insecureHttpWarning, bootstrapAdminEmail: r.data.BOOTSTRAP_ADMIN_EMAIL,
+           cookieSecure: publicUrl.protocol === "https:", insecureHttpWarning,
            adminEmail, adminPassword };
 }

@@ -16,17 +16,6 @@ describe("loadConfig", () => {
       insecureHttpWarning: false,
     });
   });
-  it("完整物件回傳 - 含 bootstrapAdminEmail", () => {
-    const config = loadConfig({ ...valid, BOOTSTRAP_ADMIN_EMAIL: "admin@example.com" });
-    expect(config).toEqual({
-      databaseUrl: "postgres://u:p@localhost:5432/db",
-      appSecret: "a".repeat(64),
-      publicUrl: new URL("https://notes.example.com"),
-      cookieSecure: true,
-      insecureHttpWarning: false,
-      bootstrapAdminEmail: "admin@example.com",
-    });
-  });
   it("APP_SECRET 太短 → throw 含 openssl 指引", () => {
     expect(() => loadConfig({ ...valid, APP_SECRET: "short" })).toThrow(/openssl rand -hex 32/);
   });
@@ -48,11 +37,6 @@ describe("loadConfig", () => {
   it("無 scheme → throw", () => {
     expect(() => loadConfig({ ...valid, PUBLIC_URL: "localhost:3000" })).toThrow(/http\/https/);
   });
-  it("空字串 BOOTSTRAP_ADMIN_EMAIL → 視同未設", () => {
-    const config = loadConfig({ ...valid, BOOTSTRAP_ADMIN_EMAIL: "" });
-    expect(config.bootstrapAdminEmail).toBeUndefined();
-  });
-
   describe("ADMIN_EMAIL / ADMIN_PASSWORD（env bootstrap admin，spec rev 5.7）", () => {
     it("皆未設 → 通過，adminEmail/adminPassword 皆 undefined", () => {
       const config = loadConfig(valid);

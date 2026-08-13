@@ -8,8 +8,6 @@ import { verifySession, type GateUser, type UserGate } from "./auth/session.js";
 import type { LoginThrottle } from "./auth/rate-limit.js";
 import type { CollabHooks } from "./collab/hooks.js";
 import type { CollabServer } from "./collab/server.js";
-import type { SetupState } from "./auth/setup.js";
-import { setupRoutes } from "./routes/setup.js";
 import { authRoutes } from "./routes/auth.js";
 import { notesRoutes } from "./routes/notes.js";
 import type { WriteNoteLinksHooks } from "./notes/links.js";
@@ -53,7 +51,6 @@ export interface AppDeps {
    * WebSocket upgrade handler 掛上本 app 的底層 http server。
    */
   collab?: CollabServer;
-  setupState: SetupState;
   /**
    * per-user 固定視窗節流器（Task 4：collab-token；Task 8：slug PATCH；Task 10b：
    * uploads）。**選配**：`index.ts` 的 `AppDeps` 物件字面值不在 Task 4 的 Files 內，
@@ -100,9 +97,10 @@ export interface AppDeps {
 
 export interface BuildAppOptions {
   /**
-   * 覆寫 fastify logger 設定。預設 true——production（`src/index.ts`）需要它印出
-   * Task 8 `SetupState.init` 的 Setup token（第三輪審查附錄事項 7）。測試環境
-   * （`test/helpers.ts` 的 `buildTestApp`）預設關閉以降低雜訊，可再覆寫回開。
+   * 覆寫 fastify logger 設定。預設 true——`Fastify({ logger })` 的全域 request
+   * logging（production 部署需要它）。測試環境（`test/helpers.ts` 的
+   * `buildTestApp`/`buildCollabTestApp`）每支整合測試預設關閉（`{ logger: false }`）
+   * 以降低雜訊，可再覆寫回開（例如要除錯某個測試的實際請求日誌時）。
    */
   logger?: boolean;
   /**
@@ -340,7 +338,6 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
 
   app.get("/healthz", async () => ({ ok: true }));
 
-  void app.register(setupRoutes({ db: deps.db, config: deps.config, setupState: deps.setupState }));
   void app.register(
     authRoutes({ db: deps.db, config: deps.config, gate: deps.gate, throttle: deps.throttle, collabHooks: deps.collabHooks })
   );
