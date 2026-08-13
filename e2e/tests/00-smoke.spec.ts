@@ -16,5 +16,5 @@ test("/login 渲染登入表單", async ({ page }) => {
   await page.goto("/login");
   await expect(page.locator("#login-email")).toBeVisible();
   await expect(page.locator("#login-password")).toBeVisible();
-  await expect(page.getByRole("button", { name: /.+/ }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
 });
