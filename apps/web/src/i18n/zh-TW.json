@@ -93,7 +93,8 @@
     "password": "密碼",
     "submit": "登入",
     "submitting": "登入中…",
-    "retryAfter": "請在 {{seconds}} 秒後再試一次。"
+    "retryAfter": "請在 {{seconds}} 秒後再試一次。",
+    "sso": "使用 SSO 登入"
   },
   "changePassword": {
     "title": "修改密碼",
@@ -155,6 +156,9 @@
       "account": "帳號",
       "users": "使用者",
       "ai": "AI"
+    },
+    "account": {
+      "ssoOnly": "此帳號透過 SSO 登入"
     },
     "ai": {
       "title": "AI 供應商與動作",

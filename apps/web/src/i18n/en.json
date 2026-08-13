@@ -93,7 +93,8 @@
     "password": "Password",
     "submit": "Sign in",
     "submitting": "Signing in…",
-    "retryAfter": "Try again in {{seconds}}s."
+    "retryAfter": "Try again in {{seconds}}s.",
+    "sso": "Continue with SSO"
   },
   "changePassword": {
     "title": "Change your password",
@@ -155,6 +156,9 @@
       "account": "Account",
       "users": "Users",
       "ai": "AI"
+    },
+    "account": {
+      "ssoOnly": "This account signs in with SSO."
     },
     "ai": {
       "title": "AI providers & actions",
