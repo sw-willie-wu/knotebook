@@ -51,7 +51,7 @@ export async function createNote(page: Page, title: string): Promise<void> {
   await titleInput.blur();
 
   // 等編輯器（BlockNote + Hocuspocus 共編連線）真的掛上去再把控制權交還呼叫端——
-  // 呼叫端緊接著通常就要打字，編輯器还沒 mount 會直接找不到 contenteditable 節點。
+  // 呼叫端緊接著通常就要打字，編輯器還沒 mount 會直接找不到 contenteditable 節點。
   await page.locator('[data-testid="note-editor"] [contenteditable="true"]').first().waitFor({ timeout: 15_000 });
 }
 

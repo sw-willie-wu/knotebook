@@ -3,9 +3,13 @@
 All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-Knotebook is preparing its first versioned release (v0.1.0); until it ships, everything to date is tracked under [Unreleased].
+Knotebook follows Keep a Changelog conventions: unreleased work accumulates under [Unreleased] and moves into a dated version section once it ships. The first release is v0.1.0.
 
 ## [Unreleased]
+
+_Nothing yet._
+
+## [0.1.0] - 2026-08-14
 
 ### Added
 

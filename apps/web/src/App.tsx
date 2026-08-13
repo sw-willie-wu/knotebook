@@ -16,9 +16,10 @@ import { SettingsAiSection } from "./settings/SettingsAiSection";
  * modal-over-background 機制那段）：
  *
  * - **主樹**：render 背景頁，吃 `<Routes location={state?.backgroundLocation ?? location}>`
- *   ——帶 `location` prop 的 `<Routes>` 會覆寫 React Router 的 `LocationContext`，
- *   主樹底下 `RequireAuth`/`ChangePasswordGate`（guards.tsx 內部都用
- *   `useLocation()`）因此讀到**背景** location，不是瀏覽器目前真實的 `/settings/*`
+ *   ——帶 `location` prop 的 `<Routes>` 會覆寫 React Router 的 `LocationContext`；
+ *   guards.tsx 本身不讀 location（只 import `Navigate`/`Outlet`），但主樹底下的
+ *   route matching 與 `<Navigate>` 解析都是吃這個被覆寫後的 router context，
+ *   因此仍然是**背景** location 生效，不是瀏覽器目前真實的 `/settings/*`
  *   網址——這個相依是「開設定時背景頁繼續照它本來的路徑渲染」成立的前提，
  *   **改動 guard 或這段 location 邏輯前務必先確認沒有破壞這個相依**。
  * - **第二棵樹**：只含 `/settings/*`，吃真實 location（不帶 `location` prop）；

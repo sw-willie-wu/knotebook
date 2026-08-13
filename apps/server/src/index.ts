@@ -73,7 +73,7 @@ async function main(): Promise<void> {
   // 同時 defined 或同時 undefined，這裡只是把 AppConfig 的兩個扁平欄位組回
   // `initializeInstance` 要的 envAdmin 物件形狀。未初始化且無 envAdmin 時
   // `initializeInstance` 會 throw（可行動訊息）——這裡 catch 後印錯 + exit，此呼叫點
-  // 在 `buildApp()` 之前，app 尚未存在，不可寫 `app.log`（TDZ）；與下方 migration 失敗
+  // 在 `buildApp()` 之前，app 尚未存在，不可寫 `app.log`（TDZ）；與上方 migration 失敗
   // 處置同形。
   try {
     await initializeInstance(

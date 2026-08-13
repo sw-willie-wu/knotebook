@@ -22,7 +22,7 @@ interface AppShellProps {
  * `canonicalNotePath`（NoteDto.slug 此時必為 `null`，會落在 vanity-slug+id 或純
  * id 那兩態——見 `canonicalNotePath` 的說明）；失敗則跟 `NoteList` 刪除鈕同一套
  * 錯誤處理慣例：ApiFail → `errors.<code>`、否則 `errors.fallback`，用 toast 顯示
- * （不像 LoginPage 用行內 `errorMessage` state——這裡沒有表單可以掛错误文案）。
+ * （不像 LoginPage 用行內 `errorMessage` state——這裡沒有表單可以掛錯誤文案）。
  */
 export function AppShell({ children }: AppShellProps) {
   const { t } = useTranslation();

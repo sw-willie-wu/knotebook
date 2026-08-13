@@ -78,7 +78,7 @@ describe("LoginPage（Plan 5 Task 10：SSO 入口＋?error= 映射）", () => {
     await waitFor(() => expect(screen.getByRole("heading", { name: "Sign in" })).toBeInTheDocument());
     // post-settle 訊號（fix round 1 NIT-5）：不能只靠「fetchMock 被呼叫過」就斷言無
     // SSO 鈕——那只證明請求已發出，不保證回應已解析、component 已依 `{enabled:false}`
-    // re-render 完成（若真的漏接、之後才补一顆連結，這種只驗證「呼叫過」的寫法還是會
+    // re-render 完成（若真的漏接、之後才補一顆連結，這種只驗證「呼叫過」的寫法還是會
     // 誤判通過）。改成等 query cache 裡真的寫進已解析的資料，才是貨真價實的 settle
     // 訊號。
     await waitFor(() => expect(queryClient.getQueryData(["auth-config"])).toEqual({ oidc: { enabled: false } }));
