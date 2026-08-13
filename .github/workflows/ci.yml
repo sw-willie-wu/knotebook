@@ -4,6 +4,7 @@ on:
   push:
     branches: [master, main, "dev/**"]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -63,3 +64,48 @@ jobs:
 
       - name: Test (unit + integration)
         run: pnpm test
+
+  # 此 job 在 PR 上恆 skipped——絕不可加入 main ruleset 的 required checks（加了每個 PR 永遠等不到綠）
+  # 觸發＝push main 或手動 dispatch
+  e2e:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Update corepack, enable, and prepare pnpm
+        run: npm i -g corepack@latest && corepack enable && corepack prepare pnpm@10.14.0 --activate
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check docker compose version
+        run: docker compose version
+
+      - name: Start compose stack (e2e overlay)
+        run: docker compose -p knotebook-e2e -f docker-compose.yml -f docker-compose.e2e.yml up --build --wait --wait-timeout 300
+
+      - name: Install Playwright browsers
+        run: pnpm --filter @knotebook/e2e exec playwright install --with-deps chromium
+
+      - name: Run e2e tests
+        run: pnpm --filter @knotebook/e2e run test:e2e
+
+      - name: Dump compose logs on failure
+        if: failure()
+        run: docker compose -p knotebook-e2e -f docker-compose.yml -f docker-compose.e2e.yml logs > compose-logs.txt
+
+      - name: Upload e2e failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-failure
+          path: |
+            e2e/test-results/
+            compose-logs.txt
