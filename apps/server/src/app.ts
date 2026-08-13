@@ -381,7 +381,10 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   // 未設時 `deps.oidc` 無論是否傳值都不會被用到（`oidcRoutes` 的第一個分支已經用
   // `config.oidc === undefined` 短路）。
   const oidcRuntime = deps.oidc ?? (deps.config.oidc ? createOidcRuntime(deps.config.oidc) : undefined);
-  void app.register(oidcRoutes({ config: deps.config, runtime: oidcRuntime, limiters: { oidc: limiters.oidc } }));
+  // Task 9：callback 需要 db（帳號解析交易）與 gate（連結/建帳/清 mustChangePassword
+  // 後 invalidate 快取）——login 半邊不需要這兩個，但兩端點共用同一個 register 函式，
+  // deps 一併傳入。
+  void app.register(oidcRoutes({ config: deps.config, db: deps.db, gate: deps.gate, runtime: oidcRuntime, limiters: { oidc: limiters.oidc } }));
 
   void app.register(
     notesRoutes({

@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { SignJWT, exportJWK, generateKeyPair } from "jose";
 import type { CustomFetch } from "openid-client";
 
@@ -35,15 +35,22 @@ export interface FakeIdp {
   omitFromMetadata(keys: FakeIdpOmittableMetadataKey[]): void;
   /** id_token claims 中省略指定欄位；傳空陣列即還原。 */
   omitFromIdToken(keys: FakeIdpOmittableIdTokenKey[]): void;
+  /**
+   * 下一次 `/userinfo` 回應以此覆寫（審查 fix round 1 MINOR-1：讓 ID token 與
+   * userinfo 的 claims 可以刻意分歧，供「ID token 有值者為準」的合併釘測試使用）——
+   * 疊在 `setNextLogin` 預置的 claims 之上（只換掉這裡指定的欄位），一次性、消費即
+   * 還原（比照 `failNext` 慣例，不留可能串到別次流程的殘留狀態）。
+   */
+  overrideNextUserinfo(claims: Partial<FakeIdpClaims>): void;
   counts: { discovery: number; token: number; userinfo: number };
 }
 
 interface AuthorizedCode {
   claims: FakeIdpClaims;
   nonce: string;
-  /** Task 9 用（PKCE 綁定釘）——本 task 未消費，`authorize()` 契約要求記錄。 */
+  /** token endpoint 於交換時驗證（審查 fix round 1 MAJOR-2：PKCE 綁定釘）。 */
   codeChallenge: string;
-  /** Task 9 用（redirect_uri 綁定釘）——本 task 未消費，`authorize()` 契約要求記錄。 */
+  /** token endpoint 於交換時驗證（審查 fix round 1 MAJOR-1：redirect_uri 綁定釘）。 */
   redirectUri: string | null;
 }
 
@@ -73,6 +80,7 @@ export function createFakeIdp(issuerUrl: string): FakeIdp {
   let failTarget: FakeIdpFailTarget | undefined;
   let omittedMetadataKeys = new Set<FakeIdpOmittableMetadataKey>();
   let omittedIdTokenKeys = new Set<FakeIdpOmittableIdTokenKey>();
+  let userinfoOverride: Partial<FakeIdpClaims> | undefined;
 
   const counts = { discovery: 0, token: 0, userinfo: 0 };
 
@@ -119,6 +127,10 @@ export function createFakeIdp(issuerUrl: string): FakeIdp {
     omittedIdTokenKeys = new Set(keys);
   }
 
+  function overrideNextUserinfo(claims: Partial<FakeIdpClaims>): void {
+    userinfoOverride = claims;
+  }
+
   const fetchImpl: CustomFetch = async (url, options) => {
     const path = new URL(url).pathname;
 
@@ -156,6 +168,26 @@ export function createFakeIdp(issuerUrl: string): FakeIdp {
       }
       // 一次性消費：同一個 code 二次使用回 400。
       authorizedCodes.delete(code);
+
+      // Task 9 審查 fix round 1 MAJOR-1（redirect_uri 綁定釘）：token request 送的
+      // redirect_uri 必須與 authorize() 記錄的（login 302 的 authorize URL 上那個）
+      // 逐字元相同——真實 IdP 的既定行為（RFC 6749 §4.1.3）。callback 端若誤用
+      // `request.host`/`request.protocol` 組 currentUrl（而非 `oidcRedirectUri(config)`）
+      // 會在這裡露餡：openid-client 從 currentUrl 重新推導出的 redirect_uri 會跟
+      // login 送出的不同，交換必須失敗，不能悄悄放行。
+      const redirectUri = params.get("redirect_uri");
+      if (redirectUri !== record.redirectUri) {
+        return jsonResponse({ error: "invalid_grant", error_description: "redirect_uri mismatch" }, 400);
+      }
+
+      // Task 9 審查 fix round 1 MAJOR-2（PKCE 綁定釘）：驗 code_verifier 雜湊後確實
+      // 等於 authorize() 記錄的 code_challenge（S256）——callback 端若漏傳或傳錯
+      // `pkceCodeVerifier`（例如漏帶 unseal 出的 state payload）會在這裡露餡。
+      const codeVerifier = params.get("code_verifier");
+      const expectedChallenge = codeVerifier ? createHash("sha256").update(codeVerifier).digest("base64url") : undefined;
+      if (expectedChallenge !== record.codeChallenge) {
+        return jsonResponse({ error: "invalid_grant", error_description: "PKCE code_verifier mismatch" }, 400);
+      }
 
       const { privateKey } = await keyPairPromise;
       const idTokenClaims: Record<string, unknown> = { sub: record.claims.sub };
@@ -206,10 +238,14 @@ export function createFakeIdp(issuerUrl: string): FakeIdp {
       if (!claims) {
         return jsonResponse({ error: "invalid_token" }, 401);
       }
-      const body: Record<string, unknown> = { sub: claims.sub };
-      if (claims.email !== undefined) body.email = claims.email;
-      if (claims.email_verified !== undefined) body.email_verified = claims.email_verified;
-      if (claims.name !== undefined) body.name = claims.name;
+      // MINOR-1：覆寫疊在預置 claims 之上、一次性消費——讓這次 userinfo 回應能刻意
+      // 與 ID token 分歧。
+      const effective: FakeIdpClaims = userinfoOverride ? { ...claims, ...userinfoOverride } : claims;
+      userinfoOverride = undefined;
+      const body: Record<string, unknown> = { sub: effective.sub };
+      if (effective.email !== undefined) body.email = effective.email;
+      if (effective.email_verified !== undefined) body.email_verified = effective.email_verified;
+      if (effective.name !== undefined) body.name = effective.name;
       return jsonResponse(body);
     }
 
@@ -222,5 +258,5 @@ export function createFakeIdp(issuerUrl: string): FakeIdp {
     return jsonResponse({ error: "not_found" }, 404);
   };
 
-  return { fetch: fetchImpl, setNextLogin, authorize, failNext, omitFromMetadata, omitFromIdToken, counts };
+  return { fetch: fetchImpl, setNextLogin, authorize, failNext, omitFromMetadata, omitFromIdToken, overrideNextUserinfo, counts };
 }
