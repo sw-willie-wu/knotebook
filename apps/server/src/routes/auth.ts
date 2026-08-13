@@ -48,6 +48,12 @@ export interface AuthRouteDeps {
  */
 export function authRoutes(deps: AuthRouteDeps) {
   return async function register(app: FastifyInstance): Promise<void> {
+    // 免認證（Plan 5 §5）：登入頁在使用者輸入帳密之前就要知道「有沒有 SSO 可用」，
+    // 這條路由必須在未登入狀態下也能打。GET 不受 app.ts 的 JSON CSRF hook 影響
+    // （該 hook 只管 POST/PUT/PATCH/DELETE，見 CHANGE_METHODS），不需要額外豁免。
+    // 只曝光布林旗標，不回傳 issuerUrl/clientId 等設定細節。
+    app.get("/api/auth/config", async () => ({ oidc: { enabled: deps.config.oidc !== undefined } }));
+
     app.post("/api/auth/login", async (request, reply) => {
       const parsed = loginBodySchema.safeParse(request.body);
       if (!parsed.success) {

@@ -43,6 +43,17 @@ async function main(): Promise<void> {
     );
   }
 
+  // Plan 5 §5：OIDC issuer 用 http:// 是可行但不建議的拓撲（例如內網自架 IdP）——
+  // 印一次警告，不擋啟動（決定權留給維運者，同 insecureHttpWarning 那條的精神）。
+  // 刻意不落 config 欄位（見 config.ts 的 AppConfig.oidc 註解，二輪 MINOR-6）——
+  // 這裡直接對 `config.oidc?.issuerUrl` 判斷。
+  if (config.oidc?.issuerUrl.startsWith("http:")) {
+    logger.warn(
+      { issuerUrl: config.oidc.issuerUrl },
+      "SECURITY WARNING: OIDC_ISSUER_URL uses plain http — tokens and claims travel in cleartext between this server and the identity provider"
+    );
+  }
+
   const pool = new Pool({ connectionString: config.databaseUrl });
   const db = createDb(pool);
 

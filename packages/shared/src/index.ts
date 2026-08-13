@@ -26,6 +26,13 @@ export interface UserDto {
  * web 端表單前端先驗用的唯一真相，兩邊刻意保持同一個數字（12）。 */
 export const MIN_PASSWORD_LENGTH = 12;
 
+/** `GET /api/auth/config` 的回應形狀（Plan 5 §5，免認證）：web 端登入頁用 `oidc.enabled`
+ * 決定是否顯示「用 SSO 登入」按鈕。刻意只曝光布林旗標——不外洩 issuer/clientId 等設定
+ * 細節（那些是後端與 IdP 之間的事，client 只需要知道「這個功能有沒有開」）。 */
+export interface AuthConfigDto {
+  oidc: { enabled: boolean };
+}
+
 export interface NoteDto {
   id: string;
   title: string;

@@ -61,6 +61,27 @@ function loginPayload(email: string, password: string) {
   return { email, password };
 }
 
+describe("GET /api/auth/config", () => {
+  it("免認證可打；未設 OIDC → { oidc: { enabled: false } }", async () => {
+    const { app } = await buildTestApp();
+    const res = await app.inject({ method: "GET", url: "/api/auth/config" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ oidc: { enabled: false } });
+  });
+
+  it("已設 OIDC 三件組 → { oidc: { enabled: true } }", async () => {
+    const { app } = await buildTestApp({
+      config: {
+        ...testConfig,
+        oidc: { issuerUrl: "https://idp.example.com", clientId: "abc", clientSecret: "s" },
+      },
+    });
+    const res = await app.inject({ method: "GET", url: "/api/auth/config" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ oidc: { enabled: true } });
+  });
+});
+
 describe("POST /api/auth/login", () => {
   it("正確帳密 → 200 + session cookie，且該 cookie 打 me 回傳正確內容", async () => {
     const { app, db } = await buildTestApp();
