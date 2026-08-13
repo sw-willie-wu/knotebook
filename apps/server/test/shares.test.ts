@@ -263,6 +263,25 @@ describe("PUT /api/notes/:id/shares", () => {
     expect(res.json()).toMatchObject({ error: { code: "cannot_share_with_self" } });
   });
 
+  it("Mixed-Case email 分享 → 命中（spec §14.3 讀取端 lower() 對稱比對）", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-ps8@example.com" });
+    const target = await insertUser(db, { email: "target-ps8@example.com", displayName: "Target Eight" });
+    const ownerCookie = await cookieFor(owner.id);
+
+    const createRes = await app.inject({ method: "POST", url: "/api/notes", cookies: { [SESSION_COOKIE]: ownerCookie }, payload: {} });
+    const note = createRes.json();
+
+    const putRes = await app.inject({
+      method: "PUT",
+      url: `/api/notes/${note.id}/shares`,
+      cookies: { [SESSION_COOKIE]: ownerCookie },
+      payload: { email: "TarGET-ps8@Example.COM", role: "viewer" },
+    });
+    expect(putRes.statusCode).toBe(200);
+    expect(putRes.json()).toEqual({ userId: target.id, email: "target-ps8@example.com", displayName: "Target Eight", role: "viewer" });
+  });
+
   it("不存在 email → 404 user_not_found", async () => {
     const { app, db } = await buildTestApp();
     const owner = await insertUser(db, { email: "owner-ps6@example.com" });

@@ -1,3 +1,4 @@
+import { normalizeEmail } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
 import { instanceSetup, users } from "../db/schema.js";
 import { hashPassword } from "./password.js";
@@ -29,11 +30,15 @@ export async function initializeInstance(db: Db, envAdmin?: EnvAdminBootstrap): 
     );
   }
 
+  // 寫入端正規化（spec §14.3 單一漏斗）：與 admin-users.ts 建帳、routes/auth.ts 讀取
+  // 比對共用同一套正規化規則，displayName 亦從正規化後的值切，避免大寫 env
+  // 造成同一帳號在「查詢比對用小寫、顯示用原始大小寫殘留」兩套來源不一致。
+  const email = normalizeEmail(envAdmin.email);
   const passwordHash = await hashPassword(envAdmin.password);
-  const displayName = envAdmin.email.split("@")[0] || envAdmin.email;
+  const displayName = email.split("@")[0] || email;
   await db.transaction(async tx => {
     const [setupRow] = await tx.insert(instanceSetup).values({ singleton: true }).onConflictDoNothing().returning();
     if (!setupRow) return; // 已有人完成——不重複建立
-    await tx.insert(users).values({ email: envAdmin.email, passwordHash, displayName, isAdmin: true, mustChangePassword: true });
+    await tx.insert(users).values({ email, passwordHash, displayName, isAdmin: true, mustChangePassword: true });
   });
 }

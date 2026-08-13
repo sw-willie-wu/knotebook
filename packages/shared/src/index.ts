@@ -166,6 +166,12 @@ export interface CollabTokenClaims {
   tv: number;
 }
 
+/** email 的單一漏斗（spec §14.3）：所有建帳寫入與所有 email 比對讀取共用；OIDC claims
+ * 亦過此。 */
+export function normalizeEmail(input: string): string {
+  return input.trim().toLowerCase();
+}
+
 const SLUG_CHARSET_RE = /^[\p{L}\p{N}-]+$/u;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const UUID_SUFFIX_RE = /-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

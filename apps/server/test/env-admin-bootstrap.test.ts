@@ -67,6 +67,15 @@ describe("ADMIN_EMAIL/ADMIN_PASSWORD env bootstrap admin（spec rev 5.7 / §14.2
     expect(setupRows).toHaveLength(1);
   });
 
+  it("大寫 ADMIN_EMAIL → DB 存小寫（spec §14.3 單一漏斗）", async () => {
+    const { db } = await freshDb();
+    await initializeInstance(db, { email: "BOSS-UPPER@Example.COM", password: "correct-horse-battery" });
+
+    const [dbUser] = await db.select().from(users).where(eq(users.email, "boss-upper@example.com"));
+    expect(dbUser).toBeDefined();
+    expect(dbUser.email).toBe("boss-upper@example.com");
+  });
+
   it("已初始化的 DB（既有 admin）+ 雙 env → env 完全被忽略，不建立新帳號，既有帳號不變", async () => {
     const { db } = await freshDb();
     await db.insert(instanceSetup).values({ singleton: true });
