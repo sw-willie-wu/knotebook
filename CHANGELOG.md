@@ -3,16 +3,16 @@
 All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-Knotebook has not yet made a versioned release; everything to date is tracked under [Unreleased].
+Knotebook is preparing its first versioned release (v0.1.0); until it ships, everything to date is tracked under [Unreleased].
 
 ## [Unreleased]
 
 ### Added
 
 **Server foundation & auth**
-- Password-based authentication: one-time setup flow with atomic first-admin creation, session cookies (JWT-backed), login/logout, self-service password change, and login rate limiting with exponential backoff/lockout.
+- Password-based authentication: environment-variable admin bootstrap (`ADMIN_EMAIL`/`ADMIN_PASSWORD`) that atomically creates the first admin account at startup and forces a password change on first login, plus session cookies (JWT-backed), login/logout, self-service password change, and login rate limiting with exponential backoff/lockout.
+- OIDC/SSO login: `GET /api/auth/oidc/login` and `GET /api/auth/oidc/callback` implement the authorization-code + PKCE flow against any OpenID Connect Discovery-compatible identity provider, auto-provisioning new accounts and linking to existing password accounts on a verified email, gated by a per-IP rate limiter; `GET /api/auth/config` lets the client discover whether it's enabled.
 - Notes CRUD API with owner/editor/viewer sharing and role-based permissions, and admin user management (create, disable, enable, promote).
-- Environment-variable admin bootstrap (`ADMIN_EMAIL`/`ADMIN_PASSWORD`) that creates the first admin account at startup and forces a password change on first login.
 - Docker Compose deployment (`app` + Postgres `db`) with a production build, a persistent `uploads` volume, and a trusted-LAN plain-http deployment mode with a loud startup warning.
 
 **Collaborative editing & sharing revocation**
@@ -43,6 +43,12 @@ Knotebook has not yet made a versioned release; everything to date is tracked un
 
 **Settings modal**
 - Notion-style Settings modal (Account, Users, AI) opened over the background route from the user menu, replacing the standalone `/admin/users` page; shares its password-change form with the standalone `/change-password` page used for forced resets.
+
+**End-to-end testing**
+- Playwright end-to-end test suite (`e2e/`) exercising bootstrap, notes, live collaboration, sharing/revocation, AI quick actions, and OIDC login against a stub identity provider, runnable locally via `scripts/test-e2e.sh` and wired into CI as a dedicated `e2e` job on pushes to `main` (and manual dispatch).
+
+### Changed
+- Email matching (login, sharing, admin user creation, OIDC account linking) is now case-insensitive: every write path normalizes the address to lowercase, and every lookup compares via `lower(email)`. `alice@example.com` and `Alice@example.com` now resolve to the same account.
 
 ### Fixed
 - Hocuspocus setup hash-busy handling and collab hook contract corrections found in final review.
