@@ -4,6 +4,29 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Knotebook</title>
+    <!--
+      深色模式首屏防閃白：React 掛載前就把 .dark 打在 <html> 上。必須是同步的內嵌
+      script（外部檔或 defer 都會晚於首次繪製）。這裡的 storage key 與 class 名是
+      src/theme.tsx 的複製——那邊的 `theme.test.tsx` 有一條測試釘住兩邊一致。
+      localStorage 在某些隱私模式下存取會拋錯，整段包 try/catch，失敗就當淺色。
+    -->
+    <script>
+      (function () {
+        try {
+          var stored = window.localStorage.getItem("knotebook:theme");
+          // 判斷要與 theme.tsx 的 readStoredTheme + resolveTheme 等價：只有 "light"
+          // 與 "dark" 是明確指定，**其餘一律（含壞值／舊值／null）視為 system**。
+          var dark =
+            stored === "dark" ||
+            (stored !== "light" &&
+              window.matchMedia &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          if (dark) document.documentElement.classList.add("dark");
+        } catch (e) {
+          /* 讀不到偏好就維持預設淺色，React 掛載後仍會自行套用。 */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

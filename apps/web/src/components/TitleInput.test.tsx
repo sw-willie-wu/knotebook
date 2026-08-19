@@ -173,6 +173,55 @@ describe("TitleInput", () => {
     expect(input).toHaveValue(NOTE.title);
   });
 
+  /** 送出後停在飛行中的 PATCH：回傳「讓這次請求落地」的函式，讓測試能在往返期間插入輸入。 */
+  function pendingPatch() {
+    let settle!: (response: Response) => void;
+    const fetchMock = vi.fn(() => new Promise<Response>((resolve) => (settle = resolve)));
+    vi.stubGlobal("fetch", fetchMock);
+    return {
+      fetchMock,
+      settle: (response: Response) => settle(response),
+    };
+  }
+
+  it("PATCH 失敗 → 使用者在請求往返期間繼續打的字不被還原蓋掉", async () => {
+    const { fetchMock, settle } = pendingPatch();
+
+    renderTitle();
+    const input = screen.getByLabelText("Note title");
+    fireEvent.change(input, { target: { value: "Nope" } });
+    fireEvent.blur(input); // 送出 "Nope"
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+    fireEvent.change(input, { target: { value: "Still typing" } }); // 請求還在路上時繼續打
+    settle(
+      fakeResponse({
+        ok: false,
+        status: 403,
+        json: () => Promise.resolve({ error: { code: "forbidden", message: "nope" } }),
+      }),
+    );
+
+    await waitFor(() => expect(screen.getByText("You don't have permission to do that.")).toBeInTheDocument());
+    expect(input).toHaveValue("Still typing");
+  });
+
+  it("PATCH 成功 → 使用者在請求往返期間繼續打的字不被伺服器回應蓋掉", async () => {
+    const { fetchMock, settle } = pendingPatch();
+
+    renderTitle();
+    const input = screen.getByLabelText("Note title");
+    fireEvent.change(input, { target: { value: "Saved" } });
+    fireEvent.blur(input);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+    fireEvent.change(input, { target: { value: "Saved and more" } });
+    settle(patchOk("Saved"));
+
+    await waitFor(() => expect(window.location.pathname).toContain("Saved-"));
+    expect(input).toHaveValue("Saved and more");
+  });
+
   it("readOnly（viewer）→ 顯示純文字，沒有輸入框", () => {
     vi.stubGlobal(
       "fetch",

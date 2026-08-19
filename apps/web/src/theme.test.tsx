@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { render, screen, act } from "@testing-library/react";
 import { ThemeProvider, useTheme } from "./theme";
@@ -15,6 +16,55 @@ function Probe() {
       <button onClick={() => setTheme("system")}>system</button>
     </div>
   );
+}
+
+/** 把 index.html <head> 裡那段 pre-hydration 腳本抓出來，在 jsdom 裡以指定的
+ * storage 值與 OS 偏好執行，回傳它是否判定為深色。 */
+function runInlineThemeScript(stored: string | null, prefersDark: boolean): boolean {
+  const html = readFileSync(`${process.cwd()}/index.html`, "utf8");
+  const head = html.slice(html.indexOf("<head>"), html.indexOf("</head>"));
+  const source = head.slice(head.indexOf("<script>") + "<script>".length, head.indexOf("</script>"));
+
+  document.documentElement.classList.remove("dark");
+  window.localStorage.clear();
+  if (stored !== null) window.localStorage.setItem(STORAGE_KEY, stored);
+  const originalMatchMedia = window.matchMedia;
+  window.matchMedia = ((query: string) => ({ matches: prefersDark && query.includes("dark") })) as unknown as typeof window.matchMedia;
+
+  try {
+    new Function(source)();
+    return document.documentElement.classList.contains("dark");
+  } finally {
+    window.matchMedia = originalMatchMedia;
+    document.documentElement.classList.remove("dark");
+  }
+}
+
+/** 同樣的輸入交給真正的 ThemeProvider，回傳它掛載後是否為深色。 */
+function renderThemeProvider(stored: string | null, prefersDark: boolean): boolean {
+  document.documentElement.classList.remove("dark");
+  window.localStorage.clear();
+  if (stored !== null) window.localStorage.setItem(STORAGE_KEY, stored);
+  const originalMatchMedia = window.matchMedia;
+  window.matchMedia = ((query: string) => ({
+    matches: prefersDark && query.includes("dark"),
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  })) as unknown as typeof window.matchMedia;
+
+  try {
+    const view = render(
+      <ThemeProvider>
+        <Probe />
+      </ThemeProvider>,
+    );
+    const dark = document.documentElement.classList.contains("dark");
+    view.unmount();
+    return dark;
+  } finally {
+    window.matchMedia = originalMatchMedia;
+    document.documentElement.classList.remove("dark");
+  }
 }
 
 describe("ThemeProvider / useTheme", () => {
@@ -135,5 +185,33 @@ describe("ThemeProvider / useTheme", () => {
     // React 18+ 在開發模式下對未捕捉的 render error 會多印一次 console.error，
     // 這裡只關心會 throw，用 expect(...).toThrow 已經足夠不需要額外消音。
     expect(() => render(<Bare />)).toThrow(/ThemeProvider/);
+  });
+
+  /**
+   * 首屏的深色底色由 `index.html` 內嵌的同步腳本負責（React 掛載前就要打上 class，
+   * 否則會閃一下白底）。那段腳本無法 import 本檔的常數，只能複製字面值。
+   *
+   * 這條把腳本真的抓出來執行，逐個 storage 值與 `ThemeProvider` 的結果對照：腳本一旦
+   * 與 `readStoredTheme` + `resolveTheme` 不等價（例如把壞值當成淺色而不是 system），
+   * 那些使用者的首屏就會一路閃到 React 掛載為止。
+   */
+  it.each([null, "dark", "light", "system", "", "Dark", "sepia", "auto"])(
+    "pre-hydration 腳本對 storage 值 %o 的判斷與 ThemeProvider 等價（OS 深色與淺色各驗一次）",
+    (stored) => {
+      for (const prefersDark of [false, true]) {
+        expect(runInlineThemeScript(stored, prefersDark)).toBe(renderThemeProvider(stored, prefersDark));
+      }
+    },
+  );
+
+  it("index.html 的 pre-hydration 腳本與 theme.tsx 用同一組 storage key 與 class", () => {
+    // vitest 下的 `import.meta.url` 是 vite 的 http URL，不能餵給 fs——用 cwd
+    // （跑 test 時一律是 apps/web）組路徑。
+    const html = readFileSync(`${process.cwd()}/index.html`, "utf8");
+    const inlineScript = html.slice(html.indexOf("<head>"), html.indexOf("</head>"));
+
+    expect(inlineScript).toContain(STORAGE_KEY);
+    expect(inlineScript).toContain("prefers-color-scheme: dark");
+    expect(inlineScript).toMatch(/classList\.(add|toggle)\(\s*"dark"/);
   });
 });

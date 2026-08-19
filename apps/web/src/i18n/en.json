@@ -1,7 +1,9 @@
 {
   "app": {
     "title": "Knotebook",
-    "loading": "Loading…"
+    "loading": "Loading…",
+    "sessionError": "Couldn't load your session.",
+    "retry": "Try again"
   },
   "home": {
     "title": "Notes",
@@ -33,6 +35,7 @@
     "add": "Add",
     "copyLink": "Copy link",
     "linkCopied": "Link copied to clipboard.",
+    "copyFailed": "Couldn't copy automatically — select the link below and copy it yourself.",
     "customLink": "Custom link",
     "slugPlaceholder": "custom-slug",
     "slugSave": "Save",

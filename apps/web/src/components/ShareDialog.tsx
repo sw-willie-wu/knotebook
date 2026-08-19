@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
 import { canonicalNotePath, normalizeSlug, validateSlug, type NoteDto, type ShareDto, type ShareRole } from "@knotebook/shared";
@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import { Trash } from "@/components/ui/icons";
 import { toast } from "@/components/ui/toast";
+import { copyText } from "@/lib/clipboard";
 
 /** ApiFail → errors.<code>；其餘 → errors.fallback。與 NoteList/TitleInput 同一套對映（各檔各自一份，
  * 是既有慣例——見那兩處的說明，這裡不再重複抽象）。 */
@@ -160,24 +161,58 @@ function SharesSection({ noteId }: { noteId: string }) {
   );
 }
 
-/** 複製 canonical 連結到剪貼簿。 */
+/**
+ * 複製 canonical 連結到剪貼簿。程式化複製兩條路都不可用時（見 `lib/clipboard.ts`），
+ * 就地攤出一個唯讀輸入框讓使用者自己選取——**不能只丟 toast**：Radix 的 toast root
+ * 帶行內 `userSelect: "none"`，而且橫向拖曳會被 swipe-to-dismiss 手勢吃掉，等於看得到
+ * 卻選不起來。
+ */
 function CopyLinkButton({ note }: { note: NoteDto }) {
   const { t } = useTranslation();
+  const [manualUrl, setManualUrl] = useState<string | null>(null);
+  const manualCopyLabelId = useId();
+  const manualInputRef = useRef<HTMLInputElement>(null);
+
+  // 只在網址欄「出現的那一次」自動選取。刻意不用 inline 的 `ref={n => n?.select()}`：
+  // 那個 callback 每次 render 都是新的 identity，React 會重新掛載它而再次 select()，
+  // 而 `select()` 會把焦點移過來——使用者在同一個 dialog 裡打字時會被搶走，按鍵落進
+  // 唯讀欄位等於消失（與本分支修的 TitleInput #10 同一類缺陷）。回頭想再選一次的話，
+  // 下面的 onFocus 已經涵蓋。
+  useEffect(() => {
+    if (manualUrl !== null) manualInputRef.current?.select();
+  }, [manualUrl]);
 
   async function handleCopy(): Promise<void> {
     const url = `${window.location.origin}${canonicalNotePath(note)}`;
-    try {
-      await navigator.clipboard.writeText(url);
+
+    if (await copyText(url)) {
+      setManualUrl(null);
       toast({ title: t("share.linkCopied") });
-    } catch {
-      toast({ title: t("errors.fallback"), variant: "destructive" });
+      return;
     }
+    setManualUrl(url);
   }
 
   return (
-    <Button type="button" variant="secondary" size="sm" onClick={() => void handleCopy()}>
-      {t("share.copyLink")}
-    </Button>
+    <div className="flex flex-col gap-2">
+      <Button type="button" variant="secondary" size="sm" onClick={() => void handleCopy()}>
+        {t("share.copyLink")}
+      </Button>
+      {manualUrl !== null && (
+        <>
+          <p id={manualCopyLabelId} className="text-sm text-muted-foreground">
+            {t("share.copyFailed")}
+          </p>
+          <Input
+            readOnly
+            value={manualUrl}
+            aria-labelledby={manualCopyLabelId}
+            onFocus={(event) => event.currentTarget.select()}
+            ref={manualInputRef}
+          />
+        </>
+      )}
+    </div>
   );
 }
 

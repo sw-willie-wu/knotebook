@@ -40,13 +40,16 @@ const SHARES_URL = `/api/notes/${NOTE.id}/shares`;
 
 function renderDialog(note: NoteDto = NOTE, cacheRef = NOTE.id) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(
+  // 每次都建新的 element（不能重用同一個物件——element identity 相同時 React 會
+  // 直接 bail out，根本不會 re-render，測不到「re-render 時發生什麼」）。
+  const tree = () => (
     <QueryClientProvider client={queryClient}>
       <ShareDialog note={note} cacheRef={cacheRef} />
       <Toaster />
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
-  return queryClient;
+  const view = render(tree());
+  return Object.assign(queryClient, { rerender: () => view.rerender(tree()) });
 }
 
 async function openDialog() {
@@ -374,5 +377,62 @@ describe("ShareDialog", () => {
       expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/notes/My-Note-${NOTE.id}`),
     );
     await waitFor(() => expect(screen.getByText("Link copied to clipboard.")).toBeInTheDocument());
+  });
+
+  it("非 secure context 且 execCommand 也不可用 → toast 把網址攤出來讓使用者自己複製", async () => {
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("navigator", {}); // 明文 http 的區網位址：整支 clipboard API 不存在
+    Object.defineProperty(document, "execCommand", { value: vi.fn(() => false), configurable: true, writable: true });
+
+    renderDialog();
+    await openDialog();
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
+
+    // 退路必須是「可以選取起來複製」的東西。toast 不行：Radix 的 toast root 帶
+    // 行內 `userSelect: "none"`，而且橫向拖曳會被 swipe-to-dismiss 手勢吃掉。
+    const manual = await screen.findByLabelText(
+      "Couldn't copy automatically — select the link below and copy it yourself.",
+    );
+    expect(manual).toHaveValue(`${window.location.origin}/notes/My-Note-${NOTE.id}`);
+    expect(manual).toHaveAttribute("readonly");
+  });
+
+  /**
+   * 手動複製欄出現時要自動選取一次方便複製，但**只有那一次**。`select()` 會把焦點
+   * 移到該元素，所以若每次 re-render 都重跑（例如寫成 inline 的 `ref={n => n?.select()}`——
+   * 每次 render 都是新的 callback identity，React 會重新掛載它），使用者在同一個 dialog
+   * 裡打字時焦點會被搶進這個唯讀欄位，後續按鍵全部落空。這與本分支修的 #10 是同一類缺陷。
+   */
+  it("手動複製欄只在出現時自動選取一次，之後的 re-render 不搶焦點", async () => {
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("navigator", {});
+    Object.defineProperty(document, "execCommand", { value: vi.fn(() => false), configurable: true, writable: true });
+
+    const view = renderDialog();
+    await openDialog();
+    fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
+
+    const manual = await screen.findByLabelText(
+      "Couldn't copy automatically — select the link below and copy it yourself.",
+    );
+    const selectSpy = vi.spyOn(manual as HTMLInputElement, "select");
+
+    // 使用者接著去填共用對象的 email——焦點在那個欄位上。
+    const email = screen.getByLabelText("Email address");
+    email.focus();
+    expect(document.activeElement).toBe(email);
+
+    view.rerender();
+    view.rerender();
+
+    expect(selectSpy).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(email);
   });
 });
