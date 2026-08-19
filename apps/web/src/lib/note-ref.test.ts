@@ -28,6 +28,18 @@ describe("matchesNoteRef", () => {
     }
   });
 
+  it("slug 比對走 normalizeSlug：大寫變體的網址仍認得同一篇", () => {
+    expect(matchesNoteRef("My-Note", withSlug)).toBe(true);
+  });
+
+  it("slug 比對走 normalizeSlug：NFD 變體的網址仍認得同一篇", () => {
+    // slug 存檔時過 normalizeSlug（NFC 合成），但網址可能帶 NFD 分解形式
+    // （macOS 檔名、某些輸入法貼上）——兩者對使用者是同一個字。
+    const accented = { id: ID, slug: "café".normalize("NFC"), title: "Café" };
+
+    expect(matchesNoteRef("café".normalize("NFD"), accented)).toBe(true);
+  });
+
   it("不同筆記不匹配", () => {
     expect(matchesNoteRef("99999999-2222-3333-4444-555555555555", noSlug)).toBe(false);
     expect(matchesNoteRef("other-slug", withSlug)).toBe(false);

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router";
 import "@/i18n";
@@ -68,6 +68,86 @@ function renderChangePasswordGateAt(initialPath: string) {
     </QueryClientProvider>,
   );
 }
+
+/** `/api/auth/me` 回 500——session query 進 error 分支（401 才是「未登入」）。 */
+function mockFetchServerError(): ReturnType<typeof vi.fn> {
+  return vi.fn(() =>
+    Promise.resolve(
+      fakeResponse({
+        ok: false,
+        status: 500,
+        json: () => Promise.resolve({ error: { code: "internal", message: "boom" } }),
+      }),
+    ),
+  );
+}
+
+function renderRequireAuth() {
+  render(
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <MemoryRouter initialEntries={["/"]}>
+        <Routes>
+          <Route path="/login" element={<div>login-page</div>} />
+          <Route element={<RequireAuth />}>
+            <Route path="/*" element={<div>home-page</div>} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
+describe("session query 出錯（非 401）", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("RequireAuth：500 → 顯示錯誤與重試出口，不停在 loading，也不誤導向 /login", async () => {
+    vi.stubGlobal("fetch", mockFetchServerError());
+
+    renderRequireAuth();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument());
+    expect(screen.queryByText("Loading…")).not.toBeInTheDocument();
+    expect(screen.queryByText("login-page")).not.toBeInTheDocument();
+    expect(screen.queryByText("home-page")).not.toBeInTheDocument();
+  });
+
+  it("按下重試 → 重新查 session，這次成功就正常放行", async () => {
+    let failNext = true;
+    const fetchMock = vi.fn(() => {
+      if (failNext) {
+        failNext = false;
+        return Promise.resolve(
+          fakeResponse({ ok: false, status: 500, json: () => Promise.resolve({ error: { code: "internal", message: "boom" } }) }),
+        );
+      }
+      return Promise.resolve(
+        fakeResponse({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              id: "u1",
+              email: "a@example.com",
+              displayName: "Alice",
+              isAdmin: false,
+              mustChangePassword: false,
+              hasPassword: true,
+            }),
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderRequireAuth();
+
+    const retry = await screen.findByRole("button", { name: "Try again" });
+    fireEvent.click(retry);
+
+    await waitFor(() => expect(screen.getByText("home-page")).toBeInTheDocument());
+  });
+});
 
 describe("ChangePasswordGate（spec rev 5.7）", () => {
   afterEach(() => {

@@ -59,6 +59,13 @@ export function TitleInput({ note, readOnly, cacheRef }: TitleInputProps) {
     setValue(note.title);
   }, [note.title]);
 
+  // 請求往返期間使用者可能又打了字。回寫（成功回音或失敗還原）只在「輸入框仍是我們
+  // 送出的那份內容」時才做——否則就是把使用者剛打的字直接抹掉。用 functional update
+  // 讀當下的 value，避免 `save` 的閉包相依帶入 value 而每次輸入都重建。
+  const keepIfUnedited = (submitted: string, next: string): void => {
+    setValue((prev) => (prev.trim() === submitted ? next : prev));
+  };
+
   const mutate = updateNote.mutateAsync;
   const save = useCallback(
     async (next: string): Promise<void> => {
@@ -68,12 +75,12 @@ export function TitleInput({ note, readOnly, cacheRef }: TitleInputProps) {
       try {
         const updated = await mutate({ id: note.id, title: trimmed });
         syncedRef.current = updated.title;
-        setValue(updated.title);
+        keepIfUnedited(trimmed, updated.title);
         queryClient.setQueryData(["note", cacheRef], updated);
         window.history.replaceState(window.history.state, "", canonicalNotePath(updated));
       } catch (err) {
         syncedRef.current = note.title;
-        setValue(note.title);
+        keepIfUnedited(trimmed, note.title);
         const message =
           err instanceof ApiFail ? t(`errors.${err.code}`, { defaultValue: t("errors.fallback") }) : t("errors.fallback");
         toast({ title: message, variant: "destructive" });

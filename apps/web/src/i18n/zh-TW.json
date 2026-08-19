@@ -1,7 +1,9 @@
 {
   "app": {
     "title": "Knotebook",
-    "loading": "載入中…"
+    "loading": "載入中…",
+    "sessionError": "無法載入登入狀態。",
+    "retry": "重試"
   },
   "home": {
     "title": "筆記",
@@ -33,6 +35,7 @@
     "add": "新增",
     "copyLink": "複製連結",
     "linkCopied": "已複製連結。",
+    "copyFailed": "無法自動複製——請選取下面的連結自行複製。",
     "customLink": "自訂連結",
     "slugPlaceholder": "custom-slug",
     "slugSave": "儲存",

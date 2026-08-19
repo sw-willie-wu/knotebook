@@ -375,4 +375,25 @@ describe("ShareDialog", () => {
     );
     await waitFor(() => expect(screen.getByText("Link copied to clipboard.")).toBeInTheDocument());
   });
+
+  it("非 secure context 且 execCommand 也不可用 → toast 把網址攤出來讓使用者自己複製", async () => {
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("navigator", {}); // 明文 http 的區網位址：整支 clipboard API 不存在
+    Object.defineProperty(document, "execCommand", { value: vi.fn(() => false), configurable: true, writable: true });
+
+    renderDialog();
+    await openDialog();
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Couldn't copy automatically — select the link below and copy it yourself."),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.getByText(`${window.location.origin}/notes/My-Note-${NOTE.id}`)).toBeInTheDocument();
+  });
 });

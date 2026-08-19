@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { render, screen, act } from "@testing-library/react";
 import { ThemeProvider, useTheme } from "./theme";
@@ -135,5 +136,21 @@ describe("ThemeProvider / useTheme", () => {
     // React 18+ 在開發模式下對未捕捉的 render error 會多印一次 console.error，
     // 這裡只關心會 throw，用 expect(...).toThrow 已經足夠不需要額外消音。
     expect(() => render(<Bare />)).toThrow(/ThemeProvider/);
+  });
+
+  /**
+   * 首屏的深色底色由 `index.html` 內嵌的同步腳本負責（React 掛載前就要打上 class，
+   * 否則會閃一下白底）。那段腳本無法 import 本檔的常數，只能複製字面值——這條測試
+   * 就是那份複製的釘子：storage key 或 class 名一改而 index.html 沒跟上就會紅。
+   */
+  it("index.html 的 pre-hydration 腳本與 theme.tsx 用同一組 storage key 與 class", () => {
+    // vitest 下的 `import.meta.url` 是 vite 的 http URL，不能餵給 fs——用 cwd
+    // （跑 test 時一律是 apps/web）組路徑。
+    const html = readFileSync(`${process.cwd()}/index.html`, "utf8");
+    const inlineScript = html.slice(html.indexOf("<head>"), html.indexOf("</head>"));
+
+    expect(inlineScript).toContain(STORAGE_KEY);
+    expect(inlineScript).toContain("prefers-color-scheme: dark");
+    expect(inlineScript).toMatch(/classList\.(add|toggle)\(\s*"dark"/);
   });
 });

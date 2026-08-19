@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import { Trash } from "@/components/ui/icons";
 import { toast } from "@/components/ui/toast";
+import { copyText } from "@/lib/clipboard";
 
 /** ApiFail → errors.<code>；其餘 → errors.fallback。與 NoteList/TitleInput 同一套對映（各檔各自一份，
  * 是既有慣例——見那兩處的說明，這裡不再重複抽象）。 */
@@ -166,12 +167,13 @@ function CopyLinkButton({ note }: { note: NoteDto }) {
 
   async function handleCopy(): Promise<void> {
     const url = `${window.location.origin}${canonicalNotePath(note)}`;
-    try {
-      await navigator.clipboard.writeText(url);
+
+    if (await copyText(url)) {
       toast({ title: t("share.linkCopied") });
-    } catch {
-      toast({ title: t("errors.fallback"), variant: "destructive" });
+      return;
     }
+    // 兩條複製路徑都不可用時，把網址攤在 toast 裡讓使用者自己選取——總比只說「失敗」好。
+    toast({ title: t("share.copyFailed"), description: url, variant: "destructive" });
   }
 
   return (
