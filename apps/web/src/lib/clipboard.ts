@@ -31,13 +31,26 @@ function copyViaExecCommand(text: string): boolean {
   textarea.style.top = "-1000px";
   textarea.style.opacity = "0";
 
-  document.body.appendChild(textarea);
+  const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  // ⚠ 掛在哪裡會決定成敗：Radix 的 modal dialog 裝了 document 級 `focusin` 監聽器，
+  // 焦點一落到容器外就同步搶回去。textarea 若掛在 document.body，`select()` 之後焦點
+  // 立刻被奪走，`execCommand("copy")` 在沒有焦點的 textarea 上跑——Chromium 實測仍
+  // 回傳 true 但剪貼簿是空的。掛進焦點所在的 dialog 內就不會觸發那個監聽器。
+  const host = active?.closest('[role="dialog"]') ?? document.body;
+
+  host.appendChild(textarea);
   try {
     textarea.select();
+    // 上面那種「回傳 true 但其實沒複製」的情境，queryCommandEnabled 會誠實回 false
+    // （實測對照過）。瀏覽器沒有這支 API 時就只能信 execCommand 的回傳值。
+    if (typeof document.queryCommandEnabled === "function" && !document.queryCommandEnabled("copy")) {
+      return false;
+    }
     return document.execCommand("copy");
   } catch {
     return false;
   } finally {
     textarea.remove();
+    active?.focus();
   }
 }

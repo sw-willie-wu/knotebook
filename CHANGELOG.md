@@ -16,7 +16,7 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 - A failed session lookup no longer leaves the whole app spinning: when `GET /api/auth/me` fails with anything other than 401, the route guards now show an error with a retry button instead of treating the unresolved session as "still loading" (#7).
 - Sidebar highlighting and delete-navigation now recognise a custom slug regardless of case or Unicode normalisation form, matching how slugs are normalised on save (#8).
 - Editing the note title while a save is in flight no longer loses those keystrokes — neither the server's echo nor the error-path reset overwrites text the user typed after submitting (#10).
-- "Copy link" works again on plain-http deployments: `navigator.clipboard` only exists in a secure context, so the button was inert on the LAN mode documented in `docs/self-hosting.md`. It now falls back to `document.execCommand("copy")`, and if both routes fail the toast shows the URL so it can be copied by hand (#9).
+- "Copy link" works again on plain-http deployments: `navigator.clipboard` only exists in a secure context, so the button was inert on the LAN mode documented in `docs/self-hosting.md`. It now falls back to `document.execCommand("copy")` — copying inside the share dialog rather than at the document body, which a modal focus trap would otherwise defeat — and when neither route can copy, the dialog shows the URL in a read-only field to select by hand (#9).
 - Dark mode no longer flashes a white screen on first paint: `index.html` applies the stored (or system) theme in an inline script before React mounts (#11).
 
 ## [0.1.0] - 2026-08-14

@@ -389,11 +389,12 @@ describe("ShareDialog", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
 
-    await waitFor(() =>
-      expect(
-        screen.getByText("Couldn't copy automatically — select the link below and copy it yourself."),
-      ).toBeInTheDocument(),
+    // 退路必須是「可以選取起來複製」的東西。toast 不行：Radix 的 toast root 帶
+    // 行內 `userSelect: "none"`，而且橫向拖曳會被 swipe-to-dismiss 手勢吃掉。
+    const manual = await screen.findByLabelText(
+      "Couldn't copy automatically — select the link below and copy it yourself.",
     );
-    expect(screen.getByText(`${window.location.origin}/notes/My-Note-${NOTE.id}`)).toBeInTheDocument();
+    expect(manual).toHaveValue(`${window.location.origin}/notes/My-Note-${NOTE.id}`);
+    expect(manual).toHaveAttribute("readonly");
   });
 });

@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useId, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
 import { canonicalNotePath, normalizeSlug, validateSlug, type NoteDto, type ShareDto, type ShareRole } from "@knotebook/shared";
@@ -161,25 +161,48 @@ function SharesSection({ noteId }: { noteId: string }) {
   );
 }
 
-/** 複製 canonical 連結到剪貼簿。 */
+/**
+ * 複製 canonical 連結到剪貼簿。程式化複製兩條路都不可用時（見 `lib/clipboard.ts`），
+ * 就地攤出一個唯讀輸入框讓使用者自己選取——**不能只丟 toast**：Radix 的 toast root
+ * 帶行內 `userSelect: "none"`，而且橫向拖曳會被 swipe-to-dismiss 手勢吃掉，等於看得到
+ * 卻選不起來。
+ */
 function CopyLinkButton({ note }: { note: NoteDto }) {
   const { t } = useTranslation();
+  const [manualUrl, setManualUrl] = useState<string | null>(null);
+  const manualCopyLabelId = useId();
 
   async function handleCopy(): Promise<void> {
     const url = `${window.location.origin}${canonicalNotePath(note)}`;
 
     if (await copyText(url)) {
+      setManualUrl(null);
       toast({ title: t("share.linkCopied") });
       return;
     }
-    // 兩條複製路徑都不可用時，把網址攤在 toast 裡讓使用者自己選取——總比只說「失敗」好。
-    toast({ title: t("share.copyFailed"), description: url, variant: "destructive" });
+    setManualUrl(url);
   }
 
   return (
-    <Button type="button" variant="secondary" size="sm" onClick={() => void handleCopy()}>
-      {t("share.copyLink")}
-    </Button>
+    <div className="flex flex-col gap-2">
+      <Button type="button" variant="secondary" size="sm" onClick={() => void handleCopy()}>
+        {t("share.copyLink")}
+      </Button>
+      {manualUrl !== null && (
+        <>
+          <p id={manualCopyLabelId} className="text-sm text-muted-foreground">
+            {t("share.copyFailed")}
+          </p>
+          <Input
+            readOnly
+            value={manualUrl}
+            aria-labelledby={manualCopyLabelId}
+            onFocus={(event) => event.currentTarget.select()}
+            ref={(node) => node?.select()}
+          />
+        </>
+      )}
+    </div>
   );
 }
 

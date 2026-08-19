@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router";
 import "@/i18n";
@@ -82,9 +82,10 @@ function mockFetchServerError(): ReturnType<typeof vi.fn> {
   );
 }
 
-function renderRequireAuth() {
-  render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+function renderRequireAuth(existingClient?: QueryClient) {
+  const queryClient = existingClient ?? new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const view = render(
+    <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={["/"]}>
         <Routes>
           <Route path="/login" element={<div>login-page</div>} />
@@ -95,6 +96,28 @@ function renderRequireAuth() {
       </MemoryRouter>
     </QueryClientProvider>,
   );
+  return { queryClient, unmount: view.unmount };
+}
+
+const SESSION_USER = {
+  id: "u1",
+  email: "a@example.com",
+  displayName: "Alice",
+  isAdmin: false,
+  mustChangePassword: false,
+  hasPassword: true,
+};
+
+function okSession(): Response {
+  return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(SESSION_USER) });
+}
+
+function serverError(): Response {
+  return fakeResponse({
+    ok: false,
+    status: 500,
+    json: () => Promise.resolve({ error: { code: "internal", message: "boom" } }),
+  });
 }
 
 describe("session query 出錯（非 401）", () => {
@@ -111,6 +134,42 @@ describe("session query 出錯（非 401）", () => {
     expect(screen.queryByText("Loading…")).not.toBeInTheDocument();
     expect(screen.queryByText("login-page")).not.toBeInTheDocument();
     expect(screen.queryByText("home-page")).not.toBeInTheDocument();
+  });
+
+  /**
+   * 錯誤畫面只能用在「完全沒有 session 可用」的情況。已登入之後 session query 仍會
+   * 反覆重查（`main.tsx` 用裸 `new QueryClient()`＝`refetchOnWindowFocus: true` +
+   * `staleTime: 0`），server 重啟或網路抖一下就會讓 `["me"]` 落入 error 狀態，但快取
+   * 裡的 user 還在。
+   *
+   * 實測（v5.101）的兩段語意，這條測試釘的是第二段：
+   * - 失敗 refetch 的**當下**，既有 observer 仍回報 `status:"success"`＋原本的 data；
+   * - 但此時任何**重新掛載**（換路由、開設定 modal——`App.tsx` 兩棵 Routes 樹都掛
+   *   `RequireAuth`）會建立新的 observer，它看到的是 `status:"error"` 且 data 仍在。
+   *
+   * 這時若把整棵樹換成錯誤畫面，代價是卸載 NotePage → `useCollab` 執行
+   * `provider.destroy(); doc.destroy();`，而專案沒有 y-indexeddb，還沒同步出去的編輯
+   * 就永久消失了。有 session 可用就必須沿用。
+   */
+  it("session 在 error 狀態但快取仍有 user → 重新掛載後照常放行，不換成錯誤畫面", async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(okSession()));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const first = renderRequireAuth();
+    await waitFor(() => expect(screen.getByText("home-page")).toBeInTheDocument());
+
+    fetchMock.mockImplementation(() => Promise.resolve(serverError()));
+    await act(async () => {
+      await first.queryClient.refetchQueries({ queryKey: ["me"] });
+    });
+    expect(first.queryClient.getQueryState(["me"])?.status).toBe("error"); // 前提成立
+    first.unmount();
+
+    // 同一個 QueryClient 重新掛載＝新的 observer，看到的是 error + 既有 data。
+    renderRequireAuth(first.queryClient);
+
+    expect(screen.getByText("home-page")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
   });
 
   it("按下重試 → 重新查 session，這次成功就正常放行", async () => {

@@ -14,9 +14,11 @@
       (function () {
         try {
           var stored = window.localStorage.getItem("knotebook:theme");
+          // 判斷要與 theme.tsx 的 readStoredTheme + resolveTheme 等價：只有 "light"
+          // 與 "dark" 是明確指定，**其餘一律（含壞值／舊值／null）視為 system**。
           var dark =
             stored === "dark" ||
-            ((stored === "system" || stored === null) &&
+            (stored !== "light" &&
               window.matchMedia &&
               window.matchMedia("(prefers-color-scheme: dark)").matches);
           if (dark) document.documentElement.classList.add("dark");

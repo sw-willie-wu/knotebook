@@ -38,7 +38,13 @@ function SessionError({ onRetry }: { onRetry: () => void }) {
 function useSessionGate(): { screen: ReactElement | null; user: NonNullable<ReturnType<typeof useSession>["user"]> | null } {
   const { user, query } = useSession();
 
-  if (query.isError) return { screen: <SessionError onRetry={() => void query.refetch()} />, user: null };
+  // 順序重要：只有「連一份可用的 session 都沒有」時才是錯誤終態。session query 進
+  // error 但快取裡仍有 user（server 重啟／網路抖動造成的失敗 refetch，之後又發生
+  // 重新掛載）時必須沿用既有 user 放行——把已登入的樹換掉會卸載 NotePage，
+  // `useCollab` 隨之 `provider.destroy(); doc.destroy();`，還沒同步出去的編輯就沒了。
+  if (query.isError && user === undefined) {
+    return { screen: <SessionError onRetry={() => void query.refetch()} />, user: null };
+  }
   if (user === undefined) return { screen: <FullScreenLoading />, user: null };
   if (user === null) return { screen: <Navigate to="/login" replace />, user: null };
   return { screen: null, user };
