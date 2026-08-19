@@ -47,7 +47,7 @@ function SettingsNavLink({
  * 設定總 modal 外殼（spec §13.4）——第二棵 Routes 樹的 layout route：Radix Dialog
  * 包 `<Outlet/>`，`/settings/account`｜`/settings/users`｜`/settings/ai` 之間切換
  * 是巢狀 route 切換，`<Dialog>`／`<DialogContent>` 本身不隨切換卸載重掛（layout
- * route 的既有語意——比照 `SetupGate`/`ChangePasswordGate` 那些 `<Outlet/>` 元件）。
+ * route 的既有語意——比照 `ChangePasswordGate` 那些 `<Outlet/>` 元件）。
  *
  * 導覽項：帳號（所有人）／使用者／AI（`useSession().user?.isAdmin` 才渲染，同
  * `guards.tsx` 的用法——非 admin 深連結後兩者一樣會被巢狀在下面的 `RequireAdmin`

@@ -168,6 +168,24 @@ describe("POST /api/admin/users", () => {
     expect(row.mustChangePassword).toBe(true);
   });
 
+  it("Mixed-Case email 建帳 → DB 存小寫（spec §14.3 單一漏斗）", async () => {
+    const { app, db } = await buildTestApp();
+    const admin = await insertUser(db, { isAdmin: true, email: "admin-c7@example.com" });
+    const cookie = await cookieFor(admin.id);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/admin/users",
+      cookies: { [SESSION_COOKIE]: cookie },
+      payload: { email: "MiXed-Case-C7@Example.COM", password: "a-strong-password", displayName: "Mixed Case" },
+    });
+    expect(res.statusCode).toBe(201);
+
+    const [row] = await db.select().from(users).where(eq(users.email, "mixed-case-c7@example.com"));
+    expect(row).toBeDefined();
+    expect(row.email).toBe("mixed-case-c7@example.com");
+  });
+
   it("isAdmin: true → 建立管理員帳號", async () => {
     const { app, db } = await buildTestApp();
     const admin = await insertUser(db, { isAdmin: true, email: "admin-c2@example.com" });

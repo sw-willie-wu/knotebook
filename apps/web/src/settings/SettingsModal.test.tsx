@@ -68,8 +68,22 @@ function fakeResponse({ ok, status, json }: FakeResponseInit): Response {
   return { ok, status, json: json ?? (() => Promise.reject(new Error("no body"))) } as unknown as Response;
 }
 
-const ADMIN_USER: UserDto = { id: "u-admin", email: "admin@example.com", displayName: "Admin", isAdmin: true, mustChangePassword: false };
-const PLAIN_USER: UserDto = { id: "u-plain", email: "plain@example.com", displayName: "Plain", isAdmin: false, mustChangePassword: false };
+const ADMIN_USER: UserDto = {
+  id: "u-admin",
+  email: "admin@example.com",
+  displayName: "Admin",
+  isAdmin: true,
+  mustChangePassword: false,
+  hasPassword: true,
+};
+const PLAIN_USER: UserDto = {
+  id: "u-plain",
+  email: "plain@example.com",
+  displayName: "Plain",
+  isAdmin: false,
+  mustChangePassword: false,
+  hasPassword: true,
+};
 
 const NOTE: NoteDto = {
   id: "11111111-1111-1111-1111-111111111111",
@@ -81,15 +95,12 @@ const NOTE: NoteDto = {
   slug: "my-note",
 };
 
-/** 基本 fetch mock：`/api/setup/status`（一律 needed:false）、`/api/auth/me`（依
+/** 基本 fetch mock：`/api/auth/me`（依
  * `getLoggedInAs` 回登入者或 401）、`/api/notes`（清單，空陣列）、`/api/notes/:ref`
  * （單篇，固定回 `NOTE`）、backlinks（空）——路由守衛與 HomePage/NotePage 共同需要
  * 這些。呼叫端可疊加其餘端點的處理（例如 `POST /api/auth/password`）。 */
 function baseFetchHandlers(getLoggedInAs: () => UserDto | null) {
   return (url: string, method: string): Response | null => {
-    if (url === "/api/setup/status") {
-      return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ needed: false }) });
-    }
     if (url === "/api/auth/me" && method === "GET") {
       const user = getLoggedInAs();
       if (user) return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(user) });

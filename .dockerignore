@@ -10,3 +10,11 @@ test-output.txt
 # Task 9：本機開發時累積在 apps/server/uploads/ 的上傳圖片不該被送進 build context
 # （docker build 的 volume 是 Task 9 compose 新增的 named volume，跟這個本機目錄無關）。
 apps/server/uploads/
+
+# Task 11：e2e/ 是獨立 workspace（Playwright + stub 服務），app 的 build context（.）
+# 不需要它——stub 服務有自己的 build context（./e2e，見 docker-compose.e2e.yml）。
+# 例外行備而不用：既定路徑下 app 的 Dockerfile 不 COPY e2e/ 下任何檔案；只有在
+# Step 2 乾淨 build 驗證發現 pnpm --frozen-lockfile 需要 e2e/package.json 才會用到
+# （見 task-11-brief.md）。
+e2e/
+!e2e/package.json

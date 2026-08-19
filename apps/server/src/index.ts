@@ -5,7 +5,7 @@ import pino from "pino";
 import { loadConfig } from "./config.js";
 import { createDb } from "./db/index.js";
 import { runMigrations } from "./db/migrate.js";
-import { SetupState } from "./auth/setup.js";
+import { initializeInstance } from "./auth/bootstrap.js";
 import { UserGate } from "./auth/session.js";
 import { LoginThrottle } from "./auth/rate-limit.js";
 import { createCollabHooks } from "./collab/hooks-impl.js";
@@ -13,13 +13,12 @@ import { createCollabServer } from "./collab/server.js";
 import { buildApp } from "./app.js";
 import { createAiRuntime, selfCheckAiKeys } from "./ai/runtime.js";
 
-// 獨立的 pino instance：`SetupState.init` 在 `buildApp()` 之前就要跑（見下方
-// main() 的呼叫順序），此時還沒有 Fastify app、也就還沒有 `app.log` 可用——
-// 不能等 buildApp() 之後才建 logger。改建這個獨立 pino instance，同時傳給
-// `SetupState.init`（讓 Setup token 印出來）與下面的 fail-fast 錯誤訊息；
-// `buildApp()` 之後另外用自己預設的 fastify logger（`options.logger` 預設 true）
-// ——兩個 pino instance 都直寫 stdout，`docker compose logs app` 能同時看到兩邊
-// 的輸出，不需要共用同一個 instance。
+// 獨立的 pino instance：`initializeInstance` 與 migration 皆在 `buildApp()` 之前就要跑
+// （見下方 main() 的呼叫順序），此時還沒有 Fastify app、也就還沒有 `app.log` 可用——
+// 不能等 buildApp() 之後才建 logger。改建這個獨立 pino instance，同時給 migration 與
+// instance 初始化失敗時的 fail-fast 錯誤訊息用；`buildApp()` 之後另外用自己預設的
+// fastify logger（`options.logger` 預設 true）——兩個 pino instance 都直寫 stdout，
+// `docker compose logs app` 能同時看到兩邊的輸出，不需要共用同一個 instance。
 const logger = pino();
 
 async function main(): Promise<void> {
@@ -44,6 +43,17 @@ async function main(): Promise<void> {
     );
   }
 
+  // Plan 5 §5：OIDC issuer 用 http:// 是可行但不建議的拓撲（例如內網自架 IdP）——
+  // 印一次警告，不擋啟動（決定權留給維運者，同 insecureHttpWarning 那條的精神）。
+  // 刻意不落 config 欄位（見 config.ts 的 AppConfig.oidc 註解，二輪 MINOR-6）——
+  // 這裡直接對 `config.oidc?.issuerUrl` 判斷。
+  if (config.oidc?.issuerUrl.startsWith("http:")) {
+    logger.warn(
+      { issuerUrl: config.oidc.issuerUrl },
+      "SECURITY WARNING: OIDC_ISSUER_URL uses plain http — tokens and claims travel in cleartext between this server and the identity provider"
+    );
+  }
+
   const pool = new Pool({ connectionString: config.databaseUrl });
   const db = createDb(pool);
 
@@ -58,12 +68,22 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // spec rev 5.7：ADMIN_EMAIL/ADMIN_PASSWORD 皆有值時才視為 env bootstrap admin 請求——
-  // `config.ts` 的 loadConfig 已保證兩者同時 defined 或同時 undefined，這裡只是把
-  // AppConfig 的兩個扁平欄位組回 SetupState.init 要的 envAdmin 物件形狀。是否真的據此
-  // 建立帳號（僅首次初始化生效）交給 SetupState.init 內部判斷，這裡不重複邏輯。
-  const envAdmin = config.adminEmail && config.adminPassword ? { email: config.adminEmail, password: config.adminPassword } : undefined;
-  const setupState = await SetupState.init(db, logger, envAdmin);
+  // spec §14.2：setup token 流程已退役，實例初始化唯一路徑是 `initializeInstance`
+  // （env-only）。`config.ts` 的 loadConfig 已保證 ADMIN_EMAIL/ADMIN_PASSWORD 兩者
+  // 同時 defined 或同時 undefined，這裡只是把 AppConfig 的兩個扁平欄位組回
+  // `initializeInstance` 要的 envAdmin 物件形狀。未初始化且無 envAdmin 時
+  // `initializeInstance` 會 throw（可行動訊息）——這裡 catch 後印錯 + exit，此呼叫點
+  // 在 `buildApp()` 之前，app 尚未存在，不可寫 `app.log`（TDZ）；與上方 migration 失敗
+  // 處置同形。
+  try {
+    await initializeInstance(
+      db,
+      config.adminEmail && config.adminPassword ? { email: config.adminEmail, password: config.adminPassword } : undefined
+    );
+  } catch (err) {
+    logger.error({ err }, "instance initialization failed");
+    process.exit(1);
+  }
   const gate = new UserGate(db);
   const throttle = new LoginThrottle();
 
@@ -107,7 +127,6 @@ async function main(): Promise<void> {
       throttle,
       collabHooks: createCollabHooks(collab, logger),
       collab,
-      setupState,
       uploadsDir,
       ai,
     },

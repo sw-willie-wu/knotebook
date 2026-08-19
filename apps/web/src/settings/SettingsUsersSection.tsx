@@ -36,7 +36,7 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
 
 /**
  * 建立使用者 dialog。密碼長度在送出前先做客戶端 pre-validation
- * （`MIN_PASSWORD_LENGTH`，鏡射 server 端同名常數，與 `SetupPage` 同一套模式）——
+ * （`MIN_PASSWORD_LENGTH`，鏡射 server 端同名常數，與 `ChangePasswordForm` 同一套模式）——
  * 只是體驗優化，server 一樣會再驗一次（`password_too_short`），不能省。
  *
  * `isAdmin` 一律以明確布林值送出（勾選 true／未勾選 false），不因「false 是預設值」

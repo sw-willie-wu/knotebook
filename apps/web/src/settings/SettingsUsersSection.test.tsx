@@ -34,7 +34,14 @@ function fakeResponse({ ok, status, json }: FakeResponseInit): Response {
   return { ok, status, json: json ?? (() => Promise.reject(new Error("no body"))) } as unknown as Response;
 }
 
-const ADMIN_USER: UserDto = { id: "u-admin", email: "admin@example.com", displayName: "Admin", isAdmin: true, mustChangePassword: false };
+const ADMIN_USER: UserDto = {
+  id: "u-admin",
+  email: "admin@example.com",
+  displayName: "Admin",
+  isAdmin: true,
+  mustChangePassword: false,
+  hasPassword: true,
+};
 
 const ACTIVE_OTHER: AdminUserDto = {
   id: "u-active",
@@ -68,14 +75,11 @@ const OTHER_ADMIN: AdminUserDto = {
 
 const ADMIN_USERS_URL = "/api/admin/users";
 
-/** 基本 fetch mock：`/api/setup/status`、`/api/auth/me`（一律回 `ADMIN_USER`——本檔
+/** 基本 fetch mock：`/api/auth/me`（一律回 `ADMIN_USER`——本檔
  * 每一案都需要 admin 才能通過 `RequireAdmin`，「非 admin」的路由層行為已在
  * `SettingsModal.test.tsx` 覆蓋，不重複）、`/api/notes`（背景 `HomePage` 需要）。 */
 function baseFetchHandlers(): (url: string, method: string) => Response | null {
   return (url: string, method: string): Response | null => {
-    if (url === "/api/setup/status") {
-      return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ needed: false }) });
-    }
     if (url === "/api/auth/me" && method === "GET") {
       return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(ADMIN_USER) });
     }

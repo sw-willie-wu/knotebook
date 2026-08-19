@@ -541,6 +541,7 @@ describe("POST /api/notes/:id/uploads", () => {
         slugPatch: new FixedWindowLimiter({ limit: 10, windowMs: 600_000 }),
         upload: smallUploadLimiter,
         ai: new FixedWindowLimiter({ limit: 30, windowMs: 60_000 }),
+        oidc: new FixedWindowLimiter({ limit: 30, windowMs: 60_000 }),
       },
     });
     const owner = await insertUser(db, { email: "owner-429@example.com" });

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { normalizeEmail } from "@knotebook/shared";
 import { sendError } from "../http/errors.js";
 import type { Db } from "../db/index.js";
 import { users } from "../db/schema.js";
@@ -86,7 +87,10 @@ export function adminUsersRoutes(deps: AdminUsersRouteDeps) {
       if (!parsed.success) {
         return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
       }
-      const { email, password, displayName, isAdmin } = parsed.data;
+      // 寫入端正規化（spec §14.3 單一漏斗）：重複判定仍照舊由 unique 約束的 409
+      // email_taken 承擔，這裡不新增預查（§14.3 ④）。
+      const email = normalizeEmail(parsed.data.email);
+      const { password, displayName, isAdmin } = parsed.data;
 
       if (password.length < MIN_PASSWORD_LENGTH) {
         return sendError(reply, 400, "password_too_short", `密碼至少需要 ${MIN_PASSWORD_LENGTH} 字元`);
@@ -104,9 +108,8 @@ export function adminUsersRoutes(deps: AdminUsersRouteDeps) {
 
       let created: AdminUserRow;
       try {
-        // spec rev 5.7：admin UI 代建的帳號一律掛 mustChangePassword=true（密碼是 admin
-        // 代選，非本人自訂）——與 setup 頁自建 admin（密碼自選，見 routes/setup.ts）刻意
-        // 不同，那邊維持 DB 預設 false。
+        // spec rev 5.7 / §14.2：admin UI 代建的帳號一律掛 mustChangePassword=true（密碼是
+        // admin 代選，非本人自訂）——與 OIDC 自動建帳刻意不同，那邊維持 DB 預設 false。
         const [row] = await deps.db
           .insert(users)
           .values({ email, passwordHash, displayName, isAdmin: isAdmin ?? false, mustChangePassword: true })

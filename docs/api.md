@@ -4,8 +4,9 @@ All endpoints are served by the `app` container. Errors use the shape `{ "error"
 
 | Endpoint | Method | Auth | Notable status codes |
 |---|---|---|---|
-| `/api/setup/status` | GET | none | 200 |
-| `/api/setup` | POST | setup token (in body) | 201, 400 `invalid_body`/`password_too_short`/`invalid_email`/`invalid_display_name`, 403 `invalid_setup_token`/`bootstrap_email_mismatch`, 409 `already_setup`, 429 `server_busy` |
+| `/api/auth/config` | GET | none | 200 `{oidc: {enabled: boolean}}` — tells the client whether to show the "Continue with SSO" option |
+| `/api/auth/oidc/login` | GET | none | 302 (browser-navigation endpoint, not JSON — redirects to the identity provider's authorization endpoint). On failure before that point, redirects to `/login?error=<code>` instead: `oidc_unavailable`, `too_many_requests` |
+| `/api/auth/oidc/callback` | GET | none | 302 (browser-navigation endpoint, not JSON — redirects to `/` on success and sets the session cookie). On failure, redirects to `/login?error=<code>`: `oidc_unavailable`, `too_many_requests`, `oidc_state_mismatch`, `oidc_exchange_failed`, `oidc_email_unverified`, `oidc_email_missing`, `oidc_conflict`, `account_disabled` |
 | `/api/auth/login` | POST | none | 200, 400 `invalid_body`, 401 `invalid_credentials`, 403 `account_disabled`, 429 `too_many_attempts` (body includes `retryAfterMs`)/`server_busy` |
 | `/api/auth/logout` | POST | none | 204 |
 | `/api/auth/me` | GET | Auth | 200, 401 `unauthorized` |

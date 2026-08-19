@@ -2,27 +2,40 @@ export const YDOC_FRAGMENT = "knotebook";
 
 export const SESSION_COOKIE = "knotebook_session";
 
+/** OIDC authorization request 期間的一次性 state cookie 名稱（Plan 5 §14.3）——存活
+ * 短暫（見 server 端 `OIDC_STATE_TTL_SECONDS`），只在 `/api/auth/oidc` 路徑下有效。 */
+export const OIDC_STATE_COOKIE = "knotebook_oidc";
+
 export type Role = "owner" | "editor" | "viewer" | "none";
 
 export interface ApiError {
   error: { code: string; message: string };
 }
 
-/** `GET /api/auth/me`、login/setup 成功回應的使用者形狀（見 apps/server routes/{auth,setup}.ts）。 */
+/** `GET /api/auth/me`、login/OIDC 成功回應的使用者形狀（見 apps/server routes/auth.ts）。 */
 export interface UserDto {
   id: string;
   email: string;
   displayName: string;
   isAdmin: boolean;
-  /** 首登強制改密碼旗標（spec rev 5.7）：env bootstrap 建立的 admin、admin UI 代建的
-   * 帳號皆為 true；setup 頁自建的第一個 admin（密碼自選）為 false。web 端的
-   * `ChangePasswordGate` 依此導向 `/change-password`——見 apps/web/src/auth/guards.tsx。 */
+  /** 首登強制改密碼旗標（spec rev 5.7 / §14.2）：env bootstrap 建立的 admin、admin UI
+   * 代建的帳號皆為 true；OIDC 自動建帳為 false。web 端的 `ChangePasswordGate` 依此
+   * 導向 `/change-password`——見 apps/web/src/auth/guards.tsx。 */
   mustChangePassword: boolean;
+  /** OIDC-only 帳號為 false；設定 modal 據此隱藏改密表單——spec §14.4。 */
+  hasPassword: boolean;
 }
 
 /** 密碼長度下限，鏡射 apps/server/src/auth/constants.ts 的同名常數——這裡是給
  * web 端表單前端先驗用的唯一真相，兩邊刻意保持同一個數字（12）。 */
 export const MIN_PASSWORD_LENGTH = 12;
+
+/** `GET /api/auth/config` 的回應形狀（Plan 5 §5，免認證）：web 端登入頁用 `oidc.enabled`
+ * 決定是否顯示「用 SSO 登入」按鈕。刻意只曝光布林旗標——不外洩 issuer/clientId 等設定
+ * 細節（那些是後端與 IdP 之間的事，client 只需要知道「這個功能有沒有開」）。 */
+export interface AuthConfigDto {
+  oidc: { enabled: boolean };
+}
 
 export interface NoteDto {
   id: string;
@@ -70,12 +83,16 @@ export const MAX_BACKLINKS = 200;
 // `slug_taken`（Task 8 slug unique violation）——這兩碼尚未落地於 grep 結果，屬預先保留。
 // Plan 3：`not_loaded` 已落地（Task 5）——`POST /api/notes/:id/links` 409：該筆記尚未載入
 // 進 collab server 記憶體，或提交者無該筆記開啟中的連線，`linkSyncGate` 回 `{ok:false}`，
-// 不落地任何寫入。`server_busy` 除原本 setup/auth/admin-users 的 429（`HashBusyError`，
-// argon2 併發超限）外，Task 5 新增第二個發送點——同一個 `POST /api/notes/:id/links` 的
-// 409：`writeNoteLinks` 交易撞上 pg `serialization_failure`/`deadlock_detected`
+// 不落地任何寫入。`server_busy` 除 auth/admin-users 的 429（`HashBusyError`，argon2 併發
+// 超限）外，Task 5 新增第二個發送點——同一個 `POST /api/notes/:id/links` 的 409：
+// `writeNoteLinks` 交易撞上 pg `serialization_failure`/`deadlock_detected`
 // （40001/40P01，剔除消失 target 重試一次後仍失敗才會落到這裡）；純 DB 層級的併發衝突，
 // 非邏輯錯誤，交給 client 重試（與 `not_loaded` 區分：後者無 note_states 回退路徑，client
-// 收斂方式不同，見 Task 7）。`file_too_large`＝`POST /api/notes/:id/uploads` 413 唯一發送點（Plan 3 已落地）。
+// 收斂方式不同，見 Task 7）。`file_too_large`＝`POST /api/notes/:id/uploads` 413 唯一發送點
+// （Plan 3 已落地）。spec §14.2：setup token 流程退役，`invalid_setup_token`/
+// `already_setup`/`invalid_email`/`invalid_display_name`/`bootstrap_email_mismatch`
+// 五碼隨之刪除（唯一消費者已隨 setup token 路由一併移除；`password_too_short` 仍由
+// `routes/auth.ts`／`routes/admin-users.ts` 消費，留用）。
 export const ERROR_CODES = [
   "unauthorized",
   "forbidden",
@@ -87,11 +104,6 @@ export const ERROR_CODES = [
   "server_busy",
   "too_many_attempts",
   "too_many_requests",
-  "invalid_setup_token",
-  "already_setup",
-  "invalid_email",
-  "invalid_display_name",
-  "bootstrap_email_mismatch",
   "password_too_short",
   "invalid_credentials",
   "account_disabled",
@@ -108,6 +120,18 @@ export const ERROR_CODES = [
   "upstream_error",
   "builtin_action",
   "model_taken",
+  // Plan 5（Task 8/9）：OIDC 登入流程。`oidc_unavailable`＝OIDC 未設定/discovery 失敗/
+  // 不可用（login route 302、callback route 對稱處理）；`oidc_state_mismatch`＝callback
+  // 的 state cookie 缺失/過期/與查詢字串不符（Task 9）；`oidc_exchange_failed`＝與 IdP
+  // 的 token/userinfo 交換失敗（Task 9）；`oidc_email_unverified`/`oidc_email_missing`/
+  // `oidc_conflict`＝`auth/oidc-decision.ts` 的 reject 分支碼（Task 7 已落地決策函式，
+  // 這裡補上型別/i18n 承諾）。
+  "oidc_unavailable",
+  "oidc_state_mismatch",
+  "oidc_exchange_failed",
+  "oidc_email_unverified",
+  "oidc_email_missing",
+  "oidc_conflict",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
@@ -165,6 +189,12 @@ export interface CollabTokenClaims {
   userId: string;
   role: Role;
   tv: number;
+}
+
+/** email 的單一漏斗（spec §14.3）：所有建帳寫入與所有 email 比對讀取共用；OIDC claims
+ * 亦過此。 */
+export function normalizeEmail(input: string): string {
+  return input.trim().toLowerCase();
 }
 
 const SLUG_CHARSET_RE = /^[\p{L}\p{N}-]+$/u;

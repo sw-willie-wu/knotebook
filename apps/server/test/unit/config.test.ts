@@ -16,17 +16,6 @@ describe("loadConfig", () => {
       insecureHttpWarning: false,
     });
   });
-  it("完整物件回傳 - 含 bootstrapAdminEmail", () => {
-    const config = loadConfig({ ...valid, BOOTSTRAP_ADMIN_EMAIL: "admin@example.com" });
-    expect(config).toEqual({
-      databaseUrl: "postgres://u:p@localhost:5432/db",
-      appSecret: "a".repeat(64),
-      publicUrl: new URL("https://notes.example.com"),
-      cookieSecure: true,
-      insecureHttpWarning: false,
-      bootstrapAdminEmail: "admin@example.com",
-    });
-  });
   it("APP_SECRET 太短 → throw 含 openssl 指引", () => {
     expect(() => loadConfig({ ...valid, APP_SECRET: "short" })).toThrow(/openssl rand -hex 32/);
   });
@@ -48,11 +37,6 @@ describe("loadConfig", () => {
   it("無 scheme → throw", () => {
     expect(() => loadConfig({ ...valid, PUBLIC_URL: "localhost:3000" })).toThrow(/http\/https/);
   });
-  it("空字串 BOOTSTRAP_ADMIN_EMAIL → 視同未設", () => {
-    const config = loadConfig({ ...valid, BOOTSTRAP_ADMIN_EMAIL: "" });
-    expect(config.bootstrapAdminEmail).toBeUndefined();
-  });
-
   describe("ADMIN_EMAIL / ADMIN_PASSWORD（env bootstrap admin，spec rev 5.7）", () => {
     it("皆未設 → 通過，adminEmail/adminPassword 皆 undefined", () => {
       const config = loadConfig(valid);
@@ -94,6 +78,27 @@ describe("loadConfig", () => {
       expect(() =>
         loadConfig({ ...valid, ADMIN_EMAIL: "", ADMIN_PASSWORD: "correct-horse-battery" })
       ).toThrow(/ADMIN_EMAIL 與 ADMIN_PASSWORD 必須同時設定/);
+    });
+  });
+
+  describe("OIDC_ISSUER_URL / OIDC_CLIENT_ID / OIDC_CLIENT_SECRET（Plan 5 §5）", () => {
+    it("OIDC 三件組只設其中一個 → throw", () => {
+      expect(() => loadConfig({ ...valid, OIDC_ISSUER_URL: "https://idp.example.com" })).toThrow(/OIDC/);
+    });
+
+    it("OIDC 三件組齊 → config.oidc 填入", () => {
+      const c = loadConfig({ ...valid, OIDC_ISSUER_URL: "https://idp.example.com", OIDC_CLIENT_ID: "abc", OIDC_CLIENT_SECRET: "s" });
+      expect(c.oidc).toEqual({ issuerUrl: "https://idp.example.com", clientId: "abc", clientSecret: "s" });
+    });
+
+    it("OIDC issuer 非 http/https → throw", () => {
+      expect(() =>
+        loadConfig({ ...valid, OIDC_ISSUER_URL: "ftp://idp.example.com", OIDC_CLIENT_ID: "abc", OIDC_CLIENT_SECRET: "s" })
+      ).toThrow(/OIDC/);
+    });
+
+    it("全未設 → config.oidc undefined", () => {
+      expect(loadConfig(valid).oidc).toBeUndefined();
     });
   });
 });

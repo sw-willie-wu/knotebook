@@ -8,8 +8,6 @@ import { verifySession, type GateUser, type UserGate } from "./auth/session.js";
 import type { LoginThrottle } from "./auth/rate-limit.js";
 import type { CollabHooks } from "./collab/hooks.js";
 import type { CollabServer } from "./collab/server.js";
-import type { SetupState } from "./auth/setup.js";
-import { setupRoutes } from "./routes/setup.js";
 import { authRoutes } from "./routes/auth.js";
 import { notesRoutes } from "./routes/notes.js";
 import type { WriteNoteLinksHooks } from "./notes/links.js";
@@ -17,12 +15,14 @@ import { adminUsersRoutes } from "./routes/admin-users.js";
 import { adminAiRoutes } from "./routes/admin-ai.js";
 import { aiRoutes } from "./routes/ai.js";
 import { uploadsRoutes } from "./routes/uploads.js";
+import { oidcRoutes } from "./routes/oidc.js";
 import { drainWithCap } from "./http/drain.js";
 import { sendError } from "./http/errors.js";
-import { AI_LIMIT, COLLAB_TOKEN_LIMIT, FixedWindowLimiter, SLUG_PATCH_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
+import { AI_LIMIT, COLLAB_TOKEN_LIMIT, FixedWindowLimiter, OIDC_LIMIT, SLUG_PATCH_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
 import { registerSpaFallback } from "./http/spa.js";
 import { assertUploadsDirWritable } from "./uploads/service.js";
 import type { AiRuntime } from "./ai/runtime.js";
+import { createOidcRuntime, type OidcRuntime } from "./auth/oidc-client.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -53,7 +53,6 @@ export interface AppDeps {
    * WebSocket upgrade handler 掛上本 app 的底層 http server。
    */
   collab?: CollabServer;
-  setupState: SetupState;
   /**
    * per-user 固定視窗節流器（Task 4：collab-token；Task 8：slug PATCH；Task 10b：
    * uploads）。**選配**：`index.ts` 的 `AppDeps` 物件字面值不在 Task 4 的 Files 內，
@@ -64,7 +63,13 @@ export interface AppDeps {
    * `buildTestApp`/`buildCollabTestApp`（`test/helpers.ts`）每次呼叫一律注入**全新
    * 實例**——嚴禁 module 單例，否則不同測試檔案共享同一份計數會互相汙染。
    */
-  limiters?: { collabToken: FixedWindowLimiter; slugPatch: FixedWindowLimiter; upload: FixedWindowLimiter; ai: FixedWindowLimiter };
+  limiters?: {
+    collabToken: FixedWindowLimiter;
+    slugPatch: FixedWindowLimiter;
+    upload: FixedWindowLimiter;
+    ai: FixedWindowLimiter;
+    oidc: FixedWindowLimiter;
+  };
   /**
    * Task 5：`POST /api/notes/:id/links` 寫入函式（`notes/links.ts` 的 `writeNoteLinks`）的
    * 測試注入縫，透傳進 `NotesRouteDeps`。**選配**：production／未覆寫時整段為
@@ -96,13 +101,27 @@ export interface AppDeps {
    * `test/env-admin-bootstrap.test.ts`（手動組裝 deps）。
    */
   ai: AiRuntime;
+  /**
+   * Task 8：`GET /api/auth/oidc/login`（Task 9 追加 callback）消費的 OIDC runtime
+   * （lazy discovery 三態快取，`auth/oidc-client.ts`）。**測試注入 seam**——整合測試用
+   * `createOidcRuntime(oidc, { fetch: fakeIdp.fetch })` 掛 in-process mock IdP（見
+   * `test/helpers/fake-idp.ts`），不開真 socket。**選配，且 fallback 由 `buildApp`
+   * 承擔**（不是「未傳就不掛路由」——`config.oidc` 有值而這裡 undefined 時，`buildApp`
+   * 會自己用 `createOidcRuntime(deps.config.oidc)` 補上，避免「config.oidc 有值但
+   * runtime 沒接上」這個矛盾狀態讓 login route 的 `runtime.getConfiguration()` 撞
+   * TypeError 500（違反兩端點 302 語彙不變量，二輪 MINOR-8）。`config.oidc` 未設時
+   * 這個欄位無論傳不傳都不會被用到（login route 的第一個分支就短路回
+   * `oidc_unavailable` 302）。
+   */
+  oidc?: OidcRuntime;
 }
 
 export interface BuildAppOptions {
   /**
-   * 覆寫 fastify logger 設定。預設 true——production（`src/index.ts`）需要它印出
-   * Task 8 `SetupState.init` 的 Setup token（第三輪審查附錄事項 7）。測試環境
-   * （`test/helpers.ts` 的 `buildTestApp`）預設關閉以降低雜訊，可再覆寫回開。
+   * 覆寫 fastify logger 設定。預設 true——`Fastify({ logger })` 的全域 request
+   * logging（production 部署需要它）。測試環境（`test/helpers.ts` 的
+   * `buildTestApp`/`buildCollabTestApp`）每支整合測試預設關閉（`{ logger: false }`）
+   * 以降低雜訊，可再覆寫回開（例如要除錯某個測試的實際請求日誌時）。
    */
   logger?: boolean;
   /**
@@ -340,7 +359,6 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
 
   app.get("/healthz", async () => ({ ok: true }));
 
-  void app.register(setupRoutes({ db: deps.db, config: deps.config, setupState: deps.setupState }));
   void app.register(
     authRoutes({ db: deps.db, config: deps.config, gate: deps.gate, throttle: deps.throttle, collabHooks: deps.collabHooks })
   );
@@ -353,7 +371,20 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       slugPatch: new FixedWindowLimiter(SLUG_PATCH_LIMIT),
       upload: new FixedWindowLimiter(UPLOAD_LIMIT),
       ai: new FixedWindowLimiter(AI_LIMIT),
+      oidc: new FixedWindowLimiter(OIDC_LIMIT),
     } satisfies NonNullable<AppDeps["limiters"]>);
+
+  // Task 8（二輪 MINOR-8）：`deps.oidc` 未傳但 `config.oidc` 有值時在此補上 production
+  // runtime——不能讓「config.oidc 有值而 runtime undefined」這個矛盾狀態流進
+  // `oidcRoutes`，否則 login route 的 `runtime.getConfiguration()` 會撞 TypeError 500，
+  // 違反「OIDC 相關端點一律回 302，不回未預期的 5xx」這個不變量。`config.oidc`
+  // 未設時 `deps.oidc` 無論是否傳值都不會被用到（`oidcRoutes` 的第一個分支已經用
+  // `config.oidc === undefined` 短路）。
+  const oidcRuntime = deps.oidc ?? (deps.config.oidc ? createOidcRuntime(deps.config.oidc) : undefined);
+  // Task 9：callback 需要 db（帳號解析交易）與 gate（連結/建帳/清 mustChangePassword
+  // 後 invalidate 快取）——login 半邊不需要這兩個，但兩端點共用同一個 register 函式，
+  // deps 一併傳入。
+  void app.register(oidcRoutes({ config: deps.config, db: deps.db, gate: deps.gate, runtime: oidcRuntime, limiters: { oidc: limiters.oidc } }));
 
   void app.register(
     notesRoutes({

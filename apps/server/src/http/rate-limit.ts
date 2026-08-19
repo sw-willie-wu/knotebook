@@ -13,6 +13,9 @@ export const SLUG_PATCH_LIMIT = { limit: 10, windowMs: 600_000 } as const;
 export const UPLOAD_LIMIT = { limit: 120, windowMs: 600_000 } as const;
 /** Plan 4 Task 5：`POST /api/ai` 節流（key=userId，同 collabToken/slugPatch/upload 慣例）。 */
 export const AI_LIMIT = { limit: 30, windowMs: 60_000 } as const;
+/** Plan 5 Task 8：`GET /api/auth/oidc/login` 節流（key=request.ip——這條路由發生在登入
+ * 之前，無 userId 可用；比照 AI_LIMIT 的數值與視窗長度）。 */
+export const OIDC_LIMIT = { limit: 30, windowMs: 60_000 } as const;
 
 export interface FixedWindowLimiterOptions {
   limit: number;

@@ -29,18 +29,16 @@ const USER_MUST_CHANGE: UserDto = {
   displayName: "Alice",
   isAdmin: false,
   mustChangePassword: true,
+  hasPassword: true,
 };
 
 const CHANGE_PASSWORD_URL = "/api/auth/password";
 
-/** 基本 fetch mock：`/api/setup/status`（needed:false）、`/api/auth/me`（回傳
+/** 基本 fetch mock：`/api/auth/me`（回傳
  * `loggedInAs`，可隨後續呼叫變動——用一個 getter 而非固定值，讓「改密碼成功/登出後
  * 下一次 me query 的回應會變」這件事有得測，而不是整個測試檔固定死一個回應）。 */
 function baseFetchHandlers(getLoggedInAs: () => UserDto | null) {
   return (url: string, method: string): Response | null => {
-    if (url === "/api/setup/status") {
-      return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ needed: false }) });
-    }
     if (url === "/api/auth/me" && method === "GET") {
       const user = getLoggedInAs();
       if (user) {

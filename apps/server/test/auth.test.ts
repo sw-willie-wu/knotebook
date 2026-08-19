@@ -61,6 +61,27 @@ function loginPayload(email: string, password: string) {
   return { email, password };
 }
 
+describe("GET /api/auth/config", () => {
+  it("免認證可打；未設 OIDC → { oidc: { enabled: false } }", async () => {
+    const { app } = await buildTestApp();
+    const res = await app.inject({ method: "GET", url: "/api/auth/config" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ oidc: { enabled: false } });
+  });
+
+  it("已設 OIDC 三件組 → { oidc: { enabled: true } }", async () => {
+    const { app } = await buildTestApp({
+      config: {
+        ...testConfig,
+        oidc: { issuerUrl: "https://idp.example.com", clientId: "abc", clientSecret: "s" },
+      },
+    });
+    const res = await app.inject({ method: "GET", url: "/api/auth/config" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ oidc: { enabled: true } });
+  });
+});
+
 describe("POST /api/auth/login", () => {
   it("正確帳密 → 200 + session cookie，且該 cookie 打 me 回傳正確內容", async () => {
     const { app, db } = await buildTestApp();
@@ -68,7 +89,14 @@ describe("POST /api/auth/login", () => {
 
     const res = await app.inject({ method: "POST", url: "/api/auth/login", payload: loginPayload("alice@example.com", VALID_PASSWORD) });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ id: u.id, email: u.email, displayName: u.displayName, isAdmin: false, mustChangePassword: false });
+    expect(res.json()).toEqual({
+      id: u.id,
+      email: u.email,
+      displayName: u.displayName,
+      isAdmin: false,
+      mustChangePassword: false,
+      hasPassword: true,
+    });
 
     const cookie = res.cookies.find(c => c.name === SESSION_COOKIE);
     expect(cookie).toBeDefined();
@@ -77,7 +105,27 @@ describe("POST /api/auth/login", () => {
 
     const meRes = await app.inject({ method: "GET", url: "/api/auth/me", cookies: { [SESSION_COOKIE]: cookie!.value } });
     expect(meRes.statusCode).toBe(200);
-    expect(meRes.json()).toEqual({ id: u.id, email: u.email, displayName: u.displayName, isAdmin: false, mustChangePassword: false });
+    expect(meRes.json()).toEqual({
+      id: u.id,
+      email: u.email,
+      displayName: u.displayName,
+      isAdmin: false,
+      mustChangePassword: false,
+      hasPassword: true,
+    });
+  });
+
+  it("Mixed-Case 輸入登入既有小寫帳號 → 200（spec §14.3 讀取端 lower() 對稱比對）", async () => {
+    const { app, db } = await buildTestApp();
+    const u = await insertUser(db, { email: "alice-mixed@example.com", displayName: "Alice", isAdmin: false });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: loginPayload("AliCE-Mixed@Example.COM", VALID_PASSWORD),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ id: u.id, email: u.email });
   });
 
   it("密碼錯 5 次 → 第 6 次前置 429 too_many_attempts，回應含正數 retryAfterMs", async () => {
@@ -234,6 +282,35 @@ describe("POST /api/auth/login", () => {
       });
       expect(res.statusCode).toBe(401);
     }
+  });
+
+  it("throttle 帳號鍵吃正規化值：Mixed-Case 變體自 IP A 累積 5 敗後，換大小寫自 IP B 仍 429（spec §14.7；未正規化實作下 IP B 兩軸皆 0 → 落到查詢 → 401，紅）", async () => {
+    const { app } = await buildTestApp();
+    const variants = [
+      "AliCE@example.com",
+      "alICe@example.com",
+      "ALICE@example.com",
+      "aliCE@Example.com",
+      "Alice@EXAMPLE.com",
+    ];
+
+    for (let i = 0; i < 5; i++) {
+      await app.inject({
+        method: "POST",
+        url: "/api/auth/login",
+        headers: { "x-forwarded-for": "10.0.0.1" },
+        payload: loginPayload(variants[i]!, "wrong-password-xx"),
+      });
+    }
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      headers: { "x-forwarded-for": "10.0.0.2" },
+      payload: loginPayload("alice@example.com", "wrong-password-xx"),
+    });
+    expect(res.statusCode).toBe(429);
+    expect(res.json().error.code).toBe("too_many_attempts");
   });
 });
 

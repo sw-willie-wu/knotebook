@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { and, desc, eq, ne, or, sql } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/pg-core";
-import { MAX_LINK_TARGETS, type BacklinkDto, type NoteDto, type Role, type ShareDto } from "@knotebook/shared";
+import { MAX_LINK_TARGETS, normalizeEmail, type BacklinkDto, type NoteDto, type Role, type ShareDto } from "@knotebook/shared";
 import { sendError } from "../http/errors.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
@@ -491,7 +491,14 @@ export function notesRoutes(deps: NotesRouteDeps) {
         return sendError(reply, 403, "forbidden", "只有擁有者可以管理分享");
       }
 
-      const [target] = await deps.db.select().from(users).where(eq(users.email, parsed.data.email)).limit(1);
+      // lower() 讀取端比對（spec §14.3 三處對稱）＋多列命中防護（同 routes/auth.ts login
+      // 理由：正常情況下 email 有 unique 約束不會有多列，這裡是防禦縱深）。
+      const [target] = await deps.db
+        .select()
+        .from(users)
+        .where(sql`lower(${users.email}) = ${normalizeEmail(parsed.data.email)}`)
+        .orderBy(users.createdAt, users.id)
+        .limit(1);
       if (!target) {
         return sendError(reply, 404, "user_not_found", "找不到此使用者");
       }

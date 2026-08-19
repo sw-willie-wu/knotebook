@@ -93,18 +93,8 @@
     "password": "Password",
     "submit": "Sign in",
     "submitting": "Signing in…",
-    "retryAfter": "Try again in {{seconds}}s."
-  },
-  "setup": {
-    "title": "Set up Knotebook",
-    "description": "Create the first administrator account to finish setting up this instance.",
-    "token": "Setup token",
-    "email": "Email",
-    "password": "Password",
-    "passwordHint": "At least 12 characters.",
-    "displayName": "Display name",
-    "submit": "Create admin account",
-    "submitting": "Creating account…"
+    "retryAfter": "Try again in {{seconds}}s.",
+    "sso": "Continue with SSO"
   },
   "changePassword": {
     "title": "Change your password",
@@ -166,6 +156,9 @@
       "account": "Account",
       "users": "Users",
       "ai": "AI"
+    },
+    "account": {
+      "ssoOnly": "This account signs in with SSO."
     },
     "ai": {
       "title": "AI providers & actions",
@@ -257,11 +250,6 @@
     "server_busy": "The server is busy. Please try again shortly.",
     "too_many_attempts": "Too many attempts. Please wait before trying again.",
     "too_many_requests": "Too many requests. Please slow down.",
-    "invalid_setup_token": "This setup link is invalid or has expired.",
-    "already_setup": "This instance has already been set up.",
-    "invalid_email": "Please enter a valid email address.",
-    "invalid_display_name": "Please enter a valid display name.",
-    "bootstrap_email_mismatch": "That email doesn't match the invited address.",
     "password_too_short": "Password is too short.",
     "invalid_credentials": "Incorrect email or password.",
     "account_disabled": "This account has been disabled.",
@@ -278,6 +266,12 @@
     "upstream_error": "The AI provider returned an error",
     "builtin_action": "Built-in actions cannot be deleted",
     "model_taken": "This model already exists for the provider",
+    "oidc_unavailable": "Single sign-on is unavailable right now. Please try again later or sign in with your password.",
+    "oidc_state_mismatch": "Your sign-in session expired or is invalid. Please try signing in again.",
+    "oidc_exchange_failed": "We couldn't complete sign-in with your identity provider. Please try again.",
+    "oidc_email_unverified": "Your identity provider hasn't verified your email address yet.",
+    "oidc_email_missing": "Your identity provider didn't share an email address, which is required to sign in.",
+    "oidc_conflict": "This identity is already linked to a different account, or matches more than one account.",
     "fallback": "An unexpected error occurred."
   }
 }

@@ -93,18 +93,8 @@
     "password": "密碼",
     "submit": "登入",
     "submitting": "登入中…",
-    "retryAfter": "請在 {{seconds}} 秒後再試一次。"
-  },
-  "setup": {
-    "title": "設定 Knotebook",
-    "description": "建立第一個管理員帳號以完成此實例的設定。",
-    "token": "設定 token",
-    "email": "電子郵件",
-    "password": "密碼",
-    "passwordHint": "至少需要 12 個字元。",
-    "displayName": "顯示名稱",
-    "submit": "建立管理員帳號",
-    "submitting": "建立帳號中…"
+    "retryAfter": "請在 {{seconds}} 秒後再試一次。",
+    "sso": "使用 SSO 登入"
   },
   "changePassword": {
     "title": "修改密碼",
@@ -166,6 +156,9 @@
       "account": "帳號",
       "users": "使用者",
       "ai": "AI"
+    },
+    "account": {
+      "ssoOnly": "此帳號透過 SSO 登入"
     },
     "ai": {
       "title": "AI 供應商與動作",
@@ -257,11 +250,6 @@
     "server_busy": "伺服器忙碌中，請稍後再試。",
     "too_many_attempts": "嘗試次數過多，請稍後再試。",
     "too_many_requests": "請求過於頻繁，請放慢速度。",
-    "invalid_setup_token": "此設定連結無效或已過期。",
-    "already_setup": "此系統已完成設定。",
-    "invalid_email": "請輸入有效的電子郵件地址。",
-    "invalid_display_name": "請輸入有效的顯示名稱。",
-    "bootstrap_email_mismatch": "此電子郵件與受邀地址不符。",
     "password_too_short": "密碼長度不足。",
     "invalid_credentials": "電子郵件或密碼錯誤。",
     "account_disabled": "此帳號已被停用。",
@@ -278,6 +266,12 @@
     "upstream_error": "AI 服務回傳錯誤",
     "builtin_action": "內建動作不可刪除",
     "model_taken": "此 provider 已有相同模型",
+    "oidc_unavailable": "單一登入目前無法使用，請稍後再試，或改用密碼登入。",
+    "oidc_state_mismatch": "登入流程已逾時或無效，請重新登入。",
+    "oidc_exchange_failed": "與身分提供者完成登入時發生錯誤，請重新嘗試。",
+    "oidc_email_unverified": "您的身分提供者尚未驗證此電子郵件地址。",
+    "oidc_email_missing": "您的身分提供者未提供電子郵件地址，登入需要此資訊。",
+    "oidc_conflict": "此身分已連結至其他帳號，或同時符合多個帳號。",
     "fallback": "發生未預期的錯誤。"
   }
 }

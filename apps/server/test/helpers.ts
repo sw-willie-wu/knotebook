@@ -15,12 +15,11 @@ import { loadConfig, type AppConfig } from "../src/config.js";
 import { buildApp, type AppDeps, type BuildAppOptions } from "../src/app.js";
 import { UserGate } from "../src/auth/session.js";
 import { LoginThrottle } from "../src/auth/rate-limit.js";
-import { AI_LIMIT, COLLAB_TOKEN_LIMIT, FixedWindowLimiter, SLUG_PATCH_LIMIT, UPLOAD_LIMIT } from "../src/http/rate-limit.js";
+import { AI_LIMIT, COLLAB_TOKEN_LIMIT, FixedWindowLimiter, OIDC_LIMIT, SLUG_PATCH_LIMIT, UPLOAD_LIMIT } from "../src/http/rate-limit.js";
 import { hashPassword } from "../src/auth/password.js";
 import { noopCollabHooks, type CollabHooks } from "../src/collab/hooks.js";
 import { COLLAB_PATH, createCollabServer, type CollabServer } from "../src/collab/server.js";
 import { notes, noteShares, users } from "../src/db/schema.js";
-import { SetupState } from "../src/auth/setup.js";
 import { createAiRuntime } from "../src/ai/runtime.js";
 
 export interface FreshDb {
@@ -115,8 +114,6 @@ export const testConfig: AppConfig = loadConfig({
 export interface TestApp {
   app: FastifyInstance;
   db: Db;
-  /** 實際掛進 app 的 setupState（預設是真 SetupState.init 的結果）——測試用它讀 `.token`，不必去 parse log。 */
-  setupState: SetupState;
   /** 實際掛進 app 的 uploadsDir（Task 10b）——測試用它直接檢查磁碟狀態（例如 413 不落檔、GET 磁碟無檔 404 的 fixture）。 */
   uploadsDir: string;
   /** 手動關閉底層 pool（非測試情境用）。在 test 內呼叫 buildTestApp() 不必自己叫這個——已用 onTestFinished 自動掛好（見 freshDb）。 */
@@ -126,8 +123,8 @@ export interface TestApp {
 /**
  * 掛幾條只給測試用的探針路由，供需要驗證 `authenticate`/`requireAdmin` decorator
  * 實際生效（例如登入後憑 session cookie 通過）的整合測試共用——不屬於任何 production
- * 路由模組。`/__test/protected` 回傳 `request.user`；setup.test.ts 用它驗證
- * `POST /api/setup` 簽發的 session cookie 真的能通過 `authenticate`。
+ * 路由模組。`/__test/protected` 回傳 `request.user`；供各整合測試驗證登入簽發的
+ * session cookie 真的能通過 `authenticate`。
  */
 export function withTestRoutes(app: FastifyInstance): FastifyInstance {
   app.get("/__test/protected", { preHandler: app.authenticate }, async req => req.user);
@@ -151,44 +148,39 @@ function freshLimiters(): NonNullable<AppDeps["limiters"]> {
     slugPatch: new FixedWindowLimiter(SLUG_PATCH_LIMIT),
     upload: new FixedWindowLimiter(UPLOAD_LIMIT),
     ai: new FixedWindowLimiter(AI_LIMIT),
+    oidc: new FixedWindowLimiter(OIDC_LIMIT),
   };
 }
 
-// buildTestApp 預設用的 SetupState logger：不印任何東西（測試輸出降噪）。要斷言
-// `log.info` 呼叫格式（`Setup token: <64hex>`）的測試，自行呼叫 `SetupState.init(db, spyLogger)`
-// 拿到帶 spy 的實例，再透過 `overrides.setupState` 傳入——不透過這個預設值。
-const silentSetupLogger = { info: () => {} };
-
 /**
- * 建一個掛好預設 deps（freshDb + 真 UserGate/LoginThrottle + noop collab hooks + 真
- * SetupState）的 FastifyInstance，供整合測試使用。任何 deps 都可用 `overrides` 覆寫。
+ * 建一個掛好預設 deps（freshDb + 真 UserGate/LoginThrottle + noop collab hooks）的
+ * FastifyInstance，供整合測試使用。任何 deps 都可用 `overrides` 覆寫。
+ *
+ * **不呼叫 `initializeInstance`**（§14.2）——app 建構不需要初始化判斷，fail-fast 只在
+ * `index.ts` 呼叫（production 啟動路徑）。整合測試一律直接 `db.insert(users)` 建帳
+ * （既有慣例，見 `buildCollabTestApp` 的 `createUser`）。
  *
  * logger 預設關閉（測試輸出降噪），可用 `options.logger` 覆寫回開（例如要除錯某個
  * 測試的實際請求日誌時）。
  */
 export async function buildTestApp(overrides: Partial<AppDeps> = {}, options: BuildAppOptions = {}): Promise<TestApp> {
   const { db, close } = await freshDb();
-  // 預設 setupState 要對「overrides 換掉的 db」（若有）建立，而非永遠對 freshDb() 的
-  // 原始 db 建立——否則兩者不同步時，setupState 查到的 instance_setup 狀態會跟 app
-  // 實際在用的 db 對不上。
-  const effectiveDb = overrides.db ?? db;
   const deps: AppDeps = {
     config: testConfig,
     db,
     gate: new UserGate(db),
     throttle: new LoginThrottle(),
     collabHooks: noopCollabHooks,
-    setupState: await SetupState.init(effectiveDb, silentSetupLogger),
     limiters: freshLimiters(),
     uploadsDir: freshUploadsDir(),
     ai: createAiRuntime(),
     ...overrides,
   };
   const app = buildApp(deps, { logger: false, ...options });
-  // 回傳 deps.db／deps.setupState／deps.uploadsDir（而非上面本地變數）——若呼叫方透過
-  // overrides 換掉了它們，回傳值必須與 app 實際在用的一致，否則呼叫方用回傳值操作會跟
-  // app 內部狀態不同步。
-  return { app, db: deps.db, setupState: deps.setupState, uploadsDir: deps.uploadsDir, close };
+  // 回傳 deps.db／deps.uploadsDir（而非上面本地變數）——若呼叫方透過 overrides
+  // 換掉了它們，回傳值必須與 app 實際在用的一致，否則呼叫方用回傳值操作會跟 app
+  // 內部狀態不同步。
+  return { app, db: deps.db, uploadsDir: deps.uploadsDir, close };
 }
 
 // ───────────────────────────── 共編（Hocuspocus）測試 harness ─────────────────────────────
@@ -236,7 +228,6 @@ export interface CollabTestCtx {
   app: FastifyInstance;
   collab: CollabServer;
   db: Db;
-  setupState: SetupState;
   createUser(opts: { email: string; password: string; isAdmin?: boolean }): Promise<{ id: string }>;
   createNote(ownerId: string, title?: string): Promise<{ id: string }>;
   share(noteId: string, userId: string, role: "editor" | "viewer"): Promise<void>;
@@ -266,7 +257,6 @@ export async function buildCollabTestApp(
     throttle: new LoginThrottle(),
     collabHooks: opts.collabHooks ? opts.collabHooks(collab) : noopCollabHooks,
     collab,
-    setupState: await SetupState.init(db, silentSetupLogger),
     limiters: freshLimiters(),
     uploadsDir: freshUploadsDir(),
     ai: createAiRuntime(),
@@ -441,5 +431,5 @@ export async function buildCollabTestApp(
     return session;
   }
 
-  return { baseUrl, app, collab, db, setupState: deps.setupState, createUser, createNote, share, loginAs, destroy };
+  return { baseUrl, app, collab, db, createUser, createNote, share, loginAs, destroy };
 }

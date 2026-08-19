@@ -1,0 +1,4 @@
+FROM node:22-slim
+WORKDIR /stub
+COPY stubs/ ./stubs/
+EXPOSE 9400 9500

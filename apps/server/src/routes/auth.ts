@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { eq, sql } from "drizzle-orm";
-import { SESSION_COOKIE } from "@knotebook/shared";
+import { SESSION_COOKIE, normalizeEmail } from "@knotebook/shared";
 import { sendError, sendLoginThrottled } from "../http/errors.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
@@ -15,9 +15,10 @@ import { MIN_PASSWORD_LENGTH } from "../auth/constants.js";
 
 const INVALID_CREDENTIALS_MESSAGE = "帳號或密碼錯誤";
 
-// 只驗結構，內容一律讓 DB 查詢/密碼驗證自然決定結果——不像 setup.ts 需要區分
-// 「格式錯誤」與「內容不合法」，login 對外只有一種失敗訊息（invalid_credentials），
-// 不該讓 email 格式檢查變成一個額外的、可被用來區分「帳號存在與否」的旁路。
+// 只驗結構，內容一律讓 DB 查詢/密碼驗證自然決定結果——login 對外只有一種失敗訊息
+// （invalid_credentials），不該讓 email 格式檢查變成一個額外的、可被用來區分
+// 「帳號存在與否」的旁路（例如 `.email()` 格式驗證失敗直接回 400，會讓攻擊者用
+// 格式錯誤/格式正確但帳號不存在來探測）。
 const loginBodySchema = z.object({
   email: z.string(),
   password: z.string(),
@@ -47,19 +48,38 @@ export interface AuthRouteDeps {
  */
 export function authRoutes(deps: AuthRouteDeps) {
   return async function register(app: FastifyInstance): Promise<void> {
+    // 免認證（Plan 5 §5）：登入頁在使用者輸入帳密之前就要知道「有沒有 SSO 可用」，
+    // 這條路由必須在未登入狀態下也能打。GET 不受 app.ts 的 JSON CSRF hook 影響
+    // （該 hook 只管 POST/PUT/PATCH/DELETE，見 CHANGE_METHODS），不需要額外豁免。
+    // 只曝光布林旗標，不回傳 issuerUrl/clientId 等設定細節。
+    app.get("/api/auth/config", async () => ({ oidc: { enabled: deps.config.oidc !== undefined } }));
+
     app.post("/api/auth/login", async (request, reply) => {
       const parsed = loginBodySchema.safeParse(request.body);
       if (!parsed.success) {
         return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
       }
-      const { email, password } = parsed.data;
+      // 進門一次性正規化（spec §14.3 單一漏斗）：下面 throttle 鍵值、DB 查詢、
+      // recordFailure/recordSuccess 全部共用這個值——throttle 帳號鍵與 DB 查詢比對
+      // 若用不同的正規化值，Mixed-Case 變體就能各自累積獨立的 throttle 計數，形同
+      // 繞過帳號軸限流。
+      const email = normalizeEmail(parsed.data.email);
+      const { password } = parsed.data;
 
       const throttleCheck = deps.throttle.checkAllowed(email, request.ip);
       if (!throttleCheck.allowed) {
         return sendLoginThrottled(reply, throttleCheck.retryAfterMs!);
       }
 
-      const [user] = await deps.db.select().from(users).where(eq(users.email, email)).limit(1);
+      // lower() 讀取端比對，與寫入端（admin-users.ts／bootstrap.ts 皆存正規化小寫）
+      // 對稱；多列命中防護：createdAt/id 排序取第一列（正常情況下 email 有 unique
+      // 約束不會有多列，這裡是防禦縱深）。
+      const [user] = await deps.db
+        .select()
+        .from(users)
+        .where(sql`lower(${users.email}) = ${email}`)
+        .orderBy(users.createdAt, users.id)
+        .limit(1);
 
       let verified: boolean;
       try {
@@ -100,6 +120,7 @@ export function authRoutes(deps: AuthRouteDeps) {
         displayName: user!.displayName,
         isAdmin: user!.isAdmin,
         mustChangePassword: user!.mustChangePassword,
+        hasPassword: user!.passwordHash !== null,
       });
     });
 

@@ -1,0 +1,27 @@
+services:
+  app:
+    env_file: !override []
+    environment:
+      DATABASE_URL: postgres://knotebook:knotebook@db:5432/knotebook
+      APP_SECRET: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      PUBLIC_URL: http://localhost:3100
+      ADMIN_EMAIL: admin@e2e.local
+      ADMIN_PASSWORD: e2e-admin-password
+      OIDC_ISSUER_URL: http://fake-idp:9400
+      OIDC_CLIENT_ID: knotebook-e2e
+      OIDC_CLIENT_SECRET: e2e-oidc-secret
+    ports: !override
+      - "127.0.0.1:3100:3000"
+  db:
+    environment:
+      POSTGRES_PASSWORD: knotebook # 顯式釘死：基底的 ${POSTGRES_PASSWORD:-knotebook} 插值會讀 .env/shell——
+                                    # 誰設過該變數，db 就用新密碼初始化而 app 連舊密碼（plan-gate 一輪 MINOR-6）
+  fake-idp:
+    build: { context: ./e2e, dockerfile: Dockerfile.stub }
+    command: ["node", "stubs/fake-idp.mjs"]
+    ports:
+      - "127.0.0.1:9400:9400" # 瀏覽器經 host-resolver-rules 打進來；control endpoint 也走這
+  ai-stub:
+    build: { context: ./e2e, dockerfile: Dockerfile.stub }
+    command: ["node", "stubs/ai-stub.mjs"]
+    # 只有 app 容器需要打它，不發布 host port
