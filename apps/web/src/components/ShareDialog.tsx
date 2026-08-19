@@ -1,4 +1,4 @@
-import { useId, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
 import { canonicalNotePath, normalizeSlug, validateSlug, type NoteDto, type ShareDto, type ShareRole } from "@knotebook/shared";
@@ -171,6 +171,16 @@ function CopyLinkButton({ note }: { note: NoteDto }) {
   const { t } = useTranslation();
   const [manualUrl, setManualUrl] = useState<string | null>(null);
   const manualCopyLabelId = useId();
+  const manualInputRef = useRef<HTMLInputElement>(null);
+
+  // 只在網址欄「出現的那一次」自動選取。刻意不用 inline 的 `ref={n => n?.select()}`：
+  // 那個 callback 每次 render 都是新的 identity，React 會重新掛載它而再次 select()，
+  // 而 `select()` 會把焦點移過來——使用者在同一個 dialog 裡打字時會被搶走，按鍵落進
+  // 唯讀欄位等於消失（與本分支修的 TitleInput #10 同一類缺陷）。回頭想再選一次的話，
+  // 下面的 onFocus 已經涵蓋。
+  useEffect(() => {
+    if (manualUrl !== null) manualInputRef.current?.select();
+  }, [manualUrl]);
 
   async function handleCopy(): Promise<void> {
     const url = `${window.location.origin}${canonicalNotePath(note)}`;
@@ -198,7 +208,7 @@ function CopyLinkButton({ note }: { note: NoteDto }) {
             value={manualUrl}
             aria-labelledby={manualCopyLabelId}
             onFocus={(event) => event.currentTarget.select()}
-            ref={(node) => node?.select()}
+            ref={manualInputRef}
           />
         </>
       )}
