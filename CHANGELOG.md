@@ -7,7 +7,9 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+
+- Release automation: pushing a `vX.Y.Z` tag now publishes the matching GitHub Release, with the release notes taken from this file's section for that version (`scripts/changelog-section.mjs`, `.github/workflows/release.yml`). The workflow fails rather than publishing an empty release when the version has no CHANGELOG section, and can be re-run manually for a tag that was pushed earlier.
 
 ## [0.1.0] - 2026-08-14
 

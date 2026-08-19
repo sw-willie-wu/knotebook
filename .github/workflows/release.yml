@@ -1,0 +1,73 @@
+name: Release
+
+# 發 GitHub Release：推 vX.Y.Z tag 就自動發，notes 取自 CHANGELOG.md 的同版段落。
+# 品質保證不在這裡——靠 push main 時已經跑過的 ci + e2e（見 ci.yml）；這個 workflow
+# 的唯一職責是「把 CHANGELOG 該版段落變成 Release」。
+#
+# workflow_dispatch 是給「tag 已經推上去、但當時還沒有這個 workflow」或「notes 要重發」
+# 的情境用的；建 release 的那一步是冪等的（已存在就 edit，不存在才 create）。
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要發布的 tag（例：v0.1.0）——必須已經存在於 repo"
+        required: true
+
+# ci.yml 維持 contents: read；只有這個 workflow 需要寫入權限（建 release）。
+permissions:
+  contents: write
+
+# 同一個 tag 不併發；且刻意不 cancel-in-progress——release 建到一半被砍比排隊更糟。
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # tag 名稱一律經 env 傳進 shell（不直接把 ${{ inputs.* }} 內插進指令，避免 script injection）。
+      - name: Resolve tag and version
+        id: resolve
+        env:
+          TAG_INPUT: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          TAG="${TAG_INPUT:-$REF_NAME}"
+          case "$TAG" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::tag 形式不符 vX.Y.Z：$TAG"; exit 1 ;;
+          esac
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout the tagged commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.resolve.outputs.tag }}
+
+      # 抽 notes 的 script 是純 node，不需要 pnpm install。
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Extract release notes from CHANGELOG
+        env:
+          VERSION: ${{ steps.resolve.outputs.version }}
+        run: node scripts/changelog-section.mjs "$VERSION" > notes.md
+
+      - name: Create or update the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release edit "$TAG" --title "$TAG" --notes-file notes.md --latest
+          else
+            gh release create "$TAG" --title "$TAG" --notes-file notes.md --latest --verify-tag
+          fi
