@@ -174,6 +174,20 @@ describe("buildNoteEditorOptions", () => {
    * 斷言的話，把 `buildNoteEditorOptions` 裡那一行刪掉，整套測試仍然全綠而修法靜默
    * 失效（審查實測指出的缺口）。這裡連行為一起釘：CRLF 的 markdown 要被接手。
    */
+  it("resolveFileUrl 擋掉 Yjs 直寫進來的危險 scheme，但不動自家上傳的相對網址（issue #12）", async () => {
+    // UI 的 Embed tab 早就擋過一次，但筆記內容是 Yjs 文件——有 editor 權限的協作者可以
+    // 直接寫 block props 繞過整條 UI。BlockNote 對 image/video/audio 的預覽與工具列的
+    // 「開啟／下載」按鈕都會先過 `resolveFileUrl`，這裡是所有 sink 之前的最後一道關卡。
+    const resolveFileUrl = build().resolveFileUrl;
+    expect(typeof resolveFileUrl).toBe("function");
+
+    await expect(resolveFileUrl!("javascript:alert(1)")).resolves.toBe("about:blank");
+    await expect(resolveFileUrl!("data:text/html;base64,PHNjcmlwdD4=")).resolves.toBe("about:blank");
+    // 自家上傳的圖片是相對網址（`/api/uploads/<id>`）——擋掉它就等於擋掉所有上傳的圖。
+    await expect(resolveFileUrl!("/api/uploads/u1")).resolves.toBe("/api/uploads/u1");
+    await expect(resolveFileUrl!("https://example.com/a.png")).resolves.toBe("https://example.com/a.png");
+  });
+
   it("pasteHandler 有掛上去，且真的會接手 markdown 貼上（#27／#28）", () => {
     const CRLF_MARKDOWN = "# 標題\r\n\r\n- 一\r\n- 二\r\n";
     const LF_MARKDOWN = "# 標題\n\n- 一\n- 二\n";
