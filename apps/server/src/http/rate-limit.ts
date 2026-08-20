@@ -7,7 +7,7 @@
  * `test/helpers.ts`（`buildTestApp`/`buildCollabTestApp` 注入的每次全新實例）都從這裡
  * 匯出的 `COLLAB_TOKEN_LIMIT`/`SLUG_PATCH_LIMIT` 取值，不各自重複寫一份數字字面量。
  */
-import { BoundedMap, DEFAULT_MAX_KEYS } from "../util/bounded-map.js";
+import { BoundedMap, DEFAULT_MAX_KEYS } from "../lib/bounded-map.js";
 
 export const COLLAB_TOKEN_LIMIT = { limit: 60, windowMs: 60_000 } as const;
 export const SLUG_PATCH_LIMIT = { limit: 10, windowMs: 600_000 } as const;
@@ -53,14 +53,12 @@ interface Window {
 export class FixedWindowLimiter {
   private readonly limit: number;
   private readonly windowMs: number;
-  private readonly maxKeys: number;
   private readonly windows: BoundedMap<Window>;
 
   constructor(opts: FixedWindowLimiterOptions) {
     this.limit = opts.limit;
     this.windowMs = opts.windowMs;
-    this.maxKeys = opts.maxKeys ?? DEFAULT_MAX_KEYS;
-    this.windows = new BoundedMap<Window>(this.maxKeys);
+    this.windows = new BoundedMap<Window>(opts.maxKeys ?? DEFAULT_MAX_KEYS);
   }
 
   consume(key: string): boolean {

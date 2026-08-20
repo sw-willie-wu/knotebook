@@ -3,7 +3,7 @@ import { SignJWT, jwtVerify } from "jose";
 import { eq } from "drizzle-orm";
 import type { Db } from "../db/index.js";
 import { users } from "../db/schema.js";
-import { BoundedMap } from "../util/bounded-map.js";
+import { BoundedMap } from "../lib/bounded-map.js";
 
 // 唯一定義處：session JWT 的 exp 與 session cookie 的 maxAge（見 `cookies.ts` 的
 // `setSessionCookie`）必須同源，不要各自寫死「7 天」——改這裡即可同時影響兩者。

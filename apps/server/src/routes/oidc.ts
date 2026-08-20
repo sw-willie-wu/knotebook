@@ -215,8 +215,13 @@ export function oidcRoutes(deps: OidcRouteDeps) {
         return reply.redirect("/login?error=oidc_unavailable");
       }
 
-      // callback 計在自己的 bucket（issue #16）。它不能不計：帶著亂數 code/state 來敲的
-      // 請求不需要先走過 login，而一次 callback 可能拉出一輪對 IdP 的 token exchange。
+      // callback 計在自己的 bucket（issue #16），而不是「不計數」——否則這支路由會變成
+      // 一台對 IdP 的開放放大器：state cookie 是**無狀態的封章**（server 端沒有已消費
+      // 集合，見 `auth/oidc-state.ts` 檔頭），TTL 600 秒；攻擊者只要自己走一次 login 拿到
+      // 一顆合法 cookie，就能在那 10 分鐘內無限重放 callback，每一發都真的送出一次
+      // `authorizationCodeGrant()`（對 IdP token endpoint 的 POST）。
+      // （反之，**亂數** code/state 到不了外連：cookie 不在／HMAC 驗不過／state 不符三關
+      // 就先 302 回去了。）
       if (!deps.limiters.oidcCallback.consume(request.ip)) {
         return reply.redirect("/login?error=too_many_requests");
       }

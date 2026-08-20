@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { BoundedMap } from "../../src/util/bounded-map.js";
+import { BoundedMap } from "../../src/lib/bounded-map.js";
 
 describe("BoundedMap", () => {
   it("未達上限時就是一般的 Map", () => {
@@ -35,6 +35,24 @@ describe("BoundedMap", () => {
 
     expect(map.get("a")).toBe(10);
     expect(map.get("b")).toBeUndefined();
+    expect(map.get("c")).toBe(3);
+  });
+
+  it("重寫既有 key 永遠不淘汰別人（delete 先於 size 檢查）", () => {
+    // 這條順序是 `LoginThrottle` 安全論證的地基：「已在追蹤中的 key 再失敗一次」不得把
+    // 別人的紀錄擠掉。若實作寫成「先檢查 size 再 delete」，這一發會先砍掉最舊的那筆。
+    //
+    // ⚠ 被重寫的 key 必須**不是**最舊的那筆，否則兩種寫法的結果一模一樣（錯誤實作砍掉的
+    // 正好是它自己，接著又被放回去）——上面那條「移到尾端」的測試就是這樣，分不出兩者。
+    const map = new BoundedMap<number>(3);
+    map.set("a", 1);
+    map.set("b", 2);
+    map.set("c", 3);
+    map.set("b", 20);
+
+    expect(map.size).toBe(3);
+    expect(map.get("a")).toBe(1); // 最舊的那筆沒有被這次重寫波及
+    expect(map.get("b")).toBe(20);
     expect(map.get("c")).toBe(3);
   });
 

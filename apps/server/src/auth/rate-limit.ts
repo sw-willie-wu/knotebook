@@ -20,7 +20,7 @@
  * 用 maxKeys 個「失敗時間更新」的 key 把它推到最前面，而那些 key 自己也都被記上了。
  */
 
-import { BoundedMap, DEFAULT_MAX_KEYS } from "../util/bounded-map.js";
+import { BoundedMap, DEFAULT_MAX_KEYS } from "../lib/bounded-map.js";
 
 interface FailureRecord {
   failureCount: number;
@@ -28,6 +28,20 @@ interface FailureRecord {
 }
 
 const MAX_BACKOFF_SECONDS = 900; // 15 minutes
+
+/**
+ * throttle key 的長度上限。key 直接來自請求：帳號軌是使用者送的 email（login 的 body
+ * schema 刻意只驗 `z.string()`——加格式驗證會讓 400/401 變成「帳號存不存在」的 oracle，
+ * 見 `routes/auth.ts`），IP 軌在 `trustProxy` 之下實質上是 `X-Forwarded-For` 的內容。兩者都是
+ * 攻擊者可控的字串，Fastify 預設 bodyLimit 是 1 MiB —— 不截斷的話，「筆數有上限」換不到
+ * 「位元組有上限」（`BoundedMap` 綁的是筆數）。
+ *
+ * 320 = RFC 5321 的 email 長度上限（254）再加餘裕：真實輸入永遠不會被截到，只有
+ * 刻意灌長字串的請求會——而那些請求落在同一筆紀錄上正是我們要的。
+ */
+const MAX_KEY_LENGTH = 320;
+
+const boundKey = (key: string): string => (key.length <= MAX_KEY_LENGTH ? key : key.slice(0, MAX_KEY_LENGTH));
 
 export class LoginThrottle {
   private accountFailures: BoundedMap<FailureRecord>;
@@ -44,10 +58,12 @@ export class LoginThrottle {
   /**
    * Check if a login attempt is allowed for the given account and IP
    */
-  checkAllowed(account: string, ip: string): {
+  checkAllowed(rawAccount: string, rawIp: string): {
     allowed: boolean;
     retryAfterMs?: number;
   } {
+    const account = boundKey(rawAccount);
+    const ip = boundKey(rawIp);
     const currentTime = this.now();
 
     // Evaluate account and IP records
@@ -86,7 +102,9 @@ export class LoginThrottle {
   /**
    * Record a failure for the given account and IP
    */
-  recordFailure(account: string, ip: string): void {
+  recordFailure(rawAccount: string, rawIp: string): void {
+    const account = boundKey(rawAccount);
+    const ip = boundKey(rawIp);
     const currentTime = this.now();
 
     // 一律走 set()（而不是就地改 record 的欄位）：這次失敗把這個 key 移到 BoundedMap
@@ -107,7 +125,7 @@ export class LoginThrottle {
    */
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   recordSuccess(account: string, _ip: string): void {
-    this.accountFailures.delete(account);
+    this.accountFailures.delete(boundKey(account));
     // Note: IP counter is NOT cleared, only decays through idle timeout
   }
 

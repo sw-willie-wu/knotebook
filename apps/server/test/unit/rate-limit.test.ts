@@ -38,6 +38,21 @@ describe("LoginThrottle key 上限（issue #15）", () => {
     expect(throttle.checkAllowed("someone-else", "10.0.0.2").allowed).toBe(true);
   });
 
+  it("超長的 key 會被截斷（筆數有上限，位元組也要有上限）", () => {
+    // login 的 body schema 刻意只驗 `z.string()`（避免格式驗證變成帳號存在 oracle），
+    // Fastify 預設 bodyLimit 是 1 MiB——不截斷的話一筆 key 就能吃掉一堆記憶體。
+    const now = 1000;
+    const throttle = new LoginThrottle({ now: () => now });
+    const prefix = "a".repeat(400);
+
+    for (let i = 0; i < 5; i += 1) throttle.recordFailure(`${prefix}@example.com`, "10.0.0.1");
+
+    // 只在第 320 個字元之後不同的兩個 key 落在同一筆紀錄上（真實 email 永遠碰不到：
+    // RFC 5321 的上限是 254）。換一個沒被封鎖的 IP，才能確定斷言只反映帳號軌。
+    expect(throttle.checkAllowed(`${prefix}@other.example`, "203.0.113.7").allowed).toBe(false);
+    expect(throttle.checkAllowed("short@example.com", "203.0.113.7").allowed).toBe(true);
+  });
+
   it("帳號軌同樣有上限", () => {
     const now = 1000;
     const throttle = new LoginThrottle({ now: () => now, maxKeys: 2 });

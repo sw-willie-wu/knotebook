@@ -16,6 +16,7 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ### Changed
 
+- The collab-token rate limit stays keyed on the user, not the note, and the reasoning is now recorded next to it: the limit exists to bound what one signed-in user can cost the database, keying it per note would multiply an attacker's allowance by their note count, and keying it on the address would penalise offices behind one outbound IP (#24).
 - The AI session's context value is memoised, so a streaming response no longer rebuilds every consumer — including the portal-mounted toolbar — on each delta (#20).
 - `POST /api/auth/login` and `GET /api/auth/me` are typed against the shared `UserDto`, and `GET /api/auth/config` against `AuthConfigDto`. A change to those shapes now fails the build in `apps/server`, where the mistake is, rather than in the web app that consumes them (#21).
 - A stray simplified-Chinese character in a source comment (#23).
