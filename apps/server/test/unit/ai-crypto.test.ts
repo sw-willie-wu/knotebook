@@ -97,6 +97,24 @@ describe("密文綁 providerId（AAD，issue #14）", () => {
     expect(() => decryptApiKey(secret, payload, PROVIDER_A.toUpperCase())).toThrow(AiKeyDecryptError);
   });
 
+  it("把 v2 密文的 v 改成 1 不能繞過綁定（GCM 的 tag 涵蓋 AAD）", () => {
+    // 這是這個設計最明顯的攻擊面：既然 v1 的解密路徑刻意不帶 AAD，攻擊者只要把
+    // `v: 2` 改成 `v: 1` 就能要求我們用「不驗 AAD」的方式去解一份綁過 AAD 的密文。
+    // 擋住它的不是我們的分支判斷，而是 GCM 本身——認證標籤是連同 AAD 一起算出來的，
+    // 少帶 AAD 就驗不過。這條測試把這個性質釘住，別讓後人「順手」改成寬鬆一點的驗法。
+    const payload = encryptApiKey(secret, "sk-secret", PROVIDER_A);
+    const downgraded = { ...payload, v: 1 as const };
+    expect(() => decryptApiKey(secret, downgraded, PROVIDER_B)).toThrow(AiKeyDecryptError);
+    // 連「用對的 providerId」也一樣解不開——v1 路徑根本不會帶 AAD 進去。
+    expect(() => decryptApiKey(secret, downgraded, PROVIDER_A)).toThrow(AiKeyDecryptError);
+  });
+
+  it("v 是字串 \"2\"（DB 裡的壞資料）→ 拒絕，不當成數字 2", () => {
+    const payload = encryptApiKey(secret, "sk-x", PROVIDER_A);
+    const weird = { ...payload, v: "2" } as unknown as EncryptedApiKey;
+    expect(() => decryptApiKey(secret, weird, PROVIDER_A)).toThrow(AiKeyDecryptError);
+  });
+
   it("v1（這條 issue 之前寫入的密文）仍然讀得動，且不看 providerId", () => {
     // 用 v1 的方式手造一份密文（沒有 AAD）——等同 issue #14 之前的 `encryptApiKey`。
     const key = createHash("sha256").update(`${secret}:ai-key`).digest();
