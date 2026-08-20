@@ -31,6 +31,14 @@ describe("isSafeMediaUrl（渲染端）", () => {
     expect(isSafeMediaUrl("../uploads/u1", BASE)).toBe(true);
   });
 
+  it("protocol-relative 的 //host/x 會放行——它解析出來**不在自家 origin**", () => {
+    // 釘住實際邊界，別讓「相對網址 ⇒ 同源」這個錯誤印象長回來：這道守衛保證的是
+    // scheme 是 http(s)，不是同源。外部 https 圖片本來就放行（hotlink 是已知限制）。
+    expect(isSafeMediaUrl("//evil.example/x.png", BASE)).toBe(true);
+    // 反斜線形狀在 special scheme 下等價於 `/`，反而落在自家 origin。
+    expect(isSafeMediaUrl("/\\evil.example", BASE)).toBe(true);
+  });
+
   it("空字串放行（BlockNote 對「還沒有檔案」的表示法，不是攻擊面）", () => {
     expect(isSafeMediaUrl("", BASE)).toBe(true);
   });
