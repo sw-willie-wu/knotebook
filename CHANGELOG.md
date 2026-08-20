@@ -7,18 +7,24 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.1.1] - 2026-08-20
+
 ### Added
 
-- Release automation: pushing a `vX.Y.Z` tag now publishes the matching GitHub Release, with the release notes taken from this file's section for that version (`scripts/changelog-section.mjs`, `.github/workflows/release.yml`). The workflow fails rather than publishing an empty release when the version has no CHANGELOG section, and can be re-run manually for a tag that was pushed earlier.
+- Release automation: pushing a `vX.Y.Z` tag publishes the matching GitHub Release, with the notes taken from this file's section for that version. The workflow fails rather than publishing an empty release when a version has no section here, and can be re-run by hand for a tag pushed earlier.
 
 ### Fixed
 
-- Pasting Markdown now renders as blocks on Windows. Two separate defects: BlockNote's Markdown parser does not normalise CRLF, so `- ` lists and ``` fences pasted from a Windows clipboard stayed literal — headings were unaffected, which made it look arbitrary (#28); and copying from VS Code puts a private `vscode-editor-data` format on the clipboard, which BlockNote honours ahead of everything else and turns the whole paste into a `language-markdown` code block (#27). A custom paste handler now normalises line endings and parses Markdown itself for plain text, `text/markdown`, and VS Code copies of Markdown files. When the clipboard also carries HTML the handler only steps in for text that BlockNote would already have parsed as Markdown, so nothing that previously pasted via HTML changes path — a code snippet copied from a documentation page, a JSDoc block, or `psql` output all paste exactly as they did before. In-app copies, files, VS Code copies of other languages, and pasting inside a code block are untouched. Copying a code snippet whose clipboard HTML is a single `<pre><code>` block — a documentation site's Dockerfile or shell sample — now pastes as a code block instead of having its leading `# comment` turned into a heading; that one is BlockNote's own default (it prefers Markdown-looking plain text over the HTML), so it predates this handler, but the handler is where it can be corrected.
-- A failed session lookup no longer leaves the whole app spinning: when `GET /api/auth/me` fails with anything other than 401, the route guards now show an error with a retry button instead of treating the unresolved session as "still loading" (#7).
-- Sidebar highlighting and delete-navigation now recognise a custom slug regardless of case or Unicode normalisation form, matching how slugs are normalised on save (#8).
-- Editing the note title while a save is in flight no longer loses those keystrokes — neither the server's echo nor the error-path reset overwrites text the user typed after submitting (#10).
-- "Copy link" works again on plain-http deployments: `navigator.clipboard` only exists in a secure context, so the button was inert on the LAN mode documented in `docs/self-hosting.md`. It now falls back to `document.execCommand("copy")` — copying inside the share dialog rather than at the document body, which a modal focus trap would otherwise defeat — and when neither route can copy, the dialog shows the URL in a read-only field to select by hand (#9).
-- Dark mode no longer flashes a white screen on first paint: `index.html` applies the stored (or system) theme in an inline script before React mounts (#11).
+- Markdown pasted from a Windows clipboard renders as blocks again. Line endings were the whole story: the Markdown parser does not normalise CRLF, so `- ` lists and ``` fences stayed literal while headings came through fine — which is why the failure looked arbitrary. The paste handler now normalises before parsing (#28).
+- Copying a Markdown file out of VS Code and pasting it produces blocks rather than one code block. VS Code tags the clipboard with the file's language, which previously wrapped the entire paste in `language-markdown`; that tag is now honoured for code and ignored for Markdown files (#27).
+- A code snippet copied from a documentation page pastes as a code block again, instead of having a leading `# comment` promoted to a heading (#27).
+- A failed session lookup no longer leaves the whole app spinning. When `GET /api/auth/me` fails with anything other than 401, the route guards show an error with a retry button instead of treating the unresolved session as "still loading" (#7).
+- Sidebar highlighting and delete-navigation recognise a custom slug regardless of case or Unicode normalisation form, matching how slugs are normalised on save (#8).
+- Editing a note title while a save is in flight no longer loses those keystrokes — neither the server's echo nor the error-path reset overwrites what was typed after submitting (#10).
+- "Copy link" works on plain-http deployments. `navigator.clipboard` only exists in a secure context, so the button was inert in the LAN mode this project documents; it now falls back to a copy inside the share dialog, and shows the URL in a read-only field when neither route can copy (#9).
+- Dark mode no longer flashes a white screen on first paint (#11).
 
 ## [0.1.0] - 2026-08-14
 
