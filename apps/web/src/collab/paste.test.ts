@@ -65,6 +65,17 @@ describe("decideMarkdownPaste", () => {
     expect(decideMarkdownPaste(data, false)).toBe(MD_LF);
   });
 
+  /**
+   * 結構判斷必須跑在**正規化之後**的文字上。順序反了的話，Windows 剪貼簿那種
+   * `## 標題\r\n\r\n內容` 因為「空行」其實是 `\r\n\r\n` 而過不了「真空行」那條規則，
+   * 於是被交回去、又落回 CRLF 解析——正是 #28 本身。
+   */
+  it("結構判斷跑在正規化之後：CRLF 的『標題＋空行＋內容』仍算數", () => {
+    const data = clipboard({ "text/html": "<pre>…</pre>", "text/plain": "## Install\r\n\r\nRun npm i." });
+
+    expect(decideMarkdownPaste(data, false)).toBe("## Install\n\nRun npm i.");
+  });
+
   it("text/html ＋ 有結構性證據的 markdown 原始碼（例如從 raw 頁面複製整份文件）：接手並正規化", () => {
     const data = clipboard({ "text/html": "<pre>…</pre>", "text/plain": MD_CRLF });
 
