@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { describe, it, expect } from "vitest";
 import { eq } from "drizzle-orm";
 import { SESSION_COOKIE } from "@knotebook/shared";
@@ -27,6 +28,9 @@ async function insertProvider(db: Db, overrides: Partial<typeof aiProviders.$inf
   const [row] = await db
     .insert(aiProviders)
     .values({
+      // 與 admin-ai／ai-sse 的同名 helper 對齊：密文綁 providerId（issue #14），要塞既有
+      // 密文的呼叫端必須先拿得到 id。
+      id: overrides.id ?? randomUUID(),
       name: overrides.name ?? "Test Provider",
       type: overrides.type ?? "openai_compatible",
       baseUrl: overrides.baseUrl ?? "http://localhost:9",

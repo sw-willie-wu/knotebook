@@ -9,7 +9,7 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ### Security
 
-- An AI provider's stored API key is now cryptographically bound to the provider it belongs to. The ciphertext was AES-256-GCM but carried no associated data, so copying one provider's encrypted key into another provider's row decrypted just fine and that provider would happily use it. New ciphertexts are version 2 and bind the provider id; version 1 ciphertexts still decrypt, and each one is rewritten as version 2 on the next start (a failed rewrite is logged and retried next time, never blocking startup) (#14).
+- An AI provider's stored API key is now cryptographically bound to the provider it belongs to, so a key that ends up under the wrong provider is reported as undecryptable instead of being used. The ciphertext was AES-256-GCM but carried no associated data, so a key copied into another provider's row decrypted just fine and that provider would happily send it upstream — which is how a row restored from an old backup, or a hand-written `UPDATE`, could silently start billing someone else's account. This is an integrity check rather than a defence against an attacker who can already write to the database: anyone who can move ciphertext between rows can also point a provider's base URL at a host they control and read the key in plaintext. Old ciphertexts still decrypt and are rewritten in the new format on the next start (including disabled providers; a failed rewrite is logged and retried next time, never blocking startup). **The rewrite is one-way** — see [Known limitations](docs/known-limitations.md) before rolling back to an older version (#14).
 
 ### Fixed
 

@@ -45,8 +45,9 @@ const patchProviderSchema = z.object({
 // 只選這六欄（形狀鎖，比照 `routes/admin-users.ts` 的 `adminUserColumns` 慣例，
 // 這裡更進一步）：`hasKey` 用 SQL 端 `IS NOT NULL` 直接算出布林值，**從不** SELECT
 // `apiKeyEncrypted` 本體——密文位元組完全不進 Node process 記憶體，不是「查出來但序列化
-// 階段刻意漏掉」那種較弱的防線（見 Task 3 交接：這是密文無 AAD 綁定下的唯一防線，任何
-// 回應絕不可含 api_key_encrypted／ct/iv/tag/keyId 字樣）。
+// 階段刻意漏掉」那種較弱的防線（見 Task 3 交接：任何回應絕不可含 api_key_encrypted／
+// ct/iv/tag/keyId 字樣）。issue #14 之後密文另外綁了 providerId，但那道綁定管的是
+// 「密文不能跨列使用」，跟「密文不可以出現在回應裡」是兩件事——這裡這道防線照舊。
 const providerListColumns = {
   id: aiProviders.id,
   name: aiProviders.name,
