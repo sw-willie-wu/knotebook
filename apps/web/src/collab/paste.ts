@@ -37,24 +37,35 @@ const MARKDOWN_LANGUAGE_MODES = new Set(["markdown", "md", "mdx"]);
 const ALWAYS_DELEGATE_TYPES = ["blocknote/html", "Files"];
 
 /**
- * 行首的 markdown 區塊標記。**刻意只看行首標記，不看 `**粗體**`／`` `code` ``／連結
- * 這類行內標記**：從網頁複製的純文字常常「碰巧」含有這些字元，但那份 HTML 才是真正
- * 的格式來源；真正的 markdown 原始碼則幾乎必然帶行首標記。BlockNote 自己的
- * `isMarkdown` 連行內標記都算（也因此更容易誤判），我們不沿用——**它是 MPL-2.0，
- * 不能抄進本專案**，這裡是獨立寫的判斷。
+ * markdown **文件**的結構性證據。門檻刻意訂得比「出現一個行首標記」高很多，因為審查
+ * 用真剪貼簿實測發現：只要一個標記就接手的話，**從文件網站複製程式碼片段會被我們
+ * 攔走並改壞**——`# 註解` 開頭的 shell／Dockerfile／YAML 在剪貼簿上是
+ * `<pre><code>` ＋逐字純文字，接手後註解變成 `<h1>`、縮排被收掉；`- old` / `+ new`
+ * 的 diff 會被吃成清單；純文字帶 `- ` 而 HTML 帶連結粗體的段落會被丟掉格式。
+ * 那一組「我們與 BlockNote 判斷不同」的輸入，恰好就是「HTML 才是更好來源」的那組。
+ *
+ * 所以這裡要求的是**成對／成組**的結構，單獨一行標記一律不算：
+ * - 標題後空一行再接內容（單獨一行 `# 標題` 或緊接指令的註解都不算）
+ * - 連續兩個**同符號**的清單項（`- a` 接 `+ b` 是 diff 不是清單）
+ * - 連續兩個同樣分隔符的編號項
+ * - **成對閉合**的程式碼圍籬
+ * - 表格的分隔列（`| --- |`）
+ *
+ * 這個門檻只用在「剪貼簿同時有 HTML」的情況；純文字貼上沒有更好的來源可退，不需要
+ * 過這一關。BlockNote 自己的 `isMarkdown` 形狀相近（也是要求成對結構），但**它是
+ * MPL-2.0 不能抄進本專案**，這裡是獨立寫的。
  */
-const MARKDOWN_LINE_MARKERS = [
-  /^ {0,3}#{1,6} \S/m, // 標題
-  /^ {0,3}[-*+] \S/m, // 清單
-  /^ {0,3}\d+[.)] \S/m, // 編號清單
-  /^ {0,3}(```|~~~)/m, // 程式碼圍籬
-  /^ {0,3}> /m, // 引用
-  /^ {0,3}\|.*\|/m, // 表格列
+const MARKDOWN_STRUCTURE_PATTERNS = [
+  /^ {0,3}#{1,6} \S[^\n]*\n[ \t]*\n[ \t]*\S/m, // 標題 → 空行 → 內容
+  /^ {0,3}([-*+]) \S[^\n]*\n {0,3}\1 \S/m, // 連續兩個同符號清單項
+  /^ {0,3}\d+([.)]) \S[^\n]*\n {0,3}\d+\1 \S/m, // 連續兩個同分隔符編號項
+  /^ {0,3}(```|~~~)[^\n]*\n[\s\S]*?\n {0,3}\1/m, // 成對閉合的圍籬
+  /^ {0,3}\|?[ :]*-{3,}[ :]*\|/m, // 表格分隔列
 ];
 
-/** 這段純文字看起來是 markdown **原始碼**（而不是碰巧含有標記字元的一般文字）嗎？ */
-export function looksLikeMarkdownSource(text: string): boolean {
-  return MARKDOWN_LINE_MARKERS.some((marker) => marker.test(text));
+/** 這段文字有 markdown **文件**的結構（而不是碰巧含有標記字元的程式碼或一般文字）嗎？ */
+export function hasMarkdownStructure(text: string): boolean {
+  return MARKDOWN_STRUCTURE_PATTERNS.some((pattern) => pattern.test(text));
 }
 
 function normalizeLineEndings(text: string): string {
@@ -90,22 +101,22 @@ export function decideMarkdownPaste(data: DataTransfer | null, isInCodeBlock: bo
   if (ALWAYS_DELEGATE_TYPES.some((type) => types.includes(type))) return null;
 
   const explicitMarkdown = data.getData("text/markdown");
-  const plain = data.getData("text/plain");
-  const source = explicitMarkdown || plain;
+  const source = normalizeLineEndings(explicitMarkdown || data.getData("text/plain"));
 
   // 純空白會讓 `markdownToHTML` 回空字串、`pasteHTML` 隨即早退——貼上會變成
   // 「什麼都沒發生也沒有回饋」。交回去至少維持既有行為。
   if (source.trim() === "") return null;
 
-  // VS Code 的 markdown、以及對方明確標了 `text/markdown` 的，都不必再看內容像不像。
+  // VS Code 的 markdown、以及對方明確標了 `text/markdown` 的，都不必再看內容。
   // （`text/markdown` 的優先序本來就高於 `text/html`，交回去只會讓它拿未正規化的
   // 版本去解析。VS Code 設 `mode` 時必定同時附 `text/html`，所以這個例外是必要的。）
-  if (mode !== null || explicitMarkdown) return normalizeLineEndings(source);
+  if (mode !== null || explicitMarkdown) return source;
 
-  // 只剩「純文字」與「純文字＋HTML」兩種：後者要內容看起來是 markdown 原始碼才接手。
-  if (types.includes("text/html") && !looksLikeMarkdownSource(source)) return null;
+  // 只剩「純文字」與「純文字＋HTML」兩種。後者有更好的來源可以退，所以門檻拉高到
+  // 「有 markdown 文件的結構」；純文字沒得退，維持 BlockNote 原本就會做的解析。
+  if (types.includes("text/html") && !hasMarkdownStructure(source)) return null;
 
-  return normalizeLineEndings(source);
+  return source;
 }
 
 /**
@@ -161,14 +172,24 @@ export function createMarkdownPasteHandler() {
     editor: PasteTargetEditor;
     defaultPasteHandler: () => boolean | undefined;
   }): boolean | undefined => {
+    let markdown: string | null = null;
     try {
-      const markdown = decideMarkdownPaste(event.clipboardData, isCursorInCodeBlock(editor));
-      if (markdown === null) return defaultPasteHandler();
-
-      editor.pasteMarkdown(markdown);
-      return true;
+      markdown = decideMarkdownPaste(event.clipboardData, isCursorInCodeBlock(editor));
     } catch {
-      return defaultPasteHandler();
+      markdown = null; // 判斷階段出任何意外都退回預設流程
     }
+
+    // ⚠ `defaultPasteHandler()` 一定要在 try **外面**、而且只呼叫一次：它自己也可能拋
+    // （BlockNote 對 `vscode-editor-data` 是無防護的 `JSON.parse`），包在 try 裡就會被
+    // catch 再叫一次、同樣再拋一次，使用者得到「貼上完全沒反應」。
+    if (markdown === null) return defaultPasteHandler();
+
+    try {
+      editor.pasteMarkdown(markdown);
+    } catch {
+      // 可能已經插入一部分了——這時**不能**再退回預設流程，否則會在半套內容上再貼
+      // 一次變成重複內容。回報已處理，讓它停在這裡。
+    }
+    return true;
   };
 }
