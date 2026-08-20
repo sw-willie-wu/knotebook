@@ -14,16 +14,48 @@
  *    優先序裡排第一，命中後整份會被包成 `<pre><code class="language-markdown">`。
  *    對貼 Python 是對的，對貼 markdown 不是使用者要的。
  *
- * 其餘情況一律原封不動交回 `defaultPasteHandler()`——**刻意不重寫 BlockNote 的整套
- * 優先序**：帶 `text/html` 的貼上（從網頁複製）那份 HTML 才是真正的格式來源，站內
- * 複製的 `blocknote/html`、檔案、非 markdown 的 VS Code 內容也都該走原本的路。
+ * ⚠ **交回 `defaultPasteHandler()` 不等於「走 HTML 那條路」**（審查實測糾正過一次）：
+ * BlockNote 的預設流程 `prioritizeMarkdownOverHTML` 是 true，會在處理 `text/html`
+ * **之前**先看純文字像不像 markdown，像就直接拿去解析；而 `text/markdown` 的優先序
+ * 本來就高於 `text/html`。所以「有 HTML 就交回去」會讓未正規化的 CRLF 走進同一個
+ * 壞掉的解析器。判斷因此改成看**內容**（有沒有行首的 markdown 標記）而不是看格式。
+ *
+ * 反過來，真正該交回去的是：站內複製（`blocknote/html`）、檔案、VS Code 貼非 markdown
+ * 的語言、游標在程式碼區塊裡、以及「有 HTML 且純文字沒有 markdown 行首標記」——最後
+ * 這種就是從網頁複製排版內容，HTML 才是真正的格式來源。
  */
 
-/** VS Code 的 `mode` 屬於這些語言時，我們把內容當 markdown 解析而不是包成程式碼區塊。 */
+/** VS Code 的 `mode` 屬於這些語言時，我們把內容當 markdown 解析而不是包成程式碼區塊。
+ *
+ * `mode` 是 VS Code 的 languageId（審查反編譯 VS Code bundle 確認過），`.md` 給的是
+ * `markdown`。`md` 實務上不會出現（那是副檔名），`mdx` 只有裝了 MDX 擴充才有——兩者
+ * 留著不會有壞處。已知**不在**這裡而仍會變成程式碼區塊的：`quarto`／`rmd`／`mdc`，
+ * 以及沒有語言關聯時的 `plaintext`。 */
 const MARKDOWN_LANGUAGE_MODES = new Set(["markdown", "md", "mdx"]);
 
-/** 這些格式一出現就代表「有比純文字更好的來源」，讓 BlockNote 自己處理。 */
-const RICHER_SOURCE_TYPES = ["blocknote/html", "text/html", "Files"];
+/** 這些格式一出現就代表「有比純文字更好的來源」，一律讓 BlockNote 自己處理。 */
+const ALWAYS_DELEGATE_TYPES = ["blocknote/html", "Files"];
+
+/**
+ * 行首的 markdown 區塊標記。**刻意只看行首標記，不看 `**粗體**`／`` `code` ``／連結
+ * 這類行內標記**：從網頁複製的純文字常常「碰巧」含有這些字元，但那份 HTML 才是真正
+ * 的格式來源；真正的 markdown 原始碼則幾乎必然帶行首標記。BlockNote 自己的
+ * `isMarkdown` 連行內標記都算（也因此更容易誤判），我們不沿用——**它是 MPL-2.0，
+ * 不能抄進本專案**，這裡是獨立寫的判斷。
+ */
+const MARKDOWN_LINE_MARKERS = [
+  /^ {0,3}#{1,6} \S/m, // 標題
+  /^ {0,3}[-*+] \S/m, // 清單
+  /^ {0,3}\d+[.)] \S/m, // 編號清單
+  /^ {0,3}(```|~~~)/m, // 程式碼圍籬
+  /^ {0,3}> /m, // 引用
+  /^ {0,3}\|.*\|/m, // 表格列
+];
+
+/** 這段純文字看起來是 markdown **原始碼**（而不是碰巧含有標記字元的一般文字）嗎？ */
+export function looksLikeMarkdownSource(text: string): boolean {
+  return MARKDOWN_LINE_MARKERS.some((marker) => marker.test(text));
+}
 
 function normalizeLineEndings(text: string): string {
   return text.replace(/\r\n?/g, "\n");
@@ -55,23 +87,69 @@ export function decideMarkdownPaste(data: DataTransfer | null, isInCodeBlock: bo
   if (mode !== null && !MARKDOWN_LANGUAGE_MODES.has(mode)) return null; // 例如 python：維持程式碼區塊
 
   const types = Array.from(data.types ?? []);
-  // VS Code 的 markdown 例外於此規則之上：它同時帶 text/html 也仍然要當 markdown。
-  if (mode === null && RICHER_SOURCE_TYPES.some((type) => types.includes(type))) return null;
+  if (ALWAYS_DELEGATE_TYPES.some((type) => types.includes(type))) return null;
 
-  const source = data.getData("text/markdown") || data.getData("text/plain");
-  if (!source) return null;
+  const explicitMarkdown = data.getData("text/markdown");
+  const plain = data.getData("text/plain");
+  const source = explicitMarkdown || plain;
+
+  // 純空白會讓 `markdownToHTML` 回空字串、`pasteHTML` 隨即早退——貼上會變成
+  // 「什麼都沒發生也沒有回饋」。交回去至少維持既有行為。
+  if (source.trim() === "") return null;
+
+  // VS Code 的 markdown、以及對方明確標了 `text/markdown` 的，都不必再看內容像不像。
+  // （`text/markdown` 的優先序本來就高於 `text/html`，交回去只會讓它拿未正規化的
+  // 版本去解析。VS Code 設 `mode` 時必定同時附 `text/html`，所以這個例外是必要的。）
+  if (mode !== null || explicitMarkdown) return normalizeLineEndings(source);
+
+  // 只剩「純文字」與「純文字＋HTML」兩種：後者要內容看起來是 markdown 原始碼才接手。
+  if (types.includes("text/html") && !looksLikeMarkdownSource(source)) return null;
 
   return normalizeLineEndings(source);
 }
 
-/** `decideMarkdownPaste` 需要的最小 editor 介面（測試用假物件即可滿足）。 */
+/**
+ * 本模組需要的最小 editor 介面（測試用假物件即可滿足）。
+ *
+ * ⚠ callback 的參數**必須**寫成 ProseMirror `Transaction` 結構上滿足的形狀，不能圖省事
+ * 寫 `never`：參數位置是逆變的，寫 `never` 會讓真正的 `BlockNoteEditor` 反而不能指派
+ * 給這個介面，於是 `withCollaboration<Options extends Partial<BlockNoteEditorOptions>>`
+ * 的推論退化成約束本身（`Partial<…>`），回傳型別上的 `collaboration` 等欄位整個消失
+ * ——錯誤還會冒在別的檔案（呼叫端的測試）而不是這裡。
+ */
+interface PasteResolvedPos {
+  parent: { type: { spec: { code?: boolean } } };
+}
+
+interface PasteTransaction {
+  selection: { $from: PasteResolvedPos; $to: PasteResolvedPos };
+}
+
 interface PasteTargetEditor {
   pasteMarkdown: (markdown: string) => void;
-  getTextCursorPosition: () => { block: { type: string } };
+  transact: <T>(callback: (tr: PasteTransaction) => T) => T;
+}
+
+/**
+ * 游標是否落在程式碼區塊內。判斷方式與 BlockNote 的預設流程逐字相同
+ * （`$from` 與 `$to` 的 parent 都是 `spec.code`）——刻意不用
+ * `getTextCursorPosition()`：那條路徑會把周邊四個區塊都轉成 BlockNote block
+ * （`nodeToBlock` 有十幾個 throw 點，其中 `getNearestBlockPos` 的 fallback 註解
+ * 還特別提到「用 collaboration plugin 時」），而本 handler 拋錯的代價是整個貼上
+ * 靜默失效。
+ */
+function isCursorInCodeBlock(editor: PasteTargetEditor): boolean {
+  return editor.transact(
+    ({ selection }) => selection.$from.parent.type.spec.code === true && selection.$to.parent.type.spec.code === true,
+  );
 }
 
 /**
  * 交給 BlockNote 的 `pasteHandler` 選項。回傳 `true` ＝已處理。
+ *
+ * ⚠ BlockNote 的外掛在呼叫本 handler **之前**就 `event.preventDefault()` 了，所以這裡
+ * 任何未捕捉的例外都會讓使用者的貼上「按了完全沒反應」。整段包 try/catch，出任何
+ * 意外一律退回預設流程。
  */
 export function createMarkdownPasteHandler() {
   return ({
@@ -83,12 +161,14 @@ export function createMarkdownPasteHandler() {
     editor: PasteTargetEditor;
     defaultPasteHandler: () => boolean | undefined;
   }): boolean | undefined => {
-    const isInCodeBlock = editor.getTextCursorPosition().block.type === "codeBlock";
-    const markdown = decideMarkdownPaste(event.clipboardData, isInCodeBlock);
+    try {
+      const markdown = decideMarkdownPaste(event.clipboardData, isCursorInCodeBlock(editor));
+      if (markdown === null) return defaultPasteHandler();
 
-    if (markdown === null) return defaultPasteHandler();
-
-    editor.pasteMarkdown(markdown);
-    return true;
+      editor.pasteMarkdown(markdown);
+      return true;
+    } catch {
+      return defaultPasteHandler();
+    }
   };
 }

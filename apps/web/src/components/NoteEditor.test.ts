@@ -169,6 +169,39 @@ describe("buildNoteEditorOptions", () => {
     expect(typeof build().uploadFile).toBe("function");
   });
 
+  /**
+   * `pasteHandler` 是 markdown 貼上修法（#27／#28）唯一通到使用者的那條線——沒有這條
+   * 斷言的話，把 `buildNoteEditorOptions` 裡那一行刪掉，整套測試仍然全綠而修法靜默
+   * 失效（審查實測指出的缺口）。這裡連行為一起釘：CRLF 的 markdown 要被接手。
+   */
+  it("pasteHandler 有掛上去，且真的會接手 markdown 貼上（#27／#28）", () => {
+    const CRLF_MARKDOWN = "# 標題\r\n\r\n- 一\r\n- 二\r\n";
+    const LF_MARKDOWN = "# 標題\n\n- 一\n- 二\n";
+    const pasteHandler = build().pasteHandler;
+    expect(typeof pasteHandler).toBe("function");
+
+    const pasteMarkdown = vi.fn();
+    const defaultPasteHandler = vi.fn(() => true);
+    const resolved = { parent: { type: { spec: { code: false } } } };
+
+    pasteHandler!({
+      event: {
+        clipboardData: {
+          types: ["text/plain"],
+          getData: (type: string) => (type === "text/plain" ? CRLF_MARKDOWN : ""),
+        },
+      } as never,
+      editor: {
+        pasteMarkdown,
+        transact: (callback: (tr: never) => unknown) => callback({ selection: { $from: resolved, $to: resolved } } as never),
+      } as never,
+      defaultPasteHandler,
+    } as never);
+
+    expect(pasteMarkdown).toHaveBeenCalledWith(LF_MARKDOWN);
+    expect(defaultPasteHandler).not.toHaveBeenCalled();
+  });
+
   it("攔截掛在 editorProps.handleDOMEvents，**不是** handlePaste/handleDrop", () => {
     const editorProps = build()._tiptapOptions.editorProps;
 
