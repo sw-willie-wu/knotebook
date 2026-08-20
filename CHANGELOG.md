@@ -13,6 +13,7 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ### Fixed
 
+- Pasting Markdown now renders as blocks on Windows. Two separate defects: BlockNote's Markdown parser does not normalise CRLF, so `- ` lists and ``` fences pasted from a Windows clipboard stayed literal (headings were unaffected, which made it look arbitrary) (#28); and copying from VS Code puts a private `vscode-editor-data` format on the clipboard, which BlockNote honours ahead of everything else and turns the whole paste into a `language-markdown` code block (#27). A custom paste handler now takes over for Markdown sources — normalising line endings first — while leaving HTML pastes, in-app copies, files, and VS Code copies of actual code on their existing paths.
 - A failed session lookup no longer leaves the whole app spinning: when `GET /api/auth/me` fails with anything other than 401, the route guards now show an error with a retry button instead of treating the unresolved session as "still loading" (#7).
 - Sidebar highlighting and delete-navigation now recognise a custom slug regardless of case or Unicode normalisation form, matching how slugs are normalised on save (#8).
 - Editing the note title while a save is in flight no longer loses those keystrokes — neither the server's echo nor the error-path reset overwrites text the user typed after submitting (#10).
