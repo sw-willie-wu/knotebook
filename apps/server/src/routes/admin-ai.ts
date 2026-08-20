@@ -238,6 +238,9 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
       // cascade 由 FK 承擔：models 隨之刪除，關聯 actions.modelId SET NULL（走 13.2 回退鏈）。
       const [deleted] = await deps.db.delete(aiProviders).where(eq(aiProviders.id, id)).returning({ id: aiProviders.id });
       if (!deleted) return sendError(reply, 404, "not_found", "找不到此 provider");
+      // provider 都不在了，degraded 裡的那筆再也沒有人會去清（PATCH 重輸金鑰是唯一
+      // 的移除路徑）——留著就是永遠累積的髒狀態。
+      deps.runtime.degraded.delete(id);
       return reply.code(204).send();
     });
 
