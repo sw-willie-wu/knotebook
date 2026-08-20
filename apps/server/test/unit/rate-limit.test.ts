@@ -2,6 +2,71 @@ import { describe, it, expect } from "vitest";
 import { LoginThrottle } from "../../src/auth/rate-limit.js";
 import { AI_LIMIT, FixedWindowLimiter } from "../../src/http/rate-limit.js";
 
+describe("LoginThrottle key 上限（issue #15）", () => {
+  /** 每次用不同帳號，讓斷言只反映 IP 那一軌。 */
+  const fail = (throttle: LoginThrottle, ip: string, times: number, tag = ip) => {
+    for (let i = 0; i < times; i += 1) throttle.recordFailure(`${tag}-account-${i}`, ip);
+  };
+
+  it("不同 IP 灌爆時舊的紀錄會被淘汰，不是無上限成長", () => {
+    const now = 1000;
+    const throttle = new LoginThrottle({ now: () => now, maxKeys: 2 });
+
+    fail(throttle, "10.0.0.1", 5);
+    expect(throttle.checkAllowed("someone-else", "10.0.0.1").allowed).toBe(false);
+
+    // 另外兩個 IP 各失敗一次——上限是 2，10.0.0.1 是最舊的，被擠掉。
+    fail(throttle, "10.0.0.2", 1);
+    fail(throttle, "10.0.0.3", 1);
+
+    expect(throttle.checkAllowed("someone-else", "10.0.0.1").allowed).toBe(true);
+  });
+
+  it("最近失敗的紀錄最晚被淘汰（封鎖中的那筆不會被更舊的擠掉）", () => {
+    let now = 1000;
+    const throttle = new LoginThrottle({ now: () => now, maxKeys: 2 });
+
+    fail(throttle, "10.0.0.1", 5); // 封鎖中
+    now += 1;
+    fail(throttle, "10.0.0.2", 5); // 也封鎖中，但更新
+    now += 1;
+    fail(throttle, "10.0.0.1", 1); // 10.0.0.1 重新移到尾端
+    now += 1;
+    fail(throttle, "10.0.0.3", 1); // 淘汰最舊的——現在是 10.0.0.2
+
+    expect(throttle.checkAllowed("someone-else", "10.0.0.1").allowed).toBe(false);
+    expect(throttle.checkAllowed("someone-else", "10.0.0.2").allowed).toBe(true);
+  });
+
+  it("超長的 key 會被截斷（筆數有上限，位元組也要有上限）", () => {
+    // login 的 body schema 刻意只驗 `z.string()`（避免格式驗證變成帳號存在 oracle），
+    // Fastify 預設 bodyLimit 是 1 MiB——不截斷的話一筆 key 就能吃掉一堆記憶體。
+    const now = 1000;
+    const throttle = new LoginThrottle({ now: () => now });
+    const prefix = "a".repeat(400);
+
+    for (let i = 0; i < 5; i += 1) throttle.recordFailure(`${prefix}@example.com`, "10.0.0.1");
+
+    // 只在第 320 個字元之後不同的兩個 key 落在同一筆紀錄上（真實 email 永遠碰不到：
+    // RFC 5321 的上限是 254）。換一個沒被封鎖的 IP，才能確定斷言只反映帳號軌。
+    expect(throttle.checkAllowed(`${prefix}@other.example`, "203.0.113.7").allowed).toBe(false);
+    expect(throttle.checkAllowed("short@example.com", "203.0.113.7").allowed).toBe(true);
+  });
+
+  it("帳號軌同樣有上限", () => {
+    const now = 1000;
+    const throttle = new LoginThrottle({ now: () => now, maxKeys: 2 });
+
+    for (let i = 0; i < 5; i += 1) throttle.recordFailure("victim@example.com", `10.0.0.${i}`);
+    expect(throttle.checkAllowed("victim@example.com", "203.0.113.9").allowed).toBe(false);
+
+    throttle.recordFailure("other-a@example.com", "203.0.113.1");
+    throttle.recordFailure("other-b@example.com", "203.0.113.2");
+
+    expect(throttle.checkAllowed("victim@example.com", "203.0.113.9").allowed).toBe(true);
+  });
+});
+
 describe("LoginThrottle", () => {
   describe("basic backoff mechanism", () => {
     it("4 次失敗後仍 allowed", () => {

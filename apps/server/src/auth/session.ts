@@ -3,6 +3,7 @@ import { SignJWT, jwtVerify } from "jose";
 import { eq } from "drizzle-orm";
 import type { Db } from "../db/index.js";
 import { users } from "../db/schema.js";
+import { BoundedMap } from "../lib/bounded-map.js";
 
 // 唯一定義處：session JWT 的 exp 與 session cookie 的 maxAge（見 `cookies.ts` 的
 // `setSessionCookie`）必須同源，不要各自寫死「7 天」——改這裡即可同時影響兩者。
@@ -103,8 +104,7 @@ const CACHE_TTL_MS = 60_000;
  * 否則寧可這次的結果不快取（下次 check 會重新查 DB），也不要快取到可能已經過期的資料。
  */
 export class UserGate {
-  private readonly cache = new Map<string, CacheEntry>();
-  private readonly maxEntries: number;
+  private readonly cache: BoundedMap<CacheEntry>;
   private readonly now: () => number;
   private readonly fetchRow: (userId: string) => Promise<GateRow | null>;
   private gen = 0;
@@ -113,7 +113,7 @@ export class UserGate {
     private readonly db: Db,
     options: UserGateOptions = {}
   ) {
-    this.maxEntries = options.maxEntries ?? DEFAULT_MAX_ENTRIES;
+    this.cache = new BoundedMap<CacheEntry>(options.maxEntries ?? DEFAULT_MAX_ENTRIES);
     this.now = options.now ?? Date.now;
     this.fetchRow = options.fetchRow ?? (userId => this.fetchRowFromDb(userId));
   }
@@ -152,17 +152,11 @@ export class UserGate {
   }
 
   private store(userId: string, entry: CacheEntry): void {
-    // 插入序淘汰：只有這裡（cache miss / TTL 過期後重新查到資料）會寫入快取，
-    // 單純的讀取命中（check() 的 cache hit 分支）不會呼叫 store()、不會重排順序。
-    // 先刪除已存在的 key 再重新 set，是為了在「TTL 過期後重新查到同一個 userId」時
-    // 讓它移到 Map 迭代順序的尾端（視為新插入），維持「最舊的在最前面」，
-    // 淘汰時固定砍最前面那個——即最久沒有被重新查詢過的那筆，符合「插入序淘汰即可當
-    // LRU」的規格（純讀取命中不影響淘汰順序，是刻意簡化，非嚴格 access-recency LRU）。
-    this.cache.delete(userId);
-    if (this.cache.size >= this.maxEntries) {
-      const oldestKey = this.cache.keys().next().value;
-      if (oldestKey !== undefined) this.cache.delete(oldestKey);
-    }
+    // 插入序淘汰交給共用的 `BoundedMap`（issue #15）：`set()` 會把這個 userId 移到
+    // 迭代順序的尾端並在滿了時砍最前面那筆。只有這裡（cache miss / TTL 過期後重新查到
+    // 資料）會寫入快取，單純的讀取命中（check() 的 cache hit 分支）不呼叫 store()、不重排
+    // 順序——因此被砍的是「最久沒有被重新查詢過」的那筆（刻意簡化，非嚴格
+    // access-recency LRU）。
     this.cache.set(userId, entry);
   }
 

@@ -427,6 +427,30 @@ export function notesRoutes(deps: NotesRouteDeps) {
      * per-user 節流（`limiters.collabToken`，預設 60 次/分鐘）：超限回標準 429
      * `too_many_requests`——不像 `sendLoginThrottled` 額外帶 `retryAfterMs`（spec 沒有
      * 要求 client 據此排程重試，維持標準錯誤 body 形狀即可）。
+     *
+     * ⚠ **key 是 userId、不分筆記，這是刻意的**（issue #24 定案）。這道節流要擋的是
+     * 「一個已登入的使用者把這支 endpoint 當迴圈打」所造成的 DB／CPU 負載（每一發都是
+     * 一次 `resolveRole` 查詢加一次 JWT 簽章），而消耗者就是那個使用者——額度自然該記
+     * 在他頭上。兩個看似更「精準」的 key 都更差：
+     *
+     * - **加上 noteId**（每篇筆記一份額度）會把攻擊者的可用額度乘上筆記數，正好把防線
+     *   放到最寬——洗 token 本來就可以輪著筆記洗。
+     * - **改用／加上 IP** 會讓共用出口 IP 的辦公室網路互相拖累，而此處既然已經有 session，
+     *   userId 比 IP 更接近真正的主體。
+     *
+     * 額度對正常使用者夠嗎（issue 提的另一半）：一篇筆記只在「建線／重連／server 主動
+     * 要求重驗」時各打一發，不是輪詢；而重驗是 **per-(note, user)** 而非整份文件廣播（N1），
+     * 所以別人的撤權不會放大到這個使用者頭上。同時開幾十篇筆記仍遠低於 60 次/分鐘。
+     *
+     * 超限的可觀察後果（語意的另一半）：client 對 429 會退避重試（`useCollab` 的
+     * `TOKEN_RETRY_DELAYS_MS`，首發＋4 次共 5 發），而 `FixedWindowLimiter` 是「必計數」（超限
+     * 的那一發也算）——所以 60 次/分鐘實際上是約 12 次「需要一枚 token」的機會。重試全部
+     * 用完仍拿不到 token 時，client 不會把使用者踢出（N7），但目前也沒有其他出口，畫面
+     * 會停在「連線中」直到使用者重整（已另行追蹤）。
+     *
+     * 它**不**負責擋「攻擊者換帳號就換一份額度」：這個專案的帳號不是自助註冊的（admin
+     * 代建或 OIDC 自動佈建），「能不能拿到一個帳號」那道門檔在帳號佈建那一層，不在
+     * 這裡。
      */
     app.post("/api/notes/:id/collab-token", { preHandler: app.authenticate }, async (request, reply) => {
       const { id } = request.params as { id: string };

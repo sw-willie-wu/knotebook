@@ -148,7 +148,8 @@ function freshLimiters(): NonNullable<AppDeps["limiters"]> {
     slugPatch: new FixedWindowLimiter(SLUG_PATCH_LIMIT),
     upload: new FixedWindowLimiter(UPLOAD_LIMIT),
     ai: new FixedWindowLimiter(AI_LIMIT),
-    oidc: new FixedWindowLimiter(OIDC_LIMIT),
+    oidcLogin: new FixedWindowLimiter(OIDC_LIMIT),
+    oidcCallback: new FixedWindowLimiter(OIDC_LIMIT),
   };
 }
 

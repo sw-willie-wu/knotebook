@@ -68,7 +68,9 @@ export interface AppDeps {
     slugPatch: FixedWindowLimiter;
     upload: FixedWindowLimiter;
     ai: FixedWindowLimiter;
-    oidc: FixedWindowLimiter;
+    /** OIDC login 與 callback 各自一份額度（issue #16），見 `OIDC_LIMIT` 註解。 */
+    oidcLogin: FixedWindowLimiter;
+    oidcCallback: FixedWindowLimiter;
   };
   /**
    * Task 5：`POST /api/notes/:id/links` 寫入函式（`notes/links.ts` 的 `writeNoteLinks`）的
@@ -371,7 +373,8 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       slugPatch: new FixedWindowLimiter(SLUG_PATCH_LIMIT),
       upload: new FixedWindowLimiter(UPLOAD_LIMIT),
       ai: new FixedWindowLimiter(AI_LIMIT),
-      oidc: new FixedWindowLimiter(OIDC_LIMIT),
+      oidcLogin: new FixedWindowLimiter(OIDC_LIMIT),
+      oidcCallback: new FixedWindowLimiter(OIDC_LIMIT),
     } satisfies NonNullable<AppDeps["limiters"]>);
 
   // Task 8（二輪 MINOR-8）：`deps.oidc` 未傳但 `config.oidc` 有值時在此補上 production
@@ -384,7 +387,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   // Task 9：callback 需要 db（帳號解析交易）與 gate（連結/建帳/清 mustChangePassword
   // 後 invalidate 快取）——login 半邊不需要這兩個，但兩端點共用同一個 register 函式，
   // deps 一併傳入。
-  void app.register(oidcRoutes({ config: deps.config, db: deps.db, gate: deps.gate, runtime: oidcRuntime, limiters: { oidc: limiters.oidc } }));
+  void app.register(oidcRoutes({ config: deps.config, db: deps.db, gate: deps.gate, runtime: oidcRuntime, limiters: { oidcLogin: limiters.oidcLogin, oidcCallback: limiters.oidcCallback } }));
 
   void app.register(
     notesRoutes({

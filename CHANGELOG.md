@@ -10,11 +10,14 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 ### Fixed
 
 - Losing access to a note before its collaboration connection is established no longer parks the editor on "Connecting" forever — whether the note was still opening or the connection happened to be reconnecting at the time. When the share is revoked before that handshake completes, the server rejects the handshake itself rather than sending the close message the client was waiting for, and that rejection carried no state change at all. The client now reads it, retries once with a fresh token, and then shows the same "You no longer have access to this note" notice and returns to the note list as any other revocation (#6).
+- A single SSO sign-in no longer spends two units of the same rate-limit quota. `GET /api/auth/oidc/login` and `GET /api/auth/oidc/callback` shared one 30-per-minute-per-IP bucket, and a complete sign-in always goes through both — so the usable number of sign-ins was half the advertised one, which offices behind a shared outbound IP hit first. Each endpoint now counts against its own bucket (#16).
+- The failed-login throttle no longer grows without bound. Its account and IP records were only dropped when the same key happened to be touched again after 15 idle minutes, so a spray of distinct accounts or addresses left entries behind for the life of the process. Both tracks now share the same bounded map the other limiters already used, and the record evicted first is always the one whose last failure is oldest — the one closest to expiring anyway (#15).
 - Deleting an AI provider now also drops it from the degraded set. Nothing else clears that entry — re-entering an API key is the only other path — so the id lingered for the life of the process (#17).
 - The password-length hint is generated from the shared `MIN_PASSWORD_LENGTH` constant instead of being written out in each translation, so raising the minimum can no longer leave the UI advertising the old one (#22).
 
 ### Changed
 
+- The collab-token rate limit stays keyed on the user, not the note, and the reasoning is now recorded next to it: the limit exists to bound what one signed-in user can cost the database, keying it per note would multiply an attacker's allowance by their note count, and keying it on the address would penalise offices behind one outbound IP (#24).
 - The AI session's context value is memoised, so a streaming response no longer rebuilds every consumer — including the portal-mounted toolbar — on each delta (#20).
 - `POST /api/auth/login` and `GET /api/auth/me` are typed against the shared `UserDto`, and `GET /api/auth/config` against `AuthConfigDto`. A change to those shapes now fails the build in `apps/server`, where the mistake is, rather than in the web app that consumes them (#21).
 - A stray simplified-Chinese character in a source comment (#23).
