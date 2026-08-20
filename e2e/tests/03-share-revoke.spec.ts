@@ -79,10 +79,11 @@ test("admin 建第二使用者 → 分享筆記 → 撤銷 → SLA 內失去存�
     // ── 屏障：等 Hocuspocus 共編真的連上，才開始算 SLA ──────────────────
     // REST（上面那個 `<h1>` 標題）成功只代表 `GET /api/notes/:ref` 拿到資料；
     // provider 的 WS 握手是接在它後面才起步的獨立非同步流程（`useCollab`）。
-    // 若在這裡就撤權，provider 很可能還卡在 `connecting`，永遠等不到
-    // `COLLAB_CLOSE_REVOKED` 這個「已連線後才會收到」的訊號——10 秒 SLA 斷言
-    // 會在 CI 較慢的環境下隨機硬失敗（本機常因夠快而躲過，是「本機躲過、CI
-    // 才現形」族）。`ConnectionBadge`（`role="status"`）是 T12 交接記錄的真訊號：
+    // 在這裡就撤權也不再是卡死的（issue #6：握手前被拒走的是
+    // `authenticationFailed`，`useCollab` 現在接了並翻成同一套二擊語意，同樣收斂到
+    // 下面那組斷言）——但這道屏障仍然保留：它讓這一支 spec 釘的是「已連線後收到
+    // 應用層 CLOSE(REVOKED)」那條主路徑，而不是隨機落在兩條之一。
+    // `ConnectionBadge`（`role="status"`）是 T12 交接記錄的真訊號：
     // 等它顯示「Connected」，順帶釘住角色徽章＝viewer（分享表單預設角色）。
     const connectionBadge = userPage.getByRole("status").filter({ hasText: "Connected" });
     await expect(connectionBadge).toBeVisible({ timeout: 15_000 });

@@ -183,6 +183,19 @@ export interface AdminAiActionDto {
 
 export const COLLAB_CLOSE_REVOKED = "knotebook:revoked";
 export const COLLAB_CLOSE_NOTE_DELETED = "knotebook:note-deleted";
+
+/**
+ * 共編握手被拒時，server 寫進 permission-denied 訊息的 reason（client 從 provider 的
+ * `authenticationFailed` 事件收到）。
+ *
+ * ⚠ 這一組常數與上面的 `COLLAB_CLOSE_*` 是**兩條不同的通道**，不可混用：
+ * `COLLAB_CLOSE_*` 走應用層 CLOSE 訊息（連線**已經**通過 onAuthenticate 之後才送）；
+ * 這裡這組則是 onAuthenticate 當場就拒絕，Hocuspocus 只回一則 permission-denied Auth
+ * 訊息、**不關 socket 也不重連**（已對 @hocuspocus/server 4.5.0 `ClientConnection` 核實）。
+ * client 必須自己把它翻成狀態機事件，否則畫面會永遠停在「連線中」（issue #6）。
+ */
+export const COLLAB_REJECT_NOTE_DELETING = "note-deleting";
+export const COLLAB_REJECT_INVALID_TOKEN = "invalid-token";
 export const COLLAB_TOKEN_TTL_SECONDS = 120;
 export interface CollabTokenClaims {
   noteId: string;
