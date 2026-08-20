@@ -7,6 +7,10 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
+### Security
+
+- An AI provider's stored API key is now cryptographically bound to the provider it belongs to. The ciphertext was AES-256-GCM but carried no associated data, so copying one provider's encrypted key into another provider's row decrypted just fine and that provider would happily use it. New ciphertexts are version 2 and bind the provider id; version 1 ciphertexts still decrypt, and each one is rewritten as version 2 on the next start (a failed rewrite is logged and retried next time, never blocking startup) (#14).
+
 ### Fixed
 
 - Losing access to a note before its collaboration connection is established no longer parks the editor on "Connecting" forever — whether the note was still opening or the connection happened to be reconnecting at the time. When the share is revoked before that handshake completes, the server rejects the handshake itself rather than sending the close message the client was waiting for, and that rejection carried no state change at all. The client now reads it, retries once with a fresh token, and then shows the same "You no longer have access to this note" notice and returns to the note list as any other revocation (#6).

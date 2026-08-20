@@ -143,7 +143,7 @@ export function aiRoutes(deps: AiRouteDeps) {
       let apiKey: string | undefined;
       if (resolved.provider.apiKeyEncrypted !== null) {
         try {
-          apiKey = decryptApiKey(deps.config.appSecret, resolved.provider.apiKeyEncrypted);
+          apiKey = decryptApiKey(deps.config.appSecret, resolved.provider.apiKeyEncrypted, resolved.provider.id);
         } catch (err) {
           if (!(err instanceof AiKeyDecryptError)) throw err;
           deps.runtime.degraded.add(resolved.provider.id);

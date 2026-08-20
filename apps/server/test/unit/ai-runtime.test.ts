@@ -36,7 +36,7 @@ describe("checkProviderKeys（純函式，spec §13）", () => {
   it("enabled 且能正確解密 → 不降級", () => {
     const runtime = createAiRuntime();
     const log = fakeLog();
-    const encrypted = encryptApiKey(secret, "sk-good-key");
+    const encrypted = encryptApiKey(secret, "sk-good-key", "provider-1");
     checkProviderKeys([provider({ apiKeyEncrypted: encrypted })], secret, runtime, log);
     expect(runtime.degraded.size).toBe(0);
     expect(log.warn).not.toHaveBeenCalled();
@@ -45,7 +45,7 @@ describe("checkProviderKeys（純函式，spec §13）", () => {
   it("enabled 但解密失敗（壞密文）→ 加入 degraded，log.warn 訊息含「至 admin 後台重輸 API key」指引", () => {
     const runtime = createAiRuntime();
     const log = fakeLog();
-    const encrypted = encryptApiKey(secret, "sk-good-key");
+    const encrypted = encryptApiKey(secret, "sk-good-key", "provider-broken");
     const tampered = { ...encrypted, keyId: "deadbeef" };
     checkProviderKeys([provider({ id: "provider-broken", apiKeyEncrypted: tampered })], secret, runtime, log);
 
@@ -58,7 +58,7 @@ describe("checkProviderKeys（純函式，spec §13）", () => {
   it("disabled provider 縱使密文壞掉也不檢查、不降級", () => {
     const runtime = createAiRuntime();
     const log = fakeLog();
-    const encrypted = encryptApiKey(secret, "sk-good-key");
+    const encrypted = encryptApiKey(secret, "sk-good-key", "provider-disabled");
     const tampered = { ...encrypted, keyId: "deadbeef" };
     checkProviderKeys([provider({ id: "provider-disabled", enabled: false, apiKeyEncrypted: tampered })], secret, runtime, log);
 
@@ -69,7 +69,8 @@ describe("checkProviderKeys（純函式，spec §13）", () => {
   it("多筆混合：只有解密失敗的那筆進 degraded，其餘不受影響", () => {
     const runtime = createAiRuntime();
     const log = fakeLog();
-    const good = encryptApiKey(secret, "sk-good-key");
+    // 密文綁 providerId（issue #14）：這份密文要能解，就必須是**為它所在的那一列**加的。
+    const good = encryptApiKey(secret, "sk-good-key", "p-good");
     const bad = { ...good, keyId: "deadbeef" };
 
     checkProviderKeys(
@@ -123,7 +124,7 @@ describe("checkProviderKeys（純函式，spec §13）", () => {
   it("api_key_encrypted 的 v 不是 1 → 不炸、正常降級 + log.warn", () => {
     const runtime = createAiRuntime();
     const log = fakeLog();
-    const encrypted = encryptApiKey(secret, "sk-good-key");
+    const encrypted = encryptApiKey(secret, "sk-good-key", "provider-1");
     const badVersion = { ...encrypted, v: 2 };
     expect(() =>
       // 同上：`v: 2` 在型別上不合法（`EncryptedApiKey.v` 鎖定字面值 1），刻意模擬未來

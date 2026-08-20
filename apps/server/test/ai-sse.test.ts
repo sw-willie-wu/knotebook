@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { setTimeout as realDelay } from "node:timers/promises";
 import http from "node:http";
 import { describe, expect, it, onTestFinished } from "vitest";
@@ -31,6 +32,7 @@ async function insertProvider(db: Db, overrides: Partial<typeof aiProviders.$inf
   const [row] = await db
     .insert(aiProviders)
     .values({
+      id: overrides.id ?? randomUUID(),
       name: overrides.name ?? "Test Provider",
       type: overrides.type ?? "openai_compatible",
       baseUrl: overrides.baseUrl ?? "http://localhost:9",
@@ -309,8 +311,10 @@ describe("POST /api/ai — action/model 解析", () => {
     const { app, db } = await buildTestApp({ ai: runtime });
     const access = await setupNoteAccess(db);
     // 用不同的 appSecret 加密，模擬「APP_SECRET 已變更、舊密文解不開」。
-    const badCiphertext = encryptApiKey("a-completely-different-secret-".repeat(3), "sk-x");
-    const provider = await insertProvider(db, { apiKeyEncrypted: badCiphertext });
+    // 用不同的 appSecret 加密：keyId 就對不上了，AAD 綁哪個 id 都不影響這條斷言。
+    const badId = randomUUID();
+    const badCiphertext = encryptApiKey("a-completely-different-secret-".repeat(3), "sk-x", badId);
+    const provider = await insertProvider(db, { id: badId, apiKeyEncrypted: badCiphertext });
     const model = await insertModel(db, provider.id);
     const action = await insertAction(db, { modelId: model.id });
 

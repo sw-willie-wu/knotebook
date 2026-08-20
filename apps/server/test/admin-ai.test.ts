@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { describe, it, expect } from "vitest";
 import { onTestFinished } from "vitest";
 import http from "node:http";
@@ -36,6 +37,9 @@ async function insertProvider(db: Db, overrides: Partial<typeof aiProviders.$inf
   const [row] = await db
     .insert(aiProviders)
     .values({
+      // 密文綁 providerId（issue #14）：要塞既有密文的呼叫端必須先拿到 id，所以這裡
+      // 收 `overrides.id`，比照 production 的 `POST /api/admin/ai/providers`。
+      id: overrides.id ?? randomUUID(),
       name: overrides.name ?? "Test Provider",
       type: overrides.type ?? "openai_compatible",
       baseUrl: overrides.baseUrl ?? "http://localhost:9",
@@ -159,7 +163,8 @@ describe("providers CRUD", () => {
   it("GET 列表：回應不含 api_key_encrypted/ct 字樣，即使 DB 裡有密文", async () => {
     const { app, db } = await buildTestApp();
     const admin = await insertUser(db, { isAdmin: true, email: "admin-p3@example.com" });
-    await insertProvider(db, { name: "P1", apiKeyEncrypted: encryptApiKey(testConfig.appSecret, "sk-abc") });
+    const p1Id = randomUUID();
+    await insertProvider(db, { id: p1Id, name: "P1", apiKeyEncrypted: encryptApiKey(testConfig.appSecret, "sk-abc", p1Id) });
     const cookie = await cookieFor(admin.id);
 
     const res = await app.inject({ method: "GET", url: "/api/admin/ai/providers", cookies: { [SESSION_COOKIE]: cookie } });
@@ -210,8 +215,9 @@ describe("providers CRUD", () => {
     const { app, db } = await buildTestApp();
     const admin = await insertUser(db, { isAdmin: true, email: "admin-p5@example.com" });
     const cookie = await cookieFor(admin.id);
-    const encrypted = encryptApiKey(testConfig.appSecret, "sk-original");
-    const provider = await insertProvider(db, { apiKeyEncrypted: encrypted });
+    const providerId = randomUUID();
+    const encrypted = encryptApiKey(testConfig.appSecret, "sk-original", providerId);
+    const provider = await insertProvider(db, { id: providerId, apiKeyEncrypted: encrypted });
 
     const res = await app.inject({
       method: "PATCH",
@@ -316,7 +322,12 @@ describe("POST /api/admin/ai/providers/:id/test", () => {
     const { app, db } = await buildTestApp();
     const admin = await insertUser(db, { isAdmin: true, email: "admin-t2@example.com" });
     const cookie = await cookieFor(admin.id);
-    const provider = await insertProvider(db, { baseUrl: upstream.baseUrl, apiKeyEncrypted: encryptApiKey(testConfig.appSecret, "sk-ok") });
+    const okId = randomUUID();
+    const provider = await insertProvider(db, {
+      id: okId,
+      baseUrl: upstream.baseUrl,
+      apiKeyEncrypted: encryptApiKey(testConfig.appSecret, "sk-ok", okId),
+    });
 
     const res = await app.inject({ method: "POST", url: `/api/admin/ai/providers/${provider.id}/test`, cookies: { [SESSION_COOKIE]: cookie } });
     expect(res.statusCode).toBe(200);
@@ -335,10 +346,12 @@ describe("POST /api/admin/ai/providers/:id/test", () => {
     const { app, db } = await buildTestApp();
     const admin = await insertUser(db, { isAdmin: true, email: "admin-t6@example.com" });
     const cookie = await cookieFor(admin.id);
+    const antId = randomUUID();
     const provider = await insertProvider(db, {
+      id: antId,
       type: "anthropic",
       baseUrl: upstream.baseUrl,
-      apiKeyEncrypted: encryptApiKey(testConfig.appSecret, "sk-ant-test-key"),
+      apiKeyEncrypted: encryptApiKey(testConfig.appSecret, "sk-ant-test-key", antId),
     });
 
     const res = await app.inject({ method: "POST", url: `/api/admin/ai/providers/${provider.id}/test`, cookies: { [SESSION_COOKIE]: cookie } });
