@@ -17,12 +17,18 @@
  * ⚠ **交回 `defaultPasteHandler()` 不等於「走 HTML 那條路」**（審查實測糾正過一次）：
  * BlockNote 的預設流程 `prioritizeMarkdownOverHTML` 是 true，會在處理 `text/html`
  * **之前**先看純文字像不像 markdown，像就直接拿去解析；而 `text/markdown` 的優先序
- * 本來就高於 `text/html`。所以「有 HTML 就交回去」會讓未正規化的 CRLF 走進同一個
- * 壞掉的解析器。判斷因此改成看**內容**（有沒有行首的 markdown 標記）而不是看格式。
+ * 本來就高於 `text/html`。所以判斷不能看格式清單，要看**內容**。
  *
- * 反過來，真正該交回去的是：站內複製（`blocknote/html`）、檔案、VS Code 貼非 markdown
- * 的語言、游標在程式碼區塊裡、以及「有 HTML 且純文字沒有 markdown 行首標記」——最後
- * 這種就是從網頁複製排版內容，HTML 才是真正的格式來源。
+ * 三條出口：
+ * 1. **我們接手解析**（正規化行尾後 `pasteMarkdown`）：純文字、`text/markdown`、
+ *    VS Code 的 markdown 檔；以及「純文字＋HTML」但內容有 markdown 文件結構的。
+ * 2. **交回去並要求以 HTML 為準**（`{ prioritizeMarkdownOverHTML: false }`）：HTML 本身
+ *    就是一個程式碼區塊時。使用者回報的實際案例——從文件網站複製 Dockerfile，
+ *    `# syntax=…` 後面接空行，在 markdown 眼裡是標題，於是整段變成大標題。
+ *    這是 BlockNote 的既有行為（main 也一樣），不是本 handler 造成的，但既然要修就一起修。
+ * 3. **原樣交回去**：站內複製（`blocknote/html`）、檔案、VS Code 貼非 markdown 的語言、
+ *    游標在程式碼區塊裡、以及「有 HTML 且內容沒有 markdown 結構」——那就是從網頁複製
+ *    排版內容，HTML 才是真正的格式來源。
  */
 
 /** VS Code 的 `mode` 屬於這些語言時，我們把內容當 markdown 解析而不是包成程式碼區塊。
@@ -79,6 +85,43 @@ export function hasMarkdownStructure(text: string): boolean {
   return MARKDOWN_STRUCTURE_PATTERNS.some((pattern) => pattern.test(text));
 }
 
+/**
+ * 這份 HTML 整個就是**一個程式碼區塊**嗎（`<pre>` 底下掛 `<code>`）？
+ *
+ * 用來分辨兩種都以 `<pre>` 出現、但意圖完全相反的來源：
+ * - 文件網站的程式碼片段 → `<pre><code class="language-…">`：使用者看到的是程式碼，
+ *   要的也是程式碼區塊。但它的純文字（`# 註解` ＋空行＋指令）在 markdown 眼裡是
+ *   「標題＋內容」，放著不管就會被解析成大標題（BlockNote 預設
+ *   `prioritizeMarkdownOverHTML` 會讓純文字蓋過 HTML）。
+ * - 瀏覽器顯示純文字檔（raw `.md` 頁面）→ 裸 `<pre style="white-space: pre-wrap">`：
+ *   那份 HTML 沒有任何格式資訊，內容才是重點，要照 markdown 解析。
+ *
+ * 判定條件與 BlockNote 自己的程式碼區塊 parse rule 一致（`<pre>` 要有 `<code>` 子節點），
+ * 並且要求整份 HTML 的文字就是那個 `<code>` 的文字——夾雜其他段落時不算。
+ */
+export function isSingleCodeBlockHtml(html: string): boolean {
+  if (!html.includes("<pre")) return false;
+
+  const body = new DOMParser().parseFromString(html, "text/html").body;
+  const codeBlocks = body.querySelectorAll("pre > code");
+  if (codeBlocks.length !== 1) return false;
+
+  return body.textContent?.trim() === codeBlocks[0]?.textContent?.trim();
+}
+
+/** 這次貼上要不要明確要求 BlockNote 以 HTML 為準（而不是它預設的「純文字優先」）？ */
+function shouldForceHtmlPaste(data: DataTransfer | null): boolean {
+  if (!data) return false;
+  const types = Array.from(data.types ?? []);
+  if (!types.includes("text/html")) return false;
+
+  try {
+    return isSingleCodeBlockHtml(data.getData("text/html"));
+  } catch {
+    return false; // DOMParser 在任何非瀏覽器情境不可用時就當作沒這回事
+  }
+}
+
 function normalizeLineEndings(text: string): string {
   return text.replace(/\r\n?/g, "\n");
 }
@@ -125,7 +168,12 @@ export function decideMarkdownPaste(data: DataTransfer | null, isInCodeBlock: bo
 
   // 只剩「純文字」與「純文字＋HTML」兩種。後者有更好的來源可以退，所以門檻拉高到
   // 「有 markdown 文件的結構」；純文字沒得退，維持 BlockNote 原本就會做的解析。
-  if (types.includes("text/html") && !hasMarkdownStructure(source)) return null;
+  if (types.includes("text/html")) {
+    // HTML 本身就是一個程式碼區塊時，不管純文字長得多像 markdown 都不接手——
+    // 呼叫端會再要求 BlockNote 以 HTML 為準（見 `createMarkdownPasteHandler`）。
+    if (shouldForceHtmlPaste(data)) return null;
+    if (!hasMarkdownStructure(source)) return null;
+  }
 
   return source;
 }
@@ -151,6 +199,13 @@ interface PasteTargetEditor {
   pasteMarkdown: (markdown: string) => void;
   transact: <T>(callback: (tr: PasteTransaction) => T) => T;
 }
+
+/** BlockNote 傳進來的預設流程。`prioritizeMarkdownOverHTML` 預設 true——純文字像
+ * markdown 就會蓋過 HTML；要讓 HTML 勝出就得明確關掉它。 */
+type DefaultPasteHandler = (options?: {
+  prioritizeMarkdownOverHTML?: boolean;
+  plainTextAsMarkdown?: boolean;
+}) => boolean | undefined;
 
 /**
  * 游標是否落在程式碼區塊內。判斷方式與 BlockNote 的預設流程逐字相同
@@ -181,7 +236,7 @@ export function createMarkdownPasteHandler() {
   }: {
     event: ClipboardEvent;
     editor: PasteTargetEditor;
-    defaultPasteHandler: () => boolean | undefined;
+    defaultPasteHandler: DefaultPasteHandler;
   }): boolean | undefined => {
     let markdown: string | null = null;
     try {
@@ -193,7 +248,13 @@ export function createMarkdownPasteHandler() {
     // ⚠ `defaultPasteHandler()` 一定要在 try **外面**、而且只呼叫一次：它自己也可能拋
     // （BlockNote 對 `vscode-editor-data` 是無防護的 `JSON.parse`），包在 try 裡就會被
     // catch 再叫一次、同樣再拋一次，使用者得到「貼上完全沒反應」。
-    if (markdown === null) return defaultPasteHandler();
+    if (markdown === null) {
+      // 交回去之前先看一眼：HTML 本身是程式碼區塊的話（文件網站的程式碼片段），要
+      // 明確要求以 HTML 為準，否則 BlockNote 會拿「像 markdown」的純文字蓋過去，
+      // `# 註解` 就變成大標題了。
+      const options = shouldForceHtmlPaste(event.clipboardData) ? { prioritizeMarkdownOverHTML: false } : undefined;
+      return defaultPasteHandler(options);
+    }
 
     try {
       editor.pasteMarkdown(markdown);

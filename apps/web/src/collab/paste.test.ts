@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createMarkdownPasteHandler, decideMarkdownPaste, hasMarkdownStructure } from "./paste";
+import { createMarkdownPasteHandler, decideMarkdownPaste, hasMarkdownStructure, isSingleCodeBlockHtml } from "./paste";
 
 /** 只實作 `decideMarkdownPaste` 會摸到的那幾個 DataTransfer 成員。 */
 function clipboard(data: Record<string, string>): DataTransfer {
@@ -41,6 +41,28 @@ describe("hasMarkdownStructure", () => {
     ["郵件引用", "> 引用一句\n> 第二句"],
   ])("不足以判定：%s → 不是 markdown 文件", (_name, src) => {
     expect(hasMarkdownStructure(src)).toBe(false);
+  });
+});
+
+describe("isSingleCodeBlockHtml", () => {
+  it("文件網站的程式碼區塊（pre > code）→ 是", () => {
+    expect(isSingleCodeBlockHtml('<pre><code class="language-dockerfile"># syntax=1\n\nFROM node:22</code></pre>')).toBe(true);
+  });
+
+  it("Chrome 複製時前置的 meta 不影響判定", () => {
+    expect(isSingleCodeBlockHtml('<meta charset="utf-8"><pre><code>FROM node:22</code></pre>')).toBe(true);
+  });
+
+  it("瀏覽器顯示純文字檔的裸 pre（raw .md 頁面）→ 不是", () => {
+    expect(isSingleCodeBlockHtml('<pre style="white-space: pre-wrap"># 標題\n\n內文</pre>')).toBe(false);
+  });
+
+  it("程式碼區塊之外還有其他內容 → 不是（整份不是單一程式碼區塊）", () => {
+    expect(isSingleCodeBlockHtml("<p>說明文字</p><pre><code>FROM node:22</code></pre>")).toBe(false);
+  });
+
+  it("一般段落 HTML → 不是", () => {
+    expect(isSingleCodeBlockHtml('<p>- see the <a href="https://x">docs</a></p>')).toBe(false);
   });
 });
 
@@ -88,6 +110,26 @@ describe("decideMarkdownPaste", () => {
     ["帶連結與粗體的段落", "- see the docs for details\r\n\r\nand more bold text", '<p>- see the <a href="https://x">docs</a></p>'],
   ])("text/html ＋ 沒有結構性證據（%s）：不接手，讓 HTML 那條路保住格式", (_name, plain, html) => {
     expect(decideMarkdownPaste(clipboard({ "text/html": html, "text/plain": plain }), false)).toBeNull();
+  });
+
+  /**
+   * 從文件網站複製的程式碼片段：`# 註解` 後面接空行再接指令，在 markdown 眼裡就是
+   * 「標題＋內容」（BlockNote 自己的判斷也是），於是會被解析成大標題。但剪貼簿的
+   * HTML 已經明擺著是一個程式碼區塊——那才是使用者看到、也是他要的東西。
+   */
+  it("HTML 本身就是單一程式碼區塊：即使純文字有 markdown 結構也不接手", () => {
+    const data = clipboard({
+      "text/html": '<pre><code class="language-dockerfile"># syntax=docker/dockerfile:1\n\nFROM node:22</code></pre>',
+      "text/plain": "# syntax=docker/dockerfile:1\r\n\r\nFROM node:22",
+    });
+
+    expect(decideMarkdownPaste(data, false)).toBeNull();
+  });
+
+  it("裸 pre（瀏覽器顯示的 raw .md 頁面）不算程式碼區塊：照結構判斷接手", () => {
+    const data = clipboard({ "text/html": '<pre style="white-space: pre-wrap">…</pre>', "text/plain": MD_CRLF });
+
+    expect(decideMarkdownPaste(data, false)).toBe(MD_LF);
   });
 
   it("VS Code 複製 markdown 檔（mode=markdown，同時帶 text/html）：接手", () => {
@@ -191,6 +233,42 @@ describe("createMarkdownPasteHandler", () => {
     expect(editor.pasteMarkdown).not.toHaveBeenCalled();
     expect(defaultPasteHandler).toHaveBeenCalledTimes(1);
     expect(handled).toBe(true);
+  });
+
+  /**
+   * 交回去的時候還要多說一句話：BlockNote 預設 `prioritizeMarkdownOverHTML` 是 true，
+   * 純文字像 markdown 就會蓋過 HTML——那正是「文件網站的程式碼片段變成標題」的成因。
+   * HTML 已經是一個程式碼區塊時，要明確要求它以 HTML 為準。
+   */
+  it("HTML 是單一程式碼區塊：交回去時要求 BlockNote 以 HTML 為準", () => {
+    const editor = fakeEditor();
+    const defaultPasteHandler = vi.fn(() => true);
+
+    createMarkdownPasteHandler()({
+      event: pasteEvent({
+        "text/html": "<pre><code># syntax=1\n\nFROM node:22</code></pre>",
+        "text/plain": "# syntax=1\r\n\r\nFROM node:22",
+      }),
+      editor: editor as never,
+      defaultPasteHandler,
+    });
+
+    expect(editor.pasteMarkdown).not.toHaveBeenCalled();
+    expect(defaultPasteHandler).toHaveBeenCalledTimes(1);
+    expect(defaultPasteHandler).toHaveBeenCalledWith({ prioritizeMarkdownOverHTML: false });
+  });
+
+  it("一般交回去（HTML 不是程式碼區塊）：不帶任何選項，維持 BlockNote 預設", () => {
+    const editor = fakeEditor();
+    const defaultPasteHandler = vi.fn(() => true);
+
+    createMarkdownPasteHandler()({
+      event: pasteEvent({ "blocknote/html": "<p>hi</p>", "text/plain": "hi" }),
+      editor: editor as never,
+      defaultPasteHandler,
+    });
+
+    expect(defaultPasteHandler).toHaveBeenCalledWith(undefined);
   });
 
   it("游標在程式碼區塊內：交給預設流程（BlockNote 會貼純文字）", () => {
