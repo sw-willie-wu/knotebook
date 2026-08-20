@@ -49,6 +49,7 @@ vi.mock("@hocuspocus/provider", () => ({
 const { useCollab } = await import("./useCollab");
 
 const NOTE_ID = "11111111-1111-1111-1111-111111111111";
+const OTHER_NOTE_ID = "22222222-2222-2222-2222-222222222222";
 
 function provider(index = 0): FakeProvider {
   return hoisted.instances[index] as FakeProvider;
@@ -70,8 +71,8 @@ const tokenOk = (role: string) =>
 const apiFail = (status: number, code: string) =>
   fakeResponse({ ok: false, status, json: () => Promise.resolve({ error: { code, message: "x" } }) });
 
-function Probe({ onUnauthorized }: { onUnauthorized?: () => void }) {
-  const { state } = useCollab({ noteId: NOTE_ID, onUnauthorized: onUnauthorized ?? (() => {}) });
+function Probe({ onUnauthorized, noteId = NOTE_ID }: { onUnauthorized?: () => void; noteId?: string }) {
+  const { state } = useCollab({ noteId, onUnauthorized: onUnauthorized ?? (() => {}) });
   return <div data-testid="phase">{state.phase === "connected" ? `connected:${state.role}` : state.phase}</div>;
 }
 
@@ -402,6 +403,52 @@ describe("useCollab", () => {
     act(() => p.emit("authenticationFailed", { reason: "Failed to get token during sendToken(): ApiFail" }));
     expect(phase()).toBe("connecting");
     expect(p.disconnect).not.toHaveBeenCalled();
+  });
+
+  it("換筆記：上一條連線遲到的 token 失敗不得吞掉新連線的授權拒絕", async () => {
+    // 舊 provider 被 destroy 之後，它那一發**還卡在飛的** token 請求仍會丟錯回來（退避
+    // 迴圈的 `disposed` 守衛只能讓它不再重試，召不回已經送出去的那一發）。「上一次取
+    // token 失敗了」的旗標若是挂在 hook 層（`useRef`）而非每條連線各一份，那一丟會把它
+    // 設回 true；而舊 provider 的 `authenticationFailed` 已因 `destroy()` 的
+    // `removeAllListeners()` 無人接收、永遠不會把它清掉。新筆記真的在握手前被撤權時，
+    // 那則拒絕就會被静静吞掉——issue #6 原封不動回來。
+    //
+    // ⚠ 必須是**同一個元件實例換 noteId**（rerender）才測得到：unmount 再
+    // `render()` 是兩個元件實例、兩份獨立的 ref，渗漏本來就不會發生。
+    let failStale!: (err: unknown) => void;
+    const staleFetch = new Promise<Response>((_resolve, reject) => {
+      failStale = reject;
+    });
+    const fetchMock = vi.fn(() => staleFetch);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { rerender } = render(<Probe noteId={NOTE_ID} />);
+    const stale = provider(0);
+    const staleToken = expect(stale.configuration.token()).rejects.toThrow();
+
+    // 換到另一篇：同一個 hook 實例、全新的一場連線，token 這次取得成功。
+    fetchMock.mockReturnValue(Promise.resolve(tokenOk("editor")) as unknown as Promise<Response>);
+    rerender(<Probe noteId={OTHER_NOTE_ID} />);
+    const fresh = provider(1);
+    await act(async () => {
+      await fresh.configuration.token();
+    });
+
+    // 舊那發現在才失敗。
+    await act(async () => {
+      failStale(new Error("network went away"));
+      await staleToken;
+    });
+
+    act(() => fresh.emit("authenticationFailed", { reason: COLLAB_REJECT_INVALID_TOKEN }));
+    expect(phase()).toBe("reconnecting-once");
+  });
+
+  it("拒連原因常數與 server 端字面值一致", () => {
+    // 共用包沒重建時這一組常數會是 undefined，於是 `reason === CONST` 静静地走錯分支
+    // （本修改開發時就踩過）。釘住字面值，那種環境會大聲失敗而不是假綠。
+    expect(COLLAB_REJECT_NOTE_DELETING).toBe("note-deleting");
+    expect(COLLAB_REJECT_INVALID_TOKEN).toBe("invalid-token");
   });
 
   it("卸載時銷毀 provider", () => {

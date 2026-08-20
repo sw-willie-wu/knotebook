@@ -9,7 +9,7 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ### Fixed
 
-- Losing access to a note while it is still opening no longer parks the editor on "Connecting" forever. When the share is revoked before the collaboration handshake completes, the server rejects the handshake itself rather than sending the close message the client was waiting for, and that rejection carried no state change at all. The client now reads it, retries once with a fresh token, and then shows the same "You no longer have access to this note" notice and returns to the note list as any other revocation (#6).
+- Losing access to a note before its collaboration connection is established no longer parks the editor on "Connecting" forever — whether the note was still opening or the connection happened to be reconnecting at the time. When the share is revoked before that handshake completes, the server rejects the handshake itself rather than sending the close message the client was waiting for, and that rejection carried no state change at all. The client now reads it, retries once with a fresh token, and then shows the same "You no longer have access to this note" notice and returns to the note list as any other revocation (#6).
 - Deleting an AI provider now also drops it from the degraded set. Nothing else clears that entry — re-entering an API key is the only other path — so the id lingered for the life of the process (#17).
 - The password-length hint is generated from the shared `MIN_PASSWORD_LENGTH` constant instead of being written out in each translation, so raising the minimum can no longer leave the UI advertising the old one (#22).
 

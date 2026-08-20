@@ -129,13 +129,6 @@ export function useCollab({ noteId, onUnauthorized }: UseCollabOptions): UseColl
   const roleRef = useRef<Role>("none");
   /** 「我們自己剛叫了 disconnect()，正在等那條 close 回來好接著重連一次」。 */
   const pendingReconnectRef = useRef(false);
-  /**
-   * 「最近一次 token function 是以丟錯收場的」。provider 在 `getToken()` 丟錯時會直接
-   * 呼叫 `permissionDeniedHandler`（見 @hocuspocus/provider 的 `sendToken`），於是
-   * `authenticationFailed` 也會為我方的 5xx/網路失敗而發——那不是 server 的授權裁決，
-   * 不得據此把人踢出（spec N7）。兩者共用同一個事件名，只有我們自己分得出來。
-   */
-  const tokenFetchFailedRef = useRef(false);
   const onUnauthorizedRef = useRef(onUnauthorized);
   onUnauthorizedRef.current = onUnauthorized;
 
@@ -153,6 +146,20 @@ export function useCollab({ noteId, onUnauthorized }: UseCollabOptions): UseColl
     pendingReconnectRef.current = false;
 
     let disposed = false;
+    /**
+     * 「這一條連線最近一次 token function 是以丟錯收場的」。provider 在 `getToken()`
+     * 丟錯時會直接呼叫 `permissionDeniedHandler`（見 @hocuspocus/provider 的 `sendToken`），
+     * 於是 `authenticationFailed` 也會為我方的 5xx/網路失敗而發——那不是 server 的授權
+     * 裁決，不得據此把人踢出（spec N7）。兩者共用同一個事件名，只有我們自己分得出來。
+     *
+     * ⚠ **它必須是 effect 內的局部變數，不能是 hook 層的 `useRef`**（審查持續抱持）：
+     * 舊的那條連線被 `destroy()` 之後，它那一發還在退避中的 token 請求（最長 7.5 秒）
+     * 仍會丟錯回來。若旗標是共用的，那一丟會把它設回 `true`，而舊 provider 的
+     * `authenticationFailed` 已因 `removeAllListeners()` 無人接收、永遠不會把它清掉；
+     * 下一條連線真的被撤權時，那則拒絕就會被這道旗標静静吞掉——issue #6 原封不動
+     * 回來。每條連線各持一份，這個跨連線的渗漏就不存在。
+     */
+    let tokenFetchFailed = false;
     const doc = new Y.Doc();
 
     const fetchTokenWithRetries = async (): Promise<string> => {
@@ -186,14 +193,14 @@ export function useCollab({ noteId, onUnauthorized }: UseCollabOptions): UseColl
 
     // 交給 provider 的 token function。包這一層只為了記下「這一次取 token 失敗了」，讓
     // `authenticationFailed` 分得出「我方拿不到 token」與「server 拒絕授權」——見
-    // `tokenFetchFailedRef`。每次進場先清旗標：成功的一次不能留下殘影，去吞掉之後
-    // 真正的拒絕。
+    // `tokenFetchFailed`。每次進場先清旗標：成功的一次不能留下殘影，去吞掉之後真正
+    // 的拒絕。
     const fetchToken = async (): Promise<string> => {
-      tokenFetchFailedRef.current = false;
+      tokenFetchFailed = false;
       try {
         return await fetchTokenWithRetries();
       } catch (err) {
-        tokenFetchFailedRef.current = true;
+        tokenFetchFailed = true;
         throw err;
       }
     };
@@ -226,11 +233,11 @@ export function useCollab({ noteId, onUnauthorized }: UseCollabOptions): UseColl
     // server 的 permission-denied（`onAuthenticate` 拒連）——**不伴隨任何 close**，沒接這條
     // 就是 issue #6 的「卡在連線中」。詳見檔頭。
     provider.on("authenticationFailed", ({ reason }: { reason?: string }) => {
-      if (tokenFetchFailedRef.current) {
+      if (tokenFetchFailed) {
         // 這一則是我們自家 token function 丟錯換來的，不是授權裁決：401 已經走過
         // `onUnauthorized`、404 已經自己收斂 deleted，其餘（5xx/網路）是暫時性的，一律
         // 不得踢人（N7）。
-        tokenFetchFailedRef.current = false;
+        tokenFetchFailed = false;
         return;
       }
       // 不寫成裸的 `reason === COLLAB_REJECT_NOTE_DELETING`：reason 缺席時兩邊都是
