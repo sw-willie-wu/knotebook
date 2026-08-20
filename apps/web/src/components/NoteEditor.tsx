@@ -20,6 +20,7 @@ import { BlockNoteView } from "@blocknote/mantine";
 import { YDOC_FRAGMENT } from "@knotebook/shared";
 import { useCreateNote, useNotes } from "@/api/notes";
 import { classifyMediaTransfer, type BlockedTransferReason, noteSchema } from "@/collab/schema";
+import { createMarkdownPasteHandler } from "@/collab/paste";
 import { blocknoteZhTW } from "@/i18n/blocknote-zh-TW";
 import { toast } from "@/components/ui/toast";
 import { useTheme } from "@/theme";
@@ -124,6 +125,9 @@ export function buildNoteEditorOptions({ doc, provider, user, language, translat
     // `uploadFile`——`createUploadFile` 保證絕不 reject（見該模組檔頭），失敗時自行
     // toast + 清除 placeholder block，`handleFileInsertion` 完全不必知道失敗發生過。
     uploadFile: createUploadFile({ noteId, editorRef, translate }),
+    // 貼上 markdown 的兩個 Windows 破口（CRLF 不被解析、從 VS Code 貼會變成程式碼
+    // 區塊）——判斷與理由都在 `@/collab/paste`，這裡只負責接線。
+    pasteHandler: createMarkdownPasteHandler(),
     collaboration: {
       provider: { awareness: provider.awareness ?? undefined },
       // fragment 名稱用 `@knotebook/shared` 的 `YDOC_FRAGMENT`——server 端
