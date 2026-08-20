@@ -32,9 +32,9 @@ const MAX_BACKOFF_SECONDS = 900; // 15 minutes
 /**
  * throttle key 的長度上限。key 直接來自請求：帳號軌是使用者送的 email（login 的 body
  * schema 刻意只驗 `z.string()`——加格式驗證會讓 400/401 變成「帳號存不存在」的 oracle，
- * 見 `routes/auth.ts`），IP 軌在 `trustProxy` 之下實質上是 `X-Forwarded-For` 的內容。兩者都是
- * 攻擊者可控的字串，Fastify 預設 bodyLimit 是 1 MiB —— 不截斷的話，「筆數有上限」換不到
- * 「位元組有上限」（`BoundedMap` 綁的是筆數）。
+ * 見 `routes/auth.ts`）。IP 軌在**設了 `TRUST_PROXY` 時**實質上也是 `X-Forwarded-For` 的內容
+ * （預設不採信，那時它是 socket 位址，不是使用者輸入）。Fastify 預設 bodyLimit 是 1 MiB
+ * —— 不截斷的話，「筆數有上限」換不到「位元組有上限」（`BoundedMap` 綁的是筆數）。
  *
  * 320 = RFC 5321 的 email 長度上限（254）再加餘裕：真實輸入永遠不會被截到，只有
  * 刻意灌長字串的請求會——而那些請求落在同一筆紀錄上正是我們要的。

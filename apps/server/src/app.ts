@@ -261,14 +261,18 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   // 沒有訊號的話幾乎不可能診斷出來。
   //
   // 只警告一次：這是部署設定問題，不是每個請求的事件，重複噴只會淹掉 log。
-  if (deps.config.trustProxy === false) {
+  if (!deps.config.trustProxy) {
     let warned = false;
     app.addHook("onRequest", async request => {
-      if (warned || request.headers["x-forwarded-for"] === undefined) return;
+      // 不只看 `x-forwarded-for`：只送 `X-Real-IP`（很常見的 nginx 樣板）或 RFC 7239
+      // `Forwarded` 的代理，症狀一模一樣（全站共用一份 IP 額度），但 fastify 推導
+      // `request.ip` 只讀 `x-forwarded-for`——那種錯配更需要被講出來，不是更不需要。
+      const forwardedHeaders = ["x-forwarded-for", "x-real-ip", "forwarded", "x-forwarded-host", "x-forwarded-proto"];
+      if (warned || !forwardedHeaders.some(name => request.headers[name] !== undefined)) return;
       warned = true;
       request.log.warn(
         { hint: "TRUST_PROXY" },
-        "收到帶 X-Forwarded-For 的請求，但 TRUST_PROXY 未設定：所有 per-IP 節流會以代理的位址為準（全站共用一份額度）。反代拓撲請設定 TRUST_PROXY，見 docs/self-hosting.md"
+        "收到帶轉發 header 的請求，但 TRUST_PROXY 未設定：所有 per-IP 節流會以代理的位址為準（全站共用一份額度）。反代拓撲請設定 TRUST_PROXY，見 docs/self-hosting.md"
       );
     });
   }

@@ -42,7 +42,9 @@ const TRUST_PROXY_KEYWORDS = new Set(["loopback", "linklocal", "uniquelocal"]);
  * ⚠ **反代拓撲一定要設**：沒設的話 `request.ip` 會是反代的位址，於是**所有使用者共用
  * 同一個 IP 軌**——任何人連續打錯 5 次密碼就會把整個站的人一起鎖進退避窗口。這個方向
  * 的失效是「拒絕服務」而不是「被繞過」，所以預設值選在安全那一側、由部署者明確打開。
- * 為了不讓它靜默發生，`buildApp` 另外掛了一次性的啟動期警告（見該檔）。
+ * 為了不讓它靜默發生有兩道提示：`index.ts` 在**啟動時**檢查「PUBLIC_URL 是 https 卻沒設
+ * TRUST_PROXY」（app 從不自己終結 TLS，https 就代表前面一定有代理），`buildApp` 則在
+ * **第一個帶轉發 header 的請求**上印一次警告。
  *
  * 收的值：`false`（預設）／`true`（採信任何來源，等同修這條 issue 之前的行為）／
  * 非負整數（信任的 hop 數）／逗號分隔的 IP、CIDR 或具名網段（`loopback`、
@@ -53,30 +55,50 @@ export function parseTrustProxy(raw: string | undefined): boolean | number | str
   const value = raw.trim();
   if (value === "" || value.toLowerCase() === "false") return false;
   if (value.toLowerCase() === "true") return true;
-  if (/^\d+$/.test(value)) return Number(value);
+  // `0` 正規化成 `false`：fastify 對 hop 數 0 的行為本來就等同不信任，而寫 `0` 的人
+  // 表達的是「關掉」——留著 0 只會讓下游多一種要記得處理的 falsy 值。
+  if (/^\d+$/.test(value)) {
+    const hops = Number(value);
+    return hops === 0 ? false : hops;
+  }
 
   const entries = value.split(",").map(entry => entry.trim()).filter(entry => entry !== "");
+  const normalized: string[] = [];
   if (entries.length === 0) {
-    throw new Error(`TRUST_PROXY 的值無法解析：${raw}`);
+    throw new Error(`設定錯誤：TRUST_PROXY 的值無法解析：${raw}`);
   }
   for (const entry of entries) {
-    if (TRUST_PROXY_KEYWORDS.has(entry.toLowerCase())) continue;
+    // ⚠ 收下小寫版本：proxy-addr 對具名網段是 `Object.hasOwn(IP_RANGES, value)` 的**精確**
+    // 比對，只認全小寫。這裡若原樣收下 `Loopback`，fastify 會在建構子丟
+    // `invalid IP address: Loopback`——一個既不是我們的錯誤格式、也指不出是哪個環境
+    // 變數的訊息（審查實測）。
+    const keyword = entry.toLowerCase();
+    if (TRUST_PROXY_KEYWORDS.has(keyword)) {
+      normalized.push(keyword);
+      continue;
+    }
     const [address, prefix, ...rest] = entry.split("/");
     const family = isIP(address ?? "");
     if (family === 0 || rest.length > 0) {
       throw new Error(
-        `TRUST_PROXY 的「${entry}」不是合法的 IP／CIDR／具名網段（loopback、linklocal、uniquelocal）`
+        `設定錯誤：TRUST_PROXY 的「${entry}」不是合法的 IP／CIDR／具名網段（loopback、linklocal、uniquelocal）`
       );
     }
     if (prefix !== undefined) {
       const bits = Number(prefix);
       const max = family === 4 ? 32 : 128;
-      if (!/^\d+$/.test(prefix) || bits > max) {
-        throw new Error(`TRUST_PROXY 的「${entry}」網段長度必須是 0-${max} 的整數`);
+      // 下限是 1 而不是 0：proxy-addr 對 `/0` 直接丟 `invalid range on address`
+      // （`range <= 0` 就拒），所以 `0.0.0.0/0` 這種「我要信任全部」的直覺寫法必須在
+      // 這裡就擋掉並指向正確的寫法，不能讓它變成 fastify 建構子的英文例外（審查實測）。
+      if (!/^\d+$/.test(prefix) || bits < 1 || bits > max) {
+        throw new Error(
+          `設定錯誤：TRUST_PROXY 的「${entry}」網段長度必須是 1-${max} 的整數（要信任任何來源請直接寫 TRUST_PROXY=true）`
+        );
       }
     }
+    normalized.push(entry);
   }
-  return entries;
+  return normalized;
 }
 export interface AppConfig {
   databaseUrl: string;

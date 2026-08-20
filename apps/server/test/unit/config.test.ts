@@ -1,3 +1,4 @@
+import Fastify from "fastify";
 import { describe, it, expect } from "vitest";
 import { loadConfig, parseTrustProxy } from "../../src/config.js";
 const valid = { DATABASE_URL: "postgres://u:p@localhost:5432/db", APP_SECRET: "a".repeat(64), PUBLIC_URL: "https://notes.example.com" };
@@ -120,8 +121,8 @@ describe("parseTrustProxy（issue #13）", () => {
 
   it("非負整數 → hop 數", () => {
     expect(parseTrustProxy("1")).toBe(1);
-    expect(parseTrustProxy("0")).toBe(0);
     expect(parseTrustProxy("2")).toBe(2);
+    // 0 正規化成 false，見下面那條專屬測試。
   });
 
   it("IP／CIDR／具名網段 → 逐項驗過的字串陣列", () => {
@@ -141,6 +142,41 @@ describe("parseTrustProxy（issue #13）", () => {
     // IPv6 的網段上限是 128，IPv4 是 32——不能混用。
     expect(() => parseTrustProxy("10.0.0.0/64")).toThrow(/TRUST_PROXY/);
     expect(parseTrustProxy("fd00::/64")).toEqual(["fd00::/64"]);
+  });
+
+  // ⚠ 這條是本組測試裡唯一擋得住「我們自己驗過、fastify 卻不收」的形狀。審查實測抓到
+  // 兩個真例：具名網段沒轉小寫（proxy-addr 用精確比對，`Loopback` 直接丟
+  // `invalid IP address`）、以及 `/0`（proxy-addr 的 `range <= 0` 一律拒）。兩者都會在
+  // `buildApp` 的 Fastify 建構子炸掉，訊息還指不出是哪個環境變數——形同 fail-fast 破功。
+  it.each([
+    "true",
+    "1",
+    "2",
+    "127.0.0.1",
+    "10.0.0.0/8, 172.16.0.0/12",
+    "loopback,uniquelocal",
+    "Loopback",
+    "LOOPBACK, 10.0.0.0/8",
+    "::1",
+    "fd00::/8",
+    "fd00::/64",
+  ])("我們接受的 %s，fastify 也接受（round-trip）", value => {
+    const trustProxy = parseTrustProxy(value);
+    expect(() => Fastify({ logger: false, trustProxy })).not.toThrow();
+  });
+
+  it("`/0` 在我們這裡就被擋掉（proxy-addr 也不收，訊息要指向 TRUST_PROXY=true）", () => {
+    expect(() => parseTrustProxy("0.0.0.0/0")).toThrow(/TRUST_PROXY/);
+    expect(() => parseTrustProxy("::/0")).toThrow(/TRUST_PROXY/);
+  });
+
+  it("具名網段一律正規化成小寫（proxy-addr 只認小寫）", () => {
+    expect(parseTrustProxy("Loopback")).toEqual(["loopback"]);
+    expect(parseTrustProxy("LOOPBACK, 10.0.0.0/8")).toEqual(["loopback", "10.0.0.0/8"]);
+  });
+
+  it("hop 數 0 正規化成 false（寫 0 的人表達的是關閉）", () => {
+    expect(parseTrustProxy("0")).toBe(false);
   });
 
   it("loadConfig 帶出這個欄位，未設時是 false", () => {
