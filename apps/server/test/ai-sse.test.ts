@@ -107,7 +107,8 @@ function limitersWithAi(ai: FixedWindowLimiter) {
     slugPatch: new FixedWindowLimiter(SLUG_PATCH_LIMIT),
     upload: new FixedWindowLimiter(UPLOAD_LIMIT),
     ai,
-    oidc: new FixedWindowLimiter(OIDC_LIMIT),
+    oidcLogin: new FixedWindowLimiter(OIDC_LIMIT),
+    oidcCallback: new FixedWindowLimiter(OIDC_LIMIT),
   };
 }
 

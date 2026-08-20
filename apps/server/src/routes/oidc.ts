@@ -21,7 +21,11 @@ export interface OidcRouteDeps {
    * （見 `app.ts` 的 `oidcRuntime` 接線註解）——這裡仍收 `undefined`，是為了讓這條路由
    * 自己也能安全地應對「萬一」，不把兩端點 302 語彙不變量的維持全部押在呼叫端。 */
   runtime: OidcRuntime | undefined;
-  limiters: { oidc: FixedWindowLimiter };
+  /**
+   * login 與 callback 各自一個 bucket（issue #16）。共用一個的話，一次完整的 SSO 登入
+   * （必定先 login 再 callback）會吃掉兩份額度，實際可用次數只有標稱的一半。
+   */
+  limiters: { oidcLogin: FixedWindowLimiter; oidcCallback: FixedWindowLimiter };
 }
 
 /**
@@ -143,7 +147,7 @@ export function oidcRoutes(deps: OidcRouteDeps) {
         return reply.redirect("/login?error=oidc_unavailable");
       }
 
-      if (!deps.limiters.oidc.consume(request.ip)) {
+      if (!deps.limiters.oidcLogin.consume(request.ip)) {
         return reply.redirect("/login?error=too_many_requests");
       }
 
@@ -211,7 +215,9 @@ export function oidcRoutes(deps: OidcRouteDeps) {
         return reply.redirect("/login?error=oidc_unavailable");
       }
 
-      if (!deps.limiters.oidc.consume(request.ip)) {
+      // callback 計在自己的 bucket（issue #16）。它不能不計：帶著亂數 code/state 來敲的
+      // 請求不需要先走過 login，而一次 callback 可能拉出一輪對 IdP 的 token exchange。
+      if (!deps.limiters.oidcCallback.consume(request.ip)) {
         return reply.redirect("/login?error=too_many_requests");
       }
 

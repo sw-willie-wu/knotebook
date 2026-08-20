@@ -9,7 +9,18 @@
  *
  * recordSuccess clears only the account counter; IP counter decays through idle timeout
  * (no new failures for > 15 minutes).
+ *
+ * 兩軌紀錄都住在有上限的 `BoundedMap` 裡（issue #15）。原本是純 `Map`，只有「這次
+ * 剛好碰到的 key 閒置超過 15 分鐘」才會被懶惰清掉——沒再被碰到的 key 永遠留著，
+ * 大量不同帳號/IP 的嘗試會讓記憶體單向成長；隱居的 `FixedWindowLimiter` 實則早就有上限。
+ *
+ * 淘汰順序對得起語意：**每一次 `recordFailure` 都重寫那一筆紀錄**，於是它移到
+ * `BoundedMap` 的尾端。被砍的永遠是「最久沒有新失敗」的那一筆——也就是最接近
+ * 閒置過期、本來就快要被清掉的那一筆。要把一筆**封鎖中**的紀錄擠掉，攻擊者得先
+ * 用 maxKeys 個「失敗時間更新」的 key 把它推到最前面，而那些 key 自己也都被記上了。
  */
+
+import { BoundedMap, DEFAULT_MAX_KEYS } from "../util/bounded-map.js";
 
 interface FailureRecord {
   failureCount: number;
@@ -19,12 +30,15 @@ interface FailureRecord {
 const MAX_BACKOFF_SECONDS = 900; // 15 minutes
 
 export class LoginThrottle {
-  private accountFailures = new Map<string, FailureRecord>();
-  private ipFailures = new Map<string, FailureRecord>();
+  private accountFailures: BoundedMap<FailureRecord>;
+  private ipFailures: BoundedMap<FailureRecord>;
   private now: () => number;
 
-  constructor(opts?: { now?: () => number }) {
+  constructor(opts?: { now?: () => number; maxKeys?: number }) {
     this.now = opts?.now ?? (() => Date.now());
+    const maxKeys = opts?.maxKeys ?? DEFAULT_MAX_KEYS;
+    this.accountFailures = new BoundedMap<FailureRecord>(maxKeys);
+    this.ipFailures = new BoundedMap<FailureRecord>(maxKeys);
   }
 
   /**
@@ -75,29 +89,17 @@ export class LoginThrottle {
   recordFailure(account: string, ip: string): void {
     const currentTime = this.now();
 
-    // Update account record
-    const accountRecord = this.accountFailures.get(account);
-    if (accountRecord) {
-      accountRecord.failureCount += 1;
-      accountRecord.lastFailureTime = currentTime;
-    } else {
-      this.accountFailures.set(account, {
-        failureCount: 1,
-        lastFailureTime: currentTime,
-      });
-    }
+    // 一律走 set()（而不是就地改 record 的欄位）：這次失敗把這個 key 移到 BoundedMap
+    // 尾端，淘汰順序才會是「最久沒有新失敗的先被砍」（見 class 註解）。
+    this.accountFailures.set(account, {
+      failureCount: (this.accountFailures.get(account)?.failureCount ?? 0) + 1,
+      lastFailureTime: currentTime,
+    });
 
-    // Update IP record
-    const ipRecord = this.ipFailures.get(ip);
-    if (ipRecord) {
-      ipRecord.failureCount += 1;
-      ipRecord.lastFailureTime = currentTime;
-    } else {
-      this.ipFailures.set(ip, {
-        failureCount: 1,
-        lastFailureTime: currentTime,
-      });
-    }
+    this.ipFailures.set(ip, {
+      failureCount: (this.ipFailures.get(ip)?.failureCount ?? 0) + 1,
+      lastFailureTime: currentTime,
+    });
   }
 
   /**
@@ -142,7 +144,7 @@ export class LoginThrottle {
    * Clean up idle records (no new failures for > max backoff window)
    */
   private cleanupIdleRecord(
-    map: Map<string, FailureRecord>,
+    map: BoundedMap<FailureRecord>,
     key: string,
     currentTime: number
   ): void {

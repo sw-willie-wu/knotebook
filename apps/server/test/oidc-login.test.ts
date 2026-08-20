@@ -174,4 +174,26 @@ describe("GET /api/auth/oidc/login", () => {
     expect(res!.statusCode).toBe(302);
     expect(res!.headers.location).toBe("/login?error=too_many_requests");
   });
+
+  it("limiter：callback 吃自己的額度，不會扣到 login 頭上（issue #16）", async () => {
+    // 一次完整的 SSO 登入必定先 login 再 callback。兩者共用一個 bucket 的話，每次登入
+    // 吃掉兩份額度，實際可用次數只有標稱的一半（共用出口 IP 的辦公室網路更早撞到）。
+    const config = oidcConfig();
+    const fakeIdp = createFakeIdp(ISSUER_URL);
+    const runtime = createOidcRuntime(config.oidc!, { fetch: fakeIdp.fetch });
+    const { app } = await buildTestApp({ config, oidc: runtime });
+
+    // 先把 callback 那份額度打爆（沒有 state cookie，一律 302 回 oidc_state_mismatch，
+    // 但**照樣計數**——這條路由不需要先走過 login 就能被外部敲）。
+    for (let i = 0; i < 31; i += 1) {
+      await app.inject({ method: "GET", url: "/api/auth/oidc/callback?code=x&state=y" });
+    }
+    const exhausted = await app.inject({ method: "GET", url: "/api/auth/oidc/callback?code=x&state=y" });
+    expect(exhausted.headers.location).toBe("/login?error=too_many_requests");
+
+    // login 的額度必須完全沒被動到。
+    const login = await app.inject({ method: "GET", url: "/api/auth/oidc/login" });
+    expect(login.statusCode).toBe(302);
+    expect(new URL(login.headers.location as string).origin).toBe(ISSUER_URL);
+  });
 });

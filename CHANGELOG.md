@@ -9,6 +9,8 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ### Fixed
 
+- A single SSO sign-in no longer spends two units of the same rate-limit quota. `GET /api/auth/oidc/login` and `GET /api/auth/oidc/callback` shared one 30-per-minute-per-IP bucket, and a complete sign-in always goes through both — so the usable number of sign-ins was half the advertised one, which offices behind a shared outbound IP hit first. Each endpoint now counts against its own bucket (#16).
+- The failed-login throttle no longer grows without bound. Its account and IP records were only dropped when the same key happened to be touched again after 15 idle minutes, so a spray of distinct accounts or addresses left entries behind for the life of the process. Both tracks now share the same bounded map the other limiters already used, and the record evicted first is always the one whose last failure is oldest — the one closest to expiring anyway (#15).
 - Deleting an AI provider now also drops it from the degraded set. Nothing else clears that entry — re-entering an API key is the only other path — so the id lingered for the life of the process (#17).
 - The password-length hint is generated from the shared `MIN_PASSWORD_LENGTH` constant instead of being written out in each translation, so raising the minimum can no longer leave the UI advertising the old one (#22).
 
