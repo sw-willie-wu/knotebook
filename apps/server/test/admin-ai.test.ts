@@ -188,6 +188,24 @@ describe("providers CRUD", () => {
     expect(runtime.degraded.has(provider.id)).toBe(false);
   });
 
+  it("DELETE provider → 一併從 degraded 移除（留著會是永遠不會被清掉的髒狀態）", async () => {
+    const runtime = createAiRuntime();
+    const { app, db } = await buildTestApp({ ai: runtime });
+    const admin = await insertUser(db, { isAdmin: true, email: "admin-p4b@example.com" });
+    const cookie = await cookieFor(admin.id);
+    const provider = await insertProvider(db, { apiKeyEncrypted: { v: 1, keyId: "deadbeef", iv: "aa", tag: "bb", ct: "cc" } });
+    runtime.degraded.add(provider.id);
+
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/admin/ai/providers/${provider.id}`,
+      cookies: { [SESSION_COOKIE]: cookie },
+    });
+
+    expect(res.statusCode).toBe(204);
+    expect(runtime.degraded.has(provider.id)).toBe(false);
+  });
+
   it("PATCH 不給 apiKey → 密文原樣不動（hasKey 不變）", async () => {
     const { app, db } = await buildTestApp();
     const admin = await insertUser(db, { isAdmin: true, email: "admin-p5@example.com" });

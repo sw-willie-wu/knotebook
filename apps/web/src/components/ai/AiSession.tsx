@@ -309,20 +309,26 @@ export function AiSessionProvider(props: {
     return verifyAnchor(editorRef.current, current.applied.insertedAnchor) === "ok";
   }, []);
 
-  const value: AiSessionValue = {
-    actions,
-    state,
-    start,
-    apply,
-    revert,
-    cancel,
-    dismiss,
-    retry,
-    editable,
-    collapsed,
-    setCollapsed,
-    canRevert,
-  };
+  // 串流時每個 delta 都會讓這裡 render 一次；value 若是每次新建的物件字面值，所有
+  // consumer（含 portal 掛出去的 toolbar）都會跟著重建。相依全部列齊——上面的
+  // callback 都已經是 `useCallback`／`useState` 的穩定身分，只有 `state` 會真的變。
+  const value = useMemo<AiSessionValue>(
+    () => ({
+      actions,
+      state,
+      start,
+      apply,
+      revert,
+      cancel,
+      dismiss,
+      retry,
+      editable,
+      collapsed,
+      setCollapsed,
+      canRevert,
+    }),
+    [actions, state, start, apply, revert, cancel, dismiss, retry, editable, collapsed, setCollapsed, canRevert],
+  );
 
   return <AiSessionContext.Provider value={value}>{children}</AiSessionContext.Provider>;
 }

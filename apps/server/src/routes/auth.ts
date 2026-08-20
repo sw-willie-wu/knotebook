@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { eq, sql } from "drizzle-orm";
-import { SESSION_COOKIE, normalizeEmail } from "@knotebook/shared";
+import { SESSION_COOKIE, normalizeEmail, type AuthConfigDto, type UserDto } from "@knotebook/shared";
 import { sendError, sendLoginThrottled } from "../http/errors.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
@@ -52,7 +52,7 @@ export function authRoutes(deps: AuthRouteDeps) {
     // 這條路由必須在未登入狀態下也能打。GET 不受 app.ts 的 JSON CSRF hook 影響
     // （該 hook 只管 POST/PUT/PATCH/DELETE，見 CHANGE_METHODS），不需要額外豁免。
     // 只曝光布林旗標，不回傳 issuerUrl/clientId 等設定細節。
-    app.get("/api/auth/config", async () => ({ oidc: { enabled: deps.config.oidc !== undefined } }));
+    app.get("/api/auth/config", async (): Promise<AuthConfigDto> => ({ oidc: { enabled: deps.config.oidc !== undefined } }));
 
     app.post("/api/auth/login", async (request, reply) => {
       const parsed = loginBodySchema.safeParse(request.body);
@@ -114,14 +114,18 @@ export function authRoutes(deps: AuthRouteDeps) {
       const token = await signSession(deps.config.appSecret, { userId: user!.id, tv: user!.tokenVersion });
       setSessionCookie(reply, deps.config, token);
 
-      return reply.send({
+      // 標上 shared 的 DTO 型別：形狀漂移（少欄位、型別改了）在 server 端就編譯失敗，
+      // 不必等 web 端 build 才發現——那時錯的其實已經是這裡（#21）。
+      const dto: UserDto = {
         id: user!.id,
         email: user!.email,
         displayName: user!.displayName,
         isAdmin: user!.isAdmin,
         mustChangePassword: user!.mustChangePassword,
         hasPassword: user!.passwordHash !== null,
-      });
+      };
+
+      return reply.send(dto);
     });
 
     app.post("/api/auth/logout", async (_request, reply) => {
@@ -129,7 +133,7 @@ export function authRoutes(deps: AuthRouteDeps) {
       return reply.code(204).send();
     });
 
-    app.get("/api/auth/me", { preHandler: app.authenticate }, async request => request.user);
+    app.get("/api/auth/me", { preHandler: app.authenticate }, async (request): Promise<UserDto> => request.user!);
 
     app.post("/api/auth/password", { preHandler: app.authenticate }, async (request, reply) => {
       const parsed = passwordBodySchema.safeParse(request.body);

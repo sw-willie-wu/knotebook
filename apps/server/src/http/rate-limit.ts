@@ -20,7 +20,7 @@ export const OIDC_LIMIT = { limit: 30, windowMs: 60_000 } as const;
 export interface FixedWindowLimiterOptions {
   limit: number;
   windowMs: number;
-  /** 视窗登記表的 key 上限，插入序淘汰最舊。預設 10_000（見 class 註解）。 */
+  /** 視窗登記表的 key 上限，插入序淘汰最舊。預設 10_000（見 class 註解）。 */
   maxKeys?: number;
 }
 

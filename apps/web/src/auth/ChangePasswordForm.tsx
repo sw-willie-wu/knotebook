@@ -119,7 +119,7 @@ export function ChangePasswordForm({ onSuccess }: ChangePasswordFormProps) {
           value={newPassword}
           onChange={(e) => setNewPassword(e.target.value)}
         />
-        <p className="text-xs text-muted-foreground">{t("changePassword.passwordHint")}</p>
+        <p className="text-xs text-muted-foreground">{t("changePassword.passwordHint", { min: MIN_PASSWORD_LENGTH })}</p>
       </div>
 
       <div className="space-y-1">

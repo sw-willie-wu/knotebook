@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
-import type { UserDto } from "@knotebook/shared";
+import { MIN_PASSWORD_LENGTH, type UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
@@ -340,6 +340,37 @@ describe("SettingsUsersSection（/settings/users，spec §13.4：舊版 admin �
         isAdmin: true,
       });
     });
+  });
+
+  /**
+   * 提示文案的數字必須來自 shared 的 `MIN_PASSWORD_LENGTH`，不能各自寫死——server 端
+   * 常數一改，畫面上的提示就會說謊。這條把文案與常數釘在一起。
+   */
+  it("密碼提示的字數來自 shared 常數（改常數，文案跟著動）", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      const base = baseFetchHandlers()(url, method);
+      if (base) return Promise.resolve(base);
+      if (url === ADMIN_USERS_URL && method === "GET") {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+
+    renderUsersRoute(fetchMock);
+
+    await waitFor(() => expect(screen.getByRole("heading", { name: "User management" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Create user" }));
+
+    await waitFor(() => expect(screen.getByLabelText("Email")).toBeInTheDocument());
+    expect(screen.getByText(`At least ${MIN_PASSWORD_LENGTH} characters.`)).toBeInTheDocument();
+    // 上面那條單獨看不出鑑別力（常數目前就是 12，硬編也會過）——這條釘的是「文案用
+    // 插值而不是寫死數字」，把數字寫回去就會紅。
+    for (const language of ["en", "zh-TW"]) {
+      expect(i18n.getResource(language, "translation", "admin.passwordHint")).toContain("{{min}}");
+      expect(i18n.getResource(language, "translation", "changePassword.passwordHint")).toContain("{{min}}");
+    }
   });
 
   it("建立使用者密碼 <12 字元 → client 端擋下，不打 API", async () => {

@@ -122,7 +122,7 @@ function CreateUserDialog() {
               value={password}
               onChange={(event) => setPassword(event.target.value)}
             />
-            <p className="text-xs text-muted-foreground">{t("admin.passwordHint")}</p>
+            <p className="text-xs text-muted-foreground">{t("admin.passwordHint", { min: MIN_PASSWORD_LENGTH })}</p>
           </div>
 
           <div className="space-y-1">
