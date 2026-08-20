@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import { z } from "zod";
 import { MIN_PASSWORD_LENGTH } from "./auth/constants.js";
 const schema = z.object({
@@ -23,12 +24,67 @@ const schema = z.object({
   OIDC_ISSUER_URL: z.string().min(1).optional().or(z.literal("").transform(() => undefined)),
   OIDC_CLIENT_ID: z.string().min(1).optional().or(z.literal("").transform(() => undefined)),
   OIDC_CLIENT_SECRET: z.string().min(1).optional().or(z.literal("").transform(() => undefined)),
+  // issue #13：反向代理信任設定。比照上面幾組「空字串視同未設」的模式；值本身的
+  // 語法交給 `parseTrustProxy` 手動驗證（錯誤訊息要能指出是哪一段不合法）。
+  TRUST_PROXY: z.string().min(1).optional().or(z.literal("").transform(() => undefined)),
 });
+
+/** `parseTrustProxy` 認得的具名網段（proxy-addr 的內建關鍵字，fastify 直接轉交）。 */
+const TRUST_PROXY_KEYWORDS = new Set(["loopback", "linklocal", "uniquelocal"]);
+
+/**
+ * `TRUST_PROXY` 環境變數 → fastify 的 `trustProxy` 選項（issue #13）。
+ *
+ * **未設＝ `false`＝不採信 `X-Forwarded-For`**。這是「client 能直接連到 app」那種拓撲
+ * （自架很常見，本專案的 LAN 模式就是）唯一安全的預設：採信一個任何人都能自己填的
+ * header，等於所有 per-IP 節流（登入退避、OIDC 端點）都可以換一個假 IP 繞過。
+ *
+ * ⚠ **反代拓撲一定要設**：沒設的話 `request.ip` 會是反代的位址，於是**所有使用者共用
+ * 同一個 IP 軌**——任何人連續打錯 5 次密碼就會把整個站的人一起鎖進退避窗口。這個方向
+ * 的失效是「拒絕服務」而不是「被繞過」，所以預設值選在安全那一側、由部署者明確打開。
+ * 為了不讓它靜默發生，`buildApp` 另外掛了一次性的啟動期警告（見該檔）。
+ *
+ * 收的值：`false`（預設）／`true`（採信任何來源，等同修這條 issue 之前的行為）／
+ * 非負整數（信任的 hop 數）／逗號分隔的 IP、CIDR 或具名網段（`loopback`、
+ * `linklocal`、`uniquelocal`）。語法錯誤一律在啟動時就丟錯，不留到每個請求才炸。
+ */
+export function parseTrustProxy(raw: string | undefined): boolean | number | string[] {
+  if (raw === undefined) return false;
+  const value = raw.trim();
+  if (value === "" || value.toLowerCase() === "false") return false;
+  if (value.toLowerCase() === "true") return true;
+  if (/^\d+$/.test(value)) return Number(value);
+
+  const entries = value.split(",").map(entry => entry.trim()).filter(entry => entry !== "");
+  if (entries.length === 0) {
+    throw new Error(`TRUST_PROXY 的值無法解析：${raw}`);
+  }
+  for (const entry of entries) {
+    if (TRUST_PROXY_KEYWORDS.has(entry.toLowerCase())) continue;
+    const [address, prefix, ...rest] = entry.split("/");
+    const family = isIP(address ?? "");
+    if (family === 0 || rest.length > 0) {
+      throw new Error(
+        `TRUST_PROXY 的「${entry}」不是合法的 IP／CIDR／具名網段（loopback、linklocal、uniquelocal）`
+      );
+    }
+    if (prefix !== undefined) {
+      const bits = Number(prefix);
+      const max = family === 4 ? 32 : 128;
+      if (!/^\d+$/.test(prefix) || bits > max) {
+        throw new Error(`TRUST_PROXY 的「${entry}」網段長度必須是 0-${max} 的整數`);
+      }
+    }
+  }
+  return entries;
+}
 export interface AppConfig {
   databaseUrl: string;
   appSecret: string;
   publicUrl: URL;
   cookieSecure: boolean;
+  /** fastify 的 `trustProxy` 選項（issue #13）。預設 `false`，見 `parseTrustProxy`。 */
+  trustProxy: boolean | number | string[];
   insecureHttpWarning: boolean;
   /** env bootstrap admin（spec rev 5.7 / §14.2）：兩者必為同時存在或同時不存在（見下方
    * loadConfig 的 fail-fast 檢查），這兩個欄位永遠同時 defined 或同時 undefined，不會
@@ -106,5 +162,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
 
   return { databaseUrl: r.data.DATABASE_URL, appSecret: r.data.APP_SECRET, publicUrl,
            cookieSecure: publicUrl.protocol === "https:", insecureHttpWarning,
+           trustProxy: parseTrustProxy(r.data.TRUST_PROXY),
            adminEmail, adminPassword, oidc };
 }

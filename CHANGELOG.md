@@ -7,6 +7,10 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking for reverse-proxy deployments:** `X-Forwarded-For` is no longer believed by default. It used to be trusted from any source, which let anyone forge their apparent address and walk around the per-IP login lockout and the OIDC endpoint limits. The new `TRUST_PROXY` setting turns it back on — a list of trusted proxy addresses (IPs, CIDRs, or `loopback`/`linklocal`/`uniquelocal`), a hop count, or `true` for the old behavior. **If you run behind a reverse proxy and do not set it, every visitor arrives as the proxy address and shares one rate-limit bucket**, so five bad passwords from anyone lock out everybody; the server logs a warning the first time it sees the header while the setting is off (#13).
+
 ### Fixed
 
 - Losing access to a note before its collaboration connection is established no longer parks the editor on "Connecting" forever — whether the note was still opening or the connection happened to be reconnecting at the time. When the share is revoked before that handshake completes, the server rejects the handshake itself rather than sending the close message the client was waiting for, and that rejection carried no state change at all. The client now reads it, retries once with a fresh token, and then shows the same "You no longer have access to this note" notice and returns to the note list as any other revocation (#6).

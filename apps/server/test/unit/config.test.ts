@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { loadConfig } from "../../src/config.js";
+import { loadConfig, parseTrustProxy } from "../../src/config.js";
 const valid = { DATABASE_URL: "postgres://u:p@localhost:5432/db", APP_SECRET: "a".repeat(64), PUBLIC_URL: "https://notes.example.com" };
 describe("loadConfig", () => {
   it("合法設定；cookieSecure 依 PUBLIC_URL scheme", () => {
@@ -14,6 +14,7 @@ describe("loadConfig", () => {
       publicUrl: new URL("https://notes.example.com"),
       cookieSecure: true,
       insecureHttpWarning: false,
+      trustProxy: false,
     });
   });
   it("APP_SECRET 太短 → throw 含 openssl 指引", () => {
@@ -100,5 +101,56 @@ describe("loadConfig", () => {
     it("全未設 → config.oidc undefined", () => {
       expect(loadConfig(valid).oidc).toBeUndefined();
     });
+  });
+});
+
+describe("parseTrustProxy（issue #13）", () => {
+  it("未設／空字串／false → false（client 可直連的拓撲唯一安全的預設）", () => {
+    expect(parseTrustProxy(undefined)).toBe(false);
+    expect(parseTrustProxy("")).toBe(false);
+    expect(parseTrustProxy("  ")).toBe(false);
+    expect(parseTrustProxy("false")).toBe(false);
+    expect(parseTrustProxy("FALSE")).toBe(false);
+  });
+
+  it("true → true（等同修這條 issue 之前的行為，由部署者自己選）", () => {
+    expect(parseTrustProxy("true")).toBe(true);
+    expect(parseTrustProxy(" True ")).toBe(true);
+  });
+
+  it("非負整數 → hop 數", () => {
+    expect(parseTrustProxy("1")).toBe(1);
+    expect(parseTrustProxy("0")).toBe(0);
+    expect(parseTrustProxy("2")).toBe(2);
+  });
+
+  it("IP／CIDR／具名網段 → 逐項驗過的字串陣列", () => {
+    expect(parseTrustProxy("127.0.0.1")).toEqual(["127.0.0.1"]);
+    expect(parseTrustProxy("10.0.0.0/8, 172.16.0.0/12")).toEqual(["10.0.0.0/8", "172.16.0.0/12"]);
+    expect(parseTrustProxy("loopback,uniquelocal")).toEqual(["loopback", "uniquelocal"]);
+    expect(parseTrustProxy("::1")).toEqual(["::1"]);
+    expect(parseTrustProxy("fd00::/8")).toEqual(["fd00::/8"]);
+  });
+
+  it("語法錯誤在啟動時就丟錯，不留到每個請求才炸", () => {
+    expect(() => parseTrustProxy("not-an-ip")).toThrow(/TRUST_PROXY/);
+    expect(() => parseTrustProxy("10.0.0.0/999")).toThrow(/TRUST_PROXY/);
+    expect(() => parseTrustProxy("10.0.0.0/8/8")).toThrow(/TRUST_PROXY/);
+    expect(() => parseTrustProxy("10.0.0.0/abc")).toThrow(/TRUST_PROXY/);
+    expect(() => parseTrustProxy("999.1.1.1")).toThrow(/TRUST_PROXY/);
+    // IPv6 的網段上限是 128，IPv4 是 32——不能混用。
+    expect(() => parseTrustProxy("10.0.0.0/64")).toThrow(/TRUST_PROXY/);
+    expect(parseTrustProxy("fd00::/64")).toEqual(["fd00::/64"]);
+  });
+
+  it("loadConfig 帶出這個欄位，未設時是 false", () => {
+    const base = {
+      DATABASE_URL: "postgres://u:p@localhost:5432/test",
+      APP_SECRET: "a".repeat(64),
+      PUBLIC_URL: "http://localhost:3000",
+    };
+    expect(loadConfig(base).trustProxy).toBe(false);
+    expect(loadConfig({ ...base, TRUST_PROXY: "loopback" }).trustProxy).toEqual(["loopback"]);
+    expect(() => loadConfig({ ...base, TRUST_PROXY: "nope" })).toThrow(/TRUST_PROXY/);
   });
 });
