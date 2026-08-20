@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen, waitFor } from "@testing-library/react";
-import { COLLAB_CLOSE_NOTE_DELETED, COLLAB_CLOSE_REVOKED } from "@knotebook/shared";
+import {
+  COLLAB_CLOSE_NOTE_DELETED,
+  COLLAB_CLOSE_REVOKED,
+  COLLAB_REJECT_INVALID_TOKEN,
+  COLLAB_REJECT_NOTE_DELETING,
+} from "@knotebook/shared";
 
 // HocuspocusProvider 會開真的 WebSocket，jsdom 裡沒有對端。換成一個假的：把
 // configuration 收下來，讓測試直接扮演 server 觸發 onClose/onAuthenticated，並且
@@ -309,6 +314,94 @@ describe("useCollab", () => {
       await expect(provider().configuration.token()).rejects.toThrow();
     });
     expect(phase()).toBe("deleted");
+  });
+
+  // ── issue #6：authenticationFailed（server 的 permission-denied Auth 訊息）────────
+  //
+  // ⚠ 這一族的共同前提：Hocuspocus server 對 `onAuthenticate` 丟出的錯誤**只回一則
+  // permission-denied 訊息，socket 原封不動留著**（已對 4.5.0 `ClientConnection` 原始碼
+  // 核實），provider 也不會自己重連。沒接這個事件的話，畫面會永遠停在 connecting。
+
+  it("撤權落在握手完成之前：authenticationFailed → 重連一次 → role 'none' → kicked", async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(tokenOk("editor")));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<Probe />);
+    const p = provider();
+    await act(async () => {
+      await p.configuration.token();
+    });
+    // 還沒 onAuthenticated：server 在握手當下就拒了，client 收不到任何 CLOSE(REVOKED)。
+    expect(phase()).toBe("connecting");
+
+    act(() => p.emit("authenticationFailed", { reason: COLLAB_REJECT_INVALID_TOKEN }));
+    expect(phase()).toBe("reconnecting-once");
+    expect(p.disconnect).toHaveBeenCalledTimes(1);
+    expect(p.connect).not.toHaveBeenCalled();
+
+    act(() => p.emit("close", { event: { code: 1006, reason: "" } }));
+    expect(p.connect).toHaveBeenCalledTimes(1);
+
+    fetchMock.mockResolvedValue(tokenOk("none"));
+    await act(async () => {
+      await p.configuration.token();
+    });
+    expect(phase()).toBe("kicked");
+  });
+
+  it("reconnecting-once 期間再收 authenticationFailed → kicked（第二擊）", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(tokenOk("editor"))),
+    );
+    render(<Probe />);
+    const p = provider();
+    await act(async () => {
+      await p.configuration.token();
+    });
+    act(() => p.configuration.onAuthenticated());
+
+    act(() => p.emit("close", { event: { code: 1000, reason: COLLAB_CLOSE_REVOKED } }));
+    expect(phase()).toBe("reconnecting-once");
+    act(() => p.emit("authenticationFailed", { reason: COLLAB_REJECT_INVALID_TOKEN }));
+    expect(phase()).toBe("kicked");
+  });
+
+  it("authenticationFailed(note-deleting) → deleted 終態（不繞第二擊）", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(tokenOk("owner"))),
+    );
+    render(<Probe />);
+    const p = provider();
+    await act(async () => {
+      await p.configuration.token();
+    });
+
+    act(() => p.emit("authenticationFailed", { reason: COLLAB_REJECT_NOTE_DELETING }));
+    expect(phase()).toBe("deleted");
+    await waitFor(() => expect(p.disconnect).toHaveBeenCalled());
+  });
+
+  it("token function 自己失敗換來的 authenticationFailed 不是授權裁決，不得踢人", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(apiFail(503, "server_busy"))),
+    );
+    render(<Probe />);
+    const p = provider();
+
+    const rejected = expect(p.configuration.token()).rejects.toThrow();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    await rejected;
+
+    // provider 在 getToken() 的 catch 裡直接呼叫 permissionDeniedHandler（見 dist 的
+    // `sendToken`）——reason 是本地字串而非 server 裁決；5xx/網路失敗不得踢人（N7）。
+    act(() => p.emit("authenticationFailed", { reason: "Failed to get token during sendToken(): ApiFail" }));
+    expect(phase()).toBe("connecting");
+    expect(p.disconnect).not.toHaveBeenCalled();
   });
 
   it("卸載時銷毀 provider", () => {

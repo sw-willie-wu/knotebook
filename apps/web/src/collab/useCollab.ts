@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as Y from "yjs";
 import { HocuspocusProvider } from "@hocuspocus/provider";
-import { COLLAB_CLOSE_NOTE_DELETED, COLLAB_CLOSE_REVOKED, type Role } from "@knotebook/shared";
+import {
+  COLLAB_CLOSE_NOTE_DELETED,
+  COLLAB_CLOSE_REVOKED,
+  COLLAB_REJECT_NOTE_DELETING,
+  type Role,
+} from "@knotebook/shared";
 import { api, ApiFail } from "@/api/client";
 import { collabReducer, INITIAL_COLLAB_STATE, isTerminal, type CollabEvent, type CollabState } from "./connection";
 
@@ -72,6 +77,8 @@ export interface UseCollabResult {
  * - token function 每次取回 body 的 `role` → `token-role` 事件（**權限恢復唯一的
  *   client 訊號**：server 端 `setReadOnly(false)` 不另送通知）。
  * - `onAuthenticated` → `open` 事件，role 取自最近一次 token 回應。
+ * - `authenticationFailed`（server 的 permission-denied）→ 翻成對應的 `close` 事件：
+ *   note-deleting → NOTE_DELETED，其餘一律 REVOKED（因而共用同一套二擊語意）。
  * - provider 的 `"close"` 事件 → `close` 事件。同一個回呼同時收「應用層 CLOSE 訊息」
  *   （code 硬寫 1000，reason 是 `COLLAB_CLOSE_*`）與「底層 WebSocket close」
  *   （reason 通常空字串），**一律只看 reason**。
@@ -83,6 +90,19 @@ export interface UseCollabResult {
  * **每一則 socket close 都會呼叫兩次**（應用層 CLOSE 訊息那條路徑則只呼叫一次，
  * 兩者次數還不一致）。用 `provider.on("close")` 只掛在 provider 自己的 emitter 上，
  * 兩條路徑都各自剛好一次。
+ *
+ * ⚠ **`authenticationFailed` 必須接**（issue #6）：撤權若落在「握手完成之前」的窗口
+ * （首次連線還在跑、或重連退避中），server 走的是 `onAuthenticate` throw 而**不是**應用層
+ * CLOSE(REVOKED)；Hocuspocus 4.5.0 對這個 throw 只 `writePermissionDenied` 一則訊息，
+ * **socket 不關、provider 也不重連**（已對 `ClientConnection` 原始碼核實）。這條路徑上狀態
+ * 機收不到任何事件，`token-role: 'none'` 在 `connecting` 又刻意不轉移（角色要等 `open`
+ * 才落定）——使用者因此永遠卡在「連線中」、沒有回饋也不會被導走。
+ *
+ * 翻成 `close(REVOKED)` 而不另開一個終態，是為了**沿用同一套二擊語意**：第一擊進
+ * `reconnecting-once`（於是 disconnect → 重取 token 連一次），第二擊（重連拿回的 role 是
+ * `'none'`、或再次被拒）才收斂 `kicked`。伺服器一次性抖動（DB 掉拍…）因此不會誤殺
+ * 一個合法使用者，而真的撤權一定收斂。`note-deleting` 是例外：刪除閘門是定局的，
+ * 直接走 `deleted`（等同 `close(NOTE_DELETED)`），不浪費一次重連。
  *
  * 我方主動 `disconnect()` 造成的 socket close 會被 `pendingReconnectRef` 吞掉一次：
  * 否則進入 `reconnecting-once` 後我們自己關 socket 的那個 close（reason 空字串＝
@@ -109,6 +129,13 @@ export function useCollab({ noteId, onUnauthorized }: UseCollabOptions): UseColl
   const roleRef = useRef<Role>("none");
   /** 「我們自己剛叫了 disconnect()，正在等那條 close 回來好接著重連一次」。 */
   const pendingReconnectRef = useRef(false);
+  /**
+   * 「最近一次 token function 是以丟錯收場的」。provider 在 `getToken()` 丟錯時會直接
+   * 呼叫 `permissionDeniedHandler`（見 @hocuspocus/provider 的 `sendToken`），於是
+   * `authenticationFailed` 也會為我方的 5xx/網路失敗而發——那不是 server 的授權裁決，
+   * 不得據此把人踢出（spec N7）。兩者共用同一個事件名，只有我們自己分得出來。
+   */
+  const tokenFetchFailedRef = useRef(false);
   const onUnauthorizedRef = useRef(onUnauthorized);
   onUnauthorizedRef.current = onUnauthorized;
 
@@ -128,7 +155,7 @@ export function useCollab({ noteId, onUnauthorized }: UseCollabOptions): UseColl
     let disposed = false;
     const doc = new Y.Doc();
 
-    const fetchToken = async (): Promise<string> => {
+    const fetchTokenWithRetries = async (): Promise<string> => {
       for (let attempt = 0; ; attempt += 1) {
         try {
           const body = await api<CollabTokenResponse>(`/api/notes/${encodeURIComponent(noteId)}/collab-token`, {
@@ -157,6 +184,20 @@ export function useCollab({ noteId, onUnauthorized }: UseCollabOptions): UseColl
       }
     };
 
+    // 交給 provider 的 token function。包這一層只為了記下「這一次取 token 失敗了」，讓
+    // `authenticationFailed` 分得出「我方拿不到 token」與「server 拒絕授權」——見
+    // `tokenFetchFailedRef`。每次進場先清旗標：成功的一次不能留下殘影，去吞掉之後
+    // 真正的拒絕。
+    const fetchToken = async (): Promise<string> => {
+      tokenFetchFailedRef.current = false;
+      try {
+        return await fetchTokenWithRetries();
+      } catch (err) {
+        tokenFetchFailedRef.current = true;
+        throw err;
+      }
+    };
+
     const provider = new HocuspocusProvider({
       url: collabUrl(),
       name: noteId,
@@ -180,6 +221,23 @@ export function useCollab({ noteId, onUnauthorized }: UseCollabOptions): UseColl
         return;
       }
       dispatch({ type: "close", reason });
+    });
+
+    // server 的 permission-denied（`onAuthenticate` 拒連）——**不伴隨任何 close**，沒接這條
+    // 就是 issue #6 的「卡在連線中」。詳見檔頭。
+    provider.on("authenticationFailed", ({ reason }: { reason?: string }) => {
+      if (tokenFetchFailedRef.current) {
+        // 這一則是我們自家 token function 丟錯換來的，不是授權裁決：401 已經走過
+        // `onUnauthorized`、404 已經自己收斂 deleted，其餘（5xx/網路）是暫時性的，一律
+        // 不得踢人（N7）。
+        tokenFetchFailedRef.current = false;
+        return;
+      }
+      // 不寫成裸的 `reason === COLLAB_REJECT_NOTE_DELETING`：reason 缺席時兩邊都是
+      // undefined 會變成真，把一則不明的拒絕誤判成「筆記已刪除」。開發時就踩過：
+      // 共用包忘了重建，兩個常數都是 undefined，測試因此假綠。
+      const noteDeleting = reason !== undefined && reason === COLLAB_REJECT_NOTE_DELETING;
+      dispatch({ type: "close", reason: noteDeleting ? COLLAB_CLOSE_NOTE_DELETED : COLLAB_CLOSE_REVOKED });
     });
 
     providerRef.current = provider;

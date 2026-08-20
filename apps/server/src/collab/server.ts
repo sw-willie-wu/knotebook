@@ -70,7 +70,12 @@ import type { Duplex } from "node:stream";
 import type { FastifyInstance } from "fastify";
 import { Hocuspocus, type WebSocketLike } from "@hocuspocus/server";
 import { WebSocketServer, type RawData, type WebSocket as WsWebSocket } from "ws";
-import { COLLAB_CLOSE_NOTE_DELETED, COLLAB_CLOSE_REVOKED } from "@knotebook/shared";
+import {
+  COLLAB_CLOSE_NOTE_DELETED,
+  COLLAB_CLOSE_REVOKED,
+  COLLAB_REJECT_INVALID_TOKEN,
+  COLLAB_REJECT_NOTE_DELETING,
+} from "@knotebook/shared";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
 import type { UserGate } from "../auth/session.js";
@@ -94,10 +99,10 @@ export const COLLAB_PATH = "/collab";
 /** 應用層 CLOSE 訊息用的 close code。client 端只讀 reason（provider 一律填 1000）。 */
 const APP_CLOSE_CODE = 1000;
 
-/** 拒連原因：該筆記正在刪除中（`markDeleting` 閘門）。 */
-export const COLLAB_REJECT_NOTE_DELETING = "note-deleting";
-/** 拒連原因：token 缺失或無效。 */
-export const COLLAB_REJECT_INVALID_TOKEN = "invalid-token";
+// 拒連原因（`note-deleting` / `invalid-token`）住在 `@knotebook/shared`：client 的
+// `useCollab` 要拿同一組字串去讀 provider 的 `authenticationFailed`（issue #6），
+// 兩邊各自手抄一份早晚會漂。這裡再匯出一次，舊的 import 路徑（server 測試）照常可用。
+export { COLLAB_REJECT_INVALID_TOKEN, COLLAB_REJECT_NOTE_DELETING };
 
 /**
  * `onAuthenticate` 拒連時要 throw 的錯誤。
