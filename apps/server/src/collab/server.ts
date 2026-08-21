@@ -136,7 +136,8 @@ export {
  * 兩層是刻意的：client 只需要知道「這是不是一則授權裁決」（見 `@knotebook/shared` 那組
  * 常數的註解），把 `bad-token` 與 `session-revoked` 分開對它毫無意義、反而是多一組要維護
  * 的相容面；但維護者在事後查「這個人為什麼連不上」時，這兩者要的處置天差地遠（前者是
- * token 本身的問題，後者是這個 session 已被撤銷）。細分留在日誌裡，wire 維持三個值。
+ * token 本身的問題，後者是這個 session 已被撤銷）。細分留在日誌裡，wire 維持四個值：
+ * `note-deleting`／`invalid-token`／`forbidden`／`server-error`。
  *
  * 每個 cause 的日誌級別不同（見 `rejectAuth`），但**出口只有 `rejectAuth` 一個**：
  * 別處裸 `throw new CollabAuthError(...)` 的話，那次拒連就不會出現在 `cause` 這個欄位上，

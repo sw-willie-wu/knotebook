@@ -455,7 +455,7 @@ describe("DELETE /api/notes/:id", () => {
       beforeNoteDeleted: vi.fn(async (): Promise<never> => {
         throw new Error("collab teardown failed");
       }),
-        linkSyncGate: () => ({ ok: false as const }),
+      linkSyncGate: () => ({ ok: false as const }),
     };
     const { app, db } = await buildTestApp({ collabHooks });
 
