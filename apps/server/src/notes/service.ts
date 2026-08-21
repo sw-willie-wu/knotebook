@@ -15,22 +15,45 @@ import { noteShares, notes } from "../db/schema.js";
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * 解析使用者對某篇 note 的角色：note 不存在（或 noteId 非合法 UUID 格式）→ 'none'；
- * 使用者是 owner → 'owner'；否則查 note_shares 表的 role（'editor'/'viewer'）；
- * 都沒有 → 'none'。
+ * `resolveAccess` 的結果：角色，外加「這篇筆記到底還在不在」。
+ *
+ * 兩者分開回報是為了 issue #35：`role === 'none'` 混了「你沒有權限」與「筆記已經被刪掉
+ * 了」兩件事，共編握手若只看 role，對後者會告訴使用者「你已失去存取權」——說錯話。
+ * 只有共編的 `onAuthenticate` 需要分辨，其餘呼叫端照舊用 `resolveRole`。
  */
-export async function resolveRole(db: Db, userId: string, noteId: string): Promise<Role> {
-  if (!UUID_RE.test(noteId)) return "none";
+export interface NoteAccess {
+  role: Role;
+  /** noteId 格式非法一律視同不存在（效果與「查不到這一列」相同，也不洩漏額外資訊）。 */
+  noteExists: boolean;
+}
+
+/**
+ * 解析使用者對某篇 note 的角色與該筆記的存在性：note 不存在（或 noteId 非合法 UUID
+ * 格式）→ `{ role: 'none', noteExists: false }`；使用者是 owner → 'owner'；否則查
+ * note_shares 表的 role（'editor'/'viewer'）；都沒有 → 'none'。
+ */
+export async function resolveAccess(db: Db, userId: string, noteId: string): Promise<NoteAccess> {
+  if (!UUID_RE.test(noteId)) return { role: "none", noteExists: false };
 
   const [note] = await db.select({ ownerId: notes.ownerId }).from(notes).where(eq(notes.id, noteId)).limit(1);
-  if (!note) return "none";
-  if (note.ownerId === userId) return "owner";
+  if (!note) return { role: "none", noteExists: false };
+  if (note.ownerId === userId) return { role: "owner", noteExists: true };
 
   const [share] = await db
     .select({ role: noteShares.role })
     .from(noteShares)
     .where(and(eq(noteShares.noteId, noteId), eq(noteShares.userId, userId)))
     .limit(1);
-  if (!share) return "none";
-  return share.role as Role;
+  if (!share) return { role: "none", noteExists: true };
+  return { role: share.role as Role, noteExists: true };
+}
+
+/**
+ * 解析使用者對某篇 note 的角色：note 不存在（或 noteId 非合法 UUID 格式）→ 'none'；
+ * 使用者是 owner → 'owner'；否則查 note_shares 表的 role（'editor'/'viewer'）；
+ * 都沒有 → 'none'。
+ */
+export async function resolveRole(db: Db, userId: string, noteId: string): Promise<Role> {
+  const { role } = await resolveAccess(db, userId, noteId);
+  return role;
 }

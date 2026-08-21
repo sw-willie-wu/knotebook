@@ -223,11 +223,23 @@ export interface HttpSession {
   connect(noteId: string, opts?: { tokenOverride?: string; tokenFn?: () => Promise<string> }): Promise<TestClient>;
 }
 
+/** `buildCollabTestApp` 收下來的一行 CollabServer 日誌。 */
+export interface CollabLogLine {
+  level: "info" | "warn" | "error";
+  obj: Record<string, unknown>;
+  msg: string;
+}
+
 export interface CollabTestCtx {
   /** `http://127.0.0.1:<ephemeral port>` */
   baseUrl: string;
   app: FastifyInstance;
   collab: CollabServer;
+  /**
+   * CollabServer 寫出的日誌（issue #37 的握手拒絕訊號即在此）。注入自己的 logger 也順便
+   * 讓拒連測試不再往 stdout 噴 `consoleCollabLogger` 的那一行。
+   */
+  collabLogs: CollabLogLine[];
   db: Db;
   createUser(opts: { email: string; password: string; isAdmin?: boolean }): Promise<{ id: string }>;
   createNote(ownerId: string, title?: string): Promise<{ id: string }>;
@@ -249,7 +261,13 @@ export async function buildCollabTestApp(
 ): Promise<CollabTestCtx> {
   const { db } = await freshDb();
   const gate = new UserGate(db);
-  const collab = createCollabServer({ db, config: testConfig, gate });
+  const collabLogs: CollabLogLine[] = [];
+  const collabLog = {
+    info: (obj: object, msg: string) => collabLogs.push({ level: "info", obj: { ...obj }, msg }),
+    warn: (obj: object, msg: string) => collabLogs.push({ level: "warn", obj: { ...obj }, msg }),
+    error: (obj: object, msg: string) => collabLogs.push({ level: "error", obj: { ...obj }, msg }),
+  };
+  const collab = createCollabServer({ db, config: testConfig, gate, log: collabLog });
 
   const deps: AppDeps = {
     config: testConfig,
@@ -432,5 +450,5 @@ export async function buildCollabTestApp(
     return session;
   }
 
-  return { baseUrl, app, collab, db, createUser, createNote, share, loginAs, destroy };
+  return { baseUrl, app, collab, collabLogs, db, createUser, createNote, share, loginAs, destroy };
 }

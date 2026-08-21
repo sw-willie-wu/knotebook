@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { eq } from "drizzle-orm";
 import * as Y from "yjs";
 import { COLLAB_CLOSE_REVOKED, YDOC_FRAGMENT } from "@knotebook/shared";
 import { signCollabToken } from "../src/collab/token.js";
-import { COLLAB_REJECT_INVALID_TOKEN } from "../src/collab/server.js";
+import { COLLAB_REJECT_FORBIDDEN, COLLAB_REJECT_INVALID_TOKEN, COLLAB_REJECT_NOTE_MISSING } from "../src/collab/server.js";
+import { notes } from "../src/db/schema.js";
 import { buildCollabTestApp, testConfig } from "./helpers.js";
 
 const PASSWORD = "correct-horse-battery";
@@ -87,7 +89,8 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
       tv: 0,
     });
 
-    await expect(session.connect(note.id, { tokenOverride: forgedRole })).rejects.toThrow(COLLAB_REJECT_INVALID_TOKEN);
+    // issue #35：這是唯一真正的「授權被拒」——筆記在、token 有效，只是這個人沒有角色。
+    await expect(session.connect(note.id, { tokenOverride: forgedRole })).rejects.toThrow(COLLAB_REJECT_FORBIDDEN);
   });
 
   it("撤分享後拿撤前舊 token（TTL 內）重連被拒（N2）", async () => {
@@ -109,7 +112,7 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
     expect(delRes.status).toBe(204);
 
     await expect(editorSession.connect(note.id, { tokenOverride: staleToken })).rejects.toThrow(
-      COLLAB_REJECT_INVALID_TOKEN
+      COLLAB_REJECT_FORBIDDEN
     );
   });
 
@@ -128,6 +131,84 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
     });
 
     await expect(session.connect(noteA.id, { tokenOverride: tokenForB })).rejects.toThrow(COLLAB_REJECT_INVALID_TOKEN);
+  });
+
+  it("筆記已刪完、閘門也清了 → 拒連理由是 note-missing 而不是「你沒有權限」（issue #35）", async () => {
+    // 這個窗口是真的會發生的：DELETE 完成後 `deleting` 閘門會被清掉（TTL 或 finally），
+    // 而還在退避重連的 client 這時才連回來。舊版三種理由共用 `invalid-token`，client 一律
+    // 翻成撤權，於是使用者被告知「你已失去這篇筆記的存取權」——真相是筆記被刪了。
+    const ctx = await buildCollabTestApp();
+    const owner = await ctx.createUser({ email: "owner-auth15@example.com", password: PASSWORD });
+    const note = await ctx.createNote(owner.id);
+    const session = await ctx.loginAs("owner-auth15@example.com", PASSWORD);
+
+    // 直接刪 row：等同「刪除流程已經全部跑完、閘門也不在了」的終局狀態（若走 DELETE 路由，
+    // 還要處理 hooks 的 TTL 閘門何時清掉，那是 Task 6 的測試範圍，不是這裡要驗的東西）。
+    await ctx.db.delete(notes).where(eq(notes.id, note.id));
+
+    // token endpoint 對已刪除的筆記照樣回 200 + role 'none'（見 routes/notes.ts），所以
+    // client 走的就是這條預設路徑：拿得到 token，被 onAuthenticate 擋下。
+    await expect(session.connect(note.id)).rejects.toThrow(COLLAB_REJECT_NOTE_MISSING);
+  });
+
+  it("拒連留下一行結構化日誌：noteId/userId/cause/reason，不含 token（issue #37）", async () => {
+    // issue #6 修好之後，一次拒連的後果從「使用者卡在連線中（會來回報，維護者可以現場看
+    // 畫面）」變成「使用者被自動導走」，他只會說「我突然被踢出來了」。CollabAuthError 的
+    // message 又刻意留空（避免 Hocuspocus 無條件 console.error），所以沒有這行 log 的話，
+    // 兩端一個位元都不留。
+    const ctx = await buildCollabTestApp();
+    const owner = await ctx.createUser({ email: "owner-auth16@example.com", password: PASSWORD });
+    const stranger = await ctx.createUser({ email: "stranger-auth16@example.com", password: PASSWORD });
+    const note = await ctx.createNote(owner.id);
+    const session = await ctx.loginAs("stranger-auth16@example.com", PASSWORD);
+
+    const forgedRole = await signCollabToken(testConfig.appSecret, {
+      noteId: note.id,
+      userId: stranger.id,
+      role: "owner",
+      tv: 0,
+    });
+    await expect(session.connect(note.id, { tokenOverride: forgedRole })).rejects.toThrow(COLLAB_REJECT_FORBIDDEN);
+
+    const line = ctx.collabLogs.find(one => one.obj.cause === "no-role");
+    expect(line).toBeDefined();
+    expect(line!.level).toBe("info");
+    expect(line!.obj).toMatchObject({
+      noteId: note.id,
+      userId: stranger.id,
+      cause: "no-role",
+      reason: COLLAB_REJECT_FORBIDDEN,
+    });
+    // 欄位是封閉集合：token 內容（憑證）不得進日誌。
+    expect(Object.keys(line!.obj).sort()).toEqual(["cause", "noteId", "reason", "userId"]);
+  });
+
+  it("gate 不通過記成 session-revoked，但送給 client 的仍是 invalid-token（兩層刻意不同）", async () => {
+    // 「帳號停用／tokenVersion 過期」對 client 而言只是「這份 token 不能用」——它重取一次
+    // 就會拿到 401 並走登出流程；但維護者要能分辨這與「簽章壞掉」不是同一回事。
+    const ctx = await buildCollabTestApp();
+    await ctx.createUser({ email: "admin-auth17@example.com", password: PASSWORD, isAdmin: true });
+    const target = await ctx.createUser({ email: "target-auth17@example.com", password: PASSWORD });
+    const note = await ctx.createNote(target.id);
+
+    const adminSession = await ctx.loginAs("admin-auth17@example.com", PASSWORD);
+    const targetSession = await ctx.loginAs("target-auth17@example.com", PASSWORD);
+
+    // 比照 auth12：手動簽 tv=0 的 token，避開 collab-token 路徑先把 gate 結果快取住。
+    const preDisableToken = await signCollabToken(testConfig.appSecret, {
+      noteId: note.id,
+      userId: target.id,
+      role: "owner",
+      tv: 0,
+    });
+    expect((await adminSession.fetch(`/api/admin/users/${target.id}/disable`, { method: "POST" })).status).toBe(204);
+
+    await expect(targetSession.connect(note.id, { tokenOverride: preDisableToken })).rejects.toThrow(
+      COLLAB_REJECT_INVALID_TOKEN
+    );
+
+    const line = ctx.collabLogs.find(one => one.obj.cause === "session-revoked");
+    expect(line?.obj).toMatchObject({ noteId: note.id, userId: target.id, reason: COLLAB_REJECT_INVALID_TOKEN });
   });
 
   it("connectionsOf 於連線/斷線後正確增減（兩個真實使用者）", async () => {

@@ -3,8 +3,11 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import {
   COLLAB_CLOSE_NOTE_DELETED,
   COLLAB_CLOSE_REVOKED,
+  COLLAB_REJECT_FORBIDDEN,
   COLLAB_REJECT_INVALID_TOKEN,
   COLLAB_REJECT_NOTE_DELETING,
+  COLLAB_REJECT_NOTE_MISSING,
+  COLLAB_REJECT_SERVER_ERROR,
 } from "@knotebook/shared";
 
 // HocuspocusProvider 會開真的 WebSocket，jsdom 裡沒有對端。換成一個假的：把
@@ -334,7 +337,7 @@ describe("useCollab", () => {
     // 還沒 onAuthenticated：server 在握手當下就拒了，client 收不到任何 CLOSE(REVOKED)。
     expect(phase()).toBe("connecting");
 
-    act(() => p.emit("authenticationFailed", { reason: COLLAB_REJECT_INVALID_TOKEN }));
+    act(() => p.emit("authenticationFailed", { reason: COLLAB_REJECT_FORBIDDEN }));
     expect(phase()).toBe("reconnecting-once");
     expect(p.disconnect).toHaveBeenCalledTimes(1);
     expect(p.connect).not.toHaveBeenCalled();
@@ -363,7 +366,7 @@ describe("useCollab", () => {
 
     act(() => p.emit("close", { event: { code: 1000, reason: COLLAB_CLOSE_REVOKED } }));
     expect(phase()).toBe("reconnecting-once");
-    act(() => p.emit("authenticationFailed", { reason: COLLAB_REJECT_INVALID_TOKEN }));
+    act(() => p.emit("authenticationFailed", { reason: COLLAB_REJECT_FORBIDDEN }));
     expect(phase()).toBe("kicked");
   });
 
@@ -440,15 +443,130 @@ describe("useCollab", () => {
       await staleToken;
     });
 
-    act(() => fresh.emit("authenticationFailed", { reason: COLLAB_REJECT_INVALID_TOKEN }));
+    act(() => fresh.emit("authenticationFailed", { reason: COLLAB_REJECT_FORBIDDEN }));
     expect(phase()).toBe("reconnecting-once");
+  });
+
+  it("authenticationFailed(invalid-token) 不是授權裁決：不得踢人，改排一次重啟（issue #35）", async () => {
+    // 時鐘偏移、`APP_SECRET` 輪替、session 的 tokenVersion 過期都會落在 invalid-token。
+    // 舊版把它翻成撤權 ⇒ 對一個權限完好的使用者說「你已失去存取權」並把他導走。
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(tokenOk("editor"))),
+    );
+    render(<Probe />);
+    const p = provider();
+    await act(async () => {
+      await p.configuration.token();
+    });
+
+    act(() => p.emit("authenticationFailed", { reason: COLLAB_REJECT_INVALID_TOKEN }));
+    expect(phase()).toBe("connecting");
+    expect(p.disconnect).not.toHaveBeenCalled();
+
+    // 但也不能就這樣算了：socket 開著卻沒通過認證，provider 不會再取一次 token
+    // （issue #34/#39 那一族的靜默死路）。第一格 5 秒之後整條連線重來。
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_500);
+    });
+    expect(p.disconnect).toHaveBeenCalledTimes(1);
+    act(() => p.emit("close", { event: { code: 1006, reason: "" } }));
+    expect(p.connect).toHaveBeenCalledTimes(1);
+    expect(phase()).toBe("connecting");
+  });
+
+  it("authenticationFailed(server-error／不認得的 reason) 同樣不得踢人", async () => {
+    // server 端未預期例外會被 Hocuspocus 翻成字面值 "permission-denied"（我們改成明確的
+    // server-error，但舊 server／未來新 reason 都可能出現不認得的值）——一律歸「不是裁決」。
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(tokenOk("editor"))),
+    );
+    render(<Probe />);
+    const p = provider();
+    await act(async () => {
+      await p.configuration.token();
+    });
+
+    act(() => p.emit("authenticationFailed", { reason: COLLAB_REJECT_SERVER_ERROR }));
+    expect(phase()).toBe("connecting");
+    act(() => p.emit("authenticationFailed", { reason: "permission-denied" }));
+    expect(phase()).toBe("connecting");
+    // reason 缺席也一樣（`reason === undefined` 那個經典誤判）。
+    act(() => p.emit("authenticationFailed", {}));
+    expect(phase()).toBe("connecting");
+  });
+
+  it("authenticationFailed(note-missing) → deleted：筆記被刪掉時不說成「你沒有權限」（issue #35）", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(tokenOk("owner"))),
+    );
+    render(<Probe />);
+    const p = provider();
+    await act(async () => {
+      await p.configuration.token();
+    });
+
+    act(() => p.emit("authenticationFailed", { reason: COLLAB_REJECT_NOTE_MISSING }));
+    expect(phase()).toBe("deleted");
+    await waitFor(() => expect(p.disconnect).toHaveBeenCalled());
+  });
+
+  it("換筆記：上一篇遲到的 token **成功**回應不得打進新筆記的狀態機（issue #36）", async () => {
+    // `roleRef` 與 `dispatch` 都是 hook 層的（不隨 effect 重建），成功出口少了 `disposed`
+    // 守衛的話，上一篇還在飛的那一發回來時會打進新筆記：新筆記若正在 reconnecting-once
+    // （撤權觀察窗）而遲到的角色是上一篇的 'none'，就直接判成第二擊——使用者被踢出一篇
+    // 他其實有權限的筆記。
+    //
+    // ⚠ 必須是**同一個元件實例換 noteId**（rerender）：unmount 再 render 是兩個元件實例、
+    // 兩份獨立的 ref，滲漏本來就不會發生。
+    let resolveStale!: (res: Response) => void;
+    const staleFetch = new Promise<Response>(resolve => {
+      resolveStale = resolve;
+    });
+    const fetchMock = vi.fn(() => staleFetch);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { rerender } = render(<Probe noteId={NOTE_ID} />);
+    const stale = provider(0);
+    const staleToken = stale.configuration.token();
+
+    fetchMock.mockReturnValue(Promise.resolve(tokenOk("editor")) as unknown as Promise<Response>);
+    rerender(<Probe noteId={OTHER_NOTE_ID} />);
+    const fresh = provider(1);
+    await act(async () => {
+      await fresh.configuration.token();
+    });
+    act(() => fresh.configuration.onAuthenticated());
+    expect(phase()).toBe("connected:editor");
+
+    // 新筆記進入撤權觀察窗。
+    act(() => fresh.emit("close", { event: { code: 1000, reason: COLLAB_CLOSE_REVOKED } }));
+    expect(phase()).toBe("reconnecting-once");
+
+    // 上一篇那一發現在才回來，帶著上一篇的角色 'none'。
+    await act(async () => {
+      resolveStale(tokenOk("none"));
+      await staleToken;
+    });
+    expect(phase()).toBe("reconnecting-once");
+
+    // roleRef 也不能被舊值蓋掉——否則緊接著的 open 會帶錯角色。
+    act(() => fresh.configuration.onAuthenticated());
+    expect(phase()).toBe("connected:editor");
   });
 
   it("拒連原因常數與 server 端字面值一致", () => {
     // 共用包沒重建時這一組常數會是 undefined，於是 `reason === CONST` 靜靜地走錯分支
     // （本修改開發時就踩過）。釘住字面值，那種環境會大聲失敗而不是假綠。
     expect(COLLAB_REJECT_NOTE_DELETING).toBe("note-deleting");
+    expect(COLLAB_REJECT_NOTE_MISSING).toBe("note-missing");
     expect(COLLAB_REJECT_INVALID_TOKEN).toBe("invalid-token");
+    expect(COLLAB_REJECT_FORBIDDEN).toBe("forbidden");
+    expect(COLLAB_REJECT_SERVER_ERROR).toBe("server-error");
   });
 
   it("保險絲開火之後才回來的 close，仍然要帶出那一次重連（issue #34）", async () => {

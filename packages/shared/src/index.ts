@@ -193,9 +193,27 @@ export const COLLAB_CLOSE_NOTE_DELETED = "knotebook:note-deleted";
  * 這裡這組則是 onAuthenticate 當場就拒絕，Hocuspocus 只回一則 permission-denied Auth
  * 訊息、**不關 socket 也不重連**（已對 @hocuspocus/server 4.5.0 `ClientConnection` 核實）。
  * client 必須自己把它翻成狀態機事件，否則畫面會永遠停在「連線中」（issue #6）。
+ *
+ * ⚠ **這一組分成語意完全不同的兩桶（issue #35），client 的處置不可混用**：
+ *
+ * A.「這是一則授權裁決」——`note-deleting`／`note-missing`／`forbidden`。使用者對這篇
+ *    筆記的關係真的結束了，client 據此收斂終態（deleted／撤權二擊）並導頁。
+ * B.「拒絕的原因不是權限」——`invalid-token`（簽章／綁定不符、`APP_SECRET` 輪替、時鐘
+ *    偏移、session 的 tokenVersion 已過期）與 `server-error`（onAuthenticate 撞到未預期
+ *    例外）。**client 絕不可據此宣告使用者失去存取權**：對他說錯話之外，那一則拒絕多半
+ *    重取一次 token 就會自癒。正確處置是排一次連線重啟（見 `useCollab` 的
+ *    `TOKEN_RESTART_DELAYS_MS`），狀態留在 `connecting`。
+ *
+ * 舊版把三種拒絕理由全塞進 `invalid-token` 一個桶子，client 一律翻成撤權——時鐘偏移或
+ * 密鑰輪替會對一個權限完好的使用者說「你已失去存取權」並把他導走（issue #35）。
+ * ⚠ 因此 **client 對「不認得的 reason」（含 Hocuspocus 對未預期例外填的字面值
+ * `"permission-denied"`、以及 reason 缺席）一律歸 B 桶**：寧可多重試幾次，不可誤殺。
  */
 export const COLLAB_REJECT_NOTE_DELETING = "note-deleting";
+export const COLLAB_REJECT_NOTE_MISSING = "note-missing";
 export const COLLAB_REJECT_INVALID_TOKEN = "invalid-token";
+export const COLLAB_REJECT_FORBIDDEN = "forbidden";
+export const COLLAB_REJECT_SERVER_ERROR = "server-error";
 export const COLLAB_TOKEN_TTL_SECONDS = 120;
 export interface CollabTokenClaims {
   noteId: string;

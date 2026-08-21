@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { COLLAB_CLOSE_NOTE_DELETED, COLLAB_CLOSE_REVOKED, YDOC_FRAGMENT, type Role } from "@knotebook/shared";
-import { COLLAB_REJECT_INVALID_TOKEN, COLLAB_REJECT_NOTE_DELETING, type CollabServer } from "../src/collab/server.js";
+import { COLLAB_REJECT_NOTE_DELETING, COLLAB_REJECT_NOTE_MISSING, type CollabServer } from "../src/collab/server.js";
 import { createCollabHooks, REVERIFY_DEADLINE_MS } from "../src/collab/hooks-impl.js";
 import { buildCollabTestApp, type CollabTestCtx, type HttpSession } from "./helpers.js";
 
@@ -308,10 +308,12 @@ describe("撤權 SLA：CollabHooks（Task 6）", () => {
     expect(tokenBody.role).toBe("none");
 
     // 閘門過期之後（模擬 30s TTL 到期）這份 token 仍然連不上：擋下它的是 onAuthenticate
-    // 重跑 resolveRole（筆記已不存在 → 'none'），不是刪除閘門。
+    // 重跑 `resolveAccess`（筆記已不存在），不是刪除閘門。理由是 `note-missing` 而不是
+    // 「你沒有權限」——issue #35：這正是那個「client 被告知失去存取權，真相是筆記被刪了」
+    // 的窗口，client 收到它會直接收斂 deleted。
     ctx.collab.unmarkDeleting(note.id);
     await expect(editorSession.connect(note.id, { tokenOverride: tokenBody.token })).rejects.toThrow(
-      COLLAB_REJECT_INVALID_TOKEN
+      COLLAB_REJECT_NOTE_MISSING
     );
 
     const getRes = await editorSession.fetch(`/api/notes/${note.id}`);

@@ -4,7 +4,9 @@ import { HocuspocusProvider } from "@hocuspocus/provider";
 import {
   COLLAB_CLOSE_NOTE_DELETED,
   COLLAB_CLOSE_REVOKED,
+  COLLAB_REJECT_FORBIDDEN,
   COLLAB_REJECT_NOTE_DELETING,
+  COLLAB_REJECT_NOTE_MISSING,
   type Role,
 } from "@knotebook/shared";
 import { api, ApiFail } from "@/api/client";
@@ -137,8 +139,10 @@ export interface UseCollabResult {
  * - token function 每次取回 body 的 `role` → `token-role` 事件（**權限恢復唯一的
  *   client 訊號**：server 端 `setReadOnly(false)` 不另送通知）。
  * - `onAuthenticated` → `open` 事件，role 取自最近一次 token 回應。
- * - `authenticationFailed`（server 的 permission-denied）→ 翻成對應的 `close` 事件：
- *   note-deleting → NOTE_DELETED，其餘一律 REVOKED（因而共用同一套二擊語意）。
+ * - `authenticationFailed`（server 的 permission-denied）→ **依 reason 分兩桶**（issue #35）：
+ *   `note-deleting`／`note-missing` → `close(NOTE_DELETED)`；`forbidden` → `close(REVOKED)`
+ *   （沿用二擊語意）；`invalid-token`／`server-error`／不認得的 reason → **不進狀態機**，
+ *   排一次連線重啟（那些拒絕的原因不是權限，見下方 handler 的說明）。
  * - provider 的 `"close"` 事件 → `close` 事件。同一個回呼同時收「應用層 CLOSE 訊息」
  *   （code 硬寫 1000，reason 是 `COLLAB_CLOSE_*`）與「底層 WebSocket close」
  *   （reason 通常空字串），**一律只看 reason**。
@@ -158,11 +162,15 @@ export interface UseCollabResult {
  * 機收不到任何事件，`token-role: 'none'` 在 `connecting` 又刻意不轉移（角色要等 `open`
  * 才落定）——使用者因此永遠卡在「連線中」、沒有回饋也不會被導走。
  *
- * 翻成 `close(REVOKED)` 而不另開一個終態，是為了**沿用同一套二擊語意**：第一擊進
+ * `forbidden` 翻成 `close(REVOKED)` 而不另開一個終態，是為了**沿用同一套二擊語意**：第一擊進
  * `reconnecting-once`（於是 disconnect → 重取 token 連一次），第二擊（重連拿回的 role 是
  * `'none'`、或再次被拒）才收斂 `kicked`。伺服器一次性抖動（DB 掉拍…）因此不會誤殺
- * 一個合法使用者，而真的撤權一定收斂。`note-deleting` 是例外：刪除閘門是定局的，
- * 直接走 `deleted`（等同 `close(NOTE_DELETED)`），不浪費一次重連。
+ * 一個合法使用者，而真的撤權一定收斂。`note-deleting`／`note-missing` 是例外：筆記已經
+ * 不在了是定局，直接走 `deleted`（等同 `close(NOTE_DELETED)`），不浪費一次重連。
+ *
+ * ⚠ **只有這三個 reason 算授權裁決**（issue #35）：`invalid-token`（含時鐘偏移、`APP_SECRET`
+ * 輪替、tokenVersion 過期）與 `server-error` 都不是「你沒有權限」，翻成撤權等於對一個權限
+ * 完好的使用者說錯話並把他導走。那兩桶走的是重啟自我修復，見下方 handler。
  *
  * 我方主動 `disconnect()` 造成的 socket close 會被 `pendingReconnectRef` 吞掉一次：
  * 否則進入 `reconnecting-once` 後我們自己關 socket 的那個 close（reason 空字串＝
@@ -239,12 +247,22 @@ export function useCollab({ noteId, onUnauthorized }: UseCollabOptions): UseColl
           const body = await api<CollabTokenResponse>(`/api/notes/${encodeURIComponent(noteId)}/collab-token`, {
             method: "POST",
           });
+          // ⚠ 成功出口也要 `disposed` 守衛（issue #36）：`roleRef` 與 `dispatch` 都是 hook 層
+          // 的（不隨 effect 重建），換筆記後這一發遲到的回應會打進**新筆記**的狀態機。最糟的
+          // 組合是新筆記此刻正在 `reconnecting-once`（撤權觀察窗）而遲到的角色是上一篇的
+          // `'none'` ⇒ 直接判成第二擊，把使用者踢出一篇他其實有權限的筆記。
+          // 仍然回傳 token（不 throw）：這條 promise 的收件人是**舊的** provider，它已被
+          // destroy，這個值不會有任何後續；丟錯反而會多走一次 `tokenFetchFailed` 的旗標路徑。
+          if (disposed) return body.token;
           roleRef.current = body.role;
           dispatch({ type: "token-role", role: body.role });
           return body.token;
         } catch (err) {
           if (err instanceof ApiFail && err.status === 401) {
             // session 沒了：登出流程，不重試也不當成撤權。
+            // 這一支刻意**不加** `disposed` 守衛（有別於下面的 404 與成功出口，issue #36）：
+            // 401 是「整個 session 失效」而不是「這一篇筆記的結論」，遲到的那一發同樣代表
+            // 使用者已經登出，跳過只會讓他多停留在一個所有請求都會 401 的畫面上。
             tokenFailureFinal = true;
             onUnauthorizedRef.current();
             throw err;
@@ -253,8 +271,9 @@ export function useCollab({ noteId, onUnauthorized }: UseCollabOptions): UseColl
             // 保險絲：目前的 server 契約下這條不會發生（token endpoint 對無權限／
             // 已刪除的筆記一律回 200 + role 'none'，見 routes/notes.ts 的說明），
             // 但 spec §5 明訂「重連時 API 404 → deleted」，契約若改動也要正確收斂。
+            // 同 issue #36：遲到的 404 屬於**上一篇**筆記，不得把新筆記打成 deleted。
             tokenFailureFinal = true;
-            dispatch({ type: "close", reason: COLLAB_CLOSE_NOTE_DELETED });
+            if (!disposed) dispatch({ type: "close", reason: COLLAB_CLOSE_NOTE_DELETED });
             throw err;
           }
           const delay = TOKEN_RETRY_DELAYS_MS[attempt];
@@ -339,11 +358,34 @@ export function useCollab({ noteId, onUnauthorized }: UseCollabOptions): UseColl
         if (!tokenFailureFinal) scheduleRestart();
         return;
       }
-      // 不寫成裸的 `reason === COLLAB_REJECT_NOTE_DELETING`：reason 缺席時兩邊都是
-      // undefined 會變成真，把一則不明的拒絕誤判成「筆記已刪除」。開發時就踩過：
-      // 共用包忘了重建，兩個常數都是 undefined，測試因此假綠。
-      const noteDeleting = reason !== undefined && reason === COLLAB_REJECT_NOTE_DELETING;
-      dispatch({ type: "close", reason: noteDeleting ? COLLAB_CLOSE_NOTE_DELETED : COLLAB_CLOSE_REVOKED });
+
+      // ⚠ 一律先把 reason 收成字串再比對，**不可**寫成裸的 `reason === COLLAB_REJECT_*`：
+      // reason 缺席時兩邊都是 undefined 會變成真，把一則不明的拒絕誤判成「筆記已刪除」。
+      // 開發時就踩過：共用包忘了重建，常數全是 undefined，測試因此假綠。
+      const wire = typeof reason === "string" ? reason : "";
+
+      // issue #35：拒連理由分兩桶，處置完全不同（見 `@knotebook/shared` 那組常數的註解）。
+      // A 桶＝授權裁決，照舊翻成 close 事件走既有的終態／二擊語意。
+      if (wire === COLLAB_REJECT_NOTE_DELETING || wire === COLLAB_REJECT_NOTE_MISSING) {
+        dispatch({ type: "close", reason: COLLAB_CLOSE_NOTE_DELETED });
+        return;
+      }
+      if (wire === COLLAB_REJECT_FORBIDDEN) {
+        dispatch({ type: "close", reason: COLLAB_CLOSE_REVOKED });
+        return;
+      }
+
+      // B 桶＝`invalid-token`／`server-error`／不認得的 reason（含 Hocuspocus 對未預期例外
+      // 填的字面值 `"permission-denied"`）。**這些都不是「你沒有權限」**：時鐘偏移、
+      // `APP_SECRET` 輪替、session 的 tokenVersion 過期、server 端 DB 抖動都會落在這裡，
+      // 舊版一律翻成撤權 ⇒ 對一個權限完好的使用者說「你已失去存取權」並把他導走（issue #35）。
+      //
+      // 但也不能就這樣不動：server 對 onAuthenticate 的 throw **不關 socket 也不重連**，
+      // provider 不會再取一次 token，狀態機收不到任何事件 ⇒ 又是一條靜默死路（issue #34/#39
+      // 那一族）。所以走與「token 取不到」相同的自我修復：排一次整條連線重啟（會重取
+      // token），狀態留在 `connecting`。tokenVersion 過期那一支的重取會拿到 401，屆時
+      // `onUnauthorized` 會接手登出——那才是它正確的結局。
+      scheduleRestart();
     });
 
     // 終態分支（下面那個 effect）用它把重啟整條掐掉。**必須有這道閘門**（審查指出）：

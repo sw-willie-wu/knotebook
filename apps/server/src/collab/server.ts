@@ -73,24 +73,42 @@ import { WebSocketServer, type RawData, type WebSocket as WsWebSocket } from "ws
 import {
   COLLAB_CLOSE_NOTE_DELETED,
   COLLAB_CLOSE_REVOKED,
+  COLLAB_REJECT_FORBIDDEN,
   COLLAB_REJECT_INVALID_TOKEN,
   COLLAB_REJECT_NOTE_DELETING,
+  COLLAB_REJECT_NOTE_MISSING,
+  COLLAB_REJECT_SERVER_ERROR,
 } from "@knotebook/shared";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
 import type { UserGate } from "../auth/session.js";
-import { resolveRole } from "../notes/service.js";
+import { resolveAccess, resolveRole } from "../notes/service.js";
 import { verifyCollabToken } from "./token.js";
 import { createNoteStore, docClock, type StoreLogger } from "./store.js";
 
 /** Hocuspocus 的 `onStoreDocument` debounce（ms）。production 一律 2000——見 Task 7 brief。 */
 const STORE_DEBOUNCE_MS = 2_000;
 
-// store.ts 的 log.warn 目的地在 `createCollabServer` 未收到 `CollabDeps.log` 時的退路。
-// 比照 hooks-impl.ts 的 `consoleLogger`：不是靜默 no-op——樂觀鎖衝突是「本該是唯一寫入者
-// 卻撞到別的東西動過這一列」的異常事件，吞掉會讓問題無跡可循。
-const consoleStoreLogger: StoreLogger = {
+/**
+ * CollabServer 需要的 logger 介面。比 `StoreLogger`（只要 `warn`）多兩級：
+ * - `info`：握手拒絕（issue #37）——正常營運事件，但**必須留下訊號**。
+ * - `error`：`onAuthenticate` 撞到未預期例外（DB 抖動…），那是真的故障。
+ *
+ * pino（`index.ts` 傳進來的 production logger）原生符合。
+ */
+export interface CollabLogger extends StoreLogger {
+  info(obj: object, msg: string): void;
+  error(obj: object, msg: string): void;
+}
+
+// `CollabDeps.log` 缺席時的退路。比照 hooks-impl.ts 的 `consoleLogger`：不是靜默 no-op
+// ——樂觀鎖衝突是「本該是唯一寫入者卻撞到別的東西動過這一列」的異常事件，吞掉會讓問題
+// 無跡可循；握手拒絕同理（issue #37）。production 一律走 Fastify logger，這條路只在
+// 嵌入式用法／測試 harness 未注入 logger 時生效。
+const consoleCollabLogger: CollabLogger = {
   warn: (obj, msg) => console.warn(msg, obj),
+  info: (obj, msg) => console.info(msg, obj),
+  error: (obj, msg) => console.error(msg, obj),
 };
 
 /** 共編 WebSocket 的掛載路徑。前端 provider 與測試 harness 都以此組 URL。 */
@@ -99,10 +117,41 @@ export const COLLAB_PATH = "/collab";
 /** 應用層 CLOSE 訊息用的 close code。client 端只讀 reason（provider 一律填 1000）。 */
 const APP_CLOSE_CODE = 1000;
 
-// 拒連原因（`note-deleting` / `invalid-token`）住在 `@knotebook/shared`：client 的
-// `useCollab` 要拿同一組字串去讀 provider 的 `authenticationFailed`（issue #6），
-// 兩邊各自手抄一份早晚會漂。這裡再匯出一次，舊的 import 路徑（server 測試）照常可用。
-export { COLLAB_REJECT_INVALID_TOKEN, COLLAB_REJECT_NOTE_DELETING };
+// 拒連原因住在 `@knotebook/shared`：client 的 `useCollab` 要拿同一組字串去讀 provider 的
+// `authenticationFailed`（issue #6），兩邊各自手抄一份早晚會漂。這裡再匯出一次，舊的
+// import 路徑（server 測試）照常可用。
+export {
+  COLLAB_REJECT_FORBIDDEN,
+  COLLAB_REJECT_INVALID_TOKEN,
+  COLLAB_REJECT_NOTE_DELETING,
+  COLLAB_REJECT_NOTE_MISSING,
+  COLLAB_REJECT_SERVER_ERROR,
+};
+
+/**
+ * 握手拒絕的**細分原因**（server 端日誌用）→ 送給 client 的 wire reason（issue #35／#37）。
+ *
+ * 兩層是刻意的：client 只需要知道「這是不是一則授權裁決」（見 `@knotebook/shared` 那組
+ * 常數的註解），把 `bad-token` 與 `session-revoked` 分開對它毫無意義、反而是多一組要維護
+ * 的相容面；但維護者在事後查「這個人為什麼連不上」時，這兩者要的處置天差地遠（前者是
+ * 密鑰／時鐘問題，後者是這個 session 已被撤銷）。細分留在日誌裡，wire 維持四個值。
+ */
+const REJECT_WIRE_REASON = {
+  /** 這篇筆記正在刪除流程中（`markDeleting` 閘門）。 */
+  "note-deleting": COLLAB_REJECT_NOTE_DELETING,
+  /** 筆記列已經不在了（刪除完成、閘門也清了，client 還在退避重連）。 */
+  "note-missing": COLLAB_REJECT_NOTE_MISSING,
+  /** token 缺席／簽章不符／綁的 noteId 不是這一篇。 */
+  "bad-token": COLLAB_REJECT_INVALID_TOKEN,
+  /** `gate.check` 不通過：帳號停用、或 token 的 tokenVersion 已被 bump。 */
+  "session-revoked": COLLAB_REJECT_INVALID_TOKEN,
+  /** 筆記在、token 也有效，但這個人對它沒有任何角色——唯一真正的「授權被拒」。 */
+  "no-role": COLLAB_REJECT_FORBIDDEN,
+  /** onAuthenticate 撞到未預期例外（DB 抖動…）。不是裁決，client 會自己重試。 */
+  "server-error": COLLAB_REJECT_SERVER_ERROR,
+} as const;
+
+export type CollabRejectCause = keyof typeof REJECT_WIRE_REASON;
 
 /**
  * `onAuthenticate` 拒連時要 throw 的錯誤。
@@ -112,6 +161,8 @@ export { COLLAB_REJECT_INVALID_TOKEN, COLLAB_REJECT_NOTE_DELETING };
  * - `message` 刻意留空：Hocuspocus 的 hook 執行器對「有 message 的錯誤」會無條件
  *   `console.error` 出來（繞過 Fastify logger）。拒連是正常的營運事件（撤權、刪除中、
  *   過期 token），不該每次都往 stderr 噴一行未結構化的錯誤並汙染測試輸出。
+ *   ⚠ 因此**訊號只能靠 `rejectAuth` 那行結構化 log**（issue #37）——一律經它丟，不要
+ *   在別處裸 `throw new CollabAuthError(...)`，否則那次拒連在兩端都不留任何痕跡。
  */
 export class CollabAuthError extends Error {
   constructor(readonly reason: string) {
@@ -132,11 +183,12 @@ export interface CollabDeps {
   config: AppConfig;
   gate: UserGate;
   /**
-   * Task 7（`collab/store.ts`）樂觀鎖衝突事件的 log.warn 目的地。`createCollabServer`
-   * 在 `buildApp()`（因而 `app.log`）存在之前就要建出來（見 `src/index.ts` 的呼叫順序），
-   * 故不能直接依賴 Fastify logger；未傳時退回 `console.warn`（見 `consoleStoreLogger`）。
+   * Task 7（`collab/store.ts`）樂觀鎖衝突事件與握手拒絕（issue #37）的日誌目的地。
+   * `createCollabServer` 在 `buildApp()`（因而 `app.log`）存在之前就要建出來（見
+   * `src/index.ts` 的呼叫順序），故不能直接依賴 Fastify logger；未傳時退回 console
+   * （見 `consoleCollabLogger`）。
    */
-  log?: StoreLogger;
+  log?: CollabLogger;
 }
 
 export interface ConnectionHandle {
@@ -259,7 +311,29 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
   // Task 7：note_states/note_state_backups 的唯一寫入者。建在 Hocuspocus 設定物件外面
   // （而非 inline lambda 內 new 一份）純粹是可讀性考量，狀態（sv/lastBackupAt 快取）本來
   // 就只需要一份，跟著整個 CollabServer 的生命週期走。
-  const noteStore = createNoteStore({ db: deps.db, log: deps.log ?? consoleStoreLogger });
+  const log = deps.log ?? consoleCollabLogger;
+  const noteStore = createNoteStore({ db: deps.db, log });
+
+  /**
+   * 拒絕這次握手：留下一行結構化日誌（issue #37）再丟出 `CollabAuthError`。
+   *
+   * 為什麼一定要 log：issue #6 修好之後，一次拒連的後果從「使用者卡在連線中（會來回報，
+   * 維護者可以現場看畫面）」變成「使用者被自動導走」——他只會說「我突然被踢出來了」。
+   * 而 `CollabAuthError.message` 是刻意留空的（見該類別註解），連 Hocuspocus 那則
+   * console.error 的間接訊號都沒有，等於一個位元都不留。
+   *
+   * 欄位限定 `{ noteId, userId, cause, reason }`：cause 是有限的常數集合、不含 PII，
+   * userId 是 uuid（token 驗不過時沒有這個資訊，欄位缺席）。**不記 token 內容**。
+   * 級別 info：拒連是正常營運事件（撤權、刪除中、過期 token），不是故障。
+   */
+  // 宣告成 function 而非 const arrow：TS 的控制流分析只對「函式宣告／有明確型別註記的
+  // const」把回傳 never 當成中止，寫成 arrow 的話下面 `if (!claims) rejectAuth(...)`
+  // 之後 claims 不會被收窄成非 null。
+  function rejectAuth(cause: CollabRejectCause, ctx: { noteId: string; userId?: string }): never {
+    const reason = REJECT_WIRE_REASON[cause];
+    log.info({ noteId: ctx.noteId, userId: ctx.userId, cause, reason }, "collab 握手被拒");
+    throw new CollabAuthError(reason);
+  }
 
   const hocuspocus = new Hocuspocus<CollabContext>({
     // 不印 Hocuspocus 自己的啟動畫面／噪音；本專案的日誌一律走 Fastify logger。
@@ -286,34 +360,54 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
     // 簽發當下的快照，絕不當作授權依據（N2）。這保證撤分享/停用帳號在 TTL 內對「舊而
     // 未過期」的 token 立即生效，而不必等 token 自然過期。
     onAuthenticate: async ({ token, documentName, connectionConfig }) => {
-      if (deleting.has(documentName)) {
-        throw new CollabAuthError(COLLAB_REJECT_NOTE_DELETING);
-      }
+      try {
+        if (deleting.has(documentName)) {
+          rejectAuth("note-deleting", { noteId: documentName });
+        }
 
-      const claims = token ? await verifyCollabToken(deps.config.appSecret, token) : null;
-      // documentName 是「這條連線實際要連的文件」，claims.noteId 是 token 簽發當下綁定
-      // 的文件——兩者不符代表這份 token 被拿去連了別篇筆記（即使簽章本身有效），必須拒絕。
-      if (!claims || claims.noteId !== documentName) {
-        throw new CollabAuthError(COLLAB_REJECT_INVALID_TOKEN);
-      }
+        const claims = token ? await verifyCollabToken(deps.config.appSecret, token) : null;
+        // documentName 是「這條連線實際要連的文件」，claims.noteId 是 token 簽發當下綁定
+        // 的文件——兩者不符代表這份 token 被拿去連了別篇筆記（即使簽章本身有效），必須拒絕。
+        if (!claims || claims.noteId !== documentName) {
+          rejectAuth("bad-token", { noteId: documentName });
+        }
 
-      const role = await resolveRole(deps.db, claims.userId, documentName);
-      if (role === "none") {
-        throw new CollabAuthError(COLLAB_REJECT_INVALID_TOKEN);
-      }
-      const gateResult = await deps.gate.check(claims.userId, claims.tv);
-      if (gateResult.status !== "ok") {
-        throw new CollabAuthError(COLLAB_REJECT_INVALID_TOKEN);
-      }
+        // ⚠ 要 `resolveAccess` 而不是 `resolveRole`（issue #35）：role 'none' 混了「你沒有
+        // 權限」與「這篇筆記已經被刪掉了」。後者發生在「刪除完成、deleting 閘門已清，而
+        // client 還在重連退避裡」的窗口——只看 role 的話會對使用者說「你已失去存取權」，
+        // 真相是筆記不在了。兩者的 client 處置不同（撤權二擊 vs 直接 deleted 終態）。
+        const { role, noteExists } = await resolveAccess(deps.db, claims.userId, documentName);
+        if (!noteExists) {
+          rejectAuth("note-missing", { noteId: documentName, userId: claims.userId });
+        }
+        if (role === "none") {
+          rejectAuth("no-role", { noteId: documentName, userId: claims.userId });
+        }
+        const gateResult = await deps.gate.check(claims.userId, claims.tv);
+        if (gateResult.status !== "ok") {
+          // 帳號停用或 tokenVersion 已被 bump——**不是**「對這篇筆記沒有權限」。client 據此
+          // 重取一次 token，那一發會拿到 401（session 也失效了）並走登出流程（issue #35）。
+          rejectAuth("session-revoked", { noteId: documentName, userId: claims.userId });
+        }
 
-      // ⚠ v4 的 onAuthenticate payload 沒有 `connection` 物件（見檔頭註解）——連線期的
-      // 唯讀狀態只能經這裡的 connectionConfig.readOnly 設定；`connection.readOnly` 這個
-      // 可變欄位要到 connected/onTokenSync 才拿得到（Task 6 降級走 `setReadOnly`）。
-      if (role === "viewer") {
-        connectionConfig.readOnly = true;
-      }
+        // ⚠ v4 的 onAuthenticate payload 沒有 `connection` 物件（見檔頭註解）——連線期的
+        // 唯讀狀態只能經這裡的 connectionConfig.readOnly 設定；`connection.readOnly` 這個
+        // 可變欄位要到 connected/onTokenSync 才拿得到（Task 6 降級走 `setReadOnly`）。
+        if (role === "viewer") {
+          connectionConfig.readOnly = true;
+        }
 
-      return { userId: claims.userId };
+        return { userId: claims.userId };
+      } catch (err) {
+        if (err instanceof CollabAuthError) throw err;
+        // 未預期例外（`resolveAccess`／`gate.check` 撞到 DB 抖動…）。不接的話 Hocuspocus 會
+        // 把它翻成字面值 `"permission-denied"` 送出去（見 `ClientConnection` 的 catch），
+        // client 舊版一律當撤權——對一個權限完好的使用者說錯話，而且 server 端也不會留下
+        // 任何紀錄（`console.error` 只印 message，這裡的 err 才有 stack）。改成明確的
+        // `server-error`（client 會退避重試），並在**這裡**留下 error 級別的日誌。
+        log.error({ err, noteId: documentName }, "collab onAuthenticate 未預期例外");
+        throw new CollabAuthError(COLLAB_REJECT_SERVER_ERROR);
+      }
     },
 
     // 索引只在 connected 建立（此時才拿得到 Connection 實例）。
