@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { and, asc, eq, ne, sql } from "drizzle-orm";
+import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import type {
   AdminAiActionDto,
   AdminAiModelDto,
@@ -43,12 +44,17 @@ const patchProviderSchema = z.object({
 });
 
 /**
- * 取 URL 的 host 供日誌使用。**刻意不記完整 URL**：`base_url` 可能帶 `user:pass@`，
- * 整條寫進日誌等於把另一種憑證留在那裡。解析不出來就回 undefined（pino 會略過該欄位）。
+ * 取 URL 的 `origin + pathname` 供日誌使用。
+ *
+ * **刻意不記完整 URL**：`base_url` 可能帶 `user:pass@`（`origin` 不含 userinfo）或把憑證放在
+ * query（`pathname` 不含 query），整條寫進日誌等於把另一種憑證留在那裡。但也不能只記 host
+ * ——`http://x` → `https://x`、或 `https://gw/tenant-a` → `/tenant-b` 這類變更會記成前後
+ * 完全相同，一行看起來像沒發生事（審查指出）。解析不出來回 undefined（pino 會略過該欄位）。
  */
-function safeHost(url: string): string | undefined {
+function safeTarget(url: string): string | undefined {
   try {
-    return new URL(url).host;
+    const parsed = new URL(url);
+    return `${parsed.origin}${parsed.pathname}`;
   } catch {
     return undefined;
   }
@@ -208,21 +214,16 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
       if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
       const { name, type, baseUrl, apiKey, enabled } = parsed.data;
 
-      // 只讀 baseUrl 這一欄（**不** SELECT 密文本體，維持 `providerListColumns` 那道防線）：
-      // 下面要判斷「網址是不是真的換了」。
+      // 只讀這兩欄（**不** SELECT 密文本體，維持 `providerListColumns` 那道防線）——而且
+      // 它們**只供日誌使用**，不參與「要不要清金鑰」的決定（那個判斷在 DB 端做，見下）。
       const [existing] = await deps.db
-        .select({ baseUrl: aiProviders.baseUrl })
+        .select({ baseUrl: aiProviders.baseUrl, hasKey: sql<boolean>`${aiProviders.apiKeyEncrypted} is not null` })
         .from(aiProviders)
         .where(eq(aiProviders.id, id))
         .limit(1);
       if (!existing) return sendError(reply, 404, "not_found", "找不到此 provider");
 
-      // ⚠ **比對舊值，不是「有沒有帶這個欄位」**（issue #46）：編輯表單每次送出都會把
-      // `baseUrl` 一起帶上（見 `SettingsAiSection.tsx` 的 handleSubmit），只改名字也會帶——
-      // 只看 `baseUrl !== undefined` 的話，改一次名字就會把金鑰清掉。
-      const baseUrlChanged = baseUrl !== undefined && baseUrl !== existing.baseUrl;
-
-      const values: Partial<typeof aiProviders.$inferInsert> = {};
+      const values: PgUpdateSetSource<typeof aiProviders> = {};
       if (name !== undefined) values.name = name;
       if (type !== undefined) values.type = type;
       if (baseUrl !== undefined) values.baseUrl = baseUrl;
@@ -251,8 +252,21 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
        * 「咦金鑰不見了」重新輸入。差別在於那條路留得下痕跡（金鑰消失、網址變了、下面那行
        * log），而原本那條是靜默的。殘留風險記在 docs/known-limitations.md。
        */
-      if (baseUrlChanged && apiKey === undefined) {
-        values.apiKeyEncrypted = null;
+      if (baseUrl !== undefined && apiKey === undefined) {
+        // ⚠ **比對必須在 DB 端、跟寫入同一個語句裡做**（審查實測抓到，命中率 7–28%）：
+        // 先 SELECT 再於 Node 端比對是個 TOCTOU——攻擊者持續送「網址不變」的 PATCH（讀到
+        // 舊值＝EVIL ⇒ 判定沒變 ⇒ 不清金鑰，但 `base_url = EVIL` 照寫），只要有一發的
+        // SELECT 落在受害者「改回正確網址＋重新輸入金鑰」的 UPDATE 之前、而 UPDATE 落在
+        // 之後，最終列就是「攻擊者的網址 ＋ 受害者剛輸入的金鑰」。
+        //
+        // 寫成一句 `case when` 就沒有那個窗口：PostgreSQL 的 UPDATE 對同一列取 row lock，
+        // 而 SET 右側看到的一律是該列的**舊值**——所以「網址有沒有變」永遠是拿這一次真正
+        // 要寫進去的值跟當下的舊值比，中間沒有任何人插得進來。攻擊者那發 no-op PATCH 若
+        // 排在受害者之後，它比較的是受害者剛寫進去的網址 ⇒ 判定有變 ⇒ 金鑰照樣被清掉。
+        //
+        // 附帶好處：「編輯表單每次都會帶 baseUrl，只改名字不該掉金鑰」這件事也由同一句
+        // 保證（值相同 ⇒ `is distinct from` 為 false ⇒ 原樣保留），不必再靠 Node 端比對。
+        values.apiKeyEncrypted = sql`case when ${aiProviders.baseUrl} is distinct from ${baseUrl} then null::jsonb else ${aiProviders.apiKeyEncrypted} end`;
       }
 
       // fix round 1（I-2）：空 body `{}` 全欄位皆 undefined → `values` 是空物件——
@@ -265,7 +279,11 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
       const [row] = await deps.db.update(aiProviders).set(values).where(eq(aiProviders.id, id)).returning(providerListColumns);
       if (!row) return sendError(reply, 404, "not_found", "找不到此 provider");
 
-      if (baseUrlChanged) {
+      // 金鑰是不是真的被這一次請求清掉了——以 DB 回來的結果為準（上面那句 `case when` 的
+      // 判斷只有資料庫知道結論）。
+      const keyCleared = existing.hasKey && !row.hasKey && apiKey === undefined;
+
+      if (baseUrl !== undefined && (baseUrl !== existing.baseUrl || keyCleared)) {
         // 改網址是敏感操作（見上面那段）——留一行可稽核的紀錄。**只記 host**：baseUrl 本身
         // 可能帶 `user:pass@`，完整 URL 進日誌等於把另一種憑證寫進去。解析失敗（理論上不會，
         // zod 已驗過 `.url()`）就記 undefined，不讓一行 log 弄掉整個請求。
@@ -273,15 +291,15 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
           {
             providerId: id,
             userId: request.user!.id,
-            from: safeHost(existing.baseUrl),
-            to: safeHost(baseUrl!),
-            keyCleared: values.apiKeyEncrypted === null,
+            from: safeTarget(existing.baseUrl),
+            to: safeTarget(baseUrl),
+            keyCleared,
           },
           "AI provider 的 base URL 被變更"
         );
       }
 
-      if (values.apiKeyEncrypted === null) {
+      if (keyCleared) {
         // 金鑰沒了就不可能是「密文解不開」——把降級狀態一起收掉，否則 provider 會卡在
         // 「請重新輸入 API key」的 503，連「這個 provider 本來就不需要金鑰」（自架 Ollama）
         // 都測不了。比照 issue #17 的教訓：不要留下沒有人會清的髒狀態。

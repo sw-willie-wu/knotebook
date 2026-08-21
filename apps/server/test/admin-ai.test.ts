@@ -266,6 +266,58 @@ describe("providers CRUD", () => {
     expect(decryptApiKey(testConfig.appSecret, row!.apiKeyEncrypted!, provider.id)).toBe("sk-keep-me");
   });
 
+  it("本來就沒有金鑰的 provider 改網址 → 200、hasKey 仍是 false、不噴錯", async () => {
+    // 自架 Ollama 換 port：清空是 no-op，不該有任何副作用。
+    const { app, db } = await buildTestApp();
+    const admin = await insertUser(db, { isAdmin: true, email: "admin-p4f@example.com" });
+    const cookie = await cookieFor(admin.id);
+    const provider = await insertProvider(db, { baseUrl: "http://localhost:11434/v1", apiKeyEncrypted: null });
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/admin/ai/providers/${provider.id}`,
+      cookies: { [SESSION_COOKIE]: cookie },
+      payload: { baseUrl: "http://localhost:11435/v1" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ hasKey: false, baseUrl: "http://localhost:11435/v1" });
+  });
+
+  it("併發：不斷送「網址不變」的 PATCH 也偷不到別人剛輸入的金鑰（TOCTOU 回歸釘）", async () => {
+    // 審查實測抓到的繞過：handler 先 SELECT 舊網址、再 UPDATE，中間沒有交易。攻擊者持續送
+    // `{baseUrl: EVIL}`（讀到的舊值就是 EVIL ⇒ 判定沒變 ⇒ 不清金鑰，但 base_url = EVIL 照寫），
+    // 只要有一發的 SELECT 落在受害者「改回正確網址＋重新輸入金鑰」的 UPDATE 之前、UPDATE 落
+    // 在之後，最終列就是「攻擊者的網址 ＋ 受害者剛輸入的金鑰」。舊碼命中率 7–28%。
+    //
+    // ⚠ 這條測試本質上是機率性的（要靠併發撞出那個窗口），所以它的價值在於「舊碼會紅」而
+    // 不是「新碼會綠」。真正保證正確性的是那句 `case when`：判斷與寫入在同一個 UPDATE 裡，
+    // PostgreSQL 對同一列取 row lock，SET 右側看到的一律是該列的舊值——窗口根本不存在。
+    const { app, db } = await buildTestApp();
+    const admin = await insertUser(db, { isAdmin: true, email: "admin-p4g@example.com" });
+    const cookie = await cookieFor(admin.id);
+    const GOOD = "https://api.openai.com/v1";
+    const EVIL = "http://evil.example.com/v1";
+
+    for (let round = 0; round < 12; round += 1) {
+      const id = randomUUID();
+      await insertProvider(db, { id, baseUrl: EVIL, apiKeyEncrypted: null });
+      const patch = (payload: Record<string, unknown>) =>
+        app.inject({ method: "PATCH", url: `/api/admin/ai/providers/${id}`, cookies: { [SESSION_COOKIE]: cookie }, payload });
+
+      // 受害者：把網址改回來並重新輸入金鑰；攻擊者：同時送一批「網址不變」的 no-op。
+      await Promise.all([
+        patch({ baseUrl: GOOD, apiKey: "sk-victim-secret" }),
+        ...Array.from({ length: 6 }, () => patch({ baseUrl: EVIL })),
+      ]);
+
+      const [row] = await db.select().from(aiProviders).where(eq(aiProviders.id, id));
+      // 不變量：金鑰只會跟它被輸入時的那個網址同時存在。EVIL ＋ 有金鑰 = 金鑰已經外洩。
+      if (row!.baseUrl === EVIL) {
+        expect(row!.apiKeyEncrypted).toBeNull();
+      }
+    }
+  });
+
   it("DELETE provider → 一併從 degraded 移除（留著會是永遠不會被清掉的髒狀態）", async () => {
     const runtime = createAiRuntime();
     const { app, db } = await buildTestApp({ ai: runtime });

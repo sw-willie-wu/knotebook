@@ -713,6 +713,15 @@ function ProviderCard({ provider, models }: { provider: AdminAiProviderDto; mode
         </p>
       )}
 
+      {/* issue #46 審查：改網址會把金鑰作廢，但在此之前卡片上**完全看不出**一個 provider
+          有沒有金鑰（`hasKey` 以前只有 Edit dialog 用）——於是「金鑰被清掉」變成一個沒有
+          任何 UI 表示的狀態，degraded 的紅字還會在同一時間消失（沒金鑰就不叫解不開）而
+          沒有東西接手。這一行就是接手的那個。degraded 時不重複顯示：那句已經在講同一件
+          事（去重新輸入金鑰），兩行並排只會吵。 */}
+      {!provider.hasKey && !provider.degraded && (
+        <p className="text-xs text-muted-foreground">{t("settings.ai.noKeyNotice")}</p>
+      )}
+
       {testResult && (
         <p role={testResult.ok ? "status" : "alert"} className={testResult.ok ? "text-xs text-muted-foreground" : "text-xs text-destructive"}>
           {testResult.message}

@@ -83,6 +83,8 @@ See [Known limitations](./known-limitations.md) for the full list of OIDC-specif
 
   Refusals decided by the handshake and by a re-check are capped per account (ten a minute, with errors on their own budget); when the cap bites, one `collab 拒連日誌已達每分鐘上限` warning is emitted per account per minute so an empty grep is never ambiguous. The cap exists because a single valid token can be replayed on one WebSocket indefinitely. `phase: deadline` lines are not capped; they are bounded only by how many connections a re-check covers, and one is written per connection actually closed that way. None of this makes the collab endpoint immune to a signed-in account generating log volume by other means.
 
+- **AI quick actions stopped working right after someone edited a provider's Base URL.** Changing the Base URL clears that provider's stored API key on purpose — the key is sent to whatever host the field names, so it is not carried over to a new one (see [AI setup](./ai.md)). Fix it by entering the API key again in Settings; the provider card says "No API key stored" until you do. If nobody meant to change the URL, `docker compose logs app | grep 'base URL'` shows which account changed it and to what.
+
 ## See also
 
 - [Known limitations](./known-limitations.md) — the full list, including several deployment/env-var gotchas referenced above.

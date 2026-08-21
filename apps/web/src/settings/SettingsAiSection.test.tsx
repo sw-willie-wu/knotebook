@@ -255,6 +255,50 @@ describe("SettingsAiSection（spec §13.4：provider／model／action 三層 CRU
     // 一併輸入了新金鑰 → 不會作廢任何東西，也就不該再提示。
     fireEvent.change(screen.getByLabelText("API key"), { target: { value: "sk-new" } });
     expect(screen.queryByText(notice)).not.toBeInTheDocument();
+
+    // 又把它刪掉（或只剩空白）→ 提示要回來。三個條件都是每次 render 重算的衍生值，
+    // 改成 useState + useEffect 快照就會在這裡靜默壞掉。
+    fireEvent.change(screen.getByLabelText("API key"), { target: { value: "   " } });
+    expect(screen.getByText(notice)).toBeInTheDocument();
+  });
+
+  it("沒有金鑰的 provider 在卡片上就看得出來；有金鑰的不顯示（issue #46 審查）", async () => {
+    // 「金鑰被清掉」以前是一個完全沒有 UI 表示的狀態——卡片不顯示 hasKey，degraded 的紅字
+    // 又剛好在同一時間消失（沒金鑰就不叫「解不開」）。文件宣稱的「shows as having no key」
+    // 就是靠這一行才成立。
+    const noKey = { ...PROVIDER_A, id: "11111111-1111-1111-1111-111111111111", name: "無金鑰", hasKey: false };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      const res = defaultGetHandlers({ providers: [PROVIDER_A, noKey], models: [], actions: [] })(url, method);
+      if (res) return Promise.resolve(res);
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+
+    renderSection(fetchMock);
+    await waitFor(() => expect(screen.getByText("無金鑰")).toBeInTheDocument());
+
+    // 兩個 provider 只有一個沒金鑰 ⇒ 提示恰好一則（不是「每張卡都掛一行」）。
+    expect(screen.getAllByText(/No API key stored/)).toHaveLength(1);
+  });
+
+  it("沒有金鑰的 provider 改網址不提示「會清除金鑰」（本來就沒有東西可清）", async () => {
+    // 自架 Ollama 換 port 的情境：不該冒出一句與他無關的警告。
+    const noKey = { ...PROVIDER_A, hasKey: false };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      const res = defaultGetHandlers({ providers: [noKey], models: [], actions: [] })(url, method);
+      if (res) return Promise.resolve(res);
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+
+    renderSection(fetchMock);
+    await waitFor(() => expect(screen.getByText(noKey.name)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    fireEvent.change(await screen.findByLabelText("Base URL"), { target: { value: "http://localhost:11435/v1" } });
+    expect(screen.queryByText(/Changing the Base URL clears/)).not.toBeInTheDocument();
   });
 
   it("degraded provider 顯示警示與重輸提示", async () => {
