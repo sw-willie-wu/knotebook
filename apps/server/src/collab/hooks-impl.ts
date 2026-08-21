@@ -59,12 +59,14 @@ const UNLOAD_POLL_ATTEMPTS = 20;
  * （AppDeps 的一部分），那時還沒有 `app.log` 可用。
  */
 export interface CollabHooksLogger {
+  info(obj: object, msg: string): void;
   error(obj: object, msg: string): void;
 }
 
 // 未注入 logger 時的退路。刻意不是靜默 no-op：會走到 `log.error` 的都是「撤權/刪除清掃
 // 沒有照預期完成」這種必須被看見的事件，吞掉等於讓 SLA 破功時無跡可循。
 const consoleLogger: CollabHooksLogger = {
+  info: (obj, msg) => console.info(msg, obj),
   error: (obj, msg) => console.error(msg, obj),
 };
 
@@ -73,6 +75,12 @@ function sleep(ms: number): Promise<void> {
 }
 
 export function createCollabHooks(server: CollabServer, log: CollabHooksLogger = consoleLogger): CollabHooks {
+  /**
+   * 每篇筆記目前武裝中的閘門 TTL timer。**重新開閘門前要先清掉舊的**（審查 round 3）：
+   * 刪除失敗後 5 秒重試成功的話，第一次那個 timer 會在 120 秒整點把**第二次**的閘門提早
+   * 打開，而那個縫隙裡重連的協作者聽到的會是「你已失去存取權」。
+   */
+  const gateTimers = new Map<string, ReturnType<typeof setTimeout>>();
   /**
    * 對指定的每一條連線要求重新出示 token，並掛上 deadline。
    *
@@ -97,6 +105,14 @@ export function createCollabHooks(server: CollabServer, log: CollabHooksLogger =
         // timer 的 callback 跑在沒有呼叫者的 macrotask 裡：例外逸出會直接讓 process
         // 掛掉（比照 server.ts 對 upgrade listener 的處理），一律接住並記錄。
         try {
+          // ⚠ 這一則必須留下訊號（issue #37／審查 round 3）：deadline 到期是**合法使用者
+          // 最可能被誤踢**的路徑（他的 client 只是剛好卡在 token 退避裡沒能在 5 秒內回話），
+          // 而使用者看到的是「你已失去存取權」。欄位比照 server.ts 的 `logReject`，
+          // phase 另立 `deadline`——它不是握手被拒，也不是重驗有了結論。
+          log.info(
+            { phase: "deadline", noteId: c.noteId, userId: c.userId, cause: "no-reverify", reason: COLLAB_CLOSE_REVOKED },
+            "collab 重驗逾時關閉連線"
+          );
           c.close(COLLAB_CLOSE_REVOKED);
         } catch (error) {
           log.error({ err: error, noteId: c.noteId, userId: c.userId }, "collab 重驗 deadline 關閉連線失敗");
@@ -173,10 +189,17 @@ export function createCollabHooks(server: CollabServer, log: CollabHooksLogger =
       // （Task 5 已實作），下面的清掃才不會邊掃邊有新連線補進來。
       await server.markDeleting(noteId);
 
+      const previous = gateTimers.get(noteId);
+      if (previous !== undefined) clearTimeout(previous);
+
       // TTL。`unref()`：這個計時器不該讓 process（或測試 worker）為了它多活兩分鐘——
       // 閘門只在服務執行中才有意義，行程要結束時直接跟著消失即可。
-      const ttl = setTimeout(() => server.unmarkDeleting(noteId), DELETING_GATE_TTL_MS);
+      const ttl = setTimeout(() => {
+        gateTimers.delete(noteId);
+        server.unmarkDeleting(noteId);
+      }, DELETING_GATE_TTL_MS);
       ttl.unref();
+      gateTimers.set(noteId, ttl);
 
       try {
         // 逐連線 close（帶 reason，client 端據此顯示「筆記已被刪除」而不是重連）。取快照
@@ -213,16 +236,26 @@ export function createCollabHooks(server: CollabServer, log: CollabHooksLogger =
     },
 
     /**
-     * 刪除交易失敗 → 立刻收掉閘門。留著的話這篇筆記會有整整兩分鐘對協作者宣稱「已刪除」
-     * 並把他們導走，而它其實還在（`DELETING_GATE_TTL_MS` 只是保底，不該當成正常路徑）。
+     * 刪除交易失敗 → 收掉閘門（`releaseDeletingGate` 會先確認筆記其實還在）。
+     *
+     * ⚠ 它救得到的只有「還沒連上來的分頁」：`beforeNoteDeleted` 早在交易之前就把所有在線
+     * 連線 close(NOTE_DELETED) 了，那些人已經收斂終態並被導離頁面，收閘門不會把他們叫回來
+     * （審查指出，別把這個 hook 的效果講得比實際大）。
+     *
+     * fire-and-forget：呼叫點正在處理另一個例外，這裡不得 throw，也不該讓它多等一次 DB。
      */
     afterNoteDeleteFailed(noteId: string): void {
-      try {
-        server.unmarkDeleting(noteId);
-      } catch (error) {
-        // 呼叫點正在處理刪除失敗的例外，這裡再 throw 會把原始錯誤蓋掉。
-        log.error({ err: error, noteId }, "collab 刪除失敗後收閘門亦失敗（閘門將由 TTL 自然到期）");
-      }
+      void server
+        .releaseDeletingGate(noteId)
+        .then(released => {
+          if (!released) return;
+          const timer = gateTimers.get(noteId);
+          if (timer !== undefined) clearTimeout(timer);
+          gateTimers.delete(noteId);
+        })
+        .catch((error: unknown) => {
+          log.error({ err: error, noteId }, "collab 刪除失敗後收閘門亦失敗（閘門將由 TTL 自然到期）");
+        });
     },
 
     linkSyncGate(noteId: string, userId: string): { ok: true; clock: number } | { ok: false } {

@@ -142,7 +142,7 @@ describe("Hocuspocus v4 × Fastify 共編同步", () => {
     const note = await ctx.createNote(alice.id);
     const session = await ctx.loginAs("alice@example.com", PASSWORD);
 
-    ctx.collab.markDeleting(note.id);
+    await ctx.collab.markDeleting(note.id);
     await expect(session.connect(note.id)).rejects.toThrow(COLLAB_REJECT_NOTE_DELETING);
 
     ctx.collab.unmarkDeleting(note.id);

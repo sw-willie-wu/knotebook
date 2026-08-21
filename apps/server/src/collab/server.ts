@@ -188,6 +188,9 @@ export class CollabAuthError extends Error {
  */
 const REJECT_LOG_LIMIT = { limit: 10, windowMs: 60_000 } as const;
 
+/** 「日誌被節流了」這件事本身也只說一次，否則它就是下一個放大器。 */
+const SUPPRESSION_NOTICE_LIMIT = { limit: 1, windowMs: 60_000 } as const;
+
 /** 日誌裡 noteId 欄位的長度上限：documentName 由 client 指定，最長可達 512 bytes。 */
 const LOGGED_NOTE_ID_MAX = 64;
 
@@ -255,6 +258,14 @@ export interface CollabServer {
    * 的**阻擋**職責優先於這層資訊揭露的收斂。
    */
   markDeleting(noteId: string): Promise<void>;
+  /**
+   * 刪除失敗時收閘門，**但只在筆記其實還在的時候**。回傳有沒有真的收掉。
+   *
+   * 條件不可省（審查 round 3）：同一篇筆記併發兩個 DELETE 時，失敗那一次不得把成功那一次
+   * 開的閘門關掉——關掉的話接下來兩分鐘重連的協作者會聽到「你已失去存取權」，而真相是
+   * 筆記真的被刪了。
+   */
+  releaseDeletingGate(noteId: string): Promise<boolean>;
   unmarkDeleting(noteId: string): void;
   /** 關閉所有 socket、flush 待寫入的文件。**必須在 `app.close()` 之前 await。** */
   destroy(): Promise<void>;
@@ -317,10 +328,16 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
   const byNote = new Map<string, Set<ConnectionHandle>>();
   const tokenSyncCallbacks = new Map<string, Set<() => void>>();
   /**
-   * 刪除閘門。value＝刪除當下看得到這篇筆記的 userId 集合（`null`＝名單抓取失敗，退回
-   * 「誰都聽得到」）。**只有 key 決定「擋不擋」，value 只決定「拒絕的理由說得多具體」**
-   * ——`connected`／`onTokenSync` 兩處的再檢查一律只看 key（走到那裡的連線都已經通過
-   * onAuthenticate，本來就看得到這篇筆記）。
+   * 刪除閘門。key＝正在刪除／剛刪完的 noteId；value＝刪除當下看得到它的 userId 集合
+   * （`null`＝名單抓取失敗）。
+   *
+   * **擋不擋，看的是「這個人現在有沒有角色」；value 只決定「筆記已刪除」這句話說給誰聽。**
+   * 有角色的人一律被擋（`onAuthenticate` 的慢路徑、`connected` 與 `onTokenSync` 的再檢查都
+   * 只看 key——走到那兩處的連線都已經通過認證）；沒有角色的人本來就連不上，差別只在他聽到
+   * 的是 `note-deleting` 還是 `no-role`，而那正是不能外洩的那一位元。
+   *
+   * ⚠ 名單會連同 userId 一起留到 TTL 到期（兩分鐘）。全公司共享的筆記就是一份全公司名單，
+   * 但只在記憶體、只在這段期間。
    */
   const deleting = new Map<string, ReadonlySet<string> | null>();
   const sockets = new Set<WsWebSocket>();
@@ -349,14 +366,18 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
   // 就只需要一份，跟著整個 CollabServer 的生命週期走。
   const log = deps.log ?? consoleCollabLogger;
   const rejectLogLimiter = new FixedWindowLimiter(REJECT_LOG_LIMIT);
+  const serverErrorLogLimiter = new FixedWindowLimiter(REJECT_LOG_LIMIT);
+  const suppressionNoticeLimiter = new FixedWindowLimiter(SUPPRESSION_NOTICE_LIMIT);
 
   /**
-   * 這個人聽不聽得到「這篇筆記正在刪除／剛被刪掉」。閘門的 value 是刪除當下的可見名單
-   * （`null`＝名單抓取失敗，退回誰都聽得到）——見 `deleting` 與 `markDeleting`。
+   * 這個人在不在「刪除當下的可見名單」上。名單抓取失敗（`null`）一律回 false——**那個 fallback
+   * 絕不能是「誰都聽得到」**（審查 round 3）：任何登入使用者都能對任意 UUID 簽一份 token，
+   * 於是一次 DB 抖動就會把整整兩分鐘的「這個 id 剛被刪掉」告訴全世界。名單抓不到時改由
+   * 「他現在還有沒有角色」決定（見 onAuthenticate），那個判準本身不透露任何額外資訊。
    */
-  function deletingAudibleTo(noteId: string, userId: string): boolean {
+  function deletingAudienceHas(noteId: string, userId: string): boolean {
     const audience = deleting.get(noteId);
-    return audience === null || (audience !== undefined && audience.has(userId));
+    return audience !== undefined && audience !== null && audience.has(userId);
   }
   const noteStore = createNoteStore({ db: deps.db, log });
 
@@ -401,11 +422,19 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
       cause,
       reason,
     };
-    if (cause === "bad-token") {
+    if (phase === "handshake" && cause === "bad-token") {
       log.debug(line, "collab 握手被拒");
       return;
     }
-    if (!rejectLogLimiter.consume(ctx.userId ?? "anonymous")) return;
+    const key = ctx.userId ?? "anonymous";
+    const budget = cause === "server-error" ? serverErrorLogLimiter : rejectLogLimiter;
+    if (!budget.consume(key)) {
+      // 空的 grep 結果不該分不出「什麼都沒發生」與「被節流了」。這一行本身也要有上限。
+      if (suppressionNoticeLimiter.consume(key)) {
+        log.warn({ userId: ctx.userId }, "collab 拒連日誌已達每分鐘上限，其餘略過");
+      }
+      return;
+    }
     if (cause === "server-error") log.error({ ...line, err: ctx.err }, "collab 握手被拒");
     else log.info(line, phase === "handshake" ? "collab 握手被拒" : "collab 重驗後關閉連線");
   }
@@ -462,19 +491,24 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
         // 這條路會落到 `no-role`（＝對使用者說「你已失去存取權」），而真相是筆記被刪了。
         // 只有「刪除當下本來就看得到這篇筆記的人」聽得到 note-deleting；其他人往下走，
         // 最終落在 `no-role`——與「這篇筆記存在但不是你的」完全一樣的可觀察行為。
-        if (deletingAudibleTo(documentName, claims.userId)) {
+        // 這一段是快路徑（不查 DB）：名單命中就直接結案，刪除交易已 commit 也仍然答得出來。
+        if (deletingAudienceHas(documentName, claims.userId)) {
           rejectAuth("note-deleting", { noteId: documentName, userId: claims.userId });
         }
 
         const role = await resolveRole(deps.db, claims.userId, documentName);
+
+        // 慢路徑：閘門開著、而且**此刻還查得到角色**⇒ 這個人本來就看得到這篇筆記，可以對他
+        // 說 note-deleting。這一段同時補三件事，且都不透露任何「名單以外」的資訊：
+        //   - 名單抓取失敗（audience 為 null）時的替代判準；
+        //   - 快路徑那次讀取剛好早於 `markDeleting` 的競態（審查 round 2）；
+        //   - 刪除窗口內才被加分享的人（名單快照抓不到他）——照樣要擋。
+        // 反過來，`role === 'none'` 又不在名單上的人一律往下落到 `no-role`，與「這篇筆記存在
+        // 但不是你的」完全同一句話。
+        if (deleting.has(documentName) && (role !== "none" || deletingAudienceHas(documentName, claims.userId))) {
+          rejectAuth("note-deleting", { noteId: documentName, userId: claims.userId });
+        }
         if (role === "none") {
-          // ⚠ 再讀一次閘門（審查 round 2 抓到的競態）：上面那次讀取可能剛好早於
-          // `markDeleting`，而這次 `resolveRole` 又晚於刪除交易 commit ⇒ 查不到列 ⇒ 'none'。
-          // 只看第一次讀取的話，這個窗口裡的使用者會被告知「你已失去存取權」，真相是筆記
-          // 被刪了——正是 issue #35 要修掉的那句話。此刻 token 已驗過，重讀不多洩漏任何東西。
-          if (deletingAudibleTo(documentName, claims.userId)) {
-            rejectAuth("note-deleting", { noteId: documentName, userId: claims.userId });
-          }
           rejectAuth("no-role", { noteId: documentName, userId: claims.userId });
         }
         const gateResult = await deps.gate.check(claims.userId, claims.tv);
@@ -729,10 +763,35 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
       try {
         audience = await loadNoteAudience(deps.db, noteId);
       } catch (err) {
-        // 抓不到名單不能讓刪除流程卡住：閘門本身（擋連線／擋寫入）才是它的主職責。
-        log.warn({ err, noteId }, "collab 刪除閘門取不到可見名單，退回不分對象的拒連理由");
+        // 抓不到名單不能讓刪除流程卡住：閘門本身（擋連線／擋寫入）才是它的主職責，
+        // 「已刪除」這句話說給誰聽則退回用「現在還有沒有角色」判斷（見 onAuthenticate）。
+        log.warn({ err, noteId }, "collab 刪除閘門取不到可見名單，改用角色判斷");
       }
-      deleting.set(noteId, audience);
+      // ⚠ **合併而非覆蓋**（審查 round 3）：同一篇筆記的兩個 DELETE 同時進來時，較晚那次的
+      // `loadNoteAudience` 可能落在較早那次 commit 之後而查回空集合——直接覆寫的話，原本
+      // 該被告知「筆記已刪除」的協作者全部變成聽到「你已失去存取權」。
+      const existing = deleting.get(noteId);
+      if (existing === undefined || audience === null) {
+        deleting.set(noteId, existing === undefined ? audience : (existing ?? null));
+      } else {
+        deleting.set(noteId, new Set([...(existing ?? []), ...audience]));
+      }
+    },
+
+    async releaseDeletingGate(noteId: string): Promise<boolean> {
+      // 只有「筆記其實還在」才收閘門（審查 round 3）：同一篇筆記的兩個 DELETE 同時進來時，
+      // 失敗那一次不得把成功那一次開的閘門關掉——關掉的話，接下來兩分鐘內重連的協作者
+      // 會被告知「你已失去存取權」，而真相是筆記真的被刪了。
+      try {
+        const audience = await loadNoteAudience(deps.db, noteId);
+        if (audience.size === 0) return false;
+      } catch (err) {
+        // 查不出來時以呼叫端的說法為準（它剛剛才刪失敗）：放行比讓一篇還在的筆記被宣告
+        // 「已刪除」兩分鐘好。要走到這裡得同時發生「併發刪除」與「DB 查詢失敗」。
+        log.warn({ err, noteId }, "collab 刪除失敗後查不到筆記是否還在，仍收閘門");
+      }
+      deleting.delete(noteId);
+      return true;
     },
 
     unmarkDeleting(noteId: string): void {

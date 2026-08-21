@@ -18,6 +18,7 @@ import { LoginThrottle } from "../src/auth/rate-limit.js";
 import { AI_LIMIT, COLLAB_TOKEN_LIMIT, FixedWindowLimiter, OIDC_LIMIT, SLUG_PATCH_LIMIT, UPLOAD_LIMIT } from "../src/http/rate-limit.js";
 import { hashPassword } from "../src/auth/password.js";
 import { noopCollabHooks, type CollabHooks } from "../src/collab/hooks.js";
+import type { CollabHooksLogger } from "../src/collab/hooks-impl.js";
 import { COLLAB_PATH, createCollabServer, type CollabServer } from "../src/collab/server.js";
 import { notes, noteShares, users } from "../src/db/schema.js";
 import { createAiRuntime } from "../src/ai/runtime.js";
@@ -259,11 +260,12 @@ export interface CollabTestCtx {
  * 建一個掛上真 `CollabServer` 並實際 listen 的 app，供共編整合測試使用。
  *
  * `collabHooks` 是注入縫：預設 `noopCollabHooks`（比照 `buildTestApp`），Task 6 的撤權
- * 測試必須傳 `collabHooks: server => createCollabHooks(server)` 接真實作——否則
+ * 測試必須傳 `collabHooks: (server, log) => createCollabHooks(server, log)` 接真實作
+ * （第二個參數是本 harness 的錄音 logger，`collabLogs` 才收得到 hooks 那邊的訊號）——否則
  * shares/disable/DELETE 那些呼叫點全是 no-op，撤權路徑永遠不會被觸發，測試會綠得毫無意義。
  */
 export async function buildCollabTestApp(
-  opts: { collabHooks?: (server: CollabServer) => CollabHooks } = {}
+  opts: { collabHooks?: (server: CollabServer, log: CollabHooksLogger) => CollabHooks } = {}
 ): Promise<CollabTestCtx> {
   const { db } = await freshDb();
   const gate = new UserGate(db);
@@ -292,7 +294,7 @@ export async function buildCollabTestApp(
     db,
     gate,
     throttle: new LoginThrottle(),
-    collabHooks: opts.collabHooks ? opts.collabHooks(collab) : noopCollabHooks,
+    collabHooks: opts.collabHooks ? opts.collabHooks(collab, collabLog) : noopCollabHooks,
     collab,
     limiters: freshLimiters(),
     uploadsDir: freshUploadsDir(),

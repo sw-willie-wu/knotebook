@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import * as Y from "yjs";
 import { YDOC_FRAGMENT, type Role } from "@knotebook/shared";
-import type { CollabServer } from "../src/collab/server.js";
 import { createCollabHooks } from "../src/collab/hooks-impl.js";
 import { docClock } from "../src/collab/store.js";
 import { notes, noteLinks } from "../src/db/schema.js";
@@ -18,7 +17,7 @@ const PASSWORD = "correct-horse-battery";
  * 的正是 `createCollabHooks` 委派 `CollabServer.linkSyncState` 之後、真實的記憶體狀態。
  */
 function buildApp(): Promise<CollabTestCtx> {
-  return buildCollabTestApp({ collabHooks: (server: CollabServer) => createCollabHooks(server) });
+  return buildCollabTestApp({ collabHooks: (server, log) => createCollabHooks(server, log) });
 }
 
 /** 輪詢等待條件成立（比照 collab-revocation/collab-store：共編收斂不可用固定 sleep 斷言）。 */

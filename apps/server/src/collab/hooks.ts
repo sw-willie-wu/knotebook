@@ -16,11 +16,16 @@ export interface CollabHooks {
   /** Plan 2：刪除 note 前 close→flush→unload→輪詢，確保無進行中連線；呼叫方必須在刪除交易前 await。 */
   beforeNoteDeleted(noteId: string): Promise<void>;
   /**
-   * 刪除交易失敗時**必須**呼叫：`beforeNoteDeleted` 開的閘門要立刻收掉。
+   * 刪除交易失敗時**必須**呼叫：`beforeNoteDeleted` 開的閘門要收掉。
    *
-   * 閘門開著的期間，這篇筆記的協作者會被告知「筆記已刪除」並被導離（client 收到
+   * 閘門開著的期間，這篇筆記的**新連線**會被告知「筆記已刪除」並被導離（client 收到
    * `note-deleting` 就收斂終態）——交易若其實 rollback 了，那句話是錯的，而閘門的 TTL
-   * 有兩分鐘（`DELETING_GATE_TTL_MS`）。實作不得 throw（呼叫點正在處理另一個錯誤）。
+   * 有兩分鐘（`DELETING_GATE_TTL_MS`）。
+   *
+   * ⚠ 它救不回**當時在線**的那些人：`beforeNoteDeleted` 在交易之前就把他們 close 掉了，
+   * 那些分頁已經收斂終態並導離頁面。一次 rollback 掉的刪除仍然會把所有在編輯的人踢出去，
+   * 這是已知的殘留缺陷（見 docs/known-limitations.md），不是這個 hook 能補的。
+   * 實作不得 throw（呼叫點正在處理另一個錯誤）。
    */
   afterNoteDeleteFailed(noteId: string): void;
   /**

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { COLLAB_CLOSE_NOTE_DELETED, COLLAB_CLOSE_REVOKED, YDOC_FRAGMENT, type Role } from "@knotebook/shared";
-import { COLLAB_REJECT_FORBIDDEN, COLLAB_REJECT_NOTE_DELETING, type CollabServer } from "../src/collab/server.js";
+import { COLLAB_REJECT_FORBIDDEN, COLLAB_REJECT_NOTE_DELETING } from "../src/collab/server.js";
 import { createCollabHooks, REVERIFY_DEADLINE_MS } from "../src/collab/hooks-impl.js";
 import { buildCollabTestApp, type CollabTestCtx, type HttpSession } from "./helpers.js";
 
@@ -13,7 +13,7 @@ const PASSWORD = "correct-horse-battery";
  * 每個斷言都會綠得毫無意義（測到的只是「沒人動這條連線」）。
  */
 function buildApp(): Promise<CollabTestCtx> {
-  return buildCollabTestApp({ collabHooks: (server: CollabServer) => createCollabHooks(server) });
+  return buildCollabTestApp({ collabHooks: (server, log) => createCollabHooks(server, log) });
 }
 
 /**
@@ -138,6 +138,12 @@ describe("撤權 SLA：CollabHooks（Task 6）", () => {
     // 設定值觸發，故下界安全；上界則由上面的 SLA 斷言涵蓋。
     const elapsed = Date.now() - started;
     expect(elapsed).toBeGreaterThanOrEqual(REVERIFY_DEADLINE_MS - 500);
+
+    // deadline 到期是**合法使用者最可能被誤踢**的路徑（client 只是卡在 token 退避裡沒能
+    // 在 5 秒內回話），使用者卻看到「你已失去存取權」——必須留下訊號（issue #37）。
+    const line = ctx.collabLogs.find(one => one.obj.phase === "deadline");
+    expect(line?.level).toBe("info");
+    expect(line?.obj).toMatchObject({ cause: "no-reverify", noteId: note.id, userId: victim.id });
   });
 
   it("連線期被撤權（onTokenSync 關掉連線）也要留下 phase:'reverify' 的日誌（issue #37）", async () => {

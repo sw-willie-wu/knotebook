@@ -383,7 +383,12 @@ export function notesRoutes(deps: NotesRouteDeps) {
       // 完成並 await——若交易先跑，Hocuspocus 端可能在文件已經被刪除之後才嘗試 flush，
       // 落地到一筆孤兒 note_states/note_state_backups（或對已刪除 noteId 的外鍵失敗）。
       // Plan 1 這裡注入的是 noopCollabHooks，本身不做任何事；此呼叫只是先把接縫留好。
-      await deps.collabHooks.beforeNoteDeleted(id);
+      // 這裡自己 throw 時閘門可能已經開了（實作是先開門再清掃）——同樣要收回去，否則
+      // 一次失敗的刪除會讓這篇筆記兩分鐘連不上並被宣告「已刪除」。
+      await deps.collabHooks.beforeNoteDeleted(id).catch((err: unknown) => {
+        deps.collabHooks.afterNoteDeleteFailed(id);
+        throw err;
+      });
 
       // `.returning({ id })`（Task 11）：交易內只確定「哪些 upload 列被刪了」，實際的
       // 磁碟檔案刪除留到 commit 之後才動手——DB rollback 救不回已經被刪掉的檔案，兩件

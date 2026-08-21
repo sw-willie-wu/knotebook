@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import * as Y from "yjs";
 import { COLLAB_CLOSE_REVOKED, YDOC_FRAGMENT } from "@knotebook/shared";
 import { signCollabToken } from "../src/collab/token.js";
@@ -202,6 +202,32 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
     await expect(editorSession.connect(note.id)).rejects.toThrow(COLLAB_REJECT_NOTE_DELETING);
     // 陌生人：拿得到合法 token（endpoint 對誰都回 200），但只會聽到 forbidden——與「這篇
     // 筆記根本不存在」一模一樣，問不出任何東西。
+    await expect(strangerSession.connect(note.id)).rejects.toThrow(COLLAB_REJECT_FORBIDDEN);
+  });
+
+  it("名單抓不到時，「有沒有角色」接手判斷——陌生人照樣只聽得到 forbidden（審查 round 3）", async () => {
+    // `markDeleting` 的名單查詢失敗時（DB 抖動）閘門的 value 是 null。那個 fallback 若解成
+    // 「誰都聽得到 note-deleting」，一次抖動就把「這個 id 剛被刪掉」告訴全世界整整兩分鐘。
+    const ctx = await buildCollabTestApp();
+    const owner = await ctx.createUser({ email: "owner-auth21@example.com", password: PASSWORD });
+    await ctx.createUser({ email: "stranger-auth21@example.com", password: PASSWORD });
+    const note = await ctx.createNote(owner.id);
+
+    // 讓名單查詢真的爆掉（拔掉 note_shares 表），閘門因此只記得 key、value 是 null。
+    await ctx.db.execute(sql`ALTER TABLE note_shares RENAME TO note_shares_hidden`);
+    try {
+      await ctx.collab.markDeleting(note.id);
+    } finally {
+      await ctx.db.execute(sql`ALTER TABLE note_shares_hidden RENAME TO note_shares`);
+    }
+    expect(ctx.collabLogs.some(one => one.level === "warn")).toBe(true);
+
+    const ownerSession = await ctx.loginAs("owner-auth21@example.com", PASSWORD);
+    const strangerSession = await ctx.loginAs("stranger-auth21@example.com", PASSWORD);
+
+    // owner 現在還查得到角色 ⇒ 聽得到真正的理由。
+    await expect(ownerSession.connect(note.id)).rejects.toThrow(COLLAB_REJECT_NOTE_DELETING);
+    // 陌生人沒有角色 ⇒ 只聽得到 forbidden，問不出這篇筆記的任何事。
     await expect(strangerSession.connect(note.id)).rejects.toThrow(COLLAB_REJECT_FORBIDDEN);
   });
 
@@ -505,5 +531,12 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
     await waitFor("借殼身分的 token 被 close(COLLAB_CLOSE_REVOKED)，owner 的連線沒有被 editorUser 接管", 3_000, () =>
       ownerClient.closes.some(one => one.reason === COLLAB_CLOSE_REVOKED)
     );
+
+    // ⚠ 這一則必須看得見（審查 round 3）：握手階段的 bad-token 走 debug（匿名 socket 的
+    // 日誌放大器），但**重驗階段**的 bad-token 是把一條已經認證過的連線踢掉，使用者會看到
+    // 「你已失去存取權」並被導走——身分也早就知道了。
+    const line = ctx.collabLogs.find(one => one.obj.phase === "reverify" && one.obj.cause === "bad-token");
+    expect(line?.level).toBe("info");
+    expect(line?.obj).toMatchObject({ noteId: note.id, userId: owner.id });
   });
 });
