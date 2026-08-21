@@ -180,7 +180,7 @@
       "enabled": "Enabled",
       "degradedBadge": "Degraded",
       "degradedNotice": "This provider's stored key can no longer be decrypted. Enter the API key again to restore it.",
-      "noKeyNotice": "No API key stored. Quick actions that need one will fail until you enter it.",
+      "noKeyNotice": "No API key stored — required for a hosted provider, optional for an unauthenticated local one.",
       "test": "Test connection",
       "testing": "Testing…",
       "testSuccess": "Connection succeeded.",

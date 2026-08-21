@@ -266,17 +266,19 @@ describe("SettingsAiSection（spec §13.4：provider／model／action 三層 CRU
     // 「金鑰被清掉」以前是一個完全沒有 UI 表示的狀態——卡片不顯示 hasKey，degraded 的紅字
     // 又剛好在同一時間消失（沒金鑰就不叫「解不開」）。文件宣稱的「shows as having no key」
     // 就是靠這一行才成立。
-    const noKey = { ...PROVIDER_A, id: "11111111-1111-1111-1111-111111111111", name: "無金鑰", hasKey: false };
+    // 用現成的 PROVIDER_B（Local Ollama，hasKey:false）——自己捏 id 撞到 PROVIDER_A 的話
+    // React key 與 DOM id 都會重複，「恰好一則」這個斷言就變成建立在 reconciliation 的
+    // 未定義行為上（審查抓到）。
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method ?? "GET").toUpperCase();
-      const res = defaultGetHandlers({ providers: [PROVIDER_A, noKey], models: [], actions: [] })(url, method);
+      const res = defaultGetHandlers({ providers: [PROVIDER_A, PROVIDER_B], models: [], actions: [] })(url, method);
       if (res) return Promise.resolve(res);
       throw new Error(`unexpected fetch: ${method} ${url}`);
     });
 
     renderSection(fetchMock);
-    await waitFor(() => expect(screen.getByText("無金鑰")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(PROVIDER_B.name)).toBeInTheDocument());
 
     // 兩個 provider 只有一個沒金鑰 ⇒ 提示恰好一則（不是「每張卡都掛一行」）。
     expect(screen.getAllByText(/No API key stored/)).toHaveLength(1);

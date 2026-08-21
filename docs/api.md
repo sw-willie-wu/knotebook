@@ -31,7 +31,7 @@ All endpoints are served by the `app` container. Errors use the shape `{ "error"
 | `/api/admin/users/:id/promote` | POST | Admin | 204, 404 `user_not_found` |
 | `/api/admin/ai/providers` | GET | Admin | 200 (never includes the encrypted key; `hasKey` boolean instead) |
 | `/api/admin/ai/providers` | POST | Admin | 201, 400 `invalid_body` |
-| `/api/admin/ai/providers/:id` | PATCH | Admin | 200, 400 `invalid_body`, 404 `not_found` |
+| `/api/admin/ai/providers/:id` | PATCH | Admin | 200, 400 `invalid_body`, 404 `not_found` (a `baseUrl` different from the stored one clears the stored key unless the same request also supplies `apiKey` — the key is only ever sent to the host it was entered for) |
 | `/api/admin/ai/providers/:id` | DELETE | Admin | 204, 404 `not_found` (cascades: its models are deleted, and any action bound to one of them falls back to the next available chat model) |
 | `/api/admin/ai/providers/:id/test` | POST | Admin | 200 `{ok:true}` (fetches the provider's model list upstream with the stored key — never echoes upstream response bodies back), 404 `not_found`, 502 `upstream_error`, 503 `provider_unavailable` (key can't be decrypted with the current `APP_SECRET` — re-enter it) |
 | `/api/admin/ai/models` | GET | Admin | 200 |

@@ -279,33 +279,34 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
       const [row] = await deps.db.update(aiProviders).set(values).where(eq(aiProviders.id, id)).returning(providerListColumns);
       if (!row) return sendError(reply, 404, "not_found", "找不到此 provider");
 
-      // 金鑰是不是真的被這一次請求清掉了——以 DB 回來的結果為準（上面那句 `case when` 的
-      // 判斷只有資料庫知道結論）。
-      const keyCleared = existing.hasKey && !row.hasKey && apiKey === undefined;
-
-      if (baseUrl !== undefined && (baseUrl !== existing.baseUrl || keyCleared)) {
-        // 改網址是敏感操作（見上面那段）——留一行可稽核的紀錄。**只記 host**：baseUrl 本身
-        // 可能帶 `user:pass@`，完整 URL 進日誌等於把另一種憑證寫進去。解析失敗（理論上不會，
-        // zod 已驗過 `.url()`）就記 undefined，不讓一行 log 弄掉整個請求。
+      // ⚠ **只要帶了 `baseUrl` 就記一行**（審查 round 2 實測指出）：原本的條件是
+      // 「網址跟 `existing` 不同、或金鑰被清掉」，而 `existing` 那個 SELECT 是非交易的——
+      // 在攻擊者持續送 no-op PATCH 的那個競態下（他讀到的舊值就是自己的網址、hasKey 也
+      // 是 stale 的 false），兩個條件同時為 false ⇒ **一行 log 都沒有**，偏偏那正是
+      // docs 說「唯一可信的痕跡」要抓的姿勢。provider 編輯是 admin-only 的低頻操作，
+      // 一律記的噪音可以接受。
+      if (baseUrl !== undefined) {
+        // 改網址是敏感操作（見上面那段）——留一行可稽核的紀錄。
+        //
+        // 欄位刻意記「這一次寫完之後還有沒有金鑰」（`row.hasKey`，DB 回來的事實）而不是
+        // 「金鑰有沒有被清掉」：後者要拿 `existing` 的舊值來推，而那個讀在競態下會說謊。
         request.log.info(
           {
             providerId: id,
             userId: request.user!.id,
             from: safeTarget(existing.baseUrl),
             to: safeTarget(baseUrl),
-            keyCleared,
+            hasKeyAfter: row.hasKey,
           },
           "AI provider 的 base URL 被變更"
         );
       }
 
-      if (keyCleared) {
-        // 金鑰沒了就不可能是「密文解不開」——把降級狀態一起收掉，否則 provider 會卡在
-        // 「請重新輸入 API key」的 503，連「這個 provider 本來就不需要金鑰」（自架 Ollama）
-        // 都測不了。比照 issue #17 的教訓：不要留下沒有人會清的髒狀態。
-        deps.runtime.degraded.delete(id);
-      }
-
+      // 沒有金鑰就不可能是「密文解不開」——把降級狀態一起收掉，否則 provider 會卡在
+      // 「請重新輸入 API key」的 503，連「這個 provider 本來就不需要金鑰」（自架 Ollama）
+      // 都測不了。比照 issue #17 的教訓：不要留下沒有人會清的髒狀態。
+      // ⚠ 判準是 `row.hasKey`（DB 回來的結果），不是「這次有沒有清」——後者同樣依賴那個
+      // 會說謊的 stale 讀，於是競態下金鑰已經沒了卻仍卡在 503。
       if (newEncrypted !== undefined) {
         // 重加密寫入後自檢：用目前的 APP_SECRET 立即解密剛寫入的密文——同一支 secret
         // 剛加密完緊接著解，理論上必然成功；try/catch 是防禦性寫法（純函式契約層面，
@@ -317,6 +318,10 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
         } catch {
           // 維持降級狀態不動——不吞出這個分支以外的行為。
         }
+      }
+
+      if (!row.hasKey) {
+        deps.runtime.degraded.delete(id);
       }
 
       return reply.send(toProviderDto(row, deps.runtime));

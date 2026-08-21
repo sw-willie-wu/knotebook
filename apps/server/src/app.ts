@@ -1,4 +1,10 @@
-import Fastify, { type FastifyError, type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
+import Fastify, {
+  type FastifyError,
+  type FastifyInstance,
+  type FastifyReply,
+  type FastifyRequest,
+  type FastifyServerOptions,
+} from "fastify";
 import fastifyCookie from "@fastify/cookie";
 import fastifyMultipart from "@fastify/multipart";
 import { MAX_UPLOAD_BYTES, SESSION_COOKIE, type ErrorCode } from "@knotebook/shared";
@@ -124,8 +130,12 @@ export interface BuildAppOptions {
    * logging（production 部署需要它）。測試環境（`test/helpers.ts` 的
    * `buildTestApp`/`buildCollabTestApp`）每支整合測試預設關閉（`{ logger: false }`）
    * 以降低雜訊，可再覆寫回開（例如要除錯某個測試的實際請求日誌時）。
+   *
+   * 型別放寬到 fastify 自己的 logger 選項（涵蓋 `boolean`）：`test/admin-ai.test.ts` 需要
+   * 掛一個 pino `logMethod` hook 去攔截「改 base URL」那行稽核日誌——docs 逐字引用了它的
+   * 訊息字串，得有測試釘住。production 呼叫端照舊只傳 boolean。
    */
-  logger?: boolean;
+  logger?: FastifyServerOptions["logger"];
   /**
    * 前端建置產物目錄的絕對路徑（Task 9，spec §11.5 SPA fallback）。傳入時掛
    * `@fastify/static` 服務 `/assets/*` 等實際存在的檔案，並讓未命中路由的 GET/HEAD
