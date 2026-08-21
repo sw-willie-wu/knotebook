@@ -15,7 +15,7 @@
  * await 點，throw 會讓「筆記刪不掉、卻已經被閘門擋住兩分鐘」（見 `DELETING_GATE_TTL_MS`）——兩種都比記錄錯誤後繼續更糟。
  */
 import { COLLAB_CLOSE_NOTE_DELETED, COLLAB_CLOSE_REVOKED } from "@knotebook/shared";
-import type { CollabHooks } from "./hooks.js";
+import type { CollabHooks, NoteDeleteGate } from "./hooks.js";
 import type { CollabServer, ConnectionHandle } from "./server.js";
 
 /**
@@ -76,11 +76,13 @@ function sleep(ms: number): Promise<void> {
 
 export function createCollabHooks(server: CollabServer, log: CollabHooksLogger = consoleLogger): CollabHooks {
   /**
-   * 每篇筆記目前武裝中的閘門 TTL timer。**重新開閘門前要先清掉舊的**（審查 round 3）：
-   * 刪除失敗後 5 秒重試成功的話，第一次那個 timer 會在 120 秒整點把**第二次**的閘門提早
-   * 打開，而那個縫隙裡重連的協作者聽到的會是「你已失去存取權」。
+   * 每篇筆記目前武裝中的閘門 TTL timer，連同它屬於哪一道門（epoch）。
+   *
+   * **重新開閘門前要先清掉舊的**（審查 round 3）：刪除失敗後 5 秒重試成功的話，第一次那個
+   * timer 會在 120 秒整點把**第二次**的閘門提早打開，而那個縫隙裡重連的協作者聽到的會是
+   * 「你已失去存取權」。epoch 則保證 `release()` 不會清掉別人的 timer（審查 round 4）。
    */
-  const gateTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const gateTimers = new Map<string, { timer: ReturnType<typeof setTimeout>; epoch: number }>();
   /**
    * 對指定的每一條連線要求重新出示 token，並掛上 deadline。
    *
@@ -184,13 +186,13 @@ export function createCollabHooks(server: CollabServer, log: CollabHooksLogger =
      * 資料面保證來自兩件事：刪除本身是一個交易，以及 Task 7 的 `onStoreDocument` 見到
      * 筆記已不存在就丟棄該次寫入——所以即使有落單的 update，也不會在筆記刪除後復活。
      */
-    async beforeNoteDeleted(noteId: string): Promise<void> {
+    async beforeNoteDeleted(noteId: string): Promise<NoteDeleteGate> {
       // 先關門：此後 onAuthenticate / connected / onTokenSync 三處都會拒絕這篇筆記
       // （Task 5 已實作），下面的清掃才不會邊掃邊有新連線補進來。
-      await server.markDeleting(noteId);
+      const epoch = await server.markDeleting(noteId);
 
       const previous = gateTimers.get(noteId);
-      if (previous !== undefined) clearTimeout(previous);
+      if (previous !== undefined) clearTimeout(previous.timer);
 
       // TTL。`unref()`：這個計時器不該讓 process（或測試 worker）為了它多活兩分鐘——
       // 閘門只在服務執行中才有意義，行程要結束時直接跟著消失即可。
@@ -199,7 +201,25 @@ export function createCollabHooks(server: CollabServer, log: CollabHooksLogger =
         server.unmarkDeleting(noteId);
       }, DELETING_GATE_TTL_MS);
       ttl.unref();
-      gateTimers.set(noteId, ttl);
+      gateTimers.set(noteId, { timer: ttl, epoch });
+
+      const gate: NoteDeleteGate = {
+        release: () => {
+          void server
+            .releaseDeletingGate(noteId, epoch)
+            .then(released => {
+              if (!released) return;
+              const armed = gateTimers.get(noteId);
+              // 只清自己那一顆：release 期間可能已經有新的刪除接手了。
+              if (armed?.epoch !== epoch) return;
+              clearTimeout(armed.timer);
+              gateTimers.delete(noteId);
+            })
+            .catch((error: unknown) => {
+              log.error({ err: error, noteId }, "collab 刪除失敗後收閘門亦失敗（閘門將由 TTL 自然到期）");
+            });
+        },
+      };
 
       try {
         // 逐連線 close（帶 reason，client 端據此顯示「筆記已被刪除」而不是重連）。取快照
@@ -233,29 +253,8 @@ export function createCollabHooks(server: CollabServer, log: CollabHooksLogger =
         // 重驗／訊息往返時就會因為筆記不存在而被拒。
         log.error({ err: error, noteId }, "collab beforeNoteDeleted 清場失敗，仍繼續刪除");
       }
-    },
 
-    /**
-     * 刪除交易失敗 → 收掉閘門（`releaseDeletingGate` 會先確認筆記其實還在）。
-     *
-     * ⚠ 它救得到的只有「還沒連上來的分頁」：`beforeNoteDeleted` 早在交易之前就把所有在線
-     * 連線 close(NOTE_DELETED) 了，那些人已經收斂終態並被導離頁面，收閘門不會把他們叫回來
-     * （審查指出，別把這個 hook 的效果講得比實際大）。
-     *
-     * fire-and-forget：呼叫點正在處理另一個例外，這裡不得 throw，也不該讓它多等一次 DB。
-     */
-    afterNoteDeleteFailed(noteId: string): void {
-      void server
-        .releaseDeletingGate(noteId)
-        .then(released => {
-          if (!released) return;
-          const timer = gateTimers.get(noteId);
-          if (timer !== undefined) clearTimeout(timer);
-          gateTimers.delete(noteId);
-        })
-        .catch((error: unknown) => {
-          log.error({ err: error, noteId }, "collab 刪除失敗後收閘門亦失敗（閘門將由 TTL 自然到期）");
-        });
+      return gate;
     },
 
     linkSyncGate(noteId: string, userId: string): { ok: true; clock: number } | { ok: false } {

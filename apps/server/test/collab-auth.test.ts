@@ -231,6 +231,50 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
     await expect(strangerSession.connect(note.id)).rejects.toThrow(COLLAB_REJECT_FORBIDDEN);
   });
 
+  it("閘門的收放：release 只收得掉自己那一道，而且只在筆記還在時（審查 round 4）", async () => {
+    // 這三條是「刪除失敗 → 收閘門」整條路的不變量，少了任何一條，症狀都只是「協作者偶爾
+    // 看到錯的那句話」——不會有別的測試變紅。
+    const ctx = await buildCollabTestApp();
+    const owner = await ctx.createUser({ email: "owner-auth22@example.com", password: PASSWORD });
+    const note = await ctx.createNote(owner.id);
+    const session = await ctx.loginAs("owner-auth22@example.com", PASSWORD);
+
+    // ① 正常：自己開的門，筆記還在 → 收得掉，連線恢復。
+    const epoch = await ctx.collab.markDeleting(note.id);
+    await expect(session.connect(note.id)).rejects.toThrow(COLLAB_REJECT_NOTE_DELETING);
+    await expect(ctx.collab.releaseDeletingGate(note.id, epoch)).resolves.toBe(true);
+    const client = await session.connect(note.id);
+    client.disconnect();
+
+    // ② 別人的門收不掉（併發的第二次刪除接手之後，第一次的失敗不得開門）。
+    const second = await ctx.collab.markDeleting(note.id);
+    await expect(ctx.collab.releaseDeletingGate(note.id, epoch)).resolves.toBe(false);
+    await expect(session.connect(note.id)).rejects.toThrow(COLLAB_REJECT_NOTE_DELETING);
+
+    // ③ 筆記真的不在了 → 不收（不然重連的協作者會聽到「你已失去存取權」）。
+    await ctx.db.delete(notes).where(eq(notes.id, note.id));
+    await expect(ctx.collab.releaseDeletingGate(note.id, second)).resolves.toBe(false);
+    await expect(session.connect(note.id)).rejects.toThrow(COLLAB_REJECT_NOTE_DELETING);
+  });
+
+  it("閘門的名單是合併而非覆蓋（併發刪除不得把協作者從名單上洗掉）", async () => {
+    // 較晚那次 `markDeleting` 的名單查詢可能落在較早那次 commit 之後而查回空集合。
+    const ctx = await buildCollabTestApp();
+    const owner = await ctx.createUser({ email: "owner-auth23@example.com", password: PASSWORD });
+    const editorUser = await ctx.createUser({ email: "editor-auth23@example.com", password: PASSWORD });
+    const note = await ctx.createNote(owner.id);
+    await ctx.share(note.id, editorUser.id, "editor");
+    const editorSession = await ctx.loginAs("editor-auth23@example.com", PASSWORD);
+
+    await ctx.collab.markDeleting(note.id);
+    // 第二次：此時筆記列已經不在（模擬前一次已 commit）→ 名單查回空集合。
+    await ctx.db.delete(notes).where(eq(notes.id, note.id));
+    await ctx.collab.markDeleting(note.id);
+
+    // 合併的話 editor 仍在名單上，聽得到真正的理由；覆蓋的話他會聽到 forbidden。
+    await expect(editorSession.connect(note.id)).rejects.toThrow(COLLAB_REJECT_NOTE_DELETING);
+  });
+
   it("拒連留下一行結構化日誌：noteId/userId/cause/reason，不含 token（issue #37）", async () => {
     // issue #6 修好之後，一次拒連的後果從「使用者卡在連線中（會來回報，維護者可以現場看
     // 畫面）」變成「使用者被自動導走」，他只會說「我突然被踢出來了」。CollabAuthError 的

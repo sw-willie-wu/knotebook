@@ -383,18 +383,13 @@ export function notesRoutes(deps: NotesRouteDeps) {
       // 完成並 await——若交易先跑，Hocuspocus 端可能在文件已經被刪除之後才嘗試 flush，
       // 落地到一筆孤兒 note_states/note_state_backups（或對已刪除 noteId 的外鍵失敗）。
       // Plan 1 這裡注入的是 noopCollabHooks，本身不做任何事；此呼叫只是先把接縫留好。
-      // 這裡自己 throw 時閘門可能已經開了（實作是先開門再清掃）——同樣要收回去，否則
-      // 一次失敗的刪除會讓這篇筆記兩分鐘連不上並被宣告「已刪除」。
-      await deps.collabHooks.beforeNoteDeleted(id).catch((err: unknown) => {
-        deps.collabHooks.afterNoteDeleteFailed(id);
-        throw err;
-      });
+      const deleteGate = await deps.collabHooks.beforeNoteDeleted(id);
 
       // `.returning({ id })`（Task 11）：交易內只確定「哪些 upload 列被刪了」，實際的
       // 磁碟檔案刪除留到 commit 之後才動手——DB rollback 救不回已經被刪掉的檔案，兩件
       // 事不可合併在同一個交易語意下（見 `deleteUploadFiles` 的完整說明）。
-      // 交易失敗一定要把閘門收回去（見 `CollabHooks.afterNoteDeleteFailed`）：閘門開著的
-      // 兩分鐘內，這篇筆記的協作者會被告知「已刪除」並被導離，而它其實還在。
+      // 交易失敗一定要把閘門收回去（見 `NoteDeleteGate`）：閘門開著的兩分鐘內，這篇筆記的
+      // 新連線會被告知「已刪除」並被導離，而它其實還在。
       const deletedUploads = await deps.db
         .transaction(async tx => {
           await tx.delete(noteStates).where(eq(noteStates.noteId, id));
@@ -406,7 +401,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
           return deleted;
         })
         .catch((err: unknown) => {
-          deps.collabHooks.afterNoteDeleteFailed(id);
+          deleteGate.release();
           throw err;
         });
 

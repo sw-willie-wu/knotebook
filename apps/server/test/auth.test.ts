@@ -488,9 +488,8 @@ describe("POST /api/auth/password", () => {
     const collabHooks: CollabHooks = {
       onShareChanged: vi.fn(),
       onUserRevoked,
-      beforeNoteDeleted: vi.fn(async () => {}),
-      afterNoteDeleteFailed: vi.fn(),
-      linkSyncGate: () => ({ ok: false as const }),
+      beforeNoteDeleted: vi.fn(async () => ({ release: () => {} })),
+        linkSyncGate: () => ({ ok: false as const }),
     };
     const { app, db } = await buildTestApp({ collabHooks });
     const u = await insertUser(db, { email: "laura@example.com" });

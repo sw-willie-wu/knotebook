@@ -208,16 +208,15 @@ describe("GET /api/notes/:id", () => {
     expect(res.json()).toMatchObject({ error: { code: "not_found" } });
   });
 
-  it("刪除交易失敗 → afterNoteDeleteFailed 被呼叫（否則閘門會對協作者謊稱「已刪除」兩分鐘）", async () => {
+  it("刪除交易失敗 → 閘門的 release() 被呼叫（否則閘門會對重連者謊稱「已刪除」兩分鐘）", async () => {
     // 閘門在 beforeNoteDeleted 就開了。交易失敗若不收回去，這篇筆記接下來兩分鐘
     // （DELETING_GATE_TTL_MS）都會對協作者回 note-deleting，client 據此收斂終態並導頁
     // ——而筆記其實還在。
-    const afterNoteDeleteFailed = vi.fn();
+    const release = vi.fn();
     const collabHooks: CollabHooks = {
       onShareChanged: vi.fn(),
       onUserRevoked: vi.fn(),
-      beforeNoteDeleted: vi.fn(async () => {}),
-      afterNoteDeleteFailed,
+      beforeNoteDeleted: vi.fn(async () => ({ release })),
       linkSyncGate: () => ({ ok: false as const }),
     };
     const { app, db } = await buildTestApp({ collabHooks });
@@ -236,7 +235,7 @@ describe("GET /api/notes/:id", () => {
       await db.execute(sql`ALTER TABLE uploads_hidden RENAME TO uploads`);
     }
 
-    expect(afterNoteDeleteFailed).toHaveBeenCalledWith(note.id);
+    expect(release).toHaveBeenCalledTimes(1);
     // 交易 rollback：筆記還在。
     expect(await db.select().from(notes).where(eq(notes.id, note.id))).toHaveLength(1);
   });
@@ -336,12 +335,11 @@ describe("PATCH /api/notes/:id", () => {
 
 describe("DELETE /api/notes/:id", () => {
   it("editor → 403 forbidden；beforeNoteDeleted 未被呼叫（授權失敗須早於 collab teardown，不能被當成 DoS 面利用）", async () => {
-    const beforeNoteDeleted = vi.fn(async () => {});
+    const beforeNoteDeleted = vi.fn(async () => ({ release: () => {} }));
     const collabHooks: CollabHooks = {
       onShareChanged: vi.fn(),
       onUserRevoked: vi.fn(),
       beforeNoteDeleted,
-      afterNoteDeleteFailed: vi.fn(),
       linkSyncGate: () => ({ ok: false as const }),
     };
     const { app, db } = await buildTestApp({ collabHooks });
@@ -361,12 +359,11 @@ describe("DELETE /api/notes/:id", () => {
   });
 
   it("非相關者 → 404；beforeNoteDeleted 未被呼叫（同上，無權限者不該觸發任何 collab teardown 副作用）", async () => {
-    const beforeNoteDeleted = vi.fn(async () => {});
+    const beforeNoteDeleted = vi.fn(async () => ({ release: () => {} }));
     const collabHooks: CollabHooks = {
       onShareChanged: vi.fn(),
       onUserRevoked: vi.fn(),
       beforeNoteDeleted,
-      afterNoteDeleteFailed: vi.fn(),
       linkSyncGate: () => ({ ok: false as const }),
     };
     const { app, db } = await buildTestApp({ collabHooks });
@@ -427,12 +424,12 @@ describe("DELETE /api/notes/:id", () => {
     const beforeNoteDeleted = vi.fn(async (noteId: string) => {
       const rows = await dbRef.current!.select().from(notes).where(eq(notes.id, noteId));
       expect(rows).toHaveLength(1);
+      return { release: () => {} };
     });
     const collabHooks: CollabHooks = {
       onShareChanged: vi.fn(),
       onUserRevoked: vi.fn(),
       beforeNoteDeleted,
-      afterNoteDeleteFailed: vi.fn(),
       linkSyncGate: () => ({ ok: false as const }),
     };
 
@@ -455,11 +452,10 @@ describe("DELETE /api/notes/:id", () => {
     const collabHooks: CollabHooks = {
       onShareChanged: vi.fn(),
       onUserRevoked: vi.fn(),
-      beforeNoteDeleted: vi.fn(async () => {
+      beforeNoteDeleted: vi.fn(async (): Promise<never> => {
         throw new Error("collab teardown failed");
       }),
-      afterNoteDeleteFailed: vi.fn(),
-      linkSyncGate: () => ({ ok: false as const }),
+        linkSyncGate: () => ({ ok: false as const }),
     };
     const { app, db } = await buildTestApp({ collabHooks });
 

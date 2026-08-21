@@ -252,20 +252,26 @@ export interface CollabServer {
    *
    * ⚠ **必須在刪除交易之前 await**：它會先把「此刻看得到這篇筆記的人」抓下來留著
    * （`loadNoteAudience`），交易一 commit 那些列就查不到了。這份名單決定 `onAuthenticate`
-   * 要不要對某個人說出 `note-deleting`——只有名單上的人聽得到，其他人一律照
-   * `no-role` 回答，閘門因此不會變成「這個 noteId 存不存在」的 oracle（issue #35 審查）。
-   * 名單抓取失敗（DB 抖動）時退回「對任何持有合法 token 的人都說 note-deleting」——閘門
-   * 的**阻擋**職責優先於這層資訊揭露的收斂。
-   */
-  markDeleting(noteId: string): Promise<void>;
-  /**
-   * 刪除失敗時收閘門，**但只在筆記其實還在的時候**。回傳有沒有真的收掉。
+   * 要不要對某個人說出 `note-deleting`——名單上的人、以及此刻仍查得到角色的人聽得到，
+   * 其他人一律照 `no-role` 回答，閘門因此不會變成「這個 noteId 存不存在」的 oracle
+   * （issue #35 審查）。
    *
-   * 條件不可省（審查 round 3）：同一篇筆記併發兩個 DELETE 時，失敗那一次不得把成功那一次
-   * 開的閘門關掉——關掉的話接下來兩分鐘重連的協作者會聽到「你已失去存取權」，而真相是
-   * 筆記真的被刪了。
+   * ⚠ 名單抓取失敗時 value 是 `null`，**那絕不等於「誰都聽得到」**（審查 round 3：那樣一次
+   * DB 抖動就會把「這個 id 剛被刪掉」告訴每個登入使用者兩分鐘）——`null` 的情況一律退回用
+   * 「現在還有沒有角色」判斷，見 `onAuthenticate` 的慢路徑。
+   *
+   * 回傳這道門的世代序號，收門時要原樣帶回（見 `releaseDeletingGate`）。
    */
-  releaseDeletingGate(noteId: string): Promise<boolean>;
+  markDeleting(noteId: string): Promise<number>;
+  /**
+   * 刪除失敗時收閘門，**但只收得掉 `epoch` 所指的那一道、而且只在筆記其實還在的時候**。
+   * 回傳有沒有真的收掉。
+   *
+   * 兩個條件都不可省（審查 round 3／4）：同一篇筆記併發兩個 DELETE 時，失敗那一次不得把
+   * 成功那一次開的閘門關掉——關掉的話接下來兩分鐘重連的協作者會聽到「你已失去存取權」，
+   * 而真相是筆記真的被刪了。
+   */
+  releaseDeletingGate(noteId: string, epoch: number): Promise<boolean>;
   unmarkDeleting(noteId: string): void;
   /** 關閉所有 socket、flush 待寫入的文件。**必須在 `app.close()` 之前 await。** */
   destroy(): Promise<void>;
@@ -339,7 +345,9 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
    * ⚠ 名單會連同 userId 一起留到 TTL 到期（兩分鐘）。全公司共享的筆記就是一份全公司名單，
    * 但只在記憶體、只在這段期間。
    */
-  const deleting = new Map<string, ReadonlySet<string> | null>();
+  const deleting = new Map<string, { epoch: number; audience: ReadonlySet<string> | null }>();
+  /** 每次 `markDeleting` 的世代序號——`releaseDeletingGate` 只收得掉「自己開的那一道門」。 */
+  let deletingEpoch = 0;
   const sockets = new Set<WsWebSocket>();
 
   let attached = false;
@@ -376,7 +384,7 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
    * 「他現在還有沒有角色」決定（見 onAuthenticate），那個判準本身不透露任何額外資訊。
    */
   function deletingAudienceHas(noteId: string, userId: string): boolean {
-    const audience = deleting.get(noteId);
+    const audience = deleting.get(noteId)?.audience;
     return audience !== undefined && audience !== null && audience.has(userId);
   }
   const noteStore = createNoteStore({ db: deps.db, log });
@@ -758,7 +766,7 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
       else tokenSyncCallbacks.set(key, new Set([cb]));
     },
 
-    async markDeleting(noteId: string): Promise<void> {
+    async markDeleting(noteId: string): Promise<number> {
       let audience: ReadonlySet<string> | null = null;
       try {
         audience = await loadNoteAudience(deps.db, noteId);
@@ -769,19 +777,27 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
       }
       // ⚠ **合併而非覆蓋**（審查 round 3）：同一篇筆記的兩個 DELETE 同時進來時，較晚那次的
       // `loadNoteAudience` 可能落在較早那次 commit 之後而查回空集合——直接覆寫的話，原本
-      // 該被告知「筆記已刪除」的協作者全部變成聽到「你已失去存取權」。
-      const existing = deleting.get(noteId);
-      if (existing === undefined || audience === null) {
-        deleting.set(noteId, existing === undefined ? audience : (existing ?? null));
-      } else {
-        deleting.set(noteId, new Set([...(existing ?? []), ...audience]));
-      }
+      // 該被告知「筆記已刪除」的協作者全部變成聽到「你已失去存取權」。null（名單不明）遇上
+      // 一份真名單時取那份名單：它嚴格地知道得更多。
+      const existing = deleting.get(noteId)?.audience;
+      const merged =
+        existing === undefined || existing === null
+          ? audience
+          : audience === null
+            ? existing
+            : new Set([...existing, ...audience]);
+      const epoch = (deletingEpoch += 1);
+      deleting.set(noteId, { epoch, audience: merged });
+      return epoch;
     },
 
-    async releaseDeletingGate(noteId: string): Promise<boolean> {
-      // 只有「筆記其實還在」才收閘門（審查 round 3）：同一篇筆記的兩個 DELETE 同時進來時，
-      // 失敗那一次不得把成功那一次開的閘門關掉——關掉的話，接下來兩分鐘內重連的協作者
-      // 會被告知「你已失去存取權」，而真相是筆記真的被刪了。
+    async releaseDeletingGate(noteId: string, epoch: number): Promise<boolean> {
+      // ⚠ 只收得掉「自己開的那一道門」（審查 round 4）：同一篇筆記併發兩個 DELETE 時，
+      // 失敗那一次不得把成功那一次開的閘門關掉——關掉的話接下來兩分鐘內重連的協作者會被
+      // 告知「你已失去存取權」，而真相是筆記真的被刪了。
+      if (deleting.get(noteId)?.epoch !== epoch) return false;
+
+      // 而且只有「筆記其實還在」才收：併發的另一次刪除可能已經 commit 了。
       try {
         const audience = await loadNoteAudience(deps.db, noteId);
         if (audience.size === 0) return false;
@@ -790,6 +806,9 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
         // 「已刪除」兩分鐘好。要走到這裡得同時發生「併發刪除」與「DB 查詢失敗」。
         log.warn({ err, noteId }, "collab 刪除失敗後查不到筆記是否還在，仍收閘門");
       }
+
+      // 上面那次 await 期間可能又有人開了新的門，再確認一次世代。
+      if (deleting.get(noteId)?.epoch !== epoch) return false;
       deleting.delete(noteId);
       return true;
     },
