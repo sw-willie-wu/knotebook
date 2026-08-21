@@ -230,6 +230,33 @@ describe("SettingsAiSection（spec §13.4：provider／model／action 三層 CRU
     });
   });
 
+  it("改 base_url 才提示「會清除金鑰」；同一次輸入了新金鑰就不提示（issue #46）", async () => {
+    // 事前告知：不然使用者會先看到 provider 突然不能用，才知道發生了什麼。
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      const res = defaultGetHandlers({ providers: [PROVIDER_A], models: [], actions: [] })(url, method);
+      if (res) return Promise.resolve(res);
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+
+    renderSection(fetchMock);
+    await waitFor(() => expect(screen.getByText(PROVIDER_A.name)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const notice = /Changing the Base URL clears the stored API key/;
+    // 還沒動網址：不提示（改名字之類的編輯不該嚇人）。
+    expect(screen.queryByText(notice)).not.toBeInTheDocument();
+
+    const baseUrlInput = await screen.findByLabelText("Base URL");
+    fireEvent.change(baseUrlInput, { target: { value: "http://elsewhere.example.com" } });
+    expect(screen.getByText(notice)).toBeInTheDocument();
+
+    // 一併輸入了新金鑰 → 不會作廢任何東西，也就不該再提示。
+    fireEvent.change(screen.getByLabelText("API key"), { target: { value: "sk-new" } });
+    expect(screen.queryByText(notice)).not.toBeInTheDocument();
+  });
+
   it("degraded provider 顯示警示與重輸提示", async () => {
     const degradedProvider: AdminAiProviderDto = { ...PROVIDER_A, degraded: true };
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {

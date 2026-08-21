@@ -9,7 +9,7 @@ import { aiActions, aiModels, aiProviders, users } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
 import { signSession } from "../src/auth/session.js";
 import { hashPassword } from "../src/auth/password.js";
-import { encryptApiKey } from "../src/ai/crypto.js";
+import { decryptApiKey, encryptApiKey } from "../src/ai/crypto.js";
 import { createAiRuntime } from "../src/ai/runtime.js";
 import { BUILTIN_ACTION_IDS } from "../src/db/seed-ai.js";
 
@@ -191,6 +191,79 @@ describe("providers CRUD", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ hasKey: true, degraded: false });
     expect(runtime.degraded.has(provider.id)).toBe(false);
+  });
+
+  it("改 base_url（沒同時給新金鑰）→ 既有金鑰作廢：hasKey false、DB 密文真的是 null（issue #46）", async () => {
+    // `/test` 與每一次 AI 呼叫都會把**明文** key 送到 baseUrl 指的主機，而 baseUrl 只驗格式。
+    // 不作廢的話，任何 admin 改一個明文欄位再按一下 Test，就能把金鑰送到自己的主機。
+    const runtime = createAiRuntime();
+    const { app, db } = await buildTestApp({ ai: runtime });
+    const admin = await insertUser(db, { isAdmin: true, email: "admin-p4c@example.com" });
+    const cookie = await cookieFor(admin.id);
+    const id = randomUUID();
+    const provider = await insertProvider(db, { id, apiKeyEncrypted: encryptApiKey(testConfig.appSecret, "sk-secret", id) });
+    runtime.degraded.add(provider.id);
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/admin/ai/providers/${provider.id}`,
+      cookies: { [SESSION_COOKIE]: cookie },
+      payload: { baseUrl: "http://attacker.example.com" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ hasKey: false, baseUrl: "http://attacker.example.com" });
+
+    // DB 端斷言：不是只有回應的 hasKey 變了，密文本體真的沒了。
+    const [row] = await db.select().from(aiProviders).where(eq(aiProviders.id, provider.id));
+    expect(row!.apiKeyEncrypted).toBeNull();
+    // 沒有金鑰就不可能是「密文解不開」——degraded 一起收掉（比照 issue #17）。
+    expect(runtime.degraded.has(provider.id)).toBe(false);
+  });
+
+  it("改 base_url ＋ 同一次帶新金鑰 → 用新的，不作廢（換網址換金鑰一步完成）", async () => {
+    const { app, db } = await buildTestApp();
+    const admin = await insertUser(db, { isAdmin: true, email: "admin-p4d@example.com" });
+    const cookie = await cookieFor(admin.id);
+    const id = randomUUID();
+    const provider = await insertProvider(db, { id, apiKeyEncrypted: encryptApiKey(testConfig.appSecret, "sk-old", id) });
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/admin/ai/providers/${provider.id}`,
+      cookies: { [SESSION_COOKIE]: cookie },
+      payload: { baseUrl: "https://new.example.com", apiKey: "sk-brand-new" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ hasKey: true });
+
+    const [row] = await db.select().from(aiProviders).where(eq(aiProviders.id, provider.id));
+    expect(decryptApiKey(testConfig.appSecret, row!.apiKeyEncrypted!, provider.id)).toBe("sk-brand-new");
+  });
+
+  it("baseUrl 帶的是**同一個值**（只改名字）→ 金鑰原封不動", async () => {
+    // ⚠ 這條是整組裡最重要的：編輯表單每次送出都會把 baseUrl 一起帶上，所以判斷必須是
+    // 「跟舊值不同」而不是「有沒有帶這個欄位」——否則改一次名字就把使用者的金鑰清掉。
+    const { app, db } = await buildTestApp();
+    const admin = await insertUser(db, { isAdmin: true, email: "admin-p4e@example.com" });
+    const cookie = await cookieFor(admin.id);
+    const id = randomUUID();
+    const provider = await insertProvider(db, {
+      id,
+      baseUrl: "https://api.example.com",
+      apiKeyEncrypted: encryptApiKey(testConfig.appSecret, "sk-keep-me", id),
+    });
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/admin/ai/providers/${provider.id}`,
+      cookies: { [SESSION_COOKIE]: cookie },
+      payload: { name: "換個名字", baseUrl: "https://api.example.com" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ hasKey: true, name: "換個名字" });
+
+    const [row] = await db.select().from(aiProviders).where(eq(aiProviders.id, provider.id));
+    expect(decryptApiKey(testConfig.appSecret, row!.apiKeyEncrypted!, provider.id)).toBe("sk-keep-me");
   });
 
   it("DELETE provider → 一併從 degraded 移除（留著會是永遠不會被清掉的髒狀態）", async () => {

@@ -42,6 +42,18 @@ const patchProviderSchema = z.object({
   enabled: z.boolean().optional(),
 });
 
+/**
+ * 取 URL 的 host 供日誌使用。**刻意不記完整 URL**：`base_url` 可能帶 `user:pass@`，
+ * 整條寫進日誌等於把另一種憑證留在那裡。解析不出來就回 undefined（pino 會略過該欄位）。
+ */
+function safeHost(url: string): string | undefined {
+  try {
+    return new URL(url).host;
+  } catch {
+    return undefined;
+  }
+}
+
 // 只選這六欄（形狀鎖，比照 `routes/admin-users.ts` 的 `adminUserColumns` 慣例，
 // 這裡更進一步）：`hasKey` 用 SQL 端 `IS NOT NULL` 直接算出布林值，**從不** SELECT
 // `apiKeyEncrypted` 本體——密文位元組完全不進 Node process 記憶體，不是「查出來但序列化
@@ -196,6 +208,20 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
       if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
       const { name, type, baseUrl, apiKey, enabled } = parsed.data;
 
+      // 只讀 baseUrl 這一欄（**不** SELECT 密文本體，維持 `providerListColumns` 那道防線）：
+      // 下面要判斷「網址是不是真的換了」。
+      const [existing] = await deps.db
+        .select({ baseUrl: aiProviders.baseUrl })
+        .from(aiProviders)
+        .where(eq(aiProviders.id, id))
+        .limit(1);
+      if (!existing) return sendError(reply, 404, "not_found", "找不到此 provider");
+
+      // ⚠ **比對舊值，不是「有沒有帶這個欄位」**（issue #46）：編輯表單每次送出都會把
+      // `baseUrl` 一起帶上（見 `SettingsAiSection.tsx` 的 handleSubmit），只改名字也會帶——
+      // 只看 `baseUrl !== undefined` 的話，改一次名字就會把金鑰清掉。
+      const baseUrlChanged = baseUrl !== undefined && baseUrl !== existing.baseUrl;
+
       const values: Partial<typeof aiProviders.$inferInsert> = {};
       if (name !== undefined) values.name = name;
       if (type !== undefined) values.type = type;
@@ -209,6 +235,26 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
         values.apiKeyEncrypted = newEncrypted;
       }
 
+      /**
+       * issue #46：**換了網址就把既有金鑰作廢**（除非同一次 PATCH 就帶了新的金鑰）。
+       *
+       * 為什麼：`/test`（與 `ai/upstream.ts` 的每一次 AI 呼叫）會把解密後的**明文** key 以
+       * `authorization: Bearer …`／`x-api-key` 送到 `baseUrl` 指的主機。`baseUrl` 只驗格式、
+       * 沒有 allowlist，所以任何 admin 只要改一個明文欄位再按一下 Test，就能把金鑰送到自己
+       * 的主機——完全不需要讀 DB，也不需要 `APP_SECRET`。產品刻意承諾「金鑰寫進去就讀不
+       * 回來」（見 `providerListColumns` 的說明），這條路把那個承諾整個繞開。
+       *
+       * 作廢是成本最低、又不限制任何 host 的切法（自架者接內網 Ollama 照常）：金鑰不再能被
+       * 「繼承」到一個新網址上，想把金鑰送到別的地方就得先自己重新輸入一次。
+       *
+       * ⚠ 這**不是**一道完整的防護：攻擊者 admin 仍可把網址指到自己主機、等另一個 admin
+       * 「咦金鑰不見了」重新輸入。差別在於那條路留得下痕跡（金鑰消失、網址變了、下面那行
+       * log），而原本那條是靜默的。殘留風險記在 docs/known-limitations.md。
+       */
+      if (baseUrlChanged && apiKey === undefined) {
+        values.apiKeyEncrypted = null;
+      }
+
       // fix round 1（I-2）：空 body `{}` 全欄位皆 undefined → `values` 是空物件——
       // drizzle 0.44 的 `.update(...).set({})` 會同步 throw "No values to set"，逃出
       // 這支 handler 變成裸 500。在真的呼叫 `.set()` 之前擋掉，回結構化 400。
@@ -218,6 +264,29 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
 
       const [row] = await deps.db.update(aiProviders).set(values).where(eq(aiProviders.id, id)).returning(providerListColumns);
       if (!row) return sendError(reply, 404, "not_found", "找不到此 provider");
+
+      if (baseUrlChanged) {
+        // 改網址是敏感操作（見上面那段）——留一行可稽核的紀錄。**只記 host**：baseUrl 本身
+        // 可能帶 `user:pass@`，完整 URL 進日誌等於把另一種憑證寫進去。解析失敗（理論上不會，
+        // zod 已驗過 `.url()`）就記 undefined，不讓一行 log 弄掉整個請求。
+        request.log.info(
+          {
+            providerId: id,
+            userId: request.user!.id,
+            from: safeHost(existing.baseUrl),
+            to: safeHost(baseUrl!),
+            keyCleared: values.apiKeyEncrypted === null,
+          },
+          "AI provider 的 base URL 被變更"
+        );
+      }
+
+      if (values.apiKeyEncrypted === null) {
+        // 金鑰沒了就不可能是「密文解不開」——把降級狀態一起收掉，否則 provider 會卡在
+        // 「請重新輸入 API key」的 503，連「這個 provider 本來就不需要金鑰」（自架 Ollama）
+        // 都測不了。比照 issue #17 的教訓：不要留下沒有人會清的髒狀態。
+        deps.runtime.degraded.delete(id);
+      }
 
       if (newEncrypted !== undefined) {
         // 重加密寫入後自檢：用目前的 APP_SECRET 立即解密剛寫入的密文——同一支 secret

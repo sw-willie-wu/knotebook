@@ -276,6 +276,12 @@ function EditProviderDialog({ provider }: { provider: AdminAiProviderDto }) {
               value={baseUrl}
               onChange={(event) => setBaseUrl(event.target.value)}
             />
+            {/* issue #46：換網址會作廢既有金鑰。**事前**講——事後 toast 的話，使用者會先
+                看到 provider 突然不能用，才知道發生了什麼。只在真的會發生時顯示：這個
+                provider 有金鑰、網址真的被改了、而且這次沒有一併輸入新金鑰。 */}
+            {provider.hasKey && baseUrl !== provider.baseUrl && apiKey.trim().length === 0 && (
+              <p className="text-sm text-muted-foreground">{t("settings.ai.baseUrlChangeClearsKey")}</p>
+            )}
           </div>
 
           <div className="space-y-1">
