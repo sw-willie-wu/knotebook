@@ -411,10 +411,10 @@ describe("useCollab", () => {
     // token 失敗了」的旗標若是挂在 hook 層（`useRef`）而非每條連線各一份，那一丟會把它
     // 設回 true；而舊 provider 的 `authenticationFailed` 已因 `destroy()` 的
     // `removeAllListeners()` 無人接收、永遠不會把它清掉。新筆記真的在握手前被撤權時，
-    // 那則拒絕就會被静静吞掉——issue #6 原封不動回來。
+    // 那則拒絕就會被靜靜吞掉——issue #6 原封不動回來。
     //
     // ⚠ 必須是**同一個元件實例換 noteId**（rerender）才測得到：unmount 再
-    // `render()` 是兩個元件實例、兩份獨立的 ref，渗漏本來就不會發生。
+    // `render()` 是兩個元件實例、兩份獨立的 ref，滲漏本來就不會發生。
     let failStale!: (err: unknown) => void;
     const staleFetch = new Promise<Response>((_resolve, reject) => {
       failStale = reject;
@@ -445,10 +445,175 @@ describe("useCollab", () => {
   });
 
   it("拒連原因常數與 server 端字面值一致", () => {
-    // 共用包沒重建時這一組常數會是 undefined，於是 `reason === CONST` 静静地走錯分支
+    // 共用包沒重建時這一組常數會是 undefined，於是 `reason === CONST` 靜靜地走錯分支
     // （本修改開發時就踩過）。釘住字面值，那種環境會大聲失敗而不是假綠。
     expect(COLLAB_REJECT_NOTE_DELETING).toBe("note-deleting");
     expect(COLLAB_REJECT_INVALID_TOKEN).toBe("invalid-token");
+  });
+
+  it("保險絲開火之後才回來的 close，仍然要帶出那一次重連（issue #34）", async () => {
+    // `HocuspocusProviderWebsocket.connect()` 開頭是 `if (status === Connected) return`，
+    // **而且那個 early return 發生在 `shouldConnect = true` 之前**。所以保險絲開火時若
+    // socket 還沒真的關掉，那一發 connect() 是空轉；若保險絲順手把 pending 旗標清掉，
+    // 稍後真正回來的 close 就會被當成一般斷線打回 `connecting`，而 provider 內建的退避
+    // 因為 `shouldConnect === false` 也不會啟動 ⇒ socket 關了、沒有人重連、永遠停在
+    // 「連線中」。
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(tokenOk("editor"))),
+    );
+    render(<Probe />);
+    const p = provider();
+    await act(async () => {
+      await p.configuration.token();
+    });
+    act(() => p.configuration.onAuthenticated());
+
+    act(() => p.emit("close", { event: { code: 1000, reason: COLLAB_CLOSE_REVOKED } }));
+    expect(phase()).toBe("reconnecting-once");
+    expect(p.disconnect).toHaveBeenCalledTimes(1);
+
+    // 保險絲開火（在真實 provider 上這一發可能完全空轉）。
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_100);
+    });
+
+    // 真正的 close 現在才回來——它必須仍然帶出重連，而不是把狀態打回 connecting。
+    act(() => p.emit("close", { event: { code: 1006, reason: "" } }));
+    expect(phase()).toBe("reconnecting-once");
+    expect(p.connect).toHaveBeenCalledTimes(2);
+  });
+
+  it("token 全部重試用完之後，連線會自己重來一次，不是靜默卡死（issue #39）", async () => {
+    // 退避表用完 → `fetchToken` 丟錯 → provider 在 `getToken()` 的 catch 裡直接呼叫
+    // `permissionDeniedHandler`，**socket 不關、也不會再取一次 token**。我們刻意不把
+    // 這一則 `authenticationFailed` 當成撤權（N7），於是狀態機收不到任何事件——沒有
+    // 這條自我修復，畫面就永遠停在「連線中」，連 server 回來了也不會恢復。
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    // 重啟間隔帶 ±25% 抖動（多分頁不要同相位重試）。把亂數釘在中點，delay 就回到標稱值，
+    // 這條測試才不是在賭時序。
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const fetchMock = vi.fn(() => Promise.resolve(apiFail(503, "server_busy")));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<Probe />);
+    const p = provider();
+
+    const rejected = expect(p.configuration.token()).rejects.toThrow();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    await rejected;
+    act(() => p.emit("authenticationFailed", { reason: "Failed to get token during sendToken(): ApiFail" }));
+
+    // 不得踢人（N7）。
+    expect(phase()).toBe("connecting");
+    expect(p.connect).not.toHaveBeenCalled();
+
+    // 但要自己重來：等到重啟延遲（第一格 5 秒）之後，整個握手重跑一次
+    // （disconnect → close → connect）。刻意停在 5.5 秒——再多 0.5 秒就會連保險絲
+    // （重啟後 1 秒）也一起開火，那樣就分不出「close 帶出的重連」與「保險絲補的那一發」。
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_500);
+    });
+    expect(p.disconnect).toHaveBeenCalledTimes(1);
+    act(() => p.emit("close", { event: { code: 1006, reason: "" } }));
+    expect(p.connect).toHaveBeenCalledTimes(1);
+    expect(phase()).toBe("connecting");
+  });
+
+  it("重啟之後 token 終於成功 → 真的連上（自我修復要收斂，不只是「有再試」）", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const fetchMock = vi.fn(() => Promise.resolve(apiFail(503, "server_busy")));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<Probe />);
+    const p = provider();
+
+    const rejected = expect(p.configuration.token()).rejects.toThrow();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    await rejected;
+    act(() => p.emit("authenticationFailed", { reason: "Failed to get token during sendToken(): ApiFail" }));
+
+    // server 修好了。
+    fetchMock.mockResolvedValue(tokenOk("editor"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_500);
+    });
+    act(() => p.emit("close", { event: { code: 1006, reason: "" } }));
+
+    await act(async () => {
+      await p.configuration.token();
+    });
+    act(() => p.configuration.onAuthenticated());
+    expect(phase()).toBe("connected:editor");
+  });
+
+  it("重啟退避一次比一次寬（第二次不會又在 5 秒後就來）", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(apiFail(503, "server_busy"))),
+    );
+    render(<Probe />);
+    const p = provider();
+
+    const failOnce = async () => {
+      const rejected = expect(p.configuration.token()).rejects.toThrow();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+      await rejected;
+      act(() => p.emit("authenticationFailed", { reason: "Failed to get token during sendToken(): ApiFail" }));
+    };
+
+    await failOnce();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_500);
+    });
+    expect(p.disconnect).toHaveBeenCalledTimes(1);
+
+    await failOnce();
+    // 第二格是 15 秒——6 秒時還不該來（退避表若被寫死成同一個值，這裡就會紅）。
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6_000);
+    });
+    expect(p.disconnect).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(p.disconnect).toHaveBeenCalledTimes(2);
+  });
+
+  it("卸載會把排好的重啟一起帶走（否則會留下沒人接的殭屍連線）", async () => {
+    // `provider.destroy()` 之後那條 provider 的事件監聽器全被移除、連線檢查 interval 也停了。
+    // 這時若還有一個漏掉的 timer 去 `connect()`，它會真的開一條新的 WebSocket——而且沒有任何
+    // 人接它的事件，換一次筆記就漏一條。cleanup 的行序（先清 timer 再 destroy）靠這條守著。
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(apiFail(503, "server_busy"))),
+    );
+    const { unmount } = render(<Probe />);
+    const p = provider();
+
+    const rejected = expect(p.configuration.token()).rejects.toThrow();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    await rejected;
+    act(() => p.emit("authenticationFailed", { reason: "Failed to get token during sendToken(): ApiFail" }));
+
+    unmount();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    expect(p.connect).not.toHaveBeenCalled();
   });
 
   it("卸載時銷毀 provider", () => {

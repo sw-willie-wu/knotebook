@@ -35,8 +35,68 @@ const TOKEN_RETRY_DELAYS_MS = [500, 1_000, 2_000, 4_000];
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-/** 進 `reconnecting-once` 後，等自家 close 事件回來的上限；逾時就直接重連。 */
+/** 進 `reconnecting-once` 後，等自家 close 事件回來的上限；逾時就補一發重連。 */
 const RECONNECT_FALLBACK_MS = 1_000;
+
+/**
+ * token function 連退避表都跑完仍然失敗之後，**整條連線**要隔多久重來一次（ms，issue #39）。
+ *
+ * 為什麼需要這一層：`fetchTokenWithRetries` 用完 `TOKEN_RETRY_DELAYS_MS` 就會丟錯，而
+ * provider 收到 token function 的錯誤只會 `permissionDeniedHandler`——**socket 不關、也不會
+ * 再取一次 token**。我們又刻意不把那一則 `authenticationFailed` 當成撤權（N7），於是狀態機
+ * 收不到任何事件：畫面停在「連線中」，server 恢復了也不會自己好，只能重整。
+ *
+ * 間隔比 token 退避表長一個量級：那一輪（7.5 秒）已經證明「不是一時抖動」，再用秒級頻率去
+ * 敲一個正在壞的 server 只會加重它的負擔。最後一格重複使用，也就是**永遠會再試**——自我修復
+ * 的重點是寧可慢也不要停。
+ *
+ * ⚠ 上限訂在 60 秒、而且**要抖動**（審查算過）：collab-token 的限流是 **per-user、跨分頁跨筆記
+ * 共用一個桶**（60 次/分鐘，見 `routes/notes.ts` 的說明），而每一輪重啟會重跑一次 token 退避表
+ * ＝最多 5 發請求。固定間隔 30 秒的話，8 個分頁的穩態就是 64 req/min——**使用者會把自己的額度
+ * 永久打爆，server 好了也連不回來**。而且觸發事件（server 重啟）是全分頁同時的，沒有抖動就會
+ * 同相位。provider 自己那層 socket 退避預設就開 `jitter: true`，這裡對齊它。
+ */
+const TOKEN_RESTART_DELAYS_MS = [5_000, 15_000, 60_000];
+
+/** 重啟間隔的抖動幅度（±25%）。讓同時壞掉的多個分頁不要同相位重試。 */
+const RESTART_JITTER = 0.25;
+
+function jittered(delay: number): number {
+  return Math.round(delay * (1 + (Math.random() * 2 - 1) * RESTART_JITTER));
+}
+
+/**
+ * 重啟一條連線：關掉 socket，重連交給 `"close"` 監聽器收到自家 close 時發動（見檔頭
+ * 「`disconnect()` 之後不能同步 connect()」）。回傳清理函式（清掉保險絲）。
+ *
+ * ⚠ **保險絲不清 pending 旗標**（issue #34）：`HocuspocusProviderWebsocket.connect()` 開頭是
+ * `if (status === Connected) return`，而那個 early return 發生在 `shouldConnect = true`
+ * **之前**。所以保險絲開火時 socket 若還沒真的關掉，那一發 connect() 完全空轉。舊版在那時
+ * 順手把旗標清掉，於是稍後真正回來的 close 會被當成一般斷線打回 `connecting`，而 provider
+ * 內建的退避又因為 `shouldConnect` 仍是 `false` 不會啟動 ⇒ socket 關了、沒有人重連、永遠
+ * 停在「連線中」。
+ *
+ * 留著旗標的代價：**socket 已開、但認證尚未完成**的那個窗口內（例如 token 還在退避重試的
+ * 7.5 秒），第一則底層 close 會被多吞一次——而那一吞緊接著就是一發 connect()，且 `"close"`
+ * 監聽器進那個分支就會把旗標清掉，不會變成重連迴圈。認證一成功 `onAuthenticated` 就把旗標
+ * 清掉了，所以「保險絲救回連線之後」並不是這個窗口（審查訂正）。
+ *
+ * ⚠ 病灶只是「清旗標」那一行，**guard 本身要留著**（審查指出，我第一版連 guard 一起拿掉了）：
+ * close 準時回來時 swallow 分支已經把旗標清成 false 並發過 connect()，這時保險絲若還照發一發，
+ * `HocuspocusProviderWebsocket.connect()` 會 `cancelWebsocketRetry()` 並開一條新的 retry chain、
+ * 順手 `cleanupWebSocket()` 掉正在建立中的那條 socket ⇒ **任何耗時超過 1 秒的重連都會被自己的
+ * 保險絲拆掉重來**。只讀不清就兩者兼得：close 遲到時旗標仍是 true、保險絲照樣開火；close 準時
+ * 時旗標已是 false、保險絲變回 no-op。
+ */
+function restartConnection(provider: HocuspocusProvider, pendingReconnectRef: { current: boolean }): () => void {
+  pendingReconnectRef.current = true;
+  provider.disconnect();
+  const fallback = setTimeout(() => {
+    if (!pendingReconnectRef.current) return;
+    void provider.connect();
+  }, RECONNECT_FALLBACK_MS);
+  return () => clearTimeout(fallback);
+}
 
 /**
  * 這個錯誤值不值得重試。`api()` 對網路失敗／非 JSON 2xx 丟的是**原生 Error 而非
@@ -129,6 +189,8 @@ export function useCollab({ noteId, onUnauthorized }: UseCollabOptions): UseColl
   const roleRef = useRef<Role>("none");
   /** 「我們自己剛叫了 disconnect()，正在等那條 close 回來好接著重連一次」。 */
   const pendingReconnectRef = useRef(false);
+  /** 由連線 effect 填入：把 issue #39 的重啟整條掐掉（終態時呼叫）。 */
+  const stopRestartsRef = useRef<(() => void) | null>(null);
   const onUnauthorizedRef = useRef(onUnauthorized);
   onUnauthorizedRef.current = onUnauthorized;
 
@@ -152,14 +214,23 @@ export function useCollab({ noteId, onUnauthorized }: UseCollabOptions): UseColl
      * 於是 `authenticationFailed` 也會為我方的 5xx/網路失敗而發——那不是 server 的授權
      * 裁決，不得據此把人踢出（spec N7）。兩者共用同一個事件名，只有我們自己分得出來。
      *
-     * ⚠ **它必須是 effect 內的局部變數，不能是 hook 層的 `useRef`**（審查持續抱持）：
+     * ⚠ **它必須是 effect 內的局部變數，不能是 hook 層的 `useRef`**（審查指出）：
      * 舊的那條連線被 `destroy()` 之後，它那一發還在退避中的 token 請求（最長 7.5 秒）
      * 仍會丟錯回來。若旗標是共用的，那一丟會把它設回 `true`，而舊 provider 的
      * `authenticationFailed` 已因 `removeAllListeners()` 無人接收、永遠不會把它清掉；
-     * 下一條連線真的被撤權時，那則拒絕就會被這道旗標静静吞掉——issue #6 原封不動
-     * 回來。每條連線各持一份，這個跨連線的渗漏就不存在。
+     * 下一條連線真的被撤權時，那則拒絕就會被這道旗標靜靜吞掉——issue #6 原封不動
+     * 回來。每條連線各持一份，這個跨連線的滲漏就不存在。
      */
     let tokenFetchFailed = false;
+    /**
+     * 「最近一次 token 失敗是終局的」——401（session 沒了，已走登出流程）與 404（筆記不在了，
+     * 已收斂 deleted）。這兩種再排重啟只是對一個已經有結論的狀態多打一發 collab-token。
+     * 實務上呼叫端緊接著就導頁卸載，但「終態不再重連」這個不變量不該押在呼叫端的行為上
+     * （審查指出）。
+     */
+    let tokenFailureFinal = false;
+    /** issue #39 的重啟退避走到第幾格。與 `tokenFetchFailed` 同理由：每條連線各持一份。 */
+    let restartAttempt = 0;
     const doc = new Y.Doc();
 
     const fetchTokenWithRetries = async (): Promise<string> => {
@@ -174,6 +245,7 @@ export function useCollab({ noteId, onUnauthorized }: UseCollabOptions): UseColl
         } catch (err) {
           if (err instanceof ApiFail && err.status === 401) {
             // session 沒了：登出流程，不重試也不當成撤權。
+            tokenFailureFinal = true;
             onUnauthorizedRef.current();
             throw err;
           }
@@ -181,6 +253,7 @@ export function useCollab({ noteId, onUnauthorized }: UseCollabOptions): UseColl
             // 保險絲：目前的 server 契約下這條不會發生（token endpoint 對無權限／
             // 已刪除的筆記一律回 200 + role 'none'，見 routes/notes.ts 的說明），
             // 但 spec §5 明訂「重連時 API 404 → deleted」，契約若改動也要正確收斂。
+            tokenFailureFinal = true;
             dispatch({ type: "close", reason: COLLAB_CLOSE_NOTE_DELETED });
             throw err;
           }
@@ -197,6 +270,7 @@ export function useCollab({ noteId, onUnauthorized }: UseCollabOptions): UseColl
     // 的拒絕。
     const fetchToken = async (): Promise<string> => {
       tokenFetchFailed = false;
+      tokenFailureFinal = false;
       try {
         return await fetchTokenWithRetries();
       } catch (err) {
@@ -212,9 +286,29 @@ export function useCollab({ noteId, onUnauthorized }: UseCollabOptions): UseColl
       token: fetchToken,
       onAuthenticated: () => {
         pendingReconnectRef.current = false;
+        // 認證成功＝這條連線活著，issue #39 的重啟退避從頭算起。
+        restartAttempt = 0;
         dispatch({ type: "open", role: roleRef.current });
       },
     });
+
+    // issue #39：token 徹底取不到時的自我修復。延遲逐格拉長、最後一格重複使用（永遠會
+    // 再試）；成功認證一次就歸零（見 `onAuthenticated`）。同一時間只排一個。
+    let restartTimer: ReturnType<typeof setTimeout> | undefined;
+    let cancelRestartFallback: (() => void) | undefined;
+    /** 終態（kicked／deleted）之後不得再重啟——見下方 `stopRestartsRef` 的接線。 */
+    let restartsStopped = false;
+    const scheduleRestart = () => {
+      if (disposed || restartsStopped || restartTimer !== undefined) return;
+      const index = Math.min(restartAttempt, TOKEN_RESTART_DELAYS_MS.length - 1);
+      restartAttempt += 1;
+      restartTimer = setTimeout(() => {
+        restartTimer = undefined;
+        if (disposed) return;
+        cancelRestartFallback?.();
+        cancelRestartFallback = restartConnection(provider, pendingReconnectRef);
+      }, jittered(TOKEN_RESTART_DELAYS_MS[index]!));
+    };
 
     provider.on("close", ({ event }: { event?: { reason?: string } }) => {
       const reason = event?.reason ?? "";
@@ -237,7 +331,12 @@ export function useCollab({ noteId, onUnauthorized }: UseCollabOptions): UseColl
         // 這一則是我們自家 token function 丟錯換來的，不是授權裁決：401 已經走過
         // `onUnauthorized`、404 已經自己收斂 deleted，其餘（5xx/網路）是暫時性的，一律
         // 不得踢人（N7）。
+        //
+        // 但也不能就這樣算了（issue #39）：此刻 socket 開著卻沒通過認證，provider 不會再取
+        // 一次 token，狀態機也收不到任何事件——不排一次重啟的話這條連線就是靜默死掉，
+        // server 恢復了也不會自己好。
         tokenFetchFailed = false;
+        if (!tokenFailureFinal) scheduleRestart();
         return;
       }
       // 不寫成裸的 `reason === COLLAB_REJECT_NOTE_DELETING`：reason 缺席時兩邊都是
@@ -247,11 +346,27 @@ export function useCollab({ noteId, onUnauthorized }: UseCollabOptions): UseColl
       dispatch({ type: "close", reason: noteDeleting ? COLLAB_CLOSE_NOTE_DELETED : COLLAB_CLOSE_REVOKED });
     });
 
+    // 終態分支（下面那個 effect）用它把重啟整條掐掉。**必須有這道閘門**（審查指出）：
+    // 401 與 404 兩支都會 rethrow ⇒ `tokenFetchFailed` ⇒ `authenticationFailed` ⇒ 照排一次
+    // 重啟，於是「狀態機已宣告終態」的連線還會被 timer 重新拉起來、對一篇已經沒有權限或
+    // 已刪除的筆記再打一發 collab-token。實務上被 NotePage 的導頁卸載擋住，但 `useCollab`
+    // 自己的「終態不再重連」不變量不該押在呼叫端的導頁行為上。
+    stopRestartsRef.current = () => {
+      restartsStopped = true;
+      if (restartTimer !== undefined) clearTimeout(restartTimer);
+      restartTimer = undefined;
+      cancelRestartFallback?.();
+      cancelRestartFallback = undefined;
+    };
+
     providerRef.current = provider;
     setSession({ doc, provider });
 
     return () => {
       disposed = true;
+      if (restartTimer !== undefined) clearTimeout(restartTimer);
+      cancelRestartFallback?.();
+      stopRestartsRef.current = null;
       providerRef.current = null;
       provider.destroy();
       doc.destroy();
@@ -268,20 +383,13 @@ export function useCollab({ noteId, onUnauthorized }: UseCollabOptions): UseColl
       // 第一發撤權 close：關掉這條 socket（server 端的應用層 CLOSE 只送訊息、不關
       // socket）。重連由 `"close"` 監聽器收到自家 close 時發動——見檔頭「不能同步
       // connect()」。重連會重跑 token function，取回的 role 就是第二擊的判準。
-      pendingReconnectRef.current = true;
-      provider.disconnect();
-      // 保險絲：socket 早就不在時 `disconnect()` 會直接 return、不會有 close 事件，
-      // 那樣 pending 旗標會永遠掛著、重連也永遠不發生。逾時就自己補一次。
-      const fallback = setTimeout(() => {
-        if (!pendingReconnectRef.current) return;
-        pendingReconnectRef.current = false;
-        void provider.connect();
-      }, RECONNECT_FALLBACK_MS);
-      return () => clearTimeout(fallback);
+      return restartConnection(provider, pendingReconnectRef);
     }
 
     if (isTerminal(state)) {
       // 終態不再重連：`disconnect()` 會把 shouldConnect 設為 false，停掉內建退避。
+      // issue #39 的重啟排程也要一起掐掉，否則它會把終態的連線重新拉起來。
+      stopRestartsRef.current?.();
       pendingReconnectRef.current = false;
       provider.disconnect();
     }

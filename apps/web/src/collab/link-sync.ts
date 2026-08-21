@@ -84,7 +84,7 @@ interface RetryState {
   key: string;
   /** 這個 key 是否已經用掉 409 `not_loaded` 的唯一一次重試機會。 */
   notLoadedUsed: boolean;
-  /** 下一次 5xx／其他 409 退避要等的毫秒數（下一次失敗时的延遲，非本次已排程的延遲）。 */
+  /** 下一次 5xx／其他 409 退避要等的毫秒數（下一次失敗時的延遲，非本次已排程的延遲）。 */
   backoffMs: number;
 }
 
