@@ -388,15 +388,22 @@ export function notesRoutes(deps: NotesRouteDeps) {
       // `.returning({ id })`（Task 11）：交易內只確定「哪些 upload 列被刪了」，實際的
       // 磁碟檔案刪除留到 commit 之後才動手——DB rollback 救不回已經被刪掉的檔案，兩件
       // 事不可合併在同一個交易語意下（見 `deleteUploadFiles` 的完整說明）。
-      const deletedUploads = await deps.db.transaction(async tx => {
-        await tx.delete(noteStates).where(eq(noteStates.noteId, id));
-        await tx.delete(noteStateBackups).where(eq(noteStateBackups.noteId, id));
-        await tx.delete(noteShares).where(eq(noteShares.noteId, id));
-        await tx.delete(noteLinks).where(or(eq(noteLinks.sourceNoteId, id), eq(noteLinks.targetNoteId, id)));
-        const deleted = await tx.delete(uploads).where(eq(uploads.noteId, id)).returning({ id: uploads.id });
-        await tx.delete(notes).where(eq(notes.id, id));
-        return deleted;
-      });
+      // 交易失敗一定要把閘門收回去（見 `CollabHooks.afterNoteDeleteFailed`）：閘門開著的
+      // 兩分鐘內，這篇筆記的協作者會被告知「已刪除」並被導離，而它其實還在。
+      const deletedUploads = await deps.db
+        .transaction(async tx => {
+          await tx.delete(noteStates).where(eq(noteStates.noteId, id));
+          await tx.delete(noteStateBackups).where(eq(noteStateBackups.noteId, id));
+          await tx.delete(noteShares).where(eq(noteShares.noteId, id));
+          await tx.delete(noteLinks).where(or(eq(noteLinks.sourceNoteId, id), eq(noteLinks.targetNoteId, id)));
+          const deleted = await tx.delete(uploads).where(eq(uploads.noteId, id)).returning({ id: uploads.id });
+          await tx.delete(notes).where(eq(notes.id, id));
+          return deleted;
+        })
+        .catch((err: unknown) => {
+          deps.collabHooks.afterNoteDeleteFailed(id);
+          throw err;
+        });
 
       // best-effort，commit 之後才動磁碟：單一檔案刪除失敗（含檔案本來就已經不存在）
       // 只記 log，不影響這支 request 的成功回應——DB 端已經確定 commit 成功，這才是

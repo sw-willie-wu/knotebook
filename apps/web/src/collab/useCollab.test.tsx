@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen, waitFor } from "@testing-library/react";
+import { ApiFail } from "@/api/client";
 import {
   COLLAB_CLOSE_NOTE_DELETED,
   COLLAB_CLOSE_REVOKED,
@@ -447,8 +448,9 @@ describe("useCollab", () => {
   });
 
   it("authenticationFailed(invalid-token) 不是授權裁決：不得踢人，改排一次重啟（issue #35）", async () => {
-    // 時鐘偏移、`APP_SECRET` 輪替、session 的 tokenVersion 過期都會落在 invalid-token。
-    // 舊版把它翻成撤權 ⇒ 對一個權限完好的使用者說「你已失去存取權」並把他導走。
+    // token 驗不過、session 的 tokenVersion 被撤銷（帳號停用／別處改過密碼）、server 端
+    // DB 抖動都會落在這一桶。舊版一律翻成撤權 ⇒ 對一個權限完好的使用者說「你已失去存取權」
+    // 並把他導走。
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.spyOn(Math, "random").mockReturnValue(0.5);
     vi.stubGlobal(
@@ -601,6 +603,37 @@ describe("useCollab", () => {
       await vi.advanceTimersByTimeAsync(10_000);
     });
     expect(p.disconnect).toHaveBeenCalledTimes(2);
+  });
+
+  it("換筆記：上一篇遲到的 404 也不得把新筆記打成 deleted（issue #36 的另一半）", async () => {
+    // 成功出口與 404 出口是同一個滲漏：兩者都會 dispatch 進 hook 層的狀態機。404 那一支
+    // 打進去的是**終態** deleted——比錯誤角色更難救（使用者會被導離一篇還在的筆記）。
+    let failStale!: (err: unknown) => void;
+    const staleFetch = new Promise<Response>((_resolve, reject) => {
+      failStale = reject;
+    });
+    const fetchMock = vi.fn(() => staleFetch);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { rerender } = render(<Probe noteId={NOTE_ID} />);
+    const stale = provider(0);
+    const staleToken = expect(stale.configuration.token()).rejects.toThrow();
+
+    fetchMock.mockReturnValue(Promise.resolve(tokenOk("editor")) as unknown as Promise<Response>);
+    rerender(<Probe noteId={OTHER_NOTE_ID} />);
+    const fresh = provider(1);
+    await act(async () => {
+      await fresh.configuration.token();
+    });
+    act(() => fresh.configuration.onAuthenticated());
+    expect(phase()).toBe("connected:editor");
+
+    // 上一篇那一發現在才回來，而且是 404（那篇筆記被刪了）。
+    await act(async () => {
+      failStale(new ApiFail(404, "not_found", "gone"));
+      await staleToken;
+    });
+    expect(phase()).toBe("connected:editor");
   });
 
   it("換筆記：上一篇遲到的 token **成功**回應不得打進新筆記的狀態機（issue #36）", async () => {

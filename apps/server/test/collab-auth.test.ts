@@ -175,12 +175,34 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
     const note = await ctx.createNote(owner.id);
     const session = await ctx.loginAs("owner-auth18@example.com", PASSWORD);
 
-    ctx.collab.markDeleting(note.id);
+    await ctx.collab.markDeleting(note.id);
 
     const forged = await signCollabToken("f".repeat(64), { noteId: note.id, userId: owner.id, role: "owner", tv: 0 });
     await expect(session.connect(note.id, { tokenOverride: forged })).rejects.toThrow(COLLAB_REJECT_INVALID_TOKEN);
     // 合法 token 才拿得到真正的理由。
     await expect(session.connect(note.id)).rejects.toThrow(COLLAB_REJECT_NOTE_DELETING);
+  });
+
+  it("刪除閘門只對「本來就看得到這篇筆記的人」說 note-deleting（否則就是存在性 oracle）", async () => {
+    // 閘門必須能對協作者說出「筆記被刪了」，又不能讓任何人拿一個 UUID 就問出「這篇存在嗎」。
+    // 名單在刪除交易之前抓下來（markDeleting → loadNoteAudience），只有名單上的人聽得到。
+    const ctx = await buildCollabTestApp();
+    const owner = await ctx.createUser({ email: "owner-auth20@example.com", password: PASSWORD });
+    const editorUser = await ctx.createUser({ email: "editor-auth20@example.com", password: PASSWORD });
+    await ctx.createUser({ email: "stranger-auth20@example.com", password: PASSWORD });
+    const note = await ctx.createNote(owner.id);
+    await ctx.share(note.id, editorUser.id, "editor");
+
+    await ctx.collab.markDeleting(note.id);
+
+    const editorSession = await ctx.loginAs("editor-auth20@example.com", PASSWORD);
+    const strangerSession = await ctx.loginAs("stranger-auth20@example.com", PASSWORD);
+
+    // 分享對象：聽得到真正的理由。
+    await expect(editorSession.connect(note.id)).rejects.toThrow(COLLAB_REJECT_NOTE_DELETING);
+    // 陌生人：拿得到合法 token（endpoint 對誰都回 200），但只會聽到 forbidden——與「這篇
+    // 筆記根本不存在」一模一樣，問不出任何東西。
+    await expect(strangerSession.connect(note.id)).rejects.toThrow(COLLAB_REJECT_FORBIDDEN);
   });
 
   it("拒連留下一行結構化日誌：noteId/userId/cause/reason，不含 token（issue #37）", async () => {
@@ -206,13 +228,14 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
     expect(line).toBeDefined();
     expect(line!.level).toBe("info");
     expect(line!.obj).toMatchObject({
+      phase: "handshake",
       noteId: note.id,
       userId: stranger.id,
       cause: "no-role",
       reason: COLLAB_REJECT_FORBIDDEN,
     });
     // 欄位是封閉集合：token 內容（憑證）不得進日誌。
-    expect(Object.keys(line!.obj).sort()).toEqual(["cause", "noteId", "reason", "userId"]);
+    expect(Object.keys(line!.obj).sort()).toEqual(["cause", "noteId", "phase", "reason", "userId"]);
 
     // 而 `bad-token` **不得**進 info：/collab 的 upgrade 不需要 session，Hocuspocus 對認證
     // 失敗又不關 socket——一則空 token 訊息換一行 info 日誌等於把日誌量交給匿名對端決定。
@@ -239,7 +262,9 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
 
     const line = ctx.collabLogs.find(one => one.obj.cause === "server-error");
     expect(line?.level).toBe("error");
-    expect(line?.obj).toMatchObject({ noteId: note.id, reason: COLLAB_REJECT_SERVER_ERROR });
+    // ⚠ userId 必須在（docs 的排錯指引承諾每一行都認得出是誰，而這一行是它叫維護者
+    // 「先 grep 這個」的那一種）——`claims` 在 try 內，身分要另外提到 catch 看得到的地方。
+    expect(line?.obj).toMatchObject({ noteId: note.id, userId: owner.id, reason: COLLAB_REJECT_SERVER_ERROR });
     expect(line?.obj.err).toBeInstanceOf(Error);
   });
 

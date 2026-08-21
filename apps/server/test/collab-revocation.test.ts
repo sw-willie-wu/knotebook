@@ -140,6 +140,30 @@ describe("撤權 SLA：CollabHooks（Task 6）", () => {
     expect(elapsed).toBeGreaterThanOrEqual(REVERIFY_DEADLINE_MS - 500);
   });
 
+  it("連線期被撤權（onTokenSync 關掉連線）也要留下 phase:'reverify' 的日誌（issue #37）", async () => {
+    // 「我好好的怎麼突然被踢出來」最常見的來源是這條路，不是握手——docs 的排錯指引叫維護者
+    // grep `"cause"`，那就必須 grep 得到它。
+    const ctx = await buildApp();
+    const owner = await ctx.createUser({ email: "owner-rev9@example.com", password: PASSWORD });
+    const editorUser = await ctx.createUser({ email: "editor-rev9@example.com", password: PASSWORD });
+    const note = await ctx.createNote(owner.id);
+    await ctx.share(note.id, editorUser.id, "editor");
+
+    const ownerSession = await ctx.loginAs("owner-rev9@example.com", PASSWORD);
+    const editorSession = await ctx.loginAs("editor-rev9@example.com", PASSWORD);
+    const editorClient = await editorSession.connect(note.id);
+
+    const del = await ownerSession.fetch(`/api/notes/${note.id}/shares/${editorUser.id}`, { method: "DELETE" });
+    expect(del.status).toBe(204);
+
+    await waitFor("被撤者收到 CLOSE(revoked)", 10_000, () =>
+      editorClient.closes.some(one => one.reason === COLLAB_CLOSE_REVOKED)
+    );
+    const line = ctx.collabLogs.find(one => one.obj.phase === "reverify");
+    expect(line?.level).toBe("info");
+    expect(line?.obj).toMatchObject({ noteId: note.id, userId: editorUser.id, cause: "no-role" });
+  });
+
   it("停用使用者：該 user 在兩篇不同筆記上的連線皆被剝離（跨文件）", async () => {
     const ctx = await buildApp();
     await ctx.createUser({ email: "admin-rev3@example.com", password: PASSWORD, isAdmin: true });

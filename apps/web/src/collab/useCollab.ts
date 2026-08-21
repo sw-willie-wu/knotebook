@@ -6,6 +6,8 @@ import {
   COLLAB_CLOSE_REVOKED,
   COLLAB_REJECT_FORBIDDEN,
   COLLAB_REJECT_NOTE_DELETING,
+  COLLAB_RESTART_DELAYS_MS,
+  COLLAB_RESTART_JITTER,
   type Role,
 } from "@knotebook/shared";
 import { api, ApiFail } from "@/api/client";
@@ -40,12 +42,14 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 const RECONNECT_FALLBACK_MS = 1_000;
 
 /**
- * token function 連退避表都跑完仍然失敗之後，**整條連線**要隔多久重來一次（ms，issue #39）。
+ * token function 連退避表都跑完仍然失敗、或 server 以「不是授權裁決」的理由拒連之後，
+ * **整條連線**要隔多久重來一次（ms，issue #39／#35）。
  *
  * 為什麼需要這一層：`fetchTokenWithRetries` 用完 `TOKEN_RETRY_DELAYS_MS` 就會丟錯，而
  * provider 收到 token function 的錯誤只會 `permissionDeniedHandler`——**socket 不關、也不會
- * 再取一次 token**。我們又刻意不把那一則 `authenticationFailed` 當成撤權（N7），於是狀態機
- * 收不到任何事件：畫面停在「連線中」，server 恢復了也不會自己好，只能重整。
+ * 再取一次 token**。server 對 `onAuthenticate` 的 throw 同樣**不關 socket 也不重連**。我們又
+ * 刻意不把那一則 `authenticationFailed` 當成撤權（N7／issue #35），於是狀態機收不到任何
+ * 事件：畫面停在「連線中」，server 恢復了也不會自己好，只能重整。
  *
  * 間隔比 token 退避表長一個量級：那一輪（7.5 秒）已經證明「不是一時抖動」，再用秒級頻率去
  * 敲一個正在壞的 server 只會加重它的負擔。最後一格重複使用，也就是**永遠會再試**——自我修復
@@ -56,11 +60,14 @@ const RECONNECT_FALLBACK_MS = 1_000;
  * ＝最多 5 發請求。固定間隔 30 秒的話，8 個分頁的穩態就是 64 req/min——**使用者會把自己的額度
  * 永久打爆，server 好了也連不回來**。而且觸發事件（server 重啟）是全分頁同時的，沒有抖動就會
  * 同相位。provider 自己那層 socket 退避預設就開 `jitter: true`，這裡對齊它。
+ *
+ * ⚠ 數值住在 `@knotebook/shared`：server 端的刪除閘門 TTL 必須蓋得過這裡的最大值，否則
+ * 「筆記被刪了」會在重連時被說成「你已失去存取權」（issue #35）。見該常數的說明。
  */
-const TOKEN_RESTART_DELAYS_MS = [5_000, 15_000, 60_000];
+const TOKEN_RESTART_DELAYS_MS = COLLAB_RESTART_DELAYS_MS;
 
 /** 重啟間隔的抖動幅度（±25%）。讓同時壞掉的多個分頁不要同相位重試。 */
-const RESTART_JITTER = 0.25;
+const RESTART_JITTER = COLLAB_RESTART_JITTER;
 
 function jittered(delay: number): number {
   return Math.round(delay * (1 + (Math.random() * 2 - 1) * RESTART_JITTER));

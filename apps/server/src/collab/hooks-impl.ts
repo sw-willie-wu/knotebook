@@ -12,7 +12,7 @@
  * 三個 hook 都不得往外 throw：`onShareChanged`/`onUserRevoked` 是同步 fire-and-forget，
  * 呼叫點在 DB commit 之後（見 `routes/notes.ts`、`routes/admin-users.ts`、`routes/auth.ts`），
  * throw 會讓一個其實已經成功的 API 回 500；`beforeNoteDeleted` 則是 DELETE 交易前的
- * await 點，throw 會讓「筆記刪不掉、卻已經被閘門擋住 30 秒」——兩種都比記錄錯誤後繼續更糟。
+ * await 點，throw 會讓「筆記刪不掉、卻已經被閘門擋住兩分鐘」（見 `DELETING_GATE_TTL_MS`）——兩種都比記錄錯誤後繼續更糟。
  */
 import { COLLAB_CLOSE_NOTE_DELETED, COLLAB_CLOSE_REVOKED } from "@knotebook/shared";
 import type { CollabHooks } from "./hooks.js";
@@ -171,7 +171,7 @@ export function createCollabHooks(server: CollabServer, log: CollabHooksLogger =
     async beforeNoteDeleted(noteId: string): Promise<void> {
       // 先關門：此後 onAuthenticate / connected / onTokenSync 三處都會拒絕這篇筆記
       // （Task 5 已實作），下面的清掃才不會邊掃邊有新連線補進來。
-      server.markDeleting(noteId);
+      await server.markDeleting(noteId);
 
       // TTL。`unref()`：這個計時器不該讓 process（或測試 worker）為了它多活兩分鐘——
       // 閘門只在服務執行中才有意義，行程要結束時直接跟著消失即可。
@@ -209,6 +209,19 @@ export function createCollabHooks(server: CollabServer, log: CollabHooksLogger =
         // 清場失敗不得讓 DELETE 回 500：閘門已經關上，交易照跑，殘留的連線最遲在下一次
         // 重驗／訊息往返時就會因為筆記不存在而被拒。
         log.error({ err: error, noteId }, "collab beforeNoteDeleted 清場失敗，仍繼續刪除");
+      }
+    },
+
+    /**
+     * 刪除交易失敗 → 立刻收掉閘門。留著的話這篇筆記會有整整兩分鐘對協作者宣稱「已刪除」
+     * 並把他們導走，而它其實還在（`DELETING_GATE_TTL_MS` 只是保底，不該當成正常路徑）。
+     */
+    afterNoteDeleteFailed(noteId: string): void {
+      try {
+        server.unmarkDeleting(noteId);
+      } catch (error) {
+        // 呼叫點正在處理刪除失敗的例外，這裡再 throw 會把原始錯誤蓋掉。
+        log.error({ err: error, noteId }, "collab 刪除失敗後收閘門亦失敗（閘門將由 TTL 自然到期）");
       }
     },
 

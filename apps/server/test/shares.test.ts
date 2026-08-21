@@ -27,6 +27,7 @@ function spyCollabHooks(): CollabHooks {
     onShareChanged: vi.fn(),
     onUserRevoked: vi.fn(),
     beforeNoteDeleted: vi.fn(async () => {}),
+    afterNoteDeleteFailed: vi.fn(),
     linkSyncGate: () => ({ ok: false as const }),
   };
 }

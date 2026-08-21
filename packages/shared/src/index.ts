@@ -214,13 +214,28 @@ export const COLLAB_CLOSE_NOTE_DELETED = "knotebook:note-deleted";
  * ⚠ **不要為「筆記不存在」另開一個 reason**：那會把「這個 noteId 是否存在」變成一個任何登入
  * 使用者都能問的 oracle，而 REST 端刻意不區分這兩者（`GET /api/notes/:ref` 一律 404、
  * collab-token 一律 200 + role 'none'，見 `routes/notes.ts` 的防列舉說明）。刪除後的重連窗口
- * 改由 server 端的刪除閘門覆蓋（`DELETING_GATE_TTL_MS` 大於 client 的最長重啟退避），閘門只裝
- * 得下「這個行程剛剛刪掉的筆記」，回答不了攻擊者自己挑的 UUID。
+ * 改由 server 端的刪除閘門覆蓋（`DELETING_GATE_TTL_MS` 大於 `COLLAB_RESTART_DELAYS_MS` 的最大
+ * 值），而閘門**只對「刪除當下本來就看得到這篇筆記的人」說 `note-deleting`**——其他人一律
+ * 落在 `forbidden`，與「這篇筆記存在但不是你的」完全一樣，問不出任何東西。
  */
 export const COLLAB_REJECT_NOTE_DELETING = "note-deleting";
 export const COLLAB_REJECT_INVALID_TOKEN = "invalid-token";
 export const COLLAB_REJECT_FORBIDDEN = "forbidden";
 export const COLLAB_REJECT_SERVER_ERROR = "server-error";
+/**
+ * client 在「token 徹底取不到」或「拒連理由不是授權裁決」之後，整條連線重來的退避表（ms，
+ * issue #39／#35）與抖動幅度。最後一格重複使用；實際延遲 ＝ 該格 × [0.75, 1.25)。
+ *
+ * ⚠ **住在 shared 是因為 server 端的刪除閘門 TTL 必須大於這裡的最大值**
+ * （`DELETING_GATE_TTL_MS`，見 `apps/server/src/collab/hooks-impl.ts`）：閘門是 server 唯一
+ * 能對「本來看得到這篇筆記的人」說出「它被刪掉了」的窗口，關得比 client 的重連還早的話，
+ * 那個人就會收到 `forbidden` ＝ 被告知失去存取權（issue #35）。兩個常數因此是一組耦合的
+ * 契約，由 `apps/server/test/unit/collab-deleting-gate.test.ts` 釘住——調整這裡的數字時，
+ * 那條測試會告訴你 server 端要不要跟著調。
+ */
+export const COLLAB_RESTART_DELAYS_MS = [5_000, 15_000, 60_000] as const;
+export const COLLAB_RESTART_JITTER = 0.25;
+
 export const COLLAB_TOKEN_TTL_SECONDS = 120;
 export interface CollabTokenClaims {
   noteId: string;

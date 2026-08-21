@@ -81,9 +81,10 @@ import {
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
 import type { UserGate } from "../auth/session.js";
-import { resolveRole } from "../notes/service.js";
+import { loadNoteAudience, resolveRole } from "../notes/service.js";
 import { verifyCollabToken } from "./token.js";
 import { createNoteStore, docClock, type StoreLogger } from "./store.js";
+import { FixedWindowLimiter } from "../http/rate-limit.js";
 
 /** Hocuspocus 的 `onStoreDocument` debounce（ms）。production 一律 2000——見 Task 7 brief。 */
 const STORE_DEBOUNCE_MS = 2_000;
@@ -174,6 +175,22 @@ export class CollabAuthError extends Error {
   }
 }
 
+/**
+ * 拒連日誌的 per-user 上限（issue #37 的訊號 vs. 日誌量的折衷，審查 round 2 指出）。
+ *
+ * 為什麼需要：Hocuspocus 對認證失敗**不關 socket**，還會把該文件的狀態清乾淨，讓同一條
+ * socket 上的下一則 auth 訊息當成全新的第一次嘗試。而 collab-token 的 60/分鐘節流管的是
+ * 「簽發」不是「使用」——一份合法 token 可以在 120 秒內被同一條 socket 重放無數次。若每
+ * 一則都寫一行 info，任何一個帳號都能以近乎線速把自架者的日誌磁碟灌爆（`resolveRole` 對
+ * 非 UUID 的 documentName 連 DB 都不查，每一輪的成本近乎於零）。
+ *
+ * 10/分鐘對診斷綽綽有餘：一次真的撤權只會產生一兩行。
+ */
+const REJECT_LOG_LIMIT = { limit: 10, windowMs: 60_000 } as const;
+
+/** 日誌裡 noteId 欄位的長度上限：documentName 由 client 指定，最長可達 512 bytes。 */
+const LOGGED_NOTE_ID_MAX = 64;
+
 /** `destroy()` 等待文件全部 unload（讓 pending store 落地）的上限。 */
 const DESTROY_UNLOAD_TIMEOUT_MS = 2_000;
 
@@ -227,8 +244,17 @@ export interface CollabServer {
    * timer 永遠等不到解除，會誤殺一條其實已經重驗成功的連線。token 抵達時整組觸發並清空。
    */
   onNextTokenSync(handle: ConnectionHandle, cb: () => void): void;
-  /** 刪除閘門：in Set 期間 `onAuthenticate` 一律拒連（Task 6 的 beforeNoteDeleted 用）。 */
-  markDeleting(noteId: string): void;
+  /**
+   * 刪除閘門：登記期間這篇筆記的連線一律被拒／被關（Task 6 的 beforeNoteDeleted 用）。
+   *
+   * ⚠ **必須在刪除交易之前 await**：它會先把「此刻看得到這篇筆記的人」抓下來留著
+   * （`loadNoteAudience`），交易一 commit 那些列就查不到了。這份名單決定 `onAuthenticate`
+   * 要不要對某個人說出 `note-deleting`——只有名單上的人聽得到，其他人一律照
+   * `no-role` 回答，閘門因此不會變成「這個 noteId 存不存在」的 oracle（issue #35 審查）。
+   * 名單抓取失敗（DB 抖動）時退回「對任何持有合法 token 的人都說 note-deleting」——閘門
+   * 的**阻擋**職責優先於這層資訊揭露的收斂。
+   */
+  markDeleting(noteId: string): Promise<void>;
   unmarkDeleting(noteId: string): void;
   /** 關閉所有 socket、flush 待寫入的文件。**必須在 `app.close()` 之前 await。** */
   destroy(): Promise<void>;
@@ -290,7 +316,13 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
   const byUser = new Map<string, Set<ConnectionHandle>>();
   const byNote = new Map<string, Set<ConnectionHandle>>();
   const tokenSyncCallbacks = new Map<string, Set<() => void>>();
-  const deleting = new Set<string>();
+  /**
+   * 刪除閘門。value＝刪除當下看得到這篇筆記的 userId 集合（`null`＝名單抓取失敗，退回
+   * 「誰都聽得到」）。**只有 key 決定「擋不擋」，value 只決定「拒絕的理由說得多具體」**
+   * ——`connected`／`onTokenSync` 兩處的再檢查一律只看 key（走到那裡的連線都已經通過
+   * onAuthenticate，本來就看得到這篇筆記）。
+   */
+  const deleting = new Map<string, ReadonlySet<string> | null>();
   const sockets = new Set<WsWebSocket>();
 
   let attached = false;
@@ -316,18 +348,31 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
   // （而非 inline lambda 內 new 一份）純粹是可讀性考量，狀態（sv/lastBackupAt 快取）本來
   // 就只需要一份，跟著整個 CollabServer 的生命週期走。
   const log = deps.log ?? consoleCollabLogger;
+  const rejectLogLimiter = new FixedWindowLimiter(REJECT_LOG_LIMIT);
+
+  /**
+   * 這個人聽不聽得到「這篇筆記正在刪除／剛被刪掉」。閘門的 value 是刪除當下的可見名單
+   * （`null`＝名單抓取失敗，退回誰都聽得到）——見 `deleting` 與 `markDeleting`。
+   */
+  function deletingAudibleTo(noteId: string, userId: string): boolean {
+    const audience = deleting.get(noteId);
+    return audience === null || (audience !== undefined && audience.has(userId));
+  }
   const noteStore = createNoteStore({ db: deps.db, log });
 
   /**
-   * 拒絕這次握手：留下一行結構化日誌（issue #37）再丟出 `CollabAuthError`。
+   * 拒連／踢除的結構化日誌（issue #37）。`phase` 分辨「握手當下被拒」（handshake）與
+   * 「連線期重驗後被關」（reverify）——後者才是「我好好的怎麼突然被踢出來」最常見的來源。
    *
    * 為什麼一定要 log：issue #6 修好之後，一次拒連的後果從「使用者卡在連線中（會來回報，
    * 維護者可以現場看畫面）」變成「使用者被自動導走」——他只會說「我突然被踢出來了」。
    * 而 `CollabAuthError.message` 是刻意留空的（見該類別註解），連 Hocuspocus 那則
    * console.error 的間接訊號都沒有，等於一個位元都不留。
    *
-   * 欄位限定 `{ noteId, userId, cause, reason }`：cause 是有限的常數集合、不含 PII，
-   * userId 是 uuid。**不記 token 內容**。
+   * 欄位：`{ phase, noteId, userId, cause, reason }`，另加 `server-error` 那一行的 `err`
+   * （唯一可能帶進外部訊息的欄位，例如 DB driver 的 query 文字）。cause／reason 是有限的
+   * 常數集合。**不記 token 內容**。⚠ `noteId` 是 client 指定的 documentName（未必是 uuid，
+   * 最長可達 `maxParamLength`），一律截短到 `LOGGED_NOTE_ID_MAX` 再寫。
    *
    * 級別分三級（審查指出）：
    *
@@ -337,15 +382,38 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
    *   而且繞過任何反向代理擋得住的 HTTP 節流。它也是診斷價值最低的一個（沒有 userId，而且
    *   client 收到它只會自己退避重試，不會把人踢走）。
    * - `server-error` → **error**，並帶上 `err`（要 stack）。那是真的故障。
-   * - 其餘 → **info**。它們都需要一份合法簽章的 token，因而已受 collab-token 的 per-user
-   *   節流（60/分鐘）保護，而且都帶得出 userId。
+   * - 其餘 → **info**。
+   *
+   * ⚠ **info／error 兩級都套 per-user 節流**（`REJECT_LOG_LIMIT`，審查 round 2 指出）：
+   * collab-token 的 60/分鐘管的是「簽發」不是「使用」，同一份合法 token 可以在 TTL 內被
+   * 同一條 socket 重放無數次，每一則都寫一行的話，任何一個帳號都能把日誌磁碟灌爆。
    */
+  function logReject(
+    phase: "handshake" | "reverify",
+    cause: CollabRejectCause,
+    reason: string,
+    ctx: { noteId: string; userId?: string; err?: unknown }
+  ): void {
+    const line = {
+      phase,
+      noteId: ctx.noteId.slice(0, LOGGED_NOTE_ID_MAX),
+      userId: ctx.userId,
+      cause,
+      reason,
+    };
+    if (cause === "bad-token") {
+      log.debug(line, "collab 握手被拒");
+      return;
+    }
+    if (!rejectLogLimiter.consume(ctx.userId ?? "anonymous")) return;
+    if (cause === "server-error") log.error({ ...line, err: ctx.err }, "collab 握手被拒");
+    else log.info(line, phase === "handshake" ? "collab 握手被拒" : "collab 重驗後關閉連線");
+  }
+
+  /** 拒絕這次握手：留下日誌（見 `logReject`）再丟出 `CollabAuthError`。 */
   function rejectAuth(cause: CollabRejectCause, ctx: { noteId: string; userId?: string; err?: unknown }): never {
     const reason = REJECT_WIRE_REASON[cause];
-    const line = { noteId: ctx.noteId, userId: ctx.userId, cause, reason };
-    if (cause === "bad-token") log.debug(line, "collab 握手被拒");
-    else if (cause === "server-error") log.error({ ...line, err: ctx.err }, "collab 握手被拒");
-    else log.info(line, "collab 握手被拒");
+    logReject("handshake", cause, reason, ctx);
     throw new CollabAuthError(reason);
   }
 
@@ -374,6 +442,10 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
     // 簽發當下的快照，絕不當作授權依據（N2）。這保證撤分享/停用帳號在 TTL 內對「舊而
     // 未過期」的 token 立即生效，而不必等 token 自然過期。
     onAuthenticate: async ({ token, documentName, connectionConfig }) => {
+      // ⚠ 提到 try 外面（審查 round 2）：`server-error` 那一行也要帶得出 userId——它正是
+      // 唯一會讓分頁真的一直停在「連線中」的原因，維護者最需要知道是誰。catch 看不到
+      // try 內的 `claims`，所以身分一驗出來就先存這裡。
+      let userId: string | undefined;
       try {
         const claims = token ? await verifyCollabToken(deps.config.appSecret, token) : null;
         // documentName 是「這條連線實際要連的文件」，claims.noteId 是 token 簽發當下綁定
@@ -381,18 +453,28 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
         if (!claims || claims.noteId !== documentName) {
           rejectAuth("bad-token", { noteId: documentName });
         }
+        userId = claims.userId;
 
         // ⚠ 刪除閘門刻意排在**驗完 token 之後**（審查指出）：它是這個 server 唯一會透露
         // 「某個 noteId 存在（且剛被刪掉）」的地方，擺在最前面等於讓一個連 session 都不需要
         // 的 socket 就能問這個問題。擺在這裡，要問就得先持有一份對這篇筆記合法簽章的 token。
         // 順序仍必須早於 resolveRole：刪除交易 commit 之後那一列就查不到了，先跑 role 的話
         // 這條路會落到 `no-role`（＝對使用者說「你已失去存取權」），而真相是筆記被刪了。
-        if (deleting.has(documentName)) {
+        // 只有「刪除當下本來就看得到這篇筆記的人」聽得到 note-deleting；其他人往下走，
+        // 最終落在 `no-role`——與「這篇筆記存在但不是你的」完全一樣的可觀察行為。
+        if (deletingAudibleTo(documentName, claims.userId)) {
           rejectAuth("note-deleting", { noteId: documentName, userId: claims.userId });
         }
 
         const role = await resolveRole(deps.db, claims.userId, documentName);
         if (role === "none") {
+          // ⚠ 再讀一次閘門（審查 round 2 抓到的競態）：上面那次讀取可能剛好早於
+          // `markDeleting`，而這次 `resolveRole` 又晚於刪除交易 commit ⇒ 查不到列 ⇒ 'none'。
+          // 只看第一次讀取的話，這個窗口裡的使用者會被告知「你已失去存取權」，真相是筆記
+          // 被刪了——正是 issue #35 要修掉的那句話。此刻 token 已驗過，重讀不多洩漏任何東西。
+          if (deletingAudibleTo(documentName, claims.userId)) {
+            rejectAuth("note-deleting", { noteId: documentName, userId: claims.userId });
+          }
           rejectAuth("no-role", { noteId: documentName, userId: claims.userId });
         }
         const gateResult = await deps.gate.check(claims.userId, claims.tv);
@@ -420,7 +502,7 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
         // ⚠ 一樣走 `rejectAuth`（審查指出）：這是唯一會讓分頁真的一直停在「連線中」的原因，
         // 也就是維護者最需要找到的那一種。它若不出現在 `cause` 欄位上，docs 教的
         // `grep '"cause"'` 就剛好漏掉它。
-        rejectAuth("server-error", { noteId: documentName, err });
+        rejectAuth("server-error", { noteId: documentName, userId, err });
       }
     },
 
@@ -502,26 +584,33 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
         const handle = handles.get(key);
         if (!handle) return;
 
+        // 每條 close 都留下與握手同一組欄位的訊號（`phase: "reverify"`，issue #37 的排錯
+        // 指引承諾 grep 得到「我突然被踢出來」——而連線期被撤權走的正是這條路，不是握手）。
+        const closeWith = (cause: CollabRejectCause, reason: string): void => {
+          logReject("reverify", cause, reason, { noteId: documentName, userId: handle.userId });
+          handle.close(reason);
+        };
+
         if (deleting.has(documentName)) {
-          handle.close(COLLAB_CLOSE_NOTE_DELETED);
+          closeWith("note-deleting", COLLAB_CLOSE_NOTE_DELETED);
           return;
         }
 
         const claims = token ? await verifyCollabToken(deps.config.appSecret, token) : null;
         if (!claims || claims.userId !== handle.userId || claims.noteId !== documentName) {
-          handle.close(COLLAB_CLOSE_REVOKED);
+          closeWith("bad-token", COLLAB_CLOSE_REVOKED);
           return;
         }
 
         const role = await resolveRole(deps.db, claims.userId, documentName);
         if (role === "none") {
-          handle.close(COLLAB_CLOSE_REVOKED);
+          closeWith("no-role", COLLAB_CLOSE_REVOKED);
           return;
         }
 
         const gateResult = await deps.gate.check(claims.userId, claims.tv);
         if (gateResult.status !== "ok") {
-          handle.close(COLLAB_CLOSE_REVOKED);
+          closeWith("session-revoked", COLLAB_CLOSE_REVOKED);
           return;
         }
 
@@ -635,8 +724,15 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
       else tokenSyncCallbacks.set(key, new Set([cb]));
     },
 
-    markDeleting(noteId: string): void {
-      deleting.add(noteId);
+    async markDeleting(noteId: string): Promise<void> {
+      let audience: ReadonlySet<string> | null = null;
+      try {
+        audience = await loadNoteAudience(deps.db, noteId);
+      } catch (err) {
+        // 抓不到名單不能讓刪除流程卡住：閘門本身（擋連線／擋寫入）才是它的主職責。
+        log.warn({ err, noteId }, "collab 刪除閘門取不到可見名單，退回不分對象的拒連理由");
+      }
+      deleting.set(noteId, audience);
     },
 
     unmarkDeleting(noteId: string): void {
