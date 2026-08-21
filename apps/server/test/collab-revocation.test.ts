@@ -324,7 +324,7 @@ describe("撤權 SLA：CollabHooks（Task 6）", () => {
     expect(ctx.collab.connectionsOfNote(note.id).size).toBe(0);
     expect(ctx.collab.hocuspocus.documents.has(note.id)).toBe(false);
 
-    // 刪除閘門仍在（TTL 30s 內）：此時的重連一律以 note-deleting 拒絕。
+    // 刪除閘門仍在（TTL 內，見 DELETING_GATE_TTL_MS）：此時的重連一律以 note-deleting 拒絕。
     // 刻意在 DELETE 回應之後才測，而不是與 DELETE 併發送出——後者的相對時序取決於兩邊
     // 各自的 DB 往返，會是不確定性測試；閘門的 TTL 讓「刪除中」這個狀態在回應後仍持續，
     // 因此這裡測到的是同一個閘門、同一條拒絕路徑。
