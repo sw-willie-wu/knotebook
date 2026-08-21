@@ -230,6 +230,84 @@ describe("SettingsAiSection（spec §13.4：provider／model／action 三層 CRU
     });
   });
 
+  it("改 base_url 才提示「會清除金鑰」；同一次輸入了新金鑰就不提示（issue #46）", async () => {
+    // 事前告知：不然使用者會先看到 provider 突然不能用，才知道發生了什麼。
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      const res = defaultGetHandlers({ providers: [PROVIDER_A], models: [], actions: [] })(url, method);
+      if (res) return Promise.resolve(res);
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+
+    renderSection(fetchMock);
+    await waitFor(() => expect(screen.getByText(PROVIDER_A.name)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const notice = /Changing the Base URL clears the stored API key/;
+    // 還沒動網址：不提示（改名字之類的編輯不該嚇人）。
+    expect(screen.queryByText(notice)).not.toBeInTheDocument();
+
+    const baseUrlInput = await screen.findByLabelText("Base URL");
+    fireEvent.change(baseUrlInput, { target: { value: "http://elsewhere.example.com" } });
+    expect(screen.getByText(notice)).toBeInTheDocument();
+
+    // 一併輸入了新金鑰 → 不會作廢任何東西，也就不該再提示。
+    fireEvent.change(screen.getByLabelText("API key"), { target: { value: "sk-new" } });
+    expect(screen.queryByText(notice)).not.toBeInTheDocument();
+
+    // 又把它刪掉（或只剩空白）→ 提示要回來。三個條件都是每次 render 重算的衍生值，
+    // 改成 useState + useEffect 快照就會在這裡靜默壞掉。
+    fireEvent.change(screen.getByLabelText("API key"), { target: { value: "   " } });
+    expect(screen.getByText(notice)).toBeInTheDocument();
+  });
+
+  it("沒有金鑰的 provider 在卡片上就看得出來；有金鑰的不顯示（issue #46 審查）", async () => {
+    // 「金鑰被清掉」以前是一個完全沒有 UI 表示的狀態——卡片不顯示 hasKey，degraded 的紅字
+    // 又剛好在同一時間消失（沒金鑰就不叫「解不開」）。文件宣稱的「shows as having no key」
+    // 就是靠這一行才成立。
+    // 用現成的 PROVIDER_B（Local Ollama，hasKey:false）——自己捏 id 撞到 PROVIDER_A 的話
+    // React key 與 DOM id 都會重複，「恰好一則」這個斷言就變成建立在 reconciliation 的
+    // 未定義行為上（審查抓到）。
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      const res = defaultGetHandlers({ providers: [PROVIDER_A, PROVIDER_B], models: [], actions: [] })(url, method);
+      if (res) return Promise.resolve(res);
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+
+    renderSection(fetchMock);
+    await waitFor(() => expect(screen.getByText(PROVIDER_B.name)).toBeInTheDocument());
+
+    // ⚠ 要驗它**掛在哪一張卡**，不能只數數量（審查用變異實測抓到：把顯示條件反轉成
+    // `hasKey && !degraded`，提示改掛在有金鑰的那張卡上、真正沒金鑰的反而不顯示，只數
+    // 數量的話 16 條測試全綠）。而三份文件唯一依靠的就是這道釘子。
+    const noKeyCard = screen.getByText(PROVIDER_B.name).closest<HTMLElement>("div.rounded-md");
+    const hasKeyCard = screen.getByText(PROVIDER_A.name).closest<HTMLElement>("div.rounded-md");
+    expect(noKeyCard && within(noKeyCard).getByText(/No API key stored/)).toBeInTheDocument();
+    expect(hasKeyCard && within(hasKeyCard).queryByText(/No API key stored/)).not.toBeInTheDocument();
+  });
+
+  it("沒有金鑰的 provider 改網址不提示「會清除金鑰」（本來就沒有東西可清）", async () => {
+    // 自架 Ollama 換 port 的情境：不該冒出一句與他無關的警告。
+    const noKey = { ...PROVIDER_A, hasKey: false };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      const res = defaultGetHandlers({ providers: [noKey], models: [], actions: [] })(url, method);
+      if (res) return Promise.resolve(res);
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+
+    renderSection(fetchMock);
+    await waitFor(() => expect(screen.getByText(noKey.name)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    fireEvent.change(await screen.findByLabelText("Base URL"), { target: { value: "http://localhost:11435/v1" } });
+    expect(screen.queryByText(/Changing the Base URL clears/)).not.toBeInTheDocument();
+  });
+
   it("degraded provider 顯示警示與重輸提示", async () => {
     const degradedProvider: AdminAiProviderDto = { ...PROVIDER_A, degraded: true };
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {

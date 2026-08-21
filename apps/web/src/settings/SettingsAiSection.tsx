@@ -276,6 +276,12 @@ function EditProviderDialog({ provider }: { provider: AdminAiProviderDto }) {
               value={baseUrl}
               onChange={(event) => setBaseUrl(event.target.value)}
             />
+            {/* issue #46：換網址會作廢既有金鑰。**事前**講——事後 toast 的話，使用者會先
+                看到 provider 突然不能用，才知道發生了什麼。只在真的會發生時顯示：這個
+                provider 有金鑰、網址真的被改了、而且這次沒有一併輸入新金鑰。 */}
+            {provider.hasKey && baseUrl !== provider.baseUrl && apiKey.trim().length === 0 && (
+              <p className="text-sm text-muted-foreground">{t("settings.ai.baseUrlChangeClearsKey")}</p>
+            )}
           </div>
 
           <div className="space-y-1">
@@ -704,6 +710,22 @@ function ProviderCard({ provider, models }: { provider: AdminAiProviderDto; mode
       {provider.degraded && (
         <p role="alert" className="text-xs text-destructive">
           {t("settings.ai.degradedBadge")}: {t("settings.ai.degradedNotice")}
+        </p>
+      )}
+
+      {/* issue #46 審查：改網址會把金鑰作廢，但在此之前卡片上**完全看不出**一個 provider
+          有沒有金鑰（`hasKey` 以前只有 Edit dialog 用）——於是「金鑰被清掉」變成一個沒有
+          任何 UI 表示的狀態，degraded 的紅字還會在同一時間消失（沒金鑰就不叫解不開）而
+          沒有東西接手。這一行就是接手的那個。degraded 時不重複顯示：那句已經在講同一件
+          事（去重新輸入金鑰），兩行並排只會吵。
+
+          ⚠ 文案必須是**中性事實**：`hasKey` 分不出「從來沒有」（自架的無授權服務，
+          `docs/ai.md` 明講那是合法設定）與「剛剛被清掉」（要行動），所以這一行不能預言
+          後果、也不能說「直到重新輸入為止」——對一顆從來沒有金鑰的 Ollama provider
+          那是假話，而且它永遠不會消失（審查抓到）。 */}
+      {!provider.hasKey && !provider.degraded && (
+        <p role="status" className="text-xs text-muted-foreground">
+          {t("settings.ai.noKeyNotice")}
         </p>
       )}
 

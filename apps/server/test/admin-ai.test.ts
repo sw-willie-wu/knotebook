@@ -2,14 +2,15 @@ import { randomUUID } from "node:crypto";
 import { describe, it, expect } from "vitest";
 import { onTestFinished } from "vitest";
 import http from "node:http";
-import { eq } from "drizzle-orm";
+import { Client } from "pg";
+import { eq, sql } from "drizzle-orm";
 import { SESSION_COOKIE } from "@knotebook/shared";
 import { buildTestApp, testConfig } from "./helpers.js";
 import { aiActions, aiModels, aiProviders, users } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
 import { signSession } from "../src/auth/session.js";
 import { hashPassword } from "../src/auth/password.js";
-import { encryptApiKey } from "../src/ai/crypto.js";
+import { decryptApiKey, encryptApiKey } from "../src/ai/crypto.js";
 import { createAiRuntime } from "../src/ai/runtime.js";
 import { BUILTIN_ACTION_IDS } from "../src/db/seed-ai.js";
 
@@ -191,6 +192,227 @@ describe("providers CRUD", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ hasKey: true, degraded: false });
     expect(runtime.degraded.has(provider.id)).toBe(false);
+  });
+
+  it("改 base_url（沒同時給新金鑰）→ 既有金鑰作廢：hasKey false、DB 密文真的是 null（issue #46）", async () => {
+    // `/test` 與每一次 AI 呼叫都會把**明文** key 送到 baseUrl 指的主機，而 baseUrl 只驗格式。
+    // 不作廢的話，任何 admin 改一個明文欄位再按一下 Test，就能把金鑰送到自己的主機。
+    const runtime = createAiRuntime();
+    const { app, db } = await buildTestApp({ ai: runtime });
+    const admin = await insertUser(db, { isAdmin: true, email: "admin-p4c@example.com" });
+    const cookie = await cookieFor(admin.id);
+    const id = randomUUID();
+    const provider = await insertProvider(db, { id, apiKeyEncrypted: encryptApiKey(testConfig.appSecret, "sk-secret", id) });
+    runtime.degraded.add(provider.id);
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/admin/ai/providers/${provider.id}`,
+      cookies: { [SESSION_COOKIE]: cookie },
+      payload: { baseUrl: "http://attacker.example.com" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ hasKey: false, baseUrl: "http://attacker.example.com" });
+
+    // DB 端斷言：不是只有回應的 hasKey 變了，密文本體真的沒了。
+    const [row] = await db.select().from(aiProviders).where(eq(aiProviders.id, provider.id));
+    expect(row!.apiKeyEncrypted).toBeNull();
+    // 沒有金鑰就不可能是「密文解不開」——degraded 一起收掉（比照 issue #17）。
+    expect(runtime.degraded.has(provider.id)).toBe(false);
+  });
+
+  it("改 base_url ＋ 同一次帶新金鑰 → 用新的，不作廢（換網址換金鑰一步完成）", async () => {
+    const { app, db } = await buildTestApp();
+    const admin = await insertUser(db, { isAdmin: true, email: "admin-p4d@example.com" });
+    const cookie = await cookieFor(admin.id);
+    const id = randomUUID();
+    const provider = await insertProvider(db, { id, apiKeyEncrypted: encryptApiKey(testConfig.appSecret, "sk-old", id) });
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/admin/ai/providers/${provider.id}`,
+      cookies: { [SESSION_COOKIE]: cookie },
+      payload: { baseUrl: "https://new.example.com", apiKey: "sk-brand-new" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ hasKey: true });
+
+    const [row] = await db.select().from(aiProviders).where(eq(aiProviders.id, provider.id));
+    expect(decryptApiKey(testConfig.appSecret, row!.apiKeyEncrypted!, provider.id)).toBe("sk-brand-new");
+  });
+
+  it("baseUrl 帶的是**同一個值**（只改名字）→ 金鑰原封不動", async () => {
+    // ⚠ 這條是整組裡最重要的：編輯表單每次送出都會把 baseUrl 一起帶上，所以判斷必須是
+    // 「跟舊值不同」而不是「有沒有帶這個欄位」——否則改一次名字就把使用者的金鑰清掉。
+    const { app, db } = await buildTestApp();
+    const admin = await insertUser(db, { isAdmin: true, email: "admin-p4e@example.com" });
+    const cookie = await cookieFor(admin.id);
+    const id = randomUUID();
+    const provider = await insertProvider(db, {
+      id,
+      baseUrl: "https://api.example.com",
+      apiKeyEncrypted: encryptApiKey(testConfig.appSecret, "sk-keep-me", id),
+    });
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/admin/ai/providers/${provider.id}`,
+      cookies: { [SESSION_COOKIE]: cookie },
+      payload: { name: "換個名字", baseUrl: "https://api.example.com" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ hasKey: true, name: "換個名字" });
+
+    const [row] = await db.select().from(aiProviders).where(eq(aiProviders.id, provider.id));
+    expect(decryptApiKey(testConfig.appSecret, row!.apiKeyEncrypted!, provider.id)).toBe("sk-keep-me");
+  });
+
+  it("本來就沒有金鑰的 provider 改網址 → 200、hasKey 仍是 false、不噴錯", async () => {
+    // 自架 Ollama 換 port：清空是 no-op，不該有任何副作用。
+    const { app, db } = await buildTestApp();
+    const admin = await insertUser(db, { isAdmin: true, email: "admin-p4f@example.com" });
+    const cookie = await cookieFor(admin.id);
+    const provider = await insertProvider(db, { baseUrl: "http://localhost:11434/v1", apiKeyEncrypted: null });
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/admin/ai/providers/${provider.id}`,
+      cookies: { [SESSION_COOKIE]: cookie },
+      payload: { baseUrl: "http://localhost:11435/v1" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ hasKey: false, baseUrl: "http://localhost:11435/v1" });
+  });
+
+  it("改網址會留下稽核 log，訊息字串與 docs 逐字相符（docs 教人 grep 它）", async () => {
+    // `docs/self-hosting.md` 教維護者 `grep 'base URL'`、`docs/known-limitations.md` 逐字
+    // 引用這則訊息並稱它是「唯一可信的痕跡」。沒有測試釘住的話，有人改一次訊息，兩份
+    // 文件會靜默失效。
+    const lines: Array<{ msg?: string; obj: Record<string, unknown> }> = [];
+    const { app, db } = await buildTestApp(
+      {},
+      {
+        logger: {
+          level: "info",
+          // pino 的 write hook：只收我們自己那一行，其餘（fastify 的 req/res）忽略。
+          hooks: {
+            logMethod(args: unknown[], method: (...a: unknown[]) => void) {
+              const [obj, msg] = args as [Record<string, unknown>, string | undefined];
+              if (typeof obj === "object" && obj !== null) lines.push({ msg, obj });
+              method.apply(this, args as never[]);
+            },
+          },
+        },
+      }
+    );
+    const admin = await insertUser(db, { isAdmin: true, email: "admin-p4h@example.com" });
+    const cookie = await cookieFor(admin.id);
+    const id = randomUUID();
+    const provider = await insertProvider(db, {
+      id,
+      baseUrl: "https://api.openai.com/v1",
+      apiKeyEncrypted: encryptApiKey(testConfig.appSecret, "sk-x", id),
+    });
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/admin/ai/providers/${provider.id}`,
+      cookies: { [SESSION_COOKIE]: cookie },
+      // 帶 userinfo：`safeTarget` 必須只記 origin+pathname，不得把憑證寫進日誌。
+      payload: { baseUrl: "https://user:pass@evil.example.com/v1?k=secret" },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const line = lines.find(one => one.msg === "AI provider 的 base URL 被寫入");
+    expect(line).toBeDefined();
+    expect(line!.obj).toMatchObject({
+      providerId: provider.id,
+      userId: admin.id,
+      from: "https://api.openai.com/v1",
+      to: "https://evil.example.com/v1",
+      hasKeyAfter: false,
+    });
+    // 憑證與 query 都不得出現在那一行的任何欄位裡。
+    expect(JSON.stringify(line!.obj)).not.toContain("pass");
+    expect(JSON.stringify(line!.obj)).not.toContain("secret");
+
+    // ⚠ **網址看起來沒變也要記**（審查指出，這是 round 2 的核心修法）：觸發條件若退回
+    // 「跟 `existing` 不同才記」，攻擊者持續送 no-op PATCH 的那個競態下會一行都不輸出
+    // ——而 docs 說那行 log 是「唯一可信的痕跡」，要抓的正是那個姿勢。
+    lines.length = 0;
+    const again = await app.inject({
+      method: "PATCH",
+      url: `/api/admin/ai/providers/${provider.id}`,
+      cookies: { [SESSION_COOKIE]: cookie },
+      payload: { baseUrl: "https://user:pass@evil.example.com/v1?k=secret" },
+    });
+    expect(again.statusCode).toBe(200);
+    expect(lines.some(one => one.msg === "AI provider 的 base URL 被寫入")).toBe(true);
+  });
+
+  it("併發：攻擊者的 no-op PATCH 排在受害者之後，也偷不到那把剛輸入的金鑰（TOCTOU 回歸釘）", async () => {
+    // 審查實測抓到的繞過：handler 先 SELECT 舊網址、再 UPDATE，中間沒有交易。攻擊者持續送
+    // `{baseUrl: EVIL}`（讀到的舊值就是 EVIL ⇒ 判定沒變 ⇒ 不清金鑰，但 base_url = EVIL 照
+    // 寫），只要有一發的 SELECT 落在受害者「改回正確網址＋重新輸入金鑰」的 UPDATE 之前、
+    // UPDATE 落在之後，最終列就是「攻擊者的網址 ＋ 受害者剛輸入的金鑰」。
+    //
+    // ⚠ 這裡**不用併發去賭那個窗口**（審查算過：以舊碼 7% 的命中率下界，12 輪全 miss 的
+    // 機率有四成——那根釘子有四成機會抓不到它專門要抓的回歸）。改成自己持有行鎖，把兩者
+    // 的順序釘死：攻擊者的 UPDATE 必然排在受害者 commit 之後。舊寫法（Node 端比對）在這個
+    // 順序下**必然**漏，因為它的 SELECT 不受行鎖阻擋，讀到的是受害者寫入前的舊值。
+    const { app, db } = await buildTestApp();
+    const admin = await insertUser(db, { isAdmin: true, email: "admin-p4g@example.com" });
+    const cookie = await cookieFor(admin.id);
+    const GOOD = "https://api.openai.com/v1";
+    const EVIL = "http://evil.example.com/v1";
+
+    const id = randomUUID();
+    await insertProvider(db, { id, baseUrl: EVIL, apiKeyEncrypted: null });
+
+    // 另開一條連往同一個測試資料庫的原始連線（`buildTestApp` 不吐 pool）。
+    const [{ current_database: dbName }] = (
+      await db.execute<{ current_database: string }>(sql`select current_database()`)
+    ).rows;
+    const dsn = new URL(process.env.TEST_DATABASE_URL!);
+    dsn.pathname = `/${dbName}`;
+    const holder = new Client({ connectionString: dsn.toString() });
+    await holder.connect();
+
+    try {
+      await holder.query("begin");
+      await holder.query("select 1 from ai_providers where id = $1 for update", [id]);
+
+      // 攻擊者那一發：SELECT 讀得到（不受行鎖阻擋，讀到 EVIL），UPDATE 卡在鎖上。
+      const attacker = app.inject({
+        method: "PATCH",
+        url: `/api/admin/ai/providers/${id}`,
+        cookies: { [SESSION_COOKIE]: cookie },
+        payload: { baseUrl: EVIL },
+      });
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // ⚠ 證明攻擊者那一發真的卡在行鎖上（審查指出）：少了這道斷言，慢機器上 500ms 不夠
+      // 時它的 SELECT 會跑在受害者 commit 之後 ⇒ 讀到 GOOD ⇒ 判定有變 ⇒ 連舊碼都會通過，
+      // 這根釘子就不再測它要測的回歸了。被鎖擋住這件事本身就證明 SELECT 已經跑完。
+      const pending = Symbol("pending");
+      expect(await Promise.race([attacker, Promise.resolve(pending)])).toBe(pending);
+
+      // 受害者：改回正確網址並重新輸入金鑰（在鎖內完成，必然先 commit）。
+      await holder.query(
+        `update ai_providers set base_url = $1, api_key_encrypted = $2::jsonb where id = $3`,
+        [GOOD, JSON.stringify(encryptApiKey(testConfig.appSecret, "sk-victim-secret", id)), id]
+      );
+      await holder.query("commit");
+      await attacker;
+    } finally {
+      await holder.end();
+    }
+
+    const [row] = await db.select().from(aiProviders).where(eq(aiProviders.id, id));
+    // 攻擊者的網址寫進去了（他本來就有權限改），但**金鑰不能跟著留下**——那一句
+    // `case when` 是拿受害者剛 commit 的網址重新比對的，所以必然清掉。
+    expect(row!.baseUrl).toBe(EVIL);
+    expect(row!.apiKeyEncrypted).toBeNull();
   });
 
   it("DELETE provider → 一併從 degraded 移除（留著會是永遠不會被清掉的髒狀態）", async () => {
