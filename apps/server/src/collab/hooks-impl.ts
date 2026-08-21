@@ -43,9 +43,9 @@ export const REVERIFY_DEADLINE_MS = 5_000;
  * 60s ＋ 25% 抖動 ＝ 最壞 75s（見 `apps/web/src/collab/useCollab.ts`）。取 120s 留餘裕。
  * 撐更久沒有意義：睡了半天才醒來的分頁本來就會落回 `forbidden`，那是可接受的降級。
  *
- * 代價：DELETE 中途拋錯時，這篇筆記會有 120 秒（而非 30 秒）連不上、且畫面顯示「已刪除」。
- * 該情境本身已經是一次 500 級事故，而且 `beforeNoteDeleted` 早在交易之前就把在線連線
- * 全部 close(NOTE_DELETED) 了——TTL 只影響「之後的重連被擋多久」，不會多壞掉什麼。
+ * 代價：交易失敗時本來要靠 TTL 自然到期，這篇筆記會有兩分鐘連不上且畫面顯示「已刪除」。
+ * 不過那條路現在由 `NoteDeleteGate.release()` 收掉（見 `beforeNoteDeleted` 的回傳值），只有
+ * 「release 自己也失敗」或「併發的另一次刪除持有這道門」才會真的等到 TTL。
  */
 export const DELETING_GATE_TTL_MS = 120_000;
 
@@ -111,10 +111,17 @@ export function createCollabHooks(server: CollabServer, log: CollabHooksLogger =
           // 最可能被誤踢**的路徑（他的 client 只是剛好卡在 token 退避裡沒能在 5 秒內回話），
           // 而使用者看到的是「你已失去存取權」。欄位比照 server.ts 的 `logReject`，
           // phase 另立 `deadline`——它不是握手被拒，也不是重驗有了結論。
-          log.info(
-            { phase: "deadline", noteId: c.noteId, userId: c.userId, cause: "no-reverify", reason: COLLAB_CLOSE_REVOKED },
-            "collab 重驗逾時關閉連線"
-          );
+          //
+          // ⚠ 但**只有這條連線還在索引裡才算數**（審查指出）：timer 對已關閉的連線 fire 是
+          // 安全的 no-op（見上面的說明），使用者自己關掉分頁也會走到這裡——照記的話，排錯
+          // 指引最倚重的那一行會指著一個根本沒被踢的人說「他是被踢的」。
+          const stillConnected = [...server.connectionsOfNote(c.noteId)].includes(c);
+          if (stillConnected) {
+            log.info(
+              { phase: "deadline", noteId: c.noteId, userId: c.userId, cause: "no-reverify", reason: COLLAB_CLOSE_REVOKED },
+              "collab 重驗逾時關閉連線"
+            );
+          }
           c.close(COLLAB_CLOSE_REVOKED);
         } catch (error) {
           log.error({ err: error, noteId: c.noteId, userId: c.userId }, "collab 重驗 deadline 關閉連線失敗");

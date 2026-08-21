@@ -257,20 +257,15 @@ export interface CollabServer {
    * 其他人一律照 `no-role` 回答，閘門因此不會變成「這個 noteId 存不存在」的 oracle
    * （issue #35 審查）。
    *
-   * ⚠ 名單抓取失敗時 value 是 `null`，**那絕不等於「誰都聽得到」**（審查 round 3：那樣一次
-   * DB 抖動就會把「這個 id 剛被刪掉」告訴每個登入使用者兩分鐘）——`null` 的情況一律退回用
-   * 「現在還有沒有角色」判斷，見 `onAuthenticate` 的慢路徑。
+   * ⚠ 名單抓取失敗時 value 是 `null`，**那絕不等於「誰都聽得到」**——理由與替代判準見
+   * `deletingAudienceHas`。
    *
    * 回傳這道門的世代序號，收門時要原樣帶回（見 `releaseDeletingGate`）。
    */
   markDeleting(noteId: string): Promise<number>;
   /**
    * 刪除失敗時收閘門，**但只收得掉 `epoch` 所指的那一道、而且只在筆記其實還在的時候**。
-   * 回傳有沒有真的收掉。
-   *
-   * 兩個條件都不可省（審查 round 3／4）：同一篇筆記併發兩個 DELETE 時，失敗那一次不得把
-   * 成功那一次開的閘門關掉——關掉的話接下來兩分鐘重連的協作者會聽到「你已失去存取權」，
-   * 而真相是筆記真的被刪了。
+   * 回傳有沒有真的收掉。兩個條件都不可省，理由見實作處。
    */
   releaseDeletingGate(noteId: string, epoch: number): Promise<boolean>;
   unmarkDeleting(noteId: string): void;
@@ -798,7 +793,7 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
       // 告知「你已失去存取權」，而真相是筆記真的被刪了。
       if (deleting.get(noteId)?.epoch !== epoch) return false;
 
-      // 而且只有「筆記其實還在」才收：併發的另一次刪除可能已經 commit 了。
+      // 第二道：只有「筆記其實還在」才收（審查 round 3）——併發的另一次刪除可能已經 commit。
       try {
         const audience = await loadNoteAudience(deps.db, noteId);
         if (audience.size === 0) return false;

@@ -17,10 +17,11 @@ export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 /**
  * 刪除某篇筆記**當下**看得到它的所有 userId（owner ＋ 每一筆分享）。
  *
- * 只有共編的刪除閘門用它（`CollabServer.markDeleting`）：閘門要能對「本來就看得到這篇
- * 筆記的人」說「它被刪掉了」，又不能對其他人透露這個 id 曾經存在——所以必須在刪除交易
- * **之前**、那些列還在的時候，把名單抓下來留著（見 `collab/server.ts` 的 `deleting`）。
- * 筆記不存在（或 id 格式非法）時回空集合。
+ * 只有共編的刪除閘門用它（`CollabServer` 的 `markDeleting`／`releaseDeletingGate`）：閘門要能
+ * 對「本來就看得到這篇筆記的人」說「它被刪掉了」，又不能對其他人透露這個 id 曾經存在——
+ * 所以必須在刪除交易**之前**、那些列還在的時候，把名單抓下來留著（見 `collab/server.ts` 的
+ * `deleting`）。筆記不存在（或 id 格式非法）時回空集合，`releaseDeletingGate` 也拿這一點
+ * 當「筆記到底還在不在」的判準。
  */
 export async function loadNoteAudience(db: Db, noteId: string): Promise<Set<string>> {
   if (!UUID_RE.test(noteId)) return new Set();

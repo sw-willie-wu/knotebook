@@ -314,6 +314,15 @@ export function useCollab({ noteId, onUnauthorized }: UseCollabOptions): UseColl
         pendingReconnectRef.current = false;
         // 認證成功＝這條連線活著，issue #39 的重啟退避從頭算起。
         restartAttempt = 0;
+        // ⚠ 還排著的那次重啟要一起收掉（審查指出）：拒連在 t=0 排了 5 秒後的重啟，而
+        // server 其實 1 秒後就恢復、provider 內建退避在 t=2 秒就連上了——留著的話，t=5 秒
+        // 那顆 timer 會把一條健康的連線拆掉重來，還多花一次 collab-token 的額度（那是
+        // per-user 跨分頁共用的）。使用者看不到（自家 close 會被 pendingReconnectRef 吞掉），
+        // 只會白白多繞一圈。
+        if (restartTimer !== undefined) clearTimeout(restartTimer);
+        restartTimer = undefined;
+        cancelRestartFallback?.();
+        cancelRestartFallback = undefined;
         dispatch({ type: "open", role: roleRef.current });
       },
     });

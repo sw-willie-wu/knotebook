@@ -540,6 +540,36 @@ describe("useCollab", () => {
     expect(phase()).toBe("kicked");
   });
 
+  it("連上了就收掉還排著的重啟（否則那顆 timer 會把健康的連線拆掉重來）", async () => {
+    // 拒連在 t=0 排了 5 秒後的重啟，而 server 其實很快就恢復、provider 內建退避先連上了。
+    // 留著那顆 timer 的話，它會在 t=5 秒把一條健康的連線 disconnect，並多花一次
+    // collab-token 額度（per-user、跨分頁共用）。
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(tokenOk("editor"))),
+    );
+    render(<Probe />);
+    const p = provider();
+    await act(async () => {
+      await p.configuration.token();
+    });
+
+    act(() => p.emit("authenticationFailed", { reason: COLLAB_REJECT_INVALID_TOKEN }));
+    expect(phase()).toBe("connecting");
+
+    // provider 自己的退避先把連線救回來了。
+    act(() => p.configuration.onAuthenticated());
+    expect(phase()).toBe("connected:editor");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(p.disconnect).not.toHaveBeenCalled();
+    expect(phase()).toBe("connected:editor");
+  });
+
   it("終態要掐掉**拒連**排出去的那次重啟（不只 token 失敗那條）", async () => {
     // stopRestartsRef 這道閘門在這個 commit 之後多了一個更常見的餵食者；沒有測試守著，
     // 一次整理就會讓終態的連線被 timer 重新拉起來（memory note 點名的不變量）。
