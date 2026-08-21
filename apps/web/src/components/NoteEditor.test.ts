@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
-import { BlockNoteEditor, SuggestionMenu } from "@blocknote/core";
+import { BlockNoteEditor, defaultBlockSpecs, SuggestionMenu } from "@blocknote/core";
 import { YDOC_FRAGMENT } from "@knotebook/shared";
 import { blocknoteZhTW } from "@/i18n/blocknote-zh-TW";
 import type { EditorRef } from "@/components/wikilink/menu";
@@ -10,6 +10,17 @@ const toastMock = vi.hoisted(() => vi.fn());
 vi.mock("@/components/ui/toast", () => ({ toast: toastMock }));
 
 const { buildNoteEditorOptions, collabUserColor, createMediaBlockingDOMEvents } = await import("./NoteEditor");
+
+/**
+ * `defaultBlockSpecs.image` 只取這次要用的那一層——BlockNote 的 block spec 泛型三元組
+ * 在測試裡沒有意義，走 repo 慣例用最小結構描述（同檔其他測試對編輯器泛型的處理）。
+ */
+interface ImageSpecLike {
+  implementation: {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 見上
+    render: (block: any, editor: any) => { dom: HTMLElement };
+  };
+}
 
 /**
  * jsdom 沒有可建構的 DataTransfer，做一個最小替身。
@@ -200,6 +211,49 @@ describe("buildNoteEditorOptions", () => {
 
     expect(pasteMarkdown).toHaveBeenCalledWith(LF_MARKDOWN);
     expect(defaultPasteHandler).not.toHaveBeenCalled();
+  });
+
+  /**
+   * issue #12 的守衛整條線：**我們塞的回呼**＋**BlockNote 真的會呼叫它**。
+   *
+   * ⚠ 只斷言前者是不夠的——`@blocknote/core` 0.52.1 的 render 寫成
+   * `editor.resolveFileUrl ? resolveFileUrl(url).then(el.src = …) : el.src = url`，是**條件
+   * 分支**：升級後只要這個選項改名或改走別的解析器，我們的回呼就變成沒人呼叫的死程式碼，
+   * 而只釘接線的測試依然全綠、issue #12 的洞悄悄回來。所以這裡直接拿 `defaultBlockSpecs`
+   * 的 image block 去跑真正的 render，斷言落到 DOM 上的 `src`。
+   */
+  it("危險 scheme 到不了 <img src>：直接跑 BlockNote 的 image render（issue #12）", async () => {
+    const imageSpec = (defaultBlockSpecs as unknown as Record<string, ImageSpecLike>).image;
+    const resolveFileUrl = build().resolveFileUrl;
+    expect(typeof resolveFileUrl).toBe("function");
+
+    const render = (url: string) => {
+      const block = {
+        id: "b1",
+        type: "image",
+        props: { url, name: "some.png", caption: "", showPreview: true, previewWidth: undefined },
+        content: undefined,
+        children: [],
+      };
+      // render 只用到編輯器的這兩個成員（`onUploadStart` 是 url 為空時的上傳中提示用）。
+      return imageSpec.implementation.render(block, { resolveFileUrl, onUploadStart: () => () => {} }).dom;
+    };
+
+    const blocked = render("javascript:alert(1)");
+    await vi.waitFor(() => expect(blocked.querySelector("img")?.getAttribute("src")).toBe("about:blank"));
+
+    const uploaded = render("/api/uploads/u1");
+    await vi.waitFor(() => expect(uploaded.querySelector("img")?.getAttribute("src")).toBe("/api/uploads/u1"));
+  });
+
+  it("resolveFileUrl 的判斷本身：危險 scheme → about:blank，自家上傳的相對網址原樣放行（issue #12）", async () => {
+    const resolveFileUrl = build().resolveFileUrl;
+
+    await expect(resolveFileUrl!("javascript:alert(1)")).resolves.toBe("about:blank");
+    await expect(resolveFileUrl!("data:text/html;base64,PHNjcmlwdD4=")).resolves.toBe("about:blank");
+    // 自家上傳的圖片是相對網址（`/api/uploads/<id>`）——擋掉它就等於擋掉所有上傳的圖。
+    await expect(resolveFileUrl!("/api/uploads/u1")).resolves.toBe("/api/uploads/u1");
+    await expect(resolveFileUrl!("https://example.com/a.png")).resolves.toBe("https://example.com/a.png");
   });
 
   it("攔截掛在 editorProps.handleDOMEvents，**不是** handlePaste/handleDrop", () => {

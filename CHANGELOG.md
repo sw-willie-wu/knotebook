@@ -7,9 +7,9 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
-### Changed
+### Security
 
-- **Breaking for reverse-proxy deployments:** `X-Forwarded-For` is no longer believed by default. It used to be trusted from any source, which let anyone forge their apparent address and walk around the per-IP login lockout and the OIDC endpoint limits. The new `TRUST_PROXY` setting turns it back on — a list of trusted proxy addresses (IPs, CIDRs, or `loopback`/`linklocal`/`uniquelocal`), a hop count, or `true` for the old behavior. **If you run behind a reverse proxy and do not set it, every visitor arrives as the proxy address and shares one rate-limit bucket**, so five bad passwords from anyone lock out everybody. The server logs a warning at startup when `PUBLIC_URL` is https while the setting is off, and once at runtime when it sees a forwarding header it was told not to trust. Note that your proxy has to send `X-Forwarded-For` for the setting to do anything (nginx does not by default), and a proxy that rewrites `Host` and relies on `X-Forwarded-Host` will now fail image uploads with 403 until `TRUST_PROXY` is set (#13).
+- An embedded image, video, audio or file URL is now checked again when it is rendered, not only when it is typed into the embed field. Note content is a collaborative Yjs document, so any collaborator with edit access can write block properties directly and bypass the input check entirely — a `javascript:` or `data:` URL written that way went into every other reader's document unfiltered (inert in an image or media `src`, but it had no business being there). Uploaded files keep working: the render-side check deliberately accepts the relative URLs uploads produce. A URL that fails the check renders as a broken image or player rather than being fetched (#12).
 
 ### Fixed
 
@@ -21,6 +21,7 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ### Changed
 
+- **Breaking for reverse-proxy deployments:** `X-Forwarded-For` is no longer believed by default. It used to be trusted from any source, which let anyone forge their apparent address and walk around the per-IP login lockout and the OIDC endpoint limits. The new `TRUST_PROXY` setting turns it back on — a list of trusted proxy addresses (IPs, CIDRs, or `loopback`/`linklocal`/`uniquelocal`), a hop count, or `true` for the old behavior. **If you run behind a reverse proxy and do not set it, every visitor arrives as the proxy address and shares one rate-limit bucket**, so five bad passwords from anyone lock out everybody. The server logs a warning at startup when `PUBLIC_URL` is https while the setting is off, and once at runtime when it sees a forwarding header it was told not to trust. Note that your proxy has to send `X-Forwarded-For` for the setting to do anything (nginx does not by default), and a proxy that rewrites `Host` and relies on `X-Forwarded-Host` will now fail image uploads with 403 until `TRUST_PROXY` is set (#13).
 - The collab-token rate limit stays keyed on the user, not the note, and the reasoning is now recorded next to it: the limit exists to bound what one signed-in user can cost the database, keying it per note would multiply an attacker's allowance by their note count, and keying it on the address would penalise offices behind one outbound IP (#24).
 - The AI session's context value is memoised, so a streaming response no longer rebuilds every consumer — including the portal-mounted toolbar — on each delta (#20).
 - `POST /api/auth/login` and `GET /api/auth/me` are typed against the shared `UserDto`, and `GET /api/auth/config` against `AuthConfigDto`. A change to those shapes now fails the build in `apps/server`, where the mistake is, rather than in the web app that consumes them (#21).
