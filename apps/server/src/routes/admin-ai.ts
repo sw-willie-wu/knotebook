@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { and, asc, eq, ne, sql } from "drizzle-orm";
@@ -44,8 +45,9 @@ const patchProviderSchema = z.object({
 // 只選這六欄（形狀鎖，比照 `routes/admin-users.ts` 的 `adminUserColumns` 慣例，
 // 這裡更進一步）：`hasKey` 用 SQL 端 `IS NOT NULL` 直接算出布林值，**從不** SELECT
 // `apiKeyEncrypted` 本體——密文位元組完全不進 Node process 記憶體，不是「查出來但序列化
-// 階段刻意漏掉」那種較弱的防線（見 Task 3 交接：這是密文無 AAD 綁定下的唯一防線，任何
-// 回應絕不可含 api_key_encrypted／ct/iv/tag/keyId 字樣）。
+// 階段刻意漏掉」那種較弱的防線（見 Task 3 交接：任何回應絕不可含 api_key_encrypted／
+// ct/iv/tag/keyId 字樣）。issue #14 之後密文另外綁了 providerId，但那道綁定管的是
+// 「密文不能跨列使用」，跟「密文不可以出現在回應裡」是兩件事——這裡這道防線照舊。
 const providerListColumns = {
   id: aiProviders.id,
   name: aiProviders.name,
@@ -177,8 +179,11 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
       if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
       const { name, type, baseUrl, apiKey } = parsed.data;
 
-      const apiKeyEncrypted = apiKey !== undefined ? encryptApiKey(deps.config.appSecret, apiKey) : null;
-      const [row] = await deps.db.insert(aiProviders).values({ name, type, baseUrl, apiKeyEncrypted }).returning(providerListColumns);
+      // id 在這裡就產好，不沿用 schema 的 `defaultRandom()`：密文的 AAD 綁 providerId
+      // （issue #14），加密的當下就必須已經知道 id。
+      const id = randomUUID();
+      const apiKeyEncrypted = apiKey !== undefined ? encryptApiKey(deps.config.appSecret, apiKey, id) : null;
+      const [row] = await deps.db.insert(aiProviders).values({ id, name, type, baseUrl, apiKeyEncrypted }).returning(providerListColumns);
       return reply.code(201).send(toProviderDto(row, deps.runtime));
     });
 
@@ -200,7 +205,7 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
       // `apiKey` 給了 → 重加密覆寫；沒給 → 完全不碰這個欄位（既有密文原樣保留）。
       let newEncrypted: EncryptedApiKey | undefined;
       if (apiKey !== undefined) {
-        newEncrypted = encryptApiKey(deps.config.appSecret, apiKey);
+        newEncrypted = encryptApiKey(deps.config.appSecret, apiKey, id);
         values.apiKeyEncrypted = newEncrypted;
       }
 
@@ -220,7 +225,7 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
         // 不假設 encryptApiKey/decryptApiKey 永不出錯），不是預期會踩到的分支。成功即
         // 從 degraded 移除（§10「不重啟生效」，不需重開 process）。
         try {
-          decryptApiKey(deps.config.appSecret, newEncrypted);
+          decryptApiKey(deps.config.appSecret, newEncrypted, id);
           deps.runtime.degraded.delete(id);
         } catch {
           // 維持降級狀態不動——不吞出這個分支以外的行為。
@@ -261,7 +266,7 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
       let apiKey: string | undefined;
       if (row.apiKeyEncrypted !== null) {
         try {
-          apiKey = decryptApiKey(deps.config.appSecret, row.apiKeyEncrypted);
+          apiKey = decryptApiKey(deps.config.appSecret, row.apiKeyEncrypted, id);
         } catch (err) {
           if (!(err instanceof AiKeyDecryptError)) throw err;
           deps.runtime.degraded.add(id);

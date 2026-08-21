@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { setTimeout as realDelay } from "node:timers/promises";
 import http from "node:http";
 import { describe, expect, it, onTestFinished } from "vitest";
@@ -31,6 +32,7 @@ async function insertProvider(db: Db, overrides: Partial<typeof aiProviders.$inf
   const [row] = await db
     .insert(aiProviders)
     .values({
+      id: overrides.id ?? randomUUID(),
       name: overrides.name ?? "Test Provider",
       type: overrides.type ?? "openai_compatible",
       baseUrl: overrides.baseUrl ?? "http://localhost:9",
@@ -309,8 +311,10 @@ describe("POST /api/ai — action/model 解析", () => {
     const { app, db } = await buildTestApp({ ai: runtime });
     const access = await setupNoteAccess(db);
     // 用不同的 appSecret 加密，模擬「APP_SECRET 已變更、舊密文解不開」。
-    const badCiphertext = encryptApiKey("a-completely-different-secret-".repeat(3), "sk-x");
-    const provider = await insertProvider(db, { apiKeyEncrypted: badCiphertext });
+    // 用不同的 appSecret 加密：keyId 就對不上了，AAD 綁哪個 id 都不影響這條斷言。
+    const badId = randomUUID();
+    const badCiphertext = encryptApiKey("a-completely-different-secret-".repeat(3), "sk-x", badId);
+    const provider = await insertProvider(db, { id: badId, apiKeyEncrypted: badCiphertext });
     const model = await insertModel(db, provider.id);
     const action = await insertAction(db, { modelId: model.id });
 
@@ -341,6 +345,39 @@ describe("POST /api/ai — action/model 解析", () => {
 });
 
 describe("POST /api/ai — 正常串流", () => {
+  it("apiKey 解得開 → 明文金鑰真的送到上游（issue #14：這條路徑原本零覆蓋）", async () => {
+    // `POST /api/ai` 是金鑰最主要的消費路徑，但整個檔案裡設過 key 的只有「無 key」與
+    // 「故意解不開」兩種。於是 `decryptApiKey(..., resolved.provider.id)` 這個新參數若被
+    // 改錯（例如寫成 model id），production 會所有 AI 呼叫全掛 503 而測試照樣全綠。
+    let seenAuth: string | undefined;
+    const fakeUpstream = await startFakeUpstream((req, res) => {
+      seenAuth = req.headers.authorization;
+      res.writeHead(200, SSE_HEADERS);
+      res.write(sseDelta("ok"));
+      res.end("data: [DONE]\n\n");
+    });
+    const { app, db } = await buildTestApp();
+    const access = await setupNoteAccess(db);
+    const providerId = randomUUID();
+    const provider = await insertProvider(db, {
+      id: providerId,
+      baseUrl: fakeUpstream.baseUrl,
+      apiKeyEncrypted: encryptApiKey(testConfig.appSecret, "sk-live-key", providerId),
+    });
+    const model = await insertModel(db, provider.id);
+    const action = await insertAction(db, { modelId: model.id });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/ai",
+      cookies: { [SESSION_COOKIE]: access.editorCookie },
+      payload: { action_id: action.id, note_id: access.noteId, text: "hi" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(seenAuth).toBe("Bearer sk-live-key");
+  });
+
   it("正常串流至 done：event 順序為 delta×N → done", async () => {
     const fakeUpstream = await startFakeUpstream((_req, res) => {
       res.writeHead(200, SSE_HEADERS);
