@@ -32,6 +32,25 @@ async function main(): Promise<void> {
   // （那樣只會變成 JSON 字串裡的跳脫 `\n`，在 `docker compose logs` 之類的原始輸出裡
   // 讀起來反而更雜）。改用一行大寫、講重點的 `msg`，細節放進結構化欄位；
   // docs/self-hosting.md 對應說明也要講「一行 JSON 警告」而非「多行橫幅」，見那邊的用字。
+  // issue #13 審查：`PUBLIC_URL` 是 https 就代表**前面一定有一層反代**（app 自己從不終結
+  // TLS，見 docs/self-hosting.md），而 TRUST_PROXY 沒開的話 `request.ip` 會是那層反代的
+  // 位址 ⇒ 全站共用同一份 per-IP 額度，任何人連錯幾次密碼就把所有人一起鎖進退避窗口。
+  //
+  // 這道啟動期檢查刻意**不依賴請求裡有沒有轉發 header**：nginx 預設不送
+  // `X-Forwarded-For`，只靠請求期那道警告會漏掉最需要被提醒的那群人。
+  logger.info({ trustProxy: config.trustProxy }, "trustProxy setting in effect");
+
+  if (!config.trustProxy && config.publicUrl.protocol === "https:") {
+    logger.warn(
+      {
+        publicUrl: config.publicUrl.href,
+        risk: "every visitor is seen as the proxy's address, so all of them share one rate-limit and lockout bucket",
+        guidance: 'set TRUST_PROXY to your proxy address/CIDR (and make sure the proxy sends X-Forwarded-For) — see docs/self-hosting.md "Deployment prerequisites"',
+      },
+      "SECURITY WARNING: PUBLIC_URL is https (so something proxies this app) but TRUST_PROXY is not set — per-IP rate limiting and login lockout will treat every visitor as one client"
+    );
+  }
+
   if (config.insecureHttpWarning) {
     logger.warn(
       {
