@@ -244,13 +244,63 @@ describe("POST /api/auth/login", () => {
     expect(res.json()).toMatchObject({ error: { code: "server_busy" } });
   });
 
+  it("預設不採信 X-Forwarded-For：每發換一個假 IP 也繞不過 IP 軌（issue #13）", async () => {
+    // 帳號軌用「每次都不同的帳號」讓它永遠不觸發，單獨觀察 IP 軌。若 XFF 被採信，
+    // 五發各自落在不同 IP、IP 軌永遠是 1，第六發就不會 429——那正是這條 issue 的漏洞。
+    const { app } = await buildTestApp();
+
+    for (let i = 0; i < 5; i += 1) {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/auth/login",
+        payload: loginPayload(`nobody-${i}@example.com`, "wrong-password-here"),
+        headers: { "x-forwarded-for": `203.0.113.${i + 1}` },
+      });
+      expect(res.statusCode).toBe(401);
+    }
+
+    const blocked = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: loginPayload("nobody-99@example.com", "wrong-password-here"),
+      headers: { "x-forwarded-for": "203.0.113.99" },
+    });
+    expect(blocked.statusCode).toBe(429);
+    expect(blocked.json()).toMatchObject({ error: { code: "too_many_attempts" } });
+  });
+
+  it("TRUST_PROXY 明確打開後才採信 X-Forwarded-For（反代拓撲的正常行為）", async () => {
+    const { app } = await buildTestApp({ config: { ...testConfig, trustProxy: true } });
+
+    for (let i = 0; i < 5; i += 1) {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/auth/login",
+        payload: loginPayload(`nobody-${i}@example.com`, "wrong-password-here"),
+        headers: { "x-forwarded-for": `198.51.100.${i + 1}` },
+      });
+      expect(res.statusCode).toBe(401);
+    }
+
+    // 每一發都是不同的 request.ip ⇒ IP 軌各自只有 1 次失敗，第六發照樣走到密碼驗證。
+    const next = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: loginPayload("nobody-99@example.com", "wrong-password-here"),
+      headers: { "x-forwarded-for": "198.51.100.99" },
+    });
+    expect(next.statusCode).toBe(401);
+  });
+
   it("recordSuccess 只清帳號計數、不清 IP 計數：登入成功後帳號計數歸零，換一個乾淨 IP 可再失敗 4 次仍不 429", async () => {
-    // 用 x-forwarded-for 控制 request.ip（app 已設定 trustProxy: true）：先在 IP A
+    // 用 x-forwarded-for 控制 request.ip。issue #13 之後 `trustProxy` 預設是 false，
+    // 這裡必須**明講**要信任代理才拿得到「換 IP」這個能力（正是這條 issue 的重點：
+    // 採信 XFF 是部署者的選擇，不是預設）。先在 IP A
     // 上對同一帳號失敗 4 次、成功 1 次，再換到全新的 IP B 失敗 4 次——若 recordSuccess
     // 真的只清了帳號計數（不影響 IP 計數），帳號計數在 IP B 這批次會是 0+4=4（仍 <5，
     // 不 429）；若 recordSuccess 沒有正確接線／沒有真的清帳號計數，帳號計數會累積成
     // 4（IP A）+4（IP B）=8，一定會在這批次中途就被帳號臂擋下。
-    const { app, db } = await buildTestApp();
+    const { app, db } = await buildTestApp({ config: { ...testConfig, trustProxy: true } });
     await insertUser(db, { email: "karen@example.com" });
 
     const ipA = "203.0.113.10";
@@ -285,7 +335,8 @@ describe("POST /api/auth/login", () => {
   });
 
   it("throttle 帳號鍵吃正規化值：Mixed-Case 變體自 IP A 累積 5 敗後，換大小寫自 IP B 仍 429（spec §14.7；未正規化實作下 IP B 兩軸皆 0 → 落到查詢 → 401，紅）", async () => {
-    const { app } = await buildTestApp();
+    // 同上：要讓 IP A／IP B 真的是兩個不同的 request.ip，得先信任代理（issue #13）。
+    const { app } = await buildTestApp({ config: { ...testConfig, trustProxy: true } });
     const variants = [
       "AliCE@example.com",
       "alICe@example.com",

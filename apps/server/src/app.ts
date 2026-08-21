@@ -191,15 +191,16 @@ function stripDefaultPort(host: string): string {
  * 呼叫端負責「無 Origin header → 放行」（spec 明文；不在此函式內判定，因為
  * `undefined` 不該被硬塞進來解讀成某種「值」）。
  *
- * **已知前提（trustProxy，非本次引入的漏洞，據實註記）**：`request.host` 在
- * `trustProxy: true` 下，若請求帶 `X-Forwarded-Host` 且來源 socket 通過 trustProxy
- * 判定（本專案設定下恆真——見 buildApp 的 `trustProxy: true`），會採信該 header 而非
- * 實際的 `Host` header（fastify `buildRequestWithTrustProxy` 的既定行為，非本函式
- * 決定）。**目前不可從瀏覽器利用**：本站無 CORS 設定，跨源請求若帶自訂 header（如
- * `X-Forwarded-Host`）會觸發 preflight，瀏覽器在收不到允許的 CORS 回應前就會擋下、
- * 不會把實際請求送達 server；`<form>` 提交（唯一免 preflight 的跨站攻擊面）無法附加
- * 自訂 header。**若日後加 CORS，或部署在允許 client 端透傳自訂 `X-Forwarded-Host` 的
- * 代理拓撲下，這個前提會失效**——見 backlog「trustProxy 可設定化」（Plan 1 遺留項）。
+ * **已知前提（trustProxy）**：`request.host` 在信任代理時，若請求帶 `X-Forwarded-Host`
+ * 且來源 socket 通過 trustProxy 判定，會採信該 header 而非實際的 `Host` header（fastify
+ * `buildRequestWithTrustProxy` 的既定行為，非本函式決定）。issue #13 之後 `trustProxy`
+ * 預設是 `false`，所以預設部署下這條前提根本不成立；設了 `TRUST_PROXY` 的部署則落在
+ * 「只有被信任的來源送的 header 會被採信」這一側。
+ *
+ * 即使在最寬鬆的 `TRUST_PROXY=true` 下也**不可從瀏覽器利用**：本站無 CORS 設定，跨源
+ * 請求若帶自訂 header（如 `X-Forwarded-Host`）會觸發 preflight，瀏覽器在收不到允許的
+ * CORS 回應前就會擋下；`<form>` 提交（唯一免 preflight 的跨站攻擊面）無法附加自訂
+ * header。**若日後加 CORS，這個前提會失效。**
  */
 function isOriginAllowed(origin: string, requestHost: string): boolean {
   if (origin === "null") return false;
@@ -244,7 +245,37 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   // `maxParamLength` 是 deprecated 寫法（FSTDEP022），fastify@6 會整個移除，屆時會
   // 靜默退回預設值 100，等於這個修正自己失效又不出任何警告；`routerOptions` 這個
   // 寫法才是不會過期、也不會印 deprecation warning 的形式。
-  const app = Fastify({ logger: options.logger ?? true, trustProxy: true, routerOptions: { maxParamLength: 512 } });
+  // trustProxy 由 `TRUST_PROXY` 決定，預設 `false`（issue #13）：採信一個任何人都能自己
+  // 填的 header，等於所有 per-IP 節流都能換個假 IP 繞過。反代拓撲要自己打開——見
+  // `config.ts` 的 `parseTrustProxy`，以及下面那道一次性的錯配警告。
+  const app = Fastify({
+    logger: options.logger ?? true,
+    trustProxy: deps.config.trustProxy,
+    routerOptions: { maxParamLength: 512 },
+  });
+
+  // 設定錯配的一次性警告（issue #13）。`TRUST_PROXY` 沒設、請求卻帶著
+  // `X-Forwarded-For`，代表前面確實有一層代理而我們沒被告知——後果不是「被繞過」而是
+  // 「拒絕服務」：`request.ip` 會是代理的位址，於是**所有使用者共用同一個 IP 軌**，任何人
+  // 連錯 5 次密碼就把整個站鎖進退避窗口。這種錯配從外部看只像「大家突然都登不進去」，
+  // 沒有訊號的話幾乎不可能診斷出來。
+  //
+  // 只警告一次：這是部署設定問題，不是每個請求的事件，重複噴只會淹掉 log。
+  if (!deps.config.trustProxy) {
+    let warned = false;
+    app.addHook("onRequest", async request => {
+      // 不只看 `x-forwarded-for`：只送 `X-Real-IP`（很常見的 nginx 樣板）或 RFC 7239
+      // `Forwarded` 的代理，症狀一模一樣（全站共用一份 IP 額度），但 fastify 推導
+      // `request.ip` 只讀 `x-forwarded-for`——那種錯配更需要被講出來，不是更不需要。
+      const forwardedHeaders = ["x-forwarded-for", "x-real-ip", "forwarded", "x-forwarded-host", "x-forwarded-proto"];
+      if (warned || !forwardedHeaders.some(name => request.headers[name] !== undefined)) return;
+      warned = true;
+      request.log.warn(
+        { hint: "TRUST_PROXY" },
+        "收到帶轉發 header 的請求，但 TRUST_PROXY 未設定：所有 per-IP 節流會以代理的位址為準（全站共用一份額度）。反代拓撲請設定 TRUST_PROXY，見 docs/self-hosting.md"
+      );
+    });
+  }
 
   // 不用 secret：session 是自帶簽章的 JWT，cookie 本身不需要再簽一次。
   void app.register(fastifyCookie);

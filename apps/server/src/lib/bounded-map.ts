@@ -21,11 +21,12 @@ export const DEFAULT_MAX_KEYS = 10_000;
  * - `get()` **不**重排。純讀取命中不影響淘汰順序。
  *
  * 上限本身是可被利用的：灌爆不同 key 可以把別人的紀錄擠掉（對 `LoginThrottle` 而言就是
- * 把一筆封鎖中的退避擠掉）。這是所有「有界暫存表」共有的取捨；讓淨汰順序對得起語意
+ * 把一筆封鎖中的退避擠掉）。這是所有「有界暫存表」共有的取捨；讓淘汰順序對得起語意
  * （見上面「什麼事件算刷新」）只把門檻抬高，**不能當成防線**：帳號軌被記上的是攻擊者
- * 根本不在乎的假 email，而 IP 軌在 `trustProxy: true` 下（issue #13）可以偽造。真正的成本
- * 來自別處：每一發失敗登入都要付一次 argon2 驗證。這個殘餘風險已載入
- * `docs/self-hosting.md` 的 trustProxy 那段。
+ * 根本不在乎的假 email，而 IP 軌在 `TRUST_PROXY=true` 時可以偽造（預設不採信
+ * `X-Forwarded-For`，見 `config.ts` 的 `parseTrustProxy`）。真正的成本來自別處：每一發
+ * 失敗登入都要付一次 argon2 驗證。這個殘餘風險已載入
+ * `docs/known-limitations.md`。
  */
 export class BoundedMap<V> {
   private readonly entries = new Map<string, V>();

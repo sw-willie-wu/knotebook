@@ -25,6 +25,7 @@ import { blocknoteZhTW } from "@/i18n/blocknote-zh-TW";
 import { toast } from "@/components/ui/toast";
 import { useTheme } from "@/theme";
 import { buildWikilinkMenuItems, type EditorRef } from "@/components/wikilink/menu";
+import { safeMediaUrl } from "@/lib/media-url";
 import { createUploadFile } from "@/uploads/upload-file";
 import { createFilePanel } from "@/components/FilePanel";
 import { AiSessionProvider } from "@/components/ai/AiSession";
@@ -125,6 +126,15 @@ export function buildNoteEditorOptions({ doc, provider, user, language, translat
     // `uploadFile`——`createUploadFile` 保證絕不 reject（見該模組檔頭），失敗時自行
     // toast + 清除 placeholder block，`handleFileInsertion` 完全不必知道失敗發生過。
     uploadFile: createUploadFile({ noteId, editorRef, translate }),
+    // issue #12：渲染端的 URL 守衛。UI 的 Embed tab 早就擋過一次危險 scheme，但筆記內容是
+    // Yjs 文件——**任何有 editor 權限的協作者都能直接寫 block props**，繞過整條 UI。BlockNote
+    // 對 image/video/audio 的預覽、以及工具列的「開啟／下載」按鈕，都會先過 `resolveFileUrl`
+    // （已對 @blocknote/core 與 @blocknote/react 0.52.1 的 dist 核實），這是唯一一個不必改寫
+    // block spec 就能攔在所有 sink 之前的縫。
+    //
+    // 這個回呼**必須放行相對網址**：自家上傳拿到的是 `/api/uploads/<id>`，套輸入端那條
+    // 「必須是完整 http(s)」的規則會把所有上傳的圖片一起擋掉（見 `lib/media-url.ts`）。
+    resolveFileUrl: (url: string) => Promise.resolve(safeMediaUrl(url)),
     // 貼上 markdown 的兩個 Windows 破口（CRLF 不被解析、從 VS Code 貼會變成程式碼
     // 區塊）——判斷與理由都在 `@/collab/paste`，這裡只負責接線。
     pasteHandler: createMarkdownPasteHandler(),
