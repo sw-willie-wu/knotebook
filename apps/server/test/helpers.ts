@@ -18,6 +18,7 @@ import { LoginThrottle } from "../src/auth/rate-limit.js";
 import { AI_LIMIT, COLLAB_TOKEN_LIMIT, FixedWindowLimiter, OIDC_LIMIT, SLUG_PATCH_LIMIT, UPLOAD_LIMIT } from "../src/http/rate-limit.js";
 import { hashPassword } from "../src/auth/password.js";
 import { noopCollabHooks, type CollabHooks } from "../src/collab/hooks.js";
+import type { CollabHooksLogger } from "../src/collab/hooks-impl.js";
 import { COLLAB_PATH, createCollabServer, type CollabServer } from "../src/collab/server.js";
 import { notes, noteShares, users } from "../src/db/schema.js";
 import { createAiRuntime } from "../src/ai/runtime.js";
@@ -223,11 +224,29 @@ export interface HttpSession {
   connect(noteId: string, opts?: { tokenOverride?: string; tokenFn?: () => Promise<string> }): Promise<TestClient>;
 }
 
+/** `buildCollabTestApp` 收下來的一行 CollabServer 日誌。 */
+export interface CollabLogLine {
+  level: "debug" | "info" | "warn" | "error";
+  obj: Record<string, unknown>;
+  msg: string;
+}
+
 export interface CollabTestCtx {
   /** `http://127.0.0.1:<ephemeral port>` */
   baseUrl: string;
   app: FastifyInstance;
   collab: CollabServer;
+  /**
+   * CollabServer 寫出的日誌（issue #37 的握手拒絕訊號即在此）。注入自己的 logger 也順便
+   * 讓拒連測試不再往 stdout 噴 `consoleCollabLogger` 的那一行。
+   */
+  collabLogs: CollabLogLine[];
+  /**
+   * 讓之後每一次 `gate.check` 都丟出這個錯——用來重現「onAuthenticate 撞到未預期例外」
+   * （DB 抖動）那條路徑。⚠ `authenticate` 也走同一個 gate，破壞之後所有 REST 請求都會 500，
+   * 所以一律在測試的最後一步才呼叫。
+   */
+  breakGate(err: Error): void;
   db: Db;
   createUser(opts: { email: string; password: string; isAdmin?: boolean }): Promise<{ id: string }>;
   createNote(ownerId: string, title?: string): Promise<{ id: string }>;
@@ -241,22 +260,41 @@ export interface CollabTestCtx {
  * 建一個掛上真 `CollabServer` 並實際 listen 的 app，供共編整合測試使用。
  *
  * `collabHooks` 是注入縫：預設 `noopCollabHooks`（比照 `buildTestApp`），Task 6 的撤權
- * 測試必須傳 `collabHooks: server => createCollabHooks(server)` 接真實作——否則
+ * 測試必須傳 `collabHooks: (server, log) => createCollabHooks(server, log)` 接真實作
+ * （第二個參數是本 harness 的錄音 logger，`collabLogs` 才收得到 hooks 那邊的訊號）——否則
  * shares/disable/DELETE 那些呼叫點全是 no-op，撤權路徑永遠不會被觸發，測試會綠得毫無意義。
  */
 export async function buildCollabTestApp(
-  opts: { collabHooks?: (server: CollabServer) => CollabHooks } = {}
+  opts: { collabHooks?: (server: CollabServer, log: CollabHooksLogger) => CollabHooks } = {}
 ): Promise<CollabTestCtx> {
   const { db } = await freshDb();
   const gate = new UserGate(db);
-  const collab = createCollabServer({ db, config: testConfig, gate });
+  // 測試注入縫：見 `CollabTestCtx.breakGate`。包在 harness 裡（而不是每個測試各自 monkey-patch）
+  // 是為了讓「怎麼弄壞 gate」只有一份定義。
+  let gateError: Error | null = null;
+  const realCheck = gate.check.bind(gate);
+  gate.check = async (userId: string, tv: number) => {
+    if (gateError) throw gateError;
+    return realCheck(userId, tv);
+  };
+  const breakGate = (err: Error): void => {
+    gateError = err;
+  };
+  const collabLogs: CollabLogLine[] = [];
+  const collabLog = {
+    debug: (obj: object, msg: string) => collabLogs.push({ level: "debug", obj: { ...obj }, msg }),
+    info: (obj: object, msg: string) => collabLogs.push({ level: "info", obj: { ...obj }, msg }),
+    warn: (obj: object, msg: string) => collabLogs.push({ level: "warn", obj: { ...obj }, msg }),
+    error: (obj: object, msg: string) => collabLogs.push({ level: "error", obj: { ...obj }, msg }),
+  };
+  const collab = createCollabServer({ db, config: testConfig, gate, log: collabLog });
 
   const deps: AppDeps = {
     config: testConfig,
     db,
     gate,
     throttle: new LoginThrottle(),
-    collabHooks: opts.collabHooks ? opts.collabHooks(collab) : noopCollabHooks,
+    collabHooks: opts.collabHooks ? opts.collabHooks(collab, collabLog) : noopCollabHooks,
     collab,
     limiters: freshLimiters(),
     uploadsDir: freshUploadsDir(),
@@ -432,5 +470,5 @@ export async function buildCollabTestApp(
     return session;
   }
 
-  return { baseUrl, app, collab, db, createUser, createNote, share, loginAs, destroy };
+  return { baseUrl, app, collab, collabLogs, breakGate, db, createUser, createNote, share, loginAs, destroy };
 }

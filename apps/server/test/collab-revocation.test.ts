@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { COLLAB_CLOSE_NOTE_DELETED, COLLAB_CLOSE_REVOKED, YDOC_FRAGMENT, type Role } from "@knotebook/shared";
-import { COLLAB_REJECT_INVALID_TOKEN, COLLAB_REJECT_NOTE_DELETING, type CollabServer } from "../src/collab/server.js";
+import { COLLAB_REJECT_FORBIDDEN, COLLAB_REJECT_NOTE_DELETING } from "../src/collab/server.js";
 import { createCollabHooks, REVERIFY_DEADLINE_MS } from "../src/collab/hooks-impl.js";
 import { buildCollabTestApp, type CollabTestCtx, type HttpSession } from "./helpers.js";
 
@@ -13,7 +13,7 @@ const PASSWORD = "correct-horse-battery";
  * 每個斷言都會綠得毫無意義（測到的只是「沒人動這條連線」）。
  */
 function buildApp(): Promise<CollabTestCtx> {
-  return buildCollabTestApp({ collabHooks: (server: CollabServer) => createCollabHooks(server) });
+  return buildCollabTestApp({ collabHooks: (server, log) => createCollabHooks(server, log) });
 }
 
 /**
@@ -138,6 +138,36 @@ describe("撤權 SLA：CollabHooks（Task 6）", () => {
     // 設定值觸發，故下界安全；上界則由上面的 SLA 斷言涵蓋。
     const elapsed = Date.now() - started;
     expect(elapsed).toBeGreaterThanOrEqual(REVERIFY_DEADLINE_MS - 500);
+
+    // deadline 到期是**合法使用者最可能被誤踢**的路徑（client 只是卡在 token 退避裡沒能
+    // 在 5 秒內回話），使用者卻看到「你已失去存取權」——必須留下訊號（issue #37）。
+    const line = ctx.collabLogs.find(one => one.obj.phase === "deadline");
+    expect(line?.level).toBe("info");
+    expect(line?.obj).toMatchObject({ cause: "no-reverify", noteId: note.id, userId: victim.id });
+  });
+
+  it("連線期被撤權（onTokenSync 關掉連線）也要留下 phase:'reverify' 的日誌（issue #37）", async () => {
+    // 「我好好的怎麼突然被踢出來」最常見的來源是這條路，不是握手——docs 的排錯指引叫維護者
+    // grep `"cause"`，那就必須 grep 得到它。
+    const ctx = await buildApp();
+    const owner = await ctx.createUser({ email: "owner-rev9@example.com", password: PASSWORD });
+    const editorUser = await ctx.createUser({ email: "editor-rev9@example.com", password: PASSWORD });
+    const note = await ctx.createNote(owner.id);
+    await ctx.share(note.id, editorUser.id, "editor");
+
+    const ownerSession = await ctx.loginAs("owner-rev9@example.com", PASSWORD);
+    const editorSession = await ctx.loginAs("editor-rev9@example.com", PASSWORD);
+    const editorClient = await editorSession.connect(note.id);
+
+    const del = await ownerSession.fetch(`/api/notes/${note.id}/shares/${editorUser.id}`, { method: "DELETE" });
+    expect(del.status).toBe(204);
+
+    await waitFor("被撤者收到 CLOSE(revoked)", 10_000, () =>
+      editorClient.closes.some(one => one.reason === COLLAB_CLOSE_REVOKED)
+    );
+    const line = ctx.collabLogs.find(one => one.obj.phase === "reverify");
+    expect(line?.level).toBe("info");
+    expect(line?.obj).toMatchObject({ noteId: note.id, userId: editorUser.id, cause: "no-role" });
   });
 
   it("停用使用者：該 user 在兩篇不同筆記上的連線皆被剝離（跨文件）", async () => {
@@ -294,7 +324,7 @@ describe("撤權 SLA：CollabHooks（Task 6）", () => {
     expect(ctx.collab.connectionsOfNote(note.id).size).toBe(0);
     expect(ctx.collab.hocuspocus.documents.has(note.id)).toBe(false);
 
-    // 刪除閘門仍在（TTL 30s 內）：此時的重連一律以 note-deleting 拒絕。
+    // 刪除閘門仍在（TTL 內，見 DELETING_GATE_TTL_MS）：此時的重連一律以 note-deleting 拒絕。
     // 刻意在 DELETE 回應之後才測，而不是與 DELETE 併發送出——後者的相對時序取決於兩邊
     // 各自的 DB 往返，會是不確定性測試；閘門的 TTL 讓「刪除中」這個狀態在回應後仍持續，
     // 因此這裡測到的是同一個閘門、同一條拒絕路徑。
@@ -307,11 +337,13 @@ describe("撤權 SLA：CollabHooks（Task 6）", () => {
     const tokenBody = (await tokenRes.json()) as { token: string; role: Role };
     expect(tokenBody.role).toBe("none");
 
-    // 閘門過期之後（模擬 30s TTL 到期）這份 token 仍然連不上：擋下它的是 onAuthenticate
-    // 重跑 resolveRole（筆記已不存在 → 'none'），不是刪除閘門。
+    // 閘門過期之後（模擬 TTL 到期）這份 token 仍然連不上：擋下它的是 onAuthenticate
+    // 重跑 resolveRole（筆記已不存在 → 'none'），不是刪除閘門。理由因此是 `forbidden`
+    // ——與「這篇筆記存在、但你沒有權限」完全一樣，問不出存在性（issue #35 的取捨：
+    // 「筆記被刪了」這句話由閘門在 TTL 內負責，見 DELETING_GATE_TTL_MS）。
     ctx.collab.unmarkDeleting(note.id);
     await expect(editorSession.connect(note.id, { tokenOverride: tokenBody.token })).rejects.toThrow(
-      COLLAB_REJECT_INVALID_TOKEN
+      COLLAB_REJECT_FORBIDDEN
     );
 
     const getRes = await editorSession.fetch(`/api/notes/${note.id}`);

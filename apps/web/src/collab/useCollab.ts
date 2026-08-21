@@ -4,7 +4,10 @@ import { HocuspocusProvider } from "@hocuspocus/provider";
 import {
   COLLAB_CLOSE_NOTE_DELETED,
   COLLAB_CLOSE_REVOKED,
+  COLLAB_REJECT_FORBIDDEN,
   COLLAB_REJECT_NOTE_DELETING,
+  COLLAB_RESTART_DELAYS_MS,
+  COLLAB_RESTART_JITTER,
   type Role,
 } from "@knotebook/shared";
 import { api, ApiFail } from "@/api/client";
@@ -39,12 +42,14 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 const RECONNECT_FALLBACK_MS = 1_000;
 
 /**
- * token function 連退避表都跑完仍然失敗之後，**整條連線**要隔多久重來一次（ms，issue #39）。
+ * token function 連退避表都跑完仍然失敗、或 server 以「不是授權裁決」的理由拒連之後，
+ * **整條連線**要隔多久重來一次（ms，issue #39／#35）。
  *
  * 為什麼需要這一層：`fetchTokenWithRetries` 用完 `TOKEN_RETRY_DELAYS_MS` 就會丟錯，而
  * provider 收到 token function 的錯誤只會 `permissionDeniedHandler`——**socket 不關、也不會
- * 再取一次 token**。我們又刻意不把那一則 `authenticationFailed` 當成撤權（N7），於是狀態機
- * 收不到任何事件：畫面停在「連線中」，server 恢復了也不會自己好，只能重整。
+ * 再取一次 token**。server 對 `onAuthenticate` 的 throw 同樣**不關 socket 也不重連**。我們又
+ * 刻意不把那一則 `authenticationFailed` 當成撤權（N7／issue #35），於是狀態機收不到任何
+ * 事件：畫面停在「連線中」，server 恢復了也不會自己好，只能重整。
  *
  * 間隔比 token 退避表長一個量級：那一輪（7.5 秒）已經證明「不是一時抖動」，再用秒級頻率去
  * 敲一個正在壞的 server 只會加重它的負擔。最後一格重複使用，也就是**永遠會再試**——自我修復
@@ -55,11 +60,14 @@ const RECONNECT_FALLBACK_MS = 1_000;
  * ＝最多 5 發請求。固定間隔 30 秒的話，8 個分頁的穩態就是 64 req/min——**使用者會把自己的額度
  * 永久打爆，server 好了也連不回來**。而且觸發事件（server 重啟）是全分頁同時的，沒有抖動就會
  * 同相位。provider 自己那層 socket 退避預設就開 `jitter: true`，這裡對齊它。
+ *
+ * ⚠ 數值住在 `@knotebook/shared`：server 端的刪除閘門 TTL 必須蓋得過這裡的最大值，否則
+ * 「筆記被刪了」會在重連時被說成「你已失去存取權」（issue #35）。見該常數的說明。
  */
-const TOKEN_RESTART_DELAYS_MS = [5_000, 15_000, 60_000];
+const TOKEN_RESTART_DELAYS_MS = COLLAB_RESTART_DELAYS_MS;
 
 /** 重啟間隔的抖動幅度（±25%）。讓同時壞掉的多個分頁不要同相位重試。 */
-const RESTART_JITTER = 0.25;
+const RESTART_JITTER = COLLAB_RESTART_JITTER;
 
 function jittered(delay: number): number {
   return Math.round(delay * (1 + (Math.random() * 2 - 1) * RESTART_JITTER));
@@ -137,8 +145,10 @@ export interface UseCollabResult {
  * - token function 每次取回 body 的 `role` → `token-role` 事件（**權限恢復唯一的
  *   client 訊號**：server 端 `setReadOnly(false)` 不另送通知）。
  * - `onAuthenticated` → `open` 事件，role 取自最近一次 token 回應。
- * - `authenticationFailed`（server 的 permission-denied）→ 翻成對應的 `close` 事件：
- *   note-deleting → NOTE_DELETED，其餘一律 REVOKED（因而共用同一套二擊語意）。
+ * - `authenticationFailed`（server 的 permission-denied）→ **依 reason 分兩桶**（issue #35）：
+ *   `note-deleting` → `close(NOTE_DELETED)`；`forbidden` → `close(REVOKED)`（沿用二擊語意）；
+ *   `invalid-token`／`server-error`／不認得的 reason → **不進狀態機**，排一次連線重啟
+ *   （那些拒絕的原因不是權限，見下方 handler 的說明）。
  * - provider 的 `"close"` 事件 → `close` 事件。同一個回呼同時收「應用層 CLOSE 訊息」
  *   （code 硬寫 1000，reason 是 `COLLAB_CLOSE_*`）與「底層 WebSocket close」
  *   （reason 通常空字串），**一律只看 reason**。
@@ -158,11 +168,16 @@ export interface UseCollabResult {
  * 機收不到任何事件，`token-role: 'none'` 在 `connecting` 又刻意不轉移（角色要等 `open`
  * 才落定）——使用者因此永遠卡在「連線中」、沒有回饋也不會被導走。
  *
- * 翻成 `close(REVOKED)` 而不另開一個終態，是為了**沿用同一套二擊語意**：第一擊進
+ * `forbidden` 翻成 `close(REVOKED)` 而不另開一個終態，是為了**沿用同一套二擊語意**：第一擊進
  * `reconnecting-once`（於是 disconnect → 重取 token 連一次），第二擊（重連拿回的 role 是
  * `'none'`、或再次被拒）才收斂 `kicked`。伺服器一次性抖動（DB 掉拍…）因此不會誤殺
- * 一個合法使用者，而真的撤權一定收斂。`note-deleting` 是例外：刪除閘門是定局的，
+ * 一個合法使用者，而真的撤權一定收斂。`note-deleting` 是例外：筆記已經不在了是定局，
  * 直接走 `deleted`（等同 `close(NOTE_DELETED)`），不浪費一次重連。
+ *
+ * ⚠ **只有這兩個 reason 算授權裁決**（issue #35）：`invalid-token`（token 驗不過，或 session
+ * 的 tokenVersion 已被撤銷＝帳號停用／別處改過密碼）與 `server-error` 都不是「你沒有權限」，
+ * 翻成撤權等於對一個權限完好的使用者說錯話並把他導走。那兩桶走的是重啟自我修復，見下方
+ * handler。
  *
  * 我方主動 `disconnect()` 造成的 socket close 會被 `pendingReconnectRef` 吞掉一次：
  * 否則進入 `reconnecting-once` 後我們自己關 socket 的那個 close（reason 空字串＝
@@ -239,12 +254,22 @@ export function useCollab({ noteId, onUnauthorized }: UseCollabOptions): UseColl
           const body = await api<CollabTokenResponse>(`/api/notes/${encodeURIComponent(noteId)}/collab-token`, {
             method: "POST",
           });
+          // ⚠ 成功出口也要 `disposed` 守衛（issue #36）：`roleRef` 與 `dispatch` 都是 hook 層
+          // 的（不隨 effect 重建），換筆記後這一發遲到的回應會打進**新筆記**的狀態機。最糟的
+          // 組合是新筆記此刻正在 `reconnecting-once`（撤權觀察窗）而遲到的角色是上一篇的
+          // `'none'` ⇒ 直接判成第二擊，把使用者踢出一篇他其實有權限的筆記。
+          // 仍然回傳 token（不 throw）：這條 promise 的收件人是**舊的** provider，它已被
+          // destroy，這個值不會有任何後續；丟錯反而會多走一次 `tokenFetchFailed` 的旗標路徑。
+          if (disposed) return body.token;
           roleRef.current = body.role;
           dispatch({ type: "token-role", role: body.role });
           return body.token;
         } catch (err) {
           if (err instanceof ApiFail && err.status === 401) {
             // session 沒了：登出流程，不重試也不當成撤權。
+            // 這一支刻意**不加** `disposed` 守衛（有別於下面的 404 與成功出口，issue #36）：
+            // 401 是「整個 session 失效」而不是「這一篇筆記的結論」，遲到的那一發同樣代表
+            // 使用者已經登出，跳過只會讓他多停留在一個所有請求都會 401 的畫面上。
             tokenFailureFinal = true;
             onUnauthorizedRef.current();
             throw err;
@@ -253,8 +278,9 @@ export function useCollab({ noteId, onUnauthorized }: UseCollabOptions): UseColl
             // 保險絲：目前的 server 契約下這條不會發生（token endpoint 對無權限／
             // 已刪除的筆記一律回 200 + role 'none'，見 routes/notes.ts 的說明），
             // 但 spec §5 明訂「重連時 API 404 → deleted」，契約若改動也要正確收斂。
+            // 同 issue #36：遲到的 404 屬於**上一篇**筆記，不得把新筆記打成 deleted。
             tokenFailureFinal = true;
-            dispatch({ type: "close", reason: COLLAB_CLOSE_NOTE_DELETED });
+            if (!disposed) dispatch({ type: "close", reason: COLLAB_CLOSE_NOTE_DELETED });
             throw err;
           }
           const delay = TOKEN_RETRY_DELAYS_MS[attempt];
@@ -288,6 +314,15 @@ export function useCollab({ noteId, onUnauthorized }: UseCollabOptions): UseColl
         pendingReconnectRef.current = false;
         // 認證成功＝這條連線活著，issue #39 的重啟退避從頭算起。
         restartAttempt = 0;
+        // ⚠ 還排著的那次重啟要一起收掉（審查指出）：拒連在 t=0 排了 5 秒後的重啟，而
+        // server 其實 1 秒後就恢復、provider 內建退避在 t=2 秒就連上了——留著的話，t=5 秒
+        // 那顆 timer 會把一條健康的連線拆掉重來，還多花一次 collab-token 的額度（那是
+        // per-user 跨分頁共用的）。使用者看不到（自家 close 會被 pendingReconnectRef 吞掉），
+        // 只會白白多繞一圈。
+        if (restartTimer !== undefined) clearTimeout(restartTimer);
+        restartTimer = undefined;
+        cancelRestartFallback?.();
+        cancelRestartFallback = undefined;
         dispatch({ type: "open", role: roleRef.current });
       },
     });
@@ -339,11 +374,35 @@ export function useCollab({ noteId, onUnauthorized }: UseCollabOptions): UseColl
         if (!tokenFailureFinal) scheduleRestart();
         return;
       }
-      // 不寫成裸的 `reason === COLLAB_REJECT_NOTE_DELETING`：reason 缺席時兩邊都是
-      // undefined 會變成真，把一則不明的拒絕誤判成「筆記已刪除」。開發時就踩過：
-      // 共用包忘了重建，兩個常數都是 undefined，測試因此假綠。
-      const noteDeleting = reason !== undefined && reason === COLLAB_REJECT_NOTE_DELETING;
-      dispatch({ type: "close", reason: noteDeleting ? COLLAB_CLOSE_NOTE_DELETED : COLLAB_CLOSE_REVOKED });
+
+      // ⚠ 一律先把 reason 收成字串再比對，**不可**寫成裸的 `reason === COLLAB_REJECT_*`：
+      // reason 缺席時兩邊都是 undefined 會變成真，把一則不明的拒絕誤判成「筆記已刪除」。
+      // 開發時就踩過：共用包忘了重建，常數全是 undefined，測試因此假綠。
+      const wire = typeof reason === "string" ? reason : "";
+
+      // issue #35：拒連理由分兩桶，處置完全不同（見 `@knotebook/shared` 那組常數的註解）。
+      // A 桶＝授權裁決，照舊翻成 close 事件走既有的終態／二擊語意。
+      if (wire === COLLAB_REJECT_NOTE_DELETING) {
+        dispatch({ type: "close", reason: COLLAB_CLOSE_NOTE_DELETED });
+        return;
+      }
+      if (wire === COLLAB_REJECT_FORBIDDEN) {
+        dispatch({ type: "close", reason: COLLAB_CLOSE_REVOKED });
+        return;
+      }
+
+      // B 桶＝`invalid-token`／`server-error`／不認得的 reason（含 Hocuspocus 對未預期例外
+      // 填的字面值 `"permission-denied"`）。**這些都不是「你沒有權限」**：token 驗不過、
+      // session 的 tokenVersion 被撤銷（帳號停用／別處改過密碼）、server 端 DB 抖動都會落在
+      // 這裡，舊版一律翻成撤權 ⇒ 對一個權限完好的使用者說「你已失去存取權」並把他導走
+      // （issue #35）。
+      //
+      // 但也不能就這樣不動：server 對 onAuthenticate 的 throw **不關 socket 也不重連**，
+      // provider 不會再取一次 token，狀態機收不到任何事件 ⇒ 又是一條靜默死路（issue #34/#39
+      // 那一族）。所以走與「token 取不到」相同的自我修復：排一次整條連線重啟（會重取
+      // token），狀態留在 `connecting`。tokenVersion 被撤銷那一支的重取會拿到 401（session
+      // 也失效了），屆時 `onUnauthorized` 會接手登出——那才是它正確的結局。
+      scheduleRestart();
     });
 
     // 終態分支（下面那個 effect）用它把重啟整條掐掉。**必須有這道閘門**（審查指出）：

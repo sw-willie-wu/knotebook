@@ -193,9 +193,49 @@ export const COLLAB_CLOSE_NOTE_DELETED = "knotebook:note-deleted";
  * 這裡這組則是 onAuthenticate 當場就拒絕，Hocuspocus 只回一則 permission-denied Auth
  * 訊息、**不關 socket 也不重連**（已對 @hocuspocus/server 4.5.0 `ClientConnection` 核實）。
  * client 必須自己把它翻成狀態機事件，否則畫面會永遠停在「連線中」（issue #6）。
+ *
+ * ⚠ **這一組分成語意完全不同的兩桶（issue #35），client 的處置不可混用**：
+ *
+ * A.「這是一則授權裁決」——`note-deleting`（筆記已刪除／刪除中）與 `forbidden`（這個人對
+ *    這篇筆記沒有任何角色）。使用者對這篇筆記的關係真的結束了，client 據此收斂終態
+ *    （deleted／撤權二擊）並導頁。
+ * B.「拒絕的原因不是權限」——`invalid-token`（token 驗不過，或 session 的 tokenVersion 已被
+ *    撤銷）與 `server-error`（onAuthenticate 撞到未預期例外）。**client 絕不可據此宣告使用者
+ *    失去存取權**：對他說錯話之外，那一則拒絕多半重取一次 token 就會有結論。正確處置是排一次
+ *    連線重啟（見 `useCollab` 的 `TOKEN_RESTART_DELAYS_MS`），狀態留在 `connecting`；重取 token
+ *    時若 session 真的沒了會拿到 401，屆時走的是登出流程，那才是它正確的結局。
+ *
+ * 舊版把三種拒絕理由全塞進 `invalid-token` 一個桶子，client 一律翻成撤權——帳號被停用或密碼
+ * 在別處改過（兩者都只是 session 失效）會對一個權限完好的使用者說「你已失去存取權」並把他
+ * 導走（issue #35）。
+ * ⚠ 因此 **client 對「不認得的 reason」（含 Hocuspocus 對未預期例外填的字面值
+ * `"permission-denied"`、以及 reason 缺席）一律歸 B 桶**：寧可多重試幾次，不可誤殺。
+ *
+ * ⚠ **不要為「筆記不存在」另開一個 reason**：那會把「這個 noteId 是否存在」變成一個任何登入
+ * 使用者都能問的 oracle，而 REST 端刻意不區分這兩者（`GET /api/notes/:ref` 一律 404、
+ * collab-token 一律 200 + role 'none'，見 `routes/notes.ts` 的防列舉說明）。刪除後的重連窗口
+ * 改由 server 端的刪除閘門覆蓋（`DELETING_GATE_TTL_MS` 大於 `COLLAB_RESTART_DELAYS_MS` 的最大
+ * 值），而閘門**只對「刪除當下本來就看得到這篇筆記的人」說 `note-deleting`**——其他人一律
+ * 落在 `forbidden`，與「這篇筆記存在但不是你的」完全一樣，問不出任何東西。
  */
 export const COLLAB_REJECT_NOTE_DELETING = "note-deleting";
 export const COLLAB_REJECT_INVALID_TOKEN = "invalid-token";
+export const COLLAB_REJECT_FORBIDDEN = "forbidden";
+export const COLLAB_REJECT_SERVER_ERROR = "server-error";
+/**
+ * client 在「token 徹底取不到」或「拒連理由不是授權裁決」之後，整條連線重來的退避表（ms，
+ * issue #39／#35）與抖動幅度。最後一格重複使用；實際延遲 ＝ 該格 × [0.75, 1.25)。
+ *
+ * ⚠ **住在 shared 是因為 server 端的刪除閘門 TTL 必須大於這裡的最大值**
+ * （`DELETING_GATE_TTL_MS`，見 `apps/server/src/collab/hooks-impl.ts`）：閘門是 server 唯一
+ * 能對「本來看得到這篇筆記的人」說出「它被刪掉了」的窗口，關得比 client 的重連還早的話，
+ * 那個人就會收到 `forbidden` ＝ 被告知失去存取權（issue #35）。兩個常數因此是一組耦合的
+ * 契約，由 `apps/server/test/unit/collab-deleting-gate.test.ts` 釘住——調整這裡的數字時，
+ * 那條測試會告訴你 server 端要不要跟著調。
+ */
+export const COLLAB_RESTART_DELAYS_MS = [5_000, 15_000, 60_000] as const;
+export const COLLAB_RESTART_JITTER = 0.25;
+
 export const COLLAB_TOKEN_TTL_SECONDS = 120;
 export interface CollabTokenClaims {
   noteId: string;

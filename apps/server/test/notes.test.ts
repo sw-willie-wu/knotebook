@@ -1,7 +1,7 @@
 import { existsSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { describe, it, expect, vi } from "vitest";
-import { eq, or } from "drizzle-orm";
+import { eq, or, sql } from "drizzle-orm";
 import { SESSION_COOKIE } from "@knotebook/shared";
 import { buildTestApp, testConfig } from "./helpers.js";
 import { notes, noteLinks, noteShares, noteStateBackups, noteStates, uploads, users } from "../src/db/schema.js";
@@ -303,7 +303,7 @@ describe("PATCH /api/notes/:id", () => {
 
 describe("DELETE /api/notes/:id", () => {
   it("editor → 403 forbidden；beforeNoteDeleted 未被呼叫（授權失敗須早於 collab teardown，不能被當成 DoS 面利用）", async () => {
-    const beforeNoteDeleted = vi.fn(async () => {});
+    const beforeNoteDeleted = vi.fn(async () => ({ release: () => {} }));
     const collabHooks: CollabHooks = {
       onShareChanged: vi.fn(),
       onUserRevoked: vi.fn(),
@@ -327,7 +327,7 @@ describe("DELETE /api/notes/:id", () => {
   });
 
   it("非相關者 → 404；beforeNoteDeleted 未被呼叫（同上，無權限者不該觸發任何 collab teardown 副作用）", async () => {
-    const beforeNoteDeleted = vi.fn(async () => {});
+    const beforeNoteDeleted = vi.fn(async () => ({ release: () => {} }));
     const collabHooks: CollabHooks = {
       onShareChanged: vi.fn(),
       onUserRevoked: vi.fn(),
@@ -392,6 +392,7 @@ describe("DELETE /api/notes/:id", () => {
     const beforeNoteDeleted = vi.fn(async (noteId: string) => {
       const rows = await dbRef.current!.select().from(notes).where(eq(notes.id, noteId));
       expect(rows).toHaveLength(1);
+      return { release: () => {} };
     });
     const collabHooks: CollabHooks = {
       onShareChanged: vi.fn(),
@@ -415,11 +416,43 @@ describe("DELETE /api/notes/:id", () => {
     expect(beforeNoteDeleted).toHaveBeenCalledWith(note.id);
   });
 
+  it("刪除交易失敗 → 閘門的 release() 被呼叫（否則閘門會對重連者謊稱「已刪除」兩分鐘）", async () => {
+    // 閘門在 beforeNoteDeleted 就開了。交易失敗若不收回去，這篇筆記接下來兩分鐘
+    // （DELETING_GATE_TTL_MS）都會對協作者回 note-deleting，client 據此收斂終態並導頁
+    // ——而筆記其實還在。
+    const release = vi.fn();
+    const collabHooks: CollabHooks = {
+      onShareChanged: vi.fn(),
+      onUserRevoked: vi.fn(),
+      beforeNoteDeleted: vi.fn(async () => ({ release })),
+      linkSyncGate: () => ({ ok: false as const }),
+    };
+    const { app, db } = await buildTestApp({ collabHooks });
+
+    const owner = await insertUser(db, { email: "owner-del6@example.com" });
+    const ownerCookie = await cookieFor(owner.id);
+    const createRes = await app.inject({ method: "POST", url: "/api/notes", cookies: { [SESSION_COOKIE]: ownerCookie }, payload: {} });
+    const note = createRes.json();
+
+    // 讓刪除交易真的爆掉：拔掉 uploads 表（同一個交易內會 DELETE 它）。
+    await db.execute(sql`ALTER TABLE uploads RENAME TO uploads_hidden`);
+    try {
+      const res = await app.inject({ method: "DELETE", url: `/api/notes/${note.id}`, cookies: { [SESSION_COOKIE]: ownerCookie } });
+      expect(res.statusCode).toBe(500);
+    } finally {
+      await db.execute(sql`ALTER TABLE uploads_hidden RENAME TO uploads`);
+    }
+
+    expect(release).toHaveBeenCalledTimes(1);
+    // 交易 rollback：筆記還在。
+    expect(await db.select().from(notes).where(eq(notes.id, note.id))).toHaveLength(1);
+  });
+
   it("beforeNoteDeleted throw → 交易不執行（notes 仍存在）", async () => {
     const collabHooks: CollabHooks = {
       onShareChanged: vi.fn(),
       onUserRevoked: vi.fn(),
-      beforeNoteDeleted: vi.fn(async () => {
+      beforeNoteDeleted: vi.fn(async (): Promise<never> => {
         throw new Error("collab teardown failed");
       }),
       linkSyncGate: () => ({ ok: false as const }),
