@@ -323,7 +323,7 @@ describe("providers CRUD", () => {
     });
     expect(res.statusCode).toBe(200);
 
-    const line = lines.find(one => one.msg === "AI provider 的 base URL 被變更");
+    const line = lines.find(one => one.msg === "AI provider 的 base URL 被寫入");
     expect(line).toBeDefined();
     expect(line!.obj).toMatchObject({
       providerId: provider.id,
@@ -335,6 +335,19 @@ describe("providers CRUD", () => {
     // 憑證與 query 都不得出現在那一行的任何欄位裡。
     expect(JSON.stringify(line!.obj)).not.toContain("pass");
     expect(JSON.stringify(line!.obj)).not.toContain("secret");
+
+    // ⚠ **網址看起來沒變也要記**（審查指出，這是 round 2 的核心修法）：觸發條件若退回
+    // 「跟 `existing` 不同才記」，攻擊者持續送 no-op PATCH 的那個競態下會一行都不輸出
+    // ——而 docs 說那行 log 是「唯一可信的痕跡」，要抓的正是那個姿勢。
+    lines.length = 0;
+    const again = await app.inject({
+      method: "PATCH",
+      url: `/api/admin/ai/providers/${provider.id}`,
+      cookies: { [SESSION_COOKIE]: cookie },
+      payload: { baseUrl: "https://user:pass@evil.example.com/v1?k=secret" },
+    });
+    expect(again.statusCode).toBe(200);
+    expect(lines.some(one => one.msg === "AI provider 的 base URL 被寫入")).toBe(true);
   });
 
   it("併發：攻擊者的 no-op PATCH 排在受害者之後，也偷不到那把剛輸入的金鑰（TOCTOU 回歸釘）", async () => {
@@ -377,6 +390,12 @@ describe("providers CRUD", () => {
         payload: { baseUrl: EVIL },
       });
       await new Promise(resolve => setTimeout(resolve, 500));
+
+      // ⚠ 證明攻擊者那一發真的卡在行鎖上（審查指出）：少了這道斷言，慢機器上 500ms 不夠
+      // 時它的 SELECT 會跑在受害者 commit 之後 ⇒ 讀到 GOOD ⇒ 判定有變 ⇒ 連舊碼都會通過，
+      // 這根釘子就不再測它要測的回歸了。被鎖擋住這件事本身就證明 SELECT 已經跑完。
+      const pending = Symbol("pending");
+      expect(await Promise.race([attacker, Promise.resolve(pending)])).toBe(pending);
 
       // 受害者：改回正確網址並重新輸入金鑰（在鎖內完成，必然先 commit）。
       await holder.query(

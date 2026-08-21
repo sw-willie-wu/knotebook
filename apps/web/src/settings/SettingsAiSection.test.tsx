@@ -280,8 +280,13 @@ describe("SettingsAiSection（spec §13.4：provider／model／action 三層 CRU
     renderSection(fetchMock);
     await waitFor(() => expect(screen.getByText(PROVIDER_B.name)).toBeInTheDocument());
 
-    // 兩個 provider 只有一個沒金鑰 ⇒ 提示恰好一則（不是「每張卡都掛一行」）。
-    expect(screen.getAllByText(/No API key stored/)).toHaveLength(1);
+    // ⚠ 要驗它**掛在哪一張卡**，不能只數數量（審查用變異實測抓到：把顯示條件反轉成
+    // `hasKey && !degraded`，提示改掛在有金鑰的那張卡上、真正沒金鑰的反而不顯示，只數
+    // 數量的話 16 條測試全綠）。而三份文件唯一依靠的就是這道釘子。
+    const noKeyCard = screen.getByText(PROVIDER_B.name).closest<HTMLElement>("div.rounded-md");
+    const hasKeyCard = screen.getByText(PROVIDER_A.name).closest<HTMLElement>("div.rounded-md");
+    expect(noKeyCard && within(noKeyCard).getByText(/No API key stored/)).toBeInTheDocument();
+    expect(hasKeyCard && within(hasKeyCard).queryByText(/No API key stored/)).not.toBeInTheDocument();
   });
 
   it("沒有金鑰的 provider 改網址不提示「會清除金鑰」（本來就沒有東西可清）", async () => {

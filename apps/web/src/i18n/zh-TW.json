@@ -180,7 +180,7 @@
       "enabled": "啟用",
       "degradedBadge": "降級中",
       "degradedNotice": "此供應商儲存的金鑰已無法解密，請重新輸入 API 金鑰以恢復。",
-      "noKeyNotice": "未儲存 API 金鑰——連線需要授權的供應商前請先輸入；自架的無授權服務可留空。",
+      "noKeyNotice": "未儲存 API 金鑰——需要授權的供應商必須設定；自架的無授權服務不需要。",
       "test": "測試連線",
       "testing": "測試中…",
       "testSuccess": "連線成功。",

@@ -214,10 +214,12 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
       if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
       const { name, type, baseUrl, apiKey, enabled } = parsed.data;
 
-      // 只讀這兩欄（**不** SELECT 密文本體，維持 `providerListColumns` 那道防線）——而且
-      // 它們**只供日誌使用**，不參與「要不要清金鑰」的決定（那個判斷在 DB 端做，見下）。
+      // 只讀 baseUrl 這一欄（**不** SELECT 密文本體，維持 `providerListColumns` 那道防線），
+      // 而且它**只供日誌的 `from` 欄位使用**，不參與「要不要清金鑰」的決定——那個判斷在 DB
+      // 端跟寫入同一句做（見下）。⚠ 它是非交易的讀，所以競態下 `from` 可能失真；`to` 與
+      // `hasKeyAfter` 才是那一行裡可信的部分。
       const [existing] = await deps.db
-        .select({ baseUrl: aiProviders.baseUrl, hasKey: sql<boolean>`${aiProviders.apiKeyEncrypted} is not null` })
+        .select({ baseUrl: aiProviders.baseUrl })
         .from(aiProviders)
         .where(eq(aiProviders.id, id))
         .limit(1);
@@ -288,6 +290,9 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
       if (baseUrl !== undefined) {
         // 改網址是敏感操作（見上面那段）——留一行可稽核的紀錄。
         //
+        // 訊息刻意寫「被寫入」而不是「被變更」：UI 每次編輯都會帶 `baseUrl`，所以只改名字
+        // 也會記一行，說「被變更」對半數的行是假話（要看 `from`／`to` 是否相同才知道）。
+        //
         // 欄位刻意記「這一次寫完之後還有沒有金鑰」（`row.hasKey`，DB 回來的事實）而不是
         // 「金鑰有沒有被清掉」：後者要拿 `existing` 的舊值來推，而那個讀在競態下會說謊。
         request.log.info(
@@ -298,15 +303,10 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
             to: safeTarget(baseUrl),
             hasKeyAfter: row.hasKey,
           },
-          "AI provider 的 base URL 被變更"
+          "AI provider 的 base URL 被寫入"
         );
       }
 
-      // 沒有金鑰就不可能是「密文解不開」——把降級狀態一起收掉，否則 provider 會卡在
-      // 「請重新輸入 API key」的 503，連「這個 provider 本來就不需要金鑰」（自架 Ollama）
-      // 都測不了。比照 issue #17 的教訓：不要留下沒有人會清的髒狀態。
-      // ⚠ 判準是 `row.hasKey`（DB 回來的結果），不是「這次有沒有清」——後者同樣依賴那個
-      // 會說謊的 stale 讀，於是競態下金鑰已經沒了卻仍卡在 503。
       if (newEncrypted !== undefined) {
         // 重加密寫入後自檢：用目前的 APP_SECRET 立即解密剛寫入的密文——同一支 secret
         // 剛加密完緊接著解，理論上必然成功；try/catch 是防禦性寫法（純函式契約層面，
@@ -320,6 +320,11 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
         }
       }
 
+      // 沒有金鑰就不可能是「密文解不開」——把降級狀態一起收掉，否則 provider 會卡在
+      // 「請重新輸入 API key」的 503，連「這個 provider 本來就不需要金鑰」（自架 Ollama）
+      // 都測不了。比照 issue #17 的教訓：不要留下沒有人會清的髒狀態。
+      // ⚠ 判準是 `row.hasKey`（DB 回來的結果），不是「這次有沒有清」——後者要拿上面那個
+      // 非交易的讀來推，而它在競態下會說謊，於是金鑰已經沒了卻仍卡在 503。
       if (!row.hasKey) {
         deps.runtime.degraded.delete(id);
       }
