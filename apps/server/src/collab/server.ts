@@ -76,13 +76,12 @@ import {
   COLLAB_REJECT_FORBIDDEN,
   COLLAB_REJECT_INVALID_TOKEN,
   COLLAB_REJECT_NOTE_DELETING,
-  COLLAB_REJECT_NOTE_MISSING,
   COLLAB_REJECT_SERVER_ERROR,
 } from "@knotebook/shared";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
 import type { UserGate } from "../auth/session.js";
-import { resolveAccess, resolveRole } from "../notes/service.js";
+import { resolveRole } from "../notes/service.js";
 import { verifyCollabToken } from "./token.js";
 import { createNoteStore, docClock, type StoreLogger } from "./store.js";
 
@@ -91,12 +90,14 @@ const STORE_DEBOUNCE_MS = 2_000;
 
 /**
  * CollabServer 需要的 logger 介面。比 `StoreLogger`（只要 `warn`）多兩級：
- * - `info`：握手拒絕（issue #37）——正常營運事件，但**必須留下訊號**。
+ * - `debug`／`info`：握手拒絕（issue #37）——正常營運事件，但**必須留下訊號**。
+ *   兩級的分法見 `rejectAuth`。
  * - `error`：`onAuthenticate` 撞到未預期例外（DB 抖動…），那是真的故障。
  *
  * pino（`index.ts` 傳進來的 production logger）原生符合。
  */
 export interface CollabLogger extends StoreLogger {
+  debug(obj: object, msg: string): void;
   info(obj: object, msg: string): void;
   error(obj: object, msg: string): void;
 }
@@ -106,6 +107,7 @@ export interface CollabLogger extends StoreLogger {
 // 無跡可循；握手拒絕同理（issue #37）。production 一律走 Fastify logger，這條路只在
 // 嵌入式用法／測試 harness 未注入 logger 時生效。
 const consoleCollabLogger: CollabLogger = {
+  debug: (obj, msg) => console.debug(msg, obj),
   warn: (obj, msg) => console.warn(msg, obj),
   info: (obj, msg) => console.info(msg, obj),
   error: (obj, msg) => console.error(msg, obj),
@@ -124,7 +126,6 @@ export {
   COLLAB_REJECT_FORBIDDEN,
   COLLAB_REJECT_INVALID_TOKEN,
   COLLAB_REJECT_NOTE_DELETING,
-  COLLAB_REJECT_NOTE_MISSING,
   COLLAB_REJECT_SERVER_ERROR,
 };
 
@@ -134,20 +135,23 @@ export {
  * 兩層是刻意的：client 只需要知道「這是不是一則授權裁決」（見 `@knotebook/shared` 那組
  * 常數的註解），把 `bad-token` 與 `session-revoked` 分開對它毫無意義、反而是多一組要維護
  * 的相容面；但維護者在事後查「這個人為什麼連不上」時，這兩者要的處置天差地遠（前者是
- * 密鑰／時鐘問題，後者是這個 session 已被撤銷）。細分留在日誌裡，wire 維持四個值。
+ * token 本身的問題，後者是這個 session 已被撤銷）。細分留在日誌裡，wire 維持三個值。
+ *
+ * 每個 cause 的日誌級別不同（見 `rejectAuth`），但**出口只有 `rejectAuth` 一個**：
+ * 別處裸 `throw new CollabAuthError(...)` 的話，那次拒連就不會出現在 `cause` 這個欄位上，
+ * 而 docs 的排錯指引正是叫維護者 grep 它（審查抓到——`server-error` 一度就是這樣漏掉的，
+ * 而它偏偏是唯一會讓分頁真的一直停在「連線中」的那個）。
  */
 const REJECT_WIRE_REASON = {
-  /** 這篇筆記正在刪除流程中（`markDeleting` 閘門）。 */
+  /** 這篇筆記正在刪除中，或剛被刪掉不久（`markDeleting` 閘門，見 `DELETING_GATE_TTL_MS`）。 */
   "note-deleting": COLLAB_REJECT_NOTE_DELETING,
-  /** 筆記列已經不在了（刪除完成、閘門也清了，client 還在退避重連）。 */
-  "note-missing": COLLAB_REJECT_NOTE_MISSING,
-  /** token 缺席／簽章不符／綁的 noteId 不是這一篇。 */
+  /** token 缺席／簽章不符／過期／綁的 noteId 不是這一篇。**唯一在驗證 token 之前就會發生的**。 */
   "bad-token": COLLAB_REJECT_INVALID_TOKEN,
   /** `gate.check` 不通過：帳號停用、或 token 的 tokenVersion 已被 bump。 */
   "session-revoked": COLLAB_REJECT_INVALID_TOKEN,
-  /** 筆記在、token 也有效，但這個人對它沒有任何角色——唯一真正的「授權被拒」。 */
+  /** token 有效，但這個人對這篇筆記沒有任何角色——唯一真正的「授權被拒」。 */
   "no-role": COLLAB_REJECT_FORBIDDEN,
-  /** onAuthenticate 撞到未預期例外（DB 抖動…）。不是裁決，client 會自己重試。 */
+  /** onAuthenticate 撞到未預期例外（DB 抖動…）。不是裁決，client 會自己退避重試。 */
   "server-error": COLLAB_REJECT_SERVER_ERROR,
 } as const;
 
@@ -323,15 +327,25 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
    * console.error 的間接訊號都沒有，等於一個位元都不留。
    *
    * 欄位限定 `{ noteId, userId, cause, reason }`：cause 是有限的常數集合、不含 PII，
-   * userId 是 uuid（token 驗不過時沒有這個資訊，欄位缺席）。**不記 token 內容**。
-   * 級別 info：拒連是正常營運事件（撤權、刪除中、過期 token），不是故障。
+   * userId 是 uuid。**不記 token 內容**。
+   *
+   * 級別分三級（審查指出）：
+   *
+   * - `bad-token` → **debug**。/collab 的 upgrade 不需要 session，而 Hocuspocus 對認證失敗
+   *   **不關 socket**（還會把該文件的狀態清乾淨，讓下一則 auth 訊息當成全新的第一次嘗試）
+   *   ——空 token 那條路徑不查 DB、不驗簽章，等於一則 30 bytes 的 WebSocket 訊息換一行日誌，
+   *   而且繞過任何反向代理擋得住的 HTTP 節流。它也是診斷價值最低的一個（沒有 userId，而且
+   *   client 收到它只會自己退避重試，不會把人踢走）。
+   * - `server-error` → **error**，並帶上 `err`（要 stack）。那是真的故障。
+   * - 其餘 → **info**。它們都需要一份合法簽章的 token，因而已受 collab-token 的 per-user
+   *   節流（60/分鐘）保護，而且都帶得出 userId。
    */
-  // 宣告成 function 而非 const arrow：TS 的控制流分析只對「函式宣告／有明確型別註記的
-  // const」把回傳 never 當成中止，寫成 arrow 的話下面 `if (!claims) rejectAuth(...)`
-  // 之後 claims 不會被收窄成非 null。
-  function rejectAuth(cause: CollabRejectCause, ctx: { noteId: string; userId?: string }): never {
+  function rejectAuth(cause: CollabRejectCause, ctx: { noteId: string; userId?: string; err?: unknown }): never {
     const reason = REJECT_WIRE_REASON[cause];
-    log.info({ noteId: ctx.noteId, userId: ctx.userId, cause, reason }, "collab 握手被拒");
+    const line = { noteId: ctx.noteId, userId: ctx.userId, cause, reason };
+    if (cause === "bad-token") log.debug(line, "collab 握手被拒");
+    else if (cause === "server-error") log.error({ ...line, err: ctx.err }, "collab 握手被拒");
+    else log.info(line, "collab 握手被拒");
     throw new CollabAuthError(reason);
   }
 
@@ -361,10 +375,6 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
     // 未過期」的 token 立即生效，而不必等 token 自然過期。
     onAuthenticate: async ({ token, documentName, connectionConfig }) => {
       try {
-        if (deleting.has(documentName)) {
-          rejectAuth("note-deleting", { noteId: documentName });
-        }
-
         const claims = token ? await verifyCollabToken(deps.config.appSecret, token) : null;
         // documentName 是「這條連線實際要連的文件」，claims.noteId 是 token 簽發當下綁定
         // 的文件——兩者不符代表這份 token 被拿去連了別篇筆記（即使簽章本身有效），必須拒絕。
@@ -372,14 +382,16 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
           rejectAuth("bad-token", { noteId: documentName });
         }
 
-        // ⚠ 要 `resolveAccess` 而不是 `resolveRole`（issue #35）：role 'none' 混了「你沒有
-        // 權限」與「這篇筆記已經被刪掉了」。後者發生在「刪除完成、deleting 閘門已清，而
-        // client 還在重連退避裡」的窗口——只看 role 的話會對使用者說「你已失去存取權」，
-        // 真相是筆記不在了。兩者的 client 處置不同（撤權二擊 vs 直接 deleted 終態）。
-        const { role, noteExists } = await resolveAccess(deps.db, claims.userId, documentName);
-        if (!noteExists) {
-          rejectAuth("note-missing", { noteId: documentName, userId: claims.userId });
+        // ⚠ 刪除閘門刻意排在**驗完 token 之後**（審查指出）：它是這個 server 唯一會透露
+        // 「某個 noteId 存在（且剛被刪掉）」的地方，擺在最前面等於讓一個連 session 都不需要
+        // 的 socket 就能問這個問題。擺在這裡，要問就得先持有一份對這篇筆記合法簽章的 token。
+        // 順序仍必須早於 resolveRole：刪除交易 commit 之後那一列就查不到了，先跑 role 的話
+        // 這條路會落到 `no-role`（＝對使用者說「你已失去存取權」），而真相是筆記被刪了。
+        if (deleting.has(documentName)) {
+          rejectAuth("note-deleting", { noteId: documentName, userId: claims.userId });
         }
+
+        const role = await resolveRole(deps.db, claims.userId, documentName);
         if (role === "none") {
           rejectAuth("no-role", { noteId: documentName, userId: claims.userId });
         }
@@ -400,13 +412,15 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
         return { userId: claims.userId };
       } catch (err) {
         if (err instanceof CollabAuthError) throw err;
-        // 未預期例外（`resolveAccess`／`gate.check` 撞到 DB 抖動…）。不接的話 Hocuspocus 會
+        // 未預期例外（`resolveRole`／`gate.check` 撞到 DB 抖動…）。不接的話 Hocuspocus 會
         // 把它翻成字面值 `"permission-denied"` 送出去（見 `ClientConnection` 的 catch），
         // client 舊版一律當撤權——對一個權限完好的使用者說錯話，而且 server 端也不會留下
-        // 任何紀錄（`console.error` 只印 message，這裡的 err 才有 stack）。改成明確的
-        // `server-error`（client 會退避重試），並在**這裡**留下 error 級別的日誌。
-        log.error({ err, noteId: documentName }, "collab onAuthenticate 未預期例外");
-        throw new CollabAuthError(COLLAB_REJECT_SERVER_ERROR);
+        // 任何紀錄（`console.error` 只印 message，這裡的 err 才有 stack）。
+        //
+        // ⚠ 一樣走 `rejectAuth`（審查指出）：這是唯一會讓分頁真的一直停在「連線中」的原因，
+        // 也就是維護者最需要找到的那一種。它若不出現在 `cause` 欄位上，docs 教的
+        // `grep '"cause"'` 就剛好漏掉它。
+        rejectAuth("server-error", { noteId: documentName, err });
       }
     },
 

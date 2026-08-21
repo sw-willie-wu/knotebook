@@ -196,21 +196,28 @@ export const COLLAB_CLOSE_NOTE_DELETED = "knotebook:note-deleted";
  *
  * ⚠ **這一組分成語意完全不同的兩桶（issue #35），client 的處置不可混用**：
  *
- * A.「這是一則授權裁決」——`note-deleting`／`note-missing`／`forbidden`。使用者對這篇
- *    筆記的關係真的結束了，client 據此收斂終態（deleted／撤權二擊）並導頁。
- * B.「拒絕的原因不是權限」——`invalid-token`（簽章／綁定不符、`APP_SECRET` 輪替、時鐘
- *    偏移、session 的 tokenVersion 已過期）與 `server-error`（onAuthenticate 撞到未預期
- *    例外）。**client 絕不可據此宣告使用者失去存取權**：對他說錯話之外，那一則拒絕多半
- *    重取一次 token 就會自癒。正確處置是排一次連線重啟（見 `useCollab` 的
- *    `TOKEN_RESTART_DELAYS_MS`），狀態留在 `connecting`。
+ * A.「這是一則授權裁決」——`note-deleting`（筆記已刪除／刪除中）與 `forbidden`（這個人對
+ *    這篇筆記沒有任何角色）。使用者對這篇筆記的關係真的結束了，client 據此收斂終態
+ *    （deleted／撤權二擊）並導頁。
+ * B.「拒絕的原因不是權限」——`invalid-token`（token 驗不過，或 session 的 tokenVersion 已被
+ *    撤銷）與 `server-error`（onAuthenticate 撞到未預期例外）。**client 絕不可據此宣告使用者
+ *    失去存取權**：對他說錯話之外，那一則拒絕多半重取一次 token 就會有結論。正確處置是排一次
+ *    連線重啟（見 `useCollab` 的 `TOKEN_RESTART_DELAYS_MS`），狀態留在 `connecting`；重取 token
+ *    時若 session 真的沒了會拿到 401，屆時走的是登出流程，那才是它正確的結局。
  *
- * 舊版把三種拒絕理由全塞進 `invalid-token` 一個桶子，client 一律翻成撤權——時鐘偏移或
- * 密鑰輪替會對一個權限完好的使用者說「你已失去存取權」並把他導走（issue #35）。
+ * 舊版把三種拒絕理由全塞進 `invalid-token` 一個桶子，client 一律翻成撤權——帳號被停用或密碼
+ * 在別處改過（兩者都只是 session 失效）會對一個權限完好的使用者說「你已失去存取權」並把他
+ * 導走（issue #35）。
  * ⚠ 因此 **client 對「不認得的 reason」（含 Hocuspocus 對未預期例外填的字面值
  * `"permission-denied"`、以及 reason 缺席）一律歸 B 桶**：寧可多重試幾次，不可誤殺。
+ *
+ * ⚠ **不要為「筆記不存在」另開一個 reason**：那會把「這個 noteId 是否存在」變成一個任何登入
+ * 使用者都能問的 oracle，而 REST 端刻意不區分這兩者（`GET /api/notes/:ref` 一律 404、
+ * collab-token 一律 200 + role 'none'，見 `routes/notes.ts` 的防列舉說明）。刪除後的重連窗口
+ * 改由 server 端的刪除閘門覆蓋（`DELETING_GATE_TTL_MS` 大於 client 的最長重啟退避），閘門只裝
+ * 得下「這個行程剛剛刪掉的筆記」，回答不了攻擊者自己挑的 UUID。
  */
 export const COLLAB_REJECT_NOTE_DELETING = "note-deleting";
-export const COLLAB_REJECT_NOTE_MISSING = "note-missing";
 export const COLLAB_REJECT_INVALID_TOKEN = "invalid-token";
 export const COLLAB_REJECT_FORBIDDEN = "forbidden";
 export const COLLAB_REJECT_SERVER_ERROR = "server-error";

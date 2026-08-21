@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { COLLAB_CLOSE_NOTE_DELETED, COLLAB_CLOSE_REVOKED, YDOC_FRAGMENT, type Role } from "@knotebook/shared";
-import { COLLAB_REJECT_NOTE_DELETING, COLLAB_REJECT_NOTE_MISSING, type CollabServer } from "../src/collab/server.js";
+import { COLLAB_REJECT_FORBIDDEN, COLLAB_REJECT_NOTE_DELETING, type CollabServer } from "../src/collab/server.js";
 import { createCollabHooks, REVERIFY_DEADLINE_MS } from "../src/collab/hooks-impl.js";
 import { buildCollabTestApp, type CollabTestCtx, type HttpSession } from "./helpers.js";
 
@@ -307,13 +307,13 @@ describe("撤權 SLA：CollabHooks（Task 6）", () => {
     const tokenBody = (await tokenRes.json()) as { token: string; role: Role };
     expect(tokenBody.role).toBe("none");
 
-    // 閘門過期之後（模擬 30s TTL 到期）這份 token 仍然連不上：擋下它的是 onAuthenticate
-    // 重跑 `resolveAccess`（筆記已不存在），不是刪除閘門。理由是 `note-missing` 而不是
-    // 「你沒有權限」——issue #35：這正是那個「client 被告知失去存取權，真相是筆記被刪了」
-    // 的窗口，client 收到它會直接收斂 deleted。
+    // 閘門過期之後（模擬 TTL 到期）這份 token 仍然連不上：擋下它的是 onAuthenticate
+    // 重跑 resolveRole（筆記已不存在 → 'none'），不是刪除閘門。理由因此是 `forbidden`
+    // ——與「這篇筆記存在、但你沒有權限」完全一樣，問不出存在性（issue #35 的取捨：
+    // 「筆記被刪了」這句話由閘門在 TTL 內負責，見 DELETING_GATE_TTL_MS）。
     ctx.collab.unmarkDeleting(note.id);
     await expect(editorSession.connect(note.id, { tokenOverride: tokenBody.token })).rejects.toThrow(
-      COLLAB_REJECT_NOTE_MISSING
+      COLLAB_REJECT_FORBIDDEN
     );
 
     const getRes = await editorSession.fetch(`/api/notes/${note.id}`);

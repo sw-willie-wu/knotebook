@@ -6,7 +6,6 @@ import {
   COLLAB_REJECT_FORBIDDEN,
   COLLAB_REJECT_INVALID_TOKEN,
   COLLAB_REJECT_NOTE_DELETING,
-  COLLAB_REJECT_NOTE_MISSING,
   COLLAB_REJECT_SERVER_ERROR,
 } from "@knotebook/shared";
 
@@ -499,7 +498,51 @@ describe("useCollab", () => {
     expect(phase()).toBe("connecting");
   });
 
-  it("authenticationFailed(note-missing) → deleted：筆記被刪掉時不說成「你沒有權限」（issue #35）", async () => {
+  it("reconnecting-once 期間收到 invalid-token：不算第二擊，也不破壞收斂（issue #35）", async () => {
+    // 撤權觀察窗內收到一則「不是裁決」的拒絕——狀態不得前進到 kicked，排出去的那次重啟
+    // 也不得跟狀態 effect 自己那次重啟互相打架（雙重 disconnect／吞掉 pending 旗標）。
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    const fetchMock = vi.fn(() => Promise.resolve(tokenOk("editor")));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<Probe />);
+    const p = provider();
+    await act(async () => {
+      await p.configuration.token();
+    });
+    act(() => p.configuration.onAuthenticated());
+
+    // 第一擊。
+    act(() => p.emit("close", { event: { code: 1000, reason: COLLAB_CLOSE_REVOKED } }));
+    expect(phase()).toBe("reconnecting-once");
+    act(() => p.emit("close", { event: { code: 1006, reason: "" } }));
+    expect(p.connect).toHaveBeenCalledTimes(1);
+
+    // 重連的握手被 server 以 invalid-token 拒絕——留在觀察窗，不是第二擊。
+    act(() => p.emit("authenticationFailed", { reason: COLLAB_REJECT_INVALID_TOKEN }));
+    expect(phase()).toBe("reconnecting-once");
+
+    // 重啟照排，且仍然帶得出重連。
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_500);
+    });
+    expect(p.disconnect).toHaveBeenCalledTimes(2);
+    act(() => p.emit("close", { event: { code: 1006, reason: "" } }));
+    expect(p.connect).toHaveBeenCalledTimes(2);
+
+    // 真的被撤權時仍然收斂：重取的 token 回 'none' ⇒ 第二擊。
+    fetchMock.mockResolvedValue(tokenOk("none"));
+    await act(async () => {
+      await p.configuration.token();
+    });
+    expect(phase()).toBe("kicked");
+  });
+
+  it("終態要掐掉**拒連**排出去的那次重啟（不只 token 失敗那條）", async () => {
+    // stopRestartsRef 這道閘門在這個 commit 之後多了一個更常見的餵食者；沒有測試守著，
+    // 一次整理就會讓終態的連線被 timer 重新拉起來（memory note 點名的不變量）。
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
     vi.stubGlobal(
       "fetch",
       vi.fn(() => Promise.resolve(tokenOk("owner"))),
@@ -510,9 +553,54 @@ describe("useCollab", () => {
       await p.configuration.token();
     });
 
-    act(() => p.emit("authenticationFailed", { reason: COLLAB_REJECT_NOTE_MISSING }));
+    act(() => p.emit("authenticationFailed", { reason: COLLAB_REJECT_SERVER_ERROR }));
+    expect(phase()).toBe("connecting");
+
+    // 重啟排好之後、開火之前，筆記被刪除 → 終態。
+    act(() => p.emit("close", { event: { code: 1000, reason: COLLAB_CLOSE_NOTE_DELETED } }));
     expect(phase()).toBe("deleted");
-    await waitFor(() => expect(p.disconnect).toHaveBeenCalled());
+    const disconnectsAtTerminal = p.disconnect.mock.calls.length;
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(120_000);
+    });
+    // 一次也不能再重連——否則就是一條沒人接事件的殭屍連線。
+    expect(p.disconnect).toHaveBeenCalledTimes(disconnectsAtTerminal);
+    expect(p.connect).not.toHaveBeenCalled();
+    expect(phase()).toBe("deleted");
+  });
+
+  it("拒連驅動的重啟同樣一次比一次寬（退避格子與 token 失敗共用一份）", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(tokenOk("editor"))),
+    );
+    render(<Probe />);
+    const p = provider();
+    await act(async () => {
+      await p.configuration.token();
+    });
+
+    act(() => p.emit("authenticationFailed", { reason: COLLAB_REJECT_INVALID_TOKEN }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_500);
+    });
+    expect(p.disconnect).toHaveBeenCalledTimes(1);
+    act(() => p.emit("close", { event: { code: 1006, reason: "" } }));
+
+    // 第二次拒絕：不可以又在 5 秒後就來（server 還在壞，秒級重試只會加重它的負擔，
+    // 而且 collab-token 的額度是跨分頁共用的）。
+    act(() => p.emit("authenticationFailed", { reason: COLLAB_REJECT_INVALID_TOKEN }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_500);
+    });
+    expect(p.disconnect).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(p.disconnect).toHaveBeenCalledTimes(2);
   });
 
   it("換筆記：上一篇遲到的 token **成功**回應不得打進新筆記的狀態機（issue #36）", async () => {
@@ -563,7 +651,6 @@ describe("useCollab", () => {
     // 共用包沒重建時這一組常數會是 undefined，於是 `reason === CONST` 靜靜地走錯分支
     // （本修改開發時就踩過）。釘住字面值，那種環境會大聲失敗而不是假綠。
     expect(COLLAB_REJECT_NOTE_DELETING).toBe("note-deleting");
-    expect(COLLAB_REJECT_NOTE_MISSING).toBe("note-missing");
     expect(COLLAB_REJECT_INVALID_TOKEN).toBe("invalid-token");
     expect(COLLAB_REJECT_FORBIDDEN).toBe("forbidden");
     expect(COLLAB_REJECT_SERVER_ERROR).toBe("server-error");

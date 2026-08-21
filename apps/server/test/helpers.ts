@@ -225,7 +225,7 @@ export interface HttpSession {
 
 /** `buildCollabTestApp` 收下來的一行 CollabServer 日誌。 */
 export interface CollabLogLine {
-  level: "info" | "warn" | "error";
+  level: "debug" | "info" | "warn" | "error";
   obj: Record<string, unknown>;
   msg: string;
 }
@@ -240,6 +240,12 @@ export interface CollabTestCtx {
    * 讓拒連測試不再往 stdout 噴 `consoleCollabLogger` 的那一行。
    */
   collabLogs: CollabLogLine[];
+  /**
+   * 讓之後每一次 `gate.check` 都丟出這個錯——用來重現「onAuthenticate 撞到未預期例外」
+   * （DB 抖動）那條路徑。⚠ `authenticate` 也走同一個 gate，破壞之後所有 REST 請求都會 500，
+   * 所以一律在測試的最後一步才呼叫。
+   */
+  breakGate(err: Error): void;
   db: Db;
   createUser(opts: { email: string; password: string; isAdmin?: boolean }): Promise<{ id: string }>;
   createNote(ownerId: string, title?: string): Promise<{ id: string }>;
@@ -261,8 +267,20 @@ export async function buildCollabTestApp(
 ): Promise<CollabTestCtx> {
   const { db } = await freshDb();
   const gate = new UserGate(db);
+  // 測試注入縫：見 `CollabTestCtx.breakGate`。包在 harness 裡（而不是每個測試各自 monkey-patch）
+  // 是為了讓「怎麼弄壞 gate」只有一份定義。
+  let gateError: Error | null = null;
+  const realCheck = gate.check.bind(gate);
+  gate.check = async (userId: string, tv: number) => {
+    if (gateError) throw gateError;
+    return realCheck(userId, tv);
+  };
+  const breakGate = (err: Error): void => {
+    gateError = err;
+  };
   const collabLogs: CollabLogLine[] = [];
   const collabLog = {
+    debug: (obj: object, msg: string) => collabLogs.push({ level: "debug", obj: { ...obj }, msg }),
     info: (obj: object, msg: string) => collabLogs.push({ level: "info", obj: { ...obj }, msg }),
     warn: (obj: object, msg: string) => collabLogs.push({ level: "warn", obj: { ...obj }, msg }),
     error: (obj: object, msg: string) => collabLogs.push({ level: "error", obj: { ...obj }, msg }),
@@ -450,5 +468,5 @@ export async function buildCollabTestApp(
     return session;
   }
 
-  return { baseUrl, app, collab, collabLogs, db, createUser, createNote, share, loginAs, destroy };
+  return { baseUrl, app, collab, collabLogs, breakGate, db, createUser, createNote, share, loginAs, destroy };
 }

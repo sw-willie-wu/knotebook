@@ -3,7 +3,12 @@ import { eq } from "drizzle-orm";
 import * as Y from "yjs";
 import { COLLAB_CLOSE_REVOKED, YDOC_FRAGMENT } from "@knotebook/shared";
 import { signCollabToken } from "../src/collab/token.js";
-import { COLLAB_REJECT_FORBIDDEN, COLLAB_REJECT_INVALID_TOKEN, COLLAB_REJECT_NOTE_MISSING } from "../src/collab/server.js";
+import {
+  COLLAB_REJECT_FORBIDDEN,
+  COLLAB_REJECT_INVALID_TOKEN,
+  COLLAB_REJECT_NOTE_DELETING,
+  COLLAB_REJECT_SERVER_ERROR,
+} from "../src/collab/server.js";
 import { notes } from "../src/db/schema.js";
 import { buildCollabTestApp, testConfig } from "./helpers.js";
 
@@ -133,22 +138,49 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
     await expect(session.connect(noteA.id, { tokenOverride: tokenForB })).rejects.toThrow(COLLAB_REJECT_INVALID_TOKEN);
   });
 
-  it("筆記已刪完、閘門也清了 → 拒連理由是 note-missing 而不是「你沒有權限」（issue #35）", async () => {
-    // 這個窗口是真的會發生的：DELETE 完成後 `deleting` 閘門會被清掉（TTL 或 finally），
-    // 而還在退避重連的 client 這時才連回來。舊版三種理由共用 `invalid-token`，client 一律
-    // 翻成撤權，於是使用者被告知「你已失去這篇筆記的存取權」——真相是筆記被刪了。
+  it("刪除閘門過期後，已刪除的筆記與「存在但無權限」的筆記拒連理由相同——不當存在性 oracle（issue #35）", async () => {
+    // 「筆記已刪完、閘門也清了、client 才連回來」這個窗口本來會被說成「你已失去存取權」。
+    // 修法是把閘門的 TTL 拉長到蓋過 client 最長的重啟退避（見 DELETING_GATE_TTL_MS），
+    // **而不是**新增一個「筆記不存在」的拒連理由：後者會讓任何登入使用者都能對任意 UUID
+    // 問「這篇筆記存在嗎」，而 REST 端刻意不區分這兩者（一律 404／一律 200+role:'none'）。
+    // 這條測試釘的就是「兩者不可分辨」。
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: "owner-auth15@example.com", password: PASSWORD });
+    await ctx.createUser({ email: "stranger-auth15@example.com", password: PASSWORD });
+    const deletedNote = await ctx.createNote(owner.id);
+    const othersNote = await ctx.createNote(owner.id);
+    const session = await ctx.loginAs("stranger-auth15@example.com", PASSWORD);
+
+    // 直接刪 row 且不碰閘門＝「刪除流程早就跑完、TTL 也過了」的終局狀態。
+    await ctx.db.delete(notes).where(eq(notes.id, deletedNote.id));
+
+    const deletedReason = await session.connect(deletedNote.id).then(
+      () => "connected",
+      (err: Error) => err.message
+    );
+    const existingReason = await session.connect(othersNote.id).then(
+      () => "connected",
+      (err: Error) => err.message
+    );
+    expect(deletedReason).toContain(COLLAB_REJECT_FORBIDDEN);
+    // 逐字相同（除了 noteId）：兩者可觀察行為一致，問不出「這個 id 到底存不存在」。
+    expect(deletedReason.replace(deletedNote.id, "")).toBe(existingReason.replace(othersNote.id, ""));
+  });
+
+  it("刪除閘門要先驗 token 才回答——沒有合法 token 問不出「這篇筆記正在被刪」", async () => {
+    // 閘門是這個 server 唯一會透露「某個 noteId 存在且剛被刪掉」的地方，所以它排在驗完
+    // token 之後：要問就得先持有一份對這篇筆記合法簽章的 token。
+    const ctx = await buildCollabTestApp();
+    const owner = await ctx.createUser({ email: "owner-auth18@example.com", password: PASSWORD });
     const note = await ctx.createNote(owner.id);
-    const session = await ctx.loginAs("owner-auth15@example.com", PASSWORD);
+    const session = await ctx.loginAs("owner-auth18@example.com", PASSWORD);
 
-    // 直接刪 row：等同「刪除流程已經全部跑完、閘門也不在了」的終局狀態（若走 DELETE 路由，
-    // 還要處理 hooks 的 TTL 閘門何時清掉，那是 Task 6 的測試範圍，不是這裡要驗的東西）。
-    await ctx.db.delete(notes).where(eq(notes.id, note.id));
+    ctx.collab.markDeleting(note.id);
 
-    // token endpoint 對已刪除的筆記照樣回 200 + role 'none'（見 routes/notes.ts），所以
-    // client 走的就是這條預設路徑：拿得到 token，被 onAuthenticate 擋下。
-    await expect(session.connect(note.id)).rejects.toThrow(COLLAB_REJECT_NOTE_MISSING);
+    const forged = await signCollabToken("f".repeat(64), { noteId: note.id, userId: owner.id, role: "owner", tv: 0 });
+    await expect(session.connect(note.id, { tokenOverride: forged })).rejects.toThrow(COLLAB_REJECT_INVALID_TOKEN);
+    // 合法 token 才拿得到真正的理由。
+    await expect(session.connect(note.id)).rejects.toThrow(COLLAB_REJECT_NOTE_DELETING);
   });
 
   it("拒連留下一行結構化日誌：noteId/userId/cause/reason，不含 token（issue #37）", async () => {
@@ -181,6 +213,34 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
     });
     // 欄位是封閉集合：token 內容（憑證）不得進日誌。
     expect(Object.keys(line!.obj).sort()).toEqual(["cause", "noteId", "reason", "userId"]);
+
+    // 而 `bad-token` **不得**進 info：/collab 的 upgrade 不需要 session，Hocuspocus 對認證
+    // 失敗又不關 socket——一則空 token 訊息換一行 info 日誌等於把日誌量交給匿名對端決定。
+    const forged = await signCollabToken("f".repeat(64), { noteId: note.id, userId: stranger.id, role: "owner", tv: 0 });
+    await expect(session.connect(note.id, { tokenOverride: forged })).rejects.toThrow(COLLAB_REJECT_INVALID_TOKEN);
+    const badToken = ctx.collabLogs.find(one => one.obj.cause === "bad-token");
+    expect(badToken?.level).toBe("debug");
+  });
+
+  it("onAuthenticate 撞到未預期例外 → server-error（不是撤權），並留下 error 級別的日誌", async () => {
+    // 這是唯一會讓分頁真的一直停在「連線中」的拒連原因，也就是維護者最需要找到的那一種：
+    // 它必須跟其他拒連走同一個出口（`cause` 欄位），否則 docs 教的 grep 剛好漏掉它。
+    const ctx = await buildCollabTestApp();
+    const owner = await ctx.createUser({ email: "owner-auth19@example.com", password: PASSWORD });
+    const note = await ctx.createNote(owner.id);
+    const session = await ctx.loginAs("owner-auth19@example.com", PASSWORD);
+
+    // 先拿到合法 token（此時 gate 還是好的——它同時守著 REST 的 authenticate）。
+    const tokenRes = await session.fetch(`/api/notes/${note.id}/collab-token`, { method: "POST" });
+    const { token } = (await tokenRes.json()) as { token: string };
+
+    ctx.breakGate(new Error("db went away"));
+    await expect(session.connect(note.id, { tokenOverride: token })).rejects.toThrow(COLLAB_REJECT_SERVER_ERROR);
+
+    const line = ctx.collabLogs.find(one => one.obj.cause === "server-error");
+    expect(line?.level).toBe("error");
+    expect(line?.obj).toMatchObject({ noteId: note.id, reason: COLLAB_REJECT_SERVER_ERROR });
+    expect(line?.obj.err).toBeInstanceOf(Error);
   });
 
   it("gate 不通過記成 session-revoked，但送給 client 的仍是 invalid-token（兩層刻意不同）", async () => {

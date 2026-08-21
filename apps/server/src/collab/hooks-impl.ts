@@ -28,12 +28,26 @@ import type { CollabServer, ConnectionHandle } from "./server.js";
 export const REVERIFY_DEADLINE_MS = 5_000;
 
 /**
- * 刪除閘門的保底 TTL。正常情況下閘門在這之前就沒有意義了——刪除交易 commit 後，任何
- * 重連都會因為 `resolveRole` 查不到筆記而被 `onAuthenticate` 拒絕（回 'none'）；閘門存在
- * 的目的只是覆蓋「交易還沒 commit、筆記仍在」的那一小段窗口。TTL 純粹是防止某條例外
- * 路徑（DELETE 中途拋錯、行程沒走完）把某個 noteId 永久留在拒連集合裡。
+ * 刪除閘門的 TTL。
+ *
+ * 閘門原本只需要覆蓋「刪除交易還沒 commit、筆記仍在」的那一小段窗口——commit 之後任何
+ * 重連本來就會因為 `resolveRole` 查不到筆記而被 `onAuthenticate` 拒絕。
+ *
+ * ⚠ **但那個拒絕的理由是 `no-role`（wire 上的 `forbidden`），client 會據此告訴使用者
+ * 「你已失去這篇筆記的存取權」——而真相是筆記被刪了**（issue #35）。分辨兩者的唯一乾淨
+ * 辦法就是這道閘門：它只裝得下「這個行程剛剛刪掉的筆記」，因此不像「查 DB 看筆記在不在」
+ * 那樣會變成一個任何登入使用者都能對任意 UUID 提問的存在性 oracle（REST 端刻意不區分
+ * 「不存在」與「無權限」，見 `routes/notes.ts` 的防列舉說明）。
+ *
+ * 所以 TTL 必須**大於 client 端最長的一次重啟退避**：`TOKEN_RESTART_DELAYS_MS` 最後一格
+ * 60s ＋ 25% 抖動 ＝ 最壞 75s（見 `apps/web/src/collab/useCollab.ts`）。取 120s 留餘裕。
+ * 撐更久沒有意義：睡了半天才醒來的分頁本來就會落回 `forbidden`，那是可接受的降級。
+ *
+ * 代價：DELETE 中途拋錯時，這篇筆記會有 120 秒（而非 30 秒）連不上、且畫面顯示「已刪除」。
+ * 該情境本身已經是一次 500 級事故，而且 `beforeNoteDeleted` 早在交易之前就把在線連線
+ * 全部 close(NOTE_DELETED) 了——TTL 只影響「之後的重連被擋多久」，不會多壞掉什麼。
  */
-export const DELETING_GATE_TTL_MS = 30_000;
+export const DELETING_GATE_TTL_MS = 120_000;
 
 /** unload 輪詢：上限 20 × 250ms = 5s，之後一律放行（絕不無限等，見 `beforeNoteDeleted`）。 */
 const UNLOAD_POLL_INTERVAL_MS = 250;
@@ -159,8 +173,8 @@ export function createCollabHooks(server: CollabServer, log: CollabHooksLogger =
       // （Task 5 已實作），下面的清掃才不會邊掃邊有新連線補進來。
       server.markDeleting(noteId);
 
-      // TTL 保底。`unref()`：這個 30s 的計時器不該讓 process（或測試 worker）為了它多活
-      // 半分鐘——閘門只在服務執行中才有意義，行程要結束時直接跟著消失即可。
+      // TTL。`unref()`：這個計時器不該讓 process（或測試 worker）為了它多活兩分鐘——
+      // 閘門只在服務執行中才有意義，行程要結束時直接跟著消失即可。
       const ttl = setTimeout(() => server.unmarkDeleting(noteId), DELETING_GATE_TTL_MS);
       ttl.unref();
 
