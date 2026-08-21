@@ -3,7 +3,8 @@ import { createCollabHooks, DELETING_GATE_TTL_MS, REVERIFY_DEADLINE_MS } from ".
 import type { CollabServer, ConnectionHandle } from "../../src/collab/server.js";
 
 /**
- * `beforeNoteDeleted` 開的閘門與它回傳的 `release()` handle（issue #35 審查 round 3／4）。
+ * 兩組東西：`beforeNoteDeleted` 開的閘門與它回傳的 `release()` handle（issue #35 審查
+ * round 3／4），以及重驗 deadline 那一行日誌的守衛（issue #37 補審）。
  *
  * 這一層在 server 那側的測試看不到：整合測試直接呼叫 `collab.markDeleting/releaseDeletingGate`，
  * 而 `notes.test.ts` 用的是 mock 過的 hook。於是 hooks-impl 這邊的兩個修正——「重開閘門前先清掉
@@ -108,7 +109,9 @@ describe("重驗 deadline 的日誌", () => {
     live.delete(handle);
     await vi.advanceTimersByTimeAsync(REVERIFY_DEADLINE_MS + 100);
 
-    expect(lines.filter(one => one.phase === "deadline")).toEqual([]);
+    // 標題說「一行都不記」就整份斷言——只濾 deadline 的話，catch 分支寫出的 error 行會被
+    // 放過，而那句話就變成半真（審查指出）。
+    expect(lines).toEqual([]);
   });
 });
 

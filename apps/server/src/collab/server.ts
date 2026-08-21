@@ -91,8 +91,9 @@ const STORE_DEBOUNCE_MS = 2_000;
 
 /**
  * CollabServer 需要的 logger 介面。比 `StoreLogger`（只要 `warn`）多兩級：
- * - `debug`／`info`：握手拒絕（issue #37）——正常營運事件，但**必須留下訊號**。
- *   兩級的分法見 `rejectAuth`。
+ * - `debug`／`info`：拒連／踢除（issue #37）——正常營運事件，但**必須留下訊號**。
+ *   級別的分法見 `logReject`（`rejectAuth` 只是它的其中一個呼叫端；`onTokenSync` 的
+ *   `closeWith` 是另一個，繞過 `rejectAuth` 直接呼叫）。
  * - `error`：`onAuthenticate` 撞到未預期例外（DB 抖動…），那是真的故障。
  *
  * pino（`index.ts` 傳進來的 production logger）原生符合。
@@ -139,7 +140,7 @@ export {
  * token 本身的問題，後者是這個 session 已被撤銷）。細分留在日誌裡，wire 維持四個值：
  * `note-deleting`／`invalid-token`／`forbidden`／`server-error`。
  *
- * 每個 cause 的日誌級別不同（見 `rejectAuth`），但**出口只有 `rejectAuth` 一個**：
+ * 每個 cause 的日誌級別不同（見 `logReject`），但**握手階段的出口只有 `rejectAuth` 一個**：
  * 別處裸 `throw new CollabAuthError(...)` 的話，那次拒連就不會出現在 `cause` 這個欄位上，
  * 而 docs 的排錯指引正是叫維護者 grep 它（審查抓到——`server-error` 一度就是這樣漏掉的，
  * 而它偏偏是唯一會讓分頁真的一直停在「連線中」的那個）。
@@ -401,11 +402,17 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
    *
    * 級別分三級（審查指出）：
    *
-   * - `bad-token` → **debug**。/collab 的 upgrade 不需要 session，而 Hocuspocus 對認證失敗
-   *   **不關 socket**（還會把該文件的狀態清乾淨，讓下一則 auth 訊息當成全新的第一次嘗試）
-   *   ——空 token 那條路徑不查 DB、不驗簽章，等於一則 30 bytes 的 WebSocket 訊息換一行日誌，
-   *   而且繞過任何反向代理擋得住的 HTTP 節流。它也是診斷價值最低的一個（沒有 userId，而且
-   *   client 收到它只會自己退避重試，不會把人踢走）。
+   * - **`handshake` 階段的** `bad-token` → **debug**。/collab 的 upgrade 不需要 session，而
+   *   Hocuspocus 對認證失敗**不關 socket**（還會把該文件的狀態清乾淨，讓下一則 auth 訊息當成
+   *   全新的第一次嘗試）——空 token 那條路徑不查 DB、不驗簽章，等於一則 30 bytes 的
+   *   WebSocket 訊息換一行日誌，而且繞過任何反向代理擋得住的 HTTP 節流。它也是診斷價值最低
+   *   的一個（沒有 userId，而且 client 收到它只會自己退避重試，不會把人踢走）。
+   *
+   *   ⚠ **`reverify` 階段的 `bad-token` 完全相反，走 info**（審查指出這段註解一度只寫了前
+   *   半、與程式碼漂移）：那是 `onTokenSync` 把一條**已經認證過**的連線踢掉（含 N6 的借殼
+   *   身分），`userId` 一定有值，而且 client 端把它歸 A 桶——人是真的被導走並看到「你已失去
+   *   存取權」。照前半那句去簡化守衛（改成只看 `cause`），會靜靜地把整套功能裡診斷價值最高
+   *   的那一行刪掉。
    * - `server-error` → **error**，並帶上 `err`（要 stack）。那是真的故障。
    * - 其餘 → **info**。
    *
