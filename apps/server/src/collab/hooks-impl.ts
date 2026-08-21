@@ -115,7 +115,7 @@ export function createCollabHooks(server: CollabServer, log: CollabHooksLogger =
           // ⚠ 但**只有這條連線還在索引裡才算數**（審查指出）：timer 對已關閉的連線 fire 是
           // 安全的 no-op（見上面的說明），使用者自己關掉分頁也會走到這裡——照記的話，排錯
           // 指引最倚重的那一行會指著一個根本沒被踢的人說「他是被踢的」。
-          const stillConnected = [...server.connectionsOfNote(c.noteId)].includes(c);
+          const stillConnected = server.connectionsOfNote(c.noteId).has(c);
           if (stillConnected) {
             log.info(
               { phase: "deadline", noteId: c.noteId, userId: c.userId, cause: "no-reverify", reason: COLLAB_CLOSE_REVOKED },
