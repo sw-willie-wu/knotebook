@@ -7,6 +7,10 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
+### Security
+
+- An embedded image, video, audio or file URL is now checked again when it is rendered, not only when it is typed into the embed field. Note content is a collaborative Yjs document, so any collaborator with edit access can write block properties directly and bypass the input check entirely — a `javascript:` or `data:` URL written that way went into every other reader's document unfiltered (inert in an image or media `src`, but it had no business being there). Uploaded files keep working: the render-side check deliberately accepts the relative URLs uploads produce. A URL that fails the check renders as a broken image or player rather than being fetched (#12).
+
 ### Fixed
 
 - Losing access to a note before its collaboration connection is established no longer parks the editor on "Connecting" forever — whether the note was still opening or the connection happened to be reconnecting at the time. When the share is revoked before that handshake completes, the server rejects the handshake itself rather than sending the close message the client was waiting for, and that rejection carried no state change at all. The client now reads it, retries once with a fresh token, and then shows the same "You no longer have access to this note" notice and returns to the note list as any other revocation (#6).

@@ -6,6 +6,7 @@ import { ApiFail } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { postUpload } from "@/uploads/upload-file";
+import { isAllowedEmbedUrl } from "@/lib/media-url";
 
 /** `noteSchema` 恢復啟用的 image block 型別名（`@blocknote/core` 的 `image` block spec）。 */
 const IMAGE_BLOCK_TYPE = "image";
@@ -93,24 +94,6 @@ function UploadTab({ noteId, blockId }: { noteId: string; blockId: string }) {
       )}
     </div>
   );
-}
-
-/**
- * 安全 backlog ④（spec §13.2/§13.5）：Embed tab 的 URL scheme 白名單。`new URL(raw)`
- * throw（含最常見的「沒帶 scheme」，例如 `example.com/a.png`——`URL` 建構子不會替它
- * 猜一個 scheme，而是直接丟例外）一律視為不合法；能成功解析的，`scheme` 只放行
- * `http:`／`https:`，其餘（`javascript:`、`data:`、`file:`……）一律拒收。**刻意不自動
- * 補 scheme**——單一行為、沒有猜測，使用者看到拒收就得自己把完整網址（含
- * `http(s)://`）貼進來。
- */
-function isAllowedEmbedUrl(raw: string): boolean {
-  let parsed: URL;
-  try {
-    parsed = new URL(raw);
-  } catch {
-    return false;
-  }
-  return parsed.protocol === "http:" || parsed.protocol === "https:";
 }
 
 /**
