@@ -1,5 +1,6 @@
 /**
- * `CollabHooks` 的 Plan 2 實作——撤權 SLA（spec §7：權限變更後 ≤10s 內生效）的核心。
+ * `CollabHooks` 的 Plan 2 實作——撤權 SLA（spec §10：撤銷分享 ≤10 秒；§7 是機制列，
+ * 釘的是「定向重驗 + 5s deadline」本身）的核心。
  *
  * 機制只有兩件事：
  *   1. **重驗（reverify）**：對受影響的連線送 `requestToken()`，並掛一個 5s deadline。
@@ -14,18 +15,17 @@
  * throw 會讓一個其實已經成功的 API 回 500；`beforeNoteDeleted` 則是 DELETE 交易前的
  * await 點，throw 會讓「筆記刪不掉、卻已經被閘門擋住兩分鐘」（見 `DELETING_GATE_TTL_MS`）——兩種都比記錄錯誤後繼續更糟。
  */
-import { COLLAB_CLOSE_NOTE_DELETED, COLLAB_CLOSE_REVOKED } from "@knotebook/shared";
+import { COLLAB_CLOSE_NOTE_DELETED, COLLAB_CLOSE_REVOKED, COLLAB_REVERIFY_DEADLINE_MS } from "@knotebook/shared";
 import type { CollabHooks, NoteDeleteGate } from "./hooks.js";
 import type { CollabServer, ConnectionHandle } from "./server.js";
 
 /**
- * 重驗的 deadline：送出 `requestToken()` 後等 client 回送 token 的上限，逾時即關閉連線。
- *
- * 5s 是 spec §7 的 ≤10s SLA 底下留給「一次 token 往返（client 需重打
- * `POST /api/notes/:id/collab-token`）」的預算：正常路徑遠快於此（實測 <200ms），
- * 剩下的餘裕留給 DB 抖動、client 的重試退避與 API 端本身的 per-user 節流。
+ * 重驗的 deadline——定義移到 `@knotebook/shared`（issue #40）：它與 client 的 token
+ * 重試表是一組跨端耦合的取捨（刻意 fail-closed：deadline 短於 client 最壞重試），
+ * 完整說明與釘住這層關係的測試指標見 shared 的 `COLLAB_REVERIFY_DEADLINE_MS` 註解。
+ * 這裡 re-export 供既有測試沿用。
  */
-export const REVERIFY_DEADLINE_MS = 5_000;
+export const REVERIFY_DEADLINE_MS = COLLAB_REVERIFY_DEADLINE_MS;
 
 /**
  * 刪除閘門的 TTL。

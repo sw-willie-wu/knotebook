@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { COLLAB_RESTART_DELAYS_MS, COLLAB_RESTART_JITTER } from "@knotebook/shared";
+import { COLLAB_RESTART_DELAYS_MS, COLLAB_RESTART_JITTER, COLLAB_TOKEN_RETRY_DELAYS_MS } from "@knotebook/shared";
 import { DELETING_GATE_TTL_MS } from "../../src/collab/hooks-impl.js";
 
 /**
@@ -21,8 +21,9 @@ describe("刪除閘門 TTL vs client 重啟退避（跨套件不變量）", () =
   });
 
   it("TTL 還留得下一整輪 token 退避表的餘裕（重連要先取得 token 才會敲門）", () => {
-    // `TOKEN_RETRY_DELAYS_MS` = [500, 1000, 2000, 4000]（見 useCollab.ts）：一輪 7.5s。
-    const tokenRetryTail = 7_500;
+    // 從 shared 取實際的重試表計算（issue #40 順帶：舊版手抄 7_500，正是「數字被抄進
+    // 註解後漂移」的形狀）。
+    const tokenRetryTail = COLLAB_TOKEN_RETRY_DELAYS_MS.reduce((sum, d) => sum + d, 0);
     expect(DELETING_GATE_TTL_MS).toBeGreaterThan(worstRestartDelay + tokenRetryTail);
   });
 });

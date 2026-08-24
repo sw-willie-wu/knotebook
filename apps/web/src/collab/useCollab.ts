@@ -8,6 +8,7 @@ import {
   COLLAB_REJECT_NOTE_DELETING,
   COLLAB_RESTART_DELAYS_MS,
   COLLAB_RESTART_JITTER,
+  COLLAB_TOKEN_RETRY_DELAYS_MS,
   type Role,
 } from "@knotebook/shared";
 import { api, ApiFail } from "@/api/client";
@@ -33,8 +34,12 @@ export function collabUrl(location: { protocol: string; host: string } = window.
  * token function 的**有上限**退避重試表（ms）。5xx／429／網路錯誤走這條——這些都是
  * 「暫時取不到 token」而**不是**授權失敗，不可據此把使用者踢出或登出（spec N7）。
  * 401 例外：那是 session 真的沒了，直接走登出流程、不重試。
+ *
+ * 定義移到 shared（issue #40）：它是跨端契約的一半——server 的撤權重驗 deadline
+ * **刻意短於**它的總和（fail-closed，完整理由見 shared 註解），刪除閘門 TTL 也以
+ * 它為前提；`useCollab.test.tsx` 釘住 deadline 那層關係。本檔沿用舊名。
  */
-const TOKEN_RETRY_DELAYS_MS = [500, 1_000, 2_000, 4_000];
+const TOKEN_RETRY_DELAYS_MS = COLLAB_TOKEN_RETRY_DELAYS_MS;
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
