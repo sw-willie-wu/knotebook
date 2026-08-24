@@ -38,9 +38,10 @@ export interface FreshDb {
  * 第二次 migrate 會靜默跳過建表（journal 與實際表結構不同步）。用隨機名 CREATE DATABASE
  * 保證每個測試都是全新、乾淨、journal 與表結構一致的資料庫。
  *
- * Teardown 契約：在 vitest test 內呼叫時，用 `onTestFinished` 自動清理 pool——
- * 即使斷言失敗（test 拋出）也會執行，不會洩漏連線。同時回傳 `close()`
- * 供非 test context（例如手動除錯腳本）自行呼叫。兩者皆冪等（多次呼叫安全）。
+ * Teardown 契約：在 vitest test 內呼叫時，用 `onTestFinished` 自動清理——先關掉 pool、
+ * 再 DROP 掉這個資料庫（見下方 `close`），即使斷言失敗（test 拋出）也會執行，不會洩漏
+ * 連線或殘留資料庫。同時回傳 `close()` 供非 test context（例如手動除錯腳本）自行呼叫。
+ * 兩者皆冪等（多次呼叫安全）。
  */
 export async function freshDb(): Promise<FreshDb> {
   const baseUrl = process.env.TEST_DATABASE_URL;
@@ -65,7 +66,25 @@ export async function freshDb(): Promise<FreshDb> {
   const close = async (): Promise<void> => {
     if (closed) return;
     closed = true;
-    await pool.end();
+    // 建了就要收：不 DROP 的話，單一 run 內 400+ 條測試會在同一顆容器裡單調累積出
+    // 數百個 test_<random> 資料庫，最終在 CREATE DATABASE 那一行撞牆（issue #51，
+    // 2026-08-21 實際踩到整份整合測試一次全紅、重跑全綠）。先 pool.end() 收掉自己的
+    // 連線，再另開一條到 base（不能在自己身上 DROP）把它刪掉。
+    // - `pool.end()` 放進 try/finally 的 try：即使它拋，DROP 仍會執行（否則那個 db 永久洩漏）；
+    // - WITH (FORCE)（PG 13+）踢掉殘留連線，免得某條測試沒關乾淨就 DROP 失敗；
+    // - DROP 失敗一律只記錄不拋——清理不該把一條原本綠的測試弄紅。
+    try {
+      await pool.end();
+    } finally {
+      const dropPool = new Pool({ connectionString: baseUrl });
+      try {
+        await dropPool.query(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`);
+      } catch (err) {
+        console.warn(`[freshDb] 清理測試資料庫 ${dbName} 失敗（忽略）：`, err);
+      } finally {
+        await dropPool.end();
+      }
+    }
   };
 
   // onTestFinished 只能在 vitest test 執行context 內呼叫（否則 throw）；freshDb() 也可能被
