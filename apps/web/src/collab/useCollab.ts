@@ -128,6 +128,15 @@ export interface UseCollabResult {
   /** 連線建立前為 `null`（effect 內才建，StrictMode 才能正確拆）。 */
   doc: Y.Doc | null;
   provider: HocuspocusProvider | null;
+  /**
+   * 這一條連線的 Y.Doc 是否**曾經**與 server 同步過（issue #48）。
+   *
+   * sticky：斷線不歸零——同步過一次代表本機文件已載入伺服器內容，之後的離線編輯是
+   * 「有東西可以併回」的合法狀態（#39 的重啟會把它們併回去）；換筆記歸零——新連線的
+   * Y.Doc 是空的，在第一次 sync 之前那是一篇**空白但看似正常**的筆記，呼叫端要據此
+   * 擋掉「在空白筆記上打字、重整就沒了」這個最糟形狀。
+   */
+  synced: boolean;
 }
 
 /**
@@ -197,6 +206,7 @@ export interface UseCollabResult {
 export function useCollab({ noteId, onUnauthorized }: UseCollabOptions): UseCollabResult {
   const [state, setState] = useState<CollabState>(INITIAL_COLLAB_STATE);
   const [session, setSession] = useState<{ doc: Y.Doc; provider: HocuspocusProvider } | null>(null);
+  const [synced, setSynced] = useState(false);
 
   // provider 建立時就同步寫進 ref：狀態副作用 effect（disconnect/connect）不能等
   // `setSession` 的 re-render 才拿得到 provider。
@@ -219,6 +229,7 @@ export function useCollab({ noteId, onUnauthorized }: UseCollabOptions): UseColl
 
     // 換筆記＝全新的一場連線；狀態機不得沿用上一篇的（含終態）。
     setState(INITIAL_COLLAB_STATE);
+    setSynced(false);
     roleRef.current = "none";
     pendingReconnectRef.current = false;
 
@@ -345,6 +356,15 @@ export function useCollab({ noteId, onUnauthorized }: UseCollabOptions): UseColl
       }, jittered(TOKEN_RESTART_DELAYS_MS[index]!));
     };
 
+    // issue #48：追蹤「同步過了沒」。只在 false→true 邊緣 emit，且 StrictMode 重掛時
+    // 可能已經同步完（事件錯過），所以比照 NotePage 的護欄：訂閱後立刻補查一次 getter。
+    // 刻意**只設 true、從不設回 false**——見 UseCollabResult.synced 的說明。
+    const handleSynced = () => {
+      if (provider.synced) setSynced(true);
+    };
+    provider.on("synced", handleSynced);
+    if (provider.synced) handleSynced();
+
     provider.on("close", ({ event }: { event?: { reason?: string } }) => {
       const reason = event?.reason ?? "";
       const isAppLevel = reason === COLLAB_CLOSE_REVOKED || reason === COLLAB_CLOSE_NOTE_DELETED;
@@ -454,5 +474,5 @@ export function useCollab({ noteId, onUnauthorized }: UseCollabOptions): UseColl
     }
   }, [state]);
 
-  return { state, doc: session?.doc ?? null, provider: session?.provider ?? null };
+  return { state, doc: session?.doc ?? null, provider: session?.provider ?? null, synced };
 }

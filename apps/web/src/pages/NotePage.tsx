@@ -108,7 +108,7 @@ export default function NotePage() {
     void navigate("/login", { replace: true });
   }, [navigate, queryClient]);
 
-  const { state, doc, provider } = useCollab({ noteId, onUnauthorized: handleUnauthorized });
+  const { state, doc, provider, synced } = useCollab({ noteId, onUnauthorized: handleUnauthorized });
 
   // wikilink 連結索引提交器（Task 7，spec §12.3 client 段）。掛載定案在這裡（不是
   // NoteEditor）：`noteId`／`useCollab` 的 `doc`／`provider` 都在這一層。
@@ -230,13 +230,17 @@ export default function NotePage() {
     );
   } else {
     const role = effectiveRole(state, note!);
-    const editable = !isTerminal(state) && canEdit(role);
+    // issue #48：**同步過才可編輯**。在第一次 sync 之前，本機 Y.Doc 是空的——這時的「可
+    // 編輯」是一篇空白但看似正常的筆記，打的字只進本機、重整就沒了（沒有 y-indexeddb）。
+    // 同步過一次之後 `synced` 就 sticky true，斷線仍可編輯（那些離線編輯會被 #39 的重啟
+    // 併回 server 文件），只是 badge 會升級成警示。
+    const editable = !isTerminal(state) && canEdit(role) && synced;
     body = (
       <div className="flex h-full flex-col">
         <header className="flex items-center gap-4 border-b border-border px-6 py-4">
           <TitleInput note={note!} readOnly={!editable} cacheRef={ref} />
           <ShareDialog note={note!} cacheRef={ref} />
-          <ConnectionBadge state={state} />
+          <ConnectionBadge state={state} synced={synced} />
         </header>
         {/* Task 6：捲動容器內移進 `NoteEditor`（左欄一份、右側 AI 側欄一份，各自獨立
             捲動）——這裡只留 `flex-1 min-h-0`。`min-h-0` 是必要的：flex 子項預設

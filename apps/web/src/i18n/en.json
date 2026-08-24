@@ -72,6 +72,8 @@
       "connecting": "Connecting…",
       "connected": "Connected",
       "reconnecting": "Reconnecting…",
+      "offlineEditing": "Editing offline — changes not synced yet",
+      "offlineUnsynced": "Not loaded — offline",
       "kicked": "Access revoked",
       "deleted": "Note deleted"
     },

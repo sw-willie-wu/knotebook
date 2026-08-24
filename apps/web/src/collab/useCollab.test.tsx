@@ -23,6 +23,7 @@ interface FakeProvider {
   disconnect: ReturnType<typeof vi.fn>;
   connect: ReturnType<typeof vi.fn>;
   destroy: ReturnType<typeof vi.fn>;
+  synced: boolean;
 }
 
 const hoisted = vi.hoisted(() => ({ instances: [] as unknown[] }));
@@ -35,6 +36,7 @@ vi.mock("@hocuspocus/provider", () => ({
     connect = vi.fn();
     destroy = vi.fn();
     awareness = {};
+    synced = false;
     constructor(configuration: unknown) {
       this.configuration = configuration;
       hoisted.instances.push(this);
@@ -80,6 +82,12 @@ function Probe({ onUnauthorized, noteId = NOTE_ID }: { onUnauthorized?: () => vo
 }
 
 const phase = () => screen.getByTestId("phase").textContent;
+
+function SyncProbe({ noteId = NOTE_ID }: { noteId?: string }) {
+  const { synced } = useCollab({ noteId, onUnauthorized: () => {} });
+  return <div data-testid="synced">{String(synced)}</div>;
+}
+const syncedText = () => screen.getByTestId("synced").textContent;
 
 describe("useCollab", () => {
   beforeEach(() => {
@@ -708,6 +716,53 @@ describe("useCollab", () => {
     // roleRef 也不能被舊值蓋掉——否則緊接著的 open 會帶錯角色。
     act(() => fresh.configuration.onAuthenticated());
     expect(phase()).toBe("connected:editor");
+  });
+
+  it("issue #48：synced 一開始是 false，provider 同步後變 true", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(tokenOk("editor"))),
+    );
+    render(<SyncProbe />);
+    const p = provider();
+    expect(syncedText()).toBe("false");
+
+    // provider 同步完成：先設 getter 再 emit（useCollab 的 handleSynced 讀 provider.synced）。
+    p.synced = true;
+    act(() => p.emit("synced", { state: true }));
+    await waitFor(() => expect(syncedText()).toBe("true"));
+  });
+
+  it("issue #48：synced 是 sticky——同步過之後斷線也不歸零（離線編輯有東西可併回）", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(tokenOk("editor"))),
+    );
+    render(<SyncProbe />);
+    const p = provider();
+    p.synced = true;
+    act(() => p.emit("synced", { state: true }));
+    await waitFor(() => expect(syncedText()).toBe("true"));
+
+    // 底層 socket 斷線：synced 不得回到 false。
+    p.synced = false;
+    act(() => p.emit("close", { event: { code: 1006, reason: "" } }));
+    expect(syncedText()).toBe("true");
+  });
+
+  it("issue #48：換筆記 → synced 歸零（新連線的 Y.Doc 是空的，還沒載入）", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(tokenOk("editor"))),
+    );
+    const { rerender } = render(<SyncProbe noteId={NOTE_ID} />);
+    const p = provider(0);
+    p.synced = true;
+    act(() => p.emit("synced", { state: true }));
+    await waitFor(() => expect(syncedText()).toBe("true"));
+
+    rerender(<SyncProbe noteId={OTHER_NOTE_ID} />);
+    expect(syncedText()).toBe("false");
   });
 
   it("拒連原因常數與 server 端字面值一致", () => {

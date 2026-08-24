@@ -30,7 +30,8 @@ vi.mock("@/components/NoteEditor", () => ({
 function createStubProvider() {
   const listeners = new Map<string, Set<(...args: unknown[]) => void>>();
   return {
-    synced: false,
+    // issue #48：背景頁是一篇正常開著、已同步的筆記——NotePage 現在用 synced 閘住 editable。
+    synced: true,
     on(event: string, fn: (...args: unknown[]) => void) {
       let set = listeners.get(event);
       if (!set) {
@@ -54,7 +55,7 @@ const collab = vi.hoisted(() => ({
 vi.mock("@/collab/useCollab", () => ({
   useCollab: ({ onUnauthorized }: { onUnauthorized: () => void }) => {
     collab.onUnauthorized = onUnauthorized;
-    return { state: collab.state, doc: collab.doc, provider: collab.provider };
+    return { state: collab.state, doc: collab.doc, provider: collab.provider, synced: collab.provider.synced };
   },
 }));
 
