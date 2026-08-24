@@ -584,3 +584,76 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
     expect(line?.obj).toMatchObject({ noteId: note.id, userId: owner.id });
   });
 });
+
+/**
+ * issue #50：已登入使用者在合法連線上灌「無法處理」的訊息（未知 message type／
+ * Auth 非 Token 子型別）——Hocuspocus 對這類訊息只會 console.error 後繼續、連線
+ * 永不關、不受我們任何節流管轄。訊息預檢（classifyClientMessage）在訊息進
+ * Hocuspocus 之前吞掉並計數，累積 BOGUS_MESSAGE_LIMIT 則即 terminate 該連線，
+ * 留一行有全程序節流的日誌。
+ */
+describe("訊息預檢：未知型別灌流 → 強制斷線（issue #50）", () => {
+  /** 手工組 wire 訊息（varString(docName) + varUint(type)）——同 unit 測試的手組法。 */
+  function bogusFrame(docName: string, type: number): Uint8Array {
+    const name = new TextEncoder().encode(docName);
+    return new Uint8Array([name.length, ...name, type]);
+  }
+
+  it("合法連線上灌無 handler 的 type（9=Ping，#50 重現用的那個）：到上限即斷線、日誌恰一行、同文件其他連線照常同步", async () => {
+    const ctx = await buildCollabTestApp();
+    const owner = await ctx.createUser({ email: "flood-owner@example.com", password: PASSWORD });
+    const note = await ctx.createNote(owner.id);
+    const session = await ctx.loginAs("flood-owner@example.com", PASSWORD);
+    const flooder = await session.connect(note.id);
+    const bystander = await session.connect(note.id);
+    expect(ctx.collab.connectionsOfNote(note.id).size).toBe(2);
+
+    // 取 flooder 底層的 ws（provider 明確持有 websocketProvider，其 webSocket 是真 socket）。
+    const rawWs = (flooder.provider.configuration as unknown as { websocketProvider: { webSocket: { send(d: Uint8Array): void } } })
+      .websocketProvider.webSocket;
+
+    // type 9（Ping）在 enum 裡有名字、在 MessageReceiver 的 switch 裡沒有 case——正是
+    // 首輪審查證明「用 enum 範圍當白名單」擋不住的那一型。
+    for (let i = 0; i < 10; i += 1) rawWs.send(bogusFrame(note.id, 9));
+
+    // terminate 是 server 端主動硬斷——等 flooder 那條連線從索引消失。
+    await waitFor("flooder 連線被強制斷線", 5_000, () => ctx.collab.connectionsOfNote(note.id).size === 1);
+
+    const lines = ctx.collabLogs.filter(one => one.msg.includes("強制斷線") && !one.msg.includes("上限"));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.obj).toMatchObject({ noteId: note.id, bogusCount: 10, lastType: 9 });
+
+    // 同文件的另一條連線不只活著，還真的在同步：寫入後等 server 端文件收斂到同一個
+    // state vector（比照 collab-sync 的收斂斷言，不用固定 sleep）。
+    insertParagraph(bystander.doc, "bystander still syncing");
+    const serverDoc = () => ctx.collab.hocuspocus.documents.get(note.id);
+    await waitFor("bystander 的編輯同步到 server", 5_000, () => {
+      const doc = serverDoc();
+      return doc !== undefined && stateVector(doc) === stateVector(bystander.doc);
+    });
+    expect(ctx.collab.connectionsOfNote(note.id).size).toBe(1);
+  });
+
+  it("少於上限的無 handler type 不斷線（滾動升級寬限），合法 Sync 照常通過", async () => {
+    const ctx = await buildCollabTestApp();
+    const owner = await ctx.createUser({ email: "flood-owner2@example.com", password: PASSWORD });
+    const note = await ctx.createNote(owner.id);
+    const session = await ctx.loginAs("flood-owner2@example.com", PASSWORD);
+    const client = await session.connect(note.id);
+
+    const rawWs = (client.provider.configuration as unknown as { websocketProvider: { webSocket: { send(d: Uint8Array): void } } })
+      .websocketProvider.webSocket;
+    for (let i = 0; i < 5; i += 1) rawWs.send(bogusFrame(note.id, 99));
+
+    // 連線仍可正常編輯——用真的同步收斂當「沒被斷線」的證據（比固定 sleep 強：這同時
+    // 證明合法 Sync 訊息通過預檢、且 5 發 bogus 沒有觸發 terminate）。
+    insertParagraph(client.doc, "still editable");
+    const serverDoc = () => ctx.collab.hocuspocus.documents.get(note.id);
+    await waitFor("編輯同步到 server（連線未被斷）", 5_000, () => {
+      const doc = serverDoc();
+      return doc !== undefined && stateVector(doc) === stateVector(client.doc);
+    });
+    expect(ctx.collab.connectionsOfNote(note.id).size).toBe(1);
+    expect(ctx.collabLogs.filter(one => one.msg.includes("強制斷線"))).toHaveLength(0);
+  });
+});
