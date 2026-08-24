@@ -85,7 +85,9 @@ test("admin 建第二使用者 → 分享筆記 → 撤銷 → SLA 內失去存�
     // 應用層 CLOSE(REVOKED)」那條主路徑，而不是隨機落在兩條之一。
     // `ConnectionBadge`（`role="status"`）是 T12 交接記錄的真訊號：
     // 等它顯示「Connected」，順帶釘住角色徽章＝viewer（分享表單預設角色）。
-    const connectionBadge = userPage.getByRole("status").filter({ hasText: "Connected" });
+    // regex 錨定開頭（同 helpers.ts `createNote` 的屏障）：字串形式是大小寫不敏感的
+    // 子字串比對，未來若出現「Disconnected」之類的文案會誤中。
+    const connectionBadge = userPage.getByRole("status").filter({ hasText: /^Connected/ });
     await expect(connectionBadge).toBeVisible({ timeout: 15_000 });
     await expect(connectionBadge.getByText("Viewer", { exact: true })).toBeVisible();
 

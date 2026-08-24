@@ -40,6 +40,14 @@ test("env admin 首登強改密 → 建筆記 → 重整後內容還在", async 
   // 固定 `waitForTimeout(2_500)` 只是「賭」debounce 一定準時觸發＋落盤一定夠快，CI
   // 較慢的跑者上這個賭注會輸——改用 `expect(...).toPass()` 主動重試「重整＋斷言」，
   // 直到內容真的落盤為止，語意上等價但不再是固定睡眠賭時序。
+  //
+  // 這裡**不需要**「重整前等 client 無未同步更新」的屏障（issue #33 的建議 b）：
+  // `createNote` 已保證打字發生在連線 OPEN 且首次 sync 完成之後（見 helpers.ts），而
+  // `@hocuspocus/provider` 預設 `flushDelay: false`——y-prosemirror 在 transaction 結束
+  // 時同步發出 Y update、provider 同步寫進已 OPEN 的 socket，`pressSequentially` 返回
+  // 時每一鍵的更新都已同步交給 socket（不再進 messageQueue）。剩下的只有 server 端落盤延遲，正是上面 toPass 在等的
+  //（且 @hocuspocus/server 在最後一條連線關閉時對 onStoreDocument 走 executeNow，
+  // reload 掐斷唯一 client 並不會讓 debounce 中的更新蒸發）。
   await expect(async () => {
     await page.reload();
     await expect(page.getByLabel("Note title")).toHaveValue(title);
