@@ -218,6 +218,9 @@ describe("NotePage", () => {
 
     await waitFor(() => expect(screen.getByTestId("note-editor")).toHaveAttribute("data-editable", "false"));
     expect(screen.getByText("Connecting…")).toBeInTheDocument();
+    // ⚠ 但標題**仍可編輯**（issue #48 審查）：標題走 REST 的 last-write-wins、不走 Yjs，
+    // 連不上共編但 REST 正常時改標題完全安全。跟著 synced 一起鎖死是功能倒退。
+    expect(screen.getByLabelText("Note title")).toBeInTheDocument();
   });
 
   it("issue #48：同步過一次之後就可編輯（owner）", async () => {

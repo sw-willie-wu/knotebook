@@ -356,14 +356,13 @@ export function useCollab({ noteId, onUnauthorized }: UseCollabOptions): UseColl
       }, jittered(TOKEN_RESTART_DELAYS_MS[index]!));
     };
 
-    // issue #48：追蹤「同步過了沒」。只在 false→true 邊緣 emit，且 StrictMode 重掛時
-    // 可能已經同步完（事件錯過），所以比照 NotePage 的護欄：訂閱後立刻補查一次 getter。
-    // 刻意**只設 true、從不設回 false**——見 UseCollabResult.synced 的說明。
-    const handleSynced = () => {
-      if (provider.synced) setSynced(true);
-    };
-    provider.on("synced", handleSynced);
-    if (provider.synced) handleSynced();
+    // issue #48：追蹤「同步過了沒」。`provider` 是這個 effect 上面幾行才 new 出來的、
+    // `connect()` 非同步，所以不必像 NotePage 那道護欄補查一次 getter（那裡的 provider
+    // 來自 state、可能早已 synced；這裡不可能）——單純訂閱即可。`synced` 事件只在
+    // false→true 邊緣 emit，handler 因此**只設 true、從不設回 false**（見
+    // UseCollabResult.synced 的 sticky 說明）。cleanup 由 `provider.destroy()` 的
+    // removeAllListeners 一併帶走，比照本檔既有的 close／authenticationFailed 訂閱。
+    provider.on("synced", () => setSynced(true));
 
     provider.on("close", ({ event }: { event?: { reason?: string } }) => {
       const reason = event?.reason ?? "";

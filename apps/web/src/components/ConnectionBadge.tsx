@@ -37,13 +37,20 @@ const PHASE_STYLES: Record<CollabState["phase"], { key: string; className: strin
  * `role="status"` + `aria-live="polite"`：撤權／降級／離線這些狀態改變不是使用者主動
  * 觸發的，螢幕閱讀器需要被動得知，但不該打斷當下的朗讀（故 polite 而非 assertive）。
  */
-export function ConnectionBadge({ state, synced = true }: { state: CollabState; synced?: boolean }) {
+export function ConnectionBadge({ state, synced }: { state: CollabState; synced: boolean }) {
   const { t } = useTranslation();
 
-  // 「非 connected 且非終態」已經持續超過門檻。用 timer 而非「進相位的時刻」相減，才能
-  // 在跨過門檻的當下觸發一次 re-render（否則畫面要等下一次不相關的 render 才升級）。
+  // 「還不能用」已經持續超過門檻。用 timer 而非「進相位的時刻」相減，才能在跨過門檻的
+  // 當下觸發一次 re-render（否則畫面要等下一次不相關的 render 才升級）。
+  //
+  // ⚠ **「還不能用」＝非 connected，或 connected 但還沒 synced**（審查兩位獨立指出）：
+  // `onAuthenticated` 就進 `connected`，但 `provider.synced` 要再一個 round trip；若
+  // server 的 `onLoadDocument` 慢或丟錯，會永久卡在「已連線 · 擁有者」配一篇空白唯讀
+  // 筆記。只看 phase 的話這一格永遠不升級——正是 #48 要消滅的形狀，只是方向反過來。
+  // 併進同一顆 timer 就不會誤傷正常開頁：connecting→connected→synced 走完通常 <1s，
+  // 跨不過門檻、不閃。
   const [offlineSustained, setOfflineSustained] = useState(false);
-  const offlinePhase = state.phase !== "connected" && !isTerminal(state);
+  const offlinePhase = !isTerminal(state) && (state.phase !== "connected" || !synced);
   // 用 ref 讀最新值，讓 effect 的 deps 只有 offlinePhase——避免 setOfflineSustained 造成的
   // re-render 把 effect 重跑、timer 一直被清掉重設而永遠觸發不了。
   const sustainedRef = useRef(offlineSustained);

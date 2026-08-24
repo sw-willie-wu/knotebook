@@ -230,15 +230,20 @@ export default function NotePage() {
     );
   } else {
     const role = effectiveRole(state, note!);
-    // issue #48：**同步過才可編輯**。在第一次 sync 之前，本機 Y.Doc 是空的——這時的「可
-    // 編輯」是一篇空白但看似正常的筆記，打的字只進本機、重整就沒了（沒有 y-indexeddb）。
-    // 同步過一次之後 `synced` 就 sticky true，斷線仍可編輯（那些離線編輯會被 #39 的重啟
-    // 併回 server 文件），只是 badge 會升級成警示。
-    const editable = !isTerminal(state) && canEdit(role) && synced;
+    // 角色允不允許編輯（不看連線）：標題、分享這類**走 REST 的操作**用這個判準。
+    const roleCanEdit = !isTerminal(state) && canEdit(role);
+    // issue #48：**Y.Doc 的內容編輯**還要求同步過。第一次 sync 之前本機 Y.Doc 是空的——
+    // 這時的「可編輯」是一篇空白但看似正常的筆記，打的字只進本機、重整就沒了（沒有
+    // y-indexeddb）。同步過一次之後 `synced` 就 sticky true，斷線仍可編輯（那些離線編輯
+    // 會被 #39 的重啟併回），只是 badge 會升級成警示。
+    // ⚠ **標題不套這個閘門**（審查指出）：標題走 REST 的 last-write-wins、不走 Yjs（見
+    // `TitleInput` 檔頭），值來自已成功的 `GET /api/notes/:ref`——連不上共編但 REST 正常
+    // 時，改標題完全安全、重整也真的在。跟著 synced 一起鎖死是功能倒退。
+    const editable = roleCanEdit && synced;
     body = (
       <div className="flex h-full flex-col">
         <header className="flex items-center gap-4 border-b border-border px-6 py-4">
-          <TitleInput note={note!} readOnly={!editable} cacheRef={ref} />
+          <TitleInput note={note!} readOnly={!roleCanEdit} cacheRef={ref} />
           <ShareDialog note={note!} cacheRef={ref} />
           <ConnectionBadge state={state} synced={synced} />
         </header>
