@@ -73,6 +73,16 @@ export async function freshDb(): Promise<FreshDb> {
     // - `pool.end()` 放進 try/finally 的 try：即使它拋，DROP 仍會執行（否則那個 db 永久洩漏）；
     // - WITH (FORCE)（PG 13+）踢掉殘留連線，免得某條測試沒關乾淨就 DROP 失敗；
     // - DROP 失敗一律只記錄不拋——清理不該把一條原本綠的測試弄紅。
+    //
+    // ⚠ close 一開始就給 pool 掛 error 吞噬：WITH (FORCE) 會對「`pool.end()` 已 resolve
+    // 但 socket 還沒完全關」的殘留連線發 FATAL 57P01（terminating connection due to
+    // administrator command），那個 client 的 error 會 bubble 到 pool——pool 沒有
+    // error listener 的話就是 process 級 uncaught，vitest 記一筆 unhandled error 把
+    // **全綠的 run 判紅**（CI 實測命中一次；本機三跑未中，是時序窗）。close 開始後的
+    // pool error 實務上都是清理自身的預期 fallout，吞掉；測試進行中的 pool error 不受
+    // 影響（這個 listener 到 close 才掛上）。helpers.test.ts 有一條測試釘住這行——
+    // 拿掉它整份套件照樣綠（時序窗），只有那條會紅。
+    pool.on("error", () => {});
     try {
       await pool.end();
     } finally {

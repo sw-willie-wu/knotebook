@@ -31,4 +31,15 @@ describe("freshDb 清理", () => {
       await admin.end();
     }
   });
+
+  it("close() 之後 pool 的 error 事件不會變成 uncaught", async () => {
+    const { pool, close } = await freshDb();
+    await close();
+    // WITH (FORCE) 對「pool.end() 已 resolve 但 socket 還沒完全關」的殘留連線發的
+    // FATAL 57P01 會經 pg-pool 的 idleListener re-emit 到 pool；pool 沒有 error
+    // listener 時 EventEmitter 直接 throw（= process 級 uncaught，vitest 把全綠的
+    // run 判紅——CI 實測命中）。這條釘住 close() 有掛吞噬 listener：把那行拿掉時，
+    // 整份套件因時序窗照樣綠，只有這條會紅。
+    expect(() => pool.emit("error", new Error("straggler FATAL 57P01"))).not.toThrow();
+  });
 });
