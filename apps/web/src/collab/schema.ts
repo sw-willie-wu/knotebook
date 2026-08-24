@@ -1,5 +1,6 @@
 import { BlockNoteSchema, defaultBlockSpecs, defaultInlineContentSpecs } from "@blocknote/core";
 import { wikilinkSpec } from "@/components/wikilink/spec";
+import { safeMediaUrl } from "@/lib/media-url";
 
 // spec §11.1（P2 圖片行為）曾經逐字：上傳是 Plan 3 的範圍，P2 **不啟用 image
 // block**，並且**攔截並拒絕**圖片的貼上／拖放。理由不是 UI 潔癖而是儲存：BlockNote
@@ -21,8 +22,75 @@ import { wikilinkSpec } from "@/components/wikilink/spec";
 // 媒體 data URL 一視同仁，不分型別。
 
 /**
- * 本專案的 BlockNote schema：預設 block **全套**（Plan 3 Task 14 起含 image），
- * inline content 全套**加上** `wikilink`（Plan 3）。
+ * issue #43：檔案類 block 的 `toExternalHTML` 套上與渲染端相同的媒體 URL 守衛。
+ *
+ * #12 把 `safeMediaUrl` 掛在 `resolveFileUrl` 上，但那個鉤子只在 **render** 路徑；
+ * `toExternalHTML`（BlockNote 內建的剪貼簿複製／dragstart 的 `text/html`，以及
+ * `blocksToMarkdownLossy` 的 markdown 匯出——`AiSession.tsx` 用它把選取內容送給 AI）
+ * 拿的是 raw `props.url`，`@blocknote/core` 0.52.1 的 audio／file／image／video 四個
+ * `toExternalHTML` 都直接 `el.src = props.url` 或 `a.href = props.url`。複製一個被
+ * 污染的 block 貼到別的應用程式，帶過去的就是 `<a href="javascript:…">`——不是本
+ * 應用程式頁面上的 XSS（那條 #12 已堵住），但屬於「把惡意內容帶出應用程式」。
+ *
+ * 修法：不重寫四個 spec 的 DOM 產生邏輯，只在委派給原實作之前把 `props.url` 換成
+ * `safeMediaUrl(url)`（危險 scheme → `about:blank`，相對網址與 http(s) 原樣放行，
+ * 空字串走 BlockNote 自己的 placeholder 路徑——判斷規則與理由見 `lib/media-url.ts`）。
+ * 這樣上游改版 `toExternalHTML` 的輸出形狀（caption 包 figure、showPreview 分支…）
+ * 都自動跟上，我們只擁有「URL 必須先過守衛」這一件事。
+ */
+/** 本函式唯一需要碰的結構：`implementation.toExternalHTML` 與 block 的 `props.url`。
+ * 四型 block 的 propSchema 泛型各不相同（image/video 多 showPreview 等），把它們
+ * 收斂到共同具名型別做不到——比照 repo 慣例，BlockNote 泛型三元組的位置用 `any`。 */
+type FileBlockSpecLike = {
+  implementation: {
+    // `this` 也必須是 `any`：真實簽名的 `this` 是 `Partial<{ blockContentDOMAttributes… }>`，
+    // 函式型別對 `this` 逆變，寫 `unknown` 反而不相容。
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 泛型三元組（repo 慣例，同 wikilink/menu.ts）
+    toExternalHTML?: (this: any, block: any, ...rest: any[]) => unknown;
+  };
+};
+
+function withGuardedExternalHTML<Spec extends FileBlockSpecLike>(spec: Spec): Spec {
+  const original = spec.implementation.toExternalHTML;
+  // 型別上 toExternalHTML 是 optional，這裡的 early return 純粹為了收斂型別——四個
+  // 檔案類 spec 實際上都有它（0.52.1 核實）。真被上游拿掉時 schema.test.ts 的守衛
+  // 測試也不會靜默失守：`BlockNoteSchema.create` 會以 `render` 合成 fallback，raw url
+  // 直接進 `img.src`，危險 scheme 的斷言當場紅。
+  if (!original) return spec;
+  return {
+    ...spec,
+    implementation: {
+      ...spec.implementation,
+      // ⚠ `this` 必須**原樣轉發**（`.call(this, …)`）：`BlockNoteSchema.create` 重包
+      // spec 時是以 `{ blockContentDOMAttributes, propSchema }` 為 `this` 呼叫
+      // `implementation.toExternalHTML`（0.52.1 `createSpec.ts` 核實），裸呼叫會在
+      // 讀 `this.blockContentDOMAttributes` 時 TypeError。誠實揭露：在 0.52.1，四個
+      // 檔案類 block **自己的** toExternalHTML 不讀這兩個成員（讀它們的是委派沿途的
+      // `createBlockSpec` 包裝層，且 `propSchema` 另有 fallback），所以轉發別的
+      // 物件目前行為相同、也沒有測試分得出差異——選忠實轉發是防上游改版，不是被
+      // 觀察到的行為差異。`...rest` 一樣原樣轉發，上游加參數也不會被吃掉。
+      //
+      // 為什麼在**委派之前**換掉 `props.url`（而不是拿回傳的 DOM 再改）：把 props 吐成
+      // `data-*` 屬性（`data-url`）的 `wrapInBlockStructure` 就在被委派的原實作**裡面**
+      // （`createBlockSpec` 回傳的 toExternalHTML，0.52.1 核實）——先換 props 再進去，
+      // `src`/`href` 與 `data-url` 才會一起是消毒後的值。
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同上，BlockNote 泛型三元組
+      toExternalHTML(this: unknown, block: any, ...rest: any[]) {
+        return original.call(
+          this,
+          { ...block, props: { ...block.props, url: safeMediaUrl(block.props.url) } },
+          ...rest,
+        );
+      },
+    },
+  } as Spec;
+}
+
+/**
+ * 本專案的 BlockNote schema：預設 block **全套**（Plan 3 Task 14 起含 image；
+ * audio／file／image／video 四個檔案類 block 的 `toExternalHTML` 套上 #43 的 URL
+ * 守衛，見上方 `withGuardedExternalHTML`），inline content 全套**加上** `wikilink`
+ * （Plan 3）。
  *
  * ⚠ `BlockNoteSchema.create` 傳入 `inlineContentSpecs` 是**整組覆寫**，不是「疊加在
  * 預設值上」——`BlockNoteSchema.create` 本體只有在完全不傳這個欄位時才會落回
@@ -31,7 +99,13 @@ import { wikilinkSpec } from "@/components/wikilink/spec";
  * 有任何型別錯誤提示）。
  */
 export const noteSchema = BlockNoteSchema.create({
-  blockSpecs: defaultBlockSpecs,
+  blockSpecs: {
+    ...defaultBlockSpecs,
+    audio: withGuardedExternalHTML(defaultBlockSpecs.audio),
+    file: withGuardedExternalHTML(defaultBlockSpecs.file),
+    image: withGuardedExternalHTML(defaultBlockSpecs.image),
+    video: withGuardedExternalHTML(defaultBlockSpecs.video),
+  },
   inlineContentSpecs: { ...defaultInlineContentSpecs, wikilink: wikilinkSpec },
 });
 

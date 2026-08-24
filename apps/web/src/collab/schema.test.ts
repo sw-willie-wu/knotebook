@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultBlockSpecs, defaultInlineContentSpecs } from "@blocknote/core";
+import { BlockNoteEditor, defaultBlockSpecs, defaultInlineContentSpecs } from "@blocknote/core";
 import { classifyMediaTransfer, containsMediaDataUrl, noteSchema } from "./schema";
 
 /**
@@ -245,5 +245,131 @@ describe("classifyMediaTransfer（§12.4 四規則）", () => {
       expect(classifyMediaTransfer(null)).toBeNull();
       expect(classifyMediaTransfer(undefined)).toBeNull();
     });
+  });
+});
+
+/**
+ * issue #43：`toExternalHTML`（複製到剪貼簿的 `text/html`、`blocksToMarkdownLossy` 的
+ * markdown 匯出）拿的是 raw `props.url`，不走 #12 掛在 `resolveFileUrl` 上的渲染端
+ * 守衛——把被污染的 block 複製到別的應用程式，帶過去的是 `<a href="javascript:…">`／
+ * `<img src="javascript:…">`。四個檔案類 block spec 的 `toExternalHTML` 必須套同一個
+ * `safeMediaUrl`。
+ *
+ * 測法比照 `NoteEditor.test.ts` 對 `defaultBlockSpecs.image` 的 render 守衛測試：直接
+ * 呼叫 spec implementation（jsdom 有 document.createElement），不掛整個編輯器。
+ */
+describe("檔案類 block 的 toExternalHTML 走媒體 URL 守衛（issue #43）", () => {
+  /** 本測試只碰得到的那一層：`implementation.toExternalHTML(block, editor)` → `{ dom }`。 */
+  type FileSpecLike = {
+    implementation: {
+      meta?: { fileBlockAccept?: unknown };
+      toExternalHTML: (block: Record<string, unknown>, editor: unknown) => { dom: HTMLElement };
+    };
+  };
+  const specs = noteSchema.blockSpecs as unknown as Record<string, FileSpecLike>;
+  const FILE_BLOCK_TYPES = ["audio", "file", "image", "video"] as const;
+
+  /** 假 block 帶上 `type`/`id`/`children`——被委派的原實作（`createBlockSpec` 回傳的
+   * toExternalHTML，內含 `wrapInBlockStructure`）會讀 `block.type` 吐成
+   * `data-content-type`，只給 props 的話產出的 DOM 跟 production 形狀對不上（審查指出）。 */
+  function block(type: string, url: string, overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      type,
+      id: "b1",
+      children: [],
+      props: {
+        url,
+        name: "n",
+        caption: "",
+        showPreview: true,
+        previewWidth: undefined,
+        backgroundColor: "default",
+        textAlignment: "left",
+        ...overrides,
+      },
+    };
+  }
+
+  /** 取出實際承載 URL 的節點值：`<a href>`（file、或關掉預覽的媒體）或 `<img|video|audio src>`。 */
+  function carriedUrl(dom: HTMLElement): string | null {
+    const el = dom.matches("[src],[href]") ? dom : dom.querySelector("[src],[href]");
+    return el ? (el.getAttribute("src") ?? el.getAttribute("href")) : null;
+  }
+
+  for (const type of FILE_BLOCK_TYPES) {
+    it(`${type}：危險 scheme → about:blank，絕不出現 javascript:（data-url 也是）`, () => {
+      const { dom } = specs[type].implementation.toExternalHTML(block(type, "javascript:alert(1)"), {});
+      expect(dom.outerHTML).not.toContain("javascript:");
+      expect(carriedUrl(dom)).toBe("about:blank");
+    });
+
+    it(`${type}：自家上傳的相對網址原樣放行`, () => {
+      const { dom } = specs[type].implementation.toExternalHTML(block(type, "/api/uploads/u1"), {});
+      expect(carriedUrl(dom)).toBe("/api/uploads/u1");
+    });
+
+    it(`${type}：外部 https 原樣放行`, () => {
+      const { dom } = specs[type].implementation.toExternalHTML(block(type, "https://example.com/a.png"), {});
+      expect(carriedUrl(dom)).toBe("https://example.com/a.png");
+    });
+  }
+
+  it("data: URL 一樣被擋（同 #12 的白名單：只有 http/https 過關）", () => {
+    const { dom } = specs.image.implementation.toExternalHTML(block("image", "data:text/html;base64,PHNjcmlwdD4="), {});
+    expect(carriedUrl(dom)).toBe("about:blank");
+  });
+
+  it("空 url（block 還沒有檔案）走 BlockNote 自己的 placeholder 路徑，不炸", () => {
+    const { dom } = specs.file.implementation.toExternalHTML(block("file", ""), {});
+    expect(dom).toBeInstanceOf(HTMLElement);
+  });
+
+  it("showPreview:false（<a href> 分支）一樣被守（審查補：守衛在分支之前，兩條出口都要釘）", () => {
+    const { dom } = specs.video.implementation.toExternalHTML(
+      block("video", "javascript:alert(1)", { showPreview: false }),
+      {},
+    );
+    expect(dom.outerHTML).not.toContain("javascript:");
+    expect(carriedUrl(dom)).toBe("about:blank");
+  });
+
+  it("帶 caption（figure/figcaption 分支）一樣被守", () => {
+    const { dom } = specs.image.implementation.toExternalHTML(
+      block("image", "javascript:alert(1)", { caption: "cap" }),
+      {},
+    );
+    expect(dom.outerHTML).not.toContain("javascript:");
+  });
+
+  it("守衛覆蓋面＝上游檔案類 block 全集（meta.fileBlockAccept 為準）——上游新增第五種檔案類 block 時這條會紅，提醒把它加進 withGuardedExternalHTML", () => {
+    const fileBlocks = Object.entries(defaultBlockSpecs)
+      .filter(([, spec]) => {
+        const impl = (spec as unknown as FileSpecLike).implementation;
+        return impl?.meta && "fileBlockAccept" in (impl.meta as object);
+      })
+      .map(([type]) => type)
+      .sort();
+    expect(fileBlocks).toEqual([...FILE_BLOCK_TYPES]);
+  });
+});
+
+/**
+ * issue #43 的匯出鏈釘（審查指出：上面那組只釘 spec 本體——若上游匯出器改讀別的
+ * 註冊表而非編輯器 schema 的 blockSpecs，上面全綠而洞悄悄回來）。用真編輯器 + 真匯出
+ * 鏈（`blocksToMarkdownLossy` 正是 `AiSession.tsx` 送 AI 的那條路）驗到底。
+ *
+ * 這條釘的是「匯出器讀編輯器的 schema」這一半；另一半「`buildNoteEditorOptions`
+ * 交付的就是 `noteSchema` 本尊」由 `NoteEditor.test.ts` 的接線釘負責（本測試自己
+ * hardcode `schema: noteSchema`，管不到那件事）。
+ */
+describe("issue #43 端到端：真編輯器的匯出鏈吃到守衛", () => {
+  it("blocksToMarkdownLossy 對被污染的 image 匯出 about:blank", async () => {
+    const editor = BlockNoteEditor.create({
+      schema: noteSchema,
+      initialContent: [{ type: "image", props: { url: "javascript:alert(1)", name: "x" } }],
+    });
+    const markdown = await editor.blocksToMarkdownLossy(editor.document);
+    expect(markdown).not.toContain("javascript:");
+    expect(markdown).toContain("about:blank");
   });
 });

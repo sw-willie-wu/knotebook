@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
 import { BlockNoteEditor, defaultBlockSpecs, SuggestionMenu } from "@blocknote/core";
 import { YDOC_FRAGMENT } from "@knotebook/shared";
+import { noteSchema } from "@/collab/schema";
 import { blocknoteZhTW } from "@/i18n/blocknote-zh-TW";
 import type { EditorRef } from "@/components/wikilink/menu";
 
@@ -174,6 +175,13 @@ describe("buildNoteEditorOptions", () => {
 
   it("schema 含 image block（Plan 3 Task 14 起恢復啟用）", () => {
     expect(Object.keys(build().schema.blockSpecs)).toContain("image");
+  });
+
+  it("schema 就是 noteSchema 本尊（issue #43 的接線釘）", () => {
+    // #43 的 toExternalHTML 守衛包在 noteSchema 的四個檔案類 spec 上；若這裡改成
+    // 自己從 defaultBlockSpecs 另組一份 schema，schema.test.ts 那組全綠、洞卻悄悄
+    // 回來——同 #12 那條「只釘接線的測試依然全綠」教訓的反向：這條專釘接線。
+    expect(build().schema).toBe(noteSchema);
   });
 
   it("uploadFile 選項有掛上去（Task 13，接 createUploadFile）", () => {

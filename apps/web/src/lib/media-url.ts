@@ -14,11 +14,22 @@
  *   （hotlink 已列在 `docs/known-limitations.md`），同源從來不是這裡的目標。別把這句話
  *   當成「只會打自家 origin」的前提去放寬別的東西（CSP、credentials…）。
  *
- * **範圍（誠實揭露）**：`resolveFileUrl` 只掛在 BlockNote 的 `render` 上。`toExternalHTML`
- * （複製到剪貼簿的 `text/html`、`blocksToMarkdownLossy` 的 markdown 匯出）拿的是 raw
- * `props.url`，**不經過這道守衛**——那條路是「把內容帶出這個應用程式」，落到對方的
- * sanitizer 手上，危害等級低一階，要修得覆寫四個 block spec 的 `toExternalHTML`（另開
- * issue 追）。這裡守的是**所有進到本應用程式 DOM／導航的 sink**。
+ * **範圍**：兩條路都有守——`resolveFileUrl` 掛在 BlockNote 的 `render` 上（#12，守
+ * 所有進到本應用程式 DOM／導航的 sink）；`toExternalHTML`（複製到剪貼簿的
+ * `text/html`、`blocksToMarkdownLossy` 的 markdown 匯出——「把內容帶出這個應用程式」
+ * 那條路）由 `collab/schema.ts` 的 `withGuardedExternalHTML` 對四個檔案類 block spec
+ * 包上同一個 {@link safeMediaUrl}（#43）。
+ *
+ * ⚠ **#43 那條的失效模式**：它依賴三件事，各有一條測試釘著——①匯出器讀的是
+ * **編輯器 schema 裡的** spec（`editor.blockImplementations` ← `schema.blockSpecs`，
+ * 0.52.1 核實；`schema.test.ts` 真編輯器走 `blocksToMarkdownLossy` 的測試釘住）；
+ * ②編輯器拿到的是 `noteSchema` 本尊（`NoteEditor.test.ts` 的接線釘）；③檔案類
+ * block 恰為那四種（`schema.test.ts` 的 `meta.fileBlockAccept` parity 測試釘「上游
+ * 新增第五種」的靜默缺口）。升級 BlockNote 時哪條紅了就是對應那件事變了。
+ * 另註：`blocknote/html` 這個私有剪貼簿格式走 ProseMirror 的 `serializeForClipboard`
+ * →tiptap node 的 `renderHTML`（不是 external 匯出器、也不是 BlockNote 的
+ * internalHTMLSerializer 模組），仍帶 raw `data-url`——只有另一個 BlockNote 讀得懂，
+ * 貼回來會重建 block 再吃一次 #12 的渲染守衛，不升險，刻意不管。
  *
  * ⚠ **失效模式**：這道守衛依賴 `@blocknote/core` 的 render 會呼叫 `resolveFileUrl`，而那是
  * 一個條件分支（`editor.resolveFileUrl ? … : el.src = url`，已對 0.52.1 的 dist 核實）。
