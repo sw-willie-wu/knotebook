@@ -70,7 +70,10 @@ const collab = vi.hoisted(() => ({
 vi.mock("@/collab/useCollab", () => ({
   useCollab: ({ onUnauthorized }: { onUnauthorized: () => void }) => {
     collab.onUnauthorized = onUnauthorized;
-    return { state: collab.state, doc: collab.doc, provider: collab.provider };
+    // issue #48：NotePage 用 `synced` 閘住 editable。真實 useCollab 的 `synced` 是 sticky
+    // 追蹤 `provider.synced`，測試裡直接反映 stub 的 `provider.synced`——設一處就同時餵
+    // editable 與 link-sync 掛載 effect。
+    return { state: collab.state, doc: collab.doc, provider: collab.provider, synced: collab.provider.synced };
   },
 }));
 
@@ -194,6 +197,7 @@ describe("NotePage", () => {
 
   it("以 slug 開頁：解析出筆記、把網址 replaceState 成 canonical、掛上編輯器", async () => {
     vi.stubGlobal("fetch", mockFetch());
+    collab.provider.synced = true; // 正常開頁路徑：同步過才有可編輯的標題 input（issue #48）
     window.history.replaceState(null, "", `/notes/${NOTE.id}`);
 
     renderNotePage(NOTE.id);
@@ -204,13 +208,28 @@ describe("NotePage", () => {
     expect(window.location.pathname).toBe(canonicalNotePath(NOTE));
   });
 
-  it("owner 連線中（尚未 connected）就以 REST 角色決定可編輯", async () => {
+  it("issue #48：從未同步過的連線（開頁就連不上）→ 即使 REST 角色是 owner 也唯讀", async () => {
+    // 第一次 sync 之前，本機 Y.Doc 是空的——「可編輯」等於在一篇空白但看似正常的筆記上
+    // 打字，重整就沒了。此時必須唯讀，不管 REST 給的角色多高。
     vi.stubGlobal("fetch", mockFetch());
+    collab.provider.synced = false;
+
+    renderNotePage("my-note");
+
+    await waitFor(() => expect(screen.getByTestId("note-editor")).toHaveAttribute("data-editable", "false"));
+    expect(screen.getByText("Connecting…")).toBeInTheDocument();
+    // ⚠ 但標題**仍可編輯**（issue #48 審查）：標題走 REST 的 last-write-wins、不走 Yjs，
+    // 連不上共編但 REST 正常時改標題完全安全。跟著 synced 一起鎖死是功能倒退。
+    expect(screen.getByLabelText("Note title")).toBeInTheDocument();
+  });
+
+  it("issue #48：同步過一次之後就可編輯（owner）", async () => {
+    vi.stubGlobal("fetch", mockFetch());
+    collab.provider.synced = true;
 
     renderNotePage("my-note");
 
     await waitFor(() => expect(screen.getByTestId("note-editor")).toHaveAttribute("data-editable", "true"));
-    expect(screen.getByText("Connecting…")).toBeInTheDocument();
   });
 
   it("Task 7 接線：owner 掛載後 provider 觸發 synced 事件 → 真的打 POST /api/notes/:id/links（驗證 provider.on(\"synced\",…) 掛載接線本身，不是只測 link-sync 內部狀態機）", async () => {
@@ -218,7 +237,9 @@ describe("NotePage", () => {
     vi.stubGlobal("fetch", fetchSpy);
 
     renderNotePage("my-note");
-    await waitFor(() => expect(screen.getByTestId("note-editor")).toHaveAttribute("data-editable", "true"));
+    // 不看 editable（那要 synced，而這條專門測「emit synced 事件路徑」，不能先設
+    // provider.synced=true，否則走的是護欄③的 getter 補呼叫、不是事件本身）。
+    await waitFor(() => expect(screen.getByTestId("note-editor")).toBeInTheDocument());
 
     // 用 `emit` 直接呼叫透過 `.on("synced", …)` 註冊的 handler——這條路徑非過
     // `provider.synced` 這個 getter 補呼叫（見 `createStubProvider` 註解），專門戳
@@ -284,6 +305,7 @@ describe("NotePage", () => {
   it("N4 降級：connected(owner) → connected(viewer) 時 toast 並切成唯讀", async () => {
     vi.stubGlobal("fetch", mockFetch());
     collab.state = { phase: "connected", role: "owner" };
+    collab.provider.synced = true;
 
     const { rerender, queryClient } = renderNotePage("my-note");
     await waitFor(() => expect(screen.getByTestId("note-editor")).toHaveAttribute("data-editable", "true"));
@@ -312,6 +334,7 @@ describe("NotePage", () => {
   it("角色變 'none'（撤權流程的前半段）不報「已改為檢視者」——那會跟隨後的撤權提示矛盾", async () => {
     vi.stubGlobal("fetch", mockFetch());
     collab.state = { phase: "connected", role: "editor" };
+    collab.provider.synced = true;
 
     const { rerender, queryClient } = renderNotePage("my-note");
     await waitFor(() => expect(screen.getByTestId("note-editor")).toHaveAttribute("data-editable", "true"));
