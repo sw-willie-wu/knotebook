@@ -18,7 +18,16 @@ export const users = pgTable("users", {
   // 帳號皆掛 true；OIDC 自動建帳維持 false（DB 預設）。
   mustChangePassword: boolean("must_change_password").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, t => [uniqueIndex("users_oidc_idx").on(t.oidcIssuer, t.oidcSub)]);
+}, t => [
+  uniqueIndex("users_oidc_idx").on(t.oidcIssuer, t.oidcSub),
+  // issue #18：email 比對全面走 `lower(users.email) = $1`（登入、分享查人、OIDC 連結，
+  // 見 routes/auth.ts、routes/notes.ts、routes/oidc.ts）——沒有這個 functional index
+  // 每一次都是全表掃描。⚠ **刻意非唯一**：目前允許大小寫不同的重複列存在，OIDC 的
+  // 多列偵測（`oidc_conflict`）依賴這個前提（docs/known-limitations.md）；改成
+  // uniqueIndex 會讓那條路徑從「可偵測的衝突」變成「寫入直接炸」。migrate.test.ts
+  // 有測試釘住「存在且非唯一」。
+  index("users_email_lower_idx").on(sql`lower(${t.email})`),
+]);
 
 export const instanceSetup = pgTable("instance_setup", {
   singleton: boolean().primaryKey().default(true),
