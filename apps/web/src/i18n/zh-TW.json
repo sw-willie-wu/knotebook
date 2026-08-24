@@ -74,6 +74,7 @@
       "reconnecting": "重新連線中…",
       "offlineEditing": "離線編輯中——變更尚未同步",
       "offlineUnsynced": "尚未載入——離線",
+      "offline": "離線",
       "kicked": "已失去存取權",
       "deleted": "筆記已刪除"
     },

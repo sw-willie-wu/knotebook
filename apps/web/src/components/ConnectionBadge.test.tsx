@@ -4,8 +4,8 @@ import type { CollabState } from "@/collab/connection";
 import i18n from "@/i18n";
 import { ConnectionBadge, OFFLINE_WARN_MS } from "./ConnectionBadge";
 
-function renderBadge(state: CollabState, synced: boolean) {
-  return render(<ConnectionBadge state={state} synced={synced} />);
+function renderBadge(state: CollabState, synced: boolean, canEdit = true) {
+  return render(<ConnectionBadge state={state} synced={synced} canEdit={canEdit} />);
 }
 
 describe("ConnectionBadge（issue #48：離線可見性）", () => {
@@ -70,7 +70,7 @@ describe("ConnectionBadge（issue #48：離線可見性）", () => {
     act(() => vi.advanceTimersByTime(OFFLINE_WARN_MS));
     expect(screen.getByText("Editing offline — changes not synced yet")).toBeInTheDocument();
 
-    rerender(<ConnectionBadge state={{ phase: "connected", role: "owner" }} synced={true} />);
+    rerender(<ConnectionBadge state={{ phase: "connected", role: "owner" }} synced={true} canEdit={true} />);
     expect(screen.getByText("Connected")).toBeInTheDocument();
     expect(screen.queryByText(/offline/i)).not.toBeInTheDocument();
   });
@@ -81,16 +81,30 @@ describe("ConnectionBadge（issue #48：離線可見性）", () => {
     expect(screen.getByText("Editing offline — changes not synced yet")).toBeInTheDocument();
 
     // 回到 connected：立刻收回。
-    rerender(<ConnectionBadge state={{ phase: "connected", role: "owner" }} synced={true} />);
+    rerender(<ConnectionBadge state={{ phase: "connected", role: "owner" }} synced={true} canEdit={true} />);
     expect(screen.getByText("Connected")).toBeInTheDocument();
 
     // 再次離線：門檻之前**不得**立刻又顯示警示（否則就是沒重新計時）。
-    rerender(<ConnectionBadge state={{ phase: "reconnecting-once" }} synced={true} />);
+    rerender(<ConnectionBadge state={{ phase: "reconnecting-once" }} synced={true} canEdit={true} />);
     act(() => vi.advanceTimersByTime(OFFLINE_WARN_MS - 100));
     expect(screen.getByText("Reconnecting…")).toBeInTheDocument();
     expect(screen.queryByText(/offline/i)).not.toBeInTheDocument();
     // 補滿門檻才升級。
     act(() => vi.advanceTimersByTime(100));
+    expect(screen.getByText("Editing offline — changes not synced yet")).toBeInTheDocument();
+  });
+
+  it("viewer 曾同步後斷線 → 顯示中性「離線」，不是「離線編輯中」（他不能編輯、也沒有變更）", () => {
+    // 對 viewer 說「變更尚未同步」是假話。離線相位拿不到 role，所以由呼叫端傳 canEdit。
+    renderBadge({ phase: "reconnecting-once" }, true, false);
+    act(() => vi.advanceTimersByTime(OFFLINE_WARN_MS));
+    expect(screen.getByText("Offline")).toBeInTheDocument();
+    expect(screen.queryByText(/Editing offline/)).not.toBeInTheDocument();
+  });
+
+  it("可編輯角色曾同步後斷線 → 「離線編輯中」（跟 viewer 那條對照）", () => {
+    renderBadge({ phase: "reconnecting-once" }, true, true);
+    act(() => vi.advanceTimersByTime(OFFLINE_WARN_MS));
     expect(screen.getByText("Editing offline — changes not synced yet")).toBeInTheDocument();
   });
 

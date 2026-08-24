@@ -37,7 +37,18 @@ const PHASE_STYLES: Record<CollabState["phase"], { key: string; className: strin
  * `role="status"` + `aria-live="polite"`：撤權／降級／離線這些狀態改變不是使用者主動
  * 觸發的，螢幕閱讀器需要被動得知，但不該打斷當下的朗讀（故 polite 而非 assertive）。
  */
-export function ConnectionBadge({ state, synced }: { state: CollabState; synced: boolean }) {
+export function ConnectionBadge({
+  state,
+  synced,
+  canEdit: roleCanEdit,
+}: {
+  state: CollabState;
+  synced: boolean;
+  /** 這個角色能不能編輯內容——離線相位拿不到 `role`（只在 connected 非 null），所以由呼叫
+   * 端算好傳進來。決定升級文案：曾同步後斷線時，可編輯角色才顯示「離線編輯中」，viewer
+   * 顯示中性的「離線」（對 viewer 說「變更尚未同步」是假話——他不能編輯、也沒有變更）。 */
+  canEdit: boolean;
+}) {
   const { t } = useTranslation();
 
   // 「還不能用」已經持續超過門檻。用 timer 而非「進相位的時刻」相減，才能在跨過門檻的
@@ -67,13 +78,16 @@ export function ConnectionBadge({ state, synced }: { state: CollabState; synced:
   }, [offlinePhase]);
 
   const showOffline = offlinePhase && offlineSustained;
-  const phase =
-    showOffline
-      ? {
-          key: synced ? "note.connection.offlineEditing" : "note.connection.offlineUnsynced",
-          className: "border-destructive text-destructive",
-        }
-      : PHASE_STYLES[state.phase];
+  // 三分支：從未同步（不管角色）→「尚未載入」；曾同步且可編輯→「離線編輯中」；曾同步但
+  // 不可編輯（viewer）→ 中性「離線」。
+  const offlineKey = !synced
+    ? "note.connection.offlineUnsynced"
+    : roleCanEdit
+      ? "note.connection.offlineEditing"
+      : "note.connection.offline";
+  const phase = showOffline
+    ? { key: offlineKey, className: "border-destructive text-destructive" }
+    : PHASE_STYLES[state.phase];
 
   const role = state.phase === "connected" ? state.role : null;
 

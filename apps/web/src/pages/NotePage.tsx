@@ -245,7 +245,7 @@ export default function NotePage() {
         <header className="flex items-center gap-4 border-b border-border px-6 py-4">
           <TitleInput note={note!} readOnly={!roleCanEdit} cacheRef={ref} />
           <ShareDialog note={note!} cacheRef={ref} />
-          <ConnectionBadge state={state} synced={synced} />
+          <ConnectionBadge state={state} synced={synced} canEdit={roleCanEdit} />
         </header>
         {/* Task 6：捲動容器內移進 `NoteEditor`（左欄一份、右側 AI 側欄一份，各自獨立
             捲動）——這裡只留 `flex-1 min-h-0`。`min-h-0` 是必要的：flex 子項預設
