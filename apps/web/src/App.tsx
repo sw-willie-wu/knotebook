@@ -1,15 +1,47 @@
+import { lazy, Suspense } from "react";
+import { useTranslation } from "react-i18next";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, type Location } from "react-router";
 import { ThemeProvider } from "./theme";
 import { Toaster } from "./components/ui/toast";
 import { ChangePasswordGate, RequireAdmin, RequireAuth } from "./auth/guards";
+import { AppShell } from "./components/AppShell";
 import LoginPage from "./pages/LoginPage";
 import ChangePasswordPage from "./pages/ChangePasswordPage";
 import HomePage from "./pages/HomePage";
-import NotePage from "./pages/NotePage";
 import { SettingsModal } from "./settings/SettingsModal";
 import { SettingsAccountSection } from "./settings/SettingsAccountSection";
 import { SettingsUsersSection } from "./settings/SettingsUsersSection";
 import { SettingsAiSection } from "./settings/SettingsAiSection";
+
+/**
+ * NotePage 走 lazy（issue #19）：BlockNote＋共編整條相依鏈只有這一頁需要，同步 import
+ * 會把 ~1.3MB 全塞進首包——登入頁、首頁、設定頁都陪葬。切出去後首包砍到約三分之一
+ * （1,629→540 KB；gzip 496→167 KB）；`scripts/check-bundle-size.mjs`（CI 於 build 後
+ * 執行）釘住「entry 尺寸上限＋NotePage chunk 確實存在」，防止未來一個不經意的靜態
+ * import 把它又拉回首包。
+ *
+ * 只切這一頁、其餘 route 維持同步：Login/Home/ChangePassword 都很小，切它們只是
+ * 多幾次網路往返；Settings 三區掛在 modal-over-background 機制上（見下方大註解），
+ * lazy 會讓開 modal 閃 fallback，不值得。
+ */
+const NotePage = lazy(() => import("./pages/NotePage"));
+
+/**
+ * NotePage chunk 載入中的 fallback——**必須包 AppShell**（審查抓到的 blocking：裸 <p>
+ * 會讓「從首頁點開第一篇筆記」的瞬間整個側欄/選單消失、白頁閃一下再全部長回來——
+ * 恰好發生在本改動要優化的路徑上，而 AppShell 的相依全在首包裡，包它零成本）。
+ * 內容沿用 NotePage 自己資料載入時的同款樣式與文案（`app.loading`），如此使用者
+ * 看到的才真的是同一種「載入中」，分不出是在等 chunk 還是在等資料。
+ * `App.test.tsx` 有回歸釘：把 AppShell 拿掉會紅。
+ */
+function NotePageFallback() {
+  const { t } = useTranslation();
+  return (
+    <AppShell>
+      <p className="p-6 text-sm text-muted-foreground">{t("app.loading")}</p>
+    </AppShell>
+  );
+}
 
 /**
  * 兩棵 `<Routes>` 並列（spec §13.4，逐字落地——改這段前先讀那節，尤其
@@ -57,7 +89,14 @@ export function AppRoutes() {
           <Route element={<ChangePasswordGate />}>
             {/* `/notes/:ref` 排在 catch-all 之前：ref 可以是自訂 slug、
                 `<vanity>-<uuid>` 或純 uuid，一律由 `GET /api/notes/:ref` 解析。 */}
-            <Route path="/notes/:ref" element={<NotePage />} />
+            <Route
+              path="/notes/:ref"
+              element={
+                <Suspense fallback={<NotePageFallback />}>
+                  <NotePage />
+                </Suspense>
+              }
+            />
             <Route element={<RequireAdmin />}>
               <Route path="/admin/users" element={<Navigate to="/settings/users" replace />} />
             </Route>

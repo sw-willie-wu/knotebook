@@ -47,6 +47,11 @@ jobs:
           test -d apps/web/dist/assets
           ls apps/web/dist/assets | grep -qE '^index-[A-Za-z0-9_-]+\.(js|css)$'
 
+      # issue #19：entry chunk 尺寸上限 + NotePage lazy chunk 存在（防「BlockNote 被
+      # 靜態 import 回首包」與「lazy split 被拿掉」兩種迴歸）。
+      - name: Check bundle size (entry cap + lazy chunk present)
+        run: node scripts/check-bundle-size.mjs
+
       - name: Typecheck
         run: pnpm typecheck
 
@@ -59,7 +64,7 @@ jobs:
       - name: Verify LICENSE file exists
         run: test -f LICENSE
 
-      - name: Test scripts (check-licenses)
+      - name: Test scripts (check-licenses, check-bundle-size)
         run: pnpm test:scripts
 
       - name: Test (unit + integration)
