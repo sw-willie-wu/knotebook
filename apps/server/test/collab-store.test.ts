@@ -172,3 +172,80 @@ describe("Task 7：onLoadDocument/onStoreDocument + 樂觀鎖 + 分桶備份", (
     expect(backupRows).toEqual([]);
   });
 });
+
+/**
+ * issue #44 最小步的行為面：onStoreDocument 掃到「非 http(s) scheme 的 url 屬性」時
+ * 記一行 warn——每篇筆記**每個載入週期最多一行**（onStoreDocument 每 2s debounce 就來，
+ * 不設閘等於讓被污染的筆記以固定頻率灌日誌，正是 #50 那類形狀）；unload 後重載會再
+ * 警告一次（重啟 process 也看得到，訊號不會永久消失）。只記錄、不改寫、不拒收。
+ */
+describe("onStoreDocument 危險 URL 掃描（issue #44）", () => {
+  it("污染文件：首次 store 記一行 warn、同週期再 store 不重複；unload 後再 store 再警告；乾淨文件零 warn", async () => {
+    const ctx = await buildCollabTestApp();
+    const owner = await ctx.createUser({ email: "scan-owner@example.com", password: PASSWORD });
+    const note = await ctx.createNote(owner.id);
+    const cleanNote = await ctx.createNote(owner.id);
+
+    const warns: Array<{ obj: Record<string, unknown>; msg: string }> = [];
+    const store = createNoteStore({ db: ctx.db, log: { warn: (obj, msg) => warns.push({ obj: { ...obj }, msg }) } });
+
+    const doc = new Y.Doc();
+    await store.onLoadDocument(note.id, doc);
+    const poisoned = new Y.XmlElement("image");
+    poisoned.setAttribute("url", "javascript:alert(1)");
+    doc.getXmlFragment(YDOC_FRAGMENT).insert(0, [poisoned]);
+
+    await store.onStoreDocument(note.id, doc);
+    expect(warns).toHaveLength(1);
+    expect(warns[0]!.obj).toMatchObject({ noteId: note.id, findings: 1, schemes: ["javascript:"], blocks: ["image"] });
+    // 攻擊者控制的 URL 本體不得進日誌。
+    expect(JSON.stringify(warns[0])).not.toContain("alert");
+
+    // 同一載入週期第二次 store：不重複警告。
+    insertParagraph(doc, "more edits");
+    await store.onStoreDocument(note.id, doc);
+    expect(warns).toHaveLength(1);
+
+    // unload → 重載 → store：訊號重新出現（同一個 warn sink 也收樂觀鎖衝突那行，
+    // 所以第二行的欄位要真的驗、不能只數行數——審查指出）。
+    store.afterUnloadDocument(note.id);
+    const doc2 = new Y.Doc();
+    await store.onLoadDocument(note.id, doc2);
+    await store.onStoreDocument(note.id, doc2);
+    expect(warns).toHaveLength(2);
+    expect(warns[1]!.obj).toMatchObject({ noteId: note.id, findings: 1, schemes: ["javascript:"], blocks: ["image"] });
+
+    // 乾淨文件：零 warn。
+    const cleanDoc = new Y.Doc();
+    await store.onLoadDocument(cleanNote.id, cleanDoc);
+    insertParagraph(cleanDoc, "hello");
+    await store.onStoreDocument(cleanNote.id, cleanDoc);
+    expect(warns).toHaveLength(2);
+  });
+
+  it("log 行的 distinct 清單封頂：11 種相異 block 名 → blocks 只列 10 個、blocksTotal=11（docs 宣稱的行為）", async () => {
+    const ctx = await buildCollabTestApp();
+    const owner = await ctx.createUser({ email: "scan-cap-owner@example.com", password: PASSWORD });
+    const note = await ctx.createNote(owner.id);
+
+    const warns: Array<{ obj: Record<string, unknown>; msg: string }> = [];
+    const store = createNoteStore({ db: ctx.db, log: { warn: (obj, msg) => warns.push({ obj: { ...obj }, msg }) } });
+
+    const doc = new Y.Doc();
+    await store.onLoadDocument(note.id, doc);
+    for (let i = 0; i < 11; i += 1) {
+      const el = new Y.XmlElement(`custom-block-${i}`);
+      el.setAttribute("url", "javascript:x");
+      doc.getXmlFragment(YDOC_FRAGMENT).insert(0, [el]);
+    }
+
+    await store.onStoreDocument(note.id, doc);
+    expect(warns).toHaveLength(1);
+    const obj = warns[0]!.obj as { findings: number; blocks: string[]; blocksTotal: number; schemes: string[]; schemesTotal: number };
+    expect(obj.findings).toBe(11);
+    expect(obj.blocks).toHaveLength(10);
+    expect(obj.blocksTotal).toBe(11);
+    expect(obj.schemes).toEqual(["javascript:"]);
+    expect(obj.schemesTotal).toBe(1);
+  });
+});
