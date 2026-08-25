@@ -81,3 +81,68 @@ describe("App route tree — /admin/users redirects to /settings/users (Plan 4 �
     expect(screen.getByText("New note")).toBeInTheDocument();
   });
 });
+
+// issue #19 的回歸釘用：把 NotePage 模組換成「2 秒後才 resolve 的 stub（不含 AppShell）」。
+// vi.mock 是 hoisted 的、對整個檔案的 NotePage import 生效——但 factory 是惰性的：
+// lazy 版的 App 只有在 /notes/:ref 真的 render 時才觸發 import()，於是 fallback 有整整
+// 2 秒可以斷言；若有人把 NotePage 改回靜態 import（迴歸），stub 立刻頂上、fallback 從未
+// 存在，下面對「New note」（AppShell 的招牌）的斷言在 stub 的空殼上永遠找不到 → 紅。
+// 上面的 redirect 測試不 render NotePage，factory 不會被觸發，不受影響。
+vi.mock("./pages/NotePage", async () => {
+  await new Promise(resolve => setTimeout(resolve, 2_000));
+  return { default: () => <p>notepage-stub-without-appshell</p> };
+});
+
+/**
+ * issue #19（審查抓到的 blocking，補回歸釘）：NotePage 走 lazy 之後，Suspense fallback
+ * **必須包 AppShell**——裸 <p> 會讓「從首頁點開第一篇筆記」的瞬間整個側欄/選單消失、
+ * 白頁閃一下再長回來，恰好發生在切分要優化的路徑上。E2E 在 localhost 上 chunk 毫秒級
+ * 解析、看不到 fallback；只有這裡把 chunk 的 resolve 拖住，才驗得到 fallback 的長相。
+ *
+ * ⚠ 不可用「doMock + await import("./App")」的寫法（第一版就是，假守衛）：檔頭的靜態
+ * import 已經把 ./App 連同真 NotePage 快取住，測試內的動態 import 拿到同一份快取，
+ * mock 根本沒生效——突變驗證（把 fallback 改回裸 <p>、甚至把 lazy 整個拿掉）照樣綠。
+ * 現行寫法兩種突變都會紅（已實測）。
+ */
+describe("App route tree — NotePage lazy fallback 保留 AppShell（issue #19）", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("chunk 載入中：fallback 有 AppShell（New note 按鈕在），不是空白頁", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/auth/me") {
+          return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(ADMIN_USER) }));
+        }
+        if (url === "/api/notes") {
+          return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+        }
+        return Promise.resolve(fakeResponse({ ok: false, status: 404 }));
+      }),
+    );
+    const queryClient = new QueryClient();
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <MemoryRouter initialEntries={["/notes/11111111-1111-1111-1111-111111111111"]}>
+            <AppRoutes />
+          </MemoryRouter>
+        </ThemeProvider>
+      </QueryClientProvider>,
+    );
+
+    // fallback 掛著（stub 2 秒後才 resolve）時，AppShell 的招牌元素必須在場——
+    // waitFor 上限 1.5 秒 < stub 的 2 秒，斷言必然落在 fallback 期間內。
+    await waitFor(() => expect(screen.getByText("New note")).toBeInTheDocument(), { timeout: 1_500 });
+    // 「Loading…」可能同時出現在 fallback 本體與 NoteList 的載入態——至少一份
+    //（AppShell 在場 + 載入文案在場＝fallback 的完整形狀）。
+    expect(screen.getAllByText("Loading…").length).toBeGreaterThanOrEqual(1);
+    // 反向釘：此刻還在 fallback，stub 不得已經頂上（若這裡紅，代表時序假設壞了，
+    // 測試本身要修，不是放寬）。
+    expect(screen.queryByText("notepage-stub-without-appshell")).not.toBeInTheDocument();
+  });
+});
