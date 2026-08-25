@@ -196,6 +196,94 @@ const SUPPRESSION_NOTICE_LIMIT = { limit: 1, windowMs: 60_000 } as const;
 /** 日誌裡 noteId 欄位的長度上限：documentName 由 client 指定，最長可達 512 bytes。 */
 const LOGGED_NOTE_ID_MAX = 64;
 
+/**
+ * issue #50：同一條連線累積多少則「無法處理」的訊息就強制斷線。
+ *
+ * 為什麼不是 1：wire 上的未知 message type 也可能來自「provider 比 server 新」的滾動
+ * 升級窗（新 client 對舊 server 說了新話）——第一眼就殺會把合法升級中的使用者掃進去。
+ * 10 則已遠超任何合法組合的雜訊量，而攻擊者到 10 就斷線，得不到任何持續放大。
+ */
+export const BOGUS_MESSAGE_LIMIT = 10;
+
+/** 強制斷線那一行日誌的**全程序**上限（10/分鐘）＋「被節流了」通知（1/分鐘）——這條
+ * 路徑在認證之前就可觸發（upgrade 不需要 session），無法按 user 記帳，比照 #37 的
+ * 紀律：訊息量的天花板不得由對端決定。 */
+const BOGUS_TERMINATE_LOG_LIMIT = { limit: 10, windowMs: 60_000 } as const;
+
+/** lib0 varUint（低位在前、最高位元＝continuation）。回傳 null＝越界/畸形。 */
+function readVarUintAt(data: Uint8Array, pos: number): { value: number; next: number } | null {
+  let value = 0;
+  let shift = 0;
+  let cursor = pos;
+  // 35 bits 已涵蓋 lib0 實際會寫出的一切；再長就是畸形（防惡意 continuation 串燒）。
+  while (cursor < data.length && shift <= 35) {
+    const byte = data[cursor]!;
+    value += (byte & 0x7f) * 2 ** shift;
+    cursor += 1;
+    if ((byte & 0x80) === 0) return { value, next: cursor };
+    shift += 7;
+  }
+  return null;
+}
+
+/** {@link classifyClientMessage} 的結果。`docNamePrefix` 只在 bogus 時解出（截 64 bytes）。 */
+export interface ClientMessageCheck {
+  verdict: "ok" | "bogus" | "malformed";
+  type?: number;
+  docNamePrefix?: string;
+}
+
+/**
+ * client→server collab 訊息的預檢（issue #50）。wire 格式（對 @hocuspocus/server 4.5.0
+ * dist 核實）：`varString(documentName) + varUint(type) + payload`；合法 type 是 0..10
+ * （`MessageType` enum），其中 Auth(2) 的下一個 varUint 是子型別、client 唯一合法值是
+ * Token(0)——PermissionDenied/Authenticated 是 server→client 方向。
+ *
+ * 為什麼需要：`MessageReceiver.apply` 對未知 type 與非 Token 的 Auth 子型別都是
+ * `console.error` 後**繼續**——不 throw、不關線、不受我們任何節流管轄。已登入使用者
+ * 對自己有權限的筆記連上後，用未知 type 灌訊息＝一則換一行未結構化 stderr、連線永不
+ * 關（issue #50 對 4.5.0 dist 的核實）。預檢在訊息進 Hocuspocus 之前分類：
+ * - `ok` → 原樣轉交；
+ * - `bogus`（未知 type／Auth 非 Token 子型別）→ **吞掉不轉交**（轉交只會產生那行
+ *   console.error）並由呼叫端計數，超過 {@link BOGUS_MESSAGE_LIMIT} 即 terminate；
+ * - `malformed`（varint 畸形/長度越界）→ 原樣轉交——Hocuspocus 對解不開的訊息會
+ *   throw 並自行關線（`processMessages` 的 catch），本來就自我設限，不需要我們管。
+ */
+export function classifyClientMessage(data: Uint8Array): ClientMessageCheck {
+  const nameLen = readVarUintAt(data, 0);
+  if (nameLen === null) return { verdict: "malformed" };
+  const nameEnd = nameLen.next + nameLen.value;
+  if (nameEnd > data.length) return { verdict: "malformed" };
+  const type = readVarUintAt(data, nameEnd);
+  if (type === null) return { verdict: "malformed" };
+
+  const bogus = (): ClientMessageCheck => ({
+    verdict: "bogus",
+    type: type.value,
+    docNamePrefix: new TextDecoder().decode(data.subarray(nameLen.next, Math.min(nameEnd, nameLen.next + LOGGED_NOTE_ID_MAX))),
+  });
+
+  if (type.value === 2) {
+    // Auth：client 唯一合法子型別是 Token(0)。
+    const subtype = readVarUintAt(data, type.next);
+    if (subtype === null) return { verdict: "malformed" };
+    return subtype.value === 0 ? { verdict: "ok" } : bogus();
+  }
+  // ⚠ `ok` 集合＝**MessageReceiver.apply 實際有 case 的 type**，不是 MessageType enum
+  // 的範圍（首輪審查抓到的洞：enum 有 0..10，但 SyncStatus(8)/Ping(9)/Pong(10) 在
+  // 4.5.0 的 switch **沒有 case**、落在同一個 console.error-and-continue 的 default
+  // ——用 enum 範圍當白名單等於把 #50 的洞原樣留給 type 9）。
+  // - 0/1/3/4/5/7：有 handler，放行。
+  // - 6（BroadcastStateless）：client 送它會 throw → Hocuspocus 自行關線（server-internal
+  //   opcode 的守衛），自我設限——照 malformed 的同一原則原樣轉交，不歸 bogus。
+  // - 8/9/10 與其他一切：bogus。附註：provider 4.5.0 的 Pong 是**無 documentName 前綴**
+  //   的裸 1-byte frame（只在回應 server Ping 時送，而 server 4.5.0 從不 Ping）——裸
+  //   [10] 在本分類器是 malformed → 轉交 → throw 關線；今天無害（沒有合法 client 會
+  //   送），但升級到會 Ping 的 server 版本時要回頭看這裡。
+  if ([0, 1, 3, 4, 5, 6, 7].includes(type.value)) return { verdict: "ok" };
+  return bogus();
+}
+
 /** `destroy()` 等待文件全部 unload（讓 pending store 落地）的上限。 */
 const DESTROY_UNLOAD_TIMEOUT_MS = 2_000;
 
@@ -370,6 +458,9 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
   // （而非 inline lambda 內 new 一份）純粹是可讀性考量，狀態（sv/lastBackupAt 快取）本來
   // 就只需要一份，跟著整個 CollabServer 的生命週期走。
   const log = deps.log ?? consoleCollabLogger;
+  // issue #50：強制斷線那一行的全程序節流（見 BOGUS_TERMINATE_LOG_LIMIT 的理由）。
+  const bogusTerminateLogLimiter = new FixedWindowLimiter(BOGUS_TERMINATE_LOG_LIMIT);
+  const bogusTerminateNoticeLimiter = new FixedWindowLimiter(SUPPRESSION_NOTICE_LIMIT);
   const rejectLogLimiter = new FixedWindowLimiter(REJECT_LOG_LIMIT);
   const serverErrorLogLimiter = new FixedWindowLimiter(REJECT_LOG_LIMIT);
   const suppressionNoticeLimiter = new FixedWindowLimiter(SUPPRESSION_NOTICE_LIMIT);
@@ -692,7 +783,45 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
         toWebRequest(url, request.headers)
       );
 
-      ws.on("message", data => clientConnection.handleMessage(toUint8Array(data)));
+      // issue #50：訊息預檢（分類語意見 classifyClientMessage）。bogus 累積到上限即
+      // terminate——Hocuspocus 對這類訊息只會 console.error 後繼續，連線永不關，任何
+      // 已登入使用者都能以近乎線速灌爆日誌磁碟。計數是 per-connection 的；terminate
+      // 那一行日誌有全程序上限（這條路徑可在認證前觸發，無法按 user 記帳）。
+      let bogusCount = 0;
+      let bogusTerminated = false;
+      // terminate 之後 ws 收件匣裡既有的 frame 仍可能觸發 message——先取 remoteAddress
+      //（socket 銷毀後讀到 undefined）、用 bogusTerminated 讓「一條連線恰一行」是不變量
+      // 而非最佳情況。⚠ 這是 socket 的裸對端位址（upgrade 拿到的是裸 IncomingMessage，
+      // 沒有 Fastify 的 XFF 解析）——反代拓撲下永遠是 proxy 的位址，診斷價值有限，
+      // 但直連拓撲（trusted-LAN）下是真的。
+      const remoteAddress = request.socket.remoteAddress;
+      ws.on("message", data => {
+        if (bogusTerminated) return;
+        const bytes = toUint8Array(data);
+        const check = classifyClientMessage(bytes);
+        if (check.verdict === "bogus") {
+          bogusCount += 1;
+          if (bogusCount >= BOGUS_MESSAGE_LIMIT) {
+            bogusTerminated = true;
+            if (bogusTerminateLogLimiter.consume("global")) {
+              log.warn(
+                {
+                  noteId: (check.docNamePrefix ?? "").slice(0, LOGGED_NOTE_ID_MAX),
+                  remoteAddress,
+                  bogusCount,
+                  lastType: check.type,
+                },
+                "collab 連線持續送出無法處理的訊息型別，強制斷線"
+              );
+            } else if (bogusTerminateNoticeLimiter.consume("global")) {
+              log.warn({}, "collab 強制斷線日誌已達每分鐘上限");
+            }
+            ws.terminate();
+          }
+          return; // 吞掉：轉交只會讓 Hocuspocus console.error（未結構化、不受節流）
+        }
+        clientConnection.handleMessage(bytes);
+      });
       ws.on("close", (code, reason) => {
         sockets.delete(ws);
         clientConnection.handleClose({ code, reason: reason.toString() });
