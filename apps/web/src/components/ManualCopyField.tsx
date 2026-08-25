@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -18,15 +18,18 @@ export interface ManualCopyFieldProps {
  *
  * PR2（D.4）從 `ShareDialog` 的 `CopyLinkButton` 抽出，供 ⋮ 選單的複製失敗分支共用。
  * **`ShareDialog.test.tsx` 零改動是這次抽出的保存條件**——抽出時逐項保真：
- * `aria-labelledby` + `readOnly` + `onFocus` 全選 + 既有文案（`share.copyFailed`）。
+ * `readOnly` + `onFocus` 全選 + 既有文案（`share.copyFailed`）。
  *
- * 說明文字改用 `DialogDescription`（而非普通 `<p>`）：review 收尾——這是 repo 裡
- * 唯一沒有 description 的 Dialog（`NoteMenu.tsx` 的手動複製 Dialog 原本只有
- * `DialogTitle`）。`id={labelId}` 覆寫 Radix 內部的 `context.descriptionId`——
- * `DialogDescription` 允許同一個 Dialog 底下掛多個實例（Radix 用 count 判斷「有沒有
- * 描述」，不限一個），覆寫 id 純粹是為了讓 `aria-labelledby` 能精準指到這一段文字，
- * 不影響 Radix 自己那份 `aria-describedby` 的判斷（`ShareDialog` 自己的
- * `DialogDescription` 不受影響，兩者 id 不同不衝突）。
+ * 說明文字用 `DialogDescription`（而非普通 `<p>`）：這是 repo 裡唯一沒有
+ * description 的 Dialog（`NoteMenu.tsx` 的手動複製 Dialog 原本只有 `DialogTitle`）。
+ * **`id` 不覆寫**（review 修正——舊版曾傳 `id={labelId}` 蓋掉 Radix 內部的
+ * `context.descriptionId`）：`DialogContent` 的 `aria-describedby` 一律指向
+ * `context.descriptionId`，蓋掉這個 id 會讓 `aria-describedby` 指向一個不存在的
+ * 節點，變成懸空引用。`ShareDialog` 因為自己還有一個沒被蓋 id 的
+ * `DialogDescription`（`share.description`）而看不出問題，`NoteMenu` 的手動複製
+ * Dialog 只有這一個 description，蓋掉 id 就讓整個 Dialog 的 `aria-describedby`
+ * 懸空——不覆寫 id 才讓 Radix 自己的關聯正確接上。Input 的可及名稱因此改用
+ * `aria-label`（不再靠 `aria-labelledby` 指某個特定元素的 id）。
  *
  * 只在「值真的換手」時自動選取：`useEffect` deps 是 `[value]`（抽出前
  * `ShareDialog.tsx` 的等價寫法是 `[manualUrl]`——同一個值換手就重選一次，這裡精確
@@ -37,7 +40,6 @@ export interface ManualCopyFieldProps {
  * `onFocus` 已經涵蓋。
  */
 export function ManualCopyField({ value }: ManualCopyFieldProps) {
-  const labelId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const { t } = useTranslation();
 
@@ -47,11 +49,11 @@ export function ManualCopyField({ value }: ManualCopyFieldProps) {
 
   return (
     <>
-      <DialogDescription id={labelId}>{t("share.copyFailed")}</DialogDescription>
+      <DialogDescription>{t("share.copyFailed")}</DialogDescription>
       <Input
         readOnly
         value={value}
-        aria-labelledby={labelId}
+        aria-label={t("share.copyFailed")}
         onFocus={(event) => event.currentTarget.select()}
         ref={inputRef}
       />

@@ -6,7 +6,7 @@ import { ApiFail } from "@/api/client";
 import { useCreateNote } from "@/api/notes";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search } from "@/components/ui/icons";
+import { Plus, Search } from "@/components/ui/icons";
 import { toast } from "@/components/ui/toast";
 import { NoteList } from "@/components/NoteList";
 import { UserMenu } from "@/components/UserMenu";
@@ -30,7 +30,12 @@ interface AppShellProps {
  * 這個副作用可接受）；監聽掛在 `window`、卸載時移除。**按鍵比對用嚴格
  * `event.key === "k"`（不 `toLowerCase()`）：刻意排除 Ctrl+Shift+K——瀏覽器對
  * 有 Shift 的字母鍵回報大寫 `"K"`，嚴格比對讓這個快捷鍵只認「不按 Shift」
- * 這一種按法，行為釘在 `AppShell.test.tsx` 的 Ctrl/Cmd+K 案組。
+ * 這一種按法，行為釘在 `AppShell.test.tsx` 的 Ctrl/Cmd+K 案組。**讓路規則
+ * （review 追加）**：BlockNote 的建立連結工具在編輯器 DOM 上綁原生
+ * `keydown` 監聽 Ctrl/Cmd+K，`preventDefault()` 但不 `stopPropagation()`，事件
+ * 因此仍會冒泡到 `window`；若我們不放行會搶在編輯器前面把焦點拉去搜尋框，
+ * 編輯器自己的建立連結彈窗永遠打不開——見下方 `event.defaultPrevented` 判斷。
+ *
  *
  * 新增筆記：`POST /api/notes`（`useCreateNote`）成功後直接導向新筆記的
  * `canonicalNotePath`（NoteDto.slug 此時必為 `null`，會落在 vanity-slug+id 或純
@@ -53,6 +58,10 @@ export function AppShell({ children }: AppShellProps) {
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent): void {
       if (!(event.ctrlKey || event.metaKey) || event.key !== "k") return;
+      // 讓路規則：這個按鍵已經被別人（例如 BlockNote 的建立連結工具）處理過了
+      // ——`defaultPrevented` 是判斷「有沒有人已經處理過這次按鍵」的標準做法。
+      // 已處理過就不再插手，讓對方的行為生效，我們不搶焦點。
+      if (event.defaultPrevented) return;
       if (document.querySelector('[role="dialog"]')) return;
       event.preventDefault();
       searchInputRef.current?.focus();
@@ -138,6 +147,7 @@ export function AppShell({ children }: AppShellProps) {
 
         <div className="m-2">
           <Button className="w-full" onClick={() => void handleNewNote()} disabled={createNote.isPending}>
+            <Plus aria-hidden="true" className="h-4 w-4" />
             {t("home.newNote")}
           </Button>
         </div>

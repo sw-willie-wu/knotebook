@@ -226,6 +226,23 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
     expect(input).toHaveFocus();
   });
 
+  // review B1：BlockNote 的建立連結工具在編輯器 DOM 上綁原生 keydown 監聽
+  // Ctrl/Cmd+K，`preventDefault()` 但不 `stopPropagation()`，事件仍會冒泡到
+  // `window`——若 AppShell 不放行會搶在編輯器前面把焦點拉去搜尋框。這裡直接在
+  // dispatch 前呼叫 `event.preventDefault()`，模擬「已經有人處理過這個按鍵」
+  // 抵達 AppShell 的 handler 時的狀態，不需要真的掛一個 NoteEditor。
+  it("Ctrl+K is ignored when the event arrives already defaultPrevented (e.g. BlockNote's own create-link shortcut) — no focus", async () => {
+    stubFetchWithNotes([ALPHA_NOTE, BETA_NOTE]);
+    renderShell();
+
+    const input = await screen.findByRole("textbox", { name: "Search notes" });
+    const event = new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true, cancelable: true });
+    event.preventDefault();
+    window.dispatchEvent(event);
+
+    expect(input).not.toHaveFocus();
+  });
+
   it("Ctrl+K is ignored while a [role=\"dialog\"] is open on the page — no focus, no preventDefault", async () => {
     stubFetchWithNotes([ALPHA_NOTE, BETA_NOTE]);
     renderShell();
