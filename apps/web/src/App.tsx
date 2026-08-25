@@ -1,10 +1,9 @@
 import { lazy, Suspense } from "react";
-import { useTranslation } from "react-i18next";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, type Location } from "react-router";
 import { ThemeProvider } from "./theme";
 import { Toaster } from "./components/ui/toast";
 import { ChangePasswordGate, RequireAdmin, RequireAuth } from "./auth/guards";
-import { AppShell } from "./components/AppShell";
+import { NotePageFallback } from "./components/NotePageFallback";
 import LoginPage from "./pages/LoginPage";
 import ChangePasswordPage from "./pages/ChangePasswordPage";
 import HomePage from "./pages/HomePage";
@@ -25,23 +24,6 @@ import { SettingsAiSection } from "./settings/SettingsAiSection";
  * lazy 會讓開 modal 閃 fallback，不值得。
  */
 const NotePage = lazy(() => import("./pages/NotePage"));
-
-/**
- * NotePage chunk 載入中的 fallback——**必須包 AppShell**（審查抓到的 blocking：裸 <p>
- * 會讓「從首頁點開第一篇筆記」的瞬間整個側欄/選單消失、白頁閃一下再全部長回來——
- * 恰好發生在本改動要優化的路徑上，而 AppShell 的相依全在首包裡，包它零成本）。
- * 內容沿用 NotePage 自己資料載入時的同款樣式與文案（`app.loading`），如此使用者
- * 看到的才真的是同一種「載入中」，分不出是在等 chunk 還是在等資料。
- * `App.test.tsx` 有回歸釘：把 AppShell 拿掉會紅。
- */
-function NotePageFallback() {
-  const { t } = useTranslation();
-  return (
-    <AppShell>
-      <p className="p-6 text-sm text-muted-foreground">{t("app.loading")}</p>
-    </AppShell>
-  );
-}
 
 /**
  * 兩棵 `<Routes>` 並列（spec §13.4，逐字落地——改這段前先讀那節，尤其
