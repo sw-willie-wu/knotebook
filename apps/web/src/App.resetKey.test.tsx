@@ -62,6 +62,16 @@ const NOTE: NoteDto = {
   slug: "my-note",
 };
 
+const OTHER_NOTE: NoteDto = {
+  id: "22222222-2222-2222-2222-222222222222",
+  title: "Other Note",
+  ownerId: "u-plain",
+  role: "owner",
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+  slug: "other-note",
+};
+
 interface FakeResponseInit {
   ok: boolean;
   status: number;
@@ -82,7 +92,8 @@ function stubFetch() {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(PLAIN_USER) }));
       }
       if (url === "/api/notes" && method === "GET") {
-        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+        // 第三案要從側欄點另一篇：清單給兩篇
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([NOTE, OTHER_NOTE]) }));
       }
       if (url.endsWith("/backlinks") && method === "GET") {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ backlinks: [] }) }));
@@ -185,5 +196,32 @@ describe("resetKey 選型守門——錯誤畫面上開/關設定 modal 不觸�
     expect(sessionStorage.getItem(FLAG_KEY)).not.toBeNull();
     // 「恰一次」在 waitFor 外再釘一遍——waitFor 內那句只保證「曾達到 1」
     expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  // 第二個 control（#69 審查補）：上面那案證明 componentDidCatch → 預設 seam 活著，
+  // 主案守的卻是 componentDidUpdate → 預設 seam ——單元層案 8a 走的是注入 prop。
+  // 若有人把 componentDidUpdate 改成直接呼叫 window.location.reload()（繞過
+  // doReload），主案會靜靜退化成恆真而上面的 control 照樣綠。這一案封住交集：
+  // 錯誤畫面上點側欄**另一篇**筆記（ref 真的變）→ componentDidUpdate 經預設
+  // seam reload 恰一次。
+  it("control 2：錯誤畫面上導航到另一篇筆記 → componentDidUpdate 經預設 seam reload 恰一次", async () => {
+    sessionStorage.setItem(FLAG_KEY, "1"); // 進 B 穩態
+    const reload = stubLocationReload();
+
+    renderNoteRoute();
+
+    await waitFor(() => expect(screen.getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument(), { timeout: 3_000 });
+    expect(reload).not.toHaveBeenCalled();
+
+    // 側欄清單載入後點另一篇（react-router Link，MemoryRouter 內正常導航）
+    await waitFor(() => expect(screen.getByRole("link", { name: /Other Note/ })).toBeInTheDocument(), {
+      timeout: 3_000,
+    });
+    fireEvent.click(screen.getByRole("link", { name: /Other Note/ }));
+
+    await waitFor(() => expect(reload).toHaveBeenCalledTimes(1), { timeout: 3_000 });
+    expect(reload).toHaveBeenCalledTimes(1);
+    // 旗標不被清（導航觸發的 reload 不清旗標——spec §resetKey；落地若又失敗直接進 B）
+    expect(sessionStorage.getItem(FLAG_KEY)).not.toBeNull();
   });
 });

@@ -175,13 +175,18 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
 
     renderAt(["/notes/my-note"], fetchMock);
 
-    await waitFor(() => expect(screen.getByTestId("note-editor")).toBeInTheDocument());
+    // timeout 3s：這裡等的是**真實** NotePage lazy import（整條 BlockNote 相依鏈）
+    // ——全 suite 唯一用 waitFor 等真動態 import 的地方，預設 1s 在冷啟高負載下
+    // 餘裕太薄，會間歇性紅（#69 審查實測；#66 那輪首跑的一次紅疑同源）。
+    await waitFor(() => expect(screen.getByTestId("note-editor")).toBeInTheDocument(), { timeout: 3_000 });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 
     openUserMenu("Plain");
     fireEvent.click(screen.getByText("Settings"));
 
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument(), {
+      timeout: 3_000,
+    });
     // 背景頁（NotePage 的替身編輯器）仍在 DOM 裡——兩者共存，不是背景被卸載換成 modal。
     expect(screen.getByTestId("note-editor")).toBeInTheDocument();
 
@@ -208,19 +213,24 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
 
     renderAt(["/notes/my-note"], fetchMock);
 
-    await waitFor(() => expect(screen.getByTestId("note-editor")).toBeInTheDocument());
+    // 同前案：等真實 lazy import，3s（見上）
+    await waitFor(() => expect(screen.getByTestId("note-editor")).toBeInTheDocument(), { timeout: 3_000 });
 
     openUserMenu("Admin");
     fireEvent.click(screen.getByText("Settings"));
 
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument(), {
+      timeout: 3_000,
+    });
 
     fireEvent.click(within(screen.getByRole("navigation")).getByText("Users"));
-    await waitFor(() => expect(screen.getByRole("heading", { name: "User management" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "User management" })).toBeInTheDocument(), {
+      timeout: 3_000,
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
 
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument(), { timeout: 3_000 });
     // 落在 /notes/my-note，不是被錯誤地帶回 /：`AppShell`（HomePage 也用同一個殼）
     // 一律有「New note」按鈕，不能拿來分辨兩者，這裡改斷言 `NotePage` 特有的內容——
     // 編輯器替身仍在，且標題輸入框帶著這篇筆記的標題（HomePage 沒有這個欄位；
