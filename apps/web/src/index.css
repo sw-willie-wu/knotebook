@@ -11,11 +11,11 @@
 }
 
 :root {
-  --background: oklch(1 0 0);
+  --background: oklch(0.967 0.003 264); /* #f3f4f6 頁底（PR2：卡片浮在更深的底上，淺色頁底改淺灰） */
   --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
+  --card: oklch(1 0 0); /* #ffffff（不變） */
   --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
+  --popover: oklch(1 0 0); /* 不變；淺色浮層與卡同色，靠既有 border+shadow 分離 */
   --popover-foreground: oklch(0.145 0 0);
   --primary: oklch(0.205 0 0);
   --primary-foreground: oklch(0.985 0 0);
@@ -23,7 +23,7 @@
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
   --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
+  --accent: oklch(0.94 0.004 264); /* #eaebee（PR2：原 0.97 在新頁底 0.967 上 hover 差 0.003 等於無回饋，調深一階） */
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.985 0 0);
@@ -33,9 +33,9 @@
 }
 
 .dark {
-  --background: oklch(0.213 0.008 264.4); /* #17191d */
+  --background: oklch(0.172 0.007 258.4); /* #0e1013 頁底（PR2：卡片浮在更深的底上） */
   --foreground: oklch(0.982 0.002 247.8); /* #f8f9fa */
-  --card: oklch(0.264 0.014 267); /* #22252c */
+  --card: oklch(0.230 0.012 264.3); /* #1a1d23（PR2：原 0.264，卡面比頁底亮一階） */
   --card-foreground: oklch(0.982 0.002 247.8); /* #f8f9fa */
   --popover: oklch(0.264 0.014 267); /* #22252c */
   --popover-foreground: oklch(0.982 0.002 247.8); /* #f8f9fa */
@@ -94,7 +94,7 @@ body {
    留在產物裡——搬去獨立 CSS 檔會讓變數消失、宣告靜默失效，且 parity 測試
    抓不到。 */
 .dark .bn-root[data-color-scheme="dark"] {
-  --bn-colors-editor-background: var(--color-background);
+  --bn-colors-editor-background: var(--color-card); /* PR2：編輯器坐在內文卡上，不是頁底 */
   --bn-colors-editor-text: var(--color-foreground);
   --bn-colors-menu-background: var(--color-popover);
   --bn-colors-menu-text: var(--color-popover-foreground);

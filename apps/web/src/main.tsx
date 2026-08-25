@@ -4,6 +4,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "./App";
 import "./i18n";
 import "./index.css";
+// 側欄 logo 的 K 用 Playfair Display 700 italic（wave 2 落地）；K 是拉丁字元，
+// latin 子集即足，不必連 cyrillic/vietnamese 等其餘 unicode-range 子集一起下載。
+import "@fontsource/playfair-display/latin-700-italic.css";
 
 const queryClient = new QueryClient();
 
