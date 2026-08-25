@@ -33,25 +33,25 @@
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
+  --background: oklch(0.213 0.008 264.4); /* #17191d */
+  --foreground: oklch(0.982 0.002 247.8); /* #f8f9fa */
+  --card: oklch(0.264 0.014 267); /* #22252c */
+  --card-foreground: oklch(0.982 0.002 247.8); /* #f8f9fa */
+  --popover: oklch(0.264 0.014 267); /* #22252c */
+  --popover-foreground: oklch(0.982 0.002 247.8); /* #f8f9fa */
+  --primary: oklch(0.925 0.006 264.5); /* #e4e6ea */
+  --primary-foreground: oklch(0.213 0.008 264.4); /* #17191d */
+  --secondary: oklch(0.309 0.015 264.3); /* #2c3038 */
+  --secondary-foreground: oklch(0.982 0.002 247.8); /* #f8f9fa */
+  --muted: oklch(0.309 0.015 264.3); /* #2c3038 */
+  --muted-foreground: oklch(0.707 0.016 260.7); /* #9ba1ab */
+  --accent: oklch(0.309 0.015 264.3); /* #2c3038 */
+  --accent-foreground: oklch(0.982 0.002 247.8); /* #f8f9fa */
   --destructive: oklch(0.704 0.191 22.216);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  --destructive-foreground: oklch(0.982 0.002 247.8); /* #f8f9fa */
+  --border: oklch(0.707 0.016 260.7 / 18%); /* #9ba1ab @18% */
+  --input: oklch(0.707 0.016 260.7 / 25%); /* #9ba1ab @25% */
+  --ring: oklch(0.557 0.017 260.7); /* #6e747e */
 }
 
 @theme inline {
@@ -80,4 +80,33 @@ body {
   background-color: var(--color-background);
   color: var(--color-foreground);
   font-family: var(--font-sans);
+}
+
+/* BlockNote 深色覆寫。
+   a. 選擇器形狀：浮層（slash menu／formatting toolbar／file panel 等）掛在
+   editor.portalElement，其 class 只有 `bn-root` ＋ color scheme，沒有
+   `bn-container`——以 `.bn-container` 為錨的覆寫對浮層無效。BlockNote 的 CSS
+   在 NotePage lazy chunk，載入順序必晚於本檔，同 specificity 我們必輸，需要
+   (0,3,0) 才贏內建 `.bn-root[data-color-scheme=dark]` 的 (0,2,0)。因此選擇器
+   定死為 `.dark .bn-root[data-color-scheme="dark"]`，選擇器不得放寬，也不得改錨到 `.bn-container`。
+   b. 這個區塊必須留在經 Tailwind 處理的 index.css 內：`@theme inline` 會
+   tree-shake 沒被引用的 `--color-*`，是本區塊的 `var(--color-…)` 引用把它們
+   留在產物裡——搬去獨立 CSS 檔會讓變數消失、宣告靜默失效，且 parity 測試
+   抓不到。 */
+.dark .bn-root[data-color-scheme="dark"] {
+  --bn-colors-editor-background: var(--color-background);
+  --bn-colors-editor-text: var(--color-foreground);
+  --bn-colors-menu-background: var(--color-popover);
+  --bn-colors-menu-text: var(--color-popover-foreground);
+  --bn-colors-tooltip-background: var(--color-secondary);
+  --bn-colors-tooltip-text: var(--color-foreground);
+  --bn-colors-hovered-background: var(--color-accent);
+  --bn-colors-hovered-text: var(--color-accent-foreground);
+  --bn-colors-selected-background: oklch(0.363 0.015 264.4); /* #3a3e46，比 accent 亮一階；無對應 token 字面值 */
+  --bn-colors-selected-text: var(--color-foreground);
+  --bn-colors-disabled-background: var(--color-muted);
+  --bn-colors-disabled-text: var(--color-muted-foreground);
+  --bn-colors-border: var(--color-border);
+  --bn-colors-side-menu: var(--color-muted-foreground);
+  --bn-colors-shadow: oklch(0.172 0.007 258.4 / 60%); /* 用於 --bn-shadow-medium */
 }
