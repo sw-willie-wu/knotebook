@@ -449,8 +449,8 @@ export function notesRoutes(deps: NotesRouteDeps) {
      * 要求重驗」時各打一發，不是輪詢；而重驗是 **per-(note, user)** 而非整份文件廣播（N1），
      * 所以別人的撤權不會放大到這個使用者頭上。同時開幾十篇筆記仍遠低於 60 次/分鐘。
      *
-     * 超限的可觀察後果（語意的另一半）：client 對 429 會退避重試（`useCollab` 的
-     * `TOKEN_RETRY_DELAYS_MS`，首發＋4 次共 5 發），而 `FixedWindowLimiter` 是「必計數」（超限
+     * 超限的可觀察後果（語意的另一半）：client 對 429 會退避重試（shared 的
+     * `COLLAB_TOKEN_RETRY_DELAYS_MS`，首發＋4 次共 5 發），而 `FixedWindowLimiter` 是「必計數」（超限
      * 的那一發也算）。重試全部用完仍拿不到 token 時，client 不會把使用者踢出（N7），而是
      * 以 `TOKEN_RESTART_DELAYS_MS`（5／15／60 秒，帶抖動）重啟整條連線（issue #39）。
      *

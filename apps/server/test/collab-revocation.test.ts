@@ -53,8 +53,9 @@ async function fetchToken(session: HttpSession, noteId: string): Promise<string>
 }
 
 /**
- * 撤權 SLA（spec §7）的端對端驗證。所有「撤權後多久生效」的斷言一律 ≤10s——這是本 plan
- * 對外承諾的上限，實際機制是「requestToken + 5s deadline」，正常路徑遠快於此。
+ * 撤權 SLA（spec §10：撤銷分享 ≤10 秒）的端對端驗證。所有「撤權後多久生效」的斷言一律
+ * ≤10s——這是對外承諾的上限；實際機制（§7 的機制列）是「requestToken + 5s deadline」，
+ * 正常路徑遠快於此。
  */
 describe("撤權 SLA：CollabHooks（Task 6）", () => {
   it("撤銷分享：被撤者收 CLOSE(revoked) 且其後編輯不落盤；同文件另一 editor 不受影響（N1：不得全 note 廣播）", async () => {

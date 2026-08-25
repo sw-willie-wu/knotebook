@@ -8,6 +8,8 @@ import {
   COLLAB_REJECT_INVALID_TOKEN,
   COLLAB_REJECT_NOTE_DELETING,
   COLLAB_REJECT_SERVER_ERROR,
+  COLLAB_REVERIFY_DEADLINE_MS,
+  COLLAB_TOKEN_RETRY_DELAYS_MS,
 } from "@knotebook/shared";
 
 // HocuspocusProvider 會開真的 WebSocket，jsdom 裡沒有對端。換成一個假的：把
@@ -948,5 +950,22 @@ describe("useCollab", () => {
     const p = provider();
     unmount();
     expect(p.destroy).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * issue #40：撤權重驗 deadline 與 token 重試表是一組跨端耦合的取捨——deadline（5s）
+ * **刻意短於**重試表總和（7.5s），作為撤權的最後一道 fail-closed 保險（放寬 deadline
+ * 會吃掉 §10 ≤10s SLA 的餘裕；誤殺的實際代價與不變量見 shared 的
+ * COLLAB_REVERIFY_DEADLINE_MS 註解，不在此重述）。舊註解宣稱「deadline 的餘裕含
+ * client 重試退避」，為假，已改寫。
+ *
+ * 這條釘住該關係：把任一邊的數字調到讓關係反轉（deadline ≥ 重試總和）時會紅，逼調參
+ * 的人回去重新面對這個取捨——不是「不准調」，是「不准不知不覺地調」。
+ */
+describe("撤權重驗 deadline vs token 重試表（issue #40）", () => {
+  it("deadline 刻意短於 client 最壞重試總和（fail-closed）", () => {
+    const worstCaseRetryMs = COLLAB_TOKEN_RETRY_DELAYS_MS.reduce((sum, d) => sum + d, 0);
+    expect(COLLAB_REVERIFY_DEADLINE_MS).toBeLessThan(worstCaseRetryMs);
   });
 });

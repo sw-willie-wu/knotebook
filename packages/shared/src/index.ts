@@ -236,6 +236,34 @@ export const COLLAB_REJECT_SERVER_ERROR = "server-error";
 export const COLLAB_RESTART_DELAYS_MS = [5_000, 15_000, 60_000] as const;
 export const COLLAB_RESTART_JITTER = 0.25;
 
+/**
+ * client 取 collab token 的**有上限**退避重試表（ms）。5xx／429／網路錯誤走這條——
+ * 「暫時取不到 token」不是授權失敗，不可據此踢人或登出（spec N7；401 例外，直接登出）。
+ * 消費端在 `useCollab.ts`；放在 shared 是因為它是跨端契約的一半：server 端的刪除閘門
+ * TTL（`collab-deleting-gate.test.ts`）與撤權重驗 deadline（下方）都以它的總和為前提。
+ */
+export const COLLAB_TOKEN_RETRY_DELAYS_MS = [500, 1_000, 2_000, 4_000] as const;
+
+/**
+ * 撤權重驗的 deadline：server 送出 `requestToken()` 後等 client 回送新 token 的上限（ms），
+ * 逾時即以 `COLLAB_CLOSE_REVOKED` 關閉連線。5s 由 spec §7 逐字釘死（「定向重驗 + 5s
+ * deadline」）——要調它得先改 spec。
+ *
+ * ⚠ **刻意短於 client 的最壞 token 重試**（上方 `COLLAB_TOKEN_RETRY_DELAYS_MS` 總和
+ * 7.5s）——這不是疏忽（issue #40：舊註解宣稱餘裕含 client 重試退避，為假）：這條
+ * deadline 是撤權的**最後一道 fail-closed 保險**（§10 的「撤銷分享 ≤10 秒」SLA），
+ * 放寬到 >7.5s 會吃掉 SLA 的大半餘裕。重驗期間 client 若撞上 429/5xx、還在退避排程
+ * 裡，deadline 先到並關線。誤殺的代價：client 進 `reconnecting-once` 重連——後端若
+ * 仍在抖動，會再落入 5/15/60s 的重啟排程、badge 幾秒後升離線警示，體感不只「重連一
+ * 次」；但**權限判定不受影響**：不會被升級成 kicked（那需要在 `reconnecting-once`
+ * 中再吃第二擊），後端恢復即自行回復。正常路徑一次 token 往返 <200ms，5s 的餘裕
+ * 留給 DB 抖動——**不含** client 的重試退避。
+ *
+ * 這層「deadline < 最壞重試」的關係由 `apps/web/src/collab/useCollab.test.tsx` 釘住——
+ * 調整任一邊的數字時，那條測試逼你回來重新面對這個取捨。
+ */
+export const COLLAB_REVERIFY_DEADLINE_MS = 5_000;
+
 export const COLLAB_TOKEN_TTL_SECONDS = 120;
 export interface CollabTokenClaims {
   noteId: string;
