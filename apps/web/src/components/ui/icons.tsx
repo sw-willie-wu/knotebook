@@ -88,10 +88,7 @@ export function Link(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-/**
- * PR2 wave 2 補（spec D.5 側欄使用者列的「齒輪」——不在 spec §8 的 icon 清單裡，
- * 屬清單本身的小遺漏；此處按同一風格補上，供 `UserMenu` 觸發鈕使用）。
- */
+/** 側欄使用者列的齒輪，`UserMenu` 觸發鈕使用。 */
 export function Settings(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>

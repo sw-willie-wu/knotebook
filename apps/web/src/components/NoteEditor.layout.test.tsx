@@ -39,7 +39,7 @@ function stubFetch() {
 }
 
 /**
- * PR2（BC2 卡片版面，wave 3）：改版前 brief 明講三層 flex class 漏掉任何一個都是
+ * PR2（BC2 卡片版面）：改版前 brief 明講三層 flex class 漏掉任何一個都是
  * 「畫面在 jsdom 快照/一般互動測試裡看起來完全正常，只有真的有滾動內容、真的有
  * flex 容器擠壓時才會露餡」的靜默失敗——這裡延續同一個精神，直接斷言 class 字串
  * 本身，改測 slot 化後的新節點鏈（spec A 節逐字）：
@@ -61,7 +61,7 @@ function stubFetch() {
  * 用的 mock 或只測 `NoteEditorView` 半層），驗證 `NoteEditor.tsx` 實際渲染出來的容器
  * class 跟 spec 逐字要求的一致。
  */
-describe("NoteEditor 佈局（PR2 wave 3：slot 化節點鏈 + 雙層 class smoke）", () => {
+describe("NoteEditor 佈局（PR2 slot 化：節點鏈 + 雙層 class smoke）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     stubFetch();

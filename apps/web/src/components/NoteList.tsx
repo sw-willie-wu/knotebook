@@ -111,7 +111,7 @@ interface NoteListProps {
  *
  * 每列連到 `canonicalNotePath(note)`——有自訂 slug 用 slug，沒有則 vanity slug + id，
  * 兩者皆空時純 id（三態定義見 `@knotebook/shared` 的 `canonicalNotePath`）。
- * 無刪除鈕——刪除移到內文卡頁頭的 ⋮ 選單（wave 3 落地）。
+ * 無刪除鈕——刪除移到內文卡頁頭的 ⋮ 選單（`NoteMenu.tsx`）。
  */
 export function NoteList({ query }: NoteListProps) {
   const { t } = useTranslation();

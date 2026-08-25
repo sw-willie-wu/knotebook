@@ -160,7 +160,7 @@ describe("NoteList", () => {
     expect(canonicalNotePath(SHARED_NOTE)).not.toBe(`/notes/${SHARED_NOTE.id}`);
   });
 
-  it("shows a role badge only for shared (non-owner) notes; no delete button anywhere (moved to the ⋮ menu, wave 3)", async () => {
+  it("shows a role badge only for shared (non-owner) notes; no delete button anywhere (moved to the ⋮ menu)", async () => {
     stubNotesFetch([OWNER_NOTE, SHARED_NOTE]);
 
     renderNoteList();
@@ -213,7 +213,7 @@ describe("NoteList", () => {
     }
   });
 
-  // ── PR2 wave 2：三分組、先分組後過濾、最近前 2、無符合 ──────────────────
+  // ── PR2：三分組、先分組後過濾、最近前 2、無符合 ──────────────────────────
 
   it("groups notes into recent (first 2, server order) / my notes (owner) / shared (editor|viewer)", async () => {
     stubNotesFetch([OWNER_NOTE, SHARED_NOTE, THIRD_OWNER_NOTE]);

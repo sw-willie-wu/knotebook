@@ -138,11 +138,10 @@ describe("AppShell — new note", () => {
   });
 });
 
-// PR2 wave 2 Review A（B1/B2）：Ctrl/Cmd+K 聚焦搜尋框、Esc 清空+blur、以及
-// AppShell → NoteList 的 query 接線是否真的讓側欄清單縮減——這三件事目前
-// 都無人守。兩篇 owner 筆記時「最近」跟「我的筆記」會重複顯示同一篇（見
-// `NoteList` 檔頭），所以下面一律用 `getAllByRole`/`queryAllByRole` 而不是
-// 單數版本，避免因重複命中而 throw。
+// AppShell 的搜尋框與 Ctrl/Cmd+K：聚焦搜尋框、Esc 清空+blur、以及
+// AppShell → NoteList 的 query 接線是否真的讓側欄清單縮減。兩篇 owner 筆記時
+// 「最近」跟「我的筆記」會重複顯示同一篇（見 `NoteList` 檔頭），所以下面一律
+// 用 `getAllByRole`/`queryAllByRole` 而不是單數版本，避免因重複命中而 throw。
 describe("AppShell — search box & Ctrl/Cmd+K", () => {
   const ALPHA_NOTE: NoteDto = {
     id: "44444444-4444-4444-4444-444444444444",
@@ -182,7 +181,7 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
   }
 
   function renderShell() {
-    render(
+    return render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <ThemeProvider>
           <MemoryRouter initialEntries={["/"]}>
@@ -240,9 +239,9 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
     expect(notCanceled).toBe(true);
   });
 
-  // PR2 wave 3（A 審遺留，釘住 AppShell.tsx 檔頭「⋮ 選單是 role="menu"，不在這個判定
-  // 範圍內」的宣稱）：⋮ 選單開著時（`role="menu"`，不是 `role="dialog"`）Ctrl+K 仍會
-  // 觸發並把焦點搶去搜尋框——跟上面 `role="dialog"` 那案是刻意的一組對照。
+  // 釘住 AppShell.tsx 檔頭「⋮ 選單是 role="menu"，不在這個判定範圍內」的宣稱：
+  // ⋮ 選單開著時（`role="menu"`，不是 `role="dialog"`）Ctrl+K 仍會觸發並把焦點
+  // 搶去搜尋框——跟上面 `role="dialog"` 那案是刻意的一組對照。
   it("Ctrl+K still triggers while a [role=\"menu\"] (⋮ dropdown) is open — only [role=\"dialog\"] is excluded", async () => {
     stubFetchWithNotes([ALPHA_NOTE, BETA_NOTE]);
     renderShell();
@@ -253,6 +252,21 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
 
     expect(input).toHaveFocus();
     expect(notCanceled).toBe(false);
+  });
+
+  it("shortcut badge: Mac platform shows ⌘K, non-Mac shows Ctrl K", async () => {
+    // AppShell 只讀 `navigator.platform`，最小替身即足——`{ ...navigator, … }`
+    // 的 spread 是空的（jsdom 的 navigator 屬性全在原型鏈上，不是 own
+    // property，object spread 拷貝不到），改用明確最小替身避免誤導。
+    stubFetchWithNotes([ALPHA_NOTE, BETA_NOTE]);
+    vi.stubGlobal("navigator", { platform: "MacIntel" } as Navigator);
+    const { unmount } = renderShell();
+    expect(await screen.findByText("⌘K")).toBeInTheDocument();
+    unmount();
+
+    vi.stubGlobal("navigator", { platform: "Win32" } as Navigator);
+    renderShell();
+    expect(await screen.findByText("Ctrl K")).toBeInTheDocument();
   });
 
   it("按鍵語意刻意釘死：Ctrl+Shift+K 不觸發（嚴格比對 event.key===\"k\"，Shift 讓瀏覽器回報大寫 \"K\"）", async () => {

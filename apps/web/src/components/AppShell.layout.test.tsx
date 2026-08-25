@@ -34,15 +34,15 @@ function stubFetch() {
 }
 
 /**
- * PR2 wave 1（地基）落的版本斷言**改版前現況**（根 `h-screen overflow-hidden`、
- * main `min-h-0 flex-1 overflow-y-auto`），先把當時無人守的高度鎖鏈釘住。
- * **wave 2（本次）改殼**：側欄卡化、捲動全部內移到側欄自己的清單容器，`main`
- * 不再自己 `overflow-y-auto`，改成寬度鏈的起點——`min-h-0 min-w-0 flex-1
- * flex-col`（見 `AppShell.tsx` 檔頭「PR2（BC2 卡片版面）」那段說明）。本檔同步
- * 換成新鏈的斷言，履行 wave 1 檔頭留下的承諾；不是「守著即將被改的舊行為」，
- * 是刻意的漸進式安全網。
+ * AppShell 版面 smoke：直接斷言高度＋寬度鎖鏈的 class 字串本身——根
+ * `h-screen overflow-hidden`（連同 `gap-3 bg-background p-3`），`main`
+ * `min-h-0 min-w-0 flex-1 flex-col`（側欄卡化後捲動全部內移到側欄自己的清單
+ * 容器，main 不再自己 `overflow-y-auto`，改成寬度鏈的起點——見 `AppShell.tsx`
+ * 檔頭「PR2（BC2 卡片版面）」那段說明）。這類 class 組合在 jsdom 快照/一般
+ * 互動測試裡看起來完全正常，只有真的有滾動內容、真的有 flex 容器擠壓時才會
+ * 露餡，必須直接斷言字串本身，不能只看畫面像不像對。
  */
-describe("AppShell 版面（PR2 wave 2 smoke）", () => {
+describe("AppShell 版面 smoke", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     stubFetch();

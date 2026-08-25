@@ -34,8 +34,8 @@ interface AppShellProps {
  *
  * 新增筆記：`POST /api/notes`（`useCreateNote`）成功後直接導向新筆記的
  * `canonicalNotePath`（NoteDto.slug 此時必為 `null`，會落在 vanity-slug+id 或純
- * id 那兩態——見 `canonicalNotePath` 的說明）；失敗則跟 ⋮ 選單（wave 3 落地）的
- * 刪除項同一套錯誤處理慣例：ApiFail → `errors.<code>`、否則 `errors.fallback`，
+ * id 那兩態——見 `canonicalNotePath` 的說明）；失敗則跟 ⋮ 選單（`NoteMenu.tsx`）
+ * 的刪除項同一套錯誤處理慣例：ApiFail → `errors.<code>`、否則 `errors.fallback`，
  * 用 toast 顯示（不像 LoginPage 用行內 `errorMessage` state——這裡沒有表單可以
  * 掛錯誤文案）。
  */
