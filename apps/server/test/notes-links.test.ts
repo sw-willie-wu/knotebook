@@ -455,6 +455,57 @@ describe("GET /api/notes/:id/backlinks", () => {
     expect(editorRes.json().backlinks).toEqual([{ id: editorOwnSource.id, title: "Editor Own Source", slug: null }]);
   });
 
+  it("組合：過濾先於 LIMIT——陌生人的來源筆記灌爆 LIMIT 窗口時，查詢者仍拿到自己看得到的那幾篇（issue #25）", async () => {
+    // 「讀者過濾」與「截斷」各自有測試，但沒有組合案例釘住順序：若實作反過來（先取
+    // MAX_BACKLINKS 筆再過濾），LIMIT 窗口會被較新的未分享來源佔滿，過濾後回傳空集或
+    // 截斷殘骸——原始的擔憂（迴歸洩漏他人標題、或看到不完整結果）就沒有任何測試守著。
+    //
+    // 佈局讓錯誤順序**必然**出錯：可見的來源（2 篇 owner 自有＋3 篇分享給查詢者，
+    // 覆蓋 union 兩個分支）給**較舊**的 updatedAt，MAX_BACKLINKS 篇未分享的給**較新**
+    // ——兩邊都顯式指定、出自同一個 Node 時鐘，不賭 DB 交易時間戳。先 LIMIT 的實作
+    // 取到的 200 篇全是未分享的，過濾後回空；正確實作回恰好那 5 篇。
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-backlinks-combo@example.com" });
+    const stranger = await insertUser(db, { email: "stranger-backlinks-combo@example.com" });
+    const cookie = await cookieFor(owner.id);
+    const target = await createNote(db, owner.id, "Target");
+
+    const older = new Date(Date.now() - 60_000);
+    const newer = new Date();
+    const visibleIds = await db.transaction(async tx => {
+      // owned 分支：owner 自己的來源筆記。
+      const ownedRows = await tx
+        .insert(notes)
+        .values(Array.from({ length: 2 }, (_, i) => ({ ownerId: owner.id, title: `Owned ${i}`, updatedAt: older })))
+        .returning({ id: notes.id });
+      // shared 分支：陌生人的來源筆記、分享給 owner（viewer）。
+      const sharedRows = await tx
+        .insert(notes)
+        .values(Array.from({ length: 3 }, (_, i) => ({ ownerId: stranger.id, title: `Shared ${i}`, updatedAt: older })))
+        .returning({ id: notes.id });
+      const all = [...ownedRows, ...sharedRows];
+      await tx.insert(noteLinks).values(all.map(r => ({ sourceNoteId: r.id, targetNoteId: target.id })));
+      await tx.insert(noteShares).values(sharedRows.map(r => ({ noteId: r.id, userId: owner.id, role: "viewer" })));
+      return all.map(r => r.id);
+    });
+
+    await db.transaction(async tx => {
+      const rows = await tx
+        .insert(notes)
+        .values(Array.from({ length: MAX_BACKLINKS }, (_, i) => ({ ownerId: stranger.id, title: `Hidden ${i}`, updatedAt: newer })))
+        .returning({ id: notes.id });
+      await tx.insert(noteLinks).values(rows.map(r => ({ sourceNoteId: r.id, targetNoteId: target.id })));
+    });
+
+    const res = await app.inject({ method: "GET", url: `/api/notes/${target.id}/backlinks`, cookies: { [SESSION_COOKIE]: cookie } });
+    expect(res.statusCode).toBe(200);
+    const backlinks = res.json().backlinks as Array<{ id: string; title: string }>;
+    // 恰好是查詢者看得到的那 5 篇（owned 2＋shared 3）——不是空集（先 LIMIT 的形狀）、
+    // 也沒有任何未分享的標題洩漏進來。
+    expect(backlinks.map(b => b.id).sort()).toEqual([...visibleIds].sort());
+    for (const b of backlinks) expect(b.title).toMatch(/^(Owned|Shared) /);
+  });
+
   it("排序：updatedAt desc，同一交易內批次建立（同 defaultNow 時間戳）的來源筆記靠 id desc 打破平手", async () => {
     const { app, db } = await buildTestApp();
     const owner = await insertUser(db, { email: "owner-backlinks2@example.com" });
