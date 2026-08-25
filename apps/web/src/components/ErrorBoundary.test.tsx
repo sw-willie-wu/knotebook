@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { lazy, Suspense, useState, type ReactNode } from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import type { UserDto } from "@knotebook/shared";
@@ -31,6 +31,7 @@ const CRASH_TEXT = "Something went wrong on this page.";
 const RETRY_TEXT = "Try again";
 const APP_CRASH_TITLE = "Something went wrong";
 const RELOAD_TEXT = "Reload";
+const OFFLINE_HINT = "You appear to be offline — this button will re-enable when the connection returns.";
 
 const ADMIN_USER: UserDto = {
   id: "u1",
@@ -170,6 +171,31 @@ describe("NoteRouteErrorBoundary（spec 案 1–8）", () => {
     expect(screen.getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument();
     // 離線短路必須在設旗標之前——兩步對調此斷言要紅
     expect(sessionStorage.getItem(FLAG_KEY)).toBeNull();
+    // 離線時重試鈕 disabled：離線 reload＝把 SPA 換成瀏覽器網路錯誤頁，
+    // 文案又正在叫人 check your connection，不能給一顆會炸掉 app 的鈕；
+    // disabled 元素不可聚焦，要有文字說明為何灰掉
+    expect(screen.getByRole("button", { name: RETRY_TEXT })).toBeDisabled();
+    expect(screen.getByText(OFFLINE_HINT)).toBeInTheDocument();
+  });
+
+  it("案 3b：離線進 B 後恢復連線（online 事件）→ 重試鈕重新啟用", () => {
+    sessionStorage.setItem(FLAG_KEY, "1");
+    setOffline();
+    const reload = vi.fn();
+    render(
+      <Providers>
+        <NoteRouteErrorBoundary resetKey="n1" reload={reload}>
+          <ChunkBomb />
+        </NoteRouteErrorBoundary>
+      </Providers>,
+    );
+    expect(screen.getByRole("button", { name: RETRY_TEXT })).toBeDisabled();
+
+    act(() => {
+      restoreOnline();
+      window.dispatchEvent(new Event("online"));
+    });
+    expect(screen.getByRole("button", { name: RETRY_TEXT })).toBeEnabled();
   });
 
   it("案 4：按重試 → 旗標被清＋reload", () => {
@@ -186,6 +212,49 @@ describe("NoteRouteErrorBoundary（spec 案 1–8）", () => {
     screen.getByRole("button", { name: RETRY_TEXT }).click();
     expect(sessionStorage.getItem(FLAG_KEY)).toBeNull();
     expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  // 案 5b/5c（PR #67 獨立審查抓到的 blocking 後補的回歸釘）：真實 bundle 的失敗
+  // 訊息不是裸 import() 那三條——NotePage chunk 帶 CSS dep，走 Vite __vitePreload，
+  // 離線/CSS hash 輪替時 reject 的是 Vite 自己的 CSS 訊息；反代 try_files 部署則是
+  // MIME 型訊息。兩者都必須判為 chunk（旗標已設 → B 的 chunk 分支文案；若被誤判
+  // 成非 chunk 會顯示 CRASH_TEXT，此案即紅）。
+  it("案 5b：Vite CSS preload 失敗訊息 → 判為 chunk 類", () => {
+    sessionStorage.setItem(FLAG_KEY, "1");
+    const reload = vi.fn();
+    function ViteCssBomb(): ReactNode {
+      throw new Error("Unable to preload CSS for /assets/NotePage-CbKxQqM5.css");
+    }
+    render(
+      <Providers>
+        <NoteRouteErrorBoundary resetKey="n1" reload={reload}>
+          <ViteCssBomb />
+        </NoteRouteErrorBoundary>
+      </Providers>,
+    );
+    expect(reload).not.toHaveBeenCalled();
+    expect(screen.getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument();
+    expect(screen.queryByText(CRASH_TEXT)).not.toBeInTheDocument();
+  });
+
+  it("案 5c：MIME 型訊息（try_files 反代把 404 JS 回成 text/html）→ 判為 chunk 類", () => {
+    sessionStorage.setItem(FLAG_KEY, "1");
+    const reload = vi.fn();
+    function MimeBomb(): ReactNode {
+      throw new Error(
+        'Failed to load module script: Expected a JavaScript module script but the server responded with a MIME type of "text/html".',
+      );
+    }
+    render(
+      <Providers>
+        <NoteRouteErrorBoundary resetKey="n1" reload={reload}>
+          <MimeBomb />
+        </NoteRouteErrorBoundary>
+      </Providers>,
+    );
+    expect(reload).not.toHaveBeenCalled();
+    expect(screen.getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument();
+    expect(screen.queryByText(CRASH_TEXT)).not.toBeInTheDocument();
   });
 
   it("案 5：非 chunk 錯誤 → 不 reload，B 畫面非 chunk 分支文案", () => {
@@ -425,5 +494,16 @@ describe("AppErrorBoundary（spec 案 10）", () => {
     expect(screen.getByText(APP_CRASH_TITLE)).toBeInTheDocument();
     screen.getByRole("button", { name: RELOAD_TEXT }).click();
     expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("案 10b：離線時重整鈕 disabled（離線 reload＝瀏覽器網路錯誤頁）", () => {
+    setOffline();
+    render(
+      <AppErrorBoundary reload={vi.fn()}>
+        <PlainBomb />
+      </AppErrorBoundary>,
+    );
+    expect(screen.getByRole("button", { name: RELOAD_TEXT })).toBeDisabled();
+    expect(screen.getByText(OFFLINE_HINT)).toBeInTheDocument();
   });
 });

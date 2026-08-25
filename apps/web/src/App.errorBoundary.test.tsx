@@ -118,6 +118,11 @@ describe("App route tree — /notes/:ref 的 ErrorBoundary 接線（issue #66 �
 
     renderNoteRoute();
 
+    // 前置斷言：此刻**不得**已經是 B 畫面——B 若同步出現，代表 NotePage lazy 已被
+    // 先前某案 resolve、本案沒有經過 suspend 期，「beacon 錯放 → 本案紅」的守門
+    // 就靜靜失效了（見檔頭 ⚠⚠）。這把順序假設從註解變成會紅的斷言。
+    expect(screen.queryByText(CHUNK_ERROR_TEXT)).not.toBeInTheDocument();
+
     // B 專屬元素（chunk 分支文案＋重試鈕）。⚠ 不得改斷 AppShell 招牌（「New note」）
     // ——B 畫面與 Suspense fallback 都包 AppShell，那樣拿掉 boundary 也綠。
     // timeout 放寬：這是「最終到達某狀態」的等待，守門力在斷言內容不在等待長度；
