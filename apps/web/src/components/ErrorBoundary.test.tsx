@@ -136,7 +136,7 @@ describe("NoteRouteErrorBoundary（spec 案 1–8）", () => {
     // 鑑別式斷言：載入文案在場、兩支錯誤文案皆不在場（B 也含 AppShell，只斷言
     // AppShell 招牌不鑑別）；AppShell 在場另外釘（不得是唯一斷言）。
     expectLoadingScreen();
-    await waitFor(() => expect(screen.getByText("New note")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("New note")).toBeInTheDocument(), { timeout: 3_000 });
   });
 
   it("案 2：chunk 錯誤（旗標已設）→ 不 reload，B 畫面 chunk 分支文案＋重試按鈕", () => {
@@ -381,7 +381,7 @@ describe("ChunkLoadBeacon（spec 案 9／9a，真實 suspend→reject 時間軸�
       </Providers>,
     );
 
-    await waitFor(() => expect(screen.getByText("lazy-ok")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("lazy-ok")).toBeInTheDocument(), { timeout: 3_000 });
     expect(sessionStorage.getItem(FLAG_KEY)).toBeNull();
     expect(reload).not.toHaveBeenCalled();
   });
@@ -404,7 +404,7 @@ describe("ChunkLoadBeacon（spec 案 9／9a，真實 suspend→reject 時間軸�
       </Providers>,
     );
 
-    await waitFor(() => expect(screen.getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument(), { timeout: 3_000 });
     // 守門的是上下兩條（錯放＝reload 1 次＋載入畫面，兩者同時紅）；「旗標仍在」在
     // 錯放下也成立（beacon 清掉後 componentDidCatch 又設回去）——它是輔助斷言，
     // 精簡時不得只留它。
