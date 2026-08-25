@@ -3,7 +3,12 @@
     "title": "Knotebook",
     "loading": "Loading…",
     "sessionError": "Couldn't load your session.",
-    "retry": "Try again"
+    "retry": "Try again",
+    "chunkLoadError": "Couldn't load this page — check your connection, or a new version may have been deployed.",
+    "noteCrash": "Something went wrong on this page.",
+    "crashTitle": "Something went wrong",
+    "reload": "Reload",
+    "offlineHint": "You appear to be offline — this button will re-enable when the connection returns."
   },
   "home": {
     "title": "Notes",

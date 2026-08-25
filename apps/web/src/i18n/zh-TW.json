@@ -3,7 +3,12 @@
     "title": "Knotebook",
     "loading": "載入中…",
     "sessionError": "無法載入登入狀態。",
-    "retry": "重試"
+    "retry": "重試",
+    "chunkLoadError": "載入失敗——可能是網路問題，或伺服器已部署新版本。",
+    "noteCrash": "此頁發生錯誤。",
+    "crashTitle": "發生錯誤",
+    "reload": "重新整理",
+    "offlineHint": "目前似乎離線——連線恢復後按鈕會重新啟用。"
   },
   "home": {
     "title": "筆記",

@@ -1,10 +1,10 @@
 import { lazy, Suspense } from "react";
-import { useTranslation } from "react-i18next";
-import { BrowserRouter, Navigate, Route, Routes, useLocation, type Location } from "react-router";
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useParams, type Location } from "react-router";
 import { ThemeProvider } from "./theme";
 import { Toaster } from "./components/ui/toast";
 import { ChangePasswordGate, RequireAdmin, RequireAuth } from "./auth/guards";
-import { AppShell } from "./components/AppShell";
+import { AppErrorBoundary, ChunkLoadBeacon, NoteRouteErrorBoundary } from "./components/ErrorBoundary";
+import { NotePageFallback } from "./components/NotePageFallback";
 import LoginPage from "./pages/LoginPage";
 import ChangePasswordPage from "./pages/ChangePasswordPage";
 import HomePage from "./pages/HomePage";
@@ -27,19 +27,26 @@ import { SettingsAiSection } from "./settings/SettingsAiSection";
 const NotePage = lazy(() => import("./pages/NotePage"));
 
 /**
- * NotePage chunk 載入中的 fallback——**必須包 AppShell**（審查抓到的 blocking：裸 <p>
- * 會讓「從首頁點開第一篇筆記」的瞬間整個側欄/選單消失、白頁閃一下再全部長回來——
- * 恰好發生在本改動要優化的路徑上，而 AppShell 的相依全在首包裡，包它零成本）。
- * 內容沿用 NotePage 自己資料載入時的同款樣式與文案（`app.loading`），如此使用者
- * 看到的才真的是同一種「載入中」，分不出是在等 chunk 還是在等資料。
- * `App.test.tsx` 有回歸釘：把 AppShell 拿掉會紅。
+ * `/notes/:ref` 的 route element（issue #66）：NoteRouteErrorBoundary 接住 chunk
+ * 載入失敗（離線/部署輪替 hash）與 NotePage 底下任何 render 錯誤——沒有它的話
+ * React.lazy 的 reject 會讓整棵樹被卸載成白屏。
+ *
+ * - resetKey 用 `useParams().ref` 而非 location.key：關設定 modal 走
+ *   `navigate(backgroundLocation)` 會產生**新的** location key（實測），用 key 會把
+ *   「關 modal」誤判成「換筆記」而觸發 reload；ref 才是「換到另一篇筆記」的真正
+ *   不變量。代價（已接受）：重新導航到同一篇 ref 不觸發重試。
+ * - ChunkLoadBeacon **必須在 Suspense 內**（擺放不變量見 ErrorBoundary.tsx；
+ *   App.errorBoundary.test.tsx 案 11 守著——錯放會變無限重整迴圈）。
  */
-function NotePageFallback() {
-  const { t } = useTranslation();
+function NoteRoute() {
+  const { ref } = useParams();
   return (
-    <AppShell>
-      <p className="p-6 text-sm text-muted-foreground">{t("app.loading")}</p>
-    </AppShell>
+    <NoteRouteErrorBoundary resetKey={ref}>
+      <Suspense fallback={<NotePageFallback />}>
+        <NotePage />
+        <ChunkLoadBeacon />
+      </Suspense>
+    </NoteRouteErrorBoundary>
   );
 }
 
@@ -89,14 +96,7 @@ export function AppRoutes() {
           <Route element={<ChangePasswordGate />}>
             {/* `/notes/:ref` 排在 catch-all 之前：ref 可以是自訂 slug、
                 `<vanity>-<uuid>` 或純 uuid，一律由 `GET /api/notes/:ref` 解析。 */}
-            <Route
-              path="/notes/:ref"
-              element={
-                <Suspense fallback={<NotePageFallback />}>
-                  <NotePage />
-                </Suspense>
-              }
-            />
+            <Route path="/notes/:ref" element={<NoteRoute />} />
             <Route element={<RequireAdmin />}>
               <Route path="/admin/users" element={<Navigate to="/settings/users" replace />} />
             </Route>
@@ -133,12 +133,17 @@ export function AppRoutes() {
 }
 
 export default function App() {
+  // AppErrorBoundary 在**最外層**（issue #66）：ThemeProvider／Toaster 自己丟錯也要
+  // 接得住，任何 render 錯誤不再白屏。它的 fallback 零 context 相依，放 Router 外
+  // 是安全的。App.appBoundary.test.tsx 案 12 守著這層接線。
   return (
-    <ThemeProvider>
-      <BrowserRouter>
-        <AppRoutes />
-      </BrowserRouter>
-      <Toaster />
-    </ThemeProvider>
+    <AppErrorBoundary>
+      <ThemeProvider>
+        <BrowserRouter>
+          <AppRoutes />
+        </BrowserRouter>
+        <Toaster />
+      </ThemeProvider>
+    </AppErrorBoundary>
   );
 }
