@@ -8,7 +8,7 @@ Three non-negotiables:
 - **Real-time CRDT collaboration** — Yjs-based multiplayer editing, not a commercial add-on.
 - **Bring your own AI endpoint** — point Knotebook at your own OpenAI-compatible or Anthropic endpoint (including a local/on-prem Ollama); no bundled vendor lock-in.
 
-**Status:** this is the v0.1.0 release — password auth with optional OIDC/SSO login, a browser UI (note list, block editor, sharing, admin user management), live multiplayer editing (Yjs/Hocuspocus) with role-based access control, `[[wikilinks]]` with backlinks, image uploads, and bring-your-own-endpoint AI quick actions (rewrite/translate/summarize/continue, streamed, against an admin-configured OpenAI-compatible or Anthropic provider), all on top of the REST API, exercised end-to-end by a Playwright test suite. If you want to drive the API directly instead of the browser UI, it's still there (see [API contract summary](docs/api.md)).
+**Status:** the latest release is v0.2.0 (2026-08-25) — password auth with optional OIDC/SSO login, a browser UI (note list, block editor, sharing, admin user management), live multiplayer editing (Yjs/Hocuspocus) with role-based access control, `[[wikilinks]]` with backlinks, image uploads, and bring-your-own-endpoint AI quick actions (rewrite/translate/summarize/continue, streamed, against an admin-configured OpenAI-compatible or Anthropic provider), all on top of the REST API, exercised end-to-end by a Playwright test suite. If you want to drive the API directly instead of the browser UI, it's still there (see [API contract summary](docs/api.md)).
 
 ## Quickstart (~10 minutes)
 
@@ -66,13 +66,9 @@ Read the full [self-hosting guide](docs/self-hosting.md) before running anywhere
 
 ## Roadmap
 
-| Milestone | Scope |
-|---|---|
-| Milestone 1 (v0.1) | API foundation: password auth, notes CRUD, sharing/permissions, admin user management |
-| Milestone 2 (v0.1) | Web UI + real-time CRDT collaboration (Yjs/Hocuspocus) |
-| Milestone 3 (v0.1) | Wikilinks (`[[...]]` + backlinks) and image uploads |
-| Milestone 4 (v0.1) | AI quick actions (bring-your-own OpenAI-compatible / Anthropic endpoints), admin-configurable via the Settings modal |
-| **Milestone 5 (v0.1, this release)** | OIDC login |
+All five v0.1 milestones — the API foundation, the web UI with real-time collaboration, wikilinks and image uploads, AI quick actions, and OIDC login — have shipped, followed by v0.2.0 (2026-08-25), a hardening and bug-fix release; see the [CHANGELOG](CHANGELOG.md) for the history.
+
+Planning now lives in [GitHub Milestones](https://github.com/sw-willie-wu/knotebook/milestones), which stays current as work is scheduled. Right now that's v0.3.0 (a UI overhaul) and v0.4.0 (reference databases with AI citations and chat, plus public share links).
 
 ## License
 
