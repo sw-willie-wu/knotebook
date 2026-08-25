@@ -66,13 +66,9 @@ Read the full [self-hosting guide](docs/self-hosting.md) before running anywhere
 
 ## Roadmap
 
-| Milestone | Scope |
-|---|---|
-| Milestone 1 (v0.1) | API foundation: password auth, notes CRUD, sharing/permissions, admin user management |
-| Milestone 2 (v0.1) | Web UI + real-time CRDT collaboration (Yjs/Hocuspocus) |
-| Milestone 3 (v0.1) | Wikilinks (`[[...]]` + backlinks) and image uploads |
-| Milestone 4 (v0.1) | AI quick actions (bring-your-own OpenAI-compatible / Anthropic endpoints), admin-configurable via the Settings modal |
-| **Milestone 5 (v0.1, this release)** | OIDC login |
+All five v0.1 milestones — the API foundation, the web UI with real-time collaboration, wikilinks, AI quick actions, and OIDC login — have shipped; see the [CHANGELOG](CHANGELOG.md) for the history.
+
+Planning now lives in [GitHub Milestones](https://github.com/sw-willie-wu/knotebook/milestones), which stays current as work is scheduled. Right now that's v0.3.0 (a UI overhaul) and v0.4.0 (reference databases and public share links).
 
 ## License
 
