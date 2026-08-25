@@ -9,7 +9,7 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ### Changed
 
-- Dark mode's palette is now a neutral dark grey with a slight cool tint, replacing the near-black default. BlockNote's editor surface and its floating menus (slash menu, formatting toolbar, tooltips) now match instead of showing their own built-in dark colors.
+- Dark mode's palette is now a neutral dark grey with a slight cool tint, replacing the near-black default. BlockNote's editor surface and its floating menus (slash menu, formatting toolbar, tooltips) now match instead of showing their own built-in dark colors (#75).
 
 ## [0.2.0] - 2026-08-25
 
