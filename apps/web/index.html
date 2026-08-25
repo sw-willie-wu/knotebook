@@ -9,6 +9,12 @@
       script（外部檔或 defer 都會晚於首次繪製）。這裡的 storage key 與 class 名是
       src/theme.tsx 的複製——那邊的 `theme.test.tsx` 有一條測試釘住兩邊一致。
       localStorage 在某些隱私模式下存取會拋錯，整段包 try/catch，失敗就當淺色。
+
+      主題色（accent）防閃同樣道理，擴充在同一個 script 內（theme.test.tsx 的
+      runInlineThemeScript 只抓 head 第一組 script，不得另開 tag）：只有 storage
+      值恰為六個合法色名之一時才 setAttribute("data-accent", …)；null／非法值
+      不設屬性，讓 index.css 的 :root/.dark 基底 fallback（＝indigo 值）頂上——
+      與 ThemeProvider 掛載後恆設 data-accent="indigo" 呈現同色，不閃色。
     -->
     <script>
       (function () {
@@ -24,6 +30,15 @@
           if (dark) document.documentElement.classList.add("dark");
         } catch (e) {
           /* 讀不到偏好就維持預設淺色，React 掛載後仍會自行套用。 */
+        }
+        try {
+          var storedAccent = window.localStorage.getItem("knotebook:accent");
+          var validAccents = ["indigo", "blue", "teal", "sage", "rose", "gold"];
+          if (validAccents.indexOf(storedAccent) !== -1) {
+            document.documentElement.setAttribute("data-accent", storedAccent);
+          }
+        } catch (e) {
+          /* 讀不到就不設屬性，吃 index.css 的 indigo 基底 fallback。 */
         }
       })();
     </script>
