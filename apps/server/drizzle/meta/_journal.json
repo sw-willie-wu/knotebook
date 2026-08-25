@@ -29,6 +29,13 @@
       "when": 1786079977611,
       "tag": "0003_must-change-password",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1787564133327,
+      "tag": "0004_email-lower-index",
+      "breakpoints": true
     }
   ]
 }
