@@ -240,6 +240,21 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
     expect(notCanceled).toBe(true);
   });
 
+  // PR2 wave 3（A 審遺留，釘住 AppShell.tsx 檔頭「⋮ 選單是 role="menu"，不在這個判定
+  // 範圍內」的宣稱）：⋮ 選單開著時（`role="menu"`，不是 `role="dialog"`）Ctrl+K 仍會
+  // 觸發並把焦點搶去搜尋框——跟上面 `role="dialog"` 那案是刻意的一組對照。
+  it("Ctrl+K still triggers while a [role=\"menu\"] (⋮ dropdown) is open — only [role=\"dialog\"] is excluded", async () => {
+    stubFetchWithNotes([ALPHA_NOTE, BETA_NOTE]);
+    renderShell();
+    render(<div role="menu">fake ⋮ menu</div>);
+
+    const input = await screen.findByRole("textbox", { name: "Search notes" });
+    const notCanceled = fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+
+    expect(input).toHaveFocus();
+    expect(notCanceled).toBe(false);
+  });
+
   it("按鍵語意刻意釘死：Ctrl+Shift+K 不觸發（嚴格比對 event.key===\"k\"，Shift 讓瀏覽器回報大寫 \"K\"）", async () => {
     stubFetchWithNotes([ALPHA_NOTE, BETA_NOTE]);
     renderShell();

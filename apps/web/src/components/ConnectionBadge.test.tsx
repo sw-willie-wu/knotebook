@@ -53,10 +53,13 @@ describe("ConnectionBadge（issue #48：離線可見性）", () => {
   it("從未同步 + 離線超過門檻 → 升級成「尚未載入」警示", () => {
     renderBadge({ phase: "connecting" }, false);
     act(() => vi.advanceTimersByTime(OFFLINE_WARN_MS));
-    const badge = screen.getByText("Not loaded — offline");
-    expect(badge).toBeInTheDocument();
-    // 警示色（destructive），不是預設灰。
-    expect(badge.className).toContain("text-destructive");
+    expect(screen.getByText("Not loaded — offline")).toBeInTheDocument();
+    // PR2 D.2：警示色訊號現在集中在狀態點上（phase 文字本身統一無色，見
+    // ConnectionBadge.tsx 檔頭）——斷言狀態點（`role=status` 底下唯一的
+    // `aria-hidden` 節點）帶 `bg-destructive`，不是預設的灰。
+    const dot = screen.getByRole("status").querySelector('[aria-hidden="true"]');
+    expect(dot).not.toBeNull();
+    expect(dot!.className).toContain("bg-destructive");
   });
 
   it("曾同步 + 離線超過門檻 → 升級成「離線編輯中」（可編輯，只是還沒同步回去）", () => {

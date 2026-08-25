@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -21,9 +22,23 @@ import type { CollabState } from "@/collab/connection";
 // 全覆蓋，編輯器本身留給手動驗證），這裡沿用 `NotePage.test.tsx` 既有的最小替身慣例：
 // 只驗證「背景頁有沒有掛上」，不驗證編輯器/共編細節。
 
+// PR2（BLK-1）：NoteEditor slot 化——這支替身沿用 NotePage.test.tsx 的最小替身慣例
+// （兩處綁定，見該檔的 mock），改吃 headerSlot/footerSlot 並原樣渲染，否則
+// `:239` 的 `getByLabelText("Note title")`（headerSlot 裡的 TitleInput）會落空。
 vi.mock("@/components/NoteEditor", () => ({
-  NoteEditor: ({ editable }: { editable: boolean }) => (
-    <div data-testid="note-editor" data-editable={String(editable)} />
+  NoteEditor: ({
+    editable,
+    headerSlot,
+    footerSlot,
+  }: {
+    editable: boolean;
+    headerSlot?: ReactNode;
+    footerSlot?: ReactNode;
+  }) => (
+    <div data-testid="note-editor" data-editable={String(editable)}>
+      {headerSlot}
+      {footerSlot}
+    </div>
   ),
 }));
 

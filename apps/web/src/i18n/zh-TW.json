@@ -65,6 +65,10 @@
     "titleLabel": "筆記標題",
     "titlePlaceholder": "無標題",
     "readOnly": "唯讀",
+    "menu": {
+      "label": "更多",
+      "delete": "刪除筆記"
+    },
     "transferDataUrl": "不支援直接貼上內嵌圖片，請改用拖曳圖片檔案。",
     "transferSaveFirst": "無法直接插入此項目，請先另存為檔案再拖曳進來。",
     "transferNonImage": "這裡目前只能插入圖片檔案。",

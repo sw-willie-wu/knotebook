@@ -11,10 +11,15 @@ import { useAiSession } from "./AiSession";
  * 但側欄還在」這種不一致。
  *
  * 響應式：寬螢幕（`md:` 起）`w-80 shrink-0` 跟編輯器並排；窄螢幕展開時是 `fixed` 右側
- * 抽屜（`inset-y-0 right-0` 配合 `w-80`——**不是** `inset-0`：`inset-0` 會同時釘住
- * left/right 兩側，再疊上明確的 `w-80` 會 over-constrained，CSS 對「left/right/width
- * 三者都非 auto」的解法是忽略 `right`，實際渲染結果是貼左的一條直欄而不是右側抽屜，
- * fix round 1 Minor-2 的實測結論）。收合是預設狀態，`start()` 會自動展開（`AiSession.tsx`）。
+ * 抽屜（PR2：`inset-y-3 right-3`，尊重 `AppShell` 根層的 `p-3` 留白——配合 `w-80`
+ * ——**不是** `inset-0`：`inset-0` 會同時釘住 left/right 兩側，再疊上明確的 `w-80`
+ * 會 over-constrained，CSS 對「left/right/width 三者都非 auto」的解法是忽略
+ * `right`，實際渲染結果是貼左的一條直欄而不是右側抽屜，fix round 1 Minor-2 的實測
+ * 結論）。收合是預設狀態，`start()` 會自動展開（`AiSession.tsx`）。
+ *
+ * PR2（BC2 卡片版面，E 節）：AI 卡跟側欄卡／內文卡同一套視覺——`rounded-xl border
+ * border-border bg-card`（原 `border-l` 與 `bg-background` 移除，改成獨立的卡片
+ * 浮在深底上）；`z-30` 保留——窄螢幕的 `fixed` 抽屜仍需要疊在內文卡之上。
  */
 export function AiPanel() {
   const { t } = useTranslation();
@@ -27,7 +32,7 @@ export function AiPanel() {
 
   if (collapsed) {
     return (
-      <aside className="flex shrink-0 items-start border-l border-border">
+      <aside className="flex shrink-0 items-start rounded-xl border border-border bg-card">
         <button
           type="button"
           aria-label={t("ai.panel.expand")}
@@ -44,8 +49,8 @@ export function AiPanel() {
     <aside
       data-testid="ai-panel"
       className={cn(
-        "z-30 flex w-80 shrink-0 flex-col overflow-y-auto border-l border-border bg-background p-3",
-        "fixed inset-y-0 right-0 md:static md:inset-auto",
+        "z-30 flex w-80 shrink-0 flex-col overflow-y-auto rounded-xl border border-border bg-card p-3",
+        "fixed inset-y-3 right-3 md:static md:inset-auto",
       )}
     >
       <div className="flex items-center justify-between">

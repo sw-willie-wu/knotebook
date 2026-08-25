@@ -3,7 +3,7 @@
 // `@blocknote/core/fonts/inter.css`——那是 latin-only 的自帶字型（9 個 woff 檔），
 // 對以中文為主的介面沒有幫助，只會讓 bundle 變大；字型交給 app 自己的 CSS 決定。
 import "@blocknote/mantine/style.css";
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useMemo, useRef, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type * as Y from "yjs";
 import type { HocuspocusProvider } from "@hocuspocus/provider";
@@ -190,6 +190,13 @@ export interface NoteEditorProps {
   user: { id: string; name: string };
   /** 目前這篇筆記的 id（Task 13）：轉交給 `buildNoteEditorOptions` 組上傳路徑。 */
   noteId: string;
+  /** PR2（BC2 卡片版面，spec A 節）：內文卡頁頭——`NotePage` 組裝
+   * TitleInput／ConnectionBadge／分享鈕／⋮ 選單後傳入。純 `ReactNode`，`NotePage`
+   * 每次 render 傳新節點只影響這棵子樹，不會觸發 `useCreateBlockNote` 重建
+   * （建立點與 deps 見下方，零改動）。 */
+  headerSlot?: ReactNode;
+  /** 內文卡頁尾——`NotePage` 組裝 backlinks chips 後傳入。同上，普通 slot props。 */
+  footerSlot?: ReactNode;
 }
 
 /**
@@ -201,7 +208,7 @@ export interface NoteEditorProps {
  * 共編綁定、媒體 transfer 守衛（spec §12.4：data URL 與非圖片檔攔截、純圖片檔放行上傳）、字典選擇全部在 `buildNoteEditorOptions` 裡，
  * 那支是純函式且有專屬測試（`NoteEditor.test.ts`）——這個元件只負責把它接上 React。
  */
-export function NoteEditor({ doc, provider, editable, user, noteId }: NoteEditorProps) {
+export function NoteEditor({ doc, provider, editable, user, noteId, headerSlot, footerSlot }: NoteEditorProps) {
   const { t, i18n } = useTranslation();
   const { resolvedTheme } = useTheme();
 
@@ -260,15 +267,34 @@ export function NoteEditor({ doc, provider, editable, user, noteId }: NoteEditor
 
   // B1（plan gate 定案，不得偏離）：AI 狀態／側欄／toolbar 全部收在這裡，editor
   // 建立點（上面 `useCreateBlockNote` 及其 deps）完全不動——`AiSessionProvider` 只是
-  // 包住既有的兩欄佈局，不會讓 `NotePage` 任何 re-render 有機會扯到 editor 重建。
-  // 左欄＝`NoteEditorView`（含編輯器本體＋現在也含 `AiToolbar`，見下方
-  // `formattingToolbar` 接線）、右欄＝`AiPanel`（`editable`/`actions` 是否渲染由它自己
-  // 透過 `useAiSession()` 判斷，這裡不重複判斷一次）。
+  // 包住既有的版面，不會讓 `NotePage` 任何 re-render 有機會扯到 editor 重建。
+  //
+  // PR2（BC2 卡片版面，spec A 節）：內文卡＋AI 卡都在這裡。DOM 樹（逐字對齊
+  // spec，寬度鏈 BLK-3 的起點）：
+  //   根 row（flex h-full min-h-0 min-w-0 flex-1 gap-3）
+  //     內文卡（rounded-xl border bg-card，flex-col）
+  //       {headerSlot}                              ← NotePage 組裝
+  //       捲動容器（min-w-0 flex-1 overflow-y-auto min-h-0）
+  //         置中 wrapper（mx-auto max-w-[680px] min-h-full flex-col px-4 py-6）
+  //           NoteEditorView                         ← className 加 flex-1（B-1 定案：
+  //             wrapper 的 min-h-full 無法把百分比高度傳給孫層，唯一有效解是讓
+  //             BlockNoteView 自己成為 flex-col wrapper 的成長項；除 className 外零改動）
+  //       {footerSlot}                                ← NotePage 組裝（backlinks chips）
+  //     AiPanel                                       ← AI 卡（見 AiPanel.tsx）
+  // `data-testid="note-editor"` 留在 `NoteEditorView`／`BlockNoteView` 上，不隨這次
+  // 改版搬家——e2e 的 `[data-testid="note-editor"] [contenteditable]` 與
+  // `NoteEditor.layout.test.tsx` 的節點鏈都吊在這裡。
   return (
     <AiSessionProvider editor={editor} noteId={noteId} editable={editable}>
-      <div className="flex h-full min-h-0">
-        <div className="min-w-0 flex-1 overflow-y-auto px-2 py-4">
-          <NoteEditorView editor={editor} editable={editable} theme={resolvedTheme} noteId={noteId} getItems={getItems} />
+      <div className="flex h-full min-h-0 min-w-0 flex-1 gap-3">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card">
+          {headerSlot}
+          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+            <div className="mx-auto flex min-h-full w-full max-w-[680px] flex-col px-4 py-6">
+              <NoteEditorView editor={editor} editable={editable} theme={resolvedTheme} noteId={noteId} getItems={getItems} />
+            </div>
+          </div>
+          {footerSlot}
         </div>
         <AiPanel />
       </div>
@@ -322,7 +348,7 @@ export function NoteEditorView({ editor, editable, theme, noteId, getItems }: No
       editable={editable}
       theme={theme}
       data-testid="note-editor"
-      className="min-h-full"
+      className="min-h-full flex-1"
       // 關掉 BlockNote 內建的 FilePanelController：下面接管的是我們自家的
       // `filePanel`（自家 Upload tab 呼叫 `postUpload`，不用 `editor.uploadFile`，
       // 理由見 `components/FilePanel.tsx` 檔頭）。不明確設 `false` 這裡會同時掛兩個

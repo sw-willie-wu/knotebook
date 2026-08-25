@@ -18,10 +18,15 @@ export default function HomePage() {
 
   return (
     <AppShell>
-      <EmptyState
-        title={hasNotes ? t("home.selectTitle") : t("home.empty")}
-        description={hasNotes ? t("home.selectDescription") : t("home.emptyDescription")}
-      />
+      {/* PR2（G 節）：主區插槽自己渲染一張全寬內文卡，跟 NotePage 的內文卡／佔位卡
+          同一套視覺——main 已無自身捲動（見 AppShell.tsx），overflow-y-auto 掛在卡
+          自己身上。 */}
+      <div className="min-w-0 flex-1 overflow-y-auto rounded-xl border border-border bg-card">
+        <EmptyState
+          title={hasNotes ? t("home.selectTitle") : t("home.empty")}
+          description={hasNotes ? t("home.selectDescription") : t("home.emptyDescription")}
+        />
+      </div>
     </AppShell>
   );
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
@@ -13,6 +13,7 @@ import { AppShell } from "@/components/AppShell";
 import { BacklinksSection } from "@/components/BacklinksSection";
 import { ConnectionBadge } from "@/components/ConnectionBadge";
 import { NoteEditor } from "@/components/NoteEditor";
+import { NoteMenu } from "@/components/NoteMenu";
 import { ShareDialog } from "@/components/ShareDialog";
 import { TitleInput } from "@/components/TitleInput";
 import { toast } from "@/components/ui/toast";
@@ -217,17 +218,33 @@ export default function NotePage() {
     }
   }, [state, t]);
 
+  // PR2（BC2 卡片版面）：loading／error／`doc|provider|user` 未備妥時，一律渲染一張
+  // 不含 header/footer slot 的佔位內文卡——`headerSlot` 本來就只在真的掛上
+  // `NoteEditor` 之後才出現（頁頭裡的 TitleInput/ConnectionBadge/⋮ 都要吃 `note`/
+  // `state`），佔位卡沒有頭是這個既有語意的延續，不是新的行為。跟 `HomePage`／
+  // `NoteRouteErrorFallback` 共用同一款卡（G 節），呼叫端各自包一層
+  // `flex min-h-0 flex-1`（body row，寬度鏈見不變量 1）。
+  const placeholderCard = (content: ReactNode) => (
+    <div className="flex min-h-0 flex-1">
+      <div className="min-w-0 flex-1 overflow-y-auto rounded-xl border border-border bg-card">{content}</div>
+    </div>
+  );
+
   let body;
   if (noteQuery.isPending) {
-    body = <p className="p-6 text-sm text-muted-foreground">{t("app.loading")}</p>;
+    body = placeholderCard(<p className="p-6 text-sm text-muted-foreground">{t("app.loading")}</p>);
   } else if (noteQuery.isError) {
-    body = (
+    body = placeholderCard(
       <p role="alert" className="p-6 text-sm text-destructive">
         {noteQuery.error instanceof ApiFail
           ? t(`errors.${noteQuery.error.code}`, { defaultValue: t("errors.fallback") })
           : t("errors.fallback")}
-      </p>
+      </p>,
     );
+  } else if (!doc || !provider || !user) {
+    // `useCollab` 掛載 effect 內同步 setSession——這個窗口只有一個 frame（已查證），
+    // 落地時幾乎看不到，仍照 spec 給一張佔位卡而不是讓頁面在這一格閃空白。
+    body = placeholderCard(<p className="p-6 text-sm text-muted-foreground">{t("app.loading")}</p>);
   } else {
     const role = effectiveRole(state, note!);
     // 角色允不允許編輯（不看連線）：標題、分享這類**走 REST 的操作**用這個判準。
@@ -241,44 +258,23 @@ export default function NotePage() {
     // 時，改標題完全安全、重整也真的在。跟著 synced 一起鎖死是功能倒退。
     const editable = roleCanEdit && synced;
     body = (
-      <div className="flex h-full flex-col">
-        <header className="flex items-center gap-4 border-b border-border px-6 py-4">
-          <TitleInput note={note!} readOnly={!roleCanEdit} cacheRef={ref} />
-          <ShareDialog note={note!} cacheRef={ref} />
-          <ConnectionBadge state={state} synced={synced} canEdit={roleCanEdit} />
-        </header>
-        {/* Task 6：捲動容器內移進 `NoteEditor`（左欄一份、右側 AI 側欄一份，各自獨立
-            捲動）——這裡只留 `flex-1 min-h-0`。`min-h-0` 是必要的：flex 子項預設
-            `min-height:auto` 會撐開到內容高度，讓 `NoteEditor` 內層的 `overflow-y-auto`
-            形同虛設，畫面變成整個外層一起捲、AI 側欄跟著正文捲走，寬螢幕並排的版面就壞了
-            （這類改法最常見的靜默失敗，brief 明文強調）。 */}
-        <div className="min-h-0 flex-1">
-          {doc && provider && user ? (
-            <NoteEditor
-              doc={doc}
-              provider={provider}
-              editable={editable}
-              user={{ id: user.id, name: user.displayName }}
-              noteId={noteId!}
-            />
-          ) : (
-            <p className="px-4 py-4 text-sm text-muted-foreground">{t("app.loading")}</p>
-          )}
-        </div>
-        {/* 手動 UI 驗收回饋：backlinks 區要固定高度上限、內文獨立捲動，不能讓篇數一多
-            就把版面往下推、逼出頁面級捲動——三面板（編輯器欄／AI 側欄／這一區）都要是
-            視口鎖定＋各自捲動（根本原因與修法見 `AppShell.tsx` 的同一則註解：那裡把
-            `h-full` 這條鏈從 `min-h-screen` 改成真正鎖視口的 `h-screen`，這裡才吃得到
-            效果）。`shrink-0` 讓這一區不被上面 `flex-1` 的中段吃掉高度、`max-h-48`
-            （12rem）是這次驗收目測抓的上限（不是精確量出來的數字，純觀感取捨，落在
-            brief 建議的 max-h-40~56 區間）、`overflow-y-auto` 讓超出上限的部分自己捲，
-            不再往外撐。`BacklinksSection` 內部（`<ul>` 上）其實已經有一份等效的
-            `max-h-48 overflow-y-auto`（Task 6b 就有），這裡加的是外層保險：0 篇時
-            `BacklinksSection` 回傳 `null`，這個容器沒有子內容、高度塌成 0，不影響
-            「0 篇整塊隱藏」的既有行為。 */}
-        <div className="max-h-48 shrink-0 overflow-y-auto">
-          <BacklinksSection noteId={noteId} />
-        </div>
+      <div className="flex min-h-0 flex-1">
+        <NoteEditor
+          doc={doc}
+          provider={provider}
+          editable={editable}
+          user={{ id: user.id, name: user.displayName }}
+          noteId={noteId!}
+          headerSlot={
+            <header className="flex items-center gap-3 border-b border-border px-5 py-3">
+              <TitleInput note={note!} readOnly={!roleCanEdit} cacheRef={ref} />
+              <ConnectionBadge state={state} synced={synced} canEdit={roleCanEdit} />
+              <ShareDialog note={note!} cacheRef={ref} />
+              <NoteMenu note={note!} state={state} leavingRef={leavingRef} />
+            </header>
+          }
+          footerSlot={<BacklinksSection noteId={noteId} />}
+        />
       </div>
     );
   }

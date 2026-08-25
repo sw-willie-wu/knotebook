@@ -120,7 +120,7 @@ export function TitleInput({ note, readOnly, cacheRef }: TitleInputProps) {
 
   if (readOnly) {
     return (
-      <h1 className="min-w-0 flex-1 truncate text-2xl font-semibold" title={note.title}>
+      <h1 className="min-w-0 flex-1 truncate text-xl font-semibold" title={note.title}>
         {note.title}
       </h1>
     );
@@ -128,7 +128,7 @@ export function TitleInput({ note, readOnly, cacheRef }: TitleInputProps) {
 
   return (
     <input
-      className="min-w-0 flex-1 bg-transparent text-2xl font-semibold outline-none placeholder:text-muted-foreground"
+      className="min-w-0 flex-1 bg-transparent text-xl font-semibold outline-none placeholder:text-muted-foreground"
       aria-label={t("note.titleLabel")}
       placeholder={t("note.titlePlaceholder")}
       value={value}

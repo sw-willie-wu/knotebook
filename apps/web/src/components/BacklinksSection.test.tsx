@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import { canonicalNotePath, type BacklinkDto } from "@knotebook/shared";
@@ -103,19 +103,45 @@ describe("BacklinksSection", () => {
     expect(await screen.findByText("1 note mentions this page")).toBeInTheDocument();
   });
 
-  it("預設折疊，點擊摘要可展開/再次點擊收合", async () => {
+  // PR2 F 節：折疊的 <details>/<summary> 改成常駐 chips 列——不必點擊任何東西，
+  // 篇數＞0 時 chips 從掛載那一刻就可見（取代上面被刪掉的「預設折疊/點擊展開收合」案）。
+  it("PR2：chips 常駐可見，不需要點擊展開", async () => {
     vi.stubGlobal("fetch", mockFetch(BACKLINKS));
 
     renderSection(NOTE_ID);
-    const summary = await screen.findByText("2 notes mention this page");
+    await screen.findByText("2 notes mention this page");
 
-    // 收合時內容仍在 DOM 裡（RTL 查得到），但 `<details>` 沒有 `open` → 不可見。
-    expect(screen.getByRole("link", { name: "Alpha" })).not.toBeVisible();
-
-    fireEvent.click(summary);
     expect(screen.getByRole("link", { name: "Alpha" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "Beta" })).toBeVisible();
+  });
 
-    fireEvent.click(summary);
-    expect(screen.getByRole("link", { name: "Alpha" })).not.toBeVisible();
+  it("PR2：chips 沒有折疊語意——沒有 <details>/<summary> 節點", async () => {
+    vi.stubGlobal("fetch", mockFetch(BACKLINKS));
+
+    const { container } = renderSection(NOTE_ID);
+    await screen.findByText("2 notes mention this page");
+
+    expect(container.querySelector("details")).toBeNull();
+    expect(container.querySelector("summary")).toBeNull();
+  });
+
+  // review B2：篇數多不得把內文卡撐高——這是這個元件唯一的高度守衛，直接斷 class
+  // 字串本身（比照 layout test 的手法）：footer 根要 `shrink-0`（不被上方 flex-1
+  // 的捲動容器吃掉高度）＋`border-t`（跟內文卡分隔）；chips 容器要
+  // `max-h-48 overflow-y-auto`（篇數多時自己捲動，不會撐高整個 footer）。
+  it("PR2：footer 根帶 shrink-0/border-t，chips 容器帶 max-h-48/overflow-y-auto（撐高守衛）", async () => {
+    vi.stubGlobal("fetch", mockFetch(BACKLINKS));
+
+    const { container } = renderSection(NOTE_ID);
+    const title = await screen.findByText("2 notes mention this page");
+
+    const footerRoot = container.firstElementChild;
+    expect(footerRoot).not.toBeNull();
+    expect(footerRoot).toBe(title.parentElement);
+    expect(footerRoot).toHaveClass("shrink-0", "border-t", "border-border");
+
+    const chipsContainer = screen.getByRole("link", { name: "Alpha" }).parentElement;
+    expect(chipsContainer).not.toBeNull();
+    expect(chipsContainer).toHaveClass("max-h-48", "overflow-y-auto");
   });
 });

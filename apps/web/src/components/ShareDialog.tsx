@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
 import { canonicalNotePath, normalizeSlug, validateSlug, type NoteDto, type ShareDto, type ShareRole } from "@knotebook/shared";
@@ -15,9 +15,10 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Trash } from "@/components/ui/icons";
+import { Share, Trash } from "@/components/ui/icons";
 import { toast } from "@/components/ui/toast";
 import { copyText } from "@/lib/clipboard";
+import { ManualCopyField } from "@/components/ManualCopyField";
 
 /** ApiFail → errors.<code>；其餘 → errors.fallback。與 NoteList/TitleInput 同一套對映（各檔各自一份，
  * 是既有慣例——見那兩處的說明，這裡不再重複抽象）。 */
@@ -170,17 +171,6 @@ function SharesSection({ noteId }: { noteId: string }) {
 function CopyLinkButton({ note }: { note: NoteDto }) {
   const { t } = useTranslation();
   const [manualUrl, setManualUrl] = useState<string | null>(null);
-  const manualCopyLabelId = useId();
-  const manualInputRef = useRef<HTMLInputElement>(null);
-
-  // 只在網址欄「出現的那一次」自動選取。刻意不用 inline 的 `ref={n => n?.select()}`：
-  // 那個 callback 每次 render 都是新的 identity，React 會重新掛載它而再次 select()，
-  // 而 `select()` 會把焦點移過來——使用者在同一個 dialog 裡打字時會被搶走，按鍵落進
-  // 唯讀欄位等於消失（與本分支修的 TitleInput #10 同一類缺陷）。回頭想再選一次的話，
-  // 下面的 onFocus 已經涵蓋。
-  useEffect(() => {
-    if (manualUrl !== null) manualInputRef.current?.select();
-  }, [manualUrl]);
 
   async function handleCopy(): Promise<void> {
     const url = `${window.location.origin}${canonicalNotePath(note)}`;
@@ -198,20 +188,7 @@ function CopyLinkButton({ note }: { note: NoteDto }) {
       <Button type="button" variant="secondary" size="sm" onClick={() => void handleCopy()}>
         {t("share.copyLink")}
       </Button>
-      {manualUrl !== null && (
-        <>
-          <p id={manualCopyLabelId} className="text-sm text-muted-foreground">
-            {t("share.copyFailed")}
-          </p>
-          <Input
-            readOnly
-            value={manualUrl}
-            aria-labelledby={manualCopyLabelId}
-            onFocus={(event) => event.currentTarget.select()}
-            ref={manualInputRef}
-          />
-        </>
-      )}
+      {manualUrl !== null && <ManualCopyField value={manualUrl} />}
     </div>
   );
 }
@@ -315,6 +292,11 @@ export interface ShareDialogProps {
  *
  * 內容只在實際開啟時掛載（`open && <...>`），分享名單的查詢因此也只在開啟時才打
  * `GET /api/notes/:id/shares`，不會在頁面一載入就多打一支用不到的 API。
+ *
+ * PR2（D.3）：觸發鈕改成 icon-only（原本是帶文字的按鈕）——`aria-label={t("share.button")}`
+ * 頂住 accessible name，`ShareDialog.test.tsx` 既有的 `getByRole("button",{name:"Share"})`
+ * 查詢不受影響（文字不變，只是從內容搬進 aria-label）。面板內容（`DialogContent` 以下）
+ * 零改動。
  */
 export function ShareDialog({ note, cacheRef }: ShareDialogProps) {
   const { t } = useTranslation();
@@ -325,8 +307,8 @@ export function ShareDialog({ note, cacheRef }: ShareDialogProps) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button type="button" variant="outline" size="sm">
-          {t("share.button")}
+        <Button type="button" variant="ghost" size="icon" aria-label={t("share.button")}>
+          <Share className="h-4 w-4" />
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-md">
