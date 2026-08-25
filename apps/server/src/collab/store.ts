@@ -18,6 +18,7 @@
  */
 import { and, desc, eq, sql } from "drizzle-orm";
 import * as Y from "yjs";
+import { YDOC_FRAGMENT } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
 import { noteStateBackups, noteStates, notes } from "../db/schema.js";
 import { isForeignKeyViolation } from "../db/pg-errors.js";
@@ -43,6 +44,74 @@ export function docClock(doc: Y.Doc): number {
 
 export interface StoreLogger {
   warn(obj: object, msg: string): void;
+}
+
+/** {@link collectUnsafeUrlFindings} 的一筆發現：哪種 block、什麼 scheme（不含 URL 本體）。 */
+export interface UnsafeUrlFinding {
+  block: string;
+  scheme: string;
+}
+
+/**
+ * issue #44 的最小步：掃描共編文件裡「`url` 屬性帶著非 http(s) scheme」的節點。
+ *
+ * **只偵測、不改寫、不拒收**——server 對 Y.Doc 內容的驗證是 spec 級取捨（要不要讓
+ * server 理解 BlockNote 結構、拒收語意、client 呈現…），這裡刻意不碰：render 端（#12）
+ * 與 export 端（#43）已讓這種 URL 到處都吃不到 sink，殘餘風險是「髒資料留存」；本掃描
+ * 讓自架者至少**知道**文件裡有這種東西（配 log 一行），而不是永遠無感。
+ *
+ * 為了不與 BlockNote schema 綁定，判斷刻意極窄：只看名為 `url` 的屬性（四個檔案類
+ * block 存放媒體網址的欄位；caption/name 等文字欄位可能含冒號，掃它們會誤報）、只把
+ * 「能被 `new URL` 解析出**非** http(s) scheme」的值當發現——相對網址（自家上傳的
+ * `/api/uploads/<id>`）parse 不出、http(s) 放行，兩者都與 web 端 `isSafeMediaUrl` 的
+ * 白名單一致（副作用：`about:`/`blob:` 也會被列為發現——#43 匯出替代值 `about:blank`
+ * 被貼回文件時會警告一次，屬可接受的訊號而非誤報）。屬性值**不限字串**：敵意 client
+ * 可以直接寫任意 Yjs 可編碼的值（例如陣列），`new URL` 的 ToString 會攤平它們——
+ * `typeof` 守衛反而讓這一類逃過掃描（審查指出）。scheme 記進發現（URL parser 已把它
+ * 限制在 `[a-z0-9+.-]`，可安全進 log），URL 本體**不**記——那是攻擊者控制的內容，
+ * 不給它進日誌的機會。
+ *
+ * ⚠ 走訪**必須是迭代**（顯式 stack）：巢狀深度是攻擊者可控的（深 5000 的
+ * blockContainer 鏈只是一個 125KB 的 update，yjs 自己的 encode/apply 都撐得住），
+ * 遞迴版在 vitest worker 的這個深度就 RangeError（bare Node 主執行緒的門檻更高一些，
+ * 但攻擊者把鏈加深就是了——任何環境都有炸點）——而 onStoreDocument 拋錯會讓
+ * Hocuspocus 把文件永久 pin 在記憶體、備份停擺（`maybeBackup` 註解描述的同一個
+ * 失效形）。呼叫端另有 try/catch 兜底（見 onStoreDocument），但這裡先天就不該炸。
+ *
+ * 已知不掃的範疇：`Y.XmlHook`（Y.Map 形狀）與 `Y.XmlText` 內嵌內容底下都不深入
+ * ——走訪只展開 XmlElement/XmlFragment 的子節點；BlockNote 的真實媒體形狀用不到
+ * 那兩種嵌法，log-only 的最小步不追。
+ */
+
+/** 進 log 的 block 名上限——`nodeName` 與 URL 一樣是 client 寫進 Y.Doc 的任意字串，
+ * 不封頂等於讓單行日誌的長度由攻擊者決定（比照 `collab/server.ts` 對 client 提供的
+ * noteId 做的同款截斷）。 */
+const LOGGED_BLOCK_NAME_MAX = 64;
+
+export function collectUnsafeUrlFindings(doc: Y.Doc): UnsafeUrlFinding[] {
+  const findings: UnsafeUrlFinding[] = [];
+  const stack: unknown[] = [doc.getXmlFragment(YDOC_FRAGMENT)];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (node instanceof Y.XmlElement) {
+      const url: unknown = node.getAttribute("url");
+      if (url != null && url !== "") {
+        let parsed: URL | null;
+        try {
+          parsed = new URL(url as string); // URL 建構子自帶 ToString——非字串值一併涵蓋
+        } catch {
+          parsed = null; // 相對網址／非 URL：web 端渲染時會以頁面為 base 解析成 http(s)，安全範疇
+        }
+        if (parsed && parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+          findings.push({ block: node.nodeName.slice(0, LOGGED_BLOCK_NAME_MAX), scheme: parsed.protocol.slice(0, 32) });
+        }
+      }
+      for (const child of node.toArray()) stack.push(child);
+    } else if (node instanceof Y.XmlFragment) {
+      for (const child of node.toArray()) stack.push(child);
+    }
+  }
+  return findings;
 }
 
 const noopLogger: StoreLogger = { warn: () => {} };
@@ -98,10 +167,16 @@ export function createNoteStore(deps: NoteStoreDeps): NoteStore {
   const svCache = new Map<string, Uint8Array>();
   // 「上次備份的時間」——同上時機初始化/更新；null 代表「從未備份過」。
   const lastBackupAtCache = new Map<string, Date | null>();
+  // issue #44：這個 noteId 在本次載入週期內已警告過「文件含危險 scheme 的 url」——
+  // onStoreDocument 每 2s debounce 就來一次，不設閘的話一篇被污染的筆記能以近乎固定
+  // 頻率灌日誌（正是 #50 那類形狀）。每篇筆記每個載入週期最多一行；unload 時清掉，
+  // 下次載入若還在就再警告一次（自架者重啟 process 也會再看到，訊號不會永久消失）。
+  const warnedUnsafeUrl = new Set<string>();
 
   function forgetNote(noteId: string): void {
     svCache.delete(noteId);
     lastBackupAtCache.delete(noteId);
+    warnedUnsafeUrl.delete(noteId);
   }
 
   async function onLoadDocument(noteId: string, doc: Y.Doc): Promise<Uint8Array | undefined> {
@@ -234,6 +309,46 @@ export function createNoteStore(deps: NoteStoreDeps): NoteStore {
     }
 
     await maybeBackup(noteId, doc, at);
+
+    // issue #44 最小步：只記錄、不改寫、不拒收（完整理由見 collectUnsafeUrlFindings）。
+    // 放在 maybeBackup **之後**且整段 try/catch：這是純診斷，任何一種失敗都不得
+    // 影響落盤/備份，更不得拋出 onStoreDocument——那會讓 Hocuspocus 把文件永久 pin
+    // 在記憶體（見 maybeBackup 的同型註解）。已警告過就跳過掃描；乾淨的筆記（常態）
+    // 仍是每次 store 走一次樹——成本與上面本來就有的 encodeStateAsUpdate 同量級，
+    // 可接受（審查核實過遞迴深度是唯一的真風險，已由迭代版排除）。
+    if (!warnedUnsafeUrl.has(noteId)) {
+      try {
+        const findings = collectUnsafeUrlFindings(doc);
+        if (findings.length > 0) {
+          warnedUnsafeUrl.add(noteId);
+          // distinct 清單也封頂（前 10 個 + 總數）：block 名是 client 寫進 Y.Doc 的任意
+          // 字串，200 個各異的名字就是 200 個陣列元素——單行大小不得由攻擊者決定
+          // （每個元素本身已由 LOGGED_BLOCK_NAME_MAX 截斷）。
+          const schemes = [...new Set(findings.map(f => f.scheme))];
+          const blocks = [...new Set(findings.map(f => f.block))];
+          log.warn(
+            {
+              noteId,
+              findings: findings.length,
+              schemes: schemes.slice(0, 10),
+              schemesTotal: schemes.length,
+              blocks: blocks.slice(0, 10),
+              blocksTotal: blocks.length,
+            },
+            "筆記內容含非 http(s) scheme 的媒體 URL（僅記錄；渲染與匯出端各有守衛，此處不改寫文件）"
+          );
+        }
+      } catch (err) {
+        // 掃描自己出錯也只記一次（進 warned 集合擋重複），絕不外拋；連這裡的 log 也
+        // 兜住——logger 拋錯逃出 onStoreDocument 一樣會 pin 文件。
+        warnedUnsafeUrl.add(noteId);
+        try {
+          log.warn({ err, noteId }, "危險 URL 掃描失敗（忽略，不影響落盤/備份）");
+        } catch {
+          /* logger 自己炸：無處可記，僅止損 */
+        }
+      }
+    }
   }
 
   return { onLoadDocument, onStoreDocument, afterUnloadDocument: forgetNote };
