@@ -137,3 +137,192 @@ describe("AppShell — new note", () => {
     expect(screen.queryByTestId("note-route")).not.toBeInTheDocument();
   });
 });
+
+// AppShell 的搜尋框與 Ctrl/Cmd+K：聚焦搜尋框、Esc 清空+blur、以及
+// AppShell → NoteList 的 query 接線是否真的讓側欄清單縮減。兩篇 owner 筆記時
+// 「最近」跟「我的筆記」會重複顯示同一篇（見 `NoteList` 檔頭），所以下面一律
+// 用 `getAllByRole`/`queryAllByRole` 而不是單數版本，避免因重複命中而 throw。
+describe("AppShell — search box & Ctrl/Cmd+K", () => {
+  const ALPHA_NOTE: NoteDto = {
+    id: "44444444-4444-4444-4444-444444444444",
+    title: "Alpha Note",
+    ownerId: "u1",
+    role: "owner",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    slug: "alpha-note",
+  };
+
+  const BETA_NOTE: NoteDto = {
+    id: "55555555-5555-5555-5555-555555555555",
+    title: "Beta Note",
+    ownerId: "u1",
+    role: "owner",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2025-12-01T00:00:00.000Z",
+    slug: "beta-note",
+  };
+
+  function stubFetchWithNotes(notes: NoteDto[]) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (url === "/api/auth/me") {
+          return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(USER) }));
+        }
+        if (url === "/api/notes" && method === "GET") {
+          return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(notes) }));
+        }
+        throw new Error(`unexpected fetch: ${method} ${url}`);
+      }),
+    );
+  }
+
+  function renderShell() {
+    return render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <ThemeProvider>
+          <MemoryRouter initialEntries={["/"]}>
+            <AppShell>home</AppShell>
+          </MemoryRouter>
+        </ThemeProvider>
+      </QueryClientProvider>,
+    );
+  }
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("Ctrl+K focuses the search box and prevents the browser's default (address-bar search)", async () => {
+    stubFetchWithNotes([ALPHA_NOTE, BETA_NOTE]);
+    renderShell();
+
+    const input = await screen.findByRole("textbox", { name: "Search notes" });
+    expect(input).not.toHaveFocus();
+
+    // `fireEvent` 回傳 `dispatchEvent` 的結果：cancelable 事件被 `preventDefault()`
+    // 攔下時回傳 `false`——藉此在不碰內部實作的前提下斷言 `defaultPrevented`。
+    const notCanceled = fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+
+    expect(input).toHaveFocus();
+    expect(notCanceled).toBe(false);
+  });
+
+  it("Cmd+K (metaKey) also focuses the search box", async () => {
+    stubFetchWithNotes([ALPHA_NOTE, BETA_NOTE]);
+    renderShell();
+
+    const input = await screen.findByRole("textbox", { name: "Search notes" });
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+
+    expect(input).toHaveFocus();
+  });
+
+  // review B1：BlockNote 的建立連結工具在編輯器 DOM 上綁原生 keydown 監聽
+  // Ctrl/Cmd+K，`preventDefault()` 但不 `stopPropagation()`，事件仍會冒泡到
+  // `window`——若 AppShell 不放行會搶在編輯器前面把焦點拉去搜尋框。這裡直接在
+  // dispatch 前呼叫 `event.preventDefault()`，模擬「已經有人處理過這個按鍵」
+  // 抵達 AppShell 的 handler 時的狀態，不需要真的掛一個 NoteEditor。
+  it("Ctrl+K is ignored when the event arrives already defaultPrevented (e.g. BlockNote's own create-link shortcut) — no focus", async () => {
+    stubFetchWithNotes([ALPHA_NOTE, BETA_NOTE]);
+    renderShell();
+
+    const input = await screen.findByRole("textbox", { name: "Search notes" });
+    const event = new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true, cancelable: true });
+    event.preventDefault();
+    window.dispatchEvent(event);
+
+    expect(input).not.toHaveFocus();
+  });
+
+  it("Ctrl+K is ignored while a [role=\"dialog\"] is open on the page — no focus, no preventDefault", async () => {
+    stubFetchWithNotes([ALPHA_NOTE, BETA_NOTE]);
+    renderShell();
+    // 不需要真的開一個 Radix Dialog——handler 只檢查 DOM 上有沒有這個選擇器。
+    render(<div role="dialog">fake dialog</div>);
+
+    const input = await screen.findByRole("textbox", { name: "Search notes" });
+    const notCanceled = fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+
+    expect(input).not.toHaveFocus();
+    expect(notCanceled).toBe(true);
+  });
+
+  // 釘住 AppShell.tsx 檔頭「⋮ 選單是 role="menu"，不在這個判定範圍內」的宣稱：
+  // ⋮ 選單開著時（`role="menu"`，不是 `role="dialog"`）Ctrl+K 仍會觸發並把焦點
+  // 搶去搜尋框——跟上面 `role="dialog"` 那案是刻意的一組對照。
+  it("Ctrl+K still triggers while a [role=\"menu\"] (⋮ dropdown) is open — only [role=\"dialog\"] is excluded", async () => {
+    stubFetchWithNotes([ALPHA_NOTE, BETA_NOTE]);
+    renderShell();
+    render(<div role="menu">fake ⋮ menu</div>);
+
+    const input = await screen.findByRole("textbox", { name: "Search notes" });
+    const notCanceled = fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+
+    expect(input).toHaveFocus();
+    expect(notCanceled).toBe(false);
+  });
+
+  it("shortcut badge: Mac platform shows ⌘K, non-Mac shows Ctrl K", async () => {
+    // AppShell 只讀 `navigator.platform`，最小替身即足——`{ ...navigator, … }`
+    // 的 spread 是空的（jsdom 的 navigator 屬性全在原型鏈上，不是 own
+    // property，object spread 拷貝不到），改用明確最小替身避免誤導。
+    stubFetchWithNotes([ALPHA_NOTE, BETA_NOTE]);
+    vi.stubGlobal("navigator", { platform: "MacIntel" } as Navigator);
+    const { unmount } = renderShell();
+    expect(await screen.findByText("⌘K")).toBeInTheDocument();
+    unmount();
+
+    vi.stubGlobal("navigator", { platform: "Win32" } as Navigator);
+    renderShell();
+    expect(await screen.findByText("Ctrl K")).toBeInTheDocument();
+  });
+
+  it("按鍵語意刻意釘死：Ctrl+Shift+K 不觸發（嚴格比對 event.key===\"k\"，Shift 讓瀏覽器回報大寫 \"K\"）", async () => {
+    stubFetchWithNotes([ALPHA_NOTE, BETA_NOTE]);
+    renderShell();
+
+    const input = await screen.findByRole("textbox", { name: "Search notes" });
+    const notCanceled = fireEvent.keyDown(window, { key: "K", ctrlKey: true, shiftKey: true });
+
+    expect(input).not.toHaveFocus();
+    expect(notCanceled).toBe(true);
+  });
+
+  it("Escape clears the search box and blurs it", async () => {
+    stubFetchWithNotes([ALPHA_NOTE, BETA_NOTE]);
+    renderShell();
+
+    const input = await screen.findByRole("textbox", { name: "Search notes" });
+    fireEvent.change(input, { target: { value: "Alpha" } });
+    input.focus();
+    expect(input).toHaveValue("Alpha");
+    expect(input).toHaveFocus();
+
+    fireEvent.keyDown(input, { key: "Escape" });
+
+    expect(input).toHaveValue("");
+    expect(input).not.toHaveFocus();
+  });
+
+  it("real path: typing in the search box actually shrinks the sidebar note list (AppShell → NoteList query wiring)", async () => {
+    stubFetchWithNotes([ALPHA_NOTE, BETA_NOTE]);
+    renderShell();
+
+    const input = await screen.findByRole("textbox", { name: "Search notes" });
+    await waitFor(() => expect(screen.getAllByRole("link", { name: "Beta Note" }).length).toBeGreaterThan(0));
+
+    fireEvent.change(input, { target: { value: "Alpha" } });
+
+    await waitFor(() => expect(screen.queryAllByRole("link", { name: "Beta Note" })).toHaveLength(0));
+    expect(screen.getAllByRole("link", { name: "Alpha Note" }).length).toBeGreaterThan(0);
+  });
+});

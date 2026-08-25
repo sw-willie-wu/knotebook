@@ -238,13 +238,18 @@ function NoteRouteErrorFallback({ isChunkError, onRetry }: { isChunkError: boole
   const online = useOnline();
   return (
     <AppShell>
-      <div role="alert" className="flex flex-col items-start gap-3 p-6">
-        <p className="text-sm text-muted-foreground">{t(isChunkError ? "app.chunkLoadError" : "app.noteCrash")}</p>
-        <Button type="button" variant="outline" size="sm" disabled={!online} onClick={onRetry}>
-          {t("app.retry")}
-        </Button>
-        {/* disabled 的按鈕不可聚焦、螢幕閱讀器拿不到原因——離線時要用文字說明它為何灰掉 */}
-        {!online && <p className="text-sm text-muted-foreground">{t("app.offlineHint")}</p>}
+      {/* PR2（G 節，M5 第四個呼叫端）：跟 NotePage/HomePage/NotePageFallback 同一款
+          內文卡——main 已無自身捲動，長錯誤內容改由卡自己捲（overflow-y-auto）。
+          內容本身不動。 */}
+      <div className="min-w-0 flex-1 overflow-y-auto rounded-xl border border-border bg-card">
+        <div role="alert" className="flex flex-col items-start gap-3 p-6">
+          <p className="text-sm text-muted-foreground">{t(isChunkError ? "app.chunkLoadError" : "app.noteCrash")}</p>
+          <Button type="button" variant="outline" size="sm" disabled={!online} onClick={onRetry}>
+            {t("app.retry")}
+          </Button>
+          {/* disabled 的按鈕不可聚焦、螢幕閱讀器拿不到原因——離線時要用文字說明它為何灰掉 */}
+          {!online && <p className="text-sm text-muted-foreground">{t("app.offlineHint")}</p>}
+        </div>
       </div>
     </AppShell>
   );

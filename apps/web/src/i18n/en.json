@@ -22,6 +22,14 @@
     "deleteTitle": "Delete note?",
     "deleteDescription": "This will permanently delete \"{{title}}\". This can't be undone."
   },
+  "sidebar": {
+    "recent": "Recent",
+    "myNotes": "My notes",
+    "shared": "Shared with me",
+    "searchLabel": "Search notes",
+    "searchPlaceholder": "Search…",
+    "noMatch": "No notes match your search."
+  },
   "roles": {
     "owner": "Owner",
     "editor": "Editor",
@@ -57,6 +65,10 @@
     "titleLabel": "Note title",
     "titlePlaceholder": "Untitled",
     "readOnly": "Read-only",
+    "menu": {
+      "label": "More",
+      "delete": "Delete note"
+    },
     "transferDataUrl": "Pasting embedded images isn't supported. Try dragging the image file instead.",
     "transferSaveFirst": "This item can't be inserted directly here. Save it as a file first, then drag it in.",
     "transferNonImage": "Only image files can be inserted here.",

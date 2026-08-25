@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { canonicalNotePath, type NoteDto } from "@knotebook/shared";
@@ -7,8 +7,8 @@ import i18n from "@/i18n";
 import { NoteList } from "./NoteList";
 
 // 跟 App.test.tsx / guards.test.tsx 同一套約定：mock 全域 fetch，讓真正的
-// useNotes()/useDeleteNote()（react-query）打到假回應，而不是 mock hook 本身——
-// 這樣測到的是 NoteList 與 Task 10 hooks 真實串接後的行為。
+// useNotes()（react-query）打到假回應，而不是 mock hook 本身——這樣測到的是
+// NoteList 與 Task 10 hooks 真實串接後的行為。
 
 interface FakeResponseInit {
   ok: boolean;
@@ -24,24 +24,24 @@ function fakeResponse({ ok, status, json }: FakeResponseInit): Response {
   } as unknown as Response;
 }
 
-function renderNoteList(queryClient: QueryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
+function renderNoteList(query?: string, queryClient: QueryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
   render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
-        <NoteList />
+        <NoteList query={query} />
       </MemoryRouter>
     </QueryClientProvider>,
   );
 }
 
 /** 掛在 `/notes/:ref` 路由底下渲染——側欄的「目前開啟中」判斷讀的是路由參數。 */
-function renderNoteListAtRef(ref: string) {
+function renderNoteListAtRef(ref: string, query?: string) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[`/notes/${ref}`]}>
         <Routes>
-          <Route path="/notes/:ref" element={<NoteList />} />
+          <Route path="/notes/:ref" element={<NoteList query={query} />} />
           <Route path="/" element={<div>home landing</div>} />
         </Routes>
       </MemoryRouter>
@@ -68,6 +68,26 @@ const SHARED_NOTE: NoteDto = {
   updatedAt: "2026-01-01T00:00:00.000Z",
   slug: null,
 };
+
+// 第三篇筆記，只用於「三分組/過濾/最近前 2」那幾案——server 已按
+// updated_at DESC 排序，這裡故意排在 OWNER_NOTE/SHARED_NOTE 之後，驗證
+// 「最近」只取原始清單的前 2 篇。
+const THIRD_OWNER_NOTE: NoteDto = {
+  id: "33333333-3333-3333-3333-333333333333",
+  title: "Third Owner Note",
+  ownerId: "u1",
+  role: "owner",
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2025-12-01T00:00:00.000Z",
+  slug: "third-owner-note",
+};
+
+function stubNotesFetch(notes: NoteDto[]) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(notes) }))),
+  );
+}
 
 describe("NoteList", () => {
   beforeEach(async () => {
@@ -111,10 +131,7 @@ describe("NoteList", () => {
   });
 
   it("shows guidance to create the first note when there are none", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() => Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }))),
-    );
+    stubNotesFetch([]);
 
     renderNoteList();
 
@@ -122,127 +139,146 @@ describe("NoteList", () => {
   });
 
   it("links each note to its canonicalNotePath — slug wins, no-slug falls back to title-slug+id", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() =>
-        Promise.resolve(
-          fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([OWNER_NOTE, SHARED_NOTE]) }),
-        ),
-      ),
-    );
+    stubNotesFetch([OWNER_NOTE, SHARED_NOTE]);
 
     renderNoteList();
 
-    await waitFor(() => expect(screen.getByRole("link", { name: "Has A Slug" })).toBeInTheDocument());
-
-    expect(screen.getByRole("link", { name: "Has A Slug" })).toHaveAttribute(
+    // 只有 2 篇筆記時兩篇都落在「最近」，也各自落在自己的主清單——用
+    // `within` 鎖定主清單那份，href 兩份應該一致（同一個 canonicalNotePath）。
+    const myNotes = await screen.findByTestId("notegroup-myNotes");
+    expect(within(myNotes).getByRole("link", { name: "Has A Slug" })).toHaveAttribute(
       "href",
       canonicalNotePath(OWNER_NOTE),
     );
     expect(canonicalNotePath(OWNER_NOTE)).toBe("/notes/custom-slug");
 
-    expect(screen.getByRole("link", { name: "No Slug Note" })).toHaveAttribute(
+    const shared = screen.getByTestId("notegroup-shared");
+    expect(within(shared).getByRole("link", { name: "No Slug Note" })).toHaveAttribute(
       "href",
       canonicalNotePath(SHARED_NOTE),
     );
     expect(canonicalNotePath(SHARED_NOTE)).not.toBe(`/notes/${SHARED_NOTE.id}`);
   });
 
-  it("shows a role badge only for shared (non-owner) notes, and a delete button only for owned notes", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() =>
-        Promise.resolve(
-          fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([OWNER_NOTE, SHARED_NOTE]) }),
-        ),
-      ),
-    );
+  it("shows a role badge only for shared (non-owner) notes; no delete button anywhere (moved to the ⋮ menu)", async () => {
+    stubNotesFetch([OWNER_NOTE, SHARED_NOTE]);
 
     renderNoteList();
 
-    await waitFor(() => expect(screen.getByRole("link", { name: "Has A Slug" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByRole("link", { name: "Has A Slug" }).length).toBeGreaterThan(0));
 
-    expect(screen.getByText("Editor")).toBeInTheDocument();
+    // "Editor" 出現兩次（最近 + 與我共享），"Owner" 之類的 owner 徽章從不存在。
+    expect(screen.getAllByText("Editor").length).toBeGreaterThan(0);
     expect(screen.queryByText("Owner")).not.toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Delete" })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
   });
 
   // ── Task 12 review 指派給 Task 13 的兩項側欄待辦 ──────────────────────────
 
-  it("marks the currently open note with aria-current=page (slug ref)", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() =>
-        Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([OWNER_NOTE, SHARED_NOTE]) })),
-      ),
-    );
+  it("marks the currently open note with aria-current=page (slug ref) — only in the primary list, never in 最近", async () => {
+    stubNotesFetch([OWNER_NOTE, SHARED_NOTE]);
 
     renderNoteListAtRef("custom-slug");
 
-    await waitFor(() => expect(screen.getByRole("link", { name: "Has A Slug" })).toBeInTheDocument());
-    expect(screen.getByRole("link", { name: "Has A Slug" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("link", { name: "No Slug Note" })).not.toHaveAttribute("aria-current");
+    await waitFor(() => expect(screen.getAllByRole("link", { name: "Has A Slug" }).length).toBeGreaterThan(0));
+
+    const currentLinks = screen.getAllByRole("link", { current: "page" });
+    expect(currentLinks).toHaveLength(1);
+    expect(currentLinks[0]).toHaveAccessibleName("Has A Slug");
+    expect(within(screen.getByTestId("notegroup-myNotes")).getByRole("link", { name: "Has A Slug" })).toBe(
+      currentLinks[0],
+    );
+
+    for (const link of screen.getAllByRole("link", { name: "No Slug Note" })) {
+      expect(link).not.toHaveAttribute("aria-current");
+    }
   });
 
-  it("marks the currently open note when the ref is the vanity-slug+uuid form", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() =>
-        Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([OWNER_NOTE, SHARED_NOTE]) })),
-      ),
-    );
+  it("marks the currently open note when the ref is the vanity-slug+uuid form — only in the primary list", async () => {
+    stubNotesFetch([OWNER_NOTE, SHARED_NOTE]);
 
     renderNoteListAtRef(canonicalNotePath(SHARED_NOTE).replace("/notes/", ""));
 
-    await waitFor(() => expect(screen.getByRole("link", { name: "No Slug Note" })).toBeInTheDocument());
-    expect(screen.getByRole("link", { name: "No Slug Note" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("link", { name: "Has A Slug" })).not.toHaveAttribute("aria-current");
-  });
+    await waitFor(() => expect(screen.getAllByRole("link", { name: "No Slug Note" }).length).toBeGreaterThan(0));
 
-  it("navigates home after deleting the note that is currently open", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-        const method = (init?.method ?? "GET").toUpperCase();
-        if (method === "DELETE") return Promise.resolve(fakeResponse({ ok: true, status: 204 }));
-        return Promise.resolve(
-          fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([OWNER_NOTE, SHARED_NOTE]) }),
-        );
-      }),
+    const currentLinks = screen.getAllByRole("link", { current: "page" });
+    expect(currentLinks).toHaveLength(1);
+    expect(currentLinks[0]).toHaveAccessibleName("No Slug Note");
+    expect(within(screen.getByTestId("notegroup-shared")).getByRole("link", { name: "No Slug Note" })).toBe(
+      currentLinks[0],
     );
 
-    renderNoteListAtRef("custom-slug");
-
-    await waitFor(() => expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
-    // dialog 打開後 Radix 會把背景整片標成 aria-hidden，確認鈕只能從 dialog 內找。
-    const dialog = await screen.findByRole("dialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
-
-    await waitFor(() => expect(screen.getByText("home landing")).toBeInTheDocument());
+    for (const link of screen.getAllByRole("link", { name: "Has A Slug" })) {
+      expect(link).not.toHaveAttribute("aria-current");
+    }
   });
 
-  it("stays put after deleting a note that is not the one currently open", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-        const method = (init?.method ?? "GET").toUpperCase();
-        if (method === "DELETE") return Promise.resolve(fakeResponse({ ok: true, status: 204 }));
-        return Promise.resolve(
-          fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([OWNER_NOTE, SHARED_NOTE]) }),
-        );
-      }),
+  // ── PR2：三分組、先分組後過濾、最近前 2、無符合 ──────────────────────────
+
+  it("groups notes into recent (first 2, server order) / my notes (owner) / shared (editor|viewer)", async () => {
+    stubNotesFetch([OWNER_NOTE, SHARED_NOTE, THIRD_OWNER_NOTE]);
+
+    renderNoteList();
+
+    const recent = await screen.findByTestId("notegroup-recent");
+    // 「最近」固定取原始清單前 2 篇——THIRD_OWNER_NOTE 排第三，不在最近裡。
+    expect(within(recent).getByRole("link", { name: "Has A Slug" })).toBeInTheDocument();
+    expect(within(recent).getByRole("link", { name: "No Slug Note" })).toBeInTheDocument();
+    expect(within(recent).queryByRole("link", { name: "Third Owner Note" })).not.toBeInTheDocument();
+
+    const myNotes = screen.getByTestId("notegroup-myNotes");
+    expect(within(myNotes).getByRole("link", { name: "Has A Slug" })).toBeInTheDocument();
+    expect(within(myNotes).getByRole("link", { name: "Third Owner Note" })).toBeInTheDocument();
+    expect(within(myNotes).queryByRole("link", { name: "No Slug Note" })).not.toBeInTheDocument();
+
+    const shared = screen.getByTestId("notegroup-shared");
+    expect(within(shared).getByRole("link", { name: "No Slug Note" })).toBeInTheDocument();
+    expect(within(shared).queryByRole("link", { name: "Has A Slug" })).not.toBeInTheDocument();
+
+    // 結構性守衛：分組 label 文案要對、DOM 順序要對（最近 → 我的筆記 → 與我共享）。
+    // 沒有這三行，label 塞錯組、打錯 i18n key、或順序對調，上面全部靠 testid 鎖定
+    // 的斷言照樣綠——這是唯一擋得住這幾種錯的地方。
+    expect(within(recent).getByText("Recent")).toBeInTheDocument();
+    expect(within(myNotes).getByText("My notes")).toBeInTheDocument();
+    expect(within(shared).getByText("Shared with me")).toBeInTheDocument();
+    const groupOrder = Array.from(document.querySelectorAll('[data-testid^="notegroup-"]')).map((el) =>
+      el.getAttribute("data-testid"),
     );
+    expect(groupOrder).toEqual(["notegroup-recent", "notegroup-myNotes", "notegroup-shared"]);
+  });
 
-    // 開著的是 SHARED_NOTE，刪的是 OWNER_NOTE（唯一有刪除鈕的那一篇）。
-    renderNoteListAtRef(canonicalNotePath(SHARED_NOTE).replace("/notes/", ""));
+  it("filters within each already-formed group by title (先分組、後過濾) — 最近 shrinks accordingly", async () => {
+    stubNotesFetch([OWNER_NOTE, SHARED_NOTE, THIRD_OWNER_NOTE]);
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
-    const dialog = await screen.findByRole("dialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+    renderNoteList("third");
 
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    expect(screen.queryByText("home landing")).not.toBeInTheDocument();
+    const myNotes = await screen.findByTestId("notegroup-myNotes");
+    expect(within(myNotes).getByRole("link", { name: "Third Owner Note" })).toBeInTheDocument();
+    expect(within(myNotes).queryByRole("link", { name: "Has A Slug" })).not.toBeInTheDocument();
+
+    // 「最近」的固定集合是前 2 篇（Has A Slug / No Slug Note），過濾成 "third"
+    // 之後兩篇都不合 → 最近整組不渲染（不是空的 group，是整個 testid 都不存在）。
+    expect(screen.queryByTestId("notegroup-recent")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("notegroup-shared")).not.toBeInTheDocument();
+  });
+
+  it("shows sidebar.noMatch when there are notes but none match the filter", async () => {
+    stubNotesFetch([OWNER_NOTE, SHARED_NOTE, THIRD_OWNER_NOTE]);
+
+    renderNoteList("nonexistent-xyz");
+
+    await waitFor(() => expect(screen.getByText("No notes match your search.")).toBeInTheDocument());
+    expect(screen.queryByTestId("notegroup-recent")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("notegroup-myNotes")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("notegroup-shared")).not.toBeInTheDocument();
+  });
+
+  it("still shows the fully-empty EmptyState (not sidebar.noMatch) when there are zero notes at all, regardless of query", async () => {
+    stubNotesFetch([]);
+
+    renderNoteList("anything");
+
+    await waitFor(() => expect(screen.getByText("No notes yet.")).toBeInTheDocument());
+    expect(screen.queryByText("No notes match your search.")).not.toBeInTheDocument();
   });
 });

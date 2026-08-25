@@ -72,4 +72,4 @@ Planning now lives in [GitHub Milestones](https://github.com/sw-willie-wu/knoteb
 
 ## License
 
-MIT — see [LICENSE](./LICENSE).
+MIT — see [LICENSE](./LICENSE). A bundled font asset carries its own license — see [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).

@@ -100,6 +100,39 @@ describe("copyText", () => {
     dialog.remove();
   });
 
+  /**
+   * PR2 D.4：host 選擇器擴為 `[role="dialog"],[role="menu"]`——內文卡的 ⋮ 選單
+   * （Radix DropdownMenu，`role="menu"`）跟 dialog 是同一套 focus-trap surface。
+   * 鏡像上面 dialog 那一案的寫法，換成 `role="menu"` 容器，沒有這條，擴充的分支
+   * 零守衛（改壞了/沒改都測不出來）。
+   */
+  it("焦點在 role=menu 容器內時，暫時的 textarea 要掛在該容器裡而非 document.body", async () => {
+    stubClipboard(null);
+    const menu = document.createElement("div");
+    menu.setAttribute("role", "menu");
+    const item = document.createElement("div");
+    item.setAttribute("tabindex", "-1");
+    menu.appendChild(item);
+    document.body.appendChild(menu);
+    item.focus();
+
+    let hostAtCopyTime: string | null = null;
+    Object.defineProperty(document, "execCommand", {
+      value: vi.fn(() => {
+        const textarea = document.querySelector("textarea");
+        hostAtCopyTime = textarea?.parentElement === menu ? "menu" : (textarea?.parentElement?.tagName ?? "none");
+        return true;
+      }),
+      configurable: true,
+      writable: true,
+    });
+
+    await expect(copyText("x")).resolves.toBe(true);
+    expect(hostAtCopyTime).toBe("menu");
+
+    menu.remove();
+  });
+
   it("瀏覽器回報 copy 指令不可用（queryCommandEnabled false）→ 一律當失敗，不誤報成功", async () => {
     stubClipboard(null);
     stubExecCommand(true); // 焦點被搶走的情境下 Chromium 仍會回 true——不能只信它

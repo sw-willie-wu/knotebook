@@ -82,7 +82,7 @@ export const ToastViewport = forwardRef<
 ToastViewport.displayName = ToastPrimitive.Viewport.displayName;
 
 const VARIANT_CLASSES: Record<ToastVariant, string> = {
-  default: "border-border bg-background text-foreground",
+  default: "border-border bg-popover text-popover-foreground",
   destructive: "border-destructive bg-destructive text-destructive-foreground",
 };
 

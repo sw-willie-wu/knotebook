@@ -213,11 +213,14 @@ describe("resetKey 選型守門——錯誤畫面上開/關設定 modal 不觸�
     await waitFor(() => expect(screen.getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument(), { timeout: 3_000 });
     expect(reload).not.toHaveBeenCalled();
 
-    // 側欄清單載入後點另一篇（react-router Link，MemoryRouter 內正常導航）
-    await waitFor(() => expect(screen.getByRole("link", { name: /Other Note/ })).toBeInTheDocument(), {
+    // 側欄清單載入後點另一篇（react-router Link，MemoryRouter 內正常導航）。
+    // PR2 側欄改三分組後，只有兩篇 owner 筆記時「Other Note」會同時落在
+    // 「最近」與「我的筆記」兩組（重複顯示是設計定案，見 NoteList 檔頭）——
+    // 單數查詢在此會因命中 2 個節點而 throw，改用 `getAllByRole` 取第一個。
+    await waitFor(() => expect(screen.getAllByRole("link", { name: /Other Note/ }).length).toBeGreaterThan(0), {
       timeout: 3_000,
     });
-    fireEvent.click(screen.getByRole("link", { name: /Other Note/ }));
+    fireEvent.click(screen.getAllByRole("link", { name: /Other Note/ })[0]);
 
     await waitFor(() => expect(reload).toHaveBeenCalledTimes(1), { timeout: 3_000 });
     expect(reload).toHaveBeenCalledTimes(1);

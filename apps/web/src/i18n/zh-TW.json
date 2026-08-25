@@ -22,6 +22,14 @@
     "deleteTitle": "刪除筆記？",
     "deleteDescription": "這將永久刪除「{{title}}」，此動作無法復原。"
   },
+  "sidebar": {
+    "recent": "最近",
+    "myNotes": "我的筆記",
+    "shared": "與我共享",
+    "searchLabel": "搜尋筆記",
+    "searchPlaceholder": "搜尋…",
+    "noMatch": "沒有符合搜尋的筆記。"
+  },
   "roles": {
     "owner": "擁有者",
     "editor": "可編輯",
@@ -57,6 +65,10 @@
     "titleLabel": "筆記標題",
     "titlePlaceholder": "無標題",
     "readOnly": "唯讀",
+    "menu": {
+      "label": "更多",
+      "delete": "刪除筆記"
+    },
     "transferDataUrl": "不支援直接貼上內嵌圖片，請改用拖曳圖片檔案。",
     "transferSaveFirst": "無法直接插入此項目，請先另存為檔案再拖曳進來。",
     "transferNonImage": "這裡目前只能插入圖片檔案。",

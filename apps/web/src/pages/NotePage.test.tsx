@@ -1,5 +1,6 @@
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router";
 import * as Y from "yjs";
@@ -11,9 +12,26 @@ import type { CollabState } from "@/collab/connection";
 
 // BlockNote 需要一整套 jsdom 沒有的 DOM/Range API，掛進單元測試只會測到環境；
 // 這裡只驗證「頁面有沒有把正確的 props 交給編輯器」，編輯器本身留給手動驗證。
+//
+// PR2（BLK-1）：NoteEditor slot 化——舊版 mock 只吃 `editable`，slot 化後會把整個
+// 頁頭（TitleInput/ConnectionBadge/分享鈕/⋮）與 backlinks chips 一起吞掉。改為原樣
+// 渲染 `headerSlot`/`footerSlot`，讓下面依賴 `getByLabelText("Note title")` 等查詢的
+// 既有測試在新結構下繼續照過。`SettingsModal.test.tsx` 有第二處綁定同一份 mock 形狀
+// （該檔檔頭自述沿用這裡的最小替身慣例），兩處要同步改。
 vi.mock("@/components/NoteEditor", () => ({
-  NoteEditor: ({ editable }: { editable: boolean }) => (
-    <div data-testid="note-editor" data-editable={String(editable)} />
+  NoteEditor: ({
+    editable,
+    headerSlot,
+    footerSlot,
+  }: {
+    editable: boolean;
+    headerSlot?: ReactNode;
+    footerSlot?: ReactNode;
+  }) => (
+    <div data-testid="note-editor" data-editable={String(editable)}>
+      {headerSlot}
+      {footerSlot}
+    </div>
   ),
 }));
 
@@ -297,8 +315,14 @@ describe("NotePage", () => {
     renderNotePage("my-note");
 
     await waitFor(() => expect(screen.getByTestId("note-editor")).toHaveAttribute("data-editable", "false"));
-    expect(screen.queryByLabelText("Note title")).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "My Note" })).toBeInTheDocument();
+    // PR2（BLK-1）：`container.querySelector("header")` 範圍化——單純的
+    // `queryByLabelText(...).not.toBeInTheDocument()` 在新 mock 下即使 headerSlot
+    // 整個沒渲染也會通過（vacuous pass）；範圍化到 header 內同時斷言「heading 在」
+    // 與「textbox 不在」，才把鑑別力綁回同一個容器上。
+    const header = document.querySelector("header");
+    expect(header).not.toBeNull();
+    expect(within(header!).getByRole("heading", { name: "My Note" })).toBeInTheDocument();
+    expect(within(header!).queryByRole("textbox")).not.toBeInTheDocument();
     expect(screen.getByText("Read-only")).toBeInTheDocument();
   });
 
@@ -396,6 +420,41 @@ describe("NotePage", () => {
 
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Something went wrong. Please try again."));
     expect(screen.queryByText("home landing")).not.toBeInTheDocument();
+    // PR2（A/G 節）：error 態渲染的是佔位內文卡，不是裸 <p>。
+    const card = screen.getByRole("alert").parentElement;
+    expect(card).toHaveClass("min-w-0", "flex-1", "overflow-y-auto", "rounded-xl", "border", "border-border", "bg-card");
+  });
+
+  // PR2（A 節）：note 本身載入成功，但 `doc|provider|user` 還沒全部備妥（這裡卡住
+  // `user`——`useSession()` 的 `/api/auth/me` 故意延遲 resolve）時，渲染的是不含
+  // header/footer slot 的佔位卡，不是 `NoteEditor`。
+  it("PR2：doc/provider/user 尚未備妥時渲染不含 header 的佔位卡，不是 NoteEditor", async () => {
+    let resolveMe!: () => void;
+    const meGate = new Promise<void>((resolve) => {
+      resolveMe = resolve;
+    });
+    const base = mockFetch();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === "/api/auth/me") {
+          return meGate.then(() => base(input, init));
+        }
+        return base(input, init);
+      }),
+    );
+
+    renderNotePage("my-note");
+
+    await waitFor(() => expect(screen.getByText("Loading…")).toBeInTheDocument());
+    expect(screen.queryByTestId("note-editor")).not.toBeInTheDocument();
+    expect(document.querySelector("header")).toBeNull();
+    const card = screen.getByText("Loading…").parentElement;
+    expect(card).toHaveClass("min-w-0", "flex-1", "overflow-y-auto", "rounded-xl", "border", "border-border", "bg-card");
+
+    resolveMe();
+    await waitFor(() => expect(screen.getByTestId("note-editor")).toBeInTheDocument());
+    expect(document.querySelector("header")).not.toBeNull();
   });
 
   it("token 401 的登出回呼會清掉 ['me'] 並導去 /login", async () => {
@@ -423,50 +482,39 @@ describe("NotePage", () => {
     await waitFor(() => expect(screen.getByText("login page")).toBeInTheDocument());
   });
 
-  // Task 6（MAJOR-2）：捲動容器從 `NotePage` 中段內移進 `NoteEditor`——這裡只驗證
-  // `NoteEditor`（mock）容器仍然掛在畫面上、且直接父層不再是原本自己捲動的
-  // `overflow-y-auto` 容器（改成 `flex-1 min-h-0`，捲動責任交給 `NoteEditor` 內部兩欄各自
-  // 的 `overflow-y-auto`，見 `NoteEditor.tsx`）。`NoteEditor` 介面（doc/provider/editable/
-  // user/noteId props）本身未變，檔頭的既有 mock 不用動。
-  it("Task 6：NoteEditor 容器存在，且外層捲動容器已改為 flex-1 min-h-0（捲動內移）", async () => {
+  // PR2（BLK-1 版面斷言重寫）：NoteEditor 現在是「slot 化」呼叫——NotePage body 直接
+  // 渲染 `<div className="flex min-h-0 flex-1"><NoteEditor .../></div>`，`NoteEditor`
+  // （mock）容器的直接父層就是這個 body row，不再是 Task 6 時代「自己捲動」的
+  // `overflow-y-auto` 容器（捲動責任完全交給 `NoteEditor` 內部／各卡片自己的
+  // `overflow-y-auto`，見 `NoteEditor.tsx`／`AppShell.tsx` 的說明）。
+  it("PR2：NoteEditor 容器存在，外層是 slot 化的 body row（flex min-h-0 flex-1），不是舊版自捲容器", async () => {
     vi.stubGlobal("fetch", mockFetch());
 
     renderNotePage("my-note");
 
     const editor = await screen.findByTestId("note-editor");
-    const scrollWrapper = editor.parentElement;
-    expect(scrollWrapper).not.toBeNull();
-    expect(scrollWrapper).toHaveClass("flex-1", "min-h-0");
-    expect(scrollWrapper).not.toHaveClass("overflow-y-auto");
+    const bodyRow = editor.parentElement;
+    expect(bodyRow).not.toBeNull();
+    expect(bodyRow).toHaveClass("flex", "min-h-0", "flex-1");
+    expect(bodyRow).not.toHaveClass("overflow-y-auto");
   });
 
-  // 手動 UI 驗收回饋：backlinks 區要固定高度上限、內文獨立捲動，不能讓篇數一多就把
-  // 版面往下推、逼出頁面級捲動。比照上面「Task 6」測試的 `parentElement` 斷言慣例：
-  // 用非空 backlinks 逼 `BacklinksSection` 真的渲染出 `<details>`，斷言它的直接父層
-  // （NotePage 新加的包裹容器）帶 `max-h-48`／`overflow-y-auto`，且這個容器跟中段
-  // 捲動容器（`flex-1 min-h-0`，裝 NoteEditor 那個）是兩個各自獨立的手足節點，不是
-  // 巢狀在裡面。
-  it("UI 回饋：backlinks 容器帶 max-h/overflow-y-auto，且獨立於中段捲動容器之外", async () => {
+  // PR2（F 節）：backlinks 從可折疊的 `<details>` 改成常駐 chips，且不再由 NotePage
+  // 額外包一層容器——`footerSlot` 就是 `<BacklinksSection>` 本身，幾何（shrink-0／
+  // border-t／捲動上限）完全收在該元件內部（見 BacklinksSection.test.tsx 的專屬
+  // 覆蓋）。這裡只驗證 slot 接線本身：footerSlot 的內容（chip 連結）確實出現在
+  // mock 渲染出的 note-editor 容器內，不是漏接。
+  it("PR2：footerSlot（backlinks chips）確實接進 NoteEditor，不是漏接的 slot", async () => {
     const backlink: BacklinkDto = { id: "22222222-2222-2222-2222-222222222222", title: "Other", slug: "other" };
     vi.stubGlobal("fetch", mockFetch(NOTE, [backlink]));
 
     renderNotePage("my-note");
 
-    const detailsSummary = await screen.findByText("1 note mentions this page");
-    const details = detailsSummary.closest("details");
-    expect(details).not.toBeNull();
-
-    const backlinksWrapper = details!.parentElement;
-    expect(backlinksWrapper).not.toBeNull();
-    expect(backlinksWrapper).toHaveClass("max-h-48", "shrink-0", "overflow-y-auto");
-
-    // 中段捲動容器（裝 NoteEditor）跟 backlinks 容器是同一個 `flex flex-col` 底下的
-    // 兩個手足節點，不是巢狀關係。
-    const editorScrollWrapper = (await screen.findByTestId("note-editor")).parentElement;
-    expect(editorScrollWrapper).not.toBeNull();
-    expect(editorScrollWrapper).not.toBe(backlinksWrapper);
-    expect(editorScrollWrapper!.contains(backlinksWrapper!)).toBe(false);
-    expect(backlinksWrapper!.parentElement).toBe(editorScrollWrapper!.parentElement);
+    const editor = await screen.findByTestId("note-editor");
+    await waitFor(() => expect(within(editor).getByRole("link", { name: "Other" })).toBeInTheDocument());
+    expect(within(editor).getByText("1 note mentions this page")).toBeInTheDocument();
+    // 已不再有折疊語意（<details>/<summary>）——F 節改成常駐 chips。
+    expect(editor.querySelector("details")).toBeNull();
   });
 });
 
