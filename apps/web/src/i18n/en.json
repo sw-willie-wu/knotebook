@@ -22,6 +22,14 @@
     "deleteTitle": "Delete note?",
     "deleteDescription": "This will permanently delete \"{{title}}\". This can't be undone."
   },
+  "sidebar": {
+    "recent": "Recent",
+    "myNotes": "My notes",
+    "shared": "Shared with me",
+    "searchLabel": "Search notes",
+    "searchPlaceholder": "Search…",
+    "noMatch": "No notes match your search."
+  },
   "roles": {
     "owner": "Owner",
     "editor": "Editor",

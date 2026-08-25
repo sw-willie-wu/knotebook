@@ -34,14 +34,15 @@ function stubFetch() {
 }
 
 /**
- * PR2 wave 1（地基）：本斷言刻意描述**改版前現況**，把目前無人守的高度鎖鏈
- * （AppShell 根 `h-screen overflow-hidden` → `main` `min-h-0 flex-1
- * overflow-y-auto`——見 `AppShell.tsx` 檔頭關於 `h-screen`/`min-h-0` 必要性的
- * 說明）先釘住，讓後續 wave 改殼時如果不慎弄丟這條鏈，這裡會先紅。
- * **wave 2 改殼（側欄卡＋新 main class）時，本檔會同步換成新版鏈的斷言**——
- * 這不是「守著即將被改的舊行為」的無意義測試，是刻意的漸進式安全網。
+ * PR2 wave 1（地基）落的版本斷言**改版前現況**（根 `h-screen overflow-hidden`、
+ * main `min-h-0 flex-1 overflow-y-auto`），先把當時無人守的高度鎖鏈釘住。
+ * **wave 2（本次）改殼**：側欄卡化、捲動全部內移到側欄自己的清單容器，`main`
+ * 不再自己 `overflow-y-auto`，改成寬度鏈的起點——`min-h-0 min-w-0 flex-1
+ * flex-col`（見 `AppShell.tsx` 檔頭「PR2（BC2 卡片版面）」那段說明）。本檔同步
+ * 換成新鏈的斷言，履行 wave 1 檔頭留下的承諾；不是「守著即將被改的舊行為」，
+ * 是刻意的漸進式安全網。
  */
-describe("AppShell 版面（PR2 wave 1 smoke）", () => {
+describe("AppShell 版面（PR2 wave 2 smoke）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     stubFetch();
@@ -51,7 +52,7 @@ describe("AppShell 版面（PR2 wave 1 smoke）", () => {
     vi.unstubAllGlobals();
   });
 
-  it("根＝flex h-screen overflow-hidden；main＝min-h-0 flex-1 overflow-y-auto", async () => {
+  it("根＝flex h-screen overflow-hidden gap-3 bg-background p-3；main＝flex min-h-0 min-w-0 flex-1 flex-col", async () => {
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <ThemeProvider>
@@ -65,7 +66,7 @@ describe("AppShell 版面（PR2 wave 1 smoke）", () => {
     const main = await screen.findByText("content");
     const root = main.closest("main")?.parentElement;
 
-    expect(main.closest("main")).toHaveClass("min-h-0", "flex-1", "overflow-y-auto");
-    expect(root).toHaveClass("flex", "h-screen", "overflow-hidden");
+    expect(main.closest("main")).toHaveClass("flex", "min-h-0", "min-w-0", "flex-1", "flex-col");
+    expect(root).toHaveClass("flex", "h-screen", "overflow-hidden", "gap-3", "bg-background", "p-3");
   });
 });

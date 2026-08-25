@@ -2,8 +2,7 @@ import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router";
 import { useSession } from "@/auth/useSession";
 import { useTheme, type Theme } from "@/theme";
-import { Button } from "@/components/ui/button";
-import { Check } from "@/components/ui/icons";
+import { Check, Settings } from "@/components/ui/icons";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,6 +28,13 @@ const THEMES: Theme[] = ["light", "dark", "system"];
  * 未登入（`user` 為 `null`/`undefined`）時不渲染任何東西——這個元件只掛在
  * `<RequireAuth>` 底下的頁面，理論上此時一定已登入，但保留這道防呆，
  * 避免元件被單獨挪用到未受保護的頁面時炸掉。
+ *
+ * PR2（側欄卡 D.5）：觸發鈕改成整列（圓形首字 avatar＋displayName＋齒輪），
+ * 而不是只有文字的 `Button`。**e2e 名稱保護**：觸發鈕本身設
+ * `aria-label={user.displayName}`，覆蓋掉子樹（avatar／文字／齒輪）自然算出的
+ * accessible name；avatar 與齒輪都標 `aria-hidden="true"`，確保
+ * `getByRole("button",{name:user.displayName,exact:true})` 這類既有查詢在改版
+ * 前後行為不變。
  */
 export function UserMenu() {
   const { t, i18n } = useTranslation();
@@ -53,7 +59,22 @@ export function UserMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost">{user.displayName}</Button>
+        <button
+          type="button"
+          aria-label={user.displayName}
+          className="flex w-full items-center gap-2 rounded-md p-1.5 text-left text-sm hover:bg-accent/60"
+        >
+          <span
+            aria-hidden="true"
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-[11px] font-semibold text-primary-foreground"
+          >
+            {user.displayName.charAt(0).toUpperCase()}
+          </span>
+          <span aria-hidden="true" className="min-w-0 flex-1 truncate">
+            {user.displayName}
+          </span>
+          <Settings aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />
+        </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuLabel>{user.displayName}</DropdownMenuLabel>
