@@ -34,7 +34,8 @@ const NotePage = lazy(() => import("./pages/NotePage"));
  * - resetKey 用 `useParams().ref` 而非 location.key：關設定 modal 走
  *   `navigate(backgroundLocation)` 會產生**新的** location key（實測），用 key 會把
  *   「關 modal」誤判成「換筆記」而觸發 reload；ref 才是「換到另一篇筆記」的真正
- *   不變量。代價（已接受）：重新導航到同一篇 ref 不觸發重試。
+ *   不變量。代價（已接受）：重新導航到同一篇 ref 不觸發重試。此選型由
+ *   `App.resetKey.test.tsx` 守著（issue #68）——改回 location.key 那裡會紅。
  * - ChunkLoadBeacon **必須在 Suspense 內**（擺放不變量見 ErrorBoundary.tsx；
  *   App.errorBoundary.test.tsx 案 11 守著——錯放會變無限重整迴圈）。
  */
