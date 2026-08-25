@@ -8,7 +8,7 @@ import { aiActions } from "../db/schema.js";
 import { loadAiSnapshot, resolveActionModel } from "../ai/resolve.js";
 import { AiKeyDecryptError, decryptApiKey } from "../ai/crypto.js";
 import type { AiRuntime } from "../ai/runtime.js";
-import { renderUserTemplate, streamAnthropic, streamOpenAiCompatible, type UpstreamHandle } from "../ai/upstream.js";
+import { renderUserTemplate, streamAnthropic, streamOpenAiCompatible, UpstreamError, type UpstreamHandle } from "../ai/upstream.js";
 import { sendError } from "../http/errors.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
 import { resolveRole, UUID_RE } from "../notes/service.js";
@@ -227,7 +227,25 @@ export function aiRoutes(deps: AiRouteDeps) {
         send(AI_SSE_EVENTS.done, {});
       } catch (err) {
         request.log.warn({ err }, "ai upstream failed"); // 上游細節只進 log（含 UpstreamError.upstreamBody，若有）
-        send(AI_SSE_EVENTS.error, { code: "upstream_error", message: "upstream request failed" }); // 固定文案，絕不含上游 body
+        // issue #53：openai_compatible 無金鑰是合法狀態（本機 vLLM/Ollama），pre-stream
+        // 不能一律當錯；但 #46 讓「有 models 掛著、金鑰被清掉」變得容易達到（任何一次改
+        // base_url 都進入它）。只在「上游明確回授權錯誤 **且** 該 provider 沒有存金鑰」
+        // 的組合下，把錯誤碼映射成 provider_unavailable——web 端對該碼的 i18n 文案就是
+        // 「請管理員重新輸入 API key」，與真因對得上。有金鑰但被上游拒絕（金鑰失效/被
+        // 撤銷）是另一種情況，維持 upstream_error 的一般語意，不得誤導成「未設定」。
+        // （anthropic 的無金鑰在 pre-stream 已被獨立檢查擋下，實務上只有 openai_compatible
+        // 會走到這個分支；條件寫 provider 層而非 type 層，語意自然涵蓋。）
+        const missingKeyAuthFailure =
+          err instanceof UpstreamError &&
+          (err.status === 401 || err.status === 403) &&
+          resolved.provider.apiKeyEncrypted === null;
+        // 兩個出口都是固定文案，**絕不含上游 body**（UpstreamError.upstreamBody 只進上面
+        // 的 log）——ai-sse.test.ts 對兩條出口各有哨兵字串斷言釘住。
+        if (missingKeyAuthFailure) {
+          send(AI_SSE_EVENTS.error, { code: "provider_unavailable", message: AI_UNAVAILABLE_MESSAGE });
+        } else {
+          send(AI_SSE_EVENTS.error, { code: "upstream_error", message: "upstream request failed" });
+        }
       } finally {
         handle?.abort(); // I-2：無論收尾路徑為何，一律確保 upstream 連線被要求關閉，不留給對方單方面決定
         clearTimeout(idleTimer);

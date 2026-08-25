@@ -712,3 +712,67 @@ describe("POST /api/ai — 閘門一致性三案（與 GET /api/ai/actions 共�
     expect(fakeUpstream.requestBodies[0]!.model).toBe(fallbackModel.modelId);
   });
 });
+
+/**
+ * issue #53：openai_compatible 允許無金鑰（本機 vLLM/Ollama 的合法狀態，pre-stream 不得
+ * 一律當錯）——但 #46 讓「有 models 掛著、金鑰被清掉」變得容易達到（任何一次改 base_url
+ * 都進入它）。此時上游回 401/403，使用者看到的卻是與真因無關的「AI 服務回傳錯誤」。
+ *
+ * 修法：只在「上游明確回授權錯誤 且 該 provider 沒有存金鑰」的組合下，把 SSE error 的
+ * 錯誤碼映射成 provider_unavailable（web 端對該碼的 i18n 文案＝「請管理員重新輸入
+ * API key」）。有金鑰但被上游拒絕（金鑰失效/被撤銷）是另一種情況，維持 upstream_error。
+ */
+describe("POST /api/ai — openai_compatible 無金鑰撞上游授權錯誤（issue #53）", () => {
+  async function run(upstreamStatus: number, providerOverrides: Partial<typeof aiProviders.$inferInsert>) {
+    const fakeUpstream = await startFakeUpstream((_req, res) => {
+      res.writeHead(upstreamStatus, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: { message: "missing api key" } }));
+    });
+    const { app, db } = await buildTestApp();
+    const access = await setupNoteAccess(db);
+    const provider = await insertProvider(db, { baseUrl: fakeUpstream.baseUrl, ...providerOverrides });
+    const model = await insertModel(db, provider.id);
+    const action = await insertAction(db, { modelId: model.id });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/ai",
+      cookies: { [SESSION_COOKIE]: access.editorCookie },
+      payload: { action_id: action.id, note_id: access.noteId, text: "hi" },
+    });
+    expect(res.statusCode).toBe(200); // hijack 後一律 200，錯誤走 SSE 事件
+    expect(eventSequence(res.body)).toEqual(["error"]);
+    // 「上游 body 絕不外洩」的不變量對**兩個** error 出口都要成立（審查指出：既有的
+    // sentinel 測試只驅動 500、只蓋得到 upstream_error 那條出口）——fake upstream 的
+    // body 帶哨兵字串，映射與否都不得出現在 SSE 回應裡。
+    expect(res.body).not.toContain("missing api key");
+    return res.body;
+  }
+
+  it("無金鑰 + 上游 401 → SSE error 碼是 provider_unavailable（不是 upstream_error）", async () => {
+    const body = await run(401, { apiKeyEncrypted: null });
+    expect(body).toContain("provider_unavailable");
+    expect(body).not.toContain("upstream_error");
+  });
+
+  it("無金鑰 + 上游 403 → 同樣映射成 provider_unavailable", async () => {
+    const body = await run(403, { apiKeyEncrypted: null });
+    expect(body).toContain("provider_unavailable");
+    expect(body).not.toContain("upstream_error");
+  });
+
+  it("**有**金鑰 + 上游 401 → 維持 upstream_error（金鑰失效是另一種情況，不得誤導成「未設定」）", async () => {
+    const providerId = randomUUID();
+    const body = await run(401, {
+      id: providerId,
+      apiKeyEncrypted: encryptApiKey(testConfig.appSecret, "sk-revoked-key", providerId),
+    });
+    expect(body).toContain("upstream_error");
+    expect(body).not.toContain("provider_unavailable");
+  });
+
+  it("無金鑰 + 上游 500 → 維持 upstream_error（授權錯誤以外不映射）", async () => {
+    const body = await run(500, { apiKeyEncrypted: null });
+    expect(body).toContain("upstream_error");
+    expect(body).not.toContain("provider_unavailable");
+  });
+});
