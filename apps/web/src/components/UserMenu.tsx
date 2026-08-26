@@ -144,7 +144,7 @@ export function UserMenu() {
               )}
               style={{ backgroundColor: `var(--brand-swatch-${color})` }}
             >
-              {/* text-popover：淺色 popover（白）用白勾約 4.7–4.8:1、深色
+              {/* text-popover：淺色 popover（白）用白勾約 4.7–5.0:1、深色
                   popover 用深勾約 5.0–6.8:1，六色兩模式皆 ≥3:1，不需依模式
                   切換顏色。勾純視覺，色點本身已有 aria-label。 */}
               <DropdownMenuItemIndicator>
