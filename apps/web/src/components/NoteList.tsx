@@ -40,7 +40,10 @@ function NoteRow({ note, activeRef, primary }: NoteRowProps) {
     <li
       className={cn(
         "flex h-7 items-center gap-1 rounded-md px-2 text-[13px] hover:bg-accent/60",
-        active && "bg-accent font-medium",
+        // active 時 hover 必須跟主題色走：twMerge 對同一個 variant 群組（這裡是
+        // `hover:bg-*`）互斥，後面這個 class 會蓋掉前面的 `hover:bg-accent/60`。
+        // 非 active 的列維持中性 hover，不受這裡影響。
+        active && "bg-brand-soft text-brand-on-soft font-medium hover:bg-brand-soft-strong",
       )}
     >
       {/* 刻意用 `<Link>` + 自算的 active，不用 `<NavLink>`：標題存檔後網址是靠

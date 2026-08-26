@@ -10,9 +10,9 @@ import {
 
 export type Theme = "light" | "dark" | "system";
 
-export type Accent = "indigo" | "blue" | "teal" | "sage" | "rose" | "gold";
+export const ACCENTS = ["indigo", "blue", "teal", "sage", "rose", "gold"] as const;
 
-export const ACCENTS: Accent[] = ["indigo", "blue", "teal", "sage", "rose", "gold"];
+export type Accent = (typeof ACCENTS)[number];
 
 const STORAGE_KEY = "knotebook:theme";
 const ACCENT_STORAGE_KEY = "knotebook:accent";
@@ -53,7 +53,7 @@ function applyResolvedTheme(resolved: "light" | "dark"): void {
 function readStoredAccent(): Accent {
   if (typeof window === "undefined") return "indigo";
   const stored = window.localStorage.getItem(ACCENT_STORAGE_KEY);
-  return (ACCENTS as string[]).includes(stored ?? "") ? (stored as Accent) : "indigo";
+  return (ACCENTS as readonly string[]).includes(stored ?? "") ? (stored as Accent) : "indigo";
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {

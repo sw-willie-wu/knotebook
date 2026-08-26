@@ -16,6 +16,8 @@ const buttonVariants = cva(
         secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
         ghost: "hover:bg-accent hover:text-accent-foreground",
         link: "text-primary underline-offset-4 hover:underline",
+        // PR3：主題色 tint 樣式（無邊框），首個用途：側欄「新增筆記」鈕。
+        brand: "bg-brand-soft text-brand-on-soft hover:bg-brand-soft-strong",
       },
       size: {
         default: "h-9 px-4 py-2",

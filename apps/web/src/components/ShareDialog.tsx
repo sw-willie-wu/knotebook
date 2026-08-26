@@ -307,7 +307,18 @@ export function ShareDialog({ note, cacheRef }: ShareDialogProps) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button type="button" variant="ghost" size="icon" aria-label={t("share.button")}>
+        {/* text-brand 必須放在 Button 的 className（不是掛在 <Share/> icon 上）：
+            twMerge 對 ghost variant 的 hover:text-accent-foreground 互斥掉這裡的
+            hover:text-brand，只在同一次 cn() 呼叫內才成立——掛在 icon 上是不同
+            元素、不同 cn() 呼叫，機制不會生效。hover:bg-accent 底變化沿用 ghost
+            variant，不動。 */}
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label={t("share.button")}
+          className="text-brand hover:text-brand"
+        >
           <Share className="h-4 w-4" />
         </Button>
       </DialogTrigger>

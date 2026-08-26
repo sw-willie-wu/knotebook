@@ -106,7 +106,7 @@ export function AppShell({ children }: AppShellProps) {
         <div className="flex items-center gap-2 px-3 pt-3">
           <span
             aria-hidden="true"
-            className="text-2xl font-bold italic text-primary"
+            className="text-2xl font-bold italic text-brand"
             style={{ fontFamily: "'Playfair Display', Georgia, serif" }}
           >
             K
@@ -146,7 +146,12 @@ export function AppShell({ children }: AppShellProps) {
         </div>
 
         <div className="m-2">
-          <Button className="w-full" onClick={() => void handleNewNote()} disabled={createNote.isPending}>
+          <Button
+            variant="brand"
+            className="w-full"
+            onClick={() => void handleNewNote()}
+            disabled={createNote.isPending}
+          >
             <Plus aria-hidden="true" className="h-4 w-4" />
             {t("home.newNote")}
           </Button>

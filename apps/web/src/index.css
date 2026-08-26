@@ -90,8 +90,8 @@
    - 屬性值不帶引號（`[data-accent=indigo]`），守衛 regex 同調。
    - 順序規則：**所有 `.dark[data-accent=…]` 塊一律寫在所有 `:root[data-accent=…]`
      塊之後**。理由：同特異度 (0,2,0) 的 light/dark 塊靠來源順序決勝負；若某色只有
-     light 塊沒有 dark 塊（或反過來，順序寫錯），`:root[data-accent]` 可能壓過
-     `.dark` 基底，讓淺色值滲進深色。
+     light 塊沒有 dark 塊（或順序寫錯：dark 塊落在 light 塊之前），`:root[data-accent]`
+     可能壓過 `.dark` 基底，讓淺色值滲進深色。
    - `--brand-soft`/`--brand-soft-strong` 底色一律取該色 dark `--brand`（=基色）的
      oklch 三值：light 塊 /14%、/20%；dark 塊 /16%、/24%。不得用 light `--brand`
      當底——`theme.accent-vars.test.ts` 守衛 (e) 機械擋這個錯法。 */
@@ -137,6 +137,8 @@
   --brand-soft-strong: oklch(0.747 0.089 82.4 / 20%);
   --brand-on-soft: oklch(0.450 0.102 82.4); /* ≈#714e00 */
 }
+
+/* ---- dark ---- */
 
 .dark[data-accent=indigo] {
   --brand: oklch(0.681 0.058 275.7); /* ≈#8e96bd */

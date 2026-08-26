@@ -105,6 +105,27 @@ export const DropdownMenuCheckboxItem = forwardRef<
 ));
 DropdownMenuCheckboxItem.displayName = DropdownMenuPrimitive.CheckboxItem.displayName;
 
+/**
+ * Radix 原生 RadioItem 的最小包裝：只留 `role="menuitemradio"` / `aria-checked`
+ * 語意所需的行為 class（cursor/select/outline），**刻意不套用**
+ * `DropdownMenuItem`／`DropdownMenuCheckboxItem` 那套 padding/flex/indicator
+ * 預設樣式——PR3 主題色選擇器把它渲染成 16px 純色圓點，外觀完全交給呼叫端
+ * `className`（見 `UserMenu.tsx`）。`aria-checked` 由 Radix 依
+ * `DropdownMenuRadioGroup` 的 `value` 與本項的 `value` 是否相等自動算出，不需要
+ * 手動傳。
+ */
+export const DropdownMenuRadioItem = forwardRef<
+  ElementRef<typeof DropdownMenuPrimitive.RadioItem>,
+  ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.RadioItem>
+>(({ className, ...props }, ref) => (
+  <DropdownMenuPrimitive.RadioItem
+    ref={ref}
+    className={cn("cursor-default select-none outline-none", className)}
+    {...props}
+  />
+));
+DropdownMenuRadioItem.displayName = DropdownMenuPrimitive.RadioItem.displayName;
+
 export const DropdownMenuLabel = forwardRef<
   ElementRef<typeof DropdownMenuPrimitive.Label>,
   ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Label> & { inset?: boolean }
