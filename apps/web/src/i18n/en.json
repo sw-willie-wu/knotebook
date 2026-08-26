@@ -80,8 +80,9 @@
     "accessRevoked": "You no longer have access to this note.",
     "deleted": "This note has been deleted.",
     "backlinks": {
-      "title_one": "{{count}} note mentions this page",
-      "title_other": "{{count}} notes mention this page"
+      "title_one": "Mentioned in {{count}} note",
+      "title_other": "Mentioned in {{count}} notes",
+      "empty": "No mentions yet"
     },
     "downgradedToViewer": "Your access changed to viewer. This note is now read-only.",
     "restoredEditAccess": "Your edit access has been restored.",

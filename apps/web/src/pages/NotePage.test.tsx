@@ -512,7 +512,7 @@ describe("NotePage", () => {
 
     const editor = await screen.findByTestId("note-editor");
     await waitFor(() => expect(within(editor).getByRole("link", { name: "Other" })).toBeInTheDocument());
-    expect(within(editor).getByText("1 note mentions this page")).toBeInTheDocument();
+    expect(within(editor).getByText("Mentioned in 1 note")).toBeInTheDocument();
     // 已不再有折疊語意（<details>/<summary>）——F 節改成常駐 chips。
     expect(editor.querySelector("details")).toBeNull();
   });
