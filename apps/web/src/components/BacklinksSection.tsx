@@ -30,6 +30,10 @@ import { cn } from "@/lib/utils";
  * 的等高守衛只看盒高，抓不到），而且 0 筆時捲軸根本不存在、標籤卻照樣偏上——
  * 這兩點在 PR #90 的審查實測中都出現過。放在容器上則天然只影響有 chips 的情況。
  *
+ * 副作用：補償後 chips 容器的 margin box（10＋24＋10＝44px）高於列高 36px，下緣
+ * 會超出列約 4px，落進 footer 的 `py-2` 裡（實測不裁切、距卡片底緣 5px）——別給
+ * 這一列加 `overflow-hidden`，也別收掉 `py-2`，否則捲軸會被裁掉。
+ *
  * 這個值與 `index.css` 的 `::-webkit-scrollbar { height: 10px }` 綁定，改捲軸粗細
  * 要一起改（`BacklinksSection.test.tsx` 的守衛案把兩邊釘在一起）。已知殘差：
  * Firefox 的 `scrollbar-width: thin` 是 8px 不是 10px（實測差 1px，肉眼無感）；
