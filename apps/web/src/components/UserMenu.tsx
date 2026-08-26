@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router";
 import { useSession } from "@/auth/useSession";
@@ -8,6 +9,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuItemIndicator,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
@@ -45,6 +47,7 @@ export function UserMenu() {
   const location = useLocation();
   const { user, logout } = useSession();
   const { theme, setTheme, accent, setAccent } = useTheme();
+  const accentLabelId = useId();
 
   if (!user) return null;
 
@@ -107,7 +110,7 @@ export function UserMenu() {
 
         <DropdownMenuSeparator />
 
-        <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+        <DropdownMenuLabel id={accentLabelId} className="text-xs font-normal text-muted-foreground">
           {t("userMenu.accent")}
         </DropdownMenuLabel>
         {/* gap-2 是承重值：16px 圓點（h-4 w-4）＋8px 間距＝圓心距 24px，恰合
@@ -116,6 +119,7 @@ export function UserMenu() {
         <DropdownMenuRadioGroup
           value={accent}
           onValueChange={(value) => setAccent(value as Accent)}
+          aria-labelledby={accentLabelId}
           className="flex gap-2 px-2 py-1.5"
         >
           {ACCENTS.map((color) => (
@@ -130,17 +134,23 @@ export function UserMenu() {
               // 選色不應該關掉選單——使用者可能想連續比較幾個顏色。
               onSelect={(event) => event.preventDefault()}
               className={cn(
-                // wrapper 的 outline-none 清掉了瀏覽器原生 focus ring，鍵盤在六點
-                // 間移動因此需要自己補一個可見指示：Radix 在 roving focus 目前
-                // 停留的項目上放 data-highlighted，用 ring-foreground 跟選中態的
-                // ring-ring 做視覺區分（顏色不同、不是同一個 CSS 變數）；兩者同時
-                // 成立時 data-[highlighted]:ring-foreground 特異度較高，蓋掉
-                // ring-ring——不是同一個 twMerge 群組互斥掉對方，是 CSS 層級決勝負。
-                "h-4 w-4 rounded-full ring-offset-2 ring-offset-popover data-[highlighted]:ring-2 data-[highlighted]:ring-foreground",
-                accent === color && "ring-2 ring-ring",
+                // 選中＝點內打勾（下方 ItemIndicator，checked 時才渲染），
+                // 焦點＝這圈 ring；兩者是正交的視覺維度（一個在點內、一個在點
+                // 外），互不覆蓋，因此鍵盤移到選中的點上時勾與 ring 同時完整
+                // 可見。wrapper 的 outline-none 清掉了瀏覽器原生 focus ring，
+                // 鍵盤在六點間移動需要自己補：Radix 在 roving focus 目前停留
+                // 的項目上放 data-highlighted，用 ring-foreground 顯示。
+                "flex h-4 w-4 items-center justify-center rounded-full ring-offset-2 ring-offset-popover data-[highlighted]:ring-2 data-[highlighted]:ring-foreground",
               )}
               style={{ backgroundColor: `var(--brand-swatch-${color})` }}
-            />
+            >
+              {/* text-popover：淺色 popover（白）用白勾約 4.7–5.0:1、深色
+                  popover 用深勾約 5.0–6.8:1，六色兩模式皆 ≥3:1，不需依模式
+                  切換顏色。勾純視覺，色點本身已有 aria-label。 */}
+              <DropdownMenuItemIndicator>
+                <Check aria-hidden className="h-3 w-3 text-popover" />
+              </DropdownMenuItemIndicator>
+            </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>
 

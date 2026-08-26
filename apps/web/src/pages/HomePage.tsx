@@ -2,6 +2,8 @@ import { useTranslation } from "react-i18next";
 import { useNotes } from "@/api/notes";
 import { AppShell } from "@/components/AppShell";
 import { EmptyState } from "@/components/EmptyState";
+import { cardSurface } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 
 /**
  * `/` 首頁。`/notes/:ref` 要到 Task 13 才存在，所以這裡永遠沒有「選取中的筆記」，
@@ -21,7 +23,7 @@ export default function HomePage() {
       {/* PR2（G 節）：主區插槽自己渲染一張全寬內文卡，跟 NotePage 的內文卡／佔位卡
           同一套視覺——main 已無自身捲動（見 AppShell.tsx），overflow-y-auto 掛在卡
           自己身上。 */}
-      <div className="min-w-0 flex-1 overflow-y-auto rounded-xl border border-border bg-card">
+      <div className={cn(cardSurface, "min-w-0 flex-1 overflow-y-auto")}>
         <EmptyState
           title={hasNotes ? t("home.selectTitle") : t("home.empty")}
           description={hasNotes ? t("home.selectDescription") : t("home.emptyDescription")}

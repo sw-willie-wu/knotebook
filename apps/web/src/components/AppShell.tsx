@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Plus, Search } from "@/components/ui/icons";
 import { toast } from "@/components/ui/toast";
+import { cardSurface } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import { NoteList } from "@/components/NoteList";
 import { UserMenu } from "@/components/UserMenu";
 
@@ -102,7 +104,7 @@ export function AppShell({ children }: AppShellProps) {
     // 側欄卡（與未來的內文卡／AI 卡）浮在這個 `p-3` 留白＋`bg-background` 深底上，
     // 卡與卡之間用根層的 `gap-3` 隔開。
     <div className="flex h-screen gap-3 overflow-hidden bg-background p-3">
-      <aside className="flex w-64 shrink-0 flex-col rounded-xl border border-border bg-card">
+      <aside className={cn(cardSurface, "flex w-64 shrink-0 flex-col")}>
         <div className="flex items-center gap-2 px-3 pt-3">
           <span
             aria-hidden="true"

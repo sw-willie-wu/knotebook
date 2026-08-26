@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { X } from "@/components/ui/icons";
+import { cardSurface } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { useAiSession } from "./AiSession";
 
@@ -17,9 +18,9 @@ import { useAiSession } from "./AiSession";
  * `right`，實際渲染結果是貼左的一條直欄而不是右側抽屜，fix round 1 Minor-2 的實測
  * 結論）。收合是預設狀態，`start()` 會自動展開（`AiSession.tsx`）。
  *
- * PR2（BC2 卡片版面，E 節）：AI 卡跟側欄卡／內文卡同一套視覺——`rounded-xl border
- * border-border bg-card`（原 `border-l` 與 `bg-background` 移除，改成獨立的卡片
- * 浮在深底上）；`z-30` 保留——窄螢幕的 `fixed` 抽屜仍需要疊在內文卡之上。
+ * PR2（BC2 卡片版面，E 節）：AI 卡跟側欄卡／內文卡同一套視覺——`cardSurface`
+ * （原 `border-l` 與 `bg-background` 移除，改成獨立的卡片浮在深底上）；`z-30`
+ * 保留——窄螢幕的 `fixed` 抽屜仍需要疊在內文卡之上。
  */
 export function AiPanel() {
   const { t } = useTranslation();
@@ -32,7 +33,7 @@ export function AiPanel() {
 
   if (collapsed) {
     return (
-      <aside className="flex shrink-0 items-start rounded-xl border border-border bg-card">
+      <aside className={cn(cardSurface, "flex shrink-0 items-start")}>
         <button
           type="button"
           aria-label={t("ai.panel.expand")}
@@ -49,7 +50,8 @@ export function AiPanel() {
     <aside
       data-testid="ai-panel"
       className={cn(
-        "z-30 flex w-80 shrink-0 flex-col overflow-y-auto rounded-xl border border-border bg-card p-3",
+        cardSurface,
+        "z-30 flex w-80 shrink-0 flex-col overflow-y-auto p-3",
         "fixed inset-y-3 right-3 md:static md:inset-auto",
       )}
     >

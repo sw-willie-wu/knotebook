@@ -17,6 +17,8 @@ import { NoteMenu } from "@/components/NoteMenu";
 import { ShareDialog } from "@/components/ShareDialog";
 import { TitleInput } from "@/components/TitleInput";
 import { toast } from "@/components/ui/toast";
+import { cardSurface } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 
 /** 終態後兩次重抓之間的間隔。 */
 const TERMINAL_RECONCILE_INTERVAL_MS = 750;
@@ -222,15 +224,15 @@ export default function NotePage() {
   // 不含 header/footer slot 的佔位內文卡——`headerSlot` 本來就只在真的掛上
   // `NoteEditor` 之後才出現（頁頭裡的 TitleInput/ConnectionBadge/⋮ 都要吃 `note`/
   // `state`），佔位卡沒有頭是這個既有語意的延續，不是新的行為。卡片本身
-  // （`rounded-xl border border-border bg-card overflow-y-auto`）跟 `HomePage`／
-  // `NotePageFallback`／`NoteRouteErrorFallback` 共用同一款視覺（G 節）；這裡外面
+  // （`cardSurface overflow-y-auto`）跟 `HomePage`／`NotePageFallback`／
+  // `NoteRouteErrorFallback` 共用同一款視覺（G 節）；這裡外面
   // 多包一層 `flex min-h-0 flex-1` 的 body row，是因為這個 row 之後也要用來裝
   // 真正的 `NoteEditor`（見下方 else 分支，同一個 row 兩種內容互斥）——另外三個
   // 呼叫端沒有這層需求，卡片直接是 `AppShell` children 插槽（`main`，本身已是
   // `flex flex-col`）底下的子項，不必額外包一層 row。
   const placeholderCard = (content: ReactNode) => (
     <div className="flex min-h-0 flex-1">
-      <div className="min-w-0 flex-1 overflow-y-auto rounded-xl border border-border bg-card">{content}</div>
+      <div className={cn(cardSurface, "min-w-0 flex-1 overflow-y-auto")}>{content}</div>
     </div>
   );
 
