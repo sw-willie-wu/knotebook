@@ -9,6 +9,8 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ### Changed
 
+- The backlinks strip at the bottom of a note is now a single row — the "Mentioned in N notes" label sits inline with the source chips, which scroll sideways when there are more than fit — and it is always present, showing "No mentions yet" when nothing links here. Previously the label sat on its own line above a wrapping list of chips, and the whole strip disappeared when a note had no backlinks, which made the feature invisible on any note nobody had linked to yet and let the note card's height jump around. The row is the same height as the account row at the bottom of the sidebar, so the two line up.
+
 - The note's text column now scales with the window instead of stopping at a fixed 680px: it takes 85% of the scrolling area's width, between 680px and 1056px. Windows up to about 1100px wide keep the column they had — 680px is the floor, and a window narrower than that still gets a full-width column — while on wider screens the article grows with the card instead of sitting as a narrow strip between two large empty margins (#87).
 
 ## [0.3.1] - 2026-08-26

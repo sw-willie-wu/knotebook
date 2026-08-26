@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from "react-router";
 import { useSession } from "@/auth/useSession";
 import { useTheme, ACCENTS, type Accent, type Theme } from "@/theme";
 import { Check, Settings } from "@/components/ui/icons";
+import { SIDEBAR_ROW_HEIGHT } from "@/components/ui/rows";
 import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
@@ -68,7 +69,13 @@ export function UserMenu() {
         <button
           type="button"
           aria-label={user.displayName}
-          className="flex w-full items-center gap-2 rounded-md p-1.5 text-left text-sm hover:bg-accent/60"
+          className={cn(
+            // 列高吃 SIDEBAR_ROW_HEIGHT：與內文卡底部的 backlinks 列等高
+            // （兩者左右相鄰，見該常數註解）。p-1.5＋24px avatar 的自然高度
+            // 本來就等於它，這裡明寫出來是為了讓兩邊有機械連結、不會各改各的。
+            "flex w-full items-center gap-2 rounded-md p-1.5 text-left text-sm hover:bg-accent/60",
+            SIDEBAR_ROW_HEIGHT,
+          )}
         >
           <span
             aria-hidden="true"
