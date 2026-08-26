@@ -277,7 +277,13 @@ export function NoteEditor({ doc, provider, editable, user, noteId, headerSlot, 
   //     內文卡（cardSurface，flex-col）
   //       {headerSlot}                              ← NotePage 組裝
   //       捲動容器（min-w-0 flex-1 overflow-y-auto min-h-0）
-  //         置中 wrapper（mx-auto max-w-[680px] min-h-full flex-col px-4 py-6）
+  //         置中 wrapper（mx-auto max-w-[clamp(42.5rem,85%,66rem)] min-h-full flex-col px-4 py-6）
+  //           ← 文章欄寬＝捲動容器的 85%，下限 42.5rem（680px＝改版前的固定值）、
+  //             上限 66rem（1056px）。留白比例跟著螢幕走，寬螢幕不再停在窄欄；
+  //             **下限承重**：中等視窗（捲動容器約 730px）的 85% 只有 620px，
+  //             比舊版還窄——clamp 的下限把這段拉回舊行為，不得改成 min()。
+  //             視窗更窄時 `w-full` 仍讓它縮到滿版（max-width 不會撐出橫向捲動）。
+  //             百分比對 max-width 以父層（捲動容器）寬度解析。
   //           NoteEditorView                         ← className 加 flex-1（B-1 定案：
   //             wrapper 的 min-h-full 無法把百分比高度傳給孫層，唯一有效解是讓
   //             BlockNoteView 自己成為 flex-col wrapper 的成長項；除 className 外零改動）
@@ -292,7 +298,7 @@ export function NoteEditor({ doc, provider, editable, user, noteId, headerSlot, 
         <div className={cn(cardSurface, "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden")}>
           {headerSlot}
           <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-            <div className="mx-auto flex min-h-full w-full max-w-[680px] flex-col px-4 py-6">
+            <div className="mx-auto flex min-h-full w-full max-w-[clamp(42.5rem,85%,66rem)] flex-col px-4 py-6">
               <NoteEditorView editor={editor} editable={editable} theme={resolvedTheme} noteId={noteId} getItems={getItems} />
             </div>
           </div>

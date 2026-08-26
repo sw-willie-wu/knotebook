@@ -7,7 +7,9 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
-_Nothing yet._
+### Changed
+
+- The note's text column now scales with the window instead of stopping at a fixed 680px: it takes 85% of the content card's width, between 680px and 1056px. Narrow and medium windows keep the width they had — 680px is the floor — while on wide screens the article grows with the card instead of sitting as a narrow strip between two large empty margins.
 
 ## [0.3.1] - 2026-08-26
 
