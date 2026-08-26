@@ -23,21 +23,25 @@ import { cn } from "@/lib/utils";
  * 邊距把 margin box 拉回列高、strip 專用的 6px 捲軸與 1px thumb border；四個值
  * 互相咬合，理由與換算寫在該常數的註解）。
  *
- * 這組值算出來的版面（實測，Chromium）：容器與列同高但內容區只有 36−6＝30px，
- * chips 在其中置中 → 與標籤共用同一條光學中線（±0.2px）；捲軸落在列的下緣之外、
- * footer `py-2` 的留白裡，距卡片底 2px、距 chip 底 5.8px。
+ * 這組值算出來的版面（實測，headed Chromium）：容器 border box 42px、margin box
+ * 36px＝列高（負邊距抵銷），內容區 42−6＝36px，chips 置中其中 → 中心落在容器頂
+ * ＋18＝列中心，與標籤共用同一條光學中線（±0.2px）；捲軸落在列的下緣之外、
+ * footer `py-2` 的留白裡，距 chip 底 5.8px、距卡片裁切邊 2.0px。
  *
  * **對齊補償一定要做在 chips 這一側**（早期版本把 `mb-2.5` 加在標籤上）：那是把
  * 「標籤＋chips」整組往上拉，於是整條 backlinks 列與側欄帳號列的內容不再共線
  * （`ui/rows.ts` 的等高守衛只看盒高，抓不到），而且 0 筆、根本沒有捲軸時標籤照樣
  * 偏上——兩點都在 PR #90 的審查實測中出現過。
  *
- * 捲軸落在 `py-2` 的留白裡：**別給這一列加 `overflow-hidden`，也別收掉 `py-2`**，
- * 否則捲軸會被裁掉。已知殘差：Firefox 的 `scrollbar-width: thin` 固定 8px（不吃
- * 上面那條 6px 覆寫），chips 會比標籤低約 1px，肉眼無感；overlay 捲軸環境
- * （iOS/Android、macOS Firefox 設「捲動時才顯示」）gutter 為 0，chips 會低 3px。
- * 桌機瀏覽器因為本專案對所有捲動區都套了 `::-webkit-scrollbar` 樣式而一律走非
- * overlay，故以桌機為準。
+ * 捲軸落在 `py-2` 的留白裡，而**內文卡本身是 `overflow-hidden`**——捲軸底距卡片
+ * 裁切邊只剩 2.0px，那 2px 就是全部餘裕：**`py-2` 一旦收成 `py-1.5` 捲軸就會被
+ * 裁掉**（也別再給這一列自己加 `overflow-hidden`）。
+ *
+ * 已知殘差：Firefox 的 `scrollbar-width: thin` 固定 8px（不吃上面那條 6px 覆寫），
+ * 內容區只剩 34、chips 中心 ＋17 → 比標籤**高**約 1px，肉眼無感；overlay 捲軸環境
+ * （iOS/Android、macOS Firefox 設「捲動時才顯示」）gutter 為 0，內容區 42、chips
+ * 中心 ＋21 → 比標籤低 3px。桌機瀏覽器因為本專案對所有捲動區都套了
+ * `::-webkit-scrollbar` 樣式而一律走非 overlay，故以桌機為準。
  *
  * **區塊常駐**：0 筆也保留這一列並顯示空狀態文案。改版前是 0 筆整塊隱藏，
  * 代價是反向連結這個功能完全沒有存在感（沒被連過的筆記看不出有這回事），

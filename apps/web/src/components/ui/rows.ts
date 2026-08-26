@@ -23,10 +23,11 @@ export const SIDEBAR_ROW_HEIGHT = "h-9";
  *   `-mb-1.5`         −6px，把 margin box 拉回 36 ＝ 列高，所以不撐高那一列；
  *                     捲軸因此落在列的下緣之外、footer `py-2` 的留白裡
  *   `scrollbar-x-thin` index.css 的自訂 class：這條 strip 專用的 6px 捲軸
- *                     （全域是 10px）＋1px thumb border。**不能改用 Tailwind
- *                     arbitrary variant**（`[&::-webkit-scrollbar]:h-1.5`）——
+ *                     （全域是 10px）＋1px thumb border。**不能改用 Tailwind 的
+ *                     arbitrary variant 寫法**（把偽元素寫進 class 名那種）——
  *                     那會落進 `@layer utilities`，輸給 index.css 的頂層規則，
- *                     實測捲軸仍是 10px。
+ *                     實測捲軸仍是 10px。（也因此這裡不把那個 class 名寫成字面：
+ *                     Tailwind 的 scanner 不解析註解、照樣會為它產出死 CSS。）
  *
  * 放在這裡而不是元件裡，是為了讓「42 ＝ 36 ＋ 6」這個關係與 `SIDEBAR_ROW_HEIGHT`
  * 並列在同一個檔案：改列高就會看到要一起改這裡。實測效果與取捨見

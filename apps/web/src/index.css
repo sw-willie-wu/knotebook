@@ -263,8 +263,9 @@ body {
    thumb 的透明 border 一併從 2px 收成 1px，否則 6px 軌道裡 thumb 只剩 2px。
 
    **必須寫在這裡**（與上面的全域滾動條規則同為頂層規則、且排在其後）：Tailwind
-   的 arbitrary variant（`[&::-webkit-scrollbar]:h-1.5`）會被放進 `@layer
-   utilities`，而未分層的頂層規則勝過任何 layer——實測那樣寫捲軸仍是 10px。
+   把偽元素寫進 class 名的那種 arbitrary variant 會被放進 `@layer utilities`，而
+   未分層的頂層規則勝過任何 layer——實測那樣寫捲軸仍是 10px。（此處刻意不寫出那個
+   class 名的字面：scanner 不解析註解，寫了照樣會產出一份沒人用的死 CSS。）
    使用端：`ui/rows.ts` 的 `BACKLINKS_SCROLL_ROW`（該常數註解記了整組幾何換算）。 */
 .scrollbar-x-thin::-webkit-scrollbar {
   height: 6px;
