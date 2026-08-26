@@ -9,7 +9,7 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ### Changed
 
-- Scrollbars throughout the app — the note content, the sidebar's note list, the AI panel, the settings dialog and any other scrolling area — are now a thin, rounded, semi-transparent grey that follows the light/dark theme, instead of the operating system's default scrollbar. The track is transparent and the thumb darkens on hover; in Firefox the browser's native thin scrollbar is used.
+- Scrollbars throughout the app — the note content, the sidebar's note list, the AI panel, the settings dialog and any other scrolling area — are now a thin, rounded, semi-transparent grey that follows the light/dark theme, instead of the operating system's default scrollbar. The track is transparent and the thumb gains contrast on hover (darker in light mode, brighter in dark mode). In Firefox the browser's native thin scrollbar is used, in the same theme-following grey but without the hover effect. On macOS this also means scrollbars are always visible in their own 10px gutter rather than overlaying content and auto-hiding: styling a scrollbar opts that scroll area out of the system's overlay scrollbars.
 
 ## [0.3.0] - 2026-08-26
 

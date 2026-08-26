@@ -219,9 +219,12 @@ body {
    Chromium/Safari 走 `::-webkit-scrollbar` 偽元素（radius/hover 全可控）；
    Firefox 走標準 `scrollbar-width`/`scrollbar-color`，但**必須包在
    `@supports (-moz-appearance: none)` 內**：Chromium 121+ 也支援標準屬性，
-   而規範規定一旦設了 `scrollbar-width`/`scrollbar-color`，
+   而 Chromium 的實作規則是一旦設了 `scrollbar-width`/`scrollbar-color`，
    `::-webkit-scrollbar` 系列樣式整組停用——無條件設會讓下面的偽元素樣式
-   在 Chromium 上靜默失效。 */
+   在 Chromium 上「幾乎不可見地」失效（寬與色不變，只靜默掉圓角/內縮/
+   hover），結構由 `theme.scrollbar-guard.test.ts` 守著。
+   `-moz-appearance` 是 Firefox 已別名化的舊屬性：哪天被移除，Firefox 只是
+   退回預設滾動條（退化不會壞）。 */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -232,15 +235,16 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  /* 2px 透明 border＋content-box clip：thumb 視覺 6px、hover 命中區維持 10px */
-  background-color: color-mix(in oklab, var(--muted-foreground) 40%, transparent);
+  /* 2px 透明 border＋content-box clip：thumb 視覺 6px、hover 命中區維持 10px。
+     55%/75% 是對比與低調間的折衷（獨立審查實測 40% 靜止態對比僅 1.69:1）。 */
+  background-color: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
   background-clip: content-box;
   border: 2px solid transparent;
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background-color: color-mix(in oklab, var(--muted-foreground) 65%, transparent);
+  background-color: color-mix(in oklab, var(--muted-foreground) 75%, transparent);
 }
 
 ::-webkit-scrollbar-corner {
@@ -250,7 +254,7 @@ body {
 @supports (-moz-appearance: none) {
   * {
     scrollbar-width: thin;
-    scrollbar-color: color-mix(in oklab, var(--muted-foreground) 40%, transparent) transparent;
+    scrollbar-color: color-mix(in oklab, var(--muted-foreground) 55%, transparent) transparent;
   }
 }
 
