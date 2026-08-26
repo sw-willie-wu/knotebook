@@ -10,6 +10,8 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 ### Changed
 
 - Scrollbars throughout the app — the note content, the sidebar's note list, the AI panel, the settings dialog and any other scrolling area — are now a thin, rounded, semi-transparent grey that follows the light/dark theme, instead of the operating system's default scrollbar. The track is transparent and the thumb gains contrast on hover (darker in light mode, brighter in dark mode). In Firefox the browser's native thin scrollbar is used, in the same theme-following grey but without the hover effect. On macOS this also means scrollbars are always visible in their own 10px gutter rather than overlaying content and auto-hiding: styling a scrollbar opts that scroll area out of the system's overlay scrollbars (#84).
+- The six accent-color dots in the user menu now show which one is selected with a checkmark inside the dot instead of a ring around it — the ring's contrast against the light theme's popover fell short of WCAG's 3:1 minimum, and it shared the same ring slot as the keyboard focus ring, which overrode it, so a focused dot lost its selection cue. The keyboard focus ring itself is unchanged and no longer competes with anything: focus and selection are independent now, so a focused, selected dot shows both at once. The accent-color group of dots also gained an accessible group name (`aria-labelledby`) tied to its "Accent color" heading (#78, #79).
+- Traditional Chinese accent color names changed: 青 → 青瓷, 鼠尾草綠 → 鼠尾草, 粉 → 玫瑰. The English names, and the indigo/blue/gold names in both languages, are unchanged (#80).
 
 ## [0.3.0] - 2026-08-26
 

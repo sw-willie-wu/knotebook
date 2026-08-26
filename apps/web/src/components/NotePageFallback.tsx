@@ -1,5 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { AppShell } from "./AppShell";
+import { cardSurface } from "./ui/card";
+import { cn } from "@/lib/utils";
 
 /**
  * NotePage chunk 載入中的 fallback——**必須包 AppShell**（審查抓到的 blocking：裸 <p>
@@ -19,7 +21,7 @@ export function NotePageFallback() {
     <AppShell>
       {/* PR2（G 節）：跟 NotePage/HomePage 同一款佔位/內文卡——main 已無自身捲動，
           overflow-y-auto 掛在卡自己身上。 */}
-      <div className="min-w-0 flex-1 overflow-y-auto rounded-xl border border-border bg-card">
+      <div className={cn(cardSurface, "min-w-0 flex-1 overflow-y-auto")}>
         <p className="p-6 text-sm text-muted-foreground">{t("app.loading")}</p>
       </div>
     </AppShell>

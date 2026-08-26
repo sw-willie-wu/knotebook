@@ -23,6 +23,8 @@ import { classifyMediaTransfer, type BlockedTransferReason, noteSchema } from "@
 import { createMarkdownPasteHandler } from "@/collab/paste";
 import { blocknoteZhTW } from "@/i18n/blocknote-zh-TW";
 import { toast } from "@/components/ui/toast";
+import { cardSurface } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import { useTheme } from "@/theme";
 import { buildWikilinkMenuItems, type EditorRef } from "@/components/wikilink/menu";
 import { safeMediaUrl } from "@/lib/media-url";
@@ -272,7 +274,7 @@ export function NoteEditor({ doc, provider, editable, user, noteId, headerSlot, 
   // PR2（BC2 卡片版面，spec A 節）：內文卡＋AI 卡都在這裡。DOM 樹（逐字對齊
   // spec，寬度鏈 BLK-3 的起點）：
   //   根 row（flex h-full min-h-0 min-w-0 flex-1 gap-3）
-  //     內文卡（rounded-xl border bg-card，flex-col）
+  //     內文卡（cardSurface，flex-col）
   //       {headerSlot}                              ← NotePage 組裝
   //       捲動容器（min-w-0 flex-1 overflow-y-auto min-h-0）
   //         置中 wrapper（mx-auto max-w-[680px] min-h-full flex-col px-4 py-6）
@@ -287,7 +289,7 @@ export function NoteEditor({ doc, provider, editable, user, noteId, headerSlot, 
   return (
     <AiSessionProvider editor={editor} noteId={noteId} editable={editable}>
       <div className="flex h-full min-h-0 min-w-0 flex-1 gap-3">
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card">
+        <div className={cn(cardSurface, "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden")}>
           {headerSlot}
           <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
             <div className="mx-auto flex min-h-full w-full max-w-[680px] flex-col px-4 py-6">
