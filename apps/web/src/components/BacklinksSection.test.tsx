@@ -166,12 +166,9 @@ describe("BacklinksSection", () => {
     expect(row).not.toBeNull();
     expect(row).toHaveClass("flex", "items-center", SIDEBAR_ROW_HEIGHT);
 
-    // 對齊補償：標籤讓出與捲軸同高的 10px，才與 chips 落在同一條光學中線。
-    // `mb-2.5`(10px) 必須等於 index.css 裡 `::-webkit-scrollbar` 的 height，
-    // 兩邊在這裡釘在一起——改捲軸粗細只改一邊會讓這一排歪掉。
-    expect(title).toHaveClass("mb-2.5");
-    const indexCss = readFileSync(`${process.cwd()}/src/index.css`, "utf8");
-    expect(indexCss).toMatch(/::-webkit-scrollbar\s*\{[^}]*height:\s*10px/);
+    // 對齊補償必須做在 **chips 容器**（把 chips 往下推），不是標籤（把整組往上
+    // 拉）——後者會讓整條列與側欄帳號列不共線，且 0 筆時捲軸不存在標籤仍偏上。
+    expect(title.className).not.toContain("mb-2.5");
 
     const chip = screen.getByRole("link", { name: "Alpha" });
     const chipsContainer = chip.parentElement;
@@ -184,6 +181,14 @@ describe("BacklinksSection", () => {
     // 隨「這篇有幾筆 backlinks」上下跳 5px，見元件註解。
     expect(chipsContainer).toHaveClass("flex", "min-w-0", "flex-1", "overflow-x-scroll");
     expect(chipsContainer?.className).not.toContain("overflow-x-auto");
+
+    // 對齊補償：`mt-2.5`(10px) 必須等於 index.css 裡 `::-webkit-scrollbar` 的
+    // height，兩邊在這裡釘在一起——改捲軸粗細只改一邊會讓這一排歪掉。
+    // 讀 index.css 前先剝註解（比照 theme.scrollbar-guard.test.ts）：整段被註解
+    // 掉時不得還在註解文字裡命中。
+    expect(chipsContainer).toHaveClass("mt-2.5");
+    const indexCss = readFileSync(`${process.cwd()}/src/index.css`, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(indexCss).toMatch(/::-webkit-scrollbar\s*\{[^}]*height:\s*10px/);
     // 換行守衛：容器沒有 flex-wrap（預設 nowrap）且 chip 自己不被壓縮。
     expect(chipsContainer?.className).not.toContain("flex-wrap");
     expect(chip).toHaveClass("shrink-0", "whitespace-nowrap");
