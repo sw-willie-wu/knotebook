@@ -1,6 +1,10 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
+import en from "./i18n/en.json";
+import zhTW from "./i18n/zh-TW.json";
+import { type Accent, ACCENTS } from "./theme";
+
 /**
  * 主題色（accent）token 的 parity 守門測試（比照 `theme.blocknote-vars.test.ts`
  * 的手法：剝註解→定位塊→抽值）。
@@ -20,10 +24,13 @@ import { describe, expect, it } from "vitest";
  * 但仍需注意：任何抽值失敗（regex 找不到）一律靠 `expect(...).not.toBeNull()`
  * 立刻讓測試 fail，不得讓 undefined 落入後續比對造成 undefined===undefined
  * 假通過。
+ *
+ * 色名單一律 import `theme.tsx` 的 `ACCENTS`（不得自抄一份）：新增色只改
+ * ACCENTS 一處，缺 CSS 塊會被 (a)–(e) 抓、缺 i18n 色名會被 (f) 抓。
  */
 
-const COLORS = ["indigo", "blue", "teal", "sage", "rose", "gold"] as const;
-type Color = (typeof COLORS)[number];
+const COLORS = ACCENTS;
+type Color = Accent;
 
 const TOKEN_NAMES = ["--brand", "--brand-soft", "--brand-soft-strong", "--brand-on-soft"] as const;
 
@@ -209,6 +216,15 @@ describe("主題色（accent）token parity", () => {
         normalizeWhitespace(extractToken(darkBody, "--brand-soft-strong", `.dark[data-accent=${color}]`)),
         `.dark[data-accent=${color}] 的 --brand-soft-strong 應＝該色 dark --brand 三值 /24%`,
       ).toBe(expectedDarkStrong);
+    }
+  });
+
+  it("(f) 每個 accent 都有兩語系的 i18n 色名", () => {
+    // 缺 key 時 UI 只會把 raw key（如 accent.purple）當 aria-label/tooltip 靜默顯示，
+    // en↔zh-TW 的 parity 測試抓不到「兩邊都缺」——這裡直接對 ACCENTS 驗覆蓋。
+    for (const color of COLORS) {
+      expect(en.accent, `en 缺 accent.${color}`).toHaveProperty(color);
+      expect(zhTW.accent, `zh-TW 缺 accent.${color}`).toHaveProperty(color);
     }
   });
 });
