@@ -258,6 +258,23 @@ body {
   }
 }
 
+/* 更細的水平捲軸（6px），給 backlinks 那條單排 strip 用——那一列只有 36px 高，
+   全域的 10px 捲軸會把 chips 擠上去、也留不出 chip 與捲軸之間的間隙。
+   thumb 的透明 border 一併從 2px 收成 1px，否則 6px 軌道裡 thumb 只剩 2px。
+
+   **必須寫在這裡**（與上面的全域滾動條規則同為頂層規則、且排在其後）：Tailwind
+   把偽元素寫進 class 名的那種 arbitrary variant 會被放進 `@layer utilities`，而
+   未分層的頂層規則勝過任何 layer——實測那樣寫捲軸仍是 10px。（此處刻意不寫出那個
+   class 名的字面：scanner 不解析註解，寫了照樣會產出一份沒人用的死 CSS。）
+   使用端：`ui/rows.ts` 的 `BACKLINKS_SCROLL_ROW`（該常數註解記了整組幾何換算）。 */
+.scrollbar-x-thin::-webkit-scrollbar {
+  height: 6px;
+}
+
+.scrollbar-x-thin::-webkit-scrollbar-thumb {
+  border-width: 1px;
+}
+
 /* BlockNote 深色覆寫。
    a. 選擇器形狀：浮層（slash menu／formatting toolbar／file panel 等）掛在
    editor.portalElement，其 class 只有 `bn-root` ＋ color scheme，沒有

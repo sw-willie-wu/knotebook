@@ -9,6 +9,7 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ### Changed
 
+- The backlinks row's horizontal scrollbar is now thinner than the app's other scrollbars (6px instead of 10px) and sits at the very bottom of the row, with a clear gap between it and the chips above. It used to be full-width thickness crowded against the chips in a 36px-tall row, and further from the card's bottom edge than it needed to be.
 - In the backlinks row, the horizontal scrollbar now always reserves its space, and the label is aligned to the same optical centre line as the chips. Previously the scrollbar only appeared once there were more chips than fit, and it took its 10px out of the chips' half of the row — so the chips sat about 5px higher than the label exactly when a note had many backlinks (#90).
 - The backlinks strip at the bottom of a note is now a single row — the "Mentioned in N notes" label sits inline with the source chips, which scroll sideways when there are more than fit — and it is always present, showing "No mentions yet" when nothing links here. Previously the label sat on its own line above a wrapping list of chips, and the whole strip disappeared when a note had no backlinks, which made the feature invisible on any note nobody had linked to yet and let the note card's height jump around. The row is the same height as the account row at the bottom of the sidebar, so the two line up.
 

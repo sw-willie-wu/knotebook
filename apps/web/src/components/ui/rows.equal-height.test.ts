@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-import { SIDEBAR_ROW_HEIGHT } from "./rows";
+import { BACKLINKS_SCROLL_ROW, SIDEBAR_ROW_HEIGHT } from "./rows";
 
 /**
  * 側欄帳號列與內文卡 backlinks 列的**等高守衛**（原始碼結構層，體例比照
@@ -46,6 +46,20 @@ function stripComments(source: string): string {
 describe("側欄帳號列與 backlinks 列等高", () => {
   it("(a) SIDEBAR_ROW_HEIGHT 常數字面固定", () => {
     expect(SIDEBAR_ROW_HEIGHT).toBe(ROW_HEIGHT_LITERAL);
+  });
+
+  it("(a2) BACKLINKS_SCROLL_ROW 字面固定，且容器高＝列高＋捲軸高", () => {
+    // 字面釘死：消費端的斷言是 `toHaveClass(...BACKLINKS_SCROLL_ROW.split(" "))`，
+    // 期望值從常數推導，改常數不會讓那邊紅（同義反覆）——鑑別力全靠這一條。
+    expect(BACKLINKS_SCROLL_ROW).toBe("h-[42px] -mb-1.5 scrollbar-x-thin");
+
+    // 「42 ＝ 36 ＋ 6」這個換算過去只寫在註解裡，這裡讓它可執行：容器高由列高
+    // 推出、負邊距抵銷掉多出來的捲軸高（否則會撐高那一列）。
+    const rowHeightPx = Number(ROW_HEIGHT_LITERAL.replace("h-", "")) * 4;
+    const scrollbarPx = 6;
+    expect(rowHeightPx).toBe(36);
+    expect(BACKLINKS_SCROLL_ROW).toContain(`h-[${rowHeightPx + scrollbarPx}px]`);
+    expect(BACKLINKS_SCROLL_ROW).toContain(`-mb-${scrollbarPx / 4}`);
   });
 
   it("(b) 兩個消費端都 import 並使用 SIDEBAR_ROW_HEIGHT", () => {
