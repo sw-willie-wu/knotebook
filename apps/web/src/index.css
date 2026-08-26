@@ -30,6 +30,23 @@
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
+
+  /* 主題色（accent）基底＝indigo。這四個 token 是 `[data-accent]` 屬性不存在時的
+     fallback（首屏防閃腳本遇非法/未設值就不設屬性，靠這裡撐住），不是
+     `[data-accent=indigo]` 的替代品——兩者必須逐字同值，見下方 [data-accent] 區塊
+     與 `theme.accent-vars.test.ts` 的 (c) 基底等值守衛。 */
+  --brand: oklch(0.550 0.064 275.7); /* ≈#676f97，indigo light */
+  --brand-soft: oklch(0.681 0.058 275.7 / 14%);
+  --brand-soft-strong: oklch(0.681 0.058 275.7 / 20%);
+  --brand-on-soft: oklch(0.450 0.067 275.7); /* ≈#4b527a */
+
+  /* 六個 swatch 變數：色點 UI 唯一取色來源。:root 放各色 light `--brand` 值。 */
+  --brand-swatch-indigo: oklch(0.550 0.064 275.7); /* ≈#676f97 */
+  --brand-swatch-blue: oklch(0.550 0.052 244.4); /* ≈#58758e */
+  --brand-swatch-teal: oklch(0.550 0.050 183.3); /* ≈#4f7b74 */
+  --brand-swatch-sage: oklch(0.550 0.049 137.6); /* ≈#64795d */
+  --brand-swatch-rose: oklch(0.550 0.052 18.4); /* ≈#8e6566 */
+  --brand-swatch-gold: oklch(0.550 0.098 82.4); /* ≈#8e6b23 */
 }
 
 .dark {
@@ -52,6 +69,117 @@
   --border: oklch(0.707 0.016 260.7 / 18%); /* #9ba1ab @18% */
   --input: oklch(0.707 0.016 260.7 / 25%); /* #9ba1ab @25% */
   --ring: oklch(0.557 0.017 260.7); /* #6e747e */
+
+  /* 主題色（accent）基底＝indigo。與 :root 版本同語意：[data-accent] 屬性不存在時的
+     fallback，必須逐字＝[data-accent=indigo] 那塊，見下方守衛 (c)。 */
+  --brand: oklch(0.681 0.058 275.7); /* ≈#8e96bd，indigo dark（=基色） */
+  --brand-soft: oklch(0.681 0.058 275.7 / 16%);
+  --brand-soft-strong: oklch(0.681 0.058 275.7 / 24%);
+  --brand-on-soft: oklch(0.840 0.038 275.7); /* ≈#c3c9e4 */
+
+  /* 六個 swatch 變數：.dark 放各色 dark 基色。 */
+  --brand-swatch-indigo: oklch(0.681 0.058 275.7); /* ≈#8e96bd */
+  --brand-swatch-blue: oklch(0.677 0.048 244.4); /* ≈#7f9bb3 */
+  --brand-swatch-teal: oklch(0.700 0.046 183.3); /* ≈#7fa8a1 */
+  --brand-swatch-sage: oklch(0.692 0.045 137.6); /* ≈#8fa388 */
+  --brand-swatch-rose: oklch(0.670 0.048 18.4); /* ≈#b18a8a */
+  --brand-swatch-gold: oklch(0.747 0.089 82.4); /* ≈#c9a86a */
+}
+
+/* 主題色（accent）十二個套用塊：六色 × light/dark。
+   - 屬性值不帶引號（`[data-accent=indigo]`），守衛 regex 同調。
+   - 順序規則：**所有 `.dark[data-accent=…]` 塊一律寫在所有 `:root[data-accent=…]`
+     塊之後**。理由：同特異度 (0,2,0) 的 light/dark 塊靠來源順序決勝負；若某色只有
+     light 塊沒有 dark 塊（或順序寫錯：dark 塊落在 light 塊之前），`:root[data-accent]`
+     可能壓過 `.dark` 基底，讓淺色值滲進深色。
+   - `--brand-soft`/`--brand-soft-strong` 底色一律取該色 dark `--brand`（=基色）的
+     oklch 三值：light 塊 /14%、/20%；dark 塊 /16%、/24%。不得用 light `--brand`
+     當底——`theme.accent-vars.test.ts` 守衛 (e) 機械擋這個錯法。 */
+
+:root[data-accent=indigo] {
+  --brand: oklch(0.550 0.064 275.7); /* ≈#676f97 */
+  --brand-soft: oklch(0.681 0.058 275.7 / 14%);
+  --brand-soft-strong: oklch(0.681 0.058 275.7 / 20%);
+  --brand-on-soft: oklch(0.450 0.067 275.7); /* ≈#4b527a */
+}
+
+:root[data-accent=blue] {
+  --brand: oklch(0.550 0.052 244.4); /* ≈#58758e */
+  --brand-soft: oklch(0.677 0.048 244.4 / 14%);
+  --brand-soft-strong: oklch(0.677 0.048 244.4 / 20%);
+  --brand-on-soft: oklch(0.450 0.055 244.4); /* ≈#3a5972 */
+}
+
+:root[data-accent=teal] {
+  --brand: oklch(0.550 0.050 183.3); /* ≈#4f7b74 */
+  --brand-soft: oklch(0.700 0.046 183.3 / 14%);
+  --brand-soft-strong: oklch(0.700 0.046 183.3 / 20%);
+  --brand-on-soft: oklch(0.450 0.052 183.3); /* ≈#315f58 */
+}
+
+:root[data-accent=sage] {
+  --brand: oklch(0.550 0.049 137.6); /* ≈#64795d */
+  --brand-soft: oklch(0.692 0.045 137.6 / 14%);
+  --brand-soft-strong: oklch(0.692 0.045 137.6 / 20%);
+  --brand-on-soft: oklch(0.450 0.051 137.6); /* ≈#475c40 */
+}
+
+:root[data-accent=rose] {
+  --brand: oklch(0.550 0.052 18.4); /* ≈#8e6566 */
+  --brand-soft: oklch(0.670 0.048 18.4 / 14%);
+  --brand-soft-strong: oklch(0.670 0.048 18.4 / 20%);
+  --brand-on-soft: oklch(0.450 0.055 18.4); /* ≈#714949 */
+}
+
+:root[data-accent=gold] {
+  --brand: oklch(0.550 0.098 82.4); /* ≈#8e6b23 */
+  --brand-soft: oklch(0.747 0.089 82.4 / 14%);
+  --brand-soft-strong: oklch(0.747 0.089 82.4 / 20%);
+  --brand-on-soft: oklch(0.450 0.102 82.4); /* ≈#714e00 */
+}
+
+/* ---- dark ---- */
+
+.dark[data-accent=indigo] {
+  --brand: oklch(0.681 0.058 275.7); /* ≈#8e96bd */
+  --brand-soft: oklch(0.681 0.058 275.7 / 16%);
+  --brand-soft-strong: oklch(0.681 0.058 275.7 / 24%);
+  --brand-on-soft: oklch(0.840 0.038 275.7); /* ≈#c3c9e4 */
+}
+
+.dark[data-accent=blue] {
+  --brand: oklch(0.677 0.048 244.4); /* ≈#7f9bb3 */
+  --brand-soft: oklch(0.677 0.048 244.4 / 16%);
+  --brand-soft-strong: oklch(0.677 0.048 244.4 / 24%);
+  --brand-on-soft: oklch(0.840 0.031 244.4); /* ≈#bacdde */
+}
+
+.dark[data-accent=teal] {
+  --brand: oklch(0.700 0.046 183.3); /* ≈#7fa8a1 */
+  --brand-soft: oklch(0.700 0.046 183.3 / 16%);
+  --brand-soft-strong: oklch(0.700 0.046 183.3 / 24%);
+  --brand-on-soft: oklch(0.840 0.030 183.3); /* ≈#b6d1cc */
+}
+
+.dark[data-accent=sage] {
+  --brand: oklch(0.692 0.045 137.6); /* ≈#8fa388 */
+  --brand-soft: oklch(0.692 0.045 137.6 / 16%);
+  --brand-soft-strong: oklch(0.692 0.045 137.6 / 24%);
+  --brand-on-soft: oklch(0.840 0.029 137.6); /* ≈#c2cfbd */
+}
+
+.dark[data-accent=rose] {
+  --brand: oklch(0.670 0.048 18.4); /* ≈#b18a8a */
+  --brand-soft: oklch(0.670 0.048 18.4 / 16%);
+  --brand-soft-strong: oklch(0.670 0.048 18.4 / 24%);
+  --brand-on-soft: oklch(0.840 0.031 18.4); /* ≈#dec3c3 */
+}
+
+.dark[data-accent=gold] {
+  --brand: oklch(0.747 0.089 82.4); /* ≈#c9a86a */
+  --brand-soft: oklch(0.747 0.089 82.4 / 16%);
+  --brand-soft-strong: oklch(0.747 0.089 82.4 / 24%);
+  --brand-on-soft: oklch(0.840 0.058 82.4); /* ≈#ddc8a0 */
 }
 
 @theme inline {
@@ -74,6 +202,10 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-brand: var(--brand);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-soft-strong: var(--brand-soft-strong);
+  --color-brand-on-soft: var(--brand-on-soft);
 }
 
 body {

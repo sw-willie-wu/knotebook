@@ -136,6 +136,7 @@
     "languageEn": "English",
     "languageZhTW": "繁體中文",
     "theme": "Theme",
+    "accent": "Accent color",
     "logout": "Log out"
   },
   "admin": {
@@ -170,6 +171,14 @@
     "light": "Light",
     "dark": "Dark",
     "system": "System"
+  },
+  "accent": {
+    "indigo": "Indigo",
+    "blue": "Blue",
+    "teal": "Teal",
+    "sage": "Sage",
+    "rose": "Rose",
+    "gold": "Gold"
   },
   "settings": {
     "entry": "Settings",

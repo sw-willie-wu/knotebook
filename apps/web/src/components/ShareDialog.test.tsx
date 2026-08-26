@@ -86,6 +86,8 @@ describe("ShareDialog", () => {
 
     renderDialog();
     expect(screen.getByRole("button", { name: "Share" })).toBeInTheDocument();
+    // PR3：分享 icon 鈕跟主題色（N7——class 必須落在 Button 本身，不是掛在 icon 上）。
+    expect(screen.getByRole("button", { name: "Share" })).toHaveClass("text-brand", "hover:text-brand");
 
     await openDialog();
     expect(screen.getByRole("heading", { name: "Share note" })).toBeInTheDocument();

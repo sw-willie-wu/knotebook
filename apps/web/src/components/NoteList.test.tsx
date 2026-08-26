@@ -194,6 +194,28 @@ describe("NoteList", () => {
     }
   });
 
+  // PR3：active 列跟主題色，且 hover 態要一起換成 brand（B3——twMerge 讓後出的
+  // hover:bg-brand-soft-strong 蓋掉 hover:bg-accent/60，同一個 variant 群組互斥）。
+  // 握把：class 掛在 <li>，不是 <a>，因此用 getByRole("link").closest("li") 取。
+  it("active 列套用主題色 tint（bg-brand-soft/text-brand-on-soft/hover:bg-brand-soft-strong）", async () => {
+    stubNotesFetch([OWNER_NOTE, SHARED_NOTE]);
+
+    renderNoteListAtRef("custom-slug");
+
+    const activeLink = await screen.findByRole("link", { current: "page" });
+    const activeRow = activeLink.closest("li");
+    expect(activeRow).toHaveClass("bg-brand-soft", "text-brand-on-soft", "font-medium", "hover:bg-brand-soft-strong");
+    // twMerge 真的蓋掉了中性 hover，不是兩個 class 並存靠優先權僥倖對——驗證
+    // hover:bg-accent/60 確實從 active 列的 class 清單裡消失。
+    expect(activeRow).not.toHaveClass("hover:bg-accent/60");
+
+    const sharedGroup = screen.getByTestId("notegroup-shared");
+    const inactiveLink = within(sharedGroup).getByRole("link", { name: "No Slug Note" });
+    const inactiveRow = inactiveLink.closest("li");
+    expect(inactiveRow).not.toHaveClass("bg-brand-soft");
+    expect(inactiveRow).toHaveClass("hover:bg-accent/60");
+  });
+
   it("marks the currently open note when the ref is the vanity-slug+uuid form — only in the primary list", async () => {
     stubNotesFetch([OWNER_NOTE, SHARED_NOTE]);
 

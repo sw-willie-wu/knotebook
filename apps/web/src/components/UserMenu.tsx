@@ -1,13 +1,16 @@
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router";
 import { useSession } from "@/auth/useSession";
-import { useTheme, type Theme } from "@/theme";
+import { useTheme, ACCENTS, type Accent, type Theme } from "@/theme";
 import { Check, Settings } from "@/components/ui/icons";
+import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -41,7 +44,7 @@ export function UserMenu() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useSession();
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme, accent, setAccent } = useTheme();
 
   if (!user) return null;
 
@@ -101,6 +104,45 @@ export function UserMenu() {
             {t(`theme.${value}`)}
           </DropdownMenuItem>
         ))}
+
+        <DropdownMenuSeparator />
+
+        <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+          {t("userMenu.accent")}
+        </DropdownMenuLabel>
+        {/* gap-2 是承重值：16px 圓點（h-4 w-4）＋8px 間距＝圓心距 24px，恰合
+            WCAG 2.5.8 Target Size (Minimum) 的間距例外下限——縮小 gap 即不合格，
+            不得因為「看起來擠一點沒差」隨手調整。 */}
+        <DropdownMenuRadioGroup
+          value={accent}
+          onValueChange={(value) => setAccent(value as Accent)}
+          className="flex gap-2 px-2 py-1.5"
+        >
+          {ACCENTS.map((color) => (
+            <DropdownMenuRadioItem
+              key={color}
+              value={color}
+              // 純色點沒有 textContent，Radix roving focus 的 typeahead
+              // （按字母跳到對應項）需要靠 textValue 才找得到這一項。
+              textValue={t(`accent.${color}`)}
+              aria-label={t(`accent.${color}`)}
+              title={t(`accent.${color}`)}
+              // 選色不應該關掉選單——使用者可能想連續比較幾個顏色。
+              onSelect={(event) => event.preventDefault()}
+              className={cn(
+                // wrapper 的 outline-none 清掉了瀏覽器原生 focus ring，鍵盤在六點
+                // 間移動因此需要自己補一個可見指示：Radix 在 roving focus 目前
+                // 停留的項目上放 data-highlighted，用 ring-foreground 跟選中態的
+                // ring-ring 做視覺區分（顏色不同、不是同一個 CSS 變數）；兩者同時
+                // 成立時 data-[highlighted]:ring-foreground 特異度較高，蓋掉
+                // ring-ring——不是同一個 twMerge 群組互斥掉對方，是 CSS 層級決勝負。
+                "h-4 w-4 rounded-full ring-offset-2 ring-offset-popover data-[highlighted]:ring-2 data-[highlighted]:ring-foreground",
+                accent === color && "ring-2 ring-ring",
+              )}
+              style={{ backgroundColor: `var(--brand-swatch-${color})` }}
+            />
+          ))}
+        </DropdownMenuRadioGroup>
 
         <DropdownMenuSeparator />
         <DropdownMenuItem

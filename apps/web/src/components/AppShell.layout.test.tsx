@@ -69,4 +69,33 @@ describe("AppShell 版面 smoke", () => {
     expect(main.closest("main")).toHaveClass("flex", "min-h-0", "min-w-0", "flex-1", "flex-col");
     expect(root).toHaveClass("flex", "h-screen", "overflow-hidden", "gap-3", "bg-background", "p-3");
   });
+
+  // PR3：K logo 與新增筆記鈕跟主題色。K 的 <span> 是 aria-hidden——getByText 不受
+  // 可及性樹過濾，是這裡唯一取得到它的握把（N3）。ThemeProvider 掛載會恆設
+  // data-accent 在 <html> 上（見 theme.tsx）——m4：跟 UserMenu.test.tsx 同一套
+  // 清理紀律，finally 清掉避免污染同檔案後續案。
+  it("K logo 套用 text-brand；新增筆記鈕套用 brand tint variant", async () => {
+    try {
+      render(
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+          <ThemeProvider>
+            <MemoryRouter initialEntries={["/"]}>
+              <AppShell>content</AppShell>
+            </MemoryRouter>
+          </ThemeProvider>
+        </QueryClientProvider>,
+      );
+
+      await screen.findByText("content");
+
+      expect(screen.getByText("K")).toHaveClass("text-brand");
+      expect(screen.getByRole("button", { name: "New note" })).toHaveClass(
+        "bg-brand-soft",
+        "text-brand-on-soft",
+        "hover:bg-brand-soft-strong",
+      );
+    } finally {
+      document.documentElement.removeAttribute("data-accent");
+    }
+  });
 });

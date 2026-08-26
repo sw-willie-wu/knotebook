@@ -136,6 +136,7 @@
     "languageEn": "English",
     "languageZhTW": "繁體中文",
     "theme": "主題",
+    "accent": "主題色",
     "logout": "登出"
   },
   "admin": {
@@ -170,6 +171,14 @@
     "light": "淺色",
     "dark": "深色",
     "system": "跟隨系統"
+  },
+  "accent": {
+    "indigo": "靛",
+    "blue": "藍",
+    "teal": "青",
+    "sage": "鼠尾草綠",
+    "rose": "粉",
+    "gold": "金"
   },
   "settings": {
     "entry": "設定",

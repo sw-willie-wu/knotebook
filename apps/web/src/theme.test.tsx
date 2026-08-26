@@ -4,47 +4,76 @@ import { render, screen, act } from "@testing-library/react";
 import { ThemeProvider, useTheme } from "./theme";
 
 const STORAGE_KEY = "knotebook:theme";
+const ACCENT_STORAGE_KEY = "knotebook:accent";
 
 function Probe() {
-  const { theme, resolvedTheme, setTheme } = useTheme();
+  const { theme, resolvedTheme, setTheme, accent, setAccent } = useTheme();
   return (
     <div>
       <span data-testid="theme">{theme}</span>
       <span data-testid="resolved">{resolvedTheme}</span>
+      <span data-testid="accent">{accent}</span>
       <button onClick={() => setTheme("dark")}>dark</button>
       <button onClick={() => setTheme("light")}>light</button>
       <button onClick={() => setTheme("system")}>system</button>
+      <button onClick={() => setAccent("teal")}>set-accent-teal</button>
     </div>
   );
 }
 
+interface InlineScriptResult {
+  dark: boolean;
+  /** 屬性字面值；防閃腳本對非法值不設屬性，此時為 null。 */
+  accent: string | null;
+}
+
 /** 把 index.html <head> 裡那段 pre-hydration 腳本抓出來，在 jsdom 裡以指定的
- * storage 值與 OS 偏好執行，回傳它是否判定為深色。 */
-function runInlineThemeScript(stored: string | null, prefersDark: boolean): boolean {
+ * storage 值與 OS 偏好執行，回傳它對 dark class 與 data-accent 屬性的判斷。
+ * accent／theme 兩段防閃邏輯同擠在同一個 <script> 內（見 index.html 註解），
+ * 這裡抓的是整段第一組 <script>...</script> 的原始碼。 */
+function runInlineThemeScript(
+  stored: string | null,
+  prefersDark: boolean,
+  storedAccent: string | null = null,
+): InlineScriptResult {
   const html = readFileSync(`${process.cwd()}/index.html`, "utf8");
   const head = html.slice(html.indexOf("<head>"), html.indexOf("</head>"));
   const source = head.slice(head.indexOf("<script>") + "<script>".length, head.indexOf("</script>"));
 
   document.documentElement.classList.remove("dark");
+  document.documentElement.removeAttribute("data-accent");
   window.localStorage.clear();
   if (stored !== null) window.localStorage.setItem(STORAGE_KEY, stored);
+  if (storedAccent !== null) window.localStorage.setItem(ACCENT_STORAGE_KEY, storedAccent);
   const originalMatchMedia = window.matchMedia;
   window.matchMedia = ((query: string) => ({ matches: prefersDark && query.includes("dark") })) as unknown as typeof window.matchMedia;
 
   try {
     new Function(source)();
-    return document.documentElement.classList.contains("dark");
+    return {
+      dark: document.documentElement.classList.contains("dark"),
+      accent: document.documentElement.getAttribute("data-accent"),
+    };
   } finally {
     window.matchMedia = originalMatchMedia;
     document.documentElement.classList.remove("dark");
+    document.documentElement.removeAttribute("data-accent");
   }
 }
 
-/** 同樣的輸入交給真正的 ThemeProvider，回傳它掛載後是否為深色。 */
-function renderThemeProvider(stored: string | null, prefersDark: boolean): boolean {
+/** 同樣的輸入交給真正的 ThemeProvider，回傳它掛載後對 dark class 與
+ * data-accent 屬性的判斷。ThemeProvider 恆設 data-accent（indigo 也設）——與
+ * 防閃腳本的「非法值不設屬性」不對稱，比對時不得直接比字面值，見呼叫端。 */
+function renderThemeProvider(
+  stored: string | null,
+  prefersDark: boolean,
+  storedAccent: string | null = null,
+): InlineScriptResult {
   document.documentElement.classList.remove("dark");
+  document.documentElement.removeAttribute("data-accent");
   window.localStorage.clear();
   if (stored !== null) window.localStorage.setItem(STORAGE_KEY, stored);
+  if (storedAccent !== null) window.localStorage.setItem(ACCENT_STORAGE_KEY, storedAccent);
   const originalMatchMedia = window.matchMedia;
   window.matchMedia = ((query: string) => ({
     matches: prefersDark && query.includes("dark"),
@@ -59,11 +88,13 @@ function renderThemeProvider(stored: string | null, prefersDark: boolean): boole
       </ThemeProvider>,
     );
     const dark = document.documentElement.classList.contains("dark");
+    const accent = document.documentElement.getAttribute("data-accent");
     view.unmount();
-    return dark;
+    return { dark, accent };
   } finally {
     window.matchMedia = originalMatchMedia;
     document.documentElement.classList.remove("dark");
+    document.documentElement.removeAttribute("data-accent");
   }
 }
 
@@ -71,11 +102,13 @@ describe("ThemeProvider / useTheme", () => {
   beforeEach(() => {
     window.localStorage.clear();
     document.documentElement.classList.remove("dark");
+    document.documentElement.removeAttribute("data-accent");
   });
 
   afterEach(() => {
     window.localStorage.clear();
     document.documentElement.classList.remove("dark");
+    document.documentElement.removeAttribute("data-accent");
   });
 
   it("defaults to 'system' and does not add .dark when the OS prefers light", () => {
@@ -199,8 +232,26 @@ describe("ThemeProvider / useTheme", () => {
     "pre-hydration 腳本對 storage 值 %o 的判斷與 ThemeProvider 等價（OS 深色與淺色各驗一次）",
     (stored) => {
       for (const prefersDark of [false, true]) {
-        expect(runInlineThemeScript(stored, prefersDark)).toBe(renderThemeProvider(stored, prefersDark));
+        expect(runInlineThemeScript(stored, prefersDark).dark).toBe(
+          renderThemeProvider(stored, prefersDark).dark,
+        );
       }
+    },
+  );
+
+  /**
+   * 主題色（accent）防閃的等價案：防閃腳本對非法值「不設屬性」（getAttribute
+   * 回 null），ThemeProvider 恆設屬性（indigo 也設）——兩者呈現同色是靠
+   * index.css 的 :root/.dark 基底 fallback＝indigo 值撐住，不是屬性字面相等。
+   * 唯一合法的比對法：兩邊都正規化成「屬性值 ?? "indigo"」再比較。
+   */
+  it.each([null, "", "indigo", "blue", "teal", "sage", "rose", "gold", "Teal", "cyan"])(
+    "pre-hydration 腳本對 accent storage 值 %o 的判斷與 ThemeProvider 等價（正規化後比對）",
+    (storedAccent) => {
+      const scriptResult = runInlineThemeScript(null, false, storedAccent);
+      const providerResult = renderThemeProvider(null, false, storedAccent);
+
+      expect(scriptResult.accent ?? "indigo").toBe(providerResult.accent ?? "indigo");
     },
   );
 
@@ -213,5 +264,60 @@ describe("ThemeProvider / useTheme", () => {
     expect(inlineScript).toContain(STORAGE_KEY);
     expect(inlineScript).toContain("prefers-color-scheme: dark");
     expect(inlineScript).toMatch(/classList\.(add|toggle)\(\s*"dark"/);
+    expect(inlineScript).toContain(ACCENT_STORAGE_KEY);
+    expect(inlineScript).toMatch(/setAttribute\(\s*"data-accent"/);
+  });
+
+  it("defaults accent to 'indigo' and sets data-accent on <html>", () => {
+    render(
+      <ThemeProvider>
+        <Probe />
+      </ThemeProvider>,
+    );
+
+    expect(screen.getByTestId("accent")).toHaveTextContent("indigo");
+    expect(document.documentElement.getAttribute("data-accent")).toBe("indigo");
+  });
+
+  it("reads a previously stored valid accent from localStorage on mount", () => {
+    window.localStorage.setItem(ACCENT_STORAGE_KEY, "teal");
+
+    render(
+      <ThemeProvider>
+        <Probe />
+      </ThemeProvider>,
+    );
+
+    expect(screen.getByTestId("accent")).toHaveTextContent("teal");
+    expect(document.documentElement.getAttribute("data-accent")).toBe("teal");
+  });
+
+  it("falls back to 'indigo' when the stored accent is not one of the six valid names", () => {
+    window.localStorage.setItem(ACCENT_STORAGE_KEY, "chartreuse");
+
+    render(
+      <ThemeProvider>
+        <Probe />
+      </ThemeProvider>,
+    );
+
+    expect(screen.getByTestId("accent")).toHaveTextContent("indigo");
+    expect(document.documentElement.getAttribute("data-accent")).toBe("indigo");
+  });
+
+  it("switching accent writes localStorage and updates data-accent on <html>", () => {
+    render(
+      <ThemeProvider>
+        <Probe />
+      </ThemeProvider>,
+    );
+
+    act(() => {
+      screen.getByText("set-accent-teal").click();
+    });
+
+    expect(window.localStorage.getItem(ACCENT_STORAGE_KEY)).toBe("teal");
+    expect(document.documentElement.getAttribute("data-accent")).toBe("teal");
+    expect(screen.getByTestId("accent")).toHaveTextContent("teal");
   });
 });

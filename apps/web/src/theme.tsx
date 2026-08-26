@@ -10,7 +10,12 @@ import {
 
 export type Theme = "light" | "dark" | "system";
 
+export const ACCENTS = ["indigo", "blue", "teal", "sage", "rose", "gold"] as const;
+
+export type Accent = (typeof ACCENTS)[number];
+
 const STORAGE_KEY = "knotebook:theme";
+const ACCENT_STORAGE_KEY = "knotebook:accent";
 
 interface ThemeContextValue {
   /** 使用者選擇的模式，含 'system'。 */
@@ -18,6 +23,9 @@ interface ThemeContextValue {
   /** 'system' 展開後實際套用的模式，供 UI 顯示目前是亮/暗。 */
   resolvedTheme: "light" | "dark";
   setTheme: (theme: Theme) => void;
+  /** 使用者選擇的主題色，六選一，預設 'indigo'。 */
+  accent: Accent;
+  setAccent: (accent: Accent) => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
@@ -40,6 +48,12 @@ function resolveTheme(theme: Theme): "light" | "dark" {
 function applyResolvedTheme(resolved: "light" | "dark"): void {
   if (typeof document === "undefined") return;
   document.documentElement.classList.toggle("dark", resolved === "dark");
+}
+
+function readStoredAccent(): Accent {
+  if (typeof window === "undefined") return "indigo";
+  const stored = window.localStorage.getItem(ACCENT_STORAGE_KEY);
+  return (ACCENTS as readonly string[]).includes(stored ?? "") ? (stored as Accent) : "indigo";
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
@@ -74,7 +88,25 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     window.localStorage.setItem(STORAGE_KEY, next);
   }, []);
 
-  const value = useMemo(() => ({ theme, resolvedTheme, setTheme }), [theme, resolvedTheme, setTheme]);
+  const [accent, setAccentState] = useState<Accent>(() => readStoredAccent());
+
+  // 屬性存在語意：恆設 data-accent（indigo 也設），與防閃腳本「非法值不設屬性」
+  // 不對稱——兩者在 indigo 情況下呈現同色（基底 fallback＝indigo 值），見 index.css
+  // 與防閃腳本上方註解。
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    document.documentElement.setAttribute("data-accent", accent);
+  }, [accent]);
+
+  const setAccent = useCallback((next: Accent) => {
+    setAccentState(next);
+    window.localStorage.setItem(ACCENT_STORAGE_KEY, next);
+  }, []);
+
+  const value = useMemo(
+    () => ({ theme, resolvedTheme, setTheme, accent, setAccent }),
+    [theme, resolvedTheme, setTheme, accent, setAccent],
+  );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
