@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import { canonicalNotePath, type BacklinkDto } from "@knotebook/shared";
 import i18n from "@/i18n";
-import { SIDEBAR_ROW_HEIGHT } from "@/components/ui/rows";
+import { BACKLINKS_SCROLL_ROW, SIDEBAR_ROW_HEIGHT } from "@/components/ui/rows";
 import { BacklinksSection } from "./BacklinksSection";
 
 interface FakeResponseInit {
@@ -182,13 +182,21 @@ describe("BacklinksSection", () => {
     expect(chipsContainer).toHaveClass("flex", "min-w-0", "flex-1", "overflow-x-scroll");
     expect(chipsContainer?.className).not.toContain("overflow-x-auto");
 
-    // 對齊補償：`mt-2.5`(10px) 必須等於 index.css 裡 `::-webkit-scrollbar` 的
-    // height，兩邊在這裡釘在一起——改捲軸粗細只改一邊會讓這一排歪掉。
-    // 讀 index.css 前先剝註解（比照 theme.scrollbar-guard.test.ts）：整段被註解
-    // 掉時不得還在註解文字裡命中。
-    expect(chipsContainer).toHaveClass("mt-2.5");
+    // 捲軸幾何整組走 ui/rows.ts 的常數（容器高＝列高＋捲軸、負邊距拉回、strip
+    // 專用 6px 捲軸＋1px thumb border）。缺任一個，chips 就不再與標籤共線、
+    // 或這一列被撐高。
+    expect(chipsContainer).toHaveClass(...BACKLINKS_SCROLL_ROW.split(" "), "items-center");
+    // 早期版本把補償寫成容器 `mt-2.5`（依賴全域 10px 捲軸），不得回退。
+    expect(chipsContainer?.className).not.toContain("mt-2.5");
+
+    // 幾何的另一半在 index.css：全域捲軸 10px，本 strip 的 `scrollbar-x-thin`
+    // 覆寫成 6px（`h-[42px]` 的 42＝36＋6 就是照這個算的）。兩邊在這裡釘在一起
+    // ——只改一邊會讓 chips 不再與標籤共線。讀檔前先剝註解（比照
+    // theme.scrollbar-guard.test.ts）：整段被註解掉時不得還在註解文字裡命中。
     const indexCss = readFileSync(`${process.cwd()}/src/index.css`, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
-    expect(indexCss).toMatch(/::-webkit-scrollbar\s*\{[^}]*height:\s*10px/);
+    expect(indexCss).toMatch(/(?<![\w.-])::-webkit-scrollbar\s*\{[^}]*height:\s*10px/);
+    expect(indexCss).toMatch(/\.scrollbar-x-thin::-webkit-scrollbar\s*\{[^}]*height:\s*6px/);
+    expect(indexCss).toMatch(/\.scrollbar-x-thin::-webkit-scrollbar-thumb\s*\{[^}]*border-width:\s*1px/);
     // 換行守衛：容器沒有 flex-wrap（預設 nowrap）且 chip 自己不被壓縮。
     expect(chipsContainer?.className).not.toContain("flex-wrap");
     expect(chip).toHaveClass("shrink-0", "whitespace-nowrap");
