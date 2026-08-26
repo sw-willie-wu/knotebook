@@ -9,6 +9,8 @@ import { UserMenu } from "./UserMenu";
 
 // PR3 主題色選擇器：六個 RadioItem 渲染／role=menuitemradio／aria-checked、
 // 點選→data-accent＋localStorage＋選單不關閉、鍵盤方向鍵移動焦點。
+// 本檔現在也涵蓋 #78（選中改點內勾——ItemIndicator 只在 checked 渲染 Check，
+// 與焦點態的 ring 是正交維度）與 #79（主題色群組補 aria-labelledby 可及名稱）。
 //
 // Harness（比照 SettingsModal.test.tsx／NoteMenu.test.tsx 既有寫法）：
 // QueryClientProvider＋MemoryRouter＋ThemeProvider＋i18n＋`/api/auth/me` stub；
@@ -151,5 +153,63 @@ describe("UserMenu 主題色選擇器（PR3）", () => {
 
     fireEvent.keyDown(radios[1], { key: "ArrowDown" });
     await waitFor(() => expect(document.activeElement).toBe(radios[2]));
+  });
+
+  // #78：選中態改成「點內打勾」（Radix ItemIndicator，checked 時才渲染），
+  // 焦點態的 ring 維持不動——見上方 data-[highlighted]:ring-foreground 那條。
+  // 案 A：選中點渲染 Check（svg），且 class 含 text-popover。
+  it("選中的色點在點內渲染 Check（svg），class 含 text-popover", async () => {
+    renderMenu();
+    await openMenu();
+
+    const indigo = screen.getByRole("menuitemradio", { name: "Indigo" });
+    const indigoSvg = indigo.querySelector("svg");
+    expect(indigoSvg).not.toBeNull();
+    expect(indigoSvg).toHaveClass("text-popover");
+  });
+
+  // 案 B：未選中的色點不渲染 svg——ItemIndicator unchecked 時 DOM 裡完全沒有
+  // 子元素，防「勾畫在所有點上」的假綠：這條如果誤把 svg 畫在每個點上會抓到。
+  it("未選中的色點不渲染 Check（svg 為 null）", async () => {
+    renderMenu();
+    await openMenu();
+
+    const teal = screen.getByRole("menuitemradio", { name: "Teal" });
+    expect(teal.querySelector("svg")).toBeNull();
+  });
+
+  // 案 C：切換選色後，勾跟著移動到新選中的色點（indigo → teal）。
+  it("切換選色後，勾跟著移動到新選中的色點", async () => {
+    renderMenu();
+    await openMenu();
+
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "Teal" }));
+    await waitFor(() => expect(document.documentElement.getAttribute("data-accent")).toBe("teal"));
+
+    expect(screen.getByRole("menuitemradio", { name: "Teal" }).querySelector("svg")).not.toBeNull();
+    expect(screen.getByRole("menuitemradio", { name: "Indigo" }).querySelector("svg")).toBeNull();
+  });
+
+  // 案 D（負向）：色點 class 不含 ring-ring（低對比選中 ring 已廢除），且含
+  // 置中用的 flex/items-center/justify-center 字面（置中是勾可見性的前提）。
+  it("色點 class 不含 ring-ring（低對比選中 ring 已廢除，改點內勾），且含置中用的 flex/items-center/justify-center", async () => {
+    renderMenu();
+    await openMenu();
+
+    for (const radio of screen.getAllByRole("menuitemradio")) {
+      expect(radio.className).not.toContain("ring-ring");
+      expect(radio.className).toContain("flex");
+      expect(radio.className).toContain("items-center");
+      expect(radio.className).toContain("justify-center");
+    }
+  });
+
+  // #79：主題色群組的可及名稱——RadioGroup 的 role=group 要能算出
+  // t("userMenu.accent") 這個名字，斷言不寫死英文字面。
+  it("主題色 RadioGroup 有可及名稱（aria-labelledby 指到「主題色」Label）", async () => {
+    renderMenu();
+    await openMenu();
+
+    expect(screen.getByRole("group", { name: i18n.t("userMenu.accent") })).toBeInTheDocument();
   });
 });
