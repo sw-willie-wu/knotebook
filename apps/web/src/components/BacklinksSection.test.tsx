@@ -157,7 +157,9 @@ describe("BacklinksSection", () => {
 
     const footerRoot = container.firstElementChild;
     expect(footerRoot).not.toBeNull();
-    expect(footerRoot).toHaveClass("shrink-0", "border-t", "border-border");
+    // `py-2` 與帳號列容器的 `p-2` 是等高的另一半（列高本身由 SIDEBAR_ROW_HEIGHT
+    // 管，見 ui/rows.ts）——這裡一起釘住，改成 py-3 之類會立刻紅。
+    expect(footerRoot).toHaveClass("shrink-0", "border-t", "border-border", "px-5", "py-2");
 
     const row = title.parentElement;
     expect(row).not.toBeNull();
@@ -166,6 +168,10 @@ describe("BacklinksSection", () => {
     const chip = screen.getByRole("link", { name: "Alpha" });
     const chipsContainer = chip.parentElement;
     expect(chipsContainer).not.toBeNull();
+    // **同一排的結構守衛**：chips 容器必須是標籤那一列的兄弟（同一個 flex row）。
+    // 少了這條，把 chips 容器搬到 row 外面變成第二行、class 一個都不用改，
+    // 下面的 class 斷言仍會全綠，但版面（與等高）已經壞了。
+    expect(chipsContainer?.parentElement).toBe(row);
     expect(chipsContainer).toHaveClass("flex", "min-w-0", "flex-1", "overflow-x-auto");
     // 換行守衛：容器沒有 flex-wrap（預設 nowrap）且 chip 自己不被壓縮。
     expect(chipsContainer?.className).not.toContain("flex-wrap");

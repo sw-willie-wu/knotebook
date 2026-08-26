@@ -16,7 +16,15 @@ import { SIDEBAR_ROW_HEIGHT } from "./rows";
  *   (b) 兩個檔案都 import 了這個常數
  *   (c) 兩個檔案都沒有自己寫死 `h-<數字>` 的列高（繞過常數的唯一寫法）
  *
- * 守不到的：把常數本身改成別的值——那會同時改兩邊，仍然等高，是合法操作。
+ * 守不到的（誠實邊界）：
+ *   - 把常數本身改成別的值——那會同時改兩邊，仍然等高，是合法操作。
+ *   - 兩邊容器的垂直內距（`p-2`／`py-2`）與上緣 `border-t`：那是等高的另一半，
+ *     由各自元件的 class 斷言守（`BacklinksSection.test.tsx` 的守衛案斷了
+ *     `px-5 py-2`；側欄那側是 `AppShell.tsx` 的 `p-2` 容器）。
+ *   - `cn()` 裡在常數之後再塞一個 `h-*`（twMerge 取後者）——(c) 會抓到寫死值，
+ *     但若那個值恰好與常數同值就無從分辨，也無害。
+ *   - 寫死的列高若剛好也配了同值的 `w-*`（如 `h-9 w-9`），(c) 會當成方形圖示
+ *     放過——這是為了不誤報 avatar／icon 尺寸付出的代價。
  */
 
 const ROW_HEIGHT_LITERAL = "h-9";
@@ -55,9 +63,15 @@ describe("側欄帳號列與 backlinks 列等高", () => {
   it("(c) 兩個消費端都沒有自己寫死列高 utility", () => {
     for (const { label, path } of CONSUMERS) {
       const code = stripComments(readSource(path));
-      // 只抓固定高度（h-9／h-10／h-[52px]…）；h-3/h-4 之類的 icon 尺寸與
-      // h-full/h-screen 不在此列，故限定「h- 後面接兩位數以上或方括號」。
-      const hardcoded = code.match(/\bh-(?:\d{2,}|\[[^\]]+\])/g) ?? [];
+      // 抓固定高度 `h-<數字>`／`h-[任意值]`，含一位數（h-8／h-9 正是最可能被
+      // 寫死的替代列高）。`(?<![\w-])` 排除 `max-h-*`／`min-h-*` 前綴——`\b` 在
+      // `max-h-` 的 `-h` 之間會成立，用它會把合法的 `max-h-48` 誤報成列高。
+      const heights = [...code.matchAll(/(?<![\w-])h-(\d+(?:\.\d+)?|\[[^\]]+\])/g)].map((m) => m[1]);
+      // 有成對 `w-<同值>` 的是方形（avatar、icon）不是列高，排除；列高只設 h。
+      const hardcoded = heights.filter((value) => {
+        const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        return !new RegExp(`(?<![\\w-])w-${escaped}(?![\\w.-])`).test(code);
+      });
       expect(hardcoded, `${label}（${path}）不得自己寫死列高，改用 SIDEBAR_ROW_HEIGHT`).toEqual([]);
     }
   });

@@ -10,6 +10,7 @@
  * - 內文卡 backlinks 列：`BacklinksSection.tsx` 的內層 flex 列
  *
  * 兩個容器的垂直內距（皆為 `p-2`／`py-2`）與上緣 `border-t` 也必須維持一致，
- * 這條常數只管內容列本身。`rows.equal-height.test.tsx` 釘住兩邊都有套用。
+ * 這條常數只管內容列本身。`rows.equal-height.test.ts` 釘住兩邊都有套用；內距
+ * 那一半由各元件自己的 class 斷言守（見該檔的「守不到的」段落）。
  */
 export const SIDEBAR_ROW_HEIGHT = "h-9";
