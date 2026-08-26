@@ -7,6 +7,10 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.3.0] - 2026-08-26
+
 ### Changed
 
 - Dark mode's palette is now a neutral dark grey with a slight cool tint, replacing the near-black default, and layered in three visible steps — page background darkest, cards a step lighter, floating surfaces (dialogs, toasts, the BlockNote slash menu/formatting toolbar/tooltips) lighter still — instead of cards and floating surfaces sharing one shade. BlockNote's editor surface and its floating menus now match this scale instead of showing their own built-in dark colors (#75).
