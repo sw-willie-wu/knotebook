@@ -61,9 +61,11 @@ describe("滾動條 @supports guard 結構", () => {
     const { inside, outside } = splitAtSupportsGuard(readIndexCssWithoutComments());
 
     // 基本組成都要在：底、track、thumb、thumb hover、corner。
-    // `(?<![\w.-])` 錨定「**無前置選擇器**的全域規則」：本檔另有 class 限定的
+    // `(?<![\w.-])` 排除「緊貼在 class／id／元素名後面」的形：index.css 另有
     // `.scrollbar-x-thin::-webkit-scrollbar{…}`（backlinks strip 的 6px 捲軸），
     // 未錨定的話那條會頂替全域規則命中——刪掉真正的全域宣告仍全綠（實測過）。
+    // 邊界：擋不住以空白分隔的後代選擇器形（`.card ::-webkit-scrollbar{…}`），
+    // 那不是自然會出現的寫法，不為它加複雜度。
     for (const selector of [
       /(?<![\w.-])::-webkit-scrollbar\s*\{/,
       /(?<![\w.-])::-webkit-scrollbar-track\s*\{/,

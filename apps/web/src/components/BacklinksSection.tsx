@@ -20,8 +20,9 @@ import { cn } from "@/lib/utils";
  * （見 index.css 的滾動條區塊），沒溢出時只是留白、看不到空軌道。
  *
  * **捲軸幾何**走 `ui/rows.ts` 的 `BACKLINKS_SCROLL_ROW`（容器高＝列高＋捲軸、負
- * 邊距把 margin box 拉回列高、strip 專用的 6px 捲軸與 1px thumb border；四個值
- * 互相咬合，理由與換算寫在該常數的註解）。
+ * 邊距把 margin box 拉回列高、strip 專用的 6px 捲軸與 1px thumb border；三個
+ * class token 互相咬合，理由與換算寫在該常數的註解）。此外 `items-center` 同樣
+ * 載重：少了它 flex 預設 stretch 會把 chip 撐成整個內容區高。
  *
  * 這組值算出來的版面（實測，headed Chromium）：容器 border box 42px、margin box
  * 36px＝列高（負邊距抵銷），內容區 42−6＝36px，chips 置中其中 → 中心落在容器頂
@@ -34,8 +35,9 @@ import { cn } from "@/lib/utils";
  * 偏上——兩點都在 PR #90 的審查實測中出現過。
  *
  * 捲軸落在 `py-2` 的留白裡，而**內文卡本身是 `overflow-hidden`**——捲軸底距卡片
- * 裁切邊只剩 2.0px，那 2px 就是全部餘裕：**`py-2` 一旦收成 `py-1.5` 捲軸就會被
- * 裁掉**（也別再給這一列自己加 `overflow-hidden`）。
+ * 裁切邊只剩 2.0px，那 2px 就是全部餘裕：收成 `py-1.5` 會一點餘裕都不剩（捲軸底
+ * 恰好貼齊裁切邊），再收成 `py-1` 就真的被裁掉（實測）。也別再給這一列自己加
+ * `overflow-hidden`。
  *
  * 已知殘差：Firefox 的 `scrollbar-width: thin` 固定 8px（不吃上面那條 6px 覆寫），
  * 內容區只剩 34、chips 中心 ＋17 → 比標籤**高**約 1px，肉眼無感；overlay 捲軸環境
