@@ -13,6 +13,8 @@ const renderMermaidMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/mermaid", () => ({
   renderMermaid: renderMermaidMock,
   nextMermaidId: () => "mermaid-test",
+  // 訊息碼要跟真模組同值：元件靠它分辨「我們擋下來的外部圖片」與「mermaid 的語法錯」。
+  BLOCKED_EXTERNAL_IMAGE: "blocked-external-image",
 }));
 
 const i18n = (await import("@/i18n")).default;
@@ -204,5 +206,24 @@ describe("MermaidView — 樣式載重", () => {
   it("外層帶 w-full（bn-block-content 是 flex 容器，沒宣告寬度整個 block 會被 shrink-wrap 成約 140px）", () => {
     const { container } = render(<MermaidView code="graph TD; A-->B;" editable theme="light" onChange={vi.fn()} />);
     expect(container.firstElementChild!.className).toContain("w-full");
+  });
+});
+
+describe("MermaidView — 擋下來的外部圖片", () => {
+  it("顯示的是「為什麼被擋、怎麼辦」，不是原始訊息碼", async () => {
+    renderMermaidMock.mockResolvedValue({ ok: false, message: "blocked-external-image" });
+    render(<MermaidView code={'graph TD; A@{ img: "https://evil.example/x.png" }'} editable theme="light" onChange={vi.fn()} />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("does not fetch remote resources");
+    expect(alert.textContent).not.toContain("blocked-external-image");
+  });
+
+  it("一樣同時顯示原始碼（使用者要改得回來）", async () => {
+    renderMermaidMock.mockResolvedValue({ ok: false, message: "blocked-external-image" });
+    const code = 'graph TD; A@{ img: "https://evil.example/x.png" }';
+    render(<MermaidView code={code} editable theme="light" onChange={vi.fn()} />);
+
+    expect(await screen.findByText(code)).toBeInTheDocument();
   });
 });

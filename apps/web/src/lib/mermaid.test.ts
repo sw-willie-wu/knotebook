@@ -17,7 +17,7 @@ vi.mock("mermaid", () => ({
   default: { render: renderMock, initialize: initializeMock, parse: parseMock },
 }));
 
-const { nextMermaidId, renderMermaid, resetMermaidForTests, stripExternalResources } = await import("./mermaid");
+const { BLOCKED_EXTERNAL_IMAGE, findBlockedImageUrl, nextMermaidId, renderMermaid, resetMermaidForTests, stripExternalResources } = await import("./mermaid");
 
 beforeEach(() => {
   renderMock.mockReset();
@@ -197,7 +197,7 @@ describe("stripExternalResources（外部資源不得被載入）", () => {
     expect(out).toContain("data:image/png");
   });
 
-  it("fail closed：SVG 解析失敗時不原樣放行，仍然清掉遠端參照", () => {
+  it("畸形 markup（沒加引號的屬性值、標籤沒收）也照樣清得掉", () => {
     const broken = '<svg xmlns="http://www.w3.org/2000/svg"><image href="https://evil.example/x.png"><style>#a{background:url(https://evil.example/y.png)}';
     const out = stripExternalResources(broken);
     expect(out).not.toContain("evil.example");
@@ -292,7 +292,7 @@ describe("stripExternalResources — 不得誤傷", () => {
 });
 
 describe("directive 鎖定（第 3 輪審查 I-A／I-B：輸出端清洗根本來不及）", () => {
-  it("secure 清單鎖住 themeCSS／htmlLabels／flowchart，且保留 mermaid 內建的六個", async () => {
+  it("secure 清單鎖住會注入 CSS／HTML 的鍵，且保留 mermaid 內建的六個", async () => {
     // 為什麼這條是**主**防線：`render()` 會把圖插進活的 document 做文字量測，
     // 瀏覽器當場套用 `<style>` 並發出請求——等我們拿到 SVG 字串再清洗，請求早就送出去了
     // （審查者用 Playwright 實測：渲染後完全不插進頁面，themeCSS 的 url() 照樣命中）。
@@ -310,9 +310,16 @@ describe("directive 鎖定（第 3 輪審查 I-A／I-B：輸出端清洗根本�
         "maxEdges",
         "themeCSS",
         "htmlLabels",
-        "flowchart",
+        // `fontFamily` 家族是第二條 CSS 注入：directive 的值會被複製進 themeVariables，
+        // 繞過那裡的字元集檢查，然後直接進 `:root{--mermaid-font-family:…}`（第 4 輪實測會連外）。
+        "fontFamily",
+        "altFontFamily",
+        "themeVariables",
       ]),
     );
+    // ⚠ **不該**鎖整個 `flowchart` 物件：sanitize 會遞迴，巢狀的 htmlLabels 已被涵蓋；
+    // 鎖住只會讓 `flowchart.curve` 這類合法 directive 被靜默忽略（第 4 輪 M-6）。
+    expect(config.secure).not.toContain("flowchart");
   });
 });
 
@@ -407,5 +414,96 @@ describe("stripExternalResources — 正常 CSS 不得被改壞（第 3 輪審�
     const out = stripExternalResources(css);
     expect(out).toContain("url(#arrowhead)");
     expect(out).toContain("url(#gradient)");
+  });
+});
+
+describe("findBlockedImageUrl — 圖片形狀（第 4 輪審查 I-2：secure 鎖不到圖表語法）", () => {
+  // `A@{ img: "http://…" }` 的實作是 `new Image(); img.src = …; await img.decode();`，
+  // 在 render() 內部就把圖抓下來了——跟 themeCSS 同一個根因，只能在送進 mermaid 之前攔。
+
+  it("外部圖片被指認出來", () => {
+    expect(findBlockedImageUrl('graph TD\n    A@{ img: "https://evil.example/x.png" } --> B')).toBe("https://evil.example/x.png");
+  });
+
+  it("同源／相對路徑（自家上傳）放行", () => {
+    expect(findBlockedImageUrl('graph TD\n    A@{ img: "/api/notes/n1/uploads/a.png", label: "ok" }')).toBeNull();
+  });
+
+  it("沒加引號的值也算", () => {
+    expect(findBlockedImageUrl("graph TD\n    A@{ img: http://evil.example/x.png }")).toBe("http://evil.example/x.png");
+  });
+
+  it("節點標籤裡剛好寫著 img: 的文字不算（判定收窄在 @{ } 內）", () => {
+    expect(findBlockedImageUrl('graph TD\n    A["img: https://example.com/not-a-shape.png"] --> B')).toBeNull();
+  });
+
+  it("沒有 metadata 的普通圖回 null", () => {
+    expect(findBlockedImageUrl("graph TD\n    A[Start] --> B[End]")).toBeNull();
+  });
+});
+
+describe("renderMermaid — 外部圖片 fail closed", () => {
+  it("有外部圖片時**不呼叫 render**，回傳訊息碼", async () => {
+    const result = await renderMermaid('graph TD\n    A@{ img: "https://evil.example/x.png" }', "light");
+
+    expect(result).toEqual({ ok: false, message: BLOCKED_EXTERNAL_IMAGE });
+    expect(renderMock).not.toHaveBeenCalled(); // render() 一跑圖就被抓下來了，攔截必須在它之前
+  });
+
+  it("先 parse 再檢查：語法錯的圖仍然回語法錯（順序不變）", async () => {
+    parseMock.mockRejectedValue(new Error("Parse error"));
+    const result = await renderMermaid('graph TD\n    A@{ img: "https://evil.example/x.png" } -->', "light");
+
+    expect(result).toEqual({ ok: false, message: "Parse error" });
+  });
+});
+
+describe("isSafeResourceUrl 的三條規則（第 4 輪審查 M-4：突變存活）", () => {
+  // 這三條都是載重規則，之前沒有任何測試守著——突變拿掉它們，47 條全綠。
+
+  it("值裡含反斜線一律不安全（`\\https://…` 在 WHATWG URL 下被當成同源路徑）", () => {
+    const out = stripExternalResources(
+      '<svg xmlns="http://www.w3.org/2000/svg"><style>#a{background:url("\\https://evil.example/x.png")}</style></svg>',
+    );
+    expect(out).not.toContain("evil.example");
+  });
+
+  it("同源比的是 origin 不是 host：同一台但不同 port 也要清掉", () => {
+    const otherPort = `${window.location.protocol}//${window.location.hostname}:9999/x.png`;
+    const out = stripExternalResources(`<svg xmlns="http://www.w3.org/2000/svg"><image href="${otherPort}"/></svg>`);
+    expect(out).not.toContain(":9999");
+  });
+
+  it("URL 解析不出來時 fail closed（不是放行）", () => {
+    // `http://[` 是 WHATWG URL parser 會丟例外的形。
+    const out = stripExternalResources('<svg xmlns="http://www.w3.org/2000/svg"><image href="http://["/></svg>');
+    expect(out).not.toContain("http://[");
+  });
+});
+
+describe("scrubCss 的三個 fail-open（第 4 輪審查 Minor #1／#2／#3）", () => {
+  it("括號沒配對時不得原樣放行（CSS 規範下 url-token 遇 EOF 仍成立，瀏覽器照樣連出去）", () => {
+    const out = stripExternalResources('<svg xmlns="http://www.w3.org/2000/svg"><style>#a{fill:red;background:url(https://evil.example/eof.png</style></svg>');
+    expect(out).not.toContain("evil.example");
+  });
+
+  it("被 HTML parser 提到 <head> 的 <style> 也要掃到", () => {
+    const out = stripExternalResources('<style>#zz{background:url(https://evil.example/head.png)}</style><svg xmlns="http://www.w3.org/2000/svg"><rect/></svg>');
+    expect(out).not.toContain("evil.example");
+  });
+
+  it("at-rule 名字被 escape 的 @import（`@\\69 mport`）", () => {
+    const out = stripExternalResources(
+      '<svg xmlns="http://www.w3.org/2000/svg"><style>@\\69 mport "https://evil.example/esc.css";</style></svg>',
+    );
+    expect(out).not.toContain("evil.example");
+  });
+
+  it("資源函式前面剛好是 `(` 時不吃掉外層括號", () => {
+    const out = stripExternalResources(
+      '<svg xmlns="http://www.w3.org/2000/svg"><style>#a{background:(url(https://evil.example/x.png))}</style></svg>',
+    );
+    expect(out).not.toContain("evil.example");
+    expect(out).toContain("(none)"); // 外層括號完整保留
   });
 });

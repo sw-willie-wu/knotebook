@@ -43,13 +43,20 @@ note actually draws a diagram. Opening notes that contain no diagrams costs noth
 application chunk.
 
 **Rendering happens in the browser**, in the reader's own tab. No diagram source is sent anywhere for
-rendering. A diagram *could* otherwise name external resources — Mermaid's `themeCSS` init directive
-takes arbitrary CSS, and turning `htmlLabels` back on allows HTML (and therefore `<img srcset>`)
-inside labels — and Mermaid's own sanitizer does not remove those. Knotebook locks those settings so a
-diagram cannot change them (see below), and filters the rendered SVG as a second layer: references it
-can resolve as same-origin, `data:` or in-document (`url(#arrowhead)`) are kept, anything else is
-dropped. Links a reader clicks (`click X href "https://…"`) are deliberately kept, marked
-`rel="noopener noreferrer"`: those need a deliberate click rather than firing when the note opens.
+rendering. A diagram *could* otherwise reach out on its own in three ways, none of which Mermaid's own
+sanitizer removes: an `%%{init: …}%%` directive supplying CSS (`themeCSS`, or a `fontFamily` that
+smuggles a declaration), the same directive turning `htmlLabels` back on so labels may contain HTML
+(and therefore `<img srcset>`), and the image node shape (`A@{ img: "https://…" }`), which Mermaid
+fetches while rendering. Knotebook closes all three: the config keys are locked against directives,
+a diagram naming a remote image is refused with an explanation instead of being drawn, and the
+rendered SVG is filtered as a second layer — references it can resolve as same-origin, `data:` or
+in-document (`url(#arrowhead)`) are kept, anything else is dropped. Links a reader clicks
+(`click X href "https://…"`) are deliberately kept, marked `rel="noopener noreferrer"`: those need a
+deliberate click rather than firing when the note opens.
+
+**Images in diagrams** therefore have to be same-origin: upload the image to the note and use the
+path Knotebook gives you. A diagram pointing at another site shows a message saying so, with its
+source still editable, rather than silently fetching.
 
 **Security posture.** Mermaid renders to SVG that Knotebook inserts into the page, so the rendering is
 locked down in four ways:
@@ -60,10 +67,16 @@ locked down in four ways:
   `%%{init: …}%%` directive, and the sanitizer above is what actually stops script from running.
 - Mermaid's `bindFunctions` is never called, so `click` directives inside a diagram never become real
   event handlers. A diagram cannot make anything happen when you click it.
-- `themeCSS`, `htmlLabels` and `flowchart` are added to Mermaid's `secure` list, so an `%%{init: …}%%`
-  directive inside a diagram cannot switch them on. This is the load-bearing one: Mermaid renders by
-  inserting the diagram into the live document to measure text, so a stylesheet it accepts is applied —
-  and fetched — before Knotebook ever sees the SVG string. Filtering the output cannot come first.
+- `themeCSS`, `htmlLabels`, `fontFamily`, `altFontFamily` and `themeVariables` are added to Mermaid's
+  `secure` list, so an `%%{init: …}%%` directive inside a diagram cannot switch them on. This is the
+  load-bearing one: Mermaid renders by inserting the diagram into the live document to measure text, so
+  a stylesheet it accepts is applied — and fetched — before Knotebook ever sees the SVG string.
+  Filtering the output cannot come first. (`flowchart` is deliberately *not* locked: Mermaid's sanitizer
+  recurses into nested objects, so `flowchart.htmlLabels` is already covered by the `htmlLabels` entry,
+  and locking the whole object would silently ignore legitimate directives like `flowchart.curve`.)
+- A diagram naming a remote image (`A@{ img: … }`) is refused before rendering. That one is diagram
+  syntax rather than config, so the `secure` list cannot reach it, and Mermaid fetches the image inside
+  `render()` — the same reason the output filter is too late for it.
 - Remote resource references are then filtered out of the rendered SVG as a second layer, so a diagram
   cannot turn every reader of a note into a request against a server of its author's choosing.
 

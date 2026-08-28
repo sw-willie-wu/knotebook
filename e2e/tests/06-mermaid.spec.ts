@@ -18,12 +18,17 @@ const PASTED_SOURCE = "```mermaid\ngraph LR\n    P[Pasted] --> Q[Diagram]\n```\n
 
 /** 只用來觀察「有沒有發出請求」的哨兵主機；`.invalid` 是保留 TLD，永遠解析不到。 */
 const BEACON_HOST = "beacon.invalid";
-/** 兩條 directive 攻擊面（themeCSS 的 CSS 資源、htmlLabels 打開後的 <img srcset>）寫在同一張圖裡。 */
+/**
+ * 三條 directive 攻擊面寫在同一張圖裡：themeCSS 的 CSS 資源、htmlLabels 打開後的
+ * `<img srcset>`、以及 `fontFamily` 夾帶宣告（第 4 輪審查實測 fontFamily 那條會連外）。
+ */
 const BEACON_DIAGRAM = [
-  `%%{init: {"themeCSS": "* { background: url(http://${BEACON_HOST}/css.png) }", "htmlLabels": true}}%%`,
+  `%%{init: {"themeCSS": "* { background: url(http://${BEACON_HOST}/css.png) }", "htmlLabels": true, "fontFamily": "monospace; background-image: url(http://${BEACON_HOST}/ff.png)"}}%%`,
   "graph TD",
   `    A["Start<img src='#' srcset='http://${BEACON_HOST}/label.png 1x'>"] --> B[End]`,
 ].join("\n");
+/** 圖片節點形狀：**不是 config**，`secure` 鎖不到，只能在送進 mermaid 之前擋。 */
+const BEACON_IMAGE_DIAGRAM = ["graph TD", `    A@{ img: "http://${BEACON_HOST}/shape.png" } --> B[End]`].join("\n");
 /** 目前筆記裡第一個 mermaid 圖的 svg。mermaid 產出的 svg 帶 `aria-roledescription`。 */
 function diagramLocator(page: Page) {
   return editorLocator(page).locator("svg[aria-roledescription]").first();
@@ -181,6 +186,37 @@ test("圖表的 init directive 不能讓瀏覽器對外部主機發請求", asyn
   // 圖照樣要畫得出來（directive 被忽略，不是整張圖失敗）。
   await expect(diagramLocator(page)).toBeVisible({ timeout: 20_000 });
   await expect(diagramLocator(page)).toContainText("Start");
+
+  expect(requested, `不該對 ${BEACON_HOST} 發任何請求`).toEqual([]);
+});
+
+test("引用外部圖片的圖表被擋下來（附說明），而且不發請求", async ({ page }) => {
+  // `A@{ img: "http://…" }` 是**圖表語法**不是 config，`secure` 清單管不到；mermaid 的
+  // imageSquare shape 在 `render()` 內部就 `new Image(); img.src = …` 把圖抓下來
+  // （第 4 輪審查真瀏覽器實測：跨源 HTTP 200，圖還照常畫出來，使用者看不出異狀）。
+  // 所以 `lib/mermaid.ts` 在 parse 之後、render 之前先擋掉。
+  const requested: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().includes(BEACON_HOST)) requested.push(request.url());
+  });
+
+  await loginAs(page, ADMIN.email, ADMIN.newPassword);
+  await createNote(page, `E2E mermaid image shape ${Date.now()}`);
+
+  const editor = editorLocator(page);
+  await editor.click();
+  await editor.pressSequentially("/diagram");
+  await page.getByText("Flowcharts and diagrams with Mermaid").click();
+
+  await page.getByRole("button", { name: "Edit diagram source" }).click();
+  const source = page.getByRole("textbox", { name: "Mermaid source" });
+  await source.fill(BEACON_IMAGE_DIAGRAM);
+  await source.press("Escape");
+
+  // 擋下來要說得出為什麼、原始碼也要留著（使用者改得回來）。
+  await expect(page.getByRole("alert")).toContainText("does not fetch remote resources");
+  await expect(editor).toContainText("shape.png");
+  await expect(diagramLocator(page)).toHaveCount(0);
 
   expect(requested, `不該對 ${BEACON_HOST} 發任何請求`).toEqual([]);
 });

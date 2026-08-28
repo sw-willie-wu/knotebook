@@ -1,6 +1,6 @@
 import { useEffect, useState, type JSX, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { renderMermaid, type MermaidRenderResult, type MermaidTheme } from "@/lib/mermaid";
+import { BLOCKED_EXTERNAL_IMAGE, renderMermaid, type MermaidRenderResult, type MermaidTheme } from "@/lib/mermaid";
 import { cn } from "@/lib/utils";
 
 export interface MermaidViewProps {
@@ -76,10 +76,12 @@ export function MermaidView({ code, editable, theme, onChange }: MermaidViewProp
     if (result.message === "") {
       return <p className="text-sm text-muted-foreground">{t("note.mermaid.empty")}</p>;
     }
+    // 引用外部圖片是我們主動擋下的，不是語法錯——訊息要說得出「為什麼」與「怎麼辦」。
+    const message = result.message === BLOCKED_EXTERNAL_IMAGE ? t("note.mermaid.blockedImage") : `${t("note.mermaid.error")}：${result.message}`;
     return (
       <div className="space-y-2">
         <p role="alert" className="text-sm text-destructive">
-          {t("note.mermaid.error")}：{result.message}
+          {message}
         </p>
         {/* 錯誤態**必須**同時顯示原始碼——只給一句錯誤訊息的話，使用者（尤其是 viewer）
             根本不知道圖裡寫了什麼，也就改不回來。 */}
@@ -144,7 +146,12 @@ export function MermaidView({ code, editable, theme, onChange }: MermaidViewProp
         <button
           type="button"
           aria-label={t("note.mermaid.editArea")}
-          onClick={startEditing}
+          // 圖裡可能有 `click X href` 產生的真連結（`<a>` 巢狀在 `<button>` 內不合法，
+          // 點下去會同時導航與進編輯態）。點在連結上就讓連結自己處理。
+          onClick={(event) => {
+            if ((event.target as Element).closest("a") !== null) return;
+            startEditing();
+          }}
           className={cn("block w-full cursor-text rounded-md border border-transparent p-2 text-left", "hover:border-input")}
         >
           {body}

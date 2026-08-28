@@ -72,10 +72,20 @@ const LOCKED_CONFIG_KEYS = [
   "maxTextSize",
   "suppressErrorRendering",
   "maxEdges",
-  // 我們補的三個
+  // 我們補的
   "themeCSS", // 任意 CSS → 渲染當下就會發出網路請求
   "htmlLabels", // 打開就能用 <img srcset>／<foreignObject> 裡的 HTML 拉外部資源
-  "flowchart", // htmlLabels 的舊位置也在這裡面
+  // ⚠ `fontFamily` 家族看起來人畜無害，其實是**第二條 CSS 注入**：`addDirective` 會在
+  // sanitize **之後**把 `directive.fontFamily` 複製進 `themeVariables.fontFamily`，繞過
+  // `themeVariables.*` 的字元集檢查；那個值接著直接進 `:root{--mermaid-font-family:…}`
+  // 與 `font-family:…`。第 4 輪審查真瀏覽器實測：
+  // `%%{init:{"fontFamily":"monospace; background-image: url(http://…)"}}%%` 會發出請求。
+  "fontFamily",
+  "altFontFamily",
+  "themeVariables",
+  // ⚠ 不要把整個 `flowchart` 鎖起來：mermaid 的 `sanitize()` 會**遞迴進物件**用同一份
+  // 清單，巢狀的 `flowchart.htmlLabels` 已經被上面的 `htmlLabels` 涵蓋（第 4 輪實測）。
+  // 鎖整個物件只會讓 `flowchart.curve`／`nodeSpacing` 這類**合法**的 directive 被靜默忽略。
 ] as const;
 
 /**
@@ -165,8 +175,21 @@ const CSS_RESOURCE_FN = /(?:^|[^\w-])(url|image-set|-webkit-image-set|cross-fade
 /** CSS escape（`\68` → `h`）與註解——**只用於判斷**，不寫回去（寫回去等於幫瀏覽器多解一層）。 */
 const CSS_ESCAPE = /\\([0-9a-fA-F]{1,6})[ \t\n]?/g;
 const CSS_COMMENT = /\/\*[\s\S]*?\*\//g;
-/** `@import`（也可能被寫成 escape 過的 `\40 import`）。 */
-const CSS_IMPORT = /(?:@|\\0{0,4}40[ \t]?)import[^;}]*;?/gi;
+/**
+ * `@import` 整條宣告。`@` 與 **at-rule 名字本身**都可能被 escape
+ * （`\40 import`、`@\69 mport`，兩形第 4 輪審查都實測會連出去），所以位移在
+ * **normalize 過的副本**上找，再回頭刪原字串的同一段。
+ */
+const CSS_IMPORT = /@import[^;}]*;?/gi;
+
+/** 在 normalize 副本上找 `@import` 的位移，回頭刪原字串。 */
+function removeCssImports(css: string): string {
+  const normalized = normalizeForJudgement(css);
+  if (normalized === css) return css.replace(CSS_IMPORT, "");
+  // 有 escape／註解時兩份字串長度不同，位移對不起來——這種 CSS 不是 mermaid 會產出的
+  // 形狀（它的 `<style>` 從不含 escape），一律整段清掉比留著猜安全。
+  return CSS_IMPORT.test(normalized) ? "" : css;
+}
 
 /** 從 `open`（`(` 的位置）開始找配對的 `)`，跳過引號內容。找不到回傳 -1。 */
 function findClosingParen(css: string, open: number): number {
@@ -200,13 +223,21 @@ function normalizeForJudgement(text: string): string {
  * `content:"\22 hi"` 這種正常 CSS 會被改壞（第 3 輪審查 M-3）。
  */
 function scrubCss(css: string): string {
-  let result = css.replace(CSS_IMPORT, "");
+  let result = removeCssImports(css);
   const replacements: { start: number; end: number }[] = [];
   CSS_RESOURCE_FN.lastIndex = 0;
   for (let match = CSS_RESOURCE_FN.exec(result); match !== null; match = CSS_RESOURCE_FN.exec(result)) {
-    const open = result.indexOf("(", match.index);
+    // `(` 就是整個 match 的最後一個字元。用 `indexOf` 找，會在「資源函式前面剛好是 `(`」時
+    // 抓到外層那個括號（`background:(url(https://…))` → 吃掉外層 `)`，括號不平衡）。
+    const open = match.index + match[0].length - 1;
+    const functionStart = open - match[1]!.length;
     const close = findClosingParen(result, open);
-    if (close === -1) break;
+    if (close === -1) {
+      // 括號沒配對：CSS 規範下 url-token 遇到 EOF 仍然成立，瀏覽器**照樣會連出去**
+      // （第 4 輪審查實測）。從這裡到結尾一律視為不安全，不能 fail-open。
+      replacements.push({ start: functionStart, end: result.length });
+      break;
+    }
     // 括號內**每一個**候選目標都要安全才留：`image-set("ok.png" 1x, "https://evil/x.png" 2x)`
     // 只看第一個就會被繞過。解析度單位（`1x`、`2dppx`）與型別提示不是資源，跳過。
     const targets = normalizeForJudgement(result.slice(open + 1, close)).match(/"[^"]*"|'[^']*'|[^\s,()]+/g) ?? [];
@@ -216,7 +247,7 @@ function scrubCss(css: string): string {
       if (/^(?:type|format)$/i.test(target)) return false;
       return !isSafeResourceUrl(target);
     });
-    if (unsafe) replacements.push({ start: result.indexOf(match[1]!, match.index), end: close + 1 });
+    if (unsafe) replacements.push({ start: functionStart, end: close + 1 });
     CSS_RESOURCE_FN.lastIndex = close;
   }
   for (const { start, end } of replacements.reverse()) {
@@ -238,7 +269,10 @@ export function stripExternalResources(svg: string): string {
   const parsed = new DOMParser().parseFromString(svg, "text/html");
   let changed = false;
 
-  for (const element of Array.from(parsed.body.querySelectorAll("*"))) {
+  // ⚠ 掃**整份文件**不是只掃 `body`：HTML parser 會把開頭的 `<style>`／`<link>` 提到
+  // `<head>`，只掃 body 等於靜默 fail-open（第 4 輪審查實測）。mermaid 的輸出一定以
+  // `<svg` 開頭所以目前不可達，但這支函式的契約不該依賴呼叫端的輸入形狀。
+  for (const element of Array.from(parsed.querySelectorAll("*"))) {
     const isLink = element.localName === "a";
     for (const attribute of Array.from(element.attributes)) {
       if (!LOADING_ATTRIBUTES.has(attribute.localName)) continue;
@@ -278,7 +312,39 @@ export function stripExternalResources(svg: string): string {
   }
 
   // 沒東西要拔就原樣回傳：沒必要重新序列化 mermaid 的輸出。
-  return changed ? parsed.body.innerHTML : svg;
+  return changed ? parsed.head.innerHTML + parsed.body.innerHTML : svg;
+}
+
+/**
+ * `renderMermaid` 用來表示「這張圖引用了外部圖片、我們拒絕畫」的訊息碼。
+ * 呼叫端（`MermaidView`）看到它就換成使用者看得懂的說明——這一層沒有 i18n。
+ */
+export const BLOCKED_EXTERNAL_IMAGE = "blocked-external-image";
+
+/** node metadata 區塊：`A@{ img: "…", label: "…" }`。 */
+const METADATA_BLOCK = /@\{([^}]*)\}/g;
+/** metadata 裡的 `img:` 欄位值。 */
+const METADATA_IMAGE_FIELD = /(?:^|[\s,{])img\s*:\s*("[^"]*"|'[^']*'|[^,}\s]+)/gi;
+
+/**
+ * 找出圖裡引用的外部圖片，回傳第一個（沒有就 `null`）。
+ *
+ * ⚠ **這條擋不到 `secure` 清單**：`A@{ img: "http://…" }` 是**圖表語法**不是 config，
+ * mermaid 的 `imageSquare` shape 實作是 `new Image(); img.src = node.img; await img.decode();`
+ * ——在 `render()` **內部**就把圖抓下來了（第 4 輪審查真瀏覽器實測：跨源 HTTP 200，圖還
+ * 照常畫出來，使用者看不出異狀）。跟 themeCSS 同一個根因：輸出端清洗永遠來不及，只能在
+ * 送進 mermaid **之前**攔。
+ *
+ * 判定收窄在 `@{ … }` metadata 區塊內，避免把節點標籤裡剛好寫著 `img:` 的文字誤判。
+ */
+export function findBlockedImageUrl(code: string): string | null {
+  for (const block of code.matchAll(METADATA_BLOCK)) {
+    for (const field of block[1]!.matchAll(METADATA_IMAGE_FIELD)) {
+      const url = field[1]!.replace(/^["']|["']$/g, "");
+      if (!isSafeResourceUrl(url)) return url;
+    }
+  }
+  return null;
 }
 
 /**
@@ -312,6 +378,11 @@ export async function renderMermaid(code: string, theme: MermaidTheme): Promise<
     // 這個 bug 單元測試抓不到（mermaid 在測試中被 mock 掉，副作用不會發生），
     // 是 2026-08-27 用瀏覽器實際看畫面才發現的。改動這段前請以 headed 瀏覽器複驗。
     await mermaid.parse(code);
+
+    // ⚠ 在 `render()` **之前**攔外部圖片——見 `findBlockedImageUrl` 的說明。
+    if (findBlockedImageUrl(code) !== null) {
+      return { ok: false, message: BLOCKED_EXTERNAL_IMAGE };
+    }
 
     // 回傳值裡的 `bindFunctions` 刻意不解構、不呼叫——見 `mermaidConfig` 的說明。
     const { svg } = await mermaid.render(nextMermaidId(), code);
