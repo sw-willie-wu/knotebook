@@ -21,6 +21,7 @@ import { YDOC_FRAGMENT } from "@knotebook/shared";
 import { useCreateNote, useNotes } from "@/api/notes";
 import { classifyMediaTransfer, type BlockedTransferReason, noteSchema } from "@/collab/schema";
 import { createMarkdownPasteHandler } from "@/collab/paste";
+import { useCollabUndoLifeline } from "@/collab/undo";
 import { buildSlashMenuItems } from "@/components/mermaid/slashMenu";
 import { blocknoteZhTW } from "@/i18n/blocknote-zh-TW";
 import { toast } from "@/components/ui/toast";
@@ -369,6 +370,14 @@ export function NoteEditorView({ editor, editable, theme, noteId, getItems, getS
   // 「身分不穩會被當成換元件、整個卸載重掛」的風險模型也適用在它身上，`useMemo` 讓這個
   // 不變量在原始碼層級直接可見，不必倚賴「反正它是模組層級函式」這個隱含事實。
   const aiToolbar = useMemo(() => AiToolbar, []);
+
+  // issue #97：共編的 undo/redo 生命線。`<BlockNoteView>` 會在 `editable` 翻面時把
+  // ProseMirror view 拆掉重掛，而 y-prosemirror 的 undo plugin 在 view 銷毀時會
+  // `undoManager.destroy()`、plugin state 卻沿用同一個（已解除訂閱的）manager——
+  // 不補這一條，`editable = roleCanEdit && synced` 一從 false 翻成 true，Ctrl+Z
+  // 就永久失效。掛在這裡（不是 `NoteEditor`）是因為**持有 `<BlockNoteView>` 的是
+  // 這個元件**，重掛時序也發生在這棵子樹裡。完整病灶與兩條觸發路徑見 `@/collab/undo`。
+  useCollabUndoLifeline(editor);
 
   return (
     <BlockNoteView

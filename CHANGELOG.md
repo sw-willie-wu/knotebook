@@ -20,6 +20,10 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 - The note's text column now scales with the window instead of stopping at a fixed 680px: it takes 85% of the scrolling area's width, between 680px and 1056px. Windows up to about 1100px wide keep the column they had — 680px is the floor, and a window narrower than that still gets a full-width column — while on wider screens the article grows with the card instead of sitting as a narrow strip between two large empty margins (#87).
 
+### Fixed
+
+- Undo works again in the editor. Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z and Ctrl/Cmd+Y did nothing at all — silently, with no error — on every note, in every browser. Notes are collaborative documents, so undo is handled by Yjs rather than by the editor's own history, and the piece of Yjs that records what you changed was being torn down and never reconnected the moment a note finished loading: it stopped listening before you could type your first character. Undo history is per note and only ever takes back your own edits, never a collaborator's. Redo works too, with one exception that is still open: if you undo all the way back to an empty note, redo cannot bring the text back (undo itself is fine, including undoing to empty) — see [Known limitations](docs/known-limitations.md) and #100 (#97).
+
 ## [0.3.1] - 2026-08-26
 
 ### Changed
