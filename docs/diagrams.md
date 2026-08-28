@@ -43,11 +43,12 @@ note actually draws a diagram. Opening notes that contain no diagrams costs noth
 application chunk.
 
 **Rendering happens in the browser**, in the reader's own tab. No diagram source is sent anywhere for
-rendering. A diagram *could* otherwise reach out on its own in three ways, none of which Mermaid's own
+rendering. A diagram *could* otherwise reach out on its own in four ways, none of which Mermaid's own
 sanitizer removes: an `%%{init: …}%%` directive supplying CSS (`themeCSS`, or a `fontFamily` that
 smuggles a declaration), the same directive turning `htmlLabels` back on so labels may contain HTML
-(and therefore `<img srcset>`), and the image node shape (`A@{ img: "https://…" }`), which Mermaid
-fetches while rendering. Knotebook closes all three: the config keys are locked against directives,
+(and therefore `<img srcset>`), the image node shape (`A@{ img: "https://…" }`), which Mermaid fetches
+while rendering, and diagram syntax that carries CSS of its own (`style X background-image:url(…)` or
+`classDef`, which some diagram types accept). Knotebook closes all three: the config keys are locked against directives,
 a diagram naming a remote image is refused with an explanation instead of being drawn, and the
 rendered SVG is filtered as a second layer — references it can resolve as same-origin, `data:` or
 in-document (`url(#arrowhead)`) are kept, anything else is dropped. Links a reader clicks
@@ -82,9 +83,13 @@ locked down in several layers:
   the output filter is too late for it. Knotebook does not try to find the URL by reading the diagram
   source (three attempts at that were each bypassed, and the last one could be made to hang the tab):
   instead, for the duration of a render, image loads that would leave this origin are pointed at a
-  blank pixel — both the `new Image()` Mermaid uses to measure the picture and the `href` it puts on
-  the SVG `<image>` element it inserts into the page. Renders are serialised so a blocked load is
-  always attributed to the diagram that caused it.
+  blank pixel, and remote references in the diagram's own CSS are dropped. That covers the four routes
+  Mermaid actually uses while rendering: the `new Image()` it uses to measure a picture, the `href` it
+  puts on the SVG `<image>` element it inserts into the page, the `style` attribute it writes onto SVG
+  nodes, and the `<style>` element it inserts into the SVG. Links a reader can click are explicitly not
+  treated as resources — they only load when clicked. Renders are serialised so a blocked load is
+  always attributed to the diagram that caused it, and a render that never finishes is cut off after 20
+  seconds so it cannot hold up every later diagram.
 - Remote resource references are then filtered out of the rendered SVG as a second layer, so a diagram
   cannot turn every reader of a note into a request against a server of its author's choosing.
 

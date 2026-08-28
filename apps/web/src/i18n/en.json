@@ -116,6 +116,8 @@
       "editArea": "Edit diagram source",
       "error": "Diagram error",
       "blockedImage": "This diagram loads an image from another site. Knotebook does not fetch remote resources for diagrams — upload the image to this note instead.",
+      "rendering": "Drawing diagram…",
+      "timeout": "This diagram took too long to draw and was stopped. Simplify it, or check whether it references something that cannot be loaded.",
       "sourceLabel": "Mermaid source",
       "slashTitle": "Diagram",
       "slashSubtext": "Flowcharts and diagrams with Mermaid",

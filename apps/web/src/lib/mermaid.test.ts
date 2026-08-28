@@ -17,7 +17,7 @@ vi.mock("mermaid", () => ({
   default: { render: renderMock, initialize: initializeMock, parse: parseMock },
 }));
 
-const { BLOCKED_EXTERNAL_IMAGE, nextMermaidId, renderMermaid, resetMermaidForTests, stripExternalResources } = await import("./mermaid");
+const { BLOCKED_EXTERNAL_IMAGE, RENDER_TIMED_OUT, nextMermaidId, renderMermaid, resetMermaidForTests, stripExternalResources } = await import("./mermaid");
 
 beforeEach(() => {
   renderMock.mockReset();
@@ -589,5 +589,180 @@ describe("renderMermaid — 圖片守衛", () => {
     expect((await first).ok).toBe(true); // 乾淨的那張不被隔壁連累
     expect(await second).toEqual({ ok: false, message: BLOCKED_EXTERNAL_IMAGE });
     expect(globalThis.Image).toBe(before); // 兩張都結束才還原
+  });
+});
+
+// ── 守衛的 DOM 那半（第 7 輪審查 I-3：整半邊零單元覆蓋、突變存活）─────────────
+//
+// 「把 `isSvgResource` 恆設為 false」＝ 整個 setAttribute 半邊拿掉，749 條全綠——
+// 而那半邊是 e2e 實測補上的、缺它擋不住。下面這組把每一條路各釘一顆。
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+const XLINK_NS = "http://www.w3.org/1999/xlink";
+
+/** 讓 mock 的 render 在守衛生效期間對 DOM 做一件事，並回傳它做完之後的觀察值。 */
+async function duringRender(action: (svg: SVGSVGElement) => void): Promise<Awaited<ReturnType<typeof renderMermaid>>> {
+  renderMock.mockImplementation(async () => {
+    action(document.createElementNS(SVG_NS, "svg"));
+    return { svg: "<svg></svg>" };
+  });
+  return renderMermaid("graph TD; A-->B;", "light");
+}
+
+describe("圖片守衛 — SVG 屬性（第 7 輪 I-3）", () => {
+  it("`<image href>` 的遠端網址被換成透明像素，並回報訊息碼", async () => {
+    let written = "";
+    const result = await duringRender((svg) => {
+      const image = document.createElementNS(SVG_NS, "image");
+      image.setAttribute("href", "https://evil.example/x.png");
+      svg.append(image);
+      written = image.getAttribute("href") ?? "";
+    });
+
+    expect(written).toContain("data:image/gif");
+    expect(result).toEqual({ ok: false, message: BLOCKED_EXTERNAL_IMAGE });
+  });
+
+  it("`xlink:href`（setAttributeNS）同樣攔得到", async () => {
+    let written = "";
+    const result = await duringRender((svg) => {
+      const use = document.createElementNS(SVG_NS, "use");
+      use.setAttributeNS(XLINK_NS, "xlink:href", "https://evil.example/x.svg");
+      svg.append(use);
+      written = use.getAttributeNS(XLINK_NS, "href") ?? "";
+    });
+
+    expect(written).toContain("data:image/gif");
+    expect(result.ok).toBe(false);
+  });
+
+  it("同源／相對路徑的 href 原樣寫入", async () => {
+    let written = "";
+    const result = await duringRender((svg) => {
+      const image = document.createElementNS(SVG_NS, "image");
+      image.setAttribute("href", "/api/notes/n1/uploads/a.png");
+      svg.append(image);
+      written = image.getAttribute("href") ?? "";
+    });
+
+    expect(written).toBe("/api/notes/n1/uploads/a.png");
+    expect(result.ok).toBe(true);
+  });
+
+  it("⚠ HTML 命名空間的 `<img src>` 不得被改寫（app 其他地方的圖片不能被誤傷）", async () => {
+    let written = "";
+    const result = await duringRender(() => {
+      const img = document.createElement("img");
+      img.setAttribute("src", "https://cdn.example/photo.png");
+      written = img.getAttribute("src") ?? "";
+    });
+
+    expect(written).toBe("https://cdn.example/photo.png");
+    expect(result.ok).toBe(true);
+  });
+
+  it("⚠ SVG `<a href>` 放行且不記錄（那是使用者主動點的連結，不是資源）", async () => {
+    // 第 7 輪審查實證：把它一起擋掉的話，任何有 `click X href` 的圖整張畫不出來，
+    // 而且顯示「這張圖引用了外部圖片」——同時打臉 docs／CHANGELOG 寫的「連結會保留」。
+    let written = "";
+    const result = await duringRender((svg) => {
+      const link = document.createElementNS(SVG_NS, "a");
+      link.setAttribute("href", "https://example.com/page");
+      svg.append(link);
+      written = link.getAttribute("href") ?? "";
+    });
+
+    expect(written).toBe("https://example.com/page");
+    expect(result.ok).toBe(true);
+  });
+});
+
+describe("圖片守衛 — CSS（第 7 輪 C-1：實證外洩）", () => {
+  it("SVG 元素的 `style` 屬性裡的遠端 url() 被清掉（state/block 圖的 `style X …`）", async () => {
+    let written = "";
+    const result = await duringRender((svg) => {
+      const rect = document.createElementNS(SVG_NS, "rect");
+      rect.setAttribute("style", "background-image:url(//beacon.invalid/st.png)");
+      svg.append(rect);
+      written = rect.getAttribute("style") ?? "";
+    });
+
+    expect(written).not.toContain("beacon.invalid");
+    expect(result).toEqual({ ok: false, message: BLOCKED_EXTERNAL_IMAGE });
+  });
+
+  it("⚠ 插進 DOM 的 `<style>` 元素也要洗（classDef 走這條，完全不經過 setAttribute）", async () => {
+    let written = "";
+    const result = await duringRender((svg) => {
+      const style = document.createElement("style");
+      style.textContent = "#a{background-image:url(//beacon.invalid/cd.png)}";
+      svg.insertBefore(style, null);
+      written = style.textContent ?? "";
+    });
+
+    expect(written).not.toContain("beacon.invalid");
+    expect(result).toEqual({ ok: false, message: BLOCKED_EXTERNAL_IMAGE });
+  });
+
+  it("appendChild 插入的 `<style>` 同樣要洗", async () => {
+    const result = await duringRender((svg) => {
+      const style = document.createElement("style");
+      style.textContent = "#a{background-image:url(//beacon.invalid/ac.png)}";
+      svg.appendChild(style);
+    });
+
+    expect(result).toEqual({ ok: false, message: BLOCKED_EXTERNAL_IMAGE });
+  });
+
+  it("正常的 CSS 與 `url(#id)` 原樣保留", async () => {
+    let written = "";
+    const result = await duringRender((svg) => {
+      const style = document.createElement("style");
+      style.textContent = "#a{marker-end:url(#arrowhead);fill:red}";
+      svg.appendChild(style);
+      written = style.textContent ?? "";
+    });
+
+    expect(written).toBe("#a{marker-end:url(#arrowhead);fill:red}");
+    expect(result.ok).toBe(true);
+  });
+});
+
+describe("圖片守衛 — 還原（第 7 輪 I-2）", () => {
+  it("成功後四支 DOM API 都還原", async () => {
+    const before = [Element.prototype.setAttribute, Element.prototype.setAttributeNS, Node.prototype.insertBefore, Node.prototype.appendChild];
+    renderMock.mockResolvedValue({ svg: "<svg></svg>" });
+
+    await renderMermaid("graph TD; A-->B;", "light");
+
+    expect([Element.prototype.setAttribute, Element.prototype.setAttributeNS, Node.prototype.insertBefore, Node.prototype.appendChild]).toEqual(before);
+  });
+
+  it("render 拋錯後也還原", async () => {
+    const before = Element.prototype.setAttribute;
+    renderMock.mockRejectedValue(new Error("render boom"));
+
+    await renderMermaid("graph TD; A-->B;", "light");
+
+    expect(Element.prototype.setAttribute).toBe(before);
+  });
+
+  it("⚠ render 永遠不 settle 時：逾時收尾、patch 還原、後面的圖不被卡住", async () => {
+    // 第 7 輪審查真瀏覽器實測：同源圖片 hang（伺服器重啟／斷線都會發生，不需要有人攻擊）
+    // 會讓 `finally` 永遠不跑 ⇒ 全 app 的 setAttribute 被我們永久接管、之後每張圖永遠排隊。
+    vi.useFakeTimers();
+    try {
+      const before = Element.prototype.setAttribute;
+      renderMock.mockImplementation(() => new Promise(() => {})); // 永遠不 settle
+
+      const pending = renderMermaid("graph TD; A-->B;", "light");
+      await vi.advanceTimersByTimeAsync(25_000);
+      const result = await pending;
+
+      expect(result).toEqual({ ok: false, message: RENDER_TIMED_OUT });
+      expect(Element.prototype.setAttribute).toBe(before);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

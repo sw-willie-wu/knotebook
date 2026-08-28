@@ -345,6 +345,8 @@ let activeImageRecorder: ((url: string) => void) | null = null;
 let originalImageConstructor: typeof Image | null = null;
 let originalSetAttribute: typeof Element.prototype.setAttribute | null = null;
 let originalSetAttributeNS: typeof Element.prototype.setAttributeNS | null = null;
+let originalInsertBefore: typeof Node.prototype.insertBefore | null = null;
+let originalAppendChild: typeof Node.prototype.appendChild | null = null;
 
 /**
  * mermaid 的 render 一次只跑一張。
@@ -352,8 +354,21 @@ let originalSetAttributeNS: typeof Element.prototype.setAttributeNS | null = nul
  * 除了上面的歸屬問題，mermaid 本身也是全域狀態（`initialize` 是全域設定、render 會往
  * `document.body` 插暫時容器做量測），並發本來就不是它設計的用法。前一張失敗不影響下一張。
  */
+/**
+ * 單張圖的 render 上限。⚠ 這不是效能調校，是**安全帶**：mermaid 的 `imageSquare` 會
+ * `await img.decode()`，同源圖片（我們放行的那些）若永遠不回應，`finally` 就永遠不跑
+ * ——全 app 的 `setAttribute` 會被我們的判斷永久接管，後面每一張圖也永遠排隊（第 7 輪
+ * 審查真瀏覽器實測：兩張圖 6 秒後都還 pending、patch 沒還原）。伺服器重啟或斷線時
+ * in-flight 的請求 hang 到瀏覽器逾時可達數分鐘，不需要有人刻意攻擊也會發生。
+ */
+const RENDER_TIMEOUT_MS = 20_000;
+/** 逾時的訊息碼。同 `BLOCKED_EXTERNAL_IMAGE`，由呼叫端換成人看得懂的說明。 */
+export const RENDER_TIMED_OUT = "render-timed-out";
+
 let renderQueue: Promise<unknown> = Promise.resolve();
 function enqueueRender<T>(task: () => Promise<T>): Promise<T> {
+  // 兩個 handler 都是 `task`：前一張成功或失敗都照樣輪到下一張。真正讓「前一張失敗不
+  // 影響下一張」成立的是下面那兩個吞掉結果的 noop——`renderQueue` 因此永遠不會 reject。
   const result = renderQueue.then(task, task);
   renderQueue = result.then(
     () => undefined,
@@ -377,85 +392,144 @@ function enqueueRender<T>(task: () => Promise<T>): Promise<T> {
  * 走訪 YAML 的循環 anchor 造成**分頁永久凍結**（第 6 輪審查真瀏覽器實證：那份原始碼一旦
  * 存進筆記，之後任何人開它都會凍住，連刪掉那個 block 都做不到）。
  *
- * 改成攔 `new Image()`：不必理解圖表語法，只認**實際要發出去的 URL**。非同源的 src 換成
- * 透明像素（不是丟錯——丟錯會讓 mermaid 整張圖失敗，錯誤訊息也對不上），並記錄下來，
- * 讓 `renderMermaid` 事後回報「這張圖引用了外部圖片」。
+ * 改成攔**實際要發出去的 URL**，不去理解圖表語法。mermaid 有四條路把資源送出去，
+ * 每一條都在 render 期間發生、都必須攔：
+ * 1. `new Image()` —— 量圖片尺寸用（`chunk-4HAMMTFA.mjs:2742-2744`）。
+ * 2. SVG 元素的 `href`／`src` 屬性 —— 圖被插進活的 document 量測時，`<image href>`／
+ *    `<use href>` 一進 DOM 瀏覽器就自己去抓。**第 6 輪只做 (1) 時 e2e 實測：訊息有出來、
+ *    請求照樣送出去 4 個。**
+ * 3. SVG 元素的 `style` 屬性 —— `stateDiagram-v2`／`block-beta` 的 `style X background-image:
+ *    url(//host/x.png)` 會落在這裡（第 7 輪審查真瀏覽器實證，四形；`//host` 是關鍵，帶
+ *    `http:` 會被 mermaid 的 `styles2Map` 以 `split(":")` 截掉）。
+ * 4. 插進 SVG 的 `<style>` 元素 —— `classDef` 那形走這條：`mermaid.core.mjs:1330-1332` 是
+ *    `document.createElement("style"); style1.innerHTML = rules; svg.insertBefore(style1, …)`，
+ *    **完全不經過 `setAttribute`**。第 7 輪實測：只補 (3) 的話 classDef 那形照樣外洩。
+ *
+ * 非同源的目標一律換成透明像素／清成 `none`（不是丟錯——丟錯會讓 mermaid 整張圖失敗，
+ * 錯誤訊息也對不上），並記錄下來讓 `renderMermaid` 回報訊息碼。
  *
  * 邊界（刻意接受）：
- * - 只涵蓋 `new Image()`。mermaid 若哪天改用 `fetch`／`<use href>`／CSS 拉資源，這一層看不到
- *   ——那是 #101（server 端 CSP）要收的結構性防線，`img-src 'self' data:` 一條就整類關掉。
- * - patch 期間（單張圖的 render，通常幾十毫秒）全域的 `new Image()` 都會經過這裡，但**只有
- *   非同源的 src 會被改寫**；app 內其他地方載入的是 DOM 的 `<img>` 元素，不走這個建構子。
+ * - `fetch`／`XMLHttpRequest`／`FontFace` 沒攔。mermaid 11.17.2 的圖表路徑不走它們，
+ *   但這是「我們追得到的入口」而不是「所有入口」——結構性的那道是 #101（server 端 CSP），
+ *   `img-src 'self' data:` 一條就把整類關掉。
+ * - patch 期間全域的 `setAttribute`／`insertBefore` 都會經過判斷，但**只對 SVG 命名空間的
+ *   元素生效**（app 其他地方是 HTML 命名空間，早退）；第 7 輪量過：120 節點的圖 render
+ *   期間 8090 次 `setAttribute`、命中 0 次，額外成本佔整張 render 的 0.03%。
+ * - render 逾時（`RENDER_TIMEOUT_MS`）是這一層的**安全帶**：一張圖的 render 若永遠不 settle
+ *   （同源圖片 hang、伺服器重啟…），`finally` 就永遠不跑，全 app 的 `setAttribute` 會被我們
+ *   的判斷永久接管、後面每一張圖也永遠排隊（第 7 輪實測）。
  */
-function beginImageGuard(record: (url: string) => void): () => void {
-  if (activeImageRecorder === null) {
-    originalImageConstructor = globalThis.Image;
-    const Original = originalImageConstructor;
-    // ⚠ **不能用 `class extends Image`**：jsdom 的 `Image` 建構子是 `return
-    // document.createElement("img")`，回傳物件會蓋掉 `this`，子類別的 accessor 因此
-    // 完全不生效（真瀏覽器可以，jsdom 不行 ⇒ 單元測試根本測不到這一層）。改成包住
-    // 建構子、在**實例**上定義 `src` 的 own accessor，兩邊行為一致。
-    const prototypeSrc = Object.getOwnPropertyDescriptor(globalThis.HTMLImageElement.prototype, "src");
-    const guarded = function GuardedImage(...args: ConstructorParameters<typeof Image>): HTMLImageElement {
-      const image = new Original(...args);
-      Object.defineProperty(image, "src", {
-        configurable: true,
-        enumerable: false,
-        get: () => prototypeSrc?.get?.call(image) as string,
-        set: (value: string) => {
-          if (isSafeResourceUrl(value)) {
-            prototypeSrc?.set?.call(image, value);
-            return;
-          }
-          activeImageRecorder?.(value);
-          prototypeSrc?.set?.call(image, TRANSPARENT_PIXEL);
-        },
-      });
-      return image;
-    };
-    guarded.prototype = Original.prototype; // `instanceof HTMLImageElement` 仍然成立
-    globalThis.Image = guarded as unknown as typeof Image;
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 
-    // ⚠ **第二條路，缺它擋不住**：mermaid 會把畫好的 SVG 插進**活的 document** 做量測，
-    // 圖片節點的 `<image href="http://…">` 元素一進 DOM 瀏覽器就自己去抓——這條完全不經過
-    // `new Image()`（第 6 輪修正後的 e2e 實測：訊息有出來、請求照樣送出去 4 個）。
-    // d3 的 `.append("image").attr("href", …)` 底層是 `setAttribute`，所以攔在這裡。
-    //
-    // 收窄到「**SVG 命名空間**元素的 href/src」：app 其他地方的 `<img>`／`<a>` 是 HTML
-    // 命名空間，不會被誤傷；而 patch 只在單張圖 render 的那幾十毫秒內有效。
-    originalSetAttribute = Element.prototype.setAttribute;
-    originalSetAttributeNS = Element.prototype.setAttributeNS;
-    const setAttribute = originalSetAttribute;
-    const setAttributeNS = originalSetAttributeNS;
-    function guardValue(element: Element, name: string, value: string): string {
-      const isSvgResource = element.namespaceURI === "http://www.w3.org/2000/svg" && /(^|:)(href|src)$/i.test(name);
-      if (!isSvgResource || isSafeResourceUrl(value)) return value;
-      activeImageRecorder?.(value);
-      return TRANSPARENT_PIXEL;
-    }
-    Element.prototype.setAttribute = function (name: string, value: string): void {
-      setAttribute.call(this, name, guardValue(this, name, value));
-    };
-    Element.prototype.setAttributeNS = function (namespace: string | null, name: string, value: string): void {
-      setAttributeNS.call(this, namespace, name, guardValue(this, name, value));
-    };
+/** 會自動抓資源的屬性名（含 `xlink:href` 這種帶前綴的形）。 */
+const RESOURCE_ATTRIBUTE = /(^|:)(href|src)$/i;
+
+/**
+ * 這個屬性值要不要改寫；回傳實際要寫進去的值。
+ *
+ * ⚠ SVG `<a href>` **放行且不記錄**：那是使用者主動點才會連出去的連結（mermaid 的
+ * `click X href "…"`），不是資源。第 7 輪審查實測：把它一起擋掉會讓**整張圖畫不出來**，
+ * 而且顯示的是「這張圖引用了外部圖片」——一張連 img 都沒有的圖，同時打臉 docs／CHANGELOG
+ * 明文寫的「連結會保留」。`rel="noopener noreferrer"` 由 `stripExternalResources` 補。
+ */
+function guardAttributeValue(element: Element, name: string, value: string): string {
+  if (typeof value !== "string" || element.namespaceURI !== SVG_NAMESPACE) return value;
+
+  if (element.localName === "a" && RESOURCE_ATTRIBUTE.test(name)) return value;
+
+  if (name.toLowerCase() === "style") {
+    const scrubbed = scrubCss(value);
+    if (scrubbed !== value) activeImageRecorder?.(value);
+    return scrubbed;
+  }
+
+  if (!RESOURCE_ATTRIBUTE.test(name) || isSafeResourceUrl(value)) return value;
+  activeImageRecorder?.(value);
+  return TRANSPARENT_PIXEL;
+}
+
+/** 要插進 DOM 的 `<style>` 元素先洗一遍（`classDef` 產生的規則走這條，不經過 setAttribute）。 */
+function guardInsertedNode<T extends Node>(node: T): T {
+  if (!(node instanceof Element) || node.localName !== "style") return node;
+  const css = node.textContent ?? "";
+  const scrubbed = scrubCss(css);
+  if (scrubbed !== css) {
+    activeImageRecorder?.(css);
+    node.textContent = scrubbed;
+  }
+  return node;
+}
+
+function beginImageGuard(record: (url: string) => void): () => void {
+  // ⚠ 這支**不可重入**：`new Image()` 沒有上下文可以歸屬到哪一張圖，所以 render 是
+  // 序列化的（`enqueueRender`）。真的巢狀進來要吵，不要留一個「看起來考慮過」的假象。
+  if (activeImageRecorder !== null) {
+    throw new Error("mermaid image guard is not re-entrant: renders are serialised");
   }
   activeImageRecorder = record;
 
+  originalImageConstructor = globalThis.Image;
+  const Original = originalImageConstructor;
+  // ⚠ **不能用 `class extends Image`**：jsdom 的 `Image` 建構子是 `return
+  // document.createElement("img")`，回傳物件會蓋掉 `this`，子類別的 accessor 因此
+  // 完全不生效（真瀏覽器可以、jsdom 不行 ⇒ 單元測試根本測不到這一層）。改成包住
+  // 建構子、在**實例**上定義 `src` 的 own accessor，兩邊行為一致。
+  const prototypeSrc = Object.getOwnPropertyDescriptor(globalThis.HTMLImageElement.prototype, "src");
+  const guarded = function GuardedImage(...args: ConstructorParameters<typeof Image>): HTMLImageElement {
+    const image = new Original(...args);
+    Object.defineProperty(image, "src", {
+      configurable: true,
+      enumerable: false,
+      get: () => prototypeSrc?.get?.call(image) as string,
+      set: (value: string) => {
+        if (isSafeResourceUrl(value)) {
+          prototypeSrc?.set?.call(image, value);
+          return;
+        }
+        activeImageRecorder?.(value);
+        prototypeSrc?.set?.call(image, TRANSPARENT_PIXEL);
+      },
+    });
+    return image;
+  };
+  guarded.prototype = Original.prototype; // `instanceof HTMLImageElement` 仍然成立
+  globalThis.Image = guarded as unknown as typeof Image;
+
+  originalSetAttribute = Element.prototype.setAttribute;
+  originalSetAttributeNS = Element.prototype.setAttributeNS;
+  originalInsertBefore = Node.prototype.insertBefore;
+  originalAppendChild = Node.prototype.appendChild;
+  const setAttribute = originalSetAttribute;
+  const setAttributeNS = originalSetAttributeNS;
+  const insertBefore = originalInsertBefore;
+  const appendChild = originalAppendChild;
+
+  Element.prototype.setAttribute = function (name: string, value: string): void {
+    setAttribute.call(this, name, guardAttributeValue(this, name, value));
+  };
+  Element.prototype.setAttributeNS = function (namespace: string | null, name: string, value: string): void {
+    setAttributeNS.call(this, namespace, name, guardAttributeValue(this, name, value));
+  };
+  Node.prototype.insertBefore = function <T extends Node>(node: T, child: Node | null): T {
+    return insertBefore.call(this, guardInsertedNode(node), child) as T;
+  };
+  Node.prototype.appendChild = function <T extends Node>(node: T): T {
+    return appendChild.call(this, guardInsertedNode(node)) as T;
+  };
+
   return () => {
+    if (activeImageRecorder !== record) return; // 冪等：重複呼叫不做事
     activeImageRecorder = null;
-    if (originalImageConstructor !== null) {
-      globalThis.Image = originalImageConstructor;
-      originalImageConstructor = null;
-    }
-    if (originalSetAttribute !== null) {
-      Element.prototype.setAttribute = originalSetAttribute;
-      originalSetAttribute = null;
-    }
-    if (originalSetAttributeNS !== null) {
-      Element.prototype.setAttributeNS = originalSetAttributeNS;
-      originalSetAttributeNS = null;
-    }
+    if (originalImageConstructor !== null) globalThis.Image = originalImageConstructor;
+    if (originalSetAttribute !== null) Element.prototype.setAttribute = originalSetAttribute;
+    if (originalSetAttributeNS !== null) Element.prototype.setAttributeNS = originalSetAttributeNS;
+    if (originalInsertBefore !== null) Node.prototype.insertBefore = originalInsertBefore;
+    if (originalAppendChild !== null) Node.prototype.appendChild = originalAppendChild;
+    originalImageConstructor = null;
+    originalSetAttribute = null;
+    originalSetAttributeNS = null;
+    originalInsertBefore = null;
+    originalAppendChild = null;
   };
 }
 
@@ -498,10 +572,16 @@ export async function renderMermaid(code: string, theme: MermaidTheme): Promise<
       const releaseImageGuard = beginImageGuard((url) => {
         blockedImage ??= url;
       });
+      let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         // 回傳值裡的 `bindFunctions` 刻意不解構、不呼叫——見 `mermaidConfig` 的說明。
-        return (await mermaid.render(nextMermaidId(), code)).svg;
+        const render = mermaid.render(nextMermaidId(), code).then((result) => result.svg);
+        const timeout = new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => reject(new Error(RENDER_TIMED_OUT)), RENDER_TIMEOUT_MS);
+        });
+        return await Promise.race([render, timeout]);
       } finally {
+        clearTimeout(timer);
         releaseImageGuard();
       }
     });

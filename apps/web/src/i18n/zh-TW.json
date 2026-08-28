@@ -116,6 +116,8 @@
       "editArea": "編輯圖表原始碼",
       "error": "圖表語法錯誤",
       "blockedImage": "這張圖引用了外部網站的圖片。Knotebook 不會為圖表抓取外部資源——請改成上傳圖片到這篇筆記。",
+      "rendering": "繪製中…",
+      "timeout": "這張圖畫太久，已經中止。請簡化圖表，或檢查它是不是引用了載不到的東西。",
       "sourceLabel": "Mermaid 原始碼",
       "slashTitle": "圖表",
       "slashSubtext": "用 Mermaid 畫流程圖與各種圖表",
