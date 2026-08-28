@@ -16,6 +16,14 @@ import { ADMIN, createNote, editorLocator, loginAs } from "./helpers.js";
 const DIAGRAM_SOURCE = "graph TD\n    A[Start] --> B[End]";
 const PASTED_SOURCE = "```mermaid\ngraph LR\n    P[Pasted] --> Q[Diagram]\n```\n";
 
+/** 只用來觀察「有沒有發出請求」的哨兵主機；`.invalid` 是保留 TLD，永遠解析不到。 */
+const BEACON_HOST = "beacon.invalid";
+/** 兩條 directive 攻擊面（themeCSS 的 CSS 資源、htmlLabels 打開後的 <img srcset>）寫在同一張圖裡。 */
+const BEACON_DIAGRAM = [
+  `%%{init: {"themeCSS": "* { background: url(http://${BEACON_HOST}/css.png) }", "htmlLabels": true}}%%`,
+  "graph TD",
+  `    A["Start<img src='#' srcset='http://${BEACON_HOST}/label.png 1x'>"] --> B[End]`,
+].join("\n");
 /** 目前筆記裡第一個 mermaid 圖的 svg。mermaid 產出的 svg 帶 `aria-roledescription`。 */
 function diagramLocator(page: Page) {
   return editorLocator(page).locator("svg[aria-roledescription]").first();
@@ -144,4 +152,35 @@ test("貼上帶 text/html 的 ```mermaid（從 GitHub README／AI 對話複製�
   await expect(diagramLocator(page)).toBeVisible({ timeout: 20_000 });
   await expect(diagramLocator(page)).toContainText("Html");
   await expect(editor.locator("pre code")).toHaveCount(0);
+});
+
+test("圖表的 init directive 不能讓瀏覽器對外部主機發請求", async ({ page }) => {
+  // ⚠ 這條**只有真瀏覽器驗得到**，而且是三輪審查裡最重要的一條（第 3 輪 I-A／I-B）：
+  // `mermaid.render()` 會把圖（含 `<style>`）插進活的 document 做文字量測，瀏覽器當場
+  // 套用 CSS 並發出請求——輸出端再怎麼清洗都**來不及**（審查者實測：渲染後完全不把 SVG
+  // 插進頁面，themeCSS 裡的 url() 照樣命中）。擋得住的是 `lib/mermaid.ts` 的 `secure`
+  // 鎖定清單：themeCSS／htmlLabels／flowchart 不接受圖裡的 directive 覆寫。
+  const requested: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().includes(BEACON_HOST)) requested.push(request.url());
+  });
+
+  await loginAs(page, ADMIN.email, ADMIN.newPassword);
+  await createNote(page, `E2E mermaid beacon ${Date.now()}`);
+
+  const editor = editorLocator(page);
+  await editor.click();
+  await editor.pressSequentially("/diagram");
+  await page.getByText("Flowcharts and diagrams with Mermaid").click();
+
+  await page.getByRole("button", { name: "Edit diagram source" }).click();
+  const source = page.getByRole("textbox", { name: "Mermaid source" });
+  await source.fill(BEACON_DIAGRAM);
+  await source.press("Escape");
+
+  // 圖照樣要畫得出來（directive 被忽略，不是整張圖失敗）。
+  await expect(diagramLocator(page)).toBeVisible({ timeout: 20_000 });
+  await expect(diagramLocator(page)).toContainText("Start");
+
+  expect(requested, `不該對 ${BEACON_HOST} 發任何請求`).toEqual([]);
 });
