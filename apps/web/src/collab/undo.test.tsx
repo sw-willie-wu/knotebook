@@ -96,10 +96,10 @@ describe("共編 undo/redo 生命線（issue #97）", () => {
   it("editable 從 false 翻成 true（等同 synced 完成）之後，undo 仍然能復原剛打的字", () => {
     const { editor } = collabEditor();
     const { rerender } = render(
-      <NoteEditorView editor={editor} editable={false} theme="light" noteId="note-1" getItems={getItems} />,
+      <NoteEditorView editor={editor} editable={false} theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />,
     );
     // ← 這一行就是 `NotePage` 的 `editable = roleCanEdit && synced` 在 synced 抵達時做的事。
-    rerender(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} />);
+    rerender(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />);
 
     type(editor, "hello world");
     expect(firstBlockText(editor)).toBe("hello world");
@@ -114,9 +114,9 @@ describe("共編 undo/redo 生命線（issue #97）", () => {
   it("editable 翻面之後 redo 也回得來（Ctrl+Shift+Z／Ctrl+Y 走的是同一個 UndoManager）", () => {
     const { editor } = collabEditor();
     const { rerender } = render(
-      <NoteEditorView editor={editor} editable={false} theme="light" noteId="note-1" getItems={getItems} />,
+      <NoteEditorView editor={editor} editable={false} theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />,
     );
-    rerender(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} />);
+    rerender(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />);
 
     type(editor, "hello world");
     act(() => {
@@ -135,7 +135,7 @@ describe("共編 undo/redo 生命線（issue #97）", () => {
     const { editor } = collabEditor();
     render(
       <StrictMode>
-        <NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} />
+        <NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />
       </StrictMode>,
     );
 
@@ -150,7 +150,7 @@ describe("共編 undo/redo 生命線（issue #97）", () => {
   it("不變量：view 重掛之後，UndoManager 仍然訂閱著它的 Y.Doc", () => {
     const { doc, editor } = collabEditor();
     const { rerender } = render(
-      <NoteEditorView editor={editor} editable={false} theme="light" noteId="note-1" getItems={getItems} />,
+      <NoteEditorView editor={editor} editable={false} theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />,
     );
     const manager = collabUndoManager(editor);
     // 先釘住「找得到 manager」本身——BlockNote 換掉 `yUndo` extension 的形狀時，
@@ -158,7 +158,7 @@ describe("共編 undo/redo 生命線（issue #97）", () => {
     expect(manager).toBeDefined();
     expect(isSubscribed(doc, manager!)).toBe(true);
 
-    rerender(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} />);
+    rerender(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />);
 
     expect(isSubscribed(doc, manager!)).toBe(true);
     // 而且是**同一個** manager（不是偷偷重建一個新的——重建會丟掉重掛前的歷史）。
@@ -168,15 +168,15 @@ describe("共編 undo/redo 生命線（issue #97）", () => {
   it("重掛保留歷史：重掛前後各打一次字，兩次 Ctrl+Z 逐格倒回去（不是重建一個空的 UndoManager）", () => {
     const { editor } = collabEditor();
     const { rerender } = render(
-      <NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} />,
+      <NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />,
     );
     type(editor, "before");
     // `captureTimeout` 預設 500ms 會把相鄰的改動併成同一格；停止捕捉，確保兩次輸入
     // 分屬兩個 stack item，下面「兩次 undo」才真的在測兩格歷史。
     collabUndoManager(editor)!.stopCapturing();
 
-    rerender(<NoteEditorView editor={editor} editable={false} theme="light" noteId="note-1" getItems={getItems} />);
-    rerender(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} />);
+    rerender(<NoteEditorView editor={editor} editable={false} theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />);
+    rerender(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />);
 
     type(editor, "before / after");
     act(() => {
@@ -195,7 +195,7 @@ describe("共編 undo/redo 生命線（issue #97）", () => {
   it("換筆記不串味：新的 Y.Doc/editor 有自己的空 undo 歷史，undo 不會動到別篇的內容", () => {
     const { editor: first } = collabEditor();
     const { unmount } = render(
-      <NoteEditorView editor={first} editable theme="light" noteId="note-1" getItems={getItems} />,
+      <NoteEditorView editor={first} editable theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />,
     );
     type(first, "note one");
     unmount();
@@ -203,7 +203,7 @@ describe("共編 undo/redo 生命線（issue #97）", () => {
     // `useCollab` 換筆記時會另開一份 Y.Doc/provider，`useCreateBlockNote([doc, provider])`
     // 因此建出全新的 editor——這裡照樣重現那個形狀。
     const { editor: second } = collabEditor();
-    render(<NoteEditorView editor={second} editable theme="light" noteId="note-2" getItems={getItems} />);
+    render(<NoteEditorView editor={second} editable theme="light" noteId="note-2" getItems={getItems} getSlashItems={getItems} />);
 
     expect(collabUndoManager(second)).not.toBe(collabUndoManager(first));
     expect(collabUndoManager(second)!.undoStack).toHaveLength(0);

@@ -186,11 +186,34 @@ describe("decideMarkdownPaste", () => {
   });
 });
 
+/** `fakeEditor` 用得到的 block 形狀（BlockNote 的真型別泛型太深）。 */
+interface FakeBlock {
+  id: string;
+  type: string;
+  props?: Record<string, unknown>;
+  content?: unknown;
+}
+
 describe("createMarkdownPasteHandler", () => {
-  function fakeEditor({ inCodeBlock = false, throwOnTransact = false, throwOnPaste = false } = {}) {
-    return {
+  /**
+   * `documentAfterInsert` 是 issue #94 的關鍵：貼上**插完之後**文件長什麼樣。
+   * 沒有它，`collectBlockIds(editor.document)` 會拋、`convertMermaid()` 靜默退化成 no-op
+   * ——把 `paste.ts` 的兩個 `convertMermaid()` 呼叫整個刪掉，測試也不會紅（2026-08-28
+   * 審查實測：兩個突變都存活）。
+   */
+  function fakeEditor({
+    inCodeBlock = false,
+    throwOnTransact = false,
+    throwOnPaste = false,
+    documentBefore = [] as FakeBlock[],
+    documentAfterInsert = null as FakeBlock[] | null,
+  } = {}) {
+    const editor = {
+      document: documentBefore,
+      replaceBlocks: vi.fn(),
       pasteMarkdown: vi.fn(() => {
         if (throwOnPaste) throw new Error("paste boom");
+        if (documentAfterInsert !== null) editor.document = documentAfterInsert;
       }),
       transact: vi.fn(<T,>(callback: (tr: never) => T): T => {
         if (throwOnTransact) throw new Error("transact boom");
@@ -199,6 +222,12 @@ describe("createMarkdownPasteHandler", () => {
         return callback({ selection: { $from: resolved, $to: resolved } } as never);
       }),
     };
+    return editor;
+  }
+
+  /** BlockNote 兩條貼上路徑產出的 mermaid code block 形狀。 */
+  function mermaidCodeBlock(id: string, code: string): FakeBlock {
+    return { id, type: "codeBlock", props: { language: "mermaid" }, content: [{ type: "text", text: code }] };
   }
 
   function pasteEvent(data: Record<string, string>): ClipboardEvent {
@@ -336,5 +365,62 @@ describe("createMarkdownPasteHandler", () => {
 
     expect(defaultPasteHandler).not.toHaveBeenCalled();
     expect(handled).toBe(true);
+  });
+
+  // ── issue #94：貼上的 ```mermaid 轉成圖 ─────────────────────────────────
+  //
+  // 兩條插入出口各有一個 `convertMermaid()`，**兩個都要有測試**：審查者實測把任一個刪掉，
+  // 693 條全綠（e2e 也只覆蓋 markdown 那條）。預設流程那條正是 `docs/diagrams.md` 主打的
+  // 情境——從 AI 對話／GitHub README 複製，剪貼簿同時帶 text/plain 與 text/html。
+
+  it("markdown 路徑：這次插入的 ```mermaid code block 被轉成 mermaid block", () => {
+    const editor = fakeEditor({
+      documentBefore: [{ id: "old", type: "paragraph" }],
+      documentAfterInsert: [{ id: "old", type: "paragraph" }, mermaidCodeBlock("new", "graph TD; A-->B;")],
+    });
+
+    createMarkdownPasteHandler()({
+      event: pasteEvent({ "text/plain": "# 標題\n\n```mermaid\ngraph TD; A-->B;\n```\n" }),
+      editor: editor as never,
+      defaultPasteHandler: vi.fn(() => true),
+    });
+
+    expect(editor.replaceBlocks).toHaveBeenCalledWith(["new"], [{ type: "mermaid", props: { code: "graph TD; A-->B;" } }]);
+  });
+
+  it("預設流程路徑（剪貼簿帶 text/html 的單一 code block）：一樣會轉", () => {
+    const editor = fakeEditor({ documentBefore: [{ id: "old", type: "paragraph" }] });
+    const defaultPasteHandler = vi.fn(() => {
+      editor.document = [{ id: "old", type: "paragraph" }, mermaidCodeBlock("new", "graph LR; P-->Q;")];
+      return true;
+    });
+
+    createMarkdownPasteHandler()({
+      event: pasteEvent({
+        "text/plain": "graph LR; P-->Q;",
+        "text/html": '<pre><code class="language-mermaid">graph LR; P-->Q;</code></pre>',
+      }),
+      editor: editor as never,
+      defaultPasteHandler,
+    });
+
+    expect(defaultPasteHandler).toHaveBeenCalledTimes(1);
+    expect(editor.replaceBlocks).toHaveBeenCalledWith(["new"], [{ type: "mermaid", props: { code: "graph LR; P-->Q;" } }]);
+  });
+
+  it("貼上前就存在的 mermaid code block 不會被轉（使用者刻意留成程式碼的那些）", () => {
+    const before: FakeBlock[] = [{ id: "old", type: "paragraph" }, mermaidCodeBlock("kept", "graph TD; K-->K;")];
+    const editor = fakeEditor({
+      documentBefore: before,
+      documentAfterInsert: [...before, { id: "new", type: "paragraph", content: [{ type: "text", text: "hi" }] }],
+    });
+
+    createMarkdownPasteHandler()({
+      event: pasteEvent({ "text/plain": MD_CRLF }),
+      editor: editor as never,
+      defaultPasteHandler: vi.fn(() => true),
+    });
+
+    expect(editor.replaceBlocks).not.toHaveBeenCalled();
   });
 });

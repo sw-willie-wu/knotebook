@@ -303,3 +303,25 @@ body {
   --bn-colors-side-menu: var(--color-muted-foreground);
   --bn-colors-shadow: oklch(0.172 0.007 258.4 / 60%); /* 用於 --bn-shadow-medium */
 }
+
+/* block 被選取時的外框（node selection）。BlockNote 內建是寫死的
+   `.bn-block-content.ProseMirror-selectednode > * { outline: 4px solid #64a0ff }`
+   ——那個藍不吃我們的主題色，圖片、檔案、mermaid 圖一大就整塊被亮藍圈住。這裡把
+   **所有** block 統一換成主題色（`--color-brand`，跟著使用者選的莫蘭迪主題色走）的
+   細框；外框本身不能拿掉，那是「這個 block 現在被選取」的唯一提示（此時按 Delete
+   會刪掉整塊）。`border-radius: 4px` 沿用內建那條，不重複宣告。
+
+   ⚠ `.bn-editor` 這個祖先錨點不得拿掉：BlockNote 的 CSS 在 NotePage lazy chunk，
+   載入順序必晚於本檔，同 specificity 我們必輸（同 `.dark .bn-root[data-color-scheme]`
+   那段的理由）。內建那兩條是 (0,2,0)，靠 `.bn-editor` 墊到 (0,3,0) 才蓋得掉——
+   `bn-editor` 是 ProseMirror 可編輯元素本身的 class（BlockNote 的 editorProps 掛的），
+   所有 block content 都在它底下。兩種形都要寫：`ProseMirror-selectednode` 可能落在
+   `.bn-block-content` 自己身上，也可能落在它的外層（BlockNote 兩種都會出現）。
+   守衛見 `theme.block-selection-guard.test.ts`——這條壞掉只會靜默變回藍框。
+   邊界：落在 `.bn-editor` 之外的 `ProseMirror-selectednode`（例如脫離編輯器 DOM 的拖曳
+   預覽節點）仍會拿到 BlockNote 內建的 4px 亮藍。那個節點 `opacity:.001`，看不見，不處理。 */
+.bn-editor .bn-block-content.ProseMirror-selectednode > *,
+.bn-editor .ProseMirror-selectednode > .bn-block-content > * {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
