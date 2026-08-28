@@ -109,6 +109,18 @@
         "embedButton": "Embed",
         "invalidUrl": "Enter a valid http:// or https:// link."
       }
+    },
+    "mermaid": {
+      "empty": "Click to add diagram source",
+      "edit": "Edit",
+      "editArea": "Edit diagram source",
+      "error": "Diagram error",
+      "sourceLabel": "Mermaid source",
+      "slashTitle": "Diagram",
+      "slashSubtext": "Flowcharts and diagrams with Mermaid",
+      "slashGroup": "Advanced",
+      "showSource": "Show source",
+      "escHint": "Press Esc or click elsewhere to finish"
     }
   },
   "login": {

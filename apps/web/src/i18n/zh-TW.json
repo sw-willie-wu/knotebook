@@ -109,6 +109,18 @@
         "embedButton": "嵌入",
         "invalidUrl": "請輸入合法的 http:// 或 https:// 連結。"
       }
+    },
+    "mermaid": {
+      "empty": "點一下輸入圖表原始碼",
+      "edit": "編輯",
+      "editArea": "編輯圖表原始碼",
+      "error": "圖表語法錯誤",
+      "sourceLabel": "Mermaid 原始碼",
+      "slashTitle": "圖表",
+      "slashSubtext": "用 Mermaid 畫流程圖與各種圖表",
+      "slashGroup": "進階",
+      "showSource": "顯示原始碼",
+      "escHint": "按 Esc 或點其他地方結束"
     }
   },
   "login": {

@@ -37,7 +37,16 @@ const EXEMPTIONS = [];
 // 所以留空陣列。若之後真的出現 Unknown 授權的套件且經人工確認可接受，比照
 // EXEMPTIONS 的規則，加入套件名稱並附行內註解理由。
 /** @type {string[]} */
-const UNKNOWN_ACKNOWLEDGED = [];
+const UNKNOWN_ACKNOWLEDGED = [
+  // khroma 是 mermaid（#94 圖表 block）的直接相依。它的 package.json **沒有 license 欄位**
+  // （npm registry 上同樣沒有），所以 pnpm 只能歸進 Unknown 桶——但套件內含一份 `license`
+  // 檔，內容是完整的 MIT（"The MIT License (MIT)" + 標準 "Permission is hereby granted,
+  // free of charge" 條款，Copyright 2019-present Fabio Spampinato, Andrew Maney）。
+  // 也就是說這是 **metadata 缺漏，不是授權不明**。MIT 與本專案（MIT）相容且無傳染性。
+  // 2026-08-27 人工核對 khroma@2.1.0 的 license 檔全文後由 Willie 核可。
+  // ⚠ 升級 mermaid 導致 khroma 換版時，要重新確認新版仍附 MIT license 檔。
+  'khroma',
+];
 
 /**
  * @param {string} command

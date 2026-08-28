@@ -1,4 +1,5 @@
 import { BlockNoteSchema, defaultBlockSpecs, defaultInlineContentSpecs } from "@blocknote/core";
+import { mermaidSpec } from "@/components/mermaid/spec";
 import { wikilinkSpec } from "@/components/wikilink/spec";
 import { safeMediaUrl } from "@/lib/media-url";
 
@@ -105,6 +106,9 @@ export const noteSchema = BlockNoteSchema.create({
     file: withGuardedExternalHTML(defaultBlockSpecs.file),
     image: withGuardedExternalHTML(defaultBlockSpecs.image),
     video: withGuardedExternalHTML(defaultBlockSpecs.video),
+    // issue #94：mermaid 圖表 block。⚠ `createReactBlockSpec` 回傳的是 **factory**
+    // （與 `createReactInlineContentSpec` 不同，後者直接回傳 spec）——這裡的括號不能少。
+    mermaid: mermaidSpec(),
   },
   inlineContentSpecs: { ...defaultInlineContentSpecs, wikilink: wikilinkSpec },
 });

@@ -97,3 +97,17 @@ export function Settings(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+/** 圖表（mermaid block 的 slash 選單項，issue #94）。三個節點＋兩條連線的極簡流程圖意象。 */
+export function Diagram(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <rect x="9" y="2" width="6" height="5" rx="1" />
+      <rect x="2" y="17" width="6" height="5" rx="1" />
+      <rect x="16" y="17" width="6" height="5" rx="1" />
+      <path d="M12 7v4" />
+      <path d="M12 11H5v6" />
+      <path d="M12 11h7v6" />
+    </svg>
+  );
+}

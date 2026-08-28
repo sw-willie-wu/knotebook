@@ -60,6 +60,7 @@ Read the full [self-hosting guide](docs/self-hosting.md) before running anywhere
 - [Self-hosting guide](docs/self-hosting.md) — deployment prerequisites, compose services/volumes, reverse proxy & TLS, LAN plain-http mode, environment variable reference, OIDC/SSO setup, and troubleshooting.
 - [API contract summary](docs/api.md) — full endpoint table with auth requirements and error codes.
 - [AI quick actions](docs/ai.md) — admin setup guide for AI providers/models/actions, key encryption, and how quick actions behave in the editor.
+- [Diagrams (Mermaid)](docs/diagrams.md) — inserting, editing and pasting Mermaid diagrams, what copying one out produces, and the on-demand loading and rendering lockdown behind them.
 - [Known limitations](docs/known-limitations.md) — the full list of known rough edges and deliberate trade-offs.
 - [Restoring note content from a backup](docs/backup-restore.md) — runbook for restoring `note_states` from a snapshot or `pg_dump`.
 - [CHANGELOG](CHANGELOG.md).

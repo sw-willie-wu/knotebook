@@ -67,7 +67,7 @@ describe("NoteEditorView（Task 14：filePanel={false} + useMemo 接線）", () 
 
   it("filePanel={false} 關掉內建面板：開啟 FilePanel 時畫面上只有 1 個 tablist（我們自家那個，不是內建又多一個）", () => {
     const blockId = insertImageBlock(editor);
-    render(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} />);
+    render(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />);
 
     act(() => {
       editor.getExtension(FilePanelExtension)!.showMenu(blockId);
@@ -79,7 +79,7 @@ describe("NoteEditorView（Task 14：filePanel={false} + useMemo 接線）", () 
   it("useMemo 護欄：noteId 不變、元件因故重 render，Embed 輸入到一半的值不會被清掉", () => {
     const blockId = insertImageBlock(editor);
     const { rerender } = render(
-      <NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} />,
+      <NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />,
     );
 
     act(() => {
@@ -94,7 +94,7 @@ describe("NoteEditorView（Task 14：filePanel={false} + useMemo 接線）", () 
     // 同一個 noteId、只是父層重新 render（例如 editable/theme 這類跟 filePanel 無關的
     // prop 變動、或單純父元件重繪）——`filePanel` 的元件身分如果沒被 `useMemo` 釘住，
     // `FilePanelController` 會把它當一個新元件掛，底下的 Embed 輸入狀態會被砍掉重練。
-    rerender(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} />);
+    rerender(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />);
 
     expect(screen.getByPlaceholderText("Paste a link…")).toHaveValue("https://example.com/half-typed");
   });
@@ -143,7 +143,7 @@ function renderWithAiSession(editor: BlockNoteEditor<any, any, any>, editable: b
   return render(
     <QueryClientProvider client={queryClient}>
       <AiSessionProvider editor={editor} noteId="note-1" editable={editable}>
-        <NoteEditorView editor={editor} editable={editable} theme="light" noteId="note-1" getItems={getItems} />
+        <NoteEditorView editor={editor} editable={editable} theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />
       </AiSessionProvider>
     </QueryClientProvider>,
   );
