@@ -129,12 +129,16 @@ export function armCollabUndoManager(manager: UndoManager): void {
   // 真正讓 undoStack 長出東西的那條訂閱（少了它 undo/redo 全滅）。
   manager.doc.on("afterTransaction", manager.afterTransactionHandler);
   // 文件被丟棄時自動收攤（`destroy` 在 constructor 裡就 bind 過，參照穩定）。
-  // ⚠ 這一條是**對稱性/衛生**，沒有測試守著也守不到——但**不是因為它不會被呼叫**：
-  // `Y.Doc.destroy()` 是先 `emit('destroy')` 才 `super.destroy()`（yjs 13.6.32
-  // `Doc.js:343-345`／dist 705-707 行），所以 handler 確實會跑。淨效果是零的理由是
-  // **走到那裡時已經無事可做**：doc 被丟棄之前，React 一定先卸載編輯器、view teardown
-  // 已經 destroy 過這個 manager 了。保留它是為了「補回來的東西逐項對得上 `destroy()`
-  // 拆掉的東西」這個好懂的不變量，也擋掉未來卸載順序改變時的訂閱殘留。
+  // ⚠ 這一條是**對稱性/衛生**，沒有測試守著也守不到——但要小心兩件事都別寫錯：
+  // ① **它確實會被呼叫**：`Y.Doc.destroy()` 是先 `emit('destroy')` 才 `super.destroy()`
+  //    （yjs 13.6.32 dist 705-707 行）。
+  // ② **而且呼叫的當下真的有事可做**：換筆記時 `useCollab` 的 cleanup 是
+  //    `provider.destroy(); doc.destroy(); setSession(null);`（`useCollab.ts` 該 effect
+  //    的 deps 是 `[noteId, dispatch]`）——`doc.destroy()` 跑在 `setSession(null)` 之前，
+  //    而編輯器要等 session 變 null 才卸載，所以這一刻舊 view 還掛著、manager 還是活的。
+  // 淨效果仍然是零，理由是**緊接著的 `super.destroy()` 反正會把所有訂閱一次清光**
+  //（`trackedOrigins` 也隨 plugin 一起被丟棄）。保留它是為了「補回來的東西逐項對得上
+  // `destroy()` 拆掉的東西」這個好懂的不變量，也擋掉未來卸載順序改變時的訂閱殘留。
   manager.doc.on("destroy", manager.destroy);
 }
 
