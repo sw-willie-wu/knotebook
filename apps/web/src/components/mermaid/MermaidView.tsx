@@ -1,6 +1,6 @@
 import { useEffect, useState, type JSX, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { BLOCKED_EXTERNAL_IMAGE, RENDER_TIMED_OUT, renderMermaid, type MermaidRenderResult, type MermaidTheme } from "@/lib/mermaid";
+import { renderMermaid, type MermaidRenderResult, type MermaidTheme } from "@/lib/mermaid";
 import { cn } from "@/lib/utils";
 
 export interface MermaidViewProps {
@@ -66,9 +66,7 @@ export function MermaidView({ code, editable, theme, onChange }: MermaidViewProp
   };
 
   const body = (() => {
-    // ⚠ render 是序列化的（見 `lib/mermaid.ts`），一篇有很多圖的筆記會依序畫——
-    // 沒有這行提示的話後面那些 block 會空白好幾秒，看起來像壞掉。
-    if (result === null) return <p className="text-sm text-muted-foreground">{t("note.mermaid.rendering")}</p>;
+    if (result === null) return null; // 首次渲染尚未完成：不閃任何東西
     if (result.ok) {
       // `dangerouslySetInnerHTML` 的來源是 mermaid 的輸出——防線見檔頭說明
       // （`securityLevel:"strict"` + `htmlLabels:false` + 永不呼叫 `bindFunctions`）。
@@ -78,17 +76,10 @@ export function MermaidView({ code, editable, theme, onChange }: MermaidViewProp
     if (result.message === "") {
       return <p className="text-sm text-muted-foreground">{t("note.mermaid.empty")}</p>;
     }
-    // 引用外部圖片是我們主動擋下的，不是語法錯——訊息要說得出「為什麼」與「怎麼辦」。
-    const message =
-      result.message === BLOCKED_EXTERNAL_IMAGE
-        ? t("note.mermaid.blockedImage")
-        : result.message === RENDER_TIMED_OUT
-          ? t("note.mermaid.timeout")
-          : `${t("note.mermaid.error")}：${result.message}`;
     return (
       <div className="space-y-2">
         <p role="alert" className="text-sm text-destructive">
-          {message}
+          {t("note.mermaid.error")}：{result.message}
         </p>
         {/* 錯誤態**必須**同時顯示原始碼——只給一句錯誤訊息的話，使用者（尤其是 viewer）
             根本不知道圖裡寫了什麼，也就改不回來。 */}

@@ -43,54 +43,26 @@ note actually draws a diagram. Opening notes that contain no diagrams costs noth
 application chunk.
 
 **Rendering happens in the browser**, in the reader's own tab. No diagram source is sent anywhere for
-rendering. A diagram *could* otherwise reach out on its own in four ways, none of which Mermaid's own
-sanitizer removes: an `%%{init: …}%%` directive supplying CSS (`themeCSS`, or a `fontFamily` that
-smuggles a declaration), the same directive turning `htmlLabels` back on so labels may contain HTML
-(and therefore `<img srcset>`), the image node shape (`A@{ img: "https://…" }`), which Mermaid fetches
-while rendering, and diagram syntax that carries CSS of its own (`style X background-image:url(…)` or
-`classDef`, which some diagram types accept). Knotebook closes all three: the config keys are locked against directives,
-a diagram naming a remote image is refused with an explanation instead of being drawn, and the
-rendered SVG is filtered as a second layer — references it can resolve as same-origin, `data:` or
-in-document (`url(#arrowhead)`) are kept, anything else is dropped. Links a reader clicks
-(`click X href "https://…"`) are deliberately kept, marked `rel="noopener noreferrer"`: those need a
-deliberate click rather than firing when the note opens.
+rendering.
 
-**Images in diagrams** therefore have to be same-origin: upload the image to the note and use the
-path Knotebook gives you. A diagram pointing at another site shows a message saying so, with its
-source still editable, rather than silently fetching.
+**Diagrams can reference remote images**, the same way a note can embed an image by URL — a diagram
+that points at `https://example.com/logo.png` makes every reader's browser fetch it, exactly as an
+image block with that URL would. That is the app's existing policy for note content, not something
+specific to diagrams. If you need a deployment where opening a note never contacts a third party, that
+is a `Content-Security-Policy` decision for the whole app rather than a per-block one — tracked in
+[issue #101](https://github.com/sw-willie-wu/knotebook/issues/101).
 
-**Security posture.** Mermaid renders to SVG that Knotebook inserts into the page, so the rendering is
-locked down in several layers:
+**Security posture.** What Knotebook does enforce is that a diagram cannot make anything *execute*:
 
-- `securityLevel: "strict"` — Mermaid's built-in sanitizer (DOMPurify) processes the output.
-- `htmlLabels: false` — labels are drawn as SVG text rather than embedded HTML, which shrinks the
-  injection surface. It is hardening, not a wall: a diagram can turn HTML labels back on with an
-  `%%{init: …}%%` directive, and the sanitizer above is what actually stops script from running.
+- `securityLevel: "strict"` — Mermaid's built-in sanitizer (DOMPurify) processes the output, so
+  `<script>`, event-handler attributes and `javascript:` URLs never survive.
+- `htmlLabels: false`, and `themeCSS`, `htmlLabels`, `fontFamily` and `altFontFamily` are added to
+  Mermaid's `secure` list so a diagram's own `%%{init: …}%%` directive cannot switch them back on.
+  Labels stay SVG text rather than embedded HTML, which shrinks the injection surface. It is a
+  hardening measure, not a wall: a label containing `$$` makes Mermaid enable HTML labels on its own so
+  it can draw KaTeX, and the sanitizer above is what actually stops script from running.
 - Mermaid's `bindFunctions` is never called, so `click` directives inside a diagram never become real
-  event handlers. A diagram cannot make anything happen when you click it.
-- `themeCSS`, `htmlLabels`, `fontFamily` and `altFontFamily` are added to Mermaid's
-  `secure` list, so an `%%{init: …}%%` directive inside a diagram cannot switch them on. This is the
-  load-bearing one: Mermaid renders by inserting the diagram into the live document to measure text, so
-  a stylesheet it accepts is applied — and fetched — before Knotebook ever sees the SVG string.
-  Filtering the output cannot come first. (`flowchart` and `themeVariables` are deliberately *not*
-  locked: Mermaid's sanitizer recurses into nested objects, so `flowchart.htmlLabels` is already covered
-  by the `htmlLabels` entry, and the `fontFamily` copy inside `themeVariables` by the `fontFamily` entry.
-  Locking the whole objects would silently ignore legitimate directives — `flowchart.curve`, or the
-  documented `theme: base` plus custom `themeVariables` colours.)
-- A diagram naming a remote image (`A@{ img: … }`) is neutralised **while it renders**, and the block
-  then shows an explanation instead of the diagram. That one is diagram syntax rather than config, so
-  the `secure` list cannot reach it, and Mermaid fetches the image inside `render()` — the same reason
-  the output filter is too late for it. Knotebook does not try to find the URL by reading the diagram
-  source (three attempts at that were each bypassed, and the last one could be made to hang the tab):
-  instead, for the duration of a render, image loads that would leave this origin are pointed at a
-  blank pixel, and remote references in the diagram's own CSS are dropped. That covers the four routes
-  Mermaid actually uses while rendering: the `new Image()` it uses to measure a picture, the `href` it
-  puts on the SVG `<image>` element it inserts into the page, the `style` attribute it writes onto SVG
-  nodes, and the `<style>` element it inserts into the SVG. Links a reader can click are explicitly not
-  treated as resources — they only load when clicked. Renders are serialised so a blocked load is
-  always attributed to the diagram that caused it, and a render that never finishes is cut off after 20
-  seconds so it cannot hold up every later diagram.
-- Remote resource references are then filtered out of the rendered SVG as a second layer, so a diagram
-  cannot turn every reader of a note into a request against a server of its author's choosing.
+  event handlers. A diagram cannot make anything happen when you click it — `click X href` still
+  produces an ordinary link, which navigates only when a reader clicks it.
 
 These are enforced in `apps/web/src/lib/mermaid.ts`, which is the only place allowed to import Mermaid.

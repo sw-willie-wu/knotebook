@@ -10,9 +10,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 const renderMermaidMock = vi.hoisted(() => vi.fn());
 
-vi.mock("@/lib/mermaid", async (importOriginal) => ({
-  // 訊息碼取**真值**：硬寫在 mock 裡的話，常數改了測試也不會紅（這個 repo 的假綠形之一）。
-  ...(await importOriginal<typeof import("@/lib/mermaid")>()),
+vi.mock("@/lib/mermaid", () => ({
   renderMermaid: renderMermaidMock,
   nextMermaidId: () => "mermaid-test",
 }));
@@ -209,21 +207,3 @@ describe("MermaidView — 樣式載重", () => {
   });
 });
 
-describe("MermaidView — 擋下來的外部圖片", () => {
-  it("顯示的是「為什麼被擋、怎麼辦」，不是原始訊息碼", async () => {
-    renderMermaidMock.mockResolvedValue({ ok: false, message: "blocked-external-image" });
-    render(<MermaidView code={'graph TD; A@{ img: "https://evil.example/x.png" }'} editable theme="light" onChange={vi.fn()} />);
-
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain("does not fetch remote resources");
-    expect(alert.textContent).not.toContain("blocked-external-image");
-  });
-
-  it("一樣同時顯示原始碼（使用者要改得回來）", async () => {
-    renderMermaidMock.mockResolvedValue({ ok: false, message: "blocked-external-image" });
-    const code = 'graph TD; A@{ img: "https://evil.example/x.png" }';
-    render(<MermaidView code={code} editable theme="light" onChange={vi.fn()} />);
-
-    expect(await screen.findByText(code)).toBeInTheDocument();
-  });
-});

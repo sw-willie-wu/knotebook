@@ -27,30 +27,6 @@ const BEACON_DIAGRAM = [
   "graph TD",
   `    A["Start<img src='#' srcset='http://${BEACON_HOST}/label.png 1x'>"] --> B[End]`,
 ].join("\n");
-/**
- * 圖片節點形狀：**不是 config**，`secure` 鎖不到，只能在送進 mermaid 之前擋。
- * 三形都放進來：直白的、鍵名加引號的、以及用引號裡的 `}` 讓字串近似提前收尾的
- * ——後兩形是第 5 輪審查在**真 app** 上實證會外洩的（第一版預檢用 regex 抓不到）。
- */
-/**
- * 圖表**語法**（不是 config directive）塞 CSS 的兩形：`style` 產生 inline style 屬性、
- * `classDef` 產生插進 SVG 的 `<style>` 元素。用 protocol-relative `//host` 是關鍵——
- * 帶 `http:` 會被 mermaid 的 `styles2Map` 以 `split(":")` 截掉（第 7 輪審查實證外洩）。
- */
-const BEACON_CSS_DIAGRAM = [
-  "stateDiagram-v2",
-  "    s1 --> s2",
-  `    style s1 background-image:url(//${BEACON_HOST}/inline.png)`,
-  `    classDef zz background-image:url(//${BEACON_HOST}/classdef.png)`,
-  "    class s2 zz",
-].join("\n");
-const BEACON_IMAGE_DIAGRAM = [
-  "graph TD",
-  `    A@{ img: "http://${BEACON_HOST}/shape.png" } --> B[End]`,
-  `    C@{ "img": "http://${BEACON_HOST}/quoted.png" } --> B`,
-  `    D@{ label: "}", img: "http://${BEACON_HOST}/brace.png" } --> B`,
-  `    E@{ label: don't stop, img: "http://${BEACON_HOST}/apostrophe.png" } --> B`,
-].join("\n");
 /** 目前筆記裡第一個 mermaid 圖的 svg。mermaid 產出的 svg 帶 `aria-roledescription`。 */
 function diagramLocator(page: Page) {
   return editorLocator(page).locator("svg[aria-roledescription]").first();
@@ -212,37 +188,6 @@ test("圖表的 init directive 不能讓瀏覽器對外部主機發請求", asyn
   expect(requested, `不該對 ${BEACON_HOST} 發任何請求`).toEqual([]);
 });
 
-test("引用外部圖片的圖表被擋下來（附說明），而且不發請求", async ({ page }) => {
-  // `A@{ img: "http://…" }` 是**圖表語法**不是 config，`secure` 清單管不到；mermaid 的
-  // imageSquare shape 在 `render()` 內部就 `new Image(); img.src = …` 把圖抓下來
-  // （第 4 輪審查真瀏覽器實測：跨源 HTTP 200，圖還照常畫出來，使用者看不出異狀）。
-  // 所以 `lib/mermaid.ts` 在 parse 之後、render 之前先擋掉。
-  const requested: string[] = [];
-  page.on("request", (request) => {
-    if (request.url().includes(BEACON_HOST)) requested.push(request.url());
-  });
-
-  await loginAs(page, ADMIN.email, ADMIN.newPassword);
-  await createNote(page, `E2E mermaid image shape ${Date.now()}`);
-
-  const editor = editorLocator(page);
-  await editor.click();
-  await editor.pressSequentially("/diagram");
-  await page.getByText("Flowcharts and diagrams with Mermaid").click();
-
-  await page.getByRole("button", { name: "Edit diagram source" }).click();
-  const source = page.getByRole("textbox", { name: "Mermaid source" });
-  await source.fill(BEACON_IMAGE_DIAGRAM);
-  await source.press("Escape");
-
-  // 擋下來要說得出為什麼、原始碼也要留著（使用者改得回來）。
-  await expect(page.getByRole("alert")).toContainText("does not fetch remote resources");
-  await expect(editor).toContainText("shape.png");
-  await expect(diagramLocator(page)).toHaveCount(0);
-
-  expect(requested, `不該對 ${BEACON_HOST} 發任何請求`).toEqual([]);
-});
-
 test("合法的多行 label 照常畫出來（不得被圖片守衛誤擋）", async ({ page }) => {
   // mermaid 的 lexer 會把雙引號字串裡的換行轉成 `<br/>`，所以這是**合法**語法。
   // 前一版在 render 之前解析原始碼的預檢會把它誤判成「解不出來」而擋掉，並且顯示
@@ -265,36 +210,10 @@ test("合法的多行 label 照常畫出來（不得被圖片守衛誤擋）", a
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
 
-test("圖表語法塞的 CSS 也不能對外發請求（style／classDef）", async ({ page }) => {
-  // 第 7 輪審查實證：`stateDiagram-v2`／`block-beta` 的 parser 收下帶括號的樣式值，
-  // 於是 `style X background-image:url(//host/x.png)` 會在 render 期間發出請求，
-  // 而輸出端清洗會把痕跡洗掉 ⇒ **DOM 上看不到，只有網路層看得到**。
-  const requested: string[] = [];
-  page.on("request", (request) => {
-    if (request.url().includes(BEACON_HOST)) requested.push(request.url());
-  });
-
-  await loginAs(page, ADMIN.email, ADMIN.newPassword);
-  await createNote(page, `E2E mermaid css beacon ${Date.now()}`);
-
-  const editor = editorLocator(page);
-  await editor.click();
-  await editor.pressSequentially("/diagram");
-  await page.getByText("Flowcharts and diagrams with Mermaid").click();
-
-  await page.getByRole("button", { name: "Edit diagram source" }).click();
-  const source = page.getByRole("textbox", { name: "Mermaid source" });
-  await source.fill(BEACON_CSS_DIAGRAM);
-  await source.press("Escape");
-
-  await expect(page.getByRole("alert")).toContainText("does not fetch remote resources");
-  expect(requested, `不該對 ${BEACON_HOST} 發任何請求`).toEqual([]);
-});
-
-test("click X href 的圖照常畫出來，連結保留並帶 rel", async ({ page }) => {
-  // 第 7 輪審查：守衛第一版把 SVG `<a href>` 也當成資源擋掉，於是任何有 `click X href`
-  // 的圖**整張畫不出來**、還顯示「這張圖引用了外部圖片」——同時打臉 docs 與 CHANGELOG
-  // 明文寫的「連結會保留」。從 GitHub README 貼進來的圖很常帶這一行。
+test("click X href 的圖照常畫出來，連結保留", async ({ page }) => {
+  // 審查期間曾經有一版把 SVG `<a href>` 當成外部資源擋掉，於是任何有 `click X href`
+  // 的圖**整張畫不出來**、還顯示一段對不上的錯誤訊息。從 GitHub README 貼進來的圖很常
+  // 帶這一行，這條守著它。
   await loginAs(page, ADMIN.email, ADMIN.newPassword);
   await createNote(page, `E2E mermaid click href ${Date.now()}`);
 
@@ -310,7 +229,5 @@ test("click X href 的圖照常畫出來，連結保留並帶 rel", async ({ pag
 
   await expect(diagramLocator(page)).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole("alert")).toHaveCount(0);
-  const link = diagramLocator(page).locator('a[*|href="https://example.com/page"]');
-  await expect(link).toHaveCount(1);
-  await expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  await expect(diagramLocator(page).locator('a[*|href="https://example.com/page"]')).toHaveCount(1);
 });
