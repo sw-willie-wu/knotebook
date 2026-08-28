@@ -77,68 +77,143 @@ function mermaidConfig(theme: MermaidTheme) {
   };
 }
 
-/** 會發出網路請求的 URL：`https:`／`http:`／protocol-relative `//host`。 */
-const REMOTE_URL = /^\s*(?:https?:)?\/\//i;
-/** CSS 裡的遠端 `url(…)`。**不含** `url(#id)` 與 `url(data:…)`——mermaid 的箭頭 marker／mask 全靠前者。 */
-const REMOTE_CSS_URL = /url\(\s*['"]?\s*(?:https?:)?\/\/[^)]*\)/gi;
-const CSS_IMPORT = /@import[^;]*;?/gi;
-/** 字串層的最後手段（見下方 fail-closed 說明）：帶遠端網址的屬性整條拔掉。 */
-const REMOTE_URL_ATTRIBUTE = /\s(?:[\w-]+:)?(?:href|src)\s*=\s*(["'])\s*(?:https?:)?\/\/[^"']*\1/gi;
-/** CSS（`<style>` 內容或 `style=` 屬性）裡的遠端參照清掉。`url(#id)`／`url(data:…)` 保留。 */
-function scrubRemoteUrlsInCss(css: string): string {
-  return css.replace(CSS_IMPORT, "").replace(REMOTE_CSS_URL, "none");
+// ── SVG 外部資源清洗（issue #94 審查 I-1）──────────────────────────────────────
+//
+// ⚠ mermaid 的 DOMPurify 只擋「執行」，**不擋「載入」**。實測有兩條可達的外連路徑：
+// 1. flowchart 的 image shape（`A@{ shape: image, img: "https://…" }`）產出
+//    `<image href="https://…">`，URL 原樣寫入、完全未經 mermaid 的 sanitizeUrl；
+// 2. `%%{init:{"themeCSS":"* { background: url(https://…) }"}}%%` 會被寫進 SVG 內的
+//    `<style>`——`sanitizeCss()` 只數大括號配對，資源 URL 一律放行。
+//
+// 兩者都會讓**每一位開這篇筆記的人**的瀏覽器對圖表作者指定的主機發請求（IP、
+// User-Agent、開啟時間外洩），而筆記可共編——寫圖的人不必是讀圖的人。同 #43 的風險，
+// 只是從渲染端進來。
+//
+// ⚠ **判斷一律用白名單，不用黑名單。** 第一版是黑名單（比對 `https?://`），審查者用
+// 六種形當場繞過：URL 裡插 tab（`ht<TAB>tps://`，URL parser 會把 ASCII 控制字元丟掉，
+// 瀏覽器照樣連得出去）、CSS escape（`\68 ttps:`、`\40 import`）、`url(/**/"…")`、
+// `image-set("https://…")`、以及沒加引號的屬性值。**新增任何放行條件前先想「有沒有第
+// 七種形」——只有白名單能對未知形收斂。**
+
+/** 允許的資源目標：本頁片段（`url(#arrowhead)`）、`data:`、以及同源。其餘一律視為外連。 */
+function isSafeResourceUrl(raw: string): boolean {
+  // URL parser 會移除值裡所有 ASCII 空白與控制字元，判斷前必須做同一件事，
+  // 否則 `ht<TAB>tps://evil` 這種形會從「不像網址」的縫溜過去。
+  const cleaned = raw.replace(/[\u0000-\u0020]/g, "");
+  if (cleaned.length === 0) return true;
+  if (cleaned.startsWith("#")) return true;
+  if (/^data:/i.test(cleaned)) return true;
+  try {
+    return new URL(cleaned, window.location.href).origin === window.location.origin;
+  } catch {
+    return false; // 解析不出來就當作不安全（fail closed）
+  }
 }
 
+/** 使用者**主動點擊**才會連出去的連結（mermaid 的 `click X href "…"`）允許的 scheme。 */
+function isSafeLinkUrl(raw: string): boolean {
+  const cleaned = raw.replace(/[\u0000-\u0020]/g, "");
+  if (isSafeResourceUrl(cleaned)) return true;
+  return /^(?:https?|mailto):/i.test(cleaned);
+}
+
+/** CSS 註解。`url(/**​/"https://…")` 這種混淆要先拆掉才判斷得準。 */
+const CSS_COMMENT = /\/\*[\s\S]*?\*\//g;
+/** CSS escape：`\68` → `h`、`\40 ` → `@`。 */
+const CSS_ESCAPE = /\\([0-9a-fA-F]{1,6})[ \t\n]?/g;
 /**
- * 移除 SVG 裡指向**外部主機**的資源參照。
+ * 會自動抓資源的 CSS 函式。引號內允許出現括號（`url("a(1).png")`），
+ * 也允許多個參數（`image-set("a.png" 1x, "b.png" 2x)`）。
+ */
+const CSS_RESOURCE_FN = /(?:url|image-set|-webkit-image-set|cross-fade|element)\((?:[^()"']|"[^"]*"|'[^']*')*\)/gi;
+/** 資源函式括號內的候選目標：引號字串，或以逗號／空白分隔的裸 token。 */
+const CSS_RESOURCE_TARGET = /"([^"]*)"|'([^']*)'|([^\s,]+)/g;
+/** `@import`（解 escape 後比對），整條宣告丟掉。 */
+const CSS_IMPORT = /@import[^;}]*;?/gi;
+
+/** CSS（`<style>` 內容或 `style=` 屬性）裡的外連參照清掉。`url(#id)`／`data:` 保留。 */
+function scrubCss(css: string): string {
+  const normalized = css.replace(CSS_COMMENT, "").replace(CSS_ESCAPE, (_match, hex: string) => String.fromCodePoint(parseInt(hex, 16)));
+  return normalized.replace(CSS_IMPORT, "").replace(CSS_RESOURCE_FN, (fn) => {
+    const inside = fn.slice(fn.indexOf("(") + 1, -1);
+    // 括號內**每一個**候選目標都要安全才留（`image-set` 可以帶好幾個來源，
+    // 只看第一個就會被 `image-set("ok.png" 1x, "https://evil/x.png" 2x)` 繞過）。
+    for (const [, quoted, singleQuoted, bare] of inside.matchAll(CSS_RESOURCE_TARGET)) {
+      const target = quoted ?? singleQuoted ?? bare ?? "";
+      // 解析度單位（`1x`、`2dppx`）不是資源，跳過。
+      if (/^[\d.]+(?:x|dppx|dpi)$/i.test(target)) continue;
+      if (!isSafeResourceUrl(target)) return "none";
+    }
+    return fn;
+  });
+}
+
+/** 屬性值（含未加引號的形）。回傳 `null` ＝這條屬性要整條拿掉。 */
+const ATTRIBUTE_WITH_URL = /(\s(?:[\w-]+:)?(?:href|src)\s*=\s*)("[^"]*"|'[^']*'|[^\s>]+)/gi;
+
+/**
+ * 移除 SVG 裡指向外部主機的資源參照。
  *
- * ⚠ mermaid 的 DOMPurify 只擋「執行」，**不擋「載入」**。實測有兩條可達的外連路徑：
- * 1. flowchart 的 image shape（`A@{ shape: image, img: "https://…" }`）產出
- *    `<image href="https://…">`，URL 完全未經 mermaid 的 `sanitizeUrl`；
- * 2. `%%{init:{"themeCSS":"* { background: url(https://…) }"}}%%` 會被原樣寫進 SVG 內的
- *    `<style>`——`sanitizeCss()` 只檢查大括號配對，`url(…)` 一律放行。
- *
- * 兩者都會讓**每一位開這篇筆記的人**的瀏覽器對圖表作者指定的主機發請求（IP、User-Agent、
- * 開啟時間外洩），而筆記是可共編的——寫圖的人不必是讀圖的人。這正是 #43 對檔案類 block 套
- * `withGuardedExternalHTML` 的同一種風險，只是從渲染端進來。
- *
- * **fail closed**：SVG 解析不出來時不原樣放行，退回字串層清洗（比對屬性與 CSS）。
+ * - 自動載入的東西（`<image>`／`<use>`／`<feImage>`／`style` 裡的資源函式）：只留同源、
+ *   `#片段`、`data:`。
+ * - `<a href>`：**保留** http(s)/mailto——那是使用者主動點才會連出去的連結（mermaid 的
+ *   `click X href "…"`），拔掉等於靜默弄壞圖表功能；但補上 `rel="noopener noreferrer"`。
+ *   `javascript:` 之類仍然拔掉。
+ * - **fail closed**：SVG 解析不出來（例如 htmlLabels 打開時 `<foreignObject>` 裡的 `<br>`）
+ *   時退回字串層清洗，絕不原樣放行。
  */
 export function stripExternalResources(svg: string): string {
   const parsed = new DOMParser().parseFromString(svg, "image/svg+xml");
-  let out = svg;
 
-  if (parsed.getElementsByTagName("parsererror").length === 0) {
-    let changed = false;
-    for (const element of Array.from(parsed.querySelectorAll("*"))) {
-      // 逐個屬性看 `localName`，不是比對完整名稱：`xlink:href` 用什麼前綴宣告都算數。
-      for (const attribute of Array.from(element.attributes)) {
-        const isUrlAttribute = attribute.localName === "href" || attribute.localName === "src";
-        if (isUrlAttribute && REMOTE_URL.test(attribute.value)) {
-          element.removeAttributeNode(attribute);
-          changed = true;
-        }
-      }
-      const inlineStyle = element.getAttribute("style");
-      if (inlineStyle !== null && scrubRemoteUrlsInCss(inlineStyle) !== inlineStyle) {
-        element.setAttribute("style", scrubRemoteUrlsInCss(inlineStyle));
-        changed = true;
-      }
-      if (element.tagName.toLowerCase() === "style") {
-        const css = element.textContent ?? "";
-        if (scrubRemoteUrlsInCss(css) !== css) {
-          element.textContent = scrubRemoteUrlsInCss(css);
-          changed = true;
-        }
-      }
-    }
-    // 沒東西要拔就原樣回傳：重新序列化會改寫引號/自閉合標籤，沒必要動 mermaid 的輸出。
-    if (changed) out = new XMLSerializer().serializeToString(parsed);
+  if (parsed.getElementsByTagName("parsererror").length > 0) {
+    // 字串層（唯一一道）：屬性逐個判斷 ＋ CSS 整份清洗。這裡看不出屬性長在哪個元素上，
+    // 所以連 `<a href>` 也一律用**嚴格**的資源規則判——解析失敗是例外路徑，寧可讓少數
+    // 連結失效，也不要放行一個外連。
+    return scrubCss(svg).replace(ATTRIBUTE_WITH_URL, (match, _prefix: string, value: string) => {
+      const unquoted = value.replace(/^["']|["']$/g, "");
+      return isSafeResourceUrl(unquoted) ? match : "";
+    });
   }
 
-  // 字串層再掃一次。**解析失敗時這是唯一一道**（fail closed，不原樣放行）；
-  // 解析成功時它是 no-op（沒有匹配的 replace 回傳同一個字串）。
-  return scrubRemoteUrlsInCss(out).replace(REMOTE_URL_ATTRIBUTE, "");
+  let changed = false;
+  for (const element of Array.from(parsed.querySelectorAll("*"))) {
+    const isLink = element.localName === "a";
+    // 逐個屬性看 `localName`：`xlink:href` 用什麼前綴宣告都算數。
+    for (const attribute of Array.from(element.attributes)) {
+      if (attribute.localName !== "href" && attribute.localName !== "src") continue;
+      const allowed = isLink ? isSafeLinkUrl(attribute.value) : isSafeResourceUrl(attribute.value);
+      if (!allowed) {
+        element.removeAttributeNode(attribute);
+        changed = true;
+      } else if (isLink && !isSafeResourceUrl(attribute.value) && element.getAttribute("rel") !== "noopener noreferrer") {
+        element.setAttribute("rel", "noopener noreferrer");
+        changed = true;
+      }
+    }
+
+    const inlineStyle = element.getAttribute("style");
+    if (inlineStyle !== null) {
+      const scrubbed = scrubCss(inlineStyle);
+      if (scrubbed !== inlineStyle) {
+        element.setAttribute("style", scrubbed);
+        changed = true;
+      }
+    }
+
+    if (element.localName === "style") {
+      const css = element.textContent ?? "";
+      const scrubbed = scrubCss(css);
+      if (scrubbed !== css) {
+        element.textContent = scrubbed;
+        changed = true;
+      }
+    }
+  }
+
+  // 沒東西要拔就原樣回傳：重新序列化會改寫引號／自閉合標籤，沒必要動 mermaid 的輸出。
+  // ⚠ **成功路徑不再跑字串層清洗**：那會作用在整份字串上，把 `<text>` 裡剛好寫著
+  //   `url(https://…)` 的**圖表文字**也一起改掉（審查者實測：`see url(…) ok` → `see none ok`）。
+  return changed ? new XMLSerializer().serializeToString(parsed) : svg;
 }
 
 /**

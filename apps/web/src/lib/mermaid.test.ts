@@ -99,7 +99,14 @@ describe("renderMermaid", () => {
     renderMock.mockResolvedValue({ svg: "<svg></svg>" });
     await renderMermaid("graph TD; A-->B;", "light");
     expect(initializeMock).toHaveBeenCalledWith(
-      expect.objectContaining({ securityLevel: "strict", startOnLoad: false, flowchart: expect.objectContaining({ htmlLabels: false }) }),
+      // `htmlLabels` 兩個位置都要：全域鍵是 mermaid 11 的新位置，`flowchart.*` 是舊版相容。
+      // 只斷言其中一個的話，另一個被刪掉不會轉紅（第 2 輪審查突變實測）。
+      expect.objectContaining({
+        securityLevel: "strict",
+        startOnLoad: false,
+        htmlLabels: false,
+        flowchart: expect.objectContaining({ htmlLabels: false }),
+      }),
     );
   });
 
@@ -201,5 +208,85 @@ describe("stripExternalResources（外部資源不得被載入）", () => {
     const result = await renderMermaid("graph TD; A-->B;", "light");
     expect(result.ok).toBe(true);
     expect(result.ok && result.svg).not.toContain("evil.example");
+  });
+});
+
+describe("stripExternalResources — 繞過形（第 2 輪審查實測出來的六種）", () => {
+  // 第一版是黑名單（比對 `https?://`），下面每一條都當場繞過去。留著當迴歸守門：
+  // 任何「改回用 pattern 比對可疑形狀」的重構都會讓這一組轉紅。
+
+  it("URL 裡插 ASCII 控制字元（URL parser 會把它丟掉，瀏覽器照樣連得出去）", () => {
+    const out = stripExternalResources(`<svg xmlns="http://www.w3.org/2000/svg"><image href="ht\tps://evil.example/x.png"/></svg>`);
+    expect(out).not.toContain("evil.example");
+  });
+
+  it("CSS escape 的 scheme（backslash-68 ttps:）", () => {
+    const out = stripExternalResources(
+      '<svg xmlns="http://www.w3.org/2000/svg"><style>#a{background:url(\\68 ttps://evil.example/x.png)}</style></svg>',
+    );
+    expect(out).not.toContain("evil.example");
+  });
+
+  it("url( 後面塞 CSS 註解", () => {
+    const out = stripExternalResources(
+      `<svg xmlns="http://www.w3.org/2000/svg"><style>#a{background:url(/**/"https://evil.example/x.png")}</style></svg>`,
+    );
+    expect(out).not.toContain("evil.example");
+  });
+
+  it("CSS escape 的 at-rule（backslash-40 import）", () => {
+    const out = stripExternalResources(
+      '<svg xmlns="http://www.w3.org/2000/svg"><style>\\40 import "https://evil.example/a.css";</style></svg>',
+    );
+    expect(out).not.toContain("evil.example");
+  });
+
+  it("image-set()／cross-fade() 這類 url() 以外的資源函式", () => {
+    const out = stripExternalResources(
+      `<svg xmlns="http://www.w3.org/2000/svg"><style>#a{background:image-set("https://evil.example/x.png" 1x)}</style></svg>`,
+    );
+    expect(out).not.toContain("evil.example");
+  });
+
+  it("解析失敗的文件裡、沒加引號的屬性值", () => {
+    const out = stripExternalResources(`<svg xmlns="http://www.w3.org/2000/svg"><image href=https://evil.example/x.png><style>#a{`);
+    expect(out).not.toContain("evil.example");
+  });
+});
+
+describe("stripExternalResources — 不得誤傷", () => {
+  it("同源／相對網址保留（自家上傳的圖）", () => {
+    const out = stripExternalResources(`<svg xmlns="http://www.w3.org/2000/svg"><image href="/api/notes/n1/uploads/a.png"/></svg>`);
+    expect(out).toContain("/api/notes/n1/uploads/a.png");
+  });
+
+  it("⚠ 圖表**文字內容**不得被改寫（字串層清洗只在解析失敗時跑）", () => {
+    // 第 2 輪審查實測：成功路徑也跑字串層清洗的話，`<text>` 裡剛好寫著 url(...) 的
+    // 圖表文字會被改成 `none`——使用者的圖被靜默改字。
+    const out = stripExternalResources(
+      `<svg xmlns="http://www.w3.org/2000/svg"><text>see url(https://example.com) ok</text></svg>`,
+    );
+    expect(out).toContain("see url(https://example.com) ok");
+  });
+
+  it("⚠ `<a href>` 保留並補 rel——那是使用者主動點才會連出去的（mermaid 的 click X href）", () => {
+    const out = stripExternalResources(
+      `<svg xmlns="http://www.w3.org/2000/svg"><a href="https://example.com"><rect/></a></svg>`,
+    );
+    expect(out).toContain("https://example.com");
+    expect(out).toContain('rel="noopener noreferrer"');
+  });
+
+  it("`<a href=\"javascript:…\">` 仍然拔掉", () => {
+    const out = stripExternalResources(`<svg xmlns="http://www.w3.org/2000/svg"><a href="javascript:alert(1)"><rect/></a></svg>`);
+    expect(out).not.toContain("javascript:");
+  });
+
+  it("url() 的引號裡有括號時不會留下壞掉的 CSS", () => {
+    const out = stripExternalResources(
+      `<svg xmlns="http://www.w3.org/2000/svg"><style>#a{background:url("https://evil.example/x(1).png")}</style></svg>`,
+    );
+    expect(out).not.toContain("evil.example");
+    expect(out).not.toContain(".png");
   });
 });

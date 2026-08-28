@@ -47,8 +47,11 @@ rendering. Diagram source *can* name external resources — Mermaid's image shap
 img: "https://…" }`) and the `themeCSS` init directive both accept arbitrary URLs, and Mermaid's own
 sanitizer does not remove them — so Knotebook strips remote references (`href`/`src` attributes,
 `url(…)` in CSS, `@import`) out of the rendered SVG before it reaches the page. Local references
-(`url(#arrowhead)`) and `data:` URIs are kept, because they contact nothing. The upshot: opening a
-note never makes your browser talk to a host of the diagram author's choosing.
+(`url(#arrowhead)`), `data:` URIs and same-origin URLs are kept, because none of them reach a third
+party. The filter is a whitelist — anything it cannot resolve to one of those three is dropped — so
+opening a note does not fetch from a host the diagram author picked. Links a reader clicks
+(`click X href "https://…"`) are deliberately kept, marked `rel="noopener noreferrer"`: those need a
+deliberate click rather than firing on open.
 
 **Security posture.** Mermaid renders to SVG that Knotebook inserts into the page, so the rendering is
 locked down in four ways:

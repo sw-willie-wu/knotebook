@@ -4,7 +4,9 @@ import globals from "globals";
 
 export default tseslint.config(
   {
-    ignores: ["**/dist/**", "**/node_modules/**", "**/test-results/**", "**/playwright-report/**"],
+    // `.claude/**`：Claude Code 的 agent worktree（巢狀 checkout）會落在這裡，
+    // 不排除的話 lint 會去掃整份平行副本、報出別的分支的錯（2026-08-28 踩過）。
+    ignores: ["**/dist/**", "**/node_modules/**", "**/test-results/**", "**/playwright-report/**", ".claude/**"],
   },
   ...tseslint.configs.recommended,
   {

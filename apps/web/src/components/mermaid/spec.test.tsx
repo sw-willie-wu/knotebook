@@ -1,8 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render } from "@testing-library/react";
 import { BlockNoteEditor } from "@blocknote/core";
 import { noteSchema } from "@/collab/schema";
-import { MERMAID_LANGUAGE, MermaidExternalHTML, mermaidBlockConfig } from "./spec";
+import { MERMAID_LANGUAGE, MermaidExternalHTML, commitCode, mermaidBlockConfig } from "./spec";
 
 describe("mermaidBlockConfig", () => {
   it("type 與 content 形狀固定（schema 掛載端依賴這兩個值）", () => {
@@ -51,5 +51,23 @@ describe("貼上（HTML 路徑）真正的落點", () => {
 
     expect(blocks[0]?.type).toBe("codeBlock");
     expect((blocks[0] as { props: { language?: string } }).props.language).toBe(MERMAID_LANGUAGE);
+  });
+});
+
+describe("commitCode — 寫回原始碼", () => {
+  it("正常情況直接寫回 code prop", () => {
+    const updateBlock = vi.fn();
+    const block = { id: "b1" } as never;
+    commitCode({ updateBlock } as never, block, "graph TD; A-->B;");
+    expect(updateBlock).toHaveBeenCalledWith(block, { props: { code: "graph TD; A-->B;" } });
+  });
+
+  it("⚠ block 已被遠端刪掉時不得外拋（共編下的實際情境）", () => {
+    // `updateBlock` 對不存在的 block 會 throw `Block with ID … not found`（審查實測）。
+    // 例外從 React 事件 handler 拋出去，對使用者就是「剛打的原始碼無聲消失」。
+    const updateBlock = vi.fn(() => {
+      throw new Error("Block with ID b1 not found");
+    });
+    expect(() => commitCode({ updateBlock } as never, { id: "b1" } as never, "graph TD;")).not.toThrow();
   });
 });

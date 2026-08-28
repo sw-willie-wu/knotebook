@@ -68,7 +68,7 @@ type MermaidRenderProps = ReactCustomBlockRenderProps<typeof mermaidBlockConfig>
  * 拋出去對使用者是「剛打的東西無聲消失」，所以這裡吞掉——block 都不在了，沒有地方可寫。
  * 同 `collab/mermaid-paste.ts` 對 `replaceBlocks` 的既有處理。
  */
-function commitCode(editor: MermaidRenderProps["editor"], block: MermaidRenderProps["block"], code: string): void {
+export function commitCode(editor: MermaidRenderProps["editor"], block: MermaidRenderProps["block"], code: string): void {
   try {
     editor.updateBlock(block, { props: { code } });
   } catch {

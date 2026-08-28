@@ -25,8 +25,11 @@ export const NOTEPAGE_RE = /^NotePage-[A-Za-z0-9_-]+\.js$/;
 // issue #94：mermaid 必須留在自己的 chunk 裡。它連同相依（cytoscape／katex／langium…）
 // 是這個 app 最大的單一相依，靜態 import 會把它整包壓進 NotePage chunk，讓每個開筆記的人
 // 都付這個代價，即使整份筆記一張圖都沒有。`lib/mermaid.ts` 是唯一允許 import 它的地方，
-// 且必須是 `import("mermaid")`。實測（2026-08-27）：entry 與 NotePage chunk 內 mermaid
-// 標記數為 0，NotePage 只留下對這個 chunk 的動態 import 參照。
+// 且必須是 `import("mermaid")`。
+// ⚠ 這條守衛的判準是**「mermaid.core chunk 存在」**，不是「entry/NotePage 裡沒有 mermaid
+// 字樣」——後者本來就不會是 0（i18n key、block type、對 chunk 的動態 import 參照都會命中；
+// 2026-08-28 實測 entry 6 次、NotePage 19 次）。存在性之所以夠用：只要有人在 `lib/mermaid.ts`
+// 以外靜態 import mermaid，Rollup 就會把它併回引用它的 chunk，這個獨立 chunk 隨即消失。
 export const MERMAID_RE = /^mermaid\.core-[A-Za-z0-9_-]+\.js$/;
 
 /**

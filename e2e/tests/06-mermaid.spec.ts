@@ -114,3 +114,34 @@ test("貼上 ```mermaid 純文字 → 自動變成圖", async ({ page, context }
   await expect(diagramLocator(page)).toContainText("Pasted");
   await expect(editor.locator("pre code")).toHaveCount(0);
 });
+
+test("貼上帶 text/html 的 ```mermaid（從 GitHub README／AI 對話複製的形狀）→ 自動變成圖", async ({ page, context }) => {
+  // 為什麼要有這一條：`docs/diagrams.md` 主打的情境是「從 AI 對話或 GitHub README 複製」，
+  // 那種剪貼簿**同時帶 text/plain 與 text/html**，走的是 `collab/paste.ts` 的**預設 handler**
+  // 出口（`decideMarkdownPaste` 回 null），跟上面那條純文字走的是不同分支。單元測試用假的
+  // `defaultPasteHandler` 只能驗接線，真剪貼簿的形狀只有這裡驗得到（第 2 輪審查 N-11）。
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://localhost:3100" });
+
+  await loginAs(page, ADMIN.email, ADMIN.newPassword);
+  await createNote(page, `E2E mermaid html paste ${Date.now()}`);
+
+  const editor = editorLocator(page);
+  await editor.click();
+
+  await page.evaluate(
+    async ({ html, text }) => {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "text/html": new Blob([html], { type: "text/html" }),
+          "text/plain": new Blob([text], { type: "text/plain" }),
+        }),
+      ]);
+    },
+    { html: '<pre><code class="language-mermaid">graph LR\n    H[Html] --&gt; P[Paste]</code></pre>', text: "graph LR\n    H[Html] --> P[Paste]" },
+  );
+  await page.keyboard.press("ControlOrMeta+v");
+
+  await expect(diagramLocator(page)).toBeVisible({ timeout: 20_000 });
+  await expect(diagramLocator(page)).toContainText("Html");
+  await expect(editor.locator("pre code")).toHaveCount(0);
+});
