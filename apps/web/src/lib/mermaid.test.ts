@@ -17,7 +17,7 @@ vi.mock("mermaid", () => ({
   default: { render: renderMock, initialize: initializeMock, parse: parseMock },
 }));
 
-const { nextMermaidId, renderMermaid, resetMermaidForTests } = await import("./mermaid");
+const { nextMermaidId, renderMermaid, resetMermaidForTests, stripExternalResources } = await import("./mermaid");
 
 beforeEach(() => {
   renderMock.mockReset();
@@ -137,5 +137,69 @@ describe("renderMermaid", () => {
     const result = await renderMermaid("   \n  ", "light");
     expect(result.ok).toBe(false);
     expect(renderMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("stripExternalResources（外部資源不得被載入）", () => {
+  // 背景：mermaid 的 DOMPurify 只擋執行、不擋載入。這兩條路徑是審查者實測出來的，
+  // 都會讓每個讀者的瀏覽器對圖表作者指定的主機發請求。
+
+  it("image shape 產出的遠端 href 被拔掉（flowchart `A@{shape: image, img: …}`）", () => {
+    const out = stripExternalResources('<svg xmlns="http://www.w3.org/2000/svg"><image href="https://evil.example/x.png"/></svg>');
+    expect(out).not.toContain("evil.example");
+  });
+
+  it("protocol-relative（//host）也算遠端", () => {
+    const out = stripExternalResources('<svg xmlns="http://www.w3.org/2000/svg"><image xlink:href="//evil.example/x.png"/></svg>');
+    expect(out).not.toContain("evil.example");
+  });
+
+  it("themeCSS 塞進 <style> 的遠端 url() 被清掉", () => {
+    const out = stripExternalResources(
+      '<svg xmlns="http://www.w3.org/2000/svg"><style>#a{background:url(https://evil.example/x.png)}</style></svg>',
+    );
+    expect(out).not.toContain("evil.example");
+  });
+
+  it("style 屬性裡的遠端 url() 也清", () => {
+    const out = stripExternalResources(
+      '<svg xmlns="http://www.w3.org/2000/svg"><rect style="fill:url(https://evil.example/x.png)"/></svg>',
+    );
+    expect(out).not.toContain("evil.example");
+  });
+
+  it("@import 被移除", () => {
+    const out = stripExternalResources(
+      '<svg xmlns="http://www.w3.org/2000/svg"><style>@import url(https://evil.example/a.css);#a{fill:red}</style></svg>',
+    );
+    expect(out).not.toContain("evil.example");
+    expect(out).toContain("fill:red");
+  });
+
+  it("⚠ 本地參照必須保留：url(#id) 是 mermaid 的箭頭 marker／mask 命脈", () => {
+    const out = stripExternalResources(
+      '<svg xmlns="http://www.w3.org/2000/svg"><style>#a{marker-end:url(#arrowhead)}</style><path marker-end="url(#arrowhead)"/></svg>',
+    );
+    expect(out).toContain("url(#arrowhead)");
+  });
+
+  it("data: 不外連，保留", () => {
+    const out = stripExternalResources(
+      '<svg xmlns="http://www.w3.org/2000/svg"><image href="data:image/png;base64,AAAA"/></svg>',
+    );
+    expect(out).toContain("data:image/png");
+  });
+
+  it("fail closed：SVG 解析失敗時不原樣放行，仍然清掉遠端參照", () => {
+    const broken = '<svg xmlns="http://www.w3.org/2000/svg"><image href="https://evil.example/x.png"><style>#a{background:url(https://evil.example/y.png)}';
+    const out = stripExternalResources(broken);
+    expect(out).not.toContain("evil.example");
+  });
+
+  it("接線：renderMermaid 的輸出真的有經過清洗（不只是函式本身正確）", async () => {
+    renderMock.mockResolvedValue({ svg: '<svg xmlns="http://www.w3.org/2000/svg"><image href="https://evil.example/x.png"/></svg>' });
+    const result = await renderMermaid("graph TD; A-->B;", "light");
+    expect(result.ok).toBe(true);
+    expect(result.ok && result.svg).not.toContain("evil.example");
   });
 });

@@ -53,11 +53,16 @@ export function resetMermaidForTests(): void {
 }
 
 /**
- * 安全設定。**兩者都是必要的，不是保險**：
+ * 安全設定。**三層都是必要的，不是保險**：
  * - `securityLevel: "strict"` —— mermaid 內建的 dompurify 淨化路徑（`dompurify` 確實在相依樹裡，
- *   不是設定檔上的空話）。
- * - `flowchart.htmlLabels: false` —— 標籤改用 SVG `<text>` 而不是 `<foreignObject>` 包 HTML，
- *   把「圖裡的標籤能夾帶 HTML」這條路整個關掉。
+ *   不是設定檔上的空話）。mermaid 11.17 在 `securityLevel !== "loose"` 時會把**整份輸出 SVG**
+ *   再過一次 DOMPurify，`<script>`／`onload=`／`javascript:` 都會被剝掉。
+ * - `htmlLabels: false`（全域鍵）＋ `flowchart.htmlLabels: false`（舊版位置，相容用）——
+ *   標籤改用 SVG `<text>` 而不是 `<foreignObject>` 包 HTML，**降低**攻擊面。
+ *   ⚠ 不是密不透風：mermaid 11.17 的 `secure` 清單（`["secure","securityLevel","startOnLoad",
+ *   "maxTextSize","suppressErrorRendering","maxEdges"]`）**不含 `htmlLabels`**，所以圖裡的
+ *   `%%{init:{"htmlLabels":true}}%%` 可以把它打開；那時的防線是上面那層 DOMPurify。
+ * - `stripExternalResources()` —— DOMPurify **不擋外部資源載入**，理由見該函式說明。
  *
  * 另外呼叫端**不得**呼叫 `render()` 回傳的 `bindFunctions`：那支是用來把圖裡宣告的
  * `click X callback` 綁成真的 DOM handler 的，不呼叫就等於這個能力不存在。
@@ -67,8 +72,73 @@ function mermaidConfig(theme: MermaidTheme) {
     startOnLoad: false,
     securityLevel: "strict" as const,
     theme: theme === "dark" ? ("dark" as const) : ("default" as const),
-    flowchart: { htmlLabels: false },
+    htmlLabels: false, // mermaid 11 的新位置
+    flowchart: { htmlLabels: false }, // 舊位置，保留相容
   };
+}
+
+/** 會發出網路請求的 URL：`https:`／`http:`／protocol-relative `//host`。 */
+const REMOTE_URL = /^\s*(?:https?:)?\/\//i;
+/** CSS 裡的遠端 `url(…)`。**不含** `url(#id)` 與 `url(data:…)`——mermaid 的箭頭 marker／mask 全靠前者。 */
+const REMOTE_CSS_URL = /url\(\s*['"]?\s*(?:https?:)?\/\/[^)]*\)/gi;
+const CSS_IMPORT = /@import[^;]*;?/gi;
+/** 字串層的最後手段（見下方 fail-closed 說明）：帶遠端網址的屬性整條拔掉。 */
+const REMOTE_URL_ATTRIBUTE = /\s(?:[\w-]+:)?(?:href|src)\s*=\s*(["'])\s*(?:https?:)?\/\/[^"']*\1/gi;
+/** CSS（`<style>` 內容或 `style=` 屬性）裡的遠端參照清掉。`url(#id)`／`url(data:…)` 保留。 */
+function scrubRemoteUrlsInCss(css: string): string {
+  return css.replace(CSS_IMPORT, "").replace(REMOTE_CSS_URL, "none");
+}
+
+/**
+ * 移除 SVG 裡指向**外部主機**的資源參照。
+ *
+ * ⚠ mermaid 的 DOMPurify 只擋「執行」，**不擋「載入」**。實測有兩條可達的外連路徑：
+ * 1. flowchart 的 image shape（`A@{ shape: image, img: "https://…" }`）產出
+ *    `<image href="https://…">`，URL 完全未經 mermaid 的 `sanitizeUrl`；
+ * 2. `%%{init:{"themeCSS":"* { background: url(https://…) }"}}%%` 會被原樣寫進 SVG 內的
+ *    `<style>`——`sanitizeCss()` 只檢查大括號配對，`url(…)` 一律放行。
+ *
+ * 兩者都會讓**每一位開這篇筆記的人**的瀏覽器對圖表作者指定的主機發請求（IP、User-Agent、
+ * 開啟時間外洩），而筆記是可共編的——寫圖的人不必是讀圖的人。這正是 #43 對檔案類 block 套
+ * `withGuardedExternalHTML` 的同一種風險，只是從渲染端進來。
+ *
+ * **fail closed**：SVG 解析不出來時不原樣放行，退回字串層清洗（比對屬性與 CSS）。
+ */
+export function stripExternalResources(svg: string): string {
+  const parsed = new DOMParser().parseFromString(svg, "image/svg+xml");
+  let out = svg;
+
+  if (parsed.getElementsByTagName("parsererror").length === 0) {
+    let changed = false;
+    for (const element of Array.from(parsed.querySelectorAll("*"))) {
+      // 逐個屬性看 `localName`，不是比對完整名稱：`xlink:href` 用什麼前綴宣告都算數。
+      for (const attribute of Array.from(element.attributes)) {
+        const isUrlAttribute = attribute.localName === "href" || attribute.localName === "src";
+        if (isUrlAttribute && REMOTE_URL.test(attribute.value)) {
+          element.removeAttributeNode(attribute);
+          changed = true;
+        }
+      }
+      const inlineStyle = element.getAttribute("style");
+      if (inlineStyle !== null && scrubRemoteUrlsInCss(inlineStyle) !== inlineStyle) {
+        element.setAttribute("style", scrubRemoteUrlsInCss(inlineStyle));
+        changed = true;
+      }
+      if (element.tagName.toLowerCase() === "style") {
+        const css = element.textContent ?? "";
+        if (scrubRemoteUrlsInCss(css) !== css) {
+          element.textContent = scrubRemoteUrlsInCss(css);
+          changed = true;
+        }
+      }
+    }
+    // 沒東西要拔就原樣回傳：重新序列化會改寫引號/自閉合標籤，沒必要動 mermaid 的輸出。
+    if (changed) out = new XMLSerializer().serializeToString(parsed);
+  }
+
+  // 字串層再掃一次。**解析失敗時這是唯一一道**（fail closed，不原樣放行）；
+  // 解析成功時它是 no-op（沒有匹配的 replace 回傳同一個字串）。
+  return scrubRemoteUrlsInCss(out).replace(REMOTE_URL_ATTRIBUTE, "");
 }
 
 /**
@@ -105,7 +175,8 @@ export async function renderMermaid(code: string, theme: MermaidTheme): Promise<
 
     // 回傳值裡的 `bindFunctions` 刻意不解構、不呼叫——見 `mermaidConfig` 的說明。
     const { svg } = await mermaid.render(nextMermaidId(), code);
-    return { ok: true, svg };
+    // DOMPurify 擋不住外部資源載入——見 `stripExternalResources` 的說明。
+    return { ok: true, svg: stripExternalResources(svg) };
   } catch (err) {
     return { ok: false, message: err instanceof Error ? err.message : String(err) };
   }

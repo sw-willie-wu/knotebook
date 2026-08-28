@@ -43,15 +43,23 @@ note actually draws a diagram. Opening notes that contain no diagrams costs noth
 application chunk.
 
 **Rendering happens in the browser**, in the reader's own tab. No diagram source is sent anywhere for
-rendering, and no external service is contacted.
+rendering. Diagram source *can* name external resources — Mermaid's image shape (`A@{ shape: image,
+img: "https://…" }`) and the `themeCSS` init directive both accept arbitrary URLs, and Mermaid's own
+sanitizer does not remove them — so Knotebook strips remote references (`href`/`src` attributes,
+`url(…)` in CSS, `@import`) out of the rendered SVG before it reaches the page. Local references
+(`url(#arrowhead)`) and `data:` URIs are kept, because they contact nothing. The upshot: opening a
+note never makes your browser talk to a host of the diagram author's choosing.
 
 **Security posture.** Mermaid renders to SVG that Knotebook inserts into the page, so the rendering is
-locked down in three ways:
+locked down in four ways:
 
 - `securityLevel: "strict"` — Mermaid's built-in sanitizer (DOMPurify) processes the output.
-- `flowchart.htmlLabels: false` — labels are drawn as SVG text rather than embedded HTML, which removes
-  a whole class of injection surface.
+- `htmlLabels: false` — labels are drawn as SVG text rather than embedded HTML, which shrinks the
+  injection surface. It is hardening, not a wall: a diagram can turn HTML labels back on with an
+  `%%{init: …}%%` directive, and the sanitizer above is what actually stops script from running.
 - Mermaid's `bindFunctions` is never called, so `click` directives inside a diagram never become real
   event handlers. A diagram cannot make anything happen when you click it.
+- Remote resource references are stripped from the rendered SVG (see above), so a diagram cannot turn
+  every reader of a note into a request against a server of its author's choosing.
 
 These are enforced in `apps/web/src/lib/mermaid.ts`, which is the only place allowed to import Mermaid.

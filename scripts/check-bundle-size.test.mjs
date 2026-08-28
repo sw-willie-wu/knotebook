@@ -30,7 +30,6 @@ test('entry 在上限內且 NotePage chunk 存在 → 通過並回報摘要', ()
     assert.equal(result.entryBytes, 500_000);
     assert.deepEqual(result.notePageChunks, ['NotePage-Def456.js']);
     assert.deepEqual(result.mermaidChunks, ['mermaid.core-Ghi789.js']);
-    assert.deepEqual(result.mermaidChunks, ['mermaid.core-Ghi789.js']);
   } finally {
     cleanup();
   }

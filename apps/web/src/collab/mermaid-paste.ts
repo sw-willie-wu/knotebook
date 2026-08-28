@@ -4,13 +4,15 @@
  * ──────────────────────────────────────────────────────────────────────────
  * 為什麼轉換點在「blocks 層」而不是 `parse` 規則
  * ──────────────────────────────────────────────────────────────────────────
- * `components/mermaid/spec.tsx` 的 `parse` 規則能接管 `<pre><code class="language-mermaid">`
- * 的 **HTML** 貼上路徑。但**純文字／markdown 路徑不經過它**——2026-08-27 瀏覽器實測：
- * `editor.tryParseMarkdownToBlocks("```mermaid\n…")` 直接產出
- * `{ type: "codeBlock", props: { language: "mermaid" } }`，沒有經過任何 HTML parse 規則。
- * 而 Windows 剪貼簿的 `text/plain` 正是最常見的貼上來源（見 `collab/paste.ts` 檔頭）。
+ * **兩條貼上路徑都先變成 `codeBlock(language="mermaid")`**，實測如下：
+ * - markdown／純文字：`tryParseMarkdownToBlocks` 直接產出
+ *   `{ type: "codeBlock", props: { language: "mermaid" } }`（2026-08-27 瀏覽器實測）。
+ *   Windows 剪貼簿的 `text/plain` 正是最常見的貼上來源（見 `collab/paste.ts` 檔頭）。
+ * - HTML：`tryParseHTMLToBlocks('<pre><code class="language-mermaid">…')` 也是 codeBlock——
+ *   BlockNote 內建 codeBlock 的 `pre` 規則優先序高過自訂 block 的 `parse`（2026-08-28 審查
+ *   實測）。`spec.tsx` 因此**沒有** `parse` 規則，`spec.test.tsx` 有一條反向釘住這件事。
  *
- * 所以這一層補的是 markdown 路徑：等 BlockNote 插完，再把**這次新插入的**
+ * 所以轉換一律在這一層做：等 BlockNote 插完，再把**這次新插入的**
  * `codeBlock(language="mermaid")` 換成 mermaid block。
  *
  * ──────────────────────────────────────────────────────────────────────────

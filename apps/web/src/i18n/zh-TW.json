@@ -118,7 +118,7 @@
       "sourceLabel": "Mermaid 原始碼",
       "slashTitle": "圖表",
       "slashSubtext": "用 Mermaid 畫流程圖與各種圖表",
-      "slashGroup": "進階",
+      "slashGroup": "進階功能",
       "showSource": "顯示原始碼",
       "escHint": "按 Esc 或點其他地方結束"
     }

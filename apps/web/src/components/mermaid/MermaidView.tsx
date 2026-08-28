@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type JSX, type KeyboardEvent } from "react";
+import { useEffect, useState, type JSX, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { renderMermaid, type MermaidRenderResult, type MermaidTheme } from "@/lib/mermaid";
 import { cn } from "@/lib/utils";
@@ -43,8 +43,6 @@ export function MermaidView({ code, editable, theme, onChange }: MermaidViewProp
       cancelled = true;
     };
   }, [code, theme]);
-
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const startEditing = (): void => {
     setDraft(code);
@@ -131,7 +129,6 @@ export function MermaidView({ code, editable, theme, onChange }: MermaidViewProp
 
       {editing ? (
         <textarea
-          ref={textareaRef}
           aria-label={t("note.mermaid.sourceLabel")}
           value={draft}
           autoFocus

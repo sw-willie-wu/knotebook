@@ -182,3 +182,27 @@ describe("MermaidView — 工具列", () => {
     await waitFor(() => expect(screen.getByTestId("diagram")).toBeInTheDocument());
   });
 });
+
+// ── 樣式載重的結構守衛（審查 I-5）──────────────────────────────────────────────
+//
+// 這兩件事 `MermaidView.tsx` 的註解都寫明是實測換來的，但突變實測（2026-08-28 審查）
+// 顯示兩者被改掉時測試全綠。jsdom 沒有 layout／Tab 順序，只能用 class 字串做結構守衛
+// ——同 `theme.scrollbar-guard.test.ts`／`theme.block-selection-guard.test.ts` 的既有手法。
+
+describe("MermaidView — 樣式載重", () => {
+  it("工具列鈕用 opacity 隱藏而非 hidden（hidden 會讓它退出 Tab 順序，鍵盤使用者構不到）", async () => {
+    render(<MermaidView code="graph TD; A-->B;" editable theme="light" onChange={vi.fn()} />);
+    await waitFor(() => expect(screen.getByTestId("diagram")).toBeInTheDocument());
+
+    const button = screen.getByRole("button", { name: "Edit" });
+    expect(button.className).toContain("opacity-0");
+    expect(button.className).toContain("group-hover:opacity-100");
+    expect(button.className).toContain("focus-visible:opacity-100");
+    expect(button.className).not.toMatch(/(^|\s)hidden(\s|$)/);
+  });
+
+  it("外層帶 w-full（bn-block-content 是 flex 容器，沒宣告寬度整個 block 會被 shrink-wrap 成約 140px）", () => {
+    const { container } = render(<MermaidView code="graph TD; A-->B;" editable theme="light" onChange={vi.fn()} />);
+    expect(container.firstElementChild!.className).toContain("w-full");
+  });
+});

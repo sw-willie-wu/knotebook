@@ -1,12 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { render } from "@testing-library/react";
-import { MERMAID_LANGUAGE, MermaidExternalHTML, mermaidBlockConfig, parseMermaidElement } from "./spec";
-
-/** 把一段 HTML 字串變成第一個元素，模擬 BlockNote 餵給 `parse` 的東西。 */
-function el(html: string): HTMLElement {
-  const doc = new DOMParser().parseFromString(html, "text/html");
-  return doc.body.firstElementChild as HTMLElement;
-}
+import { BlockNoteEditor } from "@blocknote/core";
+import { noteSchema } from "@/collab/schema";
+import { MERMAID_LANGUAGE, MermaidExternalHTML, mermaidBlockConfig } from "./spec";
 
 describe("mermaidBlockConfig", () => {
   it("type 與 content 形狀固定（schema 掛載端依賴這兩個值）", () => {
@@ -44,37 +40,16 @@ describe("MermaidExternalHTML — 匯出", () => {
   });
 });
 
-describe("parseMermaidElement — 貼上（HTML 路徑）", () => {
-  it("認得 <pre><code class=\"language-mermaid\">", () => {
-    expect(parseMermaidElement(el('<pre><code class="language-mermaid">graph TD; A-->B;</code></pre>'))).toEqual({
-      code: "graph TD; A-->B;",
-    });
-  });
+describe("貼上（HTML 路徑）真正的落點", () => {
+  it("⚠ <pre><code class=\"language-mermaid\"> 經 BlockNote 解析後是 codeBlock，不是 mermaid block", async () => {
+    // 這條釘的是「為什麼這支 spec 沒有 `parse` 規則」：BlockNote 內建 codeBlock 的 `pre` 規則
+    // 優先序更高，自訂 `parse` 永遠不會被呼叫（2026-08-28 審查實測）。HTML 與 markdown 兩條
+    // 貼上路徑都先變成 codeBlock，再由 `collab/mermaid-paste.ts` 在 blocks 層轉成圖。
+    // 哪天 BlockNote 改了優先序、這條轉紅，才是可以考慮加回 `parse` 規則的時候。
+    const editor = BlockNoteEditor.create({ schema: noteSchema });
+    const blocks = await editor.tryParseHTMLToBlocks('<pre><code class="language-mermaid">graph TD; A--&gt;B;</code></pre>');
 
-  it("class 含多個值時仍認得", () => {
-    expect(parseMermaidElement(el('<pre><code class="hljs language-mermaid">flowchart LR; X-->Y;</code></pre>'))).toEqual({
-      code: "flowchart LR; X-->Y;",
-    });
-  });
-
-  it("其他語言的 code block 一律不接管", () => {
-    expect(parseMermaidElement(el('<pre><code class="language-ts">const a = 1;</code></pre>'))).toBeUndefined();
-    expect(parseMermaidElement(el("<pre><code>plain</code></pre>"))).toBeUndefined();
-  });
-
-  it("不是 pre>code 的東西不接管", () => {
-    expect(parseMermaidElement(el('<div class="language-mermaid">graph TD;</div>'))).toBeUndefined();
-    expect(parseMermaidElement(el("<p>graph TD; A-->B;</p>"))).toBeUndefined();
-  });
-
-  it("保留原始碼的換行與縮排（圖的語法對縮排敏感）", () => {
-    const source = "graph TD;\n  A-->B;\n  B-->C;";
-    const node = el('<pre><code class="language-mermaid"></code></pre>');
-    node.querySelector("code")!.textContent = source;
-    expect(parseMermaidElement(node)).toEqual({ code: source });
-  });
-
-  it("只有空白的 mermaid code block 不接管（避免把空 code block 變成空圖）", () => {
-    expect(parseMermaidElement(el('<pre><code class="language-mermaid">   \n  </code></pre>'))).toBeUndefined();
+    expect(blocks[0]?.type).toBe("codeBlock");
+    expect((blocks[0] as { props: { language?: string } }).props.language).toBe(MERMAID_LANGUAGE);
   });
 });

@@ -18,14 +18,17 @@ function readIndexCss(): string {
 /** 抽出選取外框那條規則的兩個選擇器與宣告內容。 */
 function selectionRule(): { selectors: string[]; body: string } {
   const css = readIndexCss();
-  const match = /([^}]*ProseMirror-selectednode[^{}]*)\{([^}]*)\}/.exec(css);
-  expect(match, "index.css 找不到 ProseMirror-selectednode 的覆寫規則").not.toBeNull();
+  // 全檔掃描而不是只取第一條：日後若有人在前面又加一條 selectednode 規則，
+  // 只取第一條的寫法會改去驗那條、對真正的覆寫規則失去鑑別力。
+  const matches = [...css.matchAll(/([^}]*ProseMirror-selectednode[^{}]*)\{([^}]*)\}/g)];
+  expect(matches, "index.css 應**只有一條** ProseMirror-selectednode 的覆寫規則").toHaveLength(1);
+  const match = matches[0]!;
   return {
-    selectors: match![1]
+    selectors: match[1]!
       .split(",")
       .map((s) => s.trim())
       .filter((s) => s.length > 0),
-    body: match![2],
+    body: match[2]!,
   };
 }
 

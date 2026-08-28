@@ -317,7 +317,9 @@ body {
    `bn-editor` 是 ProseMirror 可編輯元素本身的 class（BlockNote 的 editorProps 掛的），
    所有 block content 都在它底下。兩種形都要寫：`ProseMirror-selectednode` 可能落在
    `.bn-block-content` 自己身上，也可能落在它的外層（BlockNote 兩種都會出現）。
-   守衛見 `theme.block-selection-guard.test.ts`——這條壞掉只會靜默變回藍框。 */
+   守衛見 `theme.block-selection-guard.test.ts`——這條壞掉只會靜默變回藍框。
+   邊界：落在 `.bn-editor` 之外的 `ProseMirror-selectednode`（例如脫離編輯器 DOM 的拖曳
+   預覽節點）仍會拿到 BlockNote 內建的 4px 亮藍。那個節點 `opacity:.001`，看不見，不處理。 */
 .bn-editor .bn-block-content.ProseMirror-selectednode > *,
 .bn-editor .ProseMirror-selectednode > .bn-block-content > * {
   outline: 2px solid var(--color-brand);
