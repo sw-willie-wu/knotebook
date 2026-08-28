@@ -76,12 +76,15 @@ locked down in several layers:
   by the `htmlLabels` entry, and the `fontFamily` copy inside `themeVariables` by the `fontFamily` entry.
   Locking the whole objects would silently ignore legitimate directives — `flowchart.curve`, or the
   documented `theme: base` plus custom `themeVariables` colours.)
-- A diagram naming a remote image (`A@{ img: … }`) is refused before rendering. That one is diagram
-  syntax rather than config, so the `secure` list cannot reach it, and Mermaid fetches the image inside
-  `render()` — the same reason the output filter is too late for it. The check parses the metadata the
-  way Mermaid does (quote-aware block extraction plus the same YAML loader) rather than pattern-matching
-  the source, because the key can be written as `"img"`, hidden behind a YAML escape, or placed after a
-  `}` inside a quoted label.
+- A diagram naming a remote image (`A@{ img: … }`) is neutralised **while it renders**, and the block
+  then shows an explanation instead of the diagram. That one is diagram syntax rather than config, so
+  the `secure` list cannot reach it, and Mermaid fetches the image inside `render()` — the same reason
+  the output filter is too late for it. Knotebook does not try to find the URL by reading the diagram
+  source (three attempts at that were each bypassed, and the last one could be made to hang the tab):
+  instead, for the duration of a render, image loads that would leave this origin are pointed at a
+  blank pixel — both the `new Image()` Mermaid uses to measure the picture and the `href` it puts on
+  the SVG `<image>` element it inserts into the page. Renders are serialised so a blocked load is
+  always attributed to the diagram that caused it.
 - Remote resource references are then filtered out of the rendered SVG as a second layer, so a diagram
   cannot turn every reader of a note into a request against a server of its author's choosing.
 

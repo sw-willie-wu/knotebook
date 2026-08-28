@@ -37,6 +37,7 @@ const BEACON_IMAGE_DIAGRAM = [
   `    A@{ img: "http://${BEACON_HOST}/shape.png" } --> B[End]`,
   `    C@{ "img": "http://${BEACON_HOST}/quoted.png" } --> B`,
   `    D@{ label: "}", img: "http://${BEACON_HOST}/brace.png" } --> B`,
+  `    E@{ label: don't stop, img: "http://${BEACON_HOST}/apostrophe.png" } --> B`,
 ].join("\n");
 /** 目前筆記裡第一個 mermaid 圖的 svg。mermaid 產出的 svg 帶 `aria-roledescription`。 */
 function diagramLocator(page: Page) {
@@ -228,4 +229,26 @@ test("引用外部圖片的圖表被擋下來（附說明），而且不發請�
   await expect(diagramLocator(page)).toHaveCount(0);
 
   expect(requested, `不該對 ${BEACON_HOST} 發任何請求`).toEqual([]);
+});
+
+test("合法的多行 label 照常畫出來（不得被圖片守衛誤擋）", async ({ page }) => {
+  // mermaid 的 lexer 會把雙引號字串裡的換行轉成 `<br/>`，所以這是**合法**語法。
+  // 前一版在 render 之前解析原始碼的預檢會把它誤判成「解不出來」而擋掉，並且顯示
+  // 「這張圖引用了外部圖片」——一張根本沒有 img 的圖（第 6 輪審查實證）。改成攔
+  // `new Image()` 之後，判斷只看實際要發出去的 URL，這一類誤擋整個消失。
+  await loginAs(page, ADMIN.email, ADMIN.newPassword);
+  await createNote(page, `E2E mermaid multiline label ${Date.now()}`);
+
+  const editor = editorLocator(page);
+  await editor.click();
+  await editor.pressSequentially("/diagram");
+  await page.getByText("Flowcharts and diagrams with Mermaid").click();
+
+  await page.getByRole("button", { name: "Edit diagram source" }).click();
+  const source = page.getByRole("textbox", { name: "Mermaid source" });
+  await source.fill('graph TD\n    A@{ shape: rect, label: "line one\n    line two" } --> B[End]');
+  await source.press("Escape");
+
+  await expect(diagramLocator(page)).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("alert")).toHaveCount(0);
 });

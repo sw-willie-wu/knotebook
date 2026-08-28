@@ -75,16 +75,17 @@ const LOCKED_CONFIG_KEYS = [
   // 我們補的
   "themeCSS", // 任意 CSS → 渲染當下就會發出網路請求
   "htmlLabels", // 打開就能用 <img srcset>／<foreignObject> 裡的 HTML 拉外部資源
-  // ⚠ `fontFamily` 家族看起來人畜無害，其實是**第二條 CSS 注入**：`addDirective` 會在
-  // sanitize **之後**把 `directive.fontFamily` 複製進 `themeVariables.fontFamily`，繞過
-  // `themeVariables.*` 的字元集檢查；那個值接著直接進 `:root{--mermaid-font-family:…}`
-  // 與 `font-family:…`。第 4 輪審查真瀏覽器實測：
+  // ⚠ `fontFamily` 家族看起來人畜無害，其實是**第二條 CSS 注入**：`addDirective` 在
+  // `sanitizeDirective()`（管字元集的那支）**跑完之後**才把 `directive.fontFamily` 複製
+  // 進 `themeVariables.fontFamily`，於是那個副本繞過了 `themeVariables.*` 的字元集檢查；
+  // 值接著直接進 `:root{--mermaid-font-family:…}` 與 `font-family:…`。真瀏覽器實測：
   // `%%{init:{"fontFamily":"monospace; background-image: url(http://…)"}}%%` 會發出請求。
   "fontFamily",
   "altFontFamily",
-  // ⚠ **不要**連 `themeVariables` 一起鎖（第 5 輪審查實測）：`addDirective` 把
-  // `fontFamily` 複製進 `themeVariables` 是在 `sanitize()` **之前**，而 sanitize 會遞迴，
-  // 所以光鎖 `fontFamily` 就已經把那個副本刪掉了；`themeVariables` 其餘的值另有 mermaid
+  // ⚠ **不要**連 `themeVariables` 一起鎖（第 5 輪審查實測）。上面說的複製發生在
+  // `sanitizeDirective()` 之後，但**在 `updateCurrentConfig()` 裡那支吃 `secure` 清單的
+  // `sanitize()` 之前**——兩句話講的是兩個不同函式，不衝突。因為後者會遞迴進物件，
+  // 光鎖 `fontFamily` 就已經把 `themeVariables.fontFamily` 那個副本刪掉了；`themeVariables` 其餘的值另有 mermaid
   // 自己的字元集檢查（`^[\d "#%(),.;A-Za-z]+$`，沒有 `:` 與 `/`，構不出 scheme）。
   // 鎖住只會讓官方文件教的 `%%{init:{"theme":"base","themeVariables":{…}}}%%` 靜默失效。
   // ⚠ 不要把整個 `flowchart` 鎖起來：mermaid 的 `sanitize()` 會**遞迴進物件**用同一份
@@ -329,87 +330,133 @@ export function stripExternalResources(svg: string): string {
  */
 export const BLOCKED_EXTERNAL_IMAGE = "blocked-external-image";
 
-/** 解析 node metadata 用的 YAML loader。由呼叫端注入，讓這一層保持可同步測試。 */
-export type YamlLoader = (source: string) => unknown;
+/** 1x1 透明 GIF。被擋下的 `src` 換成它：`decode()` 仍會成功，mermaid 不會因此拋錯。 */
+const TRANSPARENT_PIXEL =
+  "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
 
 /**
- * 抽出所有 `@{ … }` node metadata 區塊的內容。
+ * 目前這一張圖的「被擋下的 URL」記錄簿；`null` ＝ 沒有 render 在進行、`Image` 是原版。
  *
- * ⚠ **必須 quote-aware**：mermaid 的 lexer（`chunk-SHT3W25Y.mjs`）在字串態裡不理會 `}`，
- * 所以 `A@{ label: "}", img: "http://…" }` 對它是**一個**區塊。用 `/@\{([^}]*)\}/` 這種
- * 近似寫法會在引號裡的 `}` 提前收尾，後面的 `img` 就整段看不到——第 5 輪審查在真 app 上
- * 用這一形實證發出了跨源請求。
+ * ⚠ 只會有一個，因為 render 是**序列化**的（見 `enqueueRender`）。`new Image()` 沒有任何
+ * 上下文可以告訴我們「這是哪一張圖要的」——若允許並發，一張乾淨的圖會被隔壁那張的外連
+ * 記錄連累，變成無辜被擋。序列化把歸屬問題整個消掉，代價只是兩張圖依序畫（各幾十毫秒）。
  */
-export function extractMetadataBlocks(code: string): string[] {
-  const blocks: string[] = [];
-  for (let index = 0; index < code.length - 1; index++) {
-    if (code[index] !== "@" || code[index + 1] !== "{") continue;
-    let quote: string | null = null;
-    for (let scan = index + 2; scan < code.length; scan++) {
-      const char = code[scan]!;
-      if (quote !== null) {
-        if (char === quote) quote = null;
-        continue;
-      }
-      if (char === '"' || char === "'") quote = char;
-      else if (char === "}") {
-        blocks.push(code.slice(index + 2, scan));
-        index = scan;
-        break;
-      }
-    }
-  }
-  return blocks;
-}
+let activeImageRecorder: ((url: string) => void) | null = null;
+let originalImageConstructor: typeof Image | null = null;
+let originalSetAttribute: typeof Element.prototype.setAttribute | null = null;
+let originalSetAttributeNS: typeof Element.prototype.setAttributeNS | null = null;
 
-/** metadata 解出來的物件裡，第一個不安全的 `img` 值。走訪用顯式 stack（同 `collectBlockIds` 的理由）。 */
-function findUnsafeImageValue(root: unknown): string | null {
-  const stack: unknown[] = [root];
-  while (stack.length > 0) {
-    const node = stack.pop();
-    if (Array.isArray(node)) {
-      stack.push(...node);
-      continue;
-    }
-    if (node === null || typeof node !== "object") continue;
-    for (const [key, value] of Object.entries(node)) {
-      if (key === "img" && typeof value === "string" && !isSafeResourceUrl(value)) return value;
-      stack.push(value);
-    }
-  }
-  return null;
+/**
+ * mermaid 的 render 一次只跑一張。
+ *
+ * 除了上面的歸屬問題，mermaid 本身也是全域狀態（`initialize` 是全域設定、render 會往
+ * `document.body` 插暫時容器做量測），並發本來就不是它設計的用法。前一張失敗不影響下一張。
+ */
+let renderQueue: Promise<unknown> = Promise.resolve();
+function enqueueRender<T>(task: () => Promise<T>): Promise<T> {
+  const result = renderQueue.then(task, task);
+  renderQueue = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
 }
 
 /**
- * 找出圖裡引用的外部圖片，回傳第一個（沒有就 `null`）。
+ * ⚠ **這是擋「圖表自動抓外部資源」的機制層防線**，也是本檔唯一擋得住**未知形**的東西。
  *
- * ⚠ **這條擋不到 `secure` 清單**：`A@{ img: "http://…" }` 是**圖表語法**不是 config，
- * mermaid 的 `imageSquare` shape 實作是 `new Image(); img.src = node.img; await img.decode();`
- * ——在 `render()` **內部**就把圖抓下來了（第 4 輪審查真瀏覽器實測：跨源 HTTP 200，圖還
- * 照常畫出來，使用者看不出異狀）。跟 themeCSS 同一個根因：輸出端清洗永遠來不及，只能在
- * 送進 mermaid **之前**攔。
+ * mermaid 的 image 節點形狀（`A@{ img: "http://…" }`）在 `render()` **內部**就把圖抓下來：
+ * `chunk-4HAMMTFA.mjs:2742-2744` 是逐字的 `const img = new Image(); img.src = node?.img ?? "";
+ * await img.decode();`。這代表：
+ * - 輸出端清洗（`stripExternalResources`）永遠來不及——請求在我們拿到 SVG 字串前就送出去了；
+ * - `secure` 鎖定也管不到——那是**圖表語法**不是 config。
  *
- * ⚠ **判斷必須照 mermaid 的語意解析，不能用字串近似。** 第一版用兩條 regex 找 `img:`，
- * 第 5 輪審查列出 8 種繞法（加引號的鍵 `"img"`、引號裡的 `}`、YAML anchor/alias、folded／
- * literal scalar、`"i\x6dg"` 這種 YAML escape…），其中兩種在真 app 上實證外洩。**任何
- * 「掃字串找 img」的寫法都躲不掉最後那一形**——鍵名根本沒有以字面出現。所以這裡照抄
- * mermaid 的兩步：quote-aware 抽塊（上面）＋ 同一個 YAML loader 實解（下面的包法與
- * `chunk-SHT3W25Y.mjs:145-152` 逐字相同：單行包成 `{\n…\n}`、多行補尾端換行）。
+ * 曾經走過的死路：在送進 mermaid 之前**解析原始碼**找 `img:`。三個版本、六輪審查，每一版
+ * 都在重新實作 mermaid 的一部分（regex → quote-aware ＋ YAML 實解 → 還要補單引號、
+ * `\n`→`<br/>`、`%%` 註解、label 狀態…），而且每一版都被找出新的繞法，最後一版還因為
+ * 走訪 YAML 的循環 anchor 造成**分頁永久凍結**（第 6 輪審查真瀏覽器實證：那份原始碼一旦
+ * 存進筆記，之後任何人開它都會凍住，連刪掉那個 block 都做不到）。
+ *
+ * 改成攔 `new Image()`：不必理解圖表語法，只認**實際要發出去的 URL**。非同源的 src 換成
+ * 透明像素（不是丟錯——丟錯會讓 mermaid 整張圖失敗，錯誤訊息也對不上），並記錄下來，
+ * 讓 `renderMermaid` 事後回報「這張圖引用了外部圖片」。
+ *
+ * 邊界（刻意接受）：
+ * - 只涵蓋 `new Image()`。mermaid 若哪天改用 `fetch`／`<use href>`／CSS 拉資源，這一層看不到
+ *   ——那是 #101（server 端 CSP）要收的結構性防線，`img-src 'self' data:` 一條就整類關掉。
+ * - patch 期間（單張圖的 render，通常幾十毫秒）全域的 `new Image()` 都會經過這裡，但**只有
+ *   非同源的 src 會被改寫**；app 內其他地方載入的是 DOM 的 `<img>` 元素，不走這個建構子。
  */
-export function findBlockedImageUrl(code: string, loadYaml: YamlLoader): string | null {
-  for (const block of extractMetadataBlocks(code)) {
-    let document: unknown;
-    try {
-      document = loadYaml(block.includes("\n") ? `${block}\n` : `{\n${block}\n}`);
-    } catch {
-      // mermaid 用同一套包法與 loader，且 `parse()` 已經先過了——走到這裡代表我們的
-      // 理解與它不一致。這種情況下寧可擋下來（fail closed），不要放行一個看不懂的區塊。
-      return block;
+function beginImageGuard(record: (url: string) => void): () => void {
+  if (activeImageRecorder === null) {
+    originalImageConstructor = globalThis.Image;
+    const Original = originalImageConstructor;
+    // ⚠ **不能用 `class extends Image`**：jsdom 的 `Image` 建構子是 `return
+    // document.createElement("img")`，回傳物件會蓋掉 `this`，子類別的 accessor 因此
+    // 完全不生效（真瀏覽器可以，jsdom 不行 ⇒ 單元測試根本測不到這一層）。改成包住
+    // 建構子、在**實例**上定義 `src` 的 own accessor，兩邊行為一致。
+    const prototypeSrc = Object.getOwnPropertyDescriptor(globalThis.HTMLImageElement.prototype, "src");
+    const guarded = function GuardedImage(...args: ConstructorParameters<typeof Image>): HTMLImageElement {
+      const image = new Original(...args);
+      Object.defineProperty(image, "src", {
+        configurable: true,
+        enumerable: false,
+        get: () => prototypeSrc?.get?.call(image) as string,
+        set: (value: string) => {
+          if (isSafeResourceUrl(value)) {
+            prototypeSrc?.set?.call(image, value);
+            return;
+          }
+          activeImageRecorder?.(value);
+          prototypeSrc?.set?.call(image, TRANSPARENT_PIXEL);
+        },
+      });
+      return image;
+    };
+    guarded.prototype = Original.prototype; // `instanceof HTMLImageElement` 仍然成立
+    globalThis.Image = guarded as unknown as typeof Image;
+
+    // ⚠ **第二條路，缺它擋不住**：mermaid 會把畫好的 SVG 插進**活的 document** 做量測，
+    // 圖片節點的 `<image href="http://…">` 元素一進 DOM 瀏覽器就自己去抓——這條完全不經過
+    // `new Image()`（第 6 輪修正後的 e2e 實測：訊息有出來、請求照樣送出去 4 個）。
+    // d3 的 `.append("image").attr("href", …)` 底層是 `setAttribute`，所以攔在這裡。
+    //
+    // 收窄到「**SVG 命名空間**元素的 href/src」：app 其他地方的 `<img>`／`<a>` 是 HTML
+    // 命名空間，不會被誤傷；而 patch 只在單張圖 render 的那幾十毫秒內有效。
+    originalSetAttribute = Element.prototype.setAttribute;
+    originalSetAttributeNS = Element.prototype.setAttributeNS;
+    const setAttribute = originalSetAttribute;
+    const setAttributeNS = originalSetAttributeNS;
+    function guardValue(element: Element, name: string, value: string): string {
+      const isSvgResource = element.namespaceURI === "http://www.w3.org/2000/svg" && /(^|:)(href|src)$/i.test(name);
+      if (!isSvgResource || isSafeResourceUrl(value)) return value;
+      activeImageRecorder?.(value);
+      return TRANSPARENT_PIXEL;
     }
-    const unsafe = findUnsafeImageValue(document);
-    if (unsafe !== null) return unsafe;
+    Element.prototype.setAttribute = function (name: string, value: string): void {
+      setAttribute.call(this, name, guardValue(this, name, value));
+    };
+    Element.prototype.setAttributeNS = function (namespace: string | null, name: string, value: string): void {
+      setAttributeNS.call(this, namespace, name, guardValue(this, name, value));
+    };
   }
-  return null;
+  activeImageRecorder = record;
+
+  return () => {
+    activeImageRecorder = null;
+    if (originalImageConstructor !== null) {
+      globalThis.Image = originalImageConstructor;
+      originalImageConstructor = null;
+    }
+    if (originalSetAttribute !== null) {
+      Element.prototype.setAttribute = originalSetAttribute;
+      originalSetAttribute = null;
+    }
+    if (originalSetAttributeNS !== null) {
+      Element.prototype.setAttributeNS = originalSetAttributeNS;
+      originalSetAttributeNS = null;
+    }
+  };
 }
 
 /**
@@ -425,9 +472,7 @@ export async function renderMermaid(code: string, theme: MermaidTheme): Promise<
   }
 
   try {
-    // js-yaml 跟 mermaid 一起動態載入：兩者都只在真的要畫圖時才需要，靜態 import
-    // 會把它壓進 NotePage chunk 讓沒有圖的筆記也付代價。
-    const [{ default: mermaid }, yaml] = await Promise.all([import("mermaid"), import("js-yaml")]);
+    const { default: mermaid } = await import("mermaid");
 
     // 同一主題只 initialize 一次；換主題才重來（initialize 是全域設定，重複呼叫無害但沒必要）。
     if (initializedTheme !== theme) {
@@ -446,14 +491,24 @@ export async function renderMermaid(code: string, theme: MermaidTheme): Promise<
     // 是 2026-08-27 用瀏覽器實際看畫面才發現的。改動這段前請以 headed 瀏覽器複驗。
     await mermaid.parse(code);
 
-    // ⚠ 在 `render()` **之前**攔外部圖片——見 `findBlockedImageUrl` 的說明。
-    // 用 mermaid 自己那套 loader 設定（`JSON_SCHEMA`）解 metadata——見該函式說明。
-    if (findBlockedImageUrl(code, (source) => yaml.load(source, { schema: yaml.JSON_SCHEMA })) !== null) {
-      return { ok: false, message: BLOCKED_EXTERNAL_IMAGE };
-    }
+    // ⚠ `render()` 期間攔 `new Image()`——見 `beginImageGuard` 的說明。圖片節點形狀是在
+    // render **內部**抓圖的，這是唯一擋得住的位置（而且不必去理解圖表語法）。
+    let blockedImage: string | null = null;
+    const svg = await enqueueRender(async () => {
+      const releaseImageGuard = beginImageGuard((url) => {
+        blockedImage ??= url;
+      });
+      try {
+        // 回傳值裡的 `bindFunctions` 刻意不解構、不呼叫——見 `mermaidConfig` 的說明。
+        return (await mermaid.render(nextMermaidId(), code)).svg;
+      } finally {
+        releaseImageGuard();
+      }
+    });
 
-    // 回傳值裡的 `bindFunctions` 刻意不解構、不呼叫——見 `mermaidConfig` 的說明。
-    const { svg } = await mermaid.render(nextMermaidId(), code);
+    // 有東西被擋下來就整張不畫：畫出一張缺圖的圖、使用者卻不知道為什麼，比說清楚更糟。
+    if (blockedImage !== null) return { ok: false, message: BLOCKED_EXTERNAL_IMAGE };
+
     // DOMPurify 擋不住外部資源載入——見 `stripExternalResources` 的說明。
     return { ok: true, svg: stripExternalResources(svg) };
   } catch (err) {

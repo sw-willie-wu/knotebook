@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import * as yaml from "js-yaml";
 
 /**
  * `lib/mermaid.ts` 的單元測試。
@@ -18,8 +17,7 @@ vi.mock("mermaid", () => ({
   default: { render: renderMock, initialize: initializeMock, parse: parseMock },
 }));
 
-const { BLOCKED_EXTERNAL_IMAGE, extractMetadataBlocks, findBlockedImageUrl, nextMermaidId, renderMermaid, resetMermaidForTests, stripExternalResources } =
-  await import("./mermaid");
+const { BLOCKED_EXTERNAL_IMAGE, nextMermaidId, renderMermaid, resetMermaidForTests, stripExternalResources } = await import("./mermaid");
 
 beforeEach(() => {
   renderMock.mockReset();
@@ -422,22 +420,6 @@ describe("stripExternalResources — 正常 CSS 不得被改壞（第 3 輪審�
   });
 });
 
-describe("renderMermaid — 外部圖片 fail closed", () => {
-  it("有外部圖片時**不呼叫 render**，回傳訊息碼", async () => {
-    const result = await renderMermaid('graph TD\n    A@{ img: "https://evil.example/x.png" }', "light");
-
-    expect(result).toEqual({ ok: false, message: BLOCKED_EXTERNAL_IMAGE });
-    expect(renderMock).not.toHaveBeenCalled(); // render() 一跑圖就被抓下來了，攔截必須在它之前
-  });
-
-  it("先 parse 再檢查：語法錯的圖仍然回語法錯（順序不變）", async () => {
-    parseMock.mockRejectedValue(new Error("Parse error"));
-    const result = await renderMermaid('graph TD\n    A@{ img: "https://evil.example/x.png" } -->', "light");
-
-    expect(result).toEqual({ ok: false, message: "Parse error" });
-  });
-});
-
 describe("isSafeResourceUrl 的三條規則（第 4 輪審查 M-4：突變存活）", () => {
   // 這三條都是載重規則，之前沒有任何測試守著——突變拿掉它們，47 條全綠。
 
@@ -488,71 +470,6 @@ describe("scrubCss 的三個 fail-open（第 4 輪審查 Minor #1／#2／#3）",
   });
 });
 
-// ── 圖片預檢：照 mermaid 的語意解析（第 5 輪審查 N-1）──────────────────────────
-//
-// 第一版用兩條 regex 找 `img:`，審查者列出 8 種繞法、其中兩種在真 app 上實證外洩。
-// 下面每一形都是那份清單的一條——**任何「掃字串找 img」的改寫都會讓這一組轉紅**，
-// 尤其是 `"i\x6dg"`：鍵名根本沒有以字面出現，只有真的解 YAML 才看得到。
-
-/** 與 `renderMermaid` 內部用的同一套 loader 設定（`chunk-SHT3W25Y.mjs` 是這樣叫的）。 */
-const loadYaml = (source: string): unknown => yaml.load(source, { schema: yaml.JSON_SCHEMA });
-
-describe("findBlockedImageUrl — 8 種繞法", () => {
-  const EVIL = "http://evil.example/x.png";
-
-  it.each([
-    ["加引號的鍵", `graph TD\n    A@{ "img": "${EVIL}" }`],
-    ["單引號的鍵", `graph TD\n    A@{ 'img': "${EVIL}" }`],
-    ["引號裡的 } 讓字串近似提前收尾", `graph TD\n    A@{ label: "}", img: "${EVIL}" }`],
-    ["YAML anchor/alias", `graph TD\n    A@{ label: &v "${EVIL}", img: *v }`],
-    ["folded scalar", `graph TD\n    A@{\n img: >-\n   ${EVIL}\n}`],
-    ["literal scalar", `graph TD\n    A@{\n img: |-\n   ${EVIL}\n}`],
-    ["YAML 雙引號 escape（\\x6d）", `graph TD\n    A@{ "i\\x6dg": "${EVIL}" }`],
-    ["YAML unicode escape（\\u006d）", `graph TD\n    A@{ "i\\u006dg": "${EVIL}" }`],
-  ])("%s", (_name, code) => {
-    expect(findBlockedImageUrl(code, loadYaml)).not.toBeNull();
-  });
-});
-
-describe("findBlockedImageUrl — 不得誤傷", () => {
-  it("同源／相對路徑的圖放行", () => {
-    expect(findBlockedImageUrl('graph TD\n    A@{ img: "/api/notes/n1/uploads/a.png", label: "ok" }', loadYaml)).toBeNull();
-  });
-
-  it("節點標籤裡剛好寫著網址不算", () => {
-    expect(findBlockedImageUrl('graph TD\n    A["see https://example.com for details"] --> B', loadYaml)).toBeNull();
-  });
-
-  it("metadata 裡的**其他**欄位帶網址不算（只看 img）", () => {
-    expect(findBlockedImageUrl('graph TD\n    A@{ label: "https://example.com", shape: rect }', loadYaml)).toBeNull();
-  });
-
-  it("沒有 metadata 的普通圖回 null", () => {
-    expect(findBlockedImageUrl("graph TD\n    A[Start] --> B[End]", loadYaml)).toBeNull();
-  });
-
-  it("解不出來的 metadata 一律擋（fail closed）", () => {
-    const thrower = (): never => {
-      throw new Error("bad yaml");
-    };
-    expect(findBlockedImageUrl("graph TD\n    A@{ whatever }", thrower)).not.toBeNull();
-  });
-});
-
-describe("extractMetadataBlocks — quote-aware", () => {
-  it("引號裡的 } 不終止區塊", () => {
-    expect(extractMetadataBlocks('A@{ label: "}", img: "/ok.png" }')).toEqual([' label: "}", img: "/ok.png" ']);
-  });
-
-  it("多個區塊各自抽出", () => {
-    expect(extractMetadataBlocks("A@{ a: 1 } --> B@{ b: 2 }")).toEqual([" a: 1 ", " b: 2 "]);
-  });
-
-  it("沒收尾的區塊不會炸也不會誤抽", () => {
-    expect(extractMetadataBlocks("A@{ img: /ok.png")).toEqual([]);
-  });
-});
-
 describe("scrubCss — @import 的順序相依（第 5 輪審查 N-2）", () => {
   it("連續呼叫兩次結果相同（`test()` 留下的 lastIndex 不得污染下一次）", () => {
     const svg = '<svg xmlns="http://www.w3.org/2000/svg"><style>/*c*/@import "https://evil.example/b.css";</style></svg>';
@@ -561,5 +478,116 @@ describe("scrubCss — @import 的順序相依（第 5 輪審查 N-2）", () => 
 
     expect(first).not.toContain("evil.example");
     expect(second).toBe(first);
+  });
+});
+
+// ── 圖片守衛（第 6 輪審查後的方向轉換）────────────────────────────────────────
+//
+// 前三版是在 render **之前解析原始碼**找 `img:`，六輪審查下來每一版都被找出新的繞法
+// （regex → quote-aware+YAML → 還差單引號／`\n`→`<br/>`／`%%` 註解／label 狀態…），
+// 最後一版更因為走訪 YAML 循環 anchor 讓分頁永久凍結。現在改成攔 `new Image()`：
+// 不理解圖表語法，只認**實際要發出去的 URL**。下面這組測試就是釘住這個轉換。
+
+/** mermaid 的 image 節點形狀在 render 內部做的事（`chunk-4HAMMTFA.mjs:2742-2744` 逐字）。 */
+function renderThatLoads(url: string) {
+  return async () => {
+    const img = new Image();
+    img.src = url;
+    return { svg: "<svg></svg>" };
+  };
+}
+
+describe("renderMermaid — 圖片守衛", () => {
+  it("render 期間抓外部圖片 → 整張不畫，回傳訊息碼", async () => {
+    renderMock.mockImplementation(renderThatLoads("https://evil.example/x.png"));
+
+    expect(await renderMermaid("graph TD; A-->B;", "light")).toEqual({ ok: false, message: BLOCKED_EXTERNAL_IMAGE });
+  });
+
+  it("⚠ 擋下來的 src 換成透明像素、不是丟錯（丟錯會讓整張圖變成看不懂的語法錯）", async () => {
+    let seen = "";
+    renderMock.mockImplementation(async () => {
+      const img = new Image();
+      img.src = "https://evil.example/x.png";
+      seen = img.src;
+      return { svg: "<svg></svg>" };
+    });
+
+    await renderMermaid("graph TD; A-->B;", "light");
+    expect(seen).toContain("data:image/gif");
+  });
+
+  it("同源／相對路徑的圖照常載入，也不會被誤判", async () => {
+    let seen = "";
+    renderMock.mockImplementation(async () => {
+      const img = new Image();
+      img.src = "/api/notes/n1/uploads/a.png";
+      seen = img.src;
+      return { svg: "<svg data-testid='ok'></svg>" };
+    });
+
+    const result = await renderMermaid("graph TD; A-->B;", "light");
+    expect(result.ok).toBe(true);
+    expect(seen).toContain("/api/notes/n1/uploads/a.png");
+  });
+
+  it("`data:` 圖照常載入（不外連）", async () => {
+    renderMock.mockImplementation(renderThatLoads("data:image/png;base64,AAAA"));
+    expect((await renderMermaid("graph TD; A-->B;", "light")).ok).toBe(true);
+  });
+
+  it("render 結束後 `Image` 一定還原（成功路徑）", async () => {
+    const before = globalThis.Image;
+    renderMock.mockResolvedValue({ svg: "<svg></svg>" });
+
+    await renderMermaid("graph TD; A-->B;", "light");
+    expect(globalThis.Image).toBe(before);
+  });
+
+  it("⚠ render 拋錯時也要還原（沒有 finally 的話全域就被我們汙染到重新整理為止）", async () => {
+    const before = globalThis.Image;
+    renderMock.mockRejectedValue(new Error("render boom"));
+
+    await renderMermaid("graph TD; A-->B;", "light");
+    expect(globalThis.Image).toBe(before);
+  });
+
+  it("⚠ 兩張圖同時要畫：第二張等第一張畫完，記錄不互相汙染，最後 Image 還原", async () => {
+    // `new Image()` 沒有上下文可以歸屬到哪一張圖，所以 render 是序列化的——否則乾淨的
+    // 那張會被隔壁那張的外連記錄連累。這條同時釘住「有序」與「不汙染」。
+    //
+    // ⚠ 兩個 `renderMermaid` 不能真的同時起跑：`import("mermaid")` 的 mock 在**並發**首次
+    // 載入時會漏給真模組（vitest module mocker 的競態，與被測程式無關）。所以先讓第一張
+    // 進到 render 裡卡住，再起第二張——要驗的「第二張必須等」照樣驗得到。
+    const before = globalThis.Image;
+    const order: string[] = [];
+    let releaseFirst: (() => void) | null = null;
+    const firstDone = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+
+    renderMock.mockImplementation(async (_id: string, code: string) => {
+      order.push(code);
+      if (code.includes("FIRST")) {
+        await firstDone;
+        return { svg: "<svg data-testid='first'></svg>" };
+      }
+      const img = new Image();
+      img.src = "https://evil.example/x.png";
+      return { svg: "<svg></svg>" };
+    });
+
+    const first = renderMermaid("graph TD; FIRST-->B;", "light");
+    await vi.waitFor(() => expect(order).toHaveLength(1)); // 第一張已經進到 render 內
+
+    const second = renderMermaid("graph TD; C-->D;", "light");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(order).toEqual(["graph TD; FIRST-->B;"]); // 第二張還沒開始 ⇒ 真的排隊
+    expect(globalThis.Image).not.toBe(before); // 期間守衛一直在
+
+    releaseFirst!();
+    expect((await first).ok).toBe(true); // 乾淨的那張不被隔壁連累
+    expect(await second).toEqual({ ok: false, message: BLOCKED_EXTERNAL_IMAGE });
+    expect(globalThis.Image).toBe(before); // 兩張都結束才還原
   });
 });
