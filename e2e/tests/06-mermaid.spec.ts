@@ -27,8 +27,17 @@ const BEACON_DIAGRAM = [
   "graph TD",
   `    A["Start<img src='#' srcset='http://${BEACON_HOST}/label.png 1x'>"] --> B[End]`,
 ].join("\n");
-/** 圖片節點形狀：**不是 config**，`secure` 鎖不到，只能在送進 mermaid 之前擋。 */
-const BEACON_IMAGE_DIAGRAM = ["graph TD", `    A@{ img: "http://${BEACON_HOST}/shape.png" } --> B[End]`].join("\n");
+/**
+ * 圖片節點形狀：**不是 config**，`secure` 鎖不到，只能在送進 mermaid 之前擋。
+ * 三形都放進來：直白的、鍵名加引號的、以及用引號裡的 `}` 讓字串近似提前收尾的
+ * ——後兩形是第 5 輪審查在**真 app** 上實證會外洩的（第一版預檢用 regex 抓不到）。
+ */
+const BEACON_IMAGE_DIAGRAM = [
+  "graph TD",
+  `    A@{ img: "http://${BEACON_HOST}/shape.png" } --> B[End]`,
+  `    C@{ "img": "http://${BEACON_HOST}/quoted.png" } --> B`,
+  `    D@{ label: "}", img: "http://${BEACON_HOST}/brace.png" } --> B`,
+].join("\n");
 /** 目前筆記裡第一個 mermaid 圖的 svg。mermaid 產出的 svg 帶 `aria-roledescription`。 */
 function diagramLocator(page: Page) {
   return editorLocator(page).locator("svg[aria-roledescription]").first();

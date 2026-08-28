@@ -82,7 +82,11 @@ const LOCKED_CONFIG_KEYS = [
   // `%%{init:{"fontFamily":"monospace; background-image: url(http://…)"}}%%` 會發出請求。
   "fontFamily",
   "altFontFamily",
-  "themeVariables",
+  // ⚠ **不要**連 `themeVariables` 一起鎖（第 5 輪審查實測）：`addDirective` 把
+  // `fontFamily` 複製進 `themeVariables` 是在 `sanitize()` **之前**，而 sanitize 會遞迴，
+  // 所以光鎖 `fontFamily` 就已經把那個副本刪掉了；`themeVariables` 其餘的值另有 mermaid
+  // 自己的字元集檢查（`^[\d "#%(),.;A-Za-z]+$`，沒有 `:` 與 `/`，構不出 scheme）。
+  // 鎖住只會讓官方文件教的 `%%{init:{"theme":"base","themeVariables":{…}}}%%` 靜默失效。
   // ⚠ 不要把整個 `flowchart` 鎖起來：mermaid 的 `sanitize()` 會**遞迴進物件**用同一份
   // 清單，巢狀的 `flowchart.htmlLabels` 已經被上面的 `htmlLabels` 涵蓋（第 4 輪實測）。
   // 鎖整個物件只會讓 `flowchart.curve`／`nodeSpacing` 這類**合法**的 directive 被靜默忽略。
@@ -188,6 +192,10 @@ function removeCssImports(css: string): string {
   if (normalized === css) return css.replace(CSS_IMPORT, "");
   // 有 escape／註解時兩份字串長度不同，位移對不起來——這種 CSS 不是 mermaid 會產出的
   // 形狀（它的 `<style>` 從不含 escape），一律整段清掉比留著猜安全。
+  // ⚠ `CSS_IMPORT` 帶 `g`，`test()` 命中後會**保留** `lastIndex`（`replace()` 才會歸零），
+  // 下一次呼叫就會從殘留位移開始掃 → 短字串直接掃不到 → 原樣放行。第 5 輪審查實測到這個
+  // 順序相依的 fail-open（同一頁連續呼叫兩次，第二次原封不動）。
+  CSS_IMPORT.lastIndex = 0;
   return CSS_IMPORT.test(normalized) ? "" : css;
 }
 
@@ -321,10 +329,56 @@ export function stripExternalResources(svg: string): string {
  */
 export const BLOCKED_EXTERNAL_IMAGE = "blocked-external-image";
 
-/** node metadata 區塊：`A@{ img: "…", label: "…" }`。 */
-const METADATA_BLOCK = /@\{([^}]*)\}/g;
-/** metadata 裡的 `img:` 欄位值。 */
-const METADATA_IMAGE_FIELD = /(?:^|[\s,{])img\s*:\s*("[^"]*"|'[^']*'|[^,}\s]+)/gi;
+/** 解析 node metadata 用的 YAML loader。由呼叫端注入，讓這一層保持可同步測試。 */
+export type YamlLoader = (source: string) => unknown;
+
+/**
+ * 抽出所有 `@{ … }` node metadata 區塊的內容。
+ *
+ * ⚠ **必須 quote-aware**：mermaid 的 lexer（`chunk-SHT3W25Y.mjs`）在字串態裡不理會 `}`，
+ * 所以 `A@{ label: "}", img: "http://…" }` 對它是**一個**區塊。用 `/@\{([^}]*)\}/` 這種
+ * 近似寫法會在引號裡的 `}` 提前收尾，後面的 `img` 就整段看不到——第 5 輪審查在真 app 上
+ * 用這一形實證發出了跨源請求。
+ */
+export function extractMetadataBlocks(code: string): string[] {
+  const blocks: string[] = [];
+  for (let index = 0; index < code.length - 1; index++) {
+    if (code[index] !== "@" || code[index + 1] !== "{") continue;
+    let quote: string | null = null;
+    for (let scan = index + 2; scan < code.length; scan++) {
+      const char = code[scan]!;
+      if (quote !== null) {
+        if (char === quote) quote = null;
+        continue;
+      }
+      if (char === '"' || char === "'") quote = char;
+      else if (char === "}") {
+        blocks.push(code.slice(index + 2, scan));
+        index = scan;
+        break;
+      }
+    }
+  }
+  return blocks;
+}
+
+/** metadata 解出來的物件裡，第一個不安全的 `img` 值。走訪用顯式 stack（同 `collectBlockIds` 的理由）。 */
+function findUnsafeImageValue(root: unknown): string | null {
+  const stack: unknown[] = [root];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (Array.isArray(node)) {
+      stack.push(...node);
+      continue;
+    }
+    if (node === null || typeof node !== "object") continue;
+    for (const [key, value] of Object.entries(node)) {
+      if (key === "img" && typeof value === "string" && !isSafeResourceUrl(value)) return value;
+      stack.push(value);
+    }
+  }
+  return null;
+}
 
 /**
  * 找出圖裡引用的外部圖片，回傳第一個（沒有就 `null`）。
@@ -335,14 +389,25 @@ const METADATA_IMAGE_FIELD = /(?:^|[\s,{])img\s*:\s*("[^"]*"|'[^']*'|[^,}\s]+)/g
  * 照常畫出來，使用者看不出異狀）。跟 themeCSS 同一個根因：輸出端清洗永遠來不及，只能在
  * 送進 mermaid **之前**攔。
  *
- * 判定收窄在 `@{ … }` metadata 區塊內，避免把節點標籤裡剛好寫著 `img:` 的文字誤判。
+ * ⚠ **判斷必須照 mermaid 的語意解析，不能用字串近似。** 第一版用兩條 regex 找 `img:`，
+ * 第 5 輪審查列出 8 種繞法（加引號的鍵 `"img"`、引號裡的 `}`、YAML anchor/alias、folded／
+ * literal scalar、`"i\x6dg"` 這種 YAML escape…），其中兩種在真 app 上實證外洩。**任何
+ * 「掃字串找 img」的寫法都躲不掉最後那一形**——鍵名根本沒有以字面出現。所以這裡照抄
+ * mermaid 的兩步：quote-aware 抽塊（上面）＋ 同一個 YAML loader 實解（下面的包法與
+ * `chunk-SHT3W25Y.mjs:145-152` 逐字相同：單行包成 `{\n…\n}`、多行補尾端換行）。
  */
-export function findBlockedImageUrl(code: string): string | null {
-  for (const block of code.matchAll(METADATA_BLOCK)) {
-    for (const field of block[1]!.matchAll(METADATA_IMAGE_FIELD)) {
-      const url = field[1]!.replace(/^["']|["']$/g, "");
-      if (!isSafeResourceUrl(url)) return url;
+export function findBlockedImageUrl(code: string, loadYaml: YamlLoader): string | null {
+  for (const block of extractMetadataBlocks(code)) {
+    let document: unknown;
+    try {
+      document = loadYaml(block.includes("\n") ? `${block}\n` : `{\n${block}\n}`);
+    } catch {
+      // mermaid 用同一套包法與 loader，且 `parse()` 已經先過了——走到這裡代表我們的
+      // 理解與它不一致。這種情況下寧可擋下來（fail closed），不要放行一個看不懂的區塊。
+      return block;
     }
+    const unsafe = findUnsafeImageValue(document);
+    if (unsafe !== null) return unsafe;
   }
   return null;
 }
@@ -360,7 +425,9 @@ export async function renderMermaid(code: string, theme: MermaidTheme): Promise<
   }
 
   try {
-    const { default: mermaid } = await import("mermaid");
+    // js-yaml 跟 mermaid 一起動態載入：兩者都只在真的要畫圖時才需要，靜態 import
+    // 會把它壓進 NotePage chunk 讓沒有圖的筆記也付代價。
+    const [{ default: mermaid }, yaml] = await Promise.all([import("mermaid"), import("js-yaml")]);
 
     // 同一主題只 initialize 一次；換主題才重來（initialize 是全域設定，重複呼叫無害但沒必要）。
     if (initializedTheme !== theme) {
@@ -380,7 +447,8 @@ export async function renderMermaid(code: string, theme: MermaidTheme): Promise<
     await mermaid.parse(code);
 
     // ⚠ 在 `render()` **之前**攔外部圖片——見 `findBlockedImageUrl` 的說明。
-    if (findBlockedImageUrl(code) !== null) {
+    // 用 mermaid 自己那套 loader 設定（`JSON_SCHEMA`）解 metadata——見該函式說明。
+    if (findBlockedImageUrl(code, (source) => yaml.load(source, { schema: yaml.JSON_SCHEMA })) !== null) {
       return { ok: false, message: BLOCKED_EXTERNAL_IMAGE };
     }
 

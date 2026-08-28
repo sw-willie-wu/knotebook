@@ -59,7 +59,7 @@ path Knotebook gives you. A diagram pointing at another site shows a message say
 source still editable, rather than silently fetching.
 
 **Security posture.** Mermaid renders to SVG that Knotebook inserts into the page, so the rendering is
-locked down in four ways:
+locked down in several layers:
 
 - `securityLevel: "strict"` — Mermaid's built-in sanitizer (DOMPurify) processes the output.
 - `htmlLabels: false` — labels are drawn as SVG text rather than embedded HTML, which shrinks the
@@ -67,16 +67,21 @@ locked down in four ways:
   `%%{init: …}%%` directive, and the sanitizer above is what actually stops script from running.
 - Mermaid's `bindFunctions` is never called, so `click` directives inside a diagram never become real
   event handlers. A diagram cannot make anything happen when you click it.
-- `themeCSS`, `htmlLabels`, `fontFamily`, `altFontFamily` and `themeVariables` are added to Mermaid's
+- `themeCSS`, `htmlLabels`, `fontFamily` and `altFontFamily` are added to Mermaid's
   `secure` list, so an `%%{init: …}%%` directive inside a diagram cannot switch them on. This is the
   load-bearing one: Mermaid renders by inserting the diagram into the live document to measure text, so
   a stylesheet it accepts is applied — and fetched — before Knotebook ever sees the SVG string.
-  Filtering the output cannot come first. (`flowchart` is deliberately *not* locked: Mermaid's sanitizer
-  recurses into nested objects, so `flowchart.htmlLabels` is already covered by the `htmlLabels` entry,
-  and locking the whole object would silently ignore legitimate directives like `flowchart.curve`.)
+  Filtering the output cannot come first. (`flowchart` and `themeVariables` are deliberately *not*
+  locked: Mermaid's sanitizer recurses into nested objects, so `flowchart.htmlLabels` is already covered
+  by the `htmlLabels` entry, and the `fontFamily` copy inside `themeVariables` by the `fontFamily` entry.
+  Locking the whole objects would silently ignore legitimate directives — `flowchart.curve`, or the
+  documented `theme: base` plus custom `themeVariables` colours.)
 - A diagram naming a remote image (`A@{ img: … }`) is refused before rendering. That one is diagram
   syntax rather than config, so the `secure` list cannot reach it, and Mermaid fetches the image inside
-  `render()` — the same reason the output filter is too late for it.
+  `render()` — the same reason the output filter is too late for it. The check parses the metadata the
+  way Mermaid does (quote-aware block extraction plus the same YAML loader) rather than pattern-matching
+  the source, because the key can be written as `"img"`, hidden behind a YAML escape, or placed after a
+  `}` inside a quoted label.
 - Remote resource references are then filtered out of the rendered SVG as a second layer, so a diagram
   cannot turn every reader of a note into a request against a server of its author's choosing.
 

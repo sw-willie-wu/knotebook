@@ -10,11 +10,11 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 const renderMermaidMock = vi.hoisted(() => vi.fn());
 
-vi.mock("@/lib/mermaid", () => ({
+vi.mock("@/lib/mermaid", async (importOriginal) => ({
+  // 訊息碼取**真值**：硬寫在 mock 裡的話，常數改了測試也不會紅（這個 repo 的假綠形之一）。
+  ...(await importOriginal<typeof import("@/lib/mermaid")>()),
   renderMermaid: renderMermaidMock,
   nextMermaidId: () => "mermaid-test",
-  // 訊息碼要跟真模組同值：元件靠它分辨「我們擋下來的外部圖片」與「mermaid 的語法錯」。
-  BLOCKED_EXTERNAL_IMAGE: "blocked-external-image",
 }));
 
 const i18n = (await import("@/i18n")).default;

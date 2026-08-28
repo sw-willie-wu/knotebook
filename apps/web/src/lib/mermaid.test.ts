@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as yaml from "js-yaml";
 
 /**
  * `lib/mermaid.ts` 的單元測試。
@@ -17,7 +18,8 @@ vi.mock("mermaid", () => ({
   default: { render: renderMock, initialize: initializeMock, parse: parseMock },
 }));
 
-const { BLOCKED_EXTERNAL_IMAGE, findBlockedImageUrl, nextMermaidId, renderMermaid, resetMermaidForTests, stripExternalResources } = await import("./mermaid");
+const { BLOCKED_EXTERNAL_IMAGE, extractMetadataBlocks, findBlockedImageUrl, nextMermaidId, renderMermaid, resetMermaidForTests, stripExternalResources } =
+  await import("./mermaid");
 
 beforeEach(() => {
   renderMock.mockReset();
@@ -314,12 +316,15 @@ describe("directive 鎖定（第 3 輪審查 I-A／I-B：輸出端清洗根本�
         // 繞過那裡的字元集檢查，然後直接進 `:root{--mermaid-font-family:…}`（第 4 輪實測會連外）。
         "fontFamily",
         "altFontFamily",
-        "themeVariables",
       ]),
     );
-    // ⚠ **不該**鎖整個 `flowchart` 物件：sanitize 會遞迴，巢狀的 htmlLabels 已被涵蓋；
-    // 鎖住只會讓 `flowchart.curve` 這類合法 directive 被靜默忽略（第 4 輪 M-6）。
+    // ⚠ **不該**鎖的兩個（都是「sanitize 會遞迴，所以外層物件不必鎖」的同一條判準）：
+    // `flowchart` 鎖住會讓 `flowchart.curve` 這類合法 directive 靜默失效（第 4 輪 M-6）；
+    // `themeVariables` 鎖住會讓官方文件教的 `theme:"base"` ＋ 自訂色靜默失效，而它其實
+    // 已經被 `fontFamily` 那條涵蓋（複製發生在 sanitize 之前）＋ mermaid 自己的字元集
+    // 檢查擋著（第 5 輪 N-3，兩者皆實測）。
     expect(config.secure).not.toContain("flowchart");
+    expect(config.secure).not.toContain("themeVariables");
   });
 });
 
@@ -417,31 +422,6 @@ describe("stripExternalResources — 正常 CSS 不得被改壞（第 3 輪審�
   });
 });
 
-describe("findBlockedImageUrl — 圖片形狀（第 4 輪審查 I-2：secure 鎖不到圖表語法）", () => {
-  // `A@{ img: "http://…" }` 的實作是 `new Image(); img.src = …; await img.decode();`，
-  // 在 render() 內部就把圖抓下來了——跟 themeCSS 同一個根因，只能在送進 mermaid 之前攔。
-
-  it("外部圖片被指認出來", () => {
-    expect(findBlockedImageUrl('graph TD\n    A@{ img: "https://evil.example/x.png" } --> B')).toBe("https://evil.example/x.png");
-  });
-
-  it("同源／相對路徑（自家上傳）放行", () => {
-    expect(findBlockedImageUrl('graph TD\n    A@{ img: "/api/notes/n1/uploads/a.png", label: "ok" }')).toBeNull();
-  });
-
-  it("沒加引號的值也算", () => {
-    expect(findBlockedImageUrl("graph TD\n    A@{ img: http://evil.example/x.png }")).toBe("http://evil.example/x.png");
-  });
-
-  it("節點標籤裡剛好寫著 img: 的文字不算（判定收窄在 @{ } 內）", () => {
-    expect(findBlockedImageUrl('graph TD\n    A["img: https://example.com/not-a-shape.png"] --> B')).toBeNull();
-  });
-
-  it("沒有 metadata 的普通圖回 null", () => {
-    expect(findBlockedImageUrl("graph TD\n    A[Start] --> B[End]")).toBeNull();
-  });
-});
-
 describe("renderMermaid — 外部圖片 fail closed", () => {
   it("有外部圖片時**不呼叫 render**，回傳訊息碼", async () => {
     const result = await renderMermaid('graph TD\n    A@{ img: "https://evil.example/x.png" }', "light");
@@ -505,5 +485,81 @@ describe("scrubCss 的三個 fail-open（第 4 輪審查 Minor #1／#2／#3）",
     );
     expect(out).not.toContain("evil.example");
     expect(out).toContain("(none)"); // 外層括號完整保留
+  });
+});
+
+// ── 圖片預檢：照 mermaid 的語意解析（第 5 輪審查 N-1）──────────────────────────
+//
+// 第一版用兩條 regex 找 `img:`，審查者列出 8 種繞法、其中兩種在真 app 上實證外洩。
+// 下面每一形都是那份清單的一條——**任何「掃字串找 img」的改寫都會讓這一組轉紅**，
+// 尤其是 `"i\x6dg"`：鍵名根本沒有以字面出現，只有真的解 YAML 才看得到。
+
+/** 與 `renderMermaid` 內部用的同一套 loader 設定（`chunk-SHT3W25Y.mjs` 是這樣叫的）。 */
+const loadYaml = (source: string): unknown => yaml.load(source, { schema: yaml.JSON_SCHEMA });
+
+describe("findBlockedImageUrl — 8 種繞法", () => {
+  const EVIL = "http://evil.example/x.png";
+
+  it.each([
+    ["加引號的鍵", `graph TD\n    A@{ "img": "${EVIL}" }`],
+    ["單引號的鍵", `graph TD\n    A@{ 'img': "${EVIL}" }`],
+    ["引號裡的 } 讓字串近似提前收尾", `graph TD\n    A@{ label: "}", img: "${EVIL}" }`],
+    ["YAML anchor/alias", `graph TD\n    A@{ label: &v "${EVIL}", img: *v }`],
+    ["folded scalar", `graph TD\n    A@{\n img: >-\n   ${EVIL}\n}`],
+    ["literal scalar", `graph TD\n    A@{\n img: |-\n   ${EVIL}\n}`],
+    ["YAML 雙引號 escape（\\x6d）", `graph TD\n    A@{ "i\\x6dg": "${EVIL}" }`],
+    ["YAML unicode escape（\\u006d）", `graph TD\n    A@{ "i\\u006dg": "${EVIL}" }`],
+  ])("%s", (_name, code) => {
+    expect(findBlockedImageUrl(code, loadYaml)).not.toBeNull();
+  });
+});
+
+describe("findBlockedImageUrl — 不得誤傷", () => {
+  it("同源／相對路徑的圖放行", () => {
+    expect(findBlockedImageUrl('graph TD\n    A@{ img: "/api/notes/n1/uploads/a.png", label: "ok" }', loadYaml)).toBeNull();
+  });
+
+  it("節點標籤裡剛好寫著網址不算", () => {
+    expect(findBlockedImageUrl('graph TD\n    A["see https://example.com for details"] --> B', loadYaml)).toBeNull();
+  });
+
+  it("metadata 裡的**其他**欄位帶網址不算（只看 img）", () => {
+    expect(findBlockedImageUrl('graph TD\n    A@{ label: "https://example.com", shape: rect }', loadYaml)).toBeNull();
+  });
+
+  it("沒有 metadata 的普通圖回 null", () => {
+    expect(findBlockedImageUrl("graph TD\n    A[Start] --> B[End]", loadYaml)).toBeNull();
+  });
+
+  it("解不出來的 metadata 一律擋（fail closed）", () => {
+    const thrower = (): never => {
+      throw new Error("bad yaml");
+    };
+    expect(findBlockedImageUrl("graph TD\n    A@{ whatever }", thrower)).not.toBeNull();
+  });
+});
+
+describe("extractMetadataBlocks — quote-aware", () => {
+  it("引號裡的 } 不終止區塊", () => {
+    expect(extractMetadataBlocks('A@{ label: "}", img: "/ok.png" }')).toEqual([' label: "}", img: "/ok.png" ']);
+  });
+
+  it("多個區塊各自抽出", () => {
+    expect(extractMetadataBlocks("A@{ a: 1 } --> B@{ b: 2 }")).toEqual([" a: 1 ", " b: 2 "]);
+  });
+
+  it("沒收尾的區塊不會炸也不會誤抽", () => {
+    expect(extractMetadataBlocks("A@{ img: /ok.png")).toEqual([]);
+  });
+});
+
+describe("scrubCss — @import 的順序相依（第 5 輪審查 N-2）", () => {
+  it("連續呼叫兩次結果相同（`test()` 留下的 lastIndex 不得污染下一次）", () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg"><style>/*c*/@import "https://evil.example/b.css";</style></svg>';
+    const first = stripExternalResources(svg);
+    const second = stripExternalResources(svg);
+
+    expect(first).not.toContain("evil.example");
+    expect(second).toBe(first);
   });
 });
