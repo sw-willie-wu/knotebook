@@ -31,6 +31,8 @@
  *    排版內容，HTML 才是真正的格式來源。
  */
 
+import { collectBlockIds, convertPastedMermaidBlocks, type MermaidPasteEditor } from "./mermaid-paste";
+
 /** VS Code 的 `mode` 屬於這些語言時，我們把內容當 markdown 解析而不是包成程式碼區塊。
  *
  * `mode` 是 VS Code 的 languageId（審查反編譯 VS Code bundle 確認過），`.md` 給的是
@@ -195,7 +197,7 @@ interface PasteTransaction {
   selection: { $from: PasteResolvedPos; $to: PasteResolvedPos };
 }
 
-interface PasteTargetEditor {
+interface PasteTargetEditor extends MermaidPasteEditor {
   pasteMarkdown: (markdown: string) => void;
   transact: <T>(callback: (tr: PasteTransaction) => T) => T;
 }
@@ -245,6 +247,21 @@ export function createMarkdownPasteHandler() {
       markdown = null; // 判斷階段出任何意外都退回預設流程
     }
 
+    // issue #94：貼上的 ```mermaid 要變成圖。轉換必須知道「哪些 block 是這次新插入的」
+    // ——掃全文會把使用者刻意「轉回程式碼」保留的區塊又轉回圖（見 `mermaid-paste.ts`）。
+    // 這裡先取一次快照；兩條插入出口各自在插完後比對。取快照本身也包 try：
+    // 失敗就退化成「這次不轉換」，絕不影響貼上本身。
+    let idsBeforePaste: Set<string> | null = null;
+    try {
+      idsBeforePaste = collectBlockIds(editor.document);
+    } catch {
+      idsBeforePaste = null;
+    }
+    /** 插入完成後把新插入的 mermaid code block 轉成圖。本身絕不外拋（見該模組說明）。 */
+    const convertMermaid = (): void => {
+      if (idsBeforePaste !== null) convertPastedMermaidBlocks(editor, idsBeforePaste);
+    };
+
     // ⚠ `defaultPasteHandler()` 一定要在 try **外面**、而且只呼叫一次：它自己也可能拋
     // （BlockNote 對 `vscode-editor-data` 是無防護的 `JSON.parse`），包在 try 裡就會被
     // catch 再叫一次、同樣再拋一次，使用者得到「貼上完全沒反應」。
@@ -253,7 +270,9 @@ export function createMarkdownPasteHandler() {
       // 明確要求以 HTML 為準，否則 BlockNote 會拿「像 markdown」的純文字蓋過去，
       // `# 註解` 就變成大標題了。
       const options = shouldForceHtmlPaste(event.clipboardData) ? { prioritizeMarkdownOverHTML: false } : undefined;
-      return defaultPasteHandler(options);
+      const handled = defaultPasteHandler(options);
+      convertMermaid(); // 預設流程也可能插入 ```mermaid（純文字被它自己當 markdown 解析）
+      return handled;
     }
 
     try {
@@ -262,6 +281,7 @@ export function createMarkdownPasteHandler() {
       // 可能已經插入一部分了——這時**不能**再退回預設流程，否則會在半套內容上再貼
       // 一次變成重複內容。回報已處理，讓它停在這裡。
     }
+    convertMermaid();
     return true;
   };
 }

@@ -18,3 +18,6 @@ apps/server/uploads/
 # Task 11：Playwright e2e 執行產物（trace/報告），不進版控。
 test-results/
 playwright-report/
+
+# Claude Code 的 agent worktree / 暫存（不屬專案檔案；曾經被 git add -A 吞進去過）
+.claude/

@@ -49,7 +49,18 @@ describe("noteSchema（Plan 3 Task 14：image block 恢復啟用）", () => {
   });
 
   it("預設 block 全數保留（含 image）", () => {
-    expect(Object.keys(noteSchema.blockSpecs).sort()).toEqual(Object.keys(defaultBlockSpecs).sort());
+    // 這條守的是「**預設 block 不得被弄掉**」——`BlockNoteSchema.create` 的 `blockSpecs`
+    // 是整組覆寫，漏 `...defaultBlockSpecs` 的 spread 會靜默拆掉一半的編輯器。
+    // issue #94 起 schema 多了自訂的 `mermaid`，所以判定從「全等」改成「包含」；
+    // ⚠ 鑑別力不變：任何一個預設 block 掉了，這條仍然紅（下面另一條釘住自訂 block 有掛上，
+    // 兩條合起來才等於原本那條全等斷言的覆蓋範圍）。
+    expect(Object.keys(noteSchema.blockSpecs)).toEqual(expect.arrayContaining(Object.keys(defaultBlockSpecs)));
+  });
+
+  it("自訂 block 有掛上，且僅限刻意新增的那些", () => {
+    // 與上一條互補：上一條擋「預設的被拿掉」，這一條擋「不小心多掛了東西」。
+    const custom = Object.keys(noteSchema.blockSpecs).filter((type) => !(type in defaultBlockSpecs));
+    expect(custom.sort()).toEqual(["mermaid"]);
   });
 
   it("段落與標題這些基本 block 仍在（防止整份 schema 建錯）", () => {

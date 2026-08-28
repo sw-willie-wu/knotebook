@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BlockNoteEditor } from "@blocknote/core";
+import { BlockNoteEditor, SuggestionMenu } from "@blocknote/core";
 import { FilePanelExtension, FormattingToolbarExtension } from "@blocknote/core/extensions";
 import type { DefaultReactSuggestionItem } from "@blocknote/react";
 import type { AiActionDto } from "@knotebook/shared";
@@ -67,7 +67,7 @@ describe("NoteEditorView（Task 14：filePanel={false} + useMemo 接線）", () 
 
   it("filePanel={false} 關掉內建面板：開啟 FilePanel 時畫面上只有 1 個 tablist（我們自家那個，不是內建又多一個）", () => {
     const blockId = insertImageBlock(editor);
-    render(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} />);
+    render(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />);
 
     act(() => {
       editor.getExtension(FilePanelExtension)!.showMenu(blockId);
@@ -79,7 +79,7 @@ describe("NoteEditorView（Task 14：filePanel={false} + useMemo 接線）", () 
   it("useMemo 護欄：noteId 不變、元件因故重 render，Embed 輸入到一半的值不會被清掉", () => {
     const blockId = insertImageBlock(editor);
     const { rerender } = render(
-      <NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} />,
+      <NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />,
     );
 
     act(() => {
@@ -94,9 +94,57 @@ describe("NoteEditorView（Task 14：filePanel={false} + useMemo 接線）", () 
     // 同一個 noteId、只是父層重新 render（例如 editable/theme 這類跟 filePanel 無關的
     // prop 變動、或單純父元件重繪）——`filePanel` 的元件身分如果沒被 `useMemo` 釘住，
     // `FilePanelController` 會把它當一個新元件掛，底下的 Embed 輸入狀態會被砍掉重練。
-    rerender(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} />);
+    rerender(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />);
 
     expect(screen.getByPlaceholderText("Paste a link…")).toHaveValue("https://example.com/half-typed");
+  });
+});
+
+// ── issue #94：`slashMenu={false}` + 自家 `/` controller 接線 ────────────────────
+//
+// 比照本檔開頭記載的 Task 14 前例：審查者實測，把 `slashMenu={false}` 拿掉、或把整條
+// `<SuggestionMenuController triggerCharacter="/">` 刪掉，693 條測試全綠——這段接線在
+// 此之前零覆蓋。`NoteEditor.tsx` 的註解寫著「不明確設 false 會同時掛兩個 `/` 選單
+// controller，按 `/` 會看到兩份選單疊在一起」，這裡就是釘住那句話的地方。
+
+describe("NoteEditorView（issue #94：/ 選單接管）", () => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同上
+  let editor: BlockNoteEditor<any, any, any>;
+  let container: HTMLElement;
+
+  /** 只有一個項目的 `/` 選單來源，用來確認掛上去的是**我們的** controller。 */
+  async function getSlashItems(): Promise<DefaultReactSuggestionItem[]> {
+    return [{ title: "Diagram", onItemClick: () => {}, group: "Advanced" }] as DefaultReactSuggestionItem[];
+  }
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    ({ editor, container } = mountedEditor());
+  });
+
+  afterEach(() => {
+    editor.unmount();
+    container.remove();
+  });
+
+  it("slashMenu={false}：按 / 時畫面上只有一份選單（沒有跟內建的疊在一起）", () => {
+    render(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} getSlashItems={getSlashItems} />);
+
+    act(() => {
+      editor.getExtension(SuggestionMenu)!.openSuggestionMenu("/");
+    });
+
+    expect(document.querySelectorAll(".bn-suggestion-menu")).toHaveLength(1);
+  });
+
+  it("那一份選單是我們自己的（getSlashItems 的項目真的渲染出來）", async () => {
+    render(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} getSlashItems={getSlashItems} />);
+
+    act(() => {
+      editor.getExtension(SuggestionMenu)!.openSuggestionMenu("/");
+    });
+
+    expect(await screen.findByText("Diagram")).toBeInTheDocument();
   });
 });
 
@@ -143,7 +191,7 @@ function renderWithAiSession(editor: BlockNoteEditor<any, any, any>, editable: b
   return render(
     <QueryClientProvider client={queryClient}>
       <AiSessionProvider editor={editor} noteId="note-1" editable={editable}>
-        <NoteEditorView editor={editor} editable={editable} theme="light" noteId="note-1" getItems={getItems} />
+        <NoteEditorView editor={editor} editable={editable} theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />
       </AiSessionProvider>
     </QueryClientProvider>,
   );

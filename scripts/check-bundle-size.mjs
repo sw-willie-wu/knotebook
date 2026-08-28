@@ -22,6 +22,15 @@ import { pathToFileURL } from 'node:url';
 export const MAX_ENTRY_BYTES = 700 * 1024;
 export const ENTRY_RE = /^index-[A-Za-z0-9_-]+\.js$/;
 export const NOTEPAGE_RE = /^NotePage-[A-Za-z0-9_-]+\.js$/;
+// issue #94：mermaid 必須留在自己的 chunk 裡。它連同相依（cytoscape／katex／langium…）
+// 是這個 app 最大的單一相依，靜態 import 會把它整包壓進 NotePage chunk，讓每個開筆記的人
+// 都付這個代價，即使整份筆記一張圖都沒有。`lib/mermaid.ts` 是唯一允許 import 它的地方，
+// 且必須是 `import("mermaid")`。
+// ⚠ 這條守衛的判準是**「mermaid.core chunk 存在」**，不是「entry/NotePage 裡沒有 mermaid
+// 字樣」——後者本來就不會是 0（i18n key、block type、對 chunk 的動態 import 參照都會命中；
+// 2026-08-28 實測 entry 6 次、NotePage 19 次）。存在性之所以夠用：只要有人在 `lib/mermaid.ts`
+// 以外靜態 import mermaid，Rollup 就會把它併回引用它的 chunk，這個獨立 chunk 隨即消失。
+export const MERMAID_RE = /^mermaid\.core-[A-Za-z0-9_-]+\.js$/;
 
 /**
  * 對指定 assets 目錄跑檢查。回傳檢查通過的摘要；違規 throw（訊息含實際數字）。
@@ -56,7 +65,16 @@ export function checkBundleSize(assetsDir, { maxEntryBytes = MAX_ENTRY_BYTES } =
     );
   }
 
-  return { entryName, entryBytes, notePageChunks };
+  const mermaidChunks = names.filter(name => MERMAID_RE.test(name));
+  if (mermaidChunks.length === 0) {
+    throw new Error(
+      `找不到 mermaid 的 lazy chunk（mermaid.core-<hash>.js）——最可能的原因是有人在 ` +
+        `\`lib/mermaid.ts\` 以外的地方靜態 import 了 mermaid，使它被併進 NotePage/entry chunk ` +
+        `（issue #94 的迴歸）；若是 rollup 改了 chunk 命名慣例，請更新本檢查的 pattern，不要刪檢查`
+    );
+  }
+
+  return { entryName, entryBytes, notePageChunks, mermaidChunks };
 }
 
 // 直接執行（非被 import）時跑真的 dist。
@@ -66,7 +84,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
     const result = checkBundleSize(assetsDir);
     console.log(
       `bundle OK：entry ${result.entryName} = ${result.entryBytes} bytes（上限 ${MAX_ENTRY_BYTES}）；` +
-        `lazy chunk：${result.notePageChunks.join(', ')}`
+        `lazy chunk：${result.notePageChunks.join(', ')}、${result.mermaidChunks.join(', ')}`
     );
   } catch (err) {
     console.error(String(err instanceof Error ? err.message : err));

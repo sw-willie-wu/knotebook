@@ -7,7 +7,7 @@ import { useCallback, useMemo, useRef, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type * as Y from "yjs";
 import type { HocuspocusProvider } from "@hocuspocus/provider";
-import { BlockNoteEditor, SuggestionMenu } from "@blocknote/core";
+import { BlockNoteEditor, filterSuggestionItems, SuggestionMenu } from "@blocknote/core";
 import { withCollaboration } from "@blocknote/core/yjs";
 import {
   FilePanelController,
@@ -21,6 +21,7 @@ import { YDOC_FRAGMENT } from "@knotebook/shared";
 import { useCreateNote, useNotes } from "@/api/notes";
 import { classifyMediaTransfer, type BlockedTransferReason, noteSchema } from "@/collab/schema";
 import { createMarkdownPasteHandler } from "@/collab/paste";
+import { buildSlashMenuItems } from "@/components/mermaid/slashMenu";
 import { blocknoteZhTW } from "@/i18n/blocknote-zh-TW";
 import { toast } from "@/components/ui/toast";
 import { cardSurface } from "@/components/ui/card";
@@ -267,6 +268,15 @@ export function NoteEditor({ doc, provider, editable, user, noteId, headerSlot, 
     [notes, createNote, t],
   );
 
+  // issue #94：`/` 選單接管（內建項全數保留 ＋ mermaid 圖表）。比照上面 `getItems` 的
+  // 既有慣例——閉包在這裡組好（這一層才有 `t`），`NoteEditorView` 只負責接線。
+  // `filterSuggestionItems` 是 BlockNote 內建的查詢過濾，沿用它才能跟內建選單的
+  // 比對行為（title/aliases/group）一致。
+  const getSlashItems = useCallback(
+    (query: string) => Promise.resolve(filterSuggestionItems(buildSlashMenuItems(editorRef.current, t), query)),
+    [t],
+  );
+
   // B1（plan gate 定案，不得偏離）：AI 狀態／側欄／toolbar 全部收在這裡，editor
   // 建立點（上面 `useCreateBlockNote` 及其 deps）完全不動——`AiSessionProvider` 只是
   // 包住既有的版面，不會讓 `NotePage` 任何 re-render 有機會扯到 editor 重建。
@@ -299,7 +309,14 @@ export function NoteEditor({ doc, provider, editable, user, noteId, headerSlot, 
           {headerSlot}
           <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
             <div className="mx-auto flex min-h-full w-full max-w-[clamp(42.5rem,85%,66rem)] flex-col px-4 py-6">
-              <NoteEditorView editor={editor} editable={editable} theme={resolvedTheme} noteId={noteId} getItems={getItems} />
+              <NoteEditorView
+                editor={editor}
+                editable={editable}
+                theme={resolvedTheme}
+                noteId={noteId}
+                getItems={getItems}
+                getSlashItems={getSlashItems}
+              />
             </div>
           </div>
           {footerSlot}
@@ -321,6 +338,9 @@ export interface NoteEditorViewProps {
   /** `SuggestionMenuController` 的候選來源（Task 3）——呼叫端（`NoteEditor`）組好
    * notes cache／createNote／translate 的閉包後轉交進來，這裡不重新組。 */
   getItems: (query: string) => Promise<DefaultReactSuggestionItem[]>;
+  /** `/` 選單的候選來源（issue #94：內建項 ＋ mermaid）。同 `getItems`——閉包由
+   * `NoteEditor` 組好轉交進來，這裡不重新組。 */
+  getSlashItems: (query: string) => Promise<DefaultReactSuggestionItem[]>;
 }
 
 /**
@@ -334,7 +354,7 @@ export interface NoteEditorViewProps {
  * `NoteEditorView.test.tsx`；jsdom 缺的 `ResizeObserver`/`window.matchMedia` 兩個
  * mantine 內部會摸到的全域已經補進 `test/setup.ts`）。
  */
-export function NoteEditorView({ editor, editable, theme, noteId, getItems }: NoteEditorViewProps) {
+export function NoteEditorView({ editor, editable, theme, noteId, getItems, getSlashItems }: NoteEditorViewProps) {
   // Task 14：`createFilePanel(noteId)` 回傳一個新的元件型別——`FilePanelController`
   // 拿它跟前一輪比對身分，身分一變就會整個卸載重掛（見 `createFilePanel` 檔頭的完整
   // 說明），所以這裡必須 `useMemo` 釘住，只在 `noteId` 真的換手時才重建。`noteId`
@@ -366,8 +386,13 @@ export function NoteEditorView({ editor, editable, theme, noteId, getItems }: No
       // `AiToolbar`（`getFormattingToolbarItems()` 全數復原＋追加 AI 動作選單，見
       // `components/ai/AiToolbar.tsx` 檔頭）。
       formattingToolbar={false}
+      // 同理關掉內建的 slash menu controller（issue #94）：下面接管的是我們自己的
+      // `getSlashItems`（內建項全數保留＋mermaid 圖表，見 `components/mermaid/slashMenu.tsx`）。
+      // 不明確設 `false` 會同時掛兩個 `/` 選單 controller，按 `/` 會看到兩份選單疊在一起。
+      slashMenu={false}
     >
       <SuggestionMenuController triggerCharacter="[[" getItems={getItems} />
+      <SuggestionMenuController triggerCharacter="/" getItems={getSlashItems} />
       <FilePanelController filePanel={filePanel} />
       <FormattingToolbarController formattingToolbar={aiToolbar} />
     </BlockNoteView>
