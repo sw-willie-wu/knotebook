@@ -53,6 +53,20 @@ import type { UndoManager } from "yjs";
  * 換句話說「別讓 view 被拆」不是可靠的修法（下一個 prop 依賴就會再破一次），
  * **要修的不變量是「編輯器活著的期間，UndoManager 必須一直訂閱著它的 Y.Doc」**。
  *
+ * ## 這不是「從外面戳私有狀態」，是補平 library 自己的不對稱
+ *
+ * 同一份 y-prosemirror 裡，**sync** plugin 對重掛是有處理的：它的 `view()` 每次都
+ * 呼叫 `binding.initView(view)`（`sync-plugin.js:190`），而 `initView`
+ * （同檔 662-668）會 `if (this.prosemirrorView != null) this.destroy()` 之後
+ * **重新掛上** `beforeAllTransactions`／`afterAllTransactions`／`observeDeep`。
+ * **undo plugin 的 `view()` 沒有對應的重掛動作**——它只在 `destroy` 裡拆，從不補。
+ * 我們補的就是那一半。
+ *
+ * 順帶解釋為什麼「不重建 manager」能保住 undo 後的選取還原：`binding` 是
+ * **plugin 層級的單一實例**（`sync-plugin.js:111`，在 plugin factory 裡 new 一次，
+ * 不是每個 view 一個），而 undo plugin 把選取快照存成 `stackItem.meta.set(binding, …)`
+ * ——binding 身分跨重掛不變，所以重掛之前那些歷史格子的游標 meta 仍然查得到。
+ *
  * ## 修法
  *
  * 每次 view 掛好之後補回 `destroy()` 拆掉的那三件事。三件都是**冪等**的
@@ -67,6 +81,16 @@ import type { UndoManager } from "yjs";
  * ⚠ **不會串味到別篇筆記**：`useCollab` 每篇筆記各開一份 `Y.Doc`/provider，
  * `useCreateBlockNote` 的 deps 是 `[doc, provider]` ⇒ 換筆記＝全新 editor＋全新
  * `UndoManager`，這裡完全沒有跨 editor 的共用狀態。
+ *
+ * ## 這條修正**沒有**涵蓋的殘留缺陷（issue #100）
+ *
+ * 「撤銷到空白文件」之後重做仍然無效，且是確定性的：撤到空白會讓 ProseMirror 重新
+ * 正規化（補回空段落、重產 block id），y-prosemirror 的 sync plugin 隨即把這個差異
+ * 以 `ySyncPluginKey`——也就是 `UndoManager` 追蹤的那個 origin——寫回 Y.Doc，
+ * `afterTransactionHandler` 於是當成「使用者又編輯了」而 `clear(false, true)`
+ * 清掉整個 redoStack（真瀏覽器探針實測，約在 undo 後 12ms）。
+ * 那是 library 層的問題、與本檔無關（本檔修正之前 undo/redo 是整組死的），
+ * 三條可能的修法都會動到共編 undo 語意或需要上游配合——完整分析在 issue #100。
  */
 
 /** y-prosemirror `yUndoPlugin` 的 plugin state（只取我們用得到的那一格）。 */
@@ -105,10 +129,12 @@ export function armCollabUndoManager(manager: UndoManager): void {
   // 真正讓 undoStack 長出東西的那條訂閱（少了它 undo/redo 全滅）。
   manager.doc.on("afterTransaction", manager.afterTransactionHandler);
   // 文件被丟棄時自動收攤（`destroy` 在 constructor 裡就 bind 過，參照穩定）。
-  // ⚠ 這一條是**對稱性/衛生**，沒有測試守著也守不到：`Y.Doc.destroy()` 自己會把
-  // `_observers` 整個換掉，所以現況下有沒有它結果一樣。保留是為了「補回來的東西
-  // 逐項對得上 `destroy()` 拆掉的東西」這個好懂的不變量，也擋掉 yjs 未來改成
-  // 不清 observers 時的訂閱殘留。
+  // ⚠ 這一條是**對稱性/衛生**，沒有測試守著也守不到——但**不是因為它不會被呼叫**：
+  // `Y.Doc.destroy()` 是先 `emit('destroy')` 才 `super.destroy()`（yjs 13.6.32
+  // `Doc.js:343-345`／dist 705-707 行），所以 handler 確實會跑。淨效果是零的理由是
+  // **走到那裡時已經無事可做**：doc 被丟棄之前，React 一定先卸載編輯器、view teardown
+  // 已經 destroy 過這個 manager 了。保留它是為了「補回來的東西逐項對得上 `destroy()`
+  // 拆掉的東西」這個好懂的不變量，也擋掉未來卸載順序改變時的訂閱殘留。
   manager.doc.on("destroy", manager.destroy);
 }
 
@@ -116,10 +142,17 @@ export function armCollabUndoManager(manager: UndoManager): void {
  * 掛上生命線：立刻補一次，之後每次 view 重掛再補一次。回傳解除訂閱函式。
  *
  * **「立刻補一次」不是保險，是必要的**：React `StrictMode` 的模擬重掛順序是
- * 「拆 layout effect → detach ref（`unmount()`）→ attach ref（`mount()`，`onMount`
- * 在這裡發出）→ 重跑 layout effect」——`onMount` 發出的當下我們已經被解除訂閱了，
+ * 「拆 effect → detach ref（`unmount()`）→ attach ref（`mount()`，`onMount`
+ * 在這裡發出）→ 重跑 effect」——`onMount` 發出的當下我們已經被解除訂閱了，
  * 只靠 `onMount` 會漏掉這一發。反過來 `editable` 翻面那條路徑不會重跑 effect，
  * 只有 `onMount` 接得到。兩條路徑各自被其中一半覆蓋，缺一不可。
+ * （`undo.test.tsx` 兩邊各有一條測試釘住：拿掉 `arm()` 只有 StrictMode 那條紅，
+ * 拿掉 `onMount` 只有 `editable` 那族紅。）
+ *
+ * ⚠ 上面那個順序對 layout effect 與 passive effect **都成立**，所以
+ * {@link useCollabUndoLifeline} 換成 `useEffect` 一樣會過——別把「必須是 layout
+ * effect」讀進這段話裡。選 layout 的理由只是讓補訂閱與 ref attach 收斂在同一個
+ * commit 內完成，不留一個「view 已掛好但 undo 還沒接回來」的可見畫格。
  */
 export function keepCollabUndoAlive(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同上
