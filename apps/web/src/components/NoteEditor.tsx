@@ -153,33 +153,74 @@ export function buildNoteEditorOptions({ doc, provider, user, language, translat
     _tiptapOptions: {
       editorProps: {
         handleDOMEvents: createMediaBlockingDOMEvents(translate),
-        // `[[` 觸發偵測（Task 3 §12.2 recipe，逐字照做）。這裡刻意**不**倚賴
-        // `SuggestionMenu` extension 自己對多字元 trigger 的內建偵測（`addSuggestionMenu`
-        // 註冊後，它的 `handleTextInput` 一樣會嘗試比對「[[」）：我們的 handler 掛在
-        // `_tiptapOptions.editorProps` 這層，ProseMirror 對 `handleTextInput` 的查詢順序
-        // 是「先看直接傳入的 editorProps、才輪到各外掛」，所以會比 extension 內建的偵測
-        // 先跑一步，讓我們能加上下面這個 same-parent guard，並自己控制
-        // `deleteTriggerCharacter` 的語意。
+        // `[[` 觸發偵測（Task 3 §12.2 recipe）。這裡刻意**不**倚賴 `SuggestionMenu`
+        // extension 自己對多字元 trigger 的內建偵測：它算的是
+        // `textBetween(from - trigger.length, from) + text` 再與 trigger 嚴格相等，
+        // 而 `textBetween` 在 block 開頭會回傳不足 2 個字元——於是那條路**只在
+        // 「第一個 `[` 正好是 block 首字」時成立，其餘一律不相等**（已對
+        // @blocknote/core 0.52.1 的 dist 核實）。語意不完整，不能委派給它。
+        // 我們的 handler 掛在 `_tiptapOptions.editorProps` 這層，ProseMirror 對
+        // `handleTextInput` 的查詢順序是「先看直接傳入的 editorProps、才輪到各外掛」，
+        // 所以會比 extension 內建的偵測先跑一步。
         //
-        // guard：`from >= 1` 且 `from-1` 與游標同 parent——防跨 block 邊界時
-        // `textBetween` 誤判（例如上一個 block 結尾字元恰好也是 `[`，那不該算數）。
+        // ⚠ **判斷的是「這次輸入落地後、游標前是不是 `[[`」，不是「這次輸入的字元是
+        // 什麼」**（issue #98）。一般打字不走 `input.ts` 的 keypress 分支（那條外面包著
+        // 「選取狀態異常」的守衛），而是瀏覽器先寫進 DOM、再由 `domchange.ts` 的
+        // `readDOMChange` 回收——它的語意是**「把舊文件的 [from, to) 換成 text」**：
+        // `text` 可以是任意長度（快速連打會併成 `"[["`，IME 組字結束整串送達如
+        // `"測試[["`），`from` 也可以不等於 `to`。原本的逐字元比對（`text === "["`）
+        // 對這兩件事都不成立，於是中文輸入法下必然失效。
         handleTextInput: (view, from, to, text) => {
-          const $prev = view.state.doc.resolve(from - 1),
-            $cur = view.state.doc.resolve(from);
-          if (
-            text === "[" &&
-            from >= 1 &&
-            $prev.parent === $cur.parent &&
-            view.state.doc.textBetween(from - 1, from) === "["
-          ) {
-            // ② 刪掉文件中既存的那個 `[`（使用者剛打的第一個 `[` 已經被預設處理插入了）。
-            view.dispatch(view.state.tr.delete(from - 1, from));
-            // ③ `deleteTriggerCharacter: true`——由 plugin 當下把 `[[` 插入文件，
-            // `clearQuery` 屆時刪除範圍才會涵蓋 `[[`+query；省略/false 必然殘留 `[[`。
-            editorRef.current?.getExtension(SuggestionMenu)?.openSuggestionMenu("[[", { deleteTriggerCharacter: true });
-            return true; // ① 吞掉本次輸入
+          const sel = view.state.selection;
+          // ⚠ 下面的刪除用**參數座標**算，但真正把 `[[` 放進文件的 `openSuggestionMenu`
+          // 走的是無位置的 `insertText()`——那作用在**當下的 selection**。兩者必須指同
+          // 一段，否則會刪在一處、插在另一處，把文件改壞。ProseMirror 實務上一定相等
+          // （`readDOMChange` 的 `findDiff` 以 `state.selection.from` 當 `preferredPos`），
+          // 這裡把這個隱含前提寫成明確守衛，而不是倚賴它碰巧成立。
+          if (sel.from !== from || sel.to !== to) return false;
+
+          const doc = view.state.doc;
+          // 游標前的 1 個字元。`from >= 1` 是保險（上面的 selection 守衛已經蘊含它，
+          // 因為文件內的合法 selection 位置最小是 1），但擋在 `resolve(from - 1)` 之前
+          // 才不會有「位置 -1」的可能。same-parent 判斷同樣是把意圖寫死：跨 block 邊界
+          // 時 `textBetween` 本來就回空字串（範圍內沒有文字葉節點），所以它其實攔不到
+          // 任何實際情形——留著是為了讓「上一個 block 結尾的 `[` 不算數」這件事在原始碼
+          // 層級看得見。
+          let before = "";
+          if (from >= 1) {
+            const $prev = doc.resolve(from - 1),
+              $cur = doc.resolve(from);
+            if ($prev.parent === $cur.parent) before = doc.textBetween(from - 1, from);
           }
-          return false;
+          if (!(before + text).endsWith("[[")) return false;
+
+          // 拿不到 extension 就交還 ProseMirror：回傳 true 卻沒開選單，等於把使用者剛打
+          // 的字整段吞掉（IME 整串送達時是一整段中文）。
+          const menu = editorRef.current?.getExtension(SuggestionMenu);
+          if (!menu) return false;
+
+          // trigger 的兩個 `[` 有幾個來自這次的 `text`：`text` 自己就以 `[[` 結尾 → 兩個
+          // 都是，文件裡不必刪；否則是「文件裡既有一個 ＋ `text` 的最後一個」→ 要把文件
+          // 裡那個刪掉。
+          const fromText = text.endsWith("[[") ? 2 : 1;
+          // `text` 裡 `[[` 之前的內容——IME 整串送達時就是使用者剛打完的那段中文。
+          const keep = text.slice(0, text.length - fromText);
+          const start = from - (2 - fromText);
+          const tr = view.state.tr;
+          // ② 被選取的內容要取代掉（＝ ProseMirror 的預設行為）；`from === to` 時是 no-op。
+          if (from < to) tr.delete(from, to);
+          // ③ 刪掉文件中既存的那個 `[`（僅當這次的 trigger 借用了它）。
+          if (start < from) tr.delete(start, from);
+          // 回傳 true 等於吞掉本次輸入，ProseMirror 不會插入 `text`——`[[` 由下面的
+          // `openSuggestionMenu` 補上，但 **`[[` 之前的內容必須由我們自己插回去**，
+          // 否則使用者剛打的字會憑空消失。
+          if (keep) tr.insertText(keep, start);
+          if (tr.docChanged) view.dispatch(tr);
+          // ④ `deleteTriggerCharacter: true`——由 plugin 當下把 `[[` 插入文件（作用在
+          // selection，此時已被上面的 transaction 映射到 `start`），`clearQuery` 屆時
+          // 刪除範圍才會涵蓋 `[[`+query；省略/false 必然殘留 `[[`。
+          menu.openSuggestionMenu("[[", { deleteTriggerCharacter: true });
+          return true; // ① 吞掉本次輸入
         },
       },
     },

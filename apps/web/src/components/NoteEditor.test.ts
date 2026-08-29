@@ -397,6 +397,89 @@ describe("buildNoteEditorOptions 的 [[ 觸發偵測（handleTextInput）", () =
     expect(editor.getExtension(SuggestionMenu)!.shown()).toBe(false);
     expect(editor.transact((tr) => tr.doc.textContent)).toBe("Hello");
   });
+
+  // ── issue #98：一次事件送來多個字元（快速連打、IME 組字結束）───────────────────
+  //
+  // 一般打字**不走** `input.ts` 的 keypress 分支（那條外面包著「選取狀態異常」的
+  // 守衛），而是瀏覽器先寫進 DOM、再由 `domchange.ts` 的 `readDOMChange` 回收。它
+  // 呼叫 `handleTextInput(view, chFrom, chTo, text)` 的語意是**「把舊文件的
+  // [chFrom, chTo) 換成 text」**——`text` 可以是任意長度，`chFrom` 可以不等於 `chTo`。
+  // 原本的逐字元比對（`text === "["`）對這兩件事都不成立。
+  //
+  // 這幾條的參數形狀是實測來的（用真的 DOM 變動 + `view.domObserver.flush()` 驅動
+  // `readDOMChange`，觀察 handler 收到什麼）：批次連打 `{from:8,to:8,text:"[["}`、
+  // IME 組字結束 `{from:4,to:4,text:"測試[["}`、選取後輸入 `{from:8,to:14,text:"[["}`。
+
+  /**
+   * 模擬 ProseMirror 送來一次「把 [from, to) 換成 text」的輸入事件。
+   *
+   * ⚠ **給了 `range` 就必須把 selection 一起設過去。** `readDOMChange` 的 `findDiff`
+   * 以 `state.selection.from` 當 `preferredPos`，所以實際傳進 handler 的範圍一定與
+   * 當下 selection 一致；而 `openSuggestionMenu` 走的是無位置的 `insertText()`
+   * （＝作用在當下 selection）。只傳 `range` 卻不動 selection 會造出 ProseMirror
+   * 根本不會產生的輸入形狀，測到的行為也就不是真的行為。
+   */
+  function typeInput(text: string, range?: { from: number; to: number }): boolean | void {
+    const view = editor._tiptapEditor.view;
+    if (range) editor._tiptapEditor.commands.setTextSelection(range);
+    const at = editor.transact((tr) => tr.selection.from);
+    return handleTextInput(view, range?.from ?? at, range?.to ?? at, text);
+  }
+
+  it("批次送達 [[（快速連打）：兩個 [ 在同一個事件裡抵達 → 一樣開啟選單", () => {
+    const handled = typeInput("[[");
+
+    expect(handled).toBe(true);
+    const suggestionMenu = editor.getExtension(SuggestionMenu)!;
+    expect(suggestionMenu.shown()).toBe(true);
+    expect(suggestionMenu.store.state?.triggerCharacter).toBe("[[");
+    expect(editor.transact((tr) => tr.doc.textContent)).toBe("[[");
+  });
+
+  it("IME 組字結束整串送達：text 裡 [[ 之前的中文必須留在文件裡，不能被吞掉", () => {
+    editor.insertInlineContent(["x"]);
+
+    const handled = typeInput("測試[[");
+
+    expect(handled).toBe(true);
+    expect(editor.getExtension(SuggestionMenu)!.shown()).toBe(true);
+    expect(editor.transact((tr) => tr.doc.textContent)).toBe("x測試[[");
+  });
+
+  it("取代範圍（from !== to，選取一段後輸入）：選取的內容被取代掉，且照樣開選單", () => {
+    editor.insertInlineContent(["a[ world"]);
+    // 段落內容起點是 3，故 "a[" 之後＝5、整段結尾＝11：等同選取 " world" 後打 "["。
+    const handled = typeInput("[", { from: 5, to: 11 });
+
+    expect(handled).toBe(true);
+    expect(editor.getExtension(SuggestionMenu)!.shown()).toBe(true);
+    expect(editor.transact((tr) => tr.doc.textContent)).toBe("a[[");
+  });
+
+  it("selection 與參數範圍不一致：交還 ProseMirror（刪除用參數座標算，插入卻走 selection，兩者不同就會改到別的地方）", () => {
+    editor.insertInlineContent(["a[bcdef"]);
+    // 游標留在行尾，卻宣稱在位置 5 輸入——ProseMirror 不會產生這種形狀，但真的發生時
+    // 必須什麼都不做，而不是把 `[[` 插到游標處、又從位置 5 附近刪字元。
+    const view = editor._tiptapEditor.view;
+    const handled = handleTextInput(view, 5, 5, "[");
+
+    expect(handled).toBe(false);
+    expect(editor.getExtension(SuggestionMenu)!.shown()).toBe(false);
+    expect(editor.transact((tr) => tr.doc.textContent)).toBe("a[bcdef");
+  });
+
+  it("拿不到 SuggestionMenu extension：交還 ProseMirror，不得吞掉使用者打的字", () => {
+    editorRef.current = null;
+
+    const handled = typeInput("測試[[");
+
+    expect(handled).toBe(false);
+    expect(editor.transact((tr) => tr.doc.textContent)).toBe("");
+  });
+
+  it("from === 0：範圍檢查必須在 resolve(from - 1) 之前（不得 throw）", () => {
+    expect(() => typeInput("[", { from: 0, to: 0 })).not.toThrow();
+  });
 });
 
 // ── uploadFile 真的接上 handleFileInsertion（Task 13）───────────────────────────

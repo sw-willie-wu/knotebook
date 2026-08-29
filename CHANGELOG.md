@@ -22,6 +22,8 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ### Fixed
 
+- Typing `[[` to link another note now works when the two brackets arrive together rather than one at a time. Previously the menu only opened if the editor saw each `[` as its own separate keystroke, so it failed when you typed quickly and the browser batched them, and it failed every time under a Chinese input method — where committing the pending characters sends the whole run, brackets included, as a single edit. The workaround people found (pressing `[` a few more times until one landed on its own) is why it looked intermittent rather than broken. Detection now looks at what sits before the cursor once the input lands, so anything the input method commits alongside the brackets is kept instead of being swallowed. Typing `[` over a selection still replaces the selection and opens the menu, as before (#98).
+
 - Undo works again in the editor. Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z and Ctrl/Cmd+Y did nothing at all — silently, with no error — on every note, in every browser. Notes are collaborative documents, so undo is handled by Yjs rather than by the editor's own history, and the piece of Yjs that records what you changed was being torn down and never reconnected the moment a note finished loading: it stopped listening before you could type your first character. Undo history is per note and only ever takes back your own edits, never a collaborator's. Redo works too, with one exception that is still open: if you undo all the way back to an empty note, redo cannot bring the text back (undo itself is fine, including undoing to empty) — see [Known limitations](docs/known-limitations.md) and #100 (#97).
 
 ## [0.3.1] - 2026-08-26
