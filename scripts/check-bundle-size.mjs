@@ -31,6 +31,11 @@ export const NOTEPAGE_RE = /^NotePage-[A-Za-z0-9_-]+\.js$/;
 // 2026-08-28 實測 entry 6 次、NotePage 19 次）。存在性之所以夠用：只要有人在 `lib/mermaid.ts`
 // 以外靜態 import mermaid，Rollup 就會把它併回引用它的 chunk，這個獨立 chunk 隨即消失。
 export const MERMAID_RE = /^mermaid\.core-[A-Za-z0-9_-]+\.js$/;
+// issue #96：shiki 同 mermaid 的理由必須留在自己的 chunk（唯一允許 import 它的地方是
+// `lib/code-highlight.ts` 的 `import("shiki")`）。chunk 名 shiki-<hash> 來自
+// vite.config.ts 的 chunkFileNames：shiki 套件入口檔叫 index.mjs，Rollup 預設以檔名
+// 命名 chunk 會產出第二個 index-<hash>.js、撞上上面 ENTRY_RE 的「恰一個 entry」偵測。
+export const SHIKI_RE = /^shiki-[A-Za-z0-9_-]+\.js$/;
 
 /**
  * 對指定 assets 目錄跑檢查。回傳檢查通過的摘要；違規 throw（訊息含實際數字）。
@@ -74,7 +79,16 @@ export function checkBundleSize(assetsDir, { maxEntryBytes = MAX_ENTRY_BYTES } =
     );
   }
 
-  return { entryName, entryBytes, notePageChunks, mermaidChunks };
+  const shikiChunks = names.filter(name => SHIKI_RE.test(name));
+  if (shikiChunks.length === 0) {
+    throw new Error(
+      `找不到 shiki 的 lazy chunk（shiki-<hash>.js）——最可能的原因是有人在 ` +
+        `\`lib/code-highlight.ts\` 以外的地方靜態 import 了 shiki，使它被併回 entry/NotePage ` +
+        `（issue #96 的迴歸）；若是 chunk 命名變了（vite.config.ts 的 chunkFileNames），請同步更新 pattern，不要刪檢查`
+    );
+  }
+
+  return { entryName, entryBytes, notePageChunks, mermaidChunks, shikiChunks };
 }
 
 // 直接執行（非被 import）時跑真的 dist。
@@ -84,7 +98,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
     const result = checkBundleSize(assetsDir);
     console.log(
       `bundle OK：entry ${result.entryName} = ${result.entryBytes} bytes（上限 ${MAX_ENTRY_BYTES}）；` +
-        `lazy chunk：${result.notePageChunks.join(', ')}、${result.mermaidChunks.join(', ')}`
+        `lazy chunk：${result.notePageChunks.join(', ')}、${result.mermaidChunks.join(', ')}、${result.shikiChunks.join(', ')}`
     );
   } catch (err) {
     console.error(String(err instanceof Error ? err.message : err));

@@ -384,3 +384,56 @@ describe("issue #43 端到端：真編輯器的匯出鏈吃到守衛", () => {
     expect(markdown).toContain("about:blank");
   });
 });
+
+/**
+ * issue #96：codeBlock 的語法上色選項有沒有真的接上 schema。
+ *
+ * `createCodeBlockSpec(options)` 把 options 封在 spec 閉包裡，從 schema 物件上讀
+ * 不回來——唯一誠實的觀察面是**渲染結果**：spec 的 `render` 只有在
+ * `supportedLanguages` 非空時才會畫語言下拉（BlockNote 內建預設是 `{}`，下拉整個
+ * 不出現）。所以這裡掛真編輯器、塞一個 codeBlock，斷言下拉存在且有我們清單裡的
+ * 語言——這條紅＝有人把 `codeBlock: createCodeBlockSpec(CODE_BLOCK_OPTIONS)` 從
+ * `noteSchema` 拿掉（退回無上色、空下拉的內建路徑）。
+ */
+describe("issue #96：codeBlock 語言下拉接線", () => {
+  it("noteSchema 的 codeBlock 渲染出語言下拉，且清單來自 SUPPORTED_LANGUAGES", () => {
+    const editor = BlockNoteEditor.create({
+      schema: noteSchema,
+      initialContent: [{ type: "codeBlock", props: { language: "typescript" }, content: "const x = 1;" }],
+    });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    try {
+      editor.mount(container);
+      const select = container.querySelector<HTMLSelectElement>('[data-content-type="codeBlock"] select');
+      expect(select, "沒有語言下拉＝schema 沒接 CODE_BLOCK_OPTIONS（內建 supportedLanguages 是空物件）").not.toBeNull();
+      const labels = [...select!.options].map((option) => option.text);
+      expect(labels).toContain("TypeScript");
+      expect(labels).toContain("Plain text");
+      expect(select!.value).toBe("typescript");
+    } finally {
+      editor.unmount();
+      container.remove();
+    }
+  });
+});
+
+/**
+ * issue #96 的匯出不變量釘子：上色是 ProseMirror decoration（editor 層），**從不
+ * 進文件、也從不進匯出**。這條在實作當下就綠（decoration 機制天生如此）——釘住它
+ * 是防未來有人把上色改成「把 span 寫進 content」一類的實作（例如為了 SSR 或匯出
+ * 也帶色），那會讓共編文件被灌入呈現細節、每個協作者的匯出都長不一樣。
+ */
+describe("issue #96：匯出不帶上色殘留", () => {
+  it("codeBlock 的 HTML 匯出是乾淨的 pre>code（無 shiki span、無 inline style）", async () => {
+    const editor = BlockNoteEditor.create({
+      schema: noteSchema,
+      initialContent: [{ type: "codeBlock", props: { language: "typescript" }, content: 'const x = "hi";' }],
+    });
+    const html = await editor.blocksToHTMLLossy(editor.document);
+    expect(html).toContain('const x = "hi";');
+    expect(html).not.toContain("shiki");
+    expect(html).not.toContain("--code-");
+    expect(html).not.toContain("style=");
+  });
+});
