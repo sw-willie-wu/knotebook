@@ -437,3 +437,54 @@ describe("issue #96：匯出不帶上色殘留", () => {
     expect(html).not.toContain("style=");
   });
 });
+
+/**
+ * issue #96：未知語言的 graceful-skip 是**承重路徑**，不只防惡意協作者——BlockNote 的
+ * ``` 圍欄 input rule 是 `getLanguageId(...) ?? 原字串`（0.52.1 dist 核實），任何使用者
+ * 打 ```foo 就會產生不在清單裡的 language prop。而 shiki 的 `loadLanguage()` 對 bundle
+ * 外的 id 是 **throw**：這條路必須在「呼叫 loadLanguage 之前」就被 getLanguageId 的
+ * undefined 擋掉，破掉的症狀是 unhandled rejection ＋ 上色靜默全滅。
+ *
+ * 對照組（typescript 有上色）先等到 .shiki decoration 真的出現，才斷言未知語言那塊
+ * 沒有——不然「兩塊都還沒開始上色」也會讓斷言假綠。
+ */
+describe("issue #96：未知語言 graceful-skip", () => {
+  it("language 不在清單 → 不炸、無 unhandled rejection、該塊不上色（其他塊照常上色）", async () => {
+    const rejections: unknown[] = [];
+    const onRejection = (reason: unknown) => rejections.push(reason);
+    process.on("unhandledRejection", onRejection);
+
+    const editor = BlockNoteEditor.create({
+      schema: noteSchema,
+      initialContent: [
+        { type: "codeBlock", props: { language: "typescript" }, content: 'const x = "hi";' },
+        { type: "codeBlock", props: { language: "notalang" }, content: "some code" },
+      ],
+    });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    try {
+      editor.mount(container);
+      // highlighter 是 lazy（首次渲染 codeBlock 才 import shiki、載 grammar、重繪 decoration）
+      // ——輪詢等對照組出現 .shiki，逾時才失敗（同 repo「不可固定 sleep」慣例）。
+      const deadline = Date.now() + 10_000;
+      while (container.querySelector('[data-content-type="codeBlock"] .shiki') === null) {
+        if (Date.now() > deadline) throw new Error("對照組（typescript）10s 內沒出現 .shiki decoration");
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+
+      const blocks = [...container.querySelectorAll<HTMLElement>('[data-content-type="codeBlock"]')];
+      expect(blocks).toHaveLength(2);
+      expect(blocks[0]!.querySelectorAll(".shiki").length, "對照組 typescript 應該有上色").toBeGreaterThan(0);
+      expect(blocks[1]!.querySelectorAll(".shiki")).toHaveLength(0);
+      expect(blocks[1]!.textContent).toContain("some code");
+      // 多等一輪 macrotask 讓可能的 rejection 冒出來再收網。
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(rejections, "graceful-skip 破掉的第一個症狀就是 unhandled rejection").toHaveLength(0);
+    } finally {
+      process.off("unhandledRejection", onRejection);
+      editor.unmount();
+      container.remove();
+    }
+  });
+});

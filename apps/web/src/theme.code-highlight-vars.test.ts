@@ -91,9 +91,21 @@ describe("codeBlock 底色覆寫", () => {
 
   it("語言下拉的文字色也要跟著換——內建寫死 color:#fff，淺色底上等於看不見", () => {
     const rules = codeBlockRules();
-    expect(
-      rules.some((r) => /select/.test(r.selector) && /var\(--code-foreground\)/.test(r.body)),
-      "缺語言下拉的 color 覆寫（.bn-editor 錨 + select + var(--code-foreground)）",
-    ).toBe(true);
+    const colorRule = rules.find((r) => /select/.test(r.selector) && /var\(--code-foreground\)/.test(r.body));
+    expect(colorRule, "缺語言下拉的 color 覆寫（select + var(--code-foreground)）").toBeDefined();
+    // 錨檢查跟底色那條同理由：內建 select 規則同樣在 lazy chunk、載入晚於 index.css，
+    // 掉了 .bn-editor 錨就同 specificity 必輸、color:#fff 靜默回來（審查突變實測：
+    // 沒有這條斷言時拿掉錨 4 測試全綠）。
+    expect(colorRule!.selector, `少了 .bn-editor 錨：${colorRule!.selector}`).toMatch(/^\.bn-editor\s/);
+  });
+
+  it("語言下拉 hover/focus 的不透明度要墊高——內建 opacity:.5 讓淺色模式的有效對比只剩 3.1:1（<AA 4.5）", () => {
+    const rules = codeBlockRules();
+    const opacityRule = rules.find((r) => /select/.test(r.selector) && /opacity/.test(r.body));
+    expect(opacityRule, "缺語言下拉的 opacity 覆寫（內建 hover/focus 只到 .5，鍵盤聚焦時就是 3.1:1）").toBeDefined();
+    expect(opacityRule!.selector, `少了 .bn-editor 錨：${opacityRule!.selector}`).toMatch(/^\.bn-editor\s/);
+    const value = Number(opacityRule!.body.match(/opacity:\s*([0-9.]+)/)?.[1]);
+    // 0.75 是 light foreground #1f2328 混入底色後仍過 4.5:1 的下限附近；取 .8 留裕度。
+    expect(value, "opacity 要 ≥ 0.75 才過得了 AA").toBeGreaterThanOrEqual(0.75);
   });
 });

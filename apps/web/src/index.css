@@ -385,7 +385,16 @@ body {
 
 /* 語言下拉：內建寫死 `color:#fff`（配深底），淺色底上 hover 出現時等於看不見。
    內建選擇器 `.bn-block-content[data-content-type=codeBlock]>div>select` 是
-   (0,3,1)，這裡同樣加 .bn-editor 錨墊到 (0,4,1)。 */
+   (0,2,2)，這裡同樣加 .bn-editor 錨墊到 (0,3,2)。 */
 .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select {
   color: var(--code-foreground);
+}
+
+/* 內建 hover/focus 只把下拉墊到 `opacity:.5`——light foreground #1f2328 以 α=.5 混入
+   底色 #f6f8fa 的有效對比只剩 3.1:1（<AA 4.5），鍵盤聚焦時就是這個值。墊到 .8
+   （有效對比 light ≈7、dark ≈11），閒置時的 opacity:0（藏起來、hover 才浮現）維持
+   內建行為不動。transition-delay 由內建規則繼續管。 */
+.bn-editor .bn-block-content[data-content-type=codeBlock]:hover > div > select,
+.bn-editor .bn-block-content[data-content-type=codeBlock] > div > select:focus {
+  opacity: 0.8;
 }
