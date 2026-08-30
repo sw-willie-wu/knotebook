@@ -217,3 +217,102 @@ describe("共編 undo/redo 生命線（issue #97）", () => {
     expect(firstBlockText(first)).toBe("note one");
   });
 });
+
+/**
+ * issue #100：撤到空白文件之後 redo 失效。
+ *
+ * 機制（jsdom 完整重現，與真瀏覽器探針序列逐格吻合）：undo 讓 fragment 變空 →
+ * BlockNote/PM 正規化補回空段落 → y-prosemirror sync plugin 的 `view.update` 在
+ * **下一筆任意 PM transaction** 觸發時，以 `ySyncPluginKey`（＝使用者編輯共用的
+ * origin）把正規化寫回 Y.Doc → `UndoManager` 當成新編輯 → `clear(false, true)`
+ * 清掉 redoStack。「多等一下必敗、按得夠快偶爾贏」就是這個競態。
+ *
+ * 修法（`guardEmptyDocNormalization`）的判別式是三元組合：origin=y-sync$ ∧
+ * deleteSet 空 ∧ 結果恰為預設空文件——使用者的任何真編輯都不滿足（全刪有
+ * deleteSet；打第一個字結果非空）。下面「使用者自己清空」那條就是判別式不得
+ * 過寬的守門。
+ */
+describe("撤到空白文件後的 redo（issue #100）", () => {
+  /** 模擬「undo 之後 ~12ms 的任一 PM transaction」：空 tr 觸發 sync plugin 的 view.update 回寫。 */
+  function triggerNormalizationWriteback(editor: AnyEditor): void {
+    act(() => {
+      const view = editor._tiptapEditor.view;
+      view.dispatch(view.state.tr);
+    });
+  }
+
+  it("打字 → undo 到空 → （正規化回寫發生後）redo 仍能復原文字，且文件結構單一", () => {
+    const { doc, editor } = collabEditor();
+    render(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />);
+    const manager = collabUndoManager(editor)!;
+
+    type(editor, "hello");
+    act(() => { manager.undo(); });
+    expect(doc.getXmlFragment(YDOC_FRAGMENT).length, "undo 後 fragment 應為空（本 bug 的前提）").toBe(0);
+
+    triggerNormalizationWriteback(editor);
+    expect(manager.redoStack.length, "正規化回寫不得清掉 redoStack（#100 的核心）").toBe(1);
+
+    act(() => { manager.redo(); });
+    expect(firstBlockText(editor)).toBe("hello");
+    // 殘渣守門：redo 前正規化插入的空 blockGroup 必須被清掉，否則 fragment 出現
+    // 兩個平行 blockGroup（不合法結構），PM 只渲染第一個、看起來像 redo 沒生效。
+    const xml = doc.getXmlFragment(YDOC_FRAGMENT).toString();
+    expect((xml.match(/<blockgroup/g) ?? []).length).toBe(1);
+  });
+
+  it("歷史可連續來回：redo 之後再 undo 再 redo 都要通，清殘渣那筆不得進歷史", () => {
+    const { doc, editor } = collabEditor();
+    render(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />);
+    const manager = collabUndoManager(editor)!;
+
+    type(editor, "hello");
+    act(() => { manager.undo(); });
+    triggerNormalizationWriteback(editor);
+    act(() => { manager.redo(); });
+    expect(firstBlockText(editor)).toBe("hello");
+    // 清殘渣（非 tracked origin）不得變成一格歷史：此刻 undoStack 只該有 hello 那一筆。
+    expect(manager.undoStack.length).toBe(1);
+
+    act(() => { manager.undo(); });
+    expect(doc.getXmlFragment(YDOC_FRAGMENT).length, "再 undo 應回到空").toBe(0);
+    triggerNormalizationWriteback(editor);
+    act(() => { manager.redo(); });
+    expect(firstBlockText(editor), "第二輪 redo 也要通").toBe("hello");
+  });
+
+  it("判別式不得過寬：使用者自己把內容清空（結果同為空文件形，但有刪除）仍要可 undo", () => {
+    const { editor } = collabEditor();
+    render(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />);
+    const manager = collabUndoManager(editor)!;
+
+    type(editor, "hello");
+    // 分格：不 stopCapturing 的話，打字與清空落在同一個 captureTimeout（500ms）會
+    // 合併成一格，undo 一步就回到打字前——測不到「undo 恢復被清掉的內容」。
+    act(() => { manager.stopCapturing(); });
+    // 使用者清空：同樣經 y-sync$ 回寫、結果同為「空段落」形，但 deleteSet 非空——
+    // 必須被捕捉，否則「刪光內容」變成不可撤銷的操作。（`content: []` 才是真清空；
+    // 空字串 `""` 對 updateBlock 是 no-op 形。）
+    act(() => { editor.updateBlock(editor.document[0]!, { content: [] }); });
+    expect(firstBlockText(editor)).toBe("");
+
+    act(() => { manager.undo(); });
+    expect(firstBlockText(editor), "undo 要能復原被清掉的內容").toBe("hello");
+  });
+
+  it("editable 翻面（view 重掛、lifeline 重新 arm）之後守衛仍有效且不重複疊加", () => {
+    const { doc, editor } = collabEditor();
+    const { rerender } = render(
+      <NoteEditorView editor={editor} editable={false} theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />,
+    );
+    rerender(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />);
+    const manager = collabUndoManager(editor)!;
+
+    type(editor, "hello");
+    act(() => { manager.undo(); });
+    triggerNormalizationWriteback(editor);
+    act(() => { manager.redo(); });
+    expect(firstBlockText(editor)).toBe("hello");
+    expect((doc.getXmlFragment(YDOC_FRAGMENT).toString().match(/<blockgroup/g) ?? []).length).toBe(1);
+  });
+});

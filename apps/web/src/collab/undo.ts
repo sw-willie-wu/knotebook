@@ -158,13 +158,118 @@ export function armCollabUndoManager(manager: UndoManager): void {
  * effect」讀進這段話裡。選 layout 的理由只是讓補訂閱與 ref attach 收斂在同一個
  * commit 內完成，不留一個「view 已掛好但 undo 還沒接回來」的可見畫格。
  */
+
+// ── issue #100：撤到空白文件後 redo 失效 ────────────────────────────────────────
+//
+// 機制：undo 讓 fragment 變空 → BlockNote/PM 正規化補回空段落 → y-prosemirror
+// sync plugin 的 `view.update` 在下一筆任意 PM transaction 觸發時（回寫被
+// `binding.mux` 擋在 undo 自己的 dispatch 之外，所以總是「稍後」發生——真瀏覽器
+// 實測約 12ms），以 `ySyncPluginKey`（＝使用者編輯共用的 origin）把正規化寫回
+// Y.Doc → `UndoManager.afterTransactionHandler` 當成新編輯 → `clear(false, true)`
+// 清掉整個 redoStack。順帶把正規化推上 undoStack（再按 undo 會撤掉正規化→又空
+// →又正規化，circular）。
+//
+// 判別式（三元組合，缺一不可）：**origin=y-sync$ ∧ deleteSet 空 ∧ 結果恰為預設
+// 空文件**。使用者的任何真編輯都不滿足：全選刪除的結果同為空文件形但 deleteSet
+// 非空；在空文件打第一個字同為「純插入」但結果非空。`undo.test.tsx` 的
+// 「判別式不得過寬」一條守著這件事。
+
+/** {@link isDefaultEmptyFragment} 走訪時每一層的最小介面（Y.XmlElement 的子集）。 */
+interface XmlNodeLike {
+  nodeName?: string;
+  length?: number;
+  get?: (index: number) => unknown;
+}
+
+/**
+ * 節點是不是指定 nodeName 且恰有 expectedLength 個子節點的 XmlElement。
+ *
+ * 刻意用 duck-typing 而非 `instanceof Y.XmlElement`：pnpm 只要因 peer 解析給出
+ * apps/web 與 @blocknote/core 兩份不同的 yjs 實例，instanceof 就靜默恆 false
+ * （同 `collabUndoManager` 不 import `yUndoPluginKey` 的理由）。`nodeName` 只有
+ * XmlElement 有（XmlText/XmlHook 沒有），足以判別。
+ */
+function isXmlElement(node: unknown, nodeName: string, expectedLength: number): node is Required<XmlNodeLike> {
+  const candidate = node as XmlNodeLike | null;
+  return candidate?.nodeName === nodeName && candidate.length === expectedLength && typeof candidate.get === "function";
+}
+
+/**
+ * fragment 是否恰為「blockGroup > blockContainer > 空 paragraph」的預設空文件。
+ *
+ * ⚠ nodeName 是 **camelCase**（`blockGroup`／`blockContainer`）——`toString()` 會
+ * 印成小寫，別被它騙去改這裡（#100 調查時踩過）。不檢查 attrs：id 每次正規化都
+ * 重生，其餘 attrs 不影響「這是不是空文件」的判定。
+ */
+function isDefaultEmptyFragment(fragment: { length: number; get: (index: number) => unknown }): boolean {
+  if (fragment.length !== 1) return false;
+  const group = fragment.get(0);
+  if (!isXmlElement(group, "blockGroup", 1)) return false;
+  const container = group.get(0);
+  if (!isXmlElement(container, "blockContainer", 1)) return false;
+  return isXmlElement(container.get(0), "paragraph", 0);
+}
+
+/** redo 前清掉正規化殘渣用的 origin——不在 `trackedOrigins`，所以不進歷史。 */
+const DENORMALIZE_ORIGIN = "knotebook:undo-denormalize";
+
+/** 每個 manager 只包一次（arm 會被生命線重複呼叫，重複包會讓 wrapper 疊加）。 */
+const guardedManagers = new WeakSet<UndoManager>();
+
+/**
+ * 對 manager 裝上兩件套（冪等）：
+ *
+ * ① `captureTransaction`：命中判別式的正規化回寫不捕捉——`afterTransactionHandler`
+ *    因此提早 return，redoStack 不被清、正規化也不進 undoStack。
+ *    （`captureTransaction` 是 yjs 13.6.32 的公開建構選項、實例上的普通可寫屬性，
+ *    handler 逐筆呼叫 `this.captureTransaction(transaction)`——這是文件化的縫，
+ *    不是戳私有內部。）
+ * ② `redo`：redoStack 非空且 fragment 是預設空文件時，先以非 tracked origin 清掉
+ *    正規化殘渣再 redo。不清的話 redo 恢復的內容會與殘渣並列成**兩個平行
+ *    blockGroup**（不合法結構，PM 只渲染第一個，看起來像 redo 沒生效）。
+ *
+ * scope[0] 就是 `yUndoPlugin` 建構時傳入的共編 fragment（`new UndoManager(ystate.type)`）。
+ */
+export function guardEmptyDocNormalization(manager: UndoManager): void {
+  if (guardedManagers.has(manager)) return;
+  // scope[0] 是 yUndoPlugin 建構時的共編 fragment；duck-typing 理由見 isXmlElement。
+  const fragment = manager.scope[0] as unknown as { length: number; get: (index: number) => unknown; delete: (index: number, length: number) => void };
+  if (typeof fragment?.get !== "function" || typeof fragment.delete !== "function") return;
+  guardedManagers.add(manager);
+
+  const capture = manager.captureTransaction;
+  manager.captureTransaction = (transaction) => {
+    // origin 以 `key` 字串比對，不 import `ySyncPluginKey` 做身分比對——pnpm 若給出
+    // 兩份 y-prosemirror 實例，PluginKey 身分比對會靜默失敗（同 collabUndoManager
+    // 不 import yUndoPluginKey 的理由）。
+    const isSyncWriteback = (transaction.origin as { key?: string } | null)?.key === "y-sync$";
+    if (isSyncWriteback && transaction.deleteSet.clients.size === 0 && isDefaultEmptyFragment(fragment)) {
+      return false;
+    }
+    return capture(transaction);
+  };
+
+  const redo = manager.redo.bind(manager);
+  manager.redo = () => {
+    if (manager.redoStack.length > 0 && isDefaultEmptyFragment(fragment)) {
+      manager.doc.transact(() => { fragment.delete(0, fragment.length); }, DENORMALIZE_ORIGIN);
+    }
+    return redo();
+  };
+}
+
 export function keepCollabUndoAlive(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同上
   editor: BlockNoteEditor<any, any, any>,
 ): () => void {
   const arm = (): void => {
     const manager = collabUndoManager(editor);
-    if (manager) armCollabUndoManager(manager);
+    if (manager) {
+      armCollabUndoManager(manager);
+      // issue #100：兩件套（captureTransaction 判別式＋redo 前清殘渣）跟著生命線裝上。
+      // 自帶冪等（WeakSet），重掛多少次都只包一層。
+      guardEmptyDocNormalization(manager);
+    }
   };
   arm();
   return editor.onMount(arm);
