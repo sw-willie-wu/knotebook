@@ -1,4 +1,5 @@
-import { BlockNoteSchema, defaultBlockSpecs, defaultInlineContentSpecs } from "@blocknote/core";
+import { BlockNoteSchema, createCodeBlockSpec, defaultBlockSpecs, defaultInlineContentSpecs } from "@blocknote/core";
+import { CODE_BLOCK_OPTIONS } from "@/lib/code-highlight";
 import { mermaidSpec } from "@/components/mermaid/spec";
 import { wikilinkSpec } from "@/components/wikilink/spec";
 import { safeMediaUrl } from "@/lib/media-url";
@@ -109,6 +110,11 @@ export const noteSchema = BlockNoteSchema.create({
     // issue #94：mermaid 圖表 block。⚠ `createReactBlockSpec` 回傳的是 **factory**
     // （與 `createReactInlineContentSpec` 不同，後者直接回傳 spec）——這裡的括號不能少。
     mermaid: mermaidSpec(),
+    // issue #96：codeBlock 換成帶語法上色選項的版本。`defaultBlockSpecs.codeBlock` 是
+    // `createCodeBlockSpec()` 不帶參數的產物（supportedLanguages 空物件＝語言下拉沒有
+    // 東西、無 createHighlighter＝不上色）——選項封在 spec 閉包裡，**沒有** editor 層
+    // 的 `codeBlock` 選項可以事後補（已對 0.52.1 dist 核實），唯一接線點就是這裡。
+    codeBlock: createCodeBlockSpec(CODE_BLOCK_OPTIONS),
   },
   inlineContentSpecs: { ...defaultInlineContentSpecs, wikilink: wikilinkSpec },
 });

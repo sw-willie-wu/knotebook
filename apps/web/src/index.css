@@ -47,6 +47,27 @@
   --brand-swatch-sage: oklch(0.550 0.049 137.6); /* ≈#64795d */
   --brand-swatch-rose: oklch(0.550 0.052 18.4); /* ≈#8e6566 */
   --brand-swatch-gold: oklch(0.550 0.098 82.4); /* ≈#8e6b23 */
+
+  /* 程式碼區塊上色（issue #96）。shiki 走 createCssVariablesTheme（prefix --code-），
+     token 顏色一律是 var(--code-…)，色值只在這裡與 .dark 各一套——深淺切換＝換變數值，
+     shiki 完全不知情。**刻意不引用 --brand 系**：程式碼配色是語意配色（關鍵字／字串／
+     註解…），換 accent 不得改變這裡任何顏色（issue 設計限制；守衛
+     theme.code-highlight-vars.test.ts）。色值取自 GitHub Light 的 token 色（在同級
+     淺灰底上有現成的對比度驗證），底色配我們的頁底層階。 */
+  --code-foreground: #1f2328;
+  --code-background: #f6f8fa;
+  --code-token-comment: #59636e;
+  --code-token-constant: #0550ae;
+  --code-token-function: #8250df;
+  --code-token-keyword: #cf222e;
+  --code-token-link: #0a3069;
+  --code-token-parameter: #953800;
+  --code-token-punctuation: #1f2328;
+  --code-token-string: #0a3069;
+  --code-token-string-expression: #0a3069;
+  --code-token-changed: #953800;
+  --code-token-deleted: #82071e;
+  --code-token-inserted: #116329;
 }
 
 .dark {
@@ -84,6 +105,25 @@
   --brand-swatch-sage: oklch(0.692 0.045 137.6); /* ≈#8fa388 */
   --brand-swatch-rose: oklch(0.670 0.048 18.4); /* ≈#b18a8a */
   --brand-swatch-gold: oklch(0.747 0.089 82.4); /* ≈#c9a86a */
+
+  /* 程式碼區塊上色 dark 套（對照 :root 那套的說明）。**每個變數都要有 dark 版**——
+     漏一個＝該 token 靜默沿用 light 色值（CSS 變數繼承），深底上就是一坨看不見的
+     深色字。色值取自 GitHub Dark；底色 #15181e 落在頁底 #0e1013 與卡面 #1a1d23 之間，
+     維持「更深一階」的層階語感。 */
+  --code-foreground: #e6edf3;
+  --code-background: #15181e;
+  --code-token-comment: #8b949e;
+  --code-token-constant: #79c0ff;
+  --code-token-function: #d2a8ff;
+  --code-token-keyword: #ff7b72;
+  --code-token-link: #a5d6ff;
+  --code-token-parameter: #ffa657;
+  --code-token-punctuation: #e6edf3;
+  --code-token-string: #a5d6ff;
+  --code-token-string-expression: #a5d6ff;
+  --code-token-changed: #ffa657;
+  --code-token-deleted: #ffa198;
+  --code-token-inserted: #7ee787;
 }
 
 /* 主題色（accent）十二個套用塊：六色 × light/dark。
@@ -324,4 +364,37 @@ body {
 .bn-editor .ProseMirror-selectednode > .bn-block-content > * {
   outline: 2px solid var(--color-brand);
   outline-offset: 2px;
+}
+
+/* 程式碼區塊的底與字（issue #96）。BlockNote 內建寫死
+   `.bn-block-content[data-content-type=codeBlock] { color:#fff; background:#161616 }`
+   ——淺色模式也是一塊深色方塊。這裡換成 --code-* 變數（值在 :root／.dark 兩套，
+   見上方變數區塊）。⚠ `.bn-editor` 錨點不得拿掉：內建是 (0,2,0) 且載入順序晚於
+   本檔，同 specificity 必輸——同上面選取外框那條的理由；守衛
+   theme.code-highlight-vars.test.ts。
+
+   token 的顏色**不需要**在這裡寫任何規則：shiki 的 decoration 是 inline style
+   `color: var(--code-token-…)`，變數值換了就跟著換。 */
+.bn-editor .bn-block-content[data-content-type=codeBlock] {
+  color: var(--code-foreground);
+  background-color: var(--code-background);
+  /* 內建 0 邊框全靠底色分界——淺色底 #f6f8fa 與卡面白太接近，補一條與其他卡片
+     同語彙的邊。 */
+  border: 1px solid var(--color-border);
+}
+
+/* 語言下拉：內建寫死 `color:#fff`（配深底），淺色底上 hover 出現時等於看不見。
+   內建選擇器 `.bn-block-content[data-content-type=codeBlock]>div>select` 是
+   (0,2,2)，這裡同樣加 .bn-editor 錨墊到 (0,3,2)。 */
+.bn-editor .bn-block-content[data-content-type=codeBlock] > div > select {
+  color: var(--code-foreground);
+}
+
+/* 內建 hover/focus 只把下拉墊到 `opacity:.5`——light foreground #1f2328 以 α=.5 混入
+   底色 #f6f8fa 的有效對比只剩 3.1:1（<AA 4.5），鍵盤聚焦時就是這個值。墊到 .8
+   （有效對比 light ≈7、dark ≈11），閒置時的 opacity:0（藏起來、hover 才浮現）維持
+   內建行為不動。transition-delay 由內建規則繼續管。 */
+.bn-editor .bn-block-content[data-content-type=codeBlock]:hover > div > select,
+.bn-editor .bn-block-content[data-content-type=codeBlock] > div > select:focus {
+  opacity: 0.8;
 }
