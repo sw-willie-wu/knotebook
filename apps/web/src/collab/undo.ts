@@ -213,8 +213,16 @@ function isDefaultEmptyFragment(fragment: { length: number; get: (index: number)
 /** redo 前清掉正規化殘渣用的 origin——不在 `trackedOrigins`，所以不進歷史。 */
 const DENORMALIZE_ORIGIN = "knotebook:undo-denormalize";
 
-/** 每個 manager 只包一次（arm 會被生命線重複呼叫，重複包會讓 wrapper 疊加）。 */
-const guardedManagers = new WeakSet<UndoManager>();
+/**
+ * 每個 manager 只包一次（arm 會被生命線重複呼叫，重複包會讓 wrapper 疊加）；
+ * value 是「作廢殘渣記錄」的把手——**重複呼叫 guard（＝生命線 re-arm）時要作廢**：
+ * 作廢不變量「captureTransaction 看得到每一筆」的前提是 manager 訂閱著
+ * afterTransaction，而 #97 的病灶正是這條訂閱會在 view 重掛被拆。訂閱死掉的窗口
+ * 內若有遠端更新「就地沾染」殘渣節點，identity 比對擋不住（節點沒被換掉）——
+ * re-arm＝可能存在過這種窗口，一律作廢，劣化方向是已文件化的「平行空 block」，
+ * fail-safe（第二輪審查 I1 的探針實證過不作廢會把遠端內容連坐刪掉）。
+ */
+const guardedManagers = new WeakMap<UndoManager, () => void>();
 
 /**
  * 對 manager 裝上兩件套（冪等）：
@@ -245,14 +253,19 @@ const guardedManagers = new WeakSet<UndoManager>();
  * scope[0] 就是 `yUndoPlugin` 建構時傳入的共編 fragment（`new UndoManager(ystate.type)`）。
  */
 export function guardEmptyDocNormalization(manager: UndoManager): void {
-  if (guardedManagers.has(manager)) return;
+  const invalidate = guardedManagers.get(manager);
+  if (invalidate) {
+    // 已包過：這次呼叫是生命線 re-arm——作廢殘渣記錄（理由見 guardedManagers 註解）。
+    invalidate();
+    return;
+  }
   // scope[0] 是 yUndoPlugin 建構時的共編 fragment；duck-typing 理由見 isXmlElement。
   const fragment = manager.scope[0] as unknown as { length: number; get: (index: number) => unknown; delete: (index: number, length: number) => void };
   if (typeof fragment?.get !== "function" || typeof fragment.delete !== "function") return;
-  guardedManagers.add(manager);
 
   // 最近一筆被拒捕的正規化實際插入的 blockGroup 節點；null＝沒有可清的殘渣。
   let pendingResidue: unknown = null;
+  guardedManagers.set(manager, () => { pendingResidue = null; });
 
   const capture = manager.captureTransaction;
   manager.captureTransaction = (transaction) => {
@@ -289,11 +302,15 @@ export function guardEmptyDocNormalization(manager: UndoManager): void {
 
   const redo = manager.redo.bind(manager);
   manager.redo = () => {
-    // 三重門：有記錄、redo 有東西可做、且 fragment 此刻恰好只有記錄的那顆節點
-    // （identity 比對——節點被刪過或被別的內容擠開，比對自然失敗）。
+    // 三重門。**承重的是「有記錄」**（記錄的建立與作廢已保證它只可能指向純殘渣；
+    // 死窗口由 re-arm 作廢補上）；redoStack 門與 identity 門是縱深防禦——訂閱
+    // 活著時任何換掉/擠開節點的變更都會先走作廢分支，所以它們在已知路徑上到
+    // 不了，突變測試殺不掉它們是**預期的**（第二輪審查 I2 核實過），別因此拆掉。
     if (pendingResidue !== null && manager.redoStack.length > 0 && fragment.length === 1 && fragment.get(0) === pendingResidue) {
       manager.doc.transact(() => { fragment.delete(0, 1); }, DENORMALIZE_ORIGIN);
     }
+    // 用過即棄同屬縱深防禦（清殘渣的 transact 與 redo 自己的 transaction 本來就會
+    // 流經 captureTransaction 的作廢分支）——保留是讓不變量在這裡直接可見。
     pendingResidue = null;
     return redo();
   };

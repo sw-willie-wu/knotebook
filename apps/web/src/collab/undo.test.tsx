@@ -441,6 +441,8 @@ describe("判別式的腿各自有守（issue #100 審查 I1）", () => {
     expect(manager.redo, "重複裝不得換掉（再包一層）redo").toBe(redoRef);
   });
 
+  // ⚠ 這條實際被釘住的是「作廢分支」（清殘渣與 redo 的 transaction 流經 captureTransaction
+  // 就把記錄清掉），不是 redo wrapper 末尾那行 null——那行是縱深防禦（審查二 I2）。
   it("殘渣記錄用過即棄：redo 一次之後，同一顆節點不會被第二次 redo 誤刪", () => {
     const { doc, editor } = collabEditor();
     render(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />);
@@ -455,5 +457,45 @@ describe("判別式的腿各自有守（issue #100 審查 I1）", () => {
     act(() => { manager.redo(); });
     expect(firstBlockText(editor)).toBe("hello");
     expect(doc.getXmlFragment(YDOC_FRAGMENT).toString()).toContain("hello");
+  });
+});
+
+/**
+ * 死窗口加固（第二輪審查 I1）：作廢不變量「captureTransaction 看得到每一筆」的前提
+ * 是 manager 訂閱著 afterTransaction——而 #97 的病灶正是這條訂閱會在 view 重掛被拆。
+ * 訂閱死掉期間遠端更新「就地沾染」殘渣節點的話，identity 比對擋不住（節點沒被換掉），
+ * re-arm 後 redo 會把遠端內容連著殘渣一起刪掉（非 tracked origin、undo 救不回、會廣播）。
+ * 加固：**re-arm 一律作廢殘渣記錄**（re-arm＝可能存在過死窗口），劣化方向是已
+ * 文件化的「平行空 block」，fail-safe。
+ */
+describe("死窗口後 re-arm 作廢殘渣記錄（issue #100 審查二 I1）", () => {
+  it("訂閱死掉期間遠端寫入殘渣段落 → re-arm → redo 不得刪掉遠端內容", () => {
+    const { doc, editor } = collabEditor();
+    const { rerender } = render(
+      <NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />,
+    );
+    const manager = collabUndoManager(editor)!;
+
+    type(editor, "hello");
+    act(() => { manager.undo(); });
+    act(() => { const view = editor._tiptapEditor.view; view.dispatch(view.state.tr); });
+    // 殘渣已被記錄。模擬死窗口：訂閱被拆（＝#97 的 view 重掛 destroy 期）。
+    doc.off("afterTransaction", manager.afterTransactionHandler);
+    // 遠端在殘渣的空段落裡插入內容（就地沾染，節點 identity 不變）。
+    act(() => {
+      doc.transact(() => {
+        const paragraph = (doc.getXmlFragment(YDOC_FRAGMENT).get(0) as Y.XmlElement).get(0) as Y.XmlElement;
+        (paragraph.get(0) as Y.XmlElement).insert(0, [new Y.XmlText("REMOTE")]);
+      }, "remote-provider");
+    });
+    // re-arm（生命線在重掛後做的事）：editable 翻面觸發。
+    rerender(<NoteEditorView editor={editor} editable={false} theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />);
+    rerender(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />);
+
+    act(() => { manager.redo(); });
+    expect(
+      doc.getXmlFragment(YDOC_FRAGMENT).toString(),
+      "遠端內容不得被清殘渣連坐刪掉（非 tracked origin、undo 救不回）",
+    ).toContain("REMOTE");
   });
 });
