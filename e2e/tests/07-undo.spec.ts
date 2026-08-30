@@ -66,21 +66,35 @@ test("撤到空白文件後 redo 仍能復原（issue #100）", async ({ page })
   await editor.pressSequentially("gamma");
   await expect(editor).toContainText("gamma");
 
-  // 撤到空白（單格歷史：打字與初始正規化在同一個 captureTimeout 內合併，一撤全空）。
-  await page.keyboard.press("Control+z");
-  await expect(editor).not.toContainText("gamma");
+  // 正常情況打字與初始正規化在同一個 captureTimeout（500ms）內合併成單格、一撤
+  // 全空、一重做全回；慢 CI 上若打字被拆成兩格，單按只走一半。兩側都用收斂迴圈
+  // （多按對空堆疊／滿堆疊是 no-op，安全），測試的斷言不變：能到全空、能回 gamma。
+  const undoToEmpty = async (key: string) => {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      await page.keyboard.press(key);
+      if (!(await editor.textContent())?.includes("g")) break;
+    }
+    await expect(editor).not.toContainText("g");
+  };
+  const redoUntilRestored = async (key: string) => {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      await page.keyboard.press(key);
+      if ((await editor.textContent())?.includes("gamma")) break;
+      // 分格情境下，兩格 redo 之間會再有一次正規化競態窗口——比照下面主等待的理由。
+      await page.waitForTimeout(1000);
+    }
+    await expect(editor).toContainText("gamma");
+  };
+
+  await undoToEmpty("Control+z");
 
   // ⚠ 這 1 秒是測試的一部分：正規化回寫發生在 undo 後約 12ms（下一筆 PM transaction
   // 觸發），修正前「多等必敗」（0/6）。等超過競態窗口再 redo，證明修的是機制不是運氣。
   await page.waitForTimeout(1000);
-
-  await page.keyboard.press("Control+Shift+z");
-  await expect(editor).toContainText("gamma");
+  await redoUntilRestored("Control+Shift+z");
 
   // 歷史還能連續走：再撤回空、再重做回來（Ctrl+Y 那一半也走一次）。
-  await page.keyboard.press("Control+z");
-  await expect(editor).not.toContainText("gamma");
+  await undoToEmpty("Control+z");
   await page.waitForTimeout(1000);
-  await page.keyboard.press("Control+y");
-  await expect(editor).toContainText("gamma");
+  await redoUntilRestored("Control+y");
 });

@@ -316,3 +316,144 @@ describe("撤到空白文件後的 redo（issue #100）", () => {
     expect((doc.getXmlFragment(YDOC_FRAGMENT).toString().match(/<blockgroup/g) ?? []).length).toBe(1);
   });
 });
+
+/**
+ * issue #100 修法的迴歸邊界（審查 C1，兩形在 main 上本來是好的，第一版修法弄壞過）：
+ * 「殘渣」的鑑別不能用「長得像預設空文件」——那個結構可能是 redo 項目的**活 parent**
+ * （yjs 的 redoItem 對已刪除且不在 redo 集合裡的 parent 直接回 null，redo 整疊 pop 光、
+ * 什麼都沒恢復）。只有「這個 session 剛拒捕的那筆正規化、且之後沒有任何編輯沾過它」
+ * 才可以清。
+ */
+describe("殘渣鑑別不得誤刪活 baseline（issue #100 審查 C1）", () => {
+  function triggerWriteback(editor: AnyEditor): void {
+    act(() => { const view = editor._tiptapEditor.view; view.dispatch(view.state.tr); });
+  }
+
+  it("同 session：撤到空→殘渣落地→再打字→undo→redo 要能復原新文字（殘渣已是新編輯的 parent，不可刪）", () => {
+    const { editor } = collabEditor();
+    render(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />);
+    const manager = collabUndoManager(editor)!;
+
+    type(editor, "hello");
+    act(() => { manager.undo(); });
+    triggerWriteback(editor);
+    // 使用者接著在殘渣的空段落上打新字（殘渣從此是這筆編輯的 parent）。
+    act(() => { manager.stopCapturing(); });
+    type(editor, "world");
+    act(() => { manager.undo(); });
+    triggerWriteback(editor);
+
+    act(() => { manager.redo(); });
+    expect(firstBlockText(editor), "redo 應復原 world；殘渣被誤刪的話 redo 整疊失效、文件停在全空").toBe("world");
+  });
+
+  it("重開曾撤空的筆記：殘渣已持久化為 baseline→打字→undo→redo 要能復原（新 session 沒拒捕過任何東西，不可清任何節點）", () => {
+    // 第一個 session：製造殘渣並讓它成為持久化狀態。
+    const first = collabEditor();
+    render(<NoteEditorView editor={first.editor} editable theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />);
+    const firstManager = collabUndoManager(first.editor)!;
+    type(first.editor, "hello");
+    act(() => { firstManager.undo(); });
+    act(() => { const view = first.editor._tiptapEditor.view; view.dispatch(view.state.tr); });
+    expect(first.doc.getXmlFragment(YDOC_FRAGMENT).length, "殘渣應已落地").toBe(1);
+
+    // 第二個 session：套用持久化狀態（等同重開筆記），在殘渣段落上編輯。
+    const second = collabEditor();
+    Y.applyUpdate(second.doc, Y.encodeStateAsUpdate(first.doc));
+    render(<NoteEditorView editor={second.editor} editable theme="light" noteId="note-2" getItems={getItems} getSlashItems={getItems} />);
+    const manager = collabUndoManager(second.editor)!;
+
+    type(second.editor, "world");
+    act(() => { manager.undo(); });
+    act(() => { const view = second.editor._tiptapEditor.view; view.dispatch(view.state.tr); });
+    act(() => { manager.redo(); });
+    expect(firstBlockText(second.editor), "redo 應復原 world；baseline 被誤刪＝資料遺失且不可 undo 救回").toBe("world");
+  });
+});
+
+/**
+ * 判別式各條腿的釘子（審查 I1：突變測試曾發現 origin 與 deleteSet 兩條腿沒有任何
+ * 測試守著）。自然流程打不到這兩條腿（使用者情境都被其他條件先擋下），所以用
+ * **合成 transaction** 直接打：判別式對 origin 只比對 `key === "y-sync$"` 字串，
+ * 測試可以用假物件當 origin。
+ */
+describe("判別式的腿各自有守（issue #100 審查 I1）", () => {
+  function triggerWriteback(editor: AnyEditor): void {
+    act(() => { const view = editor._tiptapEditor.view; view.dispatch(view.state.tr); });
+  }
+  /** 造出「blockGroup > blockContainer > 空 paragraph」的合成節點。 */
+  function defaultEmptyGroup(): Y.XmlElement {
+    const group = new Y.XmlElement("blockGroup");
+    const container = new Y.XmlElement("blockContainer");
+    const paragraph = new Y.XmlElement("paragraph");
+    container.insert(0, [paragraph]);
+    group.insert(0, [container]);
+    return group;
+  }
+
+  it("origin 腿：非 sync 來源的「純插入空文件形」必須被捕捉（例如未來 server seed）", () => {
+    const { doc, editor } = collabEditor();
+    render(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />);
+    const manager = collabUndoManager(editor)!;
+    // 先讓 UndoManager 追蹤這個合成 origin，隔離出「只有 origin 腿在分辨」的情境。
+    const seedOrigin = { key: "not-sync" };
+    manager.trackedOrigins.add(seedOrigin);
+
+    // fragment 為空時插入預設空文件形——與正規化回寫唯一的差別是 origin。
+    act(() => { doc.transact(() => { doc.getXmlFragment(YDOC_FRAGMENT).insert(0, [defaultEmptyGroup()]); }, seedOrigin); });
+    expect(manager.undoStack.length, "origin 不是 y-sync$ 就不得被判成正規化，必須進歷史").toBe(1);
+  });
+
+  it("deleteSet 腿：sync 來源「刪除＋重建成空文件形」的合成回寫必須被捕捉", () => {
+    const { doc, editor } = collabEditor();
+    render(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />);
+    const manager = collabUndoManager(editor)!;
+
+    type(editor, "hello");
+    act(() => { manager.stopCapturing(); });
+    const before = manager.undoStack.length;
+    // 假 y-sync$ origin：判別式只比對 key 字串。要先進 trackedOrigins（真的
+    // ySyncPluginKey 本來就在裡面），否則 handler 在 origin 檢查就早退、測不到
+    // 判別式。這筆有刪有插、結果是空文件形——deleteSet 腿是唯一擋住它的條件。
+    const fakeSyncOrigin = { key: "y-sync$" };
+    manager.trackedOrigins.add(fakeSyncOrigin);
+    act(() => {
+      doc.transact(() => {
+        const fragment = doc.getXmlFragment(YDOC_FRAGMENT);
+        fragment.delete(0, fragment.length);
+        fragment.insert(0, [defaultEmptyGroup()]);
+      }, fakeSyncOrigin);
+    });
+    expect(manager.undoStack.length, "有刪除的回寫不是正規化，必須進歷史（否則這種清空不可 undo）").toBe(before + 1);
+  });
+
+  it("WeakSet 冪等：guard 重複裝（生命線每次重掛都會呼叫）不得再包一層 wrapper", () => {
+    const { editor } = collabEditor();
+    const { rerender } = render(
+      <NoteEditorView editor={editor} editable={false} theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />,
+    );
+    const manager = collabUndoManager(editor)!;
+    const captureRef = manager.captureTransaction;
+    const redoRef = manager.redo;
+    // 翻面 → 生命線 re-arm → guardEmptyDocNormalization 再被呼叫一次。
+    rerender(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />);
+    expect(manager.captureTransaction, "重複裝不得換掉（再包一層）captureTransaction").toBe(captureRef);
+    expect(manager.redo, "重複裝不得換掉（再包一層）redo").toBe(redoRef);
+  });
+
+  it("殘渣記錄用過即棄：redo 一次之後，同一顆節點不會被第二次 redo 誤刪", () => {
+    const { doc, editor } = collabEditor();
+    render(<NoteEditorView editor={editor} editable theme="light" noteId="note-1" getItems={getItems} getSlashItems={getItems} />);
+    const manager = collabUndoManager(editor)!;
+
+    type(editor, "hello");
+    act(() => { manager.undo(); });
+    triggerWriteback(editor);
+    act(() => { manager.redo(); });
+    expect(firstBlockText(editor)).toBe("hello");
+    // redoStack 已空；再按 redo 必須是安靜 no-op，不得動文件。
+    act(() => { manager.redo(); });
+    expect(firstBlockText(editor)).toBe("hello");
+    expect(doc.getXmlFragment(YDOC_FRAGMENT).toString()).toContain("hello");
+  });
+});
