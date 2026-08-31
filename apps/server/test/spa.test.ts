@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -102,6 +103,41 @@ describe("SPA fallback（spec §11.5）", () => {
     const res = await app.inject({ method: "GET", url: "/nope?foo=bar", headers: { accept: "text/html" } });
     expect(res.statusCode).toBe(200);
     expect(res.body).toContain("knotebook spa");
+  });
+
+  // issue #101：CSP 掛在**這條路徑**（手動回 index.html 的地方）——CSP 只對 HTML 文件
+  // 有意義。政策內容本身由 `test/unit/security-headers.test.ts` 逐條釘住，這裡守的是
+  // 「有沒有真的掛上去」與「hash 是不是從**這次送出的這份 body** 算的」。
+  it("index.html 回應帶 CSP，且 script-src 的 hash 就是這份 body 裡那段 inline script 的 sha256", async () => {
+    const inline = 'document.documentElement.classList.add("dark");';
+    const dist = mkdtempSync(path.join(tmpdir(), "knotebook-csp-"));
+    writeFileSync(
+      path.join(dist, "index.html"),
+      `<!doctype html><head><script>${inline}</script></head><body></body>`,
+    );
+    try {
+      const { app } = await buildTestApp({}, { webDist: dist });
+      const res = await app.inject({ method: "GET", url: "/nope", headers: { accept: "text/html" } });
+
+      expect(res.statusCode).toBe(200);
+      const csp = res.headers["content-security-policy"];
+      expect(csp, "index.html 回應沒有 CSP").toBeTypeOf("string");
+      // oracle 獨立於實作：直接對送出的 body 裡的 script 內文算一次 sha256。
+      const served = /<script>([\s\S]*?)<\/script>/.exec(res.body)![1]!;
+      const hash = createHash("sha256").update(served, "utf8").digest("base64");
+      expect(csp).toContain(`'sha256-${hash}'`);
+      expect(res.headers["referrer-policy"]).toBe("no-referrer");
+      expect(res.headers["x-content-type-options"]).toBe("nosniff");
+    } finally {
+      rmSync(dist, { recursive: true, force: true });
+    }
+  });
+
+  it("JSON 404 不掛 CSP（那條路徑不是 HTML 文件）", async () => {
+    const { app } = await buildTestApp({}, { webDist });
+    const res = await app.inject({ method: "GET", url: "/api/nope", headers: { accept: "text/html" } });
+    expect(res.statusCode).toBe(404);
+    expect(res.headers["content-security-policy"]).toBeUndefined();
   });
 
   it("不傳 webDist → GET /nope 仍是既有 JSON 404（既有行為不受影響）", async () => {

@@ -7,6 +7,10 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
+### Added
+
+- Knotebook now sends a Content-Security-Policy with the page, so a note's content cannot make the browser run scripts, load plugins, embed the app inside someone else's frame, or send data anywhere but back to Knotebook. Images, audio and video embedded by URL keep working exactly as before — that is a deliberate policy choice, since a note can already reference an external image on purpose, and the same holds for diagrams. Pages now also carry `Referrer-Policy: no-referrer`, so a site hosting an image you embedded no longer learns which note is being read, and `X-Content-Type-Options: nosniff` (#101).
+
 ### Changed
 
 - A code block's language dropdown now appears above the block, at its right edge, when you hover the block — the same place and the same behaviour as a diagram's Edit button, in the same small bordered style. It used to sit inside the block's top-left corner, overlapping the start of the first line, which is where you usually click to put the cursor. Keyboard users still reach it by tabbing (focus reveals it). On a note you can only read, it drops its border and background so that hovering the block reveals a plain language label rather than a control you cannot use, since the dropdown is disabled there anyway. Opening it now shows a menu styled like the app's other menus — same surface, border, radius and hover highlight — with a caret on the control that flips when the list is open, in browsers that support customizable selects (Chromium 135+, Safari 27). Where they do not (Firefox today), the browser keeps its own native menu, whose options now at least follow the light/dark theme instead of BlockNote's hard-coded black, which was unreadable against a dark menu (#111).

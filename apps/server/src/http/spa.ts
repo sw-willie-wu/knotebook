@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import fastifyStatic from "@fastify/static";
+import { securityHeaders } from "./security-headers.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { sendError } from "./errors.js";
 
@@ -54,6 +55,12 @@ export function registerSpaFallback(app: FastifyInstance, webDist: string | unde
         try {
           const html = await readFile(path.join(webDist, "index.html"), "utf8");
           reply.header("content-type", "text/html; charset=utf-8");
+          // issue #101：安全標頭掛在**這裡**——CSP 只對 HTML 文件有意義（`/api` 與
+          // `/assets` 不需要）。標頭由**這份 html** 推導（script-src 的 hash），所以
+          // 不可能與送出的內容不同步，見 `security-headers.ts` 檔頭。
+          for (const [name, value] of Object.entries(securityHeaders(html))) {
+            reply.header(name, value);
+          }
           reply.send(html);
           return;
         } catch {
