@@ -141,12 +141,35 @@ describe("NoteEditor 佈局（PR2 slot 化：節點鏈 + 雙層 class smoke）",
     expect(scrollWrapper).not.toContainElement(screen.getByTestId("header-slot-marker"));
     expect(scrollWrapper).not.toContainElement(screen.getByTestId("footer-slot-marker"));
 
-    // AI 側欄預設收合，展開才會出現完整的 `<aside data-testid="ai-panel">`。
+    // AI 側欄預設收合（#115：收合態是右下 bubble），展開才會出現完整的
+    // `<aside data-testid="ai-panel">`。
     fireEvent.click(await screen.findByRole("button", { name: "Expand AI panel" }));
     const aside = await screen.findByTestId("ai-panel");
-    // PR2（E 節）：AI 卡跟其餘卡片同一套視覺——rounded-xl border bg-card 取代原本的
-    // border-l/bg-background；z-30 保留（窄螢幕 fixed 抽屜仍需疊在內文卡之上）。
-    expect(aside).toHaveClass("z-30", "w-80", "shrink-0", "overflow-y-auto", "rounded-xl", "border", "border-border", "bg-card");
+    // #115 展開態雙呈現（同一元素）：`<md` 滿寬底部浮層（fixed inset-x-3 bottom-5、
+    // 高 min(80dvh, 100dvh−5rem)）、`md+` 並排卡（static、w-80、高度回 auto 由父層
+    // stretch）。`md:w-80`（非裸 w-80）與 `md:h-auto/md:max-h-none` 缺一即踩
+    // over-constrained／高度外洩雷（spec §2 定案）；卡面視覺沿用 cardSurface。
+    expect(aside).toHaveClass(
+      "z-30",
+      "shrink-0",
+      "overflow-y-auto",
+      "fixed",
+      "inset-x-3",
+      "bottom-5",
+      "h-[80dvh]",
+      "max-h-[calc(100dvh-5rem)]",
+      "md:static",
+      "md:inset-auto",
+      "md:bottom-auto",
+      "md:h-auto",
+      "md:max-h-none",
+      "md:w-80",
+      "rounded-xl",
+      "border",
+      "border-border",
+      "bg-card",
+    );
+    expect(aside).not.toHaveClass("w-80");
 
     doc.destroy();
   });

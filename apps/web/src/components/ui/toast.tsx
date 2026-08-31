@@ -73,7 +73,10 @@ export const ToastViewport = forwardRef<
   <ToastPrimitive.Viewport
     ref={ref}
     className={cn(
-      "fixed bottom-0 right-0 z-[100] flex max-h-screen w-full flex-col gap-2 p-4 sm:max-w-[420px]",
+      // `pointer-events-none`（#115）：viewport 空著的時候仍是右下角一塊 fixed 命中
+      // 區，會蓋住 AI bubble 的下緣；toast item 自己帶 `pointer-events-auto`（見
+      // ToastRoot），互動不受影響。
+      "pointer-events-none fixed bottom-0 right-0 z-[100] flex max-h-screen w-full flex-col gap-2 p-4 sm:max-w-[420px]",
       className,
     )}
     {...props}

@@ -187,6 +187,11 @@ describe("BacklinksSection", () => {
     // 隨「這篇有幾筆 backlinks」上下跳 5px，見元件註解。
     expect(chipsContainer).toHaveClass("flex", "min-w-0", "flex-1", "overflow-x-scroll");
     expect(chipsContainer?.className).not.toContain("overflow-x-auto");
+    // #115：末端內距 `pr-14`（56px）——右下 AI bubble（`AiPanel.tsx` 收合態，48px、
+    // 距視窗右緣 24/20px，侵入 chips 區 40/36px）壓在 strip 右端，末端 padding
+    // 完整進 scrollable overflow（headed 實測 flex 容器成立），捲到底時最後一顆
+    // chip 才能完全捲出 bubble 覆蓋區（56 > 40）。
+    expect(chipsContainer).toHaveClass("pr-14");
 
     // 捲軸幾何整組走 ui/rows.ts 的常數（容器高＝列高＋捲軸、負邊距拉回、strip
     // 專用 6px 捲軸＋1px thumb border）。缺任一個，chips 就不再與標籤共線、

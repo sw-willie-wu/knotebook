@@ -3,13 +3,14 @@ import { describe, expect, it } from "vitest";
 import { cardSurface } from "./card";
 
 /**
- * 來源層守衛（#81）：`cardSurface` 是卡片外觀 class 字面量的**唯一出處**——8 個
- * 呼叫端（AppShell／AiPanel ×2／NoteEditor／NotePage／HomePage／NotePageFallback／
- * ErrorBoundary）改成 `cn(cardSurface, "<其餘 class>")`，只有 3 個呼叫端有
- * rendered-class 斷言守著：`NoteEditor.layout.test.tsx` 一檔守 2 處（NoteEditor
- * 的內文卡、AiPanel 的展開卡），`NotePage.test.tsx` 守 1 處（NotePage 的佔位卡，
- * 用兩個不同狀態各斷言一次，不是兩個不同呼叫端）。其餘 5 處（AppShell aside、
- * AiPanel 收合軌、HomePage、NotePageFallback、ErrorBoundary）完全沒有測試釘住
+ * 來源層守衛（#81）：`cardSurface` 是卡片外觀 class 字面量的**唯一出處**——7 個
+ * 呼叫端（AppShell／AiPanel 展開卡／NoteEditor／NotePage／HomePage／
+ * NotePageFallback／ErrorBoundary；#115 起 AiPanel 收合態是 bubble、不再是卡）
+ * 改成 `cn(cardSurface, "<其餘 class>")`，只有 3 個呼叫端有 rendered-class 斷言
+ * 守著：`NoteEditor.layout.test.tsx` 一檔守 2 處（NoteEditor 的內文卡、AiPanel 的
+ * 展開卡），`NotePage.test.tsx` 守 1 處（NotePage 的佔位卡，用兩個不同狀態各
+ * 斷言一次，不是兩個不同呼叫端）。其餘 4 處（AppShell aside、HomePage、
+ * NotePageFallback、ErrorBoundary）完全沒有測試釘住
  * rendered 輸出——這裡補的不是「渲染出來對不對」，是「字面量有沒有被抄回原始碼」。
  *
  * 掃描語意（**對 raw 原始碼全文、含註解**，刻意跟 `theme.*` 系列守衛的「剝註解」

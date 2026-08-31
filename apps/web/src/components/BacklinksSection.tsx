@@ -73,7 +73,12 @@ export function BacklinksSection({ noteId }: { noteId: string | undefined }) {
           </p>
         )}
         {settled && backlinks.length > 0 && (
-          <div className={cn("flex min-w-0 flex-1 items-center gap-2 overflow-x-scroll", BACKLINKS_SCROLL_ROW)}>
+          // `pr-14`（56px 末端內距）：右下 AI bubble（`AiPanel.tsx` 收合態，48px、
+          // 距**視窗**右緣 md+ 24px／<md 20px；卡右緣在視窗內 12px、本列再內縮
+          // `px-5`，bubble 因此侵入 chips 區 40px／36px）壓在本 strip 右端；末端
+          // padding 完整進 scrollable overflow（headed 實測 flex 容器成立），捲到底
+          // 時最後一顆 chip 才能完全捲出 bubble 覆蓋區（56 > 40）。
+          <div className={cn("flex min-w-0 flex-1 items-center gap-2 overflow-x-scroll pr-14", BACKLINKS_SCROLL_ROW)}>
             {backlinks.map((backlink) => (
               <Link
                 key={backlink.id}

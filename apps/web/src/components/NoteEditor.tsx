@@ -339,7 +339,8 @@ export function NoteEditor({ doc, provider, editable, user, noteId, headerSlot, 
   //             wrapper 的 min-h-full 無法把百分比高度傳給孫層，唯一有效解是讓
   //             BlockNoteView 自己成為 flex-col wrapper 的成長項；除 className 外零改動）
   //       {footerSlot}                                ← NotePage 組裝（backlinks chips）
-  //     AiPanel                                       ← AI 卡（見 AiPanel.tsx）
+  //     AiPanel                                       ← AI 入口（#115：收合態是 fixed
+  //       bubble、不佔這個 row 的 flex 空間；展開 md+ 才以並排卡參與，見 AiPanel.tsx）
   // `data-testid="note-editor"` 留在 `NoteEditorView`／`BlockNoteView` 上，不隨這次
   // 改版搬家——e2e 的 `[data-testid="note-editor"] [contenteditable]` 與
   // `NoteEditor.layout.test.tsx` 的節點鏈都吊在這裡。
