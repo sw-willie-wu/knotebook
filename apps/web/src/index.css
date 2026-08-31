@@ -384,31 +384,43 @@ body {
 }
 
 /* 語言下拉的閉合態（issue #96 的顏色 → issue #111 的位置與樣式）。
-   內建是：`color:#fff`（配深底，淺色底上等於看不見）、`opacity:0` 藏著只有 hover 才
-   浮到 .5、絕對定位在區塊**左上角**（`top:8px;left:18px`）。三件事都要改：
+   目標是**與 mermaid 的控制鈕同一套邏輯**（`MermaidView.tsx`）：保留一列高度在方塊
+   **外面的上方**、控制項靠右、平常隱形，hover 到整個 block（或鍵盤聚焦）才現身。
 
-   1. **位置改右上**——與 mermaid 那顆控制鈕（`MermaidView.tsx` 的保留列 `justify-end`）
-      同一側。左上角是最糟的落點：它疊在第一行程式碼的**開頭**，正是使用者最常點去
-      放游標的地方。右上角仍會攔截該角落的點擊（mermaid #94 學過的雷），但那裡通常
-      是行尾空白；`top:4px` 讓它落在 `<pre>` 的 24px 上內距裡，不壓到第一行文字。
-   2. **常駐顯示**——`opacity:0` 的可發現性在 #96 的驗證過程就已證明太差（要先猜到
-      有東西可 hover）。改成一直在，用 muted 色降低存在感、hover/focus 才提到全對比。
-      不再用 opacity 調層次（半透明文字的有效對比會隨底色浮動，#96 為此算過 AA），
-      改用**顏色**分層：muted-foreground → foreground。
-   3. **長相**——與 mermaid 那顆鈕同語彙（`rounded-sm border border-border bg-background
-      px-2 py-1 text-xs text-muted-foreground`）。內建的 `appearance:none` 沿用，所以
-      這裡不會有原生箭頭；**展開後的選單是 OS 原生 widget，CSS 蓋不到**，要完全主題化
-      得換成自訂 trigger＋選單（工程量差一個量級，見 issue #111 的待決項）。
+   內建是：`color:#fff`（配深底，淺色底上等於看不見）、絕對定位在方塊**左上角內部**
+   （`top:8px;left:18px`）、`opacity:0` → hover 浮到 .5。
+
+   1. **移到方塊外面的上方、靠右**：block content 加 `margin-top` 讓出一條 1.75rem
+      的保留列（＝mermaid 那條 `h-7`，高度固定所以顯隱不會讓版面跳動），下拉用負的
+      `top` 落在那條列上。左上角是最糟的落點——疊在第一行程式碼的**開頭**，正是最常
+      點去放游標的地方；搬到方塊外面之後就完全不再攔截程式碼區域的點擊（mermaid #94
+      為此把工具列拉成獨立一列，同一個理由）。
+   2. **hover 才現**：與 mermaid 一致。用 `opacity` 而不是 `display/hidden` 隱藏——
+      後者會讓它退出 Tab 順序，鍵盤使用者就永遠構不到（`:focus` 那條負責讓它現身）。
+   3. **長相**：與 mermaid 那顆鈕同語彙（`rounded-sm border border-border bg-background
+      px-2 py-1 text-xs text-muted-foreground`）。現身時直接給全對比的 muted 前景色，
+      不再用半透明疊色（#96 算過：α 混色的有效對比會隨底色浮動，內建的 .5 只有 3.1:1）。
+
+   內建的 `appearance:none` 沿用，所以沒有原生箭頭；**展開後的選單是 OS 原生 widget，
+   CSS 蓋不到**（只有 option 的前景/底色與 color-scheme 有效，見下一條），要完全主題化
+   得換成自訂 trigger＋選單——工程量差一個量級，是 issue #111 的待決項。
 
    ⚠ 內建選擇器 `.bn-block-content[data-content-type=codeBlock]>div>select` 是 (0,2,2)，
    且 BlockNote 的 CSS 在 NotePage lazy chunk、載入必晚於本檔——`.bn-editor` 錨墊到
    (0,3,2) 才蓋得掉，掉了錨整組靜默回到左上角的隱形下拉。守衛見
    `theme.code-highlight-vars.test.ts`。 */
+.bn-editor .bn-block-content[data-content-type=codeBlock] {
+  /* 保留列：控制項落在方塊外面的上方，所以要先把那段高度讓出來。 */
+  margin-top: 1.75rem;
+}
+
 .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select {
-  top: 4px;
-  right: 8px;
+  top: -1.75rem;
+  right: 0;
+  /* ⚠ `left:auto` 不可省：absolute 同時有 left/right 且寬度非 auto 時 ltr 下 left
+     勝出，不寫的話內建的 `left:18px` 還在、`right` 被忽略，靜默留在左上角。 */
   left: auto;
-  opacity: 1;
+  opacity: 0;
   padding: 2px 6px;
   border: 1px solid var(--color-border);
   border-radius: 0.125rem;
@@ -416,24 +428,39 @@ body {
   color: var(--color-muted-foreground);
   font-size: 0.75rem;
   line-height: 1rem;
-  transition:
-    color 0.15s,
-    border-color 0.15s;
+  transition: opacity 0.15s;
 }
 
-/* hover/focus：提到全對比（AA 之上）。內建的 hover 規則只調 opacity，這裡連同它的
-   `transition-delay:.1s`／`.3s 1s` 一起被上面那條 transition 取代。 */
+/* hover 整個 block（或聚焦下拉本身）才現身——與 mermaid 的 `group-hover` 同語意。 */
 .bn-editor .bn-block-content[data-content-type=codeBlock]:hover > div > select,
 .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select:focus {
   opacity: 1;
-  color: var(--color-foreground);
 }
 
 /* 唯讀（viewer／未同步）：BlockNote 仍會渲染這個 select，只是設 `disabled`（見
-   `createCodeBlockSpec` 的 render）。常駐之後若照樣是個有框的按鈕，看起來像可以點
-   卻沒反應——所以退成純文字標籤：留住「這塊是什麼語言」的資訊，去掉可互動的暗示。 */
+   `createCodeBlockSpec` 的 render）。留著它是 viewer 唯一看得到語言的地方，但要去掉
+   「可以點」的暗示——退成純文字標籤。 */
 .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select:disabled {
   border-color: transparent;
   background-color: transparent;
   cursor: default;
+}
+
+/* 展開後的清單是 OS 原生 widget，CSS 幾乎蓋不到——**除了** option 的前景/底色與
+   `color-scheme`。內建寫死 `option{color:#000}`：深色模式下瀏覽器把彈出清單畫成深底，
+   黑字疊上去就等於看不見（實測回報）。這裡把兩者都交給主題變數，並讓 `color-scheme`
+   跟著主題走，原生清單的底色/捲軸才會是對的那一套。
+   ⚠ `color-scheme` 只掛在這個 select 上，不掛 `:root`/`.dark`——那會一次改掉全 app
+   的原生控制項與捲軸外觀，遠超這條的範圍。 */
+.bn-editor .bn-block-content[data-content-type=codeBlock] > div > select {
+  color-scheme: light;
+}
+
+.dark .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select {
+  color-scheme: dark;
+}
+
+.bn-editor .bn-block-content[data-content-type=codeBlock] > div > select > option {
+  background-color: var(--color-background);
+  color: var(--color-foreground);
 }

@@ -9,7 +9,7 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ### Changed
 
-- A code block's language dropdown now sits in the block's top-right corner and is always visible, in the same small bordered style as a diagram's Edit button. It used to be invisible until you hovered the block, and it sat in the top-left corner — overlapping the start of the first line, which is where you usually click to put the cursor. It is muted until you hover or focus it, then goes to full contrast. On a note you can only read, it drops its border and background and reads as a plain label, since the dropdown is disabled there anyway. Opening the dropdown still shows your operating system's own menu — theming that part would mean replacing the dropdown entirely (#111).
+- A code block's language dropdown now appears above the block, at its right edge, when you hover the block — the same place and the same behaviour as a diagram's Edit button, in the same small bordered style. It used to sit inside the block's top-left corner, overlapping the start of the first line, which is where you usually click to put the cursor. Keyboard users still reach it by tabbing (focus reveals it). On a note you can only read, it drops its border and background and reads as a plain label, since the dropdown is disabled there anyway. Opening the dropdown shows your operating system's own menu, which a page cannot style — but its options now follow the light/dark theme instead of BlockNote's hard-coded black, which was unreadable against a dark menu (#111).
 
 ### Fixed
 

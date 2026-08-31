@@ -107,26 +107,65 @@ describe("codeBlock 底色覆寫", () => {
     expect(idle!.body).not.toContain("#fff");
   });
 
-  it("issue #111：語言下拉常駐在**右上角**——內建是 opacity:0 藏在左上角（疊在第一行開頭）", () => {
-    const idle = selectRules().find((r) => !/:hover|:focus|:disabled/.test(r.selector));
-    expect(idle, "缺語言下拉的閒置態覆寫").toBeDefined();
-    // 三個宣告缺一不可：`left:auto` 不寫的話內建的 `left:18px` 還在，right 反而被忽略
-    // （absolute 同時給 left/right 且寬度非 auto 時，ltr 下 left 勝出）→ 靜默留在左上角。
-    expect(idle!.body, "缺 right（要移到右上角，與 mermaid 控制鈕同側）").toMatch(/right:\s*\d/);
+  it("issue #111：語言下拉移到方塊**外面的上方靠右**，且保留列高度＝下拉的負 top", () => {
+    const idle = selectRules().find((r) => /top:/.test(r.body) && /opacity:/.test(r.body));
+    expect(idle, "缺語言下拉的定位覆寫（top ＋ opacity 那條）").toBeDefined();
+    expect(idle!.selector, `少了 .bn-editor 錨：${idle!.selector}`).toMatch(/^\.bn-editor\s/);
+
+    // 靠右：兩個宣告缺一不可。`left:auto` 不寫的話內建的 `left:18px` 還在、`right`
+    // 反而被忽略（absolute 同時給 left/right 且寬度非 auto 時 ltr 下 left 勝出）
+    // → 靜默留在左上角，也就是這條 issue 的原狀。
+    expect(idle!.body, "缺 right（要與 mermaid 控制鈕同側）").toMatch(/right:\s*\d/);
     expect(idle!.body, "缺 left:auto——內建的 left:18px 會贏過 right，下拉仍在左上角").toMatch(/left:\s*auto/);
-    const opacity = Number(idle!.body.match(/opacity:\s*([0-9.]+)/)?.[1]);
-    expect(opacity, "閒置態要 opacity:1（常駐）——內建是 0，不覆寫就等於沒有這個控制項").toBe(1);
+
+    // 「外面的上方」：top 必須是負值，否則它又疊回程式碼區域（會攔截點擊，mermaid
+    // #94 踩過）。
+    const top = Number(idle!.body.match(/top:\s*(-?[0-9.]+)rem/)?.[1]);
+    expect(top, "top 要是負的 rem 值——正值＝疊在方塊內部").toBeLessThan(0);
+
+    // 保留列與位移是**同一個數字的兩半**（比照 ui/rows.ts 的 `42 ＝ 36 ＋ 6`）：
+    // block content 讓出 margin-top 的高度，下拉往上位移同樣的距離。改一個沒改另一個
+    // → 下拉不是壓到上一個 block，就是在方塊上方留一條空白。
+    const reserved = codeBlockRules().find((r) => /margin-top:/.test(r.body));
+    expect(reserved, "缺保留列（block content 的 margin-top）").toBeDefined();
+    expect(reserved!.selector, `少了 .bn-editor 錨：${reserved!.selector}`).toMatch(/^\.bn-editor\s/);
+    const reservedRem = Number(reserved!.body.match(/margin-top:\s*([0-9.]+)rem/)?.[1]);
+    expect(reservedRem, "保留列高度要等於下拉的位移量").toBe(Math.abs(top));
   });
 
-  it("issue #111：hover/focus 提到全對比（不靠半透明——有效對比會隨底色浮動）", () => {
+  it("issue #111：平常隱形、hover 到 block 或聚焦才現身（與 mermaid 同邏輯）", () => {
+    const idle = selectRules().find((r) => /top:/.test(r.body) && /opacity:/.test(r.body));
+    expect(Number(idle!.body.match(/opacity:\s*([0-9.]+)/)?.[1]), "閒置態要 opacity:0").toBe(0);
+
     const raised = selectRules().find((r) => /:hover|:focus/.test(r.selector));
-    expect(raised, "缺語言下拉的 hover/focus 覆寫").toBeDefined();
+    expect(raised, "缺 hover/focus 的現身規則").toBeDefined();
     expect(raised!.selector, `少了 .bn-editor 錨：${raised!.selector}`).toMatch(/^\.bn-editor\s/);
-    expect(raised!.body, "hover/focus 要換成全對比的前景色").toMatch(/color:\s*var\(--(?:code|color)-foreground\)/);
-    // 內建 hover 只把 opacity 墊到 .5（light 有效對比 3.1:1 < AA 4.5）。改用顏色分層
-    // 之後，opacity 若還被調成小於 1 就是把那個問題搬回來。
-    const opacity = raised!.body.match(/opacity:\s*([0-9.]+)/)?.[1];
-    if (opacity !== undefined) expect(Number(opacity), "hover/focus 不得用半透明").toBe(1);
+    // hover 要掛在**整個 block** 上（不是 select 自己 hover）——否則要先摸到那個
+    // 隱形的小方塊才會出現，等於摸不到。
+    expect(raised!.selector, "hover 要吃整個 block").toMatch(/\[data-content-type=codeBlock\]:hover/);
+    // `:focus` 那半是鍵盤唯一的入口（用 opacity 而不是 display 隱藏就是為了留住
+    // Tab 順序）。
+    expect(raised!.selector, "缺 :focus——鍵盤使用者會構不到").toMatch(/select:focus/);
+    // 現身時要全對比：內建 hover 只墊到 .5（light 有效對比 3.1:1 < AA 4.5）。
+    expect(Number(raised!.body.match(/opacity:\s*([0-9.]+)/)?.[1]), "現身時不得半透明").toBe(1);
+  });
+
+  it("issue #111：展開清單（OS widget）的 option 顏色與 color-scheme 跟著主題——內建寫死 color:#000，深色模式看不見", () => {
+    const rules = codeBlockRules();
+    const option = rules.find((r) => /select\s*>\s*option/.test(r.selector));
+    expect(option, "缺 option 的顏色覆寫——內建 `option{color:#000}` 在深色清單上等於看不見").toBeDefined();
+    expect(option!.selector, `少了 .bn-editor 錨：${option!.selector}`).toMatch(/^\.bn-editor\s/);
+    expect(option!.body).toMatch(/color:\s*var\(--color-foreground\)/);
+    expect(option!.body).toMatch(/background-color:\s*var\(--color-background\)/);
+    expect(option!.body, "不得把內建寫死的黑抄過來").not.toContain("#000");
+
+    // color-scheme 兩套都要在，否則原生清單的底色/捲軸仍是另一個主題的那一套。
+    const schemes = rules.filter((r) => /color-scheme:/.test(r.body));
+    expect(schemes.map((r) => r.body.match(/color-scheme:\s*(\w+)/)?.[1]).sort()).toEqual(["dark", "light"]);
+    const darkScheme = schemes.find((r) => /dark/.test(r.body.match(/color-scheme:\s*(\w+)/)?.[1] ?? ""));
+    expect(darkScheme!.selector, "深色那條要以 .dark 起頭（主題切換靠 class，不是 media query）").toMatch(
+      /^\.dark\s/,
+    );
   });
 
   it("issue #111：唯讀時退成純文字標籤（BlockNote 仍渲染 select，只是 disabled）", () => {
