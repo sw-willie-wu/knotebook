@@ -28,11 +28,17 @@ function readIndexCssWithoutComments(): string {
 
 const SUPPORTS_GUARD = /@supports \(-moz-appearance: none\)\s*\{/;
 
-/** 從 `pattern` 命中處起，用花括號配對切出整個區塊（含頭尾大括號內的內容）。 */
+/**
+ * 從 `pattern` 命中處起，用花括號配對切出整個區塊（大括號內的內容）。
+ *
+ * 找不到就回空字串：這個 helper 目前只用來把 `@supports (appearance: base-select)`
+ * 區塊從其餘 CSS 裡切開，而那個區塊是 issue #111 的漸進增強——哪天整個回滾掉，這支
+ * 守衛應該照常守它原本該守的事（webkit 規則的位置），不是因為「找不到區塊」而爆掉。
+ */
 function extractBlock(css: string, pattern: RegExp): string {
   const match = pattern.exec(css);
-  expect(match, `index.css 找不到區塊：${pattern.source}`).not.toBeNull();
-  let i = css.indexOf("{", match!.index);
+  if (!match) return "";
+  let i = css.indexOf("{", match.index);
   const from = i + 1;
   for (let depth = 1; depth > 0; ) {
     i += 1;
@@ -100,13 +106,19 @@ describe("滾動條 @supports guard 結構", () => {
       "guard 外只有 @supports (appearance: base-select) 內的 ::picker(select) 可以用標準 scrollbar-width/color",
     ).toEqual([]);
 
-    // base-select 區塊內也只准 picker 用——那裡同樣有真元素選擇器（select 本身）。
+    // base-select 區塊內也只准 picker 用——那裡同樣有真元素的選擇器（select 本身）。
+    // ⚠ 必須把逗號清單**拆開逐一**檢查：只要「整串裡有出現 ::picker(select)」就放行的
+    // 話，`.some-panel, .x::picker(select) { scrollbar-width: thin }` 會把真元素
+    // `.some-panel` 一起夾帶進來，而它的 ::-webkit-scrollbar 樣式就被 Chromium 靜默
+    // 停用——正是本檔存在的唯一理由（第二輪 gate 審查突變實測抓到）。
     const insideBaseSelect = rulesOf(baseSelect).filter(
-      (r) => /scrollbar-(?:width|color):/.test(r.body) && !/::picker\(select\)/.test(r.selector),
+      (r) =>
+        /scrollbar-(?:width|color):/.test(r.body) &&
+        !r.selector.split(",").every((one) => /::picker\(select\)/.test(one)),
     );
     expect(
       insideBaseSelect.map((r) => r.selector),
-      "base-select 區塊內的標準 scrollbar 屬性只准掛在 ::picker(select) 上",
+      "base-select 區塊內用標準 scrollbar 屬性的規則，**每一個**選擇器都必須是 ::picker(select)",
     ).toEqual([]);
   });
 

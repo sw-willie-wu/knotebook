@@ -48,7 +48,10 @@ function themeBlocks(): { light: string; dark: string } {
   const light = [...css.matchAll(/(?:^|\n):root\s*\{([^}]*)\}/g)]
     .map((m) => m[1]!)
     .find((body) => body.includes("--code-"));
-  const dark = css.match(/(?:^|\n)\.dark\s*\{([^}]*)\}/)?.[1];
+  // 與上面同理由：抓「含 --code-* 的那個 `.dark`」，不靠出現順序。
+  const dark = [...css.matchAll(/(?:^|\n)\.dark\s*\{([^}]*)\}/g)]
+    .map((m) => m[1]!)
+    .find((body) => body.includes("--code-"));
   expect(light, "index.css 應有頂層 :root 區塊").toBeDefined();
   expect(dark, "index.css 應有頂層 .dark 區塊").toBeDefined();
   return { light: light!, dark: dark! };
@@ -119,18 +122,23 @@ describe("codeBlock 底色覆寫", () => {
       expect(rule.body, `不得留下寫死色：${rule.selector}`).not.toContain("#fff");
     }
 
-    // ⚠ 這一段必須釘在**作用於 select 本身**的規則上。前一版是對所有含 `select` 的
-    // 規則做 `some(/color:\s*var\(--/)`——`background-color`、`border-color`、甚至
-    // picker 的 `scrollbar-color` 都會命中，於是「共用規則掉了 text-muted-foreground」
-    // 這個突變全綠通過，而那正是 #96 的病灶（內建 `color:white` 在淺色底復活＝白字
-    // 白底，gate 審查實測抓到）。
-    const selfRules = rules.filter((r) => !/>\s*option|::picker/.test(r.selector));
-    const carriesColor = selfRules.some(
-      (r) => /@apply[^;]*\btext-muted-foreground\b/.test(r.body) || /(?:^|[;{]\s*)color:\s*var\(--/.test(r.body),
+    // ⚠ 這一段必須釘在**基底態**（沒有任何狀態偽類）且**作用於 select 本身**的規則上。
+    // 兩輪 gate 各抓到一種放寬後的假綠：
+    //   第一輪：對所有含 `select` 的規則做 `some(/color:\s*var\(--/)`——`background-color`、
+    //           `border-color`、甚至 picker 的 `scrollbar-color` 都命中。
+    //   第二輪：只排除 option／picker 還不夠——把顏色只寫在 `select:disabled` 上照樣
+    //           通過，但**可編輯**筆記上的下拉已經退回內建 `color:#fff`（淺色底＝白字
+    //           白底，正是 #96 的病灶）。
+    const baseRules = rules.filter(
+      (r) => !/>\s*option|::picker/.test(r.selector) && !/:(?:hover|focus|disabled|open|active)\b/.test(r.selector),
+    );
+    const carriesColor = baseRules.some(
+      (r) => /@apply[^;]*\btext-muted-foreground\b/.test(r.body) || /(?:^|[;{])\s*color:\s*var\(--/.test(r.body),
     );
     expect(
       carriesColor,
-      "作用在 select 本身的規則裡沒有任何前景色——內建的 color:white 會復活（淺色底＝白字白底）",
+      "select 的**基底態**沒有前景色——內建的 color:white 會復活（淺色底＝白字白底）；" +
+        "寫在 :hover/:disabled 之類的狀態上不算數",
     ).toBe(true);
   });
 
@@ -139,10 +147,10 @@ describe("codeBlock 底色覆寫", () => {
     expect(idle, "缺語言下拉的定位覆寫（bottom ＋ opacity 那條）").toBeDefined();
     expect(idle!.selector, `少了 .bn-editor 錨：${idle!.selector}`).toMatch(/^\.bn-editor\s/);
 
-    // 四個宣告缺一不可，缺哪個都是**靜默**回到內建位置：
-    //   bottom:100% 貼齊上緣；top:auto 讓 bottom 生效（同時給 top/bottom 且高度 auto
-    //   時 top 勝出，內建有 top:8px）；right:0 靠右；left:auto 讓 right 生效（同時給
-    //   left/right 且寬度非 auto 時 ltr 下 left 勝出，內建有 left:18px）。
+    // 四個宣告缺一不可，缺哪個都是**靜默**回到內建位置。機制（`index.css` 有實測數字）：
+    // `<select>` 是有內在尺寸的表單控制項，同時給 top/bottom（或 left/right）時屬於
+    // over-constrained、ltr 下忽略後寫的那一端——所以不覆寫掉內建的 `top:8px`／
+    // `left:18px`，我們的 `bottom`／`right` 就是白寫的，控制項回到方塊內的左上角。
     expect(idle!.body, "缺 bottom:100%——那是「貼齊方塊上緣」的定位方式").toMatch(/bottom:\s*100%/);
     expect(idle!.body, "缺 top:auto——內建的 top:8px 會贏過 bottom，下拉回到方塊內部").toMatch(/top:\s*auto/);
     expect(idle!.body, "缺 right（要與 mermaid 控制鈕同側）").toMatch(/right:\s*\d/);
@@ -272,6 +280,12 @@ describe("codeBlock 底色覆寫", () => {
       switched.some((s) => /::picker\(select\)$/.test(s)),
       `::picker(select) 沒切到 base 外觀——清單仍會是 OS widget：${switched.join(" | ")}`,
     ).toBe(true);
+
+    // base 外觀下 select 變成 flex 容器，`::picker-icon`（箭頭）靠這條貼在右緣；沒有
+    // 它，箭頭會緊跟在語言名後面浮在中間，`min-width` 撐出來的空白全落在右邊。
+    expect(block, "缺 justify-content: space-between——箭頭不會貼在控制項右緣").toMatch(
+      /justify-content:\s*space-between/,
+    );
 
     // 退路（Firefox 等尚未支援者）必須在 @supports **外面**：搬進去就等於退回
     // BlockNote 寫死的 `option{color:#000}`，深色模式的清單又看不見了。

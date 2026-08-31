@@ -441,12 +441,17 @@ body {
      box 上緣；那個 box 因為我們的 1px 邊框已內縮 1px，`margin-bottom:1px` 把它抵銷
      回來，結果是**貼齊**（不是額外留白）。用 bottom 而不是算好的負 top，是因為負 top
      要自己扣掉控制項高度，字級或內距一改就又浮起來（上一版就是這樣浮了 6px）。
-     ⚠ `top:auto` 不可省，但機制不是「top 贏 bottom」：同時給 top/bottom 且
-     `height:auto` 時，瀏覽器是拿兩者去**解出高度**——內建的 `top:8px` 配上
-     `bottom:100%` 解出來是負值、被夾成 0，加上本規則的 `overflow:hidden`，控制項會
-     整個消失（不是回到方塊內部）。`left:auto` 那半則是另一種機制：`width` 非 auto
-     時同時給 left/right 屬於 over-constrained，ltr 下**忽略 right**，所以會留在
-     內建的 `left:18px`。兩條都靜默，守衛各釘一條。 */
+     ⚠ `top:auto`／`left:auto` 都不可省，機制是同一個：**`<select>` 是有內在尺寸的
+     表單控制項**，不像一般 div 會被 left/right（或 top/bottom）撐開，所以同時給兩端
+     時屬於 over-constrained，ltr 下**忽略後寫的那一端**——不覆寫的話內建的 `top:8px`
+     與 `left:18px` 勝出、我們的 `bottom`／`right` 被忽略，控制項靜默回到方塊內部的
+     左上角（＝這條 issue 的原狀）。
+     實測（Chrome 152，真實元素上逐一拿掉）：
+       只拿掉 `top:auto`  → top 落在 block 上緣 ＋8px、高 24px（在方塊**內**）
+       只拿掉 `left:auto` → left 落在 block 左緣 ＋18px，寬度仍是 96px（**沒有**被撐開）
+     ⚠ 別拿一般 div 做這條的心智模型：同樣的 left/right 衝突，div 會被撐滿
+     （同一個容器實測 872.9px），select 不會——結論一樣，但理由不是「寬度非 auto」。
+     兩條都靜默失敗，守衛各釘一條。 */
   top: auto;
   bottom: 100%;
   left: auto;
