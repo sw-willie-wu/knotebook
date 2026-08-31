@@ -26,6 +26,8 @@
     "recent": "Recent",
     "myNotes": "My notes",
     "shared": "Shared with me",
+    "openDrawer": "Open navigation",
+    "drawerTitle": "Navigation",
     "searchLabel": "Search notes",
     "searchPlaceholder": "Search…",
     "noMatch": "No notes match your search."

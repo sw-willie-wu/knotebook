@@ -39,7 +39,7 @@ function NoteRow({ note, activeRef, primary }: NoteRowProps) {
   return (
     <li
       className={cn(
-        "flex h-7 items-center gap-1 rounded-md px-2 text-[13px] hover:bg-accent/60",
+        "flex h-11 items-center gap-1 rounded-md px-2 text-[13px] hover:bg-accent/60 md:h-7",
         // active 時 hover 必須跟主題色走：twMerge 對同一個 variant 群組（這裡是
         // `hover:bg-*`）互斥，後面這個 class 會蓋掉前面的 `hover:bg-accent/60`。
         // 非 active 的列維持中性 hover，不受這裡影響。
@@ -52,7 +52,7 @@ function NoteRow({ note, activeRef, primary }: NoteRowProps) {
       <Link
         to={canonicalNotePath(note)}
         aria-current={primary && active ? "page" : undefined}
-        className="min-w-0 flex-1 truncate"
+        className="flex min-w-0 flex-1 items-center self-stretch truncate"
       >
         {note.title}
       </Link>

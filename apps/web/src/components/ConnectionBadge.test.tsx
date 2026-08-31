@@ -123,4 +123,14 @@ describe("ConnectionBadge（issue #48：離線可見性）", () => {
     expect(screen.getByText("Connected")).toBeInTheDocument();
     expect(screen.getByText("Read-only")).toBeInTheDocument();
   });
+
+  it("#115：三個文字 span 皆 max-md:sr-only（窄視窗只留色點，但 aria-live 仍讀得到）", () => {
+    renderBadge({ phase: "connected", role: "viewer" }, true, false);
+    // 用 sr-only 而不是 hidden：容器是 role=status aria-live=polite，display:none
+    // 會讓窄視窗的螢幕閱讀器收不到撤權/降級/離線通知（spec §3a）。
+    for (const text of ["Connected", "Viewer", "Read-only"]) {
+      expect(screen.getByText(text)).toHaveClass("max-md:sr-only");
+      expect(screen.getByText(text).className).not.toContain("max-md:hidden");
+    }
+  });
 });

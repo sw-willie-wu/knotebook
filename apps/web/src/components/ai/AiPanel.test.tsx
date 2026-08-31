@@ -184,19 +184,20 @@ const PREVIEW_ACTION: AiActionDto = { id: "action-preview", name: "Summarize", a
 const IDLE_TEXT = "Select some text and use the toolbar for a partial edit, or pick an action below to run it on the whole note.";
 const EXPAND_LABEL = "Expand AI panel";
 
-/** 面板預設收合——先展開再從 idle 態的動作清單點下去（fix round 1 M-1：這是「全文
- * 動作」在真實 UI 上唯一構得到的入口，見 `AiPanel.tsx`）。收合把手本身要等
- * `["ai-actions"]` 這個 query 落地才會出現（`actions.length === 0` 時 `AiPanel`
- * 整個不渲染，見該檔頭守門）——用 `findByRole`（會重試）而不是 `queryByRole`
- * （只查一次），否則會在 query 還 pending 的那一瞬間量到「收合把手不存在」就誤判成
- * 「已經展開了」，之後永遠等不到動作按鈕出現。 */
+/** 面板預設收合（#115：收合態＝右下 bubble）——先展開再從 idle 態的動作清單點下去
+ * （fix round 1 M-1：這是「全文動作」在真實 UI 上唯一構得到的入口，見
+ * `AiPanel.tsx`）。bubble 本身要等 `["ai-actions"]` 這個 query 落地才會出現
+ * （`actions.length === 0` 時 `AiPanel` 整個不渲染，見該檔頭守門）——用
+ * `findByRole`（會重試）而不是 `queryByRole`（只查一次），否則會在 query 還
+ * pending 的那一瞬間量到「bubble 不存在」就誤判成「已經展開了」，之後永遠等不到
+ * 動作按鈕出現。 */
 async function startAction(actionName: string): Promise<void> {
   fireEvent.click(await screen.findByRole("button", { name: EXPAND_LABEL }));
   fireEvent.click(await screen.findByRole("button", { name: actionName }));
 }
 
 /** M-2 修復：先確認 `["ai-actions"]` 這個 query 真的落地成功（不是「還沒 resolve 所以
- * 畫面上剛好還沒有」這種 vacuous pass），才在**同一個** `waitFor` 回呼裡斷言收合把手
+ * 畫面上剛好還沒有」這種 vacuous pass），才在**同一個** `waitFor` 回呼裡斷言 bubble
  * 缺席——兩個條件擺在同一個回呼，才會在「query 已經 success 但按鈕卻冒出來」時持續
  * retry 到逾時失敗，而不是在 query 還 pending 的當下就提早通過。 */
 async function expectNoAiPanelAffordance(queryClient: QueryClient): Promise<void> {
@@ -220,14 +221,14 @@ describe("AiSession + AiPanel（Task 6）", () => {
     vi.unstubAllGlobals();
   });
 
-  it("actions 空（editable:true）→ 側欄發起區不渲染（含收合把手）", async () => {
+  it("actions 空（editable:true）→ AI 入口不渲染（含 bubble）", async () => {
     editor = mountedEditor([{ type: "paragraph", content: "文字" }]);
     const { queryClient } = renderPanel(editor, "note-1", true, []);
 
     await expectNoAiPanelAffordance(queryClient);
   });
 
-  it("viewer（editable:false）→ 側欄發起區不渲染（含收合把手）", async () => {
+  it("viewer（editable:false）→ AI 入口不渲染（含 bubble）", async () => {
     editor = mountedEditor([{ type: "paragraph", content: "文字" }]);
     const { queryClient } = renderPanel(editor, "note-1", false, [DIRECT_ACTION]);
 
@@ -242,6 +243,85 @@ describe("AiSession + AiPanel（Task 6）", () => {
 
     expect(await screen.findByRole("button", { name: DIRECT_ACTION.name })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: PREVIEW_ACTION.name })).toBeInTheDocument();
+  });
+
+  it("#115：collapsed 態＝右下 bubble（fixed 圓鈕、brand tint），點擊展開後 bubble 消失", async () => {
+    editor = mountedEditor([{ type: "paragraph", content: "文字" }]);
+    renderPanel(editor, "note-1", true, [DIRECT_ACTION]);
+
+    const bubble = await screen.findByTestId("ai-bubble");
+    expect(bubble).toHaveAttribute("aria-label", EXPAND_LABEL);
+    // 位置：`<md` 距視窗右下 20px、`md+` 24px（spec §2 定案）；48px 圓鈕。
+    expect(bubble).toHaveClass(
+      "fixed",
+      "bottom-5",
+      "right-5",
+      "md:bottom-6",
+      "md:right-6",
+      "z-30",
+      "h-12",
+      "w-12",
+      "rounded-full",
+    );
+    // 底/前景與 focus ring 都來自 Button（variant="brand"）單一出處（不新造色——
+    // AA 驗證見 PR 紀錄）；淡出時鍵盤焦點強制現形，不藏隱形鈕。
+    expect(bubble).toHaveClass("bg-brand-soft", "text-brand-on-soft", "focus-visible:ring-2");
+    expect(bubble).toHaveClass("focus-visible:pointer-events-auto", "focus-visible:opacity-100");
+
+    fireEvent.click(bubble);
+    expect(await screen.findByTestId("ai-panel")).toBeInTheDocument();
+    expect(screen.queryByTestId("ai-bubble")).not.toBeInTheDocument();
+  });
+
+  it("#115：捲動時 bubble 淡出（capture 收內層容器的 scroll），停 800ms 後恢復", async () => {
+    editor = mountedEditor([{ type: "paragraph", content: "文字" }]);
+    renderPanel(editor, "note-1", true, [DIRECT_ACTION]);
+
+    // 先用真 timer 等 bubble 落地，再切 fake timer 控制淡出窗口（findBy 的 waitFor
+    // 在 fake timer 下不可靠）。
+    const bubble = await screen.findByTestId("ai-bubble");
+    vi.useFakeTimers();
+    try {
+      // scroll 事件不冒泡但走捕獲——對任意子孫節點 dispatch，掛在 window 的
+      // capture 監聽要收得到（jsdom 的事件路徑含 window）。
+      fireEvent.scroll(document.body);
+      expect(bubble).toHaveClass("opacity-0", "pointer-events-none");
+
+      // 釘住 800 這個值本身：799ms 時仍淡出、再過 1ms 才恢復——只 advance 800
+      // 的話任何 ≤800 的實作值都會誤綠（審查突變實測：改 50 仍全綠）。
+      act(() => {
+        vi.advanceTimersByTime(799);
+      });
+      expect(bubble).toHaveClass("opacity-0");
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(bubble).not.toHaveClass("opacity-0");
+      expect(bubble).not.toHaveClass("pointer-events-none");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("#115：展開態不掛捲動監聽——捲動不起任何計時器，面板不淡出", async () => {
+    editor = mountedEditor([{ type: "paragraph", content: "文字" }]);
+    renderPanel(editor, "note-1", true, [DIRECT_ACTION]);
+
+    fireEvent.click(await screen.findByTestId("ai-bubble"));
+    const panel = await screen.findByTestId("ai-panel");
+
+    // 直接量行為而不是斷 class（展開態 class 串裡本來就沒有條件項，斷
+    // `not.toHaveClass("opacity-0")` 是恆真——審查突變實測：把 effect 的
+    // `if (!collapsed) return` 拔掉仍全綠）。展開態 effect 應提早 return、
+    // 不掛監聽：捲動之後不得存在任何待觸發的淡出計時器。
+    vi.useFakeTimers();
+    try {
+      fireEvent.scroll(document.body);
+      expect(vi.getTimerCount()).toBe(0);
+      expect(panel).toBeVisible();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("direct＋有選取 → 串流完自動套用；送出的 wire payload 帶正確 noteId/text（I-3）", async () => {

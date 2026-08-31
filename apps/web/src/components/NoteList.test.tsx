@@ -158,6 +158,15 @@ describe("NoteList", () => {
       canonicalNotePath(SHARED_NOTE),
     );
     expect(canonicalNotePath(SHARED_NOTE)).not.toBe(`/notes/${SHARED_NOTE.id}`);
+
+    // #115：列高 `<md` 44px（觸控目標）、`md+` 回 28px——h-11 md:h-7 缺一即壞
+    // （缺 md:h-7 寬螢幕列變胖；缺 h-11 窄視窗點不準）。
+    const touchRow = within(myNotes).getByRole("link", { name: "Has A Slug" });
+    expect(touchRow.closest("li")).toHaveClass("h-11", "md:h-7");
+    // 觸控目標是 <Link> 不是 <li>：li 撐 44 高但 items-center 下錨點只有內容高
+    // （~20px），上下各 12px 是死區——Link 要 self-stretch 吃滿列高才是真的 44px
+    // 目標（審查抓到的「宣稱到不了的行為」形）。
+    expect(touchRow).toHaveClass("self-stretch", "flex", "items-center");
   });
 
   it("shows a role badge only for shared (non-owner) notes; no delete button anywhere (moved to the ⋮ menu)", async () => {

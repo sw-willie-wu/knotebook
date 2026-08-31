@@ -108,12 +108,14 @@ export function ConnectionBadge({
   return (
     <div role="status" aria-live="polite" className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
       <span aria-hidden="true" className={cn("h-1.5 w-1.5 rounded-full", phase.dotClassName)} style={phase.dotStyle} />
-      <span>{t(phase.key)}</span>
+      {/* #115：三個文字 span 在 `<md` 收成 sr-only（頁首擠不下）——**不是 hidden**：
+          容器是 aria-live，display:none 會讓窄視窗的螢幕閱讀器收不到狀態變化。 */}
+      <span className="max-md:sr-only">{t(phase.key)}</span>
       {role && role !== "none" && (
-        <span className="before:mr-1 before:content-['·']">{t(`roles.${role}`)}</span>
+        <span className="max-md:sr-only before:mr-1 before:content-['·']">{t(`roles.${role}`)}</span>
       )}
       {role && !canEdit(role) && (
-        <span className="before:mr-1 before:content-['·']">{t("note.readOnly")}</span>
+        <span className="max-md:sr-only before:mr-1 before:content-['·']">{t("note.readOnly")}</span>
       )}
     </div>
   );

@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import { useNotes } from "@/api/notes";
 import { AppShell } from "@/components/AppShell";
 import { EmptyState } from "@/components/EmptyState";
+import { NarrowTopBar } from "@/components/NarrowTopBar";
 import { cardSurface } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
@@ -24,6 +25,7 @@ export default function HomePage() {
           同一套視覺——main 已無自身捲動（見 AppShell.tsx），overflow-y-auto 掛在卡
           自己身上。 */}
       <div className={cn(cardSurface, "min-w-0 flex-1 overflow-y-auto")}>
+        <NarrowTopBar />
         <EmptyState
           title={hasNotes ? t("home.selectTitle") : t("home.empty")}
           description={hasNotes ? t("home.selectDescription") : t("home.emptyDescription")}

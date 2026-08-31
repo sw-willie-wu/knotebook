@@ -26,6 +26,8 @@
     "recent": "最近",
     "myNotes": "我的筆記",
     "shared": "與我共享",
+    "openDrawer": "開啟導覽選單",
+    "drawerTitle": "導覽",
     "searchLabel": "搜尋筆記",
     "searchPlaceholder": "搜尋…",
     "noMatch": "沒有符合搜尋的筆記。"

@@ -68,6 +68,13 @@ describe("AppShell 版面 smoke", () => {
 
     expect(main.closest("main")).toHaveClass("flex", "min-h-0", "min-w-0", "flex-1", "flex-col");
     expect(root).toHaveClass("flex", "h-screen", "overflow-hidden", "gap-3", "bg-background", "p-3");
+
+    // #115：靜態側欄卡 `<md` 藏起來（抽屜接手）、`md+` 才以卡片顯示——`hidden`
+    // 搭配 `md:flex md:flex-col` 缺一即壞（缺 md:flex 寬螢幕也消失；缺 md:flex-col
+    // 內部堆疊失去方向）。
+    const aside = root?.querySelector("aside");
+    expect(aside).not.toBeNull();
+    expect(aside).toHaveClass("hidden", "w-64", "shrink-0", "md:flex", "md:flex-col");
   });
 
   // PR3：K logo 與新增筆記鈕跟主題色。K 的 <span> 是 aria-hidden——getByText 不受

@@ -1,43 +1,39 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-import {
-  ARTICLE_COLUMN,
-  ARTICLE_COLUMN_INSET,
-  ARTICLE_COLUMN_PADDING,
-  BN_EDITOR_INLINE_PADDING_PX,
-} from "./article-column";
+import { ARTICLE_COLUMN, ARTICLE_COLUMN_PADDING, BN_EDITOR_INLINE_PADDING_PX } from "./article-column";
 
 /**
- * 文章欄的**共用守衛**（issue #88，體例比照 `rows.equal-height.test.ts`）。
+ * 文章欄的**共用守衛**（#115 改版後；體例比照 `rows.equal-height.test.ts`）。
  *
- * jsdom 不套 CSS、算不出左緣座標，單元層唯一能守的是「頁首／內文／頁尾三處都從
- * `ui/article-column.ts` 取同一條欄，沒有人自己寫死一份」，加上那條欄本身的算式
- * 沒有默默走鐘。四件事：
+ * #115 起頁首／頁尾回到滿卡寬（置左置右），文章欄常數只剩內文（BlockNote 置中
+ * wrapper）一個消費端。jsdom 不套 CSS、算不出左緣座標，單元層能守的三件事：
  *
  *   (a) 常數字面固定（消費端的斷言是從常數推導的同義反覆，鑑別力全靠這一條）
- *   (b) 頁首／頁尾的 inset ＝ 置中 wrapper 的 `px-4` ＋ BlockNote 的 `padding-inline`
- *   (c) 那 54px 是 BlockNote 給的，不是我們的碼——直接讀**實際載入的那份** dist CSS
- *       （`@blocknote/react`，見該案註解）對值，升版或某一層加了覆寫都當場紅
- *       （否則只會靜默地又錯開，沒有任何測試看得出來）
- *   (d) 三個消費端都 import 並使用 ARTICLE_COLUMN 本身（不是只有 _INSET），且沒有
- *       人自己寫一份 clamp 欄寬
+ *   (c) BlockNote 那 54px 是升版哨兵——54 已無生產端消費者，但 `<md` 的
+ *       `.bn-editor.bn-editor{padding-inline:1.25rem}` 覆寫（index.css）是以
+ *       「原值 54」為前提做的設計，升版改掉要紅給人重新評估，不是靜默錯開
+ *   (d) 內文是唯一消費端；頁首（NotePage）／頁尾（BacklinksSection）**不得**把
+ *       欄加回去，也沒有人自己寫一份 clamp 欄寬
  *
- * ⚠ (d) 只證明「頁首有套欄」，證明不了它套在**對的節點**上——那一半由
- * `NotePage.test.tsx` 的頁首內容列 class 斷言補（另兩個消費端各自的 layout test
- * 早就有）。兩邊缺一，頁首就會留下「悄悄退出文章欄、全套測試仍綠」的洞。
+ *   (e) `<md` 的對齊耦合：index.css 覆寫的 `1.25rem`（20px）＝頁首/頁尾的 `px-5`
+ *       （20px）。#88 時代這種推導由案 (b) 釘住（70 = 16 + 54），拆掉 (b) 之後
+ *       這條 20↔20 就是新的無守衛缺口——這裡把三邊的字面綁在一起。
  *
  * 守不到的（誠實邊界）：
- *   - 把常數本身改成別的值——那會同時改三邊，仍然共線，是合法操作。
- *   - 消費端把 inset 套在錯的節點上（例如套在 border-b 的外層而不是內容列）：
- *     那是 class 位置問題，由各元件自己的節點鏈斷言守。
- *   - 捲軸造成的 5px 殘差（見 `article-column.ts` 註解）——jsdom 沒有捲軸幾何。
+ *   - 把常數本身改成別的值——單一消費端下仍是合法操作。
+ *   - `<md` 覆寫是否真的進 build 產物——jsdom 讀不到 dist，(e) 只讀 src；靠
+ *     build 後 `grep "bn-editor.bn-editor" apps/web/dist/assets/*.css`（見
+ *     index.css 註解）。
  */
 
-const CONSUMERS = [
-  { label: "內文（置中 wrapper）", path: "src/components/NoteEditor.tsx" },
-  { label: "頁首（標題列）", path: "src/pages/NotePage.tsx" },
-  { label: "頁尾（backlinks strip）", path: "src/components/BacklinksSection.tsx" },
+/** 唯一消費端（內文置中 wrapper）。 */
+const CONSUMER = { label: "內文（置中 wrapper）", path: "src/components/NoteEditor.tsx" } as const;
+
+/** 不得把欄加回去的兩個舊消費端（#115 前是頁首／頁尾）。 */
+const NON_CONSUMERS = [
+  { label: "頁首（NotePage）", path: "src/pages/NotePage.tsx" },
+  { label: "頁尾（BacklinksSection）", path: "src/components/BacklinksSection.tsx" },
 ] as const;
 
 function readSource(relativePath: string): string {
@@ -49,21 +45,13 @@ function stripComments(source: string): string {
   return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
 }
 
-describe("文章欄三處共用（#88）", () => {
+describe("文章欄守衛（#115：內文單一消費端）", () => {
   it("(a) 常數字面固定", () => {
     expect(ARTICLE_COLUMN).toBe("mx-auto w-full max-w-[clamp(42.5rem,85%,66rem)]");
-    expect(ARTICLE_COLUMN_PADDING).toBe("px-4");
-    expect(ARTICLE_COLUMN_INSET).toBe("px-[70px]");
+    expect(ARTICLE_COLUMN_PADDING).toBe("px-4 max-md:px-0");
   });
 
-  it("(b) 頁首/頁尾的 inset ＝ 置中 wrapper 的內距 ＋ BlockNote 的 padding-inline", () => {
-    // Tailwind 的 spacing scale：`px-4` ＝ 4 × 4px ＝ 16px。
-    const wrapperPaddingPx = Number(ARTICLE_COLUMN_PADDING.replace("px-", "")) * 4;
-    expect(wrapperPaddingPx).toBe(16);
-    expect(ARTICLE_COLUMN_INSET).toBe(`px-[${wrapperPaddingPx + BN_EDITOR_INLINE_PADDING_PX}px]`);
-  });
-
-  it("(c) BlockNote `.bn-editor` 的 padding-inline 仍是常數宣告的 54px（升版改掉要當場紅）", () => {
+  it("(c) BlockNote `.bn-editor` 的 padding-inline 仍是常數宣告的 54px（升版哨兵）", () => {
     // 讀**實際載入的那一份**：`NoteEditor.tsx` 只 import `@blocknote/mantine/style.css`，
     // 它 `@import` 進 `@blocknote/react/style.css`（後者再帶進 core 的樣式）。core 的
     // dist 只是其中一層，單讀它的話「mantine／react 那層覆寫了 padding」會靜默漏掉
@@ -85,23 +73,44 @@ describe("文章欄三處共用（#88）", () => {
     expect(paddings).toEqual([`padding-inline:${BN_EDITOR_INLINE_PADDING_PX}px`]);
   });
 
-  it("(d) 三個消費端都套共用常數，且沒有人自己寫一份 clamp 欄寬", () => {
-    // ⚠ 邊界必要：`"ARTICLE_COLUMN_INSET".includes("ARTICLE_COLUMN")` 為真，用子字串
-    // 比對的話「只套 inset、沒套置中欄」會全綠通過——那正是 #88 的病灶本身（頁首
-    // 縮排對了但欄沒對，標題左緣回到卡片邊緣）。`\b` 在這裡管用：`_` 是 word char，
-    // 所以 `ARTICLE_COLUMN_INSET` 的 `N` 與 `_` 之間沒有邊界，`\bARTICLE_COLUMN\b`
-    // 不會誤配。
+  it("(d) 內文套共用常數；頁首/頁尾不得把欄加回去，也沒有人自己寫 clamp 欄寬", () => {
+    // ⚠ 邊界必要：`_` 是 word char，`\bARTICLE_COLUMN\b` 不會誤配 `ARTICLE_COLUMN_PADDING`
+    // 這種帶後綴的名字（`N` 與 `_` 之間沒有邊界）——歷史教訓見 #88 的審查紀錄：
+    // 子字串比對曾讓「只套 inset、沒套欄」全綠放行。
     const usesColumn = /\bARTICLE_COLUMN\b/;
-    for (const { label, path } of CONSUMERS) {
-      const source = readSource(path);
-      const importLine = /import \{([^}]*)\} from "@\/components\/ui\/article-column";/.exec(source);
-      expect(importLine, `${label}（${path}）應從 ui/article-column import`).not.toBeNull();
-      expect(usesColumn.test(importLine![1]), `${label} 的 import 應含 ARTICLE_COLUMN 本身`).toBe(true);
 
-      const code = stripComments(source);
-      expect(usesColumn.test(code), `${label} 應在 className 中實際套用 ARTICLE_COLUMN`).toBe(true);
-      // 繞過共用欄的唯一寫法：自己再寫一次 clamp 的 max-w。
-      expect(code, `${label} 不得自己寫死欄寬，改用 ARTICLE_COLUMN`).not.toMatch(/max-w-\[clamp\(/);
+    const consumerSource = readSource(CONSUMER.path);
+    const importLine = /import \{([^}]*)\} from "@\/components\/ui\/article-column";/.exec(consumerSource);
+    expect(importLine, `${CONSUMER.label}（${CONSUMER.path}）應從 ui/article-column import`).not.toBeNull();
+    expect(usesColumn.test(importLine![1]), `${CONSUMER.label} 的 import 應含 ARTICLE_COLUMN 本身`).toBe(true);
+    expect(usesColumn.test(stripComments(consumerSource)), `${CONSUMER.label} 應實際套用 ARTICLE_COLUMN`).toBe(true);
+
+    for (const { label, path } of NON_CONSUMERS) {
+      const code = stripComments(readSource(path));
+      // #115 定案：頁首/頁尾滿卡寬。把欄（或自寫 clamp）加回去＝回到 #88 前後那種
+      // 「三處對齊」布局，是刻意拆掉的行為，不得靜默復活。
+      expect(code, `${label}（${path}）不得 import/使用文章欄常數`).not.toMatch(/article-column/);
+      expect(code, `${label} 不得自己寫死欄寬`).not.toMatch(/max-w-\[clamp\(/);
     }
+    // 唯一消費端自己也不得繞過常數再寫一份 clamp（欄寬的單一真相在 article-column.ts）。
+    expect(stripComments(consumerSource), `${CONSUMER.label} 不得在常數之外自寫欄寬`).not.toMatch(/max-w-\[clamp\(/);
+  });
+
+  it("(e) `<md` 對齊耦合：index.css 覆寫的 20px ＝ 頁首/頁尾的 px-5", () => {
+    // index.css 那半：`@media (width < 48rem)` 內的 `.bn-editor.bn-editor` 覆寫。
+    // 只認疊 class 形——寫回裸 `.bn-editor` 會輸給 BlockNote 的 (0,1,0)（載入順序
+    // 必晚於本檔），這條斷言讓「降級成裸選擇器」當場紅，而不是靜默不生效。
+    const css = readFileSync(`${process.cwd()}/src/index.css`, "utf8");
+    const override = /@media \(width < 48rem\)\s*\{[^{}]*\.bn-editor\.bn-editor\s*\{([^}]*)\}/.exec(css);
+    expect(override, "index.css 應有 `<md` 的 `.bn-editor.bn-editor` 疊 class 覆寫").not.toBeNull();
+    const value = /padding-inline:\s*([\d.]+)rem/.exec(override![1]);
+    expect(value, "覆寫應宣告 padding-inline（rem）").not.toBeNull();
+    const overridePx = Number(value![1]) * 16;
+
+    // 頁首/頁尾那半：兩個非消費端都用 `px-5`（Tailwind spacing scale：5 × 4 = 20px）。
+    for (const { label, path } of NON_CONSUMERS) {
+      expect(/\bpx-5\b/.test(stripComments(readSource(path))), `${label} 應用 px-5 滿卡寬內距`).toBe(true);
+    }
+    expect(overridePx, "`<md` 內文左緣應與頁首/頁尾的 px-5（20px）共線").toBe(5 * 4);
   });
 });

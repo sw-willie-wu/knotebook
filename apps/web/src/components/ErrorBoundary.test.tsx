@@ -154,6 +154,9 @@ describe("NoteRouteErrorBoundary（spec 案 1–8）", () => {
     expect(reload).not.toHaveBeenCalled();
     expect(screen.getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: RETRY_TEXT })).toBeInTheDocument();
+    // #115：B 畫面包 AppShell → 窄視窗要有開抽屜的入口（NarrowTopBar 消費端
+    // 明確清單之一，見 NarrowTopBar.test.tsx 檔頭）。
+    expect(screen.getByRole("button", { name: "Open navigation" })).toBeInTheDocument();
   });
 
   it("案 3：chunk 錯誤（offline）→ 不 reload、直接 B，且旗標未被設（離線不燒額度）", () => {
@@ -492,6 +495,11 @@ describe("AppErrorBoundary（spec 案 10）", () => {
     );
 
     expect(screen.getByText(APP_CRASH_TITLE)).toBeInTheDocument();
+    // #115 反向斷言：app 級兜底**刻意不掛** NarrowTopBar/SidebarDrawerButton——
+    // 它的不變量是零 context 相依（不用 AppShell；錯誤可能正來自 auth/query），
+    // 掛上去要嘛在兜底畫面裡再拋 context 錯誤、要嘛是死鈕。日後「順手補一致性」
+    // 把它加上來，這條就紅。
+    expect(screen.queryByRole("button", { name: "Open navigation" })).not.toBeInTheDocument();
     screen.getByRole("button", { name: RELOAD_TEXT }).click();
     expect(reload).toHaveBeenCalledTimes(1);
   });

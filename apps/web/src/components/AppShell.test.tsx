@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useParams } from "react-router";
 import { canonicalNotePath, type NoteDto, type UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
-import { AppShell } from "./AppShell";
+import { AppShell, SidebarDrawerButton } from "./AppShell";
 
 // Task 12 review 指派給 Task 13 的第三項待辦：`/notes/:ref` 這條路由存在之後，
 // 「新增筆記 → 導向新筆記頁」這件事才驗得起來（在此之前所有連結都落在 catch-all）。
@@ -324,5 +325,168 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
 
     await waitFor(() => expect(screen.queryAllByRole("link", { name: "Beta Note" })).toHaveLength(0));
     expect(screen.getAllByRole("link", { name: "Alpha Note" }).length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * #115：側欄抽屜（<md 的導覽入口）。
+ *
+ * jsdom 沒有 CSS——`hidden`/`md:flex` 不影響可及性查詢，抽屜開著時 DOM 上同時有
+ * 靜態與抽屜兩份 SidebarContent，因此本組查詢一律 `within(drawer)` 圈定，不用
+ * 全域 byRole（spec §3a 雙實例定案）。
+ *
+ * matchMedia：`test/setup.ts` 的 stub 恆 `matches:false` 且 addEventListener 是
+ * no-op——「Ctrl+K 窄分支」與「跨斷點 resize 關閉」兩案必須自己 stub 一個可控的
+ * MediaQueryList（自持 listener 集合＋手動 dispatch change），否則寫出「掛了
+ * listener 但永遠不會觸發」的實作照樣全綠（plan gate B2 的指名陷阱）。
+ */
+describe("AppShell — #115 側欄抽屜", () => {
+  const NOTE: NoteDto = {
+    id: "66666666-6666-6666-6666-666666666666",
+    title: "Drawer Note",
+    ownerId: "u1",
+    role: "owner",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    slug: "drawer-note",
+  };
+
+  function stubFetchWithNotes(notes: NoteDto[]) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (url === "/api/auth/me") {
+          return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(USER) }));
+        }
+        if (url === "/api/notes" && method === "GET") {
+          return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(notes) }));
+        }
+        throw new Error(`unexpected fetch: ${method} ${url}`);
+      }),
+    );
+  }
+
+  /** 可控 matchMedia stub：回傳「觸發 change」的把手。`matches` 是初值，之後由
+   * dispatch 帶的值決定（實作讀 event.matches）。 */
+  function stubControllableMatchMedia(initialMatches: boolean) {
+    const listeners = new Set<(e: { matches: boolean }) => void>();
+    const mql = {
+      matches: initialMatches,
+      media: "(width < 48rem)",
+      addEventListener: (_: "change", fn: (e: { matches: boolean }) => void) => listeners.add(fn),
+      removeEventListener: (_: "change", fn: (e: { matches: boolean }) => void) => listeners.delete(fn),
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    };
+    vi.stubGlobal("matchMedia", vi.fn(() => mql));
+    return {
+      dispatchChange(matches: boolean) {
+        mql.matches = matches;
+        for (const fn of listeners) fn({ matches });
+      },
+      listenerCount: () => listeners.size,
+    };
+  }
+
+  // 漢堡鈕在頁面層（NotePage 頁首／NarrowTopBar），AppShell 本體沒有——harness 自己
+  // 當那個消費端，把 SidebarDrawerButton 放進 children。
+  function renderShell(children: ReactNode = <SidebarDrawerButton />) {
+    return render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <ThemeProvider>
+          <MemoryRouter initialEntries={["/"]}>
+            <AppShell>{children}</AppShell>
+          </MemoryRouter>
+        </ThemeProvider>
+      </QueryClientProvider>,
+    );
+  }
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("點漢堡開抽屜：dialog 有可及名稱、掛 data-sidebar-drawer、bg-card flex flex-col；內容含搜尋框與筆記列", async () => {
+    stubFetchWithNotes([NOTE]);
+    renderShell();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open navigation" }));
+
+    const drawer = await screen.findByRole("dialog", { name: "Navigation" });
+    // 不變量四件套（spec §3a：缺底色透出 overlay 黑、缺 flex 脈絡長清單擠出鈕、
+    // 缺屬性則 Ctrl+K 讓路判別失效）。
+    expect(drawer).toHaveAttribute("data-sidebar-drawer");
+    expect(drawer).toHaveClass("fixed", "inset-y-0", "left-0", "z-50", "flex", "w-64", "flex-col", "bg-card");
+    // 漢堡開＝焦點落在抽屜容器本身（不聚焦搜尋框以免觸控彈鍵盤）——這一步武裝
+    // Radix 的 focus trap；onOpenAutoFocus 只 preventDefault 不補聚焦的錯誤實作
+    // 會讓焦點留在漢堡鈕、Tab 逃進 aria-hidden 背景（審查突變實證原本沒案子抓）。
+    expect(drawer).toHaveFocus();
+
+    expect(within(drawer).getByRole("textbox", { name: "Search notes" })).toBeInTheDocument();
+    // 同一篇筆記會同時落在「最近」與「我的筆記」兩組（NoteList 既有行為）——用複數查詢。
+    expect(within(drawer).getAllByRole("link", { name: "Drawer Note" }).length).toBeGreaterThan(0);
+  });
+
+  it("點抽屜裡的筆記（route change）→ 抽屜關閉", async () => {
+    stubFetchWithNotes([NOTE]);
+    renderShell();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open navigation" }));
+    const drawer = await screen.findByRole("dialog", { name: "Navigation" });
+
+    fireEvent.click(within(drawer).getAllByRole("link", { name: "Drawer Note" })[0]);
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Navigation" })).not.toBeInTheDocument());
+  });
+
+  it("開抽屜→Esc 關→Ctrl+K 仍聚焦**靜態**搜尋框（兩實例 ref 不共用；共用 ref 會在抽屜 unmount 時被清成 null）", async () => {
+    stubFetchWithNotes([NOTE]);
+    renderShell();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open navigation" }));
+    const drawer = await screen.findByRole("dialog", { name: "Navigation" });
+    fireEvent.keyDown(drawer, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Navigation" })).not.toBeInTheDocument());
+
+    // 抽屜關了，畫面上只剩靜態那份搜尋框。
+    const input = screen.getByRole("textbox", { name: "Search notes" });
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    expect(input).toHaveFocus();
+  });
+
+  it("Ctrl+K 窄分支（matchMedia matches:true）：開抽屜並聚焦抽屜內搜尋框", async () => {
+    stubControllableMatchMedia(true);
+    stubFetchWithNotes([NOTE]);
+    renderShell();
+    await screen.findByRole("button", { name: "Open navigation" });
+
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+
+    const drawer = await screen.findByRole("dialog", { name: "Navigation" });
+    await waitFor(() => expect(within(drawer).getByRole("textbox", { name: "Search notes" })).toHaveFocus());
+  });
+
+  it("跨斷點 resize（change → matches:false）→ 抽屜關閉", async () => {
+    const media = stubControllableMatchMedia(true);
+    stubFetchWithNotes([NOTE]);
+    renderShell();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open navigation" }));
+    await screen.findByRole("dialog", { name: "Navigation" });
+    expect(media.listenerCount()).toBeGreaterThan(0);
+
+    act(() => {
+      media.dispatchChange(false);
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Navigation" })).not.toBeInTheDocument());
   });
 });

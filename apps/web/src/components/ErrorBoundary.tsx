@@ -5,6 +5,7 @@ import { Button } from "./ui/button";
 import { cardSurface } from "./ui/card";
 import { cn } from "@/lib/utils";
 import { NotePageFallback } from "./NotePageFallback";
+import { NarrowTopBar } from "./NarrowTopBar";
 
 /**
  * Issue #66：NotePage 切成 lazy chunk（#19）之後，chunk fetch 失敗（離線、部署輪替
@@ -244,6 +245,9 @@ function NoteRouteErrorFallback({ isChunkError, onRetry }: { isChunkError: boole
           內文卡——main 已無自身捲動，長錯誤內容改由卡自己捲（overflow-y-auto）。
           內容本身不動。 */}
       <div className={cn(cardSurface, "min-w-0 flex-1 overflow-y-auto")}>
+        {/* #115：窄視窗的抽屜入口（AppErrorFallback 刻意不掛——零 context 相依，
+            見 NarrowTopBar 檔頭）。 */}
+        <NarrowTopBar />
         <div role="alert" className="flex flex-col items-start gap-3 p-6">
           <p className="text-sm text-muted-foreground">{t(isChunkError ? "app.chunkLoadError" : "app.noteCrash")}</p>
           <Button type="button" variant="outline" size="sm" disabled={!online} onClick={onRetry}>
