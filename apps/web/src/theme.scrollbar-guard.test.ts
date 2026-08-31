@@ -13,6 +13,11 @@ import { describe, expect, it } from "vitest";
  * 這條不變量壞掉時**幾乎看不出來**：Chromium 仍是 10px＋同色 thumb，只是
  * 靜默掉了圓角、content-box 內縮與 hover——肉眼 review 與整套單元測試都
  * 抓不到，只能靠這裡的原始碼結構守衛。
+ *
+ * **唯一例外（issue #111）**：`@supports (appearance: base-select)` 內、掛在
+ * `::picker(select)` 上的標準屬性。那個偽元素上沒有 webkit 樣式可停用（那條選擇器鏈
+ * 會被 Tailwind 的 Lightning CSS 在 build 時丟掉），所以只剩標準屬性可用。例外要
+ * 「在該區塊內」＋「選擇器含 ::picker(select)」兩個條件同時成立，見下方斷言。
  */
 
 function readIndexCssWithoutComments(): string {
@@ -22,6 +27,27 @@ function readIndexCssWithoutComments(): string {
 }
 
 const SUPPORTS_GUARD = /@supports \(-moz-appearance: none\)\s*\{/;
+
+/**
+ * 從 `pattern` 命中處起，用花括號配對切出整個區塊（大括號內的內容）。
+ *
+ * 找不到就回空字串：這個 helper 目前只用來把 `@supports (appearance: base-select)`
+ * 區塊從其餘 CSS 裡切開，而那個區塊是 issue #111 的漸進增強——哪天整個回滾掉，這支
+ * 守衛應該照常守它原本該守的事（webkit 規則的位置），不是因為「找不到區塊」而爆掉。
+ */
+function extractBlock(css: string, pattern: RegExp): string {
+  const match = pattern.exec(css);
+  if (!match) return "";
+  let i = css.indexOf("{", match.index);
+  const from = i + 1;
+  for (let depth = 1; depth > 0; ) {
+    i += 1;
+    expect(i, `區塊花括號不配對：${pattern.source}`).toBeLessThan(css.length);
+    if (css[i] === "{") depth += 1;
+    else if (css[i] === "}") depth -= 1;
+  }
+  return css.slice(from, i);
+}
 
 /** 抽出 @supports guard 區塊（含巢狀花括號，用計數配對），回傳 [區塊內容, 移除區塊後的其餘 css]。 */
 function splitAtSupportsGuard(css: string): { inside: string; outside: string } {
@@ -50,11 +76,50 @@ describe("滾動條 @supports guard 結構", () => {
 
     expect(inside, "guard 內應設 scrollbar-width").toContain("scrollbar-width:");
     expect(inside, "guard 內應設 scrollbar-color").toContain("scrollbar-color:");
+    // Firefox 這條也要吃共用的那份值（issue #111）——否則「一份值」名不副實：
+    // 這裡寫死一個顏色，Firefox 的捲軸就會與 Chromium 那條各走各的（gate 審查
+    // 突變實測：改成字面 rgba 原本全綠）。
+    expect(inside, "Firefox 分支的 thumb 顏色要走 --scrollbar-thumb").toContain("var(--scrollbar-thumb)");
 
-    // guard 外出現任何一個標準屬性，Chromium 121+ 會整組停用下面的
+    // guard 外出現任何一個標準屬性，Chromium 121+ 會整組停用**該元素**下面的
     // ::-webkit-scrollbar 偽元素樣式（靜默、難以目視發現）。
-    expect(outside, "guard 外不得出現 scrollbar-width").not.toContain("scrollbar-width:");
-    expect(outside, "guard 外不得出現 scrollbar-color").not.toContain("scrollbar-color:");
+    //
+    // 唯一例外（issue #111）：`::picker(select)`（可自訂 select 展開的清單）。那個
+    // 偽元素上**沒有** webkit 樣式可停用——`::picker(select)::-webkit-scrollbar` 這條
+    // 鏈瀏覽器雖然吃得到，但 Tailwind v4 的 Lightning CSS 解析不了、build 時整條丟掉
+    // （實測 dist 0 次，`cssMinify:false` 亦然），所以那裡只剩標準屬性可用。
+    //
+    // 例外要**兩個條件同時成立**才放行：規則在 `@supports (appearance: base-select)`
+    // 區塊內，且選擇器含 `::picker(select)`。只看選擇器字串的話，
+    // `.some-panel, .x::picker(select) { scrollbar-width: thin }` 這種寫法會連著把
+    // `.some-panel`（真元素）放行——那個元素的 ::-webkit-scrollbar 樣式就被 Chromium
+    // 靜默停用，正是本檔存在的理由（gate 審查突變實測抓到）。
+    const baseSelect = extractBlock(outside, /@supports\s*\(\s*appearance:\s*base-select\s*\)\s*\{/);
+    const rulesOf = (css: string) =>
+      [...css.matchAll(/([^{}]*)\{([^}]*)\}/g)].map((m) => ({ selector: m[1]!.trim(), body: m[2]! }));
+
+    const offenders = rulesOf(outside.replace(baseSelect, "")).filter((r) =>
+      /scrollbar-(?:width|color):/.test(r.body),
+    );
+    expect(
+      offenders.map((r) => r.selector),
+      "guard 外只有 @supports (appearance: base-select) 內的 ::picker(select) 可以用標準 scrollbar-width/color",
+    ).toEqual([]);
+
+    // base-select 區塊內也只准 picker 用——那裡同樣有真元素的選擇器（select 本身）。
+    // ⚠ 必須把逗號清單**拆開逐一**檢查：只要「整串裡有出現 ::picker(select)」就放行的
+    // 話，`.some-panel, .x::picker(select) { scrollbar-width: thin }` 會把真元素
+    // `.some-panel` 一起夾帶進來，而它的 ::-webkit-scrollbar 樣式就被 Chromium 靜默
+    // 停用——正是本檔存在的唯一理由（第二輪 gate 審查突變實測抓到）。
+    const insideBaseSelect = rulesOf(baseSelect).filter(
+      (r) =>
+        /scrollbar-(?:width|color):/.test(r.body) &&
+        !r.selector.split(",").every((one) => /::picker\(select\)/.test(one)),
+    );
+    expect(
+      insideBaseSelect.map((r) => r.selector),
+      "base-select 區塊內用標準 scrollbar 屬性的規則，**每一個**選擇器都必須是 ::picker(select)",
+    ).toEqual([]);
   });
 
   it("::-webkit-scrollbar 偽元素規則在 guard 外，且 guard 內沒有", () => {
@@ -76,5 +141,54 @@ describe("滾動條 @supports guard 結構", () => {
       expect(outside, `guard 外應有 ${selector.source} 規則`).toMatch(selector);
     }
     expect(inside, "guard 內不該有 ::-webkit-scrollbar 規則（Firefox 用不到、也會誤導維護者）").not.toContain("::-webkit-scrollbar");
+  });
+});
+
+/**
+ * issue #111：select picker（`appearance: base-select` 展開的清單）的捲軸要與筆記那條
+ * **同一組值**。
+ *
+ * 為什麼是「兩組規則、一份值」而不是併成一條：`::picker(select)` 在尚未支援的瀏覽器
+ * 是無效選擇器，而**選擇器清單裡有一個無效就整條規則作廢**——併進全域那條的話，
+ * Firefox 會連全 app 的捲軸樣式一起失去。這裡守的就是那個折衷沒有走鐘：picker 那組
+ * 只准引用 `--scrollbar-*` 變數，一出現字面值就是又抄了一份（值會各走各的）。
+ */
+describe("select picker 的捲軸與全域共用同一組值", () => {
+  // 四個變數裡真正三邊共用的是 `--scrollbar-thumb`（全域 webkit、Firefox 分支、picker
+  // 都吃它）；其餘三個只有全域那組用得到（picker 只能用標準屬性，給不了尺寸與內縮）。
+  // 全部列出來是為了「有人把某個變數刪掉或改名」也會紅。
+  const SHARED_VARS = ["--scrollbar-size", "--scrollbar-thumb", "--scrollbar-thumb-inset", "--scrollbar-thumb-hover"];
+
+  /** picker 上與捲軸有關的宣告。 */
+  function pickerScrollbarBodies(): string[] {
+    const css = readIndexCssWithoutComments();
+    return [...css.matchAll(/::picker\(select\)[^{]*\{([^}]*)\}/g)]
+      .map((m) => m[1]!)
+      .filter((body) => /scrollbar/.test(body));
+  }
+
+  it("四個變數都定義了，且全域那組捲軸規則引用的是變數而不是字面值", () => {
+    const css = readIndexCssWithoutComments();
+    for (const name of SHARED_VARS) {
+      expect(css, `index.css 缺共用變數 ${name}`).toContain(`${name}:`);
+    }
+    const globalThumb = /(?<![\w.-])::-webkit-scrollbar-thumb\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(globalThumb, "全域 thumb 的顏色要走共用變數").toContain("var(--scrollbar-thumb)");
+    expect(globalThumb, "全域 thumb 不得再寫死 color-mix（那份值就會與 picker 各走各的）").not.toContain("color-mix");
+  });
+
+  it("picker 的捲軸有設，且 thumb 顏色引用共用變數、沒有字面色", () => {
+    const bodies = pickerScrollbarBodies();
+    expect(bodies.length, "index.css 缺 ::picker(select) 的捲軸設定——清單會用瀏覽器預設捲軸（含 stepper 箭頭）").toBeGreaterThan(0);
+
+    const joined = bodies.join(" ");
+    expect(joined, "picker 的 thumb 顏色要走 --scrollbar-thumb（與筆記那條同一份值）").toContain(
+      "var(--scrollbar-thumb)",
+    );
+    expect(joined, "picker 的軌道要透明，與全域一致").toContain("transparent");
+
+    // 字面色＝又抄了一份，值會與全域各走各的。
+    const literals = joined.match(/(?:color-mix|#[0-9a-f]{3,8}|oklch\()/gi) ?? [];
+    expect(literals, `picker 的捲軸出現字面色 ${literals.join(", ")}——改引用 --scrollbar-* 變數`).toEqual([]);
   });
 });

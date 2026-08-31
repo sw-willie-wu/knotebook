@@ -265,9 +265,25 @@ body {
    hover），結構由 `theme.scrollbar-guard.test.ts` 守著。
    `-moz-appearance` 是 Firefox 已別名化的舊屬性：哪天被移除，Firefox 只是
    退回預設滾動條（退化不會壞）。 */
+/* 這一組值是**滾動條的共用語彙**：頁面上所有捲軸與 select picker 的捲軸（見檔案
+   後段 `@supports (appearance: base-select)`）都引用它們。picker 的捲軸不能與這裡
+   併成同一條規則——`::picker(select)` 在尚未支援的瀏覽器是無效選擇器，而**選擇器
+   清單裡有一個無效就整條規則作廢**，那會連帶把全 app 的捲軸樣式一起弄丟。所以是
+   「兩組規則、一份值」，由 `theme.scrollbar-guard.test.ts` 釘住兩邊都只引用這些變數。 */
+:root {
+  --scrollbar-size: 10px;
+
+  /* 2px 透明 border＋content-box clip：thumb 視覺 6px、hover 命中區維持 10px。 */
+  --scrollbar-thumb-inset: 2px;
+
+  /* 55%/75% 是對比與低調間的折衷（獨立審查實測 40% 靜止態對比僅 1.69:1）。 */
+  --scrollbar-thumb: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
+  --scrollbar-thumb-hover: color-mix(in oklab, var(--muted-foreground) 75%, transparent);
+}
+
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
 }
 
 ::-webkit-scrollbar-track {
@@ -275,16 +291,14 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  /* 2px 透明 border＋content-box clip：thumb 視覺 6px、hover 命中區維持 10px。
-     55%/75% 是對比與低調間的折衷（獨立審查實測 40% 靜止態對比僅 1.69:1）。 */
-  background-color: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
+  background-color: var(--scrollbar-thumb);
   background-clip: content-box;
-  border: 2px solid transparent;
+  border: var(--scrollbar-thumb-inset) solid transparent;
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background-color: color-mix(in oklab, var(--muted-foreground) 75%, transparent);
+  background-color: var(--scrollbar-thumb-hover);
 }
 
 ::-webkit-scrollbar-corner {
@@ -294,7 +308,7 @@ body {
 @supports (-moz-appearance: none) {
   * {
     scrollbar-width: thin;
-    scrollbar-color: color-mix(in oklab, var(--muted-foreground) 55%, transparent) transparent;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
   }
 }
 
@@ -383,18 +397,215 @@ body {
   border: 1px solid var(--color-border);
 }
 
-/* 語言下拉：內建寫死 `color:#fff`（配深底），淺色底上 hover 出現時等於看不見。
-   內建選擇器 `.bn-block-content[data-content-type=codeBlock]>div>select` 是
-   (0,2,2)，這裡同樣加 .bn-editor 錨墊到 (0,3,2)。 */
-.bn-editor .bn-block-content[data-content-type=codeBlock] > div > select {
-  color: var(--code-foreground);
+/* 語言下拉的閉合態（issue #96 的顏色 → issue #111 的位置與樣式）。
+   目標是**與 mermaid 的控制鈕同一套邏輯**（`MermaidView.tsx`）：保留一列高度在方塊
+   **外面的上方**、控制項靠右、平常隱形，hover 到整個 block（或鍵盤聚焦）才現身。
+
+   內建是：`color:#fff`（配深底，淺色底上等於看不見）、絕對定位在方塊**左上角內部**
+   （`top:8px;left:18px`）、`opacity:0` → hover 浮到 .5。
+
+   1. **移到方塊外面的上方、靠右**：block content 加 `margin-top` 讓出一條 1.75rem
+      的保留列（＝mermaid 那條 `h-7`，高度固定所以顯隱不會讓版面跳動），下拉用
+      `bottom: 100%` 貼在那條列上（不是算好的負 `top`，理由見下面規則本體的註解）。
+      左上角是最糟的落點——疊在第一行程式碼的**開頭**，正是最常點去放游標的地方；
+      搬到方塊外面之後就完全不再攔截**程式碼區域**的點擊（mermaid #94 為此把工具列
+      拉成獨立一列，同一個理由）。
+      ⚠ 殘留的同形風險：那顆控制項雖然 `opacity:0`，仍實際佔著保留列上約 96×26px。
+      滑鼠沒問題（要碰到它必先 hover 到 block，它會先淡入），但**觸控沒有 hover**：
+      兩個 code block 之間那條帶上，一點就是打開語言下拉而不是把游標放到上一個
+      block。與 mermaid 現況同形，暫時接受（jsdom 沒有 hit testing、e2e 也沒覆蓋）。
+   2. **hover 才現**：與 mermaid 一致。用 `opacity` 而不是 `display/hidden` 隱藏——
+      後者會讓它退出 Tab 順序，鍵盤使用者就永遠構不到（`:focus` 那條負責讓它現身）。
+   3. **長相**：與 mermaid 那顆鈕同語彙（`rounded-sm border border-border bg-background
+      px-2 py-1 text-xs text-muted-foreground`）。現身時直接給全對比的 muted 前景色，
+      不再用半透明疊色（#96 算過：α 混色的有效對比會隨底色浮動，內建的 .5 只有 3.1:1）。
+
+   展開後的清單見檔案後段的 `@supports (appearance: base-select)`：支援的瀏覽器
+   （Chromium 135+／Safari 27）會把清單換成真正的 DOM，我們照 app 的 ⋮ 選單樣式畫，
+   連箭頭（`::picker-icon`）都有；**不支援者（今天的 Firefox）才是 OS 原生 widget**，
+   那裡只有 option 的前景/底色與 `color-scheme` 有效（見下一條）。
+
+   ⚠ 內建選擇器 `.bn-block-content[data-content-type=codeBlock]>div>select` 是 (0,2,2)，
+   且 BlockNote 的 CSS 在 NotePage lazy chunk、載入必晚於本檔——`.bn-editor` 錨墊到
+   (0,3,2) 才蓋得掉，掉了錨整組靜默回到左上角的隱形下拉。守衛見
+   `theme.code-highlight-vars.test.ts`。 */
+.bn-editor .bn-block-content[data-content-type=codeBlock] {
+  /* 保留列：控制項落在方塊外面的上方，所以要先把那段高度讓出來。1.75rem ＝ mermaid
+     那條工具列的 `h-7`（`MermaidView.tsx`）——兩種 block 的控制列同高才算「統一」，
+     守衛直接讀 MermaidView 對值。 */
+  margin-top: 1.75rem;
 }
 
-/* 內建 hover/focus 只把下拉墊到 `opacity:.5`——light foreground #1f2328 以 α=.5 混入
-   底色 #f6f8fa 的有效對比只剩 3.1:1（<AA 4.5），鍵盤聚焦時就是這個值。墊到 .8
-   （有效對比 light ≈7、dark ≈11），閒置時的 opacity:0（藏起來、hover 才浮現）維持
-   內建行為不動。transition-delay 由內建規則繼續管。 */
+.bn-editor .bn-block-content[data-content-type=codeBlock] > div > select {
+  /* **貼齊方塊上緣**：`bottom:100%` 讓它的下緣正好落在 containing block 的 padding
+     box 上緣；那個 box 因為我們的 1px 邊框已內縮 1px，`margin-bottom:1px` 把它抵銷
+     回來，結果是**貼齊**（不是額外留白）。用 bottom 而不是算好的負 top，是因為負 top
+     要自己扣掉控制項高度，字級或內距一改就又浮起來（上一版就是這樣浮了 6px）。
+     ⚠ **`top:auto` 與 `left:auto` 都不可省**。少了它們，內建的 `top:8px`／`left:18px`
+     還在，控制項就靜默回到方塊內部的左上角（＝這條 issue 的原狀）。實測（Chrome 152，
+     真實元素上逐一拿掉，其餘照舊）：
+       只拿掉 `top:auto`  → 落在 block 上緣 ＋8px、高 24px（在方塊**內**）
+       只拿掉 `left:auto` → 落在 block 左緣 ＋18px
+     兩者都是靜默失敗（沒有錯誤、只是位置錯），守衛各釘一條。 */
+  top: auto;
+  bottom: 100%;
+  left: auto;
+  right: 0;
+  margin-bottom: 1px;
+  opacity: 0;
+  transition: opacity 0.15s;
+
+  /* **寬度下限**：原生 select 的寬度跟著「目前選到的那個標籤」走，於是同一顆控制項
+     會在 `C`（36px）與 `Markdown`（86px）之間縮放，語言一換寬度就跳。給一個放得下
+     目前所有標籤的下限（headed 實測最寬是 Markdown 85.6px，含內距與箭頭；6rem＝96px
+     留約 10px 餘裕），今天所有語言都落在下限內＝寬度恆定。
+     ⚠ 刻意用 `min-width` 而不是 `width`：這個值是**量出來的**（字寬由字型決定，字數
+     不是好指標——`TypeScript` 10 字反而比 `Markdown` 8 字窄），換字型／縮放／未來加更長
+     的語言名都可能超出。寫死 `width` ＋ `overflow:hidden` 的失敗形是**靜默截斷**；
+     `min-width` 的失敗形只是「那一顆變寬一點」，而它是右錨定（`right:0`）的，右緣不動。 */
+  min-width: 6rem;
+  white-space: nowrap;
+  /* 長相不在這裡：與 mermaid 那顆鈕共用下面的 `.block-control`（一份真相）。 */
+}
+
+/* ── Block 控制項的共用視覺（issue #111）──────────────────────────────
+   兩個消費端，一條規則：
+     - mermaid 的「編輯／顯示原始碼」鈕（`MermaidView.tsx`，掛 class）
+     - codeBlock 的語言下拉（BlockNote 內建 render 出來的原生 `<select>`，我們拿不到
+       className，只能用選擇器把它接進同一條規則）
+
+   為什麼不是「兩邊各寫一份、靠測試對值」：那是上一版的做法，結果就是把 `rounded-sm`
+   手抄成 `0.125rem`——那是 **Tailwind v3** 的值，v4 的 `rounded-sm` 是 `0.25rem`，
+   於是圓角差一半（實測回報）。用 `@apply` 直接吃同一組 utility，就不會再有人工換算，
+   改一次兩邊一起變。
+
+   ⚠ **不得放進 `@layer components`**：BlockNote 的 CSS 沒有 layer，而**未分層的樣式
+   贏過任何 layer**（與 specificity 無關）——放進去 select 那半會整條失效。
+   ⚠ select 那個選擇器是 (0,3,2)，靠 `.bn-editor` 錨才壓得過內建的 (0,2,2)（內建的
+   CSS 在 NotePage lazy chunk，載入必晚於本檔；兩邊都未分層，才輪到 specificity 決勝）。
+   ⚠ 同一個未分層特性的**代價**：Tailwind 的 utility 在 `@layer utilities` 裡，所以
+   這條規則會**贏過** class 上的 utility。掛了 `.block-control` 的元素若要改上面這些
+   屬性（字級、內距、圓角…），加一個 utility class 是**沒有用**的——要嘛改這條規則
+   （兩邊一起變，通常正是我們要的），要嘛那個元素就不該用 .block-control。 */
+.block-control,
+.bn-editor .bn-block-content[data-content-type=codeBlock] > div > select {
+  @apply rounded-sm border border-border bg-background px-2 py-1 text-xs text-muted-foreground;
+
+  /* 原生 select 才需要的一條：不寫的話它用作業系統的 UI 字型，跟旁邊那顆鈕明顯不是
+     同一套字。對 `<button>` 無害（本來就繼承）。 */
+  font-family: inherit;
+}
+
+/* hover 整個 block（或聚焦下拉本身）才現身——與 mermaid 的 `group-hover` 同語意。 */
 .bn-editor .bn-block-content[data-content-type=codeBlock]:hover > div > select,
 .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select:focus {
-  opacity: 0.8;
+  opacity: 1;
+}
+
+/* 唯讀（viewer／未同步）：BlockNote 仍會渲染這個 select，只是設 `disabled`（見
+   `createCodeBlockSpec` 的 render）。留著它是 viewer 唯一看得到語言的地方，但要去掉
+   「可以點」的暗示——退成純文字標籤。 */
+.bn-editor .bn-block-content[data-content-type=codeBlock] > div > select:disabled {
+  border-color: transparent;
+  background-color: transparent;
+  cursor: default;
+}
+
+/* 展開後的清單是 OS 原生 widget，CSS 幾乎蓋不到——**除了** option 的前景/底色與
+   `color-scheme`。內建寫死 `option{color:#000}`：深色模式下瀏覽器把彈出清單畫成深底，
+   黑字疊上去就等於看不見（實測回報）。這裡把兩者都交給主題變數，並讓 `color-scheme`
+   跟著主題走，原生清單的底色/捲軸才會是對的那一套。
+   ⚠ `color-scheme` 只掛在這個 select 上，不掛 `:root`/`.dark`——那會一次改掉全 app
+   的原生控制項與捲軸外觀，遠超這條的範圍。 */
+.bn-editor .bn-block-content[data-content-type=codeBlock] > div > select {
+  color-scheme: light;
+}
+
+.dark .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select {
+  color-scheme: dark;
+}
+
+.bn-editor .bn-block-content[data-content-type=codeBlock] > div > select > option {
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+}
+
+/* ── 可自訂 select（issue #111，漸進增強）────────────────────────────
+   `appearance: base-select` 把彈出清單從 OS widget 換成**真正的 DOM**：`::picker(select)`
+   是清單容器、`option` 變成可排版的元素、`::picker-icon` 是箭頭。於是清單也能吃我們的
+   主題——不必自繪，也不必碰 BlockNote 的 block spec（仍然只是 CSS 加在內建那個 select 上）。
+
+   支援度：Chromium 135+ 與 Safari 27 已出貨，Firefox 還在 Nightly 的 flag 後面。
+   **這整段是漸進增強**：不支援的瀏覽器整塊忽略，直接沿用上面那條路（原生清單 ＋ option
+   顏色 ＋ color-scheme）。⚠ 因此上面那組**必須留在 `@supports` 外面**——搬進來的話
+   Firefox 就退回 BlockNote 寫死的 `option{color:#000}`，深色模式又看不見了。
+
+   清單的長相刻意對齊 app 既有的 ⋮ 選單（`components/ui/dropdown-menu.tsx` 的
+   `DropdownMenuContent`／`DropdownMenuItem`）——同一個 app 裡的「一份清單」就該長一樣；
+   守衛直接讀那個檔對 token。 */
+@supports (appearance: base-select) {
+  /* ⚠ 兩個選擇器都要：只給 select 的話，清單仍是 OS widget（規範要求 select 與
+     ::picker(select) 都切到 base 外觀）。 */
+  .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select,
+  .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select::picker(select) {
+    appearance: base-select;
+  }
+
+  /* 閉合態：base 外觀下 select 本身變成可排版的按鈕（內容 ＋ 箭頭）。長相仍走
+     `.block-control`，這裡只補排版與箭頭。 */
+  .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.25rem;
+  }
+
+  .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select::picker-icon {
+    transition: transform 0.15s;
+  }
+
+  /* 展開時箭頭轉向——這是「這是個下拉」的視覺暗示，先前 `appearance:none` 之下
+     根本沒有箭頭可用。 */
+  .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select:open::picker-icon {
+    transform: rotate(180deg);
+  }
+
+  /* 清單容器：比照 DropdownMenuContent。 */
+  .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select::picker(select) {
+    @apply min-w-32 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md;
+  }
+
+  /* 選項：比照 DropdownMenuItem（原生 hover 與鍵盤移動都會走 :hover／:focus）。 */
+  .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select > option {
+    @apply flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors;
+
+    /* 外面那條給原生清單的底色在這裡要讓開，否則每個選項都自帶一塊背景。 */
+    background-color: transparent;
+    color: var(--color-popover-foreground);
+  }
+
+  .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select > option:hover,
+  .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select > option:focus {
+    @apply bg-accent text-accent-foreground;
+  }
+
+  /* 清單的捲軸（23 個語言必定溢出）：預設是瀏覽器原生那條——淺灰 thumb ＋ 上下
+     stepper 箭頭，跟筆記那條細捲軸完全不同調。這裡把它拉回**同一組值**
+     （`--scrollbar-thumb`，與全域捲軸共用，見檔案前段）。
+
+     ⚠ 為什麼這裡用標準屬性、而不是像全域那組用 `::-webkit-scrollbar` 偽元素：
+     `::picker(select)::-webkit-scrollbar` 這條鏈**瀏覽器吃得到**（Chrome 152 實測：
+     注入探針後 thumb 立刻改色改寬），但 **Tailwind v4 的 Lightning CSS 解析不了它，
+     整條規則在 build 就被丟掉**（實測 dist 出現 0 次，連 `cssMinify:false` 也一樣
+     ——是 Tailwind 的處理階段丟的，不是壓縮器）。所以那條路在這個管線裡送不出去。
+
+     ⚠ 這是 `theme.scrollbar-guard.test.ts` 那條「標準屬性只准出現在
+     `@supports (-moz-appearance: none)` 內」的**唯一例外**，理由是那條規則的成因在
+     這裡不成立：Chromium 的規則是「元素一旦設了 scrollbar-width/color，該元素的
+     `::-webkit-scrollbar` 樣式整組停用」——而 picker 上根本沒有 webkit 樣式可停用
+     （見上一段）。守衛已把例外寫成「只有選擇器含 `::picker(select)` 時允許」。 */
+  .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select::picker(select) {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
+  }
 }

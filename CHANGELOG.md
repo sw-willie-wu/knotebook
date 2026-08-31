@@ -7,6 +7,10 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
+### Changed
+
+- A code block's language dropdown now appears above the block, at its right edge, when you hover the block — the same place and the same behaviour as a diagram's Edit button, in the same small bordered style. It used to sit inside the block's top-left corner, overlapping the start of the first line, which is where you usually click to put the cursor. Keyboard users still reach it by tabbing (focus reveals it). On a note you can only read, it drops its border and background so that hovering the block reveals a plain language label rather than a control you cannot use, since the dropdown is disabled there anyway. Opening it now shows a menu styled like the app's other menus — same surface, border, radius and hover highlight — with a caret on the control that flips when the list is open, in browsers that support customizable selects (Chromium 135+, Safari 27). Where they do not (Firefox today), the browser keeps its own native menu, whose options now at least follow the light/dark theme instead of BlockNote's hard-coded black, which was unreadable against a dark menu (#111).
+
 ### Fixed
 
 - A note's title, its text, and the backlinks row at the bottom now share one centred column, so their left edges line up. The title row and the backlinks row used to run the full width of the note card while the text sat in a centred column — on a 1920px-wide screen the note's first character started 335px to the right of the title, which read as the title being stuck to the card's edge. The dividers above and below the note still span the whole card, and the backlinks row keeps its height and scrolling behaviour. One residual: on a note long enough to scroll, the scrollbar takes its width out of the text column, leaving the title about 5px off; notes that fit line up exactly (#88).
