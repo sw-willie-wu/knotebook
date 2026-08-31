@@ -71,8 +71,8 @@ See [Known limitations](./known-limitations.md) for the full list of OIDC-specif
 
 Knotebook serves its HTML with a Content-Security-Policy header (plus `Referrer-Policy: no-referrer` and `X-Content-Type-Options: nosniff`). It is not configurable — there is no environment variable for it. Three consequences for a self-hosted deployment:
 
-- **Scripts, stylesheets and fonts must come from Knotebook itself.** A reverse proxy that rewrites the page to inject an analytics snippet or a support widget (nginx `sub_filter`, Cloudflare "Rocket Loader"/apps, and similar) will have that script refused by the browser. The page still works; the injected part silently does not.
-- **Assets cannot be moved to a separate CDN.** `/assets/*` and uploaded files are expected to be served from the same origin as the app.
+- **Scripts, stylesheets and fonts must come from Knotebook itself** (fonts may also be `data:` URLs). A reverse proxy that rewrites the page to inject an analytics snippet or a support widget (nginx `sub_filter`, Cloudflare "Rocket Loader"/apps, and similar) will have that script refused by the browser. The page still works; the injected part silently does not.
+- **The app's own assets cannot be moved to a separate CDN.** `/assets/*` (the JavaScript and CSS bundles) must be served from the same origin as the app. Uploaded images and other media are *not* restricted this way — `img-src`/`media-src` allow any host, so serving those from elsewhere is fine.
 - **Knotebook cannot be embedded in an iframe** (`frame-ancestors 'none'`), so it cannot be placed inside an intranet portal page.
 
 Images, audio and video that a note embeds by URL are deliberately *not* restricted, over both `http:` and `https:` — see [External images embedded by URL](known-limitations.md) for what that means for a reader's IP address.

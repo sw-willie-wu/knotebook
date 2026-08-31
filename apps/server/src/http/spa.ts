@@ -57,6 +57,11 @@ export function registerSpaFallback(app: FastifyInstance, webDist: string | unde
        * 使用者是登入狀態），卻**繞過下面那條掛安全標頭的路徑**：整份 CSP 加 11 個字元
        * 就沒了。擋掉之後它落入 `setNotFoundHandler`，與 `/`、`/notes/:ref` 同一條路。
        * 守衛：`test/spa.test.ts` 的「GET /index.html 也要有 CSP」。
+       *
+       * ⚠ 這裡只排除字面上的 `/index.html`，因為今天的 `apps/web/dist` 只有它一個
+       * `.html`（其餘是 `assets/*.js|css`）。**dist 若哪天多出任何其他 `.html`**
+       * （例如 `sub/index.html`），static 會直接把它送出去、不帶任何安全標頭——那時
+       * 要把這條改成 `!pathName.endsWith(".html")` 並補守衛。
        */
       allowedPath: (pathName) => pathName !== "/index.html",
     });

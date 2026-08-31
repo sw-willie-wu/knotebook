@@ -12,9 +12,12 @@ import { createHash } from "node:crypto";
 /**
  * `<script>` 開標籤沒有 `src=` 的那些（＝內文會被瀏覽器執行的 inline script）。
  *
- * 失效方向是安全的：`[^>]*` 遇到「屬性值裡含 `>`」會多切一段，結果是**多算一個沒人
- * 用的 hash**（無害），不會漏算——要漏算得讓一個真的 inline script 的開標籤裡出現
- * ` src=`，那它就不是 inline script 了。註解或字串裡的 `<script>` 同理只會多一個。
+ * ⚠ 已知限制（gate 審查實測）：開標籤的**屬性值裡若含 `>`**，`[^>]*` 會在那裡就收尾，
+ * 於是抓到的「內文」是錯的——`<script data-x="a>b">CODE</script>` 擷取到的是
+ * `b">CODE`，**真正的 CODE 沒被 hash**，那段 script 會被 CSP 擋掉。方向是 fail-closed
+ * （擋掉、不是放行），`e2e/09-csp` 的零 violation 斷言接得住，但別以為它「只會多算不會
+ * 漏算」——會漏。今天 `index.html` 的 script 標籤沒有屬性，加屬性前先確認不含 `>`。
+ * 帶 `src=` 的外部 script 那半則沒有這個問題（只會多一個沒人用的 hash）。
  */
 const INLINE_SCRIPT = /<script(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/gi;
 

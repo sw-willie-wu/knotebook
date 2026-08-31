@@ -38,8 +38,11 @@ test("載入筆記＋程式碼區塊＋圖表＋共編連線：瀏覽器回報�
     });
   });
 
-  // ⚠ violation 收集器每次導覽都會被 addInitScript 重置，所以**每換一頁前**都要把
-  // 當頁收到的搬進 test 這側累積（第一版沒搬，換頁就把前一頁的證據丟了）。
+  // 把當頁收到的 violation 搬進 test 這側累積。本檔目前**只有一次真正的文件導覽**
+  // （`page.goto("/login")`），之後換筆記都是 react-router 的 client-side 導覽，收集器
+  // 不會被 addInitScript 重置——所以這裡是防禦性的：哪天有人在中間加一次整頁導覽，
+  // 沒有 drain 就會把前一頁的證據丟掉。（陣列不清空，同一則 violation 會被計兩次，
+  // 只影響錯誤訊息不影響判定。）
   const drain = async () => {
     const collected = await page.evaluate(
       () => (window as unknown as { __cspViolations: Violation[] }).__cspViolations,
