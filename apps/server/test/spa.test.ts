@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -102,6 +103,71 @@ describe("SPA fallback（spec §11.5）", () => {
     const res = await app.inject({ method: "GET", url: "/nope?foo=bar", headers: { accept: "text/html" } });
     expect(res.statusCode).toBe(200);
     expect(res.body).toContain("knotebook spa");
+  });
+
+  // issue #101：CSP 掛在**這條路徑**（手動回 index.html 的地方）——CSP 只對 HTML 文件
+  // 有意義。政策內容本身由 `test/unit/security-headers.test.ts` 逐條釘住，這裡守的是
+  // 「有沒有真的掛上去」與「hash 是不是從**這次送出的這份 body** 算的」。
+  it("index.html 回應帶 CSP，且 script-src 的 hash 就是這份 body 裡那段 inline script 的 sha256", async () => {
+    const inline = 'document.documentElement.classList.add("dark");';
+    const dist = mkdtempSync(path.join(tmpdir(), "knotebook-csp-"));
+    writeFileSync(
+      path.join(dist, "index.html"),
+      `<!doctype html><head><script>${inline}</script></head><body></body>`,
+    );
+    try {
+      const { app } = await buildTestApp({}, { webDist: dist });
+      const res = await app.inject({ method: "GET", url: "/nope", headers: { accept: "text/html" } });
+
+      expect(res.statusCode).toBe(200);
+      const csp = res.headers["content-security-policy"];
+      expect(csp, "index.html 回應沒有 CSP").toBeTypeOf("string");
+      // oracle 獨立於實作：直接對送出的 body 裡的 script 內文算一次 sha256。
+      const served = /<script>([\s\S]*?)<\/script>/.exec(res.body)![1]!;
+      const hash = createHash("sha256").update(served, "utf8").digest("base64");
+      expect(csp).toContain(`'sha256-${hash}'`);
+      expect(res.headers["referrer-policy"]).toBe("no-referrer");
+      expect(res.headers["x-content-type-options"]).toBe("nosniff");
+    } finally {
+      rmSync(dist, { recursive: true, force: true });
+    }
+  });
+
+  // ⚠ gate 審查抓到的 Critical：`@fastify/static` 的 `wildcard:false` 仍會為 root 下
+  // **實際存在的每個檔案**各註冊一條路由，而 `index.html` 就是其中之一——於是
+  // `GET /index.html` 會由 static 送出同一份 SPA（App.tsx 的 `/*` route 讓它渲染
+  // 首頁、session cookie 是 lax 照送＝已登入），卻**一個安全標頭都沒有**。
+  // 政策整份被 11 個字元繞過。這條釘住那個入口也走掛標頭的路徑。
+  it("GET /index.html 也要有 CSP——static 不得把 index.html 直接送出去（繞過整份政策）", async () => {
+    const { app } = await buildTestApp({}, { webDist });
+    const res = await app.inject({ method: "GET", url: "/index.html", headers: { accept: "text/html" } });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain("knotebook spa");
+    expect(res.headers["content-security-policy"], "/index.html 沒有 CSP＝整份政策可被繞過").toBeTypeOf(
+      "string",
+    );
+    expect(res.headers["referrer-policy"]).toBe("no-referrer");
+  });
+
+  it("JSON 404 不掛 CSP（那條路徑不是 HTML 文件）", async () => {
+    const { app } = await buildTestApp({}, { webDist });
+    const res = await app.inject({ method: "GET", url: "/api/nope", headers: { accept: "text/html" } });
+    expect(res.statusCode).toBe(404);
+    expect(res.headers["content-security-policy"]).toBeUndefined();
+  });
+
+  // gate 審查（m1）：CSP 只對 HTML 有意義，但 `nosniff` 是逐回應的便宜標頭，JSON 與
+  // 靜態 JS 也該有——所以它掛在全域 onSend，不是只掛在 SPA 那條路徑上。
+  it("nosniff 掛在**每個**回應上（JSON 與靜態資產也算），不只 HTML", async () => {
+    const { app } = await buildTestApp({}, { webDist });
+
+    const json = await app.inject({ method: "GET", url: "/api/nope" });
+    expect(json.headers["x-content-type-options"], "JSON 回應缺 nosniff").toBe("nosniff");
+
+    const asset = await app.inject({ method: "GET", url: "/assets/app.js" });
+    expect(asset.statusCode).toBe(200);
+    expect(asset.headers["x-content-type-options"], "靜態資產缺 nosniff").toBe("nosniff");
   });
 
   it("不傳 webDist → GET /nope 仍是既有 JSON 404（既有行為不受影響）", async () => {

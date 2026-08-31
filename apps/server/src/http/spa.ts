@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import fastifyStatic from "@fastify/static";
+import { securityHeaders } from "./security-headers.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { sendError } from "./errors.js";
 
@@ -44,7 +45,26 @@ const FALLBACK_METHODS = new Set(["GET", "HEAD"]);
  */
 export function registerSpaFallback(app: FastifyInstance, webDist: string | undefined): void {
   if (webDist !== undefined) {
-    void app.register(fastifyStatic, { root: webDist, wildcard: false, index: false });
+    void app.register(fastifyStatic, {
+      root: webDist,
+      wildcard: false,
+      index: false,
+      /**
+       * ⚠ **`index.html` 一律不由 static 送**（issue #101 的 gate 審查抓到）。
+       * `wildcard: false` 只是不建萬用路由，root 底下**實際存在的每個檔案**仍會各得
+       * 一條路由——`index.html` 就是其中之一。於是 `GET /index.html` 會由 static 回出
+       * 同一份 SPA（`App.tsx` 的 `/*` route 讓它渲染首頁，session cookie 是 lax 照送，
+       * 使用者是登入狀態），卻**繞過下面那條掛安全標頭的路徑**：整份 CSP 加 11 個字元
+       * 就沒了。擋掉之後它落入 `setNotFoundHandler`，與 `/`、`/notes/:ref` 同一條路。
+       * 守衛：`test/spa.test.ts` 的「GET /index.html 也要有 CSP」。
+       *
+       * ⚠ 這裡只排除字面上的 `/index.html`，因為今天的 `apps/web/dist` 只有它一個
+       * `.html`（其餘是 `assets/*.js|css`）。**dist 若哪天多出任何其他 `.html`**
+       * （例如 `sub/index.html`），static 會直接把它送出去、不帶任何安全標頭——那時
+       * 要把這條改成 `!pathName.endsWith(".html")` 並補守衛。
+       */
+      allowedPath: (pathName) => pathName !== "/index.html",
+    });
   }
 
   app.setNotFoundHandler(async (request: FastifyRequest, reply: FastifyReply) => {
@@ -54,6 +74,12 @@ export function registerSpaFallback(app: FastifyInstance, webDist: string | unde
         try {
           const html = await readFile(path.join(webDist, "index.html"), "utf8");
           reply.header("content-type", "text/html; charset=utf-8");
+          // issue #101：安全標頭掛在**這裡**——CSP 只對 HTML 文件有意義（`/api` 與
+          // `/assets` 不需要）。標頭由**這份 html** 推導（script-src 的 hash），所以
+          // 不可能與送出的內容不同步，見 `security-headers.ts` 檔頭。
+          for (const [name, value] of Object.entries(securityHeaders(html))) {
+            reply.header(name, value);
+          }
           reply.send(html);
           return;
         } catch {
