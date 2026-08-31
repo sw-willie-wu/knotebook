@@ -8,6 +8,7 @@ import { COLLAB_CLOSE_REVOKED, canonicalNotePath, type BacklinkDto, type NoteDto
 import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
+import { ARTICLE_COLUMN, ARTICLE_COLUMN_INSET } from "@/components/ui/article-column";
 import type { CollabState } from "@/collab/connection";
 
 // BlockNote 需要一整套 jsdom 沒有的 DOM/Range API，掛進單元測試只會測到環境；
@@ -324,6 +325,31 @@ describe("NotePage", () => {
     expect(within(header!).getByRole("heading", { name: "My Note" })).toBeInTheDocument();
     expect(within(header!).queryByRole("textbox")).not.toBeInTheDocument();
     expect(screen.getByText("Read-only")).toBeInTheDocument();
+  });
+
+  // issue #88：頁首的內容列＝文章欄（置中寬度鏈 ＋ 對齊內文首字的 70px 內縮），
+  // 外層 `<header>` 維持滿卡寬，`border-b` 才橫跨整張卡。
+  //
+  // 這條在**消費端**斷，是因為 `ui/article-column.guard.test.ts` 只能證明
+  // 「NotePage.tsx 有 import 並提到 ARTICLE_COLUMN」，證不了它套在哪個節點上；
+  // 另外兩個消費端（內文／頁尾）各自的 layout test 早有這種 class 斷言，頁首
+  // 少了就是唯一沒人守的那一角——把 inset 留著、欄拿掉，標題左緣就回到卡片
+  // 邊緣（#88 原狀），而其餘測試全綠。
+  it("PR #114（#88）：頁首內容列套文章欄，外層 header 不吃左右內距", async () => {
+    vi.stubGlobal("fetch", mockFetch());
+
+    renderNotePage("my-note");
+    await screen.findByTestId("note-editor");
+
+    const header = document.querySelector("header");
+    expect(header).not.toBeNull();
+    expect(header).toHaveClass("border-b", "border-border", "py-3");
+    expect(header!.className).not.toContain("px-");
+
+    const row = header!.firstElementChild;
+    expect(row).not.toBeNull();
+    expect(row).toContainElement(screen.getByLabelText("Note title"));
+    expect(row).toHaveClass(...ARTICLE_COLUMN.split(" "), ARTICLE_COLUMN_INSET, "flex", "items-center", "gap-3");
   });
 
   it("N4 降級：connected(owner) → connected(viewer) 時 toast 並切成唯讀", async () => {

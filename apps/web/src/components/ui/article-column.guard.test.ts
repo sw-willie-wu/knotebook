@@ -1,5 +1,4 @@
 import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -18,9 +17,15 @@ import {
  *
  *   (a) 常數字面固定（消費端的斷言是從常數推導的同義反覆，鑑別力全靠這一條）
  *   (b) 頁首／頁尾的 inset ＝ 置中 wrapper 的 `px-4` ＋ BlockNote 的 `padding-inline`
- *   (c) 那 54px 是 `@blocknote/core` 的 dist CSS 給的，不是我們的碼——直接讀套件
- *       對值，升版改掉當場紅（否則只會靜默地又錯開，沒有任何測試看得出來）
- *   (d) 三個消費端都 import 並使用 ARTICLE_COLUMN，且沒有人自己寫一份 clamp 欄寬
+ *   (c) 那 54px 是 BlockNote 給的，不是我們的碼——直接讀**實際載入的那份** dist CSS
+ *       （`@blocknote/react`，見該案註解）對值，升版或某一層加了覆寫都當場紅
+ *       （否則只會靜默地又錯開，沒有任何測試看得出來）
+ *   (d) 三個消費端都 import 並使用 ARTICLE_COLUMN 本身（不是只有 _INSET），且沒有
+ *       人自己寫一份 clamp 欄寬
+ *
+ * ⚠ (d) 只證明「頁首有套欄」，證明不了它套在**對的節點**上——那一半由
+ * `NotePage.test.tsx` 的頁首內容列 class 斷言補（另兩個消費端各自的 layout test
+ * 早就有）。兩邊缺一，頁首就會留下「悄悄退出文章欄、全套測試仍綠」的洞。
  *
  * 守不到的（誠實邊界）：
  *   - 把常數本身改成別的值——那會同時改三邊，仍然共線，是合法操作。
@@ -59,25 +64,42 @@ describe("文章欄三處共用（#88）", () => {
   });
 
   it("(c) BlockNote `.bn-editor` 的 padding-inline 仍是常數宣告的 54px（升版改掉要當場紅）", () => {
-    const require = createRequire(import.meta.url);
-    const css = readFileSync(require.resolve("@blocknote/core/style.css"), "utf8");
+    // 讀**實際載入的那一份**：`NoteEditor.tsx` 只 import `@blocknote/mantine/style.css`，
+    // 它 `@import` 進 `@blocknote/react/style.css`（後者再帶進 core 的樣式）。core 的
+    // dist 只是其中一層，單讀它的話「mantine／react 那層覆寫了 padding」會靜默漏掉
+    // ——而那正是這條要防的情境。讀 react bundle 的路徑寫法比照
+    // `theme.blocknote-vars.test.ts` 的既有慣例。
+    const cssPath = `${process.cwd()}/node_modules/@blocknote/react/dist/style.css`;
+    const css = readFileSync(cssPath, "utf8");
 
-    // dist 是 minify 過的單行；`.bn-editor{…}` 這一條規則（不是後代選擇器）裡的
-    // padding-inline 才是欄內距本身。
-    const rule = /\.bn-editor\{([^}]*)\}/.exec(css);
-    expect(rule, "在 @blocknote/core 的 dist CSS 找不到 `.bn-editor{…}` 規則").not.toBeNull();
-    expect(rule![1]).toContain(`padding-inline:${BN_EDITOR_INLINE_PADDING_PX}px`);
+    // dist 是 minify 過的單行。只取**選擇器就是 `.bn-editor` 本身**的規則：前一個
+    // 字元必須是規則邊界（`}`／`,`／檔首），否則 `.bn-comment-editor .bn-editor{padding:0}`
+    // 這種後代形也會被算進來（那條是留言編輯器的，與文章欄無關）。
+    const bareRules = [...css.matchAll(/(?:^|[},])\s*\.bn-editor\s*\{([^}]*)\}/g)].map((match) => match[1]);
+    expect(bareRules.length, `${cssPath} 找不到裸 \`.bn-editor{…}\` 規則`).toBeGreaterThan(0);
+
+    // 跨所有裸規則收集 padding 宣告：**恰好一條、且就是 54px**。多一條（後面某層加了
+    // 覆寫、由後者勝出）或值變了都會紅——只斷「有出現 54px」的話，後面補一條
+    // `padding-inline:16px` 依然全綠而版面靜默錯開。
+    const paddings = bareRules.flatMap((decls) => [...decls.matchAll(/padding(?:-inline)?\s*:\s*[^;]+/g)].map((m) => m[0]));
+    expect(paddings).toEqual([`padding-inline:${BN_EDITOR_INLINE_PADDING_PX}px`]);
   });
 
   it("(d) 三個消費端都套共用常數，且沒有人自己寫一份 clamp 欄寬", () => {
+    // ⚠ 邊界必要：`"ARTICLE_COLUMN_INSET".includes("ARTICLE_COLUMN")` 為真，用子字串
+    // 比對的話「只套 inset、沒套置中欄」會全綠通過——那正是 #88 的病灶本身（頁首
+    // 縮排對了但欄沒對，標題左緣回到卡片邊緣）。`\b` 在這裡管用：`_` 是 word char，
+    // 所以 `ARTICLE_COLUMN_INSET` 的 `N` 與 `_` 之間沒有邊界，`\bARTICLE_COLUMN\b`
+    // 不會誤配。
+    const usesColumn = /\bARTICLE_COLUMN\b/;
     for (const { label, path } of CONSUMERS) {
       const source = readSource(path);
-      expect(source, `${label}（${path}）應 import ARTICLE_COLUMN`).toMatch(
-        /import \{[^}]*ARTICLE_COLUMN[^}]*\} from "@\/components\/ui\/article-column";/,
-      );
+      const importLine = /import \{([^}]*)\} from "@\/components\/ui\/article-column";/.exec(source);
+      expect(importLine, `${label}（${path}）應從 ui/article-column import`).not.toBeNull();
+      expect(usesColumn.test(importLine![1]), `${label} 的 import 應含 ARTICLE_COLUMN 本身`).toBe(true);
 
       const code = stripComments(source);
-      expect(code.includes("ARTICLE_COLUMN"), `${label} 應在 className 中實際套用 ARTICLE_COLUMN`).toBe(true);
+      expect(usesColumn.test(code), `${label} 應在 className 中實際套用 ARTICLE_COLUMN`).toBe(true);
       // 繞過共用欄的唯一寫法：自己再寫一次 clamp 的 max-w。
       expect(code, `${label} 不得自己寫死欄寬，改用 ARTICLE_COLUMN`).not.toMatch(/max-w-\[clamp\(/);
     }
