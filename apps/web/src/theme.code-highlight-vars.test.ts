@@ -129,9 +129,12 @@ describe("codeBlock 底色覆寫", () => {
     //   第二輪：只排除 option／picker 還不夠——把顏色只寫在 `select:disabled` 上照樣
     //           通過，但**可編輯**筆記上的下拉已經退回內建 `color:#fff`（淺色底＝白字
     //           白底，正是 #96 的病灶）。
-    const baseRules = rules.filter(
-      (r) => !/>\s*option|::picker/.test(r.selector) && !/:(?:hover|focus|disabled|open|active)\b/.test(r.selector),
-    );
+    const baseRules = rules.filter((r) => {
+      // `:not(:disabled)` 之類是**基底態**的寫法，不該被當成狀態規則排除掉（會變假紅）
+      // ——先把 `:not(…)` 的內容剝掉再判斷。
+      const withoutNot = r.selector.replace(/:not\([^)]*\)/g, "");
+      return !/>\s*option|::picker/.test(withoutNot) && !/:(?:hover|focus|disabled|open|active)\b/.test(withoutNot);
+    });
     const carriesColor = baseRules.some(
       (r) => /@apply[^;]*\btext-muted-foreground\b/.test(r.body) || /(?:^|[;{])\s*color:\s*var\(--/.test(r.body),
     );
@@ -147,17 +150,18 @@ describe("codeBlock 底色覆寫", () => {
     expect(idle, "缺語言下拉的定位覆寫（bottom ＋ opacity 那條）").toBeDefined();
     expect(idle!.selector, `少了 .bn-editor 錨：${idle!.selector}`).toMatch(/^\.bn-editor\s/);
 
-    // 四個宣告缺一不可，缺哪個都是**靜默**回到內建位置。機制（`index.css` 有實測數字）：
-    // `<select>` 是有內在尺寸的表單控制項，同時給 top/bottom（或 left/right）時屬於
-    // over-constrained、ltr 下忽略後寫的那一端——所以不覆寫掉內建的 `top:8px`／
-    // `left:18px`，我們的 `bottom`／`right` 就是白寫的，控制項回到方塊內的左上角。
+    // 四個宣告缺一不可，缺哪個都是**靜默**回到內建位置：實測（真實元素上逐一拿掉）
+    // 少了 `top:auto` 會落回 block 上緣 ＋8px（方塊內），少了 `left:auto` 會落到
+    // block 左緣 ＋18px。`index.css` 那段註解記了完整量測與一個警告——表單控制項在
+    // 絕對定位下的**尺寸**解算兩軸不同、且不同環境量到的不一樣，別靠推理，要改就重量。
     expect(idle!.body, "缺 bottom:100%——那是「貼齊方塊上緣」的定位方式").toMatch(/bottom:\s*100%/);
     expect(idle!.body, "缺 top:auto——內建的 top:8px 會贏過 bottom，下拉回到方塊內部").toMatch(/top:\s*auto/);
     expect(idle!.body, "缺 right（要與 mermaid 控制鈕同側）").toMatch(/right:\s*\d/);
     expect(idle!.body, "缺 left:auto——內建的 left:18px 會贏過 right，下拉仍在左上角").toMatch(/left:\s*auto/);
     // 用**負 top** 定位是上一版的錯法：那要自己扣掉控制項高度，字級或內距一改就浮起來
     // （實測浮了 6px，Willie 回報「沒貼在 block 上」）。
-    expect(idle!.body, "不要退回用負 top 定位——高度一變就浮起來").not.toMatch(/top:\s*-/);
+    // `(?:^|[;{])\s*top:` 的邊界同上；不加的話 `margin-top: -…` 也會被當成負 top（假紅）。
+    expect(idle!.body, "不要退回用負 top 定位——高度一變就浮起來").not.toMatch(/(?:^|[;{])\s*top:\s*-/);
 
     // 寬度下限：原生 select 的寬度跟著目前選到的標籤走（`C` 36px ↔ `Markdown` 86px），
     // 沒有下限就會每換一個語言跳一次。
@@ -165,8 +169,11 @@ describe("codeBlock 底色覆寫", () => {
     // ⚠ 刻意**不是** `width`：那個值是量出來的（字寬看字型），寫死 width 配上
     // `overflow:hidden` 的失敗形是「標籤被靜默截斷」；min-width 的失敗形只是變寬一點，
     // 而它右錨定（`right:0`），右緣不動。
+    // ⚠ 邊界要寫成 `[;{])\s*`（不是 `[;{]\s*)`）：body 的第一條宣告前面是換行＋縮排，
+    // 前者才吃得到。同形的錯在 `carriesColor` 那條也犯過（寫死 width 當第一條宣告時
+    // 這條原本全綠通過，第三輪 gate 突變實測抓到）。
     expect(idle!.body, "不得寫死 width：換字型／更長的語言名會變成靜默截斷").not.toMatch(
-      /(?:^|[;{]\s*)width:/,
+      /(?:^|[;{])\s*width:/,
     );
     expect(idle!.body, "有了 min-width 就不該再用 overflow:hidden 去藏溢出").not.toMatch(/overflow:\s*hidden/);
   });
