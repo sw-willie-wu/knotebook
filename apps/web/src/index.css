@@ -405,19 +405,25 @@ body {
    （`top:8px;left:18px`）、`opacity:0` → hover 浮到 .5。
 
    1. **移到方塊外面的上方、靠右**：block content 加 `margin-top` 讓出一條 1.75rem
-      的保留列（＝mermaid 那條 `h-7`，高度固定所以顯隱不會讓版面跳動），下拉用負的
-      `top` 落在那條列上。左上角是最糟的落點——疊在第一行程式碼的**開頭**，正是最常
-      點去放游標的地方；搬到方塊外面之後就完全不再攔截程式碼區域的點擊（mermaid #94
-      為此把工具列拉成獨立一列，同一個理由）。
+      的保留列（＝mermaid 那條 `h-7`，高度固定所以顯隱不會讓版面跳動），下拉用
+      `bottom: 100%` 貼在那條列上（不是算好的負 `top`，理由見下面規則本體的註解）。
+      左上角是最糟的落點——疊在第一行程式碼的**開頭**，正是最常點去放游標的地方；
+      搬到方塊外面之後就完全不再攔截**程式碼區域**的點擊（mermaid #94 為此把工具列
+      拉成獨立一列，同一個理由）。
+      ⚠ 殘留的同形風險：那顆控制項雖然 `opacity:0`，仍實際佔著保留列上約 96×26px。
+      滑鼠沒問題（要碰到它必先 hover 到 block，它會先淡入），但**觸控沒有 hover**：
+      兩個 code block 之間那條帶上，一點就是打開語言下拉而不是把游標放到上一個
+      block。與 mermaid 現況同形，暫時接受（jsdom 沒有 hit testing、e2e 也沒覆蓋）。
    2. **hover 才現**：與 mermaid 一致。用 `opacity` 而不是 `display/hidden` 隱藏——
       後者會讓它退出 Tab 順序，鍵盤使用者就永遠構不到（`:focus` 那條負責讓它現身）。
    3. **長相**：與 mermaid 那顆鈕同語彙（`rounded-sm border border-border bg-background
       px-2 py-1 text-xs text-muted-foreground`）。現身時直接給全對比的 muted 前景色，
       不再用半透明疊色（#96 算過：α 混色的有效對比會隨底色浮動，內建的 .5 只有 3.1:1）。
 
-   內建的 `appearance:none` 沿用，所以沒有原生箭頭；**展開後的選單是 OS 原生 widget，
-   CSS 蓋不到**（只有 option 的前景/底色與 color-scheme 有效，見下一條），要完全主題化
-   得換成自訂 trigger＋選單——工程量差一個量級，是 issue #111 的待決項。
+   展開後的清單見檔案後段的 `@supports (appearance: base-select)`：支援的瀏覽器
+   （Chromium 135+／Safari 27）會把清單換成真正的 DOM，我們照 app 的 ⋮ 選單樣式畫，
+   連箭頭（`::picker-icon`）都有；**不支援者（今天的 Firefox）才是 OS 原生 widget**，
+   那裡只有 option 的前景/底色與 `color-scheme` 有效（見下一條）。
 
    ⚠ 內建選擇器 `.bn-block-content[data-content-type=codeBlock]>div>select` 是 (0,2,2)，
    且 BlockNote 的 CSS 在 NotePage lazy chunk、載入必晚於本檔——`.bn-editor` 錨墊到
@@ -431,12 +437,16 @@ body {
 }
 
 .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select {
-  /* **貼齊方塊上緣**：`bottom:100%` 讓它的下緣正好落在 block 的上緣，再留 1px 視覺
-     間距——與 mermaid 那顆鈕跟圖之間的關係相同。用 bottom 而不是算好的負 top，是因為
-     負 top 要自己扣掉控制項高度，字級或內距一改就又浮起來（上一版就是這樣浮了 6px）。
-     ⚠ `top:auto` 不可省：absolutely positioned 元素同時給 top/bottom 且高度 auto 時
-     **top 勝出**——不覆寫的話內建的 `top:8px` 還在，`bottom` 整條被忽略，靜默回到
-     方塊內部。同理 `left:auto`：內建的 `left:18px` 會贏過 `right`。 */
+  /* **貼齊方塊上緣**：`bottom:100%` 讓它的下緣正好落在 containing block 的 padding
+     box 上緣；那個 box 因為我們的 1px 邊框已內縮 1px，`margin-bottom:1px` 把它抵銷
+     回來，結果是**貼齊**（不是額外留白）。用 bottom 而不是算好的負 top，是因為負 top
+     要自己扣掉控制項高度，字級或內距一改就又浮起來（上一版就是這樣浮了 6px）。
+     ⚠ `top:auto` 不可省，但機制不是「top 贏 bottom」：同時給 top/bottom 且
+     `height:auto` 時，瀏覽器是拿兩者去**解出高度**——內建的 `top:8px` 配上
+     `bottom:100%` 解出來是負值、被夾成 0，加上本規則的 `overflow:hidden`，控制項會
+     整個消失（不是回到方塊內部）。`left:auto` 那半則是另一種機制：`width` 非 auto
+     時同時給 left/right 屬於 over-constrained，ltr 下**忽略 right**，所以會留在
+     內建的 `left:18px`。兩條都靜默，守衛各釘一條。 */
   top: auto;
   bottom: 100%;
   left: auto;
@@ -445,16 +455,15 @@ body {
   opacity: 0;
   transition: opacity 0.15s;
 
-  /* **固定寬度**：原生 select 的寬度跟著「目前選到的那個標籤」走，於是同一顆控制項
-     會在 `C`（36px）與 `Markdown`（86px）之間縮放，語言一換位置就跳。定死成放得下
-     最長標籤的寬度，位置就穩定了（headed 實測：目前最寬是 Markdown 85.6px，含內距
-     與箭頭；6rem＝96px 留約 10px 餘裕）。
-     ⚠ 這個值是**量出來的**，不是算出來的——字寬由字型決定，字數不是好指標
-     （`TypeScript` 10 字反而比 `Markdown` 8 字窄）。`code-highlight.test.ts` 釘住
-     「目前最長的標籤沒有變長」，語言清單長出更長的名字時會紅，提醒重量一次。 */
-  width: 6rem;
-  justify-content: space-between;
-  overflow: hidden;
+  /* **寬度下限**：原生 select 的寬度跟著「目前選到的那個標籤」走，於是同一顆控制項
+     會在 `C`（36px）與 `Markdown`（86px）之間縮放，語言一換寬度就跳。給一個放得下
+     目前所有標籤的下限（headed 實測最寬是 Markdown 85.6px，含內距與箭頭；6rem＝96px
+     留約 10px 餘裕），今天所有語言都落在下限內＝寬度恆定。
+     ⚠ 刻意用 `min-width` 而不是 `width`：這個值是**量出來的**（字寬由字型決定，字數
+     不是好指標——`TypeScript` 10 字反而比 `Markdown` 8 字窄），換字型／縮放／未來加更長
+     的語言名都可能超出。寫死 `width` ＋ `overflow:hidden` 的失敗形是**靜默截斷**；
+     `min-width` 的失敗形只是「那一顆變寬一點」，而它是右錨定（`right:0`）的，右緣不動。 */
+  min-width: 6rem;
   white-space: nowrap;
   /* 長相不在這裡：與 mermaid 那顆鈕共用下面的 `.block-control`（一份真相）。 */
 }
@@ -526,7 +535,7 @@ body {
    是清單容器、`option` 變成可排版的元素、`::picker-icon` 是箭頭。於是清單也能吃我們的
    主題——不必自繪，也不必碰 BlockNote 的 block spec（仍然只是 CSS 加在內建那個 select 上）。
 
-   支援度：Chromium（134/135+）與 Safari 27 已出貨，Firefox 還在 Nightly 的 flag 後面。
+   支援度：Chromium 135+ 與 Safari 27 已出貨，Firefox 還在 Nightly 的 flag 後面。
    **這整段是漸進增強**：不支援的瀏覽器整塊忽略，直接沿用上面那條路（原生清單 ＋ option
    顏色 ＋ color-scheme）。⚠ 因此上面那組**必須留在 `@supports` 外面**——搬進來的話
    Firefox 就退回 BlockNote 寫死的 `option{color:#000}`，深色模式又看不見了。
@@ -547,6 +556,7 @@ body {
   .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: 0.25rem;
   }
 

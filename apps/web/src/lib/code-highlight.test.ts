@@ -68,27 +68,6 @@ describe("SUPPORTED_LANGUAGES", () => {
     expect(getLanguageId(CODE_BLOCK_OPTIONS, "yml")).toBe("yaml");
   });
 
-  // issue #111：語言下拉是**固定寬度**的（`index.css` 的 `width: 6rem`）——原生 select
-  // 的寬度跟著目前選到的標籤走，不定死的話同一顆控制項會在 `C` 與 `Markdown` 之間
-  // 縮放，換語言位置就跳。那個 6rem 是 headed 瀏覽器**量出來的**（目前最寬的標籤
-  // `Markdown` 連內距與箭頭共 85.6px），不是算出來的：字寬由字型決定，字數不是好指標
-  // （`TypeScript` 10 字反而比 `Markdown` 8 字窄）。
-  //
-  // 所以這條守的不是「寬度夠不夠」（jsdom 量不到文字），而是**量測的前提還在不在**：
-  // 清單長出比當時更長的標籤時要紅，提醒重量一次再決定要不要加寬。
-  const MEASURED_LONGEST_LABEL_CHARS = 10; // "Plain text" / "TypeScript" / "JavaScript" / "Dockerfile"
-
-  it("issue #111：語言標籤沒有長過當初量固定寬度時的長度（長了就要重量一次）", () => {
-    const longest = Object.values(SUPPORTED_LANGUAGES)
-      .map((lang) => lang.name)
-      .reduce((a, b) => (b.length > a.length ? b : a));
-    expect(
-      longest.length,
-      `「${longest}」比當初量 index.css 那個固定寬度時的最長標籤還長——請在 headed 瀏覽器重量一次，` +
-        `必要時同步調整 index.css 的 width 與這個常數`,
-    ).toBeLessThanOrEqual(MEASURED_LONGEST_LABEL_CHARS);
-  });
-
   it("CODE_BLOCK_OPTIONS 把三件事接在一起：語言清單、預設語言、createHighlighter", () => {
     expect(CODE_BLOCK_OPTIONS.supportedLanguages).toBe(SUPPORTED_LANGUAGES);
     expect(CODE_BLOCK_OPTIONS.createHighlighter).toBe(createHighlighter);

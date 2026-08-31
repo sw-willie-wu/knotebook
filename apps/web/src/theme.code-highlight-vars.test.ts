@@ -43,7 +43,11 @@ const CODE_VARS = [
 /** 第一個頂層 `:root {…}`（light 基底）與 `.dark {…}` 的宣告內容。 */
 function themeBlocks(): { light: string; dark: string } {
   const css = readIndexCss();
-  const light = css.match(/(?:^|\n):root\s*\{([^}]*)\}/)?.[1];
+  // ⚠ 取的是**含 --code-* 的那個** `:root`，不是第一個：index.css 自 issue #111 起有
+  // 第二個頂層 `:root`（滾動條的共用變數），靠出現順序抓會變成一條沒人寫下來的相依。
+  const light = [...css.matchAll(/(?:^|\n):root\s*\{([^}]*)\}/g)]
+    .map((m) => m[1]!)
+    .find((body) => body.includes("--code-"));
   const dark = css.match(/(?:^|\n)\.dark\s*\{([^}]*)\}/)?.[1];
   expect(light, "index.css 應有頂層 :root 區塊").toBeDefined();
   expect(dark, "index.css 應有頂層 .dark 區塊").toBeDefined();
@@ -104,8 +108,7 @@ describe("codeBlock 底色覆寫", () => {
 
   it("語言下拉的文字色也要跟著換——內建寫死 color:#fff，淺色底上等於看不見", () => {
     // #96 時這是 select 自己的一條 `color:` 覆寫；#111 之後顏色與 mermaid 那顆鈕
-    // 共用同一條規則（`.block-control` 的 `@apply … text-muted-foreground`），所以
-    // 這裡看的是「所有接住這個 select 的規則」整體。
+    // 共用同一條規則（`.block-control` 的 `@apply … text-muted-foreground`）。
     const rules = selectRules();
     expect(rules.length, "index.css 完全沒有接住語言下拉的規則").toBeGreaterThan(0);
     for (const rule of rules) {
@@ -115,10 +118,20 @@ describe("codeBlock 底色覆寫", () => {
       expect(rule.selector, `少了 .bn-editor 錨：${rule.selector}`).toMatch(/\.bn-editor\s/);
       expect(rule.body, `不得留下寫死色：${rule.selector}`).not.toContain("#fff");
     }
-    const themed = rules.some(
-      (r) => /@apply[^;]*text-muted-foreground/.test(r.body) || /color:\s*var\(--/.test(r.body),
+
+    // ⚠ 這一段必須釘在**作用於 select 本身**的規則上。前一版是對所有含 `select` 的
+    // 規則做 `some(/color:\s*var\(--/)`——`background-color`、`border-color`、甚至
+    // picker 的 `scrollbar-color` 都會命中，於是「共用規則掉了 text-muted-foreground」
+    // 這個突變全綠通過，而那正是 #96 的病灶（內建 `color:white` 在淺色底復活＝白字
+    // 白底，gate 審查實測抓到）。
+    const selfRules = rules.filter((r) => !/>\s*option|::picker/.test(r.selector));
+    const carriesColor = selfRules.some(
+      (r) => /@apply[^;]*\btext-muted-foreground\b/.test(r.body) || /(?:^|[;{]\s*)color:\s*var\(--/.test(r.body),
     );
-    expect(themed, "語言下拉的顏色要走主題（utility 或 CSS 變數），不得沿用內建的 #fff").toBe(true);
+    expect(
+      carriesColor,
+      "作用在 select 本身的規則裡沒有任何前景色——內建的 color:white 會復活（淺色底＝白字白底）",
+    ).toBe(true);
   });
 
   it("issue #111：語言下拉貼在方塊**外面的上緣、靠右**（bottom:100%，不是算好的負 top）", () => {
@@ -137,6 +150,17 @@ describe("codeBlock 底色覆寫", () => {
     // 用**負 top** 定位是上一版的錯法：那要自己扣掉控制項高度，字級或內距一改就浮起來
     // （實測浮了 6px，Willie 回報「沒貼在 block 上」）。
     expect(idle!.body, "不要退回用負 top 定位——高度一變就浮起來").not.toMatch(/top:\s*-/);
+
+    // 寬度下限：原生 select 的寬度跟著目前選到的標籤走（`C` 36px ↔ `Markdown` 86px），
+    // 沒有下限就會每換一個語言跳一次。
+    expect(idle!.body, "缺寬度下限——控制項寬度會隨選到的語言縮放").toMatch(/min-width:\s*[0-9.]+rem/);
+    // ⚠ 刻意**不是** `width`：那個值是量出來的（字寬看字型），寫死 width 配上
+    // `overflow:hidden` 的失敗形是「標籤被靜默截斷」；min-width 的失敗形只是變寬一點，
+    // 而它右錨定（`right:0`），右緣不動。
+    expect(idle!.body, "不得寫死 width：換字型／更長的語言名會變成靜默截斷").not.toMatch(
+      /(?:^|[;{]\s*)width:/,
+    );
+    expect(idle!.body, "有了 min-width 就不該再用 overflow:hidden 去藏溢出").not.toMatch(/overflow:\s*hidden/);
   });
 
   it("issue #111：保留列高度與控制項樣式都跟著 mermaid 的那顆走（『統一』的實質內容）", () => {
