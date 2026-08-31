@@ -133,11 +133,41 @@ describe("SPA fallback（spec §11.5）", () => {
     }
   });
 
+  // ⚠ gate 審查抓到的 Critical：`@fastify/static` 的 `wildcard:false` 仍會為 root 下
+  // **實際存在的每個檔案**各註冊一條路由，而 `index.html` 就是其中之一——於是
+  // `GET /index.html` 會由 static 送出同一份 SPA（App.tsx 的 `/*` route 讓它渲染
+  // 首頁、session cookie 是 lax 照送＝已登入），卻**一個安全標頭都沒有**。
+  // 政策整份被 11 個字元繞過。這條釘住那個入口也走掛標頭的路徑。
+  it("GET /index.html 也要有 CSP——static 不得把 index.html 直接送出去（繞過整份政策）", async () => {
+    const { app } = await buildTestApp({}, { webDist });
+    const res = await app.inject({ method: "GET", url: "/index.html", headers: { accept: "text/html" } });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain("knotebook spa");
+    expect(res.headers["content-security-policy"], "/index.html 沒有 CSP＝整份政策可被繞過").toBeTypeOf(
+      "string",
+    );
+    expect(res.headers["referrer-policy"]).toBe("no-referrer");
+  });
+
   it("JSON 404 不掛 CSP（那條路徑不是 HTML 文件）", async () => {
     const { app } = await buildTestApp({}, { webDist });
     const res = await app.inject({ method: "GET", url: "/api/nope", headers: { accept: "text/html" } });
     expect(res.statusCode).toBe(404);
     expect(res.headers["content-security-policy"]).toBeUndefined();
+  });
+
+  // gate 審查（m1）：CSP 只對 HTML 有意義，但 `nosniff` 是逐回應的便宜標頭，JSON 與
+  // 靜態 JS 也該有——所以它掛在全域 onSend，不是只掛在 SPA 那條路徑上。
+  it("nosniff 掛在**每個**回應上（JSON 與靜態資產也算），不只 HTML", async () => {
+    const { app } = await buildTestApp({}, { webDist });
+
+    const json = await app.inject({ method: "GET", url: "/api/nope" });
+    expect(json.headers["x-content-type-options"], "JSON 回應缺 nosniff").toBe("nosniff");
+
+    const asset = await app.inject({ method: "GET", url: "/assets/app.js" });
+    expect(asset.statusCode).toBe(200);
+    expect(asset.headers["x-content-type-options"], "靜態資產缺 nosniff").toBe("nosniff");
   });
 
   it("不傳 webDist → GET /nope 仍是既有 JSON 404（既有行為不受影響）", async () => {

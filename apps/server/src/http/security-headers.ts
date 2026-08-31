@@ -9,7 +9,13 @@ import { createHash } from "node:crypto";
  * 沒有任何測試會紅的失效形。從送出的內容推導，drift 在結構上就不可能發生。
  */
 
-/** `<script>` 開標籤沒有 `src=` 的那些（＝內文會被瀏覽器執行的 inline script）。 */
+/**
+ * `<script>` 開標籤沒有 `src=` 的那些（＝內文會被瀏覽器執行的 inline script）。
+ *
+ * 失效方向是安全的：`[^>]*` 遇到「屬性值裡含 `>`」會多切一段，結果是**多算一個沒人
+ * 用的 hash**（無害），不會漏算——要漏算得讓一個真的 inline script 的開標籤裡出現
+ * ` src=`，那它就不是 inline script 了。註解或字串裡的 `<script>` 同理只會多一個。
+ */
 const INLINE_SCRIPT = /<script(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/gi;
 
 /**
@@ -46,8 +52,14 @@ function inlineScriptHashes(html: string): string[] {
 const STATIC_DIRECTIVES: readonly (readonly [string, string])[] = [
   ["default-src", "'self'"],
   ["style-src", "'self' 'unsafe-inline'"],
-  ["img-src", "'self' data: blob: https:"],
-  ["media-src", "'self' https:"],
+  // ⚠ `http:` 與 `https:` 都要：`lib/media-url.ts` 的輸入端與渲染端守衛對兩者都放行，
+  // 而 `docs/self-hosting.md` 的 topology (a) 就是純 http 的信任 LAN 部署——只放 https:
+  // 會讓 LAN 自架者既有筆記裡的 `http://intranet/logo.png` 靜默變破圖（https 部署上這些
+  // 本來就被 mixed-content 擋掉，所以只有 http 部署受害）。
+  ["img-src", "'self' data: blob: http: https:"],
+  ["media-src", "'self' http: https:"],
+  // ⚠ 之後若替 audio/video 開上傳路徑，這裡要補 `blob:`（上傳中的預覽）與可能的
+  //    `data:`——img-src 已經有，media-src 目前刻意沒有（沒有上傳路徑就用不到）。
   ["font-src", "'self' data:"],
   // 共編 WebSocket 是同源（`collabUrl()` 由 window.location 推導成 ws(s)://<same host>/collab），
   // `'self'` 涵蓋得到；AI provider 由 server 端轉發，瀏覽器不直連。

@@ -61,6 +61,11 @@ export const SUPPORTED_LANGUAGES: NonNullable<CodeBlockOptions["supportedLanguag
  * `langs: []` 起步：個別 grammar 由 plugin 對 `loadLanguage()` 的呼叫按需載入。
  * JS regex engine（不是預設的 oniguruma）省掉 WASM 那顆 chunk；本清單的語言全數
  * 相容（`code-highlight.test.ts` 逐一載過）。
+ *
+ * ⚠ **不要換回預設的 oniguruma engine**：server 送的 CSP（issue #101）沒有
+ * `'wasm-unsafe-eval'`，換回去會讓 WASM 編譯被瀏覽器擋掉、**上色靜默失效**（只有
+ * console 一則 violation）。真要換，`apps/server/src/http/security-headers.ts` 的
+ * script-src 要一起加。
  */
 export async function createHighlighter() {
   const [{ createHighlighter: create, createCssVariablesTheme }, { createJavaScriptRegexEngine }] = await Promise.all([

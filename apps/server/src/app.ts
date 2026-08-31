@@ -317,6 +317,14 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     throwFileSizeLimit: false,
   });
 
+  // issue #101：`nosniff` 掛在**每一個**回應上。CSP 只對 HTML 文件有意義（掛在
+  // `http/spa.ts` 回 index.html 那條路徑），但這個標頭是逐回應的便宜防線，JSON 錯誤
+  // 與 `/assets/*.js` 也該有——擋掉「瀏覽器猜錯 content-type 就把回應當成別的型別執行」
+  // 那一族。守衛：`test/spa.test.ts` 的「nosniff 掛在每個回應上」。
+  app.addHook("onSend", async (_request, reply) => {
+    reply.header("x-content-type-options", "nosniff");
+  });
+
   // 全域 onRequest hook：只要有呼叫 setNotFoundHandler，onRequest 就會對「未匹配路由」
   // 也執行（fastify#3120 結論）——不可把這段邏輯改掛進 setNotFoundHandler 的 options，
   // 其只接受 preValidation/preHandler，掛 onRequest 會直接報錯。

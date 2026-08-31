@@ -10,8 +10,8 @@ import { ADMIN, createNote, editorLocator, loginAs } from "./helpers.js";
  *    而且沒有任何單元測試會紅——這是本條 issue 最主要的回歸風險）；
  * ② 共編 WebSocket（`wss://<same host>/collab`）要能連上（`connect-src 'self'`
  *    是否涵蓋同源 ws，各瀏覽器歷史上不一致）；
- * ③ 編輯器實際會用到的注入（shiki 的 inline style、mermaid 產出的 SVG、BlockNote
- *    浮層）不得觸發 violation。
+ * ③ 編輯器實際會用到的注入不得觸發 violation——本檔真的跑過的是：shiki 的 token
+ *    inline style、slash 選單（BlockNote 浮層）、mermaid 的 lazy chunk 與產出的 SVG。
  *
  * 判準是**瀏覽器自己回報的 CSP violation**（`securitypolicyviolation` 事件），不是
  * console 字串比對——後者會隨瀏覽器改文案而靜默失效。
@@ -25,7 +25,7 @@ interface Violation {
   blockedURI: string;
 }
 
-test("載入筆記＋程式碼區塊＋共編連線：瀏覽器回報零 CSP violation", async ({ page }) => {
+test("載入筆記＋程式碼區塊＋圖表＋共編連線：瀏覽器回報零 CSP violation", async ({ page }) => {
   const violations: Violation[] = [];
   // 在任何頁面腳本之前註冊，才抓得到首屏那一段 inline script 被擋的情形。
   await page.addInitScript(() => {
@@ -38,14 +38,41 @@ test("載入筆記＋程式碼區塊＋共編連線：瀏覽器回報零 CSP vio
     });
   });
 
-  await loginAs(page, ADMIN.email, ADMIN.newPassword);
-  await createNote(page, `E2E csp ${Date.now()}`);
+  // ⚠ violation 收集器每次導覽都會被 addInitScript 重置，所以**每換一頁前**都要把
+  // 當頁收到的搬進 test 這側累積（第一版沒搬，換頁就把前一頁的證據丟了）。
+  const drain = async () => {
+    const collected = await page.evaluate(
+      () => (window as unknown as { __cspViolations: Violation[] }).__cspViolations,
+    );
+    violations.push(...collected);
+  };
 
+  await loginAs(page, ADMIN.email, ADMIN.newPassword);
+
+  // 第一頁：程式碼區塊（shiki 的 lazy chunk ＋ token 的 inline style）。
+  await createNote(page, `E2E csp code ${Date.now()}`);
   const editor = editorLocator(page);
   await editor.click();
   await editor.pressSequentially("```ts ");
   await editor.pressSequentially('const x = "hi"');
   await expect(page.locator('[data-testid="note-editor"] .shiki').first()).toBeVisible({ timeout: 20_000 });
+  await drain();
+
+  // 第二頁：mermaid（lazy chunk ＋ 注入的 inline style ＋ 產出的 SVG ＋ slash 選單這個
+  // BlockNote 浮層）。⚠ 另開一篇而不是接在上面：游標若還在 code block 裡，`/diagram`
+  // 會被當成程式碼文字，slash 選單不會開（首跑實測 timeout）。
+  await createNote(page, `E2E csp diagram ${Date.now()}`);
+  const editor2 = editorLocator(page);
+  await editor2.click();
+  await editor2.pressSequentially("/diagram");
+  await page.getByText("Flowcharts and diagrams with Mermaid").click();
+  await page.getByRole("button", { name: "Edit diagram source" }).click();
+  const source = page.getByRole("textbox", { name: "Mermaid source" });
+  await source.fill("flowchart TD\n  A[Start] --> B[End]");
+  await source.press("Escape");
+  await expect(editorLocator(page).locator("svg[aria-roledescription]").first()).toBeVisible({
+    timeout: 20_000,
+  });
 
   // 共編連線：badge 進到 Connected＝WebSocket 沒被 connect-src 擋掉（locale 釘死 en-US，
   // 見 playwright.config.ts）。
@@ -58,10 +85,7 @@ test("載入筆記＋程式碼區塊＋共編連線：瀏覽器回報零 CSP vio
   );
   expect(csp, "CSP 不該用 <meta> 帶（本專案由 server 標頭帶，meta 會多一份難同步的真相）").toBeUndefined();
 
-  const collected = await page.evaluate(
-    () => (window as unknown as { __cspViolations: Violation[] }).__cspViolations,
-  );
-  violations.push(...collected);
+  await drain();
   expect(violations, `CSP 擋到了自己的東西：${JSON.stringify(violations)}`).toEqual([]);
 
   // ⚠ **正向對照**：上面那條「零 violation」在「CSP 根本沒送出」時也會綠——那是這個

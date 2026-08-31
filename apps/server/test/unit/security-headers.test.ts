@@ -109,8 +109,12 @@ describe("securityHeaders（issue #101）", () => {
     // 放寬的那半（issue #101 定案，守 #94 的政策）：收緊會讓已出貨的功能靜默變破圖。
     // img：外部圖片以 URL 內嵌（圖片 block 的 Embed 分頁、從網頁直接拖圖、mermaid 的
     // `A@{ img: … }`）。media：audio/video block **只有** embed-by-URL，沒有上傳路徑。
-    expect(directive(csp, "img-src")).toBe("'self' data: blob: https:");
-    expect(directive(csp, "media-src")).toBe("'self' https:");
+    // ⚠ **http: 不能少**（gate 審查抓到）：`lib/media-url.ts` 的守衛對 http/https 都放行，
+    // 而 `docs/self-hosting.md` 的 topology (a) 就是純 http 的信任 LAN 部署。只放 https:
+    // 的話，LAN 自架者既有筆記裡的 `http://intranet/logo.png` 會靜默變破圖（https 部署
+    // 上這些本來就被 mixed-content 擋掉，所以受害的只有 http 部署）。
+    expect(directive(csp, "img-src")).toBe("'self' data: blob: http: https:");
+    expect(directive(csp, "media-src")).toBe("'self' http: https:");
   });
 
   it("同批的另外兩個標頭：nosniff 與 no-referrer（後者讓外部圖片載入但不洩漏在看哪一篇）", () => {

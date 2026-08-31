@@ -67,6 +67,18 @@ A couple of operational notes:
 
 See [Known limitations](./known-limitations.md) for the full list of OIDC-specific rough edges (no RP-initiated logout, switching identity providers, the per-IP rate limit on the OIDC endpoints, concurrent multi-tab sign-in, etc.).
 
+## Content Security Policy
+
+Knotebook serves its HTML with a Content-Security-Policy header (plus `Referrer-Policy: no-referrer` and `X-Content-Type-Options: nosniff`). It is not configurable — there is no environment variable for it. Three consequences for a self-hosted deployment:
+
+- **Scripts, stylesheets and fonts must come from Knotebook itself.** A reverse proxy that rewrites the page to inject an analytics snippet or a support widget (nginx `sub_filter`, Cloudflare "Rocket Loader"/apps, and similar) will have that script refused by the browser. The page still works; the injected part silently does not.
+- **Assets cannot be moved to a separate CDN.** `/assets/*` and uploaded files are expected to be served from the same origin as the app.
+- **Knotebook cannot be embedded in an iframe** (`frame-ancestors 'none'`), so it cannot be placed inside an intranet portal page.
+
+Images, audio and video that a note embeds by URL are deliberately *not* restricted, over both `http:` and `https:` — see [External images embedded by URL](known-limitations.md) for what that means for a reader's IP address.
+
+If one of the restrictions above blocks something you need, the escape hatch is your own reverse proxy: override or remove the `Content-Security-Policy` response header there (nginx: `proxy_hide_header Content-Security-Policy;` plus your own `add_header`). Removing it gives up the protection for every user of that instance.
+
 ## Troubleshooting
 
 - **Server crash-loops on first boot with a database error mentioning `users_email_unique`.** This means `instance_setup` is still empty (the instance believes it hasn't been initialized yet) but a `users` row already exists whose stored `email` is exactly the lowercase form of `ADMIN_EMAIL` — `users.email` has a plain unique constraint on the raw column, not a `lower()` index, so this only collides when the existing row happens to already be lowercase (a mixed-case existing row wouldn't collide here, but would instead become one of the pre-v0.1 duplicate-row cases in [Known limitations](./known-limitations.md) if a fresh lowercase row got created too). This typically happens after restoring a partial backup, or after the `instance_setup` row was removed manually. `initializeInstance` retries the same failing insert on every restart, so the container keeps crashing identically. Fix it one of two ways: change `ADMIN_EMAIL` in `.env` to an address not already present in `users`, or, if that existing row is meant to be the admin account, mark the instance initialized directly instead of relying on the env bootstrap (`INSERT INTO instance_setup (singleton) VALUES (true) ON CONFLICT DO NOTHING;` and `UPDATE users SET is_admin = true WHERE email = '<lowercased-admin-email>';`), then restart — `ADMIN_EMAIL`/`ADMIN_PASSWORD` are ignored once `instance_setup` has a row.
