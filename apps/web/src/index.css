@@ -410,22 +410,36 @@ body {
    (0,3,2) 才蓋得掉，掉了錨整組靜默回到左上角的隱形下拉。守衛見
    `theme.code-highlight-vars.test.ts`。 */
 .bn-editor .bn-block-content[data-content-type=codeBlock] {
-  /* 保留列：控制項落在方塊外面的上方，所以要先把那段高度讓出來。 */
+  /* 保留列：控制項落在方塊外面的上方，所以要先把那段高度讓出來。1.75rem ＝ mermaid
+     那條工具列的 `h-7`（`MermaidView.tsx`）——兩種 block 的控制列同高才算「統一」，
+     守衛直接讀 MermaidView 對值。 */
   margin-top: 1.75rem;
 }
 
 .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select {
-  top: -1.75rem;
-  right: 0;
-  /* ⚠ `left:auto` 不可省：absolute 同時有 left/right 且寬度非 auto 時 ltr 下 left
-     勝出，不寫的話內建的 `left:18px` 還在、`right` 被忽略，靜默留在左上角。 */
+  /* **貼齊方塊上緣**：`bottom:100%` 讓它的下緣正好落在 block 的上緣，再留 1px 視覺
+     間距——與 mermaid 那顆鈕跟圖之間的關係相同。用 bottom 而不是算好的負 top，是因為
+     負 top 要自己扣掉控制項高度，字級或內距一改就又浮起來（上一版就是這樣浮了 6px）。
+     ⚠ `top:auto` 不可省：absolutely positioned 元素同時給 top/bottom 且高度 auto 時
+     **top 勝出**——不覆寫的話內建的 `top:8px` 還在，`bottom` 整條被忽略，靜默回到
+     方塊內部。同理 `left:auto`：內建的 `left:18px` 會贏過 `right`。 */
+  top: auto;
+  bottom: 100%;
   left: auto;
+  right: 0;
+  margin-bottom: 1px;
   opacity: 0;
-  padding: 2px 6px;
+  /* 以下逐項對應 mermaid 那顆鈕的 class（`MermaidView.tsx`）：
+     px-2 py-1 → padding、text-xs → font-size/line-height、rounded-sm → border-radius、
+     border border-border、bg-background、text-muted-foreground。
+     `font-family: inherit` 是原生 select 才需要的一條：不寫的話它用作業系統的 UI 字型，
+     跟旁邊那顆鈕明顯不同一套。 */
+  padding: 0.25rem 0.5rem;
   border: 1px solid var(--color-border);
   border-radius: 0.125rem;
   background-color: var(--color-background);
   color: var(--color-muted-foreground);
+  font-family: inherit;
   font-size: 0.75rem;
   line-height: 1rem;
   transition: opacity 0.15s;

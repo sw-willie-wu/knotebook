@@ -107,34 +107,68 @@ describe("codeBlock 底色覆寫", () => {
     expect(idle!.body).not.toContain("#fff");
   });
 
-  it("issue #111：語言下拉移到方塊**外面的上方靠右**，且保留列高度＝下拉的負 top", () => {
-    const idle = selectRules().find((r) => /top:/.test(r.body) && /opacity:/.test(r.body));
-    expect(idle, "缺語言下拉的定位覆寫（top ＋ opacity 那條）").toBeDefined();
+  it("issue #111：語言下拉貼在方塊**外面的上緣、靠右**（bottom:100%，不是算好的負 top）", () => {
+    const idle = selectRules().find((r) => /bottom:/.test(r.body) && /opacity:/.test(r.body));
+    expect(idle, "缺語言下拉的定位覆寫（bottom ＋ opacity 那條）").toBeDefined();
     expect(idle!.selector, `少了 .bn-editor 錨：${idle!.selector}`).toMatch(/^\.bn-editor\s/);
 
-    // 靠右：兩個宣告缺一不可。`left:auto` 不寫的話內建的 `left:18px` 還在、`right`
-    // 反而被忽略（absolute 同時給 left/right 且寬度非 auto 時 ltr 下 left 勝出）
-    // → 靜默留在左上角，也就是這條 issue 的原狀。
+    // 四個宣告缺一不可，缺哪個都是**靜默**回到內建位置：
+    //   bottom:100% 貼齊上緣；top:auto 讓 bottom 生效（同時給 top/bottom 且高度 auto
+    //   時 top 勝出，內建有 top:8px）；right:0 靠右；left:auto 讓 right 生效（同時給
+    //   left/right 且寬度非 auto 時 ltr 下 left 勝出，內建有 left:18px）。
+    expect(idle!.body, "缺 bottom:100%——那是「貼齊方塊上緣」的定位方式").toMatch(/bottom:\s*100%/);
+    expect(idle!.body, "缺 top:auto——內建的 top:8px 會贏過 bottom，下拉回到方塊內部").toMatch(/top:\s*auto/);
     expect(idle!.body, "缺 right（要與 mermaid 控制鈕同側）").toMatch(/right:\s*\d/);
     expect(idle!.body, "缺 left:auto——內建的 left:18px 會贏過 right，下拉仍在左上角").toMatch(/left:\s*auto/);
+    // 用**負 top** 定位是上一版的錯法：那要自己扣掉控制項高度，字級或內距一改就浮起來
+    // （實測浮了 6px，Willie 回報「沒貼在 block 上」）。
+    expect(idle!.body, "不要退回用負 top 定位——高度一變就浮起來").not.toMatch(/top:\s*-/);
+  });
 
-    // 「外面的上方」：top 必須是負值，否則它又疊回程式碼區域（會攔截點擊，mermaid
-    // #94 踩過）。
-    const top = Number(idle!.body.match(/top:\s*(-?[0-9.]+)rem/)?.[1]);
-    expect(top, "top 要是負的 rem 值——正值＝疊在方塊內部").toBeLessThan(0);
+  it("issue #111：保留列高度與控制項樣式都跟著 mermaid 的那顆走（『統一』的實質內容）", () => {
+    // 這條直接讀 `MermaidView.tsx` 對值：兩邊各改各的就是 #111 的原狀（一左一右、
+    // 一藏一露、兩套長相），只釘 CSS 這一側等於沒釘住「統一」。
+    const mermaidSource = readFileSync(`${process.cwd()}/src/components/mermaid/MermaidView.tsx`, "utf8");
 
-    // 保留列與位移是**同一個數字的兩半**（比照 ui/rows.ts 的 `42 ＝ 36 ＋ 6`）：
-    // block content 讓出 margin-top 的高度，下拉往上位移同樣的距離。改一個沒改另一個
-    // → 下拉不是壓到上一個 block，就是在方塊上方留一條空白。
+    // (1) 工具列高度：mermaid 是 `h-7`（Tailwind：7 × 4px ＝ 28px ＝ 1.75rem），
+    //     codeBlock 這側是 block content 讓出的 margin-top。
+    const rowHeightClass = mermaidSource.match(/className="flex (h-\d+) items-center justify-end"/)?.[1];
+    expect(rowHeightClass, "在 MermaidView.tsx 找不到工具列的高度 class（版面改了就要一起看這條）").toBeDefined();
+    const rowRem = (Number(rowHeightClass!.replace("h-", "")) * 4) / 16;
     const reserved = codeBlockRules().find((r) => /margin-top:/.test(r.body));
     expect(reserved, "缺保留列（block content 的 margin-top）").toBeDefined();
     expect(reserved!.selector, `少了 .bn-editor 錨：${reserved!.selector}`).toMatch(/^\.bn-editor\s/);
-    const reservedRem = Number(reserved!.body.match(/margin-top:\s*([0-9.]+)rem/)?.[1]);
-    expect(reservedRem, "保留列高度要等於下拉的位移量").toBe(Math.abs(top));
+    expect(
+      Number(reserved!.body.match(/margin-top:\s*([0-9.]+)rem/)?.[1]),
+      `保留列要與 mermaid 的 ${rowHeightClass} 同高`,
+    ).toBe(rowRem);
+
+    // (2) 控制項本身的長相：mermaid 那顆鈕的 class ↔ 這裡的 CSS 宣告，逐項對應。
+    //     原生 select 多一條 `font-family: inherit`——不寫的話它用 OS 的 UI 字型，
+    //     跟旁邊那顆鈕明顯不同一套（CSS 沒有「繼承字型」的預設）。
+    const buttonClasses = mermaidSource.match(/"(rounded-sm[^"]*text-muted-foreground)"/)?.[1];
+    expect(buttonClasses, "在 MermaidView.tsx 找不到控制鈕的樣式 class").toBeDefined();
+    const idle = selectRules().find((r) => /bottom:/.test(r.body) && /opacity:/.test(r.body))!;
+    const equivalents: [string, RegExp, string][] = [
+      ["rounded-sm", /border-radius:\s*0\.125rem/, "border-radius"],
+      ["border-border", /border:\s*1px solid var\(--color-border\)/, "border"],
+      ["bg-background", /background-color:\s*var\(--color-background\)/, "background-color"],
+      ["px-2", /padding:\s*[0-9.]+rem 0\.5rem/, "padding 左右"],
+      ["py-1", /padding:\s*0\.25rem /, "padding 上下"],
+      ["text-xs", /font-size:\s*0\.75rem/, "font-size"],
+      ["text-muted-foreground", /color:\s*var\(--color-muted-foreground\)/, "color"],
+    ];
+    for (const [cls, css, label] of equivalents) {
+      expect(buttonClasses, `mermaid 那顆鈕不再有 ${cls}——兩邊的對應關係要重新確認`).toContain(cls);
+      expect(idle.body, `語言下拉缺 ${label}（對應 mermaid 的 ${cls}）`).toMatch(css);
+    }
+    expect(idle.body, "原生 select 要 font-family: inherit，否則用的是 OS 的 UI 字型").toMatch(
+      /font-family:\s*inherit/,
+    );
   });
 
   it("issue #111：平常隱形、hover 到 block 或聚焦才現身（與 mermaid 同邏輯）", () => {
-    const idle = selectRules().find((r) => /top:/.test(r.body) && /opacity:/.test(r.body));
+    const idle = selectRules().find((r) => /bottom:/.test(r.body) && /opacity:/.test(r.body));
     expect(Number(idle!.body.match(/opacity:\s*([0-9.]+)/)?.[1]), "閒置態要 opacity:0").toBe(0);
 
     const raised = selectRules().find((r) => /:hover|:focus/.test(r.selector));
