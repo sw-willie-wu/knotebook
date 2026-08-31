@@ -26,6 +26,7 @@ import { buildSlashMenuItems } from "@/components/mermaid/slashMenu";
 import { blocknoteZhTW } from "@/i18n/blocknote-zh-TW";
 import { toast } from "@/components/ui/toast";
 import { cardSurface } from "@/components/ui/card";
+import { ARTICLE_COLUMN, ARTICLE_COLUMN_PADDING } from "@/components/ui/article-column";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/theme";
 import { buildWikilinkMenuItems, type EditorRef } from "@/components/wikilink/menu";
@@ -329,13 +330,11 @@ export function NoteEditor({ doc, provider, editable, user, noteId, headerSlot, 
   //     內文卡（cardSurface，flex-col）
   //       {headerSlot}                              ← NotePage 組裝
   //       捲動容器（min-w-0 flex-1 overflow-y-auto min-h-0）
-  //         置中 wrapper（mx-auto max-w-[clamp(42.5rem,85%,66rem)] min-h-full flex-col px-4 py-6）
-  //           ← 文章欄寬＝捲動容器的 85%，下限 42.5rem（680px＝改版前的固定值）、
-  //             上限 66rem（1056px）。留白比例跟著螢幕走，寬螢幕不再停在窄欄；
-  //             **下限承重**：中等視窗（捲動容器約 730px）的 85% 只有 620px，
-  //             比舊版還窄——clamp 的下限把這段拉回舊行為，不得改成 min()。
-  //             視窗更窄時 `w-full` 仍讓它縮到滿版（max-width 不會撐出橫向捲動）。
-  //             百分比對 max-width 以父層（捲動容器）寬度解析。
+  //         置中 wrapper（ARTICLE_COLUMN ＋ ARTICLE_COLUMN_PADDING ＋ min-h-full flex-col py-6）
+  //           ← 欄寬／內距一律取自 `ui/article-column.ts`（issue #88）：headerSlot 與
+  //             footerSlot 套的是同一條欄，三者文字左緣才共線。欄寬與下限承重的
+  //             理由、BlockNote 那 54px 內距為何不能拿掉、捲軸造成的 5px 殘差，
+  //             全寫在該檔；改欄寬請改常數，別在這裡另寫一份。
   //           NoteEditorView                         ← className 加 flex-1（B-1 定案：
   //             wrapper 的 min-h-full 無法把百分比高度傳給孫層，唯一有效解是讓
   //             BlockNoteView 自己成為 flex-col wrapper 的成長項；除 className 外零改動）
@@ -350,7 +349,7 @@ export function NoteEditor({ doc, provider, editable, user, noteId, headerSlot, 
         <div className={cn(cardSurface, "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden")}>
           {headerSlot}
           <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-            <div className="mx-auto flex min-h-full w-full max-w-[clamp(42.5rem,85%,66rem)] flex-col px-4 py-6">
+            <div className={cn(ARTICLE_COLUMN, ARTICLE_COLUMN_PADDING, "flex min-h-full flex-col py-6")}>
               <NoteEditorView
                 editor={editor}
                 editable={editable}
