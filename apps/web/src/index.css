@@ -265,9 +265,25 @@ body {
    hover），結構由 `theme.scrollbar-guard.test.ts` 守著。
    `-moz-appearance` 是 Firefox 已別名化的舊屬性：哪天被移除，Firefox 只是
    退回預設滾動條（退化不會壞）。 */
+/* 這一組值是**滾動條的共用語彙**：頁面上所有捲軸與 select picker 的捲軸（見檔案
+   後段 `@supports (appearance: base-select)`）都引用它們。picker 的捲軸不能與這裡
+   併成同一條規則——`::picker(select)` 在尚未支援的瀏覽器是無效選擇器，而**選擇器
+   清單裡有一個無效就整條規則作廢**，那會連帶把全 app 的捲軸樣式一起弄丟。所以是
+   「兩組規則、一份值」，由 `theme.scrollbar-guard.test.ts` 釘住兩邊都只引用這些變數。 */
+:root {
+  --scrollbar-size: 10px;
+
+  /* 2px 透明 border＋content-box clip：thumb 視覺 6px、hover 命中區維持 10px。 */
+  --scrollbar-thumb-inset: 2px;
+
+  /* 55%/75% 是對比與低調間的折衷（獨立審查實測 40% 靜止態對比僅 1.69:1）。 */
+  --scrollbar-thumb: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
+  --scrollbar-thumb-hover: color-mix(in oklab, var(--muted-foreground) 75%, transparent);
+}
+
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
 }
 
 ::-webkit-scrollbar-track {
@@ -275,16 +291,14 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  /* 2px 透明 border＋content-box clip：thumb 視覺 6px、hover 命中區維持 10px。
-     55%/75% 是對比與低調間的折衷（獨立審查實測 40% 靜止態對比僅 1.69:1）。 */
-  background-color: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
+  background-color: var(--scrollbar-thumb);
   background-clip: content-box;
-  border: 2px solid transparent;
+  border: var(--scrollbar-thumb-inset) solid transparent;
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background-color: color-mix(in oklab, var(--muted-foreground) 75%, transparent);
+  background-color: var(--scrollbar-thumb-hover);
 }
 
 ::-webkit-scrollbar-corner {
@@ -294,7 +308,7 @@ body {
 @supports (-moz-appearance: none) {
   * {
     scrollbar-width: thin;
-    scrollbar-color: color-mix(in oklab, var(--muted-foreground) 55%, transparent) transparent;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
   }
 }
 
@@ -430,6 +444,18 @@ body {
   margin-bottom: 1px;
   opacity: 0;
   transition: opacity 0.15s;
+
+  /* **固定寬度**：原生 select 的寬度跟著「目前選到的那個標籤」走，於是同一顆控制項
+     會在 `C`（36px）與 `Markdown`（86px）之間縮放，語言一換位置就跳。定死成放得下
+     最長標籤的寬度，位置就穩定了（headed 實測：目前最寬是 Markdown 85.6px，含內距
+     與箭頭；6rem＝96px 留約 10px 餘裕）。
+     ⚠ 這個值是**量出來的**，不是算出來的——字寬由字型決定，字數不是好指標
+     （`TypeScript` 10 字反而比 `Markdown` 8 字窄）。`code-highlight.test.ts` 釘住
+     「目前最長的標籤沒有變長」，語言清單長出更長的名字時會紅，提醒重量一次。 */
+  width: 6rem;
+  justify-content: space-between;
+  overflow: hidden;
+  white-space: nowrap;
   /* 長相不在這裡：與 mermaid 那顆鈕共用下面的 `.block-control`（一份真相）。 */
 }
 
@@ -551,5 +577,42 @@ body {
   .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select > option:hover,
   .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select > option:focus {
     @apply bg-accent text-accent-foreground;
+  }
+
+  /* 清單的捲軸＝**筆記那條捲軸**（23 個語言必定溢出）。值全部引用檔案前段的
+     `--scrollbar-*` 共用語彙，這裡只是把同一組值套到 `::picker(select)` 上——
+     ⚠ 不能與前段那組併成一條規則：`::picker(select)` 在尚未支援的瀏覽器是無效
+     選擇器，而選擇器清單裡有一個無效就**整條規則作廢**，那會連全 app 的捲軸樣式
+     一起弄丟。所以是「兩組規則、一份值」，`theme.scrollbar-guard.test.ts` 釘住這邊
+     只引用變數、不得出現字面值。
+     （`::picker(select)::-webkit-scrollbar` 這條鏈實測可控：Chrome 152 上注入探針
+     樣式後 thumb 立刻改色改寬。） */
+  .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select::picker(select)::-webkit-scrollbar {
+    width: var(--scrollbar-size);
+    height: var(--scrollbar-size);
+  }
+
+  .bn-editor
+    .bn-block-content[data-content-type=codeBlock]
+    > div
+    > select::picker(select)::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .bn-editor
+    .bn-block-content[data-content-type=codeBlock]
+    > div
+    > select::picker(select)::-webkit-scrollbar-thumb {
+    background-color: var(--scrollbar-thumb);
+    background-clip: content-box;
+    border: var(--scrollbar-thumb-inset) solid transparent;
+    border-radius: 9999px;
+  }
+
+  .bn-editor
+    .bn-block-content[data-content-type=codeBlock]
+    > div
+    > select::picker(select)::-webkit-scrollbar-thumb:hover {
+    background-color: var(--scrollbar-thumb-hover);
   }
 }

@@ -201,7 +201,11 @@ describe("BacklinksSection", () => {
     // ——只改一邊會讓 chips 不再與標籤共線。讀檔前先剝註解（比照
     // theme.scrollbar-guard.test.ts）：整段被註解掉時不得還在註解文字裡命中。
     const indexCss = readFileSync(`${process.cwd()}/src/index.css`, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
-    expect(indexCss).toMatch(/(?<![\w.-])::-webkit-scrollbar\s*\{[^}]*height:\s*10px/);
+    // 全域那條的尺寸自 issue #111 起走 `--scrollbar-size` 變數（picker 的捲軸共用
+    // 同一份值，見 theme.scrollbar-guard.test.ts）——所以要順著變數對值，不能只比
+    // 字面。兩步都要：規則有引用變數 ＋ 變數就是 10px。
+    expect(indexCss).toMatch(/(?<![\w.-])::-webkit-scrollbar\s*\{[^}]*height:\s*var\(--scrollbar-size\)/);
+    expect(indexCss, "全域捲軸尺寸變了，本 strip 的 42＝36＋6 要重算").toMatch(/--scrollbar-size:\s*10px/);
     expect(indexCss).toMatch(/\.scrollbar-x-thin::-webkit-scrollbar\s*\{[^}]*height:\s*6px/);
     expect(indexCss).toMatch(/\.scrollbar-x-thin::-webkit-scrollbar-thumb\s*\{[^}]*border-width:\s*1px/);
     // 換行守衛：容器沒有 flex-wrap（預設 nowrap）且 chip 自己不被壓縮。

@@ -78,3 +78,47 @@ describe("滾動條 @supports guard 結構", () => {
     expect(inside, "guard 內不該有 ::-webkit-scrollbar 規則（Firefox 用不到、也會誤導維護者）").not.toContain("::-webkit-scrollbar");
   });
 });
+
+/**
+ * issue #111：select picker（`appearance: base-select` 展開的清單）的捲軸要與筆記那條
+ * **同一組值**。
+ *
+ * 為什麼是「兩組規則、一份值」而不是併成一條：`::picker(select)` 在尚未支援的瀏覽器
+ * 是無效選擇器，而**選擇器清單裡有一個無效就整條規則作廢**——併進全域那條的話，
+ * Firefox 會連全 app 的捲軸樣式一起失去。這裡守的就是那個折衷沒有走鐘：picker 那組
+ * 只准引用 `--scrollbar-*` 變數，一出現字面值就是又抄了一份（值會各走各的）。
+ */
+describe("select picker 的捲軸與全域共用同一組值", () => {
+  const SHARED_VARS = ["--scrollbar-size", "--scrollbar-thumb", "--scrollbar-thumb-inset", "--scrollbar-thumb-hover"];
+
+  /** picker 的四條捲軸規則（宣告內容）。 */
+  function pickerScrollbarBodies(): string[] {
+    const css = readIndexCssWithoutComments();
+    return [...css.matchAll(/::picker\(select\)::-webkit-scrollbar[^{]*\{([^}]*)\}/g)].map((m) => m[1]!);
+  }
+
+  it("四個變數都定義了，且全域那組捲軸規則引用的是變數而不是字面值", () => {
+    const css = readIndexCssWithoutComments();
+    for (const name of SHARED_VARS) {
+      expect(css, `index.css 缺共用變數 ${name}`).toContain(`${name}:`);
+    }
+    const globalThumb = /(?<![\w.-])::-webkit-scrollbar-thumb\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(globalThumb, "全域 thumb 的顏色要走共用變數").toContain("var(--scrollbar-thumb)");
+    expect(globalThumb, "全域 thumb 不得再寫死 color-mix（那份值就會與 picker 各走各的）").not.toContain("color-mix");
+  });
+
+  it("picker 的捲軸規則齊全，且只引用共用變數、沒有字面值", () => {
+    const bodies = pickerScrollbarBodies();
+    expect(bodies.length, "index.css 缺 ::picker(select) 的捲軸規則——清單會用瀏覽器預設捲軸").toBeGreaterThanOrEqual(3);
+
+    const joined = bodies.join(" ");
+    expect(joined, "picker 的捲軸寬度要走 --scrollbar-size").toContain("var(--scrollbar-size)");
+    expect(joined, "picker 的 thumb 顏色要走 --scrollbar-thumb").toContain("var(--scrollbar-thumb)");
+    expect(joined, "picker 的 thumb 內縮要走 --scrollbar-thumb-inset").toContain("var(--scrollbar-thumb-inset)");
+    expect(joined, "picker 的 hover 色要走 --scrollbar-thumb-hover").toContain("var(--scrollbar-thumb-hover)");
+
+    // 字面值＝又抄了一份：px 尺寸與顏色都不准（`9999px` 圓角是形狀不是值，放行）。
+    const literals = joined.replace(/9999px/g, "").match(/(?:\d+px|color-mix|#[0-9a-f]{3,8}|oklch\()/gi) ?? [];
+    expect(literals, `picker 的捲軸出現字面值 ${literals.join(", ")}——改引用 --scrollbar-* 變數`).toEqual([]);
+  });
+});
