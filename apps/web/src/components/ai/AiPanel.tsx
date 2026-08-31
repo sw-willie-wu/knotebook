@@ -44,6 +44,8 @@ export function AiPanel() {
     // guard 與下面的渲染守門同一組條件：viewer／零動作時整個元件渲染 null，
     // 監聽與計時器也不該掛（effect 在 early-return 之前執行，光看 JSX 守不住）。
     if (!collapsed || !editable || actions.length === 0) return;
+    // deps 誠實列出 editable/actions.length：它們翻面（viewer 化、動作清單清空）
+    // 時 cleanup 會把監聽與計時器拆掉，與渲染側的 null 化同步。
     const handleScroll = () => {
       setScrolling(true);
       clearTimeout(fadeTimerRef.current);
@@ -55,7 +57,7 @@ export function AiPanel() {
       clearTimeout(fadeTimerRef.current);
       setScrolling(false);
     };
-  }, [collapsed]);
+  }, [collapsed, editable, actions.length]);
 
   if (!editable || actions.length === 0) {
     return null;
