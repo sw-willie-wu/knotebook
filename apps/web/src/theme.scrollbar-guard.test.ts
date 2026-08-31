@@ -51,10 +51,25 @@ describe("滾動條 @supports guard 結構", () => {
     expect(inside, "guard 內應設 scrollbar-width").toContain("scrollbar-width:");
     expect(inside, "guard 內應設 scrollbar-color").toContain("scrollbar-color:");
 
-    // guard 外出現任何一個標準屬性，Chromium 121+ 會整組停用下面的
+    // guard 外出現任何一個標準屬性，Chromium 121+ 會整組停用**該元素**下面的
     // ::-webkit-scrollbar 偽元素樣式（靜默、難以目視發現）。
-    expect(outside, "guard 外不得出現 scrollbar-width").not.toContain("scrollbar-width:");
-    expect(outside, "guard 外不得出現 scrollbar-color").not.toContain("scrollbar-color:");
+    //
+    // 唯一例外（issue #111）：`::picker(select)`（可自訂 select 展開的清單）。那個
+    // 偽元素上**沒有** webkit 樣式可停用——`::picker(select)::-webkit-scrollbar` 這條
+    // 鏈瀏覽器雖然吃得到，但 Tailwind v4 的 Lightning CSS 解析不了、build 時整條丟掉
+    // （實測 dist 0 次，`cssMinify:false` 亦然），所以那裡只剩標準屬性可用。
+    // 例外只放行「同一條規則的選擇器含 ::picker(select)」，其餘照舊。
+    const outsideRules = [...outside.matchAll(/([^{}]*)\{([^}]*)\}/g)].map((m) => ({
+      selector: m[1]!.trim(),
+      body: m[2]!,
+    }));
+    const offenders = outsideRules.filter(
+      (r) => /scrollbar-(?:width|color):/.test(r.body) && !/::picker\(select\)/.test(r.selector),
+    );
+    expect(
+      offenders.map((r) => r.selector),
+      "guard 外只有 ::picker(select) 可以用標準 scrollbar-width/color",
+    ).toEqual([]);
   });
 
   it("::-webkit-scrollbar 偽元素規則在 guard 外，且 guard 內沒有", () => {
@@ -91,10 +106,12 @@ describe("滾動條 @supports guard 結構", () => {
 describe("select picker 的捲軸與全域共用同一組值", () => {
   const SHARED_VARS = ["--scrollbar-size", "--scrollbar-thumb", "--scrollbar-thumb-inset", "--scrollbar-thumb-hover"];
 
-  /** picker 的四條捲軸規則（宣告內容）。 */
+  /** picker 上與捲軸有關的宣告。 */
   function pickerScrollbarBodies(): string[] {
     const css = readIndexCssWithoutComments();
-    return [...css.matchAll(/::picker\(select\)::-webkit-scrollbar[^{]*\{([^}]*)\}/g)].map((m) => m[1]!);
+    return [...css.matchAll(/::picker\(select\)[^{]*\{([^}]*)\}/g)]
+      .map((m) => m[1]!)
+      .filter((body) => /scrollbar/.test(body));
   }
 
   it("四個變數都定義了，且全域那組捲軸規則引用的是變數而不是字面值", () => {
@@ -107,18 +124,18 @@ describe("select picker 的捲軸與全域共用同一組值", () => {
     expect(globalThumb, "全域 thumb 不得再寫死 color-mix（那份值就會與 picker 各走各的）").not.toContain("color-mix");
   });
 
-  it("picker 的捲軸規則齊全，且只引用共用變數、沒有字面值", () => {
+  it("picker 的捲軸有設，且 thumb 顏色引用共用變數、沒有字面色", () => {
     const bodies = pickerScrollbarBodies();
-    expect(bodies.length, "index.css 缺 ::picker(select) 的捲軸規則——清單會用瀏覽器預設捲軸").toBeGreaterThanOrEqual(3);
+    expect(bodies.length, "index.css 缺 ::picker(select) 的捲軸設定——清單會用瀏覽器預設捲軸（含 stepper 箭頭）").toBeGreaterThan(0);
 
     const joined = bodies.join(" ");
-    expect(joined, "picker 的捲軸寬度要走 --scrollbar-size").toContain("var(--scrollbar-size)");
-    expect(joined, "picker 的 thumb 顏色要走 --scrollbar-thumb").toContain("var(--scrollbar-thumb)");
-    expect(joined, "picker 的 thumb 內縮要走 --scrollbar-thumb-inset").toContain("var(--scrollbar-thumb-inset)");
-    expect(joined, "picker 的 hover 色要走 --scrollbar-thumb-hover").toContain("var(--scrollbar-thumb-hover)");
+    expect(joined, "picker 的 thumb 顏色要走 --scrollbar-thumb（與筆記那條同一份值）").toContain(
+      "var(--scrollbar-thumb)",
+    );
+    expect(joined, "picker 的軌道要透明，與全域一致").toContain("transparent");
 
-    // 字面值＝又抄了一份：px 尺寸與顏色都不准（`9999px` 圓角是形狀不是值，放行）。
-    const literals = joined.replace(/9999px/g, "").match(/(?:\d+px|color-mix|#[0-9a-f]{3,8}|oklch\()/gi) ?? [];
-    expect(literals, `picker 的捲軸出現字面值 ${literals.join(", ")}——改引用 --scrollbar-* 變數`).toEqual([]);
+    // 字面色＝又抄了一份，值會與全域各走各的。
+    const literals = joined.match(/(?:color-mix|#[0-9a-f]{3,8}|oklch\()/gi) ?? [];
+    expect(literals, `picker 的捲軸出現字面色 ${literals.join(", ")}——改引用 --scrollbar-* 變數`).toEqual([]);
   });
 });

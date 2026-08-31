@@ -579,40 +579,23 @@ body {
     @apply bg-accent text-accent-foreground;
   }
 
-  /* 清單的捲軸＝**筆記那條捲軸**（23 個語言必定溢出）。值全部引用檔案前段的
-     `--scrollbar-*` 共用語彙，這裡只是把同一組值套到 `::picker(select)` 上——
-     ⚠ 不能與前段那組併成一條規則：`::picker(select)` 在尚未支援的瀏覽器是無效
-     選擇器，而選擇器清單裡有一個無效就**整條規則作廢**，那會連全 app 的捲軸樣式
-     一起弄丟。所以是「兩組規則、一份值」，`theme.scrollbar-guard.test.ts` 釘住這邊
-     只引用變數、不得出現字面值。
-     （`::picker(select)::-webkit-scrollbar` 這條鏈實測可控：Chrome 152 上注入探針
-     樣式後 thumb 立刻改色改寬。） */
-  .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select::picker(select)::-webkit-scrollbar {
-    width: var(--scrollbar-size);
-    height: var(--scrollbar-size);
-  }
+  /* 清單的捲軸（23 個語言必定溢出）：預設是瀏覽器原生那條——淺灰 thumb ＋ 上下
+     stepper 箭頭，跟筆記那條細捲軸完全不同調。這裡把它拉回**同一組值**
+     （`--scrollbar-thumb`，與全域捲軸共用，見檔案前段）。
 
-  .bn-editor
-    .bn-block-content[data-content-type=codeBlock]
-    > div
-    > select::picker(select)::-webkit-scrollbar-track {
-    background: transparent;
-  }
+     ⚠ 為什麼這裡用標準屬性、而不是像全域那組用 `::-webkit-scrollbar` 偽元素：
+     `::picker(select)::-webkit-scrollbar` 這條鏈**瀏覽器吃得到**（Chrome 152 實測：
+     注入探針後 thumb 立刻改色改寬），但 **Tailwind v4 的 Lightning CSS 解析不了它，
+     整條規則在 build 就被丟掉**（實測 dist 出現 0 次，連 `cssMinify:false` 也一樣
+     ——是 Tailwind 的處理階段丟的，不是壓縮器）。所以那條路在這個管線裡送不出去。
 
-  .bn-editor
-    .bn-block-content[data-content-type=codeBlock]
-    > div
-    > select::picker(select)::-webkit-scrollbar-thumb {
-    background-color: var(--scrollbar-thumb);
-    background-clip: content-box;
-    border: var(--scrollbar-thumb-inset) solid transparent;
-    border-radius: 9999px;
-  }
-
-  .bn-editor
-    .bn-block-content[data-content-type=codeBlock]
-    > div
-    > select::picker(select)::-webkit-scrollbar-thumb:hover {
-    background-color: var(--scrollbar-thumb-hover);
+     ⚠ 這是 `theme.scrollbar-guard.test.ts` 那條「標準屬性只准出現在
+     `@supports (-moz-appearance: none)` 內」的**唯一例外**，理由是那條規則的成因在
+     這裡不成立：Chromium 的規則是「元素一旦設了 scrollbar-width/color，該元素的
+     `::-webkit-scrollbar` 樣式整組停用」——而 picker 上根本沒有 webkit 樣式可停用
+     （見上一段）。守衛已把例外寫成「只有選擇器含 `::picker(select)` 時允許」。 */
+  .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select::picker(select) {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
   }
 }
