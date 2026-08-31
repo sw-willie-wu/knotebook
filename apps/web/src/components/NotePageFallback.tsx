@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { AppShell } from "./AppShell";
+import { NarrowTopBar } from "./NarrowTopBar";
 import { cardSurface } from "./ui/card";
 import { cn } from "@/lib/utils";
 
@@ -22,6 +23,7 @@ export function NotePageFallback() {
       {/* PR2（G 節）：跟 NotePage/HomePage 同一款佔位/內文卡——main 已無自身捲動，
           overflow-y-auto 掛在卡自己身上。 */}
       <div className={cn(cardSurface, "min-w-0 flex-1 overflow-y-auto")}>
+        <NarrowTopBar />
         <p className="p-6 text-sm text-muted-foreground">{t("app.loading")}</p>
       </div>
     </AppShell>

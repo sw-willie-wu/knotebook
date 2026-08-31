@@ -9,7 +9,8 @@ import { SESSION_QUERY_KEY, useSession } from "@/auth/useSession";
 import { canEdit, isTerminal, type CollabState } from "@/collab/connection";
 import { createLinkSync, type LinkSync } from "@/collab/link-sync";
 import { useCollab } from "@/collab/useCollab";
-import { AppShell } from "@/components/AppShell";
+import { AppShell, SidebarDrawerButton } from "@/components/AppShell";
+import { NarrowTopBar } from "@/components/NarrowTopBar";
 import { BacklinksSection } from "@/components/BacklinksSection";
 import { ConnectionBadge } from "@/components/ConnectionBadge";
 import { NoteEditor } from "@/components/NoteEditor";
@@ -232,7 +233,13 @@ export default function NotePage() {
   // `flex flex-col`）底下的子項，不必額外包一層 row。
   const placeholderCard = (content: ReactNode) => (
     <div className="flex min-h-0 flex-1">
-      <div className={cn(cardSurface, "min-w-0 flex-1 overflow-y-auto")}>{content}</div>
+      <div className={cn(cardSurface, "min-w-0 flex-1 overflow-y-auto")}>
+        {/* #115：佔位卡沒有 headerSlot（也就沒有頁首的漢堡鈕）——`<md` 時靜態側欄
+            是 hidden，缺這條的話 isError 這種**會停住**的狀態（筆記被刪、沒權限）
+            在手機上就是一行紅字＋零導覽出口（審查 F1 抓到的死路）。 */}
+        <NarrowTopBar />
+        {content}
+      </div>
     </div>
   );
 
@@ -276,6 +283,10 @@ export default function NotePage() {
             // 控制項貼右；`px-5`（20px）與 `<md` 的內文左緣共線。#88 的文章欄對齊
             // 已刻意拆除（見 ui/article-column.ts 檔頭）。
             <header className="flex items-center gap-3 border-b border-border px-5 py-3">
+              {/* #115：窄視窗的抽屜入口（md:hidden）——筆記載入成功態不掛
+                  NarrowTopBar（頁首自己有這顆）；載入中/錯誤的佔位卡沒有頁首，
+                  由 placeholderCard 裡的 NarrowTopBar 補位。 */}
+              <SidebarDrawerButton />
               <TitleInput note={note!} readOnly={!roleCanEdit} cacheRef={ref} />
               <ConnectionBadge state={state} synced={synced} canEdit={roleCanEdit} />
               <ShareDialog note={note!} cacheRef={ref} />

@@ -340,6 +340,9 @@ describe("NotePage", () => {
     expect(header).not.toBeNull();
     expect(header).toHaveClass("flex", "items-center", "gap-3", "border-b", "border-border", "px-5", "py-3");
     expect(header).toContainElement(screen.getByLabelText("Note title"));
+    // #115：頁首最前面是 `md:hidden` 的漢堡鈕（窄視窗開抽屜的入口——筆記頁沒有
+    // NarrowTopBar，這顆就是唯一入口）。
+    expect(header).toContainElement(screen.getByRole("button", { name: "Open navigation" }));
   });
 
   it("N4 降級：connected(owner) → connected(viewer) 時 toast 並切成唯讀", async () => {
@@ -439,6 +442,9 @@ describe("NotePage", () => {
     // PR2（A/G 節）：error 態渲染的是佔位內文卡，不是裸 <p>。
     const card = screen.getByRole("alert").parentElement;
     expect(card).toHaveClass("min-w-0", "flex-1", "overflow-y-auto", "rounded-xl", "border", "border-border", "bg-card");
+    // #115：佔位卡也要有窄視窗抽屜入口——isError 是會**停住**的狀態（筆記被刪、
+    // 沒權限），沒有這顆，`<md` 的使用者在錯誤畫面上零導覽出口（審查 F1）。
+    expect(screen.getByRole("button", { name: "Open navigation" })).toBeInTheDocument();
   });
 
   // PR2（A 節）：note 本身載入成功，但 `doc|provider|user` 還沒全部備妥（這裡卡住
