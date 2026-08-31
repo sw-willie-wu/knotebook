@@ -20,7 +20,7 @@ import { BACKLINKS_SCROLL_ROW, SIDEBAR_ROW_HEIGHT } from "./rows";
  *   - 把常數本身改成別的值——那會同時改兩邊，仍然等高，是合法操作。
  *   - 兩邊容器的垂直內距（`p-2`／`py-2`）與上緣 `border-t`：那是等高的另一半，
  *     由各自元件的 class 斷言守（`BacklinksSection.test.tsx` 的守衛案斷了 footer 外層
- *     的 `py-2`——issue #88 之後左右內距移到內容列的文章欄，外層那條同時斷「不含
+ *     的 `py-2`——#115 之後左右內距是內容列自己的 `px-5`，外層那條同時斷「不含
  *     `px-`」；側欄那側是 `AppShell.tsx` 的 `p-2` 容器）。
  *   - `cn()` 裡在常數之後再塞一個 `h-*`（twMerge 取後者）——(c) 會抓到寫死值，
  *     但若那個值恰好與常數同值就無從分辨，也無害。

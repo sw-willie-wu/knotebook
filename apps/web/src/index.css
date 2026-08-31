@@ -609,3 +609,27 @@ body {
     scrollbar-color: var(--scrollbar-thumb) transparent;
   }
 }
+
+/* ── #115 窄視窗（<md）：內文左右內距 70 → 20 ─────────────────────────────
+   BlockNote 內建（裸 `.bn-editor`，(0,1,0)）給 54px 的 padding-inline（側選單／
+   拖曳把手的落點），加上置中 wrapper 的 `px-4`＝文字左緣 70px。窄視窗改成
+   wrapper `max-md:px-0` ＋ 這裡的 20px ＝ 文字左緣 20px，與頁首/頁尾的 `px-5`
+   共線。
+
+   ⚠ 選擇器**必須疊 class 墊到 (0,2,0)**（`.bn-editor.bn-editor`）：BlockNote 的
+   CSS 在 NotePage lazy chunk、載入必晚於本檔，兩邊都未分層——同特異性我們必輸
+   （本檔前面的深色覆寫、codeBlock 區塊都記過同一條雷）。寫裸 `.bn-editor` 會
+   **靜默不生效且 jsdom 全綠**；本規則是否真的進 build 產物，靠 build 後
+   `grep "bn-editor.bn-editor" apps/web/dist/assets/*.css`（至少一檔命中）驗證。
+
+   媒體查詢用 `width < 48rem`＝Tailwind v4 `max-md:` 的實編形——與 wrapper 的
+   `max-md:px-0`（ui/article-column.ts）同界，兩邊必須一起動。
+
+   已知代價：<768 的 hover 裝置上，BlockNote 側選單（+／⠿，寬於 20px）會被捲動
+   容器裁掉一部分——<768 幾乎都是無 hover 的觸控裝置（側選單本來就不出現），
+   接受（docs/known-limitations.md 有記）。 */
+@media (width < 48rem) {
+  .bn-editor.bn-editor {
+    padding-inline: 1.25rem;
+  }
+}

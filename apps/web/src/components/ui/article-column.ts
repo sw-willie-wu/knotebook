@@ -1,40 +1,15 @@
 /**
- * 內文卡的**文章欄**：頁首（標題列）、內文（BlockNote）、頁尾（backlinks strip）
- * 三者共用的置中寬度鏈與左右內縮（issue #88）。
+ * 內文卡的**文章欄**：BlockNote 置中 wrapper 的寬度鏈與內距（唯一消費端
+ * `NoteEditor.tsx`）。
  *
- * 改版前三者各寫各的：頁首／頁尾是滿卡寬的 `px-5`，內文是置中的 clamp 欄，於是
- * 標題貼在卡片左緣、內文往中間縮——1920 下標題左緣與內文首字差 335px（欄寬改版
- * 前是 523px）。這裡把「欄」抽成一份常數，三處都套，落差歸零。
- *
- * ## 為什麼要兩個常數
- *
- * 內文的文字左緣不是欄的左緣，中間隔了兩層內距：
- *
- *   欄左緣 ──┬── `px-4`（16px，我們自己在置中 wrapper 上加的）
- *            └── `.bn-editor { padding-inline: 54px }`（BlockNote 內建）→ 文字左緣
- *
- * BlockNote 那 54px **不能拿掉**：拖曳把手與 `+`／`⠿` 側選單就落在這條左內距裡，
- * 歸零它們會溢出到欄外，被捲動容器裁掉（捲動容器 `overflow-y-auto`，CSS 規範下
- * `overflow-x` 跟著計算成非 visible）。所以對齊的做法是反過來——頁首／頁尾自己
- * 補上同樣的 16 ＋ 54 ＝ 70px，讓三者的**文字左緣**共線。
- *
- * `article-column.guard.test.ts` 釘住「70 ＝ 16 ＋ 54」這條推導，並直接讀
- * `@blocknote/core` 的 dist CSS 確認 54 這個值還在（升版改掉就會紅——否則只會
- * 靜默地又錯開，而且沒有任何測試看得出來）。
- *
- * ## 已知殘差（捲軸）
- *
- * 頁首／頁尾在捲動容器**之外**（刻意的：它們不隨內文捲動）。內文長到出現垂直
- * 捲軸時，捲動容器的內容寬會少掉捲軸寬，欄的置中基準因此比頁首／頁尾窄，文字
- * 左緣差捲軸寬的一半。實測（Chrome，`::-webkit-scrollbar` 的 10px）：欄寬觸
- * clamp 上／下限時差 4.9px、欄寬走 85% 區間時只差 0.7px（兩側都跟著縮，抵掉大
- * 部分），短筆記（沒有捲軸）完全對齊。Firefox 走 `scrollbar-width: thin`（8px），
- * 殘差數字略小。要消掉這幾 px 得把捲軸移進欄內或反向補 gutter，兩者都會動到現有
- * 的捲軸視覺，不在 #88 範圍。
+ * 歷史：#88 曾讓頁首（標題列）／頁尾（backlinks strip）也套這條欄做三線對齊；
+ * #115 版面改版定案「頁首/頁尾回滿卡寬（置左置右）」，對齊機制連同
+ * `ARTICLE_COLUMN_INSET` 一併拆除——把欄加回頁首/頁尾是刻意拆掉的行為，
+ * `article-column.guard.test.ts` (d) 有反向守衛。
  */
 
 /**
- * 文章欄的置中寬度鏈（三處共用）。
+ * 文章欄的置中寬度鏈。
  *
  * 欄寬＝容器的 85%，下限 42.5rem（680px＝改版前寫死的欄寬）、上限 66rem（1056px）。
  * **下限承重、不得改成 `min()`**：中等視窗（捲動容器約 730px）的 85% 只有 620px，
@@ -43,16 +18,23 @@
  */
 export const ARTICLE_COLUMN = "mx-auto w-full max-w-[clamp(42.5rem,85%,66rem)]";
 
-/** 置中 wrapper 自己那層左右內距（`NoteEditor.tsx` 的內文欄）。與下面的 inset 咬合。 */
-export const ARTICLE_COLUMN_PADDING = "px-4";
-
-/** BlockNote `.bn-editor` 內建的 `padding-inline`（側選單／拖曳把手的落點，不得歸零）。 */
-export const BN_EDITOR_INLINE_PADDING_PX = 54;
+/**
+ * 置中 wrapper 自己那層左右內距。
+ *
+ * - `md+`：`px-4`（16px）＋ BlockNote `.bn-editor` 內建的 54px ＝ 文字左緣 70px。
+ * - `<md`：`px-0`＋ index.css 的 `.bn-editor.bn-editor{padding-inline:1.25rem}`
+ *   覆寫 ＝ 文字左緣 20px（與頁首/頁尾的 `px-5` 共線）。`max-md:` 實編
+ *   `@media (width < 48rem)`，與 index.css 那條媒體查詢同界——兩邊必須一起動，
+ *   否則 767–768px 間會出現 wrapper 已 px-0 而 54px 仍在的縫。
+ */
+export const ARTICLE_COLUMN_PADDING = "px-4 max-md:px-0";
 
 /**
- * 頁首／頁尾要補的左右內縮 ＝ 16 ＋ 54 ＝ 70px，補完文字左緣才與內文共線。
+ * BlockNote `.bn-editor` 內建的 `padding-inline`（側選單／拖曳把手的落點）。
  *
- * 寫成字面（而不是樣板字串）是 Tailwind scanner 的要求：class 名要能被靜態掃到。
- * 兩個加數與這個字面的一致性由 guard test 守。
+ * 54 已無生產端消費者（#115 拆掉頁首/頁尾的 70px 推導後），留著是**升版哨兵**：
+ * `<md` 的 20px 覆寫是以「原值 54」為前提設計的，BlockNote 升版改掉這個值時
+ * `article-column.guard.test.ts` (c) 會紅，逼人重新評估兩個斷點的內距，而不是
+ * 靜默錯開。
  */
-export const ARTICLE_COLUMN_INSET = "px-[70px]";
+export const BN_EDITOR_INLINE_PADDING_PX = 54;

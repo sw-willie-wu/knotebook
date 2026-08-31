@@ -2,7 +2,6 @@ import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 import { canonicalNotePath } from "@knotebook/shared";
 import { useBacklinks } from "@/api/notes";
-import { ARTICLE_COLUMN, ARTICLE_COLUMN_INSET } from "@/components/ui/article-column";
 import { BACKLINKS_SCROLL_ROW, SIDEBAR_ROW_HEIGHT } from "@/components/ui/rows";
 import { cn } from "@/lib/utils";
 
@@ -62,9 +61,10 @@ export function BacklinksSection({ noteId }: { noteId: string | undefined }) {
 
   return (
     <div className="shrink-0 border-t border-border py-2 text-sm">
-      {/* issue #88：外層負責滿卡寬的分隔線與 py-2（等高的另一半，不得動），內容列
-          套共用的文章欄——標籤左緣因此與內文首字、頁首標題共線。 */}
-      <div className={cn(ARTICLE_COLUMN, ARTICLE_COLUMN_INSET, "flex items-center gap-3", SIDEBAR_ROW_HEIGHT)}>
+      {/* #115：外層負責滿卡寬的分隔線與 py-2（等高的另一半，不得動）；內容列自己
+          `px-5` 滿卡寬（與頁首同距）——#88 的文章欄對齊已刻意拆除（見
+          ui/article-column.ts 檔頭與其 guard test 的反向守衛）。 */}
+      <div className={cn("flex items-center gap-3 px-5", SIDEBAR_ROW_HEIGHT)}>
         {settled && (
           <p className="shrink-0 text-xs font-medium text-muted-foreground">
             {backlinks.length === 0

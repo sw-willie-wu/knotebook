@@ -5,7 +5,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import { canonicalNotePath, type BacklinkDto } from "@knotebook/shared";
 import i18n from "@/i18n";
-import { ARTICLE_COLUMN, ARTICLE_COLUMN_INSET } from "@/components/ui/article-column";
 import { BACKLINKS_SCROLL_ROW, SIDEBAR_ROW_HEIGHT } from "@/components/ui/rows";
 import { BacklinksSection } from "./BacklinksSection";
 
@@ -161,17 +160,17 @@ describe("BacklinksSection", () => {
     expect(footerRoot).not.toBeNull();
     // `py-2` 與帳號列容器的 `p-2` 是等高的另一半（列高本身由 SIDEBAR_ROW_HEIGHT
     // 管，見 ui/rows.ts）——這裡一起釘住，改成 py-3 之類會立刻紅。
-    // 左右內距不在這一層：issue #88 之後由內容列套共用文章欄（見下一條斷言），
-    // 外層維持滿卡寬，分隔線才橫跨整張卡。
+    // 左右內距不在這一層：#115 之後由內容列自己 `px-5`（滿卡寬、與頁首同距），
+    // 外層維持無內距，分隔線才橫跨整張卡。
     expect(footerRoot).toHaveClass("shrink-0", "border-t", "border-border", "py-2");
     expect(footerRoot?.className).not.toContain("px-");
 
     const row = title.parentElement;
     expect(row).not.toBeNull();
     expect(row).toHaveClass("flex", "items-center", SIDEBAR_ROW_HEIGHT);
-    // issue #88：內容列＝文章欄（置中寬度鏈 ＋ 對齊內文首字的 70px 內縮），
-    // 三處共用同一組常數的結構守衛在 `ui/article-column.guard.test.ts`。
-    expect(row).toHaveClass(...ARTICLE_COLUMN.split(" "), ARTICLE_COLUMN_INSET);
+    // #115：內容列滿卡寬 `px-5`——#88 的「套文章欄對齊內文」已刻意拆除，反向
+    // 守衛（不得 import 文章欄常數）在 `ui/article-column.guard.test.ts` (d)。
+    expect(row).toHaveClass("px-5");
 
     // 對齊補償必須做在 **chips 容器**（把 chips 往下推），不是標籤（把整組往上
     // 拉）——後者會讓整條列與側欄帳號列不共線，且 0 筆時捲軸不存在標籤仍偏上。

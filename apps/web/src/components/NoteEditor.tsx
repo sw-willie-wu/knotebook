@@ -331,10 +331,10 @@ export function NoteEditor({ doc, provider, editable, user, noteId, headerSlot, 
   //       {headerSlot}                              ← NotePage 組裝
   //       捲動容器（min-w-0 flex-1 overflow-y-auto min-h-0）
   //         置中 wrapper（ARTICLE_COLUMN ＋ ARTICLE_COLUMN_PADDING ＋ min-h-full flex-col py-6）
-  //           ← 欄寬／內距一律取自 `ui/article-column.ts`（issue #88）：headerSlot 與
-  //             footerSlot 套的是同一條欄，三者文字左緣才共線。欄寬與下限承重的
-  //             理由、BlockNote 那 54px 內距為何不能拿掉、捲軸造成的 5px 殘差，
-  //             全寫在該檔；改欄寬請改常數，別在這裡另寫一份。
+  //           ← 欄寬／內距一律取自 `ui/article-column.ts`（#115 起唯一消費端）：
+  //             headerSlot／footerSlot 是滿卡寬（置左置右），不再套欄。欄寬下限
+  //             承重的理由與 `<md` 內距 70→20 的斷點機制全寫在該檔；改欄寬請改
+  //             常數，別在這裡另寫一份。
   //           NoteEditorView                         ← className 加 flex-1（B-1 定案：
   //             wrapper 的 min-h-full 無法把百分比高度傳給孫層，唯一有效解是讓
   //             BlockNoteView 自己成為 flex-col wrapper 的成長項；除 className 外零改動）

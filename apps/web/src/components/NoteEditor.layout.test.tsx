@@ -52,9 +52,9 @@ function stubFetch() {
  *       捲動容器（min-h-0 min-w-0 flex-1 overflow-y-auto）
  *         置中 wrapper（ARTICLE_COLUMN ＋ ARTICLE_COLUMN_PADDING ＋ flex min-h-full
  *                        flex-col py-6——文章欄寬＝捲動容器 85%，下限 680px
- *                        （改版前的固定值，中等視窗承重）、上限 1056px。issue #88
- *                        之後欄寬／內距是 `ui/article-column.ts` 的常數，頁首與
- *                        頁尾套同一條；理由見該檔）
+ *                        （改版前的固定值，中等視窗承重）、上限 1056px。#115 起
+ *                        欄寬／內距是 `ui/article-column.ts` 的常數且內文是唯一
+ *                        消費端（頁首/頁尾滿卡寬）；理由見該檔）
  *           note-editor（BlockNoteView，className 加 flex-1——B-1 定案：wrapper
  *             的 min-h-full 無法把百分比高度傳給孫層，必須讓 BlockNoteView 自己
  *             成為置中 wrapper 的成長項。**兩者都要斷言，缺一即假守衛**）
@@ -121,8 +121,8 @@ describe("NoteEditor 佈局（PR2 slot 化：節點鏈 + 雙層 class smoke）",
       "bg-card",
     );
     expect(scrollWrapper).toHaveClass("min-h-0", "min-w-0", "flex-1", "overflow-y-auto");
-    // 欄寬與內距取自 `ui/article-column.ts`（issue #88：頁首／頁尾套的是同一條欄，
-    // 三者文字左緣才共線）。共用結構的守衛在 `ui/article-column.guard.test.ts`。
+    // 欄寬與內距取自 `ui/article-column.ts`（#115：內文是唯一消費端，頁首/頁尾
+    // 滿卡寬）。結構守衛在 `ui/article-column.guard.test.ts`。
     expect(centerWrapper).toHaveClass(
       ...ARTICLE_COLUMN.split(" "),
       ARTICLE_COLUMN_PADDING,
