@@ -7,6 +7,10 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.3.2] - 2026-08-31
+
 ### Added
 
 - Code blocks now have syntax highlighting. Pick a language from the dropdown in the block's top-left corner — it used to be empty — or type it in a ``` fence (aliases like ```py and ```ts work); 23 languages are included, from TypeScript and Python to SQL, YAML and Dockerfile. Colors are semantic — keywords, strings, comments — with one palette for the light theme and one for dark, switching instantly with the theme; the accent color you chose does not affect them. In light mode a code block is no longer a hard-coded dark box: it now sits on a light grey background with a border, like other surfaces. Copying or exporting a code block still produces the plain source — the coloring never becomes part of the note. The highlighter loads only when a note actually shows a code block, and each language's grammar loads on first use, so notes without code download nothing extra (#96).
