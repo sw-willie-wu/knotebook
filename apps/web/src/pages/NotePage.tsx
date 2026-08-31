@@ -18,6 +18,7 @@ import { ShareDialog } from "@/components/ShareDialog";
 import { TitleInput } from "@/components/TitleInput";
 import { toast } from "@/components/ui/toast";
 import { cardSurface } from "@/components/ui/card";
+import { ARTICLE_COLUMN, ARTICLE_COLUMN_INSET } from "@/components/ui/article-column";
 import { cn } from "@/lib/utils";
 
 /** 終態後兩次重抓之間的間隔。 */
@@ -272,11 +273,15 @@ export default function NotePage() {
           user={{ id: user.id, name: user.displayName }}
           noteId={noteId!}
           headerSlot={
-            <header className="flex items-center gap-3 border-b border-border px-5 py-3">
-              <TitleInput note={note!} readOnly={!roleCanEdit} cacheRef={ref} />
-              <ConnectionBadge state={state} synced={synced} canEdit={roleCanEdit} />
-              <ShareDialog note={note!} cacheRef={ref} />
-              <NoteMenu note={note!} state={state} leavingRef={leavingRef} />
+            // issue #88：外層只負責滿卡寬的分隔線與垂直內距，內容列套共用的文章欄
+            // （`ui/article-column.ts`）——標題左緣因此與內文首字、backlinks 標籤共線。
+            <header className="border-b border-border py-3">
+              <div className={cn(ARTICLE_COLUMN, ARTICLE_COLUMN_INSET, "flex items-center gap-3")}>
+                <TitleInput note={note!} readOnly={!roleCanEdit} cacheRef={ref} />
+                <ConnectionBadge state={state} synced={synced} canEdit={roleCanEdit} />
+                <ShareDialog note={note!} cacheRef={ref} />
+                <NoteMenu note={note!} state={state} leavingRef={leavingRef} />
+              </div>
             </header>
           }
           footerSlot={<BacklinksSection noteId={noteId} />}

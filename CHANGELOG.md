@@ -7,7 +7,9 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- A note's title, its text, and the backlinks row at the bottom now share one centred column, so their left edges line up. The title row and the backlinks row used to run the full width of the note card while the text sat in a centred column — on a 1920px-wide screen the note's first character started 335px to the right of the title, which read as the title being stuck to the card's edge. The dividers above and below the note still span the whole card, and the backlinks row keeps its height and scrolling behaviour. One residual: on a note long enough to scroll, the scrollbar takes its width out of the text column, leaving the title about 5px off; notes that fit line up exactly (#88).
 
 ## [0.3.2] - 2026-08-31
 
