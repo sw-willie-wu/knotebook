@@ -118,7 +118,11 @@ export function MermaidView({ code, editable, theme, onChange }: MermaidViewProp
             type="button"
             onClick={startEditing}
             className={cn(
-              "rounded-sm border border-border bg-background px-2 py-1 text-xs text-muted-foreground",
+              // 視覺走 `index.css` 的 `.block-control`——那條規則同時餵這顆鈕與 codeBlock
+              // 的語言下拉（原生 select 拿不到 className，只能用選擇器接進同一條規則），
+              // 兩種 block 的控制項因此只有**一份**長相真相（issue #111）。這裡只留
+              // 這顆鈕自己的顯隱行為。
+              "block-control",
               "opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100",
             )}
           >

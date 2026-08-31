@@ -429,20 +429,36 @@ body {
   right: 0;
   margin-bottom: 1px;
   opacity: 0;
-  /* 以下逐項對應 mermaid 那顆鈕的 class（`MermaidView.tsx`）：
-     px-2 py-1 → padding、text-xs → font-size/line-height、rounded-sm → border-radius、
-     border border-border、bg-background、text-muted-foreground。
-     `font-family: inherit` 是原生 select 才需要的一條：不寫的話它用作業系統的 UI 字型，
-     跟旁邊那顆鈕明顯不同一套。 */
-  padding: 0.25rem 0.5rem;
-  border: 1px solid var(--color-border);
-  border-radius: 0.125rem;
-  background-color: var(--color-background);
-  color: var(--color-muted-foreground);
-  font-family: inherit;
-  font-size: 0.75rem;
-  line-height: 1rem;
   transition: opacity 0.15s;
+  /* 長相不在這裡：與 mermaid 那顆鈕共用下面的 `.block-control`（一份真相）。 */
+}
+
+/* ── Block 控制項的共用視覺（issue #111）──────────────────────────────
+   兩個消費端，一條規則：
+     - mermaid 的「編輯／顯示原始碼」鈕（`MermaidView.tsx`，掛 class）
+     - codeBlock 的語言下拉（BlockNote 內建 render 出來的原生 `<select>`，我們拿不到
+       className，只能用選擇器把它接進同一條規則）
+
+   為什麼不是「兩邊各寫一份、靠測試對值」：那是上一版的做法，結果就是把 `rounded-sm`
+   手抄成 `0.125rem`——那是 **Tailwind v3** 的值，v4 的 `rounded-sm` 是 `0.25rem`，
+   於是圓角差一半（實測回報）。用 `@apply` 直接吃同一組 utility，就不會再有人工換算，
+   改一次兩邊一起變。
+
+   ⚠ **不得放進 `@layer components`**：BlockNote 的 CSS 沒有 layer，而**未分層的樣式
+   贏過任何 layer**（與 specificity 無關）——放進去 select 那半會整條失效。
+   ⚠ select 那個選擇器是 (0,3,2)，靠 `.bn-editor` 錨才壓得過內建的 (0,2,2)（內建的
+   CSS 在 NotePage lazy chunk，載入必晚於本檔；兩邊都未分層，才輪到 specificity 決勝）。
+   ⚠ 同一個未分層特性的**代價**：Tailwind 的 utility 在 `@layer utilities` 裡，所以
+   這條規則會**贏過** class 上的 utility。掛了 `.block-control` 的元素若要改上面這些
+   屬性（字級、內距、圓角…），加一個 utility class 是**沒有用**的——要嘛改這條規則
+   （兩邊一起變，通常正是我們要的），要嘛那個元素就不該用 .block-control。 */
+.block-control,
+.bn-editor .bn-block-content[data-content-type=codeBlock] > div > select {
+  @apply rounded-sm border border-border bg-background px-2 py-1 text-xs text-muted-foreground;
+
+  /* 原生 select 才需要的一條：不寫的話它用作業系統的 UI 字型，跟旁邊那顆鈕明顯不是
+     同一套字。對 `<button>` 無害（本來就繼承）。 */
+  font-family: inherit;
 }
 
 /* hover 整個 block（或聚焦下拉本身）才現身——與 mermaid 的 `group-hover` 同語意。 */

@@ -89,22 +89,36 @@ describe("codeBlock 底色覆寫", () => {
     expect(main!.body, "不該把 BlockNote 寫死的深底抄過來").not.toContain("#161616");
   });
 
-  /** 語言下拉的三條規則（閒置／hover-focus／disabled），依 body 特徵分辨。 */
+  /** 語言下拉的規則（定位／hover-focus／disabled／共用長相），依 body 特徵分辨。 */
   function selectRules(): { selector: string; body: string }[] {
     return codeBlockRules().filter((r) => /select/.test(r.selector));
   }
 
+  /** index.css 全部的頂層規則（`.block-control` 那條的選擇器不含 codeBlock 以外的錨）。 */
+  function allRules(): { selector: string; body: string }[] {
+    return [...readIndexCss().matchAll(/([^{}]*)\{([^}]*)\}/g)].map((m) => ({
+      selector: m[1]!.trim(),
+      body: m[2]!,
+    }));
+  }
+
   it("語言下拉的文字色也要跟著換——內建寫死 color:#fff，淺色底上等於看不見", () => {
-    const idle = selectRules().find((r) => !/:hover|:focus|:disabled/.test(r.selector));
-    expect(idle, "缺語言下拉的閒置態覆寫").toBeDefined();
-    // 錨檢查跟底色那條同理由：內建 select 規則同樣在 lazy chunk、載入晚於 index.css，
-    // 掉了 .bn-editor 錨就同 specificity 必輸、內建那套（#fff、左上角、隱形）靜默
-    // 回來（審查突變實測：沒有這條斷言時拿掉錨 4 測試全綠）。
-    expect(idle!.selector, `少了 .bn-editor 錨：${idle!.selector}`).toMatch(/^\.bn-editor\s/);
-    // issue #111 之後改用**主題**色（與 mermaid 控制鈕同語彙）而不是 --code-* 那組
-    // 程式碼配色；共同的底線是「不得留下寫死色」。
-    expect(idle!.body, "語言下拉的顏色要走 CSS 變數，不得寫死").toMatch(/color:\s*var\(--(?:code|color)-/);
-    expect(idle!.body).not.toContain("#fff");
+    // #96 時這是 select 自己的一條 `color:` 覆寫；#111 之後顏色與 mermaid 那顆鈕
+    // 共用同一條規則（`.block-control` 的 `@apply … text-muted-foreground`），所以
+    // 這裡看的是「所有接住這個 select 的規則」整體。
+    const rules = selectRules();
+    expect(rules.length, "index.css 完全沒有接住語言下拉的規則").toBeGreaterThan(0);
+    for (const rule of rules) {
+      // 錨檢查跟底色那條同理由：內建 select 規則同樣在 lazy chunk、載入晚於 index.css，
+      // 掉了 .bn-editor 錨就同 specificity 必輸、內建那套（#fff、左上角、隱形）靜默
+      // 回來（審查突變實測：沒有這條斷言時拿掉錨 4 測試全綠）。
+      expect(rule.selector, `少了 .bn-editor 錨：${rule.selector}`).toMatch(/\.bn-editor\s/);
+      expect(rule.body, `不得留下寫死色：${rule.selector}`).not.toContain("#fff");
+    }
+    const themed = rules.some(
+      (r) => /@apply[^;]*text-muted-foreground/.test(r.body) || /color:\s*var\(--/.test(r.body),
+    );
+    expect(themed, "語言下拉的顏色要走主題（utility 或 CSS 變數），不得沿用內建的 #fff").toBe(true);
   });
 
   it("issue #111：語言下拉貼在方塊**外面的上緣、靠右**（bottom:100%，不是算好的負 top）", () => {
@@ -143,28 +157,28 @@ describe("codeBlock 底色覆寫", () => {
       `保留列要與 mermaid 的 ${rowHeightClass} 同高`,
     ).toBe(rowRem);
 
-    // (2) 控制項本身的長相：mermaid 那顆鈕的 class ↔ 這裡的 CSS 宣告，逐項對應。
-    //     原生 select 多一條 `font-family: inherit`——不寫的話它用 OS 的 UI 字型，
-    //     跟旁邊那顆鈕明顯不同一套（CSS 沒有「繼承字型」的預設）。
-    const buttonClasses = mermaidSource.match(/"(rounded-sm[^"]*text-muted-foreground)"/)?.[1];
-    expect(buttonClasses, "在 MermaidView.tsx 找不到控制鈕的樣式 class").toBeDefined();
-    const idle = selectRules().find((r) => /bottom:/.test(r.body) && /opacity:/.test(r.body))!;
-    const equivalents: [string, RegExp, string][] = [
-      ["rounded-sm", /border-radius:\s*0\.125rem/, "border-radius"],
-      ["border-border", /border:\s*1px solid var\(--color-border\)/, "border"],
-      ["bg-background", /background-color:\s*var\(--color-background\)/, "background-color"],
-      ["px-2", /padding:\s*[0-9.]+rem 0\.5rem/, "padding 左右"],
-      ["py-1", /padding:\s*0\.25rem /, "padding 上下"],
-      ["text-xs", /font-size:\s*0\.75rem/, "font-size"],
-      ["text-muted-foreground", /color:\s*var\(--color-muted-foreground\)/, "color"],
-    ];
-    for (const [cls, css, label] of equivalents) {
-      expect(buttonClasses, `mermaid 那顆鈕不再有 ${cls}——兩邊的對應關係要重新確認`).toContain(cls);
-      expect(idle.body, `語言下拉缺 ${label}（對應 mermaid 的 ${cls}）`).toMatch(css);
-    }
-    expect(idle.body, "原生 select 要 font-family: inherit，否則用的是 OS 的 UI 字型").toMatch(
-      /font-family:\s*inherit/,
-    );
+    // (2) 控制項本身的長相：**一條規則兩個選擇器**，不是兩邊各抄一份。
+    //     前一版是「各寫一份、測試逐項對值」，結果把 `rounded-sm` 抄成 `0.125rem`
+    //     ——那是 Tailwind **v3** 的值，v4 的 `rounded-sm` 是 `0.25rem`，圓角就差一半
+    //     （Willie 實測看出來的）。人工換算沒了，這一族的漂移才真的沒了。
+    const shared = allRules().find((r) => /\.block-control\b/.test(r.selector));
+    expect(shared, "index.css 缺 `.block-control` 共用規則").toBeDefined();
+    expect(
+      shared!.selector,
+      "共用規則要同時接上 codeBlock 的語言下拉（原生 select 拿不到 className，只能用選擇器接進來）",
+    ).toMatch(/\.bn-editor\s[^,]*\[data-content-type=codeBlock\][^,]*>\s*div\s*>\s*select/);
+    expect(shared!.body, "長相要走 @apply 吃同一組 utility，不得手抄數值").toMatch(/@apply\s+[^;]*rounded-sm/);
+    expect(shared!.body, "手抄 border-radius 就是圓角差一半的那個錯法").not.toMatch(/border-radius:/);
+    // 原生 select 專屬的一條：CSS 沒有「繼承字型」的預設，不寫就用 OS 的 UI 字型，
+    // 跟旁邊那顆 <button> 明顯不同一套字。
+    expect(shared!.body, "缺 font-family: inherit").toMatch(/font-family:\s*inherit/);
+
+    // 消費端：mermaid 那顆鈕要掛這個 class，且不得自己再列一份長相 utility。
+    expect(mermaidSource, "MermaidView 的控制鈕要掛 block-control").toContain('"block-control"');
+    expect(
+      mermaidSource,
+      "MermaidView 不得再自己寫一份長相 class（rounded-*＋border-border）——那就是回到兩份真相",
+    ).not.toMatch(/rounded-(?:xs|sm|md|lg)[^"]*border-border/);
   });
 
   it("issue #111：平常隱形、hover 到 block 或聚焦才現身（與 mermaid 同邏輯）", () => {
