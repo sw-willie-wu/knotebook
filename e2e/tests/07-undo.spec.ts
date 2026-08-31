@@ -15,15 +15,16 @@ import { ADMIN, createNote, editorLocator, loginAs } from "./helpers.js";
  * `UndoManager`（`editor.undo()`／`editor.redo()`），但接線斷掉時三個一起靜默失效，
  * 逐一按過才看得出來哪一個沒接。
  *
- * ⚠ **這支刻意「打兩格歷史、只撤一格、文件全程不變空」**，不是隨手寫成這樣的：
- * 「撤到空白文件之後再 redo」在**目前的程式碼上是確定性失效**的——那是 y-prosemirror
- * 自己的殘留缺陷（sync plugin 的 `view.update` 會把 undo 之後的正規化差異以
- * `ySyncPluginKey` 這個**被 tracked 的** origin 寫回 Y.Doc，`UndoManager` 於是
- * 判定「使用者又編輯了」而 `clear(false, true)` 清掉 redoStack），與 #97 這條修正
- * 無關（修正之前 undo/redo 是整組死的）。細節與實驗數據見 follow-up issue #100。
- * 早期版本的這支測試會撤到空白再 redo，量到 `--repeat-each=12` 下 8 紅 4 綠——
- * 綠的那幾發只是按鍵搶在清空之前。**維護時請保持文件不變空**，否則會把一條穩定的
- * 守門改回 flaky。
+ * 第一條維持「打兩格歷史、只撤一格、文件全程不變空」的形狀——它守的是 #97 的
+ * 重掛接線，跟文件空不空無關，保持單純。
+ *
+ * 第二條（#100）刻意反過來**撤到空白再 redo**：修正前這是確定性失效（sync plugin
+ * 的 `view.update` 把 undo 後的正規化以 `ySyncPluginKey` 這個被 tracked 的 origin
+ * 寫回 Y.Doc，`UndoManager` 判定「使用者又編輯了」而清掉 redoStack；早期量測
+ * `--repeat-each=12` 下 8 紅 4 綠、undo 後多等 1s 則 0/6——綠的只是按鍵搶在清空
+ * 之前）。修正（`collab/undo.ts` 的 `guardEmptyDocNormalization`）後這條要**含
+ * 「等超過競態窗口」仍穩定綠**，所以裡面那個 1 秒等待是測試的一部分，別當成
+ * 冗餘 sleep 拿掉。
  */
 test("共編筆記：Ctrl+Z 復原、Ctrl+Shift+Z 與 Ctrl+Y 重做", async ({ page }) => {
   await loginAs(page, ADMIN.email, ADMIN.newPassword);
@@ -54,4 +55,47 @@ test("共編筆記：Ctrl+Z 復原、Ctrl+Shift+Z 與 Ctrl+Y 重做", async ({ p
 
   await page.keyboard.press("Control+y");
   await expect(editor).toContainText("alphabeta");
+});
+
+test("撤到空白文件後 redo 仍能復原（issue #100）", async ({ page }) => {
+  await loginAs(page, ADMIN.email, ADMIN.newPassword);
+  await createNote(page, `E2E undo empty ${Date.now()}`);
+
+  const editor = editorLocator(page);
+  await editor.click();
+  await editor.pressSequentially("gamma");
+  await expect(editor).toContainText("gamma");
+
+  // 本分支上初始正規化被判別式拒捕、不進 stack，打字正常情況是唯一一格——一撤
+  // 全空、一重做全回；慢 CI 上若打字被 captureTimeout（500ms）拆成兩格，單按只走
+  // 一半。兩側都用收斂迴圈（多按對空堆疊／滿堆疊是 no-op，安全），斷言不變：
+  // 能到全空、能回 gamma。
+  const undoToEmpty = async (key: string) => {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      await page.keyboard.press(key);
+      if (!(await editor.textContent())?.includes("g")) break;
+    }
+    await expect(editor).not.toContainText("g");
+  };
+  const redoUntilRestored = async (key: string) => {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      await page.keyboard.press(key);
+      if ((await editor.textContent())?.includes("gamma")) break;
+      // 分格情境下，兩格 redo 之間會再有一次正規化競態窗口——比照下面主等待的理由。
+      await page.waitForTimeout(1000);
+    }
+    await expect(editor).toContainText("gamma");
+  };
+
+  await undoToEmpty("Control+z");
+
+  // ⚠ 這 1 秒是測試的一部分：正規化回寫發生在 undo 後約 12ms（下一筆 PM transaction
+  // 觸發），修正前「多等必敗」（0/6）。等超過競態窗口再 redo，證明修的是機制不是運氣。
+  await page.waitForTimeout(1000);
+  await redoUntilRestored("Control+Shift+z");
+
+  // 歷史還能連續走：再撤回空、再重做回來（Ctrl+Y 那一半也走一次）。
+  await undoToEmpty("Control+z");
+  await page.waitForTimeout(1000);
+  await redoUntilRestored("Control+y");
 });
