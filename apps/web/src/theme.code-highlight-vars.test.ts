@@ -101,6 +101,17 @@ describe("codeBlock 底色覆寫", () => {
     return codeBlockRules().filter((r) => /select/.test(r.selector));
   }
 
+  /**
+   * 剝掉選擇器裡的 `:not(…)` 再做狀態判斷。
+   *
+   * `select:not(:disabled)` 是**基底態**的寫法，但字面上含 `:disabled`——三處依選擇器
+   * 挑規則的地方（基底態、hover/focus、disabled）都得先剝掉，否則會挑到錯的規則而**假紅**
+   * （第四輪 gate 突變實測：只有 baseRules 剝、另外兩處沒剝，套件仍會紅在別條）。
+   */
+  function stateOf(selector: string): string {
+    return selector.replace(/:not\([^)]*\)/g, "");
+  }
+
   /** index.css 全部的頂層規則（`.block-control` 那條的選擇器不含 codeBlock 以外的錨）。 */
   function allRules(): { selector: string; body: string }[] {
     return [...readIndexCss().matchAll(/([^{}]*)\{([^}]*)\}/g)].map((m) => ({
@@ -130,10 +141,8 @@ describe("codeBlock 底色覆寫", () => {
     //           通過，但**可編輯**筆記上的下拉已經退回內建 `color:#fff`（淺色底＝白字
     //           白底，正是 #96 的病灶）。
     const baseRules = rules.filter((r) => {
-      // `:not(:disabled)` 之類是**基底態**的寫法，不該被當成狀態規則排除掉（會變假紅）
-      // ——先把 `:not(…)` 的內容剝掉再判斷。
-      const withoutNot = r.selector.replace(/:not\([^)]*\)/g, "");
-      return !/>\s*option|::picker/.test(withoutNot) && !/:(?:hover|focus|disabled|open|active)\b/.test(withoutNot);
+      const bare = stateOf(r.selector);
+      return !/>\s*option|::picker/.test(bare) && !/:(?:hover|focus|disabled|open|active)\b/.test(bare);
     });
     const carriesColor = baseRules.some(
       (r) => /@apply[^;]*\btext-muted-foreground\b/.test(r.body) || /(?:^|[;{])\s*color:\s*var\(--/.test(r.body),
@@ -152,12 +161,19 @@ describe("codeBlock 底色覆寫", () => {
 
     // 四個宣告缺一不可，缺哪個都是**靜默**回到內建位置：實測（真實元素上逐一拿掉）
     // 少了 `top:auto` 會落回 block 上緣 ＋8px（方塊內），少了 `left:auto` 會落到
-    // block 左緣 ＋18px。`index.css` 那段註解記了完整量測與一個警告——表單控制項在
-    // 絕對定位下的**尺寸**解算兩軸不同、且不同環境量到的不一樣，別靠推理，要改就重量。
-    expect(idle!.body, "缺 bottom:100%——那是「貼齊方塊上緣」的定位方式").toMatch(/bottom:\s*100%/);
-    expect(idle!.body, "缺 top:auto——內建的 top:8px 會贏過 bottom，下拉回到方塊內部").toMatch(/top:\s*auto/);
-    expect(idle!.body, "缺 right（要與 mermaid 控制鈕同側）").toMatch(/right:\s*\d/);
-    expect(idle!.body, "缺 left:auto——內建的 left:18px 會贏過 right，下拉仍在左上角").toMatch(/left:\s*auto/);
+    // block 左緣 ＋18px。
+    //
+    // ⚠ 四條都要 `(?:^|[;{])\s*` 邊界。裸 regex 會被同名的長屬性餵飽：`margin-top:auto`
+    // 讓「缺 top:auto」通過、`border-right:0` 讓「缺 right」通過（第四輪 gate 突變
+    // 實測三條全綠）——而那時真正的 `top`/`right` 已經被刪掉了。
+    expect(idle!.body, "缺 bottom:100%——那是「貼齊方塊上緣」的定位方式").toMatch(/(?:^|[;{])\s*bottom:\s*100%/);
+    expect(idle!.body, "缺 top:auto——內建的 top:8px 會贏過 bottom，下拉回到方塊內部").toMatch(
+      /(?:^|[;{])\s*top:\s*auto/,
+    );
+    expect(idle!.body, "缺 right（要與 mermaid 控制鈕同側）").toMatch(/(?:^|[;{])\s*right:\s*\d/);
+    expect(idle!.body, "缺 left:auto——內建的 left:18px 會贏過 right，下拉仍在左上角").toMatch(
+      /(?:^|[;{])\s*left:\s*auto/,
+    );
     // 用**負 top** 定位是上一版的錯法：那要自己扣掉控制項高度，字級或內距一改就浮起來
     // （實測浮了 6px，Willie 回報「沒貼在 block 上」）。
     // `(?:^|[;{])\s*top:` 的邊界同上；不加的話 `margin-top: -…` 也會被當成負 top（假紅）。
@@ -224,7 +240,7 @@ describe("codeBlock 底色覆寫", () => {
     const idle = selectRules().find((r) => /bottom:/.test(r.body) && /opacity:/.test(r.body));
     expect(Number(idle!.body.match(/opacity:\s*([0-9.]+)/)?.[1]), "閒置態要 opacity:0").toBe(0);
 
-    const raised = selectRules().find((r) => /:hover|:focus/.test(r.selector));
+    const raised = selectRules().find((r) => /:hover|:focus/.test(stateOf(r.selector)));
     expect(raised, "缺 hover/focus 的現身規則").toBeDefined();
     expect(raised!.selector, `少了 .bn-editor 錨：${raised!.selector}`).toMatch(/^\.bn-editor\s/);
     // hover 要掛在**整個 block** 上（不是 select 自己 hover）——否則要先摸到那個
@@ -329,7 +345,7 @@ describe("codeBlock 底色覆寫", () => {
   });
 
   it("issue #111：唯讀時退成純文字標籤（BlockNote 仍渲染 select，只是 disabled）", () => {
-    const disabled = selectRules().find((r) => /:disabled/.test(r.selector));
+    const disabled = selectRules().find((r) => /:disabled/.test(stateOf(r.selector)));
     expect(disabled, "缺 select:disabled 的覆寫——唯讀時會是個點不動的按鈕外框").toBeDefined();
     expect(disabled!.selector, `少了 .bn-editor 錨：${disabled!.selector}`).toMatch(/^\.bn-editor\s/);
     expect(disabled!.body).toMatch(/border-color:\s*transparent/);
