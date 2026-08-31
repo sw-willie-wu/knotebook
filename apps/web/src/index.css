@@ -383,18 +383,57 @@ body {
   border: 1px solid var(--color-border);
 }
 
-/* 語言下拉：內建寫死 `color:#fff`（配深底），淺色底上 hover 出現時等於看不見。
-   內建選擇器 `.bn-block-content[data-content-type=codeBlock]>div>select` 是
-   (0,2,2)，這裡同樣加 .bn-editor 錨墊到 (0,3,2)。 */
+/* 語言下拉的閉合態（issue #96 的顏色 → issue #111 的位置與樣式）。
+   內建是：`color:#fff`（配深底，淺色底上等於看不見）、`opacity:0` 藏著只有 hover 才
+   浮到 .5、絕對定位在區塊**左上角**（`top:8px;left:18px`）。三件事都要改：
+
+   1. **位置改右上**——與 mermaid 那顆控制鈕（`MermaidView.tsx` 的保留列 `justify-end`）
+      同一側。左上角是最糟的落點：它疊在第一行程式碼的**開頭**，正是使用者最常點去
+      放游標的地方。右上角仍會攔截該角落的點擊（mermaid #94 學過的雷），但那裡通常
+      是行尾空白；`top:4px` 讓它落在 `<pre>` 的 24px 上內距裡，不壓到第一行文字。
+   2. **常駐顯示**——`opacity:0` 的可發現性在 #96 的驗證過程就已證明太差（要先猜到
+      有東西可 hover）。改成一直在，用 muted 色降低存在感、hover/focus 才提到全對比。
+      不再用 opacity 調層次（半透明文字的有效對比會隨底色浮動，#96 為此算過 AA），
+      改用**顏色**分層：muted-foreground → foreground。
+   3. **長相**——與 mermaid 那顆鈕同語彙（`rounded-sm border border-border bg-background
+      px-2 py-1 text-xs text-muted-foreground`）。內建的 `appearance:none` 沿用，所以
+      這裡不會有原生箭頭；**展開後的選單是 OS 原生 widget，CSS 蓋不到**，要完全主題化
+      得換成自訂 trigger＋選單（工程量差一個量級，見 issue #111 的待決項）。
+
+   ⚠ 內建選擇器 `.bn-block-content[data-content-type=codeBlock]>div>select` 是 (0,2,2)，
+   且 BlockNote 的 CSS 在 NotePage lazy chunk、載入必晚於本檔——`.bn-editor` 錨墊到
+   (0,3,2) 才蓋得掉，掉了錨整組靜默回到左上角的隱形下拉。守衛見
+   `theme.code-highlight-vars.test.ts`。 */
 .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select {
-  color: var(--code-foreground);
+  top: 4px;
+  right: 8px;
+  left: auto;
+  opacity: 1;
+  padding: 2px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 0.125rem;
+  background-color: var(--color-background);
+  color: var(--color-muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1rem;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
 }
 
-/* 內建 hover/focus 只把下拉墊到 `opacity:.5`——light foreground #1f2328 以 α=.5 混入
-   底色 #f6f8fa 的有效對比只剩 3.1:1（<AA 4.5），鍵盤聚焦時就是這個值。墊到 .8
-   （有效對比 light ≈7、dark ≈11），閒置時的 opacity:0（藏起來、hover 才浮現）維持
-   內建行為不動。transition-delay 由內建規則繼續管。 */
+/* hover/focus：提到全對比（AA 之上）。內建的 hover 規則只調 opacity，這裡連同它的
+   `transition-delay:.1s`／`.3s 1s` 一起被上面那條 transition 取代。 */
 .bn-editor .bn-block-content[data-content-type=codeBlock]:hover > div > select,
 .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select:focus {
-  opacity: 0.8;
+  opacity: 1;
+  color: var(--color-foreground);
+}
+
+/* 唯讀（viewer／未同步）：BlockNote 仍會渲染這個 select，只是設 `disabled`（見
+   `createCodeBlockSpec` 的 render）。常駐之後若照樣是個有框的按鈕，看起來像可以點
+   卻沒反應——所以退成純文字標籤：留住「這塊是什麼語言」的資訊，去掉可互動的暗示。 */
+.bn-editor .bn-block-content[data-content-type=codeBlock] > div > select:disabled {
+  border-color: transparent;
+  background-color: transparent;
+  cursor: default;
 }

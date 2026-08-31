@@ -89,23 +89,51 @@ describe("codeBlock 底色覆寫", () => {
     expect(main!.body, "不該把 BlockNote 寫死的深底抄過來").not.toContain("#161616");
   });
 
+  /** 語言下拉的三條規則（閒置／hover-focus／disabled），依 body 特徵分辨。 */
+  function selectRules(): { selector: string; body: string }[] {
+    return codeBlockRules().filter((r) => /select/.test(r.selector));
+  }
+
   it("語言下拉的文字色也要跟著換——內建寫死 color:#fff，淺色底上等於看不見", () => {
-    const rules = codeBlockRules();
-    const colorRule = rules.find((r) => /select/.test(r.selector) && /var\(--code-foreground\)/.test(r.body));
-    expect(colorRule, "缺語言下拉的 color 覆寫（select + var(--code-foreground)）").toBeDefined();
+    const idle = selectRules().find((r) => !/:hover|:focus|:disabled/.test(r.selector));
+    expect(idle, "缺語言下拉的閒置態覆寫").toBeDefined();
     // 錨檢查跟底色那條同理由：內建 select 規則同樣在 lazy chunk、載入晚於 index.css，
-    // 掉了 .bn-editor 錨就同 specificity 必輸、color:#fff 靜默回來（審查突變實測：
-    // 沒有這條斷言時拿掉錨 4 測試全綠）。
-    expect(colorRule!.selector, `少了 .bn-editor 錨：${colorRule!.selector}`).toMatch(/^\.bn-editor\s/);
+    // 掉了 .bn-editor 錨就同 specificity 必輸、內建那套（#fff、左上角、隱形）靜默
+    // 回來（審查突變實測：沒有這條斷言時拿掉錨 4 測試全綠）。
+    expect(idle!.selector, `少了 .bn-editor 錨：${idle!.selector}`).toMatch(/^\.bn-editor\s/);
+    // issue #111 之後改用**主題**色（與 mermaid 控制鈕同語彙）而不是 --code-* 那組
+    // 程式碼配色；共同的底線是「不得留下寫死色」。
+    expect(idle!.body, "語言下拉的顏色要走 CSS 變數，不得寫死").toMatch(/color:\s*var\(--(?:code|color)-/);
+    expect(idle!.body).not.toContain("#fff");
   });
 
-  it("語言下拉 hover/focus 的不透明度要墊高——內建 opacity:.5 讓淺色模式的有效對比只剩 3.1:1（<AA 4.5）", () => {
-    const rules = codeBlockRules();
-    const opacityRule = rules.find((r) => /select/.test(r.selector) && /opacity/.test(r.body));
-    expect(opacityRule, "缺語言下拉的 opacity 覆寫（內建 hover/focus 只到 .5，鍵盤聚焦時就是 3.1:1）").toBeDefined();
-    expect(opacityRule!.selector, `少了 .bn-editor 錨：${opacityRule!.selector}`).toMatch(/^\.bn-editor\s/);
-    const value = Number(opacityRule!.body.match(/opacity:\s*([0-9.]+)/)?.[1]);
-    // 0.75 是 light foreground #1f2328 混入底色後仍過 4.5:1 的下限附近；取 .8 留裕度。
-    expect(value, "opacity 要 ≥ 0.75 才過得了 AA").toBeGreaterThanOrEqual(0.75);
+  it("issue #111：語言下拉常駐在**右上角**——內建是 opacity:0 藏在左上角（疊在第一行開頭）", () => {
+    const idle = selectRules().find((r) => !/:hover|:focus|:disabled/.test(r.selector));
+    expect(idle, "缺語言下拉的閒置態覆寫").toBeDefined();
+    // 三個宣告缺一不可：`left:auto` 不寫的話內建的 `left:18px` 還在，right 反而被忽略
+    // （absolute 同時給 left/right 且寬度非 auto 時，ltr 下 left 勝出）→ 靜默留在左上角。
+    expect(idle!.body, "缺 right（要移到右上角，與 mermaid 控制鈕同側）").toMatch(/right:\s*\d/);
+    expect(idle!.body, "缺 left:auto——內建的 left:18px 會贏過 right，下拉仍在左上角").toMatch(/left:\s*auto/);
+    const opacity = Number(idle!.body.match(/opacity:\s*([0-9.]+)/)?.[1]);
+    expect(opacity, "閒置態要 opacity:1（常駐）——內建是 0，不覆寫就等於沒有這個控制項").toBe(1);
+  });
+
+  it("issue #111：hover/focus 提到全對比（不靠半透明——有效對比會隨底色浮動）", () => {
+    const raised = selectRules().find((r) => /:hover|:focus/.test(r.selector));
+    expect(raised, "缺語言下拉的 hover/focus 覆寫").toBeDefined();
+    expect(raised!.selector, `少了 .bn-editor 錨：${raised!.selector}`).toMatch(/^\.bn-editor\s/);
+    expect(raised!.body, "hover/focus 要換成全對比的前景色").toMatch(/color:\s*var\(--(?:code|color)-foreground\)/);
+    // 內建 hover 只把 opacity 墊到 .5（light 有效對比 3.1:1 < AA 4.5）。改用顏色分層
+    // 之後，opacity 若還被調成小於 1 就是把那個問題搬回來。
+    const opacity = raised!.body.match(/opacity:\s*([0-9.]+)/)?.[1];
+    if (opacity !== undefined) expect(Number(opacity), "hover/focus 不得用半透明").toBe(1);
+  });
+
+  it("issue #111：唯讀時退成純文字標籤（BlockNote 仍渲染 select，只是 disabled）", () => {
+    const disabled = selectRules().find((r) => /:disabled/.test(r.selector));
+    expect(disabled, "缺 select:disabled 的覆寫——唯讀時會是個點不動的按鈕外框").toBeDefined();
+    expect(disabled!.selector, `少了 .bn-editor 錨：${disabled!.selector}`).toMatch(/^\.bn-editor\s/);
+    expect(disabled!.body).toMatch(/border-color:\s*transparent/);
+    expect(disabled!.body).toMatch(/background-color:\s*transparent/);
   });
 });

@@ -7,6 +7,10 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
+### Changed
+
+- A code block's language dropdown now sits in the block's top-right corner and is always visible, in the same small bordered style as a diagram's Edit button. It used to be invisible until you hovered the block, and it sat in the top-left corner — overlapping the start of the first line, which is where you usually click to put the cursor. It is muted until you hover or focus it, then goes to full contrast. On a note you can only read, it drops its border and background and reads as a plain label, since the dropdown is disabled there anyway. Opening the dropdown still shows your operating system's own menu — theming that part would mean replacing the dropdown entirely (#111).
+
 ### Fixed
 
 - A note's title, its text, and the backlinks row at the bottom now share one centred column, so their left edges line up. The title row and the backlinks row used to run the full width of the note card while the text sat in a centred column — on a 1920px-wide screen the note's first character started 335px to the right of the title, which read as the title being stuck to the card's edge. The dividers above and below the note still span the whole card, and the backlinks row keeps its height and scrolling behaviour. One residual: on a note long enough to scroll, the scrollbar takes its width out of the text column, leaving the title about 5px off; notes that fit line up exactly (#88).
