@@ -216,6 +216,73 @@ describe("codeBlock 底色覆寫", () => {
     );
   });
 
+  /** `@supports (appearance: base-select)` 區塊的內容（大括號配對掃出來）。 */
+  function baseSelectBlock(): string {
+    const css = readIndexCss();
+    const start = css.search(/@supports\s*\(\s*appearance:\s*base-select\s*\)\s*\{/);
+    expect(start, "index.css 缺 `@supports (appearance: base-select)` 區塊").toBeGreaterThanOrEqual(0);
+    let i = css.indexOf("{", start);
+    const from = i + 1;
+    for (let depth = 1; depth > 0; ) {
+      i += 1;
+      if (css[i] === "{") depth += 1;
+      else if (css[i] === "}") depth -= 1;
+      else if (i >= css.length) throw new Error("@supports 區塊沒有收尾");
+    }
+    return css.slice(from, i);
+  }
+
+  it("issue #111：可自訂 select 只是**漸進增強**——原生清單那組必須留在 @supports 外面", () => {
+    const block = baseSelectBlock();
+    // 規範要求 select 與 ::picker(select) **都**切到 base 外觀；只給 select 的話清單
+    // 仍是 OS widget（看起來像沒生效，卻不會有任何錯誤）。
+    const switched = [...block.matchAll(/([^{}]*)\{([^}]*)\}/g)]
+      .filter((m) => /appearance:\s*base-select/.test(m[2]!))
+      .flatMap((m) => m[1]!.split(",").map((s) => s.trim()));
+    expect(switched.length, "沒有任何規則把 appearance 切到 base-select").toBeGreaterThan(0);
+    expect(
+      switched.some((s) => />\s*select$/.test(s)),
+      `select 本身沒切到 base 外觀：${switched.join(" | ")}`,
+    ).toBe(true);
+    expect(
+      switched.some((s) => /::picker\(select\)$/.test(s)),
+      `::picker(select) 沒切到 base 外觀——清單仍會是 OS widget：${switched.join(" | ")}`,
+    ).toBe(true);
+
+    // 退路（Firefox 等尚未支援者）必須在 @supports **外面**：搬進去就等於退回
+    // BlockNote 寫死的 `option{color:#000}`，深色模式的清單又看不見了。
+    const css = readIndexCss();
+    const outside = css.replace(block, "");
+    expect(outside, "option 的顏色退路被搬進 @supports 了").toMatch(/option\s*\{[^}]*color:\s*var\(--color-foreground\)/);
+    expect(outside, "color-scheme 退路被搬進 @supports 了").toMatch(/color-scheme:\s*dark/);
+  });
+
+  it("issue #111：清單長相對齊 app 既有的 ⋮ 選單（同一個 app 的清單就該長一樣）", () => {
+    const block = baseSelectBlock();
+    const menuSource = readFileSync(`${process.cwd()}/src/components/ui/dropdown-menu.tsx`, "utf8");
+
+    // 容器 ↔ DropdownMenuContent；選項 ↔ DropdownMenuItem。兩邊用的是**同一組 Tailwind
+    // class 名**（不是換算過的數值），所以這裡逐個 token 對照即可。
+    const container = ["rounded-md", "border-border", "bg-popover", "p-1", "text-popover-foreground", "shadow-md"];
+    const item = ["rounded-sm", "px-2", "py-1.5", "text-sm", "transition-colors"];
+    const pickerRule = /::picker\(select\)\s*\{([^}]*)\}/g;
+    const pickerBodies = [...block.matchAll(pickerRule)].map((m) => m[1]!).join(" ");
+    const optionBodies = [...block.matchAll(/>\s*option[^{]*\{([^}]*)\}/g)].map((m) => m[1]!).join(" ");
+
+    for (const token of container) {
+      expect(menuSource, `DropdownMenuContent 不再用 ${token}——兩邊的對照要重新確認`).toContain(token);
+      expect(pickerBodies, `::picker(select) 缺 ${token}`).toContain(token);
+    }
+    for (const token of item) {
+      expect(menuSource, `DropdownMenuItem 不再用 ${token}——兩邊的對照要重新確認`).toContain(token);
+      expect(optionBodies, `option 缺 ${token}`).toContain(token);
+    }
+    // 選中/hover 的高亮也走同一組 accent token。
+    expect(optionBodies, "option 的 hover/focus 要用 bg-accent／text-accent-foreground").toMatch(
+      /bg-accent[^;]*text-accent-foreground/,
+    );
+  });
+
   it("issue #111：唯讀時退成純文字標籤（BlockNote 仍渲染 select，只是 disabled）", () => {
     const disabled = selectRules().find((r) => /:disabled/.test(r.selector));
     expect(disabled, "缺 select:disabled 的覆寫——唯讀時會是個點不動的按鈕外框").toBeDefined();

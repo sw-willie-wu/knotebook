@@ -494,3 +494,62 @@ body {
   background-color: var(--color-background);
   color: var(--color-foreground);
 }
+
+/* ── 可自訂 select（issue #111，漸進增強）────────────────────────────
+   `appearance: base-select` 把彈出清單從 OS widget 換成**真正的 DOM**：`::picker(select)`
+   是清單容器、`option` 變成可排版的元素、`::picker-icon` 是箭頭。於是清單也能吃我們的
+   主題——不必自繪，也不必碰 BlockNote 的 block spec（仍然只是 CSS 加在內建那個 select 上）。
+
+   支援度：Chromium（134/135+）與 Safari 27 已出貨，Firefox 還在 Nightly 的 flag 後面。
+   **這整段是漸進增強**：不支援的瀏覽器整塊忽略，直接沿用上面那條路（原生清單 ＋ option
+   顏色 ＋ color-scheme）。⚠ 因此上面那組**必須留在 `@supports` 外面**——搬進來的話
+   Firefox 就退回 BlockNote 寫死的 `option{color:#000}`，深色模式又看不見了。
+
+   清單的長相刻意對齊 app 既有的 ⋮ 選單（`components/ui/dropdown-menu.tsx` 的
+   `DropdownMenuContent`／`DropdownMenuItem`）——同一個 app 裡的「一份清單」就該長一樣；
+   守衛直接讀那個檔對 token。 */
+@supports (appearance: base-select) {
+  /* ⚠ 兩個選擇器都要：只給 select 的話，清單仍是 OS widget（規範要求 select 與
+     ::picker(select) 都切到 base 外觀）。 */
+  .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select,
+  .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select::picker(select) {
+    appearance: base-select;
+  }
+
+  /* 閉合態：base 外觀下 select 本身變成可排版的按鈕（內容 ＋ 箭頭）。長相仍走
+     `.block-control`，這裡只補排版與箭頭。 */
+  .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select::picker-icon {
+    transition: transform 0.15s;
+  }
+
+  /* 展開時箭頭轉向——這是「這是個下拉」的視覺暗示，先前 `appearance:none` 之下
+     根本沒有箭頭可用。 */
+  .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select:open::picker-icon {
+    transform: rotate(180deg);
+  }
+
+  /* 清單容器：比照 DropdownMenuContent。 */
+  .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select::picker(select) {
+    @apply min-w-32 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md;
+  }
+
+  /* 選項：比照 DropdownMenuItem（原生 hover 與鍵盤移動都會走 :hover／:focus）。 */
+  .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select > option {
+    @apply flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors;
+
+    /* 外面那條給原生清單的底色在這裡要讓開，否則每個選項都自帶一塊背景。 */
+    background-color: transparent;
+    color: var(--color-popover-foreground);
+  }
+
+  .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select > option:hover,
+  .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select > option:focus {
+    @apply bg-accent text-accent-foreground;
+  }
+}
