@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -6,6 +6,7 @@ import { MemoryRouter, Route, Routes } from "react-router";
 import * as Y from "yjs";
 import { COLLAB_CLOSE_REVOKED, canonicalNotePath, type BacklinkDto, type NoteDto, type UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
+import { ActiveNoteProvider, useActiveNote } from "@/lib/active-note";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import type { CollabState } from "@/collab/connection";
@@ -183,16 +184,45 @@ function mockFetch(
   });
 }
 
-function renderNotePage(ref: string) {
+/** #122：ActiveNoteContext 的觀測探針——NotePage 的 set/清除行為靠它斷言。 */
+function ActiveProbe() {
+  const { activeNoteId } = useActiveNote();
+  return <div data-testid="active-probe">{activeNoteId ?? "none"}</div>;
+}
+
+/** 模擬 NoteList 的樂觀 set：掛載時把 `id` 種進 context（A6 案的殘留來源）。
+ * `id` 選填且元件**恆掛載**——provider 的 children 形狀必須在 render 與 rerender 之間
+ * 穩定（child 位移會讓 React 把 NotePage 整棵 remount，previousRoleRef 之類的頁內
+ * state 全部歸零，N4 那組 rerender 案就假紅了）。 */
+function SeedActive({ id }: { id?: string }) {
+  const { setActiveNoteId } = useActiveNote();
+  useEffect(() => {
+    if (id !== undefined) setActiveNoteId(id);
+  }, [id, setActiveNoteId]);
+  return null;
+}
+
+/** renderNotePage 與各 rerender 案共用的 provider 內部樹——單一定義保證形狀一致。 */
+function NotePageTree({ seedActiveId }: { seedActiveId?: string }) {
+  return (
+    <ActiveNoteProvider>
+      <SeedActive id={seedActiveId} />
+      <ActiveProbe />
+      <Routes>
+        <Route path="/notes/:ref" element={<NotePage />} />
+        <Route path="/" element={<div>home landing</div>} />
+      </Routes>
+    </ActiveNoteProvider>
+  );
+}
+
+function renderNotePage(ref: string, options: { seedActiveId?: string } = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const result = render(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <MemoryRouter initialEntries={[`/notes/${ref}`]}>
-          <Routes>
-            <Route path="/notes/:ref" element={<NotePage />} />
-            <Route path="/" element={<div>home landing</div>} />
-          </Routes>
+          <NotePageTree seedActiveId={options.seedActiveId} />
         </MemoryRouter>
         <Toaster />
       </ThemeProvider>
@@ -361,12 +391,7 @@ describe("NotePage", () => {
     rerender(
       <QueryClientProvider client={queryClient}>
         <ThemeProvider>
-          <MemoryRouter initialEntries={["/notes/my-note"]}>
-            <Routes>
-              <Route path="/notes/:ref" element={<NotePage />} />
-              <Route path="/" element={<div>home landing</div>} />
-            </Routes>
-          </MemoryRouter>
+          <MemoryRouter initialEntries={["/notes/my-note"]}><NotePageTree /></MemoryRouter>
           <Toaster />
         </ThemeProvider>
       </QueryClientProvider>,
@@ -390,12 +415,7 @@ describe("NotePage", () => {
     rerender(
       <QueryClientProvider client={queryClient}>
         <ThemeProvider>
-          <MemoryRouter initialEntries={["/notes/my-note"]}>
-            <Routes>
-              <Route path="/notes/:ref" element={<NotePage />} />
-              <Route path="/" element={<div>home landing</div>} />
-            </Routes>
-          </MemoryRouter>
+          <MemoryRouter initialEntries={["/notes/my-note"]}><NotePageTree /></MemoryRouter>
           <Toaster />
         </ThemeProvider>
       </QueryClientProvider>,
@@ -434,6 +454,80 @@ describe("NotePage", () => {
 
     await waitFor(() => expect(screen.getByText("home landing")).toBeInTheDocument());
     expect(screen.getByText("This note has been deleted.")).toBeInTheDocument();
+  });
+
+  // ── #122：ActiveNoteContext 接線（set-after-load／404 清殘留／卸載條件清除） ──
+
+  it("解析成功後 set active（最終校正點——直接進網址/書籤也會亮，樂觀誤 set 由此校正）", async () => {
+    vi.stubGlobal("fetch", mockFetch());
+    collab.provider.synced = true;
+
+    // seed 一個錯的 id（模擬樂觀誤 set）——解析成功後必須被校正成真的
+    renderNotePage(NOTE.id, { seedActiveId: "99999999-9999-4999-8999-999999999999" });
+
+    // 先確認誤 set 真的在場（不是一路都對的空轉），再斷校正
+    await waitFor(() => expect(screen.getByTestId("active-probe")).toHaveTextContent("99999999"));
+    await waitFor(() => expect(screen.getByTestId("active-probe")).toHaveTextContent(NOTE.id));
+  });
+
+  it("真接線的卸載清除：關頁滅（current===自己→清）；他頁搶先 set→**不誤清**（條件清除）", async () => {
+    // active-note.test 的競態案守的是復刻 Page——這裡把同兩條語意釘在**真的 NotePage**
+    // 上（突變審查：把 NotePage 的 cleanup 改成無條件清 null，原本全套仍綠）。
+    vi.stubGlobal("fetch", mockFetch());
+    collab.provider.synced = true;
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const OTHER_ID = "22222222-2222-4222-8222-222222222222";
+    // withPage=false 時同一個 child 槽位換成 <div/>——NotePage 卸載、provider/probe 留著
+    const tree = (withPage: boolean, seedActiveId?: string) => (
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <MemoryRouter initialEntries={[`/notes/${NOTE.id}`]}>
+            <ActiveNoteProvider>
+              <SeedActive id={seedActiveId} />
+              <ActiveProbe />
+              {withPage ? (
+                <Routes>
+                  <Route path="/notes/:ref" element={<NotePage />} />
+                  <Route path="/" element={<div>home landing</div>} />
+                </Routes>
+              ) : (
+                <div />
+              )}
+            </ActiveNoteProvider>
+          </MemoryRouter>
+          <Toaster />
+        </ThemeProvider>
+      </QueryClientProvider>
+    );
+
+    const view = render(tree(true));
+    await waitFor(() => expect(screen.getByTestId("active-probe")).toHaveTextContent(NOTE.id));
+
+    // 關頁滅：卸載 NotePage → cleanup（current===自己）→ 清空
+    view.rerender(tree(false));
+    expect(screen.getByTestId("active-probe")).toHaveTextContent("none");
+
+    // 競態不誤清：重開頁亮起後，他頁（模擬 NoteList 樂觀 set）搶先 set 另一 id，
+    // 再卸載本頁——cleanup 帶舊 id、current 已是別人，不得把剛亮起來的高亮滅掉
+    view.rerender(tree(true));
+    await waitFor(() => expect(screen.getByTestId("active-probe")).toHaveTextContent(NOTE.id));
+    view.rerender(tree(true, OTHER_ID));
+    await waitFor(() => expect(screen.getByTestId("active-probe")).toHaveTextContent(OTHER_ID));
+    view.rerender(tree(false, OTHER_ID));
+    expect(screen.getByTestId("active-probe")).toHaveTextContent(OTHER_ID);
+  });
+
+  it("解析 404 導走前清掉樂觀殘留（A6）：NoteList 點擊 set 的 id 不會卡在側欄", async () => {
+    vi.stubGlobal("fetch", mockFetch({ status: 404, code: "not_found" }));
+
+    // SeedActive＝模擬 NoteList 的樂觀 set：點了一篇隨後解析失敗的筆記。NotePage 對
+    // 這個 id 從未 set 成功，卸載的條件清除按 id 對不上——殘留只有 404 出口的
+    // setActiveNoteId(null) 清得掉（拿掉那行本案必紅）。
+    renderNotePage("gone", { seedActiveId: "99999999-9999-4999-8999-999999999999" });
+    await waitFor(() => expect(screen.getByTestId("active-probe")).toHaveTextContent("99999999"));
+
+    await waitFor(() => expect(screen.getByText("home landing")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId("active-probe")).toHaveTextContent("none"));
   });
 
   it("非 404 的載入錯誤留在頁面上顯示訊息，不導走", async () => {
@@ -491,10 +585,12 @@ describe("NotePage", () => {
       <QueryClientProvider client={queryClient}>
         <ThemeProvider>
           <MemoryRouter initialEntries={["/notes/my-note"]}>
-            <Routes>
-              <Route path="/notes/:ref" element={<NotePage />} />
-              <Route path="/login" element={<div>login page</div>} />
-            </Routes>
+            <ActiveNoteProvider>
+              <Routes>
+                <Route path="/notes/:ref" element={<NotePage />} />
+                <Route path="/login" element={<div>login page</div>} />
+              </Routes>
+            </ActiveNoteProvider>
           </MemoryRouter>
         </ThemeProvider>
       </QueryClientProvider>,

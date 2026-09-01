@@ -1,10 +1,21 @@
+import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter, Route, Routes } from "react-router";
+import { MemoryRouter } from "react-router";
 import { canonicalNotePath, type NoteDto } from "@knotebook/shared";
 import i18n from "@/i18n";
+import { ActiveNoteProvider, useActiveNote } from "@/lib/active-note";
 import { NoteList } from "./NoteList";
+
+/** 模擬 NotePage 的「解析成功後 set」——測試用的最小 setter（#122 ActiveNoteContext）。 */
+function SetActive({ id }: { id: string }) {
+  const { setActiveNoteId } = useActiveNote();
+  useEffect(() => {
+    setActiveNoteId(id);
+  }, [id, setActiveNoteId]);
+  return null;
+}
 
 // 跟 App.test.tsx / guards.test.tsx 同一套約定：mock 全域 fetch，讓真正的
 // useNotes()（react-query）打到假回應，而不是 mock hook 本身——這樣測到的是
@@ -28,25 +39,30 @@ function renderNoteList(query?: string, queryClient: QueryClient = new QueryClie
   render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
-        <NoteList query={query} />
+        <ActiveNoteProvider>
+          <NoteList query={query} />
+        </ActiveNoteProvider>
       </MemoryRouter>
     </QueryClientProvider>,
   );
 }
 
-/** 掛在 `/notes/:ref` 路由底下渲染——側欄的「目前開啟中」判斷讀的是路由參數。 */
-function renderNoteListAtRef(ref: string, query?: string) {
+/** #122：以指定 active 筆記渲染——「目前開啟中」判斷改吃 ActiveNoteContext 的 note.id
+ * （SetActive 模擬 NotePage 解析成功後的 set），不再讀路由參數（也就不再需要掛在
+ * `/notes/:ref` 路由底下）。回傳 view＋queryClient 供改資料/卸載類案子用。 */
+function renderNoteListWithActive(activeId: string | undefined, query?: string) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(
+  const view = render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[`/notes/${ref}`]}>
-        <Routes>
-          <Route path="/notes/:ref" element={<NoteList query={query} />} />
-          <Route path="/" element={<div>home landing</div>} />
-        </Routes>
+      <MemoryRouter>
+        <ActiveNoteProvider>
+          {activeId !== undefined && <SetActive id={activeId} />}
+          <NoteList query={query} />
+        </ActiveNoteProvider>
       </MemoryRouter>
     </QueryClientProvider>,
   );
+  return { view, queryClient };
 }
 
 const OWNER_NOTE: NoteDto = {
@@ -191,12 +207,12 @@ describe("NoteList", () => {
     expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
   });
 
-  // ── Task 12 review 指派給 Task 13 的兩項側欄待辦 ──────────────────────────
+  // ── #122：active 高亮改吃 ActiveNoteContext（note.id 單一真相，URL 判斷退役） ──
 
-  it("marks the currently open note with aria-current=page (slug ref) — only in the primary list, never in 最近", async () => {
+  it("開頁亮：context 有 active id（NotePage 解析後 set）→ 該列 aria-current=page，只在主清單、不在 最近", async () => {
     stubNotesFetch([OWNER_NOTE, SHARED_NOTE]);
 
-    renderNoteListAtRef("custom-slug");
+    renderNoteListWithActive(OWNER_NOTE.id);
 
     await waitFor(() => expect(screen.getAllByRole("link", { name: "Has A Slug" }).length).toBeGreaterThan(0));
 
@@ -218,7 +234,7 @@ describe("NoteList", () => {
   it("active 列套用主題色 tint（bg-brand-soft/text-brand-on-soft/hover:bg-brand-soft-strong）", async () => {
     stubNotesFetch([OWNER_NOTE, SHARED_NOTE]);
 
-    renderNoteListAtRef("custom-slug");
+    renderNoteListWithActive(OWNER_NOTE.id);
 
     const activeLink = await screen.findByRole("link", { current: "page" });
     const activeRow = activeLink.closest("li");
@@ -234,23 +250,60 @@ describe("NoteList", () => {
     expect(inactiveRow).toHaveClass("hover:bg-accent/60");
   });
 
-  it("marks the currently open note when the ref is the vanity-slug+uuid form — only in the primary list", async () => {
+  it("點擊即亮：樂觀 set，不等任何解析", async () => {
     stubNotesFetch([OWNER_NOTE, SHARED_NOTE]);
 
-    renderNoteListAtRef(canonicalNotePath(SHARED_NOTE).replace("/notes/", ""));
+    renderNoteListWithActive(undefined);
+    await waitFor(() => expect(screen.getAllByRole("link", { name: "Has A Slug" }).length).toBeGreaterThan(0));
+    expect(screen.queryAllByRole("link", { current: "page" })).toHaveLength(0);
 
-    await waitFor(() => expect(screen.getAllByRole("link", { name: "No Slug Note" }).length).toBeGreaterThan(0));
+    const myNotes = screen.getByTestId("notegroup-myNotes");
+    fireEvent.click(within(myNotes).getByRole("link", { name: "Has A Slug" }));
+    expect(within(myNotes).getByRole("link", { name: "Has A Slug" })).toHaveAttribute("aria-current", "page");
+  });
 
-    const currentLinks = screen.getAllByRole("link", { current: "page" });
-    expect(currentLinks).toHaveLength(1);
-    expect(currentLinks[0]).toHaveAccessibleName("No Slug Note");
-    expect(within(screen.getByTestId("notegroup-shared")).getByRole("link", { name: "No Slug Note" })).toBe(
-      currentLinks[0],
-    );
+  it("換頁換：點另一篇 → 高亮移轉、不殘留", async () => {
+    stubNotesFetch([OWNER_NOTE, SHARED_NOTE]);
 
-    for (const link of screen.getAllByRole("link", { name: "Has A Slug" })) {
-      expect(link).not.toHaveAttribute("aria-current");
-    }
+    renderNoteListWithActive(undefined);
+    await waitFor(() => expect(screen.getAllByRole("link", { name: "Has A Slug" }).length).toBeGreaterThan(0));
+
+    const myNotes = screen.getByTestId("notegroup-myNotes");
+    fireEvent.click(within(myNotes).getByRole("link", { name: "Has A Slug" }));
+    const shared = screen.getByTestId("notegroup-shared");
+    fireEvent.click(within(shared).getByRole("link", { name: "No Slug Note" }));
+    expect(within(shared).getByRole("link", { name: "No Slug Note" })).toHaveAttribute("aria-current", "page");
+    expect(within(myNotes).getByRole("link", { name: "Has A Slug" })).not.toHaveAttribute("aria-current");
+  });
+
+  it("修飾鍵點擊（cmd/ctrl/shift＋左鍵＝開新分頁）**不**樂觀 set", async () => {
+    stubNotesFetch([OWNER_NOTE, SHARED_NOTE]);
+
+    renderNoteListWithActive(undefined);
+    await waitFor(() => expect(screen.getAllByRole("link", { name: "Has A Slug" }).length).toBeGreaterThan(0));
+
+    const myNotes = screen.getByTestId("notegroup-myNotes");
+    const link = within(myNotes).getByRole("link", { name: "Has A Slug" });
+    fireEvent.click(link, { metaKey: true });
+    fireEvent.click(link, { ctrlKey: true });
+    fireEvent.click(link, { shiftKey: true });
+    expect(screen.queryAllByRole("link", { current: "page" })).toHaveLength(0);
+  });
+
+  it("active 以 id 為錨：**同一棵樹**上 title/slug 全變（模擬改標題後清單更新）→ 高亮不掉、恰一個", async () => {
+    // 「跨 pattern 換頁」案延 Task 5b（plan gate m17——/n/ route 屆時才存在）。
+    stubNotesFetch([OWNER_NOTE, SHARED_NOTE]);
+    const { queryClient } = renderNoteListWithActive(OWNER_NOTE.id);
+    await screen.findByRole("link", { current: "page" });
+
+    // 同一個 QueryClient 就地換資料（不卸載）：id 相同、title 與 slug 都變——
+    // 任何以 title/slug/URL 當判準的實作在這裡會掉高亮，id 錨定不會。
+    const renamed = { ...OWNER_NOTE, title: "Renamed Entirely", slug: "renamed-entirely" };
+    queryClient.setQueryData<NoteDto[]>(["notes"], [renamed, SHARED_NOTE]);
+
+    const current = await screen.findAllByRole("link", { current: "page" });
+    expect(current).toHaveLength(1);
+    expect(current[0]).toHaveAccessibleName("Renamed Entirely");
   });
 
   // ── PR2：三分組、先分組後過濾、最近前 2、無符合 ──────────────────────────

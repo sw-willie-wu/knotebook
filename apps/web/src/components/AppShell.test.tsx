@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useParams } from "react-router";
 import { canonicalNotePath, type NoteDto, type UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
+import { ActiveNoteProvider } from "@/lib/active-note";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppShell, SidebarDrawerButton } from "./AppShell";
@@ -84,10 +85,12 @@ describe("AppShell — new note", () => {
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <ThemeProvider>
           <MemoryRouter initialEntries={["/"]}>
-            <Routes>
-              <Route path="/" element={<AppShell>home</AppShell>} />
-              <Route path="/notes/:ref" element={<NoteRouteProbe />} />
-            </Routes>
+            <ActiveNoteProvider>
+              <Routes>
+                <Route path="/" element={<AppShell>home</AppShell>} />
+                <Route path="/notes/:ref" element={<NoteRouteProbe />} />
+              </Routes>
+            </ActiveNoteProvider>
           </MemoryRouter>
         </ThemeProvider>
       </QueryClientProvider>,
@@ -126,10 +129,12 @@ describe("AppShell — new note", () => {
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <ThemeProvider>
           <MemoryRouter initialEntries={["/"]}>
-            <Routes>
-              <Route path="/" element={<AppShell>home</AppShell>} />
-              <Route path="/notes/:ref" element={<NoteRouteProbe />} />
-            </Routes>
+            <ActiveNoteProvider>
+              <Routes>
+                <Route path="/" element={<AppShell>home</AppShell>} />
+                <Route path="/notes/:ref" element={<NoteRouteProbe />} />
+              </Routes>
+            </ActiveNoteProvider>
           </MemoryRouter>
           <Toaster />
         </ThemeProvider>
@@ -196,7 +201,9 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <ThemeProvider>
           <MemoryRouter initialEntries={["/"]}>
-            <AppShell>home</AppShell>
+            <ActiveNoteProvider>
+              <AppShell>home</AppShell>
+            </ActiveNoteProvider>
           </MemoryRouter>
         </ThemeProvider>
       </QueryClientProvider>,
@@ -412,7 +419,9 @@ describe("AppShell — #115 側欄抽屜", () => {
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <ThemeProvider>
           <MemoryRouter initialEntries={["/"]}>
-            <AppShell>{children}</AppShell>
+            <ActiveNoteProvider>
+              <AppShell>{children}</AppShell>
+            </ActiveNoteProvider>
           </MemoryRouter>
         </ThemeProvider>
       </QueryClientProvider>,

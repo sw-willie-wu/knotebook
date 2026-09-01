@@ -7,6 +7,7 @@ import { api, ApiFail } from "@/api/client";
 import { useNote } from "@/api/notes";
 import { SESSION_QUERY_KEY, useSession } from "@/auth/useSession";
 import { canEdit, isTerminal, type CollabState } from "@/collab/connection";
+import { useActiveNote } from "@/lib/active-note";
 import { createLinkSync, type LinkSync } from "@/collab/link-sync";
 import { useCollab } from "@/collab/useCollab";
 import { AppShell, SidebarDrawerButton } from "@/components/AppShell";
@@ -88,7 +89,7 @@ function effectiveRole(state: CollabState, note: NoteDto): Role {
  * 路由參數 `ref`，`useNote(ref)` 的 query key 跟著變 → 整頁重新載入、編輯器連同共編
  * 連線一起被扯掉。網址只是門面，換網址不該重掛連線。副作用是 react-router 的
  * location 會跟真實網址不同步，所以任何「這是不是目前開啟的筆記」的判斷一律走
- * `matchesNoteRef(params.ref, note)` 而不是比對 pathname（見 `@/lib/note-ref`）。
+ * ActiveNoteContext 的 note.id（#122，見 `@/lib/active-note`）而不是比對 pathname。
  *
  * 終態處理：`kicked`（撤權雙擊確認）與 `deleted`（筆記被刪）都是 toast + 導回 `/`。
  * N4 降級（editor → viewer）不是終態：連線留著，只是 `editable` 變 false 並 toast。
@@ -103,6 +104,17 @@ export default function NotePage() {
   const noteQuery = useNote(ref);
   const note = noteQuery.data;
   const noteId = note?.id;
+
+  // #122：側欄高亮的最終校正點（樂觀 set 見 NoteList；理由見 lib/active-note.tsx
+  // 檔頭）。直接進網址/書籤的路徑要等解析完成才亮——晚幀亮是明記的體感取捨。
+  // 卸載/換筆記時**條件清除**（current === 自己才清）：跨頁時新頁的 set 可能先跑，
+  // 無條件清會把剛亮起來的新頁高亮滅掉。
+  const { setActiveNoteId, clearActiveNoteId } = useActiveNote();
+  useEffect(() => {
+    if (!noteId) return;
+    setActiveNoteId(noteId);
+    return () => clearActiveNoteId(noteId);
+  }, [noteId, setActiveNoteId, clearActiveNoteId]);
 
   // 401：session 真的沒了（不是撤權）。清掉 ['me'] 並導去登入頁——與 UserMenu 的
   // 登出流程同一套終點，只是沒有 server round-trip 可打。
@@ -176,9 +188,14 @@ export default function NotePage() {
   useEffect(() => {
     if (!notFound || leavingRef.current) return;
     leavingRef.current = true;
+    // A6（前移自 Task 5a——同一個 404 出口）：導走前把 active 歸零。**首次解析就 404**
+    // 時本頁從未 set 成功、卸載的條件清除按 id 對不上——NoteList 樂觀 set 的殘留只有
+    // 這行清得掉；**已載入後的 404**（他人刪除、focus 重抓）也走此出口，那時本頁 set
+    // 過、cleanup 也清得掉——這行對那條路徑只是冪等保險，不是唯一防線。
+    setActiveNoteId(null);
     toast({ title: t("note.deleted"), variant: "destructive" });
     void navigate("/", { replace: true });
-  }, [navigate, notFound, t]);
+  }, [navigate, notFound, setActiveNoteId, t]);
 
   useEffect(() => {
     if (!isTerminal(state) || leavingRef.current) return;

@@ -1,5 +1,6 @@
 import { lazy, Suspense } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useParams, type Location } from "react-router";
+import { ActiveNoteProvider } from "./lib/active-note";
 import { ThemeProvider } from "./theme";
 import { Toaster } from "./components/ui/toast";
 import { ChangePasswordGate, RequireAdmin, RequireAuth } from "./auth/guards";
@@ -169,7 +170,12 @@ export default function App() {
     <AppErrorBoundary>
       <ThemeProvider>
         <BrowserRouter>
-          <AppRoutes />
+          {/* #122：ActiveNoteContext 包住 AppRoutes 全部（兩棵 Routes 樹之外一層）——
+              設定 modal 的第二棵樹也在內，關 modal 回到筆記頁時高亮狀態不掉。
+              公開頁（/p/…）在樹內但不消費不 set（明文，見 lib/active-note.tsx）。 */}
+          <ActiveNoteProvider>
+            <AppRoutes />
+          </ActiveNoteProvider>
         </BrowserRouter>
         <Toaster />
       </ThemeProvider>

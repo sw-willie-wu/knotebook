@@ -6,6 +6,7 @@ import { MemoryRouter, type MemoryRouterProps } from "react-router";
 import * as Y from "yjs";
 import type { NoteDto, UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
+import { ActiveNoteProvider } from "@/lib/active-note";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppRoutes } from "@/App";
@@ -154,7 +155,9 @@ function renderAt(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <MemoryRouter initialEntries={initialEntries}>
-          <AppRoutes />
+          <ActiveNoteProvider>
+            <AppRoutes />
+          </ActiveNoteProvider>
         </MemoryRouter>
       </ThemeProvider>
       <Toaster />

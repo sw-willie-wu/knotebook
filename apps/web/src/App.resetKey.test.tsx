@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import type { NoteDto, UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
+import { ActiveNoteProvider } from "@/lib/active-note";
 import { ThemeProvider } from "@/theme";
 import { Toaster } from "@/components/ui/toast";
 import { AppRoutes } from "./App";
@@ -128,7 +129,9 @@ function renderNoteRoute() {
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <MemoryRouter initialEntries={["/notes/my-note"]}>
-          <AppRoutes />
+          <ActiveNoteProvider>
+            <AppRoutes />
+          </ActiveNoteProvider>
         </MemoryRouter>
       </ThemeProvider>
       <Toaster />
