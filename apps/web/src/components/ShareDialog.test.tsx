@@ -41,18 +41,19 @@ const SHARE: ShareDto = {
 
 const SHARES_URL = `/api/notes/${NOTE.id}/shares`;
 
-function renderDialog(note: NoteDto = NOTE, cacheRef = NOTE.id) {
+function renderDialog(note: NoteDto = NOTE) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   // 每次都建新的 element（不能重用同一個物件——element identity 相同時 React 會
   // 直接 bail out，根本不會 re-render，測不到「re-render 時發生什麼」）。
-  const tree = () => (
+  // rerender 可吃新 note——模擬 NotePage 常駐層更新後把新 DTO 傳下來。
+  const tree = (current: NoteDto) => (
     <QueryClientProvider client={queryClient}>
-      <ShareDialog note={note} cacheRef={cacheRef} />
+      <ShareDialog note={current} />
       <Toaster />
     </QueryClientProvider>
   );
-  const view = render(tree());
-  return Object.assign(queryClient, { rerender: () => view.rerender(tree()) });
+  const view = render(tree(note));
+  return Object.assign(queryClient, { rerender: (next: NoteDto = note) => view.rerender(tree(next)) });
 }
 
 async function openDialog() {
@@ -124,6 +125,120 @@ describe("ShareDialog", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  // ── #122 Task 6：SlugField 三態 ──
+
+  it("三態·auto：輸入框初值為空、placeholder＝**現行** auto slug（含去重尾碼，非 title 重算值）、無清除鈕", async () => {
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    // slug 帶去重尾碼（server 探測產物）——與 autoSlugFromTitle("My Note")="my-note"
+    // 刻意分岔：auto 態的 placeholder 必須顯示**使用者實際擁有的網址**，不是 title 重算值
+    // （突變審查 F4：三案 placeholder 同值時 auto 分支零鑑別力）。
+    renderDialog({ ...NOTE, slug: "my-note-2" });
+    await openDialog();
+
+    const slugInput = screen.getByRole("textbox", { name: "Custom link" });
+    expect(slugInput).toHaveValue(""); // auto 不是使用者設定的東西，不預填
+    expect(slugInput).toHaveAttribute("placeholder", "my-note-2"); // 現行 auto 一直看得見
+    expect(screen.queryByRole("button", { name: "Use automatic URL" })).not.toBeInTheDocument();
+  });
+
+  it("auto 態把現行 auto slug 原字打進輸入框 → Save 可按、送出（把網址固化成 custom 的主流程）", async () => {
+    // dirty 判準必須與初值同源（slugIsCustom ? slug : ""）：若誤與 note.slug 比，
+    // 輸入恰等於現行 auto 時 dirty 恆 false、Save 永久禁用——三態語意的核心動作
+    // 「釘住現行網址，之後改標題不再搬家」就做不到（突變審查 F1，實掛過的活刀）。
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (url === SHARES_URL && method === "GET") {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+      }
+      if (url === `/api/notes/${NOTE.id}` && method === "PATCH") {
+        return Promise.resolve(
+          fakeResponse({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve({ ...NOTE, slug: "my-note-2", slugIsCustom: true }),
+          }),
+        );
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderDialog({ ...NOTE, slug: "my-note-2" });
+    await openDialog();
+
+    const slugInput = screen.getByRole("textbox", { name: "Custom link" });
+    fireEvent.change(slugInput, { target: { value: "my-note-2" } });
+    const save = screen.getByRole("button", { name: "Save" });
+    expect(save).not.toBeDisabled();
+    fireEvent.click(save);
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === "PATCH");
+      expect(call).toBeDefined();
+      const [, init] = call as [RequestInfo, RequestInit];
+      expect(JSON.parse(String(init.body))).toEqual({ slug: "my-note-2" });
+    });
+  });
+
+  it("三態·custom：初值＝現行自訂 slug、placeholder＝清除後會得到的 auto 預覽、清除鈕在", async () => {
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderDialog({ ...NOTE, slug: "pinned-name", slugIsCustom: true });
+    await openDialog();
+
+    const slugInput = screen.getByRole("textbox", { name: "Custom link" });
+    expect(slugInput).toHaveValue("pinned-name");
+    // autoSlugFromTitle("My Note") ＝ "my-note"（client 端同源預覽）
+    expect(slugInput).toHaveAttribute("placeholder", "my-note");
+    expect(screen.getByRole("button", { name: "Use automatic URL" })).toBeInTheDocument();
+  });
+
+  it("persist 判準（gate m10(a)）：回自動網址後輸入框空（server 回的 auto 不填回）；note 更新後 placeholder＝**新** auto、鈕消失", async () => {
+    const noteWithSlug: NoteDto = { ...NOTE, slug: "pinned-name", slugIsCustom: true };
+    // 新 auto 帶去重尾碼——與 custom 態的預覽值 autoSlugFromTitle("My Note")="my-note"
+    // 分岔：案名說的「placeholder＝新 auto」才有前後之別（突變審查 F3：同值時凍結
+    // autoPreview 的突變全綠）。
+    const cleared: NoteDto = { ...NOTE, slug: "my-note-2", slugIsCustom: false };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (url === SHARES_URL && method === "GET") {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+      }
+      if (url === `/api/notes/${NOTE.id}` && method === "PATCH") {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(cleared) }));
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const queryClient = renderDialog(noteWithSlug);
+    await openDialog();
+
+    const slugInput = screen.getByRole("textbox", { name: "Custom link" });
+    expect(slugInput).toHaveAttribute("placeholder", "my-note"); // custom 態＝清除後的 auto 預覽
+
+    fireEvent.click(screen.getByRole("button", { name: "Use automatic URL" }));
+    // 與初值同判準：server 回 auto → 不填回輸入框（填回的話下一次開 dialog 是空的、
+    // 這一刻卻有值——自相矛盾）
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Custom link" })).toHaveValue(""));
+
+    // NotePage 常駐層更新 → note prop 換新：這個前提是 load-bearing 且真的會發生——
+    // persist 的 setQueryData(["note", note.id]) 與 NotePage 常駐層 useNote 同鍵，
+    // 新 DTO 必然下傳（沒有它，清除後「回自動網址」鈕會永遠留著）。
+    queryClient.rerender(cleared);
+    expect(screen.getByRole("textbox", { name: "Custom link" })).toHaveAttribute("placeholder", "my-note-2");
+    expect(screen.queryByRole("button", { name: "Use automatic URL" })).not.toBeInTheDocument();
+  });
+
   it("PATCH 回 409 slug_taken → 顯示對應文案", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -151,7 +266,7 @@ describe("ShareDialog", () => {
     fireEvent.change(slugInput, { target: { value: "taken-slug" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
-    await waitFor(() => expect(screen.getByText("That URL is already taken.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("That URL is already used by another of your notes.")).toBeInTheDocument());
   });
 
   it("PATCH 回 429 too_many_requests → 顯示稍後再試文案", async () => {
@@ -217,7 +332,7 @@ describe("ShareDialog", () => {
     expect(JSON.parse(String(patchInit.body))).toEqual({ slug: "brand-new" });
   });
 
-  it("清除按鈕送出 slug:null", async () => {
+  it("「回自動網址」鈕送出 slug:null", async () => {
     const noteWithSlug: NoteDto = { ...NOTE, slug: "existing-slug", slugIsCustom: true };
     // #122：清除＝回 auto 形（server 以現行 title 重算），不再是 null
     const cleared: NoteDto = { ...noteWithSlug, slug: "my-note", slugIsCustom: false };
@@ -237,7 +352,7 @@ describe("ShareDialog", () => {
     renderDialog(noteWithSlug);
     await openDialog();
 
-    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    fireEvent.click(screen.getByRole("button", { name: "Use automatic URL" }));
 
     await waitFor(() => {
       const call = fetchMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === "PATCH");

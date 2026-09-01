@@ -387,8 +387,7 @@ export default function NotePage() {
               <SidebarDrawerButton />
               <TitleInput note={note} readOnly={!roleCanEdit} />
               <ConnectionBadge state={state} synced={synced} canEdit={roleCanEdit} />
-              {/* cacheRef＝常駐層 id 鍵（A3；SlugField 的 prop 收口在 Task 6）。 */}
-              <ShareDialog note={note} cacheRef={note.id} />
+              <ShareDialog note={note} />
               <NoteMenu note={note} state={state} leavingRef={leavingRef} />
             </header>
           }

@@ -855,9 +855,11 @@ describe("NotePage", () => {
   });
 
   it("改自訂 slug（經 ShareDialog 全鏈）→ 快取回寫 → 收斂 effect 更新網址（A3 移轉的正向面）", async () => {
-    // 這一案守兩件事：①收斂 effect 是**資料變動驅動**（deps 少了 note 這裡必紅）；
-    // ②NotePage 傳給 ShareDialog 的 cacheRef 必須是常駐層 id 鍵（改回 ref 的話
-    // persist 寫進 slug 鍵、常駐層看不到、網址不動——突變審查的存活刀）。
+    // 這一案守「收斂 effect 是**資料變動驅動**」（deps 少了 note 這裡必紅）。
+    // SlugField 寫回鍵必須是 ['note', note.id] 的守衛在 ShareDialog.test（「成功變更
+    // slug → 寫回本頁 ['note', id] 快取」案）——本案的 stub 會把 PATCH 結果寫回
+    // byRef，invalidate→refetch 單獨就能驅動收斂，咬不到那把鍵（Task 6 收掉 prop 後
+    // 舊註解的「改回 ref」突變面已不存在）。
     stubTwoNotes();
     collab.provider.synced = true;
 
