@@ -9,7 +9,8 @@ All endpoints are served by the `app` container. Errors use the shape `{ "error"
 | `/api/auth/oidc/callback` | GET | none | 302 (browser-navigation endpoint, not JSON — redirects to `/` on success and sets the session cookie). On failure, redirects to `/login?error=<code>`: `oidc_unavailable`, `too_many_requests`, `oidc_state_mismatch`, `oidc_exchange_failed`, `oidc_email_unverified`, `oidc_email_missing`, `oidc_conflict`, `account_disabled` |
 | `/api/auth/login` | POST | none | 200, 400 `invalid_body`, 401 `invalid_credentials`, 403 `account_disabled`, 429 `too_many_attempts` (body includes `retryAfterMs`)/`server_busy` |
 | `/api/auth/logout` | POST | none | 204 |
-| `/api/auth/me` | GET | Auth | 200, 401 `unauthorized` |
+| `/api/auth/me` | GET | Auth | 200 (the user object includes `handle`, the URL-facing username), 401 `unauthorized` |
+| `/api/auth/profile` | PATCH | Auth | Body `{handle}` — renames the account's username. 200 (returns the updated user object), 400 `invalid_body` (ASCII uppercase is lowercased first; then 1–32 chars, `a-z0-9-`, no leading/trailing/double hyphens), 409 `handle_taken` (taken by someone, tombstoned by a past rename — **including your own previous names** — or equal to your current one), 429 `too_many_requests` (5 successful renames per rolling 24 hours, counted from the released-name registry — so the quota survives restarts; failed attempts don't consume it) |
 | `/api/auth/password` | POST | Auth | 204, 400 `invalid_body`/`password_too_short`, 401 `invalid_credentials`, 429 `server_busy` |
 | `/api/notes` | POST | Auth | 201, 400 `invalid_body` |
 | `/api/notes` | GET | Auth | 200 |
@@ -30,7 +31,7 @@ All endpoints are served by the `app` container. Errors use the shape `{ "error"
 | `/api/notes/:id/uploads` | POST | Auth | 201 `{id, url}` (multipart, field name `file`, image formats only), 400 `invalid_body` (missing file, or a malformed multipart body), 403 `forbidden` (viewer — has read access but not editor+), 404 `not_found` (no read access to the note at all — note the reversal from the usual pattern: here "can't even see it" is 404 and "can see it, can't edit it" is 403, same as `PATCH`/`DELETE` on the note itself), 413 `file_too_large` (over `MAX_UPLOAD_BYTES`=10MB), 415 `unsupported_media_type` (magic-byte sniff failed — the declared `Content-Type` is never trusted), 429 `too_many_requests` (120 uploads per user per 10 minutes) |
 | `/api/uploads/:id` | GET | Auth | 200 (streams the file with `Cache-Control: private, max-age=31536000, immutable`), 403 `forbidden` (authenticated, upload exists, but you have no access to the note it belongs to — deliberately not 404: the id is an unguessable `crypto.randomUUID()`, so there's nothing to hide by pretending it doesn't exist), 404 `not_found` (bad/non-uuid id, or no such upload, or the DB row exists but the file is missing from disk) |
 | `/api/admin/users` | GET | Admin | 200 |
-| `/api/admin/users` | POST | Admin | 201, 400 `invalid_body`/`password_too_short`, 409 `email_taken`, 429 `server_busy` |
+| `/api/admin/users` | POST | Admin | Body may include an optional `handle` (omitted, one is derived from the email's local part; the admin UI doesn't expose this field yet). 201, 400 `invalid_body`/`password_too_short`, 409 `email_taken`/`handle_taken`, 429 `server_busy` |
 | `/api/admin/users/:id/disable` | POST | Admin | 204, 400 `cannot_disable_self`, 404 `user_not_found` |
 | `/api/admin/users/:id/enable` | POST | Admin | 204, 404 `user_not_found` |
 | `/api/admin/users/:id/promote` | POST | Admin | 204, 404 `user_not_found` |
