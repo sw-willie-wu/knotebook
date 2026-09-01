@@ -31,6 +31,23 @@ export const OIDC_LIMIT = { limit: 30, windowMs: 60_000 } as const;
  * 那族「共桶讓額度砍半」的變形。
  */
 export const PUBLIC_LINK_LIMIT = { limit: 10, windowMs: 600_000 } as const;
+/**
+ * #72 公開端點的雙桶（皆無登入態）。三步順序寫死在 routes/public.ts：**格式 guard →
+ * 不計數的 isBlocked(ip) 預檢 → DB 查詢 → miss 才 consume(ip)／hit 才
+ * consume(`${ip}:${token}`)**——hit/miss 要查完 DB 才知道，pre-DB 若直接 consume(ip)
+ * 正常讀者也會啃 miss 額度。
+ *
+ * - miss 桶（key=ip）：管「token 解不到 noteId」的洪水與其 DB 查詢。**key 不得含
+ *   token**——含了就是攻擊者控制的 key space（每個亂 token＝新 bucket 滿血額度，
+ *   節流形同不存在，還會把 BoundedMap 掃空擠掉合法讀者）。120 而非 30：共用出口
+ *   IP／反代未設 TRUST_PROXY 時這把 key 會塌縮，額度要容得下多人（塌縮的退化形
+ *   記 docs/known-limitations.md）。
+ * - hit 桶（key=ip:token，**只記命中**）：內容/圖片各一份；跨筆記 upload 的 404 是
+ *   「token 解得到」的正常讀者行為，落 hit 桶不啃 miss 額度。
+ */
+export const PUBLIC_MISS_LIMIT = { limit: 120, windowMs: 60_000 } as const;
+export const PUBLIC_NOTE_LIMIT = { limit: 60, windowMs: 60_000 } as const;
+export const PUBLIC_UPLOAD_LIMIT = { limit: 300, windowMs: 60_000 } as const;
 
 export interface FixedWindowLimiterOptions {
   limit: number;
@@ -78,5 +95,16 @@ export class FixedWindowLimiter {
     }
     window.count += 1;
     return window.count <= this.limit;
+  }
+
+  /**
+   * #72：**不計數**的預檢——只回報「此刻 consume 會不會被拒」，不動計數也不開新
+   * 視窗（過期視窗視同未滿，交給之後真正的 consume 開新窗）。公開端點的三步順序
+   * 用它在 DB 查詢前擋已超限的 IP，而不提前扣額度（見 PUBLIC_MISS_LIMIT 註解）。
+   */
+  isBlocked(key: string): boolean {
+    const window = this.windows.get(key);
+    if (!window || Date.now() - window.windowStart >= this.windowMs) return false;
+    return window.count >= this.limit;
   }
 }

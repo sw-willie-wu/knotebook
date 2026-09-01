@@ -348,3 +348,12 @@ export function canonicalNotePath(note: { id: string; slug: string | null; title
   const vanity = titleSlug(note.title);
   return vanity ? `/notes/${vanity}-${note.id}` : `/notes/${note.id}`;
 }
+
+/**
+ * #72：空 Y.Doc 的合法 update 編碼（`Y.encodeStateAsUpdate(new Y.Doc())` ＝ `[0,0]`
+ * 的 base64）。公開端點對「筆記從沒開過編輯器（查無 note_states）」回這個值——
+ * **不能回空字串／零長度**：`Y.applyUpdate(doc, new Uint8Array())` 會 throw（實測），
+ * 公開頁直接爆。server 回它、web 端測試斷同一份；「這個字面真的等於空文件編碼」
+ * 由 server 的 unit 釘住（防兩端 import 同一個錯值的套套邏輯）。
+ */
+export const EMPTY_YDOC_UPDATE_B64 = "AAA=";

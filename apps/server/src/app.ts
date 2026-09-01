@@ -21,10 +21,11 @@ import { adminUsersRoutes } from "./routes/admin-users.js";
 import { adminAiRoutes } from "./routes/admin-ai.js";
 import { aiRoutes } from "./routes/ai.js";
 import { uploadsRoutes } from "./routes/uploads.js";
+import { publicRoutes } from "./routes/public.js";
 import { oidcRoutes } from "./routes/oidc.js";
 import { drainWithCap } from "./http/drain.js";
 import { sendError } from "./http/errors.js";
-import { AI_LIMIT, COLLAB_TOKEN_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PUBLIC_LINK_LIMIT, SLUG_PATCH_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
+import { AI_LIMIT, COLLAB_TOKEN_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, SLUG_PATCH_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
 import { registerSpaFallback } from "./http/spa.js";
 import { assertUploadsDirWritable } from "./uploads/service.js";
 import type { AiRuntime } from "./ai/runtime.js";
@@ -79,6 +80,10 @@ export interface AppDeps {
     oidcCallback: FixedWindowLimiter;
     /** #72：public-link 管理端 PUT/DELETE（key=userId；GET 不吃桶，見 PUBLIC_LINK_LIMIT）。 */
     publicLink: FixedWindowLimiter;
+    /** #72 公開端點雙桶（miss=ip／hit=ip:token，語意見 PUBLIC_MISS_LIMIT 註解）。 */
+    publicMiss: FixedWindowLimiter;
+    publicNote: FixedWindowLimiter;
+    publicUpload: FixedWindowLimiter;
   };
   /**
    * Task 5：`POST /api/notes/:id/links` 寫入函式（`notes/links.ts` 的 `writeNoteLinks`）的
@@ -427,6 +432,9 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       oidcLogin: new FixedWindowLimiter(OIDC_LIMIT),
       oidcCallback: new FixedWindowLimiter(OIDC_LIMIT),
       publicLink: new FixedWindowLimiter(PUBLIC_LINK_LIMIT),
+      publicMiss: new FixedWindowLimiter(PUBLIC_MISS_LIMIT),
+      publicNote: new FixedWindowLimiter(PUBLIC_NOTE_LIMIT),
+      publicUpload: new FixedWindowLimiter(PUBLIC_UPLOAD_LIMIT),
     } satisfies NonNullable<AppDeps["limiters"]>);
 
   // Task 8（二輪 MINOR-8）：`deps.oidc` 未傳但 `config.oidc` 有值時在此補上 production
@@ -462,6 +470,8 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   // 字面值）賦值給較窄的結構型別，TS 不做 excess property check，不需要另外
   // pick／窄化。`uploadsRoutes` 自己的 deps 只挑 `upload` 這一個節流器。
   void app.register(uploadsRoutes({ db: deps.db, config: deps.config, limiters: { upload: limiters.upload }, uploadsDir: deps.uploadsDir }));
+  // #72 公開端點（免登入）：三步節流順序與 404 同形見 routes/public.ts 檔頭。
+  void app.register(publicRoutes({ db: deps.db, uploadsDir: deps.uploadsDir, limiters: { publicMiss: limiters.publicMiss, publicNote: limiters.publicNote, publicUpload: limiters.publicUpload } }));
 
   // 共編的 WebSocket 掛在底層 http server 的 upgrade 事件上，不經 Fastify 路由——
   // 因此與上面的路由註冊順序無關，也不會被 setNotFoundHandler／SPA fallback 攔到。

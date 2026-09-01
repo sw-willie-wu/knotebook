@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { LoginThrottle } from "../../src/auth/rate-limit.js";
 import { AI_LIMIT, FixedWindowLimiter } from "../../src/http/rate-limit.js";
 
@@ -510,5 +510,36 @@ describe("AI_LIMIT", () => {
     for (let i = 0; i < 30; i++) limiter.consume("user1");
     expect(limiter.consume("user1")).toBe(false);
     expect(limiter.consume("user2")).toBe(true);
+  });
+});
+
+describe("FixedWindowLimiter.isBlocked（#72：不計數的預檢）", () => {
+  it("isBlocked 不消耗額度：連問 N 次都不影響 consume 的可用次數", () => {
+    const limiter = new FixedWindowLimiter({ limit: 2, windowMs: 60_000 });
+    for (let i = 0; i < 10; i += 1) expect(limiter.isBlocked("k")).toBe(false);
+    expect(limiter.consume("k")).toBe(true);
+    expect(limiter.consume("k")).toBe(true);
+    expect(limiter.consume("k")).toBe(false);
+  });
+
+  it("額度用滿後 isBlocked 回 true；不同 key 不受影響", () => {
+    const limiter = new FixedWindowLimiter({ limit: 1, windowMs: 60_000 });
+    expect(limiter.isBlocked("a")).toBe(false);
+    limiter.consume("a");
+    expect(limiter.isBlocked("a")).toBe(true);
+    expect(limiter.isBlocked("b")).toBe(false);
+  });
+
+  it("視窗過期後 isBlocked 回 false（跟 consume 的視窗語意一致）", () => {
+    vi.useFakeTimers();
+    try {
+      const limiter = new FixedWindowLimiter({ limit: 1, windowMs: 1_000 });
+      limiter.consume("k");
+      expect(limiter.isBlocked("k")).toBe(true);
+      vi.advanceTimersByTime(1_001);
+      expect(limiter.isBlocked("k")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
