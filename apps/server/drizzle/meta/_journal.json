@@ -50,6 +50,13 @@
       "when": 1788270459614,
       "tag": "0006_user-handle",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1788286930340,
+      "tag": "0007_note-slug",
+      "breakpoints": true
     }
   ]
 }

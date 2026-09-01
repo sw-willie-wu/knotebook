@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { validateHandle } from "@knotebook/shared";
+import { autoSlugFromTitle, validateHandle, validateSlug } from "@knotebook/shared";
 import { applyMigrationsThrough, freshDb, freshEmptyDb, idxOfTag, journalEntries } from "./helpers.js";
 import { runMigrations } from "../src/db/migrate.js";
 
@@ -290,6 +290,241 @@ describe("0006_user-handle", () => {
     expect(sql.toUpperCase()).not.toContain("CONCURRENTLY");
     // COMMIT 的失效模式是**靜默**（drizzle 收尾 COMMIT 只 warn 不炸）——比 CONCURRENTLY
     // 更該釘；用行首語句形比對，避免被註解字面誤中（讀碼審查 minor 4）。
+    expect(sql).not.toMatch(/^\s*COMMIT\s*;/im);
+  });
+});
+
+/**
+ * 0007_note-slug（#122 PR2 Task 2）。同 0006 慣例：形狀案跑 freshDb（全 migration）；
+ * backfill 資料案例跑 §7-H harness（freshEmptyDb → applyThrough(0006) → 塞 0006 形
+ * fixture → runMigrations 跑 0007 → 斷言），fixture 顯式指定 id 與 created_at 控制
+ * DO 迴圈的確定性次序。
+ */
+describe("0007_note-slug", () => {
+  it("notes 形狀：slug NOT NULL＋DEFAULT（untitled-<uuid8> 形）、slug_is_custom、三索引、舊全域索引退場", async () => {
+    const { pool } = await freshDb();
+
+    const { rows: cols } = await pool.query(
+      `select column_name, is_nullable, column_default from information_schema.columns
+       where table_name = 'notes' and column_name in ('slug', 'slug_is_custom', 'prev_slug', 'legacy_slug')
+       order by column_name`,
+    );
+    type ColRow = { column_name: string; is_nullable: string; column_default: string | null };
+    expect((cols as ColRow[]).map(c => c.column_name)).toEqual([
+      "legacy_slug", "prev_slug", "slug", "slug_is_custom",
+    ]);
+    const byName = Object.fromEntries((cols as ColRow[]).map(c => [c.column_name, c]));
+    expect(byName.slug.is_nullable).toBe("NO");
+    expect(byName.slug.column_default).toMatch(/gen_random_uuid/);
+    expect(byName.slug_is_custom).toMatchObject({ is_nullable: "NO", column_default: "false" });
+    expect(byName.prev_slug.is_nullable).toBe("YES");
+    expect(byName.legacy_slug.is_nullable).toBe("YES");
+
+    // DB default 兜底（回滾窗期舊碼 POST 不帶 slug 也活）：值是 untitled-<uuid8> 形
+    await pool.query(`insert into users (email, display_name) values ('n@example.com', 'N')`);
+    const { rows: u } = await pool.query(`select id from users limit 1`);
+    await pool.query(`insert into notes (owner_id) values ($1)`, [u[0].id]);
+    const { rows: n } = await pool.query(`select slug, slug_is_custom, prev_slug, legacy_slug from notes`);
+    expect(n[0].slug).toMatch(/^untitled-[0-9a-f]{8}$/);
+    expect(n[0]).toMatchObject({ slug_is_custom: false, prev_slug: null, legacy_slug: null });
+
+    // 三索引釘 indexdef 全形（比照 notes_public_token_idx 慣例）；舊全域 notes_slug_idx 退場
+    const { rows: idx } = await pool.query(
+      `select indexname, indexdef from pg_indexes where tablename = 'notes'`,
+    );
+    const defs = Object.fromEntries(idx.map((r: { indexname: string; indexdef: string }) => [r.indexname, r.indexdef]));
+    expect(defs.notes_slug_idx).toBeUndefined();
+    expect(defs.notes_owner_slug_idx).toMatch(/UNIQUE/);
+    expect(defs.notes_owner_slug_idx).toMatch(/owner_id, slug/);
+    expect(defs.notes_owner_slug_idx).not.toMatch(/WHERE/); // slug NOT NULL，全表唯一
+    expect(defs.notes_legacy_slug_idx).toMatch(/UNIQUE/);
+    expect(defs.notes_legacy_slug_idx).toMatch(/WHERE \(?legacy_slug IS NOT NULL\)?/);
+    expect(defs.notes_owner_prev_slug_idx).not.toMatch(/UNIQUE/); // 同 owner 可先後釋放同名，>1 判定在查詢端
+    expect(defs.notes_owner_prev_slug_idx).toMatch(/WHERE \(?prev_slug IS NOT NULL\)?/);
+  });
+
+  it("per-user 唯一語意：同 owner 撞（constraint 名＝notes_owner_slug_idx）、跨 owner 同名共存", async () => {
+    const { pool } = await freshDb();
+    await pool.query(
+      `insert into users (id, email, display_name) values
+       ('00000000-0000-4000-8000-0000000000a1', 'a@example.com', 'A'),
+       ('00000000-0000-4000-8000-0000000000b1', 'b@example.com', 'B')`,
+    );
+    await pool.query(
+      `insert into notes (owner_id, title, slug) values ('00000000-0000-4000-8000-0000000000a1', 'X', 'same-name')`,
+    );
+    // 跨 owner 同名：可共存（per-user 語意的正向證明）
+    await expect(
+      pool.query(
+        `insert into notes (owner_id, title, slug) values ('00000000-0000-4000-8000-0000000000b1', 'Y', 'same-name')`,
+      ),
+    ).resolves.toMatchObject({ rowCount: 1 });
+    // 同 owner 同名：撞唯一索引，constraint 名是 PATCH 端 409 判別的依據
+    await expect(
+      pool.query(
+        `insert into notes (owner_id, title, slug) values ('00000000-0000-4000-8000-0000000000a1', 'Z', 'same-name')`,
+      ),
+    ).rejects.toMatchObject({ code: "23505", constraint: "notes_owner_slug_idx" });
+  });
+
+  it("legacy_slug 不可變 trigger：UPDATE 它必炸、UPDATE title/slug 不炸、pg_trigger 存在", async () => {
+    const { pool } = await freshDb();
+    await pool.query(`insert into users (email, display_name) values ('t@example.com', 'T')`);
+    const { rows: u } = await pool.query(`select id from users limit 1`);
+    await pool.query(`insert into notes (owner_id, title, slug) values ($1, 'T', 'keep-me')`, [u[0].id]);
+
+    await expect(pool.query(`update notes set legacy_slug = 'hijack'`)).rejects.toMatchObject({
+      message: expect.stringContaining("legacy_slug is immutable"),
+    });
+    // WHEN 條件：不動 legacy_slug 的常規 UPDATE 零成本通過
+    await expect(pool.query(`update notes set title = 'T2', slug = 'renamed'`)).resolves.toMatchObject({
+      rowCount: 1,
+    });
+    const { rows: trg } = await pool.query(
+      `select tgname from pg_trigger where tgrelid = 'notes'::regclass and tgname = 'notes_legacy_slug_guard'`,
+    );
+    expect(trg).toHaveLength(1);
+  });
+
+  it("快照兩態：既有自訂 slug → custom=true＋legacy 凍結；無 slug 列 → custom=false＋legacy NULL", async () => {
+    const { pool, db } = await freshEmptyDb();
+    await applyMigrationsThrough(pool, idxOfTag("0006_user-handle"));
+    await pool.query(`insert into users (id, email, display_name) values ('00000000-0000-4000-8000-000000000001', 'o@x.example', 'O')`);
+    await pool.query(
+      `insert into notes (id, owner_id, title, slug, created_at) values
+       ('00000000-0000-4000-8000-000000000101', '00000000-0000-4000-8000-000000000001', 'My Custom', 'my-custom', '2026-01-01T00:00:00Z'),
+       ('00000000-0000-4000-8000-000000000102', '00000000-0000-4000-8000-000000000001', 'Plain Note', null, '2026-01-02T00:00:00Z')`,
+    );
+    await runMigrations(db);
+
+    const { rows } = await pool.query(`select slug, slug_is_custom, legacy_slug, prev_slug from notes order by created_at`);
+    expect(rows[0]).toEqual({ slug: "my-custom", slug_is_custom: true, legacy_slug: "my-custom", prev_slug: null });
+    expect(rows[1]).toEqual({ slug: "plain-note", slug_is_custom: false, legacy_slug: null, prev_slug: null });
+  });
+
+  it("雙 owner 同標題 → 各自得 foo（③drop 全域索引先於 backfill 的證明案）", async () => {
+    const { pool, db } = await freshEmptyDb();
+    await applyMigrationsThrough(pool, idxOfTag("0006_user-handle"));
+    await pool.query(
+      `insert into users (id, email, display_name) values
+       ('00000000-0000-4000-8000-000000000001', 'a@x.example', 'A'),
+       ('00000000-0000-4000-8000-000000000002', 'b@x.example', 'B')`,
+    );
+    // 若舊全域唯一索引在 backfill 時仍在場，第二個 owner 的 'foo' 直接炸——本案就是那個反例
+    await pool.query(
+      `insert into notes (id, owner_id, title, slug, created_at) values
+       ('00000000-0000-4000-8000-000000000201', '00000000-0000-4000-8000-000000000001', 'Foo', null, '2026-01-01T00:00:00Z'),
+       ('00000000-0000-4000-8000-000000000202', '00000000-0000-4000-8000-000000000002', 'Foo', null, '2026-01-02T00:00:00Z')`,
+    );
+    await runMigrations(db);
+    const { rows } = await pool.query(`select owner_id, slug from notes order by owner_id`);
+    expect(rows.map((r: { slug: string }) => r.slug)).toEqual(["foo", "foo"]);
+  });
+
+  it("同 owner 撞名去重：auto 撞既有自訂、created_at 序（物理插入序反向釘 ORDER BY）", async () => {
+    const { pool, db } = await freshEmptyDb();
+    await applyMigrationsThrough(pool, idxOfTag("0006_user-handle"));
+    await pool.query(`insert into users (id, email, display_name) values ('00000000-0000-4000-8000-000000000001', 'o@x.example', 'O')`);
+    // 既有自訂 'foo' 占位；兩篇同標題 Foo 的 auto 列——**實體插入順序刻意與 created_at
+    // 相反**（0006 慣例：同向時拿掉 ORDER BY 後 seq scan 恰好回同序、斷言照樣綠）。
+    await pool.query(
+      `insert into notes (id, owner_id, title, slug, created_at) values
+       ('00000000-0000-4000-8000-000000000303', '00000000-0000-4000-8000-000000000001', 'Foo', null, '2026-01-03T00:00:00Z'),
+       ('00000000-0000-4000-8000-000000000302', '00000000-0000-4000-8000-000000000001', 'Foo', null, '2026-01-02T00:00:00Z'),
+       ('00000000-0000-4000-8000-000000000301', '00000000-0000-4000-8000-000000000001', 'Anchor', 'foo', '2026-01-01T00:00:00Z')`,
+    );
+    await runMigrations(db);
+    const { rows } = await pool.query(`select slug from notes order by created_at`);
+    expect(rows.map((r: { slug: string }) => r.slug)).toEqual(["foo", "foo-2", "foo-3"]);
+    for (const r of rows as Array<{ slug: string }>) expect(validateSlug(r.slug)).toBeNull();
+  });
+
+  it("SQL/TS 雙實作對照：純 ASCII 標題集合，0007 產物與 autoSlugFromTitle 全等", async () => {
+    const { pool, db } = await freshEmptyDb();
+    await applyMigrationsThrough(pool, idxOfTag("0006_user-handle"));
+    // 每個標題各配一個 owner——退位形（new/空符號/uuid 形）全落 'untitled'，同 owner 會
+    // 觸發去重尾碼、對照就失真。集合覆蓋：一般、大小寫混合、分隔摺疊、保留字、全符號、
+    // uuid 形、截 60（Task 1 同值）、截斷點落 dash（Task 1 同值）。
+    const titles = [
+      "Hello World",
+      "MiXeD CaSe 42",
+      "  spaces   and---dashes  ",
+      "new",
+      "!!! ??? ***",
+      "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+      // -<uuid> 尾綴形（非整串 uuid）——SQL 版少了這條檢查會產出與舊 /notes/<vanity>-<uuid>
+      // 撞號的值，TS 版則退 untitled（突變審查 G3：整串 uuid 案殺不掉這刀）
+      "Meeting f47ac10b-58cc-4372-a567-0e02b2c3d479",
+      "Q3 Planning Meeting Notes For The Whole Engineering Organization Retro",
+      "a".repeat(59) + " bbbb",
+    ];
+    for (let i = 0; i < titles.length; i++) {
+      const ownerId = `00000000-0000-4000-8000-0000000004${String(i).padStart(2, "0")}`;
+      await pool.query(`insert into users (id, email, display_name) values ($1, $2, 'U')`, [ownerId, `u${i}@x.example`]);
+      await pool.query(`insert into notes (owner_id, title, slug) values ($1, $2, null)`, [ownerId, titles[i]]);
+    }
+    await runMigrations(db);
+    for (const title of titles) {
+      const { rows } = await pool.query(`select slug from notes where title = $1`, [title]);
+      expect(rows[0].slug, JSON.stringify(title)).toBe(autoSlugFromTitle(title));
+    }
+  });
+
+  it("去重尾碼重截：長 base（59 字元）同 owner 撞名 → 第二篇恰 60 字元、與 TS 版同界", async () => {
+    // 「重截基底使總長 ≤60」是 SQL/TS 兩份實作唯一必須對齊的算術；短 base（foo/untitled）
+    // 的去重案測不到它——把 left(base, 60-length(...)) 改回 left(base, 60) 原本全綠
+    // （突變審查 G4／讀碼審查 M2）。
+    const { pool, db } = await freshEmptyDb();
+    await applyMigrationsThrough(pool, idxOfTag("0006_user-handle"));
+    await pool.query(`insert into users (id, email, display_name) values ('00000000-0000-4000-8000-000000000001', 'o@x.example', 'O')`);
+    const longTitle = "a".repeat(59) + " bbbb"; // 派生 base＝a×59（Task 1／矩陣測試同值）
+    await pool.query(
+      `insert into notes (id, owner_id, title, slug, created_at) values
+       ('00000000-0000-4000-8000-000000000601', '00000000-0000-4000-8000-000000000001', $1, null, '2026-01-01T00:00:00Z'),
+       ('00000000-0000-4000-8000-000000000602', '00000000-0000-4000-8000-000000000001', $1, null, '2026-01-02T00:00:00Z')`,
+      [longTitle],
+    );
+    await runMigrations(db);
+    const { rows } = await pool.query(`select slug from notes order by created_at`);
+    expect(rows[0].slug).toBe("a".repeat(59));
+    expect(rows[1].slug).toBe("a".repeat(58) + "-2"); // 58 + '-2' ＝ 恰 60
+    for (const r of rows as Array<{ slug: string }>) expect(validateSlug(r.slug)).toBeNull();
+  });
+
+  it("非 ASCII 標題 → SQL 版一律 untitled 形（分岔政策；TS 版對 İstanbul 會給 istanbul——刻意分歧）", async () => {
+    const { pool, db } = await freshEmptyDb();
+    await applyMigrationsThrough(pool, idxOfTag("0006_user-handle"));
+    await pool.query(`insert into users (id, email, display_name) values ('00000000-0000-4000-8000-000000000001', 'o@x.example', 'O')`);
+    // 同 owner 兩篇非 ASCII：第二篇吃去重尾碼——順帶釘 fallback 也走 owner 範圍去重
+    await pool.query(
+      `insert into notes (id, owner_id, title, slug, created_at) values
+       ('00000000-0000-4000-8000-000000000501', '00000000-0000-4000-8000-000000000001', '日本語メモ', null, '2026-01-01T00:00:00Z'),
+       ('00000000-0000-4000-8000-000000000502', '00000000-0000-4000-8000-000000000001', 'İstanbul', null, '2026-01-02T00:00:00Z')`,
+    );
+    await runMigrations(db);
+    const { rows } = await pool.query(`select slug from notes order by created_at`);
+    expect(rows.map((r: { slug: string }) => r.slug)).toEqual(["untitled", "untitled-2"]);
+  });
+
+  it("查詢真的用得上索引：舊形查找計畫走 notes_legacy_slug_idx（比照 #18 慣例）", async () => {
+    const { pool, db } = await freshEmptyDb();
+    await applyMigrationsThrough(pool, idxOfTag("0006_user-handle"));
+    await pool.query(`insert into users (id, email, display_name) values ('00000000-0000-4000-8000-000000000001', 'o@x.example', 'O')`);
+    await pool.query(
+      `insert into notes (owner_id, title, slug)
+       select '00000000-0000-4000-8000-000000000001', 'T' || g, 's' || g from generate_series(1, 5000) g`,
+    );
+    await runMigrations(db); // 快照把 5000 個 slug 凍進 legacy_slug
+    await pool.query(`analyze notes`);
+    const { rows } = await pool.query(`explain (costs off) select id from notes where legacy_slug = 's1'`);
+    expect(rows.map((r: Record<string, string>) => r["QUERY PLAN"]).join("\n")).toContain("notes_legacy_slug_idx");
+  });
+
+  it("0007 檔內無 CONCURRENTLY／行首 COMMIT（單一 tx 前提的輔助 grep，比照 0006）", () => {
+    const entry = journalEntries().find((e) => e.tag.startsWith("0007"));
+    expect(entry, "0007 migration 必須存在").toBeDefined();
+    const sql = readFileSync(path.join(drizzleDirForTest, `${entry!.tag}.sql`), "utf8");
+    expect(sql.toUpperCase()).not.toContain("CONCURRENTLY");
     expect(sql).not.toMatch(/^\s*COMMIT\s*;/im);
   });
 });

@@ -40,19 +40,37 @@ export async function loadNoteAudience(db: Db, noteId: string): Promise<Set<stri
  * 解析使用者對某篇 note 的角色：note 不存在（或 noteId 非合法 UUID 格式）→ 'none'；
  * 使用者是 owner → 'owner'；否則查 note_shares 表的 role（'editor'/'viewer'）；
  * 都沒有 → 'none'。
+ *
+ * 簽名凍結（#122 spec §3a M6-3）：collab/server、ai、links 等 6+ 個熱路徑呼叫點都吃
+ * 這個形——需要 ownerId 的呼叫端（目前只有 PATCH notes 的 auto slug 探測）改用
+ * `resolveRoleWithOwner`，不動這裡。
  */
 export async function resolveRole(db: Db, userId: string, noteId: string): Promise<Role> {
-  if (!UUID_RE.test(noteId)) return "none";
+  const { role } = await resolveRoleWithOwner(db, userId, noteId);
+  return role;
+}
+
+/**
+ * `resolveRole` 的姊妹函式（#122 spec §3a）：同一次 SELECT 順手帶出 owner_id——auto
+ * slug 的 owner 範圍探測需要它，不必多查一次。`role === "none"`（含 note 不存在、
+ * id 格式非法）時 ownerId 一律 null：無權限者連 owner 是誰都不該拿到。
+ */
+export async function resolveRoleWithOwner(
+  db: Db,
+  userId: string,
+  noteId: string,
+): Promise<{ role: Role; ownerId: string | null }> {
+  if (!UUID_RE.test(noteId)) return { role: "none", ownerId: null };
 
   const [note] = await db.select({ ownerId: notes.ownerId }).from(notes).where(eq(notes.id, noteId)).limit(1);
-  if (!note) return "none";
-  if (note.ownerId === userId) return "owner";
+  if (!note) return { role: "none", ownerId: null };
+  if (note.ownerId === userId) return { role: "owner", ownerId: note.ownerId };
 
   const [share] = await db
     .select({ role: noteShares.role })
     .from(noteShares)
     .where(and(eq(noteShares.noteId, noteId), eq(noteShares.userId, userId)))
     .limit(1);
-  if (!share) return "none";
-  return share.role as Role;
+  if (!share) return { role: "none", ownerId: null };
+  return { role: share.role as Role, ownerId: note.ownerId };
 }

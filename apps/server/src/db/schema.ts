@@ -80,12 +80,26 @@ export const notes = pgTable("notes", {
   id: uuid().primaryKey().defaultRandom(),
   ownerId: uuid("owner_id").notNull().references(() => users.id, { onDelete: "restrict" }),
   title: text().notNull().default("Untitled"),
-  // 自訂網址代稱（spec §11.4）：全域唯一但可為 NULL（未設定），且多筆 NULL 彼此不視為
-  // 衝突——一般 unique index 會把 NULL 當作互異值處理（符合我們要的語意），但寫成
-  // partial index `WHERE slug IS NOT NULL` 更明確表達意圖，也讓索引本身更小。存進來的
-  // 值一律已經過 `normalizeSlug`（NFC + 小寫），查找（GET /api/notes/:ref）與寫入
-  // （PATCH）都用正規化後的字串比對，不依賴 pg collation 做大小寫/正規化處理。
-  slug: text(),
+  // 網址代稱（#122 spec §3a 起 per-user）：NOT NULL——auto（slug_is_custom=false，跟標題
+  // 走、由 autoSlugFromTitle 派生＋owner 範圍去重）或自訂（=true，PATCH 顯式設定）。
+  // 唯一範圍是 `(owner_id, slug)`（notes_owner_slug_idx），不再全域。存進來的值一律已過
+  // `normalizeSlug`（NFC + 小寫）。DB default 兩個承重理由（比照 users.handle）：①回滾
+  // 兜底（0007 之後退回舊映像，舊碼 POST 不帶 slug 仍能建列）；②既有測試 db.insert(notes)
+  // 不帶 slug——沒有 default，drizzle insert 型別會把它變必填。
+  slug: text()
+    .notNull()
+    .default(sql`'untitled-' || substr(gen_random_uuid()::text, 1, 8)`),
+  // slug 是否為使用者顯式自訂：false＝auto（title PATCH 會重算）、true＝PATCH {slug:string}
+  // 設定過（title 變更不動 slug；{slug:null} 翻回 false）。
+  slugIsCustom: boolean("slug_is_custom").notNull().default(false),
+  // 單層自訂 redirect（spec §3a：只記「自訂變更」——custom→custom 與 custom→auto；auto
+  // 重算不寫，否則打字殘影會灌出 untitled 洪水）。查找走 notes_owner_prev_slug_idx。
+  prevSlug: text("prev_slug"),
+  // 0007 當下的舊全域 slug 凍結快照——舊形 `/notes/<slug>` 永久相容的唯一資料來源。
+  // **不可變**：任何 UPDATE 改動它會被 DB trigger `notes_legacy_slug_guard`（0007 手寫
+  // SQL，drizzle schema 表達不了）RAISE EXCEPTION 擋下；日後維護/migration 要動它必須
+  // 先 DROP TRIGGER。新列恆 NULL。
+  legacySlug: text("legacy_slug"),
   // #72 公開分享連結：`base64url(randomBytes(32))`（43 字元）。**存原文不存 hash**
   // ——token 授權的 note_states 與它同一個 DB，hash 化不改變攻擊者能力邊界，而
   // 「owner 隨時可複製現行連結」是產品需求（spec D1；與 AI 金鑰不同，那是第三方
@@ -99,8 +113,16 @@ export const notes = pgTable("notes", {
   deletedAt: timestamp("deleted_at", { withTimezone: true }),   // 保留欄位；v0.1 硬刪
 }, t => [
   index("notes_owner_idx").on(t.ownerId),   // GET /api/notes 自有分支（owner_id = $u）用
-  uniqueIndex("notes_slug_idx").on(t.slug).where(sql`${t.slug} is not null`),
-  // 公開端點以 token 反查筆記用；partial＝NULL 彼此不衝突（比照 notes_slug_idx）。
+  // per-user 唯一（#122）：同 owner 不重複、跨 owner 可同名。PATCH 的 slug 寫入
+  // 不 pre-check，交給這把索引裁決（自訂→409 slug_taken；auto→重探測重發）。
+  uniqueIndex("notes_owner_slug_idx").on(t.ownerId, t.slug),
+  // 舊形 `/notes/<slug>` 查找專用；快照值繼承自舊全域唯一索引，故全域唯一仍成立
+  // （trigger 保證不再變動、新列 NULL 不佔位）。
+  uniqueIndex("notes_legacy_slug_idx").on(t.legacySlug).where(sql`${t.legacySlug} is not null`),
+  // by-path miss 後的 prev_slug 補查（0 或 >1 命中一律 404）——非唯一（同 owner 的多篇
+  // 筆記可能先後釋放同一個名字），>1 的判定靠查詢端。
+  index("notes_owner_prev_slug_idx").on(t.ownerId, t.prevSlug).where(sql`${t.prevSlug} is not null`),
+  // 公開端點以 token 反查筆記用；partial＝NULL 彼此不衝突。
   uniqueIndex("notes_public_token_idx").on(t.publicToken).where(sql`${t.publicToken} is not null`),
 ]);
 
