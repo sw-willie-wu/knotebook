@@ -5,6 +5,7 @@ import {
   titleSlug,
   extractRefUuid,
   canonicalNotePath,
+  autoSlugFromTitle,
 } from "@knotebook/shared";
 
 describe("normalizeSlug", () => {
@@ -119,6 +120,78 @@ describe("titleSlug", () => {
 
   it("空字串 → 空字串", () => {
     expect(titleSlug("")).toBe("");
+  });
+});
+
+describe("autoSlugFromTitle", () => {
+  it("正常標題 → 小寫 slug", () => {
+    expect(autoSlugFromTitle("Hello World")).toBe("hello-world");
+  });
+
+  it("合法非 ASCII 候選原封不動穿過首驗——不剝重音（與 0007 SQL 版刻意分歧）", () => {
+    expect(autoSlugFromTitle("École Normale")).toBe("école-normale");
+    expect(autoSlugFromTitle("Tiếng Việt")).toBe("tiếng-việt");
+    expect(autoSlugFromTitle("你好世界")).toBe("你好世界");
+  });
+
+  it("uuid 形標題 → untitled（uuid_like 擋下、剝 mark 救不了）", () => {
+    expect(autoSlugFromTitle("f47ac10b-58cc-4372-a567-0e02b2c3d479")).toBe("untitled");
+    expect(autoSlugFromTitle("Report 3f2504e0-4f89-11d3-9a0c-0305e82c3301")).toBe("untitled");
+  });
+
+  it("İstanbul → NFD 剝 \\p{M} 後過驗 → istanbul", () => {
+    // normalizeSlug("İ") 產 i + U+0307（\p{M}）→ 首驗 charset 紅；剝 mark 後合法
+    expect(autoSlugFromTitle("İstanbul")).toBe("istanbul");
+  });
+
+  it("首驗失敗才進 fallback，且剝 mark 先 NFD：同串的預組合重音一併被剝", () => {
+    // 只有 İ 肇事，但 fallback 是整串去變音符——Café 的 é 一起變 e
+    expect(autoSlugFromTitle("İstanbul Café")).toBe("istanbul-cafe");
+  });
+
+  it("剝 mark 後回 NFC：產物是 normalizeSlug 的固定點", () => {
+    // NFD 會把諺文拆成 conjoining jamo（\p{Lo}，不是 mark 不會被剝）——
+    // 少了尾端 NFC 就會回分解形，與 DB 唯一比對用的 NFC 形對不上
+    const out = autoSlugFromTitle("İ한글");
+    expect(out).toBe("i한글");
+    expect(normalizeSlug(out)).toBe(out);
+  });
+
+  it("保留字標題 new → untitled", () => {
+    expect(autoSlugFromTitle("new")).toBe("untitled");
+    expect(autoSlugFromTitle("New")).toBe("untitled");
+  });
+
+  it("空標題 → untitled", () => {
+    expect(autoSlugFromTitle("")).toBe("untitled");
+  });
+
+  it("全符號標題 → untitled", () => {
+    expect(autoSlugFromTitle("!!! ??? ***")).toBe("untitled");
+  });
+
+  it("untitled 本身是合法 slug（fallback 不會自我打架）", () => {
+    expect(validateSlug("untitled")).toBeNull();
+  });
+
+  it("截長：>60 字元標題 → 截 60（與 0007 SQL 版同界）", () => {
+    // 此組輸入/期望值供 0007 的 SQL/TS 雙實作對照複用（同 PR Task 2）——改值要兩處一起
+    const title = "Q3 Planning Meeting Notes For The Whole Engineering Organization Retro";
+    expect(autoSlugFromTitle(title)).toBe("q3-planning-meeting-notes-for-the-whole-engineering-organiza");
+  });
+
+  it("截斷點恰落在 dash 之後 → 去尾 dash 而非退 untitled", () => {
+    // 第 60 個 code point 正是 dash；titleSlug 若少了「截斷後去尾 dash」那步，
+    // validateSlug 會判 dash → 整串退 untitled（0007 對照亦複用此值）
+    expect(autoSlugFromTitle("a".repeat(59) + " bbbb")).toBe("a".repeat(59));
+  });
+
+  it("性質：未被精確釘死的輸入，產物恆過 validateSlug 且為 normalizeSlug 固定點", () => {
+    for (const t of ["Ünsal Çelik Ötesi", "𠮷".repeat(61), "ヘッダー The-Header", "école--fancy!!"]) {
+      const out = autoSlugFromTitle(t);
+      expect(validateSlug(out)).toBeNull();
+      expect(normalizeSlug(out)).toBe(out);
+    }
   });
 });
 

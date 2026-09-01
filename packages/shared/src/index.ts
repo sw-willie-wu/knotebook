@@ -348,9 +348,10 @@ export function validateHandle(normalized: string): "length" | "charset" | "dash
 }
 
 /**
- * 從標題產生「vanity slug」——僅供 `canonicalNotePath` 組裝好看、非唯一的 URL 片段
- * （真正查找靠 `<id>` 尾碼，見 `extractRefUuid`），因此刻意不做大小寫正規化
- * （與需要唯一比對的自訂 slug 不同，那條路徑一律經 `normalizeSlug`）。
+ * 從標題產生 slug 片段。兩個消費端：`canonicalNotePath` 的 vanity 片段（好看、
+ * 非唯一，真正查找靠 `<id>` 尾碼，見 `extractRefUuid`）；`autoSlugFromTitle` 的
+ * 原料（後續進 normalizeSlug→validateSlug 漏斗）。刻意不做大小寫正規化——vanity
+ * 路徑要保留原大小寫；需要唯一比對的路徑由消費端自行 `normalizeSlug`。
  * pipeline：NFC → 保留 `\p{L}\p{N}`，其餘一段段轉單一 `-` → 去頭尾 `-` →
  * 以 code point（`Array.from`，避免切斷 surrogate pair）截斷至 60 → 截斷後再去尾
  * `-` 一次（截斷點可能恰好落在 `-` 後）。全空 → `""`。
@@ -364,6 +365,23 @@ export function titleSlug(title: string): string {
   }
   s = s.replace(/-+$/, "");
   return s;
+}
+
+/**
+ * 從標題產生 auto slug（#122 spec §3a：`slug_is_custom=false` 的筆記，slug 跟
+ * 標題走）。漏斗：`titleSlug` → `normalizeSlug` → `validateSlug`；合法候選
+ * **原封不動**放行（重音、CJK 保留）。首驗不過時才進 fallback：NFD 剝 `\p{M}`
+ * 再 NFC 回來重驗——這會把**整串**的變音符一併剝掉（`İstanbul Café` →
+ * `istanbul-cafe`），不只肇事字元；仍不過（uuid 形、保留字、空、全符號…）→
+ * 固定退 `"untitled"`。產物恆為 `normalizeSlug` 的固定點（進 DB 唯一比對的
+ * 前提）。唯一性去重是呼叫端的事——本函式是純函式。
+ */
+export function autoSlugFromTitle(title: string): string {
+  const candidate = normalizeSlug(titleSlug(title));
+  if (validateSlug(candidate) === null) return candidate;
+  const stripped = candidate.normalize("NFD").replace(/\p{M}+/gu, "").normalize("NFC");
+  if (validateSlug(stripped) === null) return stripped;
+  return "untitled";
 }
 
 /**
