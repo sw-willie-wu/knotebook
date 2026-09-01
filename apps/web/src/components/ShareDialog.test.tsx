@@ -26,7 +26,10 @@ const NOTE: NoteDto = {
   role: "owner",
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
-  slug: null,
+  slug: "my-note",
+  slugIsCustom: false,
+  prevSlug: null,
+  ownerHandle: "tester",
 };
 
 const SHARE: ShareDto = {
@@ -182,7 +185,7 @@ describe("ShareDialog", () => {
   });
 
   it("成功變更 slug → replaceState 到新的 canonical 網址並寫回本頁快取", async () => {
-    const updated: NoteDto = { ...NOTE, slug: "brand-new" };
+    const updated: NoteDto = { ...NOTE, slug: "brand-new", slugIsCustom: true };
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method ?? "GET").toUpperCase();
@@ -213,8 +216,9 @@ describe("ShareDialog", () => {
   });
 
   it("清除按鈕送出 slug:null", async () => {
-    const noteWithSlug: NoteDto = { ...NOTE, slug: "existing-slug" };
-    const cleared: NoteDto = { ...noteWithSlug, slug: null };
+    const noteWithSlug: NoteDto = { ...NOTE, slug: "existing-slug", slugIsCustom: true };
+    // #122：清除＝回 auto 形（server 以現行 title 重算），不再是 null
+    const cleared: NoteDto = { ...noteWithSlug, slug: "my-note", slugIsCustom: false };
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method ?? "GET").toUpperCase();
@@ -376,7 +380,7 @@ describe("ShareDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Copy internal link" }));
 
     await waitFor(() =>
-      expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/notes/My-Note-${NOTE.id}`),
+      expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/notes/my-note`),
     );
     await waitFor(() => expect(screen.getByText("Link copied to clipboard.")).toBeInTheDocument());
   });
@@ -399,7 +403,8 @@ describe("ShareDialog", () => {
     const manual = await screen.findByLabelText(
       "Couldn't copy automatically — select the link below and copy it yourself.",
     );
-    expect(manual).toHaveValue(`${window.location.origin}/notes/My-Note-${NOTE.id}`);
+    // #122：slug 恆為字串 → canonicalNotePath 走 /notes/<slug> 形（Task 5b 改 /n/ 形）
+    expect(manual).toHaveValue(`${window.location.origin}/notes/my-note`);
     expect(manual).toHaveAttribute("readonly");
   });
 

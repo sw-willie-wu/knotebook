@@ -57,6 +57,9 @@ const OWNER_NOTE: NoteDto = {
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
   slug: "custom-slug",
+  slugIsCustom: true,
+  prevSlug: null,
+  ownerHandle: "owner-one",
 };
 
 const SHARED_NOTE: NoteDto = {
@@ -66,7 +69,10 @@ const SHARED_NOTE: NoteDto = {
   role: "editor",
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
-  slug: null,
+  slug: "no-slug-note",
+  slugIsCustom: false,
+  prevSlug: null,
+  ownerHandle: "owner-nine",
 };
 
 // 第三篇筆記，只用於「三分組/過濾/最近前 2」那幾案——server 已按
@@ -80,6 +86,9 @@ const THIRD_OWNER_NOTE: NoteDto = {
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2025-12-01T00:00:00.000Z",
   slug: "third-owner-note",
+  slugIsCustom: false,
+  prevSlug: null,
+  ownerHandle: "owner-one",
 };
 
 function stubNotesFetch(notes: NoteDto[]) {

@@ -47,8 +47,14 @@ export interface NoteDto {
   role: Role;
   createdAt: string;
   updatedAt: string;
-  /** 自訂網址代稱（spec §11.4）；未設定為 `null`（Task 8：收緊為必填，server 的 toNoteDto 全點回填）。 */
-  slug: string | null;
+  /** 網址代稱（#122 spec §3a 起 NOT NULL＋per-user 唯一）：auto（跟標題走）或自訂，恆為字串。 */
+  slug: string;
+  /** owner 的 username（/n/<ownerHandle>/<slug> 的第一段）；editor PATCH 回應也帶 owner 的、非操作者的。 */
+  ownerHandle: string;
+  /** slug 形態：false＝auto（title 變更會重算）、true＝顯式自訂（title 變更不動 slug）。 */
+  slugIsCustom: boolean;
+  /** 單層自訂 redirect 來源（只記自訂變更；無則 null）——by-path miss 後的補查面。 */
+  prevSlug: string | null;
 }
 
 // 分享名單上的角色只會是 'editor'/'viewer'——note_shares 表的 DB check constraint
@@ -69,7 +75,9 @@ export interface ShareDto {
 export interface BacklinkDto {
   id: string;
   title: string;
-  slug: string | null;
+  slug: string;
+  /** 來源筆記 owner 的 username——BacklinksSection 組 /n/ 連結用（#122）。 */
+  ownerHandle: string;
 }
 
 /** 圖片上傳單檔大小上限（bytes，Plan 3）：10 MiB，超過回 `file_too_large`（413）。 */

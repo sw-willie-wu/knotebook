@@ -23,7 +23,10 @@ const NOTE: NoteDto = {
   role: "owner",
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
-  slug: null,
+  slug: "old-title",
+  slugIsCustom: false,
+  prevSlug: null,
+  ownerHandle: "tester",
 };
 
 function renderTitle(props: Partial<{ note: NoteDto; readOnly: boolean; cacheRef: string }> = {}) {
@@ -37,8 +40,10 @@ function renderTitle(props: Partial<{ note: NoteDto; readOnly: boolean; cacheRef
   return queryClient;
 }
 
-/** PATCH 回應：server 回的是整份更新後的 NoteDto。 */
-function patchOk(title: string, slug: string | null = null) {
+/** PATCH 回應：server 回的是整份更新後的 NoteDto。預設沿用原 slug（多數案不關心網址）；
+ * 要驗「title 變更→auto slug 重算→網址收斂」的案自行傳新 slug（真 server 對
+ * slugIsCustom=false 必重算，stub 不自動模擬這件事）。 */
+function patchOk(title: string, slug: string = NOTE.slug) {
   return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ ...NOTE, title, slug }) });
 }
 
@@ -112,14 +117,14 @@ describe("TitleInput", () => {
   it("存檔成功後 replaceState 到新的 canonical 網址並更新本頁的 ['note', ref] 快取", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(() => Promise.resolve(patchOk("Brand New"))),
+      vi.fn(() => Promise.resolve(patchOk("Brand New", "brand-new"))),
     );
 
     const queryClient = renderTitle({ cacheRef: NOTE.id });
     fireEvent.change(screen.getByLabelText("Note title"), { target: { value: "Brand New" } });
     fireEvent.blur(screen.getByLabelText("Note title"));
 
-    await waitFor(() => expect(window.location.pathname).toBe(`/notes/Brand-New-${NOTE.id}`));
+    await waitFor(() => expect(window.location.pathname).toBe("/notes/brand-new"));
     expect(queryClient.getQueryData<NoteDto>(["note", NOTE.id])?.title).toBe("Brand New");
   });
 
@@ -216,9 +221,9 @@ describe("TitleInput", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
     fireEvent.change(input, { target: { value: "Saved and more" } });
-    settle(patchOk("Saved"));
+    settle(patchOk("Saved", "saved"));
 
-    await waitFor(() => expect(window.location.pathname).toContain("Saved-"));
+    await waitFor(() => expect(window.location.pathname).toBe("/notes/saved"));
     expect(input).toHaveValue("Saved and more");
   });
 

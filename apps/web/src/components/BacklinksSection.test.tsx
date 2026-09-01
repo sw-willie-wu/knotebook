@@ -39,8 +39,8 @@ function renderSection(noteId: string | undefined) {
 const NOTE_ID = "11111111-1111-1111-1111-111111111111";
 
 const BACKLINKS: BacklinkDto[] = [
-  { id: "22222222-2222-2222-2222-222222222222", title: "Alpha", slug: "alpha" },
-  { id: "33333333-3333-3333-3333-333333333333", title: "Beta", slug: null },
+  { id: "22222222-2222-2222-2222-222222222222", title: "Alpha", slug: "alpha", ownerHandle: "tester" },
+  { id: "33333333-3333-3333-3333-333333333333", title: "Beta", slug: "beta", ownerHandle: "tester" },
 ];
 
 describe("BacklinksSection", () => {

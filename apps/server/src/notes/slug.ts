@@ -78,13 +78,14 @@ export async function deriveUniqueAutoSlug(db: Db, ownerId: string, noteId: stri
 }
 
 /**
- * `GET /api/notes/:ref` 的 ref 解析（spec §11.4 逐字，序位即優先序）：
- * 1. `normalizeSlug(ref)` 精確比對 `notes.slug` 欄位——命中即回該筆 note 的 id。
- *    ⚠ #122 Task 2 後的**中間態**：slug 已改 per-user 唯一，跨 owner 同名時這裡的
- *    `limit(1)` 命中哪一筆是不確定的（可能解到別人的→404）。Task 3 會把本分支改成
- *    **只查 legacy_slug**（全域唯一凍結快照）——在那之前這是已知且刻意的暫態。
- * 2. 未命中 → `extractRefUuid(ref)` 擷取尾碼/整串 uuid（涵蓋純 uuid 與
- *    `<vanity>-<uuid>` 兩種形式，見 `canonicalNotePath`）。
+ * 舊形 `GET /api/notes/:ref` 的 ref 解析（#122 spec §3a 起，序位即優先序）：
+ * 1. `normalizeSlug(ref)` 精確比對 **`notes.legacy_slug`**（0007 凍結快照，全域唯一、
+ *    trigger 保證不可變）——**刻意不查現行 `notes.slug`**：slug 已是 per-user 唯一，
+ *    跨 owner 同名時全域查找沒有確定答案；舊形連結凍結在 0007 當下的世界。
+ *    「A 的 legacy 與 B 之後設的同名現行 custom 並存 → `/notes/<名>` 解到 A」＝
+ *    設計意圖（劫持反例測試釘住），新形網址走 by-path 不經這裡。
+ * 2. 未命中 → `extractRefUuid(ref)` 擷取尾碼/整串 uuid（涵蓋純 uuid 與舊版
+ *    `<vanity>-<uuid>` 兩種形式）——這使 0007 之前發出去的所有連結永久可解。
  * 3. 兩者皆失敗 → null，呼叫端一律映射成 404 `not_found`（防列舉，不區分
  *    「slug 不存在」與「格式看起來不像 uuid」）。
  *
@@ -93,7 +94,7 @@ export async function deriveUniqueAutoSlug(db: Db, ownerId: string, noteId: stri
  */
 export async function resolveNoteIdFromRef(db: Db, ref: string): Promise<string | null> {
   const normalized = normalizeSlug(ref);
-  const [bySlug] = await db.select({ id: notes.id }).from(notes).where(eq(notes.slug, normalized)).limit(1);
-  if (bySlug) return bySlug.id;
+  const [byLegacy] = await db.select({ id: notes.id }).from(notes).where(eq(notes.legacySlug, normalized)).limit(1);
+  if (byLegacy) return byLegacy.id;
   return extractRefUuid(ref);
 }

@@ -33,6 +33,9 @@ const OWNER_NOTE: NoteDto = {
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
   slug: "my-note",
+  slugIsCustom: true,
+  prevSlug: null,
+  ownerHandle: "tester",
 };
 
 const CONNECTED: CollabState = { phase: "connected", role: "owner" };

@@ -70,7 +70,7 @@ describe("PATCH /api/notes/:id — slug", () => {
     expect(clearRes.json()).toMatchObject({ slug: "stay-title" });
   });
 
-  it("NFD 變體 ref 也能查到以 NFC 儲存的 slug（normalizeSlug 兩邊都 NFC 合成後比對）", async () => {
+  it("NFD 變體也解得到以 NFC 儲存的 slug——#122 起這條語意由 by-path 承接（normalizeSlug 兩邊 NFC 合成後比對）", async () => {
     const { app, db } = await buildTestApp();
     const owner = await insertUser(db, { email: "owner-slug3@example.com" });
     const cookie = await cookieFor(owner.id);
@@ -91,7 +91,7 @@ describe("PATCH /api/notes/:id — slug", () => {
 
     const res = await app.inject({
       method: "GET",
-      url: `/api/notes/${encodeURIComponent(nfd)}`,
+      url: `/api/notes/by-path/${owner.handle}/${encodeURIComponent(nfd)}`,
       cookies: { [SESSION_COOKIE]: cookie },
     });
     expect(res.statusCode).toBe(200);
@@ -299,21 +299,66 @@ describe("GET /api/notes/:ref", () => {
     expect(res.json()).toMatchObject({ id: note.id });
   });
 
-  it("slug ref 查得到對應筆記", async () => {
+  it("#122：舊形 ref **只查 legacy_slug**——現行 slug 不再由 /notes/:ref 解析；劫持反例解到凍結那篇", async () => {
     const { app, db } = await buildTestApp();
     const owner = await insertUser(db, { email: "owner-ref2@example.com" });
     const cookie = await cookieFor(owner.id);
-    const note = (await app.inject({ method: "POST", url: "/api/notes", cookies: { [SESSION_COOKIE]: cookie }, payload: {} })).json();
-    await app.inject({
-      method: "PATCH",
-      url: `/api/notes/${note.id}`,
-      cookies: { [SESSION_COOKIE]: cookie },
-      payload: { slug: "ref-lookup" },
-    });
 
-    const res = await app.inject({ method: "GET", url: "/api/notes/ref-lookup", cookies: { [SESSION_COOKIE]: cookie } });
+    // A＝0007 之前就存在的筆記（legacy 快照非 NULL）——測試直插模擬（INSERT 不受
+    // trigger 擋，trigger 只鎖 UPDATE；生產中 legacy 只由 0007 的②寫入）。
+    const [noteA] = await db
+      .insert(notes)
+      .values({ ownerId: owner.id, title: "Frozen", slug: "frozen-current", legacySlug: "frozen-name" })
+      .returning();
+    // B＝之後才把同名設成**現行** custom 的筆記
+    const noteB = (await app.inject({ method: "POST", url: "/api/notes", cookies: { [SESSION_COOKIE]: cookie }, payload: {} })).json();
+    const setRes = await app.inject({
+      method: "PATCH",
+      url: `/api/notes/${noteB.id}`,
+      cookies: { [SESSION_COOKIE]: cookie },
+      payload: { slug: "frozen-name" },
+    });
+    expect(setRes.statusCode).toBe(200);
+
+    // 舊形 `/notes/frozen-name` 解到 A（legacy 凍結）而非 B（現行 custom）＝設計意圖：
+    // 舊連結凍結在 0007 當下的世界，B 的新名字走 by-path。
+    const res = await app.inject({ method: "GET", url: "/api/notes/frozen-name", cookies: { [SESSION_COOKIE]: cookie } });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ id: note.id, slug: "ref-lookup" });
+    expect(res.json()).toMatchObject({ id: noteA.id });
+
+    // frozen-current 是 **A 的**現行 slug、也非任何筆記的 legacy——舊形查它必 404，
+    // 這條就是「不查 notes.slug」的守衛（實作若改成 or(legacy, slug) 這裡會 200）。
+    const missRes = await app.inject({ method: "GET", url: "/api/notes/frozen-current", cookies: { [SESSION_COOKIE]: cookie } });
+    expect(missRes.statusCode).toBe(404);
+  });
+
+  it("legacy 查找也過 normalizeSlug：大寫與 NFD 變體都解得到（快照存 NFC 小寫）", async () => {
+    // 原本守著這條的 NFD 案在 #122 搬去了 by-path——legacy 分支必須自己接手（突變審查
+    // F2／讀碼審查 M1：拿掉 normalizeSlug(ref) 原本全套仍綠）。舊形連結的非正規化來源
+    // 是真實的：使用者手打大寫、macOS/輸入法貼上 NFD。
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-ref-nfd@example.com" });
+    const cookie = await cookieFor(owner.id);
+    const nfcLegacy = "caf\u00e9-legacy"; // U+00E9 合成形（NFC，快照儲存形）
+    const nfdVariant = "cafe\u0301-legacy"; // e + U+0301 combining acute（NFD 分解形）
+    // 全部用碼位逸出寫（比照本檔 normalizeSlug 案的慣例）：NFD 與 NFC 的差異不能被
+    // 編輯器/工具重新編碼時靜默合成掉。
+    expect(nfdVariant.normalize("NFC")).toBe(nfcLegacy); // fixture 自檢
+    expect(nfdVariant).not.toBe(nfcLegacy);
+    const [note] = await db
+      .insert(notes)
+      .values({ ownerId: owner.id, title: "Cafe", slug: "cafe-current", legacySlug: nfcLegacy })
+      .returning();
+
+    for (const variant of ["CAF\u00c9-LEGACY", nfdVariant]) {
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/notes/${encodeURIComponent(variant)}`,
+        cookies: { [SESSION_COOKIE]: cookie },
+      });
+      expect(res.statusCode, JSON.stringify(variant)).toBe(200);
+      expect(res.json()).toMatchObject({ id: note.id });
+    }
   });
 
   it("查無 slug 且非合法 uuid 格式 → 404", async () => {
@@ -705,6 +750,195 @@ describe("PATCH /api/notes/:id — #122 分流矩陣", () => {
     };
     walk(srcDir);
     expect(offenders).toEqual([]);
+  });
+});
+
+/**
+ * #122 PR2 Task 3：新形網址解析端點與 DTO 回填（spec §3b）。
+ */
+describe("GET /api/notes/by-path/:handle/:slug", () => {
+  it("命中＋正規化（handle 大小寫、slug 大小寫）＋**A5 同形**：回應與 GET /api/notes/:id 逐鍵相等", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-bp1@example.com" });
+    const cookie = await cookieFor(owner.id);
+    const note = (
+      await app.inject({ method: "POST", url: "/api/notes", cookies: { [SESSION_COOKIE]: cookie }, payload: { title: "Path Note" } })
+    ).json();
+    await app.inject({ method: "PATCH", url: `/api/notes/${note.id}`, cookies: { [SESSION_COOKIE]: cookie }, payload: { slug: "path-note" } });
+
+    // 大小寫變體都解得到（handle ASCII 小寫、slug normalizeSlug）
+    const upper = await app.inject({
+      method: "GET",
+      url: `/api/notes/by-path/${owner.handle.toUpperCase()}/PATH-NOTE`,
+      cookies: { [SESSION_COOKIE]: cookie },
+    });
+    expect(upper.statusCode).toBe(200);
+
+    // A5 前提：與 GET /api/notes/:id 同一個 toNoteDto——web 端拿 by-path 結果 seed
+    // ["note", id] 快取，形狀不同就是快取毒藥。深比對逐鍵相等（updatedAt 同一列同值）。
+    const byId = await app.inject({ method: "GET", url: `/api/notes/${note.id}`, cookies: { [SESSION_COOKIE]: cookie } });
+    expect(upper.json()).toEqual(byId.json());
+    expect(byId.json()).toMatchObject({ ownerHandle: owner.handle, slug: "path-note", slugIsCustom: true });
+  });
+
+  it("prev_slug 補查：恰 1 命中 → 200；0 命中 → 404；同 owner >1 命中 → 404（不猜）", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-bp2@example.com" });
+    const cookie = await cookieFor(owner.id);
+    const patch = (id: string, payload: object) =>
+      app.inject({ method: "PATCH", url: `/api/notes/${id}`, cookies: { [SESSION_COOKIE]: cookie }, payload });
+    const get = (path: string) =>
+      app.inject({ method: "GET", url: `/api/notes/by-path/${owner.handle}/${path}`, cookies: { [SESSION_COOKIE]: cookie } });
+
+    // 恰 1：custom→custom 改名留下單層 redirect
+    const a = (await app.inject({ method: "POST", url: "/api/notes", cookies: { [SESSION_COOKIE]: cookie }, payload: {} })).json();
+    expect((await patch(a.id, { slug: "old-name" })).statusCode).toBe(200);
+    expect((await patch(a.id, { slug: "new-name" })).statusCode).toBe(200); // prev = old-name
+    const hit = await get("old-name");
+    expect(hit.statusCode).toBe(200);
+    expect(hit.json()).toMatchObject({ id: a.id, slug: "new-name", prevSlug: "old-name" });
+
+    // 0 命中
+    const missZero = await get("never-existed");
+    expect(missZero.statusCode).toBe(404);
+
+    // >1：兩篇筆記先後用過同一個名字 → prev 同名 → 補查多義，一律 404。
+    // setup 的每次 PATCH 都斷 200——slugPatch 桶 10 次/10 分鐘，本案共用 6 次，未來
+    // 加案踩到節流時要在這裡先炸、不是讓 fixture 靜默失效（突變審查觀察）。
+    const b = (await app.inject({ method: "POST", url: "/api/notes", cookies: { [SESSION_COOKIE]: cookie }, payload: {} })).json();
+    expect((await patch(a.id, { slug: "dup-name" })).statusCode).toBe(200);
+    expect((await patch(a.id, { slug: "a-final" })).statusCode).toBe(200); // a.prev = dup-name
+    expect((await patch(b.id, { slug: "dup-name" })).statusCode).toBe(200); // dup-name 已被 a 釋放，b 可取
+    expect((await patch(b.id, { slug: "b-final" })).statusCode).toBe(200); // b.prev = dup-name
+    const missMulti = await get("dup-name");
+    expect(missMulti.statusCode).toBe(404);
+
+    // 404 **逐位元組同形**（spec §5.2 安全不變量；突變審查 F3：只釘 code 擋不住
+    // message 分岔）。現行實作 0 與 >1 走同一個 `length !== 1` 出口、此行恆真——
+    // 留著是**前瞻守衛**：將來有人把兩態拆成不同分支/訊息時它才生效；跨分支的
+    // 真同形守衛在權限案（role 分支 vs prev 分支的 raw body 相等）。
+    expect(missMulti.body).toBe(missZero.body);
+  });
+
+  it("被分享者用 **owner 的** handle 打 by-path → 200、role 是自己的、ownerHandle 是 owner 的", async () => {
+    // by-path 與 :ref 語意差最大的一格：URL 第一段是別人的 handle（讀碼審查 m7）。
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-bp4@example.com" });
+    const viewer = await insertUser(db, { email: "viewer-bp4@example.com" });
+    const ownerCookie = await cookieFor(owner.id);
+    const viewerCookie = await cookieFor(viewer.id);
+    const note = (await app.inject({ method: "POST", url: "/api/notes", cookies: { [SESSION_COOKIE]: ownerCookie }, payload: {} })).json();
+    await app.inject({
+      method: "PUT",
+      url: `/api/notes/${note.id}/shares`,
+      cookies: { [SESSION_COOKIE]: ownerCookie },
+      payload: { email: "viewer-bp4@example.com", role: "viewer" },
+    });
+    await app.inject({ method: "PATCH", url: `/api/notes/${note.id}`, cookies: { [SESSION_COOKIE]: ownerCookie }, payload: { slug: "shared-note" } });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/notes/by-path/${owner.handle}/shared-note`,
+      cookies: { [SESSION_COOKIE]: viewerCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ id: note.id, role: "viewer", ownerHandle: owner.handle });
+  });
+
+  it("權限 none → 404（同形防列舉）；prev 補查命中也走 resolveRole", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-bp3@example.com" });
+    const stranger = await insertUser(db, { email: "stranger-bp3@example.com" });
+    const ownerCookie = await cookieFor(owner.id);
+    const strangerCookie = await cookieFor(stranger.id);
+    const note = (await app.inject({ method: "POST", url: "/api/notes", cookies: { [SESSION_COOKIE]: ownerCookie }, payload: {} })).json();
+    await app.inject({ method: "PATCH", url: `/api/notes/${note.id}`, cookies: { [SESSION_COOKIE]: ownerCookie }, payload: { slug: "secret-a" } });
+    await app.inject({ method: "PATCH", url: `/api/notes/${note.id}`, cookies: { [SESSION_COOKIE]: ownerCookie }, payload: { slug: "secret-b" } });
+
+    // 現行命中與 prev 命中都不得對無權限者確認存在；且與「真的不存在」的 404 **逐位元組
+    // 同形**（spec §5.2；突變審查 F3）——無權限者拿不到任何「其實存在」的判別訊號。
+    const trueMiss = await app.inject({
+      method: "GET",
+      url: `/api/notes/by-path/${owner.handle}/definitely-not-a-note`,
+      cookies: { [SESSION_COOKIE]: strangerCookie },
+    });
+    expect(trueMiss.statusCode).toBe(404);
+    for (const path of ["secret-b", "secret-a"]) {
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/notes/by-path/${owner.handle}/${path}`,
+        cookies: { [SESSION_COOKIE]: strangerCookie },
+      });
+      expect(res.statusCode, path).toBe(404);
+      expect(res.body, path).toBe(trueMiss.body);
+    }
+  });
+});
+
+describe("#122 DTO 回填（ownerHandle/slugIsCustom/prevSlug）", () => {
+  it("POST：ownerHandle＝建立者 handle（A12，不補查）；slugIsCustom=false、prevSlug=null", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-dto1@example.com" });
+    const cookie = await cookieFor(owner.id);
+    const res = await app.inject({ method: "POST", url: "/api/notes", cookies: { [SESSION_COOKIE]: cookie }, payload: {} });
+    expect(res.json()).toMatchObject({ ownerHandle: owner.handle, slugIsCustom: false, prevSlug: null });
+  });
+
+  it("GET list：自有與被分享兩分支都帶**該篇 owner** 的 handle", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-dto2@example.com" });
+    const me = await insertUser(db, { email: "me-dto2@example.com" });
+    const ownerCookie = await cookieFor(owner.id);
+    const myCookie = await cookieFor(me.id);
+    const theirs = (await app.inject({ method: "POST", url: "/api/notes", cookies: { [SESSION_COOKIE]: ownerCookie }, payload: {} })).json();
+    await app.inject({
+      method: "PUT",
+      url: `/api/notes/${theirs.id}/shares`,
+      cookies: { [SESSION_COOKIE]: ownerCookie },
+      payload: { email: "me-dto2@example.com", role: "viewer" },
+    });
+    const mine = (await app.inject({ method: "POST", url: "/api/notes", cookies: { [SESSION_COOKIE]: myCookie }, payload: {} })).json();
+
+    const list = (await app.inject({ method: "GET", url: "/api/notes", cookies: { [SESSION_COOKIE]: myCookie } })).json() as Array<{
+      id: string;
+      ownerHandle: string;
+    }>;
+    expect(list.find(n => n.id === mine.id)?.ownerHandle).toBe(me.handle);
+    expect(list.find(n => n.id === theirs.id)?.ownerHandle).toBe(owner.handle); // 被分享分支＝人家的 handle
+  });
+
+  it("GET /api/notes/:ref（uuid）：帶 ownerHandle", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-dto3@example.com" });
+    const cookie = await cookieFor(owner.id);
+    const note = (await app.inject({ method: "POST", url: "/api/notes", cookies: { [SESSION_COOKIE]: cookie }, payload: {} })).json();
+    const res = await app.inject({ method: "GET", url: `/api/notes/${note.id}`, cookies: { [SESSION_COOKIE]: cookie } });
+    expect(res.json()).toMatchObject({ ownerHandle: owner.handle });
+  });
+
+  it("editor PATCH title：回應的 ownerHandle 是 **owner 的**、不是操作者的（returning 後補讀）", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-dto4@example.com" });
+    const editor = await insertUser(db, { email: "editor-dto4@example.com" });
+    const ownerCookie = await cookieFor(owner.id);
+    const editorCookie = await cookieFor(editor.id);
+    const note = (await app.inject({ method: "POST", url: "/api/notes", cookies: { [SESSION_COOKIE]: ownerCookie }, payload: {} })).json();
+    await app.inject({
+      method: "PUT",
+      url: `/api/notes/${note.id}/shares`,
+      cookies: { [SESSION_COOKIE]: ownerCookie },
+      payload: { email: "editor-dto4@example.com", role: "editor" },
+    });
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/notes/${note.id}`,
+      cookies: { [SESSION_COOKIE]: editorCookie },
+      payload: { title: "Editor Was Here" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().ownerHandle).toBe(owner.handle);
+    expect(res.json().ownerHandle).not.toBe(editor.handle);
   });
 });
 

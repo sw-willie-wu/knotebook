@@ -176,8 +176,8 @@ interface AppShellProps {
  * （點側欄筆記）與跨斷點 resize（change → `matches:false`）時自行關閉。
  *
  * 新增筆記：`POST /api/notes`（`useCreateNote`）成功後直接導向新筆記的
- * `canonicalNotePath`（NoteDto.slug 此時必為 `null`，會落在 vanity-slug+id 或純
- * id 那兩態——見 `canonicalNotePath` 的說明）；失敗則跟 ⋮ 選單（`NoteMenu.tsx`）
+ * `canonicalNotePath`（#122 起 slug 恆為字串——新筆記吃 DB default 的
+ * `untitled-<uuid8>`，落在 `/notes/<slug>` 那一態）；失敗則跟 ⋮ 選單（`NoteMenu.tsx`）
  * 的刪除項同一套錯誤處理慣例：ApiFail → `errors.<code>`、否則 `errors.fallback`，
  * 用 toast 顯示（不像 LoginPage 用行內 `errorMessage` state——這裡沒有表單可以
  * 掛錯誤文案）。

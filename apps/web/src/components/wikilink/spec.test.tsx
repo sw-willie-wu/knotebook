@@ -65,7 +65,10 @@ const TARGET_NOTE: NoteDto = {
   role: "owner",
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
-  slug: null,
+  slug: "renamed-in-the-meantime",
+  slugIsCustom: false,
+  prevSlug: null,
+  ownerHandle: "tester",
 };
 
 /** `editor`/`updateInlineContent` prop 是 `WikilinkInline` 簽章要求，但元件本身不用

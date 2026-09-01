@@ -129,6 +129,9 @@ const NOTE: NoteDto = {
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
   slug: "my-note",
+  slugIsCustom: true,
+  prevSlug: null,
+  ownerHandle: "tester",
 };
 
 /** `/api/auth/me`、`/api/notes`（清單）、`/api/notes/:ref`（單篇）三支的假 server。
@@ -528,7 +531,7 @@ describe("NotePage", () => {
   // 覆蓋）。這裡只驗證 slot 接線本身：footerSlot 的內容（chip 連結）確實出現在
   // mock 渲染出的 note-editor 容器內，不是漏接。
   it("PR2：footerSlot（backlinks chips）確實接進 NoteEditor，不是漏接的 slot", async () => {
-    const backlink: BacklinkDto = { id: "22222222-2222-2222-2222-222222222222", title: "Other", slug: "other" };
+    const backlink: BacklinkDto = { id: "22222222-2222-2222-2222-222222222222", title: "Other", slug: "other", ownerHandle: "tester" };
     vi.stubGlobal("fetch", mockFetch(NOTE, [backlink]));
 
     renderNotePage("my-note");

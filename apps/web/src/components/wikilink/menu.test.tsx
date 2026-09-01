@@ -76,7 +76,10 @@ function note(overrides: Partial<NoteDto> = {}): NoteDto {
     role: "owner",
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
-    slug: null,
+    slug: "meeting-notes",
+    slugIsCustom: false,
+    prevSlug: null,
+    ownerHandle: "tester",
     ...overrides,
   };
 }

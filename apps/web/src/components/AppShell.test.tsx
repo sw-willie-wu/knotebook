@@ -39,7 +39,10 @@ const CREATED: NoteDto = {
   role: "owner",
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
-  slug: null,
+  slug: "untitled-33333333",
+  slugIsCustom: false,
+  prevSlug: null,
+  ownerHandle: "tester",
 };
 
 /** 停在 `/notes/:ref` 的替身頁——只把解析到的 ref 印出來，讓斷言看得到落點。 */
@@ -92,7 +95,7 @@ describe("AppShell — new note", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "New note" }));
 
-    // 新筆記沒有自訂 slug、標題是 "Untitled" → canonical 是 `Untitled-<uuid>`。
+    // #122：新筆記吃 DB default 的 `untitled-<uuid8>` slug → canonical 是 `/notes/<slug>`。
     const expectedRef = canonicalNotePath(CREATED).replace("/notes/", "");
     await waitFor(() => expect(screen.getByTestId("note-route")).toHaveTextContent(expectedRef));
   });
@@ -153,6 +156,9 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     slug: "alpha-note",
+    slugIsCustom: false,
+    prevSlug: null,
+    ownerHandle: "tester",
   };
 
   const BETA_NOTE: NoteDto = {
@@ -163,6 +169,9 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2025-12-01T00:00:00.000Z",
     slug: "beta-note",
+    slugIsCustom: false,
+    prevSlug: null,
+    ownerHandle: "tester",
   };
 
   function stubFetchWithNotes(notes: NoteDto[]) {
@@ -350,6 +359,9 @@ describe("AppShell — #115 側欄抽屜", () => {
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     slug: "drawer-note",
+    slugIsCustom: false,
+    prevSlug: null,
+    ownerHandle: "tester",
   };
 
   function stubFetchWithNotes(notes: NoteDto[]) {

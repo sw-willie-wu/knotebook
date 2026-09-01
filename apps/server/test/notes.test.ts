@@ -91,7 +91,9 @@ describe("POST /api/notes", () => {
     // M6（審查）：精確鎖住 DTO 的欄位集合（而非只用 toMatchObject 驗子集）——notes 表
     // 實際還有 linksClock、deletedAt 兩個內部欄位，NoteDto 组裝必須明確排除，不能讓
     // 未來有人不小心把 `...note` 展開進回應而洩漏出去。
-    expect(Object.keys(body).sort()).toEqual(["createdAt", "id", "ownerId", "role", "slug", "title", "updatedAt"]);
+    expect(Object.keys(body).sort()).toEqual([
+      "createdAt", "id", "ownerHandle", "ownerId", "prevSlug", "role", "slug", "slugIsCustom", "title", "updatedAt",
+    ]);
   });
 
   it("帶 title → 201 使用該 title", async () => {

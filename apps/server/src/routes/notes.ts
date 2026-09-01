@@ -3,7 +3,7 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 import { and, desc, eq, ne, or, sql } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/pg-core";
-import { MAX_LINK_TARGETS, autoSlugFromTitle, normalizeEmail, type BacklinkDto, type NoteDto, type Role, type ShareDto } from "@knotebook/shared";
+import { MAX_LINK_TARGETS, autoSlugFromTitle, normalizeEmail, normalizeHandle, normalizeSlug, type BacklinkDto, type NoteDto, type Role, type ShareDto } from "@knotebook/shared";
 import { sendError } from "../http/errors.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
@@ -74,14 +74,20 @@ export interface NotesRouteDeps {
 }
 
 // 只列出 toNoteDto 實際會用到的欄位（而非完整 `typeof notes.$inferSelect`）：GET
-// list 那支改走 UNION ALL 後，兩個分支各自的 select shape 只挑這六欄 + role，不含
+// list 那支改走 UNION ALL 後，兩個分支各自的 select shape 只挑這幾欄 + role，不含
 // linksClock/deletedAt——用這個窄介面讓「完整 note row」與「union 出來的窄 row」都能
 // 結構相容地傳進來，不必為了餵同一個函式而多 select 用不到的欄位。
+// `ownerHandle` 不在 notes 表上（#122）——各回填點自行帶入：JOIN users（list/:ref/
+// by-path）、`request.user.handle`（POST——建立者即 owner，spec A12）、returning 後
+// 補一次 SELECT users（PATCH——editor 改他人筆記時必須回 **owner 的** handle）。
 interface NoteFields {
   id: string;
   title: string;
   ownerId: string;
-  slug: string | null;
+  slug: string;
+  slugIsCustom: boolean;
+  prevSlug: string | null;
+  ownerHandle: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -93,6 +99,9 @@ function toNoteDto(note: NoteFields, role: Role): NoteDto {
     ownerId: note.ownerId,
     role,
     slug: note.slug,
+    slugIsCustom: note.slugIsCustom,
+    prevSlug: note.prevSlug,
+    ownerHandle: note.ownerHandle,
     createdAt: note.createdAt.toISOString(),
     updatedAt: note.updatedAt.toISOString(),
   };
@@ -122,7 +131,8 @@ export function notesRoutes(deps: NotesRouteDeps) {
       const values = parsed.data.title === undefined ? { ownerId: userId } : { ownerId: userId, title: parsed.data.title };
       const [note] = await deps.db.insert(notes).values(values).returning();
 
-      return reply.code(201).send(toNoteDto(note, "owner"));
+      // ownerHandle 直接取 request.user（A12）：建立者即 owner，不必補查 users。
+      return reply.code(201).send(toNoteDto({ ...note, ownerHandle: request.user!.handle }, "owner"));
     });
 
     app.get("/api/notes", { preHandler: app.authenticate }, async request => {
@@ -146,17 +156,24 @@ export function notesRoutes(deps: NotesRouteDeps) {
       // 直接排除這種自我分享列，讓「同一位使用者、同一篇 note 只會出現一列」在結構上
       // 就不可能被打破，不依賴上層某個入口有沒有檢查到——防禦縱深（見
       // test/shares.test.ts「GET /api/notes 清單去重」）。
+      // #122：兩支各 JOIN users 帶出 ownerHandle（自有分支的 owner 恆為請求者，理論上可
+      // 免 JOIN 抄 request.user.handle——但兩支 select shape 必須同形才能 unionAll，
+      // 且讓「handle 一律來自 DB 的 owner 列」在兩支上一致，不留特例）。
       const ownedSelect = deps.db
         .select({
           id: notes.id,
           title: notes.title,
           ownerId: notes.ownerId,
           slug: notes.slug,
+          slugIsCustom: notes.slugIsCustom,
+          prevSlug: notes.prevSlug,
+          ownerHandle: users.handle,
           createdAt: notes.createdAt,
           updatedAt: notes.updatedAt,
           role: sql<string>`'owner'`.as("role"),
         })
         .from(notes)
+        .innerJoin(users, eq(users.id, notes.ownerId))
         .where(eq(notes.ownerId, userId));
 
       const sharedSelect = deps.db
@@ -165,12 +182,16 @@ export function notesRoutes(deps: NotesRouteDeps) {
           title: notes.title,
           ownerId: notes.ownerId,
           slug: notes.slug,
+          slugIsCustom: notes.slugIsCustom,
+          prevSlug: notes.prevSlug,
+          ownerHandle: users.handle,
           createdAt: notes.createdAt,
           updatedAt: notes.updatedAt,
           role: noteShares.role,
         })
         .from(notes)
         .innerJoin(noteShares, and(eq(noteShares.noteId, notes.id), eq(noteShares.userId, userId)))
+        .innerJoin(users, eq(users.id, notes.ownerId))
         .where(ne(notes.ownerId, userId));
 
       // 次要排序鍵 id desc（M3）：updatedAt 精度不足以保證唯一序，未來若加分頁
@@ -180,10 +201,84 @@ export function notesRoutes(deps: NotesRouteDeps) {
       return rows.map((row): NoteDto => toNoteDto(row, row.role as Role));
     });
 
+    // GET :ref 與 by-path 共用的「完整列＋ownerHandle」select shape（A5 同形的結構保證）。
+    const noteWithOwnerSelection = {
+      id: notes.id,
+      title: notes.title,
+      ownerId: notes.ownerId,
+      slug: notes.slug,
+      slugIsCustom: notes.slugIsCustom,
+      prevSlug: notes.prevSlug,
+      ownerHandle: users.handle,
+      createdAt: notes.createdAt,
+      updatedAt: notes.updatedAt,
+    };
+
+    // 授權後的完整列讀取（GET :ref 用；by-path 首查即帶整列，不經這裡）：JOIN users 帶
+    // ownerHandle。I2（審查）：resolveRole 判定完到這裡的 re-select 之間存在競態視窗——
+    // 若同時有另一個請求把這篇 note 刪了，這裡會查不到列。呼叫端對 undefined 明確回
+    // 404，不拿 non-null assertion 賭「resolveRole 說有就一定還在」。
+    async function loadNoteWithOwner(noteId: string): Promise<NoteFields | undefined> {
+      const [row] = await deps.db
+        .select(noteWithOwnerSelection)
+        .from(notes)
+        .innerJoin(users, eq(users.id, notes.ownerId))
+        .where(eq(notes.id, noteId))
+        .limit(1);
+      return row;
+    }
+
+    /**
+     * 新形網址的解析端點（#122 spec §3b）：`/n/<handle>/<slug>` 由 web 端打這裡。
+     * 順序：正規化（handle ASCII 小寫、slug NFC+小寫——大小寫/NFD 變體都解得到）→
+     * 單一 JOIN 精確比對（一次帶回整列；planner 由 users.handle 唯一鍵起算 nested loop
+     * 後吃 `notes_owner_slug_idx`——migrate.test 有 explain 守衛）→ miss → **prev_slug
+     * 補查**（單層自訂 redirect；`limit(2)` 偵測多義——同 owner 的多篇筆記可能先後釋放
+     * 同一個名字，**0 或 >1 命中一律 404**，不猜）→ `resolveRole`（none → 404，防列舉：
+     * 登入面分不出「不存在」與「無權限」；三處 404 body 同形，測試逐位元組釘住）。
+     * RESERVED_SLUGS 不含 by-path（spec m4-3 核實：本路由是三段靜態前綴，兩段
+     * `/api/notes/by-path` 不會 match 這裡、落回 `:ref`——無衝突面）。
+     */
+    app.get("/api/notes/by-path/:handle/:slug", { preHandler: app.authenticate }, async (request, reply) => {
+      const params = request.params as { handle: string; slug: string };
+      const userId = request.user!.id;
+      const handle = normalizeHandle(params.handle);
+      const slugParam = normalizeSlug(params.slug);
+
+      // 首查即帶整列（讀碼審查 m6：省掉授權後的第三趟 re-select——本支的列在授權判定
+      // 前就已讀到，I2 的競態視窗不適用）。
+      const [hit] = await deps.db
+        .select(noteWithOwnerSelection)
+        .from(notes)
+        .innerJoin(users, eq(users.id, notes.ownerId))
+        .where(and(eq(users.handle, handle), eq(notes.slug, slugParam)))
+        .limit(1);
+      let note = hit;
+      if (!note) {
+        const prevHits = await deps.db
+          .select(noteWithOwnerSelection)
+          .from(notes)
+          .innerJoin(users, eq(users.id, notes.ownerId))
+          .where(and(eq(users.handle, handle), eq(notes.prevSlug, slugParam)))
+          .limit(2);
+        if (prevHits.length !== 1) {
+          return sendError(reply, 404, "not_found", "找不到此筆記");
+        }
+        note = prevHits[0];
+      }
+
+      const role = await resolveRole(deps.db, userId, note.id);
+      if (role === "none") {
+        return sendError(reply, 404, "not_found", "找不到此筆記");
+      }
+      // 回應與 `GET /api/notes/:id` 同一個 toNoteDto——web 端拿 by-path 結果 seed
+      // `["note", id]` 快取的前提（spec A5，形狀斷言在測試釘住）。
+      return toNoteDto(note, role);
+    });
+
     // 由 `GET /api/notes/:id` 改名（不並存——同一位置重複註冊 GET 會被 fastify throw
-    // "Method already declared"）。`:ref` 可以是 uuid，也可以是自訂 slug 或
-    // `<vanity>-<uuid>` 形式（`canonicalNotePath` 組出來的路徑），解析順序見
-    // `resolveNoteIdFromRef`（spec §11.4 逐字）。
+    // "Method already declared"）。`:ref` 可以是 uuid、0007 凍結的 legacy slug、或舊版
+    // `<vanity>-<uuid>` 形式，解析順序見 `resolveNoteIdFromRef`（#122 起只查 legacy）。
     app.get("/api/notes/:ref", { preHandler: app.authenticate }, async (request, reply) => {
       const { ref } = request.params as { ref: string };
       const userId = request.user!.id;
@@ -198,16 +293,22 @@ export function notesRoutes(deps: NotesRouteDeps) {
         return sendError(reply, 404, "not_found", "找不到此筆記");
       }
 
-      // I2（審查）：resolveRole 判定完到這裡的 re-select 之間存在競態視窗——若同時有
-      // 另一個請求把這篇 note 刪了，這裡會查不到列。用 guard 明確回 404，不是拿
-      // non-null assertion 賭「resolveRole 說有就一定還在」（那個賭注在併發下不成立，
-      // `note!` 一旦落空會直接在 toNoteDto 內對 undefined 取欄位炸成 500）。
-      const [note] = await deps.db.select().from(notes).where(eq(notes.id, noteId)).limit(1);
+      const note = await loadNoteWithOwner(noteId);
       if (!note) {
         return sendError(reply, 404, "not_found", "找不到此筆記");
       }
       return toNoteDto(note, role);
     });
+
+    // PATCH 回應的 ownerHandle 補讀（spec m5-8／A12）：`.returning()` 拿不到 users.handle，
+    // 且 editor 改他人筆記時必須回 **owner 的** handle（不得抄 request.user）。原子性契約
+    // 指的是 title/slug 的單語句寫入——回應組裝的讀取不在其列。owner 列必存在
+    // （notes.owner_id 有 FK RESTRICT），落空唯一可能是型別層想不到的競態，fail-fast。
+    async function ownerHandleOf(ownerId: string): Promise<string> {
+      const [row] = await deps.db.select({ handle: users.handle }).from(users).where(eq(users.id, ownerId)).limit(1);
+      if (!row) throw new Error(`notes.owner_id ${ownerId} 查無對應 users 列（FK 不變量被打破）`);
+      return row.handle;
+    }
 
     /**
      * PATCH 分流矩陣（#122 spec §3a——**語句形狀＝docs-as-spec 義務**，改動要連同
@@ -312,7 +413,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
         if (!updated) {
           return sendError(reply, 404, "not_found", "找不到此筆記");
         }
-        return toNoteDto(updated, role);
+        return toNoteDto({ ...updated, ownerHandle: await ownerHandleOf(updated.ownerId) }, role);
       }
 
       // 格 2–4：auto 路徑。clearingSlug＝格 3/4（body 帶 slug:null）；否則格 2（title-only）。
@@ -392,7 +493,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
       if (!updated) {
         return sendError(reply, 404, "not_found", "找不到此筆記");
       }
-      return toNoteDto(updated, role);
+      return toNoteDto({ ...updated, ownerHandle: await ownerHandleOf(updated.ownerId) }, role);
     });
 
     /**

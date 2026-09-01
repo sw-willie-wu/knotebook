@@ -61,6 +61,9 @@ const NOTE: NoteDto = {
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
   slug: "my-note",
+  slugIsCustom: true,
+  prevSlug: null,
+  ownerHandle: "plain",
 };
 
 const OTHER_NOTE: NoteDto = {
@@ -71,6 +74,9 @@ const OTHER_NOTE: NoteDto = {
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
   slug: "other-note",
+  slugIsCustom: false,
+  prevSlug: null,
+  ownerHandle: "plain",
 };
 
 interface FakeResponseInit {

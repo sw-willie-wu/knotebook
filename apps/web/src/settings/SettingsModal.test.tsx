@@ -111,6 +111,9 @@ const NOTE: NoteDto = {
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
   slug: "my-note",
+  slugIsCustom: true,
+  prevSlug: null,
+  ownerHandle: "tester",
 };
 
 /** 基本 fetch mock：`/api/auth/me`（依

@@ -520,6 +520,38 @@ describe("0007_note-slug", () => {
     expect(rows.map((r: Record<string, string>) => r["QUERY PLAN"]).join("\n")).toContain("notes_legacy_slug_idx");
   });
 
+  it("查詢真的用得上索引：by-path 兩支（現行 slug／prev 補查）的計畫各走自己的索引（讀碼審查 m4）", async () => {
+    // by-path 的 JOIN 形要 planner 從 users.handle 唯一鍵起算 nested loop 才吃得到
+    // (owner_id, slug)——join 順序翻過來的話 `slug = $` 單獨吃不到這把索引，routes 註解
+    // 的宣稱就靜默失效。比照 #18 慣例：seed 5000 列＋analyze 後驗 explain。
+    const { pool } = await freshDb();
+    await pool.query(`insert into users (id, email, display_name, handle) values
+      ('00000000-0000-4000-8000-000000000001', 'p@x.example', 'P', 'planner-user')`);
+    await pool.query(
+      `insert into notes (owner_id, title, slug, prev_slug)
+       select '00000000-0000-4000-8000-000000000001', 'T' || g, 's' || g, 'p' || g from generate_series(1, 5000) g`,
+    );
+    await pool.query(`analyze users`);
+    await pool.query(`analyze notes`);
+
+    const planOf = async (q: string): Promise<string> => {
+      const { rows } = await pool.query(`explain (costs off) ${q}`);
+      return rows.map((r: Record<string, string>) => r["QUERY PLAN"]).join("\n");
+    };
+    expect(
+      await planOf(
+        `select notes.id from notes join users on users.id = notes.owner_id
+         where users.handle = 'planner-user' and notes.slug = 's1'`,
+      ),
+    ).toContain("notes_owner_slug_idx");
+    expect(
+      await planOf(
+        `select notes.id from notes join users on users.id = notes.owner_id
+         where users.handle = 'planner-user' and notes.prev_slug = 'p1' limit 2`,
+      ),
+    ).toContain("notes_owner_prev_slug_idx");
+  });
+
   it("0007 檔內無 CONCURRENTLY／行首 COMMIT（單一 tx 前提的輔助 grep，比照 0006）", () => {
     const entry = journalEntries().find((e) => e.tag.startsWith("0007"));
     expect(entry, "0007 migration 必須存在").toBeDefined();
