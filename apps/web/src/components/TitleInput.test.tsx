@@ -29,11 +29,11 @@ const NOTE: NoteDto = {
   ownerHandle: "tester",
 };
 
-function renderTitle(props: Partial<{ note: NoteDto; readOnly: boolean; cacheRef: string }> = {}) {
+function renderTitle(props: Partial<{ note: NoteDto; readOnly: boolean }> = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <TitleInput note={props.note ?? NOTE} readOnly={props.readOnly ?? false} cacheRef={props.cacheRef ?? NOTE.id} />
+      <TitleInput note={props.note ?? NOTE} readOnly={props.readOnly ?? false} />
       <Toaster />
     </QueryClientProvider>,
   );
@@ -114,18 +114,22 @@ describe("TitleInput", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("存檔成功後 replaceState 到新的 canonical 網址並更新本頁的 ['note', ref] 快取", async () => {
+  it("存檔成功後把回應寫回 ['note', note.id] 快取，且**不自己動網址**（A3：收斂交 NotePage effect）", async () => {
+    // 「存檔後網址更新」的行為覆蓋**移轉**至 NotePage 的收斂 effect 測試（M16：
+    // NotePage.test 的「以 slug 開頁 replaceState 成 canonical」＋閘門案承接）。
     vi.stubGlobal(
       "fetch",
       vi.fn(() => Promise.resolve(patchOk("Brand New", "brand-new"))),
     );
+    const before = window.location.pathname;
 
-    const queryClient = renderTitle({ cacheRef: NOTE.id });
+    const queryClient = renderTitle();
     fireEvent.change(screen.getByLabelText("Note title"), { target: { value: "Brand New" } });
     fireEvent.blur(screen.getByLabelText("Note title"));
 
-    await waitFor(() => expect(window.location.pathname).toBe("/notes/brand-new"));
-    expect(queryClient.getQueryData<NoteDto>(["note", NOTE.id])?.title).toBe("Brand New");
+    await waitFor(() => expect(queryClient.getQueryData<NoteDto>(["note", NOTE.id])?.title).toBe("Brand New"));
+    // 單一寫網址點：本元件不 replaceState——網址必須留在原地
+    expect(window.location.pathname).toBe(before);
   });
 
   it("標題沒有實際改變時不送 PATCH", async () => {
@@ -214,7 +218,7 @@ describe("TitleInput", () => {
   it("PATCH 成功 → 使用者在請求往返期間繼續打的字不被伺服器回應蓋掉", async () => {
     const { fetchMock, settle } = pendingPatch();
 
-    renderTitle();
+    const queryClient = renderTitle();
     const input = screen.getByLabelText("Note title");
     fireEvent.change(input, { target: { value: "Saved" } });
     fireEvent.blur(input);
@@ -223,7 +227,10 @@ describe("TitleInput", () => {
     fireEvent.change(input, { target: { value: "Saved and more" } });
     settle(patchOk("Saved", "saved"));
 
-    await waitFor(() => expect(window.location.pathname).toBe("/notes/saved"));
+    // 完成訊號＝**快取回寫已發生**（A3 後本元件不動網址；快取寫入在回應處理的最後
+    // 一步，等到它＝整條成功路徑跑完），再斷輸入框沒被回音蓋掉——同步斷言會落在
+    // settle 的 microtask 鏈之前，變成恆真空轉（讀碼審 M3 抓到的形）。
+    await waitFor(() => expect(queryClient.getQueryData<NoteDto>(["note", NOTE.id])?.title).toBe("Saved"));
     expect(input).toHaveValue("Saved and more");
   });
 
@@ -248,14 +255,14 @@ describe("TitleInput", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const { rerender } = render(
       <QueryClientProvider client={queryClient}>
-        <TitleInput note={NOTE} readOnly={false} cacheRef={NOTE.id} />
+        <TitleInput note={NOTE} readOnly={false} />
       </QueryClientProvider>,
     );
     expect(screen.getByLabelText("Note title")).toHaveValue("Old title");
 
     rerender(
       <QueryClientProvider client={queryClient}>
-        <TitleInput note={{ ...NOTE, title: "Changed elsewhere" }} readOnly={false} cacheRef={NOTE.id} />
+        <TitleInput note={{ ...NOTE, title: "Changed elsewhere" }} readOnly={false} />
       </QueryClientProvider>,
     );
     await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("Changed elsewhere"));

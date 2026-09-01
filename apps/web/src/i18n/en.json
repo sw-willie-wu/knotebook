@@ -101,6 +101,7 @@
     },
     "accessRevoked": "You no longer have access to this note.",
     "deleted": "This note has been deleted.",
+    "linkInvalid": "This link is invalid or the note doesn't exist.",
     "backlinks": {
       "title_one": "Mentioned in {{count}} note",
       "title_other": "Mentioned in {{count}} notes",

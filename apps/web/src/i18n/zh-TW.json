@@ -101,6 +101,7 @@
     },
     "accessRevoked": "已失去存取權",
     "deleted": "此筆記已被刪除",
+    "linkInvalid": "連結無效或筆記不存在",
     "backlinks": {
       "title_one": "{{count}} 篇筆記提及",
       "title_other": "{{count}} 篇筆記提及",

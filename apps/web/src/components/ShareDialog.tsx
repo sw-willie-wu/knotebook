@@ -441,7 +441,8 @@ function CopyLinkButton({ note }: { note: NoteDto }) {
 }
 
 /**
- * owner-only「自訂連結」欄。與 `TitleInput` 相同的存檔+`replaceState`模式（見該檔說明），
+ * owner-only「自訂連結」欄。與 `TitleInput` 相同的存檔+快取回寫模式（見該檔說明；
+ * 網址收斂同樣交給 NotePage 的收斂 effect——A3 單一寫網址點），
  * 差別是這裡先在 client 端用 `normalizeSlug`/`validateSlug`（與 server 的
  * `prepareSlugForPatch` 同源，見 `apps/server/src/notes/slug.ts`）擋掉明顯不合法的輸入，
  * 不必往返一趟才知道錯在哪；409 `slug_taken`／429 `too_many_requests` 這類「client 端
@@ -466,7 +467,8 @@ function SlugField({ note, cacheRef }: { note: NoteDto; cacheRef: string }) {
     try {
       const updated = await updateNote.mutateAsync({ id: note.id, slug: next });
       queryClient.setQueryData(["note", cacheRef], updated);
-      window.history.replaceState(window.history.state, "", canonicalNotePath(updated));
+      // A3（#122）：不再自帶 replaceState——唯一寫網址點是 NotePage 的收斂 effect
+      // （快取更新 → 常駐層 note 變 → effect 改寫網址）。
       setValue(updated.slug ?? "");
     } catch (err) {
       setServerError(errorMessage(t, err));

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
-import { canonicalNotePath, type NoteDto } from "@knotebook/shared";
+import type { NoteDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
 import { useUpdateNote } from "@/api/notes";
 import { toast } from "@/components/ui/toast";
@@ -13,15 +13,6 @@ interface TitleInputProps {
   note: NoteDto;
   /** 沒有編輯權限（viewer／none／連線已終止）時改成純文字顯示。 */
   readOnly: boolean;
-  /**
-   * 這個頁面實際讀的 `useNote` 快取鍵（`['note', ref]` 的 ref）。**Task 10 接縫④**：
-   * 用 slug 開頁時快取鍵是 slug，而 `useUpdateNote` 只 invalidate `['note', <id>]`，
-   * 不加這一手的話頁面上的標題會停在舊值。這裡選擇「把 PATCH 回應直接寫回本頁真正
-   * 讀的那把鍵」，而不是把 `useUpdateNote` 改成前綴 invalidate——後者會連
-   * `['note', <舊 slug>]` 一起重抓，而改過 slug 之後那把鍵本來就會 404（Task 14 的
-   * slug 編輯 UI 會刻意讓它失效），代價比收益大。
-   */
-  cacheRef: string;
 }
 
 /**
@@ -30,17 +21,17 @@ interface TitleInputProps {
  * `PATCH /api/notes/:id` 打交道。
  *
  * 存檔時機：停止輸入 800ms，或 blur（blur 會把 pending 的 debounce 立刻沖出去，
- * 不等計時器）。存檔成功後：
- * - `history.replaceState` 到新的 `canonicalNotePath`——標題變了 vanity slug 就變了，
- *   但**不能用 router navigate**（那會重新掛載整個頁面、扯斷共編連線）。URL 尾碼的
- *   uuid 不變，所以舊網址仍然解析得到同一篇筆記。
- * - 把回應寫回本頁的 `['note', cacheRef]`（見 `cacheRef` 的說明）；`['notes']` 側欄
- *   清單則由 `useUpdateNote` 自己 invalidate。
+ * 不等計時器）。存檔成功後把回應寫回 `['note', note.id]`（#122 起 NotePage 的常駐層
+ * 就是這把 id 鍵——寫回它頁面即時反映；`['notes']` 側欄清單由 `useUpdateNote` 自己
+ * invalidate）。**本元件不寫網址**（A3）：改標題會重算 auto slug、canonical 跟著變，
+ * 但唯一寫網址點是 NotePage 的收斂 effect——快取更新 → 常駐層 note 變 → effect
+ * `replaceState`；在途 PATCH 於換筆記後才回來時，收斂 effect 會因為轉場中 `note`
+ * 被閘成 undefined 而早退（舊版自帶 replaceState 沒這道閘，會把網址改回前一篇）。
  *
  * 空標題不送（server 端 `z.string().min(1)` 會回 400）：blur 時若內容是空白，
  * 一律還原成目前的標題。
  */
-export function TitleInput({ note, readOnly, cacheRef }: TitleInputProps) {
+export function TitleInput({ note, readOnly }: TitleInputProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const updateNote = useUpdateNote();
@@ -51,8 +42,10 @@ export function TitleInput({ note, readOnly, cacheRef }: TitleInputProps) {
   // 造成的回音，避免把使用者正在打的字覆蓋掉。
   const syncedRef = useRef(note.title);
 
-  // 換筆記（同一個元件被重用）或標題被別處改動時重新對齊。使用者本地有未存的
-  // 修改（value !== syncedRef.current）時不覆蓋。
+  // 標題被別處改動（協作者改名、快取 refetch）時重新對齊。使用者本地有未存的修改
+  // （value !== syncedRef.current）時不覆蓋。#122 A1 之後「換筆記」不再走這裡——
+  // 轉場一律出佔位卡，本元件會被卸載重掛、useState 直接吃新值（⚠ NotePage 本身仍是
+  // 同元件重用不 remount，別把那個結論改掉——是 TitleInput 的掛載期變短了）。
   useEffect(() => {
     if (note.title === syncedRef.current) return;
     syncedRef.current = note.title;
@@ -76,8 +69,7 @@ export function TitleInput({ note, readOnly, cacheRef }: TitleInputProps) {
         const updated = await mutate({ id: note.id, title: trimmed });
         syncedRef.current = updated.title;
         keepIfUnedited(trimmed, updated.title);
-        queryClient.setQueryData(["note", cacheRef], updated);
-        window.history.replaceState(window.history.state, "", canonicalNotePath(updated));
+        queryClient.setQueryData(["note", note.id], updated);
       } catch (err) {
         syncedRef.current = note.title;
         keepIfUnedited(trimmed, note.title);
@@ -86,7 +78,7 @@ export function TitleInput({ note, readOnly, cacheRef }: TitleInputProps) {
         toast({ title: message, variant: "destructive" });
       }
     },
-    [cacheRef, mutate, note.id, note.title, queryClient, t],
+    [mutate, note.id, note.title, queryClient, t],
   );
 
   const clearTimer = () => {

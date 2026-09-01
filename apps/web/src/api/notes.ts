@@ -9,11 +9,24 @@ export function useNotes(): UseQueryResult<NoteDto[]> {
   });
 }
 
-export function useNote(ref: string): UseQueryResult<NoteDto> {
+/**
+ * `GET /api/notes/:ref`。#122 起 NotePage 用它扮兩個角色（spec §3b）：
+ * - **解析層**（ref＝路由參數，slug 或 uuid）：`enabled` 由呼叫端以 paramsKey 判斷
+ *   控制——只在真導航（key 不等）時打，replaceState 不動 params 就不重解析；
+ * - **常駐層**（ref＝解析出的 id）：key 以 id 為錨永不過時，refetch/invalidate 全清
+ *   都安全。`ref.length > 0` 的守衛同時吃掉「尚未解析完成」的空字串（A11：不打
+ *   `/api/notes/undefined`）。
+ *
+ * ⚠ **禁止加 `placeholderData`/`keepPreviousData`**（即使是為了消掉轉場的 loading
+ * 閃爍）：NotePage 的 seed effect 依賴「`resolveQuery.data` 必屬當下這組 ref」——
+ * 給了 placeholder，導航瞬間 data 會是**上一篇**的 note，seed 會寫出
+ * `{key: 新, id: 舊}`，頁面停在錯的筆記上、網址卻是新的，而且沒有測試會紅（A4）。
+ */
+export function useNote(ref: string, options: { enabled?: boolean } = {}): UseQueryResult<NoteDto> {
   return useQuery({
     queryKey: ["note", ref],
     queryFn: () => api<NoteDto>(`/api/notes/${encodeURIComponent(ref)}`),
-    enabled: ref.length > 0,
+    enabled: (options.enabled ?? true) && ref.length > 0,
   });
 }
 

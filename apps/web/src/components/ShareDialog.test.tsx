@@ -184,7 +184,7 @@ describe("ShareDialog", () => {
     await waitFor(() => expect(screen.getByText("Too many requests. Please slow down.")).toBeInTheDocument());
   });
 
-  it("成功變更 slug → replaceState 到新的 canonical 網址並寫回本頁快取", async () => {
+  it("成功變更 slug → 寫回本頁 ['note', id] 快取，且**不自己動網址**（A3：收斂交 NotePage effect）", async () => {
     const updated: NoteDto = { ...NOTE, slug: "brand-new", slugIsCustom: true };
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -203,11 +203,13 @@ describe("ShareDialog", () => {
     await openDialog();
 
     const slugInput = screen.getByRole("textbox", { name: "Custom link" });
+    const before = window.location.pathname;
     fireEvent.change(slugInput, { target: { value: "brand-new" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
-    await waitFor(() => expect(window.location.pathname).toBe("/notes/brand-new"));
-    expect(queryClient.getQueryData<NoteDto>(["note", NOTE.id])?.slug).toBe("brand-new");
+    await waitFor(() => expect(queryClient.getQueryData<NoteDto>(["note", NOTE.id])?.slug).toBe("brand-new"));
+    // 單一寫網址點（A3）：本元件不 replaceState——覆蓋移轉至 NotePage 收斂 effect 測試
+    expect(window.location.pathname).toBe(before);
 
     const [, patchInit] = fetchMock.mock.calls.find(
       ([, init]) => (init as RequestInit | undefined)?.method === "PATCH",
