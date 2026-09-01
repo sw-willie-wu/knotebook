@@ -2,7 +2,7 @@
   "name": "knotebook",
   "private": true,
   "license": "MIT",
-  "engines": { "node": ">=22" },
+  "engines": { "node": ">=22.13" },
   "packageManager": "pnpm@10.14.0",
   "pnpm": { "onlyBuiltDependencies": ["argon2", "esbuild"] },
   "scripts": {
@@ -14,10 +14,10 @@
     "check-licenses": "node scripts/check-licenses.mjs"
   },
   "devDependencies": {
-    "eslint": "^9.0.0",
+    "eslint": "^10.9.1",
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.9.0",
     "typescript": "^5.6.0",
-    "typescript-eslint": "^8.0.0"
+    "typescript-eslint": "^8.69.0"
   }
 }
