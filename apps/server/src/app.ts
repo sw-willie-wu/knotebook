@@ -21,10 +21,11 @@ import { adminUsersRoutes } from "./routes/admin-users.js";
 import { adminAiRoutes } from "./routes/admin-ai.js";
 import { aiRoutes } from "./routes/ai.js";
 import { uploadsRoutes } from "./routes/uploads.js";
+import { publicRoutes, redactPublicTokens } from "./routes/public.js";
 import { oidcRoutes } from "./routes/oidc.js";
 import { drainWithCap } from "./http/drain.js";
 import { sendError } from "./http/errors.js";
-import { AI_LIMIT, COLLAB_TOKEN_LIMIT, FixedWindowLimiter, OIDC_LIMIT, SLUG_PATCH_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
+import { AI_LIMIT, COLLAB_TOKEN_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, SLUG_PATCH_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
 import { registerSpaFallback } from "./http/spa.js";
 import { assertUploadsDirWritable } from "./uploads/service.js";
 import type { AiRuntime } from "./ai/runtime.js";
@@ -77,6 +78,12 @@ export interface AppDeps {
     /** OIDC login 與 callback 各自一份額度（issue #16），見 `OIDC_LIMIT` 註解。 */
     oidcLogin: FixedWindowLimiter;
     oidcCallback: FixedWindowLimiter;
+    /** #72：public-link 管理端 PUT/DELETE（key=userId；GET 不吃桶，見 PUBLIC_LINK_LIMIT）。 */
+    publicLink: FixedWindowLimiter;
+    /** #72 公開端點雙桶（miss=ip／hit=ip:token，語意見 PUBLIC_MISS_LIMIT 註解）。 */
+    publicMiss: FixedWindowLimiter;
+    publicNote: FixedWindowLimiter;
+    publicUpload: FixedWindowLimiter;
   };
   /**
    * Task 5：`POST /api/notes/:id/links` 寫入函式（`notes/links.ts` 的 `writeNoteLinks`）的
@@ -239,6 +246,35 @@ function clientErrorCode(statusCode: number): ErrorCode {
  * decorator（`authenticate`/`requireAdmin`）與 `/healthz`。路由本身由後續 task
  * （Task 8/9/10/12）以 `app.register(...)` 掛進來——本 task 只建骨架與接縫。
  */
+/**
+ * #72（Task 1c）：把 token 遮罩的 `req` serializer 合併進 fastify logger 設定。
+ * - `false`（測試預設關 log）原樣通過；`true` 展開成物件形；物件形保留呼叫端的
+ *   其餘欄位、**覆蓋 `serializers.req`**（呼叫端不得自帶——會被這裡蓋掉，這是
+ *   刻意的：遮罩是安全不變量，不給關）。
+ * - serializer 輸出鏡射 fastify 預設 req serializer 的欄位（method/url/version/host/
+ *   remoteAddress/remotePort——與 logger-pino.js 逐欄對過：`host` 含 port、
+ *   `version` 取 accept-version header），只差 url 過 `redactPublicTokens`。
+ */
+function withTokenRedaction(logger: FastifyServerOptions["logger"]): FastifyServerOptions["logger"] {
+  if (logger === false) return false;
+  const base = logger === true ? {} : (logger ?? {});
+  return {
+    ...base,
+    serializers: {
+      ...(typeof base === "object" && "serializers" in base ? base.serializers : {}),
+      req(request: FastifyRequest) {
+        return {
+          method: request.method,
+          url: redactPublicTokens(request.url),
+          version: typeof request.headers["accept-version"] === "string" ? request.headers["accept-version"] : undefined,
+          host: request.host,
+          remoteAddress: request.ip,
+          remotePort: request.socket?.remotePort,
+        };
+      },
+    },
+  };
+}
 export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyInstance {
   // Task 9：uploads 目錄可寫性探測放在最前面、任何 Fastify 初始化之前——這是一個
   // 獨立於 HTTP 框架的環境前置條件（同 index.ts 的 migration fail-fast 精神），
@@ -259,7 +295,12 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   // 填的 header，等於所有 per-IP 節流都能換個假 IP 繞過。反代拓撲要自己打開——見
   // `config.ts` 的 `parseTrustProxy`，以及下面那道一次性的錯配警告。
   const app = Fastify({
-    logger: options.logger ?? true,
+    // #72（Task 1c）：req serializer 由這裡**無條件合併**進最終 logger 設定——寫在
+    // `?? true` 的預設側會被注入 logger 整份取代（測試注入 destination 後 production
+    // 零遮罩照樣綠的假守衛形，spec B 不變量）。fastify 預設 req serializer 會印
+    // `req.url`，分享 token 走 URL（/p/、/api/public/notes/），不遮就逐筆進 log。
+    // 測試只注入 destination/stream、禁止自帶 serializers（帶了會被這裡覆蓋 req 鍵）。
+    logger: withTokenRedaction(options.logger ?? true),
     trustProxy: deps.config.trustProxy,
     routerOptions: { maxParamLength: 512 },
   });
@@ -424,6 +465,10 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       ai: new FixedWindowLimiter(AI_LIMIT),
       oidcLogin: new FixedWindowLimiter(OIDC_LIMIT),
       oidcCallback: new FixedWindowLimiter(OIDC_LIMIT),
+      publicLink: new FixedWindowLimiter(PUBLIC_LINK_LIMIT),
+      publicMiss: new FixedWindowLimiter(PUBLIC_MISS_LIMIT),
+      publicNote: new FixedWindowLimiter(PUBLIC_NOTE_LIMIT),
+      publicUpload: new FixedWindowLimiter(PUBLIC_UPLOAD_LIMIT),
     } satisfies NonNullable<AppDeps["limiters"]>);
 
   // Task 8（二輪 MINOR-8）：`deps.oidc` 未傳但 `config.oidc` 有值時在此補上 production
@@ -453,11 +498,14 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   void app.register(
     aiRoutes({ db: deps.db, config: deps.config, runtime: deps.ai, limiters: { ai: limiters.ai }, idleTimeoutMs: options.aiIdleTimeoutMs })
   );
-  // `NotesRouteDeps.limiters` 的型別只列 `collabToken`/`slugPatch`（刻意不改，見該
-  // interface 說明）——這裡傳整包 `limiters`（含 `upload`）給它，屬於變數（非物件
+  // `NotesRouteDeps.limiters` 的型別只列它實際用到的鍵（`collabToken`/`slugPatch`，
+  // #72 起含 `publicLink`；見該 interface 說明）——這裡傳整包 `limiters`（含
+  // `upload`）給它，屬於變數（非物件
   // 字面值）賦值給較窄的結構型別，TS 不做 excess property check，不需要另外
   // pick／窄化。`uploadsRoutes` 自己的 deps 只挑 `upload` 這一個節流器。
   void app.register(uploadsRoutes({ db: deps.db, config: deps.config, limiters: { upload: limiters.upload }, uploadsDir: deps.uploadsDir }));
+  // #72 公開端點（免登入）：三步節流順序與 404 同形見 routes/public.ts 檔頭。
+  void app.register(publicRoutes({ db: deps.db, uploadsDir: deps.uploadsDir, limiters: { publicMiss: limiters.publicMiss, publicNote: limiters.publicNote, publicUpload: limiters.publicUpload } }));
 
   // 共編的 WebSocket 掛在底層 http server 的 upgrade 事件上，不經 Fastify 路由——
   // 因此與上面的路由註冊順序無關，也不會被 setNotFoundHandler／SPA fallback 攔到。

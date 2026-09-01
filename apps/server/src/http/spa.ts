@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import fastifyStatic from "@fastify/static";
 import { securityHeaders } from "./security-headers.js";
+import { isPublicSharePath } from "../routes/public.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { sendError } from "./errors.js";
 
@@ -74,6 +75,14 @@ export function registerSpaFallback(app: FastifyInstance, webDist: string | unde
         try {
           const html = await readFile(path.join(webDist, "index.html"), "utf8");
           reply.header("content-type", "text/html; charset=utf-8");
+          // #72：公開分享頁（/p/<token>）的 HTML 加 noindex——token 連結是 capability，
+          // 不該被搜尋引擎收錄。**只掛這個前綴**：掛進 securityHeaders() 會整站
+          // noindex（該函式由 html 推導、所有路由共用，不看 pathname）。判定與 log
+          // 遮罩共用 isPublicSharePath（斜線收斂＋不分大小寫；不得各寫字面比對，
+          // 理由見該函式註解）。
+          if (isPublicSharePath(pathname)) {
+            reply.header("x-robots-tag", "noindex");
+          }
           // issue #101：安全標頭掛在**這裡**——CSP 只對 HTML 文件有意義（`/api` 與
           // `/assets` 不需要）。標頭由**這份 html** 推導（script-src 的 hash），所以
           // 不可能與送出的內容不同步，見 `security-headers.ts` 檔頭。

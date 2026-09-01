@@ -17,13 +17,12 @@ import {
   type DefaultReactSuggestionItem,
 } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/mantine";
-import { YDOC_FRAGMENT } from "@knotebook/shared";
 import { useCreateNote, useNotes } from "@/api/notes";
-import { classifyMediaTransfer, type BlockedTransferReason, noteSchema } from "@/collab/schema";
+import { classifyMediaTransfer, type BlockedTransferReason } from "@/collab/schema";
+import { buildCollabEditorBase } from "@/collab/editor-options";
 import { createMarkdownPasteHandler } from "@/collab/paste";
 import { useCollabUndoLifeline } from "@/collab/undo";
 import { buildSlashMenuItems } from "@/components/mermaid/slashMenu";
-import { blocknoteZhTW } from "@/i18n/blocknote-zh-TW";
 import { toast } from "@/components/ui/toast";
 import { cardSurface } from "@/components/ui/card";
 import { ARTICLE_COLUMN, ARTICLE_COLUMN_PADDING } from "@/components/ui/article-column";
@@ -123,9 +122,14 @@ export interface NoteEditorOptionsInput {
  */
 export function buildNoteEditorOptions({ doc, provider, user, language, translate, editorRef, noteId }: NoteEditorOptionsInput) {
   return withCollaboration({
-    schema: noteSchema,
-    // BlockNote 的預設字典就是英文，只有 zh-TW 需要換掉。
-    dictionary: language.startsWith("zh") ? blocknoteZhTW : undefined,
+    // schema／字典／collaboration（fragment 名、provider 形狀）抽在共用底層——公開
+    // 唯讀頁（#72 `buildReadonlyNoteEditorOptions`）用同一份，兩邊不各寫一份。
+    ...buildCollabEditorBase({
+      doc,
+      awareness: provider.awareness ?? undefined,
+      language,
+      user: { id: user.id, name: user.name, color: collabUserColor(user.id) },
+    }),
     // Task 13：貼上/拖放純圖片檔案時（上面 `createMediaBlockingDOMEvents` 規則③放行）
     // BlockNote 自己的 paste/drop 外掛會呼叫 `handleFileInsertion`，進而呼叫這裡的
     // `uploadFile`——`createUploadFile` 保證絕不 reject（見該模組檔頭），失敗時自行
@@ -143,14 +147,6 @@ export function buildNoteEditorOptions({ doc, provider, user, language, translat
     // 貼上 markdown 的兩個 Windows 破口（CRLF 不被解析、從 VS Code 貼會變成程式碼
     // 區塊）——判斷與理由都在 `@/collab/paste`，這裡只負責接線。
     pasteHandler: createMarkdownPasteHandler(),
-    collaboration: {
-      provider: { awareness: provider.awareness ?? undefined },
-      // fragment 名稱用 `@knotebook/shared` 的 `YDOC_FRAGMENT`——server 端
-      // `collab/store.ts` 存取的是同一個名字，任何一邊寫死字串就會變成兩份互不相干
-      // 的文件（看起來像「同步壞掉」，其實是連錯文件）。
-      fragment: doc.getXmlFragment(YDOC_FRAGMENT),
-      user: { id: user.id, name: user.name, color: collabUserColor(user.id) },
-    },
     _tiptapOptions: {
       editorProps: {
         handleDOMEvents: createMediaBlockingDOMEvents(translate),

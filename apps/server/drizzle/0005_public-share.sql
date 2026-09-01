@@ -1,0 +1,2 @@
+ALTER TABLE "notes" ADD COLUMN "public_token" text;--> statement-breakpoint
+CREATE UNIQUE INDEX "notes_public_token_idx" ON "notes" USING btree ("public_token") WHERE "notes"."public_token" is not null;

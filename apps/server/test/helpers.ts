@@ -15,7 +15,7 @@ import { loadConfig, type AppConfig } from "../src/config.js";
 import { buildApp, type AppDeps, type BuildAppOptions } from "../src/app.js";
 import { UserGate } from "../src/auth/session.js";
 import { LoginThrottle } from "../src/auth/rate-limit.js";
-import { AI_LIMIT, COLLAB_TOKEN_LIMIT, FixedWindowLimiter, OIDC_LIMIT, SLUG_PATCH_LIMIT, UPLOAD_LIMIT } from "../src/http/rate-limit.js";
+import { AI_LIMIT, COLLAB_TOKEN_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, SLUG_PATCH_LIMIT, UPLOAD_LIMIT } from "../src/http/rate-limit.js";
 import { hashPassword } from "../src/auth/password.js";
 import { noopCollabHooks, type CollabHooks } from "../src/collab/hooks.js";
 import type { CollabHooksLogger } from "../src/collab/hooks-impl.js";
@@ -180,6 +180,10 @@ function freshLimiters(): NonNullable<AppDeps["limiters"]> {
     ai: new FixedWindowLimiter(AI_LIMIT),
     oidcLogin: new FixedWindowLimiter(OIDC_LIMIT),
     oidcCallback: new FixedWindowLimiter(OIDC_LIMIT),
+    publicLink: new FixedWindowLimiter(PUBLIC_LINK_LIMIT),
+    publicMiss: new FixedWindowLimiter(PUBLIC_MISS_LIMIT),
+    publicNote: new FixedWindowLimiter(PUBLIC_NOTE_LIMIT),
+    publicUpload: new FixedWindowLimiter(PUBLIC_UPLOAD_LIMIT),
   };
 }
 

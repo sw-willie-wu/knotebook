@@ -44,6 +44,13 @@ export const notes = pgTable("notes", {
   // 值一律已經過 `normalizeSlug`（NFC + 小寫），查找（GET /api/notes/:ref）與寫入
   // （PATCH）都用正規化後的字串比對，不依賴 pg collation 做大小寫/正規化處理。
   slug: text(),
+  // #72 公開分享連結：`base64url(randomBytes(32))`（43 字元）。**存原文不存 hash**
+  // ——token 授權的 note_states 與它同一個 DB，hash 化不改變攻擊者能力邊界，而
+  // 「owner 隨時可複製現行連結」是產品需求（spec D1；與 AI 金鑰不同，那是第三方
+  // 憑證）。代價由兩條紀律扛——**皆由同 PR 的 Task 1b/1c commit 落地**：公開端點
+  // 格式 guard 先行（1b）、token 不進 log 的 req serializer（1c）；在那之前 token
+  // 只出現在管理端 response body，不經 URL。NULL＝未開公開。
+  publicToken: text("public_token"),
   linksClock: bigint("links_clock", { mode: "number" }).notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -51,6 +58,8 @@ export const notes = pgTable("notes", {
 }, t => [
   index("notes_owner_idx").on(t.ownerId),   // GET /api/notes 自有分支（owner_id = $u）用
   uniqueIndex("notes_slug_idx").on(t.slug).where(sql`${t.slug} is not null`),
+  // 公開端點以 token 反查筆記用；partial＝NULL 彼此不衝突（比照 notes_slug_idx）。
+  uniqueIndex("notes_public_token_idx").on(t.publicToken).where(sql`${t.publicToken} is not null`),
 ]);
 
 export const noteStates = pgTable("note_states", {

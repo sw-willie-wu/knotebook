@@ -5,6 +5,7 @@ import { Toaster } from "./components/ui/toast";
 import { ChangePasswordGate, RequireAdmin, RequireAuth } from "./auth/guards";
 import { AppErrorBoundary, ChunkLoadBeacon, NoteRouteErrorBoundary } from "./components/ErrorBoundary";
 import { NotePageFallback } from "./components/NotePageFallback";
+import { PublicNoteErrorBoundary, PublicNoteFallback } from "./components/PublicNoteShell";
 import LoginPage from "./pages/LoginPage";
 import ChangePasswordPage from "./pages/ChangePasswordPage";
 import HomePage from "./pages/HomePage";
@@ -25,6 +26,12 @@ import { SettingsAiSection } from "./settings/SettingsAiSection";
  * lazy 會讓開 modal 閃 fallback，不值得。
  */
 const NotePage = lazy(() => import("./pages/NotePage"));
+
+/**
+ * `/p/:token` 公開唯讀頁（#72）同樣走 lazy：它與 NotePage 共用 BlockNote 那條相依鏈
+ * （Rollup 會切成無 facade 的共用 chunk），首包不因公開頁而變胖。
+ */
+const PublicNotePage = lazy(() => import("./pages/PublicNotePage"));
 
 /**
  * `/notes/:ref` 的 route element（issue #66）：NoteRouteErrorBoundary 接住 chunk
@@ -48,6 +55,23 @@ function NoteRoute() {
         <ChunkLoadBeacon />
       </Suspense>
     </NoteRouteErrorBoundary>
+  );
+}
+
+/**
+ * `/p/:token` 的 route element（#72 Task 3）：**專屬** fallback／錯誤邊界——
+ * NotePageFallback／NoteRouteErrorBoundary 都包 AppShell（打 `/api/auth/me`、露側欄），
+ * 匿名頁不得重用（理由與零 fetch 守衛見 PublicNoteShell.tsx／App.publicRoute.test.tsx）。
+ * 不掛 ChunkLoadBeacon／自動 reload 額度：那套旗標機制是 NotePage 專屬，公開頁用
+ * 錯誤卡上的手動重試（整頁 reload）即可。
+ */
+function PublicNoteRoute() {
+  return (
+    <PublicNoteErrorBoundary>
+      <Suspense fallback={<PublicNoteFallback />}>
+        <PublicNotePage />
+      </Suspense>
+    </PublicNoteErrorBoundary>
   );
 }
 
@@ -92,6 +116,10 @@ export function AppRoutes() {
     <>
       <Routes location={state?.backgroundLocation ?? location}>
         <Route path="/login" element={<LoginPage />} />
+        {/* #72：公開分享頁與 /login 同層、排在 RequireAuth **之前**（D2 定案）——
+            匿名訪客免登入直達；spa.ts 的 EXCLUDED_PREFIXES 不含 /p，SPA fallback
+            照常服務這條路徑（noindex 標頭在 server 端）。 */}
+        <Route path="/p/:token" element={<PublicNoteRoute />} />
         <Route element={<RequireAuth />}>
           <Route path="/change-password" element={<ChangePasswordPage />} />
           <Route element={<ChangePasswordGate />}>

@@ -170,6 +170,30 @@ describe("SPA fallback（spec §11.5）", () => {
     expect(asset.headers["x-content-type-options"], "靜態資產缺 nosniff").toBe("nosniff");
   });
 
+  it("#72：/p/ 前綴的 HTML fallback 帶 X-Robots-Tag: noindex（token 連結不進搜尋引擎）", async () => {
+    const { app } = await buildTestApp({}, { webDist });
+    const res = await app.inject({ method: "GET", url: "/p/whatever-token", headers: { accept: "text/html" } });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["x-robots-tag"]).toBe("noindex");
+  });
+
+  it("#72：/p 本身、//p/、/P/ 變體同樣 noindex（判定與 log 遮罩共用正規化——只修一邊的洩漏形審查實測過）", async () => {
+    const { app } = await buildTestApp({}, { webDist });
+    for (const url of ["/p", "//p/some-token", "/P/some-token"]) {
+      const res = await app.inject({ method: "GET", url, headers: { accept: "text/html" } });
+      expect(res.statusCode, url).toBe(200);
+      expect(res.headers["x-robots-tag"], url).toBe("noindex");
+    }
+  });
+
+  it("#72 反向：其他路徑的 HTML fallback **不得**帶 X-Robots-Tag——條件標頭掛錯層＝整站 noindex", async () => {
+    const { app } = await buildTestApp({}, { webDist });
+    for (const url of ["/", "/nope", "/notes/some-ref", "/pnot-a-prefix"]) {
+      const res = await app.inject({ method: "GET", url, headers: { accept: "text/html" } });
+      expect(res.statusCode, url).toBe(200);
+      expect(res.headers["x-robots-tag"], url).toBeUndefined();
+    }
+  });
   it("不傳 webDist → GET /nope 仍是既有 JSON 404（既有行為不受影響）", async () => {
     const { app } = await buildTestApp();
     const res = await app.inject({ method: "GET", url: "/nope", headers: { accept: "text/html" } });

@@ -11,7 +11,7 @@ import { signSession } from "../src/auth/session.js";
 import { hashPassword } from "../src/auth/password.js";
 import { encryptApiKey } from "../src/ai/crypto.js";
 import { createAiRuntime } from "../src/ai/runtime.js";
-import { COLLAB_TOKEN_LIMIT, FixedWindowLimiter, OIDC_LIMIT, SLUG_PATCH_LIMIT, UPLOAD_LIMIT } from "../src/http/rate-limit.js";
+import { COLLAB_TOKEN_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, SLUG_PATCH_LIMIT, UPLOAD_LIMIT } from "../src/http/rate-limit.js";
 
 const VALID_PASSWORD = "correct-horse-battery";
 
@@ -111,6 +111,10 @@ function limitersWithAi(ai: FixedWindowLimiter) {
     ai,
     oidcLogin: new FixedWindowLimiter(OIDC_LIMIT),
     oidcCallback: new FixedWindowLimiter(OIDC_LIMIT),
+    publicLink: new FixedWindowLimiter(PUBLIC_LINK_LIMIT),
+    publicMiss: new FixedWindowLimiter(PUBLIC_MISS_LIMIT),
+    publicNote: new FixedWindowLimiter(PUBLIC_NOTE_LIMIT),
+    publicUpload: new FixedWindowLimiter(PUBLIC_UPLOAD_LIMIT),
   };
 }
 

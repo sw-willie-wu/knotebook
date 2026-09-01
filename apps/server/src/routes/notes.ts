@@ -1,4 +1,5 @@
-import type { FastifyInstance } from "fastify";
+import { randomBytes } from "node:crypto";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 import { and, desc, eq, ne, or, sql } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/pg-core";
@@ -49,8 +50,8 @@ export interface NotesRouteDeps {
   db: Db;
   collabHooks: CollabHooks;
   config: AppConfig;
-  /** `collabToken` 供 collab-token endpoint；`slugPatch` 供 PATCH 帶非 null slug 時節流（見該路由）。 */
-  limiters: { collabToken: FixedWindowLimiter; slugPatch: FixedWindowLimiter };
+  /** `collabToken` 供 collab-token endpoint；`slugPatch` 供 PATCH 帶非 null slug 時節流；`publicLink` 供 public-link 的 PUT/DELETE（#72，見各路由）。 */
+  limiters: { collabToken: FixedWindowLimiter; slugPatch: FixedWindowLimiter; publicLink: FixedWindowLimiter };
   /** Task 5：`POST /api/notes/:id/links` 寫入函式的測試注入縫，透傳自 `AppDeps.linkSyncTestHooks`。 */
   linkSyncTestHooks?: WriteNoteLinksHooks;
   /**
@@ -605,6 +606,71 @@ export function notesRoutes(deps: NotesRouteDeps) {
 
       deps.collabHooks.onShareChanged(id, targetUserId);
 
+      return reply.code(204).send();
+    });
+
+    /**
+     * #72 公開分享連結管理端三支。owner-only，錯誤慣例照 shares：
+     * resolveRole 為 none → 404（不可分辨存在性）、可讀但非 owner → 403。
+     * PUT 語意＝**每次都重生**（client 慣例：開面板先 GET、null 才 PUT，
+     * 避免誤重生）；token 存原文的理由與代價見 db/schema.ts 的欄位註解。
+     * 節流只掛 PUT/DELETE（PUBLIC_LINK_LIMIT 註解），且 **consume 早於授權判定**
+     * ——與 slugPatch 的「先授權後扣」相反、與 collab-token 同形：key=userId 讓
+     * 陌生人猜 noteId 的洪水只吃**他自己**的桶（不可跨人 DoS），並擋在 resolveRole
+     * 的 DB 查詢之前；代價是 403/404 的請求同樣計數（成功失敗都計數，比照
+     * slugPatch 既有慣例）。PUT 的重生語意**非冪等**（RFC 9110 下 PUT 允許自動
+     * 重試）——目前靠 client 慣例（先 GET、null 才 PUT）承擔，若未來出現自動重試
+     * 的中介層要改成 create-if-absent＋獨立 rotate。
+     */
+    const resolvePublicLinkAccess = async (reply: FastifyReply, userId: string, noteId: string): Promise<boolean> => {
+      const role = await resolveRole(deps.db, userId, noteId);
+      if (role === "none") {
+        sendError(reply, 404, "not_found", "找不到此筆記");
+        return false;
+      }
+      if (role !== "owner") {
+        sendError(reply, 403, "forbidden", "只有擁有者可以管理公開連結");
+        return false;
+      }
+      return true;
+    };
+
+    app.get("/api/notes/:id/public-link", { preHandler: app.authenticate }, async (request, reply) => {
+      const { id } = request.params as { id: string };
+      if (!(await resolvePublicLinkAccess(reply, request.user!.id, id))) return reply;
+      // I2 慣例（比照 PATCH）：resolveRole 判定完到這裡之間筆記可能被刪——落空回
+      // 404，不拿「resolveRole 說有」賭它還在。
+      const [row] = await deps.db.select({ publicToken: notes.publicToken }).from(notes).where(eq(notes.id, id)).limit(1);
+      if (!row) return sendError(reply, 404, "not_found", "找不到此筆記");
+      return { token: row.publicToken };
+    });
+
+    app.put("/api/notes/:id/public-link", { preHandler: app.authenticate }, async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const userId = request.user!.id;
+      if (!deps.limiters.publicLink.consume(userId)) {
+        return sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+      }
+      if (!(await resolvePublicLinkAccess(reply, userId, id))) return reply;
+      const token = randomBytes(32).toString("base64url");
+      // I2 慣例：UPDATE 落空＝筆記在判定後被刪，回 404——否則回 200＋一顆從未落地
+      // 的 token（owner 複製到必死連結）。
+      const updated = await deps.db.update(notes).set({ publicToken: token }).where(eq(notes.id, id)).returning({ id: notes.id });
+      if (updated.length === 0) return sendError(reply, 404, "not_found", "找不到此筆記");
+      return { token };
+    });
+
+    app.delete("/api/notes/:id/public-link", { preHandler: app.authenticate }, async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const userId = request.user!.id;
+      if (!deps.limiters.publicLink.consume(userId)) {
+        return sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+      }
+      if (!(await resolvePublicLinkAccess(reply, userId, id))) return reply;
+      // I2 慣例：同 PUT——**note 本身**落空才回 404；token 已是 null 不算落空，
+      // 照回 204（對 token 狀態冪等，重複 DELETE 一律 204）。
+      const cleared = await deps.db.update(notes).set({ publicToken: null }).where(eq(notes.id, id)).returning({ id: notes.id });
+      if (cleared.length === 0) return sendError(reply, 404, "not_found", "找不到此筆記");
       return reply.code(204).send();
     });
   };

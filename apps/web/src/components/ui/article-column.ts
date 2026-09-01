@@ -1,6 +1,6 @@
 /**
- * 內文卡的**文章欄**：BlockNote 置中 wrapper 的寬度鏈與內距（唯一消費端
- * `NoteEditor.tsx`）。
+ * 內文卡的**文章欄**：BlockNote 置中 wrapper 的寬度鏈與內距（消費端
+ * `NoteEditor.tsx` 與 `PublicNotePage.tsx`——#72 起公開唯讀頁沿用同一條欄）。
  *
  * 歷史：#88 曾讓頁首（標題列）／頁尾（backlinks strip）也套這條欄做三線對齊；
  * #115 版面改版定案「頁首/頁尾回滿卡寬（置左置右）」，對齊機制連同
