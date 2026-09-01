@@ -263,7 +263,7 @@ describe("NotePage", () => {
     navSpy.current = undefined;
   });
 
-  it("以 slug 開頁：解析出筆記、把網址 replaceState 成 canonical、掛上編輯器", async () => {
+  it("以舊形 uuid ref 開頁：解析出筆記、把網址 replaceState 成新形 canonical、掛上編輯器", async () => {
     vi.stubGlobal("fetch", mockFetch());
     collab.provider.synced = true; // 正常開頁路徑：同步過才有可編輯的標題 input（issue #48）
     window.history.replaceState(null, "", `/notes/${NOTE.id}`);
@@ -272,8 +272,9 @@ describe("NotePage", () => {
 
     await waitFor(() => expect(screen.getByTestId("note-editor")).toBeInTheDocument());
     expect(screen.getByLabelText("Note title")).toHaveValue("My Note");
-    // 有自訂 slug → canonical 是 `/notes/<slug>`，不是開頁時用的 uuid。
+    // #122：canonical 是 `/n/<ownerHandle>/<slug>` 單一形——舊形連結進來，網址收斂成新形。
     expect(window.location.pathname).toBe(canonicalNotePath(NOTE));
+    expect(window.location.pathname).toBe("/n/tester/my-note");
   });
 
   it("issue #48：從未同步過的連線（開頁就連不上）→ 即使 REST 角色是 owner 也唯讀", async () => {
@@ -589,6 +590,25 @@ describe("NotePage", () => {
       if (url.endsWith("/public-link") && method === "GET") {
         return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ token: null }) });
       }
+      if (url.startsWith("/api/notes/by-path/") && method === "GET") {
+        // #122 新形解析端點：/api/notes/by-path/<handle>/<slug>。保真度註記：真 server
+        // 是 JOIN users＋notes.slug（uuid 打 by-path 不會命中），這裡直查 byRef（含 id
+        // 鍵）——目前無案依賴這個差異，別寫依賴它的案子。
+        const [handle, pathSlug] = url
+          .slice("/api/notes/by-path/".length)
+          .split("/")
+          .map((seg) => decodeURIComponent(seg));
+        const hit = handle === NOTE.ownerHandle ? byRef.get(pathSlug) : undefined;
+        if (hit?.id === NOTE_B.id && options.bPending) await bGate;
+        if (!hit) {
+          return fakeResponse({
+            ok: false,
+            status: 404,
+            json: () => Promise.resolve({ error: { code: "not_found", message: "x" } }),
+          });
+        }
+        return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(hit) });
+      }
       if (url.startsWith("/api/notes/") && method === "PATCH") {
         const id = decodeURIComponent(url.slice("/api/notes/".length));
         const base = id === NOTE_B.id ? NOTE_B : NOTE;
@@ -646,9 +666,14 @@ describe("NotePage", () => {
   function NavToB() {
     const nav = useNavigate();
     return (
-      <button type="button" onClick={() => void nav("/notes/note-b")}>
-        go-b
-      </button>
+      <>
+        <button type="button" onClick={() => void nav("/notes/note-b")}>
+          go-b
+        </button>
+        <button type="button" onClick={() => void nav("/n/tester/note-b")}>
+          go-b-new
+        </button>
+      </>
     );
   }
 
@@ -664,6 +689,7 @@ describe("NotePage", () => {
               <NavToB />
               <Routes>
                 <Route path="/notes/:ref" element={<NotePage />} />
+                <Route path="/n/:handle/:slug" element={<NotePage />} />
                 <Route path="/" element={<div>home landing</div>} />
               </Routes>
             </ActiveNoteProvider>
@@ -713,8 +739,65 @@ describe("NotePage", () => {
     // C6-1(d)：斷**內容**（標題 input 的值），不是高亮——同 pattern 下 params 變更只
     // re-render 不 remount，解析機制必須對 params 變更反應，否則內容卡在舊筆記。
     await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("Note B"));
-    await waitFor(() => expect(window.location.pathname).toBe("/notes/note-b"));
+    await waitFor(() => expect(window.location.pathname).toBe("/n/tester/note-b"));
     expect(screen.getByTestId("active-probe")).toHaveTextContent(NOTE_B.id);
+  });
+
+  it("④跨 pattern 真導航（舊形頁 → /n/ 新形）→ 內容切到新筆記、URL/高亮同步（Task 4 延件）", async () => {
+    stubTwoNotes();
+    collab.provider.synced = true;
+
+    renderTwoNoteTree();
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
+
+    // paramsKey 前綴不同（ref: → n:）＝跨 pattern 天然 key 不等；解析走 useNoteByPath
+    fireEvent.click(screen.getByRole("button", { name: "go-b-new" }));
+
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("Note B"));
+    await waitFor(() => expect(window.location.pathname).toBe("/n/tester/note-b"));
+    // 高亮延件（Task 4 gate m17）：只斷最終態「active 跟到新筆記」——條件清除的
+    // 鑑別力在 NotePage.test 的「真接線卸載清除」案，這行不重複宣稱那個。
+    expect(screen.getByTestId("active-probe")).toHaveTextContent(NOTE_B.id);
+  });
+
+  it("A4：**新形之間**換頁（/n/→/n/ 同 pattern）→ 內容與網址都切到新筆記", async () => {
+    // useNoteByPath 的 query key 必含 handle 與 slug——丟掉 slug 段時，導航瞬間
+    // resolveQuery.data 是**上一篇**的 DTO，seed 寫出 {key: 新, id: 舊}，頁面永久
+    // 卡在 A、網址還被收斂回 A（突變審查實證：此前無任何案會紅）。
+    stubTwoNotes();
+    collab.provider.synced = true;
+
+    renderTwoNoteTree("/n/tester/my-note");
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
+
+    fireEvent.click(screen.getByRole("button", { name: "go-b-new" }));
+
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("Note B"));
+    await waitFor(() => expect(window.location.pathname).toBe("/n/tester/note-b"));
+  });
+
+  it("新形 by-path 404 → linkInvalid 出口（兩形分流的 §3b 新分支）", async () => {
+    stubTwoNotes();
+    collab.provider.synced = true;
+
+    renderTwoNoteTree("/n/tester/never-here");
+
+    await waitFor(() => expect(screen.getByText("home landing")).toBeInTheDocument());
+    expect(screen.getByText("This link is invalid or the note doesn't exist.")).toBeInTheDocument();
+    expect(screen.queryByText("This note has been deleted.")).not.toBeInTheDocument();
+  });
+
+  it("以 /n/ 新形開頁：解析走 useNoteByPath（by-path 端點，非舊形 ref）、網址收斂為 canonical", async () => {
+    const { fetchMock } = stubTwoNotes();
+    collab.provider.synced = true;
+
+    renderTwoNoteTree("/n/tester/my-note");
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
+
+    const urls = fetchMock.mock.calls.map((call) => String(call[0]));
+    expect(urls).toContain("/api/notes/by-path/tester/my-note");
+    expect(urls).not.toContain("/api/notes/my-note");
+    await waitFor(() => expect(window.location.pathname).toBe("/n/tester/my-note"));
   });
 
   it("A1：導航到 B 後、解析回應前——畫面無 A 的標題與可編輯編輯器（loading 佔位）；收斂閘門：舊 note 的快取更新不寫網址", async () => {
@@ -723,7 +806,7 @@ describe("NotePage", () => {
 
     const queryClient = renderTwoNoteTree();
     await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
-    await waitFor(() => expect(window.location.pathname).toBe("/notes/my-note"));
+    await waitFor(() => expect(window.location.pathname).toBe("/n/tester/my-note"));
 
     fireEvent.click(screen.getByRole("button", { name: "go-b" }));
 
@@ -740,13 +823,13 @@ describe("NotePage", () => {
       queryClient.setQueryData(["note", NOTE.id], { ...NOTE, slug: "moved-away" });
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    expect(window.location.pathname).not.toBe("/notes/moved-away");
-    expect(window.location.pathname).toBe("/notes/my-note"); // 轉場中網址原地不動
+    expect(window.location.pathname).not.toBe("/n/tester/moved-away");
+    expect(window.location.pathname).toBe("/n/tester/my-note"); // 轉場中網址原地不動
 
     // 放行 B：內容與網址一起收斂
     releaseB();
     await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("Note B"));
-    await waitFor(() => expect(window.location.pathname).toBe("/notes/note-b"));
+    await waitFor(() => expect(window.location.pathname).toBe("/n/tester/note-b"));
   });
 
   it("常駐層 404＝**真刪除** → note.deleted 文案導回 /（不得誤入 linkInvalid——needsResolve 前置的牙）", async () => {
@@ -780,14 +863,14 @@ describe("NotePage", () => {
 
     renderTwoNoteTree();
     await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
-    await waitFor(() => expect(window.location.pathname).toBe("/notes/my-note"));
+    await waitFor(() => expect(window.location.pathname).toBe("/n/tester/my-note"));
 
     fireEvent.click(screen.getByRole("button", { name: "Share" }));
     const slugInput = await screen.findByRole("textbox", { name: "Custom link" });
     fireEvent.change(slugInput, { target: { value: "renamed" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
-    await waitFor(() => expect(window.location.pathname).toBe("/notes/renamed"));
+    await waitFor(() => expect(window.location.pathname).toBe("/n/tester/renamed"));
   });
 
   it("常駐層非 404 錯誤（500）→ 錯誤卡留在頁上，不導走、不噴 404 文案", async () => {

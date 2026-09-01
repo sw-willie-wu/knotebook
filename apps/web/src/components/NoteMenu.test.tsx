@@ -94,7 +94,7 @@ describe("NoteMenu（⋮ 選單，spec D.4）", () => {
     openMenu();
     fireEvent.click(screen.getByRole("menuitem", { name: /Copy link/ }));
 
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/notes/my-note`));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/n/tester/my-note`));
     await waitFor(() => expect(screen.getByText("Link copied to clipboard.")).toBeInTheDocument());
     await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
   });
@@ -109,7 +109,7 @@ describe("NoteMenu（⋮ 選單，spec D.4）", () => {
 
     await waitFor(() => expect(screen.getByRole("heading", { name: "Copy link" })).toBeInTheDocument());
     const manual = screen.getByLabelText("Couldn't copy automatically — select the link below and copy it yourself.");
-    expect(manual).toHaveValue(`${window.location.origin}/notes/my-note`);
+    expect(manual).toHaveValue(`${window.location.origin}/n/tester/my-note`);
     expect(manual).toHaveAttribute("readonly");
 
     Reflect.deleteProperty(document, "execCommand");

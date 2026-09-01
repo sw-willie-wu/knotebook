@@ -130,7 +130,9 @@ export function useOnline(): boolean {
 type BoundaryStatus = "normal" | "pending" | "reloading" | "error";
 
 interface NoteRouteErrorBoundaryProps {
-  /** `/notes/:ref` 的 ref。刻意不用 location.key：關設定 modal 的 navigate(backgroundLocation) 會產生新 key，會把「關 modal」誤判成「換筆記」（實測）。 */
+  /** 「這一篇筆記」的路由不變量：舊形（/notes/:ref）是 ref、新形（/n/:handle/:slug，#122）
+   * 是 `${handle}/${slug}` 對——見 App.tsx 的 NoteRoute。刻意不用 location.key：關設定
+   * modal 的 navigate(backgroundLocation) 會產生新 key，會把「關 modal」誤判成「換筆記」（實測）。 */
   resetKey: string | undefined;
   /** 測試 seam：jsdom 30 下 location.reload 是 non-configurable、spy 不進去，只能注入。 */
   reload?: () => void;

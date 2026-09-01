@@ -4,7 +4,7 @@ import { useNavigate, useParams } from "react-router";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { canonicalNotePath, type NoteDto, type Role } from "@knotebook/shared";
 import { api, ApiFail } from "@/api/client";
-import { useNote } from "@/api/notes";
+import { useNote, useNoteByPath } from "@/api/notes";
 import { SESSION_QUERY_KEY, useSession } from "@/auth/useSession";
 import { canEdit, isTerminal, type CollabState } from "@/collab/connection";
 import { useActiveNote } from "@/lib/active-note";
@@ -79,13 +79,15 @@ function effectiveRole(state: CollabState, note: NoteDto): Role {
 }
 
 /**
- * `/notes/:ref` 編輯頁。
+ * 筆記編輯頁——`/n/:handle/:slug`（#122 新形）與 `/notes/:ref`（舊形，永久相容）
+ * 兩條 route 共用。
  *
  * 資料路徑（#122 spec §3b 定案：「按 params 解析 → 改讀 id 鍵」）兩層：
  * - **解析層**：`paramsKey`（只從 `useParams` 衍生）與 `resolvedFor.key` 不等＝真導航
- *   → `useNote(ref)` 解析（slug／`<vanity>-<uuid>`／純 uuid 都由 server 的
- *   `GET /api/notes/:ref` 吃掉）→ 成功後 seed `['note', id]` 並記 `resolvedFor`；
- *   相等時解析 query 停用——`history.replaceState` 不動 params，不會重解析。
+ *   → 依形解析（新形 `useNoteByPath(handle, slug)`；舊形 `useNote(ref)`——legacy
+ *   slug／`<vanity>-<uuid>`／純 uuid 都由 server 吃掉）→ 成功後 seed `['note', id]`
+ *   並記 `resolvedFor`；相等時解析 query 停用——`history.replaceState` 不動 params，
+ *   不會重解析。
  * - **常駐層**：`useNote(resolvedFor.id)`——key 以 id 為錨永不過時，改標題、
  *   invalidate 全清、focus refetch 都安全；**此後的 404 才是「真刪除」**（解析層的
  *   404 是「連結無效」，兩個出口文案分開）。頁面的 `note` 一律只取常駐層。
@@ -100,23 +102,30 @@ function effectiveRole(state: CollabState, note: NoteDto): Role {
  * N4 降級（editor → viewer）不是終態：連線留著，只是 `editable` 變 false 並 toast。
  */
 export default function NotePage() {
-  const { ref = "" } = useParams<{ ref: string }>();
+  const params = useParams<{ ref?: string; handle?: string; slug?: string }>();
   const { t } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useSession();
 
-  // paramsKey：目前僅舊形 `ref:`（Task 5b 加 `n:` 形——兩形前綴不同，跨 pattern 天然
-  // 不等；兩條 route 共用本元件、明文不依賴 remount）。**禁止取自
-  // window.location.pathname**：它會被收斂 effect replaceState 改掉，拿它當 key 就是
-  // 無窮重解析迴圈。
-  const paramsKey = `ref:${ref}`;
+  // paramsKey：新形 `n:`（/n/:handle/:slug）與舊形 `ref:`（/notes/:ref）。前綴不同是
+  // **防禦性設計**（ref 不可能含 `/`，實際上單靠內容就分得開——別把「跨 pattern 必
+  // 不等」的功勞記在前綴上，無案守著它）；兩條 route 共用本元件、明文不依賴 remount。
+  // **禁止取自 window.location.pathname**：它會被收斂 effect replaceState 改掉，
+  // 拿它當 key 就是無窮重解析迴圈。
+  const isPathForm = params.handle !== undefined && params.slug !== undefined;
+  const paramsKey = isPathForm ? `n:${params.handle}/${params.slug}` : `ref:${params.ref ?? ""}`;
   const [resolvedFor, setResolvedFor] = useState<{ key: string; id: string } | null>(null);
   const needsResolve = resolvedFor?.key !== paramsKey;
 
-  // 解析層（A4：query key 含 ref，data 必屬於當下這組 params——此保證依賴 useNote
-  // **沒有** placeholderData/keepPreviousData，見該 hook 的禁令）。
-  const resolveQuery = useNote(ref, { enabled: needsResolve });
+  // 解析層依形二擇一（A4：兩個 hook 的 query key 各含自己那組 params，data 必屬當下
+  // ——此保證依賴 useNote/useNoteByPath **沒有** placeholderData/keepPreviousData，
+  // 見 hook 的禁令）。停用的那支 enabled 恆 false、零請求。
+  const resolveByRef = useNote(params.ref ?? "", { enabled: needsResolve && !isPathForm });
+  const resolveByPath = useNoteByPath(params.handle ?? "", params.slug ?? "", {
+    enabled: needsResolve && isPathForm,
+  });
+  const resolveQuery = isPathForm ? resolveByPath : resolveByRef;
   useEffect(() => {
     if (!needsResolve || !resolveQuery.data) return;
     // seed 常駐層（A5：`GET /api/notes/:ref` 與 `GET /api/notes/:id` 同一個 toNoteDto，
@@ -210,7 +219,18 @@ export default function NotePage() {
   useEffect(() => {
     if (!note || note.id !== resolvedFor?.id) return;
     const canonical = canonicalNotePath(note);
-    if (window.location.pathname === canonical) return;
+    // 比對前先 decode：canonicalNotePath 回未編碼字串，真實瀏覽器的 pathname 對非
+    // ASCII slug（CJK/重音）回百分比編碼形——不 decode 的話「相同就不寫」對這類
+    // slug 恆失效，每次 note 物件變動都白做一次 replaceState（不會迴圈，只是浪費）。
+    // decodeURIComponent 對畸形 % 序列會 throw——瀏覽器產生的 pathname 不會畸形，
+    // try/catch 只是不讓防衛性比較本身變成炸點。
+    let currentPath = window.location.pathname;
+    try {
+      currentPath = decodeURIComponent(currentPath);
+    } catch {
+      // 保留原字串比對——最壞情況只是多一次 replaceState
+    }
+    if (currentPath === canonical) return;
     window.history.replaceState(window.history.state, "", canonical);
   }, [note, resolvedFor]);
 

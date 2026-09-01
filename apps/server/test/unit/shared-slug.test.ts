@@ -212,25 +212,14 @@ describe("extractRefUuid", () => {
 });
 
 describe("canonicalNotePath", () => {
-  // 三態:(1) 有自訂 slug → 直接用;(2) 無 slug 但 title 可轉出非空 vanity slug →
-  // `<titleSlug(title)>-<id>`（vanity 部分僅供好看,查找靠尾碼 uuid,故不強制小寫,
-  // 與 extractRefUuid/validateSlug 的 uuid_like 規則相呼應);(3) 無 slug 且 title
-  // 轉出空字串 → 純 `<id>`。
-  it("有自訂 slug → /notes/<slug>", () => {
-    expect(
-      canonicalNotePath({ id: "f47ac10b-58cc-4372-a567-0e02b2c3d479", slug: "hello-world", title: "Hello World" })
-    ).toBe("/notes/hello-world");
+  // #122 起單一形：`/n/<ownerHandle>/<slug>`（slug NOT NULL、每篇必有 ownerHandle，
+  // 舊三態退役）。兩段不做 URL 編碼——handle 是 a-z0-9-、slug 已過 normalizeSlug，
+  // 非 ASCII 交給傳輸層（與舊 /notes/<slug> 形同慣例）。
+  it("→ /n/<ownerHandle>/<slug>", () => {
+    expect(canonicalNotePath({ ownerHandle: "alice", slug: "hello-world" })).toBe("/n/alice/hello-world");
   });
 
-  it("slug 為 null、title 可轉出 vanity slug → /notes/<titleSlug>-<id>", () => {
-    expect(
-      canonicalNotePath({ id: "f47ac10b-58cc-4372-a567-0e02b2c3d479", slug: null, title: "Hello World" })
-    ).toBe("/notes/Hello-World-f47ac10b-58cc-4372-a567-0e02b2c3d479");
-  });
-
-  it("slug 為 null 且 title 轉 slug 為空（例如全符號 title）→ 純 /notes/<id>", () => {
-    expect(
-      canonicalNotePath({ id: "f47ac10b-58cc-4372-a567-0e02b2c3d479", slug: null, title: "!!!" })
-    ).toBe("/notes/f47ac10b-58cc-4372-a567-0e02b2c3d479");
+  it("非 ASCII slug 原樣輸出（不預編碼）", () => {
+    expect(canonicalNotePath({ ownerHandle: "alice", slug: "café" })).toBe("/n/alice/café");
   });
 });

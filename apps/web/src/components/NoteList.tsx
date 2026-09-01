@@ -122,8 +122,8 @@ interface NoteListProps {
  * 與我共享）——這是設計定案，不是 bug；`aria-current` 因此只給主清單（見
  * `NoteRow` 的說明），避免一個頁面上出現兩個 `aria-current="page"`。
  *
- * 每列連到 `canonicalNotePath(note)`——有自訂 slug 用 slug，沒有則 vanity slug + id，
- * 兩者皆空時純 id（三態定義見 `@knotebook/shared` 的 `canonicalNotePath`）。
+ * 每列連到 `canonicalNotePath(note)`＝`/n/<ownerHandle>/<slug>` 單一形（#122——
+ * slug 恆為字串，舊三態已退役）。
  * 無刪除鈕——刪除移到內文卡頁頭的 ⋮ 選單（`NoteMenu.tsx`）。
  */
 export function NoteList({ query }: NoteListProps) {

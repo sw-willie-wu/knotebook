@@ -382,7 +382,7 @@ describe("ShareDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Copy internal link" }));
 
     await waitFor(() =>
-      expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/notes/my-note`),
+      expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/n/tester/my-note`),
     );
     await waitFor(() => expect(screen.getByText("Link copied to clipboard.")).toBeInTheDocument());
   });
@@ -405,8 +405,8 @@ describe("ShareDialog", () => {
     const manual = await screen.findByLabelText(
       "Couldn't copy automatically — select the link below and copy it yourself.",
     );
-    // #122：slug 恆為字串 → canonicalNotePath 走 /notes/<slug> 形（Task 5b 改 /n/ 形）
-    expect(manual).toHaveValue(`${window.location.origin}/notes/my-note`);
+    // #122：canonicalNotePath＝/n/<ownerHandle>/<slug> 單一形
+    expect(manual).toHaveValue(`${window.location.origin}/n/tester/my-note`);
     expect(manual).toHaveAttribute("readonly");
   });
 

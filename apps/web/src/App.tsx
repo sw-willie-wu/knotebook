@@ -35,22 +35,27 @@ const NotePage = lazy(() => import("./pages/NotePage"));
 const PublicNotePage = lazy(() => import("./pages/PublicNotePage"));
 
 /**
- * `/notes/:ref` 的 route element（issue #66）：NoteRouteErrorBoundary 接住 chunk
- * 載入失敗（離線/部署輪替 hash）與 NotePage 底下任何 render 錯誤——沒有它的話
- * React.lazy 的 reject 會讓整棵樹被卸載成白屏。
+ * 筆記頁的 route element（issue #66）——舊形 `/notes/:ref` 與新形 `/n/:handle/:slug`
+ * （#122）兩條 route 共用：NoteRouteErrorBoundary 接住 chunk 載入失敗（離線/部署
+ * 輪替 hash）與 NotePage 底下任何 render 錯誤——沒有它的話 React.lazy 的 reject
+ * 會讓整棵樹被卸載成白屏。
  *
- * - resetKey 用 `useParams().ref` 而非 location.key：關設定 modal 走
- *   `navigate(backgroundLocation)` 會產生**新的** location key（實測），用 key 會把
- *   「關 modal」誤判成「換筆記」而觸發 reload；ref 才是「換到另一篇筆記」的真正
- *   不變量。代價（已接受）：重新導航到同一篇 ref 不觸發重試。此選型由
- *   `App.resetKey.test.tsx` 守著（issue #68）——改回 location.key 那裡會紅。
+ * - resetKey 用路由參數（舊形＝ref、新形＝`${handle}/${slug}` 對）而非 location.key：
+ *   關設定 modal 走 `navigate(backgroundLocation)` 會產生**新的** location key
+ *   （實測），用 key 會把「關 modal」誤判成「換筆記」而觸發 reload；params 才是
+ *   「換到另一篇筆記」的真正不變量。代價（已接受）：重新導航到同一組 params 不觸發
+ *   重試。此選型由 `App.resetKey.test.tsx` 守著（issue #68＋control 3 的新形案）
+ *   ——改回 location.key 那裡會紅。
  * - ChunkLoadBeacon **必須在 Suspense 內**（擺放不變量見 ErrorBoundary.tsx；
  *   App.errorBoundary.test.tsx 案 11 守著——錯放會變無限重整迴圈）。
  */
 function NoteRoute() {
-  const { ref } = useParams();
+  // #122：兩條 route（舊形 /notes/:ref、新形 /n/:handle/:slug）共用本元件與 NotePage
+  // ——resetKey 依形取（同一篇筆記的不變量：舊形是 ref、新形是 handle/slug 對）。
+  const { ref, handle, slug } = useParams();
+  const resetKey = handle !== undefined && slug !== undefined ? `${handle}/${slug}` : ref;
   return (
-    <NoteRouteErrorBoundary resetKey={ref}>
+    <NoteRouteErrorBoundary resetKey={resetKey}>
       <Suspense fallback={<NotePageFallback />}>
         <NotePage />
         <ChunkLoadBeacon />
@@ -124,9 +129,12 @@ export function AppRoutes() {
         <Route element={<RequireAuth />}>
           <Route path="/change-password" element={<ChangePasswordPage />} />
           <Route element={<ChangePasswordGate />}>
-            {/* `/notes/:ref` 排在 catch-all 之前：ref 可以是自訂 slug、
-                `<vanity>-<uuid>` 或純 uuid，一律由 `GET /api/notes/:ref` 解析。 */}
+            {/* `/notes/:ref`（舊形，永久相容：legacy slug、`<vanity>-<uuid>`、純 uuid）
+                與 `/n/:handle/:slug`（#122 新形）共用 NoteRoute/NotePage——兩條 route
+                並存、明文不依賴 remount（react-router 依 specificity 排序，兩者都不會
+                被 `/*` catch-all 吃掉；route 承接測試釘住）。 */}
             <Route path="/notes/:ref" element={<NoteRoute />} />
+            <Route path="/n/:handle/:slug" element={<NoteRoute />} />
             <Route element={<RequireAdmin />}>
               <Route path="/admin/users" element={<Navigate to="/settings/users" replace />} />
             </Route>

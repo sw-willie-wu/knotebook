@@ -123,12 +123,12 @@ function stubLocationReload() {
   return reload;
 }
 
-function renderNoteRoute() {
+function renderNoteRoute(initialEntry = "/notes/my-note") {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <MemoryRouter initialEntries={["/notes/my-note"]}>
+        <MemoryRouter initialEntries={[initialEntry]}>
           <ActiveNoteProvider>
             <AppRoutes />
           </ActiveNoteProvider>
@@ -236,5 +236,28 @@ describe("resetKey 選型守門——錯誤畫面上開/關設定 modal 不觸�
     expect(reload).toHaveBeenCalledTimes(1);
     // 旗標不被清（導航觸發的 reload 不清旗標——spec §resetKey；落地若又失敗直接進 B）
     expect(sessionStorage.getItem(FLAG_KEY)).not.toBeNull();
+    // #122 附註：側欄連結如今是 /n/ 新形——本案順帶就是「舊形→新形跨 pattern 換頁」
+    // 的 resetKey 守門（ref → handle/slug，鍵必變 → reload 恰一次）。
+  });
+
+  it("control 3（#122 新形）：/n/ 開頁由 NotePage 承接（非 /* catch-all），/n/→/n/ 換筆記 resetKey 變 → reload 恰一次", async () => {
+    sessionStorage.setItem(FLAG_KEY, "1");
+    const reload = stubLocationReload();
+
+    // 以新形開頁：出現的是 NotePage 子樹的錯誤畫面（mock 必 throw）＝route 承接證明
+    // ——若 /n/a/b 被 `/*` 吃掉，這裡會渲染 HomePage、看不到 CHUNK_ERROR_TEXT。
+    renderNoteRoute("/n/plain/my-note");
+    await waitFor(() => expect(screen.getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument(), { timeout: 3_000 });
+    expect(reload).not.toHaveBeenCalled();
+
+    // 新形之間換筆記：resetKey（`${handle}/${slug}`）變 → 預設 seam reload 恰一次
+    await waitFor(() => expect(screen.getAllByRole("link", { name: /Other Note/ }).length).toBeGreaterThan(0), {
+      timeout: 3_000,
+    });
+    fireEvent.click(screen.getAllByRole("link", { name: /Other Note/ })[0]);
+
+    await waitFor(() => expect(reload).toHaveBeenCalledTimes(1), { timeout: 3_000 });
+    // waitFor 內那句只保證「曾達到 1」——外面再釘一遍抓晚到的第二次（同檔既有慣例）
+    expect(reload).toHaveBeenCalledTimes(1);
   });
 });

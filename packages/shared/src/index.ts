@@ -304,8 +304,8 @@ export function normalizeSlug(input: string): string {
  * 驗證已正規化（已過 `normalizeSlug`）的字串是否為合法自訂 slug。spec §11.4 逐字：
  * 1–100 code points；charset 僅 `\p{L}\p{N}-`（刻意不含 `\p{M}` combining marks——
  * 例如 `İ`.toLowerCase() 產生的 U+0307 會被擋）；不可頭尾/連續/純 `-`；保留字
- * `new`；整串 uuid 或以 `-<uuid>` 結尾 → `uuid_like`（避免與 `canonicalNotePath`
- * 的 `<titleSlug>-<id>` vanity path 混淆——見該函式與 `extractRefUuid` 的說明）。
+ * `new`；整串 uuid 或以 `-<uuid>` 結尾 → `uuid_like`（避免與**舊版**發出去的
+ * `/notes/<vanity>-<id>` 連結混淆——那些連結永久活著，由 `extractRefUuid` 解析）。
  * 檢查順序即為分支優先序：length → charset → dash → reserved → uuid_like。
  */
 export function validateSlug(normalized: string): "length" | "charset" | "dash" | "reserved" | "uuid_like" | null {
@@ -356,10 +356,10 @@ export function validateHandle(normalized: string): "length" | "charset" | "dash
 }
 
 /**
- * 從標題產生 slug 片段。兩個消費端：`canonicalNotePath` 的 vanity 片段（好看、
- * 非唯一，真正查找靠 `<id>` 尾碼，見 `extractRefUuid`）；`autoSlugFromTitle` 的
- * 原料（後續進 normalizeSlug→validateSlug 漏斗）。刻意不做大小寫正規化——vanity
- * 路徑要保留原大小寫；需要唯一比對的路徑由消費端自行 `normalizeSlug`。
+ * 從標題產生 slug 片段。唯一消費端（#122 起）：`autoSlugFromTitle` 的原料（後續進
+ * normalizeSlug→validateSlug 漏斗）——`canonicalNotePath` 已改 `/n/<handle>/<slug>`
+ * 單一形，不再組 vanity 片段。刻意不做大小寫正規化：需要唯一比對的路徑由消費端
+ * 自行 `normalizeSlug`（歷史上 vanity 路徑要保留原大小寫，這個性質順帶留存）。
  * pipeline：NFC → 保留 `\p{L}\p{N}`，其餘一段段轉單一 `-` → 去頭尾 `-` →
  * 以 code point（`Array.from`，避免切斷 surrogate pair）截斷至 60 → 截斷後再去尾
  * `-` 一次（截斷點可能恰好落在 `-` 後）。全空 → `""`。
@@ -393,8 +393,9 @@ export function autoSlugFromTitle(title: string): string {
 }
 
 /**
- * 從 ref 字串（可能是純 uuid，或 `<vanity>-<uuid>` 形式）擷取尾碼 uuid，供
- * `GET /api/notes/:ref` 在 slug 精確比對失敗後的第二段查找路徑。找不到回傳 null。
+ * 從 ref 字串（可能是純 uuid，或**舊版連結**的 `<vanity>-<uuid>` 形式）擷取尾碼
+ * uuid，供 `GET /api/notes/:ref` 在 legacy slug 比對失敗後的第二段查找路徑——
+ * 0007 之前發出去的連結靠這條永久可解。找不到回傳 null。
  */
 export function extractRefUuid(ref: string): string | null {
   if (UUID_RE.test(ref)) return ref.toLowerCase();
@@ -404,16 +405,18 @@ export function extractRefUuid(ref: string): string | null {
 }
 
 /**
- * 組出筆記的「canonical」路徑，供 NoteList href、TitleInput 存檔後
- * `history.replaceState`、分享 dialog 複製連結共用。三態：
- * 1. 有自訂 slug（DB 已驗證合法且唯一）→ `/notes/<slug>`。
- * 2. 無 slug、但 title 轉得出非空 vanity slug → `/notes/<titleSlug>-<id>`。
- * 3. 無 slug 且 title 轉出空字串（例如全符號標題）→ 純 `/notes/<id>`。
+ * 組出筆記的 canonical 路徑（#122 spec §3b）：`/n/<ownerHandle>/<slug>`——單一形，
+ * 不再有三態（slug 自 0007 起 NOT NULL、每篇筆記必有 ownerHandle）。供 NoteList
+ * href、NotePage 收斂 effect 的 `history.replaceState`、分享 dialog 複製連結共用。
+ * 兩段都不做 URL 編碼：擋掉 `/ % ? #` 等分隔字元的是**字元集驗證**——handle 走
+ * `validateHandle`（`a-z0-9-`）、slug 走 `validateSlug`（`\p{L}\p{N}-`），兩者都
+ * 不可能切出額外 path segment 或 query/hash；非 ASCII 字元由瀏覽器/
+ * `encodeURIComponent` 在傳輸層處理（與舊 `/notes/<slug>` 形同慣例）。
+ * 舊形 `/notes/…`（含 `<vanity>-<uuid>`）永久可解析（server 走 legacy＋uuid 尾碼），
+ * 但**不再由本函式產生**。
  */
-export function canonicalNotePath(note: { id: string; slug: string | null; title: string }): string {
-  if (note.slug) return `/notes/${note.slug}`;
-  const vanity = titleSlug(note.title);
-  return vanity ? `/notes/${vanity}-${note.id}` : `/notes/${note.id}`;
+export function canonicalNotePath(note: { ownerHandle: string; slug: string }): string {
+  return `/n/${note.ownerHandle}/${note.slug}`;
 }
 
 /**

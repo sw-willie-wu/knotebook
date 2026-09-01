@@ -163,7 +163,7 @@ describe("NoteList", () => {
     await waitFor(() => expect(screen.getByText("No notes yet.")).toBeInTheDocument());
   });
 
-  it("links each note to its canonicalNotePath — slug wins, no-slug falls back to title-slug+id", async () => {
+  it("links each note to its canonicalNotePath — /n/<ownerHandle>/<slug> 單一形（#122）", async () => {
     stubNotesFetch([OWNER_NOTE, SHARED_NOTE]);
 
     renderNoteList();
@@ -175,14 +175,14 @@ describe("NoteList", () => {
       "href",
       canonicalNotePath(OWNER_NOTE),
     );
-    expect(canonicalNotePath(OWNER_NOTE)).toBe("/notes/custom-slug");
+    expect(canonicalNotePath(OWNER_NOTE)).toBe("/n/owner-one/custom-slug");
 
     const shared = screen.getByTestId("notegroup-shared");
     expect(within(shared).getByRole("link", { name: "No Slug Note" })).toHaveAttribute(
       "href",
       canonicalNotePath(SHARED_NOTE),
     );
-    expect(canonicalNotePath(SHARED_NOTE)).not.toBe(`/notes/${SHARED_NOTE.id}`);
+    expect(canonicalNotePath(SHARED_NOTE)).toBe("/n/owner-nine/no-slug-note"); // 新形字面（原 not.toBe 在 slug 恆字串後恆真）
 
     // #115：列高 `<md` 44px（觸控目標）、`md+` 回 28px——h-11 md:h-7 缺一即壞
     // （缺 md:h-7 寬螢幕列變胖；缺 h-11 窄視窗點不準）。

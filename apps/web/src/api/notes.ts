@@ -31,6 +31,23 @@ export function useNote(ref: string, options: { enabled?: boolean } = {}): UseQu
 }
 
 /**
+ * `GET /api/notes/by-path/:handle/:slug`——`/n/<handle>/<slug>` 新形網址的解析層
+ * （#122 spec §3b）。query key 含 handle 與 slug（A4：data 必屬當下這組 params）；
+ * `useNote` 的 placeholderData 禁令同樣適用於此（同一個 seed effect 消費）。
+ */
+export function useNoteByPath(
+  handle: string,
+  slug: string,
+  options: { enabled?: boolean } = {},
+): UseQueryResult<NoteDto> {
+  return useQuery({
+    queryKey: ["note-by-path", handle, slug],
+    queryFn: () => api<NoteDto>(`/api/notes/by-path/${encodeURIComponent(handle)}/${encodeURIComponent(slug)}`),
+    enabled: (options.enabled ?? true) && handle.length > 0 && slug.length > 0,
+  });
+}
+
+/**
  * 反向連結（Task 6a `GET /api/notes/:id/backlinks` → `{backlinks: BacklinkDto[]}`）。
  * `enabled: !!noteId`——與 `useNote` 的 `ref.length > 0` 同用意：`NotePage` 在 note
  * 還沒載完時 `noteId` 是 `undefined`，不該對 `/undefined/backlinks` 發請求。
