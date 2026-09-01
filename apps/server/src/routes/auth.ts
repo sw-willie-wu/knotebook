@@ -1,11 +1,12 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { eq, sql } from "drizzle-orm";
-import { SESSION_COOKIE, normalizeEmail, type AuthConfigDto, type UserDto } from "@knotebook/shared";
+import { and, eq, gt, sql } from "drizzle-orm";
+import { SESSION_COOKIE, normalizeEmail, normalizeHandle, validateHandle, type AuthConfigDto, type UserDto } from "@knotebook/shared";
 import { sendError, sendLoginThrottled } from "../http/errors.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
-import { users } from "../db/schema.js";
+import { handles, users } from "../db/schema.js";
+import { uniqueViolationConstraint } from "../db/pg-errors.js";
 import { verifyPassword, hashPassword, HashBusyError, DUMMY_HASH } from "../auth/password.js";
 import { signSession, type UserGate } from "../auth/session.js";
 import { setSessionCookie } from "../auth/cookies.js";
@@ -135,6 +136,81 @@ export function authRoutes(deps: AuthRouteDeps) {
     });
 
     app.get("/api/auth/me", { preHandler: app.authenticate }, async (request): Promise<UserDto> => request.user!);
+
+    /**
+     * #122 改名（spec §2a Task 4）。單一 tx 四步：①額度（**DB registry 計數**，5/日
+     * ——`state='released' AND released_at > now()-1day`；不用 in-memory limiter：24h
+     * 窗口重啟歸零的相對傷害太大，registry 天然跨重啟/實例）→ ②`INSERT handles`
+     * 取新名（PK 裁決，含墓碑；**改成自己現行名也走這裡撞自己的 live 列回 409**——
+     * 刻意，不得加 DELETE 短路破壞永不回收）→ ③釋放舊名（fail-closed upsert：正常態
+     * live→released；窗期態（無列）補一筆 released；`WHERE user_id=$me` 防翻他人列，
+     * **rowcount≠1 整 tx 回滾 500**）→ ④`UPDATE users`。
+     *
+     * 舊名以 tx 內 SELECT 為準（request.user 是 gate 的 60s 快取，可能落後）。
+     * 成功後 `gate.invalidate`（比照改密碼），/api/auth/me 立即反映。
+     * 同使用者併發改名可雙過額度計數——非安全邊界，明示接受（spec m4-5）。
+     */
+    app.patch("/api/auth/profile", { preHandler: app.authenticate }, async (request, reply) => {
+      const parsed = z.object({ handle: z.string() }).safeParse(request.body);
+      if (!parsed.success) {
+        return sendError(reply, 400, "invalid_body", "請求格式錯誤");
+      }
+      const normalized = normalizeHandle(parsed.data.handle);
+      if (validateHandle(normalized) !== null) {
+        return sendError(reply, 400, "invalid_body", "使用者名格式不合法（1–32 字元、小寫英數與連字號，不可頭尾/連續連字號）");
+      }
+      const userId = request.user!.id;
+
+      // 5/日（spec §2a；plan m10 的「無 limiter 常數」指不建 FixedWindowLimiter，
+      // 具名常數反而消除 JSDoc/判斷/錯誤訊息三處數字漂移面）
+      const RENAME_QUOTA_PER_DAY = 5;
+      const QUOTA_EXCEEDED = Symbol("rename-quota");
+      try {
+        await deps.db.transaction(async tx => {
+          const [spent] = await tx
+            .select({ n: sql<number>`count(*)::int` })
+            .from(handles)
+            .where(and(eq(handles.userId, userId), eq(handles.state, "released"), gt(handles.releasedAt, sql`now() - interval '1 day'`)));
+          if (spent!.n >= RENAME_QUOTA_PER_DAY) throw QUOTA_EXCEEDED;
+
+          // FOR UPDATE（讀碼審查 m1）：同人兩個併發 PATCH 若都讀到同一個舊名，晚者的
+          // 釋放 upsert 會在先者 commit 後對新版本重評 WHERE（仍是本人）而過關——終態
+          // 留下先者新名的 live 孤兒列（永不釋放、破壞「每人恰一列 live」不變量）。
+          // 鎖住本人 users 列讓第二個 tx 在這裡排隊、解鎖後讀到最新名，孤兒形不可達。
+          const [row] = await tx.select({ handle: users.handle }).from(users).where(eq(users.id, userId)).limit(1).for("update");
+          const oldHandle = row!.handle;
+
+          await tx.insert(handles).values({ handle: normalized, userId, state: "live" });
+
+          const released = await tx.execute(
+            sql`INSERT INTO handles (handle, user_id, state, released_at)
+                VALUES (${oldHandle}, ${userId}, 'released', now())
+                ON CONFLICT (handle) DO UPDATE SET state = 'released', released_at = now()
+                WHERE handles.user_id = ${userId}`,
+          );
+          if (released.rowCount !== 1) {
+            // 舊名的 registry 列屬他人（資料不一致形）——絕不靜默吞：整 tx 回滾。
+            throw new Error(`改名釋放失敗：舊名 ${oldHandle} 的 registry 列不屬於本人（rowcount=${released.rowCount}）`);
+          }
+
+          await tx.update(users).set({ handle: normalized }).where(eq(users.id, userId));
+        });
+      } catch (err) {
+        if (err === QUOTA_EXCEEDED) {
+          return sendError(reply, 429, "too_many_requests", "改名太頻繁（每日限額已用完——舊名永不回收，改名是消耗性動作）");
+        }
+        const constraint = uniqueViolationConstraint(err);
+        if (constraint === "handles_pkey" || constraint === "users_handle_unique") {
+          return sendError(reply, 409, "handle_taken", "此使用者名已被使用");
+        }
+        throw err;
+      }
+
+      // 比照改密碼的既有慣例：invalidate 讓下一次 authenticate 立刻反映（60s 快取不等 TTL）
+      deps.gate.invalidate(userId);
+      const dto: UserDto = { ...request.user!, handle: normalized };
+      return reply.send(dto);
+    });
 
     app.post("/api/auth/password", { preHandler: app.authenticate }, async (request, reply) => {
       const parsed = passwordBodySchema.safeParse(request.body);
