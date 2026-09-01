@@ -25,6 +25,12 @@ export const AI_LIMIT = { limit: 30, windowMs: 60_000 } as const;
  * 兩者用同一組數值，但計數彼此獨立。
  */
 export const OIDC_LIMIT = { limit: 30, windowMs: 60_000 } as const;
+/**
+ * #72：`PUT/DELETE /api/notes/:id/public-link` 節流（key=userId）。**GET 不吃這桶**
+ * ——分享面板開啟即 GET，10 分鐘開 11 次面板是正常操作；掛上去就是 OIDC issue #16
+ * 那族「共桶讓額度砍半」的變形。
+ */
+export const PUBLIC_LINK_LIMIT = { limit: 10, windowMs: 600_000 } as const;
 
 export interface FixedWindowLimiterOptions {
   limit: number;

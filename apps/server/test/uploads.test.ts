@@ -543,6 +543,7 @@ describe("POST /api/notes/:id/uploads", () => {
         ai: new FixedWindowLimiter({ limit: 30, windowMs: 60_000 }),
         oidcLogin: new FixedWindowLimiter({ limit: 30, windowMs: 60_000 }),
         oidcCallback: new FixedWindowLimiter({ limit: 30, windowMs: 60_000 }),
+        publicLink: new FixedWindowLimiter({ limit: 10, windowMs: 600_000 }),
       },
     });
     const owner = await insertUser(db, { email: "owner-429@example.com" });

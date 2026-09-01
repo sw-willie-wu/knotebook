@@ -102,4 +102,25 @@ describe("runMigrations", () => {
       "users_email_lower_idx"
     );
   });
+
+  it("notes.public_token 欄位＋partial unique index 存在（#72：NULL 不互斥、非 NULL 全域唯一）", async () => {
+    const { pool } = await freshDb();
+
+    const { rows: cols } = await pool.query(
+      `select data_type, is_nullable from information_schema.columns
+       where table_name = 'notes' and column_name = 'public_token'`
+    );
+    expect(cols).toHaveLength(1);
+    expect(cols[0]).toEqual({ data_type: "text", is_nullable: "YES" });
+
+    // 釘 indexdef 全形：UNIQUE ＋ WHERE 子句缺一都是另一種語意（無 WHERE 的
+    // unique 對多筆 NULL 也成立於 pg，但寫成 partial 是明確意圖——比照
+    // users_email_lower_idx 的「釘這個名字的 indexdef」慣例）。
+    const { rows: idx } = await pool.query(
+      `select indexdef from pg_indexes where tablename = 'notes' and indexname = 'notes_public_token_idx'`
+    );
+    expect(idx).toHaveLength(1);
+    expect(idx[0].indexdef).toMatch(/UNIQUE/);
+    expect(idx[0].indexdef).toMatch(/WHERE \(?public_token IS NOT NULL\)?/);
+  });
 });

@@ -24,7 +24,7 @@ import { uploadsRoutes } from "./routes/uploads.js";
 import { oidcRoutes } from "./routes/oidc.js";
 import { drainWithCap } from "./http/drain.js";
 import { sendError } from "./http/errors.js";
-import { AI_LIMIT, COLLAB_TOKEN_LIMIT, FixedWindowLimiter, OIDC_LIMIT, SLUG_PATCH_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
+import { AI_LIMIT, COLLAB_TOKEN_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PUBLIC_LINK_LIMIT, SLUG_PATCH_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
 import { registerSpaFallback } from "./http/spa.js";
 import { assertUploadsDirWritable } from "./uploads/service.js";
 import type { AiRuntime } from "./ai/runtime.js";
@@ -77,6 +77,8 @@ export interface AppDeps {
     /** OIDC login 與 callback 各自一份額度（issue #16），見 `OIDC_LIMIT` 註解。 */
     oidcLogin: FixedWindowLimiter;
     oidcCallback: FixedWindowLimiter;
+    /** #72：public-link 管理端 PUT/DELETE（key=userId；GET 不吃桶，見 PUBLIC_LINK_LIMIT）。 */
+    publicLink: FixedWindowLimiter;
   };
   /**
    * Task 5：`POST /api/notes/:id/links` 寫入函式（`notes/links.ts` 的 `writeNoteLinks`）的
@@ -424,6 +426,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       ai: new FixedWindowLimiter(AI_LIMIT),
       oidcLogin: new FixedWindowLimiter(OIDC_LIMIT),
       oidcCallback: new FixedWindowLimiter(OIDC_LIMIT),
+      publicLink: new FixedWindowLimiter(PUBLIC_LINK_LIMIT),
     } satisfies NonNullable<AppDeps["limiters"]>);
 
   // Task 8（二輪 MINOR-8）：`deps.oidc` 未傳但 `config.oidc` 有值時在此補上 production
@@ -453,8 +456,9 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   void app.register(
     aiRoutes({ db: deps.db, config: deps.config, runtime: deps.ai, limiters: { ai: limiters.ai }, idleTimeoutMs: options.aiIdleTimeoutMs })
   );
-  // `NotesRouteDeps.limiters` 的型別只列 `collabToken`/`slugPatch`（刻意不改，見該
-  // interface 說明）——這裡傳整包 `limiters`（含 `upload`）給它，屬於變數（非物件
+  // `NotesRouteDeps.limiters` 的型別只列它實際用到的鍵（`collabToken`/`slugPatch`，
+  // #72 起含 `publicLink`；見該 interface 說明）——這裡傳整包 `limiters`（含
+  // `upload`）給它，屬於變數（非物件
   // 字面值）賦值給較窄的結構型別，TS 不做 excess property check，不需要另外
   // pick／窄化。`uploadsRoutes` 自己的 deps 只挑 `upload` 這一個節流器。
   void app.register(uploadsRoutes({ db: deps.db, config: deps.config, limiters: { upload: limiters.upload }, uploadsDir: deps.uploadsDir }));
