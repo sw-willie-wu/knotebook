@@ -1,11 +1,12 @@
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter, Route, Routes } from "react-router";
+import { MemoryRouter, Route, Routes, useNavigate } from "react-router";
 import * as Y from "yjs";
 import { COLLAB_CLOSE_REVOKED, canonicalNotePath, type BacklinkDto, type NoteDto, type UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
+import { ActiveNoteProvider, useActiveNote } from "@/lib/active-note";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import type { CollabState } from "@/collab/connection";
@@ -79,6 +80,21 @@ function createStubProvider() {
 // 都新建一份：link-sync 的掛載 effect deps 是 `[noteId, doc, provider]`，逐 render
 // 給新物件會讓它每個 render 都 teardown 再重訂閱，在真實情境下會讓 provider 的
 // `synced`（只在 false→true 邊緣 emit 一次）被錯過訂閱窗口。
+/** m14 專用的 navigate 攔截縫：預設 `undefined`＝走真的 useNavigate；單一測試把
+ * `navSpy.current` 設成 vi.fn() 可**壓住導頁**，觀察「解析 404 的那幾個 render」
+ * 畫面停在哪一格（否則 navigate 太快、中間態無法斷言）。afterEach 歸零。 */
+const navSpy = vi.hoisted(() => ({ current: undefined as ((to: unknown, opts?: unknown) => void) | undefined }));
+vi.mock("react-router", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("react-router")>();
+  return {
+    ...mod,
+    useNavigate: () => {
+      const real = mod.useNavigate();
+      return navSpy.current ?? real;
+    },
+  };
+});
+
 const collab = vi.hoisted(() => ({
   state: { phase: "connecting" } as CollabState,
   onUnauthorized: undefined as (() => void) | undefined,
@@ -129,6 +145,9 @@ const NOTE: NoteDto = {
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
   slug: "my-note",
+  slugIsCustom: true,
+  prevSlug: null,
+  ownerHandle: "tester",
 };
 
 /** `/api/auth/me`、`/api/notes`（清單）、`/api/notes/:ref`（單篇）三支的假 server。
@@ -180,16 +199,45 @@ function mockFetch(
   });
 }
 
-function renderNotePage(ref: string) {
+/** #122：ActiveNoteContext 的觀測探針——NotePage 的 set/清除行為靠它斷言。 */
+function ActiveProbe() {
+  const { activeNoteId } = useActiveNote();
+  return <div data-testid="active-probe">{activeNoteId ?? "none"}</div>;
+}
+
+/** 模擬 NoteList 的樂觀 set：掛載時把 `id` 種進 context（A6 案的殘留來源）。
+ * `id` 選填且元件**恆掛載**——provider 的 children 形狀必須在 render 與 rerender 之間
+ * 穩定（child 位移會讓 React 把 NotePage 整棵 remount，previousRoleRef 之類的頁內
+ * state 全部歸零，N4 那組 rerender 案就假紅了）。 */
+function SeedActive({ id }: { id?: string }) {
+  const { setActiveNoteId } = useActiveNote();
+  useEffect(() => {
+    if (id !== undefined) setActiveNoteId(id);
+  }, [id, setActiveNoteId]);
+  return null;
+}
+
+/** renderNotePage 與各 rerender 案共用的 provider 內部樹——單一定義保證形狀一致。 */
+function NotePageTree({ seedActiveId }: { seedActiveId?: string }) {
+  return (
+    <ActiveNoteProvider>
+      <SeedActive id={seedActiveId} />
+      <ActiveProbe />
+      <Routes>
+        <Route path="/notes/:ref" element={<NotePage />} />
+        <Route path="/" element={<div>home landing</div>} />
+      </Routes>
+    </ActiveNoteProvider>
+  );
+}
+
+function renderNotePage(ref: string, options: { seedActiveId?: string } = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const result = render(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <MemoryRouter initialEntries={[`/notes/${ref}`]}>
-          <Routes>
-            <Route path="/notes/:ref" element={<NotePage />} />
-            <Route path="/" element={<div>home landing</div>} />
-          </Routes>
+          <NotePageTree seedActiveId={options.seedActiveId} />
         </MemoryRouter>
         <Toaster />
       </ThemeProvider>
@@ -212,9 +260,10 @@ describe("NotePage", () => {
   afterEach(() => {
     collab.doc.destroy();
     vi.unstubAllGlobals();
+    navSpy.current = undefined;
   });
 
-  it("以 slug 開頁：解析出筆記、把網址 replaceState 成 canonical、掛上編輯器", async () => {
+  it("以舊形 uuid ref 開頁：解析出筆記、把網址 replaceState 成新形 canonical、掛上編輯器", async () => {
     vi.stubGlobal("fetch", mockFetch());
     collab.provider.synced = true; // 正常開頁路徑：同步過才有可編輯的標題 input（issue #48）
     window.history.replaceState(null, "", `/notes/${NOTE.id}`);
@@ -223,8 +272,9 @@ describe("NotePage", () => {
 
     await waitFor(() => expect(screen.getByTestId("note-editor")).toBeInTheDocument());
     expect(screen.getByLabelText("Note title")).toHaveValue("My Note");
-    // 有自訂 slug → canonical 是 `/notes/<slug>`，不是開頁時用的 uuid。
+    // #122：canonical 是 `/n/<ownerHandle>/<slug>` 單一形——舊形連結進來，網址收斂成新形。
     expect(window.location.pathname).toBe(canonicalNotePath(NOTE));
+    expect(window.location.pathname).toBe("/n/tester/my-note");
   });
 
   it("issue #48：從未同步過的連線（開頁就連不上）→ 即使 REST 角色是 owner 也唯讀", async () => {
@@ -358,12 +408,7 @@ describe("NotePage", () => {
     rerender(
       <QueryClientProvider client={queryClient}>
         <ThemeProvider>
-          <MemoryRouter initialEntries={["/notes/my-note"]}>
-            <Routes>
-              <Route path="/notes/:ref" element={<NotePage />} />
-              <Route path="/" element={<div>home landing</div>} />
-            </Routes>
-          </MemoryRouter>
+          <MemoryRouter initialEntries={["/notes/my-note"]}><NotePageTree /></MemoryRouter>
           <Toaster />
         </ThemeProvider>
       </QueryClientProvider>,
@@ -387,12 +432,7 @@ describe("NotePage", () => {
     rerender(
       <QueryClientProvider client={queryClient}>
         <ThemeProvider>
-          <MemoryRouter initialEntries={["/notes/my-note"]}>
-            <Routes>
-              <Route path="/notes/:ref" element={<NotePage />} />
-              <Route path="/" element={<div>home landing</div>} />
-            </Routes>
-          </MemoryRouter>
+          <MemoryRouter initialEntries={["/notes/my-note"]}><NotePageTree /></MemoryRouter>
           <Toaster />
         </ThemeProvider>
       </QueryClientProvider>,
@@ -424,13 +464,448 @@ describe("NotePage", () => {
     expect(screen.getByText("This note has been deleted.")).toBeInTheDocument();
   });
 
-  it("GET /api/notes/:ref 回 404 → toast 並導回 /", async () => {
+  it("首次解析 404 → **linkInvalid** 文案（A10：不得沿用「筆記已刪」）並導回 /", async () => {
     vi.stubGlobal("fetch", mockFetch({ status: 404, code: "not_found" }));
 
     renderNotePage("gone");
 
     await waitFor(() => expect(screen.getByText("home landing")).toBeInTheDocument());
+    expect(screen.getByText("This link is invalid or the note doesn't exist.")).toBeInTheDocument();
+    expect(screen.queryByText("This note has been deleted.")).not.toBeInTheDocument();
+  });
+
+  // ── #122：ActiveNoteContext 接線（set-after-load／404 清殘留／卸載條件清除） ──
+
+  it("解析成功後 set active（最終校正點——直接進網址/書籤也會亮，樂觀誤 set 由此校正）", async () => {
+    vi.stubGlobal("fetch", mockFetch());
+    collab.provider.synced = true;
+
+    // seed 一個錯的 id（模擬樂觀誤 set）——解析成功後必須被校正成真的
+    renderNotePage(NOTE.id, { seedActiveId: "99999999-9999-4999-8999-999999999999" });
+
+    // 先確認誤 set 真的在場（不是一路都對的空轉），再斷校正
+    await waitFor(() => expect(screen.getByTestId("active-probe")).toHaveTextContent("99999999"));
+    await waitFor(() => expect(screen.getByTestId("active-probe")).toHaveTextContent(NOTE.id));
+  });
+
+  it("真接線的卸載清除：關頁滅（current===自己→清）；他頁搶先 set→**不誤清**（條件清除）", async () => {
+    // active-note.test 的競態案守的是復刻 Page——這裡把同兩條語意釘在**真的 NotePage**
+    // 上（突變審查：把 NotePage 的 cleanup 改成無條件清 null，原本全套仍綠）。
+    vi.stubGlobal("fetch", mockFetch());
+    collab.provider.synced = true;
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const OTHER_ID = "22222222-2222-4222-8222-222222222222";
+    // withPage=false 時同一個 child 槽位換成 <div/>——NotePage 卸載、provider/probe 留著
+    const tree = (withPage: boolean, seedActiveId?: string) => (
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <MemoryRouter initialEntries={[`/notes/${NOTE.id}`]}>
+            <ActiveNoteProvider>
+              <SeedActive id={seedActiveId} />
+              <ActiveProbe />
+              {withPage ? (
+                <Routes>
+                  <Route path="/notes/:ref" element={<NotePage />} />
+                  <Route path="/" element={<div>home landing</div>} />
+                </Routes>
+              ) : (
+                <div />
+              )}
+            </ActiveNoteProvider>
+          </MemoryRouter>
+          <Toaster />
+        </ThemeProvider>
+      </QueryClientProvider>
+    );
+
+    const view = render(tree(true));
+    await waitFor(() => expect(screen.getByTestId("active-probe")).toHaveTextContent(NOTE.id));
+
+    // 關頁滅：卸載 NotePage → cleanup（current===自己）→ 清空
+    view.rerender(tree(false));
+    expect(screen.getByTestId("active-probe")).toHaveTextContent("none");
+
+    // 競態不誤清：重開頁亮起後，他頁（模擬 NoteList 樂觀 set）搶先 set 另一 id，
+    // 再卸載本頁——cleanup 帶舊 id、current 已是別人，不得把剛亮起來的高亮滅掉
+    view.rerender(tree(true));
+    await waitFor(() => expect(screen.getByTestId("active-probe")).toHaveTextContent(NOTE.id));
+    view.rerender(tree(true, OTHER_ID));
+    await waitFor(() => expect(screen.getByTestId("active-probe")).toHaveTextContent(OTHER_ID));
+    view.rerender(tree(false, OTHER_ID));
+    expect(screen.getByTestId("active-probe")).toHaveTextContent(OTHER_ID);
+  });
+
+  it("解析 404 導走前清掉樂觀殘留（A6）：NoteList 點擊 set 的 id 不會卡在側欄", async () => {
+    vi.stubGlobal("fetch", mockFetch({ status: 404, code: "not_found" }));
+
+    // SeedActive＝模擬 NoteList 的樂觀 set：點了一篇隨後解析失敗的筆記。NotePage 對
+    // 這個 id 從未 set 成功，卸載的條件清除按 id 對不上——殘留只有 404 出口的
+    // setActiveNoteId(null) 清得掉（拿掉那行本案必紅）。
+    renderNotePage("gone", { seedActiveId: "99999999-9999-4999-8999-999999999999" });
+    await waitFor(() => expect(screen.getByTestId("active-probe")).toHaveTextContent("99999999"));
+
+    await waitFor(() => expect(screen.getByText("home landing")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId("active-probe")).toHaveTextContent("none"));
+  });
+
+  // ── #122 5a：解析層→id 常駐層（spec §3d ①③＋A1＋收斂閘門） ──
+
+  const NOTE_B: NoteDto = {
+    ...NOTE,
+    id: "33333333-3333-4333-8333-333333333333",
+    title: "Note B",
+    slug: "note-b",
+  };
+
+  /** 兩篇筆記、以 ref（slug 或 uuid）查找的假 server；`bPending` 讓 B 的解析掛住
+   * （A1／閘門案要的「解析回應前」窗口），`killRef(ref)` 讓某個 ref 之後 404
+   * （①案的「舊 slug 鍵已死」與真刪除案），`failRef(ref)` 讓它之後 500（常駐層
+   * 錯誤卡案）。另帶 shares/public-link/PATCH 最小 handler——「改自訂 slug → 網址
+   * 收斂」案要開真的 ShareDialog 走 persist 全鏈。 */
+  function stubTwoNotes(options: { bPending?: boolean } = {}) {
+    let releaseB!: () => void;
+    const bGate = new Promise<void>((resolve) => (releaseB = resolve));
+    const byRef = new Map<string, NoteDto>([
+      [NOTE.id, NOTE],
+      ["my-note", NOTE],
+      [NOTE_B.id, NOTE_B],
+      ["note-b", NOTE_B],
+    ]);
+    const failRefs = new Set<string>();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (url === "/api/auth/me") {
+        return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(USER) });
+      }
+      if (url === "/api/notes" && method === "GET") {
+        return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) });
+      }
+      if (url.endsWith("/backlinks") && method === "GET") {
+        return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ backlinks: [] }) });
+      }
+      if (url.endsWith("/shares") && method === "GET") {
+        return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) });
+      }
+      if (url.endsWith("/public-link") && method === "GET") {
+        return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ token: null }) });
+      }
+      if (url.startsWith("/api/notes/by-path/") && method === "GET") {
+        // #122 新形解析端點：/api/notes/by-path/<handle>/<slug>。保真度註記：真 server
+        // 是 JOIN users＋notes.slug（uuid 打 by-path 不會命中），這裡直查 byRef（含 id
+        // 鍵）——目前無案依賴這個差異，別寫依賴它的案子。
+        const [handle, pathSlug] = url
+          .slice("/api/notes/by-path/".length)
+          .split("/")
+          .map((seg) => decodeURIComponent(seg));
+        const hit = handle === NOTE.ownerHandle ? byRef.get(pathSlug) : undefined;
+        if (hit?.id === NOTE_B.id && options.bPending) await bGate;
+        if (!hit) {
+          return fakeResponse({
+            ok: false,
+            status: 404,
+            json: () => Promise.resolve({ error: { code: "not_found", message: "x" } }),
+          });
+        }
+        return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(hit) });
+      }
+      if (url.startsWith("/api/notes/") && method === "PATCH") {
+        const id = decodeURIComponent(url.slice("/api/notes/".length));
+        const base = id === NOTE_B.id ? NOTE_B : NOTE;
+        const body = JSON.parse(String(init?.body)) as { title?: string; slug?: string | null };
+        const updated: NoteDto = {
+          ...base,
+          ...(body.title !== undefined ? { title: body.title } : {}),
+          ...(body.slug !== undefined
+            ? body.slug === null
+              ? { slug: "auto-recomputed", slugIsCustom: false }
+              : { slug: body.slug, slugIsCustom: true }
+            : {}),
+        };
+        // 寫回 stub 狀態（讀碼審 m13）：useUpdateNote.onSuccess 會 invalidate id 鍵、
+        // 觸發常駐層重抓——stub 不同步的話重抓會拿回舊 DTO，M2 案綠不綠就押在
+        // setQueryData 與 refetch 的 microtask 落點先後（脆弱且與真 server 語意不符）。
+        byRef.set(updated.id, updated);
+        byRef.set(updated.slug, updated);
+        return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(updated) });
+      }
+      if (url.startsWith("/api/notes/") && method === "GET") {
+        const ref = decodeURIComponent(url.slice("/api/notes/".length));
+        if (failRefs.has(ref)) {
+          return fakeResponse({
+            ok: false,
+            status: 500,
+            json: () => Promise.resolve({ error: { code: "internal", message: "boom" } }),
+          });
+        }
+        const hit = byRef.get(ref);
+        if (hit?.id === NOTE_B.id && options.bPending) await bGate;
+        if (!hit) {
+          return fakeResponse({
+            ok: false,
+            status: 404,
+            json: () => Promise.resolve({ error: { code: "not_found", message: "x" } }),
+          });
+        }
+        return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(hit) });
+      }
+      if (url.endsWith("/links") && method === "POST") {
+        return fakeResponse({ ok: true, status: 204 });
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return {
+      fetchMock,
+      releaseB: () => releaseB(),
+      killRef: (ref: string) => byRef.delete(ref),
+      failRef: (ref: string) => failRefs.add(ref),
+    };
+  }
+
+  function NavToB() {
+    const nav = useNavigate();
+    return (
+      <>
+        <button type="button" onClick={() => void nav("/notes/note-b")}>
+          go-b
+        </button>
+        <button type="button" onClick={() => void nav("/n/tester/note-b")}>
+          go-b-new
+        </button>
+      </>
+    );
+  }
+
+  function renderTwoNoteTree(initialEntry = "/notes/my-note") {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <MemoryRouter initialEntries={[initialEntry]}>
+            <ActiveNoteProvider>
+              <SeedActive id={undefined} />
+              <ActiveProbe />
+              <NavToB />
+              <Routes>
+                <Route path="/notes/:ref" element={<NotePage />} />
+                <Route path="/n/:handle/:slug" element={<NotePage />} />
+                <Route path="/" element={<div>home landing</div>} />
+              </Routes>
+            </ActiveNoteProvider>
+          </MemoryRouter>
+          <Toaster />
+        </ThemeProvider>
+      </QueryClientProvider>,
+    );
+    return queryClient;
+  }
+
+  it("①改標題後 invalidate 全清 → 頁面存活、不觸發 deleted 出口（id 鍵永不過時）", async () => {
+    const { fetchMock, killRef } = stubTwoNotes();
+    collab.provider.synced = true;
+
+    const queryClient = renderTwoNoteTree();
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
+
+    // 模擬改標題後舊 slug 鍵已死（server 端 auto slug 已重算）：舊架構下 focus/invalidate
+    // 重抓 ['note', 'my-note'] 會 404 → 被當「筆記已刪」踢回首頁——這正是 id 錨定要殺的病。
+    killRef("my-note");
+    await act(async () => {
+      await queryClient.invalidateQueries();
+    });
+
+    // 存活：編輯器還在、沒有任何 404 出口的 toast、active 不掉
+    await waitFor(() => expect(screen.getByTestId("note-editor")).toBeInTheDocument());
+    expect(screen.queryByText("This note has been deleted.")).not.toBeInTheDocument();
+    expect(screen.queryByText("This link is invalid or the note doesn't exist.")).not.toBeInTheDocument();
+    expect(screen.getByTestId("active-probe")).toHaveTextContent(NOTE.id);
+    // 機制直釘（讀碼審 m9）：invalidate 之後**沒有**再對舊 slug 鍵發 GET——解析 query
+    // 已停用、常駐層走 id 鍵；順帶釘 A11（從未打過空 ref 的 `/api/notes/`）。
+    const urls = fetchMock.mock.calls.map((call) => String(call[0]));
+    expect(urls.filter((u) => u === "/api/notes/my-note")).toHaveLength(1);
+    expect(urls).not.toContain("/api/notes/");
+  });
+
+  it("③同 pattern 真導航（點側欄另一篇）→ **內容**切到新筆記、URL 收斂到新 canonical", async () => {
+    stubTwoNotes();
+    collab.provider.synced = true;
+
+    renderTwoNoteTree();
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
+
+    fireEvent.click(screen.getByRole("button", { name: "go-b" }));
+
+    // C6-1(d)：斷**內容**（標題 input 的值），不是高亮——同 pattern 下 params 變更只
+    // re-render 不 remount，解析機制必須對 params 變更反應，否則內容卡在舊筆記。
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("Note B"));
+    await waitFor(() => expect(window.location.pathname).toBe("/n/tester/note-b"));
+    expect(screen.getByTestId("active-probe")).toHaveTextContent(NOTE_B.id);
+  });
+
+  it("④跨 pattern 真導航（舊形頁 → /n/ 新形）→ 內容切到新筆記、URL/高亮同步（Task 4 延件）", async () => {
+    stubTwoNotes();
+    collab.provider.synced = true;
+
+    renderTwoNoteTree();
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
+
+    // paramsKey 前綴不同（ref: → n:）＝跨 pattern 天然 key 不等；解析走 useNoteByPath
+    fireEvent.click(screen.getByRole("button", { name: "go-b-new" }));
+
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("Note B"));
+    await waitFor(() => expect(window.location.pathname).toBe("/n/tester/note-b"));
+    // 高亮延件（Task 4 gate m17）：只斷最終態「active 跟到新筆記」——條件清除的
+    // 鑑別力在 NotePage.test 的「真接線卸載清除」案，這行不重複宣稱那個。
+    expect(screen.getByTestId("active-probe")).toHaveTextContent(NOTE_B.id);
+  });
+
+  it("A4：**新形之間**換頁（/n/→/n/ 同 pattern）→ 內容與網址都切到新筆記", async () => {
+    // useNoteByPath 的 query key 必含 handle 與 slug——丟掉 slug 段時，導航瞬間
+    // resolveQuery.data 是**上一篇**的 DTO，seed 寫出 {key: 新, id: 舊}，頁面永久
+    // 卡在 A、網址還被收斂回 A（突變審查實證：此前無任何案會紅）。
+    stubTwoNotes();
+    collab.provider.synced = true;
+
+    renderTwoNoteTree("/n/tester/my-note");
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
+
+    fireEvent.click(screen.getByRole("button", { name: "go-b-new" }));
+
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("Note B"));
+    await waitFor(() => expect(window.location.pathname).toBe("/n/tester/note-b"));
+  });
+
+  it("新形 by-path 404 → linkInvalid 出口（兩形分流的 §3b 新分支）", async () => {
+    stubTwoNotes();
+    collab.provider.synced = true;
+
+    renderTwoNoteTree("/n/tester/never-here");
+
+    await waitFor(() => expect(screen.getByText("home landing")).toBeInTheDocument());
+    expect(screen.getByText("This link is invalid or the note doesn't exist.")).toBeInTheDocument();
+    expect(screen.queryByText("This note has been deleted.")).not.toBeInTheDocument();
+  });
+
+  it("以 /n/ 新形開頁：解析走 useNoteByPath（by-path 端點，非舊形 ref）、網址收斂為 canonical", async () => {
+    const { fetchMock } = stubTwoNotes();
+    collab.provider.synced = true;
+
+    renderTwoNoteTree("/n/tester/my-note");
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
+
+    const urls = fetchMock.mock.calls.map((call) => String(call[0]));
+    expect(urls).toContain("/api/notes/by-path/tester/my-note");
+    expect(urls).not.toContain("/api/notes/my-note");
+    await waitFor(() => expect(window.location.pathname).toBe("/n/tester/my-note"));
+  });
+
+  it("A1：導航到 B 後、解析回應前——畫面無 A 的標題與可編輯編輯器（loading 佔位）；收斂閘門：舊 note 的快取更新不寫網址", async () => {
+    const { releaseB } = stubTwoNotes({ bPending: true });
+    collab.provider.synced = true;
+
+    const queryClient = renderTwoNoteTree();
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
+    await waitFor(() => expect(window.location.pathname).toBe("/n/tester/my-note"));
+
+    fireEvent.click(screen.getByRole("button", { name: "go-b" }));
+
+    // A1：轉場中不得渲染舊筆記的 NoteEditor/TitleInput（loading 佔位卡）
+    await waitFor(() => expect(screen.queryByTestId("note-editor")).not.toBeInTheDocument());
+    expect(screen.queryByLabelText("Note title")).not.toBeInTheDocument();
+
+    // 收斂閘門（C6-1(c)）：在途重解析時，舊筆記（A）的常駐層更新（例如它的 refetch
+    // 帶回新 slug）**不得**把網址改走——needsResolve 閘要擋住它。
+    // ⚠ 必須 flush 一個 **macrotask**：react-query 的通知走 macrotask 排程，同步 act
+    // 斷言會落在 re-render 之前、變成零鑑別力的假綠（突變審查實證：拿掉閘門、網址
+    // 真的被改走，同步版斷言照樣綠）。
+    await act(async () => {
+      queryClient.setQueryData(["note", NOTE.id], { ...NOTE, slug: "moved-away" });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(window.location.pathname).not.toBe("/n/tester/moved-away");
+    expect(window.location.pathname).toBe("/n/tester/my-note"); // 轉場中網址原地不動
+
+    // 放行 B：內容與網址一起收斂
+    releaseB();
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("Note B"));
+    await waitFor(() => expect(window.location.pathname).toBe("/n/tester/note-b"));
+  });
+
+  it("常駐層 404＝**真刪除** → note.deleted 文案導回 /（不得誤入 linkInvalid——needsResolve 前置的牙）", async () => {
+    // 以 uuid 開頁：解析層與常駐層共用同一個 cache entry（["note", <id>]）——真刪除的
+    // 404 會同時讓 resolveQuery.isError 成立，linkInvalid 少了 needsResolve 前置就會
+    // 噴錯文案（A10 違反）。這一案同時守 noteGone 出口存在性與該前置。
+    const { killRef } = stubTwoNotes();
+    collab.provider.synced = true;
+
+    const queryClient = renderTwoNoteTree(`/notes/${NOTE.id}`);
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
+
+    killRef(NOTE.id);
+    killRef("my-note");
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["note", NOTE.id] });
+    });
+
+    await waitFor(() => expect(screen.getByText("home landing")).toBeInTheDocument());
     expect(screen.getByText("This note has been deleted.")).toBeInTheDocument();
+    expect(screen.queryByText("This link is invalid or the note doesn't exist.")).not.toBeInTheDocument();
+    expect(screen.getByTestId("active-probe")).toHaveTextContent("none");
+  });
+
+  it("改自訂 slug（經 ShareDialog 全鏈）→ 快取回寫 → 收斂 effect 更新網址（A3 移轉的正向面）", async () => {
+    // 這一案守「收斂 effect 是**資料變動驅動**」（deps 少了 note 這裡必紅）。
+    // SlugField 寫回鍵必須是 ['note', note.id] 的守衛在 ShareDialog.test（「成功變更
+    // slug → 寫回本頁 ['note', id] 快取」案）——本案的 stub 會把 PATCH 結果寫回
+    // byRef，invalidate→refetch 單獨就能驅動收斂，咬不到那把鍵（Task 6 收掉 prop 後
+    // 舊註解的「改回 ref」突變面已不存在）。
+    stubTwoNotes();
+    collab.provider.synced = true;
+
+    renderTwoNoteTree();
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
+    await waitFor(() => expect(window.location.pathname).toBe("/n/tester/my-note"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Share" }));
+    const slugInput = await screen.findByRole("textbox", { name: "Custom link" });
+    fireEvent.change(slugInput, { target: { value: "renamed" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(window.location.pathname).toBe("/n/tester/renamed"));
+  });
+
+  it("常駐層非 404 錯誤（500）→ 錯誤卡留在頁上，不導走、不噴 404 文案", async () => {
+    const { failRef } = stubTwoNotes();
+    collab.provider.synced = true;
+
+    const queryClient = renderTwoNoteTree(`/notes/${NOTE.id}`);
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
+
+    failRef(NOTE.id);
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["note", NOTE.id] });
+    });
+
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(screen.queryByText("home landing")).not.toBeInTheDocument();
+    expect(screen.queryByText("This note has been deleted.")).not.toBeInTheDocument();
+    expect(screen.queryByText("This link is invalid or the note doesn't exist.")).not.toBeInTheDocument();
+  });
+
+  it("m14：解析 404 的 render 落在 **loading 佔位格**（非錯誤卡），出口只靠 navigate", async () => {
+    // 壓住 navigate 讓中間態可觀察（否則導頁太快、這一格斷言不到）。
+    const nav = vi.fn();
+    navSpy.current = nav;
+    vi.stubGlobal("fetch", mockFetch({ status: 404, code: "not_found" }));
+
+    renderNotePage("gone");
+
+    await waitFor(() => expect(nav).toHaveBeenCalledWith("/", { replace: true }));
+    // 導頁被壓住 → 頁面停在解析 404 的那一格：loading 佔位、**沒有** role=alert 錯誤卡
+    expect(screen.getByText("Loading…")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByText("This link is invalid or the note doesn't exist.")).toBeInTheDocument();
   });
 
   it("非 404 的載入錯誤留在頁面上顯示訊息，不導走", async () => {
@@ -488,10 +963,12 @@ describe("NotePage", () => {
       <QueryClientProvider client={queryClient}>
         <ThemeProvider>
           <MemoryRouter initialEntries={["/notes/my-note"]}>
-            <Routes>
-              <Route path="/notes/:ref" element={<NotePage />} />
-              <Route path="/login" element={<div>login page</div>} />
-            </Routes>
+            <ActiveNoteProvider>
+              <Routes>
+                <Route path="/notes/:ref" element={<NotePage />} />
+                <Route path="/login" element={<div>login page</div>} />
+              </Routes>
+            </ActiveNoteProvider>
           </MemoryRouter>
         </ThemeProvider>
       </QueryClientProvider>,
@@ -528,7 +1005,7 @@ describe("NotePage", () => {
   // 覆蓋）。這裡只驗證 slot 接線本身：footerSlot 的內容（chip 連結）確實出現在
   // mock 渲染出的 note-editor 容器內，不是漏接。
   it("PR2：footerSlot（backlinks chips）確實接進 NoteEditor，不是漏接的 slot", async () => {
-    const backlink: BacklinkDto = { id: "22222222-2222-2222-2222-222222222222", title: "Other", slug: "other" };
+    const backlink: BacklinkDto = { id: "22222222-2222-2222-2222-222222222222", title: "Other", slug: "other", ownerHandle: "tester" };
     vi.stubGlobal("fetch", mockFetch(NOTE, [backlink]));
 
     renderNotePage("my-note");

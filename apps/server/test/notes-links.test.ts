@@ -447,12 +447,25 @@ describe("GET /api/notes/:id/backlinks", () => {
 
     const ownerRes = await app.inject({ method: "GET", url: `/api/notes/${target.id}/backlinks`, cookies: { [SESSION_COOKIE]: ownerCookie } });
     expect(ownerRes.statusCode).toBe(200);
-    const ownerIds = ownerRes.json().backlinks.map((b: { id: string }) => b.id).sort();
-    expect(ownerIds).toEqual([ownedSource.id, sharedSource.id].sort());
+    const ownerRows = ownerRes.json().backlinks as Array<{ id: string; ownerHandle: string }>;
+    expect(ownerRows.map(b => b.id).sort()).toEqual([ownedSource.id, sharedSource.id].sort());
+    // ownerHandle 必須是**來源筆記 owner** 的、不是請求者的（突變審查 F1：兩支 union 的
+    // JOIN 若誤綁請求者，sharedSource 這列會回 owner.handle——stranger ≠ 請求者才殺得掉）
+    expect(ownerRows.find(b => b.id === ownedSource.id)?.ownerHandle).toBe(owner.handle);
+    expect(ownerRows.find(b => b.id === sharedSource.id)?.ownerHandle).toBe(stranger.handle);
 
     const editorRes = await app.inject({ method: "GET", url: `/api/notes/${target.id}/backlinks`, cookies: { [SESSION_COOKIE]: editorCookie } });
     expect(editorRes.statusCode).toBe(200);
-    expect(editorRes.json().backlinks).toEqual([{ id: editorOwnSource.id, title: "Editor Own Source", slug: null }]);
+    // #122 起 slug NOT NULL：createNote 直插的列吃 DB default（untitled-<uuid8> 形）；
+    // ownerHandle＝來源筆記 owner（editor 自己）的 username。
+    expect(editorRes.json().backlinks).toEqual([
+      {
+        id: editorOwnSource.id,
+        title: "Editor Own Source",
+        slug: expect.stringMatching(/^untitled-[0-9a-f]{8}$/),
+        ownerHandle: editor.handle,
+      },
+    ]);
   });
 
   it("組合：過濾先於 LIMIT——陌生人的來源筆記灌爆 LIMIT 窗口時，查詢者仍拿到自己看得到的那幾篇（issue #25）", async () => {

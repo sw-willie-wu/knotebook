@@ -7,7 +7,7 @@ import { and, desc, eq, inArray, lte, notInArray } from "drizzle-orm";
 import { union } from "drizzle-orm/pg-core";
 import { MAX_BACKLINKS, MAX_LINK_TARGETS, type BacklinkDto } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
-import { noteLinks, noteShares, notes } from "../db/schema.js";
+import { noteLinks, noteShares, notes, users } from "../db/schema.js";
 import { isForeignKeyViolation, isTransientTransactionError } from "../db/pg-errors.js";
 
 export type NormalizeLinkTargetsResult = { ok: true; targets: string[] } | { ok: false };
@@ -145,25 +145,29 @@ export async function writeNoteLinks(db: Db, params: WriteNoteLinksParams, hooks
  * flake（`routes/notes.ts` 的 `GET /api/notes` 列表查詢已踩過同一雷，見該處註解）。
  * 過濾（讀者授權 WHERE 述詞）必須先於 LIMIT——此處自然滿足（`union()` 兩支各自的
  * `where` 在 `union` 結果之上才 `orderBy`/`limit`，SQL 語意上濾動作發生在截斷之前）。
- * `notes.updated_at` 只用來排序、不進 `BacklinkDto`（回應形狀是 `{id, title, slug}`）。
+ * `notes.updated_at` 只用來排序、不進 `BacklinkDto`（回應形狀是 `{id, title, slug,
+ * ownerHandle}`——#122 起兩支各 JOIN `users` 帶出來源筆記 owner 的 username，
+ * BacklinksSection 組 `/n/` 連結用）。
  */
 export async function fetchBacklinks(db: Db, targetNoteId: string, userId: string): Promise<BacklinkDto[]> {
   const ownedSelect = db
-    .select({ id: notes.id, title: notes.title, slug: notes.slug, updatedAt: notes.updatedAt })
+    .select({ id: notes.id, title: notes.title, slug: notes.slug, ownerHandle: users.handle, updatedAt: notes.updatedAt })
     .from(noteLinks)
     .innerJoin(notes, eq(notes.id, noteLinks.sourceNoteId))
+    .innerJoin(users, eq(users.id, notes.ownerId))
     .where(and(eq(noteLinks.targetNoteId, targetNoteId), eq(notes.ownerId, userId)));
 
   const sharedSelect = db
-    .select({ id: notes.id, title: notes.title, slug: notes.slug, updatedAt: notes.updatedAt })
+    .select({ id: notes.id, title: notes.title, slug: notes.slug, ownerHandle: users.handle, updatedAt: notes.updatedAt })
     .from(noteLinks)
     .innerJoin(notes, eq(notes.id, noteLinks.sourceNoteId))
     .innerJoin(noteShares, and(eq(noteShares.noteId, notes.id), eq(noteShares.userId, userId)))
+    .innerJoin(users, eq(users.id, notes.ownerId))
     .where(eq(noteLinks.targetNoteId, targetNoteId));
 
   const rows = await union(ownedSelect, sharedSelect)
     .orderBy(desc(notes.updatedAt), desc(notes.id))
     .limit(MAX_BACKLINKS);
 
-  return rows.map(row => ({ id: row.id, title: row.title, slug: row.slug }));
+  return rows.map(row => ({ id: row.id, title: row.title, slug: row.slug, ownerHandle: row.ownerHandle }));
 }

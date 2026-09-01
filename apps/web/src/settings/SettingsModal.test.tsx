@@ -6,6 +6,7 @@ import { MemoryRouter, type MemoryRouterProps } from "react-router";
 import * as Y from "yjs";
 import type { NoteDto, UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
+import { ActiveNoteProvider } from "@/lib/active-note";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppRoutes } from "@/App";
@@ -111,6 +112,9 @@ const NOTE: NoteDto = {
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
   slug: "my-note",
+  slugIsCustom: true,
+  prevSlug: null,
+  ownerHandle: "tester",
 };
 
 /** 基本 fetch mock：`/api/auth/me`（依
@@ -151,7 +155,9 @@ function renderAt(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <MemoryRouter initialEntries={initialEntries}>
-          <AppRoutes />
+          <ActiveNoteProvider>
+            <AppRoutes />
+          </ActiveNoteProvider>
         </MemoryRouter>
       </ThemeProvider>
       <Toaster />

@@ -5,12 +5,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useParams } from "react-router";
 import { canonicalNotePath, type NoteDto, type UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
+import { ActiveNoteProvider } from "@/lib/active-note";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppShell, SidebarDrawerButton } from "./AppShell";
 
-// Task 12 review 指派給 Task 13 的第三項待辦：`/notes/:ref` 這條路由存在之後，
-// 「新增筆記 → 導向新筆記頁」這件事才驗得起來（在此之前所有連結都落在 catch-all）。
+// 「新增筆記 → 導向新筆記頁」的接線案——#122 起導向的是 /n/<handle>/<slug> 新形，
+// probe 掛在 /n/:handle/:slug 底下（新形 route 的承接由 App.resetKey.test control 3 守；
+// 舊形由同檔主案/control 2 與 App.errorBoundary.test 案 11 守）。
 
 interface FakeResponseInit {
   ok: boolean;
@@ -39,13 +41,16 @@ const CREATED: NoteDto = {
   role: "owner",
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
-  slug: null,
+  slug: "untitled-33333333",
+  slugIsCustom: false,
+  prevSlug: null,
+  ownerHandle: "tester",
 };
 
-/** 停在 `/notes/:ref` 的替身頁——只把解析到的 ref 印出來，讓斷言看得到落點。 */
+/** 停在 `/n/:handle/:slug`（#122 新形）的替身頁——把解析到的兩段印出來，讓斷言看得到落點。 */
 function NoteRouteProbe() {
-  const { ref } = useParams<{ ref: string }>();
-  return <div data-testid="note-route">{ref}</div>;
+  const { handle, slug } = useParams<{ handle: string; slug: string }>();
+  return <div data-testid="note-route">{`${handle}/${slug}`}</div>;
 }
 
 describe("AppShell — new note", () => {
@@ -81,10 +86,12 @@ describe("AppShell — new note", () => {
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <ThemeProvider>
           <MemoryRouter initialEntries={["/"]}>
-            <Routes>
-              <Route path="/" element={<AppShell>home</AppShell>} />
-              <Route path="/notes/:ref" element={<NoteRouteProbe />} />
-            </Routes>
+            <ActiveNoteProvider>
+              <Routes>
+                <Route path="/" element={<AppShell>home</AppShell>} />
+                <Route path="/n/:handle/:slug" element={<NoteRouteProbe />} />
+              </Routes>
+            </ActiveNoteProvider>
           </MemoryRouter>
         </ThemeProvider>
       </QueryClientProvider>,
@@ -92,9 +99,10 @@ describe("AppShell — new note", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "New note" }));
 
-    // 新筆記沒有自訂 slug、標題是 "Untitled" → canonical 是 `Untitled-<uuid>`。
-    const expectedRef = canonicalNotePath(CREATED).replace("/notes/", "");
-    await waitFor(() => expect(screen.getByTestId("note-route")).toHaveTextContent(expectedRef));
+    // #122：新筆記吃 DB default 的 `untitled-<uuid8>` slug → canonical 是
+    // `/n/<ownerHandle>/<slug>`（新形單一態）。
+    const expectedSegments = canonicalNotePath(CREATED).replace("/n/", ""); // "handle/slug" 兩段
+    await waitFor(() => expect(screen.getByTestId("note-route")).toHaveTextContent(expectedSegments));
   });
 
   it("shows an error toast and stays put when POST /api/notes fails", async () => {
@@ -123,10 +131,12 @@ describe("AppShell — new note", () => {
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <ThemeProvider>
           <MemoryRouter initialEntries={["/"]}>
-            <Routes>
-              <Route path="/" element={<AppShell>home</AppShell>} />
-              <Route path="/notes/:ref" element={<NoteRouteProbe />} />
-            </Routes>
+            <ActiveNoteProvider>
+              <Routes>
+                <Route path="/" element={<AppShell>home</AppShell>} />
+                <Route path="/n/:handle/:slug" element={<NoteRouteProbe />} />
+              </Routes>
+            </ActiveNoteProvider>
           </MemoryRouter>
           <Toaster />
         </ThemeProvider>
@@ -153,6 +163,9 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     slug: "alpha-note",
+    slugIsCustom: false,
+    prevSlug: null,
+    ownerHandle: "tester",
   };
 
   const BETA_NOTE: NoteDto = {
@@ -163,6 +176,9 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2025-12-01T00:00:00.000Z",
     slug: "beta-note",
+    slugIsCustom: false,
+    prevSlug: null,
+    ownerHandle: "tester",
   };
 
   function stubFetchWithNotes(notes: NoteDto[]) {
@@ -187,7 +203,9 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <ThemeProvider>
           <MemoryRouter initialEntries={["/"]}>
-            <AppShell>home</AppShell>
+            <ActiveNoteProvider>
+              <AppShell>home</AppShell>
+            </ActiveNoteProvider>
           </MemoryRouter>
         </ThemeProvider>
       </QueryClientProvider>,
@@ -350,6 +368,9 @@ describe("AppShell — #115 側欄抽屜", () => {
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     slug: "drawer-note",
+    slugIsCustom: false,
+    prevSlug: null,
+    ownerHandle: "tester",
   };
 
   function stubFetchWithNotes(notes: NoteDto[]) {
@@ -400,7 +421,9 @@ describe("AppShell — #115 側欄抽屜", () => {
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <ThemeProvider>
           <MemoryRouter initialEntries={["/"]}>
-            <AppShell>{children}</AppShell>
+            <ActiveNoteProvider>
+              <AppShell>{children}</AppShell>
+            </ActiveNoteProvider>
           </MemoryRouter>
         </ThemeProvider>
       </QueryClientProvider>,

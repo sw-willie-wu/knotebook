@@ -94,6 +94,12 @@ export interface AppDeps {
    */
   linkSyncTestHooks?: WriteNoteLinksHooks;
   /**
+   * #122 PR2：PATCH auto slug 的測試注入縫（語意見 `NotesRouteDeps.slugUpdateTestHook`）。
+   * **選配**：production／未覆寫時 `undefined`＝no-op；整合測試唯一注入面是
+   * `buildTestApp({ slugUpdateTestHook })`（比照 `linkSyncTestHooks`）。
+   */
+  slugUpdateTestHook?: (candidate: string) => void | Promise<void>;
+  /**
    * Task 9：圖片上傳存放目錄的絕對路徑。**必填**——`buildApp` 啟動時會對它做一次
    * 可寫性探測（`assertUploadsDirWritable`，見該函式說明為何不用 `accessSync`），
    * 失敗即同步 throw、fail-fast，不等到第一個上傳請求才發現環境問題。
@@ -283,11 +289,11 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
 
   // maxParamLength 預設 100：find-my-way 是量「解碼後」的 UTF-16 code unit 數，跟
   // `titleSlug`／`validateSlug` 量的是 code point 數（60／100）不是同一把尺——
-  // astral 字元（例如 𠮷）解碼後是 2 個 UTF-16 unit，60 個 astral 字算下來就破百，
-  // 會讓 `canonicalNotePath` 組出的 `<vanity>-<uuid>` ref 在路由層直接被 find-my-way
-  // 拒絕（414 URI Too Long，連 handler 都不會被呼叫，見 notes-slug.test.ts 的 astral
-  // 標題 regression test 實測）。512 給足與 slug 上限的落差當緩衝，不必跟著 slug 規則
-  // 同步微調。必須放進 `routerOptions`，不能當 Fastify 建構子的頂層選項——頂層
+  // astral 字元（例如 𠮷）解碼後是 2 個 UTF-16 unit，60 個 astral 字算下來就破百。
+  // #122 之後新網址不再組 `<vanity>-<uuid>` 長 ref，但**舊版發出去的長連結永久活著**
+  // （uuid 尾碼解析），這個修正不能跟著消失——守衛見 notes-slug.test.ts 的
+  // 「解碼後 UTF-16 長度 > 100 的舊形長 ref」案（414 URI Too Long 實測，連 handler
+  // 都不會被呼叫）。512 給足緩衝，不必跟著 slug 規則同步微調。必須放進 `routerOptions`，不能當 Fastify 建構子的頂層選項——頂層
   // `maxParamLength` 是 deprecated 寫法（FSTDEP022），fastify@6 會整個移除，屆時會
   // 靜默退回預設值 100，等於這個修正自己失效又不出任何警告；`routerOptions` 這個
   // 寫法才是不會過期、也不會印 deprecation warning 的形式。
@@ -490,6 +496,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       config: deps.config,
       limiters,
       linkSyncTestHooks: deps.linkSyncTestHooks,
+      slugUpdateTestHook: deps.slugUpdateTestHook,
       uploadsDir: deps.uploadsDir,
     })
   );

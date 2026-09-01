@@ -61,11 +61,23 @@ export async function loginAs(page: Page, email: string, password: string): Prom
  */
 export async function createNote(page: Page, title: string): Promise<void> {
   await page.getByRole("button", { name: "New note" }).click();
-  await page.waitForURL(/\/notes\//, { timeout: 15_000 });
+  // #122 首跳：新筆記的 canonical 是 /n/<handle>/untitled-<uuid8>（slug 吃 DB default）
+  await page.waitForURL(/\/n\/[^/]+\/untitled-[0-9a-f]{8}$/, { timeout: 15_000 });
 
   const titleInput = page.getByLabel("Note title");
   await titleInput.fill(title);
   await titleInput.blur();
+
+  // #122（plan gate m15）：**斷第二跳**——title 存檔 → server 重算 auto slug →
+  // NotePage 收斂 effect 把網址換成 /n/<handle>/<title-slug>。只斷 /\/n\// 會在首跳
+  // 就提前通過，後續的 URL 相關斷言全變競態。
+  // 已知邊界：predicate 排除任何 untitled-<8hex> 尾形——若日後某測試讓標題退化成
+  // untitled 系列且撞到 server 的 uuid8 退位形，這裡會 15s 逾時；目前所有 createNote
+  // 標題都帶 Date.now()，不會發生。
+  await page.waitForURL(
+    (url) => /^\/n\/[^/]+\/[^/]+$/.test(url.pathname) && !/\/untitled-[0-9a-f]{8}$/.test(url.pathname),
+    { timeout: 15_000 },
+  );
 
   // 共編連線屏障：`ConnectionBadge`（`role="status"`）顯示「Connected」。用 `hasText`
   // 過濾把它與 Radix Toast 另外渲染的 `role="status"` live-region（例如流程 1 的

@@ -93,7 +93,7 @@ test("設定 modal 建 provider/model → toolbar 改寫 → 串流不洩漏 rea
 
     // ── 回編輯器：Esc 關 modal（不重整，SPA 導回 backgroundLocation＝這篇筆記）──
     await page.keyboard.press("Escape");
-    await expect(page).toHaveURL(new RegExp(`/notes/`));
+    await expect(page).toHaveURL(new RegExp(`/n/`)); // #122：筆記頁網址是 /n/<handle>/<slug> 新形
     await editor.waitFor({ timeout: 15_000 });
 
     // ── 選取文字 → toolbar AI 動作（內建「Rewrite」）───────────────────

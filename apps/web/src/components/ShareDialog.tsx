@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
-import { canonicalNotePath, normalizeSlug, validateSlug, type NoteDto, type ShareDto, type ShareRole } from "@knotebook/shared";
+import { autoSlugFromTitle, canonicalNotePath, normalizeSlug, validateSlug, type NoteDto, type ShareDto, type ShareRole } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
 import { useUpdateNote } from "@/api/notes";
 import { useDeleteShare, usePutShare, useShares } from "@/api/shares";
@@ -441,33 +441,47 @@ function CopyLinkButton({ note }: { note: NoteDto }) {
 }
 
 /**
- * owner-only「自訂連結」欄。與 `TitleInput` 相同的存檔+`replaceState`模式（見該檔說明），
- * 差別是這裡先在 client 端用 `normalizeSlug`/`validateSlug`（與 server 的
- * `prepareSlugForPatch` 同源，見 `apps/server/src/notes/slug.ts`）擋掉明顯不合法的輸入，
- * 不必往返一趟才知道錯在哪；409 `slug_taken`／429 `too_many_requests` 這類「client 端
- * 判斷不出來、要打了才知道」的錯誤，仍走 server 回應 + `errors.<code>` 顯示。
+ * owner-only「自訂連結」欄（#122 三態語意）：
+ * - 初值只在 `slugIsCustom` 時帶現行 slug——auto slug 不是使用者「設定」的東西，
+ *   不預填進輸入框（預填會讓「存自己看到的值」變成把 auto 固化成 custom 的誤觸）。
+ * - placeholder 顯示**現行 auto**（custom 時＝清除後會得到的 `autoSlugFromTitle(title)`
+ *   預覽、auto 時＝現行 slug 本身），讓「不設定會是什麼」一直看得見。
+ * - 清除鈕（「回自動網址」）**僅 custom 顯示**——auto 態沒有可清的東西，
+ *   `PATCH {slug:null}` 只會白耗 slugPatch 節流額度。
+ * 與 `TitleInput` 相同的存檔+快取回寫模式（網址收斂交給 NotePage 的收斂 effect——
+ * A3 單一寫網址點；回寫鍵＝`['note', note.id]` 常駐層）；差別是這裡先在 client 端用
+ * `normalizeSlug`/`validateSlug`（與 server 的 `prepareSlugForPatch` 同源，見
+ * `apps/server/src/notes/slug.ts`）擋掉明顯不合法的輸入；409 `slug_taken`（#122 起 per-user——只有你自己的另一篇會撞）／429
+ * 這類要打了才知道的錯誤，仍走 server 回應 + `errors.<code>` 顯示。
  */
-function SlugField({ note, cacheRef }: { note: NoteDto; cacheRef: string }) {
+function SlugField({ note }: { note: NoteDto }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const updateNote = useUpdateNote();
 
-  const [value, setValue] = useState(note.slug ?? "");
+  const [value, setValue] = useState(note.slugIsCustom ? note.slug : "");
   const [serverError, setServerError] = useState<string | null>(null);
+
+  // custom 時預覽「清除後會得到的 auto」（client 端 autoSlugFromTitle 與 server 同源；
+  // 撞名尾碼是 server 探測的事，預覽不含——體感可接受的近似）；auto 時就是現行 slug。
+  const autoPreview = note.slugIsCustom ? autoSlugFromTitle(note.title) : note.slug;
 
   const trimmed = value.trim();
   const normalized = trimmed.length > 0 ? normalizeSlug(trimmed) : "";
   const localReason = trimmed.length > 0 ? validateSlug(normalized) : null;
   const localError = localReason ? t(`share.slugError.${localReason}`) : null;
-  const dirty = trimmed !== (note.slug ?? "");
+  const dirty = trimmed !== (note.slugIsCustom ? note.slug : "");
 
   async function persist(next: string | null): Promise<void> {
     setServerError(null);
     try {
       const updated = await updateNote.mutateAsync({ id: note.id, slug: next });
-      queryClient.setQueryData(["note", cacheRef], updated);
-      window.history.replaceState(window.history.state, "", canonicalNotePath(updated));
-      setValue(updated.slug ?? "");
+      queryClient.setQueryData(["note", note.id], updated);
+      // A3（#122）：不再自帶 replaceState——唯一寫網址點是 NotePage 的收斂 effect
+      // （快取更新 → 常駐層 note 變 → effect 改寫網址）。
+      // setValue 與初值同判準（gate m10(a)）：清除後 server 回的是 auto——填回輸入框
+      // 會跟初值規則自相矛盾（下一次開 dialog 是空的、這一刻卻有值）。
+      setValue(updated.slugIsCustom ? updated.slug : "");
     } catch (err) {
       setServerError(errorMessage(t, err));
     }
@@ -491,7 +505,7 @@ function SlugField({ note, cacheRef }: { note: NoteDto; cacheRef: string }) {
         <Input
           id="share-slug"
           value={value}
-          placeholder={t("share.slugPlaceholder")}
+          placeholder={autoPreview}
           onChange={(event) => {
             setValue(event.target.value);
             setServerError(null);
@@ -506,7 +520,7 @@ function SlugField({ note, cacheRef }: { note: NoteDto; cacheRef: string }) {
         >
           {t("share.slugSave")}
         </Button>
-        {note.slug && (
+        {note.slugIsCustom && (
           <Button type="button" size="sm" variant="outline" onClick={() => void handleClear()} disabled={updateNote.isPending}>
             {t("share.slugClear")}
           </Button>
@@ -528,9 +542,6 @@ function SlugField({ note, cacheRef }: { note: NoteDto; cacheRef: string }) {
 
 export interface ShareDialogProps {
   note: NoteDto;
-  /** 這個頁面實際讀的 `useNote` 快取鍵（同 `TitleInput` 的 `cacheRef`——slug 存檔成功後
-   * 要把回應寫回本頁真正讀的那把 `['note', cacheRef]`，見該檔說明）。 */
-  cacheRef: string;
 }
 
 /**
@@ -545,7 +556,7 @@ export interface ShareDialogProps {
  * 查詢不受影響（文字不變，只是從內容搬進 aria-label）。面板內容（`DialogContent` 以下）
  * 零改動。
  */
-export function ShareDialog({ note, cacheRef }: ShareDialogProps) {
+export function ShareDialog({ note }: ShareDialogProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
 
@@ -579,7 +590,7 @@ export function ShareDialog({ note, cacheRef }: ShareDialogProps) {
             <AccessSection noteId={note.id} />
             <CopyLinkButton note={note} />
             <SharesSection noteId={note.id} />
-            <SlugField note={note} cacheRef={cacheRef} />
+            <SlugField note={note} />
           </div>
         )}
       </DialogContent>

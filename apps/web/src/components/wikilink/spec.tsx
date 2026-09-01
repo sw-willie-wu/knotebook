@@ -75,6 +75,8 @@ export function WikilinkInline({ inlineContent, contentRef }: WikilinkRenderProp
         ref={contentRef}
         type="button"
         className="cursor-pointer border-0 bg-transparent p-0 text-inherit underline"
+        // #122 A8：清單 pending 時只有 id 可用（/n/ 形需要 handle/slug）——**保留舊形**
+        // `/notes/<uuid>`：uuid 尾碼解析永久可解，這條路徑不隨新形改。
         onClick={() => void navigate(`/notes/${targetNoteId}`)}
       >
         {snapshotTitle}

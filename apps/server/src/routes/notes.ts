@@ -3,18 +3,18 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 import { and, desc, eq, ne, or, sql } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/pg-core";
-import { MAX_LINK_TARGETS, normalizeEmail, type BacklinkDto, type NoteDto, type Role, type ShareDto } from "@knotebook/shared";
+import { MAX_LINK_TARGETS, autoSlugFromTitle, normalizeEmail, normalizeHandle, normalizeSlug, type BacklinkDto, type NoteDto, type Role, type ShareDto } from "@knotebook/shared";
 import { sendError } from "../http/errors.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
 import { noteLinks, noteShares, noteStateBackups, noteStates, notes, uploads, users } from "../db/schema.js";
 import type { CollabHooks } from "../collab/hooks.js";
-import { resolveRole, UUID_RE } from "../notes/service.js";
-import { prepareSlugForPatch, resolveNoteIdFromRef } from "../notes/slug.js";
+import { resolveRole, resolveRoleWithOwner, UUID_RE } from "../notes/service.js";
+import { deriveUniqueAutoSlug, fallbackAutoSlug, prepareSlugForPatch, resolveNoteIdFromRef } from "../notes/slug.js";
 import { fetchBacklinks, normalizeLinkTargets, writeNoteLinks, type WriteNoteLinksHooks } from "../notes/links.js";
 import { signCollabToken } from "../collab/token.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
-import { isForeignKeyViolation, isUniqueViolation } from "../db/pg-errors.js";
+import { isForeignKeyViolation, uniqueViolationConstraint } from "../db/pg-errors.js";
 import { deleteUploadFiles } from "../uploads/service.js";
 
 // 建立時 title 允許省略（DB 端有 default "Untitled"），但若有帶就不可為空字串——
@@ -42,6 +42,10 @@ const putShareBodySchema = z.object({ email: z.string().email(), role: z.enum(["
 // 之後）才算數，兩處數字不必相等/不可互相取代。
 const linksBodySchema = z.object({ link_target_ids: z.array(z.string().uuid()).max(MAX_LINK_TARGETS * 2) });
 
+// auto slug 的 UPDATE 撞唯一索引（真競態）重試上限（#122 spec §3a）：1..5 次重探測重發，
+// 第 6 次改用 `fallbackAutoSlug()`（untitled-<uuid8>）——再撞（~2^-32）就讓錯誤冒出去。
+const MAX_AUTO_SLUG_RETRIES = 5;
+
 // `isForeignKeyViolation` 收在 `db/pg-errors.ts` 的共用版（原本這裡有一份邏輯等價的私有
 // 重複實作，Task 5 收掉——`notes/links.ts` 的 `writeNoteLinks` 也需要同一個判定，兩處各自
 // 維護一份會有漂移風險）。
@@ -55,6 +59,13 @@ export interface NotesRouteDeps {
   /** Task 5：`POST /api/notes/:id/links` 寫入函式的測試注入縫，透傳自 `AppDeps.linkSyncTestHooks`。 */
   linkSyncTestHooks?: WriteNoteLinksHooks;
   /**
+   * #122 PR2：PATCH 的 auto slug 路徑測試注入縫——每輪探測完、UPDATE 發出前呼叫（帶本輪
+   * 候選）；測試在這裡搶插同 owner 同 slug 的佔位列，讓 UPDATE 真的撞 `(owner_id, slug)`
+   * 唯一索引，藉以驅動「重試 ≤`MAX_AUTO_SLUG_RETRIES` 後退 untitled-<uuid8>」的競態路徑
+   * （比照 `linkSyncTestHooks` 慣例）。生產不注入＝零成本。透傳自 `AppDeps.slugUpdateTestHook`。
+   */
+  slugUpdateTestHook?: (candidate: string) => void | Promise<void>;
+  /**
    * Task 11：DELETE note 交易 commit 後，補刪該筆記名下上傳 blob 檔案要用的目錄——
    * 與 `UploadsRouteDeps.uploadsDir`／`AppConfig` 同一份，透傳自 `AppDeps.uploadsDir`
    * （見 `app.ts` 註冊點）。
@@ -63,14 +74,20 @@ export interface NotesRouteDeps {
 }
 
 // 只列出 toNoteDto 實際會用到的欄位（而非完整 `typeof notes.$inferSelect`）：GET
-// list 那支改走 UNION ALL 後，兩個分支各自的 select shape 只挑這六欄 + role，不含
+// list 那支改走 UNION ALL 後，兩個分支各自的 select shape 只挑這幾欄 + role，不含
 // linksClock/deletedAt——用這個窄介面讓「完整 note row」與「union 出來的窄 row」都能
 // 結構相容地傳進來，不必為了餵同一個函式而多 select 用不到的欄位。
+// `ownerHandle` 不在 notes 表上（#122）——各回填點自行帶入：JOIN users（list/:ref/
+// by-path）、`request.user.handle`（POST——建立者即 owner，spec A12）、returning 後
+// 補一次 SELECT users（PATCH——editor 改他人筆記時必須回 **owner 的** handle）。
 interface NoteFields {
   id: string;
   title: string;
   ownerId: string;
-  slug: string | null;
+  slug: string;
+  slugIsCustom: boolean;
+  prevSlug: string | null;
+  ownerHandle: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -82,6 +99,9 @@ function toNoteDto(note: NoteFields, role: Role): NoteDto {
     ownerId: note.ownerId,
     role,
     slug: note.slug,
+    slugIsCustom: note.slugIsCustom,
+    prevSlug: note.prevSlug,
+    ownerHandle: note.ownerHandle,
     createdAt: note.createdAt.toISOString(),
     updatedAt: note.updatedAt.toISOString(),
   };
@@ -111,7 +131,8 @@ export function notesRoutes(deps: NotesRouteDeps) {
       const values = parsed.data.title === undefined ? { ownerId: userId } : { ownerId: userId, title: parsed.data.title };
       const [note] = await deps.db.insert(notes).values(values).returning();
 
-      return reply.code(201).send(toNoteDto(note, "owner"));
+      // ownerHandle 直接取 request.user（A12）：建立者即 owner，不必補查 users。
+      return reply.code(201).send(toNoteDto({ ...note, ownerHandle: request.user!.handle }, "owner"));
     });
 
     app.get("/api/notes", { preHandler: app.authenticate }, async request => {
@@ -135,17 +156,24 @@ export function notesRoutes(deps: NotesRouteDeps) {
       // 直接排除這種自我分享列，讓「同一位使用者、同一篇 note 只會出現一列」在結構上
       // 就不可能被打破，不依賴上層某個入口有沒有檢查到——防禦縱深（見
       // test/shares.test.ts「GET /api/notes 清單去重」）。
+      // #122：兩支各 JOIN users 帶出 ownerHandle（自有分支的 owner 恆為請求者，理論上可
+      // 免 JOIN 抄 request.user.handle——但兩支 select shape 必須同形才能 unionAll，
+      // 且讓「handle 一律來自 DB 的 owner 列」在兩支上一致，不留特例）。
       const ownedSelect = deps.db
         .select({
           id: notes.id,
           title: notes.title,
           ownerId: notes.ownerId,
           slug: notes.slug,
+          slugIsCustom: notes.slugIsCustom,
+          prevSlug: notes.prevSlug,
+          ownerHandle: users.handle,
           createdAt: notes.createdAt,
           updatedAt: notes.updatedAt,
           role: sql<string>`'owner'`.as("role"),
         })
         .from(notes)
+        .innerJoin(users, eq(users.id, notes.ownerId))
         .where(eq(notes.ownerId, userId));
 
       const sharedSelect = deps.db
@@ -154,12 +182,16 @@ export function notesRoutes(deps: NotesRouteDeps) {
           title: notes.title,
           ownerId: notes.ownerId,
           slug: notes.slug,
+          slugIsCustom: notes.slugIsCustom,
+          prevSlug: notes.prevSlug,
+          ownerHandle: users.handle,
           createdAt: notes.createdAt,
           updatedAt: notes.updatedAt,
           role: noteShares.role,
         })
         .from(notes)
         .innerJoin(noteShares, and(eq(noteShares.noteId, notes.id), eq(noteShares.userId, userId)))
+        .innerJoin(users, eq(users.id, notes.ownerId))
         .where(ne(notes.ownerId, userId));
 
       // 次要排序鍵 id desc（M3）：updatedAt 精度不足以保證唯一序，未來若加分頁
@@ -169,10 +201,84 @@ export function notesRoutes(deps: NotesRouteDeps) {
       return rows.map((row): NoteDto => toNoteDto(row, row.role as Role));
     });
 
+    // GET :ref 與 by-path 共用的「完整列＋ownerHandle」select shape（A5 同形的結構保證）。
+    const noteWithOwnerSelection = {
+      id: notes.id,
+      title: notes.title,
+      ownerId: notes.ownerId,
+      slug: notes.slug,
+      slugIsCustom: notes.slugIsCustom,
+      prevSlug: notes.prevSlug,
+      ownerHandle: users.handle,
+      createdAt: notes.createdAt,
+      updatedAt: notes.updatedAt,
+    };
+
+    // 授權後的完整列讀取（GET :ref 用；by-path 首查即帶整列，不經這裡）：JOIN users 帶
+    // ownerHandle。I2（審查）：resolveRole 判定完到這裡的 re-select 之間存在競態視窗——
+    // 若同時有另一個請求把這篇 note 刪了，這裡會查不到列。呼叫端對 undefined 明確回
+    // 404，不拿 non-null assertion 賭「resolveRole 說有就一定還在」。
+    async function loadNoteWithOwner(noteId: string): Promise<NoteFields | undefined> {
+      const [row] = await deps.db
+        .select(noteWithOwnerSelection)
+        .from(notes)
+        .innerJoin(users, eq(users.id, notes.ownerId))
+        .where(eq(notes.id, noteId))
+        .limit(1);
+      return row;
+    }
+
+    /**
+     * 新形網址的解析端點（#122 spec §3b）：`/n/<handle>/<slug>` 由 web 端打這裡。
+     * 順序：正規化（handle ASCII 小寫、slug NFC+小寫——大小寫/NFD 變體都解得到）→
+     * 單一 JOIN 精確比對（一次帶回整列；planner 由 users.handle 唯一鍵起算 nested loop
+     * 後吃 `notes_owner_slug_idx`——migrate.test 有 explain 守衛）→ miss → **prev_slug
+     * 補查**（單層自訂 redirect；`limit(2)` 偵測多義——同 owner 的多篇筆記可能先後釋放
+     * 同一個名字，**0 或 >1 命中一律 404**，不猜）→ `resolveRole`（none → 404，防列舉：
+     * 登入面分不出「不存在」與「無權限」；三處 404 body 同形，測試逐位元組釘住）。
+     * RESERVED_SLUGS 不含 by-path（spec m4-3 核實：本路由是三段靜態前綴，兩段
+     * `/api/notes/by-path` 不會 match 這裡、落回 `:ref`——無衝突面）。
+     */
+    app.get("/api/notes/by-path/:handle/:slug", { preHandler: app.authenticate }, async (request, reply) => {
+      const params = request.params as { handle: string; slug: string };
+      const userId = request.user!.id;
+      const handle = normalizeHandle(params.handle);
+      const slugParam = normalizeSlug(params.slug);
+
+      // 首查即帶整列（讀碼審查 m6：省掉授權後的第三趟 re-select——本支的列在授權判定
+      // 前就已讀到，I2 的競態視窗不適用）。
+      const [hit] = await deps.db
+        .select(noteWithOwnerSelection)
+        .from(notes)
+        .innerJoin(users, eq(users.id, notes.ownerId))
+        .where(and(eq(users.handle, handle), eq(notes.slug, slugParam)))
+        .limit(1);
+      let note = hit;
+      if (!note) {
+        const prevHits = await deps.db
+          .select(noteWithOwnerSelection)
+          .from(notes)
+          .innerJoin(users, eq(users.id, notes.ownerId))
+          .where(and(eq(users.handle, handle), eq(notes.prevSlug, slugParam)))
+          .limit(2);
+        if (prevHits.length !== 1) {
+          return sendError(reply, 404, "not_found", "找不到此筆記");
+        }
+        note = prevHits[0];
+      }
+
+      const role = await resolveRole(deps.db, userId, note.id);
+      if (role === "none") {
+        return sendError(reply, 404, "not_found", "找不到此筆記");
+      }
+      // 回應與 `GET /api/notes/:id` 同一個 toNoteDto——web 端拿 by-path 結果 seed
+      // `["note", id]` 快取的前提（spec A5，形狀斷言在測試釘住）。
+      return toNoteDto(note, role);
+    });
+
     // 由 `GET /api/notes/:id` 改名（不並存——同一位置重複註冊 GET 會被 fastify throw
-    // "Method already declared"）。`:ref` 可以是 uuid，也可以是自訂 slug 或
-    // `<vanity>-<uuid>` 形式（`canonicalNotePath` 組出來的路徑），解析順序見
-    // `resolveNoteIdFromRef`（spec §11.4 逐字）。
+    // "Method already declared"）。`:ref` 可以是 uuid、0007 凍結的 legacy slug、或舊版
+    // `<vanity>-<uuid>` 形式，解析順序見 `resolveNoteIdFromRef`（#122 起只查 legacy）。
     app.get("/api/notes/:ref", { preHandler: app.authenticate }, async (request, reply) => {
       const { ref } = request.params as { ref: string };
       const userId = request.user!.id;
@@ -187,35 +293,63 @@ export function notesRoutes(deps: NotesRouteDeps) {
         return sendError(reply, 404, "not_found", "找不到此筆記");
       }
 
-      // I2（審查）：resolveRole 判定完到這裡的 re-select 之間存在競態視窗——若同時有
-      // 另一個請求把這篇 note 刪了，這裡會查不到列。用 guard 明確回 404，不是拿
-      // non-null assertion 賭「resolveRole 說有就一定還在」（那個賭注在併發下不成立，
-      // `note!` 一旦落空會直接在 toNoteDto 內對 undefined 取欄位炸成 500）。
-      const [note] = await deps.db.select().from(notes).where(eq(notes.id, noteId)).limit(1);
+      const note = await loadNoteWithOwner(noteId);
       if (!note) {
         return sendError(reply, 404, "not_found", "找不到此筆記");
       }
       return toNoteDto(note, role);
     });
 
+    // PATCH 回應的 ownerHandle 補讀（spec m5-8／A12）：`.returning()` 拿不到 users.handle，
+    // 且 editor 改他人筆記時必須回 **owner 的** handle（不得抄 request.user）。原子性契約
+    // 指的是 title/slug 的單語句寫入——回應組裝的讀取不在其列。owner 列必存在
+    // （notes.owner_id 有 FK RESTRICT），落空唯一可能是型別層想不到的競態，fail-fast。
+    async function ownerHandleOf(ownerId: string): Promise<string> {
+      const [row] = await deps.db.select({ handle: users.handle }).from(users).where(eq(users.id, ownerId)).limit(1);
+      if (!row) throw new Error(`notes.owner_id ${ownerId} 查無對應 users 列（FK 不變量被打破）`);
+      return row.handle;
+    }
+
     /**
-     * PATCH 契約（spec §11.4 逐字）：`title`／`slug` 各自選配，至少帶一項（見
-     * `updateBodySchema`）。權限矩陣——`slug` 有出現在 body 內（不論其值是字串或
-     * `null`）一律要求 owner：none → 404、viewer/editor → 403，**整包拒絕**（即使
-     * 同時帶了合法的 title 也不套用，見下方單一 UPDATE 的說明）；body 只有 `title`
-     * 時維持既有規則（viewer → 403，editor/owner → 200）。
+     * PATCH 分流矩陣（#122 spec §3a——**語句形狀＝docs-as-spec 義務**，改動要連同
+     * docs/api.md 一起）：`title`／`slug` 各自選配，至少帶一項（見 `updateBodySchema`）。
+     * 權限矩陣不變：`slug` 有出現在 body 內（不論其值）一律要求 owner：none → 404、
+     * viewer/editor → 403，**整包拒絕**；body 只有 `title` 時 viewer → 403，
+     * editor/owner → 200。
      *
-     * `slug: null`＝清除既有自訂網址代稱，不驗證格式、也不計入節流器。`slug` 為非
-     * null 字串時：先計節流器（`limiters.slugPatch`，10 次/10 分鐘/user，超限 429
-     * `too_many_requests`；**成功與失敗都計數**——包含格式驗證失敗與唯一鍵衝突，故
-     * 節流判定必須在格式驗證與 UPDATE 之前），再用 `prepareSlugForPatch` 做
-     * `normalizeSlug` → `validateSlug`，違者 400 `invalid_body`。
+     * 四格（slug 自 0007 起 NOT NULL＋`(owner_id, slug)` per-user 唯一；`slug_is_custom`
+     * 記形態；prev 的 CASE＝**只記自訂變更**——custom→custom 與 custom→auto 記、
+     * auto→custom 與 auto 重算不記，spec M4-3）。「單一 UPDATE」皆指**寫入語句恰一條**；
+     * 各格的讀取（pre-read／探測）逐格列明：
+     * 1. `{slug: string}`（±title）：先計節流（`limiters.slugPatch`，10 次/10 分鐘/user，
+     *    成功失敗都計——判定在格式驗證與 UPDATE 之前）→ `prepareSlugForPatch` → 無
+     *    pre-read、無探測，單一 UPDATE `[title=$t,] slug=$1, slug_is_custom=true,
+     *    prev_slug=CASE WHEN slug_is_custom THEN slug ELSE prev_slug END`；撞
+     *    `notes_owner_slug_idx` → 409 `slug_taken`（**constraint 名分流**，其他唯一鍵
+     *    違反 rethrow——比照 PR1 的 M4-2 契約）；同請求帶 title 不觸發重算。
+     * 2. `{title}`：pre-read 本列 slug_is_custom（特赦，見下）；custom=false 才重算
+     *    （以請求新 title 算＋探測）：單一 UPDATE `title=$1, slug=CASE WHEN
+     *    slug_is_custom THEN slug ELSE $auto END`（prev 不動）。**不計 slugPatch**
+     *    （title 編輯是核心操作；放大上界＝每輪重試都重探測，≤5×20＝100 次索引查詢
+     *    ＋6 次 UPDATE（第 6 輪退位不探測），皆有界——title PATCH 本身無節流為現狀，
+     *    明示接受）。
+     * 3. `{title, slug:null}`：回 auto、以新 title 算（**無 pre-read**——title 已在請求、
+     *    必走 auto）：探測＋單一 UPDATE `title=$t, slug=$auto, slug_is_custom=false,
+     *    prev_slug=CASE ...`。slugPatch **計**（進 slug 分支即計；null 無格式驗——與
+     *    格 1 的先計後驗一致）。
+     * 4. `{slug:null}`：回 auto、以 DB 現行 title 算——pre-read 一次本列 title：探測＋
+     *    單一 UPDATE，語句同格 3。slugPatch 計。
      *
-     * title 與 slug 一律組進同一個 `.update(...).set({...})`（單一 SQL 陳述式本身
-     * 即原子——不需要額外包 `db.transaction`）：唯一鍵衝突時整條 UPDATE 連同 title
-     * 一併回滾，捕捉 `isUniqueViolation` 映射成 409 `slug_taken`，不會發生「slug
-     * 衝突但 title 卻偷偷套用了」這種半套結果，也不做 pre-check SELECT
-     * （TOCTOU——並發送出同一個新 slug 時，交給 DB 唯一索引本身裁決恰好一次成功）。
+     * pre-read 界線（spec m5-5）：TOCTOU 紀律禁的是**唯一性 pre-check**（「先查名字有沒
+     * 有人用再寫」——裁決必須在 `(owner_id, slug)` 索引）；讀**本列**的 title/
+     * slug_is_custom/owner_id 不在此列（`resolveRoleWithOwner` 本就先讀列），owner 範圍
+     * 探測（`deriveUniqueAutoSlug` 的可用性特赦）亦然——探測後裁決仍在索引。
+     *
+     * auto 撞名（**永不 409**）：探測（述詞排除本列）選尾碼；UPDATE 撞唯一索引＝真競態
+     * → 重探測重發，`MAX_AUTO_SLUG_RETRIES`（5）次後退 `untitled-<uuid8>`。title 與
+     * slug 一律組進同一個 `.update(...).set({...})`（單一 SQL 陳述式本身即原子——不需要
+     * 額外包 `db.transaction`）：唯一鍵衝突時整條 UPDATE 連同 title 一併回滾，不會發生
+     * 「slug 衝突但 title 卻偷偷套用了」這種半套結果。
      */
     app.patch("/api/notes/:id", { preHandler: app.authenticate }, async (request, reply) => {
       const { id } = request.params as { id: string };
@@ -228,7 +362,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
       const { title, slug } = parsed.data;
       const hasSlug = slug !== undefined;
 
-      const role = await resolveRole(deps.db, userId, id);
+      const { role, ownerId } = await resolveRoleWithOwner(deps.db, userId, id);
       if (role === "none") {
         return sendError(reply, 404, "not_found", "找不到此筆記");
       }
@@ -239,44 +373,127 @@ export function notesRoutes(deps: NotesRouteDeps) {
         return sendError(reply, 403, "forbidden", "沒有編輯權限");
       }
 
-      // undefined＝不動 slug 欄位；null＝清除；string＝已正規化驗證好的新值。
-      let normalizedSlug: string | null | undefined;
-      if (hasSlug) {
-        if (slug === null) {
-          normalizedSlug = null;
-        } else {
-          if (!deps.limiters.slugPatch.consume(userId)) {
-            return sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
-          }
-          const result = prepareSlugForPatch(slug);
-          if (!result.ok) {
-            return sendError(reply, 400, "invalid_body", result.message);
-          }
-          normalizedSlug = result.value;
+      // 「只記自訂變更」的 prev 規則（spec M4-3）——格 1 與格 3/4 共用同一片段，
+      // 抽成具名 const 讓兩處永遠同步（PG 對 SET 運算式一律讀 OLD 列值，CASE 讀到的
+      // 是更新前的 slug_is_custom/slug）。
+      const prevSlugOnCustomChange = sql`case when ${notes.slugIsCustom} then ${notes.slug} else ${notes.prevSlug} end`;
+
+      // 格 1：顯式自訂 slug。
+      if (hasSlug && slug !== null) {
+        if (!deps.limiters.slugPatch.consume(userId)) {
+          return sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
         }
+        const result = prepareSlugForPatch(slug);
+        if (!result.ok) {
+          return sendError(reply, 400, "invalid_body", result.message);
+        }
+        // I2（審查）：resolveRole 判定完到 UPDATE 之間可能被另一個請求刪除，
+        // `.returning()` 落空＝UPDATE 命中 0 列——明確回 404，不拿 non-null assertion 賭。
+        let updated;
+        try {
+          [updated] = await deps.db
+            .update(notes)
+            .set({
+              updatedAt: new Date(),
+              ...(title !== undefined ? { title } : {}),
+              slug: result.value,
+              slugIsCustom: true,
+              prevSlug: prevSlugOnCustomChange,
+            })
+            .where(eq(notes.id, id))
+            .returning();
+        } catch (err) {
+          // constraint 名分流（PR1 M4-2 契約）：只有 per-user 唯一索引撞名映射 slug_taken，
+          // 其他唯一鍵違反（未來新增）一律 rethrow——不認識的 23505 不該被猜成 409。
+          if (uniqueViolationConstraint(err) === "notes_owner_slug_idx") {
+            return sendError(reply, 409, "slug_taken", "此網址代稱已被使用");
+          }
+          throw err;
+        }
+        if (!updated) {
+          return sendError(reply, 404, "not_found", "找不到此筆記");
+        }
+        return toNoteDto({ ...updated, ownerHandle: await ownerHandleOf(updated.ownerId) }, role);
       }
 
-      const setValues: { updatedAt: Date; title?: string; slug?: string | null } = { updatedAt: new Date() };
-      if (title !== undefined) setValues.title = title;
-      if (hasSlug) setValues.slug = normalizedSlug;
+      // 格 2–4：auto 路徑。clearingSlug＝格 3/4（body 帶 slug:null）；否則格 2（title-only）。
+      const clearingSlug = hasSlug;
+      if (clearingSlug && !deps.limiters.slugPatch.consume(userId)) {
+        return sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+      }
 
-      // I2（審查）：同一個競態視窗（resolveRole 判定完到這裡的 UPDATE 之間可能被另一個
-      // 請求刪除），`.returning()` 落空時代表 UPDATE 命中 0 列——明確回 404，不是拿
-      // non-null assertion 賭一定有結果。
-      let updated;
-      try {
-        [updated] = await deps.db.update(notes).set(setValues).where(eq(notes.id, id)).returning();
-      } catch (err) {
-        if (isUniqueViolation(err)) {
-          return sendError(reply, 409, "slug_taken", "此網址代稱已被使用");
+      // pre-read（特赦界線見上）只在需要時發：格 2 要 slug_is_custom（決定探不探測）、
+      // 格 4 要現行 title；格 3 兩者都在請求裡（必走 auto）——不多發一次查詢。
+      let preReadSlugIsCustom = false;
+      let effectiveTitle = title ?? "";
+      if (!clearingSlug || title === undefined) {
+        const [row] = await deps.db
+          .select({ title: notes.title, slugIsCustom: notes.slugIsCustom })
+          .from(notes)
+          .where(eq(notes.id, id))
+          .limit(1);
+        if (!row) {
+          return sendError(reply, 404, "not_found", "找不到此筆記");
         }
-        throw err;
+        preReadSlugIsCustom = row.slugIsCustom;
+        effectiveTitle = title ?? row.title;
+      }
+      // role !== 'none' ⇒ resolveRoleWithOwner 的 ownerId 必非 null（見該函式契約）。
+      const noteOwnerId = ownerId!;
+      const needsAuto = clearingSlug || !preReadSlugIsCustom;
+
+      let updated;
+      for (let attempt = 1; ; attempt++) {
+        // 候選來源三分支：重試耗盡 → uuid8 退位；要走 auto（或重試中）→ 探測；
+        // 格 2 的 custom=true → CASE 會保留現行 slug、$auto 只是佔位，傳未探測候選即可
+        // ——若 pre-read 後被併發翻回 auto（罕見競態），只有恰好撞索引才落到重試路徑
+        // 重新探測；沒撞就直接寫入未探測候選（仍唯一，可接受）。
+        let auto: string;
+        if (attempt > MAX_AUTO_SLUG_RETRIES) {
+          auto = fallbackAutoSlug();
+        } else if (needsAuto || attempt > 1) {
+          auto = await deriveUniqueAutoSlug(deps.db, noteOwnerId, id, effectiveTitle);
+        } else {
+          auto = autoSlugFromTitle(effectiveTitle);
+        }
+        await deps.slugUpdateTestHook?.(auto);
+        try {
+          if (clearingSlug) {
+            [updated] = await deps.db
+              .update(notes)
+              .set({
+                updatedAt: new Date(),
+                ...(title !== undefined ? { title } : {}),
+                slug: auto,
+                slugIsCustom: false,
+                prevSlug: prevSlugOnCustomChange,
+              })
+              .where(eq(notes.id, id))
+              .returning();
+          } else {
+            [updated] = await deps.db
+              .update(notes)
+              .set({
+                updatedAt: new Date(),
+                title,
+                slug: sql`case when ${notes.slugIsCustom} then ${notes.slug} else ${auto} end`,
+              })
+              .where(eq(notes.id, id))
+              .returning();
+          }
+          break;
+        } catch (err) {
+          // 同格 1 的 constraint 名分流：只有 per-user 索引撞名走重試，其他 23505 rethrow。
+          if (uniqueViolationConstraint(err) === "notes_owner_slug_idx" && attempt <= MAX_AUTO_SLUG_RETRIES) {
+            continue;
+          }
+          throw err;
+        }
       }
       if (!updated) {
         return sendError(reply, 404, "not_found", "找不到此筆記");
       }
-
-      return toNoteDto(updated, role);
+      return toNoteDto({ ...updated, ownerHandle: await ownerHandleOf(updated.ownerId) }, role);
     });
 
     /**

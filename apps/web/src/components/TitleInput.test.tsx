@@ -23,22 +23,27 @@ const NOTE: NoteDto = {
   role: "owner",
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
-  slug: null,
+  slug: "old-title",
+  slugIsCustom: false,
+  prevSlug: null,
+  ownerHandle: "tester",
 };
 
-function renderTitle(props: Partial<{ note: NoteDto; readOnly: boolean; cacheRef: string }> = {}) {
+function renderTitle(props: Partial<{ note: NoteDto; readOnly: boolean }> = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <TitleInput note={props.note ?? NOTE} readOnly={props.readOnly ?? false} cacheRef={props.cacheRef ?? NOTE.id} />
+      <TitleInput note={props.note ?? NOTE} readOnly={props.readOnly ?? false} />
       <Toaster />
     </QueryClientProvider>,
   );
   return queryClient;
 }
 
-/** PATCH 回應：server 回的是整份更新後的 NoteDto。 */
-function patchOk(title: string, slug: string | null = null) {
+/** PATCH 回應：server 回的是整份更新後的 NoteDto。預設沿用原 slug（多數案不關心網址）；
+ * 要驗「title 變更→auto slug 重算→網址收斂」的案自行傳新 slug（真 server 對
+ * slugIsCustom=false 必重算，stub 不自動模擬這件事）。 */
+function patchOk(title: string, slug: string = NOTE.slug) {
   return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ ...NOTE, title, slug }) });
 }
 
@@ -109,18 +114,22 @@ describe("TitleInput", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("存檔成功後 replaceState 到新的 canonical 網址並更新本頁的 ['note', ref] 快取", async () => {
+  it("存檔成功後把回應寫回 ['note', note.id] 快取，且**不自己動網址**（A3：收斂交 NotePage effect）", async () => {
+    // 「存檔後網址更新」的行為覆蓋**移轉**至 NotePage 的收斂 effect 測試（M16：
+    // NotePage.test 的「以 slug 開頁 replaceState 成 canonical」＋閘門案承接）。
     vi.stubGlobal(
       "fetch",
-      vi.fn(() => Promise.resolve(patchOk("Brand New"))),
+      vi.fn(() => Promise.resolve(patchOk("Brand New", "brand-new"))),
     );
+    const before = window.location.pathname;
 
-    const queryClient = renderTitle({ cacheRef: NOTE.id });
+    const queryClient = renderTitle();
     fireEvent.change(screen.getByLabelText("Note title"), { target: { value: "Brand New" } });
     fireEvent.blur(screen.getByLabelText("Note title"));
 
-    await waitFor(() => expect(window.location.pathname).toBe(`/notes/Brand-New-${NOTE.id}`));
-    expect(queryClient.getQueryData<NoteDto>(["note", NOTE.id])?.title).toBe("Brand New");
+    await waitFor(() => expect(queryClient.getQueryData<NoteDto>(["note", NOTE.id])?.title).toBe("Brand New"));
+    // 單一寫網址點：本元件不 replaceState——網址必須留在原地
+    expect(window.location.pathname).toBe(before);
   });
 
   it("標題沒有實際改變時不送 PATCH", async () => {
@@ -209,16 +218,19 @@ describe("TitleInput", () => {
   it("PATCH 成功 → 使用者在請求往返期間繼續打的字不被伺服器回應蓋掉", async () => {
     const { fetchMock, settle } = pendingPatch();
 
-    renderTitle();
+    const queryClient = renderTitle();
     const input = screen.getByLabelText("Note title");
     fireEvent.change(input, { target: { value: "Saved" } });
     fireEvent.blur(input);
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
     fireEvent.change(input, { target: { value: "Saved and more" } });
-    settle(patchOk("Saved"));
+    settle(patchOk("Saved", "saved"));
 
-    await waitFor(() => expect(window.location.pathname).toContain("Saved-"));
+    // 完成訊號＝**快取回寫已發生**（A3 後本元件不動網址；快取寫入在回應處理的最後
+    // 一步，等到它＝整條成功路徑跑完），再斷輸入框沒被回音蓋掉——同步斷言會落在
+    // settle 的 microtask 鏈之前，變成恆真空轉（讀碼審 M3 抓到的形）。
+    await waitFor(() => expect(queryClient.getQueryData<NoteDto>(["note", NOTE.id])?.title).toBe("Saved"));
     expect(input).toHaveValue("Saved and more");
   });
 
@@ -243,14 +255,14 @@ describe("TitleInput", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const { rerender } = render(
       <QueryClientProvider client={queryClient}>
-        <TitleInput note={NOTE} readOnly={false} cacheRef={NOTE.id} />
+        <TitleInput note={NOTE} readOnly={false} />
       </QueryClientProvider>,
     );
     expect(screen.getByLabelText("Note title")).toHaveValue("Old title");
 
     rerender(
       <QueryClientProvider client={queryClient}>
-        <TitleInput note={{ ...NOTE, title: "Changed elsewhere" }} readOnly={false} cacheRef={NOTE.id} />
+        <TitleInput note={{ ...NOTE, title: "Changed elsewhere" }} readOnly={false} />
       </QueryClientProvider>,
     );
     await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("Changed elsewhere"));

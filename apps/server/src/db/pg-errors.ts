@@ -20,8 +20,9 @@ function matchesCode(err: unknown, target: string): boolean {
  * pg 的 unique_violation（code 23505）——否則唯一鍵違反會被 `throw err` 一路冒到
  * 最外層變成未預期的 500。
  *
- * 共用處：`routes/admin-users.ts`（users.email）、`routes/notes.ts`（slug 唯一鍵）、
- * `routes/admin-ai.ts`（model 唯一鍵）皆從這裡 import，不各自重複宣告一份判定邏輯。
+ * 共用處：`routes/oidc.ts`（整-tx-重投的觸發判定）、`routes/admin-ai.ts`（model 唯一鍵）。
+ * `routes/notes.ts`、`routes/admin-users.ts` 與 `routes/auth.ts` 自 #122 起改用下面的
+ * `uniqueViolationConstraint`（各自的表有多把唯一鍵，需要 constraint 名分流）。
  */
 export function isUniqueViolation(err: unknown): boolean {
   return matchesCode(err, PG_UNIQUE_VIOLATION);
@@ -38,8 +39,9 @@ function constraintOf(e: unknown): string | null {
  * email 與 handle 兩把唯一鍵、`handles` 表另有 PK——「任何 unique violation →
  * email_taken」的舊映射會把 handle 撞名誤報成「此 email 已被使用」。呼叫端依
  * constraint 名分流（`handles_pkey`/`users_handle_unique` → handle_taken、
- * `users_email_unique` → email_taken），其他名字一律 rethrow（不認識的唯一鍵
- * 違反不該被猜成任何一種 409）。非 unique violation 回 null。
+ * `users_email_unique` → email_taken、`notes_owner_slug_idx` → slug_taken），
+ * 其他名字一律 rethrow（不認識的唯一鍵違反不該被猜成任何一種 409）。非 unique
+ * violation 回 null。
  */
 export function uniqueViolationConstraint(err: unknown): string | null {
   if (!isUniqueViolation(err)) return null;

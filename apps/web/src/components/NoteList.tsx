@@ -1,9 +1,9 @@
 import { useTranslation } from "react-i18next";
-import { Link, useParams } from "react-router";
+import { Link } from "react-router";
 import { canonicalNotePath, type NoteDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
 import { useNotes } from "@/api/notes";
-import { matchesNoteRef } from "@/lib/note-ref";
+import { useActiveNote } from "@/lib/active-note";
 import { cn } from "@/lib/utils";
 import { EmptyState } from "@/components/EmptyState";
 
@@ -27,15 +27,18 @@ function RoleBadge({ role }: { role: NoteDto["role"] }) {
 
 interface NoteRowProps {
   note: NoteDto;
-  activeRef: string | undefined;
   /** 只有主清單（我的筆記／與我共享）給 `aria-current`；「最近」是同一批筆記的
    * 複製顯示，active 只呈現視覺樣式，不重複宣告 `aria-current`（解 B3——否則
    * 一個頁面上會有兩個 `aria-current="page"`）。 */
   primary: boolean;
 }
 
-function NoteRow({ note, activeRef, primary }: NoteRowProps) {
-  const active = matchesNoteRef(activeRef, note);
+function NoteRow({ note, primary }: NoteRowProps) {
+  const { activeNoteId, setActiveNoteId } = useActiveNote();
+  // #122：active 判準改吃 context 的 note.id（單一真相，理由見 lib/active-note.tsx
+  // 檔頭）——不再比對路由參數（replaceState 換網址後 params 不動、slug 又隨標題
+  // 重算，URL 判斷必失準；前身 matchesNoteRef 已退役）。
+  const active = activeNoteId === note.id;
   return (
     <li
       className={cn(
@@ -46,11 +49,19 @@ function NoteRow({ note, activeRef, primary }: NoteRowProps) {
         active && "bg-brand-soft text-brand-on-soft font-medium hover:bg-brand-soft-strong",
       )}
     >
-      {/* 刻意用 `<Link>` + 自算的 active，不用 `<NavLink>`：標題存檔後網址是靠
-          `history.replaceState` 換的，react-router 的 location 不會跟著更新，
-          NavLink 的比對會失準（見 `@/lib/note-ref` 的說明）。 */}
+      {/* 刻意用 `<Link>` + 自算的 active，不用 `<NavLink>`：NavLink 比對的是
+          location，而本 app 的網址會被 `history.replaceState` 換掉（location 不同步）。 */}
       <Link
         to={canonicalNotePath(note)}
+        onClick={(event) => {
+          // 樂觀 set 僅限 plain left-click（spec m5-7 逐字：擋 meta/ctrl/shift）：
+          // 那些組合是「開新分頁/視窗」——本頁不導航，樂觀 set 會把高亮留在沒開的
+          // 那篇。中鍵不觸發 onClick（auxclick），天然排除。alt＋左鍵（部分瀏覽器
+          // 是下載、同樣不導航）**已知未涵蓋**——spec 未列，暫不偏離。
+          if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey) {
+            setActiveNoteId(note.id);
+          }
+        }}
         aria-current={primary && active ? "page" : undefined}
         className="flex min-w-0 flex-1 items-center self-stretch truncate"
       >
@@ -65,11 +76,10 @@ interface NoteGroupProps {
   testId: string;
   label: string;
   notes: NoteDto[];
-  activeRef: string | undefined;
   primary: boolean;
 }
 
-function NoteGroup({ testId, label, notes, activeRef, primary }: NoteGroupProps) {
+function NoteGroup({ testId, label, notes, primary }: NoteGroupProps) {
   if (notes.length === 0) return null;
   return (
     // `data-testid`：測試範圍化握把，勿移除——「最近」跟主清單刻意重複顯示同一篇
@@ -79,7 +89,7 @@ function NoteGroup({ testId, label, notes, activeRef, primary }: NoteGroupProps)
       <p className="px-2 pb-1 pt-3 text-[11px] font-semibold tracking-wide text-muted-foreground">{label}</p>
       <ul className="space-y-0.5">
         {notes.map((note) => (
-          <NoteRow key={note.id} note={note} activeRef={activeRef} primary={primary} />
+          <NoteRow key={note.id} note={note} primary={primary} />
         ))}
       </ul>
     </div>
@@ -112,13 +122,12 @@ interface NoteListProps {
  * 與我共享）——這是設計定案，不是 bug；`aria-current` 因此只給主清單（見
  * `NoteRow` 的說明），避免一個頁面上出現兩個 `aria-current="page"`。
  *
- * 每列連到 `canonicalNotePath(note)`——有自訂 slug 用 slug，沒有則 vanity slug + id，
- * 兩者皆空時純 id（三態定義見 `@knotebook/shared` 的 `canonicalNotePath`）。
+ * 每列連到 `canonicalNotePath(note)`＝`/n/<ownerHandle>/<slug>` 單一形（#122——
+ * slug 恆為字串，舊三態已退役）。
  * 無刪除鈕——刪除移到內文卡頁頭的 ⋮ 選單（`NoteMenu.tsx`）。
  */
 export function NoteList({ query }: NoteListProps) {
   const { t } = useTranslation();
-  const { ref } = useParams<{ ref?: string }>();
   const notesQuery = useNotes();
 
   if (notesQuery.isPending) {
@@ -155,27 +164,9 @@ export function NoteList({ query }: NoteListProps) {
 
   return (
     <>
-      <NoteGroup
-        testId="notegroup-recent"
-        label={t("sidebar.recent")}
-        notes={filteredRecent}
-        activeRef={ref}
-        primary={false}
-      />
-      <NoteGroup
-        testId="notegroup-myNotes"
-        label={t("sidebar.myNotes")}
-        notes={filteredMyNotes}
-        activeRef={ref}
-        primary
-      />
-      <NoteGroup
-        testId="notegroup-shared"
-        label={t("sidebar.shared")}
-        notes={filteredShared}
-        activeRef={ref}
-        primary
-      />
+      <NoteGroup testId="notegroup-recent" label={t("sidebar.recent")} notes={filteredRecent} primary={false} />
+      <NoteGroup testId="notegroup-myNotes" label={t("sidebar.myNotes")} notes={filteredMyNotes} primary />
+      <NoteGroup testId="notegroup-shared" label={t("sidebar.shared")} notes={filteredShared} primary />
     </>
   );
 }

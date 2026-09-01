@@ -39,8 +39,8 @@ function renderSection(noteId: string | undefined) {
 const NOTE_ID = "11111111-1111-1111-1111-111111111111";
 
 const BACKLINKS: BacklinkDto[] = [
-  { id: "22222222-2222-2222-2222-222222222222", title: "Alpha", slug: "alpha" },
-  { id: "33333333-3333-3333-3333-333333333333", title: "Beta", slug: null },
+  { id: "22222222-2222-2222-2222-222222222222", title: "Alpha", slug: "alpha", ownerHandle: "tester" },
+  { id: "33333333-3333-3333-3333-333333333333", title: "Beta", slug: "beta", ownerHandle: "tester" },
 ];
 
 describe("BacklinksSection", () => {
@@ -113,7 +113,7 @@ describe("BacklinksSection", () => {
     // 字面值錨點：canonicalNotePath 本身的行為已有 shared/NoteList 測試覆蓋，這裡多釘
     // 一個字面值，避免 `canonicalNotePath` 未來改行為時這支測試悄悄跟著失去意義
     // （比照 NoteList.test.tsx 的同款斷言形狀）。
-    expect(canonicalNotePath(BACKLINKS[0])).toBe("/notes/alpha");
+    expect(canonicalNotePath(BACKLINKS[0])).toBe("/n/tester/alpha");
   });
 
   it("單數（1 篇）走 i18next 的 _one 分支", async () => {

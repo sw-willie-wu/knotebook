@@ -1,5 +1,6 @@
-import { eq } from "drizzle-orm";
-import { extractRefUuid, normalizeSlug, validateSlug } from "@knotebook/shared";
+import { randomUUID } from "node:crypto";
+import { and, eq, ne } from "drizzle-orm";
+import { autoSlugFromTitle, extractRefUuid, normalizeSlug, validateSlug } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
 import { notes } from "../db/schema.js";
 
@@ -39,11 +40,52 @@ export function prepareSlugForPatch(raw: string): SlugValidationResult {
   return { ok: true, value: normalized };
 }
 
+// auto slug 探測上限（#122 spec §3a，同 auth/handle.ts 的 PROBE_LIMIT 理由與可見性）：
+// 探測是 O(同前綴數) 次索引查詢、title PATCH 無節流，上界必須有。超限退 `untitled-<uuid8>`。
+const AUTO_SLUG_PROBE_LIMIT = 20;
+
+/** 探測全敗／UPDATE 重試耗盡時的最終退位形（碰撞機率 ~2^-32，撞上就讓唯一索引裁決）。 */
+export function fallbackAutoSlug(): string {
+  return `untitled-${randomUUID().slice(0, 8)}`;
+}
+
 /**
- * `GET /api/notes/:ref` 的 ref 解析（spec §11.4 逐字，序位即優先序）：
- * 1. `normalizeSlug(ref)` 精確比對 `notes.slug` 欄位——命中即回該筆 note 的 id。
- * 2. 未命中 → `extractRefUuid(ref)` 擷取尾碼/整串 uuid（涵蓋純 uuid 與
- *    `<vanity>-<uuid>` 兩種形式，見 `canonicalNotePath`）。
+ * auto slug 的 owner 範圍去重探測（#122 spec §3a）：候選＝`autoSlugFromTitle(title)`，
+ * 已占用則遞增 `-N` 尾碼（重截基底使總長 ≤60，同 0007 backfill 的 SQL 版）；探測
+ * `AUTO_SLUG_PROBE_LIMIT` 次仍撞 → `untitled-<uuid8>`。
+ *
+ * **述詞必排除本列**（`id <> noteId`）——不排除的話「標題微調但 auto slug 不變」會把
+ * 自己判成占用、網址在 `meeting`↔`meeting-2` 間震盪且每次舊網址即死（spec M5-1）。
+ *
+ * 明文特赦（同 deriveHandle）：這是可用性探測、非唯一性裁決——`(owner_id, slug)`
+ * 唯一索引仍是最終裁決者；探測後仍撞（真競態）由呼叫端重探測重發（PATCH 的重試迴圈）。
+ */
+export async function deriveUniqueAutoSlug(db: Db, ownerId: string, noteId: string, title: string): Promise<string> {
+  const base = autoSlugFromTitle(title);
+  let cand = base;
+  for (let n = 1; n <= AUTO_SLUG_PROBE_LIMIT; n++) {
+    const [hit] = await db
+      .select({ id: notes.id })
+      .from(notes)
+      .where(and(eq(notes.ownerId, ownerId), eq(notes.slug, cand), ne(notes.id, noteId)))
+      .limit(1);
+    if (!hit) return cand;
+    const suffix = `-${n + 1}`;
+    const trimmed = Array.from(base).slice(0, 60 - suffix.length).join("").replace(/-+$/, "");
+    cand = `${trimmed}${suffix}`;
+  }
+  return fallbackAutoSlug();
+}
+
+/**
+ * 舊形 `GET /api/notes/:ref` 的 ref 解析（#122 spec §3a 起，序位即優先序）：
+ * 1. `normalizeSlug(ref)` 精確比對 **`notes.legacy_slug`**（0007 凍結快照，全域唯一、
+ *    trigger 保證不可變）——**刻意不查現行 `notes.slug`**：slug 已是 per-user 唯一，
+ *    跨 owner 同名時全域查找沒有確定答案；舊形連結凍結在 0007 當下的世界。
+ *    「A 的 legacy 與 B 之後設的同名現行 custom 並存 → `/notes/<名>` 解到 A」＝
+ *    設計意圖（劫持反例測試釘住），新形網址走 by-path 不經這裡。
+ * 2. 未命中 → `extractRefUuid(ref)` 擷取尾碼/整串 uuid（涵蓋純 uuid 與舊版
+ *    `<vanity>-<uuid>` 兩種形式）——這使 0007 之前發出去的所有連結永久可解。
  * 3. 兩者皆失敗 → null，呼叫端一律映射成 404 `not_found`（防列舉，不區分
  *    「slug 不存在」與「格式看起來不像 uuid」）。
  *
@@ -52,7 +94,7 @@ export function prepareSlugForPatch(raw: string): SlugValidationResult {
  */
 export async function resolveNoteIdFromRef(db: Db, ref: string): Promise<string | null> {
   const normalized = normalizeSlug(ref);
-  const [bySlug] = await db.select({ id: notes.id }).from(notes).where(eq(notes.slug, normalized)).limit(1);
-  if (bySlug) return bySlug.id;
+  const [byLegacy] = await db.select({ id: notes.id }).from(notes).where(eq(notes.legacySlug, normalized)).limit(1);
+  if (byLegacy) return byLegacy.id;
   return extractRefUuid(ref);
 }

@@ -144,7 +144,8 @@ interface AppShellProps {
  * 主佈局：側欄（`md+`＝固定卡片；`<md`＝隱藏，改由抽屜承載，入口是
  * `SidebarDrawerButton` 漢堡鈕——NotePage 頁首或 `NarrowTopBar` 提供）、右側主
  * 內容區（呼叫端傳入的 `children`）。四個呼叫端共用同一個插槽：`HomePage`（`/`）、
- * `NotePage`（`/notes/:ref`）、`NotePageFallback`、`NoteRouteErrorFallback`。
+ * `NotePage`（`/n/:handle/:slug` 與舊形 `/notes/:ref` 兩條 route 共用）、
+ * `NotePageFallback`、`NoteRouteErrorFallback`。
  *
  * 側欄內容抽成 `SidebarContent`，靜態卡與抽屜共用；抽屜開著時 DOM 上同時有兩份
  * （靜態那份 `hidden`——真實瀏覽器 display:none 不進 a11y tree、不可聚焦；jsdom
@@ -176,8 +177,8 @@ interface AppShellProps {
  * （點側欄筆記）與跨斷點 resize（change → `matches:false`）時自行關閉。
  *
  * 新增筆記：`POST /api/notes`（`useCreateNote`）成功後直接導向新筆記的
- * `canonicalNotePath`（NoteDto.slug 此時必為 `null`，會落在 vanity-slug+id 或純
- * id 那兩態——見 `canonicalNotePath` 的說明）；失敗則跟 ⋮ 選單（`NoteMenu.tsx`）
+ * `canonicalNotePath`（#122 起單一形 `/n/<ownerHandle>/<slug>`——新筆記吃 DB
+ * default 的 `untitled-<uuid8>` slug）；失敗則跟 ⋮ 選單（`NoteMenu.tsx`）
  * 的刪除項同一套錯誤處理慣例：ApiFail → `errors.<code>`、否則 `errors.fallback`，
  * 用 toast 顯示（不像 LoginPage 用行內 `errorMessage` state——這裡沒有表單可以
  * 掛錯誤文案）。
