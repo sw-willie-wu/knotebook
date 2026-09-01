@@ -39,6 +39,37 @@ export function isValidPublicToken(token: string): boolean {
   return PUBLIC_TOKEN_RE.test(token);
 }
 
+/**
+ * log 遮罩（pure，unit 釘住）：把 `/p/<段>` 與 `/api/public/notes/<段>` 的 token 段
+ * 換成 `:token` 再進 log——**刻意過寬**（非 43 字元的段也遮）：log 遮罩寧可多遮，
+ * 「差一個字元的幾乎 token」也不留。由 `app.ts` 的 req serializer 無條件套在
+ * `req.url` 上（含測試注入 logger 的情形——見該處註解）。
+ */
+export function redactPublicTokens(url: string): string {
+  // ⚠ 先收斂開頭的重複斜線、比對不分大小寫（審查真 socket 實測抓到的洩漏形）：
+  // SPA fallback 對 `//p/<token>`、`/P/<token>`、`//api/public/...` 一律照常服務
+  // （fastify 路由與 EXCLUDED_PREFIXES 都比不中，落進 fallback 回 200），`^` 錨定
+  // ＋大小寫敏感的字面比對會讓這些變體把 token 原文寫進 log。收斂會讓 log 裡的
+  // URL 與原始請求略有出入（`//p/…` 記成 `/p/:token…`）——安全不變量優先於
+  // log 逐字保真。
+  const collapsed = url.replace(/^\/{2,}/, "/");
+  return collapsed
+    .replace(/^\/p\/[^/?#]+/i, "/p/:token")
+    .replace(/^\/api\/public\/notes\/[^/?#]+/i, "/api/public/notes/:token");
+}
+
+/**
+ * `/p` 公開分享頁的 pathname 判定——noindex 條件（spa.ts）與 log 遮罩共用同一份
+ * 正規化（開頭斜線收斂＋不分大小寫），**不得各寫一份字面比對**（只修一邊的話
+ * `//p/<token>` 這類變體會拿不到 noindex 或洩進 log，兩處同時破——審查實測過）。
+ * `pathname === "/p"` 也算：本身沒有 token、掛 noindex 無害，且讓 `/p` 與 `/p/`
+ * 行為一致（有測試釘住）。
+ */
+export function isPublicSharePath(pathname: string): boolean {
+  const p = pathname.replace(/^\/{2,}/, "/").toLowerCase();
+  return p === "/p" || p.startsWith("/p/");
+}
+
 export interface PublicRoutesDeps {
   db: Db;
   uploadsDir: string;

@@ -6,13 +6,16 @@ import type { Db } from "../src/db/index.js";
 import { signSession } from "../src/auth/session.js";
 import { randomBytes } from "node:crypto";
 import { writeFile } from "node:fs/promises";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { eq } from "drizzle-orm";
 import { uploadFilePath } from "../src/uploads/service.js";
 import { AI_LIMIT, COLLAB_TOKEN_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, SLUG_PATCH_LIMIT, UPLOAD_LIMIT } from "../src/http/rate-limit.js";
 
 /**
  * #72 公開分享連結。本檔隨 Task 1a/1b/1c 逐步擴充——目前涵蓋**管理端三支（1a）
- * ＋公開兩端點與三步節流（1b）**；log 遮罩的案組由 1c 補進來。
+ * ＋公開兩端點與三步節流（1b）＋log 遮罩（1c）**。
  *
  * 錯誤慣例照 shares 端點（routes/notes.ts 註解明訂、三支一致）：resolveRole 為
  * none → 404 not_found（不可分辨「不存在」與「無權限」）、可讀但非 owner → 403。
@@ -407,5 +410,46 @@ describe("公開圖片端（GET /api/public/notes/:token/uploads/:uploadId）", 
     // 撤銷後 blob 一起失效，且 body 與連結 404 逐位元組同形（token 解析失敗走同
     // 一條 resolvePublicNote——這案把「共用」從閱讀保證變成斷言）。
     expect(viaUpload.body).toBe(viaContent.body);
+  });
+});
+
+
+describe("token 不進 log（Task 1c：req serializer 遮罩）", () => {
+  it("三條帶 token 的路徑（/p/ HTML fallback＋兩條公開 API）打過之後，整份 log 不含 token 字面量、且含遮罩後的 :token", async () => {
+    const captured: string[] = [];
+    const webDist = mkdtempSync(path.join(tmpdir(), "knotebook-pub-log-"));
+    writeFileSync(path.join(webDist, "index.html"), "<!doctype html><title>t</title>");
+    try {
+      // 只注入 destination（stream）——**禁止自帶 serializers**：帶了的話斷言的是
+      // 測試自己的設定，production（logger: true）零遮罩照樣綠（spec B 不變量）。
+      const { app, db } = await buildTestApp(
+        {},
+        {
+          webDist,
+          logger: { level: "info", stream: { write: (line: string) => void captured.push(line) } },
+        },
+      );
+      const owner = await insertUser(db, "owner-log1@example.com");
+      const cookie = await cookieFor(owner.id);
+      const noteId = await createNote(app, cookie);
+      const token = await openPublicLink(app, cookie, noteId);
+
+      await app.inject({ method: "GET", url: `/p/${token}`, headers: { accept: "text/html" } });
+      // 洩漏變體（審查真 socket 實測抓到）：SPA fallback 對這兩形照樣 200。
+      await app.inject({ method: "GET", url: `//p/${token}`, headers: { accept: "text/html" } });
+      await app.inject({ method: "GET", url: `/P/${token}`, headers: { accept: "text/html" } });
+      await app.inject({ method: "GET", url: `/api/public/notes/${token}` });
+      await app.inject({ method: "GET", url: `/api/public/notes/${token}/uploads/00000000-0000-0000-0000-000000000000` });
+
+      const all = captured.join("");
+      // 有在記 log（防「logger 靜默沒開」的空泛通過）且 url 被遮成 :token。
+      expect(all).toContain(":token");
+      // 核心不變量：token 字面量一個位元組都不出現——這是 D1「存原文」定案的
+      // 承重條件①（fastify 預設 req serializer 會印 req.url，靠 buildApp 無條件
+      // 合併的遮罩 serializer 擋）。
+      expect(all).not.toContain(token);
+    } finally {
+      rmSync(webDist, { recursive: true, force: true });
+    }
   });
 });
