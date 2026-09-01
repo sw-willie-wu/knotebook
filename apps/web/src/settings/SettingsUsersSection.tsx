@@ -313,6 +313,7 @@ export function SettingsUsersSection() {
           <thead>
             <tr className="border-b border-border text-left text-muted-foreground">
               <th className="py-2 font-medium">{t("admin.tableEmail")}</th>
+              <th className="py-2 font-medium">{t("admin.tableHandle")}</th>
               <th className="py-2 font-medium">{t("admin.tableDisplayName")}</th>
               <th className="py-2 font-medium">{t("admin.tableRole")}</th>
               <th className="py-2 font-medium">{t("admin.tableStatus")}</th>
@@ -323,6 +324,7 @@ export function SettingsUsersSection() {
             {usersQuery.data.map((row) => (
               <tr key={row.id} className="border-b border-border">
                 <td className="py-2">{row.email}</td>
+                <td className="py-2">{row.handle}</td>
                 <td className="py-2">{row.displayName}</td>
                 <td className="py-2">{row.isAdmin ? t("admin.roleAdmin") : t("admin.roleUser")}</td>
                 <td className="py-2">{row.disabledAt ? t("admin.statusDisabled") : t("admin.statusActive")}</td>

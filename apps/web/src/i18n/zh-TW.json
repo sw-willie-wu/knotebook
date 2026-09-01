@@ -187,6 +187,7 @@
     "create": "建立",
     "creating": "建立中…",
     "tableEmail": "電子郵件",
+    "tableHandle": "使用者名",
     "tableDisplayName": "顯示名稱",
     "tableRole": "角色",
     "tableStatus": "狀態",
@@ -225,7 +226,13 @@
       "ai": "AI"
     },
     "account": {
-      "ssoOnly": "此帳號透過 SSO 登入"
+      "ssoOnly": "此帳號透過 SSO 登入",
+      "handleTitle": "使用者名",
+      "handleDescription": "使用者名會出現在你分享的所有 /n/ 與 /p/ 網址中（token 連結不含）。改名後這些網址立即失效，舊名永不可再用——包括你自己改回去。",
+      "handleLabel": "使用者名",
+      "handleSave": "儲存使用者名",
+      "handleSaved": "使用者名已更新。",
+      "handleInvalid": "1–32 字元：小寫英數與連字號；連字號不可在頭尾或連續出現。"
     },
     "ai": {
       "title": "AI 供應商與動作",

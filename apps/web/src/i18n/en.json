@@ -187,6 +187,7 @@
     "create": "Create",
     "creating": "Creating…",
     "tableEmail": "Email",
+    "tableHandle": "Username",
     "tableDisplayName": "Display name",
     "tableRole": "Role",
     "tableStatus": "Status",
@@ -225,7 +226,13 @@
       "ai": "AI"
     },
     "account": {
-      "ssoOnly": "This account signs in with SSO."
+      "ssoOnly": "This account signs in with SSO.",
+      "handleTitle": "Username",
+      "handleDescription": "Your username appears in every /n/ and /p/ link you share (token links don't include it). After a rename those links stop working immediately, and the old name can never be used again — not even by you.",
+      "handleLabel": "Username",
+      "handleSave": "Save username",
+      "handleSaved": "Username updated.",
+      "handleInvalid": "1–32 characters: lowercase letters, numbers and hyphens; hyphens can't lead, trail, or repeat."
     },
     "ai": {
       "title": "AI providers & actions",

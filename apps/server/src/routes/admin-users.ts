@@ -49,7 +49,7 @@ interface AdminUserRow {
   createdAt: Date;
 }
 
-// 只選這六欄（形狀鎖）：不可帶 passwordHash/tokenVersion——即使只是內部查詢，也不要
+// 只選這七欄（形狀鎖，#122 起含 handle）：不可帶 passwordHash/tokenVersion——即使只是內部查詢，也不要
 // select 出這兩欄再靠序列化階段刻意漏掉，直接在 SQL 端就不撈，斷絕任何洩漏路徑。
 function toAdminUserDto(row: AdminUserRow): AdminUserDto {
   return {

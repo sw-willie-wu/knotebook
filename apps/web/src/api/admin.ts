@@ -3,13 +3,16 @@ import { api } from "./client";
 
 /**
  * `GET /api/admin/users` 回應形狀（鏡射 `apps/server/src/routes/admin-users.ts` 的
- * `AdminUserDto`——那六欄的 select 形狀鎖，見該檔說明）。刻意不放進
+ * `AdminUserDto`——那七欄的 select 形狀鎖，見該檔說明）。刻意不放進
  * `@knotebook/shared`：與 `NoteDto`/`ShareDto` 不同，這個形狀只有 admin 頁面讀得到，
- * 沒有跨 owner/editor/viewer 角色共用的理由。
+ * 沒有跨 owner/editor/viewer 角色共用的理由。與 server 端 adminUserColumns 的七欄
+ * select 形狀鎖同步（#122 起含 handle）。
  */
 export interface AdminUserDto {
   id: string;
   email: string;
+  /** #122：URL 用的使用者名（server 端 adminUserColumns 同步收緊）。 */
+  handle: string;
   displayName: string;
   isAdmin: boolean;
   disabledAt: string | null;

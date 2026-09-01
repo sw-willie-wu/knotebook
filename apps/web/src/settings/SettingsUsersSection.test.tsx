@@ -47,6 +47,7 @@ const ADMIN_USER: UserDto = {
 const ACTIVE_OTHER: AdminUserDto = {
   id: "u-active",
   email: "alice@example.com",
+  handle: "u-active-h",
   displayName: "Alice",
   isAdmin: false,
   disabledAt: null,
@@ -56,6 +57,7 @@ const ACTIVE_OTHER: AdminUserDto = {
 const DISABLED_OTHER: AdminUserDto = {
   id: "u-disabled",
   email: "bob@example.com",
+  handle: "u-disabled-h",
   displayName: "Bob",
   isAdmin: false,
   disabledAt: "2026-01-02T00:00:00.000Z",
@@ -68,6 +70,7 @@ const DISABLED_OTHER: AdminUserDto = {
 const OTHER_ADMIN: AdminUserDto = {
   id: "u-other-admin",
   email: "carol@example.com",
+  handle: "u-other-admin-h",
   displayName: "Carol",
   isAdmin: true,
   disabledAt: null,
@@ -175,6 +178,7 @@ describe("SettingsUsersSection（/settings/users，spec §13.4：舊版 admin �
     const selfRow: AdminUserDto = {
       id: ADMIN_USER.id,
       email: ADMIN_USER.email,
+      handle: ADMIN_USER.handle,
       displayName: ADMIN_USER.displayName,
       isAdmin: true,
       disabledAt: null,
@@ -402,5 +406,31 @@ describe("SettingsUsersSection（/settings/users，spec §13.4：舊版 admin �
       ([reqUrl, reqInit]) => String(reqUrl) === ADMIN_USERS_URL && (reqInit as RequestInit | undefined)?.method === "POST",
     );
     expect(postCalls).toHaveLength(0);
+  });
+});
+
+// #122 PR1 Task 5：表格新增使用者名欄（AdminUserDto.handle）。fixture 的 handle 由
+// 下面這案自帶（既有 fixture 未含 handle——AdminUserDto 收緊後 typecheck 會逼齊）。
+describe("SettingsUsersSection——使用者名欄（#122 Task 5）", () => {
+  it("表頭有 Username 欄、cell 顯示各列 handle", async () => {
+    const withHandles = [
+      { ...ACTIVE_OTHER, handle: "alice-h" },
+      { ...DISABLED_OTHER, handle: "bob-h" },
+    ];
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      const base = baseFetchHandlers()(url, method);
+      if (base) return Promise.resolve(base);
+      if (url === ADMIN_USERS_URL && method === "GET") {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(withHandles) }));
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    renderUsersRoute(fetchMock);
+    await screen.findByText("alice@example.com");
+    expect(screen.getByRole("columnheader", { name: "Username" })).toBeInTheDocument();
+    expect(screen.getByText("alice-h")).toBeInTheDocument();
+    expect(screen.getByText("bob-h")).toBeInTheDocument();
   });
 });
