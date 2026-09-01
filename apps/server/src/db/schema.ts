@@ -6,6 +6,18 @@ const bytea = customType<{ data: Buffer }>({ dataType: () => "bytea" });
 export const users = pgTable("users", {
   id: uuid().primaryKey().defaultRandom(),
   email: text().notNull().unique(),
+  // #122：URL 用的使用者名（/n/<handle>/…）。反正規化副本——配置的唯一裁決者是
+  // `handles` registry（見下），這欄供 JOIN 與回應組裝。DB default 有兩個承重理由：
+  // ①回滾兜底（0006 之後退回舊映像，舊碼 insert 不帶 handle 仍能建帳）；②大量既有
+  // 整合測試直接 db.insert(users) 不帶 handle——沒有 default，drizzle 的 insert 型別
+  // 會把它變必填、整套 typecheck 全紅（plan gate 注意事項 8）。
+  // `.unique()` 產出的 constraint 名 `users_handle_unique` 是錯誤判別契約的鍵
+  // （handle_taken vs email_taken 靠 constraint 名分流）——**不得改成 uniqueIndex()**
+  // （那會產 CREATE UNIQUE INDEX，pg 錯誤帶回的名字就不在判別白名單裡）。
+  handle: text()
+    .notNull()
+    .unique()
+    .default(sql`'user-' || substr(gen_random_uuid()::text, 1, 8)`),
   passwordHash: text("password_hash"),
   oidcIssuer: text("oidc_issuer"),
   oidcSub: text("oidc_sub"),
@@ -28,6 +40,36 @@ export const users = pgTable("users", {
   // 有測試釘住「存在且非唯一」。
   index("users_email_lower_idx").on(sql`lower(${t.email})`),
 ]);
+
+/**
+ * #122：handle 配置的**唯一裁決者**（單一 registry，PK 裁決恰好一次——比照
+ * [[ai-provider-key-exfil]] 的「判斷必須在 DB 端做」紀律）。取名＝`INSERT INTO handles`
+ * （含墓碑：`released` 列**永久**占住 PK，改名釋放的舊名任何人（含本人）不得再取）。
+ * 三條建帳路徑一律 registry-first（同 tx 內先 INSERT handles 再 INSERT users）。
+ *
+ * `user_id` **刻意無 `.references()`**（repo 慣例是 uuid 都掛 FK——這裡是明示例外，
+ * spec §2a）：①registry-first 順序下 handles 列先於 users 列插入，掛 FK 三條建帳
+ * 路徑全死；②產品無刪使用者功能，且墓碑列本就必須活得比使用者久。
+ * CHECK 三條都是結構層不變量：charset/長度、state 枚舉、released_at↔state 一致
+ * （第三條漏了會讓改名額度的 `state='released'` 計數漏算）。
+ */
+export const handles = pgTable(
+  "handles",
+  {
+    handle: text().primaryKey(),
+    userId: uuid("user_id").notNull(),
+    state: text().notNull(),
+    releasedAt: timestamp("released_at", { withTimezone: true }),
+  },
+  t => [
+    check("handles_handle_chk", sql`${t.handle} ~ '^[a-z0-9-]{1,32}$'`),
+    check("handles_state_chk", sql`${t.state} in ('live','released')`),
+    check("handles_released_at_chk", sql`(${t.state} = 'released') = (${t.releasedAt} is not null)`),
+    // 改名額度查詢（Task 4：WHERE user_id=$me AND state='released' AND released_at>…）
+    // 的反向索引——比照 note_shares_user_idx 的慣例（讀碼審查 minor 7）。
+    index("handles_user_idx").on(t.userId),
+  ],
+);
 
 export const instanceSetup = pgTable("instance_setup", {
   singleton: boolean().primaryKey().default(true),

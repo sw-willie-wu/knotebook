@@ -1,14 +1,20 @@
 import { describe, it, expect } from "vitest";
-import { freshDb } from "./helpers.js";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { validateHandle } from "@knotebook/shared";
+import { applyMigrationsThrough, freshDb, freshEmptyDb, idxOfTag, journalEntries } from "./helpers.js";
 import { runMigrations } from "../src/db/migrate.js";
 
+const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
+
 describe("runMigrations", () => {
-  it("migrate 兩次 idempotent 且 11 張表存在", async () => {
+  it("migrate 兩次 idempotent 且 12 張表存在", async () => {
     const { db, pool } = await freshDb();
     await runMigrations(db); // freshDb 已跑過一次——此為第二次
     const r = await pool.query(`select table_name from information_schema.tables where table_schema='public'`);
     const tableNames = r.rows.map(x => x.table_name);
-    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions"])
+    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles"])
       expect(tableNames).toContain(t);
   });
 
@@ -122,5 +128,168 @@ describe("runMigrations", () => {
     expect(idx).toHaveLength(1);
     expect(idx[0].indexdef).toMatch(/UNIQUE/);
     expect(idx[0].indexdef).toMatch(/WHERE \(?public_token IS NOT NULL\)?/);
+  });
+});
+
+/**
+ * 0006_user-handle（#122 PR1 Task 2）。形狀案跑在 freshDb（全 migration）上；backfill
+ * 資料案例跑在 §7-H harness 上（freshEmptyDb → applyThrough(0005) → 塞 0005 形 fixture
+ * → runMigrations 跑 0006 → 斷言），fixture 顯式指定 id 與 created_at 控制 DO 迴圈的
+ * 確定性次序（plan gate M7——同 tx 插入的 created_at 全等，次序會由隨機 uuid 決定）。
+ */
+describe("0006_user-handle", () => {
+  it("handles 表形狀：PK＋三個 CHECK（charset/長度、state 枚舉、released_at↔state 一致）", async () => {
+    const { pool } = await freshDb();
+
+    await pool.query(`insert into users (email, display_name) values ('h@example.com', 'H')`);
+    const { rows } = await pool.query(`select id from users limit 1`);
+    const userId = rows[0].id;
+
+    // 合法列
+    await pool.query(`insert into handles (handle, user_id, state) values ('ok-name', $1, 'live')`, [userId]);
+    // charset/長度
+    await expect(
+      pool.query(`insert into handles (handle, user_id, state) values ('BAD', $1, 'live')`, [userId]),
+    ).rejects.toMatchObject({ code: "23514", constraint: "handles_handle_chk" });
+    await expect(
+      pool.query(`insert into handles (handle, user_id, state) values ('${"a".repeat(33)}', $1, 'live')`, [userId]),
+    ).rejects.toMatchObject({ code: "23514", constraint: "handles_handle_chk" });
+    // state 枚舉
+    await expect(
+      pool.query(`insert into handles (handle, user_id, state) values ('zombie-x', $1, 'zombie')`, [userId]),
+    ).rejects.toMatchObject({ code: "23514", constraint: "handles_state_chk" });
+    // released_at↔state 一致（released 無時間戳／live 帶時間戳都拒）
+    await expect(
+      pool.query(`insert into handles (handle, user_id, state) values ('tomb-x', $1, 'released')`, [userId]),
+    ).rejects.toMatchObject({ code: "23514", constraint: "handles_released_at_chk" });
+    await expect(
+      pool.query(
+        `insert into handles (handle, user_id, state, released_at) values ('live-x', $1, 'live', now())`,
+        [userId],
+      ),
+    ).rejects.toMatchObject({ code: "23514", constraint: "handles_released_at_chk" });
+    // PK＝配置裁決（含墓碑——released 列也占住名字）
+    await pool.query(
+      `insert into handles (handle, user_id, state, released_at) values ('tomb-ok', $1, 'released', now())`,
+      [userId],
+    );
+    await expect(
+      pool.query(`insert into handles (handle, user_id, state) values ('tomb-ok', $1, 'live')`, [userId]),
+    ).rejects.toMatchObject({ code: "23505", constraint: "handles_pkey" });
+    // user_id **刻意零 FK**（registry-first 順序的結構前提，schema.ts 註解承重——讀碼審查 minor 3）
+    const { rows: fks } = await pool.query(
+      `select count(*)::int as n from pg_constraint where conrelid = 'handles'::regclass and contype = 'f'`,
+    );
+    expect(fks[0].n).toBe(0);
+    // Task 4 額度查詢的反向索引（minor 7）
+    const { rows: idx } = await pool.query(
+      `select indexname from pg_indexes where tablename = 'handles' and indexname = 'handles_user_idx'`,
+    );
+    expect(idx).toHaveLength(1);
+  });
+
+  it("users.handle：NOT NULL＋DEFAULT（user-<uuid8> 形）＋users_handle_unique 是 **constraint 非 index**（判別契約鍵）", async () => {
+    const { pool } = await freshDb();
+
+    const { rows: cols } = await pool.query(
+      `select is_nullable, column_default from information_schema.columns
+       where table_name = 'users' and column_name = 'handle'`,
+    );
+    expect(cols).toHaveLength(1);
+    expect(cols[0].is_nullable).toBe("NO");
+    expect(cols[0].column_default).toMatch(/gen_random_uuid/);
+
+    // 判別契約（spec §2a M4-2）綁 constraint 名——pg_indexes 裡 UNIQUE constraint 與
+    // UNIQUE INDEX 會同名出現，只有 pg_constraint.contype='u' 分得出來（不得落成 index）
+    const { rows: cons } = await pool.query(
+      `select contype from pg_constraint where conname = 'users_handle_unique'`,
+    );
+    expect(cons).toHaveLength(1);
+    expect(cons[0].contype).toBe("u");
+
+    // DB default 兜底（回滾窗期舊碼 insert 不帶 handle 也活）：值是 user-<uuid8> 形
+    await pool.query(`insert into users (email, display_name) values ('d@example.com', 'D')`);
+    const { rows } = await pool.query(`select handle from users where email = 'd@example.com'`);
+    expect(rows[0].handle).toMatch(/^user-[0-9a-f]{8}$/);
+  });
+
+  it("backfill 跨組撞名（round 1 C2 反例）：foo＋既有 foo-2＋第二個 foo → 三 handle 互異、第三人不劫 foo-2", async () => {
+    const { pool, db } = await freshEmptyDb();
+    await applyMigrationsThrough(pool, idxOfTag("0005_public-share"));
+    // 顯式 id＋遞增 created_at（M7：同 tx 的 now() 全等，次序會被隨機 uuid 決定）。
+    // ⚠ **實體插入順序刻意與 created_at 順序相反**（突變審查 F1）：兩者同向時，DO 迴圈
+    // 拿掉 ORDER BY 後 seq scan 恰好回同序、斷言照樣綠——反序才真的釘住「依 created_at
+    // 排序」這條產品可見語意（舊帳號留乾淨名字）。
+    await pool.query(
+      `insert into users (id, email, display_name, created_at) values
+       ('00000000-0000-4000-8000-000000000003', 'foo@z.example',   'C', '2026-01-03T00:00:00Z'),
+       ('00000000-0000-4000-8000-000000000002', 'foo-2@y.example', 'B', '2026-01-02T00:00:00Z'),
+       ('00000000-0000-4000-8000-000000000001', 'foo@x.example',   'A', '2026-01-01T00:00:00Z')`,
+    );
+    await runMigrations(db);
+
+    const { rows } = await pool.query(`select email, handle from users order by created_at`);
+    expect(rows.map((r: { handle: string }) => r.handle)).toEqual(["foo", "foo-2", "foo-3"]);
+    // 次序無關的不變量雙保險：互異＋逐列合法＋registry 一一對應（live）
+    const handles = rows.map((r: { handle: string }) => r.handle);
+    expect(new Set(handles).size).toBe(3);
+    for (const h of handles) expect(validateHandle(h), h).toBeNull();
+    const { rows: reg } = await pool.query(
+      `select u.handle from users u join handles hs on hs.handle = u.handle and hs.user_id = u.id and hs.state = 'live'`,
+    );
+    expect(reg).toHaveLength(3);
+  });
+
+  it("backfill 截斷點落在 dash：截 30 後尾 dash 必 trim、產物過 validateHandle（plan gate M2-6）", async () => {
+    const { pool, db } = await freshEmptyDb();
+    await applyMigrationsThrough(pool, idxOfTag("0005_public-share"));
+    // local-part＝29 個 a ＋ '-' ＋ tail → 截 30 恰好停在 '-' 上
+    await pool.query(
+      `insert into users (id, email, display_name, created_at) values
+       ('00000000-0000-4000-8000-000000000011', '${"a".repeat(29)}-tail@x.example', 'T', '2026-01-01T00:00:00Z')`,
+    );
+    await runMigrations(db);
+    const { rows } = await pool.query(`select handle from users`);
+    expect(rows[0].handle).toBe("a".repeat(29));
+    // registry 一一對應（突變審查 F2；join 形——只數 live 列數守不住 handle/user_id 對不上的形）
+    const { rows: reg } = await pool.query(
+      `select count(*)::int as n from users u join handles hs on hs.handle = u.handle and hs.user_id = u.id and hs.state = 'live'`,
+    );
+    expect(reg[0].n).toBe(1);
+  });
+
+  it("backfill 退位形：uuid 形 local-part（截斷前判——plan 注意事項 9）、全符號、非 ASCII → user-<uuid8>", async () => {
+    const { pool, db } = await freshEmptyDb();
+    await applyMigrationsThrough(pool, idxOfTag("0005_public-share"));
+    // ⚠ 三個 id 的前 8 碼必須互異：退位形全走 user-<uuid8>，前 8 碼相同會讓 fallback
+    // 互撞、backfill 正確地補 -2 尾碼，反而測不到「乾淨的 user-<uuid8> 形」（實踩過）。
+    await pool.query(
+      `insert into users (id, email, display_name, created_at) values
+       ('11111111-0000-4000-8000-000000000021', '550e8400-e29b-41d4-a716-446655440000@x.example', 'U', '2026-01-01T00:00:00Z'),
+       ('22222222-0000-4000-8000-000000000022', '!!!@x.example', 'S', '2026-01-02T00:00:00Z'),
+       ('33333333-0000-4000-8000-000000000023', '日本語@x.example', 'J', '2026-01-03T00:00:00Z')`,
+    );
+    await runMigrations(db);
+    const { rows } = await pool.query(`select id, handle from users order by created_at`);
+    for (const row of rows as Array<{ id: string; handle: string }>) {
+      expect(row.handle, row.id).toMatch(/^user-[0-9a-f]{8}$/);
+      expect(row.handle).toBe(`user-${row.id.slice(0, 8)}`);
+      expect(validateHandle(row.handle)).toBeNull();
+    }
+    // registry 一一對應（突變審查 F2）
+    const { rows: reg } = await pool.query(
+      `select count(*)::int as n from users u join handles hs on hs.handle = u.handle and hs.user_id = u.id and hs.state = 'live'`,
+    );
+    expect(reg[0].n).toBe(3);
+  });
+
+  it("0006 檔內無 CONCURRENTLY（單一 tx 前提的輔助 grep——結構保證在 harness 的單 tx 執行）", () => {
+    const entry = journalEntries().find((e) => e.tag.startsWith("0006"));
+    expect(entry, "0006 migration 必須存在").toBeDefined();
+    const sql = readFileSync(path.join(drizzleDirForTest, `${entry!.tag}.sql`), "utf8");
+    expect(sql.toUpperCase()).not.toContain("CONCURRENTLY");
+    // COMMIT 的失效模式是**靜默**（drizzle 收尾 COMMIT 只 warn 不炸）——比 CONCURRENTLY
+    // 更該釘；用行首語句形比對，避免被註解字面誤中（讀碼審查 minor 4）。
+    expect(sql).not.toMatch(/^\s*COMMIT\s*;/im);
   });
 });

@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runMigrations } from "../src/db/migrate.js";
-import { applyMigrationsThrough, freshDb, freshEmptyDb } from "./helpers.js";
+import { applyMigrationsThrough, freshDb, freshEmptyDb, idxOfTag, journalEntries } from "./helpers.js";
 
 /**
  * #122 PR1 Task 1：§7-H migration 資料案例 harness 的自測（spec §7-H、plan Task 1）。
@@ -24,27 +24,7 @@ import { applyMigrationsThrough, freshDb, freshEmptyDb } from "./helpers.js";
 
 const drizzleDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
-interface JournalEntry {
-  idx: number;
-  when: number;
-  tag: string;
-}
-
-function journalEntries(): JournalEntry[] {
-  const journal = JSON.parse(readFileSync(path.join(drizzleDir, "meta", "_journal.json"), "utf8")) as {
-    entries: JournalEntry[];
-  };
-  return journal.entries;
-}
-
-/** tag 尋址（讀碼審查 M-1）：以 migration 名取 idx——`entries.length - 2` 這類位置索引在
- * 每次新增 migration 後語意都會漂移（一半測試變紅、另一半**靜默恆真**），tag 釘死的
- * 語意永久穩定。 */
-function idxOfTag(tag: string): number {
-  const entry = journalEntries().find((candidate) => candidate.tag === tag);
-  if (!entry) throw new Error(`journal 裡沒有 tag=${tag}`);
-  return entry.idx;
-}
+// JournalEntry／journalEntries／idxOfTag 由 helpers.ts 匯出（Task 2 起 migrate.test.ts 共用）。
 
 describe("freshEmptyDb（不跑 migration 的乾淨 DB 入口）", () => {
   it("回來的 DB 沒有任何 public 表、也沒有 drizzle journal", async () => {

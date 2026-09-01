@@ -121,6 +121,28 @@ export async function freshDb(): Promise<FreshDb> {
 
 const drizzleDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
+export interface JournalEntry {
+  idx: number;
+  when: number;
+  tag: string;
+}
+
+/** 讀 drizzle journal（依序）。migration 測試共用。 */
+export function journalEntries(): JournalEntry[] {
+  const journal = JSON.parse(readFileSync(path.join(drizzleDir, "meta", "_journal.json"), "utf8")) as {
+    entries: JournalEntry[];
+  };
+  return journal.entries;
+}
+
+/** tag 尋址：以 migration 名取 idx——位置索引（`entries.length - 2` 類）在每次新增
+ * migration 後語意都會漂移（一半測試變紅、另一半**靜默恆真**），tag 釘死永久穩定。 */
+export function idxOfTag(tag: string): number {
+  const entry = journalEntries().find((candidate) => candidate.tag === tag);
+  if (!entry) throw new Error(`journal 裡沒有 tag=${tag}`);
+  return entry.idx;
+}
+
 /**
  * #122 §7-H harness：以 committed SQL 檔把 migration 逐支重放到 journal `idx <= upToIdx`
  * 為止（`--> statement-breakpoint` 切分——與 drizzle migrator 同一套、不 parse SQL，
