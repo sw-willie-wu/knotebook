@@ -61,6 +61,26 @@
       "dash": "Hyphens can't be at the start or end, or appear twice in a row.",
       "reserved": "This word is reserved and can't be used.",
       "uuid_like": "This looks like an internal ID and can't be used."
+    },
+    "copyInternalLink": "Copy internal link",
+    "copyPublicLink": "Copy public link",
+    "access": {
+      "title": "Access",
+      "private": "Private",
+      "privateDesc": "Only you",
+      "members": "Members only",
+      "membersDesc": "People you invite by email",
+      "public": "Public link",
+      "publicDesc": "Anyone with the link can view (read-only)",
+      "publicUrlLabel": "Public link URL",
+      "regenerate": "Regenerate link",
+      "confirmCancel": "Keep members",
+      "confirmHint_one": "This removes {{count}} member.",
+      "confirmHint_other": "This removes all {{count}} members.",
+      "confirmHintWithLink_one": "This removes {{count}} member and turns off the public link.",
+      "confirmHintWithLink_other": "This removes all {{count}} members and turns off the public link.",
+      "confirmPrivate_one": "Remove {{count}} member and make private",
+      "confirmPrivate_other": "Remove {{count}} members and make private"
     }
   },
   "note": {

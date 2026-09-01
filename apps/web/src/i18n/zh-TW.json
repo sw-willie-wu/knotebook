@@ -61,6 +61,26 @@
       "dash": "不可以連字號開頭或結尾，也不可連續出現。",
       "reserved": "此字詞為系統保留字，不可使用。",
       "uuid_like": "這看起來像內部識別碼，不可使用。"
+    },
+    "copyInternalLink": "複製內部連結",
+    "copyPublicLink": "複製公開連結",
+    "access": {
+      "title": "存取權",
+      "private": "私人",
+      "privateDesc": "僅自己",
+      "members": "限定成員",
+      "membersDesc": "以 email 邀請的成員",
+      "public": "公開連結",
+      "publicDesc": "任何有連結者可唯讀檢視",
+      "publicUrlLabel": "公開連結網址",
+      "regenerate": "重新產生連結",
+      "confirmCancel": "保留成員",
+      "confirmHint_one": "這會移除 {{count}} 位成員。",
+      "confirmHint_other": "這會移除全部 {{count}} 位成員。",
+      "confirmHintWithLink_one": "這會移除 {{count}} 位成員並關閉公開連結。",
+      "confirmHintWithLink_other": "這會移除全部 {{count}} 位成員並關閉公開連結。",
+      "confirmPrivate_one": "移除 {{count}} 位成員並改為私人",
+      "confirmPrivate_other": "移除 {{count}} 位成員並改為私人"
     }
   },
   "note": {
