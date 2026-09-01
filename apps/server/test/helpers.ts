@@ -1,7 +1,8 @@
-import { randomBytes } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { onTestFinished } from "vitest";
 import { Pool } from "pg";
 import type { FastifyInstance } from "fastify";
@@ -31,7 +32,9 @@ export interface FreshDb {
 }
 
 /**
- * 建一個全新的 database（隨機名）並跑完整 migration。
+ * 建一個全新的 database（隨機名），**不跑任何 migration**（#122 §7-H harness 的入口：
+ * migration 資料案例需要「先建到第 N 支的 schema、塞舊資料、再跑目標 migration」，
+ * `freshDb()` 無條件跑完全部做不到）。一般測試請用 `freshDb()`。
  *
  * 刻意不用「DROP SCHEMA public CASCADE; CREATE SCHEMA public」——drizzle 的 migration
  * journal 存在 `drizzle` schema，砍掉 public 後 drizzle 仍以為所有 migration 都跑過，
@@ -43,7 +46,7 @@ export interface FreshDb {
  * 連線或殘留資料庫。同時回傳 `close()` 供非 test context（例如手動除錯腳本）自行呼叫。
  * 兩者皆冪等（多次呼叫安全）。
  */
-export async function freshDb(): Promise<FreshDb> {
+export async function freshEmptyDb(): Promise<FreshDb> {
   const baseUrl = process.env.TEST_DATABASE_URL;
   if (!baseUrl) throw new Error("TEST_DATABASE_URL 未設定——確認 vitest globalSetup（test/global-setup.ts）有跑過");
 
@@ -60,7 +63,6 @@ export async function freshDb(): Promise<FreshDb> {
 
   const pool = new Pool({ connectionString: dbUrl.toString() });
   const db = createDb(pool);
-  await runMigrations(db);
 
   let closed = false;
   const close = async (): Promise<void> => {
@@ -90,7 +92,7 @@ export async function freshDb(): Promise<FreshDb> {
       try {
         await dropPool.query(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`);
       } catch (err) {
-        console.warn(`[freshDb] 清理測試資料庫 ${dbName} 失敗（忽略）：`, err);
+        console.warn(`[freshEmptyDb] 清理測試資料庫 ${dbName} 失敗（忽略）：`, err);
       } finally {
         await dropPool.end();
       }
@@ -106,6 +108,75 @@ export async function freshDb(): Promise<FreshDb> {
   }
 
   return { db, pool, close };
+}
+
+/** 建一個全新的 database（隨機名）並跑完整 migration——一般整合測試的標準入口。
+ * 行為與 teardown 契約（onTestFinished 自動清理、DROP DATABASE 的理由、issue #51）
+ * 見 {@link freshEmptyDb}——本函式只是它＋`runMigrations` 的組合。 */
+export async function freshDb(): Promise<FreshDb> {
+  const fresh = await freshEmptyDb();
+  await runMigrations(fresh.db);
+  return fresh;
+}
+
+const drizzleDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
+
+/**
+ * #122 §7-H harness：以 committed SQL 檔把 migration 逐支重放到 journal `idx <= upToIdx`
+ * 為止（`--> statement-breakpoint` 切分——與 drizzle migrator 同一套、不 parse SQL，
+ * DO `$$` 塊安全），**全部語句包在單一 transaction** 內執行並寫 `drizzle.__drizzle_migrations`
+ * 記帳。之後對同一顆 DB 呼叫既有 `runMigrations` 就只會跑剩餘 pending——migration
+ * 資料案例的目標支由它執行（drizzle 天然把 pending 包成單一 tx，`CONCURRENTLY` 自然紅）。
+ *
+ * ⚠ 記帳形承重（plan gate M1，對 drizzle-orm 0.44.7 pg-core/dialect.js 核實）：drizzle 的
+ * 跳過判準只看「`order by created_at desc limit 1` 那一列的 created_at < folderMillis」——
+ * **`created_at` 必須寫 journal entry 的 `when`**。寫 `Date.now()` 的失效模式是**靜默**：
+ * Date.now() 比所有 journal when 都大，之後每一支 pending migration 都被跳過、不炸不紅
+ * ——守住這行的是 migration-harness.test.ts 的「applyThrough(N-1) 之後 runMigrations
+ * 真的把剩餘 pending 跑完」記帳筆數黑箱案（突變審查實證：只有它殺得掉這刀）。`hash`
+ * ＝整份 .sql 檔文字的 sha256 hex（NOT NULL 必填，但不參與跳過判準）。
+ *
+ * ⚠ 執行協定比 drizzle 寬鬆一格：這裡逐段走 pg 的 simple protocol（一段可含多語句），
+ * drizzle 走 extended protocol（一段一語句）——「harness 綠」不保證「drizzle 綠」，
+ * 但每支 migration 最終都會被 freshDb/runMigrations 走過 drizzle 那條路，缺口有蓋。
+ */
+export async function applyMigrationsThrough(pool: Pool, upToIdx: number): Promise<void> {
+  const journal = JSON.parse(readFileSync(path.join(drizzleDir, "meta", "_journal.json"), "utf8")) as {
+    entries: Array<{ idx: number; when: number; tag: string }>;
+  };
+  // upToIdx 必須精確存在（讀碼審查 minor）：超出範圍若靜默全跑，「舊 schema fixture」
+  // 會被建在新 schema 上、資料案例整組錯位——fail loud。
+  if (!journal.entries.some((entry) => entry.idx === upToIdx)) {
+    const available = journal.entries.map((entry) => entry.idx).join(", ");
+    throw new Error(`applyMigrationsThrough: upToIdx=${upToIdx} 不存在於 journal（可用：${available}）`);
+  }
+  const entries = journal.entries.filter((entry) => entry.idx <= upToIdx);
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    // 記帳表形狀照抄 drizzle migrator（schema 名/欄位名/型別都承重——差一點 runMigrations 就讀不到）
+    await client.query("CREATE SCHEMA IF NOT EXISTS drizzle");
+    await client.query(
+      "CREATE TABLE IF NOT EXISTS drizzle.__drizzle_migrations (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint)",
+    );
+    for (const entry of entries) {
+      const sql = readFileSync(path.join(drizzleDir, `${entry.tag}.sql`), "utf8");
+      for (const statement of sql.split("--> statement-breakpoint")) {
+        await client.query(statement);
+      }
+      await client.query("INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES ($1, $2)", [
+        createHash("sha256").update(sql).digest("hex"),
+        entry.when,
+      ]);
+    }
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 /**

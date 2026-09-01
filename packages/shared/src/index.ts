@@ -306,6 +306,43 @@ export function validateSlug(normalized: string): "length" | "charset" | "dash" 
   return null;
 }
 
+const HANDLE_CHARSET_RE = /^[a-z0-9-]+$/;
+
+/**
+ * handle（使用者名，#122）的正規化：**僅 ASCII A-Z→a-z 的碼位映射**。
+ *
+ * 與 `normalizeSlug` 刻意不同：handle 是身分識別、進 URL 的第二段，ASCII-only
+ * （跨鍵盤可輸入、避免 IDN 同形混淆）優先於在地化——所以**不做** Unicode
+ * lowercase（`İ`.toLowerCase() 會產生 combining mark U+0307）、不 transliterate；
+ * 非 ASCII 字元原樣保留，交給 {@link validateHandle} 以 `charset` 拒收。
+ */
+export function normalizeHandle(input: string): string {
+  // 碼位加 32 而非 toLowerCase()：讓「絕不觸 Unicode lowercase」在原始碼層級看得見
+  return input.replace(/[A-Z]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) + 32));
+}
+
+/**
+ * 驗證已正規化（已過 `normalizeHandle`）的字串是否為合法 handle（spec #122 §2b）：
+ * 1–32、charset 僅 `a-z0-9-`、dash 不可頭尾/連續、不得 uuid 形。
+ *
+ * **刻意沒有保留字單**（與 `validateSlug` 的 `reserved` 分支不同）：handle 恆出現在
+ * `/n/`、`/p/` 的第二段，與任何頂層路由零衝突面——`api`、`new`、`settings` 都是
+ * 合法 handle（apps/server/test/unit/shared-handle.test.ts 有反向釘，別「順手」把
+ * slug 的保留字抄過來）。
+ * uuid_like 分支在 32 字元上限下對完整 uuid（36 字元）實為死碼（length 先擋），
+ * 留著是防禦性宣告：上限若放寬，這條規則仍在。
+ */
+export function validateHandle(normalized: string): "length" | "charset" | "dash" | "uuid_like" | null {
+  // 長度以 code point 計（比照 validateSlug 慣例）：非 ASCII 長輸入才會正確落到
+  // charset 訊息（「只能用 a-z0-9-」）而不是誤導的「太長」。
+  const length = Array.from(normalized).length;
+  if (length < 1 || length > 32) return "length";
+  if (!HANDLE_CHARSET_RE.test(normalized)) return "charset";
+  if (normalized.startsWith("-") || normalized.endsWith("-") || normalized.includes("--")) return "dash";
+  if (UUID_RE.test(normalized)) return "uuid_like";
+  return null;
+}
+
 /**
  * 從標題產生「vanity slug」——僅供 `canonicalNotePath` 組裝好看、非唯一的 URL 片段
  * （真正查找靠 `<id>` 尾碼，見 `extractRefUuid`），因此刻意不做大小寫正規化
