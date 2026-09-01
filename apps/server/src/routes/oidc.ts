@@ -1,10 +1,12 @@
+import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import * as client from "openid-client";
 import { and, eq, sql } from "drizzle-orm";
 import { normalizeEmail, OIDC_STATE_COOKIE } from "@knotebook/shared";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
-import { users } from "../db/schema.js";
+import { handles, users } from "../db/schema.js";
+import { deriveHandle } from "../auth/handle.js";
 import { isUniqueViolation } from "../db/pg-errors.js";
 import { OIDC_STATE_COOKIE_PATH, OIDC_STATE_TTL_SECONDS, sealOidcState, unsealOidcState } from "../auth/oidc-state.js";
 import { OidcUnavailableError, oidcRedirectUri, type OidcRuntime } from "../auth/oidc-client.js";
@@ -113,15 +115,27 @@ async function attemptOidcAccountResolution(db: Db, claims: OidcClaims): Promise
     // decision.kind === "create"：email 已正規化（decideOidcLogin 收到的 claims.email
     // 已在 callback 進門過 normalizeEmail）、password_hash 明確 null、
     // must_change_password 沿用 schema 預設 false（OIDC 自動建帳不強制改密）。
+    // #122 registry-first（spec §2a）：先 INSERT handles（PK 裁決，含墓碑）再 INSERT
+    // users；候選序 preferred_username → email local-part。handle 撞名同樣是 unique
+    // violation——由呼叫端既有的「整 tx 重投恰一次」機制吸收。⚠ 重投重新探測只救得了
+    // `handles_pkey`（真競態：對方已 commit，重探測會避讓）；`users_handle_unique`
+    // 的窗期形（users.handle 占名但無 registry 列，探測看不見）是**確定性同名再撞**
+    // → 二連撞 → oidc_exchange_failed（使用者重登可再試；窗期由 boot 補登收斂，
+    // 實務不可達——handle.test.ts 有此形的專測）。
+    const newUserId = randomUUID();
+    const handle = await deriveHandle(tx, [decision.preferredUsername, decision.email.split("@")[0]], newUserId);
+    await tx.insert(handles).values({ handle, userId: newUserId, state: "live" });
     const [inserted] = await tx
       .insert(users)
       .values({
+        id: newUserId,
         email: decision.email,
         displayName: decision.displayName,
         oidcIssuer: claims.issuer,
         oidcSub: claims.sub,
         passwordHash: null,
         mustChangePassword: false,
+        handle,
       })
       .returning({ id: users.id, tokenVersion: users.tokenVersion });
     return { kind: "success", userId: inserted!.id, tv: inserted!.tokenVersion, wroteUsers: true };
@@ -302,6 +316,10 @@ export function oidcRoutes(deps: OidcRouteDeps) {
         let email = nonEmptyClaim(idTokenClaims.email);
         let emailVerified = typeof idTokenClaims.email_verified === "boolean" ? idTokenClaims.email_verified : null;
         const name = typeof idTokenClaims.name === "string" ? idTokenClaims.name : null;
+        // #122：handle 候選。⚠ 缺它**不觸發** userinfo（M2 定案 (b)：閘門只看
+        // email/emailVerified——不為一個好看的 handle 多打一次 userinfo、更不讓原本
+        // 會成功的登入因 userinfo 失敗而失敗）；userinfo 本來就被打時才順手補讀。
+        let preferredUsername = nonEmptyClaim(idTokenClaims.preferred_username);
 
         // issuer 單一真相：存 DB／組 claims 都用 serverMetadata().issuer，不用
         // config.oidc.issuerUrl（兩者理論上相同，但前者是 IdP 實際回報的正規值）。
@@ -320,6 +338,7 @@ export function oidcRoutes(deps: OidcRouteDeps) {
           }
           if (email === null) email = nonEmptyClaim(userinfo.email);
           if (emailVerified === null && typeof userinfo.email_verified === "boolean") emailVerified = userinfo.email_verified;
+          if (preferredUsername === null) preferredUsername = nonEmptyClaim(userinfo.preferred_username);
         }
 
         const claims: OidcClaims = {
@@ -328,6 +347,7 @@ export function oidcRoutes(deps: OidcRouteDeps) {
           email: email !== null ? normalizeEmail(email) : null,
           emailVerified,
           name,
+          preferredUsername,
         };
 
         let result: OidcResolutionOutcome;

@@ -43,6 +43,13 @@
       "when": 1788239081900,
       "tag": "0005_public-share",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788270459614,
+      "tag": "0006_user-handle",
+      "breakpoints": true
     }
   ]
 }

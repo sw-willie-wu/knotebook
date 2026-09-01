@@ -10,6 +10,9 @@ export interface OidcClaims {
   email: string | null;
   emailVerified: boolean | null; // 缺欄位＝null
   name: string | null;
+  /** #122：handle 派生的首選候選（OIDC 規範明言此 claim 不保證唯一/穩定——只當
+   * 建帳當下的候選、定格後不追隨 IdP；缺/空＝null，退 email local-part）。 */
+  preferredUsername: string | null;
 }
 
 /** 執行層以 lower() 查出的候選列；欄位集合＝§14.3 明訂的 UserRow 最小集。 */
@@ -25,7 +28,7 @@ export interface OidcUserRow {
 export type OidcDecision =
   | { kind: "login"; userId: string; clearMustChange: boolean } // (issuer,sub) 命中
   | { kind: "link"; userId: string; clearMustChange: boolean } // email 命中，寫 oidc 欄後登入
-  | { kind: "create"; email: string; displayName: string } // 自動建帳
+  | { kind: "create"; email: string; displayName: string; preferredUsername: string | null } // 自動建帳（#122：帶出 handle 候選）
   | {
       kind: "reject";
       code: "account_disabled" | "oidc_conflict" | "oidc_email_unverified" | "oidc_email_missing";
@@ -94,5 +97,5 @@ export function decideOidcLogin(
   // 尾巴 `|| claims.email`：`split("@")[0]` 理論上不會是空字串（email 已過 normalizeEmail
   // 保證含 "@"），留著當 local-part 意外為空字串時的最後防線。
   const displayName = claims.name || claims.email.split("@")[0] || claims.email;
-  return { kind: "create", email: claims.email, displayName };
+  return { kind: "create", email: claims.email, displayName, preferredUsername: claims.preferredUsername };
 }

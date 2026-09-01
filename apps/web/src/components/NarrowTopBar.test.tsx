@@ -22,6 +22,7 @@ import { NotePageFallback } from "./NotePageFallback";
 const USER: UserDto = {
   id: "u1",
   email: "a@example.com",
+  handle: "tester",
   displayName: "Ann",
   isAdmin: false,
   mustChangePassword: false,

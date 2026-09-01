@@ -57,7 +57,7 @@ Read the full [self-hosting guide](docs/self-hosting.md) before running anywhere
 
 ## Documentation
 
-- [Self-hosting guide](docs/self-hosting.md) — deployment prerequisites, compose services/volumes, reverse proxy & TLS, LAN plain-http mode, environment variable reference, OIDC/SSO setup, and troubleshooting.
+- [Self-hosting guide](docs/self-hosting.md) — deployment prerequisites, compose services/volumes, reverse proxy & TLS, LAN plain-http mode, environment variable reference, OIDC/SSO setup, content security policy, upgrading/rollback, and troubleshooting.
 - [API contract summary](docs/api.md) — full endpoint table with auth requirements and error codes.
 - [Sharing](docs/sharing.md) — the three access levels (private / members / public link), what a public read-only link grants, and how revoking and regenerating behave.
 - [AI quick actions](docs/ai.md) — admin setup guide for AI providers/models/actions, key encryption, and how quick actions behave in the editor.

@@ -41,6 +41,8 @@ export async function verifySession(secret: string, jwt: string): Promise<{ user
 export interface GateUser {
   id: string;
   email: string;
+  /** #122：URL 用的使用者名——/api/auth/me 直接回 request.user，此欄必須在 Gate 層就撈。 */
+  handle: string;
   displayName: string;
   isAdmin: boolean;
   /** 首登強制改密碼旗標（spec rev 5.7）——`GET /api/auth/me` 直接回傳 `request.user`
@@ -55,6 +57,7 @@ export type GateResult = { status: "ok"; user: GateUser } | { status: "revoked" 
 export interface GateRow {
   id: string;
   email: string;
+  handle: string;
   displayName: string;
   isAdmin: boolean;
   disabledAt: Date | null;
@@ -142,6 +145,7 @@ export class UserGate {
     return {
       id: row.id,
       email: row.email,
+      handle: row.handle,
       displayName: row.displayName,
       isAdmin: row.isAdmin,
       disabledAt: row.disabledAt,
@@ -169,6 +173,7 @@ export class UserGate {
       user: {
         id: row.id,
         email: row.email,
+        handle: row.handle,
         displayName: row.displayName,
         isAdmin: row.isAdmin,
         mustChangePassword: row.mustChangePassword,

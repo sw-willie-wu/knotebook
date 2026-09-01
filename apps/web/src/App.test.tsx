@@ -24,6 +24,7 @@ function fakeResponse({ ok, status, json }: FakeResponseInit): Response {
 const ADMIN_USER: UserDto = {
   id: "u1",
   email: "admin@example.com",
+  handle: "tester",
   displayName: "Admin",
   isAdmin: true,
   mustChangePassword: false,

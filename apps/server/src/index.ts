@@ -6,6 +6,7 @@ import { loadConfig } from "./config.js";
 import { createDb } from "./db/index.js";
 import { runMigrations } from "./db/migrate.js";
 import { initializeInstance } from "./auth/bootstrap.js";
+import { backfillHandleRegistry } from "./auth/handle.js";
 import { UserGate } from "./auth/session.js";
 import { LoginThrottle } from "./auth/rate-limit.js";
 import { createCollabHooks } from "./collab/hooks-impl.js";
@@ -103,6 +104,12 @@ async function main(): Promise<void> {
     logger.error({ err }, "instance initialization failed");
     process.exit(1);
   }
+
+  // #122：handle registry 冪等補登（回滾窗期由舊碼建立、無 registry 列的帳號）。
+  // **必須在 `app.listen` 之前**——否則補登與首個改名請求可交錯（spec §2a；
+  // handle.test.ts 的結構守衛釘住這個順序）。
+  await backfillHandleRegistry(db, logger);
+
   const gate = new UserGate(db);
   const throttle = new LoginThrottle();
 

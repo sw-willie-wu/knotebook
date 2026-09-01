@@ -38,7 +38,7 @@ describe("UserGate", () => {
     const result = await gate.check(u.id, 3);
     expect(result).toEqual({
       status: "ok",
-      user: { id: u.id, email: u.email, displayName: u.displayName, isAdmin: true, mustChangePassword: false, hasPassword: false },
+      user: { id: u.id, email: u.email, handle: u.handle, displayName: u.displayName, isAdmin: true, mustChangePassword: false, hasPassword: false },
     });
   });
 
@@ -176,6 +176,7 @@ describe("UserGate", () => {
           ? {
               id: row.id,
               email: row.email,
+              handle: row.handle,
               displayName: row.displayName,
               isAdmin: row.isAdmin,
               disabledAt: row.disabledAt,
@@ -198,6 +199,7 @@ describe("UserGate", () => {
     resolveSlowFetch({
       id: u.id,
       email: u.email,
+      handle: u.handle,
       displayName: u.displayName,
       isAdmin: false,
       disabledAt: null,

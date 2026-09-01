@@ -62,7 +62,7 @@ function spyCollabHooks(): CollabHooks {
   };
 }
 
-const EXPECTED_KEYS = ["id", "email", "displayName", "isAdmin", "disabledAt", "createdAt"].sort();
+const EXPECTED_KEYS = ["id", "email", "handle", "displayName", "isAdmin", "disabledAt", "createdAt"].sort();
 
 describe("requireAdmin 保護：全部端點非 admin 403、未登入 401", () => {
   const endpoints: Array<{ name: string; url: (id: string) => string; method: "GET" | "POST" }> = [
@@ -141,7 +141,7 @@ describe("POST /api/admin/users", () => {
     expect(res.statusCode).toBe(201);
     const body = res.json();
     expect(Object.keys(body).sort()).toEqual(EXPECTED_KEYS);
-    expect(body).toMatchObject({ email: "newuser-c1@example.com", displayName: "New User", isAdmin: false, disabledAt: null });
+    expect(body).toMatchObject({ email: "newuser-c1@example.com", handle: "newuser-c1", displayName: "New User", isAdmin: false, disabledAt: null });
 
     const loginRes = await app.inject({
       method: "POST",

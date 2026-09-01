@@ -26,6 +26,7 @@ function fakeResponse({ ok, status, json }: FakeResponseInit): Response {
 const USER_MUST_CHANGE: UserDto = {
   id: "u1",
   email: "alice@example.com",
+  handle: "tester",
   displayName: "Alice",
   isAdmin: false,
   mustChangePassword: true,

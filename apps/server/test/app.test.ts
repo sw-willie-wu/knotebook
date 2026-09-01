@@ -109,6 +109,7 @@ describe("buildApp", () => {
     expect(res.json()).toEqual({
       id: u.id,
       email: u.email,
+      handle: u.handle,
       displayName: u.displayName,
       isAdmin: false,
       mustChangePassword: false,

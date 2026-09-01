@@ -46,6 +46,7 @@ const LOADING_TEXT = "Loading…";
 const PLAIN_USER: UserDto = {
   id: "u-plain",
   email: "plain@example.com",
+  handle: "tester",
   displayName: "Plain",
   isAdmin: false,
   mustChangePassword: false,
