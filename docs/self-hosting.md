@@ -81,7 +81,14 @@ If one of the restrictions above blocks something you need, the escape hatch is 
 
 ## Upgrading and rolling back
 
-Database migrations run automatically at startup and are idempotent — upgrading is "pull the new version, then `docker compose up -d --build`", no manual steps. Rolling back to an older image after a migration has run is **schema-safe but not behavior-safe**: newer migrations add columns with database-side defaults precisely so an older server still boots and works, but features introduced alongside the migration degrade in documented ways during the rollback window (see the rolled-back-server username entry in [known limitations](./known-limitations.md) for the current example). Prefer rolling forward; if you must roll back, treat it as a temporary state.
+Database migrations run automatically at startup and are idempotent — upgrading is "pull the new version, then `docker compose up -d --build`", no manual steps. Rolling back to an older image after a migration has run is **schema-safe but not behavior-safe**: newer migrations add columns with database-side defaults precisely so an older server still boots and works, but features introduced alongside the migration degrade in documented ways during the rollback window. Known degradations while running a rolled-back (pre-URL-revamp) server:
+
+- **Usernames**: accounts created during the window fall outside the rename-tombstone registry until the upgraded server's next startup backfills them — see the rolled-back-server username entry in [known limitations](./known-limitations.md).
+- **Note URLs**: the old server looks slugs up globally, so two users' notes sharing a slug (allowed after the upgrade) resolve unpredictably — an owner can 404 on their own note's URL.
+- **Custom slugs set during the window** are recorded without the "custom" marker, so after upgrading back, the next title change silently overwrites them with an automatic slug.
+- **The Share dialog's "use automatic URL" button breaks** during the window: the old server writes `NULL` where the new schema forbids it, and that normal UI action returns a 500 until you upgrade again.
+
+Prefer rolling forward; if you must roll back, treat it as a temporary state.
 
 ## Troubleshooting
 
