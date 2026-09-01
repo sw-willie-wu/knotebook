@@ -123,7 +123,7 @@ function subscribeOnline(callback: () => void) {
  * 而 chunk 分支文案正好在叫使用者「check your connection」，不能引導他去按一顆
  * 會炸掉 app 的鈕。恢復連線（online 事件）即重新啟用。
  */
-function useOnline(): boolean {
+export function useOnline(): boolean {
   return useSyncExternalStore(subscribeOnline, () => navigator.onLine !== false);
 }
 

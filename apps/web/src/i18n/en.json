@@ -308,6 +308,11 @@
       "rebindNotice": "Some [[links]] in the result couldn't be linked automatically."
     }
   },
+  "public": {
+    "readonly": "Read-only",
+    "invalidLink": "This link doesn't exist or is no longer active.",
+    "loadError": "Couldn't load this page — check your connection and try again."
+  },
   "errors": {
     "unauthorized": "You need to sign in to continue.",
     "forbidden": "You don't have permission to do that.",

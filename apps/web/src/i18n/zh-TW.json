@@ -308,6 +308,11 @@
       "rebindNotice": "結果中有部分 [[連結]] 無法自動連結。"
     }
   },
+  "public": {
+    "readonly": "唯讀",
+    "invalidLink": "連結不存在或已失效",
+    "loadError": "頁面載入失敗——請檢查連線後重試。"
+  },
   "errors": {
     "unauthorized": "請先登入才能繼續。",
     "forbidden": "你沒有權限執行這個操作。",
