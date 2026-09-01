@@ -119,6 +119,7 @@ export function authRoutes(deps: AuthRouteDeps) {
       const dto: UserDto = {
         id: user!.id,
         email: user!.email,
+        handle: user!.handle,
         displayName: user!.displayName,
         isAdmin: user!.isAdmin,
         mustChangePassword: user!.mustChangePassword,

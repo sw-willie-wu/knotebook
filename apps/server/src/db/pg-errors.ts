@@ -27,6 +27,27 @@ export function isUniqueViolation(err: unknown): boolean {
   return matchesCode(err, PG_UNIQUE_VIOLATION);
 }
 
+function constraintOf(e: unknown): string | null {
+  const value =
+    typeof e === "object" && e !== null && "constraint" in e ? (e as { constraint?: unknown }).constraint : undefined;
+  return typeof value === "string" ? value : null;
+}
+
+/**
+ * unique violation 的 **constraint 名**（#122 判別契約 M4-2）：`users` 表如今有
+ * email 與 handle 兩把唯一鍵、`handles` 表另有 PK——「任何 unique violation →
+ * email_taken」的舊映射會把 handle 撞名誤報成「此 email 已被使用」。呼叫端依
+ * constraint 名分流（`handles_pkey`/`users_handle_unique` → handle_taken、
+ * `users_email_unique` → email_taken），其他名字一律 rethrow（不認識的唯一鍵
+ * 違反不該被猜成任何一種 409）。非 unique violation 回 null。
+ */
+export function uniqueViolationConstraint(err: unknown): string | null {
+  if (!isUniqueViolation(err)) return null;
+  const direct = constraintOf(err);
+  if (direct !== null) return direct;
+  return constraintOf(err instanceof Error ? err.cause : undefined);
+}
+
 /**
  * pg 的 foreign_key_violation（code 23503）——`collab/store.ts` 的 `onStoreDocument`
  * 用它辨識「筆記已被刪除，note_states 首次 insert 撞到外鍵」，據此丟棄該次寫入而不是

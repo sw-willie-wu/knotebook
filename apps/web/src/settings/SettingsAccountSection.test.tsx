@@ -27,6 +27,7 @@ function fakeResponse({ ok, status, json }: FakeResponseInit): Response {
 const PASSWORD_USER: UserDto = {
   id: "u-password",
   email: "alice@example.com",
+  handle: "tester",
   displayName: "Alice",
   isAdmin: false,
   mustChangePassword: false,
@@ -36,6 +37,7 @@ const PASSWORD_USER: UserDto = {
 const SSO_ONLY_USER: UserDto = {
   id: "u-sso",
   email: "bob@example.com",
+  handle: "tester",
   displayName: "Bob",
   isAdmin: false,
   mustChangePassword: false,

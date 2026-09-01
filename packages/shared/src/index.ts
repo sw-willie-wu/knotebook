@@ -16,6 +16,9 @@ export interface ApiError {
 export interface UserDto {
   id: string;
   email: string;
+  /** #122：URL 用的使用者名（/n/<handle>/…）。建帳時派生（OIDC preferred_username →
+   * email local-part）或 admin 指定；settings 可改（改名＝舊網址即死、舊名永不回收）。 */
+  handle: string;
   displayName: string;
   isAdmin: boolean;
   /** 首登強制改密碼旗標（spec rev 5.7 / §14.2）：env bootstrap 建立的 admin、admin UI
@@ -113,6 +116,7 @@ export const ERROR_CODES = [
   "cannot_share_with_self",
   "share_not_found",
   "slug_taken",
+  "handle_taken",
   "not_loaded",
   "file_too_large",
   "ai_not_configured",

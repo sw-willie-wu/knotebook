@@ -114,6 +114,7 @@ function fakeResponse({ ok, status, json }: FakeResponseInit): Response {
 const USER: UserDto = {
   id: "u1",
   email: "a@example.com",
+  handle: "tester",
   displayName: "Ann",
   isAdmin: false,
   mustChangePassword: false,

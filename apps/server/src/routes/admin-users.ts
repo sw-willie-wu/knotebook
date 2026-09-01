@@ -1,22 +1,26 @@
+import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
-import { normalizeEmail } from "@knotebook/shared";
+import { normalizeEmail, normalizeHandle, validateHandle } from "@knotebook/shared";
 import { sendError } from "../http/errors.js";
 import type { Db } from "../db/index.js";
-import { users } from "../db/schema.js";
+import { handles, users } from "../db/schema.js";
+import { deriveHandle } from "../auth/handle.js";
 import { hashPassword, HashBusyError } from "../auth/password.js";
 import type { UserGate } from "../auth/session.js";
 import type { CollabHooks } from "../collab/hooks.js";
 import { UUID_RE } from "../notes/service.js";
 import { MIN_PASSWORD_LENGTH } from "../auth/constants.js";
-import { isUniqueViolation } from "../db/pg-errors.js";
+import { uniqueViolationConstraint } from "../db/pg-errors.js";
 
 const createBodySchema = z.object({
   email: z.string().email(),
   password: z.string(),
   displayName: z.string().min(1),
   isAdmin: z.boolean().optional(),
+  /** #122：選填使用者名——空＝從 email local-part 派生（spec §2b）。 */
+  handle: z.string().optional(),
 });
 
 export interface AdminUsersRouteDeps {
@@ -28,6 +32,7 @@ export interface AdminUsersRouteDeps {
 interface AdminUserDto {
   id: string;
   email: string;
+  handle: string;
   displayName: string;
   isAdmin: boolean;
   disabledAt: string | null;
@@ -37,6 +42,7 @@ interface AdminUserDto {
 interface AdminUserRow {
   id: string;
   email: string;
+  handle: string;
   displayName: string;
   isAdmin: boolean;
   disabledAt: Date | null;
@@ -49,6 +55,7 @@ function toAdminUserDto(row: AdminUserRow): AdminUserDto {
   return {
     id: row.id,
     email: row.email,
+    handle: row.handle,
     displayName: row.displayName,
     isAdmin: row.isAdmin,
     disabledAt: row.disabledAt ? row.disabledAt.toISOString() : null,
@@ -59,6 +66,7 @@ function toAdminUserDto(row: AdminUserRow): AdminUserDto {
 const adminUserColumns = {
   id: users.id,
   email: users.email,
+  handle: users.handle,
   displayName: users.displayName,
   isAdmin: users.isAdmin,
   disabledAt: users.disabledAt,
@@ -96,6 +104,17 @@ export function adminUsersRoutes(deps: AdminUsersRouteDeps) {
         return sendError(reply, 400, "password_too_short", `密碼至少需要 ${MIN_PASSWORD_LENGTH} 字元`);
       }
 
+      // #122：選填 handle——填了先驗證（400，不落 DB CHECK 500；空字串也是顯式非法值，
+      // 不當成「空＝派生」）。放在 hashPassword 之前：非法 handle 不值得燒一次 argon2。
+      let explicitHandle: string | undefined;
+      if (parsed.data.handle !== undefined) {
+        const normalized = normalizeHandle(parsed.data.handle);
+        if (validateHandle(normalized) !== null) {
+          return sendError(reply, 400, "invalid_body", "使用者名格式不合法（1–32 字元、小寫英數與連字號，不可頭尾/連續連字號）");
+        }
+        explicitHandle = normalized;
+      }
+
       let passwordHash: string;
       try {
         passwordHash = await hashPassword(password);
@@ -106,22 +125,55 @@ export function adminUsersRoutes(deps: AdminUsersRouteDeps) {
         throw err;
       }
 
-      let created: AdminUserRow;
-      try {
-        // spec rev 5.7 / §14.2：admin UI 代建的帳號一律掛 mustChangePassword=true（密碼是
-        // admin 代選，非本人自訂）——與 OIDC 自動建帳刻意不同，那邊維持 DB 預設 false。
-        const [row] = await deps.db
-          .insert(users)
-          .values({ email, passwordHash, displayName, isAdmin: isAdmin ?? false, mustChangePassword: true })
-          .returning(adminUserColumns);
-        created = row;
-      } catch (err) {
-        if (isUniqueViolation(err)) {
-          return sendError(reply, 409, "email_taken", "此 email 已被使用");
+      /**
+       * #122 registry-first（spec §2a/§2b）：每次嘗試＝一個全新 tx（先 INSERT handles
+       * 由 PK 裁決、再 INSERT users）——**改掉原本的獨立語句形**（users 先寫會繞過墓碑：
+       * released 名字不在 users.handle 裡，users_handle_unique 擋不住）。
+       * 重試契約：派生撞名（探測後的真競態）→ 整 tx 重跑、重新探測，≤3 次後第 4 次
+       * 直接用 `user-<uuid8>`；顯式指定者不重試、409 `handle_taken`。
+       * 判別依 constraint 名（M4-2）：舊的「任何 unique violation → email_taken」會把
+       * handle 撞名誤報成 email 已被使用。
+       */
+      const MAX_DERIVE_ATTEMPTS = 3;
+      let created: AdminUserRow | undefined;
+      // 迴圈以 attempt 上界收束（讀碼審查 m5）：`created === undefined` 當唯一條件時，
+      // 若 tx 意外 resolve undefined 會無界自旋、每圈真的建出一個 uuid8 使用者。
+      for (let attempt = 1; created === undefined && attempt <= MAX_DERIVE_ATTEMPTS + 1; attempt += 1) {
+        const id = randomUUID();
+        try {
+          created = await deps.db.transaction(async tx => {
+            const handle =
+              explicitHandle ??
+              (attempt <= MAX_DERIVE_ATTEMPTS ? await deriveHandle(tx, [email.split("@")[0]], id) : `user-${id.slice(0, 8)}`);
+            await tx.insert(handles).values({ handle, userId: id, state: "live" });
+            // spec rev 5.7 / §14.2：admin UI 代建的帳號一律掛 mustChangePassword=true（密碼是
+            // admin 代選，非本人自訂）——與 OIDC 自動建帳刻意不同，那邊維持 DB 預設 false。
+            const [row] = await tx
+              .insert(users)
+              .values({ id, email, passwordHash, displayName, isAdmin: isAdmin ?? false, mustChangePassword: true, handle })
+              .returning(adminUserColumns);
+            return row;
+          });
+        } catch (err) {
+          const constraint = uniqueViolationConstraint(err);
+          if (constraint === "users_email_unique") {
+            return sendError(reply, 409, "email_taken", "此 email 已被使用");
+          }
+          if (constraint === "handles_pkey" || constraint === "users_handle_unique") {
+            if (explicitHandle !== undefined) {
+              return sendError(reply, 409, "handle_taken", "此使用者名已被使用");
+            }
+            if (attempt <= MAX_DERIVE_ATTEMPTS) continue; // 整 tx 重跑（重新探測；第 4 次退 uuid8）
+          }
+          throw err;
         }
-        throw err;
       }
 
+      if (created === undefined) {
+        // 不應到達（第 4 次的 uuid8 也撞名＝~2^-32 級；或 tx 意外 resolve undefined）——
+        // fail loud 進全域 500，不靜默重試下去。
+        throw new Error("admin 建帳：handle 配置重試耗盡");
+      }
       return reply.code(201).send(toAdminUserDto(created));
     });
 

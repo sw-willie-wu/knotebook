@@ -8,6 +8,7 @@ function claims(overrides: Partial<OidcClaims> = {}): OidcClaims {
     email: "user@example.com",
     emailVerified: true,
     name: "User Name",
+    preferredUsername: null,
     ...overrides,
   };
 }
@@ -215,6 +216,7 @@ describe("auth/oidc-decision：decideOidcLogin 純決策函式（不碰 DB，§1
         kind: "create",
         email: "new@example.com",
         displayName: "New User",
+        preferredUsername: null,
       });
     });
 
@@ -246,6 +248,7 @@ describe("auth/oidc-decision：decideOidcLogin 純決策函式（不碰 DB，§1
         kind: "create",
         email: "local-part@example.com",
         displayName: "local-part",
+        preferredUsername: null,
       });
     });
 
@@ -256,6 +259,7 @@ describe("auth/oidc-decision：decideOidcLogin 純決策函式（不碰 DB，§1
         kind: "create",
         email: "local-part@example.com",
         displayName: "local-part",
+        preferredUsername: null,
       });
     });
   });

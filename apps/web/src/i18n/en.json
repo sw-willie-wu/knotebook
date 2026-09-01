@@ -333,6 +333,7 @@
     "cannot_share_with_self": "You can't share a note with yourself.",
     "share_not_found": "That share no longer exists.",
     "slug_taken": "That URL is already taken.",
+    "handle_taken": "That username is already taken.",
     "not_loaded": "This note isn't ready for that yet. Please try again.",
     "file_too_large": "That file is too large to upload.",
     "ai_not_configured": "AI is not configured yet",

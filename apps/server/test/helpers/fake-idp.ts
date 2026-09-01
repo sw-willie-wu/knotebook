@@ -15,10 +15,13 @@ export interface FakeIdpClaims {
   email?: string;
   email_verified?: boolean;
   name?: string;
+  /** #122：handle 派生的首選候選——id_token 與 userinfo 兩邊都吐（後者供「userinfo
+   * 本來就被打時順手讀」的測試形；只加型別不加吐出點＝那形造不出來，plan 注意事項 6）。 */
+  preferred_username?: string;
 }
 
 export type FakeIdpOmittableMetadataKey = "userinfo_endpoint" | "jwks_uri";
-export type FakeIdpOmittableIdTokenKey = "email" | "email_verified" | "nonce";
+export type FakeIdpOmittableIdTokenKey = "email" | "email_verified" | "nonce" | "preferred_username";
 export type FakeIdpFailTarget = "token" | "userinfo" | "discovery";
 
 export interface FakeIdp {
@@ -200,6 +203,9 @@ export function createFakeIdp(issuerUrl: string): FakeIdp {
       if (record.claims.name !== undefined) {
         idTokenClaims.name = record.claims.name;
       }
+      if (record.claims.preferred_username !== undefined && !omittedIdTokenKeys.has("preferred_username")) {
+        idTokenClaims.preferred_username = record.claims.preferred_username;
+      }
       if (!omittedIdTokenKeys.has("nonce")) {
         idTokenClaims.nonce = record.nonce;
       }
@@ -246,6 +252,7 @@ export function createFakeIdp(issuerUrl: string): FakeIdp {
       if (effective.email !== undefined) body.email = effective.email;
       if (effective.email_verified !== undefined) body.email_verified = effective.email_verified;
       if (effective.name !== undefined) body.name = effective.name;
+      if (effective.preferred_username !== undefined) body.preferred_username = effective.preferred_username;
       return jsonResponse(body);
     }
 

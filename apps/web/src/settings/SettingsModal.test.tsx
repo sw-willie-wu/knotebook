@@ -87,6 +87,7 @@ function fakeResponse({ ok, status, json }: FakeResponseInit): Response {
 const ADMIN_USER: UserDto = {
   id: "u-admin",
   email: "admin@example.com",
+  handle: "tester",
   displayName: "Admin",
   isAdmin: true,
   mustChangePassword: false,
@@ -95,6 +96,7 @@ const ADMIN_USER: UserDto = {
 const PLAIN_USER: UserDto = {
   id: "u-plain",
   email: "plain@example.com",
+  handle: "tester",
   displayName: "Plain",
   isAdmin: false,
   mustChangePassword: false,
