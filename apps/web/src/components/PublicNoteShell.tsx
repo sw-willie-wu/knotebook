@@ -2,8 +2,6 @@ import { Component, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useOnline } from "./ErrorBoundary";
 import { Button } from "./ui/button";
-import { cardSurface } from "./ui/card";
-import { cn } from "@/lib/utils";
 
 /**
  * `/p/:token` 公開唯讀頁的頁面外殼（#72 Task 3）——fallback／錯誤邊界／頁面本體
@@ -18,13 +16,18 @@ import { cn } from "@/lib/utils";
  * 還沒到手時渲染的，放進 chunk 自己就成了雞生蛋。
  */
 
-/** 單卡外框：滿版底色置中一張卡（與 AppShell 的 `bg-background p-3` 同款外距語彙）。 */
+/**
+ * 滿版外框（user 定案，2026-09-02）：公開唯讀頁直接鋪滿視窗——**無卡面、無圓角、
+ * 無 70rem 上限、無 p-3 外距**（原本的「置中一張卡」是 #72 時期的單卡版面，#115
+ * 之後與主 app 的滿版卡語彙不一致）。內文行寬仍由 PublicNotePage 內的文章欄常數
+ * （ARTICLE_COLUMN）管，這裡只負責把底鋪滿。`flex flex-col`＋`overflow-hidden`
+ * 是承重的（別當裝飾拿掉）：內文容器的 `min-h-0 flex-1 overflow-y-auto` 依賴前者，
+ * 「頁面本身不得整體捲動」依賴後者——與 AppShell 的高度鏈同款。
+ */
 export function PublicPageFrame({ children }: { children: ReactNode }) {
   return (
-    <div className="flex h-screen justify-center overflow-hidden bg-background p-3">
-      <div className={cn(cardSurface, "flex min-h-0 w-full max-w-[70rem] flex-col overflow-hidden")}>
-        {children}
-      </div>
+    <div className="flex h-screen flex-col overflow-hidden bg-background">
+      {children}
     </div>
   );
 }
