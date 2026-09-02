@@ -573,6 +573,23 @@ body {
     transition: transform 0.15s;
   }
 
+  /* 唯讀（disabled）時箭頭一併退場：邊框/底色已由上方的 `:disabled` 規則拆掉，
+     箭頭留著的話 hover 出現的仍是「一顆不能按的下拉」——#111 定案唯讀是純文字
+     語言標籤（公開唯讀頁實看回報的形）。`display:none` 不違反上方「用 opacity
+     別用 display」的規矩：那條管的是控制項的 Tab 可及性，這裡藏的是**偽元素**、
+     且 disabled 的 select 本就不進 Tab 順序。⚠ 蓋不到 Firefox：它無 base-select、
+     select 是 OS 原生 widget、原生箭頭仍在（已知殘留——要蓋得對 :disabled 另加
+     appearance:none，會與 base-select 這條打架，不值得）。順帶把單一文字項貼回
+     右緣（space-between 在單項下退化成 flex-start，箭頭走了會露出 min-width 撐出
+     的空白；mermaid 唯讀鈕是貼右的，#111「同位置」定案）。 */
+  .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select:disabled {
+    justify-content: flex-end;
+  }
+
+  .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select:disabled::picker-icon {
+    display: none;
+  }
+
   /* 展開時箭頭轉向——這是「這是個下拉」的視覺暗示，先前 `appearance:none` 之下
      根本沒有箭頭可用。 */
   .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select:open::picker-icon {
