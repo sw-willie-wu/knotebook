@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import { autoSlugFromTitle, validateHandle, validateSlug } from "@knotebook/shared";
 import { applyMigrationsThrough, freshDb, freshEmptyDb, idxOfTag, journalEntries } from "./helpers.js";
 import { runMigrations } from "../src/db/migrate.js";
+import { getTableConfig } from "drizzle-orm/pg-core";
+import { notes } from "../src/db/schema.js";
 
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
@@ -555,6 +557,126 @@ describe("0007_note-slug", () => {
   it("0007 檔內無 CONCURRENTLY／行首 COMMIT（單一 tx 前提的輔助 grep，比照 0006）", () => {
     const entry = journalEntries().find((e) => e.tag.startsWith("0007"));
     expect(entry, "0007 migration 必須存在").toBeDefined();
+    const sql = readFileSync(path.join(drizzleDirForTest, `${entry!.tag}.sql`), "utf8");
+    expect(sql.toUpperCase()).not.toContain("CONCURRENTLY");
+    expect(sql).not.toMatch(/^\s*COMMIT\s*;/im);
+  });
+});
+
+/**
+ * 0008_public-slug（#122 PR3 Task 1）。純加欄＋partial unique 索引，無 backfill——
+ * 公開別名是顯式 opt-in（spec §4），既有列一律 NULL，故不需要 §7-H harness 的資料
+ * 案例（沒有「舊資料要長出什麼值」的問題），形狀與語意案全部跑在 freshDb 上。
+ */
+describe("0008_public-slug", () => {
+  it("notes.public_slug 欄形（nullable text）＋partial unique indexdef 全形", async () => {
+    const { pool } = await freshDb();
+
+    const { rows: cols } = await pool.query(
+      `select data_type, is_nullable, column_default from information_schema.columns
+       where table_name = 'notes' and column_name = 'public_slug'`,
+    );
+    expect(cols).toHaveLength(1);
+    // 無 DB default：不像 slug 有回滾窗期的 INSERT 相容問題——NULL 就是合法初值
+    expect(cols[0]).toEqual({ data_type: "text", is_nullable: "YES", column_default: null });
+
+    // 釘 indexdef 全形（比照 notes_public_token_idx 慣例）：UNIQUE＋兩欄＋WHERE 缺一
+    // 都是另一種語意（少 WHERE 時 pg 對 NULL 仍不互斥，但 partial 是明確意圖）
+    const { rows: idx } = await pool.query(
+      `select indexdef from pg_indexes where tablename = 'notes' and indexname = 'notes_owner_public_slug_idx'`,
+    );
+    expect(idx).toHaveLength(1);
+    expect(idx[0].indexdef).toMatch(/UNIQUE/);
+    expect(idx[0].indexdef).toMatch(/owner_id, public_slug/);
+    expect(idx[0].indexdef).toMatch(/WHERE \(?public_slug IS NOT NULL\)?/);
+  });
+
+  it("per-user 唯一語意：同 owner 撞（constraint 名＝notes_owner_public_slug_idx）、跨 owner 共存、多列 NULL 共存", async () => {
+    const { pool } = await freshDb();
+    await pool.query(
+      `insert into users (id, email, display_name) values
+       ('00000000-0000-4000-8000-0000000000a1', 'a@example.com', 'A'),
+       ('00000000-0000-4000-8000-0000000000b1', 'b@example.com', 'B')`,
+    );
+    // 多列 NULL 共存（同 owner 兩篇未設別名互不干擾）。⚠ 這一格對非 partial 的
+    // 普通 unique 也成立（pg 預設 NULLS DISTINCT）——真正釘 partial 的是上一案的
+    // indexdef regex，這裡只是行為面的 sanity。
+    await expect(
+      pool.query(
+        `insert into notes (owner_id, title, slug) values
+         ('00000000-0000-4000-8000-0000000000a1', 'N1', 'n1'),
+         ('00000000-0000-4000-8000-0000000000a1', 'N2', 'n2')`,
+      ),
+    ).resolves.toMatchObject({ rowCount: 2 });
+    await pool.query(
+      `insert into notes (owner_id, title, slug, public_slug) values
+       ('00000000-0000-4000-8000-0000000000a1', 'X', 'x', 'same-alias')`,
+    );
+    // 跨 owner 同名別名：可共存（per-user 語意）
+    await expect(
+      pool.query(
+        `insert into notes (owner_id, title, slug, public_slug) values
+         ('00000000-0000-4000-8000-0000000000b1', 'Y', 'y', 'same-alias')`,
+      ),
+    ).resolves.toMatchObject({ rowCount: 1 });
+    // 同 owner 同名別名：撞唯一索引——constraint 名是 T2 端點 409 public_slug_taken 的分流依據
+    await expect(
+      pool.query(
+        `insert into notes (owner_id, title, slug, public_slug) values
+         ('00000000-0000-4000-8000-0000000000a1', 'Z', 'z', 'same-alias')`,
+      ),
+    ).rejects.toMatchObject({ code: "23505", constraint: "notes_owner_public_slug_idx" });
+  });
+
+  it("public_slug 與私人 slug/prev/legacy 不同命名空間：同 owner 的別名可撞自己的私人 slug", async () => {
+    // 這條釘住「別名唯一性只在 public_slug 欄內裁決」——若未來有人把兩欄折進同一把
+    // 索引（或加跨欄檢查），公開別名跟私人 slug 會互相佔名，破 spec §4 的獨立欄位設計。
+    const { pool } = await freshDb();
+    await pool.query(`insert into users (id, email, display_name) values ('00000000-0000-4000-8000-0000000000a1', 'a@example.com', 'A')`);
+    await pool.query(
+      `insert into notes (owner_id, title, slug) values ('00000000-0000-4000-8000-0000000000a1', 'P', 'shared-name')`,
+    );
+    // 跨列形：Q 的別名撞 P 的私人 slug
+    await expect(
+      pool.query(
+        `insert into notes (owner_id, title, slug, public_slug) values
+         ('00000000-0000-4000-8000-0000000000a1', 'Q', 'q', 'shared-name')`,
+      ),
+    ).resolves.toMatchObject({ rowCount: 1 });
+    // 同列形（T2 上線後最常見的真實用法）：使用者把公開別名設成跟自己私人網址同名
+    await expect(
+      pool.query(
+        `insert into notes (owner_id, title, slug, public_slug) values
+         ('00000000-0000-4000-8000-0000000000a1', 'R', 'r-note', 'r-note')`,
+      ),
+    ).resolves.toMatchObject({ rowCount: 1 });
+  });
+
+  it("schema.ts 宣告↔DB 對照：drizzle metadata 有同形的欄與索引（防 schema.ts 靜默漂移）", async () => {
+    // 突變審 A1：本 describe 其他案全跑在「0008 SQL 造出的 DB」上，schema.ts 那半邊
+    // 從不進測試路徑——把 publicSlug 欄與索引宣告整段刪掉，856 測＋typecheck 照樣全
+    // 綠，但下一次 `db:generate` 會產出 DROP INDEX 的 migration（實測）。這裡用
+    // drizzle 自己的 metadata 把宣告釘住，再與 DB 的實際索引名對照接起兩邊。
+    const cfg = getTableConfig(notes);
+    const col = cfg.columns.find(c => c.name === "public_slug");
+    expect(col).toBeDefined();
+    expect(col!.notNull).toBe(false);
+    const idx = cfg.indexes.find(i => i.config.name === "notes_owner_public_slug_idx");
+    expect(idx).toBeDefined();
+    expect(idx!.config.unique).toBe(true);
+    expect(idx!.config.columns.map(c => (c as { name?: string }).name)).toEqual(["owner_id", "public_slug"]);
+    expect(idx!.config.where).toBeDefined();
+
+    // 宣告的索引名集合 ⊆ DB 實際索引名集合（同一把名字真的存在於 migration 造出的 DB）
+    const { pool } = await freshDb();
+    const { rows } = await pool.query(`select indexname from pg_indexes where tablename = 'notes'`);
+    const dbNames = rows.map((r: { indexname: string }) => r.indexname);
+    for (const i of cfg.indexes) expect(dbNames).toContain(i.config.name);
+  });
+
+  it("0008 檔內無 CONCURRENTLY／行首 COMMIT（單一 tx 前提的輔助 grep，比照 0007）", () => {
+    const entry = journalEntries().find((e) => e.tag.startsWith("0008"));
+    expect(entry, "0008 migration 必須存在").toBeDefined();
     const sql = readFileSync(path.join(drizzleDirForTest, `${entry!.tag}.sql`), "utf8");
     expect(sql.toUpperCase()).not.toContain("CONCURRENTLY");
     expect(sql).not.toMatch(/^\s*COMMIT\s*;/im);
