@@ -11,8 +11,9 @@ import { AppRoutes } from "./App";
 // 不打任何 API」就能用『fetch 從未被呼叫』一刀斷言。
 // 不用 App.test.tsx 的固定延遲手法（審查 Minor：把正確性綁在 wall-clock 上，CI 慢機
 // 有 flake 窗口）——手控 gate 是確定性的：第一案全程不放行（fallback 期恆成立）、
-// 第二案自己放行。⚠ 兩案共用同一個 module-level gate 與 React.lazy 的 import 快取，
-// 「不放行的案子在前」是順序承重，別重排。
+// 第二案自己放行。⚠ 三案共用同一個 module-level gate 與 React.lazy 的 import 快取，
+// 順序承重、別重排：「不放行的案子在前」，且第三案（#122 別名形）倚賴第二案已
+// 放行 gate 才能直接渲染。
 const chunkGate = vi.hoisted(() => {
   let release!: () => void;
   const promise = new Promise<void>((resolve) => {
@@ -27,8 +28,8 @@ vi.mock("./pages/PublicNotePage", async () => {
 
 const TOKEN = "abcDEF123_-".repeat(4).slice(0, 43);
 
-function renderApp() {
-  // 任何 fetch 都是違規：/p/:token 在 RequireAuth 外，匿名訪客不該打到 /api/auth/me
+function renderApp(entry = `/p/${TOKEN}`) {
+  // 任何 fetch 都是違規：/p/ 兩形都在 RequireAuth 外，匿名訪客不該打到 /api/auth/me
   // （包 RequireAuth 的迴歸會在這裡現形——session query 一跑 fetchSpy 就有呼叫紀錄）。
   const fetchSpy = vi.fn(() => Promise.reject(new Error("public route must not fetch")));
   vi.stubGlobal("fetch", fetchSpy);
@@ -36,7 +37,7 @@ function renderApp() {
   render(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <MemoryRouter initialEntries={[`/p/${TOKEN}`]}>
+        <MemoryRouter initialEntries={[entry]}>
           <AppRoutes />
         </MemoryRouter>
       </ThemeProvider>
@@ -53,7 +54,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("App route tree — /p/:token 在 RequireAuth 外（#72 Task 3）", () => {
+describe("App route tree — /p/ 兩形都在 RequireAuth 外（#72＋#122 PR3）", () => {
   it("chunk 載入中：公開頁專屬 fallback（極簡 loading，無 AppShell 側欄）；全程零 fetch", async () => {
     const fetchSpy = renderApp();
 
@@ -71,6 +72,15 @@ describe("App route tree — /p/:token 在 RequireAuth 外（#72 Task 3）", () 
     chunkGate.release();
     await waitFor(() => expect(screen.getByText("public-note-page-stub")).toBeInTheDocument());
     // 沒被 RequireAuth 踢去登入頁
+    expect(screen.queryByLabelText("Email")).not.toBeInTheDocument();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("別名兩段形 /p/<handle>/<slug>（#122 PR3）：同樣在 RequireAuth 外承接、零 fetch", async () => {
+    // gate 已由上一案放行（module-level 快取）——本案直接渲染。零 fetch 守衛擴到新形：
+    // 兩段形若誤掛進 RequireAuth，session query 會讓 fetchSpy 有呼叫紀錄。
+    const fetchSpy = renderApp("/p/alice/my-doc");
+    await waitFor(() => expect(screen.getByText("public-note-page-stub")).toBeInTheDocument());
     expect(screen.queryByLabelText("Email")).not.toBeInTheDocument();
     expect(fetchSpy).not.toHaveBeenCalled();
   });

@@ -9,13 +9,14 @@ import { ThemeProvider } from "@/theme";
 import PublicNotePage from "./PublicNotePage";
 
 // 比照 NotePage.test.tsx 的最小替身慣例：BlockNote 需要一整套 jsdom 沒有的 DOM/Range
-// API，這裡只驗「頁面把正確的 doc/token 交給唯讀編輯器」——選項本身的契約
+// API，這裡只驗「頁面把正確的 doc/publicRef 交給唯讀編輯器」——選項本身的契約
 // （fragment 名、resolveFileUrl 映射…）守在 collab/editor-options.test.ts。
+// data-ref 序列化成 kind:值——別只吐 kind（那樣「傳錯篇的 ref」測不出來）。
 vi.mock("@/components/PublicNoteEditor", () => ({
-  PublicNoteEditor: ({ doc, token }: { doc: Y.Doc; token: string }) => (
+  PublicNoteEditor: ({ doc, publicRef }: { doc: Y.Doc; publicRef: import("@/lib/public-note-ref").PublicNoteRef }) => (
     <div
       data-testid="public-note-editor"
-      data-token={token}
+      data-ref={publicRef.kind === "token" ? `token:${publicRef.token}` : `path:${publicRef.handle}/${publicRef.slug}`}
       data-fragment-length={String(doc.getXmlFragment(YDOC_FRAGMENT).length)}
     />
   ),
@@ -55,17 +56,19 @@ function mockFetch(handler: (url: string) => { status: number; body: unknown } |
   return { fn, calls };
 }
 
-function renderPage(token = TOKEN) {
+function renderPage(entry = `/p/${TOKEN}`) {
   // 刻意**不**在測試端關 retry（突變審查抓到的遮蔽形）：頁面自己的 `retry: false`
   // 必須承重——它一被拿掉，404/429 案就會重試三次，下面的呼叫次數斷言與
   // waitFor 時限（預設 1 秒 < 首次重試退避後的總時長）都會紅。
+  // 路由樹帶兩形（與 App.tsx 同構）：形的判別在頁內 useParams。
   const queryClient = new QueryClient();
   render(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <MemoryRouter initialEntries={[`/p/${token}`]}>
+        <MemoryRouter initialEntries={[entry]}>
           <Routes>
             <Route path="/p/:token" element={<PublicNotePage />} />
+            <Route path="/p/:handle/:slug" element={<PublicNotePage />} />
           </Routes>
         </MemoryRouter>
       </ThemeProvider>
@@ -82,7 +85,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("PublicNotePage（#72 Task 3：/p/:token 免登入唯讀頁）", () => {
+describe("PublicNotePage（#72 /p/:token＋#122 PR3 /p/:handle/:slug 免登入唯讀頁）", () => {
   it("200：標題＋唯讀徽章＋Knotebook 連回 /，doc 解碼後交給唯讀編輯器（token 一併帶到）", async () => {
     const body: PublicNoteBody = {
       title: "公開的筆記",
@@ -100,7 +103,7 @@ describe("PublicNotePage（#72 Task 3：/p/:token 免登入唯讀頁）", () => 
     renderPage();
 
     const editor = await screen.findByTestId("public-note-editor");
-    expect(editor.dataset.token).toBe(TOKEN);
+    expect(editor.dataset.ref).toBe(`token:${TOKEN}`);
     expect(editor.dataset.fragmentLength).toBe("1");
     expect(screen.getByRole("heading", { name: "公開的筆記" })).toBeInTheDocument();
     expect(screen.getByText("Read-only")).toBeInTheDocument();
@@ -108,6 +111,44 @@ describe("PublicNotePage（#72 Task 3：/p/:token 免登入唯讀頁）", () => 
     expect(screen.getByRole("link", { name: /Knotebook/ })).toHaveAttribute("href", "/");
     // 整頁只打過公開端點——尤其不得打 /api/auth/me（匿名頁零 auth 相依）
     expect(calls).toEqual([`GET /api/public/notes/${TOKEN}`]);
+  });
+
+  it("別名形 /p/<handle>/<slug>（#122 PR3）：打 by-path 端點、path 形 ref 交給編輯器、零 auth fetch", async () => {
+    const body: PublicNoteBody = {
+      title: "別名的筆記",
+      ydoc: ydocBase64((fragment) => {
+        const paragraph = new Y.XmlElement("paragraph");
+        paragraph.insert(0, [new Y.XmlText("hi")]);
+        fragment.insert(0, [paragraph]);
+      }),
+    };
+    const { fn, calls } = mockFetch((url) =>
+      url === "/api/public/notes/alice/my-doc" ? { status: 200, body } : null,
+    );
+    vi.stubGlobal("fetch", fn);
+
+    const queryClient = renderPage("/p/alice/my-doc");
+
+    const editor = await screen.findByTestId("public-note-editor");
+    expect(editor.dataset.ref).toBe("path:alice/my-doc"); // token 形誤判會在這裡現形
+    expect(screen.getByRole("heading", { name: "別名的筆記" })).toBeInTheDocument();
+    expect(calls).toEqual(["GET /api/public/notes/alice/my-doc"]);
+    // 快取真的落在 by-path key（突變審 L1）：queryKey 若寫死 token 形，URL 與畫面
+    // 全對、只有快取格錯——所有別名頁共用一格，換頁會先渲染前一篇。fetch 斷言
+    // 看不到這件事，必須直接驗 key。
+    expect(queryClient.getQueryState(["public-note-by-path", "alice", "my-doc"])?.status).toBe("success");
+  });
+
+  it("別名形 404（改名／清別名後的舊連結）→ 同一張失效卡；恰打一次（retry:false 在別名形也承重）", async () => {
+    const { fn, calls } = mockFetch((url) =>
+      url === "/api/public/notes/alice/gone" ? { status: 404, body: { error: { code: "not_found" } } } : null,
+    );
+    vi.stubGlobal("fetch", fn);
+    renderPage("/p/alice/gone");
+    // 逐字（比照 token 404 案）：塌到泛用分支會渲染 errors.fallback，非本文案
+    expect(await screen.findByRole("alert")).toHaveTextContent("This link doesn't exist or is no longer active.");
+    expect(screen.queryByTestId("public-note-editor")).not.toBeInTheDocument();
+    expect(calls).toEqual(["GET /api/public/notes/alice/gone"]);
   });
 
   it("空文件 payload（AAA=）→ 正常渲染空文件，不 throw、不顯示錯誤卡", async () => {

@@ -421,13 +421,17 @@ export function canonicalNotePath(note: { ownerHandle: string; slug: string }): 
 }
 
 /**
- * 組出公開別名路徑（#122 PR3 spec §4）：`/p/<handle>/<slug>`——`/p/` 兩段形的
- * **唯一組字點**（plan gate m-2，比照 `canonicalNotePath`）：ShareDialog 前綴/複製、
- * PublicNotePage 的 API/uploads 網址、publicMediaUrl 變體全走這裡，禁各自拼字串
- * （組字漂移＝複製鈕給出打不開的網址）。不做 URL 編碼的理由同 `canonicalNotePath`
- * （charset 驗證擋掉分隔字元）。⚠ e2e **刻意除外**：e2e package 無 @knotebook/shared
- * 依賴（rsync 不帶 dist），別名網址一律從 ShareDialog UI 讀出。
- * token 形 `/p/<token>` 不經此函式（單段、無組字問題）。
+ * 組出公開別名**頁面**路徑（#122 PR3 spec §4）：`/p/<handle>/<slug>`——`/p/` 兩段
+ * 形頁面網址的組字點（plan gate m-2 收窄版，比照 `canonicalNotePath`）：ShareDialog
+ * 別名列的前綴/複製走這裡（**Task 5 起接線**——刻意提前落地基建，非 drift），
+ * 禁自拼字串（組字漂移＝複製鈕給出打不開的網址）。不做 URL 編碼
+ * 的理由同 `canonicalNotePath`（輸入是**已驗證**的 handle/slug，charset 擋掉分隔
+ * 字元）。⚠ 職責邊界（T4 讀碼審裁決）：公開 **API** 網址（fetch 用的
+ * `/api/public/notes/…`）的組字點是 web 的 `lib/public-note-ref.ts`——那邊吃的是
+ * URL 原始參數、做防禦性 encodeURIComponent，**編碼政策不同、刻意不共用**。
+ * ⚠ e2e **刻意除外**：e2e package 無 @knotebook/shared 依賴（rsync 不帶 dist），
+ * 別名網址一律從 ShareDialog UI 讀出。token 形 `/p/<token>` 不經此函式（單段、
+ * 無組字問題）。
  */
 export function publicAliasPath(ref: { handle: string; slug: string }): string {
   return `/p/${ref.handle}/${ref.slug}`;
