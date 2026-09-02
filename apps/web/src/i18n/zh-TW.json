@@ -364,6 +364,11 @@
     "oidc_email_unverified": "您的身分提供者尚未驗證此電子郵件地址。",
     "oidc_email_missing": "您的身分提供者未提供電子郵件地址，登入需要此資訊。",
     "oidc_conflict": "此身分已連結至其他帳號，或同時符合多個帳號。",
+    "insufficient_scope": "此 token 沒有執行這個操作的權限。",
+    "token_limit": "有效 token 已達上限，請先撤銷一個再建立。",
+    "token_not_found": "此 token 已不存在。",
+    "oauth_request_invalid": "這個授權請求已使用或已過期，請從應用程式重新發起。",
+    "not_implemented": "此端點尚未提供。",
     "fallback": "發生未預期的錯誤。"
   }
 }

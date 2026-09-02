@@ -145,6 +145,17 @@ export const ERROR_CODES = [
   "oidc_email_unverified",
   "oidc_email_missing",
   "oidc_conflict",
+  // #107 API token／OAuth：`insufficient_scope`＝合法 token 但 scope 不足（403——刻意
+  // 與「token 本身無效」的 401 分開，後者才計入無效 Bearer 的節流）；`token_limit`＝
+  // 每位使用者的有效 token 軟配額；`token_not_found`＝撤銷不存在或不屬於自己的 token
+  // （兩者同形，不當成列舉 oracle）；`oauth_request_invalid`＝授權請求已用／已過期
+  // （#132 才會發出，碼在 #130 一併加，避免 i18n 分兩次改）；`not_implemented`＝
+  // `/api/mcp` 在 #108 前的暫時形。
+  "insufficient_scope",
+  "token_limit",
+  "token_not_found",
+  "oauth_request_invalid",
+  "not_implemented",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
@@ -445,3 +456,75 @@ export function publicAliasPath(ref: { handle: string; slug: string }): string {
  * 由 server 的 unit 釘住（防兩端 import 同一個錯值的套套邏輯）。
  */
 export const EMPTY_YDOC_UPDATE_B64 = "AAA=";
+
+/**
+ * #107：API token 的 scope。**是集合不是單值**——OAuth 的 scope 參數是空白分隔的
+ * 集合，且「write 涵蓋 read」，所以落庫形只有兩種：只讀，或讀寫（write 一定把 read
+ * 顯式寫進字串，讓 DB CHECK、token 回應 body、設定頁三處看到同一個值）。
+ */
+export type TokenScope = "notes:read" | "notes:read notes:write";
+
+/** 路由宣告「這個操作至少需要什麼」時用的單值，與落庫形（集合）刻意不同型別。 */
+export type RequiredScope = "notes:read" | "notes:write";
+
+/**
+ * 把外部送來的 scope 參數正規化成落庫形。
+ *
+ * **切詞後逐一比對，不是子字串比對**：`xnotes:write`、`notes:write-all` 都只是
+ * 不認得的值，不得因為「含有 notes:write」而授予寫入權（那是 scope 放大）。
+ *
+ * **忽略不認得的值**（RFC 6749 §3.3 允許 AS 部分忽略；MCP client 可能自行加
+ * `offline_access`），因此**永不回 null**——呼叫端沒有 `invalid_scope` 分支。
+ * 空／undefined → `notes:read`（最小權限）：MCP client 的 scope 優先序是「401
+ * challenge 的 scope → PRM `scopes_supported` → 兩者皆無才省略」，我們兩者都給，
+ * 正常不會送空；真的送空就給最小的。
+ *
+ * 分隔字元只認**半形空白**（RFC 6749 §3.3 的 scope 是 SP-delimited）。tab／全形空白
+ * 之類的分隔不會被切開，整串因此變成一個不認得的值 → 落到 `notes:read`，方向是
+ * fail-closed。
+ *
+ * 回應裡的 `scope` 一律是這個函式的輸出（我們實際授予的集合），被忽略的值不回聲；
+ * client 依 RFC 6749 §5.1 應以回應為準。
+ */
+export function normalizeScope(input: string | null | undefined): TokenScope {
+  // 只需要知道有沒有要求 write——read 在兩種落庫形裡都有，不必另外判斷。
+  return (input ?? "").split(" ").includes("notes:write") ? "notes:read notes:write" : "notes:read";
+}
+
+/**
+ * 落庫的 scope 集合是否涵蓋這個操作所需的權限。
+ *
+ * 用**成員判定**，不是「`required === "notes:read"` 恆真 ‖ `stored` 整串等於讀寫形」
+ * 那種寫死的階層判斷。兩者在**合法**的兩種落庫形上答案完全相同——`scope` 欄有
+ * `CHECK (scope in ('notes:read','notes:read notes:write'))`，連 psql 直插都繞不過去，
+ * 所以這不是在修一個現在會發生的 bug。差別在**不依賴那條 CHECK**：這支函式是授權
+ * 判定的最後一關，而它拿到的 `stored` 來自 `text` 欄位、型別是靠 `as TokenScope`
+ * 斷言來的。萬一哪天 CHECK 被放寬、或多一種落庫形（例如未來加第三個 scope），
+ * 字面相等會把讀寫 token 靜默降成唯讀——失敗形態是「功能莫名其妙壞掉」，很難查；
+ * 成員判定則自然涵蓋。
+ *
+ * 守衛見 `apps/server/test/unit/shared-scope.test.ts`：帶 cast 的漂移案會讓字面
+ * 相等版本紅掉。
+ */
+export function hasScope(stored: TokenScope, required: RequiredScope): boolean {
+  return stored.split(" ").includes(required);
+}
+
+/** `GET /api/auth/tokens` 的列元素（#107）。`kind='oauth'` 的列在 #132 才會出現。 */
+export interface ApiTokenDto {
+  id: string;
+  kind: "pat" | "oauth";
+  /** PAT 是使用者自取；oauth 是 client 自述的名稱快照（**未經驗證**，UI 要標示）。 */
+  name: string;
+  scope: TokenScope;
+  createdAt: string;
+  lastUsedAt: string | null;
+  /** null＝不到期（PAT 的預設）。 */
+  expiresAt: string | null;
+  clientId: string | null;
+}
+
+/** `POST /api/auth/tokens` 的 201 回應：**`token` 明文只在這裡出現一次**。 */
+export interface CreatedApiTokenDto extends ApiTokenDto {
+  token: string;
+}
