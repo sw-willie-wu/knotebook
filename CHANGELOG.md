@@ -7,6 +7,10 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.3.3] - 2026-09-02
+
 ### Added
 
 - Every account now has a **username** — a short, URL-safe name (lowercase letters, numbers, hyphens) shown and changeable under Settings → Account, for both password and SSO accounts. Existing accounts get one derived from their email's local part on upgrade; SSO sign-ups prefer the identity provider's `preferred_username` claim when the ID token carries it, and admins can set one when creating an account via the API. Renaming is allowed 5 times a day, and a released name is **permanently retired — nobody can ever take it, including you changing your mind** — so links shared under an old name can never start serving someone else's content. The username appears in Settings and the admin user list, and every new-form note URL carries it (`/n/<username>/<slug>` — see the note-URL entry below; old-form `/notes/…` links don't and are rename-proof); it can also appear in a public share's URL when you opt in (see the custom-public-URL entry below).
