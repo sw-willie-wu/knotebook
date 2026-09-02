@@ -410,6 +410,9 @@ function AccessSection({ note }: { note: NoteDto }) {
  *   ⊃ "Remove"——**公開態下 e2e 查 SlugField 的 Save（或任何短名鈕）必須
  *   `exact: true`**；"Copy custom link" ⊃ "Custom link"（僅按鈕文字面——getByLabel
  *   不認按鈕文字、getByRole('textbox') 有 role 隔離，實務不撞）。
+ *   契約也含兩個 id：`#share-public-slug-prefix`（前綴 span——e2e 11-public-share
+ *   從這裡讀別名網址前半；改名或把前綴併進 placeholder 會讓 e2e 在最貴迴圈末端
+ *   紅）與 `#share-public-slug-hint`（aria-describedby 錨點）。
  */
 function PublicAliasField({ note, slug }: { note: NoteDto; slug: string | null }) {
   const { t } = useTranslation();

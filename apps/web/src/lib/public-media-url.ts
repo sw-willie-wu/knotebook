@@ -15,7 +15,7 @@ import { publicNoteApiPath, type PublicNoteRef } from "./public-note-ref";
  * 再對「恰為 `/api/uploads/<單一段>`」的形狀做映射；其餘（外部 https、**同源絕對
  * 網址**、多段路徑、帶 query/fragment 的變體）一律原樣放行——自家上傳網址從不長
  * 那些樣子，寬鬆比對只會把不明形狀的 URL 也導進公開端點。同源絕對網址因此在匿名
- * 端破圖，已記 docs/known-limitations.md（Task 4），刻意不猜 origin 去救。
+ * 端破圖，已記 docs/known-limitations.md（#72），刻意不猜 origin 去救。
  */
 export function publicMediaUrl(ref: PublicNoteRef): (url: string) => string {
   const base = publicNoteApiPath(ref);
