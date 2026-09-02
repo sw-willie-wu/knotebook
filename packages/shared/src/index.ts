@@ -421,6 +421,19 @@ export function canonicalNotePath(note: { ownerHandle: string; slug: string }): 
 }
 
 /**
+ * 組出公開別名路徑（#122 PR3 spec §4）：`/p/<handle>/<slug>`——`/p/` 兩段形的
+ * **唯一組字點**（plan gate m-2，比照 `canonicalNotePath`）：ShareDialog 前綴/複製、
+ * PublicNotePage 的 API/uploads 網址、publicMediaUrl 變體全走這裡，禁各自拼字串
+ * （組字漂移＝複製鈕給出打不開的網址）。不做 URL 編碼的理由同 `canonicalNotePath`
+ * （charset 驗證擋掉分隔字元）。⚠ e2e **刻意除外**：e2e package 無 @knotebook/shared
+ * 依賴（rsync 不帶 dist），別名網址一律從 ShareDialog UI 讀出。
+ * token 形 `/p/<token>` 不經此函式（單段、無組字問題）。
+ */
+export function publicAliasPath(ref: { handle: string; slug: string }): string {
+  return `/p/${ref.handle}/${ref.slug}`;
+}
+
+/**
  * #72：空 Y.Doc 的合法 update 編碼（`Y.encodeStateAsUpdate(new Y.Doc())` ＝ `[0,0]`
  * 的 base64）。公開端點對「筆記從沒開過編輯器（查無 note_states）」回這個值——
  * **不能回空字串／零長度**：`Y.applyUpdate(doc, new Uint8Array())` 會 throw（實測），

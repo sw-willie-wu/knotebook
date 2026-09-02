@@ -674,6 +674,27 @@ describe("0008_public-slug", () => {
     for (const i of cfg.indexes) expect(dbNames).toContain(i.config.name);
   });
 
+  it("查詢真的用得上索引：公開別名 JOIN（免登入面）的計畫走 notes_owner_public_slug_idx", async () => {
+    // 比照 0007 的 by-path planner 守衛：公開端是免登入面，這條 JOIN 掉成 seq scan
+    // 的代價比登入面更大。JOIN 形同 routes/public.ts 的 pathSpec.lookup（含
+    // public_token 非空述詞）。
+    const { pool } = await freshDb();
+    await pool.query(`insert into users (id, email, display_name, handle) values
+      ('00000000-0000-4000-8000-000000000001', 'pa@x.example', 'PA', 'alias-planner')`);
+    await pool.query(
+      `insert into notes (owner_id, title, slug, public_slug, public_token)
+       select '00000000-0000-4000-8000-000000000001', 'T' || g, 's' || g, 'a' || g, 'tok' || g from generate_series(1, 5000) g`,
+    );
+    await pool.query(`analyze users`);
+    await pool.query(`analyze notes`);
+    const { rows } = await pool.query(
+      `explain (costs off)
+       select notes.id from notes join users on users.id = notes.owner_id
+       where users.handle = 'alias-planner' and notes.public_slug = 'a1' and notes.public_token is not null`,
+    );
+    expect(rows.map((r: Record<string, string>) => r["QUERY PLAN"]).join("\n")).toContain("notes_owner_public_slug_idx");
+  });
+
   it("0008 檔內無 CONCURRENTLY／行首 COMMIT（單一 tx 前提的輔助 grep，比照 0007）", () => {
     const entry = journalEntries().find((e) => e.tag.startsWith("0008"));
     expect(entry, "0008 migration 必須存在").toBeDefined();

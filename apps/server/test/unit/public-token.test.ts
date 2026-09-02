@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import * as Y from "yjs";
 import { EMPTY_YDOC_UPDATE_B64 } from "@knotebook/shared";
-import { isValidPublicToken, redactPublicTokens } from "../../src/routes/public.js";
+import { isPublicSharePath, isValidPublicToken, redactPublicTokens } from "../../src/routes/public.js";
 
 describe("公開分享的純函式（#72）", () => {
   it("EMPTY_YDOC_UPDATE_B64 真的等於空 Y.Doc 的 update 編碼（防兩端 import 同一個錯值的套套邏輯）", () => {
@@ -40,5 +40,22 @@ describe("公開分享的純函式（#72）", () => {
     expect(redactPublicTokens(`//p/${t}`)).toBe("/p/:token");
     expect(redactPublicTokens(`/P/${t}`)).toBe("/p/:token");
     expect(redactPublicTokens(`//api/public/notes/${t}`)).toBe("/api/public/notes/:token");
+  });
+
+  it("redactPublicTokens 兩段形（#122 PR3 別名）：第一段被過寬遮罩涵蓋，結果形釘住", () => {
+    // 別名形第一段是 handle 非 token——過寬遮罩「方向安全」（多遮無害），但結果形
+    // 要釘：未來若有人把遮罩改成「只遮 43 字元段」，token 形不受影響、這裡先紅，
+    // 提醒他別名形的第一段會開始以原文進 log（handle 非機密，但遮罩收窄是個需要
+    // 顯式決策的行為變更，不得靜默發生）。
+    expect(redactPublicTokens("/p/alice/my-doc")).toBe("/p/:token/my-doc");
+    expect(redactPublicTokens("/api/public/notes/alice/my-doc")).toBe("/api/public/notes/:token/my-doc");
+    expect(redactPublicTokens("/api/public/notes/alice/my-doc/uploads/u1")).toBe("/api/public/notes/:token/my-doc/uploads/u1");
+    expect(redactPublicTokens("//p/alice/my-doc")).toBe("/p/:token/my-doc");
+  });
+
+  it("isPublicSharePath 兩段形：/p/<handle>/<slug> 也在 noindex 範圍（別靠推論，釘住）", () => {
+    expect(isPublicSharePath("/p/alice/my-doc")).toBe(true);
+    expect(isPublicSharePath("//P/alice/my-doc")).toBe(true);
+    expect(isPublicSharePath("/n/alice/my-doc")).toBe(false);
   });
 });

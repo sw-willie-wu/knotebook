@@ -34,18 +34,21 @@ export const OIDC_LIMIT = { limit: 30, windowMs: 60_000 } as const;
  */
 export const PUBLIC_LINK_LIMIT = { limit: 10, windowMs: 600_000 } as const;
 /**
- * #72 公開端點的雙桶（皆無登入態）。三步順序寫死在 routes/public.ts：**格式 guard →
- * 不計數的 isBlocked(ip) 預檢 → DB 查詢 → miss 才 consume(ip)／hit 才
- * consume(`${ip}:${token}`)**——hit/miss 要查完 DB 才知道，pre-DB 若直接 consume(ip)
- * 正常讀者也會啃 miss 額度。
+ * #72／#122 PR3 公開端點的雙桶（皆無登入態；token 形與別名形 `/:handle/:slug`
+ * **共用同兩顆桶**）。四步序寫死在 routes/public.ts 的 `resolvePublicNote`：
+ * **格式 guard → 不計數的 isBlocked(ip) 預檢 → DB 查詢 → miss 才 consume(ip)／
+ * hit 才 consume（token 形 `${ip}:${token}`、別名形 `${ip}:path:${noteId}`）**
+ * ——hit/miss 要查完 DB 才知道，pre-DB 若直接 consume(ip) 正常讀者也會啃 miss 額度。
  *
- * - miss 桶（key=ip）：管「token 解不到 noteId」的洪水與其 DB 查詢。**key 不得含
- *   token**——含了就是攻擊者控制的 key space（每個亂 token＝新 bucket 滿血額度，
- *   節流形同不存在，還會把 BoundedMap 掃空擠掉合法讀者）。120 而非 30：共用出口
- *   IP／反代未設 TRUST_PROXY 時這把 key 會塌縮，額度要容得下多人（塌縮的退化形
- *   記 docs/known-limitations.md）。
- * - hit 桶（key=ip:token，**只記命中**）：內容/圖片各一份；跨筆記 upload 的 404 是
- *   「token 解得到」的正常讀者行為，落 hit 桶不啃 miss 額度。
+ * - miss 桶（key=ip，**兩形共用**）：管「解不到 noteId」的洪水與其 DB 查詢。**key
+ *   不得含請求輸入**——含了就是攻擊者控制的 key space（每個亂輸入＝新 bucket 滿血
+ *   額度，節流形同不存在，還會把 BoundedMap 掃空擠掉合法讀者）。120 而非 30：共用
+ *   出口 IP／反代未設 TRUST_PROXY 時這把 key 會塌縮，額度要容得下多人（塌縮的退化
+ *   形記 docs/known-limitations.md）。
+ * - hit 桶（**只記命中**）：內容/圖片各一份。key 兩形不可能相撞（token 是 base64url
+ *   無 `:`，`:path:` 中綴只出現在別名形），故同一篇筆記兩形額度各自計（乘二）＋
+ *   同一 BoundedMap 的 key 基數變大——皆明示接受，記 docs/known-limitations.md。
+ *   跨筆記 upload 的 404 是「解得到 noteId」的正常讀者行為，落 hit 桶不啃 miss 額度。
  */
 export const PUBLIC_MISS_LIMIT = { limit: 120, windowMs: 60_000 } as const;
 export const PUBLIC_NOTE_LIMIT = { limit: 60, windowMs: 60_000 } as const;

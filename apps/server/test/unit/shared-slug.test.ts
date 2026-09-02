@@ -5,6 +5,7 @@ import {
   titleSlug,
   extractRefUuid,
   canonicalNotePath,
+  publicAliasPath,
   autoSlugFromTitle,
 } from "@knotebook/shared";
 
@@ -221,5 +222,14 @@ describe("canonicalNotePath", () => {
 
   it("非 ASCII slug 原樣輸出（不預編碼）", () => {
     expect(canonicalNotePath({ ownerHandle: "alice", slug: "café" })).toBe("/n/alice/café");
+  });
+});
+
+describe("publicAliasPath", () => {
+  // #122 PR3：`/p/` 兩段形唯一組字點（gate m-2）——ShareDialog/PublicNotePage/
+  // publicMediaUrl 全走它；不編碼理由同 canonicalNotePath。
+  it("→ /p/<handle>/<slug>；非 ASCII 原樣", () => {
+    expect(publicAliasPath({ handle: "alice", slug: "team-doc" })).toBe("/p/alice/team-doc");
+    expect(publicAliasPath({ handle: "alice", slug: "café" })).toBe("/p/alice/café");
   });
 });
