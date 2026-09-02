@@ -51,6 +51,15 @@
     "copyLink": "複製連結",
     "linkCopied": "已複製連結。",
     "copyFailed": "無法自動複製——請選取下面的連結自行複製。",
+    "publicSlug": {
+      "saveLabel": "儲存自訂網址",
+      "clearLabel": "移除自訂網址",
+      "label": "自訂公開網址",
+      "save": "儲存",
+      "clear": "移除",
+      "copy": "複製自訂連結",
+      "hint": "此網址包含你的使用者名、且可能被猜到；想匿名分享請用上方連結。"
+    },
     "customLink": "自訂連結",
     "slugSave": "儲存",
     "slugClear": "回自動網址",
@@ -76,8 +85,8 @@
       "confirmCancel": "保留成員",
       "confirmHint_one": "這會移除 {{count}} 位成員。",
       "confirmHint_other": "這會移除全部 {{count}} 位成員。",
-      "confirmHintWithLink_one": "這會移除 {{count}} 位成員並關閉公開連結。",
-      "confirmHintWithLink_other": "這會移除全部 {{count}} 位成員並關閉公開連結。",
+      "confirmHintWithLink_one": "這會移除 {{count}} 位成員並關閉公開連結（含自訂公開網址）。",
+      "confirmHintWithLink_other": "這會移除全部 {{count}} 位成員並關閉公開連結（含自訂公開網址）。",
       "confirmPrivate_one": "移除 {{count}} 位成員並改為私人",
       "confirmPrivate_other": "移除 {{count}} 位成員並改為私人"
     }
@@ -341,6 +350,7 @@
     "share_not_found": "此共享項目已不存在。",
     "slug_taken": "此網址已被你的另一篇筆記使用。",
     "handle_taken": "此使用者名已被使用。",
+    "public_slug_taken": "此公開網址已被你的另一篇筆記使用。",
     "not_loaded": "此筆記目前尚未就緒，請稍後再試。",
     "file_too_large": "檔案過大，無法上傳。",
     "ai_not_configured": "尚未設定 AI",

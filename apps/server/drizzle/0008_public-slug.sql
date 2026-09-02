@@ -1,0 +1,2 @@
+ALTER TABLE "notes" ADD COLUMN "public_slug" text;--> statement-breakpoint
+CREATE UNIQUE INDEX "notes_owner_public_slug_idx" ON "notes" USING btree ("owner_id","public_slug") WHERE "notes"."public_slug" is not null;

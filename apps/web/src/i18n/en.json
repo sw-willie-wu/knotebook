@@ -51,6 +51,15 @@
     "copyLink": "Copy link",
     "linkCopied": "Link copied to clipboard.",
     "copyFailed": "Couldn't copy automatically — select the link below and copy it yourself.",
+    "publicSlug": {
+      "saveLabel": "Save custom URL",
+      "clearLabel": "Remove custom URL",
+      "label": "Custom public link",
+      "save": "Save",
+      "clear": "Remove",
+      "copy": "Copy custom link",
+      "hint": "This address includes your username and can be guessed. To share anonymously, use the link above."
+    },
     "customLink": "Custom link",
     "slugSave": "Save",
     "slugClear": "Use automatic URL",
@@ -76,8 +85,8 @@
       "confirmCancel": "Keep members",
       "confirmHint_one": "This removes {{count}} member.",
       "confirmHint_other": "This removes all {{count}} members.",
-      "confirmHintWithLink_one": "This removes {{count}} member and turns off the public link.",
-      "confirmHintWithLink_other": "This removes all {{count}} members and turns off the public link.",
+      "confirmHintWithLink_one": "This removes {{count}} member and turns off the public link (including its custom public URL).",
+      "confirmHintWithLink_other": "This removes all {{count}} members and turns off the public link (including its custom public URL).",
       "confirmPrivate_one": "Remove {{count}} member and make private",
       "confirmPrivate_other": "Remove {{count}} members and make private"
     }
@@ -341,6 +350,7 @@
     "share_not_found": "That share no longer exists.",
     "slug_taken": "That URL is already used by another of your notes.",
     "handle_taken": "That username is already taken.",
+    "public_slug_taken": "That public URL is already used by another of your notes.",
     "not_loaded": "This note isn't ready for that yet. Please try again.",
     "file_too_large": "That file is too large to upload.",
     "ai_not_configured": "AI is not configured yet",

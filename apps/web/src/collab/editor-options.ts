@@ -5,6 +5,7 @@ import { YDOC_FRAGMENT } from "@knotebook/shared";
 import { noteSchema } from "@/collab/schema";
 import { blocknoteZhTW } from "@/i18n/blocknote-zh-TW";
 import { publicMediaUrl } from "@/lib/public-media-url";
+import type { PublicNoteRef } from "@/lib/public-note-ref";
 
 /**
  * 編輯頁（`NoteEditor` 的 `buildNoteEditorOptions`）與公開唯讀頁
@@ -44,22 +45,22 @@ export interface ReadonlyNoteEditorOptionsInput {
   doc: Y.Doc;
   /** local `new Awareness(doc)`（y-protocols）——唯讀頁沒有連線，不掛 HocuspocusProvider。 */
   awareness: Awareness;
-  /** 公開分享 token：`resolveFileUrl` 要把自家上傳網址映射到免登入的公開圖端點。 */
-  token: string;
+  /** 公開頁把手（#122 PR3 起兩形）：`resolveFileUrl` 依形把自家上傳網址映射到免登入的公開圖端點。 */
+  publicRef: PublicNoteRef;
   language: string;
 }
 
 /**
- * 公開唯讀頁（`/p/:token`）的編輯器選項。與編輯頁共用 {@link buildCollabEditorBase}；
- * 差異只有兩件事：
+ * 公開唯讀頁（`/p/:token` 與 `/p/:handle/:slug`）的編輯器選項。與編輯頁共用
+ * {@link buildCollabEditorBase}；差異只有兩件事：
  * - `resolveFileUrl` 換成 {@link publicMediaUrl}（匿名端沒 session，`/api/uploads/:id`
- *   必 401——先過 safeMediaUrl 再映射到 `/api/public/notes/:token/uploads/:id`）。
+ *   必 401——先過 safeMediaUrl 再依 `publicRef` 的形映射到公開圖端點）。
  * - **不掛任何編輯用選項**（uploadFile／pasteHandler／`_tiptapOptions` 的輸入攔截與
  *   `[[` 偵測）：唯讀頁沒有輸入路徑，掛了就是多餘的攻擊面。`editable={false}` 由
  *   `PublicNoteEditor` 的 `BlockNoteView` 負責。
  */
-export function buildReadonlyNoteEditorOptions({ doc, awareness, token, language }: ReadonlyNoteEditorOptionsInput) {
-  const resolvePublicUrl = publicMediaUrl(token);
+export function buildReadonlyNoteEditorOptions({ doc, awareness, publicRef, language }: ReadonlyNoteEditorOptionsInput) {
+  const resolvePublicUrl = publicMediaUrl(publicRef);
   return withCollaboration({
     ...buildCollabEditorBase({
       doc,

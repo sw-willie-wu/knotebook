@@ -57,6 +57,13 @@
       "when": 1788286930340,
       "tag": "0007_note-slug",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1788307065987,
+      "tag": "0008_public-slug",
+      "breakpoints": true
     }
   ]
 }

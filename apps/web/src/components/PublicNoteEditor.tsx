@@ -9,13 +9,14 @@ import { Awareness } from "y-protocols/awareness";
 import { useCreateBlockNote } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/mantine";
 import { buildReadonlyNoteEditorOptions } from "@/collab/editor-options";
+import type { PublicNoteRef } from "@/lib/public-note-ref";
 import { useTheme } from "@/theme";
 
 export interface PublicNoteEditorProps {
   /** `decodePublicYdoc` 解出來的快照文件——本元件只讀不寫（沒有 provider、沒有連線）。 */
   doc: Y.Doc;
-  /** 公開分享 token：`resolveFileUrl` 組公開圖端點路徑要用。 */
-  token: string;
+  /** 公開頁把手（#122 PR3 起兩形）：`resolveFileUrl` 依形組公開圖端點路徑要用。 */
+  publicRef: PublicNoteRef;
 }
 
 /**
@@ -27,7 +28,7 @@ export interface PublicNoteEditorProps {
  * 在無 provider 下正常渲染（含 code/mermaid lazy 鏈）；**不掛 useCollab、不打
  * collab-token**（也沒有 noteId 可打）。
  */
-export function PublicNoteEditor({ doc, token }: PublicNoteEditorProps) {
+export function PublicNoteEditor({ doc, publicRef }: PublicNoteEditorProps) {
   const { i18n } = useTranslation();
   const { resolvedTheme } = useTheme();
 
@@ -39,10 +40,16 @@ export function PublicNoteEditor({ doc, token }: PublicNoteEditorProps) {
   const awareness = useMemo(() => new Awareness(doc), [doc]);
   useEffect(() => () => awareness.destroy(), [awareness]);
 
+  // deps 用逐值展開的識別字串，**不放 publicRef 物件本身**——防禦性寫法：不倚賴
+  // 呼叫端有 useMemo（現行 PublicNotePage 有 memo、identity 穩定；這裡只是不把
+  // 編輯器重建與否綁在上游的 memo 紀律上）。「同一掛載換 ref」在現行資料流到不了
+  // （ref 變→query key 變→data 清空→本元件先卸載），此 deps 不替那條路背書。
+  const publicRefIdentity =
+    publicRef.kind === "token" ? `token:${publicRef.token}` : `path:${publicRef.handle}/${publicRef.slug}`;
   const editor = useCreateBlockNote(
-    buildReadonlyNoteEditorOptions({ doc, awareness, token, language: i18n.language }),
+    buildReadonlyNoteEditorOptions({ doc, awareness, publicRef, language: i18n.language }),
     // 語言刻意不進 deps（與 NoteEditor 同一條理由：字典只在建立時讀一次）。
-    [doc, awareness, token],
+    [doc, awareness, publicRefIdentity],
   );
 
   // editable={false}：BlockNote 不會渲染任何輸入介面（formatting toolbar／slash／

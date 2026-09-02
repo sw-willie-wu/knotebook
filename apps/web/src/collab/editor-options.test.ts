@@ -6,16 +6,17 @@ import { BLOCKED_MEDIA_URL } from "@/lib/media-url";
 import { blocknoteZhTW } from "@/i18n/blocknote-zh-TW";
 import { noteSchema } from "./schema";
 import { buildReadonlyNoteEditorOptions } from "./editor-options";
+import type { PublicNoteRef } from "@/lib/public-note-ref";
 
 const TOKEN = "abcDEF123_-".repeat(4).slice(0, 43);
 
-function build(language = "en") {
+function build(language = "en", publicRef: PublicNoteRef = { kind: "token", token: TOKEN }) {
   const doc = new Y.Doc();
   const awareness = new Awareness(doc);
-  return { doc, awareness, options: buildReadonlyNoteEditorOptions({ doc, awareness, token: TOKEN, language }) };
+  return { doc, awareness, options: buildReadonlyNoteEditorOptions({ doc, awareness, publicRef, language }) };
 }
 
-describe("buildReadonlyNoteEditorOptions（#72 Task 3：公開唯讀頁的編輯器選項）", () => {
+describe("buildReadonlyNoteEditorOptions（#72＋#122 PR3：公開唯讀頁兩形的編輯器選項）", () => {
   it("fragment 用 shared 的 YDOC_FRAGMENT 本尊（寫錯名字的症狀是空白頁零錯誤——store.ts 檔頭警告過的雷）", () => {
     const { doc, options } = build();
     expect(options.collaboration.fragment).toBe(doc.getXmlFragment(YDOC_FRAGMENT));
@@ -51,6 +52,13 @@ describe("buildReadonlyNoteEditorOptions（#72 Task 3：公開唯讀頁的編輯
       `/api/public/notes/${TOKEN}/uploads/abc`,
     );
     await expect(options.resolveFileUrl!("javascript:alert(1)")).resolves.toBe(BLOCKED_MEDIA_URL);
+  });
+
+  it("resolveFileUrl 別名形（#122 PR3）：依 publicRef 映射到 by-path 圖端點", async () => {
+    const { options } = build("en", { kind: "path", handle: "alice", slug: "my-doc" });
+    await expect(options.resolveFileUrl!("/api/uploads/abc")).resolves.toBe(
+      "/api/public/notes/alice/my-doc/uploads/abc",
+    );
   });
 
   it("不掛任何編輯用選項：uploadFile／pasteHandler／_tiptapOptions 都不存在（唯讀頁沒有輸入路徑，掛了就是攻擊面）", () => {

@@ -107,6 +107,13 @@ export const notes = pgTable("notes", {
   // 格式 guard 先行（1b）、token 不進 log 的 req serializer（1c）；在那之前 token
   // 只出現在管理端 response body，不經 URL。NULL＝未開公開。
   publicToken: text("public_token"),
+  // #122 PR3 公開別名（/p/<handle>/<slug>）：顯式 opt-in、與私人 slug 完全獨立的
+  // 命名空間（同 owner 的別名可撞自己的私人 slug）。NULL＝未設。「只有已公開
+  // （public_token 非 NULL）的筆記能設別名」是**應用層不變量、DB 層不強制**（直插
+  // 殘留形是合法列——正是讀取端拿來測兜底的形），**由 PR3 Task 2 落地**：條件式
+  // UPDATE（WHERE ... AND public_token IS NOT NULL）＋DELETE public-link 的同一支
+  // UPDATE 連帶清空；公開讀取端另以 JOIN 述詞含 token 非空兜底（Task 3）。
+  publicSlug: text("public_slug"),
   linksClock: bigint("links_clock", { mode: "number" }).notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -124,6 +131,9 @@ export const notes = pgTable("notes", {
   index("notes_owner_prev_slug_idx").on(t.ownerId, t.prevSlug).where(sql`${t.prevSlug} is not null`),
   // 公開端點以 token 反查筆記用；partial＝NULL 彼此不衝突。
   uniqueIndex("notes_public_token_idx").on(t.publicToken).where(sql`${t.publicToken} is not null`),
+  // 公開別名 per-user 唯一（#122 PR3）：同 owner 不重複、跨 owner 可同名；constraint
+  // 名是管理端 409 public_slug_taken 的分流依據。partial＝未設別名不佔位。
+  uniqueIndex("notes_owner_public_slug_idx").on(t.ownerId, t.publicSlug).where(sql`${t.publicSlug} is not null`),
 ]);
 
 export const noteStates = pgTable("note_states", {

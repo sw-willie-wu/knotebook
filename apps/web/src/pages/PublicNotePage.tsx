@@ -6,32 +6,49 @@ import { api, ApiFail } from "@/api/client";
 import { decodePublicYdoc } from "@/collab/public-doc";
 import { PublicNoteEditor } from "@/components/PublicNoteEditor";
 import { PublicPageFrame } from "@/components/PublicNoteShell";
+import { publicNoteApiPath, publicNoteQueryKey, type PublicNoteRef } from "@/lib/public-note-ref";
 import { ARTICLE_COLUMN, ARTICLE_COLUMN_PADDING } from "@/components/ui/article-column";
 import { cn } from "@/lib/utils";
 
-/** `GET /api/public/notes/:token` 的回應形（server 端 routes/public.ts；刻意不含 noteId／updatedAt）。 */
+/** 公開內容端點的回應形（server 端 routes/public.ts，兩形同形；刻意不含 noteId／updatedAt）。 */
 interface PublicNoteDto {
   title: string;
   ydoc: string;
 }
 
 /**
- * `/p/:token` 公開唯讀頁（#72 Task 3）。**免登入**：路由掛在 RequireAuth 外
- * （App.tsx），整頁零 auth 相依——不打 `/api/auth/me`、不掛 AppShell、不掛
- * useCollab（內容是快照，落後量級 debounce 2s／上限 10s，記 known-limitations）。
+ * 公開唯讀頁（#72 Task 3；#122 PR3 起雙形）：`/p/:token` 與 `/p/:handle/:slug`
+ * 共用本頁。**免登入**：兩條路由都掛在 RequireAuth 外（App.tsx），整頁零 auth
+ * 相依——不打 `/api/auth/me`、不掛 AppShell、不掛 useCollab（內容是快照，落後
+ * 量級 debounce 2s／上限 10s，記 known-limitations）。
  *
- * token 的格式驗證與 404 同形都在 server 端（routes/public.ts 的三步順序）；這裡
- * 只分兩種失敗呈現：404 → 失效卡（撤銷／重生後的舊連結／token 錯，同形不可區分），
+ * 形的判別走 useParams（比照 NotePage 的 isPathForm 慣例）：`handle`＋`slug` 都在
+ * ＝雙段別名形，否則單段 token 形；API 路徑與 query key 都依形分岔
+ * （lib/public-note-ref.ts——兩形不得共 key）。
+ *
+ * 格式驗證與 404 同形都在 server 端（routes/public.ts 的四步序）；這裡只分兩種
+ * 失敗呈現：404 → 失效卡（撤銷／改名／別名清除後的舊連結，同形不可區分），
  * 其餘 → errors.<code> 文案（429 節流時連結可能還活著，不能誤告「已失效」）。
  */
 export default function PublicNotePage() {
-  const { token = "" } = useParams<{ token: string }>();
+  const params = useParams<{ token?: string; handle?: string; slug?: string }>();
   const { t } = useTranslation();
 
+  // 與 NotePage 的 isPathForm 同名同判準（可 grep 的慣例錨點）
+  const isPathForm = params.handle !== undefined && params.slug !== undefined;
+  const publicRef: PublicNoteRef = useMemo(
+    () =>
+      isPathForm
+        ? { kind: "path", handle: params.handle!, slug: params.slug! }
+        : { kind: "token", token: params.token ?? "" },
+    [isPathForm, params.token, params.handle, params.slug],
+  );
+  const enabled = publicRef.kind === "path" || publicRef.token.length > 0;
+
   const query = useQuery({
-    queryKey: ["public-note", token],
-    queryFn: () => api<PublicNoteDto>(`/api/public/notes/${encodeURIComponent(token)}`),
-    enabled: token.length > 0,
+    queryKey: publicNoteQueryKey(publicRef),
+    queryFn: () => api<PublicNoteDto>(publicNoteApiPath(publicRef)),
+    enabled,
     // 不重試：404 是這個端點最常見的合法結果（撤銷後的連結），預設的三連重試只會
     // 多啃節流額度（miss 桶 key=ip）、把失效卡的出現拖慢好幾秒。
     retry: false,
@@ -87,7 +104,7 @@ export default function PublicNotePage() {
           {/* 內文沿 NoteEditor 的文章欄常數（#115：`<md` 內距 70→20 的斷點機制在
               article-column.ts／index.css，這裡照吃不另寫）。 */}
           <div className={cn(ARTICLE_COLUMN, ARTICLE_COLUMN_PADDING, "flex min-h-full flex-col py-6")}>
-            <PublicNoteEditor doc={doc!} token={token} />
+            <PublicNoteEditor doc={doc!} publicRef={publicRef} />
           </div>
         </div>
       </>

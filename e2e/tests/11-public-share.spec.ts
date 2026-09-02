@@ -2,8 +2,10 @@ import { test, expect, type APIRequestContext, type Page } from "@playwright/tes
 import { ADMIN, createNote, editorLocator, loginAs } from "./helpers.js";
 
 /**
- * #72 公開分享連結（spec §6 的 e2e）：owner 建筆記＋圖（**真上傳**）→ 開公開 →
- * 關 owner 分頁 → 免登入 context 看到內容與圖 → 重生後舊連結 404 → 撤銷後失效卡。
+ * #72 公開分享連結（spec §6 的 e2e）＋#122 PR3 公開別名段：owner 建筆記＋圖
+ * （**真上傳**）→ 開公開 → 關 owner 分頁 → 免登入 context 看到內容與圖 →
+ * 設別名 → 免登入走 /p/<handle>/<slug>（含 by-path 圖端點）→ 撤別名（token 仍活）
+ * → 重生後舊連結 404 → 撤銷後失效卡。
  *
  * ⚠ 「關 owner 分頁」是**場景步驟，不是被驗證的行為**（審查 M1）：內容落盤可能來自
  * 一般的 2 秒 debounce flush、也可能來自最後連線關閉的 flush，本測試不區分——
@@ -46,18 +48,31 @@ async function readPublicUrl(dialog: ReturnType<Page["getByRole"]>): Promise<str
 }
 
 function tokenOf(publicUrl: string): string {
-  return publicUrl.slice(publicUrl.lastIndexOf("/p/") + 3);
+  const token = publicUrl.slice(publicUrl.lastIndexOf("/p/") + 3);
+  // 驗形在 helper 本身（plan T6）：本檔現有兩段別名形網址，餵錯進來會切出
+  // "<handle>/<slug>"——別讓它靜默流進後續請求。
+  expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  return token;
+}
+
+/** 公開內容端點路徑的唯一組字點（#122 PR3：本檔原有兩處硬編字串，改集中；
+ * `ref` 可為 token 或 `<handle>/<slug>` 兩段形——別名段的圖 src 也走這裡）。
+ * ⚠ e2e 刻意不共用 web 端的組字模組（`lib/public-note-ref.ts`；e2e package 無
+ * workspace 依賴、rsync 不帶 dist——與 gate r3-M 對 shared 的裁決同理），自組一份。 */
+function publicNoteApi(ref: string): string {
+  return `/api/public/notes/${ref}`;
 }
 
 /** 公開端點的節流桶 key 含 ip——單 worker 序列跑不會撞 429，這裡不做退避。 */
 async function fetchPublicNote(request: APIRequestContext, token: string) {
-  return request.get(`/api/public/notes/${token}`);
+  return request.get(publicNoteApi(token));
 }
 
 test("owner 開公開 → 免登入看到內容與圖 → 重生舊連結死 → 撤銷後失效卡", async ({ browser, request }) => {
-  // 兩段 toPass 輪詢（20s＋10s）＋多個 15s 等待，理論最壞可撞預設 60s——調高讓
-  // 真失敗以誠實的斷言訊息呈現，而不是籠統的 test timeout。
-  test.setTimeout(120_000);
+  // 逐項等待的名目總和早已超過任何合理上限（每個 15s 等待實際毫秒級就過）——
+  // 150s 是「單一步驟卡死時，讓真失敗以該步驟誠實的斷言訊息呈現」的實用預算，
+  // 不是名目最壞值的算術（#122 別名段加了四個等待點後名目和已無意義）。
+  test.setTimeout(150_000);
   const ownerContext = await browser.newContext();
   // 免登入訪客：全新 context＝零 cookie/session。
   const anonContext = await browser.newContext();
@@ -120,7 +135,7 @@ test("owner 開公開 → 免登入看到內容與圖 → 重生舊連結死 →
     await expect(anonPage.getByText("Read-only")).toBeVisible();
     await expect(anonPage.getByText("Anon-visible content line.")).toBeVisible();
     // 圖：resolveFileUrl 把 /api/uploads/:id 映射到 /api/public/notes/:token/uploads/:id
-    const anonImg = anonPage.locator(`img[src*="/api/public/notes/${token}/uploads/"]`);
+    const anonImg = anonPage.locator(`img[src*="${publicNoteApi(token)}/uploads/"]`);
     await expect(anonImg).toBeVisible({ timeout: 15_000 });
     // naturalWidth > 0 ＝瀏覽器真的抓到並解碼了 blob（404/破圖時是 0）。
     await expect
@@ -129,12 +144,49 @@ test("owner 開公開 → 免登入看到內容與圖 → 重生舊連結死 →
     // 未登入不重導：仍在 /p/ 網址上。
     expect(new URL(anonPage.url()).pathname).toBe(`/p/${token}`);
 
-    // ── owner：重生 → 舊連結 404、新連結活 ─────────────────────────────
+    // ── owner：設公開別名（#122 PR3）→ 無痕開 /p/<handle>/<slug> → 撤別名 ────
     const ownerPage2 = await ownerContext.newPage();
     await ownerPage2.goto(noteUrl);
     await expect(ownerPage2.getByLabel("Note title")).toHaveValue(title, { timeout: 15_000 });
     dialog = await openShareDialog(ownerPage2);
     await expect(dialog.getByRole("radio", { name: /^Public link/ })).toBeChecked();
+
+    const alias = `e2e-alias-${Date.now()}`;
+    // 契約名（ShareDialog 的 PublicAliasField JSDoc）：input＝"Custom public link"、
+    // 存/清鈕＝"Save/Remove custom URL"——公開態下短名（"Save"）會撞兩顆，長名唯一。
+    const aliasInput = dialog.getByLabel("Custom public link", { exact: true });
+    await aliasInput.fill(alias);
+    await dialog.getByRole("button", { name: "Save custom URL" }).click();
+    await expect(dialog.getByRole("button", { name: "Remove custom URL" })).toBeVisible();
+    // 別名網址**從 UI 讀出**（gate r3-M：禁 import shared 的 publicAliasPath、禁
+    // 自拼 handle）：前綴 span（id 在 PublicAliasField 的 e2e 契約清單內）＋輸入框現值。
+    const aliasPrefix = await dialog.locator("#share-public-slug-prefix").innerText();
+    expect(aliasPrefix).toMatch(/^\/p\/[a-z0-9-]+\/$/);
+    const aliasPath = `${aliasPrefix}${await aliasInput.inputValue()}`;
+    const aliasRef = aliasPath.slice("/p/".length); // "<handle>/<slug>"——API 組字回 helper
+
+    // 無痕開別名網址：與 token 頁同一張唯讀頁（標題＋內文＋圖走 by-path uploads）
+    await anonPage.goto(aliasPath);
+    await expect(anonPage.getByRole("heading", { name: title })).toBeVisible({ timeout: 15_000 });
+    await expect(anonPage.getByText("Anon-visible content line.")).toBeVisible();
+    const anonAliasImg = anonPage.locator(`img[src*="${publicNoteApi(aliasRef)}/uploads/"]`);
+    await expect(anonAliasImg).toBeVisible({ timeout: 15_000 });
+    await expect
+      .poll(async () => anonAliasImg.evaluate((el) => (el as HTMLImageElement).naturalWidth))
+      .toBeGreaterThan(0);
+    expect(new URL(anonPage.url()).pathname).toBe(aliasPath);
+
+    // 撤別名 → 別名 404、token 連結**仍活**（撤別名不動 token——並存語意）。
+    // token 面用「頁面級」斷言（不只 API）：兩段 route 若吞掉單段形，API 探針看不到。
+    await dialog.getByRole("button", { name: "Remove custom URL" }).click();
+    await expect(dialog.getByRole("button", { name: "Remove custom URL" })).not.toBeVisible();
+    await anonPage.goto(aliasPath);
+    await expect(anonPage.getByText(INVALID_LINK_TEXT)).toBeVisible({ timeout: 15_000 });
+    await anonPage.goto(publicUrl);
+    await expect(anonPage.getByRole("heading", { name: title })).toBeVisible({ timeout: 15_000 });
+    expect((await fetchPublicNote(request, token)).status()).toBe(200);
+
+    // ── owner：重生 → 舊連結 404、新連結活 ─────────────────────────────
     await dialog.getByRole("button", { name: "Regenerate link" }).click();
     await expect(dialog.getByLabel("Public link URL")).not.toHaveValue(publicUrl);
     const newPublicUrl = await readPublicUrl(dialog);
