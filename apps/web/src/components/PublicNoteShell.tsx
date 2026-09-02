@@ -23,10 +23,19 @@ import { Button } from "./ui/button";
  * （ARTICLE_COLUMN）管，這裡只負責把底鋪滿。`flex flex-col`＋`overflow-hidden`
  * 是承重的（別當裝飾拿掉）：內文容器的 `min-h-0 flex-1 overflow-y-auto` 依賴前者，
  * 「頁面本身不得整體捲動」依賴後者——與 AppShell 的高度鏈同款。
+ *
+ * 底色是 **bg-card 不是 bg-background**（承重）：BlockNote 編輯器的底色
+ * light/dark 都耦合到 `--color-card`（index.css 的兩條 `.bn-root[data-color-scheme]`
+ * 覆寫——dark 是 PR2 原有、light 是本次把數值巧合升級成的耦合；主 app 裡編輯器
+ * 坐在內文卡上）——公開頁底若用更深的 bg-background，文章欄寬的卡色長條會浮在
+ * 頁底上、看起來仍像一張內文卡（user 第二次回報的形）。整頁同卡色＝編輯器天然
+ * 融入。不選 per-page 覆寫 bn 變數的理由是成本：那要 light＋dark 兩條新規則＋
+ * 新錨點 class，還會讓編輯器底色離開 --color-card、牽動 BlockNote 以它為基底的
+ * 內建 color-mix——換一個 token 的改動不划算。
  */
 export function PublicPageFrame({ children }: { children: ReactNode }) {
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-background">
+    <div className="flex h-screen flex-col overflow-hidden bg-card">
       {children}
     </div>
   );

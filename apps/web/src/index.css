@@ -340,6 +340,15 @@ body {
    tree-shake 沒被引用的 `--color-*`，是本區塊的 `var(--color-…)` 引用把它們
    留在產物裡——搬去獨立 CSS 檔會讓變數消失、宣告靜默失效，且 parity 測試
    抓不到。 */
+/* light 的編輯器底色：把「BlockNote 內建 #ffffff 恰等於 light --card 純白」的數值
+   巧合升級成真耦合——#126 滿版化後公開頁 frame 直接用 bg-card 當整頁底，
+   若日後 --card 離開純白而編輯器仍畫內建白，文章欄寬的白長條會在 light 重新浮出
+   「內文卡」殘影。(0,2,0) 壓得過內建裸 .bn-root 的 (0,1,0)，載入順序無關。
+   視覺上此刻零變化（兩值同為白）。 */
+.bn-root[data-color-scheme="light"] {
+  --bn-colors-editor-background: var(--color-card);
+}
+
 .dark .bn-root[data-color-scheme="dark"] {
   --bn-colors-editor-background: var(--color-card); /* PR2：編輯器坐在內文卡上，不是頁底 */
   --bn-colors-editor-text: var(--color-foreground);

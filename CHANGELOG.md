@@ -29,6 +29,10 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 - The AI entry point is now a round floating button at the bottom-right of the page instead of a collapsed rail beside the note. Clicking it opens the same action list as before — beside the note on a wide window, or as a full-width sheet rising from the bottom on a narrow one, replacing the old right-hand drawer there. The button fades out while you scroll the note and returns when you stop, and keyboard focus always makes it visible; the backlinks row keeps a little end padding so its last chip can scroll clear of the button (#115).
 
+### Fixed
+
+- The public share page now fills the browser window like the rest of the app, instead of floating as a width-capped rounded card that left background margins on wide screens — and the whole page is one flat surface, with no visible content-column "card" either (the page ground now matches the editor's own background color, in both themes). Text line length is unchanged — the reading column is still centered and capped.
+
 ## [0.3.2] - 2026-08-31
 
 ### Added
@@ -47,8 +51,6 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 - The note's text column now scales with the window instead of stopping at a fixed 680px: it takes 85% of the scrolling area's width, between 680px and 1056px. Windows up to about 1100px wide keep the column they had — 680px is the floor, and a window narrower than that still gets a full-width column — while on wider screens the article grows with the card instead of sitting as a narrow strip between two large empty margins (#87).
 
 ### Fixed
-
-- The public share page now fills the browser window like the rest of the app, instead of floating as a width-capped rounded card that left background margins on wide screens. Text line length is unchanged — the reading column is still centered and capped; only the page surface behind it now extends edge to edge.
 
 - Redo now works after undoing a note all the way back to empty. Previously, undoing until the note was blank silently discarded the redo history a fraction of a second later — the editor puts the required empty paragraph back into a blank note, and that correction was being recorded as if it were a fresh edit of yours, which is exactly the situation where an editor is supposed to throw redo away. That correction is no longer treated as an edit, and redo brings your text back reliably, including undoing and redoing across the same boundary repeatedly. Deliberately deleting everything in a note is still a normal, undoable edit. This closes the one known gap in the undo fix shipped alongside it (#100).
 
