@@ -42,6 +42,44 @@ export function useCreatePublicLink(noteId: string) {
   });
 }
 
+/**
+ * `PUT /api/notes/:id/public-link/slug`——設定公開別名（#122 PR3）。server 回
+ * `{token, slug}` **全形**，onSuccess 直寫（比照 useCreatePublicLink）——server
+ * 若只回 `{slug}`，快取 token 會被抹成 undefined、公開連結列憑空消失（server
+ * 測試釘了全形，這裡直寫是安全的）。
+ */
+export function useSetPublicSlug(noteId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (slug: string) =>
+      api<PublicLinkDto>(`/api/notes/${encodeURIComponent(noteId)}/public-link/slug`, {
+        method: "PUT",
+        body: JSON.stringify({ slug }),
+      }),
+    onSuccess: (data) => {
+      queryClient.setQueryData(["public-link", noteId], data);
+    },
+  });
+}
+
+/**
+ * `DELETE /api/notes/:id/public-link/slug`——清別名（204 無 body）。**functional
+ * setQueryData：只改 slug、保留 token**（plan gate r5-m1）——照抄下面撤公開的
+ * `{token: null, slug: null}` 寫法就是 r4-M1 的同款故障（token 被抹→公開連結列
+ * 消失、latch 誤述）。
+ */
+export function useClearPublicSlug(noteId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api<void>(`/api/notes/${encodeURIComponent(noteId)}/public-link/slug`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.setQueryData<PublicLinkDto>(["public-link", noteId], (prev) =>
+        prev ? { ...prev, slug: null } : prev,
+      );
+    },
+  });
+}
+
 /** `DELETE /api/notes/:id/public-link`——撤銷（既有連結立即失效）。server 端同一支
  * UPDATE 連帶清掉公開別名（spec §4「DELETE 清兩者」），快取鏡像必須跟上——
  * 只寫 `{token: null}` 會讓別名殘留在畫面上。 */

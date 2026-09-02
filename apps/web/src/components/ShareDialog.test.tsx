@@ -575,6 +575,8 @@ const TOKEN = "T".repeat(43);
 function stubRoutedFetch(opts: {
   shares?: ShareDto[];
   token?: string | null;
+  /** 公開別名（#122 PR3）：與 token 同屬可變狀態（PUT/DELETE …/slug 會改它）。 */
+  slug?: string | null;
   pending?: string[];
   onCall?: (method: string, url: string) => Response | undefined;
 }) {
@@ -593,14 +595,25 @@ function stubRoutedFetch(opts: {
       return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([...(opts.shares ?? [])]) }));
     }
     if (url === PUBLIC_LINK_URL && method === "GET") {
-      return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ token: opts.token ?? null }) }));
+      return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ token: opts.token ?? null, slug: opts.slug ?? null }) }));
     }
     if (url === PUBLIC_LINK_URL && method === "PUT") {
       opts.token = TOKEN;
-      return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ token: TOKEN }) }));
+      // 重生不動別名＋回全形（server 契約，public-share.test 釘住）
+      return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ token: TOKEN, slug: opts.slug ?? null }) }));
     }
     if (url === PUBLIC_LINK_URL && method === "DELETE") {
       opts.token = null;
+      opts.slug = null; // server 同一支 UPDATE 清兩者
+      return Promise.resolve(fakeResponse({ ok: true, status: 204 }));
+    }
+    if (url === `${PUBLIC_LINK_URL}/slug` && method === "PUT") {
+      const slug = (JSON.parse(String(init?.body)) as { slug: string }).slug;
+      opts.slug = slug;
+      return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ token: opts.token ?? null, slug }) }));
+    }
+    if (url === `${PUBLIC_LINK_URL}/slug` && method === "DELETE") {
+      opts.slug = null;
       return Promise.resolve(fakeResponse({ ok: true, status: 204 }));
     }
     if (url.startsWith(`${SHARES_URL}/`) && method === "DELETE") {
@@ -857,5 +870,121 @@ describe("ShareDialog 三態（#72）", () => {
     await waitFor(() => expect(screen.queryByRole("radio")).not.toBeInTheDocument());
     await openDialog();
     await waitFor(() => expect(screen.getByRole("radio", { name: /Private/ })).toBeChecked());
+  });
+});
+
+// ──────────────── #122 PR3 Task 5：公開別名列 ────────────────
+
+describe("ShareDialog 公開別名列（#122 PR3）", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  async function openPublicDialog(opts: Parameters<typeof stubRoutedFetch>[0]) {
+    const stub = stubRoutedFetch(opts);
+    const queryClient = renderDialog();
+    await openDialog();
+    await waitFor(() => expect(screen.getByRole("radio", { name: /^Public link/ })).toBeChecked());
+    return { stub, queryClient };
+  }
+
+  it("渲染條件：公開態才有別名列；前綴顯示 /p/<ownerHandle>/；提示文案在場", async () => {
+    await openPublicDialog({ shares: [], token: TOKEN });
+    expect(screen.getByLabelText("Custom public link")).toBeInTheDocument();
+    expect(screen.getByText(`/p/${NOTE.ownerHandle}/`)).toBeInTheDocument();
+    expect(screen.getByText(/can be guessed/)).toBeInTheDocument();
+  });
+
+  it("私人態不渲染別名列", async () => {
+    stubRoutedFetch({ shares: [], token: null });
+    renderDialog();
+    await openDialog();
+    await waitFor(() => expect(screen.getByRole("radio", { name: /Private/ })).toBeChecked());
+    expect(screen.queryByLabelText("Custom public link")).not.toBeInTheDocument();
+  });
+
+  it("存流程：PUT …/public-link/slug、快取 token 不被抹（公開連結列仍在）、清除與複製鈕現身", async () => {
+    const { stub, queryClient } = await openPublicDialog({ shares: [], token: TOKEN });
+    fireEvent.change(screen.getByLabelText("Custom public link"), { target: { value: "My-Alias" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save custom URL" }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Remove custom URL" })).toBeInTheDocument());
+    // 打對端點＋client 端先 normalize（小寫）再送
+    expect(stub.calls).toContainEqual({ method: "PUT", url: `${PUBLIC_LINK_URL}/slug` });
+    // 快取全形：token 不得被抹（r4-M1 鏡像——公開連結列消失的故障形）
+    expect(queryClient.getQueryData(["public-link", NOTE.id])).toEqual({ token: TOKEN, slug: "my-alias" });
+    expect(screen.getByLabelText("Public link URL")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copy custom link" })).toBeInTheDocument();
+    // 複製的**內容**（突變審 A1）：漏 handle／自拼 `/p/${slug}`（那是 token 命名
+    // 空間）都在這裡紅。期望值刻意硬編——測試裡呼叫 publicAliasPath 是套套邏輯。
+    const writeText = vi.fn(() => Promise.resolve());
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+    fireEvent.click(screen.getByRole("button", { name: "Copy custom link" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/p/tester/my-alias`));
+  });
+
+  it("清流程：DELETE …/public-link/slug、輸入框清空、token 列仍在（functional setQueryData 保 token）", async () => {
+    const { stub, queryClient } = await openPublicDialog({ shares: [], token: TOKEN, slug: "old-alias" });
+    expect(screen.getByLabelText("Custom public link")).toHaveValue("old-alias");
+    fireEvent.click(screen.getByRole("button", { name: "Remove custom URL" }));
+
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Remove custom URL" })).not.toBeInTheDocument());
+    expect(stub.calls).toContainEqual({ method: "DELETE", url: `${PUBLIC_LINK_URL}/slug` });
+    expect(queryClient.getQueryData(["public-link", NOTE.id])).toEqual({ token: TOKEN, slug: null });
+    expect(screen.getByLabelText("Custom public link")).toHaveValue("");
+    expect(screen.getByLabelText("Public link URL")).toBeInTheDocument();
+  });
+
+  it("409 public_slug_taken → 顯示對應文案；輸入值保留（讓使用者改字重試）", async () => {
+    await openPublicDialog({
+      shares: [],
+      token: TOKEN,
+      onCall: (method, url) =>
+        method === "PUT" && url === `${PUBLIC_LINK_URL}/slug`
+          ? fakeResponse({ ok: false, status: 409, json: () => Promise.resolve({ error: { code: "public_slug_taken", message: "x" } }) })
+          : undefined,
+    });
+    fireEvent.change(screen.getByLabelText("Custom public link"), { target: { value: "taken" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save custom URL" }));
+
+    expect(await screen.findByText("That public URL is already used by another of your notes.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Custom public link")).toHaveValue("taken");
+  });
+
+  it("client 端驗證同源：非法字元就地擋、不打 API", async () => {
+    const { stub } = await openPublicDialog({ shares: [], token: TOKEN });
+    fireEvent.change(screen.getByLabelText("Custom public link"), { target: { value: "bad_alias" } });
+    expect(screen.getByText("Only letters, numbers, and hyphens are allowed.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save custom URL" })).toBeDisabled();
+    expect(stub.calls.filter((c) => c.url.endsWith("/slug"))).toHaveLength(0);
+  });
+});
+
+// A2（突變審）＋plan「confirmHint 文案」：token 在場的私人確認列必須提到公開連結
+// （含自訂公開網址）——這句是 #122 PR3 的交付物，砍掉 token 分支塌回 confirmHint
+// 的突變在這裡紅。
+describe("私人確認流文案（#122 PR3 擴字）", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("有 token 時確認列用 confirmHintWithLink（提及 custom public URL）", async () => {
+    stubRoutedFetch({ shares: [SHARE], token: TOKEN });
+    renderDialog();
+    await openDialog();
+    await waitFor(() => expect(screen.getByRole("radio", { name: /^Public link/ })).toBeChecked());
+    fireEvent.click(screen.getByRole("radio", { name: /Private/ }));
+    expect(
+      await screen.findByText(/turns off the public link \(including its custom public URL\)/),
+    ).toBeInTheDocument();
   });
 });

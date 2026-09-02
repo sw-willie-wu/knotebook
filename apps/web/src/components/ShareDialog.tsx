@@ -1,11 +1,11 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
-import { autoSlugFromTitle, canonicalNotePath, normalizeSlug, validateSlug, type NoteDto, type ShareDto, type ShareRole } from "@knotebook/shared";
+import { autoSlugFromTitle, canonicalNotePath, normalizeSlug, publicAliasPath, validateSlug, type NoteDto, type ShareDto, type ShareRole } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
 import { useUpdateNote } from "@/api/notes";
 import { useDeleteShare, usePutShare, useShares } from "@/api/shares";
-import { useCreatePublicLink, useDeletePublicLink, usePublicLink } from "@/api/public-link";
+import { useClearPublicSlug, useCreatePublicLink, useDeletePublicLink, usePublicLink, useSetPublicSlug } from "@/api/public-link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -198,7 +198,8 @@ function deriveAccess(token: string | null, shares: ShareDto[]): AccessLevel {
  * 再循序 DELETE shares**（順序承重：中止時最壞是「還剩幾位成員」，不是「連結
  * 還開著」）。
  */
-function AccessSection({ noteId }: { noteId: string }) {
+function AccessSection({ note }: { note: NoteDto }) {
+  const noteId = note.id;
   const { t } = useTranslation();
   const sharesQuery = useShares(noteId);
   const linkQuery = usePublicLink(noteId);
@@ -378,15 +379,143 @@ function AccessSection({ noteId }: { noteId: string }) {
               {t("share.access.regenerate")}
             </Button>
           </div>
+          <PublicAliasField note={note} slug={linkQuery.data?.slug ?? null} />
         </div>
       )}
     </div>
   );
 }
 
+/**
+ * 公開別名列（#122 PR3 Task 5）：`/p/<ownerHandle>/<自訂名>` 的設定/清除/複製。
+ * 只在公開態渲染（呼叫端已鎖在 `selection === "public" && publicUrl` 內——別名的
+ * 前置條件「已公開」由此在 UI 面成立，server 端另有 UPDATE 述詞閘門）。
+ *
+ * - **slug 資料搭既有 public-link query 走、不新增 query**（plan gate m9）——#72 的
+ *   latch 三態靠 shares＋public-link 兩 query derive，多一個 query 會破壞其前提。
+ * - 前綴取 `note.ownerHandle`（非 session user）：owner-only 下等價，但與
+ *   canonicalNotePath 同源、不多一個資料來源（plan gate m9）。
+ * - 複製網址走 shared 的 `publicAliasPath`（`/p/` 兩段形頁面網址唯一組字點）。
+ * - setValue 判準與 SlugField 同款（初值/persist 都是 `slug 存在→值、null→""`；
+ *   別名只有設/未設兩態，沒有 SlugField 的 auto/custom 第三態）；client 端
+ *   normalizeSlug/validateSlug 先擋（與 server prepareSlugForPatch 同源），
+ *   409 `public_slug_taken`／429 走 server 回應＋ errors.<code>。
+ * - ⚠ props 變、state 不變的皺褶與 SlugField 同款（mount 後 slug prop 換值——
+ *   recoverFromError 的 refetch、跨分頁 focus refetch——輸入框留舊值、dirty 亮起）：
+ *   同款接受理由，別只修一邊。
+ * - a11y/e2e 名字契約（plan gate m8 擴充；Playwright 預設子字串比對）：input＝
+ *   "Custom public link"、存/清鈕 aria-label＝"Save custom URL"/"Remove custom URL"、
+ *   複製＝"Copy custom link"——四個新名彼此互不為子字串、皆不含 "Public link URL"。
+ *   已知包含關係（e2e 要留意）：⚠ "Save custom URL" ⊃ "Save"、"Remove custom URL"
+ *   ⊃ "Remove"——**公開態下 e2e 查 SlugField 的 Save（或任何短名鈕）必須
+ *   `exact: true`**；"Copy custom link" ⊃ "Custom link"（僅按鈕文字面——getByLabel
+ *   不認按鈕文字、getByRole('textbox') 有 role 隔離，實務不撞）。
+ */
+function PublicAliasField({ note, slug }: { note: NoteDto; slug: string | null }) {
+  const { t } = useTranslation();
+  const setSlug = useSetPublicSlug(note.id);
+  const clearSlug = useClearPublicSlug(note.id);
+
+  const [value, setValue] = useState(slug ?? "");
+  const [serverError, setServerError] = useState<string | null>(null);
+
+  const trimmed = value.trim();
+  const normalized = trimmed.length > 0 ? normalizeSlug(trimmed) : "";
+  const localReason = trimmed.length > 0 ? validateSlug(normalized) : null;
+  const localError = localReason ? t(`share.slugError.${localReason}`) : null;
+  const dirty = trimmed !== (slug ?? "");
+  const busy = setSlug.isPending || clearSlug.isPending;
+
+  const aliasUrl = slug ? `${window.location.origin}${publicAliasPath({ handle: note.ownerHandle, slug })}` : null;
+
+  async function handleSave(): Promise<void> {
+    if (localError || trimmed.length === 0 || !dirty) return;
+    setServerError(null);
+    try {
+      const updated = await setSlug.mutateAsync(normalized);
+      setValue(updated.slug ?? "");
+    } catch (err) {
+      setServerError(errorMessage(t, err));
+    }
+  }
+
+  async function handleClear(): Promise<void> {
+    setServerError(null);
+    try {
+      await clearSlug.mutateAsync();
+      setValue("");
+    } catch (err) {
+      setServerError(errorMessage(t, err));
+    }
+  }
+
+  return (
+    <div className="space-y-1">
+      <label htmlFor="share-public-slug" className="text-sm font-medium">
+        {t("share.publicSlug.label")}
+      </label>
+      <div className="flex items-center gap-2">
+        {/* 前綴也走 publicAliasPath（slug 留空恰得 `/p/<handle>/`）——與複製鈕同一組字
+            點，兩處各自拼字串就是 shared JSDoc 明令禁止的漂移形（讀碼審 M1） */}
+        <span id="share-public-slug-prefix" className="shrink-0 text-xs text-muted-foreground">
+          {publicAliasPath({ handle: note.ownerHandle, slug: "" })}
+        </span>
+        <Input
+          id="share-public-slug"
+          aria-describedby="share-public-slug-prefix share-public-slug-hint"
+          value={value}
+          onChange={(event) => {
+            setValue(event.target.value);
+            setServerError(null);
+          }}
+          className="min-w-0 flex-1"
+        />
+        {/* aria-label 給專屬名：同 dialog 的 SlugField 也有一顆 "Save"，同名對 AT
+            與 e2e strict-mode 都含糊（顯示文字維持短的） */}
+        <Button
+          type="button"
+          size="sm"
+          aria-label={t("share.publicSlug.saveLabel")}
+          onClick={() => void handleSave()}
+          disabled={!dirty || trimmed.length === 0 || localError !== null || busy}
+        >
+          {t("share.publicSlug.save")}
+        </Button>
+        {slug !== null && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            aria-label={t("share.publicSlug.clearLabel")}
+            onClick={() => void handleClear()}
+            disabled={busy}
+          >
+            {t("share.publicSlug.clear")}
+          </Button>
+        )}
+      </div>
+      {aliasUrl && <PublicCopyButton url={aliasUrl} label={t("share.publicSlug.copy")} />}
+      <p id="share-public-slug-hint" className="text-xs text-muted-foreground">
+        {t("share.publicSlug.hint")}
+      </p>
+      {localError && (
+        <p role="alert" className="text-sm text-destructive">
+          {localError}
+        </p>
+      )}
+      {!localError && serverError && (
+        <p role="alert" className="text-sm text-destructive">
+          {serverError}
+        </p>
+      )}
+    </div>
+  );
+}
+
 /** 複製公開連結（與 CopyLinkButton 同一套 clipboard 三段退路，語意分明：這顆複製
- * 的是免登入的 /p/ 連結，不是內部 canonical 連結）。 */
-function PublicCopyButton({ url }: { url: string }) {
+ * 的是免登入的 /p/ 連結，不是內部 canonical 連結）。`label` 讓別名列給自己的名字
+ * （"Copy custom link"）——同 dialog 兩顆同名複製鈕會讓 e2e strict-mode 紅。 */
+function PublicCopyButton({ url, label }: { url: string; label?: string }) {
   const { t } = useTranslation();
   const [manualUrl, setManualUrl] = useState<string | null>(null);
 
@@ -402,7 +531,7 @@ function PublicCopyButton({ url }: { url: string }) {
   return (
     <div className="flex flex-col gap-2">
       <Button type="button" variant="secondary" size="sm" onClick={() => void handleCopy()}>
-        {t("share.copyPublicLink")}
+        {label ?? t("share.copyPublicLink")}
       </Button>
       {manualUrl !== null && <ManualCopyField value={manualUrl} />}
     </div>
@@ -587,7 +716,7 @@ export function ShareDialog({ note }: ShareDialogProps) {
         </DialogHeader>
         {open && (
           <div className="space-y-4">
-            <AccessSection noteId={note.id} />
+            <AccessSection note={note} />
             <CopyLinkButton note={note} />
             <SharesSection noteId={note.id} />
             <SlugField note={note} />
