@@ -1,9 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { EMPTY_YDOC_UPDATE_B64, SESSION_COOKIE } from "@knotebook/shared";
-import { buildTestApp, testConfig } from "./helpers.js";
+import { buildTestApp, freshDb, testConfig } from "./helpers.js";
 import { noteShares, noteStates, notes, uploads, users } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
-import { signSession } from "../src/auth/session.js";
+import { UserGate, signSession } from "../src/auth/session.js";
+import { drizzle } from "drizzle-orm/node-postgres";
 import { randomBytes } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -47,7 +48,7 @@ describe("公開連結管理端（GET/PUT/DELETE /api/notes/:id/public-link）",
 
     const g0 = await app.inject({ method: "GET", url: `/api/notes/${noteId}/public-link`, cookies: { [SESSION_COOKIE]: cookie } });
     expect(g0.statusCode).toBe(200);
-    expect(g0.json()).toEqual({ token: null });
+    expect(g0.json()).toEqual({ token: null, slug: null });
 
     const p1 = await app.inject({ method: "PUT", url: `/api/notes/${noteId}/public-link`, cookies: { [SESSION_COOKIE]: cookie } });
     expect(p1.statusCode).toBe(200);
@@ -55,7 +56,7 @@ describe("公開連結管理端（GET/PUT/DELETE /api/notes/:id/public-link）",
     expect(token1).toMatch(TOKEN_RE);
 
     const g1 = await app.inject({ method: "GET", url: `/api/notes/${noteId}/public-link`, cookies: { [SESSION_COOKIE]: cookie } });
-    expect(g1.json()).toEqual({ token: token1 });
+    expect(g1.json()).toEqual({ token: token1, slug: null });
 
     // 重生：token 必換（PUT 語意＝每次都重生）
     const p2 = await app.inject({ method: "PUT", url: `/api/notes/${noteId}/public-link`, cookies: { [SESSION_COOKIE]: cookie } });
@@ -66,7 +67,7 @@ describe("公開連結管理端（GET/PUT/DELETE /api/notes/:id/public-link）",
     const d = await app.inject({ method: "DELETE", url: `/api/notes/${noteId}/public-link`, cookies: { [SESSION_COOKIE]: cookie } });
     expect(d.statusCode).toBe(204);
     const g2 = await app.inject({ method: "GET", url: `/api/notes/${noteId}/public-link`, cookies: { [SESSION_COOKIE]: cookie } });
-    expect(g2.json()).toEqual({ token: null });
+    expect(g2.json()).toEqual({ token: null, slug: null });
 
     // DELETE 對 token 狀態冪等：已是 null 再 DELETE 照樣 204（404 只留給 note 本身
     // 不見了的 I2 情境）。
@@ -111,13 +112,13 @@ describe("公開連結管理端（GET/PUT/DELETE /api/notes/:id/public-link）",
     // 再由 owner 開一顆後重跑（結束仍是同一顆）。
     await runMatrix();
     const gNull = await app.inject({ method: "GET", url: `/api/notes/${noteId}/public-link`, cookies: { [SESSION_COOKIE]: ownerCookie } });
-    expect(gNull.json()).toEqual({ token: null });
+    expect(gNull.json()).toEqual({ token: null, slug: null });
 
     const put = await app.inject({ method: "PUT", url: `/api/notes/${noteId}/public-link`, cookies: { [SESSION_COOKIE]: ownerCookie } });
     const ownerToken = put.json().token as string;
     await runMatrix();
     const gAfter = await app.inject({ method: "GET", url: `/api/notes/${noteId}/public-link`, cookies: { [SESSION_COOKIE]: ownerCookie } });
-    expect(gAfter.json()).toEqual({ token: ownerToken });
+    expect(gAfter.json()).toEqual({ token: ownerToken, slug: null });
   });
 
   it("節流只掛 PUT/DELETE（10/10min，key=userId）：GET 開 11 次全 200；PUT+DELETE 合計超過 10 次 → 429", async () => {
@@ -172,6 +173,249 @@ describe("公開連結管理端（GET/PUT/DELETE /api/notes/:id/public-link）",
     }
     const over = await app.inject({ method: "PUT", url: `/api/notes/${noteId}/public-link`, cookies: { [SESSION_COOKIE]: sc } });
     expect(over.statusCode).toBe(429); // consume 若移到授權之後，這裡會是 404
+  });
+});
+
+// ──────────────────── #122 PR3 Task 2：公開別名管理端 ────────────────────
+
+describe("公開別名管理端（PUT/DELETE /api/notes/:id/public-link/slug）", () => {
+  /** owner 建一篇並開公開，回 [noteId, token]。 */
+  async function publicNote(app: Awaited<ReturnType<typeof buildTestApp>>["app"], cookie: string): Promise<[string, string]> {
+    const noteId = await createNote(app, cookie);
+    const token = await openPublicLink(app, cookie, noteId);
+    return [noteId, token];
+  }
+  const putSlug = (app: Awaited<ReturnType<typeof buildTestApp>>["app"], cookie: string, noteId: string, slug: string) =>
+    app.inject({ method: "PUT", url: `/api/notes/${noteId}/public-link/slug`, cookies: { [SESSION_COOKIE]: cookie }, payload: { slug } });
+  const delSlug = (app: Awaited<ReturnType<typeof buildTestApp>>["app"], cookie: string, noteId: string) =>
+    app.inject({ method: "DELETE", url: `/api/notes/${noteId}/public-link/slug`, cookies: { [SESSION_COOKIE]: cookie } });
+  const getLink = (app: Awaited<ReturnType<typeof buildTestApp>>["app"], cookie: string, noteId: string) =>
+    app.inject({ method: "GET", url: `/api/notes/${noteId}/public-link`, cookies: { [SESSION_COOKIE]: cookie } });
+
+  it("owner 全流程：設別名回 {token, slug} 全形 → GET 同形 → DELETE slug 204（token 留）→ 冪等 204", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, "owner-ps1@example.com");
+    const cookie = await cookieFor(owner.id);
+    const [noteId, token] = await publicNote(app, cookie);
+
+    const p = await putSlug(app, cookie, noteId, "my-alias");
+    expect(p.statusCode).toBe(200);
+    // 全形釘住（gate r4-M1）：web mutation 直寫回應進快取，token 缺席＝快取 token 被
+    // 抹成 undefined→公開連結列消失。
+    expect(p.json()).toEqual({ token, slug: "my-alias" });
+
+    const g = await getLink(app, cookie, noteId);
+    expect(g.json()).toEqual({ token, slug: "my-alias" });
+
+    const d = await delSlug(app, cookie, noteId);
+    expect(d.statusCode).toBe(204);
+    const g2 = await getLink(app, cookie, noteId);
+    expect(g2.json()).toEqual({ token, slug: null }); // token 不動，只清別名
+
+    // 冪等：本無別名再 DELETE 照樣 204
+    expect((await delSlug(app, cookie, noteId)).statusCode).toBe(204);
+  });
+
+  it("未公開（token NULL）設別名 → 400 invalid_body 且 DB 無殘留（rowcount-0 路徑的行為級殺手）", async () => {
+    // 取消 token pre-read 後（plan r3-m1），這一案直接走「條件式 UPDATE 述詞不成立→
+    // rowcount 0→400」——同時殺「刪 public_token is not null 述詞」（會變 200）與
+    // 「忽略 rowcount 照回 200」兩類突變。
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, "owner-ps2@example.com");
+    const cookie = await cookieFor(owner.id);
+    const noteId = await createNote(app, cookie); // 不開公開
+    const r = await putSlug(app, cookie, noteId, "early-alias");
+    expect(r.statusCode).toBe(400);
+    expect(r.json().error.code).toBe("invalid_body");
+    const [row] = await db.select({ publicSlug: notes.publicSlug }).from(notes).where(eq(notes.id, noteId)).limit(1);
+    expect(row.publicSlug).toBeNull(); // 述詞擋下＝零殘留列
+  });
+
+  it("owner 矩陣（editor/viewer→403、stranger→404，PUT/DELETE 同慣例）＋無副作用鑑別", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, "owner-ps3@example.com");
+    const editor = await insertUser(db, "editor-ps3@example.com");
+    const viewer = await insertUser(db, "viewer-ps3@example.com");
+    const stranger = await insertUser(db, "stranger-ps3@example.com");
+    const ownerCookie = await cookieFor(owner.id);
+    const [noteId, token] = await publicNote(app, ownerCookie);
+    await db.insert(noteShares).values([
+      { noteId, userId: editor.id, role: "editor" },
+      { noteId, userId: viewer.id, role: "viewer" },
+    ]);
+    expect((await putSlug(app, ownerCookie, noteId, "kept-alias")).statusCode).toBe(200);
+
+    for (const [user, expected, code] of [
+      [editor, 403, "forbidden"],
+      [viewer, 403, "forbidden"],
+      [stranger, 404, "not_found"],
+    ] as const) {
+      const c = await cookieFor(user.id);
+      const p = await putSlug(app, c, noteId, "hijack");
+      expect(p.statusCode, `PUT as ${user.email}`).toBe(expected);
+      expect(p.json().error.code).toBe(code);
+      const d = await delSlug(app, c, noteId);
+      expect(d.statusCode, `DELETE as ${user.email}`).toBe(expected);
+      expect(d.json().error.code).toBe(code);
+    }
+    // 無副作用鑑別（比照 public-link 矩陣）：403/404 的 PUT/DELETE 不得動到別名
+    const g = await getLink(app, ownerCookie, noteId);
+    expect(g.json()).toEqual({ token, slug: "kept-alias" });
+  });
+
+  it("409 public_slug_taken：同 owner 兩篇撞別名；跨 owner 同名共存；且與私人 slug 不互佔", async () => {
+    const { app, db } = await buildTestApp();
+    const a = await insertUser(db, "owner-a-ps4@example.com");
+    const b = await insertUser(db, "owner-b-ps4@example.com");
+    const ca = await cookieFor(a.id);
+    const cb = await cookieFor(b.id);
+    const [noteA1] = await publicNote(app, ca);
+    const [noteA2] = await publicNote(app, ca);
+    const [noteB] = await publicNote(app, cb);
+
+    expect((await putSlug(app, ca, noteA1, "team-doc")).statusCode).toBe(200);
+    const clash = await putSlug(app, ca, noteA2, "team-doc");
+    expect(clash.statusCode).toBe(409);
+    expect(clash.json().error.code).toBe("public_slug_taken");
+    // 無部分寫入（讀碼審 m4）：單條 UPDATE 的原子性下 409＝零落地——若未來改成
+    // pre-check＋分步寫，這兩行是唯一會抓到殘影的地方
+    const [a2row] = await db.select({ publicSlug: notes.publicSlug }).from(notes).where(eq(notes.id, noteA2)).limit(1);
+    expect(a2row.publicSlug).toBeNull();
+    const [a1row] = await db.select({ publicSlug: notes.publicSlug }).from(notes).where(eq(notes.id, noteA1)).limit(1);
+    expect(a1row.publicSlug).toBe("team-doc");
+    // 跨 owner 同名：per-user 語意
+    expect((await putSlug(app, cb, noteB, "team-doc")).statusCode).toBe(200);
+    // 同 owner 的**私人** slug 同名不佔別名命名空間（欄位獨立；migrate.test 有 DB 層案，
+    // 這裡釘端點層沒偷加跨欄 pre-check）
+    const patch = await app.inject({ method: "PATCH", url: `/api/notes/${noteA2}`, cookies: { [SESSION_COOKIE]: ca }, payload: { slug: "team-doc" } });
+    expect(patch.statusCode).toBe(200);
+  });
+
+  it("驗證漏斗與 PATCH slug 同源：畸形 body/保留字/uuid 形/非法 → 400 且**耗桶**；大小寫混合 → 正規化成小寫", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, "owner-ps5@example.com");
+    const cookie = await cookieFor(owner.id);
+    const [noteId] = await publicNote(app, cookie);
+
+    // 桶算術（SLUG_PATCH_LIMIT=10，先計後驗＝400 也計）：畸形 body ×2 ＋ 驗證違例
+    // ×4 ＋ 合法 ×1 ＋ 驗證違例 ×3 ＝ 10 → 第 11 次（合法）必 429。
+    // 突變審 L1：沒有這條尾斷言，「consume 挪到驗證後（400 不耗桶）」全套照綠——
+    // 那正是 JSDoc「先計後驗」的反例（登入者可零成本無限打驗證面）。
+    // 畸形 body（無 zod schema，手寫守衛——突變審 L3：整段刪掉會變 500 且無人紅）
+    for (const payload of [{}, { slug: 123 }]) {
+      const r = await app.inject({ method: "PUT", url: `/api/notes/${noteId}/public-link/slug`, cookies: { [SESSION_COOKIE]: cookie }, payload });
+      expect(r.statusCode, JSON.stringify(payload)).toBe(400);
+      expect(r.json().error.code).toBe("invalid_body");
+    }
+    // ⚠ `café` 是**合法**輸入（slug 字元集是 \p{L}\p{N}-，spec §3a 在地化 slug）——
+    // 別把它當非法案例；真正的 charset 違例用底線。
+    for (const bad of ["new", "f47ac10b-58cc-4372-a567-0e02b2c3d479", "under_score", ""]) {
+      const r = await putSlug(app, cookie, noteId, bad);
+      expect(r.statusCode, JSON.stringify(bad)).toBe(400);
+      expect(r.json().error.code).toBe("invalid_body");
+    }
+    const ok = await putSlug(app, cookie, noteId, "MiXeD-Alias");
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json().slug).toBe("mixed-alias");
+    for (const bad of ["also_bad", "still_bad", "worse_bad"]) {
+      expect((await putSlug(app, cookie, noteId, bad)).statusCode, bad).toBe(400);
+    }
+    // 第 11 次：合法輸入也 429——400 若不耗桶，這裡會是 200
+    const over = await putSlug(app, cookie, noteId, "over-alias");
+    expect(over.statusCode).toBe(429);
+  });
+
+  it("節流併 slugPatch 桶（交叉計數）：PATCH slug 與別名 PUT/DELETE 合計 10 次後第 11 次 429", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, "owner-ps6@example.com");
+    const cookie = await cookieFor(owner.id);
+    const [noteId] = await publicNote(app, cookie);
+
+    // 交叉消耗同一顆 user 桶：PATCH slug ×4 ＋ 別名 PUT ×3 ＋ 別名 DELETE ×3 ＝ 10
+    for (let i = 0; i < 4; i += 1) {
+      expect((await app.inject({ method: "PATCH", url: `/api/notes/${noteId}`, cookies: { [SESSION_COOKIE]: cookie }, payload: { slug: `pv-${i}` } })).statusCode).toBe(200);
+    }
+    for (let i = 0; i < 3; i += 1) {
+      expect((await putSlug(app, cookie, noteId, `alias-${i}`)).statusCode).toBe(200);
+      expect((await delSlug(app, cookie, noteId)).statusCode).toBe(204);
+    }
+    // 第 11 次（別名 PUT）——若別名端點誤開自己的桶或併進 publicLink 桶，這裡會 200
+    const over = await putSlug(app, cookie, noteId, "alias-over");
+    expect(over.statusCode).toBe(429);
+    expect(over.json().error.code).toBe("too_many_requests");
+    // 反向鑑別：桶滿後 PATCH slug 也 429（同一顆桶的另一面）
+    const patchOver = await app.inject({ method: "PATCH", url: `/api/notes/${noteId}`, cookies: { [SESSION_COOKIE]: cookie }, payload: { slug: "pv-over" } });
+    expect(patchOver.statusCode).toBe(429);
+  });
+
+  it("先授權後扣（與 publicLink 桶相反的紀律）：stranger 連打 404 不耗桶——PUT/DELETE 兩支各釘", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, "owner-ps7@example.com");
+    const stranger = await insertUser(db, "stranger-ps7@example.com");
+    const [noteId] = await publicNote(app, await cookieFor(owner.id));
+    const sc = await cookieFor(stranger.id);
+    // 突變審 L2：兩支**分開**灌——只灌 PUT 的話「DELETE 半邊 consume 挪到授權前」
+    // 全套照綠（半邊紀律反轉觀測不到）。
+    for (let i = 0; i < 12; i += 1) {
+      expect((await putSlug(app, sc, noteId, "poke")).statusCode).toBe(404); // 不是 429
+      expect((await delSlug(app, sc, noteId)).statusCode).toBe(404);
+    }
+    // stranger 自己的公開筆記照樣能設＋清別名——24 次 404 都沒吃他的 slugPatch 桶
+    const [own] = await publicNote(app, sc);
+    expect((await putSlug(app, sc, own, "own-alias")).statusCode).toBe(200);
+    expect((await delSlug(app, sc, own)).statusCode).toBe(204);
+  });
+
+  it("重生 token 不動別名（回 {token, slug} 全形）；DELETE public-link 清兩者且別名不復活", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, "owner-ps8@example.com");
+    const cookie = await cookieFor(owner.id);
+    const [noteId, token1] = await publicNote(app, cookie);
+    expect((await putSlug(app, cookie, noteId, "stable-alias")).statusCode).toBe(200);
+
+    // 重生：token 換、別名留；回應是 {token, slug} 全形（web onSuccess 直寫快取）
+    const regen = await app.inject({ method: "PUT", url: `/api/notes/${noteId}/public-link`, cookies: { [SESSION_COOKIE]: cookie } });
+    expect(regen.statusCode).toBe(200);
+    const token2 = regen.json().token as string;
+    expect(token2).toMatch(TOKEN_RE);
+    expect(token2).not.toBe(token1);
+    expect(regen.json()).toEqual({ token: token2, slug: "stable-alias" });
+
+    // 撤公開：同一支 UPDATE 清 token＋public_slug 兩者
+    expect((await app.inject({ method: "DELETE", url: `/api/notes/${noteId}/public-link`, cookies: { [SESSION_COOKIE]: cookie } })).statusCode).toBe(204);
+    expect((await getLink(app, cookie, noteId)).json()).toEqual({ token: null, slug: null });
+    const [row] = await db.select({ publicSlug: notes.publicSlug, publicToken: notes.publicToken }).from(notes).where(eq(notes.id, noteId)).limit(1);
+    expect(row).toEqual({ publicSlug: null, publicToken: null });
+
+    // 再開公開：別名不復活（「以為刪掉的別名自己回來」是 plan gate M-2 點名的故障形）
+    const reopened = await app.inject({ method: "PUT", url: `/api/notes/${noteId}/public-link`, cookies: { [SESSION_COOKIE]: cookie } });
+    expect(reopened.json().slug).toBeNull();
+  });
+
+  it("語句形狀守衛（雙保險）：別名 PUT 無 token pre-read、恰一條 UPDATE 且述詞含 public_token is not null", async () => {
+    // 行為級殺手是「未公開→400」案；這裡再釘語句形（plan gate M-2）：述詞無參數、
+    // 必逐字出現在 SQL 文字，防未來有人把閘門搬回 pre-read（TOCTOU 窗重開）。
+    const { pool, db } = await freshDb();
+    const queries: string[] = [];
+    const loggedDb = drizzle(pool, { logger: { logQuery: (q: string) => queries.push(q) } }) as unknown as Db;
+    // gate 也要跟著換（notes-slug.test 的雷：只換 db 會 401）
+    const { app } = await buildTestApp({ db: loggedDb, gate: new UserGate(loggedDb) });
+    const owner = await insertUser(db, "owner-ps9@example.com");
+    const cookie = await cookieFor(owner.id);
+    const [noteId] = await publicNote(app, cookie);
+
+    queries.length = 0;
+    expect((await putSlug(app, cookie, noteId, "shape-alias")).statusCode).toBe(200);
+    const updates = queries.filter(q => /^update/i.test(q.trim()));
+    expect(updates).toHaveLength(1);
+    expect(updates[0]).toMatch(/public_token" is not null/);
+    // 無 pre-read：resolveRole 之外不得再有讀 public_token/public_slug 的 SELECT
+    expect(queries.filter(q => /^select/i.test(q.trim()) && /public_(token|slug)/.test(q))).toHaveLength(0);
+
+    // DELETE 側：恰一條 UPDATE（無條件述詞要求——清 NULL 本就冪等）
+    queries.length = 0;
+    expect((await delSlug(app, cookie, noteId)).statusCode).toBe(204);
+    expect(queries.filter(q => /^update/i.test(q.trim()))).toHaveLength(1);
   });
 });
 

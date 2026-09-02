@@ -341,6 +341,7 @@
     "share_not_found": "That share no longer exists.",
     "slug_taken": "That URL is already used by another of your notes.",
     "handle_taken": "That username is already taken.",
+    "public_slug_taken": "That public URL is already used by another of your notes.",
     "not_loaded": "This note isn't ready for that yet. Please try again.",
     "file_too_large": "That file is too large to upload.",
     "ai_not_configured": "AI is not configured yet",

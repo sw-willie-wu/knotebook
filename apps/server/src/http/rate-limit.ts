@@ -28,7 +28,9 @@ export const OIDC_LIMIT = { limit: 30, windowMs: 60_000 } as const;
 /**
  * #72：`PUT/DELETE /api/notes/:id/public-link` 節流（key=userId）。**GET 不吃這桶**
  * ——分享面板開啟即 GET，10 分鐘開 11 次面板是正常操作；掛上去就是 OIDC issue #16
- * 那族「共桶讓額度砍半」的變形。
+ * 那族「共桶讓額度砍半」的變形。⚠ #122 PR3 的 `PUT/DELETE …/public-link/slug`
+ * 兩支**不在此桶**——別名是另一種 slug 寫入，併 `slugPatch` 桶（先授權後扣，與
+ * 這桶的「先扣後授權」相反；兩紀律並存的理由見 routes/notes.ts 五支總註解）。
  */
 export const PUBLIC_LINK_LIMIT = { limit: 10, windowMs: 600_000 } as const;
 /**

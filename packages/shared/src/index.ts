@@ -125,6 +125,7 @@ export const ERROR_CODES = [
   "share_not_found",
   "slug_taken",
   "handle_taken",
+  "public_slug_taken",
   "not_loaded",
   "file_too_large",
   "ai_not_configured",

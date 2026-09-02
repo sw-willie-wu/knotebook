@@ -341,6 +341,7 @@
     "share_not_found": "此共享項目已不存在。",
     "slug_taken": "此網址已被你的另一篇筆記使用。",
     "handle_taken": "此使用者名已被使用。",
+    "public_slug_taken": "此公開網址已被你的另一篇筆記使用。",
     "not_loaded": "此筆記目前尚未就緒，請稍後再試。",
     "file_too_large": "檔案過大，無法上傳。",
     "ai_not_configured": "尚未設定 AI",
