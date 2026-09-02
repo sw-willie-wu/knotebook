@@ -213,3 +213,189 @@ export const aiActions = pgTable("ai_actions", {
   sortOrder: integer("sort_order").notNull().default(0),
   enabled: boolean().notNull().default(true),
 }, t => [check("ai_actions_apply_mode_chk", sql`${t.applyMode} in ('direct','preview')`)]);
+
+/**
+ * #107／#132：OAuth client（由 Dynamic Client Registration 建立）。
+ *
+ * **#130 完全不寫這張表**——四張表一次建齊只是為了讓 #132 不必再開一次 migration，
+ * 空表無害；結構守衛在 `test/migrate.test.ts` 的 `0009_api-tokens` 那個 describe。
+ *
+ * `client_name` 是 client **自述、未經驗證**的字串，而且會渲染在同意頁上——它是
+ * 「只收 loopback redirect」之外唯一的釣魚防線。DCR 是免認證端點，所以長度在 DB 端
+ * 就擋（1..64，與 DCR 端點的 zod 同一個數字）：無上限的話，一個 1 MB 的名字會一路進 DB、進同意頁 DOM、再進
+ * `api_tokens.name` 的快照與每一次 `GET /api/auth/tokens` 的回應。
+ * ⚠ **控制字元／bidi 覆寫的過濾在 DCR 端點做（#132），DB 只管長度與形狀**。
+ *
+ * `redirect_uris` 只在 DB 端保證「是 1..8 個元素的 JSON 陣列」；**loopback-only 的
+ * 判定在 DCR 端點**（要解析 URL，SQL 表達不了），別以為有東西在 DB 擋。
+ *
+ * `client_id` 是 server 自產的隨機值，故**刻意沒有** `handles.handle` 那種形狀
+ * CHECK：那條是用來擋使用者輸入的，這裡沒有使用者輸入。
+ *
+ * `last_used_at` 是 **NOT NULL DEFAULT now()**，與 `api_tokens.last_used_at`（nullable，
+ * NULL＝從未使用）**刻意相反**：#132 的清理拿它跟「30 天前」比，用 NOT NULL 才不必在
+ * 述詞裡處理 NULL；而 `api_tokens` 那邊要在設定頁顯示「從未使用」，需要分辨得出來。
+ */
+export const oauthClients = pgTable(
+  "oauth_clients",
+  {
+    clientId: text("client_id").primaryKey(),
+    clientName: text("client_name").notNull(),
+    redirectUris: jsonb("redirect_uris").$type<string[]>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  t => [
+    check("oauth_clients_name_chk", sql`length(${t.clientName}) between 1 and 64`),
+    check(
+      "oauth_clients_redirect_uris_chk",
+      sql`jsonb_typeof(${t.redirectUris}) = 'array' and jsonb_array_length(${t.redirectUris}) between 1 and 8`
+    ),
+  ]
+);
+
+/**
+ * #107：API token（grant）。PAT 與 OAuth 授權共用同一張表、同一條 Bearer 驗證、
+ * 同一份設定頁列表——`kind` 是唯一的分野。合表的理由：一條 Bearer 查詢、一份設定頁
+ * 列表、一個撤銷端點；拆兩張表要換來 UNION 查詢與兩套撤銷路徑。代價是三個 nullable
+ * 欄，由下面四條 CHECK 在 DB 端把非法組合擋掉（判斷在 DB 端做，比照 ai_providers 的
+ * 金鑰判定紀律）。
+ *
+ * `access_token_hash`／`refresh_token_hash` 存 sha256 hex，**明文不落任何儲存**：
+ * 只在 `POST /api/auth/tokens` 的 201 與 #132 的 `/oauth/token` 200 出現一次。
+ * `access_token_hash` 是**全域**唯一（不是 per-user）——Bearer 驗證是「拿 hash 查一列」，
+ * 允許重複就會變成同一串明文對到兩個身分。熱路徑 `WHERE access_token_hash = $1` 走
+ * 這條 UNIQUE 隱含的 btree，**不需要另建索引**。
+ *
+ * `access_expires_at` 對 PAT 可 NULL（預設不到期），對 oauth 由 CHECK 強制非 NULL
+ * （access 24h，過期後只剩 refresh 能換發）。⚠ 認證述詞是「**非 NULL 且已過期**才拒」
+ * ——寫成 `access_expires_at > now()` 會讓每支預設 PAT 全滅（Bearer 驗證在 #130 的後續
+ * task 才落地，屆時的實作檔是 `auth/bearer.ts`）。
+ *
+ * `name` 對 PAT 是使用者自取（端點另以 zod 限 1..64），對 oauth 是
+ * `oauth_clients.client_name` 的**快照**——client 之後改名，既有 grant 上的名字不會跟著
+ * 動（比照 `users.handle` 的反正規化副本）。DB 的 1..64 與端點的 zod 是**同一個數字**：
+ * CHECK 是繞過端點（migration／psql）時的兜底，不是另一套較寬的規則。⚠ 兩張表的
+ * 上限必須一起改——`name` 是 `client_name` 的快照，這邊較嚴就會在複製時撞 CHECK。
+ *
+ * ⚠ **PAT 不受 `users.token_version` 撤銷保護**：那是「登出所有裝置」的機制，與這張表
+ * 零關聯。使用者改密碼後 API token 仍然有效（刻意，比照 GitHub PAT），撤銷只能逐支
+ * 刪列——這是最容易被當成 bug 回報的行為，#130 的 docs task 要把它寫進
+ * `docs/api-tokens.md` 的安全提醒段（該檔此刻還不存在）。
+ *
+ * `api_tokens_oauth_user_client_uidx` 是「同一 (user, client) 只留一個 grant」的
+ * **結構性保證**：#132 兩張並發 code 各自「先刪後插」的 race 由索引裁決，撞索引者回
+ * `invalid_grant`。partial（`where kind='oauth'`）讓 PAT 完全不受約束。
+ *
+ * `api_tokens_refresh_chk` 順帶把「**每個 oauth grant 一定有 refresh token**」寫死成
+ * 結構不變量。#132 若要發不帶 refresh 的短期 grant，得改這條 CHECK＝再開一支 migration。
+ */
+export const apiTokens = pgTable(
+  "api_tokens",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: text().notNull(),
+    name: text().notNull(),
+    scope: text().notNull(),
+    accessTokenHash: text("access_token_hash").notNull().unique(),
+    refreshTokenHash: text("refresh_token_hash").unique(),
+    clientId: text("client_id").references(() => oauthClients.clientId, { onDelete: "cascade" }),
+    accessExpiresAt: timestamp("access_expires_at", { withTimezone: true }),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  t => [
+    check("api_tokens_kind_chk", sql`${t.kind} in ('pat','oauth')`),
+    // 落庫形是正規化過的**集合**字串（`normalizeScope` 的兩個輸出），不是裸的單值。
+    check("api_tokens_scope_chk", sql`${t.scope} in ('notes:read','notes:read notes:write')`),
+    check("api_tokens_name_chk", sql`length(${t.name}) between 1 and 64`),
+    // 兩條都是**雙向**蘊含：pat ⇔ 沒有 client／refresh，oauth ⇔ 兩者都有。單向版
+    // （只擋 pat 那半邊）會讓 #132 少塞一欄時靜默放行半截列——測試四格矩陣都釘住了。
+    check("api_tokens_client_chk", sql`(${t.kind} = 'pat') = (${t.clientId} is null)`),
+    check("api_tokens_refresh_chk", sql`(${t.kind} = 'pat') = (${t.refreshTokenHash} is null)`),
+    check("api_tokens_oauth_expiry_chk", sql`${t.kind} = 'pat' or ${t.accessExpiresAt} is not null`),
+    index("api_tokens_user_idx").on(t.userId),
+    // FK 的支撐索引（比照 note_shares_user_idx／uploads_note_idx 的既有慣例）：
+    // 刪一個 oauth client 會 CASCADE 掃這張表，而 oauth_user_client_uidx 的前導欄是
+    // user_id，服務不了 `WHERE client_id = $1`。
+    index("api_tokens_client_idx").on(t.clientId),
+    uniqueIndex("api_tokens_oauth_user_client_uidx")
+      .on(t.userId, t.clientId)
+      .where(sql`${t.kind} = 'oauth'`),
+  ]
+);
+
+/**
+ * #132：pending authorization request（同意頁只認它的 id，不認散裝參數）。#130 不寫。
+ *
+ * `state` 原樣存原樣回——RFC 6749 §4.1.2 要求回 client 送來的 exact value，**不得截斷**；
+ * 2048 的上限擋的是「client 送一個超大 state 把表撐爆」。
+ *
+ * `code_challenge` **只存值、不存 method**：#132 的 `/authorize` 只接受
+ * `code_challenge_method=S256`，`plain` 直接回 `invalid_request`（`plain` 等於沒有
+ * PKCE）。因此不需要 method 欄——**別看到裸的 code_challenge 就以為可以存 plain**。
+ *
+ * `id` 是 server 自產的隨機值，同 `oauth_clients.client_id`，刻意沒有形狀 CHECK。
+ *
+ * #132 的清理是 `DELETE ... WHERE expires_at < now()`，**刻意不建 expires_at 索引**：
+ * 表恆小（10 分鐘到期）且清理會刪掉大比例的列，planner 本來就會選 seq scan。
+ */
+export const oauthRequests = pgTable(
+  "oauth_requests",
+  {
+    id: text().primaryKey(),
+    clientId: text("client_id")
+      .notNull()
+      .references(() => oauthClients.clientId, { onDelete: "cascade" }),
+    redirectUri: text("redirect_uri").notNull(),
+    codeChallenge: text("code_challenge").notNull(),
+    scope: text().notNull(),
+    state: text(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  t => [
+    check("oauth_requests_scope_chk", sql`${t.scope} in ('notes:read','notes:read notes:write')`),
+    check("oauth_requests_state_chk", sql`${t.state} is null or length(${t.state}) <= 2048`),
+    index("oauth_requests_client_idx").on(t.clientId),
+  ]
+);
+
+/**
+ * #132：authorization code（10 分鐘）。#130 不寫。
+ *
+ * `redirect_uri` 存 authorize **當次**送來的完整值（含 ephemeral port）——token 換發是
+ * 跟這個當次值逐字比對，不是跟註冊值比。`code_challenge` 同 `oauth_requests`：只有 S256。
+ *
+ * ⚠ 「單次消費」是**應用層**不變量，DB 層不強制：#132 用 `DELETE ... RETURNING` 消費，
+ * 沒有 `used_at` 欄。代價是**分辨不出「code 被重放」與「code 從不存在／已過期」**，因此
+ * 實作不了 RFC 6749 §4.1.2 建議的「偵測 code reuse → 撤銷該次授權已發出的 token」。
+ * 這是刻意的取捨（PKCE 已讓攔截到的 code 無法兌換），#132 要把它補進
+ * `docs/known-limitations.md`（該檔目前還沒有這一條）；
+ * 要改成偵測得出來，就得加 `used_at` 欄＝再開一支 migration。
+ *
+ * 清理同 `oauth_requests`：全表掃描，刻意不建 expires_at 索引。
+ */
+export const oauthCodes = pgTable(
+  "oauth_codes",
+  {
+    codeHash: text("code_hash").primaryKey(),
+    clientId: text("client_id")
+      .notNull()
+      .references(() => oauthClients.clientId, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    scope: text().notNull(),
+    redirectUri: text("redirect_uri").notNull(),
+    codeChallenge: text("code_challenge").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  t => [
+    check("oauth_codes_scope_chk", sql`${t.scope} in ('notes:read','notes:read notes:write')`),
+    index("oauth_codes_client_idx").on(t.clientId),
+    index("oauth_codes_user_idx").on(t.userId),
+  ]
+);

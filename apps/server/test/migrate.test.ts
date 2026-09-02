@@ -5,18 +5,24 @@ import { fileURLToPath } from "node:url";
 import { autoSlugFromTitle, validateHandle, validateSlug } from "@knotebook/shared";
 import { applyMigrationsThrough, freshDb, freshEmptyDb, idxOfTag, journalEntries } from "./helpers.js";
 import { runMigrations } from "../src/db/migrate.js";
-import { getTableConfig } from "drizzle-orm/pg-core";
-import { notes } from "../src/db/schema.js";
+import { PgDialect, getTableConfig } from "drizzle-orm/pg-core";
+import { apiTokens, notes, oauthClients, oauthCodes, oauthRequests } from "../src/db/schema.js";
 
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
+/** drizzle 對 `schema.ts` 的序列化；0009 的宣告漂移守衛拿它當比對基準。 */
+const snapshot0009 = JSON.parse(
+  readFileSync(path.join(drizzleDirForTest, "meta/0009_snapshot.json"), "utf8"),
+) as { tables: Record<string, { checkConstraints?: Record<string, { name: string; value: string }> }> };
+const pgDialect = new PgDialect();
+
 describe("runMigrations", () => {
-  it("migrate 兩次 idempotent 且 12 張表存在", async () => {
+  it("migrate 兩次 idempotent 且 16 張表存在", async () => {
     const { db, pool } = await freshDb();
     await runMigrations(db); // freshDb 已跑過一次——此為第二次
     const r = await pool.query(`select table_name from information_schema.tables where table_schema='public'`);
     const tableNames = r.rows.map(x => x.table_name);
-    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles"])
+    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes"])
       expect(tableNames).toContain(t);
   });
 
@@ -698,6 +704,477 @@ describe("0008_public-slug", () => {
   it("0008 檔內無 CONCURRENTLY／行首 COMMIT（單一 tx 前提的輔助 grep，比照 0007）", () => {
     const entry = journalEntries().find((e) => e.tag.startsWith("0008"));
     expect(entry, "0008 migration 必須存在").toBeDefined();
+    const sql = readFileSync(path.join(drizzleDirForTest, `${entry!.tag}.sql`), "utf8");
+    expect(sql.toUpperCase()).not.toContain("CONCURRENTLY");
+    expect(sql).not.toMatch(/^\s*COMMIT\s*;/im);
+  });
+});
+
+/**
+ * 0009（#107）：`api_tokens` 與 OAuth 三張表。
+ *
+ * OAuth 三張表在 #130 完全沒有寫入路徑（四張一次建齊只是為了讓 #132 不必再開一次
+ * migration，空表無害），所以這個 describe 是它們在 DB 端的**唯一**結構守衛——
+ * 另有一案用 `getTableConfig` 把 `schema.ts` 的宣告接回來（那四個 export 目前沒有
+ * 任何程式碼 import，整段刪掉的話 typecheck 與其餘測試都不會紅）。
+ */
+describe("0009_api-tokens", () => {
+
+  it("api_tokens 的 kind／scope CHECK 擋住非法值", async () => {
+    const { pool } = await freshDb();
+    await pool.query(`insert into users (email, display_name) values ('t1@example.com', 'T')`);
+    const userId = (await pool.query(`select id from users limit 1`)).rows[0].id;
+    await pool.query(
+      `insert into oauth_clients (client_id, client_name, redirect_uris) values ('ck','MCP client','["http://127.0.0.1:1/cb"]'::jsonb)`
+    );
+    // ⚠ 其他欄位一律補到「只剩 kind 違反」——裸的 kind='bogus' 會同時違反 client／
+    // refresh／expiry 三條（`(kind='pat') = (...)` 在 kind 非 pat 時變成 false=true），
+    // 那時 constraint 名要看 Postgres 的評估順序，沒有規格保證。
+    await expect(
+      pool.query(
+        `insert into api_tokens (user_id, kind, name, scope, access_token_hash, refresh_token_hash, client_id, access_expires_at)
+         values ($1,'bogus','n','notes:read','h1','r1','ck', now() + interval '1 day')`,
+        [userId]
+      )
+    ).rejects.toMatchObject({ code: "23514", constraint: "api_tokens_kind_chk" });
+
+    // 落庫形是**集合**：裸 'notes:write' 不是合法值（write 一定把 read 顯式補進去）
+    await expect(
+      pool.query(
+        `insert into api_tokens (user_id, kind, name, scope, access_token_hash) values ($1,'pat','n','notes:write','h2')`,
+        [userId]
+      )
+    ).rejects.toMatchObject({ code: "23514", constraint: "api_tokens_scope_chk" });
+  });
+
+  it("kind='pat' 不得帶 client_id／refresh_token_hash；kind='oauth' 必須有到期", async () => {
+    const { pool } = await freshDb();
+    await pool.query(`insert into users (email, display_name) values ('t2@example.com', 'T')`);
+    const userId = (await pool.query(`select id from users limit 1`)).rows[0].id;
+    await pool.query(
+      `insert into oauth_clients (client_id, client_name, redirect_uris) values ('c1','MCP client','["http://127.0.0.1:1/cb"]'::jsonb)`
+    );
+    await expect(
+      pool.query(
+        `insert into api_tokens (user_id, kind, name, scope, access_token_hash, client_id) values ($1,'pat','n','notes:read','h3','c1')`,
+        [userId]
+      )
+    ).rejects.toMatchObject({ code: "23514", constraint: "api_tokens_client_chk" });
+    await expect(
+      pool.query(
+        `insert into api_tokens (user_id, kind, name, scope, access_token_hash, refresh_token_hash) values ($1,'pat','n','notes:read','h4','r4')`,
+        [userId]
+      )
+    ).rejects.toMatchObject({ code: "23514", constraint: "api_tokens_refresh_chk" });
+    await expect(
+      pool.query(
+        `insert into api_tokens (user_id, kind, name, scope, access_token_hash, refresh_token_hash, client_id) values ($1,'oauth','n','notes:read','h5','r5','c1')`,
+        [userId]
+      )
+    ).rejects.toMatchObject({ code: "23514", constraint: "api_tokens_oauth_expiry_chk" });
+  });
+
+  it("不到期的 PAT 是合法列（access_expires_at 可 NULL——D4 的預設）", async () => {
+    const { pool } = await freshDb();
+    await pool.query(`insert into users (email, display_name) values ('t2b@example.com', 'T')`);
+    const userId = (await pool.query(`select id from users limit 1`)).rows[0].id;
+    // 這條是反向釘：CHECK 若寫成「所有 kind 都要有 access_expires_at」，每支預設 PAT
+    // 都建不出來，而上面三條全是負向案，抓不到。
+    await pool.query(
+      `insert into api_tokens (user_id, kind, name, scope, access_token_hash) values ($1,'pat','n','notes:read','ok1')`,
+      [userId]
+    );
+    const r = await pool.query(`select access_expires_at, last_used_at, created_at from api_tokens`);
+    expect(r.rows).toHaveLength(1);
+    expect(r.rows[0].access_expires_at).toBeNull();
+    expect(r.rows[0].last_used_at).toBeNull();
+    expect(r.rows[0].created_at).not.toBeNull(); // defaultNow()
+  });
+
+  it("api_tokens_oauth_user_client_uidx 只約束 oauth 列（I7 的結構性保證），pat 不受限", async () => {
+    const { pool } = await freshDb();
+    await pool.query(`insert into users (email, display_name) values ('t3@example.com', 'T')`);
+    const userId = (await pool.query(`select id from users limit 1`)).rows[0].id;
+    await pool.query(
+      `insert into oauth_clients (client_id, client_name, redirect_uris) values ('c1','MCP client','["http://127.0.0.1:1/cb"]'::jsonb)`
+    );
+    const oauthRow = (hash: string) =>
+      pool.query(
+        `insert into api_tokens (user_id, kind, name, scope, access_token_hash, refresh_token_hash, client_id, access_expires_at)
+         values ($1,'oauth','n','notes:read',$2,$3,'c1', now() + interval '1 day')`,
+        [userId, hash, `r-${hash}`]
+      );
+    await oauthRow("oh1");
+    await expect(oauthRow("oh2")).rejects.toMatchObject({
+      code: "23505",
+      constraint: "api_tokens_oauth_user_client_uidx",
+    });
+    // 同一使用者的 PAT 不受這條 partial index 約束（它的 client_id 是 NULL）
+    await pool.query(
+      `insert into api_tokens (user_id, kind, name, scope, access_token_hash) values ($1,'pat','a','notes:read','ph1')`,
+      [userId]
+    );
+    await pool.query(
+      `insert into api_tokens (user_id, kind, name, scope, access_token_hash) values ($1,'pat','b','notes:read','ph2')`,
+      [userId]
+    );
+    const count = await pool.query(`select count(*)::int as c from api_tokens where user_id = $1 and kind = 'pat'`, [
+      userId,
+    ]);
+    expect(count.rows[0].c).toBe(2);
+
+    // ⚠ 上面「兩支 PAT 共存」**證明不了 partial**：PAT 的 client_id 是 NULL，而 PG 的
+    // UNIQUE 預設 NULLS DISTINCT——把 WHERE 拿掉變成全表唯一，這一段照樣綠。要釘住
+    // partial 只能看 DB 端的 indexdef 全形（比照 0008 的同族守衛）。
+    const { rows: idxRows } = await pool.query(
+      `select indexdef from pg_indexes where indexname = 'api_tokens_oauth_user_client_uidx'`
+    );
+    expect(idxRows).toHaveLength(1);
+    expect(idxRows[0].indexdef).toContain("UNIQUE INDEX");
+    // regex 刻意寬鬆（括號與 ::text cast 都可有可無）：同檔既有的 partial 守衛
+    // （notes_legacy_slug_idx 等）就是這個寫法，PG 大版本改變 pg_get_expr 的渲染時
+    // 才不會以「partial 不見了」的形式假紅。拿掉 WHERE 照樣會紅，鑑別力不變。
+    expect(idxRows[0].indexdef, "WHERE 不可省——省了就變全表唯一").toMatch(
+      /WHERE \(?kind = 'oauth'(::text)?\)?/
+    );
+  });
+
+  it("access_token_hash 全域唯一（同一支 token 不可能對到兩列）", async () => {
+    const { pool } = await freshDb();
+    await pool.query(`insert into users (email, display_name) values ('t3b@example.com', 'T'), ('t3c@example.com','T2')`);
+    const users = (await pool.query(`select id from users order by email`)).rows;
+    await pool.query(
+      `insert into api_tokens (user_id, kind, name, scope, access_token_hash) values ($1,'pat','n','notes:read','dup')`,
+      [users[0].id]
+    );
+    // 連**不同使用者**都不能重用同一個 hash——Bearer 驗證是「拿 hash 查一列」，
+    // 允許重複就會變成「同一串明文對到兩個身分」。
+    await expect(
+      pool.query(
+        `insert into api_tokens (user_id, kind, name, scope, access_token_hash) values ($1,'pat','n','notes:read','dup')`,
+        [users[1].id]
+      )
+    ).rejects.toMatchObject({ code: "23505", constraint: "api_tokens_access_token_hash_unique" });
+  });
+
+  it("刪 oauth_clients 會 CASCADE 掉其 grant／request／code；刪 users 會 CASCADE 掉其 grant", async () => {
+    const { pool } = await freshDb();
+    await pool.query(`insert into users (email, display_name) values ('t4@example.com', 'T')`);
+    const userId = (await pool.query(`select id from users limit 1`)).rows[0].id;
+    await pool.query(
+      `insert into oauth_clients (client_id, client_name, redirect_uris) values ('c1','MCP client','["http://127.0.0.1:1/cb"]'::jsonb)`
+    );
+    await pool.query(
+      `insert into api_tokens (user_id, kind, name, scope, access_token_hash, refresh_token_hash, client_id, access_expires_at)
+       values ($1,'oauth','n','notes:read','oh1','r1','c1', now() + interval '1 day')`,
+      [userId]
+    );
+    await pool.query(
+      `insert into oauth_requests (id, client_id, redirect_uri, code_challenge, scope, expires_at)
+       values ('req1','c1','http://127.0.0.1:1/cb','ch','notes:read', now() + interval '10 minutes')`
+    );
+    await pool.query(
+      `insert into oauth_codes (code_hash, client_id, user_id, scope, redirect_uri, code_challenge, expires_at)
+       values ('code1','c1',$1,'notes:read','http://127.0.0.1:1/cb','ch', now() + interval '10 minutes')`,
+      [userId]
+    );
+
+    await pool.query(`delete from oauth_clients where client_id = 'c1'`);
+    for (const table of ["api_tokens", "oauth_requests", "oauth_codes"]) {
+      const left = await pool.query(`select count(*)::int as c from ${table}`);
+      expect(left.rows[0].c, table).toBe(0);
+    }
+
+    // users 那一側：重建 client 與 code，再從**使用者**這一端刪。
+    // 前半段先刪 client 已經把 oauth_codes 清空了，所以「刪 user 也會連帶清 code」
+    // 那條 FK 從來沒被走過——admin 刪一個還有 pending code 的使用者會撞 FK 500。
+    await pool.query(
+      `insert into oauth_clients (client_id, client_name, redirect_uris) values ('c2','MCP client','["http://127.0.0.1:1/cb"]'::jsonb)`
+    );
+    await pool.query(
+      `insert into oauth_codes (code_hash, client_id, user_id, scope, redirect_uri, code_challenge, expires_at)
+       values ('code2','c2',$1,'notes:read','http://127.0.0.1:1/cb','ch', now() + interval '10 minutes')`,
+      [userId]
+    );
+    await pool.query(
+      `insert into api_tokens (user_id, kind, name, scope, access_token_hash) values ($1,'pat','n','notes:read','ph9')`,
+      [userId]
+    );
+
+    await pool.query(`delete from users where id = $1`, [userId]);
+    for (const table of ["api_tokens", "oauth_codes"]) {
+      const left = await pool.query(`select count(*)::int as c from ${table}`);
+      expect(left.rows[0].c, table).toBe(0);
+    }
+    // client 本身不隨使用者消失（它不屬於任何人）
+    const clients = await pool.query(`select count(*)::int as c from oauth_clients`);
+    expect(clients.rows[0].c).toBe(1);
+  });
+
+  it("oauth_requests.state 的長度 CHECK（2048）與 NULL 都合法", async () => {
+    const { pool } = await freshDb();
+    await pool.query(
+      `insert into oauth_clients (client_id, client_name, redirect_uris) values ('c1','MCP client','["http://127.0.0.1:1/cb"]'::jsonb)`
+    );
+    const insertState = (id: string, state: string | null) =>
+      pool.query(
+        `insert into oauth_requests (id, client_id, redirect_uri, code_challenge, scope, state, expires_at)
+         values ($1,'c1','http://127.0.0.1:1/cb','ch','notes:read',$2, now() + interval '10 minutes')`,
+        [id, state]
+      );
+    await insertState("r-null", null);
+    await insertState("r-2048", "s".repeat(2048));
+    await expect(insertState("r-2049", "s".repeat(2049))).rejects.toMatchObject({
+      code: "23514",
+      constraint: "oauth_requests_state_chk",
+    });
+  });
+
+  it("oauth_requests／oauth_codes 的 scope 也有集合 CHECK", async () => {
+    const { pool } = await freshDb();
+    await pool.query(`insert into users (email, display_name) values ('t5@example.com', 'T')`);
+    const userId = (await pool.query(`select id from users limit 1`)).rows[0].id;
+    await pool.query(
+      `insert into oauth_clients (client_id, client_name, redirect_uris) values ('c1','MCP client','["http://127.0.0.1:1/cb"]'::jsonb)`
+    );
+    await expect(
+      pool.query(
+        `insert into oauth_requests (id, client_id, redirect_uri, code_challenge, scope, expires_at)
+         values ('r1','c1','http://127.0.0.1:1/cb','ch','notes:write', now() + interval '10 minutes')`
+      )
+    ).rejects.toMatchObject({ code: "23514", constraint: "oauth_requests_scope_chk" });
+    await expect(
+      pool.query(
+        `insert into oauth_codes (code_hash, client_id, user_id, scope, redirect_uri, code_challenge, expires_at)
+         values ('c-1','c1',$1,'notes:write','http://127.0.0.1:1/cb','ch', now() + interval '10 minutes')`,
+        [userId]
+      )
+    ).rejects.toMatchObject({ code: "23514", constraint: "oauth_codes_scope_chk" });
+  });
+
+  it("四格矩陣：kind='oauth' 少了 client_id／refresh_token_hash 也要被擋（雙向蘊含的另一半）", async () => {
+    const { pool } = await freshDb();
+    await pool.query(`insert into users (email, display_name) values ('t6@example.com', 'T')`);
+    const userId = (await pool.query(`select id from users limit 1`)).rows[0].id;
+    await pool.query(
+      `insert into oauth_clients (client_id, client_name, redirect_uris) values ('c1','MCP client','["http://127.0.0.1:1/cb"]'::jsonb)`
+    );
+    // 上面那一族只釘了「pat ⇒ 沒有 client／refresh」那半邊；把 CHECK 弱化成單向蘊含
+    // （`kind <> 'pat' or client_id is null`）全部照樣綠。這兩格補的是「oauth ⇒ 兩者都有」，
+    // 也就是 #132 的 /oauth/token 少塞一欄時該被擋下的那個形。
+    await expect(
+      pool.query(
+        `insert into api_tokens (user_id, kind, name, scope, access_token_hash, refresh_token_hash, access_expires_at)
+         values ($1,'oauth','n','notes:read','m1','mr1', now() + interval '1 day')`,
+        [userId]
+      )
+    ).rejects.toMatchObject({ code: "23514", constraint: "api_tokens_client_chk" });
+    await expect(
+      pool.query(
+        `insert into api_tokens (user_id, kind, name, scope, access_token_hash, client_id, access_expires_at)
+         values ($1,'oauth','n','notes:read','m2','c1', now() + interval '1 day')`,
+        [userId]
+      )
+    ).rejects.toMatchObject({ code: "23514", constraint: "api_tokens_refresh_chk" });
+  });
+
+  it("client_name 與 api_tokens.name 有長度上限；redirect_uris 必須是 1..8 個元素的陣列", async () => {
+    const { pool } = await freshDb();
+    await pool.query(`insert into users (email, display_name) values ('t7@example.com', 'T')`);
+    const userId = (await pool.query(`select id from users limit 1`)).rows[0].id;
+
+    // DCR 是免認證端點，client_name 又要渲染在同意頁上——長度在 DB 端就擋。
+    // ⚠ 用**邊界對**（64 過／65 紅）而不是「插 201 字」：後者對任何 64..200 之間的
+    // 界線都會綠，界線值本身等於沒被釘住（曾因此讓一次 200→64 的半套回滾靜默通過）。
+    await pool.query(
+      `insert into oauth_clients (client_id, client_name, redirect_uris) values ('at-limit', $1, '["http://127.0.0.1:1/cb"]'::jsonb)`,
+      ["n".repeat(64)]
+    );
+    await expect(
+      pool.query(
+        `insert into oauth_clients (client_id, client_name, redirect_uris) values ('over', $1, '["http://127.0.0.1:1/cb"]'::jsonb)`,
+        ["n".repeat(65)]
+      )
+    ).rejects.toMatchObject({ code: "23514", constraint: "oauth_clients_name_chk" });
+    await expect(
+      pool.query(
+        `insert into oauth_clients (client_id, client_name, redirect_uris) values ('empty', '', '["http://127.0.0.1:1/cb"]'::jsonb)`
+      )
+    ).rejects.toMatchObject({ code: "23514", constraint: "oauth_clients_name_chk" });
+
+    // 形狀：物件不是陣列、空陣列、超過 8 筆都不行
+    for (const [id, uris] of [
+      ["obj", `'{"a":1}'::jsonb`],
+      ["empty-arr", `'[]'::jsonb`],
+      // ::text 不可省——裸字面在 jsonb_agg 下 PG 判不出多型別參數（42P18），
+      // 那會變成查詢錯誤而不是我們要驗的 CHECK 違反。
+      ["too-many", `(select jsonb_agg('http://127.0.0.1:1/cb'::text) from generate_series(1,9))`],
+    ] as const) {
+      await expect(
+        pool.query(`insert into oauth_clients (client_id, client_name, redirect_uris) values ($1,'n',${uris})`, [id]),
+        id
+      ).rejects.toMatchObject({ code: "23514", constraint: "oauth_clients_redirect_uris_chk" });
+    }
+
+    // 同一組邊界對。兩張表的上限必須一致——api_tokens.name 是 client_name 的快照，
+    // 這邊較嚴的話 #132 複製時會撞 CHECK。
+    await pool.query(
+      `insert into api_tokens (user_id, kind, name, scope, access_token_hash) values ($1,'pat',$2,'notes:read','n64')`,
+      [userId, "x".repeat(64)]
+    );
+    await expect(
+      pool.query(
+        `insert into api_tokens (user_id, kind, name, scope, access_token_hash) values ($1,'pat',$2,'notes:read','n65')`,
+        [userId, "x".repeat(65)]
+      )
+    ).rejects.toMatchObject({ code: "23514", constraint: "api_tokens_name_chk" });
+  });
+
+  it("refresh_token_hash 全域唯一，但多支 PAT 的 NULL 互不衝突（#132 的 I4 靠它只命中一列）", async () => {
+    const { pool } = await freshDb();
+    await pool.query(`insert into users (email, display_name) values ('t8@example.com', 'T')`);
+    const userId = (await pool.query(`select id from users limit 1`)).rows[0].id;
+    await pool.query(
+      `insert into oauth_clients (client_id, client_name, redirect_uris) values ('c1','A','["http://127.0.0.1:1/cb"]'::jsonb), ('c2','B','["http://127.0.0.1:2/cb"]'::jsonb)`
+    );
+    const oauth = (hash: string, client: string) =>
+      pool.query(
+        `insert into api_tokens (user_id, kind, name, scope, access_token_hash, refresh_token_hash, client_id, access_expires_at)
+         values ($1,'oauth','n','notes:read',$2,'same-refresh',$3, now() + interval '1 day')`,
+        [userId, hash, client]
+      );
+    await oauth("a1", "c1");
+    // 不同 client 的兩個 grant 不受 oauth_user_client_uidx 約束，所以這一發撞的
+    // 一定是 refresh_token_hash 的 UNIQUE（拿掉它這案就綠了）。
+    await expect(oauth("a2", "c2")).rejects.toMatchObject({
+      code: "23505",
+      constraint: "api_tokens_refresh_token_hash_unique",
+    });
+
+    // 反向：多支 PAT 的 refresh_token_hash 都是 NULL，UNIQUE 不該擋（NULLS DISTINCT）
+    for (const h of ["p1", "p2", "p3"])
+      await pool.query(
+        `insert into api_tokens (user_id, kind, name, scope, access_token_hash) values ($1,'pat','n','notes:read',$2)`,
+        [userId, h]
+      );
+    const pats = await pool.query(`select count(*)::int as c from api_tokens where kind = 'pat'`);
+    expect(pats.rows[0].c).toBe(3);
+  });
+
+  it("oauth_clients.last_used_at 是 NOT NULL DEFAULT now()（#132 的清理述詞不必處理 NULL）", async () => {
+    const { pool } = await freshDb();
+    // 與 api_tokens.last_used_at（nullable，NULL＝從未使用）刻意相反——這個差異是
+    // 承重的設計決定，JSDoc 有寫，這裡是它的釘子。
+    await pool.query(
+      `insert into oauth_clients (client_id, client_name, redirect_uris) values ('c1','A','["http://127.0.0.1:1/cb"]'::jsonb)`
+    );
+    const { rows } = await pool.query(`select last_used_at, created_at from oauth_clients`);
+    expect(rows[0].last_used_at).not.toBeNull();
+    await expect(
+      pool.query(
+        `insert into oauth_clients (client_id, client_name, redirect_uris, last_used_at) values ('c2','B','["http://127.0.0.1:2/cb"]'::jsonb, null)`
+      )
+    ).rejects.toMatchObject({ code: "23502" });
+  });
+
+  it("六把索引都在（其中五把支撐 FK——CASCADE 刪除不該退化成全表掃描）", async () => {
+    const { pool } = await freshDb();
+    const { rows } = await pool.query(
+      `select indexname from pg_indexes where tablename in ('api_tokens','oauth_requests','oauth_codes')`
+    );
+    const names = rows.map((r: { indexname: string }) => r.indexname);
+    for (const i of [
+      "api_tokens_user_idx",
+      "api_tokens_client_idx",
+      "api_tokens_oauth_user_client_uidx",
+      "oauth_requests_client_idx",
+      "oauth_codes_client_idx",
+      "oauth_codes_user_idx",
+    ])
+      expect(names, i).toContain(i);
+  });
+
+  it("schema.ts 的四個宣告沒有靜默漂移（那四個 export 目前零 import，typecheck 保護不到）", async () => {
+    // 比照 0008 的同族守衛：把 schema.ts 的宣告與 migration 造出來的 DB 對起來。
+    // 沒有這一案的話，把 schema.ts 的四段 pgTable 整個刪掉，全套測試照樣綠——
+    // 只有下一次 db:generate 會產出 DROP TABLE。
+    const { pool } = await freshDb();
+    const expectedColumns: Record<string, string[]> = {
+      oauth_clients: ["client_id", "client_name", "redirect_uris", "created_at", "last_used_at"],
+      api_tokens: [
+        "id",
+        "user_id",
+        "kind",
+        "name",
+        "scope",
+        "access_token_hash",
+        "refresh_token_hash",
+        "client_id",
+        "access_expires_at",
+        "last_used_at",
+        "created_at",
+      ],
+      oauth_requests: ["id", "client_id", "redirect_uri", "code_challenge", "scope", "state", "expires_at"],
+      oauth_codes: ["code_hash", "client_id", "user_id", "scope", "redirect_uri", "code_challenge", "expires_at"],
+    };
+
+    for (const [table, decl] of [
+      ["oauth_clients", oauthClients],
+      ["api_tokens", apiTokens],
+      ["oauth_requests", oauthRequests],
+      ["oauth_codes", oauthCodes],
+    ] as const) {
+      const cfg = getTableConfig(decl);
+      // 宣告的欄名 = DB 的欄名 = 這裡寫死的期望（三方對齊，任一邊漂移就紅）
+      const declared = cfg.columns.map(c => c.name).sort();
+      const { rows } = await pool.query(
+        `select column_name from information_schema.columns where table_name = $1`,
+        [table]
+      );
+      const inDb = rows.map((r: { column_name: string }) => r.column_name).sort();
+      expect(declared, table).toEqual(expectedColumns[table]!.slice().sort());
+      expect(inDb, table).toEqual(expectedColumns[table]!.slice().sort());
+
+      // 宣告的索引名都真的存在於 DB
+      const idxRows = await pool.query(`select indexname from pg_indexes where tablename = $1`, [table]);
+      const dbIdx = idxRows.rows.map((r: { indexname: string }) => r.indexname);
+      for (const i of cfg.indexes) expect(dbIdx, `${table}.${i.config.name}`).toContain(i.config.name);
+
+      // 宣告的 CHECK 名都真的存在於 DB
+      const chkRows = await pool.query(
+        `select conname from pg_constraint where conrelid = $1::regclass and contype = 'c'`,
+        [table]
+      );
+      const dbChk = chkRows.rows.map((r: { conname: string }) => r.conname);
+      for (const c of cfg.checks) expect(dbChk, `${table}.${c.name}`).toContain(c.name);
+
+      // ⚠ **只比名字不夠**：把 schema.ts 某條 CHECK 的數字改掉而不重新 db:generate，
+      // 名字仍在、DB 仍是舊值，上面每一條都綠——下一次 generate 才會靜默吐出一支
+      // DROP/ADD CONSTRAINT。這個 PR 就踩過一次（長度上限 200↔64 的半套回滾）。
+      // snapshot 是 drizzle 對 schema.ts 的序列化，逐字比對它＝真正的漂移守衛。
+      const snapshotChecks = snapshot0009.tables[`public.${table}`]?.checkConstraints ?? {};
+      expect(Object.keys(snapshotChecks).sort(), `${table} 的 CHECK 名集合`).toEqual(
+        cfg.checks.map(c => c.name).sort()
+      );
+      for (const c of cfg.checks) {
+        expect(pgDialect.sqlToQuery(c.value).sql, `${table}.${c.name} 的運算式`).toBe(
+          snapshotChecks[c.name]!.value
+        );
+      }
+    }
+
+    // partial unique index 的形狀（拿掉 where 就變成全表唯一，PAT 會被誤擋）
+    const apiCfg = getTableConfig(apiTokens);
+    const uidx = apiCfg.indexes.find(i => i.config.name === "api_tokens_oauth_user_client_uidx");
+    expect(uidx).toBeDefined();
+    expect(uidx!.config.unique).toBe(true);
+    expect(uidx!.config.where, "partial where 不可省略").toBeDefined();
+    expect(uidx!.config.columns.map(c => (c as { name?: string }).name)).toEqual(["user_id", "client_id"]);
+  });
+
+  it("0009 檔內無 CONCURRENTLY／行首 COMMIT（單一 tx 前提的輔助 grep，比照 0007／0008）", () => {
+    const entry = journalEntries().find(e => e.tag.startsWith("0009"));
+    expect(entry, "0009 migration 必須存在").toBeDefined();
     const sql = readFileSync(path.join(drizzleDirForTest, `${entry!.tag}.sql`), "utf8");
     expect(sql.toUpperCase()).not.toContain("CONCURRENTLY");
     expect(sql).not.toMatch(/^\s*COMMIT\s*;/im);
