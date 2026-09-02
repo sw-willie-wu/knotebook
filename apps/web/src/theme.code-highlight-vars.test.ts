@@ -318,6 +318,31 @@ describe("codeBlock 底色覆寫", () => {
     expect(outside, "color-scheme 退路被搬進 @supports 了").toMatch(/color-scheme:\s*dark/);
   });
 
+  it("唯讀（disabled）時 base-select 的箭頭退場、可編輯態保留（公開頁回報：hover 出現不能按的下拉）", () => {
+    // 掏掉這條規則不會讓任何渲染測試紅（jsdom 畫不了 ::picker-icon）——失敗形＝
+    // user 回報的 bug 靜默復活，所以在源碼層釘（本 describe 的既有慣例）。
+    const block = baseSelectBlock();
+    const rules = [...block.matchAll(/([^{}]*)\{([^}]*)\}/g)];
+    // ⚠ 選擇器串必須**拆逗號逐一**檢查（scrollbar-guard 立過的規矩）：整串 test 的話
+    // 「enabled, disabled 併成一條」的突變——可編輯態箭頭也消失、打破 #111 的 caret
+    // 宣稱——會同時騙過正向與反向釘（實跑證實過）。拆開後：恰一個選擇器隱藏箭頭、
+    // 且它必須是 disabled 態。
+    const iconSelectors = rules
+      .filter((m) => /::picker-icon/.test(m[1]!) && /display:\s*none/.test(m[2]!))
+      .flatMap((m) => m[1]!.split(",").map((s) => s.trim()));
+    expect(iconSelectors, "缺隱藏箭頭的規則——唯讀 hover 又會長出箭頭").toHaveLength(1);
+    expect(
+      iconSelectors.every((s) => /select:disabled::picker-icon$/.test(s)),
+      `隱藏箭頭的規則只能命中 disabled 態，可編輯態被一併藏掉：${iconSelectors.join(" | ")}`,
+    ).toBe(true);
+    // 單項貼右：箭頭退場後 space-between 退化成 flex-start，語言標籤會浮在 min-width
+    // 撐出的空盒左端——disabled 態補 flex-end（mermaid 唯讀鈕同位置）。
+    const disabledSelect = rules.filter(
+      (m) => /select:disabled\s*$/.test(m[1]!.trim()) && /justify-content:\s*flex-end/.test(m[2]!),
+    );
+    expect(disabledSelect, "缺 select:disabled 的 justify-content: flex-end——唯讀標籤浮在空盒左端").toHaveLength(1);
+  });
+
   it("issue #111：清單長相對齊 app 既有的 ⋮ 選單（同一個 app 的清單就該長一樣）", () => {
     const block = baseSelectBlock();
     const menuSource = readFileSync(`${process.cwd()}/src/components/ui/dropdown-menu.tsx`, "utf8");
