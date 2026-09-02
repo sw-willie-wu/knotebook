@@ -81,3 +81,34 @@ describe("PublicNoteErrorBoundary（#72 Task 3：/p/ 的 chunk／render 錯誤�
     }
   });
 });
+
+// ──────────────── 滿版外框（user 定案，對齊 #115 之後主 app 的滿版語彙） ────────────────
+
+describe("PublicPageFrame（滿版外框）", () => {
+  it("frame 層鋪滿視窗（h-screen＋flex flex-col＋overflow-hidden＋bg-background）、無卡片語彙", async () => {
+    // 動態 import：本檔頭部的具名 import 沒帶 PublicPageFrame，避免動舊測試的 import 行。
+    const { PublicPageFrame } = await import("./PublicNoteShell");
+    render(
+      <PublicPageFrame>
+        <p data-testid="probe">content</p>
+      </PublicPageFrame>,
+    );
+    const probe = screen.getByTestId("probe");
+    // 只斷 **frame 自己那一層**（probe 的直接父層）：頁面內容合法帶 border-b 分隔線
+    // 與 rounded 徽章，鏈式掃描會誤殺——卡片語彙的禁令只針對外框。
+    const frame = probe.parentElement!;
+    // 高度/捲動鏈四件套缺一不可（審查 M2 突變實證）：flex+flex-col 是內文
+    // `min-h-0 flex-1 overflow-y-auto` 的前提，overflow-hidden 是「頁面本身不得
+    // 整體捲動」的支點（AppShell 同款鏈），h-screen 定根高。
+    // token 比對、非子字串（geometry memory 記載的 #88 前科：includes 放行過本尊
+    // ——`min-h-screen` 內含 "h-screen"、`flex-col` 內含 "flex"，字串形兩個退化都放行）
+    const tokens = frame.className.split(/\s+/);
+    for (const cls of ["h-screen", "flex", "flex-col", "overflow-hidden", "bg-background"]) {
+      expect(tokens).toContain(cls);
+    }
+    // 卡面退場：無 max-w 上限、無圓角、無邊框（滿版定案——不是置中卡）
+    expect(frame.className).not.toMatch(/max-w-|rounded|border/);
+    // frame 直接包 children（中間不再有卡層）
+    expect(frame.parentElement?.className ?? "").toBe(""); // RTL 容器
+  });
+});
