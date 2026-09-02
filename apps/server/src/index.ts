@@ -2,7 +2,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { Pool } from "pg";
 import pino from "pino";
-import { loadConfig } from "./config.js";
+import { loadConfig, publicUrlIssuer, publicUrlPathWarning } from "./config.js";
 import { createDb } from "./db/index.js";
 import { runMigrations } from "./db/migrate.js";
 import { initializeInstance } from "./auth/bootstrap.js";
@@ -60,6 +60,20 @@ async function main(): Promise<void> {
         guidance: 'use only on a network where you trust every host; public deployments must use the reverse-proxy + TLS path — see docs/self-hosting.md "Deployment prerequisites"',
       },
       "SECURITY WARNING: PUBLIC_URL uses plain http on a non-localhost host — credentials and session cookies travel in cleartext"
+    );
+  }
+
+  // D12（#107）：帶 path 的 PUBLIC_URL 只警告不擋——API token 的 WWW-Authenticate
+  // 與 OAuth 端點一律用 origin 組字，見 config.ts 的 publicUrlPathWarning。
+  const pathWarning = publicUrlPathWarning(config.publicUrl);
+  if (pathWarning !== null) {
+    logger.warn(
+      {
+        publicUrl: config.publicUrl.href,
+        issuer: publicUrlIssuer(config.publicUrl),
+        guidance: "set PUBLIC_URL to just scheme://host:port",
+      },
+      pathWarning
     );
   }
 
