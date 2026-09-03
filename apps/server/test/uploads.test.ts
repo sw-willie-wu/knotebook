@@ -6,7 +6,7 @@ import path from "node:path";
 import { describe, it, expect } from "vitest";
 import { eq } from "drizzle-orm";
 import { SESSION_COOKIE, MAX_UPLOAD_BYTES } from "@knotebook/shared";
-import { buildTestApp, testConfig } from "./helpers.js";
+import { buildTestApp, freshLimiters, testConfig } from "./helpers.js";
 import { notes, noteShares, uploads, users } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
 import { signSession } from "../src/auth/session.js";
@@ -536,18 +536,8 @@ describe("POST /api/notes/:id/uploads", () => {
   it("429：超過節流上限（per-user，覆寫成 limit:1 讓測試不必真的發 121 次請求）", async () => {
     const smallUploadLimiter = new FixedWindowLimiter({ limit: 1, windowMs: 600_000 });
     const { app, db } = await buildTestApp({
-      limiters: {
-        collabToken: new FixedWindowLimiter({ limit: 60, windowMs: 60_000 }),
-        slugPatch: new FixedWindowLimiter({ limit: 10, windowMs: 600_000 }),
-        upload: smallUploadLimiter,
-        ai: new FixedWindowLimiter({ limit: 30, windowMs: 60_000 }),
-        oidcLogin: new FixedWindowLimiter({ limit: 30, windowMs: 60_000 }),
-        oidcCallback: new FixedWindowLimiter({ limit: 30, windowMs: 60_000 }),
-        publicLink: new FixedWindowLimiter({ limit: 10, windowMs: 600_000 }),
-        publicMiss: new FixedWindowLimiter({ limit: 120, windowMs: 60_000 }),
-        publicNote: new FixedWindowLimiter({ limit: 60, windowMs: 60_000 }),
-        publicUpload: new FixedWindowLimiter({ limit: 300, windowMs: 60_000 }),
-      },
+      // 其餘桶原本是硬寫的數字，改吃 freshLimiters 的常數——數值相同，行為不變。
+      limiters: freshLimiters({ upload: smallUploadLimiter }),
     });
     const owner = await insertUser(db, { email: "owner-429@example.com" });
     const cookie = await cookieFor(owner.id);

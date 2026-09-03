@@ -4,14 +4,14 @@ import http from "node:http";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { eq } from "drizzle-orm";
 import { SESSION_COOKIE } from "@knotebook/shared";
-import { buildTestApp, testConfig } from "./helpers.js";
+import { buildTestApp, freshLimiters, testConfig } from "./helpers.js";
 import { aiActions, aiModels, aiProviders, notes, noteShares, users } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
 import { signSession } from "../src/auth/session.js";
 import { hashPassword } from "../src/auth/password.js";
 import { encryptApiKey } from "../src/ai/crypto.js";
 import { createAiRuntime } from "../src/ai/runtime.js";
-import { COLLAB_TOKEN_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, SLUG_PATCH_LIMIT, UPLOAD_LIMIT } from "../src/http/rate-limit.js";
+import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 
 const VALID_PASSWORD = "correct-horse-battery";
 
@@ -104,18 +104,7 @@ async function setupNoteAccess(db: Db): Promise<NoteAccess> {
 
 /** 全 limiters 皆給生產預設值，只有 `ai` 可覆寫——供 429 測試用小額度，其餘測試不受影響。 */
 function limitersWithAi(ai: FixedWindowLimiter) {
-  return {
-    collabToken: new FixedWindowLimiter(COLLAB_TOKEN_LIMIT),
-    slugPatch: new FixedWindowLimiter(SLUG_PATCH_LIMIT),
-    upload: new FixedWindowLimiter(UPLOAD_LIMIT),
-    ai,
-    oidcLogin: new FixedWindowLimiter(OIDC_LIMIT),
-    oidcCallback: new FixedWindowLimiter(OIDC_LIMIT),
-    publicLink: new FixedWindowLimiter(PUBLIC_LINK_LIMIT),
-    publicMiss: new FixedWindowLimiter(PUBLIC_MISS_LIMIT),
-    publicNote: new FixedWindowLimiter(PUBLIC_NOTE_LIMIT),
-    publicUpload: new FixedWindowLimiter(PUBLIC_UPLOAD_LIMIT),
-  };
+  return freshLimiters({ ai });
 }
 
 interface FakeUpstream {

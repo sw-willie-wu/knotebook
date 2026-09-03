@@ -113,3 +113,39 @@ export class FixedWindowLimiter {
     return window.count >= this.limit;
   }
 }
+
+/**
+ * #107：Bearer token 路徑的節流（key=`token:${userId}`）。
+ *
+ * **只對 token 路徑**——session 路徑維持現狀（無限流），所以既有 web／e2e 行為零
+ * 變動。要防的對象是失控的外部程式，不是使用者自己的瀏覽器；「MCP client 打滿不
+ * 會鎖住使用者介面」是刻意設計。
+ *
+ * 桶由路由宣告的 `required` scope 決定：read 路由走 `tokenRead`、write 路由走
+ * `tokenWrite`。扣點在 scope 檢查**通過之後**——403 `insufficient_scope` 不啃桶
+ * （與 BEARER_MISS 同紀律）。
+ */
+export const TOKEN_READ_LIMIT = { limit: 300, windowMs: 60_000 } as const;
+export const TOKEN_WRITE_LIMIT = { limit: 60, windowMs: 600_000 } as const;
+
+/**
+ * #107：無效 Bearer 的節流（key=`request.ip`）。
+ *
+ * **consume 的觸發集合**＝scheme 不是 Bearer、前綴不是 `knb_`（含把 refresh token
+ * 當 Bearer 送）、查無、過期、`checkUser` 失敗、`mustChangePassword`。
+ * **403 `insufficient_scope` 不 consume**——那是合法 token，反覆重試不得連累同 IP。
+ * `checkUser`／`mustChangePassword` 失敗**刻意 consume**：那是「這個帳號目前不該被
+ * 任何 token 代表」，client 的重試對系統而言與無效 token 無異。
+ *
+ * **成功路徑不做 `isBlocked` 預檢**：有效 token 永不被同 IP 的壞 client 連累（反代
+ * 共用出口 IP 時尤其重要）。**刻意接受的代價**：超限後每一發無效 Bearer 仍會做一次
+ * `access_token_hash` 的 UNIQUE 索引查找才知道失敗——與公開端點「限流擋在 DB 之前」
+ * 的紀律相反，理由是單筆索引查找成本遠低於那邊的多表存取，而「有效 token 不被連累」
+ * 的價值更高。
+ *
+ * ⚠ `TRUST_PROXY` 未設時反代後全體共用同一顆桶（比照 #72 公開端點的同族退化形）。
+ */
+export const BEARER_MISS_LIMIT = { limit: 30, windowMs: 60_000 } as const;
+
+/** #107：`POST /api/auth/tokens`（key=userId）。 */
+export const PAT_CREATE_LIMIT = { limit: 10, windowMs: 3_600_000 } as const;

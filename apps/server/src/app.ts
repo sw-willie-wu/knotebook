@@ -25,7 +25,7 @@ import { publicRoutes, redactPublicTokens } from "./routes/public.js";
 import { oidcRoutes } from "./routes/oidc.js";
 import { drainWithCap } from "./http/drain.js";
 import { sendError } from "./http/errors.js";
-import { AI_LIMIT, COLLAB_TOKEN_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, SLUG_PATCH_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
+import { AI_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, SLUG_PATCH_LIMIT, TOKEN_READ_LIMIT, TOKEN_WRITE_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
 import { registerSpaFallback } from "./http/spa.js";
 import { assertUploadsDirWritable } from "./uploads/service.js";
 import type { AiRuntime } from "./ai/runtime.js";
@@ -84,6 +84,13 @@ export interface AppDeps {
     publicMiss: FixedWindowLimiter;
     publicNote: FixedWindowLimiter;
     publicUpload: FixedWindowLimiter;
+    /** #107：Bearer token 路徑（key=`token:${userId}`），session 路徑不吃桶。 */
+    tokenRead: FixedWindowLimiter;
+    tokenWrite: FixedWindowLimiter;
+    /** #107：無效 Bearer（key=ip）——consume 的觸發集合見 `BEARER_MISS_LIMIT` 註解。 */
+    bearerMiss: FixedWindowLimiter;
+    /** #107：`POST /api/auth/tokens`（key=userId）。 */
+    patCreate: FixedWindowLimiter;
   };
   /**
    * Task 5：`POST /api/notes/:id/links` 寫入函式（`notes/links.ts` 的 `writeNoteLinks`）的
@@ -472,9 +479,6 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
 
   app.get("/healthz", async () => ({ ok: true }));
 
-  void app.register(
-    authRoutes({ db: deps.db, config: deps.config, gate: deps.gate, throttle: deps.throttle, collabHooks: deps.collabHooks })
-  );
   // 未收到 AppDeps.limiters 時的生產預設（`buildTestApp`/`buildCollabTestApp` 一律自己
   // 注入全新實例，不會走到這裡；見 AppDeps.limiters 的說明）。
   const limiters =
@@ -490,7 +494,18 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       publicMiss: new FixedWindowLimiter(PUBLIC_MISS_LIMIT),
       publicNote: new FixedWindowLimiter(PUBLIC_NOTE_LIMIT),
       publicUpload: new FixedWindowLimiter(PUBLIC_UPLOAD_LIMIT),
+      tokenRead: new FixedWindowLimiter(TOKEN_READ_LIMIT),
+      tokenWrite: new FixedWindowLimiter(TOKEN_WRITE_LIMIT),
+      bearerMiss: new FixedWindowLimiter(BEARER_MISS_LIMIT),
+      patCreate: new FixedWindowLimiter(PAT_CREATE_LIMIT),
     } satisfies NonNullable<AppDeps["limiters"]>);
+
+  // ⚠ `limiters` 必須算在**第一個 register 之前**：#107 的 `authenticateAny`
+  // decorator 由閉包取用它，而 decorator 得排在任何路由掛載之前。已查證 authRoutes
+  // 不依賴它（`AuthRouteDeps` 沒有 limiters 欄），所以這個上移不改變任何行為。
+  void app.register(
+    authRoutes({ db: deps.db, config: deps.config, gate: deps.gate, throttle: deps.throttle, collabHooks: deps.collabHooks })
+  );
 
   // Task 8（二輪 MINOR-8）：`deps.oidc` 未傳但 `config.oidc` 有值時在此補上 production
   // runtime——不能讓「config.oidc 有值而 runtime undefined」這個矛盾狀態流進

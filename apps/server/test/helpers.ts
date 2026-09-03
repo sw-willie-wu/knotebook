@@ -16,7 +16,7 @@ import { loadConfig, type AppConfig } from "../src/config.js";
 import { buildApp, type AppDeps, type BuildAppOptions } from "../src/app.js";
 import { UserGate } from "../src/auth/session.js";
 import { LoginThrottle } from "../src/auth/rate-limit.js";
-import { AI_LIMIT, COLLAB_TOKEN_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, SLUG_PATCH_LIMIT, UPLOAD_LIMIT } from "../src/http/rate-limit.js";
+import { AI_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, SLUG_PATCH_LIMIT, TOKEN_READ_LIMIT, TOKEN_WRITE_LIMIT, UPLOAD_LIMIT } from "../src/http/rate-limit.js";
 import { hashPassword } from "../src/auth/password.js";
 import { noopCollabHooks, type CollabHooks } from "../src/collab/hooks.js";
 import type { CollabHooksLogger } from "../src/collab/hooks-impl.js";
@@ -265,7 +265,18 @@ export function withTestRoutes(app: FastifyInstance): FastifyInstance {
 // 測試會被同一份 map 上其他測試先前已消耗掉的計數影響，導致隨執行順序隨機紅綠。
 // 數值沿用 `buildApp` 未收到 overrides 時的生產預設（見 `http/rate-limit.ts` 匯出的
 // `COLLAB_TOKEN_LIMIT`/`SLUG_PATCH_LIMIT`），讓測試環境的節流行為與生產一致。
-function freshLimiters(): NonNullable<AppDeps["limiters"]> {
+//
+// `overrides` 讓單一測試只換掉它要驗的那一顆桶（例如
+// `{ bearerMiss: new FixedWindowLimiter({ limit: 3, windowMs: 60_000 }) }`），不必手打
+// 全部鍵——鍵數會隨 #132 再長，逐檔複製全鍵字面值就是下一次改桶時的多處漏改。
+//
+// ⚠ 呼叫端要傳「自己也是選配的」桶時**直接轉傳整包 overrides**，不要逐鍵展開成
+// `{ publicMiss: overrides.publicMiss, … }`：沒被指定的鍵會拿到 explicit `undefined`
+// 蓋掉這裡的預設值（tsconfig 沒開 `exactOptionalPropertyTypes`，TS 不擋），執行時是
+// `undefined.consume`。
+export function freshLimiters(
+  overrides: Partial<NonNullable<AppDeps["limiters"]>> = {}
+): NonNullable<AppDeps["limiters"]> {
   return {
     collabToken: new FixedWindowLimiter(COLLAB_TOKEN_LIMIT),
     slugPatch: new FixedWindowLimiter(SLUG_PATCH_LIMIT),
@@ -277,6 +288,11 @@ function freshLimiters(): NonNullable<AppDeps["limiters"]> {
     publicMiss: new FixedWindowLimiter(PUBLIC_MISS_LIMIT),
     publicNote: new FixedWindowLimiter(PUBLIC_NOTE_LIMIT),
     publicUpload: new FixedWindowLimiter(PUBLIC_UPLOAD_LIMIT),
+    tokenRead: new FixedWindowLimiter(TOKEN_READ_LIMIT),
+    tokenWrite: new FixedWindowLimiter(TOKEN_WRITE_LIMIT),
+    bearerMiss: new FixedWindowLimiter(BEARER_MISS_LIMIT),
+    patCreate: new FixedWindowLimiter(PAT_CREATE_LIMIT),
+    ...overrides,
   };
 }
 
