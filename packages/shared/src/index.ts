@@ -567,3 +567,104 @@ export const EXCLUDED_PREFIXES = ["/api", "/collab", "/healthz", "/assets", "/oa
 export function isExcludedPath(pathname: string): boolean {
   return EXCLUDED_PREFIXES.some(prefix => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
+
+/**
+ * `next` 的長度上限。2048 是一個任意但明顯低於各層實務上限的數字（nginx 預設 header
+ * buffer 8 KB、舊 IE 的網址列 2083），用途是讓「有人把整份文件塞進 query」有個明確的
+ * 失敗點，而不是慢慢地把各層撐爆。
+ *
+ * ⚠ OIDC 那條路上另有**更緊**的上限：`OIDC_NEXT_MAX_LENGTH`（512，理由是 sealed
+ * cookie 的 4 KB 限制；#131 起住在 `apps/server/src/auth/oidc-state.ts`）：#132 的同意頁 return-to
+ * （`/authorize?client_id=…&state=…`）在 `state` 稍長時就有機會撞到它、`next` 被靜默
+ * 丟掉而落 `/`。
+ */
+export const MAX_NEXT_PATH_LENGTH = 2048;
+
+/** `safeNextPath` 解析用的虛構 base——只用來判定「相對解析後有沒有換 origin」，
+ * 這個網域不會被連線（`.invalid` 是 RFC 2606 保留的 TLD）。 */
+const NEXT_PATH_BASE = "http://knotebook.invalid";
+
+/** 可見 ASCII（U+0021–U+007E）。為何收得這麼緊，見 `safeNextPath` 的第 4 條。 */
+const NEXT_PATH_CHARSET_RE = /^[\u0021-\u007e]+$/;
+
+/**
+ * 「登入完可以把人送去哪」的唯一判準（#131）——web 的 `LoginPage`／`useSessionGate`
+ * 與 server 的 OIDC login／callback 共用這一支。
+ *
+ * **回傳輸入的原字串或 `null`，永遠不回傳正規化後的形。** 這是本函式最重要的契約：
+ * `/..//evil` 通過所有檢查（相對於本站解析仍指向本站），但
+ * `new URL("/..//evil", base).pathname` 是 `//evil`——把那個正規化形送進 `Location`
+ * 或 `navigate()`，瀏覽器會當它是 protocol-relative URL，人就到了 `http://evil`。
+ * 回原字串則由瀏覽器自己相對於本站解析，無害。
+ *
+ * 失敗一律回 `null`、**刻意不回原因碼**：所有呼叫端的處置都一樣（靜默 fallback 到
+ * `/`），沒有分支需求，也不該把「你給的 next 哪裡不合法」講給使用者聽。
+ *
+ * 檢查順序（任何一條不過就是 `null`；便宜的先跑）：
+ * 1. 必須是字串——**不是型別系統的贅語**：query string 解出來可能是 `null` 或**陣列**
+ *    （Fastify 對 `?next=/&next=x` 給的是 `["/", "x"]`），而陣列的 `[0]` 可能剛好是
+ *    `"/"`，靠下面的字元檢查是攔不住的。
+ * 2. 長度 <= `MAX_NEXT_PATH_LENGTH`。用 `input.length`（UTF-16 碼元）而**不是**同檔
+ *    `validateSlug`／`validateHandle` 那種 code point 計數：這裡量的是「當 `Location`
+ *    用時的長度」，而且過了第 4 條之後全是 ASCII，兩種算法等值。
+ * 3. 首字元 `/`，第二字元不是 `/` 也不是 `\`——擋掉 `//evil` 與 `/\evil` 這兩種會被
+ *    URL 解析器當成 authority 的形（`\` 在 special scheme 下等同 `/`）。
+ *    ⚠ 本條的**次字元**兩個比對與第 5 條的 origin 檢查**互為冗餘**：刪掉任一邊，全表
+ *    仍綠（已窮舉 + fuzz 驗證）。保留兩邊是讓字元層與解析層各有一道，不把「同源」整個
+ *    押在單一機制上。
+ * 4. **只允許可見 ASCII（U+0021–U+007E）**——必須在 URL 解析之前擋：WHATWG 的解析器
+ *    會把 CR／LF／TAB 靜默移除，先解析再看就永遠看不到它們，而
+ *    `Location: /x\r\nSet-Cookie: …` 是標頭注入。
+ *
+ *    **這條刻意比 spec §9.1 的字面（只點名 CR／LF／TAB／NUL）嚴很多**，理由是
+ *    **呼叫端契約**：OIDC callback 的成功導向刻意**不**做編碼（`reply.redirect(next)`，#131 Task 6 起，
+ *    見 `routes/oidc.ts`），因為在導向端補編碼行不通——`encodeURI` 會把既有的 `%20`
+ *    二次編碼成 `%2520`，`encodeURIComponent` 會把 `/`、`?`、`#` 一起吃掉。所以
+ *    **「送進來的字串必須可以逐字當 `Location` 用」是本函式的責任**。Node 的標頭字元
+ *    白名單是 `[\t\x20-\x7e\x80-\xff]`：裸的 C0（TAB 除外，那條由上一段的理由
+ *    擋）與 DEL 會被 `validateHeaderValue` 丟 `ERR_INVALID_CHAR`，**U+0100 起（超過
+ *    latin-1）的字元也會**——`/n/alice/筆記` 這種未編碼的 CJK 路徑就是（實測：U+00FF
+ *    仍放行，U+0100 起才炸）。
+ *    而該例外**接不到** `routes/oidc.ts` 最外層的 catch：`app.ts` 掛的是 async
+ *    `onSend`，`reply.redirect()` 只是把 header 塞進 reply，真正的 `writeHead` 發生在
+ *    handler 回傳之後 → 使用者拿到 JSON 500，而 `setSessionCookie` 已經跑過。等於打破
+ *    `routes/oidc.ts` 檔頭寫的「這條路由一切失敗都是 302，不是 JSON 500」。
+ *
+ *    對呼叫端的要求（因此）是：**送已百分比編碼的路徑**。web 端天然滿足——瀏覽器的
+ *    `location.pathname` 本身就是百分比編碼形，所以 `/n/alice/%E7%AD%86%E8%A8%98`
+ *    通過、`/n/alice/筆記` 不通過，真實路徑一個都不會被誤殺。
+ * 5. 相對於 `NEXT_PATH_BASE` 解析後 origin 必須沒變。**這條是刻意的冗餘防線**（見第 3
+ *    條）：**沒有任何輸入能只被它擋下**——突變測試會顯示這行可以刪掉而測試全綠，這是
+ *    已知且刻意的。**同段的 `try/catch` 同理**：相對輸入配合法 base，`new URL` 不會
+ *    throw，catch 分支同樣沒有輸入到得了。
+ * 6. 解析後的 pathname 不得命中 `isExcludedPath`——`/api/…`、`/oauth/…` 這些不是 SPA
+ *    頁，導過去只會看到一份裸 JSON。用**解析後**的 pathname 比對，`/x/../api/notes`
+ *    與 `/x/%2e%2e/api/notes` 才擋得掉（`isExcludedPath` 自己不做正規化，見該函式）。
+ * 7. 收斂尾斜線與大小寫之後不是 `/login`——`/login?next=%2Flogin` 這種手工連結會讓人
+ *    登入完又回到登入表單（此時已登入）。不是安全問題，是死路；spec 沒提，這條是 #131
+ *    加的。收斂是必要的：react-router 的路徑比對忽略尾斜線、預設大小寫不敏感，所以
+ *    `/login/` 與 `/LOGIN` 一樣會渲染登入頁。
+ *    判準是「**這個頁的存在前提是尚未登入**」——只有這種頁才該排除。`/change-password`
+ *    不算：它對已登入者是一個功能正常的頁。
+ */
+export function safeNextPath(input: string | null | undefined): string | null {
+  if (typeof input !== "string") return null;
+  if (input.length > MAX_NEXT_PATH_LENGTH) return null;
+  if (input[0] !== "/") return null;
+  if (input[1] === "/" || input[1] === "\\") return null;
+  // 不需要 eslint-disable：這個 pattern 的**字面裡沒有任何控制字元**（是碼位逸出），
+  // `no-control-regex` 本來就不會命中它。
+  if (!NEXT_PATH_CHARSET_RE.test(input)) return null;
+
+  let url: URL;
+  try {
+    url = new URL(input, NEXT_PATH_BASE);
+  } catch {
+    return null;
+  }
+  if (url.origin !== NEXT_PATH_BASE) return null;
+  if (isExcludedPath(url.pathname)) return null;
+  if (url.pathname.replace(/\/+$/, "").toLowerCase() === "/login") return null;
+
+  return input;
+}
