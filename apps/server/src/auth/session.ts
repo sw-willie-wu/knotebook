@@ -122,6 +122,32 @@ export class UserGate {
   }
 
   async check(userId: string, tv: number): Promise<GateResult> {
+    const row = await this.getRow(userId);
+    return UserGate.evaluate(row, tv);
+  }
+
+  /**
+   * #107：token 路徑（Bearer）的使用者狀態閘。與 `check()` **共用同一條 fetch／
+   * 快取／generation-counter 路徑**（`getRow`），差別只在評估時**不比對
+   * tokenVersion**——D3：改密碼不作廢 API token（比照 GitHub PAT），撤銷靠設定頁
+   * 逐支撤或 admin 停權。
+   *
+   * 實作上是「把列自己的 tokenVersion 傳給 evaluate」＝那個比較恆真，於是只剩
+   * 「列存在」與「未停權」兩個條件。⚠ **不可自己另寫一份 fetch**：`getRow` 的
+   * `gen` 守衛擋的是「查詢期間被 invalidate，舊資料仍被寫進快取並帶 60 秒 TTL」
+   * 的 race；少了它，停權後 60 秒內 token 仍然可用。
+   */
+  async checkUser(userId: string): Promise<GateResult> {
+    const row = await this.getRow(userId);
+    return UserGate.evaluate(row, row?.tokenVersion ?? 0);
+  }
+
+  /**
+   * 快取／查詢的單一入口（`check` 與 `checkUser` 共用）。快取存的是「查到的 DB row
+   * 快照」而非結論，所以兩個呼叫端可以用同一份快取做不同的評估。`gen` 守衛的完整
+   * 說明見 class 註解。
+   */
+  private async getRow(userId: string): Promise<GateRow | null> {
     let entry = this.cache.get(userId);
     if (!entry || entry.expiresAt <= this.now()) {
       const g = this.gen;
@@ -130,7 +156,7 @@ export class UserGate {
       // 只有查詢期間沒被 invalidate() 打斷（gen 未變）才寫入快取，見上方 class 註解。
       if (g === this.gen) this.store(userId, entry);
     }
-    return UserGate.evaluate(entry.row, tv);
+    return entry.row;
   }
 
   invalidate(userId: string): void {
