@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter, Route, Routes } from "react-router";
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router";
 import "@/i18n";
 import { RequireAuth, ChangePasswordGate } from "./guards";
 
@@ -238,5 +238,153 @@ describe("ChangePasswordGate（spec rev 5.7）", () => {
 
     await waitFor(() => expect(screen.getByText("change-password-page")).toBeInTheDocument());
     expect(screen.queryByText("home-page")).not.toBeInTheDocument();
+  });
+});
+
+// ── #131：未登入導向登入頁時帶上 next ────────────────────────────────────────
+//
+// 這一族守的是「使用者本來要開的那一頁」有沒有被交給登入頁。逐字斷言整串 query 是
+// 重點：pathname+search 必須恰好 encode 一次，內含的 ?、& 與 % 才不會被當成 /login
+// 自己的參數（LoginPage 那頭，Task 4 起，用 searchParams.get("next") 解一次拿回原字串）。
+
+/** 落在 /login 時把完整 location 印成單一 text node，讓斷言可以逐字 toBe。 */
+function LoginProbe() {
+  const location = useLocation();
+  return <div data-testid="login-location">{`${location.pathname}${location.search}`}</div>;
+}
+
+/** `/api/auth/me` 回 401＝未登入（useSession 把 401 轉成 resolve null，不進 error 分支）。 */
+function mockFetchUnauthenticated(): ReturnType<typeof vi.fn> {
+  return vi.fn((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "/api/auth/me") {
+      return Promise.resolve(
+        fakeResponse({
+          ok: false,
+          status: 401,
+          json: () => Promise.resolve({ error: { code: "unauthorized", message: "no" } }),
+        }),
+      );
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  });
+}
+
+/** 讓測試可以按「上一頁」，用來分辨 replace 與 push。 */
+function BackButton() {
+  const navigate = useNavigate();
+  return (
+    <button type="button" onClick={() => void navigate(-1)}>
+      back
+    </button>
+  );
+}
+
+function renderRequireAuthAt(entries: string[]) {
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <MemoryRouter initialEntries={entries} initialIndex={entries.length - 1}>
+        <Routes>
+          <Route path="/login" element={<LoginProbe />} />
+          <Route element={<RequireAuth />}>
+            <Route path="/*" element={<div>protected-page</div>} />
+          </Route>
+        </Routes>
+        <BackButton />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
+async function expectLoginLocation(expected: string) {
+  await waitFor(() => {
+    expect(screen.getByTestId("login-location").textContent).toBe(expected);
+  });
+}
+
+describe("#131 未登入導向帶 next", () => {
+  // ⚠ 既有的兩個 `afterEach(() => vi.unstubAllGlobals())` 各自關在別的 describe 裡，
+  // 這個新 describe 是它們的兄弟節點、吃不到——自己帶一份，否則 fetch 樁會外洩。
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("未登入訪問受保護路徑 → /login?next=<目前路徑>（含 query，整串 encode 一次）", async () => {
+    vi.stubGlobal("fetch", mockFetchUnauthenticated());
+
+    renderRequireAuthAt(["/n/alice/my-note?a=1&b=2"]);
+
+    await expectLoginLocation("/login?next=%2Fn%2Falice%2Fmy-note%3Fa%3D1%26b%3D2");
+    expect(screen.queryByText("protected-page")).not.toBeInTheDocument();
+  });
+
+  it("pathname 本身含百分比編碼（非 ASCII 標題的真實形）→ % 要再編一次成 %25", async () => {
+    // 真實瀏覽器的 location.pathname 對非 ASCII slug 就是百分比編碼形，所以這才是
+    // 「/n/alice/筆記」在 web 端的樣子。**漏編**會讓 server 端 searchParams.get("next")
+    // 一次就解出裸的 CJK，過不了 safeNextPath 的可見 ASCII 檢查；**雙重編碼**則會讓
+    // next 變成 %252F… 開頭，解出來首字元不是 /、同樣被擋。兩種錯法都由下面這條逐字
+    // 斷言接住——這一案是 Task 2 那條字元檢查在 web 端的另一端。
+    // ⚠ 不可改用裸 CJK 路徑來測：MemoryRouter 不會替你編碼，那是真實瀏覽器產不出來
+    // 的狀態，測出來的結論會是誤導。
+    vi.stubGlobal("fetch", mockFetchUnauthenticated());
+
+    renderRequireAuthAt(["/n/alice/%E7%AD%86%E8%A8%98"]);
+
+    await expectLoginLocation("/login?next=%2Fn%2Falice%2F%25E7%25AD%2586%25E8%25A8%2598");
+  });
+
+  it("即使 next 只是 / 也照樣寫進 URL（不特例化——少一條分支＝少一個出錯點）", async () => {
+    // 代價是未登入訪首頁時網址列會多一個沒有資訊量的 ?next=%2F。這是刻意的取捨，
+    // 不要「順手清乾淨」。
+    vi.stubGlobal("fetch", mockFetchUnauthenticated());
+
+    renderRequireAuthAt(["/"]);
+
+    await expectLoginLocation("/login?next=%2F");
+  });
+
+  it("hash 不帶（search 帶）", async () => {
+    // 行為契約，不是機制解釋：理由見 guards.tsx 的註解（safeNextPath 那頭其實**接受**
+    // 帶 fragment 的路徑，本處只是不產生它）。
+    vi.stubGlobal("fetch", mockFetchUnauthenticated());
+
+    renderRequireAuthAt(["/n/alice/my-note?a=1#frag"]);
+
+    await expectLoginLocation("/login?next=%2Fn%2Falice%2Fmy-note%3Fa%3D1");
+  });
+
+  it("導向是 replace 不是 push：登入頁按上一頁不會回到那個進不去的受保護頁", async () => {
+    // 沒有這一案，把 replace 改成 push 全表仍綠——而 push 會留下一個死路：登入完
+    // 按上一頁回到 /login?next=…（此時已登入）。
+    vi.stubGlobal("fetch", mockFetchUnauthenticated());
+
+    renderRequireAuthAt(["/somewhere-else", "/n/alice/my-note"]);
+
+    await expectLoginLocation("/login?next=%2Fn%2Falice%2Fmy-note");
+    fireEvent.click(screen.getByRole("button", { name: "back" }));
+
+    // replace：受保護頁那一筆已被登入頁取代，上一頁是 /somewhere-else——它同樣未登入，
+    // 於是再次被導到登入頁，next 換成 /somewhere-else。
+    // 若是 push：上一頁會是 /n/alice/my-note，next 仍會是 %2Fn%2Falice%2Fmy-note。
+    await expectLoginLocation("/login?next=%2Fsomewhere-else");
+  });
+
+  it("ChangePasswordGate 獨立掛載＋未登入 → 同樣帶 next（三顆 gate 共用 useSessionGate）", async () => {
+    vi.stubGlobal("fetch", mockFetchUnauthenticated());
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter initialEntries={["/settings/account"]}>
+          <Routes>
+            <Route path="/login" element={<LoginProbe />} />
+            <Route element={<ChangePasswordGate />}>
+              <Route path="/*" element={<div>protected-page</div>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await expectLoginLocation("/login?next=%2Fsettings%2Faccount");
   });
 });

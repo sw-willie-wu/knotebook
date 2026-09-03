@@ -86,12 +86,28 @@ function PublicNoteRoute() {
  * modal-over-background 機制那段）：
  *
  * - **主樹**：render 背景頁，吃 `<Routes location={state?.backgroundLocation ?? location}>`
- *   ——帶 `location` prop 的 `<Routes>` 會覆寫 React Router 的 `LocationContext`；
- *   guards.tsx 本身不讀 location（只 import `Navigate`/`Outlet`），但主樹底下的
- *   route matching 與 `<Navigate>` 解析都是吃這個被覆寫後的 router context，
- *   因此仍然是**背景** location 生效，不是瀏覽器目前真實的 `/settings/*`
- *   網址——這個相依是「開設定時背景頁繼續照它本來的路徑渲染」成立的前提，
- *   **改動 guard 或這段 location 邏輯前務必先確認沒有破壞這個相依**。
+ *   ——帶 `location` prop 的 `<Routes>` 會覆寫 React Router 的 `LocationContext`：
+ *   主樹底下的 route matching、`<Navigate>` 解析、**以及任何 `useLocation()`**
+ *   都是吃這個被覆寫後的 router context，因此一律是**背景** location 生效，不是
+ *   瀏覽器目前真實的 `/settings/*` 網址——這個相依是「開設定時背景頁繼續照它本來
+ *   的路徑渲染」成立的前提，**改動 guard 或這段 location 邏輯前務必先確認沒有破壞
+ *   這個相依**。
+ *
+ *   ⚠ #131 起 `guards.tsx` 的 `useSessionGate` **會**讀 `useLocation()`（組
+ *   `/login?next=`），於是這個覆寫有了可觀測的後果——**但只在帶 `backgroundLocation`
+ *   state 時**（也就是從 `UserMenu` 點開設定 modal 那條路徑；深連結／書籤直接開
+ *   `/settings/account` 時 `state` 是 undefined，主樹吃 `?? location` 也是真實網址，
+ *   兩棵樹算出的目標相同、沒有分歧）：此時 `/settings/*` 未登入會讓**兩棵樹都**各自
+ *   render 一個 `<Navigate>`，主樹算出的是**背景頁**、第二棵樹算出的是**真實網址**。
+ *   兩次 `navigate` 都是 `replace`，第二棵樹的 effect 後跑而覆寫掉前者，淨結果只有
+ *   一筆 history entry、中間態不落地（量到的 location 序列是
+ *   `/settings/account` → `/login?next=%2Fsettings%2Faccount`）。
+ *
+ *   **真實網址勝出正是要的結果**：使用者網址列上是 `/settings/account`，登入完就該
+ *   回那裡，而不是回到他當時只是拿來當背景的筆記頁。但**正確性掛在「第二棵樹存在
+ *   且後掛載」上**：哪天把某個 modal-over-background 路由移出第二棵樹，`next` 會
+ *   **靜默**退化成背景頁。守衛在 `App.test.tsx` 的「未登入開設定 modal → next 取
+ *   真實網址」那案。
  * - **第二棵樹**：只含 `/settings/*`，吃真實 location（不帶 `location` prop）；
  *   非 `/settings/*` 路徑下整棵 match 不到任何 route → render `null`，樹內的
  *   guard 元件根本不會執行，不會有幽靈重導。guard 元件在這裡
@@ -102,7 +118,8 @@ function PublicNoteRoute() {
  * （書籤不斷；`RequireAdmin` 包裹保留不動）。
  *
  * 現行守衛集合（主樹）：<RequireAuth> 包住除 /login 外的其餘路由（未登入導
- * /login）；`/admin/users`（Task 15）再多包一層 <RequireAdmin>（非 admin 導 `/`）
+ * `/login?next=<目前路徑>`，#131——「目前路徑」的兩棵樹細節見上）；
+ * `/admin/users`（Task 15）再多包一層 <RequireAdmin>（非 admin 導 `/`）
  * ——巢狀在 <RequireAuth> 底下，即使 <RequireAdmin> 自己也有未登入判斷（見
  * guards.tsx），這裡是雙保險而非依賴它獨立生效。這條路由必須排在 `/*` catch-all
  * 之前，否則永遠會被 HomePage 吃掉。
