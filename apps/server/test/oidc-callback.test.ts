@@ -590,3 +590,113 @@ describe("GET /api/auth/oidc/callback", () => {
     }
   });
 });
+
+// ── #131：callback 的 return-to ──────────────────────────────────────────────
+//
+// 成功導向 state cookie 裡那個 next（沒有就 `/`）；失敗導回 /login?error=… 時，只要
+// cookie 已經解開過就把 next 一併帶上——那是 OIDC 正常流程的一部分，使用者修正錯誤後
+// 還要回得去原本那頁。cookie 解開之前的出口（cookie 缺、unseal 失敗、限流、未設定）
+// 拿不到 next，輸出與 #131 之前逐字相同。
+describe("#131 callback 的 return-to", () => {
+  const claims: FakeIdpClaims = { sub: "s-131", email: "next@example.com", email_verified: true, name: "Next" };
+
+  /** login 帶 next → IdP → callback，回傳 callback 的 302 location。 */
+  async function flowWithNext(nextQuery: string, overrideClaims: FakeIdpClaims = claims): Promise<string> {
+    const { app, fakeIdp } = await setup();
+    fakeIdp.setNextLogin(overrideClaims);
+    const loginRes = await app.inject({
+      method: "GET",
+      url: `/api/auth/oidc/login?next=${encodeURIComponent(nextQuery)}`,
+    });
+    const { code, state } = fakeIdp.authorize(loginRes.headers.location as string);
+    const cookieValue = loginRes.cookies.find(c => c.name === OIDC_STATE_COOKIE)!.value;
+    const res = await callback(app, { code, state, cookieValue });
+    expect(res.statusCode).toBe(302);
+    return res.headers.location as string;
+  }
+
+  it("成功 → 導向 next（不是 `/`）", async () => {
+    expect(await flowWithNext("/n/alice/my-note?x=1")).toBe("/n/alice/my-note?x=1");
+  });
+
+  it("沒有 next → 仍導 `/`（既有行為不變）", async () => {
+    const { app, fakeIdp } = await setup();
+    const { code, state, cookieValue } = await loginAndAuthorize(app, fakeIdp, claims);
+
+    const res = await callback(app, { code, state, cookieValue });
+
+    expect(res.headers.location).toBe("/");
+  });
+
+  it("2049 字元 next → 落 `/`（跨層冒煙；長度關本身由 oidc-login.test.ts 的 2048/2049 那案守）", async () => {
+    expect(await flowWithNext("/" + "a".repeat(2048))).toBe("/");
+  });
+
+  it("unseal 後再驗：手動封一顆帶跨站 next 的 cookie → 落 `/`", async () => {
+    // 這是唯一能單獨殺掉「unseal 後再驗一次」那行的形——正常流程裡 login 端已先擋掉，
+    // 只有偽造 payload（或判準日後收緊、舊 cookie 還在飛）才走得到。
+    const { app, config, fakeIdp } = await setup();
+    const { code, state, cookieValue } = await loginAndAuthorize(app, fakeIdp, claims);
+    const payload = unsealOidcState(config.appSecret, cookieValue, Math.floor(Date.now() / 1000))!;
+    const tampered = sealOidcState(config.appSecret, { ...payload, next: "//evil.example" });
+
+    const res = await callback(app, { code, state, cookieValue: tampered });
+
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toBe("/");
+  });
+
+  it("失敗（email 未驗證）→ /login?error=…&next=…（next 有 encode）", async () => {
+    const unverified: FakeIdpClaims = { sub: "s-131b", email: "unv@example.com", email_verified: false, name: "U" };
+
+    expect(await flowWithNext("/n/alice/my-note?x=1", unverified)).toBe(
+      "/login?error=oidc_email_unverified&next=%2Fn%2Falice%2Fmy-note%3Fx%3D1",
+    );
+  });
+
+  it("state 參數不符（cookie 已解開、next 已知）→ 錯誤導回也帶 next", async () => {
+    const { app, fakeIdp } = await setup();
+    fakeIdp.setNextLogin(claims);
+    const loginRes = await app.inject({ method: "GET", url: "/api/auth/oidc/login?next=%2Fn%2Falice%2Fmy-note" });
+    const { code } = fakeIdp.authorize(loginRes.headers.location as string);
+    const cookieValue = loginRes.cookies.find(c => c.name === OIDC_STATE_COOKIE)!.value;
+
+    const res = await callback(app, { code, state: "not-the-state", cookieValue });
+
+    expect(res.headers.location).toBe("/login?error=oidc_state_mismatch&next=%2Fn%2Falice%2Fmy-note");
+  });
+
+  it("cookie 缺失、但 query 帶了 next → 逐字無 next（不得從 query 撿）", async () => {
+    // `next` 的**唯一**來源是密封 cookie。從 query 撿的話，攻擊者就能用自己的連結決定
+    // 別人失敗後被送去哪。⚠ query 一定要真的帶 next，否則這一案恆綠：不撿也是同一個
+    // 字串（實測過，那樣連「在宣告處直接從 query 撿」的突變都殺不掉）。
+    const { app } = await setup();
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/auth/oidc/callback?code=c&state=s&next=%2Fattacker-page",
+    });
+
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toBe("/login?error=oidc_state_mismatch");
+  });
+
+  it("cookie 與 query 各帶一個 next → 採 cookie 那個（query 不參與）", async () => {
+    // 上一案守的是「解開之前不撿」，這一案守「解開之後也不撿」——兩者少任何一個，
+    // 「query ?? payload」這種寫法就有一半殺不掉。
+    const { app, fakeIdp } = await setup();
+    fakeIdp.setNextLogin(claims);
+    const loginRes = await app.inject({ method: "GET", url: "/api/auth/oidc/login?next=%2Fn%2Falice%2Fmy-note" });
+    const { code, state } = fakeIdp.authorize(loginRes.headers.location as string);
+    const cookieValue = loginRes.cookies.find(c => c.name === OIDC_STATE_COOKIE)!.value;
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/auth/oidc/callback?code=${code}&state=${state}&next=%2Fattacker-page`,
+      cookies: { [OIDC_STATE_COOKIE]: cookieValue },
+    });
+
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toBe("/n/alice/my-note");
+  });
+});
