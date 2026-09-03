@@ -11,15 +11,14 @@
  * URL，否則 MUST NOT use」。於是嚴格的 client 在 `/api/notes` 上取得的 PRM 會被
  * 丟棄（等同沒帶 challenge），只有在 `/api/mcp` 上取得的可用——而 `/api/mcp` 正是
  * MCP client 的唯一入口，實務上不影響。**不要「順手修正」成只有 `/api/mcp` 才帶**：
- * 那會讓 #106 之後的新端點 401 完全沒有發現資訊。取捨記在 docs/known-limitations.md
- * （#130 的 docs task 補）。
+ * 那會讓 #106 之後的新端點 401 完全沒有發現資訊。取捨記在 docs/known-limitations.md。
  *
  * ## scope 是 challenge 集合，不是 required 單值
  *
  * MCP 規格要求 client 把 challenge 上的 scope 當作本次操作的**權威值**、只會要
  * 這麼多；server SHOULD 一次給齊該資源需要的全部 scope。所以 `/api/mcp` 的
  * challenge 必須是 `notes:read notes:write`，否則 client 走完 OAuth 只會拿到唯讀
- * token。授權判定用的 `required` 是另一個參數，見 `auth/bearer.ts`（後續 task）。
+ * token。授權判定用的 `required` 是另一個參數，見 `auth/bearer.ts`。
  *
  * ## 組字紀律
  *

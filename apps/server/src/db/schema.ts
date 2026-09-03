@@ -280,8 +280,7 @@ export const oauthClients = pgTable(
  *
  * ⚠ **PAT 不受 `users.token_version` 撤銷保護**：那是「登出所有裝置」的機制，與這張表
  * 零關聯。使用者改密碼後 API token 仍然有效（刻意，比照 GitHub PAT），撤銷只能逐支
- * 刪列——這是最容易被當成 bug 回報的行為，#130 的 docs task 要把它寫進
- * `docs/api-tokens.md` 的安全提醒段（該檔此刻還不存在）。
+ * 刪列——這是最容易被當成 bug 回報的行為，寫在 `docs/api-tokens.md` 的安全提醒段。
  *
  * `api_tokens_oauth_user_client_uidx` 是「同一 (user, client) 只留一個 grant」的
  * **結構性保證**：#132 兩張並發 code 各自「先刪後插」的 race 由索引裁決，撞索引者回

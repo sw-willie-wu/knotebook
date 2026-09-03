@@ -32,7 +32,7 @@ const createBodySchema = z.object({
  * 的「允許將取代舊授權」自相矛盾。
  *
  * **軟配額**：查完再插、不鎖 user 列，並行建立可短暫超出 20。非安全邊界（上限只是
- * 防呆與 UI 可讀性），#130 的 docs task 記進 docs/known-limitations.md。
+ * 防呆與 UI 可讀性），記在 docs/known-limitations.md。
  */
 async function countBillableGrants(db: Db, userId: string): Promise<number> {
   const [row] = await db
@@ -54,7 +54,7 @@ async function countBillableGrants(db: Db, userId: string): Promise<number> {
  * oauth_codes）在 #132 隨 OAuth 端點一起落地；本 PR 只有 PAT 這條有東西可清。
  *
  * **性質：沒有排程**——只在「有人建 PAT」（以及 #132 的每次 OAuth 操作）時機會性
- * 執行，殘留列要等下一次操作才回收。#130 的 docs task 記進 docs/known-limitations.md。
+ * 執行，殘留列要等下一次操作才回收。記在 docs/known-limitations.md。
  *
  * 這條 WHERE（kind + access_expires_at）沒有索引支撐＝全表掃描，刻意不建：表恆小
  * （每人計費上限 20 ＋ 過期殘留），而且觸發點被 PAT_CREATE_LIMIT 壓在每人每小時 10 次。

@@ -452,7 +452,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
    * cookie session 的解析，**不送回應**——回 null 就是「這個請求沒有有效 session」，
    * 由呼叫端決定那代表什麼。
    *
-   * #107 把它從 `authenticate` 抽出來的理由：Bearer 那條路徑（後續 task 的
+   * #107 把它從 `authenticate` 抽出來的理由：Bearer 那條路徑（`auth/bearer.ts` 的
    * `authenticateAny`）不能靠呼叫 `authenticate` 來做 cookie 回退。`sendError`
    * 內含 `reply.send()`，之後再 `reply.header()` 補 `WWW-Authenticate` 只會寫進
    * `kReplyHeaders`、而 onSend 鏈已經排程——header 會**靜默消失**（fastify 5 實測）。
