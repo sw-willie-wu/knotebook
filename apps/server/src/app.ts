@@ -7,10 +7,11 @@ import Fastify, {
 } from "fastify";
 import fastifyCookie from "@fastify/cookie";
 import fastifyMultipart from "@fastify/multipart";
-import { MAX_UPLOAD_BYTES, SESSION_COOKIE, type ErrorCode } from "@knotebook/shared";
-import type { AppConfig } from "./config.js";
+import { MAX_UPLOAD_BYTES, SESSION_COOKIE, type ErrorCode, type RequiredScope, type TokenScope } from "@knotebook/shared";
+import { publicUrlIssuer, type AppConfig } from "./config.js";
 import type { Db } from "./db/index.js";
 import { verifySession, type GateUser, type UserGate } from "./auth/session.js";
+import { createAuthenticateAny } from "./auth/bearer.js";
 import type { LoginThrottle } from "./auth/rate-limit.js";
 import type { CollabHooks } from "./collab/hooks.js";
 import type { CollabServer } from "./collab/server.js";
@@ -23,6 +24,7 @@ import { aiRoutes } from "./routes/ai.js";
 import { uploadsRoutes } from "./routes/uploads.js";
 import { publicRoutes, redactPublicTokens } from "./routes/public.js";
 import { oidcRoutes } from "./routes/oidc.js";
+import { mcpRoutes } from "./routes/mcp.js";
 import { drainWithCap } from "./http/drain.js";
 import { sendError } from "./http/errors.js";
 import { AI_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, SLUG_PATCH_LIMIT, TOKEN_READ_LIMIT, TOKEN_WRITE_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
@@ -35,6 +37,11 @@ declare module "fastify" {
   interface FastifyInstance {
     authenticate(request: FastifyRequest, reply: FastifyReply): Promise<void>;
     requireAdmin(request: FastifyRequest, reply: FastifyReply): Promise<void>;
+    /** #107：opt-in 的 Bearer／session 雙路徑認證，語意見 `auth/bearer.ts`。 */
+    authenticateAny(
+      required: RequiredScope,
+      challenge?: string
+    ): (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
   interface FastifyRequest {
     user?: GateUser;
@@ -45,6 +52,12 @@ declare module "fastify" {
      * 的回傳形狀）本身不帶 tv，故另開這個欄位，不擴充 `GateUser` 型別本身。
      */
     sessionTv?: number;
+    /** #107：這一發是 cookie session 還是 API token 認證的。錯誤 log 只印這個與 tokenId。 */
+    authKind?: "session" | "token";
+    /** #107：token 路徑才有——落庫的正規化 scope 集合。 */
+    tokenScope?: TokenScope;
+    /** #107：token 路徑才有——`api_tokens.id`（**不是**明文，明文永不進 log）。 */
+    tokenId?: string;
   }
 }
 
@@ -500,9 +513,24 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       patCreate: new FixedWindowLimiter(PAT_CREATE_LIMIT),
     } satisfies NonNullable<AppDeps["limiters"]>);
 
-  // ⚠ `limiters` 必須算在**第一個 register 之前**：#107 的 `authenticateAny`
-  // decorator 由閉包取用它，而 decorator 得排在任何路由掛載之前。已查證 authRoutes
-  // 不依賴它（`AuthRouteDeps` 沒有 limiters 欄），所以這個上移不改變任何行為。
+  // #107：`limiters` 在上面才算出來，所以這個 decorate 必須排在它之後、任何
+  // `app.register(路由)` 之前——路由模組的 register 內會呼叫 app.authenticateAny。
+  // （`limiters` 為此上移到 authRoutes 之前；已查證 `AuthRouteDeps` 沒有 limiters 欄，
+  // 上移不改變任何行為。）
+  app.decorate(
+    "authenticateAny",
+    createAuthenticateAny({
+      db: deps.db,
+      gate: deps.gate,
+      // D12：issuer 一律取 **origin**（`publicUrlIssuer`）。⚠ 寫成 `.href` 會多一個尾
+      // 斜線（`http://localhost:3000/`），challenge 就變成 `…3000//.well-known/…`——
+      // api-token-auth.test.ts 的第一個 it 對 resource_metadata 做逐字 toContain，會抓到。
+      issuer: publicUrlIssuer(deps.config.publicUrl),
+      resolveSessionUser,
+      limiters: { bearerMiss: limiters.bearerMiss, tokenRead: limiters.tokenRead, tokenWrite: limiters.tokenWrite },
+    })
+  );
+
   void app.register(
     authRoutes({ db: deps.db, config: deps.config, gate: deps.gate, throttle: deps.throttle, collabHooks: deps.collabHooks })
   );
@@ -543,6 +571,9 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   void app.register(uploadsRoutes({ db: deps.db, config: deps.config, limiters: { upload: limiters.upload }, uploadsDir: deps.uploadsDir }));
   // #72 公開端點（免登入）：三步節流順序與 404 同形見 routes/public.ts 檔頭。
   void app.register(publicRoutes({ db: deps.db, uploadsDir: deps.uploadsDir, limiters: { publicMiss: limiters.publicMiss, publicNote: limiters.publicNote, publicUpload: limiters.publicUpload } }));
+  // #107：/api/mcp 的 #108 前暫時形——沒有它，MCP client 的第一發會拿到不帶 challenge
+  // 的 404，無從發現授權伺服器（見 routes/mcp.ts 檔頭）。
+  void app.register(mcpRoutes());
 
   // 共編的 WebSocket 掛在底層 http server 的 upgrade 事件上，不經 Fastify 路由——
   // 因此與上面的路由註冊順序無關，也不會被 setNotFoundHandler／SPA fallback 攔到。
@@ -559,7 +590,9 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   app.setErrorHandler<FastifyError>((error, request, reply) => {
     const status = error.statusCode ?? 500;
     if (status >= 500) {
-      request.log.error(error);
+      // #107 §7：錯誤 log 若要記身分，**只記 authKind 與 tokenId**——不記 token 明文，
+      // 也不記 Authorization header（`serializers.req` 本來就不印 headers）。
+      request.log.error({ err: error, authKind: request.authKind, tokenId: request.tokenId }, "unhandled error");
       return sendError(reply, 500, "internal", "伺服器內部錯誤");
     }
     return sendError(reply, status, clientErrorCode(status), error.message || "請求錯誤");

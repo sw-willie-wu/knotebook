@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -613,4 +613,29 @@ export async function buildCollabTestApp(
   }
 
   return { baseUrl, app, collab, collabLogs, breakGate, db, createUser, createNote, share, loginAs, destroy };
+}
+
+/**
+ * 建一個**能用密碼登入**的使用者。各測試檔既有的 `cookieFor` 慣例是自己
+ * `signSession(testConfig.appSecret, { userId, tv: 0 })`——那對「只要一個能過
+ * authenticate 的 cookie」很夠用；這支補的是另一半：需要真的跑一次
+ * `POST /api/auth/login` 或 `POST /api/auth/password` 的情境（例如驗「改密碼之後
+ * API token 仍然有效」）。
+ */
+export async function insertPasswordUser(
+  db: Db,
+  over: { password?: string; mustChangePassword?: boolean; email?: string } = {}
+): Promise<{ id: string; email: string; password: string }> {
+  const password = over.password ?? "correct-horse-battery-staple";
+  const email = over.email ?? `u-${randomUUID()}@example.com`;
+  const [user] = await db
+    .insert(users)
+    .values({
+      email,
+      displayName: "Test User",
+      passwordHash: await hashPassword(password),
+      mustChangePassword: over.mustChangePassword ?? false,
+    })
+    .returning();
+  return { id: user.id, email, password };
 }
