@@ -427,24 +427,39 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     }
   });
 
+  /**
+   * cookie session 的解析，**不送回應**——回 null 就是「這個請求沒有有效 session」，
+   * 由呼叫端決定那代表什麼。
+   *
+   * #107 把它從 `authenticate` 抽出來的理由：Bearer 那條路徑（後續 task 的
+   * `authenticateAny`）不能靠呼叫 `authenticate` 來做 cookie 回退。`sendError`
+   * 內含 `reply.send()`，之後再 `reply.header()` 補 `WWW-Authenticate` 只會寫進
+   * `kReplyHeaders`、而 onSend 鏈已經排程——header 會**靜默消失**（fastify 5 實測）。
+   * 兩個 decorator 因此各自決定回應，只共用這一支解析。
+   */
+  async function resolveSessionUser(request: FastifyRequest): Promise<{ user: GateUser; tv: number } | null> {
+    const token = request.cookies[SESSION_COOKIE];
+    const session = token ? await verifySession(deps.config.appSecret, token) : null;
+    if (!session) return null;
+    const result = await deps.gate.check(session.userId, session.tv);
+    if (result.status !== "ok") return null;
+    return { user: result.user, tv: session.tv };
+  }
+
   // 以下兩個 decorator 都以一般具名函式（而非箭頭函式綁 this）宣告，但內部完全不用
   // `this`——`requireAdmin` 呼叫 `authenticate` 是透過閉包捕捉的外層 `app` 變數，
   // 不依賴 fastify 呼叫時的 this 綁定，故用 `app.authenticate(...)`／
   // `app.requireAdmin(...)`（或當作 preHandler 傳給其他路由）皆可正確運作。
   app.decorate("authenticate", async function authenticate(request: FastifyRequest, reply: FastifyReply): Promise<void> {
-    const token = request.cookies[SESSION_COOKIE];
-    const session = token ? await verifySession(deps.config.appSecret, token) : null;
-    if (!session) {
+    const resolved = await resolveSessionUser(request);
+    if (!resolved) {
       sendError(reply, 401, "unauthorized", "未登入");
       return;
     }
-    const result = await deps.gate.check(session.userId, session.tv);
-    if (result.status !== "ok") {
-      sendError(reply, 401, "unauthorized", "未登入");
-      return;
-    }
-    request.user = result.user;
-    request.sessionTv = session.tv;
+    // ⚠ `sessionTv` 不得漏：`POST /api/notes/:id/collab-token` 是它全 repo 唯一的
+    // 消費者，漏了會讓簽出的 collab token 帶 undefined tv。
+    request.user = resolved.user;
+    request.sessionTv = resolved.tv;
   });
 
   app.decorate("requireAdmin", async function requireAdmin(request: FastifyRequest, reply: FastifyReply): Promise<void> {
