@@ -1,6 +1,10 @@
 import Fastify from "fastify";
 import { describe, it, expect } from "vitest";
-import { loadConfig, parseTrustProxy } from "../../src/config.js";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { loadConfig, parseTrustProxy, publicUrlIssuer, publicUrlPathWarning } from "../../src/config.js";
+import { oidcRedirectUri } from "../../src/auth/oidc-client.js";
 const valid = { DATABASE_URL: "postgres://u:p@localhost:5432/db", APP_SECRET: "a".repeat(64), PUBLIC_URL: "https://notes.example.com" };
 describe("loadConfig", () => {
   it("合法設定；cookieSecure 依 PUBLIC_URL scheme", () => {
@@ -188,5 +192,82 @@ describe("parseTrustProxy（issue #13）", () => {
     expect(loadConfig(base).trustProxy).toBe(false);
     expect(loadConfig({ ...base, TRUST_PROXY: "loopback" }).trustProxy).toEqual(["loopback"]);
     expect(() => loadConfig({ ...base, TRUST_PROXY: "nope" })).toThrow(/TRUST_PROXY/);
+  });
+});
+
+describe("D12：OAuth issuer 取 origin、PUBLIC_URL 帶其他成分只警告", () => {
+  it("publicUrlIssuer：保留 port、丟掉 path／query／fragment／userinfo，scheme 與 host 小寫", () => {
+    // port 是這個 repo 最常見的自架形（demo 就是 http://192.168.3.22:8006）——
+    // 手工組 issuer 的實作（protocol + "//" + hostname）會在這裡紅。
+    expect(publicUrlIssuer(new URL("http://192.168.3.22:8006/knb"))).toBe("http://192.168.3.22:8006");
+    expect(publicUrlIssuer(new URL("https://example.com/knb?q=1#f"))).toBe("https://example.com");
+    expect(publicUrlIssuer(new URL("https://u:p@example.com/knb"))).toBe("https://example.com");
+    expect(publicUrlIssuer(new URL("HTTPS://Notes.Example.com"))).toBe("https://notes.example.com");
+    // 不得回 href——那會多一個尾斜線，之後組出 `…//.well-known/…`
+    expect(publicUrlIssuer(new URL("http://localhost:3000"))).toBe("http://localhost:3000");
+  });
+
+  it("publicUrlPathWarning：純 origin（含尾斜線、含 port）不警告", () => {
+    expect(publicUrlPathWarning(new URL("https://notes.example.com"))).toBeNull();
+    expect(publicUrlPathWarning(new URL("https://notes.example.com/"))).toBeNull();
+    expect(publicUrlPathWarning(new URL("http://192.168.3.22:8006/"))).toBeNull();
+  });
+
+  it("publicUrlPathWarning：path／query／fragment／userinfo 都要警告（都是被 origin 丟掉的成分）", () => {
+    for (const url of [
+      "https://example.com/knb",
+      "https://example.com/knb/",
+      "https://example.com/?q=1",
+      "https://example.com/#f",
+      "https://u:p@example.com/",
+    ]) {
+      expect(publicUrlPathWarning(new URL(url)), url).not.toBeNull();
+    }
+  });
+
+  it("警告訊息點名維運者要改什麼、以及現在就壞掉的是什麼", () => {
+    const message = publicUrlPathWarning(new URL("https://example.com/knb"));
+    // 不用 stringContaining("origin") —— 任何含這六個字母的字串都會過，等於沒守。
+    expect(message).toContain("PUBLIC_URL");
+    expect(message).toContain("sub-path");
+    // OIDC 的 redirect_uri 是**現在就對不上**的那一個（OAuth 端點還不存在）
+    expect(message).toContain("redirect_uri");
+  });
+
+  it("訊息是編譯期常數（插值進去會讓 pino 的 msg 每個部署都不同，日誌聚合與告警失效）", () => {
+    const first = publicUrlPathWarning(new URL("https://a.example.com/knb"));
+    // 先釘住「有訊息」——只比對相等的話，兩邊同時是 null 也會綠（判定壞掉時的假綠）
+    expect(first).toBeTypeOf("string");
+    expect(first).toBe(publicUrlPathWarning(new URL("https://b.example.com/other?q=1")));
+  });
+
+  it("警告的前提：sub-path 從 issuer 與 OIDC redirect_uri **兩邊**都被丟掉，userinfo 只從 issuer 丟", () => {
+    // 這一案釘住訊息措辭所依據的事實。訊息說「server 丟掉 sub-path，所以與 docs 教你
+    // 註冊的 <PUBLIC_URL>/api/auth/oidc/callback 對不上」——若哪天 oidcRedirectUri 改成
+    // 保留 sub-path，這裡會紅，逼人回頭重讀那句話（訊息寫反過的前科：把 sub-path 說成
+    // 「redirect_uri 會保留」，實際上只有 userinfo 如此）。
+    const subpath = loadConfig({ ...valid, PUBLIC_URL: "https://example.com/knb" });
+    expect(publicUrlIssuer(subpath.publicUrl)).toBe("https://example.com");
+    expect(oidcRedirectUri(subpath)).toBe("https://example.com/api/auth/oidc/callback");
+
+    const withCreds = loadConfig({ ...valid, PUBLIC_URL: "https://u:p@example.com/" });
+    expect(publicUrlIssuer(withCreds.publicUrl)).toBe("https://example.com");
+    expect(oidcRedirectUri(withCreds)).toBe("https://u:p@example.com/api/auth/oidc/callback");
+  });
+
+  it("結構守衛：index.ts 真的有呼叫 publicUrlPathWarning，且在 listen 之前", () => {
+    // 純函式有測試不代表接線有——把 index.ts 的那個區塊整段刪掉，其餘測試全都照樣綠。
+    // 錨定**呼叫點**字面而不是函式名：只找名字會先命中檔頭的 import，呼叫刪掉也不會紅
+    // （比照 test/handle.test.ts 的 backfillHandleRegistry 結構守衛）。
+    //
+    // ⚠ 這條守的是「原始碼裡有這個呼叫字面、且位置早於 listen」，**不是**「警告真的
+    // 印得出來」：死碼分支、算了不 log、甚至字面只出現在註解裡都照樣綠。要真的守住
+    // 輸出得靠 e2e 抓 stdout，代價遠高於收益——與既有那條同一組限制，明示接受。
+    const src = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../src/index.ts"), "utf8");
+    const callAt = src.indexOf("publicUrlPathWarning(config.publicUrl");
+    const listenAt = src.indexOf(".listen(");
+    expect(callAt, "index.ts 必須呼叫 publicUrlPathWarning(config.publicUrl…)").toBeGreaterThan(-1);
+    expect(listenAt).toBeGreaterThan(-1);
+    expect(callAt, "警告要在 listen 之前印出來").toBeLessThan(listenAt);
   });
 });

@@ -187,3 +187,56 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
            trustProxy: parseTrustProxy(r.data.TRUST_PROXY),
            adminEmail, adminPassword, oidc };
 }
+
+/**
+ * D12（#107）：OAuth／API token 的 **issuer 唯一取值處**。
+ *
+ * `WWW-Authenticate` 的 `resource_metadata`、以及 #132 的 OAuth 元資料與端點 URL
+ * 全部從這裡取，不要各自寫 `config.publicUrl.origin`——寫成 `.href` 會多帶一個尾斜線
+ * （`http://host:3000/`），組出來就是 `…3000//.well-known/…`。
+ *
+ * `origin` 保留 port、丟掉 path／query／fragment／userinfo：RFC 8414 對帶 path 的
+ * issuer 要求 well-known 路徑加上 path 尾綴（`/.well-known/oauth-authorization-server/
+ * <path>`），與我們的根形 well-known 不相容。丟掉的那些成分由
+ * `publicUrlPathWarning` 在啟動時提醒。
+ */
+export function publicUrlIssuer(publicUrl: URL): string {
+  return publicUrl.origin;
+}
+
+/**
+ * D12：`PUBLIC_URL` 帶了 origin 以外的成分時的啟動警告訊息。回 `null`＝不必警告。
+ *
+ * **刻意不 fail-fast**：比照上面 `insecureHttpWarning` 的既有慣例（非 localhost 的
+ * http PUBLIC_URL 只警告不拒絕），避免多一條破壞性變更。
+ *
+ * 這是本檔唯一一則 log 文案（其餘字串都是 fail-fast 的 `Error` 訊息），與相鄰兩則
+ * 警告「訊息寫在 `index.ts`」的形狀不同，理由是**可測性**：`index.ts` 的啟動路徑
+ * 沒有測試，訊息留在那裡就沒有任何守衛，而這一則的措辭本身是承重的（它要告訴
+ * 維運者哪裡壞了）。訊息必須維持**編譯期常數**——插值進去會讓 pino 的 `msg` 每個
+ * 部署都不同，日誌聚合與告警規則會跟著失效。
+ *
+ * 為什麼連 query／fragment／userinfo 都要提醒——三者被丟掉的方式**不一樣**，訊息
+ * 的措辭要對得起實際行為（實測見 config.test.ts 的「警告的前提」那一案）：
+ *
+ * - **path／query／fragment**：`publicUrlIssuer` 的 `origin` 丟掉它們，而
+ *   `oidcRedirectUri`（`new URL("/api/auth/oidc/callback", publicUrl)`，絕對路徑會
+ *   整段取代 base 的 path）**也**丟掉。失效鏈是：docs/self-hosting.md 教維運者拿
+ *   `<PUBLIC_URL>/api/auth/oidc/callback` 去 IdP 註冊（subpath 部署下＝含 `/knb`），
+ *   但 server 送出的是去掉 `/knb` 的形，IdP 比對不上。也就是說 server **丟掉**了
+ *   sub-path，不是保留——別把訊息寫成反的。
+ * - **userinfo**：`origin` 丟掉、`oidcRedirectUri` **保留**，兩邊對「這個部署是誰」
+ *   的認知因此不一致。
+ *
+ * 兩種都是「現在就壞」，不是等 OAuth 上線才壞。
+ */
+export function publicUrlPathWarning(publicUrl: URL): string | null {
+  const isBareOrigin =
+    publicUrl.pathname === "/" &&
+    publicUrl.search === "" &&
+    publicUrl.hash === "" &&
+    publicUrl.username === "" &&
+    publicUrl.password === "";
+  if (isBareOrigin) return null;
+  return "PUBLIC_URL should be a bare origin (scheme://host:port). Anything past the origin is dropped when deriving the OAuth issuer, and a sub-path is dropped from the OIDC redirect_uri too — so if PUBLIC_URL has one, the redirect_uri this server sends will not match the <PUBLIC_URL>/api/auth/oidc/callback that the docs tell you to register";
+}

@@ -123,6 +123,18 @@ wsl -e bash -lc 'set -euo pipefail
   echo "[test-integration] pnpm install（原生 fs，應該幾秒內完成）"
   pnpm install --frozen-lockfile
 
+  # rsync 帶 --exclude=dist，pnpm install 也不會觸發 workspace 的 build：
+  # @knotebook/shared 的 dist 在 WSL 端一定是空的，所以這裡自己補一次。
+  #
+  # ⚠ 別「順手」把這個前置搬回 apps/server 的 test script：`pnpm -r test` 會**並行**
+  # 跑 server 與 web，而 shared 的 build 是 `rimraf dist && tsc`——server 那支
+  # rimraf 會在 web 的 vitest 正在 import `shared/dist` 時把它刪掉，症狀是 web 隨機
+  # 紅在「找不到模組／常數 undefined」。前置因此只留在「不會被並行跑到」的路徑上
+  # （root test、server test:unit、server test:integration、以及這裡），不留在
+  # `pnpm -r test` 會平行拉起的 leaf script。
+  echo "[test-integration] pnpm --filter @knotebook/shared build"
+  pnpm --filter @knotebook/shared build
+
   echo "[test-integration] pnpm --filter @knotebook/server run $script"
   pnpm --filter @knotebook/server run "$script"
 ' _ "$WSL_SRC" "$PNPM_SCRIPT"

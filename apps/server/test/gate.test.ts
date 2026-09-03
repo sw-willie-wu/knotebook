@@ -217,3 +217,117 @@ describe("UserGate", () => {
     expect(second.status).toBe("revoked");
   });
 });
+
+describe("UserGate.checkUser（#107：token 路徑的使用者狀態閘）", () => {
+  it("D3：tokenVersion 改變不影響（改密碼不作廢 API token）", async () => {
+    const { db } = await freshDb();
+    const u = await insertUser(db, { tokenVersion: 3 });
+    const gate = new UserGate(db);
+
+    expect((await gate.checkUser(u.id)).status).toBe("ok");
+
+    await db.update(users).set({ tokenVersion: 4 }).where(eq(users.id, u.id));
+    gate.invalidate(u.id);
+
+    // session 路徑（check）拿舊 tv 會被拒；token 路徑（checkUser）不受影響。
+    expect((await gate.check(u.id, 3)).status).toBe("revoked");
+    expect((await gate.checkUser(u.id)).status).toBe("ok");
+  });
+
+  it("checkUser 回的 user 與 check 同形（同一個 evaluate 投影）", async () => {
+    const { db } = await freshDb();
+    const u = await insertUser(db, { isAdmin: true, passwordHash: "some-argon2-hash" });
+    const gate = new UserGate(db);
+    const result = await gate.checkUser(u.id);
+    expect(result).toEqual({
+      status: "ok",
+      user: {
+        id: u.id,
+        email: u.email,
+        handle: u.handle,
+        displayName: u.displayName,
+        isAdmin: true,
+        mustChangePassword: false,
+        hasPassword: true,
+      },
+    });
+  });
+
+  it("停權 → revoked", async () => {
+    const { db } = await freshDb();
+    const u = await insertUser(db);
+    const gate = new UserGate(db);
+    expect((await gate.checkUser(u.id)).status).toBe("ok");
+
+    await db.update(users).set({ disabledAt: new Date() }).where(eq(users.id, u.id));
+    gate.invalidate(u.id);
+    expect((await gate.checkUser(u.id)).status).toBe("revoked");
+  });
+
+  it("查無使用者 → revoked", async () => {
+    const { db } = await freshDb();
+    const gate = new UserGate(db);
+    expect((await gate.checkUser("00000000-0000-0000-0000-000000000000")).status).toBe("revoked");
+  });
+
+  it("與 check 共用同一份快取：check() 建好的快取 checkUser 直接用，不重查 DB", async () => {
+    // ⚠ 這條是「checkUser 必須走 getRow」的**唯一**守衛。下面那條 race 案只能分辨
+    // 「有沒有把舊值寫進快取」，分辨不出「有沒有用快取」——把 checkUser 改成自己
+    // await this.fetchRow()、完全不碰快取，race 案照樣全綠（實測）。
+    const { db } = await freshDb();
+    let served = 0;
+    const gate = new UserGate(db, {
+      fetchRow: async (userId): Promise<GateRow> => {
+        served += 1;
+        return {
+          id: userId,
+          email: "shared@example.com",
+          handle: "shared",
+          displayName: "S",
+          isAdmin: false,
+          disabledAt: null,
+          tokenVersion: 7,
+          mustChangePassword: false,
+          hasPassword: true,
+        };
+      },
+    });
+
+    expect((await gate.check("u-shared", 7)).status).toBe("ok"); // 建立快取
+    expect((await gate.checkUser("u-shared")).status).toBe("ok"); // 必須命中同一份
+    expect(served).toBe(1);
+  });
+
+  it("查詢期間被 invalidate → 不得把舊資料寫進快取（gen 守衛與 check() 共用同一條路）", async () => {
+    // 這條守的是 gen 守衛本身：另寫一份 fetch 又自己寫快取、但少了 gen 守衛，
+    // 停權後 60 秒內 token 仍然可用。「有沒有用快取」由上一條守。
+    const { db } = await freshDb();
+    let served = 0;
+    const gate = new UserGate(db, {
+      fetchRow: async (userId): Promise<GateRow> => {
+        served += 1;
+        // 第一次刻意慢，讓外面在它回來之前 invalidate
+        if (served === 1) await new Promise(resolve => setTimeout(resolve, 20));
+        return {
+          id: userId,
+          email: "race@example.com",
+          handle: "race",
+          displayName: "R",
+          isAdmin: false,
+          disabledAt: served === 1 ? null : new Date(),
+          tokenVersion: 0,
+          mustChangePassword: false,
+          hasPassword: true,
+        };
+      },
+    });
+
+    const inFlight = gate.checkUser("u-race");
+    gate.invalidate("u-race");
+    expect((await inFlight).status).toBe("ok"); // 這一發用的是查詢當下的快照，合理
+
+    // 關鍵斷言：那份舊快照不得被寫進快取——下一次必須重新查（拿到已停權的狀態）。
+    expect((await gate.checkUser("u-race")).status).toBe("revoked");
+    expect(served).toBe(2);
+  });
+});

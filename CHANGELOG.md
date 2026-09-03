@@ -7,7 +7,9 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+
+- You can now create **API tokens** to let a script or an AI assistant work with your notes on your behalf. Settings → Account → API tokens issues a token that acts as you on a small set of note endpoints — listing your notes, reading a note's details, and (optionally) creating one; the token is shown once, stored only as a hash, and can be revoked at any time. Note *content* isn't reachable through the API yet — that arrives with the MCP work (#106/#108) — so a token-created note starts empty. Tokens are deliberately limited: they work on that short allow-list of endpoints and nothing else, so a leaked token cannot take over the account, change your password, or manage sharing. They are also independent of your password — changing it does **not** revoke them, the same way personal access tokens work elsewhere; revoke them here instead. Token requests are rate-limited separately from browser sessions, so a runaway script cannot lock you out of the web UI. See [API tokens](docs/api-tokens.md) (#107).
 
 ## [0.3.3] - 2026-09-02
 

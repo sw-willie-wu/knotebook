@@ -7,10 +7,11 @@ import Fastify, {
 } from "fastify";
 import fastifyCookie from "@fastify/cookie";
 import fastifyMultipart from "@fastify/multipart";
-import { MAX_UPLOAD_BYTES, SESSION_COOKIE, type ErrorCode } from "@knotebook/shared";
-import type { AppConfig } from "./config.js";
+import { MAX_UPLOAD_BYTES, SESSION_COOKIE, type ErrorCode, type RequiredScope, type TokenScope } from "@knotebook/shared";
+import { publicUrlIssuer, type AppConfig } from "./config.js";
 import type { Db } from "./db/index.js";
 import { verifySession, type GateUser, type UserGate } from "./auth/session.js";
+import { createAuthenticateAny } from "./auth/bearer.js";
 import type { LoginThrottle } from "./auth/rate-limit.js";
 import type { CollabHooks } from "./collab/hooks.js";
 import type { CollabServer } from "./collab/server.js";
@@ -23,9 +24,11 @@ import { aiRoutes } from "./routes/ai.js";
 import { uploadsRoutes } from "./routes/uploads.js";
 import { publicRoutes, redactPublicTokens } from "./routes/public.js";
 import { oidcRoutes } from "./routes/oidc.js";
+import { mcpRoutes } from "./routes/mcp.js";
+import { apiTokensRoutes } from "./routes/api-tokens.js";
 import { drainWithCap } from "./http/drain.js";
 import { sendError } from "./http/errors.js";
-import { AI_LIMIT, COLLAB_TOKEN_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, SLUG_PATCH_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
+import { AI_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, SLUG_PATCH_LIMIT, TOKEN_READ_LIMIT, TOKEN_WRITE_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
 import { registerSpaFallback } from "./http/spa.js";
 import { assertUploadsDirWritable } from "./uploads/service.js";
 import type { AiRuntime } from "./ai/runtime.js";
@@ -35,6 +38,11 @@ declare module "fastify" {
   interface FastifyInstance {
     authenticate(request: FastifyRequest, reply: FastifyReply): Promise<void>;
     requireAdmin(request: FastifyRequest, reply: FastifyReply): Promise<void>;
+    /** #107：opt-in 的 Bearer／session 雙路徑認證，語意見 `auth/bearer.ts`。 */
+    authenticateAny(
+      required: RequiredScope,
+      challenge?: string
+    ): (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
   interface FastifyRequest {
     user?: GateUser;
@@ -45,6 +53,12 @@ declare module "fastify" {
      * 的回傳形狀）本身不帶 tv，故另開這個欄位，不擴充 `GateUser` 型別本身。
      */
     sessionTv?: number;
+    /** #107：這一發是 cookie session 還是 API token 認證的。錯誤 log 只印這個與 tokenId。 */
+    authKind?: "session" | "token";
+    /** #107：token 路徑才有——落庫的正規化 scope 集合。 */
+    tokenScope?: TokenScope;
+    /** #107：token 路徑才有——`api_tokens.id`（**不是**明文，明文永不進 log）。 */
+    tokenId?: string;
   }
 }
 
@@ -84,6 +98,13 @@ export interface AppDeps {
     publicMiss: FixedWindowLimiter;
     publicNote: FixedWindowLimiter;
     publicUpload: FixedWindowLimiter;
+    /** #107：Bearer token 路徑（key=`token:${userId}`），session 路徑不吃桶。 */
+    tokenRead: FixedWindowLimiter;
+    tokenWrite: FixedWindowLimiter;
+    /** #107：無效 Bearer（key=ip）——consume 的觸發集合見 `BEARER_MISS_LIMIT` 註解。 */
+    bearerMiss: FixedWindowLimiter;
+    /** #107：`POST /api/auth/tokens`（key=userId）。 */
+    patCreate: FixedWindowLimiter;
   };
   /**
    * Task 5：`POST /api/notes/:id/links` 寫入函式（`notes/links.ts` 的 `writeNoteLinks`）的
@@ -427,24 +448,39 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     }
   });
 
+  /**
+   * cookie session 的解析，**不送回應**——回 null 就是「這個請求沒有有效 session」，
+   * 由呼叫端決定那代表什麼。
+   *
+   * #107 把它從 `authenticate` 抽出來的理由：Bearer 那條路徑（`auth/bearer.ts` 的
+   * `authenticateAny`）不能靠呼叫 `authenticate` 來做 cookie 回退。`sendError`
+   * 內含 `reply.send()`，之後再 `reply.header()` 補 `WWW-Authenticate` 只會寫進
+   * `kReplyHeaders`、而 onSend 鏈已經排程——header 會**靜默消失**（fastify 5 實測）。
+   * 兩個 decorator 因此各自決定回應，只共用這一支解析。
+   */
+  async function resolveSessionUser(request: FastifyRequest): Promise<{ user: GateUser; tv: number } | null> {
+    const token = request.cookies[SESSION_COOKIE];
+    const session = token ? await verifySession(deps.config.appSecret, token) : null;
+    if (!session) return null;
+    const result = await deps.gate.check(session.userId, session.tv);
+    if (result.status !== "ok") return null;
+    return { user: result.user, tv: session.tv };
+  }
+
   // 以下兩個 decorator 都以一般具名函式（而非箭頭函式綁 this）宣告，但內部完全不用
   // `this`——`requireAdmin` 呼叫 `authenticate` 是透過閉包捕捉的外層 `app` 變數，
   // 不依賴 fastify 呼叫時的 this 綁定，故用 `app.authenticate(...)`／
   // `app.requireAdmin(...)`（或當作 preHandler 傳給其他路由）皆可正確運作。
   app.decorate("authenticate", async function authenticate(request: FastifyRequest, reply: FastifyReply): Promise<void> {
-    const token = request.cookies[SESSION_COOKIE];
-    const session = token ? await verifySession(deps.config.appSecret, token) : null;
-    if (!session) {
+    const resolved = await resolveSessionUser(request);
+    if (!resolved) {
       sendError(reply, 401, "unauthorized", "未登入");
       return;
     }
-    const result = await deps.gate.check(session.userId, session.tv);
-    if (result.status !== "ok") {
-      sendError(reply, 401, "unauthorized", "未登入");
-      return;
-    }
-    request.user = result.user;
-    request.sessionTv = session.tv;
+    // ⚠ `sessionTv` 不得漏：`POST /api/notes/:id/collab-token` 是它全 repo 唯一的
+    // 消費者，漏了會讓簽出的 collab token 帶 undefined tv。
+    request.user = resolved.user;
+    request.sessionTv = resolved.tv;
   });
 
   app.decorate("requireAdmin", async function requireAdmin(request: FastifyRequest, reply: FastifyReply): Promise<void> {
@@ -457,9 +493,6 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
 
   app.get("/healthz", async () => ({ ok: true }));
 
-  void app.register(
-    authRoutes({ db: deps.db, config: deps.config, gate: deps.gate, throttle: deps.throttle, collabHooks: deps.collabHooks })
-  );
   // 未收到 AppDeps.limiters 時的生產預設（`buildTestApp`/`buildCollabTestApp` 一律自己
   // 注入全新實例，不會走到這裡；見 AppDeps.limiters 的說明）。
   const limiters =
@@ -475,7 +508,35 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       publicMiss: new FixedWindowLimiter(PUBLIC_MISS_LIMIT),
       publicNote: new FixedWindowLimiter(PUBLIC_NOTE_LIMIT),
       publicUpload: new FixedWindowLimiter(PUBLIC_UPLOAD_LIMIT),
+      tokenRead: new FixedWindowLimiter(TOKEN_READ_LIMIT),
+      tokenWrite: new FixedWindowLimiter(TOKEN_WRITE_LIMIT),
+      bearerMiss: new FixedWindowLimiter(BEARER_MISS_LIMIT),
+      patCreate: new FixedWindowLimiter(PAT_CREATE_LIMIT),
     } satisfies NonNullable<AppDeps["limiters"]>);
+
+  // #107：`limiters` 在上面才算出來，所以這個 decorate 必須排在它之後、任何
+  // `app.register(路由)` 之前——路由模組的 register 內會呼叫 app.authenticateAny。
+  // （`limiters` 為此上移到 authRoutes 之前；已查證 `AuthRouteDeps` 沒有 limiters 欄，
+  // 上移不改變任何行為。）
+  app.decorate(
+    "authenticateAny",
+    createAuthenticateAny({
+      db: deps.db,
+      gate: deps.gate,
+      // D12：issuer 一律取 **origin**（`publicUrlIssuer`）。⚠ 寫成 `.href` 會多一個尾
+      // 斜線（`http://localhost:3000/`），challenge 就變成 `…3000//.well-known/…`——
+      // api-token-auth.test.ts 的第一個 it 對 resource_metadata 做逐字 toContain，會抓到。
+      issuer: publicUrlIssuer(deps.config.publicUrl),
+      resolveSessionUser,
+      limiters: { bearerMiss: limiters.bearerMiss, tokenRead: limiters.tokenRead, tokenWrite: limiters.tokenWrite },
+    })
+  );
+
+  void app.register(
+    authRoutes({ db: deps.db, config: deps.config, gate: deps.gate, throttle: deps.throttle, collabHooks: deps.collabHooks })
+  );
+  // #107：PAT 管理端點——cookie 專用（token 不能簽發或撤銷 token），見 routes/api-tokens.ts 檔頭。
+  void app.register(apiTokensRoutes({ db: deps.db, limiters: { patCreate: limiters.patCreate } }));
 
   // Task 8（二輪 MINOR-8）：`deps.oidc` 未傳但 `config.oidc` 有值時在此補上 production
   // runtime——不能讓「config.oidc 有值而 runtime undefined」這個矛盾狀態流進
@@ -513,6 +574,9 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   void app.register(uploadsRoutes({ db: deps.db, config: deps.config, limiters: { upload: limiters.upload }, uploadsDir: deps.uploadsDir }));
   // #72 公開端點（免登入）：三步節流順序與 404 同形見 routes/public.ts 檔頭。
   void app.register(publicRoutes({ db: deps.db, uploadsDir: deps.uploadsDir, limiters: { publicMiss: limiters.publicMiss, publicNote: limiters.publicNote, publicUpload: limiters.publicUpload } }));
+  // #107：/api/mcp 的 #108 前暫時形——沒有它，MCP client 的第一發會拿到不帶 challenge
+  // 的 404，無從發現授權伺服器（見 routes/mcp.ts 檔頭）。
+  void app.register(mcpRoutes());
 
   // 共編的 WebSocket 掛在底層 http server 的 upgrade 事件上，不經 Fastify 路由——
   // 因此與上面的路由註冊順序無關，也不會被 setNotFoundHandler／SPA fallback 攔到。
@@ -529,7 +593,9 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   app.setErrorHandler<FastifyError>((error, request, reply) => {
     const status = error.statusCode ?? 500;
     if (status >= 500) {
-      request.log.error(error);
+      // #107 §7：錯誤 log 若要記身分，**只記 authKind 與 tokenId**——不記 token 明文，
+      // 也不記 Authorization header（`serializers.req` 本來就不印 headers）。
+      request.log.error({ err: error, authKind: request.authKind, tokenId: request.tokenId }, "unhandled error");
       return sendError(reply, 500, "internal", "伺服器內部錯誤");
     }
     return sendError(reply, status, clientErrorCode(status), error.message || "請求錯誤");

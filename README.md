@@ -59,6 +59,7 @@ Read the full [self-hosting guide](docs/self-hosting.md) before running anywhere
 
 - [Self-hosting guide](docs/self-hosting.md) — deployment prerequisites, compose services/volumes, reverse proxy & TLS, LAN plain-http mode, environment variable reference, OIDC/SSO setup, content security policy, upgrading/rollback, and troubleshooting.
 - [API contract summary](docs/api.md) — full endpoint table with auth requirements and error codes.
+- [API tokens](docs/api-tokens.md) — Personal API tokens for scripts and AI assistants (note metadata today; content access arrives with the MCP work): creating, using (`Authorization: Bearer`), which endpoints accept them, rate limits, revoking, and why changing your password doesn't revoke them.
 - [Sharing](docs/sharing.md) — the three access levels (private / members / public link), what a public read-only link grants, and how revoking and regenerating behave.
 - [AI quick actions](docs/ai.md) — admin setup guide for AI providers/models/actions, key encryption, and how quick actions behave in the editor.
 - [Diagrams (Mermaid)](docs/diagrams.md) — inserting, editing and pasting Mermaid diagrams, what copying one out produces, and the on-demand loading and rendering lockdown behind them.

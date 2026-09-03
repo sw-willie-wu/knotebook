@@ -52,6 +52,9 @@ function baseFetchHandlers(user: UserDto) {
     if (url === "/api/notes" && method === "GET") {
       return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) });
     }
+    if (url === "/api/auth/tokens" && method === "GET") {
+      return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ tokens: [] }) });
+    }
     return null;
   };
 }
@@ -213,6 +216,9 @@ describe("SettingsAccountSection——使用者名欄（#122 Task 5）", () => {
       }
       if (url === "/api/notes" && method === "GET") {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+      }
+      if (url === "/api/auth/tokens" && method === "GET") {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ tokens: [] }) }));
       }
       throw new Error(`unexpected fetch: ${method} ${url}`);
     });

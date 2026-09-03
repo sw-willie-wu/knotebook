@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { EMPTY_YDOC_UPDATE_B64, SESSION_COOKIE } from "@knotebook/shared";
-import { buildTestApp, freshDb, testConfig } from "./helpers.js";
+import { buildTestApp, freshDb, freshLimiters, testConfig } from "./helpers.js";
 import { noteShares, noteStates, notes, uploads, users } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
 import { UserGate, signSession } from "../src/auth/session.js";
@@ -14,7 +14,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { uploadFilePath } from "../src/uploads/service.js";
-import { AI_LIMIT, COLLAB_TOKEN_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, SLUG_PATCH_LIMIT, UPLOAD_LIMIT } from "../src/http/rate-limit.js";
+import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 
 /**
  * #72 公開分享連結＋#122 PR3 公開別名。涵蓋：管理端五支（token 三支＋別名
@@ -429,18 +429,8 @@ describe("公開別名管理端（PUT/DELETE /api/notes/:id/public-link/slug）"
 
 /** 全鍵 limiter 物件（三個公開桶可覆寫；其餘取生產常數的新實例）。 */
 function limitersWithPublic(overrides: Partial<Record<"publicMiss" | "publicNote" | "publicUpload", FixedWindowLimiter>> = {}) {
-  return {
-    collabToken: new FixedWindowLimiter(COLLAB_TOKEN_LIMIT),
-    slugPatch: new FixedWindowLimiter(SLUG_PATCH_LIMIT),
-    upload: new FixedWindowLimiter(UPLOAD_LIMIT),
-    ai: new FixedWindowLimiter(AI_LIMIT),
-    oidcLogin: new FixedWindowLimiter(OIDC_LIMIT),
-    oidcCallback: new FixedWindowLimiter(OIDC_LIMIT),
-    publicLink: new FixedWindowLimiter(PUBLIC_LINK_LIMIT),
-    publicMiss: overrides.publicMiss ?? new FixedWindowLimiter(PUBLIC_MISS_LIMIT),
-    publicNote: overrides.publicNote ?? new FixedWindowLimiter(PUBLIC_NOTE_LIMIT),
-    publicUpload: overrides.publicUpload ?? new FixedWindowLimiter(PUBLIC_UPLOAD_LIMIT),
-  };
+  // ⚠ 直接轉傳，不要逐鍵展開——理由見 `freshLimiters` 的註解。
+  return freshLimiters(overrides);
 }
 
 async function openPublicLink(app: Awaited<ReturnType<typeof buildTestApp>>["app"], cookie: string, noteId: string): Promise<string> {
