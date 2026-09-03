@@ -2,15 +2,21 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { useTranslation } from "react-i18next";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ERROR_CODES, type AuthConfigDto, type UserDto } from "@knotebook/shared";
+import { ERROR_CODES, safeNextPath, type AuthConfigDto, type UserDto } from "@knotebook/shared";
 import { api, ApiFail } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SESSION_QUERY_KEY } from "@/auth/useSession";
 
+/** SSO 入口的目的地。⚠ 測試刻意**另寫一份字面**而不是 import 這顆——那一族斷言的是
+ * 本頁對 `GET /api/auth/oidc/login` 的產出契約，跟著實作的常數走就沒有牙齒了。 */
+const OIDC_LOGIN_URL = "/api/auth/oidc/login";
+
 /**
  * `POST /api/auth/login` 表單。成功 → 把回傳的 UserDto 直接寫進 `['me']` query
- * cache（不用等下一次 refetch）再導向 `/`（§11.3：login 成功導 `/`）。
+ * cache（不用等下一次 refetch）再導向 **`safeNextPath(?next=)` 或 `/`**（#131：
+ * `useSessionGate` 把人踢來這裡時會帶上 `?next=<原本要去的頁>`；§11.3 的「login 成功
+ * 導 `/`」現在是沒有合法 next 時的 fallback）。
  *
  * 429 `too_many_attempts`：ApiFail 上會附 `retryAfterMs`（見 client.ts），換算成
  * 秒數併入錯誤文案顯示，讓使用者知道還要等多久。其餘 ApiFail 一律用
@@ -55,6 +61,21 @@ export default function LoginPage() {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
 
+  // #131：`?next=` 是「登入完要回哪」——由 `useSessionGate` 在把人踢來這裡時寫上。
+  // **一律先過 `safeNextPath`**（同一支函式 server 端也用）：不合法就當作沒有，落 `/`。
+  // 這裡驗過之後 SSO 連結才轉交給 server，而 server（#131 Task 5 起）會**再驗一次**
+  // ——那條路徑上使用者可以自己直接打 `/api/auth/oidc/login?next=…`，不經過這個頁面。
+  //
+  // 與上面 `?error=` 的惰性採樣**刻意相反**：`next` 不是一次性的（沒有「被新提交蓋掉」
+  // 的語意、也不會被清掉），每次 render 重算、永遠反映當下網址即可。`safeNextPath`
+  // 是純函式，不需要 useMemo。
+  const nextPath = safeNextPath(searchParams.get("next"));
+
+  // SSO 入口的 href：`next` 合法時把它轉交給 server。這個組法是本頁對
+  // `GET /api/auth/oidc/login` 的產出契約，#131 Task 5 的 server 端要消費它。
+  const ssoHref =
+    nextPath === null ? OIDC_LOGIN_URL : `${OIDC_LOGIN_URL}?next=${encodeURIComponent(nextPath)}`;
+
   const authConfigQuery = useQuery({
     queryKey: ["auth-config"],
     queryFn: () => api<AuthConfigDto>("/api/auth/config"),
@@ -62,9 +83,14 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (searchParams.has("error")) {
-      const next = new URLSearchParams(searchParams);
-      next.delete("error");
-      setSearchParams(next, { replace: true });
+      // ⚠ #131：**只刪 `error` 這一個鍵**，其餘（尤其 `next`）必須原封不動留著——
+      // 改成整個換掉 searchParams 的話，帶著 `?error=…&next=…` 回到登入頁的人登入完
+      // 就回不去了。守衛：「清掉一次性的 ?error= 時不得順手清掉 next」那案（它同時
+      // 斷言 error 真的消失、next 仍在）。變數刻意不叫 `next`：本檔的 `next` 專指
+      // 那個 query 參數。
+      const params = new URLSearchParams(searchParams);
+      params.delete("error");
+      setSearchParams(params, { replace: true });
     }
     // 只在掛載時跑一次——只清一次性帶進來的 `?error=`，不隨 searchParams/
     // setSearchParams 的 identity 變動重跑。
@@ -95,7 +121,7 @@ export default function LoginPage() {
       });
       queryClient.setQueryData(SESSION_QUERY_KEY, user);
       await queryClient.invalidateQueries({ queryKey: SESSION_QUERY_KEY });
-      navigate("/", { replace: true });
+      navigate(nextPath ?? "/", { replace: true });
       return;
     } catch (err) {
       if (err instanceof ApiFail) {
@@ -161,7 +187,7 @@ export default function LoginPage() {
           <>
             <div className="border-t" aria-hidden="true" />
             <Button asChild variant="outline" className="w-full">
-              <a href="/api/auth/oidc/login">{t("login.sso")}</a>
+              <a href={ssoHref}>{t("login.sso")}</a>
             </Button>
           </>
         )}
