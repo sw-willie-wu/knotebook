@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import * as client from "openid-client";
 import { and, eq, sql } from "drizzle-orm";
-import { normalizeEmail, OIDC_STATE_COOKIE } from "@knotebook/shared";
+import { normalizeEmail, OIDC_STATE_COOKIE, safeNextPath } from "@knotebook/shared";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
 import { handles, users } from "../db/schema.js";
@@ -187,12 +187,26 @@ export function oidcRoutes(deps: OidcRouteDeps) {
         const codeVerifier = client.randomPKCECodeVerifier();
         const codeChallenge = await client.calculatePKCECodeChallenge(codeVerifier);
 
+        // #131：`?next=` 由登入頁的 SSO 連結轉交（使用者也可能自己帶）。判準只有一道
+        // ——`safeNextPath`（與 web 端同一支，含 2048 上限）。不過就當作沒有 next：登入
+        // 照常，只是完成後落 `/`。**刻意沒有第二道長度關**，理由與量測見
+        // `auth/oidc-state.ts` 的 `next` 欄位 JSDoc。
+        //
+        // ⚠ 這裡**只**影響封進 cookie 的內容。本 handler 有**四**個導回 `/login?error=…`
+        // 的出口（OIDC 未設定、限流、discovery 不可用、以及包住這段的 catch＝組
+        // authorization URL 失敗），它們**刻意都不帶 `next`**——那是設定錯誤路徑，使用者
+        // 從 client 重新發起即可（spec round 10 定案）。守衛：`oidc-login.test.ts` 的
+        // 「早退不帶 next」四案，一案對一條。
+        const rawNext = (request.query as Record<string, unknown>).next;
+        const requestedNext = safeNextPath(typeof rawNext === "string" ? rawNext : null);
+
         const nowEpochSeconds = Math.floor(Date.now() / 1000);
         const sealed = sealOidcState(deps.config.appSecret, {
           state,
           nonce,
           codeVerifier,
           exp: nowEpochSeconds + OIDC_STATE_TTL_SECONDS,
+          ...(requestedNext !== null ? { next: requestedNext } : {}),
         });
 
         // scope 逐字 "openid email profile"（§14.3 authorize 參數契約——漏了會讓真 IdP

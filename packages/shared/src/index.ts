@@ -573,10 +573,11 @@ export function isExcludedPath(pathname: string): boolean {
  * buffer 8 KB、舊 IE 的網址列 2083），用途是讓「有人把整份文件塞進 query」有個明確的
  * 失敗點，而不是慢慢地把各層撐爆。
  *
- * ⚠ OIDC 那條路上另有**更緊**的上限：`OIDC_NEXT_MAX_LENGTH`（512，理由是 sealed
- * cookie 的 4 KB 限制；#131 起住在 `apps/server/src/auth/oidc-state.ts`）：#132 的同意頁 return-to
- * （`/authorize?client_id=…&state=…`）在 `state` 稍長時就有機會撞到它、`next` 被靜默
- * 丟掉而落 `/`。
+ * 這個數字同時是 SSO 那條路的 cookie 預算保證：`next` 會被封進 OIDC state cookie，而
+ * 2048 字元的 next 封章（JSON → AES-GCM → base64url）後 `name=value` 是 **3049 bytes**、
+ * 含屬性的 `Set-Cookie` 是 3115，都在 4 KB 之下（實測；臨界值是 2834 字元）。**所以 server 端不需要、也刻意沒有
+ * 第二道更緊的上限**——理由與裁決見 `apps/server/src/auth/oidc-state.ts` 的 `next` 欄位
+ * JSDoc。
  */
 export const MAX_NEXT_PATH_LENGTH = 2048;
 
