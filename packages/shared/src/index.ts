@@ -528,3 +528,42 @@ export interface ApiTokenDto {
 export interface CreatedApiTokenDto extends ApiTokenDto {
   token: string;
 }
+
+/**
+ * 「這條路徑不是 SPA 頁」的唯一判準——兩個用途共用：
+ *
+ * 1. server 的 SPA fallback（`apps/server/src/http/spa.ts`）：命中者不回 index.html，
+ *    落回 JSON 404。
+ * 2. `safeNextPath`（#131）：登入後的導回目標若命中，一律當作不安全的 next——否則
+ *    OIDC callback 會把使用者導到一份裸 JSON（或 #132 的 RFC 形錯誤），而不是頁面。
+ *
+ * 比對是 **segment 邊界**，不是字串 `startsWith`：`/x` 本身或 `/x/...` 才算命中，
+ * 所以 `/collaborators` 不受 `/collab` 牽連、`/apifoo` 不受 `/api` 牽連。
+ *
+ * 前四條沿用 spec §11.5 的契約（守衛在 `apps/server/test/spa.test.ts`）；常數本身
+ * export 出來只有一個用途：讓測試釘住這是一個**封閉集合**，逼下一個想加前綴的人連同
+ * SPA fallback 的行為一起想過。**實作端一律用 `isExcludedPath`**，不要自己 import
+ * 陣列再寫一次比對——那正是本次搬家要消滅的東西。
+ *
+ * `/oauth` 與 `/.well-known` 是 #131 加入的：#132 會在這兩個前綴下掛 OAuth 授權
+ * 伺服器的端點，它們的 404 是 RFC 形 JSON 而不是 SPA 頁。**在 #132 落地之前**這兩條
+ * 路由還不存在，加入的即時效果只是「`GET /oauth/x` 帶 `Accept: text/html` 從回
+ * index.html 變成回 JSON 404」——刻意如此。
+ *
+ * ⚠ #132 的**同意頁**是 SPA 路徑 `/authorize`（server 的 `GET /oauth/authorize` 驗完
+ * 參數後 302 到它），**不在 `/oauth` 之下**——所以把 `/oauth` 排除掉不會把同意頁自己
+ * 排除掉。下一棒不要因為「同意頁需要 SPA fallback」而刪掉這個前綴。
+ *
+ * ⚠ **不做任何正規化**（守衛：`shared-next-path.test.ts` 的「不做正規化」一案）。
+ * 呼叫端各自決定餵什麼進來：`spa.ts` 餵未解碼的 `request.url.split("?")[0]`（Fastify
+ * 的路由比對也不解碼），`safeNextPath` 餵 `new URL(...).pathname`（dot-segment 已正
+ * 規化、百分比編碼保留）。兩者對 `/x/../api/notes` 的判定因此不同，這是刻意的：各自
+ * 比對的是各自那一側真正會被路由的字串。`apps/server/src/routes/public.ts` 的 token 遮罩理由鏈也依賴這條——它算準了
+ * `//api/public/…` 這種變體**比不中**任何前綴而落進 SPA fallback。
+ */
+export const EXCLUDED_PREFIXES = ["/api", "/collab", "/healthz", "/assets", "/oauth", "/.well-known"] as const;
+
+/** `pathname` 是否命中 {@link EXCLUDED_PREFIXES}——segment 邊界比對，理由與清單見該常數。 */
+export function isExcludedPath(pathname: string): boolean {
+  return EXCLUDED_PREFIXES.some(prefix => pathname === prefix || pathname.startsWith(`${prefix}/`));
+}

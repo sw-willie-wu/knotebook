@@ -123,8 +123,9 @@ export function AppRoutes() {
       <Routes location={state?.backgroundLocation ?? location}>
         <Route path="/login" element={<LoginPage />} />
         {/* #72：公開分享頁與 /login 同層、排在 RequireAuth **之前**（D2 定案）——
-            匿名訪客免登入直達；spa.ts 的 EXCLUDED_PREFIXES 不含 /p，SPA fallback
-            照常服務這條路徑（noindex 標頭在 server 端，前綴比對天然涵蓋兩段形）。
+            匿名訪客免登入直達；shared 的 EXCLUDED_PREFIXES（#131 起搬離 spa.ts）不含
+            /p，SPA fallback 照常服務這條路徑（noindex 標頭在 server 端，前綴比對天然
+            涵蓋兩段形）。
             #122 PR3：別名雙段形與 token 單段形以**段數**區分，共用同一個 route
             element——形的判別在 PublicNotePage 的 useParams。 */}
         <Route path="/p/:token" element={<PublicNoteRoute />} />
