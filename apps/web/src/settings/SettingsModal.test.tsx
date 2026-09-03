@@ -135,6 +135,9 @@ function baseFetchHandlers(getLoggedInAs: () => UserDto | null) {
     if (url === "/api/notes" && method === "GET") {
       return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) });
     }
+    if (url === "/api/auth/tokens" && method === "GET") {
+      return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ tokens: [] }) });
+    }
     if (url.endsWith("/backlinks") && method === "GET") {
       return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ backlinks: [] }) });
     }

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
 import { useSession } from "@/auth/useSession";
+import { ApiTokensSection } from "./ApiTokensSection";
 
 /** 逐檔複製的既有慣例（無共用 helper——比照 ShareDialog/SettingsUsersSection）。 */
 function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
@@ -114,6 +115,9 @@ export function SettingsAccountSection() {
   return (
     <div className="space-y-6">
       <HandleSection />
+      {/* #107：與 HandleSection 同層、在 hasPassword 三元式之外——SSO-only 帳號
+          也要能建 PAT。 */}
+      <ApiTokensSection />
       {user?.hasPassword === false ? (
         <p className="text-sm text-muted-foreground">{t("settings.account.ssoOnly")}</p>
       ) : (
