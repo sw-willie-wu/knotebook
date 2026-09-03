@@ -12,7 +12,7 @@ import { Writable } from "node:stream";
 import { eq } from "drizzle-orm";
 import { SESSION_COOKIE } from "@knotebook/shared";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
-import { apiTokens, oauthClients, users } from "../src/db/schema.js";
+import { apiTokens, noteShares, notes, oauthClients, users } from "../src/db/schema.js";
 import { signSession } from "../src/auth/session.js";
 import { generateAccessToken } from "../src/auth/api-token.js";
 import type { Db } from "../src/db/index.js";
@@ -334,5 +334,188 @@ describe("/api/mcp 暫時形與 Bearer challenge", () => {
     expect(output).toContain('"authKind":"token"');
     // 明文與 header 一樣不得出現在錯誤 log 裡
     expect(output).not.toContain(token);
+  });
+});
+
+describe("三條 notes 路由收 Bearer（D2 的允許清單）", () => {
+  it("write token 打得動三條路由", async () => {
+    const { app, db } = await buildTestApp();
+    const { token } = await seedToken(db);
+    const auth = { authorization: `Bearer ${token}` };
+
+    const created = await app.inject({ method: "POST", url: "/api/notes", headers: auth, payload: { title: "T" } });
+    expect(created.statusCode).toBe(201);
+    const noteId = created.json().id;
+
+    expect((await app.inject({ method: "GET", url: "/api/notes", headers: auth })).statusCode).toBe(200);
+    expect((await app.inject({ method: "GET", url: `/api/notes/${noteId}`, headers: auth })).statusCode).toBe(200);
+  });
+
+  it("read token 打得動兩條 GET、打不動 POST（各路由的 required 值逐條釘住）", async () => {
+    // 沒有這條，把 GET /api/notes/:ref 的 required 改成 notes:write 全套照樣綠——唯讀
+    // token 會被鎖在 MCP 最主要的讀取路由外。D2 允許清單的核心語意就是每列的 required。
+    const { app, db } = await buildTestApp();
+    const writer = await seedToken(db);
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/notes",
+      headers: { authorization: `Bearer ${writer.token}` },
+      payload: { title: "shared" },
+    });
+    expect(created.statusCode).toBe(201);
+    // 讓 reader 也讀得到這篇：分享給 reader 的使用者
+    const reader = await seedToken(db, { scope: "notes:read" });
+    await db.insert(noteShares).values({ noteId: created.json().id, userId: reader.userId, role: "viewer" });
+    const auth = { authorization: `Bearer ${reader.token}` };
+
+    expect((await app.inject({ method: "GET", url: "/api/notes", headers: auth })).statusCode).toBe(200);
+    expect((await app.inject({ method: "GET", url: `/api/notes/${created.json().id}`, headers: auth })).statusCode).toBe(200);
+    expect((await app.inject({ method: "POST", url: "/api/notes", headers: auth, payload: { title: "x" } })).statusCode).toBe(403);
+  });
+
+  it("token 建的筆記擁有者是 token 的使用者（request.user 走 gate 投影）", async () => {
+    const { app, db } = await buildTestApp();
+    const { token, userId } = await seedToken(db);
+    const auth = { authorization: `Bearer ${token}` };
+    const created = await app.inject({ method: "POST", url: "/api/notes", headers: auth, payload: { title: "Mine" } });
+    expect(created.statusCode).toBe(201);
+    const listed = await app.inject({ method: "GET", url: "/api/notes", headers: auth });
+    expect(listed.json().map((n: { id: string }) => n.id)).toContain(created.json().id);
+    const [note] = await db.select().from(notes).where(eq(notes.id, created.json().id));
+    expect(note.ownerId).toBe(userId);
+  });
+
+  it("read token 打 POST /api/notes → 403 insufficient_scope，challenge 帶該 error", async () => {
+    const { app, db } = await buildTestApp();
+    const { token } = await seedToken(db, { scope: "notes:read" });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/notes",
+      headers: { authorization: `Bearer ${token}` },
+      payload: {},
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe("insufficient_scope");
+    expect(res.headers["www-authenticate"]).toContain('error="insufficient_scope"');
+  });
+
+  it("無憑證打 GET /api/notes → 401 帶 challenge，scope 只有 notes:read（鑑別力由 scope 值承擔）", async () => {
+    const { app } = await buildTestApp();
+    const res = await app.inject({ method: "GET", url: "/api/notes" });
+    expect(res.statusCode).toBe(401);
+    const challenge = res.headers["www-authenticate"] as string;
+    expect(challenge).toContain('scope="notes:read"');
+    expect(challenge).toContain("/.well-known/oauth-protected-resource/api/mcp");
+  });
+
+  it("未開放的 notes 路由不收 Bearer：PATCH／DELETE /api/notes/:id 與 collab-token 皆 401 且無 challenge", async () => {
+    const { app, db } = await buildTestApp();
+    const { token } = await seedToken(db);
+    const auth = { authorization: `Bearer ${token}` };
+    const noteId = "00000000-0000-0000-0000-000000000000";
+    const cases = [
+      { method: "PATCH" as const, url: `/api/notes/${noteId}`, payload: { title: "x" } },
+      { method: "DELETE" as const, url: `/api/notes/${noteId}` },
+      // D8：collab-token 明文不收 Bearer
+      { method: "POST" as const, url: `/api/notes/${noteId}/collab-token`, payload: {} },
+    ];
+    for (const c of cases) {
+      const res = await app.inject({
+        method: c.method,
+        url: c.url,
+        headers: auth,
+        ...(c.payload ? { payload: c.payload } : {}),
+      });
+      expect(res.statusCode, `${c.method} ${c.url}`).toBe(401);
+      expect(res.headers["www-authenticate"], `${c.method} ${c.url}`).toBeUndefined();
+    }
+  });
+
+  it("403 不啃 write 桶、也不啃 BEARER_MISS（扣點在 scope 檢查之後，合法 token 不連累同 IP）", async () => {
+    const { app, db } = await buildTestApp({
+      limiters: freshLimiters({
+        tokenWrite: new FixedWindowLimiter({ limit: 3, windowMs: 600_000 }),
+        // 預設 30 額度四發打不滿——bearerMiss 也收緊，否則「403 計入 miss 桶」翻掉不會紅。
+        bearerMiss: new FixedWindowLimiter({ limit: 2, windowMs: 60_000 }),
+      }),
+    });
+    const { token } = await seedToken(db, { scope: "notes:read" });
+    for (let i = 0; i < 4; i += 1) {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/notes",
+        headers: { authorization: `Bearer ${token}` },
+        payload: {},
+      });
+      // 扣點若在 scope 檢查之前，第 4 發會變成 429；若 403 計入 miss 桶，第 3 發就 429
+      expect(res.statusCode, `attempt ${i + 1}`).toBe(403);
+    }
+    // 「照扣但不看回傳值」的形上面抓不到：同 IP 接著送一發壞 token，miss 桶若被
+    // 403 扣過會提早 429，正確是 401。
+    const bad = await app.inject({ method: "GET", url: "/api/notes", headers: { authorization: `Bearer ${randomToken()}` } });
+    expect(bad.statusCode).toBe(401);
+  });
+
+  it("/api/mcp 與 GET /api/notes 同一顆 read 桶", async () => {
+    const { app, db } = await buildTestApp({
+      limiters: freshLimiters({ tokenRead: new FixedWindowLimiter({ limit: 3, windowMs: 60_000 }) }),
+    });
+    const { token } = await seedToken(db);
+    const auth = { authorization: `Bearer ${token}` };
+    for (let i = 0; i < 3; i += 1) {
+      expect((await app.inject({ method: "GET", url: "/api/mcp", headers: auth })).statusCode).toBe(501);
+    }
+    const limited = await app.inject({ method: "GET", url: "/api/notes", headers: auth });
+    expect(limited.statusCode).toBe(429);
+    // 429 一律不帶 challenge（read 桶與 BEARER_MISS 同紀律）
+    expect(limited.headers["www-authenticate"]).toBeUndefined();
+  });
+
+  it("write 路由吃 write 桶，不吃 read 桶", async () => {
+    const { app, db } = await buildTestApp({
+      limiters: freshLimiters({
+        tokenRead: new FixedWindowLimiter({ limit: 1, windowMs: 60_000 }),
+        tokenWrite: new FixedWindowLimiter({ limit: 2, windowMs: 600_000 }),
+      }),
+    });
+    const { token } = await seedToken(db);
+    const auth = { authorization: `Bearer ${token}` };
+    // read 桶只剩 1 額度，先用掉
+    expect((await app.inject({ method: "GET", url: "/api/notes", headers: auth })).statusCode).toBe(200);
+    // write 路由若誤吃 read 桶，這裡會 429
+    expect((await app.inject({ method: "POST", url: "/api/notes", headers: auth, payload: { title: "a" } })).statusCode).toBe(201);
+    expect((await app.inject({ method: "POST", url: "/api/notes", headers: auth, payload: { title: "b" } })).statusCode).toBe(201);
+    const third = await app.inject({ method: "POST", url: "/api/notes", headers: auth, payload: { title: "c" } });
+    expect(third.statusCode).toBe(429);
+    expect(third.headers["www-authenticate"]).toBeUndefined();
+  });
+
+  it("token 桶 429 不寫 last_used_at（last_used 只記驗證成功的請求）", async () => {
+    // #132 的 I5 ① 用 last_used_at 判斷 client 是否「30 天未使用」；被限流打回的請求
+    // 若也蓋時間戳，一支只會被 429 的 token 會讓它的 client 永遠看起來活著。
+    const { app, db } = await buildTestApp({
+      limiters: freshLimiters({ tokenRead: new FixedWindowLimiter({ limit: 0, windowMs: 60_000 }) }),
+    });
+    const { token, tokenId } = await seedToken(db);
+    const res = await app.inject({ method: "GET", url: "/api/notes", headers: { authorization: `Bearer ${token}` } });
+    expect(res.statusCode).toBe(429);
+    // 負向斷言：固定等一段，讓「若有寫」來得及落盤
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const [row] = await db.select().from(apiTokens).where(eq(apiTokens.id, tokenId));
+    expect(row.lastUsedAt).toBeNull();
+  });
+
+  it("token 打滿不影響同一使用者的 session（限流只對 token 路徑）", async () => {
+    const { app, db } = await buildTestApp({
+      limiters: freshLimiters({ tokenRead: new FixedWindowLimiter({ limit: 1, windowMs: 60_000 }) }),
+    });
+    const { token, userId } = await seedToken(db);
+    const auth = { authorization: `Bearer ${token}` };
+    expect((await app.inject({ method: "GET", url: "/api/notes", headers: auth })).statusCode).toBe(200);
+    expect((await app.inject({ method: "GET", url: "/api/notes", headers: auth })).statusCode).toBe(429);
+    // 同一使用者的 cookie session 不受影響（repo 慣例：各測試檔自己 signSession）
+    const cookie = await signSession(testConfig.appSecret, { userId, tv: 0 });
+    const viaSession = await app.inject({ method: "GET", url: "/api/notes", cookies: { [SESSION_COOKIE]: cookie } });
+    expect(viaSession.statusCode).toBe(200);
   });
 });

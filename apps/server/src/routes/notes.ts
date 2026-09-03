@@ -119,7 +119,10 @@ function toNoteDto(note: NoteFields, role: Role): NoteDto {
  */
 export function notesRoutes(deps: NotesRouteDeps) {
   return async function register(app: FastifyInstance): Promise<void> {
-    app.post("/api/notes", { preHandler: app.authenticate }, async (request, reply) => {
+    // #107 D2：這三條（POST /api/notes、GET /api/notes、GET /api/notes/:ref）在 API token
+    // 的允許清單上，其餘 notes 路由維持 cookie-only——尤其 collab-token 是 D8 明文不收
+    // Bearer。challenge 省略＝等於 required；只有 /api/mcp 需要宣告比 required 更寬的集合。
+    app.post("/api/notes", { preHandler: app.authenticateAny("notes:write") }, async (request, reply) => {
       const parsed = createBodySchema.safeParse(request.body ?? {});
       if (!parsed.success) {
         return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
@@ -135,7 +138,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
       return reply.code(201).send(toNoteDto({ ...note, ownerHandle: request.user!.handle }, "owner"));
     });
 
-    app.get("/api/notes", { preHandler: app.authenticate }, async request => {
+    app.get("/api/notes", { preHandler: app.authenticateAny("notes:read") }, async request => {
       const userId = request.user!.id;
 
       // I1（審查）：原本的 leftJoin + WHERE(owner_id=$u OR note_shares.user_id=$u) 形狀
@@ -279,7 +282,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
     // 由 `GET /api/notes/:id` 改名（不並存——同一位置重複註冊 GET 會被 fastify throw
     // "Method already declared"）。`:ref` 可以是 uuid、0007 凍結的 legacy slug、或舊版
     // `<vanity>-<uuid>` 形式，解析順序見 `resolveNoteIdFromRef`（#122 起只查 legacy）。
-    app.get("/api/notes/:ref", { preHandler: app.authenticate }, async (request, reply) => {
+    app.get("/api/notes/:ref", { preHandler: app.authenticateAny("notes:read") }, async (request, reply) => {
       const { ref } = request.params as { ref: string };
       const userId = request.user!.id;
 
