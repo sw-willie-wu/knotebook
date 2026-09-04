@@ -3,6 +3,12 @@
 // `new URL("http://[::1]/x").hostname` 回傳含方括號的 `[::1]`，集合要照這個形狀寫。
 const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
+/**
+ * NUL 與落單代理：`new URL()` 照收，但 Postgres 的 jsonb 存不下（22P05），落庫時會炸成
+ * 無認證端點的 500。`\p{Surrogate}` 只命中落單的——成對的代理是合法 astral 字元。
+ */
+const UNSTORABLE_CHAR_RE = /[\0]|\p{Surrogate}/u;
+
 function parse(raw: string): URL | null {
   try {
     return new URL(raw);
@@ -19,6 +25,7 @@ function parse(raw: string): URL | null {
  * ⚠ userinfo 那條比 spec §5.2 的清單**多一條**（方向是更嚴），別當成多餘的而砍掉。
  */
 export function isLoopbackRedirectUri(raw: string): boolean {
+  if (UNSTORABLE_CHAR_RE.test(raw)) return false;
   const url = parse(raw);
   if (url === null) return false;
   if (url.protocol !== "http:" && url.protocol !== "https:") return false;
@@ -33,6 +40,9 @@ export function isLoopbackRedirectUri(raw: string): boolean {
  * ——MCP client 每次授權向 OS 取 ephemeral port 是常態）。
  */
 export function matchesLoopbackRedirect(registered: string, actual: string): boolean {
+  // 兩側都要擋：`.../cb\u0000` 的 pathname 正規化成 `/cb%00`，會與合法註冊的
+  // `.../cb%00` 比對相等——放行就等於把 raw actual 存進 DB 再炸成 500。
+  if (UNSTORABLE_CHAR_RE.test(registered) || UNSTORABLE_CHAR_RE.test(actual)) return false;
   const a = parse(registered);
   const b = parse(actual);
   if (a === null || b === null) return false;

@@ -43,6 +43,14 @@ describe("isLoopbackRedirectUri（DCR 的收件判準，D10）", () => {
     expect(isLoopbackRedirectUri("http://127.0.0.1/cb#f")).toBe(false);
   });
 
+  // NUL 與落單代理：`new URL()` 照收，但 jsonb 存不下（22P05）——不擋就是無認證端點的 500
+  it("拒絕含 NUL 或落單代理的形（jsonb 存不下）", () => {
+    expect(isLoopbackRedirectUri("http://127.0.0.1/a\u0000b")).toBe(false);
+    expect(isLoopbackRedirectUri("http://127.0.0.1/a\uD800b")).toBe(false);
+    // 正對照：成對的代理是合法 astral 字元，不能誤擋
+    expect(isLoopbackRedirectUri("http://127.0.0.1/cb-\u{1F600}")).toBe(true);
+  });
+
   it("拒絕解析不了的字串", () => {
     expect(isLoopbackRedirectUri("/cb")).toBe(false);
   });
@@ -80,6 +88,14 @@ describe("matchesLoopbackRedirect（授權時的比對，port 忽略）", () => 
   it("任一側帶 userinfo 都不相符", () => {
     expect(matchesLoopbackRedirect("http://127.0.0.1/cb", "http://u:p@127.0.0.1/cb")).toBe(false);
     expect(matchesLoopbackRedirect("http://u:p@127.0.0.1/cb", "http://127.0.0.1/cb")).toBe(false);
+  });
+
+  // 百分號編碼的 %00 可合法註冊，而裸 NUL 的 pathname 正規化後與它相等——放行等於
+  // 讓 raw actual 落庫再炸 500（Task 5 存的是這個 actual 值）。
+  it("任一側含 NUL 或落單代理都不相符（即使正規化後看起來相等）", () => {
+    expect(matchesLoopbackRedirect("http://127.0.0.1/cb%00", "http://127.0.0.1/cb\u0000")).toBe(false);
+    expect(matchesLoopbackRedirect("http://127.0.0.1/cb\u0000", "http://127.0.0.1/cb%00")).toBe(false);
+    expect(matchesLoopbackRedirect("http://127.0.0.1/cb", "http://127.0.0.1/cb\uD800")).toBe(false);
   });
 
   it("任一側解析不了都不相符", () => {
