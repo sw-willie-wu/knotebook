@@ -1,13 +1,18 @@
 import { randomBytes } from "node:crypto";
-import type { FastifyError, FastifyInstance } from "fastify";
+import type { FastifyError, FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
+import { eq } from "drizzle-orm";
+import { normalizeScope } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
-import type { AppConfig } from "../config.js";
-import { oauthClients } from "../db/schema.js";
+import { publicUrlIssuer, type AppConfig } from "../config.js";
+import { oauthClients, oauthRequests } from "../db/schema.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
 import { sendOauthError } from "../http/oauth-errors.js";
-import { isLoopbackRedirectUri } from "../oauth/redirect.js";
+import { isLoopbackRedirectUri, matchesLoopbackRedirect } from "../oauth/redirect.js";
+import { canonicalResource, isCanonicalResource } from "../oauth/resource.js";
+import { hasUnstorableChar } from "../oauth/storable.js";
 import { runOauthCleanup } from "../oauth/cleanup.js";
+import { isForeignKeyViolation } from "../db/pg-errors.js";
 import { DEFAULT_CLIENT_NAME, hasUnsafeClientNameChar } from "../oauth/client-name.js";
 
 export interface OauthRouteDeps {
@@ -54,6 +59,58 @@ const registerBodySchema = z.object({
 });
 
 const SUPPORTED_GRANT_TYPES = ["authorization_code", "refresh_token"] as const;
+
+const REQUEST_TTL_MS = 10 * 60_000;
+const MAX_STATE = 2048;
+const MAX_SCOPE = 512;
+const MAX_RESOURCE = 512;
+const MAX_REDIRECT_URI = 512;
+const MAX_CLIENT_ID = 64;
+const CODE_CHALLENGE_RE = /^[A-Za-z0-9_-]{43,128}$/;
+
+/**
+ * client 或 redirect_uri 不可信時的說明頁（§5.3 步驟 1）。**全靜態、不回聲任何請求
+ * 參數**——這裡的輸入全是無認證方控制的字串。這是 I5 清掉 client 之後、client 拿舊
+ * client_id 回頭的必經路徑，訊息必須可操作。
+ */
+const UNKNOWN_CLIENT_MESSAGE = [
+  "這個應用程式在 Knotebook 的註冊已失效或不存在。請在你的用戶端移除後重新加入（例如 `claude mcp remove knotebook` 再 `claude mcp add …`），它會重新註冊。",
+  "This application's registration with Knotebook has expired or does not exist. Remove it from your client and add it again (for example `claude mcp remove knotebook` then `claude mcp add …`) so that it re-registers.",
+].join("\n\n");
+
+const T1_MESSAGE =
+  "授權請求缺少必要參數或參數過長。\n\nThe authorization request is missing required parameters or they are too long.";
+const RATE_LIMITED_MESSAGE =
+  "授權請求太頻繁，請稍後再試。\n\nToo many authorization requests. Try again later.";
+
+function sendPlainText(reply: FastifyReply, statusCode: number, message: string): FastifyReply {
+  return reply
+    .code(statusCode)
+    .header("content-type", "text/plain; charset=utf-8")
+    .header("cache-control", "no-store")
+    .send(message);
+}
+
+/** T2 的錯誤一律導回 client（RFC 6749 §4.1.2.1）——一律 URL API，禁止字串串接。 */
+function redirectWithError(
+  reply: FastifyReply,
+  redirectUri: string,
+  issuer: string,
+  error: string,
+  description: string,
+  state: string | undefined
+): FastifyReply {
+  const url = new URL(redirectUri);
+  url.searchParams.set("error", error);
+  url.searchParams.set("error_description", description);
+  if (state !== undefined) url.searchParams.set("state", state);
+  url.searchParams.set("iss", issuer);
+  return reply.code(302).header("location", url.toString()).header("cache-control", "no-store").send();
+}
+
+function queryString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
 
 /**
  * `/oauth` 前綴 plugin（§5.2–§5.4）。RFC 形錯誤 body 是全站唯一例外，理由與錯誤映射
@@ -123,6 +180,104 @@ export function oauthRoutes(deps: OauthRouteDeps) {
         token_endpoint_auth_method: "none",
         client_id_issued_at: Math.floor(row!.createdAt.getTime() / 1000),
       });
+    });
+
+    app.get("/authorize", async (request, reply) => {
+      const query = request.query as Record<string, unknown>;
+      const clientId = queryString(query.client_id);
+      const redirectUri = queryString(query.redirect_uri);
+
+      // T1：只驗「建立 redirect 可信度」所需的兩個參數。失敗不吃限流額度。
+      if (
+        clientId === undefined ||
+        clientId.length > MAX_CLIENT_ID ||
+        redirectUri === undefined ||
+        redirectUri.length > MAX_REDIRECT_URI
+      ) {
+        return sendPlainText(reply, 400, T1_MESSAGE);
+      }
+
+      // consume-always（與 PUBLIC_MISS_LIMIT 的預檢紀律刻意相反，見 AUTHORIZE_LIMIT）。
+      if (!deps.limiters.authorize.consume(request.ip)) {
+        return sendPlainText(reply, 429, RATE_LIMITED_MESSAGE);
+      }
+
+      // ⚠ I5 必須早於下面的 client 查表：否則被清掉的 client 會在建 request 時撞 FK 變 500。
+      await runOauthCleanup(deps.db);
+
+      // client_id 是這條路上唯一進 **SQL 述詞** 的請求字串：帶 NUL 的 bind 參數會讓 PG
+      // 直接 22021（無認證端點的 500）。帶 NUL 的值不可能配到 base64url 的註冊值，
+      // 所以回步驟 1 的說明頁語意正確。
+      if (hasUnstorableChar(clientId)) {
+        return sendPlainText(reply, 400, UNKNOWN_CLIENT_MESSAGE);
+      }
+
+      const [client] = await deps.db.select().from(oauthClients).where(eq(oauthClients.clientId, clientId));
+      if (client === undefined || !client.redirectUris.some(uri => matchesLoopbackRedirect(uri, redirectUri))) {
+        return sendPlainText(reply, 400, UNKNOWN_CLIENT_MESSAGE);
+      }
+
+      // T2：redirect_uri 此刻已可信，錯誤一律導回去（RFC 6749 §4.1.2.1）。
+      const issuer = publicUrlIssuer(deps.config.publicUrl);
+      const rawState = queryString(query.state);
+      // 不合格的 state 一律不回聲（原樣回一個我們自己拒收的值沒有意義）。
+      const stateOk = rawState !== undefined && rawState.length <= MAX_STATE && !hasUnstorableChar(rawState);
+      const state = stateOk ? rawState : undefined;
+      const fail = (error: string, description: string): FastifyReply =>
+        redirectWithError(reply, redirectUri, issuer, error, description, state);
+
+      if (queryString(query.response_type) !== "code") {
+        return fail("unsupported_response_type", "only response_type=code is supported");
+      }
+      const codeChallenge = queryString(query.code_challenge);
+      if (codeChallenge === undefined || !CODE_CHALLENGE_RE.test(codeChallenge)) {
+        return fail("invalid_request", "code_challenge must be 43-128 base64url characters");
+      }
+      if (queryString(query.code_challenge_method) !== "S256") {
+        return fail("invalid_request", "only code_challenge_method=S256 is supported");
+      }
+      if (rawState !== undefined && rawState.length > MAX_STATE) {
+        return fail("invalid_request", "state is too long");
+      }
+      // 其餘落庫欄位各有守衛（code_challenge 有正規式、scope 過 normalizeScope、
+      // redirect_uri 過 matchesLoopbackRedirect），state 是最後一個裸的。
+      if (rawState !== undefined && hasUnstorableChar(rawState)) {
+        return fail("invalid_request", "state contains characters that cannot be stored");
+      }
+      const rawScope = queryString(query.scope);
+      if (rawScope !== undefined && rawScope.length > MAX_SCOPE) {
+        return fail("invalid_request", "scope is too long");
+      }
+      const resource = queryString(query.resource);
+      if (resource !== undefined && resource.length > MAX_RESOURCE) {
+        return fail("invalid_request", "resource is too long");
+      }
+      // RFC 8707 §2.1：缺席與無效都是 invalid_target。
+      if (!isCanonicalResource(resource, issuer)) {
+        return fail("invalid_target", `resource must be ${canonicalResource(issuer)}`);
+      }
+
+      const id = randomBytes(16).toString("base64url");
+      try {
+        await deps.db.insert(oauthRequests).values({
+          id,
+          clientId,
+          // 存**本次**送來的完整值（含 ephemeral port）——token 換發跟這個當次值比對。
+          redirectUri,
+          codeChallenge,
+          scope: normalizeScope(rawScope),
+          state: state ?? null,
+          expiresAt: new Date(Date.now() + REQUEST_TTL_MS),
+        });
+      } catch (err) {
+        // 併發 TOCTOU：另一發請求的 I5 在我們查到 client 之後把它清掉（只發生在跨
+        // 24h／30d 邊界的毫秒視窗）。回說明頁而不是讓 FK 違反冒成 500——語意也對，
+        // 那個 client 此刻確實不存在了。無法穩定重現，故無測試。
+        if (isForeignKeyViolation(err)) return sendPlainText(reply, 400, UNKNOWN_CLIENT_MESSAGE);
+        throw err;
+      }
+
+      return reply.code(302).header("location", `/authorize?req=${id}`).header("cache-control", "no-store").send();
     });
   };
 }
