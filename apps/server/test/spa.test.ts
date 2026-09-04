@@ -98,28 +98,10 @@ describe("SPA fallback（spec §11.5）", () => {
     expect(res.json()).toMatchObject({ error: { code: "not_found" } });
   });
 
-  // #131：/oauth 與 /.well-known 進排除清單——#132 會把 OAuth 端點掛在那裡，它們的
-  // 404 是 RFC 形 JSON 而不是 SPA 頁。接下來四案裡，**後**兩條 200 的正對照不是湊數：
-  // fallback 整段包在 `webDist !== undefined` 內，漏傳第二參數的話**前**兩條 404 什麼
-  // 都不驗（同檔尾端「不傳 webDist → 仍是 JSON 404」那案正是這個形）。
-  it("#131：GET /oauth/token + text/html → JSON 404", async () => {
-    const { app } = await buildTestApp({}, { webDist });
-    const res = await app.inject({ method: "GET", url: "/oauth/token", headers: { accept: "text/html" } });
-    expect(res.statusCode).toBe(404);
-    expect(res.json()).toMatchObject({ error: { code: "not_found" } });
-  });
-
-  it("#131：GET /.well-known/oauth-authorization-server + text/html → JSON 404", async () => {
-    const { app } = await buildTestApp({}, { webDist });
-    const res = await app.inject({
-      method: "GET",
-      url: "/.well-known/oauth-authorization-server",
-      headers: { accept: "text/html" },
-    });
-    expect(res.statusCode).toBe(404);
-    expect(res.json()).toMatchObject({ error: { code: "not_found" } });
-  });
-
+  // #131 起 /oauth 與 /.well-known 在排除清單。**這兩個前綴自己的 404 不在本檔測**：
+  // #132 之後它們由各自 prefix plugin 的 notFound 承接（回 RFC 形），與
+  // oauth-metadata.test.ts 重複。本檔留下面兩條 segment 邊界的正對照：`/oauthx` 不該被
+  // 前綴比對誤傷，且它們是「fallback 真的有註冊」的唯一非空驗證。
   it("#131 正對照：GET /oauthx + text/html → index.html（segment 邊界）", async () => {
     const { app } = await buildTestApp({}, { webDist });
     const res = await app.inject({ method: "GET", url: "/oauthx", headers: { accept: "text/html" } });
