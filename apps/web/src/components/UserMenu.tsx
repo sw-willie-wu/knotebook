@@ -54,6 +54,9 @@ export function UserMenu() {
 
   async function handleLogout(): Promise<void> {
     await logout();
+    // #131：登出**刻意不帶** `?next=`——登出的語意是「我要離開」，不是「我暫時被擋下
+    // 來」。同理 `ChangePasswordPage` 改密後登出、`NotePage` 的 session 過期也都導裸的
+    // `/login`（對照 `auth/guards.tsx` 的 `useSessionGate`，那條才是「被擋下來」）。
     navigate("/login", { replace: true });
   }
 

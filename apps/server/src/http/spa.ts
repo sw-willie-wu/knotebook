@@ -1,21 +1,11 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import fastifyStatic from "@fastify/static";
+import { isExcludedPath } from "@knotebook/shared"; // 排除前綴的唯一真相（理由見下方 JSDoc）
 import { securityHeaders } from "./security-headers.js";
 import { isPublicSharePath } from "../routes/public.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { sendError } from "./errors.js";
-
-/**
- * SPA fallback 排除的路由前綴——spec §11.5：segment 邊界比對，`/x` 本身或 `/x/...`
- * 才算命中，`/collaborators` 不受 `/collab` 排除規則牽連（純字串 startsWith("/collab")
- * 會誤傷，故逐一比對 `prefix` 與 `${prefix}/`）。
- */
-const EXCLUDED_PREFIXES = ["/api", "/collab", "/healthz", "/assets"];
-
-function isExcludedPath(pathname: string): boolean {
-  return EXCLUDED_PREFIXES.some(prefix => pathname === prefix || pathname.startsWith(`${prefix}/`));
-}
 
 // Accept 子字串含 `text/html` 才算——萬用字元 accept（curl/fetch/app.inject 預設）不算。
 function acceptsHtml(accept: string | undefined): boolean {
@@ -35,10 +25,11 @@ const FALLBACK_METHODS = new Set(["GET", "HEAD"]);
  * 本函式手動讀檔回傳」單一路徑。
  *
  * 接著**擴充既有的** `setNotFoundHandler`（不是另開一條路由）：GET/HEAD 且 pathname
- * （`request.url` 去掉 query string）非 `/api`／`/collab`／`/healthz`／`/assets` 的
- * segment 前綴、且 `Accept` header 子字串含 `text/html` → 回 `index.html`（200）；其餘
- * 情況（`webDist` 未傳、其他 method、其他 Accept、被排除的前綴）一律落回既有的 JSON
- * 404——與 app.ts 原本的 `setNotFoundHandler` 行為一致，呼叫方無感知差異。
+ * （`request.url` 去掉 query string）不命中 `isExcludedPath`（前綴清單與 segment 邊界
+ * 規則見 `@knotebook/shared` 的 `EXCLUDED_PREFIXES`——**這裡刻意不再逐一列舉**，兩處
+ * 各記一份就會漂）、且 `Accept` header 子字串含 `text/html` → 回 `index.html`（200）；
+ * 其餘情況（`webDist` 未傳、其他 method、其他 Accept、被排除的前綴）一律落回既有的
+ * JSON 404——與 app.ts 原本的 `setNotFoundHandler` 行為一致，呼叫方無感知差異。
  *
  * `webDist` 是否存在的啟動檢查由呼叫方（`src/index.ts`）負責（`fs.existsSync` +
  * warn 後不傳）——本函式假設收到非 undefined 的 `webDist` 就是真實存在的目錄，

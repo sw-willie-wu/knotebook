@@ -89,3 +89,32 @@ describe("auth/oidc-state：OIDC state cookie 的 seal/unseal（AES-256-GCM，se
     expect(a.split(".")[0]).not.toBe(b.split(".")[0]);
   });
 });
+
+// ⚠ 這個檔已有模組層的 `const secret = "a".repeat(64)` 與 `payload(overrides)` factory
+// （exp 是 1_000_000 + OIDC_STATE_TTL_SECONDS）——沿用它們，不要另宣告同名變數。now 一律
+// 傳 1_000_000（照抄既有案），傳 Date.now() 會直接過期、整組紅。
+describe("#131 next 欄位", () => {
+  it("帶 next 封裝 → 解出來逐字相同", () => {
+    const sealed = sealOidcState(secret, payload({ next: "/n/alice/my-note?x=1" }));
+    expect(unsealOidcState(secret, sealed, 1_000_000)?.next).toBe("/n/alice/my-note?x=1");
+  });
+
+  it("不帶 next → 解出來是 undefined（欄位可選，不是空字串）", () => {
+    const sealed = sealOidcState(secret, payload());
+    const opened = unsealOidcState(secret, sealed, 1_000_000);
+    expect(opened).not.toBeNull();
+    expect(opened?.next).toBeUndefined();
+  });
+
+  it("next 型別不對（數字）→ 整顆 payload 視為無效（型別守衛，不是 as-cast）", () => {
+    // 封章保證「這是我們封的」，不保證欄位型別對——unseal 後的 payload 會被當成
+    // OidcStatePayload 使用，所以每個欄位都要真的檢查。
+    const sealed = sealOidcState(secret, { ...payload(), next: 42 } as unknown as OidcStatePayload);
+    expect(unsealOidcState(secret, sealed, 1_000_000)).toBeNull();
+  });
+
+  it("next 是 null → 同樣視為無效（null 的 typeof 是 object，不是漏網的 undefined）", () => {
+    const sealed = sealOidcState(secret, { ...payload(), next: null } as unknown as OidcStatePayload);
+    expect(unsealOidcState(secret, sealed, 1_000_000)).toBeNull();
+  });
+});

@@ -20,7 +20,12 @@ export interface FakeIdpClaims {
   preferred_username?: string;
 }
 
-export type FakeIdpOmittableMetadataKey = "userinfo_endpoint" | "jwks_uri";
+// #131：加 "authorization_endpoint" 是為了造出「discovery 成功、但 buildAuthorizationUrl
+// 拋錯」的形——那是**本 harness** 造得出來、到得了 login handler 第四個出口（外層
+// catch）的路徑（那個 catch 也包住 randomState／PKCE／sealOidcState 等，理論上都會拋）。缺
+// jwks_uri 會更早在 getConfiguration 就被擋成 OidcUnavailableError（不同分支），缺
+// userinfo_endpoint 則完全不影響這兩者。
+export type FakeIdpOmittableMetadataKey = "userinfo_endpoint" | "jwks_uri" | "authorization_endpoint";
 export type FakeIdpOmittableIdTokenKey = "email" | "email_verified" | "nonce" | "preferred_username";
 export type FakeIdpFailTarget = "token" | "userinfo" | "discovery";
 

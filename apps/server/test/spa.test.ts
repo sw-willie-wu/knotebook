@@ -7,8 +7,8 @@ import { buildTestApp } from "./helpers.js";
 
 // spec §11.5 逐字契約，見 task-9-brief.md：
 //   - fallback 僅 GET/HEAD；以 pathname（去 query）判定
-//   - 排除前綴為 segment 邊界：/api、/collab、/healthz、/assets（`/x` 本身或 `/x/...`；
-//     `/collaborators` 不受 `/collab` 牽連）
+//   - 排除前綴為 segment 邊界：/api、/collab、/healthz、/assets，#131 起再加 /oauth 與
+//     /.well-known（`/x` 本身或 `/x/...`；`/collaborators` 不受 `/collab` 牽連）
 //   - Accept 子字串含 text/html 才算（`*/*` 不算）
 //   - /assets/* 缺檔 → 404（webDist 不存在或未傳 → 全 JSON 404，既有行為）
 describe("SPA fallback（spec §11.5）", () => {
@@ -96,6 +96,42 @@ describe("SPA fallback（spec §11.5）", () => {
     const res = await app.inject({ method: "GET", url: "/api/nope?x=1", headers: { accept: "text/html" } });
     expect(res.statusCode).toBe(404);
     expect(res.json()).toMatchObject({ error: { code: "not_found" } });
+  });
+
+  // #131：/oauth 與 /.well-known 進排除清單——#132 會把 OAuth 端點掛在那裡，它們的
+  // 404 是 RFC 形 JSON 而不是 SPA 頁。接下來四案裡，**後**兩條 200 的正對照不是湊數：
+  // fallback 整段包在 `webDist !== undefined` 內，漏傳第二參數的話**前**兩條 404 什麼
+  // 都不驗（同檔尾端「不傳 webDist → 仍是 JSON 404」那案正是這個形）。
+  it("#131：GET /oauth/token + text/html → JSON 404", async () => {
+    const { app } = await buildTestApp({}, { webDist });
+    const res = await app.inject({ method: "GET", url: "/oauth/token", headers: { accept: "text/html" } });
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toMatchObject({ error: { code: "not_found" } });
+  });
+
+  it("#131：GET /.well-known/oauth-authorization-server + text/html → JSON 404", async () => {
+    const { app } = await buildTestApp({}, { webDist });
+    const res = await app.inject({
+      method: "GET",
+      url: "/.well-known/oauth-authorization-server",
+      headers: { accept: "text/html" },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toMatchObject({ error: { code: "not_found" } });
+  });
+
+  it("#131 正對照：GET /oauthx + text/html → index.html（segment 邊界）", async () => {
+    const { app } = await buildTestApp({}, { webDist });
+    const res = await app.inject({ method: "GET", url: "/oauthx", headers: { accept: "text/html" } });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain("knotebook spa");
+  });
+
+  it("#131 正對照：GET /.well-knownx + text/html → index.html", async () => {
+    const { app } = await buildTestApp({}, { webDist });
+    const res = await app.inject({ method: "GET", url: "/.well-knownx", headers: { accept: "text/html" } });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain("knotebook spa");
   });
 
   it("GET /nope?foo=bar + text/html → index.html（query string 不影響 fallback 命中）", async () => {

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 import type { UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
@@ -145,5 +145,76 @@ describe("App route tree — NotePage lazy fallback 保留 AppShell（issue #19�
     // 反向釘：此刻還在 fallback，stub 不得已經頂上（若這裡紅，代表時序假設壞了，
     // 測試本身要修，不是放寬）。
     expect(screen.queryByText("notepage-stub-without-appshell")).not.toBeInTheDocument();
+  });
+});
+
+// #131：`useSessionGate` 開始讀 `useLocation()` 之後，`App.tsx` 的兩棵 `<Routes>` 就
+// 有了一個可觀測的分歧——主樹吃被覆寫的**背景** location、第二棵樹（只含
+// `/settings/*`）吃**真實**網址，未登入時兩棵各自 render 一個 `<Navigate>`，目標不同。
+// 兩者都是 replace，第二棵樹的 effect 後跑而覆寫前者，所以使用者落到的是真實網址那個。
+//
+// 這一案就是那個「後掛載者勝出」的守衛：把第二棵樹的 `/settings/*` 路由搬進主樹
+// （或改變兩棵樹的順序），`next` 就會**靜默**退化成背景頁（`/notes/…`）而這裡會紅。
+// ⚠ 它**不**守另一個方向：若有人改讓 guards 直接讀真實 location，這一案只會更綠。
+// 理由鏈寫在 `App.tsx` 的兩棵樹 JSDoc。
+describe("App route tree — #131：modal-over-background 未登入時，next 取真實網址而非背景頁", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** 落在 /login 的探針：LoginPage 本身也會 render，但我們只要 location 逐字。 */
+  function LocationProbe() {
+    const location = useLocation();
+    return <div data-testid="app-location">{`${location.pathname}${location.search}`}</div>;
+  }
+
+  it("背景是 /notes/…、網址列是 /settings/account → /login?next=%2Fsettings%2Faccount", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/auth/me") {
+          return Promise.resolve(
+            fakeResponse({
+              ok: false,
+              status: 401,
+              json: () => Promise.resolve({ error: { code: "unauthorized", message: "no" } }),
+            }),
+          );
+        }
+        if (url === "/api/auth/config") {
+          return Promise.resolve(
+            fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ oidc: { enabled: false } }) }),
+          );
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      }),
+    );
+
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <ThemeProvider>
+          <MemoryRouter
+            initialEntries={[
+              {
+                pathname: "/settings/account",
+                state: { backgroundLocation: { pathname: "/notes/note-1", search: "", hash: "", state: null, key: "bg" } },
+              },
+            ]}
+          >
+            <AppRoutes />
+            <LocationProbe />
+          </MemoryRouter>
+        </ThemeProvider>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("app-location").textContent).toBe("/login?next=%2Fsettings%2Faccount");
+    });
   });
 });

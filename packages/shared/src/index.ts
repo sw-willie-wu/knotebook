@@ -528,3 +528,144 @@ export interface ApiTokenDto {
 export interface CreatedApiTokenDto extends ApiTokenDto {
   token: string;
 }
+
+/**
+ * 「這條路徑不是 SPA 頁」的唯一判準——兩個用途共用：
+ *
+ * 1. server 的 SPA fallback（`apps/server/src/http/spa.ts`）：命中者不回 index.html，
+ *    落回 JSON 404。
+ * 2. `safeNextPath`（#131）：登入後的導回目標若命中，一律當作不安全的 next——否則
+ *    OIDC callback 會把使用者導到一份裸 JSON（或 #132 的 RFC 形錯誤），而不是頁面。
+ *
+ * 比對是 **segment 邊界**，不是字串 `startsWith`：`/x` 本身或 `/x/...` 才算命中，
+ * 所以 `/collaborators` 不受 `/collab` 牽連、`/apifoo` 不受 `/api` 牽連。
+ *
+ * 前四條沿用 spec §11.5 的契約（守衛在 `apps/server/test/spa.test.ts`）；常數本身
+ * export 出來只有一個用途：讓測試釘住這是一個**封閉集合**，逼下一個想加前綴的人連同
+ * SPA fallback 的行為一起想過。**實作端一律用 `isExcludedPath`**，不要自己 import
+ * 陣列再寫一次比對——那正是本次搬家要消滅的東西。
+ *
+ * `/oauth` 與 `/.well-known` 是 #131 加入的：#132 會在這兩個前綴下掛 OAuth 授權
+ * 伺服器的端點，它們的 404 是 RFC 形 JSON 而不是 SPA 頁。**在 #132 落地之前**這兩條
+ * 路由還不存在，加入的即時效果只是「`GET /oauth/x` 帶 `Accept: text/html` 從回
+ * index.html 變成回 JSON 404」——刻意如此。
+ *
+ * ⚠ #132 的**同意頁**是 SPA 路徑 `/authorize`（server 的 `GET /oauth/authorize` 驗完
+ * 參數後 302 到它），**不在 `/oauth` 之下**——所以把 `/oauth` 排除掉不會把同意頁自己
+ * 排除掉。下一棒不要因為「同意頁需要 SPA fallback」而刪掉這個前綴。
+ *
+ * ⚠ **不做任何正規化**（守衛：`shared-next-path.test.ts` 的「不做正規化」一案）。
+ * 呼叫端各自決定餵什麼進來：`spa.ts` 餵未解碼的 `request.url.split("?")[0]`（Fastify
+ * 的路由比對也不解碼），`safeNextPath` 餵 `new URL(...).pathname`（dot-segment 已正
+ * 規化、百分比編碼保留）。兩者對 `/x/../api/notes` 的判定因此不同，這是刻意的：各自
+ * 比對的是各自那一側真正會被路由的字串。`apps/server/src/routes/public.ts` 的 token 遮罩理由鏈也依賴這條——它算準了
+ * `//api/public/…` 這種變體**比不中**任何前綴而落進 SPA fallback。
+ */
+export const EXCLUDED_PREFIXES = ["/api", "/collab", "/healthz", "/assets", "/oauth", "/.well-known"] as const;
+
+/** `pathname` 是否命中 {@link EXCLUDED_PREFIXES}——segment 邊界比對，理由與清單見該常數。 */
+export function isExcludedPath(pathname: string): boolean {
+  return EXCLUDED_PREFIXES.some(prefix => pathname === prefix || pathname.startsWith(`${prefix}/`));
+}
+
+/**
+ * `next` 的長度上限。2048 是一個任意但明顯低於各層實務上限的數字（nginx 預設 header
+ * buffer 8 KB、舊 IE 的網址列 2083），用途是讓「有人把整份文件塞進 query」有個明確的
+ * 失敗點，而不是慢慢地把各層撐爆。
+ *
+ * 這個數字同時是 SSO 那條路的 cookie 預算保證：`next` 會被封進 OIDC state cookie，而
+ * 2048 字元的 next 封章（JSON → AES-GCM → base64url）後 `name=value` 是 **3049 bytes**、
+ * 含屬性的 `Set-Cookie` 是 3115，都在 4 KB 之下（實測；臨界值是 2834 字元）。**所以 server 端不需要、也刻意沒有
+ * 第二道更緊的上限**——理由與裁決見 `apps/server/src/auth/oidc-state.ts` 的 `next` 欄位
+ * JSDoc。
+ */
+export const MAX_NEXT_PATH_LENGTH = 2048;
+
+/** `safeNextPath` 解析用的虛構 base——只用來判定「相對解析後有沒有換 origin」，
+ * 這個網域不會被連線（`.invalid` 是 RFC 2606 保留的 TLD）。 */
+const NEXT_PATH_BASE = "http://knotebook.invalid";
+
+/** 可見 ASCII（U+0021–U+007E）。為何收得這麼緊，見 `safeNextPath` 的第 4 條。 */
+const NEXT_PATH_CHARSET_RE = /^[\u0021-\u007e]+$/;
+
+/**
+ * 「登入完可以把人送去哪」的唯一判準（#131）——web 的 `LoginPage`／`useSessionGate`
+ * 與 server 的 OIDC login／callback 共用這一支。
+ *
+ * **回傳輸入的原字串或 `null`，永遠不回傳正規化後的形。** 這是本函式最重要的契約：
+ * `/..//evil` 通過所有檢查（相對於本站解析仍指向本站），但
+ * `new URL("/..//evil", base).pathname` 是 `//evil`——把那個正規化形送進 `Location`
+ * 或 `navigate()`，瀏覽器會當它是 protocol-relative URL，人就到了 `http://evil`。
+ * 回原字串則由瀏覽器自己相對於本站解析，無害。
+ *
+ * 失敗一律回 `null`、**刻意不回原因碼**：所有呼叫端的處置都一樣（靜默 fallback 到
+ * `/`），沒有分支需求，也不該把「你給的 next 哪裡不合法」講給使用者聽。
+ *
+ * 檢查順序（任何一條不過就是 `null`；便宜的先跑）：
+ * 1. 必須是字串——**不是型別系統的贅語**：query string 解出來可能是 `null` 或**陣列**
+ *    （Fastify 對 `?next=/&next=x` 給的是 `["/", "x"]`），而陣列的 `[0]` 可能剛好是
+ *    `"/"`，靠下面的字元檢查是攔不住的。
+ * 2. 長度 <= `MAX_NEXT_PATH_LENGTH`。用 `input.length`（UTF-16 碼元）而**不是**同檔
+ *    `validateSlug`／`validateHandle` 那種 code point 計數：這裡量的是「當 `Location`
+ *    用時的長度」，而且過了第 4 條之後全是 ASCII，兩種算法等值。
+ * 3. 首字元 `/`，第二字元不是 `/` 也不是 `\`——擋掉 `//evil` 與 `/\evil` 這兩種會被
+ *    URL 解析器當成 authority 的形（`\` 在 special scheme 下等同 `/`）。
+ *    ⚠ 本條的**次字元**兩個比對與第 5 條的 origin 檢查**互為冗餘**：刪掉任一邊，全表
+ *    仍綠（已窮舉 + fuzz 驗證）。保留兩邊是讓字元層與解析層各有一道，不把「同源」整個
+ *    押在單一機制上。
+ * 4. **只允許可見 ASCII（U+0021–U+007E）**——必須在 URL 解析之前擋：WHATWG 的解析器
+ *    會把 CR／LF／TAB 靜默移除，先解析再看就永遠看不到它們，而
+ *    `Location: /x\r\nSet-Cookie: …` 是標頭注入。
+ *
+ *    **這條刻意比 spec §9.1 的字面（只點名 CR／LF／TAB／NUL）嚴很多**，理由是
+ *    **呼叫端契約**：OIDC callback 的成功導向刻意**不**做編碼（`reply.redirect(next)`，#131 Task 6 起，
+ *    見 `routes/oidc.ts`），因為在導向端補編碼行不通——`encodeURI` 會把既有的 `%20`
+ *    二次編碼成 `%2520`，`encodeURIComponent` 會把 `/`、`?`、`#` 一起吃掉。所以
+ *    **「送進來的字串必須可以逐字當 `Location` 用」是本函式的責任**。Node 的標頭字元
+ *    白名單是 `[\t\x20-\x7e\x80-\xff]`：裸的 C0（TAB 除外，那條由上一段的理由
+ *    擋）與 DEL 會被 `validateHeaderValue` 丟 `ERR_INVALID_CHAR`，**U+0100 起（超過
+ *    latin-1）的字元也會**——`/n/alice/筆記` 這種未編碼的 CJK 路徑就是（實測：U+00FF
+ *    仍放行，U+0100 起才炸）。
+ *    而該例外**接不到** `routes/oidc.ts` 最外層的 catch：`app.ts` 掛的是 async
+ *    `onSend`，`reply.redirect()` 只是把 header 塞進 reply，真正的 `writeHead` 發生在
+ *    handler 回傳之後 → 使用者拿到 JSON 500，而 `setSessionCookie` 已經跑過。等於打破
+ *    `routes/oidc.ts` 檔頭寫的「這條路由一切失敗都是 302，不是 JSON 500」。
+ *
+ *    對呼叫端的要求（因此）是：**送已百分比編碼的路徑**。web 端天然滿足——瀏覽器的
+ *    `location.pathname` 本身就是百分比編碼形，所以 `/n/alice/%E7%AD%86%E8%A8%98`
+ *    通過、`/n/alice/筆記` 不通過，真實路徑一個都不會被誤殺。
+ * 5. 相對於 `NEXT_PATH_BASE` 解析後 origin 必須沒變。**這條是刻意的冗餘防線**（見第 3
+ *    條）：**沒有任何輸入能只被它擋下**——突變測試會顯示這行可以刪掉而測試全綠，這是
+ *    已知且刻意的。**同段的 `try/catch` 同理**：相對輸入配合法 base，`new URL` 不會
+ *    throw，catch 分支同樣沒有輸入到得了。
+ * 6. 解析後的 pathname 不得命中 `isExcludedPath`——`/api/…`、`/oauth/…` 這些不是 SPA
+ *    頁，導過去只會看到一份裸 JSON。用**解析後**的 pathname 比對，`/x/../api/notes`
+ *    與 `/x/%2e%2e/api/notes` 才擋得掉（`isExcludedPath` 自己不做正規化，見該函式）。
+ * 7. 收斂尾斜線與大小寫之後不是 `/login`——`/login?next=%2Flogin` 這種手工連結會讓人
+ *    登入完又回到登入表單（此時已登入）。不是安全問題，是死路；spec 沒提，這條是 #131
+ *    加的。收斂是必要的：react-router 的路徑比對忽略尾斜線、預設大小寫不敏感，所以
+ *    `/login/` 與 `/LOGIN` 一樣會渲染登入頁。
+ *    判準是「**這個頁的存在前提是尚未登入**」——只有這種頁才該排除。`/change-password`
+ *    不算：它對已登入者是一個功能正常的頁。
+ */
+export function safeNextPath(input: string | null | undefined): string | null {
+  if (typeof input !== "string") return null;
+  if (input.length > MAX_NEXT_PATH_LENGTH) return null;
+  if (input[0] !== "/") return null;
+  if (input[1] === "/" || input[1] === "\\") return null;
+  // 不需要 eslint-disable：這個 pattern 的**字面裡沒有任何控制字元**（是碼位逸出），
+  // `no-control-regex` 本來就不會命中它。
+  if (!NEXT_PATH_CHARSET_RE.test(input)) return null;
+
+  let url: URL;
+  try {
+    url = new URL(input, NEXT_PATH_BASE);
+  } catch {
+    return null;
+  }
+  if (url.origin !== NEXT_PATH_BASE) return null;
+  if (isExcludedPath(url.pathname)) return null;
+  if (url.pathname.replace(/\/+$/, "").toLowerCase() === "/login") return null;
+
+  return input;
+}

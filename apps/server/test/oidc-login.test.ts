@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { OIDC_STATE_COOKIE } from "@knotebook/shared";
+import { MAX_NEXT_PATH_LENGTH, OIDC_STATE_COOKIE } from "@knotebook/shared";
 import type { CustomFetch } from "openid-client";
-import { buildTestApp } from "./helpers.js";
+import { FixedWindowLimiter } from "../src/http/rate-limit.js";
+import { buildTestApp, freshLimiters } from "./helpers.js";
 import { createFakeIdp } from "./helpers/fake-idp.js";
 import { loadConfig, type AppConfig } from "../src/config.js";
 import { createOidcRuntime } from "../src/auth/oidc-client.js";
@@ -195,5 +196,160 @@ describe("GET /api/auth/oidc/login", () => {
     const login = await app.inject({ method: "GET", url: "/api/auth/oidc/login" });
     expect(login.statusCode).toBe(302);
     expect(new URL(login.headers.location as string).origin).toBe(ISSUER_URL);
+  });
+});
+
+// ── #131：login 端點收 ?next=，封進 state cookie ─────────────────────────────
+//
+// 判準只有一道：safeNextPath（與 web 端同一支，含 2048 上限）。**刻意沒有第二道長度
+// 關**——spec §5.3.3 原本要求再壓到 512、理由是 sealed cookie 的 4 KB 限制，實測不成立
+// （見下方「封章後的 cookie 位元組」那案），Willie 2026-09-03 裁決拿掉。
+describe("#131 login 端點的 next", () => {
+  /** 走一次 login，回傳封進 cookie 的 next（沒有就是 undefined）與兩種 cookie 位元組數。 */
+  async function loginWithNext(
+    url: string,
+  ): Promise<{ next: string | undefined; cookieBytes: number; setCookieBytes: number }> {
+    const config = oidcConfig();
+    const fakeIdp = createFakeIdp(ISSUER_URL);
+    const runtime = createOidcRuntime(config.oidc!, { fetch: fakeIdp.fetch });
+    const { app } = await buildTestApp({ config, oidc: runtime });
+
+    const res = await app.inject({ method: "GET", url });
+    expect(res.statusCode).toBe(302);
+    const location = new URL(res.headers.location as string);
+    // 真的去了 IdP——否則下面解出 undefined 是「其實被導回 /login」的假綠。（早退不
+    // setCookie，所以 cookie 的存在本身也擋得住；這條的價值是失敗訊息直接指出病因。）
+    expect(location.origin).toBe(ISSUER_URL);
+    // next 只走密封 cookie，**不得**出現在送去 IdP 的 authorize query。放在 helper 裡
+    // ＝七案免費覆蓋，含負向案（「被判定不該封的 next 有沒有反而被轉手出去」）。
+    // ⚠ 用 searchParams.has，不要對整條 location 做子字串比對：state 是 43 字元隨機
+    // base64url，偶爾會湊出 "next" 這四個字元 → 間歇假紅。
+    expect(location.searchParams.has("next")).toBe(false);
+
+    const cookie = res.cookies.find(c => c.name === OIDC_STATE_COOKIE);
+    expect(cookie).toBeDefined();
+    const payload = unsealOidcState(config.appSecret, cookie!.value, Math.floor(Date.now() / 1000));
+    expect(payload).not.toBeNull();
+    const setCookieHeader = res.headers["set-cookie"];
+    const setCookieLine = Array.isArray(setCookieHeader)
+      ? setCookieHeader.find(line => line.startsWith(`${OIDC_STATE_COOKIE}=`))!
+      : setCookieHeader!;
+    return {
+      next: payload!.next,
+      // Chrome 實際設限的對象是 name=value；RFC 6265 §6.1 的 4096 預算則含屬性——
+      // 兩個都量，免得像 spec §5.3.3 那樣「把部分量當全量」。
+      cookieBytes: Buffer.byteLength(`${cookie!.name}=${cookie!.value}`, "utf8"),
+      setCookieBytes: Buffer.byteLength(setCookieLine, "utf8"),
+    };
+  }
+
+  const sealedNextOf = async (url: string) => (await loginWithNext(url)).next;
+
+  it("合法 next → 封進 state cookie（逐字）", async () => {
+    expect(await sealedNextOf("/api/auth/oidc/login?next=%2Fn%2Falice%2Fmy-note%3Fx%3D1")).toBe(
+      "/n/alice/my-note?x=1",
+    );
+  });
+
+  it("跨站 next → 不封（safeNextPath 擋下，登入照常去 IdP）", async () => {
+    expect(await sealedNextOf("/api/auth/oidc/login?next=%2F%2Fevil.example")).toBeUndefined();
+  });
+
+  it("非 SPA 路徑的 next（/api/notes）→ 不封", async () => {
+    expect(await sealedNextOf("/api/auth/oidc/login?next=%2Fapi%2Fnotes")).toBeUndefined();
+  });
+
+  it("唯一的長度關是 safeNextPath 的 2048：2048 封、2049 不封", async () => {
+    const atLimit = "/" + "a".repeat(2047);
+    const overLimit = "/" + "a".repeat(2048);
+    expect(atLimit).toHaveLength(MAX_NEXT_PATH_LENGTH);
+    expect(await sealedNextOf(`/api/auth/oidc/login?next=${encodeURIComponent(atLimit)}`)).toBe(atLimit);
+    expect(await sealedNextOf(`/api/auth/oidc/login?next=${encodeURIComponent(overLimit)}`)).toBeUndefined();
+  });
+
+  it("封章後的 cookie 位元組：最壞情況（2048 字元 next）仍遠低於瀏覽器的 4 KB", async () => {
+    // 這一案是「server 端不需要第二道長度關」這個決策的**量測**守衛（spec §5.3.3 的 512
+    // 就是被它推翻的：那句宣稱 2048 會撐爆 cookie，實際只有約 3049 bytes）。「不得再加
+    // 一道關」則由上面的 2048/2049 那案守——分工要講清楚，因為本案的斷言是**單向上界**。
+    const worstCaseNext = "/" + "a".repeat(MAX_NEXT_PATH_LENGTH - 1);
+    const { next, cookieBytes, setCookieBytes } = await loginWithNext(
+      `/api/auth/oidc/login?next=${encodeURIComponent(worstCaseNext)}`,
+    );
+    // ⚠ 沒有這一行，本案在「有人重新加一道 1000 字元的關」之下會**更綠**：next 被丟掉
+    // → cookie 只剩約 305 bytes → 兩條上界當然都過。先釘住最壞情況真的進了 cookie。
+    expect(next).toHaveLength(MAX_NEXT_PATH_LENGTH);
+    expect(cookieBytes).toBeLessThan(4096);
+    expect(setCookieBytes).toBeLessThan(4096);
+    // 同時釘住餘裕：低於 3500 才算「遠低於」，突然逼近（例如 payload 加欄位）就該
+    // 重新評估要不要加關。
+    expect(cookieBytes).toBeLessThan(3500);
+  });
+
+  it("next 出現多次（?next=/a&next=/b）→ 不封（query 解出來是陣列，route 先收斂成 null）", async () => {
+    expect(await sealedNextOf("/api/auth/oidc/login?next=%2Fa&next=%2Fb")).toBeUndefined();
+  });
+
+  it("沒有 next → 不封（既有行為不變）", async () => {
+    expect(await sealedNextOf("/api/auth/oidc/login")).toBeUndefined();
+  });
+
+  // 四個導回 /login?error=… 的出口一律不帶 next（spec round 10 定案：設定錯誤路徑，
+  // 使用者從 client 重新發起即可）。下面**四案一案對一條**——把任何一條改成帶 next，
+  // 就恰有一案會紅。
+  it("早退不帶 next：OIDC 未設定", async () => {
+    const { app } = await buildTestApp();
+    const res = await app.inject({ method: "GET", url: "/api/auth/oidc/login?next=%2Fn%2Falice%2Fmy-note" });
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toBe("/login?error=oidc_unavailable");
+  });
+
+  it("早退不帶 next：discovery 不可用", async () => {
+    const config = oidcConfig();
+    const fakeIdp = createFakeIdp(ISSUER_URL);
+    fakeIdp.failNext("discovery");
+    const runtime = createOidcRuntime(config.oidc!, { fetch: fakeIdp.fetch });
+    const { app } = await buildTestApp({ config, oidc: runtime });
+
+    const res = await app.inject({ method: "GET", url: "/api/auth/oidc/login?next=%2Fn%2Falice%2Fmy-note" });
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toBe("/login?error=oidc_unavailable");
+  });
+
+  it("早退不帶 next：組 authorization URL 失敗（外層 catch）", async () => {
+    // metadata 缺 authorization_endpoint 時 getConfiguration **會成功**（它只檢查
+    // jwks_uri 與簽章演算法），要到 buildAuthorizationUrl 才拋錯——這是本 harness 造得出
+    // 來、到得了外層 catch 的路徑。⚠ 本案只斷言「導回且不帶 next」，**沒有**斷言走的是
+    // 哪個分支（counts.discovery 對成功與失敗都是 1，分辨不了）；「確實是外層 catch」是
+    // 用突變驗的：把該 catch 改成帶 next，四案中恰有本案紅。
+    const config = oidcConfig();
+    const fakeIdp = createFakeIdp(ISSUER_URL);
+    fakeIdp.omitFromMetadata(["authorization_endpoint"]);
+    const runtime = createOidcRuntime(config.oidc!, { fetch: fakeIdp.fetch });
+    const { app } = await buildTestApp({ config, oidc: runtime });
+
+    const res = await app.inject({ method: "GET", url: "/api/auth/oidc/login?next=%2Fn%2Falice%2Fmy-note" });
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toBe("/login?error=oidc_unavailable");
+    expect(res.cookies.find(c => c.name === OIDC_STATE_COOKIE)).toBeUndefined();
+  });
+
+  it("早退不帶 next：限流（第 2 發撞上 limit=1 的桶）", async () => {
+    const config = oidcConfig();
+    const fakeIdp = createFakeIdp(ISSUER_URL);
+    const runtime = createOidcRuntime(config.oidc!, { fetch: fakeIdp.fetch });
+    const { app } = await buildTestApp({
+      config,
+      oidc: runtime,
+      limiters: freshLimiters({ oidcLogin: new FixedWindowLimiter({ limit: 1, windowMs: 60_000 }) }),
+    });
+    const url = "/api/auth/oidc/login?next=%2Fn%2Falice%2Fmy-note";
+
+    const first = await app.inject({ method: "GET", url });
+    expect(new URL(first.headers.location as string).origin).toBe(ISSUER_URL);
+
+    const second = await app.inject({ method: "GET", url });
+    expect(second.statusCode).toBe(302);
+    expect(second.headers.location).toBe("/login?error=too_many_requests");
+    expect(second.cookies.find(c => c.name === OIDC_STATE_COOKIE)).toBeUndefined();
   });
 });

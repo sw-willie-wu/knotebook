@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import * as client from "openid-client";
 import { and, eq, sql } from "drizzle-orm";
-import { normalizeEmail, OIDC_STATE_COOKIE } from "@knotebook/shared";
+import { normalizeEmail, OIDC_STATE_COOKIE, safeNextPath } from "@knotebook/shared";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
 import { handles, users } from "../db/schema.js";
@@ -152,7 +152,9 @@ async function attemptOidcAccountResolution(db: Db, claims: OidcClaims): Promise
  * 裸 JSON，使用者拿不到任何有意義的回饋——一律導回 `/login?error=<code>`（含程式錯誤：
  * callback 整段核心邏輯包在最外層 try/catch，任何未預期例外一律映射
  * `oidc_exchange_failed`，不落到全域錯誤 handler 變成 JSON 500），交給登入頁的 toast
- * 顯示對應 i18n 文案。
+ * 顯示對應 i18n 文案。#131 起 callback 會把 state cookie 裡驗過的 `next` 帶回去：成功導
+ * 向它，失敗的 `/login?error=…` 也一併帶上——但**限於 cookie 已經解開之後**的失敗
+ * （config 未設定、限流這兩條在解開之前，與 login 端點的四條失敗一樣都不帶）。
  */
 export function oidcRoutes(deps: OidcRouteDeps) {
   return async function register(app: FastifyInstance): Promise<void> {
@@ -187,12 +189,26 @@ export function oidcRoutes(deps: OidcRouteDeps) {
         const codeVerifier = client.randomPKCECodeVerifier();
         const codeChallenge = await client.calculatePKCECodeChallenge(codeVerifier);
 
+        // #131：`?next=` 由登入頁的 SSO 連結轉交（使用者也可能自己帶）。判準只有一道
+        // ——`safeNextPath`（與 web 端同一支，含 2048 上限）。不過就當作沒有 next：登入
+        // 照常，只是完成後落 `/`。**刻意沒有第二道長度關**，理由與量測見
+        // `auth/oidc-state.ts` 的 `next` 欄位 JSDoc。
+        //
+        // ⚠ 這裡**只**影響封進 cookie 的內容。本 handler 有**四**個導回 `/login?error=…`
+        // 的出口（OIDC 未設定、限流、discovery 不可用、以及包住這段的 catch＝組
+        // authorization URL 失敗），它們**刻意都不帶 `next`**——那是設定錯誤路徑，使用者
+        // 從 client 重新發起即可（spec round 10 定案）。守衛：`oidc-login.test.ts` 的
+        // 「早退不帶 next」四案，一案對一條。
+        const rawNext = (request.query as Record<string, unknown>).next;
+        const requestedNext = safeNextPath(typeof rawNext === "string" ? rawNext : null);
+
         const nowEpochSeconds = Math.floor(Date.now() / 1000);
         const sealed = sealOidcState(deps.config.appSecret, {
           state,
           nonce,
           codeVerifier,
           exp: nowEpochSeconds + OIDC_STATE_TTL_SECONDS,
+          ...(requestedNext !== null ? { next: requestedNext } : {}),
         });
 
         // scope 逐字 "openid email profile"（§14.3 authorize 參數契約——漏了會讓真 IdP
@@ -240,6 +256,14 @@ export function oidcRoutes(deps: OidcRouteDeps) {
         return reply.redirect("/login?error=too_many_requests");
       }
 
+      // #131：`next` 要等 state cookie 解開才知道，但錯誤導回散落在整個 handler（含最外
+      // 層 catch）——用一個 handler 作用域的變數承接。未知時是 null，組出來的字串就與
+      // #131 之前逐字相同（上面兩條早退因此不帶 next，且刻意不為了帶它而把限流挪到解密
+      // 之後——那會讓超額請求真的去解密）。
+      let nextPath: string | null = null;
+      const loginErrorLocation = (code: string): string =>
+        nextPath === null ? `/login?error=${code}` : `/login?error=${code}&next=${encodeURIComponent(nextPath)}`;
+
       // 整段（state 讀取到簽 session）包在同一個 try/catch：任何未預期例外（含
       // openid-client 內部丟出的非 OidcUnavailableError 型別、DB 交易的非
       // unique-violation 錯誤）一律映射 oidc_exchange_failed，維持「這條路由一切失敗
@@ -256,19 +280,23 @@ export function oidcRoutes(deps: OidcRouteDeps) {
         });
 
         if (sealedCookie === undefined) {
-          return reply.redirect("/login?error=oidc_state_mismatch");
+          return reply.redirect(loginErrorLocation("oidc_state_mismatch"));
         }
 
         const nowEpochSeconds = Math.floor(Date.now() / 1000);
         const payload = unsealOidcState(deps.config.appSecret, sealedCookie, nowEpochSeconds);
         if (payload === null) {
-          return reply.redirect("/login?error=oidc_state_mismatch");
+          return reply.redirect(loginErrorLocation("oidc_state_mismatch"));
         }
+
+        // 封章保證「這是我們封的」，不保證「現在仍然安全」——判準日後收緊時，還在飛的
+        // 舊 cookie 就是用舊判準封的，所以這裡**再驗一次**（spec §5.3.3）。
+        nextPath = payload.next !== undefined ? safeNextPath(payload.next) : null;
 
         const query = request.query as Record<string, unknown>;
         const stateParam = typeof query.state === "string" ? query.state : undefined;
         if (stateParam === undefined || stateParam !== payload.state) {
-          return reply.redirect("/login?error=oidc_state_mismatch");
+          return reply.redirect(loginErrorLocation("oidc_state_mismatch"));
         }
 
         let configuration: client.Configuration;
@@ -277,7 +305,7 @@ export function oidcRoutes(deps: OidcRouteDeps) {
         } catch (err) {
           if (err instanceof OidcUnavailableError) {
             request.log.warn({ err }, "OIDC discovery 不可用，導回登入頁");
-            return reply.redirect("/login?error=oidc_unavailable");
+            return reply.redirect(loginErrorLocation("oidc_unavailable"));
           }
           throw err;
         }
@@ -301,7 +329,7 @@ export function oidcRoutes(deps: OidcRouteDeps) {
         } catch (err) {
           // 上游細節（可能含 client secret 交換的錯誤訊息）僅 log，不出線。
           request.log.warn({ err }, "OIDC code 交換失敗");
-          return reply.redirect("/login?error=oidc_exchange_failed");
+          return reply.redirect(loginErrorLocation("oidc_exchange_failed"));
         }
 
         // `expectedNonce` 已隱含要求回應必須含 ID token（openid-client 契約），這裡仍
@@ -309,7 +337,7 @@ export function oidcRoutes(deps: OidcRouteDeps) {
         const idTokenClaims = tokens.claims();
         if (idTokenClaims === undefined) {
           request.log.warn("OIDC token 交換成功但缺 id_token claims");
-          return reply.redirect("/login?error=oidc_exchange_failed");
+          return reply.redirect(loginErrorLocation("oidc_exchange_failed"));
         }
 
         const sub = idTokenClaims.sub;
@@ -334,7 +362,7 @@ export function oidcRoutes(deps: OidcRouteDeps) {
             userinfo = await client.fetchUserInfo(configuration, tokens.access_token, sub);
           } catch (err) {
             request.log.warn({ err }, "OIDC userinfo 取得失敗");
-            return reply.redirect("/login?error=oidc_exchange_failed");
+            return reply.redirect(loginErrorLocation("oidc_exchange_failed"));
           }
           if (email === null) email = nonEmptyClaim(userinfo.email);
           if (emailVerified === null && typeof userinfo.email_verified === "boolean") emailVerified = userinfo.email_verified;
@@ -362,7 +390,7 @@ export function oidcRoutes(deps: OidcRouteDeps) {
             result = await attemptOidcAccountResolution(deps.db, claims);
           } catch (err2) {
             request.log.warn({ err: err2 }, "OIDC 帳號解析 race 重查後仍失敗");
-            return reply.redirect("/login?error=oidc_exchange_failed");
+            return reply.redirect(loginErrorLocation("oidc_exchange_failed"));
           }
         }
 
@@ -371,7 +399,7 @@ export function oidcRoutes(deps: OidcRouteDeps) {
             // 兩義 log 區分：lower() 多列命中 vs 已綁其他 (issuer,sub)——同碼不同成因。
             request.log.warn({ conflictReason: result.conflictReason }, "OIDC 帳號衝突");
           }
-          return reply.redirect(`/login?error=${result.code}`);
+          return reply.redirect(loginErrorLocation(result.code));
         }
 
         // 對 users 表有任何寫入（連結/建帳/清 mustChangePassword）→ 簽 session 前必須
@@ -382,10 +410,10 @@ export function oidcRoutes(deps: OidcRouteDeps) {
 
         const token = await signSession(deps.config.appSecret, { userId: result.userId, tv: result.tv });
         setSessionCookie(reply, deps.config, token);
-        return reply.redirect("/");
+        return reply.redirect(nextPath ?? "/");
       } catch (err) {
         request.log.error({ err }, "OIDC callback 發生未預期錯誤");
-        return reply.redirect("/login?error=oidc_exchange_failed");
+        return reply.redirect(loginErrorLocation("oidc_exchange_failed"));
       }
     });
   };
