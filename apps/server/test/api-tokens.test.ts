@@ -191,9 +191,30 @@ describe("PAT 管理端點", () => {
       accessTokenHash: "b".repeat(64),
       accessExpiresAt: new Date(Date.now() - 29 * 86_400_000),
     });
+    // #132：建 PAT 現在跑的是完整五條（`oauth/cleanup.ts`），不只 ⑤。這一列 31 天沒用
+    // 的 client 是 ① 的觸發——少了它，把呼叫換回「只有 ⑤」的版本仍會全綠。
+    await db.insert(oauthClients).values({
+      clientId: "c-stale",
+      clientName: "Stale",
+      redirectUris: ["http://127.0.0.1:1/cb"],
+      lastUsedAt: new Date(Date.now() - 31 * 86_400_000),
+    });
+    await db.insert(apiTokens).values({
+      userId,
+      kind: "oauth",
+      name: "stale-grant",
+      scope: "notes:read",
+      accessTokenHash: "e".repeat(64),
+      refreshTokenHash: "f".repeat(64),
+      clientId: "c-stale",
+      accessExpiresAt: new Date(Date.now() + 86_400_000),
+    });
+
     await create(app, cookie, { name: "new", scope: "notes:read", expiresInDays: null });
     const names = (await db.select().from(apiTokens)).map(r => r.name).sort();
     expect(names).toEqual(["new", "oauth-old", "recent"]);
+    // ① 把 30 天沒用的 client 連同其 grant 一起帶走（CASCADE）
+    expect((await db.select({ id: oauthClients.clientId }).from(oauthClients)).map(r => r.id)).toEqual(["c-old"]);
   });
 
   it("限流：PAT_CREATE 超限 → 429", async () => {

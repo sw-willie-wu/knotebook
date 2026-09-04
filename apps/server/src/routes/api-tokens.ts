@@ -8,6 +8,7 @@ import { sendError } from "../http/errors.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
 import { generateAccessToken, hashToken } from "../auth/api-token.js";
 import { UUID_RE } from "../notes/service.js";
+import { runOauthCleanup } from "../oauth/cleanup.js";
 
 /** I1：每位使用者計入額度的 grant 上限。 */
 export const TOKEN_LIMIT_PER_USER = 20;
@@ -45,24 +46,6 @@ async function countBillableGrants(db: Db, userId: string): Promise<number> {
       )
     );
   return row?.count ?? 0;
-}
-
-/**
- * I5 ⑤（#107）：清掉過期超過 30 天的 PAT。
- *
- * 完整的 I5 有五條 DELETE，其餘四條（oauth_clients 兩條、oauth_requests、
- * oauth_codes）在 #132 隨 OAuth 端點一起落地；本 PR 只有 PAT 這條有東西可清。
- *
- * **性質：沒有排程**——只在「有人建 PAT」（以及 #132 的每次 OAuth 操作）時機會性
- * 執行，殘留列要等下一次操作才回收。記在 docs/known-limitations.md。
- *
- * 這條 WHERE（kind + access_expires_at）沒有索引支撐＝全表掃描，刻意不建：表恆小
- * （每人計費上限 20 ＋ 過期殘留），而且觸發點被 PAT_CREATE_LIMIT 壓在每人每小時 10 次。
- */
-async function cleanupExpiredPats(db: Db): Promise<void> {
-  await db
-    .delete(apiTokens)
-    .where(and(eq(apiTokens.kind, "pat"), sql`${apiTokens.accessExpiresAt} < now() - interval '30 days'`));
 }
 
 function toDto(row: typeof apiTokens.$inferSelect): ApiTokenDto {
@@ -120,7 +103,8 @@ export function apiTokensRoutes(deps: ApiTokensRouteDeps) {
         return sendError(reply, 429, "too_many_requests", "建立次數過多，請稍後再試");
       }
 
-      await cleanupExpiredPats(deps.db);
+      // I5：建 PAT 是五個清理時機之一（五條 DELETE 的說明見 oauth/cleanup.ts）。
+      await runOauthCleanup(deps.db);
       if ((await countBillableGrants(deps.db, userId)) >= TOKEN_LIMIT_PER_USER) {
         return sendError(reply, 409, "token_limit", `有效 token 已達 ${TOKEN_LIMIT_PER_USER} 個上限，請先撤銷一個`);
       }
