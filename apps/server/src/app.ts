@@ -28,7 +28,7 @@ import { mcpRoutes } from "./routes/mcp.js";
 import { apiTokensRoutes } from "./routes/api-tokens.js";
 import { drainWithCap } from "./http/drain.js";
 import { sendError } from "./http/errors.js";
-import { AI_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, SLUG_PATCH_LIMIT, TOKEN_READ_LIMIT, TOKEN_WRITE_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
+import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, DCR_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_WRITE_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
 import { registerSpaFallback } from "./http/spa.js";
 import { assertUploadsDirWritable } from "./uploads/service.js";
 import type { AiRuntime } from "./ai/runtime.js";
@@ -105,6 +105,10 @@ export interface AppDeps {
     bearerMiss: FixedWindowLimiter;
     /** #107：`POST /api/auth/tokens`（key=userId）。 */
     patCreate: FixedWindowLimiter;
+    /** #132：DCR／authorize／token 三個無認證端點（key=ip）。 */
+    dcr: FixedWindowLimiter;
+    authorize: FixedWindowLimiter;
+    tokenEndpoint: FixedWindowLimiter;
   };
   /**
    * Task 5：`POST /api/notes/:id/links` 寫入函式（`notes/links.ts` 的 `writeNoteLinks`）的
@@ -512,6 +516,9 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       tokenWrite: new FixedWindowLimiter(TOKEN_WRITE_LIMIT),
       bearerMiss: new FixedWindowLimiter(BEARER_MISS_LIMIT),
       patCreate: new FixedWindowLimiter(PAT_CREATE_LIMIT),
+      dcr: new FixedWindowLimiter(DCR_LIMIT),
+      authorize: new FixedWindowLimiter(AUTHORIZE_LIMIT),
+      tokenEndpoint: new FixedWindowLimiter(TOKEN_ENDPOINT_LIMIT),
     } satisfies NonNullable<AppDeps["limiters"]>);
 
   // #107：`limiters` 在上面才算出來，所以這個 decorate 必須排在它之後、任何
