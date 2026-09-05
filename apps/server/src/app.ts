@@ -33,6 +33,7 @@ import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, DCR_L
 import { FORM_EXEMPT_ROUTES, isOauthScopedPath, sendOauthError } from "./http/oauth-errors.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { oauthMetadataRoutes } from "./routes/oauth-metadata.js";
+import { oauthApiRoutes } from "./routes/oauth-api.js";
 import { registerSpaFallback } from "./http/spa.js";
 import { assertUploadsDirWritable } from "./uploads/service.js";
 import type { AiRuntime } from "./ai/runtime.js";
@@ -565,6 +566,8 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   );
   // #107：PAT 管理端點——cookie 專用（token 不能簽發或撤銷 token），見 routes/api-tokens.ts 檔頭。
   void app.register(apiTokensRoutes({ db: deps.db, limiters: { patCreate: limiters.patCreate } }));
+  // #132：同意頁的站內端點（cookie session、站內錯誤形），與 RFC 形的 /oauth 分開。
+  void app.register(oauthApiRoutes({ db: deps.db, config: deps.config }));
 
   // Task 8（二輪 MINOR-8）：`deps.oidc` 未傳但 `config.oidc` 有值時在此補上 production
   // runtime——不能讓「config.oidc 有值而 runtime undefined」這個矛盾狀態流進

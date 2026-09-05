@@ -529,6 +529,19 @@ export interface CreatedApiTokenDto extends ApiTokenDto {
   token: string;
 }
 
+/** #132：同意頁要顯示的四要素（`GET /api/oauth/request`）。 */
+export interface OauthRequestDto {
+  /** client 的自述名稱，**未經驗證**——渲染時要 bidi 隔離。 */
+  clientName: string;
+  /** `new URL(redirect_uri).host`，**刻意含 port**：讓使用者看到實際會跳去的位址。 */
+  redirectHost: string;
+  scope: TokenScope;
+  /** `scope` 拆成單值陣列，供同意頁逐條列出人話說明。 */
+  scopes: string[];
+  /** 呼叫者本人已有同 client 的 oauth grant（I7 會取代它）。 */
+  replacesExisting: boolean;
+}
+
 /**
  * 「這條路徑不是 SPA 頁」的唯一判準——兩個用途共用：
  *
