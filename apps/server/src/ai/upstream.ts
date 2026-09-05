@@ -197,7 +197,9 @@ export function streamAnthropic(opts: AnthropicOpts): UpstreamHandle {
 
   async function* generate(): AsyncGenerator<string> {
     try {
-      const client = new Anthropic({ apiKey: opts.apiKey, baseURL: opts.baseUrl, fetchOptions: { redirect: "manual" } });
+      // server 端執行；notes/editing/runtime.ts 把 jsdom 的 window/document 掛在 globalThis，
+      // 會觸發 SDK 的瀏覽器嗅探（internal/detect-platform.js）——這個旗標只為此而加。
+      const client = new Anthropic({ apiKey: opts.apiKey, baseURL: opts.baseUrl, fetchOptions: { redirect: "manual" }, dangerouslyAllowBrowser: true });
       const stream = client.messages.stream(
         {
           model: opts.model,

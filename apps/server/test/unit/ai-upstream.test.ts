@@ -228,10 +228,13 @@ describe("streamAnthropic", () => {
     // fix round 1 I-1（安全）：ctor 必須帶 `fetchOptions: { redirect: "manual" }`，理由同
     // Task 4 審查 I-4——SDK 自帶的 `x-api-key` 不在 undici 轉址剝除清單內，302 會把明文 key
     // 原樣送去第三方主機；審查者用真 SDK + 302 repro 實測過，加了這個選項才是零外送。
+    // `dangerouslyAllowBrowser: true`（#136 Task 2）：`notes/editing/runtime.ts` 把 jsdom 的
+    // window/document 掛上 globalThis 後 SDK 的瀏覽器嗅探會誤判並 throw（editing-runtime.test.ts 釘住）。
     expect(mod.__ctorMock).toHaveBeenCalledWith({
       apiKey: "sk-ant-test",
       baseURL: "https://custom.anthropic.example",
       fetchOptions: { redirect: "manual" },
+      dangerouslyAllowBrowser: true,
     });
     const [params, options] = mod.__streamMock.mock.calls[0] as [
       { model: string; max_tokens: number; system: string; messages: unknown[] },
