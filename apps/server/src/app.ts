@@ -29,7 +29,7 @@ import { mcpRoutes } from "./routes/mcp.js";
 import { apiTokensRoutes } from "./routes/api-tokens.js";
 import { drainWithCap } from "./http/drain.js";
 import { sendError } from "./http/errors.js";
-import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, DCR_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_WRITE_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
+import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_WRITE_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
 import { FORM_EXEMPT_ROUTES, isOauthScopedPath, sendOauthError } from "./http/oauth-errors.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { oauthMetadataRoutes } from "./routes/oauth-metadata.js";
@@ -38,6 +38,7 @@ import { registerSpaFallback } from "./http/spa.js";
 import { assertUploadsDirWritable } from "./uploads/service.js";
 import type { AiRuntime } from "./ai/runtime.js";
 import { createOidcRuntime, type OidcRuntime } from "./auth/oidc-client.js";
+import { createEditingRuntime, type EditingRuntime } from "./notes/editing/runtime.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -80,6 +81,13 @@ export interface AppDeps {
    */
   collab?: CollabServer;
   /**
+   * #106：AI／API 讀寫筆記內容用的 jsdom runtime。**選配**：未傳而 `collab` 有值時
+   * `buildApp` 自己建一個（`createEditingRuntime`）；`collab` 缺席（一般 REST 測試）時
+   * 一律 `undefined`，內容路由連帶不註冊——不為只跑 REST 的 app 付一份 jsdom 的錢。
+   * 整合測試注入共用的 `testEditingRuntime`（`test/helpers.ts`），避免每個 app 各建一份。
+   */
+  editing?: EditingRuntime;
+  /**
    * per-user 固定視窗節流器（Task 4：collab-token；Task 8：slug PATCH；Task 10b：
    * uploads）。**選配**：`index.ts` 的 `AppDeps` 物件字面值不在 Task 4 的 Files 內，
    * 必填會讓 Task 4–6 之間 `pnpm -r build` 全紅（vitest 不做型檢，會綠色假象）。未傳時
@@ -114,6 +122,8 @@ export interface AppDeps {
     dcr: FixedWindowLimiter;
     authorize: FixedWindowLimiter;
     tokenEndpoint: FixedWindowLimiter;
+    /** #106：`GET /api/notes/:id/content`（key=userId；角色檢查後才消耗，見 `CONTENT_READ_LIMIT`）。 */
+    contentRead: FixedWindowLimiter;
   };
   /**
    * Task 5：`POST /api/notes/:id/links` 寫入函式（`notes/links.ts` 的 `writeNoteLinks`）的
@@ -541,6 +551,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       dcr: new FixedWindowLimiter(DCR_LIMIT),
       authorize: new FixedWindowLimiter(AUTHORIZE_LIMIT),
       tokenEndpoint: new FixedWindowLimiter(TOKEN_ENDPOINT_LIMIT),
+      contentRead: new FixedWindowLimiter(CONTENT_READ_LIMIT),
     } satisfies NonNullable<AppDeps["limiters"]>);
 
   // #107：`limiters` 在上面才算出來，所以這個 decorate 必須排在它之後、任何
@@ -581,11 +592,19 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   // deps 一併傳入。
   void app.register(oidcRoutes({ config: deps.config, db: deps.db, gate: deps.gate, runtime: oidcRuntime, limiters: { oidcLogin: limiters.oidcLogin, oidcCallback: limiters.oidcCallback } }));
 
+  // #106：內容端點需要一份 jsdom runtime。**lazy**——沒有 collab 就不建（`createEditingRuntime`
+  // 會立刻 `installGlobals()` 掛 window/document，只跑 REST 的 app 不該付這個代價，也不該讓
+  // 瀏覽器嗅探在那些 process 裡失守）。有 collab 就一定有 runtime，兩者同生同滅＝路由要嘛
+  // 兩個依賴都在、要嘛整條不註冊（見 `notesRoutes` 內的註冊閘門）。
+  const editing = deps.collab ? (deps.editing ?? createEditingRuntime(deps.config)) : undefined;
+
   void app.register(
     notesRoutes({
       db: deps.db,
       collabHooks: deps.collabHooks,
       config: deps.config,
+      collab: deps.collab,
+      editing,
       limiters,
       linkSyncTestHooks: deps.linkSyncTestHooks,
       slugUpdateTestHook: deps.slugUpdateTestHook,

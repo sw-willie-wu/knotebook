@@ -7,12 +7,12 @@ import { MemoryRouter } from "react-router";
 import * as Y from "yjs";
 import { BlockNoteEditor } from "@blocknote/core";
 import { withCollaboration } from "@blocknote/core/yjs";
-import { YDOC_FRAGMENT } from "@knotebook/shared";
+import { extractLinkTargets, YDOC_FRAGMENT } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
 import { noteSchema } from "@/collab/schema";
 import { insertWikilink } from "@/components/wikilink/spec";
 import type { CollabState } from "./connection";
-import { createLinkSync, extractLinkTargets } from "./link-sync";
+import { createLinkSync } from "./link-sync";
 
 // `createLinkSync` 對 400 的處理會 `toast()` + 查 i18n 文案（見 link-sync.ts 的
 // `handleFailure`）——換成最小替身，避免這個檔案的單元測試依賴真的 Radix

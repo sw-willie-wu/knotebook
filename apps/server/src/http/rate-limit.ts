@@ -165,3 +165,12 @@ export const AUTHORIZE_LIMIT = { limit: 30, windowMs: 60_000 } as const;
 
 /** #132：`POST /oauth/token`（key=ip）。 */
 export const TOKEN_ENDPOINT_LIMIT = { limit: 60, windowMs: 60_000 } as const;
+
+/**
+ * #106：`GET /api/notes/:id/content` 與（#137）`GET /api/notes/:id/edits` 節流（key=userId）。
+ * **角色檢查之後才消耗**：`role === "none"` 的 404 不啃桶（與 `PUBLIC_MISS_LIMIT` 的
+ * per-IP 防列舉是兩回事——這裡呼叫者已具名，讓陌生 id 的 404 吃掉合法讀取的額度只會
+ * 懲罰到自己）。120/min 對照 `TOKEN_READ_LIMIT`（300/min）：內容讀取比 metadata 重
+ * （要 fork 文件、mount 一次 BlockNote），所以另設一顆更緊的桶。
+ */
+export const CONTENT_READ_LIMIT = { limit: 120, windowMs: 60_000 } as const;

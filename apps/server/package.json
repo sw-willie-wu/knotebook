@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.116.0",
+    "@blocknote/core": "^0.52.1",
     "@fastify/cookie": "^11",
     "@fastify/formbody": "^9.0.0",
     "@fastify/multipart": "^10.1.0",
@@ -28,6 +29,7 @@
     "drizzle-orm": "^0.44",
     "fastify": "^5",
     "jose": "^6",
+    "jsdom": "^30.0.1",
     "openid-client": "^6.8.5",
     "pg": "^8",
     "pino": "^10",
@@ -38,6 +40,7 @@
   "devDependencies": {
     "@hocuspocus/provider": "^4.5.0",
     "@testcontainers/postgresql": "^11",
+    "@types/jsdom": "^30",
     "@types/node": "^22",
     "@types/pg": "^8",
     "@types/ws": "^8.18.1",

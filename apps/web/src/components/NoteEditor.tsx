@@ -142,7 +142,8 @@ export function buildNoteEditorOptions({ doc, provider, user, language, translat
     // block spec 就能攔在所有 sink 之前的縫。
     //
     // 這個回呼**必須放行相對網址**：自家上傳拿到的是 `/api/uploads/<id>`，套輸入端那條
-    // 「必須是完整 http(s)」的規則會把所有上傳的圖片一起擋掉（見 `lib/media-url.ts`）。
+    // 「必須是完整 http(s)」的規則會把所有上傳的圖片一起擋掉（規則見 shared
+    // `note-schema-config.ts`；web 的 base 預設見 `lib/media-url.ts`）。
     resolveFileUrl: (url: string) => Promise.resolve(safeMediaUrl(url)),
     // 貼上 markdown 的兩個 Windows 破口（CRLF 不被解析、從 VS Code 貼會變成程式碼
     // 區塊）——判斷與理由都在 `@/collab/paste`，這裡只負責接線。

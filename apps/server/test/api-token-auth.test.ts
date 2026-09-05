@@ -337,7 +337,7 @@ describe("/api/mcp 暫時形與 Bearer challenge", () => {
   });
 });
 
-describe("三條 notes 路由收 Bearer（D2 的允許清單）", () => {
+describe("notes 路由收 Bearer（D2 的允許清單）", () => {
   it("write token 打得動三條路由", async () => {
     const { app, db } = await buildTestApp();
     const { token } = await seedToken(db);

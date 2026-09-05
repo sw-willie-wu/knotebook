@@ -16,13 +16,14 @@ import { loadConfig, type AppConfig } from "../src/config.js";
 import { buildApp, type AppDeps, type BuildAppOptions } from "../src/app.js";
 import { signSession, UserGate } from "../src/auth/session.js";
 import { LoginThrottle } from "../src/auth/rate-limit.js";
-import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, DCR_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_WRITE_LIMIT, UPLOAD_LIMIT } from "../src/http/rate-limit.js";
+import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_WRITE_LIMIT, UPLOAD_LIMIT } from "../src/http/rate-limit.js";
 import { hashPassword } from "../src/auth/password.js";
 import { noopCollabHooks, type CollabHooks } from "../src/collab/hooks.js";
 import type { CollabHooksLogger } from "../src/collab/hooks-impl.js";
 import { COLLAB_PATH, createCollabServer, type CollabServer } from "../src/collab/server.js";
 import { notes, noteShares, users } from "../src/db/schema.js";
 import { createAiRuntime } from "../src/ai/runtime.js";
+import { createEditingRuntime } from "../src/notes/editing/runtime.js";
 
 export interface FreshDb {
   db: Db;
@@ -295,9 +296,19 @@ export function freshLimiters(
     dcr: new FixedWindowLimiter(DCR_LIMIT),
     authorize: new FixedWindowLimiter(AUTHORIZE_LIMIT),
     tokenEndpoint: new FixedWindowLimiter(TOKEN_ENDPOINT_LIMIT),
+    contentRead: new FixedWindowLimiter(CONTENT_READ_LIMIT),
     ...overrides,
   };
 }
+
+/**
+ * #106：整合測試共用的 jsdom 編輯 runtime（`AppDeps.editing` 與 `editing-helpers.ts` 的
+ * `seedContent` 都注入這一份）。**module 層單例是刻意的**，與 `freshLimiters` 的「每次全新」
+ * 相反：runtime 沒有跨測試會互相汙染的計數語意，而每個測試各建一份 jsdom 就是每次
+ * `installGlobals()` 重掛全域 window／document——同檔案內先前建好的 editor 會被抽掉腳下的
+ * window（Task 2 的 m2 觀察），且每份殘留約 0.53 MB。
+ */
+export const testEditingRuntime = createEditingRuntime(testConfig);
 
 /**
  * 建一個掛好預設 deps（freshDb + 真 UserGate/LoginThrottle + noop collab hooks）的
@@ -410,7 +421,11 @@ export interface CollabTestCtx {
  * shares/disable/DELETE 那些呼叫點全是 no-op，撤權路徑永遠不會被觸發，測試會綠得毫無意義。
  */
 export async function buildCollabTestApp(
-  opts: { collabHooks?: (server: CollabServer, log: CollabHooksLogger) => CollabHooks } = {}
+  opts: {
+    collabHooks?: (server: CollabServer, log: CollabHooksLogger) => CollabHooks;
+    /** 只換掉要驗的那一顆桶（其餘走 `freshLimiters` 預設）——⚠ 整包轉傳，別逐鍵展開，理由見 `freshLimiters`。 */
+    limiters?: Partial<NonNullable<AppDeps["limiters"]>>;
+  } = {}
 ): Promise<CollabTestCtx> {
   const { db } = await freshDb();
   const gate = new UserGate(db);
@@ -441,7 +456,8 @@ export async function buildCollabTestApp(
     throttle: new LoginThrottle(),
     collabHooks: opts.collabHooks ? opts.collabHooks(collab, collabLog) : noopCollabHooks,
     collab,
-    limiters: freshLimiters(),
+    editing: testEditingRuntime,
+    limiters: freshLimiters(opts.limiters),
     uploadsDir: freshUploadsDir(),
     ai: createAiRuntime(),
   };

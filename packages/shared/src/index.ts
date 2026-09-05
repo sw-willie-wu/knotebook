@@ -1,4 +1,4 @@
-export const YDOC_FRAGMENT = "knotebook";
+export { YDOC_FRAGMENT } from "./ydoc.js";
 
 export const SESSION_COOKIE = "knotebook_session";
 
@@ -55,6 +55,35 @@ export interface NoteDto {
   slugIsCustom: boolean;
   /** 單層自訂 redirect 來源（只記自訂變更；無則 null）——by-path miss 後的補查面。 */
   prevSlug: string | null;
+}
+
+// #106 內容端點（`GET /api/notes/:id/content`，#137 起還有寫入端）的對外形。指紋是樂觀
+// 併發的判準、不是安全邊界：server 端算在未 mount 的 Yjs 結構上（`notes/editing/fingerprint.ts`），
+// web 永不自己算。`blockIds` 是 server 內部用的，刻意不在這幾個 DTO 上出現。
+export interface NoteOutlineEntry {
+  /** 段落識別子：首段恆為 `TOP_SECTION_ID`（`_top`），其餘＝該 heading block 的 id。 */
+  sectionId: string;
+  level: number;
+  heading: string;
+  chars: number;
+  fingerprint: string;
+}
+/** 誰在什麼時候最後改了這篇（#137 才會有非 null 值；#136 一律 null）。 */
+export interface LastEditedDto {
+  at: string;
+  byHandle: string;
+  agentLabel: string | null;
+}
+export interface NoteContentDto {
+  markdown: string;
+  fingerprint: string;
+  outline: NoteOutlineEntry[];
+  lastEdited: LastEditedDto | null;
+}
+/** spec §5：`?section=` 回應裡的段落鍵是 `id`（不是 `sectionId`）。 */
+export interface NoteSectionDto {
+  section: Omit<NoteOutlineEntry, "sectionId"> & { id: string; markdown: string };
+  lastEdited: LastEditedDto | null;
 }
 
 // 分享名單上的角色只會是 'editor'/'viewer'——note_shares 表的 DB check constraint
@@ -156,6 +185,10 @@ export const ERROR_CODES = [
   "token_not_found",
   "oauth_request_invalid",
   "not_implemented",
+  // #106：`GET /api/notes/:id/content?section=` 指定的段落在這份文件裡不存在（404——與
+  // 「整篇筆記找不到／無權限」的 `not_found` 分開，因為呼叫端的處置不同：段落沒了就重讀
+  // 大綱，筆記沒了就別再試）。
+  "section_not_found",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
@@ -682,3 +715,7 @@ export function safeNextPath(input: string | null | undefined): string | null {
 
   return input;
 }
+
+export * from "./note-schema-config.js";
+export * from "./note-sections.js";
+export * from "./note-markdown.js";

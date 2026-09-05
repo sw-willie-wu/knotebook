@@ -36,7 +36,7 @@ describe("collectUnsafeUrlFindings（issue #44 最小步：只偵測不改寫）
     expect(collectUnsafeUrlFindings(doc)).toEqual([{ block: "file", scheme: "javascript:" }]);
   });
 
-  it("自家上傳的相對網址、外部 http(s)、空字串 → 皆不算發現（與 web 端 isSafeMediaUrl 白名單一致）", () => {
+  it("自家上傳的相對網址、外部 http(s)、空字串 → 皆不算發現（與 @knotebook/shared 的 isSafeMediaUrl 白名單一致）", () => {
     const doc = new Y.Doc();
     insertBlock(doc, "image", { url: "/api/uploads/u1" });
     insertBlock(doc, "image", { url: "https://example.com/a.png" });

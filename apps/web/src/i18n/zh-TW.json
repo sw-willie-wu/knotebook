@@ -425,6 +425,7 @@
     "token_not_found": "此 token 已不存在。",
     "oauth_request_invalid": "這個授權請求已使用或已過期，請從應用程式重新發起。",
     "not_implemented": "此端點尚未提供。",
+    "section_not_found": "找不到該段落，請重新讀取筆記。",
     "fallback": "發生未預期的錯誤。"
   }
 }

@@ -2,7 +2,7 @@ import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router";
 import type { BlockNoteEditor, DefaultStyleSchema } from "@blocknote/core";
 import { createReactInlineContentSpec, type ReactCustomInlineContentRenderProps } from "@blocknote/react";
-import { canonicalNotePath } from "@knotebook/shared";
+import { canonicalNotePath, wikilinkConfig } from "@knotebook/shared";
 import { useNotes } from "@/api/notes";
 import { toast } from "@/components/ui/toast";
 
@@ -11,17 +11,10 @@ import { toast } from "@/components/ui/toast";
 // 型別時一律用 `BlockNoteEditor<any,any,any>`（見下方 `insertWikilink`），不能借道
 // `NoteSchema` 那個具體型別。
 
-/** wikilink 的 propSchema——`targetNoteId` 指向目標筆記的 id，`snapshotTitle` 是插入
- * 當下的標題快照（目標筆記之後改名／被刪，這個字串仍留在文件裡，供斷鏈態顯示用）。
- * `content: "none"` ⇒ atom + 不可選取（見 `createReactInlineContentSpec` 原始碼）。 */
-const wikilinkConfig = {
-  type: "wikilink",
-  content: "none",
-  propSchema: {
-    targetNoteId: { default: "" },
-    snapshotTitle: { default: "" },
-  },
-} as const;
+// wikilink 的 propSchema（`targetNoteId` 指向目標筆記的 id，`snapshotTitle` 是插入
+// 當下的標題快照——目標筆記之後改名／被刪，這個字串仍留在文件裡，供斷鏈態顯示用；
+// `content: "none"` ⇒ atom + 不可選取）住 `@knotebook/shared` 的 `note-schema-config.ts`，
+// 供 server 端 headless schema 共用。
 
 type WikilinkRenderProps = ReactCustomInlineContentRenderProps<typeof wikilinkConfig, DefaultStyleSchema>;
 

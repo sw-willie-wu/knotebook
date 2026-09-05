@@ -1,7 +1,10 @@
 import type { JSX } from "react";
 import { createReactBlockSpec, type ReactCustomBlockRenderProps } from "@blocknote/react";
+import { MERMAID_LANGUAGE, mermaidBlockConfig } from "@knotebook/shared";
 import { useTheme } from "@/theme";
 import { MermaidView } from "./MermaidView";
+
+export { MERMAID_LANGUAGE, mermaidBlockConfig };
 
 /**
  * mermaid 圖表 block（issue #94）。這個 repo 的**第一個自訂 block spec**
@@ -13,21 +16,13 @@ import { MermaidView } from "./MermaidView";
  * 漏掉括號會得到一個型別看起來很像、執行期卻不是 block spec 的東西。
  */
 
-/** 程式碼區塊的語言識別字。匯出與貼上兩端共用，避免兩處字面量漂移。 */
-export const MERMAID_LANGUAGE = "mermaid";
-
-/**
- * block 設定。**內容存在 `code` prop、不是 BlockNote 的 inline content**
- * （`content: "none"`）：圖的原始碼是一整段純文字，不該被拆成 inline nodes、
- * 也不該讓 BlockNote 對它套用行內樣式。
- */
-export const mermaidBlockConfig = {
-  type: MERMAID_LANGUAGE,
-  content: "none",
-  propSchema: {
-    code: { default: "" },
-  },
-} as const;
+// `MERMAID_LANGUAGE`／`mermaidBlockConfig`（程式碼區塊語言識別字與 block 設定：
+// 內容存在 `code` prop、`content: "none"`——圖的原始碼是一整段純文字，不該被拆成
+// inline nodes）住 `@knotebook/shared` 的 `note-schema-config.ts`，供 server 端
+// headless schema 共用。本地繫結由上方 `import` 取得（純 `export { … } from …` 不
+// 建立本地繫結），本檔的 `MermaidExternalHTML`／`MermaidRenderProps`／`mermaidSpec`
+// 使用；這裡再 `export` 是為了讓既有消費者（`spec.test.tsx` 走 `./spec` 這條路徑）
+// 不必改 import 路徑。
 
 /**
  * 匯出（複製到別的 app／`toExternalHTML`）：輸出 ```mermaid 的 code block，**不是畫好的 SVG**。

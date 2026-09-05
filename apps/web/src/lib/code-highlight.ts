@@ -1,4 +1,5 @@
 import type { CodeBlockOptions } from "@blocknote/core";
+import { CODE_BLOCK_BASE_OPTIONS } from "@knotebook/shared";
 
 /**
  * 程式碼區塊語法上色（issue #96）：shiki 接進 BlockNote 的 `createCodeBlockSpec`。
@@ -27,31 +28,7 @@ import type { CodeBlockOptions } from "@blocknote/core";
  * import 自動 code-split），多列不影響 entry 體積，但別列到「沒人會在筆記裡貼」的
  * 長尾。`text` 是刻意的第一項：BlockNote 對 `text` 跳過上色，是純文字的退路。
  */
-export const SUPPORTED_LANGUAGES: NonNullable<CodeBlockOptions["supportedLanguages"]> = {
-  text: { name: "Plain text", aliases: ["txt", "plaintext"] },
-  typescript: { name: "TypeScript", aliases: ["ts"] },
-  javascript: { name: "JavaScript", aliases: ["js", "mjs", "cjs"] },
-  tsx: { name: "TSX" },
-  jsx: { name: "JSX" },
-  python: { name: "Python", aliases: ["py"] },
-  java: { name: "Java" },
-  c: { name: "C" },
-  cpp: { name: "C++", aliases: ["c++"] },
-  csharp: { name: "C#", aliases: ["cs", "c#"] },
-  go: { name: "Go", aliases: ["golang"] },
-  rust: { name: "Rust", aliases: ["rs"] },
-  bash: { name: "Shell", aliases: ["sh", "shell", "zsh"] },
-  sql: { name: "SQL" },
-  json: { name: "JSON" },
-  yaml: { name: "YAML", aliases: ["yml"] },
-  toml: { name: "TOML" },
-  html: { name: "HTML" },
-  css: { name: "CSS" },
-  xml: { name: "XML" },
-  markdown: { name: "Markdown", aliases: ["md"] },
-  docker: { name: "Dockerfile", aliases: ["dockerfile"] },
-  diff: { name: "Diff" },
-};
+export { SUPPORTED_LANGUAGES } from "@knotebook/shared";
 
 /**
  * BlockNote 首次渲染 code block 時才會呼叫（highlight plugin 內部 lazy），所以
@@ -81,9 +58,10 @@ export async function createHighlighter() {
   return create({ themes: [theme], langs: [], engine: createJavaScriptRegexEngine() });
 }
 
-/** `collab/schema.ts` 的 `createCodeBlockSpec` 唯一應該吃的選項物件。 */
+/** `collab/schema.ts` 的 `createCodeBlockSpec` 唯一應該吃的選項物件。基底
+ * （`defaultLanguage`／`supportedLanguages`）住 `@knotebook/shared` 的
+ * `note-schema-config.ts`，這裡疊上 web 專屬的 `createHighlighter`。 */
 export const CODE_BLOCK_OPTIONS: CodeBlockOptions = {
-  defaultLanguage: "text",
-  supportedLanguages: SUPPORTED_LANGUAGES,
+  ...CODE_BLOCK_BASE_OPTIONS,
   createHighlighter,
 };
