@@ -58,22 +58,61 @@ Every other endpoint that requires a login is session-cookie only and answers a 
 
 **Settings → Account → API tokens → Revoke.** Revocation deletes the token and takes effect immediately — the next request with it gets `401`. There is no undo; create a new token instead.
 
-Expired tokens stay in the list (marked *Expired*) so you can see what a program was using; they are removed automatically once they have been expired for more than 30 days, and OAuth apps that have not been used for 30 days are removed along with their credential. There is no scheduler: the clean-up runs opportunistically the next time anyone creates a token or authorizes an app.
+Expired tokens stay in the list (marked *Expired*) so you can see what a program was using; they are removed automatically once they have been expired for more than 30 days, and OAuth apps that have not been used for 30 days are removed along with their credential. There is no scheduler: the clean-up runs opportunistically, on any of six triggers — creating a personal token, registering an app, opening the consent page (an authorization request), deciding on it (pressing Allow or Deny), exchanging a code for a token, and refreshing a token.
 
 Revoking an OAuth app's credential here also, eventually, removes its registration (see [Troubleshooting](#troubleshooting) below) — once that has happened, an app you want back has to be added again, not just re-authorized.
 
 ## Authorizing an app instead (OAuth)
 
-An MCP client that supports OAuth does not need a pasted token. When it first calls `/api/mcp` it gets a `401` that tells it where the authorization server is; it registers itself (dynamic client registration — no secret, and its `redirect_uri` must be a loopback address on your own machine), opens your browser at the consent page, and once you press **Allow** it exchanges the one-time code for its own credential. That credential shows up in **Settings → Account → API tokens** as an *App* row, next to your personal tokens, and is revoked the same way. Re-authorizing the same app replaces its previous credential rather than adding another. The exact commands for Claude Code and Claude Desktop aren't documented yet — the remove/re-add commands given in [Troubleshooting](#troubleshooting) are an example only, and they land on this page for real once they have been verified against a real client (#132).
+An MCP client that supports OAuth does not need a pasted token. When it first calls `/api/mcp` it gets a `401` that tells it where the authorization server is; it registers itself (dynamic client registration — no secret, and its `redirect_uri` must be a loopback address on your own machine), opens your browser at the consent page, and once you press **Allow** it exchanges the one-time code for its own credential. That credential shows up in **Settings → Account → API tokens** as an *App* row, next to your personal tokens, and is revoked the same way. Re-authorizing the same app replaces its previous credential rather than adding another.
 
 **What the consent page tells you, and why it matters:** the app's name is whatever the app said it was — it is *not* verified. What you can trust is the redirect address shown on the page: it is always a loopback address (`127.0.0.1`, `localhost` or `[::1]`), so only a program running on the computer where the browser is can receive the code. Only press Allow when you yourself just started that program. Denying (or hitting the credential limit) discards the request; to try again, start over from the app.
 
+### How to connect
+
+MCP requires the server and its authorization endpoints to be `https://`, and clients enforce that differently — which command you run depends on whether your deployment is `https://` or plain `http://` (see [Self-hosting](./self-hosting.md#deployment-prerequisites)).
+
+- **`https://` deployment — connect directly:**
+
+  ```sh
+  claude mcp add --transport http knotebook https://<your-host>/api/mcp
+  claude mcp login knotebook
+  ```
+
+  The consent page shows the app as **"Claude Code (knotebook)"** — the part in brackets is the name you gave the server.
+
+- **Plain `http://` deployment (the self-hosting guide's trusted-LAN topology) — go through `mcp-remote`, which lets you opt out of the TLS check explicitly with `--allow-http`:**
+
+  ```sh
+  claude mcp add knotebook -- npx -y mcp-remote http://<your-host>/api/mcp --allow-http
+  ```
+
+  Claude Desktop, or any client that only speaks stdio, uses the same command inside its `mcpServers` config:
+
+  ```json
+  { "command": "npx", "args": ["-y", "mcp-remote", "http://<your-host>/api/mcp", "--allow-http"] }
+  ```
+
+  On Windows, Claude Desktop usually needs the command wrapped:
+
+  ```json
+  { "command": "cmd", "args": ["/c", "npx", "-y", "mcp-remote", "http://<your-host>/api/mcp", "--allow-http"] }
+  ```
+
+  Drop `--allow-http` once the host is `https://`. The consent page shows the app as **"MCP CLI Proxy"**, and mcp-remote caches its registration and tokens under `~/.mcp-auth/mcp-remote-v1/` on the machine running the client.
+
+Both `claude mcp add` forms default to *local* scope — the server only exists in the directory you ran the command in. Add `-s user` to either one to use it from anywhere.
+
+Once you press Allow, the client has its credential — but the server it is talking to isn't finished: `/api/mcp` answers `501 not_implemented` (see [Coming next](#coming-next)), so the client will still list Knotebook as failing to start. That `501` is the good outcome; a `401` would mean the credential never arrived.
+
 ## Troubleshooting
 
-- **"This application's registration with Knotebook has expired or does not exist."** — a plain-text page instead of the consent screen. The app is presenting a `client_id` this server no longer knows: a registration is dropped once it is more than 24 hours old and has no live credential and no authorization code on record (even an expired one buys it one more cleanup pass) — which includes a registration whose credential you revoked in Settings, and one whose authorization was never exchanged for a credential — and apps unused for 30 days are dropped along with their credential. Remove the server from the app and add it again (for Claude Code: `claude mcp remove knotebook` then `claude mcp add …`); it re-registers on the next attempt.
+- **"This application's registration with Knotebook has expired or does not exist."** — a plain-text page instead of the consent screen. The app is presenting a registration this server no longer recognizes: a registration is dropped once it is more than 24 hours old and has no live credential and no authorization code on record (even an expired one buys it one more cleanup pass) — which includes a registration whose credential you revoked in Settings, and one whose authorization was never exchanged for a credential — and apps unused for 30 days are dropped along with their credential. **The client does not recover on its own** — `mcp-remote`, for example, gets `401`, fails its refresh, reopens the authorize URL with the same stale `client_id`, lands back on this page, and then just sits on "Waiting for authorization…" until it times out. Recover by clearing the client's cached registration and starting over: for Claude Code's direct transport, run `claude mcp remove knotebook` and add it again — it registers fresh. For `mcp-remote`, delete that server's cached files under `~/.mcp-auth/mcp-remote-v1/` (or the whole directory) and start the client again.
 - **Another window of the same app suddenly asks you to authorize again.** Re-authorizing an app replaces its previous credential, so a second instance that shared the old one (e.g. a second Claude Code window) gets `401` and its refresh fails. Let it run the authorization flow once more.
 - **The consent page says the request has already been used or has expired.** Requests live for 10 minutes and are single-use; signing in (especially via SSO) can eat into that. Start again from the app.
 - **Pressing Allow gives "Token limit reached".** You hold 20 credentials already. Revoke one in Settings → Account, then start again from the app — the request you were on has been consumed.
+- **Claude Code says `Couldn't complete authentication for "knotebook": Refusing to send credentials to non-https token endpoint '…'. OAuth token requests MUST use TLS …`.** Its built-in OAuth client gets all the way through consent and the browser callback, then refuses at the last step to send the token exchange to a plain `http://` authorization server (loopback is exempt; your deployment isn't) — `/oauth/token` never sees the request. Either serve the deployment over `https://`, or, on a plain-http LAN deployment, switch to `mcp-remote --allow-http` instead (see [How to connect](#how-to-connect) above).
+- **`mcp-remote` says `Non-HTTPS URLs are only allowed for localhost or when --allow-http flag is provided`.** Same requirement, checked up front against the server URL you gave it. Add `--allow-http` to the `mcp-remote` command (see [How to connect](#how-to-connect) above).
 
 ## Security notes
 

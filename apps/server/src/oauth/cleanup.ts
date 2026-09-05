@@ -5,8 +5,10 @@ import { apiTokens, oauthClients, oauthCodes, oauthRequests } from "../db/schema
 /**
  * I5：唯一的清理點，五條 DELETE。
  *
- * **性質：沒有排程**——只在每次 DCR、authorize、decision、`/oauth/token` 成功與建 PAT
- * 時機會性執行；殘留列要等下一次有人用 OAuth 才回收（記在 docs/known-limitations.md）。
+ * **性質：沒有排程**——只在每次 DCR（`POST /oauth/register`）、authorize（`GET /oauth/authorize`）、
+ * decision（`POST /api/oauth/decision`）、`/oauth/token` 換發**成功**（authorization_code grant）、
+ * `/oauth/token` refresh **成功**與建 PAT（`POST /api/auth/tokens`），共六個時機會性執行；殘留
+ * 列要等下一次有人用 OAuth 才回收（記在 docs/known-limitations.md）。
  *
  * ⚠ 呼叫順序的約束（authorize／decision 內必須早於 client 查表）記在那兩個呼叫點。
  *

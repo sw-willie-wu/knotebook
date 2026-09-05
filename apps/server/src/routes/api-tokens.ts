@@ -73,7 +73,7 @@ export function apiTokensRoutes(deps: ApiTokensRouteDeps) {
         return sendError(reply, 429, "too_many_requests", "建立次數過多，請稍後再試");
       }
 
-      // I5：建 PAT 是五個清理時機之一（五條 DELETE 的說明見 oauth/cleanup.ts）。
+      // I5：建 PAT 是六個清理時機之一（五條 DELETE 的說明見 oauth/cleanup.ts）。
       await runOauthCleanup(deps.db);
       if ((await countBillableGrants(deps.db, userId)) >= TOKEN_LIMIT_PER_USER) {
         return sendError(reply, 409, "token_limit", `有效 token 已達 ${TOKEN_LIMIT_PER_USER} 個上限，請先撤銷一個`);
