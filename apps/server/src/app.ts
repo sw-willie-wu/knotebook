@@ -614,6 +614,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     oauthRoutes({
       db: deps.db,
       config: deps.config,
+      gate: deps.gate,
       limiters: { dcr: limiters.dcr, authorize: limiters.authorize, tokenEndpoint: limiters.tokenEndpoint },
     }),
     { prefix: "/oauth" }

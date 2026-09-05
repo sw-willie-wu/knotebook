@@ -1,23 +1,28 @@
 import { randomBytes } from "node:crypto";
 import type { FastifyError, FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { normalizeScope } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
 import { publicUrlIssuer, type AppConfig } from "../config.js";
-import { oauthClients, oauthRequests } from "../db/schema.js";
+import { apiTokens, oauthClients, oauthCodes, oauthRequests, users } from "../db/schema.js";
+import { isForeignKeyViolation, uniqueViolationConstraint } from "../db/pg-errors.js";
+import type { UserGate } from "../auth/session.js";
+import { generateAccessToken, generateRefreshToken, hashToken, REFRESH_TOKEN_PREFIX } from "../auth/api-token.js";
+import { countBillableGrants, TOKEN_LIMIT_PER_USER } from "../auth/grant-quota.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
 import { sendOauthError } from "../http/oauth-errors.js";
 import { isLoopbackRedirectUri, matchesLoopbackRedirect } from "../oauth/redirect.js";
 import { canonicalResource, isCanonicalResource } from "../oauth/resource.js";
 import { hasUnstorableChar } from "../oauth/storable.js";
 import { runOauthCleanup } from "../oauth/cleanup.js";
-import { isForeignKeyViolation } from "../db/pg-errors.js";
+import { verifyPkce } from "../oauth/pkce.js";
 import { DEFAULT_CLIENT_NAME, hasUnsafeClientNameChar } from "../oauth/client-name.js";
 
 export interface OauthRouteDeps {
   db: Db;
   config: AppConfig;
+  gate: UserGate;
   limiters: { dcr: FixedWindowLimiter; authorize: FixedWindowLimiter; tokenEndpoint: FixedWindowLimiter };
 }
 
@@ -109,6 +114,46 @@ function redirectWithError(
 }
 
 function queryString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+const ACCESS_TTL_MS = 24 * 60 * 60_000;
+const OAUTH_USER_CLIENT_UIDX = "api_tokens_oauth_user_client_uidx";
+
+/**
+ * §5.4 的參數長度表；超過上限一律 `invalid_request`（不進 DB）。只有 `code_verifier` 有
+ * 下限（spec 明文 43..128）：太短若放到 PKCE 比對才失敗會回 invalid_grant，client 會誤判
+ * code 壞掉重跑整輪。`code`／`refresh_token` 刻意**不設下限**——畸形憑證是 invalid_grant
+ * 的事（RFC 6749 §5.2），由 hash 查無／前綴檢查判，不在這裡搶答。
+ */
+const TOKEN_FIELD_LIMITS: Record<string, { min: number; max: number }> = {
+  code: { min: 1, max: 43 },
+  code_verifier: { min: 43, max: 128 },
+  refresh_token: { min: 1, max: 48 },
+  client_id: { min: 1, max: 64 },
+  redirect_uri: { min: 1, max: 512 },
+  resource: { min: 1, max: 512 },
+  grant_type: { min: 1, max: 32 },
+};
+/** RFC 7636 §4.1 的 unreserved 字元集。verifier 只進 sha256 與比較，不進 SQL。 */
+const CODE_VERIFIER_RE = /^[A-Za-z0-9._~-]{43,128}$/;
+
+/**
+ * tx 內的失敗一律**用 throw 表達**（spec §5.4）。drizzle 的 `db.transaction()` 只在
+ * callback throw 時 ROLLBACK，正常 return 一律 COMMIT——用回傳值表達失敗，會把 I7 的
+ * DELETE 與 code 的消費一起提交，換來「舊授權被刪掉、新 token 沒發出」的死狀態。
+ */
+class OauthGrantError extends Error {
+  constructor(
+    readonly code: string,
+    readonly description: string
+  ) {
+    super(description);
+  }
+}
+
+function formField(body: unknown, name: string): string | undefined {
+  const value = (body as Record<string, unknown> | undefined)?.[name];
   return typeof value === "string" ? value : undefined;
 }
 
@@ -278,6 +323,188 @@ export function oauthRoutes(deps: OauthRouteDeps) {
       }
 
       return reply.code(302).header("location", `/authorize?req=${id}`).header("cache-control", "no-store").send();
+    });
+
+    app.post("/token", async (request, reply) => {
+      // §5.4：**所有**回應都帶這兩個 header，429 與成功回應都不例外——所以設在限流
+      // 之前（`sendOauthError` 自己也會設 cache-control，重複設同值無害）。
+      reply.header("cache-control", "no-store").header("pragma", "no-cache");
+      if (!deps.limiters.tokenEndpoint.consume(request.ip)) {
+        return sendOauthError(reply, 429, "invalid_request", "換發請求太頻繁，請稍後再試");
+      }
+
+      for (const [name, { min, max }] of Object.entries(TOKEN_FIELD_LIMITS)) {
+        const value = formField(request.body, name);
+        if (value === undefined) continue;
+        if (value.length > max || value.length < min) {
+          return sendOauthError(reply, 400, "invalid_request", `${name} has an invalid length`);
+        }
+      }
+      const issuer = publicUrlIssuer(deps.config.publicUrl);
+      const grantType = formField(request.body, "grant_type");
+      if (grantType === undefined) {
+        return sendOauthError(reply, 400, "invalid_request", "missing grant_type");
+      }
+
+      if (grantType === "authorization_code") {
+        const code = formField(request.body, "code");
+        const verifier = formField(request.body, "code_verifier");
+        const clientId = formField(request.body, "client_id");
+        const redirectUri = formField(request.body, "redirect_uri");
+        const resource = formField(request.body, "resource");
+        if (code === undefined || verifier === undefined || clientId === undefined || redirectUri === undefined) {
+          return sendOauthError(reply, 400, "invalid_request", "missing required parameter");
+        }
+        if (!CODE_VERIFIER_RE.test(verifier)) {
+          return sendOauthError(reply, 400, "invalid_request", "code_verifier has invalid characters");
+        }
+        // 缺席與無效都是 invalid_target（RFC 8707 §2.1）——用 invalid_grant 會讓 client
+        // 誤判 code 壞掉而重跑整輪授權。
+        if (!isCanonicalResource(resource, issuer)) {
+          return sendOauthError(reply, 400, "invalid_target", `resource must be ${canonicalResource(issuer)}`);
+        }
+
+        // 顯式註記型別（不是多餘的）：TS 只有在變數帶 `=> never` 註記時才把呼叫
+        // 當成終止控制流，日後開 `noUncheckedIndexedAccess` 才不會整段紅。
+        const invalidGrant: (description?: string) => never = (description = "authorization code is invalid") => {
+          throw new OauthGrantError("invalid_grant", description);
+        };
+
+        try {
+          const issued = await deps.db.transaction(async tx => {
+            // I3：單次消費。0 列＝用過／過期／不存在（三者刻意同形）。
+            const [consumed] = await tx
+              .delete(oauthCodes)
+              .where(and(eq(oauthCodes.codeHash, hashToken(code)), sql`${oauthCodes.expiresAt} > now()`))
+              .returning();
+            // ⚠ 這些 throw 讓整個 tx 回捲＝**失敗的兌換不消費 code**（spec §5.4 要的）。
+            // 代價是同一支 code 可在 10 分鐘內重試，PKCE 是唯一防線；已記 known-limitations。
+            if (consumed === undefined) invalidGrant();
+            // client_id／redirect_uri 在 JS 端與 DB 列逐字比對，不進 SQL 述詞（不變量 S）。
+            if (consumed.clientId !== clientId || consumed.redirectUri !== redirectUri) invalidGrant();
+            if (!verifyPkce(verifier, consumed.codeChallenge)) invalidGrant();
+
+            // ⚠ tx 內**不能**呼叫 `deps.gate.checkUser`：它走 pool，cache miss 時等於
+            // 持有 tx 連線的同時再借第二條——並發兌換撞上 cache miss 會把 pool 耗盡而
+            // 永久卡死。直接用 tx 讀列；判準與 checkUser 同（存在且未停權，不比 tokenVersion）。
+            const [account] = await tx.select({ disabledAt: users.disabledAt }).from(users).where(eq(users.id, consumed.userId));
+            if (account === undefined || account.disabledAt !== null) invalidGrant();
+
+            // I7：先刪同 (user, client) 的既有 grant，再算 I1 額度（等價於 decision 側的扣除）。
+            await tx
+              .delete(apiTokens)
+              .where(
+                and(eq(apiTokens.userId, consumed.userId), eq(apiTokens.kind, "oauth"), eq(apiTokens.clientId, consumed.clientId))
+              );
+            // ⚠ 這一條 throw 是承重的：它讓上面那筆 I7 的 DELETE 一起 ROLLBACK。改成
+            // 回傳值就會提交刪除卻不發 token，把使用者既有的授權吞掉。
+            if ((await countBillableGrants(tx, consumed.userId)) >= TOKEN_LIMIT_PER_USER) {
+              throw new OauthGrantError("invalid_grant", "token limit reached");
+            }
+
+            const [client] = await tx.select().from(oauthClients).where(eq(oauthClients.clientId, consumed.clientId));
+            if (client === undefined) invalidGrant();
+
+            const accessToken = generateAccessToken();
+            const refreshToken = generateRefreshToken();
+            await tx.insert(apiTokens).values({
+              userId: consumed.userId,
+              kind: "oauth",
+              name: client.clientName,
+              scope: consumed.scope,
+              accessTokenHash: hashToken(accessToken),
+              refreshTokenHash: hashToken(refreshToken),
+              clientId: consumed.clientId,
+              accessExpiresAt: new Date(Date.now() + ACCESS_TTL_MS),
+            });
+            await tx.update(oauthClients).set({ lastUsedAt: new Date() }).where(eq(oauthClients.clientId, consumed.clientId));
+            return { accessToken, refreshToken, scope: consumed.scope };
+          });
+
+          // ⚠ I5 只能 fire-and-forget：tx 已經提交，清理失敗若冒到 error handler 就會
+          // 變成 500——client 拿不到 token，code 卻已被消費。
+          void runOauthCleanup(deps.db).catch((err: unknown) => {
+            request.log.warn({ err }, "oauth cleanup after token exchange failed");
+          });
+          return reply.send({
+            access_token: issued.accessToken,
+            token_type: "Bearer",
+            expires_in: Math.floor(ACCESS_TTL_MS / 1000),
+            refresh_token: issued.refreshToken,
+            scope: issued.scope,
+          });
+        } catch (err) {
+          // 先判自家例外：`OauthGrantError` 也有 `.code` 欄，而 `pg-errors` 正是靠
+          // `.code` 嗅 SQLSTATE——順序反過來雖然今天仍對，但那是巧合。
+          if (err instanceof OauthGrantError) {
+            return sendOauthError(reply, 400, err.code, err.description);
+          }
+          // 並發兌換：兩張 code 各自「先刪後插」，由 partial unique index 裁決。
+          if (uniqueViolationConstraint(err) === OAUTH_USER_CLIENT_UIDX) {
+            return sendOauthError(reply, 400, "invalid_grant", "authorization code is invalid");
+          }
+          throw err; // 其餘 DB 錯誤照舊走 scoped error handler → 500 server_error
+        }
+      }
+
+      if (grantType === "refresh_token") {
+        const refreshToken = formField(request.body, "refresh_token");
+        const clientId = formField(request.body, "client_id");
+        const resource = formField(request.body, "resource");
+        if (refreshToken === undefined || clientId === undefined) {
+          return sendOauthError(reply, 400, "invalid_request", "missing required parameter");
+        }
+        if (resource !== undefined && !isCanonicalResource(resource, issuer)) {
+          return sendOauthError(reply, 400, "invalid_target", `resource must be ${canonicalResource(issuer)}`);
+        }
+        // 前綴不合（含把 access token 當 refresh 送）：不進 DB。
+        if (!refreshToken.startsWith(REFRESH_TOKEN_PREFIX)) {
+          return sendOauthError(reply, 400, "invalid_grant", "refresh token is invalid");
+        }
+
+        const [existing] = await deps.db
+          .select()
+          .from(apiTokens)
+          .where(eq(apiTokens.refreshTokenHash, hashToken(refreshToken)));
+        // client_id 在 JS 端比對（不進 SQL 述詞）。
+        if (existing === undefined || existing.clientId !== clientId) {
+          return sendOauthError(reply, 400, "invalid_grant", "refresh token is invalid");
+        }
+        const gateResult = await deps.gate.checkUser(existing.userId);
+        if (gateResult.status !== "ok") {
+          return sendOauthError(reply, 400, "invalid_grant", "refresh token is invalid");
+        }
+
+        // I4：輪替。0 列＝這一支已被另一發輪替掉。
+        const accessToken = generateAccessToken();
+        const nextRefresh = generateRefreshToken();
+        const rotated = await deps.db
+          .update(apiTokens)
+          .set({
+            accessTokenHash: hashToken(accessToken),
+            refreshTokenHash: hashToken(nextRefresh),
+            accessExpiresAt: new Date(Date.now() + ACCESS_TTL_MS),
+          })
+          .where(eq(apiTokens.refreshTokenHash, hashToken(refreshToken)))
+          .returning();
+        if (rotated.length === 0) {
+          return sendOauthError(reply, 400, "invalid_grant", "refresh token is invalid");
+        }
+        await deps.db.update(oauthClients).set({ lastUsedAt: new Date() }).where(eq(oauthClients.clientId, existing.clientId));
+        void runOauthCleanup(deps.db).catch((err: unknown) => {
+          request.log.warn({ err }, "oauth cleanup after refresh failed");
+        });
+
+        return reply.send({
+          access_token: accessToken,
+          token_type: "Bearer",
+          expires_in: Math.floor(ACCESS_TTL_MS / 1000),
+          refresh_token: nextRefresh,
+          scope: rotated[0]!.scope,
+        });
+      }
+
+      return sendOauthError(reply, 400, "unsupported_grant_type", "unsupported grant_type");
     });
   };
 }
