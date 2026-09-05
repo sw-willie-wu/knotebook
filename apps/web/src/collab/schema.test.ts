@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { BlockNoteEditor, defaultBlockSpecs, defaultInlineContentSpecs } from "@blocknote/core";
+import { BlockNoteEditor, defaultBlockSpecs, defaultInlineContentSpecs, type PartialBlock } from "@blocknote/core";
+import { createHeadlessNoteSchema } from "@knotebook/shared";
 import { classifyMediaTransfer, containsMediaDataUrl, noteSchema } from "./schema";
 
 /**
@@ -486,5 +487,41 @@ describe("issue #96：未知語言 graceful-skip", () => {
       editor.unmount();
       container.remove();
     }
+  });
+});
+
+/** 從 blocks 造 fixture（不是從 markdown——markdown 進不了 mermaid block 與 wikilink inline）。 */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 泛型三元組，走 repo 慣例用 any
+const FIXTURE: PartialBlock<any, any, any>[] = [
+  { type: "paragraph", content: "第一段純文字" },
+  { type: "heading", props: { level: 2 }, content: "標題二" },
+  { type: "paragraph", content: [{ type: "text", text: "前面 ", styles: {} }, { type: "wikilink", props: { targetNoteId: "11111111-1111-4111-8111-111111111111", snapshotTitle: "目標筆記" } }, { type: "text", text: " 後面 ", styles: {} }, { type: "text", text: "粗體", styles: { bold: true } }] },
+  { type: "mermaid", props: { code: "graph TD\n  A-->B" } },
+  { type: "codeBlock", props: { language: "typescript" }, content: "const a = 1;" },
+  { type: "image", props: { url: "/api/uploads/abc123", name: "pic" } },
+];
+
+describe("#106 parity：headless schema 與 noteSchema 匯出逐位元組相同", () => {
+  it("同 fixture → blocks 逐欄位相同（去 id）、blocksToMarkdownLossy 逐字相同", async () => {
+    const web = BlockNoteEditor.create({ schema: noteSchema, initialContent: FIXTURE });
+    const headless = BlockNoteEditor.create({ schema: createHeadlessNoteSchema(window.location.href), initialContent: FIXTURE });
+    const strip = (bs: unknown[]) => JSON.parse(JSON.stringify(bs, (k, v) => (k === "id" ? undefined : v)));
+    expect(strip(headless.document)).toEqual(strip(web.document));
+    const [a, b] = await Promise.all([web.blocksToMarkdownLossy(web.document), headless.blocksToMarkdownLossy(headless.document)]);
+    expect(b).toBe(a);
+    expect(a).toContain("[[目標筆記]]");
+    expect(a).toContain("```mermaid");
+  });
+
+  it("javascript: 圖片 url 在 headless schema 匯出被消毒", async () => {
+    const headless = BlockNoteEditor.create({ schema: createHeadlessNoteSchema("http://localhost/"), initialContent: [{ type: "image", props: { url: "javascript:alert(1)", name: "x" } }] });
+    const md = await headless.blocksToMarkdownLossy(headless.document);
+    expect(md).not.toContain("javascript:");
+    expect(md).toContain("about:blank");
+  });
+
+  it("相對 /api/uploads/<id> 經 headless schema 匯出原樣保留（base 對了才會過）", async () => {
+    const headless = BlockNoteEditor.create({ schema: createHeadlessNoteSchema("http://localhost/"), initialContent: [{ type: "image", props: { url: "/api/uploads/abc123", name: "x" } }] });
+    expect(await headless.blocksToMarkdownLossy(headless.document)).toContain("/api/uploads/abc123");
   });
 });

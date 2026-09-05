@@ -1,4 +1,4 @@
-export const YDOC_FRAGMENT = "knotebook";
+export { YDOC_FRAGMENT } from "./ydoc.js";
 
 export const SESSION_COOKIE = "knotebook_session";
 
@@ -682,3 +682,7 @@ export function safeNextPath(input: string | null | undefined): string | null {
 
   return input;
 }
+
+export * from "./note-schema-config.js";
+export * from "./note-sections.js";
+export * from "./note-markdown.js";

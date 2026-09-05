@@ -7,7 +7,7 @@
   "pnpm": { "onlyBuiltDependencies": ["argon2", "esbuild"] },
   "scripts": {
     "build": "pnpm -r build",
-    "typecheck": "pnpm -r build && pnpm -r exec tsc --noEmit && pnpm --filter @knotebook/server typecheck:test",
+    "typecheck": "pnpm -r build && pnpm -r exec tsc --noEmit && pnpm --filter @knotebook/shared typecheck:test && pnpm --filter @knotebook/server typecheck:test",
     "lint": "eslint . --max-warnings=0",
     "test": "pnpm --filter @knotebook/shared build && pnpm -r test",
     "test:scripts": "node --test scripts/*.test.mjs",

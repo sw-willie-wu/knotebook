@@ -92,8 +92,8 @@ const LOCKED_CONFIG_KEYS = [
 
 /**
  * 安全設定。**這裡擋的是「圖表讓瀏覽器執行程式碼」，不是「圖表載入外部資源」**——
- * 後者跟筆記裡用網址嵌入的圖片是同一個等級的能力（`lib/media-url.ts` 的政策就是
- * 放行 http(s)），只擋 mermaid 沒有意義。要對整個 app 關掉那一類，是 #101（CSP）的事。
+ * 後者跟筆記裡用網址嵌入的圖片是同一個等級的能力（shared `note-schema-config.ts` 的
+ * 政策就是放行 http(s)），只擋 mermaid 沒有意義。要對整個 app 關掉那一類，是 #101（CSP）的事。
  *
  * - `securityLevel: "strict"` —— mermaid 內建的 DOMPurify 淨化。11.17 在
  *   `securityLevel !== "loose"` 時會把整份輸出 SVG 再過一次，`<script>`／`onload=`／

@@ -1,8 +1,8 @@
 import { BlockNoteSchema, createCodeBlockSpec, defaultBlockSpecs, defaultInlineContentSpecs } from "@blocknote/core";
+import { withGuardedExternalHTML } from "@knotebook/shared";
 import { CODE_BLOCK_OPTIONS } from "@/lib/code-highlight";
 import { mermaidSpec } from "@/components/mermaid/spec";
 import { wikilinkSpec } from "@/components/wikilink/spec";
-import { safeMediaUrl } from "@/lib/media-url";
 
 // spec §11.1（P2 圖片行為）曾經逐字：上傳是 Plan 3 的範圍，P2 **不啟用 image
 // block**，並且**攔截並拒絕**圖片的貼上／拖放。理由不是 UI 潔癖而是儲存：BlockNote
@@ -34,59 +34,22 @@ import { safeMediaUrl } from "@/lib/media-url";
  * 污染的 block 貼到別的應用程式，帶過去的就是 `<a href="javascript:…">`——不是本
  * 應用程式頁面上的 XSS（那條 #12 已堵住），但屬於「把惡意內容帶出應用程式」。
  *
- * 修法：不重寫四個 spec 的 DOM 產生邏輯，只在委派給原實作之前把 `props.url` 換成
- * `safeMediaUrl(url)`（危險 scheme → `about:blank`，相對網址與 http(s) 原樣放行，
- * 空字串走 BlockNote 自己的 placeholder 路徑——判斷規則與理由見 `lib/media-url.ts`）。
- * 這樣上游改版 `toExternalHTML` 的輸出形狀（caption 包 figure、showPreview 分支…）
- * 都自動跟上，我們只擁有「URL 必須先過守衛」這一件事。
+ * `withGuardedExternalHTML` 本體與判斷規則見 `@knotebook/shared` 的
+ * `note-schema-config.ts`（server 端 headless schema 共用同一份實作，不重寫四個 spec
+ * 的 DOM 產生邏輯，只在委派給原實作之前把 `props.url` 換成 `safeMediaUrl`）。
+ *
+ * ⚠ 這條守衛的失效模式：它依賴三件事，各有一條測試釘著——①匯出器讀的是**編輯器
+ * schema 裡的** spec（`editor.blockImplementations` ← `schema.blockSpecs`，0.52.1
+ * 核實；`schema.test.ts` 的「issue #43 端到端」那組測試用真編輯器 + `blocksToMarkdownLossy` 釘住）；
+ * ②編輯器拿到的是 `noteSchema` 本尊（`NoteEditor.test.ts` 的接線釘，本檔管不到）；
+ * ③檔案類 block 恰為那四種（`schema.test.ts` 的 `meta.fileBlockAccept` parity 測試釘住「上游新增
+ * 第五種」的靜默缺口）。升級 BlockNote 時哪條測試紅了，就是對應那件事變了。
+ *
+ * 另註：`blocknote/html` 這個私有剪貼簿格式走 ProseMirror 的 `serializeForClipboard`
+ * →tiptap node 的 `renderHTML`（不是 external 匯出器、也不是 BlockNote 的
+ * internalHTMLSerializer 模組），仍帶 raw `data-url`——只有另一個 BlockNote 讀得懂，
+ * 貼回來會重建 block 再吃一次 #12 的渲染守衛，不升險，刻意不管。
  */
-/** 本函式唯一需要碰的結構：`implementation.toExternalHTML` 與 block 的 `props.url`。
- * 四型 block 的 propSchema 泛型各不相同（image/video 多 showPreview 等），把它們
- * 收斂到共同具名型別做不到——比照 repo 慣例，BlockNote 泛型三元組的位置用 `any`。 */
-type FileBlockSpecLike = {
-  implementation: {
-    // `this` 也必須是 `any`：真實簽名的 `this` 是 `Partial<{ blockContentDOMAttributes… }>`，
-    // 函式型別對 `this` 逆變，寫 `unknown` 反而不相容。
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 泛型三元組（repo 慣例，同 wikilink/menu.ts）
-    toExternalHTML?: (this: any, block: any, ...rest: any[]) => unknown;
-  };
-};
-
-function withGuardedExternalHTML<Spec extends FileBlockSpecLike>(spec: Spec): Spec {
-  const original = spec.implementation.toExternalHTML;
-  // 型別上 toExternalHTML 是 optional，這裡的 early return 純粹為了收斂型別——四個
-  // 檔案類 spec 實際上都有它（0.52.1 核實）。真被上游拿掉時 schema.test.ts 的守衛
-  // 測試也不會靜默失守：`BlockNoteSchema.create` 會以 `render` 合成 fallback，raw url
-  // 直接進 `img.src`，危險 scheme 的斷言當場紅。
-  if (!original) return spec;
-  return {
-    ...spec,
-    implementation: {
-      ...spec.implementation,
-      // ⚠ `this` 必須**原樣轉發**（`.call(this, …)`）：`BlockNoteSchema.create` 重包
-      // spec 時是以 `{ blockContentDOMAttributes, propSchema }` 為 `this` 呼叫
-      // `implementation.toExternalHTML`（0.52.1 `createSpec.ts` 核實），裸呼叫會在
-      // 讀 `this.blockContentDOMAttributes` 時 TypeError。誠實揭露：在 0.52.1，四個
-      // 檔案類 block **自己的** toExternalHTML 不讀這兩個成員（讀它們的是委派沿途的
-      // `createBlockSpec` 包裝層，且 `propSchema` 另有 fallback），所以轉發別的
-      // 物件目前行為相同、也沒有測試分得出差異——選忠實轉發是防上游改版，不是被
-      // 觀察到的行為差異。`...rest` 一樣原樣轉發，上游加參數也不會被吃掉。
-      //
-      // 為什麼在**委派之前**換掉 `props.url`（而不是拿回傳的 DOM 再改）：把 props 吐成
-      // `data-*` 屬性（`data-url`）的 `wrapInBlockStructure` 就在被委派的原實作**裡面**
-      // （`createBlockSpec` 回傳的 toExternalHTML，0.52.1 核實）——先換 props 再進去，
-      // `src`/`href` 與 `data-url` 才會一起是消毒後的值。
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同上，BlockNote 泛型三元組
-      toExternalHTML(this: unknown, block: any, ...rest: any[]) {
-        return original.call(
-          this,
-          { ...block, props: { ...block.props, url: safeMediaUrl(block.props.url) } },
-          ...rest,
-        );
-      },
-    },
-  } as Spec;
-}
 
 /**
  * 本專案的 BlockNote schema：預設 block **全套**（Plan 3 Task 14 起含 image；
@@ -103,10 +66,10 @@ function withGuardedExternalHTML<Spec extends FileBlockSpecLike>(spec: Spec): Sp
 export const noteSchema = BlockNoteSchema.create({
   blockSpecs: {
     ...defaultBlockSpecs,
-    audio: withGuardedExternalHTML(defaultBlockSpecs.audio),
-    file: withGuardedExternalHTML(defaultBlockSpecs.file),
-    image: withGuardedExternalHTML(defaultBlockSpecs.image),
-    video: withGuardedExternalHTML(defaultBlockSpecs.video),
+    audio: withGuardedExternalHTML(defaultBlockSpecs.audio, window.location.href),
+    file: withGuardedExternalHTML(defaultBlockSpecs.file, window.location.href),
+    image: withGuardedExternalHTML(defaultBlockSpecs.image, window.location.href),
+    video: withGuardedExternalHTML(defaultBlockSpecs.video, window.location.href),
     // issue #94：mermaid 圖表 block。⚠ `createReactBlockSpec` 回傳的是 **factory**
     // （與 `createReactInlineContentSpec` 不同，後者直接回傳 spec）——這裡的括號不能少。
     mermaid: mermaidSpec(),

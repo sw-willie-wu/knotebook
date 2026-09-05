@@ -1,15 +1,9 @@
 import * as Y from "yjs";
-import { YDOC_FRAGMENT } from "@knotebook/shared";
+import { extractLinkTargets } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
 import { toast } from "@/components/ui/toast";
 import i18n from "@/i18n";
 import { canEdit, type CollabState } from "./connection";
-
-/** 與 server 端 `notes/service.ts` 的 `UUID_RE` 同一套格式（本檔不 import server 程式碼，
- * 只是同一個 pattern 各自維護一份）——送出前濾掉格式不合法的 `targetNoteId`，不讓壞資料
- * 白跑一趟 `POST /api/notes/:id/links`（server 的 zod `z.string().uuid()` 反正也會拒絕，
- * 這裡只是提早擋、避免無謂的請求/重試迴圈）。 */
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Y.Doc 內容變動（含遠端）後，等這麼久沒有新變動才重算＋提交（spec §12.3）。 */
 const DEBOUNCE_MS = 2_000;
@@ -42,37 +36,8 @@ export interface LinkSync {
   onSynced(): void;
 }
 
-/**
- * 走訪 `doc.getXmlFragment(YDOC_FRAGMENT)`，遞迴找出所有 nodeName `"wikilink"` 的
- * `Y.XmlElement`，取其 `targetNoteId` attr（spec §12.3：直讀 Y.Doc，不讀 editor view
- * ——server 端不依賴 BlockNote，這支也一樣不需要掛編輯器就能算出目標集合）。
- *
- * `createTreeWalker` 的 filter 只決定「哪些節點會被 yield」，**不影響是否往下走訪**
- * （walker 對每個節點一律嘗試往下走到它的子節點，filter 沒通過只是跳過該節點本身不
- * yield——見 yjs 原始碼 `YXmlTreeWalker.next()`）：所以就算最外層是不相干的
- * paragraph/blockGroup 節點也一樣會被走訪進去找到巢狀的 wikilink，不需要自己手刻遞迴。
- *
- * 回傳值刻意去重＋排序（穩定的 canonical 集合）：BlockNote 的巢狀結構讓同一個目標可能
- * 因為協作合併等因素在文件裡出現在不同節點，語意上這是同一個「集合」，用穩定形狀
- * 才能跟「上次成功提交集合」做有意義的字串比較（見 `createLinkSync` 內的 unchanged 判定）。
- */
-export function extractLinkTargets(doc: Y.Doc): string[] {
-  const fragment = doc.getXmlFragment(YDOC_FRAGMENT);
-  const found: string[] = [];
-
-  const walker = fragment.createTreeWalker(
-    (node): boolean => node instanceof Y.XmlElement && node.nodeName === "wikilink",
-  );
-  for (const node of walker) {
-    if (!(node instanceof Y.XmlElement)) continue; // 型別窄化用；filter 已經在執行期保證了
-    const targetNoteId = node.getAttribute("targetNoteId");
-    if (typeof targetNoteId === "string" && UUID_RE.test(targetNoteId)) {
-      found.push(targetNoteId);
-    }
-  }
-
-  return [...new Set(found)].sort();
-}
+// `UUID_RE` 與 `extractLinkTargets` 住 `@knotebook/shared`；server 的
+// `notes/service.ts:15` 另有一份同 pattern（刻意不共用）。
 
 /** 三態閂（spec §12.3）：`"none"` 正常運作；`"403"`／`"400"` 各自暫停提交，直到對應的
  * 解閂條件成立（見 `createLinkSync` 內 `onCollabState`／`attemptSubmit` 的判定）。 */
