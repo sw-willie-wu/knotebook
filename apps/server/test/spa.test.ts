@@ -116,6 +116,18 @@ describe("SPA fallback（spec §11.5）", () => {
     expect(res.body).toContain("knotebook spa");
   });
 
+  // #132：這案守兩件事——(a) `/authorize` 沒被 EXCLUDED_PREFIXES 或某條 server route
+  // 吃掉（否則 404 JSON）；(b) SPA fallback 這條 HTML 出口確實經過 securityHeaders
+  // （順帶確認 `/authorize` 這條也走同一條掛標頭的出口）。server 不知道 SPA 路由，App.tsx 的
+  // route 拿掉它不會紅——那半由 AuthorizePage.test.tsx 守。
+  it("/authorize 由 SPA fallback 服務且帶 frame-ancestors 'none'", async () => {
+    const { app } = await buildTestApp({}, { webDist });
+    const res = await app.inject({ method: "GET", url: "/authorize?req=abc", headers: { accept: "text/html" } });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain("knotebook spa");
+    expect(res.headers["content-security-policy"]).toContain("frame-ancestors 'none'");
+  });
+
   it("GET /nope?foo=bar + text/html → index.html（query string 不影響 fallback 命中）", async () => {
     const { app } = await buildTestApp({}, { webDist });
     const res = await app.inject({ method: "GET", url: "/nope?foo=bar", headers: { accept: "text/html" } });

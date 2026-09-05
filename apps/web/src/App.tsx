@@ -9,6 +9,7 @@ import { NotePageFallback } from "./components/NotePageFallback";
 import { PublicNoteErrorBoundary, PublicNoteFallback } from "./components/PublicNoteShell";
 import LoginPage from "./pages/LoginPage";
 import ChangePasswordPage from "./pages/ChangePasswordPage";
+import AuthorizePage from "./pages/AuthorizePage";
 import HomePage from "./pages/HomePage";
 import { SettingsModal } from "./settings/SettingsModal";
 import { SettingsAccountSection } from "./settings/SettingsAccountSection";
@@ -150,6 +151,9 @@ export function AppRoutes() {
         <Route element={<RequireAuth />}>
           <Route path="/change-password" element={<ChangePasswordPage />} />
           <Route element={<ChangePasswordGate />}>
+            {/* #132：OAuth 同意頁。未登入時 useSessionGate 會帶著 next 去登入頁，登入完
+                回到這裡（#131 的 return-to）。同步 import：頁面很小且是外部流程的關鍵路徑。 */}
+            <Route path="/authorize" element={<AuthorizePage />} />
             {/* `/notes/:ref`（舊形，永久相容：legacy slug、`<vanity>-<uuid>`、純 uuid）
                 與 `/n/:handle/:slug`（#122 新形）共用 NoteRoute/NotePage——兩條 route
                 並存、明文不依賴 remount（react-router 依 specificity 排序，兩者都不會
