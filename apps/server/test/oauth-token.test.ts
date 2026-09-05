@@ -245,11 +245,14 @@ describe("POST /oauth/token — authorization_code（§5.4）", () => {
   // 不走 gate 快取：兌換在 tx 內直接讀 users 列，所以停權後**不 invalidate** 也必須拒——
   // 這一案同時釘住「tx 內不回頭用 pool」（改回 gate.checkUser 會讀到 60s 快取的 ok 而變綠）。
   it("使用者被停用 → invalid_grant，且 code 未被消費（不經 gate 快取）", async () => {
-    const { app, db, close } = await buildTestApp();
+    const { db } = await freshDb();
+    const gate = new UserGate(db);
+    const { app, close } = await buildTestApp({ db, gate });
     try {
       const { cookie, userId } = await createUserAndLogin(db);
       const c = await obtainCode(app, cookie);
       await db.update(users).set({ disabledAt: new Date() }).where(sql`${users.id} = ${userId}`);
+      expect(await gate.checkUser(userId)).toMatchObject({ status: "ok" });
       const res = await exchange(app, codeGrant(c));
       expect(res.statusCode).toBe(400);
       expect(res.json().error).toBe("invalid_grant");

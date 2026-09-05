@@ -122,9 +122,10 @@ const OAUTH_USER_CLIENT_UIDX = "api_tokens_oauth_user_client_uidx";
 
 /**
  * §5.4 的參數長度表；超過上限一律 `invalid_request`（不進 DB）。只有 `code_verifier` 有
- * 下限（spec 明文 43..128）：太短若放到 PKCE 比對才失敗會回 invalid_grant，client 會誤判
- * code 壞掉重跑整輪。`code`／`refresh_token` 刻意**不設下限**——畸形憑證是 invalid_grant
- * 的事（RFC 6749 §5.2），由 hash 查無／前綴檢查判，不在這裡搶答。
+ * **實質**下限（43，spec 明文 43..128）：太短若放到 PKCE 比對才失敗會回 invalid_grant，
+ * client 會誤判 code 壞掉重跑整輪。其餘的 `min: 1` 只擋空值——`code`／`refresh_token`
+ * 刻意不設有意義的下限：畸形憑證是 invalid_grant 的事（RFC 6749 §5.2），由 hash 查無／
+ * 前綴檢查判，不在這裡搶答。
  */
 const TOKEN_FIELD_LIMITS: Record<string, { min: number; max: number }> = {
   code: { min: 1, max: 43 },
