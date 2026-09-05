@@ -63,8 +63,8 @@ export interface UnsafeUrlFinding {
  * 為了不與 BlockNote schema 綁定，判斷刻意極窄：只看名為 `url` 的屬性（四個檔案類
  * block 存放媒體網址的欄位；caption/name 等文字欄位可能含冒號，掃它們會誤報）、只把
  * 「能被 `new URL` 解析出**非** http(s) scheme」的值當發現——相對網址（自家上傳的
- * `/api/uploads/<id>`）parse 不出、http(s) 放行，兩者都與 web 端 `isSafeMediaUrl` 的
- * 白名單一致（副作用：`about:`/`blob:` 也會被列為發現——#43 匯出替代值 `about:blank`
+ * `/api/uploads/<id>`）parse 不出、http(s) 放行，兩者都與 `@knotebook/shared` 的
+ * `isSafeMediaUrl` 白名單一致（副作用：`about:`/`blob:` 也會被列為發現——#43 匯出替代值 `about:blank`
  * 被貼回文件時會警告一次，屬可接受的訊號而非誤報）。屬性值**不限字串**：敵意 client
  * 可以直接寫任意 Yjs 可編碼的值（例如陣列），`new URL` 的 ToString 會攤平它們——
  * `typeof` 守衛反而讓這一類逃過掃描（審查指出）。scheme 記進發現（URL parser 已把它

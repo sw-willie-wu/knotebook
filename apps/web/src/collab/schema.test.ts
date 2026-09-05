@@ -497,6 +497,9 @@ const FIXTURE: PartialBlock<any, any, any>[] = [
   { type: "heading", props: { level: 2 }, content: "標題二" },
   { type: "paragraph", content: [{ type: "text", text: "前面 ", styles: {} }, { type: "wikilink", props: { targetNoteId: "11111111-1111-4111-8111-111111111111", snapshotTitle: "目標筆記" } }, { type: "text", text: " 後面 ", styles: {} }, { type: "text", text: "粗體", styles: { bold: true } }] },
   { type: "mermaid", props: { code: "graph TD\n  A-->B" } },
+  // props 全不給，逼兩份 schema 的 propSchema default 值一起吃到——上面那筆有給 `code`，
+  // 兩份 schema 的 default 分歧時剛好蓋掉這條差異，parity 會假綠（reviewer 實測）。
+  { type: "mermaid" },
   { type: "codeBlock", props: { language: "typescript" }, content: "const a = 1;" },
   { type: "image", props: { url: "/api/uploads/abc123", name: "pic" } },
 ];
