@@ -1,6 +1,6 @@
 # API tokens
 
-A Personal API token lets a script, a CLI, or an AI assistant work with your notes **as you**, without a browser session. This page covers the token half of #107; the OAuth authorization flow and the MCP endpoint that build on it are still in progress (see [Coming next](#coming-next)).
+A Personal API token lets a script, a CLI, or an AI assistant work with your notes **as you**, without a browser session. This page covers the token half of #107; the MCP endpoint that builds on it is still in progress (see [Coming next](#coming-next)).
 
 ## What a token is
 
@@ -18,7 +18,7 @@ A Personal API token lets a script, a CLI, or an AI assistant work with your not
 
 Copy the token from the dialog before closing it. It will not be shown again.
 
-You can hold up to **20 active tokens** (expired ones don't count). Creating tokens is rate-limited to 10 per hour per user.
+You can hold up to **20 active tokens** (expired ones don't count). OAuth app credentials count toward the same 20 — so with 20 authorized apps you cannot create a personal token until you revoke one. Creating tokens is rate-limited to 10 per hour per user.
 
 ## Using one
 
@@ -58,7 +58,22 @@ Every other endpoint that requires a login is session-cookie only and answers a 
 
 **Settings → Account → API tokens → Revoke.** Revocation deletes the token and takes effect immediately — the next request with it gets `401`. There is no undo; create a new token instead.
 
-Expired tokens stay in the list (marked *Expired*) so you can see what a program was using; they are removed automatically — the next time you create a token — once they have been expired for more than 30 days.
+Expired tokens stay in the list (marked *Expired*) so you can see what a program was using; they are removed automatically once they have been expired for more than 30 days, and OAuth apps that have not been used for 30 days are removed along with their credential. There is no scheduler: the clean-up runs opportunistically the next time anyone creates a token or authorizes an app.
+
+Revoking an OAuth app's credential here also, eventually, removes its registration (see [Troubleshooting](#troubleshooting) below) — once that has happened, an app you want back has to be added again, not just re-authorized.
+
+## Authorizing an app instead (OAuth)
+
+An MCP client that supports OAuth does not need a pasted token. When it first calls `/api/mcp` it gets a `401` that tells it where the authorization server is; it registers itself (dynamic client registration — no secret, and its `redirect_uri` must be a loopback address on your own machine), opens your browser at the consent page, and once you press **Allow** it exchanges the one-time code for its own credential. That credential shows up in **Settings → Account → API tokens** as an *App* row, next to your personal tokens, and is revoked the same way. Re-authorizing the same app replaces its previous credential rather than adding another. The exact commands for Claude Code and Claude Desktop aren't documented yet — the remove/re-add commands given in [Troubleshooting](#troubleshooting) are an example only, and they land on this page for real once they have been verified against a real client (#132).
+
+**What the consent page tells you, and why it matters:** the app's name is whatever the app said it was — it is *not* verified. What you can trust is the redirect address shown on the page: it is always a loopback address (`127.0.0.1`, `localhost` or `[::1]`), so only a program running on the computer where the browser is can receive the code. Only press Allow when you yourself just started that program. Denying (or hitting the credential limit) discards the request; to try again, start over from the app.
+
+## Troubleshooting
+
+- **"This application's registration with Knotebook has expired or does not exist."** — a plain-text page instead of the consent screen. The app is presenting a `client_id` this server no longer knows: a registration is dropped once it is more than 24 hours old and has no live credential and no authorization code on record (even an expired one buys it one more cleanup pass) — which includes a registration whose credential you revoked in Settings, and one whose authorization was never exchanged for a credential — and apps unused for 30 days are dropped along with their credential. Remove the server from the app and add it again (for Claude Code: `claude mcp remove knotebook` then `claude mcp add …`); it re-registers on the next attempt.
+- **Another window of the same app suddenly asks you to authorize again.** Re-authorizing an app replaces its previous credential, so a second instance that shared the old one (e.g. a second Claude Code window) gets `401` and its refresh fails. Let it run the authorization flow once more.
+- **The consent page says the request has already been used or has expired.** Requests live for 10 minutes and are single-use; signing in (especially via SSO) can eat into that. Start again from the app.
+- **Pressing Allow gives "Token limit reached".** You hold 20 credentials already. Revoke one in Settings → Account, then start again from the app — the request you were on has been consumed.
 
 ## Security notes
 
@@ -71,7 +86,6 @@ Expired tokens stay in the list (marked *Expired*) so you can see what a program
 ## Coming next
 
 - **Reading and writing note content through the API** — today a token sees note metadata only. Server-side content access is tracked in #106; the MCP endpoint below builds on it.
-- **OAuth sign-in for MCP clients** — instead of pasting a token, an MCP client (Claude Code, Claude Desktop, …) will open a consent page in your browser and get its own credential, which then shows up in the same list as an *App* row. Tracked in #132.
 - **The MCP endpoint itself** — `/api/mcp` currently answers `501 not_implemented` after authenticating; it exists so that MCP clients can already discover the server and how to authorize. Tracked in #108.
 
 See also: [API contract summary](./api.md) · [Known limitations](./known-limitations.md).
