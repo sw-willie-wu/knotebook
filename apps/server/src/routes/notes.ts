@@ -3,12 +3,28 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 import { and, desc, eq, ne, or, sql } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/pg-core";
-import { MAX_LINK_TARGETS, autoSlugFromTitle, normalizeEmail, normalizeHandle, normalizeSlug, type BacklinkDto, type NoteDto, type Role, type ShareDto } from "@knotebook/shared";
+import {
+  MAX_LINK_TARGETS,
+  SECTION_ID_RE,
+  autoSlugFromTitle,
+  normalizeEmail,
+  normalizeHandle,
+  normalizeSlug,
+  type BacklinkDto,
+  type NoteContentDto,
+  type NoteDto,
+  type NoteSectionDto,
+  type Role,
+  type ShareDto,
+} from "@knotebook/shared";
 import { sendError } from "../http/errors.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
 import { noteLinks, noteShares, noteStateBackups, noteStates, notes, uploads, users } from "../db/schema.js";
 import type { CollabHooks } from "../collab/hooks.js";
+import type { CollabServer } from "../collab/server.js";
+import type { EditingRuntime } from "../notes/editing/runtime.js";
+import { readNoteContent } from "../notes/editing/read.js";
 import { resolveRole, resolveRoleWithOwner, UUID_RE } from "../notes/service.js";
 import { deriveUniqueAutoSlug, fallbackAutoSlug, prepareSlugForPatch, resolveNoteIdFromRef } from "../notes/slug.js";
 import { fetchBacklinks, normalizeLinkTargets, writeNoteLinks, type WriteNoteLinksHooks } from "../notes/links.js";
@@ -42,6 +58,16 @@ const putShareBodySchema = z.object({ email: z.string().email(), role: z.enum(["
 // 之後）才算數，兩處數字不必相等/不可互相取代。
 const linksBodySchema = z.object({ link_target_ids: z.array(z.string().uuid()).max(MAX_LINK_TARGETS * 2) });
 
+// #106 不變量 S：`section` 進任何比較之前先在 schema 層擋 NUL（U+0000）並要求匹配 `SECTION_ID_RE`。
+// ⚠ `.refine(noNul)` 今天**完全被 `SECTION_ID_RE` 蓋住**（NUL 本來就過不了那個字元集），所以
+// 沒有、也做不出會因為刪掉它而變紅的測試——它是刻意留下的第二道，讓「NUL 一律 400」在字元集
+// 日後被放寬時仍成立。`SECTION_ID_RE` 那道有測試（`note-content.test.ts` 的 `a.b` 案）。
+// `.strict()`：帶未知查詢參數即 400，不靜默忽略。
+const NUL = String.fromCharCode(0);
+const noNul = (s: string) => !s.includes(NUL);
+// （`.refine` 必須排在 `.regex` 之後：它回的是 ZodEffects，其上已無 `.regex`。）
+const contentQuerySchema = z.object({ section: z.string().max(64).regex(SECTION_ID_RE).refine(noNul).optional() }).strict();
+
 // auto slug 的 UPDATE 撞唯一索引（真競態）重試上限（#122 spec §3a）：1..5 次重探測重發，
 // 第 6 次改用 `fallbackAutoSlug()`（untitled-<uuid8>）——再撞（~2^-32）就讓錯誤冒出去。
 const MAX_AUTO_SLUG_RETRIES = 5;
@@ -54,8 +80,14 @@ export interface NotesRouteDeps {
   db: Db;
   collabHooks: CollabHooks;
   config: AppConfig;
-  /** `collabToken` 供 collab-token endpoint；`slugPatch` 供 PATCH 帶 slug 鍵（含 null——進 slug 分支即計，見四格註解）**與公開別名兩支（#122 PR3）**節流；`publicLink` 供 public-link 的 PUT/DELETE（#72，見各路由）。 */
-  limiters: { collabToken: FixedWindowLimiter; slugPatch: FixedWindowLimiter; publicLink: FixedWindowLimiter };
+  /**
+   * #106：`GET /api/notes/:id/content` 的兩個依賴。**兩者皆選配、且缺一條路由就不註冊**
+   * （見 `register` 內的閘門）——`buildTestApp` 那種無 collab 的 app 連這條路由都沒有。
+   */
+  collab?: CollabServer;
+  editing?: EditingRuntime;
+  /** `collabToken` 供 collab-token endpoint；`slugPatch` 供 PATCH 帶 slug 鍵（含 null——進 slug 分支即計，見四格註解）**與公開別名兩支（#122 PR3）**節流；`publicLink` 供 public-link 的 PUT/DELETE（#72，見各路由）；`contentRead` 供 #106 的內容端點。 */
+  limiters: { collabToken: FixedWindowLimiter; slugPatch: FixedWindowLimiter; publicLink: FixedWindowLimiter; contentRead: FixedWindowLimiter };
   /** Task 5：`POST /api/notes/:id/links` 寫入函式的測試注入縫，透傳自 `AppDeps.linkSyncTestHooks`。 */
   linkSyncTestHooks?: WriteNoteLinksHooks;
   /**
@@ -119,9 +151,10 @@ function toNoteDto(note: NoteFields, role: Role): NoteDto {
  */
 export function notesRoutes(deps: NotesRouteDeps) {
   return async function register(app: FastifyInstance): Promise<void> {
-    // #107 D2：這三條（POST /api/notes、GET /api/notes、GET /api/notes/:ref）在 API token
-    // 的允許清單上，其餘 notes 路由維持 cookie-only——尤其 collab-token 是 D8 明文不收
-    // Bearer。challenge 省略＝等於 required；只有 /api/mcp 需要宣告比 required 更寬的集合。
+    // #107 D2：這四條（POST /api/notes、GET /api/notes、GET /api/notes/:ref、#106 新增的
+    // GET /api/notes/:id/content）在 API token 的允許清單上，其餘 notes 路由維持
+    // cookie-only——尤其 collab-token 是 D8 明文不收 Bearer。challenge 省略＝等於
+    // required；只有 /api/mcp 需要宣告比 required 更寬的集合。
     app.post("/api/notes", { preHandler: app.authenticateAny("notes:write") }, async (request, reply) => {
       const parsed = createBodySchema.safeParse(request.body ?? {});
       if (!parsed.success) {
@@ -302,6 +335,47 @@ export function notesRoutes(deps: NotesRouteDeps) {
       }
       return toNoteDto(note, role);
     });
+
+    // #106：內容端點只在有 collab＋editing（生產必有；`buildTestApp` 那種無 collab 的 app
+    // 不註冊）時掛——沒有 live doc 的來源就沒有「讀最新內容」這回事，寧可整條不存在（404）
+    // 也不要掛一條只會回半套答案的路由。
+    if (deps.collab && deps.editing) {
+      const collab = deps.collab;
+      const editing = deps.editing;
+      /**
+       * `GET /api/notes/:id/content`（spec §5）——**唯讀，零副作用**：`read.ts` 的
+       * `loadNoteDoc` 只 fork live doc 或解 DB 快照，絕不開直連，所以連讀 N 次都不會
+       * 動到 `note_states`／backup／`documents`（`note-content.test.ts` 的假綠守衛釘住）。
+       *
+       * ⚠ 授權在這一層做完（`resolveRole`）：AI 寫入路徑（#137）用的
+       * `openDirectConnection` 會繞過 collab 的 `onAuthenticate`，讀路徑雖然不開直連，
+       * 但同樣不經過那個 hook——`collab/server.ts` 的 onAuthenticate 旁有對照註解。
+       *
+       * 順序：格式（不變量 S）→ 角色 → 節流 → 讀。節流排在角色之後，`role === "none"`
+       * 的 404 因此**不啃桶**（理由見 `CONTENT_READ_LIMIT`）。
+       */
+      app.get("/api/notes/:id/content", { preHandler: app.authenticateAny("notes:read") }, async (request, reply) => {
+        const { id } = request.params as { id: string };
+        // 防禦縱深：`resolveRole` 內部也有同一道 guard（見 `notes/service.ts` UUID_RE 註解），
+        // 所以刪掉這行行為不變、沒有測試會紅——留著是為了不把「非法 uuid 不進 SQL」這個本路由
+        // 的前提，寄託在另一個模組的私有選擇上。
+        if (!UUID_RE.test(id)) return sendError(reply, 404, "not_found", "找不到此筆記");
+        const q = contentQuerySchema.safeParse(request.query ?? {});
+        if (!q.success) return sendError(reply, 400, "invalid_body", "查詢參數格式錯誤");
+        const userId = request.user!.id;
+        const role = await resolveRole(deps.db, userId, id);
+        if (role === "none") return sendError(reply, 404, "not_found", "找不到此筆記");
+        if (!deps.limiters.contentRead.consume(userId)) return sendError(reply, 429, "too_many_requests", "讀取過於頻繁");
+        const result = await readNoteContent({ db: deps.db, collab }, editing, id, q.data.section);
+        if (result === "section_not_found") return sendError(reply, 404, "section_not_found", "找不到此段落");
+        // `lastEdited` 在 #136 恆為 null（欄位由 #137 的 migration 0010 建）；形狀先固定，
+        // 讓 client 不必為了 #137 再改一次回應解析。`reply.send` 本身不做型別檢查——`satisfies`
+        // 把 `read.ts` 的回傳形狀釘回 shared 的 DTO，形狀漂移（少一欄、多一欄）在編譯期就會炸，
+        // 不必等到執行期才被測試發現（m-5）。
+        const body = { ...result, lastEdited: null } satisfies NoteContentDto | NoteSectionDto;
+        return reply.send(body);
+      });
+    }
 
     // PATCH 回應的 ownerHandle 補讀（spec m5-8／A12）：`.returning()` 拿不到 users.handle，
     // 且 editor 改他人筆記時必須回 **owner 的** handle（不得抄 request.user）。原子性契約

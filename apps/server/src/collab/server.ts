@@ -572,6 +572,9 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
     // 真授權：驗 token 簽章 → 重跑 resolveRole + gate.check——token 內帶的 role 只是
     // 簽發當下的快照，絕不當作授權依據（N2）。這保證撤分享/停用帳號在 TTL 內對「舊而
     // 未過期」的 token 立即生效，而不必等 token 自然過期。
+    // ⚠ #106：AI 寫入走 `notes/editing/session.ts` 的 `withDirectConnection`（直連，非
+    // WebSocket），**繞過本 hook**；讀取走 `notes/editing/read.ts` 也不經過這裡。兩條路
+    // 的授權都在路由層（`routes/notes.ts` 的 `resolveRole`）做完。
     onAuthenticate: async ({ token, documentName, connectionConfig }) => {
       // ⚠ 提到 try 外面（審查 round 2）：`server-error` 那一行也要帶得出 userId——它正是
       // 唯一會讓分頁真的一直停在「連線中」的原因，維護者最需要知道是誰。catch 看不到
