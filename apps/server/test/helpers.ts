@@ -9,14 +9,14 @@ import type { FastifyInstance } from "fastify";
 import { HocuspocusProvider, HocuspocusProviderWebsocket } from "@hocuspocus/provider";
 import { WebSocket as WsWebSocket } from "ws";
 import * as Y from "yjs";
-import type { Role } from "@knotebook/shared";
+import { SESSION_COOKIE, type Role } from "@knotebook/shared";
 import { createDb, type Db } from "../src/db/index.js";
 import { runMigrations } from "../src/db/migrate.js";
 import { loadConfig, type AppConfig } from "../src/config.js";
 import { buildApp, type AppDeps, type BuildAppOptions } from "../src/app.js";
-import { UserGate } from "../src/auth/session.js";
+import { signSession, UserGate } from "../src/auth/session.js";
 import { LoginThrottle } from "../src/auth/rate-limit.js";
-import { AI_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, SLUG_PATCH_LIMIT, TOKEN_READ_LIMIT, TOKEN_WRITE_LIMIT, UPLOAD_LIMIT } from "../src/http/rate-limit.js";
+import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, DCR_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_WRITE_LIMIT, UPLOAD_LIMIT } from "../src/http/rate-limit.js";
 import { hashPassword } from "../src/auth/password.js";
 import { noopCollabHooks, type CollabHooks } from "../src/collab/hooks.js";
 import type { CollabHooksLogger } from "../src/collab/hooks-impl.js";
@@ -292,6 +292,9 @@ export function freshLimiters(
     tokenWrite: new FixedWindowLimiter(TOKEN_WRITE_LIMIT),
     bearerMiss: new FixedWindowLimiter(BEARER_MISS_LIMIT),
     patCreate: new FixedWindowLimiter(PAT_CREATE_LIMIT),
+    dcr: new FixedWindowLimiter(DCR_LIMIT),
+    authorize: new FixedWindowLimiter(AUTHORIZE_LIMIT),
+    tokenEndpoint: new FixedWindowLimiter(TOKEN_ENDPOINT_LIMIT),
     ...overrides,
   };
 }
@@ -638,4 +641,18 @@ export async function insertPasswordUser(
     })
     .returning();
   return { id: user.id, email, password };
+}
+
+/**
+ * #132：建一個有密碼的使用者並簽好 session cookie（**header 形**，可直接
+ * `inject({ headers: { cookie } })`）。不跑 `POST /api/auth/login`——那條路徑在
+ * `mustChangePassword` 時會卡在首登強改密流程。
+ */
+export async function createUserAndLogin(
+  db: Db,
+  over: { mustChangePassword?: boolean } = {}
+): Promise<{ userId: string; cookie: string }> {
+  const user = await insertPasswordUser(db, { mustChangePassword: over.mustChangePassword ?? false });
+  const jwt = await signSession(testConfig.appSecret, { userId: user.id, tv: 0 });
+  return { userId: user.id, cookie: `${SESSION_COOKIE}=${jwt}` };
 }

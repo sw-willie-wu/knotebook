@@ -7,6 +7,7 @@ import Fastify, {
 } from "fastify";
 import fastifyCookie from "@fastify/cookie";
 import fastifyMultipart from "@fastify/multipart";
+import fastifyFormbody from "@fastify/formbody";
 import { MAX_UPLOAD_BYTES, SESSION_COOKIE, type ErrorCode, type RequiredScope, type TokenScope } from "@knotebook/shared";
 import { publicUrlIssuer, type AppConfig } from "./config.js";
 import type { Db } from "./db/index.js";
@@ -28,7 +29,11 @@ import { mcpRoutes } from "./routes/mcp.js";
 import { apiTokensRoutes } from "./routes/api-tokens.js";
 import { drainWithCap } from "./http/drain.js";
 import { sendError } from "./http/errors.js";
-import { AI_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, SLUG_PATCH_LIMIT, TOKEN_READ_LIMIT, TOKEN_WRITE_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
+import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, DCR_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_WRITE_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
+import { FORM_EXEMPT_ROUTES, isOauthScopedPath, sendOauthError } from "./http/oauth-errors.js";
+import { oauthRoutes } from "./routes/oauth.js";
+import { oauthMetadataRoutes } from "./routes/oauth-metadata.js";
+import { oauthApiRoutes } from "./routes/oauth-api.js";
 import { registerSpaFallback } from "./http/spa.js";
 import { assertUploadsDirWritable } from "./uploads/service.js";
 import type { AiRuntime } from "./ai/runtime.js";
@@ -105,6 +110,10 @@ export interface AppDeps {
     bearerMiss: FixedWindowLimiter;
     /** #107：`POST /api/auth/tokens`（key=userId）。 */
     patCreate: FixedWindowLimiter;
+    /** #132：DCR／authorize／token 三個無認證端點（key=ip）。 */
+    dcr: FixedWindowLimiter;
+    authorize: FixedWindowLimiter;
+    tokenEndpoint: FixedWindowLimiter;
   };
   /**
    * Task 5：`POST /api/notes/:id/links` 寫入函式（`notes/links.ts` 的 `writeNoteLinks`）的
@@ -385,6 +394,10 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     throwFileSizeLimit: false,
   });
 
+  // #132：`POST /oauth/token` 是 form 端點（OAuth 規格要求）。與 multipart 同層註冊在
+  // 頂層 app——放進封裝 plugin 內 parser 不會外溢，守衛測試的鑑別力會靜默消失。
+  void app.register(fastifyFormbody);
+
   // issue #101：`nosniff` 掛在**每一個**回應上。CSP 只對 HTML 文件有意義（掛在
   // `http/spa.ts` 回 index.html 那條路徑），但這個標頭是逐回應的便宜防線，JSON 錯誤
   // 與 `/assets/*.js` 也該有——擋掉「瀏覽器猜錯 content-type 就把回應當成別的型別執行」
@@ -429,6 +442,19 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     // multipart 豁免路由這兩條），不含一般路由的 JSON essence 415；後者在產品環境本來
     // 就幾乎不可達（正常 client 打 JSON API 一律帶 `application/json`，這條分支只在
     // 誤用/探測時觸發，非大檔上傳情境），不在這次擴充的 drain 範圍內。
+
+    // #132：兩個 RFC 形前綴的 415 要走 RFC 形 body。用 URL 前綴判定（404 時
+    // routeOptions.url 是 undefined），只有豁免路由收 form。
+    const pathname = request.url.split("?")[0]!;
+    if (isOauthScopedPath(pathname)) {
+      const wantsForm = !request.is404 && FORM_EXEMPT_ROUTES.has(`${request.method} ${request.routeOptions.url}`);
+      const expected = wantsForm ? "application/x-www-form-urlencoded" : "application/json";
+      if (essence !== expected) {
+        return sendOauthError(reply, 415, "invalid_request", `此請求需要 ${expected}`);
+      }
+      return;
+    }
+
     if (isMultipartExemptRoute(request)) {
       if (essence !== "multipart/form-data") {
         drainWithCap(request);
@@ -512,6 +538,9 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       tokenWrite: new FixedWindowLimiter(TOKEN_WRITE_LIMIT),
       bearerMiss: new FixedWindowLimiter(BEARER_MISS_LIMIT),
       patCreate: new FixedWindowLimiter(PAT_CREATE_LIMIT),
+      dcr: new FixedWindowLimiter(DCR_LIMIT),
+      authorize: new FixedWindowLimiter(AUTHORIZE_LIMIT),
+      tokenEndpoint: new FixedWindowLimiter(TOKEN_ENDPOINT_LIMIT),
     } satisfies NonNullable<AppDeps["limiters"]>);
 
   // #107：`limiters` 在上面才算出來，所以這個 decorate 必須排在它之後、任何
@@ -537,6 +566,8 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   );
   // #107：PAT 管理端點——cookie 專用（token 不能簽發或撤銷 token），見 routes/api-tokens.ts 檔頭。
   void app.register(apiTokensRoutes({ db: deps.db, limiters: { patCreate: limiters.patCreate } }));
+  // #132：同意頁的站內端點（cookie session、站內錯誤形），與 RFC 形的 /oauth 分開。
+  void app.register(oauthApiRoutes({ db: deps.db, config: deps.config }));
 
   // Task 8（二輪 MINOR-8）：`deps.oidc` 未傳但 `config.oidc` 有值時在此補上 production
   // runtime——不能讓「config.oidc 有值而 runtime undefined」這個矛盾狀態流進
@@ -577,6 +608,18 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   // #107：/api/mcp 的 #108 前暫時形——沒有它，MCP client 的第一發會拿到不帶 challenge
   // 的 404，無從發現授權伺服器（見 routes/mcp.ts 檔頭）。
   void app.register(mcpRoutes());
+
+  // #132：兩個 RFC 形 plugin 各自帶 prefix（root notFound 由 spa.ts 獨佔）。
+  void app.register(
+    oauthRoutes({
+      db: deps.db,
+      config: deps.config,
+      gate: deps.gate,
+      limiters: { dcr: limiters.dcr, authorize: limiters.authorize, tokenEndpoint: limiters.tokenEndpoint },
+    }),
+    { prefix: "/oauth" }
+  );
+  void app.register(oauthMetadataRoutes({ config: deps.config }), { prefix: "/.well-known" });
 
   // 共編的 WebSocket 掛在底層 http server 的 upgrade 事件上，不經 Fastify 路由——
   // 因此與上面的路由註冊順序無關，也不會被 setNotFoundHandler／SPA fallback 攔到。

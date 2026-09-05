@@ -149,3 +149,19 @@ export const BEARER_MISS_LIMIT = { limit: 30, windowMs: 60_000 } as const;
 
 /** #107：`POST /api/auth/tokens`（key=userId）。 */
 export const PAT_CREATE_LIMIT = { limit: 10, windowMs: 3_600_000 } as const;
+
+/**
+ * #132：DCR（key=ip）。無認證端點，per-IP 擋灌表；殭屍 client 由 I5 ② 回收。
+ * 30/h 而非更嚴：`TRUST_PROXY` 未設時反代後全體共用同一顆桶。
+ */
+export const DCR_LIMIT = { limit: 30, windowMs: 3_600_000 } as const;
+
+/**
+ * #132：`GET /oauth/authorize`（key=ip）。**每一發通過 T1 的請求都計數**——與
+ * `PUBLIC_MISS_LIMIT` 的「預檢不計數、miss 才 consume」刻意相反：authorize 沒有
+ * 「查完 DB 才知 hit/miss」的性質，每發必查 DB，且合法流量是人為導航，30/min 綽綽有餘。
+ */
+export const AUTHORIZE_LIMIT = { limit: 30, windowMs: 60_000 } as const;
+
+/** #132：`POST /oauth/token`（key=ip）。 */
+export const TOKEN_ENDPOINT_LIMIT = { limit: 60, windowMs: 60_000 } as const;
