@@ -174,3 +174,11 @@ export const TOKEN_ENDPOINT_LIMIT = { limit: 60, windowMs: 60_000 } as const;
  * （要 fork 文件、mount 一次 BlockNote），所以另設一顆更緊的桶。
  */
 export const CONTENT_READ_LIMIT = { limit: 120, windowMs: 60_000 } as const;
+
+/**
+ * #106 寫入端（`POST /api/notes/:id/edits`、`POST …/edits/:editId/revert`、
+ * `POST /api/notes` 帶 `content`；key=userId）。**角色檢查之後才消耗**（同
+ * `CONTENT_READ_LIMIT` 的理由）。比讀取緊得多：每一次寫入都要 fork、mount 一次
+ * BlockNote、開一次直連並落盤。
+ */
+export const EDIT_LIMIT = { limit: 30, windowMs: 60_000 } as const;

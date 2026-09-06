@@ -426,6 +426,12 @@
     "oauth_request_invalid": "This authorization request has already been used or has expired. Start again from the application.",
     "not_implemented": "That endpoint isn't available yet.",
     "section_not_found": "That section no longer exists — reload the note.",
+    "fingerprint_mismatch": "The note changed while you were editing it. Reload and try again.",
+    "unsupported_block": "That content contains a block type this note can't store.",
+    "empty_content": "The content is empty.",
+    "empty_section": "That section has no content to remove.",
+    "too_many_blocks": "That content has too many blocks.",
+    "content_too_large": "That content is too large.",
     "fallback": "An unexpected error occurred."
   }
 }

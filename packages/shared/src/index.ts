@@ -86,6 +86,18 @@ export interface NoteSectionDto {
   lastEdited: LastEditedDto | null;
 }
 
+/** #106 寫入端（`POST /api/notes/:id/edits`，#137）可用的五個 op。`revert` 不在其中——它不是
+ * 呼叫端能直接送的 op，只由 `POST …/edits/:editId/revert` 產生（`note_ai_edits.op` 的枚舉多一個）。 */
+export type EditOp = "replace_all" | "replace_section" | "insert_after" | "append" | "delete_section";
+/** 寫入成功（201）的回應：`fingerprint`／`outline` 是**合併之後**的整篇狀態，呼叫端可直接拿去做下一次
+ * `if_match`，不必再讀一次；`unboundWikilinks`＝這次寫入裡沒對到唯一筆記、留成純文字的 `[[…]]` 個數。 */
+export interface NoteEditResultDto {
+  editId: string;
+  fingerprint: string;
+  outline: NoteOutlineEntry[];
+  unboundWikilinks: number;
+}
+
 // 分享名單上的角色只會是 'editor'/'viewer'——note_shares 表的 DB check constraint
 // 本就不允許存 'owner'/'none'（owner 不會出現在 note_shares 裡；'none' 純粹是
 // resolveRole 用來表示「無權限」的哨兵值，從不落地成一筆分享列）。與 NoteDto 的
@@ -189,6 +201,19 @@ export const ERROR_CODES = [
   // 「整篇筆記找不到／無權限」的 `not_found` 分開，因為呼叫端的處置不同：段落沒了就重讀
   // 大綱，筆記沒了就別再試）。
   "section_not_found",
+  // #106 寫入端（`POST /api/notes/:id/edits`，#137）：
+  // `fingerprint_mismatch`＝409，`if_match` 與目前內容不符（回應另帶 `current`，呼叫端重讀後重試）；
+  // `unsupported_block`＝送來的 markdown 解析出不在 schema 白名單內的 block（整筆拒絕，不靜默剝除）；
+  // `empty_content`＝markdown 解析後是空的（純空白）；`empty_section`＝要刪的段落沒有任何 block；
+  // `too_many_blocks`＝超過 `MAX_BLOCKS`；`content_too_large`＝413，body 超過 `bodyLimit`
+  // （由 `app.ts` 的 `clientErrorCode` 映射，是唯一的 413 通用碼——上傳的 `file_too_large`
+  // 由 uploads 路由自己回，不經那條分流）。
+  "fingerprint_mismatch",
+  "unsupported_block",
+  "empty_content",
+  "empty_section",
+  "too_many_blocks",
+  "content_too_large",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 

@@ -10,19 +10,19 @@ import { apiTokens, notes, oauthClients, oauthCodes, oauthRequests } from "../sr
 
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
-/** drizzle 對 `schema.ts` 的序列化；0009 的宣告漂移守衛拿它當比對基準。 */
-const snapshot0009 = JSON.parse(
-  readFileSync(path.join(drizzleDirForTest, "meta/0009_snapshot.json"), "utf8"),
+/** drizzle 對 `schema.ts` 的序列化；0010 的宣告漂移守衛拿它當比對基準。 */
+const snapshot0010 = JSON.parse(
+  readFileSync(path.join(drizzleDirForTest, "meta/0010_snapshot.json"), "utf8"),
 ) as { tables: Record<string, { checkConstraints?: Record<string, { name: string; value: string }> }> };
 const pgDialect = new PgDialect();
 
 describe("runMigrations", () => {
-  it("migrate 兩次 idempotent 且 16 張表存在", async () => {
+  it("migrate 兩次 idempotent 且 17 張表存在", async () => {
     const { db, pool } = await freshDb();
     await runMigrations(db); // freshDb 已跑過一次——此為第二次
     const r = await pool.query(`select table_name from information_schema.tables where table_schema='public'`);
     const tableNames = r.rows.map(x => x.table_name);
-    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes"])
+    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes", "note_ai_edits"])
       expect(tableNames).toContain(t);
   });
 
@@ -1112,6 +1112,7 @@ describe("0009_api-tokens", () => {
         "client_id",
         "access_expires_at",
         "last_used_at",
+        "agent_label",
         "created_at",
       ],
       oauth_requests: ["id", "client_id", "redirect_uri", "code_challenge", "scope", "state", "expires_at"],
@@ -1152,7 +1153,7 @@ describe("0009_api-tokens", () => {
       // 名字仍在、DB 仍是舊值，上面每一條都綠——下一次 generate 才會靜默吐出一支
       // DROP/ADD CONSTRAINT。這個 PR 就踩過一次（長度上限 200↔64 的半套回滾）。
       // snapshot 是 drizzle 對 schema.ts 的序列化，逐字比對它＝真正的漂移守衛。
-      const snapshotChecks = snapshot0009.tables[`public.${table}`]?.checkConstraints ?? {};
+      const snapshotChecks = snapshot0010.tables[`public.${table}`]?.checkConstraints ?? {};
       expect(Object.keys(snapshotChecks).sort(), `${table} 的 CHECK 名集合`).toEqual(
         cfg.checks.map(c => c.name).sort()
       );
@@ -1178,5 +1179,24 @@ describe("0009_api-tokens", () => {
     const sql = readFileSync(path.join(drizzleDirForTest, `${entry!.tag}.sql`), "utf8");
     expect(sql.toUpperCase()).not.toContain("CONCURRENTLY");
     expect(sql).not.toMatch(/^\s*COMMIT\s*;/im);
+  });
+
+  it("0010：note_ai_edits 的四條 CHECK 生效、revert_of CASCADE、note 刪除連帶刪紀錄、api_tokens.agent_label CHECK", async () => {
+    const { pool } = await freshDb();
+    const u = (await pool.query(`insert into users (email, handle, display_name) values ('a@x', 'a', 'A') returning id`)).rows[0].id;
+    const n = (await pool.query(`insert into notes (owner_id) values ($1) returning id`, [u])).rows[0].id;
+    await expect(pool.query(`insert into note_ai_edits (note_id, user_id, op) values ($1,$2,'nope')`, [n, u])).rejects.toThrow(/note_ai_edits_op_chk/);
+    await expect(pool.query(`insert into note_ai_edits (note_id, user_id, op, after_block_ids) values ($1,$2,'append','{a}')`, [n, u])).rejects.toThrow(/note_ai_edits_fingerprint_chk/);
+    await expect(pool.query(`insert into note_ai_edits (note_id, user_id, op) values ($1,$2,'delete_section')`, [n, u])).rejects.toThrow(/note_ai_edits_anchor_chk/);
+    const orig = (await pool.query(`insert into note_ai_edits (note_id, user_id, op, after_block_ids, after_fingerprint) values ($1,$2,'append','{a}','0000000000000000') returning id`, [n, u])).rows[0].id;
+    await expect(pool.query(`insert into note_ai_edits (note_id, user_id, op) values ($1,$2,'revert')`, [n, u])).rejects.toThrow(/note_ai_edits_revert_chk/);
+    const rev = (await pool.query(`insert into note_ai_edits (note_id, user_id, op, revert_of) values ($1,$2,'revert',$3) returning id`, [n, u, orig])).rows[0].id;
+    await pool.query(`delete from note_ai_edits where id = $1`, [orig]);
+    expect((await pool.query(`select 1 from note_ai_edits where id = $1`, [rev])).rowCount).toBe(0);
+    await pool.query(`delete from notes where id = $1`, [n]);
+    expect((await pool.query(`select 1 from note_ai_edits where note_id = $1`, [n])).rowCount).toBe(0);
+    const t = (await pool.query(`insert into api_tokens (user_id, kind, name, scope, access_token_hash) values ($1,'pat','t','notes:read','h') returning id`, [u])).rows[0].id;
+    await expect(pool.query(`update api_tokens set agent_label = 'bad label!' where id = $1`, [t])).rejects.toThrow(/api_tokens_agent_label_chk/);
+    await expect(pool.query(`update api_tokens set agent_label = 'claude' where id = $1`, [t])).resolves.toBeTruthy();
   });
 });

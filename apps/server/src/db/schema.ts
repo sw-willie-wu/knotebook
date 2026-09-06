@@ -1,4 +1,5 @@
 import { pgTable, uuid, text, timestamp, boolean, integer, bigint, jsonb, customType, primaryKey, uniqueIndex, index, check } from "drizzle-orm/pg-core";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import type { EncryptedApiKey } from "../ai/crypto.js";
 const bytea = customType<{ data: Buffer }>({ dataType: () => "bytea" });
@@ -117,6 +118,15 @@ export const notes = pgTable("notes", {
   linksClock: bigint("links_clock", { mode: "number" }).notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  // #106（migration 0010）：最後一次 AI／API 寫入的落款，四欄同進同出（#137 Task 3 在
+  // `onStoreDocument` 那一側寫入；本棒只建欄）。`last_edited_token_id` 必須用延遲型別
+  // 引用——`api_tokens` 宣告在本檔更下方，直接寫 `apiTokens.id` 會在模組初始化時 TDZ。
+  // token 與 agent_label 皆可為 null：cookie 寫入沒有 token，而 agent label 是「讀時
+  // 派生、寫入時快照」的顯示名（`auth/agent-label.ts`）。
+  lastEditedAt: timestamp("last_edited_at", { withTimezone: true }),
+  lastEditedBy: uuid("last_edited_by").references(() => users.id, { onDelete: "set null" }),
+  lastEditedTokenId: uuid("last_edited_token_id").references((): AnyPgColumn => apiTokens.id, { onDelete: "set null" }),
+  lastEditedAgentLabel: text("last_edited_agent_label"),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),   // 保留欄位；v0.1 硬刪
 }, t => [
   index("notes_owner_idx").on(t.ownerId),   // GET /api/notes 自有分支（owner_id = $u）用
@@ -167,6 +177,49 @@ export const noteLinks = pgTable("note_links", {
   targetNoteId: uuid("target_note_id").notNull().references(() => notes.id, { onDelete: "cascade" }),
 }, t => [primaryKey({ columns: [t.sourceNoteId, t.targetNoteId] }),
         index("note_links_target_idx").on(t.targetNoteId)]);
+
+/**
+ * #106（migration 0010）：AI／API 對筆記的每一次寫入紀錄，撤回（#137）與清單端點的唯一
+ * 資料來源。每篇筆記只保留最近 `RETENTION`（100）列（`notes/editing/apply.ts` 的
+ * `insertEditRecord` 在同一個交易內裁切）。
+ *
+ * 四條 CHECK 都是結構層不變量，不是應用層便利：
+ * - `op_chk` 把五個寫入 op 加上 `revert` 釘死成枚舉；
+ * - `revert_chk`／`anchor_chk` 是**雙向**蘊含（`revert` ⇔ 有 `revert_of`、`delete_section`
+ *   ⇔ 有 anchor），單向版會靜默放行半截列；
+ * - `fingerprint_chk` 保證「有 after block 就一定有指紋」，撤回的前置條件因此可以只看
+ *   `after_fingerprint is not null`。
+ *
+ * `revert_of` 的 CASCADE 是刻意的：原始列被裁切掉之後，指向它的撤回列已無意義。
+ * `token_id` 是 SET NULL（token 撤銷不該連帶抹掉稽核紀錄），`before_blocks` 存整份 block
+ * JSON 快照（**無上限**——撤回要能原樣還原）。
+ */
+export const noteAiEdits = pgTable(
+  "note_ai_edits",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    noteId: uuid("note_id").notNull().references(() => notes.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    tokenId: uuid("token_id").references((): AnyPgColumn => apiTokens.id, { onDelete: "set null" }),
+    agentLabel: text("agent_label"),
+    op: text().notNull(),
+    sectionId: text("section_id"),
+    beforeBlocks: jsonb("before_blocks").notNull().default([]),
+    afterBlockIds: text("after_block_ids").array().notNull().default([]),
+    afterFingerprint: text("after_fingerprint"),
+    anchor: jsonb(),
+    revertOf: uuid("revert_of").references((): AnyPgColumn => noteAiEdits.id, { onDelete: "cascade" }),
+    revertedAt: timestamp("reverted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  t => [
+    check("note_ai_edits_op_chk", sql`${t.op} in ('replace_all','replace_section','insert_after','append','delete_section','revert')`),
+    check("note_ai_edits_revert_chk", sql`(${t.op} = 'revert') = (${t.revertOf} is not null)`),
+    check("note_ai_edits_fingerprint_chk", sql`(cardinality(${t.afterBlockIds}) = 0) = (${t.afterFingerprint} is null)`),
+    check("note_ai_edits_anchor_chk", sql`(${t.op} = 'delete_section') = (${t.anchor} is not null)`),
+    index("note_ai_edits_note_created_idx").on(t.noteId, t.createdAt.desc()),
+  ]
+);
 
 export const uploads = pgTable("uploads", {
   id: uuid().primaryKey().defaultRandom(),
@@ -304,6 +357,11 @@ export const apiTokens = pgTable(
     clientId: text("client_id").references(() => oauthClients.clientId, { onDelete: "cascade" }),
     accessExpiresAt: timestamp("access_expires_at", { withTimezone: true }),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    // #106（migration 0010）：這支 token 在筆記落款上顯示的 agent 名。NULL＝沒有覆寫值，
+    // 讀時由 `deriveAgentLabel(name)` 派生（`auth/agent-label.ts`；#138 才會寫入這一欄）。
+    // 形狀 CHECK 與派生規則的字元集一致——這欄會被複製進 `note_ai_edits.agent_label` 與
+    // `notes.last_edited_agent_label`，在 DB 端擋住形狀，繞過端點的寫入也騙不進來。
+    agentLabel: text("agent_label"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   t => [
@@ -316,6 +374,8 @@ export const apiTokens = pgTable(
     check("api_tokens_client_chk", sql`(${t.kind} = 'pat') = (${t.clientId} is null)`),
     check("api_tokens_refresh_chk", sql`(${t.kind} = 'pat') = (${t.refreshTokenHash} is null)`),
     check("api_tokens_oauth_expiry_chk", sql`${t.kind} = 'pat' or ${t.accessExpiresAt} is not null`),
+    // #106：agent label 的字元集與長度（同 `deriveAgentLabel` 的輸出形）。NULL 合法＝未覆寫。
+    check("api_tokens_agent_label_chk", sql`${t.agentLabel} is null or ${t.agentLabel} ~ '^[A-Za-z0-9._-]{1,32}$'`),
     index("api_tokens_user_idx").on(t.userId),
     // FK 的支撐索引（比照 note_shares_user_idx／uploads_note_idx 的既有慣例）：
     // 刪一個 oauth client 會 CASCADE 掃這張表，而 oauth_user_client_uidx 的前導欄是
