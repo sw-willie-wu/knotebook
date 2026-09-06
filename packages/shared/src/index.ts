@@ -606,6 +606,9 @@ export interface ApiTokenDto {
   kind: "pat" | "oauth";
   /** PAT 是使用者自取；oauth 是 client 自述的名稱快照（**未經驗證**，UI 要標示）。 */
   name: string;
+  /** #106 D7：AI 名牌與修改紀錄上顯示的短名。**非 null**——`api_tokens.agent_label` 為
+   * NULL 時回 `deriveAgentLabel(name)` 的派生值（server 端 `agentLabelOf`）。 */
+  agentLabel: string;
   scope: TokenScope;
   createdAt: string;
   lastUsedAt: string | null;

@@ -387,6 +387,38 @@ describe("POST /oauth/token — authorization_code（§5.4）", () => {
       await close();
     }
   });
+
+  it("改名後再授權（authorization_code 換發，I7 先刪後插）→ 新列 agent_label 仍是改過的值", async () => {
+    const { app, db, close } = await buildTestApp();
+    try {
+      const { cookie } = await createUserAndLogin(db); // 這個 helper 回的是完整 cookie 字串
+      const first = await obtainCode(app, cookie);
+      expect((await exchange(app, codeGrant(first))).statusCode).toBe(200);
+      const [row0] = await db.select({ id: apiTokens.id }).from(apiTokens);
+      expect(
+        (
+          await app.inject({
+            method: "PATCH",
+            url: `/api/auth/tokens/${row0!.id}`,
+            headers: { cookie },
+            payload: { agentLabel: "my-agent" },
+          })
+        ).statusCode
+      ).toBe(200);
+
+      // ⚠ 第二次授權**必須重用第一次的 client_id**（只跑 authorizeAndConsent，不再跑一次 DCR）。
+      //    換一個 client_id 就不是 I7「先刪後插」這條路徑了，這一案什麼都守不到。
+      const second = await authorizeAndConsent(app, cookie, first.clientId, first.redirectUri);
+      expect((await exchange(app, codeGrant({ ...first, ...second }))).statusCode).toBe(200);
+
+      const rows = await db.select({ id: apiTokens.id, label: apiTokens.agentLabel }).from(apiTokens);
+      expect(rows).toHaveLength(1); // I7：沒有累積成兩列
+      expect(rows[0]!.id).not.toBe(row0!.id); // 確實是新列（不是原列被 UPDATE）
+      expect(rows[0]!.label).toBe("my-agent"); // 使用者改的名字被搬過來了
+    } finally {
+      await close();
+    }
+  });
 });
 
 describe("POST /oauth/token — refresh_token", () => {

@@ -23,7 +23,7 @@ import {
 import { sendError } from "../http/errors.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
-import { apiTokens, noteLinks, noteShares, noteStateBackups, noteStates, notes, uploads, users } from "../db/schema.js";
+import { noteLinks, noteShares, noteStateBackups, noteStates, notes, uploads, users } from "../db/schema.js";
 import type { CollabHooks } from "../collab/hooks.js";
 import type { CollabServer } from "../collab/server.js";
 import type { EditingRuntime } from "../notes/editing/runtime.js";
@@ -35,7 +35,7 @@ import { visibleNoteTitles } from "../notes/editing/candidates.js";
 import { parseMarkdownForNote } from "../notes/editing/markdown.js";
 import { NoteWriteQueue, QueueBusyError } from "../notes/editing/queue.js";
 import { EditorSession } from "../notes/editing/session.js";
-import { deriveAgentLabel } from "../auth/agent-label.js";
+import { currentAgentLabel } from "../auth/agent-label.js";
 import { resolveRole, resolveRoleWithOwner, UUID_RE } from "../notes/service.js";
 import { deriveUniqueAutoSlug, fallbackAutoSlug, prepareSlugForPatch, resolveNoteIdFromRef } from "../notes/slug.js";
 import { fetchBacklinks, normalizeLinkTargets, writeNoteLinks, type WriteNoteLinksHooks } from "../notes/links.js";
@@ -265,7 +265,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
         // 節流排在 schema 驗證之後、**任何 mount 之前**。
         if (!deps.limiters.edit.consume(userId)) return sendError(reply, 429, "too_many_requests", "寫入過於頻繁");
         const candidates = await visibleNoteTitles(deps.db, userId);
-        const agentLabel = request.tokenId ? await tokenAgentLabel(deps.db, request.tokenId) : null;
+        const agentLabel = request.tokenId ? await currentAgentLabel(deps.db, request.tokenId) : null;
         // ⚠ `try { … } finally { s.close() }`（lease 不變量）；且**離開這個區塊之前不得再取得
         // 第二個 lease**——`applyEdit` 自己會再開一次，所以它必須排在 close 之後。
         const scratch = await EditorSession.open(editing, new Y.Doc());
@@ -547,7 +547,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
         // 規則的**結果面**（cookie 讀者不會多冒出一個 presence）由整合測試
         // `note-presence.test.ts` 第 2 案的 awareness 用戶端識別集合斷言守著。
         if (request.tokenId) {
-          const label = await tokenAgentLabel(deps.db, request.tokenId); // Task 3 會換成 currentAgentLabel
+          const label = await currentAgentLabel(deps.db, request.tokenId);
           if (label) {
             deps.presence?.touch(id, request.tokenId, { name: `${request.user!.handle} (${label})`, color: PRESENCE_COLOR }, presenceTargetForRead(q.data.section));
           }
@@ -584,7 +584,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
         if (role === "viewer") return sendError(reply, 403, "forbidden", "沒有編輯權限");
         if (!deps.limiters.edit.consume(userId)) return sendError(reply, 429, "too_many_requests", "寫入過於頻繁");
         const candidates = await visibleNoteTitles(deps.db, userId);
-        const agentLabel = request.tokenId ? await tokenAgentLabel(deps.db, request.tokenId) : null;
+        const agentLabel = request.tokenId ? await currentAgentLabel(deps.db, request.tokenId) : null;
         const applyDeps = { db: deps.db, collab, editing, log: request.log, testHooks: deps.editingTestHooks };
         let result: ApplyResult;
         try {
@@ -678,7 +678,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
         if (role === "none") return sendError(reply, 404, "not_found", "找不到此筆記");
         if (role === "viewer") return sendError(reply, 403, "forbidden", "沒有編輯權限");
         if (!deps.limiters.edit.consume(userId)) return sendError(reply, 429, "too_many_requests", "寫入過於頻繁");
-        const agentLabel = request.tokenId ? await tokenAgentLabel(deps.db, request.tokenId) : null;
+        const agentLabel = request.tokenId ? await currentAgentLabel(deps.db, request.tokenId) : null;
         const applyDeps = { db: deps.db, collab, editing, log: request.log, testHooks: deps.editingTestHooks };
         let result: RevertResult;
         try {
@@ -1389,11 +1389,4 @@ export function notesRoutes(deps: NotesRouteDeps) {
       return reply.code(204).send();
     });
   };
-}
-
-/** #138 會以 auth/agent-label.ts 的 currentAgentLabel（吃 api_tokens.agent_label 覆寫）取代；
- * 在那之前只有派生值。派生規則本身在 auth/agent-label.ts，不在這裡複製一份。 */
-async function tokenAgentLabel(db: Db, tokenId: string): Promise<string | null> {
-  const [row] = await db.select({ name: apiTokens.name }).from(apiTokens).where(eq(apiTokens.id, tokenId)).limit(1);
-  return row ? deriveAgentLabel(row.name) : null;
 }
