@@ -430,6 +430,8 @@ export async function buildCollabTestApp(
     editingTestHooks?: AppDeps["editingTestHooks"];
     /** #106（#137）per-note 佇列等待上限（毫秒），語意見 `AppDeps.editingQueueWaitMs`。 */
     editingQueueWaitMs?: number;
+    /** #138 presence 的參數（`idleMs`／`heartbeatMs`／`capacity`／`now`），透傳成 `AppDeps.presenceOptions`。 */
+    presence?: AppDeps["presenceOptions"];
   } = {}
 ): Promise<CollabTestCtx> {
   const { db } = await freshDb();
@@ -465,6 +467,7 @@ export async function buildCollabTestApp(
     limiters: freshLimiters(opts.limiters),
     editingTestHooks: opts.editingTestHooks,
     editingQueueWaitMs: opts.editingQueueWaitMs,
+    presenceOptions: opts.presence,
     uploadsDir: freshUploadsDir(),
     ai: createAiRuntime(),
   };
