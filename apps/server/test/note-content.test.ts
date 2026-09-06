@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import * as Y from "yjs";
 import { SESSION_COOKIE, YDOC_FRAGMENT } from "@knotebook/shared";
 import { signSession } from "../src/auth/session.js";
-import { noteStateBackups, noteStates } from "../src/db/schema.js";
+import { noteStateBackups, notes, noteStates } from "../src/db/schema.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 import { loadNoteDoc } from "../src/notes/editing/read.js";
 import { buildCollabTestApp, buildTestApp, testConfig } from "./helpers.js";
@@ -172,7 +172,7 @@ describe("GET /api/notes/:id/content", () => {
     expect((await getContent(ctx.app, note.id, token)).json().markdown).toContain("hello");
   });
 
-  it("讀取假綠守衛：連讀 20 次後 note_states 不變、無 backup 新列、documents.size 不變（last_edited_* 的斷言歸 #137——欄位由 migration 0010 建）", async () => {
+  it("讀取假綠守衛：連讀 20 次後 note_states 不變、無 backup 新列、documents.size 不變、notes.last_edited_* 四欄不變", async () => {
     const ctx = await buildCollabTestApp();
     const u = await ctx.createUser({ email: "a@example.com", password: PASSWORD });
     const note = await ctx.createNote(u.id);
@@ -183,6 +183,7 @@ describe("GET /api/notes/:id/content", () => {
     await waitFor("落盤並卸載", 10_000, () => ctx.collab.hocuspocus.documents.size === 0);
     const before = (await ctx.db.select().from(noteStates).where(eq(noteStates.noteId, note.id)))[0]!;
     const backups = (await ctx.db.select().from(noteStateBackups).where(eq(noteStateBackups.noteId, note.id))).length;
+    const lastEditedBefore = (await ctx.db.select().from(notes).where(eq(notes.id, note.id)))[0]!;
     const { token } = await seedTokenForUser(ctx.db, u.id);
     for (let i = 0; i < 20; i += 1) expect((await getContent(ctx.app, note.id, token)).statusCode).toBe(200);
     const after = (await ctx.db.select().from(noteStates).where(eq(noteStates.noteId, note.id)))[0]!;
@@ -190,6 +191,18 @@ describe("GET /api/notes/:id/content", () => {
     expect(after.updatedAt.getTime()).toBe(before.updatedAt.getTime());
     expect((await ctx.db.select().from(noteStateBackups).where(eq(noteStateBackups.noteId, note.id))).length).toBe(backups);
     expect(ctx.collab.hocuspocus.documents.size).toBe(0);
+    const lastEditedAfter = (await ctx.db.select().from(notes).where(eq(notes.id, note.id)))[0]!;
+    expect({
+      lastEditedAt: lastEditedAfter.lastEditedAt?.getTime() ?? null,
+      lastEditedBy: lastEditedAfter.lastEditedBy,
+      lastEditedTokenId: lastEditedAfter.lastEditedTokenId,
+      lastEditedAgentLabel: lastEditedAfter.lastEditedAgentLabel,
+    }).toEqual({
+      lastEditedAt: lastEditedBefore.lastEditedAt?.getTime() ?? null,
+      lastEditedBy: lastEditedBefore.lastEditedBy,
+      lastEditedTokenId: lastEditedBefore.lastEditedTokenId,
+      lastEditedAgentLabel: lastEditedBefore.lastEditedAgentLabel,
+    });
   });
 
   // 讀路徑「零副作用」的核心：live doc 只被 fork，絕不交出本尊。只看 HTTP 回應驗不到這條

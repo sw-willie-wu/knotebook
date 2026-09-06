@@ -1,10 +1,10 @@
 # API tokens
 
-A Personal API token lets a script, a CLI, or an AI assistant work with your notes **as you**, without a browser session. This page covers the token half of #107; the MCP endpoint that builds on it is still in progress (see [Coming next](#coming-next)).
+A Personal API token lets a script, a CLI, or an AI assistant work with your notes **as you**, without a browser session. This page covers the credentials — issuing them, what they reach, and how an app can authorize itself instead. What a program can then *do* with note content is documented separately in [AI editing](./ai-editing.md); the MCP endpoint that builds on all of it is not finished yet (see [Coming next](#coming-next)).
 
 ## What a token is
 
-- A token acts **on your behalf** with a fixed scope. In this release it can list the notes you can read, read a note's title and details, **read a note's content** as markdown (the whole note or one section, with the fingerprints a later write will need — `GET /api/notes/:id/content`), and — with the wider scope — create a new (empty) note. It cannot **write** note content yet; that arrives with #137 (see [Coming next](#coming-next)). It cannot do anything else either (no sharing, no password changes, no admin actions, no deleting notes). See [Which endpoints accept a token](#which-endpoints-accept-a-token).
+- A token acts **on your behalf** with a fixed scope. In this release it can list the notes you can read, read a note's title and details, **read a note's content** as markdown (the whole note or one section, with the fingerprints a write needs — `GET /api/notes/:id/content`), and — with the wider scope — **write a note's content**: create a note with content in it, replace the whole note, replace, delete or insert after one section, append to the end, and undo any of those again. Writes are guarded by those fingerprints, so a change made from a stale read is refused rather than overwriting what someone typed in the browser meanwhile; see [AI editing](./ai-editing.md). It cannot do anything else (no sharing, no password changes, no admin actions, no deleting notes). See [Which endpoints accept a token](#which-endpoints-accept-a-token).
 - Tokens start with `knb_` and are 47 characters long. The server stores only a SHA-256 hash; **the plaintext is shown exactly once**, when you create it. If you lose it, revoke it and create a new one.
 - Tokens are **separate credentials from your password** — see [Security notes](#security-notes).
 
@@ -13,7 +13,7 @@ A Personal API token lets a script, a CLI, or an AI assistant work with your not
 **Settings → Account → API tokens → Create API token.**
 
 - **Name** — anything that helps you tell tokens apart later (e.g. the program that will use it). 1–64 characters.
-- **Access** — *Read notes* (`notes:read`) or *Read and create notes* (`notes:write`, which includes reading).
+- **Access** — *Read notes* (`notes:read`) or *Read and write notes* (`notes:write`, which includes reading). `notes:write` lets the token create notes, change the content of notes you already have, and revert those changes — see [AI editing](./ai-editing.md).
 - **Expires** — never (the default), or in 30 / 90 / 365 days. A token with no expiry keeps working until you revoke it.
 
 Copy the token from the dialog before closing it. It will not be shown again.
@@ -35,7 +35,17 @@ curl -X POST -H "Authorization: Bearer knb_…" -H "Content-Type: application/js
 
 Responses are the same JSON the browser UI gets. On these endpoints a request that carries an `Authorization` header is authenticated **only** by that header — a session cookie sent alongside it is ignored.
 
-What you get back from `GET /api/notes/:ref` is note **metadata** — id, title, slug, owner, your role, timestamps. The note's content is readable through `GET /api/notes/:id/content` (the whole note as markdown, or one section, together with the fingerprints a later write will need). Writing content through the API arrives with #137; until then a note created with a token starts empty until someone opens it in the editor.
+What you get back from `GET /api/notes/:ref` is note **metadata** — id, title, slug, owner, your role, timestamps, and who last edited it. The note's content is readable through `GET /api/notes/:id/content` (the whole note as markdown, or one section, together with the fingerprints a write needs) and writable through `POST /api/notes/:id/edits`. `POST /api/notes` can also carry a `content` field, so a note can be created with its text in a single request rather than starting empty:
+
+```sh
+curl -X POST -H "Authorization: Bearer knb_…" -H "Content-Type: application/json" \
+     -d '{"title":"From a script","content":"# Notes\n\nWritten by a program.\n"}' \
+     https://<your-host>/api/notes
+```
+
+⚠ `POST /api/notes` rejects **unknown** body fields with `400 invalid_body` rather than ignoring them — so a misspelled `content` is reported instead of quietly creating an empty note.
+
+Everything a program needs in order to write safely — how sections are addressed, what the fingerprints mean, the five operations, the error codes and how to undo a change — is in [AI editing](./ai-editing.md).
 
 ### Which endpoints accept a token
 
@@ -44,7 +54,10 @@ What you get back from `GET /api/notes/:ref` is note **metadata** — id, title,
 | `GET /api/notes` — list your notes | `notes:read` |
 | `GET /api/notes/:ref` — read one note's metadata | `notes:read` |
 | `GET /api/notes/:id/content` — read a note's content as markdown (whole or one section, with fingerprints) | `notes:read` |
-| `POST /api/notes` — create a note (title only; it starts empty) | `notes:write` |
+| `GET /api/notes/:id/edits` — list a note's recorded API writes, and whether each can still be undone | `notes:read` |
+| `POST /api/notes` — create a note, optionally with its `content` | `notes:write` |
+| `POST /api/notes/:id/edits` — write a note's content: replace the whole note, replace/insert after/delete one section, or append | `notes:write` |
+| `POST /api/notes/:id/edits/:editId/revert` — undo one recorded write | `notes:write` |
 | `GET`/`POST`/`DELETE /api/mcp` — MCP endpoint | `notes:read` (**placeholder — returns `501 not_implemented` until the MCP server lands**) |
 
 Every other endpoint that requires a login is session-cookie only and answers a plain `401 unauthorized` to a Bearer request (endpoints that need no login at all, such as public share pages, simply ignore the header). In particular, tokens can **not** manage tokens (`/api/auth/tokens`), and can **not** obtain a collaboration token for the live editor.
@@ -53,7 +66,8 @@ Every other endpoint that requires a login is session-cookie only and answers a 
 
 - `401 unauthorized` with a `WWW-Authenticate: Bearer …` header — no credentials, an unknown or expired token, or a token whose account is disabled. The header's `error` parameter is `invalid_token` when a Bearer token was sent but rejected, and absent when no credentials were sent — or when a non-Bearer scheme such as `Basic` was used (RFC 6750 §3).
 - `403 insufficient_scope` — the token is valid but doesn't have the scope this endpoint needs (e.g. a read-only token calling `POST /api/notes`). This does **not** count against any rate limit.
-- `429 too_many_requests` — token requests are rate-limited **per user, separately from browser sessions**: 300 reads per minute and 60 writes per 10 minutes. `GET /api/notes/:id/content` additionally draws from its own, tighter 120-reads-per-minute-per-user budget on top of the general 300/min one — a token calling it burns from both, so its real ceiling is 120/min, not 300/min. That tighter budget is keyed by user, not by credential, so it applies to browser sessions too, not just tokens — though in practice the web app never calls this endpoint itself; it reads note content through the live collaboration connection instead. A runaway script cannot lock you out of the web UI. Invalid Bearer attempts are additionally limited per IP (30 per minute). `429` responses carry no `WWW-Authenticate` header and no `Retry-After`.
+- `429 too_many_requests` — token requests are rate-limited **per user, separately from browser sessions**: 300 reads per minute and 60 writes per 10 minutes. The content endpoints add tighter budgets on top of those: `GET /api/notes/:id/content` and `GET /api/notes/:id/edits` share 120 reads per minute per user, and `POST /api/notes/:id/edits`, `POST /api/notes/:id/edits/:editId/revert` and `POST /api/notes` carrying `content` share 30 writes per minute per user. A token calling them burns from both budgets, so its real ceilings there are 120/min and 30/min, not 300/min and 60/10 min. The tighter budgets are keyed by user, not by credential, so they apply to browser sessions too, not just tokens — though in practice the web app never calls these endpoints itself; it reads and writes note content through the live collaboration connection instead. A runaway script cannot lock you out of the web UI. Invalid Bearer attempts are additionally limited per IP (30 per minute). `429` responses carry no `WWW-Authenticate` header and no `Retry-After`.
+- `503 server_busy` — on the two writing endpoints only: another write to the same note held the per-note queue for longer than 10 seconds. Nothing was applied and nothing was recorded; retry.
 
 ## Revoking
 
@@ -119,13 +133,13 @@ Once you press Allow, the client has its credential — but the server it is tal
 
 - **Changing your password does not revoke your tokens.** They are independent credentials, the same way personal access tokens work on GitHub and similar services. If you think a token has leaked, revoke it here — changing your password will not stop it.
 - **A token that never expires never stops working until you revoke it.** If you don't need a permanent token, pick an expiry.
-- **Treat a token like a password.** Its reach is deliberately narrow today — note metadata, read-only note content, creating empty notes; writing arrives with #137 — but a leaked token is still a credential that acts as you. Don't paste it into shared config, logs, or chat.
+- **Treat a token like a password.** A `notes:write` token can **rewrite the content of any note you can edit** — not just create new ones — and those writes go straight into the live document everyone is looking at. A leaked one is a credential that acts as you, on your notes. Nothing is destroyed silently: every API write is recorded, listed by `GET /api/notes/:id/edits`, and can be reverted while it is still the most recent state of those blocks — but only the most recent 100 entries per note are kept. Prefer `notes:read` for anything that only needs to read, and don't paste a token into shared config, logs, or chat.
 - **An admin disabling your account also stops your tokens** — every token request re-checks the account's status.
 - The server never logs a token's plaintext or the `Authorization` header.
 
 ## Coming next
 
-- **Writing note content through the API** — reading landed (`GET /api/notes/:id/content`); section-level and whole-note writes, with revert, are tracked in #137. The MCP endpoint below builds on both.
 - **The MCP endpoint itself** — `/api/mcp` currently answers `501 not_implemented` after authenticating; it exists so that MCP clients can already discover the server and how to authorize. Tracked in #108.
+- **Naming an agent, and seeing it in the app** — an editable name per credential (instead of one derived from the token's name), and the in-app view of AI edits with its revert button. Tracked in #138.
 
-See also: [API contract summary](./api.md) · [Known limitations](./known-limitations.md).
+See also: [AI editing](./ai-editing.md) · [API contract summary](./api.md) · [Known limitations](./known-limitations.md).

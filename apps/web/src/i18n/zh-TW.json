@@ -250,7 +250,7 @@
       "apiTokensNamePlaceholder": "例如 Claude Desktop",
       "apiTokensScopeLabel": "存取範圍",
       "apiTokensScopeRead": "讀取筆記",
-      "apiTokensScopeWrite": "讀取與建立筆記",
+      "apiTokensScopeWrite": "讀取與寫入筆記",
       "apiTokensExpiryLabel": "有效期限",
       "apiTokensExpiryNever": "不到期",
       "apiTokensExpiryDays": "{{days}} 天後到期",

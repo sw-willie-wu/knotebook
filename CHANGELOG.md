@@ -17,6 +17,12 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 - **MCP clients can now authorize themselves** instead of you pasting a token. Knotebook includes an OAuth 2.1 authorization server, designed for an MCP client running on your own machine — such as Claude Code connecting directly, or Claude Desktop through a local stdio bridge — to discover the server, register itself, open a consent page in your browser, and, once you press Allow, receive its own credential; verified end to end with `mcp-remote --allow-http` against a plain-`http://` deployment. Claude Code's built-in HTTP transport needs an `https://` deployment — on plain http it walks through consent and then refuses to send the token request — see [How to connect](docs/api-tokens.md#how-to-connect) for both commands. That credential appears under Settings → Account → API tokens as an *App* row beside your personal tokens and can be revoked there; re-authorizing the same app replaces its previous credential. The consent page shows the app's self-reported name (marked as unverified) and the loopback address it will return to — only apps running on your own machine can be authorized, which is what keeps unauthenticated registration from becoming a phishing surface. Apps unused for 30 days are cleaned up automatically. See [API tokens](docs/api-tokens.md) and the OAuth entries in [Known limitations](docs/known-limitations.md) (#107, #132).
 
+- API tokens and authorized Apps can now **write note content**: replace the whole note, replace/insert after/delete one section, or append — each guarded by the fingerprint returned by a read, so concurrent human edits are never silently overwritten, and a note can now be created with its text in the same request. Changes appear live in every open browser tab. Every write is recorded and can be reverted through the API (the in-app "AI edit history" dialog lands in the next release); the note now remembers who edited it last, and whether that was a person or a program. See [AI editing](docs/ai-editing.md) (#106, #137).
+
+### Changed
+
+- `POST /api/notes` now rejects unknown body fields with `400 invalid_body` instead of ignoring them, so a misspelled `content` field is reported rather than silently creating an empty note (#106, #137).
+
 ## [0.3.3] - 2026-09-02
 
 ### Added

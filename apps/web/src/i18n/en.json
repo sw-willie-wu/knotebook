@@ -250,7 +250,7 @@
       "apiTokensNamePlaceholder": "e.g. Claude Desktop",
       "apiTokensScopeLabel": "Access",
       "apiTokensScopeRead": "Read notes",
-      "apiTokensScopeWrite": "Read and create notes",
+      "apiTokensScopeWrite": "Read and write notes",
       "apiTokensExpiryLabel": "Expires",
       "apiTokensExpiryNever": "Never",
       "apiTokensExpiryDays": "In {{days}} days",
