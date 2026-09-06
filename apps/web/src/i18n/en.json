@@ -97,8 +97,11 @@
     "readOnly": "Read-only",
     "menu": {
       "label": "More",
+      "aiEdits": "AI edit history",
       "delete": "Delete note"
     },
+    "lastEdited": "{{who}} · {{when}}",
+    "lastEditedTitle": "Last edited {{when}} — click to see what changed",
     "transferDataUrl": "Pasting embedded images isn't supported. Try dragging the image file instead.",
     "transferSaveFirst": "This item can't be inserted directly here. Save it as a file first, then drag it in.",
     "transferNonImage": "Only image files can be inserted here.",
@@ -242,7 +245,7 @@
       "handleSave": "Save username",
       "handleSaved": "Username updated.",
       "apiTokensTitle": "API tokens",
-      "apiTokensDescription": "Give a script or an AI assistant access to your notes on your behalf. A token can list and create notes (note content isn't reachable through the API yet) — treat it like a password. Tokens are not affected when you change your password; revoke them here instead.",
+      "apiTokensDescription": "Give a script or an AI assistant access to your notes on your behalf. A token can list and create notes, and read and write note content — treat it like a password. Tokens are not affected when you change your password; revoke them here instead.",
       "apiTokensCleanupHint": "OAuth applications unused for 30 days, and tokens that expired more than 30 days ago, are removed automatically the next time anyone creates a token or authorizes an application.",
       "apiTokensEmpty": "No tokens yet.",
       "apiTokensCreate": "Create API token",
@@ -276,6 +279,9 @@
       "apiTokensRevokeTitle": "Revoke this token?",
       "apiTokensRevokeDescription": "Anything using \"{{name}}\" will stop working immediately. This can't be undone.",
       "apiTokensRevokeConfirm": "Revoke token",
+      "apiTokensAgentLabel": "Agent name",
+      "apiTokensRename": "Rename agent",
+      "apiTokensRenameHint": "Shown on the AI's name tag and in the edit history. Letters, numbers, dots, underscores and hyphens only (max 32 characters). Leave empty to go back to the default.",
       "handleInvalid": "1–32 characters: lowercase letters, numbers and hyphens; hyphens can't lead, trail, or repeat."
     },
     "ai": {
@@ -358,6 +364,14 @@
       "revertStale": "This change can no longer be reverted — the text may have changed since.",
       "rebindNotice": "Some [[links]] in the result couldn't be linked automatically."
     }
+  },
+  "aiEdits": {
+    "title": "AI edits on this note",
+    "empty": "No AI edits yet.",
+    "revert": "Revert",
+    "reverted": "Already reverted",
+    "stale": "Not revertable",
+    "revertOk": "Edit reverted."
   },
   "public": {
     "readonly": "Read-only",

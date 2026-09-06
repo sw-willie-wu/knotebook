@@ -17,7 +17,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { EllipsisVertical, Link as LinkIcon, Trash } from "@/components/ui/icons";
+import { EllipsisVertical, Link as LinkIcon, MessageCircle, Trash } from "@/components/ui/icons";
 import { ManualCopyField } from "@/components/ManualCopyField";
 import { toast } from "@/components/ui/toast";
 
@@ -38,6 +38,9 @@ export interface NoteMenuProps {
    * ⋮ 刪除」是兩條可能同時成立的離場路徑，共用同一道閘門才不會噴兩次 toast、
    * 導兩次頁。⋮ 由 `NotePage` 組裝，直接拿同一個 ref 用，不新建一份。 */
   leavingRef: RefObject<boolean>;
+  /** 開啟 AI 修改紀錄 dialog（#106）。狀態住在 `NotePage`——這個 dialog 有兩個觸發點
+   * （這裡與頁首的 `LastEditedLabel`），放在任一個元件內另一個就打不開。 */
+  onOpenEdits: () => void;
 }
 
 /**
@@ -75,7 +78,7 @@ export interface NoteMenuProps {
  *   抵達，`handleConfirmDelete` 這個 closure 建立當下捕捉到的 `state` 大概率還
  *   是呼叫當時的 `connected`，直接讀它會誤判成「非終態」而走錯分支。
  */
-export function NoteMenu({ note, state, leavingRef }: NoteMenuProps) {
+export function NoteMenu({ note, state, leavingRef, onOpenEdits }: NoteMenuProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const deleteNote = useDeleteNote();
@@ -142,6 +145,20 @@ export function NoteMenu({ note, state, leavingRef }: NoteMenuProps) {
           >
             <LinkIcon className="mr-2 h-4 w-4" />
             {t("share.copyLink")}
+          </DropdownMenuItem>
+          {/* AI 修改紀錄（#106）。三步形與下面的刪除項逐字同形：⚠ 少了
+              `event.preventDefault()` 選單一樣會關、新案照樣綠——**沒有任何測試守著
+              這一行**，它是照本檔檔頭那條 focus trap 規矩留的（Radix 預設的關閉路徑
+              會把焦點交還給 trigger，跟 Dialog 的 FocusScope 互搶）。 */}
+          <DropdownMenuItem
+            onSelect={(event) => {
+              event.preventDefault();
+              setMenuOpen(false);
+              onOpenEdits();
+            }}
+          >
+            <MessageCircle className="mr-2 h-4 w-4" />
+            {t("note.menu.aiEdits")}
           </DropdownMenuItem>
           {note.role === "owner" && (
             <DropdownMenuItem

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen, waitFor } from "@testing-library/react";
+import * as Y from "yjs";
 import { ApiFail } from "@/api/client";
 import {
   COLLAB_CLOSE_NOTE_DELETED,
@@ -90,6 +91,14 @@ function SyncProbe({ noteId = NOTE_ID }: { noteId?: string }) {
   return <div data-testid="synced">{String(synced)}</div>;
 }
 const syncedText = () => screen.getByTestId("synced").textContent;
+
+/** #138：遠端更新通知那一案的探針——把 `useCollab` 回的 `doc` 露出來給測試操作。 */
+const docRef: { current: Y.Doc | null } = { current: null };
+function RemoteProbe({ onRemoteUpdate }: { onRemoteUpdate: () => void }) {
+  const { doc } = useCollab({ noteId: NOTE_ID, onUnauthorized: () => {}, onRemoteUpdate });
+  docRef.current = doc;
+  return null;
+}
 
 describe("useCollab", () => {
   beforeEach(() => {
@@ -765,6 +774,57 @@ describe("useCollab", () => {
 
     rerender(<SyncProbe noteId={OTHER_NOTE_ID} />);
     expect(syncedText()).toBe("false");
+  });
+
+  // #138：遠端更新 → debounce → `onRemoteUpdate`（NotePage 據此失效 note query）。
+  // debouncer 掛在 `"synced"` handler 裡而**不是** effect 本體：初次同步那一批 update
+  // 的 origin 也是 provider，掛在本體的話一開頁就白白失效一次 note query。
+  it("遠端 update 才通知；首次同步那一批不算；本地打字不通知", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(tokenOk("editor"))),
+    );
+    const onRemoteUpdate = vi.fn();
+    render(<RemoteProbe onRemoteUpdate={onRemoteUpdate} />);
+    const p = provider(0);
+    await act(async () => {
+      await p.configuration.token();
+    });
+    act(() => p.configuration.onAuthenticated());
+    const doc = docRef.current!;
+    const text = doc.getText("t");
+
+    // ① synced 之前的遠端 update（＝初次同步那一批）不該通知
+    act(() => {
+      doc.transact(() => text.insert(0, "sync"), p);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    expect(onRemoteUpdate).not.toHaveBeenCalled();
+
+    // ② synced 之後的遠端 update 要通知，且多次合併成一次
+    p.synced = true;
+    act(() => p.emit("synced", { state: true }));
+    act(() => {
+      doc.transact(() => text.insert(0, "x"), p);
+      doc.transact(() => text.insert(0, "y"), p);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    expect(onRemoteUpdate).toHaveBeenCalledTimes(1);
+
+    // ③ 本地 origin 不通知
+    act(() => {
+      doc.transact(() => text.insert(0, "z"), { local: true });
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    expect(onRemoteUpdate).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
   });
 
   it("拒連原因常數與 server 端字面值一致", () => {
