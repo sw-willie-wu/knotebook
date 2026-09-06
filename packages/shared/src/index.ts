@@ -98,6 +98,26 @@ export interface NoteEditResultDto {
   unboundWikilinks: number;
 }
 
+/** #106 修改紀錄清單（`GET /api/notes/:id/edits`，#137）的一列。新到舊排序，最多 `RETENTION`（100）筆。
+ * `op` 比 `EditOp` 多一個 `revert`＝撤回列（由 `POST …/:editId/revert` 產生，本身永不可撤回）。
+ * `heading`＝這次修改落點所在段落的標題，查不到就是空字串（段落已被刪掉／改名）。
+ * `byHandle`＝發動這次修改的使用者 handle；`agentLabel`＝token 派生或當時的快照（cookie 寫入為 null）。
+ * `revertable`＝現在還能不能撤回。false 的情形：撤回列本身、已經撤回過、落點指紋對不上、
+ * `delete_section` 的 anchor block 不在了，以及**這次刪除已經被還原過**（`delete_section` 的
+ * `before_blocks` 又出現在頂層——撤回端沒有 `if_match`，這是它的冪等守衛，見 revert.ts）。 */
+export interface NoteEditDto {
+  id: string;
+  op: EditOp | "revert";
+  sectionId: string | null;
+  heading: string;
+  byHandle: string;
+  agentLabel: string | null;
+  createdAt: string;
+  revertedAt: string | null;
+  revertOf: string | null;
+  revertable: boolean;
+}
+
 // 分享名單上的角色只會是 'editor'/'viewer'——note_shares 表的 DB check constraint
 // 本就不允許存 'owner'/'none'（owner 不會出現在 note_shares 裡；'none' 純粹是
 // resolveRole 用來表示「無權限」的哨兵值，從不落地成一筆分享列）。與 NoteDto 的
@@ -214,6 +234,14 @@ export const ERROR_CODES = [
   "empty_section",
   "too_many_blocks",
   "content_too_large",
+  // #106 撤回端（`POST /api/notes/:id/edits/:editId/revert`，#137）：
+  // `already_reverted`＝409，這筆修改已經撤回過（或它本身就是一筆撤回列——撤回列永不可撤回）；
+  // `stale`＝409，撤回的落點已經不是當初那樣了：AI 寫進去的 block 被人改過／刪掉、`delete_section`
+  // 的 anchor block 不在了，或**這次刪除已經被還原過**（`before_blocks` 又出現在頂層——撤回端
+  // 沒有 `if_match`，這是它的冪等守衛，重試不會把內容插第二次）。回應另帶 `current`。
+  // 兩者都是「不能撤回」，但呼叫端的處置不同：前者是重複操作（不必再試），後者要重讀內容再決定。
+  "already_reverted",
+  "stale",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 

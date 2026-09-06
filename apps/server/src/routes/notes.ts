@@ -14,6 +14,7 @@ import {
   type BacklinkDto,
   type NoteContentDto,
   type NoteDto,
+  type NoteEditDto,
   type NoteEditResultDto,
   type NoteSectionDto,
   type Role,
@@ -28,6 +29,7 @@ import type { CollabServer } from "../collab/server.js";
 import type { EditingRuntime } from "../notes/editing/runtime.js";
 import { readNoteContent } from "../notes/editing/read.js";
 import { applyEdit, type ApplyResult, type EditingTestHooks } from "../notes/editing/apply.js";
+import { listEdits, revertEdit, type RevertResult } from "../notes/editing/revert.js";
 import { visibleNoteTitles } from "../notes/editing/candidates.js";
 import { parseMarkdownForNote } from "../notes/editing/markdown.js";
 import { NoteWriteQueue, QueueBusyError } from "../notes/editing/queue.js";
@@ -204,12 +206,12 @@ export function notesRoutes(deps: NotesRouteDeps) {
   // 與 #137 的 `/revert` 共用同一個實例（不同實例＝沒有串行可言）。process-local。
   const writeQueue = new NoteWriteQueue();
   return async function register(app: FastifyInstance): Promise<void> {
-    // #107 D2：這五條（POST /api/notes、GET /api/notes、GET /api/notes/:ref、#106 的
-    // GET /api/notes/:id/content 與 POST /api/notes/:id/edits）在 API token 的允許清單上，
-    // 其餘 notes 路由維持 cookie-only——尤其 collab-token 是 D8 明文不收 Bearer。challenge
-    // 省略＝等於 required；只有 /api/mcp 需要宣告比 required 更寬的集合。
-    // #137 的 Task 2 還會再加兩條（GET /api/notes/:id/edits、POST /api/notes/:id/edits/:editId/revert），
-    // 屆時這段清單要一起改。
+    // #107 D2：這七條（POST /api/notes、GET /api/notes、GET /api/notes/:ref、#106 的
+    // GET /api/notes/:id/content、POST /api/notes/:id/edits、GET /api/notes/:id/edits 與
+    // POST /api/notes/:id/edits/:editId/revert）在 API token 的允許清單上，其餘 notes 路由
+    // 維持 cookie-only——尤其 collab-token 是 D8 明文不收 Bearer。challenge 省略＝等於
+    // required；只有 /api/mcp 需要宣告比 required 更寬的集合。
+    // ⚠ 之後每新增一條收 Bearer 的 notes 路由，這段清單都要一起改（#136 的最終審查就是被這條抓到）。
     app.post("/api/notes", { preHandler: app.authenticateAny("notes:write") }, async (request, reply) => {
       const parsed = createBodySchema.safeParse(request.body ?? {});
       if (!parsed.success) {
@@ -553,6 +555,75 @@ export function notesRoutes(deps: NotesRouteDeps) {
           return sendError(reply, result.code === "section_not_found" ? 404 : 400, result.code, "無法套用修改");
         }
         return reply.code(201).send({ editId: result.editId, fingerprint: result.fingerprint, outline: result.outline, unboundWikilinks: result.unboundWikilinks } satisfies NoteEditResultDto);
+      });
+
+      /**
+       * `GET /api/notes/:id/edits`（spec §5／#137）——AI 修改紀錄清單，新到舊，最多 `RETENTION` 筆。
+       *
+       * **讀路徑，零副作用**：`listEdits` 走 `read.ts` 的 `loadNoteDoc`（fork live doc 或解 DB 快照），
+       * 絕不開直連，也不會讓一份已卸載的文件重新載入（`note-revert.test.ts` 的 `documents.size` 釘住）。
+       * 順序與 `/content` 一致：格式 → 角色 → 節流（`CONTENT_READ_LIMIT`，桶 key＝裸 userId），
+       * 節流排在角色之後，`role === "none"` 的 404 因此**不啃桶**。
+       */
+      app.get("/api/notes/:id/edits", { preHandler: app.authenticateAny("notes:read") }, async (request, reply) => {
+        const { id } = request.params as { id: string };
+        // 同 `/content`：防禦縱深，不把「非法 uuid 不進 SQL」寄託在 `resolveRole` 的私有選擇上。
+        if (!UUID_RE.test(id)) return sendError(reply, 404, "not_found", "找不到此筆記");
+        const userId = request.user!.id;
+        const role = await resolveRole(deps.db, userId, id);
+        if (role === "none") return sendError(reply, 404, "not_found", "找不到此筆記");
+        if (!deps.limiters.contentRead.consume(userId)) return sendError(reply, 429, "too_many_requests", "讀取過於頻繁");
+        const edits = await listEdits({ db: deps.db, collab }, id) satisfies NoteEditDto[];
+        return reply.send({ edits });
+      });
+
+      /**
+       * `POST /api/notes/:id/edits/:editId/revert`（spec §5／#137）——撤回一筆 AI 修改。
+       *
+       * 順序：格式（不變量 S）→ 角色 → 節流 → agent label → per-note 佇列（與 `/edits` 寫入端
+       * **同一顆** `writeQueue`）→ `revertEdit`。本端點**沒有 body**，所以不變量 S 落在路徑參數：
+       * `editId` 非 uuid（含 NUL）一律 404 `not_found`，不讓字串進 SQL（pg 對 `uuid` 欄位的型別
+       * 轉換錯誤會逃到全域 errorHandler 變成 500）。
+       *
+       * 三種拒絕：`not_found`（查無此列，或該列屬於別篇筆記）→ 404；`already_reverted`（已撤回過，
+       * 或它本身就是撤回列）→ 409；`stale`（落點已被改掉）→ 409 並附 `current`（重跑讀路徑）。
+       */
+      app.post("/api/notes/:id/edits/:editId/revert", { preHandler: app.authenticateAny("notes:write") }, async (request, reply) => {
+        const { id, editId } = request.params as { id: string; editId: string };
+        if (!UUID_RE.test(id)) return sendError(reply, 404, "not_found", "找不到此筆記");
+        if (!UUID_RE.test(editId)) return sendError(reply, 404, "not_found", "找不到此修改紀錄");
+        const userId = request.user!.id;
+        const role = await resolveRole(deps.db, userId, id);
+        if (role === "none") return sendError(reply, 404, "not_found", "找不到此筆記");
+        if (role === "viewer") return sendError(reply, 403, "forbidden", "沒有編輯權限");
+        if (!deps.limiters.edit.consume(userId)) return sendError(reply, 429, "too_many_requests", "寫入過於頻繁");
+        const agentLabel = request.tokenId ? await tokenAgentLabel(deps.db, request.tokenId) : null;
+        const applyDeps = { db: deps.db, collab, editing, log: request.log, testHooks: deps.editingTestHooks };
+        let result: RevertResult;
+        try {
+          result = await writeQueue.run(
+            id,
+            () => revertEdit(applyDeps, { noteId: id, editId, userId, tokenId: request.tokenId ?? null, agentLabel }),
+            deps.editingQueueWaitMs
+          );
+        } catch (err) {
+          if (err instanceof QueueBusyError) return sendError(reply, 503, "server_busy", "筆記正在被寫入，請稍後再試");
+          throw err;
+        }
+        if (!result.ok) {
+          if (result.code === "stale") {
+            // 不在 transact 內、直連已 disconnect 之後（同 `/edits` 的 409 形）。不帶 section →
+            // 不可能是 "section_not_found"，但那個哨兵在回傳型別的 union 裡，不收窄的話 spread
+            // 一個字串會靜默送出 {0:"s",1:"e",…}。
+            const current = await readNoteContent({ db: deps.db, collab }, editing, id);
+            if (current === "section_not_found") throw new Error("readNoteContent 未帶 section 卻回哨兵值");
+            const body = { ...current, lastEdited: null } satisfies NoteContentDto | NoteSectionDto;
+            return reply.code(409).send({ error: { code: "stale", message: "這筆修改之後筆記又被改過，已無法撤回" }, current: body });
+          }
+          if (result.code === "already_reverted") return sendError(reply, 409, "already_reverted", "這筆修改已經撤回過了");
+          return sendError(reply, 404, "not_found", "找不到此修改紀錄");
+        }
+        return reply.code(201).send({ editId: result.editId, fingerprint: result.fingerprint, outline: result.outline });
       });
     }
 

@@ -432,6 +432,8 @@
     "empty_section": "That section has no content to remove.",
     "too_many_blocks": "That content has too many blocks.",
     "content_too_large": "That content is too large.",
+    "already_reverted": "That change has already been reverted.",
+    "stale": "The note has changed since that edit, so it can no longer be reverted. Reload and try again.",
     "fallback": "An unexpected error occurred."
   }
 }

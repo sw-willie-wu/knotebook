@@ -63,6 +63,11 @@ export async function mergeDiff(deps: ApplyDeps, noteId: string, ctx: DirectCtx,
       const live = input.targetIds === null ? outlineOf(fragment).whole : fingerprintForIds(fragment, input.targetIds);
       if (live === null || live !== input.expectFingerprint) throw new FingerprintMismatch(); // null＝id 缺或順序變，不退回整篇
     }
+    // 交易內的錨點重核對（只有撤回會帶 `anchorId`）：擋「預檢之後、合併之前，人剛好把錨點刪掉」。
+    // ⚠ 存活突變：**沒有測試會因為刪掉這一行而變紅**——`revertEdit` 沒有 `beforeMerge` 這種注入點
+    // （只有 `applyEdit` 有），那個交錯在整合層造不出來，只能靠審查看程式碼，這裡誠實記下。
+    // 保留的理由：拿掉之後 `insertBlocks` 會落在一個已不存在的錨點上；失敗形雖然良性（內容不會
+    // 遺失，位置交給 CRDT 決定），但那是「沒守衛」的良性，不是「守了」的良性。
     if (input.anchorId !== null && !topLevelContainers(fragment).some(c => c.getAttribute("id") === input.anchorId)) throw new FingerprintMismatch();
     const clock = docClock(doc);
     Y.applyUpdate(doc, input.diff);
