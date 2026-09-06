@@ -281,7 +281,7 @@
       "apiTokensRevokeConfirm": "Revoke token",
       "apiTokensAgentLabel": "Agent name",
       "apiTokensRename": "Rename agent",
-      "apiTokensRenameHint": "Shown on the AI's name tag and in the edit history. Letters, numbers, dots, underscores and hyphens only (max 32 characters). Leave empty to go back to the default.",
+      "apiTokensRenameHint": "Shown on the AI's name tag and in the edit history. Letters, numbers, dots, underscores and hyphens only (max 32 characters). Leave empty to go back to the default. Press Cancel to leave it unchanged.",
       "handleInvalid": "1–32 characters: lowercase letters, numbers and hyphens; hyphens can't lead, trail, or repeat."
     },
     "ai": {

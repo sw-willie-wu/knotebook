@@ -137,9 +137,18 @@ Once you press Allow, the client has its credential — but the server it is tal
 - **An admin disabling your account also stops your tokens** — every token request re-checks the account's status.
 - The server never logs a token's plaintext or the `Authorization` header.
 
+## Agent display name
+
+Each credential carries a short **agent name** — the name a program is shown under inside the app. It appears on the AI's cursor label while it is working on a note, on that note's last-edited line, and on every row of its **AI edit history**.
+
+By default it is derived from the credential's own name: the first word, lowercased, with anything outside letters, digits, `.`, `_` and `-` removed — so `Claude Code (knotebook)` becomes `claude`, and an app registered as `MCP CLI Proxy` becomes `mcp`. If nothing usable is left (a name written entirely in Chinese, say) it becomes `agent`.
+
+**Settings → Account → API tokens → Rename agent** changes it, for personal tokens and authorized apps alike. Letters, digits, `.`, `_` and `-`, up to 32 characters; clear the field to go back to the derived name. Everyone who can see the note sees this name, so it is worth making it recognizable rather than clever.
+
+Re-authorizing an app keeps the name you gave it, as long as the app comes back with the same registration — an app that had to register again (see [Troubleshooting](#troubleshooting)) arrives as a fresh credential and starts from the derived name. Renaming is also available over the API (`PATCH /api/auth/tokens/:id`, session-cookie only, like everything else under `/api/auth/tokens`); the full rules are in [AI editing](./ai-editing.md#agent-display-name).
+
 ## Coming next
 
 - **The MCP endpoint itself** — `/api/mcp` currently answers `501 not_implemented` after authenticating; it exists so that MCP clients can already discover the server and how to authorize. Tracked in #108.
-- **Naming an agent, and seeing it in the app** — an editable name per credential (instead of one derived from the token's name), and the in-app view of AI edits with its revert button. Tracked in #138.
 
 See also: [AI editing](./ai-editing.md) · [API contract summary](./api.md) · [Known limitations](./known-limitations.md).

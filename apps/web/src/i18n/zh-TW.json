@@ -281,7 +281,7 @@
       "apiTokensRevokeConfirm": "撤銷 token",
       "apiTokensAgentLabel": "agent 名稱",
       "apiTokensRename": "更改 agent 名稱",
-      "apiTokensRenameHint": "會顯示在 AI 的名牌與修改紀錄上。只能使用英數字、句點、底線與連字號（最多 32 字元）。清空則回到預設值。",
+      "apiTokensRenameHint": "會顯示在 AI 的名牌與修改紀錄上。只能使用英數字、句點、底線與連字號（最多 32 字元）。清空則回到預設值。按取消可放棄這次修改。",
       "handleInvalid": "1–32 字元：小寫英數與連字號；連字號不可在頭尾或連續出現。"
     },
     "ai": {

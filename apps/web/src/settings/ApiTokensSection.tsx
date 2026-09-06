@@ -249,6 +249,9 @@ function CreateTokenDialog() {
  *   結果是整個設定 dialog 被關掉，不是「取消改名、留在設定頁」。`CreateTokenDialog` 的
  *   `onEscapeKeyDown`（掛在 `DialogContent` 本身）是這個元件庫支援的正確逃生路徑，但那個
  *   屬性要往上掛到 `SettingsModal` 的 `DialogContent`（本棒 17 個路徑之外），不在這棒範圍。
+ *   **Cancel 按鈕是這個欄位自己就能給的逃生路徑**：不碰 Radix 的 Escape 監聽，欄位自己
+ *   持有 `editing`／`draft` 兩個 state，按下去只是把 `editing` 撥回 `false`，不送請求、
+ *   不動 `draft`——下次重新進入編輯時 `draft` 會被起始值蓋掉，不會殘留這次放棄的字串。
  */
 function AgentLabelField({ token }: { token: ApiTokenDto }) {
   const { t } = useTranslation();
@@ -272,6 +275,10 @@ function AgentLabelField({ token }: { token: ApiTokenDto }) {
         <span dir="ltr" className="shrink-0 text-xs text-muted-foreground [unicode-bidi:isolate]">
           ({token.agentLabel})
         </span>
+        {/* 介面選擇的刻意偏離：這裡用文字按鈕，不是圖示按鈕——「更改 agent 名稱」不是
+            一眼認得出圖示的動作，兩語系都用文字更不容易誤按。spec 與 plan 都不進版控，
+            這行註解是這個偏離唯一留得下來的紀錄（比照 presence.ts 的 insert_after 偏離
+            注記）。 */}
         <Button
           type="button"
           variant="ghost"
@@ -289,17 +296,23 @@ function AgentLabelField({ token }: { token: ApiTokenDto }) {
 
   return (
     <span className="flex min-w-0 flex-1 flex-col gap-1">
-      <Input
-        autoFocus
-        value={draft}
-        aria-label={t("settings.account.apiTokensAgentLabel")}
-        maxLength={32}
-        disabled={rename.isPending}
-        onChange={event => setDraft(event.target.value)}
-        onKeyDown={event => {
-          if (event.key === "Enter") void save();
-        }}
-      />
+      <span className="flex items-center gap-1">
+        <Input
+          autoFocus
+          value={draft}
+          aria-label={t("settings.account.apiTokensAgentLabel")}
+          maxLength={32}
+          disabled={rename.isPending}
+          onChange={event => setDraft(event.target.value)}
+          onKeyDown={event => {
+            if (event.key === "Enter") void save();
+          }}
+        />
+        {/* 沒有 Esc（見檔頭）——這顆按鈕是這個欄位自己能給的退路，見上方 save() 旁的說明。 */}
+        <Button type="button" variant="ghost" size="sm" disabled={rename.isPending} onClick={() => setEditing(false)}>
+          {t("settings.account.apiTokensCancel")}
+        </Button>
+      </span>
       <span className="text-xs text-muted-foreground">{t("settings.account.apiTokensRenameHint")}</span>
     </span>
   );

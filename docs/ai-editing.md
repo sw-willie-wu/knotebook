@@ -10,7 +10,7 @@ Every write goes through the same real-time document the browser edits, so a cha
 
 | Endpoint | Method | Scope | What it does |
 |---|---|---|---|
-| `/api/notes/:id/content` | GET | `notes:read` | Read the note as Markdown, with an outline and the fingerprints a write needs. `?section=<id>` returns one section only. Side-effect free. |
+| `/api/notes/:id/content` | GET | `notes:read` | Read the note as Markdown, with an outline and the fingerprints a write needs. `?section=<id>` returns one section only. Side-effect free — the note itself never changes; a token-authenticated read does make the AI's cursor appear, though (see [Presence](#presence)). |
 | `/api/notes/:id/edits` | POST | `notes:write` | Apply one of the five operations. `201 {editId, fingerprint, outline, unboundWikilinks}`. |
 | `/api/notes/:id/edits` | GET | `notes:read` | List this note's recorded edits, newest first, and whether each can still be reverted. |
 | `/api/notes/:id/edits/:editId/revert` | POST | `notes:write` | Undo one recorded edit. `201 {editId, fingerprint, outline}`. |
@@ -119,7 +119,7 @@ If you meant to keep the section, restate its heading as the first line of the M
 
 - `op` is one of the five, or `revert` for a row produced by reverting something. `revertOf` points at the row a revert undid.
 - `heading` is looked up in the note **as it is now**, so it follows renames and becomes `""` once the section is gone.
-- `byHandle` is the username of whoever made the request. `agentLabel` is set only when the write came through a token or an authorized App; a write made with a session cookie leaves it `null`. It follows the credential's current name while the credential exists, and falls back to the label recorded at the time once it has been revoked.
+- `byHandle` is the username of whoever made the request. `agentLabel` is set only when the write came through a token or an authorized App; a write made with a session cookie leaves it `null`. It follows the credential's current name while the credential exists — unless you have renamed it in Settings, in which case the name you picked wins (see [Agent display name](#agent-display-name)) — and falls back to the label recorded at the time once it has been revoked.
 - `revertable` says whether `POST …/:editId/revert` would be accepted right now. Reverting is a normal write: it needs `notes:write`, it produces its own row (which can never itself be reverted), and it appears live in open tabs like any other change.
 
 A revert is refused with `409 already_reverted` (already undone, or the row is itself a revert), `409 stale` (the note has moved on — the body carries the current content in `current`), or `404 not_found` (no such row, or it belongs to another note).
@@ -168,6 +168,33 @@ Two more properties of the Markdown:
 - Only block types this note can store are accepted. Anything else is rejected whole, with `400 unsupported_block` — nothing is silently stripped.
 - Non-empty Markdown always ends with a trailing newline. A note that has never been opened or written to returns `markdown: ""`; one that has been reduced back to empty returns `"\n"`. Both report `chars: 0`, so test emptiness with `chars` or the fingerprint, not by comparing the string to `""`.
 
+## Presence
+
+While a program works on a note, it shows up **in the note** — as a remote cursor, the same one another person editing gets.
+
+- The cursor is labelled `username (agent)`: your username, and the credential's [agent display name](#agent-display-name).
+- It exists only for a note **somebody currently has open**. Presence is attached to the live collaborative document, so if no browser is connected to that note, nothing is created and nothing is broadcast — and there is no record afterwards that a program was there.
+- It appears, and moves, on a **token-authenticated** `GET …/content`, `POST …/edits` and `POST …/edits/:editId/revert`. `GET …/edits` deliberately does not: reading the history is not working on the note. `POST /api/notes` with `content` cannot — the note is created by that same request, so nobody can have it open yet.
+- **A request authenticated with a session cookie never creates one**, neither reading nor writing. Editing your own note in your own browser therefore does not sprout a second, AI-looking cursor beside your real one.
+- It is removed after **2 minutes** with no read or write. A server restart does not broadcast a separate removal for it: by the time that shutdown step runs, every collaborative connection — including this one — has already been torn down, so there is nothing left to notify.
+
+Where the cursor lands:
+
+| What the program did | Where the cursor goes |
+|---|---|
+| `GET …/content` (whole note) | The start of the note |
+| `GET …/content?section=<id>` | That section's first block (the start of the note if that section has no blocks) |
+| `replace_section`, `insert_after`, `append` | The first block that write produced |
+| `replace_all` | The start of the note |
+| `delete_section` | The start of the note — the section it addressed no longer exists |
+| a revert | The start of the note |
+
+If somebody has moved that block away in the meantime, the cursor falls back to the start of the note rather than failing.
+
+**The name tag is not permanently on screen.** The cursor stays for as long as the presence does, but the name beside it is shown for about **2 seconds** after each thing the program does — and after each 10-second keep-alive — then collapses back to a bare caret. Hovering the cursor brings the name back. This is how the editor treats every collaborator, human or not: there is no special case for API writers, and the editor option that would pin labels open is the same one that switches off the mechanism lighting them at all, so it is deliberately not used.
+
+At most 500 of these exist at once across the server; when one more appears, the least recently active is dropped. A cursor is only drawn if the block it points at contains text — see [Known limitations](./known-limitations.md).
+
 ## Last edited
 
 `GET /api/notes/:id/content` and every note object (`GET /api/notes`, `GET /api/notes/:ref`, …) carry `lastEdited`:
@@ -176,9 +203,24 @@ Two more properties of the Markdown:
 { "at": "2026-09-06T…Z", "byHandle": "alice", "agentLabel": "claude" }
 ```
 
-It is `null` on a note nobody has edited since this feature landed. `byHandle` is the **editor's** username, not the owner's (it is `""` if that account has since been deleted). `agentLabel` is non-`null` **only** when that write came through a token or an authorized App, and is derived from the credential's name (`Claude Code (knotebook)` → `claude`); a write made with a session cookie, and anything typed in the browser, leaves it `null`.
+It is `null` on a note nobody has edited since this feature landed. `byHandle` is the **editor's** username, not the owner's (it is `""` if that account has since been deleted). `agentLabel` is non-`null` **only** when that write came through a token or an authorized App; a write made with a session cookie, and anything typed in the browser, leaves it `null`. It is the credential's agent name **as it stood at the moment of that write** — derived from the credential's name (`Claude Code (knotebook)` → `claude`) unless you have renamed it in Settings, in which case the name you picked wins (see [Agent display name](#agent-display-name)). Being a snapshot, it does not move when you rename afterwards; only the next write refreshes it. The edit history above resolves the name live instead.
 
 One approximation is worth knowing: the browser persists a burst of typing once, a couple of seconds after it stops. If an API write lands inside such a burst, its own save flushes those pending human edits too, and the whole batch is attributed to the API write. **No content is lost** — only the attribution is coarse.
+
+## Agent display name
+
+Every credential has a short **agent name**. It is the `(agent)` half of the cursor's label, of the title bar's last-edited line, and of every row in the note's edit history.
+
+By default it is derived from the credential's own name: the first whitespace-separated word, Unicode-normalized, lowercased, with everything outside `A-Za-z0-9._-` removed, cut to 32 characters. `Claude Code (knotebook)` becomes `claude`, `MCP CLI Proxy` becomes `mcp`, and a name that leaves nothing usable behind becomes `agent`.
+
+To change it: **Settings → Account → API tokens → Rename agent** next to the credential, or `PATCH /api/auth/tokens/:id` with `{"agentLabel": "researcher"}`. Like the rest of `/api/auth/tokens`, that endpoint is **session-cookie only** — a token cannot rename itself, or anything else. Sending `{"agentLabel": null}` clears your override and goes back to the derived value; the response, and `GET /api/auth/tokens`, always report the name actually in effect, so `agentLabel` there is never `null`.
+
+A name must match `^[A-Za-z0-9._-]{1,32}$`; anything else is `400 invalid_body`. Renames are limited to 60 per 10 minutes per user.
+
+Two things worth knowing:
+
+- **Re-authorizing an OAuth app keeps the name you chose — but only when the app comes back with the same registration.** The replacement credential inherits the label from the credential it replaces, and the one it replaces is found by the app's `client_id`. An app that has re-registered (its old registration expired, or its cached one was cleared — see [API tokens](./api-tokens.md#troubleshooting)) arrives with a **new** `client_id`, so there is nothing for it to inherit from and it starts again from the derived default.
+- The **edit history** resolves the name live, so renaming changes what its existing rows show (until the credential is revoked, after which they fall back to the label recorded at the time). The **last-edited line** does not: it is a snapshot taken when that write happened — see [Last edited](#last-edited).
 
 ## Troubleshooting
 
