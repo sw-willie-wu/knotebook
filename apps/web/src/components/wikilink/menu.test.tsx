@@ -80,6 +80,7 @@ function note(overrides: Partial<NoteDto> = {}): NoteDto {
     slugIsCustom: false,
     prevSlug: null,
     ownerHandle: "tester",
+    lastEdited: null,
     ...overrides,
   };
 }

@@ -119,9 +119,9 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
         // 外掛其餘錯誤（缺 boundary 的 `Multipart: Boundary not found`、
         // `FST_PARTS_LIMIT`、`FST_FIELDS_LIMIT` 等）一律在這裡接住，統一映射成
         // 400 invalid_body——不 rethrow，否則會逃到全域 errorHandler 被
-        // `clientErrorCode` 分流成語意不符的 bad_request（或更糟，若該錯誤帶的
-        // statusCode 剛好是 413，會被誤判成看似合理但實際上語意錯誤的
-        // file_too_large）。
+        // `clientErrorCode` 分流成語意不符的 bad_request（#106 起 413 在那裡映成
+        // `content_too_large`，也一樣不是本路由該回的碼——multipart 的大小超限由下面
+        // 的 `truncated` 分支自己回 413 `file_too_large`）。
         request.log.warn({ err }, "multipart 解析失敗");
         return sendError(reply, 400, "invalid_body", "上傳格式錯誤");
       }

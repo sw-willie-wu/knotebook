@@ -55,6 +55,9 @@ export interface NoteDto {
   slugIsCustom: boolean;
   /** 單層自訂 redirect 來源（只記自訂變更；無則 null）——by-path miss 後的補查面。 */
   prevSlug: string | null;
+  /** #106 D6：誰在什麼時候最後改了這篇（`notes.last_edited_*` 四欄；從未被編輯過＝null）。
+   * 型別宣告在本檔下方——interface 是型別層的，不受宣告順序影響（沒有 TDZ 這回事）。 */
+  lastEdited: LastEditedDto | null;
 }
 
 // #106 內容端點（`GET /api/notes/:id/content`，#137 起還有寫入端）的對外形。指紋是樂觀
@@ -68,7 +71,8 @@ export interface NoteOutlineEntry {
   chars: number;
   fingerprint: string;
 }
-/** 誰在什麼時候最後改了這篇（#137 才會有非 null 值；#136 一律 null）。 */
+/** 誰在什麼時候最後改了這篇（#137 起是真值；#136 一律 null）。`byHandle` 是**編輯者**的
+ * username（不是 owner 的）；`agentLabel` 非 null＝那次是 AI／API 經 token 寫的。 */
 export interface LastEditedDto {
   at: string;
   byHandle: string;
@@ -84,6 +88,38 @@ export interface NoteContentDto {
 export interface NoteSectionDto {
   section: Omit<NoteOutlineEntry, "sectionId"> & { id: string; markdown: string };
   lastEdited: LastEditedDto | null;
+}
+
+/** #106 寫入端（`POST /api/notes/:id/edits`，#137）可用的五個 op。`revert` 不在其中——它不是
+ * 呼叫端能直接送的 op，只由 `POST …/edits/:editId/revert` 產生（`note_ai_edits.op` 的枚舉多一個）。 */
+export type EditOp = "replace_all" | "replace_section" | "insert_after" | "append" | "delete_section";
+/** 寫入成功（201）的回應：`fingerprint`／`outline` 是**合併之後**的整篇狀態，呼叫端可直接拿去做下一次
+ * `if_match`，不必再讀一次；`unboundWikilinks`＝這次寫入裡沒對到唯一筆記、留成純文字的 `[[…]]` 個數。 */
+export interface NoteEditResultDto {
+  editId: string;
+  fingerprint: string;
+  outline: NoteOutlineEntry[];
+  unboundWikilinks: number;
+}
+
+/** #106 修改紀錄清單（`GET /api/notes/:id/edits`，#137）的一列。新到舊排序，最多 `RETENTION`（100）筆。
+ * `op` 比 `EditOp` 多一個 `revert`＝撤回列（由 `POST …/:editId/revert` 產生，本身永不可撤回）。
+ * `heading`＝這次修改落點所在段落的標題，查不到就是空字串（段落已被刪掉／改名）。
+ * `byHandle`＝發動這次修改的使用者 handle；`agentLabel`＝token 派生或當時的快照（cookie 寫入為 null）。
+ * `revertable`＝現在還能不能撤回。false 的情形：撤回列本身、已經撤回過、落點指紋對不上、
+ * `delete_section` 的 anchor block 不在了，以及**這次刪除已經被還原過**（`delete_section` 的
+ * `before_blocks` 又出現在頂層——撤回端沒有 `if_match`，這是它的冪等守衛，見 revert.ts）。 */
+export interface NoteEditDto {
+  id: string;
+  op: EditOp | "revert";
+  sectionId: string | null;
+  heading: string;
+  byHandle: string;
+  agentLabel: string | null;
+  createdAt: string;
+  revertedAt: string | null;
+  revertOf: string | null;
+  revertable: boolean;
 }
 
 // 分享名單上的角色只會是 'editor'/'viewer'——note_shares 表的 DB check constraint
@@ -189,6 +225,27 @@ export const ERROR_CODES = [
   // 「整篇筆記找不到／無權限」的 `not_found` 分開，因為呼叫端的處置不同：段落沒了就重讀
   // 大綱，筆記沒了就別再試）。
   "section_not_found",
+  // #106 寫入端（`POST /api/notes/:id/edits`，#137）：
+  // `fingerprint_mismatch`＝409，`if_match` 與目前內容不符（回應另帶 `current`，呼叫端重讀後重試）；
+  // `unsupported_block`＝送來的 markdown 解析出不在 schema 白名單內的 block（整筆拒絕，不靜默剝除）；
+  // `empty_content`＝markdown 解析後是空的（純空白）；`empty_section`＝要刪的段落沒有任何 block；
+  // `too_many_blocks`＝超過 `MAX_BLOCKS`；`content_too_large`＝413，body 超過 `bodyLimit`
+  // （由 `app.ts` 的 `clientErrorCode` 映射，是唯一的 413 通用碼——上傳的 `file_too_large`
+  // 由 uploads 路由自己回，不經那條分流）。
+  "fingerprint_mismatch",
+  "unsupported_block",
+  "empty_content",
+  "empty_section",
+  "too_many_blocks",
+  "content_too_large",
+  // #106 撤回端（`POST /api/notes/:id/edits/:editId/revert`，#137）：
+  // `already_reverted`＝409，這筆修改已經撤回過（或它本身就是一筆撤回列——撤回列永不可撤回）；
+  // `stale`＝409，撤回的落點已經不是當初那樣了：AI 寫進去的 block 被人改過／刪掉、`delete_section`
+  // 的 anchor block 不在了，或**這次刪除已經被還原過**（`before_blocks` 又出現在頂層——撤回端
+  // 沒有 `if_match`，這是它的冪等守衛，重試不會把內容插第二次）。回應另帶 `current`。
+  // 兩者都是「不能撤回」，但呼叫端的處置不同：前者是重複操作（不必再試），後者要重讀內容再決定。
+  "already_reverted",
+  "stale",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 

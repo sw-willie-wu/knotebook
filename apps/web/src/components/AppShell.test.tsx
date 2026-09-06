@@ -45,6 +45,7 @@ const CREATED: NoteDto = {
   slugIsCustom: false,
   prevSlug: null,
   ownerHandle: "tester",
+  lastEdited: null,
 };
 
 /** 停在 `/n/:handle/:slug`（#122 新形）的替身頁——把解析到的兩段印出來，讓斷言看得到落點。 */
@@ -166,6 +167,7 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
     slugIsCustom: false,
     prevSlug: null,
     ownerHandle: "tester",
+    lastEdited: null,
   };
 
   const BETA_NOTE: NoteDto = {
@@ -179,6 +181,7 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
     slugIsCustom: false,
     prevSlug: null,
     ownerHandle: "tester",
+    lastEdited: null,
   };
 
   function stubFetchWithNotes(notes: NoteDto[]) {
@@ -371,6 +374,7 @@ describe("AppShell — #115 側欄抽屜", () => {
     slugIsCustom: false,
     prevSlug: null,
     ownerHandle: "tester",
+    lastEdited: null,
   };
 
   function stubFetchWithNotes(notes: NoteDto[]) {

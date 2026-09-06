@@ -29,7 +29,7 @@ import { mcpRoutes } from "./routes/mcp.js";
 import { apiTokensRoutes } from "./routes/api-tokens.js";
 import { drainWithCap } from "./http/drain.js";
 import { sendError } from "./http/errors.js";
-import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_WRITE_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
+import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_WRITE_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
 import { FORM_EXEMPT_ROUTES, isOauthScopedPath, sendOauthError } from "./http/oauth-errors.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { oauthMetadataRoutes } from "./routes/oauth-metadata.js";
@@ -39,6 +39,7 @@ import { assertUploadsDirWritable } from "./uploads/service.js";
 import type { AiRuntime } from "./ai/runtime.js";
 import { createOidcRuntime, type OidcRuntime } from "./auth/oidc-client.js";
 import { createEditingRuntime, type EditingRuntime } from "./notes/editing/runtime.js";
+import type { EditingTestHooks } from "./notes/editing/apply.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -124,7 +125,21 @@ export interface AppDeps {
     tokenEndpoint: FixedWindowLimiter;
     /** #106：`GET /api/notes/:id/content`（key=userId；角色檢查後才消耗，見 `CONTENT_READ_LIMIT`）。 */
     contentRead: FixedWindowLimiter;
+    /** #106 寫入端：`POST /api/notes/:id/edits`、`POST /api/notes` 帶 `content`（key=userId，見 `EDIT_LIMIT`）。 */
+    edit: FixedWindowLimiter;
   };
+  /**
+   * #106（#137）：寫入路徑的測試注入縫（比照 `linkSyncTestHooks`）——`beforeMerge`／
+   * `beforeRecord`／`beforeRevertRecord` 分別在「合併之前」「寫紀錄之前」「寫撤回紀錄之前」
+   * 被呼叫。**選配**，生產不注入＝零成本。透傳進 `NotesRouteDeps.editingTestHooks`。
+   */
+  editingTestHooks?: EditingTestHooks;
+  /**
+   * #106（#137）：per-note 寫入佇列的等待上限（毫秒）。**選配**，未傳時用 `NoteWriteQueue`
+   * 自己的預設（10 s）。整合測試把它壓到 50 ms 才驗得出「佇列被占住 → 503 server_busy」，
+   * 否則那一案要等十秒。透傳進 `NotesRouteDeps.editingQueueWaitMs`。
+   */
+  editingQueueWaitMs?: number;
   /**
    * Task 5：`POST /api/notes/:id/links` 寫入函式（`notes/links.ts` 的 `writeNoteLinks`）的
    * 測試注入縫，透傳進 `NotesRouteDeps`。**選配**：production／未覆寫時整段為
@@ -284,6 +299,9 @@ function isOriginAllowed(origin: string, requestHost: string): boolean {
 /** 4xx 錯誤碼映射：已知的具體碼優先，其餘 4xx 一律歸類 bad_request（不可吞成 500）。 */
 function clientErrorCode(statusCode: number): ErrorCode {
   if (statusCode === 415) return "unsupported_media_type";
+  // #106：413 一律是「送來的 body 超過該路由的 `bodyLimit`」（fastify 的 FST_ERR_CTP_BODY_TOO_LARGE）。
+  // 上傳路由不靠這條分流——它自己接住 multipart 例外並回 `file_too_large`（見 routes/uploads.ts）。
+  if (statusCode === 413) return "content_too_large";
   return "bad_request";
 }
 
@@ -552,6 +570,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       authorize: new FixedWindowLimiter(AUTHORIZE_LIMIT),
       tokenEndpoint: new FixedWindowLimiter(TOKEN_ENDPOINT_LIMIT),
       contentRead: new FixedWindowLimiter(CONTENT_READ_LIMIT),
+      edit: new FixedWindowLimiter(EDIT_LIMIT),
     } satisfies NonNullable<AppDeps["limiters"]>);
 
   // #107：`limiters` 在上面才算出來，所以這個 decorate 必須排在它之後、任何
@@ -606,6 +625,8 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       collab: deps.collab,
       editing,
       limiters,
+      editingTestHooks: deps.editingTestHooks,
+      editingQueueWaitMs: deps.editingQueueWaitMs,
       linkSyncTestHooks: deps.linkSyncTestHooks,
       slugUpdateTestHook: deps.slugUpdateTestHook,
       uploadsDir: deps.uploadsDir,

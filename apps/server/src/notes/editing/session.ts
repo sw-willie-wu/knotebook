@@ -23,6 +23,8 @@ export function forkFrom(source: Y.Doc | Uint8Array): { fork: Y.Doc; sv: Uint8Ar
 // 不變量（m3）：呼叫端一律 `try { … } finally { session.close() }`——`close()` 是唯一會釋放
 // runtime lease 的路徑，漏呼叫等於永久佔用一個 in-flight 名額，可能讓 EditingRuntime 的延後
 // 重建閘門永遠等不到「排空」而卡住後面所有 acquire()。
+// ⚠ 同一族的第二條：**持有 lease 期間不得再 `open()`**（`acquire()` 不可重入，見 `runtime.ts` 檔頭）
+// ——不需要任何洩漏就會死鎖，症狀是機率性的無訊息逾時。
 export class EditorSession {
   private constructor(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 編輯器泛型三元組，走 repo 慣例用 any（同 apps/web 的 collab 測試）

@@ -70,6 +70,7 @@ import type { Duplex } from "node:stream";
 import type { FastifyInstance } from "fastify";
 import { Hocuspocus, type WebSocketLike } from "@hocuspocus/server";
 import { WebSocketServer, type RawData, type WebSocket as WsWebSocket } from "ws";
+import { eq } from "drizzle-orm";
 import {
   COLLAB_CLOSE_NOTE_DELETED,
   COLLAB_CLOSE_REVOKED,
@@ -80,7 +81,12 @@ import {
 } from "@knotebook/shared";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
+import { notes } from "../db/schema.js";
 import type { UserGate } from "../auth/session.js";
+// ⚠ 只在型別層引用 `session.ts`，而它也 `import type { CollabContext }` 回本檔——兩邊都是
+// `import type`，編譯後整段被抹掉，**沒有執行期循環**（本檔對 session.ts 沒有任何 value import）。
+// 看到「循環」不要繞路改寫。
+import type { DirectCtx } from "../notes/editing/session.js";
 import { loadNoteAudience, resolveRole } from "../notes/service.js";
 import { verifyCollabToken } from "./token.js";
 import { createNoteStore, docClock, type StoreLogger } from "./store.js";
@@ -559,8 +565,33 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
     // `document` 是 Hocuspocus 的 `Document`（`extends Y.Doc`），結構相容於
     // `NoteStore` 兩個方法要的 `Y.Doc` 參數。
     onLoadDocument: async ({ documentName, document }) => noteStore.onLoadDocument(documentName, document),
-    onStoreDocument: async ({ documentName, document }) => {
+    // #106 D6 落款（spec §9）。`lastContext` ＝ 排定這次 store 的那一批編輯的 context：
+    // WS 連線是 `CollabContext`（人），直連是 `DirectCtx`（AI）。三件事要記住：
+    // ① 合併的 `disconnect()` 是**立即 store**，會取代同一批待送的 debounced store——所以同一批
+    //    人的編輯會被記成 AI 落款（內容不掉，只是落款歸給那次 AI 寫入，spec §13 接受）。
+    // ② 拒絕路徑的 `disconnect()` **也會 store**，`applied === false` 是唯一擋住落款的閘；
+    //    它同樣取代那批待送 store 的 `lastContext`（人那批的落款不寫、內容不掉）。
+    // ③ UPDATE **不得讓 store 失敗**（同 `collab/store.ts` 的紀律：onStoreDocument 拋錯會讓
+    //    Hocuspocus 把文件留在記憶體、且落盤停擺）——所以整段包 try/catch，只 warn。
+    onStoreDocument: async ({ documentName, document, lastContext }) => {
       await noteStore.onStoreDocument(documentName, document);
+      const ctx = lastContext as Partial<DirectCtx> | undefined;
+      if (typeof ctx?.userId !== "string") return;
+      const isAi = ctx.source === "ai-edit";
+      if (isAi && ctx.applied !== true) return;
+      try {
+        await deps.db
+          .update(notes)
+          .set({
+            lastEditedAt: new Date(),
+            lastEditedBy: ctx.userId,
+            lastEditedTokenId: isAi ? (ctx.tokenId ?? null) : null,
+            lastEditedAgentLabel: isAi ? (ctx.agentLabel ?? null) : null,
+          })
+          .where(eq(notes.id, documentName));
+      } catch (err) {
+        log.warn({ err, noteId: documentName }, "last_edited 落款失敗（不影響落盤）");
+      }
     },
     // fix round 1 IMPORTANT 2：文件從記憶體卸載時清掉 noteStore 的 sv／lastBackupAt
     // 快取，否則每篇曾經打開過的筆記都會在 process 存活期間永久占一個 Map entry（慢性

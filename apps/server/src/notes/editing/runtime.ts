@@ -2,6 +2,9 @@
 // mount 過的 editor 即使 unmount 也殘留約 0.53 MB/顆、GC 收不回（spike）。對策：每 N 次 mount 或 heap
 // 較基線 +64 MiB 就重建 window——只在 in-flight 歸零時重建，旗標一設下新 session 就排隊等。這道防線
 // 壓不住（單顆行程的常駐量仍漲）時的退路是把整個 runtime 搬進 worker_threads，讓行程可整個換掉。
+// ⚠ `acquire()` 不可重入：持有 lease 期間不得再 `acquire()`／`EditorSession.open()`。重建旗標一設下，
+// 內層的 `acquire()` 會等 in-flight 歸零，而外層要等內層回來才會 `release()` → 死鎖，症狀是無訊息逾時。
+// 寫入路徑的作法見 `apply.ts` 的 `prepareEdit`（取完 diff 立刻 close，之後才合併、記錄、更新索引）。
 // jsdom 的 url ＝ `PUBLIC_URL` 的 origin ＋ "/"，因為 schema 的媒體守衛會拿它當相對網址的 base。
 // ⚠ 掛上 window/document 之後，靠 `typeof window !== "undefined"` 判斷環境的套件會誤判成瀏覽器：
 // `@anthropic-ai/sdk` 就是（editing-runtime.test.ts 釘住嗅探與旗標）；yjs／hocuspocus 一族靠 lib0

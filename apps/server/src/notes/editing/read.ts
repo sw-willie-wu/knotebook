@@ -6,11 +6,12 @@
 // 讓出一次 microtask 就可能拿到已 destroy 的文件。反向的競態不存在：`documents.set` 只發生在
 // 載入完成之後（同檔 `createDocument`，:1459），所以 get 到的一定是載好的文件。
 import { eq } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import * as Y from "yjs";
-import { YDOC_FRAGMENT, type NoteContentDto, type NoteSectionDto } from "@knotebook/shared";
+import { YDOC_FRAGMENT, type LastEditedDto, type NoteContentDto, type NoteSectionDto } from "@knotebook/shared";
 import type { CollabServer } from "../../collab/server.js";
 import type { Db } from "../../db/index.js";
-import { noteStates } from "../../db/schema.js";
+import { noteStates, notes, users } from "../../db/schema.js";
 import { outlineOf } from "./fingerprint.js";
 import type { EditingRuntime } from "./runtime.js";
 import { EditorSession, forkFrom } from "./session.js";
@@ -30,6 +31,23 @@ export async function loadNoteDoc(deps: ReadDeps, noteId: string): Promise<{ doc
   // 從未開過的筆記沒有 note_states 列——空 Y.Doc 就是正確答案（回空文件形，不是錯誤）。
   if (row) Y.applyUpdate(doc, row.ydoc);
   return { doc, loaded: false };
+}
+
+/**
+ * `notes.last_edited_*` 四欄 → 對外的 `LastEditedDto`（#106 D6）。**純 SELECT，不開直連**
+ * （`/content` 兩形與兩個 409 的 `current` 都吃這一支，讀路徑零副作用的守衛也涵蓋它）。
+ * `users` 要 `alias`：這裡 JOIN 的是**編輯者**，不是 owner——同一張表在同一句裡另有用途時，
+ * 不取別名會讓 drizzle 產生歧義的 FROM。編輯者帳號被刪（FK `set null`）時 handle 落空回空字串。
+ */
+export async function loadLastEdited(db: Db, noteId: string): Promise<LastEditedDto | null> {
+  const editor = alias(users, "editor");
+  const [r] = await db
+    .select({ at: notes.lastEditedAt, label: notes.lastEditedAgentLabel, handle: editor.handle })
+    .from(notes)
+    .leftJoin(editor, eq(editor.id, notes.lastEditedBy))
+    .where(eq(notes.id, noteId))
+    .limit(1);
+  return r?.at ? { at: r.at.toISOString(), byHandle: r.handle ?? "", agentLabel: r.label } : null;
 }
 
 /** mount 只為匯出 markdown；`ids` 為 undefined＝整篇。呼叫端已保證至少有一個 block（見下）。 */

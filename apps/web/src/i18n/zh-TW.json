@@ -250,7 +250,7 @@
       "apiTokensNamePlaceholder": "例如 Claude Desktop",
       "apiTokensScopeLabel": "存取範圍",
       "apiTokensScopeRead": "讀取筆記",
-      "apiTokensScopeWrite": "讀取與建立筆記",
+      "apiTokensScopeWrite": "讀取與寫入筆記",
       "apiTokensExpiryLabel": "有效期限",
       "apiTokensExpiryNever": "不到期",
       "apiTokensExpiryDays": "{{days}} 天後到期",
@@ -426,6 +426,14 @@
     "oauth_request_invalid": "這個授權請求已使用或已過期，請從應用程式重新發起。",
     "not_implemented": "此端點尚未提供。",
     "section_not_found": "找不到該段落，請重新讀取筆記。",
+    "fingerprint_mismatch": "筆記內容在這段期間被修改過，請重新讀取後再試。",
+    "unsupported_block": "內容含有這篇筆記無法儲存的區塊類型。",
+    "empty_content": "內容是空的。",
+    "empty_section": "該段落沒有可刪除的內容。",
+    "too_many_blocks": "內容的區塊數量超過上限。",
+    "content_too_large": "內容過大。",
+    "already_reverted": "這筆修改已經撤回過了。",
+    "stale": "這筆修改之後筆記又被改過，已無法撤回。請重新讀取後再試。",
     "fallback": "發生未預期的錯誤。"
   }
 }

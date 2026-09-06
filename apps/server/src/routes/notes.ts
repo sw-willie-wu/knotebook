@@ -2,7 +2,8 @@ import { randomBytes } from "node:crypto";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 import { and, desc, eq, ne, or, sql } from "drizzle-orm";
-import { unionAll } from "drizzle-orm/pg-core";
+import { alias, unionAll } from "drizzle-orm/pg-core";
+import * as Y from "yjs";
 import {
   MAX_LINK_TARGETS,
   SECTION_ID_RE,
@@ -13,6 +14,8 @@ import {
   type BacklinkDto,
   type NoteContentDto,
   type NoteDto,
+  type NoteEditDto,
+  type NoteEditResultDto,
   type NoteSectionDto,
   type Role,
   type ShareDto,
@@ -20,11 +23,18 @@ import {
 import { sendError } from "../http/errors.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
-import { noteLinks, noteShares, noteStateBackups, noteStates, notes, uploads, users } from "../db/schema.js";
+import { apiTokens, noteLinks, noteShares, noteStateBackups, noteStates, notes, uploads, users } from "../db/schema.js";
 import type { CollabHooks } from "../collab/hooks.js";
 import type { CollabServer } from "../collab/server.js";
 import type { EditingRuntime } from "../notes/editing/runtime.js";
-import { readNoteContent } from "../notes/editing/read.js";
+import { loadLastEdited, readNoteContent } from "../notes/editing/read.js";
+import { applyEdit, type ApplyResult, type EditingTestHooks } from "../notes/editing/apply.js";
+import { listEdits, revertEdit, type RevertResult } from "../notes/editing/revert.js";
+import { visibleNoteTitles } from "../notes/editing/candidates.js";
+import { parseMarkdownForNote } from "../notes/editing/markdown.js";
+import { NoteWriteQueue, QueueBusyError } from "../notes/editing/queue.js";
+import { EditorSession } from "../notes/editing/session.js";
+import { deriveAgentLabel } from "../auth/agent-label.js";
 import { resolveRole, resolveRoleWithOwner, UUID_RE } from "../notes/service.js";
 import { deriveUniqueAutoSlug, fallbackAutoSlug, prepareSlugForPatch, resolveNoteIdFromRef } from "../notes/slug.js";
 import { fetchBacklinks, normalizeLinkTargets, writeNoteLinks, type WriteNoteLinksHooks } from "../notes/links.js";
@@ -33,9 +43,9 @@ import type { FixedWindowLimiter } from "../http/rate-limit.js";
 import { isForeignKeyViolation, uniqueViolationConstraint } from "../db/pg-errors.js";
 import { deleteUploadFiles } from "../uploads/service.js";
 
-// 建立時 title 允許省略（DB 端有 default "Untitled"），但若有帶就不可為空字串——
-// 與 PATCH 的 title 驗證同一套規則，避免「傳空字串把標題清空」這種語意混淆的落地方式。
-const createBodySchema = z.object({ title: z.string().min(1).optional() });
+// ⚠ `createBodySchema` 原本宣告在這裡，#106 起它要吃 `noNul` 與 `MD`（見下方），而那兩個常數
+// 宣告在本檔更下面——維持原位會讓它在 TDZ 內求值，**一 import 就 ReferenceError**（整台 server
+// 起不來，不是某個測試紅）。所以整段搬到 `MD`／`FP`／`SEC` 之後，見該處。
 
 // PATCH 契約（spec §11.4 逐字）：title／slug 皆選配，但至少要帶一項——兩者都缺時走
 // safeParse 失敗路徑，回 400 invalid_body（與其他 body schema 一致，不特地為「空
@@ -68,6 +78,40 @@ const noNul = (s: string) => !s.includes(NUL);
 // （`.refine` 必須排在 `.regex` 之後：它回的是 ZodEffects，其上已無 `.regex`。）
 const contentQuerySchema = z.object({ section: z.string().max(64).regex(SECTION_ID_RE).refine(noNul).optional() }).strict();
 
+// #106 不變量 S（寫入端）：三個字串欄位在進任何比較之前先在 schema 層擋 NUL（U+0000）並要求格式。
+// ⚠ **`.refine()` 一律最後**——同 `contentQuerySchema` 旁那條規則（它回 ZodEffects，其上沒有
+// `.regex`／`.max`，寫反了 import 這個模組就 TypeError，整台 server 起不來）。
+// ⚠ `SEC` 的 `.refine(noNul)` 今天完全被 `SECTION_ID_RE` 蓋住、`FP` 的被 `/^[0-9a-f]{16}$/` 蓋住
+// （NUL 本來就過不了那兩個字元集），**沒有、也做不出會因為刪掉它而變紅的測試**——它們是刻意
+// 留的第二道，讓「NUL 一律 400」在字元集日後被放寬時仍成立。`MD` 的那道則是真的守著
+// （`note-edits.test.ts` 的 `markdown: "x" + NUL` 那個 case 只靠它）。
+const MD = z.string().max(262_144).refine(noNul);
+const FP = z.string().regex(/^[0-9a-f]{16}$/).refine(noNul);
+const SEC = z.string().max(64).regex(SECTION_ID_RE).refine(noNul);
+
+// 建立時 title 允許省略（DB 端有 default "Untitled"），但若有帶就不可為空字串——
+// 與 PATCH 的 title 驗證同一套規則，避免「傳空字串把標題清空」這種語意混淆的落地方式。
+// ⚠ 行為變更（對既有呼叫端）：#106 把這個 schema 從 z.object 的預設 strip 改成 `.strict()`，
+// 所以「多帶未知欄位」從**靜默忽略**變成 400 invalid_body。刻意的：`content` 一旦上線，
+// 打錯成 `contents`／`body` 的請求靜默建出一篇空筆記，比直接回 400 難除錯得多；也與兩條
+// 新路由（不變量 S 要求 `.strict()`）一致。已寫進 docs/api.md 與 CHANGELOG 的 Changed。
+// ⚠ `title` 也補上 `.refine(noNul)`：這是**既有的洞**，不是新開的——今天 `title` 只有 `.min(1)`，
+// 含 U+0000 的標題會一路寫進 pg 的 text 欄位，pg 直接拒收（`22021`），錯誤逃到全域
+// errorHandler → 500。既然正在改這一行就順手拉進不變量 S（行為只從 500 變成正常的 400）。
+// `PATCH /api/notes/:id` 的 `updateBodySchema.title` 有同一個洞，**本棒刻意不改**（不在觸及面上）。
+// `.refine` 排在 `.min(1)` 之後（ZodEffects 上沒有 `.min`）。
+const createBodySchema = z.object({ title: z.string().min(1).refine(noNul).optional(), content: MD.optional() }).strict();
+
+// `POST /api/notes/:id/edits` 的 body（spec §5）：`op` 決定其餘欄位，逐格 `.strict()`。
+// `append` 的 `if_match` 是選配（spec M-7：不帶就跳過核對）；其餘四個 op 皆必填。
+const editBodySchema = z.discriminatedUnion("op", [
+  z.object({ op: z.literal("replace_all"), markdown: MD, if_match: FP }).strict(),
+  z.object({ op: z.literal("replace_section"), section_id: SEC, markdown: MD, if_match: FP }).strict(),
+  z.object({ op: z.literal("insert_after"), section_id: SEC, markdown: MD, if_match: FP }).strict(),
+  z.object({ op: z.literal("append"), markdown: MD, if_match: FP.optional() }).strict(),
+  z.object({ op: z.literal("delete_section"), section_id: SEC, if_match: FP }).strict(),
+]);
+
 // auto slug 的 UPDATE 撞唯一索引（真競態）重試上限（#122 spec §3a）：1..5 次重探測重發，
 // 第 6 次改用 `fallbackAutoSlug()`（untitled-<uuid8>）——再撞（~2^-32）就讓錯誤冒出去。
 const MAX_AUTO_SLUG_RETRIES = 5;
@@ -86,8 +130,15 @@ export interface NotesRouteDeps {
    */
   collab?: CollabServer;
   editing?: EditingRuntime;
-  /** `collabToken` 供 collab-token endpoint；`slugPatch` 供 PATCH 帶 slug 鍵（含 null——進 slug 分支即計，見四格註解）**與公開別名兩支（#122 PR3）**節流；`publicLink` 供 public-link 的 PUT/DELETE（#72，見各路由）；`contentRead` 供 #106 的內容端點。 */
-  limiters: { collabToken: FixedWindowLimiter; slugPatch: FixedWindowLimiter; publicLink: FixedWindowLimiter; contentRead: FixedWindowLimiter };
+  /** `collabToken` 供 collab-token endpoint；`slugPatch` 供 PATCH 帶 slug 鍵（含 null——進 slug 分支即計，見四格註解）**與公開別名兩支（#122 PR3）**節流；`publicLink` 供 public-link 的 PUT/DELETE（#72，見各路由）；`contentRead` 供 #106 的內容端點；`edit` 供 #106 的寫入端（`POST /:id/edits`、`POST /api/notes` 帶 `content`）。 */
+  limiters: { collabToken: FixedWindowLimiter; slugPatch: FixedWindowLimiter; publicLink: FixedWindowLimiter; contentRead: FixedWindowLimiter; edit: FixedWindowLimiter };
+  /** #106 寫入路徑的測試注入縫，透傳自 `AppDeps.editingTestHooks`（生產不注入＝零成本）。 */
+  editingTestHooks?: EditingTestHooks;
+  /**
+   * #106：`NoteWriteQueue.run` 的第三個引數（等待上限，毫秒），透傳自 `AppDeps.editingQueueWaitMs`。
+   * 未傳＝用佇列自己的預設（10 s）。整合測試把它壓到 50 ms 才驗得出 503 `server_busy`。
+   */
+  editingQueueWaitMs?: number;
   /** Task 5：`POST /api/notes/:id/links` 寫入函式的測試注入縫，透傳自 `AppDeps.linkSyncTestHooks`。 */
   linkSyncTestHooks?: WriteNoteLinksHooks;
   /**
@@ -112,6 +163,10 @@ export interface NotesRouteDeps {
 // `ownerHandle` 不在 notes 表上（#122）——各回填點自行帶入：JOIN users（list/:ref/
 // by-path）、`request.user.handle`（POST——建立者即 owner，spec A12）、returning 後
 // 補一次 SELECT users（PATCH——editor 改他人筆記時必須回 **owner 的** handle）。
+// #106 D6 的三欄同樣不在 `notes` 表的 owner JOIN 上：`editorHandle` 來自**另一個** users
+// 別名（`editor`，LEFT JOIN `last_edited_by`），與 `ownerHandle` 是不同的兩個人。各回填點
+// 見下：list 兩支 union、`noteWithOwnerSelection`（:ref／by-path）、POST 帶 content 重讀、
+// PATCH returning 後補查。
 interface NoteFields {
   id: string;
   title: string;
@@ -122,6 +177,9 @@ interface NoteFields {
   ownerHandle: string;
   createdAt: Date;
   updatedAt: Date;
+  lastEditedAt: Date | null;
+  lastEditedAgentLabel: string | null;
+  editorHandle: string | null;
 }
 
 function toNoteDto(note: NoteFields, role: Role): NoteDto {
@@ -136,8 +194,25 @@ function toNoteDto(note: NoteFields, role: Role): NoteDto {
     ownerHandle: note.ownerHandle,
     createdAt: note.createdAt.toISOString(),
     updatedAt: note.updatedAt.toISOString(),
+    // 四欄同進同出：`last_edited_at` 是 null 就整個 lastEdited 為 null。編輯者帳號被刪
+    // （FK `set null`）時 handle 落空 → 空字串（與 `read.ts` 的 `loadLastEdited` 同一形）。
+    lastEdited: note.lastEditedAt
+      ? { at: note.lastEditedAt.toISOString(), byHandle: note.editorHandle ?? "", agentLabel: note.lastEditedAgentLabel }
+      : null,
   };
 }
+
+/** `users` 的第二個別名：JOIN 的是**編輯者**（`notes.last_edited_by`），與 owner 那次 JOIN
+ * 同表不同人，不取別名 drizzle 產不出兩個 FROM 項。一律 LEFT JOIN——沒編輯過（欄位 null）
+ * 或編輯者帳號已刪（FK `set null`）時，那一列仍要出現在結果裡。 */
+const editor = alias(users, "editor");
+/** 三欄一組，`ownedSelect`／`sharedSelect`／`noteWithOwnerSelection` 共用同一份定義——union
+ * 兩支的 select shape 必須逐欄同形，抄兩次遲早分岔。 */
+const lastEditedSelection = {
+  lastEditedAt: notes.lastEditedAt,
+  lastEditedAgentLabel: notes.lastEditedAgentLabel,
+  editorHandle: editor.handle,
+};
 
 /**
  * Notes CRUD 路由——皆需認證（`authenticate` preHandler）。
@@ -150,11 +225,17 @@ function toNoteDto(note: NoteFields, role: Role): NoteDto {
  * （PATCH 需要 editor+，viewer 會落在這裡；DELETE 需要 owner，editor/viewer 會落在這裡）。
  */
 export function notesRoutes(deps: NotesRouteDeps) {
+  // #106：per-note 寫入佇列。同一篇筆記的兩個寫入若同時 fork 再各自合併，指紋判斷就失效，
+  // 所以同筆記串行。**建在 closure 頂端**：`POST /:id/edits`、`POST /api/notes` 帶 `content`
+  // 與 #137 的 `/revert` 共用同一個實例（不同實例＝沒有串行可言）。process-local。
+  const writeQueue = new NoteWriteQueue();
   return async function register(app: FastifyInstance): Promise<void> {
-    // #107 D2：這四條（POST /api/notes、GET /api/notes、GET /api/notes/:ref、#106 新增的
-    // GET /api/notes/:id/content）在 API token 的允許清單上，其餘 notes 路由維持
-    // cookie-only——尤其 collab-token 是 D8 明文不收 Bearer。challenge 省略＝等於
+    // #107 D2：這七條（POST /api/notes、GET /api/notes、GET /api/notes/:ref、#106 的
+    // GET /api/notes/:id/content、POST /api/notes/:id/edits、GET /api/notes/:id/edits 與
+    // POST /api/notes/:id/edits/:editId/revert）在 API token 的允許清單上，其餘 notes 路由
+    // 維持 cookie-only——尤其 collab-token 是 D8 明文不收 Bearer。challenge 省略＝等於
     // required；只有 /api/mcp 需要宣告比 required 更寬的集合。
+    // ⚠ 之後每新增一條收 Bearer 的 notes 路由，這段清單都要一起改（#136 的最終審查就是被這條抓到）。
     app.post("/api/notes", { preHandler: app.authenticateAny("notes:write") }, async (request, reply) => {
       const parsed = createBodySchema.safeParse(request.body ?? {});
       if (!parsed.success) {
@@ -165,10 +246,85 @@ export function notesRoutes(deps: NotesRouteDeps) {
       // title 未帶時完全不放進 values——讓 DB 的 default "Untitled" 生效，而不是應用層
       // 自己重複寫死同一個預設值字面量（唯一真相來源在 schema.ts）。
       const values = parsed.data.title === undefined ? { ownerId: userId } : { ownerId: userId, title: parsed.data.title };
+
+      // #106：`content` 的管線（spec §5 逐字）——「先在**空 scratch Y.Doc**＋mounted 編輯器上
+      // 解析驗證 → 建列 → 把**解析出的 block JSON** 套到真 fork」。解析在建列**之前**，所以
+      // 壞 content 一列都不會建；套用時傳 `blocks` 而非 `markdown`，同一份內容不會被 parse
+      // 與 wikilink 重綁兩次。
+      if (parsed.data.content !== undefined) {
+        // 沒有協作元件就沒有「內容」這回事（同內容端點的註冊閘門）——回 400，不建列。
+        if (!deps.collab || !deps.editing) return sendError(reply, 400, "invalid_body", "此部署不支援帶內容建立筆記");
+        const collab = deps.collab;
+        const editing = deps.editing;
+        // 節流排在 schema 驗證之後、**任何 mount 之前**。
+        if (!deps.limiters.edit.consume(userId)) return sendError(reply, 429, "too_many_requests", "寫入過於頻繁");
+        const candidates = await visibleNoteTitles(deps.db, userId);
+        const agentLabel = request.tokenId ? await tokenAgentLabel(deps.db, request.tokenId) : null;
+        // ⚠ `try { … } finally { s.close() }`（lease 不變量）；且**離開這個區塊之前不得再取得
+        // 第二個 lease**——`applyEdit` 自己會再開一次，所以它必須排在 close 之後。
+        const scratch = await EditorSession.open(editing, new Y.Doc());
+        let prepared: ReturnType<typeof parseMarkdownForNote>;
+        try {
+          prepared = parseMarkdownForNote(scratch.editor, parsed.data.content, candidates);
+        } finally {
+          scratch.close();
+        }
+        if ("error" in prepared) return sendError(reply, 400, prepared.error, "無法解析內容");
+        const [created] = await deps.db.insert(notes).values(values).returning();
+        const note = created!;
+        try {
+          const applyDeps = { db: deps.db, collab, editing, log: request.log, testHooks: deps.editingTestHooks };
+          const result = await writeQueue.run(
+            note.id,
+            () =>
+              applyEdit(applyDeps, {
+                noteId: note.id,
+                userId,
+                tokenId: request.tokenId ?? null,
+                agentLabel,
+                op: "replace_all",
+                sectionId: undefined,
+                markdown: undefined,
+                ifMatch: undefined,
+                candidates,
+                blocks: prepared.blocks,
+                unbound: prepared.unbound,
+              }),
+            deps.editingQueueWaitMs
+          );
+          if (!result.ok) throw new Error(`帶 content 建立筆記時套用失敗：${result.code}`);
+        } catch (err) {
+          // 內容套用失敗＝這篇筆記不該存在。best-effort 刪除（刪不掉只 warn，不要用第二個
+          // 錯誤蓋掉第一個），回 500。
+          request.log.error({ err, noteId: note.id }, "POST /api/notes 帶 content：套用內容失敗");
+          try {
+            await deps.db.delete(notes).where(eq(notes.id, note.id));
+          } catch (cleanupErr) {
+            request.log.warn({ err: cleanupErr, noteId: note.id }, "帶 content 建立失敗後清除筆記列失敗");
+          }
+          return sendError(reply, 500, "internal", "建立筆記失敗");
+        }
+        // Task 3：**重讀**這一列。`note` 是 insert 的 returning，四欄在那一刻還是 null，而
+        // 上面那次合併的 disconnect 已經落款了——直接回 `note` 會送出一個恆空的 `lastEdited`
+        // 的假答案（`note-last-edited.test.ts` 第二案的「帶 content → 與 DB 一致」釘住）。
+        const fresh = await loadNoteWithOwner(note.id);
+        // 落空＝回應組裝前這篇又被別的請求刪掉的競態（同 `loadNoteWithOwner` 註解）；內容
+        // 已經寫進去了，不能回 500——本 handler 上面那個 500（套用內容失敗）會 best-effort
+        // 刪掉剛建的列，重試安全，但這裡列還在、內容也還在，回 500 只會讓外部 AI 重試出
+        // 第二篇有內容的筆記，比回一個過期的 `lastEdited` 更糟。退回 insert 的 returning
+        // （與無 content 那條路徑同一形，`lastEdited` 因此為 null）：整份回應都在描述一篇
+        // 已不存在的筆記，最後編輯資訊不比標題或網址更假，而無 content 那條路徑本來就接受
+        // 這件事。**不要**改成路由自己組出落款值——落款的更新只警告不拋出，失敗時路由組出
+        // 來的值會是謊話，重讀至少誠實地回舊值。
+        return reply.code(201).send(toNoteDto(fresh ?? { ...note, ownerHandle: request.user!.handle, editorHandle: null }, "owner"));
+      }
+
       const [note] = await deps.db.insert(notes).values(values).returning();
 
       // ownerHandle 直接取 request.user（A12）：建立者即 owner，不必補查 users。
-      return reply.code(201).send(toNoteDto({ ...note, ownerHandle: request.user!.handle }, "owner"));
+      // `editorHandle` 恆為 null——這條路徑沒有內容、`last_edited_*` 四欄還是 insert 的預設值，
+      // `toNoteDto` 於是把 `lastEdited` 給 null（不必為了一個必然落空的 JOIN 多發一次查詢）。
+      return reply.code(201).send(toNoteDto({ ...note, ownerHandle: request.user!.handle, editorHandle: null }, "owner"));
     });
 
     app.get("/api/notes", { preHandler: app.authenticateAny("notes:read") }, async request => {
@@ -206,10 +362,12 @@ export function notesRoutes(deps: NotesRouteDeps) {
           ownerHandle: users.handle,
           createdAt: notes.createdAt,
           updatedAt: notes.updatedAt,
+          ...lastEditedSelection,
           role: sql<string>`'owner'`.as("role"),
         })
         .from(notes)
         .innerJoin(users, eq(users.id, notes.ownerId))
+        .leftJoin(editor, eq(editor.id, notes.lastEditedBy))
         .where(eq(notes.ownerId, userId));
 
       const sharedSelect = deps.db
@@ -223,11 +381,13 @@ export function notesRoutes(deps: NotesRouteDeps) {
           ownerHandle: users.handle,
           createdAt: notes.createdAt,
           updatedAt: notes.updatedAt,
+          ...lastEditedSelection,
           role: noteShares.role,
         })
         .from(notes)
         .innerJoin(noteShares, and(eq(noteShares.noteId, notes.id), eq(noteShares.userId, userId)))
         .innerJoin(users, eq(users.id, notes.ownerId))
+        .leftJoin(editor, eq(editor.id, notes.lastEditedBy))
         .where(ne(notes.ownerId, userId));
 
       // 次要排序鍵 id desc（M3）：updatedAt 精度不足以保證唯一序，未來若加分頁
@@ -248,6 +408,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
       ownerHandle: users.handle,
       createdAt: notes.createdAt,
       updatedAt: notes.updatedAt,
+      ...lastEditedSelection,
     };
 
     // 授權後的完整列讀取（GET :ref 用；by-path 首查即帶整列，不經這裡）：JOIN users 帶
@@ -259,6 +420,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
         .select(noteWithOwnerSelection)
         .from(notes)
         .innerJoin(users, eq(users.id, notes.ownerId))
+        .leftJoin(editor, eq(editor.id, notes.lastEditedBy))
         .where(eq(notes.id, noteId))
         .limit(1);
       return row;
@@ -287,6 +449,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
         .select(noteWithOwnerSelection)
         .from(notes)
         .innerJoin(users, eq(users.id, notes.ownerId))
+        .leftJoin(editor, eq(editor.id, notes.lastEditedBy))
         .where(and(eq(users.handle, handle), eq(notes.slug, slugParam)))
         .limit(1);
       let note = hit;
@@ -295,6 +458,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
           .select(noteWithOwnerSelection)
           .from(notes)
           .innerJoin(users, eq(users.id, notes.ownerId))
+          .leftJoin(editor, eq(editor.id, notes.lastEditedBy))
           .where(and(eq(users.handle, handle), eq(notes.prevSlug, slugParam)))
           .limit(2);
         if (prevHits.length !== 1) {
@@ -368,12 +532,142 @@ export function notesRoutes(deps: NotesRouteDeps) {
         if (!deps.limiters.contentRead.consume(userId)) return sendError(reply, 429, "too_many_requests", "讀取過於頻繁");
         const result = await readNoteContent({ db: deps.db, collab }, editing, id, q.data.section);
         if (result === "section_not_found") return sendError(reply, 404, "section_not_found", "找不到此段落");
-        // `lastEdited` 在 #136 恆為 null（欄位由 #137 的 migration 0010 建）；形狀先固定，
-        // 讓 client 不必為了 #137 再改一次回應解析。`reply.send` 本身不做型別檢查——`satisfies`
-        // 把 `read.ts` 的回傳形狀釘回 shared 的 DTO，形狀漂移（少一欄、多一欄）在編譯期就會炸，
-        // 不必等到執行期才被測試發現（m-5）。
-        const body = { ...result, lastEdited: null } satisfies NoteContentDto | NoteSectionDto;
+        // #137 起 `lastEdited` 是真值（整篇形與段落形都回，`note-content.test.ts` 兩行釘住）。
+        // `loadLastEdited` 是純 SELECT，不開直連——讀路徑零副作用的不變量照舊成立。
+        // `reply.send` 本身不做型別檢查——`satisfies` 把 `read.ts` 的回傳形狀釘回 shared 的 DTO，
+        // 形狀漂移（少一欄、多一欄）在編譯期就會炸，不必等到執行期才被測試發現（m-5）。
+        const body = { ...result, lastEdited: await loadLastEdited(deps.db, id) } satisfies NoteContentDto | NoteSectionDto;
         return reply.send(body);
+      });
+
+      /**
+       * `POST /api/notes/:id/edits`（spec §5／§6.1）——AI／API 的寫入端。
+       *
+       * 順序：格式（不變量 S）→ 角色 → 節流 → 候選集合／agent label → per-note 佇列 → `applyEdit`。
+       * 節流排在角色之後（`role === "none"` 的 404 與 viewer 的 403 都不啃桶），但**在任何
+       * mount／直連之前**——429 是拒絕案，不得留下任何落盤或紀錄。
+       *
+       * `bodyLimit` 262 144：超過由 fastify 丟 413，全域 errorHandler 的 `clientErrorCode`
+       * 映成 `content_too_large`（與 `MD` 的 `.max(262_144)` 是同一個數字：body 整體比單一欄位大，
+       * 所以真正的超長 markdown 會先撞 bodyLimit 的 413，而非 zod 的 400——兩者都是拒絕，不落盤）。
+       */
+      app.post("/api/notes/:id/edits", { preHandler: app.authenticateAny("notes:write"), bodyLimit: 262_144 }, async (request, reply) => {
+        const { id } = request.params as { id: string };
+        if (!UUID_RE.test(id)) return sendError(reply, 404, "not_found", "找不到此筆記");
+        const parsed = editBodySchema.safeParse(request.body ?? {});
+        if (!parsed.success) return sendError(reply, 400, "invalid_body", "請求格式錯誤");
+        const userId = request.user!.id;
+        const role = await resolveRole(deps.db, userId, id);
+        if (role === "none") return sendError(reply, 404, "not_found", "找不到此筆記");
+        if (role === "viewer") return sendError(reply, 403, "forbidden", "沒有編輯權限");
+        if (!deps.limiters.edit.consume(userId)) return sendError(reply, 429, "too_many_requests", "寫入過於頻繁");
+        const candidates = await visibleNoteTitles(deps.db, userId);
+        const agentLabel = request.tokenId ? await tokenAgentLabel(deps.db, request.tokenId) : null;
+        const applyDeps = { db: deps.db, collab, editing, log: request.log, testHooks: deps.editingTestHooks };
+        let result: ApplyResult;
+        try {
+          result = await writeQueue.run(
+            id,
+            () =>
+              applyEdit(applyDeps, {
+                noteId: id,
+                userId,
+                tokenId: request.tokenId ?? null,
+                agentLabel,
+                op: parsed.data.op,
+                sectionId: "section_id" in parsed.data ? parsed.data.section_id : undefined,
+                markdown: "markdown" in parsed.data ? parsed.data.markdown : undefined,
+                ifMatch: "if_match" in parsed.data ? parsed.data.if_match : undefined,
+                candidates,
+              }),
+            deps.editingQueueWaitMs
+          );
+        } catch (err) {
+          if (err instanceof QueueBusyError) return sendError(reply, 503, "server_busy", "筆記正在被寫入，請稍後再試");
+          throw err;
+        }
+        if (!result.ok) {
+          if (result.code === "fingerprint_mismatch") {
+            // 不在 transact 內、直連已 disconnect 之後（spec §5）。不帶 section → 不可能是
+            // "section_not_found"，但那個哨兵在回傳型別的 union 裡，不收窄的話 spread 一個字串
+            // 會靜默送出 {0:"s",1:"e",…}。
+            const current = await readNoteContent({ db: deps.db, collab }, editing, id);
+            if (current === "section_not_found") throw new Error("readNoteContent 未帶 section 卻回哨兵值");
+            const body = { ...current, lastEdited: await loadLastEdited(deps.db, id) } satisfies NoteContentDto | NoteSectionDto;
+            return reply.code(409).send({ error: { code: "fingerprint_mismatch", message: "內容已被修改" }, current: body });
+          }
+          return sendError(reply, result.code === "section_not_found" ? 404 : 400, result.code, "無法套用修改");
+        }
+        return reply.code(201).send({ editId: result.editId, fingerprint: result.fingerprint, outline: result.outline, unboundWikilinks: result.unboundWikilinks } satisfies NoteEditResultDto);
+      });
+
+      /**
+       * `GET /api/notes/:id/edits`（spec §5／#137）——AI 修改紀錄清單，新到舊，最多 `RETENTION` 筆。
+       *
+       * **讀路徑，零副作用**：`listEdits` 走 `read.ts` 的 `loadNoteDoc`（fork live doc 或解 DB 快照），
+       * 絕不開直連，也不會讓一份已卸載的文件重新載入（`note-revert.test.ts` 的 `documents.size` 釘住）。
+       * 順序與 `/content` 一致：格式 → 角色 → 節流（`CONTENT_READ_LIMIT`，桶 key＝裸 userId），
+       * 節流排在角色之後，`role === "none"` 的 404 因此**不啃桶**。
+       */
+      app.get("/api/notes/:id/edits", { preHandler: app.authenticateAny("notes:read") }, async (request, reply) => {
+        const { id } = request.params as { id: string };
+        // 同 `/content`：防禦縱深，不把「非法 uuid 不進 SQL」寄託在 `resolveRole` 的私有選擇上。
+        if (!UUID_RE.test(id)) return sendError(reply, 404, "not_found", "找不到此筆記");
+        const userId = request.user!.id;
+        const role = await resolveRole(deps.db, userId, id);
+        if (role === "none") return sendError(reply, 404, "not_found", "找不到此筆記");
+        if (!deps.limiters.contentRead.consume(userId)) return sendError(reply, 429, "too_many_requests", "讀取過於頻繁");
+        const edits = await listEdits({ db: deps.db, collab }, id) satisfies NoteEditDto[];
+        return reply.send({ edits });
+      });
+
+      /**
+       * `POST /api/notes/:id/edits/:editId/revert`（spec §5／#137）——撤回一筆 AI 修改。
+       *
+       * 順序：格式（不變量 S）→ 角色 → 節流 → agent label → per-note 佇列（與 `/edits` 寫入端
+       * **同一顆** `writeQueue`）→ `revertEdit`。本端點**沒有 body**，所以不變量 S 落在路徑參數：
+       * `editId` 非 uuid（含 NUL）一律 404 `not_found`，不讓字串進 SQL（pg 對 `uuid` 欄位的型別
+       * 轉換錯誤會逃到全域 errorHandler 變成 500）。
+       *
+       * 三種拒絕：`not_found`（查無此列，或該列屬於別篇筆記）→ 404；`already_reverted`（已撤回過，
+       * 或它本身就是撤回列）→ 409；`stale`（落點已被改掉）→ 409 並附 `current`（重跑讀路徑）。
+       */
+      app.post("/api/notes/:id/edits/:editId/revert", { preHandler: app.authenticateAny("notes:write") }, async (request, reply) => {
+        const { id, editId } = request.params as { id: string; editId: string };
+        if (!UUID_RE.test(id)) return sendError(reply, 404, "not_found", "找不到此筆記");
+        if (!UUID_RE.test(editId)) return sendError(reply, 404, "not_found", "找不到此修改紀錄");
+        const userId = request.user!.id;
+        const role = await resolveRole(deps.db, userId, id);
+        if (role === "none") return sendError(reply, 404, "not_found", "找不到此筆記");
+        if (role === "viewer") return sendError(reply, 403, "forbidden", "沒有編輯權限");
+        if (!deps.limiters.edit.consume(userId)) return sendError(reply, 429, "too_many_requests", "寫入過於頻繁");
+        const agentLabel = request.tokenId ? await tokenAgentLabel(deps.db, request.tokenId) : null;
+        const applyDeps = { db: deps.db, collab, editing, log: request.log, testHooks: deps.editingTestHooks };
+        let result: RevertResult;
+        try {
+          result = await writeQueue.run(
+            id,
+            () => revertEdit(applyDeps, { noteId: id, editId, userId, tokenId: request.tokenId ?? null, agentLabel }),
+            deps.editingQueueWaitMs
+          );
+        } catch (err) {
+          if (err instanceof QueueBusyError) return sendError(reply, 503, "server_busy", "筆記正在被寫入，請稍後再試");
+          throw err;
+        }
+        if (!result.ok) {
+          if (result.code === "stale") {
+            // 不在 transact 內、直連已 disconnect 之後（同 `/edits` 的 409 形）。不帶 section →
+            // 不可能是 "section_not_found"，但那個哨兵在回傳型別的 union 裡，不收窄的話 spread
+            // 一個字串會靜默送出 {0:"s",1:"e",…}。
+            const current = await readNoteContent({ db: deps.db, collab }, editing, id);
+            if (current === "section_not_found") throw new Error("readNoteContent 未帶 section 卻回哨兵值");
+            const body = { ...current, lastEdited: await loadLastEdited(deps.db, id) } satisfies NoteContentDto | NoteSectionDto;
+            return reply.code(409).send({ error: { code: "stale", message: "這筆修改之後筆記又被改過，已無法撤回" }, current: body });
+          }
+          if (result.code === "already_reverted") return sendError(reply, 409, "already_reverted", "這筆修改已經撤回過了");
+          return sendError(reply, 404, "not_found", "找不到此修改紀錄");
+        }
+        return reply.code(201).send({ editId: result.editId, fingerprint: result.fingerprint, outline: result.outline });
       });
     }
 
@@ -385,6 +679,17 @@ export function notesRoutes(deps: NotesRouteDeps) {
       const [row] = await deps.db.select({ handle: users.handle }).from(users).where(eq(users.id, ownerId)).limit(1);
       if (!row) throw new Error(`notes.owner_id ${ownerId} 查無對應 users 列（FK 不變量被打破）`);
       return row.handle;
+    }
+
+    /**
+     * #106 D6：PATCH 的 `.returning()` 同樣拿不到 `editor.handle`——比照上面的 `ownerHandleOf`
+     * 補讀一次。與 owner 那支的差別在**落空是正常的**（沒編輯過＝`last_edited_by` 為 null；
+     * 編輯者帳號被刪＝FK `set null`），所以回 `null` 而不是 throw。
+     */
+    async function editorHandleOf(editorId: string | null): Promise<string | null> {
+      if (!editorId) return null;
+      const [row] = await deps.db.select({ handle: users.handle }).from(users).where(eq(users.id, editorId)).limit(1);
+      return row?.handle ?? null;
     }
 
     /**
@@ -490,7 +795,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
         if (!updated) {
           return sendError(reply, 404, "not_found", "找不到此筆記");
         }
-        return toNoteDto({ ...updated, ownerHandle: await ownerHandleOf(updated.ownerId) }, role);
+        return toNoteDto({ ...updated, ownerHandle: await ownerHandleOf(updated.ownerId), editorHandle: await editorHandleOf(updated.lastEditedBy) }, role);
       }
 
       // 格 2–4：auto 路徑。clearingSlug＝格 3/4（body 帶 slug:null）；否則格 2（title-only）。
@@ -570,7 +875,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
       if (!updated) {
         return sendError(reply, 404, "not_found", "找不到此筆記");
       }
-      return toNoteDto({ ...updated, ownerHandle: await ownerHandleOf(updated.ownerId) }, role);
+      return toNoteDto({ ...updated, ownerHandle: await ownerHandleOf(updated.ownerId), editorHandle: await editorHandleOf(updated.lastEditedBy) }, role);
     });
 
     /**
@@ -1042,4 +1347,11 @@ export function notesRoutes(deps: NotesRouteDeps) {
       return reply.code(204).send();
     });
   };
+}
+
+/** #138 會以 auth/agent-label.ts 的 currentAgentLabel（吃 api_tokens.agent_label 覆寫）取代；
+ * 在那之前只有派生值。派生規則本身在 auth/agent-label.ts，不在這裡複製一份。 */
+async function tokenAgentLabel(db: Db, tokenId: string): Promise<string | null> {
+  const [row] = await db.select({ name: apiTokens.name }).from(apiTokens).where(eq(apiTokens.id, tokenId)).limit(1);
+  return row ? deriveAgentLabel(row.name) : null;
 }

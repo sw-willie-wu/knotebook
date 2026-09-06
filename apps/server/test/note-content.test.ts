@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import * as Y from "yjs";
 import { SESSION_COOKIE, YDOC_FRAGMENT } from "@knotebook/shared";
 import { signSession } from "../src/auth/session.js";
-import { noteStateBackups, noteStates } from "../src/db/schema.js";
+import { noteStateBackups, notes, noteStates } from "../src/db/schema.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 import { loadNoteDoc } from "../src/notes/editing/read.js";
 import { buildCollabTestApp, buildTestApp, testConfig } from "./helpers.js";
@@ -131,7 +131,10 @@ describe("GET /api/notes/:id/content", () => {
     // 段落形不帶整篇 outline，同樣不該帶整篇 fingerprint／假的 lastEdited——spec §5 的鍵只有
     // `section`（見上）與 `lastEdited`。
     expect(sec.fingerprint).toBeUndefined();
-    expect(sec.lastEdited).toBeNull();
+    // #137：`lastEdited` 已是真值，不能再斷言恆 null（這篇剛被人編輯過，落盤一落地就變人形落款
+    // ——「跑超過兩秒就紅」）。這裡守的仍是同一件事：段落形的頂層鍵**只有** section 與 lastEdited，
+    // 不得混進整篇的 fingerprint／outline。值的正確性由本案結尾（落盤已是確定事件）那段驗。
+    expect(Object.keys(sec).sort()).toEqual(["lastEdited", "section"]);
     // 零 block 的 `_top`（文件以 heading 開頭）：markdown 是空字串，不是 mount 正規化出來的 "\n"
     const top = (await getContent(ctx.app, note.id, token, "_top")).json();
     expect(top.section).toMatchObject({ id: "_top", markdown: "", chars: 0 });
@@ -139,6 +142,16 @@ describe("GET /api/notes/:id/content", () => {
     expect(missing.statusCode).toBe(404);
     expect(missing.json().error.code).toBe("section_not_found");
     client.disconnect();
+    await waitFor("落盤並卸載", 10_000, () => ctx.collab.hocuspocus.documents.size === 0);
+    // 落盤之後 last_edited_* 已是人形落款＝確定事件。段落形與整篇形都要回真值：
+    // byHandle 是那位編輯者、agentLabel 為 null（這篇沒有 AI 寫過）。
+    // ⚠ handle **不能硬寫成 `"a"`**（那是 email 的 local part）：`ctx.createUser` 不帶 handle，
+    // 該欄吃 DB default（`'user-' || substr(gen_random_uuid()::text, 1, 8)`）。取真值再比對，
+    // **不要退化成 `expect.any(String)`**——這一格守的正是「落款指向的是這位編輯者」。
+    const ownerHandle = (await ctx.app.inject({ method: "GET", url: `/api/notes/${note.id}`, headers: bearer(token) })).json().ownerHandle;
+    const settledSec = (await getContent(ctx.app, note.id, token, secId)).json();
+    expect(settledSec.lastEdited).toMatchObject({ byHandle: ownerHandle, agentLabel: null });
+    expect((await getContent(ctx.app, note.id, token)).json().lastEdited).toMatchObject({ byHandle: ownerHandle, agentLabel: null });
   });
 
   it("沒人在線讀 DB 快照；從未開過的筆記回空文件形，連讀兩次指紋相同", async () => {
@@ -159,7 +172,7 @@ describe("GET /api/notes/:id/content", () => {
     expect((await getContent(ctx.app, note.id, token)).json().markdown).toContain("hello");
   });
 
-  it("讀取假綠守衛：連讀 20 次後 note_states 不變、無 backup 新列、documents.size 不變（last_edited_* 的斷言歸 #137——欄位由 migration 0010 建）", async () => {
+  it("讀取假綠守衛：連讀 20 次後 note_states 不變、無 backup 新列、documents.size 不變、notes.last_edited_* 四欄不變", async () => {
     const ctx = await buildCollabTestApp();
     const u = await ctx.createUser({ email: "a@example.com", password: PASSWORD });
     const note = await ctx.createNote(u.id);
@@ -170,6 +183,7 @@ describe("GET /api/notes/:id/content", () => {
     await waitFor("落盤並卸載", 10_000, () => ctx.collab.hocuspocus.documents.size === 0);
     const before = (await ctx.db.select().from(noteStates).where(eq(noteStates.noteId, note.id)))[0]!;
     const backups = (await ctx.db.select().from(noteStateBackups).where(eq(noteStateBackups.noteId, note.id))).length;
+    const lastEditedBefore = (await ctx.db.select().from(notes).where(eq(notes.id, note.id)))[0]!;
     const { token } = await seedTokenForUser(ctx.db, u.id);
     for (let i = 0; i < 20; i += 1) expect((await getContent(ctx.app, note.id, token)).statusCode).toBe(200);
     const after = (await ctx.db.select().from(noteStates).where(eq(noteStates.noteId, note.id)))[0]!;
@@ -177,6 +191,18 @@ describe("GET /api/notes/:id/content", () => {
     expect(after.updatedAt.getTime()).toBe(before.updatedAt.getTime());
     expect((await ctx.db.select().from(noteStateBackups).where(eq(noteStateBackups.noteId, note.id))).length).toBe(backups);
     expect(ctx.collab.hocuspocus.documents.size).toBe(0);
+    const lastEditedAfter = (await ctx.db.select().from(notes).where(eq(notes.id, note.id)))[0]!;
+    expect({
+      lastEditedAt: lastEditedAfter.lastEditedAt?.getTime() ?? null,
+      lastEditedBy: lastEditedAfter.lastEditedBy,
+      lastEditedTokenId: lastEditedAfter.lastEditedTokenId,
+      lastEditedAgentLabel: lastEditedAfter.lastEditedAgentLabel,
+    }).toEqual({
+      lastEditedAt: lastEditedBefore.lastEditedAt?.getTime() ?? null,
+      lastEditedBy: lastEditedBefore.lastEditedBy,
+      lastEditedTokenId: lastEditedBefore.lastEditedTokenId,
+      lastEditedAgentLabel: lastEditedBefore.lastEditedAgentLabel,
+    });
   });
 
   // 讀路徑「零副作用」的核心：live doc 只被 fork，絕不交出本尊。只看 HTTP 回應驗不到這條
