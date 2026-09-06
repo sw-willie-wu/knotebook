@@ -29,7 +29,7 @@ import { mcpRoutes } from "./routes/mcp.js";
 import { apiTokensRoutes } from "./routes/api-tokens.js";
 import { drainWithCap } from "./http/drain.js";
 import { sendError } from "./http/errors.js";
-import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_WRITE_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
+import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_RENAME_LIMIT, TOKEN_WRITE_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
 import { FORM_EXEMPT_ROUTES, isOauthScopedPath, sendOauthError } from "./http/oauth-errors.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { oauthMetadataRoutes } from "./routes/oauth-metadata.js";
@@ -40,6 +40,7 @@ import type { AiRuntime } from "./ai/runtime.js";
 import { createOidcRuntime, type OidcRuntime } from "./auth/oidc-client.js";
 import { createEditingRuntime, type EditingRuntime } from "./notes/editing/runtime.js";
 import type { EditingTestHooks } from "./notes/editing/apply.js";
+import { PresenceRegistry, type PresenceOptions } from "./notes/editing/presence.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -119,6 +120,8 @@ export interface AppDeps {
     bearerMiss: FixedWindowLimiter;
     /** #107：`POST /api/auth/tokens`（key=userId）。 */
     patCreate: FixedWindowLimiter;
+    /** #106 D7：`PATCH /api/auth/tokens/:id` 改 agent 名稱（key=userId，見 `TOKEN_RENAME_LIMIT`）。 */
+    tokenRename: FixedWindowLimiter;
     /** #132：DCR／authorize／token 三個無認證端點（key=ip）。 */
     dcr: FixedWindowLimiter;
     authorize: FixedWindowLimiter;
@@ -140,6 +143,14 @@ export interface AppDeps {
    * 否則那一案要等十秒。透傳進 `NotesRouteDeps.editingQueueWaitMs`。
    */
   editingQueueWaitMs?: number;
+  /**
+   * #138：AI presence 註冊表。**選配**——未傳時 `buildApp` 自己建一個（掛在 `deps.collab`
+   * 的 hocuspocus 上；沒有 collab 就是全 no-op 的空殼）。整支的計時器由 `onClose` 的
+   * `stopAll()` 收掉。
+   */
+  presence?: PresenceRegistry;
+  /** #138：`buildApp` 自建 `PresenceRegistry` 時的參數（整合測試注入 `idleMs`／`heartbeatMs`）。 */
+  presenceOptions?: PresenceOptions;
   /**
    * Task 5：`POST /api/notes/:id/links` 寫入函式（`notes/links.ts` 的 `writeNoteLinks`）的
    * 測試注入縫，透傳進 `NotesRouteDeps`。**選配**：production／未覆寫時整段為
@@ -566,6 +577,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       tokenWrite: new FixedWindowLimiter(TOKEN_WRITE_LIMIT),
       bearerMiss: new FixedWindowLimiter(BEARER_MISS_LIMIT),
       patCreate: new FixedWindowLimiter(PAT_CREATE_LIMIT),
+      tokenRename: new FixedWindowLimiter(TOKEN_RENAME_LIMIT),
       dcr: new FixedWindowLimiter(DCR_LIMIT),
       authorize: new FixedWindowLimiter(AUTHORIZE_LIMIT),
       tokenEndpoint: new FixedWindowLimiter(TOKEN_ENDPOINT_LIMIT),
@@ -595,7 +607,9 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     authRoutes({ db: deps.db, config: deps.config, gate: deps.gate, throttle: deps.throttle, collabHooks: deps.collabHooks })
   );
   // #107：PAT 管理端點——cookie 專用（token 不能簽發或撤銷 token），見 routes/api-tokens.ts 檔頭。
-  void app.register(apiTokensRoutes({ db: deps.db, limiters: { patCreate: limiters.patCreate } }));
+  void app.register(
+    apiTokensRoutes({ db: deps.db, limiters: { patCreate: limiters.patCreate, tokenRename: limiters.tokenRename } })
+  );
   // #132：同意頁的站內端點（cookie session、站內錯誤形），與 RFC 形的 /oauth 分開。
   void app.register(oauthApiRoutes({ db: deps.db, config: deps.config }));
 
@@ -617,6 +631,15 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   // 兩個依賴都在、要嘛整條不註冊（見 `notesRoutes` 內的註冊閘門）。
   const editing = deps.collab ? (deps.editing ?? createEditingRuntime(deps.config)) : undefined;
 
+  // #138：AI presence。沒有 collab 時建的是全 no-op 空殼（每個方法都會在 `hocuspocus`
+  // 為 undefined 時立刻 return），所以這裡不必再分支。
+  // ⚠ `onClose` 的 `stopAll()` 不得省：每個 entry 都掛著一顆 `setInterval`，不收掉會讓
+  // 測試 run 在 app.close() 之後繼續掛著 handle 不結束。
+  const presence = deps.presence ?? new PresenceRegistry(deps.collab?.hocuspocus, deps.presenceOptions);
+  app.addHook("onClose", async () => {
+    presence.stopAll();
+  });
+
   void app.register(
     notesRoutes({
       db: deps.db,
@@ -627,6 +650,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       limiters,
       editingTestHooks: deps.editingTestHooks,
       editingQueueWaitMs: deps.editingQueueWaitMs,
+      presence,
       linkSyncTestHooks: deps.linkSyncTestHooks,
       slugUpdateTestHook: deps.slugUpdateTestHook,
       uploadsDir: deps.uploadsDir,

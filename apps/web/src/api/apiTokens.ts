@@ -35,6 +35,25 @@ export function useCreateApiToken() {
   });
 }
 
+/**
+ * `PATCH /api/auth/tokens/:id`（#106 D7）——改這個憑證的 agent 顯示名稱。
+ * `agentLabel: null`＝**把欄位清成 NULL**，回應仍是 server 端 `deriveAgentLabel(name)`
+ * 的派生值（不是空字串）。
+ */
+export function useRenameApiToken() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, agentLabel }: { id: string; agentLabel: string | null }) =>
+      api<ApiTokenDto>(`/api/auth/tokens/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ agentLabel }),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: API_TOKENS_QUERY_KEY });
+    },
+  });
+}
+
 /** `DELETE /api/auth/tokens/:id`（D9：撤銷＝硬刪，立即失效）。 */
 export function useRevokeApiToken() {
   const queryClient = useQueryClient();

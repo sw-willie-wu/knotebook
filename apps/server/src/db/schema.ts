@@ -358,7 +358,8 @@ export const apiTokens = pgTable(
     accessExpiresAt: timestamp("access_expires_at", { withTimezone: true }),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
     // #106（migration 0010）：這支 token 在筆記落款上顯示的 agent 名。NULL＝沒有覆寫值，
-    // 讀時由 `deriveAgentLabel(name)` 派生（`auth/agent-label.ts`；#138 才會寫入這一欄）。
+    // 讀時由 `deriveAgentLabel(name)` 派生（現值運算式＝`auth/agent-label.ts` 的 `agentLabelOf`）；
+    // 寫入這一欄的唯一入口是 `PATCH /api/auth/tokens/:id`（#138），OAuth 換發時由 I7 搬過去。
     // 形狀 CHECK 與派生規則的字元集一致——這欄會被複製進 `note_ai_edits.agent_label` 與
     // `notes.last_edited_agent_label`，在 DB 端擋住形狀，繞過端點的寫入也騙不進來。
     agentLabel: text("agent_label"),

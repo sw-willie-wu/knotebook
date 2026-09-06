@@ -97,8 +97,11 @@
     "readOnly": "唯讀",
     "menu": {
       "label": "更多",
+      "aiEdits": "AI 修改紀錄",
       "delete": "刪除筆記"
     },
+    "lastEdited": "{{who}} · {{when}}",
+    "lastEditedTitle": "最後編輯於 {{when}}——點一下看改了什麼",
     "transferDataUrl": "不支援直接貼上內嵌圖片，請改用拖曳圖片檔案。",
     "transferSaveFirst": "無法直接插入此項目，請先另存為檔案再拖曳進來。",
     "transferNonImage": "這裡目前只能插入圖片檔案。",
@@ -242,7 +245,7 @@
       "handleSave": "儲存使用者名",
       "handleSaved": "使用者名已更新。",
       "apiTokensTitle": "API token",
-      "apiTokensDescription": "讓腳本或 AI 助理以你的身分存取筆記。token 能列出與建立筆記（筆記內容目前還無法經 API 讀取），請比照密碼保管。改密碼並不會讓既有 token 失效，要停用請在這裡撤銷。",
+      "apiTokensDescription": "讓腳本或 AI 助理以你的身分存取筆記。token 能列出與建立筆記，也能讀寫筆記內容，請比照密碼保管。改密碼並不會讓既有 token 失效，要停用請在這裡撤銷。",
       "apiTokensCleanupHint": "30 天未使用的 OAuth 應用程式，以及過期超過 30 天的 token，會在下一次有人建立 token 或授權應用程式時自動移除。",
       "apiTokensEmpty": "尚未建立任何 token。",
       "apiTokensCreate": "建立 API token",
@@ -276,6 +279,9 @@
       "apiTokensRevokeTitle": "要撤銷這個 token 嗎？",
       "apiTokensRevokeDescription": "所有正在使用「{{name}}」的程式會立即失效，且無法復原。",
       "apiTokensRevokeConfirm": "撤銷 token",
+      "apiTokensAgentLabel": "agent 名稱",
+      "apiTokensRename": "更改 agent 名稱",
+      "apiTokensRenameHint": "會顯示在 AI 的名牌與修改紀錄上。只能使用英數字、句點、底線與連字號（最多 32 字元）。清空則回到預設值。按取消可放棄這次修改。",
       "handleInvalid": "1–32 字元：小寫英數與連字號；連字號不可在頭尾或連續出現。"
     },
     "ai": {
@@ -358,6 +364,14 @@
       "revertStale": "此變更已無法還原——內容可能已被改動。",
       "rebindNotice": "結果中有部分 [[連結]] 無法自動連結。"
     }
+  },
+  "aiEdits": {
+    "title": "這篇筆記的 AI 修改",
+    "empty": "尚無 AI 修改紀錄。",
+    "revert": "撤回",
+    "reverted": "已撤回過",
+    "stale": "無法撤回",
+    "revertOk": "撤回完成。"
   },
   "public": {
     "readonly": "唯讀",

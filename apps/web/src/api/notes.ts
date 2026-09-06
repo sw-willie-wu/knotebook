@@ -1,6 +1,23 @@
-import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type QueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type { BacklinkDto, NoteDto } from "@knotebook/shared";
 import { api } from "./client";
+
+/**
+ * 筆記在別處（AI 經 API 寫入、撤回一筆修改…）被改動之後要失效的三把 key（#106 spec §10）：
+ * id 錨定的常駐層、目前 ref 的解析層、by-path 解析層。
+ *
+ * ⚠ `invalidateQueries(["note", id])` 是**前綴**比對，**不涵蓋** `["note", slug]`——
+ * 兩者是同一層陣列的不同元素，所以目前這條路由用的 ref 要另外傳進來。
+ */
+export function invalidateNoteQueries(
+  queryClient: QueryClient,
+  note: Pick<NoteDto, "id" | "ownerHandle" | "slug">,
+  ref: string,
+): void {
+  void queryClient.invalidateQueries({ queryKey: ["note", note.id] });
+  if (ref !== note.id) void queryClient.invalidateQueries({ queryKey: ["note", ref] });
+  void queryClient.invalidateQueries({ queryKey: ["note-by-path", note.ownerHandle, note.slug] });
+}
 
 export function useNotes(): UseQueryResult<NoteDto[]> {
   return useQuery({

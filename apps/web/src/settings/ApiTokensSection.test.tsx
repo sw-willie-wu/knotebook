@@ -30,6 +30,7 @@ const PAT_ROW: ApiTokenDto = {
   id: "t-1",
   kind: "pat",
   name: "Script",
+  agentLabel: "script",
   scope: "notes:read notes:write",
   createdAt: "2026-09-01T00:00:00.000Z",
   lastUsedAt: null,
@@ -40,6 +41,7 @@ const OAUTH_ROW: ApiTokenDto = {
   id: "t-2",
   kind: "oauth",
   name: "Claude Code",
+  agentLabel: "claude",
   scope: "notes:read notes:write",
   createdAt: "2026-09-01T00:00:00.000Z",
   lastUsedAt: "2026-09-02T00:00:00.000Z",
@@ -226,6 +228,64 @@ describe("ApiTokensSection", () => {
     await waitFor(() => {
       expect(calls.filter(c => c.url === "/api/auth/tokens" && c.method === "GET").length).toBeGreaterThan(1);
     });
+  });
+
+  // #138 D7：agent 名稱（AI 名牌與修改紀錄上顯示的短名）。`agentLabel` 恆非 null——
+  // 欄位為 NULL 時 server 回派生值，所以「清空」＝送 null 讓它退回派生值，不是空字串。
+  it("agent 名稱：顯示現值 → 改名送 PATCH {agentLabel} → 清空送 {agentLabel: null} 並顯示回傳的派生值", async () => {
+    // 清單就地更新，重抓時才看得到 PATCH 之後的新值。⚠ GET 每次都回**新複本**：
+    // `useApiTokens` 直接回 body 裡那個陣列，回同一個實例的話 react-query 的結構共享
+    // 會判定「沒變」而不 re-render（真實 server 每次都是新解析出來的物件）。
+    const rows: ApiTokenDto[] = [{ ...PAT_ROW }, { ...OAUTH_ROW }];
+    const { calls } = renderSettings(PASSWORD_USER, [], (url, method, init) => {
+      if (url === "/api/auth/tokens" && method === "GET") {
+        return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ tokens: rows.map(r => ({ ...r })) }) });
+      }
+      if (url !== `/api/auth/tokens/${PAT_ROW.id}` || method !== "PATCH") return null;
+      const body = JSON.parse(String(init?.body)) as { agentLabel: string | null };
+      // server 端：欄位存 null → 回應仍是 `deriveAgentLabel(name)` 的派生值（這裡就是 "script"）。
+      rows[0] = { ...rows[0]!, agentLabel: body.agentLabel ?? "script" };
+      return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(rows[0]) });
+    });
+
+    // 兩列各自顯示自己的 agentLabel（fixture 的值是 "script" / "claude"）。
+    expect(await screen.findByText("(script)")).toBeInTheDocument();
+    expect(screen.getByText("(claude)")).toBeInTheDocument();
+
+    const patLi = screen.getByText("Script").closest("li")!;
+    fireEvent.click(within(patLi).getByRole("button", { name: i18n.t("settings.account.apiTokensRename") }));
+    const input = within(patLi).getByLabelText(i18n.t("settings.account.apiTokensAgentLabel"));
+    expect(input).toHaveValue("script");
+    expect(within(patLi).getByText(i18n.t("settings.account.apiTokensRenameHint"))).toBeInTheDocument();
+
+    fireEvent.change(input, { target: { value: "bot" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(screen.getByText("(bot)")).toBeInTheDocument());
+    expect(calls.find(c => c.method === "PATCH")?.body).toEqual({ agentLabel: "bot" });
+
+    // 清空 → null → 回派生值 "script"
+    fireEvent.click(within(patLi).getByRole("button", { name: i18n.t("settings.account.apiTokensRename") }));
+    const again = within(patLi).getByLabelText(i18n.t("settings.account.apiTokensAgentLabel"));
+    fireEvent.change(again, { target: { value: "" } });
+    fireEvent.keyDown(again, { key: "Enter" });
+    await waitFor(() => expect(screen.getByText("(script)")).toBeInTheDocument());
+    expect(calls.filter(c => c.method === "PATCH").at(-1)?.body).toEqual({ agentLabel: null });
+  });
+
+  // review r1 I-1（測過的探針）：改名輸入框上按 Esc 不會「取消改名、留在設定頁」——
+  // Radix 在 document 的 capture 階段先吃掉 Escape，整個設定 dialog 被關掉。這裡釘住
+  // 的是「Esc 真正會發生什麼」，不是我們希望它做什麼；要改必須動 SettingsModal 的
+  // DialogContent（不在本棒範圍），詳見 AgentLabelField 上方的檔頭註解。
+  it("agent 名稱：改名輸入框按 Esc 不是取消——會把整個設定 dialog 關掉", async () => {
+    renderSettings(PASSWORD_USER, [PAT_ROW]);
+
+    const patLi = (await screen.findByText("Script")).closest("li")!;
+    fireEvent.click(within(patLi).getByRole("button", { name: i18n.t("settings.account.apiTokensRename") }));
+    const input = within(patLi).getByLabelText(i18n.t("settings.account.apiTokensAgentLabel"));
+
+    expect(screen.queryAllByRole("dialog")).toHaveLength(1); // 設定 dialog 本身
+    fireEvent.keyDown(input, { key: "Escape" });
+    await waitFor(() => expect(screen.queryAllByRole("dialog")).toHaveLength(0));
   });
 
   it("明文畫面按 Esc 不會關閉（誤觸會讓 token 報銷）；按 Done 關閉後重開是乾淨表單", async () => {

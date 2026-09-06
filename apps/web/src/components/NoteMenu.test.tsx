@@ -45,14 +45,25 @@ function openMenu(): void {
   fireEvent.pointerDown(screen.getByRole("button", { name: "More" }), { button: 0 });
 }
 
-function renderMenu(note: NoteDto, state: CollabState, leavingRef: { current: boolean }, fetchImpl?: typeof fetch) {
+// `onOpenEdits`（#138）在 `NoteMenuProps` 上是必填——這裡給一個 no-op 預設值，只有
+// 真的要觀測它的那一案才傳。
+function renderMenu(
+  note: NoteDto,
+  state: CollabState,
+  leavingRef: { current: boolean },
+  fetchImpl?: typeof fetch,
+  onOpenEdits: () => void = () => {},
+) {
   vi.stubGlobal("fetch", fetchImpl ?? vi.fn(() => Promise.reject(new Error("unexpected fetch"))));
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={["/notes/my-note"]}>
         <Routes>
-          <Route path="/notes/:ref" element={<NoteMenu note={note} state={state} leavingRef={leavingRef} />} />
+          <Route
+            path="/notes/:ref"
+            element={<NoteMenu note={note} state={state} leavingRef={leavingRef} onOpenEdits={onOpenEdits} />}
+          />
           <Route path="/" element={<div>home landing</div>} />
         </Routes>
       </MemoryRouter>
@@ -77,6 +88,20 @@ describe("NoteMenu（⋮ 選單，spec D.4）", () => {
 
     expect(screen.getByRole("menuitem", { name: /Copy link/ })).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: /Delete note/ })).toBeInTheDocument();
+  });
+
+  // #138：AI 修改紀錄項。狀態住在 `NotePage`（兩個觸發點共用），選單只負責關自己再
+  // 通知父層——`onSelect` 的三步形與刪除項逐字同形，見 `NoteMenu.tsx` 檔頭的 focus trap 說明。
+  // ⚠ 開選單一律用 `openMenu()`（pointerDown）：Radix 的 trigger 只掛 onPointerDown，
+  // 純 `fireEvent.click` 開不了（本檔檔頭已記載）。
+  it("⋮ → AI 修改紀錄：關閉選單並呼叫 onOpenEdits", async () => {
+    const onOpenEdits = vi.fn();
+    renderMenu(OWNER_NOTE, CONNECTED, { current: false }, undefined, onOpenEdits);
+    openMenu();
+
+    fireEvent.click(await screen.findByRole("menuitem", { name: i18n.t("note.menu.aiEdits") }));
+    expect(onOpenEdits).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.queryByRole("menuitem")).toBeNull());
   });
 
   it("非 owner（editor）：只有複製連結，沒有刪除項", () => {
@@ -256,7 +281,12 @@ describe("NoteMenu（⋮ 選單，spec D.4）", () => {
         <QueryClientProvider client={queryClient}>
           <MemoryRouter initialEntries={["/notes/my-note"]}>
             <Routes>
-              <Route path="/notes/:ref" element={<NoteMenu note={OWNER_NOTE} state={state} leavingRef={leavingRef} />} />
+              <Route
+                path="/notes/:ref"
+                element={
+                  <NoteMenu note={OWNER_NOTE} state={state} leavingRef={leavingRef} onOpenEdits={() => {}} />
+                }
+              />
               <Route path="/" element={<div>home landing</div>} />
             </Routes>
           </MemoryRouter>

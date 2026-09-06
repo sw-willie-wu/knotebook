@@ -392,11 +392,14 @@ export function oauthRoutes(deps: OauthRouteDeps) {
             if (account === undefined || account.disabledAt !== null) invalidGrant();
 
             // I7：先刪同 (user, client) 的既有 grant，再算 I1 額度（等價於 decision 側的扣除）。
-            await tx
+            // ⚠ #106 D7：先刪後插會把使用者在設定頁改過的 agent 名稱洗掉，這裡從**被刪的那一列**
+            // 搬過去（`.returning()` 拿的就是它，不必多一次 SELECT，也沒有兩次查詢之間的窗口）。
+            const [replaced] = await tx
               .delete(apiTokens)
               .where(
                 and(eq(apiTokens.userId, consumed.userId), eq(apiTokens.kind, "oauth"), eq(apiTokens.clientId, consumed.clientId))
-              );
+              )
+              .returning({ agentLabel: apiTokens.agentLabel });
             // ⚠ 這一條 throw 是承重的：它讓上面那筆 I7 的 DELETE 一起 ROLLBACK。改成
             // 回傳值就會提交刪除卻不發 token，把使用者既有的授權吞掉。
             if ((await countBillableGrants(tx, consumed.userId)) >= TOKEN_LIMIT_PER_USER) {
@@ -417,6 +420,7 @@ export function oauthRoutes(deps: OauthRouteDeps) {
               refreshTokenHash: hashToken(refreshToken),
               clientId: consumed.clientId,
               accessExpiresAt: new Date(Date.now() + ACCESS_TTL_MS),
+              agentLabel: replaced?.agentLabel ?? null,
             });
             await tx.update(oauthClients).set({ lastUsedAt: new Date() }).where(eq(oauthClients.clientId, consumed.clientId));
             return { accessToken, refreshToken, scope: consumed.scope };

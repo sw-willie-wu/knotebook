@@ -42,8 +42,18 @@ export interface ApplyInput {
   sectionId?: string; markdown?: string; ifMatch?: string; candidates: WikilinkTarget[];
   blocks?: AnyPartialBlock[]; unbound?: number;
 }
+// ⚠ `ApplyResult` 是**內部**型別：`afterBlockIds` 只餵 presence，`NoteEditResultDto` 與 201
+// 回應的欄位一個都不動。
 export type ApplyResult =
-  | { ok: true; editId: string; fingerprint: string; outline: NoteOutlineEntry[]; unboundWikilinks: number }
+  | {
+      ok: true; editId: string; fingerprint: string; outline: NoteOutlineEntry[]; unboundWikilinks: number;
+      /**
+       * 這次真正寫下去的 block id（文件順序）。presence 的落點只能取自編輯後狀態——請求帶的
+       * `section_id` 是 heading 的 block id，`replace_section`／`delete_section` 會把它換掉。
+       * `delete_section` 恆為 `[]`。
+       */
+      afterBlockIds: string[];
+    }
   | { ok: false; code: "section_not_found" | "fingerprint_mismatch" | ParseError | "empty_section" };
 
 export const RETENTION = 100;
@@ -243,5 +253,8 @@ export async function applyEdit(deps: ApplyDeps, input: ApplyInput): Promise<App
     ...recordableAfter(deps, input.noteId, afterIds, merged.afterFingerprint),
   });
   await updateNoteLinks(deps, { sourceNoteId: input.noteId, userId: input.userId, forkDoc: fork, clock: merged.clock });
-  return { ok: true, editId, fingerprint: merged.fingerprint, outline: merged.outline, unboundWikilinks: unbound };
+  // ⚠ `afterBlockIds` 用 `prepareEdit` 回的**原始** `afterIds`，不是 `recordableAfter(...)` 那份
+  // ——後者在退化情形（after_fingerprint 為 null）會把陣列清空，那是給 DB 紀錄用的語意。
+  // 兩者只在那條「理論上到不了」的路徑上不同，**沒有任何測試守得到這個誤用**，誠實記在這裡。
+  return { ok: true, editId, fingerprint: merged.fingerprint, outline: merged.outline, unboundWikilinks: unbound, afterBlockIds: afterIds };
 }

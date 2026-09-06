@@ -11,7 +11,7 @@ import { YDOC_FRAGMENT, sectionize, topLevelContainers, type NoteEditDto } from 
 import type { CollabServer } from "../../collab/server.js";
 import type { Db } from "../../db/index.js";
 import { apiTokens, noteAiEdits, users } from "../../db/schema.js";
-import { deriveAgentLabel } from "../../auth/agent-label.js";
+import { agentLabelOf } from "../../auth/agent-label.js";
 import { FingerprintMismatch, RETENTION, mergeDiff, recordableAfter, updateNoteLinks, type ApplyDeps, type MergeOutput } from "./apply.js";
 import { fingerprintForIds } from "./fingerprint.js";
 import { loadNoteDoc } from "./read.js";
@@ -67,9 +67,9 @@ const editRevertable = (row: RevertableRow, fragment: Y.XmlFragment, topIds: rea
     ? row.anchorId !== null && topIds.includes(row.anchorId) && !row.beforeIds.some(id => topIds.includes(id))
     : row.afterBlockIds.length > 0 && fingerprintForIds(fragment, row.afterBlockIds) === row.afterFingerprint;
 
-// 派生規則不在這裡複製一份——`auth/agent-label.ts` 的 `deriveAgentLabel` 是 spec §8 指名的唯一實作，
-// 路由端（`tokenAgentLabel`）與這裡吃的是同一顆，派生表釘在 test/unit/agent-label.test.ts。
-// #138 會把下面 `tokenLabel ?? deriveAgentLabel(tokenName)` 這個運算式收進同檔的 `currentAgentLabel`。
+// 現值運算式不在這裡複製一份——`auth/agent-label.ts` 的 `agentLabelOf` 是 spec §8 指名的唯一實作，
+// 派生表釘在 test/unit/agent-label.test.ts。這裡用的是**純述詞**版而不是路由端的 `currentAgentLabel`：
+// 這一發 JOIN 一次撈最多 100 列，逐列再查一次 DB 就是 N+1。
 
 export async function listEdits(deps: { db: Db; collab?: CollabServer }, noteId: string): Promise<NoteEditDto[]> {
   // ⚠ **逐欄選取，不要 `select({ e: noteAiEdits, … })`**：整張表包含 `before_blocks`，那是每一次
@@ -105,7 +105,7 @@ export async function listEdits(deps: { db: Db; collab?: CollabServer }, noteId:
     );
     const probe = e.afterBlockIds[0] ?? anchor?.block_id;
     const heading = probe === undefined ? "" : sections.find(s => s.blockIds.includes(probe))?.heading ?? "";
-    const agentLabel = e.tokenId !== null && e.tokenName !== null ? (e.tokenLabel ?? deriveAgentLabel(e.tokenName)) : e.agentLabelSnapshot;
+    const agentLabel = e.tokenId !== null && e.tokenName !== null ? agentLabelOf({ agentLabel: e.tokenLabel, name: e.tokenName }) : e.agentLabelSnapshot;
     return { id: e.id, op: e.op as NoteEditDto["op"], sectionId: e.sectionId, heading, byHandle: e.handle, agentLabel, createdAt: e.createdAt.toISOString(), revertedAt: e.revertedAt?.toISOString() ?? null, revertOf: e.revertOf, revertable };
   });
 }

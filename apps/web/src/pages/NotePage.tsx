@@ -4,16 +4,18 @@ import { useNavigate, useParams } from "react-router";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { canonicalNotePath, type NoteDto, type Role } from "@knotebook/shared";
 import { api, ApiFail } from "@/api/client";
-import { useNote, useNoteByPath } from "@/api/notes";
+import { invalidateNoteQueries, useNote, useNoteByPath } from "@/api/notes";
 import { SESSION_QUERY_KEY, useSession } from "@/auth/useSession";
 import { canEdit, isTerminal, type CollabState } from "@/collab/connection";
 import { useActiveNote } from "@/lib/active-note";
 import { createLinkSync, type LinkSync } from "@/collab/link-sync";
 import { useCollab } from "@/collab/useCollab";
+import { AiEditsDialog } from "@/components/AiEditsDialog";
 import { AppShell, SidebarDrawerButton } from "@/components/AppShell";
 import { NarrowTopBar } from "@/components/NarrowTopBar";
 import { BacklinksSection } from "@/components/BacklinksSection";
 import { ConnectionBadge } from "@/components/ConnectionBadge";
+import { LastEditedLabel } from "@/components/LastEditedLabel";
 import { NoteEditor } from "@/components/NoteEditor";
 import { NoteMenu } from "@/components/NoteMenu";
 import { ShareDialog } from "@/components/ShareDialog";
@@ -165,7 +167,26 @@ export default function NotePage() {
     void navigate("/login", { replace: true });
   }, [navigate, queryClient]);
 
-  const { state, doc, provider, synced } = useCollab({ noteId, onUnauthorized: handleUnauthorized });
+  // AI 修改紀錄 dialog 的開關（#106）。狀態在這一層而不是在觸發者身上：⋮ 選單項與
+  // 頁首的 `LastEditedLabel` 兩個都要打得開它。
+  const [editsOpen, setEditsOpen] = useState(false);
+
+  /**
+   * 別人（真人或 AI）改了這篇之後，把 note query 對齊 server（spec §10）——`lastEdited`
+   * 就住在 `NoteDto` 上。`ref` 傳的是**解析層那把 key 的第二段**：舊形 `/notes/:ref` 是
+   * `params.ref`，新形 `/n/<handle>/<slug>` 根本沒有這一層，傳 `note.id` 讓
+   * `invalidateNoteQueries` 跳過那一發。
+   */
+  const onRemoteUpdate = useCallback(() => {
+    if (!note) return;
+    invalidateNoteQueries(queryClient, note, params.ref ?? note.id);
+  }, [note, params.ref, queryClient]);
+
+  const { state, doc, provider, synced } = useCollab({
+    noteId,
+    onUnauthorized: handleUnauthorized,
+    onRemoteUpdate,
+  });
 
   // wikilink 連結索引提交器（Task 7，spec §12.3 client 段）。掛載定案在這裡（不是
   // NoteEditor）：`noteId`／`useCollab` 的 `doc`／`provider` 都在這一層。
@@ -387,12 +408,15 @@ export default function NotePage() {
               <SidebarDrawerButton />
               <TitleInput note={note} readOnly={!roleCanEdit} />
               <ConnectionBadge state={state} synced={synced} canEdit={roleCanEdit} />
+              <LastEditedLabel note={note} onOpenEdits={() => setEditsOpen(true)} />
               <ShareDialog note={note} />
-              <NoteMenu note={note} state={state} leavingRef={leavingRef} />
+              <NoteMenu note={note} state={state} leavingRef={leavingRef} onOpenEdits={() => setEditsOpen(true)} />
             </header>
           }
           footerSlot={<BacklinksSection noteId={noteId} />}
         />
+        {/* dialog 掛在 header 之外：它的開關由本頁持有，兩個觸發點共用（見上）。 */}
+        <AiEditsDialog note={note} open={editsOpen} onOpenChange={setEditsOpen} />
       </div>
     );
   }

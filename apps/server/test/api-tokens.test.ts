@@ -3,7 +3,7 @@
  *
  * 這一族守的是：①明文只出現一次、DB 只存 sha256（I2）；②I1 額度述詞的形狀（過期 PAT
  * 不計、oauth 計）；③I5 ⑤ 的機會性清理；④撤銷＝硬刪且跨使用者同形 404（D9）；
- * ⑤三條端點是 cookie 專用——token 不能簽發或撤銷 token。
+ * ⑤四條端點是 cookie 專用——token 不能簽發、改名或撤銷 token。
  */
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
@@ -14,6 +14,7 @@ import { apiTokens, oauthClients } from "../src/db/schema.js";
 import { signSession } from "../src/auth/session.js";
 import type { AppDeps } from "../src/app.js";
 import type { Db } from "../src/db/index.js";
+import { hashToken } from "../src/auth/api-token.js";
 import { buildTestApp, freshLimiters, insertPasswordUser, testConfig } from "./helpers.js";
 
 /**
@@ -55,6 +56,7 @@ describe("PAT 管理端點", () => {
     expect(res.statusCode).toBe(201);
     const body = res.json();
     expect(body.name).toBe("Claude Desktop"); // 前後空白落庫前 trim
+    expect(body.agentLabel).toBe("claude"); // 建立當下也要有派生值——下一棒的列表就是拿這個回應直接更新
     expect(body.token).toMatch(/^knb_[A-Za-z0-9_-]{43}$/);
     expect(body.scope).toBe("notes:read notes:write"); // 落庫形是集合
     expect(body.expiresAt).toBeNull();
@@ -320,13 +322,16 @@ describe("PAT 管理端點", () => {
     expect((await app.inject({ method: "GET", url: "/api/notes", headers: { authorization: `Bearer ${token}` } })).statusCode).toBe(200);
   });
 
-  it("PAT 管理端點是 cookie 專用：Bearer 打三條都 401 且不帶 challenge", async () => {
+  it("PAT 管理端點是 cookie 專用：Bearer 打四條都 401 且不帶 challenge", async () => {
     const { app, cookie } = await signedInApp();
     const created = (await create(app, cookie, READ_FOREVER)).json();
     const auth = { authorization: `Bearer ${created.token}` };
     const cases = [
       ["GET", "/api/auth/tokens"],
       ["POST", "/api/auth/tokens"],
+      // #106 D7：改名也不例外——一支外洩的 token 若能替自己改 agent 名稱，名牌上顯示的
+      // 就不再是使用者授權的那個身分。
+      ["PATCH", `/api/auth/tokens/${created.id}`],
       ["DELETE", `/api/auth/tokens/${created.id}`],
     ] as const;
     for (const [method, url] of cases) {
@@ -335,9 +340,190 @@ describe("PAT 管理端點", () => {
         url,
         headers: auth,
         ...(method === "POST" ? { payload: READ_FOREVER } : {}),
+        ...(method === "PATCH" ? { payload: { agentLabel: "x" } } : {}),
       });
       expect(res.statusCode, `${method} ${url}`).toBe(401);
       expect(res.headers["www-authenticate"], `${method} ${url}`).toBeUndefined();
     }
+  });
+});
+
+/**
+ * #106 D7（spec §8）：`PATCH /api/auth/tokens/:id` 改 agent 顯示名稱。
+ *
+ * 這一族守的是：①列表每列都有 `agentLabel`，欄位 NULL 時回派生值、有值時回覆寫；
+ * ②不變量 S（`AGENT_LABEL_RE` ∪ null 才進 UPDATE、body `.strict()`）；③`null` 是
+ * **把欄位清成 NULL**，不是把派生值寫進去；④跨使用者同形 404 且不誤傷別人同一個 client
+ * 的 grant；⑤`TOKEN_RENAME_LIMIT`。
+ */
+async function seedOauthGrant(db: Db, userId: string, clientId = "client-1"): Promise<string> {
+  await db
+    .insert(oauthClients)
+    .values({ clientId, clientName: "MCP CLI Proxy", redirectUris: ["http://127.0.0.1:1/cb"] })
+    .onConflictDoNothing();
+  const [row] = await db
+    .insert(apiTokens)
+    .values({
+      userId,
+      kind: "oauth",
+      name: "MCP CLI Proxy",
+      scope: "notes:read",
+      clientId,
+      accessTokenHash: hashToken(`a-${userId}-${clientId}`),
+      refreshTokenHash: hashToken(`r-${userId}-${clientId}`),
+      accessExpiresAt: new Date(Date.now() + 3_600_000),
+    })
+    .returning({ id: apiTokens.id });
+  return row!.id;
+}
+
+describe("PATCH /api/auth/tokens/:id（agent 名稱）", () => {
+  it("兩 kind 各 PATCH 200 帶新 agentLabel；GET 列表每列有 agentLabel（NULL 回派生值）", async () => {
+    const { app, db, cookie, userId } = await signedInApp();
+    const pat = await create(app, cookie, { name: "Claude Code (knotebook)", scope: "notes:read", expiresInDays: null });
+    expect(pat.statusCode).toBe(201);
+    const patId = pat.json().id as string;
+    const oauthId = await seedOauthGrant(db, userId);
+    const list0 = (await app.inject({ method: "GET", url: "/api/auth/tokens", cookies: { [SESSION_COOKIE]: cookie } })).json().tokens;
+    expect(list0.find((t: { id: string }) => t.id === patId).agentLabel).toBe("claude");
+    expect(list0.find((t: { id: string }) => t.id === oauthId).agentLabel).toBe("mcp");
+    for (const id of [patId, oauthId]) {
+      const r = await app.inject({
+        method: "PATCH",
+        url: `/api/auth/tokens/${id}`,
+        cookies: { [SESSION_COOKIE]: cookie },
+        payload: { agentLabel: "bot-1" },
+      });
+      expect(r.statusCode, id).toBe(200);
+      expect(r.json().agentLabel).toBe("bot-1");
+    }
+    const list1 = (await app.inject({ method: "GET", url: "/api/auth/tokens", cookies: { [SESSION_COOKIE]: cookie } })).json().tokens;
+    expect(list1.every((t: { agentLabel: unknown }) => t.agentLabel === "bot-1")).toBe(true);
+  });
+
+  it("格式錯／含 NUL／未知欄位／空字串／33 字 → 400 invalid_body；null → 重設回派生值且欄位真的是 NULL；別人的 → 404", async () => {
+    const { app, db, cookie } = await signedInApp();
+    const patId = (await create(app, cookie, { name: "Claude Code", scope: "notes:read", expiresInDays: null })).json().id as string;
+    const NUL = String.fromCharCode(0);
+    for (const body of [
+      { agentLabel: "bad label!" },
+      { agentLabel: `a${NUL}` },
+      { agentLabel: "x", extra: 1 },
+      { agentLabel: "" },
+      { agentLabel: "a".repeat(33) },
+    ]) {
+      const r = await app.inject({
+        method: "PATCH",
+        url: `/api/auth/tokens/${patId}`,
+        cookies: { [SESSION_COOKIE]: cookie },
+        payload: body,
+      });
+      expect(r.statusCode, JSON.stringify(body)).toBe(400);
+      expect(r.json().error.code).toBe("invalid_body");
+    }
+    expect(
+      (
+        await app.inject({
+          method: "PATCH",
+          url: `/api/auth/tokens/${patId}`,
+          cookies: { [SESSION_COOKIE]: cookie },
+          payload: { agentLabel: "renamed" },
+        })
+      ).json().agentLabel
+    ).toBe("renamed");
+    // I-2：字元集要與 DB 端的 CHECK（`api_tokens_agent_label_chk`）逐字同形——這裡用一個
+    // 同時含底線與點的值，確保兩邊都真的收這兩個字元（放在下面「重設回 NULL」之前，
+    // 否則會被那個空值斷言蓋過去）。
+    expect(
+      (
+        await app.inject({
+          method: "PATCH",
+          url: `/api/auth/tokens/${patId}`,
+          cookies: { [SESSION_COOKIE]: cookie },
+          payload: { agentLabel: "bot_1.pro" },
+        })
+      ).json().agentLabel
+    ).toBe("bot_1.pro");
+    const reset = await app.inject({
+      method: "PATCH",
+      url: `/api/auth/tokens/${patId}`,
+      cookies: { [SESSION_COOKIE]: cookie },
+      payload: { agentLabel: null },
+    });
+    expect(reset.json().agentLabel).toBe("claude"); // 回應是派生值
+    // 欄位真的清空（不是把派生值寫進去）——只看回應的話兩種實作都綠
+    expect((await db.select({ l: apiTokens.agentLabel }).from(apiTokens).where(eq(apiTokens.id, patId)))[0]!.l).toBeNull();
+    const other = await anotherUser(db);
+    const r404 = await app.inject({
+      method: "PATCH",
+      url: `/api/auth/tokens/${patId}`,
+      cookies: { [SESSION_COOKIE]: other.cookie },
+      payload: { agentLabel: "x" },
+    });
+    expect(r404.statusCode).toBe(404);
+    expect(r404.json().error.code).toBe("token_not_found");
+    // 不變量 S 的路徑參數那一半（同 DELETE 的 not-a-uuid 那格）：非 uuid、含 NUL 的 :id 一律
+    // 404，不讓字串進 SQL（pg 對 uuid 欄位的 22P02 會冒成 500）。⚠ 這兩行是 PATCH 的
+    // `UUID_RE` 守衛的**唯一**守衛——實測拿掉那一行後，本檔其餘 17 案全綠。
+    for (const bad of ["not-a-uuid", encodeURIComponent(`a${NUL}b`)]) {
+      const r = await app.inject({
+        method: "PATCH",
+        url: `/api/auth/tokens/${bad}`,
+        cookies: { [SESSION_COOKIE]: cookie },
+        payload: { agentLabel: "x" },
+      });
+      expect(r.statusCode, bad).toBe(404);
+      expect(r.json().error.code, bad).toBe("token_not_found");
+    }
+  });
+
+  it("TOKEN_RENAME_LIMIT：注入 limit 3，第 4 次 429", async () => {
+    const { app, cookie } = await signedInApp({
+      overrides: { limiters: freshLimiters({ tokenRename: new FixedWindowLimiter({ limit: 3, windowMs: 60_000 }) }) },
+    });
+    const patId = (await create(app, cookie, { name: "t", scope: "notes:read", expiresInDays: null })).json().id as string;
+    for (let i = 0; i < 3; i += 1) {
+      expect(
+        (
+          await app.inject({
+            method: "PATCH",
+            url: `/api/auth/tokens/${patId}`,
+            cookies: { [SESSION_COOKIE]: cookie },
+            payload: { agentLabel: `l${i}` },
+          })
+        ).statusCode,
+        `#${i}`
+      ).toBe(200);
+    }
+    expect(
+      (
+        await app.inject({
+          method: "PATCH",
+          url: `/api/auth/tokens/${patId}`,
+          cookies: { [SESSION_COOKIE]: cookie },
+          payload: { agentLabel: "l3" },
+        })
+      ).statusCode
+    ).toBe(429);
+  });
+
+  it("使用者 A 改名不影響 B 同一個 client 的 grant", async () => {
+    const { app, db, cookie, userId } = await signedInApp();
+    const b = await anotherUser(db);
+    const aGrant = await seedOauthGrant(db, userId, "shared-client");
+    const bGrant = await seedOauthGrant(db, b.userId, "shared-client");
+    expect(
+      (
+        await app.inject({
+          method: "PATCH",
+          url: `/api/auth/tokens/${aGrant}`,
+          cookies: { [SESSION_COOKIE]: cookie },
+          payload: { agentLabel: "a-name" },
+        })
+      ).statusCode
+    ).toBe(200);
+    expect((await db.select({ l: apiTokens.agentLabel }).from(apiTokens).where(eq(apiTokens.id, bGrant)))[0]!.l).toBeNull();
+    const bList = (await app.inject({ method: "GET", url: "/api/auth/tokens", cookies: { [SESSION_COOKIE]: b.cookie } })).json().tokens;
+    expect(bList.find((t: { id: string }) => t.id === bGrant).agentLabel).toBe("mcp");
   });
 });

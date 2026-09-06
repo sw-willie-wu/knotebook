@@ -23,18 +23,19 @@ import {
 import { sendError } from "../http/errors.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
-import { apiTokens, noteLinks, noteShares, noteStateBackups, noteStates, notes, uploads, users } from "../db/schema.js";
+import { noteLinks, noteShares, noteStateBackups, noteStates, notes, uploads, users } from "../db/schema.js";
 import type { CollabHooks } from "../collab/hooks.js";
 import type { CollabServer } from "../collab/server.js";
 import type { EditingRuntime } from "../notes/editing/runtime.js";
 import { loadLastEdited, readNoteContent } from "../notes/editing/read.js";
 import { applyEdit, type ApplyResult, type EditingTestHooks } from "../notes/editing/apply.js";
 import { listEdits, revertEdit, type RevertResult } from "../notes/editing/revert.js";
+import { PRESENCE_COLOR, presenceTargetForRead, presenceTargetForWrite, type PresenceRegistry } from "../notes/editing/presence.js";
 import { visibleNoteTitles } from "../notes/editing/candidates.js";
 import { parseMarkdownForNote } from "../notes/editing/markdown.js";
 import { NoteWriteQueue, QueueBusyError } from "../notes/editing/queue.js";
 import { EditorSession } from "../notes/editing/session.js";
-import { deriveAgentLabel } from "../auth/agent-label.js";
+import { currentAgentLabel } from "../auth/agent-label.js";
 import { resolveRole, resolveRoleWithOwner, UUID_RE } from "../notes/service.js";
 import { deriveUniqueAutoSlug, fallbackAutoSlug, prepareSlugForPatch, resolveNoteIdFromRef } from "../notes/slug.js";
 import { fetchBacklinks, normalizeLinkTargets, writeNoteLinks, type WriteNoteLinksHooks } from "../notes/links.js";
@@ -139,6 +140,11 @@ export interface NotesRouteDeps {
    * 未傳＝用佇列自己的預設（10 s）。整合測試把它壓到 50 ms 才驗得出 503 `server_busy`。
    */
   editingQueueWaitMs?: number;
+  /**
+   * #138：AI presence 註冊表，透傳自 `AppDeps.presence`。**選配**（呼叫端一律 `?.`），
+   * 沒有 collab 的部署拿到的是全 no-op 空殼。
+   */
+  presence?: PresenceRegistry;
   /** Task 5：`POST /api/notes/:id/links` 寫入函式的測試注入縫，透傳自 `AppDeps.linkSyncTestHooks`。 */
   linkSyncTestHooks?: WriteNoteLinksHooks;
   /**
@@ -259,7 +265,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
         // 節流排在 schema 驗證之後、**任何 mount 之前**。
         if (!deps.limiters.edit.consume(userId)) return sendError(reply, 429, "too_many_requests", "寫入過於頻繁");
         const candidates = await visibleNoteTitles(deps.db, userId);
-        const agentLabel = request.tokenId ? await tokenAgentLabel(deps.db, request.tokenId) : null;
+        const agentLabel = request.tokenId ? await currentAgentLabel(deps.db, request.tokenId) : null;
         // ⚠ `try { … } finally { s.close() }`（lease 不變量）；且**離開這個區塊之前不得再取得
         // 第二個 lease**——`applyEdit` 自己會再開一次，所以它必須排在 close 之後。
         const scratch = await EditorSession.open(editing, new Y.Doc());
@@ -293,6 +299,9 @@ export function notesRoutes(deps: NotesRouteDeps) {
             deps.editingQueueWaitMs
           );
           if (!result.ok) throw new Error(`帶 content 建立筆記時套用失敗：${result.code}`);
+          // #138：這條路徑**刻意不 touch** presence。筆記是這一發剛建出來的，不可能有人正
+          // 開著它，`touch` 內部的 `documents.get` 一定落空＝必然 no-op。同檔另外三條都 touch，
+          // 只有它不 touch 是刻意的——不要當成漏接補上去。
         } catch (err) {
           // 內容套用失敗＝這篇筆記不該存在。best-effort 刪除（刪不掉只 warn，不要用第二個
           // 錯誤蓋掉第一個），回 500。
@@ -530,6 +539,19 @@ export function notesRoutes(deps: NotesRouteDeps) {
         const role = await resolveRole(deps.db, userId, id);
         if (role === "none") return sendError(reply, 404, "not_found", "找不到此筆記");
         if (!deps.limiters.contentRead.consume(userId)) return sendError(reply, 429, "too_many_requests", "讀取過於頻繁");
+        // #138 presence（spec §9）：只有帶 token 的讀者才現身——cookie 讀取（`request.tokenId`
+        // 缺席）是使用者本人在用瀏覽器，spec §12.2 明講不設 presence。`touch` 內部只對已載入
+        // 的文件動作，所以沒人在線時它是 no-op，讀路徑「零副作用」的不變量仍成立。
+        // ⚠ 同 `POST /:id/edits`：拿掉這道 `request.tokenId` 守衛**不會有任何測試變紅**（touch
+        // 的 tokenId 一變，clientId 就不同，clock 斷言看不到），擋住它的是 `tsc` 的 TS2345。
+        // 規則的**結果面**（cookie 讀者不會多冒出一個 presence）由整合測試
+        // `note-presence.test.ts` 第 2 案的 awareness 用戶端識別集合斷言守著。
+        if (request.tokenId) {
+          const label = await currentAgentLabel(deps.db, request.tokenId);
+          if (label) {
+            deps.presence?.touch(id, request.tokenId, { name: `${request.user!.handle} (${label})`, color: PRESENCE_COLOR }, presenceTargetForRead(q.data.section));
+          }
+        }
         const result = await readNoteContent({ db: deps.db, collab }, editing, id, q.data.section);
         if (result === "section_not_found") return sendError(reply, 404, "section_not_found", "找不到此段落");
         // #137 起 `lastEdited` 是真值（整篇形與段落形都回，`note-content.test.ts` 兩行釘住）。
@@ -562,7 +584,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
         if (role === "viewer") return sendError(reply, 403, "forbidden", "沒有編輯權限");
         if (!deps.limiters.edit.consume(userId)) return sendError(reply, 429, "too_many_requests", "寫入過於頻繁");
         const candidates = await visibleNoteTitles(deps.db, userId);
-        const agentLabel = request.tokenId ? await tokenAgentLabel(deps.db, request.tokenId) : null;
+        const agentLabel = request.tokenId ? await currentAgentLabel(deps.db, request.tokenId) : null;
         const applyDeps = { db: deps.db, collab, editing, log: request.log, testHooks: deps.editingTestHooks };
         let result: ApplyResult;
         try {
@@ -598,6 +620,19 @@ export function notesRoutes(deps: NotesRouteDeps) {
           }
           return sendError(reply, result.code === "section_not_found" ? 404 : 400, result.code, "無法套用修改");
         }
+        // #138 presence（spec §9）：此時 `applyEdit` 已經 `disconnect()`，內容都在 live doc 上了。
+        // ⚠ 目標取自**編輯後**的 `result.afterBlockIds`，不是 `parsed.data.section_id`：後者是
+        //   heading 的 block id，`replace_section`／`delete_section` 已經把它換掉了（繼承表第 21 列）。
+        // ⚠ `request.tokenId &&` 這一半是 spec §12.2「cookie 寫入不設 presence」的明文守衛。
+        //   **誠實記下：拿掉它不會有任何測試變紅**（cookie ⇒ tokenId undefined ⇒ agentLabel
+        //   為 null，第二個條件恰好也擋住；就算兩個都拿掉，touch 用的 tokenId 不同、clientId
+        //   就不同，clock 斷言看不到）。真正擋住它的是 `tsc`：tokenId 是 `string | undefined`，
+        //   而 `touch` 收 `string`——實測拿掉這半條會得到 TS2345。不要為了「消掉紅線」補 `!`。
+        // 規則的**結果面**（cookie 寫入不會多冒出一個 presence）由整合測試
+        // `note-presence.test.ts` 第 2 案的 awareness 用戶端識別集合斷言守著。
+        if (request.tokenId && agentLabel) {
+          deps.presence?.touch(id, request.tokenId, { name: `${request.user!.handle} (${agentLabel})`, color: PRESENCE_COLOR }, presenceTargetForWrite(parsed.data.op, result.afterBlockIds));
+        }
         return reply.code(201).send({ editId: result.editId, fingerprint: result.fingerprint, outline: result.outline, unboundWikilinks: result.unboundWikilinks } satisfies NoteEditResultDto);
       });
 
@@ -617,6 +652,8 @@ export function notesRoutes(deps: NotesRouteDeps) {
         const role = await resolveRole(deps.db, userId, id);
         if (role === "none") return sendError(reply, 404, "not_found", "找不到此筆記");
         if (!deps.limiters.contentRead.consume(userId)) return sendError(reply, 429, "too_many_requests", "讀取過於頻繁");
+        // #138：這裡**刻意不 touch** presence——spec §5 明講看修改紀錄不刷新 AI 的在場狀態
+        // （守衛＝`note-presence.test.ts` 第 2 案的 clock 斷言）。同檔另外三條都 touch。
         const edits = await listEdits({ db: deps.db, collab }, id) satisfies NoteEditDto[];
         return reply.send({ edits });
       });
@@ -641,7 +678,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
         if (role === "none") return sendError(reply, 404, "not_found", "找不到此筆記");
         if (role === "viewer") return sendError(reply, 403, "forbidden", "沒有編輯權限");
         if (!deps.limiters.edit.consume(userId)) return sendError(reply, 429, "too_many_requests", "寫入過於頻繁");
-        const agentLabel = request.tokenId ? await tokenAgentLabel(deps.db, request.tokenId) : null;
+        const agentLabel = request.tokenId ? await currentAgentLabel(deps.db, request.tokenId) : null;
         const applyDeps = { db: deps.db, collab, editing, log: request.log, testHooks: deps.editingTestHooks };
         let result: RevertResult;
         try {
@@ -666,6 +703,11 @@ export function notesRoutes(deps: NotesRouteDeps) {
           }
           if (result.code === "already_reverted") return sendError(reply, 409, "already_reverted", "這筆修改已經撤回過了");
           return sendError(reply, 404, "not_found", "找不到此修改紀錄");
+        }
+        // #138 presence：`RevertResult` 不帶 sectionId（#137 的既定形），而且被撤回的那一段
+        // 可能已經不存在——落在文件開頭，不為了這件事改 #137 的回傳型別。
+        if (request.tokenId && agentLabel) {
+          deps.presence?.touch(id, request.tokenId, { name: `${request.user!.handle} (${agentLabel})`, color: PRESENCE_COLOR }, { kind: "doc-start" });
         }
         return reply.code(201).send({ editId: result.editId, fingerprint: result.fingerprint, outline: result.outline });
       });
@@ -1347,11 +1389,4 @@ export function notesRoutes(deps: NotesRouteDeps) {
       return reply.code(204).send();
     });
   };
-}
-
-/** #138 會以 auth/agent-label.ts 的 currentAgentLabel（吃 api_tokens.agent_label 覆寫）取代；
- * 在那之前只有派生值。派生規則本身在 auth/agent-label.ts，不在這裡複製一份。 */
-async function tokenAgentLabel(db: Db, tokenId: string): Promise<string | null> {
-  const [row] = await db.select({ name: apiTokens.name }).from(apiTokens).where(eq(apiTokens.id, tokenId)).limit(1);
-  return row ? deriveAgentLabel(row.name) : null;
 }

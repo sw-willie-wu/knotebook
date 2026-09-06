@@ -341,6 +341,25 @@ describe("撤回", () => {
     expect(s.ctx.collab.hocuspocus.documents.size).toBe(0); // GET /edits 走讀路徑，不得讓文件重新載入
   });
 
+  it("D7：使用者改過 agent 名稱之後，GET /edits 的既有列跟著顯示新名字（現值＝覆寫優先，不是寫入時快照）", async () => {
+    // ⚠ 這一案是 `listEdits` 那條 `agentLabelOf({ agentLabel: e.tokenLabel, … })` 的**唯一**守衛：
+    // 實測把它改成忽略 `tokenLabel`（等同 #138 之前的純派生形），既有的 note-edits／note-revert
+    // 32 案全綠。上面那案守的是「token 被刪 → 回落快照」，與這裡的「token 還在、名字被改」是
+    // 相反方向的兩格。
+    const s = await setup();
+    const a = (await s.content()).outline[1];
+    expect((await s.post({ op: "replace_section", section_id: a.sectionId, markdown: "# A\n\nAI 版", if_match: a.fingerprint })).statusCode).toBe(201);
+    expect((await s.list())[0]!.agentLabel).toBe("mcp"); // token 名稱 "MCP CLI Proxy" 的派生值
+    const renamed = await s.ctx.app.inject({
+      method: "PATCH",
+      url: `/api/auth/tokens/${s.tokenId}`,
+      headers: { cookie: await cookieFor(s.u.id) },
+      payload: { agentLabel: "my-bot" },
+    });
+    expect(renamed.statusCode).toBe(200);
+    expect((await s.list())[0]!.agentLabel).toBe("my-bot");
+  });
+
   it("/revert 的四格：不存在／別篇筆記／格式錯與含 NUL 的 editId → 404（不是 500）；viewer → 403 且什麼都沒動", async () => {
     // plan gate r2 I-E：`/revert` 原本一個拒絕案都沒有，違反本 plan 自己的全域限制
     // （每個端點都要有一案「含 NUL → 該端點的正常錯誤形，不是 500」）。`/revert` **沒有 body**，

@@ -121,11 +121,45 @@ function isRetryableTokenError(err: unknown): boolean {
   return true;
 }
 
+/** 遠端 update 合併成一次通知的等待時間（#106 spec §10）。 */
+const REMOTE_UPDATE_DEBOUNCE_MS = 3_000;
+
+/**
+ * 遠端 update（origin 是 provider 本身——`@hocuspocus/provider` 用
+ * `readSyncMessage(decoder, encoder, provider.document, provider)` 把 provider 當
+ * `transactionOrigin`；本地打字的 origin 是 y-prosemirror 的 `ySyncPluginKey`）
+ * debounce 後通知；回傳 dispose。
+ */
+export function createRemoteUpdateDebouncer(
+  doc: Y.Doc,
+  provider: HocuspocusProvider,
+  onRemoteUpdate: () => void,
+  delayMs: number,
+): () => void {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const onDocUpdate = (_update: Uint8Array, origin: unknown) => {
+    if (origin !== provider) return;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(onRemoteUpdate, delayMs);
+  };
+  doc.on("update", onDocUpdate);
+  return () => {
+    doc.off("update", onDocUpdate);
+    if (timer) clearTimeout(timer);
+  };
+}
+
 export interface UseCollabOptions {
   /** 筆記 uuid（**不是** slug／canonical ref）。`undefined` 代表尚未解析出來，不建連線。 */
   noteId: string | undefined;
   /** 401（session 失效）時的登出流程；由呼叫端注入，這個 hook 不碰 router／query cache。 */
   onUnauthorized: () => void;
+  /**
+   * 別人（真人或 AI）改了這篇筆記時的通知，已 debounce（`REMOTE_UPDATE_DEBOUNCE_MS`）。
+   * spec §10 把「失效 note query」寫在這個 hook 裡，本實作只負責偵測與 debounce，失效
+   * 由呼叫端做——這個 hook **不碰 router／query cache**（同 `onUnauthorized`）。
+   */
+  onRemoteUpdate?: () => void;
 }
 
 export interface UseCollabResult {
@@ -208,7 +242,7 @@ export interface UseCollabResult {
  * close 監聽器（建構子裡先註冊，故早於我們的）已經把 `webSocket` 清空、status 設成
  * `Disconnected`，connect() 這時才真的會去建新連線。
  */
-export function useCollab({ noteId, onUnauthorized }: UseCollabOptions): UseCollabResult {
+export function useCollab({ noteId, onUnauthorized, onRemoteUpdate }: UseCollabOptions): UseCollabResult {
   const [state, setState] = useState<CollabState>(INITIAL_COLLAB_STATE);
   const [session, setSession] = useState<{ doc: Y.Doc; provider: HocuspocusProvider } | null>(null);
   const [synced, setSynced] = useState(false);
@@ -223,6 +257,10 @@ export function useCollab({ noteId, onUnauthorized }: UseCollabOptions): UseColl
   const stopRestartsRef = useRef<(() => void) | null>(null);
   const onUnauthorizedRef = useRef(onUnauthorized);
   onUnauthorizedRef.current = onUnauthorized;
+  // 同 `onUnauthorizedRef`：走 ref 讓連線 effect 的依賴陣列維持 `[noteId, dispatch]`
+  // ——呼叫端每次 render 換一個回呼身分不該把整條連線拆掉重建。
+  const onRemoteUpdateRef = useRef(onRemoteUpdate);
+  onRemoteUpdateRef.current = onRemoteUpdate;
 
   // `collabReducer` 是純函式，StrictMode 重複呼叫 updater 也安全。
   const dispatch = useCallback((event: CollabEvent) => {
@@ -367,7 +405,20 @@ export function useCollab({ noteId, onUnauthorized }: UseCollabOptions): UseColl
     // false→true 邊緣 emit，handler 因此**只設 true、從不設回 false**（見
     // UseCollabResult.synced 的 sticky 說明）。cleanup 由 `provider.destroy()` 的
     // removeAllListeners 一併帶走，比照本檔既有的 close／authenticationFailed 訂閱。
-    provider.on("synced", () => setSynced(true));
+    // #106 spec §10：遠端 update → debounce → 通知呼叫端（它據此失效 note query）。
+    // ⚠ **掛在 "synced" 裡，不是 effect 本體**：初次同步那一批 update 的 origin 也是
+    // provider，掛在本體的話一開頁就白白失效一次 note query。`"synced"` 只在 false→true
+    // 邊緣 emit（見上一段），`??=` 讓重連不會重複掛。守衛＝本檔測試的「首次同步那一批不算」。
+    let disposeRemoteUpdate: (() => void) | undefined;
+    provider.on("synced", () => {
+      setSynced(true);
+      disposeRemoteUpdate ??= createRemoteUpdateDebouncer(
+        doc,
+        provider,
+        () => onRemoteUpdateRef.current?.(),
+        REMOTE_UPDATE_DEBOUNCE_MS,
+      );
+    });
 
     provider.on("close", ({ event }: { event?: { reason?: string } }) => {
       const reason = event?.reason ?? "";
@@ -451,6 +502,7 @@ export function useCollab({ noteId, onUnauthorized }: UseCollabOptions): UseColl
       cancelRestartFallback?.();
       stopRestartsRef.current = null;
       providerRef.current = null;
+      disposeRemoteUpdate?.();
       provider.destroy();
       doc.destroy();
       setSession(null);
