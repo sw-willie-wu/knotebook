@@ -27,6 +27,7 @@ const NOTE: NoteDto = {
   slugIsCustom: false,
   prevSlug: null,
   ownerHandle: "tester",
+  lastEdited: null,
 };
 
 function renderTitle(props: Partial<{ note: NoteDto; readOnly: boolean }> = {}) {

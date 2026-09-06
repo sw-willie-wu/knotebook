@@ -29,7 +29,12 @@ async function setup(md: string | null = "# A\n\n第一段\n\n# B\n\n第二段",
     ctx.app.inject({ method: "POST", url: `/api/notes/${note.id}/edits`, headers: bearer(t), payload: body });
   const rows = () => ctx.db.select().from(noteAiEdits).where(eq(noteAiEdits.noteId, note.id));
   const stateBytes = async () => Buffer.from((await ctx.db.select().from(noteStates).where(eq(noteStates.noteId, note.id)))[0]?.ydoc ?? Buffer.alloc(0));
-  return { ctx, u, note, session, client, token, tokenId, content, post, rows, stateBytes };
+  // #137 Task 3：spec §12.2 對每個拒絕情境要求三件事，第三件就是 `last_edited_*` 不變——與
+  // `stateBytes` 並列，同一顆 debounce 打穿兩者（取基線前必須先讓落盤成為確定事件，見各案註解）。
+  const lastEdited = async () =>
+    (await ctx.db.select({ at: notes.lastEditedAt, by: notes.lastEditedBy, tokenId: notes.lastEditedTokenId, label: notes.lastEditedAgentLabel })
+      .from(notes).where(eq(notes.id, note.id)))[0]!;
+  return { ctx, u, note, session, client, token, tokenId, content, post, rows, stateBytes, lastEdited };
 }
 const ids = (doc: Y.Doc) => topLevelContainers(doc.getXmlFragment(YDOC_FRAGMENT)).map(c => c.getAttribute("id"));
 const cookieFor = async (userId: string) => `${SESSION_COOKIE}=${await signSession(testConfig.appSecret, { userId, tv: 0 })}`;
@@ -230,6 +235,9 @@ describe("if_match 與併發", () => {
     s.client.disconnect();
     await settled(s.ctx);
     expect(s.ctx.collab.hocuspocus.documents.size).toBe(0);
+    // #137 spec §12.2 的 (b)：拒絕路徑的 `disconnect()` **也會 store**，`ctx.applied === false`
+    // 是唯一擋住 AI 落款的閘。拿掉 `onStoreDocument` 的 applied 閘 → 這一行紅。
+    expect(await s.lastEdited()).toMatchObject({ tokenId: null, label: null });
   });
 
   it("fork 後合併前 provider 打別段 → 兩邊都在", async () => {
@@ -333,6 +341,10 @@ describe("拒絕案假綠守衛", () => {
     s.client.disconnect();
     await settled(s.ctx);
     const before = await s.stateBytes();
+    // #137：spec §12.2 的第三件事。可以用嚴格的「四欄全等」，前提正是上面那兩行斷線＋卸載——
+    // 之後四欄已是人形落款且**不會再有任何 store**（底下每個請求都停在合併之前），所以「不變」
+    // 是確定事件而非賭時序。⚠ 拿掉那兩行斷線，這一行會跟著變成隨機紅（同一顆 debounce 的兩個面）。
+    const lastBefore = await s.lastEdited();
     const topFp = (await s.content()).outline[0].fingerprint; // 文件以 heading 開頭 → _top 零 block
     const NUL = String.fromCharCode(0);
     const cases: Array<[Record<string, unknown>, number, string, string?]> = [
@@ -363,6 +375,7 @@ describe("拒絕案假綠守衛", () => {
     expect(big.json().error.code).toBe("content_too_large");
     expect((await s.stateBytes()).equals(before)).toBe(true);
     expect(await s.rows()).toHaveLength(0);
+    expect(await s.lastEdited()).toEqual(lastBefore);
   });
 
   it("429 也是拒絕案：EDIT_LIMIT 耗盡後的請求 → note_states 位元組相同、記錄零列", async () => {
@@ -372,15 +385,23 @@ describe("拒絕案假綠守衛", () => {
     const s = await setup(undefined, { limiters: { edit: new FixedWindowLimiter({ limit: 1, windowMs: 60_000 }) } });
     expect((await s.post({ op: "append", markdown: "第一次" })).statusCode).toBe(201);
     const before = await s.stateBytes();
+    // #137：這一案也能用嚴格的「四欄全等」，理由是上面那次成功的 append——合併的 disconnect()
+    // 是立即 store，**會取代該批待送的 debounced store**（spec §13），所以之後沒有別的寫入者
+    // 會再動這四欄。基線因此是確定事件，不是「大概來得及」。
+    const lastBefore = await s.lastEdited();
     const rowsBefore = (await s.rows()).length;
     const r = await s.post({ op: "append", markdown: "第二次" });
     expect(r.statusCode).toBe(429);
     expect(r.json().error.code).toBe("too_many_requests");
     expect((await s.stateBytes()).equals(before)).toBe(true);
     expect(await s.rows()).toHaveLength(rowsBefore);
+    expect(await s.lastEdited()).toEqual(lastBefore);
     expect((await s.content()).markdown).not.toContain("第二次");
   });
 
+  // ⚠ #137：這一案**刻意不補** `last_edited_*` 不變的斷言——它不是拒絕案：內容**已經合併落盤**
+  // 了（`expect(content).toContain("內容在")` 正是這個意思），落款本來就該更新。誤加「不變」會把
+  // 正確行為測成錯的。
   it("記錄插入失敗（beforeRecord throw）→ 500、內容仍在、記錄零列", async () => {
     const s = await setup(undefined, { editingTestHooks: { beforeRecord: async () => { throw new Error("boom"); } } });
     const c = await s.content();

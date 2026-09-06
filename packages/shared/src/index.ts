@@ -55,6 +55,9 @@ export interface NoteDto {
   slugIsCustom: boolean;
   /** 單層自訂 redirect 來源（只記自訂變更；無則 null）——by-path miss 後的補查面。 */
   prevSlug: string | null;
+  /** #106 D6：誰在什麼時候最後改了這篇（`notes.last_edited_*` 四欄；從未被編輯過＝null）。
+   * 型別宣告在本檔下方——interface 是型別層的，不受宣告順序影響（沒有 TDZ 這回事）。 */
+  lastEdited: LastEditedDto | null;
 }
 
 // #106 內容端點（`GET /api/notes/:id/content`，#137 起還有寫入端）的對外形。指紋是樂觀
@@ -68,7 +71,8 @@ export interface NoteOutlineEntry {
   chars: number;
   fingerprint: string;
 }
-/** 誰在什麼時候最後改了這篇（#137 才會有非 null 值；#136 一律 null）。 */
+/** 誰在什麼時候最後改了這篇（#137 起是真值；#136 一律 null）。`byHandle` 是**編輯者**的
+ * username（不是 owner 的）；`agentLabel` 非 null＝那次是 AI／API 經 token 寫的。 */
 export interface LastEditedDto {
   at: string;
   byHandle: string;

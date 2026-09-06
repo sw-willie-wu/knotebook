@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 import { and, desc, eq, ne, or, sql } from "drizzle-orm";
-import { unionAll } from "drizzle-orm/pg-core";
+import { alias, unionAll } from "drizzle-orm/pg-core";
 import * as Y from "yjs";
 import {
   MAX_LINK_TARGETS,
@@ -27,7 +27,7 @@ import { apiTokens, noteLinks, noteShares, noteStateBackups, noteStates, notes, 
 import type { CollabHooks } from "../collab/hooks.js";
 import type { CollabServer } from "../collab/server.js";
 import type { EditingRuntime } from "../notes/editing/runtime.js";
-import { readNoteContent } from "../notes/editing/read.js";
+import { loadLastEdited, readNoteContent } from "../notes/editing/read.js";
 import { applyEdit, type ApplyResult, type EditingTestHooks } from "../notes/editing/apply.js";
 import { listEdits, revertEdit, type RevertResult } from "../notes/editing/revert.js";
 import { visibleNoteTitles } from "../notes/editing/candidates.js";
@@ -163,6 +163,10 @@ export interface NotesRouteDeps {
 // `ownerHandle` 不在 notes 表上（#122）——各回填點自行帶入：JOIN users（list/:ref/
 // by-path）、`request.user.handle`（POST——建立者即 owner，spec A12）、returning 後
 // 補一次 SELECT users（PATCH——editor 改他人筆記時必須回 **owner 的** handle）。
+// #106 D6 的三欄同樣不在 `notes` 表的 owner JOIN 上：`editorHandle` 來自**另一個** users
+// 別名（`editor`，LEFT JOIN `last_edited_by`），與 `ownerHandle` 是不同的兩個人。各回填點
+// 見下：list 兩支 union、`noteWithOwnerSelection`（:ref／by-path）、POST 帶 content 重讀、
+// PATCH returning 後補查。
 interface NoteFields {
   id: string;
   title: string;
@@ -173,6 +177,9 @@ interface NoteFields {
   ownerHandle: string;
   createdAt: Date;
   updatedAt: Date;
+  lastEditedAt: Date | null;
+  lastEditedAgentLabel: string | null;
+  editorHandle: string | null;
 }
 
 function toNoteDto(note: NoteFields, role: Role): NoteDto {
@@ -187,8 +194,25 @@ function toNoteDto(note: NoteFields, role: Role): NoteDto {
     ownerHandle: note.ownerHandle,
     createdAt: note.createdAt.toISOString(),
     updatedAt: note.updatedAt.toISOString(),
+    // 四欄同進同出：`last_edited_at` 是 null 就整個 lastEdited 為 null。編輯者帳號被刪
+    // （FK `set null`）時 handle 落空 → 空字串（與 `read.ts` 的 `loadLastEdited` 同一形）。
+    lastEdited: note.lastEditedAt
+      ? { at: note.lastEditedAt.toISOString(), byHandle: note.editorHandle ?? "", agentLabel: note.lastEditedAgentLabel }
+      : null,
   };
 }
+
+/** `users` 的第二個別名：JOIN 的是**編輯者**（`notes.last_edited_by`），與 owner 那次 JOIN
+ * 同表不同人，不取別名 drizzle 產不出兩個 FROM 項。一律 LEFT JOIN——沒編輯過（欄位 null）
+ * 或編輯者帳號已刪（FK `set null`）時，那一列仍要出現在結果裡。 */
+const editor = alias(users, "editor");
+/** 三欄一組，`ownedSelect`／`sharedSelect`／`noteWithOwnerSelection` 共用同一份定義——union
+ * 兩支的 select shape 必須逐欄同形，抄兩次遲早分岔。 */
+const lastEditedSelection = {
+  lastEditedAt: notes.lastEditedAt,
+  lastEditedAgentLabel: notes.lastEditedAgentLabel,
+  editorHandle: editor.handle,
+};
 
 /**
  * Notes CRUD 路由——皆需認證（`authenticate` preHandler）。
@@ -280,15 +304,27 @@ export function notesRoutes(deps: NotesRouteDeps) {
           }
           return sendError(reply, 500, "internal", "建立筆記失敗");
         }
-        // Task 1 的形：`lastEdited` 由 `toNoteDto` 給 null（欄位還沒接線）。**Task 3 要改成重讀**
-        // ——合併已經落款了，`note` 是 insert 的 returning，四欄在那一刻還是 null。
-        return reply.code(201).send(toNoteDto({ ...note, ownerHandle: request.user!.handle }, "owner"));
+        // Task 3：**重讀**這一列。`note` 是 insert 的 returning，四欄在那一刻還是 null，而
+        // 上面那次合併的 disconnect 已經落款了——直接回 `note` 會送出一個恆空的 `lastEdited`
+        // 的假答案（`note-last-edited.test.ts` 第二案的「帶 content → 與 DB 一致」釘住）。
+        const fresh = await loadNoteWithOwner(note.id);
+        // 落空＝回應組裝前這篇又被別的請求刪掉的競態（同 `loadNoteWithOwner` 註解）；內容
+        // 已經寫進去了，不能回 500——本 handler 上面那個 500（套用內容失敗）會 best-effort
+        // 刪掉剛建的列，重試安全，但這裡列還在、內容也還在，回 500 只會讓外部 AI 重試出
+        // 第二篇有內容的筆記，比回一個過期的 `lastEdited` 更糟。退回 insert 的 returning
+        // （與無 content 那條路徑同一形，`lastEdited` 因此為 null）：整份回應都在描述一篇
+        // 已不存在的筆記，最後編輯資訊不比標題或網址更假，而無 content 那條路徑本來就接受
+        // 這件事。**不要**改成路由自己組出落款值——落款的更新只警告不拋出，失敗時路由組出
+        // 來的值會是謊話，重讀至少誠實地回舊值。
+        return reply.code(201).send(toNoteDto(fresh ?? { ...note, ownerHandle: request.user!.handle, editorHandle: null }, "owner"));
       }
 
       const [note] = await deps.db.insert(notes).values(values).returning();
 
       // ownerHandle 直接取 request.user（A12）：建立者即 owner，不必補查 users。
-      return reply.code(201).send(toNoteDto({ ...note, ownerHandle: request.user!.handle }, "owner"));
+      // `editorHandle` 恆為 null——這條路徑沒有內容、`last_edited_*` 四欄還是 insert 的預設值，
+      // `toNoteDto` 於是把 `lastEdited` 給 null（不必為了一個必然落空的 JOIN 多發一次查詢）。
+      return reply.code(201).send(toNoteDto({ ...note, ownerHandle: request.user!.handle, editorHandle: null }, "owner"));
     });
 
     app.get("/api/notes", { preHandler: app.authenticateAny("notes:read") }, async request => {
@@ -326,10 +362,12 @@ export function notesRoutes(deps: NotesRouteDeps) {
           ownerHandle: users.handle,
           createdAt: notes.createdAt,
           updatedAt: notes.updatedAt,
+          ...lastEditedSelection,
           role: sql<string>`'owner'`.as("role"),
         })
         .from(notes)
         .innerJoin(users, eq(users.id, notes.ownerId))
+        .leftJoin(editor, eq(editor.id, notes.lastEditedBy))
         .where(eq(notes.ownerId, userId));
 
       const sharedSelect = deps.db
@@ -343,11 +381,13 @@ export function notesRoutes(deps: NotesRouteDeps) {
           ownerHandle: users.handle,
           createdAt: notes.createdAt,
           updatedAt: notes.updatedAt,
+          ...lastEditedSelection,
           role: noteShares.role,
         })
         .from(notes)
         .innerJoin(noteShares, and(eq(noteShares.noteId, notes.id), eq(noteShares.userId, userId)))
         .innerJoin(users, eq(users.id, notes.ownerId))
+        .leftJoin(editor, eq(editor.id, notes.lastEditedBy))
         .where(ne(notes.ownerId, userId));
 
       // 次要排序鍵 id desc（M3）：updatedAt 精度不足以保證唯一序，未來若加分頁
@@ -368,6 +408,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
       ownerHandle: users.handle,
       createdAt: notes.createdAt,
       updatedAt: notes.updatedAt,
+      ...lastEditedSelection,
     };
 
     // 授權後的完整列讀取（GET :ref 用；by-path 首查即帶整列，不經這裡）：JOIN users 帶
@@ -379,6 +420,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
         .select(noteWithOwnerSelection)
         .from(notes)
         .innerJoin(users, eq(users.id, notes.ownerId))
+        .leftJoin(editor, eq(editor.id, notes.lastEditedBy))
         .where(eq(notes.id, noteId))
         .limit(1);
       return row;
@@ -407,6 +449,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
         .select(noteWithOwnerSelection)
         .from(notes)
         .innerJoin(users, eq(users.id, notes.ownerId))
+        .leftJoin(editor, eq(editor.id, notes.lastEditedBy))
         .where(and(eq(users.handle, handle), eq(notes.slug, slugParam)))
         .limit(1);
       let note = hit;
@@ -415,6 +458,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
           .select(noteWithOwnerSelection)
           .from(notes)
           .innerJoin(users, eq(users.id, notes.ownerId))
+          .leftJoin(editor, eq(editor.id, notes.lastEditedBy))
           .where(and(eq(users.handle, handle), eq(notes.prevSlug, slugParam)))
           .limit(2);
         if (prevHits.length !== 1) {
@@ -488,11 +532,11 @@ export function notesRoutes(deps: NotesRouteDeps) {
         if (!deps.limiters.contentRead.consume(userId)) return sendError(reply, 429, "too_many_requests", "讀取過於頻繁");
         const result = await readNoteContent({ db: deps.db, collab }, editing, id, q.data.section);
         if (result === "section_not_found") return sendError(reply, 404, "section_not_found", "找不到此段落");
-        // `lastEdited` 在 #136 恆為 null（欄位由 #137 的 migration 0010 建）；形狀先固定，
-        // 讓 client 不必為了 #137 再改一次回應解析。`reply.send` 本身不做型別檢查——`satisfies`
-        // 把 `read.ts` 的回傳形狀釘回 shared 的 DTO，形狀漂移（少一欄、多一欄）在編譯期就會炸，
-        // 不必等到執行期才被測試發現（m-5）。
-        const body = { ...result, lastEdited: null } satisfies NoteContentDto | NoteSectionDto;
+        // #137 起 `lastEdited` 是真值（整篇形與段落形都回，`note-content.test.ts` 兩行釘住）。
+        // `loadLastEdited` 是純 SELECT，不開直連——讀路徑零副作用的不變量照舊成立。
+        // `reply.send` 本身不做型別檢查——`satisfies` 把 `read.ts` 的回傳形狀釘回 shared 的 DTO，
+        // 形狀漂移（少一欄、多一欄）在編譯期就會炸，不必等到執行期才被測試發現（m-5）。
+        const body = { ...result, lastEdited: await loadLastEdited(deps.db, id) } satisfies NoteContentDto | NoteSectionDto;
         return reply.send(body);
       });
 
@@ -549,7 +593,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
             // 會靜默送出 {0:"s",1:"e",…}。
             const current = await readNoteContent({ db: deps.db, collab }, editing, id);
             if (current === "section_not_found") throw new Error("readNoteContent 未帶 section 卻回哨兵值");
-            const body = { ...current, lastEdited: null } satisfies NoteContentDto | NoteSectionDto;
+            const body = { ...current, lastEdited: await loadLastEdited(deps.db, id) } satisfies NoteContentDto | NoteSectionDto;
             return reply.code(409).send({ error: { code: "fingerprint_mismatch", message: "內容已被修改" }, current: body });
           }
           return sendError(reply, result.code === "section_not_found" ? 404 : 400, result.code, "無法套用修改");
@@ -617,7 +661,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
             // 一個字串會靜默送出 {0:"s",1:"e",…}。
             const current = await readNoteContent({ db: deps.db, collab }, editing, id);
             if (current === "section_not_found") throw new Error("readNoteContent 未帶 section 卻回哨兵值");
-            const body = { ...current, lastEdited: null } satisfies NoteContentDto | NoteSectionDto;
+            const body = { ...current, lastEdited: await loadLastEdited(deps.db, id) } satisfies NoteContentDto | NoteSectionDto;
             return reply.code(409).send({ error: { code: "stale", message: "這筆修改之後筆記又被改過，已無法撤回" }, current: body });
           }
           if (result.code === "already_reverted") return sendError(reply, 409, "already_reverted", "這筆修改已經撤回過了");
@@ -635,6 +679,17 @@ export function notesRoutes(deps: NotesRouteDeps) {
       const [row] = await deps.db.select({ handle: users.handle }).from(users).where(eq(users.id, ownerId)).limit(1);
       if (!row) throw new Error(`notes.owner_id ${ownerId} 查無對應 users 列（FK 不變量被打破）`);
       return row.handle;
+    }
+
+    /**
+     * #106 D6：PATCH 的 `.returning()` 同樣拿不到 `editor.handle`——比照上面的 `ownerHandleOf`
+     * 補讀一次。與 owner 那支的差別在**落空是正常的**（沒編輯過＝`last_edited_by` 為 null；
+     * 編輯者帳號被刪＝FK `set null`），所以回 `null` 而不是 throw。
+     */
+    async function editorHandleOf(editorId: string | null): Promise<string | null> {
+      if (!editorId) return null;
+      const [row] = await deps.db.select({ handle: users.handle }).from(users).where(eq(users.id, editorId)).limit(1);
+      return row?.handle ?? null;
     }
 
     /**
@@ -740,7 +795,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
         if (!updated) {
           return sendError(reply, 404, "not_found", "找不到此筆記");
         }
-        return toNoteDto({ ...updated, ownerHandle: await ownerHandleOf(updated.ownerId) }, role);
+        return toNoteDto({ ...updated, ownerHandle: await ownerHandleOf(updated.ownerId), editorHandle: await editorHandleOf(updated.lastEditedBy) }, role);
       }
 
       // 格 2–4：auto 路徑。clearingSlug＝格 3/4（body 帶 slug:null）；否則格 2（title-only）。
@@ -820,7 +875,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
       if (!updated) {
         return sendError(reply, 404, "not_found", "找不到此筆記");
       }
-      return toNoteDto({ ...updated, ownerHandle: await ownerHandleOf(updated.ownerId) }, role);
+      return toNoteDto({ ...updated, ownerHandle: await ownerHandleOf(updated.ownerId), editorHandle: await editorHandleOf(updated.lastEditedBy) }, role);
     });
 
     /**

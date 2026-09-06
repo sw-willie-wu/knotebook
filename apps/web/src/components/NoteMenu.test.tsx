@@ -36,6 +36,7 @@ const OWNER_NOTE: NoteDto = {
   slugIsCustom: true,
   prevSlug: null,
   ownerHandle: "tester",
+  lastEdited: null,
 };
 
 const CONNECTED: CollabState = { phase: "connected", role: "owner" };

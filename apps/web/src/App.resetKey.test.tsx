@@ -65,6 +65,7 @@ const NOTE: NoteDto = {
   slugIsCustom: true,
   prevSlug: null,
   ownerHandle: "plain",
+  lastEdited: null,
 };
 
 const OTHER_NOTE: NoteDto = {
@@ -78,6 +79,7 @@ const OTHER_NOTE: NoteDto = {
   slugIsCustom: false,
   prevSlug: null,
   ownerHandle: "plain",
+  lastEdited: null,
 };
 
 interface FakeResponseInit {

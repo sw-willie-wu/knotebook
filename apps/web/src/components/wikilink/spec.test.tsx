@@ -69,6 +69,7 @@ const TARGET_NOTE: NoteDto = {
   slugIsCustom: false,
   prevSlug: null,
   ownerHandle: "tester",
+  lastEdited: null,
 };
 
 /** `editor`/`updateInlineContent` prop 是 `WikilinkInline` 簽章要求，但元件本身不用
