@@ -1,6 +1,10 @@
 /**
  * #130 Task 8：`authenticateAny`（Bearer／session 雙路徑認證）與 `/api/mcp` 的
- * #108 前暫時形。
+ * Bearer challenge。
+ *
+ * ⚠ #108 之後 `GET /api/mcp` 不再是 501，而是**認證通過後**的 `405`（＋`Allow: POST`）——
+ * 本檔用它當「認證這一關過了」的哨兵，狀態碼換了但語意不變（405 一樣走完
+ * `authenticateAny` 與 `tokenRead` 扣點）。
  *
  * 這一族守的是三件會靜默壞掉的事：①401／403 的 `WWW-Authenticate` 形狀（MCP client
  * 靠它發現授權伺服器，少一個欄位整條 OAuth 流程起不了頭）；②哪些失敗計入
@@ -71,7 +75,7 @@ async function seedToken(
   return { token, userId: user.id, tokenId: row.id };
 }
 
-describe("/api/mcp 暫時形與 Bearer challenge", () => {
+describe("/api/mcp 的 method 形狀與 Bearer challenge", () => {
   it("三個 method 無憑證 → 401，challenge 帶 resource_metadata 與兩個 scope、不帶 error", async () => {
     const { app } = await buildTestApp();
     for (const method of ["GET", "POST", "DELETE"] as const) {
@@ -84,12 +88,18 @@ describe("/api/mcp 暫時形與 Bearer challenge", () => {
     }
   });
 
-  it("有效 token 通過 → 501 not_implemented（是我們的錯誤形，不是 500 internal）", async () => {
+  it("有效 token 通過 → GET 是 405 ＋ Allow: POST（是 method 不合，不是 500 internal）", async () => {
     const { app, db } = await buildTestApp();
     const { token } = await seedToken(db);
     const res = await app.inject({ method: "GET", url: "/api/mcp", headers: { authorization: `Bearer ${token}` } });
-    expect(res.statusCode).toBe(501);
-    expect(res.json()).toEqual({ error: { code: "not_implemented", message: expect.any(String) } });
+    expect(res.statusCode).toBe(405);
+    // #108 D-D：RFC 9110 §15.5.6 的 MUST。405 的 body 是 JSON-RPC error 形（見 routes/mcp.ts）。
+    expect(res.headers.allow).toBe("POST");
+    expect(res.json()).toEqual({
+      jsonrpc: "2.0",
+      id: null,
+      error: { code: -32000, message: expect.any(String) },
+    });
   });
 
   it("壞 token → 401 且 challenge 帶 error=invalid_token", async () => {
@@ -150,7 +160,7 @@ describe("/api/mcp 暫時形與 Bearer challenge", () => {
     expect(
       (await app.inject({ method: "GET", url: "/api/mcp", headers: { authorization: `Bearer ${never.token}` } }))
         .statusCode
-    ).toBe(501);
+    ).toBe(405);
   });
 
   it("停權使用者的 token → 401；mustChangePassword 的 token → 401", async () => {
@@ -177,9 +187,9 @@ describe("/api/mcp 暫時形與 Bearer challenge", () => {
 
     // 先確認這個 cookie 本身有效
     const cookieOnly = await app.inject({ method: "GET", url: "/api/mcp", cookies: { [SESSION_COOKIE]: cookie } });
-    expect(cookieOnly.statusCode).toBe(501);
+    expect(cookieOnly.statusCode).toBe(405);
 
-    // 同一發再帶一個壞掉的 Bearer——必須 401，不得回退到 cookie 而變成 501
+    // 同一發再帶一個壞掉的 Bearer——必須 401，不得回退到 cookie 而變成 405
     const both = await app.inject({
       method: "GET",
       url: "/api/mcp",
@@ -463,7 +473,7 @@ describe("notes 路由收 Bearer（D2 的允許清單）", () => {
     const { token } = await seedToken(db);
     const auth = { authorization: `Bearer ${token}` };
     for (let i = 0; i < 3; i += 1) {
-      expect((await app.inject({ method: "GET", url: "/api/mcp", headers: auth })).statusCode).toBe(501);
+      expect((await app.inject({ method: "GET", url: "/api/mcp", headers: auth })).statusCode).toBe(405);
     }
     const limited = await app.inject({ method: "GET", url: "/api/notes", headers: auth });
     expect(limited.statusCode).toBe(429);

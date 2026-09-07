@@ -26,9 +26,13 @@ import { uploadsRoutes } from "./routes/uploads.js";
 import { publicRoutes, redactPublicTokens } from "./routes/public.js";
 import { oidcRoutes } from "./routes/oidc.js";
 import { mcpRoutes } from "./routes/mcp.js";
+import type { McpTestHooks } from "./mcp/hooks.js";
 import { apiTokensRoutes } from "./routes/api-tokens.js";
 import { drainWithCap } from "./http/drain.js";
 import { sendError } from "./http/errors.js";
+// #108：`stripDefaultPort` 搬到 `http/origin.ts`（與 `mcpOriginAllowed` 同一個葉節點模組，
+// 兩種比較語意的差別寫在該檔檔頭）。
+import { stripDefaultPort } from "./http/origin.js";
 import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_RENAME_LIMIT, TOKEN_WRITE_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
 import { FORM_EXEMPT_ROUTES, isOauthScopedPath, sendOauthError } from "./http/oauth-errors.js";
 import { oauthRoutes } from "./routes/oauth.js";
@@ -137,6 +141,12 @@ export interface AppDeps {
    * 被呼叫。**選配**，生產不注入＝零成本。透傳進 `NotesRouteDeps.editingTestHooks`。
    */
   editingTestHooks?: EditingTestHooks;
+  /**
+   * #108：`/api/mcp` 的測試注入縫（比照 `editingTestHooks`）——`afterClose`／`beforeReply`／
+   * `beforeTool` 分別在「關掉 server 之後」「搬回 reply 之前」「工具 handler 進入時」被呼叫。
+   * **選配**，生產不注入＝零成本。透傳進 `McpRouteDeps.testHooks`。
+   */
+  mcpTestHooks?: McpTestHooks;
   /**
    * #106（#137）：per-note 寫入佇列的等待上限（毫秒）。**選配**，未傳時用 `NoteWriteQueue`
    * 自己的預設（10 s）。整合測試把它壓到 50 ms 才驗得出「佇列被占住 → 503 server_busy」，
@@ -251,23 +261,6 @@ function isMultipartExemptRoute(request: FastifyRequest): boolean {
   const url = request.routeOptions.url;
   if (url === undefined) return false;
   return MULTIPART_EXEMPT_ROUTES.has(`${request.method} ${url}`);
-}
-
-/**
- * 兩側 `:80`/`:443` 預設 port 消去後再比對（spec §12.4：scheme 忽略、IPv6 方括號原樣）。
- *
- * 手寫 regex 而非借用 `new URL().host` 的內建預設 port 消去，是刻意選擇，不是偷懶：
- * 1. 比對的另一側（`request.host`）根本不是 URL——它是裸的 `Host`/`X-Forwarded-Host`
- *    header 值（例如 `example.com:443`），沒有 `URL` 物件可用，沒有 scheme 可言。
- * 2. `URL.host` 的預設 port 消去是 **scheme-bound** 的（`https://x:443` 消去、
- *    `http://x:443` 不會——443 不是 http 的預設 port）；但 spec 明文「scheme 忽略」——
- *    若真要湊出一個 `URL` 來讓內建消去生效，得先幫 `request.host` 那側**假造一個
- *    scheme**（例如硬套 `https://`）才能餵給 `new URL()`，這個假造的 scheme 會跟
- *    「scheme 忽略」的契約直接打架（相當於偷偷把 scheme 又塞回比對邏輯裡）。
- * 手寫、對稱地在兩側字面字串上剝 `:80`/`:443` 後綴，才是唯一不引入假 scheme 的作法。
- */
-function stripDefaultPort(host: string): string {
-  return host.replace(/:(?:80|443)$/, "");
 }
 
 /**
@@ -669,9 +662,20 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   void app.register(uploadsRoutes({ db: deps.db, config: deps.config, limiters: { upload: limiters.upload }, uploadsDir: deps.uploadsDir }));
   // #72 公開端點（免登入）：三步節流順序與 404 同形見 routes/public.ts 檔頭。
   void app.register(publicRoutes({ db: deps.db, uploadsDir: deps.uploadsDir, limiters: { publicMiss: limiters.publicMiss, publicNote: limiters.publicNote, publicUpload: limiters.publicUpload } }));
-  // #107：/api/mcp 的 #108 前暫時形——沒有它，MCP client 的第一發會拿到不帶 challenge
-  // 的 404，無從發現授權伺服器（見 routes/mcp.ts 檔頭）。
-  void app.register(mcpRoutes());
+  // #108：真正的 MCP 端點（六步順序、stateless 一請求一實例、Origin 守衛、bodyLimit
+  // 都在 routes/mcp.ts 的檔頭）。⚠ 註冊點必須排在 `editing` 與 `presence` 兩個區域變數
+  // 算出來之後——這裡已經在後面了。
+  void app.register(
+    mcpRoutes({
+      db: deps.db,
+      config: deps.config,
+      collab: deps.collab,
+      editing,
+      limiters: { contentRead: limiters.contentRead },
+      presence,
+      testHooks: deps.mcpTestHooks,
+    })
+  );
 
   // #132：兩個 RFC 形 plugin 各自帶 prefix（root notFound 由 spa.ts 獨佔）。
   void app.register(

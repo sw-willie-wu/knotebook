@@ -429,6 +429,8 @@ export async function buildCollabTestApp(
     limiters?: Partial<NonNullable<AppDeps["limiters"]>>;
     /** #106（#137）寫入路徑的注入縫，語意見 `AppDeps.editingTestHooks`。 */
     editingTestHooks?: AppDeps["editingTestHooks"];
+    /** #108 `/api/mcp` 的注入縫，語意見 `AppDeps.mcpTestHooks`。 */
+    mcpTestHooks?: AppDeps["mcpTestHooks"];
     /** #106（#137）per-note 佇列等待上限（毫秒），語意見 `AppDeps.editingQueueWaitMs`。 */
     editingQueueWaitMs?: number;
     /** #138 presence 的參數（`idleMs`／`heartbeatMs`／`capacity`／`now`），透傳成 `AppDeps.presenceOptions`。 */
@@ -467,6 +469,7 @@ export async function buildCollabTestApp(
     editing: testEditingRuntime,
     limiters: freshLimiters(opts.limiters),
     editingTestHooks: opts.editingTestHooks,
+    mcpTestHooks: opts.mcpTestHooks,
     editingQueueWaitMs: opts.editingQueueWaitMs,
     presenceOptions: opts.presence,
     uploadsDir: freshUploadsDir(),
