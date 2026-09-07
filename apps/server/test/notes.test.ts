@@ -106,6 +106,37 @@ describe("POST /api/notes", () => {
     expect(res.json()).toMatchObject({ title: "My Note" });
   });
 
+  // #108：`createBodySchema.title` 的 `.min(1)` 在這之前沒有任何守衛（`:270` 的空 title 案打的
+  // 是 PATCH，走 `updateBodySchema`）。schema 抽到 `notes/schemas.ts` 之前先補上。
+  it("空 title → 400（守 createBodySchema 的 .min(1)）", async () => {
+    const { app, db } = await buildTestApp();
+    const u = await insertUser(db);
+    const cookie = await cookieFor(u.id);
+
+    const res = await app.inject({ method: "POST", url: "/api/notes", cookies: { [SESSION_COOKIE]: cookie }, payload: { title: "" } });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("invalid_body");
+  });
+
+  // #108：`createBodySchema.title` 的 `.refine(noNul)` 同樣沒有守衛。沒有它，含 U+0000 的
+  // title 會一路寫進 pg 的 text 欄位、pg 回 22021，例外逃到全域 errorHandler 變 500——所以
+  // 「零新增」那一半也要斷言（只驗狀態碼的話，500 之外的漏寫路徑看不出來）。
+  it("含 NUL 的 title → 400 且 notes 表零新增（守 .refine(noNul)）", async () => {
+    const { app, db } = await buildTestApp();
+    const u = await insertUser(db);
+    const cookie = await cookieFor(u.id);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/notes",
+      cookies: { [SESSION_COOKIE]: cookie },
+      payload: { title: `a${String.fromCharCode(0)}b` },
+    });
+    expect(res.statusCode).toBe(400);
+    const rows = await db.select({ id: notes.id }).from(notes).where(eq(notes.ownerId, u.id));
+    expect(rows).toHaveLength(0);
+  });
+
   it("未登入 → 401", async () => {
     const { app } = await buildTestApp();
     const res = await app.inject({ method: "POST", url: "/api/notes", payload: {} });
