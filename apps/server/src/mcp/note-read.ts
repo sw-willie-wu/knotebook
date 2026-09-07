@@ -15,12 +15,15 @@
  *
  * ⚠ `role === "none"` 一律當「找不到」，訊息不得洩漏「存在但你沒權限」（M2／案 17）。
  * ⚠ presence 目標一律走既有的 `presenceTargetForRead(...)`，**不得自組 `PresenceTarget`
- *   字面量**（M8 的讀取側）。顯示名的組法與 `routes/notes.ts` 三處逐字相同——這是全站
- *   第四份同樣的組字，唯一的守衛是 `mcp-content.test.ts` 的 presence 那一案（誠實缺口）。
+ *   字面量**（M8 的讀取側）。顯示名走 `presenceIdentity(...)`——**server 端 presence 顯示名的
+ *   唯一組字點**（#108 PR2 收成一份；`presence.ts` 的原文措辭準確，這裡不是複製貼上）。
+ *   web 端 `LastEditedLabel.tsx`／`AiEditsDialog.tsx` 各自另有一份同形的
+ *   `${byHandle} (${agentLabel})`——那兩處是**修改紀錄的顯示**，不是 presence，故意不共用這支。
+ *   「它組得對不對」的唯一守衛仍是 `mcp-content.test.ts` 的 presence 那一案。
  */
 import type { Role } from "@knotebook/shared";
 import { currentAgentLabel } from "../auth/agent-label.js";
-import { PRESENCE_COLOR, presenceTargetForRead } from "../notes/editing/presence.js";
+import { presenceIdentity, presenceTargetForRead } from "../notes/editing/presence.js";
 import { resolveRole } from "../notes/service.js";
 import { toolError, type ToolErrorResult } from "./tool-result.js";
 import type { McpToolCtx } from "./context.js";
@@ -56,12 +59,7 @@ export async function authorizeNoteRead(
   if (ctx.tokenId !== null) {
     const label = await currentAgentLabel(ctx.db, ctx.tokenId);
     if (label !== null) {
-      ctx.presence?.touch(
-        noteId,
-        ctx.tokenId,
-        { name: `${ctx.userHandle} (${label})`, color: PRESENCE_COLOR },
-        presenceTargetForRead(section)
-      );
+      ctx.presence?.touch(noteId, ctx.tokenId, presenceIdentity(ctx.userHandle, label), presenceTargetForRead(section));
     }
   }
   return { ok: true, role };

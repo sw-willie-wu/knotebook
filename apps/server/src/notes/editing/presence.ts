@@ -17,6 +17,16 @@ const clocks = new Map<number, number>();
 const ORIGIN = "ai-presence";
 export const PRESENCE_COLOR = "#7c3aed";
 
+/**
+ * presence 顯示名的**唯一**組字點（#108 PR2）。原本 `routes/notes.ts` 三處（`/content` 讀、
+ * `/edits` 寫、`/revert`）＋ `mcp/note-read.ts` 一處各有一份逐字相同的字面量，四份都改吃這裡。
+ * ⚠ **組字只有一份了，但「它組得對不對」仍然只有兩條逐字斷言守著**（`note-presence.test.ts`
+ * 與 `mcp-content.test.ts` 的 presence 案）——把 `<handle> (<label>)` 前後顛倒兩者都會紅。
+ */
+export function presenceIdentity(userHandle: string, agentLabel: string): { name: string; color: string } {
+  return { name: `${userHandle} (${agentLabel})`, color: PRESENCE_COLOR };
+}
+
 export function presenceClientId(noteId: string, tokenId: string): number {
   return createHash("sha256").update(noteId + tokenId).digest().readUInt32BE(0);
 }

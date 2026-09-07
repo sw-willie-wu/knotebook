@@ -14,6 +14,7 @@ import type { Db } from "../db/index.js";
 import type { CollabServer } from "../collab/server.js";
 import type { EditingRuntime } from "../notes/editing/runtime.js";
 import type { PresenceRegistry } from "../notes/editing/presence.js";
+import type { NoteWriteService } from "../notes/editing/write-service.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
 import type { McpTestHooks } from "./hooks.js";
 
@@ -22,7 +23,21 @@ export interface McpToolCtx {
   collab?: CollabServer;
   editing?: EditingRuntime;
   presence?: PresenceRegistry;
-  limiters: { contentRead: FixedWindowLimiter };
+  /**
+   * #108 §10.1（D22／M5）：`buildApp` 建的**唯一**寫入 service——MCP 的寫入工具與 REST 的三條
+   * 寫入路徑共用同一個 `NoteWriteQueue`，同一篇筆記因此串行。
+   * ⚠ **PR2 Task 1 這一欄是零讀取的**：唯一的消費端是 Task 2／3 的 `edit_note`／`create_note`
+   * （外圍順序：候選集合 → agentLabel → 佇列 → applyEdit → presence 都在它裡面）。
+   * **若那兩支最後改成別的形，這一欄要一起拿掉，不要留無主欄位**（同一次收尾已經把真的
+   * 無主的 `config` 拿掉了）。
+   */
+  writes: NoteWriteService;
+  /**
+   * `contentRead` 給兩支讀取工具；`edit`／`tokenWrite` 是 PR2 的兩支寫入工具要用的
+   * （`tokenWrite` 由 `requireWriteScope(ctx)` 扣，`edit` 在角色檢查之後扣）——**Task 1 兩者
+   * 都是零讀取**，處置同 `writes`。
+   */
+  limiters: { contentRead: FixedWindowLimiter; edit: FixedWindowLimiter; tokenWrite: FixedWindowLimiter };
   log: FastifyBaseLogger;
   /** 呼叫者本人（`request.user!.id`）——L3 的可見性一律以它為準。 */
   userId: string;

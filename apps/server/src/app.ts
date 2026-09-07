@@ -45,6 +45,7 @@ import { createOidcRuntime, type OidcRuntime } from "./auth/oidc-client.js";
 import { createEditingRuntime, type EditingRuntime } from "./notes/editing/runtime.js";
 import type { EditingTestHooks } from "./notes/editing/apply.js";
 import { PresenceRegistry, type PresenceOptions } from "./notes/editing/presence.js";
+import { NoteWriteService } from "./notes/editing/write-service.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -138,7 +139,7 @@ export interface AppDeps {
   /**
    * #106（#137）：寫入路徑的測試注入縫（比照 `linkSyncTestHooks`）——`beforeMerge`／
    * `beforeRecord`／`beforeRevertRecord` 分別在「合併之前」「寫紀錄之前」「寫撤回紀錄之前」
-   * 被呼叫。**選配**，生產不注入＝零成本。透傳進 `NotesRouteDeps.editingTestHooks`。
+   * 被呼叫。**選配**，生產不注入＝零成本。#108 起透傳進 `NoteWriteService`（`buildApp` 建的那一個）。
    */
   editingTestHooks?: EditingTestHooks;
   /**
@@ -150,7 +151,7 @@ export interface AppDeps {
   /**
    * #106（#137）：per-note 寫入佇列的等待上限（毫秒）。**選配**，未傳時用 `NoteWriteQueue`
    * 自己的預設（10 s）。整合測試把它壓到 50 ms 才驗得出「佇列被占住 → 503 server_busy」，
-   * 否則那一案要等十秒。透傳進 `NotesRouteDeps.editingQueueWaitMs`。
+   * 否則那一案要等十秒。#108 起透傳進 `NoteWriteService`（`buildApp` 建的那一個）。
    */
   editingQueueWaitMs?: number;
   /**
@@ -633,6 +634,18 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     presence.stopAll();
   });
 
+  // #108 §10.1（D22／M5）：寫入 service **建一次**，`notesRoutes` 與 `mcpRoutes` 共用——
+  // 它持有全樹唯一的 `NoteWriteQueue`，MCP 寫入與 REST 寫入因此對同一篇筆記串行。
+  // ⚠ 這行必須排在 `editing`／`presence` 兩個區域變數之後（同 `mcpRoutes` 的註冊點）。
+  const writes = new NoteWriteService({
+    db: deps.db,
+    collab: deps.collab,
+    editing,
+    presence,
+    queueWaitMs: deps.editingQueueWaitMs,
+    testHooks: deps.editingTestHooks,
+  });
+
   void app.register(
     notesRoutes({
       db: deps.db,
@@ -641,8 +654,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       collab: deps.collab,
       editing,
       limiters,
-      editingTestHooks: deps.editingTestHooks,
-      editingQueueWaitMs: deps.editingQueueWaitMs,
+      writes,
       presence,
       linkSyncTestHooks: deps.linkSyncTestHooks,
       slugUpdateTestHook: deps.slugUpdateTestHook,
@@ -671,8 +683,10 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       config: deps.config,
       collab: deps.collab,
       editing,
-      limiters: { contentRead: limiters.contentRead },
+      // 逐鍵挑，不整包轉傳——MCP 只該看得到它自己會用的三顆桶。
+      limiters: { contentRead: limiters.contentRead, edit: limiters.edit, tokenWrite: limiters.tokenWrite },
       presence,
+      writes,
       testHooks: deps.mcpTestHooks,
     })
   );
