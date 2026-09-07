@@ -3,8 +3,9 @@
  *
  * ⚠ **keyset 分頁不是快照**：`edit_note` 會更新 `updated_at`，所以「列一頁 → 逐篇處理 →
  * 翻下一頁」的 agent 每改一篇就把它推到排序頂端，下一頁的 `(updated_at, id) < (…)` 會**漏掉**
- * 那些跨過游標的列——不報錯，靜默漏處理。處置有兩處：known-limitations（PR3）＋
- * `.describe()` 裡逐字給模型看的那句話（在下面，**不得刪**）。
+ * 那些跨過游標的列——不報錯，靜默漏處理。處置有兩處：known-limitations（PR3）＋工具
+ * `description`（`LIST_NOTES_DESCRIPTION`，不是欄位的 `.describe()`）裡逐字給模型看的那句話
+ * （在下面，**不得刪**；守衛＝`mcp-notes.test.ts` 的「兩句逐字文案在 wire 上出現」那一案）。
  *
  * ⚠ 查詢組裝在 `mcp/queries.ts`：branch select 是單次使用的一次性物件，判 `hasMore`
  * 一律靠 `.limit(limit + 1)` 多取一列，**不得發第二個查詢**。

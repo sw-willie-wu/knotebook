@@ -4,8 +4,12 @@
 // ⚠ `MD` 的 `.max(262_144)` 與 `POST /api/notes/:id/edits` 的 `bodyLimit` 是同一個數字但
 // **不同單位**（UTF-16 code unit vs byte），兩道都要，不可互相取代。
 // **任何新的呼叫端一律 import 這裡，不得另建一份。**
+// ⚠ 誠實記下：`NOTE_ID` 要用 `UUID_RE`，而它住在 `notes/service.ts`（那個模組會碰
+// `db/schema`），所以本檔**不再是純葉節點**——它相依到 domain 層，只是仍然不相依任何路由。
+// 沒把 `UUID_RE` 搬過來是刻意的：它有八個既有 import 端（實查），搬動超出 #108 的觸及面。
 import { z } from "zod";
 import { SECTION_ID_RE } from "@knotebook/shared";
+import { UUID_RE } from "./service.js";
 
 export const NUL = String.fromCharCode(0);
 export const noNul = (s: string) => !s.includes(NUL);
@@ -27,3 +31,13 @@ export const SEC = z.string().max(64).regex(SECTION_ID_RE).refine(noNul);
  * 為什麼要 `.refine(noNul)`、以及 `.refine` 為什麼排在 `.min(1)` 之後，見 `routes/notes.ts`
  * 的 `createBodySchema` 註解；守衛是 `notes.test.ts` 的 POST 空 title／含 NUL title 兩案。 */
 export const TITLE = z.string().min(1).refine(noNul);
+
+/** #108：MCP 工具收進來的 `note_id`（不變量 S／M9 的格式 guard ＋ NUL 兩關）。REST 側的
+ * 同一道關是路由裡的 `UUID_RE.test(id)`（路徑參數不走 zod），兩者共用同一個 regex。
+ * `.refine(noNul)` 今天完全被 `UUID_RE` 蓋住，理由與 `SEC`／`FP` 那兩道相同（見上）。
+ * ⚠ 這裡**不**兼作授權：格式關只是不讓垃圾進到 pg 的 uuid 欄位（`22P02` 會變成 500），
+ * 「這篇筆記你看不看得到」一律由呼叫端的 `resolveRole` 決定。
+ * ⚠ 這道 `.regex()` 是**第二層**：`resolveRole` 內部也有同一個 guard，所以拿掉它行為只從
+ * 「輸入驗證錯誤」退化成 `not_found`（突變實測過）。守衛＝`mcp-content.test.ts` 的
+ * 「不合格式的 section_id／note_id …」那一案後半。 */
+export const NOTE_ID = z.string().regex(UUID_RE).refine(noNul);
