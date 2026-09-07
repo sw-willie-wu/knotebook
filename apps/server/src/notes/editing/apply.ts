@@ -53,6 +53,14 @@ export type ApplyResult =
        * `delete_section` 恆為 `[]`。
        */
       afterBlockIds: string[];
+      /**
+       * #108 D-J：這次寫入的落點**在寫完後的 outline 裡的索引**（`edit_note` 用它取
+       * 「包含落點的那一頁」）。`delete_section` 恆為 `null`（`afterBlockIds` 是空的，
+       * 那一段已經不存在，「落點那一頁」在它身上沒有定義）。
+       * ⚠ **REST 那條路上零消費端**（`routes/notes.ts` 不讀它，`NoteEditResultDto` 一欄都沒動）
+       * ——留著的唯一理由是它算得到的地方只有 `mergeDiff`（`stripIds` 之前，blockIds 還在）。
+       */
+      afterSectionIndex: number | null;
     }
   | { ok: false; code: "section_not_found" | "fingerprint_mismatch" | ParseError | "empty_section" };
 
@@ -60,7 +68,7 @@ export const RETENTION = 100;
 export class FingerprintMismatch extends Error {}
 
 export interface MergeInput { targetIds: string[] | null; expectFingerprint: string | null; anchorId: string | null; diff: Uint8Array; afterIds: string[] }
-export interface MergeOutput { afterFingerprint: string | null; fingerprint: string; outline: NoteOutlineEntry[]; clock: number }
+export interface MergeOutput { afterFingerprint: string | null; fingerprint: string; outline: NoteOutlineEntry[]; clock: number; afterSectionIndex: number | null }
 
 const stripIds = (o: { outline: Array<NoteOutlineEntry & { blockIds: string[] }> }): NoteOutlineEntry[] =>
   o.outline.map(({ blockIds: _b, ...e }) => e);
@@ -84,7 +92,14 @@ export async function mergeDiff(deps: ApplyDeps, noteId: string, ctx: DirectCtx,
     ctx.applied = true;
     const merged = outlineOf(fragment);
     const afterFingerprint = input.afterIds.length === 0 ? null : fingerprintForIds(fragment, input.afterIds);
-    return { afterFingerprint, fingerprint: merged.whole, outline: stripIds(merged), clock };
+    // #108 D-J：**一定要在 `stripIds(merged)` 之前算**——那一步就是把 `blockIds` 丟掉的地方，
+    // 而 `afterBlockIds` 是 block id、`outline` 的其他欄位一個都對不上它。
+    // `afterIds[0]` 是這次寫下去的第一顆 block（`delete_section` 恆為空 → `null`）。
+    // ⚠ `-1`（找得到 afterIds 卻不在任何一段裡）在 plan 階段的七發實測裡**一次都沒發生**，
+    //   但**證不出它不可達**——所以退成 `null`（呼叫端 `?? 0` 回第 0 頁）。**不要寫成「不可能」。**
+    const firstAfter = input.afterIds[0];
+    const afterIndex = firstAfter === undefined ? -1 : merged.outline.findIndex(s => s.blockIds.includes(firstAfter));
+    return { afterFingerprint, fingerprint: merged.whole, outline: stripIds(merged), clock, afterSectionIndex: afterIndex === -1 ? null : afterIndex };
   });
 }
 
@@ -256,5 +271,5 @@ export async function applyEdit(deps: ApplyDeps, input: ApplyInput): Promise<App
   // ⚠ `afterBlockIds` 用 `prepareEdit` 回的**原始** `afterIds`，不是 `recordableAfter(...)` 那份
   // ——後者在退化情形（after_fingerprint 為 null）會把陣列清空，那是給 DB 紀錄用的語意。
   // 兩者只在那條「理論上到不了」的路徑上不同，**沒有任何測試守得到這個誤用**，誠實記在這裡。
-  return { ok: true, editId, fingerprint: merged.fingerprint, outline: merged.outline, unboundWikilinks: unbound, afterBlockIds: afterIds };
+  return { ok: true, editId, fingerprint: merged.fingerprint, outline: merged.outline, unboundWikilinks: unbound, afterBlockIds: afterIds, afterSectionIndex: merged.afterSectionIndex };
 }

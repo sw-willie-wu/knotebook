@@ -13,7 +13,8 @@ import { sendError } from "../http/errors.js";
 import { mcpOriginAllowed } from "../http/origin.js";
 import type { McpTestHooks } from "../mcp/hooks.js";
 import { registerMcpTools } from "../mcp/register.js";
-import { MCP_INSTRUCTIONS, MCP_SERVER_NAME, MCP_SERVER_VERSION, versionReadFailed } from "../mcp/server-info.js";
+import { mcpInstructions, MCP_SERVER_NAME, MCP_SERVER_VERSION, versionReadFailed } from "../mcp/server-info.js";
+import { canWriteNotes } from "../mcp/write-scope.js";
 import { sendWebResponse, toWebRequest } from "../mcp/transport.js";
 
 /**
@@ -75,8 +76,7 @@ export interface McpRouteDeps {
   /**
    * #108 §10.1（D22／M5）：`buildApp` 建的**同一個**寫入 service（`notesRoutes` 拿到的是
    * 同一個物件），MCP 寫入與 REST 寫入因此對同一篇筆記串行。
-   * ⚠ 本棒（Task 1）它是**零消費端**——唯一的消費端是 Task 2／3 的 `edit_note`／`create_note`；
-   * 若那兩支最後改成別的形，這一欄要一起拿掉，不要留無主欄位。
+   * 消費端＝`mcp/tools/edit-note.ts`（Task 2 起）與下一棒的 `create_note`。
    */
   writes: NoteWriteService;
   testHooks?: McpTestHooks;
@@ -122,9 +122,13 @@ export function mcpRoutes(deps: McpRouteDeps) {
     // `bodyLimit` 與 `POST /api/notes/:id/edits` 共用同一個常數（`http/body-limits.ts`）——
     // 「兩者逐位元組相同」現在由構造成立，不再是一句要靠人維護的宣稱。
     app.post("/api/mcp", { preHandler, bodyLimit: WRITE_BODY_LIMIT }, async (request, reply) => {
+      // #108 D-Q：`instructions` 是 **per-request 二選一**（不是相加）——唯讀憑證看到的那一版
+      // 刻意不提寫入工具的名字，改講「怎麼取得寫入權」。判準與註冊時的 scope 過濾**同一份**
+      // （`canWriteNotes`），否則會出現「清單裡有工具但 instructions 說你是唯讀的」這種漂移。
+      const canWrite = canWriteNotes({ authKind: request.authKind ?? "session", tokenScope: request.tokenScope ?? null });
       const server = new McpServer(
         { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
-        { instructions: MCP_INSTRUCTIONS }
+        { instructions: mcpInstructions(canWrite) }
       );
       // 身分綁進工具閉包：每支工具是可以單獨呼叫的 `(args, ctx) => result`，不從
       // `request` 撈東西。註冊必須排在 `registerCapabilities` **之前**（D32 的順序）。

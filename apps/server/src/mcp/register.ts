@@ -45,10 +45,18 @@ import {
   readNoteSectionOutput,
 } from "./tools/read-note-section.js";
 import { SEARCH_NOTES_DESCRIPTION, searchNotes, searchNotesInput, searchNotesOutput } from "./tools/search-notes.js";
+import { EDIT_NOTE_DESCRIPTION, editNote, editNoteInput, editNoteOutput } from "./tools/edit-note.js";
+import { canWriteNotes } from "./write-scope.js";
 
 export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
-  // 兩支唯讀工具的最低 scope 都是 `notes:read`，而 L1（`authenticateAny`）已經保證
-  // 到得了這裡的憑證至少有它——所以本棒沒有 scope 過濾面。PR2 的兩支寫入工具才有。
+  // 四支唯讀工具的最低 scope 都是 `notes:read`，而 L1（`authenticateAny`）已經保證
+  // 到得了這裡的憑證至少有它——所以它們沒有 scope 過濾面。寫入工具才有。
+  // ⚠ **這道過濾不是安全邊界**（見檔頭）：真正的關是每支寫入工具第一行的 `requireWriteScope()`。
+  //   ⚠ 但反過來說也成立，而且是 PR2 的實測結論：`McpServer` 的「清單」**就是**「註冊表」，
+  //   所以沒註冊的名字連 handler 都到不了（`tools/call` 走 SDK 的未知工具名分支）——
+  //   **`insufficient_scope` 在 HTTP 上因此是死碼**，別在整合測試裡去釘它。
+  const canWrite = canWriteNotes(ctx);
+
   server.registerTool(
     "list_notes",
     { description: LIST_NOTES_DESCRIPTION, inputSchema: listNotesInput, outputSchema: listNotesOutput },
@@ -85,5 +93,17 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
       },
       async args => runTool("read_note_section", ctx, () => readNoteSection(args, ctx))
     );
+
+    // D-M：`edit_note` **進**這道閘門——判準是「這支工具要不要讀／寫 live doc」，而
+    // `applyEdit` 會開直連寫 live doc（與 REST 的 `POST /:id/edits` 註冊閘門一致）。
+    // 下一棒的 `create_note` **不**進來：不帶 `content` 時它只 insert 一列，完全不碰 live doc，
+    // 而 REST 的 `POST /api/notes` 本來就無條件註冊、帶 content 而沒有 collab 時回 400。
+    if (canWrite) {
+      server.registerTool(
+        "edit_note",
+        { description: EDIT_NOTE_DESCRIPTION, inputSchema: editNoteInput, outputSchema: editNoteOutput },
+        async args => runTool("edit_note", ctx, () => editNote(args, ctx))
+      );
+    }
   }
 }

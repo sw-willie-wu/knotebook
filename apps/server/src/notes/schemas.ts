@@ -41,3 +41,20 @@ export const TITLE = z.string().min(1).refine(noNul);
  * 「輸入驗證錯誤」退化成 `not_found`（突變實測過）。守衛＝`mcp-content.test.ts` 的
  * 「不合格式的 section_id／note_id …」那一案後半。 */
 export const NOTE_ID = z.string().regex(UUID_RE).refine(noNul);
+
+// `POST /api/notes/:id/edits` 的 body（spec §5）：`op` 決定其餘欄位，逐格 `.strict()`。
+// `append` 的 `if_match` 是選配（spec M-7：不帶就跳過核對）；其餘四個 op 皆必填。
+//
+// #108 D-N：從 `routes/notes.ts` **逐字**搬過來的（一個字都沒改），因為 MCP 的 `edit_note`
+// 也吃這一份——**per-op 必填矩陣只能有一份實作**（raw shape 表達不了「哪個 op 要哪些欄位」，
+// 而規格 §8.6 逐字要求「同必填矩陣」）。
+// ⚠ MCP 側呼叫它時**必須逐鍵條件展開**再餵進來：`.strict()` 看的是 `Object.keys`，
+//   `{op:"append", section_id: undefined}` 會被判 `unrecognized_keys`（實測），
+//   `delete_section` ＋ `markdown: undefined` 同一顆雷。守衛＝`mcp-edit-note.test.ts` 的 S4 兩發。
+export const editBodySchema = z.discriminatedUnion("op", [
+  z.object({ op: z.literal("replace_all"), markdown: MD, if_match: FP }).strict(),
+  z.object({ op: z.literal("replace_section"), section_id: SEC, markdown: MD, if_match: FP }).strict(),
+  z.object({ op: z.literal("insert_after"), section_id: SEC, markdown: MD, if_match: FP }).strict(),
+  z.object({ op: z.literal("append"), markdown: MD, if_match: FP.optional() }).strict(),
+  z.object({ op: z.literal("delete_section"), section_id: SEC, if_match: FP }).strict(),
+]);

@@ -38,10 +38,17 @@ export const MCP_SERVER_VERSION = pkg.version;
 export const versionReadFailed = pkg.failed;
 
 /**
- * 只描述**這一棒真的交付的東西**。英文——與 `docs/` 及工具 `.describe()` 同語言；
+ * 只描述**這個憑證真的用得到的東西**。英文——與 `docs/` 及工具 `.describe()` 同語言；
  * 它進的是模型脈絡不是 UI，不走 i18n。
+ *
+ * ⚠ **兩支尾巴是二選一，不是相加**（#108 D-Q）。讀寫那支只剩約 20 字元餘裕（上限 1000），
+ * 追加第二段必破線；而唯讀憑證用不到寫入工具的說明，換成處置說明總長反而更短。
+ * ⚠ **對唯讀憑證不得描述它沒有的工具**——與 D32「不宣告我們做不到的 capability」同一個原則；
+ * 而且 `insufficient_scope` 在 HTTP 上是死碼（`write-scope.ts` 檔頭），**唯讀版這段處置字樣
+ * 是 D7 的意圖唯一到得了模型的落點**。守衛＝`mcp-edit-note.test.ts` 的 S3 ＋ 本檔的單元案。
+ * ⚠ **改了一個字就要重量**（兩支各自都有 ≤ 1000 的斷言，且各自都要過禁令詞正則）。
  */
-export const MCP_INSTRUCTIONS = `Knotebook notes over MCP. Reading is always sectioned: there is no tool that returns a whole
+const BASE_INSTRUCTIONS = `Knotebook notes over MCP. Reading is always sectioned: there is no tool that returns a whole
 note. Call read_note_outline first to see a note's sections (id, heading, length), then
 read_note_section for the text of one section, 4000 characters per call — page with \`offset\`
 until \`truncated\` is false. list_notes returns at most 100 notes per call, search_notes at most
@@ -49,3 +56,19 @@ until \`truncated\` is false. list_notes returns at most 100 notes per call, sea
 headings and titles are cut at 200 characters. What is capped is the size of a single response,
 not the total you can read. Notes you can see include ones other people shared with you: each
 result carries \`ownerHandle\` and \`role\` so you can tell whose content you are reading.`;
+
+/** 讀寫憑證的尾段。 */
+const WRITE_INSTRUCTIONS =
+  "Writing needs the notes:write scope. edit_note changes one note (five ops; all but append " +
+  "need `if_match`, the fingerprint of what you replace) and create_note makes a new one. " +
+  "Every write is recorded and can be undone.";
+
+/** 唯讀憑證的尾段——**刻意不提兩支寫入工具的名字**，只講怎麼取得寫入權。 */
+const READ_ONLY_INSTRUCTIONS =
+  "This credential is read-only, so there are no tools here that change anything. To let it " +
+  "write, create a token with the notes:write scope in Settings → Account → API tokens.";
+
+/** 每發請求依憑證挑一支（`routes/mcp.ts` 用 `canWriteNotes(...)` 判，與註冊時過濾同一份判準）。 */
+export function mcpInstructions(canWrite: boolean): string {
+  return `${BASE_INSTRUCTIONS} ${canWrite ? WRITE_INSTRUCTIONS : READ_ONLY_INSTRUCTIONS}`;
+}

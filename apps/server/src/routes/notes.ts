@@ -30,7 +30,9 @@ import { loadLastEdited, readNoteContent } from "../notes/editing/read.js";
 import { listEdits } from "../notes/editing/revert.js";
 import { presenceIdentity, presenceTargetForRead, type PresenceRegistry } from "../notes/editing/presence.js";
 import { editor, lastEditedSelection, visibleNoteBranches } from "../notes/list-query.js";
-import { FP, MD, SEC, TITLE } from "../notes/schemas.js";
+// ⚠ `FP` 在本檔已無呼叫端（`editBodySchema` 是它唯一的使用者，搬去 `notes/schemas.ts` 了）——
+// `no-unused-vars` 是 error ＋ `--max-warnings=0`，留著會 lint 紅。
+import { editBodySchema, MD, SEC, TITLE } from "../notes/schemas.js";
 import { noteInsertValues, type NoteWriteService } from "../notes/editing/write-service.js";
 import { currentAgentLabel } from "../auth/agent-label.js";
 import { resolveRole, resolveRoleWithOwner, UUID_RE } from "../notes/service.js";
@@ -84,15 +86,8 @@ const contentQuerySchema = z.object({ section: SEC.optional() }).strict();
 // `.refine` 排在 `.min(1)` 之後（ZodEffects 上沒有 `.min`）。
 const createBodySchema = z.object({ title: TITLE.optional(), content: MD.optional() }).strict();
 
-// `POST /api/notes/:id/edits` 的 body（spec §5）：`op` 決定其餘欄位，逐格 `.strict()`。
-// `append` 的 `if_match` 是選配（spec M-7：不帶就跳過核對）；其餘四個 op 皆必填。
-const editBodySchema = z.discriminatedUnion("op", [
-  z.object({ op: z.literal("replace_all"), markdown: MD, if_match: FP }).strict(),
-  z.object({ op: z.literal("replace_section"), section_id: SEC, markdown: MD, if_match: FP }).strict(),
-  z.object({ op: z.literal("insert_after"), section_id: SEC, markdown: MD, if_match: FP }).strict(),
-  z.object({ op: z.literal("append"), markdown: MD, if_match: FP.optional() }).strict(),
-  z.object({ op: z.literal("delete_section"), section_id: SEC, if_match: FP }).strict(),
-]);
+// `POST /api/notes/:id/edits` 的 body 搬到 `notes/schemas.ts`（#108 D-N）：MCP 的 `edit_note`
+// 吃的是**同一份**——per-op 必填矩陣只能有一份實作。
 
 // auto slug 的 UPDATE 撞唯一索引（真競態）重試上限（#122 spec §3a）：1..5 次重探測重發，
 // 第 6 次改用 `fallbackAutoSlug()`（untitled-<uuid8>）——再撞（~2^-32）就讓錯誤冒出去。
