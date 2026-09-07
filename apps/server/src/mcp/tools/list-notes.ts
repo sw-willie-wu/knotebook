@@ -75,10 +75,13 @@ function encodeCursor(row: { updatedAtMs: Date; id: string }): string {
  * 回一串垃圾，所以格式關不能省：少了 `UUID_RE` 或日期有效性檢查，垃圾就會進 keyset 述詞，
  * pg 報型別錯 → 模型收到 `internal` 而不是「你的游標壞了」。
  *
- * ⚠ **`noNul` 這一關今天完全被後面兩關蓋住，沒有、也做不出會因為刪掉它而變紅的測試**
- * （突變實測：拿掉它整族全綠）——NUL 落在 id 欄過不了 `UUID_RE`、落在時間欄讓 `new Date()`
- * 成為 Invalid Date，兩條路都先被殺掉。它是刻意留的第二道，讓「NUL 一律拒絕」在字元集
- * 日後被放寬時仍成立。形式比照 `notes/schemas.ts` 對 `SEC`／`FP` 的同一段說明。
+ * ⚠ **`noNul` 這一關是真的守衛，不是裝飾**（本檔一度自陳「結構上做不出有鑑別力的測試」——
+ * **那句是錯的，2026-09-07 推翻**）。關鍵是 NUL 的**落點**：
+ *   - 落在 id 欄 → 先被 `UUID_RE` 擋掉，`noNul` 拿掉也不會有測試變紅；
+ *   - **接在時間戳後面 → `new Date("…Z" + NUL)` 仍然有效**（實測 `toISOString()` 原樣回傳），
+ *     `UUID_RE` 又只管 id 欄——三關裡只剩 `noNul` 擋得住它。拿掉它，那發游標會**成功**
+ *     回一整頁筆記。
+ * 守衛＝`mcp-notes.test.ts` 的「壞 cursor 四發」第四發（突變實測：拿掉這一行只有它紅）。
  */
 function decodeCursor(raw: string): NoteListCursor | null {
   const decoded = Buffer.from(raw, "base64url").toString("utf8");

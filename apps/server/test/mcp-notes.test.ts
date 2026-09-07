@@ -185,7 +185,7 @@ describe("#108 list_notes", () => {
     expect(p2.nextCursor).toBeNull();
   });
 
-  it("壞 cursor 四發（亂碼／解出來不是 uuid／不是日期／含 NUL）→ 工具錯誤 invalid_body", async () => {
+  it("壞 cursor 四發（亂碼／解出來不是 uuid／不是日期／時間戳後接 NUL）→ 工具錯誤 invalid_body", async () => {
     const ctx = await buildCollabTestApp();
     const { ownerId, token } = await scenario(ctx);
     await ctx.createNote(ownerId, "One");
@@ -195,10 +195,16 @@ describe("#108 list_notes", () => {
       "not-a-cursor!!",
       encode("2026-01-01T00:00:00.000Z|not-a-uuid"),
       encode(`not-a-date|${randomUUID()}`),
-      // ⚠ 這一發**不是** `noNul` 那道關的守衛：NUL 落在 id 欄，實際殺掉它的是 `UUID_RE`
-      // （突變實測：拿掉 `noNul` 這四發照樣全綠）。`decodeCursor` 的 `noNul` 今天完全被
-      // 後面兩關蓋住、做不出有鑑別力的測試——理由與誠實記錄在 `tools/list-notes.ts`。
-      encode(`2026-01-01T00:00:00.000Z|${NUL}`),
+      // ⚠ **NUL 必須接在時間戳後面，不能落在 id 欄**——這一發是 `decodeCursor` 的 `noNul`
+      // 唯一的守衛，而落點決定它有沒有鑑別力：
+      //   - 落 id 欄（`…000Z|<NUL>`）→ 殺掉它的是 `UUID_RE`，拿掉 `noNul` 照樣綠（舊寫法，
+      //     本檔一度據此宣稱「結構上做不出守衛」——**那句是錯的**）。
+      //   - 落時間戳後面 → `new Date("2099-01-01T00:00:00.000Z" + NUL)` **仍然有效**
+      //     （實測 `toISOString()` 回 `2099-01-01T00:00:00.000Z`），`UUID_RE` 也管不到 id 欄，
+      //     所以三關只剩 `noNul` 擋得住它。
+      // 突變實測（2026-09-07）：拿掉 `if (!noNul(decoded))` → **只有這一發紅**
+      // （`isError` 變 `undefined`、回了一整頁筆記——日期取未來值，keyset 述詞會放行全部）。
+      encode(`2099-01-01T00:00:00.000Z${NUL}|${randomUUID()}`),
     ];
     for (const cursor of bad) {
       const call = await callTool(ctx.app, token, "list_notes", { cursor });

@@ -44,7 +44,8 @@ export const versionReadFailed = pkg.failed;
 export const MCP_INSTRUCTIONS = `Knotebook notes over MCP. Reading is always sectioned: there is no tool that returns a whole
 note. Call read_note_outline first to see a note's sections (id, heading, length), then
 read_note_section for the text of one section, 4000 characters per call — page with \`offset\`
-until \`truncated\` is false. Listings return at most 100 notes and 100 sections per call, and
+until \`truncated\` is false. list_notes returns at most 100 notes per call, search_notes at most
+50, and an outline at most 100 sections; each tool's \`limit\` describes its own ceiling. Also,
 headings and titles are cut at 200 characters. What is capped is the size of a single response,
 not the total you can read. Notes you can see include ones other people shared with you: each
 result carries \`ownerHandle\` and \`role\` so you can tell whose content you are reading.`;
