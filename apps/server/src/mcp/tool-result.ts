@@ -29,6 +29,13 @@ export type ToolErrorResult = CallToolResult & {
 /**
  * `content[0].text` 一律逐字是 `JSON.stringify(structuredContent)`（M10 的鏡像等式）——
  * 兩邊同時回、內容等價，模型不論讀哪一邊都得到同一份資訊。
+ *
+ * ⚠ **`extra` 在 PR1 是零消費端**（全樹七個呼叫點全是兩引數）。**唯一的消費端是 PR2 的
+ * `edit_note`**：`fingerprint_mismatch` 依規格案 20 要回 `{ code, message, outline }`，
+ * 而那個 `outline` 是**物件**（`{ sections, truncated }`，省略 `nextSectionOffset`——D-E），
+ * 由同一支 `buildOutlinePage` 產出。`read_note_section` 的 `section_not_found` 也預計走這條
+ * 帶回可用的段落清單。**PR2 若改成別的形（例如各自定一個回傳型別），這個參數要一起拿掉，
+ * 不要留無主參數。**（同一次收尾已經拿掉真的無主的 `McpToolCtx.config`。）
  */
 export function toolError(code: ErrorCode, message: string, extra?: Record<string, unknown>): ToolErrorResult {
   const structuredContent: ToolErrorPayload = { code, message, ...(extra ?? {}) };

@@ -117,7 +117,6 @@ export function mcpRoutes(deps: McpRouteDeps) {
       // `request` 撈東西。註冊必須排在 `registerCapabilities` **之前**（D32 的順序）。
       registerMcpTools(server, {
         db: deps.db,
-        config: deps.config,
         collab: deps.collab,
         editing: deps.editing,
         presence: deps.presence,

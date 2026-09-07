@@ -14,12 +14,19 @@
  * 把它加進那個名字集合，否則等於沒有守衛。**
  *
  * ⚠ 呼叫順序是契約（§8.1 D32）：建 `McpServer` → **本函式** → `registerCapabilities` →
- * `connect()`。`registerTool` 內部會無條件把 `listChanged` 設回 `true`。
+ * `connect()`。`registerTool` 內部會無條件把 `listChanged` 設回 `true`。**守衛＝
+ * `test/mcp-tools-list.test.ts` 的 `listChanged === false` 那一案**（順序調換 → 只有它紅，
+ * 突變實跑；在本函式註冊第一支工具之前，那條契約是零鑑別力的）。
  *
  * 部署形態的閘門（D-A）：`read_note_outline`／`read_note_section` 只在 `ctx.collab &&
  * ctx.editing` 都在時註冊——沒有 live doc 的來源就沒有「讀最新內容」這回事，寧可整條不宣告
  * 也不要掛一支只會回半套答案的工具（照抄 `routes/notes.ts` 對內容端點的既有判準）。
  * `list_notes`／`search_notes` 只查 DB，永遠註冊。
+ * **這道閘門唯一的守衛是 `test/mcp-tools-list.test.ts` 的「無 collab 的 app 只宣告兩支」**
+ * ——它斷言的是**兩個名字的集合**，所以往任一側搬工具都會紅（兩條突變都實跑過）。
+ * ⚠ 但它**只擋得住「悄悄搬邊」，擋不住「放錯邊」**：新增一支工具一定會讓那一案紅（名字
+ * 集合對不上），可是把名字補進 `LIVE_DOC_TOOLS`／`DB_ONLY_TOOLS` 哪一邊是人判的——
+ * 判錯了測試照樣綠。**放進閘門的判準是「這支工具要不要讀 live doc」，不是「它比較像哪一支」。**
  */
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { runTool } from "./tool-result.js";

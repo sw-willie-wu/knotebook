@@ -54,8 +54,8 @@ describe("#108 /api/mcp 傳輸層形狀", () => {
     expect(body.result.serverInfo.name).toBe("knotebook");
     expect(body.result.serverInfo.version).toBeTruthy();
     expect(body.result.instructions).toBeTruthy();
-    // ⚠ `capabilities.tools.listChanged` 的順序斷言（D32）留給 Task 5 的清單那一族，
-    // 這裡刻意不斷言：本檔測的是傳輸層。
+    // ⚠ `capabilities.tools.listChanged` 的順序斷言（D32）在 `mcp-tools-list.test.ts`，
+    // 這裡刻意不斷言：本檔測的是傳輸層，而那條契約要有 `registerTool` 才有鑑別力。
   });
 
   it("案 2b：同一 app 連兩發 tools/list 都回 200（stateless transport 沒有被跨請求重用）", async () => {

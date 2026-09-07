@@ -10,7 +10,6 @@
  */
 import type { FastifyBaseLogger } from "fastify";
 import type { TokenScope } from "@knotebook/shared";
-import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
 import type { CollabServer } from "../collab/server.js";
 import type { EditingRuntime } from "../notes/editing/runtime.js";
@@ -20,7 +19,6 @@ import type { McpTestHooks } from "./hooks.js";
 
 export interface McpToolCtx {
   db: Db;
-  config: AppConfig;
   collab?: CollabServer;
   editing?: EditingRuntime;
   presence?: PresenceRegistry;
@@ -32,8 +30,16 @@ export interface McpToolCtx {
   userHandle: string;
   /** token 路徑才有；`null` ＝ cookie session。agent 顯示名由它查出（Task 4）。 */
   tokenId: string | null;
+  /**
+   * ⚠ **`authKind`／`tokenScope` 在 PR1 是零讀取的**（本棒四支工具都只要 `notes:read`，
+   * 而 L1 的 `authenticateAny` 已經保證到得了這裡的憑證至少有它）。
+   * **唯一的消費端是 PR2 的 `requireWriteScope(ctx)`**（規格 §10.2 D23／不變量 M13）：
+   * 它拿 `tokenScope` 判有沒有 `notes:write`、拿 `authKind === "session"` 跳過 scope 檢查
+   * 與 token 桶。留著是因為 PR2 一定會用；**PR2 若改成別的形，這兩欄要一起拿掉，
+   * 不要留無主欄位。**（同一次收尾已經把真的無主的 `config` 拿掉了。）
+   */
   authKind: "token" | "session";
-  /** token 路徑才有的落庫 scope；`null` ＝ session（視同讀寫全權，§7.3）。 */
+  /** token 路徑才有的落庫 scope；`null` ＝ session（視同讀寫全權，§7.3）。消費端同上。 */
   tokenScope: TokenScope | null;
   hooks?: McpTestHooks;
 }

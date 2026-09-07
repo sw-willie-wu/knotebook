@@ -1,6 +1,6 @@
 # API tokens
 
-A Personal API token lets a script, a CLI, or an AI assistant work with your notes **as you**, without a browser session. This page covers the credentials — issuing them, what they reach, and how an app can authorize itself instead. What a program can then *do* with note content is documented separately in [AI editing](./ai-editing.md); the MCP endpoint that builds on all of it is not finished yet (see [Coming next](#coming-next)).
+A Personal API token lets a script, a CLI, or an AI assistant work with your notes **as you**, without a browser session. This page covers the credentials — issuing them, what they reach, and how an app can authorize itself instead. What a program can then *do* with note content is documented separately in [AI editing](./ai-editing.md); the MCP endpoint that builds on all of it serves read tools today (see [Coming next](#coming-next) for what is still landing).
 
 ## What a token is
 
@@ -58,7 +58,7 @@ Everything a program needs in order to write safely — how sections are address
 | `POST /api/notes` — create a note, optionally with its `content` | `notes:write` |
 | `POST /api/notes/:id/edits` — write a note's content: replace the whole note, replace/insert after/delete one section, or append | `notes:write` |
 | `POST /api/notes/:id/edits/:editId/revert` — undo one recorded write | `notes:write` |
-| `GET`/`POST`/`DELETE /api/mcp` — MCP endpoint | `notes:read` (**placeholder — returns `501 not_implemented` until the MCP server lands**) |
+| `POST /api/mcp` (`GET`/`DELETE` → `405`) — MCP endpoint | `notes:read` for the read tools |
 
 Every other endpoint that requires a login is session-cookie only and answers a plain `401 unauthorized` to a Bearer request (endpoints that need no login at all, such as public share pages, simply ignore the header). In particular, tokens can **not** manage tokens (`/api/auth/tokens`), and can **not** obtain a collaboration token for the live editor.
 
@@ -118,7 +118,7 @@ MCP requires the server and its authorization endpoints to be `https://`, and cl
 
 Both `claude mcp add` forms default to *local* scope — the server only exists in the directory you ran the command in. Add `-s user` to either one to use it from anywhere.
 
-Once you press Allow, the client has its credential — but the server it is talking to isn't finished: `/api/mcp` answers `501 not_implemented` (see [Coming next](#coming-next)), so the client will still list Knotebook as failing to start. That `501` is the good outcome; a `401` would mean the credential never arrived.
+After you press Allow, the client has its credential — once it reconnects it will list Knotebook's read tools; a `401` at this point would mean the credential never arrived. The write tools are still landing (see [Coming next](#coming-next)).
 
 ## Troubleshooting
 
@@ -149,6 +149,6 @@ Re-authorizing an app keeps the name you gave it, as long as the app comes back 
 
 ## Coming next
 
-- **The MCP endpoint itself** — `/api/mcp` currently answers `501 not_implemented` after authenticating; it exists so that MCP clients can already discover the server and how to authorize. Tracked in #108.
+- **The rest of the MCP endpoint** — the write tools (`edit_note`, `create_note`) and the full MCP guide. The read tools are live. Tracked in #108.
 
 See also: [AI editing](./ai-editing.md) · [API contract summary](./api.md) · [Known limitations](./known-limitations.md).
