@@ -1,7 +1,9 @@
 /**
- * #108 §8.1 D31／M15：**我們自己產生的**工具錯誤（D12 的 (4b)）唯一的建構點。
+ * #108 §8.1 D11／D31／M10／M15：**我們自己產生的**工具結果（成功與錯誤兩側）唯一的建構點。
+ * 兩支建構子共用同一條鏡像等式——`content[0].text` 逐字是 `JSON.stringify(structuredContent)`
+ * ——所以它們必須放在一起；分開就是同一條規則有兩份實作。
  *
- * ⚠ SDK 自產的四條路徑（未知工具名／輸入 schema 不符／輸出驗證失敗／未捕捉例外，D12 的
+ * ⚠ 錯誤側只涵蓋 (4b)。SDK 自產的四條路徑（未知工具名／輸入 schema 不符／輸出驗證失敗／未捕捉例外，D12 的
  * (4a)）**攔不到**——它們在 SDK 內部組裝，**沒有** `code`、**沒有** `structuredContent`。
  * 任何「所有工具錯誤都帶 `code`」的宣稱都是假的。
  *
@@ -35,6 +37,15 @@ export function toolError(code: ErrorCode, message: string, extra?: Record<strin
     content: [{ type: "text", text: JSON.stringify(structuredContent) }],
     structuredContent,
   };
+}
+
+/**
+ * 成功側的同一條鏡像等式（D11／M10）：`structuredContent` 與 `content[0].text` **同時**回，
+ * 後者逐字是前者的 `JSON.stringify`。SDK **不會**替我們生 `content`（宣告 `outputSchema` 時
+ * 它只驗 `structuredContent`），而舊世代 client 只看 `content`——兩邊都得自己給。
+ */
+export function toolResult<T extends Record<string, unknown>>(payload: T): CallToolResult {
+  return { content: [{ type: "text", text: JSON.stringify(payload) }], structuredContent: payload };
 }
 
 /** 例外逃出 handler 時模型會看到的固定字串（**不含任何例外訊息**）。 */

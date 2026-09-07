@@ -4,9 +4,11 @@
  * 這一族用 `buildTestApp`（**無 collab**）——測的是傳輸層，與 collab 無關，而且只有它
  * 收得到 `Partial<AppDeps>` 的 `mcpTestHooks` 注入縫。
  *
- * ⚠ 本 task **一支工具都沒註冊**，所以 `tools/list`／`tools/call` 拿到的是
- * `-32601 Method not found`（那兩個 handler 由第一次 `registerTool()` 裝上），**不是空清單**。
- * 案 29a／29b／29c 因此全部留給 Task 3。
+ * ⚠ **Task 3 起這個 app 上有工具了**（`list_notes`／`search_notes` 只查 DB，依 D-A 在無
+ * collab 的 app 上照樣註冊），所以 `tools/list`／`tools/call` 回的是真的工具清單／結果。
+ * 本檔刻意**不**斷言那些 body——工具面的驗收全在 `mcp-notes.test.ts`（含案 29(a)/(b)/(c)）。
+ * Task 2 當時的零工具形回的是 `-32601 Method not found`（那兩個 handler 由第一次
+ * `registerTool()` 裝上）；那個形今天已經到不了，成因記在 `routes/mcp.ts` 檔頭。
  */
 import { describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
@@ -52,14 +54,15 @@ describe("#108 /api/mcp 傳輸層形狀", () => {
     expect(body.result.serverInfo.name).toBe("knotebook");
     expect(body.result.serverInfo.version).toBeTruthy();
     expect(body.result.instructions).toBeTruthy();
-    // ⚠ `capabilities.tools.listChanged` 在本 task 零鑑別力（一支工具都沒註冊，
-    // `registerTool` 不會把它覆寫成 `true`）——Task 5 才有意義，這裡刻意不斷言。
+    // ⚠ `capabilities.tools.listChanged` 的順序斷言（D32）留給 Task 5 的清單那一族，
+    // 這裡刻意不斷言：本檔測的是傳輸層。
   });
 
   it("案 2b：同一 app 連兩發 tools/list 都回 200（stateless transport 沒有被跨請求重用）", async () => {
     const { app, token } = await appWithToken();
-    // ⚠ 敘述是「都 200」不是「都成功」：零工具形下兩發的 body 都是 -32601。
-    // 鑑別力在狀態碼層——transport／server 若被重用，SDK 會丟
+    // ⚠ 敘述是「都 200」不是「都成功」：鑑別力刻意只放在狀態碼層，body 一個字都不看
+    // （Task 2 的零工具形下兩發都是 -32601，Task 3 起是真的清單——兩種形都該綠）。
+    // transport／server 若被跨請求重用，SDK 會丟
     // `Stateless transport cannot be reused across requests.`，第二發變 500。
     const first = await mcpPost(app, rpc("tools/list", undefined, 1), { token });
     const second = await mcpPost(app, rpc("tools/list", undefined, 2), { token });
@@ -85,7 +88,8 @@ describe("#108 /api/mcp 傳輸層形狀", () => {
     await mcpPost(app, INITIALIZE, { token });
     await mcpPost(app, rpc("tools/list", undefined, 2), { token });
     const third = await mcpPost(app, INITIALIZE, { token });
-    // ⚠ 刻意不斷言前兩發的 body——Task 3 註冊工具之後第 (2) 發的語意會變。
+    // ⚠ 刻意不斷言前兩發的 body——第 (2) 發的語意在 Task 3 註冊工具之後已經從 `-32601`
+    // 變成真的工具清單，這一案守的是 `close()` 的計數，與 body 無關。
     // 若這一案日後紅了而斷言變多了，是有人多加了 body 斷言，刪斷言不要改實作。
     expect(closes).toBe(3);
     expect(third.statusCode).toBe(500);

@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { ERROR_CODES } from "@knotebook/shared";
-import { toolError } from "../../src/mcp/tool-error.js";
+import { toolError } from "../../src/mcp/tool-result.js";
 
 describe("#108 toolError", () => {
   it("回 isError ＋ structuredContent，且 content[0].text 逐字等於 structuredContent 的 JSON", () => {

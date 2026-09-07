@@ -10,6 +10,7 @@ import type { FixedWindowLimiter } from "../http/rate-limit.js";
 import { sendError } from "../http/errors.js";
 import { mcpOriginAllowed } from "../http/origin.js";
 import type { McpTestHooks } from "../mcp/hooks.js";
+import { registerMcpTools } from "../mcp/register.js";
 import { MCP_INSTRUCTIONS, MCP_SERVER_NAME, MCP_SERVER_VERSION, versionReadFailed } from "../mcp/server-info.js";
 import { sendWebResponse, toWebRequest } from "../mcp/transport.js";
 
@@ -41,6 +42,9 @@ import { sendWebResponse, toWebRequest } from "../mcp/transport.js";
  *    found`，不是空清單**——那兩個 handler 由第一次 `registerTool()` 才裝上，
  *    `registerCapabilities` 只宣告能力、不裝 handler（所以 `initialize` 照樣回
  *    `listChanged: false`）。看到 `-32601` 不要以為是 `registerCapabilities` 順序寫反了。
+ *    ⚠ 這條今天到不了：`registerMcpTools` 至少註冊 `list_notes`／`search_notes` 兩支
+ *    （它們只查 DB，不需要 collab）。留著是因為「未來某個 scope 過濾把工具全濾掉」會直接
+ *    掉進這個形，而它的症狀（`-32601`）看起來完全不像「清單是空的」。
  *
  * **`tools/list` 的長度是憑證 scope 與部署形態兩者的函式**（D-A）：沒有 `collab`／`editing`
  * 的 app（`buildTestApp` 那種）只註冊查得動 DB 的工具，讀不到 live doc 的兩支整條不宣告。
@@ -109,7 +113,23 @@ export function mcpRoutes(deps: McpRouteDeps) {
         { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
         { instructions: MCP_INSTRUCTIONS }
       );
-      // Task 3 起在這裡依 scope ＋ 部署形態註冊工具；本棒一支都不註冊。
+      // 身分綁進工具閉包：每支工具是可以單獨呼叫的 `(args, ctx) => result`，不從
+      // `request` 撈東西。註冊必須排在 `registerCapabilities` **之前**（D32 的順序）。
+      registerMcpTools(server, {
+        db: deps.db,
+        config: deps.config,
+        collab: deps.collab,
+        editing: deps.editing,
+        presence: deps.presence,
+        limiters: deps.limiters,
+        log: request.log,
+        userId: request.user!.id,
+        userHandle: request.user!.handle,
+        tokenId: request.tokenId ?? null,
+        authKind: request.authKind ?? "session",
+        tokenScope: request.tokenScope ?? null,
+        hooks: deps.testHooks,
+      });
       server.server.registerCapabilities({ tools: { listChanged: false } });
       const transport = new WebStandardStreamableHTTPServerTransport({ enableJsonResponse: true });
       await server.connect(transport);
