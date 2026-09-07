@@ -142,7 +142,7 @@ Neither shape is recoverable by retrying; both are consequences of merging befor
 
 | Limit | Value | Applies to | Exceeding it |
 |---|---|---|---|
-| Request body | 262 144 bytes | `POST /api/notes/:id/edits` only | `413 content_too_large` |
+| Request body | 262 144 bytes | `POST /api/notes/:id/edits`, `POST /api/mcp` | `413 content_too_large` |
 | `markdown` / `content` length | 262 144 UTF-16 code units | `POST …/edits`, `POST /api/notes` | `400 invalid_body` |
 | Blocks after parsing | 2000, counting nested blocks | `POST …/edits`, `POST /api/notes` | `400 too_many_blocks` |
 | Writes | 30 per minute per user | `POST …/edits`, `POST …/revert`, `POST /api/notes` with `content` | `429 too_many_requests` |
@@ -174,7 +174,7 @@ While a program works on a note, it shows up **in the note** — as a remote cur
 
 - The cursor is labelled `username (agent)`: your username, and the credential's [agent display name](#agent-display-name).
 - It exists only for a note **somebody currently has open**. Presence is attached to the live collaborative document, so if no browser is connected to that note, nothing is created and nothing is broadcast — and there is no record afterwards that a program was there.
-- It appears, and moves, on a **token-authenticated** `GET …/content`, `POST …/edits` and `POST …/edits/:editId/revert`. `GET …/edits` deliberately does not: reading the history is not working on the note. `POST /api/notes` with `content` cannot — the note is created by that same request, so nobody can have it open yet.
+- It appears, and moves, on a **token-authenticated** `GET …/content`, `POST …/edits` and `POST …/edits/:editId/revert` — and on the MCP read tools that go through the same code path (`read_note_outline`, `read_note_section`), so an assistant that only *reads* a note still shows up in it. `GET …/edits` deliberately does not: reading the history is not working on the note. `POST /api/notes` with `content` cannot — the note is created by that same request, so nobody can have it open yet.
 - **A request authenticated with a session cookie never creates one**, neither reading nor writing. Editing your own note in your own browser therefore does not sprout a second, AI-looking cursor beside your real one.
 - It is removed after **2 minutes** with no read or write. A server restart does not broadcast a separate removal for it: by the time that shutdown step runs, every collaborative connection — including this one — has already been torn down, so there is nothing left to notify.
 

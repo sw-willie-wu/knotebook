@@ -1,12 +1,11 @@
 import { randomBytes } from "node:crypto";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
-import { and, desc, eq, ne, or, sql } from "drizzle-orm";
-import { alias, unionAll } from "drizzle-orm/pg-core";
+import { and, desc, eq, or, sql } from "drizzle-orm";
+import { unionAll } from "drizzle-orm/pg-core";
 import * as Y from "yjs";
 import {
   MAX_LINK_TARGETS,
-  SECTION_ID_RE,
   autoSlugFromTitle,
   normalizeEmail,
   normalizeHandle,
@@ -32,6 +31,8 @@ import { applyEdit, type ApplyResult, type EditingTestHooks } from "../notes/edi
 import { listEdits, revertEdit, type RevertResult } from "../notes/editing/revert.js";
 import { PRESENCE_COLOR, presenceTargetForRead, presenceTargetForWrite, type PresenceRegistry } from "../notes/editing/presence.js";
 import { visibleNoteTitles } from "../notes/editing/candidates.js";
+import { editor, lastEditedSelection, visibleNoteBranches } from "../notes/list-query.js";
+import { FP, MD, SEC, TITLE } from "../notes/schemas.js";
 import { parseMarkdownForNote } from "../notes/editing/markdown.js";
 import { NoteWriteQueue, QueueBusyError } from "../notes/editing/queue.js";
 import { EditorSession } from "../notes/editing/session.js";
@@ -44,9 +45,10 @@ import type { FixedWindowLimiter } from "../http/rate-limit.js";
 import { isForeignKeyViolation, uniqueViolationConstraint } from "../db/pg-errors.js";
 import { deleteUploadFiles } from "../uploads/service.js";
 
-// ⚠ `createBodySchema` 原本宣告在這裡，#106 起它要吃 `noNul` 與 `MD`（見下方），而那兩個常數
-// 宣告在本檔更下面——維持原位會讓它在 TDZ 內求值，**一 import 就 ReferenceError**（整台 server
-// 起不來，不是某個測試紅）。所以整段搬到 `MD`／`FP`／`SEC` 之後，見該處。
+// ⚠ `createBodySchema` 原本宣告在這裡，#106 起它要吃 `noNul` 與 `MD`，而那兩個常數當時也
+// 宣告在本檔（更下面）——維持原位會讓它在 TDZ 內求值，**一 import 就 ReferenceError**。
+// #108 把那些常數搬到 `notes/schemas.ts` 之後這條限制已經消失（import binding 會被 hoist），
+// `createBodySchema` 不必再避開誰；宣告位置維持原樣純粹是為了不動 diff。
 
 // PATCH 契約（spec §11.4 逐字）：title／slug 皆選配，但至少要帶一項——兩者都缺時走
 // safeParse 失敗路徑，回 400 invalid_body（與其他 body schema 一致，不特地為「空
@@ -69,26 +71,9 @@ const putShareBodySchema = z.object({ email: z.string().email(), role: z.enum(["
 // 之後）才算數，兩處數字不必相等/不可互相取代。
 const linksBodySchema = z.object({ link_target_ids: z.array(z.string().uuid()).max(MAX_LINK_TARGETS * 2) });
 
-// #106 不變量 S：`section` 進任何比較之前先在 schema 層擋 NUL（U+0000）並要求匹配 `SECTION_ID_RE`。
-// ⚠ `.refine(noNul)` 今天**完全被 `SECTION_ID_RE` 蓋住**（NUL 本來就過不了那個字元集），所以
-// 沒有、也做不出會因為刪掉它而變紅的測試——它是刻意留下的第二道，讓「NUL 一律 400」在字元集
-// 日後被放寬時仍成立。`SECTION_ID_RE` 那道有測試（`note-content.test.ts` 的 `a.b` 案）。
+// #106 不變量 S：`section` 進任何比較之前先在 schema 層擋 NUL 並要求格式；語意見 `notes/schemas.ts` 的 `SEC`。
 // `.strict()`：帶未知查詢參數即 400，不靜默忽略。
-const NUL = String.fromCharCode(0);
-const noNul = (s: string) => !s.includes(NUL);
-// （`.refine` 必須排在 `.regex` 之後：它回的是 ZodEffects，其上已無 `.regex`。）
-const contentQuerySchema = z.object({ section: z.string().max(64).regex(SECTION_ID_RE).refine(noNul).optional() }).strict();
-
-// #106 不變量 S（寫入端）：三個字串欄位在進任何比較之前先在 schema 層擋 NUL（U+0000）並要求格式。
-// ⚠ **`.refine()` 一律最後**——同 `contentQuerySchema` 旁那條規則（它回 ZodEffects，其上沒有
-// `.regex`／`.max`，寫反了 import 這個模組就 TypeError，整台 server 起不來）。
-// ⚠ `SEC` 的 `.refine(noNul)` 今天完全被 `SECTION_ID_RE` 蓋住、`FP` 的被 `/^[0-9a-f]{16}$/` 蓋住
-// （NUL 本來就過不了那兩個字元集），**沒有、也做不出會因為刪掉它而變紅的測試**——它們是刻意
-// 留的第二道，讓「NUL 一律 400」在字元集日後被放寬時仍成立。`MD` 的那道則是真的守著
-// （`note-edits.test.ts` 的 `markdown: "x" + NUL` 那個 case 只靠它）。
-const MD = z.string().max(262_144).refine(noNul);
-const FP = z.string().regex(/^[0-9a-f]{16}$/).refine(noNul);
-const SEC = z.string().max(64).regex(SECTION_ID_RE).refine(noNul);
+const contentQuerySchema = z.object({ section: SEC.optional() }).strict();
 
 // 建立時 title 允許省略（DB 端有 default "Untitled"），但若有帶就不可為空字串——
 // 與 PATCH 的 title 驗證同一套規則，避免「傳空字串把標題清空」這種語意混淆的落地方式。
@@ -101,7 +86,7 @@ const SEC = z.string().max(64).regex(SECTION_ID_RE).refine(noNul);
 // errorHandler → 500。既然正在改這一行就順手拉進不變量 S（行為只從 500 變成正常的 400）。
 // `PATCH /api/notes/:id` 的 `updateBodySchema.title` 有同一個洞，**本棒刻意不改**（不在觸及面上）。
 // `.refine` 排在 `.min(1)` 之後（ZodEffects 上沒有 `.min`）。
-const createBodySchema = z.object({ title: z.string().min(1).refine(noNul).optional(), content: MD.optional() }).strict();
+const createBodySchema = z.object({ title: TITLE.optional(), content: MD.optional() }).strict();
 
 // `POST /api/notes/:id/edits` 的 body（spec §5）：`op` 決定其餘欄位，逐格 `.strict()`。
 // `append` 的 `if_match` 是選配（spec M-7：不帶就跳過核對）；其餘四個 op 皆必填。
@@ -207,18 +192,6 @@ function toNoteDto(note: NoteFields, role: Role): NoteDto {
       : null,
   };
 }
-
-/** `users` 的第二個別名：JOIN 的是**編輯者**（`notes.last_edited_by`），與 owner 那次 JOIN
- * 同表不同人，不取別名 drizzle 產不出兩個 FROM 項。一律 LEFT JOIN——沒編輯過（欄位 null）
- * 或編輯者帳號已刪（FK `set null`）時，那一列仍要出現在結果裡。 */
-const editor = alias(users, "editor");
-/** 三欄一組，`ownedSelect`／`sharedSelect`／`noteWithOwnerSelection` 共用同一份定義——union
- * 兩支的 select shape 必須逐欄同形，抄兩次遲早分岔。 */
-const lastEditedSelection = {
-  lastEditedAt: notes.lastEditedAt,
-  lastEditedAgentLabel: notes.lastEditedAgentLabel,
-  editorHandle: editor.handle,
-};
 
 /**
  * Notes CRUD 路由——皆需認證（`authenticate` preHandler）。
@@ -360,44 +333,9 @@ export function notesRoutes(deps: NotesRouteDeps) {
       // #122：兩支各 JOIN users 帶出 ownerHandle（自有分支的 owner 恆為請求者，理論上可
       // 免 JOIN 抄 request.user.handle——但兩支 select shape 必須同形才能 unionAll，
       // 且讓「handle 一律來自 DB 的 owner 列」在兩支上一致，不留特例）。
-      const ownedSelect = deps.db
-        .select({
-          id: notes.id,
-          title: notes.title,
-          ownerId: notes.ownerId,
-          slug: notes.slug,
-          slugIsCustom: notes.slugIsCustom,
-          prevSlug: notes.prevSlug,
-          ownerHandle: users.handle,
-          createdAt: notes.createdAt,
-          updatedAt: notes.updatedAt,
-          ...lastEditedSelection,
-          role: sql<string>`'owner'`.as("role"),
-        })
-        .from(notes)
-        .innerJoin(users, eq(users.id, notes.ownerId))
-        .leftJoin(editor, eq(editor.id, notes.lastEditedBy))
-        .where(eq(notes.ownerId, userId));
-
-      const sharedSelect = deps.db
-        .select({
-          id: notes.id,
-          title: notes.title,
-          ownerId: notes.ownerId,
-          slug: notes.slug,
-          slugIsCustom: notes.slugIsCustom,
-          prevSlug: notes.prevSlug,
-          ownerHandle: users.handle,
-          createdAt: notes.createdAt,
-          updatedAt: notes.updatedAt,
-          ...lastEditedSelection,
-          role: noteShares.role,
-        })
-        .from(notes)
-        .innerJoin(noteShares, and(eq(noteShares.noteId, notes.id), eq(noteShares.userId, userId)))
-        .innerJoin(users, eq(users.id, notes.ownerId))
-        .leftJoin(editor, eq(editor.id, notes.lastEditedBy))
-        .where(ne(notes.ownerId, userId));
+      // #108：兩支的欄位集、join 與可見性述詞收在 `notes/list-query.ts`（MCP 的 `list_notes`／
+      // `search_notes` 吃同一支工廠）。改吃工廠前後 `.toSQL()` 逐位元組相同（含參數編號）。
+      const { owned: ownedSelect, shared: sharedSelect } = visibleNoteBranches(deps.db, userId);
 
       // 次要排序鍵 id desc（M3）：updatedAt 精度不足以保證唯一序，未來若加分頁
       // （keyset pagination），排序不穩定會讓同一批結果在跨頁時重複或漏掉列。
