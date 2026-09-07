@@ -37,6 +37,7 @@ import { MCP_PAGE_MAX } from "../limits.js";
 import { NOTE_NOT_FOUND_MESSAGE } from "../note-read.js";
 import { buildOutlinePage, outlineEntryWithFingerprintSchema } from "../outline-page.js";
 import { toolError, toolResult } from "../tool-result.js";
+import { WRITE_RATE_LIMITED_MESSAGE, writeFailureMessage } from "../write-messages.js";
 import { requireWriteScope } from "../write-scope.js";
 import type { McpToolCtx } from "../context.js";
 
@@ -94,7 +95,6 @@ export interface EditNoteArgs {
 }
 
 const FORBIDDEN_MESSAGE = "You can read this note but not change it. Ask its owner for editor access.";
-const RATE_LIMITED_MESSAGE = "Too many note writes right now. Wait a moment before writing again.";
 const SECTION_NOT_FOUND_MESSAGE =
   "This note has no section with that id. Call read_note_outline again — section ids change when the note is edited.";
 const MISMATCH_MESSAGE =
@@ -140,7 +140,7 @@ export async function editNote(args: EditNoteArgs, ctx: McpToolCtx): Promise<Cal
 
   // 4. `edit` 桶在**角色檢查之後**扣（`role === "none"` 的 404 不啃它，比照 `routes/notes.ts`），
   //    但在任何 mount／直連之前——429 是拒絕案，不得留下任何落盤或紀錄（M6）。桶 key 是裸 userId。
-  if (!ctx.limiters.edit.consume(ctx.userId)) return toolError("too_many_requests", RATE_LIMITED_MESSAGE);
+  if (!ctx.limiters.edit.consume(ctx.userId)) return toolError("too_many_requests", WRITE_RATE_LIMITED_MESSAGE);
 
   // 5. 結構上到不了：`edit_note` 只在 `collab && editing` 都在時才註冊。留著是因為兩者在型別上
   //    選配——`runTool()` 會把它轉成 `internal`，不讓例外冒到 SDK（模型看到的是固定英文字串，
@@ -163,7 +163,7 @@ export async function editNote(args: EditNoteArgs, ctx: McpToolCtx): Promise<Cal
     if (out.code === "fingerprint_mismatch") return mismatchError(ctx, args);
     // `section_not_found` **不帶 outline**——取頁規則對它沒有定義，不發明第二條。
     if (out.code === "section_not_found") return toolError("section_not_found", SECTION_NOT_FOUND_MESSAGE);
-    return toolError(out.code, parseFailureMessage(out.code));
+    return toolError(out.code, writeFailureMessage(out.code));
   }
 
   // D-J 的取頁規則：section-scoped 的三個 op 從落點那一段起算，`replace_all`／`append` 從 0。
@@ -176,19 +176,6 @@ export async function editNote(args: EditNoteArgs, ctx: McpToolCtx): Promise<Cal
     outline: { sections: page.sections, truncated: page.truncated },
     unboundWikilinks: out.result.unboundWikilinks,
   });
-}
-
-function parseFailureMessage(code: "unsupported_block" | "empty_content" | "too_many_blocks" | "empty_section"): string {
-  switch (code) {
-    case "unsupported_block":
-      return "That markdown contains something this editor cannot store. Plain markdown — headings, text, lists, code, tables — works.";
-    case "empty_content":
-      return "That markdown is empty once parsed. Send at least one non-blank block.";
-    case "too_many_blocks":
-      return "That markdown is too many blocks for one note. Split it up.";
-    case "empty_section":
-      return "That would leave the section empty. Use delete_section if you meant to remove it.";
-  }
 }
 
 /**

@@ -46,6 +46,7 @@ import {
 } from "./tools/read-note-section.js";
 import { SEARCH_NOTES_DESCRIPTION, searchNotes, searchNotesInput, searchNotesOutput } from "./tools/search-notes.js";
 import { EDIT_NOTE_DESCRIPTION, editNote, editNoteInput, editNoteOutput } from "./tools/edit-note.js";
+import { CREATE_NOTE_DESCRIPTION, createNote, createNoteInput, createNoteOutput } from "./tools/create-note.js";
 import { canWriteNotes } from "./write-scope.js";
 
 export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
@@ -96,8 +97,6 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
 
     // D-M：`edit_note` **進**這道閘門——判準是「這支工具要不要讀／寫 live doc」，而
     // `applyEdit` 會開直連寫 live doc（與 REST 的 `POST /:id/edits` 註冊閘門一致）。
-    // 下一棒的 `create_note` **不**進來：不帶 `content` 時它只 insert 一列，完全不碰 live doc，
-    // 而 REST 的 `POST /api/notes` 本來就無條件註冊、帶 content 而沒有 collab 時回 400。
     if (canWrite) {
       server.registerTool(
         "edit_note",
@@ -105,5 +104,19 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
         async args => runTool("edit_note", ctx, () => editNote(args, ctx))
       );
     }
+  }
+
+  // ⚠ **`create_note` 在閘門外面**（D-M）——這就是上面那段「寫成區塊而不是 early return」
+  // 預告的那一支：不帶 `content` 時它只 insert 一列，完全不碰 live doc，而 REST 的
+  // `POST /api/notes` 本來就無條件註冊、帶 content 而沒有 collab 時回 `400 invalid_body`
+  // （工具側的對等答案是 `invalid_body`，由 `createNote` 自己判 `ctx.writes.available`）。
+  // 把它移進閘門就是發明第二套行為——守衛＝`mcp-create-note.test.ts` 的 D-M 那一案
+  // （無 collab 的 app ＋**讀寫**憑證，斷言三個名字的集合）。
+  if (canWrite) {
+    server.registerTool(
+      "create_note",
+      { description: CREATE_NOTE_DESCRIPTION, inputSchema: createNoteInput, outputSchema: createNoteOutput },
+      async args => runTool("create_note", ctx, () => createNote(args, ctx))
+    );
   }
 }
