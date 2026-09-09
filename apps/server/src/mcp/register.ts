@@ -7,11 +7,12 @@
  *
  * ⚠ **每一支工具都要經過 `runTool()`**：它是 D31／M15 的 try/catch（未捕捉例外不得冒到
  * SDK，否則原始 `error.message` 會原樣進模型脈絡）＋ `beforeTool` 注入縫。漏包某一支
- * 不會有任何編譯錯誤——**守衛是「`beforeTool` 名字集合」那一族，而它是逐檔各守各的**：
- * `mcp-notes.test.ts` 那一案只斷言 `{list_notes, search_notes}` 且只打那兩支，對下面兩支
- * 漏包**恆綠**；守住下面兩支的是 `mcp-content.test.ts` 的四支涵蓋率案與案 16 的正向對照
- * （突變實測：把 `read_note_section` 拆出 `runTool` 只讓那兩案紅）。**新增工具時要一併
- * 把它加進那個名字集合，否則等於沒有守衛。**
+ * 不會有任何編譯錯誤——**守衛是「`beforeTool` 名字集合」那一族，而它現在分散在三個檔，
+ * 逐檔各守各的**（集合逐字對照該案本身，不是憑印象簡化）：`mcp-notes.test.ts`
+ * （`{list_notes, search_notes}`）、`mcp-content.test.ts`（**四支唯讀工具全打**，
+ * `{list_notes, read_note_outline, read_note_section, search_notes}`）、PR2 起
+ * `mcp-tools-list.test.ts`（P13：`{edit_note, create_note}`）。**新增工具時要一併把它
+ * 加進其中一個名字集合，否則等於沒有守衛。**
  *
  * ⚠ 呼叫順序是契約（§8.1 D32）：建 `McpServer` → **本函式** → `registerCapabilities` →
  * `connect()`。`registerTool` 內部會無條件把 `listChanged` 設回 `true`。**守衛＝
