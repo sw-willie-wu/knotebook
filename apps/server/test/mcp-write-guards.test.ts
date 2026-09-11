@@ -193,9 +193,9 @@ describe("#108 §14.5 拒絕族：四件零副作用逐案照斷", () => {
   // 逐位元組同形。⚠ 另外持一顆自己的 `edit` 桶，順手驗「`edit` 桶排在角色檢查之後扣、
   // role===none 的 404 不啃它」——這是下面 Step 3 突變（把 edit 桶移到 resolveRole 之前）
   // 唯一抓得住的地方（案 27 對那條突變零鑑別力，見該案註解）。
-  // 突變實測（2026-09-09，`edit-note.ts` 把 `edit` 桶消耗那段移到 `resolveRole` 之前）：
+  // 突變實測（Task 4 審查輪實跑，`edit-note.ts` 把 `edit` 桶消耗那段移到 `resolveRole` 之前）：
   // 只有本案紅——`role===none 的 404 不得啃掉 edit 桶: expected 29 to be 30`（桶被啃掉一格）；
-  // 其餘 11 案（含案 27）全綠，已 revert。
+  // 其餘各案（含案 27）全綠，已 revert。
   it("角色為 none（別人的私有筆記）→ not_found，訊息與案 17 逐位元組同形，不啃 edit 桶，四件零副作用（案 26）", async () => {
     const edit = new FixedWindowLimiter(EDIT_LIMIT);
     const s = await scene(THREE_SECTIONS, { limiters: { edit } });
@@ -309,7 +309,7 @@ describe("#108 §14.5 拒絕族：四件零副作用逐案照斷", () => {
   //   先寫一次），那一發會 touch presence——`snapshot()` 的 key 集合對「fingerprint_mismatch
   //   那條路徑偷 touch」因此零鑑別力，改走 `mcp-edit-note.test.ts:258-268`（D-N 案）的深度
   //   比對：同一顆 clientId 的整個 state（`structuredClone`）逐位元組比對。
-  //   突變實測（2026-09-09，`edit-note.ts` 的 `mismatchError` 回傳前偷插一次
+  //   突變實測（Task 4 審查輪實跑，`edit-note.ts` 的 `mismatchError` 回傳前偷插一次
   //   `ctx.presence.touch(args.note_id, ctx.tokenId!, { name: "mut", color: "#000" },
   //   { kind: "doc-start" })`）：**只有深度比對那一行紅**（`beat` 從 2 變 3、`user.name` 從
   //   `"user-… (claude)"` 變 `"mut"`），`expectNoSideEffects()` 的四件（含 key 集合）排在它
@@ -382,9 +382,9 @@ describe("#108 §14.5 拒絕族：四件零副作用逐案照斷", () => {
   // not_found，但 `tokenWrite` 已被啃掉（`requireWriteScope` 排在 `resolveRole` 之前，
   // 對齊 REST 的 preHandler 扣點順序）；緊接著對自己的合法筆記發一發合法的 `edit_note` →
   // 被 `too_many_requests` 擋下。案 32 兩發都打看得見的筆記，對這個順序**確定**零鑑別力。
-  // 突變實測（2026-09-09，`edit-note.ts` 把 `requireWriteScope(ctx)` 移到 `resolveRole` 之後）：
+  // 突變實測（Task 4 審查輪實跑，`edit-note.ts` 把 `requireWriteScope(ctx)` 移到 `resolveRole` 之後）：
   // 只有本案紅（`expected undefined to be true`——第二發不再被擋，直接寫成功，`errorOf` 的
-  // `isError` 斷言先炸）；其餘 11 案（含案 32）全綠，已 revert。
+  // `isError` 斷言先炸）；其餘各案（含案 32）全綠，已 revert。
   it("扣點順序的唯一守衛：role=none 那發雖 404 仍啃 tokenWrite，緊接著合法一發被擋（案 32b）", async () => {
     const tokenWrite = new FixedWindowLimiter({ limit: 1, windowMs: 600_000 });
     const s = await scene(THREE_SECTIONS, { limiters: { tokenWrite } });
@@ -408,7 +408,7 @@ describe("#108 串行（案 22／M5）", () => {
   // ⚠ 規格 rev 4 明文刪掉了結果碼形——改釘在併發本身：A（REST）卡在 `beforeMerge`，B（MCP）
   // 在那段期間發出，斷言 B 沒有進入 `beforeMerge`（`inFlight`／`maxInFlight` 計數形，照抄
   // `test/unit/editing-queue.test.ts:26-48`）。
-  // 突變實測（2026-09-09，`app.ts` 的 `mcpRoutes({...})` 呼叫把共用的 `writes` 換成
+  // 突變實測（Task 4 審查輪實跑，`app.ts` 的 `mcpRoutes({...})` 呼叫把共用的 `writes` 換成
   // `new NoteWriteService({...})`——MCP 自己一份 `NoteWriteQueue`，繞過與 REST 共用的實例）：
   // 本案紅在 `B 在 A 還卡著時沒有進入 beforeMerge: expected 2 to be 1`（`maxInFlight === 2`，
   // B 沒有排隊、直接跟 A 併發跑進 `beforeMerge`）。這是 Task 1 那整個重構唯一的行為面守衛，

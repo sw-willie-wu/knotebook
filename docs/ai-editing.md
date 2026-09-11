@@ -152,6 +152,8 @@ Neither shape is recoverable by retrying; both are consequences of merging befor
 | Recorded edits kept | at most 100 per note | `GET …/edits` | oldest rows are deleted |
 | Wikilink targets indexed | 1000 per note | every write | extra targets are dropped from the index, the write still succeeds |
 
+A `POST /api/mcp` counts as **one** read call against the "Token calls" row no matter how many tools it invokes, and **each** `edit_note` or `create_note` call inside it counts as one write call — including a `create_note` without `content` (#108). For how MCP answers once one of these budgets runs out, see [API tokens](./api-tokens.md#errors-and-rate-limits).
+
 `POST /api/notes` (with or without `content`) uses the server's ordinary 1 MiB body limit rather than the 262 144-byte one — the `content` field's own length limit is what bounds it, and a request over the body limit there is still `413 content_too_large`. It shares the same per-note write queue, but it does not answer `503`: if applying the content fails for any reason, including waiting too long for the queue, the note row it just created is removed again and the answer is `500 internal`.
 
 Note that `server_busy` is a `503` on these endpoints. The same code is a `409` on `POST /api/notes/:id/links`, where it means a write conflict rather than a queue timeout.
@@ -174,7 +176,7 @@ While a program works on a note, it shows up **in the note** — as a remote cur
 
 - The cursor is labelled `username (agent)`: your username, and the credential's [agent display name](#agent-display-name).
 - It exists only for a note **somebody currently has open**. Presence is attached to the live collaborative document, so if no browser is connected to that note, nothing is created and nothing is broadcast — and there is no record afterwards that a program was there.
-- It appears, and moves, on a **token-authenticated** `GET …/content`, `POST …/edits` and `POST …/edits/:editId/revert` — and on the MCP read tools that go through the same code path (`read_note_outline`, `read_note_section`), so an assistant that only *reads* a note still shows up in it. `GET …/edits` deliberately does not: reading the history is not working on the note. `POST /api/notes` with `content` cannot — the note is created by that same request, so nobody can have it open yet.
+- It appears, and moves, on a **token-authenticated** `GET …/content`, `POST …/edits` and `POST …/edits/:editId/revert` — and on the MCP read tools that go through the same code path (`read_note_outline`, `read_note_section`), and on `edit_note`, so an assistant that only *reads* a note still shows up in it. `GET …/edits` deliberately does not: reading the history is not working on the note. `POST /api/notes` with `content` cannot — the note is created by that same request, so nobody can have it open yet.
 - **A request authenticated with a session cookie never creates one**, neither reading nor writing. Editing your own note in your own browser therefore does not sprout a second, AI-looking cursor beside your real one.
 - It is removed after **2 minutes** with no read or write. A server restart does not broadcast a separate removal for it: by the time that shutdown step runs, every collaborative connection — including this one — has already been torn down, so there is nothing left to notify.
 

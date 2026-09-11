@@ -20,7 +20,7 @@ import { eq } from "drizzle-orm";
 import { notes, users } from "../src/db/schema.js";
 import { MCP_PAGE_MAX } from "../src/mcp/limits.js";
 import { buildCollabTestApp, type CollabTestCtx } from "./helpers.js";
-import { seedContent, seedTokenForUser } from "./editing-helpers.js";
+import { getContent, seedContent, seedTokenForUser } from "./editing-helpers.js";
 import { mcpPost, rpc } from "./mcp-helpers.js";
 import type { Db } from "../src/db/index.js";
 import type { FastifyInstance } from "fastify";
@@ -36,20 +36,22 @@ export const MCP_MAX_WIRE = 262_144;
 /**
  * `tools/list` 的 wire 回應上限（UTF-16 code unit）。
  *
- * **怎麼來的**（D-G，2026-09-07 實測，**唯讀憑證、四支工具**）：實測 **9479** → 向上取整到
- * 1024 的倍數＝10 240 → ×1.3 ＝ **13 312**。1.3 是「schema 與 `.describe()` 正常增修」的餘地，
- * 形狀比照 `scripts/check-bundle-size.mjs` 的 `MAX_ENTRY_BYTES`。
+ * **怎麼來的**（Task 5，2026-09-09 實測，**讀寫憑證、六支工具**——PR2 起讀寫憑證才是最壞
+ * 情形，唯讀憑證只當對照）：實測 **15 362**（唯讀憑證四支對照組 9479，與 PR1 量到的數字相同）
+ * → 向上取整到 1024 的倍數＝16 384 → ×1.3 ＝ 21 299.2 → 進位 **21 300**。1.3 是「schema
+ * 與 `.describe()` 正常增修」的餘地，形狀比照 `scripts/check-bundle-size.mjs` 的
+ * `MAX_ENTRY_BYTES`；`edit_note`／`create_note` 兩支的 input／output schema 一起進脈絡，
+ * 是這條線從 PR1 的 13 312 破線 2050 的直接原因。
  *
- * **什麼樣的迴歸會撞牆**（**突變實跑，不是推測**）：把 `cursor` 的 `.describe()` 加長 3 929
- * 字元 → 13 408，紅。也就是餘裕約 **3.8 KB**——一段長使用說明搬進某個欄位的 `.describe()`、
- * 或給 `outputSchema` 加一大坨巢狀物件就會撞到。撞牆時**先問「這段字非進 schema 不可嗎」**：
- * `tools/list` 的每一個位元組每一次連線都進模型脈絡，而 `instructions` 與 `docs/mcp.md`
- * 是更便宜的落點。
- *
- * ⚠ **PR2 加上 `edit_note`／`create_note` 之後這條必然破線**。PR2 必須**重量**，並把量測對象
- * 改成**讀寫憑證**的清單——唯讀憑證在 PR1 之後不再是最壞情形。
+ * **什麼樣的迴歸會撞牆**（**突變實跑，2026-09-09**）：把 `edit_note` 的 `if_match`
+ * 欄位 `.describe()` 加長 6000 字元（`"x".repeat(6000)` 接在句尾）→ wire 變成 **21 362**，
+ * 紅（`expected 21362 to be less than or equal to 21300`）；已 revert。餘裕是
+ * `21300 − 15362 = 5938` 字元（約 5.8 KB），這條迴歸只是拿來驗證餘裕確實存在、且沒有
+ * D11 那種鏡像效應（`tools/list` 的 schema 只進脈絡一份，加長多少 wire 就多長多少，
+ * 不是 ×2.1）。撞牆時**先問「這段字非進 schema 不可嗎」**：`tools/list` 的每一個位元組
+ * 每一次連線都進模型脈絡，而 `instructions` 與 `docs/mcp.md` 是更便宜的落點。
  */
-export const N_LIST_MAX = 13_312;
+export const N_LIST_MAX = 21_300;
 
 interface Measured {
   label: string;
@@ -97,16 +99,47 @@ async function firstSectionId(app: FastifyInstance, token: string, noteId: strin
   return payload.sections.reduce((a, b) => (a.chars >= b.chars ? a : b)).sectionId;
 }
 
+/**
+ * `edit_note` 的 `if_match` 只能從**指紋**來，而 `read_note_outline` 依 M12 刻意不帶指紋
+ * （`outline-page.ts` 檔頭）——量測要走 REST 的 `GET /content`，與 `mcp-edit-note.test.ts`
+ * 的 `restOutline()` 同一個理由：獨立真相，不繞路去猜。
+ */
+async function sectionAt(
+  app: FastifyInstance,
+  token: string,
+  noteId: string,
+  index: number
+): Promise<{ sectionId: string; fingerprint: string }> {
+  const res = await getContent(app, noteId, token);
+  expect(res.statusCode).toBe(200);
+  const body = res.json() as { outline: Array<{ sectionId: string; fingerprint: string }> };
+  return body.outline[index]!;
+}
+
 describe("#108 tools/list 的脈絡成本（案 11b）", () => {
-  it("唯讀憑證的 tools/list 完整 wire 回應 ≤ N_LIST_MAX", async () => {
+  // PR1 量的是唯讀憑證（四支工具）；PR2 起讀寫憑證（六支工具）才是最壞情形——`edit_note`／
+  // `create_note` 的 input／output schema 一起進脈絡。本案改打讀寫憑證，唯讀憑證只當對照
+  // 一起印出來，門檻只釘在讀寫憑證那個數字上。
+  it("讀寫憑證的 tools/list 完整 wire 回應 ≤ N_LIST_MAX（唯讀憑證當對照）", async () => {
     const ctx = await buildCollabTestApp();
     const o = await owner(ctx);
-    const res = await mcpPost(ctx.app, rpc("tools/list"), { token: o.token });
-    expect(res.statusCode).toBe(200);
-    expect((res.json().result.tools as unknown[]).length).toBe(4);
-    const wire = res.body.length;
-    console.log(`[案 11b] tools/list（唯讀憑證、四支工具） wire=${wire}  門檻=${N_LIST_MAX}  用掉 ${((wire / N_LIST_MAX) * 100).toFixed(1)}%`);
-    expect(wire).toBeLessThanOrEqual(N_LIST_MAX);
+    const { token: rwToken } = await seedTokenForUser(ctx.db, o.id, "notes:read notes:write");
+
+    const roRes = await mcpPost(ctx.app, rpc("tools/list"), { token: o.token });
+    expect(roRes.statusCode).toBe(200);
+    expect((roRes.json().result.tools as unknown[]).length).toBe(4);
+    const roWire = roRes.body.length;
+
+    const rwRes = await mcpPost(ctx.app, rpc("tools/list"), { token: rwToken });
+    expect(rwRes.statusCode).toBe(200);
+    expect((rwRes.json().result.tools as unknown[]).length).toBe(6);
+    const rwWire = rwRes.body.length;
+
+    console.log(
+      `[案 11b] tools/list  唯讀憑證（四支，對照）wire=${roWire}  讀寫憑證（六支，被測）wire=${rwWire}  ` +
+        `門檻=${N_LIST_MAX}  用掉 ${((rwWire / N_LIST_MAX) * 100).toFixed(1)}%`
+    );
+    expect(rwWire).toBeLessThanOrEqual(N_LIST_MAX);
   });
 });
 
@@ -122,9 +155,14 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
   //   不截 `mcp-content.test.ts` 也會紅（各一案／三案），`title` 那條由 `mcp-notes.test.ts`
   //   的 200 字元斷言直接守。**(i) 獨有的那一層是「病態筆記下 wire ≤ N」**——逐欄斷言看的是
   //   欄位值，看不到「整個回應加起來會不會爆」，而那正是 M16 最後一列要的東西。
-  it("(i) 一篇 heading／title 各 260 000 字元的筆記 → 四支工具都 ≤ N", async () => {
+  // Task 5 案 11c 補：`create_note` 的最壞情形是**回應裡的 `title` 被截到 200 字元 ＋ 多帶
+  // `titleTruncated:true`**（`toNoteSummary`，`dto.ts`）——與這一案的 `hugeTitle` 同一個
+  // 病態形，所以順手擺在 (i)：一發讀寫憑證的 `create_note`，帶一顆同樣 260 000 字元的標題。
+  // ⚠ `create_note` 不寫 live doc（不帶 `content`），對這一案其他量測**零污染**。
+  it("(i) 一篇 heading／title 各 260 000 字元的筆記 → 六支工具都 ≤ N", async () => {
     const ctx = await buildCollabTestApp();
     const o = await owner(ctx);
+    const { token: rwToken } = await seedTokenForUser(ctx.db, o.id, "notes:read notes:write");
     const hugeTitle = `T${"i".repeat(259_999)}`;
     const note = await ctx.createNote(o.id, hugeTitle);
     const session = await ctx.loginAs(o.email, PASSWORD);
@@ -138,6 +176,7 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
     });
     await callWire(ctx.app, o.token, "(i) list_notes", "list_notes", { limit: MCP_PAGE_MAX });
     await callWire(ctx.app, o.token, "(i) search_notes", "search_notes", { query: "Tiii", limit: 50 });
+    await callWire(ctx.app, rwToken, "(i) create_note", "create_note", { title: hugeTitle });
     client.disconnect();
   });
 
@@ -149,6 +188,7 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
   it("(ii) 500 段、每段標題 1000 字元 → outline 的第一頁與最後一頁都 ≤ N", async () => {
     const ctx = await buildCollabTestApp();
     const o = await owner(ctx);
+    const { token: rwToken } = await seedTokenForUser(ctx.db, o.id, "notes:read notes:write");
     const note = await ctx.createNote(o.id, "five hundred sections");
     const md = Array.from({ length: 500 }, (_, i) => `# ${String(i).padStart(4, "0")}${"h".repeat(994)}`).join("\n\n");
     const session = await ctx.loginAs(o.email, PASSWORD);
@@ -163,6 +203,21 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
     await callWire(ctx.app, o.token, "(ii) read_note_section", "read_note_section", {
       note_id: note.id,
       section_id: sectionId,
+    });
+
+    // Task 5 案 11c 補：`edit_note` 的最壞情形是**成功回應帶一整頁（100 筆）逐段指紋的
+    // outline**（`outline-page.ts` 的 `withFingerprints: true`，`read_note_outline` 完全
+    // 沒有這個負擔）。⚠ 寫入落點刻意指在**後段**（第 250 段，遠離第一頁）：`replace_section`
+    // 這族 op 的取頁規則是從落點（`afterSectionIndex`）起算（D-J），打第一段等於跟
+    // `read_note_outline` 第一頁量到同一種形，量不到「取頁規則對任意落點都算得出一整頁」
+    // 這件事——這一發放在該 it 的**最後**，因為它會真的寫進去，不得污染前面幾發的量測。
+    const target = await sectionAt(ctx.app, o.token, note.id, 250);
+    await callWire(ctx.app, rwToken, "(ii) edit_note replace_section@250", "edit_note", {
+      note_id: note.id,
+      op: "replace_section",
+      section_id: target.sectionId,
+      markdown: `# 0250-edited${"h".repeat(986)}`,
+      if_match: target.fingerprint,
     });
     client.disconnect();
   });
@@ -191,6 +246,7 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
   it("(iii) 100 筆滿長筆記（handle 32／title 200／slug 100／agentLabel 32）＋ limit 100 → ≤ N", async () => {
     const ctx = await buildCollabTestApp();
     const o = await owner(ctx);
+    const { token: rwToken } = await seedTokenForUser(ctx.db, o.id, "notes:read notes:write");
     const handle = `h${"a".repeat(31)}`; // 32 字元，`handles_handle_chk` 的上限
     expect(handle).toHaveLength(32);
     await ctx.db.update(users).set({ handle }).where(eq(users.id, o.id));
@@ -214,6 +270,11 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
     expect(wire).toBeGreaterThan(140_000);
     // `search_notes` 的 `limit` 上限是 50，所以它的最壞情形恰好是這一發的一半左右。
     await callWire(ctx.app, o.token, "(iii) search_notes limit=50", "search_notes", { query: "ttt", limit: 50 });
+
+    // Task 5 案 11c 補：`create_note` 的另一半最壞情形——`ownerHandle` 是這一案剛設的
+    // 32 字元上限（(i) 那一發的 owner 是隨機 email 產生的短 handle，量不到這一格）。標題
+    // 一樣給到會截斷的長度，兩案合起來才是 `create_note` 回應真正的最壞情形。
+    await callWire(ctx.app, rwToken, "(iii) create_note", "create_note", { title: "c".repeat(300) });
   });
 
   // 整張表印一次（PR 描述要貼）。**刻意是 hook 不是 `it`**：它只彙整前面幾案已經斷言過的
