@@ -76,7 +76,7 @@ export interface McpRouteDeps {
   /**
    * #108 §10.1（D22／M5）：`buildApp` 建的**同一個**寫入 service（`notesRoutes` 拿到的是
    * 同一個物件），MCP 寫入與 REST 寫入因此對同一篇筆記串行。
-   * 消費端＝`mcp/tools/edit-note.ts`（Task 2 起）與下一棒的 `create_note`。
+   * 消費端＝`mcp/tools/edit-note.ts`（Task 2 起）與 `mcp/tools/create-note.ts`（Task 3 起）。
    */
   writes: NoteWriteService;
   testHooks?: McpTestHooks;
@@ -125,7 +125,10 @@ export function mcpRoutes(deps: McpRouteDeps) {
       // #108 D-Q：`instructions` 是 **per-request 二選一**（不是相加）——唯讀憑證看到的那一版
       // 刻意不提寫入工具的名字，改講「怎麼取得寫入權」。判準與註冊時的 scope 過濾**同一份**
       // （`canWriteNotes`），否則會出現「清單裡有工具但 instructions 說你是唯讀的」這種漂移。
-      const canWrite = canWriteNotes({ authKind: request.authKind ?? "session", tokenScope: request.tokenScope ?? null });
+      const canWrite = canWriteNotes({
+        authKind: request.authKind === "session" ? "session" : "token",
+        tokenScope: request.tokenScope ?? null,
+      });
       const server = new McpServer(
         { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
         { instructions: mcpInstructions(canWrite) }
@@ -143,7 +146,7 @@ export function mcpRoutes(deps: McpRouteDeps) {
         userId: request.user!.id,
         userHandle: request.user!.handle,
         tokenId: request.tokenId ?? null,
-        authKind: request.authKind ?? "session",
+        authKind: request.authKind === "session" ? "session" : "token",
         tokenScope: request.tokenScope ?? null,
         hooks: deps.testHooks,
       });

@@ -19,8 +19,8 @@
  * 真逾時。
  *
  * 誠實缺口另補三條：
- * (1) `applyDeps()` 的 throw 今天三個呼叫點都到不了、沒有測試守著——留著是因為下一棒的
- *     `create_note` 不進部署形態閘門，忘了先問 `available` 時它是唯一會出聲的東西。
+ * (1) `applyDeps()` 的 throw 今天三個呼叫點都到不了、沒有測試守著——留著是因為 `create_note`
+ *     不進部署形態閘門，忘了先問 `available` 時它是唯一會出聲的東西。
  * (2) `test/write-body-limit.test.ts` 的四發邊界驗收是從 `WRITE_BODY_LIMIT` 這個常數算出來
  *     的，所以對「上限值本身被改」零鑑別力（實測把常數改成 280000 → 42 案全綠）；還在守上限值
  *     的只有 `note-edits.test.ts`／`mcp-endpoint.test.ts` 兩條寫死 300000 的舊測試，而它們只
@@ -108,15 +108,6 @@ export class NoteWriteService {
   /** collab ＋ editing 都在＝這個部署寫得動內容（同 `routes/notes.ts` 的既有註冊閘門判準）。 */
   get available(): boolean {
     return this.deps.collab !== undefined && this.deps.editing !== undefined;
-  }
-
-  /**
-   * 佇列的觀察點（併發／串行那一族測試用）。
-   * ⚠ **Task 1 是零消費端**——消費端是 PR2 後面那棒「MCP 寫入與 REST 寫入共用同一條佇列」
-   * 的驗收；若那一案最後改成別的觀察法，這個 getter 要一起拿掉，不要留無主 API。
-   */
-  get queueSize(): number {
-    return this.queue.size;
   }
 
   /**

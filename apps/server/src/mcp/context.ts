@@ -26,8 +26,11 @@ export interface McpToolCtx {
   /**
    * #108 §10.1（D22／M5）：`buildApp` 建的**唯一**寫入 service——MCP 的寫入工具與 REST 的三條
    * 寫入路徑共用同一個 `NoteWriteQueue`，同一篇筆記因此串行。
-   * 消費端＝`tools/edit-note.ts`（PR2 Task 2 起）與下一棒的 `create_note`
-   * （外圍順序：候選集合 → agentLabel → 佇列 → applyEdit → presence 都在它裡面）。
+   * 消費端＝`tools/edit-note.ts`（PR2 Task 2 起）與 `tools/create-note.ts`（Task 3 起）。
+   * 「候選集合 → agentLabel → 佇列 → applyEdit → presence」這串外圍順序只描述 `edit_note`
+   * 走的 `applyToNote`；`create_note` 走的是 `createWithContent`，同樣有候選集合／
+   * agentLabel／佇列／`applyEdit`，但**刻意不 touch presence**（剛建的筆記不可能有人正開著，
+   * `write-service.ts` 的 `createWithContent` 逐字說明）。
    */
   writes: NoteWriteService;
   /**
