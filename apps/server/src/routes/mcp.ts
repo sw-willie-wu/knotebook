@@ -6,12 +6,15 @@ import type { Db } from "../db/index.js";
 import type { CollabServer } from "../collab/server.js";
 import type { EditingRuntime } from "../notes/editing/runtime.js";
 import type { PresenceRegistry } from "../notes/editing/presence.js";
+import type { NoteWriteService } from "../notes/editing/write-service.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
+import { WRITE_BODY_LIMIT } from "../http/body-limits.js";
 import { sendError } from "../http/errors.js";
 import { mcpOriginAllowed } from "../http/origin.js";
 import type { McpTestHooks } from "../mcp/hooks.js";
 import { registerMcpTools } from "../mcp/register.js";
-import { MCP_INSTRUCTIONS, MCP_SERVER_NAME, MCP_SERVER_VERSION, versionReadFailed } from "../mcp/server-info.js";
+import { mcpInstructions, MCP_SERVER_NAME, MCP_SERVER_VERSION, versionReadFailed } from "../mcp/server-info.js";
+import { canWriteNotes } from "../mcp/write-scope.js";
 import { sendWebResponse, toWebRequest } from "../mcp/transport.js";
 
 /**
@@ -50,9 +53,6 @@ import { sendWebResponse, toWebRequest } from "../mcp/transport.js";
  * 的 app（`buildTestApp` 那種）只註冊查得動 DB 的工具，讀不到 live doc 的兩支整條不宣告。
  */
 
-/** 與 `POST /api/notes/:id/edits` 逐位元組相同的上限（D30）。不明寫就是 fastify 預設的 1 MiB。 */
-const MCP_BODY_LIMIT = 262_144;
-
 /** 405／未支援 method 的 body（與 SDK 自己的 `handleUnsupportedRequest` 同形）。 */
 const METHOD_NOT_ALLOWED_BODY = {
   jsonrpc: "2.0",
@@ -66,8 +66,19 @@ export interface McpRouteDeps {
   /** D-A：兩者皆選配——無 collab 的 app 上路由仍然註冊，只是讀 live doc 的工具不宣告。 */
   collab?: CollabServer;
   editing?: EditingRuntime;
-  limiters: { contentRead: FixedWindowLimiter };
+  /**
+   * 逐鍵挑（不整包轉傳）：MCP 只該看得到自己會用的三顆桶。`contentRead` 給兩支讀取工具，
+   * `edit`／`tokenWrite` 給 PR2 的兩支寫入工具（前者在角色檢查之後扣，後者在 scope 檢查
+   * 那一步扣，順序與 REST 對齊）。
+   */
+  limiters: { contentRead: FixedWindowLimiter; edit: FixedWindowLimiter; tokenWrite: FixedWindowLimiter };
   presence?: PresenceRegistry;
+  /**
+   * #108 §10.1（D22／M5）：`buildApp` 建的**同一個**寫入 service（`notesRoutes` 拿到的是
+   * 同一個物件），MCP 寫入與 REST 寫入因此對同一篇筆記串行。
+   * 消費端＝`mcp/tools/edit-note.ts`（Task 2 起）與 `mcp/tools/create-note.ts`（Task 3 起）。
+   */
+  writes: NoteWriteService;
   testHooks?: McpTestHooks;
 }
 
@@ -108,10 +119,19 @@ export function mcpRoutes(deps: McpRouteDeps) {
     app.get("/api/mcp", { preHandler }, methodNotAllowed);
     app.delete("/api/mcp", { preHandler }, methodNotAllowed);
 
-    app.post("/api/mcp", { preHandler, bodyLimit: MCP_BODY_LIMIT }, async (request, reply) => {
+    // `bodyLimit` 與 `POST /api/notes/:id/edits` 共用同一個常數（`http/body-limits.ts`）——
+    // 「兩者逐位元組相同」現在由構造成立，不再是一句要靠人維護的宣稱。
+    app.post("/api/mcp", { preHandler, bodyLimit: WRITE_BODY_LIMIT }, async (request, reply) => {
+      // #108 D-Q：`instructions` 是 **per-request 二選一**（不是相加）——唯讀憑證看到的那一版
+      // 刻意不提寫入工具的名字，改講「怎麼取得寫入權」。判準與註冊時的 scope 過濾**同一份**
+      // （`canWriteNotes`），否則會出現「清單裡有工具但 instructions 說你是唯讀的」這種漂移。
+      const canWrite = canWriteNotes({
+        authKind: request.authKind === "session" ? "session" : "token",
+        tokenScope: request.tokenScope ?? null,
+      });
       const server = new McpServer(
         { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
-        { instructions: MCP_INSTRUCTIONS }
+        { instructions: mcpInstructions(canWrite) }
       );
       // 身分綁進工具閉包：每支工具是可以單獨呼叫的 `(args, ctx) => result`，不從
       // `request` 撈東西。註冊必須排在 `registerCapabilities` **之前**（D32 的順序）。
@@ -120,12 +140,13 @@ export function mcpRoutes(deps: McpRouteDeps) {
         collab: deps.collab,
         editing: deps.editing,
         presence: deps.presence,
+        writes: deps.writes,
         limiters: deps.limiters,
         log: request.log,
         userId: request.user!.id,
         userHandle: request.user!.handle,
         tokenId: request.tokenId ?? null,
-        authKind: request.authKind ?? "session",
+        authKind: request.authKind === "session" ? "session" : "token",
         tokenScope: request.tokenScope ?? null,
         hooks: deps.testHooks,
       });

@@ -1,6 +1,6 @@
 # API tokens
 
-A Personal API token lets a script, a CLI, or an AI assistant work with your notes **as you**, without a browser session. This page covers the credentials — issuing them, what they reach, and how an app can authorize itself instead. What a program can then *do* with note content is documented separately in [AI editing](./ai-editing.md); the MCP endpoint that builds on all of it serves read tools today (see [Coming next](#coming-next) for what is still landing).
+A Personal API token lets a script, a CLI, or an AI assistant work with your notes **as you**, without a browser session. This page covers the credentials — issuing them, what they reach, and how an app can authorize itself instead. What a program can then *do* with note content is documented separately in [AI editing](./ai-editing.md); the MCP endpoint that builds on all of it exposes six tools — four read, two write (see [Which endpoints accept a token](#which-endpoints-accept-a-token)).
 
 ## What a token is
 
@@ -58,7 +58,7 @@ Everything a program needs in order to write safely — how sections are address
 | `POST /api/notes` — create a note, optionally with its `content` | `notes:write` |
 | `POST /api/notes/:id/edits` — write a note's content: replace the whole note, replace/insert after/delete one section, or append | `notes:write` |
 | `POST /api/notes/:id/edits/:editId/revert` — undo one recorded write | `notes:write` |
-| `POST /api/mcp` (`GET`/`DELETE` → `405`) — MCP endpoint | `notes:read` for the read tools |
+| `POST /api/mcp` (`GET`/`DELETE` → `405`) — MCP endpoint | `notes:read` for `list_notes`/`search_notes`/`read_note_outline`/`read_note_section`; `notes:write` (which includes read) for `edit_note`/`create_note` |
 
 Every other endpoint that requires a login is session-cookie only and answers a plain `401 unauthorized` to a Bearer request (endpoints that need no login at all, such as public share pages, simply ignore the header). In particular, tokens can **not** manage tokens (`/api/auth/tokens`), and can **not** obtain a collaboration token for the live editor.
 
@@ -66,8 +66,8 @@ Every other endpoint that requires a login is session-cookie only and answers a 
 
 - `401 unauthorized` with a `WWW-Authenticate: Bearer …` header — no credentials, an unknown or expired token, or a token whose account is disabled. The header's `error` parameter is `invalid_token` when a Bearer token was sent but rejected, and absent when no credentials were sent — or when a non-Bearer scheme such as `Basic` was used (RFC 6750 §3).
 - `403 insufficient_scope` — the token is valid but doesn't have the scope this endpoint needs (e.g. a read-only token calling `POST /api/notes`). This does **not** count against any rate limit.
-- `429 too_many_requests` — token requests are rate-limited **per user, separately from browser sessions**: 300 reads per minute and 60 writes per 10 minutes. The content endpoints add tighter budgets on top of those: `GET /api/notes/:id/content` and `GET /api/notes/:id/edits` share 120 reads per minute per user, and `POST /api/notes/:id/edits`, `POST /api/notes/:id/edits/:editId/revert` and `POST /api/notes` carrying `content` share 30 writes per minute per user. A token calling them burns from both budgets, so its real ceilings there are 120/min and 30/min, not 300/min and 60/10 min. The tighter budgets are keyed by user, not by credential, so they apply to browser sessions too, not just tokens — though in practice the web app never calls these endpoints itself; it reads and writes note content through the live collaboration connection instead. A runaway script cannot lock you out of the web UI. Invalid Bearer attempts are additionally limited per IP (30 per minute). `429` responses carry no `WWW-Authenticate` header and no `Retry-After`.
-- `503 server_busy` — on the two writing endpoints only: another write to the same note held the per-note queue for longer than 10 seconds. Nothing was applied and nothing was recorded; retry.
+- `429 too_many_requests` — token requests are rate-limited **per user, separately from browser sessions**: 300 reads per minute and 60 writes per 10 minutes. The content endpoints add tighter budgets on top of those: `GET /api/notes/:id/content` and `GET /api/notes/:id/edits` share 120 reads per minute per user, and `POST /api/notes/:id/edits`, `POST /api/notes/:id/edits/:editId/revert` and `POST /api/notes` carrying `content` share 30 writes per minute per user. A token calling them burns from both budgets, so its real ceilings there are 120/min and 30/min, not 300/min and 60/10 min. The tighter budgets are keyed by user, not by credential, so they apply to browser sessions too, not just tokens — though in practice the web app never calls these endpoints itself; it reads and writes note content through the live collaboration connection instead. A runaway script cannot lock you out of the web UI. Invalid Bearer attempts are additionally limited per IP (30 per minute). `429` responses carry no `WWW-Authenticate` header and no `Retry-After`. The MCP tools draw on the same 120-reads-per-minute and 30-writes-per-minute budgets: `read_note_outline` and `read_note_section` on the 120-reads-per-minute one, `edit_note` and `create_note` carrying `content` on the 30-writes-per-minute one. `list_notes` and `search_notes` draw on neither. Because one `POST /api/mcp` can carry several tool calls, these are counted **per tool call**, not per request (#108). Of the four per-user MCP budgets, only the 300-reads-per-minute one answers `429` at the HTTP layer — `POST /api/mcp` always declares `notes:read`, so every token request to it draws from that bucket regardless of which tools it calls. The other three — the 60-writes-per-10-minutes budget, and the two tighter per-tool-call budgets above — all answer as a tool error carrying the same `too_many_requests` code in a `200` JSON-RPC result instead.
+- `503 server_busy` — on `POST /api/notes/:id/edits`, `POST /api/notes/:id/edits/:editId/revert`, and MCP's `edit_note`: another write to the same note held the per-note queue for longer than 10 seconds. Nothing was applied and nothing was recorded; retry. On MCP this is a tool error, not an HTTP `503`. `create_note` is not in this list — its queue timeout answers `internal` instead, same as `POST /api/notes` (see [AI editing](./ai-editing.md#limits)).
 
 ## Revoking
 
@@ -118,7 +118,7 @@ MCP requires the server and its authorization endpoints to be `https://`, and cl
 
 Both `claude mcp add` forms default to *local* scope — the server only exists in the directory you ran the command in. Add `-s user` to either one to use it from anywhere.
 
-After you press Allow, the client has its credential — once it reconnects it will list Knotebook's read tools; a `401` at this point would mean the credential never arrived. The write tools are still landing (see [Coming next](#coming-next)).
+After you press Allow, the client has its credential — once it reconnects it will list Knotebook's tools (all six, if the credential carries `notes:write`; the four read-only ones otherwise); a `401` at this point would mean the credential never arrived.
 
 ## Troubleshooting
 
@@ -149,6 +149,6 @@ Re-authorizing an app keeps the name you gave it, as long as the app comes back 
 
 ## Coming next
 
-- **The rest of the MCP endpoint** — the write tools (`edit_note`, `create_note`) and the full MCP guide. The read tools are live. Tracked in #108.
+- The full MCP guide (`docs/mcp.md`) — tracked in #108.
 
 See also: [AI editing](./ai-editing.md) · [API contract summary](./api.md) · [Known limitations](./known-limitations.md).

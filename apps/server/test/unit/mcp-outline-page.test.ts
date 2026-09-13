@@ -68,6 +68,21 @@ describe("#108 buildOutlinePage", () => {
     expect(JSON.stringify(page)).not.toContain("b-0");
   });
 
+  // #108 PR2 D-I：`withFingerprints: true` 是 M12「outline 不帶指紋」的**明文例外**，
+  // 只有 `edit_note` 的**成功**回應傳（維持 D18 的 REST 對等）。旗標**預設關閉**，所以
+  // 「忘記關」寫不出來，只有「刻意打開」寫得出來。
+  // ⚠ 反面（預設不帶指紋）**不另立一案**：上面 `:62` 那條 key 集合斷言已經是那道守衛。
+  it("withFingerprints: true → 每個 entry 多一欄 fingerprint，逐字等於輸入那一筆（D-I）", () => {
+    // 逐筆不同的指紋——全用同一個值的話「取錯行」也會綠。
+    const input = entries(3).map((e, i) => ({ ...e, fingerprint: `abcdef01234567${i}${i}` }));
+    const page = buildOutlinePage(input, 0, { withFingerprints: true });
+    expect(page.sections).toHaveLength(3);
+    for (const [i, s] of page.sections.entries()) {
+      expect(Object.keys(s).sort()).toEqual(["chars", "fingerprint", "heading", "level", "sectionId"].sort());
+      expect(s.fingerprint).toBe(input[i]!.fingerprint);
+    }
+  });
+
   it("heading 截到 200 並附 headingTruncated；未截斷時沒有那把 key", () => {
     const page = buildOutlinePage(entries(2, i => (i === 1 ? "H".repeat(500) : "short")), 0);
     expect(page.sections[0]!.heading).toBe("short");

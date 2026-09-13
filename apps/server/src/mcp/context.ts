@@ -14,6 +14,7 @@ import type { Db } from "../db/index.js";
 import type { CollabServer } from "../collab/server.js";
 import type { EditingRuntime } from "../notes/editing/runtime.js";
 import type { PresenceRegistry } from "../notes/editing/presence.js";
+import type { NoteWriteService } from "../notes/editing/write-service.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
 import type { McpTestHooks } from "./hooks.js";
 
@@ -22,7 +23,22 @@ export interface McpToolCtx {
   collab?: CollabServer;
   editing?: EditingRuntime;
   presence?: PresenceRegistry;
-  limiters: { contentRead: FixedWindowLimiter };
+  /**
+   * #108 §10.1（D22／M5）：`buildApp` 建的**唯一**寫入 service——MCP 的寫入工具與 REST 的三條
+   * 寫入路徑共用同一個 `NoteWriteQueue`，同一篇筆記因此串行。
+   * 消費端＝`tools/edit-note.ts`（PR2 Task 2 起）與 `tools/create-note.ts`（Task 3 起）。
+   * 「候選集合 → agentLabel → 佇列 → applyEdit → presence」這串外圍順序只描述 `edit_note`
+   * 走的 `applyToNote`；`create_note` 走的是 `createWithContent`，同樣有候選集合／
+   * agentLabel／佇列／`applyEdit`，但**刻意不 touch presence**（剛建的筆記不可能有人正開著，
+   * `write-service.ts` 的 `createWithContent` 逐字說明）。
+   */
+  writes: NoteWriteService;
+  /**
+   * `contentRead` 給兩支讀取工具；`edit`／`tokenWrite` 給寫入工具——`tokenWrite` 由
+   * `requireWriteScope(ctx)` 扣（在 `resolveRole` **之前**，對齊 REST 的 preHandler），
+   * `edit` 由工具自己在角色檢查**之後**扣（`role === "none"` 的 404 不啃它）。
+   */
+  limiters: { contentRead: FixedWindowLimiter; edit: FixedWindowLimiter; tokenWrite: FixedWindowLimiter };
   log: FastifyBaseLogger;
   /** 呼叫者本人（`request.user!.id`）——L3 的可見性一律以它為準。 */
   userId: string;
@@ -31,12 +47,11 @@ export interface McpToolCtx {
   /** token 路徑才有；`null` ＝ cookie session。agent 顯示名由它查出（Task 4）。 */
   tokenId: string | null;
   /**
-   * ⚠ **`authKind`／`tokenScope` 在 PR1 是零讀取的**（本棒四支工具都只要 `notes:read`，
-   * 而 L1 的 `authenticateAny` 已經保證到得了這裡的憑證至少有它）。
-   * **唯一的消費端是 PR2 的 `requireWriteScope(ctx)`**（規格 §10.2 D23／不變量 M13）：
-   * 它拿 `tokenScope` 判有沒有 `notes:write`、拿 `authKind === "session"` 跳過 scope 檢查
-   * 與 token 桶。留著是因為 PR2 一定會用；**PR2 若改成別的形，這兩欄要一起拿掉，
-   * 不要留無主欄位。**（同一次收尾已經把真的無主的 `config` 拿掉了。）
+   * 四支唯讀工具不讀這兩欄（它們都只要 `notes:read`，而 L1 的 `authenticateAny` 已經保證
+   * 到得了這裡的憑證至少有它）。**消費端是 `mcp/write-scope.ts`**（規格 §10.2 D23／M13）：
+   * `canWriteNotes(...)` 拿它們判有沒有 `notes:write`（`register.ts` 的註冊時過濾、
+   * `routes/mcp.ts` 挑 per-request `instructions`、`requireWriteScope` 三處共用同一份判準），
+   * `authKind === "session"` 則整條跳過 scope 檢查與 token 桶。
    */
   authKind: "token" | "session";
   /** token 路徑才有的落庫 scope；`null` ＝ session（視同讀寫全權，§7.3）。消費端同上。 */
