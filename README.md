@@ -59,8 +59,9 @@ Read the full [self-hosting guide](docs/self-hosting.md) before running anywhere
 
 - [Self-hosting guide](docs/self-hosting.md) — deployment prerequisites, compose services/volumes, reverse proxy & TLS, LAN plain-http mode, environment variable reference, OIDC/SSO setup, content security policy, upgrading/rollback, and troubleshooting.
 - [API contract summary](docs/api.md) — full endpoint table with auth requirements and error codes.
-- [API tokens](docs/api-tokens.md) — Personal API tokens for scripts and AI assistants, which can read and write note content today: creating, using (`Authorization: Bearer`), which endpoints accept them, rate limits, revoking, and why changing your password doesn't revoke them; plus authorizing an MCP client over OAuth and the exact `claude mcp add` commands.
+- [API tokens](docs/api-tokens.md) — Personal API tokens for scripts and AI assistants, which can read and write note content today: creating, using (`Authorization: Bearer`), which endpoints accept them, rate limits, revoking, and why changing your password doesn't revoke them; plus how an MCP client authorizes itself over OAuth instead of using a pasted token.
 - [AI editing](docs/ai-editing.md) — the note-content read/write API a token or authorized app uses: the five write operations, fingerprints and conflict handling, reverting a write, the presence cursor and agent display names, and rate limits and error codes.
+- [MCP](docs/mcp.md) — connecting an MCP client (the exact `claude mcp add` and `mcp-remote` commands), the six tools and what each answers, the read-write loop, MCP's own limits and error shapes, and its known limitations.
 - [Sharing](docs/sharing.md) — the three access levels (private / members / public link), what a public read-only link grants, and how revoking and regenerating behave.
 - [AI quick actions](docs/ai.md) — admin setup guide for AI providers/models/actions, key encryption, and how quick actions behave in the editor.
 - [Diagrams (Mermaid)](docs/diagrams.md) — inserting, editing and pasting Mermaid diagrams, what copying one out produces, and the on-demand loading and rendering lockdown behind them.

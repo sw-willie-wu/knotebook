@@ -15,7 +15,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-/** client 用 server 名替工具做 namespace；與 `docs/api-tokens.md` 教使用者填的設定鍵名同字。 */
+/** client 用 server 名替工具做 namespace；與 `docs/mcp.md` 教使用者填的設定鍵名同字。 */
 export const MCP_SERVER_NAME = "knotebook";
 
 function readPackageVersion(): { version: string; failed: boolean } {
