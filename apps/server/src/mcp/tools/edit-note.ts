@@ -34,7 +34,7 @@ import { loadNoteDoc } from "../../notes/editing/read.js";
 import { editBodySchema, FP, MD, NOTE_ID, SEC } from "../../notes/schemas.js";
 import { resolveRole } from "../../notes/service.js";
 import { MCP_PAGE_MAX } from "../limits.js";
-import { NOTE_NOT_FOUND_MESSAGE } from "../note-read.js";
+import { NOTE_NOT_FOUND_MESSAGE, SECTION_NOT_FOUND_MESSAGE } from "../note-read.js";
 import { buildOutlinePage, outlineEntryWithFingerprintSchema } from "../outline-page.js";
 import { toolError, toolResult } from "../tool-result.js";
 import { WRITE_RATE_LIMITED_MESSAGE, writeFailureMessage } from "../write-messages.js";
@@ -48,7 +48,11 @@ export const EDIT_NOTE_DESCRIPTION =
   "and `append` adds to the end. Every operation except `append` needs `if_match`, the " +
   "fingerprint of what you are replacing — a section's from read_note_section (once you have " +
   "read to its end) or from a previous edit_note reply; the whole note's from a previous " +
-  "edit_note reply. Every change is recorded and the note's owner can undo it.";
+  // ⚠ #146：**不是 owner**。撤回端點 `POST /api/notes/:id/edits/:editId/revert` 的角色閘門是
+  //   `role === "none"` → 404、`role === "viewer"` → 403（`routes/notes.ts`），**editor 撤得回**。
+  //   而「can undo it」不得寫成無條件——條件全文在下面 `editId` 的 `.describe()`。
+  "edit_note reply. A change is recorded in the note's history, where anyone who can edit the " +
+  "note can usually undo it.";
 
 /**
  * ⚠ **`op` 是唯一沒有與 REST 共用物件的欄位**：那邊是 `discriminatedUnion` 的五個 `z.literal`，
@@ -69,7 +73,27 @@ export const editNoteInput = {
 };
 
 export const editNoteOutput = {
-  editId: z.string().describe("Id of this change in the note's history; the owner can undo it with this."),
+  // ⚠ #146：撤回的條件全文放在這裡（`.describe()` 沒有長度預算，`instructions` 有）。
+  //   條件逐一對得上原始碼：`revert.ts:65-68` 的 `editRevertable` ＋ `apply.ts:67` 的
+  //   `RETENTION = 100`（同交易內裁切）。
+  //   ⚠ **`editRevertable` 是兩條分支，不是一條**（r2 審查抓到）：「寫進去的 block 還在、重算
+  //   指紋等於 `after_fingerprint`」只是**非刪除**那四個 op；`delete_section` 寫進去的 block 就是
+  //   它移走的那些，沒有 after 指紋可比，改判「錨點還在頂層 ＋ before_blocks 尚未被還原」。
+  //   `edit_note` 對 `delete_section` 一樣回 `editId`，所以這裡必須兩條都講到。
+  //   ⚠ **刪除那條分支是兩個條件的 AND**（r3 審查抓到本字串只寫了前半）：
+  //   `anchorId !== null && topIds.includes(anchorId) && !beforeIds.some(id => topIds.includes(id))`。
+  //   **後半才是實務上會踩到的那個**：人在瀏覽器按 Ctrl-Z 把那段救回來（Yjs undo 沿用原 id），
+  //   錨點還在、但 `before_blocks` 回到頂層 ⇒ 判為「這次刪除已經被還原」，撤回回 409 stale
+  //   （`revert.ts:62-63` 的註解逐字講這一刻）。
+  editId: z
+    .string()
+    .describe(
+      "Id of this change in the note's history. Anyone who can edit the note can undo it with this, while the " +
+        "blocks it wrote are unchanged and it is still among the at most 100 history entries a note keeps; a " +
+        "`delete_section` wrote no blocks, so it is judged instead by the neighbouring block it would be restored " +
+        "next to, and stops being undoable once the blocks it removed are back in the note — which is what a person " +
+        "pressing undo in the browser does. The exact rule is in docs/ai-editing.md, under Revert."
+    ),
   fingerprint: z.string().describe("The whole note's new fingerprint. Pass it as `if_match` to a following replace_all."),
   outline: z
     .object({
@@ -83,7 +107,15 @@ export const editNoteOutput = {
         "note, so on a note with more than 100 sections an append will not show you the end you just wrote; read it " +
         "back with read_note_outline."
     ),
-  unboundWikilinks: z.number().describe("How many `[[wikilinks]]` in what you wrote point at no existing note."),
+  // ⚠ #146：判準是 `note-markdown.ts` 的 `hits.length === 1`（`hits` ＝ 候選集裡標題 `===`
+  //   相同的筆記），候選集是 `visibleNoteTitles()`＝自有 ∪ 被分享。所以「找不到」只是其中一種
+  //   落空：同名兩篇、大小寫不同、指向你看不見的筆記，同樣算 unbound。措辭與 `docs/mcp.md` 同。
+  unboundWikilinks: z
+    .number()
+    .describe(
+      "How many `[[wikilinks]]` in what you wrote were left as plain text because no note you can see has that " +
+        "exact title, or more than one does."
+    ),
 };
 
 export interface EditNoteArgs {
@@ -95,8 +127,6 @@ export interface EditNoteArgs {
 }
 
 const FORBIDDEN_MESSAGE = "You can read this note but not change it. Ask its owner for editor access.";
-const SECTION_NOT_FOUND_MESSAGE =
-  "This note has no section with that id. Call read_note_outline again — section ids change when the note is edited.";
 const MISMATCH_MESSAGE =
   "The note changed since you read it, so this write was not applied. The current outline is below; read what you " +
   "want to change again and retry with a fresh `if_match`.";

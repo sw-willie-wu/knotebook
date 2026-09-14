@@ -1,6 +1,6 @@
 # AI editing
 
-An API token — or an App you authorized over OAuth — can **write** a note's content, not just read it: replace the whole note, replace or delete one section, insert after one section, or append to the end. Every write is recorded and can be reverted.
+An API token — or an App you authorized over OAuth — can **write** a note's content, not just read it: replace the whole note, replace or delete one section, insert after one section, or append to the end. A write is recorded in the note's edit history, where it can usually be reverted — see [Revert](#revert) for what takes that away.
 
 This page is the reference for that surface. The endpoints also accept an ordinary browser session (either credential works); writing needs the `notes:write` scope, reading needs `notes:read`. See [API tokens](./api-tokens.md) for how a program gets a credential, and the [API contract summary](./api.md) for these endpoints alongside the rest of the API.
 

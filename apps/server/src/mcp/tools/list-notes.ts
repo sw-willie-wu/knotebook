@@ -1,10 +1,23 @@
 /**
  * #108 §8.2 `list_notes`：呼叫者看得見的筆記（自有 ∪ 被分享），keyset 分頁。
  *
- * ⚠ **keyset 分頁不是快照**：`edit_note` 會更新 `updated_at`，所以「列一頁 → 逐篇處理 →
- * 翻下一頁」的 agent 每改一篇就把它推到排序頂端，下一頁的 `(updated_at, id) < (…)` 會**漏掉**
- * 那些跨過游標的列——不報錯，靜默漏處理。處置有兩處：known-limitations（PR3）＋工具
- * `description`（`LIST_NOTES_DESCRIPTION`，不是欄位的 `.describe()`）裡逐字給模型看的那句話
+ * ⚠ **keyset 分頁不是快照**——但**成因不是「邊列邊改」**（#146 更正：這裡原本寫「`edit_note`
+ * 會更新 `updated_at`」，是假的，而 PR3 的稽核表一度拿這句註解當證據，證據鏈是循環的）。
+ * 查證：全 repo **零個 `$onUpdate`**；`notes.updated_at` 只有兩種東西會動——insert 的
+ * `defaultNow()`，以及 `routes/notes.ts` 標題／slug 的 PATCH 那三處 `updatedAt: new Date()`。
+ * `notes/editing/` 整個目錄**零個 `updatedAt` 引用**（`edit_note` 走的 write-service →
+ * mergeDiff → collab store 完全不碰它），`collab/store.ts` 動的是 `note_states` 那張別的表，
+ * 而 `notes.linksClock`／`lastEditedAt` 的 UPDATE 都沒有一併寫 `updated_at`。
+ * 所以真正會漏列的是**游標下方的列被搬到上方**：分頁期間有人新建筆記或改標題／slug。
+ * 「你編輯你剛列出來的那些」造不成漏列——那些列本來就在游標**上方**。
+ * ⚠ **第三個成因不是「被搬上去」而是「本來就在上面才加進來」**：分頁期間有人把一篇筆記分享給你。
+ * 分享只寫 `note_shares`（`routes/notes.ts:1044` 的 insert／`:1097` 的 delete，**都不碰
+ * `notes.updated_at`**），而可見性是 `owned ∪ shared`、**每一頁現算**（`notes/list-query.ts`
+ * ＋ `mcp/queries.ts` 的 unionAll ＋ keyset 述詞）——那篇筆記於是以自己**未變動**的
+ * `updated_at` 加入結果集，落點若在已經翻過去的區段，**沒有任何一頁會顯示它**。
+ * 這一條模型偵測不到也閃避不了，所以 `description` 必須講（**不得只列前兩個成因**）。
+ * 處置有兩處：known-limitations（PR3 已改成正確版本）＋工具 `description`
+ * （`LIST_NOTES_DESCRIPTION`，不是欄位的 `.describe()`）裡逐字給模型看的那句話
  * （在下面，**不得刪**；守衛＝`mcp-notes.test.ts` 的「兩句逐字文案在 wire 上出現」那一案）。
  *
  * ⚠ 查詢組裝在 `mcp/queries.ts`：branch select 是單次使用的一次性物件，判 `hasMore`
@@ -27,8 +40,10 @@ const CURSOR_SEP = "|";
 export const LIST_NOTES_DESCRIPTION =
   "List the notes you can see — the ones you own and the ones other people shared with you — " +
   "most recently updated first. Each result carries `ownerHandle` and `role` so you can tell whose " +
-  "content you are reading. To enumerate everything, finish listing all pages before you start editing; " +
-  "editing while you page will skip notes.";
+  "content you are reading. Paging reads live data, not a snapshot: creating a note, or changing a note's " +
+  "title or slug, moves it to the top of this order, above the cursor you are holding, so no later page " +
+  "shows it. Editing a note's content does not move it. A note shared with you while you page joins the list " +
+  "at its own unchanged position, which may already be above your cursor.";
 
 export const listNotesInput = {
   cursor: z

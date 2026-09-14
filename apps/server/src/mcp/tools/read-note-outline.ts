@@ -12,8 +12,18 @@
  * ⚠ **不做 markdown 匯出**，所以這條路徑**完全不碰 jsdom**（同 `notes/editing/read.ts`
  * 檔頭那句「讓最常見的冷讀路徑完全不碰 jsdom」）。
  *
- * ⚠ 分頁不是快照：段落序＝文件位置序，`insert_after`／`delete_section` 會讓落點之後整體
- * 位移。處置有兩處：known-limitations（PR3）＋下面 `description` 裡逐字給模型看的那句
+ * ⚠ 分頁不是快照：段落序＝文件位置序，**五個 op 沒有一個是安全的**（#146：原本這裡只列了
+ * `insert_after`／`delete_section` 兩個，是不完整的列舉）。段落是 `note-sections.ts` 的
+ * `sectionize` 現算出來的，所以**段落數會不會變，取決於送進去的 markdown 有幾顆什麼層級的
+ * heading**，不取決於 op 的名字。⚠ 開新段的判準是 `note-sections.ts:59` 的
+ * `current.level === 0 || level <= current.level`——**「同層**或更上層**」**（`level` 數字更小
+ * ＝層級更高），不是只有同層：`##` 段落裡插一顆 `#` 照樣多一段（r2 審查抓到本註解差這一格）。
+ * - `insert_after`／`append`：插入的 markdown 每多一顆同層或更上層的 heading 就多一段。
+ * - `delete_section`：整段連 id 一起消失。
+ * - `replace_section`：markdown **不含**標題 → 那一段被溶解進前一段（少一段，`docs/ai-editing.md`
+ *   明講）；含兩顆同層或更上層的標題 → 一段變兩段。
+ * - `replace_all`：整篇重排，而且每顆 block 都換新 id（known-limitations 有一條專講）。
+ * 處置有兩處：known-limitations（PR3）＋下面 `description` 裡逐字給模型看的那句
  * （**不得刪**；守衛＝`mcp-content.test.ts` 的「逐字文案在 wire 上出現」那一案）。
  */
 import { z } from "zod";
