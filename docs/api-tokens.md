@@ -1,6 +1,6 @@
 # API tokens
 
-A Personal API token lets a script, a CLI, or an AI assistant work with your notes **as you**, without a browser session. This page covers the credentials — issuing them, what they reach, and how an app can authorize itself instead. What a program can then *do* with note content is documented separately in [AI editing](./ai-editing.md); the MCP endpoint that builds on all of it exposes six tools — four read, two write (see [Which endpoints accept a token](#which-endpoints-accept-a-token)).
+A Personal API token lets a script, a CLI, or an AI assistant work with your notes **as you**, without a browser session. This page covers the credentials — issuing them, what they reach, and how an app can authorize itself instead. What a program can then *do* with note content is documented separately in [AI editing](./ai-editing.md); the MCP endpoint that builds on all of it exposes six tools — four read, two write (see [Which endpoints accept a token](#which-endpoints-accept-a-token), and [MCP](./mcp.md) for the tools themselves).
 
 ## What a token is
 
@@ -83,42 +83,7 @@ An MCP client that supports OAuth does not need a pasted token. When it first ca
 
 **What the consent page tells you, and why it matters:** the app's name is whatever the app said it was — it is *not* verified. What you can trust is the redirect address shown on the page: it is always a loopback address (`127.0.0.1`, `localhost` or `[::1]`), so only a program running on the computer where the browser is can receive the code. Only press Allow when you yourself just started that program. Denying (or hitting the credential limit) discards the request; to try again, start over from the app.
 
-### How to connect
-
-MCP requires the server and its authorization endpoints to be `https://`, and clients enforce that differently — which command you run depends on whether your deployment is `https://` or plain `http://` (see [Self-hosting](./self-hosting.md#deployment-prerequisites)).
-
-- **`https://` deployment — connect directly:**
-
-  ```sh
-  claude mcp add --transport http knotebook https://<your-host>/api/mcp
-  claude mcp login knotebook
-  ```
-
-  The consent page shows the app as **"Claude Code (knotebook)"** — the part in brackets is the name you gave the server.
-
-- **Plain `http://` deployment (the self-hosting guide's trusted-LAN topology) — go through `mcp-remote`, which lets you opt out of the TLS check explicitly with `--allow-http`:**
-
-  ```sh
-  claude mcp add knotebook -- npx -y mcp-remote http://<your-host>/api/mcp --allow-http
-  ```
-
-  Claude Desktop, or any client that only speaks stdio, uses the same command inside its `mcpServers` config:
-
-  ```json
-  { "command": "npx", "args": ["-y", "mcp-remote", "http://<your-host>/api/mcp", "--allow-http"] }
-  ```
-
-  On Windows, Claude Desktop usually needs the command wrapped:
-
-  ```json
-  { "command": "cmd", "args": ["/c", "npx", "-y", "mcp-remote", "http://<your-host>/api/mcp", "--allow-http"] }
-  ```
-
-  Drop `--allow-http` once the host is `https://`. The consent page shows the app as **"MCP CLI Proxy"**, and mcp-remote caches its registration and tokens under `~/.mcp-auth/mcp-remote-v1/` on the machine running the client.
-
-Both `claude mcp add` forms default to *local* scope — the server only exists in the directory you ran the command in. Add `-s user` to either one to use it from anywhere.
-
-After you press Allow, the client has its credential — once it reconnects it will list Knotebook's tools (all six, if the credential carries `notes:write`; the four read-only ones otherwise); a `401` at this point would mean the credential never arrived.
+The exact command for each client, and what you should see once you press Allow, are in [MCP](./mcp.md#how-to-connect).
 
 ## Troubleshooting
 
@@ -126,8 +91,8 @@ After you press Allow, the client has its credential — once it reconnects it w
 - **Another window of the same app suddenly asks you to authorize again.** Re-authorizing an app replaces its previous credential, so a second instance that shared the old one (e.g. a second Claude Code window) gets `401` and its refresh fails. Let it run the authorization flow once more.
 - **The consent page says the request has already been used or has expired.** Requests live for 10 minutes and are single-use; signing in (especially via SSO) can eat into that. Start again from the app.
 - **Pressing Allow gives "Token limit reached".** You hold 20 credentials already. Revoke one in Settings → Account, then start again from the app — the request you were on has been consumed.
-- **Claude Code says `Couldn't complete authentication for "knotebook": Refusing to send credentials to non-https token endpoint '…'. OAuth token requests MUST use TLS …`.** Its built-in OAuth client gets all the way through consent and the browser callback, then refuses at the last step to send the token exchange to a plain `http://` authorization server (loopback is exempt; your deployment isn't) — `/oauth/token` never sees the request. Either serve the deployment over `https://`, or, on a plain-http LAN deployment, switch to `mcp-remote --allow-http` instead (see [How to connect](#how-to-connect) above).
-- **`mcp-remote` says `Non-HTTPS URLs are only allowed for localhost or when --allow-http flag is provided`.** Same requirement, checked up front against the server URL you gave it. Add `--allow-http` to the `mcp-remote` command (see [How to connect](#how-to-connect) above).
+- **Claude Code says `Couldn't complete authentication for "knotebook": Refusing to send credentials to non-https token endpoint '…'. OAuth token requests MUST use TLS …`.** Its built-in OAuth client gets all the way through consent and the browser callback, then refuses at the last step to send the token exchange to a plain `http://` authorization server (loopback is exempt; your deployment isn't) — `/oauth/token` never sees the request. Either serve the deployment over `https://`, or, on a plain-http LAN deployment, switch to `mcp-remote --allow-http` instead (see [How to connect](./mcp.md#how-to-connect)).
+- **`mcp-remote` says `Non-HTTPS URLs are only allowed for localhost or when --allow-http flag is provided`.** Same requirement, checked up front against the server URL you gave it. Add `--allow-http` to the `mcp-remote` command (see [How to connect](./mcp.md#how-to-connect)).
 
 ## Security notes
 
@@ -147,8 +112,4 @@ By default it is derived from the credential's own name: the first word, lowerca
 
 Re-authorizing an app keeps the name you gave it, as long as the app comes back with the same registration — an app that had to register again (see [Troubleshooting](#troubleshooting)) arrives as a fresh credential and starts from the derived name. Renaming is also available over the API (`PATCH /api/auth/tokens/:id`, session-cookie only, like everything else under `/api/auth/tokens`); the full rules are in [AI editing](./ai-editing.md#agent-display-name).
 
-## Coming next
-
-- The full MCP guide (`docs/mcp.md`) — tracked in #108.
-
-See also: [AI editing](./ai-editing.md) · [API contract summary](./api.md) · [Known limitations](./known-limitations.md).
+See also: [MCP](./mcp.md) · [AI editing](./ai-editing.md) · [API contract summary](./api.md) · [Known limitations](./known-limitations.md).

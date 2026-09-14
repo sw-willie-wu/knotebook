@@ -23,6 +23,45 @@ Two things trip up hand-written clients:
 
 The server announces itself as `knotebook`, and most clients use that name to namespace the tools (`knotebook:list_notes`, and so on). Each connection is also handed a short set of instructions describing how reading is paged; a read-only credential gets a different set, which does not mention the writing tools at all.
 
+## How to connect
+
+`/api/mcp` takes an ordinary Knotebook credential as a Bearer token, so a client that lets you set an `Authorization` header yourself can point at it with a Personal API token — [Creating one](./api-tokens.md#creating-one) covers issuing it. The commands below are the other route: letting the client obtain a credential of its own over OAuth, which is what Claude Code and `mcp-remote` do.
+
+MCP requires the server and its authorization endpoints to be `https://`, and clients enforce that differently — which command you run depends on whether your deployment is `https://` or plain `http://` (see [Self-hosting](./self-hosting.md#deployment-prerequisites)).
+
+- **`https://` deployment — connect directly:**
+
+  ```sh
+  claude mcp add --transport http knotebook https://<your-host>/api/mcp
+  claude mcp login knotebook
+  ```
+
+  The consent page shows the app as **"Claude Code (knotebook)"** — the part in brackets is the name you gave the server.
+
+- **Plain `http://` deployment (the self-hosting guide's trusted-LAN topology) — go through `mcp-remote`, which lets you opt out of the TLS check explicitly with `--allow-http`:**
+
+  ```sh
+  claude mcp add knotebook -- npx -y mcp-remote http://<your-host>/api/mcp --allow-http
+  ```
+
+  Claude Desktop, or any client that only speaks stdio, uses the same command inside its `mcpServers` config:
+
+  ```json
+  { "command": "npx", "args": ["-y", "mcp-remote", "http://<your-host>/api/mcp", "--allow-http"] }
+  ```
+
+  On Windows, Claude Desktop usually needs the command wrapped:
+
+  ```json
+  { "command": "cmd", "args": ["/c", "npx", "-y", "mcp-remote", "http://<your-host>/api/mcp", "--allow-http"] }
+  ```
+
+  Drop `--allow-http` once the host is `https://`. The consent page shows the app as **"MCP CLI Proxy"**, and mcp-remote caches its registration and tokens under `~/.mcp-auth/mcp-remote-v1/` on the machine running the client.
+
+Both `claude mcp add` forms default to *local* scope — the server only exists in the directory you ran the command in. Add `-s user` to either one to use it from anywhere.
+
+After you press Allow, the client has its credential — once it reconnects it will list Knotebook's tools; how many it sees depends on the credential's scope and on the deployment, see [The six tools](#the-six-tools). A `401` at this point would mean the credential never arrived.
+
 ## The six tools
 
 | Tool | Scope | What it does |

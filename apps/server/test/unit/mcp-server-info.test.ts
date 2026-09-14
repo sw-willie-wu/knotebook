@@ -19,7 +19,7 @@ const pkgVersion = (
 ).version;
 
 describe("#108 MCP server-info", () => {
-  it("name 逐字是 knotebook（與 docs/api-tokens.md 教使用者填的設定鍵名同字）", () => {
+  it("name 逐字是 knotebook（與 docs/mcp.md 教使用者填的設定鍵名同字）", () => {
     expect(MCP_SERVER_NAME).toBe("knotebook");
   });
 
