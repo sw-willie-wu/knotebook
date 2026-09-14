@@ -18,7 +18,7 @@ Every write goes through the same real-time document the browser edits, so a cha
 
 `:id` is always a note **uuid** here — the slug forms (`/n/<username>/<slug>`) are not accepted by these endpoints. A note you cannot read at all answers `404 not_found` (the same body whether it does not exist or is not shared with you); on the two writing endpoints, a note you can read but only as a viewer answers `403 forbidden`.
 
-The normal loop is: `GET …/content` → pick a section from `outline` → `POST …/edits` with that section's `fingerprint` as `if_match`. The `201` already carries the new whole-note `fingerprint` and `outline`, so a program making several edits in a row does not have to re-read between them.
+The normal loop is: `GET …/content` → pick a section from `outline` → `POST …/edits` with that section's `fingerprint` as `if_match`. The `201` already carries the new whole-note `fingerprint` and `outline`, so a program making several edits in a row does not have to re-read between them. Over MCP the loop is different — there is no whole-note read there, and an outline carries no fingerprints — see [MCP](./mcp.md#the-read-write-loop).
 
 ```sh
 # read
@@ -152,7 +152,7 @@ Neither shape is recoverable by retrying; both are consequences of merging befor
 | Recorded edits kept | at most 100 per note | `GET …/edits` | oldest rows are deleted |
 | Wikilink targets indexed | 1000 per note | every write | extra targets are dropped from the index, the write still succeeds |
 
-A `POST /api/mcp` counts as **one** read call against the "Token calls" row no matter how many tools it invokes, and **each** `edit_note` or `create_note` call inside it counts as one write call — including a `create_note` without `content` (#108). For how MCP answers once one of these budgets runs out, see [API tokens](./api-tokens.md#errors-and-rate-limits).
+A `POST /api/mcp` counts as **one** read call against the "Token calls" row no matter how many tools it invokes, and **each** `edit_note` or `create_note` call inside it counts as one write call — including a `create_note` without `content` (#108). `read_note_outline` and `read_note_section` draw on the content-read budget above, and `edit_note` and `create_note` (when it carries `content`) draw on the write one — even though those rows list only the REST endpoints: what a tool answers is never an HTTP status, so MCP's own limits are tabulated separately. `list_notes` and `search_notes` draw on neither. For that table see [MCP](./mcp.md#limits); for how MCP answers once one of these budgets runs out, see [API tokens](./api-tokens.md#errors-and-rate-limits).
 
 `POST /api/notes` (with or without `content`) uses the server's ordinary 1 MiB body limit rather than the 262 144-byte one — the `content` field's own length limit is what bounds it, and a request over the body limit there is still `413 content_too_large`. It shares the same per-note write queue, but it does not answer `503`: if applying the content fails for any reason, including waiting too long for the queue, the note row it just created is removed again and the answer is `500 internal`.
 
