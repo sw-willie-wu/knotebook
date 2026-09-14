@@ -35,6 +35,21 @@ import type { McpToolCtx } from "./context.js";
  *  說有、下一句 re-select 說沒有」的視窗才測得到）。突變實測：把競態那處改成另一個字串，
  *  全族 21 條照樣綠。 */
 export const NOTE_NOT_FOUND_MESSAGE = "No note with that id. It may not exist, or it may not be shared with you.";
+
+/**
+ * `read_note_section` 與 `edit_note` 共用的 `section_not_found` 文案（#146 前是兩份逐字拷貝
+ * 的字面量，兩個維護點）。
+ *
+ * ⚠ **不得寫成「筆記被編輯時 section id 會變」**：section id 就是該段第一顆 top-level block
+ * 的 id（`note-sections.ts` 的 `sectionize`），而 `append`（`apply.ts` 的
+ * `insertBlocks(blocks, top[top.length - 1].id, "after")`）與 `insert_after` 都只插入、
+ * 不動既有 block，既有的 id 一個都不會變。會換 id 的是 `replace_all`（整篇 `replaceBlocks`）、
+ * `replace_section`，以及把 id 一起帶走的 `delete_section`。措辭與 `docs/mcp.md` 的
+ * 「an edit can change a section's id」同義。
+ */
+export const SECTION_NOT_FOUND_MESSAGE =
+  "This note has no section with that id. Call read_note_outline again — an edit can change a section's id.";
+
 const RATE_LIMITED_MESSAGE = "Too many note reads right now. Wait a moment before reading more.";
 
 export type NoteReadAccess = { ok: true; role: Role } | { ok: false; error: ToolErrorResult };

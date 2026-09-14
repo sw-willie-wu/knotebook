@@ -22,7 +22,7 @@ import { loadLastEdited, readNoteContent } from "../../notes/editing/read.js";
 import { NOTE_ID, SEC } from "../../notes/schemas.js";
 import { noteSummarySchema } from "../dto.js";
 import { MCP_SECTION_CHARS, truncateText } from "../limits.js";
-import { authorizeNoteRead } from "../note-read.js";
+import { authorizeNoteRead, SECTION_NOT_FOUND_MESSAGE } from "../note-read.js";
 import { toolError, toolResult } from "../tool-result.js";
 import type { McpToolCtx } from "../context.js";
 
@@ -36,9 +36,6 @@ export const READ_NOTE_SECTION_DESCRIPTION =
 const TRUNCATED_NOTE =
   "This section is longer than one response. Keep reading with `offset` set to `nextOffset` until " +
   "`truncated` is false — the last page carries the `fingerprint` you need to replace this section.";
-
-const SECTION_NOT_FOUND_MESSAGE =
-  "This note has no section with that id. Call read_note_outline again — section ids change when the note is edited.";
 
 export const readNoteSectionInput = {
   note_id: NOTE_ID.describe("The note's id, as returned by list_notes or search_notes."),
@@ -65,7 +62,16 @@ export const readNoteSectionOutput = {
         "Rough size of the whole section in text characters. This is not the same unit as `offset` — " +
           "to tell whether you have read it all, look at `truncated` and `nextOffset`, not at this number."
       ),
-    markdown: z.string().max(MCP_SECTION_CHARS).describe("This page of the section, as markdown. The heading is its first line."),
+    // ⚠ #146：**不是每一頁的第一行都是標題**。兩個反例都在本檔／`note-sections.ts` 看得到：
+    //   `_top` 的 `heading` 是 `""`、`level` 是 `0`（`sectionize` 的第一個 section 就是這樣造的），
+    //   它根本沒有標題行；而 `offset > 0` 的續頁是 `markdown.slice(offset)`，從半路切。
+    markdown: z
+      .string()
+      .max(MCP_SECTION_CHARS)
+      .describe(
+        "This page of the section, as markdown. The first page starts with the section's heading line — except " +
+          "`_top`, which has no heading; a later page resumes where the last one stopped."
+      ),
     fingerprint: z
       .string()
       .optional()

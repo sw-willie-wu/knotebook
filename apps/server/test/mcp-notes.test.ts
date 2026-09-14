@@ -345,7 +345,11 @@ describe("#108 search_notes", () => {
 
 describe("#108 兩支工具的共同接線", () => {
   // 這兩句是規格逐字要求、且是某個「模型會踩但不會報錯」的形**唯一**的處置：
-  // - `list_notes`：keyset 分頁不是快照，邊列邊改會靜默漏列（§8.2 的處置 (b)）。
+  // - `list_notes`：keyset 分頁不是快照，分頁期間有人新建／改名會靜默漏列（§8.2 的處置 (b)）。
+  //   ⚠ #146 換過措辭：舊句說「邊列邊改會漏列」，而 `edit_note` 根本不動 `notes.updated_at`
+  //   （成因與查證在 `tools/list-notes.ts` 檔頭）。斷言仍是**整句逐字**、仍打 wire，只是換成
+  //   新那句的核心；連同下一行的「Editing a note's content does not move it.」一起釘，
+  //   把「真正的成因」與「刻意否定掉的假成因」兩半都守住。
   // - `search_notes`：只比標題，不講清楚模型會在搜不到時得出「這個 workspace 沒有這篇筆記」
   //   的錯誤結論（§8.5 D17）。
   // 沒有這一案，刪掉它們不會有任何東西變紅。斷言的是**送到 wire 上的 `tools/list`**，
@@ -358,8 +362,10 @@ describe("#108 兩支工具的共同接線", () => {
     const tools = res.json().result.tools as { name: string; description: string }[];
     const byName = (name: string): string => tools.find(t => t.name === name)!.description;
     expect(byName("list_notes")).toContain(
-      "finish listing all pages before you start editing; editing while you page will skip notes."
+      "creating a note, or changing a note's title or slug, moves it to the top of this order, above the " +
+        "cursor you are holding, so no later page shows it."
     );
+    expect(byName("list_notes")).toContain("Editing a note's content does not move it.");
     expect(byName("search_notes")).toContain(
       "Searches note titles only — not the body text. If you cannot find a note, its title may simply not contain your words."
     );

@@ -34,13 +34,21 @@ import type { McpToolCtx } from "../context.js";
 /** 模型看得到的字串一律英文（同 `docs/`；不是 UI 文案，不走 i18n）。 */
 export const CREATE_NOTE_DESCRIPTION =
   "Create a new note owned by you. Pass `content` to fill it in at the same time, or leave it out " +
-  "for an empty note you can write to later with edit_note. Bad markdown is rejected before " +
-  "anything is stored, so a failed call leaves no note behind. The reply carries the new note's " +
-  "`id` — pass it to edit_note or read_note_outline — and its `url`, which is the link to give the " +
-  // ⚠ **限定到 `content` 那條路**：不帶 `content` 的建立是一次裸 insert——不留 `note_ai_edits`
+  "for an empty note you can write to later with edit_note. " +
+  // ⚠ #146：**只有解析失敗那條路**「沒有留下筆記」。`internal`（套用失敗）那條路是先 insert
+  //   再套用，清理是 best-effort——`write-service.ts` 的 catch 刪不掉時只 `log.warn`，照樣回
+  //   `internal`，**現場會留下一篇空筆記**。所以限定成 "a call that fails to parse"
+  //   （與 `docs/mcp.md` 同字）；`internal` 的殘留由該工具的錯誤說明負責。
+  "Bad markdown is rejected before anything is stored, so a call that fails to parse leaves no " +
+  "note behind. The reply carries the new note's `id` — pass it to edit_note or read_note_outline " +
+  // ⚠ #146：`url` 走 `canonicalNotePath`，回的是 `/n/<owner>/<slug>` 這個**站內相對路徑**
+  //   （`packages/shared/src/index.ts`）——沒有 scheme、沒有 host，照字面交給人是打不開的。
+  //   ⚠ **限定到 `content` 那條路**：不帶 `content` 的建立是一次裸 insert——不留 `note_ai_edits`
   //   列、沒有 editId、**沒有任何東西撤得回**。寫成「Creating a note is recorded…」是對模型說謊，
   //   而模型會照它決定「先建空筆記再 edit_note」安不安全（本檔一度那樣寫，審查抓到）。
-  "person you are working with. Filling it in with `content` is recorded and can be undone like any other write.";
+  "— and its `url`, the note's page as a site-relative path: put this site's own address in front " +
+  "of it before handing it to anyone. Filling it in with `content` is recorded like any other write " +
+  "that changes a note's content, and can usually be undone.";
 
 export const createNoteInput = {
   title: TITLE.optional()
