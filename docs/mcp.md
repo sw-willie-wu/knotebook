@@ -220,6 +220,22 @@ Three layers answer differently, and a client has to handle all three.
 - Errors Knotebook produces carry `structuredContent: {code, message, …}`. `code` comes from the same vocabulary the REST API uses: `not_found`, `section_not_found`, `forbidden`, `invalid_body`, `fingerprint_mismatch`, `unsupported_block`, `empty_content`, `empty_section`, `too_many_blocks`, `too_many_requests`, `server_busy`, `internal`. `internal` is not tied to any one tool: every tool handler shares the same catch-all for an unexpected exception, so any of the six can answer it, not only `create_note`, whose own reference is the only place that spells out a cause.
 - Errors the MCP SDK produces — an unknown tool name, arguments that do not match a tool's input schema, a reply that does not match its output schema, or an unhandled failure — carry **no `code` and no `structuredContent`**, only a text message. **Do not write a client that reads `code` without checking it is there.**
 
+## Known limitations
+
+These are the MCP-specific entries in the shared [Known limitations](./known-limitations.md) list. The ones that bite an assistant first are the three that page through live data rather than a snapshot.
+
+- [A fingerprint is concurrency protection, not permission protection](./known-limitations.md)
+- [A per-minute read limit is not a per-turn context budget](./known-limitations.md)
+- [Notes other people shared with you end up in your assistant's context](./known-limitations.md)
+- [There is no cross-note view of what an assistant changed](./known-limitations.md)
+- [A wrong `PUBLIC_URL` makes MCP requests that carry an `Origin` header answer `403`](./known-limitations.md)
+- [A client's cached tool list does not shrink on its own](./known-limitations.md)
+- [`list_notes` pages through live data, not a snapshot](./known-limitations.md)
+- [`read_note_outline` pages through live positions, not a snapshot](./known-limitations.md)
+- [`read_note_section` pages through live text, not a snapshot](./known-limitations.md)
+- [`edit_note`'s reply carries fingerprints only for the page its change landed on](./known-limitations.md)
+- [A note created over MCP keeps an `untitled-…` URL for good](./known-limitations.md)
+
 ## See also
 
 [API tokens](./api-tokens.md) · [AI editing](./ai-editing.md) · [API contract summary](./api.md) · [Known limitations](./known-limitations.md)
