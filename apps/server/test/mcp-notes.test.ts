@@ -66,8 +66,8 @@ async function setUpdatedAt(db: Db, noteId: string, iso: string): Promise<void> 
 /**
  * 微秒精度的 `updated_at`。**不能走 drizzle 的 `.set({ updatedAt: new Date(...) })`**——JS 的
  * `Date` 只有毫秒，那樣寫出去的值本身就已經沒有微秒了，測不到要測的東西。
- * ⚠ 這才是**生產的常態**：`notes.updated_at` 的 DB default 是 pg 的 `now()`（微秒精度），
- * 只有走 JS `new Date()` 的寫入路徑才是整毫秒——也就是**沒被編輯過的筆記全是微秒**。
+ * ⚠ 這才是**生產的常態**：生產程式碼的每一個寫入點都走 pg 的 `now()`（微秒精度）
+ * ——也就是**所有筆記的 `updated_at` 都是微秒**。
  */
 async function setUpdatedAtMicros(db: Db, noteId: string, literal: string): Promise<void> {
   await db.execute(sql`update notes set updated_at = ${literal}::timestamptz where id = ${noteId}::uuid`);
@@ -166,7 +166,7 @@ describe("#108 list_notes", () => {
   // JS `Date` → `toISOString()`（毫秒）。若排序鍵留在微秒而 cursor 只有毫秒，`(updated_at, id)
   // < (cursor.ts, cursor.id)` 會把「同一毫秒內、微秒較小」的列整批切掉——**不報錯、不重複，
   // 就是不見**。修法是把排序鍵與 keyset 都 `date_trunc('milliseconds', …)` 降到與 cursor 同精度。
-  // 曝險比直覺高：沒被編輯過的筆記 `updated_at` 全部來自 pg 的 `now()`＝微秒。
+  // 曝險比直覺高：所有筆記的 `updated_at` 全部來自 pg 的 `now()`＝微秒。
   it("cursor 不因 updated_at 的微秒精度漏列（排序鍵與 cursor 同精度）", async () => {
     const ctx = await buildCollabTestApp();
     const { ownerId, token } = await scenario(ctx);

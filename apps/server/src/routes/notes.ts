@@ -93,6 +93,9 @@ const createBodySchema = z.object({ title: TITLE.optional(), content: MD.optiona
 // 第 6 次改用 `fallbackAutoSlug()`（untitled-<uuid8>）——再撞（~2^-32）就讓錯誤冒出去。
 const MAX_AUTO_SLUG_RETRIES = 5;
 
+// `updated_at` 的唯一時鐘來源——三處 PATCH 共用同一個 const，勿改回 `new Date()`（#142）。
+const UPDATED_AT_NOW = sql`now()`;
+
 // `isForeignKeyViolation` 收在 `db/pg-errors.ts` 的共用版（原本這裡有一份邏輯等價的私有
 // 重複實作，Task 5 收掉——`notes/links.ts` 的 `writeNoteLinks` 也需要同一個判定，兩處各自
 // 維護一份會有漂移風險）。
@@ -674,7 +677,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
           [updated] = await deps.db
             .update(notes)
             .set({
-              updatedAt: new Date(),
+              updatedAt: UPDATED_AT_NOW,
               ...(title !== undefined ? { title } : {}),
               slug: result.value,
               slugIsCustom: true,
@@ -742,7 +745,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
             [updated] = await deps.db
               .update(notes)
               .set({
-                updatedAt: new Date(),
+                updatedAt: UPDATED_AT_NOW,
                 ...(title !== undefined ? { title } : {}),
                 slug: auto,
                 slugIsCustom: false,
@@ -754,7 +757,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
             [updated] = await deps.db
               .update(notes)
               .set({
-                updatedAt: new Date(),
+                updatedAt: UPDATED_AT_NOW,
                 title,
                 slug: sql`case when ${notes.slugIsCustom} then ${notes.slug} else ${auto} end`,
               })

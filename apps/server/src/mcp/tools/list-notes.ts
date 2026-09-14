@@ -4,7 +4,7 @@
  * ⚠ **keyset 分頁不是快照**——但**成因不是「邊列邊改」**（#146 更正：這裡原本寫「`edit_note`
  * 會更新 `updated_at`」，是假的，而 PR3 的稽核表一度拿這句註解當證據，證據鏈是循環的）。
  * 查證：全 repo **零個 `$onUpdate`**；`notes.updated_at` 只有兩種東西會動——insert 的
- * `defaultNow()`，以及 `routes/notes.ts` 標題／slug 的 PATCH 那三處 `updatedAt: new Date()`。
+ * `defaultNow()`，以及 `routes/notes.ts` 標題／slug 的 PATCH 那三處 DB 端 `now()`（#142）。
  * `notes/editing/` 整個目錄**零個 `updatedAt` 引用**（`edit_note` 走的 write-service →
  * mergeDiff → collab store 完全不碰它），`collab/store.ts` 動的是 `note_states` 那張別的表，
  * 而 `notes.linksClock`／`lastEditedAt` 的 UPDATE 都沒有一併寫 `updated_at`。

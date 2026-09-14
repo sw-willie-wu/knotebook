@@ -7,7 +7,11 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- `PATCH /api/notes/:id` now stamps `updated_at` using the database's own clock instead of the application server's, matching how it's already set on creation. The two clocks could drift out of order — different machines, or, even on the same machine, the application's millisecond-precision timestamp landing below the database's microsecond-precision one — which could flip a note's position in "most recently updated first"; that's also why two tests that depend on this ordering could occasionally fail locally without any code change (#142).
+
+- Test-only: `migrate.test.ts`'s query-planner assertion seeded 5,000 users without an explicit `handle`, so roughly one run in 344 hit the `users_handle_unique` constraint by chance (each default handle is only 8 hex characters). The seed now assigns each row a deterministic, guaranteed-unique handle (#150).
 
 ## [0.4.0] - 2026-09-14
 

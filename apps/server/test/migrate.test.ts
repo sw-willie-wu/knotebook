@@ -94,11 +94,14 @@ describe("runMigrations", () => {
     // COLLATE，索引還在、卻沒人用得上，CHANGELOG 的宣稱靜默失效（本 repo 的慣性缺陷
     // 形）。這裡 seed 5000 列 + analyze 後直接驗 planner 的選擇；兩種形狀對應真實
     // 呼叫點：登入／分享查人（ORDER BY + LIMIT 1）與 OIDC 連結（刻意不設上限，靠
-    // 多列偵測 oidc_conflict）。審查已在 pg17 實測此斷言穩定不 flake。
+    // 多列偵測 oidc_conflict）。審查已在 pg17 實測這兩種查詢形狀都穩定選中這把索引。
     const { pool } = await freshDb();
+    // handle 明寫（非吃 DEFAULT 的 8-hex-字元 uuid 截斷）：5000 列吃 DEFAULT 有約
+    // 0.29% 機率撞 users_handle_unique（生日問題，issue #150）——測試不在乎 handle
+    // 是什麼，明寫成確定唯一的序號即可。
     await pool.query(
-      `insert into users (email, display_name)
-       select 'u' || g || '@example.com', 'U' || g from generate_series(1, 5000) g`
+      `insert into users (email, display_name, handle)
+       select 'u' || g || '@example.com', 'U' || g, 'u' || g from generate_series(1, 5000) g`
     );
     await pool.query(`analyze users`);
 

@@ -29,8 +29,8 @@ export interface NoteListCursor {
  * **排序鍵刻意降到毫秒**，理由是一個會靜默漏列的精度落差：`notes.updated_at` 是
  * `timestamptz`（pg 的 `now()` ＝**微秒**），而 cursor 走 JS `Date` → `toISOString()`
  * ＝**毫秒**。排序鍵若留在微秒，`(updated_at, id) < (cursor.ts, cursor.id)` 會把「同一毫秒
- * 內、微秒較小」的列整批切掉——不報錯、不重複，就是不見。曝險是常態面：**沒被編輯過的
- * 筆記 `updated_at` 全部來自 pg 的 `now()`**（只有走 JS `new Date()` 的寫入路徑才是整毫秒）。
+ * 內、微秒較小」的列整批切掉——不報錯、不重複，就是不見。曝險是常態面：**生產路徑上所有
+ * 筆記的 `updated_at` 都是 pg 的 `now()`**，全是微秒精度。
  * 降到毫秒之後排序鍵＝模型看得到的 `updatedAt`，語意自洽；REST 側一個字都不改。
  * ⚠ 集合運算的 ORDER BY 只收輸出欄位名，所以它必須是一個具名輸出欄（`updated_at_ms`）。
  * ⚠ **`.mapWith(notes.updatedAt)` 不可省**（實測，不是推論）：drizzle 覆寫掉 node-postgres 對
