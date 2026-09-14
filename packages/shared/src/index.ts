@@ -214,13 +214,11 @@ export const ERROR_CODES = [
   // 與「token 本身無效」的 401 分開，後者才計入無效 Bearer 的節流）；`token_limit`＝
   // 每位使用者的有效 token 軟配額；`token_not_found`＝撤銷不存在或不屬於自己的 token
   // （兩者同形，不當成列舉 oracle）；`oauth_request_invalid`＝授權請求已用／已過期
-  // （#132 才會發出，碼在 #130 一併加，避免 i18n 分兩次改）；`not_implemented`＝
-  // `/api/mcp` 在 #108 前的暫時形。
+  // （#132 才會發出，碼在 #130 一併加，避免 i18n 分兩次改）。
   "insufficient_scope",
   "token_limit",
   "token_not_found",
   "oauth_request_invalid",
-  "not_implemented",
   // #106：`GET /api/notes/:id/content?section=` 指定的段落在這份文件裡不存在（404——與
   // 「整篇筆記找不到／無權限」的 `not_found` 分開，因為呼叫端的處置不同：段落沒了就重讀
   // 大綱，筆記沒了就別再試）。

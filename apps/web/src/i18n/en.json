@@ -438,7 +438,6 @@
     "token_limit": "You've reached the limit of active tokens. Revoke one before creating another.",
     "token_not_found": "That token no longer exists.",
     "oauth_request_invalid": "This authorization request has already been used or has expired. Start again from the application.",
-    "not_implemented": "That endpoint isn't available yet.",
     "section_not_found": "That section no longer exists — reload the note.",
     "fingerprint_mismatch": "The note changed while you were editing it. Reload and try again.",
     "unsupported_block": "That content contains a block type this note can't store.",
