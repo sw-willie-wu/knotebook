@@ -264,6 +264,20 @@ describe("buildNoteEditorOptions", () => {
     await expect(resolveFileUrl!("https://example.com/a.png")).resolves.toBe("https://example.com/a.png");
   });
 
+  /**
+   * issue #99 的接線釘：`_tiptapOptions.extensions` 是**唯一**通到使用者的那條線——
+   * 沒有這條斷言的話，把 `buildNoteEditorOptions` 裡那一行 `extensions: […]` 刪掉，
+   * 整套測試（含 `markdown-link.rule.test.tsx`，它掛的是自己另外建的編輯器，不是
+   * `buildNoteEditorOptions` 的產物）依然全綠，功能在真實 app 裡卻是死的（審查抓到
+   * 的缺口）。這裡直接釘住 extension 真的在陣列裡（用 `Extension.create` 賦的
+   * `name` 識別，不靠陣列 identity 或長度）。
+   */
+  it("_tiptapOptions.extensions 掛了 markdown 連結 extension（issue #99）", () => {
+    const extensions = build()._tiptapOptions.extensions;
+    expect(Array.isArray(extensions)).toBe(true);
+    expect(extensions.map((ext: { name: string }) => ext.name)).toContain("knotebookMarkdownLink");
+  });
+
   it("攔截掛在 editorProps.handleDOMEvents，**不是** handlePaste/handleDrop", () => {
     const editorProps = build()._tiptapOptions.editorProps;
 

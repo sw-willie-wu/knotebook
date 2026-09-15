@@ -20,6 +20,7 @@ import { BlockNoteView } from "@blocknote/mantine";
 import { useCreateNote, useNotes } from "@/api/notes";
 import { classifyMediaTransfer, type BlockedTransferReason } from "@/collab/schema";
 import { buildCollabEditorBase } from "@/collab/editor-options";
+import { createMarkdownLinkExtension } from "@/collab/markdown-link";
 import { createMarkdownPasteHandler } from "@/collab/paste";
 import { useCollabUndoLifeline } from "@/collab/undo";
 import { buildSlashMenuItems } from "@/components/mermaid/slashMenu";
@@ -149,6 +150,9 @@ export function buildNoteEditorOptions({ doc, provider, user, language, translat
     // 區塊）——判斷與理由都在 `@/collab/paste`，這裡只負責接線。
     pasteHandler: createMarkdownPasteHandler(),
     _tiptapOptions: {
+      // issue #99：手打 markdown 連結語法（`[文字](網址)`）自動轉成真連結。裁決函式與
+      // 判準理由都在 `@/collab/markdown-link`——這裡只負責接線。
+      extensions: [createMarkdownLinkExtension({ editorRef })],
       editorProps: {
         handleDOMEvents: createMediaBlockingDOMEvents(translate),
         // `[[` 觸發偵測（Task 3 §12.2 recipe）。這裡刻意**不**倚賴 `SuggestionMenu`
