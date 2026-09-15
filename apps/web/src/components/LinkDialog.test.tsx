@@ -63,6 +63,23 @@ describe("LinkDialog", () => {
     expect(screen.getByText(i18n.t("note.link.invalidUrl"))).toBeInTheDocument();
   });
 
+  it("網址欄前段被尾端比對吃掉（藏著 ) [y](真正網址 這種形狀）→ 不呼叫 onSubmit，顯示 invalidUrl（複核 fix round 3 Minor 1）", () => {
+    const onSubmit = vi.fn();
+    renderDialog({ open: true, onOpenChange: vi.fn(), onSubmit });
+
+    // `resolveTrailingMarkdownLink` 只認尾端：組出的 textBefore 是
+    // `[x](https://x.com) [y](https://evil.com)`，尾端仍能剖出一個合法連結
+    // （href 是 evil.com），但那不是使用者以為自己填的整段網址——必須擋下來，
+    // 不能靜默插出 evil.com。
+    fireEvent.change(screen.getByLabelText(i18n.t("note.link.urlLabel")), {
+      target: { value: "https://x.com) [y](https://evil.com" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("note.link.insert") }));
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByText(i18n.t("note.link.invalidUrl"))).toBeInTheDocument();
+  });
+
   it("取消 → 不呼叫 onSubmit", () => {
     const onSubmit = vi.fn();
     renderDialog({ open: true, onOpenChange: vi.fn(), onSubmit });

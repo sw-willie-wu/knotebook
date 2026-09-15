@@ -61,8 +61,15 @@ export function LinkDialog({ editor, open, onOpenChange, onSubmit }: LinkDialogP
 
   function handleSubmit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
-    const hit = resolveTrailingMarkdownLink(editor, `[x](${url.trim()})`);
-    if (!hit) {
+    const trimmedUrl = url.trim();
+    const hit = resolveTrailingMarkdownLink(editor, `[x](${trimmedUrl})`);
+    // ⚠ `resolveTrailingMarkdownLink` 的判準是**尾端比對**（design §4 第 7 步：
+    // `textBefore.endsWith(recon)`），不是「整段等於」。這裡餵給它的 textBefore 就是
+    // `[x](${trimmedUrl})` 本身，所以只要網址欄裡藏著自己的 `)` 加另一段
+    // `[y](真正網址`，尾端仍能拼出一個合法連結、`hit` 不是 null，但 `hit.href` 是
+    // 「藏在後半段」的那個網址，不是使用者以為自己填的那一整串。不比對回去就會
+    // 靜默插出一個 使用者沒打算給的 href（複核 fix round 3 Minor 1）。
+    if (!hit || hit.href !== trimmedUrl) {
       setError(t("note.link.invalidUrl"));
       return;
     }
