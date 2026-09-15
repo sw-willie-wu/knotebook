@@ -153,7 +153,7 @@ Fields that do not belong to the operation you asked for are rejected rather tha
 
 **Answers** `note` — the same entry shape `list_notes` returns, with `role: "owner"`. Its `id` is what you pass to `edit_note` or `read_note_outline`; its `url` is the same site-relative path described under `list_notes`, not a link you can hand over as it stands.
 
-- Leave out `title` and the note is called "Untitled". **No tool here renames a note afterwards**, so pass one if you know it.
+- Leave out `title` and the note is called "Untitled" and keeps a database-assigned `untitled-<8 hex characters>` URL. A `title` you pass here is also what the note's URL is derived from, de-duplicated against your other notes with a numeric suffix (`meeting-notes`, then `meeting-notes-2`). Some titles have no usable URL form and fall back to `untitled`, numbered the same way — punctuation on its own, a reserved word, or a uuid, or a title ending in one. **No tool here renames a note afterwards**, so pass one if you know it.
 - `content` is the new note's markdown. Bad markdown is rejected before anything is stored, so a call that fails to parse leaves no note behind.
 - **Only a call carrying `content` is recorded and can be undone.** Creating an empty note writes no history row — there is nothing to revert. Filling it in afterwards with `edit_note` is what produces a revertable entry.
 - A deployment without the collaboration component answers `invalid_body` to a call carrying `content`. Create the note without it; the note still exists.
@@ -234,7 +234,6 @@ These are the MCP-specific entries in the shared [Known limitations](./known-lim
 - [`read_note_outline` pages through live positions, not a snapshot](./known-limitations.md)
 - [`read_note_section` pages through live text, not a snapshot](./known-limitations.md)
 - [`edit_note`'s reply carries fingerprints only for the page its change landed on](./known-limitations.md)
-- [A note created over MCP keeps an `untitled-…` URL for good](./known-limitations.md)
 
 ## See also
 

@@ -54,7 +54,20 @@ export const CREATE_NOTE_DESCRIPTION =
 
 export const createNoteInput = {
   title: TITLE.optional()
-    .describe("The note's title. Leave it out and the note is called \"Untitled\"; no tool here renames a note afterwards, so pass one if you know it."),
+    // ⚠ #145：這一段與 `docs/mcp.md` 的 `create_note` bullet **除下列四項差異外逐字同源**：
+    //   ① 前面多一句「The note's title.」②去掉 markdown 粗體 ③去掉 `title` 兩側的
+    //   backtick ④開頭用祈使的「Leave it out」（而非「Leave out `title`」）。
+    //   ⚠ 不准壓短：「沒給 title → untitled-…」這種縮寫會讓模型反推「給了就跟標題走」，
+    //   但退位形（純標點／保留字／uuid 形標題）拿到的是 `untitled`（**無**尾碼）。
+    .describe(
+      "The note's title. Leave it out and the note is called \"Untitled\" and keeps a " +
+        "database-assigned `untitled-<8 hex characters>` URL. A title you pass here is also what " +
+        "the note's URL is derived from, de-duplicated against your other notes with a numeric " +
+        "suffix (`meeting-notes`, then `meeting-notes-2`). Some titles have no usable URL form " +
+        "and fall back to `untitled`, numbered the same way — punctuation on its own, a reserved " +
+        "word, or a uuid, or a title ending in one. No tool here renames a note afterwards, so " +
+        "pass one if you know it.",
+    ),
   content: MD.optional()
     .describe("Markdown for the new note. Leave it out to create an empty note. Some deployments cannot store content this way and answer `invalid_body`; create the note without it and the note still exists."),
 };
