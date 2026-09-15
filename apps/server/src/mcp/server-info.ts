@@ -65,8 +65,9 @@ result carries \`ownerHandle\` and \`role\` so you can tell whose content you ar
  * 讀寫憑證的尾段。
  *
  * ⚠ 最後一句的三個限定字都是**查證過的**（#146）：
- * (1) 「changes a note's content」——不帶 `content` 的 `create_note` 走裸 `db.insert(notes)`
- *     （`tools/create-note.ts` 最後一段），不經 `applyEdit`／不留 `note_ai_edits` 列，
+ * (1) 「changes a note's content」——不帶 `content` 的 `create_note` 只建一列
+ *     （`notes/create.ts`，#145 之後三條建立路徑共用的建列點；呼叫點是
+ *     `tools/create-note.ts` 最後一段），不經 `applyEdit`／不留 `note_ai_edits` 列，
  *     **沒有東西撤得回**；原句「Every write…」把它也算進去了。
  *     ⚠ **不得寫回「puts content into a note」**（r2 審查抓到）：那個講法會把
  *     `delete_section` 也排除掉，而它**有紀錄、也撤得回**——`apply.ts:265` 的

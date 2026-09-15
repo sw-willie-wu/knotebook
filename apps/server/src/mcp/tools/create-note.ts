@@ -3,7 +3,8 @@
  * 同管線（D18：**寫入側不發明第二套契約**）——`content` 逐字重用 `MD`、`title` 逐字重用 `TITLE`（M14）。
  *
  * ⚠ **這支工具不進部署形態閘門**（裁決 D-M）：判準是「要不要讀 live doc」。不帶 `content` 時
- * 它只 insert 一列，完全不碰 live doc；而 REST 的 `POST /api/notes` 本來就無條件註冊、帶
+ * 它只建一列（`notes/create.ts`；帶 `title` 時多一次——最壞每輪 20 次、最多 5 輪——owner
+ * 範圍的 slug 探測查詢，#145），完全不碰 live doc；而 REST 的 `POST /api/notes` 本來就無條件註冊、帶
  * content 而沒有 collab 時回 `400 invalid_body`。所以它在 `register.ts` 的閘門**外面**註冊，
  * 帶 `content` 而 `ctx.writes.available` 為假時回 `invalid_body`（與 REST 的 400 對等）。
  * ⚠ **先問 `available` 再走**：`NoteWriteService.applyDeps()` 有一個 throw，三個 REST 呼叫點
@@ -23,7 +24,7 @@ import { eq } from "drizzle-orm";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { notes } from "../../db/schema.js";
 import { visibleNoteBranches } from "../../notes/list-query.js";
-import { noteInsertValues } from "../../notes/editing/write-service.js";
+import { insertNoteWithAutoSlug } from "../../notes/create.js";
 import { MD, TITLE } from "../../notes/schemas.js";
 import { noteSummarySchema, toNoteSummary, type NoteSummaryRow } from "../dto.js";
 import { toolError, toolResult } from "../tool-result.js";
@@ -43,7 +44,8 @@ export const CREATE_NOTE_DESCRIPTION =
   "note behind. The reply carries the new note's `id` — pass it to edit_note or read_note_outline " +
   // ⚠ #146：`url` 走 `canonicalNotePath`，回的是 `/n/<owner>/<slug>` 這個**站內相對路徑**
   //   （`packages/shared/src/index.ts`）——沒有 scheme、沒有 host，照字面交給人是打不開的。
-  //   ⚠ **限定到 `content` 那條路**：不帶 `content` 的建立是一次裸 insert——不留 `note_ai_edits`
+  //   ⚠ **限定到 `content` 那條路**：不帶 `content` 的建立只建一列（`notes/create.ts`，不經
+  //   `applyEdit`）——不留 `note_ai_edits`
   //   列、沒有 editId、**沒有任何東西撤得回**。寫成「Creating a note is recorded…」是對模型說謊，
   //   而模型會照它決定「先建空筆記再 edit_note」安不安全（本檔一度那樣寫，審查抓到）。
   "— and its `url`, the note's page as a site-relative path: put this site's own address in front " +
@@ -113,9 +115,18 @@ export async function createNote(args: CreateNoteArgs, ctx: McpToolCtx): Promise
   const denied = requireWriteScope(ctx);
   if (denied !== null) return denied;
 
-  // 2. `title` 未帶時**整把鍵都不放進 values**，讓 DB 的 default `"Untitled"` 生效
-  //    （唯一真相在 `db/schema.ts`，不在應用層再寫死一次）。
-  const values = noteInsertValues(ctx.userId, args.title);
+  // 2. 建列整件事（`title` 未帶時整把鍵都不放、讓 DB 的 default `"Untitled"` 與
+  //    `untitled-<uuid8>` 生效；帶 title 就派生 auto slug）收在 `notes/create.ts` 的
+  //    `insertNoteWithAutoSlug`（#145）。
+  //    ⚠ **帶 `content` 時順序是硬要求**：`available` 閘門 → 扣 `edit` 桶 → **才**輪到任何
+  //    DB 寫入或 slug 探測（不帶 `content` 的分支不過任何閘門，見步驟 5）。原本這個位置只是
+  //    在組一個 values 物件（純物件、零查詢）所以擺在閘門之前無妨；`insertNoteWithAutoSlug`
+  //    會發探測查詢，搬到這裡就讓「這個部署不支援 content」的拒絕路徑開始打 DB（違反 M6：
+  //    拒絕零副作用）。守衛分兩種形，**實測（2026-09-15）**：
+  //    (a) 整支呼叫搬上來 → 既有的**列數**斷言就抓得到：D-M（`countNotes` 2≠1）、案 21 與
+  //        案 28(b)（零新增列 1≠0）三案連同下面那一案共 4 條紅。
+  //    (b) **只把探測搬上來、INSERT 留在閘門之後** → 整包 925 案只有
+  //        `mcp-create-note.test.ts` 那一案紅（`probes()` 半邊，0→1）。
 
   if (args.content !== undefined) {
     // 3. 沒有協作元件就沒有「內容」這回事（同 REST 的 400，D-M）。**排在扣 `edit` 桶之前**：
@@ -132,7 +143,7 @@ export async function createNote(args: CreateNoteArgs, ctx: McpToolCtx): Promise
       userId: ctx.userId,
       userHandle: ctx.userHandle,
       tokenId: ctx.tokenId,
-      values,
+      title: args.title,
       content: args.content,
     });
     if (!out.ok) {
@@ -145,9 +156,10 @@ export async function createNote(args: CreateNoteArgs, ctx: McpToolCtx): Promise
     return toolResult({ note: toNoteSummary(fresh ?? insertedRow(out.inserted, ctx.userHandle), "owner") });
   }
 
-  // 5. 不帶 `content`：只 insert 一列，不碰 live doc、不吃 `edit` 桶、不重讀（`last_edited_*`
-  //    四欄還是 insert 的預設值，`toNoteSummary` 於是把 `lastEdited` 給 null——不必為了一個
-  //    必然落空的 JOIN 多發一次查詢）。
-  const [created] = await ctx.db.insert(notes).values(values).returning();
-  return toolResult({ note: toNoteSummary(insertedRow(created!, ctx.userHandle), "owner") });
+  // 5. 不帶 `content`：只建一列（`notes/create.ts`），不碰 live doc、不吃 `edit` 桶、不重讀
+  //    （`last_edited_*` 四欄還是 insert 的預設值，`toNoteSummary` 於是把 `lastEdited` 給
+  //    null——不必為了一個必然落空的 JOIN 多發一次查詢）。帶 `title` 時 slug 在這一刻就跟
+  //    標題走（#145），所以回應裡的 `url` 不必二次寫入就已經是最終網址。
+  const created = await insertNoteWithAutoSlug(ctx.db, ctx.userId, args.title);
+  return toolResult({ note: toNoteSummary(insertedRow(created, ctx.userHandle), "owner") });
 }

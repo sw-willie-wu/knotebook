@@ -197,7 +197,8 @@ describe("PATCH /api/notes/:id — slug", () => {
     expect(conflictRes.json()).toMatchObject({ error: { code: "slug_taken" } });
 
     const getRes = await app.inject({ method: "GET", url: `/api/notes/${noteB.id}`, cookies: { [SESSION_COOKIE]: cookie } });
-    // 單一 UPDATE 原子：409 時 title 與 slug 皆未動（slug 仍是 POST 的 DB default）
+    // 單一 UPDATE 原子：409 時 title 與 slug 皆未動（slug 仍是 POST 當下派生的值——這兩篇
+    // 都帶 title，#145 起建立時 slug 就跟標題走，不再是 DB default）
     expect(getRes.json()).toMatchObject({ title: "B", slug: noteB.slug });
   });
 
@@ -745,6 +746,198 @@ describe("PATCH /api/notes/:id — #122 分流矩陣", () => {
         if (entry.isDirectory()) walk(p);
         else if (entry.name.endsWith(".ts") && !p.endsWith(`db${path.sep}schema.ts`)) {
           if (/legacySlug\s*:/.test(readFileSync(p, "utf8"))) offenders.push(p);
+        }
+      }
+    };
+    walk(srcDir);
+    expect(offenders).toEqual([]);
+  });
+});
+
+/**
+ * #145：建立筆記時就從標題派生 auto slug（三條建立路徑共用 `notes/create.ts`）。
+ * PATCH 側的矩陣在上面那個 describe，這裡只測**建立**那一刻的形。
+ */
+describe("POST /api/notes — 建立時的 slug 派生（#145）", () => {
+  async function createdRow(db: Db, id: string) {
+    const [row] = await db
+      .select({ slug: notes.slug, slugIsCustom: notes.slugIsCustom, prevSlug: notes.prevSlug, legacySlug: notes.legacySlug })
+      .from(notes)
+      .where(eq(notes.id, id))
+      .limit(1);
+    return row!;
+  }
+
+  const post = (app: Awaited<ReturnType<typeof buildTestApp>>["app"], cookie: string, payload: object) =>
+    app.inject({ method: "POST", url: "/api/notes", cookies: { [SESSION_COOKIE]: cookie }, payload });
+
+  it("帶 title → slug 跟標題走（slug_is_custom=false、prev_slug 不記）", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-c1@example.com" });
+    const cookie = await cookieFor(owner.id);
+
+    const res = await post(app, cookie, { title: "Meeting Notes" });
+    expect(res.statusCode).toBe(201);
+    // ⚠ **第一條斷言必須是 `slug`**（不是 `title`）：vitest 第一個失敗即中止，順序錯了
+    //   「派生後沒把 slug 傳進 values」那發突變的紅會指到一個無關的地方。
+    expect(res.json().slug).toBe("meeting-notes");
+    expect(res.json().title).toBe("Meeting Notes");
+    // 建立不是「使用者顯式設網址」：`slug_is_custom` 必須留 false（之後的 title PATCH 才會
+    // 繼續重算），也不留 prev_slug／legacy_slug。
+    expect(await createdRow(db, res.json().id)).toMatchObject({
+      slug: "meeting-notes",
+      slugIsCustom: false,
+      prevSlug: null,
+      legacySlug: null,
+    });
+  });
+
+  it("不帶 title → 仍吃 DB default `untitled-<8hex>`，**不**派生成 `untitled`（D6）", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-c2@example.com" });
+    const cookie = await cookieFor(owner.id);
+
+    const res = await post(app, cookie, {});
+    expect(res.statusCode).toBe(201);
+    // 這一案是 D6 唯一的守衛：「順手讓不帶 title 的建立也派生」那發突變只有它會紅，
+    // 且**這一行必須排在下面的形狀比對之前**——突變之下 slug 會是 `untitled`，先報
+    // 「不該等於 untitled」才指得到病因。
+    expect(res.json().slug).not.toBe("untitled");
+    expect(res.json().slug).toMatch(/^untitled-[0-9a-f]{8}$/);
+    expect((await createdRow(db, res.json().id)).slug).toBe(res.json().slug);
+  });
+
+  it("同 owner 同標題第二篇得 -2（兩發皆 201、永不 409）；跨 owner 同名共存", async () => {
+    const { app, db } = await buildTestApp();
+    const a = await insertUser(db, { email: "owner-c3a@example.com" });
+    const b = await insertUser(db, { email: "owner-c3b@example.com" });
+    const cookieA = await cookieFor(a.id);
+    const cookieB = await cookieFor(b.id);
+
+    const first = await post(app, cookieA, { title: "Shared Title" });
+    const second = await post(app, cookieA, { title: "Shared Title" });
+    expect(first.statusCode).toBe(201);
+    // 409 `slug_taken` 專屬「使用者顯式指定的自訂 slug 撞名」——建立路徑不得用它。
+    expect(second.statusCode).toBe(201);
+    expect([first.json().slug, second.json().slug]).toEqual(["shared-title", "shared-title-2"]);
+
+    // 唯一範圍是 (owner_id, slug)：另一個 owner 拿得到同一個名字。
+    const other = await post(app, cookieB, { title: "Shared Title" });
+    expect(other.statusCode).toBe(201);
+    expect(other.json().slug).toBe("shared-title");
+  });
+
+  it("標題沒有可用網址形（純標點／uuid）→ `untitled`，第二篇 `untitled-2`（D7）", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-c4@example.com" });
+    const cookie = await cookieFor(owner.id);
+
+    // `titleSlug` 濾完為空 → `autoSlugFromTitle` 退位成 `"untitled"`（**無尾碼**）。
+    const punct = await post(app, cookie, { title: "###" });
+    expect(punct.statusCode).toBe(201);
+    expect(punct.json().slug).toBe("untitled");
+    // D6／D7 的分界：退位形是 `untitled`，**不是**不帶 title 那條路的 `untitled-<8hex>`。
+    expect(punct.json().slug).not.toMatch(/^untitled-[0-9a-f]{8}$/);
+
+    // uuid 形標題（`validateSlug` 的 uuid_like 分支）同樣退位，而退位形**也會去重**。
+    const uuidish = await post(app, cookie, { title: "f47ac10b-58cc-4372-a567-0e02b2c3d479" });
+    expect(uuidish.statusCode).toBe(201);
+    expect(uuidish.json().slug).toBe("untitled-2");
+  });
+
+  it("語句形狀守衛：帶 title 的建立恰 1 條探測 SELECT ＋ 1 條 INSERT；不帶 title 恰 0 條探測", async () => {
+    // 「不帶 title 一次探測都不發」是 D6 與 `db/schema.ts` 那條 default 註解的承重契約，而
+    // 結果值測試釘不住語句形狀（多一條探測照樣全綠）。用 drizzle logger 逐請求收 SQL 驗形。
+    const { pool, db } = await freshDb();
+    const queries: string[] = [];
+    const loggedDb = drizzle(pool, { logger: { logQuery: (q: string) => queries.push(q) } }) as unknown as Db;
+    // gate 也要跟著換（同上面那個四格矩陣形狀案）：只換 db 會讓 session 驗證查到另一個庫 → 401。
+    const { app } = await buildTestApp({ db: loggedDb, gate: new UserGate(loggedDb) });
+    const owner = await insertUser(db, { email: "owner-c5@example.com" });
+    const cookie = await cookieFor(owner.id);
+
+    const probes = () => queries.filter(q => /^select/i.test(q.trim()) && /"slug"\s*=/.test(q));
+    const noteInserts = () => queries.filter(q => /^insert into "notes"/i.test(q.trim()));
+
+    // ⚠ **順序是斷言的一部分（N3）**：「恰 1」那半排前面。探測 regex 若因 drizzle 換渲染形而
+    //   失配，下面「恰 0」那半會靜默變成恆真，而 vitest 第一個失敗即中止——自我驗證的那半
+    //   排在後面就永遠跑不到。
+    queries.length = 0;
+    const withTitle = await post(app, cookie, { title: "Shape Create" });
+    expect(withTitle.statusCode).toBe(201);
+    expect(probes()).toHaveLength(1);
+    expect(noteInserts()).toHaveLength(1);
+
+    queries.length = 0;
+    const without = await post(app, cookie, {});
+    expect(without.statusCode).toBe(201);
+    expect(probes()).toHaveLength(0);
+    expect(noteInserts()).toHaveLength(1);
+  });
+
+  it("INSERT 真競態（noteCreateHooks 縫）：連撞 5 次後第 6 次退 untitled-<uuid8>，永不 409", async () => {
+    // `beforeInsert` 在每輪「探測完、INSERT 前」被呼叫——在這裡搶插同 owner 同 slug 的佔位
+    // 列，讓 INSERT 真的撞 (owner_id, slug) 唯一索引（探測本身攔不到）。形逐字照 PATCH 側
+    // 的兄弟案（`slugUpdateTestHook` 那一案）。
+    const hookCtx: { db?: Db; ownerId?: string } = {};
+    const candidates: string[] = [];
+    const beforeInsert = async (candidate: string) => {
+      candidates.push(candidate);
+      if (candidates.length <= 5 && hookCtx.db && hookCtx.ownerId) {
+        await hookCtx.db.insert(notes).values({ ownerId: hookCtx.ownerId, title: "sniper", slug: candidate });
+      }
+    };
+    const { app, db } = await buildTestApp({ noteCreateHooks: { beforeInsert } });
+    const owner = await insertUser(db, { email: "owner-c6@example.com" });
+    const cookie = await cookieFor(owner.id);
+    hookCtx.db = db;
+    hookCtx.ownerId = owner.id;
+
+    const res = await post(app, cookie, { title: "Race Me" });
+    expect(res.statusCode).toBe(201);
+    // ⚠ **這一行不是裝飾**：把 `attempt > MAX_AUTO_SLUG_RETRIES` 突變成 `>=` 之下，長度／
+    //   `[0]`／`[5]`／DB 值**四條全綠**（attempt 1..4 拿 race-me…race-me-4 全被搶、attempt 5
+    //   就提前退位拿 uuid8_a 也被搶、attempt 6 拿 uuid8_b 成功 ⇒ 長度仍 6、`[0]` 仍 race-me、
+    //   `[5]` 仍是 uuid8 形）。唯一看得見差別的位置是 `candidates[4]`，所以它必須被釘住、
+    //   而且要排在其他四條之前。PATCH 側那個兄弟案有同一個盲點（本棒不改它）。
+    expect(candidates.slice(0, 5)).toEqual(["race-me", "race-me-2", "race-me-3", "race-me-4", "race-me-5"]);
+    expect(candidates).toHaveLength(6);
+    expect(candidates[5]).toMatch(/^untitled-[0-9a-f]{8}$/);
+    expect((await createdRow(db, res.json().id)).slug).toBe(candidates[5]);
+  });
+
+  it("源碼守衛：src/ 內 `.insert(notes)` 只允許出現在 notes/create.ts", () => {
+    // D1 的型別層（刪掉那支 values 組裝函式與它的型別、`createWithContent` 改收 `title`）擋得住「照既有
+    // 形只改其中一處」，但擋不住「有人重新手寫一次 `db.insert(notes).values({ownerId,title})`」
+    // ——那仍是合法 drizzle。這一案就是那一面：第四條建立路徑一出現就紅。
+    //
+    // **對照實驗**（改碼前對 `main` @ 662f2fc 的同一棵樹跑過同一份 walk）：offenders 是
+    // **3 條**（`routes/notes.ts:259`、`mcp/tools/create-note.ts:151`、
+    // `notes/editing/write-service.ts:239`），而 `db/schema.ts:88`、`mcp/server-info.ts:68`、
+    // `write-service.ts:66` 那三處**註解**命中被濾掉。拿到非空結果才證明 walk、副檔名與註解
+    // 過濾三處都真的在做事——任一處寫錯時 offenders 也會是 `[]`（假綠）。
+    //
+    // ⚠ **誠實的盲點**（不要宣稱它守住一切）：只認**非註解行**上的字面 `.insert(notes)`。
+    //   `insert(schema.notes)`、`db.execute(sql\`insert into notes …\`)`、先把 table 物件存進
+    //   區域變數、或把呼叫拆成跨行，它都撈不到；註解過濾只認行首形（`//`／`/*`／`*`，
+    //   所以行末尾隨註解裡的字面仍會命中——刻意的保守方向）。**排除也是路徑尾碼比對**
+    //   （`notes${path.sep}create.ts`），所以未來任何 `src/<x>/notes/create.ts` 會被一併
+    //   特赦（同既有 `legacySlug` 守衛的 `db${path.sep}schema.ts` 形，刻意沿用不發明第二種）。
+    //   它守的是「下一個人照既有形複製一條建立路徑」這個**實際發生過**的模式，不是全部繞法。
+    const srcDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../src");
+    const offenders: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(p);
+        else if (entry.name.endsWith(".ts") && !p.endsWith(`notes${path.sep}create.ts`)) {
+          readFileSync(p, "utf8")
+            .split(/\r?\n/)
+            .forEach((line, i) => {
+              const trimmed = line.trimStart();
+              if (trimmed.startsWith("//") || trimmed.startsWith("/*") || trimmed.startsWith("*")) return;
+              if (line.includes(".insert(notes)")) offenders.push(`${p}:${i + 1}`);
+            });
         }
       }
     };

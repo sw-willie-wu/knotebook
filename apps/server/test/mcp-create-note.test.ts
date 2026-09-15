@@ -18,7 +18,9 @@ import { canonicalNotePath } from "@knotebook/shared";
 import { noteAiEdits, notes, users } from "../src/db/schema.js";
 import { EDIT_LIMIT, FixedWindowLimiter } from "../src/http/rate-limit.js";
 import { QueueBusyError } from "../src/notes/editing/queue.js";
-import { buildCollabTestApp, buildTestApp, freshLimiters, type CollabTestCtx } from "./helpers.js";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { UserGate } from "../src/auth/session.js";
+import { buildCollabTestApp, buildTestApp, freshDb, freshLimiters, type CollabTestCtx } from "./helpers.js";
 import { bearer, getContent, seedTokenForUser } from "./editing-helpers.js";
 import { mcpPost, rpc } from "./mcp-helpers.js";
 import type { Db } from "../src/db/index.js";
@@ -118,8 +120,8 @@ describe("#108 create_note", () => {
   });
 
   // 案 21a：不帶 `content` ＝ REST 的 201 等價（DB 的 default 標題、`lastEdited` 恆 null）。
-  // `title` 未帶時**整把鍵都不放進 values**（`noteInsertValues`），DB 的 default `"Untitled"`
-  // 才生效——應用層不再寫死第二份同一個字面量。
+  // `title` 未帶時**整把鍵都不放進 values**（`notes/create.ts` 的 `insertNoteWithAutoSlug`），
+  // DB 的 default `"Untitled"`／`untitled-<uuid8>` 才生效——應用層不再寫死第二份同一個字面量。
   it("不帶 content → 成功，title 走 DB default、url 逐字等於 canonicalNotePath、lastEdited 為 null（案 21a）", async () => {
     const s = await scene();
     const { note } = payloadOf(await createNote(s.ctx.app, s.token));
@@ -147,6 +149,24 @@ describe("#108 create_note", () => {
     //   突變實測（`args.content ?? "New note"` ＋ 恆走 content 分支）：紅在**本行**。
     expect(await s.ctx.db.select().from(noteAiEdits).where(eq(noteAiEdits.noteId, note.id))).toHaveLength(0);
     expect(note.lastEdited).toBeNull();
+  });
+
+  // #145：issue 的原始症狀在測試層的直接反例——demo 實測用 `create_note` 帶
+  // `title: "#108 PR3 實機驗證 2026-09-14"` 建出來的筆記網址是 `untitled-c2af7053`。
+  // 派生在建列的同一發裡完成，所以**同一次回應**的 `slug`／`url` 就是最終值，不需要第二次寫入。
+  it("#145：帶 title → 同一次回應的 slug 與 url 就是派生形（不是 untitled-<8hex>）", async () => {
+    const s = await scene();
+    const { note } = payloadOf(await createNote(s.ctx.app, s.token, { title: "MCP Title 145" }));
+
+    // ⚠ 第一條斷言是 `slug`：這是 issue 的症狀本身，排前面才讓漏改 MCP 那條路的突變紅在病因上。
+    expect(note.slug).toBe("mcp-title-145");
+    expect(note.url).toBe(canonicalNotePath({ ownerHandle: s.ownerHandle, slug: "mcp-title-145" }));
+    expect(note.url).not.toMatch(/untitled-[0-9a-f]{8}$/);
+
+    // 回查 DB：回應不是憑空組的（`url` 走 `canonicalNotePath`，`slug` 來自 insert 的 returning）。
+    const [row] = await s.ctx.db.select().from(notes).where(eq(notes.id, note.id));
+    expect(row!.slug).toBe("mcp-title-145");
+    expect(row!.slugIsCustom).toBe(false);
   });
 
   // 案 21b：帶 content 走的是 REST `POST /api/notes` 的**同一條管線**（`createWithContent`），
@@ -244,6 +264,48 @@ describe("#108 create_note", () => {
     let left = 0;
     while (edit.consume(userId)) left += 1;
     expect(left, "帶 content 的 invalid_body 與不帶 content 的成功建立都不得消耗 edit 桶").toBe(EDIT_LIMIT.limit);
+  });
+
+  // #145 ＋ M6（拒絕零副作用）：`insertNoteWithAutoSlug` 會發探測查詢，所以它**不能**擺在
+  // `ctx.writes.available` 閘門之前（本棒之前那個位置只是在組一個 values 物件，純物件、零
+  // 查詢，擺在閘門前無妨）。搬回去的話「這個部署不支援 content」的拒絕路徑就開始打 DB。
+  //
+  // ⚠ **這一案守的是哪一形，是量出來的**（2026-09-15 實測，兩發突變）：
+  //   (a) **整支呼叫**搬到閘門之前 → 4 failed / 4 passed，紅的是 D-M 的 `countNotes`
+  //       （`expected 2 to be 1`）、案 21 與案 28(b) 的零新增列（`expected 1 to be +0`），
+  //       **再加本案的 `probes()`**。也就是說既有的列數斷言**抓得到**這一形——原本這裡寫
+  //       「D-M 一條都不會紅」是把因果說反了。
+  //   (b) **只把探測搬到閘門之前、INSERT 留在原位** → **整包 925 案只有本案紅**，紅在
+  //       `probes()`（`expected [Array(1)] to have a length of +0 but got 1`）——列數一列
+  //       都沒動 ⇒ `probes()` 半邊是 (b) 形唯一的守衛，這才是本案的價值。
+  it("#145／M6：帶 content 的拒絕路徑（無 collab）零探測、零建列", async () => {
+    const { pool, db } = await freshDb();
+    const queries: string[] = [];
+    const loggedDb = drizzle(pool, { logger: { logQuery: (q: string) => queries.push(q) } }) as unknown as Db;
+    // gate 也要跟著換（同 `notes-slug.test.ts` 的語句形狀案）：只換 db 會讓認證查到另一個庫。
+    const { app } = await buildTestApp({ db: loggedDb, gate: new UserGate(loggedDb), limiters: freshLimiters() });
+    const [user] = await db.insert(users).values({ email: `q-${randomUUID()}@example.com`, displayName: "Q" }).returning();
+    const { token } = await seedTokenForUser(db, user!.id, "notes:read notes:write");
+
+    const probes = () => queries.filter(q => /^select/i.test(q.trim()) && /"slug"\s*=/.test(q));
+    const noteInserts = () => queries.filter(q => /^insert into "notes"/i.test(q.trim()));
+
+    queries.length = 0;
+    const err = errorOf(await createNote(app, token, { title: "X", content: "x" }));
+    expect(err.code).toBe("invalid_body");
+    expect(probes()).toHaveLength(0);
+    expect(noteInserts()).toHaveLength(0);
+
+    // **自我驗證刻意排在後面**（與 `notes-slug.test.ts` 語句形狀案的 N3 規矩相反，理由是
+    // 「失配時誰會先紅」）：那一案兩半各自發請求、各自數自己那批 query，regex 失配時「恰 0」
+    // 那半**真空通過**而「恰 1」那半**會紅**，所以「恰 1」必須排前面。這裡「恰 0」那半是
+    // **拒絕路徑**（本來就不該有 query），失配時它同樣真空通過、不會失敗 ⇒ vitest 不會提前
+    // 中止，後面這半照樣跑得到並且會紅。**兩案的順序不同是算過的，不是抄漏。**
+    queries.length = 0;
+    const { note } = payloadOf(await createNote(app, token, { title: "X" }));
+    expect(note.slug).toBe("x");
+    expect(probes()).toHaveLength(1);
+    expect(noteInserts()).toHaveLength(1);
   });
 
   // 案 P：`create_note` **不 touch presence**——`routes/notes.ts` 搬進 service 的那段註解逐字

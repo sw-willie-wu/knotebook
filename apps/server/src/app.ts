@@ -46,6 +46,7 @@ import { createEditingRuntime, type EditingRuntime } from "./notes/editing/runti
 import type { EditingTestHooks } from "./notes/editing/apply.js";
 import { PresenceRegistry, type PresenceOptions } from "./notes/editing/presence.js";
 import { NoteWriteService } from "./notes/editing/write-service.js";
+import type { NoteCreateHooks } from "./notes/create.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -176,6 +177,12 @@ export interface AppDeps {
    * `buildTestApp({ slugUpdateTestHook })`（比照 `linkSyncTestHooks`）。
    */
   slugUpdateTestHook?: (candidate: string) => void | Promise<void>;
+  /**
+   * #145：**建立**路徑 auto slug 的測試注入縫（語意見 `NotesRouteDeps.noteCreateHooks`）。
+   * **選配**：production／未覆寫時 `undefined`＝no-op；整合測試唯一注入面是
+   * `buildTestApp({ noteCreateHooks })`（比照 `slugUpdateTestHook`）。
+   */
+  noteCreateHooks?: NoteCreateHooks;
   /**
    * Task 9：圖片上傳存放目錄的絕對路徑。**必填**——`buildApp` 啟動時會對它做一次
    * 可寫性探測（`assertUploadsDirWritable`，見該函式說明為何不用 `accessSync`），
@@ -658,6 +665,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       presence,
       linkSyncTestHooks: deps.linkSyncTestHooks,
       slugUpdateTestHook: deps.slugUpdateTestHook,
+      noteCreateHooks: deps.noteCreateHooks,
       uploadsDir: deps.uploadsDir,
     })
   );

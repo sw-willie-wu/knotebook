@@ -520,7 +520,10 @@ export async function buildCollabTestApp(
   }
 
   async function createNote(ownerId: string, title?: string): Promise<{ id: string }> {
-    // title 未帶時完全不放進 values，讓 schema 的 default "Untitled" 生效（同 POST /api/notes）。
+    // title 未帶時完全不放進 values，讓 schema 的 default "Untitled" 生效。
+    // ⚠ 這支是**刻意直插**，**不**經 `POST /api/notes` 的建列點（`notes/create.ts`）——所以帶
+    // title 時 slug 一律吃 DB default（`untitled-<uuid8>`），不從標題派生（#145）。需要派生形
+    // 的測試請打 API。
     const values = title === undefined ? { ownerId } : { ownerId, title };
     const [row] = await db.insert(notes).values(values).returning({ id: notes.id });
     return row;

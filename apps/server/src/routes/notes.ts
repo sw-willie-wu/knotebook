@@ -33,10 +33,17 @@ import { editor, lastEditedSelection, visibleNoteBranches } from "../notes/list-
 // ⚠ `FP` 在本檔已無呼叫端（`editBodySchema` 是它唯一的使用者，搬去 `notes/schemas.ts` 了）——
 // `no-unused-vars` 是 error ＋ `--max-warnings=0`，留著會 lint 紅。
 import { editBodySchema, MD, SEC, TITLE } from "../notes/schemas.js";
-import { noteInsertValues, type NoteWriteService } from "../notes/editing/write-service.js";
+import { type NoteWriteService } from "../notes/editing/write-service.js";
+import { insertNoteWithAutoSlug, type NoteCreateHooks } from "../notes/create.js";
 import { currentAgentLabel } from "../auth/agent-label.js";
 import { resolveRole, resolveRoleWithOwner, UUID_RE } from "../notes/service.js";
-import { deriveUniqueAutoSlug, fallbackAutoSlug, prepareSlugForPatch, resolveNoteIdFromRef } from "../notes/slug.js";
+import {
+  deriveUniqueAutoSlug,
+  fallbackAutoSlug,
+  MAX_AUTO_SLUG_RETRIES,
+  prepareSlugForPatch,
+  resolveNoteIdFromRef,
+} from "../notes/slug.js";
 import { fetchBacklinks, normalizeLinkTargets, writeNoteLinks, type WriteNoteLinksHooks } from "../notes/links.js";
 import { signCollabToken } from "../collab/token.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
@@ -89,9 +96,8 @@ const createBodySchema = z.object({ title: TITLE.optional(), content: MD.optiona
 // `POST /api/notes/:id/edits` 的 body 搬到 `notes/schemas.ts`（#108 D-N）：MCP 的 `edit_note`
 // 吃的是**同一份**——per-op 必填矩陣只能有一份實作。
 
-// auto slug 的 UPDATE 撞唯一索引（真競態）重試上限（#122 spec §3a）：1..5 次重探測重發，
-// 第 6 次改用 `fallbackAutoSlug()`（untitled-<uuid8>）——再撞（~2^-32）就讓錯誤冒出去。
-const MAX_AUTO_SLUG_RETRIES = 5;
+// `MAX_AUTO_SLUG_RETRIES` 已搬進 `notes/slug.ts` 並 export（#145）——建立路徑的 INSERT
+// 重試迴圈（`notes/create.ts`）與本檔 PATCH 的 UPDATE 重試迴圈必須共用同一份 5。
 
 // `updated_at` 的唯一時鐘來源——三處 PATCH 共用同一個 const，勿改回 `new Date()`（#142）。
 const UPDATED_AT_NOW = sql`now()`;
@@ -132,6 +138,15 @@ export interface NotesRouteDeps {
    * （比照 `linkSyncTestHooks` 慣例）。生產不注入＝零成本。透傳自 `AppDeps.slugUpdateTestHook`。
    */
   slugUpdateTestHook?: (candidate: string) => void | Promise<void>;
+  /**
+   * #145：**建立**路徑的 auto slug 測試注入縫——每輪探測完、INSERT 發出前呼叫（帶本輪
+   * 候選），語意與上面 `slugUpdateTestHook` 對稱（測試搶插同 owner 同 slug 的佔位列，讓
+   * INSERT 真的撞 `(owner_id, slug)` 唯一索引，藉以驅動「重試 ≤`MAX_AUTO_SLUG_RETRIES`
+   * 後退 untitled-<uuid8>」的競態路徑）。生產不注入＝零成本。透傳自
+   * `AppDeps.noteCreateHooks`。⚠ **只接在 `POST /api/notes` 這一處**：MCP 的 `create_note`
+   * 與 `createWithContent` 走同一支 `insertNoteWithAutoSlug`，競態迴圈只需要一個觀測點。
+   */
+  noteCreateHooks?: NoteCreateHooks;
   /**
    * Task 11：DELETE note 交易 commit 後，補刪該筆記名下上傳 blob 檔案要用的目錄——
    * 與 `UploadsRouteDeps.uploadsDir`／`AppConfig` 同一份，透傳自 `AppDeps.uploadsDir`
@@ -214,11 +229,6 @@ export function notesRoutes(deps: NotesRouteDeps) {
       }
       const userId = request.user!.id;
 
-      // title 未帶時完全不放進 values——讓 DB 的 default "Untitled" 生效，而不是應用層
-      // 自己重複寫死同一個預設值字面量（唯一真相來源在 schema.ts）。這條規則本棒起有多個
-      // 消費端，所以收成 `noteInsertValues`（`notes/editing/write-service.ts`）。
-      const values = noteInsertValues(userId, parsed.data.title);
-
       // #106 的 `content` 管線整條收在 `NoteWriteService.createWithContent`（#108 §10.1 D22，
       // spec §5 逐字的順序契約寫在那支的 docstring）；這裡只留部署形態與節流兩道閘門、
       // 錯誤碼 → HTTP 的映射，以及回應組裝。
@@ -231,7 +241,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
           userId,
           userHandle: request.user!.handle,
           tokenId: request.tokenId ?? null,
-          values,
+          title: parsed.data.title,
           content: parsed.data.content,
         });
         if (!out.ok) {
@@ -256,7 +266,12 @@ export function notesRoutes(deps: NotesRouteDeps) {
         return reply.code(201).send(toNoteDto(fresh ?? { ...note, ownerHandle: request.user!.handle, editorHandle: null }, "owner"));
       }
 
-      const [note] = await deps.db.insert(notes).values(values).returning();
+      // 建列整件事收在 `notes/create.ts` 的 `insertNoteWithAutoSlug`（#145，三條建立路徑唯一
+      // 的 `insert(notes)` 點）：`title` 未帶時完全不放進 values，讓 DB 的 default "Untitled"
+      // 與 `untitled-<uuid8>` 生效（不在應用層重複寫死同一個預設值字面量，唯一真相來源在
+      // schema.ts）；帶 `title` 就派生 auto slug。帶 `content` 那條路（上面）走的是同一支，
+      // 只是呼叫點在 service 裡、排在解析之後。
+      const note = await insertNoteWithAutoSlug(deps.db, userId, parsed.data.title, deps.noteCreateHooks);
 
       // ownerHandle 直接取 request.user（A12）：建立者即 owner，不必補查 users。
       // `editorHandle` 恆為 null——這條路徑沒有內容、`last_edited_*` 四欄還是 insert 的預設值，
