@@ -50,6 +50,28 @@ function WikilinkExternalHTML({ inlineContent, contentRef }: WikilinkRenderProps
  *    已被刪除）：斷鏈樣式（灰色＋虛線底線），顯示 snapshotTitle，點擊只跳 toast、
  *    不導航。
  *
+ * 樣式（issue #153）：兩個「活連結」態（1、2）是**主題色 ＋ 實線底線**，與外部連結
+ * （`index.css` 的 `.bn-editor [data-inline-content-type="link"]`）同一套——同一篇
+ * 筆記裡「可以點的東西」該長一樣。**刻意不帶那條 `::after` 的開新分頁圖示**：
+ * wikilink 是 `<button>` ＋ react-router 的**同分頁**導航，掛那個圖示就是說謊。
+ * 態 3（斷鏈）維持 muted 前景 ＋ 虛線底線、**不套主題色**：它與可點的連結分得出來
+ * 是那個樣式存在的全部理由，活連結改色之後這個對比只會更重要。
+ *
+ * ⚠ 顏色寫 `text-(--color-brand)` 而**不是** `text-brand`（headed 實測踩到）：
+ * `index.css` 用 `@theme inline` 宣告 `--color-brand: var(--brand)`，所謂 inline 就是
+ * 「把 utility 展開成被引用的那個變數」——`.text-brand` 編出來是 `color: var(--brand)`，
+ * 在**元素所在位置**解析 `--brand`。而 `BlockNoteView` 會把 light/dark 當 **class** 寫到
+ * `.bn-root` 上，於是深色模式下編輯器內部有一個 `.bn-root.dark`，它命中 `index.css` 的
+ * `.dark { --brand: …indigo… }` 基底塊（那塊是 `[data-accent]` 不存在時的 fallback），
+ * 把使用者選的主題色**在編輯器內部重設回 indigo**。實測（深色＋金）：`:root` 的
+ * `--brand` 是 `oklch(74.7% .089 82.4)`，`.bn-root` 上卻是 `oklch(68.1% .058 275.7)`，
+ * 於是 wikilink 出現靛色、旁邊的外部連結是金色。`--color-brand` 只宣告在
+ * `@theme inline` 裡（Tailwind 把它編譯成 `:root,:host` 一處），在那裡就算完值再往下
+ * 繼承，不受那個巢狀重設影響——外部連結那條 CSS 用的就是它，兩邊走同一個 token 才會
+ * 同色；`theme.link-guard.test.ts` 釘住「`--color-brand:` 不得宣告在 `@theme inline`
+ * 之外」，那是這個繞法成立的前提。（根因在 `.dark` 基底塊會命中巢狀 `.dark`，那是這
+ * 條 issue 範圍外的既有問題，另記在 issue #154。）
+ *
  * `content:"none"` + `selectable:false`（見 `createReactInlineContentSpec`）⇒ 這個
  * inline node 沒有 NodeSelection 可用，導航／斷鏈 toast 都得靠這裡自己的 `onClick`，
  * 不能倚賴 BlockNote 內建「選取後跳轉」那套機制。用 `<button type="button">` 而非
@@ -67,7 +89,7 @@ export function WikilinkInline({ inlineContent, contentRef }: WikilinkRenderProp
       <button
         ref={contentRef}
         type="button"
-        className="cursor-pointer border-0 bg-transparent p-0 text-inherit underline"
+        className="cursor-pointer border-0 bg-transparent p-0 text-(--color-brand) underline"
         // #122 A8：清單 pending 時只有 id 可用（/n/ 形需要 handle/slug）——**保留舊形**
         // `/notes/<uuid>`：uuid 尾碼解析永久可解，這條路徑不隨新形改。
         onClick={() => void navigate(`/notes/${targetNoteId}`)}
@@ -84,7 +106,7 @@ export function WikilinkInline({ inlineContent, contentRef }: WikilinkRenderProp
       <button
         ref={contentRef}
         type="button"
-        className="cursor-pointer border-0 bg-transparent p-0 text-inherit underline"
+        className="cursor-pointer border-0 bg-transparent p-0 text-(--color-brand) underline"
         onClick={() => void navigate(canonicalNotePath(resolvedNote))}
       >
         {resolvedNote.title}

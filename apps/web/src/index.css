@@ -389,6 +389,72 @@ body {
   outline-offset: 2px;
 }
 
+/* ── 筆記內容裡的連結（issue #153）─────────────────────────────────────────
+   在這條之前連結**看起來就是純文字**：`@import "tailwindcss"` 的 preflight 把 `a` 重設
+   成 `color: inherit; text-decoration: inherit`，而 BlockNote 的 `style.css` 沒給內容區
+   的 `a[href]` 顏色或底線。這條拉到與 wikilink（`components/wikilink/spec.tsx`）同一套：
+   主題色 ＋ 實線底線——底線是「不得只靠顏色區分連結」那條無障礙要求的載體，不是裝飾。
+
+   ⚠ 選擇器**不用裸 `a`**（會命中工具列／浮層／自訂 block 裡的 anchor），用 link mark 的
+   `data-inline-content-type="link"`；同組 HTMLAttributes 裡那個 `className:
+   "bn-inline-content-section"` **不能**用——Tiptap 把 key 原封不動當屬性名寫出去，渲染
+   出來是字面的 `classname=`（實測 `a.className` 為空字串）。
+   ⚠ `.bn-editor` 祖先錨不得拿掉（同本檔前面幾處覆寫的理由：BlockNote 的 CSS 在 NotePage
+   lazy chunk、載入必晚於本檔，兩邊都未分層，同 specificity 必輸）；錨到 (0,2,0) 也一併
+   壓過 preflight（在 `@layer base`，而**未分層樣式贏過任何 layer**）。
+   ⚠ 顏色走 `--color-brand`（宣告在 `@theme inline`，編譯成 `:root,:host`）而**不是**
+   `--brand`：理由與守衛見 `wikilink/spec.tsx` 註解與 `theme.link-guard.test.ts`。
+   ⚠ 用 `text-decoration-line` 只是「只宣告需要的那一個 longhand」。**別**把理由寫成
+   「怕簡寫蓋掉 strike／underline mark 的線」——那是假的：那些 mark 是 anchor 的祖先，而
+   `text-decoration-*` 都不是繼承屬性，子元素擦不掉祖先的裝飾線。 */
+.bn-editor [data-inline-content-type="link"] {
+  color: var(--color-brand);
+  text-decoration-line: underline;
+}
+
+/* 「開新分頁」圖示，**只掛在 `http://`／`https://` 的連結上**（同為 link mark 的
+   `mailto:`／`tel:`／`sms:` 不開在分頁裡，交給協定處理程式）。語意查證過而非推測：
+   `http(s)` 連結帶 `target="_blank"`（守衛見 server 的 `editing-markdown.test.ts`），
+   上游 link toolbar 那顆按鈕的 tooltip 逐字也是 "Open in new tab"。站內 wikilink
+   刻意沒有它——那是 `<button>` ＋ react-router 的同分頁導航。
+
+   ⚠ **圖示的 path 資料只存在本檔這一處**（`::after` 的 `content` 放不進 SVG 標記，只能
+   走 `mask-image` ＋ data URI，而 CSS 用不了 React 組件；也刻意不引入 icon 套件，見
+   `components/ui/icons.tsx` 檔頭）。**若日後需要 React 版的 external-link 圖示，兩處必須
+   一起決定單一真相**，不要各寫一份。形狀取自 lucide `external-link`，與 icons.tsx 同
+   語彙（`viewBox="0 0 24 24"`、stroke、`stroke-width=2`、round cap/join）。
+
+   `mask-image` ＋ `background-color: currentColor` 而不是把顏色編進 SVG，圖示才會自動
+   跟著上面那條的 `--color-brand`（否則要為六個主題色 × 明暗寫十二份 data URI）。
+   ⚠ Lightning CSS 有丟規則的前例（`::picker(select)::-webkit-scrollbar`，見檔案後段）
+   ——改這條之後要**實際在 build 產物裡 grep `mask`** 確認它還在。
+
+   兩側留白刻意**不對稱**（左 0.15em ／右 0.2em，視覺判斷）：⚠ 別對齊成一樣。
+
+   ⚠ 已知瑕疵（使用者面版本在 `docs/known-limitations.md`，別只留在這裡）：`::after` 是
+   atomic inline，CSS Text 明定其前後都有軟換行機會，所以文字可能留在行尾、圖示單獨掉到
+   下一行。調 margin 解不掉。
+
+   互動實測結論（範圍：**行中間、沒有被斷行的單一 anchor**，不涵蓋上面那個換行情形）：點
+   圖示＝點連結文字（都走上游 `handleClick` 開新分頁）、hover 到圖示 link toolbar 照常出
+   現且不閃動、游標停在連結尾端打字不會被吸進連結（`inclusive: false`）。所以沒加
+   `pointer-events: none`、也沒退回字元方案；量測明細見 issue #153 與 PR。 */
+.bn-editor [data-inline-content-type="link"][href^="http://"]::after,
+.bn-editor [data-inline-content-type="link"][href^="https://"]::after {
+  content: "";
+  display: inline-block;
+  width: 0.85em;
+  height: 0.85em;
+  margin-inline-start: 0.15em;
+  margin-inline-end: 0.2em;
+  vertical-align: -0.07em;
+  background-color: currentColor;
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M15 3h6v6'/%3E%3Cpath d='M10 14 21 3'/%3E%3Cpath d='M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6'/%3E%3C/svg%3E");
+  mask-repeat: no-repeat;
+  mask-position: center;
+  mask-size: contain;
+}
+
 /* 程式碼區塊的底與字（issue #96）。BlockNote 內建寫死
    `.bn-block-content[data-content-type=codeBlock] { color:#fff; background:#161616 }`
    ——淺色模式也是一塊深色方塊。這裡換成 --code-* 變數（值在 :root／.dark 兩套，
