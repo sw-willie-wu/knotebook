@@ -32,6 +32,25 @@ describe("POST /api/notes 帶 content", () => {
     expect(back.json().backlinks.map((b: { id: string }) => b.id)).toContain(id);
   });
 
+  it("#145：帶 content 的建立也從標題派生 slug（`createWithContent` 裡那個建列點）", async () => {
+    // 三條建立路徑裡**唯一不在 `routes/notes.ts` 也不在 `mcp/tools/create-note.ts`** 的那一個
+    // ——它在 service 裡（`notes/editing/write-service.ts`，解析之後才建列）。漏改它的話這一案
+    // 是唯一會紅的。
+    const ctx = await buildCollabTestApp();
+    const u = await ctx.createUser({ email: "a@example.com", password: PASSWORD });
+    const { token } = await seedTokenForUser(ctx.db, u.id);
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/api/notes",
+      headers: bearer(token),
+      payload: { title: "Content Path", content: "# H\n\n本文" },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().slug).toBe("content-path");
+    // 內容真的落盤（派生沒有把管線後半段擠掉——insert 仍排在解析之後、套用之前）。
+    expect((await getContent(ctx.app, res.json().id as string, token)).json().markdown).toContain("本文");
+  });
+
   it("壞 content（空／超長／NUL）與含 NUL 的 title → 400 無新列；無 collab 的 app 帶 content → 400 不建列", async () => {
     const ctx = await buildCollabTestApp();
     const u = await ctx.createUser({ email: "a@example.com", password: PASSWORD });

@@ -37,6 +37,7 @@ import { currentAgentLabel } from "../../auth/agent-label.js";
 import type { CollabServer } from "../../collab/server.js";
 import type { Db } from "../../db/index.js";
 import { notes } from "../../db/schema.js";
+import { insertNoteWithAutoSlug } from "../create.js";
 import { applyEdit, type ApplyDeps, type ApplyResult, type EditingTestHooks } from "./apply.js";
 import { visibleNoteTitles } from "./candidates.js";
 import { parseMarkdownForNote, type ParseError } from "./markdown.js";
@@ -61,17 +62,6 @@ export type WriteOutcome<T, C> =
   | { ok: true; result: T; agentLabel: string | null }
   | { ok: false; kind: "busy" } // QueueBusyError：等了 `queueWaitMs` 還沒輪到
   | { ok: false; kind: "apply"; code: C };
-
-/**
- * `db.insert(notes).values(...)` 收得下的形。**`title` 未帶時整把鍵都不放進去**——讓 DB 的
- * default `"Untitled"` 生效，而不是在應用層再寫死一次同一個預設值字面量（唯一真相在
- * `db/schema.ts`）。這條規則本來只有 `routes/notes.ts` 的兩行註解在守，本棒起有三個消費端。
- */
-export type NoteInsertValues = { ownerId: string } | { ownerId: string; title: string };
-
-export function noteInsertValues(ownerId: string, title: string | undefined): NoteInsertValues {
-  return title === undefined ? { ownerId } : { ownerId, title };
-}
 
 /**
  * 帶 content 建立的結局。成功時**連 insert 的 `returning()` 那一列一起回**：兩個呼叫端
@@ -217,11 +207,11 @@ export class NoteWriteService {
    * （呼叫端映成 `500 internal`）。⚠ **這條 catch 刻意不分辨例外型別**——`QueueBusyError`
    * 一併吃掉，因為這條路徑的逾時答案是 500 不是 503（`docs/ai-editing.md` 逐字）。
    *
-   * 不帶 content 的建立**不走這裡**（呼叫端自己 insert，不吃 `edit` 桶）。
+   * 不帶 content 的建立**不走這裡**（呼叫端自己呼叫 `insertNoteWithAutoSlug`，不吃 `edit` 桶）。
    */
   async createWithContent(
     log: FastifyBaseLogger,
-    input: { userId: string; userHandle: string; tokenId: string | null; values: NoteInsertValues; content: string }
+    input: { userId: string; userHandle: string; tokenId: string | null; title: string | undefined; content: string }
   ): Promise<CreateWithContentResult> {
     const candidates = await visibleNoteTitles(this.deps.db, input.userId);
     const agentLabel = input.tokenId ? await currentAgentLabel(this.deps.db, input.tokenId) : null;
@@ -236,8 +226,10 @@ export class NoteWriteService {
       scratch.close();
     }
     if ("error" in prepared) return { ok: false, kind: "parse", code: prepared.error };
-    const [created] = await this.deps.db.insert(notes).values(input.values).returning();
-    const note = created!;
+    // #145：建列（含帶 title 時的 auto slug 派生）收在 `notes/create.ts`。⚠ **它仍必須排在
+    // 解析之後**（「解析在建列之前」是契約），而派生的 DB round-trip 也因此不會發生在持有
+    // jsdom lease 期間（上面那個 `finally { scratch.close() }` 已經放掉了）。
+    const note = await insertNoteWithAutoSlug(this.deps.db, input.userId, input.title);
     try {
       const result = await this.queue.run(
         note.id,

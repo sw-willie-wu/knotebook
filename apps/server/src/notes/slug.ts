@@ -41,8 +41,17 @@ export function prepareSlugForPatch(raw: string): SlugValidationResult {
 }
 
 // auto slug 探測上限（#122 spec §3a，同 auth/handle.ts 的 PROBE_LIMIT 理由與可見性）：
-// 探測是 O(同前綴數) 次索引查詢、title PATCH 無節流，上界必須有。超限退 `untitled-<uuid8>`。
+// 探測是 O(同前綴數) 次索引查詢，而 title PATCH 與建立筆記（`notes/create.ts`，#145）**兩條
+// 路都無節流**（cookie 的 `POST /api/notes` 沒有 per-user 桶；Bearer 只吃 `tokenWrite`），
+// 上界必須有。超限退 `untitled-<uuid8>`。
 const AUTO_SLUG_PROBE_LIMIT = 20;
+
+// auto slug 的寫入撞唯一索引（真競態）重試上限（#122 spec §3a）：1..5 次重探測重發，
+// 第 6 次改用 `fallbackAutoSlug()`（untitled-<uuid8>）——再撞（~2^-32）就讓錯誤冒出去。
+// **兩個呼叫端共用這一份**（#145）：`routes/notes.ts` 的 PATCH（UPDATE 重試）與
+// `notes/create.ts` 的建立路徑（INSERT 重試）。各自寫死一個 5 的話，只改其中一處不會有
+// 任何測試變紅（同 `UPDATED_AT_NOW` 抽出的理由，#142）。
+export const MAX_AUTO_SLUG_RETRIES = 5;
 
 /** 探測全敗／UPDATE 重試耗盡時的最終退位形（碰撞機率 ~2^-32，撞上就讓唯一索引裁決）。 */
 export function fallbackAutoSlug(): string {
@@ -57,17 +66,23 @@ export function fallbackAutoSlug(): string {
  * **述詞必排除本列**（`id <> noteId`）——不排除的話「標題微調但 auto slug 不變」會把
  * 自己判成占用、網址在 `meeting`↔`meeting-2` 間震盪且每次舊網址即死（spec M5-1）。
  *
+ * `noteId === null` ＝**這一列還不存在**（建立路徑，`notes/create.ts`，#145）：本來就沒有
+ * 「本列」要排除，`and()` 會把那個 `undefined` 述詞濾掉。實測（2026-09-15，`.toSQL()`）：
+ * 非 null 那條路渲染出的 `sql` 與放寬前**逐位元組相同**、`params` 同為 4 格；null 則少掉
+ * `"id" <> $3`、`params` 剩 3 格——所以放寬對 PATCH 是零改變。
+ *
  * 明文特赦（同 deriveHandle）：這是可用性探測、非唯一性裁決——`(owner_id, slug)`
- * 唯一索引仍是最終裁決者；探測後仍撞（真競態）由呼叫端重探測重發（PATCH 的重試迴圈）。
+ * 唯一索引仍是最終裁決者；探測後仍撞（真競態）由呼叫端重探測重發（PATCH 的 UPDATE
+ * 重試迴圈與 `notes/create.ts` 的 INSERT 重試迴圈，兩者共用 `MAX_AUTO_SLUG_RETRIES`）。
  */
-export async function deriveUniqueAutoSlug(db: Db, ownerId: string, noteId: string, title: string): Promise<string> {
+export async function deriveUniqueAutoSlug(db: Db, ownerId: string, noteId: string | null, title: string): Promise<string> {
   const base = autoSlugFromTitle(title);
   let cand = base;
   for (let n = 1; n <= AUTO_SLUG_PROBE_LIMIT; n++) {
     const [hit] = await db
       .select({ id: notes.id })
       .from(notes)
-      .where(and(eq(notes.ownerId, ownerId), eq(notes.slug, cand), ne(notes.id, noteId)))
+      .where(and(eq(notes.ownerId, ownerId), eq(notes.slug, cand), noteId === null ? undefined : ne(notes.id, noteId)))
       .limit(1);
     if (!hit) return cand;
     const suffix = `-${n + 1}`;

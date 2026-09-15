@@ -84,9 +84,13 @@ export const notes = pgTable("notes", {
   // 網址代稱（#122 spec §3a 起 per-user）：NOT NULL——auto（slug_is_custom=false，跟標題
   // 走、由 autoSlugFromTitle 派生＋owner 範圍去重）或自訂（=true，PATCH 顯式設定）。
   // 唯一範圍是 `(owner_id, slug)`（notes_owner_slug_idx），不再全域。存進來的值一律已過
-  // `normalizeSlug`（NFC + 小寫）。DB default 兩個承重理由（比照 users.handle）：①回滾
+  // `normalizeSlug`（NFC + 小寫）。DB default 三個承重理由（比照 users.handle）：①回滾
   // 兜底（0007 之後退回舊映像，舊碼 POST 不帶 slug 仍能建列）；②既有測試 db.insert(notes)
-  // 不帶 slug——沒有 default，drizzle insert 型別會把它變必填。
+  // 不帶 slug——沒有 default，drizzle insert 型別會把它變必填；③#145 起這個 default 是
+  // 「**不帶 title** 的建立」在生產上的實際來源（不再只是兜底）——`notes/create.ts` 對那條
+  // 路只放 `owner_id`（`title`／`slug` 兩把鍵都不放進 values）、一次探測都不發，所以拿掉這
+  // 個 default 就等於要求應用層自己替每一篇無標題筆記生一個 slug（帶 title 的建立才走
+  // `autoSlugFromTitle` ＋ owner 範圍去重）。
   slug: text()
     .notNull()
     .default(sql`'untitled-' || substr(gen_random_uuid()::text, 1, 8)`),
