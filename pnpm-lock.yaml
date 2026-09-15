@@ -141,6 +141,9 @@ importers:
       '@tanstack/react-query':
         specifier: ^5.101.4
         version: 5.101.4(react@19.2.8)
+      '@tiptap/core':
+        specifier: ^3.13.0
+        version: 3.29.2(@tiptap/pm@3.29.2)
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
