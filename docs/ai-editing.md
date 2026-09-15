@@ -165,8 +165,9 @@ Content crosses the API as Markdown, and the round-trip is deliberately lossy in
 - **Wikilinks.** A `[[Title]]` in the Markdown you send is bound to a note when **exactly one** note you can see has that title. Zero matches or several, and it stays literal text; `unboundWikilinks` in the `POST …/edits` response's `201` counts how many stayed literal in that write. Reading gives back `[[Title]]` — the target's id is not in the Markdown — so a read-modify-write can re-bind a link to a *different* note if titles changed or a second note with the same title appeared in between. Check `unboundWikilinks` if that matters to you.
 - **Diagrams.** A ```` ```mermaid ```` fenced block is restored to a real [diagram](./diagrams.md) block, with its source preserved exactly. Reading a diagram gives the fence back.
 
-Two more properties of the Markdown:
+Three more properties of the Markdown:
 
+- **A link's title is dropped.** The optional title in `[text](url "title")` has nowhere to live — a link keeps only its text and its URL — so it is gone as soon as the Markdown is parsed, and reading the note back gives you `[text](url)`. Nothing reports the loss, and unlike the two cases above the server does not repair it; the link itself, text and URL, is preserved exactly.
 - Only block types this note can store are accepted. Anything else is rejected whole, with `400 unsupported_block` — nothing is silently stripped.
 - Non-empty Markdown always ends with a trailing newline. A note that has never been opened or written to returns `markdown: ""`; one that has been reduced back to empty returns `"\n"`. Both report `chars: 0`, so test emptiness with `chars` or the fingerprint, not by comparing the string to `""`.
 

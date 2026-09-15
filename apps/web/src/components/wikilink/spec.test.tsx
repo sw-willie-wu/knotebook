@@ -145,6 +145,10 @@ describe("WikilinkInline（三態）", () => {
     // Important #2（審查）：mutation 測試證實過，若 loading 分支誤套斷鏈的
     // className，先前的測試組合仍然全綠——這句補上直接鎖死「loading 不是斷鏈」。
     expect(button).not.toHaveClass("border-dashed");
+    // issue #153：活連結＝主題色＋底線（與外部連結同一套）。與上一句一起看才完整：
+    // 「不是斷鏈」＋「確實是活連結的那一套」——只留前者的話，把 loading 改成完全
+    // 無樣式（`text-inherit`，也就是 #153 之前的形）仍會全綠。
+    expect(button).toHaveClass("text-(--color-brand)", "underline");
     fireEvent.click(button);
 
     expect(screen.getByText("navigated here")).toBeInTheDocument();
@@ -170,6 +174,7 @@ describe("WikilinkInline（三態）", () => {
 
     const button = screen.getByRole("button", { name: "Meeting Notes" });
     expect(button).not.toHaveClass("border-dashed");
+    expect(button).toHaveClass("text-(--color-brand)", "underline"); // issue #153，同上一案
     fireEvent.click(button);
 
     expect(screen.getByText("navigated here")).toBeInTheDocument();
@@ -191,6 +196,7 @@ describe("WikilinkInline（三態）", () => {
     expect(screen.queryByText("Old Snapshot Title")).not.toBeInTheDocument();
     const button = screen.getByRole("button", { name: TARGET_NOTE.title });
     expect(button).not.toHaveClass("border-dashed");
+    expect(button).toHaveClass("text-(--color-brand)", "underline"); // issue #153，同上一案
     fireEvent.click(button);
 
     expect(screen.getByText("navigated here")).toBeInTheDocument();
@@ -208,7 +214,13 @@ describe("WikilinkInline（三態）", () => {
     });
 
     const button = screen.getByRole("button", { name: "Deleted Note" });
-    expect(button).toHaveClass("border-dashed");
+    expect(button).toHaveClass("border-dashed", "text-muted-foreground");
+    // issue #153 活連結改套主題色之後，斷鏈態**不得**跟著改：它與可點的連結分得出來
+    // 是那個樣式存在的全部理由。
+    // ⚠ 這句擋的**不是**「整段換成活連結那串 className」——那種突變會先讓上一句紅
+    // （muted/dashed 不見），這句根本跑不到。它真正擋的是**加法**突變：muted 與
+    // dashed 都留著、只多掛一個主題色（審查用那個突變驗過，紅在這一句）。
+    expect(button).not.toHaveClass("text-(--color-brand)");
     fireEvent.click(button);
 
     expect(screen.getByText("This linked note no longer exists.")).toBeInTheDocument();

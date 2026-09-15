@@ -4,6 +4,9 @@ import { YDOC_FRAGMENT } from "./ydoc.js";
 // markdown 往返有損：wikilink 丟 targetNoteId（只剩 [[標題]] 文字）、mermaid 降級成
 // codeBlock(language=mermaid)。這兩支還原；規則同 web 的 ai/apply.ts 與 mermaid-paste.ts：
 // 唯一命中才綁、重名／找不到留純文字並計數；mermaid 的 code 一字不差。
+// 另一條有損項、但**這裡不還原**（issue #153 實測）：連結的 title，`[x](url "title")`
+// 的 `title` 會被整個丟掉——BlockNote 的 link inline content 只有 `href`，沒有 title
+// 欄位可放，parse 之後那個字串就不存在了，沒有東西可以還原。
 /** 與 apps/server/src/notes/service.ts:15 同一 pattern（server 那份不動、不共用）。 */
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
