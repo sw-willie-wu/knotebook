@@ -1,4 +1,6 @@
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, renderHook } from "@testing-library/react";
 import * as Y from "yjs";
 import { BlockNoteEditor, defaultBlockSpecs, SuggestionMenu } from "@blocknote/core";
 import { YDOC_FRAGMENT } from "@knotebook/shared";
@@ -10,7 +12,8 @@ import type { EditorRef } from "@/components/wikilink/menu";
 const toastMock = vi.hoisted(() => vi.fn());
 vi.mock("@/components/ui/toast", () => ({ toast: toastMock }));
 
-const { buildNoteEditorOptions, collabUserColor, createMediaBlockingDOMEvents } = await import("./NoteEditor");
+const { buildNoteEditorOptions, collabUserColor, createMediaBlockingDOMEvents, insertLinkAtSavedSelection, useLinkMenuState } =
+  await import("./NoteEditor");
 
 /**
  * `defaultBlockSpecs.image` 只取這次要用的那一層——BlockNote 的 block spec 泛型三元組
@@ -628,5 +631,152 @@ describe("buildNoteEditorOptions 的 uploadFile 真接線（handleFileInsertion�
     await flushMacrotask();
 
     expect(editor.document.length).toBe(before);
+  });
+});
+
+// ── issue #99：`insertLinkAtSavedSelection`（fix round 1 Important 2）─────────────
+//
+// 舊版把「還原 selection 再 createLink」直接寫在 `NoteEditor` 元件內的
+// `handleLinkInsert` 閉包裡，整條 `NoteEditor` 接線層零覆蓋——三發突變（刪掉
+// `<LinkDialog>` 掛載、刪掉 selection 還原、把整支 handler 變 no-op）971 條既有測試
+// 全部維持綠。抽成這支可匯出的純函式，才能掛真編輯器直接量結果，不是信「應該有做」。
+describe("insertLinkAtSavedSelection", () => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同檔案其他 mount 測試
+  let editor: BlockNoteEditor<any, any, any>;
+  let container: HTMLElement;
+
+  beforeEach(() => {
+    editor = BlockNoteEditor.create({ schema: noteSchema });
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    editor.mount(container);
+  });
+
+  afterEach(() => {
+    editor.unmount();
+    container.remove();
+  });
+
+  it("有還原 selection：連結落在存下的位置，不是段落尾端（真編輯器實測，殺掉「拿掉還原」那發突變）", () => {
+    editor.insertInlineContent(["hello "]);
+    // 這就是 `openLinkDialog` 開啟對話框當下存的那個 selection——之後又打了
+    // "world"，selection 因此跑到段落尾端，兩個位置真的不同才分辨得出「有沒有還原」。
+    const savedSelection = editor.transact((tr) => ({ from: tr.selection.from, to: tr.selection.to }));
+    editor.insertInlineContent(["world"]);
+    expect(editor.transact((tr) => tr.doc.textContent)).toBe("hello world");
+
+    insertLinkAtSavedSelection(editor, savedSelection, { text: "x", href: "https://example.com" });
+
+    // 沒有還原的話（`editor.createLink` 直接打在「當下」selection＝段落尾端）
+    // 這裡會是 "hello worldx"——這正是審查者拿掉還原那一行實測到的錯誤形狀。
+    expect(editor.transact((tr) => tr.doc.textContent)).toBe("hello xworld");
+    // 位置對了還不夠——連 mark 本身也要確認真的落在文件裡、href 是對的。
+    const hasLink = editor.transact((tr) => {
+      let found = false;
+      tr.doc.descendants((node) => {
+        if (node.isText && node.marks.some((m) => m.type.name === "link" && m.attrs.href === "https://example.com")) found = true;
+      });
+      return found;
+    });
+    expect(hasLink).toBe(true);
+  });
+
+  it("savedSelection 為 null（拿不到 selection 時的防呆）：不炸、落在當下 selection", () => {
+    editor.insertInlineContent(["hello "]);
+
+    expect(() => insertLinkAtSavedSelection(editor, null, { text: "x", href: "https://example.com" })).not.toThrow();
+
+    expect(editor.transact((tr) => tr.doc.textContent)).toBe("hello x");
+  });
+});
+
+// ── issue #99：`<LinkDialog>` 掛載結構守衛（原始碼 regex）──────────────────────
+//
+// 這兩條只讀原始碼字串比對，不掛真元件、不驗證真的渲染出什麼——接不住「掛載被包進
+// 永遠為假的條件」「`linkDialogOpen` 永遠不為 true」這類形。各自守的東西見 it 名。
+describe("NoteEditor JSX：<LinkDialog> 掛載守衛", () => {
+  const source = readFileSync(`${process.cwd()}/src/components/NoteEditor.tsx`, "utf8");
+
+  it("掛載且四個 prop 都接對線（editor/open/onOpenChange/onSubmit）", () => {
+    expect(source).toMatch(
+      /<LinkDialog\s+editor=\{editor\}\s+open=\{linkDialogOpen\}\s+onOpenChange=\{setLinkDialogOpen\}\s+onSubmit=\{handleLinkInsert\}\s*\/>/,
+    );
+  });
+
+  it("handleLinkInsert 本體真的呼叫了 insertLinkAtSavedSelection（不是被拔成 no-op）", () => {
+    expect(source).toMatch(/insertLinkAtSavedSelection\(currentEditor,\s*linkSelectionRef\.current,\s*\{\s*text,\s*href\s*\}\)/);
+  });
+});
+
+// ── issue #99：`useLinkMenuState` 的 `getSlashItems` 身分不變 ─────────────────────
+//
+// brief／design §6 明講的具名交付項：「測試要釘的是 dialog 開關前後 getSlashItems
+// 身分不變」。抽成 `useLinkMenuState` 之後用 `renderHook` 直接驗證這個
+// hooks-composition 事實，不必掛 BlockNote。
+describe("useLinkMenuState", () => {
+  const editorRef: EditorRef = { current: null };
+  const translate = (key: string) => key;
+
+  it("dialog 開＋關（linkDialogOpen 變動）：getSlashItems 身分不變", () => {
+    const { result } = renderHook(() => useLinkMenuState(editorRef, translate));
+    const before = result.current.getSlashItems;
+
+    act(() => {
+      result.current.openLinkDialog();
+    });
+    // 先確認真的重 render 了（state 真的變了）——否則下面的身分比對是假陽性
+    // （沒重 render 當然身分不變，跟「重 render 後身分仍不變」是兩件事）。
+    expect(result.current.linkDialogOpen).toBe(true);
+    expect(result.current.getSlashItems).toBe(before);
+
+    act(() => {
+      result.current.setLinkDialogOpen(false);
+    });
+    expect(result.current.linkDialogOpen).toBe(false);
+    expect(result.current.getSlashItems).toBe(before);
+  });
+
+  it("正對照：換一個真的不同的 translate → getSlashItems 換身分（證明上一條的相等斷言不是恆真、確實在量依賴）", () => {
+    const { result, rerender } = renderHook(({ translate: t }) => useLinkMenuState(editorRef, t), {
+      initialProps: { translate },
+    });
+    const before = result.current.getSlashItems;
+
+    rerender({ translate: (key: string) => `zh:${key}` });
+
+    expect(result.current.getSlashItems).not.toBe(before);
+  });
+
+  // 上面兩條測的是 getSlashItems 的身分；`openLinkDialog` 真的把 selection **存**
+  // 下來這一半，`insertLinkAtSavedSelection` 的單元測試接不住（它拿到的是呼叫端
+  // 先準備好的 savedSelection，不是 `openLinkDialog` 存的那份）——這裡掛真編輯器，
+  // 走 `openLinkDialog` → `handleLinkInsert` 完整一輪，量的是存與還原兩半合起來的結果。
+  it("openLinkDialog 存下的 selection 真的被 handleLinkInsert 還原（不是靠 null fallback 巧合過關）", () => {
+    const realEditor = BlockNoteEditor.create({ schema: noteSchema });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    realEditor.mount(container);
+    const realEditorRef: EditorRef = { current: realEditor };
+
+    const { result } = renderHook(() => useLinkMenuState(realEditorRef, translate));
+
+    realEditor.insertInlineContent(["hello "]);
+    act(() => {
+      result.current.openLinkDialog();
+    });
+    // 開了對話框之後文件繼續變動，「當下」selection 因此跑到段落尾端——跟
+    // `openLinkDialog` 存下的位置不同，才分辨得出「有沒有真的存到」。
+    realEditor.insertInlineContent(["world"]);
+
+    act(() => {
+      result.current.handleLinkInsert({ text: "x", href: "https://example.com" });
+    });
+
+    // 若 openLinkDialog 沒真的存下 selection（例如永遠存 null），handleLinkInsert
+    // 會落回「當下」selection＝段落尾端，結果會是 "hello worldx"。
+    expect(realEditor.transact((tr) => tr.doc.textContent)).toBe("hello xworld");
+
+    realEditor.unmount();
+    container.remove();
   });
 });

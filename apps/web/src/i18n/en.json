@@ -155,6 +155,15 @@
       "slashGroup": "Advanced",
       "showSource": "Show source",
       "escHint": "Press Esc or click elsewhere to finish"
+    },
+    "link": {
+      "slashTitle": "Link",
+      "slashSubtext": "Insert a link to a URL",
+      "dialogTitle": "Insert link",
+      "textLabel": "Display text",
+      "urlLabel": "URL",
+      "insert": "Insert",
+      "invalidUrl": "That URL is not valid."
     }
   },
   "login": {

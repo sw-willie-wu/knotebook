@@ -155,6 +155,15 @@
       "slashGroup": "進階功能",
       "showSource": "顯示原始碼",
       "escHint": "按 Esc 或點其他地方結束"
+    },
+    "link": {
+      "slashTitle": "連結",
+      "slashSubtext": "插入一個網址連結",
+      "dialogTitle": "插入連結",
+      "textLabel": "顯示文字",
+      "urlLabel": "網址",
+      "insert": "插入",
+      "invalidUrl": "網址格式不正確"
     }
   },
   "login": {

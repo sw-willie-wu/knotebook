@@ -3,7 +3,7 @@
 // `@blocknote/core/fonts/inter.css`——那是 latin-only 的自帶字型（9 個 woff 檔），
 // 對以中文為主的介面沒有幫助，只會讓 bundle 變大；字型交給 app 自己的 CSS 決定。
 import "@blocknote/mantine/style.css";
-import { useCallback, useMemo, useRef, type ReactNode } from "react";
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type * as Y from "yjs";
 import type { HocuspocusProvider } from "@hocuspocus/provider";
@@ -23,7 +23,8 @@ import { buildCollabEditorBase } from "@/collab/editor-options";
 import { createMarkdownLinkExtension } from "@/collab/markdown-link";
 import { createMarkdownPasteHandler } from "@/collab/paste";
 import { useCollabUndoLifeline } from "@/collab/undo";
-import { buildSlashMenuItems } from "@/components/mermaid/slashMenu";
+import { buildSlashMenuItems } from "@/components/slash-menu";
+import { LinkDialog } from "@/components/LinkDialog";
 import { toast } from "@/components/ui/toast";
 import { cardSurface } from "@/components/ui/card";
 import { ARTICLE_COLUMN, ARTICLE_COLUMN_PADDING } from "@/components/ui/article-column";
@@ -229,6 +230,73 @@ export function buildNoteEditorOptions({ doc, provider, user, language, translat
   });
 }
 
+/**
+ * `LinkDialog` 送出後真正落地的地方（issue #99）：把 selection 還原到開對話框
+ * 當下存的那個位置，再呼叫 `editor.createLink`。抽成獨立、匯出的純函式方便直接對
+ * 真編輯器斷言（`NoteEditor.test.ts` 的 `insertLinkAtSavedSelection` 描述塊）。
+ *
+ * ⚠ **還原 selection 這一步不是防禦性寫法**（spec §10.1 明訂要保存並還原）：
+ * `editor.createLink(href, text)` 打在**當下** selection，不是開啟對話框那一刻的
+ * selection——省略還原，真編輯器實測會插到錯的位置（見該描述塊的斷言）。
+ */
+export function insertLinkAtSavedSelection(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 編輯器泛型三元組，走 repo 慣例用 any（同 wikilink/menu.ts、ai/apply.ts）
+  editor: any,
+  savedSelection: { from: number; to: number } | null,
+  { text, href }: { text: string; href: string },
+): void {
+  if (savedSelection) editor._tiptapEditor.commands.setTextSelection(savedSelection);
+  editor.createLink(href, text);
+}
+
+/**
+ * `/` 選單「連結」項的對話框狀態與 `getSlashItems` 組法（issue #99）。抽成獨立、
+ * 匯出的 hook 是為了可測——brief／design §6 明講「測試要釘的是 dialog 開關前後
+ * `getSlashItems` 身分不變」，抽出來後可以直接 `renderHook` 驗證這個
+ * hooks-composition 事實（見 `NoteEditor.test.ts` 的 `useLinkMenuState` 描述塊）。
+ *
+ * ⚠ `getSlashItems` 若把 `linkDialogOpen` 放進 deps（或用 inline arrow 取代
+ * `openLinkDialog`），每次 render 都會換身分 ⇒ `SuggestionMenuController` 的
+ * `useLoadSuggestionMenuItems` effect（deps 是 `[query, getItems]`）重跑 ⇒ 選單
+ * loading 閃動重繪——這個 repo 已經為同一個 bug 踩過一次並留了註解（`getItems`
+ * 那支，見下面 `NoteEditor` 本體）。
+ */
+export function useLinkMenuState(editorRef: EditorRef, translate: Translate) {
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  // 開對話框當下存下的 selection（design §10.1 驗出來的做法）：對話框搶走瀏覽器
+  // focus 後 ProseMirror selection 本身不會變，但送出時仍明確還原一次，不倚賴
+  // 「反正沒變」這個隱含事實。放 ref 不進 state——它不影響任何畫面輸出。
+  const linkSelectionRef = useRef<{ from: number; to: number } | null>(null);
+
+  const openLinkDialog = useCallback(() => {
+    const currentEditor = editorRef.current;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 編輯器泛型三元組，走 repo 慣例用 any
+    const sel = (currentEditor as any)?._tiptapEditor?.state?.selection;
+    linkSelectionRef.current = sel ? { from: sel.from, to: sel.to } : null;
+    setLinkDialogOpen(true);
+  }, [editorRef]);
+
+  // 對話框送出：呼叫抽出來的純函式（見上面 `insertLinkAtSavedSelection`）——
+  // ⚠ `text.trim() || hit.href` 的 fallback 已經在 `LinkDialog` 內做過（D15），
+  // 這裡收到的 `text` 恆非空，不必再擋一次。
+  const handleLinkInsert = useCallback(
+    ({ text, href }: { text: string; href: string }) => {
+      const currentEditor = editorRef.current;
+      if (!currentEditor) return;
+      insertLinkAtSavedSelection(currentEditor, linkSelectionRef.current, { text, href });
+    },
+    [editorRef],
+  );
+
+  const getSlashItems = useCallback(
+    (query: string) =>
+      Promise.resolve(filterSuggestionItems(buildSlashMenuItems(editorRef.current, translate, openLinkDialog), query)),
+    [editorRef, translate, openLinkDialog],
+  );
+
+  return { linkDialogOpen, setLinkDialogOpen, openLinkDialog, handleLinkInsert, getSlashItems };
+}
+
 export interface NoteEditorProps {
   doc: Y.Doc;
   provider: HocuspocusProvider;
@@ -289,6 +357,11 @@ export function NoteEditor({ doc, provider, editable, user, noteId, headerSlot, 
   );
   editorRef.current = editor;
 
+  // issue #99：`/` 選單「連結」項的對話框狀態與 `getSlashItems` 組法——抽成
+  // `useLinkMenuState`（見該函式檔頭，fix round 1 Important 3）方便直接對它
+  // `renderHook`，不必掛真編輯器整棵渲染。
+  const { linkDialogOpen, setLinkDialogOpen, handleLinkInsert, getSlashItems } = useLinkMenuState(editorRef, t);
+
   const notes = useNotes().data;
   const { mutateAsync: createNote } = useCreateNote();
 
@@ -312,14 +385,8 @@ export function NoteEditor({ doc, provider, editable, user, noteId, headerSlot, 
     [notes, createNote, t],
   );
 
-  // issue #94：`/` 選單接管（內建項全數保留 ＋ mermaid 圖表）。比照上面 `getItems` 的
-  // 既有慣例——閉包在這裡組好（這一層才有 `t`），`NoteEditorView` 只負責接線。
-  // `filterSuggestionItems` 是 BlockNote 內建的查詢過濾，沿用它才能跟內建選單的
-  // 比對行為（title/aliases/group）一致。
-  const getSlashItems = useCallback(
-    (query: string) => Promise.resolve(filterSuggestionItems(buildSlashMenuItems(editorRef.current, t), query)),
-    [t],
-  );
+  // issue #94／#99：`/` 選單接管（內建項全數保留 ＋ mermaid 圖表 ＋ 連結）的
+  // `getSlashItems` 本體在 `useLinkMenuState`（上面）——這裡不重複組。
 
   // B1（plan gate 定案，不得偏離）：AI 狀態／側欄／toolbar 全部收在這裡，editor
   // 建立點（上面 `useCreateBlockNote` 及其 deps）完全不動——`AiSessionProvider` 只是
@@ -366,6 +433,10 @@ export function NoteEditor({ doc, provider, editable, user, noteId, headerSlot, 
         </div>
         <AiPanel />
       </div>
+      {/* issue #99：`/` 選單「連結」項的對話框。開合 state 在這一層（`openLinkDialog`
+          給 `getSlashItems` 用），`LinkDialog` 自己不持有——關閉與焦點回歸的完整
+          說明見該檔檔頭。 */}
+      <LinkDialog editor={editor} open={linkDialogOpen} onOpenChange={setLinkDialogOpen} onSubmit={handleLinkInsert} />
     </AiSessionProvider>
   );
 }
@@ -438,7 +509,7 @@ export function NoteEditorView({ editor, editable, theme, noteId, getItems, getS
       // `components/ai/AiToolbar.tsx` 檔頭）。
       formattingToolbar={false}
       // 同理關掉內建的 slash menu controller（issue #94）：下面接管的是我們自己的
-      // `getSlashItems`（內建項全數保留＋mermaid 圖表，見 `components/mermaid/slashMenu.tsx`）。
+      // `getSlashItems`（內建項全數保留＋mermaid 圖表＋連結，見 `components/slash-menu.tsx`）。
       // 不明確設 `false` 會同時掛兩個 `/` 選單 controller，按 `/` 會看到兩份選單疊在一起。
       slashMenu={false}
     >
