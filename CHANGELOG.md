@@ -7,6 +7,10 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
+### Added
+
+- Typing a markdown link — `[text](url)` — now turns into a real link the moment you finish it, matching what pasting the same text already did. The `/` menu also gains a **Link** item that opens a small dialog (display text, URL) and inserts the link without you having to remember the syntax. Both share the same rule for what counts as a valid link, so they behave consistently; a handful of edge cases (syntax that doesn't survive a round-trip unchanged, formatting-in-progress, an open suggestion menu, and a couple of others) are recorded in [Known limitations](docs/known-limitations.md) (#99).
+
 ### Fixed
 
 - Links in a note are now visible as links. A link inside the editor was drawn in exactly the same colour as the surrounding text, with no underline, so nothing revealed one until you moved the pointer over it or clicked it; every link now uses your accent colour together with a solid underline, and a link to an `http://` or `https://` address also carries a small "opens in a new tab" icon, which is what those links do. Wikilinks (`[[…]]`) get the same colour and underline, and deliberately no icon, since they navigate in the same tab; a wikilink whose target has been deleted keeps its distinct greyed-out, dashed styling. The icon can wrap onto a line of its own — see [Known limitations](docs/known-limitations.md) (#153).

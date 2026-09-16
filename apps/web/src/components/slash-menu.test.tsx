@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * `/` slash 選單裡的 mermaid 項。
+ * `/` slash 選單裡的 mermaid 項與連結項（issue #94、#99）。
  *
  * 這裡 mock 掉 BlockNote 的兩支 API，只驗**我們的組合邏輯**——尤其是
  * 「有沒有把預設項一起帶上」：接管 `/` 選單最典型的失效就是只回自己的項，
@@ -20,12 +20,14 @@ const insertMock = vi.hoisted(() => vi.fn());
 vi.mock("@blocknote/react", () => ({ getDefaultReactSlashMenuItems: defaultItemsMock }));
 vi.mock("@blocknote/core", () => ({ insertOrUpdateBlockForSlashMenu: insertMock }));
 
-const { buildSlashMenuItems } = await import("./slashMenu");
+const { buildSlashMenuItems } = await import("./slash-menu");
 
 /** 假 editor：本模組只把它轉交給被 mock 的兩支 API，不讀它的任何欄位。 */
 const editor = {} as never;
 /** 這個 app 的 `translate` 回的是翻譯後字串；測試用 key 當字串即可，但分組名要對得上假預設項。 */
 const translate = (key: string): string => (key === "note.mermaid.slashGroup" ? "Advanced" : key);
+/** 大部分測試不在乎連結項被點了會發生什麼，給個 no-op 佔位。 */
+const noopInsertLink = () => {};
 
 /** 內建項的形狀：有 group，且我們的分組（Advanced）**後面還有別的分組**。 */
 const DEFAULT_ITEMS = [
@@ -49,28 +51,40 @@ beforeEach(() => {
 
 /** mermaid 那一項（不能用 `.at(-1)`：它插在自己的分組裡，後面還有 Media／Others）。 */
 function mermaidItem() {
-  return buildSlashMenuItems(editor, translate).find((item) => item.title === "note.mermaid.slashTitle");
+  return buildSlashMenuItems(editor, translate, noopInsertLink).find((item) => item.title === "note.mermaid.slashTitle");
 }
 
 describe("buildSlashMenuItems", () => {
   it("預設項全數保留、順序不變（接管 / 選單不得把內建選單換掉）", () => {
-    const titles = buildSlashMenuItems(editor, translate).map((item) => item.title);
-    expect(titles.filter((title) => title !== "note.mermaid.slashTitle")).toEqual(DEFAULT_ITEMS.map((item) => item.title));
+    const titles = buildSlashMenuItems(editor, translate, noopInsertLink).map((item) => item.title);
+    expect(titles.filter((title) => title !== "note.mermaid.slashTitle" && title !== "note.link.slashTitle")).toEqual(
+      DEFAULT_ITEMS.map((item) => item.title),
+    );
   });
 
-  it("mermaid 項插在同分組的最後一項之後（不是塞在整份清單最尾）", () => {
-    const titles = buildSlashMenuItems(editor, translate).map((item) => item.title);
-    expect(titles).toEqual(["Paragraph", "Heading 1", "Table", "note.mermaid.slashTitle", "Image", "Emoji"]);
+  it("mermaid 項與連結項插在同分組的最後一項之後（不是塞在整份清單最尾）", () => {
+    const titles = buildSlashMenuItems(editor, translate, noopInsertLink).map((item) => item.title);
+    expect(titles).toEqual([
+      "Paragraph",
+      "Heading 1",
+      "Table",
+      "note.mermaid.slashTitle",
+      "note.link.slashTitle",
+      "Image",
+      "Emoji",
+    ]);
   });
 
   it("不會多出第二個同名分組標題（塞在最尾就會）", () => {
-    const runs = groupRuns(buildSlashMenuItems(editor, translate));
+    const runs = groupRuns(buildSlashMenuItems(editor, translate, noopInsertLink));
     expect(runs).toEqual(["Basic blocks", "Advanced", "Media", "Others"]);
   });
 
   it("分組名在內建清單裡不存在時，退回接在最後（不會整組不見）", () => {
-    const titles = buildSlashMenuItems(editor, (key) => (key === "note.mermaid.slashGroup" ? "不存在的分組" : key)).map((i) => i.title);
-    expect(titles).toEqual([...DEFAULT_ITEMS.map((item) => item.title), "note.mermaid.slashTitle"]);
+    const titles = buildSlashMenuItems(editor, (key) => (key === "note.mermaid.slashGroup" ? "不存在的分組" : key), noopInsertLink).map(
+      (i) => i.title,
+    );
+    expect(titles).toEqual([...DEFAULT_ITEMS.map((item) => item.title), "note.mermaid.slashTitle", "note.link.slashTitle"]);
   });
 
   it("mermaid 項有中英文別名（打 diagram 或 圖表 都找得到）", () => {
@@ -86,5 +100,29 @@ describe("buildSlashMenuItems", () => {
     mermaidItem()?.onItemClick();
     const [, block] = insertMock.mock.calls[0] as [unknown, Record<string, unknown>];
     expect(block).not.toHaveProperty("props");
+  });
+
+  it("連結項與圖表項在同一分組（分組鍵是共用常數）", () => {
+    const items = buildSlashMenuItems(editor, translate, noopInsertLink);
+    const link = items.find((i) => i.title === "note.link.slashTitle");
+    const mermaid = items.find((i) => i.title === "note.mermaid.slashTitle");
+    expect(link?.group).toBe(mermaid?.group);
+  });
+
+  it("點連結項會呼叫 onInsertLink，且不插入任何 block", () => {
+    const onInsertLink = vi.fn();
+    buildSlashMenuItems(editor, translate, onInsertLink)
+      .find((i) => i.title === "note.link.slashTitle")
+      ?.onItemClick();
+    expect(onInsertLink).toHaveBeenCalledOnce();
+    // ⚠ 打在被 mock 的 insert 上：這個檔的 `editor` 是 `{} as never`，`editor.document`
+    // 恆為 undefined，比對永遠成立，抓不到「其實有插 block」的迴歸。
+    expect(insertMock).not.toHaveBeenCalled();
+  });
+
+  it("連結項有中英文別名（打 link 或 連結 都找得到）", () => {
+    const items = buildSlashMenuItems(editor, translate, noopInsertLink);
+    const link = items.find((i) => i.title === "note.link.slashTitle");
+    expect(link?.aliases).toEqual(expect.arrayContaining(["link", "url", "連結"]));
   });
 });

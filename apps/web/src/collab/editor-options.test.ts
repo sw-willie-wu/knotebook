@@ -67,4 +67,12 @@ describe("buildReadonlyNoteEditorOptions（#72＋#122 PR3：公開唯讀頁兩�
     expect(keys).not.toContain("pasteHandler");
     expect(keys).not.toContain("_tiptapOptions");
   });
+
+  // issue #99 INV-6：公開唯讀頁不得出現 markdown 連結 input rule（也不得出現 `/` 選單）。
+  // 這條掛在 `_tiptapOptions.extensions` 上——上面那條「keys 不含 _tiptapOptions」已經
+  // 蘊含它，這裡另立一條斷言是為了讓「這條守衛要求什麼」在原始碼層級直接可見（不依賴
+  // 讀者自己推導「沒有 _tiptapOptions ⇒ 沒有 extensions」這一步）。
+  it("唯讀選項不含 _tiptapOptions（公開頁不得吃到 input rule 與 / 選單）", () => {
+    expect(build().options).not.toHaveProperty("_tiptapOptions");
+  });
 });

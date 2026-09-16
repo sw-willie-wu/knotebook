@@ -54,3 +54,27 @@ test("env admin 首登強改密 → 建筆記 → 重整後內容還在", async 
     await expect(page.locator('[data-testid="note-editor"]')).toContainText(bodyText, { timeout: 2_000 });
   }).toPass({ timeout: 20_000 });
 });
+
+/**
+ * #99：手打完整的 markdown 連結語法 `[文字](網址)`，打完尾端 `)` 的當下轉成真連結。
+ *
+ * `ADMIN.newPassword`：上一支測試已經把疊內唯一的 admin 密碼改掉（單 worker、檔名
+ * 數字排序保證這支跑在它之後），這裡不重跑改密流程——見 helpers.ts 的 `ADMIN` 註解。
+ *
+ * `)` 是這條 input rule 的單一字元觸發（[[knotebook-wikilink-trigger]] 記著的「合成
+ * 按鍵一次只送一個字元」限制，對這個 feature 反而無害），`pressSequentially` 逐字元
+ * 送出即可測到。
+ */
+test("手打 markdown 連結語法 [文字](網址) 自動轉成真連結", async ({ page }) => {
+  await loginAs(page, ADMIN.email, ADMIN.newPassword);
+  await expect(page).toHaveURL(/\/$/);
+
+  const title = `E2E markdown link ${Date.now()}`;
+  await createNote(page, title);
+
+  const editor = editorLocator(page);
+  await editor.click();
+  await editor.pressSequentially("[Anthropic](https://anthropic.com)");
+
+  await expect(page.locator('[data-testid="note-editor"] a[href="https://anthropic.com"]')).toBeVisible();
+});

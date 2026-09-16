@@ -20,8 +20,8 @@ export interface ManualCopyFieldProps {
  * **`ShareDialog.test.tsx` 零改動是這次抽出的保存條件**——抽出時逐項保真：
  * `readOnly` + `onFocus` 全選 + 既有文案（`share.copyFailed`）。
  *
- * 說明文字用 `DialogDescription`（而非普通 `<p>`）：這是 repo 裡唯一沒有
- * description 的 Dialog（`NoteMenu.tsx` 的手動複製 Dialog 原本只有 `DialogTitle`）。
+ * 說明文字用 `DialogDescription`（而非普通 `<p>`）：`NoteMenu.tsx` 的手動複製
+ * Dialog 原本只有 `DialogTitle`，沒有可以掛 `aria-describedby` 的說明句。
  * **`id` 不覆寫**（review 修正——舊版曾傳 `id={labelId}` 蓋掉 Radix 內部的
  * `context.descriptionId`）：`DialogContent` 的 `aria-describedby` 一律指向
  * `context.descriptionId`，蓋掉這個 id 會讓 `aria-describedby` 指向一個不存在的

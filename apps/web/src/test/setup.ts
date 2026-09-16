@@ -53,6 +53,14 @@ Range.prototype.getClientRects = function () {
   return [] as unknown as DOMRectList;
 };
 
+// jsdom 沒有實作 `ClipboardEvent`——`prosemirror-view` 的 `pasteHTML`（BlockNote 的
+// `pasteMarkdown` 會走到）內部 `new ClipboardEvent("paste")` 會直接 throw。補一個最小的
+// 子類讓那條既有程式碼路徑跑得起來（不是造假結果，性質同上面兩個 stub）。
+// markdown-link.oracle.test.ts 的比對測試非用 `pasteMarkdown` 不可，所以這個缺口必須補。
+if (typeof globalThis.ClipboardEvent === "undefined") {
+  globalThis.ClipboardEvent = class extends Event {} as unknown as typeof ClipboardEvent;
+}
+
 afterEach(() => {
   cleanup();
 });
