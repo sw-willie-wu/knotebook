@@ -51,13 +51,13 @@ import { ADMIN, createNote, editorLocator, loginAs } from "./helpers.js";
  * 水平孿生案（`showAddOrRemoveColumnsButton`／`showAddOrRemoveRowsButton` 互換
  * 軸向）：貼一份夠寬的表格，讓表格右緣落在視窗外，hover **最後一列第一欄**（在視窗
  * 內，不用捲動），觸發「新增列」按鈕拉伸成表格全寬，右緣落在視窗外。
- * ⚠ 這個案子修好之後的殘留：`.bn-extend-button` 掛在 `relative` 的置中 wrapper 下，
- * 但 wrapper 本身沒有設 `overflow`——超出 wrapper 右緣的部分會變成**上一層捲動容器**
- * （`overflow-y-auto`，CSS 規則讓 `overflow-x` 隨之升成 `auto`）的橫向可捲溢出，不是
- * document 層級的（本檔開發期實機量到：800px 視窗、20 欄表格，hover 最後一列前
- * 捲動容器 `scrollWidth` 506（=`clientWidth`，未溢出），hover 後變 2480）。這是
- * 已知殘留、不在本案根治範圍，也記在 `docs/known-limitations.md`；所以水平孿生案
- * 只斷言 `documentElement` 兩軸不溢出，**不**斷言捲動容器本身的 `scrollWidth`。
+ * #162 之前的殘留（已裁，見下面斷言旁的說明）：`.bn-extend-button` 掛在 `relative`
+ * 的置中 wrapper 下，但 wrapper 本身沒有設 `overflow`——超出 wrapper 右緣的部分會
+ * 變成**上一層捲動容器**（`overflow-y-auto`，CSS 規則讓 `overflow-x` 隨之升成
+ * `auto`）的橫向可捲溢出，不是 document 層級的（本檔開發期實機量到：800px 視窗、
+ * 20 欄表格，hover 最後一列前捲動容器 `scrollWidth` 506，hover 後變 2480——這兩個
+ * 數字修好後不變，`scrollWidth` 不受 `overflow-x` 影響，見 (A)）。#162 起這層補上
+ * `overflow-x-clip`（見 `NoteEditor.tsx` :423 附近的註解）裁掉它。
  */
 
 const TABLE_ROWS = 30;
@@ -242,7 +242,7 @@ test("hover 表格最後一欄（下緣在視窗外）不會撐出全頁滾軸",
   // N3（補）：再往下一層量捲動容器本身（節點鏈同 `scrollEditorToTop`：note-editor
   // 的 parent 是置中 wrapper，再上一層才是捲動容器）——這裡的表格沒有超寬（垂直案
   // 只把表格撐高，不撐寬），所以捲動容器不該因為這次 hover 多出橫向可捲溢出；水平
-  // 孿生案的表格本身就超寬，那條測試刻意不驗這一層（見檔頭的已知殘留）。
+  // 孿生案的表格本身就超寬，那條測試在它自己的核心斷言裡驗這一層（見 #162）。
   const scrollWrapperGeo = await page.evaluate(() => {
     const editorRoot = document.querySelector('[data-testid="note-editor"]');
     const scrollWrapper = editorRoot?.parentElement?.parentElement as HTMLElement | null | undefined;
@@ -253,7 +253,10 @@ test("hover 表格最後一欄（下緣在視窗外）不會撐出全頁滾軸",
   );
 });
 
-test("hover 表格最後一列第一欄（右緣在視窗外，水平孿生案）不會撐出全頁滾軸", async ({ page, context }) => {
+test("hover 表格最後一列第一欄（右緣在視窗外，水平孿生案）不會撐出全頁滾軸，內文區也不長橫向滾軸", async ({
+  page,
+  context,
+}) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://localhost:3100" });
 
   // 縮小視窗寬度（不動高度）：讓 20 欄的表格右緣可靠地落在視窗外，同時列數壓在 2
@@ -319,9 +322,148 @@ test("hover 表格最後一列第一欄（右緣在視窗外，水平孿生案�
     viewportWidth,
   );
 
-  // 核心斷言：只驗 documentElement，不驗捲動容器（見檔頭：捲動容器橫向溢出是已知
-  // 殘留、不在本案根治範圍）。
   const after = await documentScrollGeometry(page);
   expect(after.scrollHeight, "hover 後 document 不該多出全頁滾軸（高度）").toBeLessThanOrEqual(after.clientHeight);
   expect(after.scrollWidth, "hover 後 document 不該多出全頁滾軸（寬度）").toBeLessThanOrEqual(after.clientWidth);
+
+  // issue #162：再往下一層量捲動容器本身（節點鏈同 `scrollEditorToTop`：note-editor
+  // 的 parent 是置中 wrapper，再上一層才是捲動容器）——這裡的表格本身就超寬，是這條
+  // 測試唯一能量到「橫向可捲溢出」殘留的地方（垂直案的表格不超寬，量不到）。
+  // 斷言分兩層，缺一即弱化：
+  //
+  // (A) 計算後的 `overflow-x`：守「Tailwind 的 `overflow-x-clip` utility 真的產出了
+  //     規則」這件事本身——這是**靜態屬性**，跟有沒有 hover 無關（拿掉上面整段 hover
+  //     這條也會綠）。⚠ 不能斷言 `scrollWidth <= clientWidth`：開發期拋棄式腳本量過
+  //     （三個 `width:200px` 的 div，內容都放 `width:1000px` 子節點），Chromium 的
+  //     `scrollWidth` 完全不受 `overflow-x` 是 `auto`／`hidden`／`clip` 影響，三者
+  //     都回 1000——量的是內容本身的幾何範圍，不是「有沒有可捲/可見的溢出」，修好
+  //     前後這個數字不會變（本檔第一版斷言用它，對修好的 build 也判紅，已改用這
+  //     道）。真正決定「有沒有橫向捲軸」的是計算後的 `overflow-x` 本身：CSS
+  //     Overflow Module Level 3 §3.1
+  //     （https://www.w3.org/TR/css-overflow-3/#overflow-properties）「The
+  //     visible/clip values of overflow compute to auto/hidden (respectively) if
+  //     one of overflow-x or overflow-y is neither visible nor clip」——本層
+  //     `overflow-y` 是 `auto`，所以我們寫的 `overflow-x: clip` 計算值會被推成
+  //     `hidden`（見 `NoteEditor.tsx` :423 附近的註解）。下面斷言的計算值是對這條
+  //     e2e 自己的節點鏈量的，不是套用合成 div 腳本的結果——拿掉 `overflow-x-clip`
+  //     重跑本檔（突變驗證）量到 `Received: "auto"`。
+  const scrollWrapperOverflowX = await page.evaluate(() => {
+    const editorRoot = document.querySelector('[data-testid="note-editor"]');
+    const scrollWrapper = editorRoot?.parentElement?.parentElement as HTMLElement | null | undefined;
+    return scrollWrapper ? getComputedStyle(scrollWrapper).overflowX : null;
+  });
+  expect(scrollWrapperOverflowX, "捲動容器必須有幾何（已渲染），否則下面兩條斷言恆綠").not.toBeNull();
+  expect(
+    scrollWrapperOverflowX,
+    "#162：捲動容器的橫向 overflow 不該計算成 auto/scroll（有溢出時就會長捲軸）",
+  ).not.toBe("auto");
+  expect(
+    scrollWrapperOverflowX,
+    "#162：捲動容器的橫向 overflow 不該計算成 auto/scroll（有溢出時就會長捲軸）",
+  ).not.toBe("scroll");
+
+  // (B) 使用者真的摸不摸得到：(A) 只守「class 有沒有生效」，不守「hover 之後使用者
+  //     實際滾不滾得動」。把游標移到捲動容器內、但落在 `.tableWrapper`／extend
+  //     按鈕**下方**空白處的點（這裡的表格只有 2 列很矮，下面有空白），送一次橫向
+  //     滾輪，量 `scrollWrapper.scrollLeft` 有沒有被推動。真瀏覽器實測（見
+  //     `NoteEditor.tsx` :423 附近的註解）：`hidden` 下這個動作 `scrollLeft` 恆為
+  //     0，`auto` 下同動作是 300。
+  const scrollWrapperBox = await page.evaluate(() => {
+    const editorRoot = document.querySelector('[data-testid="note-editor"]');
+    const sw = editorRoot?.parentElement?.parentElement as HTMLElement | null;
+    const r = sw?.getBoundingClientRect();
+    return r ? { x: r.x, y: r.y, width: r.width, height: r.height } : null;
+  });
+  const tableBoxForWheel = await table.boundingBox();
+  const extendBtnBoxForWheel = await page.locator(".bn-extend-button-add-remove-rows").first().boundingBox();
+  expect(scrollWrapperBox, "捲動容器必須有幾何（已渲染）").not.toBeNull();
+  expect(tableBoxForWheel, "表格必須有幾何（已渲染）").not.toBeNull();
+  // extend 按鈕必須有幾何——沒有的話 `wheelY` 會退回表格下緣＋20，落進 `.tableWrapper`
+  // 的 22px 下內距（`editor.css:137-146` 的 `--bn-table-widget-size`），滾輪被它吃掉，
+  // (B) 對任何 build 都恆綠。
+  expect(
+    extendBtnBoxForWheel,
+    "extend 按鈕必須有幾何——沒有的話 wheelY 會退回表格下緣+20，落進 .tableWrapper 的 22px 下內距而被它吃掉滾輪",
+  ).not.toBeNull();
+  if (scrollWrapperBox && tableBoxForWheel) {
+    const lowestEdge = Math.max(
+      tableBoxForWheel.y + tableBoxForWheel.height,
+      extendBtnBoxForWheel ? extendBtnBoxForWheel.y + extendBtnBoxForWheel.height : 0,
+    );
+    let wheelY = lowestEdge + 20;
+    if (wheelY >= scrollWrapperBox.y + scrollWrapperBox.height) {
+      wheelY = scrollWrapperBox.y + scrollWrapperBox.height / 2;
+    }
+    // 滾輪測試點刻意落在捲動容器左緣附近（`scrollWrapperBox.x + 8`），不是水平置中——
+    // 置中的點落在文章欄（ARTICLE_COLUMN 置中 wrapper）內，可能踩進 `.bn-editor`
+    // （pmView.dom）內部，會被下面 (204-209)/(230-238) 的機制卸載 extend 按鈕（量測見
+    // 下方註解）。實測（見下方 `wheelPointHit`）：本測試 800px 視窗下，文章欄的
+    // `clamp` 下限（680px）比捲動容器可用寬度（約 506px）還寬，wrapper 因此撐滿
+    // 捲動容器整寬（不是縮窄置中），`.bn-editor` 縮在 wrapper 自己的 `px-4`
+    // （`ARTICLE_COLUMN_PADDING`，16px）內距裡面；`+8` 還沒推進到內距內側的
+    // `.bn-editor`，命中的是 wrapper 自己（`elementFromPoint` 量到 class 含
+    // `max-w-[clamp(...)]`／`px-4` 那個 div），不是它的子孫、也不是 `.tableWrapper`。
+    const wheelX = scrollWrapperBox.x + 8;
+    expect(
+      wheelY,
+      "滾輪測試點必須落在捲動容器可視範圍內，才量得到使用者真的能不能滾",
+    ).toBeLessThan(scrollWrapperBox.y + scrollWrapperBox.height);
+
+    await page.mouse.move(wheelX, wheelY);
+
+    // 前提（已用 `document.elementFromPoint(wheelX, wheelY)` 量測，不是猜）：這個點
+    // 必須落在 pmView.dom（`.bn-editor`）之外，且不在 `.tableWrapper` 內——
+    // `TableHandles.ts:204-209` 對「`event.target` 不在 `pmView.dom` 內」的
+    // mousemove 直接 `return`，完全不動 `show`／`showAddOrRemove*Button`，extend
+    // 按鈕留住。反例（開發期量過，換成水平置中的點）：命中的是 TrailingNode 的
+    // `.bn-trailing-block` widget（在 `.bn-editor` 內部，鏈：widget →
+    // `.bn-block-group` → `.bn-editor`），會落進 `domCellAround`
+    // （`TableHandles.ts:104-134`）回傳 `undefined`、`:230-238` 卸載按鈕的路徑——
+    // 量測證實真的會卸載，只是不是同一個 tick：`mouse.move()` 剛結束、還沒等待就查
+    // 按鈕仍掛著，插入 `waitForTimeout(300)` 後按鈕才從 DOM 消失（重繪送達要時間）。
+    // 這裡選在 wrapper 自己的內距，從根本上不會進 `domCellAround` 的判斷，不必依賴
+    // 那個窄窗口。
+    const wheelPointHit = await page.evaluate(
+      ([x, y]) => {
+        const el = document.elementFromPoint(x, y);
+        const bnEditor = document.querySelector(".bn-editor");
+        const tableWrapper = document.querySelector(".tableWrapper");
+        return {
+          tag: el?.tagName ?? null,
+          className: el ? String((el as HTMLElement).className || "") : null,
+          insideBnEditor: !!(el && bnEditor && bnEditor.contains(el)),
+          insideTableWrapper: !!(el && tableWrapper && tableWrapper.contains(el)),
+        };
+      },
+      [wheelX, wheelY],
+    );
+    // 除錯用：滾輪測試點實際命中的元素
+    console.log("wheel point hit:", wheelPointHit);
+    expect(
+      wheelPointHit.insideBnEditor,
+      `滾輪測試點必須落在 pmView.dom 之外，否則 TableHandles.ts:230-238 會卸載按鈕、(B) 恆綠——命中元素 class="${wheelPointHit.className}"`,
+    ).toBe(false);
+    expect(
+      wheelPointHit.insideTableWrapper,
+      `滾輪測試點不得落在 .tableWrapper 內——命中元素 class="${wheelPointHit.className}"`,
+    ).toBe(false);
+
+    // 等 300ms 再斷言：這個點在 `.bn-editor` 外，理論上按鈕完全不受這次 mousemove
+    // 影響，所以不管等多久都該還掛著——跟上面反例「在 `.bn-editor` 內的點 300ms 後
+    // 消失」對照，這才是真正測到「點在外面」這件事本身，不是賭一個時序窗口。
+    await page.waitForTimeout(300);
+    await expect(
+      page.locator(".bn-extend-button-add-remove-rows").first(),
+      "滑到滾輪測試點、等 300ms 後 extend 按鈕仍必須掛著，否則橫向溢出源已消失、(B) 會對任何 build 都恆綠",
+    ).toBeAttached();
+
+    await page.mouse.wheel(300, 0);
+    await page.waitForTimeout(100);
+  }
+  const scrollLeftAfterWheel = await page.evaluate(() => {
+    const editorRoot = document.querySelector('[data-testid="note-editor"]');
+    const sw = editorRoot?.parentElement?.parentElement as HTMLElement | null;
+    return sw?.scrollLeft ?? -1;
+  });
+  expect(scrollLeftAfterWheel, "使用者不得能把內文區橫向捲走").toBe(0);
 });

@@ -397,7 +397,8 @@ export function NoteEditor({ doc, provider, editable, user, noteId, headerSlot, 
   //   根 row（flex h-full min-h-0 min-w-0 flex-1 gap-3）
   //     內文卡（cardSurface，flex-col）
   //       {headerSlot}                              ← NotePage 組裝
-  //       捲動容器（min-w-0 flex-1 overflow-y-auto min-h-0）
+  //       捲動容器（min-w-0 flex-1 overflow-y-auto min-h-0 overflow-x-clip——
+  //         `overflow-x-clip`＝#162，見下方 JSX 註解）
   //         置中 wrapper（ARTICLE_COLUMN ＋ ARTICLE_COLUMN_PADDING ＋ `relative` flex
   //           min-h-full flex-col py-6，`relative`＝#160，見下方 JSX 註解）
   //           ← 欄寬／內距一律取自 `ui/article-column.ts`（#115 起唯一消費端）：
@@ -418,25 +419,27 @@ export function NoteEditor({ doc, provider, editable, user, noteId, headerSlot, 
       <div className="flex h-full min-h-0 min-w-0 flex-1 gap-3">
         <div className={cn(cardSurface, "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden")}>
           {headerSlot}
-          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-            {/* issue #160：`relative` 在這裡承重——BlockNote 表格 hover 的浮層經 FloatingPortal
-                掛到 `editor.portalElement`，沒有 positioned 祖先時 containing block 落到
-                `<html>`，撐出全頁滾軸。放在 wrapper、上一層捲動容器（:421 的
-                `overflow-y-auto`）、或下一層的 `.bn-container`（`NoteEditorView` 渲染出的
-                note-editor 節點）三處實測效果相同；選 wrapper 因為最貼近內容，且已有
-                `NoteEditor.layout.test.tsx` 守著。
-                代價（記錄不根治）：浮層超出 wrapper 右緣會變成上一層捲動容器的橫向可捲
-                溢出（`overflow-y:auto` 使 `overflow-x` 隨之升成 `auto`）——數字見
-                `14-table-hover.spec.ts` 水平孿生案與 `docs/known-limitations.md`。
-                沒帶 middleware 的是側邊把手（`SideMenuController.tsx:68-76`）與表格的
-                五顆浮層（`TableHandlesController.tsx:189-301`）；其中會往右／往下溢出、
-                真的露餡的只有兩顆 extend 按鈕，三顆拖曳把手落點在左／上／格內，
-                `relative` 對它們是視覺 no-op。`FormattingToolbar`／`LinkToolbar`／
-                `SuggestionMenu`／`FilePanel` 都帶了 `flip()`/`shift()`，`relative` 對
-                它們同樣是視覺 no-op。
-                公開唯讀頁不受影響，兩道守衛：`TableHandles.ts:230-238`
-                （`!this.editor.isEditable` 時把三個旗標設回 false 並 `emitUpdate()`）
-                與 `ExtendButton.tsx:223-225`（`!editor.isEditable` 時直接 `return null`）。 */}
+          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-clip">
+            {/* issue #160：`relative` 承重——BlockNote 表格 hover 浮層走 FloatingPortal 到
+                `editor.portalElement`，沒有 positioned 祖先時 containing block 落到
+                `<html>`，撐出全頁滾軸；wrapper／捲動容器／`.bn-container` 三處等效，選
+                wrapper。唯一會**往右／往下**溢出、因而長滾軸的是沒帶 flip()/shift() 的
+                兩顆 extend 按鈕（`TableHandlesController.tsx:248-303`）；側邊 `+`/`⠿`
+                把手（`SideMenuController.tsx:68-76`）同樣沒帶 middleware，但往左溢出、
+                被卡片邊裁掉 → `docs/known-limitations.md` 的 #115 那條。公開唯讀頁靠
+                `TableHandles.ts:230-238`／`ExtendButton.tsx:223-225` 的 `!isEditable`
+                守衛整組關掉。
+                issue #162：右緣溢出的「新增列」按鈕曾讓這層長橫向捲軸（`14-table-hover.spec.ts`
+                水平孿生案量到 `scrollWidth` 506→2480，這兩個數字修好後不變——
+                `scrollWidth` 不受 `overflow-x` 影響，見下方斷言 (A)）。補
+                `overflow-x-clip` 裁掉：規範（css-overflow-3 §3.1，
+                https://www.w3.org/TR/css-overflow-3/#overflow-properties）另一軸非
+                visible/clip 時 `clip` 計算成 `hidden`；`overflow-x:auto` 本來就在同一個
+                padding box 裁切，沒有新增任何裁切邊界，不會讓浮層更被裁。真瀏覽器實測：
+                `hidden` 下滑鼠滾輪橫向 `scrollLeft` 恆為 0（`auto` 是 300）；
+                `scrollIntoView` 在我們自己的碼零呼叫，已查到的程式化捲動
+                （prosemirror-view caret-follow）先被 `.tableWrapper` 吃掉。細節見
+                `14-table-hover.spec.ts`。 */}
             <div className={cn(ARTICLE_COLUMN, ARTICLE_COLUMN_PADDING, "relative flex min-h-full flex-col py-6")}>
               <NoteEditorView
                 editor={editor}
