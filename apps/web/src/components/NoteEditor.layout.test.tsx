@@ -49,7 +49,10 @@ function stubFetch() {
  *     內文卡（flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl
  *             border border-border bg-card）
  *       {headerSlot}
- *       捲動容器（min-h-0 min-w-0 flex-1 overflow-y-auto）
+ *       捲動容器（min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-clip——
+ *                 `overflow-x-clip`＝#162，見 `NoteEditor.tsx` :423 附近的註解：裁掉
+ *                 寬表格 hover 時「新增列」按鈕超出右緣的部分，不讓它變成這層的橫向
+ *                 可捲溢出）
  *         置中 wrapper（ARTICLE_COLUMN ＋ ARTICLE_COLUMN_PADDING ＋ relative flex
  *                        min-h-full flex-col py-6——文章欄寬＝捲動容器 85%，下限 680px
  *                        （改版前的固定值，中等視窗承重）、上限 1056px。#115 起
@@ -122,7 +125,7 @@ describe("NoteEditor 佈局（PR2 slot 化：節點鏈 + 雙層 class smoke）",
       "border-border",
       "bg-card",
     );
-    expect(scrollWrapper).toHaveClass("min-h-0", "min-w-0", "flex-1", "overflow-y-auto");
+    expect(scrollWrapper).toHaveClass("min-h-0", "min-w-0", "flex-1", "overflow-y-auto", "overflow-x-clip");
     // 欄寬與內距取自 `ui/article-column.ts`（#115：內文是唯一消費端，頁首/頁尾
     // 滿卡寬）。結構守衛在 `ui/article-column.guard.test.ts`。
     // issue #160：`relative` 是置中 wrapper 必須承重的一根——BlockNote 表格 hover

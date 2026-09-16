@@ -9,7 +9,7 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ### Fixed
 
-- Hovering a table whose bottom or right edge was outside the window no longer adds a page-wide scrollbar or makes the layout jump. The row/column "add" buttons that appear on hover are positioned with plain CSS absolute positioning, and the note content had no positioned ancestor for them to anchor to, so they fell back to the page itself, rendered outside every scrollable container meant to contain them, and forced the whole page to grow to fit them (#160).
+- Hovering a table whose bottom or right edge was outside the window no longer adds a scrollbar or makes the layout jump — neither a page-wide one, nor, for a table too wide for the window, a horizontal one on the note content area. The row/column "add" buttons that appear on hover are positioned with plain CSS absolute positioning, and the note content had no positioned ancestor for them to anchor to, so they escaped every container meant to hold them and anchored to the page itself, which then had to grow to fit them; giving them one contains them, and the note's own scroll container now also clips horizontal overflow directly, so a button wider than the visible area is simply cut off at the edge instead of making the container scroll sideways (#160, #162).
 
 ## [0.4.1] - 2026-09-16
 
