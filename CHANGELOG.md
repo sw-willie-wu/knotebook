@@ -7,6 +7,10 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.4.1] - 2026-09-16
+
 ### Added
 
 - Typing a markdown link — `[text](url)` — now turns into a real link the moment you finish it, matching what pasting the same text already did. The `/` menu also gains a **Link** item that opens a small dialog (display text, URL) and inserts the link without you having to remember the syntax. Both share the same rule for what counts as a valid link, so they behave consistently; a handful of edge cases (syntax that doesn't survive a round-trip unchanged, formatting-in-progress, an open suggestion menu, and a couple of others) are recorded in [Known limitations](docs/known-limitations.md) (#99).
