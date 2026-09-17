@@ -92,7 +92,9 @@ export function UserMenu() {
           <Settings aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
+      {/* 寬度跟著觸發它的帳號列走（Radix 在 Content 上曝露 trigger 量到的寬度），
+          選單左右緣就跟側欄對齊；預設的 `min-w-32`（128px）比那一列窄一半。 */}
+      <DropdownMenuContent align="end" className="min-w-[var(--radix-dropdown-menu-trigger-width)]">
         <DropdownMenuLabel>{user.displayName}</DropdownMenuLabel>
         <DropdownMenuSeparator />
 

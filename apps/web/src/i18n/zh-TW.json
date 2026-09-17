@@ -51,18 +51,17 @@
     "copyLink": "複製連結",
     "linkCopied": "已複製連結。",
     "copyFailed": "無法自動複製——請選取下面的連結自行複製。",
+    "anonymous": {
+      "label": "匿名連結",
+      "desc": "開啟時，連結不含你的使用者名、猜不到。"
+    },
     "publicSlug": {
       "saveLabel": "儲存自訂網址",
-      "clearLabel": "移除自訂網址",
       "label": "自訂公開網址",
       "save": "儲存",
-      "clear": "移除",
-      "copy": "複製自訂連結",
-      "hint": "此網址包含你的使用者名、且可能被猜到；想匿名分享請用上方連結。"
+      "hint": "此網址包含你的使用者名、且可能被猜到。",
+      "randomSlugFailed": "無法產生隨機網址，請再試一次。"
     },
-    "customLink": "自訂連結",
-    "slugSave": "儲存",
-    "slugClear": "回自動網址",
     "slugError": {
       "length": "長度需為 1–100 字元。",
       "charset": "只能包含文字、數字與連字號（-）。",
@@ -70,8 +69,14 @@
       "reserved": "此字詞為系統保留字，不可使用。",
       "uuid_like": "這看起來像內部識別碼，不可使用。"
     },
-    "copyInternalLink": "複製內部連結",
+    "membersPanelTitle": "你邀請的人",
+    "publicPanelTitle": "公開連結",
     "copyPublicLink": "複製公開連結",
+    "state": {
+      "private": "私人——僅你自己可存取",
+      "members": "已與邀請的成員共享",
+      "public": "公開——任何有連結者可檢視"
+    },
     "access": {
       "title": "存取權",
       "private": "私人",
@@ -197,6 +202,7 @@
   },
   "admin": {
     "title": "使用者管理",
+    "description": "建立帳號、指派管理員，或停用已離開的成員。",
     "createUser": "建立使用者",
     "createUserDescription": "新增一個使用者帳號。",
     "mustChangePasswordNotice": "新帳號首次登入需修改密碼。",
@@ -247,6 +253,7 @@
       "ai": "AI"
     },
     "account": {
+      "description": "管理你的使用者名、密碼與 API token。",
       "ssoOnly": "此帳號透過 SSO 登入",
       "handleTitle": "使用者名",
       "handleDescription": "使用者名會出現在你分享的所有 /n/ 與 /p/ 網址中（token 連結不含）。改名後這些網址立即失效，舊名永不可再用——包括你自己改回去。",
@@ -295,6 +302,7 @@
     },
     "ai": {
       "title": "AI 供應商與動作",
+      "description": "把 Knotebook 指向你自己的 AI 端點，再決定編輯器裡會出現哪些快速動作。",
       "edit": "編輯",
       "providersHeading": "供應商",
       "addProvider": "新增供應商",

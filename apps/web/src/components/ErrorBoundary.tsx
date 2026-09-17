@@ -252,7 +252,7 @@ function NoteRouteErrorFallback({ isChunkError, onRetry }: { isChunkError: boole
         <NarrowTopBar />
         <div role="alert" className="flex flex-col items-start gap-3 p-6">
           <p className="text-sm text-muted-foreground">{t(isChunkError ? "app.chunkLoadError" : "app.noteCrash")}</p>
-          <Button type="button" variant="outline" size="sm" disabled={!online} onClick={onRetry}>
+          <Button type="button" variant="outline" disabled={!online} onClick={onRetry}>
             {t("app.retry")}
           </Button>
           {/* disabled 的按鈕不可聚焦、螢幕閱讀器拿不到原因——離線時要用文字說明它為何灰掉 */}

@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
 import { useSession } from "@/auth/useSession";
 import { ApiTokensSection } from "./ApiTokensSection";
+import { SettingsGroup, SettingsPage } from "./SettingsLayout";
 
 /** 逐檔複製的既有慣例（無共用 helper——比照 ShareDialog/SettingsUsersSection）。 */
 function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
@@ -55,11 +56,10 @@ function HandleSection() {
   }
 
   return (
-    <div className="space-y-2">
-      {/* h2：本區塊的 h1 讓給 changePassword 標題（每個 settings section 一個 h1 的
-          既有層級慣例——SettingsAiSection/SettingsUsersSection 同形，讀碼審查 m1） */}
-      <h2 className="text-lg font-semibold">{t("settings.account.handleTitle")}</h2>
-      <p className="text-sm text-muted-foreground">{t("settings.account.handleDescription")}</p>
+    <SettingsGroup
+      title={t("settings.account.handleTitle")}
+      description={t("settings.account.handleDescription")}
+    >
       {/* form＋type=submit（讀碼審查 m3）：單欄位表單使用者必按 Enter——比照
           ShareDialog/ChangePasswordForm 的既有形 */}
       <form
@@ -78,18 +78,17 @@ function HandleSection() {
         <Button
           type="submit"
           variant="outline"
-          size="sm"
           disabled={updateHandle.isPending || shown.trim() === "" || normalizeHandle(shown.trim()) === current}
         >
           {t("settings.account.handleSave")}
         </Button>
       </form>
       {error !== null && (
-        <p role="alert" className="text-sm text-destructive">
+        <p role="alert" className="mt-2 text-sm text-destructive">
           {error}
         </p>
       )}
-    </div>
+    </SettingsGroup>
   );
 }
 
@@ -113,22 +112,23 @@ export function SettingsAccountSection() {
   const { user } = useSession();
 
   return (
-    <div className="space-y-6">
+    <SettingsPage title={t("settings.nav.account")} description={t("settings.account.description")}>
       <HandleSection />
       {/* #107：與 HandleSection 同層、在 hasPassword 三元式之外——SSO-only 帳號
           也要能建 PAT。 */}
       <ApiTokensSection />
       {user?.hasPassword === false ? (
-        <p className="text-sm text-muted-foreground">{t("settings.account.ssoOnly")}</p>
+        // 無標題群組：SSO-only 帳號不該看到「修改密碼」標題（`SettingsAccountSection.test.tsx`
+        // 與 fix round 1 MINOR-2 都釘著這條），但仍要佔一個群組位以維持髮絲線節奏。
+        <SettingsGroup>
+          <p className="max-w-prose text-justify text-sm text-muted-foreground hyphens-auto">{t("settings.account.ssoOnly")}</p>
+        </SettingsGroup>
       ) : (
-        <>
-          <div className="space-y-1">
-            <h1 className="text-lg font-semibold">{t("changePassword.title")}</h1>
-            <p className="text-sm text-muted-foreground">{t("changePassword.description")}</p>
-          </div>
-          <ChangePasswordForm onSuccess={() => toast({ title: t("changePassword.successMessage") })} />
-        </>
+        <SettingsGroup title={t("changePassword.title")} description={t("changePassword.description")}>
+          {/* 設定 modal 內：tone="panel" → brandDeep（同一元件在 /change-password 整頁用預設 "page" → brandSolid） */}
+          <ChangePasswordForm tone="panel" onSuccess={() => toast({ title: t("changePassword.successMessage") })} />
+        </SettingsGroup>
       )}
-    </div>
+    </SettingsPage>
   );
 }

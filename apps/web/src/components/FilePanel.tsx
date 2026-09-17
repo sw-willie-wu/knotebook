@@ -153,7 +153,7 @@ function EmbedTab({ blockId }: { blockId: string }) {
           {error}
         </p>
       )}
-      <Button type="button" size="sm" onClick={submit} disabled={url.trim().length === 0}>
+      <Button type="button" variant="brandDeep" onClick={submit} disabled={url.trim().length === 0}>
         {t("note.filePanel.embed.embedButton")}
       </Button>
     </div>

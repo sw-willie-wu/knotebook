@@ -52,6 +52,9 @@ test("admin 建第二使用者 → 分享筆記 → 撤銷 → SLA 內失去存�
 
     await adminPage.getByRole("button", { name: "Share", exact: true }).click();
     const shareDialog = adminPage.getByRole("dialog", { name: "Share note" });
+    // 加人表單掛在「限定成員」情境面板底下（新 IA，Willie 2026-09-17 產品決定），
+    // 只有選了這個層級才會掛載——先切過去才看得到 Email address 欄位。
+    await shareDialog.getByRole("radio", { name: /Members only/ }).click();
     await shareDialog.getByLabel("Email address").fill(secondEmail);
     await shareDialog.getByRole("button", { name: "Add", exact: true }).click();
     await expect(shareDialog.getByText(secondEmail)).toBeVisible();

@@ -1,9 +1,7 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { useQueryClient } from "@tanstack/react-query";
-import { autoSlugFromTitle, canonicalNotePath, normalizeSlug, publicAliasPath, validateSlug, type NoteDto, type ShareDto, type ShareRole } from "@knotebook/shared";
+import { normalizeSlug, publicAliasPath, validateSlug, type NoteDto, type ShareDto, type ShareRole } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
-import { useUpdateNote } from "@/api/notes";
 import { useDeleteShare, usePutShare, useShares } from "@/api/shares";
 import { useClearPublicSlug, useCreatePublicLink, useDeletePublicLink, usePublicLink, useSetPublicSlug } from "@/api/public-link";
 import { Button } from "@/components/ui/button";
@@ -16,7 +14,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Share, Trash } from "@/components/ui/icons";
+import { Globe, Lock, Share, Trash } from "@/components/ui/icons";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "@/components/ui/toast";
 import { copyText } from "@/lib/clipboard";
 import { ManualCopyField } from "@/components/ManualCopyField";
@@ -33,6 +32,27 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
 const SELECT_CLASS =
   "h-8 shrink-0 rounded-md border border-input bg-background px-2 text-sm shadow-sm focus-visible:outline-none " +
   "focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
+
+/**
+ * 分享面板的一組設定＝**一件事**。內部自訂網址下架後（Willie 2026-09-17）面板只剩
+ * 「存取權」一組，這裡只負責標題與上下留白（原本多組時靠外層 `divide-y` 長出髮絲線，
+ * 現在單組已不需要）。
+ *
+ * 改版前四個區塊是平的 `space-y-4`，而且標頭各寫各的（兩個 `h3`、一個裸按鈕、
+ * 一個 `<label>`）——看起來就是一串不相干的控制項堆在一起。
+ *
+ * 刻意在本檔自己寫一份、不去 import `settings/SettingsLayout` 的同名元件：方向上
+ * `components/` 不該依賴 `settings/`，而且這裡的密度要比設定面板緊（`py-4` 對
+ * `py-8`）。逐檔各寫一份是這個 repo 的既有慣例（同檔 `errorMessage`、`SELECT_CLASS`）。
+ */
+function ShareGroup({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="space-y-2 py-4 first:pt-0 last:pb-0">
+      <h3 className="text-sm font-semibold">{title}</h3>
+      {children}
+    </section>
+  );
+}
 
 /** 分享名單裡的一列：email/displayName、角色下拉（PUT 的 upsert 語意——改角色跟新增共用
  * 同一支 `usePutShare`）、移除鈕（DELETE，觸發 server 端 `onShareChanged` 重驗）。 */
@@ -88,7 +108,7 @@ function ShareRow({ noteId, share }: { noteId: string; share: ShareDto }) {
 }
 
 /** 分享名單 + 新增列。名單載入中／空清單各自的文案，跟 NoteList 的三態慣例一致。 */
-function SharesSection({ noteId }: { noteId: string }) {
+function SharesSection({ noteId, title }: { noteId: string; title: string }) {
   const { t } = useTranslation();
   const sharesQuery = useShares(noteId);
   const putShare = usePutShare(noteId);
@@ -113,7 +133,7 @@ function SharesSection({ noteId }: { noteId: string }) {
 
   return (
     <div className="space-y-2">
-      <h3 className="text-sm font-medium">{t("share.peopleTitle")}</h3>
+      <p className="text-sm font-medium">{title}</p>
 
       {sharesQuery.isPending ? (
         <p className="text-sm text-muted-foreground">{t("app.loading")}</p>
@@ -150,7 +170,7 @@ function SharesSection({ noteId }: { noteId: string }) {
           <option value="viewer">{t("roles.viewer")}</option>
           <option value="editor">{t("roles.editor")}</option>
         </select>
-        <Button type="submit" size="sm" disabled={putShare.isPending}>
+        <Button type="submit" variant="outline" disabled={putShare.isPending}>
           {t("share.add")}
         </Button>
       </form>
@@ -238,12 +258,17 @@ function AccessSection({ note }: { note: NoteDto }) {
     }
   }
 
-  /** 產生／重生公開連結（同上，失敗即復原）。 */
-  async function mintLink(): Promise<void> {
+  /** 產生／重生公開連結（失敗即復原，同上）。回傳是否成功——OFF 態「重新產生」
+   * （B1）需要知道換 token 這步有沒有成功，才能決定要不要接著換 slug：失敗時
+   * 這裡已經 toast＋復原過一次，呼叫端不必也不該再顯示第二個錯誤，只需要中止、
+   * 不得拿舊 token 硬換出一個新 slug。 */
+  async function mintLink(): Promise<boolean> {
     try {
       await createLink.mutateAsync();
+      return true;
     } catch (err) {
       await recoverFromError(err);
+      return false;
     }
   }
 
@@ -299,7 +324,6 @@ function AccessSection({ note }: { note: NoteDto }) {
     }
   }
 
-  const publicUrl = token ? `${window.location.origin}/p/${token}` : null;
   const options: Array<{ value: AccessLevel; label: string; desc: string }> = [
     { value: "private", label: t("share.access.private"), desc: t("share.access.privateDesc") },
     { value: "members", label: t("share.access.members"), desc: t("share.access.membersDesc") },
@@ -307,8 +331,7 @@ function AccessSection({ note }: { note: NoteDto }) {
   ];
 
   return (
-    <div className="space-y-2">
-      <h3 className="text-sm font-medium">{t("share.access.title")}</h3>
+    <ShareGroup title={t("share.access.title")}>
 
       {queriesFailed && (
         <p role="alert" className="text-sm text-destructive">
@@ -320,7 +343,7 @@ function AccessSection({ note }: { note: NoteDto }) {
         {options.map((option) => (
           <label
             key={option.value}
-            className="flex cursor-pointer items-start gap-2 rounded-md p-2 hover:bg-accent/60"
+            className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 hover:bg-accent/60"
           >
             <input
               type="radio"
@@ -354,7 +377,7 @@ function AccessSection({ note }: { note: NoteDto }) {
             </Button>
             <Button
               type="button"
-              variant="ghost"
+              variant="outline"
               size="sm"
               disabled={busy}
               onClick={() => {
@@ -370,154 +393,285 @@ function AccessSection({ note }: { note: NoteDto }) {
         </div>
       )}
 
-      {selection === "public" && publicUrl && (
-        <div className="space-y-2">
-          <Input readOnly value={publicUrl} aria-label={t("share.access.publicUrlLabel")} className="text-xs" />
-          <div className="flex gap-2">
-            <PublicCopyButton url={publicUrl} />
-            <Button type="button" variant="ghost" size="sm" disabled={createLink.isPending} onClick={() => void mintLink()}>
-              {t("share.access.regenerate")}
-            </Button>
-          </div>
-          <PublicAliasField note={note} slug={linkQuery.data?.slug ?? null} />
+      {/* 情境面板：**選了哪一層，就只看到那一層需要的東西**。
+          改版前成員名單是跟「存取權」平級的獨立區塊，看起來像不管選什麼都適用；
+          公開連結的細節則另外藏在下面。兩者其實都只屬於某一個選項，收進來之後
+          「這些設定屬於我剛剛選的那個」才看得出來，同時畫面上的輸入框也少一半。
+          ⚠ 副作用：私人狀態下不再直接出現邀請表單（要先選「限定成員」）——
+          `e2e/tests/03-share-revoke.spec.ts` 因此多一步點選，那條刻意的捷徑
+          由 Willie 2026-09-17 裁定換掉。 */}
+      {latched && selection === "members" && (
+        <div className="rounded-md bg-muted/40 p-3">
+          <SharesSection noteId={note.id} title={t("share.membersPanelTitle")} />
         </div>
       )}
-    </div>
+
+      {selection === "public" && token && (
+        <PublicLinkPanel
+          noteId={note.id}
+          ownerHandle={note.ownerHandle}
+          token={token}
+          slug={linkQuery.data?.slug ?? null}
+          onRegenerateToken={mintLink}
+          regenerateTokenPending={createLink.isPending}
+        />
+      )}
+    </ShareGroup>
   );
 }
 
-/**
- * 公開別名列（#122 PR3 Task 5）：`/p/<ownerHandle>/<自訂名>` 的設定/清除/複製。
- * 只在公開態渲染（呼叫端已鎖在 `selection === "public" && publicUrl` 內——別名的
- * 前置條件「已公開」由此在 UI 面成立，server 端另有 UPDATE 述詞閘門）。
- *
- * - **slug 資料搭既有 public-link query 走、不新增 query**（plan gate m9）——#72 的
- *   latch 三態靠 shares＋public-link 兩 query derive，多一個 query 會破壞其前提。
- * - 前綴取 `note.ownerHandle`（非 session user）：owner-only 下等價，但與
- *   canonicalNotePath 同源、不多一個資料來源（plan gate m9）。
- * - 複製網址走 shared 的 `publicAliasPath`（`/p/` 兩段形頁面網址唯一組字點）。
- * - setValue 判準與 SlugField 同款（初值/persist 都是 `slug 存在→值、null→""`；
- *   別名只有設/未設兩態，沒有 SlugField 的 auto/custom 第三態）；client 端
- *   normalizeSlug/validateSlug 先擋（與 server prepareSlugForPatch 同源），
- *   409 `public_slug_taken`／429 走 server 回應＋ errors.<code>。
- * - ⚠ props 變、state 不變的皺褶與 SlugField 同款（mount 後 slug prop 換值——
- *   recoverFromError 的 refetch、跨分頁 focus refetch——輸入框留舊值、dirty 亮起）：
- *   同款接受理由，別只修一邊。
- * - a11y/e2e 名字契約（plan gate m8 擴充；Playwright 預設子字串比對）：input＝
- *   "Custom public link"、存/清鈕 aria-label＝"Save custom URL"/"Remove custom URL"、
- *   複製＝"Copy custom link"——四個新名彼此互不為子字串、皆不含 "Public link URL"。
- *   已知包含關係（e2e 要留意）：⚠ "Save custom URL" ⊃ "Save"、"Remove custom URL"
- *   ⊃ "Remove"——**公開態下 e2e 查 SlugField 的 Save（或任何短名鈕）必須
- *   `exact: true`**；"Copy custom link" ⊃ "Custom link"（僅按鈕文字面——getByLabel
- *   不認按鈕文字、getByRole('textbox') 有 role 隔離，實務不撞）。
- *   契約也含兩個 id：`#share-public-slug-prefix`（前綴 span——e2e 11-public-share
- *   從這裡讀別名網址前半；改名或把前綴併進 placeholder 會讓 e2e 在最貴迴圈末端
- *   紅）與 `#share-public-slug-hint`（aria-describedby 錨點）。
- */
-function PublicAliasField({ note, slug }: { note: NoteDto; slug: string | null }) {
-  const { t } = useTranslation();
-  const setSlug = useSetPublicSlug(note.id);
-  const clearSlug = useClearPublicSlug(note.id);
+const RANDOM_SLUG_ATTEMPTS = 5;
 
+/** 匿名態公開連結網址的前綴（N3）：組完整網址（`linkUrl`）與畫面上顯示的前綴
+ * 文字兩處都要用這個常數——各自拼一份字面 `"/p/"` 就是這個檔案自己在
+ * `publicAliasPath` 那段 JSDoc 裡明令禁止的漂移形，這裡是同一份紀律套在匿名分支
+ * （OFF 態的前綴走 `publicAliasPath({ handle, slug: "" })`，本來就只有一處）。 */
+const ANONYMOUS_LINK_PREFIX = "/p/";
+
+/**
+ * 隨機 slug（16 位小寫十六進位＝64 bits，`crypto.getRandomValues`）：切匿名 OFF
+ * 的預設候選、以及 OFF 態按「重新產生」的候選。⚠ **這不是安全邊界**——匿名模式
+ * 真正的安全邊界在另一側的 256-bit token（server 產生）；這裡的隨機性只是避免
+ * 「今天新建的第幾篇筆記」這種好記慣用名而已，不是防猜測強度考量，日後別誤用
+ * 在任何真的需要抗猜測的地方。
+ *
+ * hex charset（`0-9a-f`）本就是 `validateSlug` charset（`\p{L}\p{N}-`）的子集、
+ * 16 字元落在長度 1–100 內、不含 `-` 所以 dash 分支必過、不是保留字、不含 `-`
+ * 也就不可能符合 `UUID_RE`／`UUID_SUFFIX_RE`（兩者都要求 dash 分段）——但**仍在
+ * 產生後呼叫 `validateSlug` 斷言**，不假設建構方式一定過（交辦明令）；斷言失敗
+ * 就重產，重試上限次數後放棄並回 null 讓呼叫端顯示錯誤。
+ */
+function generateRandomSlugCandidate(): string {
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function generateValidatedRandomSlug(): string | null {
+  for (let attempt = 0; attempt < RANDOM_SLUG_ATTEMPTS; attempt++) {
+    const candidate = generateRandomSlugCandidate();
+    if (validateSlug(candidate) === null) return candidate;
+  }
+  return null;
+}
+
+/**
+ * 公開連結面板（Willie 2026-09-17 產品決定，取代舊「token 唯讀連結」＋「公開別名
+ * 欄位」兩個並列區塊）：**一個匿名 toggle ＋ 一條連結 ＋ 最多三顆鈕**。只在公開態
+ * 渲染（呼叫端已鎖在 `selection === "public" && token` 內）。
+ *
+ * **模式由既有資料推導，不是獨立 state**：`slug` 為 `null` ⇔ 匿名 ON（網址
+ * `/p/<token>`，不可編輯，鈕只有複製／重新產生）；`slug` 有值 ⇔ 匿名 OFF（網址
+ * `/p/<handle>/<slug>`，多一顆「儲存」＋可猜警語）。`anonymous` 直接 `slug ===
+ * null`，**不是另開一份 optimistic toggle state**——好處是失敗復原不必額外寫
+ * 「彈回」邏輯：mutation 沒成功，`slug` prop 就沒變，toggle 呈現的模式自然還是
+ * 原本那個（裸 `mutate()` 才會製造「畫面先切、失敗後卡住」的假象）。
+ *
+ * - **切 OFF**＝`useSetPublicSlug` 寫入前端產生的隨機 slug；**切 ON**＝
+ *   `useClearPublicSlug`。「重新產生」在 ON 態＝換 token（呼叫端傳入的
+ *   `onRegenerateToken`，即 `AccessSection.mintLink`，其 `useCreatePublicLink`
+ *   已是 mutateAsync＋recoverFromError）；在 OFF 態（B1 修正，2026-09-17）＝
+ *   **同時換 token 與 slug**——先換 token 再換 slug，任一步失敗都中止並走既有
+ *   錯誤呈現。理由：OFF 態的網址是 `/p/<handle>/<slug>`，不含 token，但 token
+ *   仍是唯一的安全邊界；只換 slug、不換 token 的話，外洩過的 256-bit token
+ *   永遠沒有輪替的入口——即使使用者以為自己按了「重新產生連結」。
+ *   `onRegenerateToken` 回傳是否成功（`Promise<boolean>`），失敗時 `mintLink`
+ *   已經自己 toast＋復原過一次，這裡不重複顯示、只中止，不得拿舊 token 換出
+ *   一個新 slug。
+ * - **一律 `mutateAsync` ＋ catch → `setError`**：toggle／regenerate／save 三個
+ *   動作共用同一顆 `error` state（同時只會有一個在跑，`busy` 互斥），裸 `mutate()`
+ *   的靜默失敗＝安全性誤述（見 `突變驗證`：把 catch 拿掉會讓失敗復原測試翻紅）。
+ * - OFF 態沿用 #122 PR3 的別名輸入慣例：`normalizeSlug`→`validateSlug` 本地先擋、
+ *   `share.slugError.*` 文案、`#share-public-slug-prefix`／`#share-public-slug-hint`
+ *   兩個 id（e2e 11-public-share 讀前綴，別改名）。a11y 名字契約沿用：input＝
+ *   "Custom public link"、存鈕 aria-label＝"Save custom URL"（⊃ "Save"，e2e 查裸
+ *   "Save" 需 `exact: true`）。
+ * - ⚠ props 變、state 不變的皺褶（`value` 只在掛載與本元件自己的 mutation 成功
+ *   後更新；跨分頁 focus refetch 換了 slug 不會自動流進 `value`）——沿用舊
+ *   `PublicAliasField` 就有的已知限制，範圍外不修。
+ */
+function PublicLinkPanel({
+  noteId,
+  ownerHandle,
+  token,
+  slug,
+  onRegenerateToken,
+  regenerateTokenPending,
+}: {
+  noteId: string;
+  ownerHandle: string;
+  token: string;
+  slug: string | null;
+  onRegenerateToken: () => Promise<boolean>;
+  regenerateTokenPending: boolean;
+}) {
+  const { t } = useTranslation();
+  const setSlug = useSetPublicSlug(noteId);
+  const clearSlug = useClearPublicSlug(noteId);
+
+  const anonymous = slug === null;
   const [value, setValue] = useState(slug ?? "");
-  const [serverError, setServerError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const trimmed = value.trim();
   const normalized = trimmed.length > 0 ? normalizeSlug(trimmed) : "";
   const localReason = trimmed.length > 0 ? validateSlug(normalized) : null;
   const localError = localReason ? t(`share.slugError.${localReason}`) : null;
   const dirty = trimmed !== (slug ?? "");
-  const busy = setSlug.isPending || clearSlug.isPending;
+  const busy = setSlug.isPending || clearSlug.isPending || regenerateTokenPending;
 
-  const aliasUrl = slug ? `${window.location.origin}${publicAliasPath({ handle: note.ownerHandle, slug })}` : null;
+  const linkUrl = anonymous
+    ? `${window.location.origin}${ANONYMOUS_LINK_PREFIX}${token}`
+    : `${window.location.origin}${publicAliasPath({ handle: ownerHandle, slug: slug ?? "" })}`;
 
-  async function handleSave(): Promise<void> {
-    if (localError || trimmed.length === 0 || !dirty) return;
-    setServerError(null);
+  /** OFF 態的隨機 slug 動作（切 OFF、與 OFF 態按重新產生）共用這段：產生→驗證
+   * →mutateAsync→catch。產生失敗（極端邊界，理論上不會發生）與 mutation 失敗
+   * 共用同一個 `error` 呈現面，不特別區分成因。 */
+  async function applyRandomSlug(): Promise<void> {
+    const candidate = generateValidatedRandomSlug();
+    if (candidate === null) {
+      setError(t("share.publicSlug.randomSlugFailed"));
+      return;
+    }
     try {
-      const updated = await setSlug.mutateAsync(normalized);
-      setValue(updated.slug ?? "");
+      const updated = await setSlug.mutateAsync(candidate);
+      setValue(updated.slug ?? candidate);
     } catch (err) {
-      setServerError(errorMessage(t, err));
+      setError(errorMessage(t, err));
     }
   }
 
-  async function handleClear(): Promise<void> {
-    setServerError(null);
+  /** 匿名 toggle：ON→OFF 切隨機 slug；OFF→ON 清 slug 退回 token 網址。失敗即
+   * 復原——`slug` prop 沒變，`anonymous` 直接派生，畫面自然停在原模式。 */
+  async function handleToggle(): Promise<void> {
+    if (busy) return;
+    setError(null);
+    if (anonymous) {
+      await applyRandomSlug();
+      return;
+    }
     try {
       await clearSlug.mutateAsync();
       setValue("");
     } catch (err) {
-      setServerError(errorMessage(t, err));
+      setError(errorMessage(t, err));
+    }
+  }
+
+  async function handleRegenerate(): Promise<void> {
+    if (busy) return;
+    setError(null);
+    if (anonymous) {
+      await onRegenerateToken();
+      return;
+    }
+    // OFF 態（B1 修正）：同時換 token 與 slug——先換 token，成功才接著換 slug。
+    // token 失敗就地中止：`mintLink` 已經走 `AccessSection` 既有的錯誤呈現
+    // （toast＋selection 復原），這裡不重複顯示，也不得拿舊 token 換出一個新 slug。
+    const tokenRegenerated = await onRegenerateToken();
+    if (!tokenRegenerated) return;
+    await applyRandomSlug();
+  }
+
+  async function handleSave(): Promise<void> {
+    if (localError || trimmed.length === 0 || !dirty || busy) return;
+    setError(null);
+    try {
+      const updated = await setSlug.mutateAsync(normalized);
+      setValue(updated.slug ?? "");
+    } catch (err) {
+      setError(errorMessage(t, err));
     }
   }
 
   return (
-    <div className="space-y-1">
-      <label htmlFor="share-public-slug" className="text-sm font-medium">
-        {t("share.publicSlug.label")}
-      </label>
+    <div role="group" aria-label={t("share.publicPanelTitle")} className="space-y-2 rounded-md bg-muted/40 p-3">
+      <p className="text-sm font-medium">{t("share.publicPanelTitle")}</p>
+
       <div className="flex items-center gap-2">
-        {/* 前綴也走 publicAliasPath（slug 留空恰得 `/p/<handle>/`）——與複製鈕同一組字
-            點，兩處各自拼字串就是 shared JSDoc 明令禁止的漂移形（讀碼審 M1） */}
+        <Switch
+          id="share-anonymous-toggle"
+          checked={anonymous}
+          disabled={busy}
+          onCheckedChange={() => void handleToggle()}
+        />
+        <label htmlFor="share-anonymous-toggle" className="text-sm font-medium">
+          {t("share.anonymous.label")}
+        </label>
+      </div>
+      <p className="text-xs text-muted-foreground">{t("share.anonymous.desc")}</p>
+
+      {/* 兩種型態共用同一個形狀：**前綴文字 ＋ 輸入框**。匿名態的輸入框唯讀
+          （那條網址不可自訂），但仍是輸入框——可以選取、可以手動複製，而且切換
+          toggle 時版面不會從「一段文字」跳成「一排欄位」。 */}
+      <div className="flex items-center gap-2">
+        {/* 前綴走 publicAliasPath（slug 留空恰得 `/p/<handle>/`）——與複製網址同一
+            組字點，兩處各自拼字串就是 shared JSDoc 明令禁止的漂移形。匿名態沒有
+            handle 這一段，前綴就是 `/p/`。 */}
         <span id="share-public-slug-prefix" className="shrink-0 text-xs text-muted-foreground">
-          {publicAliasPath({ handle: note.ownerHandle, slug: "" })}
+          {anonymous ? ANONYMOUS_LINK_PREFIX : publicAliasPath({ handle: ownerHandle, slug: "" })}
         </span>
         <Input
           id="share-public-slug"
+          readOnly={anonymous}
+          aria-label={anonymous ? t("share.access.publicUrlLabel") : t("share.publicSlug.label")}
           aria-describedby="share-public-slug-prefix share-public-slug-hint"
-          value={value}
+          value={anonymous ? token : value}
+          disabled={!anonymous && busy}
           onChange={(event) => {
             setValue(event.target.value);
-            setServerError(null);
+            setError(null);
           }}
-          className="min-w-0 flex-1"
+          className="min-w-0 flex-1 text-xs"
         />
-        {/* aria-label 給專屬名：同 dialog 的 SlugField 也有一顆 "Save"，同名對 AT
-            與 e2e strict-mode 都含糊（顯示文字維持短的） */}
-        <Button
-          type="button"
-          size="sm"
-          aria-label={t("share.publicSlug.saveLabel")}
-          onClick={() => void handleSave()}
-          disabled={!dirty || trimmed.length === 0 || localError !== null || busy}
-        >
-          {t("share.publicSlug.save")}
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <PublicCopyButton url={linkUrl} />
+        {/* 與「複製連結」平級（同一排、都是這個面板的主要動作），所以是 `outline` 不是
+            `ghost`——ghost 沒有邊框與底色，單獨站著看不出來是按鈕（使用者回報）。
+            `ghost` 留給「附屬在某一列、跟在主動作後面」的還原型動作（清除、回自動）。 */}
+        <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void handleRegenerate()}>
+          {t("share.access.regenerate")}
         </Button>
-        {slug !== null && (
+        {!anonymous && (
           <Button
             type="button"
-            size="sm"
             variant="outline"
-            aria-label={t("share.publicSlug.clearLabel")}
-            onClick={() => void handleClear()}
-            disabled={busy}
+            size="sm"
+            aria-label={t("share.publicSlug.saveLabel")}
+            onClick={() => void handleSave()}
+            disabled={!dirty || trimmed.length === 0 || localError !== null || busy}
           >
-            {t("share.publicSlug.clear")}
+            {t("share.publicSlug.save")}
           </Button>
         )}
       </div>
-      {aliasUrl && <PublicCopyButton url={aliasUrl} label={t("share.publicSlug.copy")} />}
-      <p id="share-public-slug-hint" className="text-xs text-muted-foreground">
-        {t("share.publicSlug.hint")}
-      </p>
+
+      {!anonymous && (
+        <p id="share-public-slug-hint" className="text-xs text-muted-foreground">
+          {t("share.publicSlug.hint")}
+        </p>
+      )}
+
       {localError && (
         <p role="alert" className="text-sm text-destructive">
           {localError}
         </p>
       )}
-      {!localError && serverError && (
+      {!localError && error && (
         <p role="alert" className="text-sm text-destructive">
-          {serverError}
+          {error}
         </p>
       )}
     </div>
   );
 }
 
-/** 複製公開連結（與 CopyLinkButton 同一套 clipboard 三段退路，語意分明：這顆複製
- * 的是免登入的 /p/ 連結，不是內部 canonical 連結）。`label` 讓別名列給自己的名字
- * （"Copy custom link"）——同 dialog 兩顆同名複製鈕會讓 e2e strict-mode 紅。 */
+/** 複製公開連結（`lib/clipboard.ts` 的 clipboard 三段退路，語意分明：這顆複製
+ * 的是免登入的 /p/ 連結，匿名 ON/OFF 兩態共用同一顆——只有一條連結，不需要
+ * 兩個不同名字）。`label` 保留為選用參數（過去多連結並存時用來分名），目前
+ * 唯一呼叫點不傳、落回 `share.copyPublicLink` 預設文案。 */
 function PublicCopyButton({ url, label }: { url: string; label?: string }) {
   const { t } = useTranslation();
   const [manualUrl, setManualUrl] = useState<string | null>(null);
@@ -533,141 +687,14 @@ function PublicCopyButton({ url, label }: { url: string; label?: string }) {
 
   return (
     <div className="flex flex-col gap-2">
-      <Button type="button" variant="secondary" size="sm" onClick={() => void handleCopy()}>
+      {/* ⚠ 不要用 `variant="secondary"`：`--secondary` 在淺色是 oklch(0.97)、和
+          面板底（`--popover`＝白）幾乎同色，在深色則與 `--accent` **同值**——也就是
+          ghost 按鈕的 hover 底色。結果是這顆鈕看起來像一塊 hover 高亮而不是按鈕
+          （使用者回報）。`outline` 有邊框，任何主題下都看得出是可按的東西。 */}
+      <Button type="button" variant="outline" size="sm" onClick={() => void handleCopy()}>
         {label ?? t("share.copyPublicLink")}
       </Button>
       {manualUrl !== null && <ManualCopyField value={manualUrl} />}
-    </div>
-  );
-}
-
-/**
- * 複製 canonical 連結到剪貼簿。程式化複製兩條路都不可用時（見 `lib/clipboard.ts`），
- * 就地攤出一個唯讀輸入框讓使用者自己選取——**不能只丟 toast**：Radix 的 toast root
- * 帶行內 `userSelect: "none"`，而且橫向拖曳會被 swipe-to-dismiss 手勢吃掉，等於看得到
- * 卻選不起來。
- */
-function CopyLinkButton({ note }: { note: NoteDto }) {
-  const { t } = useTranslation();
-  const [manualUrl, setManualUrl] = useState<string | null>(null);
-
-  async function handleCopy(): Promise<void> {
-    const url = `${window.location.origin}${canonicalNotePath(note)}`;
-
-    if (await copyText(url)) {
-      setManualUrl(null);
-      toast({ title: t("share.linkCopied") });
-      return;
-    }
-    setManualUrl(url);
-  }
-
-  return (
-    <div className="flex flex-col gap-2">
-      <Button type="button" variant="secondary" size="sm" onClick={() => void handleCopy()}>
-        {t("share.copyInternalLink")}
-      </Button>
-      {manualUrl !== null && <ManualCopyField value={manualUrl} />}
-    </div>
-  );
-}
-
-/**
- * owner-only「自訂連結」欄（#122 三態語意）：
- * - 初值只在 `slugIsCustom` 時帶現行 slug——auto slug 不是使用者「設定」的東西，
- *   不預填進輸入框（預填會讓「存自己看到的值」變成把 auto 固化成 custom 的誤觸）。
- * - placeholder 顯示**現行 auto**（custom 時＝清除後會得到的 `autoSlugFromTitle(title)`
- *   預覽、auto 時＝現行 slug 本身），讓「不設定會是什麼」一直看得見。
- * - 清除鈕（「回自動網址」）**僅 custom 顯示**——auto 態沒有可清的東西，
- *   `PATCH {slug:null}` 只會白耗 slugPatch 節流額度。
- * 與 `TitleInput` 相同的存檔+快取回寫模式（網址收斂交給 NotePage 的收斂 effect——
- * A3 單一寫網址點；回寫鍵＝`['note', note.id]` 常駐層）；差別是這裡先在 client 端用
- * `normalizeSlug`/`validateSlug`（與 server 的 `prepareSlugForPatch` 同源，見
- * `apps/server/src/notes/slug.ts`）擋掉明顯不合法的輸入；409 `slug_taken`（#122 起 per-user——只有你自己的另一篇會撞）／429
- * 這類要打了才知道的錯誤，仍走 server 回應 + `errors.<code>` 顯示。
- */
-function SlugField({ note }: { note: NoteDto }) {
-  const { t } = useTranslation();
-  const queryClient = useQueryClient();
-  const updateNote = useUpdateNote();
-
-  const [value, setValue] = useState(note.slugIsCustom ? note.slug : "");
-  const [serverError, setServerError] = useState<string | null>(null);
-
-  // custom 時預覽「清除後會得到的 auto」（client 端 autoSlugFromTitle 與 server 同源；
-  // 撞名尾碼是 server 探測的事，預覽不含——體感可接受的近似）；auto 時就是現行 slug。
-  const autoPreview = note.slugIsCustom ? autoSlugFromTitle(note.title) : note.slug;
-
-  const trimmed = value.trim();
-  const normalized = trimmed.length > 0 ? normalizeSlug(trimmed) : "";
-  const localReason = trimmed.length > 0 ? validateSlug(normalized) : null;
-  const localError = localReason ? t(`share.slugError.${localReason}`) : null;
-  const dirty = trimmed !== (note.slugIsCustom ? note.slug : "");
-
-  async function persist(next: string | null): Promise<void> {
-    setServerError(null);
-    try {
-      const updated = await updateNote.mutateAsync({ id: note.id, slug: next });
-      queryClient.setQueryData(["note", note.id], updated);
-      // A3（#122）：不再自帶 replaceState——唯一寫網址點是 NotePage 的收斂 effect
-      // （快取更新 → 常駐層 note 變 → effect 改寫網址）。
-      // setValue 與初值同判準（gate m10(a)）：清除後 server 回的是 auto——填回輸入框
-      // 會跟初值規則自相矛盾（下一次開 dialog 是空的、這一刻卻有值）。
-      setValue(updated.slugIsCustom ? updated.slug : "");
-    } catch (err) {
-      setServerError(errorMessage(t, err));
-    }
-  }
-
-  async function handleSave(): Promise<void> {
-    if (localError || trimmed.length === 0 || !dirty) return;
-    await persist(normalized);
-  }
-
-  async function handleClear(): Promise<void> {
-    await persist(null);
-  }
-
-  return (
-    <div className="space-y-1">
-      <label htmlFor="share-slug" className="text-sm font-medium">
-        {t("share.customLink")}
-      </label>
-      <div className="flex items-center gap-2">
-        <Input
-          id="share-slug"
-          value={value}
-          placeholder={autoPreview}
-          onChange={(event) => {
-            setValue(event.target.value);
-            setServerError(null);
-          }}
-          className="min-w-0 flex-1"
-        />
-        <Button
-          type="button"
-          size="sm"
-          onClick={() => void handleSave()}
-          disabled={!dirty || trimmed.length === 0 || localError !== null || updateNote.isPending}
-        >
-          {t("share.slugSave")}
-        </Button>
-        {note.slugIsCustom && (
-          <Button type="button" size="sm" variant="outline" onClick={() => void handleClear()} disabled={updateNote.isPending}>
-            {t("share.slugClear")}
-          </Button>
-        )}
-      </div>
-      {localError && (
-        <p role="alert" className="text-sm text-destructive">
-          {localError}
-        </p>
-      )}
-      {!localError && serverError && (
-        <p role="alert" className="text-sm text-destructive">
-          {serverError}
-        </p>
-      )}
     </div>
   );
 }
@@ -680,8 +707,12 @@ export interface ShareDialogProps {
  * 分享管理 dialog（spec：owner-only）。非 owner（editor/viewer）完全不渲染——連觸發鈕
  * 都不出現，不只是「按了也沒用」而已。
  *
- * 內容只在實際開啟時掛載（`open && <...>`），分享名單的查詢因此也只在開啟時才打
- * `GET /api/notes/:id/shares`，不會在頁面一載入就多打一支用不到的 API。
+ * 觸發鈕圖示需要知道目前的分享狀態才能選對圖示（私人🔒／限定成員／公開🌐），
+ * 所以 `useShares`／`usePublicLink` 這兩支 query 在 owner 的筆記頁**一載入就會發**，
+ * 不等 dialog 開啟（見下方 hook 呼叫旁的說明）。**面板內容仍只在實際開啟時掛載**
+ * （`open && <AccessSection ...>`）——提前的只有這兩支狀態查詢，不是整個面板；
+ * `AccessSection` 內部的 `useShares`／`usePublicLink` 與這裡共用同一份 react-query
+ * 快取（同 key 去重），所以不會因此多打第三支請求。
  *
  * PR2（D.3）：觸發鈕改成 icon-only（原本是帶文字的按鈕）——`aria-label={t("share.button")}`
  * 頂住 accessible name，`ShareDialog.test.tsx` 既有的 `getByRole("button",{name:"Share"})`
@@ -691,8 +722,38 @@ export interface ShareDialogProps {
 export function ShareDialog({ note }: ShareDialogProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
+  const isOwner = note.role === "owner";
 
-  if (note.role !== "owner") return null;
+  // 觸發鈕圖示要跟著分享狀態變（私人=鎖／限定成員=分享圖示／公開=地球，
+  // UI 改版設計、#72 收尾）。react-query 同 key 去重——這裡跟 `AccessSection`
+  // 內既有的呼叫共用快取，不會多打請求；但提前呼叫讓對話框**關著**時也能
+  // 拿到狀態，這是唯一的目的。⚠ 不動 `AccessSection` 的 latch effect 一行：
+  // 那個 effect 只管 `selection` 這個 sticky UI state，跟這裡選圖示用的
+  // 「目前資料」是兩件事——latch 的 selection 有可能因為使用者操作而跟目前
+  // 資料暫時不同步（sticky 設計），觸發鈕圖示不追那個、只反映實際資料。
+  // ⚠ Hook 呼叫本身必須無條件（react-hooks/rules-of-hooks）——不能真的把
+  // 呼叫包在 `!isOwner` 早退之後。非 owner 時傳空字串 noteId，讓兩支 hook
+  // 內建的 `enabled: noteId.length > 0` 守衛頂住，query 不會發（維持
+  // 「非 owner 完全零 fetch」的既有測試斷言）。
+  const sharesQuery = useShares(isOwner ? note.id : "");
+  const linkQuery = usePublicLink(isOwner ? note.id : "");
+
+  if (!isOwner) return null;
+
+  const triggerLoading = sharesQuery.data === undefined || linkQuery.data === undefined;
+  const triggerAccess: AccessLevel | null = triggerLoading
+    ? null
+    : deriveAccess(linkQuery.data.token, sharesQuery.data);
+  // 載入中一律用既有的 Share 圖示，不閃爍、不猜狀態。
+  const TriggerIcon = triggerAccess === "private" ? Lock : triggerAccess === "public" ? Globe : Share;
+  const triggerTitle =
+    triggerAccess === "private"
+      ? t("share.state.private")
+      : triggerAccess === "members"
+        ? t("share.state.members")
+        : triggerAccess === "public"
+          ? t("share.state.public")
+          : undefined;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -701,30 +762,34 @@ export function ShareDialog({ note }: ShareDialogProps) {
             twMerge 對 ghost variant 的 hover:text-accent-foreground 互斥掉這裡的
             hover:text-brand，只在同一次 cn() 呼叫內才成立——掛在 icon 上是不同
             元素、不同 cn() 呼叫，機制不會生效。hover:bg-accent 底變化沿用 ghost
-            variant，不動。 */}
+            variant，不動。
+            ⚠ 狀態用 `title`（tooltip），不是 aria-label——`aria-label` 在場時
+            `title` 不會改變可及名稱，`aria-label={t("share.button")}` 必須維持
+            固定的 "Share"（e2e `03-share-revoke.spec.ts` 與單元測試都靠這個
+            名字找按鈕）。 */}
         <Button
           type="button"
           variant="ghost"
           size="icon"
           aria-label={t("share.button")}
+          title={triggerTitle}
           className="text-brand hover:text-brand"
         >
-          <Share className="h-4 w-4" />
+          <TriggerIcon className="h-4 w-4" />
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-md">
+      {/* 448px 時「email ＋ 角色下拉 ＋ 新增」擠成一排放不下，加大到 512px
+          （＝`DialogContent` default variant 本來的寬度，這裡不再另外收窄）。 */}
+      <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>{t("share.title")}</DialogTitle>
           <DialogDescription>{t("share.description")}</DialogDescription>
         </DialogHeader>
-        {open && (
-          <div className="space-y-4">
-            <AccessSection note={note} />
-            <CopyLinkButton note={note} />
-            <SharesSection noteId={note.id} />
-            <SlugField note={note} />
-          </div>
-        )}
+        {/* 內部自訂網址（原「連結」區塊：CopyLinkButton／SlugField）已下架
+            （Willie 2026-09-17 產品決定）——要連到某篇筆記用 `[[標題]]` wikilink，
+            協作者本來就會在自己的工作區看到那篇筆記，不需要傳連結。分享面板
+            現在只剩一組「存取權」，不再需要 `divide-y` 分隔多組。 */}
+        {open && <AccessSection note={note} />}
       </DialogContent>
     </Dialog>
   );

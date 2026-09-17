@@ -7,6 +7,18 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
+### Changed
+
+- The Settings dialog's three sections (Account, Users, AI) now share one consistent layout — a page title and description at the top, groups separated by hairline dividers instead of ad-hoc spacing, and matching type sizes for group titles and body text throughout, instead of each section inventing its own headings and spacing.
+- The Share dialog is now organized by access level: picking **Private**, **Members only**, or **Public link** shows only the controls that level needs, instead of the member list and public-link controls both being visible regardless of which one is selected. The dialog's icon-only trigger button also now reflects the note's current access level (a lock, a share icon, or a globe).
+- A public link now defaults to an anonymous, unguessable URL (`/p/<token>`), controlled by an **Anonymous link** toggle; turning it off switches the same URL to a human-readable, custom form (`/p/<username>/<name>`) instead of adding a second URL alongside the token one. **Regenerate link** now rotates both the token and, when Anonymous link is off, the custom name together, so a leaked custom URL can always be fully retired — not just the token behind it, leaving the same guessable name reachable with a fresh token.
+- Buttons and form controls (inputs, native `<select>`s) are now a uniform 32px tall across the app, and buttons follow a single set of variants chosen by how important an action is on the screen it appears on, not by how destructive it is — see the usage notes at the top of `components/ui/button.tsx`.
+- Paragraphs, list items, and quotes in the editor are now justified (both edges align to the column), paired with a rule that allows a long, unbroken run of text (a URL, an identifier) to break mid-word so it can't stretch the rest of that line's whitespace to fill the gap.
+
+### Removed
+
+- The Share dialog's internal note-to-note link section (a copyable link plus a custom-slug field, for linking notes within the app) has been removed — link to another note from inside a note with a `[[title]]` wikilink instead; anyone the note is already shared with sees it in their own sidebar without needing a link.
+
 ### Fixed
 
 - Hovering a table whose bottom or right edge was outside the window no longer adds a scrollbar or makes the layout jump — neither a page-wide one, nor, for a table too wide for the window, a horizontal one on the note content area. The row/column "add" buttons that appear on hover are positioned with plain CSS absolute positioning, and the note content had no positioned ancestor for them to anchor to, so they escaped every container meant to hold them and anchored to the page itself, which then had to grow to fit them; giving them one contains them, and the note's own scroll container now also clips horizontal overflow directly, so a button wider than the visible area is simply cut off at the edge instead of making the container scroll sideways (#160, #162).

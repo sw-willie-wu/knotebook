@@ -18,6 +18,7 @@ import {
   useTestAiProvider,
 } from "@/api/adminAi";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
@@ -29,7 +30,9 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "@/components/ui/toast";
+import { SettingsGroup, SettingsPage } from "./SettingsLayout";
 
 /** ApiFail → errors.<code>；其餘 → errors.fallback。與 SettingsUsersSection/ShareDialog
  * 同一套對映（各檔各自一份，是既有慣例）。 */
@@ -41,7 +44,7 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
 }
 
 const SELECT_CLASS =
-  "h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none " +
+  "h-8 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none " +
   "focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
 
 const TEXTAREA_CLASS =
@@ -103,7 +106,7 @@ function CreateProviderDialog() {
       }}
     >
       <DialogTrigger asChild>
-        <Button type="button" size="sm">
+        <Button type="button" variant="outline" size="sm">
           {t("settings.ai.addProvider")}
         </Button>
       </DialogTrigger>
@@ -167,7 +170,7 @@ function CreateProviderDialog() {
           )}
 
           <DialogFooter>
-            <Button type="submit" disabled={createProvider.isPending}>
+            <Button type="submit" variant="brandDeep" disabled={createProvider.isPending}>
               {createProvider.isPending ? t("settings.ai.creating") : t("settings.ai.create")}
             </Button>
           </DialogFooter>
@@ -229,7 +232,7 @@ function EditProviderDialog({ provider }: { provider: AdminAiProviderDto }) {
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <Button type="button" variant="outline" size="sm">
+        <Button type="button" variant="ghost" size="sm">
           {t("settings.ai.edit")}
         </Button>
       </DialogTrigger>
@@ -305,7 +308,7 @@ function EditProviderDialog({ provider }: { provider: AdminAiProviderDto }) {
           )}
 
           <DialogFooter>
-            <Button type="submit" disabled={patchProvider.isPending}>
+            <Button type="submit" variant="brandDeep" disabled={patchProvider.isPending}>
               {patchProvider.isPending ? t("settings.ai.saving") : t("settings.ai.save")}
             </Button>
           </DialogFooter>
@@ -332,7 +335,7 @@ function DeleteProviderDialog({ provider }: { provider: AdminAiProviderDto }) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button type="button" variant="destructive" size="sm">
+        <Button type="button" variant="ghost" size="sm">
           {t("settings.ai.delete")}
         </Button>
       </DialogTrigger>
@@ -434,12 +437,10 @@ function CreateModelDialog({ providerId }: { providerId: string }) {
           </div>
 
           <div className="flex items-center gap-2">
-            <input
+            <Checkbox
               id={`ai-model-is-default-${providerId}`}
-              type="checkbox"
               checked={isDefault}
-              onChange={(event) => setIsDefault(event.target.checked)}
-              className="h-4 w-4 rounded border-input"
+              onCheckedChange={(checked) => setIsDefault(checked === true)}
             />
             <label htmlFor={`ai-model-is-default-${providerId}`} className="text-sm font-medium">
               {t("settings.ai.modelIsDefault")}
@@ -453,7 +454,7 @@ function CreateModelDialog({ providerId }: { providerId: string }) {
           )}
 
           <DialogFooter>
-            <Button type="submit" disabled={createModel.isPending}>
+            <Button type="submit" variant="brandDeep" disabled={createModel.isPending}>
               {createModel.isPending ? t("settings.ai.creating") : t("settings.ai.create")}
             </Button>
           </DialogFooter>
@@ -530,12 +531,10 @@ function EditModelDialog({ model }: { model: AdminAiModelDto }) {
           </div>
 
           <div className="flex items-center gap-2">
-            <input
+            <Checkbox
               id={`ai-model-edit-is-default-${model.id}`}
-              type="checkbox"
               checked={isDefault}
-              onChange={(event) => setIsDefault(event.target.checked)}
-              className="h-4 w-4 rounded border-input"
+              onCheckedChange={(checked) => setIsDefault(checked === true)}
             />
             <label htmlFor={`ai-model-edit-is-default-${model.id}`} className="text-sm font-medium">
               {t("settings.ai.modelIsDefault")}
@@ -549,7 +548,7 @@ function EditModelDialog({ model }: { model: AdminAiModelDto }) {
           )}
 
           <DialogFooter>
-            <Button type="submit" disabled={patchModel.isPending}>
+            <Button type="submit" variant="brandDeep" disabled={patchModel.isPending}>
               {patchModel.isPending ? t("settings.ai.saving") : t("settings.ai.save")}
             </Button>
           </DialogFooter>
@@ -625,13 +624,11 @@ function ModelRow({ model }: { model: AdminAiModelDto }) {
         <span className="ml-2 text-muted-foreground">{model.modelId}</span>
       </div>
       <div className="flex items-center gap-2">
-        <input
+        <Switch
           id={`model-enabled-${model.id}`}
-          type="checkbox"
           checked={model.enabled}
-          onChange={(event) => void handleToggleEnabled(event.target.checked)}
+          onCheckedChange={(checked) => void handleToggleEnabled(checked)}
           disabled={patchModel.isPending}
-          className="h-4 w-4 rounded border-input"
         />
         <label htmlFor={`model-enabled-${model.id}`} className="sr-only">
           {t("settings.ai.enabled")}
@@ -690,19 +687,17 @@ function ProviderCard({ provider, models }: { provider: AdminAiProviderDto; mode
 
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-2">
-          <input
+          <Switch
             id={`provider-enabled-${provider.id}`}
-            type="checkbox"
             checked={provider.enabled}
-            onChange={(event) => void handleToggleEnabled(event.target.checked)}
+            onCheckedChange={(checked) => void handleToggleEnabled(checked)}
             disabled={patchProvider.isPending}
-            className="h-4 w-4 rounded border-input"
           />
           <label htmlFor={`provider-enabled-${provider.id}`} className="text-xs font-medium">
             {t("settings.ai.enabled")}
           </label>
         </div>
-        <Button type="button" variant="outline" size="sm" onClick={() => void handleTest()} disabled={testProvider.isPending}>
+        <Button type="button" variant="ghost" size="sm" onClick={() => void handleTest()} disabled={testProvider.isPending}>
           {testProvider.isPending ? t("settings.ai.testing") : t("settings.ai.test")}
         </Button>
       </div>
@@ -837,7 +832,7 @@ function CreateActionDialog({ models, nextSortOrder }: { models: AdminAiModelDto
       }}
     >
       <DialogTrigger asChild>
-        <Button type="button" size="sm">
+        <Button type="button" variant="outline" size="sm">
           {t("settings.ai.addAction")}
         </Button>
       </DialogTrigger>
@@ -913,7 +908,7 @@ function CreateActionDialog({ models, nextSortOrder }: { models: AdminAiModelDto
           )}
 
           <DialogFooter>
-            <Button type="submit" disabled={createAction.isPending}>
+            <Button type="submit" variant="brandDeep" disabled={createAction.isPending}>
               {createAction.isPending ? t("settings.ai.creating") : t("settings.ai.create")}
             </Button>
           </DialogFooter>
@@ -1044,7 +1039,7 @@ function EditActionDialog({ action, models }: { action: AdminAiActionDto; models
           )}
 
           <DialogFooter>
-            <Button type="submit" disabled={patchAction.isPending}>
+            <Button type="submit" variant="brandDeep" disabled={patchAction.isPending}>
               {patchAction.isPending ? t("settings.ai.saving") : t("settings.ai.save")}
             </Button>
           </DialogFooter>
@@ -1170,13 +1165,11 @@ function ActionRow({
       </div>
 
       <div className="flex items-center gap-2">
-        <input
+        <Switch
           id={`action-enabled-${action.id}`}
-          type="checkbox"
           checked={action.enabled}
-          onChange={(event) => void handleToggleEnabled(event.target.checked)}
+          onCheckedChange={(checked) => void handleToggleEnabled(checked)}
           disabled={patchAction.isPending}
-          className="h-4 w-4 rounded border-input"
         />
         <label htmlFor={`action-enabled-${action.id}`} className="text-xs font-medium">
           {t("settings.ai.enabled")}
@@ -1227,8 +1220,10 @@ function ActionsSection({ actions, models }: { actions: AdminAiActionDto[]; mode
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold">{t("settings.ai.actionsHeading")}</h2>
+      {/* 這一組的標題列自己渲染（建立鈕要吃 `nextSortOrder`，那是本元件才算得出來的），
+          但字級與版位跟 `SettingsGroup` 的標題列對齊——16px，動作靠右。 */}
+      <div className="flex items-center justify-between gap-4">
+        <h2 className="text-base font-semibold">{t("settings.ai.actionsHeading")}</h2>
         <CreateActionDialog models={models} nextSortOrder={nextSortOrder} />
       </div>
       {actions.length === 0 ? (
@@ -1270,15 +1265,8 @@ export function SettingsAiSection() {
   const actions = actionsQuery.data ?? [];
 
   return (
-    <div className="space-y-8">
-      <h1 className="text-lg font-semibold">{t("settings.ai.title")}</h1>
-
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold">{t("settings.ai.providersHeading")}</h2>
-          <CreateProviderDialog />
-        </div>
-
+    <SettingsPage title={t("settings.ai.title")} description={t("settings.ai.description")}>
+      <SettingsGroup title={t("settings.ai.providersHeading")} action={<CreateProviderDialog />}>
         {providersQuery.isPending ? (
           <p className="text-sm text-muted-foreground">{t("app.loading")}</p>
         ) : providersQuery.isError ? (
@@ -1294,9 +1282,11 @@ export function SettingsAiSection() {
             ))}
           </div>
         )}
-      </section>
+      </SettingsGroup>
 
-      <section className="space-y-3 border-t border-border pt-6">
+      {/* 群組之間的分隔線由 `SettingsPage` 的 `divide-y` 統一長出來，這裡不再自己
+          寫 `border-t pt-6`——否則兩套分隔規則並存，間距會對不齊。 */}
+      <SettingsGroup>
         {actionsQuery.isPending ? (
           <p className="text-sm text-muted-foreground">{t("app.loading")}</p>
         ) : actionsQuery.isError ? (
@@ -1306,7 +1296,7 @@ export function SettingsAiSection() {
         ) : (
           <ActionsSection actions={actions} models={models} />
         )}
-      </section>
-    </div>
+      </SettingsGroup>
+    </SettingsPage>
   );
 }

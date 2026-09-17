@@ -23,6 +23,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
 import { copyText } from "@/lib/clipboard";
+import { SettingsGroup } from "./SettingsLayout";
 
 /** 逐檔複製的既有慣例（無共用 helper——比照 ShareDialog／SettingsAccountSection）。 */
 function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
@@ -57,7 +58,7 @@ function RevokeDialog({ token }: { token: ApiTokenDto }) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button type="button" variant="destructive" size="sm">
+        <Button type="button" variant="ghost" size="sm">
           {t("settings.account.apiTokensRevoke")}
         </Button>
       </DialogTrigger>
@@ -185,7 +186,7 @@ function CreateTokenDialog() {
                   {t("settings.account.apiTokensCancel")}
                 </Button>
               </DialogClose>
-              <Button type="submit" disabled={create.isPending || name.trim() === ""}>
+              <Button type="submit" variant="brandDeep" disabled={create.isPending || name.trim() === ""}>
                 {t("settings.account.apiTokensSubmit")}
               </Button>
             </DialogFooter>
@@ -212,7 +213,9 @@ function CreateTokenDialog() {
             <DialogFooter>
               <Button
                 type="button"
-                variant="secondary"
+                // ⚠ 不用 `secondary`：`--secondary` 淺色是 oklch(0.97)、與面板底幾乎同色，
+                // 深色則與 `--accent`（ghost 的 hover 底）同值——看起來像 hover 高亮不像按鈕。
+                variant="outline"
                 onClick={() => {
                   void copyText(issued).then(ok => {
                     // 失敗不攤 ManualCopyField（理由見上）：明文本來就在欄位裡可選取，提示即可
@@ -227,7 +230,7 @@ function CreateTokenDialog() {
                 {t("settings.account.apiTokensCopy")}
               </Button>
               <DialogClose asChild>
-                <Button type="button">{t("settings.account.apiTokensDone")}</Button>
+                <Button type="button" variant="brandDeep">{t("settings.account.apiTokensDone")}</Button>
               </DialogClose>
             </DialogFooter>
           </>
@@ -308,7 +311,9 @@ function AgentLabelField({ token }: { token: ApiTokenDto }) {
             if (event.key === "Enter") void save();
           }}
         />
-        {/* 沒有 Esc（見檔頭）——這顆按鈕是這個欄位自己能給的退路，見上方 save() 旁的說明。 */}
+        {/* 沒有 Esc（見檔頭）——這顆按鈕是這個欄位自己能給的退路，見上方 save() 旁的說明。
+            N9：這裡坐在清單列裡，跟同列的 rename 鈕（ghost size="sm"）同一套視覺層級——
+            outline 在列內會突兀地重一階，改回 ghost/sm 才跟同列一致。 */}
         <Button type="button" variant="ghost" size="sm" disabled={rename.isPending} onClick={() => setEditing(false)}>
           {t("settings.account.apiTokensCancel")}
         </Button>
@@ -376,26 +381,35 @@ export function ApiTokensSection() {
   const tokens = useApiTokens();
 
   return (
-    <div className="space-y-2">
-      <h2 className="text-lg font-semibold">{t("settings.account.apiTokensTitle")}</h2>
-      <p className="text-sm text-muted-foreground">{t("settings.account.apiTokensDescription")}</p>
-      <p className="text-xs text-muted-foreground">{t("settings.account.apiTokensCleanupHint")}</p>
-      {tokens.isError && (
-        <p role="alert" className="text-sm text-destructive">
-          {t("errors.fallback")}
+    <SettingsGroup
+      title={t("settings.account.apiTokensTitle")}
+      description={t("settings.account.apiTokensDescription")}
+      // 建立鈕掛在這一組的標題列，不再墊在清單底下——動作要跟它所屬的那件事同一行，
+      // 才看得出來它建的是 token 而不是別的東西。
+      action={<CreateTokenDialog />}
+    >
+      <div className="space-y-2">
+        {tokens.isError && (
+          <p role="alert" className="text-sm text-destructive">
+            {t("errors.fallback")}
+          </p>
+        )}
+        {tokens.data !== undefined && tokens.data.length === 0 && (
+          <p className="text-sm text-muted-foreground">{t("settings.account.apiTokensEmpty")}</p>
+        )}
+        {tokens.data !== undefined && tokens.data.length > 0 && (
+          <ul className="space-y-2">
+            {tokens.data.map(token => (
+              <TokenRow key={token.id} token={token} />
+            ))}
+          </ul>
+        )}
+        {/* 清理提示是看完自己有哪些 token 之後才用得上的附註，所以放在清單後面當註腳，
+            不擠在說明下面跟它搶同一個位置。 */}
+        <p className="max-w-prose pt-1 text-justify text-xs text-muted-foreground hyphens-auto">
+          {t("settings.account.apiTokensCleanupHint")}
         </p>
-      )}
-      {tokens.data !== undefined && tokens.data.length === 0 && (
-        <p className="text-sm text-muted-foreground">{t("settings.account.apiTokensEmpty")}</p>
-      )}
-      {tokens.data !== undefined && tokens.data.length > 0 && (
-        <ul className="space-y-2">
-          {tokens.data.map(token => (
-            <TokenRow key={token.id} token={token} />
-          ))}
-        </ul>
-      )}
-      <CreateTokenDialog />
-    </div>
+      </div>
+    </SettingsGroup>
   );
 }

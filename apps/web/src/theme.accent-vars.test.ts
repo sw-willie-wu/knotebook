@@ -11,8 +11,13 @@ import { type Accent, ACCENTS } from "./theme";
  *
  * 背景見 `index.css` 「主題色（accent）十二個套用塊」上方的區塊註解：
  * - 六色 × light/dark 共十二個 `[data-accent=…]` 塊，值必須逐字抄 spec 值表。
- * - `:root`/`.dark` 基底塊的四個 `--brand*` token 是屬性不存在時的 fallback，
- *   必須逐字＝indigo 那組——這是「首屏 fallback 與 hydrate 補設同色」的支點。
+ * - `:root`/`.dark` 基底塊的五個 `--brand*` token（`--brand-fg` 不算，見下）
+ *   是屬性不存在時的 fallback，必須逐字＝indigo 那組——這是「首屏 fallback 與
+ *   hydrate 補設同色」的支點。
+ * - `--brand-fg` 不分色票——只宣告在 `:root`／`.dark` 兩個基底塊，六色共用同一套
+ *   前景字色，不隨 accent 變。它不進 `TOKEN_NAMES`（那是給「每色一份」的 token
+ *   用的），改在 (g) 另外守：兩個基底塊都要有，且不得出現在任何
+ *   `[data-accent=…]` 塊裡。
  * - `--brand-soft`/`--brand-soft-strong` 一律用該色 dark `--brand`（基色）的
  *   oklch 三值推導（light /14%、/20%；dark /16%、/24%），不得誤用 light
  *   `--brand`。
@@ -32,7 +37,7 @@ import { type Accent, ACCENTS } from "./theme";
 const COLORS = ACCENTS;
 type Color = Accent;
 
-const TOKEN_NAMES = ["--brand", "--brand-soft", "--brand-soft-strong", "--brand-on-soft"] as const;
+const TOKEN_NAMES = ["--brand", "--brand-soft", "--brand-soft-strong", "--brand-on-soft", "--brand-deep"] as const;
 
 function readIndexCssWithoutComments(): string {
   const path = `${process.cwd()}/src/index.css`;
@@ -163,7 +168,7 @@ describe("主題色（accent）token parity", () => {
     }
   });
 
-  it("(d) 四行 --color-brand* 映射出現在 @theme inline 區塊內", () => {
+  it("(d) 六行 --color-brand* 映射出現在 @theme inline 區塊內", () => {
     const themeInlineSelector = /@theme inline\s*\{/;
     const match = themeInlineSelector.exec(cssNoComments);
     expect(match, "找不到 @theme inline 區塊").not.toBeNull();
@@ -172,7 +177,14 @@ describe("主題色（accent）token parity", () => {
     const blockEnd = cssNoComments.indexOf("}", braceStart);
     expect(blockEnd).toBeGreaterThan(-1);
 
-    const mappingNames = ["--color-brand", "--color-brand-soft", "--color-brand-soft-strong", "--color-brand-on-soft"];
+    const mappingNames = [
+      "--color-brand",
+      "--color-brand-soft",
+      "--color-brand-soft-strong",
+      "--color-brand-on-soft",
+      "--color-brand-deep",
+      "--color-brand-fg",
+    ];
     for (const name of mappingNames) {
       const regex = new RegExp(`${name}:`, "g");
       let found = false;
@@ -225,6 +237,27 @@ describe("主題色（accent）token parity", () => {
     for (const color of COLORS) {
       expect(en.accent, `en 缺 accent.${color}`).toHaveProperty(color);
       expect(zhTW.accent, `zh-TW 缺 accent.${color}`).toHaveProperty(color);
+    }
+  });
+
+  it("(g) --brand-fg 只宣告在 :root/.dark 兩個基底塊——不分色票，六色都共用同一套", () => {
+    const brandFgRe = /--brand-fg:\s*([^;]+);/;
+    const baseLight = extractBaseBlock(cssNoComments, ":root");
+    const baseDark = extractBaseBlock(cssNoComments, ".dark");
+    expect(brandFgRe.exec(baseLight), "基底 :root 找不到 --brand-fg").not.toBeNull();
+    expect(brandFgRe.exec(baseDark), "基底 .dark 找不到 --brand-fg").not.toBeNull();
+
+    for (const color of COLORS) {
+      const lightBody = extractDataAccentBlock(cssNoComments, ":root", color);
+      const darkBody = extractDataAccentBlock(cssNoComments, ".dark", color);
+      expect(
+        brandFgRe.exec(lightBody),
+        `:root[data-accent=${color}] 不該宣告 --brand-fg（不分色票，改色不該讓它跟著換）`,
+      ).toBeNull();
+      expect(
+        brandFgRe.exec(darkBody),
+        `.dark[data-accent=${color}] 不該宣告 --brand-fg（不分色票，改色不該讓它跟著換）`,
+      ).toBeNull();
     }
   });
 });

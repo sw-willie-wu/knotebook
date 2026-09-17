@@ -18,6 +18,14 @@ export interface ChangePasswordFormProps {
    * 重簽對齊行為在此層——見下方 handleSubmit 內註解）。
    */
   onSuccess: () => void;
+  /**
+   * 送出鈕主色實心的階層（ui/button.tsx 規範：兩階不得同時出現在同一個畫面）。
+   * 本元件同時裝在兩種表面——`ChangePasswordPage`（整頁強制改密）與
+   * `SettingsAccountSection`（設定 modal 內）——不能寫死一邊，改由呼叫端決定：
+   * `"page"`（預設，`ChangePasswordPage` 用它）→ `brandSolid`；
+   * `"panel"`（`SettingsAccountSection` 傳入）→ `brandDeep`。
+   */
+  tone?: "page" | "panel";
 }
 
 /**
@@ -37,7 +45,7 @@ export interface ChangePasswordFormProps {
  * refetch 拿到的是「新密碼已生效、`mustChangePassword:false`」的最新使用者
  * 物件——再呼叫 `onSuccess()`，讓呼叫端決定接下來要導向哪裡／要不要提示。
  */
-export function ChangePasswordForm({ onSuccess }: ChangePasswordFormProps) {
+export function ChangePasswordForm({ onSuccess, tone = "page" }: ChangePasswordFormProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
 
@@ -144,7 +152,12 @@ export function ChangePasswordForm({ onSuccess }: ChangePasswordFormProps) {
         </p>
       )}
 
-      <Button type="submit" className="w-full" disabled={submitting}>
+      <Button
+        type="submit"
+        variant={tone === "panel" ? "brandDeep" : "brandSolid"}
+        className="w-full"
+        disabled={submitting}
+      >
         {submitting ? t("changePassword.submitting") : t("changePassword.submit")}
       </Button>
     </form>

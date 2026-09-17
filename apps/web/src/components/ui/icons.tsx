@@ -50,12 +50,33 @@ export function Search(props: SVGProps<SVGSVGElement>) {
 
 export function Share(props: SVGProps<SVGSVGElement>) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+    <svg data-icon="share" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
       <circle cx="18" cy="5" r="3" />
       <circle cx="6" cy="12" r="3" />
       <circle cx="18" cy="19" r="3" />
       <path d="m8.59 13.51 6.83 3.98" />
       <path d="m15.41 6.51-6.83 3.98" />
+    </svg>
+  );
+}
+
+/** 私人狀態（分享鈕依分享狀態變化，issue #72 UI 收尾）。 */
+export function Lock(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </svg>
+  );
+}
+
+/** 公開狀態（分享鈕依分享狀態變化，issue #72 UI 收尾）。 */
+export function Globe(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <circle cx="12" cy="12" r="10" />
+      <line x1="2" y1="12" x2="22" y2="12" />
+      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
     </svg>
   );
 }

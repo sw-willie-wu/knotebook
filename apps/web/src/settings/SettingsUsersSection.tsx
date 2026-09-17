@@ -12,6 +12,7 @@ import {
   type AdminUserDto,
 } from "@/api/admin";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
@@ -24,6 +25,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
+import { SettingsGroup, SettingsPage } from "./SettingsLayout";
 
 /** ApiFail → errors.<code>；其餘 → errors.fallback。與 NoteList/ShareDialog 同一套對映
  * （各檔各自一份，是既有慣例——見那兩處的說明）。 */
@@ -87,7 +89,7 @@ function CreateUserDialog() {
       }}
     >
       <DialogTrigger asChild>
-        <Button type="button">{t("admin.createUser")}</Button>
+        <Button type="button" variant="brandDeep">{t("admin.createUser")}</Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
@@ -138,12 +140,10 @@ function CreateUserDialog() {
           </div>
 
           <div className="flex items-center gap-2">
-            <input
+            <Checkbox
               id="admin-create-is-admin"
-              type="checkbox"
               checked={isAdmin}
-              onChange={(event) => setIsAdmin(event.target.checked)}
-              className="h-4 w-4 rounded border-input"
+              onCheckedChange={(checked) => setIsAdmin(checked === true)}
             />
             <label htmlFor="admin-create-is-admin" className="text-sm font-medium">
               {t("admin.isAdmin")}
@@ -159,7 +159,7 @@ function CreateUserDialog() {
           )}
 
           <DialogFooter>
-            <Button type="submit" disabled={createUser.isPending}>
+            <Button type="submit" variant="brandDeep" disabled={createUser.isPending}>
               {createUser.isPending ? t("admin.creating") : t("admin.create")}
             </Button>
           </DialogFooter>
@@ -219,7 +219,7 @@ function UserActions({ user, currentUserId }: { user: AdminUserDto; currentUserI
       {!user.isAdmin && (
         <Button
           type="button"
-          variant="outline"
+          variant="ghost"
           size="sm"
           onClick={() => void handlePromote()}
           disabled={promoteUser.isPending}
@@ -229,7 +229,7 @@ function UserActions({ user, currentUserId }: { user: AdminUserDto; currentUserI
       )}
 
       {isDisabled && (
-        <Button type="button" variant="outline" size="sm" onClick={() => void handleEnable()} disabled={enableUser.isPending}>
+        <Button type="button" variant="ghost" size="sm" onClick={() => void handleEnable()} disabled={enableUser.isPending}>
           {t("admin.enable")}
         </Button>
       )}
@@ -237,7 +237,7 @@ function UserActions({ user, currentUserId }: { user: AdminUserDto; currentUserI
       {!isDisabled && !isSelf && (
         <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
           <DialogTrigger asChild>
-            <Button type="button" variant="destructive" size="sm">
+            <Button type="button" variant="ghost" size="sm">
               {t("admin.disable")}
             </Button>
           </DialogTrigger>
@@ -293,13 +293,14 @@ export function SettingsUsersSection() {
   const currentUserId = user?.id ?? "";
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-lg font-semibold">{t("admin.title")}</h1>
-
-      <div className="flex justify-end">
-        <CreateUserDialog />
-      </div>
-
+    <SettingsPage
+      title={t("admin.title")}
+      description={t("admin.description")}
+      // 建立鈕改掛在頁首標題列。原本它自己一行右對齊浮在表格上方，既沒有跟標題
+      // 成組、也沒有跟表格成組，是「項次都黏在一起」感覺的來源之一。
+      action={<CreateUserDialog />}
+    >
+      <SettingsGroup>
       {usersQuery.isPending ? (
         <p className="text-sm text-muted-foreground">{t("app.loading")}</p>
       ) : usersQuery.isError ? (
@@ -336,6 +337,7 @@ export function SettingsUsersSection() {
           </tbody>
         </table>
       )}
-    </div>
+      </SettingsGroup>
+    </SettingsPage>
   );
 }
