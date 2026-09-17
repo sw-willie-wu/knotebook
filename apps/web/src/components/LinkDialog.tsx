@@ -117,10 +117,10 @@ export function LinkDialog({ editor, open, onOpenChange, onSubmit }: LinkDialogP
             )}
           </div>
           <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               {t("home.cancel")}
             </Button>
-            <Button type="submit">{t("note.link.insert")}</Button>
+            <Button type="submit" variant="brandDeep">{t("note.link.insert")}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { NoteDto, ShareDto } from "@knotebook/shared";
 import i18n from "@/i18n";
@@ -59,7 +59,19 @@ function renderDialog(note: NoteDto = NOTE) {
 
 async function openDialog() {
   fireEvent.click(screen.getByRole("button", { name: "Share" }));
-  await waitFor(() => expect(screen.getByText("People with access")).toBeInTheDocument());
+  // 「限定成員」情境面板只在 selection==="members" 時才掛載，不能再拿它當開啟訊號
+  // （改版前 SharesSection 平級常駐、"People with access" 一開就在）。"Access" 是
+  // ShareGroup 的標題，三態都無條件渲染，開啟即在。
+  await waitFor(() => expect(screen.getByText("Access")).toBeInTheDocument());
+}
+
+/** 切到「限定成員」層級，讓掛在它底下的情境面板（成員名單／加人表單）出現。
+ * 新資訊架構下這是進入該面板前必經的一步（Willie 2026-09-17 產品決定）。radio 要等
+ * latch 完成才會可按（`disabled={!latched || busy}`），所以先等它解除禁用再點。 */
+async function selectMembers() {
+  const radio = await screen.findByRole("radio", { name: /Members only/ });
+  await waitFor(() => expect(radio).not.toBeDisabled());
+  fireEvent.click(radio);
 }
 
 describe("ShareDialog", () => {
@@ -98,277 +110,15 @@ describe("ShareDialog", () => {
     expect(screen.getByRole("heading", { name: "Share note" })).toBeInTheDocument();
   });
 
-  it("輸入保留字 'New' → 立即顯示保留字錯誤（shared validateSlug，不打網路）", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      const method = (init?.method ?? "GET").toUpperCase();
-      if (url === SHARES_URL && method === "GET") {
-        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
-      }
-      throw new Error(`unexpected fetch: ${method} ${url}`);
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    renderDialog();
-    await openDialog();
-
-    const slugInput = screen.getByRole("textbox", { name: "Custom link" });
-    fireEvent.change(slugInput, { target: { value: "New" } });
-
-    await waitFor(() =>
-      expect(screen.getByText("This word is reserved and can't be used.")).toBeInTheDocument(),
-    );
-    // 開 dialog 的兩次 GET（shares＋public-link，#72 起）；驗證錯誤純本地計算，沒有因輸入多打任何請求。
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-
-    // Save 鈕在本地驗證失敗時應被停用，點了也不該送出。
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-  });
-
-  // ── #122 Task 6：SlugField 三態 ──
-
-  it("三態·auto：輸入框初值為空、placeholder＝**現行** auto slug（含去重尾碼，非 title 重算值）、無清除鈕", async () => {
-    const fetchMock = vi.fn(() =>
-      Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) })),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    // slug 帶去重尾碼（server 探測產物）——與 autoSlugFromTitle("My Note")="my-note"
-    // 刻意分岔：auto 態的 placeholder 必須顯示**使用者實際擁有的網址**，不是 title 重算值
-    // （突變審查 F4：三案 placeholder 同值時 auto 分支零鑑別力）。
-    renderDialog({ ...NOTE, slug: "my-note-2" });
-    await openDialog();
-
-    const slugInput = screen.getByRole("textbox", { name: "Custom link" });
-    expect(slugInput).toHaveValue(""); // auto 不是使用者設定的東西，不預填
-    expect(slugInput).toHaveAttribute("placeholder", "my-note-2"); // 現行 auto 一直看得見
-    expect(screen.queryByRole("button", { name: "Use automatic URL" })).not.toBeInTheDocument();
-  });
-
-  it("auto 態把現行 auto slug 原字打進輸入框 → Save 可按、送出（把網址固化成 custom 的主流程）", async () => {
-    // dirty 判準必須與初值同源（slugIsCustom ? slug : ""）：若誤與 note.slug 比，
-    // 輸入恰等於現行 auto 時 dirty 恆 false、Save 永久禁用——三態語意的核心動作
-    // 「釘住現行網址，之後改標題不再搬家」就做不到（突變審查 F1，實掛過的活刀）。
-    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      const method = (init?.method ?? "GET").toUpperCase();
-      if (url === SHARES_URL && method === "GET") {
-        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
-      }
-      if (url === `/api/notes/${NOTE.id}` && method === "PATCH") {
-        return Promise.resolve(
-          fakeResponse({
-            ok: true,
-            status: 200,
-            json: () => Promise.resolve({ ...NOTE, slug: "my-note-2", slugIsCustom: true }),
-          }),
-        );
-      }
-      throw new Error(`unexpected fetch: ${method} ${url}`);
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    renderDialog({ ...NOTE, slug: "my-note-2" });
-    await openDialog();
-
-    const slugInput = screen.getByRole("textbox", { name: "Custom link" });
-    fireEvent.change(slugInput, { target: { value: "my-note-2" } });
-    const save = screen.getByRole("button", { name: "Save" });
-    expect(save).not.toBeDisabled();
-    fireEvent.click(save);
-
-    await waitFor(() => {
-      const call = fetchMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === "PATCH");
-      expect(call).toBeDefined();
-      const [, init] = call as [RequestInfo, RequestInit];
-      expect(JSON.parse(String(init.body))).toEqual({ slug: "my-note-2" });
-    });
-  });
-
-  it("三態·custom：初值＝現行自訂 slug、placeholder＝清除後會得到的 auto 預覽、清除鈕在", async () => {
-    const fetchMock = vi.fn(() =>
-      Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) })),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    renderDialog({ ...NOTE, slug: "pinned-name", slugIsCustom: true });
-    await openDialog();
-
-    const slugInput = screen.getByRole("textbox", { name: "Custom link" });
-    expect(slugInput).toHaveValue("pinned-name");
-    // autoSlugFromTitle("My Note") ＝ "my-note"（client 端同源預覽）
-    expect(slugInput).toHaveAttribute("placeholder", "my-note");
-    expect(screen.getByRole("button", { name: "Use automatic URL" })).toBeInTheDocument();
-  });
-
-  it("persist 判準（gate m10(a)）：回自動網址後輸入框空（server 回的 auto 不填回）；note 更新後 placeholder＝**新** auto、鈕消失", async () => {
-    const noteWithSlug: NoteDto = { ...NOTE, slug: "pinned-name", slugIsCustom: true };
-    // 新 auto 帶去重尾碼——與 custom 態的預覽值 autoSlugFromTitle("My Note")="my-note"
-    // 分岔：案名說的「placeholder＝新 auto」才有前後之別（突變審查 F3：同值時凍結
-    // autoPreview 的突變全綠）。
-    const cleared: NoteDto = { ...NOTE, slug: "my-note-2", slugIsCustom: false };
-    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      const method = (init?.method ?? "GET").toUpperCase();
-      if (url === SHARES_URL && method === "GET") {
-        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
-      }
-      if (url === `/api/notes/${NOTE.id}` && method === "PATCH") {
-        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(cleared) }));
-      }
-      throw new Error(`unexpected fetch: ${method} ${url}`);
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    const queryClient = renderDialog(noteWithSlug);
-    await openDialog();
-
-    const slugInput = screen.getByRole("textbox", { name: "Custom link" });
-    expect(slugInput).toHaveAttribute("placeholder", "my-note"); // custom 態＝清除後的 auto 預覽
-
-    fireEvent.click(screen.getByRole("button", { name: "Use automatic URL" }));
-    // 與初值同判準：server 回 auto → 不填回輸入框（填回的話下一次開 dialog 是空的、
-    // 這一刻卻有值——自相矛盾）
-    await waitFor(() => expect(screen.getByRole("textbox", { name: "Custom link" })).toHaveValue(""));
-
-    // NotePage 常駐層更新 → note prop 換新：這個前提是 load-bearing 且真的會發生——
-    // persist 的 setQueryData(["note", note.id]) 與 NotePage 常駐層 useNote 同鍵，
-    // 新 DTO 必然下傳（沒有它，清除後「回自動網址」鈕會永遠留著）。
-    queryClient.rerender(cleared);
-    expect(screen.getByRole("textbox", { name: "Custom link" })).toHaveAttribute("placeholder", "my-note-2");
-    expect(screen.queryByRole("button", { name: "Use automatic URL" })).not.toBeInTheDocument();
-  });
-
-  it("PATCH 回 409 slug_taken → 顯示對應文案", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      const method = (init?.method ?? "GET").toUpperCase();
-      if (url === SHARES_URL && method === "GET") {
-        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
-      }
-      if (url === `/api/notes/${NOTE.id}` && method === "PATCH") {
-        return Promise.resolve(
-          fakeResponse({
-            ok: false,
-            status: 409,
-            json: () => Promise.resolve({ error: { code: "slug_taken", message: "taken" } }),
-          }),
-        );
-      }
-      throw new Error(`unexpected fetch: ${method} ${url}`);
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    renderDialog();
-    await openDialog();
-
-    const slugInput = screen.getByRole("textbox", { name: "Custom link" });
-    fireEvent.change(slugInput, { target: { value: "taken-slug" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-
-    await waitFor(() => expect(screen.getByText("That URL is already used by another of your notes.")).toBeInTheDocument());
-  });
-
-  it("PATCH 回 429 too_many_requests → 顯示稍後再試文案", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      const method = (init?.method ?? "GET").toUpperCase();
-      if (url === SHARES_URL && method === "GET") {
-        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
-      }
-      if (url === `/api/notes/${NOTE.id}` && method === "PATCH") {
-        return Promise.resolve(
-          fakeResponse({
-            ok: false,
-            status: 429,
-            json: () => Promise.resolve({ error: { code: "too_many_requests", message: "slow down" } }),
-          }),
-        );
-      }
-      throw new Error(`unexpected fetch: ${method} ${url}`);
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    renderDialog();
-    await openDialog();
-
-    const slugInput = screen.getByRole("textbox", { name: "Custom link" });
-    fireEvent.change(slugInput, { target: { value: "some-slug" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-
-    await waitFor(() => expect(screen.getByText("Too many requests. Please slow down.")).toBeInTheDocument());
-  });
-
-  it("成功變更 slug → 寫回本頁 ['note', id] 快取，且**不自己動網址**（A3：收斂交 NotePage effect）", async () => {
-    const updated: NoteDto = { ...NOTE, slug: "brand-new", slugIsCustom: true };
-    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      const method = (init?.method ?? "GET").toUpperCase();
-      if (url === SHARES_URL && method === "GET") {
-        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
-      }
-      if (url === `/api/notes/${NOTE.id}` && method === "PATCH") {
-        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(updated) }));
-      }
-      throw new Error(`unexpected fetch: ${method} ${url}`);
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    const queryClient = renderDialog();
-    await openDialog();
-
-    const slugInput = screen.getByRole("textbox", { name: "Custom link" });
-    const before = window.location.pathname;
-    fireEvent.change(slugInput, { target: { value: "brand-new" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-
-    await waitFor(() => expect(queryClient.getQueryData<NoteDto>(["note", NOTE.id])?.slug).toBe("brand-new"));
-    // 單一寫網址點（A3）：本元件不 replaceState——覆蓋移轉至 NotePage 收斂 effect 測試
-    expect(window.location.pathname).toBe(before);
-
-    const [, patchInit] = fetchMock.mock.calls.find(
-      ([, init]) => (init as RequestInit | undefined)?.method === "PATCH",
-    ) as [RequestInfo, RequestInit];
-    expect(JSON.parse(String(patchInit.body))).toEqual({ slug: "brand-new" });
-  });
-
-  it("「回自動網址」鈕送出 slug:null", async () => {
-    const noteWithSlug: NoteDto = { ...NOTE, slug: "existing-slug", slugIsCustom: true };
-    // #122：清除＝回 auto 形（server 以現行 title 重算），不再是 null
-    const cleared: NoteDto = { ...noteWithSlug, slug: "my-note", slugIsCustom: false };
-    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      const method = (init?.method ?? "GET").toUpperCase();
-      if (url === SHARES_URL && method === "GET") {
-        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
-      }
-      if (url === `/api/notes/${NOTE.id}` && method === "PATCH") {
-        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(cleared) }));
-      }
-      throw new Error(`unexpected fetch: ${method} ${url}`);
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    renderDialog(noteWithSlug);
-    await openDialog();
-
-    fireEvent.click(screen.getByRole("button", { name: "Use automatic URL" }));
-
-    await waitFor(() => {
-      const call = fetchMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === "PATCH");
-      expect(call).toBeDefined();
-      const [, init] = call as [RequestInfo, RequestInit];
-      expect(JSON.parse(String(init.body))).toEqual({ slug: null });
-    });
-  });
-
   it("新增分享送出 PUT {email, role}", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method ?? "GET").toUpperCase();
       if (url === SHARES_URL && method === "GET") {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+      }
+      if (url === PUBLIC_LINK_URL && method === "GET") {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ token: null, slug: null }) }));
       }
       if (url === SHARES_URL && method === "PUT") {
         return Promise.resolve(
@@ -381,6 +131,8 @@ describe("ShareDialog", () => {
 
     renderDialog();
     await openDialog();
+    // 加人表單掛在「限定成員」情境面板底下（新 IA，Willie 2026-09-17 產品決定）。
+    await selectMembers();
 
     fireEvent.change(screen.getByLabelText("Email address"), { target: { value: "bob@example.com" } });
     fireEvent.change(screen.getByLabelText("Role for new share"), { target: { value: "editor" } });
@@ -402,6 +154,9 @@ describe("ShareDialog", () => {
       if (url === SHARES_URL && method === "GET") {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
       }
+      if (url === PUBLIC_LINK_URL && method === "GET") {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ token: null, slug: null }) }));
+      }
       if (url === SHARES_URL && method === "PUT") {
         return Promise.resolve(
           fakeResponse({
@@ -417,6 +172,7 @@ describe("ShareDialog", () => {
 
     renderDialog();
     await openDialog();
+    await selectMembers();
 
     fireEvent.change(screen.getByLabelText("Email address"), { target: { value: "ghost@example.com" } });
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
@@ -432,6 +188,9 @@ describe("ShareDialog", () => {
       if (url === SHARES_URL && method === "GET") {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(listed) }));
       }
+      if (url === PUBLIC_LINK_URL && method === "GET") {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ token: null, slug: null }) }));
+      }
       if (url === `${SHARES_URL}/${SHARE.userId}` && method === "DELETE") {
         listed = [];
         return Promise.resolve(fakeResponse({ ok: true, status: 204 }));
@@ -442,6 +201,9 @@ describe("ShareDialog", () => {
 
     renderDialog();
     await openDialog();
+    // 有既有成員（shares.length>0）：latch 自動 derive 到「限定成員」，情境面板
+    // 自己就會掛載，不必再手動點 radio。
+    await waitFor(() => expect(screen.getByRole("radio", { name: /Members only/ })).toBeChecked());
 
     await waitFor(() => expect(screen.getByText(SHARE.email)).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: `Remove ${SHARE.email}` }));
@@ -461,6 +223,9 @@ describe("ShareDialog", () => {
       if (url === SHARES_URL && method === "GET") {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([SHARE]) }));
       }
+      if (url === PUBLIC_LINK_URL && method === "GET") {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ token: null, slug: null }) }));
+      }
       if (url === SHARES_URL && method === "PUT") {
         return Promise.resolve(
           fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ ...SHARE, role: "editor" }) }),
@@ -472,6 +237,8 @@ describe("ShareDialog", () => {
 
     renderDialog();
     await openDialog();
+    // 既有成員 → 自動 derive 到「限定成員」，見上一條測試的說明。
+    await waitFor(() => expect(screen.getByRole("radio", { name: /Members only/ })).toBeChecked());
 
     await waitFor(() => expect(screen.getByText(SHARE.email)).toBeInTheDocument());
     fireEvent.change(screen.getByLabelText(`Role for ${SHARE.email}`), { target: { value: "editor" } });
@@ -482,83 +249,6 @@ describe("ShareDialog", () => {
       const [, init] = call as [RequestInfo, RequestInit];
       expect(JSON.parse(String(init.body))).toEqual({ email: SHARE.email, role: "editor" });
     });
-  });
-
-  it("複製連結：呼叫 navigator.clipboard.writeText 並 toast 確認", async () => {
-    const fetchMock = vi.fn(() =>
-      Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) })),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    const writeText = vi.fn(() => Promise.resolve());
-    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
-
-    renderDialog();
-    await openDialog();
-
-    fireEvent.click(screen.getByRole("button", { name: "Copy internal link" }));
-
-    await waitFor(() =>
-      expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/n/tester/my-note`),
-    );
-    await waitFor(() => expect(screen.getByText("Link copied to clipboard.")).toBeInTheDocument());
-  });
-
-  it("非 secure context 且 execCommand 也不可用 → toast 把網址攤出來讓使用者自己複製", async () => {
-    const fetchMock = vi.fn(() =>
-      Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) })),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    vi.stubGlobal("navigator", {}); // 明文 http 的區網位址：整支 clipboard API 不存在
-    Object.defineProperty(document, "execCommand", { value: vi.fn(() => false), configurable: true, writable: true });
-
-    renderDialog();
-    await openDialog();
-
-    fireEvent.click(screen.getByRole("button", { name: "Copy internal link" }));
-
-    // 退路必須是「可以選取起來複製」的東西。toast 不行：Radix 的 toast root 帶
-    // 行內 `userSelect: "none"`，而且橫向拖曳會被 swipe-to-dismiss 手勢吃掉。
-    const manual = await screen.findByLabelText(
-      "Couldn't copy automatically — select the link below and copy it yourself.",
-    );
-    // #122：canonicalNotePath＝/n/<ownerHandle>/<slug> 單一形
-    expect(manual).toHaveValue(`${window.location.origin}/n/tester/my-note`);
-    expect(manual).toHaveAttribute("readonly");
-  });
-
-  /**
-   * 手動複製欄出現時要自動選取一次方便複製，但**只有那一次**。`select()` 會把焦點
-   * 移到該元素，所以若每次 re-render 都重跑（例如寫成 inline 的 `ref={n => n?.select()}`——
-   * 每次 render 都是新的 callback identity，React 會重新掛載它），使用者在同一個 dialog
-   * 裡打字時焦點會被搶進這個唯讀欄位，後續按鍵全部落空。這與本分支修的 #10 是同一類缺陷。
-   */
-  it("手動複製欄只在出現時自動選取一次，之後的 re-render 不搶焦點", async () => {
-    const fetchMock = vi.fn(() =>
-      Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) })),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    vi.stubGlobal("navigator", {});
-    Object.defineProperty(document, "execCommand", { value: vi.fn(() => false), configurable: true, writable: true });
-
-    const view = renderDialog();
-    await openDialog();
-    fireEvent.click(screen.getByRole("button", { name: "Copy internal link" }));
-
-    const manual = await screen.findByLabelText(
-      "Couldn't copy automatically — select the link below and copy it yourself.",
-    );
-    const selectSpy = vi.spyOn(manual as HTMLInputElement, "select");
-
-    // 使用者接著去填共用對象的 email——焦點在那個欄位上。
-    const email = screen.getByLabelText("Email address");
-    email.focus();
-    expect(document.activeElement).toBe(email);
-
-    view.rerender();
-    view.rerender();
-
-    expect(selectSpy).not.toHaveBeenCalled();
-    expect(document.activeElement).toBe(email);
   });
 });
 
@@ -671,8 +361,22 @@ describe("ShareDialog 三態（#72）", () => {
     await waitFor(() => expect(screen.getByRole("radio", { name: /Public link/ })).toBeChecked());
     // 已公開的筆記開面板**不重生**：無任何 PUT。
     expect(stub.calls.filter((c) => c.method === "PUT" && c.url === PUBLIC_LINK_URL)).toHaveLength(0);
-    // 連結顯示完整 /p/ 網址
-    expect(screen.getByDisplayValue(`${window.location.origin}/p/${TOKEN}`)).toBeInTheDocument();
+    // 連結顯示完整 /p/ 網址（匿名 ON 態＝純文字顯示，不是可編輯輸入框）
+    // 匿名態的網址拆成「前綴 `/p/` ＋ 唯讀輸入框放 token」（兩態同形，見元件註解），
+    // 所以斷 token 落在輸入框的 value，不是找一整串文字。
+    expect(screen.getByRole("textbox")).toHaveValue(TOKEN);
+  });
+
+  it("情境面板閘門：預設「私人」態（零成員零連結）不渲染成員名單／加人表單——只有選了「限定成員」才出現", async () => {
+    stubRoutedFetch({ shares: [], token: null });
+    renderDialog();
+    await openDialog();
+    await waitFor(() => expect(screen.getByRole("radio", { name: /Private/ })).toBeChecked());
+
+    // 這條專守「情境面板只在 selection === 'members' 時才掛載」這個閘門本身——
+    // latch 完成、確定停在「私人」的狀態下，加人表單／名單標題都不該出現。
+    expect(screen.queryByLabelText("Email address")).not.toBeInTheDocument();
+    expect(screen.queryByText("No one else has access yet.")).not.toBeInTheDocument();
   });
 
   it("sticky：零成員選「限定成員」不彈回（refetch 後 derive=私人也不覆寫選擇）", async () => {
@@ -700,18 +404,25 @@ describe("ShareDialog 三態（#72）", () => {
     expect(screen.getByRole("radio", { name: /Members only/ })).toBeChecked();
   });
 
-  it("sticky：「私人」態用加人表單成功加人後 radio 仍停在私人（刻意——radio 是動作觸發器）", async () => {
+  // 改版前加人表單在「私人」態也常駐可見，這條原本測「私人態加人不把 radio 重算成
+  // 限定成員」。新 IA 下加人表單只掛在「限定成員」情境面板底下（selectMembers()
+  // 才看得到），「私人態加人」這個操作序列本身已不可達——改測同一族不變量在新
+  // 前提下仍成立的那一半：選了限定成員、加人成功，radio 不被資料變動重算掉。
+  it("sticky：「限定成員」態用加人表單成功加人後 radio 仍停在限定成員（刻意——radio 是動作觸發器）", async () => {
     stubRoutedFetch({ shares: [], token: null });
     renderDialog();
     await openDialog();
     await waitFor(() => expect(screen.getByRole("radio", { name: /Private/ })).toBeChecked());
 
+    await selectMembers();
+    await waitFor(() => expect(screen.getByRole("radio", { name: /Members only/ })).toBeChecked());
+
     fireEvent.change(screen.getByLabelText("Email address"), { target: { value: "bob@example.com" } });
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
     // 先等成員真的出現（stub 的 PUT 會把 SHARE 推進可變名單、refetch 拿得到），
-    // 「加人後被重算成 members」的退化形才真的可能發生——再斷 radio 沒動。
+    // 「加人後 radio 被重算掉」的退化形才真的可能發生——再斷 radio 沒動。
     await screen.findByText("Bob");
-    expect(screen.getByRole("radio", { name: /Private/ })).toBeChecked();
+    expect(screen.getByRole("radio", { name: /Members only/ })).toBeChecked();
   });
 
   it("選「公開」（token null）→ PUT 一次、顯示連結＋Copy public link＋Regenerate；Regenerate 再 PUT", async () => {
@@ -721,7 +432,7 @@ describe("ShareDialog 三態（#72）", () => {
     await waitFor(() => expect(screen.getByRole("radio", { name: /Private/ })).toBeChecked());
 
     fireEvent.click(screen.getByRole("radio", { name: /Public link/ }));
-    await waitFor(() => expect(screen.getByDisplayValue(`${window.location.origin}/p/${TOKEN}`)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("textbox")).toHaveValue(TOKEN));
     expect(stub.calls.filter((c) => c.method === "PUT" && c.url === PUBLIC_LINK_URL)).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Copy public link" })).toBeInTheDocument();
 
@@ -838,16 +549,24 @@ describe("ShareDialog 三態（#72）", () => {
     expect(screen.queryByRole("button", { name: /make private/ })).not.toBeInTheDocument();
   });
 
-  it("確認流懸掛中用名單移除最後一位成員 → 撤連結由 effect 補完、確認列收起（動作不蒸發）", async () => {
-    const stub = stubRoutedFetch({ shares: [SHARE], token: TOKEN });
-    renderDialog();
+  // 改版前「限定成員」的名單與「存取權」平級常駐，這條原本測「同面板兩公分外的
+  // 移除鈕」在確認流懸掛時把名單清空。新 IA 下情境面板只在 selection==="members"
+  // 才掛載——確認流懸掛時 selection 已經是 "private"，同一個 dialog 裡沒有
+  // Remove 鈕可點，這條路徑不再能用同分頁的按鈕操作出來。effect 本身守的是
+  // 「名單被清空到零」這件事、不論成因，所以改用可變 shares 陣列＋手動
+  // invalidateQueries 模擬外部變動（例如另一分頁移除了最後一位成員）觸發 refetch。
+  it("確認流懸掛中（外部）名單被清空到零 → 撤連結由 effect 補完、確認列收起（動作不蒸發）", async () => {
+    const shares = [SHARE];
+    const stub = stubRoutedFetch({ shares, token: TOKEN });
+    const queryClient = renderDialog();
     await openDialog();
     await waitFor(() => expect(screen.getByRole("radio", { name: /Public link/ })).toBeChecked());
 
     fireEvent.click(screen.getByRole("radio", { name: /Private/ }));
     await screen.findByRole("button", { name: /make private/ });
-    // 同面板兩公分外的移除鈕：審查探針實測的蒸發路徑
-    fireEvent.click(screen.getByRole("button", { name: `Remove ${SHARE.email}` }));
+
+    shares.length = 0;
+    await queryClient.invalidateQueries({ queryKey: ["shares", NOTE.id] });
 
     await waitFor(() =>
       expect(stub.calls.filter((c) => c.method === "DELETE" && c.url === PUBLIC_LINK_URL)).toHaveLength(1),
@@ -874,9 +593,14 @@ describe("ShareDialog 三態（#72）", () => {
   });
 });
 
-// ──────────────── #122 PR3 Task 5：公開別名列 ────────────────
+// ──────────────── 公開連結面板：匿名 toggle（Willie 2026-09-17 產品決定） ────────────────
+// 取代舊「token 唯讀連結」＋「公開別名欄位」兩區塊：一個匿名 toggle＋一條連結＋最多
+// 三顆鈕。模式由既有資料推導（slug null＝匿名 ON、slug 有值＝匿名 OFF），不是另開
+// 一份 state——見 ShareDialog.tsx `PublicLinkPanel` 頂端 JSDoc。
 
-describe("ShareDialog 公開別名列（#122 PR3）", () => {
+const HEX16_RE = /^[0-9a-f]{16}$/;
+
+describe("ShareDialog 公開連結面板：匿名 toggle", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -894,57 +618,157 @@ describe("ShareDialog 公開別名列（#122 PR3）", () => {
     return { stub, queryClient };
   }
 
-  it("渲染條件：公開態才有別名列；前綴顯示 /p/<ownerHandle>/；提示文案在場", async () => {
+  it("1. 已公開且無別名 → toggle 呈現匿名開啟、連結是 /p/<token>、無可編輯輸入框、只有兩顆鈕", async () => {
     await openPublicDialog({ shares: [], token: TOKEN });
-    expect(screen.getByLabelText("Custom public link")).toBeInTheDocument();
+
+    expect(screen.getByRole("switch", { name: /Anonymous/ })).toBeChecked();
+    // 匿名態的網址拆成「前綴 `/p/` ＋ 唯讀輸入框放 token」（兩態同形，見元件註解），
+    // 所以斷 token 落在輸入框的 value，不是找一整串文字。
+    expect(screen.getByRole("textbox")).toHaveValue(TOKEN);
+    // 沒有可編輯輸入框（連結是純文字顯示，不是 Input）
+    // 匿名態仍是輸入框（兩態同形、可選取複製），但**唯讀**——不可自訂是這一態的
+    // 承重性質，用 readOnly 斷言而不是「沒有輸入框」。
+    expect(screen.getByRole("textbox")).toHaveAttribute("readonly");
+    expect(screen.queryByLabelText("Custom public link")).not.toBeInTheDocument();
+    // 只有兩顆鈕：複製＋重新產生，沒有「儲存」（掃描整個面板 group，不是全域猜）
+    const panel = screen.getByRole("group", { name: "Public link" });
+    expect(within(panel).getAllByRole("button")).toHaveLength(2);
+    expect(within(panel).getByRole("button", { name: "Copy public link" })).toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: "Regenerate link" })).toBeInTheDocument();
+    expect(within(panel).queryByRole("button", { name: "Save custom URL" })).not.toBeInTheDocument();
+  });
+
+  it("2. 關掉匿名 → 送出一次 set-slug（16 位 hex）、連結變成 /p/<handle>/<slug>、多一顆儲存＋可猜警語", async () => {
+    const { stub } = await openPublicDialog({ shares: [], token: TOKEN });
+
+    fireEvent.click(screen.getByRole("switch", { name: /Anonymous/ }));
+
+    await waitFor(() =>
+      expect(stub.calls.filter((c) => c.method === "PUT" && c.url === `${PUBLIC_LINK_URL}/slug`)).toHaveLength(1),
+    );
+    const putCall = stub.calls.find((c) => c.method === "PUT" && c.url === `${PUBLIC_LINK_URL}/slug`);
+    expect(putCall).toBeDefined();
+
+    await waitFor(() => expect(screen.getByRole("switch", { name: /Anonymous/ })).not.toBeChecked());
+    const input = screen.getByLabelText("Custom public link") as HTMLInputElement;
+    expect(input.value).toMatch(HEX16_RE);
+    // 連結＝前綴（/p/<handle>/）＋輸入框裡的隨機 slug，兩者合起來才是完整網址
     expect(screen.getByText(`/p/${NOTE.ownerHandle}/`)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save custom URL" })).toBeInTheDocument();
     expect(screen.getByText(/can be guessed/)).toBeInTheDocument();
   });
 
-  it("私人態不渲染別名列", async () => {
+  it("3. OFF 態改成自訂名並儲存 → 送出 normalize 後的值、連結跟著變", async () => {
+    const { stub, queryClient } = await openPublicDialog({ shares: [], token: TOKEN, slug: "old-alias" });
+
+    fireEvent.change(screen.getByLabelText("Custom public link"), { target: { value: "My-Custom" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save custom URL" }));
+
+    await waitFor(() =>
+      expect(stub.calls).toContainEqual({ method: "PUT", url: `${PUBLIC_LINK_URL}/slug` }),
+    );
+    // 送出的是 normalize 後（小寫）的值
+    const putCall = stub.fetchMock.mock.calls.find(
+      ([input, init]) => String(input) === `${PUBLIC_LINK_URL}/slug` && (init as RequestInit)?.method === "PUT",
+    );
+    expect(JSON.parse(String((putCall as [unknown, RequestInit])[1].body))).toEqual({ slug: "my-custom" });
+    expect(queryClient.getQueryData(["public-link", NOTE.id])).toEqual({ token: TOKEN, slug: "my-custom" });
+  });
+
+  it("4. OFF 態按「重新產生」→ 送出新的隨機 slug（與前一個不同）", async () => {
+    const { stub } = await openPublicDialog({ shares: [], token: TOKEN, slug: "old-alias" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Regenerate link" }));
+    await waitFor(() =>
+      expect(stub.calls.filter((c) => c.method === "PUT" && c.url === `${PUBLIC_LINK_URL}/slug`)).toHaveLength(1),
+    );
+    const firstValue = (screen.getByLabelText("Custom public link") as HTMLInputElement).value;
+    expect(firstValue).toMatch(HEX16_RE);
+
+    fireEvent.click(screen.getByRole("button", { name: "Regenerate link" }));
+    await waitFor(() =>
+      expect(stub.calls.filter((c) => c.method === "PUT" && c.url === `${PUBLIC_LINK_URL}/slug`)).toHaveLength(2),
+    );
+    const secondValue = (screen.getByLabelText("Custom public link") as HTMLInputElement).value;
+    expect(secondValue).toMatch(HEX16_RE);
+    expect(secondValue).not.toBe(firstValue);
+  });
+
+  // B1（審查修正，2026-09-17）：OFF 態按「重新產生」以前只換 slug、沒換 token——
+  // 使用者設了自訂公開網址之後，外洩的 /p/<token> 連結就再也沒有輪替的入口，
+  // 而按鈕明明寫著「重新產生」。修正後兩者要**同時**換：先 PUT public-link（換
+  // token）再 PUT slug（換 slug），且新 slug 不等於舊 slug。
+  it("B1：OFF 態按「重新產生」→ 同時 PUT public-link（換 token）與 PUT slug（換 slug），新 slug ≠ 舊 slug", async () => {
+    const { stub } = await openPublicDialog({ shares: [], token: TOKEN, slug: "old-alias" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Regenerate link" }));
+
+    await waitFor(() => {
+      expect(stub.calls.filter((c) => c.method === "PUT" && c.url === PUBLIC_LINK_URL)).toHaveLength(1);
+      expect(stub.calls.filter((c) => c.method === "PUT" && c.url === `${PUBLIC_LINK_URL}/slug`)).toHaveLength(1);
+    });
+    // token 的 PUT 要先於 slug 的 PUT（先換 token 才不會用舊 token 硬換出一個新 slug）。
+    const tokenCallIndex = stub.calls.findIndex((c) => c.method === "PUT" && c.url === PUBLIC_LINK_URL);
+    const slugCallIndex = stub.calls.findIndex((c) => c.method === "PUT" && c.url === `${PUBLIC_LINK_URL}/slug`);
+    expect(tokenCallIndex).toBeGreaterThanOrEqual(0);
+    expect(slugCallIndex).toBeGreaterThan(tokenCallIndex);
+
+    const newValue = (screen.getByLabelText("Custom public link") as HTMLInputElement).value;
+    expect(newValue).toMatch(HEX16_RE);
+    expect(newValue).not.toBe("old-alias");
+  });
+
+  it("5. 失敗復原：set-slug 回錯誤 → toggle 彈回原狀、顯示錯誤、畫面不得宣稱已切換", async () => {
+    const { stub } = await openPublicDialog({
+      shares: [],
+      token: TOKEN,
+      onCall: (method, url) =>
+        method === "PUT" && url === `${PUBLIC_LINK_URL}/slug`
+          ? fakeResponse({ ok: false, status: 500, json: () => Promise.resolve({ error: { code: "internal", message: "boom" } }) })
+          : undefined,
+    });
+
+    fireEvent.click(screen.getByRole("switch", { name: /Anonymous/ }));
+
+    expect(await screen.findByText("Something went wrong. Please try again.")).toBeInTheDocument();
+    // toggle 彈回：仍是匿名 ON，畫面沒有長出 OFF 態的可編輯輸入框
+    expect(screen.getByRole("switch", { name: /Anonymous/ })).toBeChecked();
+    expect(screen.queryByLabelText("Custom public link")).not.toBeInTheDocument();
+    // 匿名態的網址拆成「前綴 `/p/` ＋ 唯讀輸入框放 token」（兩態同形，見元件註解），
+    // 所以斷 token 落在輸入框的 value，不是找一整串文字。
+    expect(screen.getByRole("textbox")).toHaveValue(TOKEN);
+    expect(stub.calls.filter((c) => c.method === "PUT" && c.url === `${PUBLIC_LINK_URL}/slug`)).toHaveLength(1);
+  });
+
+  it("6. 打開匿名 → 送出 clear-slug、連結回到 /p/<token>", async () => {
+    const { stub } = await openPublicDialog({ shares: [], token: TOKEN, slug: "old-alias" });
+    expect(screen.getByRole("switch", { name: /Anonymous/ })).not.toBeChecked();
+
+    fireEvent.click(screen.getByRole("switch", { name: /Anonymous/ }));
+
+    await waitFor(() =>
+      expect(stub.calls).toContainEqual({ method: "DELETE", url: `${PUBLIC_LINK_URL}/slug` }),
+    );
+    await waitFor(() => expect(screen.getByRole("switch", { name: /Anonymous/ })).toBeChecked());
+    // 匿名態的網址拆成「前綴 `/p/` ＋ 唯讀輸入框放 token」（兩態同形，見元件註解），
+    // 所以斷 token 落在輸入框的 value，不是找一整串文字。
+    expect(screen.getByRole("textbox")).toHaveValue(TOKEN);
+    expect(screen.queryByLabelText("Custom public link")).not.toBeInTheDocument();
+  });
+
+  it("私人態不渲染公開連結面板", async () => {
     stubRoutedFetch({ shares: [], token: null });
     renderDialog();
     await openDialog();
     await waitFor(() => expect(screen.getByRole("radio", { name: /Private/ })).toBeChecked());
-    expect(screen.queryByLabelText("Custom public link")).not.toBeInTheDocument();
-  });
-
-  it("存流程：PUT …/public-link/slug、快取 token 不被抹（公開連結列仍在）、清除與複製鈕現身", async () => {
-    const { stub, queryClient } = await openPublicDialog({ shares: [], token: TOKEN });
-    fireEvent.change(screen.getByLabelText("Custom public link"), { target: { value: "My-Alias" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save custom URL" }));
-
-    await waitFor(() => expect(screen.getByRole("button", { name: "Remove custom URL" })).toBeInTheDocument());
-    // 打對端點＋client 端先 normalize（小寫）再送
-    expect(stub.calls).toContainEqual({ method: "PUT", url: `${PUBLIC_LINK_URL}/slug` });
-    // 快取全形：token 不得被抹（r4-M1 鏡像——公開連結列消失的故障形）
-    expect(queryClient.getQueryData(["public-link", NOTE.id])).toEqual({ token: TOKEN, slug: "my-alias" });
-    expect(screen.getByLabelText("Public link URL")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Copy custom link" })).toBeInTheDocument();
-    // 複製的**內容**（突變審 A1）：漏 handle／自拼 `/p/${slug}`（那是 token 命名
-    // 空間）都在這裡紅。期望值刻意硬編——測試裡呼叫 publicAliasPath 是套套邏輯。
-    const writeText = vi.fn(() => Promise.resolve());
-    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
-    fireEvent.click(screen.getByRole("button", { name: "Copy custom link" }));
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/p/tester/my-alias`));
-  });
-
-  it("清流程：DELETE …/public-link/slug、輸入框清空、token 列仍在（functional setQueryData 保 token）", async () => {
-    const { stub, queryClient } = await openPublicDialog({ shares: [], token: TOKEN, slug: "old-alias" });
-    expect(screen.getByLabelText("Custom public link")).toHaveValue("old-alias");
-    fireEvent.click(screen.getByRole("button", { name: "Remove custom URL" }));
-
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Remove custom URL" })).not.toBeInTheDocument());
-    expect(stub.calls).toContainEqual({ method: "DELETE", url: `${PUBLIC_LINK_URL}/slug` });
-    expect(queryClient.getQueryData(["public-link", NOTE.id])).toEqual({ token: TOKEN, slug: null });
-    expect(screen.getByLabelText("Custom public link")).toHaveValue("");
-    expect(screen.getByLabelText("Public link URL")).toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: /Anonymous/ })).not.toBeInTheDocument();
   });
 
   it("409 public_slug_taken → 顯示對應文案；輸入值保留（讓使用者改字重試）", async () => {
     await openPublicDialog({
       shares: [],
       token: TOKEN,
+      slug: "old-alias",
       onCall: (method, url) =>
         method === "PUT" && url === `${PUBLIC_LINK_URL}/slug`
           ? fakeResponse({ ok: false, status: 409, json: () => Promise.resolve({ error: { code: "public_slug_taken", message: "x" } }) })
@@ -958,11 +782,52 @@ describe("ShareDialog 公開別名列（#122 PR3）", () => {
   });
 
   it("client 端驗證同源：非法字元就地擋、不打 API", async () => {
-    const { stub } = await openPublicDialog({ shares: [], token: TOKEN });
+    const { stub } = await openPublicDialog({ shares: [], token: TOKEN, slug: "old-alias" });
     fireEvent.change(screen.getByLabelText("Custom public link"), { target: { value: "bad_alias" } });
     expect(screen.getByText("Only letters, numbers, and hyphens are allowed.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save custom URL" })).toBeDisabled();
-    expect(stub.calls.filter((c) => c.url.endsWith("/slug"))).toHaveLength(0);
+    expect(stub.calls.filter((c) => c.url.endsWith("/slug") && c.method === "PUT")).toHaveLength(0);
+  });
+
+  // ──────────── N8：下架 CopyLinkButton 時掉的兩條，在 PublicCopyButton 補回 ────────────
+  // 這兩條原本守著 `CopyLinkButton`（#9／後續修正），下架時被刪掉，但退路 UI
+  // （`copyText` 兩條路都失敗→`ManualCopyField`）仍活在 `PublicCopyButton` 這條路徑上
+  // ——只是換了個呼叫端，行為本身沒有變，見 `lib/clipboard.ts`／`ManualCopyField.tsx`。
+
+  it("N8：非 secure context 且 execCommand 也不可用 → 攤出網址讓使用者自己複製", async () => {
+    await openPublicDialog({ shares: [], token: TOKEN });
+    vi.stubGlobal("navigator", {}); // 明文 http 的區網位址：整支 clipboard API 不存在
+    Object.defineProperty(document, "execCommand", { value: vi.fn(() => false), configurable: true, writable: true });
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy public link" }));
+
+    // 退路必須是「可以選取起來複製」的東西——不是 toast（Radix toast root 帶
+    // `userSelect: none`，橫向拖曳也會被 swipe-to-dismiss 手勢吃掉）。
+    const manual = await screen.findByLabelText(
+      "Couldn't copy automatically — select the link below and copy it yourself.",
+    );
+    expect(manual).toHaveValue(`${window.location.origin}/p/${TOKEN}`);
+    expect(manual).toHaveAttribute("readonly");
+  });
+
+  it("N8：手動複製欄只在出現時自動選取一次，之後的 re-render 不搶焦點", async () => {
+    const { queryClient } = await openPublicDialog({ shares: [], token: TOKEN });
+    vi.stubGlobal("navigator", {});
+    Object.defineProperty(document, "execCommand", { value: vi.fn(() => false), configurable: true, writable: true });
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy public link" }));
+
+    const manual = await screen.findByLabelText(
+      "Couldn't copy automatically — select the link below and copy it yourself.",
+    );
+    const selectSpy = vi.spyOn(manual as HTMLInputElement, "select");
+
+    // 觸發跟這個欄位無關的 re-render（比照上面 renderDialog 的 rerender 慣例——
+    // element identity 換新，React 才會真的重新走一次 render，不會 bail out）。
+    queryClient.rerender();
+    queryClient.rerender();
+
+    expect(selectSpy).not.toHaveBeenCalled();
   });
 });
 
@@ -987,5 +852,81 @@ describe("私人確認流文案（#122 PR3 擴字）", () => {
     expect(
       await screen.findByText(/turns off the public link \(including its custom public URL\)/),
     ).toBeInTheDocument();
+  });
+});
+
+// ──────────── 觸發鈕圖示跟著分享狀態變（私人=鎖／限定成員=分享／公開=地球） ────────────
+// UI 改版設計裡本來就該有的多狀態，只是出貨時只做了單一狀態，多狀態留給 #72——
+// #72 做完公開態之後這件事掉了，這裡補上。狀態用 `title` 傳達，`aria-label` 固定不變
+// （e2e `03-share-revoke.spec.ts` 靠 accessible name "Share" 找按鈕）。
+describe("ShareDialog 觸發鈕圖示（依分享狀態，#72 UI 收尾）", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function triggerButton() {
+    // 字串 name 預設就是精確比對，不必也不能加 `exact`（ByRoleOptions 型別
+    // 不收這個鍵——tsc 才抓得到，vitest 走 esbuild 剝型別測不出來）。
+    return screen.getByRole("button", { name: "Share" });
+  }
+
+  it("私人（無 token、零成員）→ title 是私人狀態；載入中不猜狀態、可及名稱仍是 Share", async () => {
+    const stub = stubRoutedFetch({ shares: [], token: null, pending: [SHARES_URL, PUBLIC_LINK_URL] });
+    renderDialog();
+
+    // 兩階段的第一階段：query 都還懸置，不得顯示任何狀態文案（不閃爍、不猜）。
+    expect(triggerButton()).not.toHaveAttribute("title");
+    expect(triggerButton()).toHaveAccessibleName("Share");
+
+    stub.resolve(SHARES_URL, fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+    stub.resolve(
+      PUBLIC_LINK_URL,
+      fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ token: null, slug: null }) }),
+    );
+
+    await waitFor(() => expect(triggerButton()).toHaveAttribute("title", "Private — only you have access"));
+    expect(triggerButton()).toHaveAccessibleName("Share");
+    // I2：title／可及名稱只斷「有沒有變」，斷不到「變成哪一個」——把 TriggerIcon
+    // 退化成固定 Share 也會全綠。實際斷圖示本身（data-icon，見 ui/icons.tsx）。
+    expect(triggerButton().querySelector("svg")).toHaveAttribute("data-icon", "lock");
+  });
+
+  it("限定成員（無 token、有成員）→ title 是成員狀態；可及名稱仍是 Share", async () => {
+    const stub = stubRoutedFetch({ shares: [SHARE], token: null, pending: [SHARES_URL, PUBLIC_LINK_URL] });
+    renderDialog();
+
+    expect(triggerButton()).not.toHaveAttribute("title");
+
+    stub.resolve(SHARES_URL, fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([SHARE]) }));
+    stub.resolve(
+      PUBLIC_LINK_URL,
+      fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ token: null, slug: null }) }),
+    );
+
+    await waitFor(() => expect(triggerButton()).toHaveAttribute("title", "Shared with members you invited"));
+    expect(triggerButton()).toHaveAccessibleName("Share");
+    expect(triggerButton().querySelector("svg")).toHaveAttribute("data-icon", "share");
+  });
+
+  it("公開（有 token）→ title 是公開狀態；可及名稱仍是 Share", async () => {
+    const stub = stubRoutedFetch({ shares: [], token: TOKEN, pending: [SHARES_URL, PUBLIC_LINK_URL] });
+    renderDialog();
+
+    expect(triggerButton()).not.toHaveAttribute("title");
+
+    stub.resolve(SHARES_URL, fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+    stub.resolve(
+      PUBLIC_LINK_URL,
+      fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ token: TOKEN, slug: null }) }),
+    );
+
+    await waitFor(() => expect(triggerButton()).toHaveAttribute("title", "Public — anyone with the link can view"));
+    expect(triggerButton()).toHaveAccessibleName("Share");
+    expect(triggerButton().querySelector("svg")).toHaveAttribute("data-icon", "globe");
   });
 });

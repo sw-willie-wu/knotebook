@@ -104,12 +104,17 @@ export default function AuthorizePage() {
 
             <div className="flex gap-2">
               {/* isSuccess 也鎖住：assign 之後導頁還在飛，第二下必吃 410 */}
-              <Button type="button" disabled={decision.isPending || decision.isSuccess} onClick={() => submit("allow")}>
+              <Button
+                type="button"
+                variant="brandSolid"
+                disabled={decision.isPending || decision.isSuccess}
+                onClick={() => submit("allow")}
+              >
                 {t("authorize.allow")}
               </Button>
               <Button
                 type="button"
-                variant="ghost"
+                variant="outline"
                 disabled={decision.isPending || decision.isSuccess}
                 onClick={() => submit("deny")}
               >

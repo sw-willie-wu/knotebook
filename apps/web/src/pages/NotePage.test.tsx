@@ -855,23 +855,22 @@ describe("NotePage", () => {
     expect(screen.getByTestId("active-probe")).toHaveTextContent("none");
   });
 
-  it("改自訂 slug（經 ShareDialog 全鏈）→ 快取回寫 → 收斂 effect 更新網址（A3 移轉的正向面）", async () => {
+  it("slug 變更（快取回寫）→ 收斂 effect 更新網址（A3 移轉的正向面）", async () => {
     // 這一案守「收斂 effect 是**資料變動驅動**」（deps 少了 note 這裡必紅）。
-    // SlugField 寫回鍵必須是 ['note', note.id] 的守衛在 ShareDialog.test（「成功變更
-    // slug → 寫回本頁 ['note', id] 快取」案）——本案的 stub 會把 PATCH 結果寫回
-    // byRef，invalidate→refetch 單獨就能驅動收斂，咬不到那把鍵（Task 6 收掉 prop 後
-    // 舊註解的「改回 ref」突變面已不存在）。
+    // 內部自訂網址的 UI 入口（ShareDialog 的 SlugField）已下架（Willie 2026-09-17
+    // 產品決定，見 ShareDialog.tsx 頂層說明）——slug 改變現在只可能來自標題重新
+    // 派生（#145）或其他寫入路徑，這裡改用 setQueryData 直接模擬「常駐層 note
+    // 換了新 slug」，同款手法見上面 A1 案（`queryClient.setQueryData(["note", …])`）。
     stubTwoNotes();
     collab.provider.synced = true;
 
-    renderTwoNoteTree();
+    const queryClient = renderTwoNoteTree();
     await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
     await waitFor(() => expect(window.location.pathname).toBe("/n/tester/my-note"));
 
-    fireEvent.click(screen.getByRole("button", { name: "Share" }));
-    const slugInput = await screen.findByRole("textbox", { name: "Custom link" });
-    fireEvent.change(slugInput, { target: { value: "renamed" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await act(async () => {
+      queryClient.setQueryData(["note", NOTE.id], { ...NOTE, slug: "renamed" });
+    });
 
     await waitFor(() => expect(window.location.pathname).toBe("/n/tester/renamed"));
   });

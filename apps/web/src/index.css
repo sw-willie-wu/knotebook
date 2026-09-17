@@ -39,6 +39,8 @@
   --brand-soft: oklch(0.681 0.058 275.7 / 14%);
   --brand-soft-strong: oklch(0.681 0.058 275.7 / 20%);
   --brand-on-soft: oklch(0.450 0.067 275.7); /* ≈#4b527a */
+  --brand-deep: oklch(0.470 0.064 275.7); /* ≈#51587f */
+  --brand-fg: oklch(0.985 0 0); /* 主色實心鈕的字色：淺色模式一律白字 */
 
   /* 六個 swatch 變數：色點 UI 唯一取色來源。:root 放各色 light `--brand` 值。 */
   --brand-swatch-indigo: oklch(0.550 0.064 275.7); /* ≈#676f97 */
@@ -97,6 +99,8 @@
   --brand-soft: oklch(0.681 0.058 275.7 / 16%);
   --brand-soft-strong: oklch(0.681 0.058 275.7 / 24%);
   --brand-on-soft: oklch(0.840 0.038 275.7); /* ≈#c3c9e4 */
+  --brand-deep: oklch(0.721 0.058 275.7); /* ≈#9aa2ca */
+  --brand-fg: oklch(0.213 0.008 264.4); /* 深色模式一律近黑字（主色在深色是亮色） */
 
   /* 六個 swatch 變數：.dark 放各色 dark 基色。 */
   --brand-swatch-indigo: oklch(0.681 0.058 275.7); /* ≈#8e96bd */
@@ -141,6 +145,7 @@
   --brand-soft: oklch(0.681 0.058 275.7 / 14%);
   --brand-soft-strong: oklch(0.681 0.058 275.7 / 20%);
   --brand-on-soft: oklch(0.450 0.067 275.7); /* ≈#4b527a */
+  --brand-deep: oklch(0.470 0.064 275.7); /* ≈#51587f */
 }
 
 :root[data-accent=blue] {
@@ -148,6 +153,7 @@
   --brand-soft: oklch(0.677 0.048 244.4 / 14%);
   --brand-soft-strong: oklch(0.677 0.048 244.4 / 20%);
   --brand-on-soft: oklch(0.450 0.055 244.4); /* ≈#3a5972 */
+  --brand-deep: oklch(0.470 0.052 244.4); /* ≈#415e76 */
 }
 
 :root[data-accent=teal] {
@@ -155,6 +161,7 @@
   --brand-soft: oklch(0.700 0.046 183.3 / 14%);
   --brand-soft-strong: oklch(0.700 0.046 183.3 / 20%);
   --brand-on-soft: oklch(0.450 0.052 183.3); /* ≈#315f58 */
+  --brand-deep: oklch(0.470 0.050 183.3); /* ≈#39645e */
 }
 
 :root[data-accent=sage] {
@@ -162,6 +169,7 @@
   --brand-soft: oklch(0.692 0.045 137.6 / 14%);
   --brand-soft-strong: oklch(0.692 0.045 137.6 / 20%);
   --brand-on-soft: oklch(0.450 0.051 137.6); /* ≈#475c40 */
+  --brand-deep: oklch(0.470 0.049 137.6); /* ≈#4e6246 */
 }
 
 :root[data-accent=rose] {
@@ -169,6 +177,7 @@
   --brand-soft: oklch(0.670 0.048 18.4 / 14%);
   --brand-soft-strong: oklch(0.670 0.048 18.4 / 20%);
   --brand-on-soft: oklch(0.450 0.055 18.4); /* ≈#714949 */
+  --brand-deep: oklch(0.470 0.052 18.4); /* ≈#754f4f */
 }
 
 :root[data-accent=gold] {
@@ -176,6 +185,7 @@
   --brand-soft: oklch(0.747 0.089 82.4 / 14%);
   --brand-soft-strong: oklch(0.747 0.089 82.4 / 20%);
   --brand-on-soft: oklch(0.450 0.102 82.4); /* ≈#714e00 */
+  --brand-deep: oklch(0.470 0.098 82.4); /* ≈#765400 */
 }
 
 /* ---- dark ---- */
@@ -185,6 +195,7 @@
   --brand-soft: oklch(0.681 0.058 275.7 / 16%);
   --brand-soft-strong: oklch(0.681 0.058 275.7 / 24%);
   --brand-on-soft: oklch(0.840 0.038 275.7); /* ≈#c3c9e4 */
+  --brand-deep: oklch(0.721 0.058 275.7); /* ≈#9aa2ca */
 }
 
 .dark[data-accent=blue] {
@@ -192,6 +203,7 @@
   --brand-soft: oklch(0.677 0.048 244.4 / 16%);
   --brand-soft-strong: oklch(0.677 0.048 244.4 / 24%);
   --brand-on-soft: oklch(0.840 0.031 244.4); /* ≈#bacdde */
+  --brand-deep: oklch(0.717 0.048 244.4); /* ≈#8ba8c0 */
 }
 
 .dark[data-accent=teal] {
@@ -199,6 +211,7 @@
   --brand-soft: oklch(0.700 0.046 183.3 / 16%);
   --brand-soft-strong: oklch(0.700 0.046 183.3 / 24%);
   --brand-on-soft: oklch(0.840 0.030 183.3); /* ≈#b6d1cc */
+  --brand-deep: oklch(0.740 0.046 183.3); /* ≈#8bb5ae */
 }
 
 .dark[data-accent=sage] {
@@ -206,6 +219,7 @@
   --brand-soft: oklch(0.692 0.045 137.6 / 16%);
   --brand-soft-strong: oklch(0.692 0.045 137.6 / 24%);
   --brand-on-soft: oklch(0.840 0.029 137.6); /* ≈#c2cfbd */
+  --brand-deep: oklch(0.732 0.045 137.6); /* ≈#9baf94 */
 }
 
 .dark[data-accent=rose] {
@@ -213,6 +227,7 @@
   --brand-soft: oklch(0.670 0.048 18.4 / 16%);
   --brand-soft-strong: oklch(0.670 0.048 18.4 / 24%);
   --brand-on-soft: oklch(0.840 0.031 18.4); /* ≈#dec3c3 */
+  --brand-deep: oklch(0.710 0.048 18.4); /* ≈#be9696 */
 }
 
 .dark[data-accent=gold] {
@@ -220,6 +235,7 @@
   --brand-soft: oklch(0.747 0.089 82.4 / 16%);
   --brand-soft-strong: oklch(0.747 0.089 82.4 / 24%);
   --brand-on-soft: oklch(0.840 0.058 82.4); /* ≈#ddc8a0 */
+  --brand-deep: oklch(0.787 0.089 82.4); /* ≈#d6b576 */
 }
 
 @theme inline {
@@ -246,6 +262,8 @@
   --color-brand-soft: var(--brand-soft);
   --color-brand-soft-strong: var(--brand-soft-strong);
   --color-brand-on-soft: var(--brand-on-soft);
+  --color-brand-deep: var(--brand-deep);
+  --color-brand-fg: var(--brand-fg);
 }
 
 body {
@@ -310,6 +328,15 @@ body {
     scrollbar-width: thin;
     scrollbar-color: var(--scrollbar-thumb) transparent;
   }
+}
+
+/* 分享面板「存取權」三選一（`components/ShareDialog.tsx` 的 `AccessSection`）唯一還
+   留著的原生 `<input type="radio">`——那顆 radio 本身不換成 Radix RadioGroup（會動到
+   `AccessSection` 的 latch/sticky 不變量，範圍外），但至少讓瀏覽器預設的藍色圈圈跟上
+   主題色。選擇器收窄到 `name="share-access"`（該元件唯一一組 radio），不對全站原生
+   radio 亂灑——今天 app 裡也只有這一處在用原生 radio。 */
+input[name="share-access"] {
+  accent-color: var(--color-brand);
 }
 
 /* 更細的水平捲軸（6px），給 backlinks 那條單排 strip 用——那一列只有 36px 高，
@@ -453,6 +480,56 @@ body {
   mask-repeat: no-repeat;
   mask-position: center;
   mask-size: contain;
+}
+
+/* 內文左右對齊，配一條讓長連結／長識別字「填滿再斷」的規則。
+
+   ⚠ 這兩段是一組的，不要只留其中一半（下方有一條 CSS 源碼守衛釘住兩段同進同出，
+   見 `theme.justify-wordbreak-guard.test.ts`）。單獨開 justify 會出現這個症狀：
+   某行是「一小段文字 ＋ 空白 ＋ 一長串不能斷的東西」（網址、程式碼識別字）時，
+   瀏覽器在那個空白換行、把整行空隙全灌進去——而 `.bn-inline-content` 是
+   `white-space: pre-wrap`（BlockNote 內建），使用者打的空白都被保留，成了唯一
+   可以無限拉伸的伸縮點。
+
+   實測（I7 重量，2026-09-17，**headed** chromium、`file://` 靜態頁、
+   `ARTICLE_COLUMN` 的兩個邊界欄寬 clamp(42.5rem,85%,66rem)——680px 與
+   1056px；量法：中英混排段落夾一個不能斷的長識別字，取同一行內連續空白字元
+   range 的 `getBoundingClientRect().width` 最大值）：
+   - 680px（下限）：只開 justify 136.4px；補上 `word-break: break-all` 後
+     降到 7.9px。
+   - 1056px（上限）：欄夠寬，長識別字本來就會被推到自己的一行，兩種寫法都已經
+     很小（4.8px／5.5px）——這個問題本質上只在窄欄位才明顯，寬欄位不靠這條規則
+     也大致不會發生。
+   舊註解寫的「600px、255px→4.1px」是量錯欄寬（600px 在這個版面到不了，
+   `ARTICLE_COLUMN` 最窄是 680px）且用 headless 量的（違反本專案「量版面幾何一律
+   用 headed」的既有紀律），數字與量法都已作廢，上面是重量後的結果。
+
+   ⚠ 一定要用 `word-break: break-all`，不能用 `overflow-wrap: anywhere`：後者只在
+   「整行沒有其他合法斷點」時才切字，而那一行有（就是那個空白），所以它在 680px
+   那組實測裡幾乎無效。`break-all` 是無條件允許在字中間斷，換行演算法才會拿長
+   字串把行填滿——也因此它不會特意保留短 token 不切，純粹是換行演算法優先整塊
+   搬走的副作用，不是這個屬性本身的保證。
+
+   中文本來就到處可斷、行自然填滿，這兩條對它都是無作用。 */
+.bn-editor .bn-block-content[data-content-type=paragraph]:not([data-text-alignment]),
+.bn-editor .bn-block-content[data-content-type=bulletListItem]:not([data-text-alignment]),
+.bn-editor .bn-block-content[data-content-type=numberedListItem]:not([data-text-alignment]),
+.bn-editor .bn-block-content[data-content-type=checkListItem]:not([data-text-alignment]),
+.bn-editor .bn-block-content[data-content-type=toggleListItem]:not([data-text-alignment]),
+.bn-editor .bn-block-content[data-content-type=quote]:not([data-text-alignment]) {
+  text-align: justify;
+  hyphens: auto;
+}
+
+/* ⚠ `:not([data-text-alignment])` 在上面那組是承重的：BlockNote 只在對齊**不是
+   預設值**時才把這個屬性寫進 DOM（`blocks/defaultProps.ts` 的
+   `getTextAlignmentAttribute`：值等於 default 就回 `{}`），所以使用者自己在工具列
+   挑過對齊的 block 一定帶屬性、上面那組就不匹配。內建那幾條
+   （`[data-text-alignment=left]{text-align:left!important}` 等）另外帶 `!important`，
+   即使匹配也壓得過——兩道防線同一個結論：使用者挑過的對齊永遠贏。 */
+.bn-editor .bn-inline-content a,
+.bn-editor .bn-inline-content code {
+  word-break: break-all;
 }
 
 /* 程式碼區塊的底與字（issue #96）。BlockNote 內建寫死

@@ -179,7 +179,7 @@ export default function LoginPage() {
           </p>
         )}
 
-        <Button type="submit" className="w-full" disabled={submitting}>
+        <Button type="submit" variant="brandSolid" className="w-full" disabled={submitting}>
           {submitting ? t("login.submitting") : t("login.submit")}
         </Button>
 

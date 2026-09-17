@@ -74,9 +74,22 @@ export function SettingsModal() {
 
   return (
     <Dialog open onOpenChange={handleOpenChange}>
-      <DialogContent size="lg" className="flex h-[32rem] max-h-[85vh] w-full overflow-hidden">
-        <nav className="flex w-48 shrink-0 flex-col gap-1 border-r border-border p-4">
-          <DialogTitle className="px-2 pb-2 text-sm font-semibold">{t("settings.title")}</DialogTitle>
+      {/* 設定面板的幾何全部集中在這兩行（`size="lg"` 只有這裡在用）：外框
+          896×672（`max-w-4xl`／`h-[42rem]`，蓋掉 variant 的 `max-w-3xl`，由
+          tailwind-merge 消解衝突），扣掉 208px 導覽與內容區 32px 內距後，內容
+          可用寬約 624px——比改版前的 528px 寬，夠 AI／使用者那兩區的表格與並排
+          欄位不折行，又不會讓說明文字拉得太開（說明本身另有 `max-w-prose` 限寬）。
+          高度吃到 `max-h-[88vh]`：這幾頁是往下長的清單（token、供應商、動作），
+          高一點能一次看到更多列，少捲一次。 */}
+      <DialogContent size="lg" className="flex h-[42rem] max-h-[88vh] w-full max-w-4xl overflow-hidden">
+        {/* 導覽是「機殼」、右邊是「文件」：給左欄一層極淡的底色，兩者才分得開——
+            改版前兩側同色、只隔一條 1px 線，整個 modal 讀起來是一整片。
+            `settings.title` 在這裡只是定位用的品牌字（13px 靜音），頁標題交給右邊的
+            `SettingsPage`；它同時是 Radix 要求的 `DialogTitle`（modal 的可及名稱）。 */}
+        <nav className="flex w-52 shrink-0 flex-col gap-1 border-r border-border bg-muted/40 p-4">
+          <DialogTitle className="px-2 pb-3 text-[0.8125rem] font-medium text-muted-foreground">
+            {t("settings.title")}
+          </DialogTitle>
           <DialogDescription className="sr-only">{t("settings.description")}</DialogDescription>
           <SettingsNavLink to="/settings/account" label={t("settings.nav.account")} backgroundLocation={backgroundLocation} />
           {isAdmin && (
@@ -86,7 +99,7 @@ export function SettingsModal() {
             </>
           )}
         </nav>
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto p-8">
           <Outlet />
         </div>
       </DialogContent>

@@ -38,13 +38,18 @@ async function openShareDialog(page: Page) {
   return dialog;
 }
 
-/** 從 ShareDialog 讀公開連結（radio 已在「公開」態、URL 輸入框已渲染時）。 */
-async function readPublicUrl(dialog: ReturnType<Page["getByRole"]>): Promise<string> {
+/** 從 ShareDialog 讀公開連結（radio 已在「公開」態時）。
+ *
+ * ⚠ 2026-09-17 介面改版後，匿名態的輸入框**只放 token**，`/p/` 前綴是旁邊的一段
+ * 文字（兩種型態共用「前綴 ＋ 輸入框」的形狀，見 `ShareDialog.tsx` 的
+ * `PublicLinkPanel`）。所以這裡讀到的是裸 token，網址要自己組回去——改版前
+ * 讀到的是整條網址，那個假設已經不成立。 */
+async function readPublicUrl(dialog: ReturnType<Page["getByRole"]>, page: Page): Promise<string> {
   const input = dialog.getByLabel("Public link URL");
   await expect(input).toBeVisible();
-  const url = await input.inputValue();
-  expect(url).toMatch(/\/p\/[A-Za-z0-9_-]{43}$/);
-  return url;
+  const token = await input.inputValue();
+  expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  return `${new URL(page.url()).origin}/p/${token}`;
 }
 
 function tokenOf(publicUrl: string): string {
@@ -53,6 +58,20 @@ function tokenOf(publicUrl: string): string {
   // "<handle>/<slug>"——別讓它靜默流進後續請求。
   expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
   return token;
+}
+
+/** 從 ShareDialog 讀公開別名路徑（匿名 OFF 態，radio 已在「公開」態時）。
+ *
+ * OFF 態的輸入框放 slug（可編輯），前綴 `/p/<handle>/` 是旁邊的一段文字——
+ * 與 `readPublicUrl`（ON 態、輸入框放裸 token）分屬兩種型態，不共用同一支
+ * helper（呼叫端 2026-09-17 交辦明令：另開一支，別硬塞進 `readPublicUrl`）。
+ * 回傳**路徑**（不含 origin）：呼叫端只拿它餵 `page.goto` 與切出 `<handle>/<slug>`
+ * 這段 API ref，不像 `readPublicUrl` 的呼叫點需要組完整網址。 */
+async function readAliasPath(dialog: ReturnType<Page["getByRole"]>): Promise<string> {
+  const prefix = await dialog.locator("#share-public-slug-prefix").innerText();
+  expect(prefix).toMatch(/^\/p\/[a-z0-9-]+\/$/);
+  const slug = await dialog.getByLabel("Custom public link", { exact: true }).inputValue();
+  return `${prefix}${slug}`;
 }
 
 /** 公開內容端點路徑的唯一組字點（#122 PR3：本檔原有兩處硬編字串，改集中；
@@ -109,7 +128,7 @@ test("owner 開公開 → 免登入看到內容與圖 → 重生舊連結死 →
     const publicRadio = dialog.getByRole("radio", { name: /^Public link/ });
     await expect(publicRadio).toBeEnabled(); // latch 完成（兩個 query 都到）才可點
     await publicRadio.check();
-    const publicUrl = await readPublicUrl(dialog);
+    const publicUrl = await readPublicUrl(dialog, ownerPage);
     const token = tokenOf(publicUrl);
     await ownerPage.keyboard.press("Escape");
     await expect(dialog).not.toBeVisible();
@@ -144,25 +163,40 @@ test("owner 開公開 → 免登入看到內容與圖 → 重生舊連結死 →
     // 未登入不重導：仍在 /p/ 網址上。
     expect(new URL(anonPage.url()).pathname).toBe(`/p/${token}`);
 
-    // ── owner：設公開別名（#122 PR3）→ 無痕開 /p/<handle>/<slug> → 撤別名 ────
+    // ── owner：設公開別名（Willie 2026-09-17 介面改版：匿名 toggle 取代舊的
+    //    「公開別名欄位」＋「Remove custom URL」鈕）→ 無痕開 /p/<handle>/<slug>
+    //    → 撤別名（開回匿名 toggle） ──────────────────────────────────────
     const ownerPage2 = await ownerContext.newPage();
     await ownerPage2.goto(noteUrl);
     await expect(ownerPage2.getByLabel("Note title")).toHaveValue(title, { timeout: 15_000 });
     dialog = await openShareDialog(ownerPage2);
     await expect(dialog.getByRole("radio", { name: /^Public link/ })).toBeChecked();
 
-    const alias = `e2e-alias-${Date.now()}`;
-    // 契約名（ShareDialog 的 PublicAliasField JSDoc）：input＝"Custom public link"、
-    // 存/清鈕＝"Save/Remove custom URL"——公開態下短名（"Save"）會撞兩顆，長名唯一。
+    // 匿名 toggle（Radix Switch，role="switch"，可及名稱 "Anonymous link"）。新開的
+    // 公開連結預設匿名 ON（`public_slug` 為 null）——關掉會讓前端自動產生一個 16 位
+    // hex 隨機 slug 並送出（`PublicLinkPanel.applyRandomSlug`），輸入框隨即從唯讀的
+    // "Public link URL" 變成可編輯的 "Custom public link"。
+    const anonymousToggle = dialog.getByRole("switch", { name: "Anonymous link" });
+    await expect(anonymousToggle).toBeChecked();
+    await anonymousToggle.click();
     const aliasInput = dialog.getByLabel("Custom public link", { exact: true });
+    await expect(aliasInput).toBeVisible({ timeout: 10_000 });
+    // 等隨機 slug 真的落地（mutateAsync 完成、輸入框從空字串變成候選值）——別在
+    // 輸入框還空著的時候就蓋自訂名，那樣蓋掉的其實是尚未送出的中繼狀態。
+    await expect.poll(async () => aliasInput.inputValue()).not.toBe("");
+
+    const alias = `e2e-alias-${Date.now()}`;
     await aliasInput.fill(alias);
-    await dialog.getByRole("button", { name: "Save custom URL" }).click();
-    await expect(dialog.getByRole("button", { name: "Remove custom URL" })).toBeVisible();
-    // 別名網址**從 UI 讀出**（gate r3-M：禁 import shared 的 publicAliasPath、禁
-    // 自拼 handle）：前綴 span（id 在 PublicAliasField 的 e2e 契約清單內）＋輸入框現值。
-    const aliasPrefix = await dialog.locator("#share-public-slug-prefix").innerText();
-    expect(aliasPrefix).toMatch(/^\/p\/[a-z0-9-]+\/$/);
-    const aliasPath = `${aliasPrefix}${await aliasInput.inputValue()}`;
+    const saveButton = dialog.getByRole("button", { name: "Save custom URL" });
+    await expect(saveButton).toBeEnabled();
+    await saveButton.click();
+    // 存檔成功＝`dirty` 回 false（`useSetPublicSlug` onSuccess 直寫快取，`slug` prop
+    // 追上使用者剛存的值）——鈕重新變回 disabled 就是完成訊號，不必另外輪詢 API。
+    await expect(saveButton).toBeDisabled({ timeout: 10_000 });
+
+    // 別名網址**從 UI 讀出**（gate r3-M 的既有裁決沿用：禁 import shared 的
+    // publicAliasPath、禁自拼 handle）：`readAliasPath` 讀前綴 span＋輸入框現值。
+    const aliasPath = await readAliasPath(dialog);
     const aliasRef = aliasPath.slice("/p/".length); // "<handle>/<slug>"——API 組字回 helper
 
     // 無痕開別名網址：與 token 頁同一張唯讀頁（標題＋內文＋圖走 by-path uploads）
@@ -176,20 +210,22 @@ test("owner 開公開 → 免登入看到內容與圖 → 重生舊連結死 →
       .toBeGreaterThan(0);
     expect(new URL(anonPage.url()).pathname).toBe(aliasPath);
 
-    // 撤別名 → 別名 404、token 連結**仍活**（撤別名不動 token——並存語意）。
+    // 撤別名（新做法：把匿名 toggle 開回去——舊的「Remove custom URL」鈕已下架）
+    // → 別名 404、token 連結**仍活**（清 slug 不動 token——並存語意）。
     // token 面用「頁面級」斷言（不只 API）：兩段 route 若吞掉單段形，API 探針看不到。
-    await dialog.getByRole("button", { name: "Remove custom URL" }).click();
-    await expect(dialog.getByRole("button", { name: "Remove custom URL" })).not.toBeVisible();
+    await anonymousToggle.click();
+    await expect(dialog.getByLabel("Public link URL")).toBeVisible({ timeout: 10_000 });
+    await expect(dialog.getByLabel("Public link URL")).toHaveValue(token, { timeout: 10_000 });
     await anonPage.goto(aliasPath);
     await expect(anonPage.getByText(INVALID_LINK_TEXT)).toBeVisible({ timeout: 15_000 });
     await anonPage.goto(publicUrl);
     await expect(anonPage.getByRole("heading", { name: title })).toBeVisible({ timeout: 15_000 });
     expect((await fetchPublicNote(request, token)).status()).toBe(200);
 
-    // ── owner：重生 → 舊連結 404、新連結活 ─────────────────────────────
+    // ── owner：重生（此時匿名 ON＝換 token，不是換 slug）→ 舊連結 404、新連結活 ──
     await dialog.getByRole("button", { name: "Regenerate link" }).click();
-    await expect(dialog.getByLabel("Public link URL")).not.toHaveValue(publicUrl);
-    const newPublicUrl = await readPublicUrl(dialog);
+    await expect(dialog.getByLabel("Public link URL")).not.toHaveValue(token);
+    const newPublicUrl = await readPublicUrl(dialog, ownerPage2);
     const newToken = tokenOf(newPublicUrl);
     expect(newToken).not.toBe(token);
 

@@ -86,7 +86,7 @@ Database migrations run automatically at startup and are idempotent — upgradin
 - **Usernames**: accounts created during the window fall outside the rename-tombstone registry until the upgraded server's next startup backfills them — see the rolled-back-server username entry in [known limitations](./known-limitations.md).
 - **Note URLs**: the old server looks slugs up globally, so two users' notes sharing a slug (allowed after the upgrade) resolve unpredictably — an owner can 404 on their own note's URL.
 - **Custom slugs set during the window** are recorded without the "custom" marker, so after upgrading back, the next title change silently overwrites them with an automatic slug.
-- **The Share dialog's "use automatic URL" button breaks** during the window: the old server writes `NULL` where the new schema forbids it, and that normal UI action returns a 500 until you upgrade again.
+- **Clearing a custom slug back to automatic breaks** during the window: the old server writes `NULL` where the new schema forbids it, returning a 500 until you upgrade again. The web UI no longer has a way to trigger this on its own — the Share dialog's custom-URL editor was removed (2026-09-17; see [Sharing](./sharing.md)) — so this degradation is now only reachable through a direct `PATCH` with `slug: null`.
 
 Prefer rolling forward; if you must roll back, treat it as a temporary state.
 

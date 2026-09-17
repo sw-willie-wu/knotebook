@@ -51,18 +51,17 @@
     "copyLink": "Copy link",
     "linkCopied": "Link copied to clipboard.",
     "copyFailed": "Couldn't copy automatically — select the link below and copy it yourself.",
+    "anonymous": {
+      "label": "Anonymous link",
+      "desc": "When on, the link doesn't include your username and can't be guessed."
+    },
     "publicSlug": {
       "saveLabel": "Save custom URL",
-      "clearLabel": "Remove custom URL",
       "label": "Custom public link",
       "save": "Save",
-      "clear": "Remove",
-      "copy": "Copy custom link",
-      "hint": "This address includes your username and can be guessed. To share anonymously, use the link above."
+      "hint": "This address includes your username and can be guessed.",
+      "randomSlugFailed": "Couldn't generate a random address. Please try again."
     },
-    "customLink": "Custom link",
-    "slugSave": "Save",
-    "slugClear": "Use automatic URL",
     "slugError": {
       "length": "Must be 1–100 characters long.",
       "charset": "Only letters, numbers, and hyphens are allowed.",
@@ -70,8 +69,14 @@
       "reserved": "This word is reserved and can't be used.",
       "uuid_like": "This looks like an internal ID and can't be used."
     },
-    "copyInternalLink": "Copy internal link",
+    "membersPanelTitle": "Who you invited",
+    "publicPanelTitle": "Public link",
     "copyPublicLink": "Copy public link",
+    "state": {
+      "private": "Private — only you have access",
+      "members": "Shared with members you invited",
+      "public": "Public — anyone with the link can view"
+    },
     "access": {
       "title": "Access",
       "private": "Private",
@@ -197,6 +202,7 @@
   },
   "admin": {
     "title": "User management",
+    "description": "Create accounts, grant admin rights, and disable people who have left.",
     "createUser": "Create user",
     "createUserDescription": "Add a new user account.",
     "mustChangePasswordNotice": "The new account will be required to change its password on first login.",
@@ -247,6 +253,7 @@
       "ai": "AI"
     },
     "account": {
+      "description": "Manage your username, password, and API tokens.",
       "ssoOnly": "This account signs in with SSO.",
       "handleTitle": "Username",
       "handleDescription": "Your username appears in every /n/ and /p/ link you share (token links don't include it). After a rename those links stop working immediately, and the old name can never be used again — not even by you.",
@@ -295,6 +302,7 @@
     },
     "ai": {
       "title": "AI providers & actions",
+      "description": "Point Knotebook at your own AI endpoint, then choose which quick actions appear in the editor.",
       "edit": "Edit",
       "providersHeading": "Providers",
       "addProvider": "Add provider",

@@ -26,7 +26,8 @@ function SessionError({ onRetry }: { onRetry: () => void }) {
       <p className="text-muted-foreground" role="alert">
         {t("app.sessionError")}
       </p>
-      <Button type="button" onClick={onRetry}>
+      {/* 全頁終態（min-h-screen）：唯一主動作用頁面層級的 brandSolid，見 ui/button.tsx 規範 */}
+      <Button type="button" variant="brandSolid" onClick={onRetry}>
         {t("app.retry")}
       </Button>
     </div>

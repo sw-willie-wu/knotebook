@@ -95,7 +95,7 @@ function PublicNoteErrorFallback({ onRetry }: { onRetry: () => void }) {
     <PublicPageFrame>
       <div role="alert" className="flex flex-col items-start gap-3 p-6">
         <p className="text-sm text-muted-foreground">{t("public.loadError")}</p>
-        <Button type="button" variant="outline" size="sm" disabled={!online} onClick={onRetry}>
+        <Button type="button" variant="outline" disabled={!online} onClick={onRetry}>
           {t("app.retry")}
         </Button>
         {!online && <p className="text-sm text-muted-foreground">{t("app.offlineHint")}</p>}

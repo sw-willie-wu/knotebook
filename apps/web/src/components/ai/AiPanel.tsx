@@ -148,7 +148,7 @@ export function AiPanel() {
             <p className="whitespace-pre-wrap">{state.result}</p>
             <div className="flex flex-wrap gap-2">
               {state.pendingPreview && state.applied === null && (
-                <Button type="button" size="sm" onClick={apply}>
+                <Button type="button" variant="brandDeep" size="sm" onClick={apply}>
                   {t("ai.panel.apply")}
                 </Button>
               )}
@@ -176,7 +176,7 @@ export function AiPanel() {
               {t(`errors.${state.code}`, { defaultValue: t("errors.fallback") })}
             </p>
             <div className="flex flex-wrap gap-2">
-              <Button type="button" size="sm" onClick={retry}>
+              <Button type="button" variant="brandDeep" size="sm" onClick={retry}>
                 {t("ai.panel.retry")}
               </Button>
               <Button type="button" variant="ghost" size="sm" onClick={dismiss}>
