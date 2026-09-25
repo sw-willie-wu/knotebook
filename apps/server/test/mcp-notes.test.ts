@@ -371,6 +371,16 @@ describe("#108 兩支工具的共同接線", () => {
     );
   });
 
+  it("#103：list_notes 的可見性說法涵蓋群組，且不再只說「other people shared with you」", async () => {
+    const ctx = await buildCollabTestApp();
+    const { token } = await scenario(ctx);
+    const res = await mcpPost(ctx.app, rpc("tools/list"), { token });
+    const tools = res.json().result.tools as { name: string; description: string }[];
+    const listNotes = tools.find(t => t.name === "list_notes")!.description;
+    expect(listNotes).toContain("the ones you own and the ones shared with you directly or via a group");
+    expect(listNotes).not.toContain("the ones other people shared with you");
+  });
+
   it("不吃 contentRead 桶（§8.8）", async () => {
     const ctx = await buildCollabTestApp({ limiters: { contentRead: new FixedWindowLimiter({ limit: 1, windowMs: 600_000 }) } });
     const { ownerId, token } = await scenario(ctx);

@@ -38,7 +38,7 @@ const CURSOR_SEP = "|";
 
 /** 模型看得到的字串一律英文（同 `docs/`；不是 UI 文案，不走 i18n）。 */
 export const LIST_NOTES_DESCRIPTION =
-  "List the notes you can see — the ones you own and the ones other people shared with you — " +
+  "List the notes you can see — the ones you own and the ones shared with you directly or via a group — " +
   "most recently updated first. Each result carries `ownerHandle` and `role` so you can tell whose " +
   "content you are reading. Paging reads live data, not a snapshot: creating a note, or changing a note's " +
   "title or slug, moves it to the top of this order, above the cursor you are holding, so no later page " +
