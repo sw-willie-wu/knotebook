@@ -116,6 +116,7 @@ const NOTE: NoteDto = {
   prevSlug: null,
   ownerHandle: "tester",
   lastEdited: null,
+  group: null,
 };
 
 /** 基本 fetch mock：`/api/auth/me`（依

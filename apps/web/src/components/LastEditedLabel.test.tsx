@@ -24,6 +24,7 @@ const NOTE: NoteDto = {
   prevSlug: null,
   ownerHandle: "tester",
   lastEdited: null,
+  group: null,
 };
 
 const AT = "2026-02-03T04:05:06.000Z";

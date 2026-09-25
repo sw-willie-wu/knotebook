@@ -66,6 +66,7 @@ const NOTE: NoteDto = {
   prevSlug: null,
   ownerHandle: "plain",
   lastEdited: null,
+  group: null,
 };
 
 const OTHER_NOTE: NoteDto = {
@@ -80,6 +81,7 @@ const OTHER_NOTE: NoteDto = {
   prevSlug: null,
   ownerHandle: "plain",
   lastEdited: null,
+  group: null,
 };
 
 interface FakeResponseInit {

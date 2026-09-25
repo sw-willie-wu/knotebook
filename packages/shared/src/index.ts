@@ -58,6 +58,11 @@ export interface NoteDto {
   /** #106 D6：誰在什麼時候最後改了這篇（`notes.last_edited_*` 四欄；從未被編輯過＝null）。
    * 型別宣告在本檔下方——interface 是型別層的，不受宣告順序影響（沒有 TDZ 這回事）。 */
   lastEdited: LastEditedDto | null;
+  /**
+   * #103：筆記所屬群組；**只在呼叫者是 owner 或該群組成員時有值**，其餘一律 null（spec §6.5，S4）。
+   * 型別宣告在本檔下方。
+   */
+  group: NoteGroupDto | null;
 }
 
 // #106 內容端點（`GET /api/notes/:id/content`，#137 起還有寫入端）的對外形。指紋是樂觀
@@ -128,6 +133,34 @@ export interface NoteEditDto {
 // `Role`（涵蓋全部四種狀態）刻意分開成獨立型別，讓「這欄位只可能是這兩種角色」
 // 這件事在型別層就看得出來。
 export type ShareRole = "editor" | "viewer";
+
+/** #103：群組成員角色（`group_members.role`）——只管群組本身（改名、成員、刪除），**不參與筆記權限**。 */
+export type GroupMemberRole = "admin" | "member";
+
+/**
+ * #103 群組。`myRole`＝呼叫者在群組裡的角色；站台 admin 經 API 操作一個他不屬於的群組時，
+ * `PATCH /api/groups/:id` 的回應給 `"admin"`（他在 API 層的身分；`GET /api/groups` 不列非所屬群組）。
+ */
+export interface GroupDto {
+  id: string;
+  name: string;
+  myRole: GroupMemberRole;
+  createdAt: string;
+}
+
+export interface GroupMemberDto {
+  userId: string;
+  email: string;
+  displayName: string;
+  role: GroupMemberRole;
+}
+
+/** 筆記所屬群組；`role` 是本篇對全組開放的等級（`notes.group_role`），不是呼叫者的角色。 */
+export interface NoteGroupDto {
+  id: string;
+  name: string;
+  role: ShareRole;
+}
 
 export interface ShareDto {
   userId: string;

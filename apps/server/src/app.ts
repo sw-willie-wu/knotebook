@@ -47,6 +47,7 @@ import type { EditingTestHooks } from "./notes/editing/apply.js";
 import { PresenceRegistry, type PresenceOptions } from "./notes/editing/presence.js";
 import { NoteWriteService } from "./notes/editing/write-service.js";
 import type { NoteCreateHooks } from "./notes/create.js";
+import type { GroupTestHook } from "./groups/test-hook.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -183,6 +184,11 @@ export interface AppDeps {
    * `buildTestApp({ noteCreateHooks })`（比照 `slugUpdateTestHook`）。
    */
   noteCreateHooks?: NoteCreateHooks;
+  /**
+   * #103：群組相關交錯點的測試注入縫（語意見 `groups/test-hook.ts`）。**選配**：production／未覆寫時
+   * `undefined`＝no-op；整合測試唯一注入面是 `buildTestApp({ groupTestHook })`。
+   */
+  groupTestHook?: GroupTestHook;
   /**
    * Task 9：圖片上傳存放目錄的絕對路徑。**必填**——`buildApp` 啟動時會對它做一次
    * 可寫性探測（`assertUploadsDirWritable`，見該函式說明為何不用 `accessSync`），
@@ -666,6 +672,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       linkSyncTestHooks: deps.linkSyncTestHooks,
       slugUpdateTestHook: deps.slugUpdateTestHook,
       noteCreateHooks: deps.noteCreateHooks,
+      groupTestHook: deps.groupTestHook,
       uploadsDir: deps.uploadsDir,
     })
   );
