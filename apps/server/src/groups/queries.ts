@@ -26,8 +26,9 @@ export const GROUP_NAME_MAX = 80;
 /**
  * 群組名稱驗證（D9）：先擋 NUL 與落單代理（重用 `oauth/storable.ts` 的 `hasUnstorableChar`）——NUL
  * 進 `text` 欄是 22021（會 500）；落單代理會被 pg 驅動編 UTF-8 時靜默換成 U+FFFD，擋它是為了不讓
- * 名稱被靜默破壞。再 trim，長度以 **code point** 計（與 DB `length()` 同單位——80 個 emoji 合法，
- * 雖然 UTF-16 長度是 160）。回 trim 後的名稱；不合法回 null。
+ * 名稱被靜默破壞。再 trim，長度以 **code point** 計（與 DB `length()` 同單位——80 個 single-code-point
+ * emoji，例如 😀，可以剛好塞滿；組合式 emoji（國旗、膚色修飾、ZWJ 序列）是多個 code point，塞不滿 80
+ * 個，見 `docs/api.md`）。回 trim 後的名稱；不合法回 null。
  */
 export function validateGroupName(raw: string): string | null {
   if (hasUnstorableChar(raw)) return null;

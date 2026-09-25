@@ -112,22 +112,34 @@ describe("#103 PUT /api/notes/:id/group", () => {
     expect([...userIds].sort()).toEqual([owner.id, oldMate.id, stray.id].sort());
   });
 
-  it("同群組只改 role：A1 的 owner（已不是成員）也可以；不清公開連結、不查成員資格；踢線名單＝該群組全體成員", async () => {
+  it("同群組只改 role：A1 的 owner（已不是成員）也可以；不清公開連結、不查成員資格；踢線名單＝該群組全體成員；role 沒變＝no-op，不踢線（final-review Minor 1）", async () => {
     const hooks = spyCollabHooks();
     const { app, db } = await buildTestApp({ collabHooks: hooks });
     const owner = await seedUser(db);
     const admin = await seedUser(db);
     const member = await seedUser(db);
     const g = await seedGroup(db, "G", [{ userId: admin.id, role: "admin" }, { userId: member.id, role: "member" }]);
+    // seedNote 沒指定 groupRole，吃 DB DEFAULT 'editor'。
     const note = await seedNote(db, owner.id, { groupId: g.id, publicToken: "k".repeat(43), publicSlug: "keep-me" });
-    const before = await noteState(db.$client, note.id);
+    const beforeNoop = await noteState(db.$client, note.id);
 
+    // role 與現值相同（"editor"）→ 200，但整個 no-op：不踢線、狀態不變。
+    const noop = await app.inject({ method: "PUT", url: `/api/notes/${note.id}/group`, cookies: await cookieOf(owner.id), payload: { groupId: g.id, role: "editor" } });
+    expect(noop.statusCode).toBe(200);
+    expect(noop.json().group).toEqual({ id: g.id, name: "G", role: "editor" });
+    expect(hooks.onGroupAccessChanged).not.toHaveBeenCalled();
+    const afterNoop = await noteState(db.$client, note.id);
+    expect(afterNoop).toEqual(beforeNoop);
+
+    // role 真的改變（editor → viewer）→ 200，踢線名單＝該群組全體成員。
+    const before = await noteState(db.$client, note.id);
     const res = await app.inject({ method: "PUT", url: `/api/notes/${note.id}/group`, cookies: await cookieOf(owner.id), payload: { groupId: g.id, role: "viewer" } });
     expect(res.statusCode).toBe(200);
     expect(res.json().group).toEqual({ id: g.id, name: "G", role: "viewer" });
     const after = await noteState(db.$client, note.id);
     expect(after).toMatchObject({ group_id: g.id, group_role: "viewer", public_token: "k".repeat(43), public_slug: "keep-me" });
     expect(after.updated_at).toBe(before.updated_at);
+    expect(hooks.onGroupAccessChanged).toHaveBeenCalledTimes(1);
     const [, userIds] = hooks.onGroupAccessChanged.mock.calls[0]!;
     expect([...userIds].sort()).toEqual([admin.id, member.id].sort());
   });

@@ -1228,12 +1228,15 @@ export function notesRoutes(deps: NotesRouteDeps) {
      *
      * 交易第一步 (0) `SELECT group_id … FOR UPDATE` 是 S5 的鎖（與 `PUT …/shares` 的 `FOR SHARE` 互鎖），
      * 讀到的值同時是分流依據與 UPDATE 的預期值。兩支分流都在同一個交易內：
-     * - **同群組**：只改 `group_role`——不查成員（A1 的 owner 也能改）、不清任何東西。
+     * - **同群組**：只改 `group_role`——不查成員（A1 的 owner 也能改）、不清任何東西。**`role` 與現值相同
+     *   （(0) 已讀到 `group_role`）→ 整個 no-op：不 UPDATE、不呼叫 hook**（final-review Minor 1：值沒變
+     *   還踢全體成員會打出 token 端點尖峰，5 秒逾時還會誤踢合法連線）。
      * - **換群組或個人→群組**：要求 owner 是 `groupId` 的成員（A2，站台 admin 無豁免）→ 刪光逐人分享
      *   （`RETURNING user_id` 就是被清掉的名單，D16）→ 同一條 UPDATE 設歸屬並撤銷公開連結（清兩欄，與
      *   `DELETE …/public-link` 同形；不扣 `publicLink` 桶、不呼叫 hook）。
      * `IS NOT DISTINCT FROM $expected` 在 (0) 的鎖之下恆命中，照 spec 保留作縱深（規格落差第 3 條）。
-     * commit 後 §7 踢線：同群組＝該群組全體成員；換群組＝原群組全體成員 ∪ 被清掉的人。
+     * commit 後 §7 踢線：同群組且 role 有變＝該群組全體成員；同群組且 role 沒變＝不踢；換群組＝原群組
+     * 全體成員 ∪ 被清掉的人。
      */
     app.put("/api/notes/:id/group", { preHandler: app.authenticate }, async (request, reply) => {
       const { id } = request.params as { id: string };
@@ -1248,15 +1251,26 @@ export function notesRoutes(deps: NotesRouteDeps) {
       const { groupId: targetGroupId, role: groupRole } = parsed.data;
       if (!UUID_RE.test(targetGroupId)) return sendError(reply, 404, "group_not_found", "找不到此群組");
 
-      let kickUserIds: string[];
+      // F-1（final-review Minor 1）：`kickUserIds === null` 代表這次是 no-op（同群組、role 沒變）——
+      // 不呼叫 onGroupAccessChanged，避免對全體成員做一次沒有意義的 reverify（token 端點尖峰、
+      // 5 秒逾時誤踢合法連線）。其餘分支恆回陣列（可能是空陣列，例如群組沒有其他成員）。
+      let kickUserIds: string[] | null;
       try {
         kickUserIds = await deps.db.transaction(async tx => {
-          const [beforeMove] = await tx.select({ groupId: notes.groupId }).from(notes).where(eq(notes.id, id)).for("update");
+          const [beforeMove] = await tx
+            .select({ groupId: notes.groupId, groupRole: notes.groupRole })
+            .from(notes)
+            .where(eq(notes.id, id))
+            .for("update");
           if (!beforeMove) throw new TxAbort(404, "not_found", "找不到此筆記");
           await deps.groupTestHook?.("note-group-locked", { noteId: id });
           const expected = sql`${notes.groupId} is not distinct from ${beforeMove.groupId}`;
 
           if (beforeMove.groupId === targetGroupId) {
+            if (beforeMove.groupRole === groupRole) {
+              await deps.groupTestHook?.("note-group-written", { noteId: id });
+              return null;
+            }
             const updated = await tx.update(notes).set({ groupRole }).where(and(eq(notes.id, id), expected)).returning({ id: notes.id });
             if (updated.length === 0) throw new TxAbort(409, "conflict", "筆記的所屬群組已被變更");
             await deps.groupTestHook?.("note-group-written", { noteId: id });
@@ -1288,7 +1302,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
         throw err;
       }
 
-      deps.collabHooks.onGroupAccessChanged([id], kickUserIds);
+      if (kickUserIds !== null) deps.collabHooks.onGroupAccessChanged([id], kickUserIds);
       const note = await loadNoteWithOwner(id);
       if (!note) return sendError(reply, 404, "not_found", "找不到此筆記");
       return toNoteDto(note, "owner", false);
