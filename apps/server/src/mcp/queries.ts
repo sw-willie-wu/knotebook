@@ -11,7 +11,7 @@
  * 進去）drizzle 產得出 SQL 但 pg 直接拒（`invalid UNION/INTERSECT/EXCEPT ORDER BY clause`），
  * 所以 rank 要先 `.as("rank")` 成為輸出欄、再 `orderBy(asc(rank))`。
  *
- * 可見性語意（owned ∪ shared）不在這裡——它只有一份，在 `notes/list-query.ts`（D-H）。
+ * 可見性語意（owned ∪ shared ∪ grouped）不在這裡——它只有一份，在 `notes/list-query.ts`（D-H）。
  */
 import { asc, desc, sql, type SQL } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/pg-core";
@@ -53,12 +53,12 @@ export function buildNoteListQuery(
       ? undefined
       : sql`(${updatedAtMsExpr}, ${notes.id}) < (${opts.cursor.updatedAt}, ${opts.cursor.id})`;
   const updatedAtMs = updatedAtMsExpr.as("updated_at_ms");
-  const { owned, shared } = visibleNoteBranches(db, opts.userId, {
+  const { owned, shared, grouped } = visibleNoteBranches(db, opts.userId, {
     extraWhere: keyset,
     extra: { updatedAtMs },
   });
   // 多取一列：第 `limit + 1` 列只用來算 `nextCursor`，不回給模型。
-  return unionAll(owned, shared)
+  return unionAll(owned, shared, grouped)
     .orderBy(desc(updatedAtMs), desc(notes.id))
     .limit(opts.limit + 1);
 }
@@ -68,13 +68,13 @@ export function buildNoteSearchQuery(db: Db, opts: { userId: string; query: stri
   // **非 pattern 判定**：`LIKE`／`ILIKE` 會把 `%`／`_` 當萬用字元，要正確處理就得加 `ESCAPE`
   // 與跳脫——那條路寫錯了只會「搜尋結果怪怪的」不會變紅。`position()` 完全沒有這個面。
   const match = sql`position(lower(${q}) in lower(${notes.title})) > 0`;
-  // 兩支 select 餵**同一個** `rank`（union 兩支的 select shape 必須逐欄同形）。
+  // 三支 select 餵**同一個** `rank`（union 各支的 select shape 必須逐欄同形）。
   const rank = sql<number>`case
     when lower(${notes.title}) = lower(${q}) then 0
     when position(lower(${q}) in lower(${notes.title})) = 1 then 1
     else 2 end`.as("rank");
-  const { owned, shared } = visibleNoteBranches(db, opts.userId, { extraWhere: match, extra: { rank } });
-  return unionAll(owned, shared)
+  const { owned, shared, grouped } = visibleNoteBranches(db, opts.userId, { extraWhere: match, extra: { rank } });
+  return unionAll(owned, shared, grouped)
     .orderBy(asc(rank), desc(notes.updatedAt), desc(notes.id))
     .limit(opts.limit + 1);
 }

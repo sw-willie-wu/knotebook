@@ -305,11 +305,12 @@ export function notesRoutes(deps: NotesRouteDeps) {
       // 且讓「handle 一律來自 DB 的 owner 列」在兩支上一致，不留特例）。
       // #108：兩支的欄位集、join 與可見性述詞收在 `notes/list-query.ts`（MCP 的 `list_notes`／
       // `search_notes` 吃同一支工廠）。改吃工廠前後 `.toSQL()` 逐位元組相同（含參數編號）。
-      const { owned: ownedSelect, shared: sharedSelect } = visibleNoteBranches(deps.db, userId);
+      // #103：第三支 grouped（群組筆記）；三支兩兩不重疊，見 list-query.ts。
+      const { owned: ownedSelect, shared: sharedSelect, grouped: groupedSelect } = visibleNoteBranches(deps.db, userId);
 
       // 次要排序鍵 id desc（M3）：updatedAt 精度不足以保證唯一序，未來若加分頁
       // （keyset pagination），排序不穩定會讓同一批結果在跨頁時重複或漏掉列。
-      const rows = await unionAll(ownedSelect, sharedSelect).orderBy(desc(notes.updatedAt), desc(notes.id));
+      const rows = await unionAll(ownedSelect, sharedSelect, groupedSelect).orderBy(desc(notes.updatedAt), desc(notes.id));
 
       return rows.map((row): NoteDto => toNoteDto(row, row.role as Role));
     });

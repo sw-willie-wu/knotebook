@@ -12,7 +12,7 @@
  * 「你編輯你剛列出來的那些」造不成漏列——那些列本來就在游標**上方**。
  * ⚠ **第三個成因不是「被搬上去」而是「本來就在上面才加進來」**：分頁期間有人把一篇筆記分享給你。
  * 分享只寫 `note_shares`（`routes/notes.ts:1044` 的 insert／`:1097` 的 delete，**都不碰
- * `notes.updated_at`**），而可見性是 `owned ∪ shared`、**每一頁現算**（`notes/list-query.ts`
+ * `notes.updated_at`**），而可見性是 `owned ∪ shared ∪ grouped`、**每一頁現算**（`notes/list-query.ts`
  * ＋ `mcp/queries.ts` 的 unionAll ＋ keyset 述詞）——那篇筆記於是以自己**未變動**的
  * `updated_at` 加入結果集，落點若在已經翻過去的區段，**沒有任何一頁會顯示它**。
  * 這一條模型偵測不到也閃避不了，所以 `description` 必須講（**不得只列前兩個成因**）。
