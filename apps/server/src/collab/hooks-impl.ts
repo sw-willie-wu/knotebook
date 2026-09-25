@@ -179,6 +179,23 @@ export function createCollabHooks(server: CollabServer, log: CollabHooksLogger =
     },
 
     /**
+     * #103 §7：只重驗「noteIds ∩ userIds」的連線（比照 `onShareChanged` 的 N1：不對整份文件廣播）。
+     * 兩個名單先各自去重；日誌只記數量（名單長度由群組大小決定，不讓單行大小隨之成長）。
+     */
+    onGroupAccessChanged(noteIds: readonly string[], userIds: readonly string[]): void {
+      try {
+        const targets = new Set(userIds);
+        const conns: ConnectionHandle[] = [];
+        for (const noteId of new Set(noteIds)) {
+          for (const c of server.connectionsOfNote(noteId)) if (targets.has(c.userId)) conns.push(c);
+        }
+        reverify(conns);
+      } catch (error) {
+        log.error({ err: error, notes: noteIds.length, users: userIds.length }, "collab onGroupAccessChanged 重驗失敗");
+      }
+    },
+
+    /**
      * 刪除筆記前的清場：擋新連線 → 關既有連線 → flush → unload → 輪詢確認。
      *
      * ⚠ 刻意**偏離** spec §7 字面上的 `closeConnections`：v4 的 `closeConnections()` 是以

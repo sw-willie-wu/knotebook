@@ -5,8 +5,10 @@
  */
 import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
+import { vi } from "vitest";
 import { SESSION_COOKIE } from "@knotebook/shared";
 import { signSession } from "../src/auth/session.js";
+import type { CollabHooks } from "../src/collab/hooks.js";
 import type { Db } from "../src/db/index.js";
 import { groupMembers, groups, noteShares, notes, users } from "../src/db/schema.js";
 import { testConfig } from "./helpers.js";
@@ -125,4 +127,15 @@ export async function seedPlannerData(pool: Pool): Promise<{ userId: string; not
     [PLANNER_GROUP_OF_USER1, "00000000-0000-4000-8000-000000000001"],
   );
   return { userId: "00000000-0000-4000-8000-000000000001", noteId: rows[0].id as string };
+}
+
+/** 五個成員全是 spy 的 `CollabHooks`（`linkSyncGate` 恆拒，比照既有測試的 stub）。 */
+export function spyCollabHooks() {
+  return {
+    onShareChanged: vi.fn<(noteId: string, userId: string) => void>(),
+    onUserRevoked: vi.fn<(userId: string) => void>(),
+    onGroupAccessChanged: vi.fn<(noteIds: readonly string[], userIds: readonly string[]) => void>(),
+    beforeNoteDeleted: vi.fn(async () => ({ release: () => {} })),
+    linkSyncGate: () => ({ ok: false as const }),
+  } satisfies CollabHooks;
 }

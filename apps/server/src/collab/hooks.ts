@@ -30,6 +30,13 @@ export interface CollabHooks {
    */
   onUserRevoked(userId: string): void;
   /**
+   * #103 §7：群組來源或筆記歸屬造成的權限變動時，對 (noteIds × userIds) 的既有連線重驗（升級也要：
+   * `onTokenSync` 會解除唯讀）。重驗結果由 `resolveRole` 決定——只靠群組取得存取的人被關、owner 或
+   * 另有來源的人續留或降為唯讀。一律在交易 commit 之後呼叫。
+   * 實作不得同步 throw（fire-and-forget；throw 會使 API 在 DB commit 後回 500）。
+   */
+  onGroupAccessChanged(noteIds: readonly string[], userIds: readonly string[]): void;
+  /**
    * Plan 2：刪除 note 前 close→flush→unload→輪詢，確保無進行中連線；呼叫方必須在刪除交易前
    * await。回傳的 handle 代表「這一次刪除開的那道閘門」——**交易失敗時必須 `release()`**。
    */
@@ -45,6 +52,7 @@ export interface CollabHooks {
 export const noopCollabHooks: CollabHooks = {
   onShareChanged: () => {},
   onUserRevoked: () => {},
+  onGroupAccessChanged: () => {},
   beforeNoteDeleted: async () => ({ release: () => {} }),
   linkSyncGate: () => ({ ok: false }),
 };
