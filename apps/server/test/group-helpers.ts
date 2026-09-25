@@ -204,3 +204,27 @@ export async function runGroupAuthMatrix(app: FastifyInstance, db: Db, endpoint:
   expect(new Set(notFoundBodies).size, "非成員／非 UUID／不存在的 404 必須逐位元組相同").toBe(1);
   expect(JSON.parse(notFoundBodies[0]!)).toEqual({ error: { code: "not_found", message: "找不到此群組" } });
 }
+
+export function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * 等到「這個測試 DB 上有連線在等鎖」或「另一個請求已經結束」。並發測試在注入縫裡呼叫它：
+ * 回 `"blocked"` ＝ 交錯真的發生（另一條請求卡在我們持有的鎖上）；回 `"settled"` ＝ 另一條請求沒被擋
+ * 就跑完了。測試在最後斷言它是 `"blocked"`，證明那一案測到的是交錯而不是序列。
+ */
+export async function waitForBlockedOrSettled(pool: Pool, other: Promise<unknown>, timeoutMs = 5_000): Promise<"blocked" | "settled"> {
+  let settled = false;
+  void other.then(() => { settled = true; }, () => { settled = true; });
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (settled) return "settled";
+    const { rows } = await pool.query<{ n: number }>(
+      `select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`,
+    );
+    if (rows[0]!.n >= 1) return "blocked";
+    await sleep(20);
+  }
+  throw new Error(`waitForBlockedOrSettled 逾時（${timeoutMs}ms）`);
+}

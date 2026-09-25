@@ -9,16 +9,22 @@
  */
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
-import { asc, eq, sql } from "drizzle-orm";
-import type { GroupDto, GroupMemberDto, GroupMemberRole } from "@knotebook/shared";
+import { and, asc, eq, sql } from "drizzle-orm";
+import { normalizeEmail, type GroupDto, type GroupMemberDto, type GroupMemberRole } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
 import { groupMembers, groups, users } from "../db/schema.js";
 import type { CollabHooks } from "../collab/hooks.js";
 import type { GroupTestHook } from "../groups/test-hook.js";
 import { sendError } from "../http/errors.js";
-import { GROUP_NOT_FOUND_MESSAGE, groupAccess, listMyGroupsQuery, validateGroupName } from "../groups/queries.js";
+import { TxAbort } from "../http/tx-abort.js";
+import { UUID_RE } from "../notes/service.js";
+import {
+  GROUP_NOT_FOUND_MESSAGE, countAdmins, groupAccess, groupNoteIdsQuery, listMyGroupsQuery, lockGroup, validateGroupName,
+} from "../groups/queries.js";
 
 const nameBodySchema = z.object({ name: z.string() }).strict();
+const addMemberBodySchema = z.object({ email: z.string().email(), role: z.enum(["admin", "member"]).optional() }).strict();
+const memberRoleBodySchema = z.object({ role: z.enum(["admin", "member"]) }).strict();
 
 export interface GroupsRouteDeps {
   db: Db;
@@ -87,6 +93,111 @@ export function groupsRoutes(deps: GroupsRouteDeps) {
         .where(eq(groupMembers.groupId, id))
         .orderBy(sql`case when ${groupMembers.role} = 'admin' then 0 else 1 end`, asc(users.displayName), asc(users.id));
       return rows.map(toMemberDto);
+    });
+
+    const lastAdmin = (): TxAbort => new TxAbort(409, "last_admin", "群組至少要有一位管理者");
+    const txNotFound = (): TxAbort => new TxAbort(404, "not_found", GROUP_NOT_FOUND_MESSAGE);
+    const replyTxAbort = (reply: FastifyReply, err: unknown): FastifyReply | null =>
+      err instanceof TxAbort ? sendError(reply, err.status, err.errCode, err.message) : null;
+
+    // 只新增（spec §6.1）：已是成員 → 409，**不動**既有的 role。停用帳號一樣可加。§7：加人不踢線。
+    app.put("/api/groups/:id/members", { preHandler: app.authenticate }, async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const access = await groupAccess(deps.db, id, request.user!);
+      if (!access) return notFound(reply);
+      if (!access.canAdmin) return sendError(reply, 403, "forbidden", "只有群組管理者可以進行此操作");
+      const parsed = addMemberBodySchema.safeParse(request.body);
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+      // lower() 讀取端比對＋多列命中防護（同 shares 的 PUT）。
+      const [target] = await deps.db
+        .select({ id: users.id, email: users.email, displayName: users.displayName })
+        .from(users)
+        .where(sql`lower(${users.email}) = ${normalizeEmail(parsed.data.email)}`)
+        .orderBy(users.createdAt, users.id)
+        .limit(1);
+      if (!target) return sendError(reply, 404, "user_not_found", "找不到此使用者");
+      const role = parsed.data.role ?? "member";
+      try {
+        await deps.db.transaction(async tx => {
+          if (!(await lockGroup(tx, id))) throw txNotFound();
+          await deps.groupTestHook?.("group-members-checked", { groupId: id });
+          const inserted = await tx
+            .insert(groupMembers)
+            .values({ groupId: id, userId: target.id, role })
+            .onConflictDoNothing()
+            .returning({ userId: groupMembers.userId });
+          if (inserted.length === 0) throw new TxAbort(409, "already_member", "此人已經是群組成員");
+        });
+      } catch (err) {
+        const sent = replyTxAbort(reply, err);
+        if (sent) return sent;
+        throw err;
+      }
+      return toMemberDto({ userId: target.id, email: target.email, displayName: target.displayName, role });
+    });
+
+    // 升降級（S1）。§7：成員升降級不踢線（`group_members.role` 不參與筆記權限）。
+    app.patch("/api/groups/:id/members/:userId", { preHandler: app.authenticate }, async (request, reply) => {
+      const { id, userId: targetId } = request.params as { id: string; userId: string };
+      const access = await groupAccess(deps.db, id, request.user!);
+      if (!access) return notFound(reply);
+      if (!UUID_RE.test(targetId)) return notFound(reply);
+      if (!access.canAdmin) return sendError(reply, 403, "forbidden", "只有群組管理者可以進行此操作");
+      const parsed = memberRoleBodySchema.safeParse(request.body);
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+      const nextRole = parsed.data.role;
+      let member: GroupMemberDto;
+      try {
+        member = await deps.db.transaction(async tx => {
+          if (!(await lockGroup(tx, id))) throw txNotFound();
+          const [row] = await tx
+            .select({ role: groupMembers.role, email: users.email, displayName: users.displayName })
+            .from(groupMembers)
+            .innerJoin(users, eq(users.id, groupMembers.userId))
+            .where(and(eq(groupMembers.groupId, id), eq(groupMembers.userId, targetId)));
+          if (!row) throw txNotFound();
+          if (row.role === "admin" && nextRole === "member" && (await countAdmins(tx, id)) <= 1) throw lastAdmin();
+          await deps.groupTestHook?.("group-members-checked", { groupId: id });
+          await tx.update(groupMembers).set({ role: nextRole }).where(and(eq(groupMembers.groupId, id), eq(groupMembers.userId, targetId)));
+          return toMemberDto({ userId: targetId, email: row.email, displayName: row.displayName, role: nextRole });
+        });
+      } catch (err) {
+        const sent = replyTxAbort(reply, err);
+        if (sent) return sent;
+        throw err;
+      }
+      return member;
+    });
+
+    // 移人／退出（S1）。admin（含站台 admin）可移任何人；一般成員只能移自己。commit 後 §7 踢線：
+    // （群組所有筆記 × 那一人）——重驗由 `resolveRole` 決定，owner（A1）或另有來源的人續留。
+    app.delete("/api/groups/:id/members/:userId", { preHandler: app.authenticate }, async (request, reply) => {
+      const { id, userId: targetId } = request.params as { id: string; userId: string };
+      const access = await groupAccess(deps.db, id, request.user!);
+      if (!access) return notFound(reply);
+      if (!UUID_RE.test(targetId)) return notFound(reply);
+      if (targetId !== request.user!.id && !access.canAdmin) return sendError(reply, 403, "forbidden", "只有群組管理者可以移除其他成員");
+      let noteIds: string[];
+      try {
+        noteIds = await deps.db.transaction(async tx => {
+          if (!(await lockGroup(tx, id))) throw txNotFound();
+          const [row] = await tx
+            .select({ role: groupMembers.role })
+            .from(groupMembers)
+            .where(and(eq(groupMembers.groupId, id), eq(groupMembers.userId, targetId)));
+          if (!row) throw txNotFound();
+          if (row.role === "admin" && (await countAdmins(tx, id)) <= 1) throw lastAdmin();
+          await deps.groupTestHook?.("group-members-checked", { groupId: id });
+          await tx.delete(groupMembers).where(and(eq(groupMembers.groupId, id), eq(groupMembers.userId, targetId)));
+          return (await groupNoteIdsQuery(tx, id)).map(r => r.id);
+        });
+      } catch (err) {
+        const sent = replyTxAbort(reply, err);
+        if (sent) return sent;
+        throw err;
+      }
+      deps.collabHooks.onGroupAccessChanged(noteIds, [targetId]);
+      return reply.code(204).send();
     });
   };
 }
