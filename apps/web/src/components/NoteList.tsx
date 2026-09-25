@@ -1,9 +1,11 @@
-import { useState, type ReactNode, type RefObject } from "react";
+import { useRef, useState, type ReactNode, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 import { canonicalNotePath, type GroupDto, type NoteDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
 import { useGroups } from "@/api/groups";
+import { GroupMenu } from "@/components/groups/GroupMenu";
+import { GroupNameDialog } from "@/components/groups/GroupNameDialog";
 import { useNotes } from "@/api/notes";
 import { useActiveNote } from "@/lib/active-note";
 import { cn } from "@/lib/utils";
@@ -100,10 +102,13 @@ function writeCollapsed(key: SidebarSectionKey, collapsed: boolean): void {
   }
 }
 
-/** 每段一把折疊狀態：初值讀 localStorage 一次，之後 state 為準、寫入盡力而為。 */
-function useCollapsed(key: SidebarSectionKey): [expanded: boolean, toggle: () => void] {
+/** 每段一把折疊狀態：初值讀 localStorage 一次，之後 state 為準、寫入盡力而為。
+ * `locked`（搜尋中強制展開）時 `toggle` 是 no-op——否則點段標會在看不見的地方翻動
+ * 收合狀態（`aria-expanded` 恆 true），清掉搜尋後段落莫名收起。 */
+function useCollapsed(key: SidebarSectionKey, locked: boolean): [expanded: boolean, toggle: () => void] {
   const [collapsed, setCollapsed] = useState(() => readCollapsed(key));
   const toggle = () => {
+    if (locked) return;
     const next = !collapsed;
     writeCollapsed(key, next);
     setCollapsed(next);
@@ -164,7 +169,7 @@ interface CollapsibleSectionProps {
  * （指下），收合時指右——等價於 spec 的「收合時 −90°」。
  */
 function CollapsibleSection({ sectionKey, label, testId, actions, nested = false, forceExpanded, children }: CollapsibleSectionProps) {
-  const [expanded, toggle] = useCollapsed(sectionKey);
+  const [expanded, toggle] = useCollapsed(sectionKey, forceExpanded);
   const open = forceExpanded || expanded;
   return (
     <div data-testid={testId} className={cn(nested && "ml-2 border-l border-border pl-1")}>
@@ -318,37 +323,77 @@ export function NoteList({ query, onCreateNote, createNotePending = false }: Not
       )}
 
       {(!searching || anyGroupHit) && (
-        <CollapsibleSection sectionKey="workspace" testId="notegroup-workspace" label={t("sidebar.workspace")} forceExpanded={searching}>
-          {groupsQuery.isPending && <p className="px-2 py-1 text-sm text-muted-foreground">{t("app.loading")}</p>}
-          {groupsQuery.isError && (
-            <p role="alert" className="px-2 py-1 text-sm text-destructive">
-              {errorMessage(t, groupsQuery.error)}
-            </p>
-          )}
-          {groupSections.map(
-            ({ group, notes: groupNotes }) =>
-              (!searching || groupNotes.length > 0) && (
-                <CollapsibleSection
-                  key={group.id}
-                  sectionKey={`group:${group.id}`}
-                  testId={`notegroup-group-${group.id}`}
-                  label={group.name}
-                  nested
-                  forceExpanded={searching}
-                  actions={
+        <WorkspaceSection
+          searching={searching}
+          groupsQuery={groupsQuery}
+          groupSections={groupSections}
+          onCreateNote={onCreateNote}
+          createNotePending={createNotePending}
+        />
+      )}
+    </>
+  );
+}
+
+interface WorkspaceSectionProps {
+  searching: boolean;
+  groupsQuery: ReturnType<typeof useGroups>;
+  groupSections: Array<{ group: GroupDto; notes: NoteDto[] }>;
+  onCreateNote?: (groupId?: string) => void;
+  createNotePending: boolean;
+}
+
+/**
+ * 工作坊段（spec §8.1）：段標「＋」開新增群組對話框（§8.2），底下每個群組一段、段標右側
+ * 「＋」（新筆記進該群組）與常駐 ⋮（`GroupMenu`）。對話框只在開啟時掛載，關閉時焦點還給
+ * 「＋」（`returnFocusRef`）。側欄渲染兩份（靜態＋抽屜），各份的 state 互不相干。
+ */
+function WorkspaceSection({ searching, groupsQuery, groupSections, onCreateNote, createNotePending }: WorkspaceSectionProps) {
+  const { t } = useTranslation();
+  const [createOpen, setCreateOpen] = useState(false);
+  const addButtonRef = useRef<HTMLButtonElement>(null);
+  return (
+    <>
+      <CollapsibleSection
+        sectionKey="workspace"
+        testId="notegroup-workspace"
+        label={t("sidebar.workspace")}
+        forceExpanded={searching}
+        actions={<HeaderAddButton buttonRef={addButtonRef} label={t("sidebar.newGroup")} onClick={() => setCreateOpen(true)} />}
+      >
+        {groupsQuery.isPending && <p className="px-2 py-1 text-sm text-muted-foreground">{t("app.loading")}</p>}
+        {groupsQuery.isError && (
+          <p role="alert" className="px-2 py-1 text-sm text-destructive">
+            {errorMessage(t, groupsQuery.error)}
+          </p>
+        )}
+        {groupSections.map(
+          ({ group, notes: groupNotes }) =>
+            (!searching || groupNotes.length > 0) && (
+              <CollapsibleSection
+                key={group.id}
+                sectionKey={`group:${group.id}`}
+                testId={`notegroup-group-${group.id}`}
+                label={group.name}
+                nested
+                forceExpanded={searching}
+                actions={
+                  <>
                     <HeaderAddButton
                       label={t("sidebar.newNoteIn", { name: group.name })}
                       onClick={() => onCreateNote?.(group.id)}
                       disabled={createNotePending}
                     />
-                  }
-                >
-                  <NoteRows notes={groupNotes} primary />
-                </CollapsibleSection>
-              ),
-          )}
-        </CollapsibleSection>
-      )}
+                    <GroupMenu group={group} />
+                  </>
+                }
+              >
+                <NoteRows notes={groupNotes} primary />
+              </CollapsibleSection>
+            ),
+        )}
+      </CollapsibleSection>
+      {createOpen && <GroupNameDialog mode="create" open onOpenChange={setCreateOpen} returnFocusRef={addButtonRef} />}
     </>
   );
 }

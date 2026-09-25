@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
-import { canonicalNotePath, type GroupDto, type NoteDto } from "@knotebook/shared";
+import { canonicalNotePath, type GroupDto, type NoteDto, type UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ActiveNoteProvider, useActiveNote } from "@/lib/active-note";
 import { NoteList, type NoteListProps } from "./NoteList";
@@ -124,6 +124,8 @@ const OTHERS_GROUP_NOTE: NoteDto = { ...SHARED_NOTE, id: "55555555-5555-5555-555
 /** 別人的、group 非 null 但那個群組不在 useGroups() 裡（剛被移出）→ 與我共享（兜底，第 6 列）。 */
 const ORPHAN_GROUP_NOTE: NoteDto = { ...SHARED_NOTE, id: "66666666-6666-6666-6666-666666666666", title: "Orphan", slug: "orphan", role: "editor", group: { id: "99999999-9999-9999-9999-999999999999", name: "Gone", role: "editor" } };
 
+const ME: UserDto = { id: "u1", email: "me@example.com", handle: "owner-one", displayName: "Me", isAdmin: false, mustChangePassword: false, hasPassword: true };
+
 function stubNotesFetch(notes: NoteDto[], groups: GroupDto[] = []) {
   vi.stubGlobal(
     "fetch",
@@ -135,6 +137,10 @@ function stubNotesFetch(notes: NoteDto[], groups: GroupDto[] = []) {
       }
       if (url === "/api/groups" && method === "GET") {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(groups) }));
+      }
+      // 群組段的 ⋮（GroupMenu）用 useSession 拿自己的 id（退出群組）
+      if (url === "/api/auth/me" && method === "GET") {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(ME) }));
       }
       throw new Error(`unexpected fetch: ${method} ${url}`);
     }),
@@ -586,6 +592,98 @@ describe("NoteList", () => {
       const workspace = await screen.findByTestId("notegroup-workspace");
       await waitFor(() => expect(within(workspace).getByRole("alert")).toHaveTextContent("Something went wrong. Please try again."));
       expect(within(screen.getByTestId("notegroup-myNotes")).getByRole("link", { name: "Has A Slug" })).toBeInTheDocument();
+    });
+
+    it("零筆記＋/api/groups pending → Loading…（不是 EmptyState、也沒有段標）", async () => {
+      let notesFetched = false;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: RequestInfo | URL) => {
+          if (String(input) === "/api/notes") {
+            notesFetched = true;
+            return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+          }
+          return new Promise<Response>(() => {}); // /api/groups 永不 resolve
+        }),
+      );
+      renderNoteList();
+      await waitFor(() => expect(notesFetched).toBe(true));
+      // notes 已 resolve 但群組未到：仍是整張清單的 Loading…
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(screen.getByText("Loading…")).toBeInTheDocument();
+      expect(screen.queryByText("No notes yet.")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "My notes" })).not.toBeInTheDocument();
+      expect(screen.queryByTestId("notegroup-workspace")).not.toBeInTheDocument();
+    });
+
+    it("零筆記＋/api/groups 500 → 「我的筆記」段標＋工作坊段內 role=alert，不是 EmptyState", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: RequestInfo | URL) => {
+          if (String(input) === "/api/notes") {
+            return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+          }
+          return Promise.resolve(
+            fakeResponse({ ok: false, status: 500, json: () => Promise.resolve({ error: { code: "internal", message: "boom" } }) }),
+          );
+        }),
+      );
+      renderNoteList();
+      const workspace = await screen.findByTestId("notegroup-workspace");
+      await waitFor(() => expect(within(workspace).getByRole("alert")).toHaveTextContent("Something went wrong. Please try again."));
+      expect(screen.getByRole("button", { name: "My notes" })).toBeInTheDocument();
+      expect(screen.queryByText("No notes yet.")).not.toBeInTheDocument();
+    });
+
+    it("搜尋中（forceExpanded）點段標是 no-op：收合狀態不被翻動、仍展開", async () => {
+      window.localStorage.setItem("sidebar.collapsed.myNotes", "1");
+      stubNotesFetch([OWNER_NOTE], []);
+      renderNoteList({ query: "has" });
+      const header = await screen.findByRole("button", { name: "My notes" });
+      expect(header).toHaveAttribute("aria-expanded", "true");
+      fireEvent.click(header);
+      expect(window.localStorage.getItem("sidebar.collapsed.myNotes")).toBe("1");
+      expect(screen.getByRole("button", { name: "My notes" })).toHaveAttribute("aria-expanded", "true");
+      expect(within(screen.getByTestId("notegroup-myNotes")).getByRole("link", { name: "Has A Slug" })).toBeInTheDocument();
+    });
+
+    it("工作坊段標「＋」→ 新增群組對話框；建立成功後新群組段出現且展開、焦點回「＋」", async () => {
+      let groups: GroupDto[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input);
+          const method = (init?.method ?? "GET").toUpperCase();
+          if (url === "/api/notes" && method === "GET") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([OWNER_NOTE]) }));
+          if (url === "/api/groups" && method === "GET") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(groups) }));
+          if (url === "/api/groups" && method === "POST") {
+            groups = [GROUP_A];
+            return Promise.resolve(fakeResponse({ ok: true, status: 201, json: () => Promise.resolve(GROUP_A) }));
+          }
+          if (url === "/api/auth/me") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(ME) }));
+          throw new Error(`unexpected fetch: ${method} ${url}`);
+        }),
+      );
+      renderNoteList();
+      const plus = await screen.findByRole("button", { name: "New group" });
+      plus.focus(); // fireEvent.click 不會聚焦；真人是用鍵盤或滑鼠點到它才開的
+      fireEvent.click(plus);
+      const dialog = await screen.findByRole("dialog", { name: "New group" });
+      fireEvent.change(within(dialog).getByLabelText("Group name"), { target: { value: "Workshop A" } });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Create" }));
+      await waitFor(() => expect(screen.queryByRole("dialog", { name: "New group" })).not.toBeInTheDocument());
+      expect(await screen.findByRole("button", { name: "Workshop A" })).toHaveAttribute("aria-expanded", "true");
+      await waitFor(() => expect(document.activeElement).toBe(plus));
+    });
+
+    it("群組段標常駐 ⋮（aria-label 含群組名），與「＋」同為段標 button 的兄弟", async () => {
+      stubNotesFetch([MY_GROUP_NOTE], [GROUP_A]);
+      renderNoteList();
+      const header = await screen.findByRole("button", { name: "Workshop A" });
+      const menu = screen.getByRole("button", { name: "Group actions for Workshop A" });
+      expect(menu.parentElement).toBe(header.parentElement);
+      expect(screen.getByRole("button", { name: "New note in Workshop A" }).parentElement).toBe(header.parentElement);
+      expect(menu).not.toHaveClass("opacity-0");
     });
   });
 });
