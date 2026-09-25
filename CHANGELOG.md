@@ -7,6 +7,10 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
+### Added
+
+- Groups, server side only for now (#103): a note can belong to one group, and every member of that group gets access to it at the level the note's owner picks (read-only or can-edit), with ownership staying with the note's creator. New `/api/groups` endpoints manage groups and their members (admins can rename, add and remove people, and delete the group; members can leave), and `PUT`/`DELETE /api/notes/:id/group` move a note into or out of a group — moving it in clears its per-person shares and public link. Deleting a group turns its notes back into personal notes and keeps everyone's access as per-person shares. MCP clients see group notes in `list_notes`/`search_notes`. The web app doesn't show groups yet — see [API contract](docs/api.md).
+
 ### Changed
 
 - The Settings dialog's three sections (Account, Users, AI) now share one consistent layout — a page title and description at the top, groups separated by hairline dividers instead of ad-hoc spacing, and matching type sizes for group titles and body text throughout, instead of each section inventing its own headings and spacing.

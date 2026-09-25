@@ -139,10 +139,14 @@ describe("#103 DELETE /api/notes/:id/group", () => {
     const { app, db } = await buildTestApp({ collabHooks: hooks });
     const owner = await seedUser(db);
     const member = await seedUser(db);
+    const stranger = await seedUser(db);
     const g = await seedGroup(db, "G", [{ userId: owner.id, role: "admin" }, { userId: member.id, role: "member" }]);
     const note = await seedNote(db, owner.id, { groupId: g.id, publicToken: "z".repeat(43) });
     const before = await noteState(db.$client, note.id);
 
+    const noAccess = await app.inject({ method: "DELETE", url: `/api/notes/${note.id}/group`, cookies: await cookieOf(stranger.id) });
+    expect(noAccess.statusCode).toBe(404);
+    expect(noAccess.json().error.code).toBe("not_found");
     expect((await app.inject({ method: "DELETE", url: `/api/notes/${note.id}/group`, cookies: await cookieOf(member.id) })).statusCode).toBe(403);
     const res = await app.inject({ method: "DELETE", url: `/api/notes/${note.id}/group`, cookies: await cookieOf(owner.id) });
     expect(res.statusCode).toBe(200);
@@ -199,6 +203,9 @@ describe("#103 POST /api/notes {groupId}", () => {
     const denied = await app.inject({ method: "POST", url: "/api/notes", cookies: await cookieOf(site.id), payload: { groupId: g.id } });
     expect(denied.statusCode).toBe(404);
     expect(denied.json()).toEqual(GROUP_404);
+    const noSuchGroup = await app.inject({ method: "POST", url: "/api/notes", cookies: await cookieOf(member.id), payload: { groupId: "00000000-0000-4000-8000-00000000dead" } });
+    expect(noSuchGroup.statusCode).toBe(404);
+    expect(noSuchGroup.json()).toEqual(GROUP_404);
     const both = await app.inject({ method: "POST", url: "/api/notes", cookies: await cookieOf(member.id), payload: { content: "# x", groupId: g.id } });
     expect(both.statusCode).toBe(400);
     expect(both.json().error.code).toBe("invalid_body");
