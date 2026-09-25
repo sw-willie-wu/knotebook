@@ -18,6 +18,7 @@ import type { CollabHooks } from "./collab/hooks.js";
 import type { CollabServer } from "./collab/server.js";
 import { authRoutes } from "./routes/auth.js";
 import { notesRoutes } from "./routes/notes.js";
+import { groupsRoutes } from "./routes/groups.js";
 import type { WriteNoteLinksHooks } from "./notes/links.js";
 import { adminUsersRoutes } from "./routes/admin-users.js";
 import { adminAiRoutes } from "./routes/admin-ai.js";
@@ -676,6 +677,8 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       uploadsDir: deps.uploadsDir,
     })
   );
+  // #103：群組管理（session-only，見 routes/groups.ts 檔頭）。
+  void app.register(groupsRoutes({ db: deps.db, collabHooks: deps.collabHooks, groupTestHook: deps.groupTestHook }));
   void app.register(adminUsersRoutes({ db: deps.db, gate: deps.gate, collabHooks: deps.collabHooks }));
   void app.register(adminAiRoutes({ db: deps.db, config: deps.config, runtime: deps.ai }));
   void app.register(

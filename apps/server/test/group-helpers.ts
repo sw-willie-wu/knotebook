@@ -4,8 +4,9 @@
  * 大量種子一律明寫 `slug`／`handle`：吃 `untitled-<uuid8>`／`user-<uuid8>` DEFAULT 有生日問題（#150）。
  */
 import { randomUUID } from "node:crypto";
+import type { FastifyInstance } from "fastify";
 import type { Pool } from "pg";
-import { vi } from "vitest";
+import { expect, vi } from "vitest";
 import { SESSION_COOKIE } from "@knotebook/shared";
 import { signSession } from "../src/auth/session.js";
 import type { CollabHooks } from "../src/collab/hooks.js";
@@ -138,4 +139,68 @@ export function spyCollabHooks() {
     beforeNoteDeleted: vi.fn(async () => ({ release: () => {} })),
     linkSyncGate: () => ({ ok: false as const }),
   } satisfies CollabHooks;
+}
+
+export type MatrixActor = "anon" | "nonMember" | "member" | "admin" | "siteAdmin" | "badId" | "missing";
+export const MATRIX_ACTORS: readonly MatrixActor[] = ["anon", "nonMember", "member", "admin", "siteAdmin", "badId", "missing"];
+
+export interface MatrixScene {
+  groupId: string;
+  admin: SeededUser;
+  member: SeededUser;
+  other: SeededUser;
+  outsider: SeededUser;
+  siteAdmin: SeededUser;
+  newcomer: SeededUser;
+}
+
+export interface MatrixEndpoint {
+  method: "GET" | "PUT" | "PATCH" | "DELETE";
+  /** `groupId` 已依 actor 換好（`badId`＝非 UUID、`missing`＝不存在的 UUID）。 */
+  url: (groupId: string, scene: MatrixScene) => string;
+  payload?: (scene: MatrixScene) => Record<string, unknown>;
+  expected: Record<MatrixActor, number>;
+}
+
+async function seedMatrixScene(db: Db): Promise<MatrixScene> {
+  const admin = await seedUser(db);
+  const member = await seedUser(db);
+  const other = await seedUser(db);
+  const outsider = await seedUser(db);
+  const siteAdmin = await seedUser(db, { isAdmin: true });
+  const newcomer = await seedUser(db);
+  const g = await seedGroup(db, "Matrix", [
+    { userId: admin.id, role: "admin" },
+    { userId: member.id, role: "member" },
+    { userId: other.id, role: "member" },
+  ]);
+  return { groupId: g.id, admin, member, other, outsider, siteAdmin, newcomer };
+}
+
+/**
+ * spec §11.1 的群組路由授權矩陣：每個 actor 一個全新的場景（破壞性端點互不干擾）。
+ * 非成員／非 UUID／不存在三者的 404 回應必須**逐位元組相同**（S4）。
+ */
+export async function runGroupAuthMatrix(app: FastifyInstance, db: Db, endpoint: MatrixEndpoint): Promise<void> {
+  const notFoundBodies: string[] = [];
+  for (const actor of MATRIX_ACTORS) {
+    const scene = await seedMatrixScene(db);
+    const groupId = actor === "badId" ? "not-a-uuid" : actor === "missing" ? randomUUID() : scene.groupId;
+    const who =
+      actor === "anon" ? null
+        : actor === "nonMember" ? scene.outsider
+          : actor === "member" ? scene.member
+            : actor === "siteAdmin" ? scene.siteAdmin
+              : scene.admin;
+    const res = await app.inject({
+      method: endpoint.method,
+      url: endpoint.url(groupId, scene),
+      ...(who ? { cookies: await cookieOf(who.id) } : {}),
+      ...(endpoint.payload ? { payload: endpoint.payload(scene) } : {}),
+    });
+    expect(res.statusCode, `${endpoint.method} ${endpoint.url("<id>", scene)} as ${actor}：${res.body}`).toBe(endpoint.expected[actor]);
+    if (actor === "nonMember" || actor === "badId" || actor === "missing") notFoundBodies.push(res.body);
+  }
+  expect(new Set(notFoundBodies).size, "非成員／非 UUID／不存在的 404 必須逐位元組相同").toBe(1);
+  expect(JSON.parse(notFoundBodies[0]!)).toEqual({ error: { code: "not_found", message: "找不到此群組" } });
 }
