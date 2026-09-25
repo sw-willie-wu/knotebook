@@ -244,6 +244,16 @@ export const ERROR_CODES = [
   // 兩者都是「不能撤回」，但呼叫端的處置不同：前者是重複操作（不必再試），後者要重讀內容再決定。
   "already_reverted",
   "stale",
+  // #103 群組：`last_admin`＝409，這個動作會讓群組沒有管理者（最後一位 admin 退出／被移除／被降級）；
+  // `already_member`＝409；`group_not_found`＝404，帶進來的 groupId 不合法、不存在、你不是成員或
+  // 剛被刪除（四者同形）；`note_in_group`＝409，群組筆記沒有逐人分享；`invalid_name`＝400，群組名稱；
+  // `conflict`＝409，筆記的所屬群組在這次請求的交易內讀到的狀態已變（例如已不在任何群組裡）。
+  "last_admin",
+  "already_member",
+  "group_not_found",
+  "note_in_group",
+  "invalid_name",
+  "conflict",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
