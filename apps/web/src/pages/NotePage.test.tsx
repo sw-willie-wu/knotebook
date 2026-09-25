@@ -1110,4 +1110,30 @@ describe("scheduleTerminalReconcile", () => {
 
     expect(queryFn.mock.calls.length).toBe(before + 1);
   });
+
+  it("RF5：被踢的終態對帳同時讓 ['groups'] 失效一次（不隨 ['notes'] 輪詢重複）", async () => {
+    // 前兩次仍回「NOTE 還在」讓 ['notes'] 輪詢跑至少兩輪，藉此跟「['groups'] 失效被
+    // 誤放進 tick() 裡、隨每輪重複發」的錯法做出區別；第三次起才收斂。
+    const notesFn = vi
+      .fn<() => Promise<NoteDto[]>>()
+      .mockResolvedValueOnce([NOTE, OTHER_NOTE])
+      .mockResolvedValueOnce([NOTE, OTHER_NOTE])
+      .mockResolvedValue([OTHER_NOTE]);
+    await seedNotesQuery(notesFn);
+    const groupsFn = vi.fn(() => Promise.resolve([]));
+    await queryClient.fetchQuery({ queryKey: ["groups"], queryFn: groupsFn });
+    expect(groupsFn).toHaveBeenCalledTimes(1);
+
+    scheduleTerminalReconcile(queryClient, NOTE.id);
+    await vi.advanceTimersByTimeAsync(0);
+
+    // ['groups'] 立刻被重抓一次（一發，掛在 scheduleTerminalReconcile 本體，不在 tick() 裡）。
+    await waitFor(() => expect(groupsFn).toHaveBeenCalledTimes(2));
+
+    // ['notes'] 那邊 NOTE 還在（前兩次 mock 都回含 NOTE 的清單）——輪詢會繼續跑好幾輪；
+    // 若 ['groups'] 的失效被誤放進 tick()，這裡就會隨每輪重複發，不會停在 2。
+    await vi.advanceTimersByTimeAsync(RECONCILE_INTERVAL_MS * 3);
+    expect(notesFn.mock.calls.length).toBeGreaterThanOrEqual(3);
+    expect(groupsFn).toHaveBeenCalledTimes(2);
+  });
 });
