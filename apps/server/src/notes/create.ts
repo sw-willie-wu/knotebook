@@ -22,6 +22,15 @@ export interface NoteCreateHooks {
   beforeInsert?: (candidate: string) => void | Promise<void>;
 }
 
+export interface NoteCreateOptions {
+  /**
+   * #103 §6.4：建在這個群組裡（同一發 INSERT；`group_role` 吃 DB default `editor`）。呼叫端先確認建立者
+   * 是成員；群組在確認之後被刪時，這一發會撞 FK 23503 並原樣拋出（重試迴圈只處理 slug 的 23505），
+   * 由呼叫端映射成 404。
+   */
+  groupId?: string;
+}
+
 /**
  * 建一列筆記，`title` 有值時把 auto slug 一起派生好（#145）。
  *
@@ -43,12 +52,14 @@ export async function insertNoteWithAutoSlug(
   db: Db,
   ownerId: string,
   title: string | undefined,
-  hooks?: NoteCreateHooks
+  hooks?: NoteCreateHooks,
+  opts: NoteCreateOptions = {}
 ): Promise<typeof notes.$inferSelect> {
+  const group = opts.groupId === undefined ? {} : { groupId: opts.groupId };
   // `title` 未帶：`title`／`slug` 兩把鍵都不放，讓 DB 的 default `"Untitled"` 與
   // `untitled-<uuid8>` 同時生效（#145 D6：不派生成 `untitled`，也不發任何探測查詢）。
   if (title === undefined) {
-    const [created] = await db.insert(notes).values({ ownerId }).returning();
+    const [created] = await db.insert(notes).values({ ownerId, ...group }).returning();
     return created!;
   }
 
@@ -60,7 +71,7 @@ export async function insertNoteWithAutoSlug(
       // `.returning()` 落空在 INSERT 上結構性不可能（成功的 INSERT 必回一列）——`!` 是
       // 原本那三處的寫法，沿用。**不要**替它加一條回 404 的分支：PATCH 的 `if (!updated)`
       // 是 UPDATE 命中 0 列（筆記已被刪），與這裡不同情形。
-      const [created] = await db.insert(notes).values({ ownerId, title, slug }).returning();
+      const [created] = await db.insert(notes).values({ ownerId, title, slug, ...group }).returning();
       return created!;
     } catch (err) {
       if (uniqueViolationConstraint(err) === "notes_owner_slug_idx" && attempt <= MAX_AUTO_SLUG_RETRIES) continue;

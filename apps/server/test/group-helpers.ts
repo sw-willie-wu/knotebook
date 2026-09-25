@@ -6,6 +6,7 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import type { Pool } from "pg";
+import { eq } from "drizzle-orm";
 import { expect, vi } from "vitest";
 import { SESSION_COOKIE } from "@knotebook/shared";
 import { signSession } from "../src/auth/session.js";
@@ -227,4 +228,20 @@ export async function waitForBlockedOrSettled(pool: Pool, other: Promise<unknown
     await sleep(20);
   }
   throw new Error(`waitForBlockedOrSettled 逾時（${timeoutMs}ms）`);
+}
+
+/** 筆記的歸屬與公開連結狀態；`updated_at` 取文字形（微秒精度，比 JS Date 準）。 */
+export async function noteState(pool: Pool, noteId: string): Promise<{
+  group_id: string | null; group_role: string; public_token: string | null; public_slug: string | null; updated_at: string;
+}> {
+  const { rows } = await pool.query(
+    `select group_id, group_role, public_token, public_slug, updated_at::text as updated_at from notes where id = $1`,
+    [noteId],
+  );
+  return rows[0];
+}
+
+export async function sharesOf(db: Db, noteId: string): Promise<Array<{ userId: string; role: string }>> {
+  const rows = await db.select({ userId: noteShares.userId, role: noteShares.role }).from(noteShares).where(eq(noteShares.noteId, noteId));
+  return rows.sort((a, b) => (a.userId < b.userId ? -1 : a.userId > b.userId ? 1 : 0));
 }
