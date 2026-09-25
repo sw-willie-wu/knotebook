@@ -43,6 +43,9 @@ describe("App route tree — /admin/users redirects to /settings/users (Plan 4 �
     return vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method ?? "GET").toUpperCase();
+      if (url === "/api/groups" && method === "GET") {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+      }
       if (url === "/api/auth/me") {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(ADMIN_USER) }));
       }
@@ -115,6 +118,9 @@ describe("App route tree — NotePage lazy fallback 保留 AppShell（issue #19�
       "fetch",
       vi.fn((input: RequestInfo | URL) => {
         const url = String(input);
+        if (url === "/api/groups") {
+          return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+        }
         if (url === "/api/auth/me") {
           return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(ADMIN_USER) }));
         }

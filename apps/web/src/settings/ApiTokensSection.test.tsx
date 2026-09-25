@@ -71,6 +71,7 @@ function renderSettings(
     calls.push({ url, method, body: init?.body === undefined ? undefined : JSON.parse(String(init.body)) });
     const custom = extra?.(url, method, init);
     if (custom) return Promise.resolve(custom);
+    if (url === "/api/groups") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
     if (url === "/api/auth/me") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(user) }));
     if (url === "/api/notes") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
     if (url === "/api/auth/tokens" && method === "GET")

@@ -40,6 +40,9 @@ const CHANGE_PASSWORD_URL = "/api/auth/password";
  * 下一次 me query 的回應會變」這件事有得測，而不是整個測試檔固定死一個回應）。 */
 function baseFetchHandlers(getLoggedInAs: () => UserDto | null) {
   return (url: string, method: string): Response | null => {
+    if (url === "/api/groups" && method === "GET") {
+      return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) });
+    }
     if (url === "/api/auth/me" && method === "GET") {
       const user = getLoggedInAs();
       if (user) {

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
-import { canonicalNotePath, type NoteDto } from "@knotebook/shared";
+import { canonicalNotePath, type GroupDto, type NoteDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ActiveNoteProvider, useActiveNote } from "@/lib/active-note";
 import { NoteList } from "./NoteList";
@@ -113,10 +113,20 @@ const THIRD_OWNER_NOTE: NoteDto = {
   group: null,
 };
 
-function stubNotesFetch(notes: NoteDto[]) {
+function stubNotesFetch(notes: NoteDto[], groups: GroupDto[] = []) {
   vi.stubGlobal(
     "fetch",
-    vi.fn(() => Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(notes) }))),
+    vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (url === "/api/notes" && method === "GET") {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(notes) }));
+      }
+      if (url === "/api/groups" && method === "GET") {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(groups) }));
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    }),
   );
 }
 
@@ -143,15 +153,19 @@ describe("NoteList", () => {
   it("shows an error message when /api/notes fails", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(() =>
-        Promise.resolve(
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/groups") {
+          return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+        }
+        return Promise.resolve(
           fakeResponse({
             ok: false,
             status: 500,
             json: () => Promise.resolve({ error: { code: "internal", message: "boom" } }),
           }),
-        ),
-      ),
+        );
+      }),
     );
 
     renderNoteList();

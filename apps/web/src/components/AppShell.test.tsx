@@ -71,6 +71,9 @@ describe("AppShell — new note", () => {
       vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
         const method = (init?.method ?? "GET").toUpperCase();
+        if (url === "/api/groups" && method === "GET") {
+          return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+        }
         if (url === "/api/auth/me") {
           return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(USER) }));
         }
@@ -113,6 +116,9 @@ describe("AppShell — new note", () => {
       vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
         const method = (init?.method ?? "GET").toUpperCase();
+        if (url === "/api/groups") {
+          return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+        }
         if (url === "/api/notes" && method === "POST") {
           return Promise.resolve(
             fakeResponse({
@@ -193,6 +199,9 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
       vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
         const method = (init?.method ?? "GET").toUpperCase();
+        if (url === "/api/groups" && method === "GET") {
+          return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+        }
         if (url === "/api/auth/me") {
           return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(USER) }));
         }
@@ -387,6 +396,9 @@ describe("AppShell — #115 側欄抽屜", () => {
       vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
         const method = (init?.method ?? "GET").toUpperCase();
+        if (url === "/api/groups" && method === "GET") {
+          return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+        }
         if (url === "/api/auth/me") {
           return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(USER) }));
         }

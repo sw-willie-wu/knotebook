@@ -125,6 +125,9 @@ const NOTE: NoteDto = {
  * 這些。呼叫端可疊加其餘端點的處理（例如 `POST /api/auth/password`）。 */
 function baseFetchHandlers(getLoggedInAs: () => UserDto | null) {
   return (url: string, method: string): Response | null => {
+    if (url === "/api/groups" && method === "GET") {
+      return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) });
+    }
     if (url === "/api/auth/me" && method === "GET") {
       const user = getLoggedInAs();
       if (user) return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(user) });

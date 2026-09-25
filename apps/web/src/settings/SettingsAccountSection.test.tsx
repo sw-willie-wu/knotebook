@@ -46,6 +46,9 @@ const SSO_ONLY_USER: UserDto = {
 
 function baseFetchHandlers(user: UserDto) {
   return (url: string, method: string): Response | null => {
+    if (url === "/api/groups" && method === "GET") {
+      return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) });
+    }
     if (url === "/api/auth/me" && method === "GET") {
       return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(user) });
     }
@@ -204,6 +207,9 @@ describe("SettingsAccountSection——使用者名欄（#122 Task 5）", () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method ?? "GET").toUpperCase();
+      if (url === "/api/groups" && method === "GET") {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+      }
       if (url === "/api/auth/profile" && method === "PATCH") {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(updated) }));
       }
