@@ -6,23 +6,23 @@ import { autoSlugFromTitle, validateHandle, validateSlug } from "@knotebook/shar
 import { applyMigrationsThrough, freshDb, freshEmptyDb, idxOfTag, journalEntries } from "./helpers.js";
 import { runMigrations } from "../src/db/migrate.js";
 import { PgDialect, getTableConfig } from "drizzle-orm/pg-core";
-import { apiTokens, notes, oauthClients, oauthCodes, oauthRequests } from "../src/db/schema.js";
+import { apiTokens, groupMembers, groups, notes, oauthClients, oauthCodes, oauthRequests } from "../src/db/schema.js";
 
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
-/** drizzle 對 `schema.ts` 的序列化；0010 的宣告漂移守衛拿它當比對基準。 */
-const snapshot0010 = JSON.parse(
-  readFileSync(path.join(drizzleDirForTest, "meta/0010_snapshot.json"), "utf8"),
+/** drizzle 對 `schema.ts` 的序列化；宣告漂移守衛拿最新一支（0011）當比對基準。 */
+const snapshot0011 = JSON.parse(
+  readFileSync(path.join(drizzleDirForTest, "meta/0011_snapshot.json"), "utf8"),
 ) as { tables: Record<string, { checkConstraints?: Record<string, { name: string; value: string }> }> };
 const pgDialect = new PgDialect();
 
 describe("runMigrations", () => {
-  it("migrate 兩次 idempotent 且 17 張表存在", async () => {
+  it("migrate 兩次 idempotent 且 19 張表存在", async () => {
     const { db, pool } = await freshDb();
     await runMigrations(db); // freshDb 已跑過一次——此為第二次
     const r = await pool.query(`select table_name from information_schema.tables where table_schema='public'`);
     const tableNames = r.rows.map(x => x.table_name);
-    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes", "note_ai_edits"])
+    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes", "note_ai_edits", "groups", "group_members"])
       expect(tableNames).toContain(t);
   });
 
@@ -1097,7 +1097,7 @@ describe("0009_api-tokens", () => {
       expect(names, i).toContain(i);
   });
 
-  it("schema.ts 的四個宣告沒有靜默漂移（那四個 export 目前零 import，typecheck 保護不到）", async () => {
+  it("schema.ts 的七個宣告沒有靜默漂移（四個 OAuth／token 宣告零 import；三張 #103 表的 CHECK 也在這裡逐字比對）", async () => {
     // 比照 0008 的同族守衛：把 schema.ts 的宣告與 migration 造出來的 DB 對起來。
     // 沒有這一案的話，把 schema.ts 的四段 pgTable 整個刪掉，全套測試照樣綠——
     // 只有下一次 db:generate 會產出 DROP TABLE。
@@ -1120,6 +1120,13 @@ describe("0009_api-tokens", () => {
       ],
       oauth_requests: ["id", "client_id", "redirect_uri", "code_challenge", "scope", "state", "expires_at"],
       oauth_codes: ["code_hash", "client_id", "user_id", "scope", "redirect_uri", "code_challenge", "expires_at"],
+      groups: ["id", "name", "created_by", "created_at"],
+      group_members: ["group_id", "user_id", "role", "created_at"],
+      notes: [
+        "id", "owner_id", "title", "slug", "slug_is_custom", "prev_slug", "legacy_slug", "public_token", "public_slug",
+        "links_clock", "created_at", "updated_at", "last_edited_at", "last_edited_by", "last_edited_token_id",
+        "last_edited_agent_label", "deleted_at", "group_id", "group_role",
+      ],
     };
 
     for (const [table, decl] of [
@@ -1127,6 +1134,9 @@ describe("0009_api-tokens", () => {
       ["api_tokens", apiTokens],
       ["oauth_requests", oauthRequests],
       ["oauth_codes", oauthCodes],
+      ["groups", groups],
+      ["group_members", groupMembers],
+      ["notes", notes],
     ] as const) {
       const cfg = getTableConfig(decl);
       // 宣告的欄名 = DB 的欄名 = 這裡寫死的期望（三方對齊，任一邊漂移就紅）
@@ -1156,7 +1166,7 @@ describe("0009_api-tokens", () => {
       // 名字仍在、DB 仍是舊值，上面每一條都綠——下一次 generate 才會靜默吐出一支
       // DROP/ADD CONSTRAINT。這個 PR 就踩過一次（長度上限 200↔64 的半套回滾）。
       // snapshot 是 drizzle 對 schema.ts 的序列化，逐字比對它＝真正的漂移守衛。
-      const snapshotChecks = snapshot0010.tables[`public.${table}`]?.checkConstraints ?? {};
+      const snapshotChecks = snapshot0011.tables[`public.${table}`]?.checkConstraints ?? {};
       expect(Object.keys(snapshotChecks).sort(), `${table} 的 CHECK 名集合`).toEqual(
         cfg.checks.map(c => c.name).sort()
       );
@@ -1201,5 +1211,49 @@ describe("0009_api-tokens", () => {
     const t = (await pool.query(`insert into api_tokens (user_id, kind, name, scope, access_token_hash) values ($1,'pat','t','notes:read','h') returning id`, [u])).rows[0].id;
     await expect(pool.query(`update api_tokens set agent_label = 'bad label!' where id = $1`, [t])).rejects.toThrow(/api_tokens_agent_label_chk/);
     await expect(pool.query(`update api_tokens set agent_label = 'claude' where id = $1`, [t])).resolves.toBeTruthy();
+  });
+
+  it("0011 檔內無 CONCURRENTLY／行首 COMMIT（單一 tx 前提的輔助 grep，比照 0009）", () => {
+    const entry = journalEntries().find(e => e.tag.startsWith("0011"));
+    expect(entry, "0011 migration 必須存在").toBeDefined();
+    expect(entry!.tag).toBe("0011_groups");
+    const sql = readFileSync(path.join(drizzleDirForTest, `${entry!.tag}.sql`), "utf8");
+    expect(sql.toUpperCase()).not.toContain("CONCURRENTLY");
+    expect(sql).not.toMatch(/^\s*COMMIT\s*;/im);
+  });
+
+  it("0011：套到既有資料上 group_id=null、group_role='editor'；三條 CHECK、兩條 CASCADE、兩條 SET NULL 生效", async () => {
+    const { pool, db } = await freshEmptyDb();
+    await applyMigrationsThrough(pool, idxOfTag("0010_ai-editing"));
+    const owner = (await pool.query(`insert into users (email, handle, display_name) values ('m@x', 'm0011', 'M') returning id`)).rows[0].id;
+    const preexisting = (await pool.query(`insert into notes (owner_id, slug) values ($1, 'pre-0011') returning id`, [owner])).rows[0].id;
+    await runMigrations(db);
+
+    expect((await pool.query(`select group_id, group_role from notes where id = $1`, [preexisting])).rows[0]).toEqual({
+      group_id: null,
+      group_role: "editor",
+    });
+
+    // CHECK：名稱 1..80 個字元（length() 數 code point——80 個 emoji 過得了，UTF-16 長度是 160）
+    await expect(pool.query(`insert into groups (name) values ('')`)).rejects.toMatchObject({ code: "23514", constraint: "groups_name_chk" });
+    await expect(pool.query(`insert into groups (name) values ($1)`, ["x".repeat(81)])).rejects.toMatchObject({ code: "23514", constraint: "groups_name_chk" });
+    const g = (await pool.query(`insert into groups (name, created_by) values ($1, $2) returning id`, ["\u{1F600}".repeat(80), owner])).rows[0].id;
+    await expect(pool.query(`insert into group_members (group_id, user_id, role) values ($1, $2, 'owner')`, [g, owner])).rejects.toMatchObject({ code: "23514", constraint: "group_members_role_chk" });
+    await expect(pool.query(`update notes set group_role = 'owner' where id = $1`, [preexisting])).rejects.toMatchObject({ code: "23514", constraint: "notes_group_role_chk" });
+
+    // 刪群組：notes.group_id SET NULL、group_members CASCADE
+    await pool.query(`insert into group_members (group_id, user_id, role) values ($1, $2, 'admin')`, [g, owner]);
+    await pool.query(`update notes set group_id = $1 where id = $2`, [g, preexisting]);
+    await pool.query(`delete from groups where id = $1`, [g]);
+    expect((await pool.query(`select group_id from notes where id = $1`, [preexisting])).rows[0].group_id).toBeNull();
+    expect((await pool.query(`select 1 from group_members where group_id = $1`, [g])).rowCount).toBe(0);
+
+    // 刪使用者（一位沒有筆記的——notes.owner_id 是 RESTRICT）：groups.created_by SET NULL、group_members CASCADE
+    const creator = (await pool.query(`insert into users (email, handle, display_name) values ('c@x', 'c0011', 'C') returning id`)).rows[0].id;
+    const g2 = (await pool.query(`insert into groups (name, created_by) values ('G2', $1) returning id`, [creator])).rows[0].id;
+    await pool.query(`insert into group_members (group_id, user_id, role) values ($1, $2, 'admin')`, [g2, creator]);
+    await pool.query(`delete from users where id = $1`, [creator]);
+    expect((await pool.query(`select created_by from groups where id = $1`, [g2])).rows[0].created_by).toBeNull();
+    expect((await pool.query(`select 1 from group_members where user_id = $1`, [creator])).rowCount).toBe(0);
   });
 });

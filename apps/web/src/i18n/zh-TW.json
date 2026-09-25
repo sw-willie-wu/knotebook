@@ -464,6 +464,12 @@
     "content_too_large": "內容過大。",
     "already_reverted": "這筆修改已經撤回過了。",
     "stale": "這筆修改之後筆記又被改過，已無法撤回。請重新讀取後再試。",
+    "last_admin": "群組至少要有一位管理者，請先指定另一位管理者。",
+    "already_member": "此人已經是群組成員。",
+    "group_not_found": "找不到此群組。",
+    "note_in_group": "群組筆記不能逐人分享，請群組管理者將對方加入群組。",
+    "invalid_name": "群組名稱須為 1–80 個字元。",
+    "conflict": "操作期間狀態已變更，請重新讀取後再試。",
     "fallback": "發生未預期的錯誤。"
   }
 }

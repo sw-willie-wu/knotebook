@@ -58,6 +58,11 @@ export interface NoteDto {
   /** #106 D6：誰在什麼時候最後改了這篇（`notes.last_edited_*` 四欄；從未被編輯過＝null）。
    * 型別宣告在本檔下方——interface 是型別層的，不受宣告順序影響（沒有 TDZ 這回事）。 */
   lastEdited: LastEditedDto | null;
+  /**
+   * #103：筆記所屬群組；**只在呼叫者是 owner 或該群組成員時有值**，其餘一律 null（spec §6.5，S4）。
+   * 型別宣告在本檔下方。
+   */
+  group: NoteGroupDto | null;
 }
 
 // #106 內容端點（`GET /api/notes/:id/content`，#137 起還有寫入端）的對外形。指紋是樂觀
@@ -128,6 +133,34 @@ export interface NoteEditDto {
 // `Role`（涵蓋全部四種狀態）刻意分開成獨立型別，讓「這欄位只可能是這兩種角色」
 // 這件事在型別層就看得出來。
 export type ShareRole = "editor" | "viewer";
+
+/** #103：群組成員角色（`group_members.role`）——只管群組本身（改名、成員、刪除），**不參與筆記權限**。 */
+export type GroupMemberRole = "admin" | "member";
+
+/**
+ * #103 群組。`myRole`＝呼叫者在群組裡的角色；站台 admin 經 API 操作一個他不屬於的群組時，
+ * `PATCH /api/groups/:id` 的回應給 `"admin"`（他在 API 層的身分；`GET /api/groups` 不列非所屬群組）。
+ */
+export interface GroupDto {
+  id: string;
+  name: string;
+  myRole: GroupMemberRole;
+  createdAt: string;
+}
+
+export interface GroupMemberDto {
+  userId: string;
+  email: string;
+  displayName: string;
+  role: GroupMemberRole;
+}
+
+/** 筆記所屬群組；`role` 是本篇對全組開放的等級（`notes.group_role`），不是呼叫者的角色。 */
+export interface NoteGroupDto {
+  id: string;
+  name: string;
+  role: ShareRole;
+}
 
 export interface ShareDto {
   userId: string;
@@ -244,6 +277,18 @@ export const ERROR_CODES = [
   // 兩者都是「不能撤回」，但呼叫端的處置不同：前者是重複操作（不必再試），後者要重讀內容再決定。
   "already_reverted",
   "stale",
+  // #103 群組：`last_admin`＝409，這個動作會讓群組沒有管理者（最後一位 admin 退出／被移除／被降級）；
+  // `already_member`＝409；`group_not_found`＝404，帶進來的 groupId 不存在、你不是成員或剛被刪除
+  // （三者同形）——**但格式不合法的 groupId 分兩支**：`PUT /api/notes/:id/group` 對非 UUID 也回這個
+  // 404（與另外三形同形，四者逐位元組相同）；`POST /api/notes {groupId}` 對非 UUID 回 400
+  // `invalid_body`（zod 在路由層就擋掉，走不到這個碼）。`note_in_group`＝409，群組筆記沒有逐人分享；`invalid_name`＝400，群組名稱；
+  // `conflict`＝409，筆記的所屬群組在這次請求的交易內讀到的狀態已變（例如已不在任何群組裡）。
+  "last_admin",
+  "already_member",
+  "group_not_found",
+  "note_in_group",
+  "invalid_name",
+  "conflict",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 

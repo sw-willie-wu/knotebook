@@ -30,17 +30,17 @@ const CURSOR = { updatedAt: new Date("2026-09-07T00:00:00.000Z"), id: randomUUID
 const countUnionAll = (sql: string): number => sql.split("union all").length - 1;
 
 describe("#108 buildNoteListQuery", () => {
-  it("連呼兩次，兩次的 SQL 都恰含一次 union all", () => {
+  it("連呼兩次，兩次的 SQL 都恰含兩次 union all（三支）", () => {
     const first = buildNoteListQuery(db, { userId: USER, cursor: CURSOR, limit: 50 });
     const second = buildNoteListQuery(db, { userId: USER, cursor: CURSOR, limit: 50 });
-    expect(countUnionAll(first.toSQL().sql)).toBe(1);
-    expect(countUnionAll(second.toSQL().sql)).toBe(1);
+    expect(countUnionAll(first.toSQL().sql)).toBe(2);
+    expect(countUnionAll(second.toSQL().sql)).toBe(2);
   });
 
-  it("建完第二個之後，回頭對第一個物件 toSQL() 仍恰含一次 union all（回溯污染）", () => {
+  it("建完第二個之後，回頭對第一個物件 toSQL() 仍恰含兩次 union all（三支）（回溯污染）", () => {
     const first = buildNoteListQuery(db, { userId: USER, cursor: CURSOR, limit: 50 });
     buildNoteListQuery(db, { userId: USER, cursor: CURSOR, limit: 50 });
-    expect(countUnionAll(first.toSQL().sql)).toBe(1);
+    expect(countUnionAll(first.toSQL().sql)).toBe(2);
   });
 
   // ⚠ 這一條同時守住那個**靜默漏列**的精度落差：cursor 只有毫秒（JS `Date.toISOString()`），
@@ -48,8 +48,8 @@ describe("#108 buildNoteListQuery", () => {
   // 「同一毫秒內、微秒較小」的列會被整批切掉，不報錯也不重複——只是不見（整合側有端到端案）。
   it("SQL 含毫秒精度的 keyset 述詞與 union 上的決定性排序", () => {
     const sql = buildNoteListQuery(db, { userId: USER, cursor: CURSOR, limit: 50 }).toSQL().sql;
-    // keyset 在**兩支** select 的 where 裡各出現一次，左側是截到毫秒的運算式。
-    expect(sql.split(`(date_trunc('milliseconds', "notes"."updated_at"), "notes"."id") <`).length - 1).toBe(2);
+    // keyset 在**三支** select 的 where 裡各出現一次，左側是截到毫秒的運算式。
+    expect(sql.split(`(date_trunc('milliseconds', "notes"."updated_at"), "notes"."id") <`).length - 1).toBe(3);
     // 殺「keyset 左側直接用原欄位」——那樣寫與 cursor 不同精度。
     expect(sql).not.toContain(`("notes"."updated_at", "notes"."id") <`);
     // 集合運算的 ORDER BY 只收輸出欄位名，所以排序鍵必須是具名輸出欄。
@@ -61,18 +61,18 @@ describe("#108 buildNoteListQuery", () => {
   it("不帶 cursor 時沒有 keyset 述詞，其餘形狀不變", () => {
     const sql = buildNoteListQuery(db, { userId: USER, cursor: null, limit: 50 }).toSQL().sql;
     expect(sql).not.toContain(`"notes"."id") <`);
-    expect(countUnionAll(sql)).toBe(1);
+    expect(countUnionAll(sql)).toBe(2);
     expect(sql).toContain(`order by "updated_at_ms" desc, "id" desc`);
   });
 });
 
 describe("#108 buildNoteSearchQuery", () => {
-  it("連呼兩次各恰一次 union all，且回頭對第一個物件仍恰一次", () => {
+  it("連呼兩次各恰含兩次 union all（三支），且回頭對第一個物件仍恰兩次", () => {
     const first = buildNoteSearchQuery(db, { userId: USER, query: "hello", limit: 20 });
     const second = buildNoteSearchQuery(db, { userId: USER, query: "hello", limit: 20 });
-    expect(countUnionAll(first.toSQL().sql)).toBe(1);
-    expect(countUnionAll(second.toSQL().sql)).toBe(1);
-    expect(countUnionAll(first.toSQL().sql)).toBe(1);
+    expect(countUnionAll(first.toSQL().sql)).toBe(2);
+    expect(countUnionAll(second.toSQL().sql)).toBe(2);
+    expect(countUnionAll(first.toSQL().sql)).toBe(2);
   });
 
   it("以輸出欄位名 rank 排序，且比對用的是非 pattern 的 position() 不是 like", () => {

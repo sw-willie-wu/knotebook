@@ -61,4 +61,13 @@ describe("#108 MCP server-info", () => {
     expect(ro).not.toContain("edit_note");
     expect(ro).not.toContain("create_note");
   });
+
+  it.each([
+    ["讀寫", true],
+    ["唯讀", false],
+  ])("#103：instructions（%s 憑證）的可見性句涵蓋群組", (_label, canWrite) => {
+    const text = mcpInstructions(canWrite as boolean);
+    expect(text).toContain("Notes you can see include ones shared with you directly or via a group:");
+    expect(text).not.toContain("ones other people shared with you");
+  });
 });

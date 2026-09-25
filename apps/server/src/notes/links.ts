@@ -7,7 +7,7 @@ import { and, desc, eq, inArray, lte, notInArray } from "drizzle-orm";
 import { union } from "drizzle-orm/pg-core";
 import { MAX_BACKLINKS, MAX_LINK_TARGETS, type BacklinkDto } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
-import { noteLinks, noteShares, notes, users } from "../db/schema.js";
+import { groupMembers, noteLinks, noteShares, notes, users } from "../db/schema.js";
 import { isForeignKeyViolation, isTransientTransactionError } from "../db/pg-errors.js";
 
 export type NormalizeLinkTargetsResult = { ok: true; targets: string[] } | { ok: false };
@@ -54,8 +54,8 @@ export type WriteNoteLinksOutcome = "applied" | "noop" | "busy";
  *    <= $clock`——0 列命中＝提交的 clock 落後於已經生效的索引進度（LWW 落敗），no-op、
  *    完全不動 `note_links`。`<=`（非 `<`）刻意允許「同 clock 重送」也生效，讓同一次編輯
  *    的重試/併發送達皆可正確覆蓋。
- * 2. 命中才做批次授權查詢：`owned ∪ shared`（`union`，非 `unionAll`——同一 note 若同時符合
- *    兩邊條件不重複計入）交集提交的 target 集合，單一查詢決定整組可連結的目標，不逐一
+ * 2. 命中才做批次授權查詢：`owned ∪ shared ∪ grouped`（`union`，非 `unionAll`——同一 note 若同時符合
+ *    多邊條件不重複計入；#103 §5.5 加 grouped）交集提交的 target 集合，單一查詢決定整組可連結的目標，不逐一
  *    `resolveRole`。
  * 3. `hooks.beforeLinkWrite`（測試注入點，見上）。
  * 4. 整組取代：新集合非空 → insert 新增（`onConflictDoNothing` 容忍與既有列重疊）+ delete
@@ -80,7 +80,13 @@ async function attemptOnce(db: Db, params: WriteNoteLinksParams, hooks: WriteNot
         .select({ id: noteShares.noteId })
         .from(noteShares)
         .where(and(eq(noteShares.userId, params.userId), inArray(noteShares.noteId, params.targetIds)));
-      const rows = await union(ownedSelect, sharedSelect);
+      // #103 §5.5：成員在自己筆記裡寫 `[[群組筆記]]` 也要寫得進去——`union` 本身去重，不需要 NOT EXISTS。
+      const groupedSelect = tx
+        .select({ id: notes.id })
+        .from(notes)
+        .innerJoin(groupMembers, and(eq(groupMembers.groupId, notes.groupId), eq(groupMembers.userId, params.userId)))
+        .where(inArray(notes.id, params.targetIds));
+      const rows = await union(ownedSelect, sharedSelect, groupedSelect);
       targets = rows.map(row => row.id);
     }
 
@@ -133,7 +139,8 @@ export async function writeNoteLinks(db: Db, params: WriteNoteLinksParams, hooks
  *
  * 單一 SQL、讀者授權述詞 inline：`note_links` JOIN `notes`（來源筆記）鎖定
  * `target_note_id = :targetNoteId`，分成 `ownedSelect`（來源筆記 owner_id = 呼叫者）與
- * `sharedSelect`（來源筆記在 `note_shares` 有呼叫者的一列）兩支，`union()`（非
+ * `sharedSelect`（來源筆記在 `note_shares` 有呼叫者的一列）兩支，#103 起再加 `groupedSelect`
+ * （來源筆記所屬群組有呼叫者這位成員），`union()`（非
  * `unionAll`——形狀比照 `attemptOnce` 的批次授權查詢：owner 與 shared 理論上互斥，但用
  * 真正的 SQL UNION 讓「同一來源筆記兩邊都命中」這種邊界情況天然被去重，不必額外加
  * `ne(ownerId, userId)` 排除）。**不對每篇來源筆記各自呼叫 `resolveRole`**——那樣是
@@ -165,7 +172,15 @@ export async function fetchBacklinks(db: Db, targetNoteId: string, userId: strin
     .innerJoin(users, eq(users.id, notes.ownerId))
     .where(eq(noteLinks.targetNoteId, targetNoteId));
 
-  const rows = await union(ownedSelect, sharedSelect)
+  const groupedSelect = db
+    .select({ id: notes.id, title: notes.title, slug: notes.slug, ownerHandle: users.handle, updatedAt: notes.updatedAt })
+    .from(noteLinks)
+    .innerJoin(notes, eq(notes.id, noteLinks.sourceNoteId))
+    .innerJoin(groupMembers, and(eq(groupMembers.groupId, notes.groupId), eq(groupMembers.userId, userId)))
+    .innerJoin(users, eq(users.id, notes.ownerId))
+    .where(eq(noteLinks.targetNoteId, targetNoteId));
+
+  const rows = await union(ownedSelect, sharedSelect, groupedSelect)
     .orderBy(desc(notes.updatedAt), desc(notes.id))
     .limit(MAX_BACKLINKS);
 

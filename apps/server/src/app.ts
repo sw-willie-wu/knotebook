@@ -18,6 +18,7 @@ import type { CollabHooks } from "./collab/hooks.js";
 import type { CollabServer } from "./collab/server.js";
 import { authRoutes } from "./routes/auth.js";
 import { notesRoutes } from "./routes/notes.js";
+import { groupsRoutes } from "./routes/groups.js";
 import type { WriteNoteLinksHooks } from "./notes/links.js";
 import { adminUsersRoutes } from "./routes/admin-users.js";
 import { adminAiRoutes } from "./routes/admin-ai.js";
@@ -47,6 +48,7 @@ import type { EditingTestHooks } from "./notes/editing/apply.js";
 import { PresenceRegistry, type PresenceOptions } from "./notes/editing/presence.js";
 import { NoteWriteService } from "./notes/editing/write-service.js";
 import type { NoteCreateHooks } from "./notes/create.js";
+import type { GroupTestHook } from "./groups/test-hook.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -183,6 +185,11 @@ export interface AppDeps {
    * `buildTestApp({ noteCreateHooks })`（比照 `slugUpdateTestHook`）。
    */
   noteCreateHooks?: NoteCreateHooks;
+  /**
+   * #103：群組相關交錯點的測試注入縫（語意見 `groups/test-hook.ts`）。**選配**：production／未覆寫時
+   * `undefined`＝no-op；整合測試唯一注入面是 `buildTestApp({ groupTestHook })`。
+   */
+  groupTestHook?: GroupTestHook;
   /**
    * Task 9：圖片上傳存放目錄的絕對路徑。**必填**——`buildApp` 啟動時會對它做一次
    * 可寫性探測（`assertUploadsDirWritable`，見該函式說明為何不用 `accessSync`），
@@ -666,9 +673,12 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       linkSyncTestHooks: deps.linkSyncTestHooks,
       slugUpdateTestHook: deps.slugUpdateTestHook,
       noteCreateHooks: deps.noteCreateHooks,
+      groupTestHook: deps.groupTestHook,
       uploadsDir: deps.uploadsDir,
     })
   );
+  // #103：群組管理（session-only，見 routes/groups.ts 檔頭）。
+  void app.register(groupsRoutes({ db: deps.db, collabHooks: deps.collabHooks, groupTestHook: deps.groupTestHook }));
   void app.register(adminUsersRoutes({ db: deps.db, gate: deps.gate, collabHooks: deps.collabHooks }));
   void app.register(adminAiRoutes({ db: deps.db, config: deps.config, runtime: deps.ai }));
   void app.register(

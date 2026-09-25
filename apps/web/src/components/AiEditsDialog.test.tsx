@@ -27,6 +27,7 @@ const NOTE: NoteDto = {
   prevSlug: null,
   ownerHandle: "tester",
   lastEdited: null,
+  group: null,
 };
 
 const EDITS_URL = `/api/notes/${NOTE.id}/edits`;

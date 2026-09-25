@@ -1145,12 +1145,12 @@ describe("resolveRoleWithOwner（notes/service.ts）", () => {
     const note = (await app.inject({ method: "POST", url: "/api/notes", cookies: { [SESSION_COOKIE]: cookie }, payload: {} })).json();
     await db.insert(noteShares).values({ noteId: note.id, userId: editor.id, role: "editor" });
 
-    expect(await resolveRoleWithOwner(db, owner.id, note.id)).toEqual({ role: "owner", ownerId: owner.id });
+    expect(await resolveRoleWithOwner(db, owner.id, note.id)).toEqual({ role: "owner", ownerId: owner.id, isGroupMember: false, groupId: null });
     // editor 拿到的是 **owner 的** id（auto 探測要以 owner 為範圍，不是操作者）
-    expect(await resolveRoleWithOwner(db, editor.id, note.id)).toEqual({ role: "editor", ownerId: owner.id });
+    expect(await resolveRoleWithOwner(db, editor.id, note.id)).toEqual({ role: "editor", ownerId: owner.id, isGroupMember: false, groupId: null });
     // 無權限者連 owner 是誰都不該拿到（JSDoc 契約）
-    expect(await resolveRoleWithOwner(db, stranger.id, note.id)).toEqual({ role: "none", ownerId: null });
-    expect(await resolveRoleWithOwner(db, owner.id, "00000000-0000-4000-8000-00000000dead")).toEqual({ role: "none", ownerId: null });
-    expect(await resolveRoleWithOwner(db, owner.id, "not-a-uuid")).toEqual({ role: "none", ownerId: null });
+    expect(await resolveRoleWithOwner(db, stranger.id, note.id)).toEqual({ role: "none", ownerId: null, isGroupMember: false, groupId: null });
+    expect(await resolveRoleWithOwner(db, owner.id, "00000000-0000-4000-8000-00000000dead")).toEqual({ role: "none", ownerId: null, isGroupMember: false, groupId: null });
+    expect(await resolveRoleWithOwner(db, owner.id, "not-a-uuid")).toEqual({ role: "none", ownerId: null, isGroupMember: false, groupId: null });
   });
 });

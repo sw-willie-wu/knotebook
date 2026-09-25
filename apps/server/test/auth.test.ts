@@ -490,6 +490,7 @@ describe("POST /api/auth/password", () => {
     const collabHooks: CollabHooks = {
       onShareChanged: vi.fn(),
       onUserRevoked,
+      onGroupAccessChanged: vi.fn(),
       beforeNoteDeleted: vi.fn(async () => ({ release: () => {} })),
         linkSyncGate: () => ({ ok: false as const }),
     };

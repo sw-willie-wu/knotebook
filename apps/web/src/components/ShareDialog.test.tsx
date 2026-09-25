@@ -31,6 +31,7 @@ const NOTE: NoteDto = {
   prevSlug: null,
   ownerHandle: "tester",
   lastEdited: null,
+  group: null,
 };
 
 const SHARE: ShareDto = {

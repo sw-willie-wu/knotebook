@@ -77,6 +77,7 @@ const OWNER_NOTE: NoteDto = {
   prevSlug: null,
   ownerHandle: "owner-one",
   lastEdited: null,
+  group: null,
 };
 
 const SHARED_NOTE: NoteDto = {
@@ -91,6 +92,7 @@ const SHARED_NOTE: NoteDto = {
   prevSlug: null,
   ownerHandle: "owner-nine",
   lastEdited: null,
+  group: null,
 };
 
 // 第三篇筆記，只用於「三分組/過濾/最近前 2」那幾案——server 已按
@@ -108,6 +110,7 @@ const THIRD_OWNER_NOTE: NoteDto = {
   prevSlug: null,
   ownerHandle: "owner-one",
   lastEdited: null,
+  group: null,
 };
 
 function stubNotesFetch(notes: NoteDto[]) {

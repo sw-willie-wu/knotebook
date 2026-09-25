@@ -77,6 +77,36 @@ export const instanceSetup = pgTable("instance_setup", {
   completedAt: timestamp("completed_at", { withTimezone: true }).notNull().defaultNow(),
 }, t => [check("instance_setup_singleton_chk", sql`${t.singleton}`)]);
 
+/**
+ * #103（migration 0011）：群組。名稱不唯一（D9），長度 1..80 由 CHECK 守——pg 的 `length()`
+ * 數的是字元（code point），應用層的 `validateGroupName`（`groups/queries.ts`）用同一個單位。
+ * `created_by` 可為 null、`ON DELETE SET NULL`（A9）：建立者之後沒有任何特殊身分（D5），這欄只是紀錄。
+ */
+export const groups = pgTable("groups", {
+  id: uuid().primaryKey().defaultRandom(),
+  name: text().notNull(),
+  createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, t => [check("groups_name_chk", sql`length(${t.name}) between 1 and 80`)]);
+
+/**
+ * #103：群組成員。`role` 只管群組本身（改名、成員、刪除），**不參與筆記權限**（spec §5.1）。
+ * 不變量 S1（每個群組至少一位 admin）**沒有 DB 層守衛**：應用層在交易內先鎖 `groups` 列再計數
+ * （`groups/queries.ts`）；DB 直接操作、停用帳號、#73 的帳號刪除 cascade 都守不到（spec §12）。
+ * `group_members_user_idx`：「某人所屬的群組」（`GET /api/groups`、可見性查詢的 grouped 分支）用
+ * ——PK 是 (group_id, user_id)，反向查不到。
+ */
+export const groupMembers = pgTable("group_members", {
+  groupId: uuid("group_id").notNull().references(() => groups.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  role: text().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, t => [
+  primaryKey({ columns: [t.groupId, t.userId] }),
+  check("group_members_role_chk", sql`${t.role} in ('admin','member')`),
+  index("group_members_user_idx").on(t.userId),
+]);
+
 export const notes = pgTable("notes", {
   id: uuid().primaryKey().defaultRandom(),
   ownerId: uuid("owner_id").notNull().references(() => users.id, { onDelete: "restrict" }),
@@ -131,6 +161,12 @@ export const notes = pgTable("notes", {
   lastEditedBy: uuid("last_edited_by").references(() => users.id, { onDelete: "set null" }),
   lastEditedTokenId: uuid("last_edited_token_id").references((): AnyPgColumn => apiTokens.id, { onDelete: "set null" }),
   lastEditedAgentLabel: text("last_edited_agent_label"),
+  // #103（migration 0011）：所屬群組與「本篇對全組開放到哪一級」。`group_role` 永遠有值；`group_id`
+  // 為 null 時它無意義但不清空（spec §4.1）。`ON DELETE SET NULL` 是最後防線——正常路徑刪群組前
+  // 一定先把成員物化成 `note_shares`（spec §6.3）。不變量 S5（`group_id` 非 null ⇒ 該筆記沒有任何
+  // `note_shares` 列）**沒有 DB 層守衛**，由應用層兩邊鎖筆記列守（spec §4.3、§12 第 2 條）。
+  groupId: uuid("group_id").references(() => groups.id, { onDelete: "set null" }),
+  groupRole: text("group_role").notNull().default("editor"),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),   // 保留欄位；v0.1 硬刪
 }, t => [
   index("notes_owner_idx").on(t.ownerId),   // GET /api/notes 自有分支（owner_id = $u）用
@@ -148,6 +184,9 @@ export const notes = pgTable("notes", {
   // 公開別名 per-user 唯一（#122 PR3）：同 owner 不重複、跨 owner 可同名；constraint
   // 名是管理端 409 public_slug_taken 的分流依據。partial＝未設別名不佔位。
   uniqueIndex("notes_owner_public_slug_idx").on(t.ownerId, t.publicSlug).where(sql`${t.publicSlug} is not null`),
+  // #103：「群組內所有筆記」（刪群組時的物化鎖、移人時的踢線名單、grouped 分支的 JOIN）用。
+  index("notes_group_idx").on(t.groupId),
+  check("notes_group_role_chk", sql`${t.groupRole} in ('viewer','editor')`),
 ]);
 
 export const noteStates = pgTable("note_states", {
