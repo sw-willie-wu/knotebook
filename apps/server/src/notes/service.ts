@@ -15,25 +15,33 @@ import { groupMembers, noteShares, notes } from "../db/schema.js";
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * 刪除某篇筆記**當下**看得到它的所有 userId（owner ＋ 每一筆分享）。
+ * 刪除某篇筆記**當下**看得到它的所有 userId（owner ＋ 每一筆分享 ＋ 所屬群組的全體成員，#103 §5.4）。
  *
  * 只有共編的刪除閘門用它（`CollabServer` 的 `markDeleting`／`releaseDeletingGate`）：閘門要能
  * 對「本來就看得到這篇筆記的人」說「它被刪掉了」，又不能對其他人透露這個 id 曾經存在——
  * 所以必須在刪除交易**之前**、那些列還在的時候，把名單抓下來留著（見 `collab/server.ts` 的
- * `deleting`）。筆記不存在（或 id 格式非法）時回空集合，`releaseDeletingGate` 也拿這一點
- * 當「筆記到底還在不在」的判準。
+ * `deleting`）。漏掉群組成員的話，他們重連時聽到的會是「你已失去存取權」而不是「筆記已刪除」。
+ * 筆記不存在（或 id 格式非法）時回空集合，`releaseDeletingGate` 也拿這一點當「筆記到底還在不在」的判準。
  */
 export async function loadNoteAudience(db: Db, noteId: string): Promise<Set<string>> {
   if (!UUID_RE.test(noteId)) return new Set();
 
-  const [note] = await db.select({ ownerId: notes.ownerId }).from(notes).where(eq(notes.id, noteId)).limit(1);
+  const [note] = await db
+    .select({ ownerId: notes.ownerId, groupId: notes.groupId })
+    .from(notes)
+    .where(eq(notes.id, noteId))
+    .limit(1);
   if (!note) return new Set();
 
   const shares = await db
     .select({ userId: noteShares.userId })
     .from(noteShares)
     .where(eq(noteShares.noteId, noteId));
-  return new Set([note.ownerId, ...shares.map(one => one.userId)]);
+  const members =
+    note.groupId === null
+      ? []
+      : await db.select({ userId: groupMembers.userId }).from(groupMembers).where(eq(groupMembers.groupId, note.groupId));
+  return new Set([note.ownerId, ...shares.map(one => one.userId), ...members.map(one => one.userId)]);
 }
 
 /**

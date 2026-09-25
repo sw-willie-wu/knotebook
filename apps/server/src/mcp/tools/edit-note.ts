@@ -108,7 +108,7 @@ export const editNoteOutput = {
         "back with read_note_outline."
     ),
   // ⚠ #146：判準是 `note-markdown.ts` 的 `hits.length === 1`（`hits` ＝ 候選集裡標題 `===`
-  //   相同的筆記），候選集是 `visibleNoteTitles()`＝自有 ∪ 被分享。所以「找不到」只是其中一種
+  //   相同的筆記），候選集是 `visibleNoteTitles()`＝自有 ∪ 被分享 ∪ 所屬群組的筆記。所以「找不到」只是其中一種
   //   落空：同名兩篇、大小寫不同、指向你看不見的筆記，同樣算 unbound。措辭與 `docs/mcp.md` 同。
   unboundWikilinks: z
     .number()
