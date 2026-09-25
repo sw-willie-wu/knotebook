@@ -110,6 +110,59 @@ describe("AppShell — new note", () => {
     await waitFor(() => expect(screen.getByTestId("note-route")).toHaveTextContent(expectedSegments));
   });
 
+  it("#103：群組段的「＋」以 groupId 建筆記並導向新筆記", async () => {
+    const group = { id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", name: "Workshop A", myRole: "admin", createdAt: "2026-09-01T00:00:00.000Z" };
+    const created: NoteDto = {
+      ...CREATED,
+      id: "77777777-7777-7777-7777-777777777777",
+      slug: "untitled-77777777",
+      group: { id: group.id, name: group.name, role: "editor" },
+    };
+    let postBody: unknown;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (url === "/api/groups" && method === "GET") {
+          return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([group]) }));
+        }
+        if (url === "/api/auth/me") {
+          return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(USER) }));
+        }
+        if (url === "/api/notes" && method === "POST") {
+          postBody = JSON.parse(String(init?.body));
+          return Promise.resolve(fakeResponse({ ok: true, status: 201, json: () => Promise.resolve(created) }));
+        }
+        if (url === "/api/notes" && method === "GET") {
+          return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([CREATED]) }));
+        }
+        throw new Error(`unexpected fetch: ${method} ${url}`);
+      }),
+    );
+
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <ThemeProvider>
+          <MemoryRouter initialEntries={["/"]}>
+            <ActiveNoteProvider>
+              <Routes>
+                <Route path="/" element={<AppShell>home</AppShell>} />
+                <Route path="/n/:handle/:slug" element={<NoteRouteProbe />} />
+              </Routes>
+            </ActiveNoteProvider>
+          </MemoryRouter>
+        </ThemeProvider>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "New note in Workshop A" }));
+
+    await waitFor(() => expect(postBody).toEqual({ groupId: group.id }));
+    const expectedSegments = canonicalNotePath(created).replace("/n/", ""); // "handle/slug" 兩段
+    await waitFor(() => expect(screen.getByTestId("note-route")).toHaveTextContent(expectedSegments));
+  });
+
   it("shows an error toast and stays put when POST /api/notes fails", async () => {
     vi.stubGlobal(
       "fetch",

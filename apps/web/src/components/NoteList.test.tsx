@@ -6,7 +6,7 @@ import { MemoryRouter } from "react-router";
 import { canonicalNotePath, type GroupDto, type NoteDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ActiveNoteProvider, useActiveNote } from "@/lib/active-note";
-import { NoteList } from "./NoteList";
+import { NoteList, type NoteListProps } from "./NoteList";
 
 /** 模擬 NotePage 的「解析成功後 set」——測試用的最小 setter（#122 ActiveNoteContext）。 */
 function SetActive({ id }: { id: string }) {
@@ -35,12 +35,15 @@ function fakeResponse({ ok, status, json }: FakeResponseInit): Response {
   } as unknown as Response;
 }
 
-function renderNoteList(query?: string, queryClient: QueryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
+function renderNoteList(
+  props: Partial<NoteListProps> = {},
+  queryClient: QueryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+) {
   render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
         <ActiveNoteProvider>
-          <NoteList query={query} />
+          <NoteList {...props} />
         </ActiveNoteProvider>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -50,14 +53,14 @@ function renderNoteList(query?: string, queryClient: QueryClient = new QueryClie
 /** #122：以指定 active 筆記渲染——「目前開啟中」判斷改吃 ActiveNoteContext 的 note.id
  * （SetActive 模擬 NotePage 解析成功後的 set），不再讀路由參數（也就不再需要掛在
  * `/notes/:ref` 路由底下）。回傳 view＋queryClient 供改資料/卸載類案子用。 */
-function renderNoteListWithActive(activeId: string | undefined, query?: string) {
+function renderNoteListWithActive(activeId: string | undefined, props: Partial<NoteListProps> = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const view = render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
         <ActiveNoteProvider>
           {activeId !== undefined && <SetActive id={activeId} />}
-          <NoteList query={query} />
+          <NoteList {...props} />
         </ActiveNoteProvider>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -112,6 +115,14 @@ const THIRD_OWNER_NOTE: NoteDto = {
   lastEdited: null,
   group: null,
 };
+
+const GROUP_A: GroupDto = { id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", name: "Workshop A", myRole: "admin", createdAt: "2026-09-01T00:00:00.000Z" };
+/** 我的筆記、在 A、我是 A 成員 → A 段，無徽章（§3.3 第 2 列）。 */
+const MY_GROUP_NOTE: NoteDto = { ...OWNER_NOTE, id: "44444444-4444-4444-4444-444444444444", title: "Mine In A", slug: "mine-in-a", group: { id: GROUP_A.id, name: GROUP_A.name, role: "editor" } };
+/** 別人的、在 A、我是成員 → A 段，徽章＝group_role（§3.3 第 5 列）。 */
+const OTHERS_GROUP_NOTE: NoteDto = { ...SHARED_NOTE, id: "55555555-5555-5555-5555-555555555555", title: "Theirs In A", slug: "theirs-in-a", role: "viewer", group: { id: GROUP_A.id, name: GROUP_A.name, role: "viewer" } };
+/** 別人的、group 非 null 但那個群組不在 useGroups() 裡（剛被移出）→ 與我共享（兜底，第 6 列）。 */
+const ORPHAN_GROUP_NOTE: NoteDto = { ...SHARED_NOTE, id: "66666666-6666-6666-6666-666666666666", title: "Orphan", slug: "orphan", role: "editor", group: { id: "99999999-9999-9999-9999-999999999999", name: "Gone", role: "editor" } };
 
 function stubNotesFetch(notes: NoteDto[], groups: GroupDto[] = []) {
   vi.stubGlobal(
@@ -357,13 +368,14 @@ describe("NoteList", () => {
     const groupOrder = Array.from(document.querySelectorAll('[data-testid^="notegroup-"]')).map((el) =>
       el.getAttribute("data-testid"),
     );
-    expect(groupOrder).toEqual(["notegroup-recent", "notegroup-myNotes", "notegroup-shared"]);
+    // #103：工作坊段在非搜尋時恆渲染（§8.1 順序：最近 → 我的筆記 → 與我共享 → 工作坊）。
+    expect(groupOrder).toEqual(["notegroup-recent", "notegroup-myNotes", "notegroup-shared", "notegroup-workspace"]);
   });
 
   it("filters within each already-formed group by title (先分組、後過濾) — 最近 shrinks accordingly", async () => {
     stubNotesFetch([OWNER_NOTE, SHARED_NOTE, THIRD_OWNER_NOTE]);
 
-    renderNoteList("third");
+    renderNoteList({ query: "third" });
 
     const myNotes = await screen.findByTestId("notegroup-myNotes");
     expect(within(myNotes).getByRole("link", { name: "Third Owner Note" })).toBeInTheDocument();
@@ -378,7 +390,7 @@ describe("NoteList", () => {
   it("shows sidebar.noMatch when there are notes but none match the filter", async () => {
     stubNotesFetch([OWNER_NOTE, SHARED_NOTE, THIRD_OWNER_NOTE]);
 
-    renderNoteList("nonexistent-xyz");
+    renderNoteList({ query: "nonexistent-xyz" });
 
     await waitFor(() => expect(screen.getByText("No notes match your search.")).toBeInTheDocument());
     expect(screen.queryByTestId("notegroup-recent")).not.toBeInTheDocument();
@@ -389,9 +401,191 @@ describe("NoteList", () => {
   it("still shows the fully-empty EmptyState (not sidebar.noMatch) when there are zero notes at all, regardless of query", async () => {
     stubNotesFetch([]);
 
-    renderNoteList("anything");
+    renderNoteList({ query: "anything" });
 
     await waitFor(() => expect(screen.getByText("No notes yet.")).toBeInTheDocument());
     expect(screen.queryByText("No notes match your search.")).not.toBeInTheDocument();
+  });
+
+  describe("側欄分段與折疊（#103）", () => {
+    beforeEach(() => {
+      window.localStorage.clear();
+    });
+
+    it("§3.3 七列：我的／群組／與我共享各落各段，群組段徽章只給非 owner", async () => {
+      stubNotesFetch([OWNER_NOTE, MY_GROUP_NOTE, OTHERS_GROUP_NOTE, SHARED_NOTE, ORPHAN_GROUP_NOTE], [GROUP_A]);
+      renderNoteList();
+
+      const groupA = await screen.findByTestId(`notegroup-group-${GROUP_A.id}`);
+      expect(within(groupA).getByRole("link", { name: "Mine In A" })).toBeInTheDocument();
+      expect(within(groupA).getByRole("link", { name: "Theirs In A" })).toBeInTheDocument();
+      expect(within(groupA).getByText("Viewer")).toBeInTheDocument(); // OTHERS_GROUP_NOTE 的徽章
+      expect(within(groupA).queryByText("Owner")).not.toBeInTheDocument();
+
+      const myNotes = screen.getByTestId("notegroup-myNotes");
+      expect(within(myNotes).getByRole("link", { name: "Has A Slug" })).toBeInTheDocument();
+      expect(within(myNotes).queryByRole("link", { name: "Mine In A" })).not.toBeInTheDocument();
+
+      const shared = screen.getByTestId("notegroup-shared");
+      expect(within(shared).getByRole("link", { name: "No Slug Note" })).toBeInTheDocument();
+      expect(within(shared).getByRole("link", { name: "Orphan" })).toBeInTheDocument(); // 兜底列
+      expect(within(shared).queryByRole("link", { name: "Theirs In A" })).not.toBeInTheDocument();
+
+      // 工作坊段標與群組段標都是 aria-expanded 的按鈕，且群組段縮排在工作坊底下
+      const workspace = screen.getByTestId("notegroup-workspace");
+      expect(within(workspace).getByRole("button", { name: "Workspace", expanded: true })).toBeInTheDocument();
+      expect(within(workspace).getByRole("button", { name: "Workshop A", expanded: true })).toBeInTheDocument();
+      expect(workspace).toContainElement(groupA);
+    });
+
+    it("RF2 側欄：owner 已不是群組成員（group 非 null 但不在 useGroups）→ 落「我的筆記」", async () => {
+      stubNotesFetch([MY_GROUP_NOTE], []);
+      renderNoteList();
+      const myNotes = await screen.findByTestId("notegroup-myNotes");
+      expect(within(myNotes).getByRole("link", { name: "Mine In A" })).toBeInTheDocument();
+      expect(screen.queryByTestId(`notegroup-group-${GROUP_A.id}`)).not.toBeInTheDocument();
+    });
+
+    it("RF3：零筆記但有群組 → 不是 EmptyState；「我的筆記」與群組段標仍渲染", async () => {
+      stubNotesFetch([], [GROUP_A]);
+      renderNoteList();
+      expect(await screen.findByRole("button", { name: "Workshop A" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "My notes" })).toBeInTheDocument();
+      expect(screen.queryByText("No notes yet.")).not.toBeInTheDocument();
+      // 最近／與我共享為空 → 整段不渲染（現狀）
+      expect(screen.queryByTestId("notegroup-recent")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("notegroup-shared")).not.toBeInTheDocument();
+    });
+
+    it("零筆記且零群組 → EmptyState（既有行為不變）", async () => {
+      stubNotesFetch([], []);
+      renderNoteList();
+      expect(await screen.findByText("No notes yet.")).toBeInTheDocument();
+    });
+
+    it("折疊：點段標 → aria-expanded=false、列消失、localStorage 寫 sidebar.collapsed.myNotes=1；重掛後仍收合", async () => {
+      stubNotesFetch([OWNER_NOTE], []);
+      const first = renderNoteListWithActive(undefined);
+      // ⚠ 「最近」會重複顯示同一篇——所有列的斷言都用 within(我的筆記段) 圈定。
+      const header = await screen.findByRole("button", { name: "My notes", expanded: true });
+      const myNotes = () => within(screen.getByTestId("notegroup-myNotes"));
+      expect(myNotes().getByRole("link", { name: "Has A Slug" })).toBeInTheDocument();
+      fireEvent.click(header);
+      expect(screen.getByRole("button", { name: "My notes" })).toHaveAttribute("aria-expanded", "false");
+      expect(myNotes().queryByRole("link", { name: "Has A Slug" })).not.toBeInTheDocument();
+      expect(window.localStorage.getItem("sidebar.collapsed.myNotes")).toBe("1");
+
+      first.view.unmount();
+      renderNoteList();
+      expect(await screen.findByRole("button", { name: "My notes" })).toHaveAttribute("aria-expanded", "false");
+      fireEvent.click(screen.getByRole("button", { name: "My notes" }));
+      expect(window.localStorage.getItem("sidebar.collapsed.myNotes")).toBeNull();
+      expect(myNotes().getByRole("link", { name: "Has A Slug" })).toBeInTheDocument();
+    });
+
+    it("RF4：localStorage 拋錯（隱私模式）→ 側欄照常、預設展開、本次 session 仍能折疊", async () => {
+      const getItem = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+        throw new Error("SecurityError");
+      });
+      const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+        throw new Error("QuotaExceededError");
+      });
+      try {
+        stubNotesFetch([OWNER_NOTE], []);
+        renderNoteList();
+        const header = await screen.findByRole("button", { name: "My notes", expanded: true });
+        fireEvent.click(header);
+        expect(screen.getByRole("button", { name: "My notes" })).toHaveAttribute("aria-expanded", "false");
+        expect(within(screen.getByTestId("notegroup-myNotes")).queryByRole("link", { name: "Has A Slug" })).not.toBeInTheDocument();
+      } finally {
+        getItem.mockRestore();
+        setItem.mockRestore();
+      }
+    });
+
+    it("搜尋強制展開（A5）：收合中的段有命中 → 展開顯示；四段全無命中 → noMatch", async () => {
+      window.localStorage.setItem("sidebar.collapsed.myNotes", "1");
+      window.localStorage.setItem(`sidebar.collapsed.group:${GROUP_A.id}`, "1");
+      stubNotesFetch([OWNER_NOTE, MY_GROUP_NOTE], [GROUP_A]);
+      const { view } = renderNoteListWithActive(undefined, { query: "in a" });
+      const groupA = await screen.findByTestId(`notegroup-group-${GROUP_A.id}`);
+      expect(within(groupA).getByRole("link", { name: "Mine In A" })).toBeInTheDocument(); // 「最近」也有一份，必須圈定
+      expect(screen.getByRole("button", { name: "Workshop A" })).toHaveAttribute("aria-expanded", "true");
+      // 沒命中的段（我的筆記：Has A Slug 不含 "in a"）在搜尋時不渲染
+      expect(screen.queryByTestId("notegroup-myNotes")).not.toBeInTheDocument();
+
+      view.unmount();
+      renderNoteList({ query: "zzz-nothing" });
+      expect(await screen.findByText("No notes match your search.")).toBeInTheDocument();
+    });
+
+    it("aria-current=page 在整個側欄恰一個（active 是群組筆記時給群組段那列，不給「最近」）", async () => {
+      stubNotesFetch([MY_GROUP_NOTE, OWNER_NOTE], [GROUP_A]);
+      renderNoteListWithActive(MY_GROUP_NOTE.id);
+      await screen.findByTestId(`notegroup-group-${GROUP_A.id}`);
+      const current = document.querySelectorAll('[aria-current="page"]');
+      expect(current).toHaveLength(1);
+      expect(screen.getByTestId(`notegroup-group-${GROUP_A.id}`)).toContainElement(current[0] as HTMLElement);
+    });
+
+    it("段標的 chevron＋名稱是一顆 button，「＋」是它的兄弟（不巢狀）；「＋」鍵盤可及、hover 才顯示", async () => {
+      const onCreateNote = vi.fn();
+      stubNotesFetch([OWNER_NOTE, MY_GROUP_NOTE], [GROUP_A]);
+      renderNoteList({ onCreateNote });
+      const header = await screen.findByRole("button", { name: "My notes" });
+      expect(header.querySelector("button")).toBeNull();
+      const plus = screen.getByRole("button", { name: "New note in My notes" });
+      expect(header.contains(plus)).toBe(false);
+      expect(plus.parentElement).toBe(header.parentElement);
+      expect(plus).toHaveClass(
+        "opacity-0",
+        "group-hover/section:opacity-100",
+        "group-focus-within/section:opacity-100",
+        "focus-visible:opacity-100",
+        "[@media(hover:none)]:opacity-100",
+      );
+      plus.focus();
+      expect(document.activeElement).toBe(plus);
+
+      fireEvent.click(plus);
+      expect(onCreateNote).toHaveBeenCalledTimes(1);
+      expect(onCreateNote.mock.calls[0]).toEqual([undefined]);
+      fireEvent.click(screen.getByRole("button", { name: "New note in Workshop A" }));
+      expect(onCreateNote).toHaveBeenLastCalledWith(GROUP_A.id);
+    });
+
+    it("useGroups pending：工作坊段標下顯示 Loading…，群組筆記暫依兜底列落段", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: RequestInfo | URL) => {
+          if (String(input) === "/api/notes") {
+            return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([OTHERS_GROUP_NOTE]) }));
+          }
+          return new Promise<Response>(() => {}); // /api/groups 永不 resolve
+        }),
+      );
+      renderNoteList();
+      const workspace = await screen.findByTestId("notegroup-workspace");
+      expect(within(workspace).getByText("Loading…")).toBeInTheDocument();
+      expect(within(screen.getByTestId("notegroup-shared")).getByRole("link", { name: "Theirs In A" })).toBeInTheDocument();
+    });
+
+    it("useGroups error：工作坊段標下 role=alert，其餘側欄不受影響", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: RequestInfo | URL) => {
+          if (String(input) === "/api/notes") {
+            return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([OWNER_NOTE]) }));
+          }
+          return Promise.resolve(
+            fakeResponse({ ok: false, status: 500, json: () => Promise.resolve({ error: { code: "internal", message: "boom" } }) }),
+          );
+        }),
+      );
+      renderNoteList();
+      const workspace = await screen.findByTestId("notegroup-workspace");
+      await waitFor(() => expect(within(workspace).getByRole("alert")).toHaveTextContent("Something went wrong. Please try again."));
+      expect(within(screen.getByTestId("notegroup-myNotes")).getByRole("link", { name: "Has A Slug" })).toBeInTheDocument();
+    });
   });
 });

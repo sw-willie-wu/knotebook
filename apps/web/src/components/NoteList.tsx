@@ -1,10 +1,14 @@
+import { useState, type ReactNode, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
-import { canonicalNotePath, type NoteDto } from "@knotebook/shared";
+import { canonicalNotePath, type GroupDto, type NoteDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
+import { useGroups } from "@/api/groups";
 import { useNotes } from "@/api/notes";
 import { useActiveNote } from "@/lib/active-note";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { ChevronRight, Plus } from "@/components/ui/icons";
 import { EmptyState } from "@/components/EmptyState";
 
 /** ApiFail → errors.<code>；其餘（網路失敗等）→ errors.fallback。與 LoginPage
@@ -27,7 +31,7 @@ function RoleBadge({ role }: { role: NoteDto["role"] }) {
 
 interface NoteRowProps {
   note: NoteDto;
-  /** 只有主清單（我的筆記／與我共享）給 `aria-current`；「最近」是同一批筆記的
+  /** 只有主清單（我的筆記／與我共享／各群組段）給 `aria-current`；「最近」是同一批筆記的
    * 複製顯示，active 只呈現視覺樣式，不重複宣告 `aria-current`（解 B3——否則
    * 一個頁面上會有兩個 `aria-current="page"`）。 */
   primary: boolean;
@@ -72,63 +76,177 @@ function NoteRow({ note, primary }: NoteRowProps) {
   );
 }
 
-interface NoteGroupProps {
-  testId: string;
-  label: string;
-  notes: NoteDto[];
-  primary: boolean;
+/** 折疊狀態的 localStorage 鍵前綴（spec A6）：`sidebar.collapsed.<recent|myNotes|shared|workspace|group:<id>>`，
+ * 值 `"1"`＝收合、缺鍵＝展開（預設）。 */
+export const COLLAPSE_STORAGE_PREFIX = "sidebar.collapsed.";
+
+export type SidebarSectionKey = "recent" | "myNotes" | "shared" | "workspace" | `group:${string}`;
+
+function readCollapsed(key: SidebarSectionKey): boolean {
+  try {
+    return window.localStorage.getItem(COLLAPSE_STORAGE_PREFIX + key) === "1";
+  } catch {
+    // Safari 隱私模式／被封鎖的儲存：當作沒存過（預設展開），不讓側欄炸掉。
+    return false;
+  }
 }
 
-function NoteGroup({ testId, label, notes, primary }: NoteGroupProps) {
-  if (notes.length === 0) return null;
+function writeCollapsed(key: SidebarSectionKey, collapsed: boolean): void {
+  try {
+    if (collapsed) window.localStorage.setItem(COLLAPSE_STORAGE_PREFIX + key, "1");
+    else window.localStorage.removeItem(COLLAPSE_STORAGE_PREFIX + key);
+  } catch {
+    // 寫不進去就只活在本次 session 的 state 裡。
+  }
+}
+
+/** 每段一把折疊狀態：初值讀 localStorage 一次，之後 state 為準、寫入盡力而為。 */
+function useCollapsed(key: SidebarSectionKey): [expanded: boolean, toggle: () => void] {
+  const [collapsed, setCollapsed] = useState(() => readCollapsed(key));
+  const toggle = () => {
+    const next = !collapsed;
+    writeCollapsed(key, next);
+    setCollapsed(next);
+  };
+  return [!collapsed, toggle];
+}
+
+/** 段標的「＋」（我的筆記／各群組段；工作坊段標的「＋」開的是新增群組對話框，見
+ * `WorkspaceSection`）。24px ghost 圖示鈕，預設透明、列 hover／focus-within 或自身
+ * focus-visible 才顯示——鍵盤 tab 到它時一定看得見（P19）。 */
+function HeaderAddButton({
+  label,
+  onClick,
+  disabled = false,
+  buttonRef,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  /** 工作坊「＋」用：讓新增群組對話框關閉時把焦點還回來（P17）。 */
+  buttonRef?: RefObject<HTMLButtonElement | null>;
+}) {
   return (
-    // `data-testid`：測試範圍化握把，勿移除——「最近」跟主清單刻意重複顯示同一篇
-    // 筆記（見本檔檔頭），單數 `getByRole` 查詢在重複下會因命中多個節點而 throw，
-    // 測試靠這個 testid 用 `within()` 鎖定要斷言的那個分組。
-    <div data-testid={testId}>
-      <p className="px-2 pb-1 pt-3 text-[11px] font-semibold tracking-wide text-muted-foreground">{label}</p>
-      <ul className="space-y-0.5">
-        {notes.map((note) => (
-          <NoteRow key={note.id} note={note} primary={primary} />
-        ))}
-      </ul>
+    <Button
+      ref={buttonRef}
+      type="button"
+      variant="ghost"
+      size="icon"
+      aria-label={label}
+      onClick={onClick}
+      disabled={disabled}
+      // 24px（spec §8.1；P21）。觸控裝置沒有 hover，Tailwind v4 的 group-hover 只在
+      // `@media (hover: hover)` 生效——`[@media(hover:none)]` 那條讓手機上常駐可見。
+      className="h-6 w-6 shrink-0 opacity-0 transition-opacity focus-visible:opacity-100 group-hover/section:opacity-100 group-focus-within/section:opacity-100 [@media(hover:none)]:opacity-100"
+    >
+      <Plus aria-hidden="true" className="h-3.5 w-3.5" />
+    </Button>
+  );
+}
+
+interface CollapsibleSectionProps {
+  sectionKey: SidebarSectionKey;
+  label: string;
+  /** 測試範圍化握把（既有三個名字不動；新增 `notegroup-workspace`、`notegroup-group-<id>`）。 */
+  testId: string;
+  /** 「＋」與 ⋮——放在段標 button 的**兄弟**位置（button 不可巢狀）。 */
+  actions?: ReactNode;
+  /** 群組段：縮排一級＋左側細直線。 */
+  nested?: boolean;
+  /** 搜尋中一律展開（A5），折疊狀態保留不動。 */
+  forceExpanded: boolean;
+  children: ReactNode;
+}
+
+/**
+ * 段標＝chevron＋名稱一顆 `<button aria-expanded>`，右側兄弟元素放「＋」／⋮。
+ * `group/section` 讓「＋」在整列 hover／focus-within 時浮現。chevron 展開時轉 90°
+ * （指下），收合時指右——等價於 spec 的「收合時 −90°」。
+ */
+function CollapsibleSection({ sectionKey, label, testId, actions, nested = false, forceExpanded, children }: CollapsibleSectionProps) {
+  const [expanded, toggle] = useCollapsed(sectionKey);
+  const open = forceExpanded || expanded;
+  return (
+    <div data-testid={testId} className={cn(nested && "ml-2 border-l border-border pl-1")}>
+      <div className={cn("group/section flex items-center gap-0.5 pb-1", nested ? "pt-1" : "pt-3")}>
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={toggle}
+          className="flex h-6 min-w-0 flex-1 items-center gap-1 rounded-md px-2 text-left text-[11px] font-semibold tracking-wide text-muted-foreground hover:text-foreground"
+        >
+          <ChevronRight aria-hidden="true" className={cn("h-3 w-3 shrink-0 transition-transform", open && "rotate-90")} />
+          <span className="truncate">{label}</span>
+        </button>
+        {actions}
+      </div>
+      {open && children}
     </div>
   );
 }
 
-interface NoteListProps {
-  /** 搜尋字串，state 放在 `AppShell`（Ctrl/Cmd+K 要跨元件聚焦搜尋框）。選填——
-   * 不傳或空字串都視為「無過濾」（`"".includes()` 對任何字串恆真，過濾函式
-   * 不需要為空字串特殊處理）。 */
-  query?: string;
+function NoteRows({ notes, primary }: { notes: NoteDto[]; primary: boolean }) {
+  if (notes.length === 0) return null;
+  return (
+    <ul className="space-y-0.5">
+      {notes.map((note) => (
+        <NoteRow key={note.id} note={note} primary={primary} />
+      ))}
+    </ul>
+  );
+}
+
+export interface SidebarPartition {
+  recent: NoteDto[];
+  myNotes: NoteDto[];
+  shared: NoteDto[];
+  /** 依 `groups` 的順序，每個群組一個桶（空桶也在，段標要渲染）。 */
+  byGroup: Map<string, NoteDto[]>;
 }
 
 /**
- * 側欄筆記清單——`GET /api/notes`（Task 10 的 `useNotes`）四態顯式處理：
- * - loading（`isPending`）：`app.loading` 文案，跟 `guards.tsx` 的 `FullScreenLoading`
- *   共用同一把 key。
- * - error（`isError`）：`role="alert"`，ApiFail → `errors.<code>`，否則 `errors.fallback`。
- * - 全空（成功但 `data.length === 0`）：`EmptyState` 引導建立第一篇筆記。
- * - 有筆記但搜尋過濾後三組都是空的：`sidebar.noMatch` 文案（跟「全空」是不同語意，
- *   不共用 `home.empty*` 那組 key）。
- *
- * PR2 側欄改三分組（**先分組、後過濾**）：
- * 1. `sidebar.recent`——server 已按 `updated_at DESC` 回傳，固定取原始（未過濾）
- *    清單的前 2 篇，再對這個固定集合套用搜尋過濾（過濾後可能剩 0～2 篇）。
- * 2. `sidebar.myNotes`——`role === "owner"` 的筆記。
- * 3. `sidebar.shared`——`role === "editor" | "viewer"` 的筆記。
- *
- * 「最近」跟另外兩組刻意**會重複顯示同一篇筆記**（最近的某篇同時也是我的筆記或
- * 與我共享）——這是設計定案，不是 bug；`aria-current` 因此只給主清單（見
- * `NoteRow` 的說明），避免一個頁面上出現兩個 `aria-current="page"`。
- *
- * 每列連到 `canonicalNotePath(note)`＝`/n/<ownerHandle>/<slug>` 單一形（#122——
- * slug 恆為字串，舊三態已退役）。
- * 無刪除鈕——刪除移到內文卡頁頭的 ⋮ 選單（`NoteMenu.tsx`）。
+ * spec §3.3 的分段表（`query` 為空時的主清單；搜尋只是在結果上再過濾）：
+ * - `group` 非 null 且那個群組在 `groups`（＝我是成員）→ 該群組段（owner 或成員都一樣）；
+ * - 否則 `role === "owner"` → 我的筆記（含 A1「我的、在 G、我已不是 G 成員」）；
+ * - 否則 → 與我共享（含兜底列：`group` 非 null 但 G 不在 `groups`——剛被移出、清單未 refetch）。
+ * 三桶互斥且完整，所以 `aria-current` 至多命中一列。「最近」＝原始清單前 2 篇（server 已按
+ * `updated_at DESC`），可與主清單重複。
  */
-export function NoteList({ query }: NoteListProps) {
+export function partitionNotes(notes: NoteDto[], groups: GroupDto[]): SidebarPartition {
+  const byGroup = new Map<string, NoteDto[]>(groups.map((group) => [group.id, []]));
+  const myNotes: NoteDto[] = [];
+  const shared: NoteDto[] = [];
+  for (const note of notes) {
+    const bucket = note.group ? byGroup.get(note.group.id) : undefined;
+    if (bucket) bucket.push(note);
+    else if (note.role === "owner") myNotes.push(note);
+    else shared.push(note);
+  }
+  return { recent: notes.slice(0, 2), myNotes, shared, byGroup };
+}
+
+export interface NoteListProps {
+  /** 搜尋字串，state 放在 `AppShell`（Ctrl/Cmd+K 要跨元件聚焦搜尋框）。空＝無過濾。 */
+  query?: string;
+  /** 段標「＋」：`groupId` 給群組段、不給＝個人筆記。state 與導向都在 `AppShell.handleNewNote`。 */
+  onCreateNote?: (groupId?: string) => void;
+  createNotePending?: boolean;
+}
+
+/**
+ * 側欄筆記清單（#103 起四段皆可折疊）：最近／我的筆記／與我共享／工作坊（每群組一段）。
+ * `GET /api/notes` 四態顯式處理（loading／error／全空／搜尋無命中）；`GET /api/groups`
+ * 的 pending／error **只影響工作坊段**（段標下顯示載入中或 `role="alert"`），不擋整個側欄，
+ * 群組筆記在那期間依兜底列落段、資料到了再歸位。
+ *
+ * 空段規則（spec §8.1 表）：最近、與我共享為空 → 整段不渲染；我的筆記、工作坊、各群組段
+ * 為空 → 段標仍渲染（D10–D12，空群組無引導文案）。`EmptyState` 只在筆記與群組**都**為空時
+ * 取代整個清單。搜尋時（A5）：所有段強制展開、無命中的段不渲染、全無命中 → `sidebar.noMatch`。
+ */
+export function NoteList({ query, onCreateNote, createNotePending = false }: NoteListProps) {
   const { t } = useTranslation();
   const notesQuery = useNotes();
+  const groupsQuery = useGroups();
 
   if (notesQuery.isPending) {
     return <p className="p-2 text-sm text-muted-foreground">{t("app.loading")}</p>;
@@ -143,30 +261,94 @@ export function NoteList({ query }: NoteListProps) {
   }
 
   const notes = notesQuery.data;
-  if (notes.length === 0) {
+  const groups = groupsQuery.data ?? [];
+  // 零筆記時要等群組清單才知道是 EmptyState 還是「有群組段標」——不然段標會閃一幀。
+  if (notes.length === 0 && groupsQuery.isPending) {
+    return <p className="p-2 text-sm text-muted-foreground">{t("app.loading")}</p>;
+  }
+  if (notes.length === 0 && groupsQuery.isSuccess && groups.length === 0) {
     return <EmptyState title={t("home.empty")} description={t("home.emptyDescription")} />;
   }
 
-  const recent = notes.slice(0, 2);
-  const myNotes = notes.filter((note) => note.role === "owner");
-  const shared = notes.filter((note) => note.role === "editor" || note.role === "viewer");
-
   const lowerQuery = (query ?? "").toLowerCase();
+  const searching = lowerQuery.length > 0;
   const matchesQuery = (note: NoteDto) => note.title.toLowerCase().includes(lowerQuery);
 
-  const filteredRecent = recent.filter(matchesQuery);
-  const filteredMyNotes = myNotes.filter(matchesQuery);
-  const filteredShared = shared.filter(matchesQuery);
+  const parts = partitionNotes(notes, groups);
+  const recent = parts.recent.filter(matchesQuery);
+  const myNotes = parts.myNotes.filter(matchesQuery);
+  const shared = parts.shared.filter(matchesQuery);
+  const groupSections = groups.map((group) => ({ group, notes: (parts.byGroup.get(group.id) ?? []).filter(matchesQuery) }));
+  const anyGroupHit = groupSections.some((section) => section.notes.length > 0);
 
-  if (filteredRecent.length === 0 && filteredMyNotes.length === 0 && filteredShared.length === 0) {
+  if (searching && recent.length === 0 && myNotes.length === 0 && shared.length === 0 && !anyGroupHit) {
     return <p className="p-2 text-sm text-muted-foreground">{t("sidebar.noMatch")}</p>;
   }
 
   return (
     <>
-      <NoteGroup testId="notegroup-recent" label={t("sidebar.recent")} notes={filteredRecent} primary={false} />
-      <NoteGroup testId="notegroup-myNotes" label={t("sidebar.myNotes")} notes={filteredMyNotes} primary />
-      <NoteGroup testId="notegroup-shared" label={t("sidebar.shared")} notes={filteredShared} primary />
+      {recent.length > 0 && (
+        <CollapsibleSection sectionKey="recent" testId="notegroup-recent" label={t("sidebar.recent")} forceExpanded={searching}>
+          <NoteRows notes={recent} primary={false} />
+        </CollapsibleSection>
+      )}
+
+      {(!searching || myNotes.length > 0) && (
+        <CollapsibleSection
+          sectionKey="myNotes"
+          testId="notegroup-myNotes"
+          label={t("sidebar.myNotes")}
+          forceExpanded={searching}
+          actions={
+            <HeaderAddButton
+              label={t("sidebar.newNoteIn", { name: t("sidebar.myNotes") })}
+              onClick={() => onCreateNote?.(undefined)}
+              disabled={createNotePending}
+            />
+          }
+        >
+          <NoteRows notes={myNotes} primary />
+        </CollapsibleSection>
+      )}
+
+      {shared.length > 0 && (
+        <CollapsibleSection sectionKey="shared" testId="notegroup-shared" label={t("sidebar.shared")} forceExpanded={searching}>
+          <NoteRows notes={shared} primary />
+        </CollapsibleSection>
+      )}
+
+      {(!searching || anyGroupHit) && (
+        <CollapsibleSection sectionKey="workspace" testId="notegroup-workspace" label={t("sidebar.workspace")} forceExpanded={searching}>
+          {groupsQuery.isPending && <p className="px-2 py-1 text-sm text-muted-foreground">{t("app.loading")}</p>}
+          {groupsQuery.isError && (
+            <p role="alert" className="px-2 py-1 text-sm text-destructive">
+              {errorMessage(t, groupsQuery.error)}
+            </p>
+          )}
+          {groupSections.map(
+            ({ group, notes: groupNotes }) =>
+              (!searching || groupNotes.length > 0) && (
+                <CollapsibleSection
+                  key={group.id}
+                  sectionKey={`group:${group.id}`}
+                  testId={`notegroup-group-${group.id}`}
+                  label={group.name}
+                  nested
+                  forceExpanded={searching}
+                  actions={
+                    <HeaderAddButton
+                      label={t("sidebar.newNoteIn", { name: group.name })}
+                      onClick={() => onCreateNote?.(group.id)}
+                      disabled={createNotePending}
+                    />
+                  }
+                >
+                  <NoteRows notes={groupNotes} primary />
+                </CollapsibleSection>
+              ),
+          )}
+        </CollapsibleSection>
+      )}
     </>
   );
 }
