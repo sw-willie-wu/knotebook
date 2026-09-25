@@ -11,8 +11,10 @@ import { and, asc, eq, sql } from "drizzle-orm";
 import type { GroupMemberRole } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
 import { groupMembers, groups, notes } from "../db/schema.js";
+import { TxAbort } from "../http/tx-abort.js";
 import { UUID_RE } from "../notes/service.js";
 import { hasUnstorableChar } from "../oauth/storable.js";
+import type { GroupTestHook } from "./test-hook.js";
 
 export type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 export type DbOrTx = Db | Tx;
@@ -97,4 +99,27 @@ export function groupNoteIdsQuery(db: DbOrTx, groupId: string) {
 export async function groupMemberIds(db: DbOrTx, groupId: string): Promise<string[]> {
   const rows = await db.select({ userId: groupMembers.userId }).from(groupMembers).where(eq(groupMembers.groupId, groupId));
   return rows.map(r => r.userId);
+}
+
+/**
+ * #103 §6.3：刪群組的物化交易（D8：筆記變個人筆記，原成員依原本的 `group_role` 保留存取）。
+ * 鎖順序：先 `groups` 列、再該群組的 `notes` 列——`PUT …/group` 是先鎖 note、FK 檢查時才取 groups
+ * 的 KEY SHARE，而這裡不鎖不在該群組的筆記，兩邊不互等（spec §12 第 2 條；`groups-race.test.ts` 實跑）。
+ * INSERT…SELECT 與 `DELETE groups`（`notes.group_id` 由 FK SET NULL）同一交易 commit，其他交易看不到中間
+ * 狀態（S5）。ON CONFLICT 在 S5 成立時不會發生，保留「只升不降」作防禦。不觸發踢線：物化後的存取與原本相同。
+ */
+export async function materializeAndDeleteGroup(db: Db, groupId: string, hook?: GroupTestHook): Promise<void> {
+  await db.transaction(async tx => {
+    if (!(await lockGroup(tx, groupId))) throw new TxAbort(404, "not_found", GROUP_NOT_FOUND_MESSAGE);
+    await tx.select({ id: notes.id }).from(notes).where(eq(notes.groupId, groupId)).for("update");
+    await hook?.("group-delete-locked", { groupId });
+    await tx.execute(sql`
+      insert into note_shares (note_id, user_id, role)
+      select n.id, gm.user_id, n.group_role
+      from notes n join group_members gm on gm.group_id = n.group_id
+      where n.group_id = ${groupId} and gm.user_id <> n.owner_id
+      on conflict (note_id, user_id) do update
+        set role = case when note_shares.role = 'editor' then 'editor' else excluded.role end`);
+    await tx.delete(groups).where(eq(groups.id, groupId));
+  });
 }

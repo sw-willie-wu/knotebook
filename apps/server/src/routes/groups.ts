@@ -19,7 +19,8 @@ import { sendError } from "../http/errors.js";
 import { TxAbort } from "../http/tx-abort.js";
 import { UUID_RE } from "../notes/service.js";
 import {
-  GROUP_NOT_FOUND_MESSAGE, countAdmins, groupAccess, groupNoteIdsQuery, listMyGroupsQuery, lockGroup, validateGroupName,
+  GROUP_NOT_FOUND_MESSAGE, countAdmins, groupAccess, groupNoteIdsQuery, listMyGroupsQuery, lockGroup,
+  materializeAndDeleteGroup, validateGroupName,
 } from "../groups/queries.js";
 
 const nameBodySchema = z.object({ name: z.string() }).strict();
@@ -79,6 +80,21 @@ export function groupsRoutes(deps: GroupsRouteDeps) {
       if (!row) return notFound(reply);
       // 非成員的站台 admin 在 API 層的身分就是 admin（規格落差第 9 條）。
       return toGroupDto({ ...row, myRole: access.memberRole ?? "admin" });
+    });
+
+    // §6.3：物化成逐人分享再刪（D8）；公開連結保留；不踢線。
+    app.delete("/api/groups/:id", { preHandler: app.authenticate }, async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const access = await groupAccess(deps.db, id, request.user!);
+      if (!access) return notFound(reply);
+      if (!access.canAdmin) return sendError(reply, 403, "forbidden", "只有群組管理者可以進行此操作");
+      try {
+        await materializeAndDeleteGroup(deps.db, id, deps.groupTestHook);
+      } catch (err) {
+        if (err instanceof TxAbort) return sendError(reply, err.status, err.errCode, err.message);
+        throw err;
+      }
+      return reply.code(204).send();
     });
 
     app.get("/api/groups/:id/members", { preHandler: app.authenticate }, async (request, reply) => {
