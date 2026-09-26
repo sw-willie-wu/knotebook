@@ -4,13 +4,24 @@ How a note gets from "only I can see this" to "anyone with the link can read it"
 
 ## The three access levels
 
-The Share dialog on a note (owner only) presents one choice with three levels:
+The Share dialog on a **personal** note (owner only) presents one choice with three levels (a note that belongs to a group has a different, two-level dialog — see [Notes in a group](#notes-in-a-group)):
 
 - **Private** — only the owner. Picking this while the note has **members** shows an inline confirmation first, because removing people is destructive; the confirmation text also mentions the public link (including any custom public URL) when one is on, and confirming removes both — the link first, then the members — so if the operation is interrupted partway the worst case is "some members remain", never "the link is still live". With no members, switching to Private simply turns the public link off, no confirmation step.
 - **Members only** — people the owner invites by email, each with a role (**editor** can change content, **viewer** can only read). Members use their own accounts, see the note in their sidebar, and get live collaboration. Picking this while a public link exists turns the link off; the member list is untouched.
 - **Public link** — anyone who has the link can **read** the note, no account needed. Members keep working exactly as before; the link is an addition, not a replacement.
 
 The selector is an action trigger, not a live mirror: the choice you make sticks until you close the dialog.
+
+## Notes in a group
+
+A note can belong to one group (see the **Workspace** section of the sidebar). For such a note the Share dialog has two levels instead of three:
+
+- **Group members** — every member of the group has access at the note's group level: can-edit by default; switching a note to read-only for the group is API-only for now (`PUT /api/notes/:id/group`, see the [API contract](./api.md)). There is no per-person sharing on a group note: the member list you see in the dialog is the group's member list, and inviting someone means adding them to the group (if you own the note and are a group admin you can add them right there; if you own it but aren't an admin, the dialog links to the group's settings page instead; if you've left the group, it just says so — as with personal notes, only the owner sees the Share dialog at all).
+- **Public link** — exactly as for a personal note; switching back to **Group members** turns the link off.
+
+Groups themselves — creating one, renaming it, adding and removing people, leaving, deleting — live in **Settings → Groups**, with shortcuts on each group's `⋮` menu in the sidebar. Deleting a group turns its notes back into personal notes and keeps everyone's access as per-person shares at the note's group level. Being removed from a group (or leaving it) takes effect immediately, the same way a revoked share does.
+
+Moving an existing note into or out of a group is not in the UI yet; it is available through the API (`PUT`/`DELETE /api/notes/:id/group`, see the [API contract](./api.md)).
 
 ## What a public link is
 
