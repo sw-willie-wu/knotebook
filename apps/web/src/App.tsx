@@ -13,6 +13,8 @@ import AuthorizePage from "./pages/AuthorizePage";
 import HomePage from "./pages/HomePage";
 import { SettingsModal } from "./settings/SettingsModal";
 import { SettingsAccountSection } from "./settings/SettingsAccountSection";
+import { SettingsGroupsSection } from "./settings/SettingsGroupsSection";
+import { SettingsGroupDetailSection } from "./settings/SettingsGroupDetailSection";
 import { SettingsUsersSection } from "./settings/SettingsUsersSection";
 import { SettingsAiSection } from "./settings/SettingsAiSection";
 
@@ -175,6 +177,9 @@ export function AppRoutes() {
             <Route element={<SettingsModal />}>
               {/* Dialog 外殼＝layout route，區塊切換不重掛 */}
               <Route path="/settings/account" element={<SettingsAccountSection />} />
+              {/* #103：群組（所有登入者，spec §8.4）——不巢狀在下面的 RequireAdmin 底下。 */}
+              <Route path="/settings/groups" element={<SettingsGroupsSection />} />
+              <Route path="/settings/groups/:id" element={<SettingsGroupDetailSection />} />
               <Route element={<RequireAdmin />}>
                 <Route path="/settings/users" element={<SettingsUsersSection />} />
                 <Route path="/settings/ai" element={<SettingsAiSection />} />

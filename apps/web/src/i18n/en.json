@@ -30,7 +30,10 @@
     "drawerTitle": "Navigation",
     "searchLabel": "Search notes",
     "searchPlaceholder": "Search…",
-    "noMatch": "No notes match your search."
+    "noMatch": "No notes match your search.",
+    "workspace": "Workspace",
+    "newGroup": "New group",
+    "newNoteIn": "New note in {{name}}"
   },
   "roles": {
     "owner": "Owner",
@@ -75,7 +78,8 @@
     "state": {
       "private": "Private — only you have access",
       "members": "Shared with members you invited",
-      "public": "Public — anyone with the link can view"
+      "public": "Public — anyone with the link can view",
+      "group": "Members of \"{{name}}\" have access"
     },
     "access": {
       "title": "Access",
@@ -93,7 +97,16 @@
       "confirmHintWithLink_one": "This removes {{count}} member and turns off the public link (including its custom public URL).",
       "confirmHintWithLink_other": "This removes all {{count}} members and turns off the public link (including its custom public URL).",
       "confirmPrivate_one": "Remove {{count}} member and make private",
-      "confirmPrivate_other": "Remove {{count}} members and make private"
+      "confirmPrivate_other": "Remove {{count}} members and make private",
+      "group": "Group members",
+      "groupDesc": "Every member of \"{{name}}\""
+    },
+    "group": {
+      "membersTitle": "Group members",
+      "notMember": "You're no longer a member of this group.",
+      "nonAdminHint": "To invite a collaborator, ask a group admin to add them to the group.",
+      "manageLink": "Group settings",
+      "add": "Add to group"
     }
   },
   "note": {
@@ -243,6 +256,68 @@
     "rose": "Rose",
     "gold": "Gold"
   },
+  "groups": {
+    "menu": {
+      "label": "Group actions for {{name}}",
+      "manage": "Members & settings",
+      "viewMembers": "View members",
+      "rename": "Rename",
+      "delete": "Delete group",
+      "leave": "Leave group"
+    },
+    "dialog": {
+      "createTitle": "New group",
+      "createDescription": "Everyone you add to the group will see the notes in it.",
+      "renameTitle": "Rename group",
+      "nameLabel": "Group name",
+      "create": "Create",
+      "save": "Save"
+    },
+    "delete": {
+      "title": "Delete group?",
+      "description": "Notes in \"{{name}}\" become personal notes. Current members keep their access at their current role.",
+      "confirm": "Delete group"
+    },
+    "leave": {
+      "title": "Leave group?",
+      "description": "You will lose access to the notes in \"{{name}}\".",
+      "confirm": "Leave group"
+    },
+    "role": {
+      "admin": "Admin",
+      "member": "Member"
+    },
+    "settings": {
+      "title": "Groups",
+      "description": "Groups you belong to. Notes in a group are visible to every member.",
+      "empty": "You're not in any group yet.",
+      "newGroup": "New group",
+      "tableName": "Name",
+      "tableRole": "Your role",
+      "tableActions": "Actions"
+    },
+    "detail": {
+      "back": "All groups",
+      "nameTitle": "Name",
+      "nameSave": "Save name",
+      "nameSaved": "Group renamed.",
+      "membersTitle": "Members",
+      "membersDescriptionAdmin": "Add people by email. Members see every note in this group.",
+      "membersDescriptionMember": "Only a group admin can add or remove members.",
+      "tableName": "Name",
+      "tableEmail": "Email",
+      "tableRole": "Role",
+      "tableActions": "Actions",
+      "roleLabel": "Role for {{email}}",
+      "remove": "Remove {{email}}",
+      "lastAdminHint": "The only admin can't be demoted or removed. Make someone else an admin first.",
+      "addEmailLabel": "Email address",
+      "addRoleLabel": "Role for new member",
+      "add": "Add",
+      "dangerTitle": "Delete group",
+      "leaveTitle": "Leave group"
+    }
+  },
   "settings": {
     "entry": "Settings",
     "title": "Settings",
@@ -250,7 +325,8 @@
     "nav": {
       "account": "Account",
       "users": "Users",
-      "ai": "AI"
+      "ai": "AI",
+      "groups": "Groups"
     },
     "account": {
       "description": "Manage your username, password, and API tokens.",
@@ -464,7 +540,7 @@
     "content_too_large": "That content is too large.",
     "already_reverted": "That change has already been reverted.",
     "stale": "The note has changed since that edit, so it can no longer be reverted. Reload and try again.",
-    "last_admin": "A group needs at least one admin. Make someone else an admin first.",
+    "last_admin": "A group needs at least one admin. Make someone else an admin first, or delete the group.",
     "already_member": "That person is already in this group.",
     "group_not_found": "We couldn't find that group.",
     "note_in_group": "Group notes can't be shared with individual people. Ask a group admin to add them to the group instead.",

@@ -4,7 +4,7 @@ import { render, screen, waitFor, fireEvent, within } from "@testing-library/rea
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, type MemoryRouterProps } from "react-router";
 import * as Y from "yjs";
-import type { NoteDto, UserDto } from "@knotebook/shared";
+import type { GroupDto, NoteDto, UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ActiveNoteProvider } from "@/lib/active-note";
 import { ThemeProvider } from "@/theme";
@@ -125,6 +125,9 @@ const NOTE: NoteDto = {
  * 這些。呼叫端可疊加其餘端點的處理（例如 `POST /api/auth/password`）。 */
 function baseFetchHandlers(getLoggedInAs: () => UserDto | null) {
   return (url: string, method: string): Response | null => {
+    if (url === "/api/groups" && method === "GET") {
+      return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) });
+    }
     if (url === "/api/auth/me" && method === "GET") {
       const user = getLoggedInAs();
       if (user) return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(user) });
@@ -317,6 +320,8 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
     expect(nav.getByText("Account")).toBeInTheDocument();
     expect(nav.getByText("Users")).toBeInTheDocument();
     expect(nav.getByText("AI")).toBeInTheDocument();
+    // #103：群組頁所有登入者都看得到，admin 也不例外。
+    expect(nav.getByText("Groups")).toBeInTheDocument();
   });
 
   it("非 admin 深連結 /settings/account → 導覽只看得到帳號", async () => {
@@ -335,6 +340,8 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
     expect(nav.getByText("Account")).toBeInTheDocument();
     expect(nav.queryByText("Users")).not.toBeInTheDocument();
     expect(nav.queryByText("AI")).not.toBeInTheDocument();
+    // #103：群組頁所有登入者都看得到，非 admin 也一樣。
+    expect(nav.getByText("Groups")).toBeInTheDocument();
   });
 
   it("/settings/account ↔ /settings/users 切換：Dialog DOM 節點不重掛（identity 不變）", async () => {
@@ -382,5 +389,90 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
     // 第二棵樹整個會不 match 而卸載，這個標題會消失。
     expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument();
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  const GROUP: GroupDto = {
+    id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    name: "Team Alpha",
+    myRole: "admin",
+    createdAt: "2026-01-01T00:00:00.000Z",
+  };
+
+  /** 開列內 ⋮（`GroupMenu`）並點「Members & settings」——`DropdownMenuTrigger` 只聽
+   * `onPointerDown`（同 `openUserMenu` 的道理），menuitem 用 `findByRole` 等 Radix 掛載。 */
+  async function openGroupMembersAndSettings(groupName: string): Promise<void> {
+    fireEvent.pointerDown(screen.getByRole("button", { name: `Group actions for ${groupName}` }), { button: 0 });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Members & settings" }));
+  }
+
+  it("#103：/settings/groups 的 ⋮ →「Members & settings」→ 詳情頁；Esc 關閉 modal 回到原本的背景筆記頁（不是回到 /settings/groups）", async () => {
+    // r1 I3 的形：`GroupMenu.goToSettings` 沒有正確轉傳既有 `backgroundLocation`
+    // 時，Esc 會把 `/settings/groups` 又開回來、dialog 不消失。
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (url === "/api/groups" && method === "GET") {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([GROUP]) }));
+      }
+      const res = baseFetchHandlers(() => ADMIN_USER)(url, method);
+      if (res) return Promise.resolve(res);
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+
+    renderAt(["/notes/my-note"], fetchMock);
+
+    await waitFor(() => expect(screen.getByTestId("note-editor")).toBeInTheDocument(), { timeout: 3_000 });
+
+    openUserMenu("Admin");
+    fireEvent.click(screen.getByText("Settings"));
+
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument(), {
+      timeout: 3_000,
+    });
+
+    fireEvent.click(within(screen.getByRole("navigation")).getByText("Groups"));
+    // 背景頁（NotePage 側欄的工作坊分段）吃同一份 `useGroups()` 快取，會重複渲染同樣的
+    // 群組名字——一律 `within(dialog)` 才不會誤命中背景層。
+    await waitFor(() => expect(within(screen.getByRole("dialog")).getByText(GROUP.name)).toBeInTheDocument());
+
+    await openGroupMembersAndSettings(GROUP.name);
+
+    await waitFor(() => expect(screen.getByRole("heading", { name: GROUP.name })).toBeInTheDocument());
+    // 背景頁（NotePage 的替身編輯器）仍在 DOM 裡。
+    expect(screen.getByTestId("note-editor")).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByTestId("note-editor")).toBeInTheDocument();
+  });
+
+  it("#103：深連結 /settings/groups（沒有 backgroundLocation）→ ⋮ → Members & settings → 一次 Esc 就沒有 dialog", async () => {
+    // r2 M2 的形：深連結沒有 `backgroundLocation` 時若被誤轉傳成 undefined 以外的值，
+    // Esc 可能要按兩次才關得掉。
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (url === "/api/groups" && method === "GET") {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([GROUP]) }));
+      }
+      const res = baseFetchHandlers(() => ADMIN_USER)(url, method);
+      if (res) return Promise.resolve(res);
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+
+    renderAt(["/settings/groups"], fetchMock);
+
+    // 深連結沒有 backgroundLocation：主樹 catch-all 落到 HomePage，側欄同樣重複渲染
+    // 群組名字——同上，一律 `within(dialog)`。
+    await waitFor(() => expect(within(screen.getByRole("dialog")).getByText(GROUP.name)).toBeInTheDocument());
+
+    await openGroupMembersAndSettings(GROUP.name);
+
+    await waitFor(() => expect(screen.getByRole("heading", { name: GROUP.name })).toBeInTheDocument());
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 });

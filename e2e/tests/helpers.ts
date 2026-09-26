@@ -60,7 +60,7 @@ export async function loginAs(page: Page, email: string, password: string): Prom
  * `createNote`；所有走 `createNote` 的 page（流程 1／2／3 的 adminPage／4）都由這裡涵蓋。）
  */
 export async function createNote(page: Page, title: string): Promise<void> {
-  await page.getByRole("button", { name: "New note" }).click();
+  await page.getByRole("button", { name: "New note", exact: true }).click();
   // #122 首跳：新筆記的 canonical 是 /n/<handle>/untitled-<uuid8>（slug 吃 DB default）
   await page.waitForURL(/\/n\/[^/]+\/untitled-[0-9a-f]{8}$/, { timeout: 15_000 });
 

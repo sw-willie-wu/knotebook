@@ -84,10 +84,14 @@ export function useBacklinks(noteId: string | undefined): UseQueryResult<Backlin
   });
 }
 
+/**
+ * `groupId`（#103）：在群組裡建筆記，server 預設 `group_role: editor`（D7）；
+ * 非成員 404 `group_not_found`。
+ */
 export function useCreateNote() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (body?: { title?: string }) =>
+    mutationFn: (body?: { title?: string; groupId?: string }) =>
       api<NoteDto>("/api/notes", {
         method: "POST",
         body: JSON.stringify(body ?? {}),

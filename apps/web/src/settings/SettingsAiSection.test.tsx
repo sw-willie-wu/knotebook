@@ -97,6 +97,9 @@ function defaultGetHandlers(
   const models = overrides.models ?? [MODEL_A1, MODEL_B1];
   const actions = overrides.actions ?? [ACTION_BUILTIN, ACTION_CUSTOM];
   return (url: string, method: string): Response | null => {
+    if (url === "/api/groups" && method === "GET") {
+      return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) });
+    }
     if (url === "/api/admin/ai/providers" && method === "GET") {
       return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ providers }) });
     }

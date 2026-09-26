@@ -36,6 +36,9 @@ function fetchMockWithAuthConfig(config: AuthConfigDto): ReturnType<typeof vi.fn
   return vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const method = (init?.method ?? "GET").toUpperCase();
+    if (url === "/api/groups" && method === "GET") {
+      return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+    }
     if (url === AUTH_CONFIG_URL && method === "GET") {
       return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(config) }));
     }
@@ -144,6 +147,9 @@ describe("LoginPage（Plan 5 Task 10：SSO 入口＋?error= 映射）", () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method ?? "GET").toUpperCase();
+      if (url === "/api/groups" && method === "GET") {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+      }
       if (url === AUTH_CONFIG_URL && method === "GET") {
         return Promise.resolve(
           fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ oidc: { enabled: false } }) }),
@@ -212,6 +218,9 @@ function fetchMockLoginOk(oidcEnabled = false): ReturnType<typeof vi.fn> {
   return vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const method = (init?.method ?? "GET").toUpperCase();
+    if (url === "/api/groups" && method === "GET") {
+      return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+    }
     if (url === AUTH_CONFIG_URL && method === "GET") {
       return Promise.resolve(
         fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ oidc: { enabled: oidcEnabled } }) }),

@@ -55,9 +55,16 @@ const TERMINAL_RECONCILE_TIMEOUT_MS = 6_000;
  * 這些 timer 刻意**不**提供取消：呼叫端緊接著就會 `navigate` 把頁面卸載，能取消就
  * 等於什麼都沒做。`queryClient` 是 app 層級物件（活得比這個頁面久），對它 invalidate
  * 安全且冪等，而且整串輪詢有硬性時限。
+ *
+ * #103 起也讓 `['groups']` 失效一次，理由見函式內註解。
  */
 export function scheduleTerminalReconcile(queryClient: QueryClient, noteId: string | undefined): void {
   const deadline = Date.now() + TERMINAL_RECONCILE_TIMEOUT_MS;
+
+  // #103：被移出群組（或群組被刪）的終態，除了那篇筆記，**群組本身**也可能已經不屬於
+  // 我——側欄的工作坊段是 `useGroups()` 決定的，不失效就會留著一個空群組段。群組清單
+  // 沒有「commit 晚於踢線」的競態（移人是先 commit 再踢），一發即可，不跟著輪詢。
+  void queryClient.invalidateQueries({ queryKey: ["groups"], refetchType: "all" });
 
   const stillListed = (): boolean =>
     queryClient.getQueryData<NoteDto[]>(["notes"])?.some((candidate) => candidate.id === noteId) ?? false;

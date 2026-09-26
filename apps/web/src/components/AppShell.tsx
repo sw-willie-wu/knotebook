@@ -67,7 +67,7 @@ interface SidebarContentProps {
    * 共用同一個物件的話，抽屜 unmount 時 React 會把它清成 null，Ctrl+K 從此
    * 靜默失效（spec §3a）。 */
   searchRef: RefObject<HTMLInputElement | null>;
-  onNewNote: () => void;
+  onCreateNote: (groupId?: string) => void;
   newNotePending: boolean;
   shortcutBadge: string;
 }
@@ -76,7 +76,7 @@ interface SidebarContentProps {
  * `<aside>` 卡或抽屜 Content）由呼叫端提供——兩個 wrapper 都必須給
  * `flex flex-col` 脈絡，否則清單容器的 `min-h-0 flex-1 overflow-y-auto` 失去
  * 約束（spec §3a 邊界定案）。 */
-function SidebarContent({ query, onQueryChange, searchRef, onNewNote, newNotePending, shortcutBadge }: SidebarContentProps) {
+function SidebarContent({ query, onQueryChange, searchRef, onCreateNote, newNotePending, shortcutBadge }: SidebarContentProps) {
   const { t } = useTranslation();
   return (
     <>
@@ -119,11 +119,11 @@ function SidebarContent({ query, onQueryChange, searchRef, onNewNote, newNotePen
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2">
-        <NoteList query={query} />
+        <NoteList query={query} onCreateNote={onCreateNote} createNotePending={newNotePending} />
       </div>
 
       <div className="m-2">
-        <Button variant="brand" className="w-full" onClick={onNewNote} disabled={newNotePending}>
+        <Button variant="brand" className="w-full" onClick={() => onCreateNote()} disabled={newNotePending}>
           <Plus aria-hidden="true" className="h-4 w-4" />
           {t("home.newNote")}
         </Button>
@@ -254,9 +254,11 @@ export function AppShell({ children }: AppShellProps) {
     return () => mql.removeEventListener("change", handleChange);
   }, []);
 
-  async function handleNewNote(): Promise<void> {
+  /** 建立筆記並導向。`groupId` 給群組段的「＋」（#103，server 預設 editor）；失敗
+   * 一律 toast（含群組剛被刪的 404 `group_not_found`）。 */
+  async function handleNewNote(groupId?: string): Promise<void> {
     try {
-      const note = await createNote.mutateAsync(undefined);
+      const note = await createNote.mutateAsync(groupId === undefined ? undefined : { groupId });
       navigate(canonicalNotePath(note));
     } catch (err) {
       const message =
@@ -275,7 +277,7 @@ export function AppShell({ children }: AppShellProps) {
   const sidebarProps = {
     query,
     onQueryChange: setQuery,
-    onNewNote: () => void handleNewNote(),
+    onCreateNote: (groupId?: string) => void handleNewNote(groupId),
     newNotePending: createNote.isPending,
     shortcutBadge,
   };

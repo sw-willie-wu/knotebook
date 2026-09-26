@@ -1,7 +1,17 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { normalizeSlug, publicAliasPath, validateSlug, type NoteDto, type ShareDto, type ShareRole } from "@knotebook/shared";
+import { Link, useLocation } from "react-router";
+import {
+  normalizeSlug,
+  publicAliasPath,
+  validateSlug,
+  type NoteDto,
+  type NoteGroupDto,
+  type ShareDto,
+  type ShareRole,
+} from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
+import { useAddMember, useGroupMembers, useGroups } from "@/api/groups";
 import { useDeleteShare, usePutShare, useShares } from "@/api/shares";
 import { useClearPublicSlug, useCreatePublicLink, useDeletePublicLink, usePublicLink, useSetPublicSlug } from "@/api/public-link";
 import { Button } from "@/components/ui/button";
@@ -14,7 +24,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Globe, Lock, Share, Trash } from "@/components/ui/icons";
+import { Globe, Lock, Share, Trash, Users } from "@/components/ui/icons";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/components/ui/toast";
 import { copyText } from "@/lib/clipboard";
@@ -183,10 +193,125 @@ function SharesSection({ noteId, title }: { noteId: string; title: string }) {
   );
 }
 
-type AccessLevel = "private" | "members" | "public";
+/**
+ * 群組筆記的成員區（spec §8.3）：`useGroupMembers(group.id)` 唯讀名單（displayName、email
+ * ——A8，成員彼此看得到 email；要拿掉只需刪下面那一行 `<span>`）。我是該群組 admin →
+ * email 輸入＋「加入群組」（`PUT /api/groups/:id/members`，D13「共編邀請＝加入群組」）；
+ * 不是 admin → 一行提示＋通往 `/settings/groups/:id` 的連結（點了先關分享面板，否則兩個
+ * Dialog 疊著）。**A1 的 owner**（`useGroups()` 裡沒有這個群組）：只顯示一行「你已不是此
+ * 群組的成員」，**不發** members 請求（server 會 404）。
+ */
+function GroupMembersPanel({ group, onNavigate }: { group: NoteGroupDto; onNavigate: () => void }) {
+  const { t } = useTranslation();
+  const location = useLocation();
+  const groupsQuery = useGroups();
+  const membership = groupsQuery.data?.find((candidate) => candidate.id === group.id);
+  const isMember = membership !== undefined;
+  const membersQuery = useGroupMembers(group.id, { enabled: isMember });
+  const addMember = useAddMember(group.id);
+  const [email, setEmail] = useState("");
+  const [addError, setAddError] = useState<string | null>(null);
 
-/** 三態的 derive（僅供 latch 初值與顯式重算點——不是持續同步）。 */
-function deriveAccess(token: string | null, shares: ShareDto[]): AccessLevel {
+  async function handleAdd(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    setAddError(null);
+    const trimmed = email.trim();
+    if (trimmed.length === 0) return;
+    try {
+      await addMember.mutateAsync({ email: trimmed });
+      setEmail("");
+    } catch (err) {
+      setAddError(errorMessage(t, err));
+    }
+  }
+
+  if (groupsQuery.isPending) {
+    return <p className="text-sm text-muted-foreground">{t("app.loading")}</p>;
+  }
+  if (groupsQuery.isError) {
+    return (
+      <p role="alert" className="text-sm text-destructive">
+        {errorMessage(t, groupsQuery.error)}
+      </p>
+    );
+  }
+  if (!isMember) {
+    return <p className="text-sm text-muted-foreground">{t("share.group.notMember")}</p>;
+  }
+
+  return (
+    <div className="space-y-2">
+      <p className="text-sm font-medium">{t("share.group.membersTitle")}</p>
+
+      {membersQuery.isPending ? (
+        <p className="text-sm text-muted-foreground">{t("app.loading")}</p>
+      ) : membersQuery.isError ? (
+        <p role="alert" className="text-sm text-destructive">
+          {errorMessage(t, membersQuery.error)}
+        </p>
+      ) : (
+        <ul className="space-y-1">
+          {membersQuery.data.map((member) => (
+            <li key={member.userId} className="flex items-center gap-2 text-sm">
+              <span className="min-w-0 flex-1 truncate">
+                {member.displayName}
+                <span className="ml-2 text-muted-foreground">{member.email}</span>
+              </span>
+              <span className="shrink-0 text-xs text-muted-foreground">{t(`groups.role.${member.role}`)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {membership.myRole === "admin" ? (
+        <>
+          <form onSubmit={(event) => void handleAdd(event)} className="flex items-center gap-2">
+            <Input
+              type="email"
+              required
+              placeholder={t("share.emailPlaceholder")}
+              aria-label={t("share.emailPlaceholder")}
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              className="min-w-0 flex-1"
+            />
+            <Button type="submit" variant="outline" disabled={addMember.isPending}>
+              {t("share.group.add")}
+            </Button>
+          </form>
+          {addError && (
+            <p role="alert" className="text-sm text-destructive">
+              {addError}
+            </p>
+          )}
+        </>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          {t("share.group.nonAdminHint")}{" "}
+          <Link
+            to={`/settings/groups/${encodeURIComponent(group.id)}`}
+            state={{ backgroundLocation: location }}
+            onClick={onNavigate}
+            className="text-brand underline-offset-4 hover:underline"
+          >
+            {t("share.group.manageLink")}
+          </Link>
+        </p>
+      )}
+    </div>
+  );
+}
+
+type AccessLevel = "private" | "members" | "public" | "group";
+
+/**
+ * 三態／兩態的 derive（僅供 latch 初值與顯式重算點——不是持續同步）。
+ * 群組筆記（`group` 非 null，#103 D14）只有「群組內可見」與「公開」：S5 保證它沒有逐人
+ * 分享，`shares` 對它恆為 []，所以不看。**第三參數必填**——選填會讓漏傳處在群組筆記上
+ * 回 `"private"` 而無 radio 可選、tsc 抓不到（spec §8.3）。
+ */
+function deriveAccess(token: string | null, shares: ShareDto[], group: NoteGroupDto | null): AccessLevel {
+  if (group) return token ? "public" : "group";
   return token ? "public" : shares.length > 0 ? "members" : "private";
 }
 
@@ -217,8 +342,11 @@ function deriveAccess(token: string | null, shares: ShareDto[]): AccessLevel {
  * 私人確認流（D3）：行內確認列出將移除成員數；確認後**先 DELETE public-link、
  * 再循序 DELETE shares**（順序承重：中止時最壞是「還剩幾位成員」，不是「連結
  * 還開著」）。
+ *
+ * **群組筆記（#103 D13／D14）**：只有 `group`／`public` 兩個 radio；`confirmPrivate` 不可達；
+ * 成員區＝群組成員名單（`GroupMembersPanel`），逐人分享區不渲染。
  */
-function AccessSection({ note }: { note: NoteDto }) {
+function AccessSection({ note, onClose }: { note: NoteDto; onClose: () => void }) {
   const noteId = note.id;
   const { t } = useTranslation();
   const sharesQuery = useShares(noteId);
@@ -236,17 +364,27 @@ function AccessSection({ note }: { note: NoteDto }) {
   const shares = sharesQuery.data ?? [];
   const queriesFailed = linkQuery.isError || sharesQuery.isError;
 
+  // 群組筆記的 latch 要等**本次掛載後**的重抓：`AccessSection` 以 `note.group?.id` 為 key，
+  // 個人筆記在別的分頁被搬進群組時（PR3 前唯一的路徑），note 常駐層先更新 → 這裡重掛，
+  // 但 public-link 快取還是搬家前的舊 token；拿它 latch 會把「群組內可見」誤述成「公開」
+  // 而且 sticky 不自己修正。S5／D16 保證 server 那邊 token 已清，所以等一次
+  // `isFetchedAfterMount` 就是對的資料。個人筆記維持原本「快取有就 latch」（觸發鈕已預抓）。
+  // ⚠ 這條依賴「掛載時重抓」（refetchOnMount 對 stale 資料才生效）：`['public-link']`／`['shares']`
+  // 與 QueryClient 預設都**沒有** `staleTime`。若日後加了 staleTime，掛載不再重抓 →
+  // `isFetchedAfterMount` 永遠 false → 群組筆記永遠 latch 不了（卡「載入中」），而測試照樣全綠
+  // （測試用的是預設 QueryClient）。
+  const freshEnough = note.group === null || (linkQuery.isFetchedAfterMount && sharesQuery.isFetchedAfterMount);
   useEffect(() => {
-    if (selection === null && linkQuery.data !== undefined && sharesQuery.data !== undefined) {
-      setSelection(deriveAccess(linkQuery.data.token, sharesQuery.data));
+    if (selection === null && freshEnough && linkQuery.data !== undefined && sharesQuery.data !== undefined) {
+      setSelection(deriveAccess(linkQuery.data.token, sharesQuery.data, note.group));
     }
-  }, [selection, linkQuery.data, sharesQuery.data]);
+  }, [selection, freshEnough, linkQuery.data, sharesQuery.data, note.group]);
 
   /** 顯式重算點①：mutation 失敗——toast、refetch 兩個 query、radio 依新資料重算。 */
   async function recoverFromError(err: unknown): Promise<void> {
     toast({ title: errorMessage(t, err), variant: "destructive" });
     const [freshShares, freshLink] = await Promise.all([sharesQuery.refetch(), linkQuery.refetch()]);
-    setSelection(deriveAccess(freshLink.data?.token ?? null, freshShares.data ?? []));
+    setSelection(deriveAccess(freshLink.data?.token ?? null, freshShares.data ?? [], note.group));
   }
 
   /** 撤銷公開連結（失敗即復原——裸 mutate 的靜默失敗是審查抓到的安全性誤述）。 */
@@ -293,6 +431,12 @@ function AccessSection({ note }: { note: NoteDto }) {
       if (!token) void mintLink();
       return;
     }
+    if (next === "group") {
+      // 「公開 → 群組內可見」＝撤連結，不需確認（比照公開 → 限定成員）。
+      setSelection("group");
+      if (token) void revokeLink();
+      return;
+    }
     if (next === "members") {
       setSelection("members");
       if (token) void revokeLink();
@@ -324,11 +468,16 @@ function AccessSection({ note }: { note: NoteDto }) {
     }
   }
 
-  const options: Array<{ value: AccessLevel; label: string; desc: string }> = [
-    { value: "private", label: t("share.access.private"), desc: t("share.access.privateDesc") },
-    { value: "members", label: t("share.access.members"), desc: t("share.access.membersDesc") },
-    { value: "public", label: t("share.access.public"), desc: t("share.access.publicDesc") },
-  ];
+  const options: Array<{ value: AccessLevel; label: string; desc: string }> = note.group
+    ? [
+        { value: "group", label: t("share.access.group"), desc: t("share.access.groupDesc", { name: note.group.name }) },
+        { value: "public", label: t("share.access.public"), desc: t("share.access.publicDesc") },
+      ]
+    : [
+        { value: "private", label: t("share.access.private"), desc: t("share.access.privateDesc") },
+        { value: "members", label: t("share.access.members"), desc: t("share.access.membersDesc") },
+        { value: "public", label: t("share.access.public"), desc: t("share.access.publicDesc") },
+      ];
 
   return (
     <ShareGroup title={t("share.access.title")}>
@@ -384,7 +533,7 @@ function AccessSection({ note }: { note: NoteDto }) {
                 // 顯式重算點②：取消＝什麼都沒動，radio 回實況（沒有這行會停在
                 // 「私人」而連結還活著——載重，別當成可省的糖）。
                 setConfirming(false);
-                setSelection(deriveAccess(token, shares));
+                setSelection(deriveAccess(token, shares, note.group));
               }}
             >
               {t("share.access.confirmCancel")}
@@ -415,6 +564,14 @@ function AccessSection({ note }: { note: NoteDto }) {
           onRegenerateToken={mintLink}
           regenerateTokenPending={createLink.isPending}
         />
+      )}
+
+      {/* 群組成員區**不隨 radio 切換**（gate r1 M6）：群組存取在公開態也一樣有效，admin 在
+          公開的群組筆記上也要能加人，不該被迫先撤連結。位置固定在最下方。 */}
+      {latched && note.group && (
+        <div className="rounded-md bg-muted/40 p-3">
+          <GroupMembersPanel group={note.group} onNavigate={onClose} />
+        </div>
       )}
     </ShareGroup>
   );
@@ -743,9 +900,10 @@ export function ShareDialog({ note }: ShareDialogProps) {
   const triggerLoading = sharesQuery.data === undefined || linkQuery.data === undefined;
   const triggerAccess: AccessLevel | null = triggerLoading
     ? null
-    : deriveAccess(linkQuery.data.token, sharesQuery.data);
+    : deriveAccess(linkQuery.data.token, sharesQuery.data, note.group);
   // 載入中一律用既有的 Share 圖示，不閃爍、不猜狀態。
-  const TriggerIcon = triggerAccess === "private" ? Lock : triggerAccess === "public" ? Globe : Share;
+  const TriggerIcon =
+    triggerAccess === "private" ? Lock : triggerAccess === "public" ? Globe : triggerAccess === "group" ? Users : Share;
   const triggerTitle =
     triggerAccess === "private"
       ? t("share.state.private")
@@ -753,7 +911,9 @@ export function ShareDialog({ note }: ShareDialogProps) {
         ? t("share.state.members")
         : triggerAccess === "public"
           ? t("share.state.public")
-          : undefined;
+          : triggerAccess === "group"
+            ? t("share.state.group", { name: note.group?.name })
+            : undefined;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -789,7 +949,8 @@ export function ShareDialog({ note }: ShareDialogProps) {
             （Willie 2026-09-17 產品決定）——要連到某篇筆記用 `[[標題]]` wikilink，
             協作者本來就會在自己的工作區看到那篇筆記，不需要傳連結。分享面板
             現在只剩一組「存取權」，不再需要 `divide-y` 分隔多組。 */}
-        {open && <AccessSection note={note} />}
+        {/* `key`：個人↔群組切換時整段重掛、selection 重新 latch（spec r4 Minor）。 */}
+        {open && <AccessSection key={note.group?.id ?? "personal"} note={note} onClose={() => setOpen(false)} />}
       </DialogContent>
     </Dialog>
   );

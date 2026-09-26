@@ -27,6 +27,9 @@ function fakeResponse({ ok, status, json }: FakeResponseInit): Response {
 function mockFetchMustChangePassword(mustChangePassword: boolean) {
   return vi.fn((input: RequestInfo | URL) => {
     const url = String(input);
+    if (url === "/api/groups") {
+      return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+    }
     if (url === "/api/auth/me") {
       return Promise.resolve(
         fakeResponse({
@@ -257,6 +260,9 @@ function LoginProbe() {
 function mockFetchUnauthenticated(): ReturnType<typeof vi.fn> {
   return vi.fn((input: RequestInfo | URL) => {
     const url = String(input);
+    if (url === "/api/groups") {
+      return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+    }
     if (url === "/api/auth/me") {
       return Promise.resolve(
         fakeResponse({

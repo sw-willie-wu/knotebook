@@ -62,6 +62,7 @@ let meHandler: () => Response = okMe;
 function mockFetch(requestHandler: Handler, decisionHandler?: Handler) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
+    if (url === "/api/groups") return { ok: true, status: 200, json: async () => [] } as unknown as Response;
     if (url.startsWith("/api/auth/me")) return meHandler();
     if (url.startsWith("/api/auth/config"))
       return { ok: true, status: 200, json: async () => ({ oidc: { enabled: false } }) } as unknown as Response;

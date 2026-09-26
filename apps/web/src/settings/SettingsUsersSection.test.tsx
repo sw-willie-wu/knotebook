@@ -84,6 +84,9 @@ const ADMIN_USERS_URL = "/api/admin/users";
  * `SettingsModal.test.tsx` 覆蓋，不重複）、`/api/notes`（背景 `HomePage` 需要）。 */
 function baseFetchHandlers(): (url: string, method: string) => Response | null {
   return (url: string, method: string): Response | null => {
+    if (url === "/api/groups" && method === "GET") {
+      return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) });
+    }
     if (url === "/api/auth/me" && method === "GET") {
       return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(ADMIN_USER) });
     }
