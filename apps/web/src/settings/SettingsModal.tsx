@@ -45,13 +45,15 @@ function SettingsNavLink({
 
 /**
  * 設定總 modal 外殼（spec §13.4）——第二棵 Routes 樹的 layout route：Radix Dialog
- * 包 `<Outlet/>`，`/settings/account`｜`/settings/users`｜`/settings/ai` 之間切換
- * 是巢狀 route 切換，`<Dialog>`／`<DialogContent>` 本身不隨切換卸載重掛（layout
- * route 的既有語意——比照 `ChangePasswordGate` 那些 `<Outlet/>` 元件）。
+ * 包 `<Outlet/>`，`/settings/account`｜`/settings/groups`｜`/settings/groups/:id`｜
+ * `/settings/users`｜`/settings/ai` 之間切換是巢狀 route 切換，`<Dialog>`／
+ * `<DialogContent>` 本身不隨切換卸載重掛（layout route 的既有語意——比照
+ * `ChangePasswordGate` 那些 `<Outlet/>` 元件）。
  *
- * 導覽項：帳號（所有人）／使用者／AI（`useSession().user?.isAdmin` 才渲染，同
- * `guards.tsx` 的用法——非 admin 深連結後兩者一樣會被巢狀在下面的 `RequireAdmin`
- * 擋下導 `/`，這裡的隱藏純粹是不讓非 admin 看到打不開的入口，不是唯一防線）。
+ * 導覽項：帳號、群組（所有人）／使用者／AI（admin，`useSession().user?.isAdmin`
+ * 才渲染，同 `guards.tsx` 的用法——非 admin 深連結後兩者一樣會被巢狀在下面的
+ * `RequireAdmin` 擋下導 `/`，這裡的隱藏純粹是不讓非 admin 看到打不開的入口，不是
+ * 唯一防線）。
  *
  * 關閉（Esc／✕／backdrop，都會走 Radix 的 `onOpenChange(false)`）：導回開啟前的
  * 背景 location（`location.state.backgroundLocation`）；深連結進來時沒有這個 state
@@ -92,6 +94,7 @@ export function SettingsModal() {
           </DialogTitle>
           <DialogDescription className="sr-only">{t("settings.description")}</DialogDescription>
           <SettingsNavLink to="/settings/account" label={t("settings.nav.account")} backgroundLocation={backgroundLocation} />
+          <SettingsNavLink to="/settings/groups" label={t("settings.nav.groups")} backgroundLocation={backgroundLocation} />
           {isAdmin && (
             <>
               <SettingsNavLink to="/settings/users" label={t("settings.nav.users")} backgroundLocation={backgroundLocation} />
