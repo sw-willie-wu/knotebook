@@ -82,7 +82,7 @@ test("窄視窗：靜態側欄隱藏、抽屜導覽、AI bubble 展開成滿寬�
     await page.setViewportSize({ width: 390, height: 844 });
 
     // 靜態側欄（hidden）：New note 鈕不可見；頁首漢堡（md:hidden）可見。
-    await expect(page.getByRole("button", { name: "New note" })).toBeHidden();
+    await expect(page.getByRole("button", { name: "New note", exact: true })).toBeHidden();
     const hamburger = page.getByRole("button", { name: "Open navigation" });
     await expect(hamburger).toBeVisible();
 
@@ -92,7 +92,7 @@ test("窄視窗：靜態側欄隱藏、抽屜導覽、AI bubble 展開成滿寬�
     await page.getByRole("button", { name: "Open navigation" }).click();
     const drawer = page.getByRole("dialog", { name: "Navigation" });
     await expect(drawer).toBeVisible();
-    await expect(drawer.getByRole("button", { name: "New note" })).toBeVisible();
+    await expect(drawer.getByRole("button", { name: "New note", exact: true })).toBeVisible();
     // `.first()`：NoteList 的「Recent」與主清單刻意重複顯示同一篇（該檔檔頭明訂），
     // 單數查詢會 strict-mode violation。
     await drawer.getByRole("link", { name: title }).first().click();
