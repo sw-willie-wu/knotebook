@@ -546,10 +546,11 @@ describe("NoteList", () => {
       expect(plus).toHaveClass(
         "opacity-0",
         "group-hover/section:opacity-100",
-        "group-focus-within/section:opacity-100",
+        "group-has-[:focus-visible]/section:opacity-100",
         "focus-visible:opacity-100",
         "[@media(hover:none)]:opacity-100",
       );
+      expect(plus).not.toHaveClass("group-focus-within/section:opacity-100");
       plus.focus();
       expect(document.activeElement).toBe(plus);
 
@@ -684,6 +685,86 @@ describe("NoteList", () => {
       expect(menu.parentElement).toBe(header.parentElement);
       expect(screen.getByRole("button", { name: "New note in Workshop A" }).parentElement).toBe(header.parentElement);
       expect(menu).not.toHaveClass("opacity-0");
+    });
+
+    it("群組列前導槽：Users 平常顯示、hover／focus-within／觸控換成 chevron；button 名稱只有群組名", async () => {
+      stubNotesFetch([MY_GROUP_NOTE], [GROUP_A]);
+      renderNoteList();
+      const header = await screen.findByRole("button", { name: "Workshop A", expanded: true });
+      expect(header).toHaveAccessibleName("Workshop A");
+      expect(header).toHaveClass("h-7", "gap-1.5", "px-2", "text-[13px]", "font-medium", "text-foreground");
+      expect(header).not.toHaveClass("text-muted-foreground");
+      expect(header.parentElement).toHaveClass("group/grouprow", "hover:bg-accent/60");
+
+      const users = header.querySelector('svg[data-icon="users"]');
+      const chevron = header.querySelector('svg[data-icon="chevron-right"]');
+      expect(users).not.toBeNull();
+      expect(chevron).not.toBeNull();
+      expect(users).toHaveAttribute("aria-hidden", "true");
+      expect(chevron).toHaveAttribute("aria-hidden", "true");
+      // 同一個槽
+      expect(users?.parentElement).toBe(chevron?.parentElement);
+      expect(users).not.toHaveClass("hidden");
+      expect(users).toHaveClass(
+        "group-hover/grouprow:hidden",
+        "group-has-[:focus-visible]/grouprow:hidden",
+        "[@media(hover:none)]:hidden",
+      );
+      expect(chevron).toHaveClass(
+        "hidden",
+        "group-hover/grouprow:block",
+        "group-has-[:focus-visible]/grouprow:block",
+        "[@media(hover:none)]:block",
+        "rotate-90",
+      );
+      // 只有鍵盤焦點換圖示：滑鼠點完留在 button 上的焦點不該讓 chevron 卡住
+      expect(users).not.toHaveClass("group-focus-within/grouprow:hidden");
+      expect(chevron).not.toHaveClass("group-focus-within/grouprow:block");
+
+      // 群組列的「＋」跟群組列走，不跟頂層段標走
+      const plus = screen.getByRole("button", { name: "New note in Workshop A" });
+      expect(plus).toHaveClass(
+        "opacity-0",
+        "group-hover/grouprow:opacity-100",
+        "group-has-[:focus-visible]/grouprow:opacity-100",
+        "focus-visible:opacity-100",
+        "[@media(hover:none)]:opacity-100",
+      );
+      expect(plus).not.toHaveClass("group-hover/section:opacity-100");
+      expect(plus).not.toHaveClass("group-focus-within/grouprow:opacity-100");
+
+      fireEvent.click(header);
+      expect(header).toHaveAttribute("aria-expanded", "false");
+      expect(chevron).not.toHaveClass("rotate-90");
+      expect(window.localStorage.getItem(`sidebar.collapsed.group:${GROUP_A.id}`)).toBe("1");
+    });
+
+    it("群組筆記列掛在導引線容器內（border-l），列左內距 pl-3；群組清單縮排 pl-4", async () => {
+      stubNotesFetch([MY_GROUP_NOTE], [GROUP_A]);
+      renderNoteList();
+      const groupA = await screen.findByTestId(`notegroup-group-${GROUP_A.id}`);
+      const row = within(groupA).getByRole("link", { name: "Mine In A" }).closest("li") as HTMLElement;
+      const guide = row.closest("ul")?.parentElement as HTMLElement;
+      expect(guide).toHaveClass("ml-[15px]", "border-l", "border-muted-foreground/35", "pl-2");
+      expect(groupA).toContainElement(guide);
+      expect(row).toHaveClass("pl-3", "pr-2");
+      expect(row).not.toHaveClass("pl-6");
+      expect(groupA.parentElement).toHaveClass("pl-4", "gap-1");
+    });
+
+    it("頂層段的筆記列左內距 pl-6（列文字對齊段名）", async () => {
+      stubNotesFetch([OWNER_NOTE, SHARED_NOTE], []);
+      renderNoteList();
+      for (const [testId, name] of [
+        ["notegroup-myNotes", "Has A Slug"],
+        ["notegroup-shared", "No Slug Note"],
+        ["notegroup-recent", "Has A Slug"],
+      ] as const) {
+        const section = await screen.findByTestId(testId);
+        const row = within(section).getByRole("link", { name }).closest("li");
+        expect(row).toHaveClass("pl-6", "pr-2");
+        expect(row).not.toHaveClass("px-2");
+      }
     });
   });
 });

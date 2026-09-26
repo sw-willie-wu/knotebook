@@ -22,7 +22,7 @@ export function Check(props: SVGProps<SVGSVGElement>) {
 
 export function ChevronRight(props: SVGProps<SVGSVGElement>) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+    <svg data-icon="chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
       <path d="m9 18 6-6-6-6" />
     </svg>
   );

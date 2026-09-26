@@ -10,7 +10,7 @@ import { useNotes } from "@/api/notes";
 import { useActiveNote } from "@/lib/active-note";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { ChevronRight, Plus } from "@/components/ui/icons";
+import { ChevronRight, Plus, Users } from "@/components/ui/icons";
 import { EmptyState } from "@/components/EmptyState";
 
 /** ApiFail → errors.<code>；其餘（網路失敗等）→ errors.fallback。與 LoginPage
@@ -37,9 +37,14 @@ interface NoteRowProps {
    * 複製顯示，active 只呈現視覺樣式，不重複宣告 `aria-current`（解 B3——否則
    * 一個頁面上會有兩個 `aria-current="page"`）。 */
   primary: boolean;
+  /** `section`：左內距 24px，列文字對齊段名（段標 px-2 8＋chevron 12＋gap 4）；
+   * `group`：群組導引線內，文字離線 12px。 */
+  indent: RowIndent;
 }
 
-function NoteRow({ note, primary }: NoteRowProps) {
+type RowIndent = "section" | "group";
+
+function NoteRow({ note, primary, indent }: NoteRowProps) {
   const { activeNoteId, setActiveNoteId } = useActiveNote();
   // #122：active 判準改吃 context 的 note.id（單一真相，理由見 lib/active-note.tsx
   // 檔頭）——不再比對路由參數（replaceState 換網址後 params 不動、slug 又隨標題
@@ -48,7 +53,8 @@ function NoteRow({ note, primary }: NoteRowProps) {
   return (
     <li
       className={cn(
-        "flex h-11 items-center gap-1 rounded-md px-2 text-[13px] hover:bg-accent/60 md:h-7",
+        "flex h-11 items-center gap-1 rounded-md pr-2 text-[13px] hover:bg-accent/60 md:h-7",
+        indent === "section" ? "pl-6" : "pl-3",
         // active 時 hover 必須跟主題色走：twMerge 對同一個 variant 群組（這裡是
         // `hover:bg-*`）互斥，後面這個 class 會蓋掉前面的 `hover:bg-accent/60`。
         // 非 active 的列維持中性 hover，不受這裡影響。
@@ -117,19 +123,23 @@ function useCollapsed(key: SidebarSectionKey, locked: boolean): [expanded: boole
 }
 
 /** 段標的「＋」（我的筆記／各群組段；工作坊段標的「＋」開的是新增群組對話框，見
- * `WorkspaceSection`）。24px ghost 圖示鈕，預設透明、列 hover／focus-within 或自身
- * focus-visible 才顯示——鍵盤 tab 到它時一定看得見（P19）。 */
+ * `WorkspaceSection`）。24px ghost 圖示鈕，預設透明、列 hover／列內有 `:focus-visible`
+ * 或自身 focus-visible 才顯示——鍵盤 tab 到它時一定看得見（P19）；滑鼠點過留下的
+ * 焦點不算（不是 focus-within）。 */
 function HeaderAddButton({
   label,
   onClick,
   disabled = false,
   buttonRef,
+  scope = "section",
 }: {
   label: string;
   onClick: () => void;
   disabled?: boolean;
   /** 工作坊「＋」用：讓新增群組對話框關閉時把焦點還回來（P17）。 */
   buttonRef?: RefObject<HTMLButtonElement | null>;
+  /** 跟哪一列的 hover／鍵盤焦點走：頂層段標（`group/section`）或群組列（`group/grouprow`）。 */
+  scope?: "section" | "grouprow";
 }) {
   return (
     <Button
@@ -142,7 +152,12 @@ function HeaderAddButton({
       disabled={disabled}
       // 24px（spec §8.1；P21）。觸控裝置沒有 hover，Tailwind v4 的 group-hover 只在
       // `@media (hover: hover)` 生效——`[@media(hover:none)]` 那條讓手機上常駐可見。
-      className="h-6 w-6 shrink-0 opacity-0 transition-opacity focus-visible:opacity-100 group-hover/section:opacity-100 group-focus-within/section:opacity-100 [@media(hover:none)]:opacity-100"
+      className={cn(
+        "h-6 w-6 shrink-0 opacity-0 transition-opacity focus-visible:opacity-100 [@media(hover:none)]:opacity-100",
+        scope === "section"
+          ? "group-hover/section:opacity-100 group-has-[:focus-visible]/section:opacity-100"
+          : "group-hover/grouprow:opacity-100 group-has-[:focus-visible]/grouprow:opacity-100",
+      )}
     >
       <Plus aria-hidden="true" className="h-3.5 w-3.5" />
     </Button>
@@ -156,24 +171,22 @@ interface CollapsibleSectionProps {
   testId: string;
   /** 「＋」與 ⋮——放在段標 button 的**兄弟**位置（button 不可巢狀）。 */
   actions?: ReactNode;
-  /** 群組段：縮排一級＋左側細直線。 */
-  nested?: boolean;
   /** 搜尋中一律展開（A5），折疊狀態保留不動。 */
   forceExpanded: boolean;
   children: ReactNode;
 }
 
 /**
- * 段標＝chevron＋名稱一顆 `<button aria-expanded>`，右側兄弟元素放「＋」／⋮。
- * `group/section` 讓「＋」在整列 hover／focus-within 時浮現。chevron 展開時轉 90°
+ * 頂層段標＝chevron＋名稱一顆 `<button aria-expanded>`，右側兄弟元素放「＋」。
+ * `group/section` 讓「＋」在整列 hover／列內鍵盤焦點時浮現。chevron 展開時轉 90°
  * （指下），收合時指右——等價於 spec 的「收合時 −90°」。
  */
-function CollapsibleSection({ sectionKey, label, testId, actions, nested = false, forceExpanded, children }: CollapsibleSectionProps) {
+function CollapsibleSection({ sectionKey, label, testId, actions, forceExpanded, children }: CollapsibleSectionProps) {
   const [expanded, toggle] = useCollapsed(sectionKey, forceExpanded);
   const open = forceExpanded || expanded;
   return (
-    <div data-testid={testId} className={cn(nested && "ml-2 border-l border-border pl-1")}>
-      <div className={cn("group/section flex items-center gap-0.5 pb-1", nested ? "pt-1" : "pt-3")}>
+    <div data-testid={testId}>
+      <div className="group/section flex items-center gap-0.5 pt-3 pb-1">
         <button
           type="button"
           aria-expanded={open}
@@ -190,12 +203,52 @@ function CollapsibleSection({ sectionKey, label, testId, actions, nested = false
   );
 }
 
-function NoteRows({ notes, primary }: { notes: NoteDto[]; primary: boolean }) {
+/**
+ * 工作坊底下的群組：像檔案樹的一個資料夾列。前導圖示槽平常是 `Users`，列 hover／
+ * 列內有 `:focus-visible`（鍵盤焦點；滑鼠點完留下的焦點不算）時換成 chevron；觸控裝置（`hover: none`）一律 chevron。兩個圖示都
+ * `aria-hidden`，button 的名稱只有群組名。筆記掛在導引線下，線對齊圖示槽中心
+ * （px-2 8＋槽寬 14 / 2 ＝ 15px）。折疊與搜尋鎖定共用 `useCollapsed`。
+ */
+function GroupSection({ sectionKey, label, testId, actions, forceExpanded, children }: CollapsibleSectionProps) {
+  const [expanded, toggle] = useCollapsed(sectionKey, forceExpanded);
+  const open = forceExpanded || expanded;
+  return (
+    <div data-testid={testId} className="flex flex-col gap-0.5">
+      <div className="group/grouprow flex h-7 items-center gap-0.5 rounded-md hover:bg-accent/60">
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={toggle}
+          className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 text-left text-[13px] font-medium text-foreground"
+        >
+          <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center text-muted-foreground">
+            <Users
+              aria-hidden="true"
+              className="h-3.5 w-3.5 group-hover/grouprow:hidden group-has-[:focus-visible]/grouprow:hidden [@media(hover:none)]:hidden"
+            />
+            <ChevronRight
+              aria-hidden="true"
+              className={cn(
+                "hidden h-3 w-3 transition-transform group-hover/grouprow:block group-has-[:focus-visible]/grouprow:block [@media(hover:none)]:block",
+                open && "rotate-90",
+              )}
+            />
+          </span>
+          <span className="truncate">{label}</span>
+        </button>
+        {actions}
+      </div>
+      {open && <div className="ml-[15px] border-l border-muted-foreground/35 pl-2">{children}</div>}
+    </div>
+  );
+}
+
+function NoteRows({ notes, primary, indent = "section" }: { notes: NoteDto[]; primary: boolean; indent?: RowIndent }) {
   if (notes.length === 0) return null;
   return (
     <ul className="space-y-0.5">
       {notes.map((note) => (
-        <NoteRow key={note.id} note={note} primary={primary} />
+        <NoteRow key={note.id} note={note} primary={primary} indent={indent} />
       ))}
     </ul>
   );
@@ -367,31 +420,33 @@ function WorkspaceSection({ searching, groupsQuery, groupSections, onCreateNote,
             {errorMessage(t, groupsQuery.error)}
           </p>
         )}
-        {groupSections.map(
-          ({ group, notes: groupNotes }) =>
-            (!searching || groupNotes.length > 0) && (
-              <CollapsibleSection
-                key={group.id}
-                sectionKey={`group:${group.id}`}
-                testId={`notegroup-group-${group.id}`}
-                label={group.name}
-                nested
-                forceExpanded={searching}
-                actions={
-                  <>
-                    <HeaderAddButton
-                      label={t("sidebar.newNoteIn", { name: group.name })}
-                      onClick={() => onCreateNote?.(group.id)}
-                      disabled={createNotePending}
-                    />
-                    <GroupMenu group={group} size="sidebar" />
-                  </>
-                }
-              >
-                <NoteRows notes={groupNotes} primary />
-              </CollapsibleSection>
-            ),
-        )}
+        <div className="flex flex-col gap-1 pl-4">
+          {groupSections.map(
+            ({ group, notes: groupNotes }) =>
+              (!searching || groupNotes.length > 0) && (
+                <GroupSection
+                  key={group.id}
+                  sectionKey={`group:${group.id}`}
+                  testId={`notegroup-group-${group.id}`}
+                  label={group.name}
+                  forceExpanded={searching}
+                  actions={
+                    <>
+                      <HeaderAddButton
+                        scope="grouprow"
+                        label={t("sidebar.newNoteIn", { name: group.name })}
+                        onClick={() => onCreateNote?.(group.id)}
+                        disabled={createNotePending}
+                      />
+                      <GroupMenu group={group} size="sidebar" />
+                    </>
+                  }
+                >
+                  <NoteRows notes={groupNotes} primary indent="group" />
+                </GroupSection>
+              ),
+          )}
+        </div>
       </CollapsibleSection>
       {createOpen && <GroupNameDialog mode="create" open onOpenChange={setCreateOpen} returnFocusRef={addButtonRef} />}
     </>
