@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN, editorLocator, loginAs, randomEmail } from "./helpers";
+import { ADMIN, editorLocator, loginAs, randomEmail } from "./helpers.js";
 
 /**
  * #103 群組（spec §11.3 第 1 條）：A 建群組 → 加 B → A 在群組建筆記 → B 側欄看得到、能編輯

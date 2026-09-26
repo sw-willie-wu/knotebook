@@ -20,7 +20,7 @@ function LocationProbe() {
   return <div data-testid="location">{location.pathname}|{JSON.stringify(location.state)}</div>;
 }
 
-function renderMenu(group: GroupDto, handler: (method: string, url: string) => Response) {
+function renderMenu(group: GroupDto, handler: (method: string, url: string) => Response, size?: "sidebar" | "default") {
   const calls: Array<{ method: string; url: string }> = [];
   vi.stubGlobal(
     "fetch",
@@ -33,16 +33,16 @@ function renderMenu(group: GroupDto, handler: (method: string, url: string) => R
     }),
   );
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(
+  const { unmount } = render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={["/n/me/some-note"]}>
         <Routes>
-          <Route path="*" element={<><GroupMenu group={group} /><LocationProbe /><Toaster /></>} />
+          <Route path="*" element={<><GroupMenu group={group} size={size} /><LocationProbe /><Toaster /></>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
   );
-  return { calls, queryClient };
+  return { calls, queryClient, unmount };
 }
 
 async function openMenu(name: string) {
@@ -83,6 +83,38 @@ describe("GroupMenu", () => {
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(`/settings/groups/${ADMIN_GROUP.id}|`));
     expect(screen.getByTestId("location").textContent).toContain('"backgroundLocation"');
     expect(screen.getByTestId("location").textContent).toContain("/n/me/some-note");
+  });
+
+  it("size：預設是標準 32px icon 鈕（h-8 w-8）；sidebar 是 24px（h-6 w-6）", () => {
+    const first = renderMenu(ADMIN_GROUP, () => fakeResponse(500));
+    const standard = screen.getByRole("button", { name: "Group actions for Workshop A" });
+    expect(standard).toHaveClass("h-8", "w-8");
+    expect(standard).not.toHaveClass("h-6");
+    first.unmount();
+    renderMenu(ADMIN_GROUP, () => fakeResponse(500), "sidebar");
+    const compact = screen.getByRole("button", { name: "Group actions for Workshop A" });
+    expect(compact).toHaveClass("h-6", "w-6");
+    expect(compact).not.toHaveClass("h-8");
+  });
+
+  it("⋮ → 重新命名 → 取消：焦點回到 ⋮ 觸發鈕（不是掉到 body）", async () => {
+    renderMenu(ADMIN_GROUP, () => fakeResponse(500));
+    const menu = await openMenu("Workshop A");
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Rename" }));
+    const dialog = await screen.findByRole("dialog", { name: "Rename group" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Rename group" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Group actions for Workshop A" })).toHaveFocus());
+  });
+
+  it("⋮ → 刪除群組 → 取消：焦點回到 ⋮ 觸發鈕", async () => {
+    renderMenu(ADMIN_GROUP, () => fakeResponse(500));
+    const menu = await openMenu("Workshop A");
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Delete group" }));
+    const dialog = await screen.findByRole("dialog", { name: "Delete group?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Delete group?" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Group actions for Workshop A" })).toHaveFocus());
   });
 
   it("重新命名 → 開對話框預填舊名；儲存送 PATCH", async () => {

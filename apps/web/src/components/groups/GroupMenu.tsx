@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate, type Location } from "react-router";
 import type { GroupDto } from "@knotebook/shared";
@@ -43,8 +43,14 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
  *
  * 「成員與設定」／「查看成員」都導到 `/settings/groups/:id`，帶目前 location 當
  * `backgroundLocation`（與 `UserMenu` 開設定的做法相同），關閉設定 modal 時回得來。
+ *
+ * `size`：`"sidebar"`＝側欄段標的 24px（P21 只准側欄段標例外）；`"default"`＝標準 32px
+ * `size="icon"`（設定頁列表等其他地方）。
+ *
+ * 從 ⋮ 開出的三個對話框關閉時焦點還給 ⋮（`triggerRef`）；刪除／退出成功後這個 ⋮ 可能已
+ * 隨群組段卸載，所以只在 `isConnected` 時才搶焦點，否則交給 Radix 預設。
  */
-export function GroupMenu({ group }: { group: GroupDto }) {
+export function GroupMenu({ group, size = "default" }: { group: GroupDto; size?: "sidebar" | "default" }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
@@ -55,6 +61,14 @@ export function GroupMenu({ group }: { group: GroupDto }) {
   const [renameOpen, setRenameOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [leaveOpen, setLeaveOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  function returnFocusToTrigger(event: Event): void {
+    const trigger = triggerRef.current;
+    if (!trigger?.isConnected) return;
+    event.preventDefault();
+    trigger.focus();
+  }
 
   const isAdmin = group.myRole === "admin";
 
@@ -96,8 +110,15 @@ export function GroupMenu({ group }: { group: GroupDto }) {
     <>
       <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
         <DropdownMenuTrigger asChild>
-          <Button type="button" variant="ghost" size="icon" aria-label={t("groups.menu.label", { name: group.name })} className="h-6 w-6 shrink-0">
-            <EllipsisVertical aria-hidden="true" className="h-3.5 w-3.5" />
+          <Button
+            ref={triggerRef}
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label={t("groups.menu.label", { name: group.name })}
+            className={size === "sidebar" ? "h-6 w-6 shrink-0" : "shrink-0"}
+          >
+            <EllipsisVertical aria-hidden="true" className={size === "sidebar" ? "h-3.5 w-3.5" : "h-4 w-4"} />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
@@ -147,10 +168,10 @@ export function GroupMenu({ group }: { group: GroupDto }) {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {renameOpen && <GroupNameDialog mode="rename" group={group} open onOpenChange={setRenameOpen} />}
+      {renameOpen && <GroupNameDialog mode="rename" group={group} open onOpenChange={setRenameOpen} returnFocusRef={triggerRef} />}
 
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <DialogContent>
+        <DialogContent onCloseAutoFocus={returnFocusToTrigger}>
           <DialogHeader>
             <DialogTitle>{t("groups.delete.title")}</DialogTitle>
             <DialogDescription>{t("groups.delete.description", { name: group.name })}</DialogDescription>
@@ -169,7 +190,7 @@ export function GroupMenu({ group }: { group: GroupDto }) {
       </Dialog>
 
       <Dialog open={leaveOpen} onOpenChange={setLeaveOpen}>
-        <DialogContent>
+        <DialogContent onCloseAutoFocus={returnFocusToTrigger}>
           <DialogHeader>
             <DialogTitle>{t("groups.leave.title")}</DialogTitle>
             <DialogDescription>{t("groups.leave.description", { name: group.name })}</DialogDescription>

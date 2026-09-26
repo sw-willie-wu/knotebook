@@ -384,7 +384,7 @@ function WorkspaceSection({ searching, groupsQuery, groupSections, onCreateNote,
                       onClick={() => onCreateNote?.(group.id)}
                       disabled={createNotePending}
                     />
-                    <GroupMenu group={group} />
+                    <GroupMenu group={group} size="sidebar" />
                   </>
                 }
               >

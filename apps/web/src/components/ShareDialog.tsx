@@ -369,6 +369,10 @@ function AccessSection({ note, onClose }: { note: NoteDto; onClose: () => void }
   // 但 public-link 快取還是搬家前的舊 token；拿它 latch 會把「群組內可見」誤述成「公開」
   // 而且 sticky 不自己修正。S5／D16 保證 server 那邊 token 已清，所以等一次
   // `isFetchedAfterMount` 就是對的資料。個人筆記維持原本「快取有就 latch」（觸發鈕已預抓）。
+  // ⚠ 這條依賴「掛載時重抓」（refetchOnMount 對 stale 資料才生效）：`['public-link']`／`['shares']`
+  // 與 QueryClient 預設都**沒有** `staleTime`。若日後加了 staleTime，掛載不再重抓 →
+  // `isFetchedAfterMount` 永遠 false → 群組筆記永遠 latch 不了（卡「載入中」），而測試照樣全綠
+  // （測試用的是預設 QueryClient）。
   const freshEnough = note.group === null || (linkQuery.isFetchedAfterMount && sharesQuery.isFetchedAfterMount);
   useEffect(() => {
     if (selection === null && freshEnough && linkQuery.data !== undefined && sharesQuery.data !== undefined) {

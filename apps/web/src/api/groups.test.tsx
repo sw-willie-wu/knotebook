@@ -15,7 +15,8 @@ import {
   useRenameGroup,
   useSetMemberRole,
 } from "./groups";
-import { useCreateNote } from "./notes";
+import { useCreateNote, useNote } from "./notes";
+import { useShares } from "./shares";
 
 const GROUP: GroupDto = { id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", name: "工作坊", myRole: "admin", createdAt: "2026-09-26T00:00:00.000Z" };
 const MEMBER: GroupMemberDto = { userId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", email: "bob@example.com", displayName: "Bob", role: "member" };
@@ -98,6 +99,87 @@ describe("api/groups", () => {
     expect(calls[1]).toEqual({ method: "DELETE", url: `/api/groups/${GROUP.id}`, body: undefined });
     expect(invalidate.mock.calls.filter(([arg]) => JSON.stringify(arg?.queryKey) === '["groups"]')).toHaveLength(2);
     expect(invalidate.mock.calls.filter(([arg]) => JSON.stringify(arg?.queryKey) === '["notes"]')).toHaveLength(2);
+  });
+
+  it("useRenameGroup 另外 invalidate 單篇筆記兩層 key ['note']、['note-by-path']（開著的那篇要拿到新群組名）", async () => {
+    stubFetch({ [`PATCH /api/groups/${GROUP.id}`]: () => fakeResponse(200, { ...GROUP, name: "新名" }) });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useRenameGroup(), { wrapper: wrapper(queryClient) });
+    await result.current.mutateAsync({ id: GROUP.id, name: "新名" });
+    const keys = invalidate.mock.calls.map(([arg]) => JSON.stringify(arg?.queryKey));
+    expect(keys).toEqual(expect.arrayContaining(['["note"]', '["note-by-path"]', '["groups"]', '["notes"]']));
+  });
+
+  it("useDeleteGroup 的失效順序：['shares']／['public-link'] → ['note']／['note-by-path'] → ['groups']／['notes']", async () => {
+    stubFetch({ [`DELETE /api/groups/${GROUP.id}`]: () => fakeResponse(204) });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useDeleteGroup(), { wrapper: wrapper(queryClient) });
+    await result.current.mutateAsync(GROUP.id);
+    const keys = invalidate.mock.calls.map(([arg]) => JSON.stringify(arg?.queryKey));
+    const at = (k: string) => {
+      const i = keys.indexOf(k);
+      expect(i, `${k} 應該被 invalidate`).toBeGreaterThanOrEqual(0);
+      return i;
+    };
+    const firstNoteLayer = Math.min(at('["note"]'), at('["note-by-path"]'));
+    expect(Math.max(at('["shares"]'), at('["public-link"]'))).toBeLessThan(firstNoteLayer);
+    expect(Math.max(at('["note"]'), at('["note-by-path"]'))).toBeLessThan(Math.min(at('["groups"]'), at('["notes"]')));
+  });
+
+  it("useDeleteGroup：active 的 shares 重抓落定**之後**才失效 note，且開著的 ['note', id] 會重抓成個人筆記", async () => {
+    const NOTE_ID = "cccccccc-cccc-cccc-cccc-cccccccccccc";
+    const groupNote = { id: NOTE_ID, title: "x", group: { id: GROUP.id, name: GROUP.name } };
+    const personalNote = { ...groupNote, group: null };
+    const share = { userId: MEMBER.userId, email: MEMBER.email, role: "editor" };
+    let deleted = false;
+    const gate: { release?: () => void } = {};
+    const order: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        order.push(`${method} ${url}${deleted ? " (after)" : ""}`);
+        if (method === "DELETE" && url === `/api/groups/${GROUP.id}`) {
+          deleted = true;
+          return Promise.resolve(fakeResponse(204));
+        }
+        if (url === `/api/notes/${NOTE_ID}`) return Promise.resolve(fakeResponse(200, deleted ? personalNote : groupNote));
+        if (url === `/api/notes/${NOTE_ID}/shares`) {
+          if (!deleted) return Promise.resolve(fakeResponse(200, []));
+          // 刪除後的重抓先卡住，看 note 會不會搶在它前面被失效
+          return new Promise<Response>((resolve) => {
+            gate.release = () => {
+              order.push("shares settled");
+              resolve(fakeResponse(200, [share]));
+            };
+          });
+        }
+        throw new Error(`unexpected fetch: ${method} ${url}`);
+      }),
+    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(
+      () => ({ note: useNote(NOTE_ID), shares: useShares(NOTE_ID), del: useDeleteGroup() }),
+      { wrapper: wrapper(queryClient) },
+    );
+    await waitFor(() => expect(result.current.note.data).toEqual(groupNote));
+    await waitFor(() => expect(result.current.shares.data).toEqual([]));
+
+    const pending = result.current.del.mutateAsync(GROUP.id);
+    await waitFor(() => expect(gate.release).toBeDefined());
+    // shares 還沒落定：note 那層不得已被失效
+    expect(invalidate.mock.calls.some(([arg]) => JSON.stringify(arg?.queryKey) === '["note"]')).toBe(false);
+    gate.release?.();
+    await pending;
+
+    await waitFor(() => expect(result.current.note.data).toEqual(personalNote));
+    expect(result.current.shares.data).toEqual([share]);
+    // note 的重抓發生在 shares 落定之後
+    expect(order.indexOf(`GET /api/notes/${NOTE_ID} (after)`)).toBeGreaterThan(order.indexOf("shares settled"));
   });
 
   it("成員三支：PUT {email,role}／PATCH :userId {role}／DELETE :userId，成功後 invalidate ['groups'] 與 ['notes']", async () => {
