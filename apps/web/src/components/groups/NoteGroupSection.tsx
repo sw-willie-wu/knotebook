@@ -29,7 +29,8 @@ type PendingTarget = string | null;
  *   有公開連結時註明會撤銷）→ `PUT …/group {groupId, role: "editor"}`。
  * - **群組筆記、我是該群組成員**：同一個下拉（目前群組被選中）＋「群組成員的權限」下拉。
  *   選「無」→ D15 確認 → `DELETE …/group`；選別的群組 → D16 確認 → `PUT`（role 一律 editor，
- *   規格落差 P27）；改權限 → 直接 `PUT` 同一個群組（server 只改 `group_role`、不清任何東西，不確認）。
+ *   spec §8.3 沒指定群組→群組送什麼 role；與個人→群組一致，唯讀的筆記搬過去會重設成可編輯，確認文案
+ *   明寫「可以開啟並編輯」——Willie 2026-09-27 裁決維持）；改權限 → 直接 `PUT` 同一個群組（server 只改 `group_role`、不清任何東西，不確認）。
  * - **群組筆記、我已不是成員（A1）**：群組名稱（唯讀）＋權限下拉＋「移出群組…」→ D15 確認。
  *
  * **個人筆記在「我所屬的群組」不是非空清單時整列不渲染**（Willie 2026-09-27 裁決 N4）：清單為空
@@ -58,7 +59,8 @@ type PendingTarget = string | null;
  *
  * **送出前檢查**（Willie 2026-09-27 裁決 M3）：三種送出（搬家、移出、改權限）都先
  * `useConfirmNoteGroupUnchanged` 重讀一次筆記；群組已在別處被改了就不送，面板重新載入並顯示一行提示。
- * 檢查到送出之間仍有 TOCTOU 窗口（見 plan 的【推】）。
+ * 檢查到送出之間仍有 TOCTOU 窗口：`PUT`／`DELETE …/group` 不收「預期目前群組」，server 擋不下過時的
+ * 送出（issue #169 提議加 `expectedGroupId` 條件寫入；`docs/known-limitations.md` 有記）。
  *
  * **焦點還原只走一個 effect**（gate r1 I1）：確認列的成功、失敗、取消、檢查不過，以及改權限的
  * 失敗與檢查不過，都只是舉旗，等
@@ -155,6 +157,17 @@ export function NoteGroupSection({ note }: { note: NoteDto }) {
     if (pending === null) return;
     setError(null);
     setNotice(null);
+    // 確認列懸掛期間，筆記已在別處被搬到這個目標（或已被移出），而焦點重抓把 `current` 對齊了
+    // （final review Minor 2）。這時送出前檢查會過（它比的是**現在**的 `currentId`），但送出去是錯的：
+    // 搬家會以 `role: "editor"` 覆寫別處設定的權限（同群組 PUT 只改 role），移出則回 409。
+    // 使用者讀到的確認文案描述的是舊狀態，所以比照送出前檢查不過的處理：不送、顯示「已在別處變更」、
+    // 焦點還原——而不是靜默收起確認列，讓人以為那是自己剛做成的。
+    if (pending === (currentId ?? "")) {
+      setPending(null);
+      setNotice(t("share.group.changedElsewhere"));
+      setRefocus("any");
+      return;
+    }
     try {
       if (!(await stillCurrent())) {
         setRefocus("any");
@@ -183,6 +196,8 @@ export function NoteGroupSection({ note }: { note: NoteDto }) {
         return;
       }
       await setRole.mutateAsync({ groupId: current.id, role });
+      // 送出期間權限下拉是 disabled，瀏覽器已把焦點從它身上拿走；成功後還回去（final review Minor 1）。
+      setRefocus("role");
     } catch (err) {
       setError(errorMessage(t, err));
       setRefocus("role");
@@ -256,7 +271,7 @@ export function NoteGroupSection({ note }: { note: NoteDto }) {
       {title}
 
       {current && !isMember ? (
-        // A1：我已不是這個群組的成員——不能從這裡搬去別的群組（規格落差 P31），只能改權限或移出。
+        // A1：我已不是這個群組的成員——不能從這裡搬去別的群組（spec §8.3 A1 字面只給「群組名稱（唯讀）＋權限下拉＋移出群組」；要先移出再搬），只能改權限或移出。
         <div className="flex items-center gap-2">
           <p className="min-w-0 flex-1 truncate text-sm">{t("share.group.formerGroup", { name: current.name })}</p>
           {roleSelect}

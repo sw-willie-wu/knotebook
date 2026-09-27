@@ -28,8 +28,9 @@ import type { PublicLinkDto } from "./public-link";
  * ⚠ **`useSetNoteGroupRole` 的競態**（gate r1 M3）：server 以交易內讀到的 `group_id` 分流
  * （`routes/notes.ts:1269`）。若別的分頁已把這篇移出群組或搬到別的群組，而本面板還顯示舊群組，這支
  * 「只改權限」的 PUT 會走**換群組**分支——刪逐人分享、撤公開連結、把筆記搬回舊群組。元件送出前以
- * `useConfirmNoteGroupUnchanged` 擋掉大部分情形；檢查到送出之間的窗口仍在（根因是同一支端點兩種語意，
- * server 契約；建議見 plan）。
+ * `useConfirmNoteGroupUnchanged` 擋掉大部分情形；檢查到送出之間的窗口仍在（根因是同一支端點兩種語意、
+ * 又不收「預期目前群組」，屬 server 契約；issue #169 提議加 `expectedGroupId` 條件寫入，
+ * `docs/known-limitations.md` 有記）。
  */
 function writeNote(queryClient: QueryClient, note: NoteDto): void {
   queryClient.setQueryData(["note", note.id], note);

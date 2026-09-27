@@ -1395,16 +1395,22 @@ describe("所屬群組列（#103 PR3）", () => {
     expect(screen.getByRole("radio", { name: /Private/ })).not.toBeChecked();
   });
 
-  it("群組筆記改「Read-only」→ 同群組 PUT {role:'viewer'}、不確認；公開連結不被清（server 同群組只改 role）", async () => {
+  it("群組筆記改「Read-only」→ 同群組 PUT {role:'viewer'}、不確認；公開連結不被清（server 同群組只改 role）；成功後焦點回權限下拉（final review Minor 1）", async () => {
     const calls = stubMoveFetch({ note: GROUP_NOTE, groups: [MY_GROUP_MEMBER], link: { token: TOKEN, slug: null } });
     renderLive(GROUP_NOTE);
     await openDialog();
-    await waitFor(() => expect(screen.getByRole("radio", { name: /Public link/ })).toBeChecked());
+    const publicRadio = screen.getByRole("radio", { name: /Public link/ });
+    await waitFor(() => expect(publicRadio).toBeChecked());
     const roleSelect = await screen.findByRole("combobox", { name: "What group members can do" });
     expect(roleSelect).toHaveValue("editor");
+    // 焦點先在別處：jsdom 不會在 disabled 時把焦點移走，也不會因 change 事件把焦點帶到權限下拉，
+    // 所以「成功後焦點在權限下拉」只能來自元件自己的還原。
+    publicRadio.focus();
+    expect(document.activeElement).toBe(publicRadio);
 
     fireEvent.change(roleSelect, { target: { value: "viewer" } });
     await waitFor(() => expect(roleSelect).toHaveValue("viewer"));
+    await waitFor(() => expect(document.activeElement).toBe(roleSelect));
     expect(calls.filter((c) => c.url === NOTE_GROUP_URL)).toEqual([
       { method: "PUT", url: NOTE_GROUP_URL, body: { groupId: GROUP_ID, role: "viewer" } },
     ]);
@@ -1430,7 +1436,7 @@ describe("所屬群組列（#103 PR3）", () => {
     expect(roleSelect).toHaveValue("editor");
   });
 
-  it("群組→群組（原本唯讀、已公開）：確認多一句「原群組成員失去存取」與撤銷連結（A10）、提交鈕 destructive；PUT 新群組、權限重設為 editor（P27）", async () => {
+  it("群組→群組（原本唯讀、已公開）：確認多一句「原群組成員失去存取」與撤銷連結（A10）、提交鈕 destructive；PUT 新群組、權限重設為 editor（群組→群組一律送 editor，Willie 2026-09-27 裁決）", async () => {
     const readOnly: NoteDto = { ...GROUP_NOTE, group: { id: GROUP_ID, name: "Workshop A", role: "viewer" } };
     const calls = stubMoveFetch({ note: readOnly, groups: [MY_GROUP_MEMBER, MY_GROUP_B], link: { token: TOKEN, slug: null } });
     renderLive(readOnly);
@@ -1604,6 +1610,54 @@ describe("所屬群組列（#103 PR3）", () => {
     expect(calls.some((c) => c.url === NOTE_GROUP_URL)).toBe(false);
     expect(client.getQueryData<NoteDto>(["note", NOTE.id])?.group?.id).toBe(GROUP_B_ID);
     await waitFor(() => expect(groupSelect()).toHaveValue(GROUP_B_ID));
+  });
+
+  it("確認列懸掛期間筆記已在別處搬進同一個目標（唯讀），且焦點重抓已把面板對齊 → 按「Move to group」不送 PUT（否則會把唯讀覆寫成 editor）、顯示提示、焦點回下拉（final review Minor 2）", async () => {
+    const inBReadOnly: NoteDto = { ...NOTE, group: { id: GROUP_B_ID, name: "Workshop B", role: "viewer" } };
+    const calls = stubMoveFetch({ note: NOTE, groups: [MY_GROUP_ADMIN, MY_GROUP_B] });
+    const client = renderLive(NOTE);
+    await openDialog();
+    fireEvent.change(await readyGroupSelect(), { target: { value: GROUP_B_ID } });
+    const submit = await screen.findByRole("button", { name: "Move to group" });
+    // 別的分頁已把它搬進 B、設成唯讀；本面板的 note 由焦點重抓對齊（`current` 變成 B），確認列仍懸掛。
+    calls.setServerNote(inBReadOnly);
+    act(() => {
+      client.setQueryData(["note", NOTE.id], inBReadOnly);
+    });
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "What group members can do" })).toHaveValue("viewer"));
+    fireEvent.click(submit);
+
+    expect(
+      await screen.findByText("This note's group was changed somewhere else, so this panel has been reloaded. Check it and try again."),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Move to group" })).not.toBeInTheDocument();
+    expect(calls.some((c) => c.url === NOTE_GROUP_URL)).toBe(false);
+    expect(screen.getByRole("combobox", { name: "What group members can do" })).toHaveValue("viewer");
+    expect(groupSelect()).toHaveValue(GROUP_B_ID);
+    await waitFor(() => expect(document.activeElement).toBe(groupSelect()));
+  });
+
+  it("同上的移出形：確認列懸掛期間筆記已在別處移出、面板已對齊成個人筆記 → 按「Remove from group」不送 DELETE（否則 409）、顯示提示（final review Minor 2）", async () => {
+    const personal: NoteDto = { ...GROUP_NOTE, group: null };
+    const calls = stubMoveFetch({ note: GROUP_NOTE, groups: [MY_GROUP_MEMBER] });
+    const client = renderLive(GROUP_NOTE);
+    await openDialog();
+    fireEvent.change(await readyGroupSelect(), { target: { value: "" } });
+    const submit = await screen.findByRole("button", { name: "Remove from group" });
+    calls.setServerNote(personal);
+    act(() => {
+      client.setQueryData(["note", NOTE.id], personal);
+    });
+    await waitFor(() => expect(screen.queryByRole("combobox", { name: "What group members can do" })).not.toBeInTheDocument());
+    fireEvent.click(submit);
+
+    expect(
+      await screen.findByText("This note's group was changed somewhere else, so this panel has been reloaded. Check it and try again."),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Remove from group" })).not.toBeInTheDocument();
+    expect(calls.some((c) => c.url === NOTE_GROUP_URL)).toBe(false);
+    expect(screen.queryByText("Something went wrong. Please try again.")).not.toBeInTheDocument();
+    expect(groupSelect()).toHaveValue("");
   });
 
   it("PUT 500 → 錯誤訊息在失敗對帳的重抓結束**之前**就出現（onError 不得 await 重抓，gate r2 M1）", async () => {

@@ -1,11 +1,13 @@
-import { expect, test, type Browser, type Page } from "@playwright/test";
+import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { ADMIN, createNote, editorLocator, loginAs, randomEmail } from "./helpers.js";
 
 /**
  * #103 PR3（spec §11.3 第 2 條）：A 有一篇逐人分享給 C、且開了公開連結的個人筆記 → 從分享面板的
  * 「所屬群組」列搬進群組（確認文案列出 C 與「撤銷公開連結」）→ C 被踢、公開網址 404 → 分享面板
- * 變兩態 → A 把 B 加進群組 → B 可編輯 → A 改唯讀 → B 編輯器變唯讀（不斷線）→ A 移出群組 → B 被踢、
+ * 變兩態 → A 把 B 加進群組 → B 可編輯 → A 改唯讀 → B 留在該頁、編輯器變唯讀 → A 移出群組 → B 被踢、
  * 該篇從 B 的側欄消失。斷言形沿用 03（10 秒 SLA、exact toast）與 11（公開端點 toPass 輪詢）。
+ * 「B 留在該頁」只斷言網址與編輯器狀態：分不出「沒斷線」與「斷線後又重連」，所以這支不宣稱前者。
+ * 結束時（含失敗）刪掉這支建的群組，不讓 admin 留在 `E2E Move Group …` 裡。
  */
 
 const TEMP_PASSWORD = "e2e-second-user-temp-pw";
@@ -27,6 +29,20 @@ async function createUser(adminPage: Page, email: string, displayName: string): 
   await expect(adminPage).toHaveURL(/\/$/);
 }
 
+/**
+ * 刪掉名為 `name` 的群組（final review T5-M4）。走 API 而不是 15 的 UI 路徑（側欄 ⋮ → Delete group）：
+ * 這段在 `finally` 裡跑，失敗時頁面可能停在任何狀態（分享面板開著、確認列懸掛），UI 步驟不可靠。
+ * `context.request` 帶該 context 的 session cookie。回傳是否找到並刪掉。
+ */
+async function deleteGroupNamed(context: BrowserContext, name: string): Promise<boolean> {
+  const list = await context.request.get("/api/groups");
+  expect(list.status()).toBe(200);
+  const group = ((await list.json()) as Array<{ id: string; name: string }>).find((g) => g.name === name);
+  if (!group) return false;
+  expect((await context.request.delete(`/api/groups/${encodeURIComponent(group.id)}`)).status()).toBe(204);
+  return true;
+}
+
 /** 新 context 首登強改密，停在 "/"（同 03／15）。 */
 async function firstLogin(browser: Browser, email: string): Promise<{ page: Page; close: () => Promise<void> }> {
   const context = await browser.newContext();
@@ -45,6 +61,8 @@ test("所屬群組：個人筆記搬進群組（清逐人分享與公開連結�
   test.setTimeout(180_000);
   const adminContext = await browser.newContext();
   const closers: Array<() => Promise<void>> = [];
+  const groupName = `E2E Move Group ${Date.now()}`;
+  let passed = false;
   try {
     const adminPage = await adminContext.newPage();
     await loginAs(adminPage, ADMIN.email, ADMIN.newPassword);
@@ -56,7 +74,6 @@ test("所屬群組：個人筆記搬進群組（清逐人分享與公開連結�
     await createUser(adminPage, guestEmail, "E2E Share Guest");
 
     // ── A：建群組（側欄工作坊「＋」）──────────────────────────────────
-    const groupName = `E2E Move Group ${Date.now()}`;
     const sidebar = adminPage.getByRole("complementary");
     await sidebar.getByRole("button", { name: "New group", exact: true }).click();
     const groupDialog = adminPage.getByRole("dialog", { name: "New group" });
@@ -131,7 +148,7 @@ test("所屬群組：個人筆記搬進群組（清逐人分享與公開連結�
     await expect(memberBadge.getByText("Editor", { exact: true })).toBeVisible();
     await expect(editorLocator(member.page)).toBeVisible();
 
-    // ── A：改唯讀 → B 不斷線、編輯器變唯讀 ───────────────────────────────
+    // ── A：改唯讀 → B 留在該頁、編輯器變唯讀 ─────────────────────────────
     await adminPage.getByRole("button", { name: "Share", exact: true }).click();
     await expect(shareDialog).toBeVisible();
     const levelSelect = shareDialog.getByRole("combobox", { name: "What group members can do" });
@@ -152,8 +169,18 @@ test("所屬群組：個人筆記搬進群組（清逐人分享與公開連結�
     await expect(member.page.getByText("You no longer have access to this note.", { exact: true })).toBeVisible({ timeout: 10_000 });
     await expect(member.page).toHaveURL(/\/$/, { timeout: 10_000 });
     await expect(memberSidebar.getByRole("link", { name: title })).toHaveCount(0, { timeout: 10_000 });
+    passed = true;
   } finally {
-    for (const close of closers) await close();
-    await adminContext.close();
+    // 清理不得蓋掉真正的失敗：主體已失敗時清理的錯誤吞掉（`finally` 裡再 throw 會取代原本的錯誤）；
+    // 主體通過時清理失敗照常讓測試紅——群組必須找得到、刪得掉。
+    try {
+      const deleted = await deleteGroupNamed(adminContext, groupName);
+      if (passed) expect(deleted).toBe(true);
+    } catch (err) {
+      if (passed) throw err;
+    } finally {
+      for (const close of closers) await close();
+      await adminContext.close();
+    }
   }
 });
