@@ -29,6 +29,7 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "@/components/ui/toast";
 import { copyText } from "@/lib/clipboard";
 import { ManualCopyField } from "@/components/ManualCopyField";
+import { NoteGroupSection } from "@/components/groups/NoteGroupSection";
 
 /** ApiFail → errors.<code>；其餘 → errors.fallback。與 NoteList/TitleInput 同一套對映（各檔各自一份，
  * 是既有慣例——見那兩處的說明，這裡不再重複抽象）。 */
@@ -365,8 +366,8 @@ function AccessSection({ note, onClose }: { note: NoteDto; onClose: () => void }
   const queriesFailed = linkQuery.isError || sharesQuery.isError;
 
   // 群組筆記的 latch 要等**本次掛載後**的重抓：`AccessSection` 以 `note.group?.id` 為 key，
-  // 個人筆記在別的分頁被搬進群組時（PR3 前唯一的路徑），note 常駐層先更新 → 這裡重掛，
-  // 但 public-link 快取還是搬家前的舊 token；拿它 latch 會把「群組內可見」誤述成「公開」
+  // 個人筆記被搬進群組時，note 常駐層更新 → 這裡重掛。本面板「所屬群組」列那條路徑會先把連結快取寫成 null；
+  // 別的分頁搬的那條路徑不會——public-link 快取還是搬家前的舊 token，拿它 latch 會把「群組內可見」誤述成「公開」
   // 而且 sticky 不自己修正。S5／D16 保證 server 那邊 token 已清，所以等一次
   // `isFetchedAfterMount` 就是對的資料。個人筆記維持原本「快取有就 latch」（觸發鈕已預抓）。
   // ⚠ 這條依賴「掛載時重抓」（refetchOnMount 對 stale 資料才生效）：`['public-link']`／`['shares']`
@@ -947,10 +948,17 @@ export function ShareDialog({ note }: ShareDialogProps) {
         </DialogHeader>
         {/* 內部自訂網址（原「連結」區塊：CopyLinkButton／SlugField）已下架
             （Willie 2026-09-17 產品決定）——要連到某篇筆記用 `[[標題]]` wikilink，
-            協作者本來就會在自己的工作區看到那篇筆記，不需要傳連結。分享面板
-            現在只剩一組「存取權」，不再需要 `divide-y` 分隔多組。 */}
-        {/* `key`：個人↔群組切換時整段重掛、selection 重新 latch（spec r4 Minor）。 */}
-        {open && <AccessSection key={note.group?.id ?? "personal"} note={note} onClose={() => setOpen(false)} />}
+            協作者本來就會在自己的工作區看到那篇筆記，不需要傳連結。#103 PR3 起面板有兩組：
+            「存取權」與「所屬群組」，用 `divide-y` 分隔。 */}
+        {/* `key`：個人↔群組切換時 AccessSection 整段重掛、selection 重新 latch（spec r4 Minor）。
+            `NoteGroupSection` 是它的**兄弟、不帶 key**（spec §8.3）：搬家成功時 AccessSection 重掛，
+            所屬群組列不能跟著重掛，否則確認狀態與焦點會一起消失。 */}
+        {open && (
+          <div className="divide-y divide-border">
+            <AccessSection key={note.group?.id ?? "personal"} note={note} onClose={() => setOpen(false)} />
+            <NoteGroupSection note={note} />
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );
