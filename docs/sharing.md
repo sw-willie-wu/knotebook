@@ -4,7 +4,7 @@ How a note gets from "only I can see this" to "anyone with the link can read it"
 
 ## The three access levels
 
-The Share dialog on a **personal** note (owner only) presents one choice with three levels (a note that belongs to a group has a different, two-level dialog — see [Notes in a group](#notes-in-a-group)):
+The Share dialog on a **personal** note (owner only) presents one choice with three levels (a note that belongs to a group has a different, two-level dialog — see [Notes in a group](#notes-in-a-group); both kinds of note also have a **Group** row at the bottom, on a personal note only once you belong to a group, see [Moving a note into or out of a group](#moving-a-note-into-or-out-of-a-group)):
 
 - **Private** — only the owner. Picking this while the note has **members** shows an inline confirmation first, because removing people is destructive; the confirmation text also mentions the public link (including any custom public URL) when one is on, and confirming removes both — the link first, then the members — so if the operation is interrupted partway the worst case is "some members remain", never "the link is still live". With no members, switching to Private simply turns the public link off, no confirmation step.
 - **Members only** — people the owner invites by email, each with a role (**editor** can change content, **viewer** can only read). Members use their own accounts, see the note in their sidebar, and get live collaboration. Picking this while a public link exists turns the link off; the member list is untouched.
@@ -16,12 +16,20 @@ The selector is an action trigger, not a live mirror: the choice you make sticks
 
 A note can belong to one group (see the **Workspace** section of the sidebar). For such a note the Share dialog has two levels instead of three:
 
-- **Group members** — every member of the group has access at the note's group level: can-edit by default; switching a note to read-only for the group is API-only for now (`PUT /api/notes/:id/group`, see the [API contract](./api.md)). There is no per-person sharing on a group note: the member list you see in the dialog is the group's member list, and inviting someone means adding them to the group (if you own the note and are a group admin you can add them right there; if you own it but aren't an admin, the dialog links to the group's settings page instead; if you've left the group, it just says so — as with personal notes, only the owner sees the Share dialog at all).
+- **Group members** — every member of the group has access at the note's group level: can edit by default, or read-only — the owner switches this in the dialog's **Group** row (see [Moving a note into or out of a group](#moving-a-note-into-or-out-of-a-group)). There is no per-person sharing on a group note: the member list you see in the dialog is the group's member list, and inviting someone means adding them to the group (if you own the note and are a group admin you can add them right there; if you own it but aren't an admin, the dialog links to the group's settings page instead; if you've left the group, it just says so — as with personal notes, only the owner sees the Share dialog at all).
 - **Public link** — exactly as for a personal note; switching back to **Group members** turns the link off.
 
 Groups themselves — creating one, renaming it, adding and removing people, leaving, deleting — live in **Settings → Groups**, with shortcuts on each group's `⋮` menu in the sidebar. Deleting a group turns its notes back into personal notes and keeps everyone's access as per-person shares at the note's group level. Being removed from a group (or leaving it) takes effect immediately, the same way a revoked share does.
 
-Moving an existing note into or out of a group is not in the UI yet; it is available through the API (`PUT`/`DELETE /api/notes/:id/group`, see the [API contract](./api.md)).
+## Moving a note into or out of a group
+
+The owner does this in the **Group** row at the bottom of the Share dialog. It lists only the groups you belong to — you can't move a note into a group you aren't a member of — so on a personal note the row only appears once you belong to at least one group. Right before sending anything, the dialog checks the note's group again: if it no longer matches what the dialog shows (because it was changed in another tab, or on another device), nothing is sent — the dialog reloads and tells you so. A change that lands after that check is not caught; see [Known limitations](./known-limitations.md).
+
+- **Into a group** — from a personal note, or from another group. Every member of that group can then open and edit the note. Moving it removes all of the note's per-person shares and turns off its public link, custom public URL included; the confirmation lists the people you invited, who lose their individual invites (they keep access only if they're also members of the group), and says so when the link will be turned off. Moving a note from one group to another also takes access away from members of the old group who aren't in the new one. Anyone who loses access this way is disconnected from the note.
+- **Out of its group** — pick **None**. The note becomes a personal note again and the group's members lose access; their open editors are disconnected. The public link, if there is one, stays on.
+- **Can edit / Read-only** — what the group's members can do. Switching to read-only disconnects nobody: members who have the note open stay connected, their editor becomes read-only, and they're told their access changed. Switching back to can-edit restores editing the same way.
+
+If you've left (or been removed from) the group that a note of yours is in, the note stays in that group, and the row shows the group's name instead of the list: you can still switch the level or take the note out of the group there, but not move it straight to another group.
 
 ## What a public link is
 
