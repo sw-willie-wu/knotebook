@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import type { NoteDto, ShareDto } from "@knotebook/shared";
@@ -1145,7 +1145,7 @@ function renderLive(note: NoteDto, opts: { live?: boolean } = {}) {
 /**
  * 可變的 server：`PUT …/group` 換群組時照 server 語意清光 shares 與公開連結（同群組只改 role）、
  * `DELETE …/group` 只把 group 設 null（A10：連結不動；筆記不在群組 → 409 `conflict`，同 server）。
- * `fail` 讓某個 `method url` 回錯誤；`hangLinkAfterMove` 讓搬家之後的 `GET public-link` 永不回應；
+ * `fail` 讓某個 `method url` 回錯誤（`failRoute` 可在中途追加）；`hangLinkAfterMove` 讓搬家之後的 `GET public-link` 永不回應；
  * `sharesDelayMs` 讓 `GET shares` 晚一點回來；`sharesDelayAfterWriteMs` 只讓**寫入之後**的 `GET shares` 晚回來；
  * 回傳值的 `materializeGroupDeletion(shares, remainingGroups?)` 模擬「別人刪了群組」（D8：筆記回個人、成員
  * 物化成逐人分享；給了 `remainingGroups` 就連 `GET /api/groups` 一起換掉——群組真的沒了）；
@@ -1170,6 +1170,7 @@ function stubMoveFetch(opts: {
   let moved = false;
   let wrote = false;
   let serverGroups = opts.groups;
+  const fail: Record<string, { status: number; code: string }> = { ...opts.fail };
   const groupName = (id: string) => (serverGroups as Array<{ id: string; name: string }>).find((g) => g.id === id)?.name ?? "Gone";
   const ok = (body?: unknown) =>
     Promise.resolve(fakeResponse({ ok: true, status: body === undefined ? 204 : 200, json: () => Promise.resolve(body) }));
@@ -1187,7 +1188,7 @@ function stubMoveFetch(opts: {
           shares = opts.materializeBeforeWrite;
         }
       }
-      const failure = opts.fail?.[`${method} ${url}`];
+      const failure = fail[`${method} ${url}`];
       if (failure) {
         return Promise.resolve(
           fakeResponse({ ok: false, status: failure.status, json: () => Promise.resolve({ error: { code: failure.code, message: "x" } }) }),
@@ -1246,6 +1247,10 @@ function stubMoveFetch(opts: {
     },
     setServerNote(next: NoteDto) {
       note = next;
+    },
+    /** 之後的 `method url` 改回這個錯誤（fix r1：讓「先載入成功、之後重抓失敗」可重現）。 */
+    failRoute(key: string, failure: { status: number; code: string }) {
+      fail[key] = failure;
     },
   });
 }
@@ -1332,7 +1337,9 @@ describe("所屬群組列（#103 PR3）", () => {
     fireEvent.change(await readyGroupSelect(), { target: { value: GROUP_ID } });
     const lead = await screen.findByText('Every member of "Workshop A" will be able to open and edit this note.');
     const box = lead.closest('[role="alert"]') as HTMLElement;
-    expect(within(box).queryByText(/will lose access/)).not.toBeInTheDocument();
+    // 確認框裡只有導言那一段（fix r1 Minor 1：舊寫法 `/will lose access/` 對不上 confirmRevokeShares 的英文，永不命中）
+    expect(box.querySelectorAll("p")).toHaveLength(1);
+    expect(within(box).queryByText(/individual invite/)).not.toBeInTheDocument();
     expect(within(box).queryByText(/public link/)).not.toBeInTheDocument();
     expect(within(box).getByRole("button", { name: "Move to group" })).not.toHaveClass("bg-destructive");
   });
@@ -1611,5 +1618,69 @@ describe("所屬群組列（#103 PR3）", () => {
     fireEvent.change(await readyGroupSelect(), { target: { value: GROUP_ID } });
     fireEvent.click(await screen.findByRole("button", { name: "Move to group" }));
     expect(await screen.findByText("Something went wrong. Please try again.")).toBeInTheDocument();
+  });
+
+  it("群組筆記、['groups'] 重抓失敗（手上已有資料）→ 送出前檢查的提示仍在、整列照常（fix r1 Minor 2）", async () => {
+    const inB: NoteDto = { ...GROUP_NOTE, group: { id: GROUP_B_ID, name: "Workshop B", role: "editor" } };
+    const calls = stubMoveFetch({ note: GROUP_NOTE, groups: [MY_GROUP_MEMBER, MY_GROUP_B] });
+    const client = renderLive(GROUP_NOTE);
+    await openDialog();
+    await readyGroupSelect();
+    const roleSelect = screen.getByRole("combobox", { name: "What group members can do" });
+    calls.setServerNote(inB); // 別的分頁已把它搬進 B
+    calls.failRoute("GET /api/groups", { status: 500, code: "internal" }); // 之後 ['groups'] 重抓失敗
+    fireEvent.change(roleSelect, { target: { value: "viewer" } });
+
+    await waitFor(() => {
+      expect(client.getQueryState(["groups"])?.status).toBe("error");
+      expect(
+        screen.getByText("This note's group was changed somewhere else, so this panel has been reloaded. Check it and try again."),
+      ).toBeInTheDocument();
+    });
+    expect(groupSelect()).toHaveValue(GROUP_B_ID);
+    expect(screen.getByRole("combobox", { name: "What group members can do" })).toBeInTheDocument();
+    expect(calls.some((c) => c.url === NOTE_GROUP_URL)).toBe(false);
+  });
+
+  it("個人筆記、['groups'] 重抓失敗（手上已有非空資料）→ 整列照常、不隱藏（fix r1 Minor 2）", async () => {
+    const calls = stubMoveFetch({ note: NOTE, groups: [MY_GROUP_ADMIN] });
+    const client = renderLive(NOTE);
+    await openDialog();
+    const select = await readyGroupSelect();
+    calls.failRoute("GET /api/groups", { status: 500, code: "internal" });
+    await act(() => client.invalidateQueries({ queryKey: ["groups"] }));
+
+    await waitFor(() => expect(client.getQueryState(["groups"])?.status).toBe("error"));
+    expect(screen.getByRole("heading", { name: "Group" })).toBeInTheDocument();
+    expect(groupSelect()).toBe(select);
+  });
+
+  it("提示從完整列移到只剩訊息的那一段時，role=\"status\" 節點不重建（key=\"messages\"，gate r4 N1）", async () => {
+    const calls = stubMoveFetch({ note: GROUP_NOTE, groups: [MY_GROUP_MEMBER] });
+    renderLive(GROUP_NOTE);
+    await openDialog();
+    await waitFor(() => expect(screen.getByRole("radio", { name: /Group members/ })).toBeChecked());
+    const roleSelect = await screen.findByRole("combobox", { name: "What group members can do" });
+    const notice = "This note's group was changed somewhere else, so this panel has been reloaded. Check it and try again.";
+    const seen: Array<{ node: Element; withHeading: boolean }> = [];
+    const observer = new MutationObserver(() => {
+      for (const node of Array.from(document.querySelectorAll('[role="status"]'))) {
+        if (node.textContent !== notice || seen.some((entry) => entry.node === node)) continue;
+        seen.push({ node, withHeading: screen.queryByRole("heading", { name: "Group" }) !== null });
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    try {
+      calls.materializeGroupDeletion([CAROL], []); // 群組真的沒了：整列最後會隱藏、只剩訊息
+      fireEvent.change(roleSelect, { target: { value: "viewer" } });
+      await waitFor(() => expect(screen.queryByRole("heading", { name: "Group" })).not.toBeInTheDocument());
+      await waitFor(() => expect(seen.length).toBeGreaterThan(0));
+    } finally {
+      observer.disconnect();
+    }
+    // 前提：提示先出現在完整列（有標題）裡、之後整列才隱藏——不成立的話本案沒有鑑別力。
+    expect(seen[0]?.withHeading).toBe(true);
+    expect(seen).toHaveLength(1);
+    expect(screen.getByText(notice)).toBe(seen[0]?.node);
   });
 });

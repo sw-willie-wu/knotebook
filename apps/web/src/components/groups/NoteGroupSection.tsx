@@ -35,6 +35,11 @@ type PendingTarget = string | null;
  * **個人筆記在「我所屬的群組」不是非空清單時整列不渲染**（Willie 2026-09-27 裁決 N4）：清單為空
  * 沒有東西可選；載入中與錯誤也不渲染，否則這一列會先閃出來再消失（側欄通常已經載好 `['groups']`，
  * 載入中的窗口很短；錯誤由側欄工作坊段顯示）。群組筆記一定有目前的群組，照常渲染（含 A1）。
+ * **「成功」看的是手上有沒有資料，不是 `status`**（fix r1 Minor 2）：已載入過的 `['groups']` 重抓
+ * 失敗時 react-query 把 `status` 改成 `error` 但保留 `data`。這時照舊用那份資料渲染整列——不隱藏
+ * 個人筆記的列、群組筆記也不切到錯誤分支。否則送出前檢查不過（它會失效 `['groups']`）若恰好碰上重抓
+ * 失敗，提示會跟著整列一起消失（違反下面的例外），懸掛中的確認列也會憑空不見。錯誤分支因此只在
+ * 「從沒載入成功過」時出現；那時畫面上沒有任何控制項，不可能已有 `notice`／`error`，所以它不渲染訊息。
  * **例外：隱藏時若有提示或錯誤訊息，只渲染訊息那一段**（gate r3 I1）。典型情境：群組在別處被刪、
  * 我又沒有別的群組——送出前檢查把 note 對齊成個人筆記、`['groups']` 重抓成 `[]`，整列該隱藏了，但
  * 「已在別處被變更」的提示正是這時候要讓人看見的。`notice`／`error` 只由使用者的操作產生，所以不會
@@ -88,12 +93,14 @@ export function NoteGroupSection({ note }: { note: NoteDto }) {
 
   const current = note.group;
   const groups = groupsQuery.data ?? [];
+  /** 手上有群組清單（含「重抓失敗但保留舊資料」）；見檔頭 fix r1 Minor 2。 */
+  const groupsKnown = groupsQuery.data !== undefined;
   const isMember = current !== null && groups.some((group) => group.id === current.id);
   const busy = checking || move.isPending || setRole.isPending || remove.isPending;
   const shares = sharesQuery.data ?? [];
   const token = linkQuery.data?.token ?? null;
   const dataKnown = sharesQuery.isSuccess && linkQuery.isSuccess;
-  const hidden = current === null && !(groupsQuery.isSuccess && groups.length > 0);
+  const hidden = current === null && !(groupsKnown && groups.length > 0);
 
   // 見檔頭「焦點還原只走一個 effect」。成功路徑要等到下拉真的在場：A1 移出成功時，mutation 的
   // `isPending → false` 可能比 note 換成個人筆記那次重繪先到，那一刻畫面上還是 A1 的外層鈕（稍後
@@ -216,7 +223,7 @@ export function NoteGroupSection({ note }: { note: NoteDto }) {
       </section>
     );
   }
-  if (groupsQuery.isError) {
+  if (groupsQuery.isError && !groupsKnown) {
     return (
       <section className="space-y-2 py-4 first:pt-0 last:pb-0">
         {title}
@@ -253,7 +260,8 @@ export function NoteGroupSection({ note }: { note: NoteDto }) {
         <div className="flex items-center gap-2">
           <p className="min-w-0 flex-1 truncate text-sm">{t("share.group.formerGroup", { name: current.name })}</p>
           {roleSelect}
-          <Button ref={removeRef} type="button" variant="outline" size="sm" disabled={busy} onClick={() => choose("")}>
+          {/* 與權限下拉同列 → default size（`button.tsx` 檔頭：「與輸入框同列」用 default）。 */}
+          <Button ref={removeRef} type="button" variant="outline" disabled={busy} onClick={() => choose("")}>
             {t("share.group.removeFromGroupStart")}
           </Button>
         </div>
