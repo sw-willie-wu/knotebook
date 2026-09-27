@@ -540,7 +540,7 @@ describe("NoteList", () => {
       renderNoteList({ onCreateNote });
       const header = await screen.findByRole("button", { name: "My notes" });
       expect(header.querySelector("button")).toBeNull();
-      const plus = screen.getByRole("button", { name: "New note in My notes" });
+      const plus = screen.getByRole("button", { name: "New personal note" });
       expect(header.contains(plus)).toBe(false);
       expect(plus.parentElement).toBe(header.parentElement);
       expect(plus).toHaveClass(
@@ -559,6 +559,20 @@ describe("NoteList", () => {
       expect(onCreateNote.mock.calls[0]).toEqual([undefined]);
       fireEvent.click(screen.getByRole("button", { name: "New note in Workshop A" }));
       expect(onCreateNote).toHaveBeenLastCalledWith(GROUP_A.id);
+    });
+
+    it("群組取名「My notes」時，「我的筆記」的「＋」與該群組的「＋」可及名稱不同（#103 PR3）", async () => {
+      const onCreateNote = vi.fn();
+      const lookalike: GroupDto = { ...GROUP_A, name: "My notes" };
+      stubNotesFetch([OWNER_NOTE], [lookalike]);
+      renderNoteList({ onCreateNote });
+      const groupPlus = await screen.findByRole("button", { name: "New note in My notes" });
+      const personalPlus = screen.getByRole("button", { name: "New personal note" });
+      expect(personalPlus).not.toBe(groupPlus);
+      fireEvent.click(personalPlus);
+      expect(onCreateNote).toHaveBeenLastCalledWith(undefined);
+      fireEvent.click(groupPlus);
+      expect(onCreateNote).toHaveBeenLastCalledWith(lookalike.id);
     });
 
     it("useGroups pending：工作坊段標下顯示 Loading…，群組筆記暫依兜底列落段", async () => {

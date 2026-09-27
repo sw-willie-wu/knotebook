@@ -33,7 +33,8 @@
     "noMatch": "沒有符合搜尋的筆記。",
     "workspace": "工作坊",
     "newGroup": "新增群組",
-    "newNoteIn": "在 {{name}} 建立筆記"
+    "newNoteIn": "在 {{name}} 建立筆記",
+    "newPersonalNote": "新增個人筆記"
   },
   "roles": {
     "owner": "擁有者",
@@ -106,7 +107,24 @@
       "notMember": "你已不是此群組的成員。",
       "nonAdminHint": "要邀請共編者，請群組管理者將他加入群組。",
       "manageLink": "群組設定",
-      "add": "加入群組"
+      "add": "加入群組",
+      "sectionTitle": "所屬群組",
+      "selectLabel": "這篇筆記所屬的群組",
+      "none": "無（個人筆記）",
+      "roleLabel": "群組成員的權限",
+      "roleEditor": "可編輯",
+      "roleViewer": "唯讀",
+      "formerGroup": "屬於「{{name}}」",
+      "removeFromGroup": "移出群組",
+      "removeFromGroupStart": "移出群組…",
+      "confirmMoveIn": "「{{name}}」的所有成員都將可以開啟並編輯這篇筆記。",
+      "confirmMoveFrom": "「{{from}}」的成員將失去存取權（同時也在「{{to}}」的人除外）。",
+      "confirmRevokeShares_one": "你邀請的 {{count}} 個人會失去個別邀請（同時是「{{name}}」成員者仍可存取）：",
+      "confirmRevokeShares_other": "你邀請的 {{count}} 個人會失去個別邀請（同時是「{{name}}」成員者仍可存取）：",
+      "confirmRevokeLink": "公開連結將被關閉（含自訂公開網址）。",
+      "confirmMove": "移入群組",
+      "changedElsewhere": "這篇筆記的所屬群組已在別處被變更，面板已重新載入，請確認後再操作。",
+      "confirmLeave": "「{{name}}」的成員將失去這篇筆記的存取權。公開連結（若有）維持開啟。"
     }
   },
   "note": {

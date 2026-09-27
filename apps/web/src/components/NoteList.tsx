@@ -359,7 +359,7 @@ export function NoteList({ query, onCreateNote, createNotePending = false }: Not
           forceExpanded={searching}
           actions={
             <HeaderAddButton
-              label={t("sidebar.newNoteIn", { name: t("sidebar.myNotes") })}
+              label={t("sidebar.newPersonalNote")}
               onClick={() => onCreateNote?.(undefined)}
               disabled={createNotePending}
             />
