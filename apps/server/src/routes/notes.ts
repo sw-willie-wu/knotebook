@@ -901,7 +901,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
      * 這篇筆記目前不在記憶體裡、或提交者本身沒有該筆記的開啟中連線——一律 409 `not_loaded`，
      * 不落地任何寫入（沒有 `note_states` 回退路徑，收斂交由 client 重試，見 Task 7）。
      * `ok:true` 附帶的 `clock` 是本次寫入要 CAS 進 `notes.links_clock` 的候選值（LWW，見
-     * `notes/links.ts` 的 `attemptOnce` 說明）。
+     * `notes/tx/write-links.ts` 檔頭第 1 步）。
      *
      * `writeNoteLinks` 內部已處理 FK race 重試（一次）與 40001/40P01 → `"busy"`；這裡只需
      * 把 `"busy"` 映射成 409 `server_busy`，其餘未預期錯誤 log 後回 500（不吞給呼叫端猜）。
