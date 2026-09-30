@@ -28,6 +28,8 @@ import { createEditingRuntime } from "../src/notes/editing/runtime.js";
 export interface FreshDb {
   db: Db;
   pool: Pool;
+  /** 這顆測試資料庫的連線字串（#175：S14 小 pool 案要對同一顆資料庫另開 pool）。 */
+  url: string;
   /** 手動關閉 pool（非測試情境用）。在 test 內呼叫 freshDb() 不必自己叫這個——已用 onTestFinished 自動掛好。 */
   close: () => Promise<void>;
 }
@@ -108,7 +110,7 @@ export async function freshEmptyDb(): Promise<FreshDb> {
     // 不在 test context 內——呼叫方需自行呼叫回傳的 close()。
   }
 
-  return { db, pool, close };
+  return { db, pool, url: dbUrl.toString(), close };
 }
 
 /** 建一個全新的 database（隨機名）並跑完整 migration——一般整合測試的標準入口。
@@ -162,8 +164,12 @@ export function idxOfTag(tag: string): number {
  * ⚠ 執行協定比 drizzle 寬鬆一格：這裡逐段走 pg 的 simple protocol（一段可含多語句），
  * drizzle 走 extended protocol（一段一語句）——「harness 綠」不保證「drizzle 綠」，
  * 但每支 migration 最終都會被 freshDb/runMigrations 走過 drizzle 那條路，缺口有蓋。
+ *
+ * `fromIdx`（#175）：只重放 `fromIdx..upToIdx` 這一段——「先建到第 N-1 支、塞資料、再只跑第 N 支」用
+ * （`runMigrations` 會一路跑到最末支，停不在中間；對同一顆 DB 再從 0 重放會撞 `already exists`）。
+ * 預設 0＝從頭重放（既有呼叫端行為不變）。
  */
-export async function applyMigrationsThrough(pool: Pool, upToIdx: number): Promise<void> {
+export async function applyMigrationsThrough(pool: Pool, upToIdx: number, fromIdx = 0): Promise<void> {
   const journal = JSON.parse(readFileSync(path.join(drizzleDir, "meta", "_journal.json"), "utf8")) as {
     entries: Array<{ idx: number; when: number; tag: string }>;
   };
@@ -173,7 +179,10 @@ export async function applyMigrationsThrough(pool: Pool, upToIdx: number): Promi
     const available = journal.entries.map((entry) => entry.idx).join(", ");
     throw new Error(`applyMigrationsThrough: upToIdx=${upToIdx} 不存在於 journal（可用：${available}）`);
   }
-  const entries = journal.entries.filter((entry) => entry.idx <= upToIdx);
+  if (!journal.entries.some((entry) => entry.idx === fromIdx) || fromIdx > upToIdx) {
+    throw new Error(`applyMigrationsThrough: fromIdx=${fromIdx} 不存在或大於 upToIdx=${upToIdx}`);
+  }
+  const entries = journal.entries.filter((entry) => entry.idx >= fromIdx && entry.idx <= upToIdx);
 
   const client = await pool.connect();
   try {

@@ -6,23 +6,23 @@ import { autoSlugFromTitle, validateHandle, validateSlug } from "@knotebook/shar
 import { applyMigrationsThrough, freshDb, freshEmptyDb, idxOfTag, journalEntries } from "./helpers.js";
 import { runMigrations } from "../src/db/migrate.js";
 import { PgDialect, getTableConfig } from "drizzle-orm/pg-core";
-import { apiTokens, groupMembers, groups, notes, oauthClients, oauthCodes, oauthRequests } from "../src/db/schema.js";
+import { apiTokens, groupMembers, groupRoles, groups, noteRedirects, notes, oauthClients, oauthCodes, oauthRequests } from "../src/db/schema.js";
 
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
-/** drizzle 對 `schema.ts` 的序列化；宣告漂移守衛拿最新一支（0011）當比對基準。 */
-const snapshot0011 = JSON.parse(
-  readFileSync(path.join(drizzleDirForTest, "meta/0011_snapshot.json"), "utf8"),
+/** drizzle 對 `schema.ts` 的序列化；宣告漂移守衛拿最新一支（0012）當比對基準。 */
+const snapshot0012 = JSON.parse(
+  readFileSync(path.join(drizzleDirForTest, "meta/0012_snapshot.json"), "utf8"),
 ) as { tables: Record<string, { checkConstraints?: Record<string, { name: string; value: string }> }> };
 const pgDialect = new PgDialect();
 
 describe("runMigrations", () => {
-  it("migrate 兩次 idempotent 且 19 張表存在", async () => {
+  it("migrate 兩次 idempotent 且 21 張表存在", async () => {
     const { db, pool } = await freshDb();
     await runMigrations(db); // freshDb 已跑過一次——此為第二次
     const r = await pool.query(`select table_name from information_schema.tables where table_schema='public'`);
     const tableNames = r.rows.map(x => x.table_name);
-    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes", "note_ai_edits", "groups", "group_members"])
+    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes", "note_ai_edits", "groups", "group_members", "group_roles", "note_redirects"])
       expect(tableNames).toContain(t);
   });
 
@@ -1097,10 +1097,17 @@ describe("0009_api-tokens", () => {
       expect(names, i).toContain(i);
   });
 
-  it("schema.ts 的七個宣告沒有靜默漂移（四個 OAuth／token 宣告零 import；三張 #103 表的 CHECK 也在這裡逐字比對）", async () => {
+  it("schema.ts 的九個宣告沒有靜默漂移（四個 OAuth／token 宣告零 import；#103／#175 的四張表的 CHECK 也在這裡逐字比對）", async () => {
     // 比照 0008 的同族守衛：把 schema.ts 的宣告與 migration 造出來的 DB 對起來。
     // 沒有這一案的話，把 schema.ts 的四段 pgTable 整個刪掉，全套測試照樣綠——
     // 只有下一次 db:generate 會產出 DROP TABLE。
+    // 守到的（schema.ts ↔ DB）：欄名集合、「宣告的索引名在 DB 裡存在」、「宣告的 CHECK 名在 DB 裡存在」。
+    // 本案另比 schema.ts ↔ snapshot 的 CHECK 名集合與運算式（逐字）——那是 schema.ts ↔ snapshot，不是 ↔ DB。
+    // 守不到的（#175 Task 1 審查 r1 M2／r2 M1 實測存活）：索引的形狀（unique／partial）、PK 與 FK（含 schema.ts 刪掉
+    // `foreignKey` 宣告）、DB 裡多出一把 schema.ts 沒有的索引、DB（0012 SQL）裡的 CHECK 運算式與 schema.ts／snapshot
+    // 不一致（人工重排的 SQL 改錯運算式）——後者只有 0012 describe 的 DB 守衛案守到它逐條測過的那幾個組合。
+    // schema.ts ↔ snapshot 的完整等價（CHECK 以外）由 `drizzle-kit generate` 回「No schema changes」守（不看 DB）；
+    // migration-harness 的 3-way 案比的是同一份 SQL 走 harness 與走 drizzle 兩條路的結果，不是 schema.ts ↔ DB。
     const { pool } = await freshDb();
     const expectedColumns: Record<string, string[]> = {
       oauth_clients: ["client_id", "client_name", "redirect_uris", "created_at", "last_used_at"],
@@ -1121,11 +1128,16 @@ describe("0009_api-tokens", () => {
       oauth_requests: ["id", "client_id", "redirect_uri", "code_challenge", "scope", "state", "expires_at"],
       oauth_codes: ["code_hash", "client_id", "user_id", "scope", "redirect_uri", "code_challenge", "expires_at"],
       groups: ["id", "name", "created_by", "created_at"],
-      group_members: ["group_id", "user_id", "role", "created_at"],
+      group_members: ["group_id", "user_id", "role_id", "created_at"],
+      group_roles: [
+        "id", "group_id", "builtin", "name", "can_read", "can_create", "can_edit", "can_delete",
+        "can_manage_public_link", "can_manage_members", "can_manage_group", "created_at",
+      ],
+      note_redirects: ["old_path", "note_id", "expires_at", "created_at"],
       notes: [
         "id", "owner_id", "title", "slug", "slug_is_custom", "prev_slug", "legacy_slug", "public_token", "public_slug",
         "links_clock", "created_at", "updated_at", "last_edited_at", "last_edited_by", "last_edited_token_id",
-        "last_edited_agent_label", "deleted_at", "group_id", "group_role",
+        "last_edited_agent_label", "deleted_at", "group_id",
       ],
     };
 
@@ -1136,6 +1148,8 @@ describe("0009_api-tokens", () => {
       ["oauth_codes", oauthCodes],
       ["groups", groups],
       ["group_members", groupMembers],
+      ["group_roles", groupRoles],
+      ["note_redirects", noteRedirects],
       ["notes", notes],
     ] as const) {
       const cfg = getTableConfig(decl);
@@ -1166,7 +1180,7 @@ describe("0009_api-tokens", () => {
       // 名字仍在、DB 仍是舊值，上面每一條都綠——下一次 generate 才會靜默吐出一支
       // DROP/ADD CONSTRAINT。這個 PR 就踩過一次（長度上限 200↔64 的半套回滾）。
       // snapshot 是 drizzle 對 schema.ts 的序列化，逐字比對它＝真正的漂移守衛。
-      const snapshotChecks = snapshot0011.tables[`public.${table}`]?.checkConstraints ?? {};
+      const snapshotChecks = snapshot0012.tables[`public.${table}`]?.checkConstraints ?? {};
       expect(Object.keys(snapshotChecks).sort(), `${table} 的 CHECK 名集合`).toEqual(
         cfg.checks.map(c => c.name).sort()
       );
@@ -1223,11 +1237,12 @@ describe("0009_api-tokens", () => {
   });
 
   it("0011：套到既有資料上 group_id=null、group_role='editor'；三條 CHECK、兩條 CASCADE、兩條 SET NULL 生效", async () => {
-    const { pool, db } = await freshEmptyDb();
+    const { pool } = await freshEmptyDb();
     await applyMigrationsThrough(pool, idxOfTag("0010_ai-editing"));
     const owner = (await pool.query(`insert into users (email, handle, display_name) values ('m@x', 'm0011', 'M') returning id`)).rows[0].id;
     const preexisting = (await pool.query(`insert into notes (owner_id, slug) values ($1, 'pre-0011') returning id`, [owner])).rows[0].id;
-    await runMigrations(db);
+    // #175：停在 0011——runMigrations 會一路跑到 0012，而 0012 廢了 group_role、FK 改 RESTRICT。
+    await applyMigrationsThrough(pool, idxOfTag("0011_groups"), idxOfTag("0011_groups"));
 
     expect((await pool.query(`select group_id, group_role from notes where id = $1`, [preexisting])).rows[0]).toEqual({
       group_id: null,
@@ -1255,5 +1270,243 @@ describe("0009_api-tokens", () => {
     await pool.query(`delete from users where id = $1`, [creator]);
     expect((await pool.query(`select created_by from groups where id = $1`, [g2])).rows[0].created_by).toBeNull();
     expect((await pool.query(`select 1 from group_members where user_id = $1`, [creator])).rowCount).toBe(0);
+  });
+});
+
+/**
+ * #175 PR1：0012_groups-v2（spec §10）。五組 fixture（S／F2／F3／X1／X2）都跑在 §7-H harness 上：
+ * applyThrough(0011) → 塞 0011 形資料 → runMigrations（只剩 0012 pending）→ 逐欄比對。
+ * fixture 與預期值逐字取自 spec gate r1–r3 的實跑（`175-spec-gate-r{1,2,3}-report.md`）。
+ */
+describe("0012_groups-v2（#175）", () => {
+  const G = "11111111-1111-1111-1111-111111111111";
+  const H = "22222222-2222-2222-2222-222222222222";
+  const A = "00000000-0000-0000-0000-00000000000a";
+  const B = "00000000-0000-0000-0000-00000000000b";
+  const C = "00000000-0000-0000-0000-00000000000c";
+  const n = (suffix: string) => `aaaaaaaa-0000-0000-0000-0000000000${suffix}`;
+
+  async function migrateWith(fixtureSql: string): Promise<{ pool: import("pg").Pool }> {
+    const { pool, db } = await freshEmptyDb();
+    await applyMigrationsThrough(pool, idxOfTag("0011_groups"));
+    await pool.query(fixtureSql);
+    await runMigrations(db);
+    return { pool };
+  }
+  async function notesOf(pool: import("pg").Pool) {
+    const { rows } = await pool.query(
+      `select id, owner_id, group_id, slug, slug_is_custom, prev_slug, public_slug, public_token, legacy_slug from notes order by id`,
+    );
+    return rows as Array<Record<string, string | boolean | null>>;
+  }
+  async function redirectsOf(pool: import("pg").Pool) {
+    const { rows } = await pool.query(`select old_path, note_id from note_redirects order by old_path`);
+    return rows as Array<{ old_path: string; note_id: string }>;
+  }
+  const users3 = `insert into users (id, email, display_name, handle) values
+    ('${A}','a@x','A','alice'), ('${B}','b@x','B','bob'), ('${C}','c@x','C','carol');`;
+
+  it("S（spec §10.3）：群組內去重 meeting／meeting-3／meeting-2、個人 meeting-2 不動、轉址 4 列、群組筆記的 shares 與別名清空而個人筆記的 share／別名／prev 原樣保留、角色掛載", async () => {
+    const { pool } = await migrateWith(`${users3}
+      insert into groups (id, name, created_by) values ('${G}','G','${A}'), ('${H}','Empty','${A}');
+      insert into group_members (group_id, user_id, role) values ('${G}','${A}','admin'), ('${G}','${B}','member'), ('${H}','${A}','admin');
+      insert into notes (id, owner_id, title, slug, group_id, group_role, created_at, public_token, public_slug) values
+        ('${n("01")}','${A}','m','meeting','${G}','editor', now()-interval '3 day', null, null),
+        ('${n("02")}','${B}','m','meeting','${G}','viewer', now()-interval '2 day', null, null),
+        ('${n("03")}','${B}','m2','meeting-2','${G}','editor', now()-interval '1 day','tok1','m2pub'),
+        ('${n("04")}','${C}','c','carol-a1','${G}','editor', now(), null, null),
+        ('${n("05")}','${A}','p','meeting-2', null,'editor', now(), null, null);
+      -- 「不該動」方向（Task 1 審查 r1 I1）：個人筆記帶 share、公開別名、prev（prev 恰等於群組篇的 slug）
+      insert into notes (id, owner_id, title, slug, slug_is_custom, prev_slug, group_id, public_token, public_slug) values
+        ('${n("06")}','${A}','solo','solo', true,'meeting', null,'tokA','alice-pub');
+      insert into note_shares (note_id, user_id, role) values ('${n("01")}','${C}','viewer'), ('${n("06")}','${B}','editor');`);
+
+    const rows = await notesOf(pool);
+    expect(rows.map(r => [r.id, r.owner_id, r.group_id, r.slug, r.prev_slug, r.public_slug, r.public_token])).toEqual([
+      [n("01"), null, G, "meeting", null, null, null],
+      [n("02"), null, G, "meeting-3", null, null, null],
+      [n("03"), null, G, "meeting-2", null, null, "tok1"],
+      [n("04"), null, G, "carol-a1", null, null, null],
+      [n("05"), A, null, "meeting-2", null, null, null],
+      [n("06"), A, null, "solo", "meeting", "alice-pub", "tokA"],
+    ]);
+    expect(await redirectsOf(pool)).toEqual([
+      { old_path: "/n/alice/meeting", note_id: n("01") },
+      { old_path: "/n/bob/meeting", note_id: n("02") },
+      { old_path: "/n/bob/meeting-2", note_id: n("03") },
+      { old_path: "/n/carol/carol-a1", note_id: n("04") },
+    ]);
+    // 群組筆記 n01 的 share 被清（S5），個人筆記 n06 的留著
+    expect((await pool.query(`select note_id, user_id, role from note_shares order by note_id, user_id`)).rows).toEqual([
+      { note_id: n("06"), user_id: B, role: "editor" },
+    ]);
+    const { rows: m } = await pool.query(
+      `select gm.group_id, gm.user_id, r.builtin from group_members gm join group_roles r on r.id = gm.role_id order by 1, 2`,
+    );
+    expect(m).toEqual([
+      { group_id: G, user_id: A, builtin: "admin" },
+      { group_id: G, user_id: B, builtin: "member" },
+      { group_id: H, user_id: A, builtin: "admin" },
+    ]);
+    // 每個群組恰兩個內建角色（空群組 Empty 也有），name 恆 NULL；七旗標照 §10.2 步驟 2
+    const { rows: r } = await pool.query(
+      `select group_id, builtin, name, can_read, can_create, can_edit, can_delete, can_manage_public_link, can_manage_members, can_manage_group
+       from group_roles order by group_id, builtin`,
+    );
+    expect(r).toEqual([
+      { group_id: G, builtin: "admin", name: null, can_read: true, can_create: true, can_edit: true, can_delete: true, can_manage_public_link: true, can_manage_members: true, can_manage_group: true },
+      { group_id: G, builtin: "member", name: null, can_read: true, can_create: true, can_edit: true, can_delete: false, can_manage_public_link: false, can_manage_members: false, can_manage_group: false },
+      { group_id: H, builtin: "admin", name: null, can_read: true, can_create: true, can_edit: true, can_delete: true, can_manage_public_link: true, can_manage_members: true, can_manage_group: true },
+      { group_id: H, builtin: "member", name: null, can_read: true, can_create: true, can_edit: true, can_delete: false, can_manage_public_link: false, can_manage_members: false, can_manage_group: false },
+    ]);
+    // 轉址一個月（Q20）：expires_at 落在 now()+1 month 的 ±1 分鐘內
+    const { rows: e } = await pool.query(
+      `select bool_and(abs(extract(epoch from (expires_at - (now() + interval '1 month')))) < 60) as ok from note_redirects`,
+    );
+    expect(e[0].ok).toBe(true);
+  });
+
+  it("F2（gate r1 I1 反例）：被改名篇的原 owner 另有同名個人筆記 → migration 成功、bob 的群組篇 → meeting-2、個人 meeting-2 不動", async () => {
+    const { pool } = await migrateWith(`${users3}
+      insert into groups (id, name) values ('${G}','G');
+      insert into group_members (group_id, user_id, role) values ('${G}','${A}','admin'), ('${G}','${B}','member');
+      insert into notes (id, owner_id, title, slug, group_id, created_at) values
+        ('${n("01")}','${A}','m','meeting','${G}', now()-interval '3 day'),
+        ('${n("02")}','${B}','m','meeting','${G}', now()-interval '2 day'),
+        ('${n("06")}','${B}','p','meeting-2', null, now());`);
+    expect((await notesOf(pool)).map(r => [r.id, r.owner_id, r.group_id, r.slug])).toEqual([
+      [n("01"), null, G, "meeting"],
+      [n("02"), null, G, "meeting-2"],
+      [n("06"), B, null, "meeting-2"],
+    ]);
+    expect((await redirectsOf(pool)).map(x => x.old_path)).toEqual(["/n/alice/meeting", "/n/bob/meeting"]);
+  });
+
+  it("F3：legacy 保留、群組筆記 prev 清空、別名清空 token 保留、A1 篇在、轉址只有現行 slug 3 列；個人筆記的舊 prev 不動", async () => {
+    const { pool } = await migrateWith(`${users3}
+      insert into groups (id, name) values ('${G}','G');
+      insert into group_members (group_id, user_id, role) values ('${G}','${A}','admin'), ('${G}','${B}','member');
+      insert into notes (id, owner_id, title, slug, slug_is_custom, prev_slug, legacy_slug, group_id, created_at, public_token, public_slug) values
+        ('${n("01")}','${A}','m','plan', true,'old-plan','legacy-plan-x','${G}', now()-interval '3 day', null, null),
+        ('${n("02")}','${B}','m','plan', false, null, null,'${G}', now()-interval '2 day','tokB','bobpub'),
+        ('${n("03")}','${C}','c','a1-note', true,'a1-old', null,'${G}', now()-interval '1 day','tokC','carolpub'),
+        ('${n("07")}','${A}','x','other', true,'plan', null, null, now(), null, null);`);
+    expect((await notesOf(pool)).map(r => [r.id, r.owner_id, r.slug, r.slug_is_custom, r.prev_slug, r.public_slug, r.public_token, r.legacy_slug])).toEqual([
+      [n("01"), null, "plan", true, null, null, null, "legacy-plan-x"],
+      [n("02"), null, "plan-2", false, null, null, "tokB", null],
+      [n("03"), null, "a1-note", true, null, null, "tokC", null],
+      [n("07"), A, "other", true, "plan", null, null, null],
+    ]);
+    expect(await redirectsOf(pool)).toEqual([
+      { old_path: "/n/alice/plan", note_id: n("01") },
+      { old_path: "/n/bob/plan", note_id: n("02") },
+      { old_path: "/n/carol/a1-note", note_id: n("03") },
+    ]);
+  });
+
+  it("X1（gate r2）：較舊者（A1、custom、別名＋token）保留 spec；較新者跳過已佔的 -2 → spec-3；/n/carol/spec 轉址到較舊者", async () => {
+    const { pool } = await migrateWith(`${users3}
+      insert into groups (id, name) values ('${G}','G');
+      insert into group_members (group_id, user_id, role) values ('${G}','${A}','admin'), ('${G}','${B}','member');
+      insert into notes (id, owner_id, title, slug, slug_is_custom, group_id, created_at, public_token, public_slug) values
+        ('${n("01")}','${C}','s','spec', true,'${G}', now()-interval '3 day','tokC','carol-spec'),
+        ('${n("02")}','${B}','s','spec', false,'${G}', now()-interval '2 day', null, null),
+        ('${n("03")}','${A}','s2','spec-2', false,'${G}', now()-interval '1 day', null, null);`);
+    expect((await notesOf(pool)).map(r => [r.id, r.slug, r.slug_is_custom, r.public_slug, r.public_token])).toEqual([
+      [n("01"), "spec", true, null, "tokC"],
+      [n("02"), "spec-3", false, null, null],
+      [n("03"), "spec-2", false, null, null],
+    ]);
+    expect(await redirectsOf(pool)).toEqual([
+      { old_path: "/n/alice/spec-2", note_id: n("03") },
+      { old_path: "/n/bob/spec", note_id: n("02") },
+      { old_path: "/n/carol/spec", note_id: n("01") },
+    ]);
+  });
+
+  it("X2（gate r2 I-1 反例）：只寫現行 slug 的轉址；沒有 /n/alice/z（z 仍是個人筆記 P 的活網址）；B、C 的舊 prev 失效", async () => {
+    const { pool } = await migrateWith(`
+      insert into users (id, email, display_name, handle) values ('${A}','a@x','A','alice');
+      insert into groups (id, name) values ('${G}','G'), ('${H}','H');
+      insert into group_members (group_id, user_id, role) values ('${G}','${A}','admin'), ('${H}','${A}','admin');
+      insert into notes (id, owner_id, title, slug, slug_is_custom, prev_slug, group_id, created_at) values
+        ('${n("0a")}','${A}','A','x', true, null,'${G}', now()),
+        ('${n("0b")}','${A}','B','y', true,'x','${H}', now()-interval '1 day'),
+        ('${n("f0")}','${A}','P','z', true, null, null, now()),
+        ('${n("0c")}','${A}','C','w', true,'z','${G}', now());`);
+    expect(await redirectsOf(pool)).toEqual([
+      { old_path: "/n/alice/w", note_id: n("0c") },
+      { old_path: "/n/alice/x", note_id: n("0a") },
+      { old_path: "/n/alice/y", note_id: n("0b") },
+    ]);
+    expect((await notesOf(pool)).filter(r => r.prev_slug !== null)).toEqual([]);
+    expect((await notesOf(pool)).find(r => r.id === n("f0"))).toMatchObject({ owner_id: A, slug: "z" });
+  });
+
+  it("DB 守衛（spec §4.1／§4.2）：constraint 名逐一斷言（只斷 SQLSTATE 會假綠——gate r2 M-9）", async () => {
+    const { pool } = await migrateWith(`${users3}
+      insert into groups (id, name) values ('${G}','G'), ('${H}','H');
+      insert into group_members (group_id, user_id, role) values ('${G}','${A}','admin'), ('${H}','${B}','admin');
+      insert into notes (id, owner_id, title, slug, group_id) values ('${n("01")}','${A}','m','dup','${G}');`);
+    const role = async (g: string, b: string) =>
+      (await pool.query(`select id from group_roles where group_id = $1 and builtin = $2`, [g, b])).rows[0].id as string;
+    const memberRoleG = await role(G, "member");
+    const adminRoleH = await role(H, "admin");
+    const cases: Array<[string, unknown[], string, string]> = [
+      [`update group_roles set can_delete = false where group_id = $1 and builtin = 'admin'`, [G], "23514", "group_roles_admin_all_chk"],
+      [`insert into group_roles (group_id, name, can_read, can_edit) values ($1, 'r', false, true)`, [G], "23514", "group_roles_read_implied_chk"],
+      [`insert into group_roles (group_id, name, can_read, can_manage_public_link) values ($1, 'p', false, true)`, [G], "23514", "group_roles_read_implied_chk"],
+      [`insert into group_roles (group_id, name, can_read, can_create) values ($1, 'c', true, true)`, [G], "23514", "group_roles_create_needs_edit_chk"],
+      [`update group_roles set name = 'x' where id = $1`, [memberRoleG], "23514", "group_roles_name_chk"],
+      [`insert into group_roles (group_id) values ($1)`, [G], "23514", "group_roles_name_chk"],
+      [`insert into group_roles (group_id, name) values ($1, '')`, [G], "23514", "group_roles_name_len_chk"],
+      [`insert into group_roles (group_id, name) values ($1, repeat('x', 41))`, [G], "23514", "group_roles_name_len_chk"],
+      [`insert into group_roles (group_id, builtin) values ($1, 'owner')`, [G], "23514", "group_roles_builtin_chk"],
+      [`insert into group_roles (group_id, builtin, can_read, can_create, can_edit, can_delete, can_manage_public_link, can_manage_members, can_manage_group) values ($1, 'admin', true, true, true, true, true, true, true)`, [G], "23505", "group_roles_builtin_idx"],
+      [`update group_members set role_id = $1 where group_id = $2 and user_id = $3`, [adminRoleH, G, A], "23503", "group_members_role_fk"],
+      [`insert into notes (owner_id, title, slug, group_id) values ($1, 't', 'xor', $2)`, [A, G], "23514", "notes_owner_xor_group_chk"],
+      [`insert into notes (title, slug) values ('t', 'none')`, [], "23514", "notes_owner_xor_group_chk"],
+      [`insert into notes (title, slug, group_id) values ('t', 'dup', $1)`, [G], "23505", "notes_group_slug_idx"],
+      [`update notes set public_slug = 'p' where id = $1`, [n("01")], "23514", "notes_group_no_public_slug_chk"],
+      [`delete from groups where id = $1`, [G], "23503", "notes_group_id_groups_id_fk"],
+    ];
+    for (const [sql, params, code, constraint] of cases) {
+      await expect(pool.query(sql, params), sql).rejects.toMatchObject({ code, constraint });
+    }
+    // 自訂角色名：大小寫不同撞 group_roles_name_idx；兩個內建列 name 都 NULL 不互撞（上面 S 案已有兩列）
+    await pool.query(`insert into group_roles (group_id, name) values ($1, 'Reader')`, [G]);
+    await expect(pool.query(`insert into group_roles (group_id, name) values ($1, 'reader')`, [G])).rejects.toMatchObject({
+      code: "23505",
+      constraint: "group_roles_name_idx",
+    });
+    // 名稱長度上界本身合法（40 字）
+    await pool.query(`insert into group_roles (group_id, name) values ($1, repeat('y', 40))`, [G]);
+    // 仍有成員掛著的角色刪不掉（複合 FK 無 ON DELETE，§4.1；gate r1 A-N2）
+    await expect(pool.query(`delete from group_roles where id = $1`, [adminRoleH])).rejects.toMatchObject({
+      code: "23503",
+      constraint: "group_members_role_fk",
+    });
+    // 個人與群組同 slug 並存；沒有筆記、但**還有成員**的群組可刪（T5 的真實形），成員與角色隨之 CASCADE
+    await pool.query(`insert into notes (owner_id, title, slug) values ($1, 't', 'dup')`, [A]);
+    const countIn = async (table: string) =>
+      (await pool.query(`select count(*)::int as c from ${table} where group_id = $1`, [H])).rows[0].c as number;
+    expect(await countIn("group_members")).toBe(1);
+    await pool.query(`delete from groups where id = $1`, [H]);
+    expect([await countIn("group_members"), await countIn("group_roles")]).toEqual([0, 0]);
+    // note_redirects.note_id ON DELETE CASCADE（spec §4.3；審查 r1 M1）：0012 回填給 n01 的轉址隨筆記刪除消失
+    const redirectsOfN01 = async () =>
+      (await pool.query(`select old_path from note_redirects where note_id = $1`, [n("01")])).rows.map(r => r.old_path as string);
+    expect(await redirectsOfN01()).toEqual(["/n/alice/dup"]);
+    await pool.query(`delete from notes where id = $1`, [n("01")]);
+    expect(await redirectsOfN01()).toEqual([]);
+  });
+
+  it("0012 檔內無 CONCURRENTLY／行首 COMMIT（單一 tx 前提的輔助 grep，比照 0011）", () => {
+    const entry = journalEntries().find(e => e.tag.startsWith("0012"));
+    expect(entry, "0012 migration 必須存在").toBeDefined();
+    expect(entry!.tag).toBe("0012_groups-v2");
+    const sql = readFileSync(path.join(drizzleDirForTest, `${entry!.tag}.sql`), "utf8");
+    expect(sql.toUpperCase()).not.toContain("CONCURRENTLY");
+    expect(sql).not.toMatch(/^\s*COMMIT\s*;/im);
   });
 });
