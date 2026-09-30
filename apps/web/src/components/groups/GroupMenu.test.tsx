@@ -90,11 +90,28 @@ describe("GroupMenu", () => {
     const standard = screen.getByRole("button", { name: "Group actions for Workshop A" });
     expect(standard).toHaveClass("h-8", "w-8");
     expect(standard).not.toHaveClass("h-6");
+    // 設定頁的 ⋮ 常駐，不套 hover 浮出
+    expect(standard).not.toHaveClass("opacity-0");
     first.unmount();
     renderMenu(ADMIN_GROUP, () => fakeResponse(500), "sidebar");
     const compact = screen.getByRole("button", { name: "Group actions for Workshop A" });
     expect(compact).toHaveClass("h-6", "w-6");
     expect(compact).not.toHaveClass("h-8");
+    // class 斷言，不是行為斷言：jsdom 沒有 CSS，hover 浮出要在瀏覽器看
+    expect(compact).toHaveClass("opacity-0", "data-[state=open]:opacity-100");
+  });
+
+  // Radix 契約的斷言（trigger 開啟時帶 data-state="open"）；CSS 是否生效要瀏覽器看。
+  it("側欄版開選單時 trigger 帶 data-state=open（hover 浮出的「開著不消失」靠它）", async () => {
+    renderMenu(ADMIN_GROUP, () => fakeResponse(500), "sidebar");
+    const before = screen.getByRole("button", { name: "Group actions for Workshop A" });
+    expect(before).toHaveAttribute("data-state", "closed");
+    await openMenu("Workshop A");
+    // modal 選單開著時其他元素被 aria-hidden，取 trigger 要 hidden: true
+    expect(screen.getByRole("button", { name: "Group actions for Workshop A", hidden: true })).toHaveAttribute(
+      "data-state",
+      "open",
+    );
   });
 
   it("⋮ → 重新命名 → 取消：焦點回到 ⋮ 觸發鈕（不是掉到 body）", async () => {

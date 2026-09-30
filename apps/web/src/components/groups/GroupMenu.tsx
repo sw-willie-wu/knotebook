@@ -23,7 +23,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { EllipsisVertical } from "@/components/ui/icons";
+import { hoverReveal } from "@/components/ui/reveal";
 import { toast } from "@/components/ui/toast";
+import { cn } from "@/lib/utils";
 import { GroupNameDialog } from "./GroupNameDialog";
 
 function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
@@ -44,8 +46,8 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
  * 「成員與設定」／「查看成員」都導到 `/settings/groups/:id`，帶目前 location 當
  * `backgroundLocation`（與 `UserMenu` 開設定的做法相同），關閉設定 modal 時回得來。
  *
- * `size`：`"sidebar"`＝側欄段標的 24px（P21 只准側欄段標例外）；`"default"`＝標準 32px
- * `size="icon"`（設定頁列表等其他地方）。
+ * `size`：`"sidebar"`＝側欄群組列的 24px、hover 浮出（`ui/reveal.ts`；P21 只准側欄例外）；
+ * `"default"`＝設定頁的標準 32px `size="icon"`、常駐。
  *
  * 從 ⋮ 開出的三個對話框關閉時焦點還給 ⋮（`triggerRef`）；刪除／退出成功後這個 ⋮ 可能已
  * 隨群組段卸載，所以只在 `isConnected` 時才搶焦點，否則交給 Radix 預設。
@@ -116,7 +118,7 @@ export function GroupMenu({ group, size = "default" }: { group: GroupDto; size?:
             variant="ghost"
             size="icon"
             aria-label={t("groups.menu.label", { name: group.name })}
-            className={size === "sidebar" ? "h-6 w-6 shrink-0" : "shrink-0"}
+            className={size === "sidebar" ? cn("h-6 w-6 shrink-0", hoverReveal("grouprow")) : "shrink-0"}
           >
             <EllipsisVertical aria-hidden="true" className={size === "sidebar" ? "h-3.5 w-3.5" : "h-4 w-4"} />
           </Button>

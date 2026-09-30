@@ -691,14 +691,24 @@ describe("NoteList", () => {
       await waitFor(() => expect(document.activeElement).toBe(plus));
     });
 
-    it("群組段標常駐 ⋮（aria-label 含群組名），與「＋」同為段標 button 的兄弟", async () => {
+    // class 斷言，不是行為斷言：jsdom 沒有 CSS／hover，「真的滑過才浮出」要在瀏覽器看。
+    it("群組段標 ⋮（aria-label 含群組名）與「＋」同列、一起 hover 浮出（class 斷言）", async () => {
       stubNotesFetch([MY_GROUP_NOTE], [GROUP_A]);
       renderNoteList();
       const header = await screen.findByRole("button", { name: "Workshop A" });
       const menu = screen.getByRole("button", { name: "Group actions for Workshop A" });
       expect(menu.parentElement).toBe(header.parentElement);
       expect(screen.getByRole("button", { name: "New note in Workshop A" }).parentElement).toBe(header.parentElement);
-      expect(menu).not.toHaveClass("opacity-0");
+      expect(menu).toHaveClass(
+        "opacity-0",
+        "group-hover/grouprow:opacity-100",
+        "group-has-[:focus-visible]/grouprow:opacity-100",
+        "focus-visible:opacity-100",
+        "[@media(hover:none)]:opacity-100",
+        "data-[state=open]:opacity-100",
+      );
+      // 跟群組列走，不跟頂層段標走
+      expect(menu).not.toHaveClass("group-hover/section:opacity-100");
     });
 
     it("群組列前導槽：Users 平常顯示、hover／focus-within／觸控換成 chevron；button 名稱只有群組名", async () => {

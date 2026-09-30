@@ -10,6 +10,7 @@ import { useNotes } from "@/api/notes";
 import { useActiveNote } from "@/lib/active-note";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { hoverReveal } from "@/components/ui/reveal";
 import { ChevronRight, Plus, Users } from "@/components/ui/icons";
 import { EmptyState } from "@/components/EmptyState";
 
@@ -150,14 +151,8 @@ function HeaderAddButton({
       aria-label={label}
       onClick={onClick}
       disabled={disabled}
-      // 24px（spec §8.1；P21）。觸控裝置沒有 hover，Tailwind v4 的 group-hover 只在
-      // `@media (hover: hover)` 生效——`[@media(hover:none)]` 那條讓手機上常駐可見。
-      className={cn(
-        "h-6 w-6 shrink-0 opacity-0 transition-opacity focus-visible:opacity-100 [@media(hover:none)]:opacity-100",
-        scope === "section"
-          ? "group-hover/section:opacity-100 group-has-[:focus-visible]/section:opacity-100"
-          : "group-hover/grouprow:opacity-100 group-has-[:focus-visible]/grouprow:opacity-100",
-      )}
+      // 24px（spec §8.1；P21）。hover 浮出與觸控（`hover: none`）常駐見 `ui/reveal.ts`。
+      className={cn("h-6 w-6 shrink-0", hoverReveal(scope))}
     >
       <Plus aria-hidden="true" className="h-3.5 w-3.5" />
     </Button>
@@ -398,7 +393,7 @@ interface WorkspaceSectionProps {
 
 /**
  * 工作坊段（spec §8.1）：段標「＋」開新增群組對話框（§8.2），底下每個群組一段、段標右側
- * 「＋」（新筆記進該群組）與常駐 ⋮（`GroupMenu`）。對話框只在開啟時掛載，關閉時焦點還給
+ * 「＋」（新筆記進該群組）與 ⋮（`GroupMenu`；與「＋」一起 hover 浮出）。對話框只在開啟時掛載，關閉時焦點還給
  * 「＋」（`returnFocusRef`）。側欄渲染兩份（靜態＋抽屜），各份的 state 互不相干。
  */
 function WorkspaceSection({ searching, groupsQuery, groupSections, onCreateNote, createNotePending }: WorkspaceSectionProps) {
