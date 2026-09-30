@@ -1,9 +1,18 @@
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useLocation, useNavigate, useParams, type Location } from "react-router";
-import type { GroupDto, GroupMemberDto, GroupMemberRole } from "@knotebook/shared";
+import type { GroupDto, GroupMemberDto, GroupRoleDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
-import { useAddMember, useDeleteGroup, useGroupMembers, useGroups, useRemoveMember, useRenameGroup, useSetMemberRole } from "@/api/groups";
+import {
+  useAddMember,
+  useDeleteGroup,
+  useGroupMembers,
+  useGroupRoles,
+  useGroups,
+  useRemoveMember,
+  useRenameGroup,
+  useSetMemberRole,
+} from "@/api/groups";
 import { useSession } from "@/auth/useSession";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +27,7 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
 import { GROUP_NAME_MAX_LENGTH } from "@/components/groups/GroupNameDialog";
+import { roleLabel } from "@/lib/group-role";
 import { SettingsGroup, SettingsPage } from "./SettingsLayout";
 
 function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
@@ -35,7 +45,17 @@ interface SettingsLocationState {
   backgroundLocation?: Location;
 }
 
-/** 名稱行內編輯（admin）：outline「儲存名稱」，成功 toast、失敗行內 alert。 */
+/** 名單裡掛內建管理員角色的人數（spec §8.5「看 `builtin === "admin"` 計數」）。 */
+function countAdmins(members: GroupMemberDto[]): number {
+  return members.filter((member) => member.builtin === "admin").length;
+}
+
+/** 成員目前角色的顯示名：優先用 `GET …/roles` 的那一列（自訂角色要它的 `name`）；roles 還沒到時退回 `builtin`。 */
+function memberRoleLabel(t: (key: string) => string, roles: GroupRoleDto[], member: GroupMemberDto): string {
+  return roleLabel(t, roles.find((role) => role.id === member.roleId) ?? { builtin: member.builtin, name: null });
+}
+
+/** 名稱行內編輯（`canManageGroup`）：outline「儲存名稱」，成功 toast、失敗行內 alert。 */
 function NameSection({ group }: { group: GroupDto }) {
   const { t } = useTranslation();
   const renameGroup = useRenameGroup();
@@ -78,24 +98,32 @@ function NameSection({ group }: { group: GroupDto }) {
   );
 }
 
-/** 成員表：admin 有角色下拉與移除鈕（最後一位 admin 的列兩者 disabled＋title），member 唯讀。 */
-function MembersSection({ group, isAdmin }: { group: GroupDto; isAdmin: boolean }) {
+/**
+ * 成員表：`canManageMembers` 有角色下拉與移除鈕（最後一位管理員的列兩者 disabled＋title），否則唯讀。
+ * 角色下拉的選項與送出的值都是 `GET …/roles` 的**角色 id**（spec §8.5；gate r2 M-7：兩位管理員、沒有
+ * 一般成員的群組，一般成員角色的 id 只拿得到那裡）。下拉列全部角色、含內建管理員（不防升權，Q9）。
+ */
+function MembersSection({ group, canManageMembers }: { group: GroupDto; canManageMembers: boolean }) {
   const { t } = useTranslation();
   const membersQuery = useGroupMembers(group.id);
+  const rolesQuery = useGroupRoles(group.id);
   const setRole = useSetMemberRole(group.id);
   const removeMember = useRemoveMember(group.id);
   const addMember = useAddMember(group.id);
   const [email, setEmail] = useState("");
-  const [newRole, setNewRole] = useState<GroupMemberRole>("member");
+  // null＝還沒選過：用內建一般成員那一個的 id；roles 還沒到時不送 roleId（server 預設內建一般成員）
+  const [pickedRoleId, setPickedRoleId] = useState<string | null>(null);
   const [addError, setAddError] = useState<string | null>(null);
 
   const members = membersQuery.data ?? [];
-  const adminCount = members.filter((member) => member.role === "admin").length;
-  const isLastAdmin = (member: GroupMemberDto) => member.role === "admin" && adminCount === 1;
+  const roles = rolesQuery.data ?? [];
+  const adminCount = countAdmins(members);
+  const isLastAdmin = (member: GroupMemberDto) => member.builtin === "admin" && adminCount === 1;
+  const newRoleId = pickedRoleId ?? roles.find((role) => role.builtin === "member")?.id;
 
-  async function handleRole(member: GroupMemberDto, role: GroupMemberRole): Promise<void> {
+  async function handleRole(member: GroupMemberDto, roleId: string): Promise<void> {
     try {
-      await setRole.mutateAsync({ userId: member.userId, role });
+      await setRole.mutateAsync({ userId: member.userId, roleId });
     } catch (err) {
       toast({ title: errorMessage(t, err), variant: "destructive" });
     }
@@ -115,9 +143,9 @@ function MembersSection({ group, isAdmin }: { group: GroupDto; isAdmin: boolean 
     const trimmed = email.trim();
     if (trimmed.length === 0) return;
     try {
-      await addMember.mutateAsync({ email: trimmed, role: newRole });
+      await addMember.mutateAsync(newRoleId === undefined ? { email: trimmed } : { email: trimmed, roleId: newRoleId });
       setEmail("");
-      setNewRole("member");
+      setPickedRoleId(null);
     } catch (err) {
       setAddError(errorMessage(t, err));
     }
@@ -126,7 +154,7 @@ function MembersSection({ group, isAdmin }: { group: GroupDto; isAdmin: boolean 
   return (
     <SettingsGroup
       title={t("groups.detail.membersTitle")}
-      description={isAdmin ? t("groups.detail.membersDescriptionAdmin") : t("groups.detail.membersDescriptionMember")}
+      description={canManageMembers ? t("groups.detail.membersDescriptionAdmin") : t("groups.detail.membersDescriptionMember")}
     >
       {membersQuery.isPending ? (
         <p className="text-sm text-muted-foreground">{t("app.loading")}</p>
@@ -141,7 +169,7 @@ function MembersSection({ group, isAdmin }: { group: GroupDto; isAdmin: boolean 
               <th className="py-2 font-medium">{t("groups.detail.tableName")}</th>
               <th className="py-2 font-medium">{t("groups.detail.tableEmail")}</th>
               <th className="py-2 font-medium">{t("groups.detail.tableRole")}</th>
-              {isAdmin && <th className="py-2 text-right font-medium">{t("groups.detail.tableActions")}</th>}
+              {canManageMembers && <th className="py-2 text-right font-medium">{t("groups.detail.tableActions")}</th>}
             </tr>
           </thead>
           <tbody>
@@ -153,23 +181,31 @@ function MembersSection({ group, isAdmin }: { group: GroupDto; isAdmin: boolean 
                   {/* A8：成員彼此看得到 email——要收回就刪這一格與表頭 */}
                   <td className="py-2 text-muted-foreground">{member.email}</td>
                   <td className="py-2">
-                    {isAdmin ? (
+                    {canManageMembers ? (
                       <select
                         aria-label={t("groups.detail.roleLabel", { email: member.email })}
-                        value={member.role}
-                        disabled={locked || setRole.isPending}
+                        value={member.roleId}
+                        // roles 還沒到：只有目前角色那一個選項可顯示，先鎖住
+                        disabled={locked || setRole.isPending || roles.length === 0}
                         title={locked ? t("groups.detail.lastAdminHint") : undefined}
-                        onChange={(event) => void handleRole(member, event.target.value as GroupMemberRole)}
+                        onChange={(event) => void handleRole(member, event.target.value)}
                         className={SELECT_CLASS}
                       >
-                        <option value="admin">{t("groups.role.admin")}</option>
-                        <option value="member">{t("groups.role.member")}</option>
+                        {roles.length === 0 ? (
+                          <option value={member.roleId}>{memberRoleLabel(t, roles, member)}</option>
+                        ) : (
+                          roles.map((role) => (
+                            <option key={role.id} value={role.id}>
+                              {roleLabel(t, role)}
+                            </option>
+                          ))
+                        )}
                       </select>
                     ) : (
-                      t(`groups.role.${member.role}`)
+                      memberRoleLabel(t, roles, member)
                     )}
                   </td>
-                  {isAdmin && (
+                  {canManageMembers && (
                     <td className="py-2">
                       <div className="flex justify-end">
                         <Button
@@ -195,11 +231,11 @@ function MembersSection({ group, isAdmin }: { group: GroupDto; isAdmin: boolean 
 
       {/* disabled 的 Button 有 `disabled:pointer-events-none`，`title` 永遠浮不出來——提示要
           用看得見的文字（`title` 仍保留給 AT）。 */}
-      {isAdmin && adminCount === 1 && !membersQuery.isPending && (
+      {canManageMembers && adminCount === 1 && !membersQuery.isPending && (
         <p className="mt-2 text-xs text-muted-foreground">{t("groups.detail.lastAdminHint")}</p>
       )}
 
-      {isAdmin && (
+      {canManageMembers && (
         <>
           <form onSubmit={(event) => void handleAdd(event)} className="mt-4 flex items-center gap-2">
             <Input
@@ -213,12 +249,16 @@ function MembersSection({ group, isAdmin }: { group: GroupDto; isAdmin: boolean 
             />
             <select
               aria-label={t("groups.detail.addRoleLabel")}
-              value={newRole}
-              onChange={(event) => setNewRole(event.target.value as GroupMemberRole)}
+              value={newRoleId ?? ""}
+              disabled={roles.length === 0}
+              onChange={(event) => setPickedRoleId(event.target.value)}
               className={SELECT_CLASS}
             >
-              <option value="member">{t("groups.role.member")}</option>
-              <option value="admin">{t("groups.role.admin")}</option>
+              {roles.map((role) => (
+                <option key={role.id} value={role.id}>
+                  {roleLabel(t, role)}
+                </option>
+              ))}
             </select>
             <Button type="submit" variant="outline" disabled={addMember.isPending}>
               {t("groups.detail.add")}
@@ -235,40 +275,49 @@ function MembersSection({ group, isAdmin }: { group: GroupDto; isAdmin: boolean 
   );
 }
 
-/** 底部危險區：admin＝刪除群組、member＝退出群組；都二次確認，成功導回列表頁。 */
-function DangerSection({ group, isAdmin, backgroundLocation }: { group: GroupDto; isAdmin: boolean; backgroundLocation: Location | undefined }) {
+/**
+ * 危險動作的一個區塊：標題＋說明＋outline 觸發鈕＋二次確認對話框。`keepOpenOnError`：刪群組失敗
+ * （409 `group_not_empty`）時對話框留著（spec §8.6）；退出失敗（409 `last_admin`，競態後備）照舊關閉。
+ */
+function ConfirmSection({
+  title,
+  dialogTitle,
+  description,
+  confirm,
+  pending,
+  keepOpenOnError,
+  onConfirm,
+}: {
+  title: string;
+  dialogTitle: string;
+  description: string;
+  confirm: string;
+  pending: boolean;
+  keepOpenOnError: boolean;
+  onConfirm: () => Promise<void>;
+}) {
   const { t } = useTranslation();
-  const navigate = useNavigate();
-  const { user } = useSession();
-  const deleteGroup = useDeleteGroup();
-  const removeMember = useRemoveMember(group.id);
   const [open, setOpen] = useState(false);
 
   async function handleConfirm(): Promise<void> {
     try {
-      if (isAdmin) await deleteGroup.mutateAsync(group.id);
-      else if (user) await removeMember.mutateAsync(user.id);
+      await onConfirm();
       setOpen(false);
-      navigate("/settings/groups", { state: backgroundLocation ? { backgroundLocation } : undefined });
     } catch (err) {
       toast({ title: errorMessage(t, err), variant: "destructive" });
-      setOpen(false);
+      if (!keepOpenOnError) setOpen(false);
     }
   }
 
-  const title = isAdmin ? t("groups.delete.title") : t("groups.leave.title");
-  const description = isAdmin ? t("groups.delete.description", { name: group.name }) : t("groups.leave.description", { name: group.name });
-  const confirm = isAdmin ? t("groups.delete.confirm") : t("groups.leave.confirm");
-
   return (
-    <SettingsGroup title={isAdmin ? t("groups.detail.dangerTitle") : t("groups.detail.leaveTitle")} description={description}>
+    <SettingsGroup title={title} description={description}>
       <Dialog open={open} onOpenChange={setOpen}>
         <Button type="button" variant="outline" onClick={() => setOpen(true)}>
           {confirm}
         </Button>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{title}</DialogTitle>
+            <DialogTitle>{dialogTitle}</DialogTitle>
             <DialogDescription>{description}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -277,7 +326,7 @@ function DangerSection({ group, isAdmin, backgroundLocation }: { group: GroupDto
                 {t("home.cancel")}
               </Button>
             </DialogClose>
-            <Button type="button" variant="destructive" onClick={() => void handleConfirm()} disabled={deleteGroup.isPending || removeMember.isPending}>
+            <Button type="button" variant="destructive" onClick={() => void handleConfirm()} disabled={pending}>
               {confirm}
             </Button>
           </DialogFooter>
@@ -288,10 +337,75 @@ function DangerSection({ group, isAdmin, backgroundLocation }: { group: GroupDto
 }
 
 /**
- * `/settings/groups/:id`（spec §8.4）：admin 視角＝名稱行內可改、成員表（角色下拉、移除）、
- * 加人、底部刪除群組；member 視角＝名稱唯讀、成員表唯讀、退出群組。非成員／不存在／id
- * 不合法一律 `errors.not_found`（S4：三者同形，UI 不分辨）。`useGroups()` 決定我在這個
- * 群組的角色（`myRole`）——與側欄同一份快取。
+ * 底部兩個區塊，成功都導回列表頁：
+ * - `canManageGroup` → 刪除群組（PR1 只刪空群組，文案見 `groups.delete.description`）；
+ * - 不是最後一位管理員 → 退出群組（spec §8.2）。最後一位管理員看**成員名單**的 `builtin === "admin"`
+ *   計數（與成員表同一個 queryKey，共用快取、不多打一發）。名單 pending 時不渲染退出區；
+ *   名單 error 時照常渲染（算不出管理員人數就當不是最後一位），由 server 409 `last_admin` 兜底。
+ */
+function DangerSection({
+  group,
+  canManageGroup,
+  backgroundLocation,
+}: {
+  group: GroupDto;
+  canManageGroup: boolean;
+  backgroundLocation: Location | undefined;
+}) {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const { user } = useSession();
+  const membersQuery = useGroupMembers(group.id);
+  const deleteGroup = useDeleteGroup();
+  const removeMember = useRemoveMember(group.id);
+
+  const isLastAdmin = group.myRole?.builtin === "admin" && countAdmins(membersQuery.data ?? []) === 1;
+  const showLeave = group.myRole !== null && !membersQuery.isPending && !isLastAdmin;
+
+  function backToList(): void {
+    navigate("/settings/groups", { state: backgroundLocation ? { backgroundLocation } : undefined });
+  }
+
+  return (
+    <>
+      {canManageGroup && (
+        <ConfirmSection
+          title={t("groups.detail.dangerTitle")}
+          dialogTitle={t("groups.delete.title")}
+          description={t("groups.delete.description", { name: group.name })}
+          confirm={t("groups.delete.confirm")}
+          pending={deleteGroup.isPending}
+          keepOpenOnError
+          onConfirm={async () => {
+            await deleteGroup.mutateAsync(group.id);
+            backToList();
+          }}
+        />
+      )}
+      {showLeave && (
+        <ConfirmSection
+          title={t("groups.detail.leaveTitle")}
+          dialogTitle={t("groups.leave.title")}
+          description={t("groups.leave.description", { name: group.name })}
+          confirm={t("groups.leave.confirm")}
+          pending={removeMember.isPending || !user}
+          keepOpenOnError={false}
+          onConfirm={async () => {
+            if (!user) return;
+            await removeMember.mutateAsync(user.id);
+            backToList();
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+/**
+ * `/settings/groups/:id`（#103 spec §8.4；#175 spec §8.5）：**只看 `GroupDto` 的兩個管理旗標**——
+ * `canManageGroup`＝名稱行內可改＋刪除群組；`canManageMembers`＝成員表的角色下拉與移除、加人；
+ * 兩者都沒有＝名稱與成員表唯讀。不是最後一位管理員＝退出群組。非成員／不存在／id 不合法一律
+ * `errors.not_found`（S4：三者同形，UI 不分辨）。`useGroups()` 與側欄同一份快取。
  */
 export function SettingsGroupDetailSection() {
   const { t } = useTranslation();
@@ -318,7 +432,8 @@ export function SettingsGroupDetailSection() {
       </p>
     );
   }
-  const isAdmin = group.myRole === "admin";
+  const canManageMembers = group.canManageMembers;
+  const canManageGroup = group.canManageGroup;
 
   return (
     <div className="space-y-4">
@@ -330,9 +445,9 @@ export function SettingsGroupDetailSection() {
         ← {t("groups.detail.back")}
       </Link>
       <SettingsPage title={group.name}>
-        {isAdmin ? <NameSection key={group.name} group={group} /> : null}
-        <MembersSection group={group} isAdmin={isAdmin} />
-        <DangerSection group={group} isAdmin={isAdmin} backgroundLocation={backgroundLocation} />
+        {canManageGroup ? <NameSection key={group.name} group={group} /> : null}
+        <MembersSection group={group} canManageMembers={canManageMembers} />
+        <DangerSection group={group} canManageGroup={canManageGroup} backgroundLocation={backgroundLocation} />
       </SettingsPage>
     </div>
   );

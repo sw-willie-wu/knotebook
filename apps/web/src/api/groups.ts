@@ -1,31 +1,37 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient, type UseQueryResult } from "@tanstack/react-query";
-import type { GroupDto, GroupMemberDto, GroupMemberRole } from "@knotebook/shared";
+import type { GroupDto, GroupMemberDto, GroupRoleDto } from "@knotebook/shared";
 import { api } from "./client";
 
 /**
- * 群組資料層（#103 PR2）。八支端點全是 session-only（PAT／MCP 打不到，`routes/groups.ts`）。
+ * 群組資料層（#103 PR2；#175 PR1 起成員改掛角色 id、加 `GET …/roles`）。全部端點都是
+ * session-only（PAT／MCP 打不到，`routes/groups.ts`）。
  *
  * **invalidate 慣例**：任何群組 mutation 成功後同時 invalidate `['groups']` 與 `['notes']`——
- * 側欄的分段是「這篇筆記的 `group.id` 在不在 `useGroups()` 裡」（spec §3.3）與筆記清單
- * 交叉決定的：改名會改 `note.group.name`、刪群組會讓 `note.group` 變 null、退出群組會讓
- * 別人的群組筆記從清單消失。兩把都不失效，畫面會停在舊分段。`['groups']` 是
- * `groupMembersKey(id)`＝`['groups', id, 'members']` 的**前綴**，一次 invalidate 連成員名單
- * 一起涵蓋，不必逐把列。
+ * 側欄的分段是「這篇筆記的 `group.id` 在不在 `useGroups()` 裡」（spec §8.2）與筆記清單
+ * 交叉決定的：改名會改 `note.group.name`、退出群組會讓群組筆記從清單消失。兩把都不失效，
+ * 畫面會停在舊分段。`['groups']` 是 `groupMembersKey(id)`＝`['groups', id, 'members']` 與
+ * `groupRolesKey(id)`＝`['groups', id, 'roles']` 的**前綴**，一次 invalidate 連成員名單與角色
+ * 清單一起涵蓋，不必逐把列。
  *
- * **改名／刪群組另外要失效單篇筆記的 key**：NotePage 常駐層是 `['note', id]`、解析層是
- * `['note-by-path', …]`，兩者都不以 `['notes']` 開頭，上面那兩把碰不到；而群組異動不動文件，
- * `onRemoteUpdate` 也不會觸發。不失效的話，正開著的那篇筆記的 `note.group` 停在舊值——
- * 改名：觸發鈕與「群組成員」說明留舊名；刪群組：ShareDialog 還當群組筆記、成員區誤報
- * 「你已不是這個群組的成員」（其實筆記已回個人）。
- * 刪群組還有**順序**：先 `await` 失效 `['shares']`／`['public-link']`（active 的會重抓，server 端
- * D8 物化的逐人分享此時已定），**之後**才失效 note——note 一翻成個人，`AccessSection` 以
- * `note.group?.id` 為 key 重掛，而個人筆記是「快取有就 latch」（`freshEnough`）；若 shares 還是
- * 當群組筆記時抓的 `[]`，會 sticky 地 latch 成「私人」。與 spec §8.3 對 PR3 搬家的快取寫入順序同理。
+ * **改名與改角色另外要失效單篇筆記的 key**（`invalidateSingleNoteKeys`）：NotePage 常駐層是
+ * `['note', id]`、解析層是 `['note-by-path', …]`（個人）／`['note-by-group-path', …]`（群組），
+ * 三者都不以 `['notes']` 開頭，上面那兩把碰不到；而群組異動不動文件，`onRemoteUpdate` 也不會
+ * 觸發。不失效的話：改名 → 正開著的那篇群組筆記的 `note.group.name` 停在舊值；改角色 → 改到
+ * **自己**的角色時（非最後一位管理員把自己降成一般成員），開著那篇的 `note.permissions`
+ * （⋮ 的刪除項、公開連結開關）停在舊角色，多顯示 server 會 403 的項目（Task 11 review r1 M-4）。
+ *
+ * **刪群組**（#175 PR1）：server 只刪空群組（B9；非空回 409 `group_not_empty`），沒有任何筆記
+ * 會被影響，所以只失效 `['groups']`、`['notes']`。PR4 的轉移／全刪會讓筆記換歸屬，屆時照
+ * spec §8.6 失效 `['note']`、`['note-by-group-path']`。
  */
 export const GROUPS_QUERY_KEY = ["groups"] as const;
 
 export function groupMembersKey(groupId: string) {
   return ["groups", groupId, "members"] as const;
+}
+
+export function groupRolesKey(groupId: string) {
+  return ["groups", groupId, "roles"] as const;
 }
 
 export function useGroups(): UseQueryResult<GroupDto[]> {
@@ -36,14 +42,27 @@ export function useGroups(): UseQueryResult<GroupDto[]> {
 }
 
 /**
- * 成員名單（任一成員可讀）。`enabled` 給呼叫端擋「我已不是成員」（A1 的 owner，
- * spec §8.3）：那時 server 回 404，不該發請求去換一個錯誤。
+ * 成員名單（任一成員可讀）。`enabled` 給呼叫端擋「我已不是成員」：那時 server 回 404，
+ * 不該發請求去換一個錯誤。
  */
 export function useGroupMembers(groupId: string, options: { enabled?: boolean } = {}): UseQueryResult<GroupMemberDto[]> {
   return useQuery({
     queryKey: groupMembersKey(groupId),
     queryFn: () => api<GroupMemberDto[]>(`/api/groups/${encodeURIComponent(groupId)}/members`),
     enabled: (options.enabled ?? true) && groupId.length > 0,
+  });
+}
+
+/**
+ * #175 `GET /api/groups/:id/roles`（Q18：任一成員可讀；排序見 plan Task 7 的 `GET …/roles`）。
+ * PR1 只有兩個內建角色——成員表與加人表單的角色下拉要拿**角色 id**（gate r2 M-7：兩位管理員、
+ * 沒有一般成員的群組，一般成員角色的 id 只拿得到這裡）。
+ */
+export function useGroupRoles(groupId: string): UseQueryResult<GroupRoleDto[]> {
+  return useQuery({
+    queryKey: groupRolesKey(groupId),
+    queryFn: () => api<GroupRoleDto[]>(`/api/groups/${encodeURIComponent(groupId)}/roles`),
+    enabled: groupId.length > 0,
   });
 }
 
@@ -63,11 +82,12 @@ export function useCreateGroup() {
   });
 }
 
-/** 單篇筆記兩層 key（常駐 `['note', id]`、解析 `['note-by-path', …]`），前綴失效。 */
+/** 單篇筆記三把 key（常駐 `['note', id]`、解析 `['note-by-path', …]`／`['note-by-group-path', …]`），前綴失效。 */
 function invalidateSingleNoteKeys(queryClient: QueryClient) {
   return Promise.all([
     queryClient.invalidateQueries({ queryKey: ["note"] }),
     queryClient.invalidateQueries({ queryKey: ["note-by-path"] }),
+    queryClient.invalidateQueries({ queryKey: ["note-by-group-path"] }),
   ]);
 }
 
@@ -85,54 +105,51 @@ export function useRenameGroup() {
   });
 }
 
-/**
- * 刪群組＝筆記變個人筆記、原成員物化成逐人分享（D8）。204 無 body。
- * 失效順序是契約（見檔頭）：shares／public-link 先落定 → 單篇 note → groups／notes。
- * onSuccess 回 promise，所以 `mutateAsync` 會等 shares／public-link 重抓完才 resolve。
- */
+/** #175 PR1：只刪空群組（B9），沒有筆記會被影響——只失效 `['groups']`、`['notes']`（見檔頭）。204 無 body；非空 409 `group_not_empty` 由呼叫端 toast。 */
 export function useDeleteGroup() {
-  const queryClient = useQueryClient();
   const invalidate = useInvalidateGroupsAndNotes();
   return useMutation({
     mutationFn: (id: string) => api<void>(`/api/groups/${encodeURIComponent(id)}`, { method: "DELETE" }),
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["shares"] }),
-        queryClient.invalidateQueries({ queryKey: ["public-link"] }),
-      ]);
+    onSuccess: invalidate,
+  });
+}
+
+/** 只新增（409 `already_member`，不 upsert——S1 的守法，spec r1 C）。`roleId` 未給就不送鍵
+ * （server body `.strict()`，未給＝內建一般成員；這裡明確不把 undefined 放進物件）。 */
+export function useAddMember(groupId: string) {
+  const invalidate = useInvalidateGroupsAndNotes();
+  return useMutation({
+    mutationFn: ({ email, roleId }: { email: string; roleId?: string }) =>
+      api<GroupMemberDto>(`/api/groups/${encodeURIComponent(groupId)}/members`, {
+        method: "PUT",
+        body: JSON.stringify(roleId === undefined ? { email } : { email, roleId }),
+      }),
+    onSuccess: invalidate,
+  });
+}
+
+/**
+ * 改成員的角色（`{roleId}`）。另外失效單篇筆記的 key：改到自己的角色時，開著那篇群組筆記的
+ * `permissions` 要跟著變（見檔頭）。這裡不判斷 `userId` 是不是自己——改別人的角色時多一發
+ * active 查詢的重抓，換掉「資料層要知道目前使用者」的耦合。
+ */
+export function useSetMemberRole(groupId: string) {
+  const queryClient = useQueryClient();
+  const invalidate = useInvalidateGroupsAndNotes();
+  return useMutation({
+    mutationFn: ({ userId, roleId }: { userId: string; roleId: string }) =>
+      api<GroupMemberDto>(`/api/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(userId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ roleId }),
+      }),
+    onSuccess: () => {
       void invalidateSingleNoteKeys(queryClient);
       invalidate();
     },
   });
 }
 
-/** 只新增（409 `already_member`，不 upsert——S1 的守法，spec r1 C）。`role` 未給就不送鍵
- * （server body `.strict()`；這裡明確不把 undefined 放進物件）。 */
-export function useAddMember(groupId: string) {
-  const invalidate = useInvalidateGroupsAndNotes();
-  return useMutation({
-    mutationFn: ({ email, role }: { email: string; role?: GroupMemberRole }) =>
-      api<GroupMemberDto>(`/api/groups/${encodeURIComponent(groupId)}/members`, {
-        method: "PUT",
-        body: JSON.stringify(role === undefined ? { email } : { email, role }),
-      }),
-    onSuccess: invalidate,
-  });
-}
-
-export function useSetMemberRole(groupId: string) {
-  const invalidate = useInvalidateGroupsAndNotes();
-  return useMutation({
-    mutationFn: ({ userId, role }: { userId: string; role: GroupMemberRole }) =>
-      api<GroupMemberDto>(`/api/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(userId)}`, {
-        method: "PATCH",
-        body: JSON.stringify({ role }),
-      }),
-    onSuccess: invalidate,
-  });
-}
-
-/** 移人（admin）與退出（userId＝自己）共用同一支；409 `last_admin` 由呼叫端顯示。 */
+/** 移人（管理成員者）與退出（userId＝自己）共用同一支；409 `last_admin` 由呼叫端顯示。 */
 export function useRemoveMember(groupId: string) {
   const invalidate = useInvalidateGroupsAndNotes();
   return useMutation({

@@ -10,16 +10,25 @@ import {
   useCreateGroup,
   useDeleteGroup,
   useGroupMembers,
+  useGroupRoles,
   useGroups,
   useRemoveMember,
   useRenameGroup,
   useSetMemberRole,
 } from "./groups";
-import { useCreateNote, useNote } from "./notes";
-import { useShares } from "./shares";
+import { useCreateNote } from "./notes";
+import { adminRole, groupDto, memberRole } from "@/test/fixtures";
 
-const GROUP: GroupDto = { id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", name: "工作坊", myRole: "admin", createdAt: "2026-09-26T00:00:00.000Z" };
-const MEMBER: GroupMemberDto = { userId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", email: "bob@example.com", displayName: "Bob", role: "member" };
+const ADMIN_ROLE = adminRole({ id: "dddddddd-dddd-dddd-dddd-000000000001" });
+const MEMBER_ROLE = memberRole({ id: "dddddddd-dddd-dddd-dddd-000000000002" });
+const GROUP: GroupDto = groupDto({ id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", name: "工作坊", createdAt: "2026-09-26T00:00:00.000Z" }, ADMIN_ROLE);
+const MEMBER: GroupMemberDto = {
+  userId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+  email: "bob@example.com",
+  displayName: "Bob",
+  roleId: MEMBER_ROLE.id,
+  builtin: "member",
+};
 
 function fakeResponse(status: number, body?: unknown): Response {
   return {
@@ -73,6 +82,17 @@ describe("api/groups", () => {
     expect(queryClient.getQueryData(groupMembersKey(GROUP.id))).toEqual([MEMBER]);
   });
 
+  it("#175 useGroupRoles 打 GET /api/groups/:id/roles，key 是 ['groups', id, 'roles']（在 ['groups'] 前綴下，群組 mutation 的失效一併涵蓋）", async () => {
+    const calls = stubFetch({ [`GET /api/groups/${GROUP.id}/roles`]: () => fakeResponse(200, [ADMIN_ROLE, MEMBER_ROLE]) });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result } = renderHook(() => useGroupRoles(GROUP.id), { wrapper: wrapper(queryClient) });
+    await waitFor(() => expect(result.current.data).toEqual([ADMIN_ROLE, MEMBER_ROLE]));
+    expect(calls).toEqual([{ method: "GET", url: `/api/groups/${GROUP.id}/roles`, body: undefined }]);
+    expect(queryClient.getQueryData(["groups", GROUP.id, "roles"])).toEqual([ADMIN_ROLE, MEMBER_ROLE]);
+    // 前綴比對：`['groups']` 的失效會命中這把 key
+    expect(queryClient.getQueryCache().findAll({ queryKey: GROUPS_QUERY_KEY }).map((q) => q.queryKey)).toContainEqual(["groups", GROUP.id, "roles"]);
+  });
+
   it("useCreateGroup：POST {name}，成功後 invalidate ['groups'] 與 ['notes']", async () => {
     const calls = stubFetch({ "POST /api/groups": () => fakeResponse(201, GROUP) });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -101,106 +121,58 @@ describe("api/groups", () => {
     expect(invalidate.mock.calls.filter(([arg]) => JSON.stringify(arg?.queryKey) === '["notes"]')).toHaveLength(2);
   });
 
-  it("useRenameGroup 另外 invalidate 單篇筆記兩層 key ['note']、['note-by-path']（開著的那篇要拿到新群組名）", async () => {
+  it("useRenameGroup 另外 invalidate 單篇筆記三把 key ['note']、['note-by-path']、['note-by-group-path']（開著的那篇要拿到新群組名）", async () => {
     stubFetch({ [`PATCH /api/groups/${GROUP.id}`]: () => fakeResponse(200, { ...GROUP, name: "新名" }) });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
     const { result } = renderHook(() => useRenameGroup(), { wrapper: wrapper(queryClient) });
     await result.current.mutateAsync({ id: GROUP.id, name: "新名" });
     const keys = invalidate.mock.calls.map(([arg]) => JSON.stringify(arg?.queryKey));
-    expect(keys).toEqual(expect.arrayContaining(['["note"]', '["note-by-path"]', '["groups"]', '["notes"]']));
+    expect(keys).toEqual(expect.arrayContaining(['["note"]', '["note-by-path"]', '["note-by-group-path"]', '["groups"]', '["notes"]']));
   });
 
-  it("useDeleteGroup 的失效順序：['shares']／['public-link'] → ['note']／['note-by-path'] → ['groups']／['notes']", async () => {
+  it("#175 PR1 useDeleteGroup 只失效 ['groups']、['notes']：只刪空群組（B9），沒有筆記換歸屬，不碰 shares／public-link／單篇 note", async () => {
     stubFetch({ [`DELETE /api/groups/${GROUP.id}`]: () => fakeResponse(204) });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
     const { result } = renderHook(() => useDeleteGroup(), { wrapper: wrapper(queryClient) });
     await result.current.mutateAsync(GROUP.id);
     const keys = invalidate.mock.calls.map(([arg]) => JSON.stringify(arg?.queryKey));
-    const at = (k: string) => {
-      const i = keys.indexOf(k);
-      expect(i, `${k} 應該被 invalidate`).toBeGreaterThanOrEqual(0);
-      return i;
-    };
-    const firstNoteLayer = Math.min(at('["note"]'), at('["note-by-path"]'));
-    expect(Math.max(at('["shares"]'), at('["public-link"]'))).toBeLessThan(firstNoteLayer);
-    expect(Math.max(at('["note"]'), at('["note-by-path"]'))).toBeLessThan(Math.min(at('["groups"]'), at('["notes"]')));
+    expect([...keys].sort()).toEqual(['["groups"]', '["notes"]']);
   });
 
-  it("useDeleteGroup：active 的 shares 重抓落定**之後**才失效 note，且開著的 ['note', id] 會重抓成個人筆記", async () => {
-    const NOTE_ID = "cccccccc-cccc-cccc-cccc-cccccccccccc";
-    const groupNote = { id: NOTE_ID, title: "x", group: { id: GROUP.id, name: GROUP.name } };
-    const personalNote = { ...groupNote, group: null };
-    const share = { userId: MEMBER.userId, email: MEMBER.email, role: "editor" };
-    let deleted = false;
-    const gate: { release?: () => void } = {};
-    const order: string[] = [];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-        const url = String(input);
-        const method = (init?.method ?? "GET").toUpperCase();
-        order.push(`${method} ${url}${deleted ? " (after)" : ""}`);
-        if (method === "DELETE" && url === `/api/groups/${GROUP.id}`) {
-          deleted = true;
-          return Promise.resolve(fakeResponse(204));
-        }
-        if (url === `/api/notes/${NOTE_ID}`) return Promise.resolve(fakeResponse(200, deleted ? personalNote : groupNote));
-        if (url === `/api/notes/${NOTE_ID}/shares`) {
-          if (!deleted) return Promise.resolve(fakeResponse(200, []));
-          // 刪除後的重抓先卡住，看 note 會不會搶在它前面被失效
-          return new Promise<Response>((resolve) => {
-            gate.release = () => {
-              order.push("shares settled");
-              resolve(fakeResponse(200, [share]));
-            };
-          });
-        }
-        throw new Error(`unexpected fetch: ${method} ${url}`);
-      }),
-    );
+  it("#175 useSetMemberRole 另外失效單篇筆記三把 key：改到自己的角色時，開著那篇群組筆記的 permissions 要重抓（review r1 M-4）", async () => {
+    stubFetch({
+      [`PATCH /api/groups/${GROUP.id}/members/${MEMBER.userId}`]: () => fakeResponse(200, { ...MEMBER, roleId: ADMIN_ROLE.id, builtin: "admin" }),
+    });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
-    const { result } = renderHook(
-      () => ({ note: useNote(NOTE_ID), shares: useShares(NOTE_ID), del: useDeleteGroup() }),
-      { wrapper: wrapper(queryClient) },
-    );
-    await waitFor(() => expect(result.current.note.data).toEqual(groupNote));
-    await waitFor(() => expect(result.current.shares.data).toEqual([]));
-
-    const pending = result.current.del.mutateAsync(GROUP.id);
-    await waitFor(() => expect(gate.release).toBeDefined());
-    // shares 還沒落定：note 那層不得已被失效
-    expect(invalidate.mock.calls.some(([arg]) => JSON.stringify(arg?.queryKey) === '["note"]')).toBe(false);
-    gate.release?.();
-    await pending;
-
-    await waitFor(() => expect(result.current.note.data).toEqual(personalNote));
-    expect(result.current.shares.data).toEqual([share]);
-    // note 的重抓發生在 shares 落定之後
-    expect(order.indexOf(`GET /api/notes/${NOTE_ID} (after)`)).toBeGreaterThan(order.indexOf("shares settled"));
+    const { result } = renderHook(() => useSetMemberRole(GROUP.id), { wrapper: wrapper(queryClient) });
+    await result.current.mutateAsync({ userId: MEMBER.userId, roleId: ADMIN_ROLE.id });
+    const keys = invalidate.mock.calls.map(([arg]) => JSON.stringify(arg?.queryKey));
+    expect(keys).toEqual(expect.arrayContaining(['["note"]', '["note-by-path"]', '["note-by-group-path"]', '["groups"]', '["notes"]']));
   });
 
-  it("成員三支：PUT {email,role}／PATCH :userId {role}／DELETE :userId，成功後 invalidate ['groups'] 與 ['notes']", async () => {
+  it("成員三支：PUT {email,roleId?}／PATCH :userId {roleId}／DELETE :userId，成功後 invalidate ['groups'] 與 ['notes']", async () => {
+    const promoted: GroupMemberDto = { ...MEMBER, roleId: ADMIN_ROLE.id, builtin: "admin" };
     const calls = stubFetch({
       [`PUT /api/groups/${GROUP.id}/members`]: () => fakeResponse(200, MEMBER),
-      [`PATCH /api/groups/${GROUP.id}/members/${MEMBER.userId}`]: () => fakeResponse(200, { ...MEMBER, role: "admin" }),
+      [`PATCH /api/groups/${GROUP.id}/members/${MEMBER.userId}`]: () => fakeResponse(200, promoted),
       [`DELETE /api/groups/${GROUP.id}/members/${MEMBER.userId}`]: () => fakeResponse(204),
     });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
     const add = renderHook(() => useAddMember(GROUP.id), { wrapper: wrapper(queryClient) });
     await expect(add.result.current.mutateAsync({ email: MEMBER.email })).resolves.toEqual(MEMBER);
-    // role 未給就不送鍵——server body `.strict()`，這裡釘住不送多餘鍵
+    // roleId 未給就不送鍵——server body `.strict()`，這裡釘住不送多餘鍵（server 預設內建一般成員）
     expect(calls[0].body).toEqual({ email: MEMBER.email });
     const addWithRole = renderHook(() => useAddMember(GROUP.id), { wrapper: wrapper(queryClient) });
-    await expect(addWithRole.result.current.mutateAsync({ email: MEMBER.email, role: "admin" })).resolves.toEqual(MEMBER);
-    // role 有給就照樣送出（不是被固定省略掉）
-    expect(calls[1].body).toEqual({ email: MEMBER.email, role: "admin" });
+    await expect(addWithRole.result.current.mutateAsync({ email: MEMBER.email, roleId: ADMIN_ROLE.id })).resolves.toEqual(MEMBER);
+    // roleId 有給就照樣送出（不是被固定省略掉）；鍵名是 roleId，不是 v1 的 role（server 對 role 鍵回 400）
+    expect(calls[1].body).toEqual({ email: MEMBER.email, roleId: ADMIN_ROLE.id });
     const setRole = renderHook(() => useSetMemberRole(GROUP.id), { wrapper: wrapper(queryClient) });
-    await expect(setRole.result.current.mutateAsync({ userId: MEMBER.userId, role: "admin" })).resolves.toMatchObject({ role: "admin" });
-    expect(calls[2]).toEqual({ method: "PATCH", url: `/api/groups/${GROUP.id}/members/${MEMBER.userId}`, body: { role: "admin" } });
+    await expect(setRole.result.current.mutateAsync({ userId: MEMBER.userId, roleId: ADMIN_ROLE.id })).resolves.toEqual(promoted);
+    expect(calls[2]).toEqual({ method: "PATCH", url: `/api/groups/${GROUP.id}/members/${MEMBER.userId}`, body: { roleId: ADMIN_ROLE.id } });
     const remove = renderHook(() => useRemoveMember(GROUP.id), { wrapper: wrapper(queryClient) });
     await expect(remove.result.current.mutateAsync(MEMBER.userId)).resolves.toBeUndefined();
     expect(calls[3]).toEqual({ method: "DELETE", url: `/api/groups/${GROUP.id}/members/${MEMBER.userId}`, body: undefined });
