@@ -23,6 +23,7 @@
     "deleteDescription": "這將永久刪除「{{title}}」，此動作無法復原。"
   },
   "sidebar": {
+    "resize": "調整側欄寬度",
     "recent": "最近",
     "myNotes": "我的筆記",
     "shared": "與我共享",
@@ -133,11 +134,14 @@
     "readOnly": "唯讀",
     "menu": {
       "label": "更多",
+      "labelFor": "{{title}} 的筆記選單",
       "aiEdits": "AI 修改紀錄",
       "delete": "刪除筆記"
     },
-    "lastEdited": "{{who}} · {{when}}",
-    "lastEditedTitle": "最後編輯於 {{when}}——點一下看改了什麼",
+    "lastEdited": "最後編輯：{{who}} · {{when}}",
+    "lastEditedAt": "最後編輯：{{who}}，{{when}}",
+    "lastEditedTitle": "最後編輯：{{who}}，{{when}}——點一下看改了什麼",
+    "lastEditedDeletedUser": "已刪除的帳號",
     "transferDataUrl": "不支援直接貼上內嵌圖片，請改用拖曳圖片檔案。",
     "transferSaveFirst": "無法直接插入此項目，請先另存為檔案再拖曳進來。",
     "transferNonImage": "這裡目前只能插入圖片檔案。",

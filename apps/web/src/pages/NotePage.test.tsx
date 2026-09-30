@@ -403,6 +403,19 @@ describe("NotePage", () => {
     expect(header).toContainElement(screen.getByRole("button", { name: "Open navigation" }));
   });
 
+  // class 斷言，不是行為斷言：jsdom 無版面。頁首收縮順序（標題讓到 64px → 標籤截斷 → 其餘不縮）
+  // 是 TitleInput min-w-16、LastEditedLabel truncate、Share／⋮ shrink-0 三處一組。
+  it("頁首收縮契約（class 斷言，jsdom 無版面）：標題 min-w-16、Share 與 ⋮ shrink-0", async () => {
+    vi.stubGlobal("fetch", mockFetch());
+
+    renderNotePage("my-note");
+    await screen.findByTestId("note-editor");
+
+    expect(screen.getByLabelText("Note title")).toHaveClass("min-w-16");
+    expect(screen.getByRole("button", { name: "Share" })).toHaveClass("shrink-0");
+    expect(screen.getByRole("button", { name: "More" })).toHaveClass("shrink-0");
+  });
+
   it("N4 降級：connected(owner) → connected(viewer) 時 toast 並切成唯讀", async () => {
     vi.stubGlobal("fetch", mockFetch());
     collab.state = { phase: "connected", role: "owner" };

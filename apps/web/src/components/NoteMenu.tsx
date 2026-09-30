@@ -132,7 +132,7 @@ export function NoteMenu({ note, state, leavingRef, onOpenEdits }: NoteMenuProps
     <>
       <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
         <DropdownMenuTrigger asChild>
-          <Button type="button" variant="ghost" size="icon" aria-label={t("note.menu.label")}>
+          <Button type="button" variant="ghost" size="icon" className="shrink-0" aria-label={t("note.menu.label")}>
             <EllipsisVertical className="h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>

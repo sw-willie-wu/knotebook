@@ -248,6 +248,13 @@ describe("TitleInput", () => {
     expect(screen.getByRole("heading", { name: NOTE.title })).toBeInTheDocument();
   });
 
+  // 收縮契約（class 斷言：jsdom 無版面，量不到 64px，只能守 class）。viewer 頁首的徽章文字最長，
+  // 標題不可掉回 min-w-0（會先被壓到幾乎 0 才輪到標籤截斷）。
+  it("readOnly 的 <h1> 帶 min-w-16 收縮下限（class 契約）", () => {
+    renderTitle({ readOnly: true });
+    expect(screen.getByRole("heading", { name: NOTE.title })).toHaveClass("min-w-16");
+  });
+
   it("外部（別人改的）標題變動會同步到輸入框", async () => {
     vi.stubGlobal(
       "fetch",
