@@ -47,7 +47,7 @@ test("情境一：SSO 登入未知 email → 自動建帳並登入", async ({ re
 
 /**
  * §14.5 流程 5 情境二：**本流程自建**一個已知 email 的使用者（admin 於
- * `/settings/users` 代建，不依賴 03 spec 的隨機帳號——跨流程資料耦合禁止）。
+ * `/admin/users` 代建，不依賴 03 spec 的隨機帳號——跨流程資料耦合禁止）。
  * admin 代建帳號 `mustChangePassword: true`，但 OIDC callback 認證成功後會清
  * 掉這個旗標（§14.3 一輪 gate MAJOR-6）並呼叫 `gate.invalidate`（§14.3 三輪 gate
  * MAJOR-1）——SSO 登入因此**不該**被 `ChangePasswordGate` 導去 `/change-password`，
@@ -72,10 +72,8 @@ test("情境二：SSO 登入已驗證 email 命中既有帳號 → 連結而非�
     await expect(adminPage).toHaveURL(/\/$/);
 
     await adminPage.getByRole("button", { name: "admin", exact: true }).click(); // UserMenu 觸發鈕＝displayName
-    await adminPage.getByRole("menuitem", { name: "Settings", exact: true }).click();
-    await expect(adminPage).toHaveURL(/\/settings\/account$/);
-    await adminPage.getByRole("link", { name: "Users", exact: true }).click();
-    await expect(adminPage).toHaveURL(/\/settings\/users$/);
+    await adminPage.getByRole("menuitem", { name: "Site admin", exact: true }).click();
+    await expect(adminPage).toHaveURL(/\/admin\/users$/);
 
     await adminPage.getByRole("button", { name: "Create user" }).click();
     const createUserDialog = adminPage.getByRole("dialog", { name: "Create user" });

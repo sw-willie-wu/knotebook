@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation, type Location } from "react-router";
 import type { UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
@@ -212,5 +212,84 @@ describe("UserMenu 主題色選擇器（PR3）", () => {
     await openMenu();
 
     expect(screen.getByRole("group", { name: i18n.t("userMenu.accent") })).toBeInTheDocument();
+  });
+});
+
+// 站台管理入口：admin 才看得到「Site admin」，點了導 /admin/users 且**不帶**
+// backgroundLocation（它是一般頁面，不是疊在背景上的 modal）。
+describe("UserMenu 站台管理入口", () => {
+  const ADMIN: UserDto = { ...USER, displayName: "Plain", isAdmin: true };
+
+  function stubFetchAs(user: UserDto) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (url === "/api/auth/me" && method === "GET") {
+          return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(user) }));
+        }
+        throw new Error(`unexpected fetch: ${method} ${url}`);
+      }),
+    );
+  }
+
+  let lastLocation: Location | null = null;
+  function LocationSpy() {
+    lastLocation = useLocation();
+    return <div data-testid="location">{lastLocation.pathname}</div>;
+  }
+
+  function renderMenuWithProbe() {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <MemoryRouter initialEntries={["/n/tester/some-note"]}>
+            <UserMenu />
+            <LocationSpy />
+          </MemoryRouter>
+        </ThemeProvider>
+      </QueryClientProvider>,
+    );
+  }
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    lastLocation = null;
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("admin：看得到「Site admin」；點了導 /admin/users，state 沒有 backgroundLocation", async () => {
+    stubFetchAs(ADMIN);
+    renderMenuWithProbe();
+    await openMenu();
+
+    fireEvent.click(screen.getByRole("menuitem", { name: "Site admin" }));
+
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/admin/users"));
+    const state = lastLocation?.state as { backgroundLocation?: unknown } | null;
+    expect(state?.backgroundLocation).toBeUndefined();
+  });
+
+  it("非 admin：看不到「Site admin」（「Settings」仍在）", async () => {
+    stubFetchAs(USER);
+    renderMenuWithProbe();
+    await openMenu();
+
+    expect(screen.getByRole("menuitem", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Site admin" })).not.toBeInTheDocument();
+  });
+
+  it("zh-TW：入口文案是「站台管理」", async () => {
+    await i18n.changeLanguage("zh-TW");
+    stubFetchAs(ADMIN);
+    renderMenuWithProbe();
+    await openMenu();
+
+    expect(screen.getByRole("menuitem", { name: "站台管理" })).toBeInTheDocument();
   });
 });

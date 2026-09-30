@@ -9,20 +9,17 @@ import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppRoutes } from "@/App";
 import type { AdminUserDto } from "@/api/admin";
 
-// 遷移自 Task 15 舊版 admin 使用者管理頁（獨立路由 `/admin/users`，已被 Task 7 刪除，
-// 內容經 `git show <Task7 commit>^` 取回其舊路徑）——
-// Task 8 審查交接：表格/dialog/mutation 邏輯零改動遷入 `SettingsUsersSection`，本檔逐案
-// **有意識重寫**（不是機械改到綠，spec §13.5-5）：路徑鏈從 `/admin/users`（獨立頁）
-// 改成 `/settings/users`（掛在 `SettingsModal` 底下的巢狀 route），因此每一案都要
-// - 在 modal 內找元素（`within(screen.getByRole("dialog"))` 或直接查 heading/row，
-//   Radix Dialog 開啟時背景兄弟節點會被標成 `aria-hidden`，不會誤命中背景頁）；
-// - 背景頁 fetch mock（`/api/notes`）比照 `SettingsModal.test.tsx` 補上——第二棵
-//   `/settings/*` Routes 樹掛載時，第一棵主樹仍會在背景 render `HomePage`（無
-//   `backgroundLocation` 時 catch-all 落到 `/*`），沒補這支會直接炸未預期 fetch。
+// 歷程：Task 15 的獨立頁 `/admin/users` → Plan 4 併進設定 modal（`/settings/users`，
+// Task 8 逐案有意識重寫，spec §13.5-5）→ 2026-09-30 搬回獨立頁 `/admin/users`
+// （`pages/AdminPage.tsx` 的 `<Outlet/>`，殼是 `AppShell`）。元件本體沒改，本檔各案
+// 直接查 heading/row 的寫法不依賴外殼，只換了進入網址與那一則外殼 smoke。
+// - fetch mock 裡的 `/api/notes`、`/api/groups` 是設定 modal 時代留下的（當時主樹在
+//   背景 render `HomePage`）；搬到 `/admin/users` 後側欄不再有 NoteList，留著無害。
+// - 「停用」案的確認 dialog 現在是畫面上唯一一層 Dialog（不再疊在設定 modal 上）；
+//   該案取最後一個 dialog 的寫法兩種情況都成立。
 //
-// 「非 admin → 導 `/`」這一案 Task 7 已在 `SettingsModal.test.tsx` 落地（route-level，
-// 驗證的是 `RequireAdmin` 有接對），這裡不重複；本檔只覆蓋其餘 7 案＋一則 modal 內
-// 渲染 smoke（確認真的掛在 Dialog 底下，不是退化成獨立頁）。
+// 「非 admin → 導 `/`」與未登入導向在 `pages/AdminPage.test.tsx`（route-level，驗證
+// `RequireAdmin` 有接對），這裡不重複。
 
 interface FakeResponseInit {
   ok: boolean;
@@ -102,7 +99,7 @@ function renderUsersRoute(fetchMock: ReturnType<typeof vi.fn>) {
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <ThemeProvider>
-        <MemoryRouter initialEntries={["/settings/users"]}>
+        <MemoryRouter initialEntries={["/admin/users"]}>
           <AppRoutes />
         </MemoryRouter>
       </ThemeProvider>
@@ -111,7 +108,7 @@ function renderUsersRoute(fetchMock: ReturnType<typeof vi.fn>) {
   );
 }
 
-describe("SettingsUsersSection（/settings/users，spec §13.4：舊版 admin 使用者頁邏輯遷入設定 modal）", () => {
+describe("SettingsUsersSection（/admin/users：站台管理頁的使用者區）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -121,7 +118,7 @@ describe("SettingsUsersSection（/settings/users，spec §13.4：舊版 admin �
     vi.unstubAllGlobals();
   });
 
-  it("modal 內渲染 smoke：/settings/users 掛在 Dialog 底下，不是退化成獨立頁", async () => {
+  it("外殼 smoke：/admin/users 掛在站台管理頁（AppShell＋管理導覽）底下，不是設定 modal", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method ?? "GET").toUpperCase();
@@ -135,13 +132,16 @@ describe("SettingsUsersSection（/settings/users，spec §13.4：舊版 admin �
 
     renderUsersRoute(fetchMock);
 
-    const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByRole("heading", { name: "User management" })).toBeInTheDocument();
-    // 設定 modal 的左側導覽（`SettingsModal`）也在同一個 Dialog 裡，Users 項高亮。
-    expect(within(screen.getByRole("navigation")).getByText("Users")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "User management" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    // 側欄的管理導覽（`AdminNav`），Users 項是目前頁。
+    expect(within(screen.getByRole("navigation", { name: "Site admin" })).getByRole("link", { name: "Users" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
   });
 
-  it("admin 造訪 /settings/users → 渲染表格，disabled 徽章與 enable/disable 依狀態互斥", async () => {
+  it("admin 造訪 /admin/users → 渲染表格，disabled 徽章與 enable/disable 依狀態互斥", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method ?? "GET").toUpperCase();
@@ -276,9 +276,9 @@ describe("SettingsUsersSection（/settings/users，spec §13.4：舊版 admin �
     await waitFor(() => expect(screen.getByRole("heading", { name: "Disable this user?" })).toBeInTheDocument());
     expect(screen.getByText(/signed out immediately/)).toBeInTheDocument();
 
-    // Radix Dialog 開啟後背景整片會標成 aria-hidden，確認鈕只能從（巢狀）dialog 內找
-    // ——這裡有兩層 Dialog 疊著（SettingsModal 外殼＋確認 dialog），`getAllByRole` 取
-    // 最後一個（最上層、最新掛載的那個）。
+    // Radix Dialog 開啟後背景整片會標成 aria-hidden，確認鈕只能從 dialog 內找。
+    // `getAllByRole` 取最後一個（最上層、最新掛載的那個）——設定 modal 時代這裡疊著
+    // 兩層 Dialog；搬到 /admin/users 後只剩確認 dialog 一層，寫法照樣成立。
     const dialogs = screen.getAllByRole("dialog");
     const confirmDialog = dialogs[dialogs.length - 1];
     fireEvent.click(within(confirmDialog).getByRole("button", { name: "Disable" }));

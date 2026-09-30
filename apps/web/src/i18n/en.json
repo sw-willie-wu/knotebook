@@ -229,9 +229,16 @@
     "languageZhTW": "繁體中文",
     "theme": "Theme",
     "accent": "Accent color",
-    "logout": "Log out"
+    "logout": "Log out",
+    "siteAdmin": "Site admin"
   },
   "admin": {
+    "nav": {
+      "label": "Site admin",
+      "backToNotes": "Back to notes",
+      "users": "Users",
+      "ai": "AI"
+    },
     "title": "User management",
     "description": "Create accounts, grant admin rights, and disable people who have left.",
     "createUser": "Create user",
@@ -342,8 +349,6 @@
     "description": "Manage your account and workspace settings.",
     "nav": {
       "account": "Account",
-      "users": "Users",
-      "ai": "AI",
       "groups": "Groups"
     },
     "account": {

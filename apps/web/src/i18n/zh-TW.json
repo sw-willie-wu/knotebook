@@ -229,9 +229,16 @@
     "languageZhTW": "繁體中文",
     "theme": "主題",
     "accent": "主題色",
-    "logout": "登出"
+    "logout": "登出",
+    "siteAdmin": "站台管理"
   },
   "admin": {
+    "nav": {
+      "label": "站台管理",
+      "backToNotes": "回筆記",
+      "users": "使用者",
+      "ai": "AI"
+    },
     "title": "使用者管理",
     "description": "建立帳號、指派管理員，或停用已離開的成員。",
     "createUser": "建立使用者",
@@ -342,8 +349,6 @@
     "description": "管理你的帳號與工作區設定。",
     "nav": {
       "account": "帳號",
-      "users": "使用者",
-      "ai": "AI",
       "groups": "群組"
     },
     "account": {

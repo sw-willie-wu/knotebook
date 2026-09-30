@@ -4,8 +4,8 @@ import { ADMIN, createNote, editorLocator, loginAs } from "./helpers.js";
 /**
  * #115 版面改版：窄視窗（<768）的抽屜導覽與 AI bubble 浮層。
  *
- * 佈局策略：provider/model 的建立與筆記內容輸入都在**預設 1280 視窗**完成（設定
- * modal 的表單在 390 下擁擠，且不是本檔要驗的東西），然後 `setViewportSize(390×844)`
+ * 佈局策略：provider/model 的建立與筆記內容輸入都在**預設 1280 視窗**完成（站台
+ * 管理頁的表單在 390 下擁擠，且不是本檔要驗的東西），然後 `setViewportSize(390×844)`
  * 驗窄視窗行為。AI provider **自建**（流程照 04-ai 的建置段）——不依賴 04 殘留
  * 狀態（plan gate M4）；在已跑過 01 的疊上單獨 `--grep` 本檔會綠。
  *
@@ -27,10 +27,10 @@ const REWRITTEN_TEXT = "E2E rewritten text"; // ai-stub 固定輸出（e2e/stubs
 
 async function openAiSettings(page: Page): Promise<void> {
   await page.getByRole("button", { name: "admin", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
-  await expect(page).toHaveURL(/\/settings\/account$/);
+  await page.getByRole("menuitem", { name: "Site admin", exact: true }).click();
+  await expect(page).toHaveURL(/\/admin\/users$/);
   await page.getByRole("link", { name: "AI", exact: true }).click();
-  await expect(page).toHaveURL(/\/settings\/ai$/);
+  await expect(page).toHaveURL(/\/admin\/ai$/);
 }
 
 function providerCardLocator(page: Page, name: string) {
@@ -65,9 +65,9 @@ test("窄視窗：靜態側欄隱藏、抽屜導覽、AI bubble 展開成滿寬�
     await createModelDialog.getByLabel("Default model", { exact: true }).check();
     await createModelDialog.getByRole("button", { name: "Create", exact: true }).click();
     await expect(createModelDialog).not.toBeVisible();
-    await page.keyboard.press("Escape"); // 關設定 modal，回背景頁
-    // modal 沒關的話 Radix 會把背景 aria-hidden，後面 createNote 的「New note」
-    // 永遠找不到、症狀是逾時＋誤導訊息——這裡先把「真的回到背景頁」釘住。
+    // 站台管理頁的側欄沒有「New note」，後面 createNote 會逾時＋誤導訊息——
+    // 先回筆記、把「真的回到 /」釘住。
+    await page.getByRole("link", { name: "Back to notes", exact: true }).click();
     await expect(page).toHaveURL(/\/$/);
 
     // ── 1280：建筆記＋打一段文字 ─────────────────────────────────────────────

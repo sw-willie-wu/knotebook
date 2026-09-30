@@ -16,8 +16,8 @@ test("群組：建立 → 加人 → 群組建筆記 → 成員共編 → 移除
 
     // ── admin 建第二使用者（同 03）──────────────────────────────────────
     await adminPage.getByRole("button", { name: "admin", exact: true }).click();
-    await adminPage.getByRole("menuitem", { name: "Settings" }).click();
-    await adminPage.getByRole("link", { name: "Users", exact: true }).click();
+    await adminPage.getByRole("menuitem", { name: "Site admin", exact: true }).click();
+    await expect(adminPage).toHaveURL(/\/admin\/users$/);
     const secondEmail = randomEmail();
     const tempPassword = "e2e-second-user-temp-pw";
     await adminPage.getByRole("button", { name: "Create user" }).click();
@@ -27,7 +27,7 @@ test("群組：建立 → 加人 → 群組建筆記 → 成員共編 → 移除
     await createUserDialog.locator("#admin-create-display-name").fill("E2E Group Member");
     await createUserDialog.getByRole("button", { name: "Create", exact: true }).click();
     await expect(createUserDialog).not.toBeVisible();
-    await adminPage.keyboard.press("Escape");
+    await adminPage.getByRole("link", { name: "Back to notes", exact: true }).click();
     await expect(adminPage).toHaveURL(/\/$/);
 
     // ── A：側欄工作坊「＋」建群組 ─────────────────────────────────────

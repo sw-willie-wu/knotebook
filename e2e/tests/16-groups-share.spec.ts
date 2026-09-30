@@ -13,11 +13,11 @@ import { ADMIN, createNote, editorLocator, loginAs, randomEmail } from "./helper
 const TEMP_PASSWORD = "e2e-second-user-temp-pw";
 const NEW_PASSWORD = "e2e-second-user-pw-2";
 
-/** admin 在設定 → 使用者建一個帳號（同 03／15）。呼叫前後都停在 "/"。 */
+/** admin 在站台管理 → 使用者建一個帳號（同 03／15）。呼叫前後都停在 "/"。 */
 async function createUser(adminPage: Page, email: string, displayName: string): Promise<void> {
   await adminPage.getByRole("button", { name: "admin", exact: true }).click();
-  await adminPage.getByRole("menuitem", { name: "Settings" }).click();
-  await adminPage.getByRole("link", { name: "Users", exact: true }).click();
+  await adminPage.getByRole("menuitem", { name: "Site admin", exact: true }).click();
+  await expect(adminPage).toHaveURL(/\/admin\/users$/);
   await adminPage.getByRole("button", { name: "Create user" }).click();
   const dialog = adminPage.getByRole("dialog", { name: "Create user" });
   await dialog.locator("#admin-create-email").fill(email);
@@ -25,7 +25,7 @@ async function createUser(adminPage: Page, email: string, displayName: string): 
   await dialog.locator("#admin-create-display-name").fill(displayName);
   await dialog.getByRole("button", { name: "Create", exact: true }).click();
   await expect(dialog).not.toBeVisible();
-  await adminPage.keyboard.press("Escape");
+  await adminPage.getByRole("link", { name: "Back to notes", exact: true }).click();
   await expect(adminPage).toHaveURL(/\/$/);
 }
 

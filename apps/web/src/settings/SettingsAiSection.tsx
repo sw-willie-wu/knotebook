@@ -1250,7 +1250,8 @@ function ActionsSection({ actions, models }: { actions: AdminAiActionDto[]; mode
 // ═══════════════════════════════ section root ═══════════════════════════════
 
 /**
- * 設定 modal 的 AI 區（`/settings/ai`，admin only，spec §13.4）——provider／model／
+ * 站台管理頁的 AI 區（`/admin/ai`，admin only；2026-09-30 前掛在設定 modal 的
+ * `/settings/ai`，現在該網址轉址過來，見 `pages/AdminPage.tsx`）——provider／model／
  * action 三層 CRUD：三個獨立 query（key 定死 `["admin-ai","providers"|"models"|"actions"]`，
  * 見 `@/api/adminAi`），任一 mutation 成功都會 invalidate 這三個＋`["ai-actions"]`
  * （`AiSession` 讀的可執行動作清單，讓筆記側欄同分頁立即生效）。

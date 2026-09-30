@@ -31,14 +31,12 @@ const ADMIN_USER: UserDto = {
   hasPassword: true,
 };
 
-// Plan 4（spec §13.4）：既有 `/admin/users` route 改為
-// `<Navigate to="/settings/users" replace/>`（書籤不斷）——功能併入設定總 modal 的
-// 使用者區（Task 8 填實 `SettingsUsersSection`）。這支只釘轉址落點本身（`/admin/users`
-// 深連結最終要看到 `/settings/users` 的內容、`RequireAdmin` 包裹沒被拿掉）——modal
-// 與背景頁共存/切換不重掛/backgroundLocation 跨區塊保留等 modal-over-background
-// 機制細節，守門在 `SettingsModal.test.tsx`（尤其案 1 與 backgroundLocation 那案），
-// 不重複斷言在這裡。
-describe("App route tree — /admin/users redirects to /settings/users (Plan 4 §13.4)", () => {
+// 站台管理搬出設定 modal、改成獨立頁 `/admin/*`（2026-09-30）：方向與 Plan 4 相反——
+// 現在是 `/settings/users`（舊書籤、舊文件連結）轉址到 `/admin/users`，`/admin/users`
+// 本身直達管理頁。這支只釘兩個落點；/admin 的 guard 串接、導覽、index 轉址等細節守在
+// `pages/AdminPage.test.tsx`，`/settings/ai` 的轉址與非 admin 案守在
+// `SettingsModal.test.tsx`，不重複斷言在這裡。
+describe("App route tree — /settings/users redirects to /admin/users（站台管理獨立頁）", () => {
   function mockFetchForRedirect() {
     return vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -52,8 +50,29 @@ describe("App route tree — /admin/users redirects to /settings/users (Plan 4 �
       if (url === "/api/notes" && method === "GET") {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
       }
+      if (url === "/api/admin/users" && method === "GET") {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+      }
       throw new Error(`unexpected fetch: ${method} ${url}`);
     });
+  }
+
+  function LocationProbe() {
+    const location = useLocation();
+    return <div data-testid="redirect-location">{location.pathname}</div>;
+  }
+
+  function renderAt(path: string) {
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <ThemeProvider>
+          <MemoryRouter initialEntries={[path]}>
+            <AppRoutes />
+            <LocationProbe />
+          </MemoryRouter>
+        </ThemeProvider>
+      </QueryClientProvider>,
+    );
   }
 
   beforeEach(async () => {
@@ -64,25 +83,22 @@ describe("App route tree — /admin/users redirects to /settings/users (Plan 4 �
     vi.unstubAllGlobals();
   });
 
-  it("admin 深連結 /admin/users → 轉址 /settings/users（RequireAdmin 包裹保留不動，主樹背景落在 HomePage）", async () => {
+  it("admin 深連結 /settings/users → 轉址 /admin/users（管理頁，不開設定 modal）", async () => {
     vi.stubGlobal("fetch", mockFetchForRedirect());
-    const queryClient = new QueryClient();
+    renderAt("/settings/users");
 
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ThemeProvider>
-          <MemoryRouter initialEntries={["/admin/users"]}>
-            <AppRoutes />
-          </MemoryRouter>
-        </ThemeProvider>
-      </QueryClientProvider>,
-    );
+    await waitFor(() => expect(screen.getByTestId("redirect-location")).toHaveTextContent("/admin/users"));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "User management" })).toBeInTheDocument());
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("admin 深連結 /admin/users → 直達（不再轉去 /settings/users）", async () => {
+    vi.stubGlobal("fetch", mockFetchForRedirect());
+    renderAt("/admin/users");
 
     await waitFor(() => expect(screen.getByRole("heading", { name: "User management" })).toBeInTheDocument());
-    // Radix Dialog 開啟時背景兄弟節點會被標成 `aria-hidden`（focus trap），`getByRole`
-    // 依可及性樹過濾會找不到——這裡改用不受影響的 `getByText`（見 SettingsModal.test.tsx
-    // 同款斷言的說明），驗證主樹背景真的落在 HomePage。
-    expect(screen.getByText("New note")).toBeInTheDocument();
+    expect(screen.getByTestId("redirect-location")).toHaveTextContent("/admin/users");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });
 
