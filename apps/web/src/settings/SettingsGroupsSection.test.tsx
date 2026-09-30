@@ -195,7 +195,7 @@ describe("SettingsGroupsSection（/settings/groups，spec §8.4：所有登入�
     expect(within(settingsDialog).queryByRole("heading", { name: "New group" })).not.toBeInTheDocument();
   });
 
-  it("導覽項「Groups」在「Account」之後、admin 專區之前", async () => {
+  it("導覽項「Groups」在「Account」之後（站台管理搬到 /admin/* 後，設定 modal 只剩這兩項）", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method ?? "GET").toUpperCase();
@@ -213,6 +213,6 @@ describe("SettingsGroupsSection（/settings/groups，spec §8.4：所有登入�
 
     const nav = within(screen.getByRole("navigation"));
     const labels = nav.getAllByRole("link").map((link) => link.textContent);
-    expect(labels).toEqual(["Account", "Groups", "Users", "AI"]);
+    expect(labels).toEqual(["Account", "Groups"]);
   });
 });

@@ -2,15 +2,13 @@ import { test, expect } from "@playwright/test";
 import { ADMIN, createNote, loginAs, randomEmail } from "./helpers.js";
 
 /**
- * §14.5 流程 3：admin 於設定 modal 建第二使用者（admin 代建帳號 `mustChangePassword:
+ * §14.5 流程 3：admin 於站台管理頁建第二使用者（admin 代建帳號 `mustChangePassword:
  * true`）→ 第二使用者（獨立 browser context）首登被強制改密 → admin 分享筆記給他
  * → 他開啟可見 → admin 撤銷 → **≤10 秒**他的頁面出現 `note.accessRevoked` toast
  * 文案＋被導回 `/`（§10 SLA 的機器斷言）。
  *
- * 建第二使用者走 `/settings/users`（設定總 modal），**不是**直接 `page.goto` 深連結——
- * 深連結沒有 `location.state.backgroundLocation`，之後 Esc 關閉 modal 會落回 `/`
- * 而非原本的背景頁；這裡刻意從 `UserMenu` 的「Settings」入口進去，讓
- * `backgroundLocation` 沿途正確帶著（見 `SettingsModal.tsx`/`UserMenu.tsx` 檔頭）。
+ * 建第二使用者走 `/admin/users`（站台管理頁），從 `UserMenu` 的「Site admin」入口進去
+ * （走真實入口，不 `page.goto` 深連結），完成後點側欄「Back to notes」回 `/`。
  */
 test("admin 建第二使用者 → 分享筆記 → 撤銷 → SLA 內失去存取", async ({ browser }) => {
   const adminContext = await browser.newContext();
@@ -20,12 +18,10 @@ test("admin 建第二使用者 → 分享筆記 → 撤銷 → SLA 內失去存�
     await loginAs(adminPage, ADMIN.email, ADMIN.newPassword);
     await expect(adminPage).toHaveURL(/\/$/);
 
-    // ── 設定 modal → 使用者區 → 建立第二使用者 ──────────────────────────
+    // ── 站台管理頁 → 使用者區 → 建立第二使用者 ────────────────────────
     await adminPage.getByRole("button", { name: "admin", exact: true }).click(); // UserMenu 觸發鈕＝displayName
-    await adminPage.getByRole("menuitem", { name: "Settings" }).click();
-    await expect(adminPage).toHaveURL(/\/settings\/account$/);
-    await adminPage.getByRole("link", { name: "Users", exact: true }).click();
-    await expect(adminPage).toHaveURL(/\/settings\/users$/);
+    await adminPage.getByRole("menuitem", { name: "Site admin", exact: true }).click();
+    await expect(adminPage).toHaveURL(/\/admin\/users$/);
 
     const secondEmail = randomEmail();
     const tempPassword = "e2e-second-user-temp-pw";
@@ -41,8 +37,8 @@ test("admin 建第二使用者 → 分享筆記 → 撤銷 → SLA 內失去存�
     await expect(createUserDialog).not.toBeVisible();
     await expect(adminPage.getByText(secondEmail)).toBeVisible();
 
-    // ── 關閉設定 modal（Esc），無 reload 落回背景頁（"/"）── ────────────
-    await adminPage.keyboard.press("Escape");
+    // ── 側欄「Back to notes」回 "/" ───────────────────────────────────
+    await adminPage.getByRole("link", { name: "Back to notes", exact: true }).click();
     await expect(adminPage).toHaveURL(/\/$/);
 
     // ── 建筆記＋分享給第二使用者 ─────────────────────────────────────

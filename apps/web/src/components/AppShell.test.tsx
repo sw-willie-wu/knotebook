@@ -566,7 +566,9 @@ describe("AppShell — #115 側欄抽屜", () => {
     renderShell();
     await screen.findByRole("button", { name: "Open navigation" });
 
-    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    // 回傳 false＝事件被 preventDefault（窄視窗按 Ctrl+K 不能同時觸發瀏覽器網址列搜尋）。
+    const notCanceled = fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    expect(notCanceled).toBe(false);
 
     const drawer = await screen.findByRole("dialog", { name: "Navigation" });
     await waitFor(() => expect(within(drawer).getByRole("textbox", { name: "Search notes" })).toHaveFocus());
@@ -585,5 +587,183 @@ describe("AppShell — #115 側欄抽屜", () => {
       media.dispatchChange(false);
     });
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Navigation" })).not.toBeInTheDocument());
+  });
+});
+
+/**
+ * 站台管理頁（`/admin/*`）的側欄插槽：傳了 `sidebar` 時，側欄中段（搜尋框／NoteList／
+ * 新增鈕）換成插槽內容，logo 列與底部 UserMenu 照舊；靜態卡與抽屜吃同一個插槽。
+ * 查詢一律圈在 `<aside>`（靜態卡）或 `within(drawer)` 裡——同上一組的雙實例理由。
+ */
+describe("AppShell — sidebar 插槽（站台管理頁）", () => {
+  const NOTE: NoteDto = {
+    id: "88888888-8888-8888-8888-888888888888",
+    title: "Slot Note",
+    ownerId: "u1",
+    role: "owner",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    slug: "slot-note",
+    slugIsCustom: false,
+    prevSlug: null,
+    ownerHandle: "tester",
+    lastEdited: null,
+    group: null,
+  };
+
+  function stubFetch() {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (url === "/api/groups" && method === "GET") {
+          return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+        }
+        if (url === "/api/auth/me") {
+          return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(USER) }));
+        }
+        if (url === "/api/notes" && method === "GET") {
+          return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([NOTE]) }));
+        }
+        throw new Error(`unexpected fetch: ${method} ${url}`);
+      }),
+    );
+  }
+
+  function renderSlotShell() {
+    return render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <ThemeProvider>
+          <MemoryRouter initialEntries={["/admin/users"]}>
+            <ActiveNoteProvider>
+              <AppShell sidebar={<nav aria-label="slot-nav">slot content</nav>}>
+                <SidebarDrawerButton />
+              </AppShell>
+            </ActiveNoteProvider>
+          </MemoryRouter>
+        </ThemeProvider>
+      </QueryClientProvider>,
+    );
+  }
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("靜態卡：渲染插槽與 UserMenu，不渲染搜尋框／NoteList／新增鈕", async () => {
+    stubFetch();
+    const { container } = renderSlotShell();
+    const aside = within(container.querySelector("aside")!);
+
+    // UserMenu 等 `/api/auth/me` 回來才渲染——用它當「非同步都落地了」的錨點，
+    // 之後的反向斷言才不是在資料還沒到時的空殼上成立。
+    expect(await aside.findByRole("button", { name: "Ann" })).toBeInTheDocument();
+    expect(aside.getByRole("navigation", { name: "slot-nav" })).toBeInTheDocument();
+    expect(aside.getByText("Knotebook")).toBeInTheDocument();
+    expect(aside.queryByRole("textbox", { name: "Search notes" })).not.toBeInTheDocument();
+    expect(aside.queryByRole("button", { name: "New note" })).not.toBeInTheDocument();
+    expect(aside.queryByRole("link", { name: "Slot Note" })).not.toBeInTheDocument();
+  });
+
+  it("抽屜：同樣吃插槽（有插槽與 UserMenu、沒有搜尋框）", async () => {
+    stubFetch();
+    renderSlotShell();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open navigation" }));
+    const drawer = within(await screen.findByRole("dialog", { name: "Navigation" }));
+
+    expect(drawer.getByRole("navigation", { name: "slot-nav" })).toBeInTheDocument();
+    expect(await drawer.findByRole("button", { name: "Ann" })).toBeInTheDocument();
+    expect(drawer.queryByRole("textbox", { name: "Search notes" })).not.toBeInTheDocument();
+    expect(drawer.queryByRole("button", { name: "New note" })).not.toBeInTheDocument();
+  });
+
+  it("沒有搜尋框時 Ctrl+K 不 throw（smoke：寬分支不進分支、抽屜已開的窄分支聚焦 null ref；寬分支的精確守衛在 defaultPrevented 案）", async () => {
+    // window 的 keydown listener 丟的例外不會冒到 fireEvent 的呼叫端（jsdom 走
+    // reportException），只能掛 window error 事件收——否則 throw 了也照樣綠。
+    const errors: unknown[] = [];
+    const onError = (event: ErrorEvent) => {
+      errors.push(event.error);
+      event.preventDefault();
+    };
+    window.addEventListener("error", onError);
+    try {
+      stubFetch();
+      const { unmount } = renderSlotShell();
+      await screen.findByRole("button", { name: "Open navigation" });
+
+      // 寬分支：沒有搜尋框，不進分支（只驗不 throw；不 preventDefault 由另一案精確守）。
+      fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+      unmount();
+
+      // 窄分支、抽屜已開（漢堡開的）：drawerSearchRef.current 為 null。
+      vi.stubGlobal(
+        "matchMedia",
+        vi.fn(() => ({
+          matches: true,
+          media: "(width < 48rem)",
+          addEventListener: () => {},
+          removeEventListener: () => {},
+          onchange: null,
+          addListener: () => {},
+          removeListener: () => {},
+          dispatchEvent: () => false,
+        })),
+      );
+      renderSlotShell();
+      fireEvent.click(await screen.findByRole("button", { name: "Open navigation" }));
+      await screen.findByRole("dialog", { name: "Navigation" });
+      fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    } finally {
+      window.removeEventListener("error", onError);
+    }
+    expect(errors).toEqual([]);
+  });
+
+  function stubMatchMedia(matches: boolean) {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn(() => ({
+        matches,
+        media: "(width < 48rem)",
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        onchange: null,
+        addListener: () => {},
+        removeListener: () => {},
+        dispatchEvent: () => false,
+      })),
+    );
+  }
+
+  it("窄視窗插槽模式、抽屜關著按 Ctrl+K：開抽屜且焦點落進抽屜（沒有搜尋框可聚焦時退回容器，武裝 focus trap）", async () => {
+    stubMatchMedia(true);
+    stubFetch();
+    renderSlotShell();
+    const burger = await screen.findByRole("button", { name: "Open navigation" });
+    burger.focus();
+
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+
+    const drawer = await screen.findByRole("dialog", { name: "Navigation" });
+    await waitFor(() => expect(drawer.contains(document.activeElement)).toBe(true));
+    expect(within(drawer).queryByRole("textbox", { name: "Search notes" })).not.toBeInTheDocument();
+  });
+
+  it("寬視窗插槽模式按 Ctrl+K（沒有搜尋框）：不 preventDefault，瀏覽器預設行為保留", async () => {
+    stubMatchMedia(false);
+    stubFetch();
+    renderSlotShell();
+    await screen.findByRole("button", { name: "Open navigation" });
+
+    const notCanceled = fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+
+    expect(notCanceled).toBe(true);
   });
 });

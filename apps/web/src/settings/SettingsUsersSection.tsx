@@ -269,22 +269,19 @@ function UserActions({ user, currentUserId }: { user: AdminUserDto; currentUserI
 }
 
 /**
- * 設定 modal 的使用者區（`/settings/users`，admin only，spec §13.4）——原本獨立路由
- * `/admin/users`（Task 15，已被 Task 7 拆掉獨立頁）的表格/dialog/mutation 邏輯整段遷入，
- * **邏輯零改動**（`CreateUserDialog`/`UserActions`/`errorMessage` 三支輔助函式與
- * `useAdminUsers`/`useCreateAdminUser`/... 五支 hook 原封使用）。與原頁面的差異只有
- * 版面外殼：
+ * 站台管理頁的使用者區（`/admin/users`，admin only）。歷程：原本是獨立路由
+ * `/admin/users`（Task 15）→ Plan 4 併進設定 modal 成為 `/settings/users`（spec §13.4）
+ * → 2026-09-30 又搬回獨立頁 `/admin/users`，掛在 `pages/AdminPage.tsx` 的 `<Outlet/>`
+ * 底下（本元件未改，只換掛載點；舊網址 `/settings/users` 轉址過來）。
  *
- * - 拔掉 `<AppShell>`——modal 內不能再包一層 app shell（`SettingsModal` 本身已經是
- *   Dialog 外殼，見該檔）。
- * - 拔掉 `mx-auto max-w-4xl p-8` 外層 padding／寬度限制——modal 內容區
- *   （`SettingsModal` 的 `<div className="flex-1 overflow-y-auto p-6">`）已經提供
- *   留白，比照 `SettingsAccountSection` 只用 `space-y-6` 起始。
- * - 標題列不再跟 `CreateUserDialog` 觸發鈕同一行 `justify-between`：`size="lg"` 的
- *   `DialogContent`（`SettingsModal` 用的那個）在 `absolute right-4 top-4` 放了 Radix
- *   的 ✕ 關閉鈕，若「Create user」鈕也擠在標題列右上角，兩顆鈕會撞在一起、幾乎疊在
- *   同一個角落。改成獨立一行、靠右對齊，往下讓出足夠垂直距離，不再與 ✕ 共用那個角落
- *   （Task 8 審查交接）。
+ * 版面外殼由掛載點提供，本元件自己不帶：
+ *
+ * - 不包 `<AppShell>`——`AdminPage` 已經用 `AppShell` 包好殼，這裡再包就是雙層殼。
+ * - 不帶外層 padding／寬度限制——`AdminPage` 的內容卡已提供 `p-8` 留白，比照
+ *   `SettingsAccountSection`：頁首與分組都由 `SettingsPage`／`SettingsGroup` 提供。
+ * - 標題列的建立鈕走 `SettingsPage` 的 `action` 插槽（見 `SettingsLayout.tsx`）。
+ *   當初放在 modal 裡時曾因 Radix ✕ 關閉鈕佔住右上角而調整過位置（Task 8 審查交接）；
+ *   獨立頁沒有 ✕，那個顧慮已不存在。
  */
 export function SettingsUsersSection() {
   const { t } = useTranslation();

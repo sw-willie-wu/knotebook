@@ -11,6 +11,7 @@ import LoginPage from "./pages/LoginPage";
 import ChangePasswordPage from "./pages/ChangePasswordPage";
 import AuthorizePage from "./pages/AuthorizePage";
 import HomePage from "./pages/HomePage";
+import AdminPage from "./pages/AdminPage";
 import { SettingsModal } from "./settings/SettingsModal";
 import { SettingsAccountSection } from "./settings/SettingsAccountSection";
 import { SettingsGroupsSection } from "./settings/SettingsGroupsSection";
@@ -111,21 +112,26 @@ function PublicNoteRoute() {
  *   且後掛載」上**：哪天把某個 modal-over-background 路由移出第二棵樹，`next` 會
  *   **靜默**退化成背景頁。守衛在 `App.test.tsx` 的「未登入開設定 modal → next 取
  *   真實網址」那案。
- * - **第二棵樹**：只含 `/settings/*`，吃真實 location（不帶 `location` prop）；
+ * - **第二棵樹**：只含 `/settings/*`（modal 三區＋兩條往 `/admin/*` 的舊網址轉址），
+ *   吃真實 location（不帶 `location` prop）；
  *   非 `/settings/*` 路徑下整棵 match 不到任何 route → render `null`，樹內的
  *   guard 元件根本不會執行，不會有幽靈重導。guard 元件在這裡
  *   直接複用同一份，以 pathless layout route 掛上——不是塞進主樹。
  *
  * `/settings/*` **絕不可加進主樹**：加進去背景頁就不會渲染，modal-over-background
- * 整個破功。既有 `/admin/users` route 改為 `<Navigate to="/settings/users" replace/>`
- * （書籤不斷；`RequireAdmin` 包裹保留不動）。
+ * 整個破功。
+ *
+ * 站台管理（2026-09-30 起）是**一般頁面**、不是 modal：`/admin` layout route
+ * （`AdminPage`，子路由 `users`／`ai`，index 轉 `/admin/users`）在主樹。舊網址
+ * `/settings/users`、`/settings/ai` 在第二棵樹裡 `<Navigate replace>` 過去——掛在
+ * `SettingsModal` 外面（不閃 modal）、`RequireAuth` 裡面。方向與 Plan 4 相反
+ * （那時是 `/admin/users` 轉 `/settings/users`）。
  *
  * 現行守衛集合（主樹）：<RequireAuth> 包住除 /login 外的其餘路由（未登入導
  * `/login?next=<目前路徑>`，#131——「目前路徑」的兩棵樹細節見上）；
- * `/admin/users`（Task 15）再多包一層 <RequireAdmin>（非 admin 導 `/`）
- * ——巢狀在 <RequireAuth> 底下，即使 <RequireAdmin> 自己也有未登入判斷（見
- * guards.tsx），這裡是雙保險而非依賴它獨立生效。這條路由必須排在 `/*` catch-all
- * 之前，否則永遠會被 HomePage 吃掉。
+ * `/admin/*` 再多包一層 <RequireAdmin>（非 admin 導 `/`）——巢狀在 <RequireAuth>
+ * 與 <ChangePasswordGate> 底下，即使 <RequireAdmin> 自己也有未登入判斷（見
+ * guards.tsx），這裡是雙保險而非依賴它獨立生效。
  *
  * `/change-password`（spec rev 5.7）巢狀在 <RequireAuth> 底下、但刻意掛在
  * <ChangePasswordGate> **外面**（與它平行，不是它的 <Outlet/> 子路由）——這條路由本身
@@ -162,8 +168,14 @@ export function AppRoutes() {
                 被 `/*` catch-all 吃掉；route 承接測試釘住）。 */}
             <Route path="/notes/:ref" element={<NoteRoute />} />
             <Route path="/n/:handle/:slug" element={<NoteRoute />} />
+            {/* 站台管理獨立頁（2026-09-30）：layout route，AdminPage 的 <Outlet/> 放兩個
+                子區塊。RequireAdmin 巢狀在 ChangePasswordGate 底下（先強制改密、再判 admin）。 */}
             <Route element={<RequireAdmin />}>
-              <Route path="/admin/users" element={<Navigate to="/settings/users" replace />} />
+              <Route path="/admin" element={<AdminPage />}>
+                <Route index element={<Navigate to="/admin/users" replace />} />
+                <Route path="users" element={<SettingsUsersSection />} />
+                <Route path="ai" element={<SettingsAiSection />} />
+              </Route>
             </Route>
             <Route path="/*" element={<HomePage />} />
           </Route>
@@ -180,12 +192,13 @@ export function AppRoutes() {
               {/* #103：群組（所有登入者，spec §8.4）——不巢狀在下面的 RequireAdmin 底下。 */}
               <Route path="/settings/groups" element={<SettingsGroupsSection />} />
               <Route path="/settings/groups/:id" element={<SettingsGroupDetailSection />} />
-              <Route element={<RequireAdmin />}>
-                <Route path="/settings/users" element={<SettingsUsersSection />} />
-                <Route path="/settings/ai" element={<SettingsAiSection />} />
-              </Route>
             </Route>
           </Route>
+          {/* 舊網址（書籤、舊文件連結）：站台管理搬到 /admin/* 後轉址過去。刻意掛在
+              SettingsModal **外面**（不先閃一下 modal 再跳走），仍在 RequireAuth 內；
+              admin 與否交給 /admin 那邊的 RequireAdmin 判。 */}
+          <Route path="/settings/users" element={<Navigate to="/admin/users" replace />} />
+          <Route path="/settings/ai" element={<Navigate to="/admin/ai" replace />} />
         </Route>
         {/* 與上面那棵 pathless `<RequireAuth>` 平行（不是它的子路由）：純粹吸收
             react-router 對非 /settings/* 路徑的「No routes matched」warning——

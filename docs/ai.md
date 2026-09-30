@@ -2,7 +2,7 @@
 
 Knotebook ships four built-in AI quick actions — rewrite, translate, summarize, continue — that run against a provider you configure yourself; there's no bundled AI vendor and nothing is sent anywhere until an admin sets one up.
 
-**Setup (admin only):** open **Settings → AI** (linked from the user menu). Configuration is three layers, in order:
+**Setup (admin only):** open **Site admin → AI** (`/admin/ai`; **Site admin** is in the user menu, shown to admins only). Configuration is three layers, in order:
 
 1. **Providers** — an upstream AI API. Two types:
    - `anthropic` — talks to the Anthropic Messages API. `baseUrl` is the API **origin**, e.g. `https://api.anthropic.com` (no `/v1` suffix — Knotebook appends the versioned path itself).

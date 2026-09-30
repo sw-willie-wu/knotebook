@@ -2,7 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { ADMIN, createNote, editorLocator, loginAs } from "./helpers.js";
 
 /**
- * §14.5 流程 4：設定 modal 建 provider（指向 ai-stub）＋ model → AI 動作 apply →
+ * §14.5 流程 4：站台管理頁（`/admin/ai`）建 provider（指向 ai-stub）＋ model → AI 動作 apply →
  * revert → 守門（ai-stub 拉長串流、另一 context 改錨點 block → 中止提示）。
  * 「admin AI 三層 CRUD」（provider 建立＋編輯／model 建立）順帶獲得覆蓋。
  *
@@ -29,14 +29,20 @@ const MODEL_DISPLAY_NAME = `E2E AI Model ${RUN_ID}`;
 const REWRITTEN_TEXT = "E2E rewritten text"; // ai-stub 固定輸出（e2e/stubs/ai-stub.mjs FINAL_CONTENT）
 const REASONING_MARKER = "internal reasoning"; // ai-stub 固定塞進 reasoning_content 的字樣，server 絕不轉送給 client（apps/server/src/routes/ai.ts）
 
-/** UserMenu →「Settings」→ 設定 modal 內點 nav link 到 `/settings/ai`（帶著
- * `backgroundLocation`，Esc 關閉時才回得去呼叫端目前所在的背景頁，不會落回 `/`）。 */
+/** UserMenu →「Site admin」→ 站台管理頁側欄點「AI」到 `/admin/ai`（一般頁面，不是
+ * modal；回筆記走側欄的「Back to notes」，落在 `/`）。 */
 async function openAiSettings(page: Page): Promise<void> {
   await page.getByRole("button", { name: "admin", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
-  await expect(page).toHaveURL(/\/settings\/account$/);
+  await page.getByRole("menuitem", { name: "Site admin", exact: true }).click();
+  await expect(page).toHaveURL(/\/admin\/users$/);
   await page.getByRole("link", { name: "AI", exact: true }).click();
-  await expect(page).toHaveURL(/\/settings\/ai$/);
+  await expect(page).toHaveURL(/\/admin\/ai$/);
+}
+
+/** 站台管理頁 → 側欄「Back to notes」→ `/`。 */
+async function leaveAdmin(page: Page): Promise<void> {
+  await page.getByRole("link", { name: "Back to notes", exact: true }).click();
+  await expect(page).toHaveURL(/\/$/);
 }
 
 /** provider 卡片（`ProviderCard`，`space-y-3 rounded-md border border-border p-4`）——
@@ -50,21 +56,16 @@ function providerCardLocator(page: Page, name: string) {
 
 test.describe.configure({ mode: "serial" }); // 兩支測試共用同一顆 provider（第二支改它的 baseUrl）——單 worker 下本已序列，這裡把意圖寫明。
 
-test("設定 modal 建 provider/model → toolbar 改寫 → 串流不洩漏 reasoning → 套用 → revert", async ({ browser }) => {
+test("站台管理頁建 provider/model → toolbar 改寫 → 串流不洩漏 reasoning → 套用 → revert", async ({ browser }) => {
   const context = await browser.newContext();
   try {
     const page = await context.newPage();
     await loginAs(page, ADMIN.email, ADMIN.newPassword);
     await expect(page).toHaveURL(/\/$/);
 
-    const title = `E2E ai ${Date.now()}`;
-    await createNote(page, title);
-    const original = "Selecting this phrase should trigger a rewrite action.";
-    const editor = editorLocator(page);
-    await editor.click();
-    await editor.pressSequentially(original);
-
-    // ── 設定 modal：建 provider（openai_compatible，指向 ai-stub /fast，無 key）──
+    // ── 站台管理頁：建 provider（openai_compatible，指向 ai-stub /fast，無 key）──
+    // 先設定、後建筆記：站台管理是一般頁面（2026-09-30 前是疊在筆記頁上的設定
+    // modal，那時先建筆記、Esc 關 modal 回同一篇）。
     await openAiSettings(page);
     await page.getByRole("button", { name: "Add provider", exact: true }).click();
     const createProviderDialog = page.getByRole("dialog", { name: "Add provider" });
@@ -91,10 +92,16 @@ test("設定 modal 建 provider/model → toolbar 改寫 → 串流不洩漏 rea
     await expect(createModelDialog).not.toBeVisible();
     await expect(providerCard.getByText(MODEL_DISPLAY_NAME)).toBeVisible();
 
-    // ── 回編輯器：Esc 關 modal（不重整，SPA 導回 backgroundLocation＝這篇筆記）──
-    await page.keyboard.press("Escape");
+    // ── 回筆記：建筆記＋打一段文字 ────────────────────────────────────────
+    await leaveAdmin(page);
+    const title = `E2E ai ${Date.now()}`;
+    await createNote(page, title);
     await expect(page).toHaveURL(new RegExp(`/n/`)); // #122：筆記頁網址是 /n/<handle>/<slug> 新形
+    const original = "Selecting this phrase should trigger a rewrite action.";
+    const editor = editorLocator(page);
     await editor.waitFor({ timeout: 15_000 });
+    await editor.click();
+    await editor.pressSequentially(original);
 
     // ── 選取文字 → toolbar AI 動作（內建「Rewrite」）───────────────────
     await editor.getByText(original, { exact: true }).click({ clickCount: 3 }); // 三擊選取整段（非 collapsed selection，getSelection() 才吃得到）
@@ -150,8 +157,7 @@ test("守門：provider 改指向 /slow → 串流中錨點被第二個 context 
     await expect(editProviderDialog).not.toBeVisible();
     await expect(providerCard).toContainText("http://ai-stub:9500/slow");
 
-    await ownerPage.keyboard.press("Escape");
-    await expect(ownerPage).toHaveURL(/\/$/);
+    await leaveAdmin(ownerPage);
 
     // ── owner 建筆記，第二個 context（同一 admin 帳號另一台裝置）開同一篇 ─────
     const title = `E2E ai guard ${Date.now()}`;

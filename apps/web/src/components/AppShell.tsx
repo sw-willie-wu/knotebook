@@ -70,13 +70,23 @@ interface SidebarContentProps {
   onCreateNote: (groupId?: string) => void;
   newNotePending: boolean;
   shortcutBadge: string;
+  /** 見 `AppShellProps.sidebar`。有值時中段（搜尋／NoteList／新增鈕）整段換成它。 */
+  slot: ReactNode | undefined;
 }
 
 /** 側欄的內層堆疊（logo 列／搜尋／NoteList／新增鈕／UserMenu）。wrapper（靜態
  * `<aside>` 卡或抽屜 Content）由呼叫端提供——兩個 wrapper 都必須給
  * `flex flex-col` 脈絡，否則清單容器的 `min-h-0 flex-1 overflow-y-auto` 失去
  * 約束（spec §3a 邊界定案）。 */
-function SidebarContent({ query, onQueryChange, searchRef, onCreateNote, newNotePending, shortcutBadge }: SidebarContentProps) {
+function SidebarContent({
+  query,
+  onQueryChange,
+  searchRef,
+  onCreateNote,
+  newNotePending,
+  shortcutBadge,
+  slot,
+}: SidebarContentProps) {
   const { t } = useTranslation();
   return (
     <>
@@ -91,43 +101,51 @@ function SidebarContent({ query, onQueryChange, searchRef, onCreateNote, newNote
         <span className="text-sm font-semibold">Knotebook</span>
       </div>
 
-      <div className="relative mx-2 mt-2">
-        <Search
-          aria-hidden="true"
-          className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
-        />
-        <Input
-          ref={searchRef}
-          type="text"
-          value={query}
-          onChange={(event) => onQueryChange(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key !== "Escape") return;
-            onQueryChange("");
-            event.currentTarget.blur();
-          }}
-          aria-label={t("sidebar.searchLabel")}
-          placeholder={t("sidebar.searchPlaceholder")}
-          className="h-8 pl-7 pr-11 text-[13px]"
-        />
-        <kbd
-          aria-hidden="true"
-          className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 rounded border border-border px-1 text-[10px] text-muted-foreground"
-        >
-          {shortcutBadge}
-        </kbd>
-      </div>
+      {slot !== undefined ? (
+        // 插槽容器沿用清單容器的 `min-h-0 flex-1 overflow-y-auto`：把 UserMenu 推到底、
+        // 插槽內容過長時自己捲。`pt-2` 對齊原本搜尋框的 `mt-2`。
+        <div className="min-h-0 flex-1 overflow-y-auto px-2 pt-2">{slot}</div>
+      ) : (
+        <>
+          <div className="relative mx-2 mt-2">
+            <Search
+              aria-hidden="true"
+              className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+            />
+            <Input
+              ref={searchRef}
+              type="text"
+              value={query}
+              onChange={(event) => onQueryChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== "Escape") return;
+                onQueryChange("");
+                event.currentTarget.blur();
+              }}
+              aria-label={t("sidebar.searchLabel")}
+              placeholder={t("sidebar.searchPlaceholder")}
+              className="h-8 pl-7 pr-11 text-[13px]"
+            />
+            <kbd
+              aria-hidden="true"
+              className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 rounded border border-border px-1 text-[10px] text-muted-foreground"
+            >
+              {shortcutBadge}
+            </kbd>
+          </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-2">
-        <NoteList query={query} onCreateNote={onCreateNote} createNotePending={newNotePending} />
-      </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-2">
+            <NoteList query={query} onCreateNote={onCreateNote} createNotePending={newNotePending} />
+          </div>
 
-      <div className="m-2">
-        <Button variant="brand" className="w-full" onClick={() => onCreateNote()} disabled={newNotePending}>
-          <Plus aria-hidden="true" className="h-4 w-4" />
-          {t("home.newNote")}
-        </Button>
-      </div>
+          <div className="m-2">
+            <Button variant="brand" className="w-full" onClick={() => onCreateNote()} disabled={newNotePending}>
+              <Plus aria-hidden="true" className="h-4 w-4" />
+              {t("home.newNote")}
+            </Button>
+          </div>
+        </>
+      )}
 
       <div className="border-t border-border p-2">
         <UserMenu />
@@ -138,14 +156,27 @@ function SidebarContent({ query, onQueryChange, searchRef, onCreateNote, newNote
 
 interface AppShellProps {
   children: ReactNode;
+  /**
+   * 側欄中段的替換內容（站台管理頁 `/admin/*` 放管理導覽）。不傳＝現狀：搜尋框＋
+   * NoteList＋新增鈕。傳了＝那三樣整段換成它，logo 列與底部 UserMenu 照舊；靜態卡
+   * 與抽屜兩份 `SidebarContent` 吃同一個值。
+   *
+   * 插槽模式下沒有搜尋框：兩個搜尋框 ref 恆為 null。Ctrl/Cmd+K：**寬**視窗不
+   * `preventDefault`（沒東西可聚焦，瀏覽器預設行為保留）；**窄**視窗仍開抽屜（裡面是
+   * 管理導覽），且因搜尋框 ref 為 null 而退回聚焦抽屜容器（武裝 focus trap，同漢堡開）
+   * ——皆釘在 `AppShell.test.tsx` 的插槽案組。
+   * 新增筆記（`handleNewNote`）在插槽模式沒有觸發點，照樣建構、不另拆。
+   */
+  sidebar?: ReactNode;
 }
 
 /**
  * 主佈局：側欄（`md+`＝固定卡片；`<md`＝隱藏，改由抽屜承載，入口是
  * `SidebarDrawerButton` 漢堡鈕——NotePage 頁首或 `NarrowTopBar` 提供）、右側主
- * 內容區（呼叫端傳入的 `children`）。四個呼叫端共用同一個插槽：`HomePage`（`/`）、
+ * 內容區（呼叫端傳入的 `children`）。五個呼叫端共用同一個插槽：`HomePage`（`/`）、
  * `NotePage`（`/n/:handle/:slug` 與舊形 `/notes/:ref` 兩條 route 共用）、
- * `NotePageFallback`、`NoteRouteErrorFallback`。
+ * `NotePageFallback`、`NoteRouteErrorFallback`、`AdminPage`（`/admin/*`，唯一傳
+ * `sidebar` 的呼叫端）。
  *
  * 側欄內容抽成 `SidebarContent`，靜態卡與抽屜共用；抽屜開著時 DOM 上同時有兩份
  * （靜態那份 `hidden`——真實瀏覽器 display:none 不進 a11y tree、不可聚焦；jsdom
@@ -156,14 +187,15 @@ interface AppShellProps {
  * 搜尋框要顯示同一個值——state 提升到共同祖先最單純。
  *
  * Ctrl/Cmd+K 語意（#115 改版後）：蓋掉瀏覽器網址列搜尋的預設行為
- * （`preventDefault`）；任何**非抽屜的** `[role="dialog"]` 開著時放棄（避免跟
+ * （`preventDefault`；僅在有事可做時——窄＝開/聚焦抽屜、寬＝有搜尋框，見下）；任何**非抽屜的** `[role="dialog"]` 開著時放棄（避免跟
  * Radix Dialog 的 focus trap 互搶焦點——判別靠 `:not([data-sidebar-drawer])`
  * 屬性選擇器，不是元件身分；⋮ 選單是 `role="menu"`，不在判定範圍，快捷鍵仍會
  * 觸發（寬分支會把焦點搶去搜尋框，Radix menu 因此自行關閉，副作用可接受）。
  * 然後分斷點：
  * **窄**（`matchMedia(NARROW_QUERY).matches`）→ 抽屜未開就開抽屜（聚焦交給
- * `onOpenAutoFocus`，靜態搜尋框是 display:none、focus() 無效）；**寬** → 照舊
- * 聚焦靜態搜尋框。**按鍵比對用嚴格 `event.key === "k"`**（不 `toLowerCase()`）：
+ * `onOpenAutoFocus`：有抽屜搜尋框就聚焦它，否則〔插槽模式〕退回聚焦容器；靜態搜尋框
+ * 是 display:none、focus() 無效）；**寬** → 有靜態搜尋框就聚焦它，沒有（插槽模式）
+ * 就不攔截。**按鍵比對用嚴格 `event.key === "k"`**（不 `toLowerCase()`）：
  * 刻意排除 Ctrl+Shift+K——瀏覽器對有 Shift 的字母鍵回報大寫 `"K"`，嚴格比對讓
  * 這個快捷鍵只認「不按 Shift」這一種按法，行為釘在 `AppShell.test.tsx` 的
  * Ctrl/Cmd+K 案組。**讓路規則**：
@@ -183,7 +215,7 @@ interface AppShellProps {
  * 用 toast 顯示（不像 LoginPage 用行內 `errorMessage` state——這裡沒有表單可以
  * 掛錯誤文案）。
  */
-export function AppShell({ children }: AppShellProps) {
+export function AppShell({ children, sidebar }: AppShellProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
@@ -211,8 +243,8 @@ export function AppShell({ children }: AppShellProps) {
       if (event.defaultPrevented) return;
       // 非抽屜的 dialog 開著（設定 modal、分享 dialog…）→ 放棄，不搶 focus trap。
       if (document.querySelector('[role="dialog"]:not([data-sidebar-drawer])')) return;
-      event.preventDefault();
       if (window.matchMedia(NARROW_QUERY).matches) {
+        event.preventDefault();
         if (!drawerOpenRef.current) {
           openedByShortcutRef.current = true;
           setDrawerOpen(true);
@@ -221,8 +253,11 @@ export function AppShell({ children }: AppShellProps) {
           // 「聚焦搜尋」，直接把焦點放進抽屜的搜尋框。
           drawerSearchRef.current?.focus();
         }
-      } else {
-        searchInputRef.current?.focus();
+      } else if (searchInputRef.current) {
+        // 寬：有搜尋框才吃掉這個鍵。插槽模式（管理頁）沒有搜尋框，不 preventDefault，
+        // 讓瀏覽器預設行為保留（否則吞了鍵卻什麼都沒做）。
+        event.preventDefault();
+        searchInputRef.current.focus();
       }
     }
     window.addEventListener("keydown", handleKeyDown);
@@ -280,6 +315,7 @@ export function AppShell({ children }: AppShellProps) {
     onCreateNote: (groupId?: string) => void handleNewNote(groupId),
     newNotePending: createNote.isPending,
     shortcutBadge,
+    slot: sidebar,
   };
 
   return (
@@ -309,10 +345,11 @@ export function AppShell({ children }: AppShellProps) {
               className="fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-border bg-card"
               onOpenAutoFocus={(event) => {
                 event.preventDefault();
-                if (openedByShortcutRef.current) {
-                  drawerSearchRef.current?.focus();
+                if (openedByShortcutRef.current && drawerSearchRef.current) {
+                  drawerSearchRef.current.focus();
                   openedByShortcutRef.current = false;
                 } else {
+                  openedByShortcutRef.current = false;
                   // 漢堡開：不聚焦搜尋框（觸控裝置會彈鍵盤；Radix 預設聚焦第一個
                   // 可聚焦元素恰好就是它，必須 preventDefault 擋掉），但焦點必須
                   // 落進抽屜本身——Radix 的 focus trap 要焦點先進容器才武裝
