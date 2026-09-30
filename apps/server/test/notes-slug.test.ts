@@ -8,7 +8,7 @@ import { SESSION_COOKIE, validateSlug } from "@knotebook/shared";
 import { buildTestApp, freshDb, testConfig } from "./helpers.js";
 import { noteShares, notes, users } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
-import { resolveRoleWithOwner } from "../src/notes/service.js";
+import { NO_PERMISSIONS, OWNER_PERMISSIONS, resolveNoteAccess, sharePermissions } from "../src/notes/service.js";
 import { UserGate, signSession } from "../src/auth/session.js";
 
 async function insertUser(db: Db, overrides: Partial<{ email: string; displayName: string }> = {}) {
@@ -1135,8 +1135,8 @@ describe("#122 DTO 回填（ownerHandle/slugIsCustom/prevSlug）", () => {
   });
 });
 
-describe("resolveRoleWithOwner（notes/service.ts）", () => {
-  it("契約：owner/editor 帶真 ownerId；none（陌生人/不存在/非法 id）ownerId=null", async () => {
+describe("resolveNoteAccess（notes/service.ts）——個人筆記的契約（#175 取代 resolveRoleWithOwner）", () => {
+  it("owner／editor 帶真 ownerId 與各自的 permissions；none（陌生人／不存在／非法 id）什麼都拿不到", async () => {
     const { app, db } = await buildTestApp();
     const owner = await insertUser(db, { email: "owner-mx14@example.com" });
     const editor = await insertUser(db, { email: "editor-mx14@example.com" });
@@ -1144,13 +1144,13 @@ describe("resolveRoleWithOwner（notes/service.ts）", () => {
     const cookie = await cookieFor(owner.id);
     const note = (await app.inject({ method: "POST", url: "/api/notes", cookies: { [SESSION_COOKIE]: cookie }, payload: {} })).json();
     await db.insert(noteShares).values({ noteId: note.id, userId: editor.id, role: "editor" });
+    const none = { role: "none", ownerId: null, groupId: null, permissions: NO_PERMISSIONS };
 
-    expect(await resolveRoleWithOwner(db, owner.id, note.id)).toEqual({ role: "owner", ownerId: owner.id, isGroupMember: false, groupId: null });
-    // editor 拿到的是 **owner 的** id（auto 探測要以 owner 為範圍，不是操作者）
-    expect(await resolveRoleWithOwner(db, editor.id, note.id)).toEqual({ role: "editor", ownerId: owner.id, isGroupMember: false, groupId: null });
-    // 無權限者連 owner 是誰都不該拿到（JSDoc 契約）
-    expect(await resolveRoleWithOwner(db, stranger.id, note.id)).toEqual({ role: "none", ownerId: null, isGroupMember: false, groupId: null });
-    expect(await resolveRoleWithOwner(db, owner.id, "00000000-0000-4000-8000-00000000dead")).toEqual({ role: "none", ownerId: null, isGroupMember: false, groupId: null });
-    expect(await resolveRoleWithOwner(db, owner.id, "not-a-uuid")).toEqual({ role: "none", ownerId: null, isGroupMember: false, groupId: null });
+    expect(await resolveNoteAccess(db, owner.id, note.id)).toEqual({ role: "owner", ownerId: owner.id, groupId: null, permissions: OWNER_PERMISSIONS });
+    // editor 拿到的是 **owner 的** id（auto 探測以 owner 為範圍，不是操作者）
+    expect(await resolveNoteAccess(db, editor.id, note.id)).toEqual({ role: "editor", ownerId: owner.id, groupId: null, permissions: sharePermissions("editor") });
+    expect(await resolveNoteAccess(db, stranger.id, note.id)).toEqual(none);
+    expect(await resolveNoteAccess(db, owner.id, "00000000-0000-4000-8000-00000000dead")).toEqual(none);
+    expect(await resolveNoteAccess(db, owner.id, "not-a-uuid")).toEqual(none);
   });
 });

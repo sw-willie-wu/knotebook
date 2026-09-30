@@ -573,6 +573,8 @@
     "note_in_group": "Group notes can't be shared with individual people. Ask a group admin to add them to the group instead.",
     "invalid_name": "Group names must be 1–80 characters.",
     "conflict": "Something changed while you were doing that. Reload and try again.",
+    "group_not_empty": "This group still has notes in it, so it can't be deleted.",
+    "role_not_found": "We couldn't find that role.",
     "fallback": "An unexpected error occurred."
   }
 }

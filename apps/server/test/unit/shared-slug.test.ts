@@ -213,15 +213,28 @@ describe("extractRefUuid", () => {
 });
 
 describe("canonicalNotePath", () => {
-  // #122 起單一形：`/n/<ownerHandle>/<slug>`（slug NOT NULL、每篇必有 ownerHandle，
-  // 舊三態退役）。兩段不做 URL 編碼——handle 是 a-z0-9-、slug 已過 normalizeSlug，
+  // 個人筆記：`/n/<ownerHandle>/<slug>`（#122）；#175 起群組筆記另一形 `/g/<groupId>/<slug>`。
+  // 兩段不做 URL 編碼——handle 是 a-z0-9-、群組 id 是 uuid、slug 已過 normalizeSlug，
   // 非 ASCII 交給傳輸層（與舊 /notes/<slug> 形同慣例）。
   it("→ /n/<ownerHandle>/<slug>", () => {
-    expect(canonicalNotePath({ ownerHandle: "alice", slug: "hello-world" })).toBe("/n/alice/hello-world");
+    expect(canonicalNotePath({ ownerHandle: "alice", groupId: null, slug: "hello-world" })).toBe("/n/alice/hello-world");
   });
 
   it("非 ASCII slug 原樣輸出（不預編碼）", () => {
-    expect(canonicalNotePath({ ownerHandle: "alice", slug: "café" })).toBe("/n/alice/café");
+    expect(canonicalNotePath({ ownerHandle: "alice", groupId: null, slug: "café" })).toBe("/n/alice/café");
+  });
+
+  it("#175：群組筆記 → /g/<groupId>/<slug>（ownerHandle 為 null）", () => {
+    const groupId = "0b6c1a52-5f1e-4c8e-9d2a-3f4e5a6b7c8d";
+    expect(canonicalNotePath({ ownerHandle: null, groupId, slug: "plan" })).toBe(`/g/${groupId}/plan`);
+  });
+
+  it("#175：缺 groupId 欄（#175 前的舊物件，值為 undefined）→ 仍組 /n/ 形，不組 /g/undefined/…", () => {
+    expect(canonicalNotePath({ ownerHandle: "alice", groupId: undefined as unknown as null, slug: "x" })).toBe("/n/alice/x");
+  });
+
+  it("#175：ownerHandle 與 groupId 皆為 null → throw（XOR 下不可能；不組一條打不開的網址）", () => {
+    expect(() => canonicalNotePath({ ownerHandle: null, groupId: null, slug: "x" })).toThrow(/皆為 null/);
   });
 });
 

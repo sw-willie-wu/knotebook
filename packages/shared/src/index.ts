@@ -43,14 +43,18 @@ export interface AuthConfigDto {
 export interface NoteDto {
   id: string;
   title: string;
-  ownerId: string;
+  /** #175：群組筆記沒有個人 owner（`owner_id` 與 `group_id` 恰一個非 null，DB `notes_owner_xor_group_chk`）。 */
+  ownerId: string | null;
+  /** 群組筆記恆為 `"editor"`／`"viewer"`，從不是 `"owner"`（#175 §5.2）。 */
   role: Role;
   createdAt: string;
   updatedAt: string;
   /** 網址代稱（#122 spec §3a 起 NOT NULL＋per-user 唯一）：auto（跟標題走）或自訂，恆為字串。 */
   slug: string;
-  /** owner 的 username（/n/<ownerHandle>/<slug> 的第一段）；editor PATCH 回應也帶 owner 的、非操作者的。 */
-  ownerHandle: string;
+  /** owner 的 username（/n/<ownerHandle>/<slug> 的第一段）；editor PATCH 回應也帶 owner 的、非操作者的。群組筆記為 null。 */
+  ownerHandle: string | null;
+  /** #175 Q21：與 `group?.id` 重複，讓 `canonicalNotePath(note)` 一行呼叫就能組出兩種網址。 */
+  groupId: string | null;
   /** slug 形態：false＝auto（title 變更會重算）、true＝顯式自訂（title 變更不動 slug）。 */
   slugIsCustom: boolean;
   /** 單層自訂 redirect 來源（只記自訂變更；無則 null）——by-path miss 後的補查面。 */
@@ -58,11 +62,28 @@ export interface NoteDto {
   /** #106 D6：誰在什麼時候最後改了這篇（`notes.last_edited_*` 四欄；從未被編輯過＝null）。
    * 型別宣告在本檔下方——interface 是型別層的，不受宣告順序影響（沒有 TDZ 這回事）。 */
   lastEdited: LastEditedDto | null;
-  /**
-   * #103：筆記所屬群組；**只在呼叫者是 owner 或該群組成員時有值**，其餘一律 null（spec §6.5，S4）。
-   * 型別宣告在本檔下方。
-   */
+  /** #175 B7：群組筆記的所屬群組（看得到群組筆記的只有成員）；個人筆記恆 null。 */
   group: NoteGroupDto | null;
+  /** #175 §5.2：呼叫者在這篇上能做什麼。web 一律看這裡，不再用 `role === "owner"` 推。 */
+  permissions: NotePermissions;
+}
+
+/**
+ * #175 §5.2：單篇筆記上的操作權。個人筆記：owner 全真；逐人分享 editor 只有 read／edit、viewer 只有 read。
+ * 群組筆記：由呼叫者群組角色的旗標推得（`manageShares`／`moveToGroup` 恆 false——S5、W4）。
+ */
+export interface NotePermissions {
+  read: boolean;
+  edit: boolean;
+  delete: boolean;
+  /** 逐人分享（`GET/PUT/DELETE …/shares`）。只有個人筆記的 owner。 */
+  manageShares: boolean;
+  /** 公開連結（token）；個人＝owner、群組＝`can_manage_public_link`。 */
+  managePublicLink: boolean;
+  /** 自訂網址代稱（PATCH 帶 `slug`）；個人＝owner、群組＝`can_manage_public_link`（Q11）。 */
+  changeSlug: boolean;
+  /** 移進群組（PR2 的 `POST …/move`）；只有個人筆記的 owner。 */
+  moveToGroup: boolean;
 }
 
 // #106 內容端點（`GET /api/notes/:id/content`，#137 起還有寫入端）的對外形。指紋是樂觀
@@ -134,17 +155,40 @@ export interface NoteEditDto {
 // 這件事在型別層就看得出來。
 export type ShareRole = "editor" | "viewer";
 
-/** #103：群組成員角色（`group_members.role`）——只管群組本身（改名、成員、刪除），**不參與筆記權限**。 */
-export type GroupMemberRole = "admin" | "member";
+/** #175 §4.1：群組角色的七個旗標（DB `group_roles.can_*`）。 */
+export interface GroupRolePermissions {
+  read: boolean;
+  create: boolean;
+  edit: boolean;
+  delete: boolean;
+  managePublicLink: boolean;
+  manageMembers: boolean;
+  manageGroup: boolean;
+}
+
+/** 內建角色的種類；自訂角色為 null（顯示名走 i18n `groups.role.admin`／`groups.role.member`，Q19）。 */
+export type BuiltinGroupRole = "admin" | "member";
+
+export interface GroupRoleDto {
+  id: string;
+  builtin: BuiltinGroupRole | null;
+  /** 自訂角色的名稱；內建角色恆 null（DB `group_roles_name_chk`）。 */
+  name: string | null;
+  permissions: GroupRolePermissions;
+  memberCount: number;
+}
 
 /**
- * #103 群組。`myRole`＝呼叫者在群組裡的角色；站台 admin 經 API 操作一個他不屬於的群組時，
- * `PATCH /api/groups/:id` 的回應給 `"admin"`（他在 API 層的身分；`GET /api/groups` 不列非所屬群組）。
+ * #175 群組。`myRole` null＝非成員的站台 admin（只可能出現在 `PATCH /api/groups/:id` 的回應；
+ * `GET /api/groups` 只列所屬群組）。兩個 `canManage*`＝角色旗標 OR 站台 admin（§5.5）——
+ * **web 一律看這兩欄，不看 `myRole`**。
  */
 export interface GroupDto {
   id: string;
   name: string;
-  myRole: GroupMemberRole;
+  myRole: GroupRoleDto | null;
+  canManageMembers: boolean;
+  canManageGroup: boolean;
   createdAt: string;
 }
 
@@ -152,14 +196,14 @@ export interface GroupMemberDto {
   userId: string;
   email: string;
   displayName: string;
-  role: GroupMemberRole;
+  roleId: string;
+  builtin: BuiltinGroupRole | null;
 }
 
-/** 筆記所屬群組；`role` 是本篇對全組開放的等級（`notes.group_role`），不是呼叫者的角色。 */
+/** 筆記所屬群組（#175：`role` 欄移除——權限改看 `NoteDto.permissions`）。 */
 export interface NoteGroupDto {
   id: string;
   name: string;
-  role: ShareRole;
 }
 
 export interface ShareDto {
@@ -174,8 +218,10 @@ export interface BacklinkDto {
   id: string;
   title: string;
   slug: string;
-  /** 來源筆記 owner 的 username——BacklinksSection 組 /n/ 連結用（#122）。 */
-  ownerHandle: string;
+  /** 來源筆記 owner 的 username——BacklinksSection 組 /n/ 連結用（#122）；群組筆記為 null。 */
+  ownerHandle: string | null;
+  /** #175：來源筆記所屬群組（`/g/` 連結用）；個人筆記為 null。 */
+  groupId: string | null;
 }
 
 /** 圖片上傳單檔大小上限（bytes，Plan 3）：10 MiB，超過回 `file_too_large`（413）。 */
@@ -289,6 +335,10 @@ export const ERROR_CODES = [
   "note_in_group",
   "invalid_name",
   "conflict",
+  // #175 PR1：`group_not_empty`＝409，刪群組時群組內還有筆記（PR1–PR3 只允許刪空群組，B9）；
+  // `role_not_found`＝404，成員路由帶的 `roleId` 不合法或不屬於該群組（§6.7）。
+  "group_not_empty",
+  "role_not_found",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
@@ -550,18 +600,26 @@ export function extractRefUuid(ref: string): string | null {
 }
 
 /**
- * 組出筆記的 canonical 路徑（#122 spec §3b）：`/n/<ownerHandle>/<slug>`——單一形，
- * 不再有三態（slug 自 0007 起 NOT NULL、每篇筆記必有 ownerHandle）。供 NoteList
+ * 組出筆記的 canonical 路徑：個人筆記 `/n/<ownerHandle>/<slug>`（#122 spec §3b）、群組筆記
+ * `/g/<groupId>/<slug>`（#175 §6.1）。slug 自 0007 起 NOT NULL。供 NoteList
  * href、NotePage 收斂 effect 的 `history.replaceState`、分享 dialog 複製連結共用。
  * 兩段都不做 URL 編碼：擋掉 `/ % ? #` 等分隔字元的是**字元集驗證**——handle 走
- * `validateHandle`（`a-z0-9-`）、slug 走 `validateSlug`（`\p{L}\p{N}-`），兩者都
+ * `validateHandle`（`a-z0-9-`）、群組 id 是 uuid、slug 走 `validateSlug`（`\p{L}\p{N}-`），三者都
  * 不可能切出額外 path segment 或 query/hash；非 ASCII 字元由瀏覽器/
  * `encodeURIComponent` 在傳輸層處理（與舊 `/notes/<slug>` 形同慣例）。
  * 舊形 `/notes/…`（含 `<vanity>-<uuid>`）永久可解析（server 走 legacy＋uuid 尾碼），
  * 但**不再由本函式產生**。
  */
-export function canonicalNotePath(note: { ownerHandle: string; slug: string }): string {
-  return `/n/${note.ownerHandle}/${note.slug}`;
+export function canonicalNotePath(note: { ownerHandle: string | null; groupId: string | null; slug: string }): string {
+  // #175 §6.1：群組筆記 `/g/<group uuid>/<slug>`；個人筆記 `/n/<handle>/<slug>`。群組 id 是
+  // server 產生的小寫 uuid（`gen_random_uuid()`），與 slug 一樣不含分隔字元。兩者皆 null 不可能
+  // （DB `notes_owner_xor_group_chk`）——真的遇到就 throw，不組一條打不開的網址。
+  // ⚠ 刻意用 `typeof … === "string"` 而不是 `!== null`：#175 之前的物件（舊版前端快取、還沒補欄的
+  // 測試 fixture）沒有 `groupId` 欄，值是 undefined；`!== null` 會把它當群組筆記、組出
+  // `/g/undefined/<slug>`（plan Task 2 實測 web 四檔 13 條紅）。`shared-slug.test.ts` 有一案釘住。
+  if (typeof note.groupId === "string") return `/g/${note.groupId}/${note.slug}`;
+  if (typeof note.ownerHandle === "string") return `/n/${note.ownerHandle}/${note.slug}`;
+  throw new Error("canonicalNotePath: ownerHandle 與 groupId 皆為 null");
 }
 
 /**

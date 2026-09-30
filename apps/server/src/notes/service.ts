@@ -1,7 +1,7 @@
-import { and, eq } from "drizzle-orm";
-import type { Role } from "@knotebook/shared";
-import type { Db } from "../db/index.js";
-import { groupMembers, noteShares, notes } from "../db/schema.js";
+import { and, eq, isNull } from "drizzle-orm";
+import type { NotePermissions, Role } from "@knotebook/shared";
+import type { DbOrTx } from "../db/tx.js";
+import { groupMembers, groupRoles, noteShares, notes } from "../db/schema.js";
 
 // pg 的 uuid 欄位對「格式不合法的字串」（例如 "not-a-uuid"）會直接 throw
 // `invalid input syntax for type uuid`，若讓它一路冒到 app.ts 的全域錯誤 handler，
@@ -15,15 +15,19 @@ import { groupMembers, noteShares, notes } from "../db/schema.js";
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * 刪除某篇筆記**當下**看得到它的所有 userId（owner ＋ 每一筆分享 ＋ 所屬群組的全體成員，#103 §5.4）。
+ * 刪除某篇筆記**當下**看得到它的所有 userId（owner ∪ 每一筆分享 ∪ 所屬群組裡角色有閱讀旗標的成員，
+ * #175 §5.3）。群組筆記的 `owner_id` 是 NULL——濾掉，不讓 null 混進集合。
  *
  * 只有共編的刪除閘門用它（`CollabServer` 的 `markDeleting`／`releaseDeletingGate`）：閘門要能
  * 對「本來就看得到這篇筆記的人」說「它被刪掉了」，又不能對其他人透露這個 id 曾經存在——
  * 所以必須在刪除交易**之前**、那些列還在的時候，把名單抓下來留著（見 `collab/server.ts` 的
- * `deleting`）。漏掉群組成員的話，他們重連時聽到的會是「你已失去存取權」而不是「筆記已刪除」。
- * 筆記不存在（或 id 格式非法）時回空集合，`releaseDeletingGate` 也拿這一點當「筆記到底還在不在」的判準。
+ * `deleting`）。⚠ S14：它走呼叫端給的連線；**不得在任何交易內以 pool 呼叫它**（`beforeNoteDeleted`
+ * 一律在交易外）。筆記不存在（或 id 格式非法）時回空集合，`releaseDeletingGate` 也拿這一點當
+ * 「筆記到底還在不在」的判準（`audience.size === 0` ⇒ 不收閘門）。個人筆記的 owner 恆在名單上；
+ * 群組筆記沒有 owner，「還在 ⇒ 非空」要靠 S1（每個群組至少一位內建管理員，而內建管理員恆持
+ * `can_read`）——S1 只在應用層守、DB 不擋；它一旦破裂，刪除失敗後的閘門不會收，要等 `DELETING_GATE_TTL_MS`（兩分鐘）到期。
  */
-export async function loadNoteAudience(db: Db, noteId: string): Promise<Set<string>> {
+export async function loadNoteAudience(db: DbOrTx, noteId: string): Promise<Set<string>> {
   if (!UUID_RE.test(noteId)) return new Set();
 
   const [note] = await db
@@ -40,85 +44,134 @@ export async function loadNoteAudience(db: Db, noteId: string): Promise<Set<stri
   const members =
     note.groupId === null
       ? []
-      : await db.select({ userId: groupMembers.userId }).from(groupMembers).where(eq(groupMembers.groupId, note.groupId));
-  return new Set([note.ownerId, ...shares.map(one => one.userId), ...members.map(one => one.userId)]);
+      : await db
+          .select({ userId: groupMembers.userId })
+          .from(groupMembers)
+          .innerJoin(groupRoles, and(eq(groupRoles.id, groupMembers.roleId), eq(groupRoles.canRead, true)))
+          .where(eq(groupMembers.groupId, note.groupId));
+  const ids = [note.ownerId, ...shares.map(one => one.userId), ...members.map(one => one.userId)];
+  return new Set(ids.filter((id): id is string => id !== null));
+}
+
+/** 群組角色中參與筆記權限的四個旗標（另三個——新建、管理成員、管理角色與群組——不作用在單篇筆記上）。 */
+export interface NoteGroupFlags {
+  canRead: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
+  canManagePublicLink: boolean;
 }
 
 /**
- * 解析使用者對某篇 note 的角色：note 不存在（或 noteId 非合法 UUID 格式）→ 'none'；否則取三個
- * 來源的最大值（#103 spec §5.1：owner > editor > viewer > none）——① `notes.owner_id`；
- * ② `note_shares` 的逐人分享；③ 筆記有所屬群組且使用者是該群組成員時的 `notes.group_role`。
- *
- * 簽名凍結（#122 spec §3a M6-3）：collab/server、ai、links 等熱路徑呼叫點都吃這個形——需要
- * 其他欄位的呼叫端改用 `resolveRoleWithOwner`，不動這裡。
+ * #175 §5.2：群組筆記的 `role` 推導（TS 這一側）。SQL 那一側是 `visibleNoteBranches` grouped 支的
+ * `CASE WHEN can_edit THEN 'editor' ELSE 'viewer' END`（JOIN 已要求 `can_read`）——兩處等價由
+ * `groups-v2-visibility.test.ts` 的「同一組角色 fixture 比對兩者」守（gate r2 M-8）。
+ * `can_edit ⇒ can_read` 由 DB `group_roles_read_implied_chk` 保證，所以先看 edit 不會給出「能寫不能讀」。
  */
-export async function resolveRole(db: Db, userId: string, noteId: string): Promise<Role> {
-  const { role } = await resolveRoleWithOwner(db, userId, noteId);
-  return role;
+export function roleFromGroupFlags(r: { canRead: boolean; canEdit: boolean }): Role {
+  if (r.canEdit) return "editor";
+  if (r.canRead) return "viewer";
+  return "none";
 }
 
-/** `resolveRoleWithOwner` 的回傳。`role === "none"` 時其餘三欄一律是 null／false（S4：無權限者什麼都拿不到）。 */
-export interface RoleResolution {
+export const NO_PERMISSIONS: NotePermissions = Object.freeze({
+  read: false, edit: false, delete: false, manageShares: false, managePublicLink: false, changeSlug: false, moveToGroup: false,
+});
+export const OWNER_PERMISSIONS: NotePermissions = Object.freeze({
+  read: true, edit: true, delete: true, manageShares: true, managePublicLink: true, changeSlug: true, moveToGroup: true,
+});
+
+/** 逐人分享者在個人筆記上的權限（只有讀／寫；刪除、分享、公開連結、改網址都只屬於 owner）。 */
+export function sharePermissions(role: "editor" | "viewer"): NotePermissions {
+  return { ...NO_PERMISSIONS, read: true, edit: role === "editor" };
+}
+
+/** 群組筆記上的權限（§5.1）：`manageShares`／`moveToGroup` 恆 false（S5、W4）；改網址看管理公開連結（Q11）。 */
+export function groupNotePermissions(f: NoteGroupFlags): NotePermissions {
+  if (!f.canRead) return NO_PERMISSIONS;
+  return {
+    read: true,
+    edit: f.canEdit,
+    delete: f.canDelete,
+    manageShares: false,
+    managePublicLink: f.canManagePublicLink,
+    changeSlug: f.canManagePublicLink,
+    moveToGroup: false,
+  };
+}
+
+/** `resolveNoteAccess` 的回傳。`role === "none"` 時其餘欄一律 null／全 false（S4）。 */
+export interface NoteAccess {
   role: Role;
   ownerId: string | null;
-  /** 呼叫者是不是**判定當下**這篇所屬群組的成員（`notes.group_id` 為 null 時恆 false）。 */
-  isGroupMember: boolean;
   /**
-   * 判定當下讀到的 `notes.group_id`。單篇路徑拿它與「取到的那一列」的 `group_id` 比對，不一致就不採用
-   * `isGroupMember`（授權與取列是兩次查詢，中間筆記可能換了群組——spec §6.5，S4）。
+   * 判定當下讀到的 `notes.group_id`。單篇路徑拿它與「取到的那一列」比對：不一致＝授權與取列之間歸屬
+   * 變了（PR2 的移動剛 commit），重讀一次、仍不一致 → 404（Q22）；PATCH 的 T1 拿它當 scope 條件（§4.3）。
    */
   groupId: string | null;
+  permissions: NotePermissions;
 }
 
-const ROLE_RANK: Record<Role, number> = { none: 0, viewer: 1, editor: 2, owner: 3 };
-
-function maxRole(candidates: readonly Role[]): Role {
-  return candidates.reduce<Role>((best, r) => (ROLE_RANK[r] > ROLE_RANK[best] ? r : best), "none");
-}
-
-function noRole(): RoleResolution {
-  return { role: "none", ownerId: null, isGroupMember: false, groupId: null };
-}
+const NO_ACCESS: NoteAccess = Object.freeze({ role: "none", ownerId: null, groupId: null, permissions: NO_PERMISSIONS });
 
 /**
- * `resolveRoleWithOwner` 的單次 SELECT（只組不執行——EXPLAIN 測試與實作共用同一個形）：`notes`
- * LEFT JOIN `note_shares (note_id, $u)` 與 LEFT JOIN `group_members (notes.group_id, $u)`，三者都是
- * 主鍵查找。呼叫前 `noteId` 必須已過 `UUID_RE`。
+ * `resolveNoteAccess` 的單次 SELECT（只組不執行——EXPLAIN 測試與實作共用同一個形）：`notes`
+ * LEFT JOIN `note_shares (note, $u)`（**只在個人筆記上**——群組筆記的殘留分享列不給任何權限，與清單
+ * shared 支的 `group_id IS NULL` 一致；plan 規格落差第 2 條）LEFT JOIN `group_members (group, $u)`
+ * LEFT JOIN `group_roles`。呼叫前 `noteId` 必須已過 `UUID_RE`。
  */
-export function roleQuery(db: Db, userId: string, noteId: string) {
+export function accessQuery(db: DbOrTx, userId: string, noteId: string) {
   return db
     .select({
       ownerId: notes.ownerId,
       groupId: notes.groupId,
-      groupRole: notes.groupRole,
       shareRole: noteShares.role,
-      memberUserId: groupMembers.userId,
+      roleId: groupRoles.id,
+      canRead: groupRoles.canRead,
+      canEdit: groupRoles.canEdit,
+      canDelete: groupRoles.canDelete,
+      canManagePublicLink: groupRoles.canManagePublicLink,
     })
     .from(notes)
-    .leftJoin(noteShares, and(eq(noteShares.noteId, notes.id), eq(noteShares.userId, userId)))
+    .leftJoin(noteShares, and(eq(noteShares.noteId, notes.id), eq(noteShares.userId, userId), isNull(notes.groupId)))
     .leftJoin(groupMembers, and(eq(groupMembers.groupId, notes.groupId), eq(groupMembers.userId, userId)))
+    .leftJoin(groupRoles, eq(groupRoles.id, groupMembers.roleId))
     .where(eq(notes.id, noteId))
     .limit(1);
 }
 
 /**
- * `resolveRole` 的姊妹函式：同一次 SELECT 帶出 owner_id（auto slug 的 owner 範圍探測要它）、
- * 成員資格與判定當下的 `group_id`（`NoteDto.group` 的可見性判定要它，spec §6.5）。
- * **加欄位不改既有欄位**：既有的 `{ role }`／`{ role, ownerId }` 解構照常成立。
- * `group_members.role`（admin／member）不參與筆記權限。
+ * #175 §5.2（B2）：取代 `resolveRoleWithOwner`。群組筆記的 `role` 從不是 `owner`；非成員的站台 admin
+ * 在筆記上**沒有**任何特權（§5.5）。收 `DbOrTx`，交易內可重用（S14：交易內必須傳 `tx`）。
  */
-export async function resolveRoleWithOwner(db: Db, userId: string, noteId: string): Promise<RoleResolution> {
-  if (!UUID_RE.test(noteId)) return noRole();
+export async function resolveNoteAccess(db: DbOrTx, userId: string, noteId: string): Promise<NoteAccess> {
+  if (!UUID_RE.test(noteId)) return NO_ACCESS;
+  const [row] = await accessQuery(db, userId, noteId);
+  if (!row) return NO_ACCESS;
 
-  const [row] = await roleQuery(db, userId, noteId);
-  if (!row) return noRole();
+  if (row.groupId === null) {
+    if (row.ownerId === userId) return { role: "owner", ownerId: row.ownerId, groupId: null, permissions: OWNER_PERMISSIONS };
+    if (row.shareRole === "editor" || row.shareRole === "viewer") {
+      return { role: row.shareRole, ownerId: row.ownerId, groupId: null, permissions: sharePermissions(row.shareRole) };
+    }
+    return NO_ACCESS;
+  }
 
-  const isGroupMember = row.groupId !== null && row.memberUserId !== null;
-  const candidates: Role[] = [];
-  if (row.ownerId === userId) candidates.push("owner");
-  if (row.shareRole !== null) candidates.push(row.shareRole as Role);
-  if (isGroupMember) candidates.push(row.groupRole as Role);
-  const role = maxRole(candidates);
-  if (role === "none") return noRole();
-  return { role, ownerId: row.ownerId, isGroupMember, groupId: row.groupId };
+  if (row.roleId === null) return NO_ACCESS;
+  const flags: NoteGroupFlags = {
+    canRead: row.canRead ?? false,
+    canEdit: row.canEdit ?? false,
+    canDelete: row.canDelete ?? false,
+    canManagePublicLink: row.canManagePublicLink ?? false,
+  };
+  const role = roleFromGroupFlags(flags);
+  if (role === "none") return NO_ACCESS;
+  return { role, ownerId: null, groupId: row.groupId, permissions: groupNotePermissions(flags) };
+}
+
+/**
+ * 簽名凍結（#122 spec §3a M6-3）：collab/server、ai、links 等熱路徑呼叫點都吃這個形——
+ * §2.4 的 14 處「不變」呼叫點一行不改就對群組筆記給出正確結果（群組 editor 就是 editor）。
+ */
+export async function resolveRole(db: DbOrTx, userId: string, noteId: string): Promise<Role> {
+  return (await resolveNoteAccess(db, userId, noteId)).role;
 }

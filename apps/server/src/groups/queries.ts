@@ -8,7 +8,8 @@
  * 不可把鎖與計數併成同一條敘述、不可改用 REPEATABLE READ。
  */
 import { and, asc, eq, sql } from "drizzle-orm";
-import type { GroupMemberRole } from "@knotebook/shared";
+// #175 Task 2 移除了 shared 的 `GroupMemberRole`；同值域的 `BuiltinGroupRole` 暫代，Task 7 整檔重寫時一併換掉。
+import type { BuiltinGroupRole as GroupMemberRole } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
 import { groupMembers, groups, notes } from "../db/schema.js";
 import { TxAbort } from "../http/tx-abort.js";
@@ -16,8 +17,8 @@ import { UUID_RE } from "../notes/service.js";
 import { hasUnstorableChar } from "../oauth/storable.js";
 import type { GroupTestHook } from "./test-hook.js";
 
-export type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
-export type DbOrTx = Db | Tx;
+import type { Tx, DbOrTx } from "../db/tx.js";
+export type { Tx, DbOrTx } from "../db/tx.js";
 
 /** 群組路由的 404 `not_found` 訊息——非成員／不存在／id 不合法三者必須逐位元組相同（S4）。 */
 export const GROUP_NOT_FOUND_MESSAGE = "找不到此群組";
