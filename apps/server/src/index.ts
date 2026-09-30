@@ -1,9 +1,9 @@
 import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
-import { Pool } from "pg";
 import pino from "pino";
 import { loadConfig, publicUrlIssuer, publicUrlPathWarning } from "./config.js";
 import { createDb } from "./db/index.js";
+import { createPool } from "./db/pool.js";
 import { runMigrations } from "./db/migrate.js";
 import { initializeInstance } from "./auth/bootstrap.js";
 import { backfillHandleRegistry } from "./auth/handle.js";
@@ -88,7 +88,7 @@ async function main(): Promise<void> {
     );
   }
 
-  const pool = new Pool({ connectionString: config.databaseUrl });
+  const pool = createPool(config);
   const db = createDb(pool);
 
   try {

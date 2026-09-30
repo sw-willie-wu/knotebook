@@ -27,6 +27,9 @@ const schema = z.object({
   // issue #13：反向代理信任設定。比照上面幾組「空字串視同未設」的模式；值本身的
   // 語法交給 `parseTrustProxy` 手動驗證（錯誤訊息要能指出是哪一段不合法）。
   TRUST_PROXY: z.string().min(1).optional().or(z.literal("").transform(() => undefined)),
+  // #175 §6.10：pool 保險絲（Willie 2026-09-30 Q24）。值的語法（正整數）在 loadConfig 手動驗證，錯誤訊息要點名。
+  DATABASE_POOL_MAX: z.string().min(1).optional().or(z.literal("").transform(() => undefined)),
+  DATABASE_POOL_CONNECTION_TIMEOUT_MS: z.string().min(1).optional().or(z.literal("").transform(() => undefined)),
 });
 
 /** `parseTrustProxy` 認得的具名網段（proxy-addr 的內建關鍵字，fastify 直接轉交）。 */
@@ -107,6 +110,13 @@ export interface AppConfig {
   cookieSecure: boolean;
   /** fastify 的 `trustProxy` 選項（issue #13）。預設 `false`，見 `parseTrustProxy`。 */
   trustProxy: boolean | number | string[];
+  /** #175 §6.10：pg-pool 的 `max`（預設 10＝pg-pool 自己的預設，行為不變）。 */
+  databasePoolMax: number;
+  /**
+   * #175 §6.10：pg-pool 的 `connectionTimeoutMillis`（預設 10000）。借連線逾時以 reject 丟給等待者，經全域
+   * `setErrorHandler` 以 error 級記 `unhandled error`、回 500——`pool.on("error")` 收不到它。不取代 S14。
+   */
+  databasePoolConnectionTimeoutMs: number;
   insecureHttpWarning: boolean;
   /** env bootstrap admin（spec rev 5.7 / §14.2）：兩者必為同時存在或同時不存在（見下方
    * loadConfig 的 fail-fast 檢查），這兩個欄位永遠同時 defined 或同時 undefined，不會
@@ -182,9 +192,20 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     oidc = { issuerUrl: oidcIssuerUrl, clientId: oidcClientId, clientSecret: oidcClientSecret };
   }
 
+  // max：Node 計時器上限 2^31-1 ms，超過會被截成 1 ms（連線啟動即逾時、錯誤訊息不指向此設定），故逾時欄位設上限。
+  const positiveInt = (name: string, raw: string | undefined, fallback: number, max = Infinity): number => {
+    if (raw === undefined) return fallback;
+    const value = Number(raw);
+    if (!Number.isInteger(value) || value <= 0 || value > max) throw new Error(`設定錯誤：${name} 必須是正整數${max === Infinity ? "" : `（最大 ${max}）`}：${raw}`);
+    return value;
+  };
+  const databasePoolMax = positiveInt("DATABASE_POOL_MAX", r.data.DATABASE_POOL_MAX, 10);
+  const databasePoolConnectionTimeoutMs = positiveInt("DATABASE_POOL_CONNECTION_TIMEOUT_MS", r.data.DATABASE_POOL_CONNECTION_TIMEOUT_MS, 10_000, 2_147_483_647);
+
   return { databaseUrl: r.data.DATABASE_URL, appSecret: r.data.APP_SECRET, publicUrl,
            cookieSecure: publicUrl.protocol === "https:", insecureHttpWarning,
            trustProxy: parseTrustProxy(r.data.TRUST_PROXY),
+           databasePoolMax, databasePoolConnectionTimeoutMs,
            adminEmail, adminPassword, oidc };
 }
 
