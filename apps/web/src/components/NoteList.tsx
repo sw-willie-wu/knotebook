@@ -6,6 +6,7 @@ import { ApiFail } from "@/api/client";
 import { useGroups } from "@/api/groups";
 import { GroupMenu } from "@/components/groups/GroupMenu";
 import { GroupNameDialog } from "@/components/groups/GroupNameDialog";
+import { SidebarNoteMenu } from "@/components/NoteMenu";
 import { useNotes } from "@/api/notes";
 import { useActiveNote } from "@/lib/active-note";
 import { cn } from "@/lib/utils";
@@ -45,6 +46,9 @@ interface NoteRowProps {
 
 type RowIndent = "section" | "group";
 
+/** 一列筆記：標題、徽章、⋮（`SidebarNoteMenu`，hover 浮出靠 `<li>` 的 `group/noterow`）。
+ * ⋮ 在「最近」段也有（同一篇可能兩列各一顆）；靜態卡與抽屜各一份 NoteList，所以一篇筆記的
+ * ⋮ 最多四份 DOM——測試一律 `within(...)` 鎖定段落容器。 */
 function NoteRow({ note, primary, indent }: NoteRowProps) {
   const { activeNoteId, setActiveNoteId } = useActiveNote();
   // #122：active 判準改吃 context 的 note.id（單一真相，理由見 lib/active-note.tsx
@@ -54,7 +58,7 @@ function NoteRow({ note, primary, indent }: NoteRowProps) {
   return (
     <li
       className={cn(
-        "flex h-11 items-center gap-1 rounded-md pr-2 text-[13px] hover:bg-accent/60 md:h-7",
+        "group/noterow flex h-11 items-center gap-1 rounded-md pr-2 text-[13px] hover:bg-accent/60 md:h-7",
         indent === "section" ? "pl-6" : "pl-3",
         // active 時 hover 必須跟主題色走：twMerge 對同一個 variant 群組（這裡是
         // `hover:bg-*`）互斥，後面這個 class 會蓋掉前面的 `hover:bg-accent/60`。
@@ -81,6 +85,7 @@ function NoteRow({ note, primary, indent }: NoteRowProps) {
         {note.title}
       </Link>
       <RoleBadge role={note.role} />
+      <SidebarNoteMenu note={note} />
     </li>
   );
 }

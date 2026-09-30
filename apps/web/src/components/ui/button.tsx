@@ -15,9 +15,10 @@ import { cn } from "@/lib/utils";
  * 是**側欄列高**、有等高守衛釘著（帳號列↔backlinks 那排），不屬於這一組，別跟著改。
  *
  * **唯一的例外：側欄上的 24px 圖示鈕（`h-6 w-6` 蓋掉 `icon` 的 `h-8 w-8`）。**
- * 只限兩處（spec #103 §8.1）：`NoteList.tsx` 的 `HeaderAddButton`（「我的筆記」「工作坊」
- * 段標與每個群組列右邊的「＋」），以及 `GroupMenu` 的 `size="sidebar"`（群組列的 ⋮；
- * 設定頁的同一顆 ⋮ 仍是預設 32px、常駐）。兩顆共用 `ui/reveal.ts` 的 `hoverReveal`：
+ * 只限三處（前兩處出自 spec #103 §8.1）：`NoteList.tsx` 的 `HeaderAddButton`（「我的筆記」
+ * 「工作坊」段標與每個群組列右邊的「＋」）、`GroupMenu` 的 `size="sidebar"`（群組列的 ⋮；
+ * 設定頁的同一顆 ⋮ 仍是預設 32px、常駐），以及 `NoteMenu.tsx` 的 `SidebarNoteMenu`（每列
+ * 筆記的 ⋮；頁首那顆仍是 32px、常駐）。三顆共用 `ui/reveal.ts` 的 `hoverReveal`：
  * 桌面上平常隱藏，滑過該列或鍵盤聚焦才浮出；⋮ 在選單開著時不消失（「＋」不是選單，
  * 沒有這一條）；觸控裝置常駐。
  * 都不與輸入框或其他 32px 控制項同列，所以不違背「同列等高」的本意。

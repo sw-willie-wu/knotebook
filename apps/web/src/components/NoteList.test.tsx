@@ -2,10 +2,12 @@ import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 import { canonicalNotePath, type GroupDto, type NoteDto, type UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ActiveNoteProvider, useActiveNote } from "@/lib/active-note";
+import { NotePageControlsContext, type NotePageControls } from "@/lib/note-page-controls";
+import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { NoteList, type NoteListProps } from "./NoteList";
 
 /** 模擬 NotePage 的「解析成功後 set」——測試用的最小 setter（#122 ActiveNoteContext）。 */
@@ -790,5 +792,234 @@ describe("NoteList", () => {
         expect(row).not.toHaveClass("px-2");
       }
     });
+  });
+});
+
+// ── 側欄筆記列 ⋮（SidebarNoteMenu）──
+// 既有的 stubNotesFetch 對 DELETE 會 throw，而那種 throw 會被 react-query 靜默吞掉（測試不會紅），
+// 所以這裡自己寫 stub 並記錄每一筆呼叫，斷言「打了哪支 API」一律看 `calls`。
+
+function RowMenuLocationProbe() {
+  const location = useLocation();
+  return <div data-testid="location">{location.pathname}|{JSON.stringify(location.state ?? null)}</div>;
+}
+
+function renderRowMenu(
+  controls: NotePageControls | null,
+  notes: NoteDto[] = [OWNER_NOTE, SHARED_NOTE],
+  deleteFails = false,
+) {
+  const calls: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      calls.push(`${method} ${url}`);
+      if (url === "/api/notes" && method === "GET") {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(notes) }));
+      }
+      if (url === "/api/groups" && method === "GET") {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+      }
+      if (url.startsWith("/api/notes/") && method === "DELETE") {
+        if (deleteFails) {
+          return Promise.resolve(
+            fakeResponse({
+              ok: false,
+              status: 403,
+              json: () => Promise.resolve({ error: { code: "forbidden", message: "x" } }),
+            }),
+          );
+        }
+        return Promise.resolve(fakeResponse({ ok: true, status: 204 }));
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    }),
+  );
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={["/somewhere"]}>
+        <ActiveNoteProvider>
+          <NotePageControlsContext.Provider value={controls}>
+            <NoteList />
+            <RowMenuLocationProbe />
+            <Toaster />
+          </NotePageControlsContext.Provider>
+        </ActiveNoteProvider>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+  return { calls, queryClient };
+}
+
+/** 「我的筆記」段裡 OWNER_NOTE 那列的 ⋮（「最近」段也有一顆同名的，一律 within 鎖定）。 */
+async function ownerRowTrigger(): Promise<HTMLElement> {
+  const section = await screen.findByTestId("notegroup-myNotes");
+  return within(section).getByRole("button", { name: "Note actions for Has A Slug" });
+}
+
+async function openRowMenu(trigger: HTMLElement): Promise<HTMLElement> {
+  // Radix DropdownMenu 的 trigger 只聽 pointerdown。
+  fireEvent.pointerDown(trigger, { button: 0 });
+  return screen.findByRole("menu");
+}
+
+describe("筆記列 ⋮", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+    // 前面的摺疊測試會把 `sidebar.collapsed.*` 寫進 localStorage；亂序執行時「我的筆記」段會被收起來。
+    window.localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("每列都有、名稱含標題、在徽章之後；class＝24px＋hover 浮出（class 斷言，不是行為斷言——jsdom 沒有 CSS／hover）", async () => {
+    renderRowMenu(null);
+    const trigger = await ownerRowTrigger();
+    const row = trigger.closest("li") as HTMLElement;
+    expect(row).toHaveClass("group/noterow");
+    expect(trigger).toHaveClass(
+      "h-6",
+      "w-6",
+      "opacity-0",
+      "focus-visible:opacity-100",
+      "[@media(hover:none)]:opacity-100",
+      "data-[state=open]:opacity-100",
+      "group-hover/noterow:opacity-100",
+      "group-has-[:focus-visible]/noterow:opacity-100",
+    );
+    // owner 列沒有徽章，⋮ 是列的最後一個子元素。
+    expect(row.lastElementChild).toBe(trigger);
+
+    // 與我共享（editor）那列：順序＝標題、徽章、⋮。
+    const shared = screen.getByTestId("notegroup-shared");
+    const sharedTrigger = within(shared).getByRole("button", { name: "Note actions for No Slug Note" });
+    const badge = within(shared).getByText("Editor");
+    expect(badge.nextElementSibling).toBe(sharedTrigger);
+    expect(sharedTrigger.closest("li")?.lastElementChild).toBe(sharedTrigger);
+
+    // 單一側欄實例裡同一篇兩顆（「最近」＋「我的筆記」）。
+    expect(screen.getAllByRole("button", { name: "Note actions for Has A Slug" })).toHaveLength(2);
+  });
+
+  it("開選單時 trigger 帶 data-state=open（hover 浮出的「開著不消失」靠它；CSS 生效要瀏覽器看）", async () => {
+    renderRowMenu(null);
+    const trigger = await ownerRowTrigger();
+    expect(trigger).toHaveAttribute("data-state", "closed");
+    await openRowMenu(trigger);
+    expect(trigger).toHaveAttribute("data-state", "open");
+  });
+
+  it("別篇：AI 修改紀錄 → 帶 {openEdits:true} 導到那篇", async () => {
+    renderRowMenu(null);
+    const menu = await openRowMenu(await ownerRowTrigger());
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "AI edit history" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).toHaveTextContent('/n/owner-one/custom-slug|{"openEdits":true}'),
+    );
+  });
+
+  it("別篇：刪除 → 打 DELETE、關對話框、不導頁", async () => {
+    const { calls } = renderRowMenu(null);
+    const menu = await openRowMenu(await ownerRowTrigger());
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Delete note" }));
+    const dialog = await screen.findByRole("dialog", { name: "Delete note?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Delete note?" })).toBeNull());
+    expect(calls).toContain(`DELETE /api/notes/${OWNER_NOTE.id}`);
+    // 位置斷言之前必須有一個 `await waitFor(...)`：少了它，「刪除後多補一次 navigate("/")」
+    // 的錯法會存活〔棚內實測〕。
+    await waitFor(() => expect(calls.filter((c) => c === "GET /api/notes")).toHaveLength(2));
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/somewhere\|null$/);
+  });
+
+  it("別篇：刪除失敗（403）→ 錯誤 toast、關對話框、不導頁", async () => {
+    const { calls } = renderRowMenu(null, [OWNER_NOTE, SHARED_NOTE], true);
+    const menu = await openRowMenu(await ownerRowTrigger());
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Delete note" }));
+    const dialog = await screen.findByRole("dialog", { name: "Delete note?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+    expect(await screen.findByText("You don't have permission to do that.")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Delete note?" })).toBeNull();
+    expect(calls).toContain(`DELETE /api/notes/${OWNER_NOTE.id}`);
+    // 位置斷言之前必須有一個 `await waitFor(...)`：少了它，「刪除後多補一次 navigate("/")」
+    // 的錯法會存活〔棚內實測〕。
+    await waitFor(() => expect(true).toBe(true));
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/somewhere\|null$/);
+  });
+
+  it("別篇刪除成功會讓所有反向連結 query 失效（留在 A 頁刪 B 時，A 底部的 B 晶片不能殘留）", async () => {
+    const { queryClient } = renderRowMenu(null);
+    // 模擬「目前開著的 A 頁」的反向連結快取（key 形與 useBacklinks 相同）。
+    queryClient.setQueryData(["backlinks", SHARED_NOTE.id], []);
+    expect(queryClient.getQueryState(["backlinks", SHARED_NOTE.id])?.isInvalidated).toBe(false);
+
+    const menu = await openRowMenu(await ownerRowTrigger());
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Delete note" }));
+    const dialog = await screen.findByRole("dialog", { name: "Delete note?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Delete note?" })).toBeNull());
+    expect(queryClient.getQueryState(["backlinks", SHARED_NOTE.id])?.isInvalidated).toBe(true);
+  });
+
+  it("開著的是另一篇（controls.noteId ≠ 此列）：AI 修改紀錄導到此列那篇、不呼叫 openEdits；刪除不動 leavingRef、不導頁", async () => {
+    const openEdits = vi.fn();
+    const leavingRef = { current: false };
+    const { calls } = renderRowMenu({
+      noteId: SHARED_NOTE.id,
+      state: { phase: "connected", role: "editor" },
+      leavingRef,
+      openEdits,
+    });
+
+    let menu = await openRowMenu(await ownerRowTrigger());
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "AI edit history" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("location")).toHaveTextContent('/n/owner-one/custom-slug|{"openEdits":true}'),
+    );
+    expect(openEdits).not.toHaveBeenCalled();
+
+    menu = await openRowMenu(await ownerRowTrigger());
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Delete note" }));
+    const dialog = await screen.findByRole("dialog", { name: "Delete note?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+    expect(leavingRef.current).toBe(false);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Delete note?" })).toBeNull());
+    await waitFor(() => expect(calls.filter((c) => c === "GET /api/notes")).toHaveLength(2));
+    expect(calls).toContain(`DELETE /api/notes/${OWNER_NOTE.id}`);
+    expect(leavingRef.current).toBe(false);
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/n\/owner-one\/custom-slug\|/);
+  });
+
+  it("開著的那篇（controls.noteId 相同）：AI 修改紀錄呼叫 controls.openEdits、不導頁；刪除先設 leavingRef 再 DELETE，成功回 /", async () => {
+    const openEdits = vi.fn();
+    const leavingRef = { current: false };
+    const { calls } = renderRowMenu({
+      noteId: OWNER_NOTE.id,
+      state: { phase: "connected", role: "owner" },
+      leavingRef,
+      openEdits,
+    });
+
+    let menu = await openRowMenu(await ownerRowTrigger());
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "AI edit history" }));
+    expect(openEdits).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    expect(screen.getByTestId("location")).toHaveTextContent("/somewhere|null");
+
+    menu = await openRowMenu(await ownerRowTrigger());
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Delete note" }));
+    const dialog = await screen.findByRole("dialog", { name: "Delete note?" });
+    expect(calls.some((c) => c.startsWith("DELETE"))).toBe(false);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+    // 同步：handler 的第一行就設閘門（早於 DELETE 回應）。
+    expect(leavingRef.current).toBe(true);
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/\|null$/));
+    expect(calls).toContain(`DELETE /api/notes/${OWNER_NOTE.id}`);
   });
 });

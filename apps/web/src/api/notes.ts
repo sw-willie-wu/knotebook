@@ -109,6 +109,9 @@ export function useDeleteNote() {
     onSuccess: (_data, id) => {
       void queryClient.invalidateQueries({ queryKey: ["notes"] });
       void queryClient.invalidateQueries({ queryKey: ["note", id] });
+      // 前綴失效所有 `["backlinks", noteId]`：側欄 ⋮ 可以留在 A 頁刪掉 B，B 若連到 A，
+      // A 底部的 B 晶片要跟著消失。
+      void queryClient.invalidateQueries({ queryKey: ["backlinks"] });
     },
   });
 }

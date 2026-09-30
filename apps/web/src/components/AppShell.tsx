@@ -1,12 +1,4 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-  type RefObject,
-} from "react";
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router";
 import { Dialog as DialogPrimitive } from "radix-ui";
@@ -19,6 +11,7 @@ import { Menu, Plus, Search } from "@/components/ui/icons";
 import { toast } from "@/components/ui/toast";
 import { cardSurface } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { SidebarDrawerContext, useSidebarDrawer } from "@/lib/sidebar-drawer";
 import { NoteList } from "@/components/NoteList";
 import { UserMenu } from "@/components/UserMenu";
 
@@ -27,20 +20,7 @@ import { UserMenu } from "@/components/UserMenu";
  * `matches:false` 落寬分支（Ctrl+K 在窄視窗靜默無效），可接受的漸進劣化。 */
 const NARROW_QUERY = "(width < 48rem)";
 
-interface SidebarDrawerState {
-  setOpen: (open: boolean) => void;
-}
-
-/** #115：側欄抽屜的開關。刻意 null 起始＋throwing hook——`AppErrorFallback`
- * 那類「零 context 相依」的畫面本來就不該掛 `SidebarDrawerButton`，掛了要大聲
- * 炸在開發期，而不是渲染一顆點了沒反應的死鈕。 */
-const SidebarDrawerContext = createContext<SidebarDrawerState | null>(null);
-
-function useSidebarDrawer(): SidebarDrawerState {
-  const ctx = useContext(SidebarDrawerContext);
-  if (!ctx) throw new Error("SidebarDrawerButton must be rendered inside AppShell");
-  return ctx;
-}
+// 抽屜開關的 context（`SidebarDrawerContext`／`useSidebarDrawer`）住在 `lib/sidebar-drawer.ts`。
 
 /** 漢堡鈕（`md:hidden`）：NotePage 頁首與 `NarrowTopBar` 共用的抽屜入口。 */
 export function SidebarDrawerButton() {
