@@ -6,6 +6,7 @@ import { useGroups } from "@/api/groups";
 import { Button } from "@/components/ui/button";
 import { GroupMenu } from "@/components/groups/GroupMenu";
 import { GroupNameDialog } from "@/components/groups/GroupNameDialog";
+import { roleLabel } from "@/lib/group-role";
 import { SettingsGroup, SettingsPage } from "./SettingsLayout";
 
 function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
@@ -65,7 +66,8 @@ export function SettingsGroupsSection() {
               </tr>
             </thead>
             <tbody>
-              {groupsQuery.data.map((group) => (
+              {/* §2.11：`myRole` null（非成員的站台 admin；GET /api/groups 理論上不回）→ 不列（防禦）。 */}
+              {groupsQuery.data.filter((group) => group.myRole !== null).map((group) => (
                 <tr key={group.id} className="border-b border-border">
                   <td className="py-2">
                     <Link
@@ -76,7 +78,8 @@ export function SettingsGroupsSection() {
                       {group.name}
                     </Link>
                   </td>
-                  <td className="py-2">{t(`groups.role.${group.myRole}`)}</td>
+                  {/* #175：`myRole` 是物件——顯示名一律經 `roleLabel`（樣板字串會渲染 `[object Object]`）。 */}
+                  <td className="py-2">{group.myRole ? roleLabel(t, group.myRole) : null}</td>
                   <td className="py-2">
                     <div className="flex justify-end">
                       <GroupMenu group={group} />

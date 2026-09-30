@@ -5,6 +5,7 @@ import type { NoteDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { Toaster } from "@/components/ui/toast";
 import { TITLE_DEBOUNCE_MS, TitleInput } from "./TitleInput";
+import { OWNER_PERMS } from "@/test/fixtures";
 
 interface FakeResponseInit {
   ok: boolean;
@@ -29,6 +30,8 @@ const NOTE: NoteDto = {
   ownerHandle: "tester",
   lastEdited: null,
   group: null,
+  groupId: null,
+  permissions: OWNER_PERMS,
 };
 
 function renderTitle(props: Partial<{ note: NoteDto; readOnly: boolean }> = {}) {

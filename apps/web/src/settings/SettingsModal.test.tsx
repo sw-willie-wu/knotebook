@@ -11,6 +11,7 @@ import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppRoutes } from "@/App";
 import type { CollabState } from "@/collab/connection";
+import { adminRole, groupDto, OWNER_PERMS } from "@/test/fixtures";
 
 // 設定總 modal（spec §13.4）：兩棵 Routes 樹＋modal-over-background 機制，一律用真正的
 // `AppRoutes`（App.tsx 的唯一真相樹）跑，不拆開各自重建等價樹——驗證的是「有沒有接對」
@@ -117,6 +118,8 @@ const NOTE: NoteDto = {
   ownerHandle: "tester",
   lastEdited: null,
   group: null,
+  groupId: null,
+  permissions: OWNER_PERMS,
 };
 
 /** 基本 fetch mock：`/api/auth/me`（依
@@ -482,12 +485,10 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
-  const GROUP: GroupDto = {
-    id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-    name: "Team Alpha",
-    myRole: "admin",
-    createdAt: "2026-01-01T00:00:00.000Z",
-  };
+  const GROUP: GroupDto = groupDto(
+    { id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", name: "Team Alpha", createdAt: "2026-01-01T00:00:00.000Z" },
+    adminRole(),
+  );
 
   /** 開列內 ⋮（`GroupMenu`）並點「Members & settings」——`DropdownMenuTrigger` 只聽
    * `onPointerDown`（同 `openUserMenu` 的道理），menuitem 用 `findByRole` 等 Radix 掛載。 */

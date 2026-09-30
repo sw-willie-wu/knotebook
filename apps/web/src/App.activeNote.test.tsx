@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { NoteDto, UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import App from "./App";
+import { OWNER_PERMS } from "@/test/fixtures";
 
 /**
  * #122 接線案：釘預設匯出的 App() **真的**把 ActiveNoteProvider 包在 AppRoutes 外
@@ -39,6 +40,8 @@ const NOTE: NoteDto = {
   ownerHandle: "tester",
   lastEdited: null,
   group: null,
+  groupId: null,
+  permissions: OWNER_PERMS,
 };
 
 interface FakeResponseInit {

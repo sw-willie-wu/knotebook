@@ -14,6 +14,7 @@ import i18n from "@/i18n";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { NOTE_EDITS_QUERY_KEY } from "@/api/noteEdits";
 import { AiEditsDialog } from "./AiEditsDialog";
+import { OWNER_PERMS } from "@/test/fixtures";
 
 const NOTE: NoteDto = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -28,6 +29,8 @@ const NOTE: NoteDto = {
   ownerHandle: "tester",
   lastEdited: null,
   group: null,
+  groupId: null,
+  permissions: OWNER_PERMS,
 };
 
 const EDITS_URL = `/api/notes/${NOTE.id}/edits`;
@@ -37,13 +40,14 @@ const E1 = "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa";
 const E2 = "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb";
 const E3 = "cccccccc-3333-4333-8333-cccccccccccc";
 
-/** `byHandle` 用 `NOTE.ownerHandle`——這篇筆記的編輯者就是它的 owner，不另外寫死別的名字。 */
+/** `byHandle` 用 `NOTE.ownerHandle`——這篇筆記的編輯者就是它的 owner，不另外寫死別的名字。
+ * （#175 起 `ownerHandle` 型別是 `string | null`——群組筆記為 null；這篇是個人筆記，`?? ""` 只是收窄型別。） */
 function edit(patch: Partial<NoteEditDto> & { id: string }): NoteEditDto {
   return {
     op: "replace_section",
     sectionId: "sec-1",
     heading: "Section A",
-    byHandle: NOTE.ownerHandle,
+    byHandle: NOTE.ownerHandle ?? "",
     agentLabel: "claude",
     createdAt: "2026-02-03T04:05:06.000Z",
     revertedAt: null,

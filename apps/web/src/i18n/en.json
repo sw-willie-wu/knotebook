@@ -103,6 +103,9 @@
       "group": "Group members",
       "groupDesc": "Every member of \"{{name}}\""
     },
+    "groupNote": {
+      "access": "In \"{{name}}\", every member whose role can read has access."
+    },
     "group": {
       "membersTitle": "Group members",
       "notMember": "You're no longer a member of this group.",
@@ -304,7 +307,7 @@
     },
     "delete": {
       "title": "Delete group?",
-      "description": "Notes in \"{{name}}\" become personal notes. Current members keep their access at their current role.",
+      "description": "Only an empty group can be deleted. If the group still has notes, delete them first.",
       "confirm": "Delete group"
     },
     "leave": {
@@ -567,7 +570,7 @@
     "content_too_large": "That content is too large.",
     "already_reverted": "That change has already been reverted.",
     "stale": "The note has changed since that edit, so it can no longer be reverted. Reload and try again.",
-    "last_admin": "A group needs at least one admin. Make someone else an admin first, or delete the group.",
+    "last_admin": "A group needs at least one admin. Make someone else an admin first.",
     "already_member": "That person is already in this group.",
     "group_not_found": "We couldn't find that group.",
     "note_in_group": "Group notes can't be shared with individual people. Ask a group admin to add them to the group instead.",

@@ -8,6 +8,7 @@ import { BlockNoteEditor, SuggestionMenu } from "@blocknote/core";
 import type { NoteDto } from "@knotebook/shared";
 import { noteSchema } from "@/collab/schema";
 import { buildWikilinkMenuItems, type EditorRef } from "./menu";
+import { OWNER_PERMS } from "@/test/fixtures";
 
 // **mount harness**（見 NoteEditor.test.ts 同名章節的長註解）：`BlockNoteEditor.create`
 // 後必須 `editor.mount(掛在 document.body 的元素)`，headless 下 `openSuggestionMenu`
@@ -82,6 +83,8 @@ function note(overrides: Partial<NoteDto> = {}): NoteDto {
     ownerHandle: "tester",
     lastEdited: null,
     group: null,
+    groupId: null,
+    permissions: OWNER_PERMS,
     ...overrides,
   };
 }

@@ -39,8 +39,15 @@ function renderSection(noteId: string | undefined) {
 const NOTE_ID = "11111111-1111-1111-1111-111111111111";
 
 const BACKLINKS: BacklinkDto[] = [
-  { id: "22222222-2222-2222-2222-222222222222", title: "Alpha", slug: "alpha", ownerHandle: "tester" },
-  { id: "33333333-3333-3333-3333-333333333333", title: "Beta", slug: "beta", ownerHandle: "tester" },
+  { id: "22222222-2222-2222-2222-222222222222", title: "Alpha", slug: "alpha", ownerHandle: "tester", groupId: null },
+  // #175：群組筆記的來源（無個人 owner）——連結走 `/g/<groupId>/<slug>`。
+  {
+    id: "33333333-3333-3333-3333-333333333333",
+    title: "Beta",
+    slug: "beta",
+    ownerHandle: null,
+    groupId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+  },
 ];
 
 describe("BacklinksSection", () => {
@@ -114,6 +121,11 @@ describe("BacklinksSection", () => {
     // 一個字面值，避免 `canonicalNotePath` 未來改行為時這支測試悄悄跟著失去意義
     // （比照 NoteList.test.tsx 的同款斷言形狀）。
     expect(canonicalNotePath(BACKLINKS[0])).toBe("/n/tester/alpha");
+    // #175 §8.1：群組來源的 chip 連到 `/g/` 形（BacklinksSection 吃 `BacklinkDto.groupId`）。
+    expect(screen.getByRole("link", { name: "Beta" })).toHaveAttribute(
+      "href",
+      "/g/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/beta",
+    );
   });
 
   it("單數（1 篇）走 i18next 的 _one 分支", async () => {

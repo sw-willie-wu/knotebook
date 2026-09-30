@@ -4,7 +4,7 @@ import { useLocation, useNavigate, useParams } from "react-router";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { canonicalNotePath, type NoteDto, type Role } from "@knotebook/shared";
 import { api, ApiFail } from "@/api/client";
-import { invalidateNoteQueries, useNote, useNoteByPath } from "@/api/notes";
+import { invalidateNoteQueries, useNote, useNoteByGroupPath, useNoteByPath } from "@/api/notes";
 import { SESSION_QUERY_KEY, useSession } from "@/auth/useSession";
 import { canEdit, isTerminal, type CollabState } from "@/collab/connection";
 import { useActiveNote } from "@/lib/active-note";
@@ -89,13 +89,13 @@ function effectiveRole(state: CollabState, note: NoteDto): Role {
 }
 
 /**
- * 筆記編輯頁——`/n/:handle/:slug`（#122 新形）與 `/notes/:ref`（舊形，永久相容）
- * 兩條 route 共用。
+ * 筆記編輯頁——`/n/:handle/:slug`（#122 新形）、`/g/:groupId/:slug`（#175 群組筆記）與
+ * `/notes/:ref`（舊形，永久相容）三條 route 共用。
  *
  * 資料路徑（#122 spec §3b 定案：「按 params 解析 → 改讀 id 鍵」）兩層：
  * - **解析層**：`paramsKey`（只從 `useParams` 衍生）與 `resolvedFor.key` 不等＝真導航
- *   → 依形解析（新形 `useNoteByPath(handle, slug)`；舊形 `useNote(ref)`——legacy
- *   slug／`<vanity>-<uuid>`／純 uuid 都由 server 吃掉）→ 成功後 seed `['note', id]`
+ *   → 依形解析（新形 `useNoteByPath(handle, slug)`；群組形 `useNoteByGroupPath(groupId, slug)`；
+ *   舊形 `useNote(ref)`——legacy slug／`<vanity>-<uuid>`／純 uuid 都由 server 吃掉）→ 成功後 seed `['note', id]`
  *   並記 `resolvedFor`；相等時解析 query 停用——`history.replaceState` 不動 params，
  *   不會重解析。
  * - **常駐層**：`useNote(resolvedFor.id)`——key 以 id 為錨永不過時，改標題、
@@ -112,30 +112,43 @@ function effectiveRole(state: CollabState, note: NoteDto): Role {
  * N4 降級（editor → viewer）不是終態：連線留著，只是 `editable` 變 false 並 toast。
  */
 export default function NotePage() {
-  const params = useParams<{ ref?: string; handle?: string; slug?: string }>();
+  const params = useParams<{ ref?: string; handle?: string; groupId?: string; slug?: string }>();
   const { t } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useSession();
 
-  // paramsKey：新形 `n:`（/n/:handle/:slug）與舊形 `ref:`（/notes/:ref）。前綴不同是
-  // **防禦性設計**（ref 不可能含 `/`，實際上單靠內容就分得開——別把「跨 pattern 必
-  // 不等」的功勞記在前綴上，無案守著它）；兩條 route 共用本元件、明文不依賴 remount。
-  // **禁止取自 window.location.pathname**：它會被收斂 effect replaceState 改掉，
-  // 拿它當 key 就是無窮重解析迴圈。
-  const isPathForm = params.handle !== undefined && params.slug !== undefined;
-  const paramsKey = isPathForm ? `n:${params.handle}/${params.slug}` : `ref:${params.ref ?? ""}`;
+  // paramsKey 三形：`n:`（/n/:handle/:slug）、`g:`（/g/:groupId/:slug，#175 群組筆記）、
+  // `ref:`（/notes/:ref）。前綴不同是**防禦性設計**（ref 不可能含 `/`，實際上單靠內容就分得開
+  // ——別把「跨 pattern 必不等」的功勞記在前綴上，無案守著它）；三條 route 共用本元件、明文
+  // 不依賴 remount。**禁止取自 window.location.pathname**：它會被收斂 effect replaceState
+  // 改掉，拿它當 key 就是無窮重解析迴圈。
+  const form: "group" | "user" | "ref" =
+    params.groupId !== undefined && params.slug !== undefined
+      ? "group"
+      : params.handle !== undefined && params.slug !== undefined
+        ? "user"
+        : "ref";
+  const paramsKey =
+    form === "group"
+      ? `g:${params.groupId}/${params.slug}`
+      : form === "user"
+        ? `n:${params.handle}/${params.slug}`
+        : `ref:${params.ref ?? ""}`;
   const [resolvedFor, setResolvedFor] = useState<{ key: string; id: string } | null>(null);
   const needsResolve = resolvedFor?.key !== paramsKey;
 
-  // 解析層依形二擇一（A4：兩個 hook 的 query key 各含自己那組 params，data 必屬當下
-  // ——此保證依賴 useNote/useNoteByPath **沒有** placeholderData/keepPreviousData，
-  // 見 hook 的禁令）。停用的那支 enabled 恆 false、零請求。
-  const resolveByRef = useNote(params.ref ?? "", { enabled: needsResolve && !isPathForm });
+  // 解析層依形三擇一（A4：三個 hook 的 query key 各含自己那組 params，data 必屬當下
+  // ——此保證依賴 useNote/useNoteByPath/useNoteByGroupPath **沒有** placeholderData/
+  // keepPreviousData，見 hook 的禁令）。停用的那兩支 enabled 恆 false、零請求。
+  const resolveByRef = useNote(params.ref ?? "", { enabled: needsResolve && form === "ref" });
   const resolveByPath = useNoteByPath(params.handle ?? "", params.slug ?? "", {
-    enabled: needsResolve && isPathForm,
+    enabled: needsResolve && form === "user",
   });
-  const resolveQuery = isPathForm ? resolveByPath : resolveByRef;
+  const resolveByGroupPath = useNoteByGroupPath(params.groupId ?? "", params.slug ?? "", {
+    enabled: needsResolve && form === "group",
+  });
+  const resolveQuery = form === "group" ? resolveByGroupPath : form === "user" ? resolveByPath : resolveByRef;
   useEffect(() => {
     if (!needsResolve || !resolveQuery.data) return;
     // seed 常駐層（A5：`GET /api/notes/:ref` 與 `GET /api/notes/:id` 同一個 toNoteDto，
@@ -197,8 +210,8 @@ export default function NotePage() {
   /**
    * 別人（真人或 AI）改了這篇之後，把 note query 對齊 server（spec §10）——`lastEdited`
    * 就住在 `NoteDto` 上。`ref` 傳的是**解析層那把 key 的第二段**：舊形 `/notes/:ref` 是
-   * `params.ref`，新形 `/n/<handle>/<slug>` 根本沒有這一層，傳 `note.id` 讓
-   * `invalidateNoteQueries` 跳過那一發。
+   * `params.ref`，新形 `/n/<handle>/<slug>` 與群組形 `/g/<groupId>/<slug>` 根本沒有這一層，
+   * 傳 `note.id` 讓 `invalidateNoteQueries` 跳過那一發（兩種路徑解析層由它依 `note.groupId` 二擇一）。
    */
   const onRemoteUpdate = useCallback(() => {
     if (!note) return;
