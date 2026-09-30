@@ -99,36 +99,14 @@
       "confirmHintWithLink_one": "This removes {{count}} member and turns off the public link (including its custom public URL).",
       "confirmHintWithLink_other": "This removes all {{count}} members and turns off the public link (including its custom public URL).",
       "confirmPrivate_one": "Remove {{count}} member and make private",
-      "confirmPrivate_other": "Remove {{count}} members and make private",
-      "group": "Group members",
-      "groupDesc": "Every member of \"{{name}}\""
+      "confirmPrivate_other": "Remove {{count}} members and make private"
     },
     "groupNote": {
+      "description": "Group members access this note according to their role's permissions. Public links are anonymous only.",
       "access": "In \"{{name}}\", every member whose role can read has access."
     },
     "group": {
-      "membersTitle": "Group members",
-      "notMember": "You're no longer a member of this group.",
-      "nonAdminHint": "To invite a collaborator, ask a group admin to add them to the group.",
-      "manageLink": "Group settings",
-      "add": "Add to group",
-      "sectionTitle": "Group",
-      "selectLabel": "Group this note belongs to",
-      "none": "None — personal note",
-      "roleLabel": "What group members can do",
-      "roleEditor": "Can edit",
-      "roleViewer": "Read-only",
-      "formerGroup": "In \"{{name}}\"",
-      "removeFromGroup": "Remove from group",
-      "removeFromGroupStart": "Remove from group…",
-      "confirmMoveIn": "Every member of \"{{name}}\" will be able to open and edit this note.",
-      "confirmMoveFrom": "Members of \"{{from}}\" will lose access unless they're also in \"{{to}}\".",
-      "confirmRevokeShares_one": "{{count}} person you invited loses their individual invite — they keep access only if they're also a member of \"{{name}}\":",
-      "confirmRevokeShares_other": "{{count}} people you invited lose their individual invites — they keep access only if they're also members of \"{{name}}\":",
-      "confirmRevokeLink": "The public link will be turned off (including its custom public URL).",
-      "confirmMove": "Move to group",
-      "changedElsewhere": "This note's group was changed somewhere else, so this panel has been reloaded. Check it and try again.",
-      "confirmLeave": "Members of \"{{name}}\" will lose access to this note. The public link, if there is one, stays on."
+      "manageLink": "Group settings"
     }
   },
   "note": {

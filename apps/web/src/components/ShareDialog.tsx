@@ -6,12 +6,10 @@ import {
   publicAliasPath,
   validateSlug,
   type NoteDto,
-  type NoteGroupDto,
   type ShareDto,
   type ShareRole,
 } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
-import { useAddMember, useGroupMembers, useGroups } from "@/api/groups";
 import { useDeleteShare, usePutShare, useShares } from "@/api/shares";
 import { useClearPublicSlug, useCreatePublicLink, useDeletePublicLink, usePublicLink, useSetPublicSlug } from "@/api/public-link";
 import { Button } from "@/components/ui/button";
@@ -29,7 +27,6 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "@/components/ui/toast";
 import { copyText } from "@/lib/clipboard";
 import { ManualCopyField } from "@/components/ManualCopyField";
-import { NoteGroupSection } from "@/components/groups/NoteGroupSection";
 
 /** ApiFail → errors.<code>；其餘 → errors.fallback。與 NoteList/TitleInput 同一套對映（各檔各自一份，
  * 是既有慣例——見那兩處的說明，這裡不再重複抽象）。 */
@@ -194,125 +191,13 @@ function SharesSection({ noteId, title }: { noteId: string; title: string }) {
   );
 }
 
-/**
- * 群組筆記的成員區（spec §8.3）：`useGroupMembers(group.id)` 唯讀名單（displayName、email
- * ——A8，成員彼此看得到 email；要拿掉只需刪下面那一行 `<span>`）。我是該群組 admin →
- * email 輸入＋「加入群組」（`PUT /api/groups/:id/members`，D13「共編邀請＝加入群組」）；
- * 不是 admin → 一行提示＋通往 `/settings/groups/:id` 的連結（點了先關分享面板，否則兩個
- * Dialog 疊著）。**A1 的 owner**（`useGroups()` 裡沒有這個群組）：只顯示一行「你已不是此
- * 群組的成員」，**不發** members 請求（server 會 404）。
- */
-function GroupMembersPanel({ group, onNavigate }: { group: NoteGroupDto; onNavigate: () => void }) {
-  const { t } = useTranslation();
-  const location = useLocation();
-  const groupsQuery = useGroups();
-  const membership = groupsQuery.data?.find((candidate) => candidate.id === group.id);
-  const isMember = membership !== undefined;
-  const membersQuery = useGroupMembers(group.id, { enabled: isMember });
-  const addMember = useAddMember(group.id);
-  const [email, setEmail] = useState("");
-  const [addError, setAddError] = useState<string | null>(null);
-
-  async function handleAdd(event: FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault();
-    setAddError(null);
-    const trimmed = email.trim();
-    if (trimmed.length === 0) return;
-    try {
-      await addMember.mutateAsync({ email: trimmed });
-      setEmail("");
-    } catch (err) {
-      setAddError(errorMessage(t, err));
-    }
-  }
-
-  if (groupsQuery.isPending) {
-    return <p className="text-sm text-muted-foreground">{t("app.loading")}</p>;
-  }
-  if (groupsQuery.isError) {
-    return (
-      <p role="alert" className="text-sm text-destructive">
-        {errorMessage(t, groupsQuery.error)}
-      </p>
-    );
-  }
-  if (!isMember) {
-    return <p className="text-sm text-muted-foreground">{t("share.group.notMember")}</p>;
-  }
-
-  return (
-    <div className="space-y-2">
-      <p className="text-sm font-medium">{t("share.group.membersTitle")}</p>
-
-      {membersQuery.isPending ? (
-        <p className="text-sm text-muted-foreground">{t("app.loading")}</p>
-      ) : membersQuery.isError ? (
-        <p role="alert" className="text-sm text-destructive">
-          {errorMessage(t, membersQuery.error)}
-        </p>
-      ) : (
-        <ul className="space-y-1">
-          {membersQuery.data.map((member) => (
-            <li key={member.userId} className="flex items-center gap-2 text-sm">
-              <span className="min-w-0 flex-1 truncate">
-                {member.displayName}
-                <span className="ml-2 text-muted-foreground">{member.email}</span>
-              </span>
-              <span className="shrink-0 text-xs text-muted-foreground">{t(`groups.role.${member.role}`)}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {membership.myRole === "admin" ? (
-        <>
-          <form onSubmit={(event) => void handleAdd(event)} className="flex items-center gap-2">
-            <Input
-              type="email"
-              required
-              placeholder={t("share.emailPlaceholder")}
-              aria-label={t("share.emailPlaceholder")}
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              className="min-w-0 flex-1"
-            />
-            <Button type="submit" variant="outline" disabled={addMember.isPending}>
-              {t("share.group.add")}
-            </Button>
-          </form>
-          {addError && (
-            <p role="alert" className="text-sm text-destructive">
-              {addError}
-            </p>
-          )}
-        </>
-      ) : (
-        <p className="text-sm text-muted-foreground">
-          {t("share.group.nonAdminHint")}{" "}
-          <Link
-            to={`/settings/groups/${encodeURIComponent(group.id)}`}
-            state={{ backgroundLocation: location }}
-            onClick={onNavigate}
-            className="text-brand underline-offset-4 hover:underline"
-          >
-            {t("share.group.manageLink")}
-          </Link>
-        </p>
-      )}
-    </div>
-  );
-}
-
-type AccessLevel = "private" | "members" | "public" | "group";
+type AccessLevel = "private" | "members" | "public";
 
 /**
- * 三態／兩態的 derive（僅供 latch 初值與顯式重算點——不是持續同步）。
- * 群組筆記（`group` 非 null，#103 D14）只有「群組內可見」與「公開」：S5 保證它沒有逐人
- * 分享，`shares` 對它恆為 []，所以不看。**第三參數必填**——選填會讓漏傳處在群組筆記上
- * 回 `"private"` 而無 radio 可選、tsc 抓不到（spec §8.3）。
+ * 個人筆記三態的 derive（僅供 latch 初值與顯式重算點——不是持續同步）。
+ * 群組筆記不走這裡（#175 §8.4：群組版面板沒有 radio；觸發鈕的群組態由 `ShareDialog` 獨立給）。
  */
-function deriveAccess(token: string | null, shares: ShareDto[], group: NoteGroupDto | null): AccessLevel {
-  if (group) return token ? "public" : "group";
+function deriveAccess(token: string | null, shares: ShareDto[]): AccessLevel {
   return token ? "public" : shares.length > 0 ? "members" : "private";
 }
 
@@ -344,10 +229,10 @@ function deriveAccess(token: string | null, shares: ShareDto[], group: NoteGroup
  * 再循序 DELETE shares**（順序承重：中止時最壞是「還剩幾位成員」，不是「連結
  * 還開著」）。
  *
- * **群組筆記（#103 D13／D14）**：只有 `group`／`public` 兩個 radio；`confirmPrivate` 不可達；
- * 成員區＝群組成員名單（`GroupMembersPanel`），逐人分享區不渲染。
+ * **只給個人筆記**（#175 §8.4）：群組筆記的面板是 `GroupNoteShareSection`——沒有 radio、
+ * 不發 `useShares`（群組筆記沒有逐人分享，S5）。
  */
-function AccessSection({ note, onClose }: { note: NoteDto; onClose: () => void }) {
+function AccessSection({ note }: { note: NoteDto }) {
   const noteId = note.id;
   const { t } = useTranslation();
   const sharesQuery = useShares(noteId);
@@ -365,27 +250,18 @@ function AccessSection({ note, onClose }: { note: NoteDto; onClose: () => void }
   const shares = sharesQuery.data ?? [];
   const queriesFailed = linkQuery.isError || sharesQuery.isError;
 
-  // 群組筆記的 latch 要等**本次掛載後**的重抓：`AccessSection` 以 `note.group?.id` 為 key，
-  // 個人筆記被搬進群組時，note 常駐層更新 → 這裡重掛。本面板「所屬群組」列那條路徑會先把連結快取寫成 null；
-  // 別的分頁搬的那條路徑不會——public-link 快取還是搬家前的舊 token，拿它 latch 會把「群組內可見」誤述成「公開」
-  // 而且 sticky 不自己修正。S5／D16 保證 server 那邊 token 已清，所以等一次
-  // `isFetchedAfterMount` 就是對的資料。個人筆記維持原本「快取有就 latch」（觸發鈕已預抓）。
-  // ⚠ 這條依賴「掛載時重抓」（refetchOnMount 對 stale 資料才生效）：`['public-link']`／`['shares']`
-  // 與 QueryClient 預設都**沒有** `staleTime`。若日後加了 staleTime，掛載不再重抓 →
-  // `isFetchedAfterMount` 永遠 false → 群組筆記永遠 latch 不了（卡「載入中」），而測試照樣全綠
-  // （測試用的是預設 QueryClient）。
-  const freshEnough = note.group === null || (linkQuery.isFetchedAfterMount && sharesQuery.isFetchedAfterMount);
+  // 快取有就 latch（觸發鈕已預抓）。
   useEffect(() => {
-    if (selection === null && freshEnough && linkQuery.data !== undefined && sharesQuery.data !== undefined) {
-      setSelection(deriveAccess(linkQuery.data.token, sharesQuery.data, note.group));
+    if (selection === null && linkQuery.data !== undefined && sharesQuery.data !== undefined) {
+      setSelection(deriveAccess(linkQuery.data.token, sharesQuery.data));
     }
-  }, [selection, freshEnough, linkQuery.data, sharesQuery.data, note.group]);
+  }, [selection, linkQuery.data, sharesQuery.data]);
 
   /** 顯式重算點①：mutation 失敗——toast、refetch 兩個 query、radio 依新資料重算。 */
   async function recoverFromError(err: unknown): Promise<void> {
     toast({ title: errorMessage(t, err), variant: "destructive" });
     const [freshShares, freshLink] = await Promise.all([sharesQuery.refetch(), linkQuery.refetch()]);
-    setSelection(deriveAccess(freshLink.data?.token ?? null, freshShares.data ?? [], note.group));
+    setSelection(deriveAccess(freshLink.data?.token ?? null, freshShares.data ?? []));
   }
 
   /** 撤銷公開連結（失敗即復原——裸 mutate 的靜默失敗是審查抓到的安全性誤述）。 */
@@ -432,12 +308,6 @@ function AccessSection({ note, onClose }: { note: NoteDto; onClose: () => void }
       if (!token) void mintLink();
       return;
     }
-    if (next === "group") {
-      // 「公開 → 群組內可見」＝撤連結，不需確認（比照公開 → 限定成員）。
-      setSelection("group");
-      if (token) void revokeLink();
-      return;
-    }
     if (next === "members") {
       setSelection("members");
       if (token) void revokeLink();
@@ -469,16 +339,11 @@ function AccessSection({ note, onClose }: { note: NoteDto; onClose: () => void }
     }
   }
 
-  const options: Array<{ value: AccessLevel; label: string; desc: string }> = note.group
-    ? [
-        { value: "group", label: t("share.access.group"), desc: t("share.access.groupDesc", { name: note.group.name }) },
-        { value: "public", label: t("share.access.public"), desc: t("share.access.publicDesc") },
-      ]
-    : [
-        { value: "private", label: t("share.access.private"), desc: t("share.access.privateDesc") },
-        { value: "members", label: t("share.access.members"), desc: t("share.access.membersDesc") },
-        { value: "public", label: t("share.access.public"), desc: t("share.access.publicDesc") },
-      ];
+  const options: Array<{ value: AccessLevel; label: string; desc: string }> = [
+    { value: "private", label: t("share.access.private"), desc: t("share.access.privateDesc") },
+    { value: "members", label: t("share.access.members"), desc: t("share.access.membersDesc") },
+    { value: "public", label: t("share.access.public"), desc: t("share.access.publicDesc") },
+  ];
 
   return (
     <ShareGroup title={t("share.access.title")}>
@@ -534,7 +399,7 @@ function AccessSection({ note, onClose }: { note: NoteDto; onClose: () => void }
                 // 顯式重算點②：取消＝什麼都沒動，radio 回實況（沒有這行會停在
                 // 「私人」而連結還活著——載重，別當成可省的糖）。
                 setConfirming(false);
-                setSelection(deriveAccess(token, shares, note.group));
+                setSelection(deriveAccess(token, shares));
               }}
             >
               {t("share.access.confirmCancel")}
@@ -562,17 +427,96 @@ function AccessSection({ note, onClose }: { note: NoteDto; onClose: () => void }
           ownerHandle={note.ownerHandle}
           token={token}
           slug={linkQuery.data?.slug ?? null}
+          allowAlias
           onRegenerateToken={mintLink}
           regenerateTokenPending={createLink.isPending}
         />
       )}
+    </ShareGroup>
+  );
+}
 
-      {/* 群組成員區**不隨 radio 切換**（gate r1 M6）：群組存取在公開態也一樣有效，admin 在
-          公開的群組筆記上也要能加人，不該被迫先撤連結。位置固定在最下方。 */}
-      {latched && note.group && (
-        <div className="rounded-md bg-muted/40 p-3">
-          <GroupMembersPanel group={note.group} onNavigate={onClose} />
-        </div>
+/**
+ * #175 §8.4：群組筆記的分享面板——**無 radio、無成員區**。存取由群組角色決定，所以這裡只說明＋帶去群組設定
+ * （點了先關分享面板，否則兩個 Dialog 疊著）；能管公開連結的角色才看得到公開連結開關（群組筆記沒有公開別名，W7）。
+ * `useShares` 一律不發（群組筆記沒有逐人分享，S5）；`usePublicLink` 只在 `managePublicLink` 為真時發（否則 server 回 403）。
+ *
+ * 沒有 radio 也就沒有 latch：開關的 `checked` 直接看 query 資料（載入中停用），#170／#171 那種 sticky 誤報形在這裡不存在。
+ */
+function GroupNoteShareSection({ note, onClose }: { note: NoteDto; onClose: () => void }) {
+  const { t } = useTranslation();
+  const location = useLocation();
+  const canLink = note.permissions.managePublicLink;
+  const linkQuery = usePublicLink(canLink ? note.id : "");
+  const createLink = useCreatePublicLink(note.id);
+  const deleteLink = useDeletePublicLink(note.id);
+  const token = linkQuery.data?.token ?? null;
+
+  async function toggle(next: boolean): Promise<void> {
+    try {
+      if (next) await createLink.mutateAsync();
+      else await deleteLink.mutateAsync();
+    } catch (err) {
+      toast({ title: errorMessage(t, err), variant: "destructive" });
+    }
+  }
+
+  async function regenerate(): Promise<boolean> {
+    try {
+      await createLink.mutateAsync();
+      return true;
+    } catch (err) {
+      toast({ title: errorMessage(t, err), variant: "destructive" });
+      return false;
+    }
+  }
+
+  return (
+    <ShareGroup title={t("share.access.title")}>
+      <p className="text-sm">
+        {t("share.groupNote.access", { name: note.group?.name ?? "" })}{" "}
+        {typeof note.groupId === "string" && (
+          <Link
+            to={`/settings/groups/${encodeURIComponent(note.groupId)}`}
+            state={{ backgroundLocation: location }}
+            onClick={onClose}
+            className="text-brand underline-offset-4 hover:underline"
+          >
+            {t("share.group.manageLink")}
+          </Link>
+        )}
+      </p>
+      {canLink && (
+        <>
+          {linkQuery.isError && (
+            <p role="alert" className="text-sm text-destructive">
+              {errorMessage(t, linkQuery.error)}
+            </p>
+          )}
+          <div className="flex items-center gap-2">
+            <Switch
+              id="share-group-public-toggle"
+              checked={token !== null}
+              disabled={linkQuery.data === undefined || createLink.isPending || deleteLink.isPending}
+              onCheckedChange={(next) => void toggle(next)}
+            />
+            <label htmlFor="share-group-public-toggle" className="text-sm font-medium">
+              {t("share.access.public")}
+            </label>
+          </div>
+          <p className="text-xs text-muted-foreground">{t("share.access.publicDesc")}</p>
+          {token && (
+            <PublicLinkPanel
+              noteId={note.id}
+              ownerHandle={null}
+              token={token}
+              slug={null}
+              allowAlias={false}
+              onRegenerateToken={regenerate}
+              regenerateTokenPending={createLink.isPending}
+            />
+          )}
+        </>
       )}
     </ShareGroup>
   );
@@ -615,26 +559,27 @@ function generateValidatedRandomSlug(): string | null {
 
 /**
  * 公開連結面板（Willie 2026-09-17 產品決定，取代舊「token 唯讀連結」＋「公開別名
- * 欄位」兩個並列區塊）：**一個匿名 toggle ＋ 一條連結 ＋ 最多三顆鈕**。只在公開態
- * 渲染（呼叫端已鎖在 `selection === "public" && token` 內）。
+ * 欄位」兩個並列區塊）：**一個匿名 toggle ＋ 一條連結 ＋ 最多三顆鈕**（`allowAlias`
+ * 為 false——群組筆記，W7——時沒有 toggle，只有連結＋兩顆鈕）。只在有 token 時渲染
+ * （個人呼叫端鎖在 `selection === "public" && token` 內；群組呼叫端鎖在 `token` 內）。
  *
  * **模式由既有資料推導，不是獨立 state**：`slug` 為 `null` ⇔ 匿名 ON（網址
  * `/p/<token>`，不可編輯，鈕只有複製／重新產生）；`slug` 有值 ⇔ 匿名 OFF（網址
- * `/p/<handle>/<slug>`，多一顆「儲存」＋可猜警語）。`anonymous` 直接 `slug ===
- * null`，**不是另開一份 optimistic toggle state**——好處是失敗復原不必額外寫
+ * `/p/<handle>/<slug>`，多一顆「儲存」＋可猜警語）。`anonymous` 直接派生（`!allowAlias ||
+ * slug === null`），**不是另開一份 optimistic toggle state**——好處是失敗復原不必額外寫
  * 「彈回」邏輯：mutation 沒成功，`slug` prop 就沒變，toggle 呈現的模式自然還是
  * 原本那個（裸 `mutate()` 才會製造「畫面先切、失敗後卡住」的假象）。
  *
  * - **切 OFF**＝`useSetPublicSlug` 寫入前端產生的隨機 slug；**切 ON**＝
  *   `useClearPublicSlug`。「重新產生」在 ON 態＝換 token（呼叫端傳入的
- *   `onRegenerateToken`，即 `AccessSection.mintLink`，其 `useCreatePublicLink`
- *   已是 mutateAsync＋recoverFromError）；在 OFF 態（B1 修正，2026-09-17）＝
+ *   `onRegenerateToken`：個人筆記是 `AccessSection.mintLink`（mutateAsync＋recoverFromError）、
+ *   群組筆記是 `GroupNoteShareSection` 的 `regenerate`（mutateAsync＋toast））；在 OFF 態（B1 修正，2026-09-17）＝
  *   **同時換 token 與 slug**——先換 token 再換 slug，任一步失敗都中止並走既有
  *   錯誤呈現。理由：OFF 態的網址是 `/p/<handle>/<slug>`，不含 token，但 token
  *   仍是唯一的安全邊界；只換 slug、不換 token 的話，外洩過的 256-bit token
  *   永遠沒有輪替的入口——即使使用者以為自己按了「重新產生連結」。
- *   `onRegenerateToken` 回傳是否成功（`Promise<boolean>`），失敗時 `mintLink`
- *   已經自己 toast＋復原過一次，這裡不重複顯示、只中止，不得拿舊 token 換出
+ *   `onRegenerateToken` 回傳是否成功（`Promise<boolean>`），失敗時呼叫端（`mintLink`／`regenerate`）
+ *   已經自己 toast（個人筆記另加復原）過一次，這裡不重複顯示、只中止，不得拿舊 token 換出
  *   一個新 slug。
  * - **一律 `mutateAsync` ＋ catch → `setError`**：toggle／regenerate／save 三個
  *   動作共用同一顆 `error` state（同時只會有一個在跑，`busy` 互斥），裸 `mutate()`
@@ -653,13 +598,17 @@ function PublicLinkPanel({
   ownerHandle,
   token,
   slug,
+  allowAlias,
   onRegenerateToken,
   regenerateTokenPending,
 }: {
   noteId: string;
-  ownerHandle: string;
+  /** 個人筆記的 owner handle（組 `/p/<handle>/<slug>`）；群組筆記為 null（沒有別名，`allowAlias` 必為 false）。 */
+  ownerHandle: string | null;
   token: string;
   slug: string | null;
+  /** #175 W7：群組筆記沒有公開別名——false 時固定匿名形，不渲染 Anonymous 開關、儲存鈕與可猜警語。 */
+  allowAlias: boolean;
   onRegenerateToken: () => Promise<boolean>;
   regenerateTokenPending: boolean;
 }) {
@@ -667,7 +616,7 @@ function PublicLinkPanel({
   const setSlug = useSetPublicSlug(noteId);
   const clearSlug = useClearPublicSlug(noteId);
 
-  const anonymous = slug === null;
+  const anonymous = !allowAlias || slug === null;
   const [value, setValue] = useState(slug ?? "");
   const [error, setError] = useState<string | null>(null);
 
@@ -680,7 +629,7 @@ function PublicLinkPanel({
 
   const linkUrl = anonymous
     ? `${window.location.origin}${ANONYMOUS_LINK_PREFIX}${token}`
-    : `${window.location.origin}${publicAliasPath({ handle: ownerHandle, slug: slug ?? "" })}`;
+    : `${window.location.origin}${publicAliasPath({ handle: ownerHandle ?? "", slug: slug ?? "" })}`;
 
   /** OFF 態的隨機 slug 動作（切 OFF、與 OFF 態按重新產生）共用這段：產生→驗證
    * →mutateAsync→catch。產生失敗（極端邊界，理論上不會發生）與 mutation 失敗
@@ -746,18 +695,22 @@ function PublicLinkPanel({
     <div role="group" aria-label={t("share.publicPanelTitle")} className="space-y-2 rounded-md bg-muted/40 p-3">
       <p className="text-sm font-medium">{t("share.publicPanelTitle")}</p>
 
-      <div className="flex items-center gap-2">
-        <Switch
-          id="share-anonymous-toggle"
-          checked={anonymous}
-          disabled={busy}
-          onCheckedChange={() => void handleToggle()}
-        />
-        <label htmlFor="share-anonymous-toggle" className="text-sm font-medium">
-          {t("share.anonymous.label")}
-        </label>
-      </div>
-      <p className="text-xs text-muted-foreground">{t("share.anonymous.desc")}</p>
+      {allowAlias && (
+        <>
+          <div className="flex items-center gap-2">
+            <Switch
+              id="share-anonymous-toggle"
+              checked={anonymous}
+              disabled={busy}
+              onCheckedChange={() => void handleToggle()}
+            />
+            <label htmlFor="share-anonymous-toggle" className="text-sm font-medium">
+              {t("share.anonymous.label")}
+            </label>
+          </div>
+          <p className="text-xs text-muted-foreground">{t("share.anonymous.desc")}</p>
+        </>
+      )}
 
       {/* 兩種型態共用同一個形狀：**前綴文字 ＋ 輸入框**。匿名態的輸入框唯讀
           （那條網址不可自訂），但仍是輸入框——可以選取、可以手動複製，而且切換
@@ -767,7 +720,7 @@ function PublicLinkPanel({
             組字點，兩處各自拼字串就是 shared JSDoc 明令禁止的漂移形。匿名態沒有
             handle 這一段，前綴就是 `/p/`。 */}
         <span id="share-public-slug-prefix" className="shrink-0 text-xs text-muted-foreground">
-          {anonymous ? ANONYMOUS_LINK_PREFIX : publicAliasPath({ handle: ownerHandle, slug: "" })}
+          {anonymous ? ANONYMOUS_LINK_PREFIX : publicAliasPath({ handle: ownerHandle ?? "", slug: "" })}
         </span>
         <Input
           id="share-public-slug"
@@ -862,14 +815,16 @@ export interface ShareDialogProps {
 }
 
 /**
- * 分享管理 dialog（spec：owner-only）。非 owner（editor/viewer）完全不渲染——連觸發鈕
- * 都不出現，不只是「按了也沒用」而已。
+ * 分享管理 dialog。個人筆記：只有 `permissions.manageShares`（owner）看得到；逐人分享的
+ * editor／viewer 完全不渲染——連觸發鈕都不出現，不只是「按了也沒用」而已。群組筆記
+ * （#175 §8.4、Q14）：看得到筆記（`permissions.read`）的人都有分享鈕，面板是 `GroupNoteShareSection`。
  *
  * 觸發鈕圖示需要知道目前的分享狀態才能選對圖示（私人🔒／限定成員／公開🌐），
- * 所以 `useShares`／`usePublicLink` 這兩支 query 在 owner 的筆記頁**一載入就會發**，
- * 不等 dialog 開啟（見下方 hook 呼叫旁的說明）。**面板內容仍只在實際開啟時掛載**
- * （`open && <AccessSection ...>`）——提前的只有這兩支狀態查詢，不是整個面板；
- * `AccessSection` 內部的 `useShares`／`usePublicLink` 與這裡共用同一份 react-query
+ * 所以個人筆記 owner 的筆記頁上 `useShares`／`usePublicLink` 這兩支 query **一載入就會發**，
+ * 不等 dialog 開啟（見下方 hook 呼叫旁的說明）；群組筆記**永不發** shares，public-link 也只在
+ * `permissions.managePublicLink` 為真時發。**面板內容仍只在實際開啟時掛載**
+ * （`open && <AccessSection ...>`／`<GroupNoteShareSection ...>`）——提前的只有狀態查詢，不是整個面板；
+ * 面板內部的 `useShares`／`usePublicLink` 與這裡共用同一份 react-query
  * 快取（同 key 去重），所以不會因此多打第三支請求。
  *
  * PR2（D.3）：觸發鈕改成 icon-only（原本是帶文字的按鈕）——`aria-label={t("share.button")}`
@@ -880,7 +835,11 @@ export interface ShareDialogProps {
 export function ShareDialog({ note }: ShareDialogProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const isOwner = note.role === "owner";
+  // `typeof` 而非 `!== null`：與 `canonicalNotePath`／`api/notes.ts` 同慣例（沒有 `groupId` 欄的舊物件不得被當群組筆記）。
+  const isGroupNote = typeof note.groupId === "string";
+  // Q14：群組筆記的分享鈕對看得到它的人都在（裡面有「群組設定」連結，PR2 起還有「複製到我的筆記」）；
+  // 個人筆記只給能管分享的人（#175 §5.2：看 permissions，不再由 role 推）。
+  const canOpen = isGroupNote ? note.permissions.read : note.permissions.manageShares;
 
   // 觸發鈕圖示要跟著分享狀態變（私人=鎖／限定成員=分享圖示／公開=地球，
   // UI 改版設計、#72 收尾）。react-query 同 key 去重——這裡跟 `AccessSection`
@@ -890,19 +849,30 @@ export function ShareDialog({ note }: ShareDialogProps) {
   // 「目前資料」是兩件事——latch 的 selection 有可能因為使用者操作而跟目前
   // 資料暫時不同步（sticky 設計），觸發鈕圖示不追那個、只反映實際資料。
   // ⚠ Hook 呼叫本身必須無條件（react-hooks/rules-of-hooks）——不能真的把
-  // 呼叫包在 `!isOwner` 早退之後。非 owner 時傳空字串 noteId，讓兩支 hook
+  // 呼叫包在 `!canOpen` 早退之後。不該查時傳空字串 noteId，讓兩支 hook
   // 內建的 `enabled: noteId.length > 0` 守衛頂住，query 不會發（維持
-  // 「非 owner 完全零 fetch」的既有測試斷言）。
-  const sharesQuery = useShares(isOwner ? note.id : "");
-  const linkQuery = usePublicLink(isOwner ? note.id : "");
+  // 「打不開面板的人完全零 fetch」的既有測試斷言）。
+  // 群組筆記：永不查 shares（沒有逐人分享，S5）；只在能管公開連結時查 public-link（否則 403）。
+  const sharesQuery = useShares(canOpen && !isGroupNote ? note.id : "");
+  const linkQuery = usePublicLink(canOpen && (!isGroupNote || note.permissions.managePublicLink) ? note.id : "");
 
-  if (!isOwner) return null;
+  if (!canOpen) return null;
 
-  const triggerLoading = sharesQuery.data === undefined || linkQuery.data === undefined;
-  const triggerAccess: AccessLevel | null = triggerLoading
-    ? null
-    : deriveAccess(linkQuery.data.token, sharesQuery.data, note.group);
-  // 載入中一律用既有的 Share 圖示，不閃爍、不猜狀態。
+  // 群組筆記的觸發鈕不等 shares：能管公開連結的角色——public-link 有資料才下結論（有 token → 公開、
+  // 沒有 → 群組），載入中或查詢失敗（沒有資料）→ null；查不了 public-link 的角色直接「群組」
+  // （他看不到公開狀態——spec §8.4）。個人筆記照舊三態。
+  const triggerAccess: AccessLevel | "group" | null = isGroupNote
+    ? !note.permissions.managePublicLink
+      ? "group"
+      : linkQuery.data === undefined
+        ? null
+        : linkQuery.data.token
+          ? "public"
+          : "group"
+    : sharesQuery.data === undefined || linkQuery.data === undefined
+      ? null
+      : deriveAccess(linkQuery.data.token, sharesQuery.data);
+  // null（要查的狀態還沒有資料：載入中，或查詢失敗）一律用既有的 Share 圖示、不帶 title——不閃爍、不猜狀態。
   const TriggerIcon =
     triggerAccess === "private" ? Lock : triggerAccess === "public" ? Globe : triggerAccess === "group" ? Users : Share;
   const triggerTitle =
@@ -944,21 +914,20 @@ export function ShareDialog({ note }: ShareDialogProps) {
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>{t("share.title")}</DialogTitle>
-          <DialogDescription>{t("share.description")}</DialogDescription>
+          {/* 群組筆記的面板對讀者也開（Q14），他什麼都不能管——「管理誰能檢視或編輯」那句對他為假，換群組專用句。 */}
+          <DialogDescription>{isGroupNote ? t("share.groupNote.description") : t("share.description")}</DialogDescription>
         </DialogHeader>
         {/* 內部自訂網址（原「連結」區塊：CopyLinkButton／SlugField）已下架
             （Willie 2026-09-17 產品決定）——要連到某篇筆記用 `[[標題]]` wikilink，
-            協作者本來就會在自己的工作區看到那篇筆記，不需要傳連結。#103 PR3 起面板有兩組：
-            「存取權」與「所屬群組」，用 `divide-y` 分隔。 */}
-        {/* `key`：個人↔群組切換時 AccessSection 整段重掛、selection 重新 latch（spec r4 Minor）。
-            `NoteGroupSection` 是它的**兄弟、不帶 key**（spec §8.3）：搬家成功時 AccessSection 重掛，
-            所屬群組列不能跟著重掛，否則確認狀態與焦點會一起消失。 */}
-        {open && (
-          <div className="divide-y divide-border">
-            <AccessSection key={note.group?.id ?? "personal"} note={note} onClose={() => setOpen(false)} />
-            <NoteGroupSection note={note} />
-          </div>
-        )}
+            協作者本來就會在自己的工作區看到那篇筆記，不需要傳連結。
+            #175 PR1：「所屬群組」列（搬入／移出群組）拿掉，PR2 以「搬入群組」重建；個人與群組筆記
+            各自一個面板。不帶 `key`：面板開著時個人↔群組不會互換（PR1 沒有移動）。 */}
+        {open &&
+          (isGroupNote ? (
+            <GroupNoteShareSection note={note} onClose={() => setOpen(false)} />
+          ) : (
+            <AccessSection note={note} />
+          ))}
       </DialogContent>
     </Dialog>
   );
