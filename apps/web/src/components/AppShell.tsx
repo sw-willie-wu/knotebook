@@ -14,6 +14,15 @@ import { cn } from "@/lib/utils";
 import { SidebarDrawerContext, useSidebarDrawer } from "@/lib/sidebar-drawer";
 import { NoteList } from "@/components/NoteList";
 import { UserMenu } from "@/components/UserMenu";
+import {
+  SIDEBAR_WIDTH_DEFAULT,
+  SIDEBAR_WIDTH_MAX,
+  SIDEBAR_WIDTH_MIN,
+  SIDEBAR_WIDTH_STEP,
+  clampSidebarWidth,
+  readSidebarWidth,
+  writeSidebarWidth,
+} from "@/components/sidebar-width";
 
 /** `<md`（Tailwind `md` 斷點以下）的判準——與 index.css 的 `.bn-editor.bn-editor`
  * 覆寫、`max-md:` variant 同界。range 語法需 Chrome 104+；更舊的瀏覽器
@@ -134,6 +143,91 @@ function SidebarContent({
   );
 }
 
+/** 靜態側欄右緣的拖曳把手（`role="separator"`）：`<aside>` 內 `absolute left-full w-3`，
+ * 約略蓋在根容器的 `gap-3` 上（`left-full` 以 aside 的 padding box 定位，所以壓住 aside
+ * 右框一個框寬、main 前留一個框寬的空隙；可點範圍仍是 12px、不伸進 main）。拖曳（pointer capture）、鍵盤（左右 16px、Home／End）、
+ * 雙擊回預設；只在「提交」（放開、鍵盤、雙擊）時寫 localStorage，拖曳途中只改 state。 */
+function SidebarResizeHandle({ width, onChange }: { width: number; onChange: (px: number, commit: boolean) => void }) {
+  const { t } = useTranslation();
+  // `latest`：拖曳中最後一次算出的寬度。放開時寫入 localStorage 用它，不用 render 閉包裡的 `width`——
+  // 真瀏覽器裡 pointermove（連續事件）的 state 更新不保證在 pointerup（離散事件）handler 之前 commit，
+  // 讀 `width` 可能存到上一格（gate r1 M1）。未在瀏覽器量過；jsdom 的 fireEvent 每發都包 act，
+  // 兩種寫法在 jsdom 下行為相同、單元測試分不出來（突變 A7 實跑全綠），只能靠手動清單驗。
+  const dragRef = useRef<{ startX: number; startWidth: number; latest: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
+
+  // 拖曳中鎖 body：游標在把手外也維持 col-resize、不選到文字。cleanup 還原舊值。
+  useEffect(() => {
+    if (!dragging) return;
+    const { style } = document.body;
+    const previous = { cursor: style.cursor, userSelect: style.userSelect };
+    style.cursor = "col-resize";
+    style.userSelect = "none";
+    return () => {
+      style.cursor = previous.cursor;
+      style.userSelect = previous.userSelect;
+    };
+  }, [dragging]);
+
+  function endDrag(): void {
+    const drag = dragRef.current;
+    if (!drag) return; // pointerup 之後還會來一發 lostpointercapture
+    dragRef.current = null;
+    setDragging(false);
+    onChange(drag.latest, true);
+  }
+
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={t("sidebar.resize")}
+      aria-valuenow={width}
+      aria-valuemin={SIDEBAR_WIDTH_MIN}
+      aria-valuemax={SIDEBAR_WIDTH_MAX}
+      tabIndex={0}
+      data-dragging={dragging ? "" : undefined}
+      className="group/resize absolute inset-y-0 left-full flex w-3 cursor-col-resize touch-none select-none justify-center outline-none"
+      // 不在 pointerdown `preventDefault`：它會壓掉相容的 mouse 事件，雙擊是否照發沒驗過。
+      onPointerDown={(event) => {
+        if (event.button !== 0) return;
+        event.currentTarget.setPointerCapture(event.pointerId);
+        dragRef.current = { startX: event.clientX, startWidth: width, latest: width };
+        setDragging(true);
+      }}
+      onPointerMove={(event) => {
+        const drag = dragRef.current;
+        if (!drag) return;
+        drag.latest = clampSidebarWidth(drag.startWidth + event.clientX - drag.startX);
+        onChange(drag.latest, false);
+      }}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+      onLostPointerCapture={endDrag}
+      onDoubleClick={() => onChange(SIDEBAR_WIDTH_DEFAULT, true)}
+      onKeyDown={(event) => {
+        const next = {
+          ArrowLeft: width - SIDEBAR_WIDTH_STEP,
+          ArrowRight: width + SIDEBAR_WIDTH_STEP,
+          Home: SIDEBAR_WIDTH_MIN,
+          End: SIDEBAR_WIDTH_MAX,
+        }[event.key];
+        if (next === undefined) return;
+        event.preventDefault();
+        onChange(clampSidebarWidth(next), true);
+      }}
+    >
+      {/* 視覺（Willie 2026-09-30 裁決）：平常透明（就是頁底色的那條間距）；hover **只換游標**
+          （col-resize）、不畫線；拖曳中與鍵盤聚焦才出現 ring 色的線。class 必須以完整字面出現
+          （Tailwind 靜態掃描），不得樣板化。 */}
+      <div
+        aria-hidden="true"
+        className="h-full w-0.5 rounded-full transition-colors group-focus-visible/resize:bg-ring group-data-[dragging]/resize:bg-ring"
+      />
+    </div>
+  );
+}
+
 interface AppShellProps {
   children: ReactNode;
   /**
@@ -194,6 +288,14 @@ interface AppShellProps {
  * 的刪除項同一套錯誤處理慣例：ApiFail → `errors.<code>`、否則 `errors.fallback`，
  * 用 toast 顯示（不像 LoginPage 用行內 `errorMessage` state——這裡沒有表單可以
  * 掛錯誤文案）。
+ *
+ * 側欄寬度（Task 4）：靜態卡寬度是 `<aside style={{ width }}>` 的 React state，範圍
+ * 200–480、預設 256（＝改版前的 `w-64`），存在 localStorage（`sidebar-width.ts`）。下限讓
+ * 群組內筆記列還留得下約 3 個中文字；上限不相對視窗——窄視窗＋AI 面板展開＋拉到最寬時
+ * 頁首會裁到按鈕，雙擊把手即回 256。把手（`SidebarResizeHandle`）是 `<aside>` 內
+ * `absolute left-full w-3` 的子元素，約略蓋在根容器既有的 `gap-3` 上（以 padding box 定位，
+ * 壓住 aside 右框一個框寬）——所以根的 `gap-3`
+ * 與 `main` 都不動；`<aside>` 在 `<md` 是 `hidden`，把手跟著消失。抽屜仍固定 `w-64`。
  */
 export function AppShell({ children, sidebar }: AppShellProps) {
   const { t } = useTranslation();
@@ -202,6 +304,11 @@ export function AppShell({ children, sidebar }: AppShellProps) {
   const createNote = useCreateNote();
   const [query, setQuery] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth);
+  const handleSidebarWidth = (px: number, commit: boolean) => {
+    setSidebarWidth(px);
+    if (commit) writeSidebarWidth(px);
+  };
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   /** 抽屜實例的搜尋框 ref——與 `searchInputRef` 是**兩個不同的物件**（見
@@ -309,8 +416,9 @@ export function AppShell({ children, sidebar }: AppShellProps) {
     // `main` 沒有 overflow、少了隱含的自我裁切途徑，寬度鏈全靠它）。
     <SidebarDrawerContext.Provider value={{ setOpen: setDrawerOpen }}>
       <div className="flex h-screen gap-3 overflow-hidden bg-background p-3">
-        <aside className={cn(cardSurface, "hidden w-64 shrink-0 md:flex md:flex-col")}>
+        <aside className={cn(cardSurface, "relative hidden shrink-0 md:flex md:flex-col")} style={{ width: sidebarWidth }}>
           <SidebarContent {...sidebarProps} searchRef={searchInputRef} />
+          <SidebarResizeHandle width={sidebarWidth} onChange={handleSidebarWidth} />
         </aside>
 
         <DialogPrimitive.Root open={drawerOpen} onOpenChange={setDrawerOpen}>
