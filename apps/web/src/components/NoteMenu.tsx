@@ -6,7 +6,11 @@ import { ApiFail } from "@/api/client";
 import { useDeleteNote } from "@/api/notes";
 import { isTerminal, type CollabState } from "@/collab/connection";
 import { copyText } from "@/lib/clipboard";
+import { useNotePageControls, type OpenEditsState } from "@/lib/note-page-controls";
+import { useCloseSidebarDrawer } from "@/lib/sidebar-drawer";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { hoverReveal } from "@/components/ui/reveal";
 import {
   Dialog,
   DialogClose,
@@ -77,16 +81,72 @@ export interface NoteMenuProps {
  *   `state` 這個 closure 參數本身：`close(NOTE_DELETED)` 常常早於 DELETE 回應
  *   抵達，`handleConfirmDelete` 這個 closure 建立當下捕捉到的 `state` 大概率還
  *   是呼叫當時的 `connected`，直接讀它會誤判成「非終態」而走錯分支。
+ *
+ * **兩個外殼（側欄筆記列 ⋮）**：選單本體是內部的 `NoteMenuCore`，外面兩個薄殼——
+ * - `NoteMenu`（頁首，props 不變）：`leavingRef`／`state` 必填，所以 NotePage 漏傳
+ *   `leavingRef` 編譯不過，上面 M11 的契約留在型別上（沒有改成 optional 的理由）。
+ * - `SidebarNoteMenu`（側欄每列，24px、hover 浮出）：「開著的那篇」看 NotePage 提供的
+ *   `NotePageControlsContext`（`controls.noteId === note.id`），**不看** `useActiveNote`——
+ *   `activeNoteId` 會被側欄點擊樂觀設定，那時 NotePage 手上還沒有那篇的 `leavingRef`。
+ *   - 開著的那篇：刪除與頁首 ⋮ 完全同一條離場路徑（共用 NotePage 的 `leavingRef`、終態判斷、
+ *     回首頁）；「AI 修改紀錄」先關抽屜再直接開 NotePage 的對話框、**不導頁**（導到
+ *     `canonicalNotePath` 若與 router 目前的路徑不同——舊形 `/notes/:ref`、改過標題——
+ *     會重解析、拆共編、閃佔位卡）。
+ *   - 別篇：刪除成功只關對話框、不導頁（清單由 `useDeleteNote` 失效重抓）；「AI 修改紀錄」
+ *     `navigate(path, { state: { openEdits: true } })`，NotePage 第一個 commit 讀到就開對話框
+ *     並 `replace` 清掉 state（不清的話重整／返回會再跳出來）。
  */
+
+/** 刪除的離場控制；`null`＝不是目前開著的那篇（刪了不導頁、不判終態）。 */
+interface PageExit {
+  state: CollabState;
+  leavingRef: RefObject<boolean>;
+}
+
+interface NoteMenuCoreProps {
+  note: NoteDto;
+  trigger: "header" | "sidebar";
+  onOpenEdits: () => void;
+  page: PageExit | null;
+}
+
+/** 頁首 ⋮（props 不變）。 */
 export function NoteMenu({ note, state, leavingRef, onOpenEdits }: NoteMenuProps) {
+  return <NoteMenuCore note={note} trigger="header" onOpenEdits={onOpenEdits} page={{ state, leavingRef }} />;
+}
+
+/** 側欄筆記列 ⋮。開著的那篇＝與頁首 ⋮ 同一套；別篇＝刪了不導頁、AI 修改紀錄導過去並自動開。 */
+export function SidebarNoteMenu({ note }: { note: NoteDto }) {
+  const navigate = useNavigate();
+  const controls = useNotePageControls();
+  const closeDrawer = useCloseSidebarDrawer();
+  const isOpenPage = controls !== null && controls.noteId === note.id;
+  return (
+    <NoteMenuCore
+      note={note}
+      trigger="sidebar"
+      page={isOpenPage ? { state: controls.state, leavingRef: controls.leavingRef } : null}
+      onOpenEdits={
+        isOpenPage
+          ? () => {
+              closeDrawer(); // 抽屜裡按的話先收起來（別篇路徑由 AppShell 的 pathname effect 關）
+              controls.openEdits();
+            }
+          : () => void navigate(canonicalNotePath(note), { state: { openEdits: true } satisfies OpenEditsState })
+      }
+    />
+  );
+}
+
+function NoteMenuCore({ note, trigger, onOpenEdits, page }: NoteMenuCoreProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const deleteNote = useDeleteNote();
 
   // 每次 render 同步寫入——`handleConfirmDelete` 的 catch 分支讀最新值，避開
   // stale closure（見上方檔頭「判斷終態用的是 stateRef.current」的說明）。
-  const stateRef = useRef(state);
-  stateRef.current = state;
+  const stateRef = useRef(page?.state);
+  stateRef.current = page?.state;
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -104,6 +164,18 @@ export function NoteMenu({ note, state, leavingRef, onOpenEdits }: NoteMenuProps
   }
 
   async function handleConfirmDelete(): Promise<void> {
+    if (page === null) {
+      // 別篇：沒有頁面要離開，也沒有共編終態可判——成功只關對話框（清單由 useDeleteNote 失效重抓），失敗 toast。
+      try {
+        await deleteNote.mutateAsync(note.id);
+        setDeleteOpen(false);
+      } catch (err) {
+        setDeleteOpen(false);
+        toast({ title: errorMessage(t, err), variant: "destructive" });
+      }
+      return;
+    }
+    const { leavingRef } = page;
     leavingRef.current = true;
     try {
       await deleteNote.mutateAsync(note.id);
@@ -112,7 +184,7 @@ export function NoteMenu({ note, state, leavingRef, onOpenEdits }: NoteMenuProps
     } catch (err) {
       setDeleteOpen(false);
       const currentState = stateRef.current;
-      if (isTerminal(currentState)) {
+      if (currentState !== undefined && isTerminal(currentState)) {
         // `NotePage` 的終態 effect 被 `leavingRef.current` 閘住——上面已經把它設成
         // true，那個 effect 不會再觸發，這裡必須自己補同一套出口（同文案同終點），
         // 否則就是死頁。`leavingRef` 維持 true：這個分支本來就該離開。
@@ -132,9 +204,22 @@ export function NoteMenu({ note, state, leavingRef, onOpenEdits }: NoteMenuProps
     <>
       <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
         <DropdownMenuTrigger asChild>
-          <Button type="button" variant="ghost" size="icon" aria-label={t("note.menu.label")}>
-            <EllipsisVertical className="h-4 w-4" />
-          </Button>
+          {trigger === "header" ? (
+            <Button type="button" variant="ghost" size="icon" className="shrink-0" aria-label={t("note.menu.label")}>
+              <EllipsisVertical className="h-4 w-4" />
+            </Button>
+          ) : (
+            // 側欄 24px 例外（button.tsx 檔頭）；hover 浮出與「＋」、群組 ⋮ 共用 ui/reveal.ts。
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label={t("note.menu.labelFor", { title: note.title })}
+              className={cn("h-6 w-6 shrink-0", hoverReveal("noterow"))}
+            >
+              <EllipsisVertical aria-hidden="true" className="h-3.5 w-3.5" />
+            </Button>
+          )}
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuItem

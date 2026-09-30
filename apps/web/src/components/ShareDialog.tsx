@@ -934,7 +934,7 @@ export function ShareDialog({ note }: ShareDialogProps) {
           size="icon"
           aria-label={t("share.button")}
           title={triggerTitle}
-          className="text-brand hover:text-brand"
+          className="shrink-0 text-brand hover:text-brand"
         >
           <TriggerIcon className="h-4 w-4" />
         </Button>

@@ -44,10 +44,15 @@ function stubFetch() {
  * 檔頭「PR2（BC2 卡片版面）」那段說明）。這類 class 組合在 jsdom 快照/一般
  * 互動測試裡看起來完全正常，只有真的有滾動內容、真的有 flex 容器擠壓時才會
  * 露餡，必須直接斷言字串本身，不能只看畫面像不像對。
+ *
+ * 側欄寬度改 inline style（Task 4，可拖曳），根 `gap-3` 不動——拖曳把手是 `<aside>`
+ * 內 `absolute left-full w-3` 的子元素，約略蓋在這條間距上（以 padding box 定位、壓住 aside
+ * 右框一個框寬；把手本身見 `AppShell.resize.test.tsx`）。
  */
 describe("AppShell 版面 smoke", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
+    window.localStorage.removeItem("sidebar.width");
     stubFetch();
   });
 
@@ -77,7 +82,10 @@ describe("AppShell 版面 smoke", () => {
     // 內部堆疊失去方向）。
     const aside = root?.querySelector("aside");
     expect(aside).not.toBeNull();
-    expect(aside).toHaveClass("hidden", "w-64", "shrink-0", "md:flex", "md:flex-col");
+    expect(aside).toHaveClass("relative", "hidden", "shrink-0", "md:flex", "md:flex-col");
+    // Task 4：寬度改 inline style（可拖曳），不再是 `w-64`；未存過寬度＝預設 256。
+    expect(aside).not.toHaveClass("w-64");
+    expect(aside?.style.width).toBe("256px");
   });
 
   // PR3：K logo 與新增筆記鈕跟主題色。K 的 <span> 是 aria-hidden——getByText 不受

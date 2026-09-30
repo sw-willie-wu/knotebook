@@ -2,7 +2,7 @@ import { useEffect, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter, Route, Routes, useNavigate } from "react-router";
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router";
 import * as Y from "yjs";
 import { COLLAB_CLOSE_REVOKED, canonicalNotePath, type BacklinkDto, type NoteDto, type UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
@@ -401,6 +401,19 @@ describe("NotePage", () => {
     // #115：頁首最前面是 `md:hidden` 的漢堡鈕（窄視窗開抽屜的入口——筆記頁沒有
     // NarrowTopBar，這顆就是唯一入口）。
     expect(header).toContainElement(screen.getByRole("button", { name: "Open navigation" }));
+  });
+
+  // class 斷言，不是行為斷言：jsdom 無版面。頁首收縮順序（標題讓到 64px → 標籤截斷 → 其餘不縮）
+  // 是 TitleInput min-w-16、LastEditedLabel truncate、Share／⋮ shrink-0 三處一組。
+  it("頁首收縮契約（class 斷言，jsdom 無版面）：標題 min-w-16、Share 與 ⋮ shrink-0", async () => {
+    vi.stubGlobal("fetch", mockFetch());
+
+    renderNotePage("my-note");
+    await screen.findByTestId("note-editor");
+
+    expect(screen.getByLabelText("Note title")).toHaveClass("min-w-16");
+    expect(screen.getByRole("button", { name: "Share" })).toHaveClass("shrink-0");
+    expect(screen.getByRole("button", { name: "More" })).toHaveClass("shrink-0");
   });
 
   it("N4 降級：connected(owner) → connected(viewer) 時 toast 並切成唯讀", async () => {
@@ -1024,6 +1037,155 @@ describe("NotePage", () => {
     expect(within(editor).getByText("Mentioned in 1 note")).toBeInTheDocument();
     // 已不再有折疊語意（<details>/<summary>）——F 節改成常駐 chips。
     expect(editor.querySelector("details")).toBeNull();
+  });
+});
+
+// ── 側欄筆記列 ⋮ 與 NotePage 的接線（NotePageControlsContext／location.state openEdits）──
+
+function SidebarLocationProbe() {
+  const location = useLocation();
+  return <div data-testid="location">{location.pathname}|{JSON.stringify(location.state ?? null)}</div>;
+}
+
+/** `mockFetch` 的 catch-all 會把 `/api/notes/:id/edits` 當單篇回 NoteDto——先攔下來回 `{edits: []}`。
+ * `notes`：`GET /api/notes`（側欄清單）的回應；其餘交給 `inner`。每筆呼叫記進 `calls`。 */
+function withEditsAndList(inner: ReturnType<typeof mockFetch>, notes: () => NoteDto[] = () => []) {
+  const calls: string[] = [];
+  const fn = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const method = (init?.method ?? "GET").toUpperCase();
+    calls.push(`${method} ${url}`);
+    if (url.endsWith("/edits") && method === "GET") {
+      return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ edits: [] }) }));
+    }
+    if (url === "/api/notes" && method === "GET") {
+      return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(notes()) }));
+    }
+    return inner(input, init);
+  });
+  return { fn, calls };
+}
+
+/** `NotePageTree` 只掛 `/notes/:ref` 且沒有位置探針——這組自己組：兩條筆記路由＋首頁＋探針。 */
+function renderWithProbe(initialEntry: string | { pathname: string; state: unknown }) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider>
+        <MemoryRouter initialEntries={[initialEntry]}>
+          <ActiveNoteProvider>
+            <SidebarLocationProbe />
+            <Routes>
+              <Route path="/notes/:ref" element={<NotePage />} />
+              <Route path="/n/:handle/:slug" element={<NotePage />} />
+              <Route path="/" element={<div>home landing</div>} />
+            </Routes>
+          </ActiveNoteProvider>
+        </MemoryRouter>
+        <Toaster />
+      </ThemeProvider>
+    </QueryClientProvider>,
+  );
+}
+
+async function openSidebarRowMenu(title: string): Promise<HTMLElement> {
+  // 靜態側欄的「我的筆記」段（「最近」段也有同名的一顆；抽屜沒開不在 DOM）。
+  const section = await screen.findByTestId("notegroup-myNotes");
+  const trigger = await within(section).findByRole("button", { name: `Note actions for ${title}` });
+  fireEvent.pointerDown(trigger, { button: 0 });
+  return screen.findByRole("menu");
+}
+
+describe("NotePage × 側欄筆記列 ⋮", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    collab.state = { phase: "connecting" };
+    collab.doc = new Y.Doc();
+    collab.provider = createStubProvider();
+    window.history.replaceState(null, "", "/");
+    dismissAllToasts();
+  });
+
+  afterEach(() => {
+    collab.doc.destroy();
+    vi.unstubAllGlobals();
+    navSpy.current = undefined;
+  });
+
+  it("帶 state {openEdits:true} 進場 → 就緒後開 AI 修改紀錄、state 被 replace 清掉；不帶 state 不開", async () => {
+    const { fn } = withEditsAndList(mockFetch());
+    vi.stubGlobal("fetch", fn);
+
+    // 對照：一般進場不開對話框。
+    const plain = renderNotePage("my-note");
+    await screen.findByLabelText("Note title", { selector: "input" });
+    expect(screen.queryByRole("dialog", { name: "AI edits on this note" })).toBeNull();
+    plain.unmount();
+
+    renderWithProbe({ pathname: "/notes/my-note", state: { openEdits: true } });
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/notes\/my-note\|null$/));
+    expect(await screen.findByRole("dialog", { name: "AI edits on this note" })).toBeInTheDocument();
+  });
+
+  it("側欄 ⋮ 在開著的那篇按 AI 修改紀錄：開同一個對話框、不導頁、不重掛", async () => {
+    // ⚠ 起點刻意是舊形 `/notes/my-note`：從 canonical `/n/tester/my-note` 起跳的話，「側欄拿不到
+    // controls、改走 navigate(canonical, {state})」是同路徑只換 state，NotePage 照樣開對話框、
+    // 不重解析，外觀等價——那個錯法會存活。只有路徑不同時「導頁」才看得出來。
+    const { fn } = withEditsAndList(mockFetch(), () => [NOTE]);
+    vi.stubGlobal("fetch", fn);
+    collab.state = { phase: "connected", role: "owner" };
+
+    renderWithProbe("/notes/my-note");
+    const titleInput = await screen.findByLabelText("Note title", { selector: "input" });
+
+    const menu = await openSidebarRowMenu("My Note");
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "AI edit history" }));
+
+    expect(await screen.findByRole("dialog", { name: "AI edits on this note" })).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/notes\/my-note\|null$/);
+    expect(screen.getByLabelText("Note title", { selector: "input" })).toBe(titleInput);
+  });
+
+  it("側欄 ⋮ 刪除開著的那篇：回首頁、不出現「筆記已被刪除」toast", async () => {
+    let deleted = false;
+    const inner = mockFetch();
+    const { fn, calls } = withEditsAndList(
+      ((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (url === `/api/notes/${NOTE.id}` && method === "DELETE") {
+          deleted = true;
+          return Promise.resolve(fakeResponse({ ok: true, status: 204 }));
+        }
+        if (deleted && url.startsWith("/api/notes/") && !url.endsWith("/backlinks") && method === "GET") {
+          return Promise.resolve(
+            fakeResponse({
+              ok: false,
+              status: 404,
+              json: () => Promise.resolve({ error: { code: "not_found", message: "x" } }),
+            }),
+          );
+        }
+        return inner(input, init);
+      }) as ReturnType<typeof mockFetch>,
+      () => (deleted ? [] : [NOTE]),
+    );
+    vi.stubGlobal("fetch", fn);
+    collab.state = { phase: "connected", role: "owner" };
+
+    renderWithProbe("/notes/my-note");
+    await screen.findByLabelText("Note title", { selector: "input" });
+
+    const menu = await openSidebarRowMenu("My Note");
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Delete note" }));
+    const dialog = await screen.findByRole("dialog", { name: "Delete note?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+
+    expect(await screen.findByText("home landing")).toBeInTheDocument();
+    expect(calls).toContain(`DELETE /api/notes/${NOTE.id}`);
+    // 失效後的 `GET /api/notes/<id>` 404 會晚一點回來——等它有機會落地再斷言沒有 toast。
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(screen.queryByText("This note has been deleted.")).toBeNull();
   });
 });
 

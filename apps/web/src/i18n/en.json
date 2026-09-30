@@ -23,6 +23,7 @@
     "deleteDescription": "This will permanently delete \"{{title}}\". This can't be undone."
   },
   "sidebar": {
+    "resize": "Resize sidebar",
     "recent": "Recent",
     "myNotes": "My notes",
     "shared": "Shared with me",
@@ -133,11 +134,14 @@
     "readOnly": "Read-only",
     "menu": {
       "label": "More",
+      "labelFor": "Note actions for {{title}}",
       "aiEdits": "AI edit history",
       "delete": "Delete note"
     },
-    "lastEdited": "{{who}} · {{when}}",
-    "lastEditedTitle": "Last edited {{when}} — click to see what changed",
+    "lastEdited": "Last edited by {{who}} · {{when}}",
+    "lastEditedAt": "Last edited by {{who}} on {{when}}",
+    "lastEditedTitle": "Last edited by {{who}} on {{when}} — click to see what changed",
+    "lastEditedDeletedUser": "a deleted account",
     "transferDataUrl": "Pasting embedded images isn't supported. Try dragging the image file instead.",
     "transferSaveFirst": "This item can't be inserted directly here. Save it as a file first, then drag it in.",
     "transferNonImage": "Only image files can be inserted here.",

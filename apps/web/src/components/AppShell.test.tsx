@@ -6,6 +6,7 @@ import { MemoryRouter, Route, Routes, useParams } from "react-router";
 import { canonicalNotePath, type NoteDto, type UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ActiveNoteProvider } from "@/lib/active-note";
+import { NotePageControlsContext } from "@/lib/note-page-controls";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppShell, SidebarDrawerButton } from "./AppShell";
@@ -489,13 +490,18 @@ describe("AppShell — #115 側欄抽屜", () => {
 
   // 漢堡鈕在頁面層（NotePage 頁首／NarrowTopBar），AppShell 本體沒有——harness 自己
   // 當那個消費端，把 SidebarDrawerButton 放進 children。
-  function renderShell(children: ReactNode = <SidebarDrawerButton />) {
+  // `wrap`：要包在 `<AppShell>` **外面**的 provider（例如 NotePage 提供的 NotePageControlsContext）
+  // ——children 插槽在 AppShell 裡面，放不進去。
+  function renderShell(
+    children: ReactNode = <SidebarDrawerButton />,
+    wrap: (shell: ReactNode) => ReactNode = (shell) => shell,
+  ) {
     return render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <ThemeProvider>
           <MemoryRouter initialEntries={["/"]}>
             <ActiveNoteProvider>
-              <AppShell>{children}</AppShell>
+              {wrap(<AppShell>{children}</AppShell>)}
             </ActiveNoteProvider>
           </MemoryRouter>
         </ThemeProvider>
@@ -587,6 +593,28 @@ describe("AppShell — #115 側欄抽屜", () => {
       media.dispatchChange(false);
     });
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Navigation" })).not.toBeInTheDocument());
+  });
+
+  it("抽屜裡對開著的那篇按 AI 修改紀錄：呼叫 openEdits 並關抽屜（不導頁，所以 pathname effect 關不了它）", async () => {
+    stubFetchWithNotes([NOTE]);
+    const openEdits = vi.fn();
+    renderShell(<SidebarDrawerButton />, (shell) => (
+      <NotePageControlsContext.Provider
+        value={{ noteId: NOTE.id, state: { phase: "connected", role: "owner" }, leavingRef: { current: false }, openEdits }}
+      >
+        {shell}
+      </NotePageControlsContext.Provider>
+    ));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open navigation" }));
+    const drawer = await screen.findByRole("dialog", { name: "Navigation" });
+    const section = await within(drawer).findByTestId("notegroup-myNotes");
+    fireEvent.pointerDown(within(section).getByRole("button", { name: "Note actions for Drawer Note" }), { button: 0 });
+    const menu = await screen.findByRole("menu");
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "AI edit history" }));
+
+    expect(openEdits).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(document.querySelector("[data-sidebar-drawer]")).toBeNull());
   });
 });
 

@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate, useParams } from "react-router";
+import { useLocation, useNavigate, useParams } from "react-router";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { canonicalNotePath, type NoteDto, type Role } from "@knotebook/shared";
 import { api, ApiFail } from "@/api/client";
@@ -8,6 +8,7 @@ import { invalidateNoteQueries, useNote, useNoteByPath } from "@/api/notes";
 import { SESSION_QUERY_KEY, useSession } from "@/auth/useSession";
 import { canEdit, isTerminal, type CollabState } from "@/collab/connection";
 import { useActiveNote } from "@/lib/active-note";
+import { NotePageControlsContext, type NotePageControls, type OpenEditsState } from "@/lib/note-page-controls";
 import { createLinkSync, type LinkSync } from "@/collab/link-sync";
 import { useCollab } from "@/collab/useCollab";
 import { AiEditsDialog } from "@/components/AiEditsDialog";
@@ -175,8 +176,23 @@ export default function NotePage() {
   }, [navigate, queryClient]);
 
   // AI 修改紀錄 dialog 的開關（#106）。狀態在這一層而不是在觸發者身上：⋮ 選單項與
-  // 頁首的 `LastEditedLabel` 兩個都要打得開它。
+  // 頁首的 `LastEditedLabel` 兩個都要打得開它（側欄筆記列 ⋮ 是第三個，經 NotePageControlsContext）。
   const [editsOpen, setEditsOpen] = useState(false);
+  const openEdits = useCallback(() => setEditsOpen(true), []);
+
+  // 側欄 ⋮ 在「別篇」按 AI 修改紀錄：帶 `{openEdits:true}` 導過來。第一個 commit 就開（對話框要等
+  // 筆記就緒才渲染）並 replace 掉 state——不清的話重整／返回會再跳一次（history.state.usr 會被讀回）。
+  // 這時一定在 needsResolve，canonical 收斂 effect 還沒寫過網址，用 router 的 pathname replace 是安全的。
+  const location = useLocation();
+  const openEditsRequested = (location.state as Partial<OpenEditsState> | null)?.openEdits === true;
+  useEffect(() => {
+    if (!openEditsRequested) return;
+    setEditsOpen(true);
+    void navigate(
+      { pathname: location.pathname, search: location.search, hash: location.hash },
+      { replace: true, state: null },
+    );
+  }, [openEditsRequested, location.pathname, location.search, location.hash, navigate]);
 
   /**
    * 別人（真人或 AI）改了這篇之後，把 note query 對齊 server（spec §10）——`lastEdited`
@@ -267,6 +283,14 @@ export default function NotePage() {
   // 到），共用同一道閘門才不會噴兩則一模一樣的 toast、導兩次頁。`navigate` 之後這個
   // 元件還會再 render 至少一次，所以閘門是必要的而不只是保險。
   const leavingRef = useRef(false);
+
+  // 交給側欄筆記列 ⋮ 的「目前開著的那篇」（lib/note-page-controls.ts）：只在已解析出 noteId 時有值——
+  // 側欄對這一篇刪除要共用上面這道 `leavingRef`（否則自己刪完會再多一則「筆記已被刪除」toast），
+  // 「AI 修改紀錄」直接開本頁的對話框、不導頁。
+  const controls = useMemo<NotePageControls | null>(
+    () => (noteId ? { noteId, state, leavingRef, openEdits } : null),
+    [noteId, state, openEdits],
+  );
 
   // 404 兩個出口分流（#122 A10：文案不得混用）：
   // ① 解析層 404＝**連結無效**（slug 已改名/從不存在）→ `note.linkInvalid`。A6：導走
@@ -415,9 +439,9 @@ export default function NotePage() {
               <SidebarDrawerButton />
               <TitleInput note={note} readOnly={!roleCanEdit} />
               <ConnectionBadge state={state} synced={synced} canEdit={roleCanEdit} />
-              <LastEditedLabel note={note} onOpenEdits={() => setEditsOpen(true)} />
+              <LastEditedLabel note={note} onOpenEdits={openEdits} />
               <ShareDialog note={note} />
-              <NoteMenu note={note} state={state} leavingRef={leavingRef} onOpenEdits={() => setEditsOpen(true)} />
+              <NoteMenu note={note} state={state} leavingRef={leavingRef} onOpenEdits={openEdits} />
             </header>
           }
           footerSlot={<BacklinksSection noteId={noteId} />}
@@ -428,5 +452,9 @@ export default function NotePage() {
     );
   }
 
-  return <AppShell>{body}</AppShell>;
+  return (
+    <NotePageControlsContext.Provider value={controls}>
+      <AppShell>{body}</AppShell>
+    </NotePageControlsContext.Provider>
+  );
 }

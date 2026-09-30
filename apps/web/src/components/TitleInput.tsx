@@ -110,9 +110,10 @@ export function TitleInput({ note, readOnly }: TitleInputProps) {
     void save(value);
   }
 
+  // 頁首空間不夠時標題先讓到 64px（min-w-16），再輪到最後編輯標籤截斷——收縮順序見 LastEditedLabel 檔頭。
   if (readOnly) {
     return (
-      <h1 className="min-w-0 flex-1 truncate text-xl font-semibold" title={note.title}>
+      <h1 className="min-w-16 flex-1 truncate text-xl font-semibold" title={note.title}>
         {note.title}
       </h1>
     );
@@ -120,7 +121,7 @@ export function TitleInput({ note, readOnly }: TitleInputProps) {
 
   return (
     <input
-      className="min-w-0 flex-1 bg-transparent text-xl font-semibold outline-none placeholder:text-muted-foreground"
+      className="min-w-16 flex-1 bg-transparent text-xl font-semibold outline-none placeholder:text-muted-foreground"
       aria-label={t("note.titleLabel")}
       placeholder={t("note.titlePlaceholder")}
       value={value}
