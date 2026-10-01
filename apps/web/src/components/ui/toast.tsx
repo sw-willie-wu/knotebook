@@ -2,6 +2,7 @@ import { forwardRef, useSyncExternalStore, type ComponentPropsWithoutRef, type E
 import { Toast as ToastPrimitive } from "radix-ui";
 import { X } from "./icons";
 import { cn } from "@/lib/utils";
+import { Button } from "./button";
 
 // 精簡版 shadcn toast：Radix Toast 原語 + 一個模組層級的 pub/sub store 給
 // `toast()` 這個 imperative API 用（元件樹任何地方呼叫都能推新 toast），
@@ -16,6 +17,8 @@ export interface ToastItem {
   description?: string;
   variant?: ToastVariant;
   durationMs?: number;
+  /** 動作鈕（#175 PR2「前往副本」）。點擊先跑 onClick、再由 Radix 關閉該 toast。 */
+  action?: { label: string; onClick: () => void; /** 給無法操作 toast 的螢幕閱讀器使用者；未填時用 label。 */ altText?: string };
 }
 
 type Listener = (toasts: ToastItem[]) => void;
@@ -97,7 +100,7 @@ export const ToastRoot = forwardRef<
     ref={ref}
     className={cn(
       "pointer-events-auto relative flex w-full items-center justify-between gap-4 overflow-hidden " +
-        "rounded-md border p-4 shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out " +
+        "rounded-md border p-4 pr-8 shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out " +
         "data-[swipe=end]:animate-out data-[state=closed]:fade-out-80 data-[state=closed]:slide-out-to-right-full " +
         "data-[state=open]:slide-in-from-top-full data-[state=open]:sm:slide-in-from-bottom-full",
       VARIANT_CLASSES[variant],
@@ -148,7 +151,7 @@ export function Toaster(): ReactNode {
   const items = useToasts();
   return (
     <ToastProvider>
-      {items.map(({ id, title, description, variant, durationMs }) => (
+      {items.map(({ id, title, description, variant, durationMs, action }) => (
         <ToastRoot
           key={id}
           variant={variant}
@@ -161,6 +164,13 @@ export function Toaster(): ReactNode {
             {title && <ToastTitle>{title}</ToastTitle>}
             {description && <ToastDescription>{description}</ToastDescription>}
           </div>
+          {action && (
+            <ToastPrimitive.Action asChild altText={action.altText ?? action.label}>
+              <Button type="button" variant="outline" size="sm" onClick={action.onClick}>
+                {action.label}
+              </Button>
+            </ToastPrimitive.Action>
+          )}
           <ToastClose />
         </ToastRoot>
       ))}
