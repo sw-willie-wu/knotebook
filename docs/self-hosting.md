@@ -83,12 +83,20 @@ If one of the restrictions above blocks something you need, the escape hatch is 
 
 ## Upgrading and rolling back
 
-Database migrations run automatically at startup and are idempotent — upgrading is "pull the new version, then `docker compose up -d --build`", no manual steps. Rolling back to an older image after a migration has run is **schema-safe but not behavior-safe**: newer migrations add columns with database-side defaults precisely so an older server still boots and works, but features introduced alongside the migration degrade in documented ways during the rollback window. Known degradations while running a rolled-back (pre-URL-revamp) server:
+Database migrations run automatically at startup and are idempotent — upgrading is "pull the new version, then `docker compose up -d --build`", no manual steps (for this release, back up the database first — see the groups migration below). Rolling back to an older image after a migration has run is **schema-safe but not behavior-safe** (with one exception for the groups migration, below): newer migrations add columns with database-side defaults precisely so an older server still boots and works, but features introduced alongside the migration degrade in documented ways during the rollback window. Known degradations while running a rolled-back (pre-URL-revamp) server:
 
 - **Usernames**: accounts created during the window fall outside the rename-tombstone registry until the upgraded server's next startup backfills them — see the rolled-back-server username entry in [known limitations](./known-limitations.md).
 - **Note URLs**: the old server looks slugs up globally, so two users' notes sharing a slug (allowed after the upgrade) resolve unpredictably — an owner can 404 on their own note's URL.
 - **Custom slugs set during the window** are recorded without the "custom" marker, so after upgrading back, the next title change silently overwrites them with an automatic slug.
 - **Clearing a custom slug back to automatic breaks** during the window: the old server writes `NULL` where the new schema forbids it, returning a 500 until you upgrade again. The web UI no longer has a way to trigger this on its own — the Share dialog's custom-URL editor was removed (2026-09-17; see [Sharing](./sharing.md)) — so this degradation is now only reachable through a direct `PATCH` with `slug: null`.
+
+**The groups migration in this release (0012) can't be undone.** It changes data in ways that can't be reversed — which notes were read-only for their group, and who owned each group note, are gone. Back up the database before upgrading, for example `docker compose exec -T db pg_dump -U knotebook knotebook > knotebook-before-upgrade.sql`. If you ran a build of the `main` branch from after #103 and before migration 0012 (a pre-release build with groups), that build still starts on the migrated database but can't serve notes any more — loading a note or the note list fails with a server error — because columns it reads are gone. To go back to it, restore the dump into an empty database and run that build against it:
+
+1. `docker compose stop app`
+2. `docker compose exec -T db psql -U knotebook -d postgres -c 'DROP DATABASE knotebook WITH (FORCE)' -c 'CREATE DATABASE knotebook OWNER knotebook'`
+3. `docker compose exec -T db psql -v ON_ERROR_STOP=1 -U knotebook knotebook < knotebook-before-upgrade.sql`
+
+then start that build. If you're upgrading from 0.4.1 or earlier, there were no groups, so none of the data changes above apply to you. [Restoring note content from a backup](./backup-restore.md) is a different procedure: it puts one note's content back, not the whole database.
 
 Prefer rolling forward; if you must roll back, treat it as a temporary state.
 
