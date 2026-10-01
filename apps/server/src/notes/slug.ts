@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, ne } from "drizzle-orm";
 import { autoSlugFromTitle, extractRefUuid, normalizeSlug, validateSlug } from "@knotebook/shared";
-import type { Db } from "../db/index.js";
+import type { DbOrTx } from "../db/tx.js";
+import { uniqueViolationConstraint } from "../db/pg-errors.js";
 import { notes } from "../db/schema.js";
 
 /**
@@ -59,7 +60,19 @@ export function fallbackAutoSlug(): string {
 }
 
 /**
- * auto slug 的 owner 範圍去重探測（#122 spec §3a）：候選＝`autoSlugFromTitle(title)`，
+ * #175：auto slug 的去重範圍。個人筆記＝owner（`notes_owner_slug_idx`）、群組筆記＝群組（`notes_group_slug_idx`，S12）。
+ * 群組筆記的 `owner_id` 是 NULL，兩把唯一索引互不干擾（NULL 不互撞，spec §2.1【驗 PG】）。
+ */
+export type SlugScope = { ownerId: string } | { groupId: string };
+
+/** 撞的是哪一把 slug 唯一索引都算「slug 撞名」（constraint 名分流，PR1 M4-2 契約）；其他 23505 一律不是。 */
+export function isSlugUniqueViolation(err: unknown): boolean {
+  const c = uniqueViolationConstraint(err);
+  return c === "notes_owner_slug_idx" || c === "notes_group_slug_idx";
+}
+
+/**
+ * auto slug 的 scope 範圍（個人＝owner、群組＝群組）去重探測（#122 spec §3a）：候選＝`autoSlugFromTitle(title)`，
  * 已占用則遞增 `-N` 尾碼（重截基底使總長 ≤60，同 0007 backfill 的 SQL 版）；探測
  * `AUTO_SLUG_PROBE_LIMIT` 次仍撞 → `untitled-<uuid8>`。
  *
@@ -71,18 +84,24 @@ export function fallbackAutoSlug(): string {
  * 非 null 那條路渲染出的 `sql` 與放寬前**逐位元組相同**、`params` 同為 4 格；null 則少掉
  * `"id" <> $3`、`params` 剩 3 格——所以放寬對 PATCH 是零改變。
  *
- * 明文特赦（同 deriveHandle）：這是可用性探測、非唯一性裁決——`(owner_id, slug)`
- * 唯一索引仍是最終裁決者；探測後仍撞（真競態）由呼叫端重探測重發（PATCH 的 UPDATE
+ * 明文特赦（同 deriveHandle）：這是可用性探測、非唯一性裁決——兩把唯一索引
+ * （`notes_owner_slug_idx`／`notes_group_slug_idx`）仍是最終裁決者；探測後仍撞（真競態）由呼叫端重探測重發（PATCH 的 UPDATE
  * 重試迴圈與 `notes/create.ts` 的 INSERT 重試迴圈，兩者共用 `MAX_AUTO_SLUG_RETRIES`）。
  */
-export async function deriveUniqueAutoSlug(db: Db, ownerId: string, noteId: string | null, title: string): Promise<string> {
+export async function deriveUniqueAutoSlug(db: DbOrTx, scope: SlugScope, noteId: string | null, title: string): Promise<string> {
   const base = autoSlugFromTitle(title);
   let cand = base;
   for (let n = 1; n <= AUTO_SLUG_PROBE_LIMIT; n++) {
     const [hit] = await db
       .select({ id: notes.id })
       .from(notes)
-      .where(and(eq(notes.ownerId, ownerId), eq(notes.slug, cand), noteId === null ? undefined : ne(notes.id, noteId)))
+      .where(
+        and(
+          "groupId" in scope ? eq(notes.groupId, scope.groupId) : eq(notes.ownerId, scope.ownerId),
+          eq(notes.slug, cand),
+          noteId === null ? undefined : ne(notes.id, noteId),
+        ),
+      )
       .limit(1);
     if (!hit) return cand;
     const suffix = `-${n + 1}`;
@@ -107,7 +126,7 @@ export async function deriveUniqueAutoSlug(db: Db, ownerId: string, noteId: stri
  * 注意：這裡只負責「ref → noteId」，不做任何權限判斷——呼叫端仍須對解出來的
  * noteId 走 `resolveRole`（none → 404），與其他 notes 路由的防列舉原則一致。
  */
-export async function resolveNoteIdFromRef(db: Db, ref: string): Promise<string | null> {
+export async function resolveNoteIdFromRef(db: DbOrTx, ref: string): Promise<string | null> {
   const normalized = normalizeSlug(ref);
   const [byLegacy] = await db.select({ id: notes.id }).from(notes).where(eq(notes.legacySlug, normalized)).limit(1);
   if (byLegacy) return byLegacy.id;

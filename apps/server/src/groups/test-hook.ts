@@ -12,6 +12,10 @@ export type GroupRacePoint =
   | "membership-checked"
   /** `PUT /api/notes/:id/group`：UPDATE 之後、commit 之前。 */
   | "note-group-written"
+  /** `PUT /api/notes/:id/shares`：授權之後、交易之前（#175：S5 的「授權後被移進群組」窗）。 */
+  | "share-authorized"
+  /** public-link 的 token PUT 與別名 PUT：授權之後、UPDATE 之前（#175 C13／C14）。 */
+  | "public-link-authorized"
   /** `PUT /api/notes/:id/shares`：`FOR SHARE` 讀到 `group_id IS NULL` 之後、upsert 之前。 */
   | "share-group-checked"
   /** 成員異動（`PUT`／`PATCH`／`DELETE …/members`）：鎖 `groups` 列並完成 S1 計數之後、寫入之前。 */

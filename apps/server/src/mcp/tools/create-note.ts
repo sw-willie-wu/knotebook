@@ -158,6 +158,7 @@ export async function createNote(args: CreateNoteArgs, ctx: McpToolCtx): Promise
       tokenId: ctx.tokenId,
       title: args.title,
       content: args.content,
+      scope: { ownerId: ctx.userId },
     });
     if (!out.ok) {
       // 解析失敗＝一列都沒建（「解析在建列之前」是契約）；`internal` ＝套用失敗，service 已經
@@ -173,6 +174,6 @@ export async function createNote(args: CreateNoteArgs, ctx: McpToolCtx): Promise
   //    （`last_edited_*` 四欄還是 insert 的預設值，`toNoteSummary` 於是把 `lastEdited` 給
   //    null——不必為了一個必然落空的 JOIN 多發一次查詢）。帶 `title` 時 slug 在這一刻就跟
   //    標題走（#145），所以回應裡的 `url` 不必二次寫入就已經是最終網址。
-  const created = await insertNoteWithAutoSlug(ctx.db, ctx.userId, args.title);
+  const created = await insertNoteWithAutoSlug(ctx.db, { ownerId: ctx.userId }, args.title);
   return toolResult({ note: toNoteSummary(insertedRow(created, ctx.userHandle), "owner") });
 }
