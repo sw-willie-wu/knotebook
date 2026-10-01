@@ -10,13 +10,23 @@ describe("createPool（#175 §6.10 保險絲）", () => {
   it("max=2、timeout 300ms：持交易連線時再 await 同一個 pool → 逾時 reject、不永久卡死；之後的查詢恢復", async () => {
     const pool = createPool({ databaseUrl: process.env.TEST_DATABASE_URL!, databasePoolMax: 2, databasePoolConnectionTimeoutMs: 300 });
     try {
+      // 屏障而非 sleep：兩個違規者都「確實持有連線」之後才一起去要第三條。
+      // 以前用固定 30ms 假設彼此都拿到了；CI 上 pool.connect() 較慢時，先到的違規者會在後者拿到連線前就跑 pool.query，
+      // 把第二條連線搶走而得到 "ok"（時序競態）。屏障不依賴任何時間假設。
+      let arrived = 0;
+      let release!: () => void;
+      const allArrived = new Promise<void>(r => (release = r));
+      const arrive = () => {
+        if (++arrived === 2) release();
+      };
       const violator = async () => {
         const c = await pool.connect();
         try {
           await c.query("begin");
           await c.query("select 1");
-          await new Promise(r => setTimeout(r, 30)); // 讓兩個違規者同時持有連線
-          await pool.query("select 2"); // 第二條連線：pool 已滿 → 等到逾時
+          arrive();
+          await allArrived; // 兩條連線都已被持有、pool 已滿
+          await pool.query("select 2"); // 第三條連線：pool 已滿 → 等到逾時
           await c.query("commit");
           return "ok";
         } catch (err) {
