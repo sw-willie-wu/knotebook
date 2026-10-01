@@ -16,6 +16,11 @@ export type GroupRacePoint =
   /** `PUT /api/notes/:id/shares`：`FOR SHARE` 讀到 `group_id IS NULL` 之後、upsert 之前。 */
   | "share-group-checked"
   /**
+   * #175 PR3 T12／T13（`groups/tx/roles.ts`）：`lockGroup` 鎖住 `groups` 列、角色已查到且通過內建檢查之後，
+   * 寫入 `group_roles`／`group_members` 之前。
+   */
+  | "group-roles-checked"
+  /**
    * T9／T10／T11（`groups/tx/members.ts`）：`lockGroup` 鎖住 `groups` 列、完成該支的檢查之後、寫入 `group_members` 之前。
    * 檢查各支不同：T9 只解析角色（`already_member` 由之後的 INSERT 判定）；T10 解析新角色、確認成員，從內建管理員換走時
    * 做 S1 計數——角色不變時提早回傳、不經過此點；T11 確認成員，移的是內建管理員時做 S1 計數。

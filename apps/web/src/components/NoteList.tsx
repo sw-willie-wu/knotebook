@@ -434,8 +434,9 @@ function WorkspaceSection({ searching, groupsQuery, groupSections, onCreateNote,
                   forceExpanded={searching}
                   actions={
                     <>
-                      {/* #175 §8.2：「＋」只在我的角色能在這個群組建立筆記時渲染（`myRole` null＝防禦，不渲染）。 */}
-                      {group.myRole?.permissions.create && (
+                      {/* #175 §8.2＋PR3：「＋」只在我的角色能在這個群組建立**且能編輯**筆記時渲染——能建不能改的人建出來的是
+                          自己也改不了的空白筆記（spec 疑點 11；他仍可經移入／複製把筆記放進群組，PR2）；`myRole` null＝防禦，不渲染。 */}
+                      {group.myRole?.permissions.create && group.myRole.permissions.edit && (
                         <HeaderAddButton
                           scope="grouprow"
                           label={t("sidebar.newNoteIn", { name: group.name })}

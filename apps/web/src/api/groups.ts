@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient, type UseQueryResult } from "@tanstack/react-query";
-import type { GroupDto, GroupMemberDto, GroupRoleDto } from "@knotebook/shared";
+import type { GroupDto, GroupMemberDto, GroupRoleDto, GroupRoleFlags } from "@knotebook/shared";
 import { api } from "./client";
 
 /**
@@ -18,7 +18,7 @@ import { api } from "./client";
  * 三者都不以 `['notes']` 開頭，上面那兩把碰不到；而群組異動不動文件，`onRemoteUpdate` 也不會
  * 觸發。不失效的話：改名 → 正開著的那篇群組筆記的 `note.group.name` 停在舊值；改角色 → 改到
  * **自己**的角色時（非最後一位管理員把自己降成一般成員），開著那篇的 `note.permissions`
- * （⋮ 的刪除項、公開連結開關）停在舊角色，多顯示 server 會 403 的項目（Task 11 review r1 M-4）。
+ * （⋮ 的刪除項、公開連結開關）停在舊角色，多顯示 server 會 403 的項目（Task 11 review r1 M-4）。#175 PR3 的改角色旗標、刪角色同理（`useUpdateRole`／`useDeleteRole`）。
  *
  * **刪群組**（#175 PR1）：server 只刪空群組（B9；非空回 409 `group_not_empty`），沒有任何筆記
  * 會被影響，所以只失效 `['groups']`、`['notes']`。PR4 的轉移／全刪會讓筆記換歸屬，屆時照
@@ -55,7 +55,7 @@ export function useGroupMembers(groupId: string, options: { enabled?: boolean } 
 
 /**
  * #175 `GET /api/groups/:id/roles`（Q18：任一成員可讀；排序見 plan Task 7 的 `GET …/roles`）。
- * PR1 只有兩個內建角色——成員表與加人表單的角色下拉要拿**角色 id**（gate r2 M-7：兩位管理員、
+ * PR3 起含自訂角色（內建兩個在前、其餘依名稱）——成員表與加人表單的角色下拉要拿**角色 id**（gate r2 M-7：兩位管理員、
  * 沒有一般成員的群組，一般成員角色的 id 只拿得到這裡）。
  */
 export function useGroupRoles(groupId: string): UseQueryResult<GroupRoleDto[]> {
@@ -156,5 +156,50 @@ export function useRemoveMember(groupId: string) {
     mutationFn: (userId: string) =>
       api<void>(`/api/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(userId)}`, { method: "DELETE" }),
     onSuccess: invalidate,
+  });
+}
+
+/**
+ * #175 PR3：角色 CRUD（`manageGroup`；spec §6.7）。建立不影響任何人的存取（沒有人掛新角色），只失效兩把 key；
+ * 改與刪會改到「掛這個角色的人」的 `permissions`——可能就是自己——所以比照 `useSetMemberRole` 另外失效單篇筆記
+ * 三把 key（見檔頭）。`['groups']` 前綴同時涵蓋 `groupRolesKey(id)`，角色頁跟著重抓。
+ */
+export function useCreateRole(groupId: string) {
+  const invalidate = useInvalidateGroupsAndNotes();
+  return useMutation({
+    mutationFn: (body: { name: string; permissions: GroupRoleFlags }) =>
+      api<GroupRoleDto>(`/api/groups/${encodeURIComponent(groupId)}/roles`, { method: "POST", body: JSON.stringify(body) }),
+    onSuccess: invalidate,
+  });
+}
+
+/** body 只帶有給的鍵（`JSON.stringify` 丟掉 undefined）；server `.strict()`，`permissions` 給就要六鍵全給、不得帶 `read`。 */
+export function useUpdateRole(groupId: string) {
+  const queryClient = useQueryClient();
+  const invalidate = useInvalidateGroupsAndNotes();
+  return useMutation({
+    mutationFn: ({ roleId, name, permissions }: { roleId: string; name?: string; permissions?: GroupRoleFlags }) =>
+      api<GroupRoleDto>(`/api/groups/${encodeURIComponent(groupId)}/roles/${encodeURIComponent(roleId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name, permissions }),
+      }),
+    onSuccess: () => {
+      void invalidateSingleNoteKeys(queryClient);
+      invalidate();
+    },
+  });
+}
+
+/** 刪自訂角色：持有者改掛內建一般成員（Q8）——他們的 `permissions` 會變，失效同 `useUpdateRole`。 */
+export function useDeleteRole(groupId: string) {
+  const queryClient = useQueryClient();
+  const invalidate = useInvalidateGroupsAndNotes();
+  return useMutation({
+    mutationFn: (roleId: string) =>
+      api<void>(`/api/groups/${encodeURIComponent(groupId)}/roles/${encodeURIComponent(roleId)}`, { method: "DELETE" }),
+    onSuccess: () => {
+      void invalidateSingleNoteKeys(queryClient);
+      invalidate();
+    },
   });
 }

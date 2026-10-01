@@ -336,7 +336,7 @@
       "nameSaved": "群組已重新命名。",
       "membersTitle": "成員",
       "membersDescriptionAdmin": "以 email 加入成員。成員看得到這個群組裡的所有筆記。",
-      "membersDescriptionMember": "只有群組管理員可以加入或移除成員。",
+      "membersDescriptionMember": "只有角色能管理成員的人可以加入或移除成員。",
       "tableName": "名稱",
       "tableEmail": "電子郵件",
       "tableRole": "角色",
@@ -348,7 +348,66 @@
       "addRoleLabel": "新成員的角色",
       "add": "加入",
       "dangerTitle": "刪除群組",
-      "leaveTitle": "退出群組"
+      "leaveTitle": "退出群組",
+      "tabsLabel": "群組設定分頁",
+      "tabMembers": "成員",
+      "tabRoles": "角色"
+    },
+    "roles": {
+      "title": "角色",
+      "descriptionManage": "每位成員各有一個角色，角色決定他能做什麼。內建「管理員」角色不能修改；內建「一般成員」是新成員預設的角色，不能改名或刪除。",
+      "descriptionView": "每位成員各有一個角色，角色決定他能做什麼。只有角色能管理角色與群組的人可以修改。",
+      "legendTitle": "各項權限的意思",
+      "readAlways": "每個角色都能閱讀群組的筆記、它們的反向連結與 AI 修改紀錄。",
+      "flags": {
+        "create": {
+          "label": "新建",
+          "description": "在群組裡建立筆記，或把個人筆記移入／複製進群組。沒有「編輯」的話，這樣放進群組的筆記自己也只能閱讀。"
+        },
+        "edit": {
+          "label": "編輯",
+          "description": "修改群組筆記的內容與標題。"
+        },
+        "delete": {
+          "label": "刪除",
+          "description": "刪除群組裡任何一篇筆記，包括別人建立的。"
+        },
+        "managePublicLink": {
+          "label": "管理公開連結",
+          "description": "開關群組筆記的匿名公開連結，並可透過 API 修改筆記的網址代稱。"
+        },
+        "manageMembers": {
+          "label": "管理成員",
+          "description": "加人、移人、更換成員的角色——包括把任何人（含自己）設為管理員。群組至少要留一位管理員。"
+        },
+        "manageGroup": {
+          "label": "管理角色與群組",
+          "description": "改群組名稱、刪除群組，以及新增、修改、刪除角色。"
+        }
+      },
+      "flagFor": "{{role}}：{{flag}}",
+      "nameFor": "{{role}} 的名稱",
+      "adminLocked": "內建管理員角色永遠擁有全部權限，不能修改。",
+      "apply": "套用",
+      "applyFor": "套用 {{role}} 的變更",
+      "applied": "已套用變更。",
+      "deleteShort": "刪除",
+      "deleteFor": "刪除 {{role}}",
+      "delete": {
+        "title": "刪除角色？",
+        "description_one": "{{count}} 位掛這個角色的成員會改為一般成員。",
+        "description_other": "{{count}} 位掛這個角色的成員會改為一般成員。",
+        "descriptionEmpty": "目前沒有成員掛這個角色。",
+        "confirm": "刪除角色"
+      },
+      "newRole": "新增角色",
+      "dialog": {
+        "title": "新增角色",
+        "description": "為角色取名並開啟它能做的事；之後都可以再改。",
+        "nameLabel": "角色名稱",
+        "create": "建立"
+      },
+      "invalidName": "角色名稱須為 1–40 個字元。"
     }
   },
   "settings": {
@@ -574,11 +633,13 @@
     "last_admin": "群組至少要有一位管理員。請先指定另一位管理員。",
     "already_member": "此人已經是群組成員。",
     "group_not_found": "找不到此群組。",
-    "note_in_group": "群組筆記不能逐人分享，請群組管理員將對方加入群組。",
+    "note_in_group": "群組筆記不能逐人分享，請角色能管理群組成員的人將對方加入群組。",
     "invalid_name": "群組名稱須為 1–80 個字元。",
     "conflict": "操作期間狀態已變更，請重新讀取後再試。",
     "group_not_empty": "群組內還有筆記，無法刪除。",
     "role_not_found": "找不到此角色。",
+    "builtin_role": "內建角色不能刪除或改名，內建管理員角色也不能修改。",
+    "role_name_taken": "這個群組已有同名的角色，或該名稱保留給內建角色。",
     "fallback": "發生未預期的錯誤。"
   }
 }

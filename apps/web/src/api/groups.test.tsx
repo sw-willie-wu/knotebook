@@ -2,22 +2,25 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import type { GroupDto, GroupMemberDto } from "@knotebook/shared";
+import type { GroupDto, GroupMemberDto, GroupRoleFlags } from "@knotebook/shared";
 import {
   GROUPS_QUERY_KEY,
   groupMembersKey,
   useAddMember,
   useCreateGroup,
+  useCreateRole,
   useDeleteGroup,
+  useDeleteRole,
   useGroupMembers,
   useGroupRoles,
   useGroups,
   useRemoveMember,
   useRenameGroup,
   useSetMemberRole,
+  useUpdateRole,
 } from "./groups";
 import { useCreateNote } from "./notes";
-import { adminRole, groupDto, memberRole } from "@/test/fixtures";
+import { adminRole, customRole, groupDto, memberRole } from "@/test/fixtures";
 
 const ADMIN_ROLE = adminRole({ id: "dddddddd-dddd-dddd-dddd-000000000001" });
 const MEMBER_ROLE = memberRole({ id: "dddddddd-dddd-dddd-dddd-000000000002" });
@@ -29,6 +32,8 @@ const MEMBER: GroupMemberDto = {
   roleId: MEMBER_ROLE.id,
   builtin: "member",
 };
+
+const FLAGS: GroupRoleFlags = { create: false, edit: false, delete: false, managePublicLink: false, manageMembers: false, manageGroup: false };
 
 function fakeResponse(status: number, body?: unknown): Response {
   return {
@@ -190,5 +195,45 @@ describe("api/groups", () => {
     await result.current.mutateAsync(undefined);
     expect(calls[0].body).toEqual({ groupId: GROUP.id });
     expect(calls[1].body).toEqual({});
+  });
+
+  it("#175 PR3 useCreateRole：POST /roles、body 恰為 {name, permissions}；只失效 ['groups']、['notes']，不碰單篇筆記 key", async () => {
+    const role = customRole({ id: "r-new", name: "Editor" });
+    const calls = stubFetch({ [`POST /api/groups/${GROUP.id}/roles`]: () => fakeResponse(201, role) });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useCreateRole(GROUP.id), { wrapper: wrapper(queryClient) });
+    await expect(result.current.mutateAsync({ name: "Editor", permissions: FLAGS })).resolves.toEqual(role);
+    expect(calls).toEqual([{ method: "POST", url: `/api/groups/${GROUP.id}/roles`, body: { name: "Editor", permissions: FLAGS } }]);
+    const keys = invalidate.mock.calls.map(([arg]) => JSON.stringify(arg?.queryKey));
+    expect([...keys].sort()).toEqual(['["groups"]', '["notes"]']);
+  });
+
+  it("#175 PR3 useUpdateRole：PATCH /roles/:roleId、只給 permissions 時 body 恰為 {permissions}；失效五把 key", async () => {
+    const role = customRole({ id: "r-new", permissions: { ...customRole().permissions, edit: true } });
+    const calls = stubFetch({ [`PATCH /api/groups/${GROUP.id}/roles/r-new`]: () => fakeResponse(200, role) });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useUpdateRole(GROUP.id), { wrapper: wrapper(queryClient) });
+    await expect(result.current.mutateAsync({ roleId: "r-new", permissions: { ...FLAGS, edit: true } })).resolves.toEqual(role);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].method).toBe("PATCH");
+    expect(calls[0].url).toBe(`/api/groups/${GROUP.id}/roles/r-new`);
+    // 沒有 roleId、沒有 name 鍵（server body .strict()）
+    expect(Object.keys(calls[0].body as object)).toEqual(["permissions"]);
+    expect(calls[0].body).toEqual({ permissions: { ...FLAGS, edit: true } });
+    const keys = invalidate.mock.calls.map(([arg]) => JSON.stringify(arg?.queryKey));
+    expect([...keys].sort()).toEqual(['["groups"]', '["note"]', '["note-by-group-path"]', '["note-by-path"]', '["notes"]']);
+  });
+
+  it("#175 PR3 useDeleteRole：DELETE /roles/:roleId、無 body；失效同 useUpdateRole", async () => {
+    const calls = stubFetch({ [`DELETE /api/groups/${GROUP.id}/roles/r-new`]: () => fakeResponse(204) });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+    const { result } = renderHook(() => useDeleteRole(GROUP.id), { wrapper: wrapper(queryClient) });
+    await expect(result.current.mutateAsync("r-new")).resolves.toBeUndefined();
+    expect(calls).toEqual([{ method: "DELETE", url: `/api/groups/${GROUP.id}/roles/r-new`, body: undefined }]);
+    const keys = invalidate.mock.calls.map(([arg]) => JSON.stringify(arg?.queryKey));
+    expect([...keys].sort()).toEqual(['["groups"]', '["note"]', '["note-by-group-path"]', '["note-by-path"]', '["notes"]']);
   });
 });

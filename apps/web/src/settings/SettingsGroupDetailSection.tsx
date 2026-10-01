@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { Link, useLocation, useNavigate, useParams, type Location } from "react-router";
+import { useNavigate, type Location } from "react-router";
 import type { GroupDto, GroupMemberDto, GroupRoleDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
 import {
@@ -8,7 +8,6 @@ import {
   useDeleteGroup,
   useGroupMembers,
   useGroupRoles,
-  useGroups,
   useRemoveMember,
   useRenameGroup,
   useSetMemberRole,
@@ -28,7 +27,8 @@ import {
 import { toast } from "@/components/ui/toast";
 import { GROUP_NAME_MAX_LENGTH } from "@/components/groups/GroupNameDialog";
 import { roleLabel } from "@/lib/group-role";
-import { SettingsGroup, SettingsPage } from "./SettingsLayout";
+import { GroupDetailShell } from "./GroupDetailShell";
+import { SettingsGroup } from "./SettingsLayout";
 
 function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
   if (err instanceof ApiFail) {
@@ -40,10 +40,6 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
 const SELECT_CLASS =
   "h-8 shrink-0 rounded-md border border-input bg-background px-2 text-sm shadow-sm focus-visible:outline-none " +
   "focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
-
-interface SettingsLocationState {
-  backgroundLocation?: Location;
-}
 
 /** 名單裡掛內建管理員角色的人數（spec §8.5「看 `builtin === "admin"` 計數」）。 */
 function countAdmins(members: GroupMemberDto[]): number {
@@ -402,53 +398,20 @@ function DangerSection({
 }
 
 /**
- * `/settings/groups/:id`（#103 spec §8.4；#175 spec §8.5）：**只看 `GroupDto` 的兩個管理旗標**——
- * `canManageGroup`＝名稱行內可改＋刪除群組；`canManageMembers`＝成員表的角色下拉與移除、加人；
- * 兩者都沒有＝名稱與成員表唯讀。不是最後一位管理員＝退出群組。非成員／不存在／id 不合法一律
- * `errors.not_found`（S4：三者同形，UI 不分辨）。`useGroups()` 與側欄同一份快取。
+ * `/settings/groups/:id` 的「成員」分頁（#103 spec §8.4；#175 spec §8.5；外框、not_found 三形見 `GroupDetailShell`）：
+ * **只看 `GroupDto` 的兩個管理旗標**——`canManageGroup`＝名稱行內可改＋刪除群組；`canManageMembers`＝成員表的
+ * 角色下拉與移除、加人；兩者都沒有＝名稱與成員表唯讀。不是最後一位管理員＝退出群組。
  */
 export function SettingsGroupDetailSection() {
-  const { t } = useTranslation();
-  const { id = "" } = useParams();
-  const location = useLocation();
-  const backgroundLocation = (location.state as SettingsLocationState | null)?.backgroundLocation;
-  const groupsQuery = useGroups();
-
-  if (groupsQuery.isPending) {
-    return <p className="text-sm text-muted-foreground">{t("app.loading")}</p>;
-  }
-  if (groupsQuery.isError) {
-    return (
-      <p role="alert" className="text-sm text-destructive">
-        {errorMessage(t, groupsQuery.error)}
-      </p>
-    );
-  }
-  const group = groupsQuery.data.find((candidate) => candidate.id === id);
-  if (!group) {
-    return (
-      <p role="alert" className="text-sm text-destructive">
-        {t("errors.not_found")}
-      </p>
-    );
-  }
-  const canManageMembers = group.canManageMembers;
-  const canManageGroup = group.canManageGroup;
-
   return (
-    <div className="space-y-4">
-      <Link
-        to="/settings/groups"
-        state={backgroundLocation ? { backgroundLocation } : undefined}
-        className="text-sm text-muted-foreground underline-offset-4 hover:underline"
-      >
-        ← {t("groups.detail.back")}
-      </Link>
-      <SettingsPage title={group.name}>
-        {canManageGroup ? <NameSection key={group.name} group={group} /> : null}
-        <MembersSection group={group} canManageMembers={canManageMembers} />
-        <DangerSection group={group} canManageGroup={canManageGroup} backgroundLocation={backgroundLocation} />
-      </SettingsPage>
-    </div>
+    <GroupDetailShell>
+      {(group, backgroundLocation) => (
+        <>
+          {group.canManageGroup ? <NameSection key={group.name} group={group} /> : null}
+          <MembersSection group={group} canManageMembers={group.canManageMembers} />
+          <DangerSection group={group} canManageGroup={group.canManageGroup} backgroundLocation={backgroundLocation} />
+        </>
+      )}
+    </GroupDetailShell>
   );
 }

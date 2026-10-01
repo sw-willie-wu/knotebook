@@ -7,7 +7,7 @@
  */
 import { readFile, readdir } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import { autoSlugFromTitle } from "@knotebook/shared";
 import type { Db } from "../src/db/index.js";
@@ -458,9 +458,6 @@ describe("#175 PR2 POST /api/notes/:id/copy（T4）", () => {
 
   it("create-only 角色複製進群組 → 201，副本回應 role viewer、permissions.edit false", async () => {
     const { app, db } = await buildTestApp();
-    // 規格落差 17：PR3 的 0013 會 drop 這把 CHECK；PR2 單獨跑時本案自己拆（`IF EXISTS`：兩種 merge 順序都成立）。
-    // CHECK 沒拆掉時下一行 seedRole 會撞 23514 而紅（不會假綠）。
-    await db.execute(sql`ALTER TABLE group_roles DROP CONSTRAINT IF EXISTS group_roles_create_needs_edit_chk`);
     const [owner, admin] = await Promise.all([seedUser(db), seedUser(db)]);
     const g = await seedGroup(db, "G", [{ userId: admin.id, role: "admin" }, { userId: owner.id, role: "member" }]);
     const contributor = await seedRole(db, g.id, "Contributor", { canRead: true, canCreate: true });

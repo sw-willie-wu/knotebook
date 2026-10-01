@@ -195,8 +195,6 @@ describe("#175 PR2 移動的踢線（spec §7）", () => {
 
   it("create-only 角色（能新建、不能編輯）移入：owner 續留但重驗後變唯讀——collab-token 回 viewer、寫入不再傳到群組管理員那邊", async () => {
     const ctx = await buildApp();
-    // 規格落差 17：PR3 的 0013 會 drop 這把 CHECK；PR2 單獨跑時本案自己拆（`IF EXISTS`），只影響本案的新庫。
-    await ctx.db.$client.query("ALTER TABLE group_roles DROP CONSTRAINT IF EXISTS group_roles_create_needs_edit_chk");
     const admin = await user(ctx, "admin-mv2@example.com");
     const owner = await user(ctx, "owner-mv2@example.com");
     const groupId = await makeGroup(admin.session, ["owner-mv2@example.com"]);

@@ -3,7 +3,7 @@
  * 真共編連線的踢線在 `groups-v2-revocation.test.ts` 檔尾。
  */
 import { describe, expect, it } from "vitest";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import * as Y from "yjs";
 import type { FastifyInstance } from "fastify";
 import { validateSlug } from "@knotebook/shared";
@@ -237,9 +237,6 @@ describe("#175 PR2 POST /api/notes/:id/move（T3）", () => {
   it("create-only 角色（能新建、不能編輯）移入 → 200，回應 role viewer、permissions.edit false；onGroupAccessChanged 名單含 owner（重驗會把他的共編連線降為唯讀）", async () => {
     const spy = spyCollabHooks();
     const { app, db } = await buildTestApp({ collabHooks: spy });
-    // 規格落差 17：PR3 的 0013 會 drop 這把 CHECK；PR2 單獨跑時本案自己拆（`IF EXISTS`：兩種 merge 順序都成立）。
-    // 每個 buildTestApp 是獨立的新遷移資料庫，只影響本案。CHECK 沒拆掉時下一行 seedRole 會撞 23514 而紅（不會假綠）。
-    await db.execute(sql`ALTER TABLE group_roles DROP CONSTRAINT IF EXISTS group_roles_create_needs_edit_chk`);
     const [owner, admin] = await Promise.all([seedUser(db), seedUser(db)]);
     const g = await seedGroup(db, "G", [{ userId: admin.id, role: "admin" }, { userId: owner.id, role: "member" }]);
     const contributor = await seedRole(db, g.id, "Contributor", { canRead: true, canCreate: true });

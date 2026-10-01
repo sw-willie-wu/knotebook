@@ -16,6 +16,7 @@ import { SettingsModal } from "./settings/SettingsModal";
 import { SettingsAccountSection } from "./settings/SettingsAccountSection";
 import { SettingsGroupsSection } from "./settings/SettingsGroupsSection";
 import { SettingsGroupDetailSection } from "./settings/SettingsGroupDetailSection";
+import { SettingsGroupRolesSection } from "./settings/SettingsGroupRolesSection";
 import { SettingsUsersSection } from "./settings/SettingsUsersSection";
 import { SettingsAiSection } from "./settings/SettingsAiSection";
 
@@ -204,6 +205,7 @@ export function AppRoutes() {
               {/* #103：群組（所有登入者，spec §8.4）——不巢狀在下面的 RequireAdmin 底下。 */}
               <Route path="/settings/groups" element={<SettingsGroupsSection />} />
               <Route path="/settings/groups/:id" element={<SettingsGroupDetailSection />} />
+              <Route path="/settings/groups/:id/roles" element={<SettingsGroupRolesSection />} />
             </Route>
           </Route>
           {/* 舊網址（書籤、舊文件連結）：站台管理搬到 /admin/* 後轉址過去。刻意掛在
