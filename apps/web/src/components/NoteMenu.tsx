@@ -4,6 +4,7 @@ import { useNavigate } from "react-router";
 import { canonicalNotePath, type NoteDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
 import { useDeleteNote } from "@/api/notes";
+import { useCopyNote } from "@/api/note-move";
 import { isTerminal, type CollabState } from "@/collab/connection";
 import { copyText } from "@/lib/clipboard";
 import { useNotePageControls, type OpenEditsState } from "@/lib/note-page-controls";
@@ -48,7 +49,8 @@ export interface NoteMenuProps {
 }
 
 /**
- * 內文卡頁頭的 ⋮ 選單（spec D.4）：複製連結（任何角色）＋刪除筆記（`permissions.delete`，#175 §8.3）。
+ * 內文卡頁頭的 ⋮ 選單（spec D.4）：複製連結（任何角色）＋AI 修改紀錄＋複製到我的筆記（群組筆記，任何角色，#175 §8.3、Q14）
+ * ＋刪除筆記（`permissions.delete`，#175 §8.3）。
  *
  * **focus trap 雷（rev5 定案，⚠ 改動前必讀）**：Radix `DropdownMenu` 預設是 modal，
  * 跟 `Dialog` 共用同一套 `FocusScope` 搶焦點；`lib/clipboard.ts` 的 `execCommand`
@@ -142,6 +144,7 @@ function NoteMenuCore({ note, trigger, onOpenEdits, page }: NoteMenuCoreProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const deleteNote = useDeleteNote();
+  const copyNote = useCopyNote(note.id);
 
   // 每次 render 同步寫入——`handleConfirmDelete` 的 catch 分支讀最新值，避開
   // stale closure（見上方檔頭「判斷終態用的是 stateRef.current」的說明）。
@@ -161,6 +164,25 @@ function NoteMenuCore({ note, trigger, onOpenEdits, page }: NoteMenuCoreProps) {
       return;
     }
     setManualCopyUrl(url);
+  }
+
+  // #175 §8.3、Q14：複製到自己的筆記。不假設副本的角色（個人筆記的 owner 才是 owner，導頁後以回應為準）。
+  async function handleCopyToPersonal(): Promise<void> {
+    setMenuOpen(false);
+    try {
+      const copy = await copyNote.mutateAsync(undefined);
+      toast({
+        title: t("share.move.copiedToPersonal"),
+        action: {
+          label: t("share.move.openCopy"),
+          // Radix altText：朗讀時取代按鈕，描述不經 toast 也能開到副本的途徑。
+          altText: t("share.move.openCopyAlt"),
+          onClick: () => void navigate(canonicalNotePath(copy)),
+        },
+      });
+    } catch (err) {
+      toast({ title: errorMessage(t, err), variant: "destructive" });
+    }
   }
 
   async function handleConfirmDelete(): Promise<void> {
@@ -245,6 +267,20 @@ function NoteMenuCore({ note, trigger, onOpenEdits, page }: NoteMenuCoreProps) {
             <MessageCircle className="mr-2 h-4 w-4" />
             {t("note.menu.aiEdits")}
           </DropdownMenuItem>
+          {/* #175 §8.3、Q14：群組筆記看得到就能複製到自己的筆記（看得到即可讀；不清任何東西，所以不另設確認——plan 規格落差 13、16）。
+              preventDefault 只為與鄰項同形；這一項不碰剪貼簿，檔頭的 focus trap 規矩不適用，拿掉它選單一樣會關、測試照綠——沒有測試守著。
+              進行中 disabled：複製可能很久（交易內做檔案 I/O），選單關掉後沒有別的回饋，避免重按建出第二份副本。 */}
+          {typeof note.groupId === "string" && (
+            <DropdownMenuItem
+              disabled={copyNote.isPending}
+              onSelect={(event) => {
+                event.preventDefault();
+                void handleCopyToPersonal();
+              }}
+            >
+              {t("note.menu.copyToPersonal")}
+            </DropdownMenuItem>
+          )}
           {/* #175 §8.3：刪除看 `permissions.delete`（群組筆記的 role 從不是 owner，但角色有
               `can_delete` 的成員要能刪；個人筆記只有 owner 為真）。 */}
           {note.permissions.delete && (

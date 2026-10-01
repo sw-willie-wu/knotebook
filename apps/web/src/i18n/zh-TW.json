@@ -120,6 +120,7 @@
       "copiedToGroup": "已複製到「{{group}}」",
       "copiedToPersonal": "已複製到我的筆記",
       "openCopy": "前往副本",
+      "openCopyAlt": "也可以從側欄開啟副本。",
       "changedElsewhere": "這篇筆記已在別處變更，所以沒有移動；面板已顯示目前的狀態。"
     },
     "groupNote": {
