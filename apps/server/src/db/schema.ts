@@ -93,7 +93,7 @@ export const groups = pgTable("groups", {
  * #175（migration 0012）：群組角色。七旗標（spec §4.1）；內建兩個（`builtin` = admin／member，`name` 恆 NULL，
  * 顯示名走 i18n——Q19），自訂角色（`builtin` NULL、`name` 必填，`POST /api/groups/:id/roles` 建立，#175 PR3）。五條 CHECK：`builtin` 值域；
  * S8 的名稱兩條（內建恰無名、自訂恰有名；名稱 1..40 字）；S8／S10 的旗標兩條（內建管理員七旗標全真；四個筆記旗標
- * ⇒ 閱讀）——「新建 ⇒ 編輯」在 0013 拿掉（#175 PR3，Willie 裁決：自訂角色怎麼組合由管理者決定）。兩個管理旗標彼此獨立、也不蘊含閱讀（gate r2 M-4）——刻意沒有 CHECK。
+ * ⇒ 閱讀）——「新建 ⇒ 編輯」在 0013 拿掉（#175 PR3，Willie 裁決：自訂角色怎麼組合由管理者決定）。0013 拿掉 `group_roles_create_needs_edit_chk` 後實質不可逆：一旦有人建了 create-only 角色，要加回這條 CHECK 必須先修正那些資料。兩個管理旗標彼此獨立、也不蘊含閱讀（gate r2 M-4）——刻意沒有 CHECK。
  * `(group_id, id)` 唯一索引是 `group_members` 複合 FK 的目標（S7：成員的角色屬同一群組）。
  */
 export const groupRoles = pgTable("group_roles", {
