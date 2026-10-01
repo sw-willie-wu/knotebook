@@ -11,18 +11,20 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 import { asc, eq, sql } from "drizzle-orm";
-import { normalizeEmail, type BuiltinGroupRole, type GroupMemberDto } from "@knotebook/shared";
+import {
+  GROUP_ROLE_FLAGS, isReservedRoleName, normalizeEmail, type BuiltinGroupRole, type GroupMemberDto, type GroupRoleDto, type GroupRoleFlag,
+} from "@knotebook/shared";
 import type { Db } from "../db/index.js";
 import { groupMembers, groupRoles, groups, users } from "../db/schema.js";
-import { isForeignKeyViolation } from "../db/pg-errors.js";
+import { isForeignKeyViolation, uniqueViolationConstraint } from "../db/pg-errors.js";
 import type { CollabHooks } from "../collab/hooks.js";
 import type { GroupTestHook } from "../groups/test-hook.js";
 import { sendError } from "../http/errors.js";
 import { TxAbort } from "../http/tx-abort.js";
 import { UUID_RE } from "../notes/service.js";
 import {
-  GROUP_NOT_FOUND_MESSAGE, groupAccess, groupWithMyRoleQuery, listMyGroupsQuery, listRolesQuery, toGroupDto, toGroupRoleDto,
-  validateGroupName,
+  GROUP_NOT_FOUND_MESSAGE, groupAccess, groupWithMyRoleQuery, listMyGroupsQuery, listRolesQuery, roleFlagValues, toGroupDto, toGroupRoleDto,
+  validateGroupName, validateRoleName,
 } from "../groups/queries.js";
 import { createGroupInTx } from "../groups/tx/create-group.js";
 import { deleteEmptyGroupInTx } from "../groups/tx/delete-group.js";
@@ -31,6 +33,12 @@ import { addMemberInTx, removeMemberInTx, setMemberRoleInTx } from "../groups/tx
 const nameBodySchema = z.object({ name: z.string() }).strict();
 const addMemberBodySchema = z.object({ email: z.string().email(), roleId: z.string().optional() }).strict();
 const memberRoleBodySchema = z.object({ roleId: z.string() }).strict();
+// 六個可設旗標（鍵取自 shared 的 `GROUP_ROLE_FLAGS`，與 web 角色頁同一份），全必填；沒有 `read`（閱讀恆真）——
+// `.strict()` 讓帶 `read` 的 body 回 400，而不是收下後默默忽略。
+const roleFlagsSchema = z
+  .object(Object.fromEntries(GROUP_ROLE_FLAGS.map(flag => [flag, z.boolean()])) as Record<GroupRoleFlag, z.ZodBoolean>)
+  .strict();
+const createRoleBodySchema = z.object({ name: z.string(), permissions: roleFlagsSchema }).strict();
 
 export interface GroupsRouteDeps {
   db: Db;
@@ -51,6 +59,8 @@ export function groupsRoutes(deps: GroupsRouteDeps) {
     const invalidName = (reply: FastifyReply): FastifyReply => sendError(reply, 400, "invalid_name", "群組名稱須為 1–80 個字元");
     const replyTxAbort = (reply: FastifyReply, err: unknown): FastifyReply | null =>
       err instanceof TxAbort ? sendError(reply, err.status, err.errCode, err.message) : null;
+    const invalidRoleName = (reply: FastifyReply): FastifyReply => sendError(reply, 400, "invalid_name", "角色名稱須為 1–40 個字元");
+    const roleNameTaken = (reply: FastifyReply): FastifyReply => sendError(reply, 409, "role_name_taken", "這個群組已有同名的角色，或該名稱保留給內建角色");
 
     app.get("/api/groups", { preHandler: app.authenticate }, async request => {
       const rows = await listMyGroupsQuery(deps.db, request.user!.id);
@@ -111,6 +121,41 @@ export function groupsRoutes(deps: GroupsRouteDeps) {
       if (!access) return notFound(reply);
       const rows = await listRolesQuery(deps.db, id);
       return rows.map(row => toGroupRoleDto(row)!);
+    });
+
+    // #175 PR3（§6.7）：建自訂角色。單句 INSERT（spec §6 末段「非交易」）；不踢線（沒有人掛它，§7）。
+    // 順序：groupAccess → 403 → body 形狀 → 名稱 → 保留名 → INSERT（六個旗標任意組合都合法，不驗蘊含——spec 疑點 11）。
+    app.post("/api/groups/:id/roles", { preHandler: app.authenticate }, async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const access = await groupAccess(deps.db, id, request.user!);
+      if (!access) return notFound(reply);
+      if (!access.manageGroup) return forbidden(reply);
+      const parsed = createRoleBodySchema.safeParse(request.body);
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+      const name = validateRoleName(parsed.data.name);
+      if (name === null) return invalidRoleName(reply);
+      if (isReservedRoleName(name)) return roleNameTaken(reply);
+      let inserted: Array<{ id: string }>;
+      try {
+        inserted = await deps.db
+          .insert(groupRoles)
+          .values({ groupId: id, name, ...roleFlagValues(parsed.data.permissions) })
+          .returning({ id: groupRoles.id });
+      } catch (err) {
+        if (uniqueViolationConstraint(err) === "group_roles_name_idx") return roleNameTaken(reply);
+        // 授權之後群組被刪（FK KEY SHARE 等到刪除 commit）→ 與不存在同形
+        // 注意：這條路目前沒有測試守（刪掉本行的突變存活，review r1 N5）；只有 groupAccess 與 INSERT 之間
+        // 剛好有另一請求刪掉群組才會觸發，一般流程碰不到，要測得靠測試縫製造交錯。
+        if (isForeignKeyViolation(err)) return notFound(reply);
+        throw err;
+      }
+      return reply.code(201).send({
+        id: inserted[0]!.id,
+        builtin: null,
+        name,
+        permissions: { read: true, ...parsed.data.permissions },
+        memberCount: 0,
+      } satisfies GroupRoleDto);
     });
 
     app.get("/api/groups/:id/members", { preHandler: app.authenticate }, async (request, reply) => {
