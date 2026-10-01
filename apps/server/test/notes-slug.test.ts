@@ -699,7 +699,10 @@ describe("PATCH /api/notes/:id — #122 分流矩陣", () => {
     const cookie = await cookieFor(owner.id);
     const note = (await app.inject({ method: "POST", url: "/api/notes", cookies: { [SESSION_COOKIE]: cookie }, payload: { title: "Shape" } })).json();
 
-    const updates = () => queries.filter(q => /^update/i.test(q.trim()));
+    // #175：格 1／3／4 的 UPDATE 包在 T1（`WITH o AS (… FOR UPDATE) UPDATE "notes" …`）裡——「恰一條寫 notes 的語句」
+    // 改認 `with … update "notes"`；T1 另可能多一條 DELETE 轉址（只在舊 slug 是自訂時）。`begin`／`commit` 不命中。
+    const updates = () => queries.filter(q => /^(with .* )?update "notes"/i.test(q.trim()));
+    const redirectDeletes = () => queries.filter(q => /^delete from "note_redirects"/i.test(q.trim()));
     // pre-check／探測都長成「select ... where owner_id 且 slug =」的形；pre-read 則是
     // 「select title, slug_is_custom ... where id」——分開數。
     const slugFilteredSelects = () => queries.filter(q => /^select/i.test(q.trim()) && /"slug"\s*=/.test(q));
@@ -711,6 +714,7 @@ describe("PATCH /api/notes/:id — #122 分流矩陣", () => {
     expect(slugFilteredSelects()).toHaveLength(0);
     expect(preReads()).toHaveLength(0);
     expect(updates()).toHaveLength(1);
+    expect(redirectDeletes()).toHaveLength(0); // 舊列是 auto → 不寫 prev → 不刪轉址
 
     // 格 3：{title, slug:null}——無 pre-read（title 已在請求）、恰一條 UPDATE。
     // 順帶讓 slugFilteredSelects 的 regex 自我驗證：本格必有探測（帶 "slug" = 述詞的
@@ -721,18 +725,21 @@ describe("PATCH /api/notes/:id — #122 分流矩陣", () => {
     expect(preReads()).toHaveLength(0);
     expect(slugFilteredSelects().length).toBeGreaterThan(0);
     expect(updates()).toHaveLength(1);
+    expect(redirectDeletes()).toHaveLength(1); // 舊列是格 1 設的自訂 → 寫進 prev → 同交易刪同路徑轉址
 
     // 格 2：{title}——恰一次 pre-read（讀 slug_is_custom）、恰一條 UPDATE
     queries.length = 0;
     expect((await app.inject({ method: "PATCH", url: `/api/notes/${note.id}`, cookies: { [SESSION_COOKIE]: cookie }, payload: { title: "Shape Two" } })).statusCode).toBe(200);
     expect(preReads()).toHaveLength(1);
     expect(updates()).toHaveLength(1);
+    expect(redirectDeletes()).toHaveLength(0); // 格 2 不寫 prev、不開交易
 
     // 格 4：{slug:null}——恰一次 pre-read（讀現行 title）、恰一條 UPDATE
     queries.length = 0;
     expect((await app.inject({ method: "PATCH", url: `/api/notes/${note.id}`, cookies: { [SESSION_COOKIE]: cookie }, payload: { slug: null } })).statusCode).toBe(200);
     expect(preReads()).toHaveLength(1);
     expect(updates()).toHaveLength(1);
+    expect(redirectDeletes()).toHaveLength(0); // 舊列是 auto（格 3 設的）→ 不寫 prev
   });
 
   it("源碼守衛：src/ 內除 schema.ts 外無 legacySlug 賦值鍵（凍結快照唯一寫入點是 0007 的②）", () => {

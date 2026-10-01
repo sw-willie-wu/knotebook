@@ -47,10 +47,13 @@ import {
   type NoteAccess,
 } from "../notes/service.js";
 import { upsertShareInTx } from "../notes/tx/shares.js";
+import { patchSlugInTx, type SlugPatchTestHook, type SlugWriteScope } from "../notes/tx/patch-slug.js";
+import { UPDATED_AT_NOW } from "../notes/clock.js";
 import { groupNotePath, lookupRedirect, userNotePath } from "../notes/redirects.js";
 import {
   deriveUniqueAutoSlug,
   fallbackAutoSlug,
+  isSlugUniqueViolation,
   MAX_AUTO_SLUG_RETRIES,
   prepareSlugForPatch,
   resolveNoteIdFromRef,
@@ -114,8 +117,7 @@ const createBodySchema = z
 // `MAX_AUTO_SLUG_RETRIES` 已搬進 `notes/slug.ts` 並 export（#145）——建立路徑的 INSERT
 // 重試迴圈（`notes/create.ts`）與本檔 PATCH 的 UPDATE 重試迴圈必須共用同一份 5。
 
-// `updated_at` 的唯一時鐘來源——三處 PATCH 共用同一個 const，勿改回 `new Date()`（#142）。
-const UPDATED_AT_NOW = sql`now()`;
+// `updated_at` 的唯一時鐘來源搬到 `notes/clock.ts`（#175：T1 的 `*InTx` 也要用，而 tx/ 檔不能 import 路由檔）。
 
 // `isForeignKeyViolation` 收在 `db/pg-errors.ts` 的共用版（原本這裡有一份邏輯等價的私有
 // 重複實作，Task 5 收掉——`notes/links.ts` 的 `writeNoteLinks` 也需要同一個判定，兩處各自
@@ -153,6 +155,8 @@ export interface NotesRouteDeps {
    * （比照 `linkSyncTestHooks` 慣例）。生產不注入＝零成本。透傳自 `AppDeps.slugUpdateTestHook`。
    */
   slugUpdateTestHook?: (candidate: string) => void | Promise<void>;
+  /** #175 T1 的測試縫（`notes/tx/patch-slug.ts`）：`authorized` 在路由授權之後、交易之前；`slug-written` 在交易內。透傳自 `AppDeps.slugPatchTestHook`。 */
+  slugPatchTestHook?: SlugPatchTestHook;
   /**
    * #145：**建立**路徑的 auto slug 測試注入縫——每輪探測完、INSERT 發出前呼叫（帶本輪
    * 候選），語意與上面 `slugUpdateTestHook` 對稱（測試搶插同 owner 同 slug 的佔位列，讓
@@ -238,7 +242,8 @@ function toNoteDto(note: NoteFields, access: Pick<NoteAccess, "role" | "permissi
  * （'none'，涵蓋「note 不存在」與「存在但未分享給此使用者」兩種情況）一律回 404
  * `not_found`，不區分這兩者——避免把「note 是否存在」洩漏給無權限的使用者
  * （spec：防列舉）。403 `forbidden` 只用在「查得到、但角色不夠」的情況
- * （PATCH 需要 editor+，viewer 會落在這裡；DELETE 看 `permissions.delete`——個人筆記只有 owner 有，
+ * （PATCH 只改標題看 `permissions.edit`、帶 `slug` 鍵看 `permissions.changeSlug`——個人筆記只有 owner 有、群組筆記看
+ * 角色的管理公開連結旗標，#175 Q11；DELETE 看 `permissions.delete`——個人筆記只有 owner 有，
  * 群組筆記由角色的刪除旗標決定，沒有的成員落在這裡；#175）。
  */
 export function notesRoutes(deps: NotesRouteDeps) {
@@ -429,6 +434,15 @@ export function notesRoutes(deps: NotesRouteDeps) {
     }
 
     const noteNotFound = (reply: FastifyReply): FastifyReply => sendError(reply, 404, "not_found", "找不到此筆記");
+
+    /**
+     * C13 的 rowcount-0 分流（gate r2 N-1）：列不在 → 404（I2 慣例）；列在 → 歸屬在授權之後變了 → 409 conflict。
+     * 兩處共用：public-link PUT（§6.6）與 PATCH 的 T1（§4.3，scope 條件命中 0 列）。
+     */
+    const ownershipChanged = async (reply: FastifyReply, noteId: string): Promise<FastifyReply> => {
+      const [row] = await deps.db.select({ id: notes.id }).from(notes).where(eq(notes.id, noteId)).limit(1);
+      return row ? sendError(reply, 409, "conflict", "筆記的歸屬已變更，請重新整理後再試") : noteNotFound(reply);
+    };
 
     /**
      * #175 單篇讀取的授權收尾（§6.4、Q22）：先授權（none → 同一條 404，S4）；授權讀到的 `group_id` 與手上那一列
@@ -701,7 +715,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
     }
 
     // PATCH 回應的 ownerHandle 補讀（spec m5-8／A12）：`.returning()` 拿不到 users.handle，且 editor 改他人筆記時
-    // 必須回 **owner 的** handle。#175：群組筆記沒有 owner → null（今天查不到列就 throw，群組筆記改標題會 500——spec §6.2）。
+    // 必須回 **owner 的** handle。#175：群組筆記沒有 owner → null（#175 之前一律查 users、查不到就 throw，群組筆記改標題會 500——spec §6.2）。
     // ⚠ S14：這是對 `deps.db` 的閉包，**不得在任何交易內呼叫**（gate r4 I-1 實跑：N=10 並發即永久卡死）。
     async function ownerHandleOf(ownerId: string | null): Promise<string | null> {
       if (ownerId === null) return null;
@@ -732,45 +746,70 @@ export function notesRoutes(deps: NotesRouteDeps) {
     }
 
     /**
+     * PATCH 的回應組裝——**一律在交易外**（`ownerHandleOf`／`editorHandleOf`／`groupNameOf` 都是對 `deps.db` 的閉包，S14）。
+     * Q22（規格落差 9）：取到的列的歸屬與授權時不同（格 2 沒有 scope 條件）→ 以重算的 access 組 permissions。
+     */
+    async function respondPatched(updated: typeof notes.$inferSelect, access: NoteAccess, userId: string): Promise<NoteDto> {
+      const finalAccess = updated.groupId === access.groupId ? access : await resolveNoteAccess(deps.db, userId, updated.id);
+      return toNoteDto(
+        {
+          ...updated,
+          ownerHandle: await ownerHandleOf(updated.ownerId),
+          editorHandle: await editorHandleOf(updated.lastEditedBy),
+          groupName: await groupNameOf(updated.groupId),
+        },
+        finalAccess,
+      );
+    }
+
+    /**
      * PATCH 分流矩陣（#122 spec §3a——**語句形狀＝docs-as-spec 義務**，改動要連同
      * docs/api.md 一起）：`title`／`slug` 各自選配，至少帶一項（見 `updateBodySchema`）。
-     * 權限矩陣不變：`slug` 有出現在 body 內（不論其值）一律要求 owner：none → 404、
-     * viewer/editor → 403，**整包拒絕**；body 只有 `title` 時 viewer → 403，
-     * editor/owner → 200。
+     * 權限矩陣（#175 Q11）：`slug` 有出現在 body 內（不論其值）一律要求 `permissions.changeSlug`
+     * （個人筆記＝owner；群組筆記＝角色的 `can_manage_public_link`）：none → 404、沒有該旗標 → 403，
+     * **整包拒絕**；body 只有 `title` 時要求 `permissions.edit`（沒有 → 403）。
      *
-     * 四格（slug 自 0007 起 NOT NULL＋`(owner_id, slug)` per-user 唯一；`slug_is_custom`
-     * 記形態；prev 的 CASE＝**只記自訂變更**——custom→custom 與 custom→auto 記、
-     * auto→custom 與 auto 重算不記，spec M4-3）。「單一 UPDATE」皆指**寫入語句恰一條**；
+     * 四格（slug 自 0007 起 NOT NULL；唯一性在**歸屬的範圍**內——個人筆記 `(owner_id, slug)`
+     * 的 `notes_owner_slug_idx`、群組筆記 `(group_id, slug)` 的 `notes_group_slug_idx`（#175 S12）；
+     * `slug_is_custom` 記形態；prev 的 CASE＝**只記自訂變更**——custom→custom 與 custom→auto 記、
+     * auto→custom 與 auto 重算不記，spec M4-3）。「單一 UPDATE」皆指**寫入 notes 的語句恰一條**；
      * 各格的讀取（pre-read／探測）逐格列明：
      * 1. `{slug: string}`（±title）：先計節流（`limiters.slugPatch`，10 次/10 分鐘/user，
      *    成功失敗都計——判定在格式驗證與 UPDATE 之前）→ `prepareSlugForPatch` → 無
      *    pre-read、無探測，單一 UPDATE `[title=$t,] slug=$1, slug_is_custom=true,
-     *    prev_slug=CASE WHEN slug_is_custom THEN slug ELSE prev_slug END`；撞
-     *    `notes_owner_slug_idx` → 409 `slug_taken`（**constraint 名分流**，其他唯一鍵
-     *    違反 rethrow——比照 PR1 的 M4-2 契約）；同請求帶 title 不觸發重算。
+     *    prev_slug=CASE WHEN slug_is_custom THEN slug ELSE prev_slug END`——#175：這三格（1、3、4）
+     *    的 UPDATE 各包成一個 T1 短交易（`patchSlugInTx`，`WITH o AS (… FOR UPDATE) UPDATE …`，帶授權時
+     *    的歸屬當 scope 條件；0 列 → 列不在 404、列在 409 `conflict`），寫進 prev 的那一刻同交易刪同路徑
+     *    轉址（個人 scope 才發，§4.3 B4）；撞 `notes_owner_slug_idx` 或 `notes_group_slug_idx` → 409
+     *    `slug_taken`（**constraint 名分流**，其他唯一鍵違反 rethrow——比照 PR1 的 M4-2 契約）；
+     *    同請求帶 title 不觸發重算。
      * 2. `{title}`：pre-read 本列 slug_is_custom（特赦，見下）；custom=false 才重算
-     *    （以請求新 title 算＋探測）：單一 UPDATE `title=$1, slug=CASE WHEN
-     *    slug_is_custom THEN slug ELSE $auto END`（prev 不動）。**不計 slugPatch**
+     *    （以請求新 title 算＋在歸屬範圍內探測，#175 RF5）：單一 UPDATE `title=$1, slug=CASE WHEN
+     *    slug_is_custom THEN slug ELSE $auto END`（prev 不動、不開交易、沒有 scope 條件——回應組裝時
+     *    若列的歸屬已與授權時不同，重算 access 再組 permissions，規格落差 9）。**不計 slugPatch**
      *    （title 編輯是核心操作；放大上界＝每輪重試都重探測，≤5×20＝100 次索引查詢
      *    ＋6 次 UPDATE（第 6 輪退位不探測），皆有界——title PATCH 本身無節流為現狀，
      *    明示接受）。
      * 3. `{title, slug:null}`：回 auto、以新 title 算（**無 pre-read**——title 已在請求、
-     *    必走 auto）：探測＋單一 UPDATE `title=$t, slug=$auto, slug_is_custom=false,
+     *    必走 auto）：探測＋單一 UPDATE（T1）`title=$t, slug=$auto, slug_is_custom=false,
      *    prev_slug=CASE ...`。slugPatch **計**（進 slug 分支即計；null 無格式驗——與
      *    格 1 的先計後驗一致）。
      * 4. `{slug:null}`：回 auto、以 DB 現行 title 算——pre-read 一次本列 title：探測＋
-     *    單一 UPDATE，語句同格 3。slugPatch 計。
+     *    單一 UPDATE（T1），語句同格 3。slugPatch 計。
      *
      * pre-read 界線（spec m5-5）：TOCTOU 紀律禁的是**唯一性 pre-check**（「先查名字有沒
-     * 有人用再寫」——裁決必須在 `(owner_id, slug)` 索引）；讀**本列**的 title/
-     * slug_is_custom/owner_id 不在此列（`resolveRoleWithOwner` 本就先讀列），owner 範圍
-     * 探測（`deriveUniqueAutoSlug` 的可用性特赦）亦然——探測後裁決仍在索引。
+     * 有人用再寫」——裁決必須在唯一索引）；讀**本列**的 title/slug_is_custom 不在此列
+     * （`resolveNoteAccess` 本就先讀列），歸屬範圍的探測（`deriveUniqueAutoSlug` 的可用性特赦）
+     * 亦然——探測後裁決仍在索引。
      *
-     * auto 撞名（**永不 409**）：探測（述詞排除本列）選尾碼；UPDATE 撞唯一索引＝真競態
-     * → 重探測重發，`MAX_AUTO_SLUG_RETRIES`（5）次後退 `untitled-<uuid8>`。title 與
-     * slug 一律組進同一個 `.update(...).set({...})`（單一 SQL 陳述式本身即原子——不需要
-     * 額外包 `db.transaction`）：唯一鍵衝突時整條 UPDATE 連同 title 一併回滾，不會發生
+     * auto 撞名（**永不 409**）：探測（述詞排除本列）選尾碼；UPDATE 撞兩把 slug 唯一索引之一＝真競態
+     * → 重探測重發，`MAX_AUTO_SLUG_RETRIES`（5）次後退 `untitled-<uuid8>`。格 3／4 每一輪是一個新的
+     * T1 交易（23505 只 abort 那一輪，不需要 savepoint）。title 與 slug 一律組進同一個
+     * `.update(...).set({...})`：唯一鍵衝突時整條 UPDATE 連同 title 一併回滾，不會發生
      * 「slug 衝突但 title 卻偷偷套用了」這種半套結果。
+     *
+     * S14：交易內不得向 pool 借連線——T1 的 handle 用 `request.user.handle`（記憶體中），回應組裝
+     * （`respondPatched`）一律在交易外。
      */
     app.patch("/api/notes/:id", { preHandler: app.authenticate }, async (request, reply) => {
       const { id } = request.params as { id: string };
@@ -784,154 +823,92 @@ export function notesRoutes(deps: NotesRouteDeps) {
       const hasSlug = slug !== undefined;
 
       const access = await resolveNoteAccess(deps.db, userId, id);
-      const { role, ownerId } = access;
-      if (role === "none") {
-        return sendError(reply, 404, "not_found", "找不到此筆記");
-      }
-      if (hasSlug && role !== "owner") {
-        return sendError(reply, 403, "forbidden", "只有擁有者可以變更網址代稱");
-      }
-      if (!hasSlug && role === "viewer") {
-        return sendError(reply, 403, "forbidden", "沒有編輯權限");
-      }
+      if (access.role === "none") return noteNotFound(reply);
+      if (hasSlug && !access.permissions.changeSlug) return sendError(reply, 403, "forbidden", "沒有變更網址代稱的權限");
+      if (!hasSlug && !access.permissions.edit) return sendError(reply, 403, "forbidden", "沒有編輯權限");
 
-      // 「只記自訂變更」的 prev 規則（spec M4-3）——格 1 與格 3/4 共用同一片段，
-      // 抽成具名 const 讓兩處永遠同步（PG 對 SET 運算式一律讀 OLD 列值，CASE 讀到的
-      // 是更新前的 slug_is_custom/slug）。
-      const prevSlugOnCustomChange = sql`case when ${notes.slugIsCustom} then ${notes.slug} else ${notes.prevSlug} end`;
+      // #175：slug 的去重範圍與 T1 的 scope 條件都取自**授權當下**的歸屬（§4.3，gate r5 M-2）。
+      // role !== "none" 時：groupId 非 null ＝群組筆記；否則是個人筆記，`resolveNoteAccess` 回的 ownerId 必非 null。
+      const slugScope: SlugScope = access.groupId !== null ? { groupId: access.groupId } : { ownerId: access.ownerId! };
+      const txScope: SlugWriteScope =
+        access.groupId !== null ? { kind: "group", groupId: access.groupId } : { kind: "personal", ownerId: access.ownerId! };
+      // 寫 prev 的三格要 changeSlug——個人 scope 下能走到這裡的一定是 owner 本人，所以他的 handle 就是 request.user.handle
+      // （記憶體中；§4.3。並發改 handle 的極窄窗見 spec §15 第 18 條）。
+      const redirectHandle = txScope.kind === "personal" ? request.user!.handle : null;
+      // S14：callback 整段就是一個 `patchSlugInTx(tx, …)` 呼叫，引數全是交易前算好的純資料與測試縫。
+      const runT1 = (set: { title?: string; slug: string; slugIsCustom: boolean }) =>
+        deps.db.transaction(tx => patchSlugInTx(tx, { noteId: id, scope: txScope, set, redirectHandle }, deps.slugPatchTestHook));
 
       // 格 1：顯式自訂 slug。
       if (hasSlug && slug !== null) {
-        if (!deps.limiters.slugPatch.consume(userId)) {
-          return sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
-        }
+        if (!deps.limiters.slugPatch.consume(userId)) return sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
         const result = prepareSlugForPatch(slug);
-        if (!result.ok) {
-          return sendError(reply, 400, "invalid_body", result.message);
-        }
-        // I2（審查）：resolveRole 判定完到 UPDATE 之間可能被另一個請求刪除，
-        // `.returning()` 落空＝UPDATE 命中 0 列——明確回 404，不拿 non-null assertion 賭。
+        if (!result.ok) return sendError(reply, 400, "invalid_body", result.message);
+        await deps.slugPatchTestHook?.("authorized", { noteId: id });
         let updated;
         try {
-          [updated] = await deps.db
-            .update(notes)
-            .set({
-              updatedAt: UPDATED_AT_NOW,
-              ...(title !== undefined ? { title } : {}),
-              slug: result.value,
-              slugIsCustom: true,
-              prevSlug: prevSlugOnCustomChange,
-            })
-            .where(eq(notes.id, id))
-            .returning();
+          updated = await runT1({ ...(title !== undefined ? { title } : {}), slug: result.value, slugIsCustom: true });
         } catch (err) {
-          // constraint 名分流（PR1 M4-2 契約）：只有 per-user 唯一索引撞名映射 slug_taken，
-          // 其他唯一鍵違反（未來新增）一律 rethrow——不認識的 23505 不該被猜成 409。
-          if (uniqueViolationConstraint(err) === "notes_owner_slug_idx") {
-            return sendError(reply, 409, "slug_taken", "此網址代稱已被使用");
-          }
+          // constraint 名分流（PR1 M4-2 契約）：兩把 slug 唯一索引撞名＝409，其他 23505 rethrow——不認識的 23505 不該被猜成 409。
+          if (isSlugUniqueViolation(err)) return sendError(reply, 409, "slug_taken", "此網址代稱已被使用");
           throw err;
         }
-        if (!updated) {
-          return sendError(reply, 404, "not_found", "找不到此筆記");
-        }
-        return toNoteDto(
-          {
-            ...updated,
-            ownerHandle: await ownerHandleOf(updated.ownerId),
-            editorHandle: await editorHandleOf(updated.lastEditedBy),
-            groupName: await groupNameOf(updated.groupId),
-          },
-          access,
-        );
+        // I2＋C15：scope 條件命中 0 列＝授權之後被刪（404）或歸屬變了（409 conflict）。
+        if (!updated) return ownershipChanged(reply, id);
+        return respondPatched(updated, access, userId);
       }
 
-      // 格 2–4：auto 路徑。clearingSlug＝格 3/4（body 帶 slug:null）；否則格 2（title-only）。
+      // 格 2–4：auto 路徑。clearingSlug＝格 3／4（body 帶 slug:null）；否則格 2（title-only）。
       const clearingSlug = hasSlug;
-      if (clearingSlug && !deps.limiters.slugPatch.consume(userId)) {
-        return sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
-      }
+      if (clearingSlug && !deps.limiters.slugPatch.consume(userId)) return sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
 
       // pre-read（特赦界線見上）只在需要時發：格 2 要 slug_is_custom（決定探不探測）、
       // 格 4 要現行 title；格 3 兩者都在請求裡（必走 auto）——不多發一次查詢。
       let preReadSlugIsCustom = false;
       let effectiveTitle = title ?? "";
       if (!clearingSlug || title === undefined) {
-        const [row] = await deps.db
-          .select({ title: notes.title, slugIsCustom: notes.slugIsCustom })
-          .from(notes)
-          .where(eq(notes.id, id))
-          .limit(1);
-        if (!row) {
-          return sendError(reply, 404, "not_found", "找不到此筆記");
-        }
+        const [row] = await deps.db.select({ title: notes.title, slugIsCustom: notes.slugIsCustom }).from(notes).where(eq(notes.id, id)).limit(1);
+        if (!row) return noteNotFound(reply);
         preReadSlugIsCustom = row.slugIsCustom;
         effectiveTitle = title ?? row.title;
       }
-      // role !== 'none' ⇒ resolveRoleWithOwner 的 ownerId 必非 null（見該函式契約）。
-      const noteOwnerId = ownerId!;
       const needsAuto = clearingSlug || !preReadSlugIsCustom;
+      if (clearingSlug) await deps.slugPatchTestHook?.("authorized", { noteId: id });
 
       let updated;
       for (let attempt = 1; ; attempt++) {
-        // 候選來源三分支：重試耗盡 → uuid8 退位；要走 auto（或重試中）→ 探測；
+        // 候選來源三分支：重試耗盡 → uuid8 退位；要走 auto（或重試中）→ 在歸屬範圍內探測（RF5）；
         // 格 2 的 custom=true → CASE 會保留現行 slug、$auto 只是佔位，傳未探測候選即可
         // ——若 pre-read 後被併發翻回 auto（罕見競態），只有恰好撞索引才落到重試路徑
         // 重新探測；沒撞就直接寫入未探測候選（仍唯一，可接受）。
         let auto: string;
-        if (attempt > MAX_AUTO_SLUG_RETRIES) {
-          auto = fallbackAutoSlug();
-        } else if (needsAuto || attempt > 1) {
-          auto = await deriveUniqueAutoSlug(deps.db, { ownerId: noteOwnerId }, id, effectiveTitle);
-        } else {
-          auto = autoSlugFromTitle(effectiveTitle);
-        }
+        if (attempt > MAX_AUTO_SLUG_RETRIES) auto = fallbackAutoSlug();
+        else if (needsAuto || attempt > 1) auto = await deriveUniqueAutoSlug(deps.db, slugScope, id, effectiveTitle);
+        else auto = autoSlugFromTitle(effectiveTitle);
         await deps.slugUpdateTestHook?.(auto);
         try {
           if (clearingSlug) {
-            [updated] = await deps.db
-              .update(notes)
-              .set({
-                updatedAt: UPDATED_AT_NOW,
-                ...(title !== undefined ? { title } : {}),
-                slug: auto,
-                slugIsCustom: false,
-                prevSlug: prevSlugOnCustomChange,
-              })
-              .where(eq(notes.id, id))
-              .returning();
+            // 格 3／4：每一輪一個新的 T1 交易（23505 只 abort 那一輪，所以不需要 savepoint——§6.9 只管長交易內的重試）。
+            updated = await runT1({ ...(title !== undefined ? { title } : {}), slug: auto, slugIsCustom: false });
+            if (!updated) return ownershipChanged(reply, id);
           } else {
+            // 格 2：不寫 prev、不開交易（語句形狀守衛：恰一條 UPDATE）。
             [updated] = await deps.db
               .update(notes)
-              .set({
-                updatedAt: UPDATED_AT_NOW,
-                title,
-                slug: sql`case when ${notes.slugIsCustom} then ${notes.slug} else ${auto} end`,
-              })
+              .set({ updatedAt: UPDATED_AT_NOW, title, slug: sql`case when ${notes.slugIsCustom} then ${notes.slug} else ${auto} end` })
               .where(eq(notes.id, id))
               .returning();
           }
           break;
         } catch (err) {
-          // 同格 1 的 constraint 名分流：只有 per-user 索引撞名走重試，其他 23505 rethrow。
-          if (uniqueViolationConstraint(err) === "notes_owner_slug_idx" && attempt <= MAX_AUTO_SLUG_RETRIES) {
-            continue;
-          }
+          // 同格 1 的 constraint 名分流：兩把 slug 唯一索引撞名走重試，其他 23505 rethrow。
+          if (isSlugUniqueViolation(err) && attempt <= MAX_AUTO_SLUG_RETRIES) continue;
           throw err;
         }
       }
-      if (!updated) {
-        return sendError(reply, 404, "not_found", "找不到此筆記");
-      }
-      return toNoteDto(
-        {
-          ...updated,
-          ownerHandle: await ownerHandleOf(updated.ownerId),
-          editorHandle: await editorHandleOf(updated.lastEditedBy),
-          groupName: await groupNameOf(updated.groupId),
-        },
-        access,
-      );
+      // I2：格 2 的 UPDATE 命中 0 列＝授權之後被刪。
+      if (!updated) return noteNotFound(reply);
+      return respondPatched(updated, access, userId);
     });
 
     /**
@@ -1302,12 +1279,6 @@ export function notesRoutes(deps: NotesRouteDeps) {
         return null;
       }
       return access;
-    };
-
-    /** C13 的 rowcount-0 分流（gate r2 N-1）：列不在 → 404（I2 慣例）；列在 → 歸屬在授權之後變了 → 409 conflict。 */
-    const ownershipChanged = async (reply: FastifyReply, noteId: string): Promise<FastifyReply> => {
-      const [row] = await deps.db.select({ id: notes.id }).from(notes).where(eq(notes.id, noteId)).limit(1);
-      return row ? sendError(reply, 409, "conflict", "筆記的歸屬已變更，請重新整理後再試") : sendError(reply, 404, "not_found", "找不到此筆記");
     };
 
     app.get("/api/notes/:id/public-link", { preHandler: app.authenticate }, async (request, reply) => {
