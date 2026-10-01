@@ -9,6 +9,7 @@ import { COLLAB_CLOSE_REVOKED, YDOC_FRAGMENT, type GroupRoleDto } from "@knotebo
 import { createCollabHooks, REVERIFY_DEADLINE_MS } from "../src/collab/hooks-impl.js";
 import { buildCollabTestApp, type CollabTestCtx, type HttpSession } from "./helpers.js";
 import { seedRole } from "./group-helpers.js";
+import { loadDoc } from "./copy-helpers.js";
 
 const PASSWORD = "correct-horse-battery";
 
@@ -219,6 +220,32 @@ describe("#175 PR2 移動的踢線（spec §7）", () => {
     // 主判定由上面的 armTokenSync（owner 那條連線完成重驗）與 collab-token 回 `viewer` 承擔。
     await sleep(1_000);
     expect(text(adminClient.doc)).not.toContain("after-move-readonly");
+    expect(ownerClient.closes).toEqual([]);
+  });
+});
+
+describe("#175 PR2 複製（spec §6.5、§7）", () => {
+  it("§6.5：來源有人在線、有未落盤編輯 → 複製取 live fork、副本含那段文字；複製後立刻以 provider 開副本看到同樣內容；在線者不被踢", async () => {
+    const ctx = await buildApp();
+    const owner = await user(ctx, "owner-cp1@example.com");
+    const { id: noteId } = await ctx.createNote(owner.id, "personal note");
+    const ownerClient = await owner.session.connect(noteId);
+    insertParagraph(ownerClient.doc, "live-unsaved-text");
+    await waitFor("編輯到達 server 的 live doc", 5_000, () => text(ctx.collab.hocuspocus.documents.get(noteId)!).includes("live-unsaved-text"));
+    // 「未落盤」：onStoreDocument debounce 2 秒，此刻 note_states 還沒有這段（有列也不含它）。本案依賴這 2 秒的窗口
+    // （`STORE_DEBOUNCE_MS`，buildApp 沒有注入點）：本機實測單案約 0.5 秒、約 4 倍餘裕。窗口不夠時（store 先跑）是下一行
+    // 這條前置斷言紅，不會變成沒走到 live fork 的假綠（T4 review r1 M-2）。
+    const persisted = await loadDoc(ctx.db, noteId);
+    expect(persisted === null ? "" : text(persisted)).not.toContain("live-unsaved-text");
+
+    const res = await api(owner.session, "POST", `/api/notes/${noteId}/copy`, {});
+    expect(res.status).toBe(201);
+    const copyId = (res.json as { id: string }).id;
+    expect(text((await loadDoc(ctx.db, copyId))!)).toContain("live-unsaved-text");
+
+    const copyClient = await owner.session.connect(copyId);
+    expect(text(copyClient.doc)).toContain("live-unsaved-text");
+    expect(text(copyClient.doc)).toBe(text(ctx.collab.hocuspocus.documents.get(noteId)!));
     expect(ownerClient.closes).toEqual([]);
   });
 });

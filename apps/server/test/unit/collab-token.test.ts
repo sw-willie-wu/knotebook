@@ -103,6 +103,32 @@ describe("FixedWindowLimiter", () => {
     expect(limiter.consume("k")).toBe(false);
   });
 
+  it("consumeMany（#175 T4）：額度夠就一次扣 n；不夠回 false 且一個都不扣；n <= 0 恆放行不計數", () => {
+    const limiter = new FixedWindowLimiter({ limit: 5, windowMs: 60_000 });
+    expect(limiter.consumeMany("k", 0)).toBe(true);
+    expect(limiter.isBlocked("k")).toBe(false);
+    expect(limiter.consumeMany("k", 3)).toBe(true);
+    expect(limiter.consumeMany("k", 3)).toBe(false); // 3 + 3 > 5：拒絕、計數仍是 3
+    expect(limiter.consumeMany("k", 2)).toBe(true); // 3 + 2 = 5：放行（上一發沒被記帳的證據）
+    expect(limiter.consume("k")).toBe(false);
+  });
+
+  it("consumeMany n > limit（T4 review r2 I-1）：夾到整窗額度——只在空窗放行並扣滿；同窗再發拒絕且不扣；下一窗再放行", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const limiter = new FixedWindowLimiter({ limit: 5, windowMs: 1_000 });
+    expect(limiter.consumeMany("k", 7)).toBe(true); // 新窗：放行（不夾的話 0 + 7 > 5，任何視窗都拒）
+    expect(limiter.isBlocked("k")).toBe(true); // 扣滿整窗
+    expect(limiter.consumeMany("k", 7)).toBe(false); // 同窗再發：拒絕
+    expect(limiter.consume("k")).toBe(false); // 一般上傳也被擋到窗尾
+
+    vi.setSystemTime(1_000);
+    expect(limiter.consumeMany("k", 1)).toBe(true); // 新窗開出
+    expect(limiter.consumeMany("k", 7)).toBe(false); // 非空窗（count 1）：夾後要 5，1 + 5 > 5 → 拒絕、不扣
+    expect(limiter.consumeMany("k", 4)).toBe(true); // 1 + 4 = 5：放行（上一發沒被記帳的證據）
+    expect(limiter.consume("k")).toBe(false);
+  });
+
   it("不同 key 各自獨立計數", () => {
     const limiter = new FixedWindowLimiter({ limit: 1, windowMs: 60_000 });
     expect(limiter.consume("a")).toBe(true);

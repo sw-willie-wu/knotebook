@@ -1,12 +1,12 @@
 import { and, desc, eq, notInArray } from "drizzle-orm";
 import type { Block, PartialBlock } from "@blocknote/core";
 import * as Y from "yjs";
-import { MAX_LINK_TARGETS, YDOC_FRAGMENT, extractLinkTargets, topLevelContainers, type EditOp, type NoteOutlineEntry, type WikilinkTarget } from "@knotebook/shared";
+import { YDOC_FRAGMENT, topLevelContainers, type EditOp, type NoteOutlineEntry, type WikilinkTarget } from "@knotebook/shared";
 import type { CollabServer } from "../../collab/server.js";
 import { docClock } from "../../collab/store.js";
 import type { Db } from "../../db/index.js";
 import { noteAiEdits } from "../../db/schema.js";
-import { normalizeLinkTargets, writeNoteLinks } from "../links.js";
+import { syncLinksFromDoc } from "../links.js";
 import { fingerprintForIds, outlineOf, type OutlineEntry } from "./fingerprint.js";
 import { parseMarkdownForNote, type ParseError } from "./markdown.js";
 import { loadNoteDoc } from "./read.js";
@@ -128,27 +128,9 @@ export async function insertEditRecord(db: Db, row: typeof noteAiEdits.$inferIns
   });
 }
 
+/** 本體（含「濾自連結排在 slice 之前」「例外降級為 warn」的理由）在 `notes/links.ts` 的 `syncLinksFromDoc`（#175 PR2：複製共用）。 */
 export async function updateNoteLinks(deps: ApplyDeps, p: { sourceNoteId: string; userId: string; forkDoc: Y.Doc; clock: number }): Promise<void> {
-  // spec §6.1 步驟 5 說「先自行去重、濾自連結、slice」——去重那半 `extractLinkTargets` 已經做完了
-  // （shared `note-markdown.ts` 結尾就是 `[...new Set(found)].sort()`），這裡再包一層 Set 是死碼。
-  // 濾自連結必須排在 slice **之前**：反過來的話，一個排在前面的 self-link 會佔掉一個名額，把真正
-  // 的第 1000 個目標擠掉。
-  const deduped = extractLinkTargets(p.forkDoc).filter(t => t !== p.sourceNoteId);
-  const trimmed = deduped.slice(0, MAX_LINK_TARGETS);
-  if (trimmed.length < deduped.length) deps.log.warn({ noteId: p.sourceNoteId, kept: trimmed.length, dropped: deduped.length - trimmed.length }, "wikilink 目標超過 MAX_LINK_TARGETS，已截斷");
-  const norm = normalizeLinkTargets(p.sourceNoteId, trimmed);
-  if (!norm.ok) return;
-  // ⚠ 這個函式跑在**內容已落盤、note_ai_edits 也已寫**之後，是整條鏈的最後一步。`writeNoteLinks`
-  // 對「忙碌」是回值（"busy"）不是拋出，所以它真的 throw 就代表 DB 故障——讓例外逃出去會把一次
-  // 完全成功的寫入回成 500，而外部 AI 對 500 幾乎一定重試 → 同一筆編輯被套用兩次、紀錄多一列。
-  // 這條鏈上其他每個失敗形都有明確語意，唯獨這個沒有，所以在這裡降級成警告：代價只是 wikilink
-  // 索引落後（已記在 known-limitations），下一次該筆記的連結集合再變就會補上。
-  try {
-    const outcome = await writeNoteLinks(deps.db, { sourceNoteId: p.sourceNoteId, userId: p.userId, targetIds: norm.targets, clock: p.clock });
-    if (outcome !== "applied") deps.log.warn({ noteId: p.sourceNoteId, outcome }, "note_links 未更新（CAS 落敗或忙碌）");
-  } catch (err) {
-    deps.log.warn({ noteId: p.sourceNoteId, err }, "note_links 寫入失敗，索引暫時落後（內容與紀錄已成功）");
-  }
+  return syncLinksFromDoc(deps, { sourceNoteId: p.sourceNoteId, userId: p.userId, doc: p.forkDoc, clock: p.clock });
 }
 
 /**

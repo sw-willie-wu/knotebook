@@ -692,8 +692,8 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     aiRoutes({ db: deps.db, config: deps.config, runtime: deps.ai, limiters: { ai: limiters.ai }, idleTimeoutMs: options.aiIdleTimeoutMs })
   );
   // `NotesRouteDeps.limiters` 的型別只列它實際用到的鍵（`collabToken`/`slugPatch`，
-  // #72 起含 `publicLink`；見該 interface 說明）——這裡傳整包 `limiters`（含
-  // `upload`）給它，屬於變數（非物件
+  // #72 起含 `publicLink`，#175 起含 `upload`——複製與上傳端點共用同一個實例；見該 interface 說明）——這裡傳整包
+  // `limiters` 給它，屬於變數（非物件
   // 字面值）賦值給較窄的結構型別，TS 不做 excess property check，不需要另外
   // pick／窄化。`uploadsRoutes` 自己的 deps 只挑 `upload` 這一個節流器。
   void app.register(uploadsRoutes({ db: deps.db, config: deps.config, limiters: { upload: limiters.upload }, uploadsDir: deps.uploadsDir }));
