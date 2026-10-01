@@ -8,6 +8,12 @@ import { ADMIN, createNote, editorLocator, loginAs, randomEmail } from "./helper
  * 該篇從 B 的側欄消失。斷言形沿用 03（10 秒 SLA、exact toast）與 11（公開端點 toPass 輪詢）。
  * 「B 留在該頁」只斷言網址與編輯器狀態：分不出「沒斷線」與「斷線後又重連」，所以這支不宣稱前者。
  * 結束時（含失敗）刪掉這支建的群組，不讓 admin 留在 `E2E Move Group …` 裡。
+ *
+ * ⚠ #175 PR1 起以 `test.fixme` 暫停（plan 規格落差 11、spec §13 PR1「16 暫 skip」）：PUT/DELETE
+ * `…/group` 端點與分享面板的 NoteGroupSection（所屬群組下拉、Move to group、Remove from group、群組成員
+ * 層級下拉、Add to group）已移除，群組筆記的分享面板改成無 radio 的群組版。PR2 以移動／複製
+ * （`POST …/move`、`POST …/copy`）改寫整支；開頭「個人筆記 Members only＋公開連結」那段在 PR1 仍有效，
+ * 改寫時沿用。
  */
 
 const TEMP_PASSWORD = "e2e-second-user-temp-pw";
@@ -57,7 +63,7 @@ async function firstLogin(browser: Browser, email: string): Promise<{ page: Page
   return { page, close: () => context.close() };
 }
 
-test("所屬群組：個人筆記搬進群組（清逐人分享與公開連結）→ 兩態 → 改唯讀 → 移出群組", async ({ browser, request }) => {
+test.fixme("所屬群組：個人筆記搬進群組（清逐人分享與公開連結）→ 兩態 → 改唯讀 → 移出群組（#175 PR1：PUT/DELETE …/group 與 NoteGroupSection 已移除；PR2 以移動／複製改寫）", async ({ browser, request }) => {
   test.setTimeout(180_000);
   const adminContext = await browser.newContext();
   const closers: Array<() => Promise<void>> = [];
