@@ -625,7 +625,7 @@ describe("NoteList", () => {
       expect(onCreateNote).toHaveBeenLastCalledWith(lookalike.id);
     });
 
-    it("#175 §8.2：群組段「＋」只在 myRole.permissions.create 時渲染——不能建立的角色沒有「＋」，⋮ 照舊", async () => {
+    it("#175 §8.2：群組段「＋」只在能建立且能編輯時渲染——不能建立的角色沒有「＋」，⋮ 照舊", async () => {
       // 自訂角色「讀者」：只有 read。一般成員（內建）有 create——兩個群組並排，各看各的角色。
       const readerRole = memberRole({
         id: "r-reader",
@@ -646,6 +646,23 @@ describe("NoteList", () => {
       expect(screen.getByRole("button", { name: "Group actions for Readers" })).toBeInTheDocument();
       fireEvent.click(writersPlus);
       expect(onCreateNote).toHaveBeenLastCalledWith(memberGroup.id);
+    });
+
+    it("#175 PR3（spec 疑點 11）：能新建但不能編輯的角色沒有「＋」——建出來的是自己也改不了的空白筆記；⋮ 照舊", async () => {
+      const creatorRole = memberRole({
+        id: "r-creator",
+        builtin: null,
+        name: "Creators only",
+        permissions: { ...memberRole().permissions, create: true, edit: false },
+      });
+      const creatorsGroup = groupDto({ id: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee", name: "Creators" }, creatorRole);
+      const memberGroup = groupDto({ id: "cccccccc-cccc-cccc-cccc-cccccccccccc", name: "Writers" }, memberRole());
+      stubNotesFetch([OWNER_NOTE], [creatorsGroup, memberGroup]);
+      renderNoteList({ onCreateNote: vi.fn() });
+
+      expect(await screen.findByRole("button", { name: "New note in Writers" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "New note in Creators" })).toBeNull();
+      expect(screen.getByRole("button", { name: "Group actions for Creators" })).toBeInTheDocument();
     });
 
     it("#175：`myRole` 為 null 的群組（防禦；GET /api/groups 理論上不回）→ 不渲染「＋」、不丟錯", async () => {

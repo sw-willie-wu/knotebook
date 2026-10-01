@@ -10,9 +10,9 @@ import { apiTokens, groupMembers, groupRoles, groups, noteRedirects, notes, oaut
 
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
-/** drizzle 對 `schema.ts` 的序列化；宣告漂移守衛拿最新一支（0012）當比對基準。 */
-const snapshot0012 = JSON.parse(
-  readFileSync(path.join(drizzleDirForTest, "meta/0012_snapshot.json"), "utf8"),
+/** drizzle 對 `schema.ts` 的序列化；宣告漂移守衛拿最新一支（0013）當比對基準。 */
+const snapshot0013 = JSON.parse(
+  readFileSync(path.join(drizzleDirForTest, "meta/0013_snapshot.json"), "utf8"),
 ) as { tables: Record<string, { checkConstraints?: Record<string, { name: string; value: string }> }> };
 const pgDialect = new PgDialect();
 
@@ -1180,7 +1180,7 @@ describe("0009_api-tokens", () => {
       // 名字仍在、DB 仍是舊值，上面每一條都綠——下一次 generate 才會靜默吐出一支
       // DROP/ADD CONSTRAINT。這個 PR 就踩過一次（長度上限 200↔64 的半套回滾）。
       // snapshot 是 drizzle 對 schema.ts 的序列化，逐字比對它＝真正的漂移守衛。
-      const snapshotChecks = snapshot0012.tables[`public.${table}`]?.checkConstraints ?? {};
+      const snapshotChecks = snapshot0013.tables[`public.${table}`]?.checkConstraints ?? {};
       expect(Object.keys(snapshotChecks).sort(), `${table} 的 CHECK 名集合`).toEqual(
         cfg.checks.map(c => c.name).sort()
       );
@@ -1275,7 +1275,7 @@ describe("0009_api-tokens", () => {
 
 /**
  * #175 PR1：0012_groups-v2（spec §10）。五組 fixture（S／F2／F3／X1／X2）都跑在 §7-H harness 上：
- * applyThrough(0011) → 塞 0011 形資料 → runMigrations（只剩 0012 pending）→ 逐欄比對。
+ * applyThrough(0011) → 塞 0011 形資料 → runMigrations（0012、0013 pending）→ 逐欄比對。
  * fixture 與預期值逐字取自 spec gate r1–r3 的實跑（`175-spec-gate-r{1,2,3}-report.md`）。
  */
 describe("0012_groups-v2（#175）", () => {
@@ -1456,7 +1456,6 @@ describe("0012_groups-v2（#175）", () => {
       [`update group_roles set can_delete = false where group_id = $1 and builtin = 'admin'`, [G], "23514", "group_roles_admin_all_chk"],
       [`insert into group_roles (group_id, name, can_read, can_edit) values ($1, 'r', false, true)`, [G], "23514", "group_roles_read_implied_chk"],
       [`insert into group_roles (group_id, name, can_read, can_manage_public_link) values ($1, 'p', false, true)`, [G], "23514", "group_roles_read_implied_chk"],
-      [`insert into group_roles (group_id, name, can_read, can_create) values ($1, 'c', true, true)`, [G], "23514", "group_roles_create_needs_edit_chk"],
       [`update group_roles set name = 'x' where id = $1`, [memberRoleG], "23514", "group_roles_name_chk"],
       [`insert into group_roles (group_id) values ($1)`, [G], "23514", "group_roles_name_chk"],
       [`insert into group_roles (group_id, name) values ($1, '')`, [G], "23514", "group_roles_name_len_chk"],
@@ -1508,5 +1507,27 @@ describe("0012_groups-v2（#175）", () => {
     const sql = readFileSync(path.join(drizzleDirForTest, `${entry!.tag}.sql`), "utf8");
     expect(sql.toUpperCase()).not.toContain("CONCURRENTLY");
     expect(sql).not.toMatch(/^\s*COMMIT\s*;/im);
+  });
+});
+
+/**
+ * #175 PR3：0013_role-create-without-edit——拿掉 `group_roles_create_needs_edit_chk`（Willie 2026-10-01 裁決：新建不蘊含編輯）。
+ */
+describe("0013_role-create-without-edit（#175 PR3）", () => {
+  it("0012 擋 create-only 角色；0013 之後放行，其餘 CHECK 仍在", async () => {
+    const { db, pool } = await freshEmptyDb();
+    await applyMigrationsThrough(pool, idxOfTag("0012_groups-v2"));
+    const G = (await pool.query(`insert into groups (name) values ('G') returning id`)).rows[0].id as string;
+    const createOnly = `insert into group_roles (group_id, name, can_read, can_create, can_edit) values ($1, 'c', true, true, false)`;
+    await expect(pool.query(createOnly, [G])).rejects.toMatchObject({ code: "23514", constraint: "group_roles_create_needs_edit_chk" });
+
+    await runMigrations(db);
+
+    await pool.query(createOnly, [G]);
+    const gone = await pool.query(`select count(*)::int as n from pg_constraint where conname = 'group_roles_create_needs_edit_chk'`);
+    expect(gone.rows[0].n).toBe(0);
+    await expect(
+      pool.query(`insert into group_roles (group_id, name, can_read, can_edit) values ($1, 'r', false, true)`, [G]),
+    ).rejects.toMatchObject({ code: "23514", constraint: "group_roles_read_implied_chk" });
   });
 });

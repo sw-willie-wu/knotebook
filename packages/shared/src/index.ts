@@ -339,6 +339,10 @@ export const ERROR_CODES = [
   // `role_not_found`＝404，成員路由帶的 `roleId` 不合法或不屬於該群組（§6.7）。
   "group_not_empty",
   "role_not_found",
+  // #175 PR3：`builtin_role`＝409，對內建角色做不允許的事（改內建管理員、改內建一般成員的名稱、刪任一內建角色；Q10）；
+  // `role_name_taken`＝409，自訂角色名稱（trim＋NFC 後、不分大小寫）與同群組另一個自訂角色相同，或等於任一語系的內建顯示名（§4.1）。
+  "builtin_role",
+  "role_name_taken",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
@@ -880,3 +884,4 @@ export function safeNextPath(input: string | null | undefined): string | null {
 export * from "./note-schema-config.js";
 export * from "./note-sections.js";
 export * from "./note-markdown.js";
+export * from "./group-roles.js";

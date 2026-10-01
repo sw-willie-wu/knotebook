@@ -313,7 +313,7 @@
       "nameSaved": "Group renamed.",
       "membersTitle": "Members",
       "membersDescriptionAdmin": "Add people by email. Members see every note in this group.",
-      "membersDescriptionMember": "Only a group admin can add or remove members.",
+      "membersDescriptionMember": "Only people whose role can manage members can add or remove members.",
       "tableName": "Name",
       "tableEmail": "Email",
       "tableRole": "Role",
@@ -325,7 +325,66 @@
       "addRoleLabel": "Role for new member",
       "add": "Add",
       "dangerTitle": "Delete group",
-      "leaveTitle": "Leave group"
+      "leaveTitle": "Leave group",
+      "tabsLabel": "Group settings sections",
+      "tabMembers": "Members",
+      "tabRoles": "Roles"
+    },
+    "roles": {
+      "title": "Roles",
+      "descriptionManage": "Each member has one role, and the role decides what they can do. The built-in Admin role can't be changed; the built-in Member role is what new members get, and it can't be renamed or deleted.",
+      "descriptionView": "Each member has one role, and the role decides what they can do. Only people whose role can manage roles and the group can change these.",
+      "legendTitle": "What each permission allows",
+      "readAlways": "Every role can read the group's notes, their backlinks and their AI edit history.",
+      "flags": {
+        "create": {
+          "label": "Create",
+          "description": "Create notes in the group. Without Edit, a note you create is read-only for you too."
+        },
+        "edit": {
+          "label": "Edit",
+          "description": "Change the content and title of the group's notes."
+        },
+        "delete": {
+          "label": "Delete",
+          "description": "Delete any note in the group, including ones other people created."
+        },
+        "managePublicLink": {
+          "label": "Manage public links",
+          "description": "Turn the anonymous public link of the group's notes on and off, and change a note's URL name through the API."
+        },
+        "manageMembers": {
+          "label": "Manage members",
+          "description": "Add and remove people and change their roles — including making anyone, themselves included, an Admin. A group always keeps at least one Admin."
+        },
+        "manageGroup": {
+          "label": "Manage roles & group",
+          "description": "Rename or delete the group, and create, change and delete its roles."
+        }
+      },
+      "flagFor": "{{flag}} for {{role}}",
+      "nameFor": "Name of {{role}}",
+      "adminLocked": "The built-in Admin role always has every permission and can't be changed.",
+      "apply": "Apply",
+      "applyFor": "Apply changes to {{role}}",
+      "applied": "Changes applied.",
+      "deleteShort": "Delete",
+      "deleteFor": "Delete {{role}}",
+      "delete": {
+        "title": "Delete role?",
+        "description_one": "{{count}} member who has this role will become a Member.",
+        "description_other": "{{count}} members who have this role will become Members.",
+        "descriptionEmpty": "Nobody has this role.",
+        "confirm": "Delete role"
+      },
+      "newRole": "New role",
+      "dialog": {
+        "title": "New role",
+        "description": "Name the role and turn on what it allows. You can change both later.",
+        "nameLabel": "Role name",
+        "create": "Create"
+      },
+      "invalidName": "Role names must be 1–40 characters."
     }
   },
   "settings": {
@@ -551,11 +610,13 @@
     "last_admin": "A group needs at least one admin. Make someone else an admin first.",
     "already_member": "That person is already in this group.",
     "group_not_found": "We couldn't find that group.",
-    "note_in_group": "Group notes can't be shared with individual people. Ask a group admin to add them to the group instead.",
+    "note_in_group": "Group notes can't be shared with individual people. Ask someone whose role can manage the group's members to add them to the group instead.",
     "invalid_name": "Group names must be 1–80 characters.",
     "conflict": "Something changed while you were doing that. Reload and try again.",
     "group_not_empty": "This group still has notes in it, so it can't be deleted.",
     "role_not_found": "We couldn't find that role.",
+    "builtin_role": "Built-in roles can't be deleted or renamed, and the built-in Admin role can't be changed.",
+    "role_name_taken": "That name is already used by another role in this group, or is reserved for a built-in role.",
     "fallback": "An unexpected error occurred."
   }
 }

@@ -7,7 +7,9 @@
  * 兩邊都降級、最終 0 位管理員）。不可把鎖與計數併成同一條敘述、不可改用 REPEATABLE READ。
  */
 import { and, asc, eq, sql } from "drizzle-orm";
-import type { BuiltinGroupRole, GroupDto, GroupRoleDto } from "@knotebook/shared";
+import {
+  GROUP_ROLE_NAME_MAX, normalizeRoleName, type BuiltinGroupRole, type GroupDto, type GroupRoleDto, type GroupRoleFlags,
+} from "@knotebook/shared";
 import type { DbOrTx, Tx } from "../db/tx.js";
 import { groupMembers, groupRoles, groups, notes } from "../db/schema.js";
 import { UUID_RE } from "../notes/service.js";
@@ -195,4 +197,46 @@ export function listRolesQuery(db: DbOrTx, groupId: string) {
 /** 群組內所有筆記的 id（移人／換角色時的踢線名單；只組不執行）。走 `notes_group_slug_idx`（group_id 開頭）。 */
 export function groupNoteIdsQuery(db: DbOrTx, groupId: string) {
   return db.select({ id: notes.id }).from(notes).where(eq(notes.groupId, groupId));
+}
+
+/**
+ * #175 PR3：自訂角色名稱（spec §4.1；gate r1 I6、r2 M-9）。先擋 NUL 與落單代理（`hasUnstorableChar`，比照 `validateGroupName`），
+ * 再 trim → NFC，長度以 code point 計 1..40（與 DB `group_roles_name_len_chk` 同單位）。不合法回 null。保留名另由
+ * `isReservedRoleName` 判（409，不是 400）。回的是**正規化後**的值——存這個，`' reader '` 與 `Reader` 才會在 `lower()` 索引下撞。
+ */
+export function validateRoleName(raw: string): string | null {
+  if (hasUnstorableChar(raw)) return null;
+  const name = normalizeRoleName(raw);
+  const length = Array.from(name).length;
+  return length >= 1 && length <= GROUP_ROLE_NAME_MAX ? name : null;
+}
+
+/** 六個可設旗標 → `group_roles` 欄。`can_read` 恆寫 true（閱讀恆真，plan spec 疑點 10）。 */
+export function roleFlagValues(f: GroupRoleFlags) {
+  return {
+    canRead: true as const,
+    canCreate: f.create,
+    canEdit: f.edit,
+    canDelete: f.delete,
+    canManagePublicLink: f.managePublicLink,
+    canManageMembers: f.manageMembers,
+    canManageGroup: f.manageGroup,
+  };
+}
+
+/** 單一角色（含 `memberCount`），列形同 `listRolesQuery`；不屬於該群組 → 空陣列（只組不執行）。 */
+export function roleByIdQuery(db: DbOrTx, groupId: string, roleId: string) {
+  return db
+    .select(roleColumns())
+    .from(groupRoles)
+    .where(and(eq(groupRoles.groupId, groupId), eq(groupRoles.id, roleId)))
+    .limit(1);
+}
+
+/** 掛這個角色的成員（T12／T13 的踢線名單；只組不執行）。 */
+export function roleHolderIdsQuery(db: DbOrTx, groupId: string, roleId: string) {
+  return db
+    .select({ userId: groupMembers.userId })
+    .from(groupMembers)
+    .where(and(eq(groupMembers.groupId, groupId), eq(groupMembers.roleId, roleId)));
 }

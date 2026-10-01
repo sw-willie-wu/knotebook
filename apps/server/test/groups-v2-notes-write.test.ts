@@ -40,7 +40,7 @@ function moverHook(db: () => Db, state: MoverState) {
 }
 
 describe("#175 POST /api/notes {groupId}（§6.2，gate r1 I3、r4 N-2）", () => {
-  it("成員（有新建旗標）：帶與不帶 content 都 201，role 恆 editor、owner 欄 null、groupId／group 有值、permissions 取角色；個人建立仍是 owner", async () => {
+  it("成員（內建一般成員）：帶與不帶 content 都 201，role editor、owner 欄 null、groupId／group 有值、permissions 取角色；個人建立仍是 owner", async () => {
     const { app, db } = await buildTestApp();
     const s = await scene(db);
     const bare = await call(app, "POST", "/api/notes", s.member.id, { groupId: s.g.id, title: "Plan" });

@@ -91,9 +91,9 @@ export const groups = pgTable("groups", {
 
 /**
  * #175（migration 0012）：群組角色。七旗標（spec §4.1）；內建兩個（`builtin` = admin／member，`name` 恆 NULL，
- * 顯示名走 i18n——Q19），自訂角色（`builtin` NULL、`name` 必填，PR3 才有建立端點）。六條 CHECK：`builtin` 值域；
- * S8 的名稱兩條（內建恰無名、自訂恰有名；名稱 1..40 字）；S8／S10 的旗標三條（內建管理員七旗標全真；四個筆記旗標
- * ⇒ 閱讀；新建 ⇒ 編輯）。兩個管理旗標彼此獨立、也不蘊含閱讀（gate r2 M-4）——刻意沒有 CHECK。
+ * 顯示名走 i18n——Q19），自訂角色（`builtin` NULL、`name` 必填，`POST /api/groups/:id/roles` 建立，#175 PR3）。五條 CHECK：`builtin` 值域；
+ * S8 的名稱兩條（內建恰無名、自訂恰有名；名稱 1..40 字）；S8／S10 的旗標兩條（內建管理員七旗標全真；四個筆記旗標
+ * ⇒ 閱讀）——「新建 ⇒ 編輯」在 0013 拿掉（#175 PR3，Willie 裁決：自訂角色怎麼組合由管理者決定）。0013 拿掉 `group_roles_create_needs_edit_chk` 後實質不可逆：一旦有人建了 create-only 角色，要加回這條 CHECK 必須先修正那些資料。兩個管理旗標彼此獨立、也不蘊含閱讀（gate r2 M-4）——刻意沒有 CHECK。
  * `(group_id, id)` 唯一索引是 `group_members` 複合 FK 的目標（S7：成員的角色屬同一群組）。
  */
 export const groupRoles = pgTable("group_roles", {
@@ -115,7 +115,6 @@ export const groupRoles = pgTable("group_roles", {
   check("group_roles_name_len_chk", sql`${t.name} is null or length(${t.name}) between 1 and 40`),
   check("group_roles_admin_all_chk", sql`${t.builtin} is distinct from 'admin' or (${t.canRead} and ${t.canCreate} and ${t.canEdit} and ${t.canDelete} and ${t.canManagePublicLink} and ${t.canManageMembers} and ${t.canManageGroup})`),
   check("group_roles_read_implied_chk", sql`${t.canRead} or not (${t.canCreate} or ${t.canEdit} or ${t.canDelete} or ${t.canManagePublicLink})`),
-  check("group_roles_create_needs_edit_chk", sql`${t.canEdit} or not ${t.canCreate}`),
   uniqueIndex("group_roles_group_id_id_idx").on(t.groupId, t.id),
   uniqueIndex("group_roles_builtin_idx").on(t.groupId, t.builtin).where(sql`${t.builtin} is not null`),
   uniqueIndex("group_roles_name_idx").on(t.groupId, sql`lower(${t.name})`).where(sql`${t.builtin} is null`),

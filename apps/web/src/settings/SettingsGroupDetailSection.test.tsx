@@ -536,4 +536,25 @@ describe("SettingsGroupDetailSection（/settings/groups/:id，spec §8.5）", ()
     const [, stateJson] = screen.getByTestId("location").textContent!.split("|");
     expect(JSON.parse(stateJson)).toEqual({ backgroundLocation: bgLocation });
   });
+
+  it("#175 PR3 分頁：成員頁也有「Group settings sections」nav，Members 是 aria-current；點 Roles → /settings/groups/:id/roles 並保留 backgroundLocation", async () => {
+    const bgLocation = { pathname: "/n/me/some-note", search: "", hash: "", state: null, key: "bg1" } as Location;
+    renderDetailRoute(
+      { pathname: `/settings/groups/${GROUP_ADMIN.id}`, state: { backgroundLocation: bgLocation } },
+      fetchFor(GROUP_ADMIN, () => [member(ME.id, ME.email, "Me", ADMIN_ROLE)]),
+    );
+    const dialog = await screen.findByRole("dialog");
+    const nav = await within(dialog).findByRole("navigation", { name: "Group settings sections" });
+    const membersLink = within(nav).getByRole("link", { name: "Members" });
+    const rolesLink = within(nav).getByRole("link", { name: "Roles" });
+    expect(membersLink).toHaveAttribute("aria-current", "page");
+    expect(rolesLink).not.toHaveAttribute("aria-current");
+    expect(rolesLink).toHaveAttribute("href", `/settings/groups/${GROUP_ADMIN.id}/roles`);
+
+    fireEvent.click(rolesLink);
+
+    await waitFor(() => expect(screen.getByTestId("location").textContent).toMatch(new RegExp(`^/settings/groups/${GROUP_ADMIN.id}/roles\\|`)));
+    const [, stateJson] = screen.getByTestId("location").textContent!.split("|");
+    expect(JSON.parse(stateJson)).toEqual({ backgroundLocation: bgLocation });
+  });
 });

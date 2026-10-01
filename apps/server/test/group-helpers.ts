@@ -69,7 +69,12 @@ export async function seedGroup(
 
 type RoleFlag = "canRead" | "canCreate" | "canEdit" | "canDelete" | "canManagePublicLink" | "canManageMembers" | "canManageGroup";
 
-/** 自訂角色（PR1 沒有建角色的端點——只在測試裡直插；旗標蘊含由 DB CHECK 守，給錯組合會 23514）。 */
+/**
+ * 自訂角色（測試直插，繞過 `POST …/roles`；**預設 `canRead: false`**——那是 DB 仍允許、生產路徑寫不出的「不可讀」角色，
+ * 新測試要可讀的角色就明寫 `canRead: true`）。旗標組合仍受兩條 CHECK 約束：四個筆記旗標（新建／編輯／刪除／管理公開連結）⇒ 閱讀
+ * （`group_roles_read_implied_chk`）、內建管理員七旗標全真（`group_roles_admin_all_chk`），給錯組合會 23514；
+ * 「新建 ⇒ 編輯」自 migration 0013 起不在。
+ */
 export async function seedRole(db: Db, groupId: string, name: string, flags: Partial<Record<RoleFlag, boolean>>): Promise<string> {
   const [r] = await db.insert(groupRoles).values({ groupId, name, canRead: false, ...flags }).returning({ id: groupRoles.id });
   return r!.id;
@@ -185,10 +190,12 @@ export interface MatrixScene {
   outsider: SeededUser;
   siteAdmin: SeededUser;
   newcomer: SeededUser;
+  /** #175 PR3：沒有人掛的自訂角色（六旗標全關，只有恆真的閱讀）。 */
+  customRoleId: string;
 }
 
 export interface MatrixEndpoint {
-  method: "GET" | "PUT" | "PATCH" | "DELETE";
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   /** `groupId` 已依 actor 換好（`badId`＝非 UUID、`missing`＝不存在的 UUID）。 */
   url: (groupId: string, scene: MatrixScene) => string;
   payload?: (scene: MatrixScene) => Record<string, unknown>;
@@ -207,7 +214,8 @@ async function seedMatrixScene(db: Db): Promise<MatrixScene> {
     { userId: member.id, role: "member" },
     { userId: other.id, role: "member" },
   ]);
-  return { groupId: g.id, admin, member, other, outsider, siteAdmin, newcomer };
+  const customRoleId = await seedRole(db, g.id, "Matrix custom", { canRead: true });
+  return { groupId: g.id, admin, member, other, outsider, siteAdmin, newcomer, customRoleId };
 }
 
 /**

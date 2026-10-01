@@ -226,7 +226,7 @@ These are the MCP-specific entries in the shared [Known limitations](./known-lim
 
 - [A fingerprint is concurrency protection, not permission protection](./known-limitations.md)
 - [A per-minute read limit is not a per-turn context budget](./known-limitations.md)
-- [Notes other people shared with you end up in your assistant's context](./known-limitations.md)
+- [Notes other people shared with you, and your groups' notes, end up in your assistant's context](./known-limitations.md)
 - [MCP clients can read and edit group notes, but can't create one in a group yet](./known-limitations.md)
 - [There is no cross-note view of what an assistant changed](./known-limitations.md)
 - [A wrong `PUBLIC_URL` makes MCP requests that carry an `Origin` header answer `403`](./known-limitations.md)

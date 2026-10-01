@@ -7,30 +7,46 @@
  * body 的 `roleId`（`PUT`／`PATCH …/members`）非 UUID 或不屬於此群組 → 404 `role_not_found`（「找不到此角色」，不是上面
  * 那條 `not_found`）；它的 UUID 檢查在 403 與 body 形狀驗證**之後**，「不屬於此群組」在交易內判定。
  * 每個交易的本體都在 `groups/tx/*`（S14）：路由只做 `db.transaction(tx => xxxInTx(tx, …))` 與 commit 後的踢線。
+ * 角色端點（PR3）：`POST …/roles` 是單句 INSERT；`PATCH`／`DELETE …/roles/:roleId` 的本體是 `groups/tx/roles.ts`（T12、T13）；
+ * 三支都要 `manageGroup`，`:roleId` 非 UUID 或不屬於此群組 → 404 `role_not_found`，內建角色受限 → 409 `builtin_role`。
  */
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 import { asc, eq, sql } from "drizzle-orm";
-import { normalizeEmail, type BuiltinGroupRole, type GroupMemberDto } from "@knotebook/shared";
+import {
+  GROUP_ROLE_FLAGS, isReservedRoleName, normalizeEmail, type BuiltinGroupRole, type GroupMemberDto, type GroupRoleDto, type GroupRoleFlag,
+} from "@knotebook/shared";
 import type { Db } from "../db/index.js";
 import { groupMembers, groupRoles, groups, users } from "../db/schema.js";
-import { isForeignKeyViolation } from "../db/pg-errors.js";
+import { isForeignKeyViolation, uniqueViolationConstraint } from "../db/pg-errors.js";
 import type { CollabHooks } from "../collab/hooks.js";
 import type { GroupTestHook } from "../groups/test-hook.js";
 import { sendError } from "../http/errors.js";
 import { TxAbort } from "../http/tx-abort.js";
 import { UUID_RE } from "../notes/service.js";
 import {
-  GROUP_NOT_FOUND_MESSAGE, groupAccess, groupWithMyRoleQuery, listMyGroupsQuery, listRolesQuery, toGroupDto, toGroupRoleDto,
-  validateGroupName,
+  GROUP_NOT_FOUND_MESSAGE, groupAccess, groupWithMyRoleQuery, listMyGroupsQuery, listRolesQuery, roleFlagValues, toGroupDto, toGroupRoleDto,
+  validateGroupName, validateRoleName,
 } from "../groups/queries.js";
 import { createGroupInTx } from "../groups/tx/create-group.js";
 import { deleteEmptyGroupInTx } from "../groups/tx/delete-group.js";
 import { addMemberInTx, removeMemberInTx, setMemberRoleInTx } from "../groups/tx/members.js";
+import { deleteRoleInTx, updateRoleInTx } from "../groups/tx/roles.js";
 
 const nameBodySchema = z.object({ name: z.string() }).strict();
 const addMemberBodySchema = z.object({ email: z.string().email(), roleId: z.string().optional() }).strict();
 const memberRoleBodySchema = z.object({ roleId: z.string() }).strict();
+// 六個可設旗標（鍵取自 shared 的 `GROUP_ROLE_FLAGS`，與 web 角色頁同一份），全必填；沒有 `read`（閱讀恆真）——
+// `.strict()` 讓帶 `read` 的 body 回 400，而不是收下後默默忽略。
+const roleFlagsSchema = z
+  .object(Object.fromEntries(GROUP_ROLE_FLAGS.map(flag => [flag, z.boolean()])) as Record<GroupRoleFlag, z.ZodBoolean>)
+  .strict();
+const createRoleBodySchema = z.object({ name: z.string(), permissions: roleFlagsSchema }).strict();
+// `permissions` 給就是六鍵全給（不收部分更新、不收 `read`）；兩鍵都不給 → 400。
+const patchRoleBodySchema = z
+  .object({ name: z.string().optional(), permissions: roleFlagsSchema.optional() })
+  .strict()
+  .refine(b => b.name !== undefined || b.permissions !== undefined, { message: "至少要改名稱或權限其中一項" });
 
 export interface GroupsRouteDeps {
   db: Db;
@@ -51,6 +67,8 @@ export function groupsRoutes(deps: GroupsRouteDeps) {
     const invalidName = (reply: FastifyReply): FastifyReply => sendError(reply, 400, "invalid_name", "群組名稱須為 1–80 個字元");
     const replyTxAbort = (reply: FastifyReply, err: unknown): FastifyReply | null =>
       err instanceof TxAbort ? sendError(reply, err.status, err.errCode, err.message) : null;
+    const invalidRoleName = (reply: FastifyReply): FastifyReply => sendError(reply, 400, "invalid_name", "角色名稱須為 1–40 個字元");
+    const roleNameTaken = (reply: FastifyReply): FastifyReply => sendError(reply, 409, "role_name_taken", "這個群組已有同名的角色，或該名稱保留給內建角色");
 
     app.get("/api/groups", { preHandler: app.authenticate }, async request => {
       const rows = await listMyGroupsQuery(deps.db, request.user!.id);
@@ -111,6 +129,91 @@ export function groupsRoutes(deps: GroupsRouteDeps) {
       if (!access) return notFound(reply);
       const rows = await listRolesQuery(deps.db, id);
       return rows.map(row => toGroupRoleDto(row)!);
+    });
+
+    // #175 PR3（§6.7）：建自訂角色。單句 INSERT（spec §6 末段「非交易」）；不踢線（沒有人掛它，§7）。
+    // 順序：groupAccess → 403 → body 形狀 → 名稱 → 保留名 → INSERT（六個旗標任意組合都合法，不驗蘊含——spec 疑點 11）。
+    app.post("/api/groups/:id/roles", { preHandler: app.authenticate }, async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const access = await groupAccess(deps.db, id, request.user!);
+      if (!access) return notFound(reply);
+      if (!access.manageGroup) return forbidden(reply);
+      const parsed = createRoleBodySchema.safeParse(request.body);
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+      const name = validateRoleName(parsed.data.name);
+      if (name === null) return invalidRoleName(reply);
+      if (isReservedRoleName(name)) return roleNameTaken(reply);
+      let inserted: Array<{ id: string }>;
+      try {
+        inserted = await deps.db
+          .insert(groupRoles)
+          .values({ groupId: id, name, ...roleFlagValues(parsed.data.permissions) })
+          .returning({ id: groupRoles.id });
+      } catch (err) {
+        if (uniqueViolationConstraint(err) === "group_roles_name_idx") return roleNameTaken(reply);
+        // 授權之後群組被刪（FK KEY SHARE 等到刪除 commit）→ 與不存在同形
+        // 注意：這條路目前沒有測試守（刪掉本行的突變存活，review r1 N5）；只有 groupAccess 與 INSERT 之間
+        // 剛好有另一請求刪掉群組才會觸發，一般流程碰不到，要測得靠測試縫製造交錯。
+        if (isForeignKeyViolation(err)) return notFound(reply);
+        throw err;
+      }
+      return reply.code(201).send({
+        id: inserted[0]!.id,
+        builtin: null,
+        name,
+        permissions: { read: true, ...parsed.data.permissions },
+        memberCount: 0,
+      } satisfies GroupRoleDto);
+    });
+
+    // #175 PR3 T12（§6.7、§7）：改角色。`:roleId` 的 UUID 檢查在 403 之後（與成員路由 body 的 roleId 一樣排在 403 之後；但這裡是路徑參數，所以排在 body 驗證之前）。
+    // 名稱在交易**之前**正規化好（S14：交易 callback 的引數不得有呼叫）。踢線只在 read／edit 有變、且有人掛時。
+    app.patch("/api/groups/:id/roles/:roleId", { preHandler: app.authenticate }, async (request, reply) => {
+      const { id, roleId } = request.params as { id: string; roleId: string };
+      const access = await groupAccess(deps.db, id, request.user!);
+      if (!access) return notFound(reply);
+      if (!access.manageGroup) return forbidden(reply);
+      if (!UUID_RE.test(roleId)) return roleNotFound(reply);
+      const parsed = patchRoleBodySchema.safeParse(request.body);
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+      const permissions = parsed.data.permissions;
+      let name: string | undefined;
+      if (parsed.data.name !== undefined) {
+        const validated = validateRoleName(parsed.data.name);
+        if (validated === null) return invalidRoleName(reply);
+        if (isReservedRoleName(validated)) return roleNameTaken(reply);
+        name = validated;
+      }
+      let out;
+      try {
+        out = await deps.db.transaction(tx => updateRoleInTx(tx, { groupId: id, roleId, name, permissions }, deps.groupTestHook));
+      } catch (err) {
+        const sent = replyTxAbort(reply, err);
+        if (sent) return sent;
+        if (uniqueViolationConstraint(err) === "group_roles_name_idx") return roleNameTaken(reply);
+        throw err;
+      }
+      if (out.kick !== null && out.kick.userIds.length > 0) deps.collabHooks.onGroupAccessChanged(out.kick.noteIds, out.kick.userIds);
+      return out.role;
+    });
+
+    // #175 PR3 T13（§6.7、Q8、§7）：刪自訂角色；持有者改掛內建一般成員，commit 後以（群組所有筆記, 原持有者）重驗。
+    app.delete("/api/groups/:id/roles/:roleId", { preHandler: app.authenticate }, async (request, reply) => {
+      const { id, roleId } = request.params as { id: string; roleId: string };
+      const access = await groupAccess(deps.db, id, request.user!);
+      if (!access) return notFound(reply);
+      if (!access.manageGroup) return forbidden(reply);
+      if (!UUID_RE.test(roleId)) return roleNotFound(reply);
+      let kick;
+      try {
+        kick = await deps.db.transaction(tx => deleteRoleInTx(tx, { groupId: id, roleId }, deps.groupTestHook));
+      } catch (err) {
+        const sent = replyTxAbort(reply, err);
+        if (sent) return sent;
+        throw err;
+      }
+      if (kick.userIds.length > 0) deps.collabHooks.onGroupAccessChanged(kick.noteIds, kick.userIds);
+      return reply.code(204).send();
     });
 
     app.get("/api/groups/:id/members", { preHandler: app.authenticate }, async (request, reply) => {

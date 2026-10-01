@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ERROR_CODES } from "@knotebook/shared";
+import { BUILTIN_ROLE_DISPLAY_NAMES, ERROR_CODES } from "@knotebook/shared";
 import en from "./en.json";
 import zhTW from "./zh-TW.json";
 
@@ -43,4 +43,15 @@ describe("i18n error message coverage", () => {
       expect(resource.errors.fallback).toBeTypeOf("string");
     });
   }
+});
+
+// #175 PR3（spec §4.1、§15 第 7 條）：server 用 `BUILTIN_ROLE_DISPLAY_NAMES` 擋「自訂角色取內建顯示名」——
+// 那份常數必須等於兩語系 `groups.role.admin`／`groups.role.member` 的值，改顯示名時這裡會紅；
+// 新增語系不會自動紅（這裡只比對寫死 import 的 en／zh-TW），要同步這個陣列與 `BUILTIN_ROLE_DISPLAY_NAMES`。
+describe("內建角色顯示名＝保留名常數", () => {
+  it("BUILTIN_ROLE_DISPLAY_NAMES 恰等於 en／zh-TW 的 groups.role.admin 與 groups.role.member", () => {
+    expect([...BUILTIN_ROLE_DISPLAY_NAMES].sort()).toEqual(
+      [en.groups.role.admin, en.groups.role.member, zhTW.groups.role.admin, zhTW.groups.role.member].sort(),
+    );
+  });
 });
