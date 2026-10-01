@@ -109,8 +109,8 @@ export function useBacklinks(noteId: string | undefined): UseQueryResult<Backlin
 }
 
 /**
- * `groupId`（#103）：在群組裡建筆記，server 預設 `group_role: editor`（D7）；
- * 非成員 404 `group_not_found`。
+ * `groupId`（#103）：在群組裡建筆記；群組筆記的權限來自建立者在該群組的角色。
+ * 角色缺新建旗標 403 `forbidden`；非成員或群組不存在 404 `group_not_found`。
  */
 export function useCreateNote() {
   const queryClient = useQueryClient();

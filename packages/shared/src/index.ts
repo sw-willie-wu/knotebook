@@ -325,10 +325,10 @@ export const ERROR_CODES = [
   "stale",
   // #103 群組：`last_admin`＝409，這個動作會讓群組沒有管理者（最後一位 admin 退出／被移除／被降級）；
   // `already_member`＝409；`group_not_found`＝404，帶進來的 groupId 不存在、你不是成員或剛被刪除
-  // （三者同形）——**但格式不合法的 groupId 分兩支**：`PUT /api/notes/:id/group` 對非 UUID 也回這個
-  // 404（與另外三形同形，四者逐位元組相同）；`POST /api/notes {groupId}` 對非 UUID 回 400
+  // （三者同形）——**但格式不合法的 groupId 不走這個碼**：`POST /api/notes {groupId}` 對非 UUID 回 400
   // `invalid_body`（zod 在路由層就擋掉，走不到這個碼）。`note_in_group`＝409，群組筆記沒有逐人分享；`invalid_name`＝400，群組名稱；
-  // `conflict`＝409，筆記的所屬群組在這次請求的交易內讀到的狀態已變（例如已不在任何群組裡）。
+  // `conflict`＝409，筆記的歸屬在授權之後變了：PATCH 帶 slug 時以授權當下的歸屬當 scope、更新 0 列而列仍在；
+  // public-link PUT 的歸屬述詞（`group_id IS NOT DISTINCT FROM`）落空。
   "last_admin",
   "already_member",
   "group_not_found",
