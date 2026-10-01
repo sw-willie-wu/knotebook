@@ -111,7 +111,8 @@ export class FixedWindowLimiter {
    * 否則 `count + n > limit` 對任何視窗都成立，附件張數超過整窗額度的筆記會永遠複製不了，卻回「請稍後再試」。
    * 夾住後這種大複製每個視窗最多一發（同窗內一般上傳也被擋到窗尾）；它仍受 edit 桶節流。
    * 「要先花約 n／limit 個視窗才傳得上去」只在附件由複製者自己上傳時成立；能看到筆記的成員（含只讀）可複製別人累積的
-   * 附件而不必先付上傳額度，此時每窗最多產出 limit 個新檔（受 upload 桶夾住），每次複製另受 edit 桶節流。
+   * 附件而不必先付上傳額度。附件數 ≤ limit 時每窗最多產出 limit 個新檔；附件數 > limit 的筆記在空窗時一發就產出全部 n 個新檔（扣滿該窗），
+   * 所以每窗產出的新檔數只受該筆記的附件數限制，再加上每次複製另受 edit 桶節流（docs/known-limitations.md「Anyone who can read a note can re-store its attachments…」條）。
    */
   consumeMany(key: string, n: number): boolean {
     if (n <= 0) return true;

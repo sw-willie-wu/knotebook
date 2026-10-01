@@ -325,10 +325,10 @@ export const ERROR_CODES = [
   "stale",
   // #103 群組：`last_admin`＝409，這個動作會讓群組沒有管理者（最後一位 admin 退出／被移除／被降級）；
   // `already_member`＝409；`group_not_found`＝404，帶進來的 groupId 不存在、你不是成員或剛被刪除
-  // （三者同形）——**但格式不合法的 groupId 不走這個碼**：`POST /api/notes {groupId}` 對非 UUID 回 400
-  // `invalid_body`（zod 在路由層就擋掉，走不到這個碼）。`note_in_group`＝409，群組筆記沒有逐人分享；`invalid_name`＝400，群組名稱；
-  // `conflict`＝409，筆記的歸屬在授權之後變了：PATCH 帶 slug 時以授權當下的歸屬當 scope、更新 0 列而列仍在；
-  // public-link PUT 的歸屬述詞（`group_id IS NOT DISTINCT FROM`）落空。
+  // （同形）；`POST /api/notes {groupId}` 對非 UUID 回 400 `invalid_body`（zod 擋），移動與複製（#175 PR2）
+  // 對非 UUID、以及角色不能新建筆記，也回這個碼（404，§6.3）。`note_in_group`＝409，群組筆記沒有逐人分享；`invalid_name`＝400，群組名稱；
+  // `conflict`＝409，筆記的歸屬在授權之後變了：PATCH 以授權當下的歸屬當 scope、更新 0 列而列仍在（#175 PR2 起四格都是）；
+  // public-link PUT 的歸屬述詞（`group_id IS NOT DISTINCT FROM`）落空；移動時筆記已不是你的個人筆記。
   "last_admin",
   "already_member",
   "group_not_found",

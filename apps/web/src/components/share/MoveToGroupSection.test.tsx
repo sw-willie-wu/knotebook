@@ -241,7 +241,7 @@ describe("MoveToGroupSection（#175 PR2）", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent('Move this note into "Workshop A"?');
-    expect(alert).toHaveTextContent("2 people you shared it with lose access: Bob and Carol.");
+    expect(alert).toHaveTextContent("Per-person sharing with 2 people is removed: Bob and Carol. Anyone not in the group loses access.");
     expect(alert).toHaveTextContent("Its public link will be turned off.");
     expect(alert).toHaveTextContent("Its address changes to /g/…");
     expect(alert).toHaveTextContent("You will no longer own it");
@@ -255,7 +255,7 @@ describe("MoveToGroupSection（#175 PR2）", () => {
     await chooseGroupA();
     fireEvent.click(screen.getByRole("button", { name: "Move" }));
     const alert = await screen.findByRole("alert");
-    expect(alert).not.toHaveTextContent("lose access");
+    expect(alert).not.toHaveTextContent("Per-person sharing");
     expect(alert).not.toHaveTextContent("public link");
     expect(alert).toHaveTextContent("Its address changes to /g/…");
     expect(alert).toHaveTextContent("You will no longer own it");

@@ -79,7 +79,7 @@ describe("#175 PR2 POST /api/notes/:id/move（T3）", () => {
     expect(Array.from(expected).length).toBeLessThanOrEqual(60);
     expect(expected.endsWith("-2")).toBe(true);
     expect(validateSlug(expected)).toBeNull();
-    // 撞名改了網址名（-2）也不動 updated_at——`docs/known-limitations.md` L137「moving a note into a group can give it
+    // 撞名改了網址名（-2）也不動 updated_at——`docs/known-limitations.md`「**`list_notes` pages through live data, not a snapshot.**」條的「moving a note into a group can give it
     // a new URL name, but does not move it in this order」靠這條（案 1 是不撞名的形）；MCP `list_notes` 說明
     // （`LIST_NOTES_DESCRIPTION`）的同義句「a note moved into one of your groups … appear at their own unchanged
     // positions」也靠它。兩句都由 Task 6 寫入。
