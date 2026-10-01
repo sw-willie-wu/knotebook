@@ -84,3 +84,23 @@ export function groupDto(base: { id: string; name: string; createdAt?: string },
     createdAt: base.createdAt ?? "2026-09-01T00:00:00.000Z",
   };
 }
+
+/** #175 PR3：自訂角色（預設六個可設旗標全關＝只能閱讀、沒人掛）。 */
+export function customRole(overrides: Partial<GroupRoleDto> = {}): GroupRoleDto {
+  return {
+    id: "r-custom",
+    builtin: null,
+    name: "Reader",
+    permissions: {
+      read: true,
+      create: false,
+      edit: false,
+      delete: false,
+      managePublicLink: false,
+      manageMembers: false,
+      manageGroup: false,
+    },
+    memberCount: 0,
+    ...overrides,
+  };
+}
