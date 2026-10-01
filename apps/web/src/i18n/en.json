@@ -556,6 +556,8 @@
     "conflict": "Something changed while you were doing that. Reload and try again.",
     "group_not_empty": "This group still has notes in it, so it can't be deleted.",
     "role_not_found": "We couldn't find that role.",
+    "builtin_role": "Built-in roles can't be deleted or renamed, and the built-in Admin role can't be changed.",
+    "role_name_taken": "That name is already used by another role in this group.",
     "fallback": "An unexpected error occurred."
   }
 }

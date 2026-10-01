@@ -556,6 +556,8 @@
     "conflict": "操作期間狀態已變更，請重新讀取後再試。",
     "group_not_empty": "群組內還有筆記，無法刪除。",
     "role_not_found": "找不到此角色。",
+    "builtin_role": "內建角色不能刪除或改名，內建管理員角色也不能修改。",
+    "role_name_taken": "這個群組已有同名的角色。",
     "fallback": "發生未預期的錯誤。"
   }
 }
