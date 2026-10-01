@@ -12,7 +12,8 @@ import { ADMIN, createNote, editorLocator, loginAs, randomEmail } from "./helper
  * 不斷言 A 搬完的角色（主檔規格落差 17：create-only 角色搬完是 viewer；A 是群組建立者＝內建管理員，本支不測
  * create-only——那條由 server Task 3 案 9 與 web Task 9 案 14 守）。v2 沒有「移出群組」（W4），舊版的移出段整段刪除。
  * 斷言形沿用 03（10 秒 SLA、exact toast）、11（真上傳、`naturalWidth` 輪詢、公開端點 `toPass`）、15（設定加成員）。
- * 結束時（含失敗）刪掉這支建的群組（主體通過時群組筆記已刪、群組是空的，刪得掉）。
+ * 主體通過時刪掉這支建的群組（群組筆記已刪、群組是空的，刪得掉）；主體中途失敗時群組可能還有筆記，
+ * `DELETE /api/groups/:id` 回 409，刪除錯誤被吞（不蓋掉原始失敗），群組留待 e2e 疊重建。
  */
 
 const TEMP_PASSWORD = "e2e-second-user-temp-pw";
