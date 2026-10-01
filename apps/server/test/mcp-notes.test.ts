@@ -377,8 +377,9 @@ describe("#108 兩支工具的共同接線", () => {
         "so no later page shows it."
     );
     expect(byName("list_notes")).toContain("Editing a note's content does not move it.");
+    // #175 PR2 補回移動（PR1 plan 規格落差 6）
     expect(byName("list_notes")).toContain(
-      "While you page, a note shared with you or the notes of a group you join appear at their own unchanged positions, which may already be above your cursor."
+      "While you page, a note shared with you, a note moved into one of your groups, or the notes of a group you join appear at their own unchanged positions, which may already be above your cursor."
     );
     expect(byName("search_notes")).toContain(
       "Searches note titles only — not the body text. If you cannot find a note, its title may simply not contain your words."

@@ -9,8 +9,7 @@
  *    不 export 的 `*InTx` 閉包是 X10 形）；
  * ③ `tx/` 裡的 `*InTx` 一律以 `function` 宣告，第一個參數字面上是 `tx: Tx`；
  * ④ 本 spec 動到的三個交易所在檔，`.transaction(` 的 callback **整段**就是一個 `xInTx(tx, …)` 呼叫，而且 `xInTx`
- *    必須是以 `import { … } from "…/tx/…"` 引進的名字——唯一例外是 PR1 還沒抽出的 T14（單篇 `DELETE /api/notes/:id`，
- *    PR2 抽成 `deleteNotesInTx`）；
+ *    必須是以 `import { … } from "…/tx/…"` 引進的名字——無例外（PR2 起 T14 也抽成 `deleteNotesInTx`）；
  * ⑤ 那個呼叫的**引數**（callback 內求值、此時已持有交易連線）只准是識別字、屬性存取與物件字面：**不得有任何 `(`**
  *    （擋住所有以括號形式的呼叫，含 `Number(x)`、`String(x)` 這種轉型）、不得有裸 `db` 識別字（drizzle 的 lazy query）、
  *    `deps.db`、`await`、閉包（`=>`、`function`）與閉包 helper 名。測試縫一律以屬性存取傳入（`deps.groupTestHook`、
@@ -30,7 +29,8 @@
  *   - `code()` 剝註解是字面的：字串字面值裡出現 `//`（不是 `://`）時，同一行之後的程式碼會被當成註解剝掉而看不到（G10）；
  *     屬刻意規避。
  *   - 表外的交易（`auth/bootstrap.ts`、`notes/editing/apply.ts`／`revert.ts`、`routes/oidc.ts`、oauth…）不掃。
- *   - 三個檔以外新加的交易不在掃描範圍（PR2 交接：全 src 逐檔 `.transaction` 白名單計數）。
+ *   - ⑥ 只凍結數量，不檢查範圍外交易的形——tx/ 以外那 9 處由 PR1 Task 10 review 逐一讀過、皆合規；表上第 10 處
+ *     `notes/tx/write-slug.ts` 是 `writeSlugInTx` 內的巢狀 `tx.transaction`（savepoint），本身在 tx/ 裡受 ①③ 掃。
  *   - 在 `.transaction(` **之前** await 完的值當引數傳進去是合法的（那時還沒借交易連線），本檔不管那一段。
  *   - 括號配對不理會字串：字串裡的 `(`／`)` 會讓配對錯位——錯位的結果是 ④ 的計數紅或 ⑤ 紅，不會靜默放行
  *     （gate r2 B R3 的 X8／X9 實測）。
@@ -157,13 +157,13 @@ describe("S14 結構性守衛（#175 §4.4）", () => {
     expect(bad).toEqual([]);
   });
 
-  it("④ routes/notes.ts、routes/groups.ts、notes/links.ts 的交易 callback 整段是 `tx => xInTx(tx, …)`、xInTx 由 tx/ import（T14 例外一處）", () => {
+  it("④ routes/notes.ts、routes/groups.ts、notes/links.ts 的交易 callback 整段是 `tx => xInTx(tx, …)`、xInTx 由 tx/ import（無例外）", () => {
     const perFile = ROUTE_FILES.map(f => {
       const cbs = txCallbacks(code(path.join(SRC, f)));
       return { f, all: cbs.length, inTx: cbs.filter(c => c.inTx).length };
     });
     expect(perFile).toEqual([
-      { f: "routes/notes.ts", all: 3, inTx: 2 }, // T1 PATCH、T2 PUT shares；T14 DELETE 留到 PR2
+      { f: "routes/notes.ts", all: 5, inTx: 5 }, // T1 PATCH、T2 PUT shares、T3 move、T4 copy、T14 DELETE（PR2 抽出）
       { f: "routes/groups.ts", all: 7, inTx: 7 }, // T8 建群組、T9 加人、T10 換角色、T11 移人、T5 刪空群組、T12 改角色、T13 刪角色
       { f: "notes/links.ts", all: 1, inTx: 1 }, // T15
     ]);
@@ -176,5 +176,33 @@ describe("S14 結構性守衛（#175 §4.4）", () => {
         .flatMap(c => ARG_BANNED.filter(([, re]) => re.test(c.args)).map(([name]) => `${f}: ${name}: ${c.args.replace(/\s+/g, " ").slice(0, 100)}`)),
     );
     expect(offenders).toEqual([]);
+  });
+
+  it("PR2：notes/tx 有四支新的交易本體檔", () => {
+    expect(txFiles.map(rel)).toEqual(
+      expect.arrayContaining(["notes/tx/copy.ts", "notes/tx/delete-notes.ts", "notes/tx/move.ts", "notes/tx/write-slug.ts"]),
+    );
+  });
+
+  // 只有在 `ROUTE_FILES` 以外新增或刪掉 `.transaction(` 才改這張表；`ROUTE_FILES` 裡的交易由 ④ 計數。
+  it("⑥ 全 src 的 `.transaction(` 白名單：④ 的三個檔之外，每個檔的呼叫數凍結（新增交易要先列進 spec §6 交易表或這張表）", () => {
+    const counts: Record<string, number> = {};
+    for (const p of files) {
+      const r = rel(p);
+      if (ROUTE_FILES.includes(r)) continue;
+      const n = [...code(p).matchAll(/\.transaction\s*\(/g)].length;
+      if (n > 0) counts[r] = n;
+    }
+    expect(counts).toEqual({
+      "auth/bootstrap.ts": 1,
+      "notes/editing/apply.ts": 1,
+      "notes/editing/revert.ts": 1,
+      "notes/tx/write-slug.ts": 1, // writeSlugInTx 的 savepoint（巢狀 tx.transaction）
+      "routes/admin-ai.ts": 2,
+      "routes/admin-users.ts": 1,
+      "routes/auth.ts": 1,
+      "routes/oauth.ts": 1,
+      "routes/oidc.ts": 1,
+    });
   });
 });

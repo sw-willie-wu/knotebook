@@ -103,6 +103,32 @@ export class FixedWindowLimiter {
   }
 
   /**
+   * #175 PR2 T4（M-1，Willie 裁決）：一次扣 `n` 個單位——複製筆記依「會被複製的附件數」扣 upload 桶。
+   * 與 `consume` 刻意不同：**額度不足時一個都不扣**（回 false、計數不動）。`consume` 的「拒絕也計數」對單次請求是
+   * 懲罰持續重試；照搬到 n 個單位的話，一次被拒的大複製就會把整個視窗剩下的上傳額度吃光，連一般上傳都被擋。
+   * `n <= 0` 恆放行且不開新視窗（零個附件的複製不碰這個桶）。
+   * `n > limit`（T4 review r2 I-1，總管裁定 (a)）：夾到整窗額度——只要求一個**空窗**（count 0），放行後吃滿整窗。
+   * 否則 `count + n > limit` 對任何視窗都成立，附件張數超過整窗額度的筆記會永遠複製不了，卻回「請稍後再試」。
+   * 夾住後這種大複製每個視窗最多一發（同窗內一般上傳也被擋到窗尾）；它仍受 edit 桶節流。
+   * 「要先花約 n／limit 個視窗才傳得上去」只在附件由複製者自己上傳時成立；能看到筆記的成員（含只讀）可複製別人累積的
+   * 附件而不必先付上傳額度。附件數 ≤ limit 時每窗最多產出 limit 個新檔；附件數 > limit 的筆記在空窗時一發就產出全部 n 個新檔（扣滿該窗），
+   * 所以每窗產出的新檔數只受該筆記的附件數限制，再加上每次複製另受 edit 桶節流（docs/known-limitations.md「Anyone who can read a note can re-store its attachments…」條）。
+   */
+  consumeMany(key: string, n: number): boolean {
+    if (n <= 0) return true;
+    const now = Date.now();
+    let window = this.windows.get(key);
+    if (!window || now - window.windowStart >= this.windowMs) {
+      window = { windowStart: now, count: 0 };
+      this.windows.set(key, window);
+    }
+    const need = Math.min(n, this.limit);
+    if (window.count + need > this.limit) return false;
+    window.count += need;
+    return true;
+  }
+
+  /**
    * #72：**不計數**的預檢——只回報「此刻 consume 會不會被拒」，不動計數也不開新
    * 視窗（過期視窗視同未滿，交給之後真正的 consume 開新窗）。公開端點的三步順序
    * 用它在 DB 查詢前擋已超限的 IP，而不提前扣額度（見 PUBLIC_MISS_LIMIT 註解）。

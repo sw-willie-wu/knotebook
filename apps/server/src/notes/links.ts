@@ -5,7 +5,8 @@
  */
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { union } from "drizzle-orm/pg-core";
-import { MAX_BACKLINKS, MAX_LINK_TARGETS, type BacklinkDto } from "@knotebook/shared";
+import type * as Y from "yjs";
+import { MAX_BACKLINKS, MAX_LINK_TARGETS, extractLinkTargets, type BacklinkDto } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
 import { groupMembers, groupRoles, noteLinks, noteShares, notes, users } from "../db/schema.js";
 import { isForeignKeyViolation, isTransientTransactionError } from "../db/pg-errors.js";
@@ -75,6 +76,39 @@ export async function writeNoteLinks(db: Db, params: WriteNoteLinksParams, hooks
     }
     if (isTransientTransactionError(err)) return "busy";
     throw err;
+  }
+}
+
+/**
+ * 從一份 Y.Doc 抽出 wikilink 目標、以 `userId` 的身分寫進 `sourceNoteId` 的出向 `note_links`（`writeNoteLinks`）。
+ * 原本是 `notes/editing/apply.ts` 的 `updateNoteLinks` 本體（#106 的 AI 寫入／撤回路徑），#175 PR2 搬來與複製
+ * （`POST /api/notes/:id/copy` commit 後寫副本的出向連結，spec §6.5）共用；`updateNoteLinks` 改成委派到這裡。
+ * deps 收窄成只要 `db` 與 `log.warn`。
+ */
+export async function syncLinksFromDoc(
+  deps: { db: Db; log: { warn(o: object, m: string): void } },
+  p: { sourceNoteId: string; userId: string; doc: Y.Doc; clock: number },
+): Promise<void> {
+  // spec §6.1 步驟 5 說「先自行去重、濾自連結、slice」——去重那半 `extractLinkTargets` 已經做完了
+  // （shared `note-markdown.ts` 結尾就是 `[...new Set(found)].sort()`），這裡再包一層 Set 是死碼。
+  // 濾自連結必須排在 slice **之前**：反過來的話，一個排在前面的 self-link 會佔掉一個名額，把真正
+  // 的第 1000 個目標擠掉。
+  const deduped = extractLinkTargets(p.doc).filter(t => t !== p.sourceNoteId);
+  const trimmed = deduped.slice(0, MAX_LINK_TARGETS);
+  if (trimmed.length < deduped.length) deps.log.warn({ noteId: p.sourceNoteId, kept: trimmed.length, dropped: deduped.length - trimmed.length }, "wikilink 目標超過 MAX_LINK_TARGETS，已截斷");
+  const norm = normalizeLinkTargets(p.sourceNoteId, trimmed);
+  if (!norm.ok) return;
+  // ⚠ 這個函式跑在**內容已落盤、note_ai_edits 也已寫**之後，是整條鏈的最後一步。`writeNoteLinks`
+  // 對「忙碌」是回值（"busy"）不是拋出，所以它真的 throw 就代表 DB 故障——讓例外逃出去會把一次
+  // 完全成功的寫入回成 500，而外部 AI 對 500 幾乎一定重試 → 同一筆編輯被套用兩次、紀錄多一列。
+  // 這條鏈上其他每個失敗形都有明確語意，唯獨這個沒有，所以在這裡降級成警告：代價只是 wikilink
+  // 索引落後（已記在 known-limitations），下一次該筆記的連結集合再變就會補上。
+  // （複製同理：副本已 commit，500 只會讓呼叫端重試出第二份副本。）
+  try {
+    const outcome = await writeNoteLinks(deps.db, { sourceNoteId: p.sourceNoteId, userId: p.userId, targetIds: norm.targets, clock: p.clock });
+    if (outcome !== "applied") deps.log.warn({ noteId: p.sourceNoteId, outcome }, "note_links 未更新（CAS 落敗或忙碌）");
+  } catch (err) {
+    deps.log.warn({ noteId: p.sourceNoteId, err }, "note_links 寫入失敗，索引暫時落後（內容與紀錄已成功）");
   }
 }
 

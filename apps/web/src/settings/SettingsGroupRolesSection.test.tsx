@@ -63,7 +63,7 @@ const GROUP_MEMBER: GroupDto = groupDto({ id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbb
 const ALL_OFF = { create: false, edit: false, delete: false, managePublicLink: false, manageMembers: false, manageGroup: false };
 const FLAG_LABELS = ["Create", "Edit", "Delete", "Manage public links", "Manage members", "Manage roles & group"];
 const FLAG_DESCRIPTIONS = [
-  "Create notes in the group. Without Edit, a note you create is read-only for you too.",
+  "Create notes in the group, or move or copy a personal note into it. Without Edit, a note you create, move or copy there is read-only for you too.",
   "Change the content and title of the group's notes.",
   "Delete any note in the group, including ones other people created.",
   "Turn the anonymous public link of the group's notes on and off, and change a note's URL name through the API.",

@@ -9,7 +9,7 @@ import { noteRedirects, notes } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
 import { recordRedirectsInTx } from "../src/notes/tx/redirects.js";
 import { buildTestApp } from "./helpers.js";
-import { cookieOf, seedGroup, seedNote, seedRedirect, seedRole, seedUser, setMemberRole } from "./group-helpers.js";
+import { cookieOf, seedGroup, seedNote, seedRedirect, seedRole, seedShare, seedUser, setMemberRole } from "./group-helpers.js";
 
 const NOT_FOUND = { error: { code: "not_found", message: "找不到此筆記" } };
 /** 內建一般成員（can_read＋can_edit）在群組筆記上的旗標（§5.2）。 */
@@ -178,5 +178,107 @@ describe("#175 recordRedirectsInTx（§4.3；PR2／PR4 的寫入 helper）", () 
       { p: "/n/x/keep", n: a.id }, { p: "/n/x/new", n: b.id }, { p: "/n/x/same", n: b.id },
     ]);
     expect(c.id).toBeTruthy();
+  });
+});
+
+describe("#175 PR2：by-path「取列後、授權前」被真的移動（path-resolved；PR1 Task 4 review M-1）", () => {
+  it("/n/ 形——owner 自己開、取列後被移進他是成員的群組 → 200 且帶新群組（authorizeRow 的重讀段承重）", async () => {
+    const s = { fire: undefined as undefined | (() => Promise<unknown>) };
+    const built = await buildTestApp({
+      groupTestHook: async point => {
+        if (point === "path-resolved" && s.fire) {
+          const f = s.fire;
+          s.fire = undefined;
+          await f();
+        }
+      },
+    });
+    const { app, db } = built;
+    const owner = await seedUser(db);
+    const g = await seedGroup(db, "Joined", [{ userId: owner.id, role: "member" }]);
+    const n = await seedNote(db, { ownerId: owner.id }, { slug: "p" });
+    let moveStatus: number | undefined;
+    s.fire = async () => {
+      const r = await app.inject({ method: "POST", url: `/api/notes/${n.id}/move`, cookies: await cookieOf(owner.id), payload: { groupId: g.id } });
+      moveStatus = r.statusCode;
+    };
+    const res = await get(app, `/api/notes/by-path/${owner.handle}/p`, owner.id);
+    expect(moveStatus).toBe(200);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      id: n.id, groupId: g.id, ownerId: null, ownerHandle: null, role: "editor", group: { id: g.id, name: "Joined" }, permissions: MEMBER_PERMS,
+    });
+  });
+
+  it("/n/ 形——逐人分享的 editor 開、取列後 owner 把它移進他不在的群組 → 404（與不存在逐位元組相同）", async () => {
+    const s = { fire: undefined as undefined | (() => Promise<unknown>) };
+    const built = await buildTestApp({
+      groupTestHook: async point => {
+        if (point === "path-resolved" && s.fire) {
+          const f = s.fire;
+          s.fire = undefined;
+          await f();
+        }
+      },
+    });
+    const { app, db } = built;
+    const [owner, ed] = await Promise.all([seedUser(db), seedUser(db)]);
+    const g = await seedGroup(db, "OwnersOnly", [{ userId: owner.id, role: "member" }]);
+    const n = await seedNote(db, { ownerId: owner.id }, { slug: "p" });
+    await seedShare(db, n.id, ed.id, "editor");
+    // 前提：移動前 editor 開得到。
+    expect((await get(app, `/api/notes/by-path/${owner.handle}/p`, ed.id)).json()).toMatchObject({ id: n.id, role: "editor", groupId: null });
+    let moveStatus: number | undefined;
+    s.fire = async () => {
+      const r = await app.inject({ method: "POST", url: `/api/notes/${n.id}/move`, cookies: await cookieOf(owner.id), payload: { groupId: g.id } });
+      moveStatus = r.statusCode;
+    };
+    const res = await get(app, `/api/notes/by-path/${owner.handle}/p`, ed.id);
+    expect(moveStatus).toBe(200);
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toEqual(NOT_FOUND);
+    expect(res.body).toBe((await get(app, `/api/notes/by-path/${owner.handle}/no-such-note`, ed.id)).body);
+  });
+});
+
+describe("#175 PR2：by-path /g/ 形「取列後、授權前」被移到別的群組（path-resolved；SQL 模擬——PR2 沒有群組間移動的生產路徑）", () => {
+  function hookApp(fire: { f?: () => Promise<unknown> }) {
+    return buildTestApp({
+      groupTestHook: async point => {
+        if (point === "path-resolved" && fire.f) {
+          const f = fire.f;
+          fire.f = undefined;
+          await f();
+        }
+      },
+    });
+  }
+  it("/g/ 形——取列後被移到呼叫者也是成員的另一群組 → 200 帶新群組", async () => {
+    const fire: { f?: () => Promise<unknown> } = {};
+    const { app, db } = await hookApp(fire);
+    const u = await seedUser(db);
+    const g1 = await seedGroup(db, "G1", [{ userId: u.id, role: "member" }]);
+    const g2 = await seedGroup(db, "G2", [{ userId: u.id, role: "member" }]);
+    const n = await seedNote(db, { groupId: g1.id }, { slug: "p" });
+    fire.f = async () => db.update(notes).set({ groupId: g2.id }).where(eq(notes.id, n.id));
+    const res = await get(app, `/api/notes/by-group-path/${g1.id}/p`, u.id);
+    expect(fire.f).toBeUndefined();
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ id: n.id, groupId: g2.id, group: { id: g2.id, name: "G2" }, role: "editor", permissions: MEMBER_PERMS });
+  });
+  it("/g/ 形——取列後被移到呼叫者不在的群組 → 404（與不存在逐位元組相同）、不含新群組名", async () => {
+    const fire: { f?: () => Promise<unknown> } = {};
+    const { app, db } = await hookApp(fire);
+    const [u, other] = await Promise.all([seedUser(db), seedUser(db)]);
+    const g1 = await seedGroup(db, "G1", [{ userId: u.id, role: "member" }]);
+    const g2 = await seedGroup(db, "HiddenG2", [{ userId: other.id, role: "member" }]);
+    const n = await seedNote(db, { groupId: g1.id }, { slug: "p" });
+    fire.f = async () => db.update(notes).set({ groupId: g2.id }).where(eq(notes.id, n.id));
+    const res = await get(app, `/api/notes/by-group-path/${g1.id}/p`, u.id);
+    expect(fire.f).toBeUndefined();
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toEqual(NOT_FOUND);
+    expect(res.body).not.toContain("HiddenG2");
+    expect(res.body).toBe((await get(app, `/api/notes/by-group-path/${g1.id}/no-such-note`, u.id)).body);
   });
 });

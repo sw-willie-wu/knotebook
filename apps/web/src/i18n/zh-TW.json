@@ -101,6 +101,28 @@
       "confirmPrivate_one": "移除 {{count}} 位成員並改為私人",
       "confirmPrivate_other": "移除 {{count}} 位成員並改為私人"
     },
+    "move": {
+      "title": "移動或複製到群組",
+      "groupLabel": "群組",
+      "choose": "選擇群組…",
+      "move": "移動",
+      "copy": "複製",
+      "cancel": "取消",
+      "moveLead": "要把這篇筆記移進「{{group}}」嗎？",
+      "moveRemovesPeople_one": "{{count}} 位分享對象的逐人分享會被移除：{{names}}；不在這個群組裡的人會失去存取。",
+      "moveRemovesPeople_other": "{{count}} 位分享對象的逐人分享會被移除：{{names}}；不在這個群組裡的人會失去存取。",
+      "moveClosesPublicLink": "公開連結會被關閉。",
+      "moveUrlChange": "網址會改為 /g/…，舊網址一個月內自動轉到新網址。",
+      "moveOwnership": "你將不再是擁有者，權限改由你在群組的角色決定。",
+      "moveSubmit": "移進群組",
+      "copyLead": "會在「{{group}}」建立副本，原筆記不變；AI 修改紀錄與反向連結不會帶過去。",
+      "copySubmit": "複製到群組",
+      "copiedToGroup": "已複製到「{{group}}」",
+      "copiedToPersonal": "已複製到我的筆記",
+      "openCopy": "前往副本",
+      "openCopyAlt": "也可以從側欄開啟副本。",
+      "changedElsewhere": "這篇筆記已在別處變更，所以沒有移動。"
+    },
     "groupNote": {
       "description": "群組成員依角色權限存取這篇筆記；公開連結只有匿名形。",
       "access": "群組「{{name}}」中，角色有閱讀權限的成員都能存取。"
@@ -117,6 +139,7 @@
       "label": "更多",
       "labelFor": "{{title}} 的筆記選單",
       "aiEdits": "AI 修改紀錄",
+      "copyToPersonal": "複製到我的筆記",
       "delete": "刪除筆記"
     },
     "lastEdited": "最後編輯：{{who}} · {{when}}",
@@ -339,7 +362,7 @@
       "flags": {
         "create": {
           "label": "新建",
-          "description": "在群組裡建立筆記。沒有「編輯」的話，自己建的筆記也只能閱讀。"
+          "description": "在群組裡建立筆記，或把個人筆記移入／複製進群組。沒有「編輯」的話，這樣放進群組的筆記自己也只能閱讀。"
         },
         "edit": {
           "label": "編輯",

@@ -72,26 +72,38 @@ export function isSlugUniqueViolation(err: unknown): boolean {
 }
 
 /**
- * auto slug 的 scope 範圍（個人＝owner、群組＝群組）去重探測（#122 spec §3a）：候選＝`autoSlugFromTitle(title)`，
- * 已占用則遞增 `-N` 尾碼（重截基底使總長 ≤60，同 0007 backfill 的 SQL 版）；探測
- * `AUTO_SLUG_PROBE_LIMIT` 次仍撞 → `untitled-<uuid8>`。
+ * #175 §6.9：`-N` 尾碼候選（移動、轉移、建立、PATCH 共用的唯一一份算術）。n=1 回基底本身（不截）；n≥2 重截基底
+ * （以 code point 計，CJK 不被切半）使總長 ≤60、去掉截斷後的尾端連字號（不產生 `--N`）後加 `-N`——同 0007
+ * backfill 的 SQL 版。
+ */
+export function nextSlugCandidate(base: string, n: number): string {
+  if (n <= 1) return base;
+  const suffix = `-${n}`;
+  const trimmed = Array.from(base).slice(0, 60 - suffix.length).join("").replace(/-+$/, "");
+  return `${trimmed}${suffix}`;
+}
+
+/**
+ * scope 範圍（個人＝owner、群組＝群組）的 slug 去重探測（#122 spec §3a；#175 §6.9 抽出）：依序探測
+ * `nextSlugCandidate(base, 1..AUTO_SLUG_PROBE_LIMIT)`，回第一個沒被占用的；全撞 → `fallbackAutoSlug()`
+ * （`untitled-<uuid8>`）。收 `DbOrTx`：交易內（`notes/tx/write-slug.ts` 的 `writeSlugInTx`）傳 `tx`、
+ * 交易外（PATCH、建立的預設模式）傳 `db`。
  *
  * **述詞必排除本列**（`id <> noteId`）——不排除的話「標題微調但 auto slug 不變」會把
  * 自己判成占用、網址在 `meeting`↔`meeting-2` 間震盪且每次舊網址即死（spec M5-1）。
  *
- * `noteId === null` ＝**這一列還不存在**（建立路徑，`notes/create.ts`，#145）：本來就沒有
+ * `excludeNoteId === null` ＝**這一列還不存在**（建立路徑，`notes/create.ts`，#145）：本來就沒有
  * 「本列」要排除，`and()` 會把那個 `undefined` 述詞濾掉。實測（2026-09-15，`.toSQL()`）：
  * 非 null 那條路渲染出的 `sql` 與放寬前**逐位元組相同**、`params` 同為 4 格；null 則少掉
  * `"id" <> $3`、`params` 剩 3 格——所以放寬對 PATCH 是零改變。
  *
  * 明文特赦（同 deriveHandle）：這是可用性探測、非唯一性裁決——兩把唯一索引
  * （`notes_owner_slug_idx`／`notes_group_slug_idx`）仍是最終裁決者；探測後仍撞（真競態）由呼叫端重探測重發（PATCH 的 UPDATE
- * 重試迴圈與 `notes/create.ts` 的 INSERT 重試迴圈，兩者共用 `MAX_AUTO_SLUG_RETRIES`）。
+ * 重試迴圈、`notes/create.ts` 的 INSERT 重試迴圈與 `writeSlugInTx` 的 savepoint 重試迴圈，三者共用 `MAX_AUTO_SLUG_RETRIES`）。
  */
-export async function deriveUniqueAutoSlug(db: DbOrTx, scope: SlugScope, noteId: string | null, title: string): Promise<string> {
-  const base = autoSlugFromTitle(title);
-  let cand = base;
+export async function probeUniqueSlug(db: DbOrTx, scope: SlugScope, excludeNoteId: string | null, base: string): Promise<string> {
   for (let n = 1; n <= AUTO_SLUG_PROBE_LIMIT; n++) {
+    const cand = nextSlugCandidate(base, n);
     const [hit] = await db
       .select({ id: notes.id })
       .from(notes)
@@ -99,16 +111,22 @@ export async function deriveUniqueAutoSlug(db: DbOrTx, scope: SlugScope, noteId:
         and(
           "groupId" in scope ? eq(notes.groupId, scope.groupId) : eq(notes.ownerId, scope.ownerId),
           eq(notes.slug, cand),
-          noteId === null ? undefined : ne(notes.id, noteId),
+          excludeNoteId === null ? undefined : ne(notes.id, excludeNoteId),
         ),
       )
       .limit(1);
     if (!hit) return cand;
-    const suffix = `-${n + 1}`;
-    const trimmed = Array.from(base).slice(0, 60 - suffix.length).join("").replace(/-+$/, "");
-    cand = `${trimmed}${suffix}`;
   }
   return fallbackAutoSlug();
+}
+
+/**
+ * auto slug 的 scope 範圍去重探測（#122 spec §3a）：候選基底＝`autoSlugFromTitle(title)`，探測與 `-N` 算術全在
+ * `probeUniqueSlug`／`nextSlugCandidate`（#175 抽出；行為與抽出前逐輪相同——候選序列、探測次數、退位形、
+ * 渲染出的 SQL 與 params 都不變）。`noteId` 的語意見 `probeUniqueSlug` 的 `excludeNoteId`。
+ */
+export async function deriveUniqueAutoSlug(db: DbOrTx, scope: SlugScope, noteId: string | null, title: string): Promise<string> {
+  return probeUniqueSlug(db, scope, noteId, autoSlugFromTitle(title));
 }
 
 /**

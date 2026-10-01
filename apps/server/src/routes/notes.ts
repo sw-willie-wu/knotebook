@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
-import { and, desc, eq, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/pg-core";
 import {
   MAX_LINK_TARGETS,
@@ -21,13 +21,15 @@ import { WRITE_BODY_LIMIT } from "../http/body-limits.js";
 import { sendError } from "../http/errors.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
-import { groupMembers, groupRoles, groups, noteLinks, noteShares, noteStateBackups, noteStates, notes, uploads, users } from "../db/schema.js";
+import { groupMembers, groupRoles, groups, noteShares, notes, uploads, users } from "../db/schema.js";
 import type { GroupTestHook } from "../groups/test-hook.js";
 import { TxAbort } from "../http/tx-abort.js";
 import type { CollabHooks } from "../collab/hooks.js";
 import type { CollabServer } from "../collab/server.js";
 import type { EditingRuntime } from "../notes/editing/runtime.js";
-import { loadLastEdited, readNoteContent } from "../notes/editing/read.js";
+import { loadLastEdited, loadNoteDoc, readNoteContent } from "../notes/editing/read.js";
+import { cloneForCopy } from "../notes/copy-doc.js";
+import { docClock } from "../collab/store.js";
 import { listEdits } from "../notes/editing/revert.js";
 import { presenceIdentity, presenceTargetForRead, type PresenceRegistry } from "../notes/editing/presence.js";
 import { accessFromListRow, editor, lastEditedSelection, visibleNoteBranches } from "../notes/list-query.js";
@@ -47,6 +49,9 @@ import {
   type NoteAccess,
 } from "../notes/service.js";
 import { upsertShareInTx } from "../notes/tx/shares.js";
+import { deleteNotesInTx } from "../notes/tx/delete-notes.js";
+import { moveNoteToGroupInTx } from "../notes/tx/move.js";
+import { copyNoteInTx } from "../notes/tx/copy.js";
 import { patchSlugInTx, type SlugPatchTestHook, type SlugWriteScope } from "../notes/tx/patch-slug.js";
 import { UPDATED_AT_NOW } from "../notes/clock.js";
 import { groupNotePath, lookupRedirect, userNotePath } from "../notes/redirects.js";
@@ -59,7 +64,7 @@ import {
   resolveNoteIdFromRef,
   type SlugScope,
 } from "../notes/slug.js";
-import { fetchBacklinks, normalizeLinkTargets, writeNoteLinks, type WriteNoteLinksHooks } from "../notes/links.js";
+import { fetchBacklinks, normalizeLinkTargets, syncLinksFromDoc, writeNoteLinks, type WriteNoteLinksHooks } from "../notes/links.js";
 import { signCollabToken } from "../collab/token.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
 import { isForeignKeyViolation, uniqueViolationConstraint } from "../db/pg-errors.js";
@@ -84,6 +89,10 @@ const updateBodySchema = z
   })
   .refine(b => b.title !== undefined || b.slug !== undefined, { message: "title 與 slug 至少需帶一項" });
 const putShareBodySchema = z.object({ email: z.string().email(), role: z.enum(["viewer", "editor"]) });
+// #175 §6.3 移動的 body：`groupId` 只驗是字串（非 UUID 由路由回 404 `group_not_found`，與「群組不存在」逐位元組相同——plan 規格落差 5）。
+const moveBodySchema = z.object({ groupId: z.string() }).strict();
+// #175 §6.5 複製的 body：省略 `groupId`＝複製到個人；非 UUID 同移動，由路由回 404 `group_not_found`。
+const copyBodySchema = z.object({ groupId: z.string().optional() }).strict();
 
 // POST /api/notes/:id/links body（spec §12.3）：`.max(MAX_LINK_TARGETS * 2)` 是提交前的
 // 效能粗閘（避免病態大陣列在正規化之前就先跑完整 uuid 格式驗證），**不是**語意上限本身
@@ -133,8 +142,8 @@ export interface NotesRouteDeps {
    */
   collab?: CollabServer;
   editing?: EditingRuntime;
-  /** `collabToken` 供 collab-token endpoint；`slugPatch` 供 PATCH 帶 slug 鍵（含 null——進 slug 分支即計，見四格註解）**與公開別名兩支（#122 PR3）**節流；`publicLink` 供 public-link 的 PUT/DELETE（#72，見各路由）；`contentRead` 供 #106 的內容端點；`edit` 供 #106 的寫入端（`POST /:id/edits`、`POST /api/notes` 帶 `content`）。 */
-  limiters: { collabToken: FixedWindowLimiter; slugPatch: FixedWindowLimiter; publicLink: FixedWindowLimiter; contentRead: FixedWindowLimiter; edit: FixedWindowLimiter };
+  /** `collabToken` 供 collab-token endpoint；`slugPatch` 供 PATCH 帶 slug 鍵（含 null——進 slug 分支即計，見四格註解）**與公開別名兩支（#122 PR3）**節流；`publicLink` 供 public-link 的 PUT/DELETE（#72，見各路由）；`contentRead` 供 #106 的內容端點；`edit` 供 #106 的寫入端（`POST /:id/edits`、`POST /api/notes` 帶 `content`）與 #175 的複製；`upload` 供複製依附件數扣（#175 T4 M-1，與 `POST /api/notes/:id/uploads` 同一個桶）。 */
+  limiters: { collabToken: FixedWindowLimiter; slugPatch: FixedWindowLimiter; publicLink: FixedWindowLimiter; contentRead: FixedWindowLimiter; edit: FixedWindowLimiter; upload: FixedWindowLimiter };
   /**
    * #108 §10.1（D22／M5）：三條寫入路徑的外圍順序與**唯一**的 `NoteWriteQueue`。
    * 由 `buildApp` 建一次，`mcpRoutes` 拿到的是同一個物件——MCP 寫入與 REST 寫入因此串行。
@@ -162,8 +171,9 @@ export interface NotesRouteDeps {
    * 候選），語意與上面 `slugUpdateTestHook` 對稱（測試搶插同 owner 同 slug 的佔位列，讓
    * INSERT 真的撞 `(owner_id, slug)` 唯一索引，藉以驅動「重試 ≤`MAX_AUTO_SLUG_RETRIES`
    * 後退 untitled-<uuid8>」的競態路徑）。生產不注入＝零成本。透傳自
-   * `AppDeps.noteCreateHooks`。⚠ **只接在 `POST /api/notes` 這一處**：MCP 的 `create_note`
-   * 與 `createWithContent` 走同一支 `insertNoteWithAutoSlug`，競態迴圈只需要一個觀測點。
+   * `AppDeps.noteCreateHooks`。⚠ **只接在 `POST /api/notes` 與複製（`POST /api/notes/:id/copy`，交易內模式）兩處**：
+   * MCP 的 `create_note` 與 `createWithContent` 走同一支 `insertNoteWithAutoSlug` 的預設模式，競態迴圈只需要一個觀測點；
+   * 交易內模式（savepoint 重試，§6.9）是另一個迴圈，由複製那一處觀測。
    */
   noteCreateHooks?: NoteCreateHooks;
   /** #103：交錯點測試注入縫（`groups/test-hook.ts`），透傳自 `AppDeps.groupTestHook`。 */
@@ -251,6 +261,30 @@ export function notesRoutes(deps: NotesRouteDeps) {
   // `buildApp` 建**一次**）——三條 REST 寫入路徑與 MCP 的寫入工具共用同一個實例。
   // 不同實例＝沒有串行可言，理由鏈見 `notes/editing/queue.ts` 與 `write-service.ts` 檔頭。
   return async function register(app: FastifyInstance): Promise<void> {
+    /**
+     * 建立／複製進群組的目標檢查（`POST /api/notes {groupId}` 與 `POST …/copy {groupId}` 共用；#175 §6.2、§6.5）：
+     * 呼叫者在該群組的成員列＋角色旗標＋群組名。`undefined`＝群組不存在或不是成員（兩者呼叫端都回同一條 404）。
+     * 交易外查。`POST /api/notes {groupId}` 只靠這一次（C8：撤旗標與建立之間不保證，§15 第 5 條）；複製另在交易內持
+     * 目標 groups KEY SHARE 重驗（`notes/tx/copy.ts` (g)），這裡對複製只是快速 404 與 DTO 的角色／群組名。
+     */
+    async function loadCreateTarget(userId: string, groupId: string) {
+      const [m] = await deps.db
+        .select({
+          name: groups.name,
+          canRead: groupRoles.canRead,
+          canCreate: groupRoles.canCreate,
+          canEdit: groupRoles.canEdit,
+          canDelete: groupRoles.canDelete,
+          canManagePublicLink: groupRoles.canManagePublicLink,
+        })
+        .from(groupMembers)
+        .innerJoin(groups, eq(groups.id, groupMembers.groupId))
+        .innerJoin(groupRoles, eq(groupRoles.id, groupMembers.roleId))
+        .where(and(eq(groupMembers.groupId, groupId), eq(groupMembers.userId, userId)))
+        .limit(1);
+      return m;
+    }
+
     // #107 D2：這七條（POST /api/notes、GET /api/notes、GET /api/notes/:ref、#106 的
     // GET /api/notes/:id/content、POST /api/notes/:id/edits、GET /api/notes/:id/edits 與
     // POST /api/notes/:id/edits/:editId/revert）在 API token 的允許清單上，其餘 notes 路由
@@ -269,26 +303,13 @@ export function notesRoutes(deps: NotesRouteDeps) {
       let target: { scope: SlugScope; access: Pick<NoteAccess, "role" | "permissions">; ownerHandle: string | null; groupName: string | null };
       const groupId = parsed.data.groupId;
       if (groupId !== undefined) {
-        const [m] = await deps.db
-          .select({
-            name: groups.name,
-            canRead: groupRoles.canRead,
-            canCreate: groupRoles.canCreate,
-            canEdit: groupRoles.canEdit,
-            canDelete: groupRoles.canDelete,
-            canManagePublicLink: groupRoles.canManagePublicLink,
-          })
-          .from(groupMembers)
-          .innerJoin(groups, eq(groups.id, groupMembers.groupId))
-          .innerJoin(groupRoles, eq(groupRoles.id, groupMembers.roleId))
-          .where(and(eq(groupMembers.groupId, groupId), eq(groupMembers.userId, userId)))
-          .limit(1);
+        const m = await loadCreateTarget(userId, groupId);
         // 非成員與「不存在」同一條 404——非成員的站台 admin 無豁免（筆記旗標只看角色，§5.5）。
         if (!m) return sendError(reply, 404, "group_not_found", "找不到此群組");
         // 是成員但角色沒有新建旗標 → 403（gate r4 N-2：對成員而言群組存在不是秘密）。
         if (!m.canCreate) return sendError(reply, 403, "forbidden", "你在這個群組的角色不能建立筆記");
         await deps.groupTestHook?.("membership-checked", { groupId });
-        // can_create ⇒ can_edit（DB `group_roles_create_needs_edit_chk`），所以 role 恆為 editor——但照規則推，不寫死。
+        // role／permissions 照旗標推、不假設 editor：0013 起「新建 ⇒ 編輯」蘊含拿掉，create-only 角色會得到 viewer（plan 規格落差 17）。
         target = { scope: { groupId }, access: { role: roleFromGroupFlags(m), permissions: groupNotePermissions(m) }, ownerHandle: null, groupName: m.name };
       } else {
         // ownerHandle 直接取 request.user（A12）：建立者即 owner，不必補查 users。
@@ -504,6 +525,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
       // `/n/` 形以 `users.handle = $h` 為述詞——刻意只找個人筆記（群組筆記沒有 owner，LEFT JOIN 後 handle 為 NULL）。
       const note = await resolvePath(eq(users.handle, handle), slugParam, userNotePath(handle, slugParam));
       if (!note) return noteNotFound(reply);
+      await deps.groupTestHook?.("path-resolved", { noteId: note.id });
       return authorizeRow(reply, request.user!.id, note);
     });
 
@@ -519,6 +541,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
       const slugParam = normalizeSlug(params.slug);
       const note = await resolvePath(eq(notes.groupId, groupId), slugParam, groupNotePath(groupId, slugParam));
       if (!note) return noteNotFound(reply);
+      await deps.groupTestHook?.("path-resolved", { noteId: note.id });
       return authorizeRow(reply, request.user!.id, note);
     });
 
@@ -537,9 +560,8 @@ export function notesRoutes(deps: NotesRouteDeps) {
       const note = await loadNoteWithOwner(noteId);
       if (!note) return noteNotFound(reply);
       // Q22：授權與取列是兩次查詢；歸屬一致就直接用。不一致交給 `authorizeRow`：先以新狀態重授權，仍不一致才重讀列
-      // 一次（本支的列是授權後才取的新列，重授權後通常就一致——重讀段在這裡走不到）。⚠ by-path 兩形「取列後、授權前」
-      // 被移動的窗口才會走到重讀段：PR1 沒有改歸屬的生產路徑、執行期到不了，也沒有 hook 與測試——PR2（移動）補
-      // `path-resolved` 測試點名與兩案（移進成員群組 → 200 新群組；移進非成員群組 → 404）。
+      // 一次（本支的列是授權後才取的新列，重授權後通常就一致——重讀段在這裡走不到）。by-path 兩形「取列後、授權前」
+      // 被移動的窗口才會走到重讀段（`path-resolved` 縫：`/n/` 與 `/g/` 兩形各有案守）。
       if (first.groupId === note.groupId) return toNoteDto(note, first);
       return authorizeRow(reply, userId, note);
     });
@@ -747,10 +769,9 @@ export function notesRoutes(deps: NotesRouteDeps) {
 
     /**
      * PATCH 的回應組裝——**一律在交易外**（`ownerHandleOf`／`editorHandleOf`／`groupNameOf` 都是對 `deps.db` 的閉包，S14）。
-     * Q22（規格落差 9）：取到的列的歸屬與授權時不同（格 2 沒有 scope 條件）→ 以重算的 access 組 permissions。
+     * 四格的寫入都帶授權當下的歸屬當 scope 條件（格 1／3／4 在 T1、格 2 在單句 UPDATE——#175 PR2 Q-C），所以 `access` 就是落地那一列的授權。
      */
-    async function respondPatched(updated: typeof notes.$inferSelect, access: NoteAccess, userId: string): Promise<NoteDto> {
-      const finalAccess = updated.groupId === access.groupId ? access : await resolveNoteAccess(deps.db, userId, updated.id);
+    async function respondPatched(updated: typeof notes.$inferSelect, access: NoteAccess): Promise<NoteDto> {
       return toNoteDto(
         {
           ...updated,
@@ -758,7 +779,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
           editorHandle: await editorHandleOf(updated.lastEditedBy),
           groupName: await groupNameOf(updated.groupId),
         },
-        finalAccess,
+        access,
       );
     }
 
@@ -785,8 +806,8 @@ export function notesRoutes(deps: NotesRouteDeps) {
      *    同請求帶 title 不觸發重算。
      * 2. `{title}`：pre-read 本列 slug_is_custom（特赦，見下）；custom=false 才重算
      *    （以請求新 title 算＋在歸屬範圍內探測，#175 RF5）：單一 UPDATE `title=$1, slug=CASE WHEN
-     *    slug_is_custom THEN slug ELSE $auto END`（prev 不動、不開交易、沒有 scope 條件——回應組裝時
-     *    若列的歸屬已與授權時不同，重算 access 再組 permissions，規格落差 9）。**不計 slugPatch**
+     *    slug_is_custom THEN slug ELSE $auto END`（prev 不動、不開交易；帶授權當下歸屬的 scope 述詞，
+     *    0 列 → 列不在 404、列在 409 `conflict`——#175 PR2 Q-C）。**不計 slugPatch**
      *    （title 編輯是核心操作；放大上界＝每輪重試都重探測，≤5×20＝100 次索引查詢
      *    ＋6 次 UPDATE（第 6 輪退位不探測），皆有界——title PATCH 本身無節流為現狀，
      *    明示接受）。
@@ -855,7 +876,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
         }
         // I2＋C15：scope 條件命中 0 列＝授權之後被刪（404）或歸屬變了（409 conflict）。
         if (!updated) return ownershipChanged(reply, id);
-        return respondPatched(updated, access, userId);
+        return respondPatched(updated, access);
       }
 
       // 格 2–4：auto 路徑。clearingSlug＝格 3／4（body 帶 slug:null）；否則格 2（title-only）。
@@ -896,7 +917,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
             [updated] = await deps.db
               .update(notes)
               .set({ updatedAt: UPDATED_AT_NOW, title, slug: sql`case when ${notes.slugIsCustom} then ${notes.slug} else ${auto} end` })
-              .where(eq(notes.id, id))
+              .where(and(eq(notes.id, id), access.groupId !== null ? eq(notes.groupId, access.groupId) : and(eq(notes.ownerId, access.ownerId!), isNull(notes.groupId))))
               .returning();
           }
           break;
@@ -906,9 +927,9 @@ export function notesRoutes(deps: NotesRouteDeps) {
           throw err;
         }
       }
-      // I2：格 2 的 UPDATE 命中 0 列＝授權之後被刪。
-      if (!updated) return noteNotFound(reply);
-      return respondPatched(updated, access, userId);
+      // I2＋Q-C：格 2 命中 0 列＝授權之後被刪（404）或歸屬變了（409 conflict）。
+      if (!updated) return ownershipChanged(reply, id);
+      return respondPatched(updated, access);
     });
 
     /**
@@ -1000,11 +1021,119 @@ export function notesRoutes(deps: NotesRouteDeps) {
       return { backlinks };
     });
 
+    /**
+     * #175 §6.3 移動（T3）：個人筆記 → 群組。只有個人筆記的 owner（`permissions.moveToGroup`）；目標群組要
+     * 成員＋can_create（交易前只驗 UUID 形；成員與旗標只在交易內、對群組列取 KEY SHARE 之後查，走 tx，S14）。
+     * 非 UUID／不存在／非成員／無新建旗標／等鎖期間被刪 → 同一條 404
+     * `group_not_found`（spec §6.3；與 `POST /api/notes` 的 403 不同——plan 規格落差 4）。
+     * commit 後踢線：被清掉的逐人分享者 ∪ 呼叫者（owner→群組角色，重驗）。回 200 NoteDto（新網址形）；
+     * `role`／`permissions` 照呼叫者在目標群組的角色實算（授權只看 can_create，搬完可能是 viewer——規格落差 17）。
+     */
+    app.post("/api/notes/:id/move", { preHandler: app.authenticate }, async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const userId = request.user!.id;
+      const parsed = moveBodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+
+      const access = await resolveNoteAccess(deps.db, userId, id);
+      if (access.role === "none") return noteNotFound(reply);
+      if (!access.permissions.moveToGroup) return sendError(reply, 403, "forbidden", "只有筆記擁有者可以把筆記移進群組");
+      if (!UUID_RE.test(parsed.data.groupId)) return sendError(reply, 404, "group_not_found", "找不到此群組");
+
+      // S14：callback 整段就是 `moveNoteToGroupInTx(tx, …)`，引數是交易前備好的純資料與測試縫。
+      const input = { noteId: id, userId, userHandle: request.user!.handle, groupId: parsed.data.groupId.toLowerCase() };
+      let moved;
+      try {
+        moved = await deps.db.transaction(tx => moveNoteToGroupInTx(tx, input, deps.groupTestHook));
+      } catch (err) {
+        if (err instanceof TxAbort) return sendError(reply, err.status, err.errCode, err.message);
+        // 防禦縱深：(1) 已持目標群組列的 KEY SHARE，群組在交易中刪不掉、UPDATE 不會撞 FK 23503；撞到也回同一條 404（catch 在交易外）。
+        if (isForeignKeyViolation(err)) return sendError(reply, 404, "group_not_found", "找不到此群組");
+        throw err;
+      }
+      deps.collabHooks.onGroupAccessChanged([id], [...new Set([...moved.removedShareUserIds, userId])]);
+      const fresh = await loadNoteWithOwner(id);
+      if (!fresh) return noteNotFound(reply);
+      return authorizeRow(reply, userId, fresh);
+    });
+
+    /**
+     * #175 §6.5 複製（T4）：看得到就能複製；目標個人一律可，群組要成員＋can_create（非 UUID／不存在／非成員／無新建
+     * 旗標同一條 404 `group_not_found`——規格落差 4）。群組目標查兩次：這裡交易外的 `loadCreateTarget` 只是快速 404；
+     * 授權本身在 `copyNoteInTx` (g) 持目標 groups KEY SHARE 後重驗（review r1 I-1，與 `lockGroup` 互斥，不是 C8 那種交易外
+     * 窗口；鎖序與成環分析在 `notes/tx/copy.ts` 檔頭），DTO 的角色／群組名也取 (g) 交易內讀到的值（review r2 M-2）。節流：edit 桶（Q16）。
+     * 快照在交易**之前**讀（`loadNoteDoc` 借連線，S14／gate r2 M-6）。commit 後：以複製者身分寫副本的出向
+     * note_links（`syncLinksFromDoc`）。複製不踢任何人（§7）。回 201 NoteDto（副本）：`role`／`permissions` 由目標推得
+     * ——個人＝owner；群組＝照呼叫者角色旗標實算（授權只看 can_create，create-only 角色得 viewer——規格落差 17）。
+     */
+    app.post("/api/notes/:id/copy", { preHandler: app.authenticate }, async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const userId = request.user!.id;
+      const parsed = copyBodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+
+      // 看得到就能讀（規格落差 16：role 非 none ⇒ permissions.read 恆真），不另看 read 旗標。
+      if ((await resolveNoteAccess(deps.db, userId, id)).role === "none") return noteNotFound(reply);
+
+      let scope: SlugScope;
+      const groupId = parsed.data.groupId;
+      if (groupId === undefined) {
+        scope = { ownerId: userId };
+      } else {
+        if (!UUID_RE.test(groupId)) return sendError(reply, 404, "group_not_found", "找不到此群組");
+        // 快速 404 only：結果不用來組 DTO（降級可能落在這裡與 (g) 之間——review r2 M-2）。
+        const m = await loadCreateTarget(userId, groupId.toLowerCase());
+        if (!m || !m.canCreate) return sendError(reply, 404, "group_not_found", "找不到此群組");
+        scope = { groupId: groupId.toLowerCase() };
+      }
+      if (!deps.limiters.edit.consume(userId)) return sendError(reply, 429, "too_many_requests", "寫入過於頻繁");
+
+      const { doc: snapshot } = await loadNoteDoc({ db: deps.db, collab: deps.collab }, id);
+      const copy = cloneForCopy(snapshot);
+      // #175 T4 M-1（Willie 裁決）：複製會多存一份附件檔，依「會被複製的附件數」扣 upload 桶（與上傳端點同桶、同 429 形；
+      // 單位＝檔案數，同上傳端點一次一檔）。數法與 `copyNoteInTx` (3) 同一個述詞（文件引用到、且 `note_id`＝來源）；交易前
+      // 數、交易內再讀，兩次之間來源新增／刪除附件會讓扣的數與實際複製的差幾張，磁碟檔已遺失而被跳過的那張（RF4）也照扣——
+      // 都只在「多扣或少扣幾張」的量級，不值得為此把扣桶搬進交易。0 張不碰桶。額度不足 → 429、不做任何寫入（edit 桶已扣）。
+      const wanted = [...copy.uploadNodes.keys()];
+      const toCopy = wanted.length === 0
+        ? 0
+        : (await deps.db.select({ n: sql<number>`count(*)::int` }).from(uploads).where(and(inArray(uploads.id, wanted), eq(uploads.noteId, id))))[0]!.n;
+      if (!deps.limiters.upload.consumeMany(userId, toCopy)) return sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+      // S14：callback 整段就是 `copyNoteInTx(tx, …)`，引數是交易前備好的純資料（`copiedFileIds` 是 out 參數）與測試縫。
+      const copiedFileIds: string[] = [];
+      const input = { sourceId: id, userId, scope, copy, uploadsDir: deps.uploadsDir, copiedFileIds };
+      let created;
+      try {
+        created = await deps.db.transaction(tx => copyNoteInTx(tx, input, deps.groupTestHook, deps.noteCreateHooks));
+      } catch (err) {
+        // 交易已 rollback（uploads 列不在了）：best-effort 刪掉已落盤的新檔，失敗只記 log。
+        await deleteUploadFiles(deps.uploadsDir, copiedFileIds, request.log);
+        if (err instanceof TxAbort) return sendError(reply, err.status, err.errCode, err.message);
+        if (isForeignKeyViolation(err)) {
+          // 防禦縱深：群組目標在 (g) 已持 groups KEY SHARE，群組在交易中刪不掉，INSERT 不會撞 FK 23503；撞到也回同一條 404。
+          if ("groupId" in scope) return sendError(reply, 404, "group_not_found", "找不到此群組");
+          // 個人目標唯一可能的 23503 是 notes.owner_id／uploads.uploader_id → users（複製者帳號在交易中被硬刪；`src/` 目前
+          // 沒有這條路徑）。個人建立路徑沒有對應的錯誤形（它把 23503 一律當群組被刪），這裡不借用 `group_not_found`
+          // （詞不對題，review r1 M-3），回通用 404 `not_found`——對已不存在的帳號而言，「找不到」是最不誤導的答案。
+          return noteNotFound(reply);
+        }
+        throw err;
+      }
+      const { note: createdNote, target } = created;
+      await syncLinksFromDoc({ db: deps.db, log: request.log }, { sourceNoteId: createdNote.id, userId, doc: copy.doc, clock: docClock(copy.doc) });
+      // role／permissions 取 (g) 交易內、持 groups KEY SHARE 時讀到的值（與 `lockGroup` 互斥，讀到即 commit 時的值）；
+      // 群組名不受此保證：改名走單句 UPDATE、不與 KEY SHARE 衝突，回應可能是舊名。
+      const dto = target === null
+        ? toNoteDto({ ...createdNote, ownerHandle: request.user!.handle, editorHandle: null, groupName: null }, { role: "owner", permissions: OWNER_PERMISSIONS })
+        : toNoteDto({ ...createdNote, ownerHandle: null, editorHandle: null, groupName: target.name }, { role: roleFromGroupFlags(target), permissions: groupNotePermissions(target) });
+      return reply.code(201).send(dto);
+    });
+
     app.delete("/api/notes/:id", { preHandler: app.authenticate }, async (request, reply) => {
       const { id } = request.params as { id: string };
       const userId = request.user!.id;
 
-      // #175 §6.2 row 15：個人＝owner；群組＝角色的刪除旗標。T14 的交易本體 PR1 不抽（plan 規格落差 8）。
+      // #175 §6.2 row 15：個人＝owner；群組＝角色的刪除旗標。
       const access = await resolveNoteAccess(deps.db, userId, id);
       if (access.role === "none") {
         return sendError(reply, 404, "not_found", "找不到此筆記");
@@ -1019,21 +1148,15 @@ export function notesRoutes(deps: NotesRouteDeps) {
       // Plan 1 這裡注入的是 noopCollabHooks，本身不做任何事；此呼叫只是先把接縫留好。
       const deleteGate = await deps.collabHooks.beforeNoteDeleted(id);
 
-      // `.returning({ id })`（Task 11）：交易內只確定「哪些 upload 列被刪了」，實際的
+      // #175 T14：交易本體在 `notes/tx/delete-notes.ts`（S14；PR4 全刪共用）。引數是交易前備好的純資料。
+      // 交易內只確定「哪些 upload 列被刪了」（`deleteNotesInTx` 的 `returning`），實際的
       // 磁碟檔案刪除留到 commit 之後才動手——DB rollback 救不回已經被刪掉的檔案，兩件
       // 事不可合併在同一個交易語意下（見 `deleteUploadFiles` 的完整說明）。
       // 交易失敗一定要把閘門收回去（見 `NoteDeleteGate`）：閘門開著的兩分鐘內，這篇筆記的
       // 新連線會被告知「已刪除」並被導離，而它其實還在。
-      const deletedUploads = await deps.db
-        .transaction(async tx => {
-          await tx.delete(noteStates).where(eq(noteStates.noteId, id));
-          await tx.delete(noteStateBackups).where(eq(noteStateBackups.noteId, id));
-          await tx.delete(noteShares).where(eq(noteShares.noteId, id));
-          await tx.delete(noteLinks).where(or(eq(noteLinks.sourceNoteId, id), eq(noteLinks.targetNoteId, id)));
-          const deleted = await tx.delete(uploads).where(eq(uploads.noteId, id)).returning({ id: uploads.id });
-          await tx.delete(notes).where(eq(notes.id, id));
-          return deleted;
-        })
+      const ids = [id];
+      const deletedUploadIds = await deps.db
+        .transaction(tx => deleteNotesInTx(tx, ids))
         .catch((err: unknown) => {
           deleteGate.release();
           throw err;
@@ -1042,11 +1165,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
       // best-effort，commit 之後才動磁碟：單一檔案刪除失敗（含檔案本來就已經不存在）
       // 只記 log，不影響這支 request 的成功回應——DB 端已經確定 commit 成功，這才是
       // 呼叫端真正在意的結果（見 `deleteUploadFiles` 的完整說明）。
-      await deleteUploadFiles(
-        deps.uploadsDir,
-        deletedUploads.map(u => u.id),
-        request.log
-      );
+      await deleteUploadFiles(deps.uploadsDir, deletedUploadIds, request.log);
 
       return reply.code(204).send();
     });

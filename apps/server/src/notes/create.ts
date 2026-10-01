@@ -12,9 +12,11 @@
  * ③ 不帶 `title` 時**一次探測都不發**，且 `slug` 鍵不進 values——DB default
  *   （`untitled-<uuid8>`）是唯一真相（`db/schema.ts`），應用層不重寫第二份。
  */
+import type { Db } from "../db/index.js";
 import { notes } from "../db/schema.js";
-import type { DbOrTx } from "../db/tx.js";
+import type { DbOrTx, Tx } from "../db/tx.js";
 import { MAX_AUTO_SLUG_RETRIES, deriveUniqueAutoSlug, fallbackAutoSlug, isSlugUniqueViolation, type SlugScope } from "./slug.js";
+import { writeSlugInTx } from "./tx/write-slug.js";
 
 export interface NoteCreateHooks {
   /** 探測完、INSERT 發出前呼叫（帶本輪候選）——測試在這裡搶插同 scope 同 slug 的佔位列。 */
@@ -38,15 +40,37 @@ export interface NoteCreateHooks {
  * null），之後的 title PATCH 因此仍會重算 slug，而 `legacy_slug` 是 0007 的凍結快照
  * （另有 trigger 與源碼守衛）。
  */
+export async function insertNoteWithAutoSlug(db: Db, scope: SlugScope, title: string | undefined, hooks?: NoteCreateHooks): Promise<typeof notes.$inferSelect>;
+/**
+ * #175 §6.5／§6.9：**交易內模式**（複製 T4）。每輪 INSERT 包在 `writeSlugInTx` 的 savepoint 裡——交易內照抄預設模式的
+ * 重試迴圈，第一次 23505 之後整個交易就 25P02（spec gate r1 B-5 對照組）。`hooks.beforeInsert` 經 `beforeWrite` 接上。
+ * 碰撞契約（constraint 名分流、`MAX_AUTO_SLUG_RETRIES` 後退位、永不回 `slug_taken`、三欄吃 default）與預設模式相同。
+ */
+export async function insertNoteWithAutoSlug(tx: Tx, scope: SlugScope, title: string, hooks: NoteCreateHooks | undefined, mode: { inTx: true }): Promise<typeof notes.$inferSelect>;
 export async function insertNoteWithAutoSlug(
   db: DbOrTx,
   scope: SlugScope,
   title: string | undefined,
   hooks?: NoteCreateHooks,
+  mode?: { inTx: true },
 ): Promise<typeof notes.$inferSelect> {
   // #175：個人筆記 `owner_id`、群組筆記 `group_id`（XOR，S6）——群組筆記沒有建立者欄（Q17 不記）。群組在呼叫端確認
   // 之後被刪時，INSERT 撞 FK 23503 並原樣拋出（重試迴圈只處理 slug 的 23505），由呼叫端映射成 404。
   const owner = "groupId" in scope ? { groupId: scope.groupId } : { ownerId: scope.ownerId };
+  if (mode?.inTx && title !== undefined) {
+    // `db as Tx`：overload 已保證 `inTx` 時呼叫端傳的是 `Tx`；實作簽名收 `DbOrTx` 只是讓兩個 overload 共用一個本體。
+    let created: typeof notes.$inferSelect | undefined;
+    await writeSlugInTx(
+      db as Tx,
+      scope,
+      { title },
+      async slug => {
+        [created] = await db.insert(notes).values({ ...owner, title, slug }).returning();
+      },
+      { beforeWrite: hooks?.beforeInsert },
+    );
+    return created!;
+  }
   // `title` 未帶：`title`／`slug` 兩把鍵都不放，讓 DB 的 default `"Untitled"` 與
   // `untitled-<uuid8>` 同時生效（#145 D6：不派生成 `untitled`，也不發任何探測查詢）。
   if (title === undefined) {

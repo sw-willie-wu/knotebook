@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter, Route, Routes } from "react-router";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import type { CollabState } from "@/collab/connection";
 import type { NoteDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
-import { NoteMenu } from "./NoteMenu";
+import { NoteMenu, SidebarNoteMenu } from "./NoteMenu";
 import { EDITOR_PERMS, OWNER_PERMS } from "@/test/fixtures";
 
 // ⋮ 選單（spec D.4）：複製連結（任何角色）＋刪除筆記（#175 起看 `permissions.delete`，含 M11 的
@@ -367,5 +367,144 @@ describe("NoteMenu（⋮ 選單，spec D.4）", () => {
     await waitFor(() => expect(screen.getByText("home landing")).toBeInTheDocument());
     expect(leavingRef.current).toBe(true);
     expect(screen.queryByText("Something went wrong. Please try again.")).not.toBeInTheDocument();
+  });
+});
+
+// ── #175 PR2：⋮「複製到我的筆記」（Task 10）──
+// 兩個外殼（頁首 NoteMenu、側欄 SidebarNoteMenu）共用 NoteMenuCore，各一案守「可見性」。
+
+const GROUP_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+const GROUP_NOTE: NoteDto = {
+  ...OWNER_NOTE,
+  ownerId: null,
+  ownerHandle: null,
+  role: "viewer",
+  groupId: GROUP_ID,
+  group: { id: GROUP_ID, name: "Workshop A" },
+  // 只讀角色：不能編輯也不能刪除，仍要有「複製到我的筆記」（看得到即可讀）。
+  permissions: { ...EDITOR_PERMS, edit: false, delete: false },
+};
+const COPY_NOTE: NoteDto = { ...OWNER_NOTE, id: "22222222-2222-2222-2222-222222222222", slug: "my-note-2" };
+
+function LocationProbe() {
+  const location = useLocation();
+  return <div data-testid="loc">{location.pathname}</div>;
+}
+
+function renderCopyMenu(
+  shell: "header" | "sidebar",
+  note: NoteDto,
+  fetchImpl: typeof fetch = vi.fn(() => Promise.reject(new Error("unexpected fetch"))) as unknown as typeof fetch,
+) {
+  vi.stubGlobal("fetch", fetchImpl);
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={["/start"]}>
+        <LocationProbe />
+        {shell === "header" ? (
+          <NoteMenu note={note} state={CONNECTED} leavingRef={{ current: false }} onOpenEdits={() => {}} />
+        ) : (
+          <SidebarNoteMenu note={note} />
+        )}
+      </MemoryRouter>
+      <Toaster />
+    </QueryClientProvider>,
+  );
+}
+
+function openAnyMenu(shell: "header" | "sidebar"): void {
+  const name = shell === "header" ? "More" : `Note actions for ${OWNER_NOTE.title}`;
+  fireEvent.pointerDown(screen.getByRole("button", { name }), { button: 0 });
+}
+
+describe("NoteMenu：複製到我的筆記（#175 PR2）", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it.each(["header", "sidebar"] as const)(
+    "#175 PR2：群組筆記（只讀角色）→ 選單有「複製到我的筆記」；個人筆記沒有（%s）",
+    (shell) => {
+      renderCopyMenu(shell, GROUP_NOTE);
+      openAnyMenu(shell);
+      expect(screen.getByRole("menuitem", { name: "Copy to my notes" })).toBeInTheDocument();
+      expect(screen.queryByRole("menuitem", { name: /Delete note/ })).not.toBeInTheDocument();
+      cleanup();
+
+      renderCopyMenu(shell, OWNER_NOTE);
+      openAnyMenu(shell);
+      expect(screen.getByRole("menuitem", { name: /Copy link/ })).toBeInTheDocument();
+      expect(screen.queryByRole("menuitem", { name: "Copy to my notes" })).not.toBeInTheDocument();
+    },
+  );
+
+  it.each(["header", "sidebar"] as const)(
+    "#175 PR2：有編輯／刪除權限的群組筆記也有「複製到我的筆記」（任何角色，%s）",
+    (shell) => {
+      renderCopyMenu(shell, { ...GROUP_NOTE, role: "editor", permissions: { ...EDITOR_PERMS, edit: true, delete: true } });
+      openAnyMenu(shell);
+      expect(screen.getByRole("menuitem", { name: "Copy to my notes" })).toBeInTheDocument();
+      expect(screen.getByRole("menuitem", { name: /Delete note/ })).toBeInTheDocument();
+    },
+  );
+
+  it("複製進行中重開選單 → 該項 aria-disabled，再按 fetch 仍只呼叫 1 次", async () => {
+    const fetchSpy = vi.fn<typeof fetch>(() => new Promise<Response>(() => {}));
+    renderCopyMenu("header", GROUP_NOTE, fetchSpy as unknown as typeof fetch);
+    openAnyMenu("header");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy to my notes" }));
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByRole("menuitem")).toBeNull());
+
+    openAnyMenu("header");
+    const item = await screen.findByRole("menuitem", { name: "Copy to my notes" });
+    expect(item).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(item);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("按下 → POST /copy body {}；成功 toast 附「前往副本」，點了導到副本的 /n/ 網址；選單關閉", async () => {
+    const fetchSpy = vi.fn<typeof fetch>(() =>
+      Promise.resolve(fakeResponse({ ok: true, status: 201, json: () => Promise.resolve(COPY_NOTE) })),
+    );
+    renderCopyMenu("header", GROUP_NOTE, fetchSpy as unknown as typeof fetch);
+    openAnyMenu("header");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy to my notes" }));
+
+    await waitFor(() => expect(screen.getByText("Copied to your notes")).toBeInTheDocument());
+    const [url, init] = fetchSpy.mock.calls[0]!;
+    expect(url).toBe(`/api/notes/${GROUP_NOTE.id}/copy`);
+    expect(init?.method).toBe("POST");
+    expect(init?.body).toBe("{}");
+    expect(screen.queryByRole("menuitem")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open copy" }));
+    await waitFor(() => expect(screen.getByTestId("loc")).toHaveTextContent("/n/tester/my-note-2"));
+  });
+
+  it("失敗 → destructive toast（errors.<code>），不導頁", async () => {
+    const fetchSpy = vi.fn(() =>
+      Promise.resolve(
+        fakeResponse({
+          ok: false,
+          status: 404,
+          json: () => Promise.resolve({ error: { code: "not_found", message: "x" } }),
+        }),
+      ),
+    );
+    renderCopyMenu("header", GROUP_NOTE, fetchSpy as unknown as typeof fetch);
+    openAnyMenu("header");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Copy to my notes" }));
+
+    await waitFor(() => expect(screen.getByText(i18n.t("errors.not_found"))).toBeInTheDocument());
+    expect(screen.queryByText("Copied to your notes")).not.toBeInTheDocument();
+    expect(screen.getByText(i18n.t("errors.not_found")).closest("li")).toHaveClass("bg-destructive");
+    expect(screen.getByTestId("loc")).toHaveTextContent("/start");
   });
 });
