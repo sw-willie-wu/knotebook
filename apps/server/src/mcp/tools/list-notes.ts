@@ -44,8 +44,8 @@ export const LIST_NOTES_DESCRIPTION =
   "most recently updated first. Each result carries `owner` (a person or one of your groups) and `role` so you can " +
   "tell whose content you are reading. Paging reads live data, not a snapshot: creating a note, or renaming it, moves " +
   "it to the top of this order, above the cursor you are holding, so no later page shows it. Editing a note's content " +
-  "does not move it. While you page, a note shared with you or the notes of a group you join appear at their own " +
-  "unchanged positions, which may already be above your cursor.";
+  "does not move it. While you page, a note shared with you, a note moved into one of your groups, or the notes of a " +
+  "group you join appear at their own unchanged positions, which may already be above your cursor.";
 
 export const listNotesInput = {
   cursor: z
