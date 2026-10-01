@@ -48,6 +48,7 @@ import {
 } from "../notes/service.js";
 import { upsertShareInTx } from "../notes/tx/shares.js";
 import { deleteNotesInTx } from "../notes/tx/delete-notes.js";
+import { moveNoteToGroupInTx } from "../notes/tx/move.js";
 import { patchSlugInTx, type SlugPatchTestHook, type SlugWriteScope } from "../notes/tx/patch-slug.js";
 import { UPDATED_AT_NOW } from "../notes/clock.js";
 import { groupNotePath, lookupRedirect, userNotePath } from "../notes/redirects.js";
@@ -85,6 +86,8 @@ const updateBodySchema = z
   })
   .refine(b => b.title !== undefined || b.slug !== undefined, { message: "title 與 slug 至少需帶一項" });
 const putShareBodySchema = z.object({ email: z.string().email(), role: z.enum(["viewer", "editor"]) });
+// #175 §6.3 移動的 body：`groupId` 只驗是字串（非 UUID 由路由回 404 `group_not_found`，與「群組不存在」逐位元組相同——plan 規格落差 5）。
+const moveBodySchema = z.object({ groupId: z.string() }).strict();
 
 // POST /api/notes/:id/links body（spec §12.3）：`.max(MAX_LINK_TARGETS * 2)` 是提交前的
 // 效能粗閘（避免病態大陣列在正規化之前就先跑完整 uuid 格式驗證），**不是**語意上限本身
@@ -999,6 +1002,42 @@ export function notesRoutes(deps: NotesRouteDeps) {
 
       const backlinks: BacklinkDto[] = await fetchBacklinks(deps.db, id, userId);
       return { backlinks };
+    });
+
+    /**
+     * #175 §6.3 移動（T3）：個人筆記 → 群組。只有個人筆記的 owner（`permissions.moveToGroup`）；目標群組要
+     * 成員＋can_create（交易前只驗 UUID 形；成員與旗標只在交易內、對群組列取 KEY SHARE 之後查，走 tx，S14）。
+     * 非 UUID／不存在／非成員／無新建旗標／等鎖期間被刪 → 同一條 404
+     * `group_not_found`（spec §6.3；與 `POST /api/notes` 的 403 不同——plan 規格落差 4）。
+     * commit 後踢線：被清掉的逐人分享者 ∪ 呼叫者（owner→群組角色，重驗）。回 200 NoteDto（新網址形）；
+     * `role`／`permissions` 照呼叫者在目標群組的角色實算（授權只看 can_create，搬完可能是 viewer——規格落差 17）。
+     */
+    app.post("/api/notes/:id/move", { preHandler: app.authenticate }, async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const userId = request.user!.id;
+      const parsed = moveBodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+
+      const access = await resolveNoteAccess(deps.db, userId, id);
+      if (access.role === "none") return noteNotFound(reply);
+      if (!access.permissions.moveToGroup) return sendError(reply, 403, "forbidden", "只有筆記擁有者可以把筆記移進群組");
+      if (!UUID_RE.test(parsed.data.groupId)) return sendError(reply, 404, "group_not_found", "找不到此群組");
+
+      // S14：callback 整段就是 `moveNoteToGroupInTx(tx, …)`，引數是交易前備好的純資料與測試縫。
+      const input = { noteId: id, userId, userHandle: request.user!.handle, groupId: parsed.data.groupId.toLowerCase() };
+      let moved;
+      try {
+        moved = await deps.db.transaction(tx => moveNoteToGroupInTx(tx, input, deps.groupTestHook));
+      } catch (err) {
+        if (err instanceof TxAbort) return sendError(reply, err.status, err.errCode, err.message);
+        // 防禦縱深：(1) 已持目標群組列的 KEY SHARE，群組在交易中刪不掉、UPDATE 不會撞 FK 23503；撞到也回同一條 404（catch 在交易外）。
+        if (isForeignKeyViolation(err)) return sendError(reply, 404, "group_not_found", "找不到此群組");
+        throw err;
+      }
+      deps.collabHooks.onGroupAccessChanged([id], [...new Set([...moved.removedShareUserIds, userId])]);
+      const fresh = await loadNoteWithOwner(id);
+      if (!fresh) return noteNotFound(reply);
+      return authorizeRow(reply, userId, fresh);
     });
 
     app.delete("/api/notes/:id", { preHandler: app.authenticate }, async (request, reply) => {

@@ -21,7 +21,11 @@ export type GroupRacePoint =
    * 做 S1 計數——角色不變時提早回傳、不經過此點；T11 確認成員，移的是內建管理員時做 S1 計數。
    */
   | "group-members-checked"
+  /** #175 PR2 T3（`notes/tx/move.ts`）：(0) `FOR UPDATE` 鎖住筆記列、(1) 目標群組檢查通過之後、刪逐人分享之前。 */
+  | "note-move-locked"
+  /** #175 PR2 T3：每輪 slug 探測之後、savepoint 寫入之前（ctx.slug＝本輪候選）。 */
+  | "note-move-slug-candidate"
   /** T5 `DELETE /api/groups/:id`（`groups/tx/delete-group.ts`）：`lockGroup` 並數過筆記為 0 之後、`DELETE groups` 之前。 */
   | "group-delete-locked";
 
-export type GroupTestHook = (point: GroupRacePoint, ctx: { noteId?: string; groupId?: string }) => Promise<void>;
+export type GroupTestHook = (point: GroupRacePoint, ctx: { noteId?: string; groupId?: string; slug?: string }) => Promise<void>;
