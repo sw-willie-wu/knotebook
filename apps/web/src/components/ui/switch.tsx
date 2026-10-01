@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
  * AI 設定的 provider/model/action enabled）。表單欄位那種「按下送出才生效」的
  * 布林設定請用同目錄的 `Checkbox`，不要用這顆——語意不同，見兩檔案各自的
  * JSDoc（`settings/SettingsAiSection.tsx` 的 isDefault vs enabled 分野）。
+ * 例外：群組角色頁（`settings/SettingsGroupRolesSection.tsx`）的旗標用這顆的外觀、但按「套用」才送出——Willie 2026-10-01 裁決。
  *
  * ⚠ **可及性角色是 `role="switch"`，不是 `role="checkbox"`**——原生
  * `<input type="checkbox">` 換成這顆之後，任何用 `getByRole("checkbox", …)` 找它
