@@ -86,15 +86,22 @@ const NO_CONTENT_SUPPORT_MESSAGE =
 const CREATE_FAILED_MESSAGE = "The note could not be created and nothing was stored. Try again.";
 
 /**
- * insert 的 `returning()` 那一列 → `toNoteSummary` 收的形。`ownerHandle` 直接取呼叫者
- * （建立者即 owner，同 REST 的 A12，不必補查 `users`）；`editorHandle` 恆為 `null`——這一列
- * 的 `last_edited_by` 若已落款，落款人也就是呼叫者本人，而**只有重讀落空的競態**才會走到這裡。
+ * insert 的 `returning()` 那一列 → `toNoteSummary` 收的形。`owner` 由呼叫端依 scope 給——個人＝呼叫者的
+ * handle（建立者即 owner，同 REST 的 A12，不必補查 `users`）、群組（PR5）＝群組名；**不得**再無條件填
+ * `ctx.userHandle`（gate r1 I3：群組筆記會被組成 `/n/<me>/<slug>`）。`groupId` 取列本身。
+ * `editorHandle` 恆為 `null`——這一列的 `last_edited_by` 若已落款，落款人也就是呼叫者本人，而
+ * **只有重讀落空的競態**才會走到這裡。
  */
-function insertedRow(row: typeof notes.$inferSelect, ownerHandle: string): NoteSummaryRow {
+function insertedRow(
+  row: typeof notes.$inferSelect,
+  owner: { ownerHandle: string | null; groupName: string | null }
+): NoteSummaryRow {
   return {
     id: row.id,
     title: row.title,
-    ownerHandle,
+    ownerHandle: owner.ownerHandle,
+    groupId: row.groupId,
+    groupName: owner.groupName,
     slug: row.slug,
     updatedAt: row.updatedAt,
     lastEditedAt: row.lastEditedAt,
@@ -167,7 +174,9 @@ export async function createNote(args: CreateNoteArgs, ctx: McpToolCtx): Promise
       return toolError("internal", CREATE_FAILED_MESSAGE);
     }
     const fresh = await reread(ctx, out.noteId);
-    return toolResult({ note: toNoteSummary(fresh ?? insertedRow(out.inserted, ctx.userHandle), "owner") });
+    return toolResult({
+      note: toNoteSummary(fresh ?? insertedRow(out.inserted, { ownerHandle: ctx.userHandle, groupName: null }), "owner"),
+    });
   }
 
   // 5. 不帶 `content`：只建一列（`notes/create.ts`），不碰 live doc、不吃 `edit` 桶、不重讀
@@ -175,5 +184,5 @@ export async function createNote(args: CreateNoteArgs, ctx: McpToolCtx): Promise
   //    null——不必為了一個必然落空的 JOIN 多發一次查詢）。帶 `title` 時 slug 在這一刻就跟
   //    標題走（#145），所以回應裡的 `url` 不必二次寫入就已經是最終網址。
   const created = await insertNoteWithAutoSlug(ctx.db, { ownerId: ctx.userId }, args.title);
-  return toolResult({ note: toNoteSummary(insertedRow(created, ctx.userHandle), "owner") });
+  return toolResult({ note: toNoteSummary(insertedRow(created, { ownerHandle: ctx.userHandle, groupName: null }), "owner") });
 }

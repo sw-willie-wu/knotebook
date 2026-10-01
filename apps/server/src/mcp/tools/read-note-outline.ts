@@ -31,11 +31,11 @@ import { eq } from "drizzle-orm";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { YDOC_FRAGMENT } from "@knotebook/shared";
 import type { Db } from "../../db/index.js";
-import { notes, users } from "../../db/schema.js";
+import { groups, notes, users } from "../../db/schema.js";
 import { outlineOf } from "../../notes/editing/fingerprint.js";
 import { loadLastEdited, loadNoteDoc } from "../../notes/editing/read.js";
 import { NOTE_ID } from "../../notes/schemas.js";
-import { noteSummarySchema } from "../dto.js";
+import { noteSummarySchema, ownerForModel } from "../dto.js";
 import { MCP_PAGE_MAX, truncateText } from "../limits.js";
 import { NOTE_NOT_FOUND_MESSAGE, authorizeNoteRead } from "../note-read.js";
 import { buildOutlinePage, outlineEntrySchema } from "../outline-page.js";
@@ -68,7 +68,7 @@ const noteHeaderSchema = noteSummarySchema.pick({
   id: true,
   title: true,
   titleTruncated: true,
-  ownerHandle: true,
+  owner: true,
   role: true,
 });
 
@@ -90,12 +90,17 @@ export interface ReadNoteOutlineArgs {
 }
 
 /** `resolveRole` 判定完到這裡的 re-select 之間存在競態視窗（同 `routes/notes.ts` 的
- *  `loadNoteWithOwner`）：另一個請求剛好把它刪了就查不到列，不拿 non-null assertion 賭。 */
-async function loadNoteHeader(db: Db, noteId: string): Promise<{ title: string; ownerHandle: string } | undefined> {
+ *  `loadNoteWithOwner`）：另一個請求剛好把它刪了就查不到列，不拿 non-null assertion 賭。
+ *  #175：users 與 groups 都 LEFT JOIN——INNER JOIN users 會讓群組筆記（沒有 owner）回 `not_found`（spec §5.3）。 */
+async function loadNoteHeader(
+  db: Db,
+  noteId: string
+): Promise<{ title: string; ownerHandle: string | null; groupId: string | null; groupName: string | null } | undefined> {
   const [row] = await db
-    .select({ title: notes.title, ownerHandle: users.handle })
+    .select({ title: notes.title, ownerHandle: users.handle, groupId: notes.groupId, groupName: groups.name })
     .from(notes)
-    .innerJoin(users, eq(users.id, notes.ownerId))
+    .leftJoin(users, eq(users.id, notes.ownerId))
+    .leftJoin(groups, eq(groups.id, notes.groupId))
     .where(eq(notes.id, noteId))
     .limit(1);
   return row;
@@ -120,7 +125,7 @@ export async function readNoteOutline(args: ReadNoteOutlineArgs, ctx: McpToolCtx
       id: args.note_id,
       title: title.text,
       ...(title.truncated ? { titleTruncated: true as const } : {}),
-      ownerHandle: header.ownerHandle,
+      owner: ownerForModel(header),
       role: access.role,
     },
     // 整篇字數，**不是這一頁的**：模型靠它判斷這篇值不值得逐段讀完（§8.3）。

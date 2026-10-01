@@ -43,7 +43,7 @@ interface NoteSummary {
   id: string;
   title: string;
   titleTruncated?: true;
-  ownerHandle: string;
+  owner: { kind: string; handle?: string; id?: string; name?: string };
   slug: string;
   url: string;
   role: string;
@@ -128,8 +128,8 @@ describe("#108 create_note", () => {
 
     expect(note.title).toBe("Untitled");
     expect(note.role).toBe("owner");
-    expect(note.ownerHandle).toBe(s.ownerHandle);
-    expect(note.url).toBe(canonicalNotePath({ ownerHandle: s.ownerHandle, slug: note.slug }));
+    expect(note.owner).toEqual({ kind: "user", handle: s.ownerHandle });
+    expect(note.url).toBe(canonicalNotePath({ ownerHandle: s.ownerHandle, groupId: null, slug: note.slug }));
     expect(note.titleTruncated).toBeUndefined();
 
     // 真的建出來了（回應不是憑空組的）。
@@ -160,7 +160,7 @@ describe("#108 create_note", () => {
 
     // ⚠ 第一條斷言是 `slug`：這是 issue 的症狀本身，排前面才讓漏改 MCP 那條路的突變紅在病因上。
     expect(note.slug).toBe("mcp-title-145");
-    expect(note.url).toBe(canonicalNotePath({ ownerHandle: s.ownerHandle, slug: "mcp-title-145" }));
+    expect(note.url).toBe(canonicalNotePath({ ownerHandle: s.ownerHandle, groupId: null, slug: "mcp-title-145" }));
     expect(note.url).not.toMatch(/untitled-[0-9a-f]{8}$/);
 
     // 回查 DB：回應不是憑空組的（`url` 走 `canonicalNotePath`，`slug` 來自 insert 的 returning）。

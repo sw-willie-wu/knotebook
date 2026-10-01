@@ -41,12 +41,12 @@ export const versionReadFailed = pkg.failed;
  * 只描述**這個憑證真的用得到的東西**。英文——與 `docs/` 及工具 `.describe()` 同語言；
  * 它進的是模型脈絡不是 UI，不走 i18n。
  *
- * ⚠ **兩支尾巴是二選一，不是相加**（#108 D-Q）。讀寫那支實測 **994** 字元，只剩 **6** 字元餘裕
- * （上限 1000；唯讀那支 902／餘裕 98），追加第二段必破線；而唯讀憑證用不到寫入工具的說明，
+ * ⚠ **兩支尾巴是二選一，不是相加**（#108 D-Q）。讀寫那支實測 **987** 字元，只剩 **13** 字元餘裕
+ * （上限 1000；唯讀那支 895／餘裕 105——#175：`owner` 比 `ownerHandle` 短 6、可見性句改寫又省 1），追加第二段必破線；而唯讀憑證用不到寫入工具的說明，
  * 換成處置說明總長反而更短。⚠ **這個數字只有這裡一份**（#146：測試那邊原本也抄一份、已過期成
  * 「約 20」，現在改成指回本行）。餘裕從 40 掉到 17 是 #146 換掉最後一句的代價，同時把 BASE
  * 縮了 23 字元（`for one section's text`／刪 `Also,`／`a single response`）——**下次撞牆先縮字，
- * 不要調大上限**（它保護的是模型脈絡）。#103 再用掉 11 字元（可見性句涵蓋群組）。
+ * 不要調大上限**（它保護的是模型脈絡）。#103 再用掉 11 字元（可見性句涵蓋群組）；#175 還回 7 字元。
  * 量法：`mcpInstructions(true).length`／`(false)`。
  * ⚠ **對唯讀憑證不得描述它沒有的工具**——與 D32「不宣告我們做不到的 capability」同一個原則；
  * 而且 `insufficient_scope` 在 HTTP 上是死碼（`write-scope.ts` 檔頭），**唯讀版這段處置字樣
@@ -59,8 +59,8 @@ read_note_section for one section's text, 4000 characters per call — page with
 until \`truncated\` is false. list_notes returns at most 100 notes per call, search_notes at most
 50, and an outline at most 100 sections; each tool's \`limit\` describes its own ceiling.
 Headings and titles are cut at 200 characters. What is capped is a single response,
-not the total you can read. Notes you can see include ones shared with you directly or via a group: each
-result carries \`ownerHandle\` and \`role\` so you can tell whose content you are reading.`;
+not the total you can read. Notes you can see include ones shared with you and your groups' notes: each
+result carries \`owner\` and \`role\` so you can tell whose content you are reading.`;
 
 /**
  * 讀寫憑證的尾段。

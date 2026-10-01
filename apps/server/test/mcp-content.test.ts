@@ -48,7 +48,12 @@ interface OutlineEntry extends Record<string, unknown> {
 }
 
 interface OutlinePayload extends Record<string, unknown> {
-  note: Record<string, unknown> & { id: string; title: string; ownerHandle: string; role: string };
+  note: Record<string, unknown> & {
+    id: string;
+    title: string;
+    owner: { kind: string; handle?: string; id?: string; name?: string };
+    role: string;
+  };
   totalChars: number;
   sections: OutlineEntry[];
   truncated: boolean;
@@ -149,7 +154,7 @@ describe("#108 read_note_outline", () => {
     const rest = await restOutline(s.ctx.app, s.noteId, s.token);
     expect(out.sections.map(x => x.sectionId)).toEqual(rest.map(x => x.sectionId));
     expect(out.note.role).toBe("owner");
-    expect(out.note.ownerHandle).toBe(s.ownerHandle);
+    expect(out.note.owner).toEqual({ kind: "user", handle: s.ownerHandle });
     expect(out.truncated).toBe(false);
     expect(out.nextSectionOffset).toBeNull();
     s.disconnect();
@@ -179,7 +184,7 @@ describe("#108 read_note_outline", () => {
     expect(Object.keys(out).sort()).toEqual(
       ["lastEdited", "nextSectionOffset", "note", "sections", "totalChars", "truncated"].sort()
     );
-    expect(Object.keys(out.note).sort()).toEqual(["id", "ownerHandle", "role", "title"].sort());
+    expect(Object.keys(out.note).sort()).toEqual(["id", "owner", "role", "title"].sort());
     for (const entry of out.sections) {
       expect(Object.keys(entry).sort()).toEqual(["chars", "heading", "level", "sectionId"].sort());
     }
