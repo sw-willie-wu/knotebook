@@ -1,5 +1,5 @@
 /**
- * #175 PATCH（§6.2 row 12、§4.3、C15、RF5、規格落差 9）。轉址列用 seedRedirect 直插（PR1 沒有寫轉址的生產路徑）；
+ * #175 PATCH（§6.2 row 12、§4.3、C15、RF5、規格落差 9／PR2 Q-C）。轉址列用 seedRedirect 直插（PR1 沒有寫轉址的生產路徑）；
  * 「移進群組」以 SQL 模擬 PR2 的移動。
  */
 import { describe, expect, it } from "vitest";
@@ -82,7 +82,7 @@ describe("#175 PATCH 的權限（§2.4 #12、Q11）", () => {
     expect((await patch(app, n.id, admin.id, { slug: "mine" })).json()).toMatchObject({ slug: "mine", groupId: g.id });
   });
 
-  it("規格落差 9（Q22 套在格 2）：授權之後、UPDATE 之前被移進群組 → 回應的 role／permissions 以重算的群組 access 組", async () => {
+  it("Q-C：格 2 授權之後、UPDATE 之前被移進群組（呼叫者是該群組成員）→ 409 conflict；標題未寫入", async () => {
     const holder: { db?: Db; noteId?: string; groupId?: string } = {};
     const built = await buildTestApp({
       slugUpdateTestHook: async () => {
@@ -96,18 +96,14 @@ describe("#175 PATCH 的權限（§2.4 #12、Q11）", () => {
     const { app, db } = built;
     const u = await seedUser(db);
     const g = await seedGroup(db, "G", [{ userId: u.id, role: "member" }]);
-    const n = await seedNote(db, { ownerId: u.id });
+    const n = await seedNote(db, { ownerId: u.id }, { title: "Before Move" });
     Object.assign(holder, { noteId: n.id, groupId: g.id });
     const res = await patch(app, n.id, u.id, { title: "Moved Meanwhile" });
-    expect(res.statusCode).toBe(200);
-    // 授權時是 owner（OWNER_PERMISSIONS）；落地時已是群組筆記、u 的角色是內建一般成員（無刪除／公開連結旗標）。
-    expect(res.json()).toMatchObject({
-      title: "Moved Meanwhile",
-      groupId: g.id,
-      ownerHandle: null,
-      role: "editor",
-      permissions: { read: true, edit: true, delete: false, manageShares: false, managePublicLink: false, changeSlug: false },
-    });
+    // #175 PR2 Q-C：格 2 的 UPDATE 帶授權時的歸屬（owner_id = u）當 scope 述詞；列已被移進群組 → 0 列 → 列在 → 409。
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("conflict");
+    const [row] = await db.select({ title: notes.title, groupId: notes.groupId }).from(notes).where(eq(notes.id, n.id));
+    expect(row).toEqual({ title: "Before Move", groupId: g.id });
   });
 });
 
@@ -203,5 +199,60 @@ describe("#175 T1：寫 prev 時刪同路徑轉址（B4、C15）", () => {
     const gone = await seedNote(db, { ownerId: u.id }, { slugIsCustom: true });
     Object.assign(state, { noteId: gone.id, mode: "delete" });
     expect((await patch(app, gone.id, u.id, { slug: "zz" })).statusCode).toBe(404);
+  });
+});
+
+describe("#175 PR2：PATCH 格 2（只改標題）授權後被真的移進呼叫者不在的群組（PR1 Task 6 review M-1；Q-C）", () => {
+  const NOT_FOUND = { error: { code: "not_found", message: "找不到此筆記" } };
+
+  it("逐人分享 editor 改標題；slugUpdateTestHook（格 2 UPDATE 之前）裡 owner 以 POST …/move 把筆記移進別的群組 → 409 conflict、標題未寫、回應不含群組名", async () => {
+    const holder: { app?: FastifyInstance; fire?: () => Promise<void> } = {};
+    const built = await buildTestApp({
+      slugUpdateTestHook: async () => {
+        if (!holder.fire) return;
+        const f = holder.fire;
+        holder.fire = undefined;
+        await f();
+      },
+    });
+    holder.app = built.app;
+    const { app, db } = built;
+    const [owner, ed] = await Promise.all([seedUser(db), seedUser(db)]);
+    const g = await seedGroup(db, "SecretGroupName", [{ userId: owner.id, role: "member" }]);
+    const n = await seedNote(db, { ownerId: owner.id }, { title: "Original" });
+    await seedShare(db, n.id, ed.id, "editor");
+    let moveStatus: number | undefined;
+    holder.fire = async () => {
+      const r = await holder.app!.inject({ method: "POST", url: `/api/notes/${n.id}/move`, cookies: await cookieOf(owner.id), payload: { groupId: g.id } });
+      moveStatus = r.statusCode;
+    };
+    const res = await patch(app, n.id, ed.id, { title: "x" });
+    expect(moveStatus).toBe(200);
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("conflict");
+    expect(res.body).not.toContain("SecretGroupName");
+    expect(res.body).not.toContain(g.id);
+    const [row] = await db.select({ title: notes.title, groupId: notes.groupId, ownerId: notes.ownerId }).from(notes).where(eq(notes.id, n.id));
+    expect(row).toEqual({ title: "Original", groupId: g.id, ownerId: null });
+  });
+
+  it("授權之後被刪 → 404 not_found（0 列分流的另一支；ownershipChanged 讀不到列）", async () => {
+    const holder: { db?: Db; noteId?: string } = {};
+    const built = await buildTestApp({
+      slugUpdateTestHook: async () => {
+        if (!holder.noteId) return;
+        const noteId = holder.noteId;
+        holder.noteId = undefined;
+        await holder.db!.delete(notes).where(eq(notes.id, noteId));
+      },
+    });
+    holder.db = built.db;
+    const { app, db } = built;
+    const u = await seedUser(db);
+    const n = await seedNote(db, { ownerId: u.id });
+    holder.noteId = n.id;
+    const res = await patch(app, n.id, u.id, { title: "Gone" });
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toEqual(NOT_FOUND);
   });
 });

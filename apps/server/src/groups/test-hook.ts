@@ -31,6 +31,8 @@ export type GroupRacePoint =
   | "note-copy-locked"
   /** #175 PR2 T4：附件檔已複製、uploads 列已寫、`note_states` 尚未寫入之前（測試在這裡丟錯模擬 DB 失敗）。 */
   | "note-copy-files-copied"
+  /** #175 PR2：by-path 兩形（/n/、/g/）取到列之後、授權（`authorizeRow`）之前——「取列後被移動」的窗。 */
+  | "path-resolved"
   /** T5 `DELETE /api/groups/:id`（`groups/tx/delete-group.ts`）：`lockGroup` 並數過筆記為 0 之後、`DELETE groups` 之前。 */
   | "group-delete-locked";
 

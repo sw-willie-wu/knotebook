@@ -525,6 +525,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
       // `/n/` 形以 `users.handle = $h` 為述詞——刻意只找個人筆記（群組筆記沒有 owner，LEFT JOIN 後 handle 為 NULL）。
       const note = await resolvePath(eq(users.handle, handle), slugParam, userNotePath(handle, slugParam));
       if (!note) return noteNotFound(reply);
+      await deps.groupTestHook?.("path-resolved", { noteId: note.id });
       return authorizeRow(reply, request.user!.id, note);
     });
 
@@ -540,6 +541,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
       const slugParam = normalizeSlug(params.slug);
       const note = await resolvePath(eq(notes.groupId, groupId), slugParam, groupNotePath(groupId, slugParam));
       if (!note) return noteNotFound(reply);
+      await deps.groupTestHook?.("path-resolved", { noteId: note.id });
       return authorizeRow(reply, request.user!.id, note);
     });
 
@@ -558,9 +560,8 @@ export function notesRoutes(deps: NotesRouteDeps) {
       const note = await loadNoteWithOwner(noteId);
       if (!note) return noteNotFound(reply);
       // Q22：授權與取列是兩次查詢；歸屬一致就直接用。不一致交給 `authorizeRow`：先以新狀態重授權，仍不一致才重讀列
-      // 一次（本支的列是授權後才取的新列，重授權後通常就一致——重讀段在這裡走不到）。⚠ by-path 兩形「取列後、授權前」
-      // 被移動的窗口才會走到重讀段：PR1 沒有改歸屬的生產路徑、執行期到不了，也沒有 hook 與測試——PR2（移動）補
-      // `path-resolved` 測試點名與兩案（移進成員群組 → 200 新群組；移進非成員群組 → 404）。
+      // 一次（本支的列是授權後才取的新列，重授權後通常就一致——重讀段在這裡走不到）。by-path 兩形「取列後、授權前」
+      // 被移動的窗口才會走到重讀段（`path-resolved` 縫：`/n/` 與 `/g/` 兩形各有案守）。
       if (first.groupId === note.groupId) return toNoteDto(note, first);
       return authorizeRow(reply, userId, note);
     });
@@ -768,10 +769,9 @@ export function notesRoutes(deps: NotesRouteDeps) {
 
     /**
      * PATCH 的回應組裝——**一律在交易外**（`ownerHandleOf`／`editorHandleOf`／`groupNameOf` 都是對 `deps.db` 的閉包，S14）。
-     * Q22（規格落差 9）：取到的列的歸屬與授權時不同（格 2 沒有 scope 條件）→ 以重算的 access 組 permissions。
+     * 四格的寫入都帶授權當下的歸屬當 scope 條件（格 1／3／4 在 T1、格 2 在單句 UPDATE——#175 PR2 Q-C），所以 `access` 就是落地那一列的授權。
      */
-    async function respondPatched(updated: typeof notes.$inferSelect, access: NoteAccess, userId: string): Promise<NoteDto> {
-      const finalAccess = updated.groupId === access.groupId ? access : await resolveNoteAccess(deps.db, userId, updated.id);
+    async function respondPatched(updated: typeof notes.$inferSelect, access: NoteAccess): Promise<NoteDto> {
       return toNoteDto(
         {
           ...updated,
@@ -779,7 +779,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
           editorHandle: await editorHandleOf(updated.lastEditedBy),
           groupName: await groupNameOf(updated.groupId),
         },
-        finalAccess,
+        access,
       );
     }
 
@@ -806,8 +806,8 @@ export function notesRoutes(deps: NotesRouteDeps) {
      *    同請求帶 title 不觸發重算。
      * 2. `{title}`：pre-read 本列 slug_is_custom（特赦，見下）；custom=false 才重算
      *    （以請求新 title 算＋在歸屬範圍內探測，#175 RF5）：單一 UPDATE `title=$1, slug=CASE WHEN
-     *    slug_is_custom THEN slug ELSE $auto END`（prev 不動、不開交易、沒有 scope 條件——回應組裝時
-     *    若列的歸屬已與授權時不同，重算 access 再組 permissions，規格落差 9）。**不計 slugPatch**
+     *    slug_is_custom THEN slug ELSE $auto END`（prev 不動、不開交易；帶授權當下歸屬的 scope 述詞，
+     *    0 列 → 列不在 404、列在 409 `conflict`——#175 PR2 Q-C）。**不計 slugPatch**
      *    （title 編輯是核心操作；放大上界＝每輪重試都重探測，≤5×20＝100 次索引查詢
      *    ＋6 次 UPDATE（第 6 輪退位不探測），皆有界——title PATCH 本身無節流為現狀，
      *    明示接受）。
@@ -876,7 +876,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
         }
         // I2＋C15：scope 條件命中 0 列＝授權之後被刪（404）或歸屬變了（409 conflict）。
         if (!updated) return ownershipChanged(reply, id);
-        return respondPatched(updated, access, userId);
+        return respondPatched(updated, access);
       }
 
       // 格 2–4：auto 路徑。clearingSlug＝格 3／4（body 帶 slug:null）；否則格 2（title-only）。
@@ -917,7 +917,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
             [updated] = await deps.db
               .update(notes)
               .set({ updatedAt: UPDATED_AT_NOW, title, slug: sql`case when ${notes.slugIsCustom} then ${notes.slug} else ${auto} end` })
-              .where(eq(notes.id, id))
+              .where(and(eq(notes.id, id), access.groupId !== null ? eq(notes.groupId, access.groupId) : and(eq(notes.ownerId, access.ownerId!), isNull(notes.groupId))))
               .returning();
           }
           break;
@@ -927,9 +927,9 @@ export function notesRoutes(deps: NotesRouteDeps) {
           throw err;
         }
       }
-      // I2：格 2 的 UPDATE 命中 0 列＝授權之後被刪。
-      if (!updated) return noteNotFound(reply);
-      return respondPatched(updated, access, userId);
+      // I2＋Q-C：格 2 命中 0 列＝授權之後被刪（404）或歸屬變了（409 conflict）。
+      if (!updated) return ownershipChanged(reply, id);
+      return respondPatched(updated, access);
     });
 
     /**
