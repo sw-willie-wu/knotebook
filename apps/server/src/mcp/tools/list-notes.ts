@@ -4,16 +4,18 @@
  * ⚠ **keyset 分頁不是快照**——但**成因不是「邊列邊改」**（#146 更正：這裡原本寫「`edit_note`
  * 會更新 `updated_at`」，是假的，而 PR3 的稽核表一度拿這句註解當證據，證據鏈是循環的）。
  * 查證：全 repo **零個 `$onUpdate`**；`notes.updated_at` 只有兩種東西會動——insert 的
- * `defaultNow()`，以及 `routes/notes.ts` 標題／slug 的 PATCH 那三處 DB 端 `now()`（#142）。
+ * `defaultNow()`，以及標題 PATCH（`routes/notes.ts`）與 slug PATCH（`notes/tx/patch-slug.ts`）兩處 DB 端 `now()`（#142）。
  * `notes/editing/` 整個目錄**零個 `updatedAt` 引用**（`edit_note` 走的 write-service →
  * mergeDiff → collab store 完全不碰它），`collab/store.ts` 動的是 `note_states` 那張別的表，
  * 而 `notes.linksClock`／`lastEditedAt` 的 UPDATE 都沒有一併寫 `updated_at`。
  * 所以真正會漏列的是**游標下方的列被搬到上方**：分頁期間有人新建筆記或改標題／slug。
  * 「你編輯你剛列出來的那些」造不成漏列——那些列本來就在游標**上方**。
  * ⚠ **第三個成因不是「被搬上去」而是「本來就在上面才加進來」**：翻頁期間分享給你的筆記、或你加入的
- * 群組的筆記，以原本的位置加入清單（#175）。分享只寫 `note_shares`（`notes/tx/shares.ts` 的 insert／
+ * 群組的筆記、或 owner 移進你群組的筆記，以原本的位置加入清單（#175）。分享只寫 `note_shares`（`notes/tx/shares.ts` 的 insert／
  * `routes/notes.ts` 的 delete），加入群組只寫 `group_members`（groups 路由的成員端點），**都不碰
- * `notes.updated_at`**；而可見性是 `owned ∪ shared ∪ grouped`、**每一頁現算**（`notes/list-query.ts`
+ * `notes.updated_at`**；移進群組（#175 PR2）的 UPDATE 在 `notes/tx/move.ts`，只寫 owner／group／slug／
+ * prev_slug／公開 token／別名，**不寫 `updatedAt`**——撞名改了網址名（`-2`）也一樣（守衛＝
+ * `test/groups-v2-move.test.ts` 首案與 RF1 案，兩案都斷 `updated_at` 與移動前相等）；而可見性是 `owned ∪ shared ∪ grouped`、**每一頁現算**（`notes/list-query.ts`
  * ＋ `mcp/queries.ts` 的 unionAll ＋ keyset 述詞）——那篇筆記於是以自己**未變動**的
  * `updated_at` 加入結果集，落點若在已經翻過去的區段，**沒有任何一頁會顯示它**。
  * 這一條模型偵測不到也閃避不了，所以 `description` 必須講（**不得只列前兩個成因**）。
