@@ -263,12 +263,14 @@ export interface SidebarPartition {
 }
 
 /**
- * spec §3.3 的分段表（`query` 為空時的主清單；搜尋只是在結果上再過濾）：
- * - `group` 非 null 且那個群組在 `groups`（＝我是成員）→ 該群組段（owner 或成員都一樣）；
- * - 否則 `role === "owner"` → 我的筆記（含 A1「我的、在 G、我已不是 G 成員」）；
- * - 否則 → 與我共享（含兜底列：`group` 非 null 但 G 不在 `groups`——剛被移出、清單未 refetch）。
- * 三桶互斥且完整，所以 `aria-current` 至多命中一列。「最近」＝原始清單前 2 篇（server 已按
- * `updated_at DESC`），可與主清單重複。
+ * #175 spec §8.2 的分段表（`query` 為空時的主清單；搜尋只是在結果上再過濾）：
+ * - `group` 非 null 且那個群組在 `groups`（＝我是成員）→ 該群組段（徽章＝editor／viewer）；
+ * - `group` 非 null 但群組不在 `groups`（剛被移出、清單未 refetch）→ 與我共享（兜底）；
+ * - `role === "owner"` → 我的筆記；
+ * - 其餘（逐人分享給我的個人筆記）→ 與我共享。
+ * 群組筆記的 `role` 從不是 `owner`（群組持有、沒有個人 owner），所以第 2 列不必另寫分支——
+ * 程式碼只要「在 `groups` 裡就進群組段，否則看 role」。四列互斥且完整，所以 `aria-current`
+ * 至多命中一列。「最近」＝原始清單前 2 篇（server 已按 `updated_at DESC`），可與主清單重複。
  */
 export function partitionNotes(notes: NoteDto[], groups: GroupDto[]): SidebarPartition {
   const byGroup = new Map<string, NoteDto[]>(groups.map((group) => [group.id, []]));
@@ -432,12 +434,15 @@ function WorkspaceSection({ searching, groupsQuery, groupSections, onCreateNote,
                   forceExpanded={searching}
                   actions={
                     <>
-                      <HeaderAddButton
-                        scope="grouprow"
-                        label={t("sidebar.newNoteIn", { name: group.name })}
-                        onClick={() => onCreateNote?.(group.id)}
-                        disabled={createNotePending}
-                      />
+                      {/* #175 §8.2：「＋」只在我的角色能在這個群組建立筆記時渲染（`myRole` null＝防禦，不渲染）。 */}
+                      {group.myRole?.permissions.create && (
+                        <HeaderAddButton
+                          scope="grouprow"
+                          label={t("sidebar.newNoteIn", { name: group.name })}
+                          onClick={() => onCreateNote?.(group.id)}
+                          disabled={createNotePending}
+                        />
+                      )}
                       <GroupMenu group={group} size="sidebar" />
                     </>
                   }

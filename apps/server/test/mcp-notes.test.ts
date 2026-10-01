@@ -22,7 +22,13 @@ const PASSWORD = "correct-horse-battery";
 const NUL = String.fromCharCode(0);
 
 /** 一列 `NoteSummary`。索引簽章是刻意的——key 集合斷言要看得到多出來的欄位。 */
-type Summary = Record<string, unknown> & { id: string; title: string; role: string; ownerHandle: string; url: string };
+type Summary = Record<string, unknown> & {
+  id: string;
+  title: string;
+  role: string;
+  owner: { kind: string; handle?: string; id?: string; name?: string };
+  url: string;
+};
 
 /** `tools/call` 的 `result`；SDK 自產錯誤時 `structuredContent` 會缺席。 */
 interface ToolResultBody {
@@ -98,7 +104,7 @@ async function scenario(ctx: CollabTestCtx): Promise<{
 }
 
 describe("#108 list_notes", () => {
-  it("回自有 ＋ 被分享的筆記，決定性排序，每列帶 url／role／ownerHandle", async () => {
+  it("回自有 ＋ 被分享的筆記，決定性排序，每列帶 url／role／owner", async () => {
     const ctx = await buildCollabTestApp();
     const { ownerId, otherId, token } = await scenario(ctx);
     const mine = await ctx.createNote(ownerId, "Mine");
@@ -116,11 +122,13 @@ describe("#108 list_notes", () => {
     const ownerHandle = await handleOf(ctx.db, ownerId);
     const otherHandle = await handleOf(ctx.db, otherId);
     expect(out.notes[0].role).toBe("owner");
-    expect(out.notes[0].ownerHandle).toBe(ownerHandle);
-    expect(out.notes[0].url).toBe(canonicalNotePath({ ownerHandle, slug: await slugOf(ctx.db, mine.id) }));
+    expect(out.notes[0].owner).toEqual({ kind: "user", handle: ownerHandle });
+    expect(out.notes[0].url).toBe(canonicalNotePath({ ownerHandle, groupId: null, slug: await slugOf(ctx.db, mine.id) }));
     expect(out.notes[1].role).toBe("viewer");
-    expect(out.notes[1].ownerHandle).toBe(otherHandle);
-    expect(out.notes[1].url).toBe(canonicalNotePath({ ownerHandle: otherHandle, slug: await slugOf(ctx.db, theirs.id) }));
+    expect(out.notes[1].owner).toEqual({ kind: "user", handle: otherHandle });
+    expect(out.notes[1].url).toBe(
+      canonicalNotePath({ ownerHandle: otherHandle, groupId: null, slug: await slugOf(ctx.db, theirs.id) })
+    );
   });
 
   it("同一個 updatedAt 之下以 id desc 決勝（M3 的次要排序鍵）", async () => {
@@ -235,7 +243,7 @@ describe("#108 list_notes", () => {
     const out = payloadOf(await callTool(ctx.app, token, "list_notes"));
     expect(Object.keys(out).sort()).toEqual(["nextCursor", "notes"]);
     expect(Object.keys(out.notes[0]).sort()).toEqual(
-      ["id", "lastEdited", "ownerHandle", "role", "slug", "title", "updatedAt", "url"].sort()
+      ["id", "lastEdited", "owner", "role", "slug", "title", "updatedAt", "url"].sort()
     );
     // 未被截斷時**沒有** `titleTruncated` 這把 key（不是 `undefined`）。
     expect("titleTruncated" in out.notes[0]!).toBe(false);
@@ -350,11 +358,14 @@ describe("#108 兩支工具的共同接線", () => {
   //   （成因與查證在 `tools/list-notes.ts` 檔頭）。斷言仍是**整句逐字**、仍打 wire，只是換成
   //   新那句的核心；連同下一行的「Editing a note's content does not move it.」一起釘，
   //   把「真正的成因」與「刻意否定掉的假成因」兩半都守住。
+  //   #175 再換一次主詞（「renaming it」涵蓋標題與網址代稱兩種 PATCH——plan 規格落差 6），
+  //   並把**第三成因句**（翻頁期間被分享、或加入群組而看得到的筆記以原位置加入）也整句釘上：
+  //   `list-notes.ts` 檔頭一直宣稱它由這一案守，#175 之前其實沒釘。
   // - `search_notes`：只比標題，不講清楚模型會在搜不到時得出「這個 workspace 沒有這篇筆記」
   //   的錯誤結論（§8.5 D17）。
   // 沒有這一案，刪掉它們不會有任何東西變紅。斷言的是**送到 wire 上的 `tools/list`**，
   // 不是原始碼常數——改對了常數卻沒接上 `registerTool` 的形也要抓得到。
-  it("tools/list 的兩句逐字文案在 wire 上出現（§8.2 的分頁警告、§8.5 的只搜標題）", async () => {
+  it("tools/list 的三句逐字文案在 wire 上出現（§8.2 的分頁警告與第三成因、§8.5 的只搜標題）", async () => {
     const ctx = await buildCollabTestApp();
     const { token } = await scenario(ctx);
     const res = await mcpPost(ctx.app, rpc("tools/list"), { token });
@@ -362,22 +373,27 @@ describe("#108 兩支工具的共同接線", () => {
     const tools = res.json().result.tools as { name: string; description: string }[];
     const byName = (name: string): string => tools.find(t => t.name === name)!.description;
     expect(byName("list_notes")).toContain(
-      "creating a note, or changing a note's title or slug, moves it to the top of this order, above the " +
-        "cursor you are holding, so no later page shows it."
+      "creating a note, or renaming it, moves it to the top of this order, above the cursor you are holding, " +
+        "so no later page shows it."
     );
     expect(byName("list_notes")).toContain("Editing a note's content does not move it.");
+    expect(byName("list_notes")).toContain(
+      "While you page, a note shared with you or the notes of a group you join appear at their own unchanged positions, which may already be above your cursor."
+    );
     expect(byName("search_notes")).toContain(
       "Searches note titles only — not the body text. If you cannot find a note, its title may simply not contain your words."
     );
   });
 
-  it("#103：list_notes 的可見性說法涵蓋群組，且不再只說「other people shared with you」", async () => {
+  it("#175：list_notes 的可見性說法涵蓋群組，且不再只說「other people shared with you」", async () => {
     const ctx = await buildCollabTestApp();
     const { token } = await scenario(ctx);
     const res = await mcpPost(ctx.app, rpc("tools/list"), { token });
     const tools = res.json().result.tools as { name: string; description: string }[];
     const listNotes = tools.find(t => t.name === "list_notes")!.description;
-    expect(listNotes).toContain("the ones you own and the ones shared with you directly or via a group");
+    expect(listNotes).toContain("the ones you own, the notes of your groups, and the ones shared with you");
+    expect(listNotes).toContain("Each result carries `owner` (a person or one of your groups) and `role`");
+    expect(listNotes).not.toContain("ownerHandle");
     expect(listNotes).not.toContain("the ones other people shared with you");
   });
 

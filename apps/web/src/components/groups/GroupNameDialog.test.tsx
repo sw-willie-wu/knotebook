@@ -4,8 +4,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { GroupDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { GroupNameDialog } from "./GroupNameDialog";
+import { adminRole, groupDto } from "@/test/fixtures";
 
-const GROUP: GroupDto = { id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", name: "Old", myRole: "admin", createdAt: "2026-09-01T00:00:00.000Z" };
+const GROUP: GroupDto = groupDto({ id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", name: "Old" }, adminRole());
 
 function fakeResponse(status: number, body?: unknown): Response {
   return { ok: status >= 200 && status < 300, status, json: () => (body === undefined ? Promise.reject(new Error("no body")) : Promise.resolve(body)) } as unknown as Response;

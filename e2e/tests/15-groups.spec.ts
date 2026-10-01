@@ -2,11 +2,14 @@ import { expect, test } from "@playwright/test";
 import { ADMIN, editorLocator, loginAs, randomEmail } from "./helpers.js";
 
 /**
- * #103 群組（spec §11.3 第 1 條）：A 建群組 → 加 B → A 在群組建筆記 → B 側欄看得到、能編輯
- * （共編互見）→ A 移除 B → B 連線被踢、該篇從 B 的側欄消失 → A 刪群組 → 筆記在 A 的「我的筆記」。
+ * #175 群組 v2（spec §12.3 第 15 條，PR1 改寫自 #103 版）：A 建群組 → A 在群組建筆記（群組持有、
+ * 網址 `/g/<group_id>/<slug>`）→ 分享面板是群組版（無 radio、只說明＋連到群組設定）→ A 從設定 → 群組
+ * 以 email 加 B（內建一般成員）→ B 側欄看得到、能編輯（共編互見）、也有分享鈕 → A 移除 B → B 連線
+ * 被踢、該篇從 B 的側欄消失 → A 刪非空群組 → 409 toast、對話框留著、群組仍在（PR1 只刪空群組）。
  * 斷言形沿用 03-share-revoke（兩個 context、UI 建第二使用者、10 秒 SLA、exact toast）。
+ * 群組與筆記留著不清：e2e 疊每次 `stack:down -v` 重置。
  */
-test("群組：建立 → 加人 → 群組建筆記 → 成員共編 → 移除即踢 → 刪群組後回個人筆記", async ({ browser }) => {
+test("群組：建立 → 群組建筆記（/g/ 網址）→ 設定加人 → 成員共編 → 移除即踢 → 非空群組刪不掉", async ({ browser }) => {
   const adminContext = await browser.newContext();
   const userContext = await browser.newContext();
   try {
@@ -44,13 +47,14 @@ test("群組：建立 → 加人 → 群組建筆記 → 成員共編 → 移除
 
     // ── A：在群組建筆記（段標「＋」；「＋」預設 opacity-0，Playwright 仍視為可見）──
     await sidebar.getByRole("button", { name: `New note in ${groupName}` }).click();
-    await adminPage.waitForURL(/\/n\/[^/]+\/untitled-[0-9a-f]{8}$/, { timeout: 15_000 });
+    await adminPage.waitForURL(/\/g\/[0-9a-f-]{36}\/untitled-[0-9a-f]{8}$/, { timeout: 15_000 });
+    const untitledUrl = adminPage.url();
     const title = `E2E group note ${Date.now()}`;
     const titleInput = adminPage.getByLabel("Note title");
     await titleInput.fill(title);
     await titleInput.blur();
     await adminPage.waitForURL(
-      (url) => /^\/n\/[^/]+\/[^/]+$/.test(url.pathname) && !/\/untitled-[0-9a-f]{8}$/.test(url.pathname),
+      (url) => /^\/g\/[0-9a-f-]{36}\/[^/]+$/.test(url.pathname) && !/\/untitled-[0-9a-f]{8}$/.test(url.pathname),
       { timeout: 15_000 },
     );
     const noteUrl = adminPage.url();
@@ -60,15 +64,31 @@ test("群組：建立 → 加人 → 群組建筆記 → 成員共編 → 移除
     const groupSection = sidebar.locator(`[data-testid^="notegroup-group-"]`).filter({ has: adminPage.getByRole("button", { name: groupName, exact: true }) });
     await expect(groupSection.getByRole("link", { name: title })).toBeVisible();
 
-    // ── A：分享面板＝兩態＋群組成員；admin 從這裡把 B 加進群組 ─────────────
+    // ── A：分享面板是群組版（§8.4）：沒有 radio、沒有加人表單，只說明存取由角色決定 ──────
     await adminPage.getByRole("button", { name: "Share", exact: true }).click();
     const shareDialog = adminPage.getByRole("dialog", { name: "Share note" });
-    await expect(shareDialog.getByRole("radio", { name: /Group members/ })).toBeChecked();
-    await expect(shareDialog.getByRole("radio", { name: /Private/ })).toHaveCount(0);
-    await shareDialog.getByLabel("Email address").fill(secondEmail);
-    await shareDialog.getByRole("button", { name: "Add to group", exact: true }).click();
-    await expect(shareDialog.getByText(secondEmail)).toBeVisible();
+    await expect(shareDialog.getByText(/every member whose role can read has access/)).toBeVisible();
+    await expect(shareDialog.getByRole("radio")).toHaveCount(0);
     await adminPage.keyboard.press("Escape");
+    await expect(shareDialog).not.toBeVisible();
+
+    // ── A：設定 → 群組 → 該群組 → 以 email 加 B（角色預設內建一般成員）──────────
+    await adminPage.getByRole("button", { name: "admin", exact: true }).click();
+    await adminPage.getByRole("menuitem", { name: "Settings" }).click();
+    await adminPage.getByRole("link", { name: "Groups", exact: true }).click();
+    await expect(adminPage).toHaveURL(/\/settings\/groups$/);
+    await adminPage.getByRole("link", { name: groupName, exact: true }).click();
+    await expect(adminPage).toHaveURL(/\/settings\/groups\/[0-9a-f-]{36}$/);
+    await adminPage.getByLabel("Email address", { exact: true }).fill(secondEmail);
+    await adminPage.getByRole("button", { name: "Add", exact: true }).click();
+    await expect(adminPage.getByRole("button", { name: `Remove ${secondEmail}` })).toBeVisible();
+    await adminPage.keyboard.press("Escape");
+    // 斷言回到同一篇、但不要求 canonical：backgroundLocation 是 react-router 的 location，
+    // 還是改標題前的 untitled-…（標題改網址走 replaceState，router 不知道）；收斂 effect 只在常駐層
+    // note 物件變了才重跑，而加成員不失效 `['note', id]`——實跑在這裡 15 秒內停在 untitled-…。
+    // 所以接受這兩個網址其中之一（兩者都指同一篇；其他網址＝回錯頁）。
+    await expect.poll(() => [untitledUrl, noteUrl].includes(adminPage.url())).toBe(true);
+    await expect(adminPage.getByRole("button", { name: `Remove ${secondEmail}` })).toHaveCount(0);
 
     // ── B：首登改密 → 側欄工作坊看得到那篇 → 開啟、可編輯、共編互見 ──────────
     const userPage = await userContext.newPage();
@@ -88,9 +108,9 @@ test("群組：建立 → 加人 → 群組建筆記 → 成員共編 → 移除
     await expect(userPage).toHaveURL(noteUrl);
     const userBadge = userPage.getByRole("status").filter({ hasText: /^Connected/ });
     await expect(userBadge).toBeVisible({ timeout: 15_000 });
-    await expect(userBadge.getByText("Editor", { exact: true })).toBeVisible(); // 預設 group_role=editor
-    // 非 owner 沒有分享鈕
-    await expect(userPage.getByRole("button", { name: "Share", exact: true })).toHaveCount(0);
+    await expect(userBadge.getByText("Editor", { exact: true })).toBeVisible(); // 內建一般成員 → editor
+    // Q14：群組筆記的讀者也有分享鈕（群組版面板只說明＋連到群組設定）
+    await expect(userPage.getByRole("button", { name: "Share", exact: true })).toBeVisible();
 
     const sentence = `typed by member ${Date.now()}`;
     await editorLocator(userPage).click();
@@ -115,20 +135,28 @@ test("群組：建立 → 加人 → 群組建筆記 → 成員共編 → 移除
     await expect(userSidebar.getByRole("link", { name: title })).toHaveCount(0, { timeout: 10_000 });
     await expect(userSidebar.getByRole("button", { name: groupName, exact: true })).toHaveCount(0, { timeout: 10_000 });
 
-    // ── A：關設定 → 側欄群組 ⋮ → 刪除群組（確認）→ 筆記在「我的筆記」──────────
+    // ── A：關設定 → 側欄群組 ⋮ → 刪除群組 → 群組還有筆記：409 toast、對話框留著、群組仍在 ──
     await adminPage.keyboard.press("Escape");
     // backgroundLocation 是 react-router 的 location，可能還是 untitled-… 那個（標題改網址走
-    // replaceState）；先確認回到筆記頁，再等 NotePage 收斂到 canonical。
-    await expect(adminPage).toHaveURL(/\/n\//);
+    // replaceState）；先確認回到筆記頁，再等 NotePage 收斂到 canonical。這裡收斂得到是靠前面 B 在
+    // 編輯器打字觸發 `['note', id]` 重抓、note 物件變了，收斂 effect 才重跑（加成員那步沒有這個觸發，
+    // 所以那裡不斷言 canonical）。
+    await expect(adminPage).toHaveURL(/\/g\//);
     await expect(adminPage).toHaveURL(noteUrl, { timeout: 15_000 });
     await sidebar.getByRole("button", { name: `Group actions for ${groupName}` }).click();
     await adminPage.getByRole("menuitem", { name: "Delete group" }).click();
     const deleteDialog = adminPage.getByRole("dialog", { name: "Delete group?" });
-    await expect(deleteDialog).toContainText("become personal notes");
+    await expect(deleteDialog).toContainText("Only an empty group can be deleted");
     await deleteDialog.getByRole("button", { name: "Delete group", exact: true }).click();
+    await expect(adminPage.getByText("This group still has notes in it, so it can't be deleted.", { exact: true })).toBeVisible();
+    await expect(deleteDialog).toBeVisible(); // §8.6：失敗只 toast，對話框留著
+    // 用 Cancel 關、不用 Escape：Radix `react-toast` 的 Root 包在 DismissableLayer 裡，而
+    // DismissableLayer 的 `isHighestLayer` 只讓最後掛上的那一層接 Escape——toast 比對話框晚掛上，
+    // 所以第一下 Escape 關的是 toast，對話框留著（實跑：按一次 Escape 後對話框 5 秒後仍可見）。
+    await deleteDialog.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(deleteDialog).not.toBeVisible();
-    await expect(sidebar.getByRole("button", { name: groupName, exact: true })).toHaveCount(0, { timeout: 10_000 });
-    await expect(sidebar.getByTestId("notegroup-myNotes").getByRole("link", { name: title })).toBeVisible({ timeout: 10_000 });
+    await expect(sidebar.getByRole("button", { name: groupName, exact: true })).toBeVisible();
+    await expect(groupSection.getByRole("link", { name: title })).toBeVisible();
   } finally {
     await adminContext.close();
     await userContext.close();

@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, boolean, integer, bigint, jsonb, customType, primaryKey, uniqueIndex, index, check } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, boolean, integer, bigint, jsonb, customType, primaryKey, uniqueIndex, index, check, foreignKey } from "drizzle-orm/pg-core";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import type { EncryptedApiKey } from "../ai/crypto.js";
@@ -90,26 +90,58 @@ export const groups = pgTable("groups", {
 }, t => [check("groups_name_chk", sql`length(${t.name}) between 1 and 80`)]);
 
 /**
- * #103：群組成員。`role` 只管群組本身（改名、成員、刪除），**不參與筆記權限**（spec §5.1）。
- * 不變量 S1（每個群組至少一位 admin）**沒有 DB 層守衛**：應用層在交易內先鎖 `groups` 列再計數
- * （`groups/queries.ts`）；DB 直接操作、停用帳號、#73 的帳號刪除 cascade 都守不到（spec §12）。
- * `group_members_user_idx`：「某人所屬的群組」（`GET /api/groups`、可見性查詢的 grouped 分支）用
- * ——PK 是 (group_id, user_id)，反向查不到。
+ * #175（migration 0012）：群組角色。七旗標（spec §4.1）；內建兩個（`builtin` = admin／member，`name` 恆 NULL，
+ * 顯示名走 i18n——Q19），自訂角色（`builtin` NULL、`name` 必填，PR3 才有建立端點）。六條 CHECK：`builtin` 值域；
+ * S8 的名稱兩條（內建恰無名、自訂恰有名；名稱 1..40 字）；S8／S10 的旗標三條（內建管理員七旗標全真；四個筆記旗標
+ * ⇒ 閱讀；新建 ⇒ 編輯）。兩個管理旗標彼此獨立、也不蘊含閱讀（gate r2 M-4）——刻意沒有 CHECK。
+ * `(group_id, id)` 唯一索引是 `group_members` 複合 FK 的目標（S7：成員的角色屬同一群組）。
+ */
+export const groupRoles = pgTable("group_roles", {
+  id: uuid().primaryKey().defaultRandom(),
+  groupId: uuid("group_id").notNull().references(() => groups.id, { onDelete: "cascade" }),
+  builtin: text(),
+  name: text(),
+  canRead: boolean("can_read").notNull().default(true),
+  canCreate: boolean("can_create").notNull().default(false),
+  canEdit: boolean("can_edit").notNull().default(false),
+  canDelete: boolean("can_delete").notNull().default(false),
+  canManagePublicLink: boolean("can_manage_public_link").notNull().default(false),
+  canManageMembers: boolean("can_manage_members").notNull().default(false),
+  canManageGroup: boolean("can_manage_group").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, t => [
+  check("group_roles_builtin_chk", sql`${t.builtin} in ('admin','member')`),
+  check("group_roles_name_chk", sql`(${t.builtin} is null) = (${t.name} is not null)`),
+  check("group_roles_name_len_chk", sql`${t.name} is null or length(${t.name}) between 1 and 40`),
+  check("group_roles_admin_all_chk", sql`${t.builtin} is distinct from 'admin' or (${t.canRead} and ${t.canCreate} and ${t.canEdit} and ${t.canDelete} and ${t.canManagePublicLink} and ${t.canManageMembers} and ${t.canManageGroup})`),
+  check("group_roles_read_implied_chk", sql`${t.canRead} or not (${t.canCreate} or ${t.canEdit} or ${t.canDelete} or ${t.canManagePublicLink})`),
+  check("group_roles_create_needs_edit_chk", sql`${t.canEdit} or not ${t.canCreate}`),
+  uniqueIndex("group_roles_group_id_id_idx").on(t.groupId, t.id),
+  uniqueIndex("group_roles_builtin_idx").on(t.groupId, t.builtin).where(sql`${t.builtin} is not null`),
+  uniqueIndex("group_roles_name_idx").on(t.groupId, sql`lower(${t.name})`).where(sql`${t.builtin} is null`),
+]);
+
+/**
+ * #103／#175：群組成員。`role_id` 以複合 FK `(group_id, role_id) → group_roles(group_id, id)`（NO ACTION，S7）
+ * 掛在同一群組的角色上。S1（每個群組至少一位成員持內建管理員角色）**沒有 DB 守衛**：應用層在交易內先
+ * `lockGroup` 再以另一條敘述數 `builtin='admin'`（`groups/queries.ts` 的 `countAdmins`）。`group_members_user_idx`：
+ * 「某人所屬的群組」與可見性查詢的 grouped 分支用——PK 是 (group_id, user_id)，反向查不到。
  */
 export const groupMembers = pgTable("group_members", {
   groupId: uuid("group_id").notNull().references(() => groups.id, { onDelete: "cascade" }),
   userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  role: text().notNull(),
+  roleId: uuid("role_id").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, t => [
   primaryKey({ columns: [t.groupId, t.userId] }),
-  check("group_members_role_chk", sql`${t.role} in ('admin','member')`),
+  foreignKey({ name: "group_members_role_fk", columns: [t.groupId, t.roleId], foreignColumns: [groupRoles.groupId, groupRoles.id] }),
   index("group_members_user_idx").on(t.userId),
+  index("group_members_role_idx").on(t.roleId),
 ]);
 
 export const notes = pgTable("notes", {
   id: uuid().primaryKey().defaultRandom(),
-  ownerId: uuid("owner_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  ownerId: uuid("owner_id").references(() => users.id, { onDelete: "restrict" }),
   title: text().notNull().default("Untitled"),
   // 網址代稱（#122 spec §3a 起 per-user）：NOT NULL——auto（slug_is_custom=false，跟標題
   // 走、由 autoSlugFromTitle 派生＋owner 範圍去重）或自訂（=true，PATCH 顯式設定）。
@@ -161,12 +193,10 @@ export const notes = pgTable("notes", {
   lastEditedBy: uuid("last_edited_by").references(() => users.id, { onDelete: "set null" }),
   lastEditedTokenId: uuid("last_edited_token_id").references((): AnyPgColumn => apiTokens.id, { onDelete: "set null" }),
   lastEditedAgentLabel: text("last_edited_agent_label"),
-  // #103（migration 0011）：所屬群組與「本篇對全組開放到哪一級」。`group_role` 永遠有值；`group_id`
-  // 為 null 時它無意義但不清空（spec §4.1）。`ON DELETE SET NULL` 是最後防線——正常路徑刪群組前
-  // 一定先把成員物化成 `note_shares`（spec §6.3）。不變量 S5（`group_id` 非 null ⇒ 該筆記沒有任何
-  // `note_shares` 列）**沒有 DB 層守衛**，由應用層兩邊鎖筆記列守（spec §4.3、§12 第 2 條）。
-  groupId: uuid("group_id").references(() => groups.id, { onDelete: "set null" }),
-  groupRole: text("group_role").notNull().default("editor"),
+  // #175：`owner_id` 與 `group_id` 恰一個非 NULL（`notes_owner_xor_group_chk`，S6）；群組筆記沒有個人 owner。
+  // FK RESTRICT：XOR 下 SET NULL 會撞 CHECK；刪群組前群組必須是空的（PR1–PR3）。`group_role` 已廢除（W1）
+  // ——權限只看成員的群組角色。
+  groupId: uuid("group_id").references(() => groups.id, { onDelete: "restrict" }),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),   // 保留欄位；v0.1 硬刪
 }, t => [
   index("notes_owner_idx").on(t.ownerId),   // GET /api/notes 自有分支（owner_id = $u）用
@@ -184,9 +214,28 @@ export const notes = pgTable("notes", {
   // 公開別名 per-user 唯一（#122 PR3）：同 owner 不重複、跨 owner 可同名；constraint
   // 名是管理端 409 public_slug_taken 的分流依據。partial＝未設別名不佔位。
   uniqueIndex("notes_owner_public_slug_idx").on(t.ownerId, t.publicSlug).where(sql`${t.publicSlug} is not null`),
-  // #103：「群組內所有筆記」（刪群組時的物化鎖、移人時的踢線名單、grouped 分支的 JOIN）用。
-  index("notes_group_idx").on(t.groupId),
-  check("notes_group_role_chk", sql`${t.groupRole} in ('viewer','editor')`),
+  // #175：群組內 slug 唯一（S12）與群組範圍的 prev 補查；個人範圍仍由 notes_owner_slug_idx 裁決（NULL owner 不互撞）。
+  // notes_group_slug_idx 以 group_id 開頭，兼任「群組內所有筆記」（踢線名單、grouped 支的 JOIN、刪空群組的計數）——
+  // #103 的單欄 notes_group_idx 因此冗餘，0012 刪除（plan gate r1 A-M5）。
+  uniqueIndex("notes_group_slug_idx").on(t.groupId, t.slug),
+  index("notes_group_prev_slug_idx").on(t.groupId, t.prevSlug).where(sql`${t.prevSlug} is not null`),
+  check("notes_owner_xor_group_chk", sql`(${t.ownerId} is null) <> (${t.groupId} is null)`),
+  // S11：群組筆記沒有公開別名（W7）。
+  check("notes_group_no_public_slug_chk", sql`${t.groupId} is null or ${t.publicSlug} is null`),
+]);
+
+/**
+ * #175 §4.3：網址轉址表（W5）。`old_path`＝已正規化的完整路徑（`/n/<handle>/<slug>` 或 `/g/<group uuid 小寫>/<slug>`），
+ * 同鍵再寫入最新者勝（B3）。一個月（Q20）、查詢時懶惰清理、無排程器。應用層寫入一律經 `notes/tx/redirects.ts`（#175 Task 4 起；0012 的一次性回填與測試的直插除外）。
+ */
+export const noteRedirects = pgTable("note_redirects", {
+  oldPath: text("old_path").primaryKey(),
+  noteId: uuid("note_id").notNull().references(() => notes.id, { onDelete: "cascade" }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, t => [
+  index("note_redirects_note_idx").on(t.noteId),
+  index("note_redirects_expires_idx").on(t.expiresAt),
 ]);
 
 export const noteStates = pgTable("note_states", {

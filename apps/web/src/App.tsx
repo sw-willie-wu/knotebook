@@ -39,12 +39,13 @@ const NotePage = lazy(() => import("./pages/NotePage"));
 const PublicNotePage = lazy(() => import("./pages/PublicNotePage"));
 
 /**
- * 筆記頁的 route element（issue #66）——舊形 `/notes/:ref` 與新形 `/n/:handle/:slug`
- * （#122）兩條 route 共用：NoteRouteErrorBoundary 接住 chunk 載入失敗（離線/部署
+ * 筆記頁的 route element（issue #66）——舊形 `/notes/:ref`、新形 `/n/:handle/:slug`
+ * （#122）與群組筆記 `/g/:groupId/:slug`（#175）三條 route 共用：NoteRouteErrorBoundary 接住 chunk 載入失敗（離線/部署
  * 輪替 hash）與 NotePage 底下任何 render 錯誤——沒有它的話 React.lazy 的 reject
  * 會讓整棵樹被卸載成白屏。
  *
- * - resetKey 用路由參數（舊形＝ref、新形＝`${handle}/${slug}` 對）而非 location.key：
+ * - resetKey 用路由參數（舊形＝ref、新形＝`${handle}/${slug}` 對、群組形＝`g:${groupId}/${slug}`，
+ *   #175）而非 location.key：
  *   關設定 modal 走 `navigate(backgroundLocation)` 會產生**新的** location key
  *   （實測），用 key 會把「關 modal」誤判成「換筆記」而觸發 reload；params 才是
  *   「換到另一篇筆記」的真正不變量。代價（已接受）：重新導航到同一組 params 不觸發
@@ -56,8 +57,16 @@ const PublicNotePage = lazy(() => import("./pages/PublicNotePage"));
 function NoteRoute() {
   // #122：兩條 route（舊形 /notes/:ref、新形 /n/:handle/:slug）共用本元件與 NotePage
   // ——resetKey 依形取（同一篇筆記的不變量：舊形是 ref、新形是 handle/slug 對）。
-  const { ref, handle, slug } = useParams();
-  const resetKey = handle !== undefined && slug !== undefined ? `${handle}/${slug}` : ref;
+  // #175：第三形 `/g/:groupId/:slug`（群組筆記）——鍵取 `g:${groupId}/${slug}`。`g:` 前綴是
+  // **防禦性設計、無案守著**（群組 id 是 uuid、handle 不可能等於它，單靠內容就分得開；審查實測
+  // 拿掉前綴全綠）。control 4 守的是「第三形有自己的鍵」（拿掉整個第三形分支會紅），不是前綴。
+  const { ref, handle, groupId, slug } = useParams();
+  const resetKey =
+    groupId !== undefined && slug !== undefined
+      ? `g:${groupId}/${slug}`
+      : handle !== undefined && slug !== undefined
+        ? `${handle}/${slug}`
+        : ref;
   return (
     <NoteRouteErrorBoundary resetKey={resetKey}>
       <Suspense fallback={<NotePageFallback />}>
@@ -168,6 +177,9 @@ export function AppRoutes() {
                 被 `/*` catch-all 吃掉；route 承接測試釘住）。 */}
             <Route path="/notes/:ref" element={<NoteRoute />} />
             <Route path="/n/:handle/:slug" element={<NoteRoute />} />
+            {/* #175：群組筆記 `/g/<group_id>/<slug>`（§8.1）——同一個 NoteRoute/NotePage；
+                只掛主樹（第二棵樹只管 /settings/*）。承接由 App.resetKey.test control 4 釘住。 */}
+            <Route path="/g/:groupId/:slug" element={<NoteRoute />} />
             {/* 站台管理獨立頁（2026-09-30）：layout route，AdminPage 的 <Outlet/> 放兩個
                 子區塊。RequireAdmin 巢狀在 ChangePasswordGate 底下（先強制改密、再判 admin）。 */}
             <Route element={<RequireAdmin />}>

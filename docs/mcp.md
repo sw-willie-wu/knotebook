@@ -86,7 +86,7 @@ Every tool that takes a `note_id` — `read_note_outline`, `read_note_section` a
 
 **Takes** `cursor` (opaque — the `nextCursor` from a previous call; omit it for the first page) and `limit` (1–100, default 50).
 
-**Answers** `notes`, and `nextCursor` which is `null` on the last page. Each entry is `{id, title, titleTruncated?, ownerHandle, slug, url, role, updatedAt, lastEdited}`. `title` is cut at 200 characters and `titleTruncated: true` appears only when it was cut. `url` is the note's page as a **site-relative path**, `/n/<owner>/<slug>` — there is no scheme and no host in it, so put this deployment's own origin in front before handing it to anyone; take the path from here rather than assembling it yourself. `role` is `owner`, `editor` or `viewer`, and it describes your access to that note, not your credential's scope. `lastEdited` is `null` on a note nobody has edited since this feature landed; once someone has, it is `{at, byHandle, agentLabel}` — see [AI editing](./ai-editing.md#last-edited) for what each of those means.
+**Answers** `notes`, and `nextCursor` which is `null` on the last page. Each entry is `{id, title, titleTruncated?, owner, slug, url, role, updatedAt, lastEdited}`. `title` is cut at 200 characters and `titleTruncated: true` appears only when it was cut. `owner` says whose note it is: `{kind: "user", handle}` for a personal note, `{kind: "group", id, name}` for a note that belongs to one of your groups. `url` is the note's page as a **site-relative path** — `/n/<username>/<slug>` for a personal note, `/g/<group id>/<slug>` for a group note — there is no scheme and no host in it, so put this deployment's own origin in front before handing it to anyone; take the path from here rather than assembling it yourself. `role` is `owner`, `editor` or `viewer`, and it describes your access to that note, not your credential's scope. A group note is never `owner`: your access to it comes from your role in the group. `lastEdited` is `null` on a note nobody has edited since this feature landed; once someone has, it is `{at, byHandle, agentLabel}` — see [AI editing](./ai-editing.md#last-edited) for what each of those means.
 
 **Errors** `invalid_body` — the `cursor` is not one this server issued. Omit it and start over.
 
@@ -104,7 +104,7 @@ Every tool that takes a `note_id` — `read_note_outline`, `read_note_section` a
 
 **Answers** `note`, `totalChars`, `sections`, `truncated`, `nextSectionOffset` and `lastEdited`.
 
-- `note` here is an **object**: `{id, title, titleTruncated?, ownerHandle, role}`.
+- `note` here is an **object**: `{id, title, titleTruncated?, owner, role}`.
 - `totalChars` is the whole note, not this page.
 - `sections` holds at most 100 entries in document order, each `{sectionId, level, heading, headingTruncated?, chars}`. The first section of every note is `_top` — whatever comes before the first heading — and its `level` is `0`.
 - **There are no fingerprints here**, neither per section nor for the note. An outline tells you what a note contains and what to read next; the fingerprint a write needs comes from `read_note_section` (on the page that finishes a section) or from a previous `edit_note` reply.
@@ -227,7 +227,7 @@ These are the MCP-specific entries in the shared [Known limitations](./known-lim
 - [A fingerprint is concurrency protection, not permission protection](./known-limitations.md)
 - [A per-minute read limit is not a per-turn context budget](./known-limitations.md)
 - [Notes other people shared with you end up in your assistant's context](./known-limitations.md)
-- [MCP clients see group notes but can't put a note in a group](./known-limitations.md)
+- [MCP clients can read and edit group notes, but can't create one in a group yet](./known-limitations.md)
 - [There is no cross-note view of what an assistant changed](./known-limitations.md)
 - [A wrong `PUBLIC_URL` makes MCP requests that carry an `Origin` header answer `403`](./known-limitations.md)
 - [A client's cached tool list does not shrink on its own](./known-limitations.md)

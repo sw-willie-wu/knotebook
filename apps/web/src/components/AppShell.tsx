@@ -248,7 +248,7 @@ interface AppShellProps {
  * 主佈局：側欄（`md+`＝固定卡片；`<md`＝隱藏，改由抽屜承載，入口是
  * `SidebarDrawerButton` 漢堡鈕——NotePage 頁首或 `NarrowTopBar` 提供）、右側主
  * 內容區（呼叫端傳入的 `children`）。五個呼叫端共用同一個插槽：`HomePage`（`/`）、
- * `NotePage`（`/n/:handle/:slug` 與舊形 `/notes/:ref` 兩條 route 共用）、
+ * `NotePage`（`/n/:handle/:slug`、`/g/:groupId/:slug`（#175）與舊形 `/notes/:ref` 三條 route 共用）、
  * `NotePageFallback`、`NoteRouteErrorFallback`、`AdminPage`（`/admin/*`，唯一傳
  * `sidebar` 的呼叫端）。
  *
@@ -283,8 +283,8 @@ interface AppShellProps {
  * （點側欄筆記）與跨斷點 resize（change → `matches:false`）時自行關閉。
  *
  * 新增筆記：`POST /api/notes`（`useCreateNote`）成功後直接導向新筆記的
- * `canonicalNotePath`（#122 起單一形 `/n/<ownerHandle>/<slug>`——新筆記吃 DB
- * default 的 `untitled-<uuid8>` slug）；失敗則跟 ⋮ 選單（`NoteMenu.tsx`）
+ * `canonicalNotePath`（個人筆記 `/n/<ownerHandle>/<slug>`；群組段「＋」建的群組筆記導
+ * `/g/<groupId>/<slug>`（#175）——新筆記吃 DB default 的 `untitled-<uuid8>` slug）；失敗則跟 ⋮ 選單（`NoteMenu.tsx`）
  * 的刪除項同一套錯誤處理慣例：ApiFail → `errors.<code>`、否則 `errors.fallback`，
  * 用 toast 顯示（不像 LoginPage 用行內 `errorMessage` state——這裡沒有表單可以
  * 掛錯誤文案）。

@@ -1,23 +1,19 @@
 /**
- * #103：群組的查詢建構與交易內輔助。路由在 `routes/groups.ts`（群組管理）與 `routes/notes.ts`
- * （筆記歸屬、`POST /api/notes {groupId}`）。
+ * #103／#175：群組的查詢建構與交易內輔助。路由在 `routes/groups.ts`；交易本體在 `groups/tx/*`（S14）。
  *
- * **S1（每個群組至少一位 admin）的紀律**（spec §4.3）：任何會改動 `group_members` 列或其 `role` 的交易，
- * 第一步 `lockGroup()`（`SELECT … FROM groups WHERE id=$g FOR UPDATE`），之後才用**另一條敘述**
- * `countAdmins()` 計數——READ COMMITTED 下後到者取得鎖後，新的敘述才拿得到新快照（spec gate r2 E 實跑）。
- * 不可把鎖與計數併成同一條敘述、不可改用 REPEATABLE READ。
+ * **S1（每個群組至少一位成員持內建管理員角色）的紀律**（spec §4.4、§5.1）：任何會改動 `group_members` 列或其
+ * `role_id` 的交易，第一步 `lockGroup()`（`SELECT … FROM groups WHERE id=$g FOR UPDATE`），之後才用**另一條敘述**
+ * `countAdmins()` 計數——READ COMMITTED 下後到者取得鎖後，新的敘述才拿得到新快照（gate r1 B-7：拿掉鎖、同交易計數 →
+ * 兩邊都降級、最終 0 位管理員）。不可把鎖與計數併成同一條敘述、不可改用 REPEATABLE READ。
  */
 import { and, asc, eq, sql } from "drizzle-orm";
-import type { GroupMemberRole } from "@knotebook/shared";
-import type { Db } from "../db/index.js";
-import { groupMembers, groups, notes } from "../db/schema.js";
-import { TxAbort } from "../http/tx-abort.js";
+import type { BuiltinGroupRole, GroupDto, GroupRoleDto } from "@knotebook/shared";
+import type { DbOrTx, Tx } from "../db/tx.js";
+import { groupMembers, groupRoles, groups, notes } from "../db/schema.js";
 import { UUID_RE } from "../notes/service.js";
 import { hasUnstorableChar } from "../oauth/storable.js";
-import type { GroupTestHook } from "./test-hook.js";
 
-export type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
-export type DbOrTx = Db | Tx;
+export type { DbOrTx, Tx } from "../db/tx.js";
 
 /** 群組路由的 404 `not_found` 訊息——非成員／不存在／id 不合法三者必須逐位元組相同（S4）。 */
 export const GROUP_NOT_FOUND_MESSAGE = "找不到此群組";
@@ -37,33 +33,99 @@ export function validateGroupName(raw: string): string | null {
   return length >= 1 && length <= GROUP_NAME_MAX ? name : null;
 }
 
+/** 角色欄位（每次呼叫現造——drizzle builder 單次使用）＋掛這個角色的成員數（correlated subquery）。 */
+function roleColumns() {
+  return {
+    roleId: groupRoles.id,
+    builtin: groupRoles.builtin,
+    roleName: groupRoles.name,
+    canRead: groupRoles.canRead,
+    canCreate: groupRoles.canCreate,
+    canEdit: groupRoles.canEdit,
+    canDelete: groupRoles.canDelete,
+    canManagePublicLink: groupRoles.canManagePublicLink,
+    canManageMembers: groupRoles.canManageMembers,
+    canManageGroup: groupRoles.canManageGroup,
+    memberCount: sql<number>`(select count(*)::int from ${groupMembers} as gm2 where gm2.role_id = ${groupRoles.id})`,
+  };
+}
+
+interface RoleColumnsRow {
+  roleId: string | null;
+  builtin: string | null;
+  roleName: string | null;
+  canRead: boolean | null;
+  canCreate: boolean | null;
+  canEdit: boolean | null;
+  canDelete: boolean | null;
+  canManagePublicLink: boolean | null;
+  canManageMembers: boolean | null;
+  canManageGroup: boolean | null;
+  memberCount: number | null;
+}
+
+/** 角色欄 → DTO；LEFT JOIN 落空（非成員）回 null。 */
+export function toGroupRoleDto(r: RoleColumnsRow): GroupRoleDto | null {
+  if (r.roleId === null) return null;
+  return {
+    id: r.roleId,
+    builtin: (r.builtin ?? null) as BuiltinGroupRole | null,
+    name: r.roleName,
+    permissions: {
+      read: r.canRead === true,
+      create: r.canCreate === true,
+      edit: r.canEdit === true,
+      delete: r.canDelete === true,
+      managePublicLink: r.canManagePublicLink === true,
+      manageMembers: r.canManageMembers === true,
+      manageGroup: r.canManageGroup === true,
+    },
+    memberCount: r.memberCount ?? 0,
+  };
+}
+
+/** `GroupDto`：兩個 `canManage*`＝角色旗標 OR 站台 admin（§5.5，不論是否成員——gate r2 M-3）。 */
+export function toGroupDto(row: { id: string; name: string; createdAt: Date } & RoleColumnsRow, isSiteAdmin: boolean): GroupDto {
+  const myRole = toGroupRoleDto(row);
+  return {
+    id: row.id,
+    name: row.name,
+    myRole,
+    canManageMembers: (myRole?.permissions.manageMembers ?? false) || isSiteAdmin,
+    canManageGroup: (myRole?.permissions.manageGroup ?? false) || isSiteAdmin,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
 export interface GroupAccess {
   /** 呼叫者在群組裡的角色；非成員（只可能是站台 admin）為 null。 */
-  memberRole: GroupMemberRole | null;
-  /** 群組 admin，或站台 admin（spec §6.1：站台 admin 視同每個群組的 admin，只在 API 層）。 */
-  canAdmin: boolean;
+  role: GroupRoleDto | null;
+  manageMembers: boolean;
+  manageGroup: boolean;
+}
+
+/** 單一群組＋呼叫者的角色（只組不執行）：`groupAccess` 與 `POST`／`PATCH /api/groups…` 的回應共用。 */
+export function groupWithMyRoleQuery(db: DbOrTx, groupId: string, userId: string) {
+  return db
+    .select({ id: groups.id, name: groups.name, createdAt: groups.createdAt, ...roleColumns() })
+    .from(groups)
+    .leftJoin(groupMembers, and(eq(groupMembers.groupId, groups.id), eq(groupMembers.userId, userId)))
+    .leftJoin(groupRoles, eq(groupRoles.id, groupMembers.roleId))
+    .where(eq(groups.id, groupId))
+    .limit(1);
 }
 
 /**
- * 呼叫者對群組的可見性（spec §5.6／§6.1）：回 null ＝ 一律 404（id 不合法、群組不存在、非成員且不是
- * 站台 admin）。三者在輸出上不可分辨（S4）。
+ * 呼叫者對群組的可見性與管理權（§5.4、§5.5）：回 null ＝ 一律 404（id 不合法、群組不存在、非成員且不是站台 admin），
+ * 三者不可分辨（S4）。**無閱讀旗標的成員仍看得到群組本身**（§5.4 末句）。
  */
-export async function groupAccess(
-  db: DbOrTx,
-  groupId: string,
-  user: { id: string; isAdmin: boolean },
-): Promise<GroupAccess | null> {
+export async function groupAccess(db: DbOrTx, groupId: string, user: { id: string; isAdmin: boolean }): Promise<GroupAccess | null> {
   if (!UUID_RE.test(groupId)) return null;
-  const [row] = await db
-    .select({ id: groups.id, memberRole: groupMembers.role })
-    .from(groups)
-    .leftJoin(groupMembers, and(eq(groupMembers.groupId, groups.id), eq(groupMembers.userId, user.id)))
-    .where(eq(groups.id, groupId))
-    .limit(1);
+  const [row] = await groupWithMyRoleQuery(db, groupId, user.id);
   if (!row) return null;
-  const memberRole = (row.memberRole ?? null) as GroupMemberRole | null;
-  if (memberRole === null && !user.isAdmin) return null;
-  return { memberRole, canAdmin: memberRole === "admin" || user.isAdmin };
+  const dto = toGroupDto(row, user.isAdmin);
+  if (dto.myRole === null && !user.isAdmin) return null;
+  return { role: dto.myRole, manageMembers: dto.canManageMembers, manageGroup: dto.canManageGroup };
 }
 
 /** S1 的鎖（交易第一步）。群組不存在回 false（呼叫端 throw 404）。 */
@@ -72,55 +134,65 @@ export async function lockGroup(tx: Tx, groupId: string): Promise<boolean> {
   return rows.length > 0;
 }
 
-/** S1 的計數——**必須是 `lockGroup` 之後的另一條敘述**（見檔頭）。 */
+/** S1 的計數：持**內建管理員**角色的成員數（自訂角色勾滿七旗標也不算，§4.1）——**必須是 `lockGroup` 之後的另一條敘述**。 */
 export async function countAdmins(tx: Tx, groupId: string): Promise<number> {
   const [row] = await tx
     .select({ n: sql<number>`count(*)::int` })
     .from(groupMembers)
-    .where(and(eq(groupMembers.groupId, groupId), eq(groupMembers.role, "admin")));
+    .innerJoin(groupRoles, eq(groupRoles.id, groupMembers.roleId))
+    .where(and(eq(groupMembers.groupId, groupId), eq(groupRoles.builtin, "admin")));
   return row?.n ?? 0;
+}
+
+/** 這個群組的某個角色（`roleId` 已過 UUID_RE）；不屬於該群組回 undefined（→ 404 `role_not_found`）。 */
+export async function roleInGroup(db: DbOrTx, groupId: string, roleId: string) {
+  const [row] = await db
+    .select({ id: groupRoles.id, builtin: groupRoles.builtin })
+    .from(groupRoles)
+    .where(and(eq(groupRoles.groupId, groupId), eq(groupRoles.id, roleId)))
+    .limit(1);
+  return row;
+}
+
+/** 內建角色的 id（S9：每群組恰一個 admin、一個 member；「至少」在應用層——建群組同交易建兩個，§4.4）。 */
+export async function builtinRoleId(db: DbOrTx, groupId: string, builtin: BuiltinGroupRole): Promise<string> {
+  const [row] = await db
+    .select({ id: groupRoles.id })
+    .from(groupRoles)
+    .where(and(eq(groupRoles.groupId, groupId), eq(groupRoles.builtin, builtin)))
+    .limit(1);
+  if (!row) throw new Error(`群組 ${groupId} 缺內建 ${builtin} 角色（S9 被打破）`);
+  return row.id;
 }
 
 /** `GET /api/groups`：我所屬的群組，依 name 再依 id（只組不執行——路由與 EXPLAIN 測試共用同一個形）。 */
 export function listMyGroupsQuery(db: DbOrTx, userId: string) {
   return db
-    .select({ id: groups.id, name: groups.name, myRole: groupMembers.role, createdAt: groups.createdAt })
+    .select({ id: groups.id, name: groups.name, createdAt: groups.createdAt, ...roleColumns() })
     .from(groupMembers)
     .innerJoin(groups, eq(groups.id, groupMembers.groupId))
+    .innerJoin(groupRoles, eq(groupRoles.id, groupMembers.roleId))
     .where(eq(groupMembers.userId, userId))
     .orderBy(asc(groups.name), asc(groups.id));
 }
 
-/** 群組內所有筆記的 id（移人時的踢線名單；只組不執行）。 */
+/**
+ * `GET /api/groups/:id/roles`：內建管理員、內建一般成員、其餘依 `lower(name)`、`id`（排序見 spec §6.7）。可見性：任一成員
+ * （Q18），加上非成員的站台 admin（plan 規格落差 13，與 `GET …/members` 同一條授權線）。
+ */
+export function listRolesQuery(db: DbOrTx, groupId: string) {
+  return db
+    .select(roleColumns())
+    .from(groupRoles)
+    .where(eq(groupRoles.groupId, groupId))
+    .orderBy(
+      sql`case ${groupRoles.builtin} when 'admin' then 0 when 'member' then 1 else 2 end`,
+      sql`lower(${groupRoles.name})`,
+      asc(groupRoles.id),
+    );
+}
+
+/** 群組內所有筆記的 id（移人／換角色時的踢線名單；只組不執行）。走 `notes_group_slug_idx`（group_id 開頭）。 */
 export function groupNoteIdsQuery(db: DbOrTx, groupId: string) {
   return db.select({ id: notes.id }).from(notes).where(eq(notes.groupId, groupId));
-}
-
-/** 群組全體成員的 userId（筆記移出／換群組、改 `group_role` 時的踢線名單）。 */
-export async function groupMemberIds(db: DbOrTx, groupId: string): Promise<string[]> {
-  const rows = await db.select({ userId: groupMembers.userId }).from(groupMembers).where(eq(groupMembers.groupId, groupId));
-  return rows.map(r => r.userId);
-}
-
-/**
- * #103 §6.3：刪群組的物化交易（D8：筆記變個人筆記，原成員依原本的 `group_role` 保留存取）。
- * 鎖順序：先 `groups` 列、再該群組的 `notes` 列——`PUT …/group` 是先鎖 note、FK 檢查時才取 groups
- * 的 KEY SHARE，而這裡不鎖不在該群組的筆記，兩邊不互等（spec §12 第 2 條；`groups-race.test.ts` 實跑）。
- * INSERT…SELECT 與 `DELETE groups`（`notes.group_id` 由 FK SET NULL）同一交易 commit，其他交易看不到中間
- * 狀態（S5）。ON CONFLICT 在 S5 成立時不會發生，保留「只升不降」作防禦。不觸發踢線：物化後的存取與原本相同。
- */
-export async function materializeAndDeleteGroup(db: Db, groupId: string, hook?: GroupTestHook): Promise<void> {
-  await db.transaction(async tx => {
-    if (!(await lockGroup(tx, groupId))) throw new TxAbort(404, "not_found", GROUP_NOT_FOUND_MESSAGE);
-    await tx.select({ id: notes.id }).from(notes).where(eq(notes.groupId, groupId)).for("update");
-    await hook?.("group-delete-locked", { groupId });
-    await tx.execute(sql`
-      insert into note_shares (note_id, user_id, role)
-      select n.id, gm.user_id, n.group_role
-      from notes n join group_members gm on gm.group_id = n.group_id
-      where n.group_id = ${groupId} and gm.user_id <> n.owner_id
-      on conflict (note_id, user_id) do update
-        set role = case when note_shares.role = 'editor' then 'editor' else excluded.role end`);
-    await tx.delete(groups).where(eq(groups.id, groupId));
-  });
 }

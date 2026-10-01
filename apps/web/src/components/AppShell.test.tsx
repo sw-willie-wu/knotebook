@@ -3,13 +3,14 @@ import type { ReactNode } from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useParams } from "react-router";
-import { canonicalNotePath, type NoteDto, type UserDto } from "@knotebook/shared";
+import { canonicalNotePath, type GroupDto, type NoteDto, type UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ActiveNoteProvider } from "@/lib/active-note";
 import { NotePageControlsContext } from "@/lib/note-page-controls";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppShell, SidebarDrawerButton } from "./AppShell";
+import { adminRole, groupDto, OWNER_PERMS } from "@/test/fixtures";
 
 // 「新增筆記 → 導向新筆記頁」的接線案——#122 起導向的是 /n/<handle>/<slug> 新形，
 // probe 掛在 /n/:handle/:slug 底下（新形 route 的承接由 App.resetKey.test control 3 守；
@@ -48,12 +49,20 @@ const CREATED: NoteDto = {
   ownerHandle: "tester",
   lastEdited: null,
   group: null,
+  groupId: null,
+  permissions: OWNER_PERMS,
 };
 
 /** 停在 `/n/:handle/:slug`（#122 新形）的替身頁——把解析到的兩段印出來，讓斷言看得到落點。 */
 function NoteRouteProbe() {
   const { handle, slug } = useParams<{ handle: string; slug: string }>();
   return <div data-testid="note-route">{`${handle}/${slug}`}</div>;
+}
+
+/** 停在 `/g/:groupId/:slug`（#175 群組筆記）的替身頁。 */
+function GroupNoteRouteProbe() {
+  const { groupId, slug } = useParams<{ groupId: string; slug: string }>();
+  return <div data-testid="group-note-route">{`${groupId}/${slug}`}</div>;
 }
 
 describe("AppShell — new note", () => {
@@ -111,13 +120,21 @@ describe("AppShell — new note", () => {
     await waitFor(() => expect(screen.getByTestId("note-route")).toHaveTextContent(expectedSegments));
   });
 
-  it("#103：群組段的「＋」以 groupId 建筆記並導向新筆記", async () => {
-    const group = { id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", name: "Workshop A", myRole: "admin", createdAt: "2026-09-01T00:00:00.000Z" };
+  it("#103／#175：群組段的「＋」以 groupId 建筆記並導向新筆記的 /g/ 網址", async () => {
+    // #175 gate r1 B-M8：這個 fixture 以前沒標 `GroupDto`、`myRole: "admin"` 是字串——tsc 不報，
+    // 但「＋」改看 `myRole.permissions.create` 之後會丟 TypeError。現在標型別並走共用 helper。
+    const group: GroupDto = groupDto({ id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", name: "Workshop A" }, adminRole());
+    // 群組筆記（#175）：無個人 owner、role 從不是 owner、canonical 是 `/g/<groupId>/<slug>`。
     const created: NoteDto = {
       ...CREATED,
       id: "77777777-7777-7777-7777-777777777777",
+      ownerId: null,
+      ownerHandle: null,
+      role: "editor",
       slug: "untitled-77777777",
-      group: { id: group.id, name: group.name, role: "editor" },
+      groupId: group.id,
+      group: { id: group.id, name: group.name },
+      permissions: { ...OWNER_PERMS, manageShares: false, moveToGroup: false },
     };
     let postBody: unknown;
     vi.stubGlobal(
@@ -150,6 +167,7 @@ describe("AppShell — new note", () => {
               <Routes>
                 <Route path="/" element={<AppShell>home</AppShell>} />
                 <Route path="/n/:handle/:slug" element={<NoteRouteProbe />} />
+                <Route path="/g/:groupId/:slug" element={<GroupNoteRouteProbe />} />
               </Routes>
             </ActiveNoteProvider>
           </MemoryRouter>
@@ -160,8 +178,10 @@ describe("AppShell — new note", () => {
     fireEvent.click(await screen.findByRole("button", { name: "New note in Workshop A" }));
 
     await waitFor(() => expect(postBody).toEqual({ groupId: group.id }));
-    const expectedSegments = canonicalNotePath(created).replace("/n/", ""); // "handle/slug" 兩段
-    await waitFor(() => expect(screen.getByTestId("note-route")).toHaveTextContent(expectedSegments));
+    expect(canonicalNotePath(created)).toBe(`/g/${group.id}/untitled-77777777`);
+    await waitFor(() =>
+      expect(screen.getByTestId("group-note-route")).toHaveTextContent(`${group.id}/untitled-77777777`),
+    );
   });
 
   it("shows an error toast and stays put when POST /api/notes fails", async () => {
@@ -230,6 +250,8 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
     ownerHandle: "tester",
     lastEdited: null,
     group: null,
+    groupId: null,
+    permissions: OWNER_PERMS,
   };
 
   const BETA_NOTE: NoteDto = {
@@ -245,6 +267,8 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
     ownerHandle: "tester",
     lastEdited: null,
     group: null,
+    groupId: null,
+    permissions: OWNER_PERMS,
   };
 
   function stubFetchWithNotes(notes: NoteDto[]) {
@@ -442,6 +466,8 @@ describe("AppShell — #115 側欄抽屜", () => {
     ownerHandle: "tester",
     lastEdited: null,
     group: null,
+    groupId: null,
+    permissions: OWNER_PERMS,
   };
 
   function stubFetchWithNotes(notes: NoteDto[]) {
@@ -637,6 +663,8 @@ describe("AppShell — sidebar 插槽（站台管理頁）", () => {
     ownerHandle: "tester",
     lastEdited: null,
     group: null,
+    groupId: null,
+    permissions: OWNER_PERMS,
   };
 
   function stubFetch() {

@@ -99,33 +99,14 @@
       "confirmHintWithLink_one": "這會移除 {{count}} 位成員並關閉公開連結（含自訂公開網址）。",
       "confirmHintWithLink_other": "這會移除全部 {{count}} 位成員並關閉公開連結（含自訂公開網址）。",
       "confirmPrivate_one": "移除 {{count}} 位成員並改為私人",
-      "confirmPrivate_other": "移除 {{count}} 位成員並改為私人",
-      "group": "群組內可見",
-      "groupDesc": "「{{name}}」的所有成員"
+      "confirmPrivate_other": "移除 {{count}} 位成員並改為私人"
+    },
+    "groupNote": {
+      "description": "群組成員依角色權限存取這篇筆記；公開連結只有匿名形。",
+      "access": "群組「{{name}}」中，角色有閱讀權限的成員都能存取。"
     },
     "group": {
-      "membersTitle": "群組成員",
-      "notMember": "你已不是此群組的成員。",
-      "nonAdminHint": "要邀請共編者，請群組管理者將他加入群組。",
-      "manageLink": "群組設定",
-      "add": "加入群組",
-      "sectionTitle": "所屬群組",
-      "selectLabel": "這篇筆記所屬的群組",
-      "none": "無（個人筆記）",
-      "roleLabel": "群組成員的權限",
-      "roleEditor": "可編輯",
-      "roleViewer": "唯讀",
-      "formerGroup": "屬於「{{name}}」",
-      "removeFromGroup": "移出群組",
-      "removeFromGroupStart": "移出群組…",
-      "confirmMoveIn": "「{{name}}」的所有成員都將可以開啟並編輯這篇筆記。",
-      "confirmMoveFrom": "「{{from}}」的成員將失去存取權（同時也在「{{to}}」的人除外）。",
-      "confirmRevokeShares_one": "你邀請的 {{count}} 個人會失去個別邀請（同時是「{{name}}」成員者仍可存取）：",
-      "confirmRevokeShares_other": "你邀請的 {{count}} 個人會失去個別邀請（同時是「{{name}}」成員者仍可存取）：",
-      "confirmRevokeLink": "公開連結將被關閉（含自訂公開網址）。",
-      "confirmMove": "移入群組",
-      "changedElsewhere": "這篇筆記的所屬群組已在別處被變更，面板已重新載入，請確認後再操作。",
-      "confirmLeave": "「{{name}}」的成員將失去這篇筆記的存取權。公開連結（若有）維持開啟。"
+      "manageLink": "群組設定"
     }
   },
   "note": {
@@ -304,7 +285,7 @@
     },
     "delete": {
       "title": "刪除群組？",
-      "description": "「{{name}}」的筆記會變成個人筆記，原成員以目前的角色保留存取。",
+      "description": "只有空的群組可以刪除。群組內還有筆記時，請先刪除它們。",
       "confirm": "刪除群組"
     },
     "leave": {
@@ -313,8 +294,8 @@
       "confirm": "退出群組"
     },
     "role": {
-      "admin": "管理者",
-      "member": "成員"
+      "admin": "管理員",
+      "member": "一般成員"
     },
     "settings": {
       "title": "群組",
@@ -332,14 +313,14 @@
       "nameSaved": "群組已重新命名。",
       "membersTitle": "成員",
       "membersDescriptionAdmin": "以 email 加入成員。成員看得到這個群組裡的所有筆記。",
-      "membersDescriptionMember": "只有群組管理者可以加入或移除成員。",
+      "membersDescriptionMember": "只有群組管理員可以加入或移除成員。",
       "tableName": "名稱",
       "tableEmail": "電子郵件",
       "tableRole": "角色",
       "tableActions": "操作",
       "roleLabel": "{{email}} 的角色",
       "remove": "移除 {{email}}",
-      "lastAdminHint": "唯一的管理者不能降級或移除，請先把另一位成員設為管理者。",
+      "lastAdminHint": "唯一的管理員不能降級或移除，請先把另一位成員設為管理員。",
       "addEmailLabel": "電子郵件地址",
       "addRoleLabel": "新成員的角色",
       "add": "加入",
@@ -567,12 +548,14 @@
     "content_too_large": "內容過大。",
     "already_reverted": "這筆修改已經撤回過了。",
     "stale": "這筆修改之後筆記又被改過，已無法撤回。請重新讀取後再試。",
-    "last_admin": "群組至少要有一位管理者。請先指定另一位管理者，或直接刪除群組。",
+    "last_admin": "群組至少要有一位管理員。請先指定另一位管理員。",
     "already_member": "此人已經是群組成員。",
     "group_not_found": "找不到此群組。",
-    "note_in_group": "群組筆記不能逐人分享，請群組管理者將對方加入群組。",
+    "note_in_group": "群組筆記不能逐人分享，請群組管理員將對方加入群組。",
     "invalid_name": "群組名稱須為 1–80 個字元。",
     "conflict": "操作期間狀態已變更，請重新讀取後再試。",
+    "group_not_empty": "群組內還有筆記，無法刪除。",
+    "role_not_found": "找不到此角色。",
     "fallback": "發生未預期的錯誤。"
   }
 }

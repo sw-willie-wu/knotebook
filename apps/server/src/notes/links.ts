@@ -1,14 +1,15 @@
 /**
  * `POST /api/notes/:id/links` 的交易寫入核心（spec §12.3，Task 5）。routes/notes.ts 只負責
  * body 驗證、權限矩陣與 `linkSyncGate` 呼叫；本檔專責「正規化目標集合」與「單一交易內
- * CAS clock + 批次授權 + 整組取代 note_links」。
+ * CAS clock + 批次授權 + 整組取代 note_links」的重試外殼（交易本體在 `tx/write-links.ts`，#175 S14）。
  */
-import { and, desc, eq, inArray, lte, notInArray } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { union } from "drizzle-orm/pg-core";
 import { MAX_BACKLINKS, MAX_LINK_TARGETS, type BacklinkDto } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
-import { groupMembers, noteLinks, noteShares, notes, users } from "../db/schema.js";
+import { groupMembers, groupRoles, noteLinks, noteShares, notes, users } from "../db/schema.js";
 import { isForeignKeyViolation, isTransientTransactionError } from "../db/pg-errors.js";
+import { writeLinksInTx, type WriteLinksInput } from "./tx/write-links.js";
 
 export type NormalizeLinkTargetsResult = { ok: true; targets: string[] } | { ok: false };
 
@@ -27,14 +28,8 @@ export function normalizeLinkTargets(sourceNoteId: string, rawTargetIds: string[
   return { ok: true, targets: deduped };
 }
 
-export interface WriteNoteLinksParams {
-  sourceNoteId: string;
-  userId: string;
-  /** 已經過 `normalizeLinkTargets` 的目標集合（去重、濾自連結）。可為空陣列（清空所有連結）。 */
-  targetIds: string[];
-  /** `CollabHooks.linkSyncGate` 回傳的 `clock`——CAS 進 `notes.links_clock` 的候選值。 */
-  clock: number;
-}
+/** #175：型別搬到 `tx/write-links.ts`（交易本體的輸入）；這個名字留給既有呼叫端。 */
+export type WriteNoteLinksParams = WriteLinksInput;
 
 export interface WriteNoteLinksHooks {
   /**
@@ -49,60 +44,11 @@ export interface WriteNoteLinksHooks {
 export type WriteNoteLinksOutcome = "applied" | "noop" | "busy";
 
 /**
- * 單次交易嘗試（READ COMMITTED，drizzle `db.transaction` 預設隔離級別）：
- * 1. 第一個寫入語句：`UPDATE notes SET links_clock = $clock WHERE id = $id AND links_clock
- *    <= $clock`——0 列命中＝提交的 clock 落後於已經生效的索引進度（LWW 落敗），no-op、
- *    完全不動 `note_links`。`<=`（非 `<`）刻意允許「同 clock 重送」也生效，讓同一次編輯
- *    的重試/併發送達皆可正確覆蓋。
- * 2. 命中才做批次授權查詢：`owned ∪ shared ∪ grouped`（`union`，非 `unionAll`——同一 note 若同時符合
- *    多邊條件不重複計入；#103 §5.5 加 grouped）交集提交的 target 集合，單一查詢決定整組可連結的目標，不逐一
- *    `resolveRole`。
- * 3. `hooks.beforeLinkWrite`（測試注入點，見上）。
- * 4. 整組取代：新集合非空 → insert 新增（`onConflictDoNothing` 容忍與既有列重疊）+ delete
- *    不在新集合內的既有列；新集合為空 → 直接刪光這個 source 的所有既有列。
+ * 單次交易嘗試：本體在 `tx/write-links.ts` 的 `writeLinksInTx`（#175 S14，§6 T15——只收 `tx`，碰不到 pool）。
+ * 語意（CAS clock → 批次授權 owned ∪ shared ∪ grouped(can_read) → 測試縫 → 整組取代）寫在那支的檔頭。
  */
 async function attemptOnce(db: Db, params: WriteNoteLinksParams, hooks: WriteNoteLinksHooks): Promise<"applied" | "noop"> {
-  return db.transaction(async tx => {
-    const [updated] = await tx
-      .update(notes)
-      .set({ linksClock: params.clock })
-      .where(and(eq(notes.id, params.sourceNoteId), lte(notes.linksClock, params.clock)))
-      .returning({ id: notes.id });
-    if (!updated) return "noop" as const;
-
-    let targets: string[] = [];
-    if (params.targetIds.length > 0) {
-      const ownedSelect = tx
-        .select({ id: notes.id })
-        .from(notes)
-        .where(and(eq(notes.ownerId, params.userId), inArray(notes.id, params.targetIds)));
-      const sharedSelect = tx
-        .select({ id: noteShares.noteId })
-        .from(noteShares)
-        .where(and(eq(noteShares.userId, params.userId), inArray(noteShares.noteId, params.targetIds)));
-      // #103 §5.5：成員在自己筆記裡寫 `[[群組筆記]]` 也要寫得進去——`union` 本身去重，不需要 NOT EXISTS。
-      const groupedSelect = tx
-        .select({ id: notes.id })
-        .from(notes)
-        .innerJoin(groupMembers, and(eq(groupMembers.groupId, notes.groupId), eq(groupMembers.userId, params.userId)))
-        .where(inArray(notes.id, params.targetIds));
-      const rows = await union(ownedSelect, sharedSelect, groupedSelect);
-      targets = rows.map(row => row.id);
-    }
-
-    await hooks.beforeLinkWrite?.();
-
-    if (targets.length > 0) {
-      await tx
-        .insert(noteLinks)
-        .values(targets.map(targetNoteId => ({ sourceNoteId: params.sourceNoteId, targetNoteId })))
-        .onConflictDoNothing();
-      await tx.delete(noteLinks).where(and(eq(noteLinks.sourceNoteId, params.sourceNoteId), notInArray(noteLinks.targetNoteId, targets)));
-    } else {
-      await tx.delete(noteLinks).where(eq(noteLinks.sourceNoteId, params.sourceNoteId));
-    }
-    return "applied" as const;
-  });
+  return db.transaction(tx => writeLinksInTx(tx, params, hooks.beforeLinkWrite));
 }
 
 /**
@@ -135,54 +81,67 @@ export async function writeNoteLinks(db: Db, params: WriteNoteLinksParams, hooks
 /**
  * `GET /api/notes/:id/backlinks` 的查詢核心（spec §12.3）：routes/notes.ts 只負責先用
  * `resolveRole` 判斷呼叫者對「被查詢的筆記本身」有沒有讀取權（none → 404）；本函式回答
- * 另一個問題——連到該筆記的**來源**筆記裡，哪些是呼叫者看得到的（owner 或有分享）。
+ * 另一個問題——連到該筆記的**來源**筆記裡，哪些是呼叫者看得到的（owner、有分享，或所屬群組裡角色可讀）。
  *
  * 單一 SQL、讀者授權述詞 inline：`note_links` JOIN `notes`（來源筆記）鎖定
- * `target_note_id = :targetNoteId`，分成 `ownedSelect`（來源筆記 owner_id = 呼叫者）與
- * `sharedSelect`（來源筆記在 `note_shares` 有呼叫者的一列）兩支，#103 起再加 `groupedSelect`
- * （來源筆記所屬群組有呼叫者這位成員），`union()`（非
- * `unionAll`——形狀比照 `attemptOnce` 的批次授權查詢：owner 與 shared 理論上互斥，但用
- * 真正的 SQL UNION 讓「同一來源筆記兩邊都命中」這種邊界情況天然被去重，不必額外加
- * `ne(ownerId, userId)` 排除）。**不對每篇來源筆記各自呼叫 `resolveRole`**——那樣是
- * N+1 查詢，且審查會抓到「來源筆記存在性/標題被無權限地個別洩漏」的風險。
+ * `target_note_id = :targetNoteId`，分成三支：`ownedSelect`（來源筆記 owner_id = 呼叫者）、
+ * `sharedSelect`（來源筆記是個人筆記〔`group_id IS NULL`〕且在 `note_shares` 有呼叫者的一列——群組筆記上的
+ * 殘留分享列不算，規格落差 2）、`groupedSelect`（#175 §5.3：來源筆記所屬群組有呼叫者這位成員，且其角色
+ * `can_read`），`union()`（非 `unionAll`——形狀比照 `writeLinksInTx` 的批次授權查詢：用真正的 SQL UNION 讓
+ * 「同一來源筆記兩邊都命中」這種邊界情況天然被去重，不必額外加 `ne(ownerId, userId)` 排除）。
+ * **不對每篇來源筆記各自呼叫 `resolveRole`**——那樣是 N+1 查詢，且審查會抓到「來源筆記存在性/標題被無權限地
+ * 個別洩漏」的風險。
  *
  * `ORDER BY notes.updated_at DESC, notes.id DESC LIMIT MAX_BACKLINKS`（spec 逐字）：次要
  * 排序鍵 `id DESC` 必須有——`updated_at` 是 `defaultNow()`，同一交易內批次 insert 的
  * fixture（測試造時序）時間戳會完全相同，缺了次要鍵會讓 LIMIT 邊界不確定、排序斷言
  * flake（`routes/notes.ts` 的 `GET /api/notes` 列表查詢已踩過同一雷，見該處註解）。
- * 過濾（讀者授權 WHERE 述詞）必須先於 LIMIT——此處自然滿足（`union()` 兩支各自的
+ * 過濾（讀者授權 WHERE 述詞）必須先於 LIMIT——此處自然滿足（`union()` 各支各自的
  * `where` 在 `union` 結果之上才 `orderBy`/`limit`，SQL 語意上濾動作發生在截斷之前）。
  * `notes.updated_at` 只用來排序、不進 `BacklinkDto`（回應形狀是 `{id, title, slug,
- * ownerHandle}`——#122 起兩支各 JOIN `users` 帶出來源筆記 owner 的 username，
- * BacklinksSection 組 `/n/` 連結用）。
+ * ownerHandle, groupId}`——三支都 LEFT JOIN `users` 帶出來源筆記 owner 的 username〔群組筆記沒有 owner，
+ * 為 null〕，並帶來源筆記的 `groupId`；BacklinksSection 以兩者組 `/n/` 或 `/g/` 連結）。
  */
 export async function fetchBacklinks(db: Db, targetNoteId: string, userId: string): Promise<BacklinkDto[]> {
+  // `ownerHandle` 包 `sql<string | null>` 只為與 `list-query.ts` 的 `baseColumns` 同形——這裡三支都 LEFT JOIN
+  // users，drizzle 本來就推得 `string | null`，換回裸 `users.handle` tsc 也不新增錯誤（實測；不像清單的 owned 支是
+  // INNER JOIN、包起來才是承重的）。每支現造一份欄位物件（builder 單次使用，不共用模組常數）。
+  const columns = () => ({
+    id: notes.id,
+    title: notes.title,
+    slug: notes.slug,
+    ownerHandle: sql<string | null>`${users.handle}`.as("owner_handle"),
+    groupId: notes.groupId,
+    updatedAt: notes.updatedAt,
+  });
   const ownedSelect = db
-    .select({ id: notes.id, title: notes.title, slug: notes.slug, ownerHandle: users.handle, updatedAt: notes.updatedAt })
+    .select(columns())
     .from(noteLinks)
     .innerJoin(notes, eq(notes.id, noteLinks.sourceNoteId))
-    .innerJoin(users, eq(users.id, notes.ownerId))
+    .leftJoin(users, eq(users.id, notes.ownerId))
     .where(and(eq(noteLinks.targetNoteId, targetNoteId), eq(notes.ownerId, userId)));
 
   const sharedSelect = db
-    .select({ id: notes.id, title: notes.title, slug: notes.slug, ownerHandle: users.handle, updatedAt: notes.updatedAt })
+    .select(columns())
     .from(noteLinks)
     .innerJoin(notes, eq(notes.id, noteLinks.sourceNoteId))
     .innerJoin(noteShares, and(eq(noteShares.noteId, notes.id), eq(noteShares.userId, userId)))
-    .innerJoin(users, eq(users.id, notes.ownerId))
-    .where(eq(noteLinks.targetNoteId, targetNoteId));
+    .leftJoin(users, eq(users.id, notes.ownerId))
+    // 規格落差 2／gate r1 A-M6：群組筆記上的殘留分享列（S5 破裂）不算——同 §5.3 清單的 shared 支。
+    .where(and(eq(noteLinks.targetNoteId, targetNoteId), isNull(notes.groupId)));
 
   const groupedSelect = db
-    .select({ id: notes.id, title: notes.title, slug: notes.slug, ownerHandle: users.handle, updatedAt: notes.updatedAt })
+    .select(columns())
     .from(noteLinks)
     .innerJoin(notes, eq(notes.id, noteLinks.sourceNoteId))
     .innerJoin(groupMembers, and(eq(groupMembers.groupId, notes.groupId), eq(groupMembers.userId, userId)))
-    .innerJoin(users, eq(users.id, notes.ownerId))
+    .innerJoin(groupRoles, and(eq(groupRoles.id, groupMembers.roleId), eq(groupRoles.canRead, true)))
+    .leftJoin(users, eq(users.id, notes.ownerId))
     .where(eq(noteLinks.targetNoteId, targetNoteId));
 
   const rows = await union(ownedSelect, sharedSelect, groupedSelect)
     .orderBy(desc(notes.updatedAt), desc(notes.id))
     .limit(MAX_BACKLINKS);
 
-  return rows.map(row => ({ id: row.id, title: row.title, slug: row.slug, ownerHandle: row.ownerHandle }));
+  return rows.map(row => ({ id: row.id, title: row.title, slug: row.slug, ownerHandle: row.ownerHandle, groupId: row.groupId }));
 }

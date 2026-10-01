@@ -8,6 +8,7 @@ import { ActiveNoteProvider } from "@/lib/active-note";
 import { ThemeProvider } from "@/theme";
 import { Toaster } from "@/components/ui/toast";
 import { AppRoutes } from "./App";
+import { OWNER_PERMS } from "@/test/fixtures";
 
 /**
  * Issue #68：NoteRouteErrorBoundary 的 resetKey 選型（`useParams().ref` 而非
@@ -67,6 +68,8 @@ const NOTE: NoteDto = {
   ownerHandle: "plain",
   lastEdited: null,
   group: null,
+  groupId: null,
+  permissions: OWNER_PERMS,
 };
 
 const OTHER_NOTE: NoteDto = {
@@ -82,6 +85,8 @@ const OTHER_NOTE: NoteDto = {
   ownerHandle: "plain",
   lastEdited: null,
   group: null,
+  groupId: null,
+  permissions: OWNER_PERMS,
 };
 
 interface FakeResponseInit {
@@ -94,7 +99,23 @@ function fakeResponse({ ok, status, json }: FakeResponseInit): Response {
   return { ok, status, json: json ?? (() => Promise.reject(new Error("no body"))) } as unknown as Response;
 }
 
-function stubFetch() {
+/** #175 control 4 用：同一個群組裡的兩篇群組筆記（`/g/<groupId>/<slug>`）。 */
+const GROUP_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+const GROUP_NOTE: NoteDto = {
+  ...NOTE,
+  id: "33333333-3333-3333-3333-333333333333",
+  title: "Group Note",
+  slug: "group-note",
+  ownerId: null,
+  ownerHandle: null,
+  role: "editor",
+  groupId: GROUP_ID,
+  group: { id: GROUP_ID, name: "Workshop A" },
+  permissions: { ...OWNER_PERMS, manageShares: false, moveToGroup: false },
+};
+const OTHER_GROUP_NOTE: NoteDto = { ...GROUP_NOTE, id: "44444444-4444-4444-4444-444444444444", title: "Other Group Note", slug: "other-group-note" };
+
+function stubFetch(notes: NoteDto[] = [NOTE, OTHER_NOTE]) {
   vi.stubGlobal(
     "fetch",
     vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -108,7 +129,7 @@ function stubFetch() {
       }
       if (url === "/api/notes" && method === "GET") {
         // 第三案要從側欄點另一篇：清單給兩篇
-        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([NOTE, OTHER_NOTE]) }));
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(notes) }));
       }
       if (url.endsWith("/backlinks") && method === "GET") {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ backlinks: [] }) }));
@@ -265,6 +286,29 @@ describe("resetKey 選型守門——錯誤畫面上開/關設定 modal 不觸�
 
     await waitFor(() => expect(reload).toHaveBeenCalledTimes(1), { timeout: 3_000 });
     // waitFor 內那句只保證「曾達到 1」——外面再釘一遍抓晚到的第二次（同檔既有慣例）
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("control 4（#175 第三形）：/g/ 開頁由 NotePage 承接（非 /* catch-all），/g/→/g/ 換筆記 resetKey（`g:${groupId}/${slug}`）變 → reload 恰一次", async () => {
+    sessionStorage.setItem(FLAG_KEY, "1");
+    const reload = stubLocationReload();
+    stubFetch([GROUP_NOTE, OTHER_GROUP_NOTE]);
+
+    // 以 /g/ 形開頁：出現 NotePage 子樹的錯誤畫面＝route 承接證明（被 `/*` 吃掉會渲染 HomePage）。
+    renderNoteRoute(`/g/${GROUP_ID}/group-note`);
+    await waitFor(() => expect(screen.getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument(), { timeout: 3_000 });
+    expect(reload).not.toHaveBeenCalled();
+
+    // 同一群組內換到另一篇：側欄連結是 canonical 的 `/g/<groupId>/<slug>`（群組不在 useGroups → 兜底落
+    // 「與我共享」，連結形不受段落影響）。resetKey 若沒有第三形（落到 `ref`＝undefined），兩頁鍵相同、不 reload。
+    await waitFor(() => expect(screen.getAllByRole("link", { name: /Other Group Note/ }).length).toBeGreaterThan(0), {
+      timeout: 3_000,
+    });
+    const link = screen.getAllByRole("link", { name: /Other Group Note/ })[0];
+    expect(link).toHaveAttribute("href", `/g/${GROUP_ID}/other-group-note`);
+    fireEvent.click(link);
+
+    await waitFor(() => expect(reload).toHaveBeenCalledTimes(1), { timeout: 3_000 });
     expect(reload).toHaveBeenCalledTimes(1);
   });
 });

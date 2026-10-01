@@ -11,6 +11,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import type { NoteDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { LastEditedLabel } from "./LastEditedLabel";
+import { OWNER_PERMS } from "@/test/fixtures";
 
 const NOTE: NoteDto = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -25,6 +26,8 @@ const NOTE: NoteDto = {
   ownerHandle: "tester",
   lastEdited: null,
   group: null,
+  groupId: null,
+  permissions: OWNER_PERMS,
 };
 
 const AT = "2026-02-03T04:05:06.000Z";

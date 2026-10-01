@@ -4,19 +4,25 @@ import { api } from "./client";
 
 /**
  * 筆記在別處（AI 經 API 寫入、撤回一筆修改…）被改動之後要失效的三把 key（#106 spec §10）：
- * id 錨定的常駐層、目前 ref 的解析層、by-path 解析層。
+ * id 錨定的常駐層、目前 ref 的解析層、路徑解析層（個人筆記 by-path／群組筆記 by-group-path 二擇一）。
  *
  * ⚠ `invalidateQueries(["note", id])` 是**前綴**比對，**不涵蓋** `["note", slug]`——
  * 兩者是同一層陣列的不同元素，所以目前這條路由用的 ref 要另外傳進來。
  */
 export function invalidateNoteQueries(
   queryClient: QueryClient,
-  note: Pick<NoteDto, "id" | "ownerHandle" | "slug">,
+  note: Pick<NoteDto, "id" | "ownerHandle" | "groupId" | "slug">,
   ref: string,
 ): void {
   void queryClient.invalidateQueries({ queryKey: ["note", note.id] });
   if (ref !== note.id) void queryClient.invalidateQueries({ queryKey: ["note", ref] });
-  void queryClient.invalidateQueries({ queryKey: ["note-by-path", note.ownerHandle, note.slug] });
+  // #175 §8.1：路徑解析層依形二擇一——群組筆記 `/g/`、個人筆記 `/n/`。判準與 `canonicalNotePath`
+  // 同一條（`typeof … === "string"`，不是 `!== null`：沒有 `groupId` 欄的舊物件不得被當成群組筆記）。
+  if (typeof note.groupId === "string") {
+    void queryClient.invalidateQueries({ queryKey: ["note-by-group-path", note.groupId, note.slug] });
+  } else {
+    void queryClient.invalidateQueries({ queryKey: ["note-by-path", note.ownerHandle, note.slug] });
+  }
 }
 
 export function useNotes(): UseQueryResult<NoteDto[]> {
@@ -65,6 +71,24 @@ export function useNoteByPath(
 }
 
 /**
+ * `GET /api/notes/by-group-path/:groupId/:slug`——`/g/<group_id>/<slug>` 群組筆記網址的解析層
+ * （#175 §8.1）。query key 含 groupId 與 slug（A4：data 必屬當下這組 params）。
+ * ⚠ 與 `useNote`／`useNoteByPath` 同一條禁令：**不得加 `placeholderData`**（同一個 seed effect 消費）。
+ */
+export function useNoteByGroupPath(
+  groupId: string,
+  slug: string,
+  options: { enabled?: boolean } = {},
+): UseQueryResult<NoteDto> {
+  return useQuery({
+    queryKey: ["note-by-group-path", groupId, slug],
+    queryFn: () =>
+      api<NoteDto>(`/api/notes/by-group-path/${encodeURIComponent(groupId)}/${encodeURIComponent(slug)}`),
+    enabled: (options.enabled ?? true) && groupId.length > 0 && slug.length > 0,
+  });
+}
+
+/**
  * 反向連結（Task 6a `GET /api/notes/:id/backlinks` → `{backlinks: BacklinkDto[]}`）。
  * `enabled: !!noteId`——與 `useNote` 的 `ref.length > 0` 同用意：`NotePage` 在 note
  * 還沒載完時 `noteId` 是 `undefined`，不該對 `/undefined/backlinks` 發請求。
@@ -85,8 +109,8 @@ export function useBacklinks(noteId: string | undefined): UseQueryResult<Backlin
 }
 
 /**
- * `groupId`（#103）：在群組裡建筆記，server 預設 `group_role: editor`（D7）；
- * 非成員 404 `group_not_found`。
+ * `groupId`（#103）：在群組裡建筆記；群組筆記的權限來自建立者在該群組的角色。
+ * 角色缺新建旗標 403 `forbidden`；非成員或群組不存在 404 `group_not_found`。
  */
 export function useCreateNote() {
   const queryClient = useQueryClient();

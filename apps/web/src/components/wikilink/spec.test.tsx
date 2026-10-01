@@ -8,6 +8,7 @@ import i18n from "@/i18n";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { noteSchema } from "@/collab/schema";
 import { insertWikilink, WikilinkInline } from "./spec";
+import { OWNER_PERMS } from "@/test/fixtures";
 
 // ── headless 匯出（external HTML / markdown）──────────────────────────────────
 //
@@ -71,6 +72,8 @@ const TARGET_NOTE: NoteDto = {
   ownerHandle: "tester",
   lastEdited: null,
   group: null,
+  groupId: null,
+  permissions: OWNER_PERMS,
 };
 
 /** `editor`/`updateInlineContent` prop 是 `WikilinkInline` 簽章要求，但元件本身不用

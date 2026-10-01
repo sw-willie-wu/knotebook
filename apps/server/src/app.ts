@@ -20,6 +20,7 @@ import { authRoutes } from "./routes/auth.js";
 import { notesRoutes } from "./routes/notes.js";
 import { groupsRoutes } from "./routes/groups.js";
 import type { WriteNoteLinksHooks } from "./notes/links.js";
+import type { SlugPatchTestHook } from "./notes/tx/patch-slug.js";
 import { adminUsersRoutes } from "./routes/admin-users.js";
 import { adminAiRoutes } from "./routes/admin-ai.js";
 import { aiRoutes } from "./routes/ai.js";
@@ -179,6 +180,11 @@ export interface AppDeps {
    * `buildTestApp({ slugUpdateTestHook })`（比照 `linkSyncTestHooks`）。
    */
   slugUpdateTestHook?: (candidate: string) => void | Promise<void>;
+  /**
+   * #175 T1：PATCH 寫 prev 短交易的測試注入縫（語意見 `NotesRouteDeps.slugPatchTestHook`）。
+   * **選配**：production／未覆寫時 `undefined`＝no-op；整合測試唯一注入面是 `buildTestApp({ slugPatchTestHook })`。
+   */
+  slugPatchTestHook?: SlugPatchTestHook;
   /**
    * #145：**建立**路徑 auto slug 的測試注入縫（語意見 `NotesRouteDeps.noteCreateHooks`）。
    * **選配**：production／未覆寫時 `undefined`＝no-op；整合測試唯一注入面是
@@ -672,6 +678,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       presence,
       linkSyncTestHooks: deps.linkSyncTestHooks,
       slugUpdateTestHook: deps.slugUpdateTestHook,
+      slugPatchTestHook: deps.slugPatchTestHook,
       noteCreateHooks: deps.noteCreateHooks,
       groupTestHook: deps.groupTestHook,
       uploadsDir: deps.uploadsDir,

@@ -13,9 +13,11 @@ export interface PublicLinkDto {
 }
 
 /**
- * 公開連結狀態（owner-only）。與 `useShares` 同一套掛載時機慣例：`ShareDialog`
- * 只在開啟時掛載讀這支的元件，dialog 沒開就不打 API。**開啟即 GET** 是三態
- * derive 的前提（spec §4：latch 要兩個 query 首次都有資料才算初值）。
+ * 公開連結狀態。server 只回給 `permissions.managePublicLink` 為真的人（個人筆記＝owner；群組筆記＝角色能管理
+ * 公開連結的成員，#175），其餘回 403／404——所以呼叫點只在有這個權限時才帶 noteId（`ShareDialog` 與
+ * `GroupNoteShareSection` 沒有時傳空字串，讓 `enabled` 擋住不發；`AccessSection` 只對個人筆記 owner 掛載）。
+ * `ShareDialog` 為了選觸發鈕圖示，在筆記頁載入時就發這支（不等 dialog 開啟，見該元件的 docblock）；個人筆記面板（`AccessSection`）的三態 derive 要它與 `useShares` 首次都有資料才算
+ * latch 初值（spec §4）。
  */
 export function usePublicLink(noteId: string): UseQueryResult<PublicLinkDto> {
   return useQuery({

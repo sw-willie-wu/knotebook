@@ -8,7 +8,7 @@ import { SESSION_COOKIE, validateSlug } from "@knotebook/shared";
 import { buildTestApp, freshDb, testConfig } from "./helpers.js";
 import { noteShares, notes, users } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
-import { resolveRoleWithOwner } from "../src/notes/service.js";
+import { NO_PERMISSIONS, OWNER_PERMISSIONS, resolveNoteAccess, sharePermissions } from "../src/notes/service.js";
 import { UserGate, signSession } from "../src/auth/session.js";
 
 async function insertUser(db: Db, overrides: Partial<{ email: string; displayName: string }> = {}) {
@@ -699,7 +699,10 @@ describe("PATCH /api/notes/:id — #122 分流矩陣", () => {
     const cookie = await cookieFor(owner.id);
     const note = (await app.inject({ method: "POST", url: "/api/notes", cookies: { [SESSION_COOKIE]: cookie }, payload: { title: "Shape" } })).json();
 
-    const updates = () => queries.filter(q => /^update/i.test(q.trim()));
+    // #175：格 1／3／4 的 UPDATE 包在 T1（`WITH o AS (… FOR UPDATE) UPDATE "notes" …`）裡——「恰一條寫 notes 的語句」
+    // 改認 `with … update "notes"`；T1 另可能多一條 DELETE 轉址（只在舊 slug 是自訂時）。`begin`／`commit` 不命中。
+    const updates = () => queries.filter(q => /^(with .* )?update "notes"/i.test(q.trim()));
+    const redirectDeletes = () => queries.filter(q => /^delete from "note_redirects"/i.test(q.trim()));
     // pre-check／探測都長成「select ... where owner_id 且 slug =」的形；pre-read 則是
     // 「select title, slug_is_custom ... where id」——分開數。
     const slugFilteredSelects = () => queries.filter(q => /^select/i.test(q.trim()) && /"slug"\s*=/.test(q));
@@ -711,6 +714,7 @@ describe("PATCH /api/notes/:id — #122 分流矩陣", () => {
     expect(slugFilteredSelects()).toHaveLength(0);
     expect(preReads()).toHaveLength(0);
     expect(updates()).toHaveLength(1);
+    expect(redirectDeletes()).toHaveLength(0); // 舊列是 auto → 不寫 prev → 不刪轉址
 
     // 格 3：{title, slug:null}——無 pre-read（title 已在請求）、恰一條 UPDATE。
     // 順帶讓 slugFilteredSelects 的 regex 自我驗證：本格必有探測（帶 "slug" = 述詞的
@@ -721,18 +725,21 @@ describe("PATCH /api/notes/:id — #122 分流矩陣", () => {
     expect(preReads()).toHaveLength(0);
     expect(slugFilteredSelects().length).toBeGreaterThan(0);
     expect(updates()).toHaveLength(1);
+    expect(redirectDeletes()).toHaveLength(1); // 舊列是格 1 設的自訂 → 寫進 prev → 同交易刪同路徑轉址
 
     // 格 2：{title}——恰一次 pre-read（讀 slug_is_custom）、恰一條 UPDATE
     queries.length = 0;
     expect((await app.inject({ method: "PATCH", url: `/api/notes/${note.id}`, cookies: { [SESSION_COOKIE]: cookie }, payload: { title: "Shape Two" } })).statusCode).toBe(200);
     expect(preReads()).toHaveLength(1);
     expect(updates()).toHaveLength(1);
+    expect(redirectDeletes()).toHaveLength(0); // 格 2 不寫 prev、不開交易
 
     // 格 4：{slug:null}——恰一次 pre-read（讀現行 title）、恰一條 UPDATE
     queries.length = 0;
     expect((await app.inject({ method: "PATCH", url: `/api/notes/${note.id}`, cookies: { [SESSION_COOKIE]: cookie }, payload: { slug: null } })).statusCode).toBe(200);
     expect(preReads()).toHaveLength(1);
     expect(updates()).toHaveLength(1);
+    expect(redirectDeletes()).toHaveLength(0); // 舊列是 auto（格 3 設的）→ 不寫 prev
   });
 
   it("源碼守衛：src/ 內除 schema.ts 外無 legacySlug 賦值鍵（凍結快照唯一寫入點是 0007 的②）", () => {
@@ -1135,8 +1142,8 @@ describe("#122 DTO 回填（ownerHandle/slugIsCustom/prevSlug）", () => {
   });
 });
 
-describe("resolveRoleWithOwner（notes/service.ts）", () => {
-  it("契約：owner/editor 帶真 ownerId；none（陌生人/不存在/非法 id）ownerId=null", async () => {
+describe("resolveNoteAccess（notes/service.ts）——個人筆記的契約（#175 取代 resolveRoleWithOwner）", () => {
+  it("owner／editor 帶真 ownerId 與各自的 permissions；none（陌生人／不存在／非法 id）什麼都拿不到", async () => {
     const { app, db } = await buildTestApp();
     const owner = await insertUser(db, { email: "owner-mx14@example.com" });
     const editor = await insertUser(db, { email: "editor-mx14@example.com" });
@@ -1144,13 +1151,13 @@ describe("resolveRoleWithOwner（notes/service.ts）", () => {
     const cookie = await cookieFor(owner.id);
     const note = (await app.inject({ method: "POST", url: "/api/notes", cookies: { [SESSION_COOKIE]: cookie }, payload: {} })).json();
     await db.insert(noteShares).values({ noteId: note.id, userId: editor.id, role: "editor" });
+    const none = { role: "none", ownerId: null, groupId: null, permissions: NO_PERMISSIONS };
 
-    expect(await resolveRoleWithOwner(db, owner.id, note.id)).toEqual({ role: "owner", ownerId: owner.id, isGroupMember: false, groupId: null });
-    // editor 拿到的是 **owner 的** id（auto 探測要以 owner 為範圍，不是操作者）
-    expect(await resolveRoleWithOwner(db, editor.id, note.id)).toEqual({ role: "editor", ownerId: owner.id, isGroupMember: false, groupId: null });
-    // 無權限者連 owner 是誰都不該拿到（JSDoc 契約）
-    expect(await resolveRoleWithOwner(db, stranger.id, note.id)).toEqual({ role: "none", ownerId: null, isGroupMember: false, groupId: null });
-    expect(await resolveRoleWithOwner(db, owner.id, "00000000-0000-4000-8000-00000000dead")).toEqual({ role: "none", ownerId: null, isGroupMember: false, groupId: null });
-    expect(await resolveRoleWithOwner(db, owner.id, "not-a-uuid")).toEqual({ role: "none", ownerId: null, isGroupMember: false, groupId: null });
+    expect(await resolveNoteAccess(db, owner.id, note.id)).toEqual({ role: "owner", ownerId: owner.id, groupId: null, permissions: OWNER_PERMISSIONS });
+    // editor 拿到的是 **owner 的** id（auto 探測以 owner 為範圍，不是操作者）
+    expect(await resolveNoteAccess(db, editor.id, note.id)).toEqual({ role: "editor", ownerId: owner.id, groupId: null, permissions: sharePermissions("editor") });
+    expect(await resolveNoteAccess(db, stranger.id, note.id)).toEqual(none);
+    expect(await resolveNoteAccess(db, owner.id, "00000000-0000-4000-8000-00000000dead")).toEqual(none);
+    expect(await resolveNoteAccess(db, owner.id, "not-a-uuid")).toEqual(none);
   });
 });

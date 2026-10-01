@@ -38,6 +38,7 @@ import type { CollabServer } from "../../collab/server.js";
 import type { Db } from "../../db/index.js";
 import { notes } from "../../db/schema.js";
 import { insertNoteWithAutoSlug } from "../create.js";
+import type { SlugScope } from "../slug.js";
 import { applyEdit, type ApplyDeps, type ApplyResult, type EditingTestHooks } from "./apply.js";
 import { visibleNoteTitles } from "./candidates.js";
 import { parseMarkdownForNote, type ParseError } from "./markdown.js";
@@ -211,7 +212,7 @@ export class NoteWriteService {
    */
   async createWithContent(
     log: FastifyBaseLogger,
-    input: { userId: string; userHandle: string; tokenId: string | null; title: string | undefined; content: string }
+    input: { userId: string; userHandle: string; tokenId: string | null; title: string | undefined; content: string; scope: SlugScope }
   ): Promise<CreateWithContentResult> {
     const candidates = await visibleNoteTitles(this.deps.db, input.userId);
     const agentLabel = input.tokenId ? await currentAgentLabel(this.deps.db, input.tokenId) : null;
@@ -229,7 +230,7 @@ export class NoteWriteService {
     // #145：建列（含帶 title 時的 auto slug 派生）收在 `notes/create.ts`。⚠ **它仍必須排在
     // 解析之後**（「解析在建列之前」是契約），而派生的 DB round-trip 也因此不會發生在持有
     // jsdom lease 期間（上面那個 `finally { scratch.close() }` 已經放掉了）。
-    const note = await insertNoteWithAutoSlug(this.deps.db, input.userId, input.title);
+    const note = await insertNoteWithAutoSlug(this.deps.db, input.scope, input.title);
     try {
       const result = await this.queue.run(
         note.id,

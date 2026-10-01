@@ -48,7 +48,7 @@ export interface NoteMenuProps {
 }
 
 /**
- * 內文卡頁頭的 ⋮ 選單（spec D.4）：複製連結（任何角色）＋刪除筆記（owner-only）。
+ * 內文卡頁頭的 ⋮ 選單（spec D.4）：複製連結（任何角色）＋刪除筆記（`permissions.delete`，#175 §8.3）。
  *
  * **focus trap 雷（rev5 定案，⚠ 改動前必讀）**：Radix `DropdownMenu` 預設是 modal，
  * 跟 `Dialog` 共用同一套 `FocusScope` 搶焦點；`lib/clipboard.ts` 的 `execCommand`
@@ -245,7 +245,9 @@ function NoteMenuCore({ note, trigger, onOpenEdits, page }: NoteMenuCoreProps) {
             <MessageCircle className="mr-2 h-4 w-4" />
             {t("note.menu.aiEdits")}
           </DropdownMenuItem>
-          {note.role === "owner" && (
+          {/* #175 §8.3：刪除看 `permissions.delete`（群組筆記的 role 從不是 owner，但角色有
+              `can_delete` 的成員要能刪；個人筆記只有 owner 為真）。 */}
+          {note.permissions.delete && (
             <DropdownMenuItem
               className="text-destructive focus:text-destructive"
               onSelect={(event) => {

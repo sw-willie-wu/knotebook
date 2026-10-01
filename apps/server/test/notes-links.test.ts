@@ -250,7 +250,7 @@ describe("POST /api/notes/:id/links", () => {
     const doomed = await createNote(db, owner.id, "Doomed");
 
     // 批次授權查詢已經把 doomed 判定為可連結（此刻它還存在）之後、insert 之前，用另一條
-    // 連線（同一個 `db`，但不是交易內的 `tx`——見 links.ts `attemptOnce` 對這個窗口的說明）
+    // 連線（同一個 `db`，但不是交易內的 `tx`——見 `notes/tx/write-links.ts` 檔頭第 3 步對這個窗口的說明）
     // 直接刪掉它並 commit，讓緊接著的 insert 撞上 foreign_key_violation。
     hooks.beforeLinkWrite = async () => {
       await db.delete(notes).where(eq(notes.id, doomed.id));
@@ -464,6 +464,8 @@ describe("GET /api/notes/:id/backlinks", () => {
         title: "Editor Own Source",
         slug: expect.stringMatching(/^untitled-[0-9a-f]{8}$/),
         ownerHandle: editor.handle,
+        // #175：每列帶來源筆記的 groupId（web 組 `/g/` 連結用）；個人筆記為 null。
+        groupId: null,
       },
     ]);
   });

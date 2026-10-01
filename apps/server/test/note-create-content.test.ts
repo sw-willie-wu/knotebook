@@ -4,6 +4,7 @@ import { SESSION_COOKIE } from "@knotebook/shared";
 import { signSession } from "../src/auth/session.js";
 import { noteAiEdits, notes, users } from "../src/db/schema.js";
 import { buildCollabTestApp, buildTestApp, testConfig } from "./helpers.js";
+import { seedGroup } from "./group-helpers.js";
 import { bearer, getContent, seedTokenForUser } from "./editing-helpers.js";
 
 const PASSWORD = "correct-horse-battery";
@@ -102,5 +103,20 @@ describe("POST /api/notes 帶 content", () => {
     const r = await ctx.app.inject({ method: "POST", url: "/api/notes", headers: bearer(token), payload: { title: "T", content: "x" } });
     expect(r.statusCode).toBe(500);
     expect((await ctx.db.select().from(notes).where(eq(notes.ownerId, u.id))).length).toBe(0);
+  });
+
+  it("#175 Q13：成員帶 content＋groupId → 201 群組筆記（role editor、ownerId null、groupId 有值），內容真的落盤", async () => {
+    const ctx = await buildCollabTestApp();
+    const u = await ctx.createUser({ email: "a@example.com", password: PASSWORD });
+    const g = await seedGroup(ctx.db, "Team", [{ userId: u.id, role: "member" }]);
+    const { token } = await seedTokenForUser(ctx.db, u.id);
+    const res = await ctx.app.inject({ method: "POST", url: "/api/notes", headers: bearer(token), payload: { groupId: g.id, content: "# Hi" } });
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).toMatchObject({ role: "editor", ownerId: null, ownerHandle: null, groupId: g.id, group: { id: g.id, name: "Team" } });
+    // 群組筆記的重讀（`loadNoteWithOwner` 的 LEFT JOIN users）沒落空：回應帶落款，不是退回 insert 那一列的 null。
+    expect(res.json().lastEdited).not.toBeNull();
+    expect((await getContent(ctx.app, res.json().id as string, token)).json().markdown).toContain("Hi");
+    const [row] = await ctx.db.select({ ownerId: notes.ownerId, groupId: notes.groupId }).from(notes).where(eq(notes.id, res.json().id as string));
+    expect(row).toEqual({ ownerId: null, groupId: g.id });
   });
 });

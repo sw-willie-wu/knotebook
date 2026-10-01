@@ -3,12 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router";
-import { canonicalNotePath, type GroupDto, type NoteDto, type UserDto } from "@knotebook/shared";
+import { canonicalNotePath, type GroupDto, type NoteDto, type NotePermissions, type UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ActiveNoteProvider, useActiveNote } from "@/lib/active-note";
 import { NotePageControlsContext, type NotePageControls } from "@/lib/note-page-controls";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
-import { NoteList, type NoteListProps } from "./NoteList";
+import { NoteList, partitionNotes, type NoteListProps } from "./NoteList";
+import { adminRole, EDITOR_PERMS, groupDto, memberRole, OWNER_PERMS, VIEWER_PERMS } from "@/test/fixtures";
 
 /** 模擬 NotePage 的「解析成功後 set」——測試用的最小 setter（#122 ActiveNoteContext）。 */
 function SetActive({ id }: { id: string }) {
@@ -83,6 +84,8 @@ const OWNER_NOTE: NoteDto = {
   ownerHandle: "owner-one",
   lastEdited: null,
   group: null,
+  groupId: null,
+  permissions: OWNER_PERMS,
 };
 
 const SHARED_NOTE: NoteDto = {
@@ -98,6 +101,8 @@ const SHARED_NOTE: NoteDto = {
   ownerHandle: "owner-nine",
   lastEdited: null,
   group: null,
+  groupId: null,
+  permissions: EDITOR_PERMS,
 };
 
 // 第三篇筆記，只用於「三分組/過濾/最近前 2」那幾案——server 已按
@@ -116,15 +121,53 @@ const THIRD_OWNER_NOTE: NoteDto = {
   ownerHandle: "owner-one",
   lastEdited: null,
   group: null,
+  groupId: null,
+  permissions: OWNER_PERMS,
 };
 
-const GROUP_A: GroupDto = { id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", name: "Workshop A", myRole: "admin", createdAt: "2026-09-01T00:00:00.000Z" };
-/** 我的筆記、在 A、我是 A 成員 → A 段，無徽章（§3.3 第 2 列）。 */
-const MY_GROUP_NOTE: NoteDto = { ...OWNER_NOTE, id: "44444444-4444-4444-4444-444444444444", title: "Mine In A", slug: "mine-in-a", group: { id: GROUP_A.id, name: GROUP_A.name, role: "editor" } };
-/** 別人的、在 A、我是成員 → A 段，徽章＝group_role（§3.3 第 5 列）。 */
-const OTHERS_GROUP_NOTE: NoteDto = { ...SHARED_NOTE, id: "55555555-5555-5555-5555-555555555555", title: "Theirs In A", slug: "theirs-in-a", role: "viewer", group: { id: GROUP_A.id, name: GROUP_A.name, role: "viewer" } };
-/** 別人的、group 非 null 但那個群組不在 useGroups() 裡（剛被移出）→ 與我共享（兜底，第 6 列）。 */
-const ORPHAN_GROUP_NOTE: NoteDto = { ...SHARED_NOTE, id: "66666666-6666-6666-6666-666666666666", title: "Orphan", slug: "orphan", role: "editor", group: { id: "99999999-9999-9999-9999-999999999999", name: "Gone", role: "editor" } };
+const GROUP_A: GroupDto = groupDto({ id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", name: "Workshop A" }, adminRole());
+
+/**
+ * #175 群組筆記的 fixture 形：群組持有、沒有個人 owner（`ownerId`／`ownerHandle` null）、`role` 由群組角色推得
+ * （從不是 owner）、`permissions` 由角色旗標推得。`perms` 缺省＝內建管理員角色的形。
+ */
+function groupNote(
+  base: { id: string; title: string; slug: string; groupId: string; groupName: string },
+  role: "editor" | "viewer",
+  perms: NotePermissions = { ...OWNER_PERMS, manageShares: false, moveToGroup: false },
+): NoteDto {
+  return {
+    ...OWNER_NOTE,
+    id: base.id,
+    title: base.title,
+    slug: base.slug,
+    slugIsCustom: false,
+    ownerId: null,
+    ownerHandle: null,
+    role,
+    groupId: base.groupId,
+    group: { id: base.groupId, name: base.groupName },
+    permissions: perms,
+  };
+}
+
+/** 群組筆記、我是 A 成員（管理員角色 → editor）→ A 段（spec §8.2 第 1 列）。 */
+const MY_GROUP_NOTE: NoteDto = groupNote(
+  { id: "44444444-4444-4444-4444-444444444444", title: "Mine In A", slug: "mine-in-a", groupId: GROUP_A.id, groupName: GROUP_A.name },
+  "editor",
+);
+/** 群組筆記、我的角色只能讀 → A 段，徽章＝viewer（§8.2 第 1 列的徽章欄）。 */
+const OTHERS_GROUP_NOTE: NoteDto = groupNote(
+  { id: "55555555-5555-5555-5555-555555555555", title: "Theirs In A", slug: "theirs-in-a", groupId: GROUP_A.id, groupName: GROUP_A.name },
+  "viewer",
+  { ...VIEWER_PERMS },
+);
+/** 群組筆記、但那個群組不在 useGroups() 裡（剛被移出、清單未 refetch）→ 與我共享（兜底，§8.2 第 2 列）。 */
+const ORPHAN_GROUP_NOTE: NoteDto = groupNote(
+  { id: "66666666-6666-6666-6666-666666666666", title: "Orphan", slug: "orphan", groupId: "99999999-9999-9999-9999-999999999999", groupName: "Gone" },
+  "editor",
+  { ...EDITOR_PERMS },
+);
 
 const ME: UserDto = { id: "u1", email: "me@example.com", handle: "owner-one", displayName: "Me", isAdmin: false, mustChangePassword: false, hasPassword: true };
 
@@ -420,13 +463,14 @@ describe("NoteList", () => {
       window.localStorage.clear();
     });
 
-    it("§3.3 七列：我的／群組／與我共享各落各段，群組段徽章只給非 owner", async () => {
+    it("#175 §8.2 四列：我的／群組／與我共享各落各段，群組段徽章＝我在該筆記上的角色（editor／viewer）", async () => {
       stubNotesFetch([OWNER_NOTE, MY_GROUP_NOTE, OTHERS_GROUP_NOTE, SHARED_NOTE, ORPHAN_GROUP_NOTE], [GROUP_A]);
       renderNoteList();
 
       const groupA = await screen.findByTestId(`notegroup-group-${GROUP_A.id}`);
       expect(within(groupA).getByRole("link", { name: "Mine In A" })).toBeInTheDocument();
       expect(within(groupA).getByRole("link", { name: "Theirs In A" })).toBeInTheDocument();
+      expect(within(groupA).getByText("Editor")).toBeInTheDocument(); // MY_GROUP_NOTE 的徽章（A4）
       expect(within(groupA).getByText("Viewer")).toBeInTheDocument(); // OTHERS_GROUP_NOTE 的徽章
       expect(within(groupA).queryByText("Owner")).not.toBeInTheDocument();
 
@@ -446,11 +490,15 @@ describe("NoteList", () => {
       expect(workspace).toContainElement(groupA);
     });
 
-    it("RF2 側欄：owner 已不是群組成員（group 非 null 但不在 useGroups）→ 落「我的筆記」", async () => {
+    it("#175：群組筆記的群組不在 useGroups（剛被移出、清單未 refetch）→ 落「與我共享」兜底，不落「我的筆記」（群組筆記的 role 從不是 owner）", async () => {
       stubNotesFetch([MY_GROUP_NOTE], []);
       renderNoteList();
-      const myNotes = await screen.findByTestId("notegroup-myNotes");
-      expect(within(myNotes).getByRole("link", { name: "Mine In A" })).toBeInTheDocument();
+      const shared = await screen.findByTestId("notegroup-shared");
+      expect(within(shared).getByRole("link", { name: "Mine In A" })).toHaveAttribute(
+        "href",
+        `/g/${GROUP_A.id}/mine-in-a`,
+      );
+      expect(within(screen.getByTestId("notegroup-myNotes")).queryByRole("link", { name: "Mine In A" })).toBeNull();
       expect(screen.queryByTestId(`notegroup-group-${GROUP_A.id}`)).not.toBeInTheDocument();
     });
 
@@ -575,6 +623,37 @@ describe("NoteList", () => {
       expect(onCreateNote).toHaveBeenLastCalledWith(undefined);
       fireEvent.click(groupPlus);
       expect(onCreateNote).toHaveBeenLastCalledWith(lookalike.id);
+    });
+
+    it("#175 §8.2：群組段「＋」只在 myRole.permissions.create 時渲染——不能建立的角色沒有「＋」，⋮ 照舊", async () => {
+      // 自訂角色「讀者」：只有 read。一般成員（內建）有 create——兩個群組並排，各看各的角色。
+      const readerRole = memberRole({
+        id: "r-reader",
+        builtin: null,
+        name: "讀者",
+        permissions: { ...memberRole().permissions, create: false, edit: false },
+      });
+      const readOnlyGroup = groupDto({ id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", name: "Readers" }, readerRole);
+      const memberGroup = groupDto({ id: "cccccccc-cccc-cccc-cccc-cccccccccccc", name: "Writers" }, memberRole());
+      const onCreateNote = vi.fn();
+      stubNotesFetch([OWNER_NOTE], [readOnlyGroup, memberGroup]);
+      renderNoteList({ onCreateNote });
+
+      const writersPlus = await screen.findByRole("button", { name: "New note in Writers" });
+      expect(screen.queryByRole("button", { name: "New note in Readers" })).toBeNull();
+      // 群組段本身與它的 ⋮（GroupMenu）仍在——只有「＋」隱藏。
+      expect(screen.getByRole("button", { name: "Readers" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Group actions for Readers" })).toBeInTheDocument();
+      fireEvent.click(writersPlus);
+      expect(onCreateNote).toHaveBeenLastCalledWith(memberGroup.id);
+    });
+
+    it("#175：`myRole` 為 null 的群組（防禦；GET /api/groups 理論上不回）→ 不渲染「＋」、不丟錯", async () => {
+      const orphanRoleGroup = groupDto({ id: "dddddddd-dddd-dddd-dddd-dddddddddddd", name: "No Role" }, null);
+      stubNotesFetch([OWNER_NOTE], [orphanRoleGroup]);
+      renderNoteList({ onCreateNote: vi.fn() });
+      expect(await screen.findByRole("button", { name: "No Role" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "New note in No Role" })).toBeNull();
     });
 
     it("useGroups pending：工作坊段標下顯示 Loading…，群組筆記暫依兜底列落段", async () => {
@@ -808,6 +887,7 @@ function renderRowMenu(
   controls: NotePageControls | null,
   notes: NoteDto[] = [OWNER_NOTE, SHARED_NOTE],
   deleteFails = false,
+  groups: GroupDto[] = [],
 ) {
   const calls: string[] = [];
   vi.stubGlobal(
@@ -820,7 +900,11 @@ function renderRowMenu(
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(notes) }));
       }
       if (url === "/api/groups" && method === "GET") {
-        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(groups) }));
+      }
+      // 群組段的 ⋮（GroupMenu）用 useSession 拿自己的 id（只在傳了 groups 時會打）
+      if (url === "/api/auth/me" && method === "GET") {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(ME) }));
       }
       if (url.startsWith("/api/notes/") && method === "DELETE") {
         if (deleteFails) {
@@ -1021,5 +1105,64 @@ describe("筆記列 ⋮", () => {
     expect(leavingRef.current).toBe(true);
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/\|null$/));
     expect(calls).toContain(`DELETE /api/notes/${OWNER_NOTE.id}`);
+  });
+
+  // #175 §8.3（gate r1 B-N10）：側欄 ⋮ 與頁首共用 NoteMenuCore，但清單列的 `permissions` 來自
+  // `GET /api/notes` 的 grouped 支欄位（規格落差 4）——另一條資料路徑，所以在清單列上各釘一次。
+  it("#175：群組筆記列（role editor、permissions.delete true）的 ⋮ 有「Delete note」，按下打 DELETE", async () => {
+    const deletable = groupNote(
+      { id: "77777777-7777-7777-7777-777777777777", title: "Group Deletable", slug: "group-deletable", groupId: GROUP_A.id, groupName: GROUP_A.name },
+      "editor",
+      { ...EDITOR_PERMS, delete: true },
+    );
+    const { calls } = renderRowMenu(null, [deletable], false, [GROUP_A]);
+    const section = await screen.findByTestId(`notegroup-group-${GROUP_A.id}`);
+    const menu = await openRowMenu(within(section).getByRole("button", { name: "Note actions for Group Deletable" }));
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Delete note" }));
+    const dialog = await screen.findByRole("dialog", { name: "Delete note?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(calls).toContain(`DELETE /api/notes/${deletable.id}`));
+  });
+
+  it("#175：同一種群組筆記列但 permissions.delete false → ⋮ 沒有「Delete note」（其餘項照舊）", async () => {
+    const notDeletable = groupNote(
+      { id: "88888888-8888-8888-8888-888888888888", title: "Group Kept", slug: "group-kept", groupId: GROUP_A.id, groupName: GROUP_A.name },
+      "editor",
+      { ...EDITOR_PERMS, delete: false },
+    );
+    renderRowMenu(null, [notDeletable], false, [GROUP_A]);
+    const section = await screen.findByTestId(`notegroup-group-${GROUP_A.id}`);
+    const menu = await openRowMenu(within(section).getByRole("button", { name: "Note actions for Group Kept" }));
+    expect(within(menu).getByRole("menuitem", { name: "AI edit history" })).toBeInTheDocument();
+    expect(within(menu).queryByRole("menuitem", { name: "Delete note" })).toBeNull();
+  });
+});
+
+// ── partitionNotes（#175 spec §8.2 四列）──純函式，每列一案。
+describe("partitionNotes（#175 §8.2）", () => {
+  it("第 1 列：群組筆記且群組在 groups → 該群組段（不進我的筆記／與我共享）", () => {
+    const parts = partitionNotes([MY_GROUP_NOTE], [GROUP_A]);
+    expect(parts.byGroup.get(GROUP_A.id)?.map((n) => n.id)).toEqual([MY_GROUP_NOTE.id]);
+    expect(parts.myNotes).toEqual([]);
+    expect(parts.shared).toEqual([]);
+  });
+
+  it("第 2 列：群組筆記但群組不在 groups → 與我共享（兜底）", () => {
+    const parts = partitionNotes([ORPHAN_GROUP_NOTE], [GROUP_A]);
+    expect(parts.shared.map((n) => n.id)).toEqual([ORPHAN_GROUP_NOTE.id]);
+    expect(parts.myNotes).toEqual([]);
+    expect(parts.byGroup.get(GROUP_A.id)).toEqual([]);
+  });
+
+  it("第 3 列：role === owner（個人筆記）→ 我的筆記", () => {
+    const parts = partitionNotes([OWNER_NOTE], [GROUP_A]);
+    expect(parts.myNotes.map((n) => n.id)).toEqual([OWNER_NOTE.id]);
+    expect(parts.shared).toEqual([]);
+  });
+
+  it("第 4 列：其餘（逐人分享給我的個人筆記）→ 與我共享", () => {
+    const parts = partitionNotes([SHARED_NOTE], [GROUP_A]);
+    expect(parts.shared.map((n) => n.id)).toEqual([SHARED_NOTE.id]);
+    expect(parts.myNotes).toEqual([]);
   });
 });

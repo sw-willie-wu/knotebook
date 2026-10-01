@@ -65,9 +65,12 @@ describe("#108 MCP server-info", () => {
   it.each([
     ["讀寫", true],
     ["唯讀", false],
-  ])("#103：instructions（%s 憑證）的可見性句涵蓋群組", (_label, canWrite) => {
+  ])("#175：instructions（%s 憑證）的可見性句涵蓋群組、欄位名是 owner", (_label, canWrite) => {
     const text = mcpInstructions(canWrite as boolean);
-    expect(text).toContain("Notes you can see include ones shared with you directly or via a group:");
+    expect(text).toContain("Notes you can see include ones shared with you and your groups' notes:");
+    expect(text).toContain("result carries `owner` and `role` so you can tell whose content you are reading.");
     expect(text).not.toContain("ones other people shared with you");
+    // #175 §9.1：欄位改名成 `owner`——舊名留在 instructions 裡就是叫模型去讀一把不存在的鍵。
+    expect(text).not.toContain("ownerHandle");
   });
 });

@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import type { NoteDto, ShareDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
-import { useNote } from "@/api/notes";
+import { EDITOR_PERMS, OWNER_PERMS, VIEWER_PERMS } from "@/test/fixtures";
 import { ShareDialog } from "./ShareDialog";
 
 // 同一套約定：mock 全域 fetch，讓真正的 useShares/usePutShare/useDeleteShare/useUpdateNote
@@ -33,7 +33,9 @@ const NOTE: NoteDto = {
   prevSlug: null,
   ownerHandle: "tester",
   lastEdited: null,
+  groupId: null,
   group: null,
+  permissions: { ...OWNER_PERMS },
 };
 
 const SHARE: ShareDto = {
@@ -94,7 +96,7 @@ describe("ShareDialog", () => {
     const fetchMock = vi.fn(() => Promise.reject(new Error("should not fetch")));
     vi.stubGlobal("fetch", fetchMock);
 
-    renderDialog({ ...NOTE, role: "editor" });
+    renderDialog({ ...NOTE, role: "editor", permissions: { ...EDITOR_PERMS } });
 
     expect(screen.queryByRole("button", { name: "Share" })).not.toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
@@ -130,7 +132,6 @@ describe("ShareDialog", () => {
           fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ ...SHARE, role: "editor" }) }),
         );
       }
-      if (url === "/api/groups" && method === "GET") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) })); // #103 PR3：所屬群組列
       throw new Error(`unexpected fetch: ${method} ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -172,7 +173,6 @@ describe("ShareDialog", () => {
           }),
         );
       }
-      if (url === "/api/groups" && method === "GET") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) })); // #103 PR3：所屬群組列
       throw new Error(`unexpected fetch: ${method} ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -202,7 +202,6 @@ describe("ShareDialog", () => {
         listed = [];
         return Promise.resolve(fakeResponse({ ok: true, status: 204 }));
       }
-      if (url === "/api/groups" && method === "GET") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) })); // #103 PR3：所屬群組列
       throw new Error(`unexpected fetch: ${method} ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -239,7 +238,6 @@ describe("ShareDialog", () => {
           fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ ...SHARE, role: "editor" }) }),
         );
       }
-      if (url === "/api/groups" && method === "GET") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) })); // #103 PR3：所屬群組列
       throw new Error(`unexpected fetch: ${method} ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -326,7 +324,6 @@ function stubRoutedFetch(opts: {
       opts.shares?.push(SHARE);
       return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(SHARE) }));
     }
-    if (url === "/api/groups" && method === "GET") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) })); // #103 PR3：所屬群組列
     throw new Error(`unexpected fetch: ${method} ${url}`);
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -941,49 +938,86 @@ describe("ShareDialog 觸發鈕圖示（依分享狀態，#72 UI 收尾）", () 
   });
 });
 
-// ---- 群組筆記（#103 PR2 Task 6，spec §8.3）----
+// ---- 群組筆記（#175 §8.4）----
+// 群組筆記沒有逐人分享（S5）、存取由群組角色決定：面板只有一行說明＋「群組設定」連結，
+// 能管公開連結的角色才看得到公開連結開關（無別名，W7）。分享鈕看 `permissions.read`（Q14）。
 
 const GROUP_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
-const GROUP_NOTE: NoteDto = { ...NOTE, group: { id: GROUP_ID, name: "Workshop A", role: "editor" } };
-const MY_GROUP_ADMIN = { id: GROUP_ID, name: "Workshop A", myRole: "admin", createdAt: "2026-09-01T00:00:00.000Z" };
-const MY_GROUP_MEMBER = { ...MY_GROUP_ADMIN, myRole: "member" };
-const MEMBERS = [
-  { userId: "u1", email: "tester@example.com", displayName: "Tester", role: "admin" },
-  { userId: "u2", email: "bob@example.com", displayName: "Bob", role: "member" },
-];
-const GROUPS_URL = "/api/groups";
-const MEMBERS_URL = `/api/groups/${GROUP_ID}/members`;
+/** 群組筆記的一般成員：read／edit、不能管公開連結。`ownerHandle`／`ownerId` 為 null（群組持有）。 */
+const GROUP_NOTE: NoteDto = {
+  ...NOTE,
+  ownerId: null,
+  ownerHandle: null,
+  role: "editor",
+  groupId: GROUP_ID,
+  group: { id: GROUP_ID, name: "Workshop A" },
+  permissions: { ...EDITOR_PERMS },
+};
+/** 群組管理員：`managePublicLink`（與 delete／changeSlug）為真；`manageShares`／`moveToGroup` 恆 false（S5、W4）。 */
+const GROUP_NOTE_ADMIN: NoteDto = {
+  ...GROUP_NOTE,
+  permissions: { ...EDITOR_PERMS, delete: true, managePublicLink: true, changeSlug: true },
+};
 
-/** 群組筆記的 fetch 分派：shares 恆 []（S5）、public-link 可變、groups／members 依參數。 */
-function stubGroupFetch(opts: { groups: unknown[]; members?: unknown[]; link?: { token: string | null; slug: string | null } }) {
-  const calls: Array<{ method: string; url: string; body: unknown }> = [];
-  let link = opts.link ?? { token: null, slug: null };
-  let members = opts.members ?? MEMBERS;
+/** 群組筆記的 fetch 分派：只接 public-link 三個動詞；其餘（尤其 `/shares`）一律 throw——
+ * 群組版不得發 shares，發了就是 unexpected fetch（calls 清單也記下來給斷言用）。
+ * `onCall` 回傳非 undefined 就用它（懸置 promise＝載入中、500＝失敗形）。 */
+function stubGroupNoteFetch(
+  opts: { token?: string | null; onCall?: (method: string, url: string) => Promise<Response> | undefined } = {},
+) {
+  const calls: Array<{ method: string; url: string }> = [];
+  let token = opts.token ?? null;
   vi.stubGlobal(
     "fetch",
     vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method ?? "GET").toUpperCase();
-      const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
-      calls.push({ method, url, body });
-      if (url === SHARES_URL && method === "GET") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
-      if (url === PUBLIC_LINK_URL && method === "GET") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(link) }));
-      if (url === PUBLIC_LINK_URL && method === "PUT") { link = { token: "tok-1", slug: null }; return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(link) })); }
-      if (url === PUBLIC_LINK_URL && method === "DELETE") { link = { token: null, slug: null }; return Promise.resolve(fakeResponse({ ok: true, status: 204 })); }
-      if (url === GROUPS_URL && method === "GET") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(opts.groups) }));
-      if (url === MEMBERS_URL && method === "GET") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(members) }));
-      if (url === MEMBERS_URL && method === "PUT") {
-        const added = { userId: "u3", email: body.email, displayName: "New", role: "member" };
-        members = [...members, added];
-        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(added) }));
+      calls.push({ method, url });
+      const overridden = opts.onCall?.(method, url);
+      if (overridden) return overridden;
+      if (url === PUBLIC_LINK_URL && method === "GET") {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ token, slug: null }) }));
       }
-      throw new Error(`unexpected fetch: ${method} ${url}`);
+      if (url === PUBLIC_LINK_URL && method === "PUT") {
+        token = TOKEN;
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ token, slug: null }) }));
+      }
+      if (url === PUBLIC_LINK_URL && method === "DELETE") {
+        token = null;
+        return Promise.resolve(fakeResponse({ ok: true, status: 204 }));
+      }
+      return Promise.reject(new Error(`unexpected fetch: ${method} ${url}`));
     }),
   );
   return calls;
 }
 
-describe("群組筆記（#103）", () => {
+/** 開面板：群組版的標題也是 "Access"（`ShareGroup`），開啟即在。 */
+async function openGroupDialog() {
+  fireEvent.click(screen.getByRole("button", { name: "Share" }));
+  await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByText("Access")).toBeInTheDocument());
+}
+
+/** 群組版面板的共同形：無 radio、無成員區、無 Group 下拉；有說明行（含群組名）與「Group settings」連結。 */
+function expectGroupPanelShape() {
+  const dialog = screen.getByRole("dialog");
+  // 對話框描述換群組專用句（讀者也開得了這個面板，「管理誰能檢視或編輯」對他為假）。
+  expect(dialog).toHaveAccessibleDescription(
+    "Group members access this note according to their role's permissions. Public links are anonymous only.",
+  );
+  expect(within(dialog).queryByText("Manage who can view or edit this note.")).not.toBeInTheDocument();
+  expect(within(dialog).queryAllByRole("radio")).toHaveLength(0);
+  expect(within(dialog).queryByText("Group members")).not.toBeInTheDocument();
+  expect(within(dialog).queryByRole("combobox")).not.toBeInTheDocument();
+  expect(within(dialog).queryByRole("textbox", { name: "Email address" })).not.toBeInTheDocument();
+  expect(within(dialog).getByText(/In "Workshop A", every member whose role can read has access\./)).toBeInTheDocument();
+  const link = within(dialog).getByRole("link", { name: "Group settings" });
+  expect(link).toHaveAttribute("href", `/settings/groups/${GROUP_ID}`);
+  return link;
+}
+
+describe("群組筆記（#175 §8.4）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -993,748 +1027,172 @@ describe("群組筆記（#103）", () => {
     vi.unstubAllGlobals();
   });
 
-  it("只有「群組內可見」與「公開連結」兩個 radio、沒有私人、沒有逐人分享區；觸發鈕圖示 users、title 含群組名", async () => {
-    stubGroupFetch({ groups: [MY_GROUP_MEMBER] });
+  it("一般成員：分享鈕在；面板無 radio／成員區／Group 下拉，有說明行與 Group settings 連結（點了關面板）；不發 /shares 也不發 /public-link", async () => {
+    const calls = stubGroupNoteFetch();
     renderDialog(GROUP_NOTE);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Share" })).toHaveAttribute("title", 'Members of "Workshop A" have access'));
-    expect(screen.getByRole("button", { name: "Share" }).querySelector("svg")).toHaveAttribute("data-icon", "users");
+    await openGroupDialog();
 
-    await openDialog();
-    const radios = await screen.findAllByRole("radio");
-    expect(radios.map((r) => r.getAttribute("aria-label") ?? r.closest("label")?.textContent)).toHaveLength(2);
-    expect(screen.getByRole("radio", { name: /Group members/ })).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: /Public link/ })).toBeInTheDocument();
-    expect(screen.queryByRole("radio", { name: /Private/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("radio", { name: /Members only/ })).not.toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("radio", { name: /Group members/ })).toBeChecked());
-    expect(screen.queryByText("Who you invited")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Role for new share")).not.toBeInTheDocument();
-  });
+    const link = expectGroupPanelShape();
+    // 公開連結開關只給能管公開連結的角色。
+    expect(screen.queryByRole("switch")).not.toBeInTheDocument();
 
-  it("成員區：顯示 displayName、email（A8）、角色；我是 admin → 有 email 輸入＋「Add to group」，送 PUT /api/groups/:id/members {email}，名單更新", async () => {
-    const calls = stubGroupFetch({ groups: [MY_GROUP_ADMIN] });
-    renderDialog(GROUP_NOTE);
-    await openDialog();
-    expect(await screen.findByText("Bob")).toBeInTheDocument();
-    expect(screen.getByText("bob@example.com")).toBeInTheDocument();
-    expect(screen.getAllByText("Member")).not.toHaveLength(0);
-    fireEvent.change(screen.getByLabelText("Email address"), { target: { value: "carol@example.com" } });
-    fireEvent.click(screen.getByRole("button", { name: "Add to group" }));
-    await waitFor(() => expect(calls.some((c) => c.method === "PUT" && c.url === MEMBERS_URL && JSON.stringify(c.body) === JSON.stringify({ email: "carol@example.com" }))).toBe(true));
-    expect(await screen.findByText("carol@example.com")).toBeInTheDocument();
-    expect(screen.getByLabelText("Email address")).toHaveValue("");
-  });
-
-  it("成員區：我不是 admin → 提示文案＋通往 /settings/groups/:id 的連結，點連結關閉分享面板", async () => {
-    stubGroupFetch({ groups: [MY_GROUP_MEMBER] });
-    renderDialog(GROUP_NOTE);
-    await openDialog();
-    expect(await screen.findByText("To invite a collaborator, ask a group admin to add them to the group.")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Email address")).not.toBeInTheDocument();
-    const link = screen.getByRole("link", { name: "Group settings" });
-    expect(link).toHaveAttribute("href", `/settings/groups/${GROUP_ID}`);
     fireEvent.click(link);
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Share note" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(calls.filter((c) => c.url.includes("/shares"))).toEqual([]);
+    expect(calls.filter((c) => c.url.includes("/public-link"))).toEqual([]);
   });
 
-  it("非 owner 的群組 admin 也沒有分享鈕、零 fetch（§11.2）", () => {
+  it("只讀角色（read 真、edit 假）：同樣看得到分享鈕與群組版面板（Q14）、零 fetch", async () => {
+    const calls = stubGroupNoteFetch();
+    renderDialog({ ...GROUP_NOTE, role: "viewer", permissions: { ...VIEWER_PERMS } });
+    await openGroupDialog();
+
+    expectGroupPanelShape();
+    expect(screen.queryByRole("switch")).not.toBeInTheDocument();
+    expect(calls).toEqual([]);
+  });
+
+  it("管理員（managePublicLink）：打 GET /public-link；開 → PUT → 連結面板（複製、重新產生）且無 Anonymous 開關與別名欄；關 → DELETE", async () => {
+    const calls = stubGroupNoteFetch();
+    renderDialog(GROUP_NOTE_ADMIN);
+    await openGroupDialog();
+    expectGroupPanelShape();
+
+    const toggle = await screen.findByRole("switch", { name: "Public link" });
+    await waitFor(() => expect(toggle).not.toBeDisabled());
+    expect(toggle).not.toBeChecked();
+    expect(calls).toContainEqual({ method: "GET", url: PUBLIC_LINK_URL });
+
+    fireEvent.click(toggle);
+    await waitFor(() => expect(calls).toContainEqual({ method: "PUT", url: PUBLIC_LINK_URL }));
+    const panel = await screen.findByRole("group", { name: "Public link" });
+    expect(within(panel).getByRole("button", { name: "Copy public link" })).toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: "Regenerate link" })).toBeInTheDocument();
+    expect(within(panel).queryByRole("button", { name: "Save custom URL" })).not.toBeInTheDocument();
+    expect(within(panel).queryByRole("switch")).not.toBeInTheDocument();
+    expect(screen.queryByText("Anonymous link")).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Custom public link" })).not.toBeInTheDocument();
+    // 群組筆記的連結是匿名形 /p/<token>（沒有 handle 可組別名）。
+    expect(within(panel).getByRole("textbox", { name: "Public link URL" })).toHaveValue(TOKEN);
+    expect(screen.getByRole("switch", { name: "Public link" })).toBeChecked();
+
+    fireEvent.click(screen.getByRole("switch", { name: "Public link" }));
+    await waitFor(() => expect(calls).toContainEqual({ method: "DELETE", url: PUBLIC_LINK_URL }));
+    await waitFor(() => expect(screen.queryByRole("group", { name: "Public link" })).not.toBeInTheDocument());
+    expect(calls.filter((c) => c.url.includes("/shares"))).toEqual([]);
+  });
+
+  it("觸發鈕：管理員有 token → public；管理員無 token → group（群組名）；一般成員（不查 public-link）→ group", async () => {
+    const trigger = () => screen.getByRole("button", { name: "Share" });
+
+    stubGroupNoteFetch({ token: TOKEN });
+    const first = renderDialog(GROUP_NOTE_ADMIN);
+    await waitFor(() => expect(trigger()).toHaveAttribute("title", "Public — anyone with the link can view"));
+    expect(trigger().querySelector("svg")).toHaveAttribute("data-icon", "globe");
+    first.clear();
+    cleanup();
+    vi.unstubAllGlobals();
+
+    stubGroupNoteFetch({ token: null });
+    renderDialog(GROUP_NOTE_ADMIN);
+    await waitFor(() => expect(trigger()).toHaveAttribute("title", 'Members of "Workshop A" have access'));
+    expect(trigger().querySelector("svg")).toHaveAttribute("data-icon", "users");
+    cleanup();
+    vi.unstubAllGlobals();
+
+    const calls = stubGroupNoteFetch({ token: TOKEN });
+    renderDialog(GROUP_NOTE);
+    expect(trigger()).toHaveAttribute("title", 'Members of "Workshop A" have access');
+    expect(trigger().querySelector("svg")).toHaveAttribute("data-icon", "users");
+    expect(calls).toEqual([]);
+  });
+
+  it("觸發鈕不猜狀態：管理員的 public-link 懸置中 → Share 圖示、無 title；回來有 token → Globe。查詢失敗 → 仍 Share、不說「群組成員可存取」", async () => {
+    const trigger = () => screen.getByRole("button", { name: "Share" });
+    let resolveGet: (r: Response) => void = () => {};
+    stubGroupNoteFetch({
+      onCall: (method, url) =>
+        method === "GET" && url === PUBLIC_LINK_URL ? new Promise<Response>((resolve) => (resolveGet = resolve)) : undefined,
+    });
+    renderDialog(GROUP_NOTE_ADMIN);
+    await waitFor(() => expect(trigger().querySelector("svg")).toHaveAttribute("data-icon", "share"));
+    expect(trigger()).not.toHaveAttribute("title");
+    resolveGet(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ token: TOKEN, slug: null }) }));
+    await waitFor(() => expect(trigger().querySelector("svg")).toHaveAttribute("data-icon", "globe"));
+    cleanup();
+    vi.unstubAllGlobals();
+
+    const calls = stubGroupNoteFetch({
+      token: TOKEN,
+      onCall: (method, url) =>
+        method === "GET" && url === PUBLIC_LINK_URL
+          ? Promise.resolve(fakeResponse({ ok: false, status: 500, json: () => Promise.resolve({ error: { code: "internal", message: "boom" } }) }))
+          : undefined,
+    });
+    const queryClient = renderDialog(GROUP_NOTE_ADMIN);
+    await waitFor(() => expect(calls).toContainEqual({ method: "GET", url: PUBLIC_LINK_URL }));
+    // 等查詢真的落到錯誤態（不是還在懸置）再斷言——否則本案量到的是載入中，分不出兩形。
+    await waitFor(() => expect(queryClient.getQueryState(["public-link", NOTE.id])?.status).toBe("error"));
+    expect(trigger().querySelector("svg")).toHaveAttribute("data-icon", "share");
+    expect(trigger()).not.toHaveAttribute("title");
+  });
+
+  it("管理員的 public-link 查詢失敗 → 面板顯示錯誤 alert、開關停用", async () => {
+    stubGroupNoteFetch({
+      onCall: (method, url) =>
+        method === "GET" && url === PUBLIC_LINK_URL
+          ? Promise.resolve(fakeResponse({ ok: false, status: 500, json: () => Promise.resolve({ error: { code: "internal", message: "boom" } }) }))
+          : undefined,
+    });
+    renderDialog(GROUP_NOTE_ADMIN);
+    await openGroupDialog();
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Something went wrong. Please try again.");
+    expect(screen.getByRole("switch", { name: "Public link" })).toBeDisabled();
+  });
+
+  it("管理員開公開連結失敗（PUT 500）→ 錯誤 toast、開關仍未勾、沒有連結面板", async () => {
+    const calls = stubGroupNoteFetch({
+      onCall: (method, url) =>
+        method === "PUT" && url === PUBLIC_LINK_URL
+          ? Promise.resolve(fakeResponse({ ok: false, status: 500, json: () => Promise.resolve({ error: { code: "internal", message: "boom" } }) }))
+          : undefined,
+    });
+    renderDialog(GROUP_NOTE_ADMIN);
+    await openGroupDialog();
+    const toggle = await screen.findByRole("switch", { name: "Public link" });
+    await waitFor(() => expect(toggle).not.toBeDisabled());
+
+    fireEvent.click(toggle);
+    await waitFor(() => expect(calls).toContainEqual({ method: "PUT", url: PUBLIC_LINK_URL }));
+    expect(await screen.findByText("Something went wrong. Please try again.")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Public link" })).not.toBeDisabled());
+    expect(screen.getByRole("switch", { name: "Public link" })).not.toBeChecked();
+    expect(screen.queryByRole("group", { name: "Public link" })).not.toBeInTheDocument();
+  });
+
+  it("個人筆記看的是 permissions.manageShares：role 是 owner 但 manageShares 假 → 沒有分享鈕、零 fetch", () => {
     const fetchMock = vi.fn(() => Promise.reject(new Error("should not fetch")));
     vi.stubGlobal("fetch", fetchMock);
-    renderDialog({ ...GROUP_NOTE, role: "editor" });
+
+    renderDialog({ ...NOTE, permissions: { ...OWNER_PERMS, manageShares: false } });
+
     expect(screen.queryByRole("button", { name: "Share" })).not.toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("公開態的群組筆記仍顯示成員區（admin 可加人，不必先撤連結）", async () => {
-    stubGroupFetch({ groups: [MY_GROUP_ADMIN], link: { token: "tok-1", slug: null } });
-    renderDialog(GROUP_NOTE);
+  it("個人筆記的 owner：三態 radio 照舊，且不再出現 Group 下拉（「所屬群組」列已刪）", async () => {
+    const stub = stubRoutedFetch({ shares: [], token: null });
+    renderDialog();
     await openDialog();
-    await waitFor(() => expect(screen.getByRole("radio", { name: /Public link/ })).toBeChecked());
-    expect(await screen.findByText("Bob")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add to group" })).toBeInTheDocument();
-  });
 
-  it("RF2 分享面板：owner 已不是成員 → 只顯示「你已不是此群組的成員」，不打 GET members；radio 仍兩態", async () => {
-    const calls = stubGroupFetch({ groups: [] });
-    renderDialog(GROUP_NOTE);
-    await openDialog();
-    expect(await screen.findByText("You're no longer a member of this group.")).toBeInTheDocument();
-    expect(calls.some((c) => c.url === MEMBERS_URL)).toBe(false);
-    expect(screen.getByRole("radio", { name: /Group members/ })).toBeInTheDocument();
-    expect(screen.queryByRole("radio", { name: /Private/ })).not.toBeInTheDocument();
-  });
-
-  it("選公開 → PUT public-link、PublicLinkPanel 出現；選回群組內可見 → DELETE public-link、不需確認", async () => {
-    const calls = stubGroupFetch({ groups: [MY_GROUP_MEMBER] });
-    renderDialog(GROUP_NOTE);
-    await openDialog();
-    const publicRadio = await screen.findByRole("radio", { name: /Public link/ });
-    await waitFor(() => expect(publicRadio).not.toBeDisabled());
-    fireEvent.click(publicRadio);
-    await waitFor(() => expect(calls.some((c) => c.method === "PUT" && c.url === PUBLIC_LINK_URL)).toBe(true));
-    expect(await screen.findByLabelText("Public link URL")).toBeInTheDocument(); // 只有 PublicLinkPanel 才有這個欄位
-    fireEvent.click(screen.getByRole("radio", { name: /Group members/ }));
-    await waitFor(() => expect(calls.some((c) => c.method === "DELETE" && c.url === PUBLIC_LINK_URL)).toBe(true));
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument(); // 沒有確認列
-  });
-
-  it("開著面板時個人筆記變成群組筆記（note 先到、public-link 快取仍是舊 token）→ AccessSection 重新 latch，radio 顯示群組內可見、連結面板消失", async () => {
-    // 個人筆記、已公開
-    let link: { token: string | null; slug: string | null } = { token: "tok-old", slug: null };
-    const groups = [MY_GROUP_MEMBER];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-        const url = String(input);
-        const method = (init?.method ?? "GET").toUpperCase();
-        if (url === SHARES_URL && method === "GET") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
-        if (url === PUBLIC_LINK_URL && method === "GET") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(link) }));
-        if (url === GROUPS_URL && method === "GET") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(groups) }));
-        if (url === MEMBERS_URL && method === "GET") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(MEMBERS) }));
-        throw new Error(`unexpected fetch: ${method} ${url}`);
-      }),
-    );
-    const client = renderDialog(NOTE);
-    await openDialog();
-    await waitFor(() => expect(screen.getByRole("radio", { name: /Public link/ })).toBeChecked());
-    expect(await screen.findByLabelText("Public link URL")).toBeInTheDocument(); // 個人筆記公開態：連結面板在
-
-    // server 端已搬進群組（token 已清），note 回應先到、public-link 快取還是 tok-old
-    link = { token: null, slug: null };
-    client.rerender(GROUP_NOTE);
-    await waitFor(() => expect(screen.getByRole("radio", { name: /Group members/ })).toBeChecked());
-    expect(screen.queryByRole("radio", { name: /Private/ })).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Public link URL")).not.toBeInTheDocument(); // 是 aria-label，不是文字
-  });
-});
-
-// ---- 所屬群組列（#103 PR3，spec §8.3）----
-
-const GROUP_B_ID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
-const MY_GROUP_B = { id: GROUP_B_ID, name: "Workshop B", myRole: "member", createdAt: "2026-09-02T00:00:00.000Z" };
-const NOTE_GROUP_URL = `/api/notes/${NOTE.id}/group`;
-const NOTE_URL = `/api/notes/${NOTE.id}`;
-const CAROL: ShareDto = { userId: "33333333-3333-3333-3333-333333333333", email: "carol@example.com", displayName: "Carol", role: "viewer" };
-
-/**
- * 模擬 NotePage：`ShareDialog` 的 `note` 取自 `['note', id]` 快取（常駐層），所以 mutation 的
- * `setQueryData(['note', id], …)` 會真的流回 prop。預設 `enabled: false`（只讀快取、不打 GET）；
- * `live` 時用真的 `useNote`（會 `GET /api/notes/:id`、會被 invalidate 重抓）——失敗後對帳的案要它。
- */
-function NoteFromCache({ id, live }: { id: string; live: boolean }) {
-  const cached = useQuery<NoteDto>({ queryKey: ["note", id], queryFn: () => Promise.reject(new Error("unused")), enabled: false });
-  const fetched = useNote(live ? id : "");
-  const data = live ? fetched.data : cached.data;
-  return data ? <ShareDialog note={data} /> : null;
-}
-
-function renderLive(note: NoteDto, opts: { live?: boolean } = {}) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  queryClient.setQueryData(["note", note.id], note);
-  render(
-    <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[`/notes/${note.id}`]}>
-        <NoteFromCache id={note.id} live={opts.live ?? false} />
-        <Toaster />
-      </MemoryRouter>
-    </QueryClientProvider>,
-  );
-  return queryClient;
-}
-
-/**
- * 可變的 server：`PUT …/group` 換群組時照 server 語意清光 shares 與公開連結（同群組只改 role）、
- * `DELETE …/group` 只把 group 設 null（A10：連結不動；筆記不在群組 → 409 `conflict`，同 server）。
- * `fail` 讓某個 `method url` 回錯誤（`failRoute` 可在中途追加）；`hangLinkAfterMove` 讓搬家之後的 `GET public-link` 永不回應；
- * `sharesDelayMs` 讓 `GET shares` 晚一點回來；`sharesDelayAfterWriteMs` 只讓**寫入之後**的 `GET shares` 晚回來；
- * 回傳值的 `materializeGroupDeletion(shares, remainingGroups?)` 模擬「別人刪了群組」（D8：筆記回個人、成員
- * 物化成逐人分享；給了 `remainingGroups` 就連 `GET /api/groups` 一起換掉——群組真的沒了）；
- * `materializeBeforeWrite` 讓同一件事發生在「送出前檢查之後、寫入之前」（TOCTOU 窗口）。
- */
-function stubMoveFetch(opts: {
-  note: NoteDto;
-  groups: unknown[];
-  shares?: ShareDto[];
-  link?: { token: string | null; slug: string | null };
-  fail?: Record<string, { status: number; code: string }>;
-  hangLinkAfterMove?: boolean;
-  /** `GET shares` 延遲回應（毫秒）：讓「note 重抓比 shares 重抓先回來」的交錯可重現。 */
-  sharesDelayMs?: number;
-  sharesDelayAfterWriteMs?: number;
-  materializeBeforeWrite?: ShareDto[];
-}) {
-  const calls: Array<{ method: string; url: string; body: unknown }> = [];
-  let note = opts.note;
-  let shares = opts.shares ?? [];
-  let link = opts.link ?? { token: null, slug: null };
-  let moved = false;
-  let wrote = false;
-  let serverGroups = opts.groups;
-  const fail: Record<string, { status: number; code: string }> = { ...opts.fail };
-  const groupName = (id: string) => (serverGroups as Array<{ id: string; name: string }>).find((g) => g.id === id)?.name ?? "Gone";
-  const ok = (body?: unknown) =>
-    Promise.resolve(fakeResponse({ ok: true, status: body === undefined ? 204 : 200, json: () => Promise.resolve(body) }));
-  vi.stubGlobal(
-    "fetch",
-    vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      const method = (init?.method ?? "GET").toUpperCase();
-      const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
-      calls.push({ method, url, body });
-      if (url === NOTE_GROUP_URL) {
-        wrote = true;
-        if (opts.materializeBeforeWrite) {
-          note = { ...note, group: null };
-          shares = opts.materializeBeforeWrite;
-        }
-      }
-      const failure = fail[`${method} ${url}`];
-      if (failure) {
-        return Promise.resolve(
-          fakeResponse({ ok: false, status: failure.status, json: () => Promise.resolve({ error: { code: failure.code, message: "x" } }) }),
-        );
-      }
-      if (url === NOTE_URL && method === "GET") return ok(note);
-      if (url === SHARES_URL && method === "GET") {
-        const snapshot = [...shares];
-        const delay = wrote && opts.sharesDelayAfterWriteMs ? opts.sharesDelayAfterWriteMs : opts.sharesDelayMs;
-        if (!delay) return ok(snapshot);
-        return new Promise<Response>((resolve) =>
-          setTimeout(() => resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(snapshot) })), delay),
-        );
-      }
-      if (url === PUBLIC_LINK_URL && method === "GET") {
-        if (moved && opts.hangLinkAfterMove) return new Promise<Response>(() => {});
-        return ok(link);
-      }
-      if (url === PUBLIC_LINK_URL && method === "PUT") {
-        link = { token: TOKEN, slug: null };
-        return ok(link);
-      }
-      if (url === PUBLIC_LINK_URL && method === "DELETE") {
-        link = { token: null, slug: null };
-        return ok();
-      }
-      if (url === "/api/groups" && method === "GET") return ok(serverGroups);
-      if (url.startsWith("/api/groups/") && url.endsWith("/members") && method === "GET") return ok(MEMBERS);
-      if (url === NOTE_GROUP_URL && method === "PUT") {
-        const { groupId, role } = body as { groupId: string; role: "editor" | "viewer" };
-        if (note.group?.id !== groupId) {
-          shares = [];
-          link = { token: null, slug: null };
-          moved = true;
-        }
-        note = { ...note, group: { id: groupId, name: groupName(groupId), role } };
-        return ok(note);
-      }
-      if (url === NOTE_GROUP_URL && method === "DELETE") {
-        if (note.group === null) {
-          return Promise.resolve(
-            fakeResponse({ ok: false, status: 409, json: () => Promise.resolve({ error: { code: "conflict", message: "x" } }) }),
-          );
-        }
-        note = { ...note, group: null };
-        return ok(note);
-      }
-      throw new Error(`unexpected fetch: ${method} ${url}`);
-    }),
-  );
-  return Object.assign(calls, {
-    materializeGroupDeletion(asShares: ShareDto[], remainingGroups?: unknown[]) {
-      note = { ...note, group: null };
-      shares = asShares;
-      if (remainingGroups) serverGroups = remainingGroups;
-    },
-    setServerNote(next: NoteDto) {
-      note = next;
-    },
-    /** 之後的 `method url` 改回這個錯誤（fix r1：讓「先載入成功、之後重抓失敗」可重現）。 */
-    failRoute(key: string, failure: { status: number; code: string }) {
-      fail[key] = failure;
-    },
-  });
-}
-
-const groupSelect = () => screen.getByRole("combobox", { name: "Group this note belongs to" });
-
-/** 群組下拉要等 groups、shares、public-link 三支 query 都到齊才啟用（I2）。 */
-async function readyGroupSelect(): Promise<HTMLElement> {
-  return waitFor(() => {
-    const select = groupSelect();
-    expect(select).toBeEnabled();
-    return select;
-  });
-}
-
-describe("所屬群組列（#103 PR3）", () => {
-  beforeEach(async () => {
-    await i18n.changeLanguage("en");
-    dismissAllToasts();
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it("個人筆記（有逐人分享＋公開連結）→ 選群組 → D16 確認列出 Carol 與撤銷連結 → PUT {groupId, role:'editor'} → 兩態 radio、連結面板消失、觸發鈕變群組、焦點回下拉且下拉沒被重掛", async () => {
-    const calls = stubMoveFetch({ note: NOTE, groups: [MY_GROUP_ADMIN], shares: [CAROL], link: { token: TOKEN, slug: null } });
-    renderLive(NOTE);
-    await openDialog();
-    await waitFor(() => expect(screen.getByRole("radio", { name: /Public link/ })).toBeChecked());
-    const select = await readyGroupSelect();
-    expect(select).toHaveValue("");
-
-    fireEvent.change(select, { target: { value: GROUP_ID } });
-    const lead = await screen.findByText('Every member of "Workshop A" will be able to open and edit this note.');
-    const box = lead.closest('[role="alert"]') as HTMLElement;
-    expect(within(box).getByText('1 person you invited loses their individual invite — they keep access only if they\'re also a member of "Workshop A":')).toBeInTheDocument();
-    expect(within(box).getByText("carol@example.com")).toBeInTheDocument();
-    expect(within(box).getByText("The public link will be turned off (including its custom public URL).")).toBeInTheDocument();
-    expect(within(box).getByRole("button", { name: "Move to group" })).toHaveClass("bg-destructive");
-    expect(calls.some((c) => c.url === NOTE_GROUP_URL)).toBe(false); // 確認前不送
-
-    fireEvent.click(within(box).getByRole("button", { name: "Move to group" }));
-    await waitFor(() => expect(screen.getByRole("radio", { name: /Group members/ })).toBeChecked());
-    expect(calls.filter((c) => c.url === NOTE_GROUP_URL)).toEqual([
-      { method: "PUT", url: NOTE_GROUP_URL, body: { groupId: GROUP_ID, role: "editor" } },
-    ]);
-    expect(screen.queryByRole("radio", { name: /Private/ })).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Public link URL")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Share", hidden: true })).toHaveAttribute("title", 'Members of "Workshop A" have access');
-    expect(groupSelect()).toBe(select); // 所屬群組列不帶 key：搬家前後是同一個 DOM 節點
-    expect(select).toHaveValue(GROUP_ID);
-    await waitFor(() => expect(document.activeElement).toBe(select));
-  });
-
-  it("搬家後 public-link 重抓懸置 → 觸發鈕仍立即顯示群組態（連結快取的寫入在 UI 層承重，gate r1 M2）", async () => {
-    stubMoveFetch({ note: NOTE, groups: [MY_GROUP_ADMIN], link: { token: TOKEN, slug: null }, hangLinkAfterMove: true });
-    renderLive(NOTE);
-    await openDialog();
-    fireEvent.change(await readyGroupSelect(), { target: { value: GROUP_ID } });
-    fireEvent.click(await screen.findByRole("button", { name: "Move to group" }));
-    // 確認列收起＝mutation 已結束（onSuccess 已寫完快取）；此時 GET public-link 還懸著。
-    await waitFor(() => expect(screen.queryByRole("button", { name: "Move to group" })).not.toBeInTheDocument());
-    expect(screen.getByRole("button", { name: "Share", hidden: true })).toHaveAttribute("title", 'Members of "Workshop A" have access');
-  });
-
-  it("D16 確認列按「Cancel」→ 零 PUT、下拉回「None」、焦點回下拉", async () => {
-    const calls = stubMoveFetch({ note: NOTE, groups: [MY_GROUP_ADMIN] });
-    renderLive(NOTE);
-    await openDialog();
-    const select = await readyGroupSelect();
-    fireEvent.change(select, { target: { value: GROUP_ID } });
-    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
-    expect(screen.queryByRole("button", { name: "Move to group" })).not.toBeInTheDocument();
-    expect(select).toHaveValue("");
-    expect(calls.some((c) => c.url === NOTE_GROUP_URL)).toBe(false);
-    await waitFor(() => expect(document.activeElement).toBe(select));
-  });
-
-  it("零分享零連結的個人筆記：確認只有一句、不提撤銷；提交鈕不是 destructive", async () => {
-    stubMoveFetch({ note: NOTE, groups: [MY_GROUP_ADMIN] });
-    renderLive(NOTE);
-    await openDialog();
-    fireEvent.change(await readyGroupSelect(), { target: { value: GROUP_ID } });
-    const lead = await screen.findByText('Every member of "Workshop A" will be able to open and edit this note.');
-    const box = lead.closest('[role="alert"]') as HTMLElement;
-    // 確認框裡只有導言那一段（fix r1 Minor 1：舊寫法 `/will lose access/` 對不上 confirmRevokeShares 的英文，永不命中）
-    expect(box.querySelectorAll("p")).toHaveLength(1);
-    expect(within(box).queryByText(/individual invite/)).not.toBeInTheDocument();
-    expect(within(box).queryByText(/public link/)).not.toBeInTheDocument();
-    expect(within(box).getByRole("button", { name: "Move to group" })).not.toHaveClass("bg-destructive");
-  });
-
-  it("分享名單查不到（GET shares 500）→ 群組下拉停用，改值也不出確認列、不送 PUT（gate r1 I2）", async () => {
-    const calls = stubMoveFetch({
-      note: NOTE,
-      groups: [MY_GROUP_ADMIN],
-      shares: [CAROL],
-      fail: { [`GET ${SHARES_URL}`]: { status: 500, code: "internal" } },
-    });
-    renderLive(NOTE);
-    await openDialog();
-    await waitFor(() => expect(calls.some((c) => c.method === "GET" && c.url === SHARES_URL)).toBe(true));
-    const select = await waitFor(() => groupSelect());
-    await waitFor(() => expect(calls.some((c) => c.method === "GET" && c.url === PUBLIC_LINK_URL)).toBe(true));
-    expect(select).toBeDisabled();
-    fireEvent.change(select, { target: { value: GROUP_ID } });
-    expect(screen.queryByRole("button", { name: "Move to group" })).not.toBeInTheDocument();
-    expect(calls.some((c) => c.url === NOTE_GROUP_URL)).toBe(false);
-  });
-
-  it("群組筆記（我是成員、已公開）選「None」→ D15 確認 → DELETE → 回三態、公開連結仍在（A10）", async () => {
-    const calls = stubMoveFetch({ note: GROUP_NOTE, groups: [MY_GROUP_MEMBER], link: { token: TOKEN, slug: null } });
-    renderLive(GROUP_NOTE);
-    await openDialog();
-    await waitFor(() => expect(screen.getByRole("radio", { name: /Public link/ })).toBeChecked());
-    fireEvent.change(await readyGroupSelect(), { target: { value: "" } });
-    const lead = await screen.findByText('Members of "Workshop A" will lose access to this note. The public link, if there is one, stays on.');
-    const box = lead.closest('[role="alert"]') as HTMLElement;
-    expect(within(box).getByRole("button", { name: "Remove from group" })).toHaveClass("bg-destructive");
-    fireEvent.click(within(box).getByRole("button", { name: "Remove from group" }));
-
-    await waitFor(() => expect(screen.getByRole("radio", { name: /Private/ })).toBeInTheDocument());
-    expect(calls.filter((c) => c.url === NOTE_GROUP_URL)).toEqual([{ method: "DELETE", url: NOTE_GROUP_URL, body: undefined }]);
-    await waitFor(() => expect(screen.getByRole("radio", { name: /Public link/ })).toBeChecked());
-    expect(screen.getByLabelText("Public link URL")).toHaveValue(TOKEN);
-  });
-
-  it("DELETE 409（送出前檢查通過之後、寫入之前群組被別人刪掉，成員已物化成逐人分享）→ 先重抓分享再重抓 note，回個人筆記時 radio 落在「Members only」而不是「Private」（gate r1 M1）", async () => {
-    // shares 晚 50ms 回來：若失效 note 不等 shares 重抓，note 會先到、AccessSection 以舊的 [] latch 成「Private」。
-    // `materializeBeforeWrite`：送出前檢查讀到的還是群組筆記，DELETE 抵達時才物化（檢查擋不住的 TOCTOU 窗口）。
-    stubMoveFetch({ note: GROUP_NOTE, groups: [MY_GROUP_MEMBER], sharesDelayMs: 50, materializeBeforeWrite: [CAROL] });
-    renderLive(GROUP_NOTE, { live: true });
-    await openDialog();
-    await waitFor(() => expect(screen.getByRole("radio", { name: /Group members/ })).toBeChecked());
-    fireEvent.change(await readyGroupSelect(), { target: { value: "" } });
-    const lead = await screen.findByText(/will lose access to this note/);
-    fireEvent.click(within(lead.closest('[role="alert"]') as HTMLElement).getByRole("button", { name: "Remove from group" }));
-
-    expect(await screen.findByText("Something changed while you were doing that. Reload and try again.")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("radio", { name: /Members only/ })).toBeChecked());
-    expect(screen.getByRole("radio", { name: /Private/ })).not.toBeChecked();
-  });
-
-  it("群組筆記改「Read-only」→ 同群組 PUT {role:'viewer'}、不確認；公開連結不被清（server 同群組只改 role）；成功後焦點回權限下拉（final review Minor 1）", async () => {
-    const calls = stubMoveFetch({ note: GROUP_NOTE, groups: [MY_GROUP_MEMBER], link: { token: TOKEN, slug: null } });
-    renderLive(GROUP_NOTE);
-    await openDialog();
-    const publicRadio = screen.getByRole("radio", { name: /Public link/ });
-    await waitFor(() => expect(publicRadio).toBeChecked());
-    const roleSelect = await screen.findByRole("combobox", { name: "What group members can do" });
-    expect(roleSelect).toHaveValue("editor");
-    // 焦點先在別處：jsdom 不會在 disabled 時把焦點移走，也不會因 change 事件把焦點帶到權限下拉，
-    // 所以「成功後焦點在權限下拉」只能來自元件自己的還原。
-    publicRadio.focus();
-    expect(document.activeElement).toBe(publicRadio);
-
-    fireEvent.change(roleSelect, { target: { value: "viewer" } });
-    await waitFor(() => expect(roleSelect).toHaveValue("viewer"));
-    await waitFor(() => expect(document.activeElement).toBe(roleSelect));
-    expect(calls.filter((c) => c.url === NOTE_GROUP_URL)).toEqual([
-      { method: "PUT", url: NOTE_GROUP_URL, body: { groupId: GROUP_ID, role: "viewer" } },
-    ]);
-    expect(screen.queryByRole("button", { name: "Move to group" })).not.toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: /Public link/ })).toBeChecked();
-    expect(screen.getByLabelText("Public link URL")).toHaveValue(TOKEN);
-    expect(screen.getByRole("button", { name: "Share", hidden: true })).toHaveAttribute("title", "Public — anyone with the link can view");
-  });
-
-  it("群組筆記改權限 PUT 500 → 錯誤出現、焦點回權限下拉、值仍是 editor（gate r4 M2）", async () => {
-    stubMoveFetch({ note: GROUP_NOTE, groups: [MY_GROUP_MEMBER], fail: { [`PUT ${NOTE_GROUP_URL}`]: { status: 500, code: "internal" } } });
-    renderLive(GROUP_NOTE);
-    await openDialog();
-    const radio = await screen.findByRole("radio", { name: /Group members/ });
-    await waitFor(() => expect(radio).toBeChecked());
-    const roleSelect = await screen.findByRole("combobox", { name: "What group members can do" });
-    radio.focus(); // 焦點先在別處：改權限用的是 change 事件，不會把焦點帶到權限下拉
-    expect(document.activeElement).toBe(radio);
-
-    fireEvent.change(roleSelect, { target: { value: "viewer" } });
-    expect(await screen.findByText("Something went wrong. Please try again.")).toBeInTheDocument();
-    await waitFor(() => expect(document.activeElement).toBe(roleSelect));
-    expect(roleSelect).toHaveValue("editor");
-  });
-
-  it("群組→群組（原本唯讀、已公開）：確認多一句「原群組成員失去存取」與撤銷連結（A10）、提交鈕 destructive；PUT 新群組、權限重設為 editor（群組→群組一律送 editor，Willie 2026-09-27 裁決）", async () => {
-    const readOnly: NoteDto = { ...GROUP_NOTE, group: { id: GROUP_ID, name: "Workshop A", role: "viewer" } };
-    const calls = stubMoveFetch({ note: readOnly, groups: [MY_GROUP_MEMBER, MY_GROUP_B], link: { token: TOKEN, slug: null } });
-    renderLive(readOnly);
-    await openDialog();
-    fireEvent.change(await readyGroupSelect(), { target: { value: GROUP_B_ID } });
-    const lead = await screen.findByText('Members of "Workshop A" will lose access unless they\'re also in "Workshop B".');
-    const box = lead.closest('[role="alert"]') as HTMLElement;
-    expect(within(box).getByText("The public link will be turned off (including its custom public URL).")).toBeInTheDocument();
-    expect(within(box).getByRole("button", { name: "Move to group" })).toHaveClass("bg-destructive");
-    fireEvent.click(within(box).getByRole("button", { name: "Move to group" }));
-    await waitFor(() => expect(groupSelect()).toHaveValue(GROUP_B_ID));
-    expect(calls.filter((c) => c.url === NOTE_GROUP_URL)).toEqual([
-      { method: "PUT", url: NOTE_GROUP_URL, body: { groupId: GROUP_B_ID, role: "editor" } },
-    ]);
-  });
-
-  it("A1：我已不是該群組成員（但在另一個群組）→ 群組名稱唯讀、沒有群組下拉；權限下拉＋「Remove from group…」→ D15 → DELETE → 焦點落在新出現的群組下拉", async () => {
-    const calls = stubMoveFetch({ note: GROUP_NOTE, groups: [MY_GROUP_B] });
-    renderLive(GROUP_NOTE);
-    await openDialog();
-    expect(await screen.findByText('In "Workshop A"')).toBeInTheDocument();
-    expect(screen.queryByRole("combobox", { name: "Group this note belongs to" })).not.toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "What group members can do" })).toHaveValue("editor");
-    fireEvent.click(screen.getByRole("button", { name: "Remove from group…" }));
-    const lead = await screen.findByText(/will lose access to this note/);
-    const box = lead.closest('[role="alert"]') as HTMLElement;
-    fireEvent.click(within(box).getByRole("button", { name: "Remove from group" }));
-    await waitFor(() => expect(screen.getByRole("radio", { name: /Private/ })).toBeInTheDocument());
-    expect(calls.filter((c) => c.url === NOTE_GROUP_URL)).toEqual([{ method: "DELETE", url: NOTE_GROUP_URL, body: undefined }]);
-    expect(groupSelect()).toHaveValue(""); // 回個人筆記：群組下拉出現
-    await waitFor(() => expect(document.activeElement).toBe(groupSelect()));
-  });
-
-  it("A1 確認列按「Cancel」→ 焦點回外層「Remove from group…」（gate r1 I1）", async () => {
-    stubMoveFetch({ note: GROUP_NOTE, groups: [] });
-    renderLive(GROUP_NOTE);
-    await openDialog();
-    const outer = await screen.findByRole("button", { name: "Remove from group…" });
-    fireEvent.click(outer);
-    expect(outer).toBeEnabled(); // 確認懸掛期間不 disabled
-    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(document.activeElement).toBe(outer));
-  });
-
-  it("PUT 失敗（404 group_not_found）→ 顯示錯誤、確認列收起、下拉回「None」且焦點回下拉、面板仍是個人三態", async () => {
-    stubMoveFetch({ note: NOTE, groups: [MY_GROUP_ADMIN], fail: { [`PUT ${NOTE_GROUP_URL}`]: { status: 404, code: "group_not_found" } } });
-    renderLive(NOTE);
-    await openDialog();
-    const select = await readyGroupSelect();
-    fireEvent.change(select, { target: { value: GROUP_ID } });
-    const submit = await screen.findByRole("button", { name: "Move to group" });
-    submit.focus();
-    fireEvent.click(submit);
-    expect(await screen.findByText("We couldn't find that group.")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Move to group" })).not.toBeInTheDocument();
-    expect(select).toHaveValue("");
-    expect(screen.getByRole("radio", { name: /Private/ })).toBeInTheDocument();
-    await waitFor(() => expect(document.activeElement).toBe(select));
-  });
-
-  it("個人筆記、我不在任何群組 → 整列不渲染（Willie 2026-09-27 裁決 N4）", async () => {
-    const calls = stubMoveFetch({ note: NOTE, groups: [] });
-    renderLive(NOTE);
-    await openDialog();
-    await waitFor(() => expect(calls.some((c) => c.method === "GET" && c.url === "/api/groups")).toBe(true));
-    await waitFor(() => expect(screen.getByRole("radio", { name: /Private/ })).toBeChecked()); // 面板其餘部分已渲染完
-    expect(screen.queryByRole("heading", { name: "Group" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("combobox", { name: "Group this note belongs to" })).not.toBeInTheDocument();
-  });
-
-  it("個人筆記、群組清單還在載入 → 不渲染（不先閃出一列 Loading…）", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-        const url = String(input);
-        const method = (init?.method ?? "GET").toUpperCase();
-        if (url === SHARES_URL && method === "GET") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
-        if (url === PUBLIC_LINK_URL && method === "GET") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ token: null, slug: null }) }));
-        if (url === "/api/groups" && method === "GET") return new Promise<Response>(() => {});
-        throw new Error(`unexpected fetch: ${method} ${url}`);
-      }),
-    );
-    renderLive(NOTE);
-    await openDialog();
     await waitFor(() => expect(screen.getByRole("radio", { name: /Private/ })).toBeChecked());
+    expect(screen.getAllByRole("radio")).toHaveLength(3);
+    expect(screen.getByRole("dialog")).toHaveAccessibleDescription("Manage who can view or edit this note.");
+    expect(screen.queryByRole("combobox", { name: "Group this note belongs to" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Group" })).not.toBeInTheDocument();
-    expect(screen.queryAllByText("Loading…")).toHaveLength(0);
-  });
-
-  it("個人筆記、群組清單錯誤 → 不渲染", async () => {
-    const calls = stubMoveFetch({ note: NOTE, groups: [MY_GROUP_ADMIN], fail: { "GET /api/groups": { status: 500, code: "internal" } } });
-    renderLive(NOTE);
-    await openDialog();
-    await waitFor(() => expect(calls.some((c) => c.method === "GET" && c.url === "/api/groups")).toBe(true));
-    await waitFor(() => expect(screen.getByRole("radio", { name: /Private/ })).toBeChecked());
-    expect(screen.queryByRole("heading", { name: "Group" })).not.toBeInTheDocument();
-  });
-
-  it("送出前檢查：面板顯示舊群組、筆記其實已被刪群組物化成個人筆記 → 改權限不送 PUT、顯示提示、面板對齊（radio 落在 Members only）（Willie 裁決 M3）", async () => {
-    const calls = stubMoveFetch({ note: GROUP_NOTE, groups: [MY_GROUP_MEMBER], sharesDelayMs: 50 });
-    renderLive(GROUP_NOTE);
-    await openDialog();
-    await waitFor(() => expect(screen.getByRole("radio", { name: /Group members/ })).toBeChecked());
-    const roleSelect = await screen.findByRole("combobox", { name: "What group members can do" });
-    calls.materializeGroupDeletion([CAROL]); // 別的分頁：群組被刪，本面板不知道
-    fireEvent.change(roleSelect, { target: { value: "viewer" } });
-
-    expect(
-      await screen.findByText("This note's group was changed somewhere else, so this panel has been reloaded. Check it and try again."),
-    ).toBeInTheDocument();
-    expect(calls.some((c) => c.url === NOTE_GROUP_URL)).toBe(false);
-    await waitFor(() => expect(screen.getByRole("radio", { name: /Members only/ })).toBeChecked());
-    expect(groupSelect()).toHaveValue("");
-    expect(screen.queryByRole("combobox", { name: "What group members can do" })).not.toBeInTheDocument();
-    // 權限下拉已卸載 → 焦點退到群組下拉（gate r3 N2）
-    await waitFor(() => expect(document.activeElement).toBe(groupSelect()));
-  });
-
-  it("送出前檢查不過、而群組已被刪且我沒有別的群組 → 整列隱藏時提示仍在（改權限；gate r3 I1）", async () => {
-    const calls = stubMoveFetch({ note: GROUP_NOTE, groups: [MY_GROUP_MEMBER] });
-    renderLive(GROUP_NOTE);
-    await openDialog();
-    await waitFor(() => expect(screen.getByRole("radio", { name: /Group members/ })).toBeChecked());
-    const roleSelect = await screen.findByRole("combobox", { name: "What group members can do" });
-    const groupGets = () => calls.filter((c) => c.method === "GET" && c.url === "/api/groups").length;
-    const before = groupGets();
-    calls.materializeGroupDeletion([CAROL], []); // 群組真的沒了：GET /api/groups 之後回 []
-    fireEvent.change(roleSelect, { target: { value: "viewer" } });
-
-    await waitFor(() => expect(groupGets()).toBeGreaterThan(before)); // 對齊時失效了 ['groups']
-    await waitFor(() => expect(screen.queryByRole("heading", { name: "Group" })).not.toBeInTheDocument());
-    expect(
-      screen.getByText("This note's group was changed somewhere else, so this panel has been reloaded. Check it and try again."),
-    ).toBeInTheDocument();
-    expect(calls.some((c) => c.url === NOTE_GROUP_URL)).toBe(false);
-  });
-
-  it("同上，走「選 None → Remove from group」確認列 → 提示仍在、不送 DELETE（gate r3 I1 的 PX2 形）", async () => {
-    const calls = stubMoveFetch({ note: GROUP_NOTE, groups: [MY_GROUP_MEMBER] });
-    renderLive(GROUP_NOTE);
-    await openDialog();
-    await waitFor(() => expect(screen.getByRole("radio", { name: /Group members/ })).toBeChecked());
-    fireEvent.change(await readyGroupSelect(), { target: { value: "" } });
-    const lead = await screen.findByText(/will lose access to this note/);
-    const groupGets = () => calls.filter((c) => c.method === "GET" && c.url === "/api/groups").length;
-    const before = groupGets();
-    calls.materializeGroupDeletion([CAROL], []);
-    fireEvent.click(within(lead.closest('[role="alert"]') as HTMLElement).getByRole("button", { name: "Remove from group" }));
-
-    await waitFor(() => expect(groupGets()).toBeGreaterThan(before));
-    await waitFor(() => expect(screen.queryByRole("heading", { name: "Group" })).not.toBeInTheDocument());
-    expect(
-      screen.getByText("This note's group was changed somewhere else, so this panel has been reloaded. Check it and try again."),
-    ).toBeInTheDocument();
-    expect(calls.some((c) => c.url === NOTE_GROUP_URL)).toBe(false);
-  });
-
-  it("送出前檢查：個人筆記在別處已被搬進 Workshop B → 選 Workshop A 並確認時不送 PUT、顯示提示、下拉顯示 Workshop B", async () => {
-    const inB: NoteDto = { ...NOTE, group: { id: GROUP_B_ID, name: "Workshop B", role: "editor" } };
-    const calls = stubMoveFetch({ note: NOTE, groups: [MY_GROUP_ADMIN, MY_GROUP_B] });
-    const client = renderLive(NOTE);
-    await openDialog();
-    fireEvent.change(await readyGroupSelect(), { target: { value: GROUP_ID } });
-    const submit = await screen.findByRole("button", { name: "Move to group" });
-    calls.setServerNote(inB); // 別的分頁已把它搬進 B（server 端），本面板不知道
-    fireEvent.click(submit);
-
-    expect(
-      await screen.findByText("This note's group was changed somewhere else, so this panel has been reloaded. Check it and try again."),
-    ).toBeInTheDocument();
-    expect(calls.some((c) => c.url === NOTE_GROUP_URL)).toBe(false);
-    expect(client.getQueryData<NoteDto>(["note", NOTE.id])?.group?.id).toBe(GROUP_B_ID);
-    await waitFor(() => expect(groupSelect()).toHaveValue(GROUP_B_ID));
-  });
-
-  it("確認列懸掛期間筆記已在別處搬進同一個目標（唯讀），且焦點重抓已把面板對齊 → 按「Move to group」不送 PUT（否則會把唯讀覆寫成 editor）、顯示提示、焦點回下拉（final review Minor 2）", async () => {
-    const inBReadOnly: NoteDto = { ...NOTE, group: { id: GROUP_B_ID, name: "Workshop B", role: "viewer" } };
-    const calls = stubMoveFetch({ note: NOTE, groups: [MY_GROUP_ADMIN, MY_GROUP_B] });
-    const client = renderLive(NOTE);
-    await openDialog();
-    fireEvent.change(await readyGroupSelect(), { target: { value: GROUP_B_ID } });
-    const submit = await screen.findByRole("button", { name: "Move to group" });
-    // 別的分頁已把它搬進 B、設成唯讀；本面板的 note 由焦點重抓對齊（`current` 變成 B），確認列仍懸掛。
-    calls.setServerNote(inBReadOnly);
-    act(() => {
-      client.setQueryData(["note", NOTE.id], inBReadOnly);
-    });
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "What group members can do" })).toHaveValue("viewer"));
-    fireEvent.click(submit);
-
-    expect(
-      await screen.findByText("This note's group was changed somewhere else, so this panel has been reloaded. Check it and try again."),
-    ).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Move to group" })).not.toBeInTheDocument();
-    expect(calls.some((c) => c.url === NOTE_GROUP_URL)).toBe(false);
-    expect(screen.getByRole("combobox", { name: "What group members can do" })).toHaveValue("viewer");
-    expect(groupSelect()).toHaveValue(GROUP_B_ID);
-    await waitFor(() => expect(document.activeElement).toBe(groupSelect()));
-  });
-
-  it("同上的移出形：確認列懸掛期間筆記已在別處移出、面板已對齊成個人筆記 → 按「Remove from group」不送 DELETE（否則 409）、顯示提示（final review Minor 2）", async () => {
-    const personal: NoteDto = { ...GROUP_NOTE, group: null };
-    const calls = stubMoveFetch({ note: GROUP_NOTE, groups: [MY_GROUP_MEMBER] });
-    const client = renderLive(GROUP_NOTE);
-    await openDialog();
-    fireEvent.change(await readyGroupSelect(), { target: { value: "" } });
-    const submit = await screen.findByRole("button", { name: "Remove from group" });
-    calls.setServerNote(personal);
-    act(() => {
-      client.setQueryData(["note", NOTE.id], personal);
-    });
-    await waitFor(() => expect(screen.queryByRole("combobox", { name: "What group members can do" })).not.toBeInTheDocument());
-    fireEvent.click(submit);
-
-    expect(
-      await screen.findByText("This note's group was changed somewhere else, so this panel has been reloaded. Check it and try again."),
-    ).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Remove from group" })).not.toBeInTheDocument();
-    expect(calls.some((c) => c.url === NOTE_GROUP_URL)).toBe(false);
-    expect(screen.queryByText("Something went wrong. Please try again.")).not.toBeInTheDocument();
-    expect(groupSelect()).toHaveValue("");
-  });
-
-  it("PUT 500 → 錯誤訊息在失敗對帳的重抓結束**之前**就出現（onError 不得 await 重抓，gate r2 M1）", async () => {
-    stubMoveFetch({
-      note: NOTE,
-      groups: [MY_GROUP_ADMIN],
-      fail: { [`PUT ${NOTE_GROUP_URL}`]: { status: 500, code: "internal" } },
-      sharesDelayAfterWriteMs: 2000,
-    });
-    renderLive(NOTE);
-    await openDialog();
-    fireEvent.change(await readyGroupSelect(), { target: { value: GROUP_ID } });
-    fireEvent.click(await screen.findByRole("button", { name: "Move to group" }));
-    expect(await screen.findByText("Something went wrong. Please try again.")).toBeInTheDocument();
-  });
-
-  it("群組筆記、['groups'] 重抓失敗（手上已有資料）→ 送出前檢查的提示仍在、整列照常（fix r1 Minor 2）", async () => {
-    const inB: NoteDto = { ...GROUP_NOTE, group: { id: GROUP_B_ID, name: "Workshop B", role: "editor" } };
-    const calls = stubMoveFetch({ note: GROUP_NOTE, groups: [MY_GROUP_MEMBER, MY_GROUP_B] });
-    const client = renderLive(GROUP_NOTE);
-    await openDialog();
-    await readyGroupSelect();
-    const roleSelect = screen.getByRole("combobox", { name: "What group members can do" });
-    calls.setServerNote(inB); // 別的分頁已把它搬進 B
-    calls.failRoute("GET /api/groups", { status: 500, code: "internal" }); // 之後 ['groups'] 重抓失敗
-    fireEvent.change(roleSelect, { target: { value: "viewer" } });
-
-    await waitFor(() => {
-      expect(client.getQueryState(["groups"])?.status).toBe("error");
-      expect(
-        screen.getByText("This note's group was changed somewhere else, so this panel has been reloaded. Check it and try again."),
-      ).toBeInTheDocument();
-    });
-    expect(groupSelect()).toHaveValue(GROUP_B_ID);
-    expect(screen.getByRole("combobox", { name: "What group members can do" })).toBeInTheDocument();
-    expect(calls.some((c) => c.url === NOTE_GROUP_URL)).toBe(false);
-  });
-
-  it("個人筆記、['groups'] 重抓失敗（手上已有非空資料）→ 整列照常、不隱藏（fix r1 Minor 2）", async () => {
-    const calls = stubMoveFetch({ note: NOTE, groups: [MY_GROUP_ADMIN] });
-    const client = renderLive(NOTE);
-    await openDialog();
-    const select = await readyGroupSelect();
-    calls.failRoute("GET /api/groups", { status: 500, code: "internal" });
-    await act(() => client.invalidateQueries({ queryKey: ["groups"] }));
-
-    await waitFor(() => expect(client.getQueryState(["groups"])?.status).toBe("error"));
-    expect(screen.getByRole("heading", { name: "Group" })).toBeInTheDocument();
-    expect(groupSelect()).toBe(select);
-  });
-
-  it("提示從完整列移到只剩訊息的那一段時，role=\"status\" 節點不重建（key=\"messages\"，gate r4 N1）", async () => {
-    const calls = stubMoveFetch({ note: GROUP_NOTE, groups: [MY_GROUP_MEMBER] });
-    renderLive(GROUP_NOTE);
-    await openDialog();
-    await waitFor(() => expect(screen.getByRole("radio", { name: /Group members/ })).toBeChecked());
-    const roleSelect = await screen.findByRole("combobox", { name: "What group members can do" });
-    const notice = "This note's group was changed somewhere else, so this panel has been reloaded. Check it and try again.";
-    const seen: Array<{ node: Element; withHeading: boolean }> = [];
-    const observer = new MutationObserver(() => {
-      for (const node of Array.from(document.querySelectorAll('[role="status"]'))) {
-        if (node.textContent !== notice || seen.some((entry) => entry.node === node)) continue;
-        seen.push({ node, withHeading: screen.queryByRole("heading", { name: "Group" }) !== null });
-      }
-    });
-    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
-    try {
-      calls.materializeGroupDeletion([CAROL], []); // 群組真的沒了：整列最後會隱藏、只剩訊息
-      fireEvent.change(roleSelect, { target: { value: "viewer" } });
-      await waitFor(() => expect(screen.queryByRole("heading", { name: "Group" })).not.toBeInTheDocument());
-      await waitFor(() => expect(seen.length).toBeGreaterThan(0));
-    } finally {
-      observer.disconnect();
-    }
-    // 前提：提示先出現在完整列（有標題）裡、之後整列才隱藏——不成立的話本案沒有鑑別力。
-    expect(seen[0]?.withHeading).toBe(true);
-    expect(seen).toHaveLength(1);
-    expect(screen.getByText(notice)).toBe(seen[0]?.node);
+    // 「所屬群組」列的資料來源（`GET /api/groups`）也不再發——光看 DOM 分不出「元件在、只是還沒載完」。
+    expect(stub.calls.filter((c) => c.url.startsWith("/api/groups"))).toEqual([]);
   });
 });

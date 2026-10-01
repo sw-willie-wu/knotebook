@@ -1,5 +1,5 @@
 /**
- * #108 §8.2 `list_notes`：呼叫者看得見的筆記（自有 ∪ 被分享），keyset 分頁。
+ * #108 §8.2 `list_notes`：呼叫者看得見的筆記（自有 ∪ 被分享 ∪ 所屬群組的，#175），keyset 分頁。
  *
  * ⚠ **keyset 分頁不是快照**——但**成因不是「邊列邊改」**（#146 更正：這裡原本寫「`edit_note`
  * 會更新 `updated_at`」，是假的，而 PR3 的稽核表一度拿這句註解當證據，證據鏈是循環的）。
@@ -10,15 +10,17 @@
  * 而 `notes.linksClock`／`lastEditedAt` 的 UPDATE 都沒有一併寫 `updated_at`。
  * 所以真正會漏列的是**游標下方的列被搬到上方**：分頁期間有人新建筆記或改標題／slug。
  * 「你編輯你剛列出來的那些」造不成漏列——那些列本來就在游標**上方**。
- * ⚠ **第三個成因不是「被搬上去」而是「本來就在上面才加進來」**：分頁期間有人把一篇筆記分享給你。
- * 分享只寫 `note_shares`（`routes/notes.ts:1044` 的 insert／`:1097` 的 delete，**都不碰
- * `notes.updated_at`**），而可見性是 `owned ∪ shared ∪ grouped`、**每一頁現算**（`notes/list-query.ts`
+ * ⚠ **第三個成因不是「被搬上去」而是「本來就在上面才加進來」**：翻頁期間分享給你的筆記、或你加入的
+ * 群組的筆記，以原本的位置加入清單（#175）。分享只寫 `note_shares`（`notes/tx/shares.ts` 的 insert／
+ * `routes/notes.ts` 的 delete），加入群組只寫 `group_members`（groups 路由的成員端點），**都不碰
+ * `notes.updated_at`**；而可見性是 `owned ∪ shared ∪ grouped`、**每一頁現算**（`notes/list-query.ts`
  * ＋ `mcp/queries.ts` 的 unionAll ＋ keyset 述詞）——那篇筆記於是以自己**未變動**的
  * `updated_at` 加入結果集，落點若在已經翻過去的區段，**沒有任何一頁會顯示它**。
  * 這一條模型偵測不到也閃避不了，所以 `description` 必須講（**不得只列前兩個成因**）。
  * 處置有兩處：known-limitations（PR3 已改成正確版本）＋工具 `description`
  * （`LIST_NOTES_DESCRIPTION`，不是欄位的 `.describe()`）裡逐字給模型看的那句話
- * （在下面，**不得刪**；守衛＝`mcp-notes.test.ts` 的「兩句逐字文案在 wire 上出現」那一案）。
+ * （在下面，**不得刪**；守衛＝`mcp-notes.test.ts` 的「三句逐字文案在 wire 上出現」那一案——#175 起
+ * 第三成因句也整句釘在那裡，之前只釘了前兩句）。
  *
  * ⚠ 查詢組裝在 `mcp/queries.ts`：branch select 是單次使用的一次性物件，判 `hasMore`
  * 一律靠 `.limit(limit + 1)` 多取一列，**不得發第二個查詢**。
@@ -38,12 +40,12 @@ const CURSOR_SEP = "|";
 
 /** 模型看得到的字串一律英文（同 `docs/`；不是 UI 文案，不走 i18n）。 */
 export const LIST_NOTES_DESCRIPTION =
-  "List the notes you can see — the ones you own and the ones shared with you directly or via a group — " +
-  "most recently updated first. Each result carries `ownerHandle` and `role` so you can tell whose " +
-  "content you are reading. Paging reads live data, not a snapshot: creating a note, or changing a note's " +
-  "title or slug, moves it to the top of this order, above the cursor you are holding, so no later page " +
-  "shows it. Editing a note's content does not move it. A note shared with you while you page joins the list " +
-  "at its own unchanged position, which may already be above your cursor.";
+  "List the notes you can see — the ones you own, the notes of your groups, and the ones shared with you — " +
+  "most recently updated first. Each result carries `owner` (a person or one of your groups) and `role` so you can " +
+  "tell whose content you are reading. Paging reads live data, not a snapshot: creating a note, or renaming it, moves " +
+  "it to the top of this order, above the cursor you are holding, so no later page shows it. Editing a note's content " +
+  "does not move it. While you page, a note shared with you or the notes of a group you join appear at their own " +
+  "unchanged positions, which may already be above your cursor.";
 
 export const listNotesInput = {
   cursor: z

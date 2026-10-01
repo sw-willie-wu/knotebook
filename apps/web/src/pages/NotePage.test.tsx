@@ -10,6 +10,8 @@ import { ActiveNoteProvider, useActiveNote } from "@/lib/active-note";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import type { CollabState } from "@/collab/connection";
+import { OWNER_PERMS } from "@/test/fixtures";
+import { invalidateNoteQueries } from "@/api/notes";
 
 // BlockNote 需要一整套 jsdom 沒有的 DOM/Range API，掛進單元測試只會測到環境；
 // 這裡只驗證「頁面有沒有把正確的 props 交給編輯器」，編輯器本身留給手動驗證。
@@ -150,6 +152,8 @@ const NOTE: NoteDto = {
   ownerHandle: "tester",
   lastEdited: null,
   group: null,
+  groupId: null,
+  permissions: OWNER_PERMS,
 };
 
 /** `/api/auth/me`、`/api/notes`（清單）、`/api/notes/:ref`（單篇）三支的假 server。
@@ -1027,7 +1031,7 @@ describe("NotePage", () => {
   // 覆蓋）。這裡只驗證 slot 接線本身：footerSlot 的內容（chip 連結）確實出現在
   // mock 渲染出的 note-editor 容器內，不是漏接。
   it("PR2：footerSlot（backlinks chips）確實接進 NoteEditor，不是漏接的 slot", async () => {
-    const backlink: BacklinkDto = { id: "22222222-2222-2222-2222-222222222222", title: "Other", slug: "other", ownerHandle: "tester" };
+    const backlink: BacklinkDto = { id: "22222222-2222-2222-2222-222222222222", title: "Other", slug: "other", ownerHandle: "tester", groupId: null };
     vi.stubGlobal("fetch", mockFetch(NOTE, [backlink]));
 
     renderNotePage("my-note");
@@ -1037,6 +1041,215 @@ describe("NotePage", () => {
     expect(within(editor).getByText("Mentioned in 1 note")).toBeInTheDocument();
     // 已不再有折疊語意（<details>/<summary>）——F 節改成常駐 chips。
     expect(editor.querySelector("details")).toBeNull();
+  });
+});
+
+// ── #175 §8.1：`/g/:groupId/:slug`（NotePage 第三形）──
+// 群組筆記沒有個人 owner，canonical 是 `/g/<groupId>/<slug>`；解析層走
+// `GET /api/notes/by-group-path/:groupId/:slug`（`useNoteByGroupPath`），不打 by-path 與 `:ref`。
+describe("NotePage × /g/ 群組筆記（#175 §8.1）", () => {
+  const GROUP_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const G_NOTE: NoteDto = {
+    ...NOTE,
+    id: "44444444-4444-4444-8444-444444444444",
+    title: "Group Note",
+    slug: "group-note",
+    slugIsCustom: false,
+    ownerId: null,
+    ownerHandle: null,
+    role: "editor",
+    groupId: GROUP_ID,
+    group: { id: GROUP_ID, name: "Workshop A" },
+    permissions: { ...OWNER_PERMS, manageShares: false, moveToGroup: false },
+  };
+  const G_NOTE_2: NoteDto = { ...G_NOTE, id: "55555555-5555-4555-8555-555555555555", title: "Group Note 2", slug: "group-note-2" };
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    collab.state = { phase: "connecting" };
+    collab.doc = new Y.Doc();
+    collab.provider = createStubProvider();
+    collab.provider.synced = true;
+    window.history.replaceState(null, "", "/");
+    dismissAllToasts();
+  });
+
+  afterEach(() => {
+    collab.doc.destroy();
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * 假 server：by-group-path 以 `<groupId>/<slug>` 查（`aliases` 模擬轉址表／prev_slug：舊 slug → 現行筆記）；
+   * by-path 只認 `legacyByPath`（模擬 0012 之後「舊 `/n/<原 owner>/<slug>` 經轉址表落到群組筆記」）；
+   * 單篇 `GET /api/notes/:id` 以 id 查。每一筆呼叫記進 `calls`（`api()` 會把 throw 變成 rejected query，
+   * 斷言「打了哪支」一律看 calls）。
+   */
+  function stubGroupNotes(
+    options: { aliases?: Record<string, NoteDto>; legacyByPath?: Record<string, NoteDto> } = {},
+  ) {
+    const calls: string[] = [];
+    const byId = new Map<string, NoteDto>([
+      [G_NOTE.id, G_NOTE],
+      [G_NOTE_2.id, G_NOTE_2],
+    ]);
+    const bySlug = new Map<string, NoteDto>([
+      [G_NOTE.slug, G_NOTE],
+      [G_NOTE_2.slug, G_NOTE_2],
+      ...Object.entries(options.aliases ?? {}),
+    ]);
+    const notFound = () =>
+      fakeResponse({ ok: false, status: 404, json: () => Promise.resolve({ error: { code: "not_found", message: "x" } }) });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        calls.push(`${method} ${url}`);
+        if (url === "/api/groups" && method === "GET") {
+          return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+        }
+        if (url === "/api/auth/me") {
+          return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(USER) }));
+        }
+        if (url === "/api/notes" && method === "GET") {
+          return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+        }
+        if (url.endsWith("/backlinks") && method === "GET") {
+          return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ backlinks: [] }) }));
+        }
+        if (url.startsWith("/api/notes/by-group-path/") && method === "GET") {
+          const [groupId, slug] = url
+            .slice("/api/notes/by-group-path/".length)
+            .split("/")
+            .map((seg) => decodeURIComponent(seg));
+          const hit = groupId === GROUP_ID ? bySlug.get(slug) : undefined;
+          return Promise.resolve(hit ? fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(hit) }) : notFound());
+        }
+        if (url.startsWith("/api/notes/by-path/") && method === "GET") {
+          const key = url.slice("/api/notes/by-path/".length);
+          const hit = options.legacyByPath?.[key];
+          return Promise.resolve(hit ? fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(hit) }) : notFound());
+        }
+        if (url.startsWith("/api/notes/") && method === "GET") {
+          const hit = byId.get(decodeURIComponent(url.slice("/api/notes/".length)));
+          return Promise.resolve(hit ? fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(hit) }) : notFound());
+        }
+        if (url.endsWith("/links") && method === "POST") {
+          return Promise.resolve(fakeResponse({ ok: true, status: 204 }));
+        }
+        throw new Error(`unexpected fetch: ${method} ${url}`);
+      }),
+    );
+    return { calls };
+  }
+
+  function NavToGroupNote2() {
+    const nav = useNavigate();
+    return (
+      <button type="button" onClick={() => void nav(`/g/${GROUP_ID}/group-note-2`)}>
+        go-g2
+      </button>
+    );
+  }
+
+  function renderGroupTree(initialEntry: string) {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <MemoryRouter initialEntries={[initialEntry]}>
+            <ActiveNoteProvider>
+              <NavToGroupNote2 />
+              <Routes>
+                <Route path="/notes/:ref" element={<NotePage />} />
+                <Route path="/n/:handle/:slug" element={<NotePage />} />
+                <Route path="/g/:groupId/:slug" element={<NotePage />} />
+                <Route path="/" element={<div>home landing</div>} />
+              </Routes>
+            </ActiveNoteProvider>
+          </MemoryRouter>
+          <Toaster />
+        </ThemeProvider>
+      </QueryClientProvider>,
+    );
+    return queryClient;
+  }
+
+  it("①以 /g/ 開頁：解析打 by-group-path（不打 by-path、不打 :ref）、seed ['note', id]、網址留在 canonical", async () => {
+    const { calls } = stubGroupNotes();
+    window.history.replaceState(null, "", `/g/${GROUP_ID}/group-note`);
+
+    const queryClient = renderGroupTree(`/g/${GROUP_ID}/group-note`);
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("Group Note"));
+
+    const gets = calls.filter((c) => c.startsWith("GET /api/notes/"));
+    expect(gets).toContain(`GET /api/notes/by-group-path/${GROUP_ID}/group-note`);
+    expect(gets.some((c) => c.startsWith("GET /api/notes/by-path/"))).toBe(false);
+    expect(gets).not.toContain("GET /api/notes/group-note");
+    expect(queryClient.getQueryData<NoteDto>(["note", G_NOTE.id])?.id).toBe(G_NOTE.id);
+    expect(window.location.pathname).toBe(`/g/${GROUP_ID}/group-note`);
+    expect(canonicalNotePath(G_NOTE)).toBe(`/g/${GROUP_ID}/group-note`);
+  });
+
+  it("②by-group-path 回的 slug 與網址不同（轉址表／prev_slug 命中）→ 收斂 effect replaceState 成 /g/<gid>/<新 slug>", async () => {
+    stubGroupNotes({ aliases: { "old-group-note": G_NOTE } });
+    window.history.replaceState(null, "", `/g/${GROUP_ID}/old-group-note`);
+
+    renderGroupTree(`/g/${GROUP_ID}/old-group-note`);
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("Group Note"));
+    await waitFor(() => expect(window.location.pathname).toBe(`/g/${GROUP_ID}/group-note`));
+  });
+
+  it("③/n/<h>/<old> 打 by-path、回的是群組筆記（migration 轉址）→ replaceState 成 /g/<gid>/<slug>", async () => {
+    const { calls } = stubGroupNotes({ legacyByPath: { "tester/old-personal": G_NOTE } });
+    window.history.replaceState(null, "", "/n/tester/old-personal");
+
+    renderGroupTree("/n/tester/old-personal");
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("Group Note"));
+    await waitFor(() => expect(window.location.pathname).toBe(`/g/${GROUP_ID}/group-note`));
+    expect(calls).toContain("GET /api/notes/by-path/tester/old-personal");
+    expect(calls.some((c) => c.startsWith("GET /api/notes/by-group-path/"))).toBe(false);
+  });
+
+  it("④/g/→/g/ 同 pattern 換頁 → 內容與網址都切到新筆記（解析層 data 必屬當下這組 params）", async () => {
+    stubGroupNotes();
+    window.history.replaceState(null, "", `/g/${GROUP_ID}/group-note`);
+
+    renderGroupTree(`/g/${GROUP_ID}/group-note`);
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("Group Note"));
+
+    fireEvent.click(screen.getByRole("button", { name: "go-g2" }));
+
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("Group Note 2"));
+    await waitFor(() => expect(window.location.pathname).toBe(`/g/${GROUP_ID}/group-note-2`));
+  });
+
+  it("⑤by-group-path 404 → linkInvalid 出口並導回 /", async () => {
+    stubGroupNotes();
+    renderGroupTree(`/g/${GROUP_ID}/never-here`);
+
+    await waitFor(() => expect(screen.getByText("home landing")).toBeInTheDocument());
+    expect(screen.getByText("This link is invalid or the note doesn't exist.")).toBeInTheDocument();
+  });
+
+  it("invalidateNoteQueries：群組筆記失效 ['note-by-group-path', groupId, slug]，不碰 ['note-by-path', …]；個人筆記反之", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(["note", G_NOTE.id], G_NOTE);
+    queryClient.setQueryData(["note-by-group-path", GROUP_ID, G_NOTE.slug], G_NOTE);
+    queryClient.setQueryData(["note-by-path", null, G_NOTE.slug], G_NOTE);
+    queryClient.setQueryData(["note", NOTE.id], NOTE);
+    queryClient.setQueryData(["note-by-path", NOTE.ownerHandle, NOTE.slug], NOTE);
+    queryClient.setQueryData(["note-by-group-path", GROUP_ID, NOTE.slug], NOTE);
+
+    invalidateNoteQueries(queryClient, G_NOTE, G_NOTE.id);
+    expect(queryClient.getQueryState(["note", G_NOTE.id])?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(["note-by-group-path", GROUP_ID, G_NOTE.slug])?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(["note-by-path", null, G_NOTE.slug])?.isInvalidated).toBe(false);
+
+    invalidateNoteQueries(queryClient, NOTE, NOTE.id);
+    expect(queryClient.getQueryState(["note-by-path", NOTE.ownerHandle, NOTE.slug])?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(["note-by-group-path", GROUP_ID, NOTE.slug])?.isInvalidated).toBe(false);
   });
 });
 

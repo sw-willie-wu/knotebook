@@ -20,7 +20,23 @@ describe("loadConfig", () => {
       cookieSecure: true,
       insecureHttpWarning: false,
       trustProxy: false,
+      databasePoolMax: 10,
+      databasePoolConnectionTimeoutMs: 10000,
     });
+  });
+  it("#175 pool 保險絲：兩個 env 覆寫；空字串視同未設；非正整數 → throw", () => {
+    const c = loadConfig({ ...valid, DATABASE_POOL_MAX: "3", DATABASE_POOL_CONNECTION_TIMEOUT_MS: "250" });
+    expect([c.databasePoolMax, c.databasePoolConnectionTimeoutMs]).toEqual([3, 250]);
+    const d = loadConfig({ ...valid, DATABASE_POOL_MAX: "", DATABASE_POOL_CONNECTION_TIMEOUT_MS: "" });
+    expect([d.databasePoolMax, d.databasePoolConnectionTimeoutMs]).toEqual([10, 10000]);
+    for (const bad of ["0", "-1", "1.5", "ten"]) {
+      expect(() => loadConfig({ ...valid, DATABASE_POOL_MAX: bad }), bad).toThrow(/DATABASE_POOL_MAX/);
+      expect(() => loadConfig({ ...valid, DATABASE_POOL_CONNECTION_TIMEOUT_MS: bad }), bad).toThrow(/DATABASE_POOL_CONNECTION_TIMEOUT_MS/);
+    }
+  });
+  it("#175 pool 逾時上限：超過 Node 計時器上限 2147483647 → throw 點名變數；恰等於上限接受", () => {
+    expect(() => loadConfig({ ...valid, DATABASE_POOL_CONNECTION_TIMEOUT_MS: "3000000000" })).toThrow(/DATABASE_POOL_CONNECTION_TIMEOUT_MS/);
+    expect(loadConfig({ ...valid, DATABASE_POOL_CONNECTION_TIMEOUT_MS: "2147483647" }).databasePoolConnectionTimeoutMs).toBe(2147483647);
   });
   it("APP_SECRET 太短 → throw 含 openssl 指引", () => {
     expect(() => loadConfig({ ...valid, APP_SECRET: "short" })).toThrow(/openssl rand -hex 32/);

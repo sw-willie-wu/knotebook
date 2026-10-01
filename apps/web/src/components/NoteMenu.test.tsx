@@ -7,8 +7,9 @@ import type { NoteDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { NoteMenu } from "./NoteMenu";
+import { EDITOR_PERMS, OWNER_PERMS } from "@/test/fixtures";
 
-// ⋮ 選單（spec D.4）：複製連結（任何角色）＋刪除筆記（owner-only，含 M11 的
+// ⋮ 選單（spec D.4）：複製連結（任何角色）＋刪除筆記（#175 起看 `permissions.delete`，含 M11 的
 // leavingRef 時序：刪除失敗且已進終態時，`NoteMenu` 必須自己補一套「同文案同
 // 終點」的終態出口——`NotePage` 的終態 effect 被這支 handler 自己設的
 // `leavingRef.current=true` 閘住，永遠不會再觸發，見 `NoteMenu.tsx` 檔頭）。
@@ -38,6 +39,8 @@ const OWNER_NOTE: NoteDto = {
   ownerHandle: "tester",
   lastEdited: null,
   group: null,
+  groupId: null,
+  permissions: OWNER_PERMS,
 };
 
 const CONNECTED: CollabState = { phase: "connected", role: "owner" };
@@ -105,12 +108,60 @@ describe("NoteMenu（⋮ 選單，spec D.4）", () => {
     await waitFor(() => expect(screen.queryByRole("menuitem")).toBeNull());
   });
 
-  it("非 owner（editor）：只有複製連結，沒有刪除項", () => {
-    renderMenu({ ...OWNER_NOTE, role: "editor" }, CONNECTED, { current: false });
+  it("非 owner（逐人分享 editor，permissions.delete false）：只有複製連結，沒有刪除項", () => {
+    renderMenu({ ...OWNER_NOTE, role: "editor", permissions: EDITOR_PERMS }, CONNECTED, { current: false });
     openMenu();
 
     expect(screen.getByRole("menuitem", { name: /Copy link/ })).toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: /Delete note/ })).not.toBeInTheDocument();
+  });
+
+  // #175 §8.3：刪除項看 `note.permissions.delete`，不再由 `role === "owner"` 推——群組筆記的 role
+  // 從不是 owner，但角色有 `can_delete` 的成員要能刪。
+  it("#175：群組筆記（role editor、permissions.delete true）→ 有刪除項", () => {
+    const groupNote: NoteDto = {
+      ...OWNER_NOTE,
+      ownerId: null,
+      ownerHandle: null,
+      role: "editor",
+      groupId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+      group: { id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", name: "Workshop A" },
+      permissions: { ...EDITOR_PERMS, delete: true },
+    };
+    renderMenu(groupNote, { phase: "connected", role: "editor" }, { current: false });
+    openMenu();
+
+    expect(screen.getByRole("menuitem", { name: /Delete note/ })).toBeInTheDocument();
+  });
+
+  it("#175：個人筆記 role owner 但 permissions.delete false（刻意造的不一致 fixture）→ 沒有刪除項——看的是 permissions", () => {
+    renderMenu({ ...OWNER_NOTE, permissions: { ...OWNER_PERMS, delete: false } }, CONNECTED, { current: false });
+    openMenu();
+
+    expect(screen.getByRole("menuitem", { name: /Copy link/ })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: /Delete note/ })).not.toBeInTheDocument();
+  });
+
+  it("#175：群組筆記的複製連結是 /g/<groupId>/<slug>", async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+    const groupNote: NoteDto = {
+      ...OWNER_NOTE,
+      ownerId: null,
+      ownerHandle: null,
+      role: "viewer",
+      groupId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+      group: { id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", name: "Workshop A" },
+      permissions: { ...EDITOR_PERMS, edit: false },
+    };
+    renderMenu(groupNote, { phase: "connected", role: "viewer" }, { current: false });
+
+    openMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: /Copy link/ }));
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/g/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/my-note`),
+    );
   });
 
   it("複製連結成功 → toast「已複製」，選單隨後關閉", async () => {

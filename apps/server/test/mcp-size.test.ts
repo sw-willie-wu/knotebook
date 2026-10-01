@@ -22,6 +22,7 @@ import { MCP_PAGE_MAX } from "../src/mcp/limits.js";
 import { buildCollabTestApp, type CollabTestCtx } from "./helpers.js";
 import { getContent, seedContent, seedTokenForUser } from "./editing-helpers.js";
 import { mcpPost, rpc } from "./mcp-helpers.js";
+import { seedGroup } from "./group-helpers.js";
 import type { Db } from "../src/db/index.js";
 import type { FastifyInstance } from "fastify";
 
@@ -43,7 +44,10 @@ export const MCP_MAX_WIRE = 262_144;
  * `MAX_ENTRY_BYTES`；`edit_note`／`create_note` 兩支的 input／output schema 一起進脈絡，
  * 是這條線從 PR1 的 13 312 破線 2050 的直接原因。
  *
- * **基線：2026-09-15 實測，讀寫憑證六支 wire ＝ 16 763**（#145）。⚠ 上面那個 15 362 在 #148
+ * **基線：2026-10-01 實測（#175 PR1），讀寫憑證六支 wire ＝ 18 105**（門檻的 85.0%；#175 之前為 16 774，
+ * #145 時記為 16 763）。#175 的 +1 331 來自 `owner` 判別聯合（`{kind:"user"…}｜{kind:"group"…}`）的 JSON
+ * Schema 在 list_notes／search_notes／create_note／read_note_outline 四份 outputSchema 各展開一次（加上
+ * `list_notes` description 變長）。⚠ 上面那個 15 362 在 #148
  * （改寫模型面敘述那一輪）之後就過期了，而這段註解當時沒跟上——別再拿它去論證餘裕。對照組、
  * 百分比刻意不抄在這裡：案 11b 每次跑都 `console.log` 印出當下的值（剩餘字元一減就有）。
  *
@@ -260,7 +264,7 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
     const agentLabel = "g".repeat(32);
     for (let i = 0; i < MCP_PAGE_MAX; i += 1) {
       const n = String(i).padStart(4, "0");
-      await seedMaxNote(ctx.db, o.id, {
+      await seedMaxNote(ctx.db, { ownerId: o.id }, o.id, {
         title: `${n}${"t".repeat(196)}`,
         slug: `${n}-${"s".repeat(95)}`,
         agentLabel,
@@ -277,10 +281,45 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
     // `search_notes` 的 `limit` 上限是 50，所以它的最壞情形恰好是這一發的一半左右。
     await callWire(ctx.app, o.token, "(iii) search_notes limit=50", "search_notes", { query: "ttt", limit: 50 });
 
-    // Task 5 案 11c 補：`create_note` 的另一半最壞情形——`ownerHandle` 是這一案剛設的
+    // Task 5 案 11c 補：`create_note` 的另一半最壞情形——`owner.handle`（#175 前叫 `ownerHandle`）是這一案剛設的
     // 32 字元上限（(i) 那一發的 owner 是隨機 email 產生的短 handle，量不到這一格）。標題
     // 一樣給到會截斷的長度，兩案合起來才是 `create_note` 回應真正的最壞情形。
     await callWire(ctx.app, rwToken, "(iii) create_note", "create_note", { title: "c".repeat(300) });
+  });
+
+  /**
+   * 測資 (iv)（#175，gate r1 B-M9）：(iii) 的群組變體。群組筆記每列的 `owner` 是
+   * `{"kind":"group","id":"<36>","name":"<80 code point>"}`、`url` 是 `/g/<36>/…`，都比個人形的
+   * `{"kind":"user","handle":"<32>"}`／`/n/<32>/…` 長——(iii) 的 fixture 裡沒有群組筆記，量不到這一形。
+   *
+   * ⚠ **這一案量的不是最壞形**，是「群組名取非 C0 的合規最壞（80 個 `"`）＋標題純 ASCII」的形，實測 **211 556**。
+   * **標題也用 196 個 `"` 時實測 289 956 > N**（Task 8 review r1 探針 P1；推算與實測逐位相同：每個 `"` 在 wire
+   * 上佔 6——structuredContent 的 `\"` 2 ＋鏡像 text 的 `\\\"` 4——`t` 佔 2，+4×196×100 ＝ +78 400）。
+   * 也就是說 **N 對 JSON 逃脫會放大的合規內容（`"`、`\`、C0）不成立**，不只 C0：`owner.name`（最長
+   * 80 code point）**不受 `MCP_TEXT_MAX` 截斷**——它不在 `limits.ts` 的逐欄上限表上，群組名進回應之後，
+   * 合規內容就推得破 N。PR1 刻意不改 schema、不截短 `owner.name`、不動 N（總管裁決），追蹤見 #177。
+   * 所以這裡**不加會紅的案**：斷言只量上述那一形，別把它讀成「單頁回應 ≤ N 在群組形下成立」。
+   */
+  it("(iv) #175 群組形：100 筆滿長群組筆記（群組名 80 個 `\"`）＋ limit 100 → ≤ N", async () => {
+    const ctx = await buildCollabTestApp();
+    const o = await owner(ctx);
+    const handle = `h${"a".repeat(31)}`; // 32 字元：讓 lastEdited.byHandle 也滿長，同 (iii)（gate r4 B-N2）
+    await ctx.db.update(users).set({ handle }).where(eq(users.id, o.id));
+    // 群組名取 80 個 `"`（非 C0 的可逃脫字元裡最大的一形，與反斜線同值）；標題刻意維持 ASCII——理由與缺口見上方
+    // 註解（標題也用 `"` 時 289 956 > N）。C0 膨脹得更多：80 個 U+0001 的群組名算得 267 556；標題各 196 個 U+0001
+    // × 100 篇 → 371 156 是**個人形、#175 之前 main** 的值（gate r3 B-I2），群組形同一模型為 427 156【推：每個
+    // U+0001 比 `t` 多 11 wire，211 556 ＋ 11×196×100；未實跑】。同樣追蹤於 #177。
+    const name = '"'.repeat(80);
+    expect([...name]).toHaveLength(80);
+    const g = await seedGroup(ctx.db, name, [{ userId: o.id, role: "member" }]);
+    const agentLabel = "g".repeat(32);
+    for (let i = 0; i < MCP_PAGE_MAX; i += 1) {
+      const n = String(i).padStart(4, "0");
+      await seedMaxNote(ctx.db, { groupId: g.id }, o.id, { title: `${n}${"t".repeat(196)}`, slug: `${n}-${"s".repeat(95)}`, agentLabel });
+    }
+    const wire = await callWire(ctx.app, o.token, "(iv) list_notes limit=100（群組形）", "list_notes", { limit: MCP_PAGE_MAX });
+    expect(wire).toBeGreaterThan(140_000); // 「測資沒造滿」的哨兵，同 (iii)
+    await callWire(ctx.app, o.token, "(iv) search_notes limit=50（群組形）", "search_notes", { query: "ttt", limit: 50 });
   });
 
   // 整張表印一次（PR 描述要貼）。**刻意是 hook 不是 `it`**：它只彙整前面幾案已經斷言過的
@@ -293,18 +332,22 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
   });
 });
 
-/** 一列「每一格都合規但都滿長」的筆記；`lastEdited` 四欄一併補滿（見上面的 ⚠）。 */
+/**
+ * 一列「每一格都合規但都滿長」的筆記；`lastEdited` 四欄一併補滿（見上面的 ⚠）。
+ * 個人筆記給 `{ ownerId }`、群組筆記給 `{ groupId }`（XOR，#175）；`editorId` 是 `last_edited_by`。
+ */
 async function seedMaxNote(
   db: Db,
-  ownerId: string,
+  owner: { ownerId: string } | { groupId: string },
+  editorId: string,
   opts: { title: string; slug: string; agentLabel: string }
 ): Promise<void> {
   await db.insert(notes).values({
-    ownerId,
+    ...("groupId" in owner ? { groupId: owner.groupId } : { ownerId: owner.ownerId }),
     title: opts.title,
     slug: opts.slug,
     lastEditedAt: new Date(),
-    lastEditedBy: ownerId,
+    lastEditedBy: editorId,
     lastEditedAgentLabel: opts.agentLabel,
   });
 }

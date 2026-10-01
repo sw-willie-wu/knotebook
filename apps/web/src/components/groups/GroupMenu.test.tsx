@@ -5,11 +5,15 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import type { GroupDto, UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
+import { adminRole, groupDto, memberRole } from "@/test/fixtures";
 import { GroupMenu } from "./GroupMenu";
 
 const ME: UserDto = { id: "u-me", email: "me@example.com", handle: "me", displayName: "Me", isAdmin: false, mustChangePassword: false, hasPassword: true };
-const ADMIN_GROUP: GroupDto = { id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", name: "Workshop A", myRole: "admin", createdAt: "2026-09-01T00:00:00.000Z" };
-const MEMBER_GROUP: GroupDto = { ...ADMIN_GROUP, id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", name: "Workshop B", myRole: "member" };
+/** 唯一的管理員（`adminRole()` 的 `memberCount` 預設 1＝掛內建管理員角色的人數）。 */
+const ADMIN_GROUP: GroupDto = groupDto({ id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", name: "Workshop A" }, adminRole());
+/** 兩位管理員之一：不是最後一位，可以退出。 */
+const CO_ADMIN_GROUP: GroupDto = groupDto({ id: "cccccccc-cccc-cccc-cccc-cccccccccccc", name: "Workshop C" }, adminRole({ memberCount: 2 }));
+const MEMBER_GROUP: GroupDto = groupDto({ id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", name: "Workshop B" }, memberRole({ memberCount: 3 }));
 
 function fakeResponse(status: number, body?: unknown): Response {
   return { ok: status >= 200 && status < 300, status, json: () => (body === undefined ? Promise.reject(new Error("no body")) : Promise.resolve(body)) } as unknown as Response;
@@ -58,13 +62,21 @@ describe("GroupMenu", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("admin 形：成員與設定／重新命名／刪除群組（danger）", async () => {
+  it("最後一位管理員形：成員與設定／重新命名／刪除群組（danger）；**沒有**退出群組（spec §8.2）", async () => {
     renderMenu(ADMIN_GROUP, () => fakeResponse(500));
     const menu = await openMenu("Workshop A");
     expect(within(menu).getByRole("menuitem", { name: "Members & settings" })).toBeInTheDocument();
     expect(within(menu).getByRole("menuitem", { name: "Rename" })).toBeInTheDocument();
+    // class 斷言（jsdom 沒有 CSS）：danger 樣式 class 有掛上
     expect(within(menu).getByRole("menuitem", { name: "Delete group" })).toHaveClass("text-destructive");
     expect(within(menu).queryByRole("menuitem", { name: "Leave group" })).not.toBeInTheDocument();
+  });
+
+  it("非最後一位管理員（builtin admin、memberCount 2）：管理項齊全，退出群組排在刪除群組之後", async () => {
+    renderMenu(CO_ADMIN_GROUP, () => fakeResponse(500));
+    const menu = await openMenu("Workshop C");
+    const items = within(menu).getAllByRole("menuitem").map((item) => item.textContent);
+    expect(items).toEqual(["Members & settings", "Rename", "Delete group", "Leave group"]);
   });
 
   it("member 形：查看成員／退出群組；沒有改名與刪除", async () => {
@@ -74,6 +86,27 @@ describe("GroupMenu", () => {
     expect(within(menu).getByRole("menuitem", { name: "Leave group" })).toBeInTheDocument();
     expect(within(menu).queryByRole("menuitem", { name: "Rename" })).not.toBeInTheDocument();
     expect(within(menu).queryByRole("menuitem", { name: "Delete group" })).not.toBeInTheDocument();
+  });
+
+  it("兩個管理旗標分開看：canManageMembers 只決定「成員與設定／查看成員」、canManageGroup 只決定重新命名與刪除（不看 myRole）", async () => {
+    // 刻意與 myRole 不一致的 fixture（PR3 的自訂角色才會真的出現單一旗標；站台 admin 的 OR 也會讓兩者與角色脫鉤）
+    const membersOnly: GroupDto = { ...MEMBER_GROUP, id: "dddddddd-dddd-dddd-dddd-dddddddddddd", name: "Only members", canManageMembers: true, canManageGroup: false };
+    const first = renderMenu(membersOnly, () => fakeResponse(500));
+    let menu = await openMenu("Only members");
+    expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Members & settings", "Leave group"]);
+    first.unmount();
+
+    const neither: GroupDto = { ...CO_ADMIN_GROUP, id: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee", name: "Neither", canManageMembers: false, canManageGroup: false };
+    const second = renderMenu(neither, () => fakeResponse(500));
+    menu = await openMenu("Neither");
+    // myRole 是內建管理員，但兩個旗標都假 → 與一般成員同形
+    expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["View members", "Leave group"]);
+    second.unmount();
+
+    const groupOnly: GroupDto = { ...MEMBER_GROUP, id: "ffffffff-ffff-ffff-ffff-ffffffffffff", name: "Only group", canManageMembers: false, canManageGroup: true };
+    renderMenu(groupOnly, () => fakeResponse(500));
+    menu = await openMenu("Only group");
+    expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["View members", "Rename", "Delete group", "Leave group"]);
   });
 
   it("成員與設定 → navigate /settings/groups/:id 並帶 backgroundLocation", async () => {
@@ -146,19 +179,34 @@ describe("GroupMenu", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Rename group" })).not.toBeInTheDocument());
   });
 
-  it("刪除群組 → 二次確認文案（筆記變個人筆記、原成員保留存取）→ DELETE /api/groups/:id", async () => {
+  it("刪除群組 → 二次確認文案（#175 PR1：只有空群組能刪）→ DELETE /api/groups/:id → 成功後對話框關閉", async () => {
     const { calls } = renderMenu(ADMIN_GROUP, (method) => (method === "DELETE" ? fakeResponse(204) : fakeResponse(500)));
     const menu = await openMenu("Workshop A");
     fireEvent.click(within(menu).getByRole("menuitem", { name: "Delete group" }));
     const dialog = await screen.findByRole("dialog", { name: "Delete group?" });
-    expect(dialog).toHaveTextContent('Notes in "Workshop A" become personal notes. Current members keep their access at their current role.');
+    expect(dialog).toHaveTextContent("Only an empty group can be deleted. If the group still has notes, delete them first.");
     expect(calls.some((c) => c.method === "DELETE")).toBe(false);
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete group" }));
     await waitFor(() => expect(calls.some((c) => c.method === "DELETE" && c.url === `/api/groups/${ADMIN_GROUP.id}`)).toBe(true));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Delete group?" })).not.toBeInTheDocument());
   });
 
-  it("退出群組 → 二次確認 → DELETE /api/groups/:id/members/<me>；409 last_admin → toast errors.last_admin、對話框關閉", async () => {
+  it("刪除群組 → 409 group_not_empty → toast errors.group_not_empty，**對話框留著**（spec §8.6）", async () => {
+    const { calls } = renderMenu(ADMIN_GROUP, (method) =>
+      method === "DELETE" ? fakeResponse(409, { error: { code: "group_not_empty", message: "x" } }) : fakeResponse(500),
+    );
+    const menu = await openMenu("Workshop A");
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Delete group" }));
+    const dialog = await screen.findByRole("dialog", { name: "Delete group?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete group" }));
+    await waitFor(() => expect(calls.filter((c) => c.method === "DELETE" && c.url === `/api/groups/${ADMIN_GROUP.id}`)).toHaveLength(1));
+    await waitFor(() => expect(screen.getByText("This group still has notes in it, so it can't be deleted.", { exact: true })).toBeInTheDocument());
+    // toast 已出現＝catch 已跑完；此時對話框仍在、確認鈕可再按
+    expect(screen.getByRole("dialog", { name: "Delete group?" })).toBeInTheDocument();
+    await waitFor(() => expect(within(screen.getByRole("dialog", { name: "Delete group?" })).getByRole("button", { name: "Delete group" })).not.toBeDisabled());
+  });
+
+  it("退出群組 → 二次確認 → DELETE /api/groups/:id/members/<me>；409 last_admin（競態後備）→ toast errors.last_admin、對話框關閉", async () => {
     const { calls } = renderMenu(MEMBER_GROUP, (method) =>
       method === "DELETE" ? fakeResponse(409, { error: { code: "last_admin", message: "x" } }) : fakeResponse(500),
     );
@@ -171,7 +219,7 @@ describe("GroupMenu", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Leave group" }));
     await waitFor(() => expect(calls.some((c) => c.method === "DELETE" && c.url === `/api/groups/${MEMBER_GROUP.id}/members/${ME.id}`)).toBe(true));
     await waitFor(() =>
-      expect(screen.getByText("A group needs at least one admin. Make someone else an admin first, or delete the group.", { exact: true })).toBeInTheDocument(),
+      expect(screen.getByText("A group needs at least one admin. Make someone else an admin first.", { exact: true })).toBeInTheDocument(),
     );
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Leave group?" })).not.toBeInTheDocument());
   });

@@ -36,8 +36,13 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
 }
 
 /**
- * 群組段標／設定頁列的 ⋮（spec §8.1）。兩形：admin → 成員與設定、重新命名、—、刪除群組
- * （danger、二次確認）；member → 查看成員、—、退出群組（二次確認；409 `last_admin` toast）。
+ * 群組段標／設定頁列的 ⋮（#175 spec §8.2）。**只看 `GroupDto` 的兩個管理旗標，不看 `myRole` 的種類**：
+ * - 第一項：`canManageMembers` →「成員與設定」，否則「查看成員」；
+ * - `canManageGroup` → 重新命名、—、刪除群組（danger、二次確認；409 `group_not_empty` → toast、
+ *   **對話框留著**，§8.6）；
+ * - 不是最後一位管理員 → 退出群組（排在刪除之後；二次確認）。最後一位管理員＝`myRole.builtin === "admin"`
+ *   且 `myRole.memberCount === 1`（`memberCount` 是掛這個角色的人數，內建管理員角色上就是管理員人數）；
+ *   server 照舊回 409 `last_admin`，toast 保留當競態後備。
  *
  * 選單項一律 `onSelect` 三步形（`event.preventDefault()` → 關選單 → 動作），`DropdownMenu`
  * controlled——理由見 `NoteMenu.tsx` 檔頭的 focus trap 規矩。改名對話框在開啟時才掛載
@@ -72,7 +77,8 @@ export function GroupMenu({ group, size = "default" }: { group: GroupDto; size?:
     trigger.focus();
   }
 
-  const isAdmin = group.myRole === "admin";
+  const isLastAdmin = group.myRole?.builtin === "admin" && group.myRole.memberCount === 1;
+  const canLeave = group.myRole !== null && !isLastAdmin;
 
   function goToSettings(): void {
     // 已經在設定 modal 裡（`/settings/groups` 列表的 ⋮）時要**轉傳**既有的 backgroundLocation，
@@ -92,8 +98,8 @@ export function GroupMenu({ group, size = "default" }: { group: GroupDto; size?:
       await deleteGroup.mutateAsync(group.id);
       setDeleteOpen(false);
     } catch (err) {
+      // §8.6：失敗（409 `group_not_empty` 等）只 toast，對話框留著——使用者可以取消或處理完再按
       toast({ title: errorMessage(t, err), variant: "destructive" });
-      setDeleteOpen(false);
     }
   }
 
@@ -131,9 +137,9 @@ export function GroupMenu({ group, size = "default" }: { group: GroupDto; size?:
               goToSettings();
             }}
           >
-            {isAdmin ? t("groups.menu.manage") : t("groups.menu.viewMembers")}
+            {group.canManageMembers ? t("groups.menu.manage") : t("groups.menu.viewMembers")}
           </DropdownMenuItem>
-          {isAdmin && (
+          {group.canManageGroup && (
             <DropdownMenuItem
               onSelect={(event) => {
                 event.preventDefault();
@@ -144,8 +150,8 @@ export function GroupMenu({ group, size = "default" }: { group: GroupDto; size?:
               {t("groups.menu.rename")}
             </DropdownMenuItem>
           )}
-          <DropdownMenuSeparator />
-          {isAdmin ? (
+          {(group.canManageGroup || canLeave) && <DropdownMenuSeparator />}
+          {group.canManageGroup && (
             <DropdownMenuItem
               className="text-destructive focus:text-destructive"
               onSelect={(event) => {
@@ -156,7 +162,8 @@ export function GroupMenu({ group, size = "default" }: { group: GroupDto; size?:
             >
               {t("groups.menu.delete")}
             </DropdownMenuItem>
-          ) : (
+          )}
+          {canLeave && (
             <DropdownMenuItem
               onSelect={(event) => {
                 event.preventDefault();
