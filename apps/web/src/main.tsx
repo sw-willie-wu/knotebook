@@ -8,8 +8,8 @@ import "./index.css";
 // 不必連 cyrillic/vietnamese 等其餘 unicode-range 子集一起下載。
 import "@fontsource/playfair-display/latin-700-italic.css";
 
-// ⚠ 不要在這裡設預設 `staleTime`：ShareDialog 群組筆記的 latch（`freshEnough`）依賴
-// `['public-link']`／`['shares']` 掛載時重抓；加了 staleTime 群組筆記會永遠 latch 不了，測試卻照樣全綠。
+// ⚠ 不要在這裡設預設 `staleTime`：ShareDialog 個人筆記的 latch 等的是 `isFetchedAfterMount`（#170），設了 staleTime
+// 掛載就不重抓、面板永遠停在載入中，測試卻可能照樣全綠。
 const queryClient = new QueryClient();
 
 const rootElement = document.getElementById("root");

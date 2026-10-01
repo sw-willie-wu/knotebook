@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { Fragment, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useLocation } from "react-router";
 import {
@@ -27,6 +27,8 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "@/components/ui/toast";
 import { copyText } from "@/lib/clipboard";
 import { ManualCopyField } from "@/components/ManualCopyField";
+import { CopyToPersonalButton } from "@/components/share/CopyToPersonalButton";
+import { MoveToGroupSection } from "@/components/share/MoveToGroupSection";
 
 /** ApiFail → errors.<code>；其餘 → errors.fallback。與 NoteList/TitleInput 同一套對映（各檔各自一份，
  * 是既有慣例——見那兩處的說明，這裡不再重複抽象）。 */
@@ -204,8 +206,8 @@ function deriveAccess(token: string | null, shares: ShareDto[]): AccessLevel {
 /**
  * 分享三態（#72，spec §4）：私人🔒／限定成員👥／公開連結🌐。
  *
- * **radio 是 sticky 的 UI state（latch）**：兩個 query（shares＋public-link）首次
- * 都拿到資料時 derive 一次初值；之前顯示 loading、**不選中任何 radio**——dialog
+ * **radio 是 sticky 的 UI state（latch）**：兩個 query（shares＋public-link）在本元件
+ * **掛載後**都抓到資料時 derive 一次初值（#170，見 latch effect 的註解）；之前顯示 loading、**不選中任何 radio**——dialog
  * 內容是開啟才掛載、query 開啟當下必為 undefined，字面的「開啟時 derive」會讓
  * 已公開的筆記永遠顯示私人（安全性誤述，spec B4）。之後**使用者的選擇活到
  * dialog 關閉為止**（關閉即 unmount、重開重新 latch——由 ShareDialog 的
@@ -250,12 +252,20 @@ function AccessSection({ note }: { note: NoteDto }) {
   const shares = sharesQuery.data ?? [];
   const queriesFailed = linkQuery.isError || sharesQuery.isError;
 
-  // 快取有就 latch（觸發鈕已預抓）。
+  // #170：只用「本元件掛載後抓到的資料」latch——消滅「快取有就 latch」這一形。快取可能早於歸屬改變（移動成功把
+  // shares 寫成 []、PR4 轉移把群組筆記變回個人、背景重抓的到達順序），「快取有就 latch」會 sticky 地停在錯的態。掛載必
+  // 觸發一次重抓（預設 staleTime 0，main.tsx 的註解承重），所以代價是一個往返的「載入中」；觸發鈕圖示不受影響（它讀
+  // 目前資料，不是 latch）。已知殘留三形（`isFetchedAfterMount` 只看掛載後計數有沒有增加，不看資料來自哪次請求；
+  // 與 v1 群組筆記 latch 同級、不另補——主檔規格落差 10）：
+  //   ① 重抓失敗也算 fetched，latch 吃舊快取；
+  //   ② 掛載前已在飛的請求被沿用，內容可能早於歸屬改變；
+  //   ③ 掛載後的 `setQueryData` 也會觸發 latch。
   useEffect(() => {
-    if (selection === null && linkQuery.data !== undefined && sharesQuery.data !== undefined) {
+    if (selection === null && linkQuery.isFetchedAfterMount && sharesQuery.isFetchedAfterMount
+        && linkQuery.data !== undefined && sharesQuery.data !== undefined) {
       setSelection(deriveAccess(linkQuery.data.token, sharesQuery.data));
     }
-  }, [selection, linkQuery.data, sharesQuery.data]);
+  }, [selection, linkQuery.isFetchedAfterMount, sharesQuery.isFetchedAfterMount, linkQuery.data, sharesQuery.data]);
 
   /** 顯式重算點①：mutation 失敗——toast、refetch 兩個 query、radio 依新資料重算。 */
   async function recoverFromError(err: unknown): Promise<void> {
@@ -440,6 +450,9 @@ function AccessSection({ note }: { note: NoteDto }) {
  * #175 §8.4：群組筆記的分享面板——**無 radio、無成員區**。存取由群組角色決定，所以這裡只說明＋帶去群組設定
  * （點了先關分享面板，否則兩個 Dialog 疊著）；能管公開連結的角色才看得到公開連結開關（群組筆記沒有公開別名，W7）。
  * `useShares` 一律不發（群組筆記沒有逐人分享，S5）；`usePublicLink` 只在 `managePublicLink` 為真時發（否則 server 回 403）。
+ * 末尾一律有「複製到我的筆記」（`CopyToPersonalButton`；看得到群組筆記就能讀，不看 `permissions.read`——規格落差 16）。
+ * 角色一律讀 `note.permissions`：移動成功後這份 `NoteDto` 是 server 回應，「能新建、不能編輯」的角色搬完是 viewer
+ * （沒有公開連結開關、只剩說明與複製），不得假設搬完是 editor（規格落差 17）。
  *
  * 沒有 radio 也就沒有 latch：開關的 `checked` 直接看 query 資料（載入中停用），#170／#171 那種 sticky 誤報形在這裡不存在。
  */
@@ -518,6 +531,8 @@ function GroupNoteShareSection({ note, onClose }: { note: NoteDto; onClose: () =
           )}
         </>
       )}
+      {/* 複製成功就關面板：模態開著時 focus trap 讓鍵盤碰不到 toast 的「前往副本」，關掉之後焦點回觸發鈕、F8 摸得到。 */}
+      <CopyToPersonalButton note={note} onDone={onClose} />
     </ShareGroup>
   );
 }
@@ -837,7 +852,7 @@ export function ShareDialog({ note }: ShareDialogProps) {
   const [open, setOpen] = useState(false);
   // `typeof` 而非 `!== null`：與 `canonicalNotePath`／`api/notes.ts` 同慣例（沒有 `groupId` 欄的舊物件不得被當群組筆記）。
   const isGroupNote = typeof note.groupId === "string";
-  // Q14：群組筆記的分享鈕對看得到它的人都在（裡面有「群組設定」連結，PR2 起還有「複製到我的筆記」）；
+  // Q14：群組筆記的分享鈕對看得到它的人都在（裡面有「群組設定」連結與「複製到我的筆記」）；
   // 個人筆記只給能管分享的人（#175 §5.2：看 permissions，不再由 role 推）。
   const canOpen = isGroupNote ? note.permissions.read : note.permissions.manageShares;
 
@@ -920,13 +935,18 @@ export function ShareDialog({ note }: ShareDialogProps) {
         {/* 內部自訂網址（原「連結」區塊：CopyLinkButton／SlugField）已下架
             （Willie 2026-09-17 產品決定）——要連到某篇筆記用 `[[標題]]` wikilink，
             協作者本來就會在自己的工作區看到那篇筆記，不需要傳連結。
-            #175 PR1：「所屬群組」列（搬入／移出群組）拿掉，PR2 以「搬入群組」重建；個人與群組筆記
-            各自一個面板。不帶 `key`：面板開著時個人↔群組不會互換（PR1 沒有移動）。 */}
+            #175：個人與群組筆記各自一個面板；個人筆記 owner（`moveToGroup`）在存取權之後多一列「移動或複製到
+            群組」（v2 沒有移出）。PR2 起面板開著時個人↔群組會互換（移動成功、PR4 轉移）；兩個分支是不同元件
+            型別，互換即重掛。個人分支以 `note.id` 為 key 包住兩個子元件：不同筆記不共用 `AccessSection` 的 latch
+            （#170），也不把 `MoveToGroupSection` 開著的確認框／選的群組帶到另一篇。 */}
         {open &&
           (isGroupNote ? (
             <GroupNoteShareSection note={note} onClose={() => setOpen(false)} />
           ) : (
-            <AccessSection note={note} />
+            <Fragment key={note.id}>
+              <AccessSection note={note} />
+              {note.permissions.moveToGroup && <MoveToGroupSection note={note} onDone={() => setOpen(false)} />}
+            </Fragment>
           ))}
       </DialogContent>
     </Dialog>

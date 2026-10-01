@@ -121,7 +121,7 @@
       "copiedToPersonal": "Copied to your notes",
       "openCopy": "Open copy",
       "openCopyAlt": "You can also open the copy from the sidebar.",
-      "changedElsewhere": "This note was changed elsewhere, so nothing was moved. The dialog now shows its current state."
+      "changedElsewhere": "This note was changed elsewhere, so nothing was moved."
     },
     "groupNote": {
       "description": "Group members access this note according to their role's permissions. Public links are anonymous only.",
