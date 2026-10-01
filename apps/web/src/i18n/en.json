@@ -355,7 +355,7 @@
         },
         "manageMembers": {
           "label": "Manage members",
-          "description": "Add and remove people and change anyone's role — including making anyone, themselves included, an Admin."
+          "description": "Add and remove people and change their roles — including making anyone, themselves included, an Admin. A group always keeps at least one Admin."
         },
         "manageGroup": {
           "label": "Manage roles & group",

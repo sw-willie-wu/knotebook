@@ -220,6 +220,27 @@ describe("#175 PR3 PATCH …/roles/:roleId（T12）", () => {
     expect((elsewhere.json() as GroupRoleDto[]).find(r => r.id === otherRole)?.name).toBe("Elsewhere");
   });
 
+  it("錯誤順序：保留名檢查先於查角色——內建一般成員改名 Admin、內建管理員改名 Member、別群組的角色／不存在的 UUID 帶保留名 → 皆 409 role_name_taken；都沒寫入", async () => {
+    const { app, db, a, g, patch, roles } = await setup();
+    const before = await roles();
+    const other = await seedGroup(db, "Other", [{ userId: a.id, role: "admin" }]);
+    const otherRole = await seedRole(db, other.id, "Elsewhere", { canRead: true });
+    const TAKEN = { error: { code: "role_name_taken", message: "這個群組已有同名的角色，或該名稱保留給內建角色" } };
+    for (const [roleId, name] of [
+      [g.memberRoleId, "Admin"],
+      [g.adminRoleId, "Member"],
+      [otherRole, "admin"],
+      ["00000000-0000-4000-8000-000000000000", "一般成員"],
+    ] as const) {
+      const res = await patch(roleId, { name });
+      expect(res.statusCode, `${roleId} ${name}`).toBe(409);
+      expect(res.json()).toEqual(TAKEN);
+    }
+    expect(await roles()).toEqual(before);
+    const elsewhere = await app.inject({ method: "GET", url: `/api/groups/${other.id}/roles`, cookies: await cookieOf(a.id) });
+    expect((elsewhere.json() as GroupRoleDto[]).find(r => r.id === otherRole)?.name).toBe("Elsewhere");
+  });
+
   it("踢線（§7、§12.1）：只改 delete／managePublicLink／manageMembers／manageGroup、只改名、送同值 → 0 次；edit 關／開 → 各恰 1 次（群組兩篇, [B, C]）；沒有人掛的角色改 edit → 0 次", async () => {
     const { db, g, b, c, spy, groupNotes, patch, createRole, kickCall } = await setup();
     const writers = await createRole("Writers", { ...NONE, edit: true });

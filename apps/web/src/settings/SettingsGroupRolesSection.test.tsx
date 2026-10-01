@@ -67,7 +67,7 @@ const FLAG_DESCRIPTIONS = [
   "Change the content and title of the group's notes.",
   "Delete any note in the group, including ones other people created.",
   "Turn the anonymous public link of the group's notes on and off, and change a note's URL name through the API.",
-  "Add and remove people and change anyone's role — including making anyone, themselves included, an Admin.",
+  "Add and remove people and change their roles — including making anyone, themselves included, an Admin. A group always keeps at least one Admin.",
   "Rename or delete the group, and create, change and delete its roles.",
 ];
 const READ_ALWAYS = "Every role can read the group's notes, their backlinks and their AI edit history.";
