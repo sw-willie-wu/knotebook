@@ -7,6 +7,8 @@
  * body 的 `roleId`（`PUT`／`PATCH …/members`）非 UUID 或不屬於此群組 → 404 `role_not_found`（「找不到此角色」，不是上面
  * 那條 `not_found`）；它的 UUID 檢查在 403 與 body 形狀驗證**之後**，「不屬於此群組」在交易內判定。
  * 每個交易的本體都在 `groups/tx/*`（S14）：路由只做 `db.transaction(tx => xxxInTx(tx, …))` 與 commit 後的踢線。
+ * 角色端點（PR3）：`POST …/roles` 是單句 INSERT；`PATCH`／`DELETE …/roles/:roleId` 的本體是 `groups/tx/roles.ts`（T12、T13）；
+ * 三支都要 `manageGroup`，`:roleId` 非 UUID 或不屬於此群組 → 404 `role_not_found`，內建角色受限 → 409 `builtin_role`。
  */
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
@@ -29,6 +31,7 @@ import {
 import { createGroupInTx } from "../groups/tx/create-group.js";
 import { deleteEmptyGroupInTx } from "../groups/tx/delete-group.js";
 import { addMemberInTx, removeMemberInTx, setMemberRoleInTx } from "../groups/tx/members.js";
+import { deleteRoleInTx, updateRoleInTx } from "../groups/tx/roles.js";
 
 const nameBodySchema = z.object({ name: z.string() }).strict();
 const addMemberBodySchema = z.object({ email: z.string().email(), roleId: z.string().optional() }).strict();
@@ -39,6 +42,11 @@ const roleFlagsSchema = z
   .object(Object.fromEntries(GROUP_ROLE_FLAGS.map(flag => [flag, z.boolean()])) as Record<GroupRoleFlag, z.ZodBoolean>)
   .strict();
 const createRoleBodySchema = z.object({ name: z.string(), permissions: roleFlagsSchema }).strict();
+// `permissions` 給就是六鍵全給（不收部分更新、不收 `read`）；兩鍵都不給 → 400。
+const patchRoleBodySchema = z
+  .object({ name: z.string().optional(), permissions: roleFlagsSchema.optional() })
+  .strict()
+  .refine(b => b.name !== undefined || b.permissions !== undefined, { message: "至少要改名稱或權限其中一項" });
 
 export interface GroupsRouteDeps {
   db: Db;
@@ -156,6 +164,56 @@ export function groupsRoutes(deps: GroupsRouteDeps) {
         permissions: { read: true, ...parsed.data.permissions },
         memberCount: 0,
       } satisfies GroupRoleDto);
+    });
+
+    // #175 PR3 T12（§6.7、§7）：改角色。`:roleId` 的 UUID 檢查在 403 之後（與成員路由 body 的 roleId 一樣排在 403 之後；但這裡是路徑參數，所以排在 body 驗證之前）。
+    // 名稱在交易**之前**正規化好（S14：交易 callback 的引數不得有呼叫）。踢線只在 read／edit 有變、且有人掛時。
+    app.patch("/api/groups/:id/roles/:roleId", { preHandler: app.authenticate }, async (request, reply) => {
+      const { id, roleId } = request.params as { id: string; roleId: string };
+      const access = await groupAccess(deps.db, id, request.user!);
+      if (!access) return notFound(reply);
+      if (!access.manageGroup) return forbidden(reply);
+      if (!UUID_RE.test(roleId)) return roleNotFound(reply);
+      const parsed = patchRoleBodySchema.safeParse(request.body);
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+      const permissions = parsed.data.permissions;
+      let name: string | undefined;
+      if (parsed.data.name !== undefined) {
+        const validated = validateRoleName(parsed.data.name);
+        if (validated === null) return invalidRoleName(reply);
+        if (isReservedRoleName(validated)) return roleNameTaken(reply);
+        name = validated;
+      }
+      let out;
+      try {
+        out = await deps.db.transaction(tx => updateRoleInTx(tx, { groupId: id, roleId, name, permissions }, deps.groupTestHook));
+      } catch (err) {
+        const sent = replyTxAbort(reply, err);
+        if (sent) return sent;
+        if (uniqueViolationConstraint(err) === "group_roles_name_idx") return roleNameTaken(reply);
+        throw err;
+      }
+      if (out.kick !== null && out.kick.userIds.length > 0) deps.collabHooks.onGroupAccessChanged(out.kick.noteIds, out.kick.userIds);
+      return out.role;
+    });
+
+    // #175 PR3 T13（§6.7、Q8、§7）：刪自訂角色；持有者改掛內建一般成員，commit 後以（群組所有筆記, 原持有者）重驗。
+    app.delete("/api/groups/:id/roles/:roleId", { preHandler: app.authenticate }, async (request, reply) => {
+      const { id, roleId } = request.params as { id: string; roleId: string };
+      const access = await groupAccess(deps.db, id, request.user!);
+      if (!access) return notFound(reply);
+      if (!access.manageGroup) return forbidden(reply);
+      if (!UUID_RE.test(roleId)) return roleNotFound(reply);
+      let kick;
+      try {
+        kick = await deps.db.transaction(tx => deleteRoleInTx(tx, { groupId: id, roleId }, deps.groupTestHook));
+      } catch (err) {
+        const sent = replyTxAbort(reply, err);
+        if (sent) return sent;
+        throw err;
+      }
+      if (kick.userIds.length > 0) deps.collabHooks.onGroupAccessChanged(kick.noteIds, kick.userIds);
+      return reply.code(204).send();
     });
 
     app.get("/api/groups/:id/members", { preHandler: app.authenticate }, async (request, reply) => {
