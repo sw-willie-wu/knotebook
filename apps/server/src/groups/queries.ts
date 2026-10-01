@@ -196,9 +196,3 @@ export function listRolesQuery(db: DbOrTx, groupId: string) {
 export function groupNoteIdsQuery(db: DbOrTx, groupId: string) {
   return db.select({ id: notes.id }).from(notes).where(eq(notes.groupId, groupId));
 }
-
-/** #103 遺留：群組全體成員的 userId。#175 起零呼叫端（Task 4 刪了 `routes/notes.ts` 的 import）——Task 10 以 Grep 確認後刪。 */
-export async function groupMemberIds(db: DbOrTx, groupId: string): Promise<string[]> {
-  const rows = await db.select({ userId: groupMembers.userId }).from(groupMembers).where(eq(groupMembers.groupId, groupId));
-  return rows.map(r => r.userId);
-}

@@ -124,8 +124,7 @@ export const groupRoles = pgTable("group_roles", {
 /**
  * #103／#175：群組成員。`role_id` 以複合 FK `(group_id, role_id) → group_roles(group_id, id)`（NO ACTION，S7）
  * 掛在同一群組的角色上。S1（每個群組至少一位成員持內建管理員角色）**沒有 DB 守衛**：應用層在交易內先
- * `lockGroup` 再以另一條敘述數 `builtin='admin'`（`groups/queries.ts`；⚠ #175 PR1 Task 7 之前 `countAdmins`
- * 仍數已刪的舊 `role` 欄、編譯不過，Task 7 改寫後此句才成真）。`group_members_user_idx`：
+ * `lockGroup` 再以另一條敘述數 `builtin='admin'`（`groups/queries.ts` 的 `countAdmins`）。`group_members_user_idx`：
  * 「某人所屬的群組」與可見性查詢的 grouped 分支用——PK 是 (group_id, user_id)，反向查不到。
  */
 export const groupMembers = pgTable("group_members", {
