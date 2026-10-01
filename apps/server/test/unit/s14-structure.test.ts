@@ -9,8 +9,7 @@
  *    不 export 的 `*InTx` 閉包是 X10 形）；
  * ③ `tx/` 裡的 `*InTx` 一律以 `function` 宣告，第一個參數字面上是 `tx: Tx`；
  * ④ 本 spec 動到的三個交易所在檔，`.transaction(` 的 callback **整段**就是一個 `xInTx(tx, …)` 呼叫，而且 `xInTx`
- *    必須是以 `import { … } from "…/tx/…"` 引進的名字——唯一例外是 PR1 還沒抽出的 T14（單篇 `DELETE /api/notes/:id`，
- *    PR2 抽成 `deleteNotesInTx`）；
+ *    必須是以 `import { … } from "…/tx/…"` 引進的名字——無例外（PR2 起 T14 也抽成 `deleteNotesInTx`）；
  * ⑤ 那個呼叫的**引數**（callback 內求值、此時已持有交易連線）只准是識別字、屬性存取與物件字面：**不得有任何 `(`**
  *    （擋住所有以括號形式的呼叫，含 `Number(x)`、`String(x)` 這種轉型）、不得有裸 `db` 識別字（drizzle 的 lazy query）、
  *    `deps.db`、`await`、閉包（`=>`、`function`）與閉包 helper 名。測試縫一律以屬性存取傳入（`deps.groupTestHook`、
@@ -156,13 +155,13 @@ describe("S14 結構性守衛（#175 §4.4）", () => {
     expect(bad).toEqual([]);
   });
 
-  it("④ routes/notes.ts、routes/groups.ts、notes/links.ts 的交易 callback 整段是 `tx => xInTx(tx, …)`、xInTx 由 tx/ import（T14 例外一處）", () => {
+  it("④ routes/notes.ts、routes/groups.ts、notes/links.ts 的交易 callback 整段是 `tx => xInTx(tx, …)`、xInTx 由 tx/ import（無例外）", () => {
     const perFile = ROUTE_FILES.map(f => {
       const cbs = txCallbacks(code(path.join(SRC, f)));
       return { f, all: cbs.length, inTx: cbs.filter(c => c.inTx).length };
     });
     expect(perFile).toEqual([
-      { f: "routes/notes.ts", all: 3, inTx: 2 }, // T1 PATCH、T2 PUT shares；T14 DELETE 留到 PR2
+      { f: "routes/notes.ts", all: 3, inTx: 3 }, // T1 PATCH、T2 PUT shares、T14 DELETE（PR2 抽出）
       { f: "routes/groups.ts", all: 5, inTx: 5 }, // T8 建群組、T9 加人、T10 換角色、T11 移人、T5 刪空群組
       { f: "notes/links.ts", all: 1, inTx: 1 }, // T15
     ]);

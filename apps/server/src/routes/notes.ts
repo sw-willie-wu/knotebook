@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
-import { and, desc, eq, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, isNull, sql, type SQL } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/pg-core";
 import {
   MAX_LINK_TARGETS,
@@ -21,7 +21,7 @@ import { WRITE_BODY_LIMIT } from "../http/body-limits.js";
 import { sendError } from "../http/errors.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
-import { groupMembers, groupRoles, groups, noteLinks, noteShares, noteStateBackups, noteStates, notes, uploads, users } from "../db/schema.js";
+import { groupMembers, groupRoles, groups, noteShares, notes, users } from "../db/schema.js";
 import type { GroupTestHook } from "../groups/test-hook.js";
 import { TxAbort } from "../http/tx-abort.js";
 import type { CollabHooks } from "../collab/hooks.js";
@@ -47,6 +47,7 @@ import {
   type NoteAccess,
 } from "../notes/service.js";
 import { upsertShareInTx } from "../notes/tx/shares.js";
+import { deleteNotesInTx } from "../notes/tx/delete-notes.js";
 import { patchSlugInTx, type SlugPatchTestHook, type SlugWriteScope } from "../notes/tx/patch-slug.js";
 import { UPDATED_AT_NOW } from "../notes/clock.js";
 import { groupNotePath, lookupRedirect, userNotePath } from "../notes/redirects.js";
@@ -1004,7 +1005,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
       const { id } = request.params as { id: string };
       const userId = request.user!.id;
 
-      // #175 §6.2 row 15：個人＝owner；群組＝角色的刪除旗標。T14 的交易本體 PR1 不抽（plan 規格落差 8）。
+      // #175 §6.2 row 15：個人＝owner；群組＝角色的刪除旗標。
       const access = await resolveNoteAccess(deps.db, userId, id);
       if (access.role === "none") {
         return sendError(reply, 404, "not_found", "找不到此筆記");
@@ -1019,21 +1020,15 @@ export function notesRoutes(deps: NotesRouteDeps) {
       // Plan 1 這裡注入的是 noopCollabHooks，本身不做任何事；此呼叫只是先把接縫留好。
       const deleteGate = await deps.collabHooks.beforeNoteDeleted(id);
 
-      // `.returning({ id })`（Task 11）：交易內只確定「哪些 upload 列被刪了」，實際的
+      // #175 T14：交易本體在 `notes/tx/delete-notes.ts`（S14；PR4 全刪共用）。引數是交易前備好的純資料。
+      // 交易內只確定「哪些 upload 列被刪了」（`deleteNotesInTx` 的 `returning`），實際的
       // 磁碟檔案刪除留到 commit 之後才動手——DB rollback 救不回已經被刪掉的檔案，兩件
       // 事不可合併在同一個交易語意下（見 `deleteUploadFiles` 的完整說明）。
       // 交易失敗一定要把閘門收回去（見 `NoteDeleteGate`）：閘門開著的兩分鐘內，這篇筆記的
       // 新連線會被告知「已刪除」並被導離，而它其實還在。
-      const deletedUploads = await deps.db
-        .transaction(async tx => {
-          await tx.delete(noteStates).where(eq(noteStates.noteId, id));
-          await tx.delete(noteStateBackups).where(eq(noteStateBackups.noteId, id));
-          await tx.delete(noteShares).where(eq(noteShares.noteId, id));
-          await tx.delete(noteLinks).where(or(eq(noteLinks.sourceNoteId, id), eq(noteLinks.targetNoteId, id)));
-          const deleted = await tx.delete(uploads).where(eq(uploads.noteId, id)).returning({ id: uploads.id });
-          await tx.delete(notes).where(eq(notes.id, id));
-          return deleted;
-        })
+      const ids = [id];
+      const deletedUploadIds = await deps.db
+        .transaction(tx => deleteNotesInTx(tx, ids))
         .catch((err: unknown) => {
           deleteGate.release();
           throw err;
@@ -1042,11 +1037,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
       // best-effort，commit 之後才動磁碟：單一檔案刪除失敗（含檔案本來就已經不存在）
       // 只記 log，不影響這支 request 的成功回應——DB 端已經確定 commit 成功，這才是
       // 呼叫端真正在意的結果（見 `deleteUploadFiles` 的完整說明）。
-      await deleteUploadFiles(
-        deps.uploadsDir,
-        deletedUploads.map(u => u.id),
-        request.log
-      );
+      await deleteUploadFiles(deps.uploadsDir, deletedUploadIds, request.log);
 
       return reply.code(204).send();
     });
