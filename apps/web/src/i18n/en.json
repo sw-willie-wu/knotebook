@@ -640,6 +640,7 @@
     "role_not_found": "We couldn't find that role.",
     "builtin_role": "Built-in roles can't be deleted or renamed, and the built-in Admin role can't be changed.",
     "role_name_taken": "That name is already used by another role in this group, or is reserved for a built-in role.",
+    "not_admin": "The notes can only be handed to one of the group's admins. Pick someone who is still an admin.",
     "fallback": "An unexpected error occurred."
   }
 }

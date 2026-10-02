@@ -192,6 +192,9 @@ export interface GroupDto {
   createdAt: string;
 }
 
+/** #175 §6.8：`DELETE /api/groups/:id` 必填 body；`transfer`＝群組筆記全數改成 `transferTo`（必須是內建管理員）的個人筆記，`delete`＝連筆記一起刪。 */
+export type DeleteGroupBody = { mode: "transfer"; transferTo: string } | { mode: "delete" };
+
 export interface GroupMemberDto {
   userId: string;
   email: string;
@@ -335,14 +338,17 @@ export const ERROR_CODES = [
   "note_in_group",
   "invalid_name",
   "conflict",
-  // #175 PR1：`group_not_empty`＝409，刪群組時群組內還有筆記（PR1–PR3 只允許刪空群組，B9）；
-  // `role_not_found`＝404，成員路由帶的 `roleId` 不合法或不屬於該群組（§6.7）。
+  // #175：`group_not_empty`＝409，刪群組時群組內還有筆記。PR1–PR3 是只允許刪空群組時的拒絕（B9）；PR4 起刪群組一律帶模式、
+  // 正常路徑不再發出，只剩交易外 FK 23503 的防禦縱深分支（`routes/groups.ts`；理論上到不了——鎖序見 PR4 plan 交易表）。保留在詞彙表（spec 疑點 Q1）。
+  // #175 PR1：`role_not_found`＝404，成員路由帶的 `roleId` 不合法或不屬於該群組（§6.7）。
   "group_not_empty",
   "role_not_found",
   // #175 PR3：`builtin_role`＝409，對內建角色做不允許的事（改內建管理員、改內建一般成員的名稱、刪任一內建角色；Q10）；
   // `role_name_taken`＝409，自訂角色名稱（trim＋NFC 後、不分大小寫）與同群組另一個自訂角色相同，或等於任一語系的內建顯示名（§4.1）。
   "builtin_role",
   "role_name_taken",
+  // #175 PR4：`not_admin`＝409，刪群組的轉移對象（`transferTo`）不是這個群組持內建管理員角色的成員（含非 UUID、非成員、自訂角色——只認 `builtin = 'admin'`，S1 同一個定義）。
+  "not_admin",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
