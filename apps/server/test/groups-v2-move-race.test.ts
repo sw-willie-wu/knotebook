@@ -1,5 +1,5 @@
 /**
- * #175 PR2 T3（spec §6.3）的交錯案：C1（同篇同時移兩處）、C5（移動 × 刪空群組）、C6（移動 × PUT shares，S5）、
+ * #175 PR2 T3（spec §6.3）的交錯案：C1（同篇同時移兩處）、C5（移動 × 刪群組：C5a 全刪空群組、C5b 轉移）、C6（移動 × PUT shares，S5）、
  * C13／C14（移動 × public-link token／別名 PUT）、C15（移動 × 自訂 slug PATCH）、C18a／C18b／C18c（移動 × 移除成員／降級，
  * review r1 m-1：(1) 對目標群組列取 KEY SHARE，與 `lockGroup` 互斥；r2 m-3 補反向順序）、C18d（移動 × 改群組名，r2 m-2）。
  * C18 原叫 C17a／b，與 spec §11 既有的 C17（刪群組・全刪 vs 轉移）撞號，r2 m-1 改名。
@@ -67,7 +67,7 @@ describe("#175 PR2 移動的交錯（C1／C5／C6）", () => {
     const before = await noteState(db.$client, n.id);
     state.fire = () => move(app, n.id, owner.id, g.id);
 
-    const del = await app.inject({ method: "DELETE", url: `/api/groups/${g.id}`, cookies: await cookieOf(admin.id) });
+    const del = await app.inject({ method: "DELETE", url: `/api/groups/${g.id}`, cookies: await cookieOf(admin.id), payload: { mode: "delete" } });
     const moved = await state.second!;
 
     expect(state.interleave).toBe("blocked");
@@ -80,18 +80,24 @@ describe("#175 PR2 移動的交錯（C1／C5／C6）", () => {
     expect(await db.select().from(groups).where(eq(groups.id, g.id))).toEqual([]);
   });
 
-  it("C5b 移動先 commit → 刪群組 409 group_not_empty", async () => {
+  it("C5b 移動先 commit → 刪群組・轉移把它轉給管理員：筆記成為 transferTo 的個人筆記、移動寫的 /n/ 轉址與轉移寫的 /g/ 轉址都指向它", async () => {
     const { app, db } = await buildTestApp();
     const [owner, admin] = await Promise.all([seedUser(db), seedUser(db)]);
     const g = await seedGroup(db, "G", [{ userId: admin.id, role: "admin" }, { userId: owner.id, role: "member" }]);
-    const n = await seedNote(db, { ownerId: owner.id });
+    const n = await seedNote(db, { ownerId: owner.id }, { slug: "plan" });
     expect((await move(app, n.id, owner.id, g.id)).statusCode).toBe(200);
 
-    const del = await app.inject({ method: "DELETE", url: `/api/groups/${g.id}`, cookies: await cookieOf(admin.id) });
-    expect(del.statusCode).toBe(409);
-    expect(del.json().error.code).toBe("group_not_empty");
-    expect(await db.select().from(groups).where(eq(groups.id, g.id))).toHaveLength(1);
-    expect(await noteState(db.$client, n.id)).toMatchObject({ group_id: g.id, owner_id: null });
+    const del = await app.inject({
+      method: "DELETE", url: `/api/groups/${g.id}`, cookies: await cookieOf(admin.id), payload: { mode: "transfer", transferTo: admin.id },
+    });
+    expect(del.statusCode).toBe(204);
+    expect(await db.select().from(groups).where(eq(groups.id, g.id))).toEqual([]);
+    expect(await noteState(db.$client, n.id)).toMatchObject({ group_id: null, owner_id: admin.id, slug: "plan" });
+    const redirects = await db.select({ oldPath: noteRedirects.oldPath, noteId: noteRedirects.noteId }).from(noteRedirects);
+    expect(redirects.sort((a, b) => a.oldPath.localeCompare(b.oldPath))).toEqual([
+      { oldPath: `/g/${g.id}/plan`, noteId: n.id },
+      { oldPath: `/n/${owner.handle}/plan`, noteId: n.id },
+    ]);
   });
 
   it("C6a PUT shares 先拿到 FOR SHARE（share-group-checked）→ 移動的 FOR UPDATE 等它 commit → 移動清掉剛加的那一列；踢線名單含那個人", async () => {

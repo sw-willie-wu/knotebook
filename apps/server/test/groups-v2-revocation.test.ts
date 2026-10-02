@@ -159,7 +159,7 @@ describe("#175 踢線（spec §7，群組筆記）", () => {
     const memberClient = await member.session.connect(noteId);
     expect((await api(admin.session, "PUT", `/api/groups/${groupId}/members`, { email: "n-v4@example.com" })).status).toBe(200);
     expect((await api(admin.session, "PATCH", `/api/groups/${groupId}`, { name: "Renamed" })).status).toBe(200);
-    expect((await api(admin.session, "DELETE", `/api/groups/${emptyGroupId}`)).status).toBe(204);
+    expect((await api(admin.session, "DELETE", `/api/groups/${emptyGroupId}`, { mode: "delete" })).status).toBe(204);
     await sleep(REVERIFY_DEADLINE_MS + 1_000);
     expect(adminClient.closes).toEqual([]);
     expect(memberClient.closes).toEqual([]);

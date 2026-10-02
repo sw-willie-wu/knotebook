@@ -1,9 +1,11 @@
 /**
- * #175 T5（§6.7、B9）：PR1–PR3 只允許刪**空**群組。`lockGroup` 之後數筆記：之後才到的建立（PR2 起還有移入）都卡在 FK 的
- * KEY SHARE（與 FOR UPDATE 衝突），刪除 commit 後得 23503（→ 404 `group_not_found`，RF4）；鎖之前已 commit 的會被數到 → 409。
- * 角色與成員由 FK CASCADE 帶走。本檔不 import `Db`、不接 `deps`（S14）。PR4 換成轉移／全刪（§6.8）。
+ * #175 刪群組的兩支交易本體（§6.8，PR4；PR1–PR3 的 T5「只刪空群組」已退場）：T6 `transferGroupInTx`（轉移給內建管理員）、
+ * T7 `deleteGroupWithNotesInTx`（連筆記一起刪）。兩支都先 `lockGroup`（groups FOR UPDATE），再以群組述詞 FOR UPDATE 該群組的筆記；
+ * 鎖之後才到的建立／移入／複製進群組都卡在 groups 的 KEY SHARE，commit 後得 23503 或讀到群組不在 → 404。角色與成員由 FK CASCADE 帶走。
+ * S14：本檔只收 `tx`／純資料／測試縫，不 import `Db`、不接 `deps`；全刪的 gate（`beforeNoteDeleted`）、commit 後的刪檔與踢線都在路由。
+ * 與其他交易的鎖序（含會成環而回 409 server_busy 的兩形）見 PR4 plan 的鎖序表。
  */
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import type { Tx } from "../../db/tx.js";
 import { groupMembers, groupRoles, groups, notes } from "../../db/schema.js";
 import { TxAbort } from "../../http/tx-abort.js";
@@ -13,14 +15,6 @@ import { recordRedirectsInTx } from "../../notes/tx/redirects.js";
 import { writeSlugInTx } from "../../notes/tx/write-slug.js";
 import { GROUP_NOT_FOUND_MESSAGE, NOT_ADMIN_MESSAGE, lockGroup } from "../queries.js";
 import type { GroupTestHook } from "../test-hook.js";
-
-export async function deleteEmptyGroupInTx(tx: Tx, input: { groupId: string }, hook?: GroupTestHook): Promise<void> {
-  if (!(await lockGroup(tx, input.groupId))) throw new TxAbort(404, "not_found", GROUP_NOT_FOUND_MESSAGE);
-  const [row] = await tx.select({ n: sql<number>`count(*)::int` }).from(notes).where(eq(notes.groupId, input.groupId));
-  if ((row?.n ?? 0) > 0) throw new TxAbort(409, "group_not_empty", "群組內還有筆記，無法刪除");
-  await hook?.("group-delete-locked", { groupId: input.groupId });
-  await tx.delete(groups).where(eq(groups.id, input.groupId));
-}
 
 export interface TransferGroupInput {
   groupId: string;

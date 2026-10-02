@@ -42,7 +42,7 @@ export type GroupRacePoint =
   | "group-transfer-slug-candidate"
   /** #175 PR4 `DELETE /api/groups/:id` 全刪模式（路由，**交易外**）：P0 的 gate 全部開完之後、`BEGIN` 之前——「gate 之後才進群組」（L \ P0，C12）與 C17 的窗。 */
   | "group-delete-gated"
-  /** 刪群組（`groups/tx/delete-group.ts`）：T6 轉移＝`lockGroup`＋transferTo 檢查通過之後、取成員與筆記之前；T7 全刪＝`lockGroup` 之後、取 L 之前（PR1–PR3 的 T5 刪空群組：數過筆記為 0 之後，PR4 Task 3 移除）。 */
+  /** 刪群組（`groups/tx/delete-group.ts`）：T6 轉移＝`lockGroup`＋transferTo 檢查通過之後、取成員與筆記之前；T7 全刪＝`lockGroup` 之後、取 L 之前。 */
   | "group-delete-locked";
 
 export type GroupTestHook = (point: GroupRacePoint, ctx: { noteId?: string; groupId?: string; slug?: string }) => Promise<void>;

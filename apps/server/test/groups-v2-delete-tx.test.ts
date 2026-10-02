@@ -126,7 +126,7 @@ describe("#175 PR4 transferGroupInTx（T6）", () => {
     expect(await redirectsOf(db)).toEqual([{ oldPath: `/g/${g.id}/${base}`, noteId: n.id }]);
   });
 
-  it("transferTo 不是內建管理員 → TxAbort 409 not_admin：非成員、一般成員、勾滿六旗標的自訂角色成員三形；交易 rollback：群組、筆記、成員原封不動", async () => {
+  it("transferTo 不是內建管理員 → TxAbort 409 not_admin：非成員、一般成員、勾滿七旗標的自訂角色成員三形；交易 rollback：群組、筆記、成員原封不動", async () => {
     const { db } = await buildTestApp();
     const pool = db.$client;
     const [a, c, d, outsider] = await Promise.all([seedUser(db), seedUser(db), seedUser(db), seedUser(db)]);
