@@ -65,9 +65,10 @@ describe("#108 M14：raw shape 六個欄位與 notes/schemas.ts 的 base 同源�
     expectSameSchema(editNoteInput.note_id, NOTE_ID);
   });
 
-  it("createNoteInput 的 title／content 各自與 TITLE／MD 同源", () => {
+  it("createNoteInput 的 title／content／groupId 各自與 TITLE／MD／GROUP_ID 同源", () => {
     expectSameSchema(createNoteInput.title, TITLE);
     expectSameSchema(createNoteInput.content, MD);
+    expectSameSchema(createNoteInput.groupId, GROUP_ID);
   });
 
   it("#175 PR5：REST createBodySchema 的 groupId 與 GROUP_ID 同源（D18：寫入側不發明第二套契約）", () => {

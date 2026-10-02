@@ -193,7 +193,7 @@ export interface AppDeps {
   noteCreateHooks?: NoteCreateHooks;
   /**
    * #103：群組相關交錯點的測試注入縫（語意見 `groups/test-hook.ts`）。**選配**：production／未覆寫時
-   * `undefined`＝no-op；整合測試唯一注入面是 `buildTestApp({ groupTestHook })`。
+   * `undefined`＝no-op；整合測試的注入面是 `buildTestApp({ groupTestHook })` 與 `buildCollabTestApp({ groupTestHook })`（後者 #175 PR5 起有；帶 content 的 MCP `create_note` 要 collab app）。
    */
   groupTestHook?: GroupTestHook;
   /**
@@ -713,6 +713,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       presence,
       writes,
       testHooks: deps.mcpTestHooks,
+      groupTestHook: deps.groupTestHook,
     })
   );
 

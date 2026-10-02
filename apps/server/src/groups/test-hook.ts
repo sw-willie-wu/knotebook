@@ -7,7 +7,7 @@
 export type GroupRacePoint =
   /** `GET /api/notes/:ref`：授權之後、取列之前。 */
   | "ref-authorized"
-  /** `POST /api/notes {groupId}`：成員與 `can_create` 檢查之後、建立筆記之前（#103 的 `PUT …/group` 換群組也用過這個點，那支端點 #175 已移除）。 */
+  /** `POST /api/notes {groupId}` 與 MCP `create_note {groupId}`：成員與 `can_create` 檢查之後、建立筆記之前（#103 的 `PUT …/group` 換群組也用過這個點，那支端點 #175 已移除）。 */
   | "membership-checked"
   /** `PUT /api/notes/:id/shares`：授權之後、交易之前（#175：S5 的「授權後被移進群組」窗）。 */
   | "share-authorized"

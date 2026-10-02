@@ -133,6 +133,53 @@ describe("#108 tools/list", () => {
     expect(names).toEqual(SIX_TOOLS_IN_ORDER);
   });
 
+  // #175 PR5：create_note 的模型面字串（G1／D2／D3／G2／T1）逐字在 wire 上，被撤掉的舊說法一句都不在
+  // （[[g:model-facing-string-claims]]：改寫一句，兩個方向各查一次——該在的在、該撤的撤）。
+  // 字面值寫死在這裡，與 `docs/mcp.md` 的定稿句對照（docs 在此檔外，本檔不比對 docs；實作時以腳本逐字比對過 `docs/mcp.md` 與 `create-note.ts`）。
+  // 比的是 JSON.parse 之後的字串（模型看到的），並另外以 `JSON.stringify(s).slice(1, -1)` 比原始 body，
+  // 確認 wire 上的逃脫形與預期一致（`—`、反引號、`'` 在 JSON 裡是否被逃脫）。
+  it("#175 PR5：create_note 的 description／groupId／title 字串逐字在 wire 上，舊說法不在", async () => {
+    const ctx = await buildCollabTestApp();
+    const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
+    const { token } = await seedTokenForUser(ctx.db, owner.id, "notes:read notes:write");
+    const res = await mcpPost(ctx.app, rpc("tools/list"), { token });
+    const tools = res.json().result.tools as { name: string; description: string; inputSchema: { properties: Record<string, { type?: string; format?: string; description?: string }> } }[];
+    const entry = tools.find(t => t.name === "create_note")!;
+
+    const G1 = "Create a new note — yours, or in one of your groups when you pass `groupId`.";
+    const D2 = "or leave it out for an empty note, which edit_note can fill in later if the reply's `role` is `owner` or `editor`.";
+    const D3 = "pass it to read_note_outline, or to edit_note when its `role` allows writing";
+    const G2 =
+      "The id of one of your groups where your role lets you create notes. The note then belongs to the group, not to you. " +
+      "Leave it out for a personal note. If your role there can create notes but not edit them, the note is read-only for you: " +
+      "the reply's `role` is `viewer`.";
+    const T1 = "de-duplicated against the other notes in the same place — your personal notes, or that group's notes — with a numeric suffix";
+
+    expect(entry.description).toContain(G1);
+    expect(entry.description).toContain(D2);
+    expect(entry.description).toContain(D3);
+    const groupId = entry.inputSchema.properties.groupId!;
+    expect(groupId.type).toBe("string");
+    expect(groupId.format).toBe("uuid");
+    expect(groupId.description).toBe(G2);
+    expect(entry.inputSchema.properties.title!.description).toContain(T1);
+
+    // 撤掉的舊說法：一句都不能留在任何一處（description、兩個欄位的 describe）。
+    const everywhere = [entry.description, ...Object.values(entry.inputSchema.properties).map(p => p.description ?? "")].join("\n");
+    for (const gone of [
+      "Create a new note owned by you.",
+      "an empty note you can write to later with edit_note",
+      "pass it to edit_note or read_note_outline",
+      "de-duplicated against your other notes",
+    ]) {
+      expect(everywhere, gone).not.toContain(gone);
+    }
+
+    // wire 形：原始 body 含 `JSON.stringify(s).slice(1, -1)`。JSON.stringify 不逃脫非 ASCII，所以本條通過＝
+    // wire 上的 `—`（U+2014）、反引號、`'` 都是未逃脫的原字元（2026-10-02 實跑通過，不需要改比跳脫形）。
+    for (const s of [G1, D2, D3, G2, T1]) expect(res.body).toContain(JSON.stringify(s).slice(1, -1));
+  });
+
   // 案 10：唯讀憑證**跳過** `tools/list`，直接 `tools/call` `edit_note`——scope 過濾只在
   // 註冊時擋，沒有第二道守衛防「client 記得舊清單／瞎猜工具名」。⚠ **不是 `insufficient_scope`**
   // （P16 的裁決）：`register.ts` 沒註冊這個名字，SDK 直接判「未知工具名」，(4a) 形——`isError`、

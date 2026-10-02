@@ -17,6 +17,7 @@ import type { PresenceRegistry } from "../notes/editing/presence.js";
 import type { NoteWriteService } from "../notes/editing/write-service.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
 import type { McpTestHooks } from "./hooks.js";
+import type { GroupTestHook } from "../groups/test-hook.js";
 
 export interface McpToolCtx {
   db: Db;
@@ -57,4 +58,9 @@ export interface McpToolCtx {
   /** token 路徑才有的落庫 scope；`null` ＝ session（視同讀寫全權，§7.3）。消費端同上。 */
   tokenScope: TokenScope | null;
   hooks?: McpTestHooks;
+  /**
+   * #175 PR5：群組測試注入縫（生產不注入＝零成本）。唯一消費端＝`tools/create-note.ts` 的 `"membership-checked"`
+   * （群組成員與新建旗標檢查之後、建立筆記之前——與 `POST /api/notes {groupId}` 同一個點名）。
+   */
+  groupTestHook?: GroupTestHook;
 }

@@ -23,6 +23,7 @@ import { UserGate } from "../src/auth/session.js";
 import { buildCollabTestApp, buildTestApp, freshDb, freshLimiters, type CollabTestCtx } from "./helpers.js";
 import { bearer, getContent, seedTokenForUser } from "./editing-helpers.js";
 import { mcpPost, rpc } from "./mcp-helpers.js";
+import { seedGroup, seedUser } from "./group-helpers.js";
 import type { Db } from "../src/db/index.js";
 import type { FastifyInstance } from "fastify";
 
@@ -221,7 +222,7 @@ describe("#108 create_note", () => {
   // ⚠ **`edit` 桶由測試自己持有**（`freshLimiters({ edit })`）：唯一到得了「`available` 為假」
   //   那個分支的部署形態就是這個 app，而它上面 `edit` 桶**沒有第二個消費端**——但那不代表
   //   觀察不到。桶握在測試手上，直接數它剩幾格就是判準（見本案最後兩行）。
-  it("無 collab 的 app：tools/list 含 create_note，不帶 content 可用、帶 content → invalid_body 零新增列且不啃 edit 桶（D-M）", async () => {
+  it("無 collab 的 app：tools/list 含 create_note（#175 PR5：三欄），不帶 content 可用、帶 content → invalid_body 零新增列且不啃 edit 桶（D-M）", async () => {
     const edit = new FixedWindowLimiter(EDIT_LIMIT);
     const { app, db } = await buildTestApp({ limiters: freshLimiters({ edit }) });
     const [user] = await db.insert(users).values({ email: `p-${randomUUID()}@example.com`, displayName: "P" }).returning();
@@ -247,7 +248,8 @@ describe("#108 create_note", () => {
     //     [ 'content', 'title' ]`），`mcp-create-note` 另外五案 ＋ `mcp-edit-note` 12 案全綠。
     //   也就是本行守的是 `ZodEffects`／union 那一族，不是「所有非 raw shape 的寫法」。
     const entry = tools.find(t => t.name === "create_note")!;
-    expect(Object.keys(entry.inputSchema.properties ?? {}).sort()).toEqual(["content", "title"]);
+    // #175 PR5：三欄。鍵集合變大是這一棒交付的形（`groupId`），不是弱化這條守衛。
+    expect(Object.keys(entry.inputSchema.properties ?? {}).sort()).toEqual(["content", "groupId", "title"]);
 
     const { note } = payloadOf(await createNote(app, token));
     expect(note.title).toBe("Untitled");
@@ -264,6 +266,25 @@ describe("#108 create_note", () => {
     let left = 0;
     while (edit.consume(userId)) left += 1;
     expect(left, "帶 content 的 invalid_body 與不帶 content 的成功建立都不得消耗 edit 桶").toBe(EDIT_LIMIT.limit);
+  });
+
+  // #175 PR5：群組檢查排在 `available` **之前**（與 REST `POST /api/notes` 同序）。無 collab 的 app 上，
+  // 帶 content 的 `create_note` 本來回 `invalid_body`；若再帶一個非成員的 `groupId`，答案必須是
+  // `group_not_found`（群組存在與否的判斷不得被「這個部署不支援 content」蓋掉），且零新增列、不啃 edit 桶。
+  it("無 collab 的 app：帶 content ＋ 非成員 groupId → group_not_found（群組檢查在 available 之前），零新增列、不啃 edit 桶（#175 PR5）", async () => {
+    const edit = new FixedWindowLimiter(EDIT_LIMIT);
+    const { app, db } = await buildTestApp({ limiters: freshLimiters({ edit }) });
+    const [me, other] = await Promise.all([seedUser(db), seedUser(db)]);
+    const foreign = await seedGroup(db, "Foreign", [{ userId: other.id, role: "admin" }]);
+    const { token } = await seedTokenForUser(db, me.id, "notes:read notes:write");
+
+    const err = errorOf(await createNote(app, token, { title: "T", content: "# x", groupId: foreign.id }));
+    expect(err.code).toBe("group_not_found");
+    expect(err.message).toBe("No group with that id among the groups you belong to.");
+    expect((await db.select().from(notes)).length).toBe(0);
+    let left = 0;
+    while (edit.consume(me.id)) left += 1;
+    expect(left).toBe(EDIT_LIMIT.limit);
   });
 
   // #145 ＋ M6（拒絕零副作用）：`insertNoteWithAutoSlug` 會發探測查詢，所以它**不能**擺在
