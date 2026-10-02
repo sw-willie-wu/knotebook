@@ -16,7 +16,7 @@ Every write goes through the same real-time document the browser edits, so a cha
 | `/api/notes/:id/edits/:editId/revert` | POST | `notes:write` | Undo one recorded edit. `201 {editId, fingerprint, outline}`. |
 | `/api/notes` | POST | `notes:write` | Create a note; an optional `content` field writes its initial Markdown in the same request. `201` is an ordinary note object — unlike `POST …/edits`, it does not carry `unboundWikilinks`, even though wikilinks in `content` are bound the same way. |
 
-`:id` is always a note **uuid** here — the slug forms (`/n/<username>/<slug>`) are not accepted by these endpoints. A note you cannot read at all answers `404 not_found` (the same body whether it does not exist or is not shared with you); on the two writing endpoints, a note you can read but only as a viewer answers `403 forbidden`.
+`:id` is always a note **uuid** here — the slug forms (`/n/<username>/<slug>`, and `/g/<group id>/<slug>` for a group note) are not accepted by these endpoints. A note you cannot read at all answers `404 not_found` (the same body whether it does not exist, is not shared with you, or belongs to a group you aren't in); on the two writing endpoints, a note you can read but only as a viewer answers `403 forbidden`.
 
 The normal loop is: `GET …/content` → pick a section from `outline` → `POST …/edits` with that section's `fingerprint` as `if_match`. The `201` already carries the new whole-note `fingerprint` and `outline`, so a program making several edits in a row does not have to re-read between them. Over MCP the loop is different — there is no whole-note read there, and an outline carries no fingerprints — see [MCP](./mcp.md#the-read-write-loop).
 
