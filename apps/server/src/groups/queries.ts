@@ -19,6 +19,8 @@ export type { DbOrTx, Tx } from "../db/tx.js";
 
 /** 群組路由的 404 `not_found` 訊息——非成員／不存在／id 不合法三者必須逐位元組相同（S4）。 */
 export const GROUP_NOT_FOUND_MESSAGE = "找不到此群組";
+/** #175 PR4 刪群組・轉移的 409 `not_admin` 訊息——非 UUID／非成員／非內建管理員三者必須逐位元組相同（spec 疑點 Q2）。 */
+export const NOT_ADMIN_MESSAGE = "轉移對象必須是這個群組的管理員";
 export const GROUP_NAME_MAX = 80;
 
 /**
