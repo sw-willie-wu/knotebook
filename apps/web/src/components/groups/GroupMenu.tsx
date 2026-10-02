@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate, type Location } from "react-router";
 import type { GroupDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
-import { useDeleteGroup, useRemoveMember } from "@/api/groups";
+import { useRemoveMember } from "@/api/groups";
 import { useSession } from "@/auth/useSession";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,6 +26,7 @@ import { EllipsisVertical } from "@/components/ui/icons";
 import { hoverReveal } from "@/components/ui/reveal";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
+import { DeleteGroupDialog } from "./DeleteGroupDialog";
 import { GroupNameDialog } from "./GroupNameDialog";
 
 function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
@@ -38,8 +39,8 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
 /**
  * 群組段標／設定頁列的 ⋮（#175 spec §8.2）。**只看 `GroupDto` 的兩個管理旗標，不看 `myRole` 的種類**：
  * - 第一項：`canManageMembers` →「成員與設定」，否則「查看成員」；
- * - `canManageGroup` → 重新命名、—、刪除群組（danger、二次確認；409 `group_not_empty` → toast、
- *   **對話框留著**，§8.6）；
+ * - `canManageGroup` → 重新命名、—、刪除群組（danger、兩模式對話框 `DeleteGroupDialog`；失敗只 toast、
+ *   對話框留著，§8.6）；
  * - 不是最後一位管理員 → 退出群組（排在刪除之後；二次確認）。最後一位管理員＝`myRole.builtin === "admin"`
  *   且 `myRole.memberCount === 1`（`memberCount` 是掛這個角色的人數，內建管理員角色上就是管理員人數）；
  *   server 照舊回 409 `last_admin`，toast 保留當競態後備。
@@ -62,7 +63,6 @@ export function GroupMenu({ group, size = "default" }: { group: GroupDto; size?:
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useSession();
-  const deleteGroup = useDeleteGroup();
   const removeMember = useRemoveMember(group.id);
   const [menuOpen, setMenuOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
@@ -91,16 +91,6 @@ export function GroupMenu({ group, size = "default" }: { group: GroupDto; size?:
     navigate(`/settings/groups/${encodeURIComponent(group.id)}`, {
       state: backgroundLocation ? { backgroundLocation } : undefined,
     });
-  }
-
-  async function handleDelete(): Promise<void> {
-    try {
-      await deleteGroup.mutateAsync(group.id);
-      setDeleteOpen(false);
-    } catch (err) {
-      // §8.6：失敗（409 `group_not_empty` 等）只 toast，對話框留著——使用者可以取消或處理完再按
-      toast({ title: errorMessage(t, err), variant: "destructive" });
-    }
   }
 
   async function handleLeave(): Promise<void> {
@@ -179,24 +169,7 @@ export function GroupMenu({ group, size = "default" }: { group: GroupDto; size?:
 
       {renameOpen && <GroupNameDialog mode="rename" group={group} open onOpenChange={setRenameOpen} returnFocusRef={triggerRef} />}
 
-      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <DialogContent onCloseAutoFocus={returnFocusToTrigger}>
-          <DialogHeader>
-            <DialogTitle>{t("groups.delete.title")}</DialogTitle>
-            <DialogDescription>{t("groups.delete.description", { name: group.name })}</DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <DialogClose asChild>
-              <Button type="button" variant="outline">
-                {t("home.cancel")}
-              </Button>
-            </DialogClose>
-            <Button type="button" variant="destructive" onClick={() => void handleDelete()} disabled={deleteGroup.isPending}>
-              {t("groups.delete.confirm")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {deleteOpen && <DeleteGroupDialog group={group} onOpenChange={setDeleteOpen} returnFocusRef={triggerRef} />}
 
       <Dialog open={leaveOpen} onOpenChange={setLeaveOpen}>
         <DialogContent onCloseAutoFocus={returnFocusToTrigger}>

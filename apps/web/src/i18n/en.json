@@ -308,7 +308,19 @@
     },
     "delete": {
       "title": "Delete group?",
-      "description": "Only an empty group can be deleted. If the group still has notes, delete them first.",
+      "modeLabel": "What happens to the notes in this group",
+      "transferLabel": "Give them to an admin",
+      "transferToLabel": "Admin who gets the notes",
+      "transferDescription_one": "{{count}} note will become {{name}}'s personal note. Its address changes to /n/…, and the old address forwards to it for a month. Everyone else in the group loses access, and any public link it has is turned off.",
+      "transferDescription_other": "{{count}} notes will become {{name}}'s personal notes. Their addresses change to /n/…, and the old addresses forward to them for a month. Everyone else in the group loses access, and any public links on them are turned off.",
+      "transferDescriptionNoCount": "The group's notes will become {{name}}'s personal notes. Their addresses change to /n/…, and the old addresses forward to them for a month. Everyone else in the group loses access, and any public links on them are turned off.",
+      "deleteLabel": "Delete everything",
+      "deleteDescription_one": "{{count}} note, its attachments and its edit history are permanently deleted. This can't be undone.",
+      "deleteDescription_other": "{{count}} notes, their attachments and their edit history are permanently deleted. This can't be undone.",
+      "deleteDescriptionNoCount": "The group's notes, their attachments and their edit history are permanently deleted. This can't be undone.",
+      "emptyDescription": "This group has no notes.",
+      "acknowledge": "I understand the notes will be permanently deleted",
+      "adminsUnavailable": "Couldn't load the group's admins.",
       "confirm": "Delete group"
     },
     "leave": {
@@ -348,6 +360,7 @@
       "addRoleLabel": "Role for new member",
       "add": "Add",
       "dangerTitle": "Delete group",
+      "dangerDescription": "Deleting the group either gives its notes to one of its admins or deletes them with it.",
       "leaveTitle": "Leave group",
       "tabsLabel": "Group settings sections",
       "tabMembers": "Members",
