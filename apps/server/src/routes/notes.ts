@@ -21,7 +21,7 @@ import { WRITE_BODY_LIMIT } from "../http/body-limits.js";
 import { sendError } from "../http/errors.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
-import { groupMembers, groupRoles, groups, noteShares, notes, uploads, users } from "../db/schema.js";
+import { groups, noteShares, notes, uploads, users } from "../db/schema.js";
 import type { GroupTestHook } from "../groups/test-hook.js";
 import { TxAbort } from "../http/tx-abort.js";
 import type { CollabHooks } from "../collab/hooks.js";
@@ -35,7 +35,8 @@ import { presenceIdentity, presenceTargetForRead, type PresenceRegistry } from "
 import { accessFromListRow, editor, lastEditedSelection, visibleNoteBranches } from "../notes/list-query.js";
 // ⚠ `FP` 在本檔已無呼叫端（`editBodySchema` 是它唯一的使用者，搬去 `notes/schemas.ts` 了）——
 // `no-unused-vars` 是 error ＋ `--max-warnings=0`，留著會 lint 紅。
-import { editBodySchema, MD, SEC, TITLE } from "../notes/schemas.js";
+import { createBodySchema, editBodySchema, SEC } from "../notes/schemas.js";
+import { loadCreateTarget } from "../notes/create-target.js";
 import { type NoteWriteService } from "../notes/editing/write-service.js";
 import { insertNoteWithAutoSlug, type NoteCreateHooks } from "../notes/create.js";
 import { currentAgentLabel } from "../auth/agent-label.js";
@@ -70,10 +71,6 @@ import type { FixedWindowLimiter } from "../http/rate-limit.js";
 import { isForeignKeyViolation, uniqueViolationConstraint } from "../db/pg-errors.js";
 import { deleteUploadFiles } from "../uploads/service.js";
 
-// ⚠ `createBodySchema` 原本宣告在這裡，#106 起它要吃 `noNul` 與 `MD`，而那兩個常數當時也
-// 宣告在本檔（更下面）——維持原位會讓它在 TDZ 內求值，**一 import 就 ReferenceError**。
-// #108 把那些常數搬到 `notes/schemas.ts` 之後這條限制已經消失（import binding 會被 hoist），
-// `createBodySchema` 不必再避開誰；宣告位置維持原樣純粹是為了不動 diff。
 
 // PATCH 契約（spec §11.4 逐字）：title／slug 皆選配，但至少要帶一項——兩者都缺時走
 // safeParse 失敗路徑，回 400 invalid_body（與其他 body schema 一致，不特地為「空
@@ -104,21 +101,8 @@ const linksBodySchema = z.object({ link_target_ids: z.array(z.string().uuid()).m
 // `.strict()`：帶未知查詢參數即 400，不靜默忽略。
 const contentQuerySchema = z.object({ section: SEC.optional() }).strict();
 
-// 建立時 title 允許省略（DB 端有 default "Untitled"），但若有帶就不可為空字串——
-// 與 PATCH 的 title 驗證同一套規則，避免「傳空字串把標題清空」這種語意混淆的落地方式。
-// ⚠ 行為變更（對既有呼叫端）：#106 把這個 schema 從 z.object 的預設 strip 改成 `.strict()`，
-// 所以「多帶未知欄位」從**靜默忽略**變成 400 invalid_body。刻意的：`content` 一旦上線，
-// 打錯成 `contents`／`body` 的請求靜默建出一篇空筆記，比直接回 400 難除錯得多；也與兩條
-// 新路由（不變量 S 要求 `.strict()`）一致。已寫進 docs/api.md 與 CHANGELOG 的 Changed。
-// ⚠ `title` 也補上 `.refine(noNul)`：這是**既有的洞**，不是新開的——今天 `title` 只有 `.min(1)`，
-// 含 U+0000 的標題會一路寫進 pg 的 text 欄位，pg 直接拒收（`22021`），錯誤逃到全域
-// errorHandler → 500。既然正在改這一行就順手拉進不變量 S（行為只從 500 變成正常的 400）。
-// `PATCH /api/notes/:id` 的 `updateBodySchema.title` 有同一個洞，**本棒刻意不改**（不在觸及面上）。
-// `.refine` 排在 `.min(1)` 之後（ZodEffects 上沒有 `.min`）。
-// #103 §6.4：`groupId` 建在群組裡；#175 Q13：與 `content` 可以並存（帶內容建在群組裡）。
-const createBodySchema = z
-  .object({ title: TITLE.optional(), content: MD.optional(), groupId: z.string().uuid().optional() })
-  .strict();
+// `POST /api/notes` 的 body（`createBodySchema`）搬到 `notes/schemas.ts`（#175 PR5）：MCP 的 `create_note`
+// 與它共用同一個 `GROUP_ID`（D18）。
 
 // `POST /api/notes/:id/edits` 的 body 搬到 `notes/schemas.ts`（#108 D-N）：MCP 的 `edit_note`
 // 吃的是**同一份**——per-op 必填矩陣只能有一份實作。
@@ -261,30 +245,6 @@ export function notesRoutes(deps: NotesRouteDeps) {
   // `buildApp` 建**一次**）——三條 REST 寫入路徑與 MCP 的寫入工具共用同一個實例。
   // 不同實例＝沒有串行可言，理由鏈見 `notes/editing/queue.ts` 與 `write-service.ts` 檔頭。
   return async function register(app: FastifyInstance): Promise<void> {
-    /**
-     * 建立／複製進群組的目標檢查（`POST /api/notes {groupId}` 與 `POST …/copy {groupId}` 共用；#175 §6.2、§6.5）：
-     * 呼叫者在該群組的成員列＋角色旗標＋群組名。`undefined`＝群組不存在或不是成員（兩者呼叫端都回同一條 404）。
-     * 交易外查。`POST /api/notes {groupId}` 只靠這一次（C8：撤旗標與建立之間不保證，§15 第 5 條）；複製另在交易內持
-     * 目標 groups KEY SHARE 重驗（`notes/tx/copy.ts` (g)），這裡對複製只是快速 404 與 DTO 的角色／群組名。
-     */
-    async function loadCreateTarget(userId: string, groupId: string) {
-      const [m] = await deps.db
-        .select({
-          name: groups.name,
-          canRead: groupRoles.canRead,
-          canCreate: groupRoles.canCreate,
-          canEdit: groupRoles.canEdit,
-          canDelete: groupRoles.canDelete,
-          canManagePublicLink: groupRoles.canManagePublicLink,
-        })
-        .from(groupMembers)
-        .innerJoin(groups, eq(groups.id, groupMembers.groupId))
-        .innerJoin(groupRoles, eq(groupRoles.id, groupMembers.roleId))
-        .where(and(eq(groupMembers.groupId, groupId), eq(groupMembers.userId, userId)))
-        .limit(1);
-      return m;
-    }
-
     // #107 D2：這七條（POST /api/notes、GET /api/notes、GET /api/notes/:ref、#106 的
     // GET /api/notes/:id/content、POST /api/notes/:id/edits、GET /api/notes/:id/edits 與
     // POST /api/notes/:id/edits/:editId/revert）在 API token 的允許清單上，其餘 notes 路由
@@ -303,7 +263,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
       let target: { scope: SlugScope; access: Pick<NoteAccess, "role" | "permissions">; ownerHandle: string | null; groupName: string | null };
       const groupId = parsed.data.groupId;
       if (groupId !== undefined) {
-        const m = await loadCreateTarget(userId, groupId);
+        const m = await loadCreateTarget(deps.db, userId, groupId);
         // 非成員與「不存在」同一條 404——非成員的站台 admin 無豁免（筆記旗標只看角色，§5.5）。
         if (!m) return sendError(reply, 404, "group_not_found", "找不到此群組");
         // 是成員但角色沒有新建旗標 → 403（gate r4 N-2：對成員而言群組存在不是秘密）。
@@ -1082,7 +1042,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
       } else {
         if (!UUID_RE.test(groupId)) return sendError(reply, 404, "group_not_found", "找不到此群組");
         // 快速 404 only：結果不用來組 DTO（降級可能落在這裡與 (g) 之間——review r2 M-2）。
-        const m = await loadCreateTarget(userId, groupId.toLowerCase());
+        const m = await loadCreateTarget(deps.db, userId, groupId.toLowerCase());
         if (!m || !m.canCreate) return sendError(reply, 404, "group_not_found", "找不到此群組");
         scope = { groupId: groupId.toLowerCase() };
       }

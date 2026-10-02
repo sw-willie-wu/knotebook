@@ -13,7 +13,7 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { editBodySchema, FP, MD, NOTE_ID, NUL, SEC, TITLE } from "../../src/notes/schemas.js";
+import { createBodySchema, editBodySchema, FP, GROUP_ID, MD, NOTE_ID, NUL, SEC, TITLE } from "../../src/notes/schemas.js";
 import { editNoteInput } from "../../src/mcp/tools/edit-note.js";
 import { createNoteInput } from "../../src/mcp/tools/create-note.js";
 
@@ -68,6 +68,18 @@ describe("#108 M14：raw shape 六個欄位與 notes/schemas.ts 的 base 同源�
   it("createNoteInput 的 title／content 各自與 TITLE／MD 同源", () => {
     expectSameSchema(createNoteInput.title, TITLE);
     expectSameSchema(createNoteInput.content, MD);
+  });
+
+  it("#175 PR5：REST createBodySchema 的 groupId 與 GROUP_ID 同源（D18：寫入側不發明第二套契約）", () => {
+    expectSameSchema(createBodySchema.shape.groupId, GROUP_ID);
+    expectSameSchema(createBodySchema.shape.title, TITLE);
+    expectSameSchema(createBodySchema.shape.content, MD);
+  });
+
+  it("#175 PR5：GROUP_ID 收大小寫 uuid、拒非 uuid 與空字串", () => {
+    expect(GROUP_ID.safeParse(randomUUID()).success).toBe(true);
+    expect(GROUP_ID.safeParse(randomUUID().toUpperCase()).success).toBe(true);
+    for (const bad of ["", "not-a-uuid", `${randomUUID()}x`, randomUUID().replace(/-/g, "")]) expect(GROUP_ID.safeParse(bad).success).toBe(false);
   });
 });
 

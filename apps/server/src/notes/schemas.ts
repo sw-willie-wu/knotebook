@@ -28,8 +28,8 @@ export const SEC = z.string().max(64).regex(SECTION_ID_RE).refine(noNul);
 
 /** #108：原本是 `routes/notes.ts` 的行內字面量（`createBodySchema` 的 `title`），具名化供
  * MCP 的 `create_note` 逐字重用（M14／M9）。**不含 `.optional()`**——那是呼叫端的事。
- * 為什麼要 `.refine(noNul)`、以及 `.refine` 為什麼排在 `.min(1)` 之後，見 `routes/notes.ts`
- * 的 `createBodySchema` 註解；守衛是 `notes.test.ts` 的 POST 空 title／含 NUL title 兩案。 */
+ * 為什麼要 `.refine(noNul)`、以及 `.refine` 為什麼排在 `.min(1)` 之後，見本檔下方
+ * `createBodySchema` 的註解；守衛是 `notes.test.ts` 的 POST 空 title／含 NUL title 兩案。 */
 export const TITLE = z.string().min(1).refine(noNul);
 
 /** #108：MCP 工具收進來的 `note_id`（不變量 S／M9 的格式 guard ＋ NUL 兩關）。REST 側的
@@ -41,6 +41,30 @@ export const TITLE = z.string().min(1).refine(noNul);
  * 「輸入驗證錯誤」退化成 `not_found`（突變實測過）。守衛＝`mcp-content.test.ts` 的
  * 「不合格式的 section_id／note_id …」那一案後半。 */
 export const NOTE_ID = z.string().regex(UUID_RE).refine(noNul);
+
+/** #175 PR5：`groupId` 的格式 guard——REST `POST /api/notes` 的 `createBodySchema` 與 MCP `create_note`
+ * 吃**同一個物件**（D18／M14：寫入側不發明第二套契約）。**不含 `.optional()`**（呼叫端的事）。
+ * 原本是 `createBodySchema` 的行內 `z.string().uuid()`，具名化時一個字都沒改——**不加
+ * `.refine(noNul)`**：uuid 格式本身就排除了 NUL（含 NUL 的字串一律 `Invalid uuid`，zod 3.25.76 實測），
+ * 加了是冗餘，只會讓 issues 陣列多一條（REST 只回 `issues[0]`，訊息不變）。
+ * ⚠ 這裡只擋格式（大小寫皆收）；成員資格與新建旗標由 `notes/create-target.ts` 的 `loadCreateTarget` 決定。 */
+export const GROUP_ID = z.string().uuid();
+
+// 建立時 title 允許省略（DB 端有 default "Untitled"），但若有帶就不可為空字串——
+// 與 PATCH 的 title 驗證同一套規則，避免「傳空字串把標題清空」這種語意混淆的落地方式。
+// ⚠ 行為變更（對既有呼叫端）：#106 把這個 schema 從 z.object 的預設 strip 改成 `.strict()`，
+// 所以「多帶未知欄位」從**靜默忽略**變成 400 invalid_body。刻意的：`content` 一旦上線，
+// 打錯成 `contents`／`body` 的請求靜默建出一篇空筆記，比直接回 400 難除錯得多；也與兩條
+// 新路由（不變量 S 要求 `.strict()`）一致。已寫進 docs/api.md 與 CHANGELOG 的 Changed。
+// ⚠ `title` 也補上 `.refine(noNul)`：這是**既有的洞**，不是新開的——今天 `title` 只有 `.min(1)`，
+// 含 U+0000 的標題會一路寫進 pg 的 text 欄位，pg 直接拒收（`22021`），錯誤逃到全域
+// errorHandler → 500。既然正在改這一行就順手拉進不變量 S（行為只從 500 變成正常的 400）。
+// `PATCH /api/notes/:id` 的 `updateBodySchema.title` 有同一個洞，**本棒刻意不改**（不在觸及面上）。
+// `.refine` 排在 `.min(1)` 之後（ZodEffects 上沒有 `.min`）。
+// #103 §6.4：`groupId` 建在群組裡；#175 Q13：與 `content` 可以並存（帶內容建在群組裡）。
+export const createBodySchema = z
+  .object({ title: TITLE.optional(), content: MD.optional(), groupId: GROUP_ID.optional() })
+  .strict();
 
 // `POST /api/notes/:id/edits` 的 body（spec §5）：`op` 決定其餘欄位，逐格 `.strict()`。
 // `append` 的 `if_match` 是選配（spec M-7：不帶就跳過核對）；其餘四個 op 皆必填。
