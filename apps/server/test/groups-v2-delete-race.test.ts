@@ -1,7 +1,7 @@
 /**
  * #175 PR4（spec §6.8、§11）刪群組兩模式的交錯案：C9a／C9b（轉移 × 成員異動）、C10（轉移的 savepoint 重試）、
  * C12／C12b／C12c（全刪 × gate 之後才進群組的筆記）、C17（全刪 gate 之後被轉移）、C20a–d（複製／移動／PATCH × 刪群組）、
- * C13 反向（token PUT × 轉移）、C22（全刪持 L 時的上傳；Task 2 review r1 M1：T7 的 `FOR UPDATE` 承重的是這條）。
+ * C13 反向（token PUT × 轉移）、C21（別名 PUT × 轉移＋接手者重開 token，三方形）、C22（全刪持 L 時的上傳；Task 2 review r1 M1：T7 的 `FOR UPDATE` 承重的是這條）。
  * 要證明「測到的是交錯」的案在注入縫裡呼叫 `waitForBlockedOrSettled`，最後斷言 `"blocked"`；標「序列」的案在縫裡
  * `await` 一次完整的請求（窗在授權／gate 之後、交易或 UPDATE 之前，序列即可）。
  * C11（同一個舊網址兩次寫入轉址）不寫：轉移只寫 `/g/<被刪群組>/<現行 slug>` 鍵；移動與 0012 只寫 `/n/` 鍵；同群組的現行 slug
@@ -17,7 +17,7 @@ import type { GroupRacePoint } from "../src/groups/test-hook.js";
 import { NOT_ADMIN_MESSAGE } from "../src/groups/queries.js";
 import { uploadFilePath } from "../src/uploads/service.js";
 import { buildTestApp } from "./helpers.js";
-import { cookieOf, noteState, seedGroup, seedNote, seedUser, sleep, spyCollabHooks, waitForBlockedOrSettled } from "./group-helpers.js";
+import { cookieOf, noteState, seedGroup, seedNote, seedRole, seedUser, setMemberRole, sleep, spyCollabHooks, waitForBlockedOrSettled } from "./group-helpers.js";
 import { PNG, imageDoc, seedDoc, seedUpload } from "./copy-helpers.js";
 
 const transfer = async (app: FastifyInstance, groupId: string, userId: string, transferTo: string) =>
@@ -60,6 +60,9 @@ const NOT_ADMIN_BODY = { error: { code: "not_admin", message: NOT_ADMIN_MESSAGE 
 const GROUP_NOT_FOUND_BODY = { error: { code: "not_found", message: "找不到此群組" } };
 const CREATE_GROUP_NOT_FOUND_BODY = { error: { code: "group_not_found", message: "找不到此群組" } };
 const CONFLICT_BODY = { error: { code: "conflict", message: "筆記的歸屬已變更，請重新整理後再試" } };
+const ALIAS_REJECTED_BODY = {
+  error: { code: "invalid_body", message: "筆記尚未開啟公開分享、它是群組筆記，或在你送出後換了歸屬，無法設定公開網址" },
+};
 
 type RaceState = { fire?: () => Promise<LightMyRequestResponse>; second?: Promise<LightMyRequestResponse>; interleave?: string };
 
@@ -490,5 +493,49 @@ describe("#175 PR4 全刪 × 上傳（C22，Task 2 review r1 M1）", () => {
     expect(await groupRows(db.$client, g.id)).toBe(0);
     expect(await db.select().from(uploads)).toEqual([]);
     expect(await readdir(uploadsDir)).toEqual([]);
+  });
+});
+
+describe("#175 PR4 別名 PUT 授權之後群組被轉移、接手者重開公開連結（C21）", () => {
+  // 轉移已清 token（Willie 裁決），兩方形（只轉移）被既有述詞 `public_token IS NOT NULL` 擋下；要接手者重開 token 的三方形
+  // 才會讓舊述詞 `group_id IS NULL` 放行、把前成員選的名字寫進接手者的 `/p/<B>/…` 命名空間（plan Task 7、gate r1 W4）。
+  it("C21 別名 PUT 授權之後（public-link-authorized）：群組被轉移給 B、B 重新開公開連結 → M 遲到的別名 PUT 400 invalid_body；B 那篇的 public_slug 仍 NULL、token 是 B 剛開的那個", async () => {
+    const state: {
+      noteId?: string;
+      fired?: boolean;
+      fire?: () => Promise<LightMyRequestResponse>;
+      reopen?: () => Promise<LightMyRequestResponse>;
+      moved?: LightMyRequestResponse;
+      reopened?: LightMyRequestResponse;
+    } = {};
+    const built = await buildTestApp({
+      collabHooks: spyCollabHooks(),
+      groupTestHook: async (point, ctx) => {
+        // 只在第一次（M 的別名 PUT）介入；B 重開 token 的 PUT 也會經過同一個點，`fired` 先立起來讓它直接放行。
+        if (point !== "public-link-authorized" || ctx.noteId !== state.noteId || state.fired) return;
+        state.fired = true;
+        state.moved = await state.fire!();
+        state.reopened = await state.reopen!();
+      },
+    });
+    const { app, db } = built;
+    const [a, b, m] = await Promise.all([seedUser(db), seedUser(db), seedUser(db)]);
+    const g = await seedGroup(db, "G", [{ userId: a.id, role: "admin" }, { userId: b.id, role: "admin" }, { userId: m.id, role: "member" }]);
+    await setMemberRole(db, g.id, m.id, await seedRole(db, g.id, "publisher", { canRead: true, canManagePublicLink: true }));
+    const n = await seedNote(db, { groupId: g.id }, { publicToken: "t".repeat(43) });
+    Object.assign(state, {
+      noteId: n.id,
+      fire: () => transfer(app, g.id, a.id, b.id),
+      reopen: async () => app.inject({ method: "PUT", url: `/api/notes/${n.id}/public-link`, cookies: await cookieOf(b.id) }),
+    });
+
+    const res = await app.inject({ method: "PUT", url: `/api/notes/${n.id}/public-link/slug`, cookies: await cookieOf(m.id), payload: { slug: "m-pick" } });
+
+    expect(state.moved!.statusCode).toBe(204);
+    expect(state.reopened!.statusCode).toBe(200);
+    const reopenedToken = state.reopened!.json().token as string;
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual(ALIAS_REJECTED_BODY);
+    expect(await noteState(db.$client, n.id)).toMatchObject({ owner_id: b.id, group_id: null, public_token: reopenedToken, public_slug: null });
   });
 });
