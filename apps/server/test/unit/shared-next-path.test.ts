@@ -173,6 +173,15 @@ describe("safeNextPath", () => {
     expect(safeNextPath("/loginx")).toBe("/loginx");
   });
 
+  it("/link-account 也不是合法目標（存在前提是「還沒登入、正在連結」——#187 §9.4）", () => {
+    expect(safeNextPath("/link-account")).toBeNull();
+    expect(safeNextPath("/link-account/")).toBeNull();
+    expect(safeNextPath("/LINK-ACCOUNT")).toBeNull();
+    expect(safeNextPath("/link-account?error=oidc_link_expired")).toBeNull();
+    // 不是前綴比對：同字首的其他路徑不受牽連。
+    expect(safeNextPath("/link-accounts")).toBe("/link-accounts");
+  });
+
   it("非字串輸入 → null（query string 讀出來可能是 null 或陣列）", () => {
     expect(safeNextPath(null)).toBeNull();
     expect(safeNextPath(undefined)).toBeNull();

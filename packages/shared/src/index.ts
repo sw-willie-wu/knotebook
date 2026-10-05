@@ -40,6 +40,34 @@ export interface AuthConfigDto {
   oidc: { enabled: boolean };
 }
 
+/** #187：一個啟用中的單一登入服務（登入頁按鈕、連結頁的證明方式）。只曝光 id 與顯示名——issuer／client id 不出線。 */
+export interface AuthProviderPublicDto {
+  id: string;
+  /** 管理員輸入的字串：web 只准放進 React 文字節點（`escapeValue: false`，spec r1-M6）。 */
+  displayName: string;
+}
+
+/** #187 §7.5.2：`GET /api/auth/oidc/pending`。`methods` 每次請求重算（provider 可能剛被停用）。 */
+export interface PendingLinkDto {
+  /** 這一次待連結的識別；confirm／prove 必須原樣帶回（C18：另一分頁覆蓋了 pending 時 server 回 409 `oidc_link_expired`）。 */
+  pendingId: string;
+  email: string;
+  /** 要連結的那個 provider 的顯示名；provider 已被刪除時為 null（身分不綁 provider，B1）。 */
+  providerDisplayName: string | null;
+  methods: { password: boolean; providers: AuthProviderPublicDto[] };
+}
+
+/** #187 §7.5.4：`POST /api/auth/oidc/pending/confirm` 成功。`next` 由 server 從 pending cookie 解出、再過 `safeNextPath`，沒有就是 `/`——web 只用這個值、不讀網址參數（r2-M2）。 */
+export interface PendingLinkConfirmDto {
+  user: UserDto;
+  next: string;
+}
+
+/** #187：回一個要整頁導過去的 IdP authorization URL（SSO 證明起點；PR3 的手動連結起點同形）。 */
+export interface OidcRedirectDto {
+  url: string;
+}
+
 export interface NoteDto {
   id: string;
   title: string;
@@ -349,6 +377,20 @@ export const ERROR_CODES = [
   "role_name_taken",
   // #175 PR4：`not_admin`＝409，刪群組的轉移對象（`transferTo`）不是這個群組持內建管理員角色的成員（含非 UUID、非成員、自訂角色——只認 `builtin = 'admin'`，S1 同一個定義）。
   "not_admin",
+  // #187 PR1：多 provider 登入與「詢問是否連結」。`registration_disabled`＝403／302，「允許註冊」關閉時的建帳（PR1 只有
+  // SSO 首登這條發出點，W21）；`oidc_link_expired`＝409／302，pending cookie 失效、被另一分頁覆蓋（pendingId 不符）、或目標
+  // 帳號已不在／email 已改；`oidc_link_proof_mismatch`＝SSO 證明回來的身分不屬於目標帳號；`oidc_link_no_proof_method`＝
+  // 目標帳號沒有密碼、連結的 provider 也全停用；`oidc_claim_too_long`＝IdP 的 email > 254 或 sub > 255（spec r3-M3）；
+  // `identity_taken`＝要連的 (issuer, sub) 已屬別人；`identity_already_linked`＝帳號已有同 issuer 的另一個 sub（B2）；
+  // `provider_not_found`＝404，SSO 證明起點指定的 provider 不在可用清單（不區分原因）。
+  "registration_disabled",
+  "oidc_link_expired",
+  "oidc_link_proof_mismatch",
+  "oidc_link_no_proof_method",
+  "oidc_claim_too_long",
+  "identity_taken",
+  "identity_already_linked",
+  "provider_not_found",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
@@ -863,7 +905,7 @@ const NEXT_PATH_CHARSET_RE = /^[\u0021-\u007e]+$/;
  *    加的。收斂是必要的：react-router 的路徑比對忽略尾斜線、預設大小寫不敏感，所以
  *    `/login/` 與 `/LOGIN` 一樣會渲染登入頁。
  *    判準是「**這個頁的存在前提是尚未登入**」——只有這種頁才該排除。`/change-password`
- *    不算：它對已登入者是一個功能正常的頁。
+ *    不算：它對已登入者是一個功能正常的頁。#187 起 `/link-account` 同理（它的存在前提是「正在連結、session 無關」；登入完導回那裡只會被 pending 失效踢回 `/login`）。
  */
 export function safeNextPath(input: string | null | undefined): string | null {
   if (typeof input !== "string") return null;
@@ -882,7 +924,8 @@ export function safeNextPath(input: string | null | undefined): string | null {
   }
   if (url.origin !== NEXT_PATH_BASE) return null;
   if (isExcludedPath(url.pathname)) return null;
-  if (url.pathname.replace(/\/+$/, "").toLowerCase() === "/login") return null;
+  const collapsed = url.pathname.replace(/\/+$/, "").toLowerCase();
+  if (collapsed === "/login" || collapsed === "/link-account") return null;
 
   return input;
 }

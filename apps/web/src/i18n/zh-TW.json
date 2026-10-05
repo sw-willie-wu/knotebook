@@ -654,6 +654,14 @@
     "builtin_role": "內建角色不能刪除或改名，內建管理員角色也不能修改。",
     "role_name_taken": "這個群組已有同名的角色，或該名稱保留給內建角色。",
     "not_admin": "筆記只能轉移給這個群組的管理員。請改選仍是管理員的人。",
+    "registration_disabled": "此站台目前不開放註冊新帳號，請聯絡站長。",
+    "oidc_link_expired": "這個連結請求已過期或已被取代，請重新登入。",
+    "oidc_link_proof_mismatch": "你登入的不是這個帳號已連結的那個身分。",
+    "oidc_link_no_proof_method": "這個 email 已有帳號，但它目前沒有可用來證明本人的登入方式（沒有密碼，連結的登入服務也已停用）。請聯絡站長。",
+    "oidc_claim_too_long": "身分提供者傳來的電子郵件或帳號識別碼過長，無法使用。",
+    "identity_taken": "這個登入身分已連結到其他帳號。",
+    "identity_already_linked": "這個帳號已連結同一個登入服務的另一個身分。",
+    "provider_not_found": "找不到這個登入服務，或它目前未啟用。",
     "fallback": "發生未預期的錯誤。"
   }
 }
