@@ -1,4 +1,5 @@
 import type { AuthProviderPublicDto } from "@knotebook/shared";
+import { excludeSameIssuerProviders } from "./issuer.js";
 
 // #187 §7.4：SSO 登入的純決策（取代 Plan 5 的 `auth/oidc-decision.ts`）。不碰 DB；執行層是 `auth/tx/oidc-login.ts`。
 // B3：IdP 的「email 已驗證」旗標不參與任何判斷，claims 型別上就沒有這個欄位（認人只靠 (issuer, sub)、接既有帳號要證明本人）。
@@ -23,18 +24,6 @@ export interface OidcCandidateRow {
   disabledAt: Date | null;
   hasPassword: boolean;
   linkedProviders: LinkedProviderCandidate[];
-}
-
-/**
- * issuer 的比對形：`new URL(x).href` 再去掉一個結尾 `/`（`https://idp.example` 與 `https://idp.example/` 同形）；
- * 解析失敗就用原字串。只用在第 4 步的同 issuer 排除——寧可多排除，不可漏排（漏排＝洩漏 B14）。
- */
-function issuerKey(issuer: string): string {
-  try {
-    return new URL(issuer).href.replace(/\/$/, "");
-  } catch {
-    return issuer;
-  }
 }
 
 export interface ProofMethods {
@@ -74,10 +63,8 @@ export function decideOidcLogin(
     // B14（fix round 1 裁定 A）：排除 effective issuer 與本次登入同 issuer 的 provider。本次 claims 必經某個 issuer＝claims.issuer
     // 的 provider 進來；目標帳號若已有該 issuer 的身分，把它列成證明方法就等於在證明前告訴對方「這帳號已連過這個 IdP」。
     // 排除不損功能：用同 issuer 證明，§7.5.4 必然 identity_already_linked。排除後兩者皆空 → 走下一行的 no_proof_method。
-    const loginIssuer = issuerKey(claims.issuer);
-    const providers = existing.linkedProviders
-      .filter(p => issuerKey(p.effectiveIssuer) !== loginIssuer)
-      .map(({ id, displayName }) => ({ id, displayName }));
+    // 與 GET pending、SSO 證明起點共用同一個排除函式（`auth/issuer.ts`，寬鬆的 issuerKey 比對）。
+    const providers = excludeSameIssuerProviders(existing.linkedProviders, claims.issuer);
     const methods: ProofMethods = { password: existing.hasPassword, providers };
     if (!methods.password && methods.providers.length === 0) return { kind: "reject", code: "oidc_link_no_proof_method" };
     return { kind: "confirm_link", userId: existing.id, methods };

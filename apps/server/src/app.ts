@@ -27,6 +27,7 @@ import { aiRoutes } from "./routes/ai.js";
 import { uploadsRoutes } from "./routes/uploads.js";
 import { publicRoutes, redactPublicTokens } from "./routes/public.js";
 import { oidcRoutes } from "./routes/oidc.js";
+import { oidcPendingRoutes } from "./routes/oidc-pending.js";
 import { mcpRoutes } from "./routes/mcp.js";
 import type { McpTestHooks } from "./mcp/hooks.js";
 import { apiTokensRoutes } from "./routes/api-tokens.js";
@@ -629,6 +630,10 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   const oidcRegistry = deps.oidcRegistry ?? createOidcRuntimeRegistry();
   void app.register(
     oidcRoutes({ config: deps.config, db: deps.db, gate: deps.gate, registry: oidcRegistry, limiters: { oidcLogin: limiters.oidcLogin, oidcCallback: limiters.oidcCallback }, oidcTestHook: deps.oidcTestHook }),
+  );
+  // #187 §7.5：`/link-account` 頁的 API（GET／confirm／cancel；Task 11 加 prove 起點）。密碼證明與登入共用 `deps.throttle`。
+  void app.register(
+    oidcPendingRoutes({ config: deps.config, db: deps.db, gate: deps.gate, throttle: deps.throttle, registry: oidcRegistry, limiters: { oidcLogin: limiters.oidcLogin }, oidcTestHook: deps.oidcTestHook }),
   );
 
   // #106：內容端點需要一份 jsdom runtime。**lazy**——沒有 collab 就不建（`createEditingRuntime`

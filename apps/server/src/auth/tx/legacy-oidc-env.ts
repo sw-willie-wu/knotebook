@@ -2,6 +2,8 @@ import { eq, sql } from "drizzle-orm";
 import type { Tx } from "../../db/tx.js";
 import { authProviders, siteSettings, userIdentities } from "../../db/schema.js";
 import { sealClientSecret } from "../oidc-providers.js";
+// URL 正規化精確相等（discovery 比的就是 `new URL(x).href`，spec §2.2）；推定用精確、不用 B14 排除的寬鬆形——見 `auth/issuer.ts`。
+import { sameIssuer } from "../issuer.js";
 
 export interface LegacyOidcEnv {
   issuerUrl: string;
@@ -14,15 +16,6 @@ export type LegacyImportOutcome =
   | { kind: "already_handled" }
   | { kind: "providers_exist" }
   | { kind: "nothing_to_import" };
-
-/** URL 正規化相等（discovery 比的就是 `new URL(x).href`，spec §2.2）；解析失敗視為不相等。 */
-function sameIssuer(a: string, b: string): boolean {
-  try {
-    return new URL(a).href === new URL(b).href;
-  } catch {
-    return false;
-  }
-}
 
 /**
  * #187 §10.2：env 舊三變數的一次性匯入。`site_settings FOR UPDATE` 序列化並發啟動（C4）；讀不到列 → throw（啟動失敗，§4.3）。

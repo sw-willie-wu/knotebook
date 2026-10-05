@@ -76,6 +76,10 @@ export async function linkPendingIdentityInTx(tx: Tx, input: LinkPendingInput, h
 
   if (row.disabledAt !== null) throw new TxAbort(403, "account_disabled", "此帳號已被停用");
 
+  // B2 用精確 `eq(issuer)`，不用決策／pending GET 的寬鬆 `issuerKey`（`auth/issuer.ts`）：`user_identities.issuer` 與 pending 的
+  // issuer 都是 callback 取自 IdP 的 `serverMetadata().issuer` 原字串（`routes/oidc.ts` 組 claims 處；§10.3 補登的舊欄也是舊版
+  // callback 寫的），同一個 IdP 寫進來的就是同一字串；寬鬆化會把只差結尾斜線、實為不同 issuer 的身分誤判成 B2。
+  // 排除用寬鬆（寧多勿漏，防 B14 洩漏），判定用精確（寧漏勿誤擋）——兩者方向相反，**不要統一**。
   const [sameIssuer] = await tx
     .select({ id: userIdentities.id })
     .from(userIdentities)
