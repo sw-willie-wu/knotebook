@@ -7,6 +7,10 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
+### Changed
+
+- The first admin account, created from `ADMIN_EMAIL`/`ADMIN_PASSWORD` on a new instance, is no longer forced to change its password on first login — you set that password yourself in `.env`. Accounts that are still marked to change their password (such as ones an admin creates, or — on an instance initialized before this change — an env-bootstrapped admin that hasn't changed it yet) are still sent to change it when they sign in with a password (#187).
+
 ### Fixed
 
 - A group role that can manage public links but cannot edit notes could still change a note's title by sending it together with a `slug` in `PATCH /api/notes/:id`. A body that carries a `title` now always needs edit access, whether or not it also carries `slug` (#186).

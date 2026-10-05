@@ -81,7 +81,7 @@ test("刪群組：轉移給管理員（成員被踢、舊網址轉址、公開�
   const anonContext = await browser.newContext();
   try {
     const adminPage = await adminContext.newPage();
-    await loginAs(adminPage, ADMIN.email, ADMIN.newPassword);
+    await loginAs(adminPage, ADMIN.email, ADMIN.password);
     await expect(adminPage).toHaveURL(/\/$/);
     const sidebar = adminPage.getByRole("complementary");
 

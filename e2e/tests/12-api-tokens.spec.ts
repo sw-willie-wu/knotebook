@@ -5,8 +5,7 @@ import { expect, test } from "@playwright/test";
 import { ADMIN, loginAs } from "./helpers.js";
 
 test("PAT：設定頁建立 → 無 cookie 的 Bearer 請求可用 → 撤銷後立即 401", async ({ page, browser, baseURL }) => {
-  // 01-bootstrap 已把首登密碼改掉，之後所有 spec 一律用 newPassword 登入
-  await loginAs(page, ADMIN.email, ADMIN.newPassword);
+  await loginAs(page, ADMIN.email, ADMIN.password);
 
   // §14.5 隨機化：多 spec 共用一座疊、失敗時刻意不 down，固定名稱在重跑時會在
   // filter({ hasText }) 撞出 strict mode violation，把真正的回歸訊息蓋掉。
@@ -109,7 +108,7 @@ test("OAuth：未登入開 authorize → 登入 → 同意 → 本機 callback �
       await page.goto(authorizeUrl);
       await expect(page).toHaveURL(/\/login\?next=/);
       await page.locator("#login-email").fill(ADMIN.email);
-      await page.locator("#login-password").fill(ADMIN.newPassword);
+      await page.locator("#login-password").fill(ADMIN.password);
       await page.getByRole("button", { name: "Sign in" }).click();
       await expect(page).toHaveURL(/\/authorize\?req=/);
 

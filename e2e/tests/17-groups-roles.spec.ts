@@ -21,7 +21,7 @@ test("群組角色：新增自訂角色 → 改成員角色即時變唯讀 → �
   const userContext = await browser.newContext();
   try {
     const adminPage = await adminContext.newPage();
-    await loginAs(adminPage, ADMIN.email, ADMIN.newPassword);
+    await loginAs(adminPage, ADMIN.email, ADMIN.password);
     await expect(adminPage).toHaveURL(/\/$/);
 
     // ── 1. A 建第二使用者 B（同 15）────────────────────────────────────

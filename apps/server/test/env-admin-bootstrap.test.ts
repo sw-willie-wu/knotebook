@@ -42,11 +42,11 @@ async function buildAppWithEnvAdmin(envAdmin?: { email: string; password: string
 const ENV_ADMIN = { email: "boss@example.com", password: "correct-horse-battery" };
 
 describe("ADMIN_EMAIL/ADMIN_PASSWORD env bootstrap admin（spec rev 5.7 / §14.2）", () => {
-  it("空 DB + 雙 env → 啟動後該帳號可登入、isAdmin、mustChangePassword=true", async () => {
+  it("空 DB + 雙 env → 啟動後該帳號可登入、isAdmin、mustChangePassword=false（#187 W6：env 管理員不強改密碼）", async () => {
     const { app, db } = await buildAppWithEnvAdmin(ENV_ADMIN);
 
     const [dbUser] = await db.select().from(users).where(eq(users.email, ENV_ADMIN.email));
-    expect(dbUser).toMatchObject({ email: ENV_ADMIN.email, displayName: "boss", isAdmin: true, mustChangePassword: true });
+    expect(dbUser).toMatchObject({ email: ENV_ADMIN.email, displayName: "boss", isAdmin: true, mustChangePassword: false });
     expect(dbUser.passwordHash).toBeTruthy();
 
     const loginRes = await app.inject({
@@ -55,16 +55,36 @@ describe("ADMIN_EMAIL/ADMIN_PASSWORD env bootstrap admin（spec rev 5.7 / §14.2
       payload: { email: ENV_ADMIN.email, password: ENV_ADMIN.password },
     });
     expect(loginRes.statusCode).toBe(200);
-    expect(loginRes.json()).toMatchObject({ email: ENV_ADMIN.email, isAdmin: true, mustChangePassword: true });
+    expect(loginRes.json()).toMatchObject({ email: ENV_ADMIN.email, isAdmin: true, mustChangePassword: false });
 
     const cookie = loginRes.cookies.find(c => c.name === SESSION_COOKIE)!.value;
     const meRes = await app.inject({ method: "GET", url: "/api/auth/me", cookies: { [SESSION_COOKIE]: cookie } });
     expect(meRes.statusCode).toBe(200);
-    expect(meRes.json()).toMatchObject({ isAdmin: true, mustChangePassword: true });
+    expect(meRes.json()).toMatchObject({ isAdmin: true, mustChangePassword: false });
 
     // instance_setup 已落地（一筆 singleton）。
     const setupRows = await db.select().from(instanceSetup);
     expect(setupRows).toHaveLength(1);
+  });
+
+  it("env 管理員登入後不被「請先修改密碼」擋：POST /api/auth/tokens → 201（旗標帳號會拿 403）", async () => {
+    const { app } = await buildAppWithEnvAdmin(ENV_ADMIN);
+    const loginRes = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { email: ENV_ADMIN.email, password: ENV_ADMIN.password },
+    });
+    expect(loginRes.statusCode).toBe(200);
+    const cookie = loginRes.cookies.find(c => c.name === SESSION_COOKIE)!.value;
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/auth/tokens",
+      cookies: { [SESSION_COOKIE]: cookie },
+      payload: { name: "bootstrap-admin-token", scope: "notes:read", expiresInDays: null },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).toHaveProperty("token");
   });
 
   it("大寫 ADMIN_EMAIL → DB 存小寫（spec §14.3 單一漏斗）", async () => {

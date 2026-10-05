@@ -158,7 +158,7 @@ test("hover 表格最後一欄（下緣在視窗外）不會撐出全頁滾軸",
   // 避免碰到 <768 的窄視窗版面（見 10-responsive.spec.ts）。
   await page.setViewportSize({ width: 1280, height: 500 });
 
-  await loginAs(page, ADMIN.email, ADMIN.newPassword);
+  await loginAs(page, ADMIN.email, ADMIN.password);
   await createNote(page, `E2E table hover ${Date.now()}`);
 
   const editor = editorLocator(page);
@@ -263,7 +263,7 @@ test("hover 表格最後一列第一欄（右緣在視窗外，水平孿生案�
   // 列就好——不需要像垂直案那樣捲動，表格本來就矮到整張都在預設視窗高度內。
   await page.setViewportSize({ width: 800, height: 700 });
 
-  await loginAs(page, ADMIN.email, ADMIN.newPassword);
+  await loginAs(page, ADMIN.email, ADMIN.password);
   await createNote(page, `E2E table hover wide ${Date.now()}`);
 
   const editor = editorLocator(page);

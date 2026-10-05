@@ -15,7 +15,7 @@ test("群組：建立 → 群組建筆記（/g/ 網址）→ 設定加人 → �
   const userContext = await browser.newContext();
   try {
     const adminPage = await adminContext.newPage();
-    await loginAs(adminPage, ADMIN.email, ADMIN.newPassword);
+    await loginAs(adminPage, ADMIN.email, ADMIN.password);
     await expect(adminPage).toHaveURL(/\/$/);
 
     // ── admin 建第二使用者（同 03）──────────────────────────────────────

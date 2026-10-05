@@ -90,7 +90,7 @@ test("移入群組（踢逐人分享、關公開連結、舊網址轉址）→ �
   let passed = false;
   try {
     const adminPage = await adminContext.newPage();
-    await loginAs(adminPage, ADMIN.email, ADMIN.newPassword);
+    await loginAs(adminPage, ADMIN.email, ADMIN.password);
     await expect(adminPage).toHaveURL(/\/$/);
 
     const memberEmail = randomEmail(); // B：群組一般成員

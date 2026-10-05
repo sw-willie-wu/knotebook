@@ -18,8 +18,8 @@ import { ADMIN, createNote, editorLocator, loginAs } from "./helpers.js";
  *   斷言弄成必然失敗、誘發弱化）。
  * - **flush 是非同步的**（collab store debounce 2s、最後連線關閉時 flush）——公開
  *   端點的內容斷言一律 `expect(...).toPass()` 輪詢，不可讀一次就斷言。
- * - 自建資源（筆記/圖/連結），不依賴其他 spec 殘留；共用疊、admin 用 01 之後的
- *   `newPassword` 登入（helpers 檔頭慣例）。
+ * - 自建資源（筆記/圖/連結），不依賴其他 spec 殘留；共用疊、admin 用
+ *   `ADMIN.password` 登入（helpers 檔頭慣例）。
  */
 
 /** 1×1 紅色 PNG——夠小又是真檔案，走完 multipart 上傳與磁碟落地的整條鏈。 */
@@ -98,7 +98,7 @@ test("owner 開公開 → 免登入看到內容與圖 → 重生舊連結死 →
   try {
     // ── owner：建筆記＋打字＋真上傳一張圖 ──────────────────────────────
     const ownerPage = await ownerContext.newPage();
-    await loginAs(ownerPage, ADMIN.email, ADMIN.newPassword);
+    await loginAs(ownerPage, ADMIN.email, ADMIN.password);
     await expect(ownerPage).toHaveURL(/\/$/);
 
     const title = `E2E public share ${Date.now()}`;

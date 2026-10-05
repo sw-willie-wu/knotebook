@@ -2,29 +2,23 @@ import { test, expect } from "@playwright/test";
 import { ADMIN, createNote, editorLocator, loginAs } from "./helpers.js";
 
 /**
- * §14.5 流程 1：env bootstrap admin 首登 → 被 `ChangePasswordGate` 強制導向
- * `/change-password` → 改密 → 回 `/` → 建筆記、打字、重整後內容還在。
+ * §14.5 流程 1：env bootstrap admin 首登 → **不被強制改密碼**（#187 PR4，spec §10.1／W6）
+ * → 直接進站，建筆記、打字、重整後內容還在。
  *
- * 這是 `mustChangePassword` 全鏈唯一的 E2E 覆蓋（token 流程已退役，見 §14.2）——
- * `ADMIN.password` 只在這一支 spec 用得到一次，改密成功後全疊唯一密碼變成
- * `ADMIN.newPassword`，後續 spec（02+）一律直接用新密碼登入。
+ * 強制改密碼（`ChangePasswordGate` → `/change-password`）的 E2E 覆蓋由 admin 代建帳號的
+ * 第二使用者首登承擔：`03-share-revoke.spec.ts:61`（以及 15／16／17／18）。
+ * `ADMIN.password` 是全疊唯一的 admin 密碼，後續 spec 直接用它登入。
  */
-test("env admin 首登強改密 → 建筆記 → 重整後內容還在", async ({ page }) => {
+test("env admin 首登不強改密 → 直接進站、建筆記 → 重整後內容還在", async ({ page }) => {
   await loginAs(page, ADMIN.email, ADMIN.password);
-  await expect(page).toHaveURL(/\/change-password$/);
-
-  await page.locator("#change-password-current").fill(ADMIN.password);
-  await page.locator("#change-password-new").fill(ADMIN.newPassword);
-  await page.locator("#change-password-confirm").fill(ADMIN.newPassword);
-  await page.getByRole("button", { name: "Change password" }).click();
-
-  // 成功訊號：導回 `/`（ChangePasswordGate 讀到 mustChangePassword:false 後放行）
-  // + 成功 toast 文案（`changePassword.successMessage`）。
   await expect(page).toHaveURL(/\/$/);
-  // Radix Toast 額外渲染一個 `role="status"` 的 live-region 播報「Notification
-  // Password updated.」給螢幕報讀器，跟真正的 toast 文案共用「Password updated.」
-  // 子字串——`exact:true` 只匹配真正的 ToastTitle 節點，避免 strict mode 兩個都中。
-  await expect(page.getByText("Password updated.", { exact: true })).toBeVisible();
+
+  // `toHaveURL(/\/$/)` 單獨不夠：旗標帳號登入後也會先導到 `/`（網址會短暫是 `/`），
+  // 再由 ChangePasswordGate 在 render 時 `<Navigate replace>` 走，斷言可能在導走之前就通過。
+  // 所以再等 AppShell 的「New note」鈕出現（旗標帳號進不了 AppShell），然後確認網址不在
+  // `/change-password`；`createNote` 稍後點這顆鈕，旗標帳號會在這裡找不到鈕而紅。
+  await expect(page.getByRole("button", { name: "New note", exact: true })).toBeVisible();
+  await expect(page).not.toHaveURL(/\/change-password/);
 
   const title = `E2E note ${Date.now()}`;
   await createNote(page, title);
@@ -58,15 +52,14 @@ test("env admin 首登強改密 → 建筆記 → 重整後內容還在", async 
 /**
  * #99：手打完整的 markdown 連結語法 `[文字](網址)`，打完尾端 `)` 的當下轉成真連結。
  *
- * `ADMIN.newPassword`：上一支測試已經把疊內唯一的 admin 密碼改掉（單 worker、檔名
- * 數字排序保證這支跑在它之後），這裡不重跑改密流程——見 helpers.ts 的 `ADMIN` 註解。
+ * 直接以 `ADMIN.password` 登入（#187 PR4 起疊內 admin 密碼不再被改過）。
  *
  * `)` 是這條 input rule 的單一字元觸發（[[knotebook-wikilink-trigger]] 記著的「合成
  * 按鍵一次只送一個字元」限制，對這個 feature 反而無害），`pressSequentially` 逐字元
  * 送出即可測到。
  */
 test("手打 markdown 連結語法 [文字](網址) 自動轉成真連結", async ({ page }) => {
-  await loginAs(page, ADMIN.email, ADMIN.newPassword);
+  await loginAs(page, ADMIN.email, ADMIN.password);
   await expect(page).toHaveURL(/\/$/);
 
   const title = `E2E markdown link ${Date.now()}`;
