@@ -43,7 +43,7 @@ This brings up the server and a Postgres database with `docker compose`; the fir
    PUBLIC_URL=http://localhost:3000
    ```
 
-4. Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `.env` — this creates the first (admin) account at startup. `ADMIN_PASSWORD` must be 12+ characters. This is the only way to initialize a fresh instance: the server refuses to start on an empty database without these set (see `.env.example` and [Known limitations](docs/known-limitations.md) — it only takes effect on first initialization, and the account must change its password on first login).
+4. Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `.env` — this creates the first (admin) account at startup. `ADMIN_PASSWORD` must be 12+ characters. This is the only way to initialize a fresh instance: the server refuses to start on an empty database without these set (see `.env.example` and [Known limitations](docs/known-limitations.md) — it only takes effect on first initialization).
 
 5. Start the stack (`app` + `db` services; see [Deployment prerequisites](docs/self-hosting.md#deployment-prerequisites) before doing this in production):
 
@@ -51,7 +51,7 @@ This brings up the server and a Postgres database with `docker compose`; the fir
    docker compose up -d
    ```
 
-6. Open `http://localhost:3000` in a browser and log in with `ADMIN_EMAIL`/`ADMIN_PASSWORD`. You'll be routed straight to a forced password-change screen before you can do anything else — set a new password there and you're in.
+6. Open `http://localhost:3000` in a browser and log in with `ADMIN_EMAIL`/`ADMIN_PASSWORD`. You're signed in straight away — there is no forced password change for this account. You can change the password later under **Settings → Account**.
 
 7. Create a note and open it in the block editor. To try live co-editing, open **Site admin → Users** (`/admin/users`; **Site admin** is in the user menu — you're an admin) to create a second account, then log that account in from a second browser or an incognito window, share the note with it, and watch edits sync live. There is no public sign-up; every account is created by an admin, created by the environment-variable bootstrap above, or (if you've set it up) provisioned automatically on first OIDC/SSO login — see [Self-hosting guide](docs/self-hosting.md#oidc--sso-login-setup).
 
