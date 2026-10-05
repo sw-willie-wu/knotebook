@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { eq, sql } from "drizzle-orm";
-import { normalizeEmail, safeNextPath, type PendingLinkConfirmDto, type PendingLinkDto, type UserDto } from "@knotebook/shared";
+import { normalizeEmail, safeNextPath, type OidcRedirectDto, type PendingLinkConfirmDto, type PendingLinkDto, type UserDto } from "@knotebook/shared";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
 import { authProviders, users } from "../db/schema.js";
@@ -12,7 +12,9 @@ import type { LoginThrottle } from "../auth/rate-limit.js";
 import { signSession, type UserGate } from "../auth/session.js";
 import { setSessionCookie } from "../auth/cookies.js";
 import type { OidcRuntimeRegistry } from "../auth/oidc-client.js";
-import { linkedEnabledProvidersWithIssuer } from "../auth/oidc-providers.js";
+import { linkedEnabledProvidersWithIssuer, loadEnabledProvider, providerConfiguration } from "../auth/oidc-providers.js";
+import { setOidcStateCookie, startAuthorization } from "../auth/oidc-authorize.js";
+import { UUID_RE } from "../notes/service.js";
 import { excludeSameIssuerProviders } from "../auth/issuer.js";
 import { clearPendingCookie, readPendingLink } from "../auth/oidc-pending.js";
 import type { OidcTestHook } from "../auth/oidc-test-hook.js";
@@ -23,13 +25,14 @@ const NO_PENDING_MESSAGE = "沒有待連結的登入，請重新登入";
 const NO_PROOF_MESSAGE = "這個 email 已有帳號，但它目前沒有可用來證明本人的登入方式（沒有密碼，連結的登入服務也已停用）。請聯絡站長。";
 
 const confirmBodySchema = z.object({ password: z.string(), pendingId: z.string() }).strict();
+const proveBodySchema = z.object({ pendingId: z.string() }).strict();
 
 export interface OidcPendingRouteDeps {
   config: AppConfig;
   db: Db;
   gate: UserGate;
   throttle: LoginThrottle;
-  /** Task 11 的 SSO 證明起點用（本 task 先收）。 */
+  /** SSO 證明起點（§7.5.3）取 discovery 結果用。 */
   registry: OidcRuntimeRegistry;
   limiters: { oidcLogin: FixedWindowLimiter };
   /** 測試縫：只經 `AppDeps.oidcTestHook` 注入（production 的 index.ts 不傳），見 `app.ts`。 */
@@ -124,7 +127,8 @@ export function oidcPendingRoutes(deps: OidcPendingRouteDeps) {
       } catch (err) {
         if (!(err instanceof TxAbort)) throw err;
         if (err.errCode === "oidc_link_expired") clearPendingCookie(reply, deps.config);
-        // hash 已變（401）或停用（403）時 recordSuccess／recordFailure 都不記（r3-N4）。
+        // 交易內的任何拒絕（hash 已變 401、停用 403、帳號已不在或 email 已改 409、B2／identity_taken 409）都不 recordSuccess、
+        // 也不 recordFailure（r3-N4）——只有交易成功才 recordSuccess。
         return sendError(reply, err.status, err.errCode, err.message);
       }
       deps.throttle.recordSuccess(throttleKey, request.ip);
@@ -135,6 +139,35 @@ export function oidcPendingRoutes(deps: OidcPendingRouteDeps) {
       // next 由 server 從 pending 解出、再過 safeNextPath；web 只用這個值（r2-M2）。
       const next = (pending.next !== undefined ? safeNextPath(pending.next) : null) ?? "/";
       const body: PendingLinkConfirmDto = { user: toUserDto(linked), next };
+      return reply.send(body);
+    });
+
+    // §7.5.3 起點：要求 JSON body（B7：跨站表單送不進來——CSRF hook 只擋「帶 body 且非 JSON」）。
+    app.post<{ Params: { providerId: string } }>("/api/auth/oidc/pending/prove/:providerId", async (request, reply) => {
+      const pending = readPendingLink(request, deps.config.appSecret);
+      if (pending === null) return sendError(reply, 401, "unauthorized", NO_PENDING_MESSAGE);
+      const parsed = proveBodySchema.safeParse(request.body);
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", "請求格式錯誤");
+      if (parsed.data.pendingId !== pending.pendingId) return sendError(reply, 409, "oidc_link_expired", LINK_EXPIRED_MESSAGE);
+      if (!deps.limiters.oidcLogin.consume(request.ip)) return sendError(reply, 429, "too_many_requests", "請求太頻繁，請稍後再試");
+      const raw = request.params.providerId;
+      const providerId = UUID_RE.test(raw) ? raw.toLowerCase() : null;
+      // 必須在**當下重算**的 methods.providers 裡（啟用中、本帳號有 issuer＝其 effective issuer 的身分，且 B14 排除與待連結身分
+      // 同 issuer 者——與 GET pending、決策同一個 `excludeSameIssuerProviders`）；不區分原因。
+      const usable = excludeSameIssuerProviders(await linkedEnabledProvidersWithIssuer(deps.db, pending.userId), pending.issuer);
+      const provider = providerId !== null && usable.some(p => p.id === providerId) ? await loadEnabledProvider(deps.db, providerId) : null;
+      if (provider === null) return sendError(reply, 404, "provider_not_found", "找不到這個登入服務，或它目前未啟用");
+      let url: URL;
+      try {
+        const configuration = await providerConfiguration({ db: deps.db, registry: deps.registry, appSecret: deps.config.appSecret, log: request.log }, provider);
+        const started = await startAuthorization(deps.config, provider, configuration, { intent: "prove", pendingId: pending.pendingId, proveUserId: pending.userId });
+        setOidcStateCookie(reply, deps.config, started.sealedState);
+        url = started.url;
+      } catch (err) {
+        request.log.warn({ err, providerId: provider.id }, "SSO 證明起點：discovery 不可用");
+        return sendError(reply, 503, "oidc_unavailable", "登入服務目前無法使用，請稍後再試");
+      }
+      const body: OidcRedirectDto = { url: url.href };
       return reply.send(body);
     });
 

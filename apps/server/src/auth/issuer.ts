@@ -5,7 +5,7 @@ import type { AuthProviderPublicDto } from "@knotebook/shared";
 // - `sameIssuer`（`new URL(x).href` 精確相等；解析失敗＝不相等）——用在「推定」：env 匯入時以既有 identity 推 `resolved_issuer`
 //   （`auth/tx/legacy-oidc-env.ts`，spec §10.2）。推錯會把別人的身分對到這個 provider，所以寧可推不出來（null）也不寬鬆。
 // - `issuerKey`（`href` 再去掉一個結尾 `/`；解析失敗用原字串）——用在 B14 的同 issuer **排除**：決策（§7.4 第 4 步，
-//   `oidc-login-decision.ts`）、`GET /api/auth/oidc/pending`（`routes/oidc-pending.ts`）、SSO 證明起點（Task 11）一律經
+//   `oidc-login-decision.ts`）、`GET /api/auth/oidc/pending` 與 SSO 證明起點 `POST …/pending/prove/:providerId`（皆在 `routes/oidc-pending.ts`）一律經
 //   `excludeSameIssuerProviders`。寧可多排除，不可漏排——漏排＝在證明本人之前洩漏「這帳號已連過這個 IdP」。
 //   用 `sameIssuer` 會漏排 `https://idp.example/realms/x` 與 `…/realms/x/` 這種路徑只差結尾斜線的形（`new URL` 只替空路徑補
 //   `/`：裸 origin 兩形 href 相同，帶路徑的兩形不同——node 實跑）。

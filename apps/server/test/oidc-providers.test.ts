@@ -5,7 +5,7 @@ import { seedAuthProvider } from "./helpers/oidc-provider.js";
 import { createFakeIdp } from "./helpers/fake-idp.js";
 import { authProviders, userIdentities, users } from "../src/db/schema.js";
 import { createOidcRuntimeRegistry } from "../src/auth/oidc-client.js";
-import { linkedEnabledProviders, listEnabledProvidersPublic, loadEnabledProvider, loadLegacyProvider, openClientSecret, providerConfiguration, recordResolvedIssuer } from "../src/auth/oidc-providers.js";
+import { linkedEnabledProvidersWithIssuer, listEnabledProvidersPublic, loadEnabledProvider, loadLegacyProvider, openClientSecret, providerConfiguration, recordResolvedIssuer } from "../src/auth/oidc-providers.js";
 import { SecretDecryptError } from "../src/lib/sealed-secret.js";
 
 describe("auth/oidc-providers（#187 §4.1、§6）", () => {
@@ -55,7 +55,7 @@ describe("auth/oidc-providers（#187 §4.1、§6）", () => {
     expect(await loadLegacyProvider(db)).toBeNull();
   });
 
-  it("linkedEnabledProviders：用 effective issuer＝coalesce(resolved_issuer, issuer_url) 對身分；停用的不列", async () => {
+  it("linkedEnabledProvidersWithIssuer：用 effective issuer＝coalesce(resolved_issuer, issuer_url) 對身分；停用的不列", async () => {
     const { db } = await buildTestApp();
     const [u] = await db.insert(users).values({ email: "u@x", displayName: "U" }).returning();
     const slash = await seedAuthProvider(db, { issuerUrl: "https://gitlab.example/", resolvedIssuer: "https://gitlab.example", displayName: "GitLab" });
@@ -65,10 +65,10 @@ describe("auth/oidc-providers（#187 §4.1、§6）", () => {
       { userId: u!.id, issuer: "https://gitlab.example", sub: "1" },
       { userId: u!.id, issuer: "https://off.example", sub: "2" },
     ]);
-    expect(await linkedEnabledProviders(db, u!.id)).toEqual([{ id: slash.id, displayName: "GitLab" }]);
+    expect(await linkedEnabledProvidersWithIssuer(db, u!.id)).toEqual([{ id: slash.id, displayName: "GitLab", effectiveIssuer: "https://gitlab.example" }]);
     // resolved_issuer 為 NULL 時退回 issuer_url 字面：帶尾斜線的字面對不上無斜線的身分（spec §4.1「NULL 的影響」）。
     await db.update(authProviders).set({ resolvedIssuer: null }).where(eq(authProviders.id, slash.id));
-    expect(await linkedEnabledProviders(db, u!.id)).toEqual([]);
+    expect(await linkedEnabledProvidersWithIssuer(db, u!.id)).toEqual([]);
     expect(off.enabled).toBe(false);
   });
 });

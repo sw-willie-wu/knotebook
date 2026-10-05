@@ -11,7 +11,9 @@ import { OidcUnavailableError, oidcRedirectUri, type OidcRuntimeRegistry } from 
 import { loadEnabledProvider, loadLegacyProvider, providerConfiguration, type OidcProviderRow } from "../auth/oidc-providers.js";
 import type { OidcClaims } from "../auth/oidc-login-decision.js";
 import { resolveOidcLoginInTx, type ResolveOidcLoginResult } from "../auth/tx/oidc-login.js";
-import { newPendingId, OIDC_PENDING_TTL_SECONDS, sealPendingLinkWithinLimit, setPendingCookie } from "../auth/oidc-pending.js";
+import { clearPendingCookie, newPendingId, OIDC_PENDING_TTL_SECONDS, readPendingLink, sealPendingLinkWithinLimit, setPendingCookie } from "../auth/oidc-pending.js";
+import { linkPendingIdentityInTx, type LinkedUser } from "../auth/tx/link-identity.js";
+import { TxAbort } from "../http/tx-abort.js";
 import type { OidcTestHook } from "../auth/oidc-test-hook.js";
 import { signSession, type UserGate } from "../auth/session.js";
 import { setSessionCookie } from "../auth/cookies.js";
@@ -42,7 +44,8 @@ function nonEmptyClaim(value: unknown): string | null {
 /**
  * `GET /api/auth/oidc/login[/:providerId]`＋`GET /api/auth/oidc/callback[/:providerId]`（#187 §7.1–§7.4）。
  * 全程 302、不回 JSON：呼叫者是瀏覽器頂層導航。在 state cookie 解開之前的失敗落 `/login?error=<code>`（不帶 next）；解開之後
- * 的失敗經 `loginErrorLocation` 帶上 cookie 裡的 next（#131）。callback 遇到「email 已有帳號」（confirm_link）→ 封 pending-link
+ * 的失敗經 `failLocation`：登入途中落登入頁並帶上 cookie 裡的 next（#131），SSO 證明途中（`intent: "prove"`，§7.5.3）
+ * 落 `/link-account?error=`。callback 遇到「email 已有帳號」（confirm_link）→ 封 pending-link
  * cookie、302 `/link-account`（§7.5）。
  */
 export function oidcRoutes(deps: OidcRouteDeps) {
@@ -90,6 +93,9 @@ export function oidcRoutes(deps: OidcRouteDeps) {
     let nextPath: string | null = null;
     const loginErrorLocation = (code: string): string =>
       nextPath === null ? `/login?error=${code}` : `/login?error=${code}&next=${encodeURIComponent(nextPath)}`;
+    let intent: "login" | "prove" | null = null;
+    // §7.3：cookie 解開之後，SSO 證明途中的失敗回連結頁（同一顆 pending 還能改用密碼或換 provider）；登入途中的回登入頁（帶 next）。
+    const failLocation = (code: string): string => (intent === "prove" ? `/link-account?error=${code}` : loginErrorLocation(code));
 
     try {
       // §7.3 第 2 步：provider 不存在或停用 → oidc_unavailable（cookie 解開之前，不帶 next；C6、C19）。
@@ -102,14 +108,15 @@ export function oidcRoutes(deps: OidcRouteDeps) {
       if (sealedCookie === undefined) return reply.redirect(loginErrorLocation("oidc_state_mismatch"));
       const payload = unsealOidcState(deps.config.appSecret, sealedCookie, Math.floor(Date.now() / 1000));
       if (payload === null) return reply.redirect(loginErrorLocation("oidc_state_mismatch"));
-      // 封章保證「這是我們封的」，不保證「現在仍然安全」——再驗一次（#131 §5.3.3）。
-      nextPath = payload.next !== undefined ? safeNextPath(payload.next) : null;
+      intent = payload.intent;
+      // 封章保證「這是我們封的」，不保證「現在仍然安全」——再驗一次（#131 §5.3.3）。prove 形沒有 next（留在 pending cookie）。
+      nextPath = payload.intent === "login" && payload.next !== undefined ? safeNextPath(payload.next) : null;
 
       // 第 4 步：cookie 是哪個 provider 發的；設定在登入途中變了（C5）就乾淨失敗。
-      if (payload.providerId !== provider.id) return reply.redirect(loginErrorLocation("oidc_state_mismatch"));
-      if (payload.configVersion !== provider.configVersion) return reply.redirect(loginErrorLocation("oidc_unavailable"));
+      if (payload.providerId !== provider.id) return reply.redirect(failLocation("oidc_state_mismatch"));
+      if (payload.configVersion !== provider.configVersion) return reply.redirect(failLocation("oidc_unavailable"));
       const query = request.query as Record<string, unknown>;
-      if (typeof query.state !== "string" || query.state !== payload.state) return reply.redirect(loginErrorLocation("oidc_state_mismatch"));
+      if (typeof query.state !== "string" || query.state !== payload.state) return reply.redirect(failLocation("oidc_state_mismatch"));
 
       let configuration: client.Configuration;
       try {
@@ -117,7 +124,7 @@ export function oidcRoutes(deps: OidcRouteDeps) {
       } catch (err) {
         if (!(err instanceof OidcUnavailableError)) throw err;
         request.log.warn({ err, providerId: provider.id }, "OIDC discovery 不可用，導回登入頁");
-        return reply.redirect(loginErrorLocation("oidc_unavailable"));
+        return reply.redirect(failLocation("oidc_unavailable"));
       }
 
       // 第 5 步：code 交換。currentUrl 以唯一 helper 為底（不用 request.host——反代終止 TLS 會漂），只換上這次的 query。
@@ -134,12 +141,12 @@ export function oidcRoutes(deps: OidcRouteDeps) {
         });
       } catch (err) {
         request.log.warn({ err }, "OIDC code 交換失敗");
-        return reply.redirect(loginErrorLocation("oidc_exchange_failed"));
+        return reply.redirect(failLocation("oidc_exchange_failed"));
       }
       const idTokenClaims = tokens.claims();
       if (idTokenClaims === undefined) {
         request.log.warn("OIDC token 交換成功但缺 id_token claims");
-        return reply.redirect(loginErrorLocation("oidc_exchange_failed"));
+        return reply.redirect(failLocation("oidc_exchange_failed"));
       }
 
       const metadata = configuration.serverMetadata();
@@ -154,7 +161,7 @@ export function oidcRoutes(deps: OidcRouteDeps) {
           userinfo = await client.fetchUserInfo(configuration, tokens.access_token, sub);
         } catch (err) {
           request.log.warn({ err }, "OIDC userinfo 取得失敗");
-          return reply.redirect(loginErrorLocation("oidc_exchange_failed"));
+          return reply.redirect(failLocation("oidc_exchange_failed"));
         }
         email = nonEmptyClaim(userinfo.email);
         if (preferredUsername === null) preferredUsername = nonEmptyClaim(userinfo.preferred_username);
@@ -162,10 +169,40 @@ export function oidcRoutes(deps: OidcRouteDeps) {
       const normalizedEmail = email !== null ? normalizeEmail(email) : null;
       if ((normalizedEmail !== null && normalizedEmail.length > MAX_EMAIL_CLAIM_LENGTH) || sub.length > MAX_SUB_CLAIM_LENGTH) {
         request.log.warn({ emailLength: normalizedEmail?.length ?? 0, subLength: sub.length }, "OIDC claim 過長，拒收（r3-M3）");
-        return reply.redirect(loginErrorLocation("oidc_claim_too_long"));
+        return reply.redirect(failLocation("oidc_claim_too_long"));
       }
       // issuer 單一真相：serverMetadata().issuer（＝ID token iss）——不是管理員填的字面（§2.2）。
       const claims: OidcClaims = { issuer: metadata.issuer, sub, email: normalizedEmail, name, preferredUsername };
+
+      if (payload.intent === "prove") {
+        // §7.5.3 callback：新身分取自 pending，第二段往返只用來證明本人（claims.issuer／sub＝證明身分）。
+        const pending = readPendingLink(request, deps.config.appSecret);
+        if (pending === null || pending.pendingId !== payload.pendingId || pending.userId !== payload.proveUserId) {
+          clearPendingCookie(reply, deps.config);
+          return reply.redirect(failLocation("oidc_link_expired"));
+        }
+        const proveInput = {
+          targetUserId: pending.userId,
+          pendingEmail: pending.email,
+          issuer: pending.issuer,
+          sub: pending.sub,
+          proof: { kind: "sso" as const, issuer: claims.issuer, sub: claims.sub },
+        };
+        let linked: LinkedUser;
+        try {
+          linked = await deps.db.transaction(tx => linkPendingIdentityInTx(tx, proveInput, deps.oidcTestHook));
+        } catch (err) {
+          if (!(err instanceof TxAbort)) throw err;
+          // 證明失敗不清 pending（還能改用密碼或換 provider）；只有 oidc_link_expired 清。
+          if (err.errCode === "oidc_link_expired") clearPendingCookie(reply, deps.config);
+          return reply.redirect(failLocation(err.errCode));
+        }
+        clearPendingCookie(reply, deps.config);
+        deps.gate.invalidate(linked.id);
+        const proveToken = await signSession(deps.config.appSecret, { userId: linked.id, tv: linked.tokenVersion });
+        setSessionCookie(reply, deps.config, proveToken);
+        return reply.redirect((pending.next !== undefined ? safeNextPath(pending.next) : null) ?? "/");
+      }
 
       // §7.4 執行層。撞唯一鍵 → 整 tx 重投恰一次（C1：對方已 commit，重查會命中）。
       const loginInput = { claims };
@@ -179,7 +216,7 @@ export function oidcRoutes(deps: OidcRouteDeps) {
           resolved = await runLogin();
         } catch (err2) {
           request.log.warn({ err: err2 }, "OIDC 帳號解析 race 重查後仍失敗");
-          return reply.redirect(loginErrorLocation("oidc_exchange_failed"));
+          return reply.redirect(failLocation("oidc_exchange_failed"));
         }
       }
       if (resolved.settingsMissing) request.log.error("site_settings 讀不到列：註冊視同關閉（#187 §4.3）");
@@ -187,7 +224,7 @@ export function oidcRoutes(deps: OidcRouteDeps) {
       const outcome = resolved.outcome;
       if (outcome.kind === "reject") {
         if (outcome.code === "oidc_conflict") request.log.warn("OIDC 帳號衝突：lower(email) 命中多列");
-        return reply.redirect(loginErrorLocation(outcome.code));
+        return reply.redirect(failLocation(outcome.code));
       }
       if (outcome.kind === "confirm_link") {
         const sealed = sealPendingLinkWithinLimit(deps.config.appSecret, {
@@ -203,7 +240,7 @@ export function oidcRoutes(deps: OidcRouteDeps) {
         if (sealed === null) {
           // 防禦縱深：claim 已有上限，結構上到不了（plan 複驗第 21 條）。
           request.log.warn("pending-link cookie 封章後仍超過上限，不封章");
-          return reply.redirect(loginErrorLocation("oidc_claim_too_long"));
+          return reply.redirect(failLocation("oidc_claim_too_long"));
         }
         setPendingCookie(reply, deps.config, sealed.sealed);
         return reply.redirect("/link-account");
@@ -215,7 +252,7 @@ export function oidcRoutes(deps: OidcRouteDeps) {
       return reply.redirect(nextPath ?? "/");
     } catch (err) {
       request.log.error({ err }, "OIDC callback 發生未預期錯誤");
-      return reply.redirect(loginErrorLocation("oidc_exchange_failed"));
+      return reply.redirect(failLocation("oidc_exchange_failed"));
     }
   }
 

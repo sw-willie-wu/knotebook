@@ -76,15 +76,10 @@ export async function listEnabledProvidersPublic(db: DbOrTx): Promise<AuthProvid
 }
 
 /**
- * 本帳號已連結且啟用中的 provider（§7.5.2、§7.5.3 第 2 步；§7.4 第 4 步用帶 issuer 的變體再排除同 issuer 者）：啟用中，且本帳號有一個
- * identity 的 issuer 等於它的 effective issuer。收 `DbOrTx`：決策交易內以 tx 呼叫（S14：tx 內不得回頭用 pool）。
+ * 本帳號已連結且啟用中的 provider，帶 effective issuer（§7.4 第 4 步、§7.5.2、§7.5.3 第 2 步）：啟用中，且本帳號有一個 identity 的
+ * issuer 等於它的 effective issuer。給使用者看的清單一律再經 `excludeSameIssuerProviders`（`auth/issuer.ts`，B14）排除與待連結
+ * 身分同 issuer 者——決策、`GET /api/auth/oidc/pending`、SSO 證明起點三處共用。收 `DbOrTx`：決策交易內以 tx 呼叫（S14：tx 內不得回頭用 pool）。
  */
-export async function linkedEnabledProviders(q: DbOrTx, userId: string): Promise<AuthProviderPublicDto[]> {
-  const rows = await linkedEnabledProvidersWithIssuer(q, userId);
-  return rows.map(({ id, displayName }) => ({ id, displayName }));
-}
-
-/** 同 `linkedEnabledProviders`，多帶 effective issuer（§7.4 第 4 步要排除與本次登入同 issuer 者——B14，見 `oidc-login-decision.ts`）。 */
 export async function linkedEnabledProvidersWithIssuer(
   q: DbOrTx,
   userId: string,

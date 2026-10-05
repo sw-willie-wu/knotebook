@@ -7,7 +7,7 @@ import { sealCookieJson, unsealCookieJson } from "./sealed-cookie.js";
 // #187 起封章本體在 `auth/sealed-cookie.ts`（格式不變；namespace `oidc-state`）。
 // #187 §7.3：payload 綁「發出它的 provider」（`providerId`）與當下的設定版本（`configVersion`），並帶 `intent`——callback
 // 據此判斷 cookie 是否屬於這條 provider 路徑、設定是否在登入途中變了（C5）。三欄缺任何一個＝部署前封的舊 cookie，unseal 回 null
-// （在飛的登入失敗一次，§17 第 12 條）。PR1 的 intent 只有 "login"（Task 11 加 "prove"；PR3 的 "link" 不收）。
+// （在飛的登入失敗一次，§17 第 12 條）。PR1 的 intent 是 "login"／"prove"（SSO 證明，§7.5.3）；PR3 的 "link" 不收。
 
 export interface OidcStateBase {
   state: string;
@@ -36,6 +36,14 @@ export type OidcStateIntent = {
    * Willie 2026-09-03 裁決拿掉。守衛見 `test/oidc-login.test.ts` 的兩案分工註解。
    */
   next?: string;
+} | {
+  /**
+   * #187 §7.5.3 SSO 證明（第二段 OIDC 往返）：`pendingId`／`proveUserId` 綁回發起時的那顆 pending-link cookie，callback 比對不符
+   * → `oidc_link_expired`。**沒有 `next`**——完成後要回去的路徑留在 pending cookie 裡（unseal 時即使 payload 帶了 next 也丟掉）。
+   */
+  intent: "prove";
+  pendingId: string;
+  proveUserId: string;
 };
 
 export type OidcStatePayload = OidcStateBase & OidcStateIntent;
@@ -85,7 +93,15 @@ export function unsealOidcState(appSecret: string, sealed: string, nowEpochSecon
   // 被放過是**對的**，`""` 本來就是合法字串）。守衛：unit 的「next 是 null」那案。
   const p = parsed as Record<string, unknown>;
   // #187 §7.3：providerId／configVersion／intent 是新必要欄位——缺的就是部署前封的舊 cookie（在飛的登入失敗一次，§17 第 12 條）。
-  if (typeof p.providerId !== "string" || !Number.isInteger(p.configVersion) || p.intent !== "login") return null;
+  if (typeof p.providerId !== "string" || !Number.isInteger(p.configVersion)) return null;
+  if (p.intent === "prove") {
+    // SSO 證明（§7.5.3）：不帶 next（next 留在 pending cookie）；pendingId／proveUserId 綁回當下那顆 pending。
+    if (typeof p.pendingId !== "string" || typeof p.proveUserId !== "string") return null;
+    const { next, ...rest } = p;
+    void next;
+    return (rest.exp as number) <= nowEpochSeconds ? null : (rest as unknown as OidcStatePayload);
+  }
+  if (p.intent !== "login") return null;
 
   const nextValue = (parsed as Record<string, unknown>).next;
   if (nextValue !== undefined && typeof nextValue !== "string") {

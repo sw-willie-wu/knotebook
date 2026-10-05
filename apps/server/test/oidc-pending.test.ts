@@ -226,6 +226,35 @@ describe("POST /api/auth/oidc/pending/confirm（#187 §7.5.2–§7.5.4）", () =
     expect(await identitiesOf(t.db, user.id)).toEqual([{ issuer: B, sub: "sb" }]);
   });
 
+  it("confirm 時帳號 email 已改 → 409 oidc_link_expired、清 pending；在驗密碼之前判（不驗、不吃節流）", async () => {
+    const t = await twoProviders();
+    const { user, cookie, pendingId } = await toPending(t);
+    await t.db.update(users).set({ email: "changed@x.example" }).where(eq(users.id, user.id));
+    // 錯密碼送 5 次：route 先判帳號（routes/oidc-pending.ts 的 loadTarget 那段）才會是 409；若改成先驗密碼，第一發就是 401。
+    for (let i = 0; i < 5; i++) {
+      const res = await confirm(t, cookie, { password: "wrong-password-xx", pendingId });
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error.code).toBe("oidc_link_expired");
+      expect(res.cookies.find(c => c.name === OIDC_PENDING_COOKIE)?.value).toBe("");
+    }
+    expect(vi.mocked(verifyPassword)).not.toHaveBeenCalled();
+    // 不吃節流：上面 5 發若記了失敗，帳號軌（與同 IP 軌）此時已滿 5 → 這一發 429。
+    await t.db.update(users).set({ email: user.email }).where(eq(users.id, user.id));
+    expect((await confirm(t, cookie, { password: PW, pendingId })).statusCode).toBe(200);
+    expect(await identitiesOf(t.db, user.id)).toEqual([{ issuer: B, sub: "sb" }]);
+  });
+
+  it("confirm 時帳號已刪 → 409 oidc_link_expired、清 pending、不驗密碼", async () => {
+    const t = await twoProviders();
+    const { user, cookie, pendingId } = await toPending(t);
+    await t.db.delete(users).where(eq(users.id, user.id));
+    const res = await confirm(t, cookie, { password: PW, pendingId });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("oidc_link_expired");
+    expect(res.cookies.find(c => c.name === OIDC_PENDING_COOKIE)?.value).toBe("");
+    expect(vi.mocked(verifyPassword)).not.toHaveBeenCalled();
+  });
+
   it("body：缺 pendingId → 400 invalid_body；form 形 → 415（CSRF hook）；沒有 pending cookie → 401", async () => {
     const t = await twoProviders();
     const { cookie } = await toPending(t);

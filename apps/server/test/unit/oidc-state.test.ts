@@ -150,3 +150,31 @@ describe("#187 §7.3 新必要欄位（providerId／configVersion／intent）", 
     expect(unsealOidcState(secret, sealCookieJson(secret, "oidc-state", { ...payload(), intent: "link" }), 1_000_000)).toBeNull();
   });
 });
+
+describe("#187 Task 11：prove 形（§7.5.3）", () => {
+  /** 欄位齊全的 prove payload；覆寫用 `undefined` 表示「缺這一欄」（JSON.stringify 會丟掉它）。 */
+  const prove = (over: Record<string, unknown> = {}) => ({
+    state: "s", nonce: "n", codeVerifier: "v", exp: 1_000_600, providerId: "p1", configVersion: 1,
+    intent: "prove", pendingId: "pid-1", proveUserId: "u1", ...over,
+  });
+
+  it("prove 形往返：pendingId、proveUserId 原樣", () => {
+    const sealed = sealOidcState(secret, {
+      state: "s", nonce: "n", codeVerifier: "v", exp: 1_000_600, providerId: "p1", configVersion: 1,
+      intent: "prove", pendingId: "pid-1", proveUserId: "u1",
+    });
+    expect(unsealOidcState(secret, sealed, 1_000_000)).toEqual(prove());
+  });
+
+  it("prove 缺 pendingId → null；缺 proveUserId → null", () => {
+    expect(unsealOidcState(secret, sealCookieJson(secret, "oidc-state", prove({ pendingId: undefined })), 1_000_000)).toBeNull();
+    expect(unsealOidcState(secret, sealCookieJson(secret, "oidc-state", prove({ proveUserId: undefined })), 1_000_000)).toBeNull();
+  });
+
+  it("prove 帶 next 也不採用：解出的物件沒有 next 鍵（next 留在 pending cookie）", () => {
+    const opened = unsealOidcState(secret, sealCookieJson(secret, "oidc-state", prove({ next: "/n/alice/x" })), 1_000_000);
+    expect(opened).not.toBeNull();
+    expect(opened!.intent).toBe("prove");
+    expect("next" in opened!).toBe(false);
+  });
+});
