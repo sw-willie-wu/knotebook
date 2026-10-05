@@ -377,7 +377,7 @@ export const ERROR_CODES = [
   // #187 PR1：多 provider 登入與「詢問是否連結」。`registration_disabled`＝403／302，「允許註冊」關閉時的建帳（PR1 只有
   // SSO 首登這條發出點，W21）；`oidc_link_expired`＝409／302，pending cookie 失效、被另一分頁覆蓋（pendingId 不符）、或目標
   // 帳號已不在／email 已改；`oidc_link_proof_mismatch`＝SSO 證明回來的身分不屬於目標帳號；`oidc_link_no_proof_method`＝
-  // 目標帳號沒有密碼、連結的 provider 也全停用；`oidc_claim_too_long`＝IdP 的 email > 254 或 sub > 255（spec r3-M3）；
+  // 目標帳號沒有密碼，也沒有可用來證明的已連結 provider（全停用，或只剩與待連結身分同 issuer 者）；`oidc_claim_too_long`＝IdP 的 email > 254 或 sub > 255（spec r3-M3）；
   // `identity_taken`＝要連的 (issuer, sub) 已屬別人；`identity_already_linked`＝帳號已有同 issuer 的另一個 sub（B2）；
   // `provider_not_found`＝404，SSO 證明起點指定的 provider 不在可用清單（不區分原因）。
   "registration_disabled",

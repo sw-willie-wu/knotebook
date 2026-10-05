@@ -12,7 +12,7 @@ import { SESSION_QUERY_KEY } from "@/auth/useSession";
 /** `?error=` 白名單（#187 §9.4）：prove 回程會帶這些碼回來；其餘一律 fallback（任意 query 不得直接餵 i18next，Plan 5 MAJOR-1）。 */
 const LINK_ERROR_CODES = new Set<string>([
   "oidc_link_proof_mismatch", "oidc_link_expired", "identity_taken", "identity_already_linked",
-  "account_disabled", "oidc_exchange_failed", "oidc_unavailable",
+  "account_disabled", "oidc_exchange_failed", "oidc_unavailable", "oidc_state_mismatch", "oidc_claim_too_long",
 ]);
 
 /** 回登入頁；code 是 `ERROR_CODES` 成員才帶（LoginPage 自己還會再過一次白名單）。 */

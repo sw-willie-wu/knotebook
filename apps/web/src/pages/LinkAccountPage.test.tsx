@@ -176,6 +176,18 @@ describe("LinkAccountPage（#187 §9.4 /link-account）", () => {
     await waitFor(() => expect(loc()).toBe("/link-account"));
   });
 
+  it("?error=oidc_state_mismatch／oidc_claim_too_long（M2）→ 顯示各自的文案、不是 fallback", async () => {
+    for (const [code, text] of [
+      ["oidc_state_mismatch", "Your sign-in session expired or is invalid. Please try signing in again."],
+      ["oidc_claim_too_long", "Your identity provider sent an email address or account ID that is too long to use."],
+    ] as const) {
+      mockFetch({ "GET /api/auth/oidc/pending": () => fakeResponse(200, PENDING) });
+      renderAt(`/link-account?error=${code}`);
+      expect(await screen.findByRole("alert")).toHaveTextContent(text);
+      cleanup();
+    }
+  });
+
   it("?error=constructor（不在白名單）→ fallback 文案、不炸", async () => {
     mockFetch({ "GET /api/auth/oidc/pending": () => fakeResponse(200, PENDING) });
     renderAt("/link-account?error=constructor");

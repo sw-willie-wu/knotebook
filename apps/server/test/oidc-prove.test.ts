@@ -82,7 +82,7 @@ describe("SSO 證明（#187 §7.5.3，§14.1-4a）", () => {
     expect(ok.statusCode).toBe(200);
   });
 
-  it("state 的 pendingId 與當下 pending 不符（另一分頁覆蓋了 pending）→ /link-account?error=oidc_link_expired 並清 pending；callback 時 pending 已不在 → 同；起點沒有 pending → 401", async () => {
+  it("state 的 pendingId 與當下 pending 不符（另一分頁覆蓋了 pending）→ /link-account?error=oidc_link_expired（不清 pending，M1）；callback 時 pending 已不在 → 同；起點沒有 pending → 401", async () => {
     const t = await app2();
     const first = await ssoOnlyPending(t);
     // (a) callback 時 pending cookie 已不在（過期或被清——`readPendingLink` 都回 null）：只帶 state cookie 回來（gate r1 t8-13 M3）。
@@ -106,7 +106,10 @@ describe("SSO 證明（#187 §7.5.3，§14.1-4a）", () => {
     const overwritten = again.cookies[OIDC_PENDING_COOKIE]!;
     const cb = await t.app.inject({ method: "GET", url: `/api/auth/oidc/callback/${t.provider("a").id}?code=${code}&state=${state}`, cookies: { [OIDC_PENDING_COOKIE]: overwritten, [OIDC_STATE_COOKIE]: stateCookie } });
     expect(cb.headers.location).toBe("/link-account?error=oidc_link_expired");
-    expect(cb.cookies.find(c => c.name === OIDC_PENDING_COOKIE)?.value).toBe("");
+    // M1／C18：不符時不清 cookie——覆蓋後的新 pending 屬於另一分頁，仍有效。
+    expect(cb.cookies.find(c => c.name === OIDC_PENDING_COOKIE)).toBeUndefined();
+    const stillThere = await t.app.inject({ method: "GET", url: "/api/auth/oidc/pending", cookies: { [OIDC_PENDING_COOKIE]: overwritten } });
+    expect(stillThere.statusCode).toBe(200);
     const second = await prove(t, "a", { [OIDC_PENDING_COOKIE]: overwritten }, unsealPendingLink(testConfig.appSecret, overwritten, nowS())!.pendingId, { sub: "ua", email: "u@x.example" });
     expect(second.callback!.statusCode).toBe(302);
     const noPending = await t.app.inject({ method: "POST", url: `/api/auth/oidc/pending/prove/${t.provider("a").id}`, payload: { pendingId: "x" } });

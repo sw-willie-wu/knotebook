@@ -177,8 +177,12 @@ export function oidcRoutes(deps: OidcRouteDeps) {
       if (payload.intent === "prove") {
         // §7.5.3 callback：新身分取自 pending，第二段往返只用來證明本人（claims.issuer／sub＝證明身分）。
         const pending = readPendingLink(request, deps.config.appSecret);
-        if (pending === null || pending.pendingId !== payload.pendingId || pending.userId !== payload.proveUserId) {
+        if (pending === null) {
           clearPendingCookie(reply, deps.config);
+          return reply.redirect(failLocation("oidc_link_expired"));
+        }
+        // pendingId／userId 不符＝另一分頁覆蓋了 pending（C18）：新 pending 屬於那個分頁，不清（與 confirm 路由一致，M1）。
+        if (pending.pendingId !== payload.pendingId || pending.userId !== payload.proveUserId) {
           return reply.redirect(failLocation("oidc_link_expired"));
         }
         const proveInput = {
