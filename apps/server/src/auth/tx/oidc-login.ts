@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
+import { normalizeEmail } from "@knotebook/shared";
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { Tx } from "../../db/tx.js";
 import { handles, siteSettings, userIdentities, users } from "../../db/schema.js";
 import { deriveHandle } from "../handle.js";
-import { linkedEnabledProviders } from "../oidc-providers.js";
+import { linkedEnabledProvidersWithIssuer } from "../oidc-providers.js";
 import { decideOidcLogin, type OidcCandidateRow, type OidcClaims, type OidcRejectCode } from "../oidc-login-decision.js";
 
 export type OidcLoginOutcome =
@@ -25,7 +26,9 @@ export interface ResolveOidcLoginResult {
  * **不寫 users.oidc_***（舊欄只剩 §10.3 補登讀）。撞唯一鍵的錯誤原樣拋出，整 tx 重投由路由負責（C1）。
  */
 export async function resolveOidcLoginInTx(tx: Tx, input: { claims: OidcClaims }): Promise<ResolveOidcLoginResult> {
-  const { claims } = input;
+  // 縱深防禦（fix round 1 Minor 1）：callback 進門已正規化，這裡再做一次——`users_email_unique` 大小寫敏感，
+  // 漏正規化的 email 會讓第 3 步的 lower() 比對落空、走去建一個只差大小寫的重複帳號。
+  const claims: OidcClaims = { ...input.claims, email: input.claims.email === null ? null : normalizeEmail(input.claims.email) };
   const settings = await tx
     .select({ registrationEnabled: siteSettings.registrationEnabled })
     .from(siteSettings)
@@ -57,7 +60,7 @@ export async function resolveOidcLoginInTx(tx: Tx, input: { claims: OidcClaims }
       id: row.id,
       disabledAt: row.disabledAt,
       hasPassword: row.passwordHash !== null,
-      linkedProviders: emailRows.length === 1 ? await linkedEnabledProviders(tx, row.id) : [],
+      linkedProviders: emailRows.length === 1 ? await linkedEnabledProvidersWithIssuer(tx, row.id) : [],
     });
   }
 

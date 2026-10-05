@@ -76,12 +76,25 @@ export async function listEnabledProvidersPublic(db: DbOrTx): Promise<AuthProvid
 }
 
 /**
- * 本帳號「可用來證明本人」的 provider（§7.4 第 4 步 methods.providers、§7.5.2、§7.5.3 第 2 步）：啟用中，且本帳號有一個
+ * 本帳號已連結且啟用中的 provider（§7.5.2、§7.5.3 第 2 步；§7.4 第 4 步用帶 issuer 的變體再排除同 issuer 者）：啟用中，且本帳號有一個
  * identity 的 issuer 等於它的 effective issuer。收 `DbOrTx`：決策交易內以 tx 呼叫（S14：tx 內不得回頭用 pool）。
  */
 export async function linkedEnabledProviders(q: DbOrTx, userId: string): Promise<AuthProviderPublicDto[]> {
+  const rows = await linkedEnabledProvidersWithIssuer(q, userId);
+  return rows.map(({ id, displayName }) => ({ id, displayName }));
+}
+
+/** 同 `linkedEnabledProviders`，多帶 effective issuer（§7.4 第 4 步要排除與本次登入同 issuer 者——B14，見 `oidc-login-decision.ts`）。 */
+export async function linkedEnabledProvidersWithIssuer(
+  q: DbOrTx,
+  userId: string,
+): Promise<Array<AuthProviderPublicDto & { effectiveIssuer: string }>> {
   return q
-    .select({ id: authProviders.id, displayName: authProviders.displayName })
+    .select({
+      id: authProviders.id,
+      displayName: authProviders.displayName,
+      effectiveIssuer: sql<string>`coalesce(${authProviders.resolvedIssuer}, ${authProviders.issuerUrl})`,
+    })
     .from(authProviders)
     .where(
       and(

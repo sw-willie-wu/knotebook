@@ -83,6 +83,39 @@ describe("resolveOidcLoginInTx（#187 §7.4 執行層）", () => {
     expect(await identitiesOf(db, u.id)).toEqual([{ issuer: ISS, sub: "older-sub" }]);
   });
 
+  // fix round 1（B14 裁定 A）：outcome 不帶 methods，所以這層看得到的是「同 issuer 的 provider 有沒有被算成證明方法」的後果——
+  // 無密碼帳號只剩它時是 no_proof_method、還有別的 provider 時是 confirm_link。providers 清單的內容由單元案斷言。
+  it("B14：純 SSO 帳號已有 ISS 身分（不同 sub）＋另一個 issuer 的已啟用 provider → confirm_link；ISS 的 provider 不算證明方法", async () => {
+    const { db } = await buildTestApp();
+    const u = await seedUser(db, { passwordHash: null });
+    await seedAuthProvider(db, { issuerUrl: ISS, displayName: "IdP" });
+    const b = await seedAuthProvider(db, { issuerUrl: "https://b.example", displayName: "B" });
+    await db.insert(userIdentities).values([
+      { userId: u.id, issuer: ISS, sub: "older-sub" },
+      { userId: u.id, issuer: "https://b.example", sub: "bx" },
+    ]);
+    expect((await run(db, claims())).outcome).toEqual({ kind: "confirm_link", userId: u.id, email: "u@example.com" });
+    // 停掉 B 之後只剩 ISS：若 ISS 被算進 methods，這裡會是 confirm_link。
+    await db.update(authProviders).set({ enabled: false }).where(eq(authProviders.id, b.id));
+    expect((await run(db, claims())).outcome).toEqual({ kind: "reject", code: "oidc_link_no_proof_method" });
+    expect(await identitiesOf(db, u.id)).toEqual([{ issuer: "https://b.example", sub: "bx" }, { issuer: ISS, sub: "older-sub" }]);
+  });
+
+  it("B14：目標帳號只有 ISS 身分、無密碼（ISS provider 啟用中，resolved_issuer 帶尾斜線形）→ oidc_link_no_proof_method", async () => {
+    const { db } = await buildTestApp();
+    const u = await seedUser(db, { passwordHash: null });
+    await seedAuthProvider(db, { issuerUrl: `${ISS}/`, resolvedIssuer: `${ISS}/`, displayName: "IdP" });
+    await db.insert(userIdentities).values({ userId: u.id, issuer: `${ISS}/`, sub: "older-sub" });
+    expect((await run(db, claims())).outcome).toEqual({ kind: "reject", code: "oidc_link_no_proof_method" });
+  });
+
+  it("縱深防禦：claims.email 大小寫混合（未正規化）→ 比對到既有小寫帳號 → confirm_link（email 回正規化形），不建帳", async () => {
+    const { db } = await buildTestApp();
+    const u = await seedUser(db);
+    expect((await run(db, claims({ email: " U@Example.COM " }))).outcome).toEqual({ kind: "confirm_link", userId: u.id, email: "u@example.com" });
+    expect(await db.select().from(users)).toHaveLength(1);
+  });
+
   it("純 SSO 帳號：連結的 provider 啟用中 → confirm_link；provider 停用 → oidc_link_no_proof_method", async () => {
     const { db } = await buildTestApp();
     const u = await seedUser(db, { passwordHash: null });

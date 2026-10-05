@@ -14,12 +14,27 @@ export interface OidcClaims {
   preferredUsername: string | null;
 }
 
+/** 已連結且啟用中的 provider，帶 effective issuer＝coalesce(resolved_issuer, issuer_url)（`linkedEnabledProvidersWithIssuer`）。 */
+export type LinkedProviderCandidate = AuthProviderPublicDto & { effectiveIssuer: string };
+
 /** 執行層查出的候選帳號。`linkedProviders`＝本帳號已連結、且 provider 啟用中者（只對「email 恰一列」那列計算，其餘給 []）。 */
 export interface OidcCandidateRow {
   id: string;
   disabledAt: Date | null;
   hasPassword: boolean;
-  linkedProviders: AuthProviderPublicDto[];
+  linkedProviders: LinkedProviderCandidate[];
+}
+
+/**
+ * issuer 的比對形：`new URL(x).href` 再去掉一個結尾 `/`（`https://idp.example` 與 `https://idp.example/` 同形）；
+ * 解析失敗就用原字串。只用在第 4 步的同 issuer 排除——寧可多排除，不可漏排（漏排＝洩漏 B14）。
+ */
+function issuerKey(issuer: string): string {
+  try {
+    return new URL(issuer).href.replace(/\/$/, "");
+  } catch {
+    return issuer;
+  }
 }
 
 export interface ProofMethods {
@@ -39,7 +54,7 @@ export type OidcDecision =
  * 1. 身分命中 → 停用 ? account_disabled : login（已連結的身分不看註冊開關，W21）。
  * 2. email 為 null → oidc_email_missing（建帳與比對都需要 email）。
  * 3. lower(email) 多列（大小寫重複的舊列）→ oidc_conflict（不猜）。
- * 4. 恰一列 → methods（password＝有密碼；providers＝已連結且啟用中）；兩者皆空 → oidc_link_no_proof_method；否則 confirm_link
+ * 4. 恰一列 → methods（password＝有密碼；providers＝已連結且啟用中、且 effective issuer 不等於 claims.issuer）；兩者皆空 → oidc_link_no_proof_method；否則 confirm_link
  *    （不看註冊開關：沒有建新帳號）。**不判停用、不判 B2**（B14）。
  * 5. 無列 → 註冊關閉 ? registration_disabled : create。
  */
@@ -56,7 +71,14 @@ export function decideOidcLogin(
   if (byEmailUsers.length > 1) return { kind: "reject", code: "oidc_conflict" };
   const existing = byEmailUsers[0];
   if (existing !== undefined) {
-    const methods: ProofMethods = { password: existing.hasPassword, providers: existing.linkedProviders };
+    // B14（fix round 1 裁定 A）：排除 effective issuer 與本次登入同 issuer 的 provider。本次 claims 必經某個 issuer＝claims.issuer
+    // 的 provider 進來；目標帳號若已有該 issuer 的身分，把它列成證明方法就等於在證明前告訴對方「這帳號已連過這個 IdP」。
+    // 排除不損功能：用同 issuer 證明，§7.5.4 必然 identity_already_linked。排除後兩者皆空 → 走下一行的 no_proof_method。
+    const loginIssuer = issuerKey(claims.issuer);
+    const providers = existing.linkedProviders
+      .filter(p => issuerKey(p.effectiveIssuer) !== loginIssuer)
+      .map(({ id, displayName }) => ({ id, displayName }));
+    const methods: ProofMethods = { password: existing.hasPassword, providers };
     if (!methods.password && methods.providers.length === 0) return { kind: "reject", code: "oidc_link_no_proof_method" };
     return { kind: "confirm_link", userId: existing.id, methods };
   }
