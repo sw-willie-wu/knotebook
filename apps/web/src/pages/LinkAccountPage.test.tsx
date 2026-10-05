@@ -210,4 +210,49 @@ describe("LinkAccountPage（#187 §9.4 /link-account）", () => {
     expect(screen.getByRole("button", { name: `Confirm by signing in with ${evil}` })).toBeInTheDocument();
     expect(document.querySelector("img[src='x']")).toBeNull();
   });
+
+  it("fix r1 I1：GET pending 回 409 oidc_link_expired（帳號已刪／email 已改）→ 導 /login、登入頁顯示該文案，不停在 Loading", async () => {
+    const calls = mockFetch({
+      "GET /api/auth/oidc/pending": () => err(409, "oidc_link_expired"),
+      "GET /api/auth/config": () => fakeResponse(200, { providers: [], registration: { enabled: true } }),
+    });
+    renderAt("/link-account");
+    expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent(LINK_EXPIRED_TEXT);
+    await waitFor(() => expect(loc()).toBe("/login"));
+    expect(calls.some(c => c.method === "POST")).toBe(false);
+  });
+
+  it("fix r1 M-b：先密碼 429（附倒數）再按 SSO 且 prove 失敗 → 只顯示 prove 的錯誤，不殘留倒數", async () => {
+    mockFetch({
+      "GET /api/auth/oidc/pending": () => fakeResponse(200, PENDING),
+      "POST /api/auth/oidc/pending/confirm": () => err(429, "too_many_attempts", { retryAfterMs: 4200 }),
+      "POST /api/auth/oidc/pending/prove/11111111-1111-1111-1111-111111111111": () => err(503, "oidc_unavailable"),
+    });
+    renderAt("/link-account");
+    fireEvent.change(await screen.findByLabelText("Password for this account"), { target: { value: "pw-123456789012" } });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm with password and link" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Try again in 5s."));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm by signing in with GitLab" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Single sign-on is unavailable right now."));
+    expect(screen.getByRole("alert")).not.toHaveTextContent("Try again in");
+  });
+
+  it("fix r1 M-c：GET pending 遇到 401／409 以外的失敗（500、網路錯誤）→ 顯示通用錯誤與 outline 的「回登入頁」，不停在 Loading", async () => {
+    for (const fail of [() => err(500, "internal"), () => Promise.reject(new TypeError("Failed to fetch"))]) {
+      mockFetch({
+        "GET /api/auth/oidc/pending": fail,
+        "POST /api/auth/oidc/pending/cancel": () => fakeResponse(204),
+        "GET /api/auth/config": () => fakeResponse(200, { providers: [], registration: { enabled: true } }),
+      });
+      renderAt("/link-account");
+      expect(await screen.findByRole("alert")).toHaveTextContent("An unexpected error occurred.");
+      expect(screen.queryByText("Loading…")).not.toBeInTheDocument();
+      const back = screen.getByRole("button", { name: "Back to sign in" });
+      expect(SOLID_BG.test(back.className)).toBe(false);
+      fireEvent.click(back);
+      await waitFor(() => expect(loc()).toBe("/login"));
+      cleanup();
+    }
+  });
 });

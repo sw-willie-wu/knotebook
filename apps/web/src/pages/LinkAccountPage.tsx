@@ -107,6 +107,8 @@ export default function LinkAccountPage() {
     const pending = pendingQuery.data;
     if (pending === undefined) return;
     setErrorMessage(null);
+    // 前一次密碼送出的 429 倒數不得錯接到 prove 的錯誤上（fix r1 M-b）。
+    setRetryAfterSeconds(null);
     setBusy(true);
     try {
       const res = await api<OidcRedirectDto>(`/api/auth/oidc/pending/prove/${encodeURIComponent(providerId)}`, {
@@ -132,7 +134,13 @@ export default function LinkAccountPage() {
     navigate("/login", { replace: true });
   }
 
-  const noProofMethod = pendingQuery.error instanceof ApiFail && pendingQuery.error.code === "oidc_link_no_proof_method";
+  const loadError = pendingQuery.error;
+  const noProofMethod = loadError instanceof ApiFail && loadError.code === "oidc_link_no_proof_method";
+  // 401／oidc_link_expired 由上面的 effect 轉登入頁；其餘（500、網路失敗）給通用錯誤與出口，免得永遠停在 Loading（fix r1 M-c）。
+  const loadFailed =
+    loadError !== null &&
+    !noProofMethod &&
+    !(loadError instanceof ApiFail && (loadError.status === 401 || loadError.code === "oidc_link_expired"));
   const pending = pendingQuery.data;
 
   return (
@@ -149,7 +157,18 @@ export default function LinkAccountPage() {
           </>
         )}
 
-        {pending === undefined && !noProofMethod && <p className="text-sm text-muted-foreground">{t("linkAccount.loading")}</p>}
+        {loadFailed && (
+          <>
+            <p role="alert" className="text-sm text-destructive">
+              {t("errors.fallback")}
+            </p>
+            <Button type="button" variant="outline" className="w-full" onClick={() => void handleCancel(false)}>
+              {t("linkAccount.backToLogin")}
+            </Button>
+          </>
+        )}
+
+        {pending === undefined && !noProofMethod && !loadFailed && <p className="text-sm text-muted-foreground">{t("linkAccount.loading")}</p>}
 
         {pending !== undefined && (
           <>
