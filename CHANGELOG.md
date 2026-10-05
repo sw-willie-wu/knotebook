@@ -9,7 +9,7 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ### Changed
 
-- The first admin account, created from `ADMIN_EMAIL`/`ADMIN_PASSWORD` on a new instance, is no longer forced to change its password on first login — you set that password yourself in `.env`. Accounts that are still marked to change their password (such as ones an admin creates, or — on an instance initialized before this change — an env-bootstrapped admin that hasn't changed it yet) keep that requirement until the password is changed (#187).
+- The first admin account, created from `ADMIN_EMAIL`/`ADMIN_PASSWORD` on a new instance, is no longer forced to change its password on first login — you set that password yourself in `.env`. Accounts that are still marked to change their password (such as ones an admin creates, or — on an instance initialized before this change — an env-bootstrapped admin that hasn't changed it yet) are still sent to change it when they sign in with a password (#187).
 
 ### Fixed
 
