@@ -164,7 +164,7 @@ describe("LinkAccountPage（#187 §9.4 /link-account）", () => {
   it("沒有可用證明方式（409 oidc_link_no_proof_method）→ 只顯示說明與「回登入頁」", async () => {
     mockFetch({ "GET /api/auth/oidc/pending": () => err(409, "oidc_link_no_proof_method") });
     renderAt("/link-account");
-    expect(await screen.findByText(/has no way to prove it's yours right now/)).toBeInTheDocument();
+    expect(await screen.findByText(/has no other way to confirm it's you/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Back to sign in" })).toBeInTheDocument();
     expect(screen.queryByLabelText("Password for this account")).not.toBeInTheDocument();
   });

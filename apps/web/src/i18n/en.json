@@ -669,7 +669,7 @@
     "registration_disabled": "This site isn't accepting new accounts right now. Please contact the site administrator.",
     "oidc_link_expired": "This linking request has expired or was replaced. Please sign in again.",
     "oidc_link_proof_mismatch": "The identity you signed in with isn't one already linked to this account.",
-    "oidc_link_no_proof_method": "This email already has an account, but that account has no way to prove it's yours right now (it has no password, and the sign-in services it's linked to are turned off). Please contact the site administrator.",
+    "oidc_link_no_proof_method": "This email already has an account, but that account has no other way to confirm it's you — no password, and no other sign-in service you can use here. Please contact the site administrator.",
     "oidc_claim_too_long": "Your identity provider sent an email address or account ID that is too long to use.",
     "identity_taken": "This sign-in identity is already linked to a different account.",
     "identity_already_linked": "This account is already linked to a different identity on the same sign-in service.",

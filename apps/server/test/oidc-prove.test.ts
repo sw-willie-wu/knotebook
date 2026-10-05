@@ -148,6 +148,28 @@ describe("SSO 證明（#187 §7.5.3，§14.1-4a）", () => {
     expect((await post("a")).statusCode).toBe(200);
   });
 
+  it("§14.1-4a 第 2 點 B2：帳號已有 A(sub-1)＋B → 以 A 的另一個 sub 首登，證明前不揭露 B2；用 B 證明完 → /link-account?error=identity_already_linked、不寫入", async () => {
+    const t = await app2();
+    await ssoRoundTrip(t.app, t.idp("a"), { loginUrl: `/api/auth/oidc/login/${t.provider("a").id}`, claims: { sub: "sub-1", email: "u@x.example" } });
+    const [u] = await t.db.select().from(users).where(eq(users.email, "u@x.example"));
+    await t.db.insert(userIdentities).values({ userId: u!.id, issuer: B, sub: "ub" });
+    const r = await ssoRoundTrip(t.app, t.idp("a"), { loginUrl: `/api/auth/oidc/login/${t.provider("a").id}`, claims: { sub: "sub-2", email: "u@x.example" } });
+    // 證明前：callback 只導 /link-account，GET pending 只列 B（A 被同 issuer 排除），都不透露「已有 A 的另一個 sub」。
+    expect(r.callbackRes.headers.location).toBe("/link-account");
+    const pending = r.cookies[OIDC_PENDING_COOKIE]!;
+    const pendingId = unsealPendingLink(testConfig.appSecret, pending, nowS())!.pendingId;
+    const get = await t.app.inject({ method: "GET", url: "/api/auth/oidc/pending", cookies: { [OIDC_PENDING_COOKIE]: pending } });
+    expect(get.statusCode).toBe(200);
+    expect(get.json().methods).toEqual({ password: false, providers: [{ id: t.provider("b").id, displayName: "B" }] });
+    expect(JSON.stringify(get.json())).not.toContain("identity_already_linked");
+    const { start, callback } = await prove(t, "b", { [OIDC_PENDING_COOKIE]: pending }, pendingId, { sub: "ub", email: "u@x.example" });
+    expect(start.statusCode).toBe(200);
+    expect(callback!.headers.location).toBe("/link-account?error=identity_already_linked");
+    expect(callback!.cookies.find(c => c.name === SESSION_COOKIE)).toBeUndefined();
+    expect(await identitiesOf(t.db, u!.id)).toEqual([{ issuer: A, sub: "sub-1" }, { issuer: B, sub: "ub" }]);
+    expect(await t.db.select().from(userIdentities).where(eq(userIdentities.sub, "sub-2"))).toEqual([]);
+  });
+
   it("C19：往返途中證明用的 provider 被停用 → callback 302 /login?error=oidc_unavailable；身分被刪 → oidc_link_proof_mismatch", async () => {
     const t = await app2();
     const { user, pending, pendingId } = await ssoOnlyPending(t);

@@ -22,7 +22,7 @@ import { LINK_EXPIRED_MESSAGE, linkPendingIdentityInTx, type LinkedUser } from "
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
 
 const NO_PENDING_MESSAGE = "沒有待連結的登入，請重新登入";
-const NO_PROOF_MESSAGE = "這個 email 已有帳號，但它目前沒有可用來證明本人的登入方式（沒有密碼，連結的登入服務也已停用）。請聯絡站長。";
+const NO_PROOF_MESSAGE = "這個 email 已有帳號，但它沒有其他方式可以證明是你本人——沒有密碼，也沒有其他能在這裡使用的登入服務。請聯絡站長。";
 
 const confirmBodySchema = z.object({ password: z.string(), pendingId: z.string() }).strict();
 const proveBodySchema = z.object({ pendingId: z.string() }).strict();

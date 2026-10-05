@@ -68,8 +68,8 @@ export async function identitiesOf(db: Db, userId: string): Promise<Array<{ issu
 }
 
 /**
- * #187 Task 8：既有 OIDC 整合測試（oidc-login／oidc-callback／handle）的共用起手式——取代舊的
- * `loadConfig({ OIDC_* })`＋`createOidcRuntime(config.oidc!)`＋`buildTestApp({ config, oidc })`。
+ * #187：單一 legacy provider 的 OIDC 整合測試（oidc-login／oidc-callback／handle）共用起手式——`buildTestApp` 注入以 `fetch`
+ * 接 fake IdP 的 `createOidcRuntimeRegistry`（OIDC 設定一律來自 DB 的 `auth_providers`，不再讀 config），再
  * seed 一個 legacy provider（＝env 匯入的那一個，走舊網址 `/api/auth/oidc/login`、`/callback`，B13），issuer 與 fake IdP 相同。
  * `config` 就是 `testConfig`：PUBLIC_URL（http://localhost:3000）與 APP_SECRET（"a"×64）與舊 `oidcConfig()` 逐字相同。
  */

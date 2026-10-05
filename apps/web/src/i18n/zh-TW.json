@@ -669,7 +669,7 @@
     "registration_disabled": "此站台目前不開放註冊新帳號，請聯絡站長。",
     "oidc_link_expired": "這個連結請求已過期或已被取代，請重新登入。",
     "oidc_link_proof_mismatch": "你登入的不是這個帳號已連結的那個身分。",
-    "oidc_link_no_proof_method": "這個 email 已有帳號，但它目前沒有可用來證明本人的登入方式（沒有密碼，連結的登入服務也已停用）。請聯絡站長。",
+    "oidc_link_no_proof_method": "這個 email 已有帳號，但它沒有其他方式可以證明是你本人——沒有密碼，也沒有其他能在這裡使用的登入服務。請聯絡站長。",
     "oidc_claim_too_long": "身分提供者傳來的電子郵件或帳號識別碼過長，無法使用。",
     "identity_taken": "這個登入身分已連結到其他帳號。",
     "identity_already_linked": "這個帳號已連結同一個登入服務的另一個身分。",
