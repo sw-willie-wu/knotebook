@@ -2,7 +2,7 @@
  * #175 T3（spec §6.3）：個人筆記移進群組的交易本體。S14：只收 `tx`、純資料與型別明示的測試縫。
  *   (0) SELECT … FOR UPDATE 本列；不存在 → 404；已不是呼叫者的個人筆記 → 409 conflict（C1）
  *   (1) 目標群組：先對 `groups` 列取 `FOR KEY SHARE`，再讀呼叫者的成員資格與 can_create（走 tx）→ 群組不存在、
- *       非成員、無 can_create → 404 group_not_found。這把鎖與 `lockGroup`（T5 刪群組、T9–T11 成員異動、PR3 T12／T13
+ *       非成員、無 can_create → 404 group_not_found。這把鎖與 `lockGroup`（T6／T7 刪群組、T9–T11 成員異動、PR3 T12／T13
  *       角色異動都取 `groups FOR UPDATE`）互斥，所以成員資格從讀到 commit 都成立（C18a／C18b）——前提是所有會改變既有
  *       成員資格、或改變可能已有人持有之角色旗標的寫入，都先 `lockGroup`（`POST …/roles` 只新增無人持有的角色，不在此列；含 PR3 T12／T13 角色改刪；S1 紀律 `groups/queries.ts` 只管到
  *       group_members 列與其 role_id，group_roles 的旗標靠各路徑自守）。不擋改群組名（非鍵 UPDATE＝`FOR NO KEY UPDATE`，
