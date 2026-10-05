@@ -5,14 +5,25 @@ import { sealCookieJson, unsealCookieJson } from "./sealed-cookie.js";
 // sha256 namespace 衍生慣例（`:ai-key`）與 `auth/session.ts`（`:session`）：同一個
 // APP_SECRET 用不同 namespace 字尾衍生出互不相通的用途專屬金鑰。
 // #187 起封章本體在 `auth/sealed-cookie.ts`（格式不變；namespace `oidc-state`）。
+// #187 §7.3：payload 綁「發出它的 provider」（`providerId`）與當下的設定版本（`configVersion`），並帶 `intent`——callback
+// 據此判斷 cookie 是否屬於這條 provider 路徑、設定是否在登入途中變了（C5）。三欄缺任何一個＝部署前封的舊 cookie，unseal 回 null
+// （在飛的登入失敗一次，§17 第 12 條）。PR1 的 intent 只有 "login"（Task 11 加 "prove"；PR3 的 "link" 不收）。
 
-export interface OidcStatePayload {
+export interface OidcStateBase {
   state: string;
   nonce: string;
   codeVerifier: string;
   /** epoch 秒。由 server 端驗證（`payload.exp <= now` → null）——cookie 的 `maxAge`
    * 只是瀏覽器端約束，不可信任（§14.3 MAJOR-4）。 */
   exp: number;
+  /** #187：發出這顆 cookie 的 provider id（小寫 uuid）。 */
+  providerId: string;
+  /** #187：封章當下該 provider 的 `config_version`。 */
+  configVersion: number;
+}
+
+export type OidcStateIntent = {
+  intent: "login";
   /**
    * #131：登入完成後要回去的站內路徑。由 login 端點寫入（已過 `safeNextPath`），callback
    * 端（Task 6 起）**unseal 後再驗一次**才使用——封章保證「這是我們封的」，不保證它現在
@@ -21,11 +32,13 @@ export interface OidcStatePayload {
    * ⚠ **沒有第二道長度上限**：唯一的關是 `safeNextPath`（`packages/shared` 的
    * `MAX_NEXT_PATH_LENGTH` = 2048）。spec §5.3.3 原本要求再壓到 512、理由是 cookie 的
    * 4 KB 上限，實測不成立（2048 字元的 next 封章後 `name=value` 是 3049 bytes、含屬性
-   * 3115，臨界值 2834 字元），那道關只會把 513–2048 的合法路徑在 SSO 線靜默丟掉。
+   * 3115，臨界值 2834 字元——Plan 5 時的量測；#187 加 providerId／configVersion／intent 後 `name=value` 實測 3165），那道關只會把 513–2048 的合法路徑在 SSO 線靜默丟掉。
    * Willie 2026-09-03 裁決拿掉。守衛見 `test/oidc-login.test.ts` 的兩案分工註解。
    */
   next?: string;
-}
+};
+
+export type OidcStatePayload = OidcStateBase & OidcStateIntent;
 
 /** OIDC state cookie 的存活時間（秒）：10 分鐘，足夠使用者在 IdP 完成登入流程。 */
 export const OIDC_STATE_TTL_SECONDS = 600;
@@ -70,6 +83,10 @@ export function unsealOidcState(appSecret: string, sealed: string, nowEpochSecon
   // （`typeof null === "object"` ≠ `"string"`），不必也不該另寫 `!== null`。
   // ⚠ 別簡化成 `if (nextValue && typeof nextValue !== "string")`：那樣 null 會漏（空字串
   // 被放過是**對的**，`""` 本來就是合法字串）。守衛：unit 的「next 是 null」那案。
+  const p = parsed as Record<string, unknown>;
+  // #187 §7.3：providerId／configVersion／intent 是新必要欄位——缺的就是部署前封的舊 cookie（在飛的登入失敗一次，§17 第 12 條）。
+  if (typeof p.providerId !== "string" || !Number.isInteger(p.configVersion) || p.intent !== "login") return null;
+
   const nextValue = (parsed as Record<string, unknown>).next;
   if (nextValue !== undefined && typeof nextValue !== "string") {
     return null;

@@ -1,9 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { asc, eq } from "drizzle-orm";
+import type { CustomFetch } from "openid-client";
+import type { AppDeps } from "../../src/app.js";
+import type { AppConfig } from "../../src/config.js";
 import type { Db } from "../../src/db/index.js";
 import { authProviders, userIdentities } from "../../src/db/schema.js";
+import { createOidcRuntimeRegistry } from "../../src/auth/oidc-client.js";
 import { sealClientSecret, type OidcProviderRow } from "../../src/auth/oidc-providers.js";
-import { testConfig } from "../helpers.js";
+import { buildTestApp, testConfig, type TestApp } from "../helpers.js";
 
 export interface SeedProviderOpts {
   issuerUrl: string;
@@ -59,4 +63,20 @@ export async function identitiesOf(db: Db, userId: string): Promise<Array<{ issu
     .from(userIdentities)
     .where(eq(userIdentities.userId, userId))
     .orderBy(asc(userIdentities.issuer), asc(userIdentities.sub));
+}
+
+/**
+ * #187 Task 8：既有 OIDC 整合測試（oidc-login／oidc-callback／handle）的共用起手式——取代舊的
+ * `loadConfig({ OIDC_* })`＋`createOidcRuntime(config.oidc!)`＋`buildTestApp({ config, oidc })`。
+ * seed 一個 legacy provider（＝env 匯入的那一個，走舊網址 `/api/auth/oidc/login`、`/callback`，B13），issuer 與 fake IdP 相同。
+ * `config` 就是 `testConfig`：PUBLIC_URL（http://localhost:3000）與 APP_SECRET（"a"×64）與舊 `oidcConfig()` 逐字相同。
+ */
+export async function legacyOidcApp(
+  fetch: CustomFetch,
+  issuerUrl: string,
+  overrides: Partial<AppDeps> = {},
+): Promise<TestApp & { provider: OidcProviderRow; config: AppConfig }> {
+  const built = await buildTestApp({ oidcRegistry: createOidcRuntimeRegistry({ fetch }), ...overrides });
+  const provider = await seedAuthProvider(built.db, { issuerUrl, legacyCallback: true });
+  return { ...built, provider, config: testConfig };
 }

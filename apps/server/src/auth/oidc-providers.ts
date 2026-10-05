@@ -127,10 +127,14 @@ export async function recordResolvedIssuer(db: Db, provider: { id: string; confi
 /**
  * login／callback／SSO 證明起點共用：從 registry 取 discovery 結果（secret 只在建 runtime 時解），discovery 回報的 issuer
  * 與列上 `resolved_issuer` 不同就以版本述詞寫回（spec §6「第一次 discovery 成功後以版本述詞寫 resolved_issuer」——
- * registry 不碰 DB，由這裡寫；見 plan「spec 疑點」第 7 條）。失敗一律 `OidcUnavailableError`（registry 已包）。
+ * registry 不碰 DB，由這裡寫；見 plan「spec 疑點」第 7 條）。
+ *
+ * 會 throw 的只有取 discovery 結果那一步，且一律是 `OidcUnavailableError`（registry 已包）。`resolved_issuer` 的寫回是
+ * **盡力而為**：它失敗（DB 暫時錯誤等）時吞掉、記一筆 warn（只帶 provider id 與錯誤訊息），照常回傳 configuration——
+ * 這次登入用不到它（身分的 issuer 取自 discovery 結果本身），下一次 discovery 結果照樣會再試著寫（#187 Task 8，Task 3 審查）。
  */
 export async function providerConfiguration(
-  deps: { db: Db; registry: OidcRuntimeRegistry; appSecret: string },
+  deps: { db: Db; registry: OidcRuntimeRegistry; appSecret: string; log?: { warn(obj: object, msg: string): void } },
   provider: OidcProviderRow,
 ): Promise<client.Configuration> {
   const configuration = await deps.registry.get(
@@ -138,6 +142,15 @@ export async function providerConfiguration(
     async () => openClientSecret(deps.appSecret, provider),
   );
   const issuer = configuration.serverMetadata().issuer;
-  if (provider.resolvedIssuer !== issuer) await recordResolvedIssuer(deps.db, provider, issuer);
+  if (provider.resolvedIssuer !== issuer) {
+    try {
+      await recordResolvedIssuer(deps.db, provider, issuer);
+    } catch (err) {
+      deps.log?.warn(
+        { providerId: provider.id, error: err instanceof Error ? err.message : String(err) },
+        "resolved_issuer 寫回失敗（盡力而為，登入照常）",
+      );
+    }
+  }
   return configuration;
 }

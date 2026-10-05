@@ -1,28 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { MAX_NEXT_PATH_LENGTH, OIDC_STATE_COOKIE } from "@knotebook/shared";
 import type { CustomFetch } from "openid-client";
+import { Writable } from "node:stream";
+import { eq } from "drizzle-orm";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
-import { buildTestApp, freshLimiters } from "./helpers.js";
+import { createOidcRuntimeRegistry } from "../src/auth/oidc-client.js";
+import { authProviders } from "../src/db/schema.js";
+import { buildTestApp, freshDb, freshLimiters } from "./helpers.js";
 import { createFakeIdp } from "./helpers/fake-idp.js";
-import { loadConfig, type AppConfig } from "../src/config.js";
-import { createOidcRuntime } from "../src/auth/oidc-client.js";
-import { unsealOidcState } from "../src/auth/oidc-state.js";
+import { legacyOidcApp, seedAuthProvider } from "./helpers/oidc-provider.js";
+import { unsealOidcState, type OidcStatePayload } from "../src/auth/oidc-state.js";
 
 const ISSUER_URL = "https://idp.example.com";
 
-function oidcConfig(): AppConfig {
-  return loadConfig({
-    DATABASE_URL: "postgres://u:p@localhost:5432/test",
-    APP_SECRET: "a".repeat(64),
-    PUBLIC_URL: "http://localhost:3000",
-    OIDC_ISSUER_URL: ISSUER_URL,
-    OIDC_CLIENT_ID: "test-client",
-    OIDC_CLIENT_SECRET: "test-secret",
-  });
-}
-
-/** 一層可換底的 fetch：讓同一個 runtime 在測試中期改變底層行為（例如「discovery 先失敗，
- * 修好後重打」），不需要重新建立 runtime——重建 runtime 會失去要驗證的快取狀態本身。 */
+/** 一層可換底的 fetch：讓同一個 registry 在測試中期改變底層行為（例如「discovery 先失敗，
+ * 修好後重打」），不需要重新建立 registry——重建會失去要驗證的快取狀態本身。 */
 function switchableFetch(initial: CustomFetch): { fetch: CustomFetch; set(next: CustomFetch): void } {
   let current = initial;
   const fetch: CustomFetch = (...args) => current(...args);
@@ -33,19 +25,30 @@ const throwingFetch: CustomFetch = async () => {
   throw new Error("network unreachable");
 };
 
-describe("GET /api/auth/oidc/login", () => {
-  it("OIDC 未設定 → 302 /login?error=oidc_unavailable", async () => {
-    const { app } = await buildTestApp();
+/**
+ * state payload 的 next。Task 11 起 `OidcStatePayload` 是聯集（prove 形沒有 next），直接讀 `p.next` 在
+ * `tsconfig.test.json` 下是 TS2339——一律經這個收窄 helper（gate r2 t8-14 I1）。
+ */
+function nextOf(p: OidcStatePayload | null): string | undefined {
+  return p !== null && p.intent === "login" ? p.next : undefined;
+}
+
+describe("GET /api/auth/oidc/login（legacy 入口，#187 B13）", () => {
+  it("沒有 legacy provider（未匯入 OIDC_*）→ 302 /login?error=oidc_unavailable；legacy provider 停用 → 同", async () => {
+    const { app, db } = await buildTestApp();
     const res = await app.inject({ method: "GET", url: "/api/auth/oidc/login" });
     expect(res.statusCode).toBe(302);
     expect(res.headers.location).toBe("/login?error=oidc_unavailable");
+
+    await seedAuthProvider(db, { issuerUrl: ISSUER_URL, legacyCallback: true, enabled: false });
+    const disabled = await app.inject({ method: "GET", url: "/api/auth/oidc/login" });
+    expect(disabled.statusCode).toBe(302);
+    expect(disabled.headers.location).toBe("/login?error=oidc_unavailable");
   });
 
-  it("已設定 + mock IdP → 302 至 authorize endpoint，query/cookie 皆正確", async () => {
-    const config = oidcConfig();
+  it("已設定 + mock IdP → 302 至 authorize endpoint，query/cookie 皆正確；redirect_uri 是舊回呼網址；state cookie 綁 providerId／configVersion／intent", async () => {
     const fakeIdp = createFakeIdp(ISSUER_URL);
-    const runtime = createOidcRuntime(config.oidc!, { fetch: fakeIdp.fetch });
-    const { app } = await buildTestApp({ config, oidc: runtime });
+    const { app, config, provider } = await legacyOidcApp(fakeIdp.fetch, ISSUER_URL);
 
     const res = await app.inject({ method: "GET", url: "/api/auth/oidc/login" });
     expect(res.statusCode).toBe(302);
@@ -59,6 +62,7 @@ describe("GET /api/auth/oidc/login", () => {
     expect(location.searchParams.get("nonce")).toBeTruthy();
     expect(location.searchParams.get("code_challenge_method")).toBe("S256");
     expect(location.searchParams.get("code_challenge")).toBeTruthy();
+    // #187 §7.1／§14.1-13：legacy provider 沿用舊回呼網址（IdP 端已註冊的那條不必改）。
     expect(location.searchParams.get("redirect_uri")).toBe("http://localhost:3000/api/auth/oidc/callback");
 
     const cookie = res.cookies.find(c => c.name === OIDC_STATE_COOKIE);
@@ -71,14 +75,14 @@ describe("GET /api/auth/oidc/login", () => {
     expect(cookie?.maxAge).toBe(600);
 
     // MINOR-4（審查 fix round 1）：cookie 密封值 ↔ authorize URL 一致——回讀密封的
-    // state/nonce，須與 302 location 的 query 相等，證明兩者確實來自同一次產生、沒有
-    // 各自獨立亂數導致「cookie 存的 state」與「送去 IdP 的 state」對不上（callback 端
-    // 靠這個相等性做 CSRF 防護，見 Task 9）。
+    // state/nonce，須與 302 location 的 query 相等，證明兩者確實來自同一次產生。
     const nowEpochSeconds = Math.floor(Date.now() / 1000);
     const sealedPayload = unsealOidcState(config.appSecret, cookie!.value, nowEpochSeconds);
     expect(sealedPayload).not.toBeNull();
     expect(sealedPayload?.state).toBe(location.searchParams.get("state"));
     expect(sealedPayload?.nonce).toBe(location.searchParams.get("nonce"));
+    // #187 §7.3：cookie 綁發出它的 provider 與當下的設定版本；PR1 的 login 一律 intent "login"。
+    expect(sealedPayload).toMatchObject({ providerId: provider.id, configVersion: 1, intent: "login" });
 
     // 不可預測性：第二次請求必須產生不同的 state（不是固定值/可預測序列）。
     const res2 = await app.inject({ method: "GET", url: "/api/auth/oidc/login" });
@@ -87,11 +91,9 @@ describe("GET /api/auth/oidc/login", () => {
   });
 
   it("discovery 網路失敗（IdP 5xx，harness failNext 一次性）→ 302 oidc_unavailable；不快取——同一 app 再打一次（failNext 已消費即還原）→ 302 至 IdP", async () => {
-    const config = oidcConfig();
     const fakeIdp = createFakeIdp(ISSUER_URL);
     fakeIdp.failNext("discovery");
-    const runtime = createOidcRuntime(config.oidc!, { fetch: fakeIdp.fetch });
-    const { app } = await buildTestApp({ config, oidc: runtime });
+    const { app } = await legacyOidcApp(fakeIdp.fetch, ISSUER_URL);
 
     const first = await app.inject({ method: "GET", url: "/api/auth/oidc/login" });
     expect(first.statusCode).toBe(302);
@@ -104,11 +106,9 @@ describe("GET /api/auth/oidc/login", () => {
   });
 
   it("discovery 成功但 metadata 無 jwks_uri → 302 oidc_unavailable；修好後重打成功——不可用不快取", async () => {
-    const config = oidcConfig();
     const fakeIdp = createFakeIdp(ISSUER_URL);
     fakeIdp.omitFromMetadata(["jwks_uri"]);
-    const runtime = createOidcRuntime(config.oidc!, { fetch: fakeIdp.fetch });
-    const { app } = await buildTestApp({ config, oidc: runtime });
+    const { app } = await legacyOidcApp(fakeIdp.fetch, ISSUER_URL);
 
     const first = await app.inject({ method: "GET", url: "/api/auth/oidc/login" });
     expect(first.statusCode).toBe(302);
@@ -121,12 +121,10 @@ describe("GET /api/auth/oidc/login", () => {
     expect(new URL(second.headers.location as string).origin).toBe(ISSUER_URL);
   });
 
-  it("discovery 成功後把 fetch 換成 throw → 仍 302 至 IdP（成功快取至重啟）", async () => {
-    const config = oidcConfig();
+  it("discovery 成功後把 fetch 換成 throw → 仍 302 至 IdP（成功快取到設定版本變更或重啟）", async () => {
     const fakeIdp = createFakeIdp(ISSUER_URL);
     const swap = switchableFetch(fakeIdp.fetch);
-    const runtime = createOidcRuntime(config.oidc!, { fetch: swap.fetch });
-    const { app } = await buildTestApp({ config, oidc: runtime });
+    const { app } = await legacyOidcApp(swap.fetch, ISSUER_URL);
 
     const first = await app.inject({ method: "GET", url: "/api/auth/oidc/login" });
     expect(first.statusCode).toBe(302);
@@ -140,10 +138,8 @@ describe("GET /api/auth/oidc/login", () => {
   });
 
   it("in-flight 去重：首波併發共用同一次 discovery → discovery fetch 恰一次", async () => {
-    const config = oidcConfig();
     const fakeIdp = createFakeIdp(ISSUER_URL);
-    const runtime = createOidcRuntime(config.oidc!, { fetch: fakeIdp.fetch });
-    const { app } = await buildTestApp({ config, oidc: runtime });
+    const { app } = await legacyOidcApp(fakeIdp.fetch, ISSUER_URL);
 
     const [first, second] = await Promise.all([
       app.inject({ method: "GET", url: "/api/auth/oidc/login" }),
@@ -154,19 +150,47 @@ describe("GET /api/auth/oidc/login", () => {
     expect(fakeIdp.counts.discovery).toBe(1);
   });
 
-  it("limiter：同一 IP 第 30 次仍放行、第 31 次請求 → 302 too_many_requests", async () => {
-    const config = oidcConfig();
+  it("resolved_issuer 寫回失敗（DB 錯誤）→ 盡力而為：登入照常 302 至 IdP、記一筆 warn（只帶 provider id 與錯誤訊息），不是 oidc_unavailable", async () => {
+    // #187 Task 8（Task 3 審查遺留）：providerConfiguration 的寫回失敗不得變成登入失敗。login 路徑上唯一的 UPDATE 就是
+    // recordResolvedIssuer——讓 app 用的 db 的 update 一律 throw，其餘照常。
+    const { db } = await freshDb();
+    const failingUpdates = new Proxy(db, {
+      get(target, key, receiver) {
+        if (key === "update") return () => { throw new Error("simulated DB failure"); };
+        return Reflect.get(target, key, receiver);
+      },
+    });
+    const lines: string[] = [];
+    const stream = new Writable({ write(chunk, _enc, cb) { lines.push(String(chunk)); cb(); } });
     const fakeIdp = createFakeIdp(ISSUER_URL);
-    const runtime = createOidcRuntime(config.oidc!, { fetch: fakeIdp.fetch });
-    const { app } = await buildTestApp({ config, oidc: runtime });
+    const { app } = await buildTestApp(
+      { db: failingUpdates, oidcRegistry: createOidcRuntimeRegistry({ fetch: fakeIdp.fetch }) },
+      { logger: { level: "warn", stream } },
+    );
+    const provider = await seedAuthProvider(db, { issuerUrl: ISSUER_URL, legacyCallback: true });
+
+    const res = await app.inject({ method: "GET", url: "/api/auth/oidc/login" });
+    expect(res.statusCode).toBe(302);
+    expect(new URL(res.headers.location as string).origin).toBe(ISSUER_URL);
+
+    const warned = lines.flatMap(l => l.split("\n")).filter(Boolean).map(l => JSON.parse(l) as Record<string, unknown>)
+      .filter(l => l.msg === "resolved_issuer 寫回失敗（盡力而為，登入照常）");
+    expect(warned).toHaveLength(1);
+    expect(warned[0]).toMatchObject({ level: 40, providerId: provider.id, error: "simulated DB failure" });
+    // 真的沒寫進去（寫回確實失敗了，不是根本沒走到那一步）。
+    const [row] = await db.select({ r: authProviders.resolvedIssuer }).from(authProviders).where(eq(authProviders.id, provider.id));
+    expect(row!.r).toBeNull();
+  });
+
+  it("limiter：同一 IP 第 30 次仍放行、第 31 次請求 → 302 too_many_requests", async () => {
+    const fakeIdp = createFakeIdp(ISSUER_URL);
+    const { app } = await legacyOidcApp(fakeIdp.fetch, ISSUER_URL);
 
     let res: Awaited<ReturnType<typeof app.inject>> | undefined;
     for (let i = 0; i < 31; i += 1) {
       res = await app.inject({ method: "GET", url: "/api/auth/oidc/login" });
       // MINOR-5（審查 fix round 1）：只釘住第 31 發只證明「額度真的有上限」，沒證明
-      // 「上限剛好是 30」——把 limit 改成 1 也會讓第 31 發同樣落在 too_many_requests，
-      // 舊測試矩陣分不出兩者。這裡額外釘住第 30 發仍成功 302 至 IdP（location 含
-      // issuer），才真的鎖住「限額恰為 OIDC_LIMIT=30」。
+      // 「上限剛好是 30」——這裡額外釘住第 30 發仍成功 302 至 IdP，才真的鎖住「限額恰為 OIDC_LIMIT=30」。
       if (i === 29) {
         expect(res.statusCode).toBe(302);
         expect(new URL(res.headers.location as string).origin).toBe(ISSUER_URL);
@@ -179,10 +203,8 @@ describe("GET /api/auth/oidc/login", () => {
   it("limiter：callback 吃自己的額度，不會扣到 login 頭上（issue #16）", async () => {
     // 一次完整的 SSO 登入必定先 login 再 callback。兩者共用一個 bucket 的話，每次登入
     // 吃掉兩份額度，實際可用次數只有標稱的一半（共用出口 IP 的辦公室網路更早撞到）。
-    const config = oidcConfig();
     const fakeIdp = createFakeIdp(ISSUER_URL);
-    const runtime = createOidcRuntime(config.oidc!, { fetch: fakeIdp.fetch });
-    const { app } = await buildTestApp({ config, oidc: runtime });
+    const { app } = await legacyOidcApp(fakeIdp.fetch, ISSUER_URL);
 
     // 先把 callback 那份額度打爆（沒有 state cookie，一律 302 回 oidc_state_mismatch，
     // 但**照樣計數**——這條路由不需要先走過 login 就能被外部敲）。
@@ -209,21 +231,16 @@ describe("#131 login 端點的 next", () => {
   async function loginWithNext(
     url: string,
   ): Promise<{ next: string | undefined; cookieBytes: number; setCookieBytes: number }> {
-    const config = oidcConfig();
     const fakeIdp = createFakeIdp(ISSUER_URL);
-    const runtime = createOidcRuntime(config.oidc!, { fetch: fakeIdp.fetch });
-    const { app } = await buildTestApp({ config, oidc: runtime });
+    const { app, config } = await legacyOidcApp(fakeIdp.fetch, ISSUER_URL);
 
     const res = await app.inject({ method: "GET", url });
     expect(res.statusCode).toBe(302);
     const location = new URL(res.headers.location as string);
-    // 真的去了 IdP——否則下面解出 undefined 是「其實被導回 /login」的假綠。（早退不
-    // setCookie，所以 cookie 的存在本身也擋得住；這條的價值是失敗訊息直接指出病因。）
+    // 真的去了 IdP——否則下面解出 undefined 是「其實被導回 /login」的假綠。
     expect(location.origin).toBe(ISSUER_URL);
-    // next 只走密封 cookie，**不得**出現在送去 IdP 的 authorize query。放在 helper 裡
-    // ＝七案免費覆蓋，含負向案（「被判定不該封的 next 有沒有反而被轉手出去」）。
-    // ⚠ 用 searchParams.has，不要對整條 location 做子字串比對：state 是 43 字元隨機
-    // base64url，偶爾會湊出 "next" 這四個字元 → 間歇假紅。
+    // next 只走密封 cookie，**不得**出現在送去 IdP 的 authorize query。⚠ 用 searchParams.has，
+    // 不要對整條 location 做子字串比對：state 是 43 字元隨機 base64url，偶爾會湊出 "next"。
     expect(location.searchParams.has("next")).toBe(false);
 
     const cookie = res.cookies.find(c => c.name === OIDC_STATE_COOKIE);
@@ -235,9 +252,8 @@ describe("#131 login 端點的 next", () => {
       ? setCookieHeader.find(line => line.startsWith(`${OIDC_STATE_COOKIE}=`))!
       : setCookieHeader!;
     return {
-      next: payload!.next,
-      // Chrome 實際設限的對象是 name=value；RFC 6265 §6.1 的 4096 預算則含屬性——
-      // 兩個都量，免得像 spec §5.3.3 那樣「把部分量當全量」。
+      next: nextOf(payload),
+      // Chrome 實際設限的對象是 name=value；RFC 6265 §6.1 的 4096 預算則含屬性——兩個都量。
       cookieBytes: Buffer.byteLength(`${cookie!.name}=${cookie!.value}`, "utf8"),
       setCookieBytes: Buffer.byteLength(setCookieLine, "utf8"),
     };
@@ -268,20 +284,17 @@ describe("#131 login 端點的 next", () => {
   });
 
   it("封章後的 cookie 位元組：最壞情況（2048 字元 next）仍遠低於瀏覽器的 4 KB", async () => {
-    // 這一案是「server 端不需要第二道長度關」這個決策的**量測**守衛（spec §5.3.3 的 512
-    // 就是被它推翻的：那句宣稱 2048 會撐爆 cookie，實際只有約 3049 bytes）。「不得再加
-    // 一道關」則由上面的 2048/2049 那案守——分工要講清楚，因為本案的斷言是**單向上界**。
+    // 「server 端不需要第二道長度關」這個決策的**量測**守衛。#187 加了 providerId／configVersion／intent 三欄後
+    // 最壞約 3177 bytes（plan 主檔複驗第 21 條；Plan 5 時是 3049）——仍低於 3500。
     const worstCaseNext = "/" + "a".repeat(MAX_NEXT_PATH_LENGTH - 1);
     const { next, cookieBytes, setCookieBytes } = await loginWithNext(
       `/api/auth/oidc/login?next=${encodeURIComponent(worstCaseNext)}`,
     );
-    // ⚠ 沒有這一行，本案在「有人重新加一道 1000 字元的關」之下會**更綠**：next 被丟掉
-    // → cookie 只剩約 305 bytes → 兩條上界當然都過。先釘住最壞情況真的進了 cookie。
+    // ⚠ 沒有這一行，本案在「有人重新加一道 1000 字元的關」之下會**更綠**：先釘住最壞情況真的進了 cookie。
     expect(next).toHaveLength(MAX_NEXT_PATH_LENGTH);
     expect(cookieBytes).toBeLessThan(4096);
     expect(setCookieBytes).toBeLessThan(4096);
-    // 同時釘住餘裕：低於 3500 才算「遠低於」，突然逼近（例如 payload 加欄位）就該
-    // 重新評估要不要加關。
+    // 同時釘住餘裕：低於 3500 才算「遠低於」，突然逼近（例如 payload 再加欄位）就該重新評估要不要加關。
     expect(cookieBytes).toBeLessThan(3500);
   });
 
@@ -293,22 +306,29 @@ describe("#131 login 端點的 next", () => {
     expect(await sealedNextOf("/api/auth/oidc/login")).toBeUndefined();
   });
 
-  // 四個導回 /login?error=… 的出口一律不帶 next（spec round 10 定案：設定錯誤路徑，
-  // 使用者從 client 重新發起即可）。下面**四案一案對一條**——把任何一條改成帶 next，
-  // 就恰有一案會紅。
-  it("早退不帶 next：OIDC 未設定", async () => {
+  // 五個導回 /login?error=… 的早退出口一律不帶 next（spec round 10 定案：設定錯誤路徑，使用者從 client 重新發起即可；
+  // #187 §7.2 多了「provider id 不是 UUID」那一個）。下面五案一案對一條【推：把任何一條改成帶 next，恰有對應那一案紅——
+  // implementer 以突變確認，見 Step 10 M6】。
+  it("早退不帶 next：沒有 legacy provider", async () => {
     const { app } = await buildTestApp();
     const res = await app.inject({ method: "GET", url: "/api/auth/oidc/login?next=%2Fn%2Falice%2Fmy-note" });
     expect(res.statusCode).toBe(302);
     expect(res.headers.location).toBe("/login?error=oidc_unavailable");
   });
 
+  it("早退不帶 next：provider id 不是 UUID（/api/auth/oidc/login/not-a-uuid）", async () => {
+    const fakeIdp = createFakeIdp(ISSUER_URL);
+    const { app } = await legacyOidcApp(fakeIdp.fetch, ISSUER_URL);
+    const res = await app.inject({ method: "GET", url: "/api/auth/oidc/login/not-a-uuid?next=%2Fn%2Falice%2Fmy-note" });
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toBe("/login?error=oidc_unavailable");
+    expect(fakeIdp.counts.discovery).toBe(0);
+  });
+
   it("早退不帶 next：discovery 不可用", async () => {
-    const config = oidcConfig();
     const fakeIdp = createFakeIdp(ISSUER_URL);
     fakeIdp.failNext("discovery");
-    const runtime = createOidcRuntime(config.oidc!, { fetch: fakeIdp.fetch });
-    const { app } = await buildTestApp({ config, oidc: runtime });
+    const { app } = await legacyOidcApp(fakeIdp.fetch, ISSUER_URL);
 
     const res = await app.inject({ method: "GET", url: "/api/auth/oidc/login?next=%2Fn%2Falice%2Fmy-note" });
     expect(res.statusCode).toBe(302);
@@ -316,16 +336,12 @@ describe("#131 login 端點的 next", () => {
   });
 
   it("早退不帶 next：組 authorization URL 失敗（外層 catch）", async () => {
-    // metadata 缺 authorization_endpoint 時 getConfiguration **會成功**（它只檢查
-    // jwks_uri 與簽章演算法），要到 buildAuthorizationUrl 才拋錯——這是本 harness 造得出
-    // 來、到得了外層 catch 的路徑。⚠ 本案只斷言「導回且不帶 next」，**沒有**斷言走的是
-    // 哪個分支（counts.discovery 對成功與失敗都是 1，分辨不了）；「確實是外層 catch」是
-    // 用突變驗的：把該 catch 改成帶 next，四案中恰有本案紅。
-    const config = oidcConfig();
+    // metadata 缺 authorization_endpoint 時 getConfiguration **會成功**（它只檢查 jwks_uri 與簽章演算法），要到
+    // buildAuthorizationUrl 才拋錯——這是本 harness 造得出來、到得了外層 catch 的路徑。⚠ 本案只斷言「導回且不帶 next」，
+    // **沒有**斷言走的是哪個分支；「確實是外層 catch」是用突變驗的（Step 10 M6）。
     const fakeIdp = createFakeIdp(ISSUER_URL);
     fakeIdp.omitFromMetadata(["authorization_endpoint"]);
-    const runtime = createOidcRuntime(config.oidc!, { fetch: fakeIdp.fetch });
-    const { app } = await buildTestApp({ config, oidc: runtime });
+    const { app } = await legacyOidcApp(fakeIdp.fetch, ISSUER_URL);
 
     const res = await app.inject({ method: "GET", url: "/api/auth/oidc/login?next=%2Fn%2Falice%2Fmy-note" });
     expect(res.statusCode).toBe(302);
@@ -334,12 +350,8 @@ describe("#131 login 端點的 next", () => {
   });
 
   it("早退不帶 next：限流（第 2 發撞上 limit=1 的桶）", async () => {
-    const config = oidcConfig();
     const fakeIdp = createFakeIdp(ISSUER_URL);
-    const runtime = createOidcRuntime(config.oidc!, { fetch: fakeIdp.fetch });
-    const { app } = await buildTestApp({
-      config,
-      oidc: runtime,
+    const { app } = await legacyOidcApp(fakeIdp.fetch, ISSUER_URL, {
       limiters: freshLimiters({ oidcLogin: new FixedWindowLimiter({ limit: 1, windowMs: 60_000 }) }),
     });
     const url = "/api/auth/oidc/login?next=%2Fn%2Falice%2Fmy-note";

@@ -260,8 +260,9 @@ describe("D12：OAuth issuer 取 origin、PUBLIC_URL 帶其他成分只警告", 
     // 不用 stringContaining("origin") —— 任何含這六個字母的字串都會過，等於沒守。
     expect(message).toContain("PUBLIC_URL");
     expect(message).toContain("sub-path");
-    // OIDC 的 redirect_uri 是**現在就對不上**的那一個（OAuth 端點還不存在）
-    expect(message).toContain("redirect_uri");
+    // #187：每個 provider 一條 redirect URI（/api/auth/oidc/callback[/<id>]）——是**現在就對不上**的那一組
+    expect(message).toContain("OIDC redirect URIs");
+    expect(message).toContain("will not match");
   });
 
   it("訊息是編譯期常數（插值進去會讓 pino 的 msg 每個部署都不同，日誌聚合與告警失效）", () => {
@@ -271,18 +272,18 @@ describe("D12：OAuth issuer 取 origin、PUBLIC_URL 帶其他成分只警告", 
     expect(first).toBe(publicUrlPathWarning(new URL("https://b.example.com/other?q=1")));
   });
 
-  it("警告的前提：sub-path 從 issuer 與 OIDC redirect_uri **兩邊**都被丟掉，userinfo 只從 issuer 丟", () => {
-    // 這一案釘住訊息措辭所依據的事實。訊息說「server 丟掉 sub-path，所以與 docs 教你
-    // 註冊的 <PUBLIC_URL>/api/auth/oidc/callback 對不上」——若哪天 oidcRedirectUri 改成
-    // 保留 sub-path，這裡會紅，逼人回頭重讀那句話（訊息寫反過的前科：把 sub-path 說成
-    // 「redirect_uri 會保留」，實際上只有 userinfo 如此）。
+  it("警告的前提：sub-path 從 issuer 與 OIDC redirect URI **兩邊**都被丟掉，userinfo 只從 issuer 丟", () => {
+    // 這一案釘住訊息措辭所依據的事實。訊息說「server 丟掉 sub-path，所以與 IdP 端註冊的
+    // <PUBLIC_URL>/api/auth/oidc/callback… 對不上」——若哪天 oidcRedirectUri 改成保留 sub-path，這裡會紅，
+    // 逼人回頭重讀那句話（訊息寫反過的前科）。#187 起 legacy 與一般 provider 兩種形各斷言一次。
     const subpath = loadConfig({ ...valid, PUBLIC_URL: "https://example.com/knb" });
     expect(publicUrlIssuer(subpath.publicUrl)).toBe("https://example.com");
-    expect(oidcRedirectUri(subpath)).toBe("https://example.com/api/auth/oidc/callback");
+    expect(oidcRedirectUri(subpath, { id: "p1", legacyCallback: true })).toBe("https://example.com/api/auth/oidc/callback");
+    expect(oidcRedirectUri(subpath, { id: "p1", legacyCallback: false })).toBe("https://example.com/api/auth/oidc/callback/p1");
 
     const withCreds = loadConfig({ ...valid, PUBLIC_URL: "https://u:p@example.com/" });
     expect(publicUrlIssuer(withCreds.publicUrl)).toBe("https://example.com");
-    expect(oidcRedirectUri(withCreds)).toBe("https://u:p@example.com/api/auth/oidc/callback");
+    expect(oidcRedirectUri(withCreds, { id: "p1", legacyCallback: true })).toBe("https://u:p@example.com/api/auth/oidc/callback");
   });
 
   it("結構守衛：index.ts 真的有呼叫 publicUrlPathWarning，且在 listen 之前", () => {

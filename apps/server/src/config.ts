@@ -130,11 +130,6 @@ export interface AppConfig {
    */
   legacyOidcEnv?: { issuerUrl: string; clientId: string; clientSecret: string };
   legacyOidcEnvProblem?: "partial" | "invalid";
-  /** OIDC 登入（Plan 5 §5）。#187 過渡期：與 `legacyOidcEnv` 同值（舊路由在 #187 PR1 Task 8 重寫前仍讀它），Task 8 刪除。
-   * http issuer 的啟動警告不落欄位——`index.ts` 直接對 `oidc.issuerUrl` 判斷是否印警告（二輪 MINOR-6：加一個
-   * `oidcInsecureWarning` 欄位會讓 config.test.ts 的 `toEqual` 精確比對紅——`toEqual`
-   * 忽略 undefined 但不忽略 `false`）。 */
-  oidc?: { issuerUrl: string; clientId: string; clientSecret: string };
 }
 export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
   const r = schema.safeParse(env);
@@ -190,9 +185,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
       legacyOidcEnvProblem = "invalid";
     }
   }
-  // Task 8 移除：舊路由在 Task 8 重寫前仍讀 config.oidc。
-  const oidc: AppConfig["oidc"] = legacyOidcEnv;
-
   // max：Node 計時器上限 2^31-1 ms，超過會被截成 1 ms（連線啟動即逾時、錯誤訊息不指向此設定），故逾時欄位設上限。
   const positiveInt = (name: string, raw: string | undefined, fallback: number, max = Infinity): number => {
     if (raw === undefined) return fallback;
@@ -207,7 +199,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
            cookieSecure: publicUrl.protocol === "https:", insecureHttpWarning,
            trustProxy: parseTrustProxy(r.data.TRUST_PROXY),
            databasePoolMax, databasePoolConnectionTimeoutMs,
-           adminEmail, adminPassword, legacyOidcEnv, legacyOidcEnvProblem, oidc };
+           adminEmail, adminPassword, legacyOidcEnv, legacyOidcEnvProblem };
 }
 
 /**
@@ -242,7 +234,7 @@ export function publicUrlIssuer(publicUrl: URL): string {
  * 的措辭要對得起實際行為（實測見 config.test.ts 的「警告的前提」那一案）：
  *
  * - **path／query／fragment**：`publicUrlIssuer` 的 `origin` 丟掉它們，而
- *   `oidcRedirectUri`（`new URL("/api/auth/oidc/callback", publicUrl)`，絕對路徑會
+ *   `oidcRedirectUri`（每個 provider 一條 `/api/auth/oidc/callback[/<id>]`，絕對路徑會
  *   整段取代 base 的 path）**也**丟掉。失效鏈是：docs/self-hosting.md 教維運者拿
  *   `<PUBLIC_URL>/api/auth/oidc/callback` 去 IdP 註冊（subpath 部署下＝含 `/knb`），
  *   但 server 送出的是去掉 `/knb` 的形，IdP 比對不上。也就是說 server **丟掉**了
@@ -260,5 +252,5 @@ export function publicUrlPathWarning(publicUrl: URL): string | null {
     publicUrl.username === "" &&
     publicUrl.password === "";
   if (isBareOrigin) return null;
-  return "PUBLIC_URL should be a bare origin (scheme://host:port). Anything past the origin is dropped when deriving the OAuth issuer, and a sub-path is dropped from the OIDC redirect_uri too — so if PUBLIC_URL has one, the redirect_uri this server sends will not match the <PUBLIC_URL>/api/auth/oidc/callback that the docs tell you to register";
+  return "PUBLIC_URL should be a bare origin (scheme://host:port). Anything past the origin is dropped when deriving the OAuth issuer, and a sub-path is dropped from the OIDC redirect URIs too — so if PUBLIC_URL has one, the redirect URIs this server sends will not match a <PUBLIC_URL>/api/auth/oidc/callback… URI registered with the identity provider";
 }

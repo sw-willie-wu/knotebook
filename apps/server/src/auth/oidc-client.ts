@@ -1,6 +1,6 @@
 // OIDC client 封裝（openid-client v6）——per-app-instance（嚴禁 module 單例：AppDeps.limiters
 // 同款理由，§14.3）。唯一職責＝lazy discovery + 三態快取；不碰 authorization
-// URL 組裝（routes/oidc.ts）、不碰 token/userinfo 交換（Task 9 callback route 的職責）。
+// URL 組裝（auth/oidc-authorize.ts）、不碰 token/userinfo 交換（Task 9 callback route 的職責）。
 
 import * as client from "openid-client";
 import type { AppConfig } from "../config.js";
@@ -12,7 +12,7 @@ import type { AppConfig } from "../config.js";
  */
 export class OidcUnavailableError extends Error {}
 
-/** #187：runtime 需要的三件組。`AppConfig["oidc"]`（Task 8 前）與 DB provider 列（registry）都可傳。 */
+/** #187：runtime 需要的三件組（registry 從 DB provider 列組出；單元測試直接傳）。 */
 export interface OidcClientSettings {
   issuerUrl: string;
   clientId: string;
@@ -50,8 +50,8 @@ function hasAsymmetricSigningAlg(algs: readonly string[] | undefined): boolean {
 }
 
 /**
- * per-instance runtime 工廠。`oidc` 對應 `AppConfig.oidc`（已由 `config.ts` 保證三件組
- * 全有）；`opts.fetch` 是測試專用的 `client.CustomFetch` 注入縫（in-process mock IdP，
+ * per-instance runtime 工廠。`oidc` 是一個 provider 的連線設定（`OidcClientSettings`；#187 起由 registry 從
+ * `auth_providers` 列組出）；`opts.fetch` 是測試專用的 `client.CustomFetch` 注入縫（in-process mock IdP，
  * 見 `test/helpers/fake-idp.ts`），production（`index.ts`／`app.ts` 的 fallback）不傳。
  */
 export function createOidcRuntime(oidc: OidcClientSettings, opts: OidcRuntimeOptions = {}): OidcRuntime {
@@ -133,9 +133,14 @@ export function createOidcRuntime(oidc: OidcClientSettings, opts: OidcRuntimeOpt
   };
 }
 
-/** login 與 callback 共用的單一 helper（§14.3）——避免兩處各自組一次 URL 而漂移不同步。 */
-export function oidcRedirectUri(config: AppConfig): string {
-  return new URL("/api/auth/oidc/callback", config.publicUrl).href;
+/**
+ * #187 §7.1：login、callback、SSO 證明起點共用的**唯一** helper（管理頁顯示的 callbackUrl 也由它組，PR2）。legacy provider（env
+ * 匯入）沿用舊路徑——IdP 端已註冊的回呼網址不必改；其餘一個 provider 一條。`new URL(絕對路徑, publicUrl)` 會丟掉 PUBLIC_URL 的
+ * sub-path（`publicUrlPathWarning` 的提醒）。
+ */
+export function oidcRedirectUri(config: Pick<AppConfig, "publicUrl">, provider: { id: string; legacyCallback: boolean }): string {
+  const path = provider.legacyCallback ? "/api/auth/oidc/callback" : `/api/auth/oidc/callback/${provider.id}`;
+  return new URL(path, config.publicUrl).href;
 }
 
 /** r3-M3：`user_identities.issuer`／`auth_providers.resolved_issuer` 的上界（與 0014 的 CHECK 同值）。 */

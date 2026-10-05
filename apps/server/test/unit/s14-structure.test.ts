@@ -8,7 +8,7 @@
  * ② `*InTx` 只准宣告在 `tx/` 目錄——`function` 與 `const／let／var … =` 都算，**不論有沒有 export**（路由檔自宣告、
  *    不 export 的 `*InTx` 閉包是 X10 形）；
  * ③ `tx/` 裡的 `*InTx` 一律以 `function` 宣告，第一個參數字面上是 `tx: Tx`；
- * ④ 本 spec 動到的三個交易所在檔，`.transaction(` 的 callback **整段**就是一個 `xInTx(tx, …)` 呼叫，而且 `xInTx`
+ * ④ `ROUTE_FILES` 裡的檔（#175 三支＋#187 的 `routes/oidc.ts`），`.transaction(` 的 callback **整段**就是一個 `xInTx(tx, …)` 呼叫，而且 `xInTx`
  *    必須是以 `import { … } from "…/tx/…"` 引進的名字——無例外（PR2 起 T14 也抽成 `deleteNotesInTx`）；
  * ⑤ 那個呼叫的**引數**（callback 內求值、此時已持有交易連線）只准是識別字、屬性存取與物件字面：**不得有任何 `(`**
  *    （擋住所有以括號形式的呼叫，含 `Number(x)`、`String(x)` 這種轉型）、不得有裸 `db` 識別字（drizzle 的 lazy query）、
@@ -28,7 +28,7 @@
  *   - 以別名呼叫交易（`deps.db["transaction"].bind(…)` 之類，X5）——`.transaction(` 字面掃不到；屬刻意規避。
  *   - `code()` 剝註解是字面的：字串字面值裡出現 `//`（不是 `://`）時，同一行之後的程式碼會被當成註解剝掉而看不到（G10）；
  *     屬刻意規避。
- *   - 表外的交易（`auth/bootstrap.ts`、`notes/editing/apply.ts`／`revert.ts`、`routes/oidc.ts`、oauth…）不掃。
+ *   - 表外的交易（`auth/bootstrap.ts`、`notes/editing/apply.ts`／`revert.ts`、oauth…）不掃。
  *   - ⑥ 只凍結數量，不檢查範圍外交易的形——tx/ 以外那 9 處由 PR1 Task 10 review 逐一讀過、皆合規；表上第 10 處
  *     `notes/tx/write-slug.ts` 是 `writeSlugInTx` 內的巢狀 `tx.transaction`（savepoint），本身在 tx/ 裡受 ①③ 掃。
  *   - 在 `.transaction(` **之前** await 完的值當引數傳進去是合法的（那時還沒借交易連線），本檔不管那一段。
@@ -111,7 +111,7 @@ const ARG_BANNED: Array<[string, RegExp]> = [
   ["閉包 function", /\bfunction\b/],
   ...HELPERS,
 ];
-const ROUTE_FILES = ["routes/notes.ts", "routes/groups.ts", "notes/links.ts"];
+const ROUTE_FILES = ["routes/notes.ts", "routes/groups.ts", "notes/links.ts", "routes/oidc.ts"];
 
 describe("S14 結構性守衛（#175 §4.4）", () => {
   const files = walk(SRC);
@@ -128,6 +128,9 @@ describe("S14 結構性守衛（#175 §4.4）", () => {
         "notes/tx/redirects.ts",
         "notes/tx/shares.ts",
         "notes/tx/write-links.ts",
+        "auth/tx/legacy-oidc-env.ts",
+        "auth/tx/link-identity.ts",
+        "auth/tx/oidc-login.ts",
       ]),
     );
   });
@@ -157,7 +160,7 @@ describe("S14 結構性守衛（#175 §4.4）", () => {
     expect(bad).toEqual([]);
   });
 
-  it("④ routes/notes.ts、routes/groups.ts、notes/links.ts 的交易 callback 整段是 `tx => xInTx(tx, …)`、xInTx 由 tx/ import（無例外）", () => {
+  it("④ `ROUTE_FILES` 每個檔的交易 callback 整段是 `tx => xInTx(tx, …)`、xInTx 由 tx/ import（無例外）", () => {
     const perFile = ROUTE_FILES.map(f => {
       const cbs = txCallbacks(code(path.join(SRC, f)));
       return { f, all: cbs.length, inTx: cbs.filter(c => c.inTx).length };
@@ -166,6 +169,7 @@ describe("S14 結構性守衛（#175 §4.4）", () => {
       { f: "routes/notes.ts", all: 5, inTx: 5 }, // T1 PATCH、T2 PUT shares、T3 move、T4 copy、T14 DELETE（PR2 抽出）
       { f: "routes/groups.ts", all: 8, inTx: 8 }, // T8 建群組、T9 加人、T10 換角色、T11 移人、T6 轉移、T7 全刪、T12 改角色、T13 刪角色（T5 PR4 退場）
       { f: "notes/links.ts", all: 1, inTx: 1 }, // T15
+      { f: "routes/oidc.ts", all: 1, inTx: 1 }, // A1 SSO 登入帳號解析（#187；重投是同一個 runLogin 閉包呼叫兩次，字面只有一處）
     ]);
   });
 
@@ -185,7 +189,7 @@ describe("S14 結構性守衛（#175 §4.4）", () => {
   });
 
   // 只有在 `ROUTE_FILES` 以外新增或刪掉 `.transaction(` 才改這張表；`ROUTE_FILES` 裡的交易由 ④ 計數。
-  it("⑥ 全 src 的 `.transaction(` 白名單：④ 的三個檔之外，每個檔的呼叫數凍結（新增交易要先列進 spec §6 交易表或這張表）", () => {
+  it("⑥ 全 src 的 `.transaction(` 白名單：`ROUTE_FILES` 之外，每個檔的呼叫數凍結（新增交易要先列進 spec §6 交易表或這張表）", () => {
     const counts: Record<string, number> = {};
     for (const p of files) {
       const r = rel(p);
@@ -203,7 +207,6 @@ describe("S14 結構性守衛（#175 §4.4）", () => {
       "routes/admin-users.ts": 1,
       "routes/auth.ts": 1,
       "routes/oauth.ts": 1,
-      "routes/oidc.ts": 1,
     });
   });
 });
