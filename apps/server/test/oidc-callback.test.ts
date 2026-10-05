@@ -9,6 +9,8 @@ import type { AppConfig } from "../src/config.js";
 import { OIDC_STATE_COOKIE_PATH, sealOidcState, unsealOidcState } from "../src/auth/oidc-state.js";
 import { OIDC_PENDING_COOKIE, unsealPendingLink } from "../src/auth/oidc-pending.js";
 import type { OidcProviderRow } from "../src/auth/oidc-providers.js";
+import type { OidcTestHook } from "../src/auth/oidc-test-hook.js";
+import { waitForBlockedOrSettled } from "./group-helpers.js";
 import { userIdentities, users } from "../src/db/schema.js";
 import { hashPassword } from "../src/auth/password.js";
 import { UserGate } from "../src/auth/session.js";
@@ -473,6 +475,91 @@ describe("GET /api/auth/oidc/callback", () => {
     expect(rows).toHaveLength(1);
     expect(await identitiesOf(db, rows[0]!.id)).toEqual([{ issuer: ISSUER_URL, sub: "race-sub" }]);
     expect(rows[0]?.oidcSub).toBeNull();
+  });
+
+  /**
+   * Task 6b 的確定性交錯：B 先進 callback、停在 `login-identity-missed`（身分查詢落空、email 查詢之前）；A 以同一
+   * (issuer, sub) 跑完首次登入並 commit；`afterA` 讓測試在放行 B 之前再動 DB；最後放行 B。
+   */
+  async function interleaveFirstLogins(
+    sub: string,
+    email: string,
+    afterA: (db: Db, userId: string) => Promise<void> = async () => {},
+  ): Promise<{ db: Db; resB: InjectResponse; points: string[]; userId: string }> {
+    const gate = { release: () => {} };
+    const held = new Promise<void>(resolve => (gate.release = resolve));
+    const parked = { resolve: () => {} };
+    const bParked = new Promise<void>(resolve => (parked.resolve = resolve));
+    const points: string[] = [];
+    let first = true;
+    const hook: OidcTestHook = async point => {
+      points.push(point);
+      if (point === "login-identity-missed" && first) {
+        first = false;
+        parked.resolve();
+        await held;
+      }
+    };
+    const fakeIdp = createFakeIdp(ISSUER_URL);
+    const { app, db } = await legacyOidcApp(fakeIdp.fetch, ISSUER_URL, { oidcTestHook: hook });
+    const claims: FakeIdpClaims = { sub, email, email_verified: true };
+    const forB = await loginAndAuthorize(app, fakeIdp, claims);
+    const forA = await loginAndAuthorize(app, fakeIdp, claims);
+
+    let bSettled = false;
+    const pB = callback(app, forB).finally(() => {
+      bSettled = true;
+    });
+    await bParked;
+    let userId: string;
+    try {
+      const pA = callback(app, forA);
+      // A 不該被 B 擋（B 此時只持 site_settings FOR SHARE）：A 整段跑完並 commit，B 仍停在身分查詢與 email 查詢之間。
+      expect(await waitForBlockedOrSettled(db.$client, pA)).toBe("settled");
+      const resA = await pA;
+      expect(resA.statusCode).toBe(302);
+      expect(resA.headers.location).toBe("/");
+      expect(bSettled).toBe(false);
+      const rows = await db.select().from(users).where(eq(users.email, email));
+      expect(rows).toHaveLength(1);
+      userId = rows[0]!.id;
+      await afterA(db, userId);
+    } finally {
+      gate.release();
+    }
+    const resB = await pB;
+    return { db, resB, points, userId };
+  }
+
+  it("race（Task 6b，確定性交錯）：B 身分查詢落空後、email 查詢前，A 以同一 (issuer, sub) 建帳並 commit → B 同交易重查身分命中、走 login 302 /（不落 oidc_link_no_proof_method）", async () => {
+    const { db, resB, points, userId } = await interleaveFirstLogins("toctou-sub", "toctou@example.com");
+    expect(resB.statusCode).toBe(302);
+    expect(resB.headers.location).toBe("/");
+    expect(resB.cookies.find(c => c.name === SESSION_COOKIE)?.value).toBeTruthy();
+    // B 停一次、A 經過一次；B 沒有撞唯一鍵重投（重投會再經過一次這個點）。
+    expect(points).toEqual(["login-identity-missed", "login-identity-missed"]);
+
+    const rows = await db.select().from(users).where(eq(users.email, "toctou@example.com"));
+    expect(rows).toHaveLength(1);
+    expect(await identitiesOf(db, userId)).toEqual([{ issuer: ISSUER_URL, sub: "toctou-sub" }]);
+  });
+
+  it("race（Task 6b，確定性交錯）：同上，但放行 B 前 A 建的帳號被停用 → B 重查身分命中後照第 1 步判 account_disabled（不走 login 捷徑、不發 session）", async () => {
+    const lastLogin = async (d: Db, id: string) =>
+      (await d.$client.query<{ t: string }>("select last_login_at::text as t from user_identities where user_id = $1", [id])).rows[0]!.t;
+    let lastLoginByA = "";
+    const { db, resB, points, userId } = await interleaveFirstLogins("toctou-dis-sub", "toctou-dis@example.com", async (d, id) => {
+      lastLoginByA = await lastLogin(d, id);
+      await d.update(users).set({ disabledAt: new Date() }).where(eq(users.id, id));
+    });
+    expect(resB.statusCode).toBe(302);
+    expect(resB.headers.location).toBe("/login?error=account_disabled");
+    expect(resB.cookies.find(c => c.name === SESSION_COOKIE)?.value ?? "").toBe("");
+    expect(points).toEqual(["login-identity-missed", "login-identity-missed"]);
+    expect(await identitiesOf(db, userId)).toEqual([{ issuer: ISSUER_URL, sub: "toctou-dis-sub" }]);
+    // 停用分支不寫 last_login_at：仍是 A 建帳時寫的那個值。
+    expect(lastLoginByA).not.toBe("");
+    expect(await lastLogin(db, userId)).toBe(lastLoginByA);
   });
 
   it("B15：mustChangePassword:true 的帳號以已連結身分 SSO 登入 → 302 /、旗標不清（/api/auth/me 與 DB 皆仍 true）；gate 快取已暖也不吐錯值", async () => {

@@ -6,6 +6,14 @@ export type OidcRacePoint =
   /** `POST /api/auth/oidc/pending/confirm`：密碼驗過之後、連結交易之前（C23：此時本人改了密碼）。 */
   | "pending-confirm-verified"
   /** `linkPendingIdentityInTx`：目標帳號 users 列鎖（NO KEY UPDATE）取得之後、任何重驗之前（C21／C22）。 */
-  | "link-locked";
+  | "link-locked"
+  /**
+   * `resolveOidcLoginInTx`：`(issuer, sub)` 身分查詢落空之後、email 查詢之前（Task 6b）。READ COMMITTED 每句各取快照：
+   * 另一條同身分的首次登入在這裡 commit，這條的 email 查詢就會命中它剛建的帳號——整合測試在此重現那個交錯。
+   */
+  | "login-identity-missed";
 
-export type OidcTestHook = (point: OidcRacePoint, ctx: { userId: string }) => Promise<void>;
+export type OidcTestHook = (
+  point: OidcRacePoint,
+  ctx: { userId: string } | { issuer: string; sub: string },
+) => Promise<void>;

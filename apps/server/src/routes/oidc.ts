@@ -169,7 +169,7 @@ export function oidcRoutes(deps: OidcRouteDeps) {
 
       // §7.4 執行層。撞唯一鍵 → 整 tx 重投恰一次（C1：對方已 commit，重查會命中）。
       const loginInput = { claims };
-      const runLogin = () => deps.db.transaction(tx => resolveOidcLoginInTx(tx, loginInput));
+      const runLogin = () => deps.db.transaction(tx => resolveOidcLoginInTx(tx, loginInput, deps.oidcTestHook));
       let resolved: ResolveOidcLoginResult;
       try {
         resolved = await runLogin();
