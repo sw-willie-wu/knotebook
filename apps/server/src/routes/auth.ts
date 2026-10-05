@@ -13,6 +13,8 @@ import { setSessionCookie } from "../auth/cookies.js";
 import type { LoginThrottle } from "../auth/rate-limit.js";
 import type { CollabHooks } from "../collab/hooks.js";
 import { MIN_PASSWORD_LENGTH } from "../auth/constants.js";
+import { listEnabledProvidersPublic } from "../auth/oidc-providers.js";
+import { readRegistrationEnabled } from "../auth/site-settings.js";
 
 const INVALID_CREDENTIALS_MESSAGE = "帳號或密碼錯誤";
 
@@ -49,11 +51,14 @@ export interface AuthRouteDeps {
  */
 export function authRoutes(deps: AuthRouteDeps) {
   return async function register(app: FastifyInstance): Promise<void> {
-    // 免認證（Plan 5 §5）：登入頁在使用者輸入帳密之前就要知道「有沒有 SSO 可用」，
-    // 這條路由必須在未登入狀態下也能打。GET 不受 app.ts 的 JSON CSRF hook 影響
-    // （該 hook 只管 POST/PUT/PATCH/DELETE，見 CHANGE_METHODS），不需要額外豁免。
-    // 只曝光布林旗標，不回傳 issuerUrl/clientId 等設定細節。
-    app.get("/api/auth/config", async (): Promise<AuthConfigDto> => ({ oidc: { enabled: deps.config.oidc !== undefined } }));
+    // 免認證（#187）：登入頁在使用者輸入帳密之前就要知道有哪些登入服務。只曝光 id 與顯示名（AuthProviderPublicDto）。
+    // GET 不受 app.ts 的 JSON CSRF hook 影響。
+    app.get("/api/auth/config", async (request): Promise<AuthConfigDto> => {
+      const providers = await listEnabledProvidersPublic(deps.db);
+      const registrationEnabled = await readRegistrationEnabled(deps.db);
+      if (registrationEnabled === null) request.log.error("site_settings 讀不到列：註冊視同關閉（#187 §4.3）");
+      return { providers, registration: { enabled: registrationEnabled ?? false } };
+    });
 
     app.post("/api/auth/login", async (request, reply) => {
       const parsed = loginBodySchema.safeParse(request.body);

@@ -217,7 +217,7 @@
     "submit": "Sign in",
     "submitting": "Signing in…",
     "retryAfter": "Try again in {{seconds}}s.",
-    "sso": "Continue with SSO"
+    "signInWith": "Sign in with {{name}}"
   },
   "changePassword": {
     "title": "Change your password",

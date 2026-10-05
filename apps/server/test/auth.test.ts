@@ -2,7 +2,8 @@ import { vi, describe, it, expect, afterEach } from "vitest";
 import { eq } from "drizzle-orm";
 import { SESSION_COOKIE } from "@knotebook/shared";
 import { buildTestApp, testConfig } from "./helpers.js";
-import { users } from "../src/db/schema.js";
+import { users, siteSettings } from "../src/db/schema.js";
+import { seedAuthProvider } from "./helpers/oidc-provider.js";
 import type { Db } from "../src/db/index.js";
 import { signSession } from "../src/auth/session.js";
 import type { CollabHooks } from "../src/collab/hooks.js";
@@ -62,23 +63,50 @@ function loginPayload(email: string, password: string) {
 }
 
 describe("GET /api/auth/config", () => {
-  it("免認證可打；未設 OIDC → { oidc: { enabled: false } }", async () => {
+  it("免認證可打；沒有 provider → { providers: [], registration: { enabled: true } }（W23 預設開）", async () => {
     const { app } = await buildTestApp();
     const res = await app.inject({ method: "GET", url: "/api/auth/config" });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ oidc: { enabled: false } });
+    expect(res.json()).toEqual({ providers: [], registration: { enabled: true } });
   });
 
-  it("已設 OIDC 三件組 → { oidc: { enabled: true } }", async () => {
-    const { app } = await buildTestApp({
-      config: {
-        ...testConfig,
-        oidc: { issuerUrl: "https://idp.example.com", clientId: "abc", clientSecret: "s" },
-      },
-    });
+  it("只列啟用中的 provider、依 sort_order 排；不含 issuer／client id／secret（§14.1 第 18 條）", async () => {
+    const { app, db } = await buildTestApp();
+    const b = await seedAuthProvider(db, { issuerUrl: "https://b.example", displayName: "B", sortOrder: 2 });
+    const a = await seedAuthProvider(db, { issuerUrl: "https://a.example", displayName: "A", sortOrder: 1 });
+    await seedAuthProvider(db, { issuerUrl: "https://off.example", displayName: "Off", enabled: false });
     const res = await app.inject({ method: "GET", url: "/api/auth/config" });
-    expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ oidc: { enabled: true } });
+    expect(res.json()).toEqual({ providers: [{ id: a.id, displayName: "A" }, { id: b.id, displayName: "B" }], registration: { enabled: true } });
+    expect(res.body).not.toMatch(/a\.example|test-client|"ct"/);
+  });
+
+  it("registration_enabled=false → registration.enabled false", async () => {
+    const { app, db } = await buildTestApp();
+    await db.update(siteSettings).set({ registrationEnabled: false });
+    const res = await app.inject({ method: "GET", url: "/api/auth/config" });
+    expect(res.json()).toEqual({ providers: [], registration: { enabled: false } });
+  });
+
+  it("site_settings 讀不到列 → registration.enabled false＋error log（§4.3 r1-M5）", async () => {
+    const logged: unknown[][] = [];
+    const { app, db } = await buildTestApp(
+      {},
+      {
+        logger: {
+          level: "error",
+          hooks: {
+            logMethod(args: unknown[], method: (...a: unknown[]) => void) {
+              logged.push(args);
+              method.apply(this, args as never[]);
+            },
+          },
+        },
+      },
+    );
+    await db.delete(siteSettings);
+    const res = await app.inject({ method: "GET", url: "/api/auth/config" });
+    expect(res.json()).toEqual({ providers: [], registration: { enabled: false } });
+    expect(logged.some((a) => a.some((x) => typeof x === "string" && x.includes("site_settings")))).toBe(true);
   });
 });
 

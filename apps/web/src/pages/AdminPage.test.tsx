@@ -49,7 +49,7 @@ function mockFetch(getUser: () => UserDto | null) {
     }
     if (url === "/api/auth/config" && method === "GET") {
       return Promise.resolve(
-        fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ oidc: { enabled: false } }) }),
+        fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ providers: [], registration: { enabled: true } }) }),
       );
     }
     if ((url === "/api/groups" || url === "/api/notes" || url === "/api/admin/users") && method === "GET") {

@@ -2,16 +2,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router";
-import type { AuthConfigDto } from "@knotebook/shared";
+import type { AuthConfigDto, AuthProviderPublicDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppRoutes } from "@/App";
 import LoginPage from "./LoginPage";
 
-// LoginPage 新增（Plan 5 Task 10）：react-query `['auth-config']` 讀
-// `GET /api/auth/config`，`oidc.enabled` 決定要不要多渲染一顆 SSO 入口
-// （純 `<a href="/api/auth/oidc/login">`，全頁跳轉，不走 `api()`——見 client.ts；
+// LoginPage（Plan 5 Task 10；#187 Task 4 改多 provider）：react-query `['auth-config']` 讀
+// `GET /api/auth/config`，`providers` 每個渲染一顆 SSO 入口
+// （純 `<a href="/api/auth/oidc/login/<id>">`，全頁跳轉，不走 `api()`——見 client.ts；
 // 302 鏈須由瀏覽器頂層導航承載，spec §14.4）。`?error=` 走既有
 // `t(`errors.${code}`, {defaultValue: t("errors.fallback")})` 機制，渲染在既有
 // `role="alert"` 區。fetch 樁慣例比照 `SettingsUsersSection.test.tsx:89-101`
@@ -28,6 +28,15 @@ function fakeResponse({ ok, status, json }: FakeResponseInit): Response {
 }
 
 const AUTH_CONFIG_URL = "/api/auth/config";
+
+const NO_PROVIDERS: AuthConfigDto = { providers: [], registration: { enabled: true } };
+const TWO: AuthConfigDto = {
+  providers: [
+    { id: "11111111-1111-1111-1111-111111111111", displayName: "GitLab" },
+    { id: "22222222-2222-2222-2222-222222222222", displayName: "Google" },
+  ],
+  registration: { enabled: true },
+};
 
 /** `/login` 路由本身不掛在 `<RequireAuth>` 底下，因此本檔不需要 `/api/auth/me`
  * 樁——真正驗證「未登入時 /login 可直接渲染」的案例已在既有測試覆蓋，這裡只關心
@@ -75,30 +84,37 @@ describe("LoginPage（Plan 5 Task 10：SSO 入口＋?error= 映射）", () => {
     vi.unstubAllGlobals();
   });
 
-  it("oidc.enabled:false → 不渲染 SSO 鈕", async () => {
-    const fetchMock = fetchMockWithAuthConfig({ oidc: { enabled: false } });
-    const queryClient = renderAt("/login", fetchMock);
-
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Sign in" })).toBeInTheDocument());
-    // post-settle 訊號（fix round 1 NIT-5）：不能只靠「fetchMock 被呼叫過」就斷言無
-    // SSO 鈕——那只證明請求已發出，不保證回應已解析、component 已依 `{enabled:false}`
-    // re-render 完成（若真的漏接、之後才補一顆連結，這種只驗證「呼叫過」的寫法還是會
-    // 誤判通過）。改成等 query cache 裡真的寫進已解析的資料，才是貨真價實的 settle
-    // 訊號。
-    await waitFor(() => expect(queryClient.getQueryData(["auth-config"])).toEqual({ oidc: { enabled: false } }));
-    expect(screen.queryByRole("link", { name: /sso/i })).not.toBeInTheDocument();
+  it("沒有 provider → 不渲染任何 SSO 鈕", async () => {
+    const queryClient = renderAt("/login", fetchMockWithAuthConfig(NO_PROVIDERS));
+    await waitFor(() => expect(queryClient.getQueryData(["auth-config"])).toEqual(NO_PROVIDERS));
+    expect(screen.queryByRole("link", { name: /^Sign in with/ })).not.toBeInTheDocument();
   });
 
-  it("oidc.enabled:true → SSO 鈕存在且 href 指向 /api/auth/oidc/login（純 <a>，全頁跳轉）", async () => {
-    const fetchMock = fetchMockWithAuthConfig({ oidc: { enabled: true } });
-    renderAt("/login", fetchMock);
+  it("兩個 provider → 兩顆 <a>，依回應順序，href 指向各自的 /api/auth/oidc/login/<id>", async () => {
+    renderAt("/login", fetchMockWithAuthConfig(TWO));
+    const links = await screen.findAllByRole("link", { name: /^Sign in with/ });
+    expect(links.map((a) => [a.textContent, a.getAttribute("href")])).toEqual([
+      ["Sign in with GitLab", "/api/auth/oidc/login/11111111-1111-1111-1111-111111111111"],
+      ["Sign in with Google", "/api/auth/oidc/login/22222222-2222-2222-2222-222222222222"],
+    ]);
+  });
 
-    const ssoLink = await screen.findByRole("link", { name: /sso/i });
-    expect(ssoLink).toHaveAttribute("href", "/api/auth/oidc/login");
+  it("HTML 形的顯示名渲染成字面（escapeValue:false 下仍只進文字節點，r1-M6）", async () => {
+    const evil = '<img src=x onerror="alert(1)">';
+    renderAt(
+      "/login",
+      fetchMockWithAuthConfig({
+        providers: [{ id: "33333333-3333-3333-3333-333333333333", displayName: evil }],
+        registration: { enabled: true },
+      }),
+    );
+    const link = await screen.findByRole("link", { name: `Sign in with ${evil}` });
+    expect(link.textContent).toBe(`Sign in with ${evil}`);
+    expect(document.querySelector("img[src='x']")).toBeNull();
   });
 
   it("?error=oidc_email_unverified → alert 區出現對應文案", async () => {
-    const fetchMock = fetchMockWithAuthConfig({ oidc: { enabled: false } });
+    const fetchMock = fetchMockWithAuthConfig(NO_PROVIDERS);
     renderAt("/login?error=oidc_email_unverified", fetchMock);
 
     await waitFor(() =>
@@ -107,7 +123,7 @@ describe("LoginPage（Plan 5 Task 10：SSO 入口＋?error= 映射）", () => {
   });
 
   it("?error=not_a_real_code → 未知碼退回 errors.fallback 文案", async () => {
-    const fetchMock = fetchMockWithAuthConfig({ oidc: { enabled: false } });
+    const fetchMock = fetchMockWithAuthConfig(NO_PROVIDERS);
     renderAt("/login?error=not_a_real_code", fetchMock);
 
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("An unexpected error occurred."));
@@ -120,14 +136,14 @@ describe("LoginPage（Plan 5 Task 10：SSO 入口＋?error= 映射）", () => {
   // 這裡不需要額外斷言「沒有 throw」——測試跑到 `waitFor` 這行沒有意外拋出，本身就是
   // 迴歸證據）。修法：先過 shared `ERROR_CODES` 白名單，不在集合內一律視為 `fallback`。
   it("?error=__proto__ → 不炸掉（Object.prototype 繼承屬性），退回 errors.fallback 文案", async () => {
-    const fetchMock = fetchMockWithAuthConfig({ oidc: { enabled: false } });
+    const fetchMock = fetchMockWithAuthConfig(NO_PROVIDERS);
     renderAt("/login?error=__proto__", fetchMock);
 
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("An unexpected error occurred."));
   });
 
   it("?error=constructor → 不炸掉（Functions are not valid as a React child），退回 errors.fallback 文案", async () => {
-    const fetchMock = fetchMockWithAuthConfig({ oidc: { enabled: false } });
+    const fetchMock = fetchMockWithAuthConfig(NO_PROVIDERS);
     renderAt("/login?error=constructor", fetchMock);
 
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("An unexpected error occurred."));
@@ -152,7 +168,7 @@ describe("LoginPage（Plan 5 Task 10：SSO 入口＋?error= 映射）", () => {
       }
       if (url === AUTH_CONFIG_URL && method === "GET") {
         return Promise.resolve(
-          fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ oidc: { enabled: false } }) }),
+          fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(NO_PROVIDERS) }),
         );
       }
       if (url === "/api/auth/login" && method === "POST") {
@@ -204,7 +220,9 @@ describe("LoginPage（Plan 5 Task 10：SSO 入口＋?error= 映射）", () => {
 // （實測過整條登入流程只發出 GET /api/auth/config 與 POST /api/auth/login 兩發。）
 
 const LOGIN_URL = "/api/auth/login";
-const OIDC_LOGIN_URL = "/api/auth/oidc/login";
+/** #187：本族的 SSO 入口一律是 `TWO` 的第一顆（GitLab）。⚠ 刻意另寫一份字面——斷言的是本頁對
+ * `GET /api/auth/oidc/login/:providerId` 的產出契約，不是它自己的常數。 */
+const OIDC_LOGIN_URL = "/api/auth/oidc/login/11111111-1111-1111-1111-111111111111";
 
 /** 落點探針：把 location 逐字印成單一 text node。同時掛在 /login 與 catch-all 底下，
  * 所以「還在登入頁但網址被改寫」與「已經導走」兩種情形都觀測得到。 */
@@ -213,8 +231,8 @@ function LocationProbe({ testId }: { testId: string }) {
   return <div data-testid={testId}>{`${location.pathname}${location.search}`}</div>;
 }
 
-/** auth-config（SSO 開關可調）＋ 成功的 POST /api/auth/login。 */
-function fetchMockLoginOk(oidcEnabled = false): ReturnType<typeof vi.fn> {
+/** auth-config（provider 清單可調；預設沒有）＋ 成功的 POST /api/auth/login。 */
+function fetchMockLoginOk(providers: AuthProviderPublicDto[] = []): ReturnType<typeof vi.fn> {
   return vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const method = (init?.method ?? "GET").toUpperCase();
@@ -222,9 +240,8 @@ function fetchMockLoginOk(oidcEnabled = false): ReturnType<typeof vi.fn> {
       return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
     }
     if (url === AUTH_CONFIG_URL && method === "GET") {
-      return Promise.resolve(
-        fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ oidc: { enabled: oidcEnabled } }) }),
-      );
+      const config: AuthConfigDto = { providers, registration: { enabled: true } };
+      return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(config) }));
     }
     if (url === LOGIN_URL && method === "POST") {
       return Promise.resolve(
@@ -322,9 +339,9 @@ describe("#131 登入後導回 next", () => {
     // 百分比編碼形（#122 之後 /n/<handle>/<slug> 的 slug 常常是 %E7%AD%86… 這種），
     // 所以 guards 送出來的 next 值裡 % 已經被編成 %25。這裡若多做一次
     // decodeURIComponent，七個純 ASCII 的案子都察覺不到，只有這一案會紅。
-    renderLoginWithProbe("/login?next=%2Fn%2Falice%2F%25E7%25AD%2586", fetchMockLoginOk(true));
+    renderLoginWithProbe("/login?next=%2Fn%2Falice%2F%25E7%25AD%2586", fetchMockLoginOk(TWO.providers));
 
-    const link = await screen.findByRole("link", { name: /sso/i });
+    const link = await screen.findByRole("link", { name: "Sign in with GitLab" });
     expect(link).toHaveAttribute("href", `${OIDC_LOGIN_URL}?next=%2Fn%2Falice%2F%25E7%25AD%2586`);
 
     submitLogin();
@@ -370,16 +387,16 @@ describe("#131 登入後導回 next", () => {
   });
 
   it("SSO 連結把合法 next 轉交給 server（encode 一次）", async () => {
-    renderLoginWithProbe("/login?next=%2Fn%2Falice%2Fmy-note%3Fx%3D1", fetchMockLoginOk(true));
+    renderLoginWithProbe("/login?next=%2Fn%2Falice%2Fmy-note%3Fx%3D1", fetchMockLoginOk(TWO.providers));
 
-    const link = await screen.findByRole("link", { name: /sso/i });
+    const link = await screen.findByRole("link", { name: "Sign in with GitLab" });
     expect(link).toHaveAttribute("href", `${OIDC_LOGIN_URL}?next=%2Fn%2Falice%2Fmy-note%3Fx%3D1`);
   });
 
   it("不合法的 next 不原樣透傳給 server——驗證不整個押在 server 端", async () => {
-    renderLoginWithProbe("/login?next=%2F%2Fevil.example", fetchMockLoginOk(true));
+    renderLoginWithProbe("/login?next=%2F%2Fevil.example", fetchMockLoginOk(TWO.providers));
 
-    const link = await screen.findByRole("link", { name: /sso/i });
+    const link = await screen.findByRole("link", { name: "Sign in with GitLab" });
     expect(link).toHaveAttribute("href", OIDC_LOGIN_URL);
   });
 
@@ -387,13 +404,13 @@ describe("#131 登入後導回 next", () => {
     // 掛載時的 effect 會把 ?error= 從網址移除（既有行為，避免重新整理把舊錯誤帶回來）。
     // 兩半都要斷言：只驗「next 還在」的話，把整個 effect 刪掉本案照樣綠；只驗「error
     // 不見」的話，改成整個換掉 searchParams 也照樣綠。
-    renderLoginWithProbe("/login?error=oidc_email_unverified&next=%2Fn%2Falice%2Fmy-note", fetchMockLoginOk(true));
+    renderLoginWithProbe("/login?error=oidc_email_unverified&next=%2Fn%2Falice%2Fmy-note", fetchMockLoginOk(TWO.providers));
 
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.getByTestId("login-location").textContent).toBe("/login?next=%2Fn%2Falice%2Fmy-note");
     });
-    const link = await screen.findByRole("link", { name: /sso/i });
+    const link = await screen.findByRole("link", { name: "Sign in with GitLab" });
     expect(link).toHaveAttribute("href", `${OIDC_LOGIN_URL}?next=%2Fn%2Falice%2Fmy-note`);
 
     // 清除本身是 replace：按上一頁不該回到那個帶 ?error= 的網址（否則使用者會看到

@@ -217,7 +217,7 @@
     "submit": "登入",
     "submitting": "登入中…",
     "retryAfter": "請在 {{seconds}} 秒後再試一次。",
-    "sso": "使用 SSO 登入"
+    "signInWith": "透過 {{name}} 登入"
   },
   "changePassword": {
     "title": "修改密碼",
