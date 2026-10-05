@@ -289,6 +289,20 @@ describe("NoteList", () => {
     expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
   });
 
+  it("#182：群組筆記在「最近」段也不標角色；與我共享的個人筆記仍標", async () => {
+    stubNotesFetch([MY_GROUP_NOTE, OTHERS_GROUP_NOTE, SHARED_NOTE], [GROUP_A]);
+
+    renderNoteList();
+
+    const recent = await screen.findByTestId("notegroup-recent");
+    expect(within(recent).getByRole("link", { name: "Mine In A" })).toBeInTheDocument();
+    expect(within(recent).queryByText("Editor")).not.toBeInTheDocument();
+    expect(within(recent).queryByText("Viewer")).not.toBeInTheDocument();
+
+    const shared = screen.getByTestId("notegroup-shared");
+    expect(within(shared).getByText("Editor")).toBeInTheDocument();
+  });
+
   // ── #122：active 高亮改吃 ActiveNoteContext（note.id 單一真相，URL 判斷退役） ──
 
   it("開頁亮：context 有 active id（NotePage 解析後 set）→ 該列 aria-current=page，只在主清單、不在 最近", async () => {
@@ -463,15 +477,16 @@ describe("NoteList", () => {
       window.localStorage.clear();
     });
 
-    it("#175 §8.2 四列：我的／群組／與我共享各落各段，群組段徽章＝我在該筆記上的角色（editor／viewer）", async () => {
+    it("#175 §8.2 四列：我的／群組／與我共享各落各段，群組段不標角色", async () => {
       stubNotesFetch([OWNER_NOTE, MY_GROUP_NOTE, OTHERS_GROUP_NOTE, SHARED_NOTE, ORPHAN_GROUP_NOTE], [GROUP_A]);
       renderNoteList();
 
       const groupA = await screen.findByTestId(`notegroup-group-${GROUP_A.id}`);
       expect(within(groupA).getByRole("link", { name: "Mine In A" })).toBeInTheDocument();
       expect(within(groupA).getByRole("link", { name: "Theirs In A" })).toBeInTheDocument();
-      expect(within(groupA).getByText("Editor")).toBeInTheDocument(); // MY_GROUP_NOTE 的徽章（A4）
-      expect(within(groupA).getByText("Viewer")).toBeInTheDocument(); // OTHERS_GROUP_NOTE 的徽章
+      // #182：群組段（含群組列本身）不標角色——角色看筆記頁頂端的徽章。
+      expect(within(groupA).queryByText("Editor")).not.toBeInTheDocument();
+      expect(within(groupA).queryByText("Viewer")).not.toBeInTheDocument();
       expect(within(groupA).queryByText("Owner")).not.toBeInTheDocument();
 
       const myNotes = screen.getByTestId("notegroup-myNotes");
