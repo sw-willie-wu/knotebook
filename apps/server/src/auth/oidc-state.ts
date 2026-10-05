@@ -1,9 +1,10 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { sealCookieJson, unsealCookieJson } from "./sealed-cookie.js";
 
 // OIDC state cookie 的 seal/unseal（spec §14.3）——密封 authorization request 期間需要
 // 跨 redirect 存活的一次性資料（state/nonce/PKCE code_verifier），比照 `ai/crypto.ts` 的
 // sha256 namespace 衍生慣例（`:ai-key`）與 `auth/session.ts`（`:session`）：同一個
 // APP_SECRET 用不同 namespace 字尾衍生出互不相通的用途專屬金鑰。
+// #187 起封章本體在 `auth/sealed-cookie.ts`（格式不變；namespace `oidc-state`）。
 
 export interface OidcStatePayload {
   state: string;
@@ -32,22 +33,12 @@ export const OIDC_STATE_TTL_SECONDS = 600;
 /** OIDC state cookie 的 `Path` 屬性：僅 OIDC 流程本身的路由需要讀到這顆 cookie。 */
 export const OIDC_STATE_COOKIE_PATH = "/api/auth/oidc";
 
-/** AES-256-GCM 需要 32 bytes 金鑰；sha256 摘要正好 32 bytes，直接當金鑰用。 */
-function deriveKey(appSecret: string): Buffer {
-  return createHash("sha256").update(`${appSecret}:oidc-state`).digest();
-}
-
 /**
  * 密封格式：`base64url(iv).base64url(ct).base64url(tag)`——單一字串，可直接當
  * cookie value（base64url 不含 cookie 分隔符會用到的字元）。
  */
 export function sealOidcState(appSecret: string, payload: OidcStatePayload): string {
-  const key = deriveKey(appSecret);
-  const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", key, iv);
-  const ct = Buffer.concat([cipher.update(JSON.stringify(payload), "utf8"), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  return `${iv.toString("base64url")}.${ct.toString("base64url")}.${tag.toString("base64url")}`;
+  return sealCookieJson(appSecret, "oidc-state", payload);
 }
 
 /**
@@ -60,28 +51,8 @@ export function sealOidcState(appSecret: string, payload: OidcStatePayload): str
  * 共同承擔（見 spec §14.7）。
  */
 export function unsealOidcState(appSecret: string, sealed: string, nowEpochSeconds: number): OidcStatePayload | null {
-  const parts = sealed.split(".");
-  if (parts.length !== 3) return null;
-  const [ivPart, ctPart, tagPart] = parts;
-  if (!ivPart || !ctPart || !tagPart) return null;
-
-  let plaintext: string;
-  try {
-    const key = deriveKey(appSecret);
-    const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(ivPart, "base64url"));
-    decipher.setAuthTag(Buffer.from(tagPart, "base64url"));
-    const pt = Buffer.concat([decipher.update(Buffer.from(ctPart, "base64url")), decipher.final()]);
-    plaintext = pt.toString("utf8");
-  } catch {
-    return null;
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(plaintext);
-  } catch {
-    return null;
-  }
+  const parsed = unsealCookieJson(appSecret, "oidc-state", sealed);
+  if (parsed === null) return null;
 
   if (
     parsed === null ||
