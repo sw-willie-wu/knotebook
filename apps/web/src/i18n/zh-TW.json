@@ -308,7 +308,19 @@
     },
     "delete": {
       "title": "刪除群組？",
-      "description": "只有空的群組可以刪除。群組內還有筆記時，請先刪除它們。",
+      "modeLabel": "群組裡的筆記要怎麼處理",
+      "transferLabel": "轉移給管理員",
+      "transferToLabel": "接收筆記的管理員",
+      "transferDescription_one": "{{count}} 篇筆記會變成 {{name}} 的個人筆記，網址改為 /n/…，舊網址一個月內自動轉址；其他成員會失去存取，若有公開連結也會關閉。",
+      "transferDescription_other": "{{count}} 篇筆記會變成 {{name}} 的個人筆記，網址改為 /n/…，舊網址一個月內自動轉址；其他成員會失去存取，若有公開連結也會關閉。",
+      "transferDescriptionNoCount": "群組裡的筆記會變成 {{name}} 的個人筆記，網址改為 /n/…，舊網址一個月內自動轉址；其他成員會失去存取，若有公開連結也會關閉。",
+      "deleteLabel": "全部刪除",
+      "deleteDescription_one": "{{count}} 篇筆記連同附件與修改紀錄會永久刪除，無法復原。",
+      "deleteDescription_other": "{{count}} 篇筆記連同附件與修改紀錄會永久刪除，無法復原。",
+      "deleteDescriptionNoCount": "群組裡的筆記連同附件與修改紀錄會永久刪除，無法復原。",
+      "emptyDescription": "這個群組沒有筆記。",
+      "acknowledge": "我了解筆記會永久刪除",
+      "adminsUnavailable": "無法載入群組的管理員。",
       "confirm": "刪除群組"
     },
     "leave": {
@@ -348,6 +360,7 @@
       "addRoleLabel": "新成員的角色",
       "add": "加入",
       "dangerTitle": "刪除群組",
+      "dangerDescription": "刪除群組時，筆記可以轉移給其中一位管理員，或連同群組一起刪除。",
       "leaveTitle": "退出群組",
       "tabsLabel": "群組設定分頁",
       "tabMembers": "成員",
@@ -640,6 +653,7 @@
     "role_not_found": "找不到此角色。",
     "builtin_role": "內建角色不能刪除或改名，內建管理員角色也不能修改。",
     "role_name_taken": "這個群組已有同名的角色，或該名稱保留給內建角色。",
+    "not_admin": "筆記只能轉移給這個群組的管理員。請改選仍是管理員的人。",
     "fallback": "發生未預期的錯誤。"
   }
 }

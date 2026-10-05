@@ -1417,7 +1417,8 @@ export function notesRoutes(deps: NotesRouteDeps) {
      * 「A 設別名 / B 撤公開」的 TOCTOU 窗整個關掉（pre-read 版在讀與寫之間會產出
      * token NULL＋別名非 NULL 的殘留列）。rowcount 0 一律 400 invalid_body：涵蓋
      * 「未公開」與「resolveRole 後筆記被刪」兩形——後者與 I2 慣例的 404 刻意偏離
-     * 一格（競態窗極窄，400 也不洩露更多資訊，不值得為它多一次讀）。
+     * 一格（競態窗極窄，400 也不洩露更多資訊，不值得為它多一次讀）。#175 起另含
+     * 「群組筆記」與「授權後換了歸屬」（C14／C21，見 handler 內註解）。
      */
     app.put("/api/notes/:id/public-link/slug", { preHandler: app.authenticate }, async (request, reply) => {
       const { id } = request.params as { id: string };
@@ -1434,16 +1435,22 @@ export function notesRoutes(deps: NotesRouteDeps) {
       if (!result.ok) {
         return sendError(reply, 400, "invalid_body", result.message);
       }
-      // #175 §6.6：群組筆記沒有公開網址（S11 `notes_group_no_public_slug_chk`）——述詞加 `group_id IS NULL`。主要形不需要
-      // 競態：有 `managePublicLink` 的成員對**已開 token** 的群組筆記打這支，沒有這條件 `public_token IS NOT NULL` 為真、
-      // UPDATE 撞 CHECK → 500；有了就落空成 400。C14 是它的競態形：授權之後被移進群組（且群組又重開了 token）（gate r2 A-12）。
+      // #175 §6.6：群組筆記沒有公開網址（S11 `notes_group_no_public_slug_chk`）——述詞帶 `owner_id = 我`。個人筆記的
+      // `managePublicLink` 只屬 owner（`resolveNoteAccess`；逐人分享者沒有），所以「授權時」能走到這裡且別名合法的，
+      // 只有「我的個人筆記」：述詞就是「歸屬仍是我」。它蘊含 `group_id IS NULL`（owner／group XOR，S6），兩個方向的
+      // 「授權後歸屬改變」都落空成 400（spec Q22）：
+      // - 主要形不需要競態：有 `managePublicLink` 的群組成員對**已開 token** 的群組筆記打這支——owner_id 是 NULL，落空；
+      //   少了這條 `public_token IS NOT NULL` 為真、UPDATE 撞 CHECK → 500。C14 是它的競態形：授權之後被移進群組（且
+      //   群組又重開了 token）（gate r2 A-12）。
+      // - C21（PR4，群組 → 個人）：前成員授權之後群組被轉移給 B、B 又重開 token——只看 `group_id IS NULL` 會放行，把前成員
+      //   選的名字寫進 B 的 `/p/<B>/…` 命名空間；`owner_id = 我` 擋下。
       await deps.groupTestHook?.("public-link-authorized", { noteId: id });
       let updated;
       try {
         updated = await deps.db
           .update(notes)
           .set({ publicSlug: result.value })
-          .where(and(eq(notes.id, id), sql`${notes.publicToken} is not null`, isNull(notes.groupId)))
+          .where(and(eq(notes.id, id), sql`${notes.publicToken} is not null`, eq(notes.ownerId, userId)))
           .returning({ publicToken: notes.publicToken, publicSlug: notes.publicSlug });
       } catch (err) {
         // constraint 名分流（比照 slug_taken）：只認 per-user 別名唯一索引，其他 23505 rethrow。
@@ -1453,7 +1460,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
         throw err;
       }
       if (updated.length === 0) {
-        return sendError(reply, 400, "invalid_body", "筆記尚未開啟公開分享，或它是群組筆記（群組筆記沒有公開網址），無法設定公開網址");
+        return sendError(reply, 400, "invalid_body", "筆記尚未開啟公開分享、它是群組筆記，或在你送出後換了歸屬，無法設定公開網址");
       }
       return { token: updated[0].publicToken, slug: updated[0].publicSlug };
     });

@@ -5,7 +5,6 @@ import type { GroupDto, GroupMemberDto, GroupRoleDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
 import {
   useAddMember,
-  useDeleteGroup,
   useGroupMembers,
   useGroupRoles,
   useRemoveMember,
@@ -25,6 +24,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
+import { DeleteGroupDialog } from "@/components/groups/DeleteGroupDialog";
 import { GROUP_NAME_MAX_LENGTH } from "@/components/groups/GroupNameDialog";
 import { roleLabel } from "@/lib/group-role";
 import { GroupDetailShell } from "./GroupDetailShell";
@@ -272,8 +272,8 @@ function MembersSection({ group, canManageMembers }: { group: GroupDto; canManag
 }
 
 /**
- * 危險動作的一個區塊：標題＋說明＋outline 觸發鈕＋二次確認對話框。`keepOpenOnError`：刪群組失敗
- * （409 `group_not_empty`）時對話框留著（spec §8.6）；退出失敗（409 `last_admin`，競態後備）照舊關閉。
+ * 危險動作的一個區塊：標題＋說明＋outline 觸發鈕＋二次確認對話框。目前只有退出群組在用（刪群組走
+ * `DeleteGroupDialog`，失敗時對話框留著）；退出失敗（409 `last_admin`，競態後備）→ toast 並關閉對話框。
  */
 function ConfirmSection({
   title,
@@ -281,7 +281,6 @@ function ConfirmSection({
   description,
   confirm,
   pending,
-  keepOpenOnError,
   onConfirm,
 }: {
   title: string;
@@ -289,7 +288,6 @@ function ConfirmSection({
   description: string;
   confirm: string;
   pending: boolean;
-  keepOpenOnError: boolean;
   onConfirm: () => Promise<void>;
 }) {
   const { t } = useTranslation();
@@ -301,7 +299,7 @@ function ConfirmSection({
       setOpen(false);
     } catch (err) {
       toast({ title: errorMessage(t, err), variant: "destructive" });
-      if (!keepOpenOnError) setOpen(false);
+      setOpen(false);
     }
   }
 
@@ -334,7 +332,7 @@ function ConfirmSection({
 
 /**
  * 底部兩個區塊，成功都導回列表頁：
- * - `canManageGroup` → 刪除群組（PR1 只刪空群組，文案見 `groups.delete.description`）；
+ * - `canManageGroup` → 刪除群組（兩模式對話框 `DeleteGroupDialog`：轉移給管理員或全部刪除，#175 PR4）；
  * - 不是最後一位管理員 → 退出群組（spec §8.2）。最後一位管理員看**成員名單**的 `builtin === "admin"`
  *   計數（與成員表同一個 queryKey，共用快取、不多打一發）。名單 pending 時不渲染退出區；
  *   名單 error 時照常渲染（算不出管理員人數就當不是最後一位），由 server 409 `last_admin` 兜底。
@@ -352,7 +350,7 @@ function DangerSection({
   const navigate = useNavigate();
   const { user } = useSession();
   const membersQuery = useGroupMembers(group.id);
-  const deleteGroup = useDeleteGroup();
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const removeMember = useRemoveMember(group.id);
 
   const isLastAdmin = group.myRole?.builtin === "admin" && countAdmins(membersQuery.data ?? []) === 1;
@@ -365,18 +363,12 @@ function DangerSection({
   return (
     <>
       {canManageGroup && (
-        <ConfirmSection
-          title={t("groups.detail.dangerTitle")}
-          dialogTitle={t("groups.delete.title")}
-          description={t("groups.delete.description", { name: group.name })}
-          confirm={t("groups.delete.confirm")}
-          pending={deleteGroup.isPending}
-          keepOpenOnError
-          onConfirm={async () => {
-            await deleteGroup.mutateAsync(group.id);
-            backToList();
-          }}
-        />
+        <SettingsGroup title={t("groups.detail.dangerTitle")} description={t("groups.detail.dangerDescription")}>
+          <Button type="button" variant="outline" onClick={() => setDeleteOpen(true)}>
+            {t("groups.delete.confirm")}
+          </Button>
+          {deleteOpen && <DeleteGroupDialog group={group} onOpenChange={setDeleteOpen} onDeleted={backToList} />}
+        </SettingsGroup>
       )}
       {showLeave && (
         <ConfirmSection
@@ -385,7 +377,6 @@ function DangerSection({
           description={t("groups.leave.description", { name: group.name })}
           confirm={t("groups.leave.confirm")}
           pending={removeMember.isPending || !user}
-          keepOpenOnError={false}
           onConfirm={async () => {
             if (!user) return;
             await removeMember.mutateAsync(user.id);

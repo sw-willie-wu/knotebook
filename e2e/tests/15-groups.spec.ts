@@ -5,11 +5,12 @@ import { ADMIN, editorLocator, loginAs, randomEmail } from "./helpers.js";
  * #175 群組 v2（spec §12.3 第 15 條，PR1 改寫自 #103 版）：A 建群組 → A 在群組建筆記（群組持有、
  * 網址 `/g/<group_id>/<slug>`）→ 分享面板是群組版（無 radio、只說明＋連到群組設定）→ A 從設定 → 群組
  * 以 email 加 B（內建一般成員）→ B 側欄看得到、能編輯（共編互見）、也有分享鈕 → A 移除 B → B 連線
- * 被踢、該篇從 B 的側欄消失 → A 刪非空群組 → 409 toast、對話框留著、群組仍在（PR1 只刪空群組）。
+ * 被踢、該篇從 B 的側欄消失 → A 開刪除群組對話框：兩模式、預設「轉移給管理員」→ Cancel → 群組與該篇仍在
+ * （PR4 起非空群組也刪得掉，真的刪除由 18-groups-delete 測）。
  * 斷言形沿用 03-share-revoke（兩個 context、UI 建第二使用者、10 秒 SLA、exact toast）。
  * 群組與筆記留著不清：e2e 疊每次 `stack:down -v` 重置。
  */
-test("群組：建立 → 群組建筆記（/g/ 網址）→ 設定加人 → 成員共編 → 移除即踢 → 非空群組刪不掉", async ({ browser }) => {
+test("群組：建立 → 群組建筆記（/g/ 網址）→ 設定加人 → 成員共編 → 移除即踢 → 刪除對話框預設轉移、取消後群組仍在", async ({ browser }) => {
   const adminContext = await browser.newContext();
   const userContext = await browser.newContext();
   try {
@@ -135,7 +136,7 @@ test("群組：建立 → 群組建筆記（/g/ 網址）→ 設定加人 → �
     await expect(userSidebar.getByRole("link", { name: title })).toHaveCount(0, { timeout: 10_000 });
     await expect(userSidebar.getByRole("button", { name: groupName, exact: true })).toHaveCount(0, { timeout: 10_000 });
 
-    // ── A：關設定 → 側欄群組 ⋮ → 刪除群組 → 群組還有筆記：409 toast、對話框留著、群組仍在 ──
+    // ── A：關設定 → 側欄群組 ⋮ → 刪除群組 → 對話框預設「轉移給管理員」→ Cancel → 群組與該篇仍在 ──
     await adminPage.keyboard.press("Escape");
     // backgroundLocation 是 react-router 的 location，可能還是 untitled-… 那個（標題改網址走
     // replaceState）；先確認回到筆記頁，再等 NotePage 收斂到 canonical。這裡收斂得到是靠前面 B 在
@@ -146,13 +147,9 @@ test("群組：建立 → 群組建筆記（/g/ 網址）→ 設定加人 → �
     await sidebar.getByRole("button", { name: `Group actions for ${groupName}` }).click();
     await adminPage.getByRole("menuitem", { name: "Delete group" }).click();
     const deleteDialog = adminPage.getByRole("dialog", { name: "Delete group?" });
-    await expect(deleteDialog).toContainText("Only an empty group can be deleted");
-    await deleteDialog.getByRole("button", { name: "Delete group", exact: true }).click();
-    await expect(adminPage.getByText("This group still has notes in it, so it can't be deleted.", { exact: true })).toBeVisible();
-    await expect(deleteDialog).toBeVisible(); // §8.6：失敗只 toast，對話框留著
-    // 用 Cancel 關、不用 Escape：Radix `react-toast` 的 Root 包在 DismissableLayer 裡，而
-    // DismissableLayer 的 `isHighestLayer` 只讓最後掛上的那一層接 Escape——toast 比對話框晚掛上，
-    // 所以第一下 Escape 關的是 toast，對話框留著（實跑：按一次 Escape 後對話框 5 秒後仍可見）。
+    // §8.6 PR4：兩模式、預設轉移（不丟資料的那條）。
+    await expect(deleteDialog.getByRole("radio", { name: "Give them to an admin" })).toBeChecked();
+    await expect(deleteDialog.getByRole("radio", { name: "Delete everything" })).not.toBeChecked();
     await deleteDialog.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(deleteDialog).not.toBeVisible();
     await expect(sidebar.getByRole("button", { name: groupName, exact: true })).toBeVisible();

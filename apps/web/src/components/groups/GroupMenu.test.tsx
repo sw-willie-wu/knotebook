@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
-import type { GroupDto, UserDto } from "@knotebook/shared";
+import type { GroupDto, GroupMemberDto, UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { adminRole, groupDto, memberRole } from "@/test/fixtures";
@@ -15,6 +15,9 @@ const ADMIN_GROUP: GroupDto = groupDto({ id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaa
 const CO_ADMIN_GROUP: GroupDto = groupDto({ id: "cccccccc-cccc-cccc-cccc-cccccccccccc", name: "Workshop C" }, adminRole({ memberCount: 2 }));
 const MEMBER_GROUP: GroupDto = groupDto({ id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", name: "Workshop B" }, memberRole({ memberCount: 3 }));
 
+/** 刪除對話框掛載時會打 `GET …/members`（下拉）與 `GET /api/notes`（篇數）——兩支都在 `renderMenu` 統一回應。 */
+const ME_AS_ADMIN: GroupMemberDto = { userId: ME.id, email: ME.email, displayName: ME.displayName, roleId: "r-admin", builtin: "admin" };
+
 function fakeResponse(status: number, body?: unknown): Response {
   return { ok: status >= 200 && status < 300, status, json: () => (body === undefined ? Promise.reject(new Error("no body")) : Promise.resolve(body)) } as unknown as Response;
 }
@@ -25,14 +28,16 @@ function LocationProbe() {
 }
 
 function renderMenu(group: GroupDto, handler: (method: string, url: string) => Response, size?: "sidebar" | "default") {
-  const calls: Array<{ method: string; url: string }> = [];
+  const calls: Array<{ method: string; url: string; body?: unknown }> = [];
   vi.stubGlobal(
     "fetch",
     vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method ?? "GET").toUpperCase();
-      calls.push({ method, url });
+      calls.push({ method, url, body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined });
       if (url === "/api/auth/me" && method === "GET") return Promise.resolve(fakeResponse(200, ME));
+      if (url.endsWith("/members") && method === "GET") return Promise.resolve(fakeResponse(200, [ME_AS_ADMIN]));
+      if (url === "/api/notes" && method === "GET") return Promise.resolve(fakeResponse(200, []));
       return Promise.resolve(handler(method, url));
     }),
   );
@@ -179,28 +184,31 @@ describe("GroupMenu", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Rename group" })).not.toBeInTheDocument());
   });
 
-  it("刪除群組 → 二次確認文案（#175 PR1：只有空群組能刪）→ DELETE /api/groups/:id → 成功後對話框關閉", async () => {
+  it("刪除群組 → 兩模式對話框（預設轉移、下拉第一位）→ DELETE /api/groups/:id 帶 {mode:'transfer', transferTo} → 成功後對話框關閉", async () => {
     const { calls } = renderMenu(ADMIN_GROUP, (method) => (method === "DELETE" ? fakeResponse(204) : fakeResponse(500)));
     const menu = await openMenu("Workshop A");
     fireEvent.click(within(menu).getByRole("menuitem", { name: "Delete group" }));
     const dialog = await screen.findByRole("dialog", { name: "Delete group?" });
-    expect(dialog).toHaveTextContent("Only an empty group can be deleted. If the group still has notes, delete them first.");
+    expect(within(dialog).getByRole("radio", { name: "Give them to an admin" })).toBeChecked();
+    await waitFor(() => expect(within(dialog).getByLabelText("Admin who gets the notes")).toHaveValue(ME.id));
     expect(calls.some((c) => c.method === "DELETE")).toBe(false);
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete group" }));
     await waitFor(() => expect(calls.some((c) => c.method === "DELETE" && c.url === `/api/groups/${ADMIN_GROUP.id}`)).toBe(true));
+    expect(calls.find((c) => c.method === "DELETE")?.body).toEqual({ mode: "transfer", transferTo: ME.id });
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Delete group?" })).not.toBeInTheDocument());
   });
 
-  it("刪除群組 → 409 group_not_empty → toast errors.group_not_empty，**對話框留著**（spec §8.6）", async () => {
+  it("刪除群組 → 409 not_admin → toast errors.not_admin，**對話框留著**、確認鈕可再按（spec §8.6）", async () => {
     const { calls } = renderMenu(ADMIN_GROUP, (method) =>
-      method === "DELETE" ? fakeResponse(409, { error: { code: "group_not_empty", message: "x" } }) : fakeResponse(500),
+      method === "DELETE" ? fakeResponse(409, { error: { code: "not_admin", message: "x" } }) : fakeResponse(500),
     );
     const menu = await openMenu("Workshop A");
     fireEvent.click(within(menu).getByRole("menuitem", { name: "Delete group" }));
     const dialog = await screen.findByRole("dialog", { name: "Delete group?" });
+    await waitFor(() => expect(within(dialog).getByLabelText("Admin who gets the notes")).toHaveValue(ME.id));
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete group" }));
     await waitFor(() => expect(calls.filter((c) => c.method === "DELETE" && c.url === `/api/groups/${ADMIN_GROUP.id}`)).toHaveLength(1));
-    await waitFor(() => expect(screen.getByText("This group still has notes in it, so it can't be deleted.", { exact: true })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("The notes can only be handed to one of the group's admins. Pick someone who is still an admin.", { exact: true })).toBeInTheDocument());
     // toast 已出現＝catch 已跑完；此時對話框仍在、確認鈕可再按
     expect(screen.getByRole("dialog", { name: "Delete group?" })).toBeInTheDocument();
     await waitFor(() => expect(within(screen.getByRole("dialog", { name: "Delete group?" })).getByRole("button", { name: "Delete group" })).not.toBeDisabled());

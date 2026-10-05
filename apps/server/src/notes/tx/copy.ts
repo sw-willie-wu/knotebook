@@ -15,7 +15,7 @@
  * 為什麼 groups 要在來源之前：來源與目標同在群組 G 時，若先鎖來源（G 的筆記）、再由 (4) INSERT 的 FK 檢查取 G 的
  * KEY SHARE，會與「groups FOR UPDATE → 該群組筆記 FOR UPDATE」（PR4 全刪的形）成環（review r1 實測 40P01；
  * `groups-v2-copy.test.ts` C19b 釘住）。現序下 `lockGroup` 方與 (g) 在各自的第一把鎖就互斥，後到者等的時候不持任何鎖。
- * (g) 也關掉「複製∥移除成員／降級」的授權窗口（C19a／C19c）：`lockGroup`（T5 刪群組、T9–T11 成員異動、PR3 角色異動）
+ * (g) 也關掉「複製∥移除成員／降級」的授權窗口（C19a／C19c）：`lockGroup`（T6／T7 刪群組、T9–T11 成員異動、PR3 角色異動）
  * 的 FOR UPDATE 與 KEY SHARE 互斥，所以 (g) 讀到的成員資格從讀到 commit 都成立。PR3 角色異動（T12／T13）先 `lockGroup`
  * 這個前提由 PR3 的 race 測試檔守著（T4 review r2 M-3）。(g) 同一句也讀出群組名與角色旗標並回傳（`target`），路由用它組
  * 201 的 role／permissions——交易外 `loadCreateTarget` 只剩快速 404（review r2 M-2：兩次讀之間被降級時不再回降級前的值）。

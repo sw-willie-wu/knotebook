@@ -164,7 +164,7 @@ describe("S14 結構性守衛（#175 §4.4）", () => {
     });
     expect(perFile).toEqual([
       { f: "routes/notes.ts", all: 5, inTx: 5 }, // T1 PATCH、T2 PUT shares、T3 move、T4 copy、T14 DELETE（PR2 抽出）
-      { f: "routes/groups.ts", all: 7, inTx: 7 }, // T8 建群組、T9 加人、T10 換角色、T11 移人、T5 刪空群組、T12 改角色、T13 刪角色
+      { f: "routes/groups.ts", all: 8, inTx: 8 }, // T8 建群組、T9 加人、T10 換角色、T11 移人、T6 轉移、T7 全刪、T12 改角色、T13 刪角色（T5 PR4 退場）
       { f: "notes/links.ts", all: 1, inTx: 1 }, // T15
     ]);
   });

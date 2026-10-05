@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient, type UseQueryResult } from "@tanstack/react-query";
-import type { GroupDto, GroupMemberDto, GroupRoleDto, GroupRoleFlags } from "@knotebook/shared";
+import type { DeleteGroupBody, GroupDto, GroupMemberDto, GroupRoleDto, GroupRoleFlags } from "@knotebook/shared";
 import { api } from "./client";
 
 /**
@@ -20,9 +20,10 @@ import { api } from "./client";
  * **自己**的角色時（非最後一位管理員把自己降成一般成員），開著那篇的 `note.permissions`
  * （⋮ 的刪除項、公開連結開關）停在舊角色，多顯示 server 會 403 的項目（Task 11 review r1 M-4）。#175 PR3 的改角色旗標、刪角色同理（`useUpdateRole`／`useDeleteRole`）。
  *
- * **刪群組**（#175 PR1）：server 只刪空群組（B9；非空回 409 `group_not_empty`），沒有任何筆記
- * 會被影響，所以只失效 `['groups']`、`['notes']`。PR4 的轉移／全刪會讓筆記換歸屬，屆時照
- * spec §8.6 失效 `['note']`、`['note-by-group-path']`。
+ * **刪群組**（#175 PR4）：必填模式 `DeleteGroupBody`——轉移給一位內建管理員（筆記變他的個人筆記）或全刪。
+ * 失效順序：單篇三把 key（開著的群組筆記要重抓成個人形或 404）→ `['public-link']`（轉移清掉公開連結，值會變）
+ * → `['groups']`／`['notes']`。不碰 `['shares']`：兩模式都不產生逐人分享（v1 刪群組會把成員物化成逐人分享
+ * 才需要先等 shares，v2 已推翻）。全部不 await：開著的查詢可能 404＋預設 retry，回饋不得被拖慢。
  */
 export const GROUPS_QUERY_KEY = ["groups"] as const;
 
@@ -105,12 +106,23 @@ export function useRenameGroup() {
   });
 }
 
-/** #175 PR1：只刪空群組（B9），沒有筆記會被影響——只失效 `['groups']`、`['notes']`（見檔頭）。204 無 body；非空 409 `group_not_empty` 由呼叫端 toast。 */
+/**
+ * #175 PR4：刪群組必填模式（`DeleteGroupBody`）。204 無 body；錯誤（409 `not_admin`、409 `server_busy`、404 群組已不在…）由呼叫端 toast。
+ * 失效：單篇三把（轉移後開著的群組筆記要重抓成個人形——transferTo 經轉址拿到 `/n/` 形、其他人拿到 404；全刪後拿到 404）
+ * → `['public-link']`（轉移清掉公開連結，Willie 2026-10-02）→ `['groups']`／`['notes']`。不碰 `['shares']`：兩模式都不產生逐人分享
+ * （v1 先 await shares，是因為 v1 刪群組把成員物化成逐人分享——D8，v2 已推翻）。全部不 await：開著的查詢可能 404＋retry。
+ */
 export function useDeleteGroup() {
+  const queryClient = useQueryClient();
   const invalidate = useInvalidateGroupsAndNotes();
   return useMutation({
-    mutationFn: (id: string) => api<void>(`/api/groups/${encodeURIComponent(id)}`, { method: "DELETE" }),
-    onSuccess: invalidate,
+    mutationFn: ({ id, body }: { id: string; body: DeleteGroupBody }) =>
+      api<void>(`/api/groups/${encodeURIComponent(id)}`, { method: "DELETE", body: JSON.stringify(body) }),
+    onSuccess: () => {
+      void invalidateSingleNoteKeys(queryClient);
+      void queryClient.invalidateQueries({ queryKey: ["public-link"] });
+      invalidate();
+    },
   });
 }
 

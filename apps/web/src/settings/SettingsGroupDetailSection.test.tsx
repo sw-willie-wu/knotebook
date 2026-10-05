@@ -333,7 +333,7 @@ describe("SettingsGroupDetailSection（/settings/groups/:id，spec §8.5）", ()
     expect(within(dialog).getByLabelText("Role for bob@example.com")).toHaveValue(MEMBER_ROLE.id);
   });
 
-  it("刪除群組：確認對話框（#175 PR1 新文案）→ DELETE /api/groups/:id → 導回 /settings/groups", async () => {
+  it("刪除群組：兩模式對話框 → 選全部刪除、勾確認 → DELETE {mode:'delete'} → 導回 /settings/groups", async () => {
     let deleted = false;
     const fetchMock = fetchFor(GROUP_ADMIN, () => [member(ME.id, ME.email, "Me", ADMIN_ROLE)], (url, method) => {
       if (url === "/api/groups" && method === "GET") return ok(deleted ? [] : [GROUP_ADMIN]);
@@ -347,21 +347,26 @@ describe("SettingsGroupDetailSection（/settings/groups/:id，spec §8.5）", ()
     renderDetailRoute(`/settings/groups/${GROUP_ADMIN.id}`, fetchMock);
     const dialog = await screen.findByRole("dialog");
     await waitFor(() => expect(within(dialog).getByRole("button", { name: "Delete group" })).toBeInTheDocument());
+    expect(dialog).toHaveTextContent("Deleting the group either gives its notes to one of its admins or deletes them with it.");
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete group" }));
     const confirmDialog = await screen.findByRole("dialog", { name: "Delete group?" });
-    expect(confirmDialog).toHaveTextContent("Only an empty group can be deleted. If the group still has notes, delete them first.");
+    expect(within(confirmDialog).getByRole("radio", { name: "Give them to an admin" })).toBeChecked();
     expect(callsTo(fetchMock, "DELETE", `/api/groups/${GROUP_ADMIN.id}`)).toHaveLength(0);
 
+    fireEvent.click(within(confirmDialog).getByRole("radio", { name: "Delete everything" }));
+    expect(within(confirmDialog).getByRole("button", { name: "Delete group" })).toBeDisabled();
+    fireEvent.click(within(confirmDialog).getByRole("checkbox", { name: "I understand the notes will be permanently deleted" }));
     fireEvent.click(within(confirmDialog).getByRole("button", { name: "Delete group" }));
     await waitFor(() => expect(callsTo(fetchMock, "DELETE", `/api/groups/${GROUP_ADMIN.id}`)).toHaveLength(1));
+    expect(JSON.parse(String(callsTo(fetchMock, "DELETE", `/api/groups/${GROUP_ADMIN.id}`)[0].body))).toEqual({ mode: "delete" });
     await waitFor(() => expect(screen.getByTestId("location").textContent).toMatch(/^\/settings\/groups\|/));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Delete group?" })).not.toBeInTheDocument());
   });
 
-  it("刪除群組 → 409 group_not_empty → toast errors.group_not_empty、**確認對話框留著**、不導頁（spec §8.6）", async () => {
+  it("刪除群組 → 409 not_admin → toast errors.not_admin、**確認對話框留著**、不導頁（spec §8.6）", async () => {
     const fetchMock = fetchFor(GROUP_ADMIN, () => [member(ME.id, ME.email, "Me", ADMIN_ROLE)], (url, method) =>
-      url === `/api/groups/${GROUP_ADMIN.id}` && method === "DELETE" ? fail(409, "group_not_empty") : null,
+      url === `/api/groups/${GROUP_ADMIN.id}` && method === "DELETE" ? fail(409, "not_admin") : null,
     );
 
     renderDetailRoute(`/settings/groups/${GROUP_ADMIN.id}`, fetchMock);
@@ -369,10 +374,12 @@ describe("SettingsGroupDetailSection（/settings/groups/:id，spec §8.5）", ()
     await waitFor(() => expect(within(dialog).getByRole("button", { name: "Delete group" })).toBeInTheDocument());
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete group" }));
     const confirmDialog = await screen.findByRole("dialog", { name: "Delete group?" });
+    await waitFor(() => expect(within(confirmDialog).getByLabelText("Admin who gets the notes")).toHaveValue(ME.id));
     fireEvent.click(within(confirmDialog).getByRole("button", { name: "Delete group" }));
 
-    await waitFor(() => expect(screen.getByText("This group still has notes in it, so it can't be deleted.", { exact: true })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("The notes can only be handed to one of the group's admins. Pick someone who is still an admin.", { exact: true })).toBeInTheDocument());
     expect(callsTo(fetchMock, "DELETE", `/api/groups/${GROUP_ADMIN.id}`)).toHaveLength(1);
+    expect(JSON.parse(String(callsTo(fetchMock, "DELETE", `/api/groups/${GROUP_ADMIN.id}`)[0].body))).toEqual({ mode: "transfer", transferTo: ME.id });
     expect(screen.getByRole("dialog", { name: "Delete group?" })).toBeInTheDocument();
     expect(screen.getByTestId("location").textContent).toMatch(new RegExp(`^/settings/groups/${GROUP_ADMIN.id}\\|`));
   });
@@ -438,7 +445,7 @@ describe("SettingsGroupDetailSection（/settings/groups/:id，spec §8.5）", ()
     fireEvent.click(within(confirmDialog2).getByRole("button", { name: "Leave group" }));
 
     await waitFor(() => expect(screen.getByText("A group needs at least one admin. Make someone else an admin first.", { exact: true })).toBeInTheDocument());
-    // 退出失敗（409）時確認對話框關閉——與刪群組的「留著」相反（ConfirmSection 的 keepOpenOnError={false}）
+    // 退出失敗（409）時確認對話框關閉——與刪群組（DeleteGroupDialog）的「留著」相反
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Leave group?" })).not.toBeInTheDocument());
     expect(screen.getByTestId("location").textContent).toMatch(new RegExp(`^/settings/groups/${GROUP_MEMBER.id}\\|`));
   });

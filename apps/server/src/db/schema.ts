@@ -214,7 +214,7 @@ export const notes = pgTable("notes", {
   // 名是管理端 409 public_slug_taken 的分流依據。partial＝未設別名不佔位。
   uniqueIndex("notes_owner_public_slug_idx").on(t.ownerId, t.publicSlug).where(sql`${t.publicSlug} is not null`),
   // #175：群組內 slug 唯一（S12）與群組範圍的 prev 補查；個人範圍仍由 notes_owner_slug_idx 裁決（NULL owner 不互撞）。
-  // notes_group_slug_idx 以 group_id 開頭，兼任「群組內所有筆記」（踢線名單、grouped 支的 JOIN、刪空群組的計數）——
+  // notes_group_slug_idx 以 group_id 開頭，兼任「群組內所有筆記」（踢線名單、grouped 支的 JOIN、刪群組時撈該群組的筆記）——
   // #103 的單欄 notes_group_idx 因此冗餘，0012 刪除（plan gate r1 A-M5）。
   uniqueIndex("notes_group_slug_idx").on(t.groupId, t.slug),
   index("notes_group_prev_slug_idx").on(t.groupId, t.prevSlug).where(sql`${t.prevSlug} is not null`),

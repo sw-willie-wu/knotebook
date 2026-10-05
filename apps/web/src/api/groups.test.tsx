@@ -19,7 +19,8 @@ import {
   useSetMemberRole,
   useUpdateRole,
 } from "./groups";
-import { useCreateNote } from "./notes";
+import { useCreateNote, useNote } from "./notes";
+import { usePublicLink } from "./public-link";
 import { adminRole, customRole, groupDto, memberRole } from "@/test/fixtures";
 
 const ADMIN_ROLE = adminRole({ id: "dddddddd-dddd-dddd-dddd-000000000001" });
@@ -109,7 +110,7 @@ describe("api/groups", () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["notes"] });
   });
 
-  it("useRenameGroup：PATCH /api/groups/:id {name}；useDeleteGroup：DELETE /api/groups/:id；兩者都 invalidate 兩把 key", async () => {
+  it("useRenameGroup：PATCH /api/groups/:id {name}；useDeleteGroup：DELETE /api/groups/:id 帶 {mode}；兩者都 invalidate 兩把 key", async () => {
     const calls = stubFetch({
       [`PATCH /api/groups/${GROUP.id}`]: () => fakeResponse(200, { ...GROUP, name: "新名" }),
       [`DELETE /api/groups/${GROUP.id}`]: () => fakeResponse(204),
@@ -120,8 +121,8 @@ describe("api/groups", () => {
     await expect(rename.result.current.mutateAsync({ id: GROUP.id, name: "新名" })).resolves.toMatchObject({ name: "新名" });
     expect(calls[0]).toEqual({ method: "PATCH", url: `/api/groups/${GROUP.id}`, body: { name: "新名" } });
     const del = renderHook(() => useDeleteGroup(), { wrapper: wrapper(queryClient) });
-    await expect(del.result.current.mutateAsync(GROUP.id)).resolves.toBeUndefined();
-    expect(calls[1]).toEqual({ method: "DELETE", url: `/api/groups/${GROUP.id}`, body: undefined });
+    await expect(del.result.current.mutateAsync({ id: GROUP.id, body: { mode: "delete" } })).resolves.toBeUndefined();
+    expect(calls[1]).toEqual({ method: "DELETE", url: `/api/groups/${GROUP.id}`, body: { mode: "delete" } });
     expect(invalidate.mock.calls.filter(([arg]) => JSON.stringify(arg?.queryKey) === '["groups"]')).toHaveLength(2);
     expect(invalidate.mock.calls.filter(([arg]) => JSON.stringify(arg?.queryKey) === '["notes"]')).toHaveLength(2);
   });
@@ -136,14 +137,77 @@ describe("api/groups", () => {
     expect(keys).toEqual(expect.arrayContaining(['["note"]', '["note-by-path"]', '["note-by-group-path"]', '["groups"]', '["notes"]']));
   });
 
-  it("#175 PR1 useDeleteGroup 只失效 ['groups']、['notes']：只刪空群組（B9），沒有筆記換歸屬，不碰 shares／public-link／單篇 note", async () => {
+  it("useDeleteGroup 的失效集合與順序：note 三把（['note']、['note-by-path']、['note-by-group-path']）先於 ['groups']／['notes']；含 ['public-link']（轉移清 token）；不含 ['shares']（v2 兩模式都不產生逐人分享——PR4 plan spec 疑點 Q4）", async () => {
     stubFetch({ [`DELETE /api/groups/${GROUP.id}`]: () => fakeResponse(204) });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
     const { result } = renderHook(() => useDeleteGroup(), { wrapper: wrapper(queryClient) });
-    await result.current.mutateAsync(GROUP.id);
+    await result.current.mutateAsync({ id: GROUP.id, body: { mode: "delete" } });
     const keys = invalidate.mock.calls.map(([arg]) => JSON.stringify(arg?.queryKey));
-    expect([...keys].sort()).toEqual(['["groups"]', '["notes"]']);
+    const at = (k: string) => {
+      const i = keys.indexOf(k);
+      expect(i, `${k} 應該被 invalidate`).toBeGreaterThanOrEqual(0);
+      return i;
+    };
+    const noteLayer = ['["note"]', '["note-by-path"]', '["note-by-group-path"]'].map(at);
+    expect(Math.max(...noteLayer)).toBeLessThan(Math.min(at('["groups"]'), at('["notes"]')));
+    expect(keys).toContain('["public-link"]');
+    expect(keys).not.toContain('["shares"]');
+  });
+
+  it("useDeleteGroup（轉移給自己）：開著的 ['note', id] 與 active 的 ['public-link', id] 都在 mutateAsync resolve 之後才重抓完——mutateAsync 不等它們；放行後 note 變個人形、public-link 變 {token:null, slug:null}", async () => {
+    const NOTE_ID = "cccccccc-cccc-cccc-cccc-cccccccccccc";
+    const groupNote = { id: NOTE_ID, title: "x", groupId: GROUP.id, group: { id: GROUP.id, name: GROUP.name }, role: "editor" };
+    const personalNote = { ...groupNote, groupId: null, group: null, role: "owner" };
+    const linkBefore = { token: "tok", slug: "pub" };
+    const linkAfter = { token: null, slug: null };
+    let transferred = false;
+    const gate: { release?: () => void } = {};
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (method === "DELETE" && url === `/api/groups/${GROUP.id}`) {
+          transferred = true;
+          return Promise.resolve(fakeResponse(204));
+        }
+        if (url === `/api/notes/${NOTE_ID}`) return Promise.resolve(fakeResponse(200, transferred ? personalNote : groupNote));
+        if (url === `/api/notes/${NOTE_ID}/public-link`) {
+          if (!transferred) return Promise.resolve(fakeResponse(200, linkBefore));
+          // 轉移後的重抓懸著：mutateAsync 若在等它，下面的斷言會逾時
+          return new Promise<Response>((resolve) => {
+            gate.release = () => resolve(fakeResponse(200, linkAfter));
+          });
+        }
+        throw new Error(`unexpected fetch: ${method} ${url}`);
+      }),
+    );
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result } = renderHook(
+      () => ({ note: useNote(NOTE_ID), link: usePublicLink(NOTE_ID), del: useDeleteGroup() }),
+      { wrapper: wrapper(queryClient) },
+    );
+    await waitFor(() => expect(result.current.note.data).toMatchObject({ group: { id: GROUP.id } }));
+    await waitFor(() => expect(result.current.link.data).toEqual(linkBefore));
+
+    // v2 與 v1 相反：v1 要先等 shares 落定才失效 note（mutateAsync 在其後 resolve）；v2 不 await 任何失效，
+    // public-link 重抓還懸著時 mutateAsync 就已經 resolve，回饋不被開著的查詢拖慢（Q4）。
+    await result.current.del.mutateAsync({ id: GROUP.id, body: { mode: "transfer", transferTo: MEMBER.userId } });
+    await waitFor(() => expect(gate.release).toBeDefined());
+    expect(result.current.link.data).toEqual(linkBefore);
+    gate.release?.();
+
+    await waitFor(() => expect(result.current.note.data).toMatchObject({ group: null, role: "owner" }));
+    await waitFor(() => expect(result.current.link.data).toEqual(linkAfter));
+  });
+
+  it("useDeleteGroup 帶 transfer body：{mode:'transfer', transferTo}", async () => {
+    const calls = stubFetch({ [`DELETE /api/groups/${GROUP.id}`]: () => fakeResponse(204) });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result } = renderHook(() => useDeleteGroup(), { wrapper: wrapper(queryClient) });
+    await result.current.mutateAsync({ id: GROUP.id, body: { mode: "transfer", transferTo: MEMBER.userId } });
+    expect(calls[0]).toEqual({ method: "DELETE", url: `/api/groups/${GROUP.id}`, body: { mode: "transfer", transferTo: MEMBER.userId } });
   });
 
   it("#175 useSetMemberRole 另外失效單篇筆記三把 key：改到自己的角色時，開著那篇群組筆記的 permissions 要重抓（review r1 M-4）", async () => {

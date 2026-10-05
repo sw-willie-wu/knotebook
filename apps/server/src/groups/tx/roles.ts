@@ -1,12 +1,12 @@
 /**
- * #175 PR3 T12／T13（spec §6 交易表、§6.7、§7、S14）：自訂角色的修改與刪除。兩支都以 `lockGroup` 開頭——與 T5、T9–T11
+ * #175 PR3 T12／T13（spec §6 交易表、§6.7、§7、S14）：自訂角色的修改與刪除。兩支都以 `lockGroup` 開頭——與 T6／T7（刪群組）、T9–T11
  * 同一把 groups 列鎖（spec §11 鎖序「成員／角色變動＝groups 一把」）：刪角色與「把人掛上這個角色」因此序列化，後到者看到
  * 前者的結果（角色已不在 → 404 `role_not_found`；那人已掛上 → 被改掛內建一般成員），不會在 `group_members_role_fk`
  * 撞 23503。本檔不 import 資料庫型別、不碰路由的依賴物件（S14）；測試縫 `hook` 是型別明示的參數。業務拒絕一律 throw `TxAbort`。
  *
  * ⚠ 跨 PR 前提（PR2 的 `notes/tx/move.ts`）：移動路徑讀成員資格與角色旗標之前，只對 groups 列取 `FOR KEY SHARE`；它的正確性
  * 建立在「所有會改變**既有成員資格**，或改變**可能已有人持有之角色**旗標的寫入，都先 `lockGroup`（groups `FOR UPDATE`，
- * 與 KEY SHARE 互斥；T5、T9–T13）」上。`POST …/roles` 只新增一個尚無人持有的角色（要掛上它必須經過 T9／T10 的
+ * 與 KEY SHARE 互斥；T6／T7、T9–T13）」上。`POST …/roles` 只新增一個尚無人持有的角色（要掛上它必須經過 T9／T10 的
  * `lockGroup`），不改變任何人的有效權限，所以不在此列、也不取鎖。日後若新增會刪 `users` 的路徑（`group_members.user_id`
  * 是 ON DELETE CASCADE），必須先對該使用者所屬的每個群組 `lockGroup`。
  * 所以這兩支的第一步必須是 `lockGroup`，不可為了省一次往返拿掉或挪到讀取之後。守衛：
