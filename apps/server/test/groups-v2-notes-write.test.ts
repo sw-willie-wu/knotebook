@@ -13,7 +13,7 @@ import { cookieOf, noteState, seedGroup, seedNote, seedRole, seedShare, seedUser
 
 const ALL = { read: true, edit: true, delete: true, manageShares: true, managePublicLink: true, changeSlug: true, moveToGroup: true };
 
-async function call(app: FastifyInstance, method: "GET" | "POST" | "PUT" | "DELETE", url: string, userId: string, payload?: object) {
+async function call(app: FastifyInstance, method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE", url: string, userId: string, payload?: object) {
   return app.inject({ method, url, cookies: await cookieOf(userId), ...(payload ? { payload } : {}) });
 }
 
@@ -203,5 +203,69 @@ describe("#175 GET /api/notes/:id/backlinks 的群組來源（Task 3 review N-4�
     const byOutsider = await call(app, "GET", `/api/notes/${target.id}/backlinks`, s.outsider.id);
     expect(byOutsider.statusCode).toBe(200);
     expect(byOutsider.json().backlinks).toEqual([]);
+  });
+});
+
+describe("#186 PATCH /api/notes/:id：帶 title 一律要 permissions.edit（不論有沒有帶 slug）", () => {
+  async function titleOf(db: Db, noteId: string) {
+    const [r] = await db.select({ title: notes.title }).from(notes).where(eq(notes.id, noteId));
+    return r!.title;
+  }
+
+  it("只有 managePublicLink（無 edit）的角色：只帶 slug → 200；slug＋title → 403 且 title／slug 未變；只帶 title → 403", async () => {
+    const { app, db } = await buildTestApp();
+    const s = await scene(db);
+    await setMemberRole(db, s.g.id, s.reader.id, await seedRole(db, s.g.id, "LinkMgr", { canRead: true, canManagePublicLink: true }));
+    const gn = await seedNote(db, { groupId: s.g.id }, { title: "Original" });
+
+    const slugOnly = await call(app, "PATCH", `/api/notes/${gn.id}`, s.reader.id, { slug: "linkmgr-slug" });
+    expect(slugOnly.statusCode).toBe(200);
+    expect(await titleOf(db, gn.id)).toBe("Original");
+    expect((await noteState(db.$client, gn.id)).slug).toBe("linkmgr-slug");
+
+    const both = await call(app, "PATCH", `/api/notes/${gn.id}`, s.reader.id, { slug: "other-slug", title: "Hijacked" });
+    expect(both.statusCode).toBe(403);
+    expect(both.json().error.code).toBe("forbidden");
+    expect(await titleOf(db, gn.id)).toBe("Original");
+    expect((await noteState(db.$client, gn.id)).slug).toBe("linkmgr-slug");
+
+    const nullSlugBoth = await call(app, "PATCH", `/api/notes/${gn.id}`, s.reader.id, { slug: null, title: "Hijacked" });
+    expect(nullSlugBoth.statusCode).toBe(403);
+    expect(await titleOf(db, gn.id)).toBe("Original");
+
+    const titleOnly = await call(app, "PATCH", `/api/notes/${gn.id}`, s.reader.id, { title: "Hijacked" });
+    expect(titleOnly.statusCode).toBe(403);
+    expect(await titleOf(db, gn.id)).toBe("Original");
+  });
+
+  it("同時有 edit 與 changeSlug 的角色（內建管理員）帶 slug＋title → 200，兩者都寫入；只有 edit 的一般成員帶 slug → 403（不誤傷也不放寬）", async () => {
+    const { app, db } = await buildTestApp();
+    const s = await scene(db);
+    const gn = await seedNote(db, { groupId: s.g.id }, { title: "Original" });
+    const ok = await call(app, "PATCH", `/api/notes/${gn.id}`, s.admin.id, { slug: "admin-slug", title: "Renamed" });
+    expect(ok.statusCode).toBe(200);
+    expect(await titleOf(db, gn.id)).toBe("Renamed");
+    expect((await noteState(db.$client, gn.id)).slug).toBe("admin-slug");
+    const memberSlug = await call(app, "PATCH", `/api/notes/${gn.id}`, s.member.id, { slug: "member-slug", title: "X" });
+    expect(memberSlug.statusCode).toBe(403);
+    expect(await titleOf(db, gn.id)).toBe("Renamed");
+    const memberTitle = await call(app, "PATCH", `/api/notes/${gn.id}`, s.member.id, { title: "ByMember" });
+    expect(memberTitle.statusCode).toBe(200);
+    expect(await titleOf(db, gn.id)).toBe("ByMember");
+  });
+
+  it("個人筆記：owner 帶 slug＋title → 200；被分享的 editor 帶 title → 200、帶 slug → 403", async () => {
+    const { app, db } = await buildTestApp();
+    const s = await scene(db);
+    const pn = await seedNote(db, { ownerId: s.outsider.id }, { title: "Mine" });
+    await seedShare(db, pn.id, s.member.id, "editor");
+    const own = await call(app, "PATCH", `/api/notes/${pn.id}`, s.outsider.id, { slug: "mine-slug", title: "Mine 2" });
+    expect(own.statusCode).toBe(200);
+    expect(await titleOf(db, pn.id)).toBe("Mine 2");
+    const ed = await call(app, "PATCH", `/api/notes/${pn.id}`, s.member.id, { title: "Edited" });
+    expect(ed.statusCode).toBe(200);
+    const edSlug = await call(app, "PATCH", `/api/notes/${pn.id}`, s.member.id, { slug: "x-slug", title: "Edited 2" });
+    expect(edSlug.statusCode).toBe(403);
+    expect(await titleOf(db, pn.id)).toBe("Edited");
   });
 });
