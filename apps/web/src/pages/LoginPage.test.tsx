@@ -113,12 +113,14 @@ describe("LoginPage（Plan 5 Task 10：SSO 入口＋?error= 映射）", () => {
     expect(document.querySelector("img[src='x']")).toBeNull();
   });
 
-  it("?error=oidc_email_unverified → alert 區出現對應文案", async () => {
+  it("?error=oidc_email_missing → alert 區出現對應文案", async () => {
     const fetchMock = fetchMockWithAuthConfig(NO_PROVIDERS);
-    renderAt("/login?error=oidc_email_unverified", fetchMock);
+    renderAt("/login?error=oidc_email_missing", fetchMock);
 
     await waitFor(() =>
-      expect(screen.getByRole("alert")).toHaveTextContent("Your identity provider hasn't verified your email address yet."),
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Your identity provider didn't share an email address, which is required to sign in.",
+      ),
     );
   });
 
@@ -167,9 +169,7 @@ describe("LoginPage（Plan 5 Task 10：SSO 入口＋?error= 映射）", () => {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
       }
       if (url === AUTH_CONFIG_URL && method === "GET") {
-        return Promise.resolve(
-          fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(NO_PROVIDERS) }),
-        );
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(NO_PROVIDERS) }));
       }
       if (url === "/api/auth/login" && method === "POST") {
         return loginPending.then(() =>
@@ -183,18 +183,19 @@ describe("LoginPage（Plan 5 Task 10：SSO 入口＋?error= 映射）", () => {
       throw new Error(`unexpected fetch: ${method} ${url}`);
     });
 
-    renderAt("/login?error=oidc_email_unverified", fetchMock);
+    renderAt("/login?error=oidc_email_missing", fetchMock);
 
     await waitFor(() =>
-      expect(screen.getByRole("alert")).toHaveTextContent("Your identity provider hasn't verified your email address yet."),
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Your identity provider didn't share an email address, which is required to sign in.",
+      ),
     );
 
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "alice@example.com" } });
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "correct-horse-battery" } });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
-    // 送出當下（login 回應仍卡在 `loginPending`，尚未 resolve）：舊的 OIDC 錯誤訊息
-    // 已被 `setErrorMessage(null)` 蓋掉，alert 區應完全不存在。
+    // 送出當下（login 回應仍卡在 `loginPending`，尚未 resolve）：舊的 OIDC 錯誤訊息已被 `setErrorMessage(null)` 蓋掉。
     await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
 
     resolveLogin?.();
@@ -401,10 +402,9 @@ describe("#131 登入後導回 next", () => {
   });
 
   it("清掉一次性的 ?error= 時只刪那一個鍵：error 消失、next 留著", async () => {
-    // 掛載時的 effect 會把 ?error= 從網址移除（既有行為，避免重新整理把舊錯誤帶回來）。
-    // 兩半都要斷言：只驗「next 還在」的話，把整個 effect 刪掉本案照樣綠；只驗「error
-    // 不見」的話，改成整個換掉 searchParams 也照樣綠。
-    renderLoginWithProbe("/login?error=oidc_email_unverified&next=%2Fn%2Falice%2Fmy-note", fetchMockLoginOk(TWO.providers));
+    // 掛載時的 effect 會把 ?error= 從網址移除（既有行為，避免重新整理把舊錯誤帶回來）。兩半都要斷言：只驗「next 還在」
+    // 的話，把整個 effect 刪掉本案照樣綠；只驗「error 不見」的話，改成整個換掉 searchParams 也照樣綠。
+    renderLoginWithProbe("/login?error=oidc_email_missing&next=%2Fn%2Falice%2Fmy-note", fetchMockLoginOk(TWO.providers));
 
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     await waitFor(() => {
@@ -413,8 +413,7 @@ describe("#131 登入後導回 next", () => {
     const link = await screen.findByRole("link", { name: "Sign in with GitLab" });
     expect(link).toHaveAttribute("href", `${OIDC_LOGIN_URL}?next=%2Fn%2Falice%2Fmy-note`);
 
-    // 清除本身是 replace：按上一頁不該回到那個帶 ?error= 的網址（否則使用者會看到
-    // 一個早就消化完的舊錯誤）。
+    // 清除本身是 replace：按上一頁不該回到那個帶 ?error= 的網址。
     fireEvent.click(screen.getByRole("button", { name: "back" }));
     await waitFor(() => {
       expect(screen.getByTestId("login-location").textContent).toBe("/login?next=%2Fn%2Falice%2Fmy-note");

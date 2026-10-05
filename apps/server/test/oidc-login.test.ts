@@ -285,7 +285,7 @@ describe("#131 login 端點的 next", () => {
 
   it("封章後的 cookie 位元組：最壞情況（2048 字元 next）仍遠低於瀏覽器的 4 KB", async () => {
     // 「server 端不需要第二道長度關」這個決策的**量測**守衛。#187 加了 providerId／configVersion／intent 三欄後
-    // 最壞約 3177 bytes（plan 主檔複驗第 21 條；Plan 5 時是 3049）——仍低於 3500。
+    // 最壞實測 3165 bytes（`name=value`；與 `auth/oidc-state.ts` 的註解同一個量測；Plan 5 時是 3049）——仍低於 3500。
     const worstCaseNext = "/" + "a".repeat(MAX_NEXT_PATH_LENGTH - 1);
     const { next, cookieBytes, setCookieBytes } = await loginWithNext(
       `/api/auth/oidc/login?next=${encodeURIComponent(worstCaseNext)}`,
@@ -363,5 +363,21 @@ describe("#131 login 端點的 next", () => {
     expect(second.statusCode).toBe(302);
     expect(second.headers.location).toBe("/login?error=too_many_requests");
     expect(second.cookies.find(c => c.name === OIDC_STATE_COOKIE)).toBeUndefined();
+  });
+
+  it("UUID 關在限流之前：limit=1 的桶先被 /login/not-a-uuid 敲過，legacy /login 仍 302 至 IdP（非 UUID 不扣額度）", async () => {
+    const fakeIdp = createFakeIdp(ISSUER_URL);
+    const { app } = await legacyOidcApp(fakeIdp.fetch, ISSUER_URL, {
+      limiters: freshLimiters({ oidcLogin: new FixedWindowLimiter({ limit: 1, windowMs: 60_000 }) }),
+    });
+
+    const bad = await app.inject({ method: "GET", url: "/api/auth/oidc/login/not-a-uuid" });
+    expect(bad.statusCode).toBe(302);
+    expect(bad.headers.location).toBe("/login?error=oidc_unavailable");
+
+    const legacy = await app.inject({ method: "GET", url: "/api/auth/oidc/login" });
+    expect(legacy.statusCode).toBe(302);
+    expect(legacy.headers.location).not.toBe("/login?error=too_many_requests");
+    expect(new URL(legacy.headers.location as string).origin).toBe(ISSUER_URL);
   });
 });

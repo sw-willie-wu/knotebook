@@ -308,16 +308,13 @@ export const ERROR_CODES = [
   "upstream_error",
   "builtin_action",
   "model_taken",
-  // Plan 5（Task 8/9）：OIDC 登入流程。`oidc_unavailable`＝OIDC 未設定/discovery 失敗/
-  // 不可用（login route 302、callback route 對稱處理）；`oidc_state_mismatch`＝callback
-  // 的 state cookie 缺失/過期/與查詢字串不符（Task 9）；`oidc_exchange_failed`＝與 IdP
-  // 的 token/userinfo 交換失敗（Task 9）；`oidc_email_unverified`/`oidc_email_missing`/
-  // `oidc_conflict`＝`auth/oidc-decision.ts` 的 reject 分支碼（Task 7 已落地決策函式，
-  // 這裡補上型別/i18n 承諾）。
+  // Plan 5（Task 8/9）：OIDC 登入流程。`oidc_unavailable`＝provider 不在／停用、discovery 失敗或不可用（login 與 callback 皆 302）；
+  // `oidc_state_mismatch`＝callback 的 state cookie 缺失／過期／與查詢字串或 provider 不符；`oidc_exchange_failed`＝與 IdP 的
+  // token／userinfo 交換失敗；`oidc_email_missing`／`oidc_conflict`＝SSO 決策（`auth/oidc-login-decision.ts`）的拒絕碼。
+  // #187 起 IdP 的「email 已驗證」旗標不參與任何判斷，Plan 5 那個「email 未驗證」碼已退役（r2-M4）。
   "oidc_unavailable",
   "oidc_state_mismatch",
   "oidc_exchange_failed",
-  "oidc_email_unverified",
   "oidc_email_missing",
   "oidc_conflict",
   // #107 API token／OAuth：`insufficient_scope`＝合法 token 但 scope 不足（403——刻意

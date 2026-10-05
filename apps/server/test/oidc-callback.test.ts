@@ -180,6 +180,14 @@ describe("GET /api/auth/oidc/callback", () => {
       // 確實走到 discovery（不是更早的 state 檢查）：callback 自己打了恰一次。
       expect(fakeIdp.counts.discovery).toBe(1);
     });
+
+    it("provider id 不是 UUID（/api/auth/oidc/callback/not-a-uuid）→ 302 oidc_unavailable，不碰 IdP（discovery 0 次）", async () => {
+      const { app, fakeIdp } = await setup();
+      const res = await app.inject({ method: "GET", url: "/api/auth/oidc/callback/not-a-uuid?code=x&state=y" });
+      expect(res.statusCode).toBe(302);
+      expect(res.headers.location).toBe("/login?error=oidc_unavailable");
+      expect(fakeIdp.counts.discovery).toBe(0);
+    });
   });
 
   it("email claim 為空字串 → 視為缺欄位，302 oidc_email_missing（不建出 email='' 帳號）", async () => {
