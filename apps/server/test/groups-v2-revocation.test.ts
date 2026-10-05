@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { COLLAB_CLOSE_REVOKED, YDOC_FRAGMENT, type GroupRoleDto } from "@knotebook/shared";
+import { COLLAB_CLOSE_NOTE_DELETED, COLLAB_CLOSE_REVOKED, YDOC_FRAGMENT, type GroupRoleDto } from "@knotebook/shared";
 import { createCollabHooks, REVERIFY_DEADLINE_MS } from "../src/collab/hooks-impl.js";
 import { buildCollabTestApp, type CollabTestCtx, type HttpSession } from "./helpers.js";
 import { seedRole } from "./group-helpers.js";
@@ -245,5 +245,102 @@ describe("#175 PR2 複製（spec §6.5、§7）", () => {
     expect(text(copyClient.doc)).toContain("live-unsaved-text");
     expect(text(copyClient.doc)).toBe(text(ctx.collab.hocuspocus.documents.get(noteId)!));
     expect(ownerClient.closes).toEqual([]);
+  });
+});
+
+describe("#175 PR4 刪群組的踢線（spec §7）", () => {
+  it("轉移：群組筆記上只靠群組取得存取的成員 10 秒內被 close(revoked)；transferTo 那條續留、collab-token 回 role owner、寫入落盤", async () => {
+    const ctx = await buildApp();
+    const admin = await user(ctx, "admin-dg1@example.com");
+    const member = await user(ctx, "m-dg1@example.com");
+    const groupId = await makeGroup(admin.session, ["m-dg1@example.com"]);
+    const noteId = await createGroupNote(member.session, groupId, "crew note");
+
+    const adminClient = await admin.session.connect(noteId);
+    const memberClient = await member.session.connect(noteId);
+    const adminSynced = await armTokenSync(ctx, noteId, admin.id);
+    expect((await api(admin.session, "DELETE", `/api/groups/${groupId}`, { mode: "transfer", transferTo: admin.id })).status).toBe(204);
+    await waitFor("只靠群組取得存取的成員被踢", 10_000, () => revoked(memberClient.closes));
+    // 釘的是 §7「transferTo 也重驗」這個呼叫面（拿掉 `[transferTo]` 那一批，這裡逾時紅——PR4 Task 6 突變實跑）；
+    // 行為面等價：transferTo 必是內建管理員＝本來就可寫，不重驗下面的寫入照樣落盤。
+    await waitFor("transferTo 那條連線完成重驗（setReadOnly 之後）", 10_000, adminSynced);
+    await sleep(REVERIFY_DEADLINE_MS + 1_000);
+    expect(adminClient.closes).toEqual([]);
+
+    const token = await api(admin.session, "POST", `/api/notes/${noteId}/collab-token`);
+    expect(token.status).toBe(200);
+    expect((token.json as { role: string }).role).toBe("owner");
+
+    insertParagraph(adminClient.doc, "after-transfer");
+    // 落盤＝onStoreDocument（debounce 2 秒）寫進 note_states；唯讀連線的更新會被 server 丟掉、不會落盤。
+    const persistDeadline = Date.now() + 10_000;
+    let persisted = "";
+    while (Date.now() < persistDeadline && !persisted.includes("after-transfer")) {
+      await sleep(100);
+      const doc = await loadDoc(ctx.db, noteId);
+      persisted = doc === null ? "" : text(doc);
+    }
+    expect(persisted).toContain("after-transfer");
+    expect(adminClient.closes).toEqual([]);
+  });
+
+  it("全刪：P0 上的連線收 CLOSE(note-deleted)（不是 revoked）", async () => {
+    const ctx = await buildApp();
+    const admin = await user(ctx, "admin-dg2@example.com");
+    const member = await user(ctx, "m-dg2@example.com");
+    const groupId = await makeGroup(admin.session, ["m-dg2@example.com"]);
+    const noteId = await createGroupNote(member.session, groupId, "crew note");
+
+    const adminClient = await admin.session.connect(noteId);
+    const memberClient = await member.session.connect(noteId);
+    expect((await api(admin.session, "DELETE", `/api/groups/${groupId}`, { mode: "delete" })).status).toBe(204);
+    await waitFor("管理員那條收到 CLOSE(note-deleted)", 10_000, () => adminClient.closes.some(c => c.reason === COLLAB_CLOSE_NOTE_DELETED));
+    await waitFor("成員那條收到 CLOSE(note-deleted)", 10_000, () => memberClient.closes.some(c => c.reason === COLLAB_CLOSE_NOTE_DELETED));
+    expect(revoked(adminClient.closes)).toBe(false);
+    expect(revoked(memberClient.closes)).toBe(false);
+    expect(ctx.collab.connectionsOfNote(noteId).size).toBe(0);
+  });
+
+  it("全刪：gate 之後才進群組的筆記（L \\ P0）上的連線，在 commit 後 10 秒內被關，reason 是 revoked 而不是 note-deleted（§6.8 代價、§15 第 10 條）", async () => {
+    // `buildCollabTestApp` 沒有 `groupTestHook` 注入面，「gate 之後、交易之前」改由包住真 `beforeNoteDeleted` 來卡：
+    // 路由先取 P0、對 P0 每篇 await `beforeNoteDeleted`（Promise.allSettled），全數落定後才進交易——在包裝裡、真 gate
+    // 開完之後才建筆記並連上，時點與 `group-delete-gated` 同一段（P0 之後、交易之前）。`gatedIds` 佐證新筆記不在 P0。
+    const gatedIds: string[] = [];
+    const holder: { onGated: (() => Promise<void>) | null } = { onGated: null };
+    const ctx = await buildCollabTestApp({
+      collabHooks: (server, log) => {
+        const real = createCollabHooks(server, log);
+        return {
+          ...real,
+          async beforeNoteDeleted(noteId: string) {
+            gatedIds.push(noteId);
+            const gate = await real.beforeNoteDeleted(noteId);
+            const fire = holder.onGated;
+            holder.onGated = null;
+            if (fire) await fire();
+            return gate;
+          },
+        };
+      },
+    });
+    const admin = await user(ctx, "admin-dg3@example.com");
+    const member = await user(ctx, "m-dg3@example.com");
+    const groupId = await makeGroup(admin.session, ["m-dg3@example.com"]);
+    const p0NoteId = await createGroupNote(admin.session, groupId, "p0 note");
+
+    const late: { noteId: string | null; client: Awaited<ReturnType<HttpSession["connect"]>> | null } = { noteId: null, client: null };
+    holder.onGated = async () => {
+      late.noteId = await createGroupNote(member.session, groupId, "late note");
+      late.client = await member.session.connect(late.noteId);
+    };
+    expect((await api(admin.session, "DELETE", `/api/groups/${groupId}`, { mode: "delete" })).status).toBe(204);
+    expect(late.noteId).not.toBeNull();
+    expect(gatedIds).toEqual([p0NoteId]);
+    expect((await api(member.session, "GET", `/api/notes/${late.noteId!}`)).status).toBe(404);
+
+    const lateClient = late.client!;
+    await waitFor("L \\ P0 上的連線在 commit 後被關（revoked）", 10_000, () => revoked(lateClient.closes));
+    await sleep(1_000);
+    expect(lateClient.closes.some(c => c.reason === COLLAB_CLOSE_NOTE_DELETED)).toBe(false);
   });
 });
