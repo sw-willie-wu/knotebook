@@ -21,8 +21,8 @@ export interface UserDto {
   handle: string;
   displayName: string;
   isAdmin: boolean;
-  /** 首登強制改密碼旗標（spec rev 5.7 / §14.2）：env bootstrap 建立的 admin、admin UI
-   * 代建的帳號皆為 true；OIDC 自動建帳為 false。web 端的 `ChangePasswordGate` 依此
+  /** 首登強制改密碼旗標（spec rev 5.7 / §14.2）：admin UI 代建時寫 true；#187 PR4 起新建的
+   * env bootstrap 管理員與 OIDC 自動建帳為 false。web 端的 `ChangePasswordGate` 依此
    * 導向 `/change-password`——見 apps/web/src/auth/guards.tsx。 */
   mustChangePassword: boolean;
   /** OIDC-only 帳號為 false；設定 modal 據此隱藏改密表單——spec §14.4。 */

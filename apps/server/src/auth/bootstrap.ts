@@ -16,8 +16,8 @@ export interface EnvAdminBootstrap {
  * 實例初始化的唯一路徑（spec §14.2，setup token 已退役）：
  * - 已初始化（instance_setup 有列）→ no-op（envAdmin 被忽略——「僅首次初始化生效」）。
  * - 未初始化＋envAdmin → 原子建立 admin：INSERT instance_setup ON CONFLICT DO NOTHING
- *   當並發/重試 guard（拿不到列＝別人已完成，靜默返回）；mustChangePassword: true
- *   （env 明文密碼首登強改）。
+ *   當並發/重試 guard（拿不到列＝別人已完成，靜默返回）；mustChangePassword: false
+ *   （#187 W6：env 管理員不強制首登改密碼——密碼是部署者自己設在 .env 的，不是別人代設的暫時密碼）。
  * - 未初始化＋無 envAdmin → throw（可行動訊息）。**這裡 throw、不 process.exit**——
  *   exit 會殺掉 vitest runner；production 的「印錯 + exit」由 index.ts 呼叫端承擔
  *   （與 migration 失敗處置同形，spec §14.2）。
@@ -48,6 +48,6 @@ export async function initializeInstance(db: Db, envAdmin?: EnvAdminBootstrap): 
     // transaction）：探測後仍撞 PK＝真競態→整個啟動 fail-closed（重啟重試）。
     const handle = await deriveHandle(tx, [email.split("@")[0]], id);
     await tx.insert(handles).values({ handle, userId: id, state: "live" });
-    await tx.insert(users).values({ id, email, passwordHash, displayName, isAdmin: true, mustChangePassword: true, handle });
+    await tx.insert(users).values({ id, email, passwordHash, displayName, isAdmin: true, mustChangePassword: false, handle });
   });
 }
