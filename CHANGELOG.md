@@ -7,9 +7,23 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
+### Added
+
+- Groundwork for signing in with more than one identity provider: sign-in services are now stored in the database, the login page shows a "Sign in with …" button for each enabled one, and each new one gets its own callback URL (`<PUBLIC_URL>/api/auth/oidc/callback/<provider id>`). In this version a sign-in service can only come from the one-time `OIDC_*` import described below (#187).
+- When someone signs in through an identity provider for the first time and their email already has an account, Knotebook asks whether to link the two. They prove the account is theirs with its password, or by signing in with a sign-in service already linked to it (#187).
+
 ### Changed
 
 - The first admin account, created from `ADMIN_EMAIL`/`ADMIN_PASSWORD` on a new instance, is no longer forced to change its password on first login — you set that password yourself in `.env`. Accounts that are still marked to change their password (such as ones an admin creates, or — on an instance initialized before this change — an env-bootstrapped admin that hasn't changed it yet) are still sent to change it when they sign in with a password (#187).
+- **Signing in with SSO no longer links to an existing account just because the identity provider says the email is verified.** Identities that are already linked keep working. A new identity whose email matches an existing account goes through the linking page instead (#187).
+- The identity provider's `email_verified` claim is no longer read. Identity providers that don't send it now work, and an email the provider marks as unverified can create an account on first sign-in (#187).
+- `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` are read only on the first start of this version. They become a sign-in provider named "SSO" that keeps the old callback URL, and are ignored after that. Setting only some of them no longer stops the server from starting (#187).
+- An account an admin created for someone must still change its password even if its owner signs in with SSO or links SSO to it — only changing the password clears that. Accounts that already signed in with SSO before upgrading aren't affected (#187).
+- `GET /api/auth/config` now returns `{providers: [{id, displayName}], registration: {enabled}}` instead of `{oidc: {enabled}}` (#187).
+
+### Removed
+
+- The `oidc_email_unverified` error code, which is no longer sent (#187).
 
 ### Fixed
 
