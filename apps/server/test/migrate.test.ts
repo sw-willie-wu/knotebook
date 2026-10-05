@@ -1,28 +1,29 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { autoSlugFromTitle, validateHandle, validateSlug } from "@knotebook/shared";
 import { applyMigrationsThrough, freshDb, freshEmptyDb, idxOfTag, journalEntries } from "./helpers.js";
 import { runMigrations } from "../src/db/migrate.js";
 import { PgDialect, getTableConfig } from "drizzle-orm/pg-core";
-import { apiTokens, groupMembers, groupRoles, groups, noteRedirects, notes, oauthClients, oauthCodes, oauthRequests } from "../src/db/schema.js";
+import { apiTokens, authProviders, groupMembers, groupRoles, groups, noteRedirects, notes, oauthClients, oauthCodes, oauthRequests, siteSettings, userIdentities } from "../src/db/schema.js";
 
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
-/** drizzle 對 `schema.ts` 的序列化；宣告漂移守衛拿最新一支（0013）當比對基準。 */
-const snapshot0013 = JSON.parse(
-  readFileSync(path.join(drizzleDirForTest, "meta/0013_snapshot.json"), "utf8"),
+/** drizzle 對 `schema.ts` 的序列化；宣告漂移守衛拿最新一支（0014）當比對基準。 */
+const snapshot0014 = JSON.parse(
+  readFileSync(path.join(drizzleDirForTest, "meta/0014_snapshot.json"), "utf8"),
 ) as { tables: Record<string, { checkConstraints?: Record<string, { name: string; value: string }> }> };
 const pgDialect = new PgDialect();
 
 describe("runMigrations", () => {
-  it("migrate 兩次 idempotent 且 21 張表存在", async () => {
+  it("migrate 兩次 idempotent 且 24 張表存在", async () => {
     const { db, pool } = await freshDb();
     await runMigrations(db); // freshDb 已跑過一次——此為第二次
     const r = await pool.query(`select table_name from information_schema.tables where table_schema='public'`);
     const tableNames = r.rows.map(x => x.table_name);
-    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes", "note_ai_edits", "groups", "group_members", "group_roles", "note_redirects"])
+    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes", "note_ai_edits", "groups", "group_members", "group_roles", "note_redirects", "auth_providers", "user_identities", "site_settings"])
       expect(tableNames).toContain(t);
   });
 
@@ -1097,7 +1098,7 @@ describe("0009_api-tokens", () => {
       expect(names, i).toContain(i);
   });
 
-  it("schema.ts 的九個宣告沒有靜默漂移（四個 OAuth／token 宣告零 import；#103／#175 的四張表的 CHECK 也在這裡逐字比對）", async () => {
+  it("schema.ts 的十二個宣告沒有靜默漂移（四個 OAuth／token 宣告零 import；#103／#175 的四張表的 CHECK 也在這裡逐字比對、#187 的三張表）", async () => {
     // 比照 0008 的同族守衛：把 schema.ts 的宣告與 migration 造出來的 DB 對起來。
     // 沒有這一案的話，把 schema.ts 的四段 pgTable 整個刪掉，全套測試照樣綠——
     // 只有下一次 db:generate 會產出 DROP TABLE。
@@ -1134,6 +1135,12 @@ describe("0009_api-tokens", () => {
         "can_manage_public_link", "can_manage_members", "can_manage_group", "created_at",
       ],
       note_redirects: ["old_path", "note_id", "expires_at", "created_at"],
+      auth_providers: [
+        "id", "template", "display_name", "issuer_url", "resolved_issuer", "client_id", "client_secret_encrypted",
+        "enabled", "sort_order", "legacy_callback", "config_version", "created_at", "updated_at",
+      ],
+      user_identities: ["id", "user_id", "issuer", "sub", "created_at", "last_login_at"],
+      site_settings: ["singleton", "registration_enabled", "password_login_enabled", "legacy_oidc_env_handled_at", "updated_at"],
       notes: [
         "id", "owner_id", "title", "slug", "slug_is_custom", "prev_slug", "legacy_slug", "public_token", "public_slug",
         "links_clock", "created_at", "updated_at", "last_edited_at", "last_edited_by", "last_edited_token_id",
@@ -1151,6 +1158,9 @@ describe("0009_api-tokens", () => {
       ["group_roles", groupRoles],
       ["note_redirects", noteRedirects],
       ["notes", notes],
+      ["auth_providers", authProviders],
+      ["user_identities", userIdentities],
+      ["site_settings", siteSettings],
     ] as const) {
       const cfg = getTableConfig(decl);
       // 宣告的欄名 = DB 的欄名 = 這裡寫死的期望（三方對齊，任一邊漂移就紅）
@@ -1180,7 +1190,7 @@ describe("0009_api-tokens", () => {
       // 名字仍在、DB 仍是舊值，上面每一條都綠——下一次 generate 才會靜默吐出一支
       // DROP/ADD CONSTRAINT。這個 PR 就踩過一次（長度上限 200↔64 的半套回滾）。
       // snapshot 是 drizzle 對 schema.ts 的序列化，逐字比對它＝真正的漂移守衛。
-      const snapshotChecks = snapshot0013.tables[`public.${table}`]?.checkConstraints ?? {};
+      const snapshotChecks = snapshot0014.tables[`public.${table}`]?.checkConstraints ?? {};
       expect(Object.keys(snapshotChecks).sort(), `${table} 的 CHECK 名集合`).toEqual(
         cfg.checks.map(c => c.name).sort()
       );
@@ -1529,5 +1539,129 @@ describe("0013_role-create-without-edit（#175 PR3）", () => {
     await expect(
       pool.query(`insert into group_roles (group_id, name, can_read, can_edit) values ($1, 'r', false, true)`, [G]),
     ).rejects.toMatchObject({ code: "23514", constraint: "group_roles_read_implied_chk" });
+  });
+});
+
+describe("0014_auth-providers（#187）", () => {
+  const A = "00000000-0000-0000-0000-00000000000a";
+  const B = "00000000-0000-0000-0000-00000000000b";
+  const C = "00000000-0000-0000-0000-00000000000c";
+  const P1 = "11111111-1111-1111-1111-111111111111";
+  const P2 = "22222222-2222-2222-2222-222222222222";
+  const SECRET = `'{"v":2,"keyId":"k","iv":"i","tag":"t","ct":"c"}'::jsonb`;
+
+  async function migrateWith(fixtureSql: string): Promise<{ pool: import("pg").Pool }> {
+    const { pool, db } = await freshEmptyDb();
+    await applyMigrationsThrough(pool, idxOfTag("0013_role-create-without-edit"));
+    if (fixtureSql !== "") await pool.query(fixtureSql);
+    await runMigrations(db);
+    return { pool };
+  }
+
+  it("F1–F3：完整 oidc 欄 → 一列 identity（created_at 沿用）；純密碼 → 無；半套 → 無；舊欄原樣保留（B11）", async () => {
+    const { pool } = await migrateWith(`
+      insert into users (id, email, display_name, handle, oidc_issuer, oidc_sub, created_at) values
+        ('${A}', 'a@x', 'A', 'alice', 'https://idp.example', 'sub-a', '2026-01-02T03:04:05Z'),
+        ('${B}', 'b@x', 'B', 'bob', null, null, now()),
+        ('${C}', 'c@x', 'C', 'carol', 'https://idp.example', null, now());`);
+    const { rows } = await pool.query(
+      `select user_id, issuer, sub, created_at = '2026-01-02T03:04:05Z'::timestamptz as same_created, last_login_at from user_identities order by user_id`,
+    );
+    expect(rows).toEqual([{ user_id: A, issuer: "https://idp.example", sub: "sub-a", same_created: true, last_login_at: null }]);
+    const old = await pool.query(`select id, oidc_issuer, oidc_sub from users order by id`);
+    expect(old.rows).toEqual([
+      { id: A, oidc_issuer: "https://idp.example", oidc_sub: "sub-a" },
+      { id: B, oidc_issuer: null, oidc_sub: null },
+      { id: C, oidc_issuer: "https://idp.example", oidc_sub: null },
+    ]);
+    const idx = await pool.query(`select count(*)::int as n from pg_indexes where indexname = 'users_oidc_idx'`);
+    expect(idx.rows[0].n).toBe(1);
+  });
+
+  it("F4：site_settings 恰一列、registration_enabled=true、password_login_enabled=true、legacy_oidc_env_handled_at NULL——instance_setup 有列或無列結果相同（W23／W24）", async () => {
+    for (const fixture of ["", `insert into instance_setup (singleton) values (true);`]) {
+      const { pool } = await migrateWith(fixture);
+      const { rows } = await pool.query(`select singleton, registration_enabled, password_login_enabled, legacy_oidc_env_handled_at from site_settings`);
+      expect(rows).toEqual([{ singleton: true, registration_enabled: true, password_login_enabled: true, legacy_oidc_env_handled_at: null }]);
+      await expect(pool.query(`insert into site_settings (singleton) values (false)`)).rejects.toMatchObject({
+        code: "23514",
+        constraint: "site_settings_singleton_chk",
+      });
+      await expect(pool.query(`insert into site_settings (singleton) values (true)`)).rejects.toMatchObject({
+        code: "23505",
+        constraint: "site_settings_pkey",
+      });
+    }
+  });
+
+  it("F7（rev 10，W24）：password_login_enabled 遷移後為 true——instance_setup 有列或無列相同（全新與升級皆開）；欄位 NOT NULL（SET NULL 被拒）", async () => {
+    // spec §11 F7：值與 F4 的期望列重疊（F4 也斷言 true），但突變表要有獨立一列——NOT NULL 只有本案守。PR1 的程式碼不讀這欄（§14.1 第 20 條）。
+    for (const fixture of ["", `insert into instance_setup (singleton) values (true);`]) {
+      const { pool } = await migrateWith(fixture);
+      const { rows } = await pool.query(`select password_login_enabled from site_settings`);
+      expect(rows).toEqual([{ password_login_enabled: true }]);
+      await expect(pool.query(`update site_settings set password_login_enabled = null`)).rejects.toMatchObject({
+        code: "23502",
+        column: "password_login_enabled",
+      });
+    }
+  });
+
+  it("F5／F6 與其他 CHECK：啟用無 secret 被拒、第二個 legacy 被拒、issuer 513 字被拒、範本／顯示名／client id 守住（constraint 名逐一斷言）", async () => {
+    const { pool } = await migrateWith("");
+    const ins = (cols: string, vals: string) => pool.query(`insert into auth_providers (${cols}) values (${vals})`);
+    const base = `id, template, display_name, issuer_url, client_id`;
+    await expect(ins(`${base}, enabled`, `'${P1}', 'oidc', 'SSO', 'https://idp.example', 'c', true`)).rejects.toMatchObject({
+      code: "23514",
+      constraint: "auth_providers_enabled_secret_chk",
+    });
+    await ins(`${base}, enabled, client_secret_encrypted, legacy_callback`, `'${P1}', 'oidc', 'SSO', 'https://idp.example', 'c', true, ${SECRET}, true`);
+    await expect(ins(`${base}, legacy_callback`, `'${P2}', 'oidc', 'SSO2', 'https://idp2.example', 'c', true`)).rejects.toMatchObject({
+      code: "23505",
+      constraint: "auth_providers_legacy_callback_idx",
+    });
+    // 非 legacy 的列可以有很多（partial unique 只約束 legacy_callback = true）。
+    await ins(`${base}`, `'${P2}', 'gitlab', 'GitLab', 'https://gitlab.com', 'c'`);
+    const cases: Array<[string, string]> = [
+      [`'${randomUUID()}', 'github', 'X', 'https://x.example', 'c'`, "auth_providers_template_chk"],
+      [`'${randomUUID()}', 'oidc', '', 'https://x.example', 'c'`, "auth_providers_display_name_chk"],
+      [`'${randomUUID()}', 'oidc', '${"n".repeat(41)}', 'https://x.example', 'c'`, "auth_providers_display_name_chk"],
+      [`'${randomUUID()}', 'oidc', 'X', 'ftp://x.example', 'c'`, "auth_providers_issuer_url_chk"],
+      [`'${randomUUID()}', 'oidc', 'X', 'https://${"i".repeat(505)}', 'c'`, "auth_providers_issuer_url_chk"],
+      [`'${randomUUID()}', 'oidc', 'X', 'https://x.example', ''`, "auth_providers_client_id_chk"],
+    ];
+    for (const [vals, constraint] of cases) {
+      await expect(ins(base, vals), constraint).rejects.toMatchObject({ code: "23514", constraint });
+    }
+    // 512 字的 issuer 剛好放得下（r3-M3 的上界是閉區間）。
+    await ins(base, `'${randomUUID()}', 'oidc', 'X', 'https://${"i".repeat(504)}', 'c'`);
+    await expect(
+      pool.query(`update auth_providers set resolved_issuer = $1 where id = '${P2}'`, ["https://" + "r".repeat(505)]),
+    ).rejects.toMatchObject({ code: "23514", constraint: "auth_providers_resolved_issuer_chk" });
+    const defaults = await pool.query(
+      `select enabled, sort_order, legacy_callback, config_version, resolved_issuer from auth_providers where id = '${P2}'`,
+    );
+    expect(defaults.rows).toEqual([{ enabled: false, sort_order: 0, legacy_callback: false, config_version: 1, resolved_issuer: null }]);
+  });
+
+  it("user_identities：(issuer, sub) 全域唯一；同一人可多列；刪 users CASCADE", async () => {
+    const { pool } = await migrateWith(`insert into users (id, email, display_name, handle) values ('${A}', 'a@x', 'A', 'alice'), ('${B}', 'b@x', 'B', 'bob');`);
+    await pool.query(`insert into user_identities (user_id, issuer, sub) values ('${A}', 'https://i1', 's1'), ('${A}', 'https://i2', 's1')`);
+    await expect(pool.query(`insert into user_identities (user_id, issuer, sub) values ('${B}', 'https://i1', 's1')`)).rejects.toMatchObject({
+      code: "23505",
+      constraint: "user_identities_issuer_sub_idx",
+    });
+    const idx = await pool.query(`select indexname from pg_indexes where tablename = 'user_identities' order by indexname`);
+    expect(idx.rows.map(r => r.indexname)).toEqual(["user_identities_issuer_sub_idx", "user_identities_pkey", "user_identities_user_idx"]);
+    await pool.query(`delete from users where id = '${A}'`);
+    const left = await pool.query(`select count(*)::int as n from user_identities`);
+    expect(left.rows[0].n).toBe(0);
+  });
+
+  it("0014 檔內無 CONCURRENTLY／行首 COMMIT（單一 tx 前提的輔助 grep，比照 0013 之前各支）", () => {
+    // ⚠ 比對的是**全檔**（含 `--` 註解）：SQL 的註解裡不得寫出這兩個字——gate r1 t1-7 I1，舊版檔頭註解就因此必紅。
+    const sqlText = readFileSync(path.join(drizzleDirForTest, "0014_auth-providers.sql"), "utf8");
+    expect(sqlText).not.toMatch(/CONCURRENTLY/i);
+    expect(sqlText).not.toMatch(/^\s*COMMIT/im);
   });
 });
