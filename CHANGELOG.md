@@ -7,7 +7,9 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- A group role that can manage public links but cannot edit notes could still change a note's title by sending it together with a `slug` in `PATCH /api/notes/:id`. A body that carries a `title` now always needs edit access, whether or not it also carries `slug` (#186).
 
 ## [0.5.0] - 2026-10-05
 

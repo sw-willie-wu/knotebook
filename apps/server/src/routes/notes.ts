@@ -236,7 +236,7 @@ function toNoteDto(note: NoteFields, access: Pick<NoteAccess, "role" | "permissi
  * （'none'，涵蓋「note 不存在」與「存在但未分享給此使用者」兩種情況）一律回 404
  * `not_found`，不區分這兩者——避免把「note 是否存在」洩漏給無權限的使用者
  * （spec：防列舉）。403 `forbidden` 只用在「查得到、但角色不夠」的情況
- * （PATCH 只改標題看 `permissions.edit`、帶 `slug` 鍵看 `permissions.changeSlug`——個人筆記只有 owner 有、群組筆記看
+ * （PATCH 帶 `title` 看 `permissions.edit`、帶 `slug` 鍵看 `permissions.changeSlug`（兩者都帶就都要，#186）——個人筆記只有 owner 有、群組筆記看
  * 角色的管理公開連結旗標，#175 Q11；DELETE 看 `permissions.delete`——個人筆記只有 owner 有，
  * 群組筆記由角色的刪除旗標決定，沒有的成員落在這裡；#175）。
  */
@@ -748,7 +748,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
      * docs/api.md 一起）：`title`／`slug` 各自選配，至少帶一項（見 `updateBodySchema`）。
      * 權限矩陣（#175 Q11）：`slug` 有出現在 body 內（不論其值）一律要求 `permissions.changeSlug`
      * （個人筆記＝owner；群組筆記＝角色的 `can_manage_public_link`）：none → 404、沒有該旗標 → 403，
-     * **整包拒絕**；body 只有 `title` 時要求 `permissions.edit`（沒有 → 403）。
+     * **整包拒絕**；body 帶 `title`（不論有沒有帶 `slug`）一律另要 `permissions.edit`（沒有 → 403，#186）。
      *
      * 四格（slug 自 0007 起 NOT NULL；唯一性在**歸屬的範圍**內——個人筆記 `(owner_id, slug)`
      * 的 `notes_owner_slug_idx`、群組筆記 `(group_id, slug)` 的 `notes_group_slug_idx`（#175 S12）；
@@ -806,7 +806,8 @@ export function notesRoutes(deps: NotesRouteDeps) {
       const access = await resolveNoteAccess(deps.db, userId, id);
       if (access.role === "none") return noteNotFound(reply);
       if (hasSlug && !access.permissions.changeSlug) return sendError(reply, 403, "forbidden", "沒有變更網址代稱的權限");
-      if (!hasSlug && !access.permissions.edit) return sendError(reply, 403, "forbidden", "沒有編輯權限");
+      // #186：body 帶 title 一律要 edit（不論有沒有帶 slug）——只有 changeSlug（群組角色的 can_manage_public_link）的人不能借 slug 的門順手改標題。
+      if (title !== undefined && !access.permissions.edit) return sendError(reply, 403, "forbidden", "沒有編輯權限");
 
       // #175：slug 的去重範圍與 T1 的 scope 條件都取自**授權當下**的歸屬（§4.3，gate r5 M-2）。
       // role !== "none" 時：groupId 非 null ＝群組筆記；否則是個人筆記，`resolveNoteAccess` 回的 ownerId 必非 null。
