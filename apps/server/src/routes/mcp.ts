@@ -12,6 +12,7 @@ import { WRITE_BODY_LIMIT } from "../http/body-limits.js";
 import { sendError } from "../http/errors.js";
 import { mcpOriginAllowed } from "../http/origin.js";
 import type { McpTestHooks } from "../mcp/hooks.js";
+import type { GroupTestHook } from "../groups/test-hook.js";
 import { registerMcpTools } from "../mcp/register.js";
 import { mcpInstructions, MCP_SERVER_NAME, MCP_SERVER_VERSION, versionReadFailed } from "../mcp/server-info.js";
 import { canWriteNotes } from "../mcp/write-scope.js";
@@ -80,6 +81,8 @@ export interface McpRouteDeps {
    */
   writes: NoteWriteService;
   testHooks?: McpTestHooks;
+  /** #175 PR5：群組測試注入縫，原樣帶進 `McpToolCtx.groupTestHook`（`app.ts` 傳 `deps.groupTestHook`）。 */
+  groupTestHook?: GroupTestHook;
 }
 
 export function mcpRoutes(deps: McpRouteDeps) {
@@ -149,6 +152,7 @@ export function mcpRoutes(deps: McpRouteDeps) {
         authKind: request.authKind === "session" ? "session" : "token",
         tokenScope: request.tokenScope ?? null,
         hooks: deps.testHooks,
+        groupTestHook: deps.groupTestHook,
       });
       server.server.registerCapabilities({ tools: { listChanged: false } });
       const transport = new WebStandardStreamableHTTPServerTransport({ enableJsonResponse: true });

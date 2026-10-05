@@ -128,7 +128,7 @@ export interface EditNoteArgs {
 
 /** #175 §9.2：不指名 owner——群組筆記沒有 owner，能給編輯權的是能管理群組成員的人；個人筆記則是 owner。
  *  「whoever manages your access to it」兩者都涵蓋。守衛＝`mcp-groups.test.ts` 的整句比對＋`not.toMatch(/owner/i)`。 */
-const FORBIDDEN_MESSAGE =
+export const FORBIDDEN_MESSAGE =
   "You can read this note but not change it. Ask whoever manages your access to it for editing rights.";
 const MISMATCH_MESSAGE =
   "The note changed since you read it, so this write was not applied. The current outline is below; read what you " +

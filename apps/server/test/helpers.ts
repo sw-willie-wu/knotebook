@@ -440,6 +440,8 @@ export async function buildCollabTestApp(
     editingTestHooks?: AppDeps["editingTestHooks"];
     /** #108 `/api/mcp` 的注入縫，語意見 `AppDeps.mcpTestHooks`。 */
     mcpTestHooks?: AppDeps["mcpTestHooks"];
+    /** #175 PR5：群組測試注入縫（`"membership-checked"` 等），語意見 `AppDeps.groupTestHook`；帶 content 的 MCP `create_note {groupId}` 要 collab app 才寫得出。 */
+    groupTestHook?: AppDeps["groupTestHook"];
     /** #106（#137）per-note 佇列等待上限（毫秒），語意見 `AppDeps.editingQueueWaitMs`。 */
     editingQueueWaitMs?: number;
     /** #138 presence 的參數（`idleMs`／`heartbeatMs`／`capacity`／`now`），透傳成 `AppDeps.presenceOptions`。 */
@@ -479,6 +481,7 @@ export async function buildCollabTestApp(
     limiters: freshLimiters(opts.limiters),
     editingTestHooks: opts.editingTestHooks,
     mcpTestHooks: opts.mcpTestHooks,
+    groupTestHook: opts.groupTestHook,
     editingQueueWaitMs: opts.editingQueueWaitMs,
     presenceOptions: opts.presence,
     uploadsDir: freshUploadsDir(),

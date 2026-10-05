@@ -34,7 +34,7 @@ import type { McpToolCtx } from "./context.js";
  *  ⚠ **誠實記下**：案 17 守的是**角色**那條路；**競態那條路沒有守衛**（要造出「resolveRole
  *  說有、下一句 re-select 說沒有」的視窗才測得到）。突變實測：把競態那處改成另一個字串，
  *  全族 21 條照樣綠。 */
-export const NOTE_NOT_FOUND_MESSAGE = "No note with that id. It may not exist, or it may not be shared with you.";
+export const NOTE_NOT_FOUND_MESSAGE = "No note with that id. It may not exist, it may not be shared with you, or it may belong to a group you aren't in.";
 
 /**
  * `read_note_section` 與 `edit_note` 共用的 `section_not_found` 文案（#146 前是兩份逐字拷貝

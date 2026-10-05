@@ -44,8 +44,10 @@ export const MCP_MAX_WIRE = 262_144;
  * `MAX_ENTRY_BYTES`；`edit_note`／`create_note` 兩支的 input／output schema 一起進脈絡，
  * 是這條線從 PR1 的 13 312 破線 2050 的直接原因。
  *
- * **基線：2026-10-01 實測（#175 PR1），讀寫憑證六支 wire ＝ 18 105**（門檻的 85.0%；#175 之前為 16 774，
- * #145 時記為 16 763）。#175 的 +1 331 來自 `owner` 判別聯合（`{kind:"user"…}｜{kind:"group"…}`）的 JSON
+ * **基線：2026-10-02 實測（#175 PR5），讀寫憑證六支 wire ＝ 18 658**（#175 PR1 後 18 105、PR2／PR3 後
+ * 18 144；#175 之前為 16 774，#145 時記為 16 763）。PR5 的 +Δ 來自 `create_note` 的 `groupId` 欄
+ * （`.describe()`＋`format`）、description 首句與兩處 edit_note 限定、`title` 片語。PR1 的 +1 331 來自
+ * `owner` 判別聯合（`{kind:"user"…}｜{kind:"group"…}`）的 JSON
  * Schema 在 list_notes／search_notes／create_note／read_note_outline 四份 outputSchema 各展開一次（加上
  * `list_notes` description 變長）。⚠ 上面那個 15 362 在 #148
  * （改寫模型面敘述那一輪）之後就過期了，而這段註解當時沒跟上——別再拿它去論證餘裕。對照組、
@@ -320,6 +322,10 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
     const wire = await callWire(ctx.app, o.token, "(iv) list_notes limit=100（群組形）", "list_notes", { limit: MCP_PAGE_MAX });
     expect(wire).toBeGreaterThan(140_000); // 「測資沒造滿」的哨兵，同 (iii)
     await callWire(ctx.app, o.token, "(iv) search_notes limit=50（群組形）", "search_notes", { query: "ttt", limit: 50 });
+    // #175 PR5：`create_note` 的群組形（`groupId`）——回應的 `owner` 是 `{kind:"group",…,name:<80 個 `"`>}`。
+    // 只靠 `callWire` 內建的 `≤ N` 與非錯誤；不加下界哨兵（create_note 回應本來就小）。
+    const { token: rwToken } = await seedTokenForUser(ctx.db, o.id, "notes:read notes:write");
+    await callWire(ctx.app, rwToken, "(iv) create_note（群組形）", "create_note", { title: "t".repeat(260_000), groupId: g.id });
   });
 
   // 整張表印一次（PR 描述要貼）。**刻意是 hook 不是 `it`**：它只彙整前面幾案已經斷言過的

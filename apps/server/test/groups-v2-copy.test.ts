@@ -380,6 +380,30 @@ describe("#175 PR2 POST /api/notes/:id/copy（T4）", () => {
     expect(await noteCount(db)).toBe(before + 1);
   });
 
+  it("目標被拒（非成員）→ 404 group_not_found，不扣 edit 桶、不扣 upload 桶（快速檢查的成員述詞要有 userId）", async () => {
+    const edit = new FixedWindowLimiter({ limit: 2, windowMs: 60_000 });
+    const upload = new FixedWindowLimiter({ limit: 1, windowMs: 600_000 });
+    const { app, db, uploadsDir } = await buildTestApp({ limiters: freshLimiters({ edit, upload }) });
+    const [owner, admin] = await Promise.all([seedUser(db), seedUser(db)]);
+    // 目標群組裡有別人（admin）具備 can_create；owner 不是成員。
+    const notMine = await seedGroup(db, "NotMine", [{ userId: admin.id, role: "admin" }]);
+    const src = await seedNote(db, { ownerId: owner.id }, { title: "Plan" });
+    const u1 = await seedUpload(db, uploadsDir, src.id, owner.id);
+    await seedDoc(db, src.id, imageDoc([`/api/uploads/${u1}`]));
+    const notesBefore = await noteCount(db);
+
+    const res = await copy(app, src.id, owner.id, { groupId: notMine.id });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error.code).toBe("group_not_found");
+    expect(await noteCount(db)).toBe(notesBefore);
+    // 帳：被拒的那發什麼桶都沒扣 → edit 桶剩整窗 2、upload 桶剩整窗 1。
+    expect(edit.consume(owner.id)).toBe(true);
+    expect(edit.consume(owner.id)).toBe(true);
+    expect(edit.consume(owner.id)).toBe(false);
+    expect(upload.consume(owner.id)).toBe(true);
+    expect(upload.consume(owner.id)).toBe(false);
+  });
+
   it("upload 桶（M-1）：依會被複製的附件數扣（他篇附件、外部圖不算）；額度不夠 → 429 too_many_requests、不建列不落檔、被拒的那發不記帳", async () => {
     const upload = new FixedWindowLimiter({ limit: 3, windowMs: 600_000 });
     const { app, db, uploadsDir } = await buildTestApp({ limiters: freshLimiters({ upload }) });
