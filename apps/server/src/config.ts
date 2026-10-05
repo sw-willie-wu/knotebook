@@ -124,10 +124,14 @@ export interface AppConfig {
    * `initializeInstance`（見 `auth/bootstrap.ts`）——loadConfig 本身不碰 DB。 */
   adminEmail?: string;
   adminPassword?: string;
-  /** OIDC 登入（Plan 5 §5）：三件組全有或全無（見下方 loadConfig 的 fail-fast 檢查），
-   * 三欄永遠同時 defined 或同時 undefined，不會半套。`issuerUrl` 的 http/https scheme
-   * 檢查與 `PUBLIC_URL` 同一套手動驗證風格；http issuer 的啟動警告不落這個欄位——
-   * `index.ts` 直接對 `oidc.issuerUrl` 判斷是否印警告（二輪 MINOR-6：加一個
+  /**
+   * #187 §10.2：舊 `OIDC_*` 三變數。只在**新版第一次啟動**時被 `importLegacyOidcEnv` 匯入成一個「自訂 OIDC」provider
+   * （沿用舊回呼網址），之後一律忽略並警告。三件齊全且合法才有值；不齊或不合法改成 `legacyOidcEnvProblem`，**不擋啟動**。
+   */
+  legacyOidcEnv?: { issuerUrl: string; clientId: string; clientSecret: string };
+  legacyOidcEnvProblem?: "partial" | "invalid";
+  /** OIDC 登入（Plan 5 §5）。#187 過渡期：與 `legacyOidcEnv` 同值（舊路由在 #187 PR1 Task 8 重寫前仍讀它），Task 8 刪除。
+   * http issuer 的啟動警告不落欄位——`index.ts` 直接對 `oidc.issuerUrl` 判斷是否印警告（二輪 MINOR-6：加一個
    * `oidcInsecureWarning` 欄位會讓 config.test.ts 的 `toEqual` 精確比對紅——`toEqual`
    * 忽略 undefined 但不忽略 `false`）。 */
   oidc?: { issuerUrl: string; clientId: string; clientSecret: string };
@@ -166,31 +170,31 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     }
   }
 
-  // Plan 5 §5：OIDC_ISSUER_URL/OIDC_CLIENT_ID/OIDC_CLIENT_SECRET 只設其中一到兩個 →
-  // 半套設定必為誤設，啟動時 fail-fast（三者是成組欄位，比照上面 ADMIN_EMAIL/
-  // ADMIN_PASSWORD 那組的檢查風格）。
+  // #187 §10.2：OIDC_* 不再是設定來源，只在首次啟動被匯入。半套／不合法只警告（index.ts 經 importLegacyOidcEnv 印），不擋啟動。
   const oidcIssuerUrl = r.data.OIDC_ISSUER_URL;
   const oidcClientId = r.data.OIDC_CLIENT_ID;
   const oidcClientSecret = r.data.OIDC_CLIENT_SECRET;
   const oidcValuesSet = [oidcIssuerUrl, oidcClientId, oidcClientSecret].filter(v => v !== undefined).length;
+  let legacyOidcEnv: AppConfig["legacyOidcEnv"];
+  let legacyOidcEnvProblem: AppConfig["legacyOidcEnvProblem"];
   if (oidcValuesSet !== 0 && oidcValuesSet !== 3) {
-    throw new Error(
-      "設定錯誤：OIDC_ISSUER_URL、OIDC_CLIENT_ID、OIDC_CLIENT_SECRET 必須同時設定，或同時不設定——只設定其中一部分視為誤設"
-    );
-  }
-  let oidc: AppConfig["oidc"];
-  if (oidcIssuerUrl !== undefined && oidcClientId !== undefined && oidcClientSecret !== undefined) {
-    let issuerUrlParsed: URL;
+    legacyOidcEnvProblem = "partial";
+  } else if (oidcIssuerUrl !== undefined && oidcClientId !== undefined && oidcClientSecret !== undefined) {
+    let scheme: string | null = null;
     try {
-      issuerUrlParsed = new URL(oidcIssuerUrl);
+      scheme = new URL(oidcIssuerUrl).protocol;
     } catch {
-      throw new Error("設定錯誤：OIDC_ISSUER_URL 必須是有效的 http/https URL");
+      scheme = null;
     }
-    if (!["http:", "https:"].includes(issuerUrlParsed.protocol)) {
-      throw new Error("設定錯誤：OIDC_ISSUER_URL 必須是 http/https URL");
+    // 長度上限與 0014 的 CHECK 同值（issuer ≤512、client id 1..512）——不合法就不匯入，免得 INSERT 撞 CHECK 讓開機失敗。
+    if ((scheme === "http:" || scheme === "https:") && oidcIssuerUrl.length <= 512 && oidcClientId.length <= 512) {
+      legacyOidcEnv = { issuerUrl: oidcIssuerUrl, clientId: oidcClientId, clientSecret: oidcClientSecret };
+    } else {
+      legacyOidcEnvProblem = "invalid";
     }
-    oidc = { issuerUrl: oidcIssuerUrl, clientId: oidcClientId, clientSecret: oidcClientSecret };
   }
+  // Task 8 移除：舊路由在 Task 8 重寫前仍讀 config.oidc。
+  const oidc: AppConfig["oidc"] = legacyOidcEnv;
 
   // max：Node 計時器上限 2^31-1 ms，超過會被截成 1 ms（連線啟動即逾時、錯誤訊息不指向此設定），故逾時欄位設上限。
   const positiveInt = (name: string, raw: string | undefined, fallback: number, max = Infinity): number => {
@@ -206,7 +210,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
            cookieSecure: publicUrl.protocol === "https:", insecureHttpWarning,
            trustProxy: parseTrustProxy(r.data.TRUST_PROXY),
            databasePoolMax, databasePoolConnectionTimeoutMs,
-           adminEmail, adminPassword, oidc };
+           adminEmail, adminPassword, legacyOidcEnv, legacyOidcEnvProblem, oidc };
 }
 
 /**

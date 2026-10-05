@@ -6,6 +6,7 @@ import { createDb } from "./db/index.js";
 import { createPool } from "./db/pool.js";
 import { runMigrations } from "./db/migrate.js";
 import { initializeInstance } from "./auth/bootstrap.js";
+import { backfillLegacyOidcIdentities, importLegacyOidcEnv } from "./auth/legacy-oidc-env.js";
 import { backfillHandleRegistry } from "./auth/handle.js";
 import { UserGate } from "./auth/session.js";
 import { LoginThrottle } from "./auth/rate-limit.js";
@@ -118,6 +119,16 @@ async function main(): Promise<void> {
     logger.error({ err }, "instance initialization failed");
     process.exit(1);
   }
+
+  // #187 §10.2：舊 OIDC_* 三變數只在新版第一次啟動時匯入成一個 provider（之後忽略並警告）；§10.3：舊欄冪等補登。
+  // **都在 listen 之前**——補登要比任何登入請求先跑完（結構守衛：test/unit/config.test.ts）。
+  try {
+    await importLegacyOidcEnv(db, config, logger);
+  } catch (err) {
+    logger.error({ err }, "OIDC_* import failed (site_settings missing?) — refusing to start");
+    process.exit(1);
+  }
+  await backfillLegacyOidcIdentities(db, logger);
 
   // #122：handle registry 冪等補登（回滾窗期由舊碼建立、無 registry 列的帳號）。
   // **必須在 `app.listen` 之前**——否則補登與首個改名請求可交錯（spec §2a；
