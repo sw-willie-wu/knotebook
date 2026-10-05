@@ -15,9 +15,6 @@ import { ADMIN, createNote, editorLocator, loginAs } from "./helpers.js";
  *
  * 判準是**瀏覽器自己回報的 CSP violation**（`securitypolicyviolation` 事件），不是
  * console 字串比對——後者會隨瀏覽器改文案而靜默失效。
- *
- * ⚠ 本檔依賴 01 已把 admin 密碼改成 ADMIN.newPassword（workers:1＋檔名序，全套跑才
- * 成立；單獨跑會紅——與其他 spec 同一個已知檔序耦合，見 helpers.ts）。
  */
 
 interface Violation {
@@ -50,7 +47,7 @@ test("載入筆記＋程式碼區塊＋圖表＋共編連線：瀏覽器回報�
     violations.push(...collected);
   };
 
-  await loginAs(page, ADMIN.email, ADMIN.newPassword);
+  await loginAs(page, ADMIN.email, ADMIN.password);
 
   // 第一頁：程式碼區塊（shiki 的 lazy chunk ＋ token 的 inline style）。
   await createNote(page, `E2E csp code ${Date.now()}`);

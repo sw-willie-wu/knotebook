@@ -60,7 +60,7 @@ test("站台管理頁建 provider/model → toolbar 改寫 → 串流不洩漏 r
   const context = await browser.newContext();
   try {
     const page = await context.newPage();
-    await loginAs(page, ADMIN.email, ADMIN.newPassword);
+    await loginAs(page, ADMIN.email, ADMIN.password);
     await expect(page).toHaveURL(/\/$/);
 
     // ── 站台管理頁：建 provider（openai_compatible，指向 ai-stub /fast，無 key）──
@@ -141,7 +141,7 @@ test("守門：provider 改指向 /slow → 串流中錨點被第二個 context 
   const otherContext = await browser.newContext();
   try {
     const ownerPage = await ownerContext.newPage();
-    await loginAs(ownerPage, ADMIN.email, ADMIN.newPassword);
+    await loginAs(ownerPage, ADMIN.email, ADMIN.password);
     await expect(ownerPage).toHaveURL(/\/$/);
 
     // ── admin PATCH：把上一支測試建立的 provider baseUrl 改成 /slow ─────────
@@ -169,7 +169,7 @@ test("守門：provider 改指向 /slow → 串流中錨點被第二個 context 
     await ownerEditor.pressSequentially(original);
 
     const otherPage = await otherContext.newPage();
-    await loginAs(otherPage, ADMIN.email, ADMIN.newPassword);
+    await loginAs(otherPage, ADMIN.email, ADMIN.password);
     await otherPage.goto(noteUrl);
     const otherEditor = editorLocator(otherPage);
     await expect(otherEditor).toContainText(original, { timeout: 15_000 });

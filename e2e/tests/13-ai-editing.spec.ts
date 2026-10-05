@@ -15,8 +15,7 @@ test("外部 AI 改一段：不重整看到新內容、遠端游標名牌、最�
   browser,
   baseURL,
 }) => {
-  // 01-bootstrap 已把首登密碼改掉，之後所有 spec 一律用 newPassword 登入
-  await loginAs(page, ADMIN.email, ADMIN.newPassword);
+  await loginAs(page, ADMIN.email, ADMIN.password);
 
   const title = `E2E ai ${Date.now()}`;
   await createNote(page, title);

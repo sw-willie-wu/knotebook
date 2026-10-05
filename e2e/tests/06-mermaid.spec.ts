@@ -35,7 +35,7 @@ function diagramLocator(page: Page) {
 test.describe.configure({ mode: "serial" });
 
 test("/diagram 插入 → 輸入原始碼 → 畫出圖 → 編輯鈕進原始碼、Esc 回到圖", async ({ page }) => {
-  await loginAs(page, ADMIN.email, ADMIN.newPassword);
+  await loginAs(page, ADMIN.email, ADMIN.password);
   await createNote(page, `E2E mermaid ${Date.now()}`);
 
   const editor = editorLocator(page);
@@ -79,7 +79,7 @@ test("/diagram 插入 → 輸入原始碼 → 畫出圖 → 編輯鈕進原始�
 });
 
 test("語法錯誤：顯示錯誤訊息與原始碼，且不注入 mermaid 自己的錯誤圖", async ({ page }) => {
-  await loginAs(page, ADMIN.email, ADMIN.newPassword);
+  await loginAs(page, ADMIN.email, ADMIN.password);
   await createNote(page, `E2E mermaid error ${Date.now()}`);
 
   const editor = editorLocator(page);
@@ -110,7 +110,7 @@ test("貼上 ```mermaid 純文字 → 自動變成圖", async ({ page, context }
   // 鍵盤事件走瀏覽器原生路徑（跟使用者實際操作同一條）。
   await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://localhost:3100" });
 
-  await loginAs(page, ADMIN.email, ADMIN.newPassword);
+  await loginAs(page, ADMIN.email, ADMIN.password);
   await createNote(page, `E2E mermaid paste ${Date.now()}`);
 
   const editor = editorLocator(page);
@@ -133,7 +133,7 @@ test("貼上帶 text/html 的 ```mermaid（從 GitHub README／AI 對話複製�
   // `defaultPasteHandler` 只能驗接線，真剪貼簿的形狀只有這裡驗得到（第 2 輪審查 N-11）。
   await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://localhost:3100" });
 
-  await loginAs(page, ADMIN.email, ADMIN.newPassword);
+  await loginAs(page, ADMIN.email, ADMIN.password);
   await createNote(page, `E2E mermaid html paste ${Date.now()}`);
 
   const editor = editorLocator(page);
@@ -168,7 +168,7 @@ test("圖表的 init directive 不能讓瀏覽器對外部主機發請求", asyn
     if (request.url().includes(BEACON_HOST)) requested.push(request.url());
   });
 
-  await loginAs(page, ADMIN.email, ADMIN.newPassword);
+  await loginAs(page, ADMIN.email, ADMIN.password);
   await createNote(page, `E2E mermaid beacon ${Date.now()}`);
 
   const editor = editorLocator(page);
@@ -193,7 +193,7 @@ test("合法的多行 label 照常畫出來（不得被圖片守衛誤擋）", a
   // 前一版在 render 之前解析原始碼的預檢會把它誤判成「解不出來」而擋掉，並且顯示
   // 「這張圖引用了外部圖片」——一張根本沒有 img 的圖（第 6 輪審查實證）。改成攔
   // `new Image()` 之後，判斷只看實際要發出去的 URL，這一類誤擋整個消失。
-  await loginAs(page, ADMIN.email, ADMIN.newPassword);
+  await loginAs(page, ADMIN.email, ADMIN.password);
   await createNote(page, `E2E mermaid multiline label ${Date.now()}`);
 
   const editor = editorLocator(page);
@@ -214,7 +214,7 @@ test("click X href 的圖照常畫出來，連結保留", async ({ page }) => {
   // 審查期間曾經有一版把 SVG `<a href>` 當成外部資源擋掉，於是任何有 `click X href`
   // 的圖**整張畫不出來**、還顯示一段對不上的錯誤訊息。從 GitHub README 貼進來的圖很常
   // 帶這一行，這條守著它。
-  await loginAs(page, ADMIN.email, ADMIN.newPassword);
+  await loginAs(page, ADMIN.email, ADMIN.password);
   await createNote(page, `E2E mermaid click href ${Date.now()}`);
 
   const editor = editorLocator(page);

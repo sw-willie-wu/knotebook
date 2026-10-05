@@ -3,14 +3,13 @@ import { expect, type Page } from "@playwright/test";
 
 /**
  * 疊內建的 env bootstrap admin（見 `docker-compose.e2e.yml` 的 `ADMIN_EMAIL`/
- * `ADMIN_PASSWORD`）。**`newPassword` 只在 `01-bootstrap-and-note.spec.ts` 送出一次
- * 改密表單**——之後所有 spec（單 worker、檔名數字排序保證跑在 01 之後）一律用
- * `newPassword` 登入，不重跑改密流程（§14.5 流程 1 只需被覆蓋一次）。
+ * `ADMIN_PASSWORD`）。#187 PR4 起 env 管理員首登**不強制改密碼**，所以全疊唯一密碼就是
+ * `password`，所有 spec 直接用它登入（沒有「01 先改密碼、其餘 spec 用新密碼」的檔序耦合了）。
+ * 強制改密碼的流程改由 admin 代建帳號的 spec 覆蓋（03／15／16／17／18 的第二使用者首登）。
  */
 export const ADMIN = {
   email: "admin@e2e.local",
   password: "e2e-admin-password",
-  newPassword: "e2e-admin-password-2",
 } as const;
 
 /** §14.5 隨機化隔離：多 spec 共用一座疊（單 worker、不 `down -v` 於 spec 之間），
@@ -21,8 +20,8 @@ export function randomEmail(): string {
 
 /**
  * `/login` → 送出表單 → 等離開 `/login`。**不在這裡斷言最終落在哪個 URL**——
- * 首登（`mustChangePassword:true`）會被 `ChangePasswordGate` client-side 導向
- * `/change-password`，一般帳號則落在 `/`；呼叫端才知道自己期待哪一種，用
+ * 被旗標的帳號（例如 admin 代建、尚未改密碼）會被 `ChangePasswordGate` client-side 導向
+ * `/change-password`，一般帳號（含 env bootstrap 管理員）則落在 `/`；呼叫端才知道自己期待哪一種，用
  * `expect(page).toHaveURL(...)`（本身有重試）斷言即可，這裡只保證「表單已送出且
  * 導航已經開始」。
  */

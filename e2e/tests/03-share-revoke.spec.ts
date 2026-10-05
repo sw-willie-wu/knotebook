@@ -15,7 +15,7 @@ test("admin 建第二使用者 → 分享筆記 → 撤銷 → SLA 內失去存�
   const userContext = await browser.newContext();
   try {
     const adminPage = await adminContext.newPage();
-    await loginAs(adminPage, ADMIN.email, ADMIN.newPassword);
+    await loginAs(adminPage, ADMIN.email, ADMIN.password);
     await expect(adminPage).toHaveURL(/\/$/);
 
     // ── 站台管理頁 → 使用者區 → 建立第二使用者 ────────────────────────
@@ -55,7 +55,7 @@ test("admin 建第二使用者 → 分享筆記 → 撤銷 → SLA 內失去存�
     await shareDialog.getByRole("button", { name: "Add", exact: true }).click();
     await expect(shareDialog.getByText(secondEmail)).toBeVisible();
 
-    // ── 第二使用者：獨立 context 首登強改密（admin 代建帳號的既定流程，同 01 spec）──
+    // ── 第二使用者：獨立 context 首登強改密（admin 代建帳號的既定流程；#187 PR4 起 env 管理員不強改，這裡是強制改密碼的主要 E2E 覆蓋）──
     const userPage = await userContext.newPage();
     await loginAs(userPage, secondEmail, tempPassword);
     await expect(userPage).toHaveURL(/\/change-password$/);
@@ -96,7 +96,7 @@ test("admin 建第二使用者 → 分享筆記 → 撤銷 → SLA 內失去存�
 
     // ── §10 SLA：≤10 秒，第二使用者頁面出現 accessRevoked toast＋被導回 "/" ──
     // Radix Toast 額外渲染一個 `role="status"` live-region 播報「Notification …」
-    // 跟真正的 toast 文案共用子字串（見 01 spec 同款雷）——`exact:true` 只匹配
+    // 跟真正的 toast 文案共用子字串——`exact:true` 只匹配
     // 真正的 ToastTitle 節點。
     await expect(userPage.getByText("You no longer have access to this note.", { exact: true })).toBeVisible({
       timeout: 10_000,

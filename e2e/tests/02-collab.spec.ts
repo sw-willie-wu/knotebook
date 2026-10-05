@@ -6,15 +6,15 @@ import { ADMIN, createNote, editorLocator, loginAs } from "./helpers.js";
  * 裝置）同開同一篇筆記，斷言雙向即時同步。用同一個 admin 帳號登入兩個 context
  * 即可驗證——這一階段還不需要分享/第二使用者（那是 §14.5 流程 3 的範圍）。
  *
- * `ADMIN.newPassword`：01 spec 已經把疊內唯一的 admin 密碼改掉（單 worker、
- * 檔名數字排序保證 01 先跑），這裡不重跑改密流程。
+ * `ADMIN.password`：疊內唯一的 admin 密碼（#187 PR4 起 env 管理員首登不強改密碼，
+ * 沒有檔序耦合）。
  */
 test("雙 browser context 即時共編：雙向文字同步", async ({ browser }) => {
   const contextA = await browser.newContext();
   const contextB = await browser.newContext();
   try {
     const pageA = await contextA.newPage();
-    await loginAs(pageA, ADMIN.email, ADMIN.newPassword);
+    await loginAs(pageA, ADMIN.email, ADMIN.password);
     await expect(pageA).toHaveURL(/\/$/);
 
     const title = `E2E collab ${Date.now()}`;
@@ -22,7 +22,7 @@ test("雙 browser context 即時共編：雙向文字同步", async ({ browser }
     const noteUrl = pageA.url();
 
     const pageB = await contextB.newPage();
-    await loginAs(pageB, ADMIN.email, ADMIN.newPassword);
+    await loginAs(pageB, ADMIN.email, ADMIN.password);
     await pageB.goto(noteUrl);
 
     const editorA = editorLocator(pageA);

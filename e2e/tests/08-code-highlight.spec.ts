@@ -9,16 +9,13 @@ import { ADMIN, createNote, editorLocator, loginAs } from "./helpers.js";
  * ② CSS 變數真的解析出**不同的顏色**（computed style；變數沒定義時所有 token
  *    會靜默繼承同一個前景色，DOM 結構看起來完全正常）；
  * ③ 深淺主題切換時顏色真的跟著換（index.css 的 :root／.dark 兩套變數）。
- *
- * ⚠ 本檔依賴 01 已把 admin 密碼改成 ADMIN.newPassword（workers:1＋檔名序，全套跑
- * 才成立；單獨跑本檔會紅——與其他 spec 同一個已知檔序耦合，見 helpers.ts）。
  */
 
 const codeBlock = (page: import("@playwright/test").Page) =>
   page.locator('[data-testid="note-editor"] [data-content-type="codeBlock"]');
 
 test("```ts 圍欄 → 上色出現且 token 顏色分得開 → 深淺切換換色 → 語言下拉可用", async ({ page }) => {
-  await loginAs(page, ADMIN.email, ADMIN.newPassword);
+  await loginAs(page, ADMIN.email, ADMIN.password);
   await createNote(page, `E2E code highlight ${Date.now()}`);
 
   const editor = editorLocator(page);

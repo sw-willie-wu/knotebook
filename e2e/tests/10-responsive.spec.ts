@@ -7,7 +7,7 @@ import { ADMIN, createNote, editorLocator, loginAs } from "./helpers.js";
  * 佈局策略：provider/model 的建立與筆記內容輸入都在**預設 1280 視窗**完成（站台
  * 管理頁的表單在 390 下擁擠，且不是本檔要驗的東西），然後 `setViewportSize(390×844)`
  * 驗窄視窗行為。AI provider **自建**（流程照 04-ai 的建置段）——不依賴 04 殘留
- * 狀態（plan gate M4）；在已跑過 01 的疊上單獨 `--grep` 本檔會綠。
+ * 狀態（plan gate M4）。
  *
  * ⚠ 與 04 有一處刻意不同：**這裡的「Default model」勾選是承重的**。04 的註解說
  * isDefault 不是那條鏈的必要條件（該檔只有一顆 model），但全套順序下 04 留下的
@@ -43,7 +43,7 @@ test("窄視窗：靜態側欄隱藏、抽屜導覽、AI bubble 展開成滿寬�
   const context = await browser.newContext();
   try {
     const page = await context.newPage();
-    await loginAs(page, ADMIN.email, ADMIN.newPassword);
+    await loginAs(page, ADMIN.email, ADMIN.password);
     await expect(page).toHaveURL(/\/$/);
 
     // ── 1280：建 provider（ai-stub /fast）＋ model（照 04-ai 慣例）────────────

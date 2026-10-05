@@ -68,7 +68,7 @@ test("情境二：SSO 登入已驗證 email 命中既有帳號 → 連結而非�
   const adminContext = await browser.newContext();
   try {
     const adminPage = await adminContext.newPage();
-    await loginAs(adminPage, ADMIN.email, ADMIN.newPassword);
+    await loginAs(adminPage, ADMIN.email, ADMIN.password);
     await expect(adminPage).toHaveURL(/\/$/);
 
     await adminPage.getByRole("button", { name: "admin", exact: true }).click(); // UserMenu 觸發鈕＝displayName

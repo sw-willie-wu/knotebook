@@ -27,7 +27,7 @@ import { ADMIN, createNote, editorLocator, loginAs } from "./helpers.js";
  * 冗餘 sleep 拿掉。
  */
 test("共編筆記：Ctrl+Z 復原、Ctrl+Shift+Z 與 Ctrl+Y 重做", async ({ page }) => {
-  await loginAs(page, ADMIN.email, ADMIN.newPassword);
+  await loginAs(page, ADMIN.email, ADMIN.password);
   await createNote(page, `E2E undo ${Date.now()}`);
 
   const editor = editorLocator(page);
@@ -58,7 +58,7 @@ test("共編筆記：Ctrl+Z 復原、Ctrl+Shift+Z 與 Ctrl+Y 重做", async ({ p
 });
 
 test("撤到空白文件後 redo 仍能復原（issue #100）", async ({ page }) => {
-  await loginAs(page, ADMIN.email, ADMIN.newPassword);
+  await loginAs(page, ADMIN.email, ADMIN.password);
   await createNote(page, `E2E undo empty ${Date.now()}`);
 
   const editor = editorLocator(page);
