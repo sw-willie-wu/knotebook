@@ -83,6 +83,9 @@ export async function transferGroupInTx(tx: Tx, input: TransferGroupInput, hook?
  * #175 T7（spec §6.8 delete）：連筆記一起刪群組。**gate（`beforeNoteDeleted`，會借連線）由路由在交易之前對 P0 開完**——
  * 本函式不碰 gate（S14；gate r3 C-1）。lockGroup（不存在 → 404）→ L＝該群組筆記 FOR UPDATE（以群組述詞、不比對名單：
  * gate 之後才進群組的也在 L 裡，§6.8 代價）→ M（CASCADE 前取）→ deleteNotesInTx(L)（與單篇 DELETE 同一份）→ DELETE groups。
+ * #188 起 `deleteNotesInTx` 第一步也對 L 取 FOR UPDATE（同交易重鎖、不等待）；全刪 × 上傳（C22）由兩把鎖任一把守住，
+ * 拿掉這裡的 FOR UPDATE 在現有整合測試下等價。保留它：L 以群組述詞「取到即鎖」是 §6.8 的定義，不依賴「沒有路徑能在
+ * 不取 lockGroup 的情況下把筆記移出群組」這條今天才成立的前提。
  */
 export async function deleteGroupWithNotesInTx(
   tx: Tx,

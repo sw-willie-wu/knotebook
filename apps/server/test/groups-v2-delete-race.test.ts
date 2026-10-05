@@ -1,7 +1,7 @@
 /**
  * #175 PR4（spec §6.8、§11）刪群組兩模式的交錯案：C9a／C9b（轉移 × 成員異動）、C10（轉移的 savepoint 重試）、
  * C12／C12b／C12c（全刪 × gate 之後才進群組的筆記）、C17（全刪 gate 之後被轉移）、C20a–d（複製／移動／PATCH × 刪群組）、
- * C13 反向（token PUT × 轉移）、C21（別名 PUT × 轉移＋接手者重開 token，三方形）、C22（全刪持 L 時的上傳；Task 2 review r1 M1：T7 的 `FOR UPDATE` 承重的是這條）。
+ * C13 反向（token PUT × 轉移）、C21（別名 PUT × 轉移＋接手者重開 token，三方形）、C22（全刪持 L 時的上傳；Task 2 review r1 M1；#188 起 T7 與 `deleteNotesInTx` 的 `FOR UPDATE` 任一把都守得住這條）。
  * 要證明「測到的是交錯」的案在注入縫裡呼叫 `waitForBlockedOrSettled`，最後斷言 `"blocked"`；標「序列」的案在縫裡
  * `await` 一次完整的請求（窗在授權／gate 之後、交易或 UPDATE 之前，序列即可）。
  * C11（同一個舊網址兩次寫入轉址）不寫：轉移只寫 `/g/<被刪群組>/<現行 slug>` 鍵；移動與 0012 只寫 `/n/` 鍵；同群組的現行 slug
@@ -302,9 +302,9 @@ describe("#175 PR4 複製／移動 × 刪群組（C20a／C20b／C20c）", () => 
     const u1 = await seedUpload(db, uploadsDir, src.id, a.id);
     await seedDoc(db, src.id, imageDoc([`/api/uploads/${u1}`]));
 
-    // 註（Task 4–6 review r1 N2）：M8（拿掉 T7 的 FOR UPDATE）下本案仍綠——等待改由 deleteNotesInTx 的 DELETE notes 取得
+    // 註（Task 4–6 review r1 N2）：M8（拿掉 T7 的 FOR UPDATE）下本案仍綠——等待改由 deleteNotesInTx 取得（#188 起是它第一步的 FOR UPDATE，之前是 DELETE notes）
     // （同樣要等複製持有的 KEY SHARE），複製在自己的快照讀附件、磁碟檔在 T7 commit 後才刪，結果逐項相同，屬等價。
-    // FOR UPDATE 的承重由 C22 守。
+    // FOR UPDATE 的承重由 C22 守（#188 起 `deleteNotesInTx` 也取 FOR UPDATE，M8 對 C22 亦等價；見 C22 的註）。
     const copied = await copy(app, src.id, m.id);
     const del = await holder.del!;
 
@@ -444,8 +444,10 @@ describe("#175 PR4 全刪 × 上傳（C22，Task 2 review r1 M1）", () => {
     // T7 的 DELETE uploads 就卡在 u0 上（此時 L 已到手）。在這個窗裡發上傳：有 L 時上傳的 INSERT 要 notes 列的 KEY SHARE
     // → 與 FOR UPDATE 互斥 → 等 T7 commit 後 23503；沒有 L 時 INSERT 直接成功（201），之後 DELETE uploads 的快照看不到它、
     // DELETE notes 以 CASCADE 帶走它的列——它不在回傳的 uploadIds 裡，磁碟檔就成了孤兒（review r1 M1 的最小 schema 實測形）。
-    // 鑑別（Task 4–6 review r1 N6）：拿掉 T7 的 FOR UPDATE（M8）時，本案先紅在 interleave 斷言（上傳沒被擋、得 201），
+    // 鑑別（Task 4–6 review r1 N6）：PR4 時拿掉 T7 的 FOR UPDATE（M8），本案先紅在 interleave 斷言（上傳沒被擋、得 201），
     // 跑不到最後的 readdir；孤兒檔本身是靠測試側變體（拿掉 interleave 斷言後）才實際看到——readdir 那條不是 M8 的守衛。
+    // #188 起 `deleteNotesInTx` 在 DELETE uploads 之前也對 L 取 FOR UPDATE：單拿掉 M8 或單拿掉那一把，本案都仍綠（等價）；
+    // 兩把都拿掉才紅在 interleave。單篇刪除的同形由 `notes-delete-race.test.ts` 守（拿掉 `deleteNotesInTx` 那一把即紅）。
     // 上傳 INSERT 撞 FK 時路由先 unlink 再回 404 not_found（Task 4–6 review r1 M1）；本案的 readdir 斷言同時守住「先 unlink」。
     const holder: {
       app?: FastifyInstance; pool?: Pool; noteId?: string; userId?: string; u0?: string;
