@@ -219,6 +219,19 @@
     "retryAfter": "請在 {{seconds}} 秒後再試一次。",
     "signInWith": "透過 {{name}} 登入"
   },
+  "linkAccount": {
+    "title": "連結登入方式",
+    "body": "這個 email（{{email}}）已有帳號。要把 {{provider}} 連結到這個帳號，請先證明你是該帳號的主人。",
+    "unknownProvider": "這個登入服務",
+    "passwordLabel": "該帳號的密碼",
+    "confirmWithPassword": "以密碼確認並連結",
+    "confirming": "連結中…",
+    "proveWith": "以 {{name}} 登入確認",
+    "cancel": "取消",
+    "cancelled": "這個 email 已被使用；請改用帳號密碼或該帳號已連結的登入服務登入，或用另一個登入服務帳號。",
+    "backToLogin": "回登入頁",
+    "loading": "載入中…"
+  },
   "changePassword": {
     "title": "修改密碼",
     "description": "為你的帳號設定新密碼。",

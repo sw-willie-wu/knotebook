@@ -219,6 +219,19 @@
     "retryAfter": "Try again in {{seconds}}s.",
     "signInWith": "Sign in with {{name}}"
   },
+  "linkAccount": {
+    "title": "Link your sign-in",
+    "body": "This email ({{email}}) already has an account. To link {{provider}} to it, prove that the account is yours.",
+    "unknownProvider": "this sign-in service",
+    "passwordLabel": "Password for this account",
+    "confirmWithPassword": "Confirm with password and link",
+    "confirming": "Linking…",
+    "proveWith": "Confirm by signing in with {{name}}",
+    "cancel": "Cancel",
+    "cancelled": "This email is already in use. Sign in with its password or with a sign-in service already linked to it, or use a different sign-in account.",
+    "backToLogin": "Back to sign in",
+    "loading": "Loading…"
+  },
   "changePassword": {
     "title": "Change your password",
     "description": "Choose a new password for your account.",
