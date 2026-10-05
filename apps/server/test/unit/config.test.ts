@@ -116,7 +116,16 @@ describe("loadConfig", () => {
       expect(c.legacyOidcEnvProblem).toBe("partial");
     });
     it("issuer 非 http/https、超過 512 字、或 client id 超過 512 字 → 'invalid'（不擋啟動）", () => {
-      for (const over of [{ OIDC_ISSUER_URL: "ftp://idp.example.com" }, { OIDC_ISSUER_URL: "https://" + "i".repeat(505) }, { OIDC_CLIENT_ID: "c".repeat(513) }]) {
+      for (const over of [
+        { OIDC_ISSUER_URL: "ftp://idp.example.com" },
+        { OIDC_ISSUER_URL: "https://" + "i".repeat(505) },
+        { OIDC_CLIENT_ID: "c".repeat(513) },
+        // fix r1 I1：`new URL()` 認得、但 0014 的 CHECK（區分大小寫的 `^https?://`）拒收的形——必須在 config 就判 invalid。
+        { OIDC_ISSUER_URL: "HTTPS://idp.example" },
+        { OIDC_ISSUER_URL: "http:idp.example" },
+        { OIDC_ISSUER_URL: "https:/idp.example" },
+        { OIDC_ISSUER_URL: " https://idp.example" },
+      ]) {
         const c = loadConfig({ ...valid, ...three, ...over });
         expect(c.legacyOidcEnv).toBeUndefined();
         expect(c.legacyOidcEnvProblem).toBe("invalid");

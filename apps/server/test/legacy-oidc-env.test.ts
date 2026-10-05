@@ -7,6 +7,7 @@ import { waitForBlockedOrSettled } from "./group-helpers.js";
 import { authProviders, siteSettings, userIdentities, users } from "../src/db/schema.js";
 import { backfillLegacyOidcIdentities, importLegacyOidcEnv } from "../src/auth/legacy-oidc-env.js";
 import { openClientSecret } from "../src/auth/oidc-providers.js";
+import { loadConfig } from "../src/config.js";
 
 /** 收集 pino 輸出（NDJSON），供斷言 warn 的 msg。 */
 function captureLogger(): { logger: pino.Logger; lines: () => Array<{ level: number; msg: string }> } {
@@ -106,6 +107,25 @@ describe("importLegacyOidcEnv（#187 §10.2）", () => {
       const [p] = await db.select({ r: authProviders.resolvedIssuer }).from(authProviders);
       expect(p!.r).toBe(expected);
     }
+  });
+
+  it("fix r1 I1：OIDC_ISSUER_URL 是 `HTTPS://…`（URL 認得、DB CHECK 拒收）→ loadConfig 判 invalid，匯入不丟例外、不建列、warn、仍設標記", async () => {
+    const { db } = await buildTestApp();
+    const loaded = loadConfig({
+      DATABASE_URL: "postgres://u:p@localhost:5432/test",
+      APP_SECRET: testConfig.appSecret,
+      PUBLIC_URL: "http://localhost:3000",
+      OIDC_ISSUER_URL: "HTTPS://idp.example",
+      OIDC_CLIENT_ID: "knotebook",
+      OIDC_CLIENT_SECRET: "env-secret",
+    });
+    const { logger, lines } = captureLogger();
+    const out = await importLegacyOidcEnv(db, loaded, logger);
+    expect(out.kind).toBe("nothing_to_import");
+    expect(await db.select().from(authProviders)).toHaveLength(0);
+    const [s] = await db.select().from(siteSettings);
+    expect(s!.legacyOidcEnvHandledAt).not.toBeNull();
+    expect(lines().some(l => l.level === 40 && l.msg.includes("incomplete or invalid"))).toBe(true);
   });
 
   it("site_settings 沒有列 → throw（啟動失敗，§4.3）", async () => {

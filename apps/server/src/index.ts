@@ -125,7 +125,7 @@ async function main(): Promise<void> {
   try {
     await importLegacyOidcEnv(db, config, logger);
   } catch (err) {
-    logger.error({ err }, "OIDC_* import failed (site_settings missing?) — refusing to start");
+    logger.error({ err }, "OIDC_* import transaction failed (see err) — refusing to start");
     process.exit(1);
   }
   await backfillLegacyOidcIdentities(db, logger);

@@ -63,7 +63,7 @@ export async function importLegacyOidcEnvInTx(
         enabled: true,
         legacyCallback: true,
       });
-      outcome = { kind: "imported", providerId: input.providerId, resolvedIssuer, insecure: env.issuerUrl.startsWith("http:") };
+      outcome = { kind: "imported", providerId: input.providerId, resolvedIssuer, insecure: /^http:\/\//.test(env.issuerUrl) };
     }
   }
   await tx.update(siteSettings).set({ legacyOidcEnvHandledAt: sql`now()`, updatedAt: sql`now()` }).where(eq(siteSettings.singleton, true));

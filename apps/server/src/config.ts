@@ -180,14 +180,11 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
   if (oidcValuesSet !== 0 && oidcValuesSet !== 3) {
     legacyOidcEnvProblem = "partial";
   } else if (oidcIssuerUrl !== undefined && oidcClientId !== undefined && oidcClientSecret !== undefined) {
-    let scheme: string | null = null;
-    try {
-      scheme = new URL(oidcIssuerUrl).protocol;
-    } catch {
-      scheme = null;
-    }
-    // 長度上限與 0014 的 CHECK 同值（issuer ≤512、client id 1..512）——不合法就不匯入，免得 INSERT 撞 CHECK 讓開機失敗。
-    if ((scheme === "http:" || scheme === "https:") && oidcIssuerUrl.length <= 512 && oidcClientId.length <= 512) {
+    // 合法條件照抄 0014 的 CHECK：`issuer_url ~ '^https?://'`（區分大小寫、不 trim）且 ≤512、client id ≤512——
+    // 不用 `new URL().protocol`：它認得 `HTTPS://x`、`http:x`、`https:/x`、` https://x`，CHECK 卻拒收，INSERT 會讓開機失敗（fix r1 I1）。
+    // 長度用 JS `.length`（UTF-16 code unit），對非 BMP 字元比 pg `char_length` 大，只會更嚴、不會放過 CHECK 拒收的值。
+    // client id 的下限 1 由上面 zod 的 `.min(1)` 保證。不合法 → 不匯入、只警告，不擋啟動（spec §10.2）。
+    if (/^https?:\/\//.test(oidcIssuerUrl) && oidcIssuerUrl.length <= 512 && oidcClientId.length <= 512) {
       legacyOidcEnv = { issuerUrl: oidcIssuerUrl, clientId: oidcClientId, clientSecret: oidcClientSecret };
     } else {
       legacyOidcEnvProblem = "invalid";
