@@ -26,9 +26,12 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
 
 /** 分享角色徽章——只給非 owner（editor/viewer）的筆記顯示；owner 自己的筆記不需要
  * 徽章（列表本身已隱含「這是你的」），'none' 理論上不會出現在 GET /api/notes 的
- * 結果裡（server 只回傳使用者有權限看的筆記）。PR2：側欄改小字化，不再是 pill。 */
-function RoleBadge({ role }: { role: NoteDto["role"] }) {
+ * 結果裡（server 只回傳使用者有權限看的筆記）。PR2：側欄改小字化，不再是 pill。
+ * #182（Willie 2026-10-02）：群組筆記（`group` 非 null）一律不標——角色看筆記頁頂端徽章；
+ * 只有逐人分享給我的個人筆記保留。 */
+function RoleBadge({ role, group }: { role: NoteDto["role"]; group: NoteDto["group"] }) {
   const { t } = useTranslation();
+  if (group) return null;
   if (role !== "editor" && role !== "viewer") return null;
   return <span className="shrink-0 text-[11px] text-muted-foreground">{t(`roles.${role}`)}</span>;
 }
@@ -84,7 +87,7 @@ function NoteRow({ note, primary, indent }: NoteRowProps) {
       >
         {note.title}
       </Link>
-      <RoleBadge role={note.role} />
+      <RoleBadge role={note.role} group={note.group} />
       <SidebarNoteMenu note={note} />
     </li>
   );
@@ -264,7 +267,7 @@ export interface SidebarPartition {
 
 /**
  * #175 spec §8.2 的分段表（`query` 為空時的主清單；搜尋只是在結果上再過濾）：
- * - `group` 非 null 且那個群組在 `groups`（＝我是成員）→ 該群組段（徽章＝editor／viewer）；
+ * - `group` 非 null 且那個群組在 `groups`（＝我是成員）→ 該群組段（不標角色，#182）；
  * - `group` 非 null 但群組不在 `groups`（剛被移出、清單未 refetch）→ 與我共享（兜底）；
  * - `role === "owner"` → 我的筆記；
  * - 其餘（逐人分享給我的個人筆記）→ 與我共享。
