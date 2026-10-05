@@ -120,7 +120,7 @@ export function groupsRoutes(deps: GroupsRouteDeps) {
 
     // #175 §6.8（PR4）：刪群組必填模式。transfer＝筆記全數改成 transferTo（內建管理員）的個人筆記（T6）；delete＝連筆記一起刪（T7）。
     // 全刪的 gate（beforeNoteDeleted 會借連線）在交易**之前**對 P0 開完（S14；gate r3 C-1）；gate 之後才進群組的（L \ P0）
-    // 不經 gate 被刪，commit 後以 onGroupAccessChanged 讓在線者 5 秒內以 forbidden 關閉（§6.8 代價、§15 第 10 條）。
+    // 不經 gate 被刪，commit 後以 onGroupAccessChanged 讓在線者 5 秒內以 revoked 關閉（§6.8 代價、§15 第 10 條）。
     // 兩模式交易外的錯誤映射相同：FK 23503 → 409 group_not_empty（防禦縱深：lockGroup 之後的建立／移入卡在 FK KEY SHARE，
     // 理論上撞不到）；40P01／40001 → 409 server_busy（T15 × T6／T7、同一位 transferTo 的兩筆 T6 會成環，PR4 plan 鎖序表）。
     app.delete("/api/groups/:id", { preHandler: app.authenticate }, async (request, reply) => {

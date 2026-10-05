@@ -7,6 +7,7 @@ import { drainWithCap } from "../http/drain.js";
 import { sendError } from "../http/errors.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
+import { isForeignKeyViolation } from "../db/pg-errors.js";
 import { uploads } from "../db/schema.js";
 import { resolveRole, UUID_RE } from "../notes/service.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
@@ -165,6 +166,8 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
         // 清檔本身失敗（理論上不太可能，寫入才剛成功）不影響「INSERT 失敗」這個
         // 結論，不因此吞掉原始錯誤。
         await unlink(finalPath).catch(() => {});
+        // 筆記在處理途中被刪（FK 23503）是預期內的業務情形，回 404（同本檔 authAndAuthorize 的 none 分支），不是 500。
+        if (isForeignKeyViolation(err)) return sendError(reply, 404, "not_found", "找不到此筆記");
         throw err;
       }
 
