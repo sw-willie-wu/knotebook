@@ -8,9 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SESSION_QUERY_KEY } from "@/auth/useSession";
 
-/** SSO 入口的目的地。⚠ 測試刻意**另寫一份字面**而不是 import 這顆——那一族斷言的是
- * 本頁對 `GET /api/auth/oidc/login` 的產出契約，跟著實作的常數走就沒有牙齒了。 */
-const OIDC_LOGIN_URL = "/api/auth/oidc/login";
+/** SSO 入口的前綴；完整網址＝前綴＋provider id。⚠ 測試刻意**另寫一份字面**——那一族斷言的是本頁對
+ * `GET /api/auth/oidc/login/:providerId` 的產出契約（#187 §9.4）。 */
+const OIDC_LOGIN_PREFIX = "/api/auth/oidc/login/";
 
 /**
  * `POST /api/auth/login` 表單。成功 → 把回傳的 UserDto 直接寫進 `['me']` query
@@ -24,10 +24,10 @@ const OIDC_LOGIN_URL = "/api/auth/oidc/login";
  * 才退回 `errors.fallback`；非 ApiFail（網路失敗等，見 client.ts 說明）一律視為
  * `errors.fallback`，不能直接讀 `.code`（raw Error 沒有這個欄位）。
  *
- * OIDC（Plan 5 §14.4）：`['auth-config']` 讀 `GET /api/auth/config`（免認證），
- * `oidc.enabled` 決定要不要在表單下方多渲染一顆 SSO 入口。那顆入口是純
- * `<a href="/api/auth/oidc/login">`——**不**走 `api()`/`fetch`：`/api/auth/oidc/login`
- * 會 302 到 IdP，再 302 回 `/api/auth/oidc/callback`，整條鏈要由瀏覽器的頂層導航
+ * OIDC（Plan 5 §14.4；#187 起多 provider）：`['auth-config']` 讀 `GET /api/auth/config`（免認證），
+ * `providers` 每個一顆 `<a href="/api/auth/oidc/login/<id>">`，渲染在表單下方。入口是純
+ * `<a>`——**不**走 `api()`/`fetch`：`/api/auth/oidc/login/<id>`
+ * 會 302 到 IdP，再 302 回 callback，整條鏈要由瀏覽器的頂層導航
  * 承載（`fetch` 的 redirect 語意與 cookie 寫入時機都不對，見 client.ts 的
  * `credentials:'include'`/manual redirect 說明），因此刻意繞過既有的 `api()` 入口。
  *
@@ -72,9 +72,11 @@ export default function LoginPage() {
   const nextPath = safeNextPath(searchParams.get("next"));
 
   // SSO 入口的 href：`next` 合法時把它轉交給 server。這個組法是本頁對
-  // `GET /api/auth/oidc/login` 的產出契約，#131 Task 5 的 server 端要消費它。
-  const ssoHref =
-    nextPath === null ? OIDC_LOGIN_URL : `${OIDC_LOGIN_URL}?next=${encodeURIComponent(nextPath)}`;
+  // `GET /api/auth/oidc/login/:providerId` 的產出契約，#131 Task 5 的 server 端要消費它。
+  const ssoHref = (providerId: string): string => {
+    const base = `${OIDC_LOGIN_PREFIX}${encodeURIComponent(providerId)}`;
+    return nextPath === null ? base : `${base}?next=${encodeURIComponent(nextPath)}`;
+  };
 
   const authConfigQuery = useQuery({
     queryKey: ["auth-config"],
@@ -183,12 +185,15 @@ export default function LoginPage() {
           {submitting ? t("login.submitting") : t("login.submit")}
         </Button>
 
-        {authConfigQuery.data?.oidc.enabled && (
+        {(authConfigQuery.data?.providers.length ?? 0) > 0 && (
           <>
             <div className="border-t" aria-hidden="true" />
-            <Button asChild variant="outline" className="w-full">
-              <a href={ssoHref}>{t("login.sso")}</a>
-            </Button>
+            {authConfigQuery.data!.providers.map((provider) => (
+              // displayName 是管理員輸入：t() 插值後只進文字節點（escapeValue:false，r1-M6）。
+              <Button key={provider.id} asChild variant="outline" className="w-full">
+                <a href={ssoHref(provider.id)}>{t("login.signInWith", { name: provider.displayName })}</a>
+              </Button>
+            ))}
           </>
         )}
       </form>

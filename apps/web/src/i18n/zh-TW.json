@@ -217,7 +217,20 @@
     "submit": "登入",
     "submitting": "登入中…",
     "retryAfter": "請在 {{seconds}} 秒後再試一次。",
-    "sso": "使用 SSO 登入"
+    "signInWith": "透過 {{name}} 登入"
+  },
+  "linkAccount": {
+    "title": "連結登入方式",
+    "body": "這個 email（{{email}}）已有帳號。要把 {{provider}} 連結到這個帳號，請先證明你是該帳號的主人。",
+    "unknownProvider": "這個登入服務",
+    "passwordLabel": "該帳號的密碼",
+    "confirmWithPassword": "以密碼確認並連結",
+    "confirming": "連結中…",
+    "proveWith": "以 {{name}} 登入確認",
+    "cancel": "取消",
+    "cancelled": "這個 email 已被使用；請改用帳號密碼或該帳號已連結的登入服務登入，或用另一個登入服務帳號。",
+    "backToLogin": "回登入頁",
+    "loading": "載入中…"
   },
   "changePassword": {
     "title": "修改密碼",
@@ -627,7 +640,6 @@
     "oidc_unavailable": "單一登入目前無法使用，請稍後再試，或改用密碼登入。",
     "oidc_state_mismatch": "登入流程已逾時或無效，請重新登入。",
     "oidc_exchange_failed": "與身分提供者完成登入時發生錯誤，請重新嘗試。",
-    "oidc_email_unverified": "您的身分提供者尚未驗證此電子郵件地址。",
     "oidc_email_missing": "您的身分提供者未提供電子郵件地址，登入需要此資訊。",
     "oidc_conflict": "此身分已連結至其他帳號，或同時符合多個帳號。",
     "insufficient_scope": "此 token 沒有執行這個操作的權限。",
@@ -654,6 +666,14 @@
     "builtin_role": "內建角色不能刪除或改名，內建管理員角色也不能修改。",
     "role_name_taken": "這個群組已有同名的角色，或該名稱保留給內建角色。",
     "not_admin": "筆記只能轉移給這個群組的管理員。請改選仍是管理員的人。",
+    "registration_disabled": "此站台目前不開放註冊新帳號，請聯絡站長。",
+    "oidc_link_expired": "這個連結請求已過期或已被取代，請重新登入。",
+    "oidc_link_proof_mismatch": "你登入的不是這個帳號已連結的那個身分。",
+    "oidc_link_no_proof_method": "這個 email 已有帳號，但它沒有其他方式可以證明是你本人——沒有密碼，也沒有其他能在這裡使用的登入服務。請聯絡站長。",
+    "oidc_claim_too_long": "身分提供者傳來的電子郵件或帳號識別碼過長，無法使用。",
+    "identity_taken": "這個登入身分已連結到其他帳號。",
+    "identity_already_linked": "這個帳號已連結同一個登入服務的另一個身分。",
+    "provider_not_found": "找不到這個登入服務，或它目前未啟用。",
     "fallback": "發生未預期的錯誤。"
   }
 }

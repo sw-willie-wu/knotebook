@@ -124,13 +124,12 @@ export interface AppConfig {
    * `initializeInstance`（見 `auth/bootstrap.ts`）——loadConfig 本身不碰 DB。 */
   adminEmail?: string;
   adminPassword?: string;
-  /** OIDC 登入（Plan 5 §5）：三件組全有或全無（見下方 loadConfig 的 fail-fast 檢查），
-   * 三欄永遠同時 defined 或同時 undefined，不會半套。`issuerUrl` 的 http/https scheme
-   * 檢查與 `PUBLIC_URL` 同一套手動驗證風格；http issuer 的啟動警告不落這個欄位——
-   * `index.ts` 直接對 `oidc.issuerUrl` 判斷是否印警告（二輪 MINOR-6：加一個
-   * `oidcInsecureWarning` 欄位會讓 config.test.ts 的 `toEqual` 精確比對紅——`toEqual`
-   * 忽略 undefined 但不忽略 `false`）。 */
-  oidc?: { issuerUrl: string; clientId: string; clientSecret: string };
+  /**
+   * #187 §10.2：舊 `OIDC_*` 三變數。只在**新版第一次啟動**時被 `importLegacyOidcEnv` 匯入成一個「自訂 OIDC」provider
+   * （沿用舊回呼網址），之後一律忽略並警告。三件齊全且合法才有值；不齊或不合法改成 `legacyOidcEnvProblem`，**不擋啟動**。
+   */
+  legacyOidcEnv?: { issuerUrl: string; clientId: string; clientSecret: string };
+  legacyOidcEnvProblem?: "partial" | "invalid";
 }
 export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
   const r = schema.safeParse(env);
@@ -166,32 +165,26 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     }
   }
 
-  // Plan 5 §5：OIDC_ISSUER_URL/OIDC_CLIENT_ID/OIDC_CLIENT_SECRET 只設其中一到兩個 →
-  // 半套設定必為誤設，啟動時 fail-fast（三者是成組欄位，比照上面 ADMIN_EMAIL/
-  // ADMIN_PASSWORD 那組的檢查風格）。
+  // #187 §10.2：OIDC_* 不再是設定來源，只在首次啟動被匯入。半套／不合法只警告（index.ts 經 importLegacyOidcEnv 印），不擋啟動。
   const oidcIssuerUrl = r.data.OIDC_ISSUER_URL;
   const oidcClientId = r.data.OIDC_CLIENT_ID;
   const oidcClientSecret = r.data.OIDC_CLIENT_SECRET;
   const oidcValuesSet = [oidcIssuerUrl, oidcClientId, oidcClientSecret].filter(v => v !== undefined).length;
+  let legacyOidcEnv: AppConfig["legacyOidcEnv"];
+  let legacyOidcEnvProblem: AppConfig["legacyOidcEnvProblem"];
   if (oidcValuesSet !== 0 && oidcValuesSet !== 3) {
-    throw new Error(
-      "設定錯誤：OIDC_ISSUER_URL、OIDC_CLIENT_ID、OIDC_CLIENT_SECRET 必須同時設定，或同時不設定——只設定其中一部分視為誤設"
-    );
-  }
-  let oidc: AppConfig["oidc"];
-  if (oidcIssuerUrl !== undefined && oidcClientId !== undefined && oidcClientSecret !== undefined) {
-    let issuerUrlParsed: URL;
-    try {
-      issuerUrlParsed = new URL(oidcIssuerUrl);
-    } catch {
-      throw new Error("設定錯誤：OIDC_ISSUER_URL 必須是有效的 http/https URL");
+    legacyOidcEnvProblem = "partial";
+  } else if (oidcIssuerUrl !== undefined && oidcClientId !== undefined && oidcClientSecret !== undefined) {
+    // 合法條件照抄 0014 的 CHECK：`issuer_url ~ '^https?://'`（區分大小寫、不 trim）且 ≤512、client id ≤512——
+    // 不用 `new URL().protocol`：它認得 `HTTPS://x`、`http:x`、`https:/x`、` https://x`，CHECK 卻拒收，INSERT 會讓開機失敗（fix r1 I1）。
+    // 長度用 JS `.length`（UTF-16 code unit），對非 BMP 字元比 pg `char_length` 大，只會更嚴、不會放過 CHECK 拒收的值。
+    // client id 的下限 1 由上面 zod 的 `.min(1)` 保證。不合法 → 不匯入、只警告，不擋啟動（spec §10.2）。
+    if (/^https?:\/\//.test(oidcIssuerUrl) && oidcIssuerUrl.length <= 512 && oidcClientId.length <= 512) {
+      legacyOidcEnv = { issuerUrl: oidcIssuerUrl, clientId: oidcClientId, clientSecret: oidcClientSecret };
+    } else {
+      legacyOidcEnvProblem = "invalid";
     }
-    if (!["http:", "https:"].includes(issuerUrlParsed.protocol)) {
-      throw new Error("設定錯誤：OIDC_ISSUER_URL 必須是 http/https URL");
-    }
-    oidc = { issuerUrl: oidcIssuerUrl, clientId: oidcClientId, clientSecret: oidcClientSecret };
   }
-
   // max：Node 計時器上限 2^31-1 ms，超過會被截成 1 ms（連線啟動即逾時、錯誤訊息不指向此設定），故逾時欄位設上限。
   const positiveInt = (name: string, raw: string | undefined, fallback: number, max = Infinity): number => {
     if (raw === undefined) return fallback;
@@ -206,7 +199,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
            cookieSecure: publicUrl.protocol === "https:", insecureHttpWarning,
            trustProxy: parseTrustProxy(r.data.TRUST_PROXY),
            databasePoolMax, databasePoolConnectionTimeoutMs,
-           adminEmail, adminPassword, oidc };
+           adminEmail, adminPassword, legacyOidcEnv, legacyOidcEnvProblem };
 }
 
 /**
@@ -241,7 +234,7 @@ export function publicUrlIssuer(publicUrl: URL): string {
  * 的措辭要對得起實際行為（實測見 config.test.ts 的「警告的前提」那一案）：
  *
  * - **path／query／fragment**：`publicUrlIssuer` 的 `origin` 丟掉它們，而
- *   `oidcRedirectUri`（`new URL("/api/auth/oidc/callback", publicUrl)`，絕對路徑會
+ *   `oidcRedirectUri`（每個 provider 一條 `/api/auth/oidc/callback[/<id>]`，絕對路徑會
  *   整段取代 base 的 path）**也**丟掉。失效鏈是：docs/self-hosting.md 教維運者拿
  *   `<PUBLIC_URL>/api/auth/oidc/callback` 去 IdP 註冊（subpath 部署下＝含 `/knb`），
  *   但 server 送出的是去掉 `/knb` 的形，IdP 比對不上。也就是說 server **丟掉**了
@@ -259,5 +252,5 @@ export function publicUrlPathWarning(publicUrl: URL): string | null {
     publicUrl.username === "" &&
     publicUrl.password === "";
   if (isBareOrigin) return null;
-  return "PUBLIC_URL should be a bare origin (scheme://host:port). Anything past the origin is dropped when deriving the OAuth issuer, and a sub-path is dropped from the OIDC redirect_uri too — so if PUBLIC_URL has one, the redirect_uri this server sends will not match the <PUBLIC_URL>/api/auth/oidc/callback that the docs tell you to register";
+  return "PUBLIC_URL should be a bare origin (scheme://host:port). Anything past the origin is dropped when deriving the OAuth issuer, and a sub-path is dropped from the OIDC redirect URIs too — so if PUBLIC_URL has one, the redirect URIs this server sends will not match a <PUBLIC_URL>/api/auth/oidc/callback… URI registered with the identity provider";
 }

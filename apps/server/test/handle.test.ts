@@ -8,12 +8,11 @@ import { OIDC_STATE_COOKIE, SESSION_COOKIE } from "@knotebook/shared";
 import { initializeInstance } from "../src/auth/bootstrap.js";
 import { backfillHandleRegistry, deriveHandle } from "../src/auth/handle.js";
 import { hashPassword } from "../src/auth/password.js";
-import { createOidcRuntime } from "../src/auth/oidc-client.js";
-import { loadConfig, type AppConfig } from "../src/config.js";
 import { handles, users } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
 import { buildTestApp, freshDb } from "./helpers.js";
 import { createFakeIdp, type FakeIdp, type FakeIdpClaims } from "./helpers/fake-idp.js";
+import { legacyOidcApp } from "./helpers/oidc-provider.js";
 
 /**
  * #122 PR1 Task 3：三條建帳路徑的 handle 派生與 registry-first 配置（spec §2a/§2b）。
@@ -272,22 +271,9 @@ describe("admin 建帳路徑（spec §2b；constraint 判別 M4-2）", () => {
 describe("OIDC 建帳路徑（preferred_username；spec §2b M3-8）", () => {
   // 工具形比照 oidc-callback.test.ts 的檔內私有慣例，這裡自帶一份。
   const ISSUER_URL = "https://idp.example.com";
-  function oidcConfig(): AppConfig {
-    return loadConfig({
-      DATABASE_URL: "postgres://u:p@localhost:5432/test",
-      APP_SECRET: "a".repeat(64),
-      PUBLIC_URL: "http://localhost:3000",
-      OIDC_ISSUER_URL: ISSUER_URL,
-      OIDC_CLIENT_ID: "test-client",
-      OIDC_CLIENT_SECRET: "test-secret",
-    });
-  }
-
   async function oidcApp() {
-    const config = oidcConfig();
     const fakeIdp = createFakeIdp(ISSUER_URL);
-    const runtime = createOidcRuntime(config.oidc!, { fetch: fakeIdp.fetch });
-    const { app, db } = await buildTestApp({ config, oidc: runtime });
+    const { app, db } = await legacyOidcApp(fakeIdp.fetch, ISSUER_URL);
     return { app, db, fakeIdp };
   }
 

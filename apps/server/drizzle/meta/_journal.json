@@ -99,6 +99,13 @@
       "when": 1790850450832,
       "tag": "0013_role-create-without-edit",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791216377813,
+      "tag": "0014_auth-providers",
+      "breakpoints": true
     }
   ]
 }

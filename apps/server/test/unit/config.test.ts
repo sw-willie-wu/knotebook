@@ -103,24 +103,38 @@ describe("loadConfig", () => {
     });
   });
 
-  describe("OIDC_ISSUER_URL / OIDC_CLIENT_ID / OIDC_CLIENT_SECRET（Plan 5 §5）", () => {
-    it("OIDC 三件組只設其中一個 → throw", () => {
-      expect(() => loadConfig({ ...valid, OIDC_ISSUER_URL: "https://idp.example.com" })).toThrow(/OIDC/);
+  describe("OIDC_*（#187：只剩首次啟動匯入用，§10.2）", () => {
+    const three = { OIDC_ISSUER_URL: "https://idp.example.com", OIDC_CLIENT_ID: "abc", OIDC_CLIENT_SECRET: "s" };
+    it("三件齊 → legacyOidcEnv 填入、沒有 problem", () => {
+      const c = loadConfig({ ...valid, ...three });
+      expect(c.legacyOidcEnv).toEqual({ issuerUrl: "https://idp.example.com", clientId: "abc", clientSecret: "s" });
+      expect(c.legacyOidcEnvProblem).toBeUndefined();
     });
-
-    it("OIDC 三件組齊 → config.oidc 填入", () => {
-      const c = loadConfig({ ...valid, OIDC_ISSUER_URL: "https://idp.example.com", OIDC_CLIENT_ID: "abc", OIDC_CLIENT_SECRET: "s" });
-      expect(c.oidc).toEqual({ issuerUrl: "https://idp.example.com", clientId: "abc", clientSecret: "s" });
+    it("只設其中一個 → 不再 throw，legacyOidcEnvProblem='partial'", () => {
+      const c = loadConfig({ ...valid, OIDC_ISSUER_URL: "https://idp.example.com" });
+      expect(c.legacyOidcEnv).toBeUndefined();
+      expect(c.legacyOidcEnvProblem).toBe("partial");
     });
-
-    it("OIDC issuer 非 http/https → throw", () => {
-      expect(() =>
-        loadConfig({ ...valid, OIDC_ISSUER_URL: "ftp://idp.example.com", OIDC_CLIENT_ID: "abc", OIDC_CLIENT_SECRET: "s" })
-      ).toThrow(/OIDC/);
+    it("issuer 非 http/https、超過 512 字、或 client id 超過 512 字 → 'invalid'（不擋啟動）", () => {
+      for (const over of [
+        { OIDC_ISSUER_URL: "ftp://idp.example.com" },
+        { OIDC_ISSUER_URL: "https://" + "i".repeat(505) },
+        { OIDC_CLIENT_ID: "c".repeat(513) },
+        // fix r1 I1：`new URL()` 認得、但 0014 的 CHECK（區分大小寫的 `^https?://`）拒收的形——必須在 config 就判 invalid。
+        { OIDC_ISSUER_URL: "HTTPS://idp.example" },
+        { OIDC_ISSUER_URL: "http:idp.example" },
+        { OIDC_ISSUER_URL: "https:/idp.example" },
+        { OIDC_ISSUER_URL: " https://idp.example" },
+      ]) {
+        const c = loadConfig({ ...valid, ...three, ...over });
+        expect(c.legacyOidcEnv).toBeUndefined();
+        expect(c.legacyOidcEnvProblem).toBe("invalid");
+      }
     });
-
-    it("全未設 → config.oidc undefined", () => {
-      expect(loadConfig(valid).oidc).toBeUndefined();
+    it("全未設 → 兩欄皆 undefined", () => {
+      const c = loadConfig(valid);
+      expect(c.legacyOidcEnv).toBeUndefined();
+      expect(c.legacyOidcEnvProblem).toBeUndefined();
     });
   });
 });
@@ -246,8 +260,9 @@ describe("D12：OAuth issuer 取 origin、PUBLIC_URL 帶其他成分只警告", 
     // 不用 stringContaining("origin") —— 任何含這六個字母的字串都會過，等於沒守。
     expect(message).toContain("PUBLIC_URL");
     expect(message).toContain("sub-path");
-    // OIDC 的 redirect_uri 是**現在就對不上**的那一個（OAuth 端點還不存在）
-    expect(message).toContain("redirect_uri");
+    // #187：每個 provider 一條 redirect URI（/api/auth/oidc/callback[/<id>]）——是**現在就對不上**的那一組
+    expect(message).toContain("OIDC redirect URIs");
+    expect(message).toContain("will not match");
   });
 
   it("訊息是編譯期常數（插值進去會讓 pino 的 msg 每個部署都不同，日誌聚合與告警失效）", () => {
@@ -257,18 +272,18 @@ describe("D12：OAuth issuer 取 origin、PUBLIC_URL 帶其他成分只警告", 
     expect(first).toBe(publicUrlPathWarning(new URL("https://b.example.com/other?q=1")));
   });
 
-  it("警告的前提：sub-path 從 issuer 與 OIDC redirect_uri **兩邊**都被丟掉，userinfo 只從 issuer 丟", () => {
-    // 這一案釘住訊息措辭所依據的事實。訊息說「server 丟掉 sub-path，所以與 docs 教你
-    // 註冊的 <PUBLIC_URL>/api/auth/oidc/callback 對不上」——若哪天 oidcRedirectUri 改成
-    // 保留 sub-path，這裡會紅，逼人回頭重讀那句話（訊息寫反過的前科：把 sub-path 說成
-    // 「redirect_uri 會保留」，實際上只有 userinfo 如此）。
+  it("警告的前提：sub-path 從 issuer 與 OIDC redirect URI **兩邊**都被丟掉，userinfo 只從 issuer 丟", () => {
+    // 這一案釘住訊息措辭所依據的事實。訊息說「server 丟掉 sub-path，所以與 IdP 端註冊的
+    // <PUBLIC_URL>/api/auth/oidc/callback… 對不上」——若哪天 oidcRedirectUri 改成保留 sub-path，這裡會紅，
+    // 逼人回頭重讀那句話（訊息寫反過的前科）。#187 起 legacy 與一般 provider 兩種形各斷言一次。
     const subpath = loadConfig({ ...valid, PUBLIC_URL: "https://example.com/knb" });
     expect(publicUrlIssuer(subpath.publicUrl)).toBe("https://example.com");
-    expect(oidcRedirectUri(subpath)).toBe("https://example.com/api/auth/oidc/callback");
+    expect(oidcRedirectUri(subpath, { id: "p1", legacyCallback: true })).toBe("https://example.com/api/auth/oidc/callback");
+    expect(oidcRedirectUri(subpath, { id: "p1", legacyCallback: false })).toBe("https://example.com/api/auth/oidc/callback/p1");
 
     const withCreds = loadConfig({ ...valid, PUBLIC_URL: "https://u:p@example.com/" });
     expect(publicUrlIssuer(withCreds.publicUrl)).toBe("https://example.com");
-    expect(oidcRedirectUri(withCreds)).toBe("https://u:p@example.com/api/auth/oidc/callback");
+    expect(oidcRedirectUri(withCreds, { id: "p1", legacyCallback: true })).toBe("https://u:p@example.com/api/auth/oidc/callback");
   });
 
   it("結構守衛：index.ts 真的有呼叫 publicUrlPathWarning，且在 listen 之前", () => {
@@ -285,5 +300,18 @@ describe("D12：OAuth issuer 取 origin、PUBLIC_URL 帶其他成分只警告", 
     expect(callAt, "index.ts 必須呼叫 publicUrlPathWarning(config.publicUrl…)").toBeGreaterThan(-1);
     expect(listenAt).toBeGreaterThan(-1);
     expect(callAt, "警告要在 listen 之前印出來").toBeLessThan(listenAt);
+  });
+
+  it("結構守衛（#187 §10.2／§10.3）：index.ts 的 env 匯入與補登呼叫在 initializeInstance 之後、listen 之前，且匯入先於補登", () => {
+    const src = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../src/index.ts"), "utf8");
+    // 錨定呼叫點字面（含引數開頭），不是函式名——只找名字會先命中檔頭 import。
+    const initAt = src.indexOf("await initializeInstance(");
+    const importAt = src.indexOf("await importLegacyOidcEnv(db");
+    const backfillAt = src.indexOf("await backfillLegacyOidcIdentities(db");
+    const listenAt = src.indexOf(".listen(");
+    expect(initAt).toBeGreaterThan(-1);
+    expect(importAt, "index.ts 必須呼叫 importLegacyOidcEnv(db…").toBeGreaterThan(initAt);
+    expect(backfillAt, "補登必須在匯入之後").toBeGreaterThan(importAt);
+    expect(backfillAt, "補登必須在 listen 之前").toBeLessThan(listenAt);
   });
 });
