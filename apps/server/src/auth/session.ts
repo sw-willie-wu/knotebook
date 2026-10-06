@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { SignJWT, jwtVerify } from "jose";
 import { eq } from "drizzle-orm";
+import { SESSION_COOKIE } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
 import { users } from "../db/schema.js";
 import { BoundedMap } from "../lib/bounded-map.js";
@@ -207,4 +208,21 @@ export class UserGate {
       },
     };
   }
+}
+
+/**
+ * cookie session 的解析，**不送回應**——回 null＝這個請求沒有有效 session（無 cookie、簽章壞、tokenVersion 不符、停用、帳號不在）。
+ * 自 `app.ts` 抽出（#187 §8.1：手動連結的 callback 必須維持「一律 302」，不能掛 `authenticate` preHandler，只借它的核心）。
+ */
+export async function resolveSessionUser(
+  cookies: Record<string, string | undefined>,
+  appSecret: string,
+  gate: UserGate,
+): Promise<{ user: GateUser; tv: number } | null> {
+  const token = cookies[SESSION_COOKIE];
+  const session = token ? await verifySession(appSecret, token) : null;
+  if (!session) return null;
+  const result = await gate.check(session.userId, session.tv);
+  if (result.status !== "ok") return null;
+  return { user: result.user, tv: session.tv };
 }

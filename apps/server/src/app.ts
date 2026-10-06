@@ -8,10 +8,10 @@ import Fastify, {
 import fastifyCookie from "@fastify/cookie";
 import fastifyMultipart from "@fastify/multipart";
 import fastifyFormbody from "@fastify/formbody";
-import { MAX_UPLOAD_BYTES, SESSION_COOKIE, type ErrorCode, type RequiredScope, type TokenScope } from "@knotebook/shared";
+import { MAX_UPLOAD_BYTES, type ErrorCode, type RequiredScope, type TokenScope } from "@knotebook/shared";
 import { publicUrlIssuer, type AppConfig } from "./config.js";
 import type { Db } from "./db/index.js";
-import { verifySession, type GateUser, type UserGate } from "./auth/session.js";
+import { resolveSessionUser as resolveSessionUserFromCookies, type GateUser, type UserGate } from "./auth/session.js";
 import { createAuthenticateAny } from "./auth/bearer.js";
 import type { LoginThrottle } from "./auth/rate-limit.js";
 import type { CollabHooks } from "./collab/hooks.js";
@@ -30,6 +30,7 @@ import { uploadsRoutes } from "./routes/uploads.js";
 import { publicRoutes, redactPublicTokens } from "./routes/public.js";
 import { oidcRoutes } from "./routes/oidc.js";
 import { oidcPendingRoutes } from "./routes/oidc-pending.js";
+import { oidcLinkRoutes } from "./routes/oidc-link.js";
 import { mcpRoutes } from "./routes/mcp.js";
 import type { McpTestHooks } from "./mcp/hooks.js";
 import { apiTokensRoutes } from "./routes/api-tokens.js";
@@ -541,12 +542,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
    * 兩個 decorator 因此各自決定回應，只共用這一支解析。
    */
   async function resolveSessionUser(request: FastifyRequest): Promise<{ user: GateUser; tv: number } | null> {
-    const token = request.cookies[SESSION_COOKIE];
-    const session = token ? await verifySession(deps.config.appSecret, token) : null;
-    if (!session) return null;
-    const result = await deps.gate.check(session.userId, session.tv);
-    if (result.status !== "ok") return null;
-    return { user: result.user, tv: session.tv };
+    return resolveSessionUserFromCookies(request.cookies, deps.config.appSecret, deps.gate);
   }
 
   // 以下兩個 decorator 都以一般具名函式（而非箭頭函式綁 this）宣告，但內部完全不用
@@ -640,6 +636,8 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   void app.register(
     oidcPendingRoutes({ config: deps.config, db: deps.db, gate: deps.gate, throttle: deps.throttle, registry: oidcRegistry, limiters: { oidcLogin: limiters.oidcLogin }, oidcTestHook: deps.oidcTestHook }),
   );
+  // #187 §7.6：設定頁的手動連結起點（callback 在 oidcRoutes 的 intent: "link" 分支）。
+  void app.register(oidcLinkRoutes({ db: deps.db, config: deps.config, registry: oidcRegistry, limiters: { oidcLogin: limiters.oidcLogin } }));
 
   // #106：內容端點需要一份 jsdom runtime。**lazy**——沒有 collab 就不建（`createEditingRuntime`
   // 會立刻 `installGlobals()` 掛 window/document，只跑 REST 的 app 不該付這個代價，也不該讓
