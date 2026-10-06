@@ -59,6 +59,9 @@ function mockFetch(getUser: () => UserDto | null) {
       const key = url.slice("/api/admin/ai/".length);
       return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ [key]: [] }) }));
     }
+    if (url === "/api/admin/auth/providers" && method === "GET") {
+      return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ providers: [] }) }));
+    }
     throw new Error(`unexpected fetch: ${method} ${url}`);
   });
 }
@@ -97,7 +100,7 @@ describe("AdminPage（/admin/*：站台管理獨立頁）", () => {
     vi.unstubAllGlobals();
   });
 
-  it("側欄是管理導覽：「回筆記」＋使用者＋AI，沒有搜尋框與新增筆記；主區是使用者管理", async () => {
+  it("側欄是管理導覽：「回筆記」＋使用者＋AI＋登入，沒有搜尋框與新增筆記；主區是使用者管理", async () => {
     renderAt("/admin/users", mockFetch(() => ADMIN_USER));
 
     await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "User management" })).toBeInTheDocument());
@@ -106,6 +109,7 @@ describe("AdminPage（/admin/*：站台管理獨立頁）", () => {
     expect(nav.getByRole("link", { name: "Back to notes" })).toHaveAttribute("href", "/");
     expect(nav.getByRole("link", { name: "Users" })).toHaveAttribute("href", "/admin/users");
     expect(nav.getByRole("link", { name: "AI" })).toHaveAttribute("href", "/admin/ai");
+    expect(nav.getByRole("link", { name: "Sign-in" })).toHaveAttribute("href", "/admin/auth");
     expect(nav.getByRole("link", { name: "Users" })).toHaveAttribute("aria-current", "page");
     expect(nav.getByRole("link", { name: "AI" })).not.toHaveAttribute("aria-current");
 
@@ -172,5 +176,14 @@ describe("AdminPage（/admin/*：站台管理獨立頁）", () => {
     renderAt("/admin/users", mockFetch(() => ({ ...ADMIN_USER, mustChangePassword: true })));
 
     await expectLocation("/change-password");
+  });
+
+  it("點 Sign-in → /admin/auth，主區是登入服務（#187 PR2）", async () => {
+    renderAt("/admin/users", mockFetch(() => ADMIN_USER));
+    const nav = within(await screen.findByRole("navigation", { name: "Site admin" }));
+    fireEvent.click(nav.getByRole("link", { name: "Sign-in" }));
+    await expectLocation("/admin/auth");
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Sign-in" })).toBeInTheDocument());
+    expect(await screen.findByText("No sign-in services yet.")).toBeInTheDocument();
   });
 });

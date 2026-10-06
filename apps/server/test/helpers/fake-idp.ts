@@ -25,7 +25,8 @@ export interface FakeIdpClaims {
 // catch）的路徑（那個 catch 也包住 randomState／PKCE／sealOidcState 等，理論上都會拋）。缺
 // jwks_uri 會更早在 getConfiguration 就被擋成 OidcUnavailableError（不同分支），缺
 // userinfo_endpoint 則完全不影響這兩者。
-export type FakeIdpOmittableMetadataKey = "userinfo_endpoint" | "jwks_uri" | "authorization_endpoint";
+// #187 PR2：省略 `token_endpoint_auth_methods_supported` 造出「沒宣告 client_secret_post」的形（測試連線的 warning）。
+export type FakeIdpOmittableMetadataKey = "userinfo_endpoint" | "jwks_uri" | "authorization_endpoint" | "token_endpoint_auth_methods_supported";
 export type FakeIdpOmittableIdTokenKey = "email" | "email_verified" | "nonce" | "preferred_username";
 export type FakeIdpFailTarget = "token" | "userinfo" | "discovery";
 

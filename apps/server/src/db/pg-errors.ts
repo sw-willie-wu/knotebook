@@ -72,3 +72,30 @@ export function isForeignKeyViolation(err: unknown): boolean {
 export function isTransientTransactionError(err: unknown): boolean {
   return matchesCode(err, PG_SERIALIZATION_FAILURE) || matchesCode(err, PG_DEADLOCK_DETECTED);
 }
+
+export const PG_CHECK_VIOLATION = "23514";
+
+/**
+ * check_violation（23514）的 constraint 名（#187 PR2：`auth_providers_enabled_secret_chk` → 409 `provider_secret_missing`）。
+ * 兩種錯誤形狀（node-postgres 原生、drizzle 包一層）同 `uniqueViolationConstraint`。非 check violation 回 null；
+ * 呼叫端只認自己知道的名字，其餘 rethrow（輸入驗證已與其他 CHECK 對齊，撞到＝bug，該 500）。
+ */
+export function checkViolationConstraint(err: unknown): string | null {
+  if (!matchesCode(err, PG_CHECK_VIOLATION)) return null;
+  const direct = constraintOf(err);
+  if (direct !== null) return direct;
+  return constraintOf(err instanceof Error ? err.cause : undefined);
+}
+
+/**
+ * 只取 pg 錯誤的 `code` 與 `constraint`（兩種錯誤形狀都認；不是 pg 錯誤回兩個 null）——給「錯誤本體不能進 log」的呼叫端
+ * （`lib/redact-db-error.ts`）。刻意不取 `message`／`detail`／`params`：那幾欄會帶寫入的值。
+ */
+export function pgErrorSummary(err: unknown): { code: string | null; constraint: string | null } {
+  const cause = err instanceof Error ? err.cause : undefined;
+  const raw = code(err) ?? code(cause);
+  return {
+    code: typeof raw === "string" ? raw : null,
+    constraint: constraintOf(err) ?? constraintOf(cause),
+  };
+}

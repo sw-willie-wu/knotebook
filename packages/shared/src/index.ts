@@ -388,6 +388,12 @@ export const ERROR_CODES = [
   "identity_taken",
   "identity_already_linked",
   "provider_not_found",
+  // #187 PR2：站台管理 `/api/admin/auth/*`。`provider_enabled`＝409，刪除仍在啟用中的登入服務（要先停用，W11）；
+  // `provider_secret_missing`＝409，要啟用一個沒有 client secret 的登入服務（DB CHECK `auth_providers_enabled_secret_chk`，INV-1）；
+  // `oidc_discovery_failed`＝502，「測試連線」／「先試探」讀不到可用的 OIDC 設定（discovery 失敗、缺 jwks_uri、無非對稱簽章、issuer 不符或過長）。
+  "provider_enabled",
+  "provider_secret_missing",
+  "oidc_discovery_failed",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
@@ -435,6 +441,51 @@ export interface AdminAiActionDto {
   sortOrder: number;
   enabled: boolean;
   builtin: boolean;
+}
+
+/** #187 PR2：登入服務範本（W1；只決定新增表單的預填值與卡片標籤）。值域與 DB CHECK `auth_providers_template_chk` 相同。 */
+export type AuthProviderTemplate = "gitlab" | "google" | "oidc";
+
+/**
+ * #187 §9.2：`GET /api/admin/auth/providers` 的一列（POST／PATCH 回同形）。**不含 client secret 的任何形**（INV-5）——只有
+ * `hasSecret`。`displayName` 是管理員輸入：web 只准放進 React 文字節點（`escapeValue: false`，spec r1-M6）。
+ */
+export interface AdminAuthProviderDto {
+  id: string;
+  template: AuthProviderTemplate;
+  displayName: string;
+  issuerUrl: string;
+  clientId: string;
+  hasSecret: boolean;
+  enabled: boolean;
+  sortOrder: number;
+  /** env 匯入的那一個（沿用舊回呼網址 `/api/auth/oidc/callback`，B13）。 */
+  legacyCallback: boolean;
+  /** 要登記在 IdP 端的回呼網址；server 以 `oidcRedirectUri` 組（§7.1，與 login／callback 同一個 helper）。 */
+  callbackUrl: string;
+  /** issuer 是明文 `http://`（§5.3）。 */
+  insecureIssuer: boolean;
+  /** 曾經成功 discovery（`resolved_issuer` 有值）；false 時受影響人數可能不準（§4.1）。 */
+  issuerResolved: boolean;
+  createdAt: string;
+}
+
+/** #187 §9.3：`GET /api/admin/auth/providers/:id/impact`——開停用 dialog 當下的快照。 */
+export interface AdminAuthProviderImpactDto {
+  /** 有 identity 對到這個服務、且未停用的帳號數。 */
+  linkedUsers: number;
+  /** 其中沒有密碼、也沒有任何 identity 對到「其他啟用中服務」的帳號數——停用後暫時登不進。 */
+  lockedOutUsers: number;
+  issuerResolved: boolean;
+}
+
+/** #187 §9.2：測試連線／先試探的非致命提醒。 */
+export type AdminAuthProbeWarning = "insecure_issuer" | "client_secret_post_not_advertised" | "secret_undecryptable";
+
+/** #187 §9.2：`POST /api/admin/auth/providers/:id/test`、`POST /api/admin/auth/discover` 成功。`issuer`＝IdP discovery 回報的 issuer。 */
+export interface AdminAuthProbeResultDto {
+  issuer: string;
+  warnings: AdminAuthProbeWarning[];
 }
 
 export const COLLAB_CLOSE_REVOKED = "knotebook:revoked";

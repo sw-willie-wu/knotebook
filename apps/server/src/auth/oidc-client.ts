@@ -50,6 +50,29 @@ function hasAsymmetricSigningAlg(algs: readonly string[] | undefined): boolean {
 }
 
 /**
+ * discovery 結果的可用性檢查（§14.3「成功但不可用」＋r3-M3 的 issuer 長度）。runtime（登入路徑）與 `probeOidcIssuer`
+ * （管理頁的測試連線／先試探）**共用這一個函式**——兩條路徑的判準不得分歧，否則管理頁說「連線成功」、登入卻 `oidc_unavailable`。
+ */
+function assertUsableMetadata(metadata: client.ServerMetadata, issuerUrl: string): void {
+  if (!metadata.jwks_uri || !hasAsymmetricSigningAlg(metadata.id_token_signing_alg_values_supported)) {
+    throw new OidcUnavailableError(`OIDC issuer metadata 不可用（issuer=${issuerUrl}）：缺 jwks_uri 或無非對稱簽章演算法`);
+  }
+  if (metadata.issuer.length > MAX_ISSUER_LENGTH) {
+    // r3-M3：identity 存的 issuer 與 pending cookie 的大小上界都靠這個上限；`auth_providers` 的 CHECK 只管管理員輸入的字面。
+    throw new OidcUnavailableError(`OIDC issuer 過長（${metadata.issuer.length} > ${MAX_ISSUER_LENGTH}）`);
+  }
+}
+
+/** http issuer（trusted-LAN）要明傳 `allowInsecureRequests`（§14.3 MAJOR-1）；測試注入 fetch。runtime 與 probe 共用。 */
+function discoveryOptionsFor(issuerUrl: URL, fetch: client.CustomFetch | undefined): client.DiscoveryRequestOptions {
+  const execute: Array<(config: client.Configuration) => void> = [];
+  if (issuerUrl.protocol === "http:") execute.push(client.allowInsecureRequests);
+  const options: client.DiscoveryRequestOptions = { execute };
+  if (fetch) options[client.customFetch] = fetch;
+  return options;
+}
+
+/**
  * per-instance runtime 工廠。`oidc` 是一個 provider 的連線設定（`OidcClientSettings`；#187 起由 registry 從
  * `auth_providers` 列組出）；`opts.fetch` 是測試專用的 `client.CustomFetch` 注入縫（in-process mock IdP，
  * 見 `test/helpers/fake-idp.ts`），production（`index.ts`／`app.ts` 的 fallback）不傳。
@@ -63,12 +86,8 @@ export function createOidcRuntime(oidc: OidcClientSettings, opts: OidcRuntimeOpt
 
     // v6 預設 tlsOnly：issuer 為 http: 時（trusted-LAN 內網自架 IdP 拓撲，同
     // `config.ts` 的 insecureHttpWarning 精神）discovery 本身與後續請求都必須明傳
-    // `allowInsecureRequests`，否則直接 throw（§14.3 MAJOR-1）。
-    const execute: Array<(config: client.Configuration) => void> = [];
-    if (issuerUrl.protocol === "http:") execute.push(client.allowInsecureRequests);
-
-    const discoveryOptions: client.DiscoveryRequestOptions = { execute };
-    if (opts.fetch) discoveryOptions[client.customFetch] = opts.fetch;
+    // `allowInsecureRequests`，否則直接 throw（§14.3 MAJOR-1）；共用 `discoveryOptionsFor`。
+    const discoveryOptions = discoveryOptionsFor(issuerUrl, opts.fetch);
 
     let configuration: client.Configuration;
     try {
@@ -93,17 +112,7 @@ export function createOidcRuntime(oidc: OidcClientSettings, opts: OidcRuntimeOpt
     // 本身亦需傳同一 fetch）。
     if (opts.fetch) configuration[client.customFetch] = opts.fetch;
 
-    const metadata = configuration.serverMetadata();
-    if (!metadata.jwks_uri || !hasAsymmetricSigningAlg(metadata.id_token_signing_alg_values_supported)) {
-      throw new OidcUnavailableError(
-        `OIDC issuer metadata 不可用（issuer=${oidc.issuerUrl}）：缺 jwks_uri 或無非對稱簽章演算法`
-      );
-    }
-
-    if (metadata.issuer.length > MAX_ISSUER_LENGTH) {
-      // r3-M3：identity 存的 issuer 與 pending cookie 的大小上界都靠這個上限；`auth_providers` 的 CHECK 只管管理員輸入的字面。
-      throw new OidcUnavailableError(`OIDC issuer 過長（${metadata.issuer.length} > ${MAX_ISSUER_LENGTH}）`);
-    }
+    assertUsableMetadata(configuration.serverMetadata(), oidc.issuerUrl);
 
     // 前置檢查通過才開啟——啟用後每次 id_token 驗證都會強制要求非對稱簽章，缺前置
     // 檢查會讓「開啟後才發現不可用」延後到 callback 路徑才炸開（§14.3 MAJOR-2/二輪 MAJOR-1）。
@@ -134,6 +143,33 @@ export function createOidcRuntime(oidc: OidcClientSettings, opts: OidcRuntimeOpt
 }
 
 /**
+ * #187 PR2 §9.2：管理頁的「測試連線」與「先試探」——**只做 discovery**：client 認證用 `client.None()`、不解也不送 client
+ * secret（spec §5.2「測試連線只做 discovery、不送 secret」）、不打 token endpoint、不經 registry 的快取（§6「/test 不經
+ * registry、不寫快取」）。可用性判準與登入路徑共用 `assertUsableMetadata`。失敗一律 `OidcUnavailableError`。
+ * ⚠ 驗不到 client id／secret 對不對（IdP 只有在真的換 token 時才會說）——文案要寫明（spec §9.2）。
+ */
+export async function probeOidcIssuer(issuerUrl: string, opts: OidcRuntimeOptions = {}): Promise<client.ServerMetadata> {
+  let url: URL;
+  try {
+    url = new URL(issuerUrl);
+  } catch {
+    throw new OidcUnavailableError(`OIDC issuer 不是合法網址（issuer=${issuerUrl}）`);
+  }
+  let configuration: client.Configuration;
+  try {
+    configuration = await client.discovery(url, PROBE_CLIENT_ID, undefined, client.None(), discoveryOptionsFor(url, opts.fetch));
+  } catch (err) {
+    throw new OidcUnavailableError(`OIDC discovery 失敗（issuer=${issuerUrl}）：${err instanceof Error ? err.message : String(err)}`);
+  }
+  const metadata = configuration.serverMetadata();
+  assertUsableMetadata(metadata, issuerUrl);
+  return metadata;
+}
+
+/** discovery API 要一個 client id 參數；試探不代表任何 client，用固定字面（不會送到 token endpoint——根本不打）。 */
+const PROBE_CLIENT_ID = "knotebook-discovery-probe";
+
+/**
  * #187 §7.1：login、callback、SSO 證明起點共用的**唯一** helper（管理頁顯示的 callbackUrl 也由它組，PR2）。legacy provider（env
  * 匯入）沿用舊路徑——IdP 端已註冊的回呼網址不必改；其餘一個 provider 一條。`new URL(絕對路徑, publicUrl)` 會丟掉 PUBLIC_URL 的
  * sub-path（`publicUrlPathWarning` 的提醒）。
@@ -157,11 +193,13 @@ export interface OidcRuntimeKey {
  * #187 §6：per-app 的 runtime 表（嚴禁 module 單例，同 `createOidcRuntime`）。失效鍵 `(id, configVersion)`——
  * 登入路徑本來就要讀 provider 列，版本順手比對，所以 `invalidate` 漏叫也會自癒；issuer／client id 一併比對是防禦縱深
  * （PR2 的 PATCH 改它們必 +1 版本，§5.2）。`loadSecret` 只在建新 runtime 時呼叫；它失敗（secret 為 NULL、解不開）
- * 一律變成 `OidcUnavailableError`、不快取。`/test` 不經這裡（§6）。
+ * 一律變成 `OidcUnavailableError`、不快取。`/test` 走 `probe`、不經快取（§6）。
  */
 export interface OidcRuntimeRegistry {
   get(key: OidcRuntimeKey, loadSecret: () => Promise<string>): Promise<client.Configuration>;
   invalidate(id: string): void;
+  /** #187 PR2：`probeOidcIssuer` 掛上本 registry 的 `opts.fetch`（測試注入縫只有一個）。**不讀不寫快取**——與 `get` 無關。 */
+  probe(issuerUrl: string): Promise<client.ServerMetadata>;
 }
 
 export function createOidcRuntimeRegistry(opts: OidcRuntimeOptions = {}): OidcRuntimeRegistry {
@@ -196,6 +234,9 @@ export function createOidcRuntimeRegistry(opts: OidcRuntimeOptions = {}): OidcRu
     },
     invalidate(id) {
       entries.delete(id);
+    },
+    probe(issuerUrl) {
+      return probeOidcIssuer(issuerUrl, opts);
     },
   };
 }
