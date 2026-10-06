@@ -109,6 +109,31 @@ describe("POST /api/auth/password/set（#187 §8.4、B12）", () => {
     expect(res.statusCode).toBe(403);
   });
 
+  it("C14 並發：另一連線先送出「加上密碼」（未提交）→ 真路由卡在列鎖 → 提交後鎖後重評 WHERE → 409、密碼仍是先到者的、tv=1", async () => {
+    const { app, db } = await buildTestApp();
+    const u = await seedUser(db);
+    const cookies = await cookieOf(u.id);
+    // 暖 gate 快取，讓真路由的 authenticate 不會被 holder 的未提交 bump 影響。
+    expect((await app.inject({ method: "GET", url: "/api/auth/me", cookies })).statusCode).toBe(200);
+    const holder = await holderFor(db);
+    try {
+      await holder.query("begin");
+      await holder.query("update users set password_hash = $1, token_version = token_version + 1 where id = $2 and password_hash is null", [await hashPassword("first-password-123"), u.id]);
+      const pending = setPw(app, cookies, { newPassword: "second-password-456" });
+      const state = await waitForBlockedOrSettled(db.$client, pending);
+      await holder.query("commit");
+      const res = await pending;
+      expect(state).toBe("blocked");
+      expect(res.statusCode).toBe(409);
+      const [row] = await db.select({ h: users.passwordHash, tv: users.tokenVersion }).from(users).where(eq(users.id, u.id));
+      expect(await verifyPassword(row!.h!, "first-password-123")).toBe(true);
+      expect(row!.tv).toBe(1);
+    } finally {
+      await holder.end();
+    }
+  });
+
+  // 這案守的是 unlinkIdentityInTx 的 users 鎖（holder 的 SQL 是手抄路由那句）；加密碼這一側由上面的 C14 並發案守。
   it("C10 第二形：另一連線先做「加上密碼」（未提交）→ 這邊解除最後一個身分等它提交 → 讀到有密碼 → 204", async () => {
     const { app, db } = await buildTestApp();
     await seedAuthProvider(db, { issuerUrl: "https://a.example", enabled: false, clientSecret: null });
