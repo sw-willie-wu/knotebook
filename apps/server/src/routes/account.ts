@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
-import { asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   MAX_REGISTER_DISPLAY_NAME_LENGTH,
@@ -186,6 +186,39 @@ export function accountRoutes(deps: AccountRouteDeps) {
         throw err;
       }
       if (result.settingsMissing) request.log.error({ table: "site_settings" }, PASSWORD_LOGIN_SETTINGS_MISSING_LOG);
+      return reply.code(204).send();
+    });
+
+    // §8.4（S3，推翻 W3）：純 SSO 帳號加上密碼。不要求近期登入（B12，總管裁決；已知限制寫明）。session-only。
+    app.post("/api/auth/password/set", { preHandler: app.authenticate }, async (request, reply) => {
+      const parsed = z.object({ newPassword: z.string() }).strict().safeParse(request.body);
+      if (!parsed.success) return sendInvalidBody(reply, parsed.error);
+      // 第 0 步（B22）：有效值為關 → 403。一般讀、不鎖（與關閉的並發見 C30：讀到開之後才關閉 → 密碼設好了，關閉期間登入端點不收它）。
+      if (!(await isPasswordLoginAccepted(deps.db, deps.config, request.log))) {
+        return sendError(reply, 403, "password_login_disabled", PASSWORD_LOGIN_DISABLED_MESSAGE);
+      }
+      const { newPassword } = parsed.data;
+      if (newPassword.length < MIN_PASSWORD_LENGTH) return sendError(reply, 400, "password_too_short", `密碼至少需要 ${MIN_PASSWORD_LENGTH} 字元`);
+      let passwordHash: string;
+      try {
+        passwordHash = await hashPassword(newPassword);
+      } catch (err) {
+        if (err instanceof HashBusyError) return sendError(reply, 429, "server_busy", "伺服器忙碌，請稍後再試");
+        throw err;
+      }
+      const userId = request.user!.id;
+      // 單句條件 UPDATE（C14：雙送出第二次 0 列）；token_version 在 SQL 端 +1（同改密碼的理由）。與解除連結以 users 列鎖序列化（C10）。
+      const [updated] = await deps.db
+        .update(users)
+        .set({ passwordHash, tokenVersion: sql`${users.tokenVersion} + 1` })
+        .where(and(eq(users.id, userId), isNull(users.passwordHash)))
+        .returning({ tokenVersion: users.tokenVersion });
+      if (updated === undefined) return sendError(reply, 409, "password_already_set", "這個帳號已經有密碼，請改用修改密碼");
+      // 同改密碼：讓其他裝置的舊 session 失效、重簽本人。
+      deps.gate.invalidate(userId);
+      deps.collabHooks.onUserRevoked(userId);
+      const token = await signSession(deps.config.appSecret, { userId, tv: updated.tokenVersion });
+      setSessionCookie(reply, deps.config, token);
       return reply.code(204).send();
     });
   };
