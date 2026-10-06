@@ -24,6 +24,7 @@ import type { SlugPatchTestHook } from "./notes/tx/patch-slug.js";
 import { adminUsersRoutes } from "./routes/admin-users.js";
 import { adminAiRoutes } from "./routes/admin-ai.js";
 import { adminAuthRoutes } from "./routes/admin-auth.js";
+import { accountRoutes } from "./routes/account.js";
 import { aiRoutes } from "./routes/ai.js";
 import { uploadsRoutes } from "./routes/uploads.js";
 import { publicRoutes, redactPublicTokens } from "./routes/public.js";
@@ -37,7 +38,7 @@ import { sendError } from "./http/errors.js";
 // #108：`stripDefaultPort` 搬到 `http/origin.ts`（與 `mcpOriginAllowed` 同一個葉節點模組，
 // 兩種比較語意的差別寫在該檔檔頭）。
 import { stripDefaultPort } from "./http/origin.js";
-import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_RENAME_LIMIT, TOKEN_WRITE_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
+import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, REGISTER_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_RENAME_LIMIT, TOKEN_WRITE_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
 import { FORM_EXEMPT_ROUTES, isOauthScopedPath, sendOauthError } from "./http/oauth-errors.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { oauthMetadataRoutes } from "./routes/oauth-metadata.js";
@@ -142,6 +143,8 @@ export interface AppDeps {
     contentRead: FixedWindowLimiter;
     /** #106 寫入端：`POST /api/notes/:id/edits`、`POST /api/notes` 帶 `content`（key=userId，見 `EDIT_LIMIT`）。 */
     edit: FixedWindowLimiter;
+    /** #187 §9.1：帳密註冊（key=ip）。 */
+    register: FixedWindowLimiter;
   };
   /**
    * #106（#137）：寫入路徑的測試注入縫（比照 `linkSyncTestHooks`）——`beforeMerge`／
@@ -597,6 +600,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       tokenEndpoint: new FixedWindowLimiter(TOKEN_ENDPOINT_LIMIT),
       contentRead: new FixedWindowLimiter(CONTENT_READ_LIMIT),
       edit: new FixedWindowLimiter(EDIT_LIMIT),
+      register: new FixedWindowLimiter(REGISTER_LIMIT),
     } satisfies NonNullable<AppDeps["limiters"]>);
 
   // #107：`limiters` 在上面才算出來，所以這個 decorate 必須排在它之後、任何
@@ -688,6 +692,10 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   void app.register(adminAiRoutes({ db: deps.db, config: deps.config, runtime: deps.ai }));
   // #187 PR2：站台管理的登入服務。與登入路由共用同一個 registry（PATCH／DELETE 要 invalidate、test／discover 用 probe）。
   void app.register(adminAuthRoutes({ db: deps.db, config: deps.config, registry: oidcRegistry }));
+  // #187 PR3：註冊、個人設定的登入方式與加上密碼（spec §8、§9.1）。
+  void app.register(
+    accountRoutes({ db: deps.db, config: deps.config, gate: deps.gate, collabHooks: deps.collabHooks, limiters: { register: limiters.register } }),
+  );
   void app.register(
     aiRoutes({ db: deps.db, config: deps.config, runtime: deps.ai, limiters: { ai: limiters.ai }, idleTimeoutMs: options.aiIdleTimeoutMs })
   );

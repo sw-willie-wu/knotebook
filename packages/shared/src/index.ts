@@ -32,6 +32,10 @@ export interface UserDto {
 /** 密碼長度下限，鏡射 apps/server/src/auth/constants.ts 的同名常數——這裡是給
  * web 端表單前端先驗用的唯一真相，兩邊刻意保持同一個數字（12）。 */
 export const MIN_PASSWORD_LENGTH = 12;
+/** #187 PR3 帳密註冊的上限（spec rev 13 待回寫，總管裁定）：email 對齊 SSO 的 254（server `MAX_EMAIL_CLAIM_LENGTH`），
+ * 以 JS `.length` 計；顯示名 100 個 code point。web 先驗（RegisterPage）、server 為準（routes/account.ts）。 */
+export const MAX_REGISTER_EMAIL_LENGTH = 254;
+export const MAX_REGISTER_DISPLAY_NAME_LENGTH = 100;
 
 /** `GET /api/auth/config`（免認證）：登入頁用 `providers` 畫「Sign in with X」、`registration.enabled` 決定註冊鈕、
  * `passwordLogin.enabled`（帳密登入的**有效值**＝DB 值 OR env 強制；不揭露是否 env 強制，#187 §9.5）決定帳密表單。

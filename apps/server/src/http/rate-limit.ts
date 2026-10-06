@@ -25,6 +25,8 @@ export const AI_LIMIT = { limit: 30, windowMs: 60_000 } as const;
  * 兩者用同一組數值，但計數彼此獨立。
  */
 export const OIDC_LIMIT = { limit: 30, windowMs: 60_000 } as const;
+/** #187 §9.1：`POST /api/auth/register` 的 per-IP 額度（key=request.ip；註冊發生在登入之前，無 userId 可用）。 */
+export const REGISTER_LIMIT = { limit: 10, windowMs: 3_600_000 } as const;
 /**
  * #72：`PUT/DELETE /api/notes/:id/public-link` 節流（key=userId）。**GET 不吃這桶**
  * ——分享面板開啟即 GET，10 分鐘開 11 次面板是正常操作；掛上去就是 OIDC issue #16
