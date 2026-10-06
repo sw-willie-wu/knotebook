@@ -8,8 +8,8 @@ import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppRoutes } from "@/App";
 
-// SettingsAccountSection（Plan 5 Task 10）：`hasPassword === false`（OIDC-only 帳號）
-// → 不渲染 `ChangePasswordForm`，改渲染 `settings.account.ssoOnly` 提示（spec §14.4）。
+// SettingsAccountSection：`hasPassword === false` → 不渲染 `ChangePasswordForm`；帳密登入有效值開時
+// 改渲染「加上密碼」表單、關時只有說明（#187 §8.5）。
 // 走真正的 `AppRoutes`（同 SettingsModal.test.tsx/SettingsUsersSection.test.tsx 慣例，
 // 不拆開重建等價樹）——驗證的是「有沒有接對」。fetch 樁比照
 // `SettingsUsersSection.test.tsx:89-101`。
@@ -44,7 +44,7 @@ const SSO_ONLY_USER: UserDto = {
   hasPassword: false,
 };
 
-function baseFetchHandlers(user: UserDto) {
+function baseFetchHandlers(user: UserDto, passwordLoginEnabled = true) {
   return (url: string, method: string): Response | null => {
     if (url === "/api/groups" && method === "GET") {
       return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) });
@@ -56,7 +56,7 @@ function baseFetchHandlers(user: UserDto) {
       return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) });
     }
     if (url === "/api/auth/identities" && method === "GET") {
-      return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ identities: [], linkable: [], hasPassword: user.hasPassword, passwordLoginEnabled: true }) });
+      return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ identities: [], linkable: [], hasPassword: user.hasPassword, passwordLoginEnabled }) });
     }
     if (url === "/api/auth/tokens" && method === "GET") {
       return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ tokens: [] }) });
@@ -65,17 +65,18 @@ function baseFetchHandlers(user: UserDto) {
   };
 }
 
-function renderAccountSettings(user: UserDto) {
+function renderAccountSettings(user: UserDto, passwordLoginEnabled = true) {
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const method = (init?.method ?? "GET").toUpperCase();
-    const res = baseFetchHandlers(user)(url, method);
+    const res = baseFetchHandlers(user, passwordLoginEnabled)(url, method);
     if (res) return Promise.resolve(res);
     throw new Error(`unexpected fetch: ${method} ${url}`);
   });
   vi.stubGlobal("fetch", fetchMock);
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <MemoryRouter initialEntries={["/settings/account"]}>
           <AppRoutes />
@@ -84,9 +85,10 @@ function renderAccountSettings(user: UserDto) {
       <Toaster />
     </QueryClientProvider>,
   );
+  return queryClient;
 }
 
-describe("SettingsAccountSection（Plan 5 Task 10：hasPassword===false → SSO-only 提示）", () => {
+describe("SettingsAccountSection（hasPassword／帳密登入有效值 三形）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -97,23 +99,35 @@ describe("SettingsAccountSection（Plan 5 Task 10：hasPassword===false → SSO-
   });
 
   it("hasPassword:true → 渲染 ChangePasswordForm", async () => {
-    renderAccountSettings(PASSWORD_USER);
+    const queryClient = renderAccountSettings(PASSWORD_USER);
 
     await waitFor(() => expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument());
     expect(screen.getByLabelText("Current password")).toBeInTheDocument();
-    expect(screen.queryByText("This account signs in with SSO.")).not.toBeInTheDocument();
+    // 「不存在」斷言的等待點：identities 已落地（有效值開）——否則關閉說明句本來就還沒出現，斷言空真。
+    await waitFor(() => expect(queryClient.getQueryData(["identities"])).toBeDefined());
+    expect(screen.queryByText(/This site only allows signing in through a sign-in service right now/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Add a password" })).not.toBeInTheDocument();
   });
 
-  it("hasPassword:false → 表單不渲染，改渲染 settings.account.ssoOnly 文案，且不與「Change your password」標題並存（fix round 1 MINOR-2）", async () => {
+  it("hasPassword:false＋有效值開 →「Add a password」表單取代舊的 SSO-only 文案；沒有改密碼表單", async () => {
     renderAccountSettings(SSO_ONLY_USER);
-
-    await waitFor(() => expect(screen.getByText("This account signs in with SSO.")).toBeInTheDocument());
+    expect(await screen.findByRole("heading", { name: "Add a password" })).toBeInTheDocument();
+    expect(screen.getByLabelText("New password")).toBeInTheDocument();
     expect(screen.queryByLabelText("Current password")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Change password" })).not.toBeInTheDocument();
-    // 標題/描述只屬於改密碼表單那個分支——SSO-only 使用者不該同時看到「Change your
-    // password」與「此帳號透過 SSO 登入」這兩則自相矛盾的訊息。
     expect(screen.queryByRole("heading", { name: "Change your password" })).not.toBeInTheDocument();
-    expect(screen.queryByText("Choose a new password for your account.")).not.toBeInTheDocument();
+  });
+
+  it("hasPassword:false＋有效值關 → 只有說明、沒有表單（B22）", async () => {
+    renderAccountSettings(SSO_ONLY_USER, false);
+    expect(await screen.findByText("This site only allows signing in through a sign-in service right now.")).toBeInTheDocument();
+    expect(screen.queryByLabelText("New password")).not.toBeInTheDocument();
+  });
+
+  it("hasPassword:true＋有效值關 → 改密碼表單仍在＋說明句", async () => {
+    renderAccountSettings(PASSWORD_USER, false);
+    expect(await screen.findByLabelText("Current password")).toBeInTheDocument();
+    // 說明句要等 identities 落地才出現（改密碼表單先以預設「開」渲染）——用 findBy 等。
+    expect(await screen.findByText("This site only allows signing in through a sign-in service right now; your password is only used to prove it's you when linking an account.")).toBeInTheDocument();
   });
 });
 
@@ -181,8 +195,8 @@ describe("SettingsAccountSection——使用者名欄（#122 Task 5）", () => {
     const input = (await screen.findByLabelText("Username")) as HTMLInputElement;
     expect(input.value).toBe("tester");
     expect(input).not.toBeDisabled();
-    // SSO 提示仍在（兩者並存，不互斥）
-    expect(screen.getByText(/single sign-on|SSO/i)).toBeInTheDocument();
+    // 「加上密碼」群組仍在（兩者並存，不互斥）
+    expect(await screen.findByRole("heading", { name: "Add a password" })).toBeInTheDocument();
   });
 
   it("改名成功：PATCH body 正規化後送出、invalidateQueries **全清**（無過濾參數）、全清 refetch 後畫面顯示新值＋成功 toast", async () => {
@@ -290,5 +304,74 @@ describe("SettingsAccountSection——使用者名欄（#122 Task 5）", () => {
       ).toBeInTheDocument(),
     );
     expect(fetchMock.mock.calls.some(([, init]) => (init?.method ?? "GET").toUpperCase() === "PATCH")).toBe(false);
+  });
+});
+
+describe("SetPasswordForm（#187 §8.4）", () => {
+  beforeEach(async () => { await i18n.changeLanguage("en"); dismissAllToasts(); });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("送出 → POST /api/auth/password/set {newPassword}、成功 toast；兩次不同就地錯誤不送；409 → 對應文案", async () => {
+    const posts: unknown[] = [];
+    let status = 204;
+    const handlers = baseFetchHandlers(SSO_ONLY_USER);
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (url === "/api/auth/password/set" && method === "POST") {
+        posts.push(JSON.parse(String(init!.body)));
+        return Promise.resolve(status === 204 ? fakeResponse({ ok: true, status: 204 }) : fakeResponse({ ok: false, status, json: () => Promise.resolve({ error: { code: "password_already_set", message: "x" } }) }));
+      }
+      const r = handlers(url, method);
+      if (r) return Promise.resolve(r);
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    }));
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <ThemeProvider><MemoryRouter initialEntries={["/settings/account"]}><AppRoutes /></MemoryRouter></ThemeProvider>
+        <Toaster />
+      </QueryClientProvider>,
+    );
+    fireEvent.change(await screen.findByLabelText("New password"), { target: { value: "brand-new-password-1" } });
+    fireEvent.change(screen.getByLabelText("Confirm new password"), { target: { value: "different-password-1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add password" }));
+    expect(await screen.findByText("The new password and confirmation don't match.")).toBeInTheDocument();
+    expect(posts).toEqual([]);
+    fireEvent.change(screen.getByLabelText("Confirm new password"), { target: { value: "brand-new-password-1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add password" }));
+    expect(await screen.findByText("Password added.")).toBeInTheDocument();
+    expect(posts).toEqual([{ newPassword: "brand-new-password-1" }]);
+    status = 409;
+    fireEvent.change(screen.getByLabelText("New password"), { target: { value: "brand-new-password-2" } });
+    fireEvent.change(screen.getByLabelText("Confirm new password"), { target: { value: "brand-new-password-2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add password" }));
+    expect(await screen.findByText("This account already has a password. Use Change password instead.")).toBeInTheDocument();
+  });
+
+  it("新密碼太短 → client 端擋下、不打 API", async () => {
+    const posts: unknown[] = [];
+    const handlers = baseFetchHandlers(SSO_ONLY_USER);
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (url === "/api/auth/password/set" && method === "POST") {
+        posts.push(JSON.parse(String(init!.body)));
+        return Promise.resolve(fakeResponse({ ok: true, status: 204 }));
+      }
+      const r = handlers(url, method);
+      if (r) return Promise.resolve(r);
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    }));
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <ThemeProvider><MemoryRouter initialEntries={["/settings/account"]}><AppRoutes /></MemoryRouter></ThemeProvider>
+        <Toaster />
+      </QueryClientProvider>,
+    );
+    fireEvent.change(await screen.findByLabelText("New password"), { target: { value: "short" } });
+    fireEvent.change(screen.getByLabelText("Confirm new password"), { target: { value: "short" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add password" }));
+    expect(await screen.findByText("Password is too short.")).toBeInTheDocument();
+    expect(posts).toEqual([]);
   });
 });

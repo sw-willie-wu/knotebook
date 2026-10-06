@@ -260,7 +260,8 @@
     "mismatch": "新密碼與確認密碼不一致。",
     "submit": "修改密碼",
     "submitting": "修改密碼中…",
-    "successMessage": "密碼已更新。"
+    "successMessage": "密碼已更新。",
+    "ssoOnlyNote": "本站目前只允許 SSO 登入；這個密碼暫時不會用來登入，但仍須換掉站長代設的臨時密碼。"
   },
   "userMenu": {
     "language": "語言",
@@ -557,7 +558,17 @@
     },
     "account": {
       "description": "管理你的使用者名、密碼與 API token。",
-      "ssoOnly": "此帳號透過 SSO 登入",
+      "passwordLoginOffNote": "本站目前只允許 SSO 登入；密碼暫時只用於連結帳號時證明本人。",
+      "setPassword": {
+        "title": "加上密碼",
+        "description": "加上密碼後也能用 email 與密碼登入。",
+        "newPassword": "新密碼",
+        "confirm": "確認新密碼",
+        "submit": "加上密碼",
+        "submitting": "處理中…",
+        "success": "已加上密碼。",
+        "ssoOnlyNotice": "本站目前只允許 SSO 登入。"
+      },
       "handleTitle": "使用者名",
       "handleDescription": "使用者名會出現在你分享的所有 /n/ 與 /p/ 網址中（token 連結不含）。改名後這些網址立即失效，舊名永不可再用——包括你自己改回去。",
       "handleLabel": "使用者名",

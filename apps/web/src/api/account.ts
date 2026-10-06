@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type { IdentitiesDto, OidcRedirectDto } from "@knotebook/shared";
+import { SESSION_QUERY_KEY } from "@/auth/useSession";
 import { api } from "./client";
 
 /** #187 §8.3：`GET /api/auth/identities`（session-only）。 */
@@ -23,5 +24,17 @@ export function useStartLink() {
   return useMutation({
     mutationFn: (providerId: string) =>
       api<OidcRedirectDto>(`/api/auth/oidc/link/${encodeURIComponent(providerId)}`, { method: "POST", body: "{}" }),
+  });
+}
+
+/** §8.4：加上密碼。成功後 server 已重簽本人 session（tokenVersion +1）；refetch session（hasPassword）與登入方式（unlinkable 會變）。 */
+export function useSetPassword() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (newPassword: string) => api<void>("/api/auth/password/set", { method: "POST", body: JSON.stringify({ newPassword }) }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: SESSION_QUERY_KEY });
+      await queryClient.invalidateQueries({ queryKey: IDENTITIES_QUERY_KEY });
+    },
   });
 }

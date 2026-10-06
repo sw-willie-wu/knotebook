@@ -230,3 +230,32 @@ describe("ChangePasswordPage（spec rev 5.7）", () => {
     expect(queryClient.getQueryData(["me"])).toBeNull();
   });
 });
+
+describe("ChangePasswordPage——#187 B23 說明句", () => {
+  beforeEach(async () => { await i18n.changeLanguage("en"); dismissAllToasts(); });
+  afterEach(() => vi.unstubAllGlobals());
+
+  const B23 = "This site only allows signing in through a sign-in service right now. This password won't be used to sign in for now, but you still need to replace the temporary password the site administrator set.";
+  const fetchWithConfig = (config: Response) =>
+    vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (url === "/api/auth/config" && method === "GET") return Promise.resolve(config);
+      const base = baseFetchHandlers(() => USER_MUST_CHANGE)(url, method);
+      if (base) return Promise.resolve(base);
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+
+  it("帳密登入有效值關 → 顯示 B23 句", async () => {
+    renderAt("/change-password", fetchWithConfig(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ providers: [], registration: { enabled: true }, passwordLogin: { enabled: false } }) })));
+    expect(await screen.findByText(B23)).toBeInTheDocument();
+  });
+
+  it("有效值開 → 沒有那句", async () => {
+    const queryClient = renderAt("/change-password", fetchWithConfig(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ providers: [], registration: { enabled: true }, passwordLogin: { enabled: true } }) })));
+    await screen.findByRole("heading", { name: "Change your password" });
+    // 「不存在」斷言的等待點：config 已落地進 query cache（否則 B23 句本來就還沒出現，斷言空真）。
+    await waitFor(() => expect(queryClient.getQueryData(["auth-config"])).toBeDefined());
+    expect(screen.queryByText(B23)).not.toBeInTheDocument();
+  });
+});

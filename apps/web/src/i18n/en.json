@@ -260,7 +260,8 @@
     "mismatch": "The new password and confirmation don't match.",
     "submit": "Change password",
     "submitting": "Changing password…",
-    "successMessage": "Password updated."
+    "successMessage": "Password updated.",
+    "ssoOnlyNote": "This site only allows signing in through a sign-in service right now. This password won't be used to sign in for now, but you still need to replace the temporary password the site administrator set."
   },
   "userMenu": {
     "language": "Language",
@@ -557,7 +558,17 @@
     },
     "account": {
       "description": "Manage your username, password, and API tokens.",
-      "ssoOnly": "This account signs in with SSO.",
+      "passwordLoginOffNote": "This site only allows signing in through a sign-in service right now; your password is only used to prove it's you when linking an account.",
+      "setPassword": {
+        "title": "Add a password",
+        "description": "After adding a password you can also sign in with your email and password.",
+        "newPassword": "New password",
+        "confirm": "Confirm new password",
+        "submit": "Add password",
+        "submitting": "Adding password…",
+        "success": "Password added.",
+        "ssoOnlyNotice": "This site only allows signing in through a sign-in service right now."
+      },
       "handleTitle": "Username",
       "handleDescription": "Your username appears in every /n/ and /p/ link you share (token links don't include it). After a rename those links stop working immediately, and the old name can never be used again — not even by you.",
       "handleLabel": "Username",
