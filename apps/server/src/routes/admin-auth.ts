@@ -14,7 +14,13 @@ import { UUID_RE } from "../notes/service.js";
 import { createProviderSchema, patchProviderSchema, sendInvalidBody } from "../auth/admin-provider-input.js";
 import { oidcRedirectUri, type OidcRuntimeRegistry } from "../auth/oidc-client.js";
 import { sealClientSecret } from "../auth/oidc-providers.js";
-import { adminProviderColumns, type AdminProviderRow, updateAuthProviderInTx, type UpdateAuthProviderResult } from "../auth/tx/admin-auth-providers.js";
+import {
+  adminProviderColumns,
+  type AdminProviderRow,
+  deleteAuthProviderInTx,
+  updateAuthProviderInTx,
+  type UpdateAuthProviderResult,
+} from "../auth/tx/admin-auth-providers.js";
 
 export interface AdminAuthRouteDeps {
   db: Db;
@@ -131,6 +137,22 @@ export function adminAuthRoutes(deps: AdminAuthRouteDeps) {
         if (row.issuerUrl.startsWith("http://")) request.log.warn({ providerId: id }, INSECURE_ISSUER_LOG);
       }
       return reply.send(toAdminProviderDto(row, deps.config));
+    });
+
+    app.delete("/api/admin/auth/providers/:id", { preHandler: app.requireAdmin }, async (request, reply) => {
+      const id = providerIdParam(request);
+      if (id === null) return sendError(reply, 404, "not_found", NOT_FOUND_MESSAGE);
+      const deleteInput = { id };
+      try {
+        await deps.db.transaction(tx => deleteAuthProviderInTx(tx, deleteInput));
+      } catch (err) {
+        if (err instanceof TxAbort) return sendError(reply, err.status, err.errCode, err.message);
+        // 與 PATCH 一致：非預期的 DB 錯誤一律遮蔽後再丟（這一句不帶密文參數，但刪的是含密文欄的列——不讓錯誤本體進 log）。
+        throw redactDbError(request.log, err, "刪除登入服務");
+      }
+      // 提交之後才失效快取（409／404 不動）。
+      deps.registry.invalidate(id);
+      return reply.code(204).send();
     });
   };
 }

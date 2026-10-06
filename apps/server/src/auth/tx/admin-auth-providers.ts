@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { Tx } from "../../db/tx.js";
 import { authProviders } from "../../db/schema.js";
 import type { EncryptedSecret } from "../../lib/sealed-secret.js";
@@ -103,4 +103,20 @@ export async function updateAuthProviderInTx(tx: Tx, input: UpdateAuthProviderIn
   // 讀到之後、UPDATE 之前被刪（別的管理員 DELETE）→ 0 列。
   if (!row) throw new TxAbort(404, "not_found", "找不到此登入服務");
   return { row, previousIssuerUrl: before.issuerUrl };
+}
+
+/**
+ * #187 §9.2、W11：刪除登入服務——**單句裁決「已停用才刪」**（C7：與並發的重新啟用以 row lock 序列化，後到者以新版 tuple 判）。
+ * 0 列時再查一次分辨 409／404（r2-N3）。identities 不動（B1：身分不綁 provider，以同 issuer 重建即恢復）。
+ * W24 預留（PR3）：B27 的站台設定列鎖會加在本函式第一句（不需 B19——已停用才刪得掉）。
+ */
+export async function deleteAuthProviderInTx(tx: Tx, input: { id: string }): Promise<void> {
+  const deleted = await tx
+    .delete(authProviders)
+    .where(and(eq(authProviders.id, input.id), eq(authProviders.enabled, false)))
+    .returning({ id: authProviders.id });
+  if (deleted.length === 1) return;
+  const [still] = await tx.select({ enabled: authProviders.enabled }).from(authProviders).where(eq(authProviders.id, input.id)).limit(1);
+  if (still) throw new TxAbort(409, "provider_enabled", "這個登入服務仍在啟用中，請先停用再刪除");
+  throw new TxAbort(404, "not_found", "找不到此登入服務");
 }
