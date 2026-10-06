@@ -15,6 +15,7 @@ import { UUID_RE } from "../notes/service.js";
 import { createProviderSchema, discoverSchema, patchProviderSchema, sendInvalidBody } from "../auth/admin-provider-input.js";
 import { OidcUnavailableError, oidcRedirectUri, type OidcRuntimeRegistry } from "../auth/oidc-client.js";
 import { openClientSecret, probeWarnings, recordResolvedIssuer, sealClientSecret } from "../auth/oidc-providers.js";
+import { providerImpact } from "../auth/provider-impact.js";
 import {
   adminProviderColumns,
   type AdminProviderRow,
@@ -155,6 +156,14 @@ export function adminAuthRoutes(deps: AdminAuthRouteDeps) {
       // 提交之後才失效快取（409／404 不動）。
       deps.registry.invalidate(id);
       return reply.code(204).send();
+    });
+
+    app.get("/api/admin/auth/providers/:id/impact", { preHandler: app.requireAdmin }, async (request, reply) => {
+      const id = providerIdParam(request);
+      if (id === null) return sendError(reply, 404, "not_found", NOT_FOUND_MESSAGE);
+      const result = await providerImpact(deps.db, id);
+      if (result === null) return sendError(reply, 404, "not_found", NOT_FOUND_MESSAGE);
+      return reply.send(result);
     });
 
     app.post("/api/admin/auth/providers/:id/test", { preHandler: app.requireAdmin }, async (request, reply) => {
