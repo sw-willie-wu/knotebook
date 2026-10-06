@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import type { AuthConfigDto, UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
+import { AUTH_CONFIG_QUERY_KEY } from "@/api/authConfig";
 import RegisterPage from "./RegisterPage";
 
 function fakeResponse(status: number, body?: unknown): Response {
@@ -35,8 +36,9 @@ function setup(path: string, config: AuthConfigDto, opts: { me?: UserDto | null;
     throw new Error(`unexpected fetch: ${method} ${url}`);
   });
   vi.stubGlobal("fetch", fetchMock);
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[path]}>
         <Routes>
           <Route path="/register" element={<RegisterPage />} />
@@ -45,7 +47,7 @@ function setup(path: string, config: AuthConfigDto, opts: { me?: UserDto | null;
       </MemoryRouter>
     </QueryClientProvider>,
   );
-  return { calls };
+  return { calls, queryClient };
 }
 async function fillAndSubmit(values: { email: string; displayName?: string; password: string; confirm: string }) {
   fireEvent.change(await screen.findByLabelText("Email"), { target: { value: values.email } });
@@ -126,7 +128,9 @@ describe("RegisterPage（#187 §9.4、S2）", () => {
   });
 
   it("「允許註冊」關 → 「目前不開放註冊」＋回登入；沒有表單、沒有 SSO 註冊鈕（W21）", async () => {
-    setup("/register", { ...OPEN, registration: { enabled: false } });
+    const { queryClient } = setup("/register", { ...OPEN, registration: { enabled: false } });
+    // 等 config 確實落地再斷言「不存在」：載入中就會出現的元素不能當等待點（Task 10 教訓）。
+    await waitFor(() => expect(queryClient.getQueryData(AUTH_CONFIG_QUERY_KEY)).toBeDefined());
     expect(await screen.findByText("This site isn't accepting new accounts right now.")).toBeInTheDocument();
     expect(screen.queryByLabelText("Email")).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /^Sign up with/ })).not.toBeInTheDocument();
@@ -138,6 +142,22 @@ describe("RegisterPage（#187 §9.4、S2）", () => {
     await screen.findByRole("link", { name: /^Sign up with/ });
     expect(screen.queryByLabelText("Email")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Create account" })).not.toBeInTheDocument();
+  });
+
+  it("不合法 next（/login）→ 註冊成功後落 /（web 層 safeNextPath）", async () => {
+    setup("/register?next=%2Flogin", OPEN);
+    await fillAndSubmit({ email: "new@example.com", password: "correct-horse-battery", confirm: "correct-horse-battery" });
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/$/));
+  });
+
+  it("已登入＋不合法 next（//evil.example）→ 導 /", async () => {
+    setup("/register?next=%2F%2Fevil.example", OPEN, { me: USER });
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/$/));
+  });
+
+  it("已登入＋合法 next → 導 next", async () => {
+    setup("/register?next=%2Fn%2Falice%2Fx", OPEN, { me: USER });
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/n\/alice\/x$/));
   });
 
   it("已登入者打開 /register → 導 /（r2-N7）", async () => {

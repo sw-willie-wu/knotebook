@@ -1017,7 +1017,7 @@ const NEXT_PATH_CHARSET_RE = /^[\u0021-\u007e]+$/;
  *    加的。收斂是必要的：react-router 的路徑比對忽略尾斜線、預設大小寫不敏感，所以
  *    `/login/` 與 `/LOGIN` 一樣會渲染登入頁。
  *    判準是「**這個頁的存在前提是尚未登入**」——只有這種頁才該排除。`/change-password`
- *    不算：它對已登入者是一個功能正常的頁。#187 起 `/link-account` 同理（它的存在前提是「正在連結、session 無關」；登入完導回那裡只會被 pending 失效踢回 `/login`）。#187 PR3 起 `/register` 同理（已登入者開它會被導回 `/`，§9.4 r2-N7）。
+ *    不算：它對已登入者是一個功能正常的頁。#187 起 `/link-account` 同理（它的存在前提是「正在連結、session 無關」；登入完導回那裡只會被 pending 失效踢回 `/login`）。#187 PR3 起 `/register` 同理（已登入者開它會被導向 `next`（經 safeNextPath）或 `/`，§9.4 r2-N7）。
  */
 export function safeNextPath(input: string | null | undefined): string | null {
   if (typeof input !== "string") return null;

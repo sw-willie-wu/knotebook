@@ -13,7 +13,7 @@ import { SESSION_QUERY_KEY, useSession } from "@/auth/useSession";
 const OIDC_LOGIN_PREFIX = "/api/auth/oidc/login/";
 
 /**
- * #187 §9.4 `/register`（S2）。與 `/login` 同層、在 `RequireAuth` 之外；已登入者導 `/`（r2-N7）。
+ * #187 §9.4 `/register`（S2）。與 `/login` 同層、在 `RequireAuth` 之外；已登入者導 `next`（經 safeNextPath）或 `/`（r2-N7）。
  * - 「允許註冊」關 → 只顯示「目前不開放註冊」＋回登入（SSO 註冊鈕也隱藏：W21，關閉時 SSO 首登也不能建帳）；
  * - 帳密登入有效值關 → 隱藏帳密表單、只留 SSO 註冊鈕（B21）；
  * - 設定讀不到（載入中或失敗）→ 照常顯示表單（server 是最終裁決）。

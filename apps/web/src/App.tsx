@@ -161,7 +161,7 @@ export function AppRoutes() {
     <>
       <Routes location={state?.backgroundLocation ?? location}>
         <Route path="/login" element={<LoginPage />} />
-        {/* #187 PR3：與 /login 同層、在 RequireAuth 之外；已登入者由頁面自己導回 /。 */}
+        {/* #187 PR3：與 /login 同層、在 RequireAuth 之外；已登入者由頁面自己導向 next（經 safeNextPath）或 /。 */}
         <Route path="/register" element={<RegisterPage />} />
         {/* #187：與 /login 同層、在 RequireAuth 之外——只看 pending cookie（§9.4 r2-N7）。 */}
         <Route path="/link-account" element={<LinkAccountPage />} />
