@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
+import { act, render, screen, waitFor, fireEvent, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import { MIN_PASSWORD_LENGTH, type UserDto } from "@knotebook/shared";
@@ -435,5 +435,51 @@ describe("SettingsUsersSection——使用者名欄（#122 Task 5）", () => {
     expect(screen.getByRole("columnheader", { name: "Username" })).toBeInTheDocument();
     expect(screen.getByText("alice-h")).toBeInTheDocument();
     expect(screen.getByText("bob-h")).toBeInTheDocument();
+  });
+});
+
+describe("SettingsUsersSection——#187 §9.5：帳密登入關閉時代建的說明", () => {
+  beforeEach(async () => { await i18n.changeLanguage("en"); dismissAllToasts(); configServed = false; });
+  afterEach(() => vi.unstubAllGlobals());
+
+  const NOTICE = "Password sign-in is turned off on this site: the temporary password is only used when the new person links their account the first time they sign in through a sign-in service.";
+  // configServed：/api/auth/config 的回應已交給 react-query（「沒有說明」的斷言要等它落地才不是空真）。
+  let configServed = false;
+  const fetchWith = (passwordLoginEnabled: boolean) =>
+    vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      const base = baseFetchHandlers()(url, method);
+      if (base) return Promise.resolve(base);
+      if (url === ADMIN_USERS_URL && method === "GET") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+      if (url === "/api/auth/config" && method === "GET") {
+        return Promise.resolve(
+          fakeResponse({
+            ok: true,
+            status: 200,
+            json: () => {
+              configServed = true;
+              return Promise.resolve({ providers: [], registration: { enabled: true }, passwordLogin: { enabled: passwordLoginEnabled } });
+            },
+          }),
+        );
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+
+  it("有效值關 → 建帳 dialog 內有說明", async () => {
+    renderUsersRoute(fetchWith(false));
+    fireEvent.click(await screen.findByRole("button", { name: "Create user" }));
+    expect(await within(await screen.findByRole("dialog", { name: "Create user" })).findByText(NOTICE)).toBeInTheDocument();
+  });
+
+  it("有效值開 → 沒有說明", async () => {
+    renderUsersRoute(fetchWith(true));
+    fireEvent.click(await screen.findByRole("button", { name: "Create user" }));
+    const dialog = within(await screen.findByRole("dialog", { name: "Create user" }));
+    await dialog.findByText("The new account will be required to change its password on first login.");
+    await waitFor(() => expect(configServed).toBe(true));
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+    expect(dialog.queryByText(NOTICE)).not.toBeInTheDocument();
   });
 });
