@@ -469,9 +469,10 @@ describe("LoginPage——#187 PR3：帳密開關、註冊鈕、零方法", () =>
     expect(link.getAttribute("href")).toBe("/register");
   });
 
-  it("註冊關閉 → 沒有註冊鈕（分頁內另一案證明表單已渲染）", async () => {
-    renderAt("/login", fetchMockWithAuthConfig({ providers: [], registration: { enabled: false }, passwordLogin: { enabled: true } }));
-    await screen.findByRole("button", { name: "Sign in" });
+  it("註冊關閉 → 沒有註冊鈕（先等 config 進 cache 才斷言；帳密表單在載入中就顯示，不能當等待點）", async () => {
+    const config: AuthConfigDto = { providers: [], registration: { enabled: false }, passwordLogin: { enabled: true } };
+    const queryClient = renderAt("/login", fetchMockWithAuthConfig(config));
+    await waitFor(() => expect(queryClient.getQueryData(["auth-config"])).toEqual(config));
     expect(screen.queryByRole("link", { name: "Create an account" })).not.toBeInTheDocument();
   });
 
