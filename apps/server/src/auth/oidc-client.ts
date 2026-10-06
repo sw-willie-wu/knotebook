@@ -193,7 +193,7 @@ export interface OidcRuntimeKey {
  * #187 §6：per-app 的 runtime 表（嚴禁 module 單例，同 `createOidcRuntime`）。失效鍵 `(id, configVersion)`——
  * 登入路徑本來就要讀 provider 列，版本順手比對，所以 `invalidate` 漏叫也會自癒；issuer／client id 一併比對是防禦縱深
  * （PR2 的 PATCH 改它們必 +1 版本，§5.2）。`loadSecret` 只在建新 runtime 時呼叫；它失敗（secret 為 NULL、解不開）
- * 一律變成 `OidcUnavailableError`、不快取。`/test` 不經這裡（§6）。
+ * 一律變成 `OidcUnavailableError`、不快取。`/test` 走 `probe`、不經快取（§6）。
  */
 export interface OidcRuntimeRegistry {
   get(key: OidcRuntimeKey, loadSecret: () => Promise<string>): Promise<client.Configuration>;

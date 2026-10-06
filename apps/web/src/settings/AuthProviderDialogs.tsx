@@ -96,7 +96,7 @@ function invalidProps(errorId: string, errorKey: string | undefined) {
   return errorKey === undefined ? {} : { "aria-invalid": true as const, "aria-describedby": errorId };
 }
 
-type ProbeState ={ ok: true; result: AdminAuthProbeResultDto } | { ok: false; message: string } | null;
+type ProbeState = { ok: true; result: AdminAuthProbeResultDto } | { ok: false; message: string } | null;
 
 function ProbeResult({ probe }: { probe: ProbeState }) {
   const { t } = useTranslation();
@@ -408,7 +408,9 @@ export function EditProviderDialog({ provider }: { provider: AdminAuthProviderDt
     }
   }
 
-  const issuerChanged = issuerUrl.trim() !== baseline.issuerUrl;
+  // 「有沒有改」一律拿**原始輸入**與 baseline 比（送出時才 trim）：env 匯入的 issuer 可能帶尾端空白，拿 trim 後的值比會讓
+  // 什麼都沒動的存檔也送出 issuer → server 依 §5.2 清 secret 並停用。
+  const issuerChanged = issuerUrl !== baseline.issuerUrl;
   const secretEntered = clientSecret !== "";
   // §5.2：改 issuer 會清 secret（除非同一次帶了新 secret）並停用；停用中的服務沒有「會停用」可說（fix round 1 Minor 2）。
   const issuerWarning = !issuerChanged
@@ -437,9 +439,9 @@ export function EditProviderDialog({ provider }: { provider: AdminAuthProviderDt
     if (Object.keys(errors).length > 0) return;
 
     const body: PatchAuthProviderBody = {};
-    if (displayName.trim() !== baseline.displayName) body.displayName = displayName.trim();
-    if (issuerUrl.trim() !== baseline.issuerUrl) body.issuerUrl = issuerUrl.trim();
-    if (clientId.trim() !== baseline.clientId) body.clientId = clientId.trim();
+    if (displayName !== baseline.displayName) body.displayName = displayName.trim();
+    if (issuerChanged) body.issuerUrl = issuerUrl.trim();
+    if (clientId !== baseline.clientId) body.clientId = clientId.trim();
     if (order !== baseline.sortOrder) body.sortOrder = order;
     if (secretEntered) body.clientSecret = clientSecret;
     if (Object.keys(body).length === 0) {

@@ -73,14 +73,30 @@ describe("POST /api/admin/auth/providers/:id/test（#187 §9.2）", () => {
     expect(res.json().warnings).toEqual([]);
   });
 
-  it("discovery 失敗 → 502 oidc_discovery_failed、resolved_issuer 不寫", async () => {
-    const { app, db, cookies, idp } = await probeApp(ISS);
+  it("discovery 失敗 → 502 oidc_discovery_failed、resolved_issuer 不寫；warn log 只帶 {providerId, issuer}，不帶錯誤訊息", async () => {
+    const logs = captureLogs();
+    const { app, db, cookies, idp } = await probeApp(ISS, logs.options);
     const p = await seedAuthProvider(db, { issuerUrl: ISS });
+    // 前提：同一形失敗的錯誤訊息長什麼樣（下面斷言 log 不含它；訊息為空就量不到東西）。
+    idp.failNext("discovery");
+    const errMessage = await createOidcRuntimeRegistry({ fetch: idp.fetch })
+      .probe(ISS)
+      .then(
+        () => "",
+        (err: unknown) => (err instanceof Error ? err.message : ""),
+      );
+    expect(errMessage).not.toBe("");
+
     idp.failNext("discovery");
     const res = await app.inject({ method: "POST", url: `/api/admin/auth/providers/${p.id}/test`, cookies });
     expect(res.statusCode).toBe(502);
     expect(res.json().error.code).toBe("oidc_discovery_failed");
     expect((await providerRow(db, p.id))!.resolvedIssuer).toBeNull();
+    const line = logs.lines.find(l => l.msg === "登入服務測試連線失敗");
+    expect(line!.level).toBe("warn");
+    expect(line!.obj).toEqual({ providerId: p.id, issuer: "https://idp.example.com/" });
+    // 排除 fastify 生命週期行：理由同下方 /discover 失敗案。
+    expect(JSON.stringify(logs.lines.filter(l => l.msg !== "incoming request" && l.msg !== "request completed"))).not.toContain(errMessage);
   });
 
   it("RF4t 大寫 uuid 路徑同義；不存在 → 404 not_found", async () => {

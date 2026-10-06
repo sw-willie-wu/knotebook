@@ -262,6 +262,30 @@ describe("編輯登入服務 dialog（#187 §9.4、§5.2）", () => {
     expect(server.calls.some(c => c.method === "PATCH")).toBe(false);
   });
 
+  it("baseline issuer 帶尾端空白（env 匯入）：什麼都沒改 → 無警示、不發請求；只改顯示名 → body 只有 {displayName}", async () => {
+    const PADDED = { ...LIVE, issuerUrl: "https://idp.example/ " };
+    const server = fakeServer([PADDED]);
+    server.on((method, url, body) => {
+      if (method !== "PATCH" || url !== `/api/admin/auth/providers/${LIVE.id}`) return null;
+      server.state.providers = [{ ...PADDED, ...(body as object) }];
+      return fakeResponse(200, server.state.providers[0]);
+    });
+    renderSection(server.fetchMock);
+    const first = await openEdit();
+    expect(first.dialog.getByLabelText("Issuer URL")).toHaveValue("https://idp.example/ ");
+    expect(first.dialog.queryByText(/Changing the issuer/)).toBeNull();
+    fireEvent.click(first.dialog.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(server.calls.some(c => c.method === "PATCH")).toBe(false);
+
+    const second = await openEdit();
+    fireEvent.change(second.dialog.getByLabelText("Display name"), { target: { value: "Corp SSO 2" } });
+    expect(second.dialog.queryByText(/Changing the issuer/)).toBeNull();
+    fireEvent.click(second.dialog.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(server.calls.filter(c => c.method === "PATCH").map(c => c.body)).toEqual([{ displayName: "Corp SSO 2" }]);
+  });
+
   it("打了 secret → 按 Esc 關閉 → 重開時 secret 欄是空的", async () => {
     renderSection(fakeServer([LIVE]).fetchMock);
     const first = await openEdit();

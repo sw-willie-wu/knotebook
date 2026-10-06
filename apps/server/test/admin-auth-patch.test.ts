@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Client } from "pg";
 import { DrizzleQueryError, eq, sql } from "drizzle-orm";
 import { OIDC_STATE_COOKIE } from "@knotebook/shared";
@@ -228,13 +228,24 @@ describe("寫 client secret 時遇非預期 DB 錯誤：回 500、log 不帶密�
 
   async function failProviderWrites(db: Parameters<typeof seedAuthProvider>[0]) {
     await db.execute(sql.raw("create function kb_test_fail_provider_write() returns trigger language plpgsql as $$ begin raise exception 'forced test failure'; end $$"));
-    await db.execute(sql.raw("create trigger kb_test_fail_provider_write before insert or update on auth_providers for each row execute function kb_test_fail_provider_write()"));
+    await db.execute(sql.raw("create trigger kb_test_fail_provider_write before insert or update or delete on auth_providers for each row execute function kb_test_fail_provider_write()"));
   }
 
-  it.each(["POST", "PATCH"] as const)("%s：500 internal；log 全文不含 ct／iv／tag／keyId、不含 params；記 {code, constraint}", async method => {
+  /** 呼叫端傳進 `redactDbError` 的情境字串（log 訊息＝「<情境>時發生非預期的資料庫錯誤（錯誤本體已遮蔽）」）。 */
+  const CONTEXT = { POST: "建立登入服務", PATCH: "修改登入服務", DELETE: "刪除登入服務" } as const;
+
+  function redactLine(out: string[], context: string): Record<string, unknown> {
+    const lines = out.join("").split("\n").filter(l => l.trim() !== "").map(l => JSON.parse(l) as Record<string, unknown>);
+    const hits = lines.filter(l => l.msg === `${context}時發生非預期的資料庫錯誤（錯誤本體已遮蔽）`);
+    expect(hits).toHaveLength(1);
+    return hits[0]!;
+  }
+
+  it.each(["POST", "PATCH", "DELETE"] as const)("%s：500 internal；log 全文不含 ct／iv／tag／keyId、不含 params；記 {code, constraint, context}", async method => {
     const out: string[] = [];
     const { app, db, cookies } = await adminApp({}, { logger: { level: "info", stream: { write: (chunk: string) => void out.push(chunk) } } });
-    const p = await seedLive(db);
+    // DELETE 只刪停用中的列（啟用中先 409，到不了寫入那一句）。
+    const p = method === "DELETE" ? await seedAuthProvider(db, { issuerUrl: ISS, clientId: "client-a", clientSecret: "secret-a", enabled: false }) : await seedLive(db);
     await failProviderWrites(db);
 
     // 前提（不然這案量不到東西）：同一形錯誤原樣丟出時，訊息確實帶密文，且 SEALED_KEY 抓得到它在 JSON log 裡的形。
@@ -250,16 +261,40 @@ describe("寫 client secret 時遇非預期 DB 錯誤：回 500、log 不帶密�
     const res =
       method === "PATCH"
         ? await patch(app, cookies, p.id, { clientSecret: "leak-me-not" })
-        : await app.inject({ method: "POST", url: "/api/admin/auth/providers", cookies, payload: { template: "oidc", displayName: "X", issuerUrl: ISS, clientId: "c", clientSecret: "leak-me-not" } });
+        : method === "DELETE"
+          ? await app.inject({ method: "DELETE", url: `/api/admin/auth/providers/${p.id}`, cookies })
+          : await app.inject({ method: "POST", url: "/api/admin/auth/providers", cookies, payload: { template: "oidc", displayName: "X", issuerUrl: ISS, clientId: "c", clientSecret: "leak-me-not" } });
     expect(res.statusCode).toBe(500);
     expect(res.json()).toEqual({ error: { code: "internal", message: "伺服器內部錯誤" } });
 
+    // 遮蔽那一行：code／constraint（trigger 的 raise 沒有 constraint → null，但鍵要在）／context；pg 錯誤不記 name。
+    const line = redactLine(out, CONTEXT[method]);
+    expect(line).toMatchObject({ level: 50, code: "P0001", context: CONTEXT[method] });
+    expect(line).toHaveProperty("constraint", null);
+    expect(line).not.toHaveProperty("name");
+
     const text = out.join("");
-    expect(text).toContain('"code":"P0001"');
     expect(text).toContain("unhandled error");
     expect(text).not.toMatch(SEALED_KEY);
     expect(text).not.toContain("Failed query");
     expect(text).not.toContain("params");
     expect(text).not.toContain("leak-me-not");
+  });
+
+  it("非 pg 錯誤（交易丟一般 Error）：500；遮蔽行另記 name，不記 message", async () => {
+    const out: string[] = [];
+    const { app, db, cookies } = await adminApp({}, { logger: { level: "info", stream: { write: (chunk: string) => void out.push(chunk) } } });
+    const p = await seedLive(db);
+    // 測試縫：路由用的就是這個 db（buildTestApp 回傳 deps.db）。只攔這一次交易。
+    const spy = vi.spyOn(db, "transaction").mockRejectedValueOnce(new Error("boom"));
+    const res = await patch(app, cookies, p.id, { displayName: "Renamed" });
+    expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
+    expect(res.statusCode).toBe(500);
+    expect(res.json()).toEqual({ error: { code: "internal", message: "伺服器內部錯誤" } });
+
+    const line = redactLine(out, CONTEXT.PATCH);
+    expect(line).toMatchObject({ level: 50, code: null, constraint: null, name: "Error", context: CONTEXT.PATCH });
+    expect(out.join("")).not.toContain("boom");
   });
 });
