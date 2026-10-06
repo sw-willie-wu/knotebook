@@ -29,13 +29,14 @@ function fakeResponse({ ok, status, json }: FakeResponseInit): Response {
 
 const AUTH_CONFIG_URL = "/api/auth/config";
 
-const NO_PROVIDERS: AuthConfigDto = { providers: [], registration: { enabled: true } };
+const NO_PROVIDERS: AuthConfigDto = { providers: [], registration: { enabled: true }, passwordLogin: { enabled: true } };
 const TWO: AuthConfigDto = {
   providers: [
     { id: "11111111-1111-1111-1111-111111111111", displayName: "GitLab" },
     { id: "22222222-2222-2222-2222-222222222222", displayName: "Google" },
   ],
   registration: { enabled: true },
+  passwordLogin: { enabled: true },
 };
 
 /** `/login` 路由本身不掛在 `<RequireAuth>` 底下，因此本檔不需要 `/api/auth/me`
@@ -106,6 +107,7 @@ describe("LoginPage（Plan 5 Task 10：SSO 入口＋?error= 映射）", () => {
       fetchMockWithAuthConfig({
         providers: [{ id: "33333333-3333-3333-3333-333333333333", displayName: evil }],
         registration: { enabled: true },
+        passwordLogin: { enabled: true },
       }),
     );
     const link = await screen.findByRole("link", { name: `Sign in with ${evil}` });
@@ -241,7 +243,7 @@ function fetchMockLoginOk(providers: AuthProviderPublicDto[] = []): ReturnType<t
       return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
     }
     if (url === AUTH_CONFIG_URL && method === "GET") {
-      const config: AuthConfigDto = { providers, registration: { enabled: true } };
+      const config: AuthConfigDto = { providers, registration: { enabled: true }, passwordLogin: { enabled: true } };
       return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(config) }));
     }
     if (url === LOGIN_URL && method === "POST") {

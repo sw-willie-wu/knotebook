@@ -33,11 +33,13 @@ export interface UserDto {
  * web 端表單前端先驗用的唯一真相，兩邊刻意保持同一個數字（12）。 */
 export const MIN_PASSWORD_LENGTH = 12;
 
-/** `GET /api/auth/config`（免認證）：登入頁用 `providers` 畫「Sign in with X」、PR3 起用 `registration.enabled` 決定註冊鈕。
+/** `GET /api/auth/config`（免認證）：登入頁用 `providers` 畫「Sign in with X」、`registration.enabled` 決定註冊鈕、
+ * `passwordLogin.enabled`（帳密登入的**有效值**＝DB 值 OR env 強制；不揭露是否 env 強制，#187 §9.5）決定帳密表單。
  * 只曝光 id 與顯示名——issuer／client id 等設定細節不出線（#187 §14.1 第 18 條）。 */
 export interface AuthConfigDto {
   providers: AuthProviderPublicDto[];
   registration: { enabled: boolean };
+  passwordLogin: { enabled: boolean };
 }
 
 /** #187：一個啟用中的單一登入服務（登入頁按鈕、連結頁的證明方式）。只曝光 id 與顯示名——issuer／client id 不出線。 */

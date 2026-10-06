@@ -15,6 +15,7 @@ import type { CollabHooks } from "../collab/hooks.js";
 import { MIN_PASSWORD_LENGTH } from "../auth/constants.js";
 import { listEnabledProvidersPublic } from "../auth/oidc-providers.js";
 import { readRegistrationEnabled } from "../auth/site-settings.js";
+import { isPasswordLoginAccepted, PASSWORD_LOGIN_DISABLED_MESSAGE } from "../auth/password-login.js";
 
 const INVALID_CREDENTIALS_MESSAGE = "帳號或密碼錯誤";
 
@@ -57,13 +58,21 @@ export function authRoutes(deps: AuthRouteDeps) {
       const providers = await listEnabledProvidersPublic(deps.db);
       const registrationEnabled = await readRegistrationEnabled(deps.db);
       if (registrationEnabled === null) request.log.error("site_settings 讀不到列：註冊視同關閉（#187 §4.3）");
-      return { providers, registration: { enabled: registrationEnabled ?? false } };
+      // §9.5：有效值（DB OR env）；不揭露是否 env 強制。讀不到列 → 開＋log.error（B17）。
+      const passwordLoginEnabled = await isPasswordLoginAccepted(deps.db, deps.config, request.log);
+      return { providers, registration: { enabled: registrationEnabled ?? false }, passwordLogin: { enabled: passwordLoginEnabled } };
     });
 
     app.post("/api/auth/login", async (request, reply) => {
       const parsed = loginBodySchema.safeParse(request.body);
       if (!parsed.success) {
         return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+      }
+      // #187 B20：帳密登入的有效值為關 → 403。排在讀帳號與 throttle **之前**：回應與帳號完全無關（同碼、同訊息、不讀 users），
+      // 本身不是存在性 oracle，所以不需要 dummy-hash 等時化；不跑 argon2 也拿掉一個 CPU 放大面。關閉期間這條路徑不吃任何節流
+      // （§17 第 33 條，接受）。管理員不豁免（W24）。
+      if (!(await isPasswordLoginAccepted(deps.db, deps.config, request.log))) {
+        return sendError(reply, 403, "password_login_disabled", PASSWORD_LOGIN_DISABLED_MESSAGE);
       }
       // 進門一次性正規化（spec §14.3 單一漏斗）：下面 throttle 鍵值、DB 查詢、
       // recordFailure/recordSuccess 全部共用這個值——throttle 帳號鍵與 DB 查詢比對
