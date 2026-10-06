@@ -32,7 +32,8 @@ export function useSetPassword() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (newPassword: string) => api<void>("/api/auth/password/set", { method: "POST", body: JSON.stringify({ newPassword }) }),
-    onSuccess: async () => {
+    // onSettled：409 password_already_set 也代表 server 已有密碼、畫面該切到改密碼形，成敗皆重抓。
+    onSettled: async () => {
       await queryClient.invalidateQueries({ queryKey: SESSION_QUERY_KEY });
       await queryClient.invalidateQueries({ queryKey: IDENTITIES_QUERY_KEY });
     },

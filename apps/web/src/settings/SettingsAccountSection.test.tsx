@@ -375,3 +375,61 @@ describe("SetPasswordForm（#187 §8.4）", () => {
     expect(posts).toEqual([]);
   });
 });
+
+describe("SetPasswordForm——送出後的狀態切換（#187 §8.4）", () => {
+  beforeEach(async () => { await i18n.changeLanguage("en"); dismissAllToasts(); });
+  afterEach(() => vi.unstubAllGlobals());
+
+  /** /me 讀可變 userRef（比照 renderWithProfilePatch）：POST 落地＝server 已有密碼，之後的 /me 回 hasPassword:true。 */
+  function renderSetPassword(postStatus: number) {
+    const userRef = { current: SSO_ONLY_USER };
+    const handlers = (url: string, method: string) => baseFetchHandlers(userRef.current)(url, method);
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (url === "/api/auth/password/set" && method === "POST") {
+        userRef.current = { ...SSO_ONLY_USER, hasPassword: true };
+        return Promise.resolve(postStatus === 204
+          ? fakeResponse({ ok: true, status: 204 })
+          : fakeResponse({ ok: false, status: postStatus, json: () => Promise.resolve({ error: { code: "password_already_set", message: "x" } }) }));
+      }
+      const r = handlers(url, method);
+      if (r) return Promise.resolve(r);
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <ThemeProvider><MemoryRouter initialEntries={["/settings/account"]}><AppRoutes /></MemoryRouter></ThemeProvider>
+        <Toaster />
+      </QueryClientProvider>,
+    );
+    const identityGets = () => fetchMock.mock.calls.filter(([u, i]) => String(u) === "/api/auth/identities" && ((i as RequestInit | undefined)?.method ?? "GET").toUpperCase() === "GET").length;
+    return { identityGets };
+  }
+
+  async function submit(): Promise<void> {
+    fireEvent.change(await screen.findByLabelText("New password"), { target: { value: "brand-new-password-1" } });
+    fireEvent.change(screen.getByLabelText("Confirm new password"), { target: { value: "brand-new-password-1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add password" }));
+  }
+
+  it("成功 → session 與 identities 重抓：「Add a password」消失、改密碼表單出現", async () => {
+    const { identityGets } = renderSetPassword(204);
+    await waitFor(() => expect(identityGets()).toBe(1));
+    await submit();
+    expect(await screen.findByLabelText("Current password")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Add a password" })).not.toBeInTheDocument();
+    await waitFor(() => expect(identityGets()).toBe(2));
+  });
+
+  it("409 password_already_set → 錯誤文案之外也重抓 session：畫面切到改密碼表單", async () => {
+    const { identityGets } = renderSetPassword(409);
+    await waitFor(() => expect(identityGets()).toBe(1));
+    await submit();
+    expect(await screen.findByLabelText("Current password")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Add a password" })).not.toBeInTheDocument();
+    await waitFor(() => expect(identityGets()).toBe(2));
+  });
+});
+
