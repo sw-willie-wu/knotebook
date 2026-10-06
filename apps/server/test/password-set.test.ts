@@ -7,6 +7,7 @@ import { signSession } from "../src/auth/session.js";
 import { buildTestApp, insertPasswordUser, testConfig, type TestApp } from "./helpers.js";
 import { cookieOf, seedUser, spyCollabHooks, waitForBlockedOrSettled } from "./group-helpers.js";
 import { seedAuthProvider } from "./helpers/oidc-provider.js";
+import { bearer, seedTokenForUser } from "./editing-helpers.js";
 
 vi.mock("../src/auth/password.js", async () => {
   const actual = await vi.importActual<typeof import("../src/auth/password.js")>("../src/auth/password.js");
@@ -63,8 +64,10 @@ describe("POST /api/auth/password/set（#187 §8.4、B12）", () => {
     expect((await setPw(app, await cookieOf(u.id), { newPassword: "short" })).json().error.code).toBe("password_too_short");
     expect((await setPw(app, await cookieOf(u.id), { newPassword: NEW_PW, extra: 1 })).json().error.code).toBe("invalid_body");
     expect((await app.inject({ method: "POST", url: "/api/auth/password/set", payload: { newPassword: NEW_PW } })).statusCode).toBe(401);
+    // 有效 PAT（scope 足以通過 authenticateAny）、不帶 cookie：401 只能來自「只認 session」（Task 7 review r0 I1 同型）。
+    const { token } = await seedTokenForUser(db, u.id);
     expect(
-      (await app.inject({ method: "POST", url: "/api/auth/password/set", headers: { authorization: "Bearer knb_x" }, payload: { newPassword: NEW_PW } })).statusCode,
+      (await app.inject({ method: "POST", url: "/api/auth/password/set", headers: bearer(token), payload: { newPassword: NEW_PW } })).statusCode,
     ).toBe(401);
   });
 

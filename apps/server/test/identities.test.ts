@@ -7,6 +7,7 @@ import { backfillLegacyOidcIdentities } from "../src/auth/legacy-oidc-env.js";
 import { buildTestApp, insertPasswordUser, testConfig, type TestApp } from "./helpers.js";
 import { cookieOf, seedUser, waitForBlockedOrSettled } from "./group-helpers.js";
 import { buildOidcApp, identitiesOf, seedAuthProvider, ssoRoundTrip } from "./helpers/oidc-provider.js";
+import { bearer, seedTokenForUser } from "./editing-helpers.js";
 
 const A = "https://idp-a.example";
 const B = "https://idp-b.example";
@@ -47,9 +48,11 @@ describe("GET /api/auth/identities（#187 §8.3）", () => {
   });
 
   it("r2-N6：Bearer（PAT）→ 401；未登入 → 401", async () => {
-    const { app } = await buildTestApp();
+    const { app, db } = await buildTestApp();
     expect((await app.inject({ method: "GET", url: "/api/auth/identities" })).statusCode).toBe(401);
-    expect((await app.inject({ method: "GET", url: "/api/auth/identities", headers: { authorization: "Bearer knb_x" } })).statusCode).toBe(401);
+    // 有效 PAT（scope 足以通過 authenticateAny）、不帶 cookie：401 只能來自「只認 session」（Task 7 review r0 I1 同型）。
+    const { token } = await seedTokenForUser(db, (await seedUser(db)).id);
+    expect((await app.inject({ method: "GET", url: "/api/auth/identities", headers: bearer(token) })).statusCode).toBe(401);
   });
 
   it("r1-I1 尾斜線形：provider 填 `https://a.example/`、identity 為無斜線——resolved_issuer 寫入前不對、寫入後對", async () => {
