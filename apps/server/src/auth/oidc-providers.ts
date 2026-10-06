@@ -1,6 +1,6 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import type * as client from "openid-client";
-import type { AuthProviderPublicDto } from "@knotebook/shared";
+import type { AdminAuthProbeWarning, AuthProviderPublicDto } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
 import type { DbOrTx } from "../db/tx.js";
 import { authProviders, userIdentities } from "../db/schema.js";
@@ -148,4 +148,17 @@ export async function providerConfiguration(
     }
   }
   return configuration;
+}
+
+/**
+ * #187 §9.2：測試連線／先試探的非致命提醒（`secret_undecryptable` 由 `/test` 另判）。
+ * - `insecure_issuer`：管理員填的 issuer 是明文 http（§5.3）。
+ * - `client_secret_post_not_advertised`：discovery 沒宣告 `client_secret_post`——Knotebook 一律用它（`oidc-client.ts` 的
+ *   `ClientSecretPost`），沒宣告時換 token 可能被拒。欄位缺席也算（RFC 8414 的預設是 `client_secret_basic`）。
+ */
+export function probeWarnings(issuerUrl: string, metadata: { token_endpoint_auth_methods_supported?: string[] }): AdminAuthProbeWarning[] {
+  const warnings: AdminAuthProbeWarning[] = [];
+  if (issuerUrl.startsWith("http://")) warnings.push("insecure_issuer");
+  if (!(metadata.token_endpoint_auth_methods_supported ?? []).includes("client_secret_post")) warnings.push("client_secret_post_not_advertised");
+  return warnings;
 }

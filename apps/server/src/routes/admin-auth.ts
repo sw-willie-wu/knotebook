@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { asc, sql } from "drizzle-orm";
-import type { AdminAuthProviderDto, AuthProviderTemplate } from "@knotebook/shared";
+import { asc, eq, sql } from "drizzle-orm";
+import type { AdminAuthProbeResultDto, AdminAuthProviderDto, AuthProviderTemplate } from "@knotebook/shared";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
 import { authProviders } from "../db/schema.js";
@@ -9,11 +9,12 @@ import { checkViolationConstraint } from "../db/pg-errors.js";
 import { sendError } from "../http/errors.js";
 import { TxAbort } from "../http/tx-abort.js";
 import { redactDbError } from "../lib/redact-db-error.js";
+import { SecretDecryptError } from "../lib/sealed-secret.js";
 import { safeTarget } from "../lib/safe-target.js";
 import { UUID_RE } from "../notes/service.js";
-import { createProviderSchema, patchProviderSchema, sendInvalidBody } from "../auth/admin-provider-input.js";
-import { oidcRedirectUri, type OidcRuntimeRegistry } from "../auth/oidc-client.js";
-import { sealClientSecret } from "../auth/oidc-providers.js";
+import { createProviderSchema, discoverSchema, patchProviderSchema, sendInvalidBody } from "../auth/admin-provider-input.js";
+import { OidcUnavailableError, oidcRedirectUri, type OidcRuntimeRegistry } from "../auth/oidc-client.js";
+import { openClientSecret, probeWarnings, recordResolvedIssuer, sealClientSecret } from "../auth/oidc-providers.js";
 import {
   adminProviderColumns,
   type AdminProviderRow,
@@ -32,6 +33,7 @@ export interface AdminAuthRouteDeps {
 const INSECURE_ISSUER_LOG = "登入服務的 issuer 是明文 http（§5.3）";
 const ISSUER_AUDIT_LOG = "登入服務的 issuer 被寫入";
 const NOT_FOUND_MESSAGE = "找不到此登入服務";
+const DISCOVERY_FAILED_MESSAGE = "無法從這個 issuer 讀到可用的 OIDC 設定";
 
 /** 路徑參數：過 UUID_RE 再轉小寫（RF4）；不合法回 null（呼叫端 404）。 */
 function providerIdParam(request: FastifyRequest): string | null {
@@ -153,6 +155,56 @@ export function adminAuthRoutes(deps: AdminAuthRouteDeps) {
       // 提交之後才失效快取（409／404 不動）。
       deps.registry.invalidate(id);
       return reply.code(204).send();
+    });
+
+    app.post("/api/admin/auth/providers/:id/test", { preHandler: app.requireAdmin }, async (request, reply) => {
+      const id = providerIdParam(request);
+      if (id === null) return sendError(reply, 404, "not_found", NOT_FOUND_MESSAGE);
+      // 這裡刻意 SELECT 密文本體——只為了判斷「解得開嗎」（warning），內容不進任何回應、不送任何地方（§5.2）。
+      const [row] = await deps.db
+        .select({ id: authProviders.id, issuerUrl: authProviders.issuerUrl, configVersion: authProviders.configVersion, clientSecretEncrypted: authProviders.clientSecretEncrypted })
+        .from(authProviders)
+        .where(eq(authProviders.id, id))
+        .limit(1);
+      if (!row) return sendError(reply, 404, "not_found", NOT_FOUND_MESSAGE);
+
+      let metadata: Awaited<ReturnType<OidcRuntimeRegistry["probe"]>>;
+      try {
+        metadata = await deps.registry.probe(row.issuerUrl);
+      } catch (err) {
+        if (!(err instanceof OidcUnavailableError)) throw err;
+        // 不帶 err：它的 message 含原始 issuer 網址（可能有 user:pass@）——只記 safeTarget（gate r1-t1-7 M5）。
+        request.log.warn({ providerId: id, issuer: safeTarget(row.issuerUrl) }, "登入服務測試連線失敗");
+        return sendError(reply, 502, "oidc_discovery_failed", DISCOVERY_FAILED_MESSAGE);
+      }
+      const warnings = probeWarnings(row.issuerUrl, metadata);
+      if (row.clientSecretEncrypted !== null) {
+        try {
+          openClientSecret(deps.config.appSecret, row);
+        } catch (err) {
+          if (!(err instanceof SecretDecryptError)) throw err;
+          warnings.push("secret_undecryptable");
+        }
+      }
+      // §4.1：成功時以版本述詞寫 resolved_issuer（讀列時的版本；期間被改過就不寫——舊設定的結果不得蓋掉新設定）。不在交易內。
+      await recordResolvedIssuer(deps.db, row, metadata.issuer);
+      const body: AdminAuthProbeResultDto = { issuer: metadata.issuer, warnings };
+      return reply.send(body);
+    });
+
+    app.post("/api/admin/auth/discover", { preHandler: app.requireAdmin }, async (request, reply) => {
+      const parsed = discoverSchema.safeParse(request.body);
+      if (!parsed.success) return sendInvalidBody(reply, parsed.error);
+      let metadata: Awaited<ReturnType<OidcRuntimeRegistry["probe"]>>;
+      try {
+        metadata = await deps.registry.probe(parsed.data.issuerUrl);
+      } catch (err) {
+        if (!(err instanceof OidcUnavailableError)) throw err;
+        request.log.warn({ issuer: safeTarget(parsed.data.issuerUrl) }, "登入服務先試探失敗");
+        return sendError(reply, 502, "oidc_discovery_failed", DISCOVERY_FAILED_MESSAGE);
+      }
+      const body: AdminAuthProbeResultDto = { issuer: metadata.issuer, warnings: probeWarnings(parsed.data.issuerUrl, metadata) };
+      return reply.send(body);
     });
   };
 }
