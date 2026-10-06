@@ -674,6 +674,9 @@
     "identity_taken": "This sign-in identity is already linked to a different account.",
     "identity_already_linked": "This account is already linked to a different identity on the same sign-in service.",
     "provider_not_found": "That sign-in service isn't available.",
+    "provider_enabled": "Turn this sign-in service off before deleting it.",
+    "provider_secret_missing": "Enter a client secret before turning this sign-in service on.",
+    "oidc_discovery_failed": "Couldn't read a usable OpenID Connect configuration from that issuer URL.",
     "fallback": "An unexpected error occurred."
   }
 }

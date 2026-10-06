@@ -674,6 +674,9 @@
     "identity_taken": "這個登入身分已連結到其他帳號。",
     "identity_already_linked": "這個帳號已連結同一個登入服務的另一個身分。",
     "provider_not_found": "找不到這個登入服務，或它目前未啟用。",
+    "provider_enabled": "請先停用這個登入服務，再刪除。",
+    "provider_secret_missing": "請先填入 client secret，才能啟用這個登入服務。",
+    "oidc_discovery_failed": "無法從這個 issuer 網址讀到可用的 OpenID Connect 設定。",
     "fallback": "發生未預期的錯誤。"
   }
 }
