@@ -2,6 +2,7 @@ import { pgTable, uuid, text, timestamp, boolean, integer, bigint, jsonb, custom
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import type { EncryptedApiKey } from "../ai/crypto.js";
+import type { EncryptedSecret } from "../lib/sealed-secret.js";
 const bytea = customType<{ data: Buffer }>({ dataType: () => "bytea" });
 
 export const users = pgTable("users", {
@@ -20,6 +21,7 @@ export const users = pgTable("users", {
     .unique()
     .default(sql`'user-' || substr(gen_random_uuid()::text, 1, 8)`),
   passwordHash: text("password_hash"),
+  // #187：舊欄，0014 起只剩 §10.3 補登讀它、PR3 解除連結清它；下個 release 刪（B11）。新碼一律走 `user_identities`。
   oidcIssuer: text("oidc_issuer"),
   oidcSub: text("oidc_sub"),
   displayName: text("display_name").notNull(),
@@ -76,6 +78,78 @@ export const instanceSetup = pgTable("instance_setup", {
   singleton: boolean().primaryKey().default(true),
   completedAt: timestamp("completed_at", { withTimezone: true }).notNull().defaultNow(),
 }, t => [check("instance_setup_singleton_chk", sql`${t.singleton}`)]);
+
+/**
+ * #187 §4.1：登入服務（OIDC provider）。`id` 由應用端先產（client secret 的 AAD 綁 id，§5.1）。
+ * `resolved_issuer`＝最近一次 discovery 成功時的 `metadata.issuer`；所有 identity ↔ provider 比對一律用
+ * `coalesce(resolved_issuer, issuer_url)`（effective issuer，`auth/oidc-providers.ts`）。CHECK 守 INV-1（啟用⇒有 secret）、
+ * 長度上限（r3-M3：pending cookie 的大小上界靠它）；partial unique 守 INV-3（至多一個 legacy）。
+ */
+export const authProviders = pgTable(
+  "auth_providers",
+  {
+    id: uuid().primaryKey(),
+    template: text().notNull(),
+    displayName: text("display_name").notNull(),
+    issuerUrl: text("issuer_url").notNull(),
+    resolvedIssuer: text("resolved_issuer"),
+    clientId: text("client_id").notNull(),
+    clientSecretEncrypted: jsonb("client_secret_encrypted").$type<EncryptedSecret>(),
+    enabled: boolean().notNull().default(false),
+    sortOrder: integer("sort_order").notNull().default(0),
+    legacyCallback: boolean("legacy_callback").notNull().default(false),
+    configVersion: integer("config_version").notNull().default(1),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  t => [
+    check("auth_providers_template_chk", sql`${t.template} in ('gitlab', 'google', 'oidc')`),
+    check("auth_providers_display_name_chk", sql`char_length(${t.displayName}) between 1 and 40`),
+    check("auth_providers_issuer_url_chk", sql`${t.issuerUrl} ~ '^https?://' and char_length(${t.issuerUrl}) <= 512`),
+    check("auth_providers_resolved_issuer_chk", sql`${t.resolvedIssuer} is null or char_length(${t.resolvedIssuer}) <= 512`),
+    check("auth_providers_client_id_chk", sql`char_length(${t.clientId}) between 1 and 512`),
+    check("auth_providers_enabled_secret_chk", sql`not ${t.enabled} or ${t.clientSecretEncrypted} is not null`),
+    uniqueIndex("auth_providers_legacy_callback_idx").on(t.legacyCallback).where(sql`${t.legacyCallback}`),
+  ],
+);
+
+/**
+ * #187 §4.2：登入身分。身分鍵＝`(issuer, sub)`（全域唯一，INV-4）；不存 provider_id（B1）。
+ * B2「同帳號同 issuer 一個 sub」在應用層判、序列化點是目標帳號的 users 列鎖（B16），不設 DB 約束。
+ */
+export const userIdentities = pgTable(
+  "user_identities",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    issuer: text().notNull(),
+    sub: text().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+  },
+  t => [
+    uniqueIndex("user_identities_issuer_sub_idx").on(t.issuer, t.sub),
+    index("user_identities_user_idx").on(t.userId),
+  ],
+);
+
+/**
+ * #187 §4.3：站台設定（singleton，INV-6）。`registration_enabled` 一律預設開（W23）。
+ * `password_login_enabled`（rev 10，W24）一律預設開；PR1 只建欄、不讀——行為全在 PR3（spec §9.5），PR1 期間 src 只准本檔命中它（§14.1 第 20 條）。
+ */
+export const siteSettings = pgTable(
+  "site_settings",
+  {
+    singleton: boolean().primaryKey().default(true),
+    registrationEnabled: boolean("registration_enabled").notNull().default(true),
+    passwordLoginEnabled: boolean("password_login_enabled").notNull().default(true),
+    legacyOidcEnvHandledAt: timestamp("legacy_oidc_env_handled_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  t => [check("site_settings_singleton_chk", sql`${t.singleton}`)],
+);
 
 /**
  * #103（migration 0011）：群組。名稱不唯一（D9），長度 1..80 由 CHECK 守——pg 的 `length()`

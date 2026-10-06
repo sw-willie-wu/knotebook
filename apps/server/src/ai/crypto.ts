@@ -1,4 +1,5 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { createDecipheriv, createHash } from "node:crypto";
+import { sealSecret } from "../lib/sealed-secret.js";
 
 // AI provider API key 的靜態加密（spec §13.2）。金鑰衍生比照 `auth/session.ts` 的
 // sha256 namespace 慣例（`sessionKey`）——同一個 APP_SECRET 用不同 namespace 字串
@@ -64,19 +65,8 @@ export class AiKeyDecryptError extends Error {}
  * ——那樣在加密的當下還不知道 id。
  */
 export function encryptApiKey(appSecret: string, plaintext: string, providerId: string): EncryptedApiKey {
-  const key = deriveKey(appSecret);
-  const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", key, iv);
-  cipher.setAAD(aadFor(providerId));
-  const ct = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  return {
-    v: 2,
-    keyId: deriveKeyId(key),
-    iv: iv.toString("base64"),
-    tag: tag.toString("base64"),
-    ct: ct.toString("base64"),
-  };
+  // #187 起委派 `lib/sealed-secret.ts`，格式不變（`test/unit/sealed-secret.test.ts` 第 3 案雙向守）。
+  return sealSecret(appSecret, "ai-key", plaintext, `ai-key:v2:${providerId}`);
 }
 
 export function decryptApiKey(appSecret: string, payload: EncryptedApiKey, providerId: string): string {

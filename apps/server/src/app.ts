@@ -27,6 +27,7 @@ import { aiRoutes } from "./routes/ai.js";
 import { uploadsRoutes } from "./routes/uploads.js";
 import { publicRoutes, redactPublicTokens } from "./routes/public.js";
 import { oidcRoutes } from "./routes/oidc.js";
+import { oidcPendingRoutes } from "./routes/oidc-pending.js";
 import { mcpRoutes } from "./routes/mcp.js";
 import type { McpTestHooks } from "./mcp/hooks.js";
 import { apiTokensRoutes } from "./routes/api-tokens.js";
@@ -43,7 +44,8 @@ import { oauthApiRoutes } from "./routes/oauth-api.js";
 import { registerSpaFallback } from "./http/spa.js";
 import { assertUploadsDirWritable } from "./uploads/service.js";
 import type { AiRuntime } from "./ai/runtime.js";
-import { createOidcRuntime, type OidcRuntime } from "./auth/oidc-client.js";
+import { createOidcRuntimeRegistry, type OidcRuntimeRegistry } from "./auth/oidc-client.js";
+import type { OidcTestHook } from "./auth/oidc-test-hook.js";
 import { createEditingRuntime, type EditingRuntime } from "./notes/editing/runtime.js";
 import type { EditingTestHooks } from "./notes/editing/apply.js";
 import { PresenceRegistry, type PresenceOptions } from "./notes/editing/presence.js";
@@ -220,18 +222,15 @@ export interface AppDeps {
    */
   ai: AiRuntime;
   /**
-   * Task 8：`GET /api/auth/oidc/login`（Task 9 追加 callback）消費的 OIDC runtime
-   * （lazy discovery 三態快取，`auth/oidc-client.ts`）。**測試注入 seam**——整合測試用
-   * `createOidcRuntime(oidc, { fetch: fakeIdp.fetch })` 掛 in-process mock IdP（見
-   * `test/helpers/fake-idp.ts`），不開真 socket。**選配，且 fallback 由 `buildApp`
-   * 承擔**（不是「未傳就不掛路由」——`config.oidc` 有值而這裡 undefined 時，`buildApp`
-   * 會自己用 `createOidcRuntime(deps.config.oidc)` 補上，避免「config.oidc 有值但
-   * runtime 沒接上」這個矛盾狀態讓 login route 的 `runtime.getConfiguration()` 撞
-   * TypeError 500（違反兩端點 302 語彙不變量，二輪 MINOR-8）。`config.oidc` 未設時
-   * 這個欄位無論傳不傳都不會被用到（login route 的第一個分支就短路回
-   * `oidc_unavailable` 302）。
+   * #187 §6：OIDC runtime registry（per-app；失效鍵 (id, config_version)）。**測試注入 seam**——整合測試用
+   * `createOidcRuntimeRegistry({ fetch: fakeIdp.fetch })` 掛 in-process mock IdP。未傳時 `buildApp` 自建（production 路徑）。
    */
-  oidc?: OidcRuntime;
+  oidcRegistry?: OidcRuntimeRegistry;
+  /**
+   * #187 的連結測試縫（`auth/oidc-test-hook.ts`）；`undefined`＝no-op。**只能經這個欄位注入**：production 的 `index.ts`
+   * 組 deps 時不傳它，env／HTTP 都沒有設定它的路徑——注入面只有測試直接呼叫 `buildApp`／`buildTestApp` 時帶的 deps。
+   */
+  oidcTestHook?: OidcTestHook;
 }
 
 export interface BuildAppOptions {
@@ -627,17 +626,15 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   // #132：同意頁的站內端點（cookie session、站內錯誤形），與 RFC 形的 /oauth 分開。
   void app.register(oauthApiRoutes({ db: deps.db, config: deps.config }));
 
-  // Task 8（二輪 MINOR-8）：`deps.oidc` 未傳但 `config.oidc` 有值時在此補上 production
-  // runtime——不能讓「config.oidc 有值而 runtime undefined」這個矛盾狀態流進
-  // `oidcRoutes`，否則 login route 的 `runtime.getConfiguration()` 會撞 TypeError 500，
-  // 違反「OIDC 相關端點一律回 302，不回未預期的 5xx」這個不變量。`config.oidc`
-  // 未設時 `deps.oidc` 無論是否傳值都不會被用到（`oidcRoutes` 的第一個分支已經用
-  // `config.oidc === undefined` 短路）。
-  const oidcRuntime = deps.oidc ?? (deps.config.oidc ? createOidcRuntime(deps.config.oidc) : undefined);
-  // Task 9：callback 需要 db（帳號解析交易）與 gate（連結/建帳/清 mustChangePassword
-  // 後 invalidate 快取）——login 半邊不需要這兩個，但兩端點共用同一個 register 函式，
-  // deps 一併傳入。
-  void app.register(oidcRoutes({ config: deps.config, db: deps.db, gate: deps.gate, runtime: oidcRuntime, limiters: { oidcLogin: limiters.oidcLogin, oidcCallback: limiters.oidcCallback } }));
+  // #187：registry 是 per-app 實例（嚴禁 module 單例，同 limiters）。callback 需要 db（帳號解析交易）與 gate（建帳後 invalidate）。
+  const oidcRegistry = deps.oidcRegistry ?? createOidcRuntimeRegistry();
+  void app.register(
+    oidcRoutes({ config: deps.config, db: deps.db, gate: deps.gate, registry: oidcRegistry, limiters: { oidcLogin: limiters.oidcLogin, oidcCallback: limiters.oidcCallback }, oidcTestHook: deps.oidcTestHook }),
+  );
+  // #187 §7.5：`/link-account` 頁的 API（GET／confirm／cancel；Task 11 加 prove 起點）。密碼證明與登入共用 `deps.throttle`。
+  void app.register(
+    oidcPendingRoutes({ config: deps.config, db: deps.db, gate: deps.gate, throttle: deps.throttle, registry: oidcRegistry, limiters: { oidcLogin: limiters.oidcLogin }, oidcTestHook: deps.oidcTestHook }),
+  );
 
   // #106：內容端點需要一份 jsdom runtime。**lazy**——沒有 collab 就不建（`createEditingRuntime`
   // 會立刻 `installGlobals()` 掛 window/document，只跑 REST 的 app 不該付這個代價，也不該讓

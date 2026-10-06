@@ -217,7 +217,20 @@
     "submit": "Sign in",
     "submitting": "Signing in…",
     "retryAfter": "Try again in {{seconds}}s.",
-    "sso": "Continue with SSO"
+    "signInWith": "Sign in with {{name}}"
+  },
+  "linkAccount": {
+    "title": "Link your sign-in",
+    "body": "This email ({{email}}) already has an account. To link {{provider}} to it, prove that the account is yours.",
+    "unknownProvider": "this sign-in service",
+    "passwordLabel": "Password for this account",
+    "confirmWithPassword": "Confirm with password and link",
+    "confirming": "Linking…",
+    "proveWith": "Confirm by signing in with {{name}}",
+    "cancel": "Cancel",
+    "cancelled": "This email is already in use. Sign in with its password or with a sign-in service already linked to it, or use a different sign-in account.",
+    "backToLogin": "Back to sign in",
+    "loading": "Loading…"
   },
   "changePassword": {
     "title": "Change your password",
@@ -627,7 +640,6 @@
     "oidc_unavailable": "Single sign-on is unavailable right now. Please try again later or sign in with your password.",
     "oidc_state_mismatch": "Your sign-in session expired or is invalid. Please try signing in again.",
     "oidc_exchange_failed": "We couldn't complete sign-in with your identity provider. Please try again.",
-    "oidc_email_unverified": "Your identity provider hasn't verified your email address yet.",
     "oidc_email_missing": "Your identity provider didn't share an email address, which is required to sign in.",
     "oidc_conflict": "This identity is already linked to a different account, or matches more than one account.",
     "insufficient_scope": "This token doesn't have permission to perform that action.",
@@ -654,6 +666,14 @@
     "builtin_role": "Built-in roles can't be deleted or renamed, and the built-in Admin role can't be changed.",
     "role_name_taken": "That name is already used by another role in this group, or is reserved for a built-in role.",
     "not_admin": "The notes can only be handed to one of the group's admins. Pick someone who is still an admin.",
+    "registration_disabled": "This site isn't accepting new accounts right now. Please contact the site administrator.",
+    "oidc_link_expired": "This linking request has expired or was replaced. Please sign in again.",
+    "oidc_link_proof_mismatch": "The identity you signed in with isn't one already linked to this account.",
+    "oidc_link_no_proof_method": "This email already has an account, but that account has no other way to confirm it's you — no password, and no other sign-in service you can use here. Please contact the site administrator.",
+    "oidc_claim_too_long": "Your identity provider sent an email address or account ID that is too long to use.",
+    "identity_taken": "This sign-in identity is already linked to a different account.",
+    "identity_already_linked": "This account is already linked to a different identity on the same sign-in service.",
+    "provider_not_found": "That sign-in service isn't available.",
     "fallback": "An unexpected error occurred."
   }
 }

@@ -65,7 +65,7 @@ function mockFetch(requestHandler: Handler, decisionHandler?: Handler) {
     if (url === "/api/groups") return { ok: true, status: 200, json: async () => [] } as unknown as Response;
     if (url.startsWith("/api/auth/me")) return meHandler();
     if (url.startsWith("/api/auth/config"))
-      return { ok: true, status: 200, json: async () => ({ oidc: { enabled: false } }) } as unknown as Response;
+      return { ok: true, status: 200, json: async () => ({ providers: [], registration: { enabled: true } }) } as unknown as Response;
     if (url.startsWith("/api/oauth/request")) return requestHandler();
     if (url.startsWith("/api/oauth/decision")) {
       expect(init?.method).toBe("POST");

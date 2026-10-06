@@ -1,6 +1,6 @@
 // OIDC client 封裝（openid-client v6）——per-app-instance（嚴禁 module 單例：AppDeps.limiters
 // 同款理由，§14.3）。唯一職責＝lazy discovery + 三態快取；不碰 authorization
-// URL 組裝（routes/oidc.ts）、不碰 token/userinfo 交換（Task 9 callback route 的職責）。
+// URL 組裝（auth/oidc-authorize.ts）、不碰 token/userinfo 交換（Task 9 callback route 的職責）。
 
 import * as client from "openid-client";
 import type { AppConfig } from "../config.js";
@@ -11,6 +11,13 @@ import type { AppConfig } from "../config.js";
  * `oidc_unavailable`，不需要分辨底層原因。
  */
 export class OidcUnavailableError extends Error {}
+
+/** #187：runtime 需要的三件組（registry 從 DB provider 列組出；單元測試直接傳）。 */
+export interface OidcClientSettings {
+  issuerUrl: string;
+  clientId: string;
+  clientSecret: string;
+}
 
 export interface OidcRuntimeOptions {
   /** customFetch seam（測試注入 mock IdP）——型別直接用 v6 的 CustomFetch（自訂簽章有
@@ -43,11 +50,11 @@ function hasAsymmetricSigningAlg(algs: readonly string[] | undefined): boolean {
 }
 
 /**
- * per-instance runtime 工廠。`oidc` 對應 `AppConfig.oidc`（已由 `config.ts` 保證三件組
- * 全有）；`opts.fetch` 是測試專用的 `client.CustomFetch` 注入縫（in-process mock IdP，
+ * per-instance runtime 工廠。`oidc` 是一個 provider 的連線設定（`OidcClientSettings`；#187 起由 registry 從
+ * `auth_providers` 列組出）；`opts.fetch` 是測試專用的 `client.CustomFetch` 注入縫（in-process mock IdP，
  * 見 `test/helpers/fake-idp.ts`），production（`index.ts`／`app.ts` 的 fallback）不傳。
  */
-export function createOidcRuntime(oidc: NonNullable<AppConfig["oidc"]>, opts: OidcRuntimeOptions = {}): OidcRuntime {
+export function createOidcRuntime(oidc: OidcClientSettings, opts: OidcRuntimeOptions = {}): OidcRuntime {
   let cached: client.Configuration | undefined;
   let inflight: Promise<client.Configuration> | undefined;
 
@@ -93,6 +100,11 @@ export function createOidcRuntime(oidc: NonNullable<AppConfig["oidc"]>, opts: Oi
       );
     }
 
+    if (metadata.issuer.length > MAX_ISSUER_LENGTH) {
+      // r3-M3：identity 存的 issuer 與 pending cookie 的大小上界都靠這個上限；`auth_providers` 的 CHECK 只管管理員輸入的字面。
+      throw new OidcUnavailableError(`OIDC issuer 過長（${metadata.issuer.length} > ${MAX_ISSUER_LENGTH}）`);
+    }
+
     // 前置檢查通過才開啟——啟用後每次 id_token 驗證都會強制要求非對稱簽章，缺前置
     // 檢查會讓「開啟後才發現不可用」延後到 callback 路徑才炸開（§14.3 MAJOR-2/二輪 MAJOR-1）。
     client.enableNonRepudiationChecks(configuration);
@@ -121,7 +133,69 @@ export function createOidcRuntime(oidc: NonNullable<AppConfig["oidc"]>, opts: Oi
   };
 }
 
-/** login 與 callback 共用的單一 helper（§14.3）——避免兩處各自組一次 URL 而漂移不同步。 */
-export function oidcRedirectUri(config: AppConfig): string {
-  return new URL("/api/auth/oidc/callback", config.publicUrl).href;
+/**
+ * #187 §7.1：login、callback、SSO 證明起點共用的**唯一** helper（管理頁顯示的 callbackUrl 也由它組，PR2）。legacy provider（env
+ * 匯入）沿用舊路徑——IdP 端已註冊的回呼網址不必改；其餘一個 provider 一條。`new URL(絕對路徑, publicUrl)` 會丟掉 PUBLIC_URL 的
+ * sub-path（`publicUrlPathWarning` 的提醒）。
+ */
+export function oidcRedirectUri(config: Pick<AppConfig, "publicUrl">, provider: { id: string; legacyCallback: boolean }): string {
+  const path = provider.legacyCallback ? "/api/auth/oidc/callback" : `/api/auth/oidc/callback/${provider.id}`;
+  return new URL(path, config.publicUrl).href;
+}
+
+/** r3-M3：`user_identities.issuer`／`auth_providers.resolved_issuer` 的上界（與 0014 的 CHECK 同值）。 */
+export const MAX_ISSUER_LENGTH = 512;
+
+export interface OidcRuntimeKey {
+  id: string;
+  issuerUrl: string;
+  clientId: string;
+  configVersion: number;
+}
+
+/**
+ * #187 §6：per-app 的 runtime 表（嚴禁 module 單例，同 `createOidcRuntime`）。失效鍵 `(id, configVersion)`——
+ * 登入路徑本來就要讀 provider 列，版本順手比對，所以 `invalidate` 漏叫也會自癒；issuer／client id 一併比對是防禦縱深
+ * （PR2 的 PATCH 改它們必 +1 版本，§5.2）。`loadSecret` 只在建新 runtime 時呼叫；它失敗（secret 為 NULL、解不開）
+ * 一律變成 `OidcUnavailableError`、不快取。`/test` 不經這裡（§6）。
+ */
+export interface OidcRuntimeRegistry {
+  get(key: OidcRuntimeKey, loadSecret: () => Promise<string>): Promise<client.Configuration>;
+  invalidate(id: string): void;
+}
+
+export function createOidcRuntimeRegistry(opts: OidcRuntimeOptions = {}): OidcRuntimeRegistry {
+  interface Entry extends OidcRuntimeKey {
+    runtime: Promise<OidcRuntime>;
+  }
+  const entries = new Map<string, Entry>();
+  return {
+    async get(key, loadSecret) {
+      let entry = entries.get(key.id);
+      if (!entry || entry.configVersion !== key.configVersion || entry.issuerUrl !== key.issuerUrl || entry.clientId !== key.clientId) {
+        const runtime = (async () => {
+          let clientSecret: string;
+          try {
+            clientSecret = await loadSecret();
+          } catch (err) {
+            throw new OidcUnavailableError(`OIDC client secret 無法取得（provider=${key.id}）：${err instanceof Error ? err.message : String(err)}`);
+          }
+          return createOidcRuntime({ issuerUrl: key.issuerUrl, clientId: key.clientId, clientSecret }, opts);
+        })();
+        const created: Entry = { ...key, runtime };
+        entries.set(key.id, created);
+        // 失敗不快取：只刪「自己」這一筆（期間若已被新版本取代就不動它）。這個 catch 同時吞掉未處理拒絕——呼叫端另有 await。
+        runtime.catch(() => {
+          if (entries.get(key.id) === created) entries.delete(key.id);
+        });
+        entry = created;
+      }
+      // discovery 失敗由 runtime 自己不快取（下次重試）；這裡不刪 entry，in-flight 去重與既有三態語意不變。
+      const runtime = await entry.runtime;
+      return runtime.getConfiguration();
+    },
+    invalidate(id) {
+      entries.delete(id);
+    },
+  };
 }

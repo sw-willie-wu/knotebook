@@ -9,8 +9,10 @@ import { describe, expect, it } from "vitest";
  * 但這個不變量目前只靠 code review 撐著——沒有東西擋住有人在第五個檔案裡也用
  * `brandSolid`，讓某個畫面同時看到兩種主色實心塊（審查探針指出的缺口）。
  *
- * 這裡機械釘住目前唯一合法的四個呼叫端；出現第五個就會在這裡先紅，逼著寫的人
+ * 這裡機械釘住目前唯一合法的五個呼叫端；出現第六個就會在這裡先紅，逼著寫的人
  * 回頭想一次「這個畫面到底是頁面層級還是 modal/panel 內部」，而不是靜默疊加。
+ * （#187 PR1 加入 `pages/LinkAccountPage.tsx`：與登入頁同層的整頁，「以密碼確認並連結」是
+ * 該頁唯一的主動作；SSO 證明與取消為 outline——`LinkAccountPage.test.tsx` 斷言該頁恰一顆實心鈕。）
  *
  * 掃描語意刻意剝註解（跟 `theme.*` 系列同慣例，跟 `card.guard.test.ts` 的「含
  * 註解」相反）：`brandSolid` 這個名字本身常被拿來在別處的註解裡**解釋**兩階的
@@ -28,6 +30,7 @@ const ALLOWED_FILES = [
   "auth/ChangePasswordForm.tsx",
   "auth/guards.tsx",
   "pages/AuthorizePage.tsx",
+  "pages/LinkAccountPage.tsx",
   "pages/LoginPage.tsx",
 ];
 
@@ -50,7 +53,7 @@ function listTsxFiles(dir: string): string[] {
 }
 
 describe("brandSolid 呼叫端範圍守衛（N10）", () => {
-  it("brandSolid（剝註解後）只出現在四個既知的頁面層級呼叫端", () => {
+  it("brandSolid（剝註解後）只出現在五個既知的頁面層級呼叫端", () => {
     const root = `${process.cwd()}/src`;
     const tsxFiles = listTsxFiles(root);
     // 釘遞迴確實走到深層子目錄（比照 card.guard.test.ts 的同款釘法）。
