@@ -8,6 +8,7 @@ import { AppErrorBoundary, ChunkLoadBeacon, NoteRouteErrorBoundary } from "./com
 import { NotePageFallback } from "./components/NotePageFallback";
 import { PublicNoteErrorBoundary, PublicNoteFallback } from "./components/PublicNoteShell";
 import LoginPage from "./pages/LoginPage";
+import RegisterPage from "./pages/RegisterPage";
 import LinkAccountPage from "./pages/LinkAccountPage";
 import ChangePasswordPage from "./pages/ChangePasswordPage";
 import AuthorizePage from "./pages/AuthorizePage";
@@ -139,7 +140,7 @@ function PublicNoteRoute() {
  * `SettingsModal` 外面（不閃 modal）、`RequireAuth` 裡面。方向與 Plan 4 相反
  * （那時是 `/admin/users` 轉 `/settings/users`）。
  *
- * 現行守衛集合（主樹）：<RequireAuth> 包住除 /login、/link-account（#187）、/p/* 外的其餘路由（未登入導
+ * 現行守衛集合（主樹）：<RequireAuth> 包住除 /login、/register、/link-account（#187）、/p/* 外的其餘路由（未登入導
  * `/login?next=<目前路徑>`，#131——「目前路徑」的兩棵樹細節見上）；
  * `/admin/*` 再多包一層 <RequireAdmin>（非 admin 導 `/`）——巢狀在 <RequireAuth>
  * 與 <ChangePasswordGate> 底下，即使 <RequireAdmin> 自己也有未登入判斷（見
@@ -160,6 +161,8 @@ export function AppRoutes() {
     <>
       <Routes location={state?.backgroundLocation ?? location}>
         <Route path="/login" element={<LoginPage />} />
+        {/* #187 PR3：與 /login 同層、在 RequireAuth 之外；已登入者由頁面自己導回 /。 */}
+        <Route path="/register" element={<RegisterPage />} />
         {/* #187：與 /login 同層、在 RequireAuth 之外——只看 pending cookie（§9.4 r2-N7）。 */}
         <Route path="/link-account" element={<LinkAccountPage />} />
         {/* #72：公開分享頁與 /login 同層、排在 RequireAuth **之前**（D2 定案）——

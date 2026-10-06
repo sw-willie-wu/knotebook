@@ -221,6 +221,22 @@
     "register": "Create an account",
     "noMethods": "There's no way to sign in right now. Please contact the site administrator."
   },
+  "register": {
+    "title": "Create an account",
+    "email": "Email",
+    "displayName": "Display name (optional)",
+    "password": "Password",
+    "confirmPassword": "Confirm password",
+    "mismatch": "The passwords don't match.",
+    "submit": "Create account",
+    "submitting": "Creating account…",
+    "signUpWith": "Sign up with {{name}}",
+    "closed": "This site isn't accepting new accounts right now.",
+    "backToLogin": "Back to sign in",
+    "haveAccount": "Already have an account? Sign in",
+    "emailTooLong": "Email can be at most {{max}} characters.",
+    "displayNameTooLong": "Display name can be at most {{max}} characters."
+  },
   "linkAccount": {
     "title": "Link your sign-in",
     "body": "This email ({{email}}) already has an account. To link {{provider}} to it, prove that the account is yours.",

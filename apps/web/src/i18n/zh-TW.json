@@ -221,6 +221,22 @@
     "register": "註冊新帳號",
     "noMethods": "目前沒有可用的登入方式，請聯絡站長。"
   },
+  "register": {
+    "title": "建立帳號",
+    "email": "Email",
+    "displayName": "顯示名稱（選填）",
+    "password": "密碼",
+    "confirmPassword": "確認密碼",
+    "mismatch": "兩次輸入的密碼不一致。",
+    "submit": "建立帳號",
+    "submitting": "建立中…",
+    "signUpWith": "透過 {{name}} 註冊",
+    "closed": "目前不開放註冊。",
+    "backToLogin": "回登入頁",
+    "haveAccount": "已經有帳號？登入",
+    "emailTooLong": "Email 最多 {{max}} 個字元。",
+    "displayNameTooLong": "顯示名稱最多 {{max}} 個字。"
+  },
   "linkAccount": {
     "title": "連結登入方式",
     "body": "這個 email（{{email}}）已有帳號。要把 {{provider}} 連結到這個帳號，請先證明你是該帳號的主人。",
