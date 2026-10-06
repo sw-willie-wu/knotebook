@@ -217,7 +217,9 @@
     "submit": "Sign in",
     "submitting": "Signing in…",
     "retryAfter": "Try again in {{seconds}}s.",
-    "signInWith": "Sign in with {{name}}"
+    "signInWith": "Sign in with {{name}}",
+    "register": "Create an account",
+    "noMethods": "There's no way to sign in right now. Please contact the site administrator."
   },
   "linkAccount": {
     "title": "Link your sign-in",

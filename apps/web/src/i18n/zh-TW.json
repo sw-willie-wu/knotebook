@@ -217,7 +217,9 @@
     "submit": "登入",
     "submitting": "登入中…",
     "retryAfter": "請在 {{seconds}} 秒後再試一次。",
-    "signInWith": "透過 {{name}} 登入"
+    "signInWith": "透過 {{name}} 登入",
+    "register": "註冊新帳號",
+    "noMethods": "目前沒有可用的登入方式，請聯絡站長。"
   },
   "linkAccount": {
     "title": "連結登入方式",
