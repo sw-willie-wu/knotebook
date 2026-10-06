@@ -1,5 +1,8 @@
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
+import type { Tx } from "../../db/tx.js";
 import { authProviders } from "../../db/schema.js";
+import type { EncryptedSecret } from "../../lib/sealed-secret.js";
+import { TxAbort } from "../../http/tx-abort.js";
 
 // #187 PR2：站台管理對 `auth_providers` 的交易本體（S14：只收 tx、只做 DB）。列表、POST 的 RETURNING 與本檔的 UPDATE
 // RETURNING 共用 `adminProviderColumns()`——`hasSecret` 由 SQL 端 `is not null` 算，**從不** SELECT 密文本體（INV-5；
@@ -36,4 +39,68 @@ export function adminProviderColumns() {
     hasSecret: sql<boolean>`${authProviders.clientSecretEncrypted} is not null`,
     issuerResolved: sql<boolean>`${authProviders.resolvedIssuer} is not null`,
   };
+}
+
+export interface UpdateAuthProviderInput {
+  id: string;
+  displayName?: string;
+  issuerUrl?: string;
+  clientId?: string;
+  sortOrder?: number;
+  enabled?: boolean;
+  /** 已封好的新 secret（AAD 綁 id；**交易外**封——S14）。undefined＝這次沒帶 secret，走 §5.2 (a) 句。 */
+  newSecretSealed?: EncryptedSecret;
+}
+
+export interface UpdateAuthProviderResult {
+  row: AdminProviderRow;
+  /** 只供稽核 log 的 `from`：交易內的一般讀、不鎖，並發下可能落後（判斷不靠它）。 */
+  previousIssuerUrl: string;
+}
+
+/**
+ * #187 §5.2：改登入服務。**所有「有沒有變」的判斷都在這一句 UPDATE 的 SET 右側**——SET 右側一律對舊 tuple 求值、UPDATE 對
+ * 該列取 row lock，所以「issuer 有沒有變」永遠是拿這一次要寫進去的值跟當下的舊值比（#46：Node 端先讀再比是 TOCTOU，
+ * 60 輪命中 17 次）。沒帶的欄位以 `coalesce(參數, 現值)` 代入（r3-M2）：沒帶 issuerUrl 不算改 issuer、沒帶 clientId 不算改 client。
+ *
+ * (a) 沒帶 secret：issuer 變了 → 清 secret、清 resolved_issuer、停用；版本只在 issuer 或 client id 實際變更時 +1。
+ * (b) 帶了 secret：secret 直接覆寫、版本 +1；issuer 變了 → 清 resolved_issuer、**強制停用**（INV-2 的加嚴形）。
+ *
+ * W24 預留（PR3）：B27 的站台設定列鎖會加在本函式第一句、B19 守衛加在 UPDATE 之後（以 `row` 判）。（本檔刻意不寫該表名字面——Task 12 grep 終檢第 2 條要它 0 命中。）
+ */
+export async function updateAuthProviderInTx(tx: Tx, input: UpdateAuthProviderInput): Promise<UpdateAuthProviderResult> {
+  const [before] = await tx.select({ issuerUrl: authProviders.issuerUrl }).from(authProviders).where(eq(authProviders.id, input.id)).limit(1);
+  if (!before) throw new TxAbort(404, "not_found", "找不到此登入服務");
+
+  const newIssuer = () => sql`coalesce(${input.issuerUrl ?? null}::text, ${authProviders.issuerUrl})`;
+  const newClientId = () => sql`coalesce(${input.clientId ?? null}::text, ${authProviders.clientId})`;
+  const issuerChanged = () => sql`${authProviders.issuerUrl} is distinct from ${newIssuer()}`;
+  const clientChanged = () => sql`${authProviders.clientId} is distinct from ${newClientId()}`;
+
+  const common = {
+    issuerUrl: newIssuer(),
+    clientId: newClientId(),
+    displayName: sql`coalesce(${input.displayName ?? null}::text, ${authProviders.displayName})`,
+    sortOrder: sql`coalesce(${input.sortOrder ?? null}::integer, ${authProviders.sortOrder})`,
+    resolvedIssuer: sql`case when ${issuerChanged()} then null else ${authProviders.resolvedIssuer} end`,
+    enabled: sql`case when ${issuerChanged()} then false else coalesce(${input.enabled ?? null}::boolean, ${authProviders.enabled}) end`,
+    updatedAt: sql`now()`,
+  };
+  const set =
+    input.newSecretSealed === undefined
+      ? {
+          ...common,
+          clientSecretEncrypted: sql`case when ${issuerChanged()} then null::jsonb else ${authProviders.clientSecretEncrypted} end`,
+          configVersion: sql`case when ${issuerChanged()} or ${clientChanged()} then ${authProviders.configVersion} + 1 else ${authProviders.configVersion} end`,
+        }
+      : {
+          ...common,
+          clientSecretEncrypted: input.newSecretSealed,
+          configVersion: sql`${authProviders.configVersion} + 1`,
+        };
+
+  const [row] = await tx.update(authProviders).set(set).where(eq(authProviders.id, input.id)).returning(adminProviderColumns());
+  // 讀到之後、UPDATE 之前被刪（別的管理員 DELETE）→ 0 列。
+  if (!row) throw new TxAbort(404, "not_found", "找不到此登入服務");
+  return { row, previousIssuerUrl: before.issuerUrl };
 }

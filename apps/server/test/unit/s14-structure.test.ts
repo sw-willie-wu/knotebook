@@ -8,7 +8,7 @@
  * ② `*InTx` 只准宣告在 `tx/` 目錄——`function` 與 `const／let／var … =` 都算，**不論有沒有 export**（路由檔自宣告、
  *    不 export 的 `*InTx` 閉包是 X10 形）；
  * ③ `tx/` 裡的 `*InTx` 一律以 `function` 宣告，第一個參數字面上是 `tx: Tx`；
- * ④ `ROUTE_FILES` 裡的檔（#175 三支＋#187 的 `routes/oidc.ts`、`routes/oidc-pending.ts`），`.transaction(` 的 callback **整段**就是一個 `xInTx(tx, …)` 呼叫，而且 `xInTx`
+ * ④ `ROUTE_FILES` 裡的檔（#175 三支＋#187 的 `routes/oidc.ts`、`routes/oidc-pending.ts`、`routes/admin-auth.ts`），`.transaction(` 的 callback **整段**就是一個 `xInTx(tx, …)` 呼叫，而且 `xInTx`
  *    必須是以 `import { … } from "…/tx/…"` 引進的名字——無例外（PR2 起 T14 也抽成 `deleteNotesInTx`）；
  * ⑤ 那個呼叫的**引數**（callback 內求值、此時已持有交易連線）只准是識別字、屬性存取與物件字面：**不得有任何 `(`**
  *    （擋住所有以括號形式的呼叫，含 `Number(x)`、`String(x)` 這種轉型）、不得有裸 `db` 識別字（drizzle 的 lazy query）、
@@ -111,7 +111,7 @@ const ARG_BANNED: Array<[string, RegExp]> = [
   ["閉包 function", /\bfunction\b/],
   ...HELPERS,
 ];
-const ROUTE_FILES = ["routes/notes.ts", "routes/groups.ts", "notes/links.ts", "routes/oidc.ts", "routes/oidc-pending.ts"];
+const ROUTE_FILES = ["routes/notes.ts", "routes/groups.ts", "notes/links.ts", "routes/oidc.ts", "routes/oidc-pending.ts", "routes/admin-auth.ts"];
 
 describe("S14 結構性守衛（#175 §4.4）", () => {
   const files = walk(SRC);
@@ -131,6 +131,7 @@ describe("S14 結構性守衛（#175 §4.4）", () => {
         "auth/tx/legacy-oidc-env.ts",
         "auth/tx/link-identity.ts",
         "auth/tx/oidc-login.ts",
+        "auth/tx/admin-auth-providers.ts",
       ]),
     );
   });
@@ -171,6 +172,7 @@ describe("S14 結構性守衛（#175 §4.4）", () => {
       { f: "notes/links.ts", all: 1, inTx: 1 }, // T15
       { f: "routes/oidc.ts", all: 2, inTx: 2 }, // A1 登入、A2 SSO 證明（#187；A1 重投是同一個 runLogin 閉包呼叫兩次，字面只有一處）
       { f: "routes/oidc-pending.ts", all: 1, inTx: 1 }, // A2 密碼證明（#187 §7.5.4；SSO 證明那一處在 routes/oidc.ts）
+      { f: "routes/admin-auth.ts", all: 1, inTx: 1 }, // B1 改登入服務（#187 PR2 §5.2）
     ]);
   });
 

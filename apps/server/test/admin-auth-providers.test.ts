@@ -7,6 +7,8 @@ import { seedAuthProvider } from "./helpers/oidc-provider.js";
 import { adminApp, captureLogs, expectAdminOnly, providerRow } from "./helpers/admin-auth.js";
 
 const NUL = String.fromCodePoint(0);
+/** 落單的高位代理（U+D800）：JSON 序列化成 `\ud800`，server 端 parse 回來仍是落單代理。 */
+const LONE = String.fromCharCode(0xd800);
 const base = { template: "oidc", displayName: "Corp SSO", issuerUrl: "https://idp.example.com", clientId: "knotebook" } as const;
 
 describe("GET／POST /api/admin/auth/providers（#187 §9.2）", () => {
@@ -91,6 +93,14 @@ describe("GET／POST /api/admin/auth/providers（#187 §9.2）", () => {
     ["client id 513 字", { clientId: "c".repeat(513) }, "client ID 須為 1 到 512 個字"],
     ["clientSecret 空字串", { clientSecret: "" }, "client secret 不得為空"],
     ["clientSecret 只有空白", { clientSecret: "   " }, "client secret 不得為空"],
+    // Task 3 審查 minor（Task 4 補）：secret 上限、三個字串欄的 NUL／落單代理。
+    ["clientSecret 4097 字", { clientSecret: "s".repeat(4097) }, "client secret 不得超過 4096 個字元"],
+    ["clientSecret 含 NUL", { clientSecret: `s${NUL}s` }, "client secret 含有無法儲存的字元"],
+    ["clientSecret 含落單代理", { clientSecret: `s${LONE}s` }, "client secret 含有無法儲存的字元"],
+    ["client id 含 NUL", { clientId: `c${NUL}c` }, "client ID 含有無法儲存的字元"],
+    ["client id 含落單代理", { clientId: `c${LONE}c` }, "client ID 含有無法儲存的字元"],
+    ["issuer 含 NUL", { issuerUrl: `https://idp.example.com/${NUL}` }, "issuer 網址含有無法儲存的字元"],
+    ["issuer 含落單代理", { issuerUrl: `https://idp.example.com/${LONE}` }, "issuer 網址含有無法儲存的字元"],
     ["不認得的範本", { template: "github" }, "請求格式錯誤"],
     ["多一個欄位（strict）", { enabled: true }, "請求格式錯誤"],
   ])("RF1 POST 不合法輸入 → 400 invalid_body＋中文訊息、DB 沒有新列：%s", async (_name, patch, message) => {
@@ -106,6 +116,14 @@ describe("GET／POST /api/admin/auth/providers（#187 §9.2）", () => {
     const res = await app.inject({ method: "POST", url: "/api/admin/auth/providers", cookies, payload: { ...base, displayName: "  Corp  ", issuerUrl: " https://idp.example.com ", clientId: " knotebook " } });
     expect(res.statusCode).toBe(201);
     expect(res.json()).toMatchObject({ displayName: "Corp", issuerUrl: "https://idp.example.com", clientId: "knotebook" });
+  });
+
+  it("clientSecret 前後的空白原樣存（不 trim；解開與送出的值相同）", async () => {
+    const { app, db, cookies } = await adminApp();
+    const res = await app.inject({ method: "POST", url: "/api/admin/auth/providers", cookies, payload: { ...base, clientSecret: "  padded secret \t" } });
+    expect(res.statusCode).toBe(201);
+    const row = await providerRow(db, res.json().id);
+    expect(openClientSecret(testConfig.appSecret, row!)).toBe("  padded secret \t");
   });
 
   it("40 個 emoji 的顯示名可以存（code point 計數，與 CHECK 的 char_length 一致）", async () => {

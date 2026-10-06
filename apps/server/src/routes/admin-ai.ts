@@ -17,6 +17,7 @@ import type { AiRuntime } from "../ai/runtime.js";
 import { BUILTIN_ACTION_IDS } from "../db/seed-ai.js";
 import { isForeignKeyViolation, isUniqueViolation } from "../db/pg-errors.js";
 import { UUID_RE } from "../notes/service.js";
+import { safeTarget } from "../lib/safe-target.js";
 
 export interface AdminAiRouteDeps {
   db: Db;
@@ -42,23 +43,6 @@ const patchProviderSchema = z.object({
   apiKey: z.string().min(1).optional(),
   enabled: z.boolean().optional(),
 });
-
-/**
- * 取 URL 的 `origin + pathname` 供日誌使用。
- *
- * **刻意不記完整 URL**：`base_url` 可能帶 `user:pass@`（`origin` 不含 userinfo）或把憑證放在
- * query（`pathname` 不含 query），整條寫進日誌等於把另一種憑證留在那裡。但也不能只記 host
- * ——`http://x` → `https://x`、或 `https://gw/tenant-a` → `/tenant-b` 這類變更會記成前後
- * 完全相同，一行看起來像沒發生事（審查指出）。解析不出來回 undefined（pino 會略過該欄位）。
- */
-function safeTarget(url: string): string | undefined {
-  try {
-    const parsed = new URL(url);
-    return `${parsed.origin}${parsed.pathname}`;
-  } catch {
-    return undefined;
-  }
-}
 
 // 只選這六欄（形狀鎖，比照 `routes/admin-users.ts` 的 `adminUserColumns` 慣例，
 // 這裡更進一步）：`hasKey` 用 SQL 端 `IS NOT NULL` 直接算出布林值，**從不** SELECT
