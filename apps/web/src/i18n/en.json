@@ -332,11 +332,24 @@
         "title": "Edit sign-in service",
         "secretPlaceholderSaved": "Saved. Leave blank to keep it.",
         "sortOrder": "Display order",
-        "sortOrderInvalid": "Display order must be a whole number from 0 up.",
+        "sortOrderInvalid": "Display order must be a whole number from 0 to 100000.",
         "issuerChangeClearsSecret": "Changing the issuer clears the saved client secret and turns this service off.",
+        "issuerChangeClearsSecretOnly": "Changing the issuer clears the saved client secret.",
         "issuerChangeTurnsOff": "Changing the issuer turns this service off. Test it, then turn it back on.",
         "save": "Save",
         "saving": "Saving…"
+      },
+      "validation": {
+        "displayNameRequired": "Enter a display name.",
+        "displayNameTooLong": "Display name can be at most 40 characters.",
+        "issuerScheme": "Issuer URL must start with lowercase http:// or https://.",
+        "issuerTooLong": "Issuer URL can be at most 512 characters.",
+        "issuerInvalid": "That isn't a valid URL.",
+        "clientIdRequired": "Enter a client ID.",
+        "clientIdTooLong": "Client ID can be at most 512 characters.",
+        "secretBlank": "Client secret can't be only spaces.",
+        "secretTooLong": "Client secret can be at most 4096 characters.",
+        "unstorable": "Contains characters that can't be saved."
       }
     },
     "title": "User management",

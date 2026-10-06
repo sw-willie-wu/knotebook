@@ -332,11 +332,24 @@
         "title": "編輯登入服務",
         "secretPlaceholderSaved": "已儲存；留空表示不變更。",
         "sortOrder": "顯示順序",
-        "sortOrderInvalid": "顯示順序必須是 0 以上的整數。",
+        "sortOrderInvalid": "顯示順序必須是 0 到 100000 的整數。",
         "issuerChangeClearsSecret": "改了 issuer 會清除已儲存的 client secret，並停用這個服務。",
+        "issuerChangeClearsSecretOnly": "改了 issuer 會清除已儲存的 client secret。",
         "issuerChangeTurnsOff": "改了 issuer 會停用這個服務。請先測試，再重新啟用。",
         "save": "儲存",
         "saving": "儲存中…"
+      },
+      "validation": {
+        "displayNameRequired": "請輸入顯示名稱。",
+        "displayNameTooLong": "顯示名稱最多 40 個字。",
+        "issuerScheme": "Issuer 網址必須以小寫 http:// 或 https:// 開頭。",
+        "issuerTooLong": "Issuer 網址最多 512 個字元。",
+        "issuerInvalid": "這不是有效的網址。",
+        "clientIdRequired": "請輸入 client ID。",
+        "clientIdTooLong": "Client ID 最多 512 個字。",
+        "secretBlank": "Client secret 不能全是空白。",
+        "secretTooLong": "Client secret 最多 4096 個字元。",
+        "unstorable": "含有無法儲存的字元。"
       }
     },
     "title": "使用者管理",

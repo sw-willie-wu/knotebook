@@ -170,6 +170,51 @@ describe("新增登入服務 dialog（#187 §9.4）", () => {
     const posts = server.calls.filter(c => c.method === "POST" && c.url === "/api/admin/auth/providers");
     expect((posts[1]!.body as { clientSecret?: string }).clientSecret).toBe("  s3cret  ");
   });
+
+  it("欄位檢查與 server 對齊：全空白顯示名、大寫 HTTPS://、41 個 emoji → 欄位旁錯誤不送出；30 個 emoji（UTF-16 60）可送出；設定步驟標題取得焦點", async () => {
+    const server = fakeServer([]);
+    const created: AdminAuthProviderDto = { ...LIVE, enabled: false, hasSecret: false };
+    server.on((method, url) => {
+      if (method !== "POST" || url !== "/api/admin/auth/providers") return null;
+      server.state.providers = [created];
+      return fakeResponse(201, created);
+    });
+    renderSection(server.fetchMock);
+    const dialog = await openCreate();
+    fireEvent.change(dialog.getByLabelText("Template"), { target: { value: "oidc" } });
+    fireEvent.change(dialog.getByLabelText("Display name"), { target: { value: "   " } });
+    fireEvent.change(dialog.getByLabelText("Issuer URL"), { target: { value: "HTTPS://idp.example.com" } });
+    fireEvent.change(dialog.getByLabelText("Client ID"), { target: { value: "c" } });
+    fireEvent.click(dialog.getByRole("button", { name: "Add" }));
+    expect(await dialog.findByText("Enter a display name.")).toBeInTheDocument();
+    expect(dialog.getByText("Issuer URL must start with lowercase http:// or https://.")).toBeInTheDocument();
+    expect(dialog.getByLabelText("Issuer URL")).toHaveAttribute("aria-invalid", "true");
+
+    fireEvent.change(dialog.getByLabelText("Display name"), { target: { value: "😀".repeat(41) } });
+    fireEvent.change(dialog.getByLabelText("Issuer URL"), { target: { value: "https://idp.example.com" } });
+    fireEvent.click(dialog.getByRole("button", { name: "Add" }));
+    expect(await dialog.findByText("Display name can be at most 40 characters.")).toBeInTheDocument();
+    expect(dialog.queryByText(/Issuer URL must start/)).toBeNull();
+    expect(server.calls.some(c => c.method === "POST")).toBe(false);
+
+    const emojiName = "😀".repeat(30);
+    fireEvent.change(dialog.getByLabelText("Display name"), { target: { value: emojiName } });
+    fireEvent.click(dialog.getByRole("button", { name: "Add" }));
+    await screen.findByRole("dialog", { name: "Finish setting it up" });
+    expect((server.calls.find(c => c.method === "POST")!.body as { displayName: string }).displayName).toBe(emojiName);
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Finish setting it up" })).toHaveFocus());
+  });
+
+  it("secret 只有空白 → 欄位旁錯誤、不送出（不默默丟掉）", async () => {
+    const server = fakeServer([]);
+    renderSection(server.fetchMock);
+    const dialog = await openCreate();
+    fireEvent.change(dialog.getByLabelText("Client ID"), { target: { value: "c" } });
+    fireEvent.change(dialog.getByLabelText("Client secret"), { target: { value: "   " } });
+    fireEvent.click(dialog.getByRole("button", { name: "Add" }));
+    expect(await dialog.findByText("Client secret can't be only spaces.")).toBeInTheDocument();
+    expect(server.calls.some(c => c.method === "POST")).toBe(false);
+  });
 });
 
 describe("編輯登入服務 dialog（#187 §9.4、§5.2）", () => {
@@ -187,7 +232,7 @@ describe("編輯登入服務 dialog（#187 §9.4、§5.2）", () => {
     return { region, dialog: within(await screen.findByRole("dialog", { name: "Edit sign-in service" })) };
   }
 
-  it("RF5 只改顯示名：不出現警示；PATCH body 帶原 issuer、沒有 clientSecret 鍵；secret 欄是唯寫（空白＋已儲存提示）", async () => {
+  it("RF5 只改顯示名：不出現警示；PATCH body 只有 displayName（不帶原 issuer、沒有 clientSecret 鍵）；secret 欄是唯寫（空白＋已儲存提示）", async () => {
     const server = fakeServer([LIVE]);
     server.on((method, url, body) => {
       if (method !== "PATCH" || url !== `/api/admin/auth/providers/${LIVE.id}`) return null;
@@ -204,12 +249,48 @@ describe("編輯登入服務 dialog（#187 §9.4、§5.2）", () => {
     expect(dialog.queryByText(/Changing the issuer/)).toBeNull();
     fireEvent.click(dialog.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(server.calls.find(c => c.method === "PATCH")!.body).toEqual({
-      displayName: "Corp SSO 2",
-      issuerUrl: "https://idp.example.com",
-      clientId: "corp-client",
-      sortOrder: 2,
-    });
+    // fix round 1 I1：只送改過的欄位——帶著舊 issuer 送出，並發時會被 §5.2 當成「改 issuer」而把別人的改動蓋回去。
+    expect(server.calls.find(c => c.method === "PATCH")!.body).toEqual({ displayName: "Corp SSO 2" });
+  });
+
+  it("什麼都沒改就按儲存 → 不發請求、dialog 關閉", async () => {
+    const server = fakeServer([LIVE]);
+    renderSection(server.fetchMock);
+    const { dialog } = await openEdit();
+    fireEvent.click(dialog.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(server.calls.some(c => c.method === "PATCH")).toBe(false);
+  });
+
+  it("打了 secret → 按 Esc 關閉 → 重開時 secret 欄是空的", async () => {
+    renderSection(fakeServer([LIVE]).fetchMock);
+    const first = await openEdit();
+    fireEvent.change(first.dialog.getByLabelText("Client secret"), { target: { value: "typed-secret" } });
+    fireEvent.keyDown(first.dialog.getByLabelText("Client secret"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    const second = await openEdit();
+    expect(second.dialog.getByLabelText("Client secret")).toHaveValue("");
+  });
+
+  it("secret 只有空白 → 欄位旁錯誤、不送出（不默默丟掉）", async () => {
+    const server = fakeServer([LIVE]);
+    renderSection(server.fetchMock);
+    const { dialog } = await openEdit();
+    fireEvent.change(dialog.getByLabelText("Client secret"), { target: { value: "   " } });
+    fireEvent.click(dialog.getByRole("button", { name: "Save" }));
+    expect(await dialog.findByText("Client secret can't be only spaces.")).toBeInTheDocument();
+    expect(dialog.getByLabelText("Client secret")).toHaveAttribute("aria-invalid", "true");
+    expect(server.calls.some(c => c.method === "PATCH")).toBe(false);
+  });
+
+  it("停用中的服務改 issuer：只說會清 secret、不說會停用；同時填了 secret → 不警示", async () => {
+    renderSection(fakeServer([{ ...LIVE, enabled: false }]).fetchMock);
+    const { dialog } = await openEdit();
+    fireEvent.change(dialog.getByLabelText("Issuer URL"), { target: { value: "https://other.example.com" } });
+    expect(dialog.getByText("Changing the issuer clears the saved client secret.")).toBeInTheDocument();
+    expect(dialog.queryByText(/turns this service off/)).toBeNull();
+    fireEvent.change(dialog.getByLabelText("Client secret"), { target: { value: "new-secret" } });
+    expect(dialog.queryByText(/Changing the issuer/)).toBeNull();
   });
 
   it("改 issuer：secret 留空 → 「會清 secret 並停用」；填了 secret → 「會停用」；送出後回 enabled=false → 開關跟著關、toast", async () => {
@@ -237,8 +318,27 @@ describe("編輯登入服務 dialog（#187 §9.4、§5.2）", () => {
     const { dialog } = await openEdit();
     fireEvent.change(dialog.getByLabelText("Display order"), { target: { value: "-1" } });
     fireEvent.click(dialog.getByRole("button", { name: "Save" }));
-    expect(await dialog.findByText("Display order must be a whole number from 0 up.")).toBeInTheDocument();
+    expect(await dialog.findByText("Display order must be a whole number from 0 to 100000.")).toBeInTheDocument();
     expect(server.calls.some(c => c.method === "PATCH")).toBe(false);
+  });
+
+  it("顯示順序上限 100000（同 server）：100001 → 不送出、顯示錯誤；100000 → PATCH {sortOrder:100000}", async () => {
+    const server = fakeServer([LIVE]);
+    server.on((method, url, body) => {
+      if (method !== "PATCH" || url !== `/api/admin/auth/providers/${LIVE.id}`) return null;
+      server.state.providers = [{ ...LIVE, ...(body as object) }];
+      return fakeResponse(200, server.state.providers[0]);
+    });
+    renderSection(server.fetchMock);
+    const { dialog } = await openEdit();
+    fireEvent.change(dialog.getByLabelText("Display order"), { target: { value: "100001" } });
+    fireEvent.click(dialog.getByRole("button", { name: "Save" }));
+    expect(await dialog.findByText("Display order must be a whole number from 0 to 100000.")).toBeInTheDocument();
+    expect(server.calls.some(c => c.method === "PATCH")).toBe(false);
+    fireEvent.change(dialog.getByLabelText("Display order"), { target: { value: "100000" } });
+    fireEvent.click(dialog.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(server.calls.find(c => c.method === "PATCH")!.body).toEqual({ sortOrder: 100000 });
   });
 
   it("顯示名是 HTML 形：編輯 dialog 只把它放進輸入框的值（字面）、不成為元素", async () => {
