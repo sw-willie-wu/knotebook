@@ -9,8 +9,9 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ### Added
 
-- Groundwork for signing in with more than one identity provider: sign-in services are now stored in the database, the login page shows a "Sign in with …" button for each enabled one, and providers other than the imported one use their own callback URL (`<PUBLIC_URL>/api/auth/oidc/callback/<provider id>`). In this version a sign-in service can only come from the one-time `OIDC_*` import described below, and that one keeps the old callback URL (#187).
+- Groundwork for signing in with more than one identity provider: sign-in services are now stored in the database, the login page shows a "Sign in with …" button for each enabled one, and providers other than the imported one use their own callback URL (`<PUBLIC_URL>/api/auth/oidc/callback/<provider id>`). The service imported from `OIDC_*` (described below) keeps the old callback URL (#187).
 - When someone signs in through an identity provider for the first time and their email already has an account, Knotebook asks whether to link the two. They prove the account is theirs with its password, or by signing in with a sign-in service already linked to it (#187).
+- **Site admin → Sign-in** (`/admin/auth`): add, edit, test, turn off and delete sign-in services — GitLab (including self-managed), Google, or another OpenID Connect provider. Each one shows the callback URL to register on the identity provider. Client secrets are stored encrypted and never shown again; changing a service's issuer clears its secret (unless a new one is entered in the same edit) and turns it off (#187).
 
 ### Changed
 

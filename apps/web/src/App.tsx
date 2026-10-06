@@ -20,6 +20,7 @@ import { SettingsGroupDetailSection } from "./settings/SettingsGroupDetailSectio
 import { SettingsGroupRolesSection } from "./settings/SettingsGroupRolesSection";
 import { SettingsUsersSection } from "./settings/SettingsUsersSection";
 import { SettingsAiSection } from "./settings/SettingsAiSection";
+import { SettingsAuthSection } from "./settings/SettingsAuthSection";
 
 /**
  * NotePage 走 lazy（issue #19）：BlockNote＋共編整條相依鏈只有這一頁需要，同步 import
@@ -133,7 +134,7 @@ function PublicNoteRoute() {
  * 整個破功。
  *
  * 站台管理（2026-09-30 起）是**一般頁面**、不是 modal：`/admin` layout route
- * （`AdminPage`，子路由 `users`／`ai`，index 轉 `/admin/users`）在主樹。舊網址
+ * （`AdminPage`，子路由 `users`／`ai`／`auth`，index 轉 `/admin/users`）在主樹。舊網址
  * `/settings/users`、`/settings/ai` 在第二棵樹裡 `<Navigate replace>` 過去——掛在
  * `SettingsModal` 外面（不閃 modal）、`RequireAuth` 裡面。方向與 Plan 4 相反
  * （那時是 `/admin/users` 轉 `/settings/users`）。
@@ -191,6 +192,7 @@ export function AppRoutes() {
                 <Route index element={<Navigate to="/admin/users" replace />} />
                 <Route path="users" element={<SettingsUsersSection />} />
                 <Route path="ai" element={<SettingsAiSection />} />
+                <Route path="auth" element={<SettingsAuthSection />} />
               </Route>
             </Route>
             <Route path="/*" element={<HomePage />} />

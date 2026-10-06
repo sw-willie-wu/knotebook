@@ -23,6 +23,7 @@ import type { WriteNoteLinksHooks } from "./notes/links.js";
 import type { SlugPatchTestHook } from "./notes/tx/patch-slug.js";
 import { adminUsersRoutes } from "./routes/admin-users.js";
 import { adminAiRoutes } from "./routes/admin-ai.js";
+import { adminAuthRoutes } from "./routes/admin-auth.js";
 import { aiRoutes } from "./routes/ai.js";
 import { uploadsRoutes } from "./routes/uploads.js";
 import { publicRoutes, redactPublicTokens } from "./routes/public.js";
@@ -685,6 +686,8 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   void app.register(groupsRoutes({ db: deps.db, collabHooks: deps.collabHooks, groupTestHook: deps.groupTestHook, uploadsDir: deps.uploadsDir }));
   void app.register(adminUsersRoutes({ db: deps.db, gate: deps.gate, collabHooks: deps.collabHooks }));
   void app.register(adminAiRoutes({ db: deps.db, config: deps.config, runtime: deps.ai }));
+  // #187 PR2：站台管理的登入服務。與登入路由共用同一個 registry（PATCH／DELETE 要 invalidate、test／discover 用 probe）。
+  void app.register(adminAuthRoutes({ db: deps.db, config: deps.config, registry: oidcRegistry }));
   void app.register(
     aiRoutes({ db: deps.db, config: deps.config, runtime: deps.ai, limiters: { ai: limiters.ai }, idleTimeoutMs: options.aiIdleTimeoutMs })
   );
