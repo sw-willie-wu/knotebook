@@ -133,6 +133,7 @@ describe("S14 結構性守衛（#175 §4.4）", () => {
         "auth/tx/oidc-login.ts",
         "auth/tx/admin-auth-providers.ts",
         "auth/tx/register.ts",
+        "auth/tx/identities.ts",
       ]),
     );
   });
@@ -174,7 +175,7 @@ describe("S14 結構性守衛（#175 §4.4）", () => {
       { f: "routes/oidc.ts", all: 2, inTx: 2 }, // A1 登入、A2 SSO 證明（#187；A1 重投是同一個 runLogin 閉包呼叫兩次，字面只有一處）
       { f: "routes/oidc-pending.ts", all: 1, inTx: 1 }, // A2 密碼證明（#187 §7.5.4；SSO 證明那一處在 routes/oidc.ts）
       { f: "routes/admin-auth.ts", all: 2, inTx: 2 }, // B1 改、B2 刪登入服務（#187 PR2 §5.2、§9.2）
-      { f: "routes/account.ts", all: 1, inTx: 1 }, // P1 註冊（#187 PR3 §9.1）
+      { f: "routes/account.ts", all: 2, inTx: 2 }, // P1 註冊（#187 PR3 §9.1）、P2 解除連結（§8.2）
     ]);
   });
 

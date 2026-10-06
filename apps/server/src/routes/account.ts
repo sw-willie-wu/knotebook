@@ -1,9 +1,20 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
+import { asc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
-import { MAX_REGISTER_DISPLAY_NAME_LENGTH, MAX_REGISTER_EMAIL_LENGTH, normalizeEmail, type UserDto } from "@knotebook/shared";
+import {
+  MAX_REGISTER_DISPLAY_NAME_LENGTH,
+  MAX_REGISTER_EMAIL_LENGTH,
+  normalizeEmail,
+  type AuthProviderTemplate,
+  type IdentitiesDto,
+  type IdentityDto,
+  type UserDto,
+} from "@knotebook/shared";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
+import { userIdentities, users } from "../db/schema.js";
+import { UUID_RE } from "../notes/service.js";
 import { uniqueViolationConstraint } from "../db/pg-errors.js";
 import { sendError } from "../http/errors.js";
 import { TxAbort } from "../http/tx-abort.js";
@@ -14,8 +25,16 @@ import { HashBusyError, hashPassword } from "../auth/password.js";
 import { signSession, type UserGate } from "../auth/session.js";
 import { setSessionCookie } from "../auth/cookies.js";
 import { isStorableText, sendInvalidBody } from "../auth/admin-provider-input.js";
-import { isPasswordLoginAccepted, PASSWORD_LOGIN_DISABLED_MESSAGE } from "../auth/password-login.js";
+import {
+  effectivePasswordLogin,
+  isPasswordLoginAccepted,
+  PASSWORD_LOGIN_DISABLED_MESSAGE,
+  PASSWORD_LOGIN_SETTINGS_MISSING_LOG,
+  readPasswordLoginSetting,
+} from "../auth/password-login.js";
+import { canUnlinkIdentity, enabledProvidersWithIssuer, usableIdentityIds } from "../auth/sign-in-methods.js";
 import { readRegistrationEnabled, REGISTRATION_DISABLED_MESSAGE } from "../auth/site-settings.js";
+import { IDENTITY_NOT_FOUND_MESSAGE, unlinkIdentityInTx } from "../auth/tx/identities.js";
 import { registerUserInTx, type RegisteredUser } from "../auth/tx/register.js";
 
 export interface AccountRouteDeps {
@@ -118,6 +137,56 @@ export function accountRoutes(deps: AccountRouteDeps) {
         hasPassword: true,
       };
       return reply.code(201).send(dto);
+    });
+
+    // §8.3：session-only（`app.authenticate` 只認 cookie；Bearer → 401，r2-N6）。
+    app.get("/api/auth/identities", { preHandler: app.authenticate }, async (request): Promise<IdentitiesDto> => {
+      const userId = request.user!.id;
+      const mine = await deps.db
+        .select({ id: userIdentities.id, issuer: userIdentities.issuer, createdAt: userIdentities.createdAt, lastLoginAt: userIdentities.lastLoginAt })
+        .from(userIdentities)
+        .where(eq(userIdentities.userId, userId))
+        .orderBy(asc(userIdentities.createdAt), asc(userIdentities.id));
+      const enabled = await enabledProvidersWithIssuer(deps.db);
+      // hasPassword 直讀 DB（不用 gate 的 60 秒快取）：與 DELETE 交易內的讀法一致，表驅動案才能逐格一致。
+      const [me] = await deps.db.select({ hasPassword: sql<boolean>`${users.passwordHash} is not null` }).from(users).where(eq(users.id, userId));
+      const dbValue = await readPasswordLoginSetting(deps.db);
+      if (dbValue === null) request.log.error({ table: "site_settings" }, PASSWORD_LOGIN_SETTINGS_MISSING_LOG);
+      const usable = usableIdentityIds(mine, enabled);
+      const hasPassword = me?.hasPassword ?? false;
+      const identities: IdentityDto[] = mine.map(i => ({
+        id: i.id,
+        issuer: i.issuer,
+        providers: enabled.filter(p => p.effectiveIssuer === i.issuer).map(p => ({ id: p.id, displayName: p.displayName })),
+        createdAt: i.createdAt.toISOString(),
+        lastLoginAt: i.lastLoginAt?.toISOString() ?? null,
+        unlinkable: canUnlinkIdentity(i.id, { hasPassword, passwordLoginDbValue: dbValue ?? true, usableIdentityIds: usable }),
+      }));
+      const linkedIssuers = new Set(mine.map(i => i.issuer));
+      return {
+        identities,
+        linkable: enabled
+          .filter(p => !linkedIssuers.has(p.effectiveIssuer))
+          .map(p => ({ providerId: p.id, displayName: p.displayName, template: p.template as AuthProviderTemplate })),
+        hasPassword,
+        // 有效值（DB OR env）：只決定設定頁顯示「加上密碼」與說明；INV-7 不看它（已折進 unlinkable）。
+        passwordLoginEnabled: effectivePasswordLogin(dbValue, deps.config.passwordLoginForceEnable),
+      };
+    });
+
+    app.delete("/api/auth/identities/:id", { preHandler: app.authenticate }, async (request, reply) => {
+      const raw = (request.params as { id: string }).id;
+      if (!UUID_RE.test(raw)) return sendError(reply, 404, "not_found", IDENTITY_NOT_FOUND_MESSAGE);
+      const input = { userId: request.user!.id, identityId: raw.toLowerCase() };
+      let result: { settingsMissing: boolean };
+      try {
+        result = await deps.db.transaction(tx => unlinkIdentityInTx(tx, input));
+      } catch (err) {
+        if (err instanceof TxAbort) return sendError(reply, err.status, err.errCode, err.message);
+        throw err;
+      }
+      if (result.settingsMissing) request.log.error({ table: "site_settings" }, PASSWORD_LOGIN_SETTINGS_MISSING_LOG);
+      return reply.code(204).send();
     });
   };
 }

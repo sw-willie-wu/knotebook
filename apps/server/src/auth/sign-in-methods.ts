@@ -1,0 +1,58 @@
+import { asc, eq, sql } from "drizzle-orm";
+import type { DbOrTx } from "../db/tx.js";
+import { authProviders } from "../db/schema.js";
+
+// #187 PR3：「這個帳號還能怎麼登入」的判斷，INV-7（§8.2 解除、§8.3 unlinkable，B24）、B19 P2 與 §9.5 actingAdminHasSso 共用。
+// identity ↔ provider 一律以 effective issuer＝coalesce(resolved_issuer, issuer_url) **精確相等**（§4.1；寬鬆的 issuerKey
+// 只用在 B14 排除，見 auth/issuer.ts）。密碼算不算數看 **DB 值**、不看 env（B24）——env 救援期間做出的狀態，拿掉 env 之後仍成立。
+
+export interface EnabledProviderIssuer {
+  id: string;
+  displayName: string;
+  template: string;
+  effectiveIssuer: string;
+}
+
+/** 啟用中的 provider 與其 effective issuer（排序同登入頁）。收 `DbOrTx`：解除連結交易內以 tx 呼叫（S14）。 */
+export async function enabledProvidersWithIssuer(q: DbOrTx): Promise<EnabledProviderIssuer[]> {
+  return q
+    .select({
+      id: authProviders.id,
+      displayName: authProviders.displayName,
+      template: authProviders.template,
+      effectiveIssuer: sql<string>`coalesce(${authProviders.resolvedIssuer}, ${authProviders.issuerUrl})`,
+    })
+    .from(authProviders)
+    .where(eq(authProviders.enabled, true))
+    .orderBy(asc(authProviders.sortOrder), asc(authProviders.createdAt), asc(authProviders.id));
+}
+
+/** 本帳號身分中「可用」者（issuer 等於某個啟用中 provider 的 effective issuer）。 */
+export function usableIdentityIds(
+  identities: ReadonlyArray<{ id: string; issuer: string }>,
+  enabled: ReadonlyArray<{ effectiveIssuer: string }>,
+): Set<string> {
+  const issuers = new Set(enabled.map(p => p.effectiveIssuer));
+  return new Set(identities.filter(i => issuers.has(i.issuer)).map(i => i.id));
+}
+
+/** INV-7：解除 `identityId` 之後，帳號仍有密碼（且 DB 值為真），或仍有另一個可用身分。 */
+export function canUnlinkIdentity(
+  identityId: string,
+  s: { hasPassword: boolean; passwordLoginDbValue: boolean; usableIdentityIds: ReadonlySet<string> },
+): boolean {
+  if (s.hasPassword && s.passwordLoginDbValue) return true;
+  for (const id of s.usableIdentityIds) if (id !== identityId) return true;
+  return false;
+}
+
+/** B19 P2／§9.5 actingAdminHasSso：本人有一個 identity 對到某個啟用中 provider 的 effective issuer。 */
+export async function hasUsableSso(q: DbOrTx, userId: string): Promise<boolean> {
+  const result = await q.execute<{ ok: boolean }>(sql`
+    select exists (
+      select 1 from user_identities i
+      join auth_providers p on i.issuer = coalesce(p.resolved_issuer, p.issuer_url)
+      where i.user_id = ${userId} and p.enabled
+    ) as ok`);
+  return result.rows[0]!.ok;
+}
