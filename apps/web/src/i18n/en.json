@@ -770,6 +770,12 @@
     "provider_enabled": "Turn this sign-in service off before deleting it.",
     "provider_secret_missing": "Enter a client secret before turning this sign-in service on.",
     "oidc_discovery_failed": "Couldn't read a usable OpenID Connect configuration from that issuer URL.",
+    "password_login_disabled": "This site only allows signing in through a sign-in service.",
+    "sso_provider_required": "Turn on at least one sign-in service before turning off password sign-in.",
+    "admin_sso_link_required": "Link a sign-in service that is turned on to your own account (in Settings) before turning off password sign-in.",
+    "password_already_set": "This account already has a password. Use Change password instead.",
+    "last_login_method": "This is the account's only way to sign in, so it can't be unlinked.",
+    "oidc_link_session_mismatch": "You're no longer signed in as the account you were linking. Sign in and try again.",
     "fallback": "An unexpected error occurred."
   }
 }

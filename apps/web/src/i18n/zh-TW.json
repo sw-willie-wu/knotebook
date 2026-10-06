@@ -770,6 +770,12 @@
     "provider_enabled": "請先停用這個登入服務，再刪除。",
     "provider_secret_missing": "請先填入 client secret，才能啟用這個登入服務。",
     "oidc_discovery_failed": "無法從這個 issuer 網址讀到可用的 OpenID Connect 設定。",
+    "password_login_disabled": "本站目前只允許透過登入服務登入。",
+    "sso_provider_required": "請先啟用至少一個登入服務，才能關閉帳號密碼登入。",
+    "admin_sso_link_required": "請先在個人設定連結一個啟用中的登入服務，才能關閉帳號密碼登入。",
+    "password_already_set": "這個帳號已經有密碼，請改用「修改密碼」。",
+    "last_login_method": "這是這個帳號唯一的登入方式，不能解除連結。",
+    "oidc_link_session_mismatch": "你已不是以發起連結的那個帳號登入。請重新登入後再試一次。",
     "fallback": "發生未預期的錯誤。"
   }
 }

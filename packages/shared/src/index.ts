@@ -394,6 +394,17 @@ export const ERROR_CODES = [
   "provider_enabled",
   "provider_secret_missing",
   "oidc_discovery_failed",
+  // #187 PR3：註冊、個人設定、帳密登入開關（W24）。`password_login_disabled`＝403，帳密登入的有效值為關時的帳密登入／帳密註冊／
+  // 加上密碼（B20–B22）；`sso_provider_required`＝409，關閉帳密登入（或在關閉狀態下停用 provider）後沒有任何啟用中的登入服務（B19 P1）；
+  // `admin_sso_link_required`＝409，同上但操作的管理員本人沒有可用的 SSO 身分（B19 P2）；`password_already_set`＝409，已有密碼的帳號
+  // 打「加上密碼」（§8.4）；`last_login_method`＝409，解除後帳號不再有任何可用的登入方式（INV-7，§8.2）；`oidc_link_session_mismatch`＝
+  // 302 `/settings/account?link_error=`，手動連結回來時目前 session 不在、失效、停用或不是發起者（§8.1）。
+  "password_login_disabled",
+  "sso_provider_required",
+  "admin_sso_link_required",
+  "password_already_set",
+  "last_login_method",
+  "oidc_link_session_mismatch",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
@@ -486,6 +497,50 @@ export type AdminAuthProbeWarning = "insecure_issuer" | "client_secret_post_not_
 export interface AdminAuthProbeResultDto {
   issuer: string;
   warnings: AdminAuthProbeWarning[];
+}
+
+/** #187 §8.3：`GET /api/auth/identities` 的一列。不回 `sub`。 */
+export interface IdentityDto {
+  id: string;
+  /** IdP 回報的 issuer 原字串（身分的鍵之一，B1）。對不到啟用中 provider 時，頁面以它的 host 標示。 */
+  issuer: string;
+  /** effective issuer 等於本列 issuer、且啟用中的 provider（可能 0、1 或多個）。 */
+  providers: AuthProviderPublicDto[];
+  createdAt: string;
+  lastLoginAt: string | null;
+  /** server 以 INV-7（密碼只在 DB 值為真時算數，B24）算出；web 只照它 disable「解除連結」。 */
+  unlinkable: boolean;
+}
+
+/** #187 §8.3：可以從設定頁發起手動連結的 provider（啟用中、且本人沒有同 issuer 的身分）。 */
+export interface LinkableProviderDto {
+  providerId: string;
+  /** 管理員輸入的字串：web 只准放進 React 文字節點。 */
+  displayName: string;
+  template: AuthProviderTemplate;
+}
+
+/** #187 §8.3：`GET /api/auth/identities`（session-only）。`passwordLoginEnabled` 是**有效值**（DB OR env），只決定設定頁顯示「加上密碼」與說明。 */
+export interface IdentitiesDto {
+  identities: IdentityDto[];
+  linkable: LinkableProviderDto[];
+  hasPassword: boolean;
+  passwordLoginEnabled: boolean;
+}
+
+/** #187 §9.5：`GET`／`PATCH /api/admin/auth/settings`。`passwordLoginEnabled` 是 **DB 值**；`passwordLoginForced`＝env `PASSWORD_LOGIN_FORCE_ENABLE`。 */
+export interface AdminAuthSettingsDto {
+  registrationEnabled: boolean;
+  passwordLoginEnabled: boolean;
+  passwordLoginForced: boolean;
+  /** 開 dialog 當下的快照；權威判斷在 PATCH（B19）。 */
+  passwordLoginImpact: {
+    /** 未停用、且沒有任何 identity 對到啟用中 provider 的 effective issuer 的帳號數。 */
+    usersWithoutSso: number;
+    /** 操作者本人有一個 identity 對到某個啟用中 provider 的 effective issuer（與 B19 P2 同一個函式）。 */
+    actingAdminHasSso: boolean;
+    enabledProviders: number;
+  };
 }
 
 export const COLLAB_CLOSE_REVOKED = "knotebook:revoked";
