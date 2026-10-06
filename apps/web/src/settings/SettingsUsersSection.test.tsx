@@ -443,7 +443,7 @@ describe("SettingsUsersSection——#187 §9.5：帳密登入關閉時代建的�
   afterEach(() => vi.unstubAllGlobals());
 
   const NOTICE = "Password sign-in is turned off on this site: the temporary password is only used when the new person links their account the first time they sign in through a sign-in service.";
-  // configServed：/api/auth/config 的回應已交給 react-query（「沒有說明」的斷言要等它落地才不是空真）。
+  // configServed：/api/auth/config 的回應已交給 react-query。純保險——實測（reviewer R3）拿掉這兩行等待案仍紅，因為 dialog 文字出現時 config 早已落地。
   let configServed = false;
   const fetchWith = (passwordLoginEnabled: boolean) =>
     vi.fn((input: RequestInfo | URL, init?: RequestInit) => {

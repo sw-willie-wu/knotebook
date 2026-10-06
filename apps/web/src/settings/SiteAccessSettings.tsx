@@ -30,6 +30,12 @@ export function SiteAccessSettings() {
     }
   }
 
+  // 確認 dialog 的人數要是「開 dialog 當下」的（shared DTO JSDoc）：打開時重抓，抓回前先顯示現有快照。
+  function openConfirm(): void {
+    void settings.refetch();
+    setConfirmOpen(true);
+  }
+
   if (settings.isPending) {
     return (
       <SettingsGroup title={t("admin.auth.access.title")}>
@@ -76,7 +82,7 @@ export function SiteAccessSettings() {
             <Switch
               id="site-password-login"
               checked={s.passwordLoginEnabled}
-              onCheckedChange={checked => (checked ? void save({ passwordLoginEnabled: true }) : setConfirmOpen(true))}
+              onCheckedChange={checked => (checked ? void save({ passwordLoginEnabled: true }) : openConfirm())}
               disabled={patch.isPending || turnOffBlockedReason !== null}
               aria-describedby={turnOffBlockedReason !== null ? reasonId : undefined}
             />

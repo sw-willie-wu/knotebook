@@ -44,7 +44,7 @@ function setup(initial: AdminAuthSettingsDto, onPatch: (body: Record<string, boo
       <Toaster />
     </QueryClientProvider>,
   );
-  return { patches, gets };
+  return { patches, gets, state };
 }
 const pwSwitch = () => screen.getByRole("switch", { name: "Allow password sign-in" });
 
@@ -123,6 +123,32 @@ describe("SiteAccessSettings（#187 §9.4、§9.5）", () => {
     setup(BASE, () => BASE);
     await screen.findByRole("switch", { name: "Allow password sign-in" });
     expect(screen.queryByText(/PASSWORD_LOGIN_FORCE_ENABLE/)).not.toBeInTheDocument();
+  });
+
+  it("開確認 dialog 時重抓：人數是開 dialog 當下的（頁面載入後 server 值變了）", async () => {
+    const { state, gets } = setup(BASE, () => BASE);
+    const sw = await screen.findByRole("switch", { name: "Allow password sign-in" });
+    state.settings = { ...BASE, passwordLoginImpact: { ...BASE.passwordLoginImpact, usersWithoutSso: 7 } };
+    fireEvent.click(sw);
+    const dialog = within(await screen.findByRole("dialog", { name: "Turn off password sign-in?" }));
+    expect(await dialog.findByText("Accounts with no usable sign-in service: 7")).toBeInTheDocument();
+    expect(gets).toHaveLength(2);
+  });
+
+  it("409 後重抓 settings：快照過期 → 第二次 GET 回 actingAdminHasSso:false，原因文字出現、Switch 變 disabled", async () => {
+    const { state, gets } = setup(BASE, () => {
+      // server 端狀態在頁面載入後變了；PATCH 因此 409
+      state.settings = { ...BASE, passwordLoginImpact: { ...BASE.passwordLoginImpact, actingAdminHasSso: false } };
+      return fakeResponse(409, { error: { code: "admin_sso_link_required", message: "x" } });
+    });
+    const sw = await screen.findByRole("switch", { name: "Allow password sign-in" });
+    expect(sw).not.toBeDisabled();
+    fireEvent.click(sw);
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Turn off" }));
+    expect(await screen.findByText("Link a sign-in service in your own settings first.")).toBeInTheDocument();
+    expect(pwSwitch()).toBeDisabled();
+    expect(pwSwitch()).toHaveAttribute("aria-checked", "true");
+    expect(gets.length).toBeGreaterThanOrEqual(3);
   });
 
   it("409 → toast 錯誤文案、Switch 維持原狀", async () => {
