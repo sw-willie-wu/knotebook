@@ -491,9 +491,12 @@ export interface AdminAuthProviderDto {
 export interface AdminAuthProviderImpactDto {
   /** 有 identity 對到這個服務、且未停用的帳號數。 */
   linkedUsers: number;
-  /** 其中沒有密碼、也沒有任何 identity 對到「其他啟用中服務」的帳號數——停用後暫時登不進。 */
+  /** 其中**沒有可用密碼**（無密碼，或帳密登入開關的 DB 值為關，#187 W24）、也沒有任何 identity 對到「其他啟用中服務」的帳號數——停用後暫時登不進。 */
   lockedOutUsers: number;
   issuerResolved: boolean;
+  /** 停用這個服務後，操作的管理員本人是否失去最後一個可用 SSO 身分（他有這個服務的身分、且沒有任何身分對到其他啟用中服務）。
+   *  DB 值為關時這種停用會被 B19 P2 擋（409 `admin_sso_link_required`）；dialog 先說明。 */
+  actingAdminLockedOut: boolean;
 }
 
 /** #187 §9.2：測試連線／先試探的非致命提醒。 */

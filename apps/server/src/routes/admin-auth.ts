@@ -221,7 +221,7 @@ export function adminAuthRoutes(deps: AdminAuthRouteDeps) {
     app.get("/api/admin/auth/providers/:id/impact", { preHandler: app.requireAdmin }, async (request, reply) => {
       const id = providerIdParam(request);
       if (id === null) return sendError(reply, 404, "not_found", NOT_FOUND_MESSAGE);
-      const result = await providerImpact(deps.db, id);
+      const result = await providerImpact(deps.db, id, request.user!.id);
       if (result === null) return sendError(reply, 404, "not_found", NOT_FOUND_MESSAGE);
       return reply.send(result);
     });

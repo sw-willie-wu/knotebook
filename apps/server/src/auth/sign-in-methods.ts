@@ -1,4 +1,4 @@
-import { asc, eq, sql } from "drizzle-orm";
+import { asc, eq, sql, type SQL } from "drizzle-orm";
 import type { AdminAuthSettingsDto } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
 import type { DbOrTx } from "../db/tx.js";
@@ -48,14 +48,23 @@ export function canUnlinkIdentity(
   return false;
 }
 
-/** B19 P2／§9.5 actingAdminHasSso：本人有一個 identity 對到某個啟用中 provider 的 effective issuer。 */
-export async function hasUsableSso(q: DbOrTx, userId: string): Promise<boolean> {
-  const result = await q.execute<{ ok: boolean }>(sql`
-    select exists (
+/**
+ * 「本人有一個 identity 對到某個啟用中 provider 的 effective issuer」的 SQL 述詞——B19 P2／§9.5 `actingAdminHasSso`
+ * （`hasUsableSso`）與 §9.3 `actingAdminLockedOut`（`provider-impact.ts`，排除本服務）共用這一份，不另寫。
+ * `exceptProviderId` 給值時，不計該 provider（以 provider 計、不以 issuer 計：同 issuer 的另一個服務仍算）。
+ */
+export function usableSsoExists(userId: string, exceptProviderId?: string): SQL {
+  const except = exceptProviderId === undefined ? sql`` : sql` and p.id <> ${exceptProviderId}`;
+  return sql`exists (
       select 1 from user_identities i
       join auth_providers p on i.issuer = coalesce(p.resolved_issuer, p.issuer_url)
-      where i.user_id = ${userId} and p.enabled
-    ) as ok`);
+      where i.user_id = ${userId} and p.enabled${except}
+    )`;
+}
+
+/** B19 P2／§9.5 actingAdminHasSso：本人有一個 identity 對到某個啟用中 provider 的 effective issuer。 */
+export async function hasUsableSso(q: DbOrTx, userId: string): Promise<boolean> {
+  const result = await q.execute<{ ok: boolean }>(sql`select ${usableSsoExists(userId)} as ok`);
   return result.rows[0]!.ok;
 }
 
