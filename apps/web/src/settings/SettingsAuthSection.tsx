@@ -151,6 +151,13 @@ function ProviderCard({ provider }: { provider: AdminAuthProviderDto }) {
   const testProvider = useTestAuthProvider();
   const [disableOpen, setDisableOpen] = useState(false);
   const [testState, setTestState] = useState<TestState>(null);
+  // 測試結果只對「當時的 issuer／client ID／secret」有效：這三者任一變了就清掉（render 期間重設，不重掛卡片，編輯 dialog 才不會被卸載）。
+  const configKey = `${provider.issuerUrl}|${provider.clientId}|${provider.hasSecret}`;
+  const [testedConfigKey, setTestedConfigKey] = useState(configKey);
+  if (testedConfigKey !== configKey) {
+    setTestedConfigKey(configKey);
+    setTestState(null);
+  }
 
   async function handleToggle(next: boolean): Promise<void> {
     // 關閉一律先過確認 dialog（顯示人數）；開關本身是受控的，dialog 取消時維持原狀。

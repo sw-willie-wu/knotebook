@@ -330,6 +330,7 @@
       "edit": {
         "button": "Edit",
         "title": "Edit sign-in service",
+        "description": "Leave the client secret empty to keep the current one.",
         "secretPlaceholderSaved": "Saved. Leave blank to keep it.",
         "sortOrder": "Display order",
         "sortOrderInvalid": "Display order must be a whole number from 0 to 100000.",

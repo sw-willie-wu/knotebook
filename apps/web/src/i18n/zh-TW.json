@@ -330,6 +330,7 @@
       "edit": {
         "button": "編輯",
         "title": "編輯登入服務",
+        "description": "用戶端密鑰留空表示沿用目前的密鑰。",
         "secretPlaceholderSaved": "已儲存；留空表示不變更。",
         "sortOrder": "顯示順序",
         "sortOrderInvalid": "顯示順序必須是 0 到 100000 的整數。",

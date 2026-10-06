@@ -292,4 +292,37 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
     fireEvent.click(legacy.getByRole("button", { name: "Test connection" }));
     await waitFor(() => expect(legacy.getByText("Couldn't read a usable OpenID Connect configuration from that issuer URL.")).toBeInTheDocument());
   });
+
+  it("測試連線成功後，列表重抓回來的 issuer 變了 → 舊的「Connection OK」訊息消失（不與未連線提醒並存）", async () => {
+    const server = fakeServer([{ ...LEGACY, issuerResolved: false }]);
+    server.on((method, url) => {
+      if (method !== "POST" || url !== `/api/admin/auth/providers/${LEGACY.id}/test`) return null;
+      return fakeResponse(200, { issuer: "http://idp.lan", warnings: [] });
+    });
+    server.on((method, url) =>
+      method === "GET" && url === `/api/admin/auth/providers/${LEGACY.id}/impact`
+        ? fakeResponse(200, { linkedUsers: 0, lockedOutUsers: 0, issuerResolved: true })
+        : null,
+    );
+    server.on((method, url) => {
+      if (method !== "PATCH" || url !== `/api/admin/auth/providers/${LEGACY.id}`) return null;
+      // 模擬編輯 issuer 的結果：issuer 換掉、resolved 清空、停用
+      server.state.providers = [{ ...LEGACY, issuerUrl: "http://other.lan", issuerResolved: false, enabled: false }];
+      return fakeResponse(200, server.state.providers[0]);
+    });
+    renderSection(server.fetchMock);
+    const legacy = within(await screen.findByRole("region", { name: "SSO" }));
+    fireEvent.click(legacy.getByRole("button", { name: "Test connection" }));
+    await waitFor(() => expect(legacy.getByText("Connection OK. The identity provider reports issuer http://idp.lan.")).toBeInTheDocument());
+
+    fireEvent.click(legacy.getByRole("switch", { name: "On" }));
+    const dialog = within(await screen.findByRole("dialog", { name: "Turn this sign-in service off?" }));
+    fireEvent.click(dialog.getByRole("button", { name: "Turn off" }));
+
+    const after = await screen.findByText("http://other.lan");
+    expect(after).toBeInTheDocument();
+    const refreshed = within(screen.getByRole("region", { name: "SSO" }));
+    expect(refreshed.queryByText(/Connection OK/)).toBeNull();
+    expect(refreshed.getByText(/Hasn't connected successfully yet/)).toBeInTheDocument();
+  });
 });

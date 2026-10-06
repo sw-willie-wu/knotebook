@@ -470,6 +470,7 @@ export function EditProviderDialog({ provider }: { provider: AdminAuthProviderDt
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{t("admin.auth.edit.title")}</DialogTitle>
+          <DialogDescription>{t("admin.auth.edit.description")}</DialogDescription>
         </DialogHeader>
         <form noValidate onSubmit={event => void handleSubmit(event)} className="space-y-4">
           <div className="space-y-1">
