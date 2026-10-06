@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CustomFetch } from "openid-client";
-import { OidcUnavailableError, createOidcRuntimeRegistry, type OidcRuntimeKey } from "../../src/auth/oidc-client.js";
+import { OidcUnavailableError, createOidcRuntimeRegistry, probeOidcIssuer, type OidcRuntimeKey } from "../../src/auth/oidc-client.js";
 import { createFakeIdp } from "../helpers/fake-idp.js";
 
 const ISSUER = "https://idp.example.com";
@@ -81,5 +81,49 @@ describe("createOidcRuntimeRegistry（#187 §6）", () => {
     await expect(registry.get(key({ issuerUrl: longIssuer }), async () => "s")).rejects.toBeInstanceOf(OidcUnavailableError);
     await expect(registry.get(key({ issuerUrl: longIssuer }), async () => "s")).rejects.toBeInstanceOf(OidcUnavailableError);
     expect(idp.counts.discovery).toBe(2);
+  });
+});
+
+describe("registry.probe／probeOidcIssuer（#187 PR2 §9.2：/test 與 /discover 用；不經快取、不送 secret）", () => {
+  it("回 discovery metadata；只打 discovery、不打 token；之後 get 仍要自己 discovery（probe 不寫快取）", async () => {
+    const idp = createFakeIdp(ISSUER);
+    const registry = createOidcRuntimeRegistry({ fetch: idp.fetch });
+    const metadata = await registry.probe(ISSUER);
+    expect(metadata.issuer).toBe(ISSUER);
+    expect(idp.counts).toEqual({ discovery: 1, token: 0, userinfo: 0 });
+    await registry.get(key(), async () => "s");
+    expect(idp.counts.discovery).toBe(2);
+  });
+
+  it("probe 不讀也不動快取：get 建好 runtime 之後 probe 仍重新 discovery；probe 之後再 get 仍吃快取（discovery 不再增加）", async () => {
+    const idp = createFakeIdp(ISSUER);
+    const registry = createOidcRuntimeRegistry({ fetch: idp.fetch });
+    await registry.get(key(), async () => "s");
+    await registry.probe(ISSUER);
+    expect(idp.counts.discovery).toBe(2);
+    await registry.get(key(), async () => "s");
+    expect(idp.counts.discovery).toBe(2);
+  });
+
+  it("discovery 失敗、缺 jwks_uri、網址解析不了 → OidcUnavailableError", async () => {
+    const idp = createFakeIdp(ISSUER);
+    const registry = createOidcRuntimeRegistry({ fetch: idp.fetch });
+    idp.failNext("discovery");
+    await expect(registry.probe(ISSUER)).rejects.toBeInstanceOf(OidcUnavailableError);
+    idp.omitFromMetadata(["jwks_uri"]);
+    await expect(registry.probe(ISSUER)).rejects.toBeInstanceOf(OidcUnavailableError);
+    await expect(registry.probe("not a url")).rejects.toBeInstanceOf(OidcUnavailableError);
+  });
+
+  it("IdP 回報的 issuer 與輸入不符（帶 path 的尾斜線形，spec §2.2）→ OidcUnavailableError", async () => {
+    const idp = createFakeIdp(`${ISSUER}/realms/x`);
+    const registry = createOidcRuntimeRegistry({ fetch: idp.fetch });
+    await expect(registry.probe(`${ISSUER}/realms/x/`)).rejects.toBeInstanceOf(OidcUnavailableError);
+  });
+
+  it("probeOidcIssuer 與 runtime 共用可用性檢查：metadata.issuer 超過 512 字 → OidcUnavailableError", async () => {
+    const longIssuer = `${ISSUER}/${"a".repeat(520)}`;
+    const idp = createFakeIdp(longIssuer);
+    await expect(probeOidcIssuer(longIssuer, { fetch: idp.fetch })).rejects.toBeInstanceOf(OidcUnavailableError);
   });
 });
