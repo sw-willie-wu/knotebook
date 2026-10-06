@@ -211,6 +211,64 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
     expect(server.calls.filter(c => c.method === "DELETE")).toHaveLength(1);
   });
 
+  it("刪除鈕停用的原因是看得到的文字（不靠 title）、以 aria-describedby 連到刪除鈕；停用服務後文字消失、刪除鈕可按", async () => {
+    const enabled = { ...CUSTOM, hasSecret: true, enabled: true };
+    const server = fakeServer([enabled]);
+    server.on((method, url) =>
+      method === "GET" && url.endsWith("/impact") ? fakeResponse(200, { linkedUsers: 0, lockedOutUsers: 0, issuerResolved: true }) : null,
+    );
+    server.on((method, url) => {
+      if (method !== "PATCH" || url !== `/api/admin/auth/providers/${CUSTOM.id}`) return null;
+      server.state.providers = [{ ...enabled, enabled: false }];
+      return fakeResponse(200, server.state.providers[0]);
+    });
+    renderSection(server.fetchMock);
+    const custom = within(await screen.findByRole("region", { name: "<b>Corp</b> & Co" }));
+    const hint = custom.getByText("Turn it off before deleting it.");
+    const deleteButton = custom.getByRole("button", { name: "Delete" });
+    expect(deleteButton).toBeDisabled();
+    expect(deleteButton).not.toHaveAttribute("title");
+    expect(hint.id).not.toBe("");
+    expect(deleteButton).toHaveAttribute("aria-describedby", hint.id);
+    expect(deleteButton).toHaveAccessibleDescription("Turn it off before deleting it.");
+
+    fireEvent.click(custom.getByRole("switch", { name: "On" }));
+    const dialog = within(await screen.findByRole("dialog", { name: "Turn this sign-in service off?" }));
+    fireEvent.click(dialog.getByRole("button", { name: "Turn off" }));
+    await waitFor(() => expect(custom.getByRole("switch", { name: "On" })).toHaveAttribute("aria-checked", "false"));
+    expect(custom.queryByText("Turn it off before deleting it.")).toBeNull();
+    expect(custom.getByRole("button", { name: "Delete" })).toBeEnabled();
+    expect(custom.getByRole("button", { name: "Delete" })).not.toHaveAttribute("aria-describedby");
+  });
+
+  it("停用 dialog 與刪除 dialog 內的顯示名：HTML 形渲染為字面、不成為元素", async () => {
+    const enabled = { ...CUSTOM, hasSecret: true, enabled: true };
+    const server = fakeServer([enabled]);
+    server.on((method, url) =>
+      method === "GET" && url.endsWith("/impact") ? fakeResponse(200, { linkedUsers: 1, lockedOutUsers: 0, issuerResolved: true }) : null,
+    );
+    server.on((method, url) => {
+      if (method !== "PATCH" || url !== `/api/admin/auth/providers/${CUSTOM.id}`) return null;
+      server.state.providers = [{ ...enabled, enabled: false }];
+      return fakeResponse(200, server.state.providers[0]);
+    });
+    renderSection(server.fetchMock);
+    const custom = within(await screen.findByRole("region", { name: "<b>Corp</b> & Co" }));
+
+    fireEvent.click(custom.getByRole("switch", { name: "On" }));
+    const disableDialog = within(await screen.findByRole("dialog", { name: "Turn this sign-in service off?" }));
+    expect(disableDialog.getByText("<b>Corp</b> & Co")).toBeInTheDocument();
+    expect(document.querySelector("b")).toBeNull();
+    fireEvent.click(disableDialog.getByRole("button", { name: "Turn off" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(custom.getByRole("button", { name: "Delete" })).toBeEnabled());
+
+    fireEvent.click(custom.getByRole("button", { name: "Delete" }));
+    const deleteDialog = within(await screen.findByRole("dialog", { name: "Delete this sign-in service?" }));
+    expect(deleteDialog.getByText("<b>Corp</b> & Co")).toBeInTheDocument();
+    expect(document.querySelector("b")).toBeNull();
+  });
+
   it("測試連線：成功顯示 issuer、warning、能力範圍說明，列表重抓後「未連線」提醒消失；502 → 錯誤文案", async () => {
     const server = fakeServer([{ ...LEGACY, issuerResolved: false }]);
     let fail = false;

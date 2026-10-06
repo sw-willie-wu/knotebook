@@ -300,7 +300,44 @@
       "deleteDisabledHint": "請先停用，再刪除。",
       "deleteTitle": "要刪除這個登入服務嗎？",
       "deleteDescription": "已連結的登入方式會保留：之後以同一個 issuer 再新增服務，這些人就能再用它登入。",
-      "deleteLegacyNote": "這個服務使用舊的回呼網址（…/api/auth/oidc/callback）。之後新增的服務會有自己的回呼網址，身分提供者那一側的設定也要跟著改。"
+      "deleteLegacyNote": "這個服務使用舊的回呼網址（…/api/auth/oidc/callback）。之後新增的服務會有自己的回呼網址，身分提供者那一側的設定也要跟著改。",
+      "turnedOff": "這個登入服務已停用。",
+      "create": {
+        "button": "新增登入服務",
+        "title": "新增登入服務",
+        "template": "範本",
+        "displayName": "顯示名稱",
+        "issuerUrl": "Issuer 網址",
+        "clientId": "Client ID",
+        "clientSecret": "Client secret",
+        "check": "先試探",
+        "checking": "試探中…",
+        "checkOk": "找到 issuer {{issuer}}。",
+        "submit": "新增",
+        "submitting": "新增中…",
+        "startsOff": "新增的登入服務一律先停用。測試連線之後再啟用。"
+      },
+      "steps": {
+        "title": "完成設定",
+        "intro": "在身分提供者那一側：",
+        "callback": "登記這個回呼網址：",
+        "scopes": "允許 openid、email、profile 三個 scope。",
+        "client": "設成 confidential client，以 client_secret_post 送出 secret。",
+        "secret": "複製它的 client secret，回來用「編輯」貼上。",
+        "finish": "回到這裡按「測試連線」，再啟用這個服務。",
+        "done": "完成"
+      },
+      "edit": {
+        "button": "編輯",
+        "title": "編輯登入服務",
+        "secretPlaceholderSaved": "已儲存；留空表示不變更。",
+        "sortOrder": "顯示順序",
+        "sortOrderInvalid": "顯示順序必須是 0 以上的整數。",
+        "issuerChangeClearsSecret": "改了 issuer 會清除已儲存的 client secret，並停用這個服務。",
+        "issuerChangeTurnsOff": "改了 issuer 會停用這個服務。請先測試，再重新啟用。",
+        "save": "儲存",
+        "saving": "儲存中…"
+      }
     },
     "title": "使用者管理",
     "description": "建立帳號、指派管理員，或停用已離開的成員。",

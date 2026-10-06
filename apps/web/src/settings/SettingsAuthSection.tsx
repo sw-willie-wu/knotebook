@@ -23,6 +23,7 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "@/components/ui/toast";
 import { copyText } from "@/lib/clipboard";
 import { authErrorMessage } from "./auth-error-message";
+import { CreateProviderDialog, EditProviderDialog } from "./AuthProviderDialogs";
 import { SettingsGroup, SettingsPage } from "./SettingsLayout";
 
 /** 停用前確認（W11：停用前提示受影響人數）。人數是開 dialog 當下的快照（§9.3）。 */
@@ -85,8 +86,12 @@ function DisableProviderDialog({
   );
 }
 
-/** 刪除（W11：刪除要先停用——啟用中時觸發鈕 disabled；server 另以 409 `provider_enabled` 把關）。 */
-function DeleteProviderDialog({ provider }: { provider: AdminAuthProviderDto }) {
+/**
+ * 刪除（W11：刪除要先停用——啟用中時觸發鈕 disabled；server 另以 409 `provider_enabled` 把關）。
+ * 停用原因不用 `title`：disabled 的鈕帶 `pointer-events-none`，滑鼠、鍵盤、觸控都碰不到它的 tooltip——改由卡片渲染可見文字，
+ * 這裡以 `aria-describedby`（`disabledHintId`）連過去。
+ */
+function DeleteProviderDialog({ provider, disabledHintId }: { provider: AdminAuthProviderDto; disabledHintId: string }) {
   const { t } = useTranslation();
   const deleteProvider = useDeleteAuthProvider();
   const [open, setOpen] = useState(false);
@@ -108,7 +113,7 @@ function DeleteProviderDialog({ provider }: { provider: AdminAuthProviderDto }) 
           variant="ghost"
           size="sm"
           disabled={provider.enabled}
-          title={provider.enabled ? t("admin.auth.deleteDisabledHint") : undefined}
+          aria-describedby={provider.enabled ? disabledHintId : undefined}
         >
           {t("admin.auth.delete")}
         </Button>
@@ -141,6 +146,7 @@ type TestState = { ok: true; result: AdminAuthProbeResultDto } | { ok: false; me
 function ProviderCard({ provider }: { provider: AdminAuthProviderDto }) {
   const { t } = useTranslation();
   const headingId = useId();
+  const deleteHintId = useId();
   const patch = usePatchAuthProvider();
   const testProvider = useTestAuthProvider();
   const [disableOpen, setDisableOpen] = useState(false);
@@ -187,9 +193,15 @@ function ProviderCard({ provider }: { provider: AdminAuthProviderDto }) {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <DeleteProviderDialog provider={provider} />
+          <EditProviderDialog provider={provider} />
+          <DeleteProviderDialog provider={provider} disabledHintId={deleteHintId} />
         </div>
       </div>
+      {provider.enabled && (
+        <p id={deleteHintId} className="text-right text-xs text-muted-foreground">
+          {t("admin.auth.deleteDisabledHint")}
+        </p>
+      )}
 
       <dl className="grid grid-cols-[max-content_minmax(0,1fr)] items-center gap-x-3 gap-y-1 text-xs">
         <dt className="text-muted-foreground">{t("admin.auth.issuerLabel")}</dt>
@@ -254,7 +266,7 @@ function ProviderCard({ provider }: { provider: AdminAuthProviderDto }) {
 
 /**
  * #187 §9.4：站台管理 → 登入（`/admin/auth`）。PR2 只有登入服務管理；「允許註冊」與「允許帳密登入」兩個 Switch 是 PR3。
- * 新增與編輯 dialog 在 `AuthProviderDialogs.tsx`（Task 9 接進來）。
+ * 新增與編輯 dialog 在 `AuthProviderDialogs.tsx`。
  */
 export function SettingsAuthSection() {
   const { t } = useTranslation();
@@ -262,7 +274,7 @@ export function SettingsAuthSection() {
 
   return (
     <SettingsPage title={t("admin.auth.title")} description={t("admin.auth.description")}>
-      <SettingsGroup title={t("admin.auth.providersHeading")}>
+      <SettingsGroup title={t("admin.auth.providersHeading")} action={<CreateProviderDialog />}>
         {providersQuery.isPending ? (
           <p className="text-sm text-muted-foreground">{t("app.loading")}</p>
         ) : providersQuery.isError ? (

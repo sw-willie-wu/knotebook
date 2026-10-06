@@ -300,7 +300,44 @@
       "deleteDisabledHint": "Turn it off before deleting it.",
       "deleteTitle": "Delete this sign-in service?",
       "deleteDescription": "Linked sign-ins are kept: if you add a service with the same issuer again, those people can sign in with it again.",
-      "deleteLegacyNote": "This service uses the old callback URL (…/api/auth/oidc/callback). A service you add later gets its own callback URL, so the identity provider's settings would have to change."
+      "deleteLegacyNote": "This service uses the old callback URL (…/api/auth/oidc/callback). A service you add later gets its own callback URL, so the identity provider's settings would have to change.",
+      "turnedOff": "This sign-in service was turned off.",
+      "create": {
+        "button": "Add sign-in service",
+        "title": "Add sign-in service",
+        "template": "Template",
+        "displayName": "Display name",
+        "issuerUrl": "Issuer URL",
+        "clientId": "Client ID",
+        "clientSecret": "Client secret",
+        "check": "Check issuer",
+        "checking": "Checking…",
+        "checkOk": "Found issuer {{issuer}}.",
+        "submit": "Add",
+        "submitting": "Adding…",
+        "startsOff": "New sign-in services start turned off. Test the connection, then turn it on."
+      },
+      "steps": {
+        "title": "Finish setting it up",
+        "intro": "On the identity provider:",
+        "callback": "Register this callback URL:",
+        "scopes": "Allow the scopes openid, email and profile.",
+        "client": "Make it a confidential client that sends its secret with client_secret_post.",
+        "secret": "Copy its client secret, then paste it here with Edit.",
+        "finish": "Back here, press Test connection, then turn the service on.",
+        "done": "Done"
+      },
+      "edit": {
+        "button": "Edit",
+        "title": "Edit sign-in service",
+        "secretPlaceholderSaved": "Saved. Leave blank to keep it.",
+        "sortOrder": "Display order",
+        "sortOrderInvalid": "Display order must be a whole number from 0 up.",
+        "issuerChangeClearsSecret": "Changing the issuer clears the saved client secret and turns this service off.",
+        "issuerChangeTurnsOff": "Changing the issuer turns this service off. Test it, then turn it back on.",
+        "save": "Save",
+        "saving": "Saving…"
+      }
     },
     "title": "User management",
     "description": "Create accounts, grant admin rights, and disable people who have left.",
