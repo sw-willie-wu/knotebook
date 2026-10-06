@@ -45,11 +45,12 @@ Reference: `.env.example` (repo root) is the canonical source — copy it to `.e
 | `PUBLIC_URL` | yes | The externally-reachable base URL. Must be a valid `http(s)://` URL — the server refuses to start otherwise. It should be a bare origin (`scheme://host[:port]`, no path): API tokens and the OAuth endpoints that follow them derive their issuer from the origin only, and the OIDC redirect URIs are built from the origin too, so a sub-path deployment isn't supported. Anything other than a bare origin logs a warning at startup; a path, query, or fragment is dropped. **Changing it later means any app that cached the old issuer or resource has to register and authorize again** (issuer and resource identifier are derived from it) — a client that re-runs discovery keeps working: an app refreshing with the old value gets `invalid_target`; existing Bearer tokens keep working until they expire. See [Deployment prerequisites](#deployment-prerequisites) for the two supported topologies. |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | yes, on first boot (set both) | Creates the first (admin) account at startup — this is the **only** way to initialize a fresh instance; the server refuses to start on an empty/uninitialized database without both set. `ADMIN_PASSWORD` must be 12+ characters. **Only takes effect on first initialization** (empty database, not yet initialized) — once an instance is initialized, these are silently ignored on every subsequent start, with no error or warning (see [Known limitations](./known-limitations.md)). After first login, consider removing these two lines from `.env` — a plaintext password sitting there is one less secret to leak once the account already exists. |
 | `TRUST_PROXY` | no (**set it when you run behind a reverse proxy**) | Whether to believe `X-Forwarded-For`. Unset means the header is ignored and the socket address is used — the safe default when clients can reach the app directly. Behind a proxy, leaving it unset makes every visitor look like the proxy, so they all share one rate-limit and lockout bucket (this includes the per-IP limits on invalid API-token attempts and on the three OAuth endpoints — registration, authorization and token exchange — see [Known limitations](./known-limitations.md)). Accepts a list of trusted proxy addresses (IPs, CIDRs, or `loopback`/`linklocal`/`uniquelocal`), a hop count, or `true`. See [Deployment prerequisites](#deployment-prerequisites). |
+| `PASSWORD_LOGIN_FORCE_ENABLE` | no | Recovery switch, read when the server starts: `true` makes password sign-in work again while **Allow password sign-in** is off in Site admin, without changing that setting — see [SSO-only sign-in](#sso-only-sign-in). Only `true` or `false` (any letter case); empty counts as not set, and any other value stops the server from starting. Remove it once you're done. |
 | `POSTGRES_PASSWORD` (docker-compose.yml, not `.env.example`) | no | Overrides the `db` service's Postgres password (default `knotebook`). Only applied by Postgres while initializing a brand-new (empty) data directory — see [Known limitations](./known-limitations.md) for how to change it after the `db` volume already exists. |
 
 ## Sign-in providers
 
-Signing in through an identity provider (OpenID Connect) is optional; email-and-password sign-in works alongside it. Admins manage sign-in services in **Site admin → Sign-in** (`/admin/auth`; **Site admin** is in the user menu, shown to admins only).
+Signing in through an identity provider (OpenID Connect) is optional; email-and-password sign-in works alongside it unless you turn it off (see [SSO-only sign-in](#sso-only-sign-in)). Admins manage sign-in services in **Site admin → Sign-in** (`/admin/auth`; **Site admin** is in the user menu, shown to admins only).
 
 **Adding one:**
 
@@ -68,7 +69,7 @@ When registering the client on the identity provider side:
 
 **Editing.** The client secret is write-only: it's never shown again, and leaving the field blank keeps the saved one. **Changing a service's issuer clears its saved client secret and turns it off** (if you enter a new secret in the same edit, that secret is kept, but the service is still turned off): enter the secret again if needed, test, and turn it back on. A change of issuer is logged as `登入服務的 issuer 被寫入`, with the old and new issuer reduced to scheme, host, port and path, the account that saved it, and whether a secret remains (the edit dialog sends the issuer only when you change it; through the API, every request that includes an issuer is logged, changed or not). Changing the issuer, client ID or secret makes a sign-in already in progress through that service fail when the person comes back from the identity provider (`oidc_unavailable`); changing only the display name or display order doesn't.
 
-**Turning off and deleting.** Turning a service off removes its button from the login page, and a sign-in already in progress through it fails when the person comes back (`oidc_unavailable`). Accounts and the sign-ins linked to them are kept, people who are already signed in stay signed in, and turning it back on lets those people sign in with it again. Before it's turned off, Knotebook shows how many accounts (disabled ones aren't counted) are linked to it and how many of those would have no other way to sign in — no password and no sign-in linked to another enabled service; see [Known limitations](./known-limitations.md) for when these counts can be off. A service has to be turned off before it can be deleted. Deleting it also keeps the linked sign-ins: add a service with the same issuer again and those people can sign in with it again. Deleting the service imported from `OIDC_*` drops the old callback URL — a service you add afterwards gets its own callback URL, so the identity provider's registration has to change.
+**Turning off and deleting.** Turning a service off removes its button from the login page, and a sign-in already in progress through it fails when the person comes back (`oidc_unavailable`). Accounts and the sign-ins linked to them are kept, people who are already signed in stay signed in, and turning it back on lets those people sign in with it again. Before it's turned off, Knotebook shows how many accounts (disabled ones aren't counted) are linked to it and how many of those would have no other way to sign in — no usable password (none, or **Allow password sign-in** is off) and no sign-in linked to another enabled service — and warns you when it is your own last sign-in linked to an enabled service; see [Known limitations](./known-limitations.md) for when these counts can be off. A service has to be turned off before it can be deleted. Deleting it also keeps the linked sign-ins: add a service with the same issuer again and those people can sign in with it again. Deleting the service imported from `OIDC_*` drops the old callback URL — a service you add afterwards gets its own callback URL, so the identity provider's registration has to change.
 
 **Registering the client — quick reference.** These are the identity providers' own screens, which they may rearrange; use the callback URL shown on the service's card.
 
@@ -83,12 +84,56 @@ A couple of operational notes:
 
 **How SSO sign-in finds the account.** Knotebook recognizes a person by the identity provider's issuer and subject (`sub`) — not by email. On a first sign-in with an identity that isn't linked to any account yet:
 
-- if no account has that email (compared case-insensitively), a new account is created;
+- if no account has that email (compared case-insensitively), a new account is created — unless **Allow registration** is off (see [Accounts](#accounts)), in which case the sign-in is refused;
 - if one account already has that email, nothing is merged automatically — the person is shown a **Link your sign-in** page and has to prove the account is theirs, either with that account's password or by signing in once more with a sign-in service already linked to it (one for a different identity provider). If the account has neither, the sign-in stops with an error asking them to contact the site administrator.
 
 Signing in through an identity provider never creates a second account for an email that already has one. The identity provider's `email_verified` claim is not used for anything.
 
 See [Known limitations](./known-limitations.md) for the full list of sign-in rough edges (no RP-initiated logout, switching identity providers, the per-IP rate limit on the sign-in endpoints, concurrent multi-tab sign-in, etc.).
+
+## Accounts
+
+**Registering.** People can create their own account at `/register`: with an email and a password while password sign-in is allowed, or with **Sign up with …** for a sign-in service that is turned on (that is the same as signing in through it for the first time). There is no email verification: the account is created as soon as the form is sent, and the person is signed in. While registration is allowed, the login page shows a **Create an account** button.
+
+**Allow registration** (**Site admin → Sign-in**) is on by default, including on instances upgraded from v0.5. Turning it off stops both ways of creating an account on your own: the registration page and `POST /api/auth/register` refuse, and so does a first sign-in through a sign-in service by someone whose email has no account (`registration_disabled`). People whose sign-in is already linked keep signing in, the account-linking page below keeps working, and admins can still create accounts in **Site admin → Users**.
+
+**When an email already has an account.** A first sign-in through a sign-in service whose email (compared case-insensitively) belongs to an existing account doesn't create a second account and isn't merged automatically. The person is shown **Link your sign-in** and proves the account is theirs with its password, or by signing in with another sign-in service already linked to it (see [How SSO sign-in finds the account](#sign-in-providers) for when neither is possible). Registering with a password doesn't open a separate account for that email either (`409 email_taken`).
+
+**Settings → Account** has a **Sign-in methods** group that lists the sign-in services linked to the account. From there a person can:
+
+- link another sign-in service that is turned on — they sign in to it once; its email doesn't have to match;
+- unlink one, as long as the account keeps another way to sign in: another linked sign-in service that is turned on, or a password while **Allow password sign-in** is on (the `PASSWORD_LOGIN_FORCE_ENABLE` recovery switch doesn't count).
+
+While password sign-in is allowed, an account with no password also gets **Add a password** in **Settings → Account**. Adding one doesn't ask them to sign in again; it signs out their other sessions, and their API tokens keep working.
+
+### SSO-only sign-in
+
+**Allow password sign-in** (**Site admin → Sign-in**) is on by default, including on upgraded instances. Turn it off to have everyone, admins included, sign in through a sign-in service:
+
+- the login page has no email-and-password form — only the **Sign in with …** buttons (and **Create an account** while registration is allowed) — the registration page offers only **Sign up with …**, and the API refuses password sign-in, password registration and adding a password (`403 password_login_disabled`);
+- people who are already signed in stay signed in, and API tokens, connected apps and MCP clients keep working;
+- someone with no linked sign-in service can move over on their own: they sign in through a sign-in service with the same email for the first time and enter the account's password on the **Link your sign-in** page, which still accepts passwords;
+- changing a password still works, and an account that has to change its password still has to.
+
+Turning it off is refused unless at least one sign-in service is turned on and you yourself have a linked sign-in service that is turned on (`409 sso_provider_required` / `admin_sso_link_required`). While it is off, turning a sign-in service off — or changing its issuer, which turns it off — is checked the same way. Other admins aren't checked: make sure they have linked one too.
+
+**Recovery.** If password sign-in is off and nobody can sign in through SSO (the identity provider is down, the client secret expired, …):
+
+1. Add `PASSWORD_LOGIN_FORCE_ENABLE=true` to `.env`.
+2. Restart the server. Password sign-in is accepted again, for everyone, whatever the setting says. The setting itself isn't changed, and Site admin shows a warning while the variable is `true`.
+3. Sign in with your password.
+4. Fix the sign-in service, or turn **Allow password sign-in** back on in Site admin.
+5. Remove `PASSWORD_LOGIN_FORCE_ENABLE` from `.env`.
+6. Restart again.
+
+`PASSWORD_LOGIN_FORCE_ENABLE` accepts only `true` or `false` (in any letter case); an empty value counts as not set, and any other value stops the server from starting. While it is `true`, the server logs a warning at startup. It also logs an error at startup when password sign-in is off, the variable isn't `true`, and no sign-in service is turned on.
+
+### Adding members to a closed site
+
+When both **Allow registration** and **Allow password sign-in** are off, nobody can register, a first sign-in through a sign-in service doesn't create an account, and password sign-in is refused. Two ways to add someone:
+
+1. In **Site admin → Users**, create an account with the email they use on the identity provider and a temporary password, and give them the password. They sign in with **Sign in with …**, enter the temporary password on the **Link your sign-in** page, and are then asked to choose a new password before they get in (it isn't used to sign in while password sign-in is off, but the temporary one has to be replaced).
+2. Turn **Allow registration** on for a while, have them sign in with **Sign in with …** for the first time — that creates their account — and turn it off again. While it is on, anyone who can sign in to a sign-in service that is turned on, with an email that has no account yet, can create an account.
 
 ## Content Security Policy
 
@@ -124,7 +169,9 @@ then start that build. If you're upgrading from 0.4.1 or earlier, there were no 
 0. **"Must change password" is now cleared only by changing the password.** An account an admin created for someone has to change its password on first sign-in. Signing in with SSO, or linking SSO to the account, no longer lets it skip that step. Accounts that already signed in with SSO before the upgrade aren't affected; accounts that haven't signed in yet, and accounts created from now on, still have to change the password once.
 1. **`OIDC_*` are imported once.** On the first start, `OIDC_ISSUER_URL`/`OIDC_CLIENT_ID`/`OIDC_CLIENT_SECRET` become a sign-in provider named "SSO" with the same callback URL — nothing to change on the identity provider side, and identities already linked to accounts keep working. Keep all three in `.env` for that first start: if they're missing or incomplete then, nothing is imported and they aren't read again. The same goes for an issuer that doesn't start with lowercase `http://` or `https://`, or an issuer or client ID longer than 512 characters: that is only logged as a warning, and nothing is imported. Remove them from `.env` afterwards; they're ignored from then on.
 2. **Linking by verified email is gone.** Before, a first SSO sign-in whose email matched an existing account was linked to it automatically when the identity provider said the email was verified. Now identities that were already linked keep working, but a new one is never linked automatically: the person is asked to prove the account is theirs (its password, or another sign-in service already linked to it).
-3. **Rolling back to v0.5:** put the three `OIDC_*` variables back into `.env` first — v0.5 only knows SSO from them. Identities linked after the upgrade aren't visible to v0.5, and v0.5 links by verified email again while it runs; whatever it links is picked up again on the next upgrade. So an SSO identity created or linked after the upgrade can sign in under v0.5 only if the identity provider marks its email as verified. When you upgrade again, remove the `OIDC_*` variables you put back — v0.6 doesn't import them a second time and only logs that they're ignored.
+3. **Registration is open after the upgrade.** **Allow registration** starts on, upgraded instances included. A first sign-in through a sign-in service still creates an account, as before; what's new is a password registration page (`/register`) that anyone who can reach the site can use. If you don't want that, turn **Allow registration** off in **Site admin → Sign-in** — that also stops first sign-ins through a sign-in service from creating accounts.
+4. **Allow password sign-in starts on**, so password sign-in works as before. To use sign-in services only, turn it off in **Site admin → Sign-in** — read [SSO-only sign-in](#sso-only-sign-in) and its recovery steps first.
+5. **Rolling back to v0.5:** put the three `OIDC_*` variables back into `.env` first — v0.5 only knows SSO from them. Identities linked after the upgrade aren't visible to v0.5, and v0.5 links by verified email again while it runs; whatever it links is picked up again on the next upgrade. So an SSO identity created or linked after the upgrade can sign in under v0.5 only if the identity provider marks its email as verified. When you upgrade again, remove the `OIDC_*` variables you put back — v0.6 doesn't import them a second time and only logs that they're ignored.
 
 Prefer rolling forward; if you must roll back, treat it as a temporary state.
 
