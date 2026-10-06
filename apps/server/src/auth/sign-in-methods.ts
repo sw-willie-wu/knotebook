@@ -1,4 +1,6 @@
 import { asc, eq, sql } from "drizzle-orm";
+import type { AdminAuthSettingsDto } from "@knotebook/shared";
+import type { Db } from "../db/index.js";
 import type { DbOrTx } from "../db/tx.js";
 import { authProviders } from "../db/schema.js";
 
@@ -55,4 +57,20 @@ export async function hasUsableSso(q: DbOrTx, userId: string): Promise<boolean> 
       where i.user_id = ${userId} and p.enabled
     ) as ok`);
   return result.rows[0]!.ok;
+}
+
+/** §9.5 `passwordLoginImpact`（快照；權威判斷在 PATCH）。`actingAdminHasSso` 與 B19 P2 同一個函式（§14.1-28）。 */
+export async function passwordLoginImpact(db: Db, actorUserId: string): Promise<AdminAuthSettingsDto["passwordLoginImpact"]> {
+  const result = await db.execute<{ without_sso: number; enabled: number }>(sql`
+    select
+      (select count(*)::int from users u
+        where u.disabled_at is null
+          and not exists (
+            select 1 from user_identities i
+            join auth_providers p on i.issuer = coalesce(p.resolved_issuer, p.issuer_url)
+            where i.user_id = u.id and p.enabled
+          )) as without_sso,
+      (select count(*)::int from auth_providers where enabled) as enabled`);
+  const row = result.rows[0]!;
+  return { usersWithoutSso: row.without_sso, actingAdminHasSso: await hasUsableSso(db, actorUserId), enabledProviders: row.enabled };
 }
