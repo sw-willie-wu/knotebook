@@ -172,7 +172,7 @@ describe("DELETE /api/auth/identities/:id（#187 §8.2）", () => {
     const u = await insertPasswordUser(db);
     const target = await identity(db, u.id, A, "sa");
     const cookies = await cookieOf(u.id);
-    await unlink(app, cookies, target);
+    expect((await unlink(app, cookies, target)).statusCode).toBe(204);
     expect((await app.inject({ method: "GET", url: "/api/auth/me", cookies })).statusCode).toBe(200);
   });
 
@@ -200,7 +200,9 @@ describe("DELETE /api/auth/identities/:id（#187 §8.2）", () => {
     expect(await identitiesOf(db, u.id)).toEqual([{ issuer: B, sub: "sb" }]);
   });
 
-  it("C24：SSO 登入與解除同一身分並發 → 登入等解除提交、0 列照樣簽 session（r3-N10），無 40P01", async () => {
+  // 這案不呼叫 P2（holder 以手打 SQL 擺出解除交易的鎖足跡）：守的只是 r3-N10「登入影響 0 列照樣簽 session」。
+  // P2 與登入的真並發（C24）見下一案。
+  it("r3-N10：登入撞上解除已刪未提交的身分 → 等它提交、0 列照樣簽 session", async () => {
     const t = await buildOidcApp({ providers: [{ key: "a", issuerUrl: A }] });
     const u = await insertPasswordUser(t.db);
     const idA = await identity(t.db, u.id, A, "sa");
@@ -219,5 +221,35 @@ describe("DELETE /api/auth/identities/:id（#187 §8.2）", () => {
     } finally {
       await holder.end();
     }
+  });
+
+  it("C24：真 P2 持 users 鎖卡在身分列上 → 真 SSO 登入（同帳號另一身分）不等 users、照樣完成；放行後 P2 → 204、無 40P01", async () => {
+    const t = await buildOidcApp({ providers: [{ key: "a", issuerUrl: A }, { key: "b", issuerUrl: B }] });
+    const u = await insertPasswordUser(t.db);
+    const idA = await identity(t.db, u.id, A, "sa");
+    await identity(t.db, u.id, B, "sb");
+    const within = <T>(p: Promise<T>, ms: number) => Promise.race([p, new Promise<"timeout">(r => setTimeout(() => r("timeout"), ms))]);
+    const holder = await holderFor(t.db);
+    try {
+      // holder＝「登入 A 進行中」的鎖足跡（A1 login 分支：site_settings FOR SHARE＋UPDATE 該身分列，未提交）。
+      await holder.query("begin");
+      await holder.query("select 1 from site_settings where singleton for share");
+      await holder.query("update user_identities set last_login_at = now() where id = $1", [idA]);
+      const del = unlink(t.app, await cookieOf(u.id), idA);
+      // 真 P2 已持 users NKU＋site_settings SHARE，卡在刪 A 那一列。
+      expect(await waitForBlockedOrSettled(t.db.$client, del)).toBe("blocked");
+      const login = ssoRoundTrip(t.app, t.idp("b"), { loginUrl: `/api/auth/oidc/login/${t.provider("b").id}`, claims: { sub: "sb", email: u.email } });
+      const r = await within(login, 5000);
+      expect(r).not.toBe("timeout");
+      if (r !== "timeout") {
+        expect(r.callbackRes.headers.location).toBe("/");
+        expect(r.cookies[SESSION_COOKIE]).toBeTruthy();
+      }
+      await holder.query("commit");
+      expect((await del).statusCode).toBe(204);
+    } finally {
+      await holder.end();
+    }
+    expect(await identitiesOf(t.db, u.id)).toEqual([{ issuer: B, sub: "sb" }]);
   });
 });
