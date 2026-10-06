@@ -66,12 +66,17 @@ describe("POST /api/auth/register（#187 §9.1、B9）", () => {
   });
 
   it("疑點 4 上限（總管裁定）：email 255 字元 → 400（中文訊息）、254 → 201；顯示名 101 個 code point → 400、100 個 → 201", async () => {
-    const { app } = await buildTestApp();
+    const { app, db } = await buildTestApp();
     const emailOf = (n: number) => `${"a".repeat(n - "@example.com".length)}@example.com`;
     const long = await register(app, { email: emailOf(255), password: PW });
     expect(long.statusCode).toBe(400);
     expect(long.json().error.message).toBe("email 不得超過 254 個字元");
-    expect((await register(app, { email: emailOf(254), password: PW })).statusCode).toBe(201);
+    const longLocal = await register(app, { email: emailOf(254), password: PW });
+    expect(longLocal.statusCode).toBe(201);
+    // R1（I1）：不帶顯示名時預設值＝local-part（242 字元）截到前 100 個 code point。
+    expect(longLocal.json().displayName).toBe("a".repeat(100));
+    const [longRow] = await db.select().from(users).where(eq(users.id, longLocal.json().id));
+    expect(longRow!.displayName).toBe("a".repeat(100));
     const tooLongName = await register(app, { email: "n1@example.com", password: PW, displayName: "😀".repeat(101) });
     expect(tooLongName.json().error).toEqual({ code: "invalid_body", message: "顯示名稱不得超過 100 個字" });
     expect((await register(app, { email: "n2@example.com", password: PW, displayName: "😀".repeat(100) })).statusCode).toBe(201);

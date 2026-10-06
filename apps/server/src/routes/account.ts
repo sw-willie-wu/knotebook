@@ -67,7 +67,8 @@ export function accountRoutes(deps: AccountRouteDeps) {
       const parsed = registerBodySchema.safeParse(request.body);
       if (!parsed.success) return sendInvalidBody(reply, parsed.error);
       const email = normalizeEmail(parsed.data.email);
-      const displayName = parsed.data.displayName ?? email.split("@")[0]!;
+      // 不填顯示名 → email local-part，截到上限個 code point（local-part 可長到 242 字元，不截就繞過上限；以 code point 切，不切斷代理對）。
+      const displayName = parsed.data.displayName ?? Array.from(email.split("@")[0]!).slice(0, MAX_REGISTER_DISPLAY_NAME_LENGTH).join("");
       if (parsed.data.password.length < MIN_PASSWORD_LENGTH) {
         return sendError(reply, 400, "password_too_short", `密碼至少需要 ${MIN_PASSWORD_LENGTH} 字元`);
       }
