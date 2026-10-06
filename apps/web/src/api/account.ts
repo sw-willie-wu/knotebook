@@ -1,0 +1,26 @@
+import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
+import type { IdentitiesDto, OidcRedirectDto } from "@knotebook/shared";
+import { api } from "./client";
+
+/** #187 §8.3：`GET /api/auth/identities`（session-only）。 */
+export const IDENTITIES_QUERY_KEY = ["identities"] as const;
+
+export function useIdentities(): UseQueryResult<IdentitiesDto> {
+  return useQuery({ queryKey: IDENTITIES_QUERY_KEY, queryFn: () => api<IdentitiesDto>("/api/auth/identities") });
+}
+
+export function useUnlinkIdentity() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api<void>(`/api/auth/identities/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: IDENTITIES_QUERY_KEY }),
+  });
+}
+
+/** §7.6：手動連結起點。B7：一律送 JSON body `{}`（server 拒收無 body 的 POST）。成功後呼叫端 `location.assign(url)`。 */
+export function useStartLink() {
+  return useMutation({
+    mutationFn: (providerId: string) =>
+      api<OidcRedirectDto>(`/api/auth/oidc/link/${encodeURIComponent(providerId)}`, { method: "POST", body: "{}" }),
+  });
+}

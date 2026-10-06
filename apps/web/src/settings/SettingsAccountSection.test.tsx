@@ -55,6 +55,9 @@ function baseFetchHandlers(user: UserDto) {
     if (url === "/api/notes" && method === "GET") {
       return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) });
     }
+    if (url === "/api/auth/identities" && method === "GET") {
+      return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ identities: [], linkable: [], hasPassword: user.hasPassword, passwordLoginEnabled: true }) });
+    }
     if (url === "/api/auth/tokens" && method === "GET") {
       return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ tokens: [] }) });
     }

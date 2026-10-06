@@ -10,6 +10,7 @@ import { toast } from "@/components/ui/toast";
 import { useSession } from "@/auth/useSession";
 import { ApiTokensSection } from "./ApiTokensSection";
 import { SettingsGroup, SettingsPage } from "./SettingsLayout";
+import { SignInMethodsSection } from "./SignInMethodsSection";
 
 /** 逐檔複製的既有慣例（無共用 helper——比照 ShareDialog/SettingsUsersSection）。 */
 function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
@@ -114,6 +115,7 @@ export function SettingsAccountSection() {
   return (
     <SettingsPage title={t("settings.nav.account")} description={t("settings.account.description")}>
       <HandleSection />
+      <SignInMethodsSection />
       {/* #107：與 HandleSection 同層、在 hasPassword 三元式之外——SSO-only 帳號
           也要能建 PAT。 */}
       <ApiTokensSection />
