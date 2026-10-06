@@ -13,7 +13,8 @@ export function useUnlinkIdentity() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api<void>(`/api/auth/identities/${encodeURIComponent(id)}`, { method: "DELETE" }),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: IDENTITIES_QUERY_KEY }),
+    // 失敗（409／404）也代表 server 狀態已與畫面不同：成敗皆重抓。
+    onSettled: () => void queryClient.invalidateQueries({ queryKey: IDENTITIES_QUERY_KEY }),
   });
 }
 

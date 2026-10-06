@@ -89,8 +89,31 @@ describe("SignInMethodsSection（#187 §8.5）", () => {
     fireEvent.click(row1.getByRole("button", { name: "Unlink" }));
     const dialog = within(await screen.findByRole("dialog", { name: "Unlink this sign-in service?" }));
     fireEvent.click(dialog.getByRole("button", { name: "Unlink" }));
-    await waitFor(() => expect(screen.queryByRole("listitem", { name: "<b>GitLab</b>" })).not.toBeInTheDocument());
+    // 點確認後 dialog 仍開著、Radix 把背景標 aria-hidden：先等 dialog 消失（列被重抓移除、連同 Dialog 卸載），再以 hidden:true 斷言列不存在。
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("listitem", { name: "<b>GitLab</b>", hidden: true })).not.toBeInTheDocument());
+    expect(screen.getByRole("listitem", { name: /gone\.example/ })).toBeInTheDocument();
     expect(calls.some(c => c.method === "DELETE" && c.url === "/api/auth/identities/i1")).toBe(true);
+    expect(calls.filter(c => c.method === "GET" && c.url === "/api/auth/identities").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("解除 409 → 也重抓列表（server 狀態已與畫面不同）：列表依新狀態更新", async () => {
+    let current = BASE;
+    setup(BASE, "/settings/account", (m, u) => {
+      if (m === "DELETE" && u === "/api/auth/identities/i1") {
+        current = { ...BASE, identities: [BASE.identities[1]!] }; // 失敗當下另一處已解除了這一列
+        return fakeResponse(409, { error: { code: "last_login_method", message: "x" } });
+      }
+      if (m === "GET" && u === "/api/auth/identities") return fakeResponse(200, current);
+      return null;
+    });
+    const row1 = within(await screen.findByRole("listitem", { name: "<b>GitLab</b>" }));
+    fireEvent.click(row1.getByRole("button", { name: "Unlink" }));
+    const dialog = within(await screen.findByRole("dialog", { name: "Unlink this sign-in service?" }));
+    fireEvent.click(dialog.getByRole("button", { name: "Unlink" }));
+    expect(await screen.findByText("This is the account's only way to sign in, so it can't be unlinked.")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("listitem", { name: "<b>GitLab</b>", hidden: true })).not.toBeInTheDocument());
   });
 
   it("解除 409 last_login_method → toast 錯誤文案、列表仍在", async () => {
@@ -141,6 +164,11 @@ describe("SignInMethodsSection（#187 §8.5）", () => {
 
   it.each([
     ["identity_taken", "This sign-in identity is already linked to a different account."],
+    ["identity_already_linked", "This account is already linked to a different identity on the same sign-in service."],
+    ["oidc_link_session_mismatch", "You're no longer signed in as the account you were linking. Sign in and try again."],
+    ["account_disabled", "This account has been disabled."],
+    ["oidc_exchange_failed", "We couldn't complete sign-in with your identity provider. Please try again."],
+    ["oidc_unavailable", "Single sign-on is unavailable right now. Please try again later or sign in with your password."],
     ["oidc_state_mismatch", "Your sign-in session expired or is invalid. Please try signing in again."],
     ["oidc_claim_too_long", "Your identity provider sent an email address or account ID that is too long to use."],
   ])("?link_error=%s → 對應文案", async (code, text) => {
