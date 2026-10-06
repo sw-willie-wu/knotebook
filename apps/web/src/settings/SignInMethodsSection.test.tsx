@@ -116,6 +116,26 @@ describe("SignInMethodsSection（#187 §8.5）", () => {
     await waitFor(() => expect(screen.queryByRole("listitem", { name: "<b>GitLab</b>", hidden: true })).not.toBeInTheDocument());
   });
 
+  it("已有資料時 refetch 失敗：列表仍在，不被換成錯誤文字", async () => {
+    let failGets = false;
+    setup(BASE, "/settings/account", (m, u) => {
+      if (m === "DELETE" && u === "/api/auth/identities/i1") {
+        failGets = true; // 409 後的重抓會失敗
+        return fakeResponse(409, { error: { code: "last_login_method", message: "x" } });
+      }
+      if (failGets && m === "GET" && u === "/api/auth/identities") return fakeResponse(500, { error: { code: "internal", message: "x" } });
+      return null;
+    });
+    const row1 = within(await screen.findByRole("listitem", { name: "<b>GitLab</b>" }));
+    fireEvent.click(row1.getByRole("button", { name: "Unlink" }));
+    const dialog = within(await screen.findByRole("dialog", { name: "Unlink this sign-in service?" }));
+    fireEvent.click(dialog.getByRole("button", { name: "Unlink" }));
+    expect(await screen.findByText("This is the account's only way to sign in, so it can't be unlinked.")).toBeInTheDocument();
+    await new Promise(r => setTimeout(r, 50)); // 讓失敗的重抓結算
+    expect(screen.getByRole("listitem", { name: "<b>GitLab</b>", hidden: true })).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("解除 409 last_login_method → toast 錯誤文案、列表仍在", async () => {
     setup(BASE, "/settings/account", (m, u) =>
       m === "DELETE" && u === "/api/auth/identities/i1" ? fakeResponse(409, { error: { code: "last_login_method", message: "x" } }) : null);

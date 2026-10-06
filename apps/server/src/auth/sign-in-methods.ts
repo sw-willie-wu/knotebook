@@ -50,7 +50,7 @@ export function canUnlinkIdentity(
 
 /**
  * 「本人有一個 identity 對到某個啟用中 provider 的 effective issuer」的 SQL 述詞——B19 P2／§9.5 `actingAdminHasSso`
- * （`hasUsableSso`）與 §9.3 `actingAdminLockedOut`（`provider-impact.ts`，排除本服務）共用這一份，不另寫。
+ * （`hasUsableSso`）與 §9.3 `actingAdminLockedOut`（`provider-impact.ts`，排除本服務）共用這一份。另有兩處因綁參數寫不出相關子查詢（要對外層每一列 `u`／`l` 判斷），內聯了同一個述詞：同檔 `passwordLoginImpact` 的 `usersWithoutSso` 子查詢，與 `auth/provider-impact.ts` 的 locked 子句（後者另排除本服務）；改述詞時三處要一起改。
  * `exceptProviderId` 給值時，不計該 provider（以 provider 計、不以 issuer 計：同 issuer 的另一個服務仍算）。
  */
 export function usableSsoExists(userId: string, exceptProviderId?: string): SQL {

@@ -43,7 +43,8 @@ export function SiteAccessSettings() {
       </SettingsGroup>
     );
   }
-  if (settings.isError) {
+  // 只在沒有資料時換成錯誤文字：有舊資料時 refetch 失敗（isError 也為真）不能把開關與開著的確認 dialog 整組拆掉。
+  if (settings.data === undefined) {
     return (
       <SettingsGroup title={t("admin.auth.access.title")}>
         <p role="alert" className="text-sm text-destructive">{authErrorMessage(t, settings.error)}</p>
@@ -63,7 +64,7 @@ export function SiteAccessSettings() {
     <SettingsGroup title={t("admin.auth.access.title")}>
       <div className="space-y-4">
         {s.passwordLoginForced && (
-          <p role="alert" className="text-sm text-destructive">{t("admin.auth.access.forced")}</p>
+          <p role="status" className="text-sm text-destructive">{t("admin.auth.access.forced")}</p>
         )}
         <div className="space-y-1">
           <div className="flex items-center gap-2">

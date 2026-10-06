@@ -17,7 +17,7 @@ const BASE: AdminAuthSettingsDto = {
 };
 
 function setup(initial: AdminAuthSettingsDto, onPatch: (body: Record<string, boolean>) => Response | AdminAuthSettingsDto) {
-  const state = { settings: initial };
+  const state = { settings: initial, failGets: false };
   const patches: Array<Record<string, boolean>> = [];
   const gets: string[] = [];
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -25,6 +25,7 @@ function setup(initial: AdminAuthSettingsDto, onPatch: (body: Record<string, boo
     const method = (init?.method ?? "GET").toUpperCase();
     if (url === "/api/admin/auth/settings" && method === "GET") {
       gets.push(url);
+      if (state.failGets) return fakeResponse(500, { error: { code: "internal", message: "x" } });
       return fakeResponse(200, state.settings);
     }
     if (url === "/api/admin/auth/settings" && method === "PATCH") {
@@ -123,6 +124,26 @@ describe("SiteAccessSettings（#187 §9.4、§9.5）", () => {
     setup(BASE, () => BASE);
     await screen.findByRole("switch", { name: "Allow password sign-in" });
     expect(screen.queryByText(/PASSWORD_LOGIN_FORCE_ENABLE/)).not.toBeInTheDocument();
+  });
+
+  it("forced 警告是 role=status（不是 alert：頁面載入就在的靜態說明，不該打斷讀屏）", async () => {
+    setup({ ...BASE, passwordLoginForced: true, passwordLoginEnabled: false }, body => ({ ...BASE, ...body }));
+    const warning = await screen.findByText(/forced on by the environment variable PASSWORD_LOGIN_FORCE_ENABLE/);
+    expect(warning).toHaveAttribute("role", "status");
+  });
+
+  it("已有資料時 refetch 失敗：開關與開著的確認 dialog 仍在，不被換成錯誤文字", async () => {
+    const { state, gets } = setup(BASE, () => BASE);
+    const sw = await screen.findByRole("switch", { name: "Allow password sign-in" });
+    state.failGets = true;
+    fireEvent.click(sw);
+    await screen.findByRole("dialog", { name: "Turn off password sign-in?" });
+    await waitFor(() => expect(gets).toHaveLength(2));
+    // 讓失敗的 refetch 結算完（query 進入 isError）再斷言。
+    await new Promise(r => setTimeout(r, 50));
+    expect(screen.getByRole("dialog", { name: "Turn off password sign-in?" })).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Allow password sign-in", hidden: true })).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("開確認 dialog 時重抓：人數是開 dialog 當下的（頁面載入後 server 值變了）", async () => {

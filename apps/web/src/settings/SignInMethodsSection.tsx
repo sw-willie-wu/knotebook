@@ -129,7 +129,7 @@ export function SignInMethodsSection() {
     <SettingsGroup title={t("settings.account.signInMethods.title")} description={t("settings.account.signInMethods.description")}>
       {identities.isPending ? (
         <p className="text-sm text-muted-foreground">{t("app.loading")}</p>
-      ) : identities.isError ? (
+      ) : identities.data === undefined ? (
         <p role="alert" className="text-sm text-destructive">{authErrorMessage(t, identities.error)}</p>
       ) : (
         <div className="space-y-3">

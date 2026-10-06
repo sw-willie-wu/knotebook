@@ -119,7 +119,7 @@ export function adminAuthRoutes(deps: AdminAuthRouteDeps) {
       return reply.send(await settingsDto(request));
     });
 
-    app.get("/api/admin/auth/providers",{ preHandler: app.requireAdmin }, async () => {
+    app.get("/api/admin/auth/providers", { preHandler: app.requireAdmin }, async () => {
       const rows = await deps.db
         .select(adminProviderColumns())
         .from(authProviders)
