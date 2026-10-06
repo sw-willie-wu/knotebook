@@ -7,6 +7,7 @@ import { createPool } from "./db/pool.js";
 import { runMigrations } from "./db/migrate.js";
 import { initializeInstance } from "./auth/bootstrap.js";
 import { backfillLegacyOidcIdentities, importLegacyOidcEnv } from "./auth/legacy-oidc-env.js";
+import { warnPasswordLoginAtBoot } from "./auth/password-login.js";
 import { backfillHandleRegistry } from "./auth/handle.js";
 import { UserGate } from "./auth/session.js";
 import { LoginThrottle } from "./auth/rate-limit.js";
@@ -118,6 +119,8 @@ async function main(): Promise<void> {
     process.exit(1);
   }
   await backfillLegacyOidcIdentities(db, logger);
+  // #187 §10.4：帳密登入開關的開機提醒（env 救援仍開著、或「關閉＋零個啟用 provider」）。只寫 log、不擋啟動；在 listen 之前。
+  await warnPasswordLoginAtBoot(db, config, logger);
 
   // #122：handle registry 冪等補登（回滾窗期由舊碼建立、無 registry 列的帳號）。
   // **必須在 `app.listen` 之前**——否則補登與首個改名請求可交錯（spec §2a；
