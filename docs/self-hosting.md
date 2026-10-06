@@ -120,7 +120,7 @@ Turning it off is refused unless at least one sign-in service is turned on and y
 **Recovery.** If password sign-in is off and nobody can sign in through SSO (the identity provider is down, the client secret expired, …):
 
 1. Add `PASSWORD_LOGIN_FORCE_ENABLE=true` to `.env`.
-2. Restart the server. Password sign-in is accepted again, for everyone, whatever the setting says. The setting itself isn't changed, and Site admin shows a warning while the variable is `true`.
+2. Restart the server. Password sign-in is accepted again, for everyone, whatever the setting says — and if **Allow registration** is on, so is registering with a password. The setting itself isn't changed, and Site admin shows a warning while the variable is `true`.
 3. Sign in with your password.
 4. Fix the sign-in service, or turn **Allow password sign-in** back on in Site admin.
 5. Remove `PASSWORD_LOGIN_FORCE_ENABLE` from `.env`.
