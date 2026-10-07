@@ -23,6 +23,7 @@ test('entry 在上限內且 NotePage chunk 存在 → 通過並回報摘要', ()
     'NotePage-Def456.js': 1_000_000,
     'mermaid.core-Ghi789.js': 700_000,
     'shiki-Jkl012.js': 150_000,
+    'AdminPage-Mno345.js': 60_000,
     'index-Abc123.css': 50_000, // css 不是 entry chunk，pattern 只認 .js
   });
   try {
@@ -32,6 +33,7 @@ test('entry 在上限內且 NotePage chunk 存在 → 通過並回報摘要', ()
     assert.deepEqual(result.notePageChunks, ['NotePage-Def456.js']);
     assert.deepEqual(result.mermaidChunks, ['mermaid.core-Ghi789.js']);
     assert.deepEqual(result.shikiChunks, ['shiki-Jkl012.js']);
+    assert.deepEqual(result.adminPageChunks, ['AdminPage-Mno345.js']);
   } finally {
     cleanup();
   }
@@ -103,6 +105,22 @@ test('shiki chunk 不存在（被靜態 import 併回去）→ throw', () => {
   });
   try {
     assert.throws(() => checkBundleSize(assets), /shiki/);
+  } finally {
+    cleanup();
+  }
+});
+
+// issue #201：站台管理頁必須是自己的 lazy chunk（App.tsx 的 `lazy(() => import("./pages/AdminPage"))`
+// 是唯一 import 點）——有人靜態 import 它，Rollup 會把整頁連同三個子區塊併回 entry、這個 chunk 消失。
+test('AdminPage chunk 不存在（被靜態 import 併回 entry）→ throw', () => {
+  const { assets, cleanup } = fakeAssets({
+    'index-Abc123.js': 100,
+    'NotePage-Def456.js': 100,
+    'mermaid.core-Ghi789.js': 100,
+    'shiki-Jkl012.js': 100,
+  });
+  try {
+    assert.throws(() => checkBundleSize(assets), /AdminPage[\s\S]*issue #201/);
   } finally {
     cleanup();
   }

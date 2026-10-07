@@ -9,6 +9,7 @@ import i18n from "@/i18n";
 import { ActiveNoteProvider } from "@/lib/active-note";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
+import { FIRST_LAZY_LOAD } from "@/test/lazy";
 import { AppRoutes } from "@/App";
 import type { CollabState } from "@/collab/connection";
 import { adminRole, groupDto, OWNER_PERMS } from "@/test/fixtures";
@@ -43,6 +44,15 @@ vi.mock("@/components/NoteEditor", () => ({
       {footerSlot}
     </div>
   ),
+}));
+
+// #201：群組角色區塊在本檔只拿來驗「區塊 chunk 載入失敗被 modal 內的 boundary 接住」——
+// 替身直接丟 chunk 失敗的訊息（真實 lazy reject 經 Suspense 後也是以 render throw 抵達
+// boundary；Vite preload 那條訊息見 ErrorBoundary.tsx 的白名單）。本檔其餘案子不碰這一區。
+vi.mock("@/settings/SettingsGroupRolesSection", () => ({
+  SettingsGroupRolesSection: () => {
+    throw new Error("Failed to fetch dynamically imported module: https://x/assets/SettingsGroupRolesSection-abc.js");
+  },
 }));
 
 function createStubProvider() {
@@ -381,7 +391,8 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
 
     renderAt(["/admin/users"], fetchMock);
 
-    await waitFor(() => expect(screen.getByRole("heading", { name: "User management" })).toBeInTheDocument());
+    // 本檔第一次載入 AdminPage lazy chunk（見 test/lazy.ts）
+    await waitFor(() => expect(screen.getByRole("heading", { name: "User management" })).toBeInTheDocument(), FIRST_LAZY_LOAD);
 
     openUserMenu("Admin");
     fireEvent.click(screen.getByText("Settings"));
@@ -546,7 +557,8 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
 
     await openGroupMembersAndSettings(GROUP.name);
 
-    await waitFor(() => expect(screen.getByRole("heading", { name: GROUP.name })).toBeInTheDocument());
+    // 本檔第一次載入群組詳情區塊 lazy chunk（見 test/lazy.ts）
+    await waitFor(() => expect(screen.getByRole("heading", { name: GROUP.name })).toBeInTheDocument(), FIRST_LAZY_LOAD);
     // 背景頁（NotePage 的替身編輯器）仍在 DOM 裡。
     expect(screen.getByTestId("note-editor")).toBeInTheDocument();
 
@@ -583,5 +595,38 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
     fireEvent.keyDown(document, { key: "Escape" });
 
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("#201：設定區塊 chunk 載入失敗（額度已用過）→ 錯誤＋重試留在 modal 內容區，外框與導覽仍在（不冒到 app 級兜底）", async () => {
+    // 先種 settings 額度旗標＝「已自動 reload 過」→ 直接進錯誤畫面（jsdom 的 location.reload
+    // 不可 stub；自動 reload 那支由 ErrorBoundary.test 案 A 守）。
+    sessionStorage.setItem("knotebook:chunk-reload:settings", "1");
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      const res = baseFetchHandlers(() => PLAIN_USER)(url, method);
+      if (res) return Promise.resolve(res);
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    try {
+      renderAt(["/settings/groups/g1/roles"], fetchMock);
+
+      const dialog = await screen.findByRole("dialog", {}, { timeout: 3_000 });
+      await waitFor(
+        () =>
+          expect(
+            within(dialog).getByText(
+              "Couldn't load this page — check your connection, or a new version may have been deployed.",
+            ),
+          ).toBeInTheDocument(),
+        { timeout: 3_000 },
+      );
+      expect(within(dialog).getByRole("button", { name: "Try again" })).toBeInTheDocument();
+      // 外框與導覽仍在：boundary 在 modal 內容區，不是包整個 modal
+      expect(within(dialog).getByRole("link", { name: "Account" })).toBeInTheDocument();
+      expect(screen.queryByText("Something went wrong")).not.toBeInTheDocument();
+    } finally {
+      sessionStorage.removeItem("knotebook:chunk-reload:settings");
+    }
   });
 });

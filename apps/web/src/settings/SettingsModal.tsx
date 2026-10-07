@@ -1,6 +1,8 @@
+import { Suspense } from "react";
 import { Outlet, useLocation, useNavigate, type Location } from "react-router";
 import { useTranslation } from "react-i18next";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { ChunkLoadBeacon, LazyRouteErrorBoundary, LazyRouteLoading } from "@/components/ErrorBoundary";
 import { NavItemLink } from "./SettingsNavLink";
 
 interface SettingsLocationState {
@@ -45,6 +47,12 @@ function SettingsNavLink({
  * 背景 location（`location.state.backgroundLocation`）；深連結進來時沒有這個 state
  * （例如直接貼網址），就導回 `/`。背景是 `/admin/users` 時（在管理頁上開設定）照樣
  * 回到管理頁，不需另外處理。
+ *
+ * 各區塊是 lazy chunk（#201，`App.tsx` 的 route element）：本外殼留在首包，開 modal 時
+ * 外框與導覽立刻出現，只有內容區在 chunk 到手前顯示「載入中」。chunk 載入失敗走
+ * `LazyRouteErrorBoundary`（#66 的同一套：自動 reload 一次、之後落到內容區的錯誤＋重試）；
+ * `resetKey` 取真實 pathname——錯誤畫面上點另一個導覽項＝換目的地，整頁 reload 落在新網址。
+ * `ChunkLoadBeacon` 必須在 Suspense 內、與 `<Outlet/>` 並列（擺放不變量見 ErrorBoundary.tsx）。
  */
 export function SettingsModal() {
   const { t } = useTranslation();
@@ -87,7 +95,12 @@ export function SettingsModal() {
           <SettingsNavLink to="/settings/groups" label={t("settings.nav.groups")} backgroundLocation={backgroundLocation} />
         </nav>
         <div className="flex-1 overflow-y-auto p-8">
-          <Outlet />
+          <LazyRouteErrorBoundary resetKey={location.pathname} chunk="settings" frame="inline">
+            <Suspense fallback={<LazyRouteLoading frame="inline" />}>
+              <Outlet />
+              <ChunkLoadBeacon chunk="settings" />
+            </Suspense>
+          </LazyRouteErrorBoundary>
         </div>
       </DialogContent>
     </Dialog>

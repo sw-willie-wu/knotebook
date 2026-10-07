@@ -6,6 +6,7 @@ import type { UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
+import { FIRST_LAZY_LOAD } from "@/test/lazy";
 import { AppRoutes } from "@/App";
 
 // 同 SettingsUsersSection.test.tsx 的約定：mock 全域 fetch，走真正的 `AppRoutes`
@@ -97,7 +98,11 @@ describe("ChangePasswordPage（spec rev 5.7）", () => {
 
     renderAt("/change-password", fetchMock);
 
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument());
+    // 本檔第一次載入 ChangePasswordPage lazy chunk（見 test/lazy.ts）
+    await waitFor(
+      () => expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument(),
+      FIRST_LAZY_LOAD,
+    );
   });
 
   it("新密碼 <12 字元 → client 端擋下，不打 API", async () => {

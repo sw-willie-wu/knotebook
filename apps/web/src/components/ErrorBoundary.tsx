@@ -21,15 +21,28 @@ import { NarrowTopBar } from "./NarrowTopBar";
  * 載入之後最多一次自動 reload」，不管兩次失敗隔多久（chunk 請求 stall 到瀏覽器逾時
  * 30–75 秒也一樣），不依賴時鐘。
  *
- * 精確地說額度是 **per-route-mount** 不是 per-chunk：清除點＝NotePage 這條 route
- * 成功 commit，涵蓋的卻是 boundary 接到的任何錯誤。若將來 NotePage 掛載成功後還有
- * 「render 期同步 throw 的巢狀 chunk」，會形成 失敗→reload→掛載成功清額度→再失敗
- * 的迴圈——加巢狀 lazy 前要重看這段。（現有的巢狀動態 import——語法高亮那兩個
+ * 精確地說額度是 **per-route-mount** 不是 per-chunk：清除點＝該 route 的 beacon 成功
+ * commit（NotePage 那條就是 NotePage 掛載），涵蓋的卻是 boundary 接到的任何錯誤。若將來
+ * 某條 route 掛載成功後還有「render 期同步 throw 的巢狀 chunk」，會形成 失敗→reload→
+ * 掛載成功清額度→再失敗 的迴圈——加巢狀 lazy 前要重看這段。
+ *
+ * 收斂的前提（#201 起明文）：**不得有「只在另一個 lazy 成功掛載之後才 render」的 lazy
+ * 共用同一個額度**。設定 modal（`chunk="settings"`）是一個額度涵蓋四個區塊 chunk 的例子，
+ * 它成立是因為四個區塊是**並列**的 route element、不是巢狀：beacon 在第一個區塊成功掛載時
+ * 清額度，之後切到另一區塊失敗 → 自動 reload 落在**失敗的那個網址**，重載後的第一次
+ * render 就是那個失敗的 chunk（beacon 尚未 commit）→ 再失敗即看到旗標、進錯誤畫面，
+ * 最多一次 reload。站台管理反過來把三個子區塊併進 AdminPage 同一個 chunk，正是為了
+ * 不違反這個前提（見 AdminPage.tsx 檔頭）。（現有的巢狀動態 import——語法高亮那兩個
  * chunk——失敗是 promise rejection 不經 render，boundary 接不到，不在此列，也因此
- * 不在本機制的涵蓋範圍內。）key 的 route 別名（:notepage）讓將來第二條 lazy route
- * 各自有額度。測試刻意寫字面 key（釘住 key 名不被改），這裡不匯出常數。
+ * 不在本機制的涵蓋範圍內。）key 的 route 別名（`chunk` prop，預設 `notepage`）讓每條
+ * lazy route 各自有額度（#201 起：`admin`、`settings`、四個登入流程頁各一個）。測試刻意
+ * 寫字面 key（釘住 key 名不被改），這裡不匯出常數。
  */
-const CHUNK_RELOAD_FLAG = "knotebook:chunk-reload:notepage";
+const DEFAULT_CHUNK = "notepage";
+
+function chunkReloadFlag(chunk: string): string {
+  return `knotebook:chunk-reload:${chunk}`;
+}
 
 /**
  * chunk 載入失敗的訊息樣式。前三條是三大瀏覽器對裸動態 import 失敗的措辭
@@ -68,27 +81,27 @@ function isChunkLoadError(error: unknown): boolean {
 }
 
 /** 讀旗標；sessionStorage 不可用（隱私模式）時回 "unavailable"——呼叫端視同已 reload 過，絕不自動 reload（無旗標可寫＝防不了迴圈）。 */
-function readReloadFlag(): boolean | "unavailable" {
+function readReloadFlag(chunk: string): boolean | "unavailable" {
   try {
-    return sessionStorage.getItem(CHUNK_RELOAD_FLAG) !== null;
+    return sessionStorage.getItem(chunkReloadFlag(chunk)) !== null;
   } catch {
     return "unavailable";
   }
 }
 
 /** 設旗標；寫失敗回 false（呼叫端同上，不 reload）。 */
-function setReloadFlag(): boolean {
+function setReloadFlag(chunk: string): boolean {
   try {
-    sessionStorage.setItem(CHUNK_RELOAD_FLAG, "1");
+    sessionStorage.setItem(chunkReloadFlag(chunk), "1");
     return true;
   } catch {
     return false;
   }
 }
 
-function clearReloadFlag(): void {
+function clearReloadFlag(chunk: string): void {
   try {
-    sessionStorage.removeItem(CHUNK_RELOAD_FLAG);
+    sessionStorage.removeItem(chunkReloadFlag(chunk));
   } catch {
     // 清不掉就算了：方向安全（少一次自動 reload，不會多）
   }
@@ -100,11 +113,13 @@ function clearReloadFlag(): void {
  * 錯放到 Suspense 外（哪怕仍在 boundary 內）effect 會在 lazy 還 pending 時就跑
  * → 旗標先被清 → 每次 reload 落地都重新武裝 → 無限重整迴圈（審查探針實測）。
  * App.tsx 的實際擺放由 App.errorBoundary.test.tsx 案 11 守。
+ *
+ * `chunk` 必須與同一條 route 的 boundary 一致（清的是那條 route 的額度）。
  */
-export function ChunkLoadBeacon() {
+export function ChunkLoadBeacon({ chunk = DEFAULT_CHUNK }: { chunk?: string }) {
   useEffect(() => {
-    clearReloadFlag();
-  }, []);
+    clearReloadFlag(chunk);
+  }, [chunk]);
   return null;
 }
 
@@ -129,17 +144,32 @@ export function useOnline(): boolean {
 
 type BoundaryStatus = "normal" | "pending" | "reloading" | "error";
 
-interface NoteRouteErrorBoundaryProps {
-  /** 「這一篇筆記」的路由不變量：舊形（/notes/:ref）是 ref、新形（/n/:handle/:slug，#122）
+/**
+ * 載入中／錯誤畫面套在哪種外框裡（#201）：
+ * - `app`：AppShell＋內文卡（NotePage、站台管理——頁面本身就坐在 AppShell 裡）；
+ * - `page`：置中的滿版 `<main>`（登入流程那幾頁的版面，未登入也能到，**不得**包 AppShell
+ *   ——它會打 `/api/auth/me`、露出側欄）；
+ * - `inline`：不加外框，只有內容（設定 modal 的內容區——外殼與導覽留在原地）。
+ */
+export type LazyRouteFrame = "app" | "page" | "inline";
+
+interface LazyRouteErrorBoundaryProps {
+  /** 「同一個目的地」的路由不變量；只在 error 態變動時 reload（見 componentDidUpdate）。
+   * NotePage：舊形（/notes/:ref）是 ref、新形（/n/:handle/:slug，#122）
    * 是 `${handle}/${slug}` 對、群組形（/g/:groupId/:slug，#175）是 `g:${groupId}/${slug}`——見 App.tsx 的 NoteRoute。刻意不用 location.key：關設定
    * modal 的 navigate(backgroundLocation) 會產生新 key，會把「關 modal」誤判成「換筆記」（實測）。 */
   resetKey: string | undefined;
+  /** 自動 reload 額度的 route 別名（sessionStorage key `knotebook:chunk-reload:<chunk>`）；
+   * 預設 `notepage`。同一條 route 的 `ChunkLoadBeacon` 要傳同一個值。 */
+  chunk?: string;
+  /** 外框，預設 `app`（見 `LazyRouteFrame`）。 */
+  frame?: LazyRouteFrame;
   /** 測試 seam：jsdom 30 下 location.reload 是 non-configurable、spy 不進去，只能注入。 */
   reload?: () => void;
   children: ReactNode;
 }
 
-interface NoteRouteErrorBoundaryState {
+interface LazyRouteErrorBoundaryState {
   status: BoundaryStatus;
   isChunkError: boolean;
 }
@@ -149,8 +179,10 @@ function defaultReload() {
 }
 
 /**
- * NotePage 的崩潰處理器——接的不只 chunk 載入失敗：NotePage 底下任何 render 錯誤
- * （BlockNote／共編）都落進來，文案分 chunk／非 chunk 兩支。
+ * lazy route 的崩潰處理器——接的不只 chunk 載入失敗：底下任何 render 錯誤
+ * （NotePage 的 BlockNote／共編等）都落進來，文案分 chunk／非 chunk 兩支。最早是
+ * NotePage 專用（#66）；#201 把站台管理、設定 modal 各區、登入流程頁也改 lazy 後
+ * 共用這一份，差別只在 `chunk`（額度別名）與 `frame`（外框）兩個 prop。
  *
  * 三態時序：錯誤發生 → getDerivedStateFromError 設 `pending`（它是唯一動作——dev
  * 模式下一次錯誤會呼叫它**兩次**，副作用放這裡會翻倍）→ componentDidCatch（恰一次）
@@ -158,10 +190,14 @@ function defaultReload() {
  * **絕不能**「先繼續 render children 等分類結果」——children 立刻再 throw → gDSFE
  * 無限 re-render，componentDidCatch 根本不會被呼叫（實測）。
  */
-export class NoteRouteErrorBoundary extends Component<NoteRouteErrorBoundaryProps, NoteRouteErrorBoundaryState> {
-  state: NoteRouteErrorBoundaryState = { status: "normal", isChunkError: false };
+export class LazyRouteErrorBoundary extends Component<LazyRouteErrorBoundaryProps, LazyRouteErrorBoundaryState> {
+  state: LazyRouteErrorBoundaryState = { status: "normal", isChunkError: false };
 
-  static getDerivedStateFromError(): NoteRouteErrorBoundaryState {
+  private get chunk(): string {
+    return this.props.chunk ?? DEFAULT_CHUNK;
+  }
+
+  static getDerivedStateFromError(): LazyRouteErrorBoundaryState {
     // isChunkError 一併歸零：雖然現行流程進 error/reloading 後 children 不再
     // render、二次錯誤理論上不可達，但不留一個靠「不可達」成立的殘值
     return { status: "pending", isChunkError: false };
@@ -180,8 +216,8 @@ export class NoteRouteErrorBoundary extends Component<NoteRouteErrorBoundaryProp
       this.setState({ status: "error", isChunkError: true });
       return;
     }
-    const flag = readReloadFlag();
-    if (flag === true || flag === "unavailable" || !setReloadFlag()) {
+    const flag = readReloadFlag(this.chunk);
+    if (flag === true || flag === "unavailable" || !setReloadFlag(this.chunk)) {
       this.setState({ status: "error", isChunkError: true });
       return;
     }
@@ -194,12 +230,12 @@ export class NoteRouteErrorBoundary extends Component<NoteRouteErrorBoundaryProp
       this.setState({ status: "reloading", isChunkError: true });
     } catch {
       // 實際沒 reload 成：旗標留著會偷走同分頁下次真失敗的救援額度，清回
-      clearReloadFlag();
+      clearReloadFlag(this.chunk);
       this.setState({ status: "error", isChunkError: true });
     }
   }
 
-  componentDidUpdate(prevProps: NoteRouteErrorBoundaryProps) {
+  componentDidUpdate(prevProps: LazyRouteErrorBoundaryProps) {
     // 僅 error 態反應 resetKey（=使用者在錯誤畫面上導航去別的筆記）：reload 讓整頁
     // 重載落在新網址，chunk 與 runtime 崩潰一律救得回。「落在新網址」成立的前提是
     // react-router 的 pushState 同步發生在 React 提交之前，componentDidUpdate 跑到
@@ -223,24 +259,68 @@ export class NoteRouteErrorBoundary extends Component<NoteRouteErrorBoundaryProp
 
   private handleRetry = () => {
     // 使用者明確要求全新開始：清旗標，讓落地後的自動 reload 額度回滿
-    clearReloadFlag();
+    clearReloadFlag(this.chunk);
     this.doReload();
   };
 
   render() {
     const { status, isChunkError } = this.state;
+    const frame = this.props.frame ?? "app";
     if (status === "normal") return this.props.children;
     if (status === "error") {
-      return <NoteRouteErrorFallback isChunkError={isChunkError} onRetry={this.handleRetry} />;
+      return <LazyRouteErrorFallback frame={frame} isChunkError={isChunkError} onRetry={this.handleRetry} />;
     }
     // pending／reloading：與 chunk 載入中同一種畫面，不閃錯誤
-    return <NotePageFallback />;
+    return <LazyRouteLoading frame={frame} />;
   }
 }
 
-function NoteRouteErrorFallback({ isChunkError, onRetry }: { isChunkError: boolean; onRetry: () => void }) {
+/** NotePage 的名字（#66 起的既有呼叫端與測試沿用）——預設值（`chunk="notepage"`、`frame="app"`）就是 NotePage 的設定。 */
+export const NoteRouteErrorBoundary = LazyRouteErrorBoundary;
+
+/**
+ * 置中滿版外框——與 LoginPage／RegisterPage／LinkAccountPage／ChangePasswordPage／
+ * AuthorizePage 的最外層 `<main>` 同款，lazy 頁面到手前後版面不跳。
+ */
+function PageFrame({ children }: { children: ReactNode }) {
+  return <main className="flex min-h-screen items-center justify-center p-8">{children}</main>;
+}
+
+/**
+ * lazy route 的載入中畫面（#201）：也是 `<Suspense fallback>` 要用的那一份——boundary 的
+ * pending／reloading 與 chunk 載入中長得一樣，使用者分不出、也不該分出。`app` 外框直接用
+ * `NotePageFallback`（它的 AppShell 回歸釘在 App.test.tsx）。
+ */
+export function LazyRouteLoading({ frame = "app" }: { frame?: LazyRouteFrame }) {
+  const { t } = useTranslation();
+  if (frame === "app") return <NotePageFallback />;
+  const text = <p className="text-sm text-muted-foreground">{t("app.loading")}</p>;
+  return frame === "page" ? <PageFrame>{text}</PageFrame> : text;
+}
+
+function LazyRouteErrorFallback({
+  frame,
+  isChunkError,
+  onRetry,
+}: {
+  frame: LazyRouteFrame;
+  isChunkError: boolean;
+  onRetry: () => void;
+}) {
   const { t } = useTranslation();
   const online = useOnline();
+  const content = (
+    <div role="alert" className={cn("flex flex-col items-start gap-3", frame === "app" && "p-6")}>
+      <p className="text-sm text-muted-foreground">{t(isChunkError ? "app.chunkLoadError" : "app.noteCrash")}</p>
+      <Button type="button" variant="outline" disabled={!online} onClick={onRetry}>
+        {t("app.retry")}
+      </Button>
+      {/* disabled 的按鈕不可聚焦、螢幕閱讀器拿不到原因——離線時要用文字說明它為何灰掉 */}
+      {!online && <p className="text-sm text-muted-foreground">{t("app.offlineHint")}</p>}
+    </div>
+  );
+  if (frame === "page") return <PageFrame>{content}</PageFrame>;
+  if (frame === "inline") return content;
   return (
     <AppShell>
       {/* PR2（G 節，M5 第四個呼叫端）：跟 NotePage/HomePage/NotePageFallback 同一款
@@ -250,14 +330,7 @@ function NoteRouteErrorFallback({ isChunkError, onRetry }: { isChunkError: boole
         {/* #115：窄視窗的抽屜入口（AppErrorFallback 刻意不掛——零 context 相依，
             見 NarrowTopBar 檔頭）。 */}
         <NarrowTopBar />
-        <div role="alert" className="flex flex-col items-start gap-3 p-6">
-          <p className="text-sm text-muted-foreground">{t(isChunkError ? "app.chunkLoadError" : "app.noteCrash")}</p>
-          <Button type="button" variant="outline" disabled={!online} onClick={onRetry}>
-            {t("app.retry")}
-          </Button>
-          {/* disabled 的按鈕不可聚焦、螢幕閱讀器拿不到原因——離線時要用文字說明它為何灰掉 */}
-          {!online && <p className="text-sm text-muted-foreground">{t("app.offlineHint")}</p>}
-        </div>
+        {content}
       </div>
     </AppShell>
   );

@@ -9,6 +9,7 @@
 //   2. NotePage 的 lazy chunk（NotePage-<hash>.js）存在——entry 上限擋「胖回去」，
 //      這條擋「切分本身被拿掉」（若某天 rollup 改了 chunk 命名慣例，這裡會紅，
 //      屆時把 pattern 跟著改，別直接刪檢查）。
+//   3. 其餘 lazy chunk 存在：mermaid（#94）、shiki（#96）、AdminPage（#201）——理由各見常數註解。
 //
 // 全程 fail-closed：dist 不存在、找不到 entry、找到多個 entry，一律 throw 而非放行
 // ——「沒東西可檢查」不等於「檢查通過」（比照 check-licenses.mjs 的紀律）。
@@ -19,9 +20,10 @@ import { readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-// 2026-10-07：因 #187 登入服務圖示（登入／註冊／設定頁進首包的品牌 SVG）暫時調高 20 KiB（700 → 720）；
-// #201 把站台管理與設定頁改 lazy 後要調回 700 * 1024。
-export const MAX_ENTRY_BYTES = 720 * 1024;
+// #201（2026-10-07）：#187 登入服務圖示曾讓首包到 725,101 bytes、上限暫調 720 KiB；站台管理、
+// 設定 modal 各區、登入流程四頁（註冊／帳號連結／改密碼／OAuth 同意）改 lazy 後首包約 616 KB，
+// 上限調回 700 KiB。再逼近時先找下一批可 lazy 的頁面，不要再調高上限。
+export const MAX_ENTRY_BYTES = 700 * 1024;
 export const ENTRY_RE = /^index-[A-Za-z0-9_-]+\.js$/;
 export const NOTEPAGE_RE = /^NotePage-[A-Za-z0-9_-]+\.js$/;
 // issue #94：mermaid 必須留在自己的 chunk 裡。它連同相依（cytoscape／katex／langium…）
@@ -38,6 +40,12 @@ export const MERMAID_RE = /^mermaid\.core-[A-Za-z0-9_-]+\.js$/;
 // vite.config.ts 的 chunkFileNames：shiki 套件入口檔叫 index.mjs，Rollup 預設以檔名
 // 命名 chunk 會產出第二個 index-<hash>.js、撞上上面 ENTRY_RE 的「恰一個 entry」偵測。
 export const SHIKI_RE = /^shiki-[A-Za-z0-9_-]+\.js$/;
+// issue #201：站台管理頁（連同 users／ai／auth 三個子區塊）必須是自己的 lazy chunk——
+// 大多數使用者從不打開它，卻曾佔首包約 60 KB。App.tsx 的 `lazy(() => import("./pages/AdminPage"))`
+// 是唯一允許 import 它的地方；子區塊只被 AdminPage.tsx 靜態 import（它們的 route 是 AdminPage
+// 裡的 descendant <Routes>）。判準同 mermaid：任何靜態 import 都會讓 Rollup 把它併回 entry，
+// 這個 chunk 隨即消失。
+export const ADMINPAGE_RE = /^AdminPage-[A-Za-z0-9_-]+\.js$/;
 
 /**
  * 對指定 assets 目錄跑檢查。回傳檢查通過的摘要；違規 throw（訊息含實際數字）。
@@ -90,7 +98,16 @@ export function checkBundleSize(assetsDir, { maxEntryBytes = MAX_ENTRY_BYTES } =
     );
   }
 
-  return { entryName, entryBytes, notePageChunks, mermaidChunks, shikiChunks };
+  const adminPageChunks = names.filter(name => ADMINPAGE_RE.test(name));
+  if (adminPageChunks.length === 0) {
+    throw new Error(
+      `找不到站台管理頁的 lazy chunk（AdminPage-<hash>.js）——最可能的原因是有人在 App.tsx 的 ` +
+        `\`lazy(() => import("./pages/AdminPage"))\` 以外靜態 import 了 AdminPage，使它被併回 entry ` +
+        `（issue #201 的迴歸）；若是 rollup 改了 chunk 命名慣例，請更新本檢查的 pattern，不要刪檢查`
+    );
+  }
+
+  return { entryName, entryBytes, notePageChunks, mermaidChunks, shikiChunks, adminPageChunks };
 }
 
 // 直接執行（非被 import）時跑真的 dist。
@@ -100,7 +117,8 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
     const result = checkBundleSize(assetsDir);
     console.log(
       `bundle OK：entry ${result.entryName} = ${result.entryBytes} bytes（上限 ${MAX_ENTRY_BYTES}）；` +
-        `lazy chunk：${result.notePageChunks.join(', ')}、${result.mermaidChunks.join(', ')}、${result.shikiChunks.join(', ')}`
+        `lazy chunk：${result.notePageChunks.join(', ')}、${result.mermaidChunks.join(', ')}、${result.shikiChunks.join(', ')}、` +
+        `${result.adminPageChunks.join(', ')}`
     );
   } catch (err) {
     console.error(String(err instanceof Error ? err.message : err));

@@ -6,7 +6,13 @@ import { MemoryRouter } from "react-router";
 import type { UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
-import { AppErrorBoundary, ChunkLoadBeacon, NoteRouteErrorBoundary } from "./ErrorBoundary";
+import {
+  AppErrorBoundary,
+  ChunkLoadBeacon,
+  LazyRouteErrorBoundary,
+  LazyRouteLoading,
+  NoteRouteErrorBoundary,
+} from "./ErrorBoundary";
 import { NotePageFallback } from "./NotePageFallback";
 
 /**
@@ -483,6 +489,73 @@ describe("ChunkLoadBeacon（spec 案 9／9a，真實 suspend→reject 時間軸�
     // 精簡時不得只留它。
     expect(reload).not.toHaveBeenCalled();
     expect(sessionStorage.getItem(FLAG_KEY)).not.toBeNull();
+  });
+});
+
+// #201：站台管理、設定 modal 各區、登入流程頁也改 lazy，共用同一個 boundary——差別只在
+// `chunk`（自動 reload 額度的 sessionStorage key 別名）與 `frame`（外框）。
+describe("LazyRouteErrorBoundary 的 chunk／frame（#201）", () => {
+  const SETTINGS_FLAG_KEY = "knotebook:chunk-reload:settings";
+
+  it("案 A：chunk=settings 有自己的額度——notepage 旗標已設也照樣自動 reload，且只設自己的旗標", () => {
+    // 先種 notepage 旗標：若 key 沒依 chunk 分開，這裡會判「已 reload 過」→ 不 reload。
+    sessionStorage.setItem(FLAG_KEY, "1");
+    const reload = vi.fn();
+    render(
+      <LazyRouteErrorBoundary resetKey="/settings/account" chunk="settings" frame="inline" reload={reload}>
+        <ChunkBomb />
+      </LazyRouteErrorBoundary>,
+    );
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(sessionStorage.getItem(SETTINGS_FLAG_KEY)).not.toBeNull();
+    expect(sessionStorage.getItem(FLAG_KEY)).toBe("1");
+  });
+
+  it("案 B：ChunkLoadBeacon chunk=settings 只清自己的旗標", async () => {
+    sessionStorage.setItem(FLAG_KEY, "1");
+    sessionStorage.setItem(SETTINGS_FLAG_KEY, "1");
+    const Lazy = lazy(() => Promise.resolve({ default: () => <p>lazy-ok</p> }));
+    render(
+      <LazyRouteErrorBoundary resetKey="/settings/account" chunk="settings" frame="inline" reload={vi.fn()}>
+        <Suspense fallback={<LazyRouteLoading frame="inline" />}>
+          <Lazy />
+          <ChunkLoadBeacon chunk="settings" />
+        </Suspense>
+      </LazyRouteErrorBoundary>,
+    );
+    await waitFor(() => expect(screen.getByText("lazy-ok")).toBeInTheDocument(), { timeout: 3_000 });
+    expect(sessionStorage.getItem(SETTINGS_FLAG_KEY)).toBeNull();
+    expect(sessionStorage.getItem(FLAG_KEY)).toBe("1");
+  });
+
+  it("案 C：frame=page 的錯誤畫面不包 AppShell（登入流程頁未登入也到得了——不得打 /api/auth/me）", () => {
+    sessionStorage.setItem("knotebook:chunk-reload:register", "1");
+    const reload = vi.fn();
+    // 刻意不包 Providers：AppShell 需要 Router＋QueryClient，誤用它這裡會直接炸。
+    render(
+      <LazyRouteErrorBoundary resetKey={undefined} chunk="register" frame="page" reload={reload}>
+        <ChunkBomb />
+      </LazyRouteErrorBoundary>,
+    );
+    expect(reload).not.toHaveBeenCalled();
+    expect(screen.getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open navigation" })).not.toBeInTheDocument();
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+    screen.getByRole("button", { name: RETRY_TEXT }).click();
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("案 D：frame=inline 的載入畫面（reloading 態）只有載入文案、不包 AppShell", () => {
+    const reload = vi.fn();
+    render(
+      <LazyRouteErrorBoundary resetKey="/settings/groups" chunk="settings" frame="inline" reload={reload}>
+        <ChunkBomb />
+      </LazyRouteErrorBoundary>,
+    );
+    expect(reload).toHaveBeenCalledTimes(1);
+    expectLoadingScreen();
+    expect(screen.queryByRole("button", { name: "Open navigation" })).not.toBeInTheDocument();
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
 });
 

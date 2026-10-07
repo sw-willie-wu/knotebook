@@ -6,6 +6,7 @@ import type { OauthRequestDto, UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
 import { Toaster } from "@/components/ui/toast";
+import { FIRST_LAZY_LOAD } from "@/test/lazy";
 import { AppRoutes } from "@/App";
 
 // 同 ChangePasswordPage.test.tsx 的約定：mock 全域 fetch，走真正的 AppRoutes——驗的是
@@ -100,7 +101,8 @@ describe("AuthorizePage", () => {
     // 只串接直接子文字節點，所以沒有任何節點同時含兩者——必須分開斷言。
     // 名稱節點的 textContent 必須**恰好**是名稱（regex 錨定）：後綴若被合併進同一個
     // isolate span，子字串比對仍會過，但 U+202E 就能把後綴一起反轉。
-    expect(await screen.findByTestId("authorize-client-name")).toHaveTextContent(/^Claude Code$/);
+    // 本檔第一次載入 AuthorizePage lazy chunk（見 test/lazy.ts）
+    expect(await screen.findByTestId("authorize-client-name", {}, FIRST_LAZY_LOAD)).toHaveTextContent(/^Claude Code$/);
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Claude Code wants to access your Knotebook");
     expect(screen.getByText(/self-reported/)).toBeInTheDocument();
     expect(screen.getByText(/127\.0\.0\.1:5678/)).toBeInTheDocument();
