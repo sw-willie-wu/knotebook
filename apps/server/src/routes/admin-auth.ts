@@ -312,7 +312,8 @@ export function adminAuthRoutes(deps: AdminAuthRouteDeps) {
         metadata = await deps.registry.probe(row.issuerUrl);
       } catch (err) {
         if (!(err instanceof OidcUnavailableError)) throw err;
-        // 不帶 err：它的 message 含原始 issuer 網址（可能有 user:pass@）——只記 safeTarget（gate r1-t1-7 M5）。
+        // 不帶 err：OidcUnavailableError 的 message 現已去敏（issuer 只用 safeTarget、不串底層 message），仍不記 err 以免日後
+        // 回歸時原始 issuer 網址（可能有 user:pass@）又跟著進 log——只記 safeTarget（gate r1-t1-7 M5）。
         request.log.warn({ providerId: id, issuer: safeTarget(row.issuerUrl) }, "登入服務測試連線失敗");
         return sendError(reply, 502, "oidc_discovery_failed", DISCOVERY_FAILED_MESSAGE);
       }

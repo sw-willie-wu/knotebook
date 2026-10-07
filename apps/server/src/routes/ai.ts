@@ -8,8 +8,11 @@ import { aiActions } from "../db/schema.js";
 import { loadAiSnapshot, resolveActionModel } from "../ai/resolve.js";
 import { AiKeyDecryptError, decryptApiKey } from "../ai/crypto.js";
 import type { AiRuntime } from "../ai/runtime.js";
-import { renderUserTemplate, streamAnthropic, streamOpenAiCompatible, UpstreamError, type UpstreamHandle } from "../ai/upstream.js";
+import Anthropic from "@anthropic-ai/sdk";
+import { renderUserTemplate, streamAnthropic, streamOpenAiCompatible, truncateBody, UpstreamError, type UpstreamHandle } from "../ai/upstream.js";
 import { sendError } from "../http/errors.js";
+import { safeTarget } from "../lib/safe-target.js";
+import { fetchErrorSummary, urlHasCredentials } from "../lib/fetch-error-summary.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
 import { resolveRole, UUID_RE } from "../notes/service.js";
 
@@ -226,7 +229,33 @@ export function aiRoutes(deps: AiRouteDeps) {
         }
         send(AI_SSE_EVENTS.done, {});
       } catch (err) {
-        request.log.warn({ err }, "ai upstream failed"); // 上游細節只進 log（含 UpstreamError.upstreamBody，若有）
+        // 上游細節只進 log。⚠ 不記整個 err：provider 的 base_url 帶 `user:pass@` 時，fetch 丟的 TypeError message 就是含明文
+        // 密碼的完整網址（任何能觸發 AI 動作的使用者都能讓它進 log）；Anthropic SDK 的 APIConnectionError 把同一個 TypeError 掛在
+        // cause 上，同理。只記 `fetchErrorSummary`（錯誤名／code＋cause 鏈的 name／code）、去掉 userinfo 與 query 的 base URL，
+        // 以及「網址帶不帶憑證」。上游有回應（非 2xx）時另記 status 與截過的回應 body——兩型都是上游回應本身、不含我們的網址：
+        // openai_compatible 是 UpstreamError.upstreamBody（upstream.ts 已截）；anthropic 是 SDK `APIError.error`（解析過的 body）。
+        const upstreamFields =
+          err instanceof UpstreamError
+            ? { status: err.status, upstreamBody: err.upstreamBody }
+            : err instanceof Anthropic.APIError && typeof err.status === "number"
+              ? {
+                  status: err.status,
+                  ...(err.requestID ? { requestId: err.requestID } : {}),
+                  ...(err.error !== undefined
+                    ? { upstreamBody: truncateBody(typeof err.error === "string" ? err.error : JSON.stringify(err.error)) }
+                    : {}),
+                }
+              : {};
+        request.log.warn(
+          {
+            providerId: resolved.provider.id,
+            target: safeTarget(resolved.provider.baseUrl),
+            urlHasCredentials: urlHasCredentials(resolved.provider.baseUrl),
+            ...fetchErrorSummary(err),
+            ...upstreamFields,
+          },
+          "ai upstream failed"
+        );
         // issue #53：openai_compatible 無金鑰是合法狀態（本機 vLLM/Ollama），pre-stream
         // 不能一律當錯；但 #46 讓「有 models 掛著、金鑰被清掉」變得容易達到（任何一次改
         // base_url 都進入它）。只在「上游明確回授權錯誤 **且** 該 provider 沒有存金鑰」

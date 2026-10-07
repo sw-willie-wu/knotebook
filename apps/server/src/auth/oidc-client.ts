@@ -4,13 +4,40 @@
 
 import * as client from "openid-client";
 import type { AppConfig } from "../config.js";
+import { fetchErrorSummary, type FetchErrorSummary } from "../lib/fetch-error-summary.js";
+import { safeTarget } from "../lib/safe-target.js";
 
 /**
  * discovery 失敗（網路/協定錯誤）或成功但不可用（缺 `jwks_uri`／無非對稱簽章演算法）
  * 一律以此類型 throw——呼叫端（`routes/oidc.ts`）一律 catch 這個型別轉 302
  * `oidc_unavailable`，不需要分辨底層原因。
  */
-export class OidcUnavailableError extends Error {}
+export class OidcUnavailableError extends Error {
+  /**
+   * ⚠ message 不得含原始 issuer 網址（可能帶 `user:pass@`；只用 `safeTarget`）、也不得串底層錯誤的 message（fetch 對帶憑證的
+   * 網址丟的 TypeError message 就是完整網址）。底層錯誤只以 `fetchErrorSummary`（name／code）留在 `underlying`。
+   * 例外：registry 的 loadSecret 包裝（「OIDC client secret 無法取得」那句）串的是 `SecretDecryptError` 的 message——那是
+   * `lib/sealed-secret.ts` 的固定文案（格式不認得、指紋不符、驗證失敗），不含秘密也不含網址。
+   */
+  constructor(
+    message: string,
+    readonly underlying?: FetchErrorSummary
+  ) {
+    super(message);
+    this.name = "OidcUnavailableError";
+  }
+}
+
+/**
+ * OIDC 失敗路徑 log 用的欄位：**不記整個 err**（pino 會連 message、stack、cause 一起寫）。`OidcUnavailableError` 的 message
+ * 已去敏（見上），記成 `reason`，並附底層錯誤的摘要；其他錯誤（組 authorization URL 失敗、DB 錯誤…）只記 `fetchErrorSummary`。
+ */
+export function oidcErrorLogFields(err: unknown): Record<string, unknown> {
+  if (err instanceof OidcUnavailableError) {
+    return { errName: err.name, reason: err.message, ...(err.underlying !== undefined ? { underlying: err.underlying } : {}) };
+  }
+  return { ...fetchErrorSummary(err) };
+}
 
 /** #187：runtime 需要的三件組（registry 從 DB provider 列組出；單元測試直接傳）。 */
 export interface OidcClientSettings {
@@ -55,7 +82,7 @@ function hasAsymmetricSigningAlg(algs: readonly string[] | undefined): boolean {
  */
 function assertUsableMetadata(metadata: client.ServerMetadata, issuerUrl: string): void {
   if (!metadata.jwks_uri || !hasAsymmetricSigningAlg(metadata.id_token_signing_alg_values_supported)) {
-    throw new OidcUnavailableError(`OIDC issuer metadata 不可用（issuer=${issuerUrl}）：缺 jwks_uri 或無非對稱簽章演算法`);
+    throw new OidcUnavailableError(`OIDC issuer metadata 不可用（issuer=${safeTarget(issuerUrl)}）：缺 jwks_uri 或無非對稱簽章演算法`);
   }
   if (metadata.issuer.length > MAX_ISSUER_LENGTH) {
     // r3-M3：identity 存的 issuer 與 pending cookie 的大小上界都靠這個上限；`auth_providers` 的 CHECK 只管管理員輸入的字面。
@@ -101,9 +128,7 @@ export function createOidcRuntime(oidc: OidcClientSettings, opts: OidcRuntimeOpt
         discoveryOptions
       );
     } catch (err) {
-      throw new OidcUnavailableError(
-        `OIDC discovery 失敗（issuer=${oidc.issuerUrl}）：${err instanceof Error ? err.message : String(err)}`
-      );
+      throw new OidcUnavailableError(`OIDC discovery 失敗（issuer=${safeTarget(oidc.issuerUrl)}）`, fetchErrorSummary(err));
     }
 
     // discovery 呼叫本身已透過 discoveryOptions 傳入同一個 fetch；這裡再顯式設一次
@@ -153,13 +178,14 @@ export async function probeOidcIssuer(issuerUrl: string, opts: OidcRuntimeOption
   try {
     url = new URL(issuerUrl);
   } catch {
-    throw new OidcUnavailableError(`OIDC issuer 不是合法網址（issuer=${issuerUrl}）`);
+    // 解析不了就沒有 safeTarget 可用——原字串可能帶憑證，乾脆不記。
+    throw new OidcUnavailableError("OIDC issuer 不是合法網址");
   }
   let configuration: client.Configuration;
   try {
     configuration = await client.discovery(url, PROBE_CLIENT_ID, undefined, client.None(), discoveryOptionsFor(url, opts.fetch));
   } catch (err) {
-    throw new OidcUnavailableError(`OIDC discovery 失敗（issuer=${issuerUrl}）：${err instanceof Error ? err.message : String(err)}`);
+    throw new OidcUnavailableError(`OIDC discovery 失敗（issuer=${safeTarget(issuerUrl)}）`, fetchErrorSummary(err));
   }
   const metadata = configuration.serverMetadata();
   assertUsableMetadata(metadata, issuerUrl);
