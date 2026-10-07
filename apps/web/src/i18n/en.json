@@ -373,6 +373,26 @@
         "save": "Save",
         "saving": "Saving…"
       },
+      "icon": {
+        "button": "Icon",
+        "title": "Sign-in service icon",
+        "description": "Shown before this service's name on the sign-in buttons and lists.",
+        "options": {
+          "template": "Template default",
+          "gitlab": "GitLab logo",
+          "google": "Google logo",
+          "upload": "Upload an image",
+          "none": "None"
+        },
+        "choose": "Choose image…",
+        "uploadHint": "PNG, JPEG or WebP up to 5 MB; it's resized to 128 px.",
+        "unsupportedType": "Only PNG, JPEG and WebP images are accepted.",
+        "tooLarge": "The image must be 5 MB or smaller.",
+        "unreadable": "This image can't be read.",
+        "save": "Save",
+        "saving": "Saving…",
+        "cancel": "Cancel"
+      },
       "validation": {
         "displayNameRequired": "Enter a display name.",
         "displayNameTooLong": "Display name can be at most 40 characters.",

@@ -373,6 +373,26 @@
         "save": "儲存",
         "saving": "儲存中…"
       },
+      "icon": {
+        "button": "圖示",
+        "title": "登入服務圖示",
+        "description": "顯示在登入按鈕與清單中這個服務名稱的前面。",
+        "options": {
+          "template": "依範本",
+          "gitlab": "GitLab logo",
+          "google": "Google logo",
+          "upload": "上傳圖片",
+          "none": "不顯示"
+        },
+        "choose": "選擇圖片…",
+        "uploadHint": "PNG、JPEG 或 WebP，5 MB 以內；會自動縮成 128 px。",
+        "unsupportedType": "只接受 PNG、JPEG、WebP。",
+        "tooLarge": "圖片不得超過 5 MB。",
+        "unreadable": "無法讀取這張圖片。",
+        "save": "儲存",
+        "saving": "儲存中…",
+        "cancel": "取消"
+      },
       "validation": {
         "displayNameRequired": "請輸入顯示名稱。",
         "displayNameTooLong": "顯示名稱最多 40 個字。",

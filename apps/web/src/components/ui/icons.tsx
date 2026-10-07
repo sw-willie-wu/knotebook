@@ -172,3 +172,14 @@ export function Menu(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+/** 登入服務圖示：通用的「登入」圖示（自訂 OIDC 範本的預設、上傳圖載入失敗時的退路）。單色 currentColor，風格同本檔其他圖示。 */
+export function SignInGeneric(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+      <path d="m10 17 5-5-5-5" />
+      <path d="M15 12H3" />
+    </svg>
+  );
+}

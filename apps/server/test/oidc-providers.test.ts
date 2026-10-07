@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { buildTestApp, testConfig } from "./helpers.js";
 import { seedAuthProvider } from "./helpers/oidc-provider.js";
+import { GENERIC } from "./helpers/provider-icon.js";
 import { createFakeIdp } from "./helpers/fake-idp.js";
 import { authProviders, userIdentities, users } from "../src/db/schema.js";
 import { createOidcRuntimeRegistry } from "../src/auth/oidc-client.js";
@@ -42,7 +43,7 @@ describe("auth/oidc-providers（#187 §4.1、§6）", () => {
     expect(() => openClientSecret(testConfig.appSecret, b)).toThrow(SecretDecryptError);
   });
 
-  it("查詢：loadEnabledProvider 不回停用的；loadLegacyProvider 只回啟用中的 legacy；listEnabledProvidersPublic 只列啟用、依 sort_order 排、只有 id 與 displayName", async () => {
+  it("查詢：loadEnabledProvider 不回停用的；loadLegacyProvider 只回啟用中的 legacy；listEnabledProvidersPublic 只列啟用、依 sort_order 排、只有 id、displayName 與 icon", async () => {
     const { db } = await buildTestApp();
     const legacy = await seedAuthProvider(db, { issuerUrl: "https://l.example", legacyCallback: true, displayName: "Legacy", sortOrder: 5 });
     const g = await seedAuthProvider(db, { issuerUrl: "https://g.example", displayName: "G", sortOrder: 1 });
@@ -50,7 +51,7 @@ describe("auth/oidc-providers（#187 §4.1、§6）", () => {
     expect((await loadEnabledProvider(db, g.id))?.id).toBe(g.id);
     expect(await loadEnabledProvider(db, off.id)).toBeNull();
     expect((await loadLegacyProvider(db))?.id).toBe(legacy.id);
-    expect(await listEnabledProvidersPublic(db)).toEqual([{ id: g.id, displayName: "G" }, { id: legacy.id, displayName: "Legacy" }]);
+    expect(await listEnabledProvidersPublic(db)).toEqual([{ id: g.id, displayName: "G", icon: GENERIC }, { id: legacy.id, displayName: "Legacy", icon: GENERIC }]);
     await db.update(authProviders).set({ enabled: false }).where(eq(authProviders.id, legacy.id));
     expect(await loadLegacyProvider(db)).toBeNull();
   });
@@ -65,7 +66,7 @@ describe("auth/oidc-providers（#187 §4.1、§6）", () => {
       { userId: u!.id, issuer: "https://gitlab.example", sub: "1" },
       { userId: u!.id, issuer: "https://off.example", sub: "2" },
     ]);
-    expect(await linkedEnabledProvidersWithIssuer(db, u!.id)).toEqual([{ id: slash.id, displayName: "GitLab", effectiveIssuer: "https://gitlab.example" }]);
+    expect(await linkedEnabledProvidersWithIssuer(db, u!.id)).toEqual([{ id: slash.id, displayName: "GitLab", icon: GENERIC, effectiveIssuer: "https://gitlab.example" }]);
     // resolved_issuer 為 NULL 時退回 issuer_url 字面：帶尾斜線的字面對不上無斜線的身分（spec §4.1「NULL 的影響」）。
     await db.update(authProviders).set({ resolvedIssuer: null }).where(eq(authProviders.id, slash.id));
     expect(await linkedEnabledProvidersWithIssuer(db, u!.id)).toEqual([]);

@@ -40,5 +40,5 @@ export function excludeSameIssuerProviders(
   pendingIssuer: string,
 ): AuthProviderPublicDto[] {
   const key = issuerKey(pendingIssuer);
-  return providers.filter(p => issuerKey(p.effectiveIssuer) !== key).map(({ id, displayName }) => ({ id, displayName }));
+  return providers.filter(p => issuerKey(p.effectiveIssuer) !== key).map(({ id, displayName, icon }) => ({ id, displayName, icon }));
 }

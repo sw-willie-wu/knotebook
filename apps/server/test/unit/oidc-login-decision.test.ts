@@ -7,10 +7,10 @@ const claims = (over: Partial<OidcClaims> = {}): OidcClaims => ({
 const row = (over: Partial<OidcCandidateRow> = {}): OidcCandidateRow => ({
   id: "u1", disabledAt: null, hasPassword: true, linkedProviders: [], ...over,
 });
-const P = { id: "p1", displayName: "GitLab", effectiveIssuer: "https://gitlab.example" };
-const PDto = { id: "p1", displayName: "GitLab" };
+const P = { id: "p1", displayName: "GitLab", icon: null, effectiveIssuer: "https://gitlab.example" };
+const PDto = { id: "p1", displayName: "GitLab", icon: null };
 /** 與 claims() 的 issuer 同一個 IdP 的 provider（本次登入必經它進來）。 */
-const SELF = (effectiveIssuer = "https://idp.example") => ({ id: "self", displayName: "IdP", effectiveIssuer });
+const SELF = (effectiveIssuer = "https://idp.example") => ({ id: "self", displayName: "IdP", icon: null, effectiveIssuer });
 
 describe("decideOidcLogin（#187 §7.4）", () => {
   it("1. 身分命中 → login（不看註冊開關，W21；不看 email 列）", () => {

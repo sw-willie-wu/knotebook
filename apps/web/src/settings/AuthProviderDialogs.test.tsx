@@ -32,6 +32,8 @@ const LIVE: AdminAuthProviderDto = {
   insecureIssuer: false,
   issuerResolved: true,
   createdAt: "2026-10-06T00:00:00.000Z",
+  iconKind: "template",
+  icon: { type: "builtin", name: "generic" },
 };
 
 type Handler = (method: string, url: string, body: unknown) => Response | null;

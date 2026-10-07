@@ -5,6 +5,7 @@ import type {
   AdminAuthProviderImpactDto,
   AdminAuthSettingsDto,
   AuthProviderTemplate,
+  ProviderIconKind,
 } from "@knotebook/shared";
 import { AUTH_CONFIG_QUERY_KEY } from "./authConfig";
 import { api, ApiFail } from "./client";
@@ -51,6 +52,8 @@ export interface PatchAuthProviderBody {
   clientSecret?: string;
   enabled?: boolean;
   sortOrder?: number;
+  /** 圖示種類（spec 2026-10-07-provider-icon §4.3）；upload 只能經 `useUploadAuthProviderIcon`。 */
+  iconKind?: Exclude<ProviderIconKind, "upload">;
 }
 
 export function useCreateAuthProvider() {
@@ -75,6 +78,19 @@ export function useDeleteAuthProvider() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api<void>(`/api/admin/auth/providers/${id}`, { method: "DELETE" }),
+    onSuccess: () => invalidateAdminAuth(queryClient),
+  });
+}
+
+/** 上傳登入服務圖示（multipart，欄位 `file`；`api()` 對 FormData 不補 Content-Type）。成功 → admin-auth 全部＋auth-config 重抓。 */
+export function useUploadAuthProviderIcon() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, file }: { id: string; file: Blob }) => {
+      const form = new FormData();
+      form.append("file", file, "icon.png");
+      return api<AdminAuthProviderDto>(`/api/admin/auth/providers/${id}/icon`, { method: "PUT", body: form });
+    },
     onSuccess: () => invalidateAdminAuth(queryClient),
   });
 }

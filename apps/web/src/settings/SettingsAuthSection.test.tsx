@@ -31,6 +31,8 @@ const LEGACY: AdminAuthProviderDto = {
   insecureIssuer: true,
   issuerResolved: true,
   createdAt: "2026-10-06T00:00:00.000Z",
+  iconKind: "template",
+  icon: { type: "builtin", name: "generic" },
 };
 const CUSTOM: AdminAuthProviderDto = {
   id: "22222222-2222-4222-8222-222222222222",
@@ -46,6 +48,8 @@ const CUSTOM: AdminAuthProviderDto = {
   insecureIssuer: false,
   issuerResolved: false,
   createdAt: "2026-10-06T00:00:00.000Z",
+  iconKind: "template",
+  icon: { type: "builtin", name: "gitlab" },
 };
 
 type Handler = (method: string, url: string, body: unknown) => Response | null;
@@ -358,5 +362,33 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
     const dialog = within(await screen.findByRole("dialog", { name: "Turn this sign-in service off?" }));
     expect(await dialog.findByText("Linked accounts: 4")).toBeInTheDocument();
     expect(dialog.queryByText("After turning this off, you won't be able to sign in through a sign-in service yourself.")).not.toBeInTheDocument();
+  });
+  it("provider-icon V5：卡片標題前有圖示（admin DTO 已換算的 icon）；upload 的 <img src> 等於 DTO icon.url；region 名不變", async () => {
+    const url = `/api/auth/providers/${CUSTOM.id}/icon?v=5`;
+    const server = fakeServer([LEGACY, { ...CUSTOM, iconKind: "upload", icon: { type: "upload", url } }]);
+    renderSection(server.fetchMock);
+    // 等待點：region 只在列表落地後才出現。
+    const corp = await screen.findByRole("region", { name: "<b>Corp</b> & Co" });
+    const corpIcon = within(corp).getByRole("heading", { name: "<b>Corp</b> & Co" }).previousElementSibling;
+    expect(corpIcon?.tagName).toBe("IMG");
+    expect(corpIcon).toHaveAttribute("src", url);
+    expect(card("SSO").getByRole("heading", { name: "SSO" }).previousElementSibling).toHaveAttribute("data-provider-icon", "generic");
+  });
+
+  it("provider-icon：兩張卡片都有「Icon」鈕（ghost：無實心底、無 outline 外框），Edit／Delete 照在；點了開出圖示對話框", async () => {
+    const server = fakeServer([LEGACY, CUSTOM]);
+    renderSection(server.fetchMock);
+    await screen.findByRole("region", { name: "SSO" });
+    for (const name of ["SSO", "<b>Corp</b> & Co"]) {
+      const c = card(name);
+      const icon = c.getByRole("button", { name: "Icon" });
+      expect(icon.className, name).not.toMatch(/(^|\s)bg-(primary|destructive|brand|brand-deep)(\s|$)/);
+      expect(icon.className, name).not.toMatch(/(^|\s)border-input(\s|$)/);
+      expect(c.getByRole("button", { name: "Edit" }), name).toBeInTheDocument();
+      expect(c.getByRole("button", { name: "Delete" }), name).toBeInTheDocument();
+    }
+    const iconButton = card("SSO").getByRole("button", { name: "Icon" });
+    fireEvent.click(iconButton);
+    expect(await screen.findByRole("dialog", { name: "Sign-in service icon" })).toBeInTheDocument();
   });
 });

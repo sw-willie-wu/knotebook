@@ -19,7 +19,9 @@ import { readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-export const MAX_ENTRY_BYTES = 700 * 1024;
+// 2026-10-07：因 #187 登入服務圖示（登入／註冊／設定頁進首包的品牌 SVG）暫時調高 20 KiB（700 → 720）；
+// #201 把站台管理與設定頁改 lazy 後要調回 700 * 1024。
+export const MAX_ENTRY_BYTES = 720 * 1024;
 export const ENTRY_RE = /^index-[A-Za-z0-9_-]+\.js$/;
 export const NOTEPAGE_RE = /^NotePage-[A-Za-z0-9_-]+\.js$/;
 // issue #94：mermaid 必須留在自己的 chunk 裡。它連同相依（cytoscape／katex／langium…）

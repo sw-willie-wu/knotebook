@@ -32,8 +32,8 @@ const AUTH_CONFIG_URL = "/api/auth/config";
 const NO_PROVIDERS: AuthConfigDto = { providers: [], registration: { enabled: true }, passwordLogin: { enabled: true } };
 const TWO: AuthConfigDto = {
   providers: [
-    { id: "11111111-1111-1111-1111-111111111111", displayName: "GitLab" },
-    { id: "22222222-2222-2222-2222-222222222222", displayName: "Google" },
+    { id: "11111111-1111-1111-1111-111111111111", displayName: "GitLab", icon: { type: "builtin", name: "gitlab" } },
+    { id: "22222222-2222-2222-2222-222222222222", displayName: "Google", icon: { type: "builtin", name: "google" } },
   ],
   registration: { enabled: true },
   passwordLogin: { enabled: true },
@@ -105,7 +105,7 @@ describe("LoginPage（Plan 5 Task 10：SSO 入口＋?error= 映射）", () => {
     renderAt(
       "/login",
       fetchMockWithAuthConfig({
-        providers: [{ id: "33333333-3333-3333-3333-333333333333", displayName: evil }],
+        providers: [{ id: "33333333-3333-3333-3333-333333333333", displayName: evil, icon: null }],
         registration: { enabled: true },
         passwordLogin: { enabled: true },
       }),
@@ -427,7 +427,7 @@ describe("#131 登入後導回 next", () => {
   });
 });
 
-const PROVIDERS = [{ id: "11111111-1111-1111-1111-111111111111", displayName: "GitLab" }];
+const PROVIDERS: AuthProviderPublicDto[] = [{ id: "11111111-1111-1111-1111-111111111111", displayName: "GitLab", icon: { type: "builtin", name: "gitlab" } }];
 const NO_METHODS_TEXT = "There's no way to sign in right now. Please contact the site administrator.";
 
 describe("LoginPage——#187 PR3：帳密開關、註冊鈕、零方法", () => {
@@ -509,5 +509,28 @@ describe("LoginPage——#187 PR3：帳密開關、註冊鈕、零方法", () =>
   it("帳密關時 ?error= 仍顯示（例如 SSO 首登被註冊關閉擋下）", async () => {
     renderAt("/login?error=registration_disabled", fetchMockWithAuthConfig({ providers: PROVIDERS, registration: { enabled: false }, passwordLogin: { enabled: false } }));
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("This site isn't accepting new accounts right now."));
+  });
+  it("provider-icon V1：每顆 SSO 鈕在文字前有圖示（內建／上傳）、icon null 不渲染；可及名稱與文字不變", async () => {
+    const corpUrl = "/api/auth/providers/22222222-2222-2222-2222-222222222222/icon?v=4";
+    renderAt(
+      "/login",
+      fetchMockWithAuthConfig({
+        providers: [
+          { id: "11111111-1111-1111-1111-111111111111", displayName: "GitLab", icon: { type: "builtin", name: "gitlab" } },
+          { id: "22222222-2222-2222-2222-222222222222", displayName: "Corp", icon: { type: "upload", url: corpUrl } },
+          { id: "33333333-3333-3333-3333-333333333333", displayName: "Plain", icon: null },
+        ],
+        registration: { enabled: true },
+        passwordLogin: { enabled: true },
+      }),
+    );
+    // 等待點：該 provider 的 link 只在 config 落地後才出現。
+    const gitlab = await screen.findByRole("link", { name: "Sign in with GitLab" });
+    expect(gitlab.firstChild).toBe(gitlab.querySelector('[data-provider-icon="gitlab"]'));
+    expect(gitlab.textContent).toBe("Sign in with GitLab");
+    const corp = screen.getByRole("link", { name: "Sign in with Corp" });
+    expect(corp.firstChild).toBe(corp.querySelector('img[data-provider-icon="upload"]'));
+    expect(corp.querySelector("img")).toHaveAttribute("src", corpUrl);
+    expect(screen.getByRole("link", { name: "Sign in with Plain" }).querySelector("[data-provider-icon]")).toBeNull();
   });
 });

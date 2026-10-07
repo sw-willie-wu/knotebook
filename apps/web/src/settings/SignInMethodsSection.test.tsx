@@ -16,10 +16,10 @@ function LocationProbe() {
 }
 const BASE: IdentitiesDto = {
   identities: [
-    { id: "i1", issuer: "https://gitlab.example", providers: [{ id: "p1", displayName: "<b>GitLab</b>" }], createdAt: "2026-10-01T00:00:00.000Z", lastLoginAt: "2026-10-05T00:00:00.000Z", unlinkable: true },
+    { id: "i1", issuer: "https://gitlab.example", providers: [{ id: "p1", displayName: "<b>GitLab</b>", icon: { type: "builtin", name: "gitlab" } }], createdAt: "2026-10-01T00:00:00.000Z", lastLoginAt: "2026-10-05T00:00:00.000Z", unlinkable: true },
     { id: "i2", issuer: "https://gone.example/realms/x", providers: [], createdAt: "2026-10-02T00:00:00.000Z", lastLoginAt: null, unlinkable: false },
   ],
-  linkable: [{ providerId: "p2", displayName: "Google", template: "google" }],
+  linkable: [{ providerId: "p2", displayName: "Google", template: "google", icon: { type: "builtin", name: "google" } }],
   hasPassword: true,
   passwordLoginEnabled: true,
 };
@@ -194,5 +194,34 @@ describe("SignInMethodsSection（#187 §8.5）", () => {
   ])("?link_error=%s → 對應文案", async (code, text) => {
     setup(BASE, `/settings/account?link_error=${code}`);
     expect(await screen.findByText(text)).toBeInTheDocument();
+  });
+  it("provider-icon V4：已連結列名稱前有圖示——第一個 provider 的 icon、以 host 標示者用通用圖示、icon null 不渲染；「Link X」鈕文字前有圖示", async () => {
+    setup({
+      ...BASE,
+      identities: [
+        BASE.identities[0]!,
+        BASE.identities[1]!,
+        {
+          id: "i3",
+          issuer: "https://multi.example",
+          providers: [
+            { id: "p3", displayName: "First", icon: { type: "builtin", name: "google" } },
+            { id: "p4", displayName: "Second", icon: { type: "builtin", name: "gitlab" } },
+          ],
+          createdAt: "2026-10-03T00:00:00.000Z",
+          lastLoginAt: null,
+          unlinkable: true,
+        },
+        { id: "i4", issuer: "https://hidden.example", providers: [{ id: "p5", displayName: "Hidden", icon: null }], createdAt: "2026-10-04T00:00:00.000Z", lastLoginAt: null, unlinkable: true },
+      ],
+    });
+    const iconBeforeName = (row: HTMLElement) => document.getElementById(row.getAttribute("aria-labelledby")!)!.previousElementSibling;
+    // 等待點：listitem 只在 identities 落地後才出現。
+    expect(iconBeforeName(await screen.findByRole("listitem", { name: "<b>GitLab</b>" }))).toHaveAttribute("data-provider-icon", "gitlab");
+    expect(iconBeforeName(screen.getByRole("listitem", { name: /gone\.example/ }))).toHaveAttribute("data-provider-icon", "generic");
+    expect(iconBeforeName(screen.getByRole("listitem", { name: "First / Second" }))).toHaveAttribute("data-provider-icon", "google");
+    expect(screen.getByRole("listitem", { name: "Hidden" }).querySelector("[data-provider-icon]")).toBeNull();
+    const link = screen.getByRole("button", { name: "Link Google" });
+    expect(link.firstChild).toBe(link.querySelector('[data-provider-icon="google"]'));
   });
 });

@@ -8,6 +8,7 @@ import { useAuthConfig } from "@/api/authConfig";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SESSION_QUERY_KEY, useSession } from "@/auth/useSession";
+import { ProviderIcon } from "@/components/ProviderIcon";
 
 /** SSO 入口前綴——與 LoginPage 同一個端點（B10：「透過 X 註冊」與「透過 X 登入」打同一處、同一結果）。 */
 const OIDC_LOGIN_PREFIX = "/api/auth/oidc/login/";
@@ -133,7 +134,10 @@ export default function RegisterPage() {
                 {passwordLoginEnabled && <div className="border-t" aria-hidden="true" />}
                 {providers.map((provider) => (
                   <Button key={provider.id} asChild variant="outline" className="w-full">
-                    <a href={ssoHref(provider.id)}>{t("register.signUpWith", { name: provider.displayName })}</a>
+                    <a href={ssoHref(provider.id)}>
+                      <ProviderIcon icon={provider.icon} />
+                      {t("register.signUpWith", { name: provider.displayName })}
+                    </a>
                   </Button>
                 ))}
               </>

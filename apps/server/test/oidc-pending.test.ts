@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { SESSION_COOKIE } from "@knotebook/shared";
 import { insertPasswordUser, testConfig } from "./helpers.js";
 import { buildOidcApp, identitiesOf, ssoRoundTrip, type OidcTestApp } from "./helpers/oidc-provider.js";
+import { expectedIcon, expectNoIconBytes, GENERIC, seedIconMatrix } from "./helpers/provider-icon.js";
 import { authProviders, userIdentities, users } from "../src/db/schema.js";
 import { OIDC_PENDING_COOKIE, sealPendingLink, unsealPendingLink } from "../src/auth/oidc-pending.js";
 import { signSession } from "../src/auth/session.js";
@@ -58,7 +59,7 @@ describe("GET /api/auth/oidc/pending（#187 §7.5.2 第 2 步）", () => {
     const r = await ssoRoundTrip(t.app, t.idp("b"), { loginUrl: `/api/auth/oidc/login/${t.provider("b").id}`, claims: { sub: "sb", email: "sso@x.example" } });
     const cookie = r.cookies[OIDC_PENDING_COOKIE]!;
     const get = () => t.app.inject({ method: "GET", url: "/api/auth/oidc/pending", cookies: { [OIDC_PENDING_COOKIE]: cookie } });
-    expect((await get()).json().methods).toEqual({ password: false, providers: [{ id: t.provider("a").id, displayName: "A" }] });
+    expect((await get()).json().methods).toEqual({ password: false, providers: [{ id: t.provider("a").id, displayName: "A", icon: GENERIC }] });
     await t.db.update(authProviders).set({ enabled: false }).where(eq(authProviders.id, t.provider("a").id));
     const res = await get();
     expect(res.statusCode).toBe(409);
@@ -83,7 +84,7 @@ describe("GET /api/auth/oidc/pending（#187 §7.5.2 第 2 步）", () => {
     await ssoRoundTrip(t.app, t.idp("a1"), { loginUrl: `/api/auth/oidc/login/${t.provider("a1").id}`, claims: { sub: "sa", email: "x@x.example" } });
     const r = await ssoRoundTrip(t.app, t.idp("b"), { loginUrl: `/api/auth/oidc/login/${t.provider("b").id}`, claims: { sub: "sb", email: "x@x.example" } });
     const res = await t.app.inject({ method: "GET", url: "/api/auth/oidc/pending", cookies: { [OIDC_PENDING_COOKIE]: r.cookies[OIDC_PENDING_COOKIE]! } });
-    expect(res.json().methods.providers).toEqual([{ id: t.provider("a1").id, displayName: "A one" }, { id: t.provider("a2").id, displayName: "A two" }]);
+    expect(res.json().methods.providers).toEqual([{ id: t.provider("a1").id, displayName: "A one", icon: GENERIC }, { id: t.provider("a2").id, displayName: "A two", icon: GENERIC }]);
   });
 
   it("B14（Task 6 裁定 A）：帳號有 pending issuer 的另一個 sub＋另一 issuer 的已啟用 provider 身分＋密碼 → providers 只列另一 issuer、不列 pending issuer", async () => {
@@ -96,7 +97,21 @@ describe("GET /api/auth/oidc/pending（#187 §7.5.2 第 2 步）", () => {
     });
     const res = await t.app.inject({ method: "GET", url: "/api/auth/oidc/pending", cookies: { [OIDC_PENDING_COOKIE]: cookie } });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ pendingId, email: "target@x.example", providerDisplayName: "B", methods: { password: true, providers: [{ id: t.provider("a").id, displayName: "A" }] } });
+    expect(res.json()).toEqual({ pendingId, email: "target@x.example", providerDisplayName: "B", methods: { password: true, providers: [{ id: t.provider("a").id, displayName: "A", icon: GENERIC }] } });
+  });
+
+  it("S7（provider-icon）：methods.providers 每項帶換算後的 icon（三範本 × 五種 kind，經 T1 重新組形）；不含圖檔位元組", async () => {
+    const t = await twoProviders();
+    const matrix = await seedIconMatrix(t.db);
+    const { cookie } = await toPending(t, {
+      beforeSso: async userId => {
+        await t.db.insert(userIdentities).values(matrix.map((c, i) => ({ userId, issuer: c.issuer, sub: `m${i}` })));
+      },
+    });
+    const res = await t.app.inject({ method: "GET", url: "/api/auth/oidc/pending", cookies: { [OIDC_PENDING_COOKIE]: cookie } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().methods.providers).toEqual(matrix.map(c => ({ id: c.id, displayName: c.displayName, icon: expectedIcon(c) })));
+    expectNoIconBytes(res.body);
   });
 });
 
