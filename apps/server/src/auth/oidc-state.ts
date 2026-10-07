@@ -7,7 +7,7 @@ import { sealCookieJson, unsealCookieJson } from "./sealed-cookie.js";
 // #187 起封章本體在 `auth/sealed-cookie.ts`（格式不變；namespace `oidc-state`）。
 // #187 §7.3：payload 綁「發出它的 provider」（`providerId`）與當下的設定版本（`configVersion`），並帶 `intent`——callback
 // 據此判斷 cookie 是否屬於這條 provider 路徑、設定是否在登入途中變了（C5）。三欄缺任何一個＝部署前封的舊 cookie，unseal 回 null
-// （在飛的登入失敗一次，§17 第 12 條）。PR1 的 intent 是 "login"／"prove"（SSO 證明，§7.5.3）；PR3 的 "link" 不收。
+// （在飛的登入失敗一次，§17 第 12 條）。intent 是 "login"／"prove"（SSO 證明，§7.5.3）／"link"（設定頁手動連結，§8.1）。
 
 export interface OidcStateBase {
   state: string;
@@ -44,6 +44,13 @@ export type OidcStateIntent = {
   intent: "prove";
   pendingId: string;
   proveUserId: string;
+} | {
+  /**
+   * #187 §7.6／§8.1 設定頁的手動連結：`linkUserId`＝發起者。callback 以「目前 session 的使用者 === linkUserId」判斷，
+   * 不符 → `oidc_link_session_mismatch`。**沒有 `next`**——完成後一律回 `/settings/account`（unseal 時即使帶了 next 也丟掉）。
+   */
+  intent: "link";
+  linkUserId: string;
 };
 
 export type OidcStatePayload = OidcStateBase & OidcStateIntent;
@@ -97,6 +104,13 @@ export function unsealOidcState(appSecret: string, sealed: string, nowEpochSecon
   if (p.intent === "prove") {
     // SSO 證明（§7.5.3）：不帶 next（next 留在 pending cookie）；pendingId／proveUserId 綁回當下那顆 pending。
     if (typeof p.pendingId !== "string" || typeof p.proveUserId !== "string") return null;
+    const { next, ...rest } = p;
+    void next;
+    return (rest.exp as number) <= nowEpochSeconds ? null : (rest as unknown as OidcStatePayload);
+  }
+  if (p.intent === "link") {
+    // 手動連結（§8.1）：不帶 next；linkUserId 必須是字串。
+    if (typeof p.linkUserId !== "string") return null;
     const { next, ...rest } = p;
     void next;
     return (rest.exp as number) <= nowEpochSeconds ? null : (rest as unknown as OidcStatePayload);

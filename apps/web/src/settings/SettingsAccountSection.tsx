@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { normalizeHandle, validateHandle } from "@knotebook/shared";
 import { ChangePasswordForm } from "@/auth/ChangePasswordForm";
+import { useIdentities } from "@/api/account";
 import { useUpdateHandle } from "@/api/profile";
 import { ApiFail } from "@/api/client";
 import { Button } from "@/components/ui/button";
@@ -10,6 +11,8 @@ import { toast } from "@/components/ui/toast";
 import { useSession } from "@/auth/useSession";
 import { ApiTokensSection } from "./ApiTokensSection";
 import { SettingsGroup, SettingsPage } from "./SettingsLayout";
+import { SetPasswordForm } from "./SetPasswordForm";
+import { SignInMethodsSection } from "./SignInMethodsSection";
 
 /** 逐檔複製的既有慣例（無共用 helper——比照 ShareDialog/SettingsUsersSection）。 */
 function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
@@ -98,33 +101,44 @@ function HandleSection() {
  * `navigate("/")` 會關掉 modal，甚至扯掉背景 `/notes/:ref` 的共編 provider，
  * 這裡刻意留在原地（對照 `ChangePasswordPage` 的強制模式 `onSuccess`）。
  *
- * `user.hasPassword === false`（OIDC 自動建帳、從未設過密碼；spec §14.4）→
- * 不渲染改密碼表單（打了也一定 `invalid_credentials`，沒有意義），改渲染
- * `settings.account.ssoOnly` 提示——**但使用者名段照常渲染**（#122 起不再整段
- * 早退）。仍用 `=== false` 明確比對（而非 `!user.hasPassword`），讓「query 尚未
- * 就緒」（`undefined`）預設落在渲染表單那條分支，不誤閃 SSO 提示。
+ * 密碼群組三形（#187 §8.5）：
+ * - `hasPassword === false`（OIDC 自動建帳、從未設過密碼；spec §14.4）＋帳密登入有效值開
+ *   → 「加上密碼」表單（`SetPasswordForm`）；不渲染改密碼表單（打了也一定 `invalid_credentials`）。
+ * - `hasPassword === false`＋有效值關（B22）→ 只有說明、沒有表單。
+ * - 有密碼 → 改密碼表單；有效值關時多一句說明。
+ * 使用者名段在三形都照常渲染。`hasPassword` 仍用 `=== false` 明確比對（而非 `!user.hasPassword`），
+ * 讓「query 尚未就緒」（`undefined`）預設落在改密碼表單那條分支，不誤閃加密碼表單；
+ * `passwordLoginEnabled` 同理以 `!== false` 預設為開（identities 尚未載入時不誤閃「關」說明）。
  *
- * `changePassword.title`/`.description` 只在有改密碼表單那個分支渲染——SSO-only
- * 使用者不該同時看到「Change your password」標題與 SSO 提示（fix round 1 MINOR-2）。
+ * `changePassword.title`/`.description` 只在有改密碼表單那個分支渲染（fix round 1 MINOR-2）。
  */
 export function SettingsAccountSection() {
   const { t } = useTranslation();
   const { user } = useSession();
+  const identities = useIdentities();
+  const passwordLoginEnabled = identities.data?.passwordLoginEnabled !== false;
 
   return (
     <SettingsPage title={t("settings.nav.account")} description={t("settings.account.description")}>
       <HandleSection />
+      <SignInMethodsSection />
       {/* #107：與 HandleSection 同層、在 hasPassword 三元式之外——SSO-only 帳號
           也要能建 PAT。 */}
       <ApiTokensSection />
       {user?.hasPassword === false ? (
-        // 無標題群組：SSO-only 帳號不該看到「修改密碼」標題（`SettingsAccountSection.test.tsx`
-        // 與 fix round 1 MINOR-2 都釘著這條），但仍要佔一個群組位以維持髮絲線節奏。
-        <SettingsGroup>
-          <p className="max-w-prose text-justify text-sm text-muted-foreground hyphens-auto">{t("settings.account.ssoOnly")}</p>
-        </SettingsGroup>
+        passwordLoginEnabled ? (
+          <SettingsGroup title={t("settings.account.setPassword.title")} description={t("settings.account.setPassword.description")}>
+            <SetPasswordForm onSuccess={() => toast({ title: t("settings.account.setPassword.success") })} />
+          </SettingsGroup>
+        ) : (
+          // B22：有效值關時不給加密碼表單。
+          <SettingsGroup>
+            <p className="max-w-prose text-sm text-muted-foreground">{t("settings.account.setPassword.ssoOnlyNotice")}</p>
+          </SettingsGroup>
+        )
       ) : (
         <SettingsGroup title={t("changePassword.title")} description={t("changePassword.description")}>
+          {!passwordLoginEnabled && <p className="mb-3 max-w-prose text-sm text-muted-foreground">{t("settings.account.passwordLoginOffNote")}</p>}
           {/* 設定 modal 內：tone="panel" → brandDeep（同一元件在 /change-password 整頁用預設 "page" → brandSolid） */}
           <ChangePasswordForm tone="panel" onSuccess={() => toast({ title: t("changePassword.successMessage") })} />
         </SettingsGroup>

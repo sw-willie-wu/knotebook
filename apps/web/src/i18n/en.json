@@ -217,7 +217,25 @@
     "submit": "Sign in",
     "submitting": "Signing in…",
     "retryAfter": "Try again in {{seconds}}s.",
-    "signInWith": "Sign in with {{name}}"
+    "signInWith": "Sign in with {{name}}",
+    "register": "Create an account",
+    "noMethods": "There's no way to sign in right now. Please contact the site administrator."
+  },
+  "register": {
+    "title": "Create an account",
+    "email": "Email",
+    "displayName": "Display name (optional)",
+    "password": "Password",
+    "confirmPassword": "Confirm password",
+    "mismatch": "The passwords don't match.",
+    "submit": "Create account",
+    "submitting": "Creating account…",
+    "signUpWith": "Sign up with {{name}}",
+    "closed": "This site isn't accepting new accounts right now.",
+    "backToLogin": "Back to sign in",
+    "haveAccount": "Already have an account? Sign in",
+    "emailTooLong": "Email can be at most {{max}} characters.",
+    "displayNameTooLong": "Display name can be at most {{max}} characters."
   },
   "linkAccount": {
     "title": "Link your sign-in",
@@ -242,7 +260,8 @@
     "mismatch": "The new password and confirmation don't match.",
     "submit": "Change password",
     "submitting": "Changing password…",
-    "successMessage": "Password updated."
+    "successMessage": "Password updated.",
+    "ssoOnlyNote": "This site only allows signing in through a sign-in service right now. This password won't be used to sign in for now, but you still need to replace the temporary password the site administrator set."
   },
   "userMenu": {
     "language": "Language",
@@ -294,6 +313,20 @@
       "impactLinked": "Linked accounts: {{number}}",
       "impactLockedOut": "Of those, with no other way to sign in: {{number}}",
       "impactUnresolved": "This service hasn't connected successfully yet, so these numbers may be off.",
+      "access": {
+        "title": "Registration and password sign-in",
+        "registration": "Allow registration",
+        "registrationHelp": "When off, nobody can create a new account — neither by registering with a password nor by signing in through a sign-in service for the first time. Accounts that are already linked keep signing in as usual.",
+        "passwordLogin": "Allow password sign-in",
+        "passwordLoginHelp": "When off, everyone — including admins — can only sign in through a sign-in service. Accounts not yet linked to one can link themselves by signing in for the first time through a sign-in service with the same email and entering their old password. Turning it off doesn't sign anyone out.",
+        "needProvider": "Turn on at least one sign-in service first.",
+        "needAdminLink": "Link a sign-in service in your own settings first.",
+        "forced": "Password sign-in is forced on by the environment variable PASSWORD_LOGIN_FORCE_ENABLE. The setting below takes effect only after you remove that variable and restart.",
+        "confirmTitle": "Turn off password sign-in?",
+        "usersWithoutSso": "Accounts with no usable sign-in service: {{number}}",
+        "confirm": "Turn off"
+      },
+      "impactActingAdminLockedOut": "After turning this off, you won't be able to sign in through a sign-in service yourself.",
       "disableConfirm": "Turn off",
       "cancel": "Cancel",
       "delete": "Delete",
@@ -358,6 +391,7 @@
     "createUser": "Create user",
     "createUserDescription": "Add a new user account.",
     "mustChangePasswordNotice": "The new account will be required to change its password on first login.",
+    "passwordLoginOffNotice": "Password sign-in is turned off on this site: the temporary password is only used when the new person links their account the first time they sign in through a sign-in service.",
     "email": "Email",
     "password": "Password",
     "passwordHint": "At least {{min}} characters.",
@@ -539,12 +573,38 @@
     },
     "account": {
       "description": "Manage your username, password, and API tokens.",
-      "ssoOnly": "This account signs in with SSO.",
+      "passwordLoginOffNote": "This site only allows signing in through a sign-in service right now; your password is only used to prove it's you when linking an account.",
+      "setPassword": {
+        "title": "Add a password",
+        "description": "After adding a password you can also sign in with your email and password.",
+        "newPassword": "New password",
+        "confirm": "Confirm new password",
+        "submit": "Add password",
+        "submitting": "Adding password…",
+        "success": "Password added.",
+        "ssoOnlyNotice": "This site only allows signing in through a sign-in service right now."
+      },
       "handleTitle": "Username",
       "handleDescription": "Your username appears in every /n/ and /p/ link you share (token links don't include it). After a rename those links stop working immediately, and the old name can never be used again — not even by you.",
       "handleLabel": "Username",
       "handleSave": "Save username",
       "handleSaved": "Username updated.",
+      "signInMethods": {
+        "title": "Sign-in methods",
+        "description": "Sign-in services linked to this account. You can link another one, or unlink one as long as you keep at least one way to sign in.",
+        "linkedOn": "Linked {{when}}",
+        "lastUsed": "Last used {{when}}",
+        "neverUsed": "Never used",
+        "unknownProvider": "Removed or turned-off sign-in service",
+        "unlink": "Unlink",
+        "unlinkTitle": "Unlink this sign-in service?",
+        "unlinkDescription": "You won't be able to sign in with it until you link it again. Other sessions stay signed in.",
+        "cancel": "Cancel",
+        "lastMethodHint": "This is your only way to sign in, so it can't be unlinked.",
+        "link": "Link",
+        "linked": "Sign-in service linked.",
+        "empty": "No sign-in services linked."
+      },
       "apiTokensTitle": "API tokens",
       "apiTokensDescription": "Give a script or an AI assistant access to your notes on your behalf. A token can list and create notes, and read and write note content — treat it like a password. Tokens are not affected when you change your password; revoke them here instead.",
       "apiTokensCleanupHint": "OAuth applications unused for 30 days, and tokens that expired more than 30 days ago, are removed automatically the next time anyone creates a token or authorizes an application.",
@@ -770,6 +830,12 @@
     "provider_enabled": "Turn this sign-in service off before deleting it.",
     "provider_secret_missing": "Enter a client secret before turning this sign-in service on.",
     "oidc_discovery_failed": "Couldn't read a usable OpenID Connect configuration from that issuer URL.",
+    "password_login_disabled": "This site only allows signing in through a sign-in service.",
+    "sso_provider_required": "Turn on at least one sign-in service before turning off password sign-in.",
+    "admin_sso_link_required": "Link a sign-in service that is turned on to your own account (in Settings) before turning off password sign-in.",
+    "password_already_set": "This account already has a password. Use Change password instead.",
+    "last_login_method": "This is the account's only way to sign in, so it can't be unlinked.",
+    "oidc_link_session_mismatch": "You're no longer signed in as the account you were linking. Sign in and try again.",
     "fallback": "An unexpected error occurred."
   }
 }

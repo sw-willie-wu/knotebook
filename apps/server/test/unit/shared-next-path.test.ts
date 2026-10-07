@@ -191,3 +191,13 @@ describe("safeNextPath", () => {
     expect(safeNextPath(["/", "x"] as unknown as string)).toBeNull();
   });
 });
+
+describe("#187 PR3：/register 也排除（「存在前提是尚未登入」）", () => {
+  it.each(["/register", "/register/", "/REGISTER", "/Register//", "/register?next=%2Fx"])("%s → null", (input) => {
+    expect(safeNextPath(input)).toBeNull();
+  });
+  it("前綴相似但不是同一頁 → 照收", () => {
+    expect(safeNextPath("/registered")).toBe("/registered");
+    expect(safeNextPath("/n/alice/register")).toBe("/n/alice/register");
+  });
+});

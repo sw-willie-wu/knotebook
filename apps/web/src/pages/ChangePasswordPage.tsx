@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router";
 import { useTranslation } from "react-i18next";
+import { useAuthConfig } from "@/api/authConfig";
 import { useSession } from "@/auth/useSession";
 import { ChangePasswordForm } from "@/auth/ChangePasswordForm";
 import { Button } from "@/components/ui/button";
@@ -17,6 +18,7 @@ export default function ChangePasswordPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { logout } = useSession();
+  const authConfig = useAuthConfig();
 
   function handleSuccess(): void {
     toast({ title: t("changePassword.successMessage") });
@@ -48,6 +50,11 @@ export default function ChangePasswordPage() {
           <h1 className="text-2xl font-semibold">{t("changePassword.title")}</h1>
           <p className="text-sm text-muted-foreground">{t("changePassword.description")}</p>
         </div>
+
+        {authConfig.data?.passwordLogin.enabled === false && (
+          // B23：關閉期間 must_change_password 照常生效、清除仍只有改密碼一途；說明這個密碼暫時用不到、但臨時密碼仍要換掉。
+          <p className="text-sm text-muted-foreground">{t("changePassword.ssoOnlyNote")}</p>
+        )}
 
         <ChangePasswordForm onSuccess={handleSuccess} />
       </div>

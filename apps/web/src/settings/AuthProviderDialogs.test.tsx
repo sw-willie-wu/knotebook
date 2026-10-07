@@ -48,6 +48,9 @@ function fakeServer(initial: AdminAuthProviderDto[]) {
       if (res) return res;
     }
     if (method === "GET" && url === "/api/admin/auth/providers") return fakeResponse(200, { providers: state.providers });
+    if (method === "GET" && url === "/api/admin/auth/settings") {
+      return fakeResponse(200, { registrationEnabled: true, passwordLoginEnabled: true, passwordLoginForced: false, passwordLoginImpact: { usersWithoutSso: 0, actingAdminHasSso: true, enabledProviders: 1 } });
+    }
     throw new Error(`unexpected fetch: ${method} ${url}`);
   });
   return { state, calls, fetchMock, on: (handler: Handler) => handlers.push(handler) };

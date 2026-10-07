@@ -65,6 +65,9 @@ function fakeServer(initial: AdminAuthProviderDto[]) {
       if (res) return res;
     }
     if (method === "GET" && url === "/api/admin/auth/providers") return fakeResponse(200, { providers: state.providers });
+    if (method === "GET" && url === "/api/admin/auth/settings") {
+      return fakeResponse(200, { registrationEnabled: true, passwordLoginEnabled: true, passwordLoginForced: false, passwordLoginImpact: { usersWithoutSso: 0, actingAdminHasSso: true, enabledProviders: 1 } });
+    }
     throw new Error(`unexpected fetch: ${method} ${url}`);
   });
   return { state, calls, fetchMock, on: (handler: Handler) => handlers.push(handler) };
@@ -150,7 +153,7 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
     const server = fakeServer([enabledUnresolved]);
     server.on((method, url) =>
       method === "GET" && url === `/api/admin/auth/providers/${CUSTOM.id}/impact`
-        ? fakeResponse(200, { linkedUsers: 5, lockedOutUsers: 2, issuerResolved: false })
+        ? fakeResponse(200, { linkedUsers: 5, lockedOutUsers: 2, issuerResolved: false, actingAdminLockedOut: false })
         : null,
     );
     server.on((method, url) => {
@@ -177,7 +180,7 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
     const enabled = { ...CUSTOM, hasSecret: true, enabled: true };
     const server = fakeServer([enabled]);
     server.on((method, url) =>
-      method === "GET" && url.endsWith("/impact") ? fakeResponse(200, { linkedUsers: 0, lockedOutUsers: 0, issuerResolved: true }) : null,
+      method === "GET" && url.endsWith("/impact") ? fakeResponse(200, { linkedUsers: 0, lockedOutUsers: 0, issuerResolved: true, actingAdminLockedOut: false }) : null,
     );
     renderSection(server.fetchMock);
     const custom = within(await screen.findByRole("region", { name: "<b>Corp</b> & Co" }));
@@ -215,7 +218,7 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
     const enabled = { ...CUSTOM, hasSecret: true, enabled: true };
     const server = fakeServer([enabled]);
     server.on((method, url) =>
-      method === "GET" && url.endsWith("/impact") ? fakeResponse(200, { linkedUsers: 0, lockedOutUsers: 0, issuerResolved: true }) : null,
+      method === "GET" && url.endsWith("/impact") ? fakeResponse(200, { linkedUsers: 0, lockedOutUsers: 0, issuerResolved: true, actingAdminLockedOut: false }) : null,
     );
     server.on((method, url) => {
       if (method !== "PATCH" || url !== `/api/admin/auth/providers/${CUSTOM.id}`) return null;
@@ -245,7 +248,7 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
     const enabled = { ...CUSTOM, hasSecret: true, enabled: true };
     const server = fakeServer([enabled]);
     server.on((method, url) =>
-      method === "GET" && url.endsWith("/impact") ? fakeResponse(200, { linkedUsers: 1, lockedOutUsers: 0, issuerResolved: true }) : null,
+      method === "GET" && url.endsWith("/impact") ? fakeResponse(200, { linkedUsers: 1, lockedOutUsers: 0, issuerResolved: true, actingAdminLockedOut: false }) : null,
     );
     server.on((method, url) => {
       if (method !== "PATCH" || url !== `/api/admin/auth/providers/${CUSTOM.id}`) return null;
@@ -301,7 +304,7 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
     });
     server.on((method, url) =>
       method === "GET" && url === `/api/admin/auth/providers/${LEGACY.id}/impact`
-        ? fakeResponse(200, { linkedUsers: 0, lockedOutUsers: 0, issuerResolved: true })
+        ? fakeResponse(200, { linkedUsers: 0, lockedOutUsers: 0, issuerResolved: true, actingAdminLockedOut: false })
         : null,
     );
     server.on((method, url) => {
@@ -324,5 +327,36 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
     const refreshed = within(screen.getByRole("region", { name: "SSO" }));
     expect(refreshed.queryByText(/Connection OK/)).toBeNull();
     expect(refreshed.getByText(/Hasn't connected successfully yet/)).toBeInTheDocument();
+  });
+
+  it("停用 dialog：actingAdminLockedOut=true → 顯示「停用後你自己將無法用登入服務登入」", async () => {
+    const enabled = { ...CUSTOM, hasSecret: true, enabled: true };
+    const server = fakeServer([enabled]);
+    server.on((method, url) =>
+      method === "GET" && url === `/api/admin/auth/providers/${CUSTOM.id}/impact`
+        ? fakeResponse(200, { linkedUsers: 1, lockedOutUsers: 0, issuerResolved: true, actingAdminLockedOut: true })
+        : null,
+    );
+    renderSection(server.fetchMock);
+    const custom = within(await screen.findByRole("region", { name: "<b>Corp</b> & Co" }));
+    fireEvent.click(custom.getByRole("switch", { name: "On" }));
+    const dialog = within(await screen.findByRole("dialog", { name: "Turn this sign-in service off?" }));
+    expect(await dialog.findByText("After turning this off, you won't be able to sign in through a sign-in service yourself.")).toBeInTheDocument();
+  });
+
+  it("停用 dialog：actingAdminLockedOut=false → 不顯示該句（人數已落地後才斷言）", async () => {
+    const enabled = { ...CUSTOM, hasSecret: true, enabled: true };
+    const server = fakeServer([enabled]);
+    server.on((method, url) =>
+      method === "GET" && url === `/api/admin/auth/providers/${CUSTOM.id}/impact`
+        ? fakeResponse(200, { linkedUsers: 4, lockedOutUsers: 0, issuerResolved: true, actingAdminLockedOut: false })
+        : null,
+    );
+    renderSection(server.fetchMock);
+    const custom = within(await screen.findByRole("region", { name: "<b>Corp</b> & Co" }));
+    fireEvent.click(custom.getByRole("switch", { name: "On" }));
+    const dialog = within(await screen.findByRole("dialog", { name: "Turn this sign-in service off?" }));
+    expect(await dialog.findByText("Linked accounts: 4")).toBeInTheDocument();
+    expect(dialog.queryByText("After turning this off, you won't be able to sign in through a sign-in service yourself.")).not.toBeInTheDocument();
   });
 });

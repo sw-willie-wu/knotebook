@@ -120,3 +120,47 @@ export async function linkPendingIdentityInTx(tx: Tx, input: LinkPendingInput, h
     tokenVersion: row.tokenVersion,
   };
 }
+
+/**
+ * #187 交易表 P3（§8.1 第 2 步）：設定頁手動連結。本人同時持有 session 與 IdP 登入就是證明——不要求 email 相同（第 3 步）。
+ * **第一句**鎖本人 users 列（`FOR NO KEY UPDATE`，B16：給 B2 一個序列化點，C22），之後依序：帳號不在 → `oidc_link_session_mismatch`；
+ * 停用 → `account_disabled`；`(issuer, sub)` 屬本人 → 冪等成功；屬別人 → `identity_taken`；本人已有同 issuer 另一個 sub →
+ * `identity_already_linked`（B2，精確 `eq(issuer)`，理由同上一個函式）；都不是 → INSERT（並發首登搶同一身分時 ON CONFLICT 後重讀，C11）。
+ * 不動 `must_change_password`（B15）、不寫 users、不簽 session。
+ */
+export async function linkIdentityToUserInTx(tx: Tx, input: { userId: string; issuer: string; sub: string }): Promise<void> {
+  const [row] = await tx.select({ disabledAt: users.disabledAt }).from(users).where(eq(users.id, input.userId)).for("no key update");
+  if (row === undefined) throw new TxAbort(409, "oidc_link_session_mismatch", "發起連結的帳號已不存在");
+  if (row.disabledAt !== null) throw new TxAbort(403, "account_disabled", "此帳號已被停用");
+
+  const ownerOf = async () =>
+    (
+      await tx
+        .select({ userId: userIdentities.userId })
+        .from(userIdentities)
+        .where(and(eq(userIdentities.issuer, input.issuer), eq(userIdentities.sub, input.sub)))
+        .limit(1)
+    )[0];
+  const owner = await ownerOf();
+  if (owner !== undefined) {
+    if (owner.userId === input.userId) return;
+    throw new TxAbort(409, "identity_taken", "這個登入身分已連結到其他帳號");
+  }
+
+  const [sameIssuer] = await tx
+    .select({ id: userIdentities.id })
+    .from(userIdentities)
+    .where(and(eq(userIdentities.userId, input.userId), eq(userIdentities.issuer, input.issuer), ne(userIdentities.sub, input.sub)))
+    .limit(1);
+  if (sameIssuer !== undefined) throw new TxAbort(409, "identity_already_linked", "這個帳號已連結同一個登入服務的另一個身分");
+
+  const inserted = await tx
+    .insert(userIdentities)
+    .values({ userId: input.userId, issuer: input.issuer, sub: input.sub, lastLoginAt: sql`now()` })
+    .onConflictDoNothing({ target: [userIdentities.issuer, userIdentities.sub] })
+    .returning({ id: userIdentities.id });
+  if (inserted.length === 0) {
+    const winner = await ownerOf();
+    if (winner?.userId !== input.userId) throw new TxAbort(409, "identity_taken", "這個登入身分已連結到其他帳號");
+  }
+}

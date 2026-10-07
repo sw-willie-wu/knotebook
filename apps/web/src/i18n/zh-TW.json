@@ -217,7 +217,25 @@
     "submit": "登入",
     "submitting": "登入中…",
     "retryAfter": "請在 {{seconds}} 秒後再試一次。",
-    "signInWith": "透過 {{name}} 登入"
+    "signInWith": "透過 {{name}} 登入",
+    "register": "註冊新帳號",
+    "noMethods": "目前沒有可用的登入方式，請聯絡站長。"
+  },
+  "register": {
+    "title": "建立帳號",
+    "email": "Email",
+    "displayName": "顯示名稱（選填）",
+    "password": "密碼",
+    "confirmPassword": "確認密碼",
+    "mismatch": "兩次輸入的密碼不一致。",
+    "submit": "建立帳號",
+    "submitting": "建立中…",
+    "signUpWith": "透過 {{name}} 註冊",
+    "closed": "目前不開放註冊。",
+    "backToLogin": "回登入頁",
+    "haveAccount": "已經有帳號？登入",
+    "emailTooLong": "Email 最多 {{max}} 個字元。",
+    "displayNameTooLong": "顯示名稱最多 {{max}} 個字。"
   },
   "linkAccount": {
     "title": "連結登入方式",
@@ -242,7 +260,8 @@
     "mismatch": "新密碼與確認密碼不一致。",
     "submit": "修改密碼",
     "submitting": "修改密碼中…",
-    "successMessage": "密碼已更新。"
+    "successMessage": "密碼已更新。",
+    "ssoOnlyNote": "本站目前只允許 SSO 登入；這個密碼暫時不會用來登入，但仍須換掉站長代設的臨時密碼。"
   },
   "userMenu": {
     "language": "語言",
@@ -294,6 +313,20 @@
       "impactLinked": "已連結的帳號：{{number}}",
       "impactLockedOut": "其中沒有其他登入方式的：{{number}}",
       "impactUnresolved": "這個服務還沒有成功連線過，以上人數可能不準。",
+      "access": {
+        "title": "註冊與帳號密碼登入",
+        "registration": "允許註冊",
+        "registrationHelp": "關閉後不能註冊新帳號——包括帳密註冊與第一次用登入服務登入時自動建帳；已連結的帳號照常登入。",
+        "passwordLogin": "允許帳號密碼登入",
+        "passwordLoginHelp": "關閉後所有人（包括管理員）只能用登入服務登入；尚未連結登入服務的帳號，要用同一個 email 的登入服務首次登入、並輸入原密碼來連結。關閉不會登出已登入的人。",
+        "needProvider": "先啟用至少一個登入服務。",
+        "needAdminLink": "請先在個人設定連結一個登入服務。",
+        "forced": "帳號密碼登入已被環境變數 PASSWORD_LOGIN_FORCE_ENABLE 強制開啟；下面的設定在移除該變數並重啟後才會生效。",
+        "confirmTitle": "關閉帳號密碼登入？",
+        "usersWithoutSso": "沒有可用登入服務的帳號：{{number}}",
+        "confirm": "關閉"
+      },
+      "impactActingAdminLockedOut": "停用後你自己將無法用登入服務登入。",
       "disableConfirm": "停用",
       "cancel": "取消",
       "delete": "刪除",
@@ -358,6 +391,7 @@
     "createUser": "建立使用者",
     "createUserDescription": "新增一個使用者帳號。",
     "mustChangePasswordNotice": "新帳號首次登入需修改密碼。",
+    "passwordLoginOffNotice": "本站目前關閉帳號密碼登入：這個臨時密碼只用於對方第一次透過登入服務登入、連結帳號時證明本人。",
     "email": "電子郵件",
     "password": "密碼",
     "passwordHint": "至少需要 {{min}} 個字元。",
@@ -539,12 +573,38 @@
     },
     "account": {
       "description": "管理你的使用者名、密碼與 API token。",
-      "ssoOnly": "此帳號透過 SSO 登入",
+      "passwordLoginOffNote": "本站目前只允許 SSO 登入；密碼暫時只用於連結帳號時證明本人。",
+      "setPassword": {
+        "title": "加上密碼",
+        "description": "加上密碼後也能用 email 與密碼登入。",
+        "newPassword": "新密碼",
+        "confirm": "確認新密碼",
+        "submit": "加上密碼",
+        "submitting": "處理中…",
+        "success": "已加上密碼。",
+        "ssoOnlyNotice": "本站目前只允許 SSO 登入。"
+      },
       "handleTitle": "使用者名",
       "handleDescription": "使用者名會出現在你分享的所有 /n/ 與 /p/ 網址中（token 連結不含）。改名後這些網址立即失效，舊名永不可再用——包括你自己改回去。",
       "handleLabel": "使用者名",
       "handleSave": "儲存使用者名",
       "handleSaved": "使用者名已更新。",
+      "signInMethods": {
+        "title": "登入方式",
+        "description": "連結到這個帳號的登入服務。可以再連結一個，或在至少保留一種登入方式的前提下解除連結。",
+        "linkedOn": "連結於 {{when}}",
+        "lastUsed": "最後使用 {{when}}",
+        "neverUsed": "尚未使用",
+        "unknownProvider": "已移除或停用的登入方式",
+        "unlink": "解除連結",
+        "unlinkTitle": "解除這個登入服務的連結？",
+        "unlinkDescription": "解除後，要再連結一次才能用它登入。其他已登入的地方不會被登出。",
+        "cancel": "取消",
+        "lastMethodHint": "這是你唯一的登入方式，不能解除連結。",
+        "link": "連結",
+        "linked": "已連結登入服務。",
+        "empty": "尚未連結任何登入服務。"
+      },
       "apiTokensTitle": "API token",
       "apiTokensDescription": "讓腳本或 AI 助理以你的身分存取筆記。token 能列出與建立筆記，也能讀寫筆記內容，請比照密碼保管。改密碼並不會讓既有 token 失效，要停用請在這裡撤銷。",
       "apiTokensCleanupHint": "30 天未使用的 OAuth 應用程式，以及過期超過 30 天的 token，會在下一次有人建立 token 或授權應用程式時自動移除。",
@@ -770,6 +830,12 @@
     "provider_enabled": "請先停用這個登入服務，再刪除。",
     "provider_secret_missing": "請先填入 client secret，才能啟用這個登入服務。",
     "oidc_discovery_failed": "無法從這個 issuer 網址讀到可用的 OpenID Connect 設定。",
+    "password_login_disabled": "本站目前只允許透過登入服務登入。",
+    "sso_provider_required": "請先啟用至少一個登入服務，才能關閉帳號密碼登入。",
+    "admin_sso_link_required": "請先在個人設定連結一個啟用中的登入服務，才能關閉帳號密碼登入。",
+    "password_already_set": "這個帳號已經有密碼，請改用「修改密碼」。",
+    "last_login_method": "這是這個帳號唯一的登入方式，不能解除連結。",
+    "oidc_link_session_mismatch": "你已不是以發起連結的那個帳號登入。請重新登入後再試一次。",
     "fallback": "發生未預期的錯誤。"
   }
 }

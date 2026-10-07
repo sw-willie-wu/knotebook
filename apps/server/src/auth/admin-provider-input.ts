@@ -14,7 +14,11 @@ import { MAX_ISSUER_LENGTH } from "./oidc-client.js";
 const UNSTORABLE = /[\0]|\p{Surrogate}/u;
 const ISSUER_SCHEME = /^https?:\/\//;
 const codePoints = (s: string): number => [...s].length;
-const storable = (s: string): boolean => !UNSTORABLE.test(s);
+/** NUL 與落單代理進 PG text 欄會 22021／22P05 → 500（[[g:pg-unstorable-strings-drizzle-tx]]）。#187 PR3 註冊的顯示名也用它。 */
+export function isStorableText(s: string): boolean {
+  return !UNSTORABLE.test(s);
+}
+const storable = isStorableText;
 const UNSTORABLE_MESSAGE = "含有無法儲存的字元";
 
 export const MAX_DISPLAY_NAME_LENGTH = 40;
