@@ -126,6 +126,9 @@ describe("loadConfig", () => {
         { OIDC_ISSUER_URL: "http:idp.example" },
         { OIDC_ISSUER_URL: "https:/idp.example" },
         { OIDC_ISSUER_URL: " https://idp.example" },
+        // 帶帳密的 issuer 不匯入（明文存 DB），只警告。
+        { OIDC_ISSUER_URL: "https://user:pass@idp.example" },
+        { OIDC_ISSUER_URL: "https://user@idp.example" },
       ]) {
         const c = loadConfig({ ...valid, ...three, ...over });
         expect(c.legacyOidcEnv).toBeUndefined();

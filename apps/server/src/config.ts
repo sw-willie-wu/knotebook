@@ -181,6 +181,14 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     }
   }
 
+  const urlHasCredentials = (raw: string): boolean => {
+    try {
+      const u = new URL(raw);
+      return u.username !== "" || u.password !== "";
+    } catch {
+      return false;
+    }
+  };
   // #187 §10.2：OIDC_* 不再是設定來源，只在首次啟動被匯入。半套／不合法只警告（index.ts 經 importLegacyOidcEnv 印），不擋啟動。
   const oidcIssuerUrl = r.data.OIDC_ISSUER_URL;
   const oidcClientId = r.data.OIDC_CLIENT_ID;
@@ -195,7 +203,8 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     // 不用 `new URL().protocol`：它認得 `HTTPS://x`、`http:x`、`https:/x`、` https://x`，CHECK 卻拒收，INSERT 會讓開機失敗（fix r1 I1）。
     // 長度用 JS `.length`（UTF-16 code unit），對非 BMP 字元比 pg `char_length` 大，只會更嚴、不會放過 CHECK 拒收的值。
     // client id 的下限 1 由上面 zod 的 `.min(1)` 保證。不合法 → 不匯入、只警告，不擋啟動（spec §10.2）。
-    if (/^https?:\/\//.test(oidcIssuerUrl) && oidcIssuerUrl.length <= 512 && oidcClientId.length <= 512) {
+    // 帶帳密的 issuer（`user:pass@host`）同樣判 invalid：與站台管理的 `issuerUrlSchema` 一致，且匯入後會以明文存進 DB。
+    if (/^https?:\/\//.test(oidcIssuerUrl) && oidcIssuerUrl.length <= 512 && oidcClientId.length <= 512 && !urlHasCredentials(oidcIssuerUrl)) {
       legacyOidcEnv = { issuerUrl: oidcIssuerUrl, clientId: oidcClientId, clientSecret: oidcClientSecret };
     } else {
       legacyOidcEnvProblem = "invalid";

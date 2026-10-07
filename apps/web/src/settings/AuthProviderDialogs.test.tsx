@@ -134,6 +134,18 @@ describe("新增登入服務 dialog（#187 §9.4）", () => {
     await waitFor(() => expect(dialog.getByText("Couldn't read a usable OpenID Connect configuration from that issuer URL.")).toBeInTheDocument());
   });
 
+  it("issuer 帶帳密 → 欄位錯誤、不送出建立請求", async () => {
+    const server = fakeServer([]);
+    renderSection(server.fetchMock);
+    const dialog = await openCreate();
+    fireEvent.change(dialog.getByLabelText("Display name"), { target: { value: "Corp SSO" } });
+    fireEvent.change(dialog.getByLabelText("Issuer URL"), { target: { value: "https://user:pass@idp.example.com" } });
+    fireEvent.change(dialog.getByLabelText("Client ID"), { target: { value: "corp-client" } });
+    fireEvent.click(dialog.getByRole("button", { name: "Add" }));
+    expect(await dialog.findByText("Issuer URL can't contain a username or password.")).toBeInTheDocument();
+    expect(server.calls.some(c => c.method === "POST" && c.url === "/api/admin/auth/providers")).toBe(false);
+  });
+
   it("建立 → POST body（secret 留空就不帶這個鍵）→ 設定步驟顯示回呼網址並可複製、提醒貼 secret → 完成關閉", async () => {
     const server = fakeServer([]);
     const created: AdminAuthProviderDto = { ...LIVE, id: "44444444-4444-4444-8444-444444444444", enabled: false, hasSecret: false, issuerResolved: false, callbackUrl: "https://notes.example.com/api/auth/oidc/callback/44444444-4444-4444-8444-444444444444" };
@@ -276,6 +288,32 @@ describe("編輯登入服務 dialog（#187 §9.4、§5.2）", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     // fix round 1 I1：只送改過的欄位——帶著舊 issuer 送出，並發時會被 §5.2 當成「改 issuer」而把別人的改動蓋回去。
     expect(server.calls.find(c => c.method === "PATCH")!.body).toEqual({ displayName: "Corp SSO 2" });
+  });
+
+  it("舊資料 issuer 帶帳密、編輯時沒動 issuer → 不擋，PATCH 只送改過的欄位", async () => {
+    const legacy = { ...LIVE, issuerUrl: "https://user:pass@idp.example.com" };
+    const server = fakeServer([legacy]);
+    server.on((method, url, body) => {
+      if (method !== "PATCH" || url !== `/api/admin/auth/providers/${LIVE.id}`) return null;
+      server.state.providers = [{ ...legacy, ...(body as object) }];
+      return fakeResponse(200, server.state.providers[0]);
+    });
+    renderSection(server.fetchMock);
+    const { dialog } = await openEdit();
+    fireEvent.change(dialog.getByLabelText("Display name"), { target: { value: "Corp SSO 2" } });
+    fireEvent.click(dialog.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(server.calls.find(c => c.method === "PATCH")!.body).toEqual({ displayName: "Corp SSO 2" });
+  });
+
+  it("編輯時把 issuer 改成帶帳密 → 欄位錯誤、不發 PATCH", async () => {
+    const server = fakeServer([LIVE]);
+    renderSection(server.fetchMock);
+    const { dialog } = await openEdit();
+    fireEvent.change(dialog.getByLabelText("Issuer URL"), { target: { value: "https://user:pass@idp.example.com" } });
+    fireEvent.click(dialog.getByRole("button", { name: "Save" }));
+    expect(await dialog.findByText("Issuer URL can't contain a username or password.")).toBeInTheDocument();
+    expect(server.calls.some(c => c.method === "PATCH")).toBe(false);
   });
 
   it("什麼都沒改就按儲存 → 不發請求、dialog 關閉", async () => {

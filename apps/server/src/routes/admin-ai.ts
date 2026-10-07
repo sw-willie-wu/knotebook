@@ -31,17 +31,45 @@ export interface AdminAiRouteDeps {
 
 const providerTypeEnum = z.enum(["openai_compatible", "anthropic"]);
 
+// base URL 不得帶帳密（`https://user:pass@host`、`user@host`）：Node fetch 本來就拒絕這種網址
+// （永遠連不上），而且 baseUrl 是明文欄位（DB 明文、GET 原樣回傳、進 log）——密碼不該放這裡，
+// 認證放 API key 欄位。用 URL 物件的 username／password 判斷，不用字串比對。
+const BASE_URL_CREDENTIALS_CODE = "base_url_has_credentials" as const;
+const baseUrlSchema = z
+  .string()
+  .url()
+  .refine(
+    (value) => {
+      // zod 的 refine 在 `.url()` 失敗後仍會執行：`new URL` 在非法網址會 throw（ERR_INVALID_URL，且例外的 `input`
+      // 帶原字串——含密碼——會被全域 handler 寫進 log）。解析失敗一律放行，讓 `.url()` 報 400 invalid_body。
+      try {
+        const u = new URL(value);
+        return u.username === "" && u.password === "";
+      } catch {
+        return true;
+      }
+    },
+    { message: "Base URL 不能包含帳號密碼，請把認證放在 API key 欄位", params: { code: BASE_URL_CREDENTIALS_CODE } },
+  );
+
+/** zod 失敗 → 400；帶帳密的專屬 code 讓前端能顯示明確訊息，其餘維持 invalid_body。 */
+function providerBodyError(error: z.ZodError): { code: "invalid_body" | typeof BASE_URL_CREDENTIALS_CODE; message: string } {
+  const issue = error.issues[0];
+  const hasCredentials = (issue as { params?: { code?: string } } | undefined)?.params?.code === BASE_URL_CREDENTIALS_CODE;
+  return { code: hasCredentials ? BASE_URL_CREDENTIALS_CODE : "invalid_body", message: issue?.message ?? "請求格式錯誤" };
+}
+
 const createProviderSchema = z.object({
   name: z.string().min(1),
   type: providerTypeEnum,
-  baseUrl: z.string().url(),
+  baseUrl: baseUrlSchema,
   apiKey: z.string().min(1).optional(),
 });
 
 const patchProviderSchema = z.object({
   name: z.string().min(1).optional(),
   type: providerTypeEnum.optional(),
-  baseUrl: z.string().url().optional(),
+  baseUrl: baseUrlSchema.optional(),
   apiKey: z.string().min(1).optional(),
   enabled: z.boolean().optional(),
 });
@@ -180,7 +208,10 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
 
     app.post("/api/admin/ai/providers", { preHandler: app.requireAdmin }, async (request, reply) => {
       const parsed = createProviderSchema.safeParse(request.body);
-      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+      if (!parsed.success) {
+        const failure = providerBodyError(parsed.error);
+        return sendError(reply, 400, failure.code, failure.message);
+      }
       const { name, type, baseUrl, apiKey } = parsed.data;
 
       // id 在這裡就產好，不沿用 schema 的 `defaultRandom()`：密文的 AAD 綁 providerId
@@ -206,7 +237,10 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
       const id = rawId.toLowerCase();
 
       const parsed = patchProviderSchema.safeParse(request.body);
-      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+      if (!parsed.success) {
+        const failure = providerBodyError(parsed.error);
+        return sendError(reply, 400, failure.code, failure.message);
+      }
       const { name, type, baseUrl, apiKey, enabled } = parsed.data;
 
       // 只讀 baseUrl 這一欄（**不** SELECT 密文本體，維持 `providerListColumns` 那道防線），

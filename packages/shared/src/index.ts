@@ -414,6 +414,8 @@ export const ERROR_CODES = [
   "password_already_set",
   "last_login_method",
   "oidc_link_session_mismatch",
+  // AI provider 的 base URL 帶了帳密（`user:pass@host`／`user@host`）＝400；認證請放 API key 欄位。
+  "base_url_has_credentials",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 

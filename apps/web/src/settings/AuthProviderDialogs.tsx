@@ -49,11 +49,13 @@ function checkIssuerUrl(raw: string): string | null {
   if (UNSTORABLE.test(s)) return "unstorable";
   if (!ISSUER_SCHEME.test(s)) return "issuerScheme";
   if (s.length > MAX_ISSUER_LENGTH) return "issuerTooLong";
+  let url: URL;
   try {
-    new URL(s);
+    url = new URL(s);
   } catch {
     return "issuerInvalid";
   }
+  if (url.username !== "" || url.password !== "") return "issuerCredentials";
   return null;
 }
 
@@ -430,7 +432,8 @@ export function EditProviderDialog({ provider }: { provider: AdminAuthProviderDt
     const order = Number(orderText);
     const errors = collectErrors([
       ["displayName", checkDisplayName(displayName)],
-      ["issuerUrl", checkIssuerUrl(issuerUrl)],
+      // issuer 沒改就不驗：新規則上線前存在的舊資料可能帶帳密，不該擋住只改其他欄位（server 也只驗送出的欄位）。
+      ["issuerUrl", issuerChanged ? checkIssuerUrl(issuerUrl) : null],
       ["clientId", checkClientId(clientId)],
       ["clientSecret", checkClientSecret(clientSecret)],
       ["sortOrder", /^\d+$/.test(orderText) && order <= MAX_SORT_ORDER ? null : "sortOrderInvalid"],

@@ -224,6 +224,37 @@ describe("SettingsAiSection（spec §13.4：provider／model／action 三層 CRU
     });
   });
 
+  it("baseUrl 帶帳密 → 新增與編輯都顯示明確錯誤、不送出請求", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      const res = defaultGetHandlers({ providers: [PROVIDER_A], models: [], actions: [] })(url, method);
+      if (res) return Promise.resolve(res);
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    renderSection(fetchMock);
+    const message = "The Base URL can't contain a username or password. Put the credentials in the API key field.";
+
+    await waitFor(() => expect(screen.getByText(PROVIDER_A.name)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Add provider" }));
+    await waitFor(() => expect(screen.getByLabelText("Name")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Cred" } });
+    fireEvent.change(screen.getByLabelText("Base URL"), { target: { value: "https://user:pass@example.com/v1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    const input = await screen.findByLabelText("Base URL");
+    fireEvent.change(input, { target: { value: "https://user@example.com/v1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText(message)).toBeInTheDocument();
+
+    const writes = fetchMock.mock.calls.filter(([, init]) => ["POST", "PATCH"].includes(String((init as RequestInit | undefined)?.method)));
+    expect(writes).toHaveLength(0);
+  });
+
   it("apiKey 已設 → edit dialog 顯示覆寫 placeholder；留空送出 PATCH 不含 apiKey 欄位", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);

@@ -310,7 +310,9 @@ describe("providers CRUD", () => {
     const id = randomUUID();
     const provider = await insertProvider(db, {
       id,
-      baseUrl: "https://api.openai.com/v1",
+      // 模擬新規則上線前就存在的舊資料：base_url 帶 userinfo＋query（現在的入口已會 400，只能直接寫 DB）。
+      // `from` 讀自這一列，safeTarget 必須只記 origin+pathname。
+      baseUrl: "https://user:pass@evil.example.com/v1?k=secret",
       apiKeyEncrypted: encryptApiKey(testConfig.appSecret, "sk-x", id),
     });
 
@@ -318,8 +320,7 @@ describe("providers CRUD", () => {
       method: "PATCH",
       url: `/api/admin/ai/providers/${provider.id}`,
       cookies: { [SESSION_COOKIE]: cookie },
-      // 帶 userinfo：`safeTarget` 必須只記 origin+pathname，不得把憑證寫進日誌。
-      payload: { baseUrl: "https://user:pass@evil.example.com/v1?k=secret" },
+      payload: { baseUrl: "https://ok.example.com/v1" },
     });
     expect(res.statusCode).toBe(200);
 
@@ -328,8 +329,8 @@ describe("providers CRUD", () => {
     expect(line!.obj).toMatchObject({
       providerId: provider.id,
       userId: admin.id,
-      from: "https://api.openai.com/v1",
-      to: "https://evil.example.com/v1",
+      from: "https://evil.example.com/v1",
+      to: "https://ok.example.com/v1",
       hasKeyAfter: false,
     });
     // 憑證與 query 都不得出現在那一行的任何欄位裡。
@@ -344,7 +345,7 @@ describe("providers CRUD", () => {
       method: "PATCH",
       url: `/api/admin/ai/providers/${provider.id}`,
       cookies: { [SESSION_COOKIE]: cookie },
-      payload: { baseUrl: "https://user:pass@evil.example.com/v1?k=secret" },
+      payload: { baseUrl: "https://ok.example.com/v1" },
     });
     expect(again.statusCode).toBe(200);
     expect(lines.some(one => one.msg === "AI provider 的 base URL 被寫入")).toBe(true);
@@ -466,6 +467,97 @@ describe("providers CRUD", () => {
     });
     expect(res.statusCode).toBe(404);
     expect(res.json()).toMatchObject({ error: { code: "not_found" } });
+  });
+
+  it("baseUrl 帶帳密（user:pass@ 或只有 user@）→ POST／PATCH 皆 400 base_url_has_credentials，DB 不變；正常網址照收", async () => {
+    const { app, db } = await buildTestApp();
+    const admin = await insertUser(db, { isAdmin: true, email: "admin-p-cred@example.com" });
+    const cookie = await cookieFor(admin.id);
+    const provider = await insertProvider(db);
+    const [before] = await db.select().from(aiProviders).where(eq(aiProviders.id, provider.id));
+
+    for (const bad of ["https://user:pass@example.com/v1", "https://user@example.com/v1", "https://:pass@example.com/v1"]) {
+      const post = await app.inject({
+        method: "POST",
+        url: "/api/admin/ai/providers",
+        cookies: { [SESSION_COOKIE]: cookie },
+        payload: { name: "Cred", type: "openai_compatible", baseUrl: bad },
+      });
+      expect(post.statusCode).toBe(400);
+      expect(post.json()).toMatchObject({ error: { code: "base_url_has_credentials" } });
+      expect(post.body).not.toContain("pass@");
+
+      const patch = await app.inject({
+        method: "PATCH",
+        url: `/api/admin/ai/providers/${provider.id}`,
+        cookies: { [SESSION_COOKIE]: cookie },
+        payload: { baseUrl: bad },
+      });
+      expect(patch.statusCode).toBe(400);
+      expect(patch.json()).toMatchObject({ error: { code: "base_url_has_credentials" } });
+    }
+    const [after] = await db.select().from(aiProviders).where(eq(aiProviders.id, provider.id));
+    expect(after.baseUrl).toBe(before.baseUrl);
+
+    // 網址其餘部分的 @（path／query）不是帳密，不誤殺。
+    const ok = await app.inject({
+      method: "POST",
+      url: "/api/admin/ai/providers",
+      cookies: { [SESSION_COOKIE]: cookie },
+      payload: { name: "Fine", type: "openai_compatible", baseUrl: "https://example.com/v1/@x?k=a@b" },
+    });
+    expect(ok.statusCode).toBe(201);
+    const okPatch = await app.inject({
+      method: "PATCH",
+      url: `/api/admin/ai/providers/${provider.id}`,
+      cookies: { [SESSION_COOKIE]: cookie },
+      payload: { baseUrl: "http://localhost:11434/v1" },
+    });
+    expect(okPatch.statusCode).toBe(200);
+  });
+
+  it("baseUrl 格式錯（含帶帳密又格式錯）→ POST／PATCH 都是 400 invalid_body，不是 500，且 log 不含密碼", async () => {
+    const lines: unknown[] = [];
+    const { app, db } = await buildTestApp(
+      {},
+      {
+        logger: {
+          level: "info",
+          hooks: {
+            logMethod(args: unknown[], method: (...a: unknown[]) => void) {
+              // 只收錯誤物件（`err`）與訊息；整個 args 會帶著 req 物件（含請求 body），那不是 log 輸出。
+              const [obj, msg] = args as [{ err?: Error } | string, string | undefined];
+              const err = typeof obj === "object" && obj !== null ? obj.err : undefined;
+              lines.push({ msg, err: err ? JSON.stringify(err, Object.getOwnPropertyNames(err)) : undefined });
+              method.apply(this, args as never[]);
+            },
+          },
+        },
+      },
+    );
+    const admin = await insertUser(db, { isAdmin: true, email: "admin-p-badurl@example.com" });
+    const cookie = await cookieFor(admin.id);
+    const provider = await insertProvider(db);
+    for (const bad of ["https://user:s3cretpw@ho st/v1", "not a url", "https://"]) {
+      const post = await app.inject({
+        method: "POST",
+        url: "/api/admin/ai/providers",
+        cookies: { [SESSION_COOKIE]: cookie },
+        payload: { name: "Bad", type: "openai_compatible", baseUrl: bad },
+      });
+      expect(post.statusCode).toBe(400);
+      expect(post.json()).toMatchObject({ error: { code: "invalid_body" } });
+      const patch = await app.inject({
+        method: "PATCH",
+        url: `/api/admin/ai/providers/${provider.id}`,
+        cookies: { [SESSION_COOKIE]: cookie },
+        payload: { baseUrl: bad },
+      });
+      expect(patch.statusCode).toBe(400);
+      expect(patch.json()).toMatchObject({ error: { code: "invalid_body" } });
+    }
+    expect(JSON.stringify(lines)).not.toContain("s3cretpw");
+    expect(lines.length).toBeGreaterThan(0);
   });
 
   // fix round 1（I-2）：空 body `{}` 全欄位皆 optional，未過濾直接 `.set({})` 會被
