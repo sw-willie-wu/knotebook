@@ -79,7 +79,7 @@ export function LinkDialog({ editor, open, onOpenChange, onSubmit }: LinkDialogP
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
+      <DialogContent dismissOnOutside={false}
         className="max-w-md"
         aria-describedby={undefined}
         onCloseAutoFocus={(event) => {

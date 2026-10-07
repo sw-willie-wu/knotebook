@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation, type Location } from "react-router";
 import type { GroupDto, GroupRoleDto, UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
+import { clickOutside } from "@/test/outside-click";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppRoutes } from "@/App";
@@ -379,6 +380,17 @@ describe("SettingsGroupRolesSection（/settings/groups/:id/roles，spec §8.5）
     expect(region(dialog, "Admin")).toBeInTheDocument();
     expect(region(dialog, "Member")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Delete role?" })).not.toBeInTheDocument());
+  });
+
+  it("新增角色對話框：點對話框外面不關閉、已填角色名仍在（表單型守衛）", async () => {
+    const fetchMock = fetchFor(() => [GROUP_ADMIN], () => ROLES);
+    const dialog = await openRoles(GROUP_ADMIN, fetchMock);
+    fireEvent.click(within(dialog).getByRole("button", { name: "New role" }));
+    const newDialog = await screen.findByRole("dialog", { name: "New role" });
+    fireEvent.change(within(newDialog).getByRole("textbox", { name: "Role name" }), { target: { value: "Keep" } });
+    await clickOutside();
+    expect(screen.getByRole("dialog", { name: "New role" })).toBeInTheDocument();
+    expect(within(newDialog).getByRole("textbox", { name: "Role name" })).toHaveValue("Keep");
   });
 
   it("7 新增角色對話框：六個 switch 全關、沒有 Read；名稱空白 Create disabled；7a 開 Create 不動 Edit；7b 開關 Edit 不動 Create；409 留著；成功 POST body 恰為 {name, 六鍵 permissions} 並關閉", async () => {

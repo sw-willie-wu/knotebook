@@ -3,6 +3,7 @@ import { render, screen, waitFor, fireEvent, within } from "@testing-library/rea
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { AdminAiActionDto, AdminAiModelDto, AdminAiProviderDto } from "@knotebook/shared";
 import i18n from "@/i18n";
+import { clickOutside } from "@/test/outside-click";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { SettingsAiSection } from "./SettingsAiSection";
 
@@ -135,6 +136,32 @@ describe("SettingsAiSection（spec §13.4：provider／model／action 三層 CRU
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it.each([
+    { dialog: "Add provider", open: () => screen.getByRole("button", { name: "Add provider" }) },
+    { dialog: "Edit provider", open: () => screen.getAllByRole("button", { name: "Edit" })[0] },
+    { dialog: "Add model", open: () => screen.getByRole("button", { name: "Add model" }) },
+    { dialog: "Edit model", open: () => screen.getAllByRole("button", { name: "Edit" })[1] },
+    { dialog: "Add action", open: () => screen.getByRole("button", { name: "Add action" }) },
+    { dialog: "Edit action", open: () => screen.getAllByRole("button", { name: "Edit" }).at(-1)! },
+  ])("「$dialog」對話框：點對話框外面不關閉、已填內容仍在（表單型守衛）", async ({ dialog, open }) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      const res = defaultGetHandlers({ providers: [PROVIDER_A], models: [MODEL_A1], actions: [ACTION_CUSTOM] })(url, method);
+      if (res) return Promise.resolve(res);
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    renderSection(fetchMock);
+    await waitFor(() => expect(screen.getByText(ACTION_CUSTOM.name)).toBeInTheDocument());
+    fireEvent.click(open());
+    const dlg = await screen.findByRole("dialog", { name: dialog });
+    const first = within(dlg).getAllByRole("textbox")[0];
+    fireEvent.change(first, { target: { value: "KEEP-ME" } });
+    await clickOutside();
+    expect(screen.getByRole("dialog", { name: dialog })).toBeInTheDocument();
+    expect(within(dlg).getAllByRole("textbox")[0]).toHaveValue("KEEP-ME");
   });
 
   it("三層列表渲染：providers／內嵌 models／actions", async () => {

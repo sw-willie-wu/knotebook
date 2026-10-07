@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { GroupDto } from "@knotebook/shared";
 import i18n from "@/i18n";
+import { clickOutside } from "@/test/outside-click";
 import { GroupNameDialog } from "./GroupNameDialog";
 import { adminRole, groupDto } from "@/test/fixtures";
 
@@ -42,6 +43,15 @@ describe("GroupNameDialog", () => {
     await i18n.changeLanguage("en");
   });
   afterEach(() => vi.unstubAllGlobals());
+
+  it("點對話框外面不關閉、已填名稱仍在（表單型守衛）", async () => {
+    stubFetch(() => fakeResponse(201, { ...GROUP, name: "Team" }));
+    const { onOpenChange } = renderCreate();
+    fireEvent.change(screen.getByLabelText("Group name"), { target: { value: "keep" } });
+    await clickOutside();
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Group name")).toHaveValue("keep");
+  });
 
   it("建立：Enter 送出 trim 後的名稱（POST /api/groups）、成功後 onSaved(group) 且 onOpenChange(false)", async () => {
     const calls = stubFetch(() => fakeResponse(201, { ...GROUP, name: "Team" }));

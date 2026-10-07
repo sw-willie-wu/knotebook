@@ -124,7 +124,7 @@ function CreateTokenDialog() {
           {t("settings.account.apiTokensCreate")}
         </Button>
       </DialogTrigger>
-      <DialogContent
+      <DialogContent dismissOnOutside={false}
         // 明文只出現這一次（I2）：明文畫面擋掉 Esc 與點外面，誤觸會讓這支 token 直接報銷
         // （還吃掉 I1 的 20 額度）。只留 Done 與右上 X 這兩個明確的關閉動作。
         onEscapeKeyDown={event => {

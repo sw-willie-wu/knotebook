@@ -317,7 +317,7 @@ function NewRoleDialog({ groupId, open, onOpenChange }: { groupId: string; open:
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent dismissOnOutside={false}>
         <DialogHeader>
           <DialogTitle>{t("groups.roles.dialog.title")}</DialogTitle>
           <DialogDescription>{t("groups.roles.dialog.description")}</DialogDescription>
