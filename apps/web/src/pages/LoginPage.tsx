@@ -8,6 +8,7 @@ import { useAuthConfig } from "@/api/authConfig";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SESSION_QUERY_KEY } from "@/auth/useSession";
+import { ProviderIcon } from "@/components/ProviderIcon";
 
 /** SSO 入口的前綴；完整網址＝前綴＋provider id。⚠ 測試刻意**另寫一份字面**——那一族斷言的是本頁對
  * `GET /api/auth/oidc/login/:providerId` 的產出契約（#187 §9.4）。 */
@@ -191,7 +192,10 @@ export default function LoginPage() {
             {providers.map((provider) => (
               // displayName 是管理員輸入：t() 插值後只進文字節點（escapeValue:false，r1-M6）。
               <Button key={provider.id} asChild variant="outline" className="w-full">
-                <a href={ssoHref(provider.id)}>{t("login.signInWith", { name: provider.displayName })}</a>
+                <a href={ssoHref(provider.id)}>
+                  <ProviderIcon icon={provider.icon} />
+                  {t("login.signInWith", { name: provider.displayName })}
+                </a>
               </Button>
             ))}
           </>

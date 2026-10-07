@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
 import { SESSION_QUERY_KEY } from "@/auth/useSession";
+import { ProviderIcon } from "@/components/ProviderIcon";
 
 /** `?error=` 白名單（#187 §9.4）：prove 回程會帶這些碼回來；其餘一律 fallback（任意 query 不得直接餵 i18next，Plan 5 MAJOR-1）。 */
 const LINK_ERROR_CODES = new Set<string>([
@@ -195,6 +196,7 @@ export default function LinkAccountPage() {
 
             {pending.methods.providers.map(provider => (
               <Button key={provider.id} type="button" variant="outline" className="w-full" disabled={busy} onClick={() => void handleProve(provider.id)}>
+                <ProviderIcon icon={provider.icon} />
                 {t("linkAccount.proveWith", { name: provider.displayName })}
               </Button>
             ))}

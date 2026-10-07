@@ -7,6 +7,7 @@ import { backfillLegacyOidcIdentities } from "../src/auth/legacy-oidc-env.js";
 import { buildTestApp, insertPasswordUser, testConfig, type TestApp } from "./helpers.js";
 import { cookieOf, seedUser, waitForBlockedOrSettled } from "./group-helpers.js";
 import { buildOidcApp, identitiesOf, seedAuthProvider, ssoRoundTrip } from "./helpers/oidc-provider.js";
+import { GENERIC } from "./helpers/provider-icon.js";
 import { bearer, seedTokenForUser } from "./editing-helpers.js";
 
 const A = "https://idp-a.example";
@@ -40,10 +41,10 @@ describe("GET /api/auth/identities（#187 §8.3）", () => {
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.identities).toEqual([
-      { id: idA, issuer: A, providers: [{ id: pa.id, displayName: "A" }], createdAt: expect.any(String), lastLoginAt: null, unlinkable: true },
+      { id: idA, issuer: A, providers: [{ id: pa.id, displayName: "A", icon: { type: "builtin", name: "gitlab" } }], createdAt: expect.any(String), lastLoginAt: null, unlinkable: true },
     ]);
     expect(JSON.stringify(body)).not.toContain("sa");
-    expect(body.linkable).toEqual([{ providerId: pb.id, displayName: "B", template: "google" }]);
+    expect(body.linkable).toEqual([{ providerId: pb.id, displayName: "B", template: "google", icon: { type: "builtin", name: "google" } }]);
     expect(body).toMatchObject({ hasPassword: true, passwordLoginEnabled: true });
   });
 
@@ -65,7 +66,7 @@ describe("GET /api/auth/identities（#187 §8.3）", () => {
     expect(before.linkable.map((l: { providerId: string }) => l.providerId)).toEqual([p.id]);
     await db.execute(sql`update auth_providers set resolved_issuer = ${A} where id = ${p.id}`);
     const after = (await getIds(app, await cookieOf(u.id))).json();
-    expect(after.identities[0].providers).toEqual([{ id: p.id, displayName: "A" }]);
+    expect(after.identities[0].providers).toEqual([{ id: p.id, displayName: "A", icon: GENERIC }]);
     expect(after.linkable).toEqual([]);
   });
 

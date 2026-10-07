@@ -1,4 +1,5 @@
 export { YDOC_FRAGMENT } from "./ydoc.js";
+import type { ProviderIconDto, ProviderIconKind } from "./provider-icon.js";
 
 export const SESSION_COOKIE = "knotebook_session";
 
@@ -39,18 +40,20 @@ export const MAX_REGISTER_DISPLAY_NAME_LENGTH = 100;
 
 /** `GET /api/auth/config`（免認證）：登入頁用 `providers` 畫「Sign in with X」、`registration.enabled` 決定註冊鈕、
  * `passwordLogin.enabled`（帳密登入的**有效值**＝DB 值 OR env 強制；不揭露是否 env 強制，#187 §9.5）決定帳密表單。
- * 只曝光 id 與顯示名——issuer／client id 等設定細節不出線（#187 §14.1 第 18 條）。 */
+ * 只曝光 id、顯示名與圖示——issuer／client id 等設定細節不出線（#187 §14.1 第 18 條）。 */
 export interface AuthConfigDto {
   providers: AuthProviderPublicDto[];
   registration: { enabled: boolean };
   passwordLogin: { enabled: boolean };
 }
 
-/** #187：一個啟用中的單一登入服務（登入頁按鈕、連結頁的證明方式）。只曝光 id 與顯示名——issuer／client id 不出線。 */
+/** #187：一個啟用中的單一登入服務（登入頁按鈕、連結頁的證明方式）。只曝光 id、顯示名與圖示——issuer／client id 不出線。 */
 export interface AuthProviderPublicDto {
   id: string;
   /** 管理員輸入的字串：web 只准放進 React 文字節點（`escapeValue: false`，spec r1-M6）。 */
   displayName: string;
+  /** 已換算的圖示（`resolveProviderIcon`，spec §5.2）；`null`＝不顯示。web 直接渲染，不自行換算。 */
+  icon: ProviderIconDto;
 }
 
 /** #187 §7.5.2：`GET /api/auth/oidc/pending`。`methods` 每次請求重算（provider 可能剛被停用）。 */
@@ -485,6 +488,10 @@ export interface AdminAuthProviderDto {
   /** 曾經成功 discovery（`resolved_issuer` 有值）；false 時受影響人數可能不準（§4.1）。 */
   issuerResolved: boolean;
   createdAt: string;
+  /** 圖示設定原值（`icon_kind`）。 */
+  iconKind: ProviderIconKind;
+  /** 已換算的圖示，與公開形同一個 `resolveProviderIcon`（upload 形即上傳圖網址；spec §5.1 I1）。 */
+  icon: ProviderIconDto;
 }
 
 /** #187 §9.3：`GET /api/admin/auth/providers/:id/impact`——開停用 dialog 當下的快照。 */
@@ -527,6 +534,8 @@ export interface LinkableProviderDto {
   /** 管理員輸入的字串：web 只准放進 React 文字節點。 */
   displayName: string;
   template: AuthProviderTemplate;
+  /** 已換算的圖示（`resolveProviderIcon`，spec §5.2）；`null`＝不顯示。web 直接渲染，不自行換算。 */
+  icon: ProviderIconDto;
 }
 
 /** #187 §8.3：`GET /api/auth/identities`（session-only）。`passwordLoginEnabled` 是**有效值**（DB OR env），只決定設定頁顯示「加上密碼」與說明。 */
@@ -1046,3 +1055,4 @@ export * from "./note-schema-config.js";
 export * from "./note-sections.js";
 export * from "./note-markdown.js";
 export * from "./group-roles.js";
+export * from "./provider-icon.js";

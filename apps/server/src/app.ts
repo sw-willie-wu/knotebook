@@ -272,8 +272,9 @@ const CHANGE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 // PLAN3（§12.4）：JSON CSRF hook 對 multipart 上傳路由的白名單豁免——`"METHOD url"`
 // 形狀，`url` 用 `request.routeOptions.url`（route pattern，含 `:id` 這類參數佔位符，
-// 不是實際請求路徑）比對，故單一字面值即可涵蓋所有 note id。
-const MULTIPART_EXEMPT_ROUTES = new Set(["POST /api/notes/:id/uploads"]);
+// 不是實際請求路徑）比對，故單一字面值即可涵蓋所有 id。
+// 登入服務圖示上傳（spec 2026-10-07-provider-icon §4.2）走同一條：essence 必須 multipart（否則 415）＋Origin 不符 403。
+const MULTIPART_EXEMPT_ROUTES = new Set(["POST /api/notes/:id/uploads", "PUT /api/admin/auth/providers/:id/icon"]);
 
 /**
  * 判定這個請求是否命中 multipart 豁免白名單。`request.is404` 必須先擋——404 請求的

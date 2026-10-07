@@ -6,6 +6,7 @@ import type { DbOrTx } from "../db/tx.js";
 import { authProviders, userIdentities } from "../db/schema.js";
 import { openSecret, sealSecret, type EncryptedSecret } from "../lib/sealed-secret.js";
 import type { OidcRuntimeRegistry } from "./oidc-client.js";
+import { providerIconColumns, toPublicProvider } from "./provider-icon.js";
 
 // #187：provider 列的讀取與 identity ↔ provider 對照。**所有對照一律用 effective issuer**
 // ＝`coalesce(resolved_issuer, issuer_url)`（spec §4.1 r1-I1；§18 排他句「plan 以 grep `issuer_url =` 複驗」）。
@@ -68,11 +69,12 @@ export async function loadLegacyProvider(db: DbOrTx): Promise<OidcProviderRow | 
 }
 
 export async function listEnabledProvidersPublic(db: DbOrTx): Promise<AuthProviderPublicDto[]> {
-  return db
-    .select({ id: authProviders.id, displayName: authProviders.displayName })
+  const rows = await db
+    .select({ id: authProviders.id, displayName: authProviders.displayName, ...providerIconColumns() })
     .from(authProviders)
     .where(eq(authProviders.enabled, true))
     .orderBy(asc(authProviders.sortOrder), asc(authProviders.createdAt), asc(authProviders.id));
+  return rows.map(toPublicProvider);
 }
 
 /**
@@ -84,10 +86,11 @@ export async function linkedEnabledProvidersWithIssuer(
   q: DbOrTx,
   userId: string,
 ): Promise<Array<AuthProviderPublicDto & { effectiveIssuer: string }>> {
-  return q
+  const rows = await q
     .select({
       id: authProviders.id,
       displayName: authProviders.displayName,
+      ...providerIconColumns(),
       effectiveIssuer: sql<string>`coalesce(${authProviders.resolvedIssuer}, ${authProviders.issuerUrl})`,
     })
     .from(authProviders)
@@ -98,6 +101,7 @@ export async function linkedEnabledProvidersWithIssuer(
       ),
     )
     .orderBy(asc(authProviders.sortOrder), asc(authProviders.createdAt), asc(authProviders.id));
+  return rows.map(r => ({ ...toPublicProvider(r), effectiveIssuer: r.effectiveIssuer }));
 }
 
 /**

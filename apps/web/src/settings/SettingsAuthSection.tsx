@@ -8,6 +8,7 @@ import {
   usePatchAuthProvider,
   useTestAuthProvider,
 } from "@/api/adminAuth";
+import { ProviderIcon } from "@/components/ProviderIcon";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -24,6 +25,7 @@ import { toast } from "@/components/ui/toast";
 import { copyText } from "@/lib/clipboard";
 import { authErrorMessage } from "./auth-error-message";
 import { CreateProviderDialog, EditProviderDialog } from "./AuthProviderDialogs";
+import { ProviderIconDialog } from "./ProviderIconDialog";
 import { SettingsGroup, SettingsPage } from "./SettingsLayout";
 import { SiteAccessSettings } from "./SiteAccessSettings";
 
@@ -193,15 +195,19 @@ function ProviderCard({ provider }: { provider: AdminAuthProviderDto }) {
     <section aria-labelledby={headingId} className="space-y-3 rounded-md border border-border p-4">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <h3 id={headingId} className="text-sm font-semibold">
-            {provider.displayName}
-          </h3>
+          <div className="flex items-center gap-2">
+            <ProviderIcon icon={provider.icon} />
+            <h3 id={headingId} className="text-sm font-semibold">
+              {provider.displayName}
+            </h3>
+          </div>
           <p className="text-xs text-muted-foreground">
             {t(`admin.auth.template.${provider.template}`)}
             {provider.legacyCallback && ` · ${t("admin.auth.legacyBadge")}`}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          <ProviderIconDialog provider={provider} />
           <EditProviderDialog provider={provider} />
           <DeleteProviderDialog provider={provider} disabledHintId={deleteHintId} />
         </div>

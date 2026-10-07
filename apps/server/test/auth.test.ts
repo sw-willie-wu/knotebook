@@ -4,6 +4,7 @@ import { SESSION_COOKIE } from "@knotebook/shared";
 import { buildTestApp, testConfig } from "./helpers.js";
 import { users, siteSettings } from "../src/db/schema.js";
 import { seedAuthProvider } from "./helpers/oidc-provider.js";
+import { GENERIC } from "./helpers/provider-icon.js";
 import type { Db } from "../src/db/index.js";
 import { signSession } from "../src/auth/session.js";
 import type { CollabHooks } from "../src/collab/hooks.js";
@@ -76,7 +77,7 @@ describe("GET /api/auth/config", () => {
     const a = await seedAuthProvider(db, { issuerUrl: "https://a.example", displayName: "A", sortOrder: 1 });
     await seedAuthProvider(db, { issuerUrl: "https://off.example", displayName: "Off", enabled: false });
     const res = await app.inject({ method: "GET", url: "/api/auth/config" });
-    expect(res.json()).toEqual({ providers: [{ id: a.id, displayName: "A" }, { id: b.id, displayName: "B" }], registration: { enabled: true }, passwordLogin: { enabled: true } });
+    expect(res.json()).toEqual({ providers: [{ id: a.id, displayName: "A", icon: GENERIC }, { id: b.id, displayName: "B", icon: GENERIC }], registration: { enabled: true }, passwordLogin: { enabled: true } });
     expect(res.body).not.toMatch(/a\.example|test-client|"ct"/);
   });
 

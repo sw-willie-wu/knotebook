@@ -19,6 +19,7 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 - Registration: `/register` (and `POST /api/auth/register`) creates an account with an email and a password (while password sign-in is on), or with **Sign up with …** through a sign-in service. **Site admin → Sign-in** has an **Allow registration** switch, which also decides whether a first sign-in through a sign-in service may create an account (#187).
 - **Settings → Account**: a **Sign-in methods** group to link another sign-in service, or unlink one as long as another way to sign in remains, and **Add a password** for an account that has none (while password sign-in is on) (#187).
 - An **Allow password sign-in** switch in **Site admin → Sign-in** (on by default). Turn it off to have everyone, admins included, sign in through sign-in services only; people already signed in stay signed in. If that locks you out, set `PASSWORD_LOGIN_FORCE_ENABLE=true` and restart to accept passwords again (#187).
+- Sign-in services can show an icon before their name on the sign-in buttons, the account-linking page, **Settings → Account → Sign-in methods** and their card in Site admin: the GitLab or Google logo, a generic sign-in icon, an uploaded image (PNG, JPEG or WebP; the browser shrinks it to at most 128 px), or none. Pick it with **Icon** on the service's card in **Site admin → Sign-in**; by default it follows the template, so the service imported from `OIDC_*` shows the generic icon until you choose another (#187).
 
 ### Changed
 
@@ -27,7 +28,7 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 - The identity provider's `email_verified` claim is no longer read. Identity providers that don't send it now work, and an email the provider marks as unverified can create an account on first sign-in (#187).
 - `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` are read only on the first start of this version. They become a sign-in provider named "SSO" that keeps the old callback URL, and are ignored after that. Setting only some of them no longer stops the server from starting (#187).
 - An account an admin created for someone must still change its password even if its owner signs in with SSO or links SSO to it — only changing the password clears that. Accounts that already signed in with SSO before upgrading aren't affected (#187).
-- `GET /api/auth/config` now returns `{providers: [{id, displayName}], registration: {enabled}, passwordLogin: {enabled}}` instead of `{oidc: {enabled}}` (#187).
+- `GET /api/auth/config` now returns `{providers: [{id, displayName, icon}], registration: {enabled}, passwordLogin: {enabled}}` instead of `{oidc: {enabled}}` (#187).
 
 ### Removed
 

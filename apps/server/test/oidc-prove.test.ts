@@ -4,6 +4,7 @@ import { OIDC_STATE_COOKIE, SESSION_COOKIE } from "@knotebook/shared";
 import { insertPasswordUser, testConfig } from "./helpers.js";
 import { waitForBlockedOrSettled } from "./group-helpers.js";
 import { buildOidcApp, identitiesOf, ssoRoundTrip, type OidcTestApp } from "./helpers/oidc-provider.js";
+import { GENERIC } from "./helpers/provider-icon.js";
 import { authProviders, userIdentities, users } from "../src/db/schema.js";
 import { OIDC_PENDING_COOKIE, unsealPendingLink } from "../src/auth/oidc-pending.js";
 import { unsealOidcState } from "../src/auth/oidc-state.js";
@@ -47,7 +48,7 @@ describe("SSO 證明（#187 §7.5.3，§14.1-4a）", () => {
     const { user, pending, pendingId } = await ssoOnlyPending(t, "/n/alice/x");
     await t.db.update(users).set({ mustChangePassword: true }).where(eq(users.id, user.id));
     const get = await t.app.inject({ method: "GET", url: "/api/auth/oidc/pending", cookies: { [OIDC_PENDING_COOKIE]: pending } });
-    expect(get.json().methods).toEqual({ password: false, providers: [{ id: t.provider("a").id, displayName: "A" }] });
+    expect(get.json().methods).toEqual({ password: false, providers: [{ id: t.provider("a").id, displayName: "A", icon: GENERIC }] });
     const { start, callback } = await prove(t, "a", { [OIDC_PENDING_COOKIE]: pending }, pendingId, { sub: "ua", email: "whatever@else.example" });
     expect(start.statusCode).toBe(200);
     expect(new URL(start.json().url).origin).toBe(A);
@@ -73,7 +74,7 @@ describe("SSO 證明（#187 §7.5.3，§14.1-4a）", () => {
     const pending = r.cookies[OIDC_PENDING_COOKIE]!;
     const pendingId = unsealPendingLink(testConfig.appSecret, pending, nowS())!.pendingId;
     const get = await t.app.inject({ method: "GET", url: "/api/auth/oidc/pending", cookies: { [OIDC_PENDING_COOKIE]: pending } });
-    expect(get.json().methods).toEqual({ password: true, providers: [{ id: t.provider("a").id, displayName: "A" }] });
+    expect(get.json().methods).toEqual({ password: true, providers: [{ id: t.provider("a").id, displayName: "A", icon: GENERIC }] });
     const { callback } = await prove(t, "a", { [OIDC_PENDING_COOKIE]: pending }, pendingId, { sub: "va", email: "v@x.example" });
     expect(callback!.headers.location).toBe("/link-account?error=oidc_link_proof_mismatch");
     expect(callback!.cookies.find(c => c.name === OIDC_PENDING_COOKIE)).toBeUndefined();
@@ -142,7 +143,7 @@ describe("SSO 證明（#187 §7.5.3，§14.1-4a）", () => {
     const pending = r.cookies[OIDC_PENDING_COOKIE]!;
     const pendingId = unsealPendingLink(testConfig.appSecret, pending, nowS())!.pendingId;
     const get = await t.app.inject({ method: "GET", url: "/api/auth/oidc/pending", cookies: { [OIDC_PENDING_COOKIE]: pending } });
-    expect(get.json().methods).toEqual({ password: true, providers: [{ id: t.provider("a").id, displayName: "A" }] });
+    expect(get.json().methods).toEqual({ password: true, providers: [{ id: t.provider("a").id, displayName: "A", icon: GENERIC }] });
     const post = (key: string) => t.app.inject({ method: "POST", url: `/api/auth/oidc/pending/prove/${t.provider(key).id}`, cookies: { [OIDC_PENDING_COOKIE]: pending }, payload: { pendingId } });
     const viaB = await post("b");
     expect(viaB.statusCode).toBe(404);
@@ -163,7 +164,7 @@ describe("SSO 證明（#187 §7.5.3，§14.1-4a）", () => {
     const pendingId = unsealPendingLink(testConfig.appSecret, pending, nowS())!.pendingId;
     const get = await t.app.inject({ method: "GET", url: "/api/auth/oidc/pending", cookies: { [OIDC_PENDING_COOKIE]: pending } });
     expect(get.statusCode).toBe(200);
-    expect(get.json().methods).toEqual({ password: false, providers: [{ id: t.provider("b").id, displayName: "B" }] });
+    expect(get.json().methods).toEqual({ password: false, providers: [{ id: t.provider("b").id, displayName: "B", icon: GENERIC }] });
     expect(JSON.stringify(get.json())).not.toContain("identity_already_linked");
     const { start, callback } = await prove(t, "b", { [OIDC_PENDING_COOKIE]: pending }, pendingId, { sub: "ub", email: "u@x.example" });
     expect(start.statusCode).toBe(200);
