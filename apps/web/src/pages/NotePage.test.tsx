@@ -4,12 +4,19 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router";
 import * as Y from "yjs";
-import { COLLAB_CLOSE_REVOKED, canonicalNotePath, type BacklinkDto, type NoteDto, type UserDto } from "@knotebook/shared";
+import {
+  COLLAB_CLOSE_REVOKED,
+  canonicalNotePath,
+  type BacklinkDto,
+  type NoteDto,
+  type Role,
+  type UserDto,
+} from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ActiveNoteProvider, useActiveNote } from "@/lib/active-note";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
-import type { CollabState } from "@/collab/connection";
+import { canEdit as canEditRole, type CollabState } from "@/collab/connection";
 import { OWNER_PERMS } from "@/test/fixtures";
 import { invalidateNoteQueries } from "@/api/notes";
 
@@ -1439,6 +1446,113 @@ describe("NotePage × /g/ 群組筆記（#175 §8.1）", () => {
 
     await waitFor(() => expect(screen.getByTestId("note-editor")).toHaveAttribute("data-editable", "false"));
     await waitFor(() => expect(watched.map(count)).toEqual(before.map((n) => n + 1)));
+  });
+
+  // ── N4 換篇：previousRoleRef 不得跨篇比較 ──
+  // NotePage 換篇不 remount（同一個元件實例），舊版 ref 留著上一篇的角色。模擬真實 useCollab 的時序：
+  // ① 換篇後的前幾個 render，state 仍是**上一篇**殘留的 connected（真實 hook 要等新 noteId 的連線
+  //   effect 才 setState(INITIAL)），而且這時 noteId 已經是新篇——只以 noteId 判「換篇」擋不住；
+  // ② 新篇的連線 effect 換上新的 provider 並歸零成 connecting；③ 新篇 connected。
+  // 每案結尾在新篇內做一次**真的**角色變動當 positive control：同一套觀測手法（等 macrotask 後數
+  // 請求、找 toast）在該發生時看得到——證明前面「沒發生」的斷言不是因為根本觀測不到。
+  const DOWNGRADE_TOAST = "Your access changed to viewer. This note is now read-only.";
+  const RESTORE_TOAST = "Your edit access has been restored.";
+
+  async function switchNoteScenario(from: Role, to: Role) {
+    const { calls } = stubGroupNotes();
+    collab.state = { phase: "connected", role: from };
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const tree = () => (
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <MemoryRouter initialEntries={[`/g/${GROUP_ID}/group-note`]}>
+            <ActiveNoteProvider>
+              <NavToGroupNote2 />
+              <Routes>
+                <Route path="/g/:groupId/:slug" element={<NotePage />} />
+              </Routes>
+            </ActiveNoteProvider>
+          </MemoryRouter>
+          <Toaster />
+        </ThemeProvider>
+      </QueryClientProvider>
+    );
+    const count = (call: string) => calls.filter((c) => c === call).length;
+    const settle = () =>
+      act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+    // 標題：可編輯時是 input、唯讀時是 h1——兩種都認。
+    const titleShown = (title: string) =>
+      expect(screen.queryByRole("heading", { name: title }) ?? screen.getByLabelText("Note title")).toSatisfy(
+        (el: HTMLElement) => el.textContent === title || (el as HTMLInputElement).value === title,
+      );
+
+    const view = render(tree());
+    await waitFor(() => titleShown("Group Note"));
+    await waitFor(() => expect(count("GET /api/groups")).toBeGreaterThan(0));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
+    // ① 換篇：collab.state 刻意不動（上一篇的 connected 殘留），provider 也還是舊的。
+    // 真 hook 在此刻（換篇經過 noteId=undefined、cleanup 已 setSession(null)）給的是 provider=null；
+    // 測試沿用舊 provider 是更嚴的情境（殘留 connected 配上「看起來仍有效」的 provider）。
+    collab.noteIds = [];
+    fireEvent.click(screen.getByRole("button", { name: "go-g2" }));
+    await waitFor(() => expect(collab.noteIds).toContain(G_NOTE_2.id));
+    await waitFor(() => titleShown("Group Note 2"));
+    await settle();
+    // ② 新篇的連線：新 provider、歸零。
+    collab.provider = createStubProvider();
+    collab.provider.synced = true;
+    collab.state = { phase: "connecting" };
+    view.rerender(tree());
+    await settle();
+    // 換篇本身會重抓（新篇的 note／backlinks 等）——基準取在新篇 connected 之前、一切落地之後。
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    const groupsBefore = count("GET /api/groups");
+    // ③ 新篇 connected：第一次只記錄、不比較。
+    collab.state = { phase: "connected", role: to };
+    view.rerender(tree());
+    await waitFor(() =>
+      expect(screen.getByTestId("note-editor")).toHaveAttribute("data-editable", canEditRole(to) ? "true" : "false"),
+    );
+    await settle();
+    await settle();
+
+    return { view, tree, count, settle, groupsBefore };
+  }
+
+  it("N4 換篇：可編輯篇 → 只能檢視的篇，不跳「已改為檢視者」、不失效 ['groups']；新篇內真的恢復仍會報", async () => {
+    const { view, tree, count, settle, groupsBefore } = await switchNoteScenario("editor", "viewer");
+
+    expect(screen.queryByText(DOWNGRADE_TOAST)).not.toBeInTheDocument();
+    expect(count("GET /api/groups")).toBe(groupsBefore);
+
+    // positive control：新篇內 viewer → editor 是真的角色變動——toast 與 ['groups'] 失效都要出現。
+    collab.state = { phase: "connected", role: "editor" };
+    view.rerender(tree());
+    await settle();
+    await waitFor(() => expect(screen.getByText(RESTORE_TOAST)).toBeInTheDocument());
+    await waitFor(() => expect(count("GET /api/groups")).toBe(groupsBefore + 1));
+  });
+
+  it("N4 換篇：只能檢視的篇 → 可編輯篇，不跳「已恢復編輯權限」；新篇內真的降級仍會報", async () => {
+    const { view, tree, count, settle, groupsBefore } = await switchNoteScenario("viewer", "editor");
+
+    expect(screen.queryByText(RESTORE_TOAST)).not.toBeInTheDocument();
+    expect(count("GET /api/groups")).toBe(groupsBefore);
+
+    // positive control（同時是「同一篇內 editor → viewer 仍報降級」的回歸）。
+    collab.state = { phase: "connected", role: "viewer" };
+    view.rerender(tree());
+    await settle();
+    await waitFor(() => expect(screen.getByText(DOWNGRADE_TOAST)).toBeInTheDocument());
+    await waitFor(() => expect(count("GET /api/groups")).toBe(groupsBefore + 1));
   });
 
   it("⑤by-group-path 404 → linkInvalid 出口並導回 /", async () => {
