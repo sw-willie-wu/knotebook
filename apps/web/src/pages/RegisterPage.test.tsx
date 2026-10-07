@@ -164,4 +164,18 @@ describe("RegisterPage（#187 §9.4、S2）", () => {
     setup("/register", OPEN, { me: USER });
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/$/));
   });
+  it("provider-icon V2：「Sign up with X」鈕文字前有圖示；icon null 不渲染", async () => {
+    setup("/register", {
+      ...OPEN,
+      providers: [
+        { id: "11111111-1111-4111-8111-111111111111", displayName: "GitLab", icon: { type: "builtin", name: "gitlab" } },
+        { id: "22222222-2222-4222-8222-222222222222", displayName: "Plain", icon: null },
+      ],
+    });
+    const gitlab = await screen.findByRole("link", { name: "Sign up with GitLab" });
+    await waitFor(() => expect(gitlab.querySelector('[data-provider-icon="gitlab"]')).not.toBeNull());
+    expect(gitlab.firstChild).toBe(gitlab.querySelector('[data-provider-icon="gitlab"]'));
+    expect(gitlab.textContent).toBe("Sign up with GitLab");
+    expect(screen.getByRole("link", { name: "Sign up with Plain" }).querySelector("[data-provider-icon]")).toBeNull();
+  });
 });

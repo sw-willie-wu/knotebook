@@ -26,6 +26,7 @@ import { authErrorMessage } from "./auth-error-message";
 import { CreateProviderDialog, EditProviderDialog } from "./AuthProviderDialogs";
 import { SettingsGroup, SettingsPage } from "./SettingsLayout";
 import { SiteAccessSettings } from "./SiteAccessSettings";
+import { ProviderIcon } from "@/components/ProviderIcon";
 
 /** 停用前確認（W11：停用前提示受影響人數）。人數是開 dialog 當下的快照（§9.3）。 */
 function DisableProviderDialog({
@@ -193,9 +194,12 @@ function ProviderCard({ provider }: { provider: AdminAuthProviderDto }) {
     <section aria-labelledby={headingId} className="space-y-3 rounded-md border border-border p-4">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <h3 id={headingId} className="text-sm font-semibold">
-            {provider.displayName}
-          </h3>
+          <div className="flex items-center gap-2">
+            <ProviderIcon icon={provider.icon} />
+            <h3 id={headingId} className="text-sm font-semibold">
+              {provider.displayName}
+            </h3>
+          </div>
           <p className="text-xs text-muted-foreground">
             {t(`admin.auth.template.${provider.template}`)}
             {provider.legacyCallback && ` · ${t("admin.auth.legacyBadge")}`}

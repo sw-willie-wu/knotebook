@@ -1,7 +1,7 @@
 import { useEffect, useId, useState } from "react";
 import { useSearchParams } from "react-router";
 import { useTranslation } from "react-i18next";
-import type { IdentityDto } from "@knotebook/shared";
+import type { IdentityDto, ProviderIconDto } from "@knotebook/shared";
 import { useIdentities, useStartLink, useUnlinkIdentity } from "@/api/account";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -9,6 +9,7 @@ import { toast } from "@/components/ui/toast";
 import i18n from "@/i18n";
 import { authErrorMessage } from "./auth-error-message";
 import { SettingsGroup } from "./SettingsLayout";
+import { ProviderIcon } from "@/components/ProviderIcon";
 
 /**
  * `?link_error=` 白名單（#187 §9.4）＋cookie 解開後 `failLocation` 會發的兩碼（`oidc_state_mismatch`、`oidc_claim_too_long`——
@@ -27,6 +28,9 @@ function issuerHost(issuer: string): string {
   }
 }
 
+/** §5.4：以 host 標示的列（服務已刪或停用中）一律通用圖示。 */
+const HOST_ROW_ICON: ProviderIconDto = { type: "builtin", name: "generic" };
+
 function IdentityRow({ identity }: { identity: IdentityDto }) {
   const { t } = useTranslation();
   const nameId = useId();
@@ -36,6 +40,11 @@ function IdentityRow({ identity }: { identity: IdentityDto }) {
   const formatDate = (iso: string): string => new Date(iso).toLocaleDateString(i18n.language);
   // provider 顯示名是管理員輸入：只進文字節點，不當 i18n 插值參數。對不到啟用中 provider：issuer host（§8.5）。
   const names = identity.providers.length > 0 ? identity.providers.map(p => p.displayName).join(" / ") : issuerHost(identity.issuer);
+
+  // §5.4：多個時取第一個（server 已依 sort_order, created_at, id 排序，auth/sign-in-methods.ts）。
+  // ⚠ 不得寫成 `identity.providers[0]?.icon ?? HOST_ROW_ICON`——`??` 會把「不顯示」（null）吞成通用圖示。
+  const first = identity.providers[0];
+  const rowIcon = first === undefined ? HOST_ROW_ICON : first.icon;
 
   async function handleConfirm(): Promise<void> {
     try {
@@ -49,7 +58,10 @@ function IdentityRow({ identity }: { identity: IdentityDto }) {
   return (
     <li aria-labelledby={nameId} className="flex items-start justify-between gap-3 py-2">
       <div className="min-w-0 space-y-0.5 text-sm">
-        <p id={nameId} className="font-medium">{names}</p>
+        <div className="flex items-center gap-2">
+          <ProviderIcon icon={rowIcon} />
+          <p id={nameId} className="font-medium">{names}</p>
+        </div>
         {identity.providers.length === 0 && (
           <p className="text-xs text-muted-foreground">{t("settings.account.signInMethods.unknownProvider")}</p>
         )}
@@ -144,7 +156,7 @@ export function SignInMethodsSection() {
             <div className="flex flex-wrap gap-2">
               {identities.data.linkable.map(p => (
                 <Button key={p.providerId} type="button" variant="outline" size="sm" onClick={() => void handleLink(p.providerId)} disabled={startLink.isPending}>
-                  {t("settings.account.signInMethods.link")} {p.displayName}
+                  <ProviderIcon icon={p.icon} />{t("settings.account.signInMethods.link")} {p.displayName}
                 </Button>
               ))}
             </div>

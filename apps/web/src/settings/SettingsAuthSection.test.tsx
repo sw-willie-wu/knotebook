@@ -363,4 +363,15 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
     expect(await dialog.findByText("Linked accounts: 4")).toBeInTheDocument();
     expect(dialog.queryByText("After turning this off, you won't be able to sign in through a sign-in service yourself.")).not.toBeInTheDocument();
   });
+  it("provider-icon V5：卡片標題前有圖示（admin DTO 已換算的 icon）；upload 的 <img src> 等於 DTO icon.url；region 名不變", async () => {
+    const url = `/api/auth/providers/${CUSTOM.id}/icon?v=5`;
+    const server = fakeServer([LEGACY, { ...CUSTOM, iconKind: "upload", icon: { type: "upload", url } }]);
+    renderSection(server.fetchMock);
+    // 等待點：region 只在列表落地後才出現。
+    const corp = await screen.findByRole("region", { name: "<b>Corp</b> & Co" });
+    const corpIcon = within(corp).getByRole("heading", { name: "<b>Corp</b> & Co" }).previousElementSibling;
+    expect(corpIcon?.tagName).toBe("IMG");
+    expect(corpIcon).toHaveAttribute("src", url);
+    expect(card("SSO").getByRole("heading", { name: "SSO" }).previousElementSibling).toHaveAttribute("data-provider-icon", "generic");
+  });
 });

@@ -267,4 +267,25 @@ describe("LinkAccountPage（#187 §9.4 /link-account）", () => {
       cleanup();
     }
   });
+  it("provider-icon V3：「Confirm by signing in with X」鈕文字前有圖示；icon null 不渲染", async () => {
+    mockFetch({
+      "GET /api/auth/oidc/pending": () =>
+        fakeResponse(200, {
+          ...PENDING,
+          methods: {
+            password: true,
+            providers: [
+              { id: "11111111-1111-1111-1111-111111111111", displayName: "GitLab", icon: { type: "builtin", name: "gitlab" } },
+              { id: "22222222-2222-2222-2222-222222222222", displayName: "Plain", icon: null },
+            ],
+          },
+        }),
+    });
+    renderAt("/link-account");
+    const gitlab = await screen.findByRole("button", { name: "Confirm by signing in with GitLab" });
+    await waitFor(() => expect(gitlab.querySelector('[data-provider-icon="gitlab"]')).not.toBeNull());
+    expect(gitlab.firstChild).toBe(gitlab.querySelector('[data-provider-icon="gitlab"]'));
+    expect(gitlab.textContent).toBe("Confirm by signing in with GitLab");
+    expect(screen.getByRole("button", { name: "Confirm by signing in with Plain" }).querySelector("[data-provider-icon]")).toBeNull();
+  });
 });
