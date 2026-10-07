@@ -225,7 +225,7 @@ describe("#108 list_notes", () => {
     expect(payloadOf(await callTool(ctx.app, token, "list_notes", { cursor: first.nextCursor! }))).toBeTruthy();
   });
 
-  it("title 截到 200 code unit 並附 titleTruncated（M16）", async () => {
+  it("title 截到逃脫後 200 並附 titleTruncated（M16）", async () => {
     const ctx = await buildCollabTestApp();
     const { ownerId, token } = await scenario(ctx);
     const title = "T".repeat(260_000);

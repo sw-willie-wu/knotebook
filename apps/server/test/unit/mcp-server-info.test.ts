@@ -73,4 +73,15 @@ describe("#108 MCP server-info", () => {
     // #175 §9.1：欄位改名成 `owner`——舊名留在 instructions 裡就是叫模型去讀一把不存在的鍵。
     expect(text).not.toContain("ownerHandle");
   });
+
+  // #177：截斷改按 JSON 逃脫後的長度計（`limits.ts` 的 `truncateText`）。舊句「cut at 200 characters.」對
+  // 含 `"`／`\`／C0 的標題是假話（101 個 `"` 就會被截到 100），所以兩條一起釘：新句在、舊句不在。
+  it.each([
+    ["讀寫", true],
+    ["唯讀", false],
+  ])("#177：instructions（%s 憑證）講的是逃脫後的 200，不是原長度的 200", (_label, canWrite) => {
+    const text = mcpInstructions(canWrite as boolean);
+    expect(text).toContain("Headings and titles are cut at 200 characters as written in JSON.");
+    expect(text).not.toContain("cut at 200 characters.");
+  });
 });

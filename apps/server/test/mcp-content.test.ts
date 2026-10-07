@@ -236,7 +236,7 @@ describe("#108 read_note_outline", () => {
     s.disconnect();
   });
 
-  it("heading 與 note.title 截到 200 code unit 並附 *Truncated（M16）", async () => {
+  it("heading 與 note.title 截到逃脫後 200 並附 *Truncated（M16）", async () => {
     const huge = "H".repeat(260_000);
     const s = await scene(`# ${huge}\n\ntail line`, {}, "T".repeat(260_000));
     const out = await outlineOf(s.ctx.app, s.token, s.noteId);
@@ -299,7 +299,7 @@ describe("#108 read_note_section", () => {
     s.disconnect();
   });
 
-  // 切點落在代理對（surrogate pair）中間時，`truncateText` 會退一格回 3999 個 code unit。
+  // 切點落在代理對（surrogate pair）中間時，`truncateCodeUnits` 會退一格回 3999 個 code unit。
   // **`nextOffset` 必須跟著退**——寫死 `offset + 4000` 會讓下一頁從低位代理開始，接回去的
   // 內容少一個 code unit、而且兩頁各自帶著一個孤立代理（JSON 序列化不報錯，只是安靜送出
   // 壞字元）。這一案是 `nextOffset === 實際回傳長度` 這條的唯一守衛。

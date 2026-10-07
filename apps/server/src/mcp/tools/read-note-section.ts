@@ -21,7 +21,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { loadLastEdited, readNoteContent } from "../../notes/editing/read.js";
 import { NOTE_ID, SEC } from "../../notes/schemas.js";
 import { noteSummarySchema } from "../dto.js";
-import { MCP_SECTION_CHARS, truncateText } from "../limits.js";
+import { MCP_SECTION_CHARS, truncateCodeUnits } from "../limits.js";
 import { authorizeNoteRead, SECTION_NOT_FOUND_MESSAGE } from "../note-read.js";
 import { toolError, toolResult } from "../tool-result.js";
 import type { McpToolCtx } from "../context.js";
@@ -104,12 +104,12 @@ export async function readNoteSection(args: ReadNoteSectionArgs, ctx: McpToolCtx
 
   const { id, level, chars, markdown, fingerprint } = result.section;
   const offset = args.offset ?? 0;
-  // 切片走 `truncateText`（代理對不切半）；`nextOffset` 一律 ＝ `offset ＋ 實際回傳長度`，
+  // 切片走 `truncateCodeUnits`（按原長度、代理對不切半；不是 `truncateText`——理由見 `limits.ts`）；`nextOffset` 一律 ＝ `offset ＋ 實際回傳長度`，
   // 不是 `offset + 4000`——退一格的那次若寫死 4000，下一頁會從低位代理開始，接回去少一個
   // code unit、兩頁各帶一個孤立代理（序列化不報錯）。守衛＝`mcp-content.test.ts` 的
   // 「切點落在代理對中間時 nextOffset 跟著退一格」那一案（**只有它**：全 ASCII 的案 14 在
   // 寫死 4000 之下照樣綠，突變實測過）。
-  const page = truncateText(markdown.slice(offset), MCP_SECTION_CHARS);
+  const page = truncateCodeUnits(markdown.slice(offset), MCP_SECTION_CHARS);
   return toolResult({
     section: {
       id,

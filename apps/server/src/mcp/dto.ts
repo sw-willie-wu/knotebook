@@ -18,17 +18,31 @@ import { MCP_TEXT_MAX, truncateText } from "./limits.js";
  * #175 §9.1：誰的筆記。個人筆記＝那個人的 handle；群組筆記＝那個群組（沒有個人 owner——nullable 的 `ownerHandle` 對模型
  * 是「這篇沒主人？」的誤導，所以換成帶種類的物件；`owner` 比 `ownerHandle` 短 6 字元——`instructions` 另因可見性句改寫再省 1，
  * 合計寬 7，量測見 `server-info.ts` 的註解）。
+ *
+ * #177：群組 `name` 與 `title` 同一套截斷（{@link truncateText}，按 JSON 逃脫後計）。DB 上限是 80 code point，
+ * 一般名稱永遠截不到；只有塞滿需要逃脫的字元（C0 一個算 6）才會被截，此時多帶 `nameTruncated: true`——
+ * 旗標語意與 `titleTruncated` 相同（只在真的被截時才有這把 key）。
  */
-export type NoteOwnerForModel = { kind: "user"; handle: string } | { kind: "group"; id: string; name: string };
+export type NoteOwnerForModel =
+  | { kind: "user"; handle: string }
+  | { kind: "group"; id: string; name: string; nameTruncated?: true };
 
 export const noteOwnerSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("user"), handle: z.string() }),
-  z.object({ kind: z.literal("group"), id: z.string(), name: z.string() }),
+  z.object({
+    kind: z.literal("group"),
+    id: z.string(),
+    name: z.string().max(MCP_TEXT_MAX),
+    nameTruncated: z.literal(true).optional(),
+  }),
 ]);
 
 /** 群組欄優先（群組筆記的 `ownerHandle` 恆 null，XOR）。兩者皆空不可能（DB `notes_owner_xor_group_chk`）——throw，不猜。 */
 export function ownerForModel(row: { ownerHandle: string | null; groupId: string | null; groupName: string | null }): NoteOwnerForModel {
-  if (row.groupId !== null) return { kind: "group", id: row.groupId, name: row.groupName ?? "" };
+  if (row.groupId !== null) {
+    const name = truncateText(row.groupName ?? "");
+    return { kind: "group", id: row.groupId, name: name.text, ...(name.truncated ? { nameTruncated: true as const } : {}) };
+  }
   if (row.ownerHandle !== null) return { kind: "user", handle: row.ownerHandle };
   throw new Error("ownerForModel：ownerHandle 與 groupId 皆為 null");
 }

@@ -180,6 +180,27 @@ describe("#108 tools/list", () => {
     for (const s of [G1, D2, D3, G2, T1]) expect(res.body).toContain(JSON.stringify(s).slice(1, -1));
   });
 
+  // #177：截斷改按 JSON 逃脫後的長度計。outputSchema 上模型讀得到的兩件事要跟著改：heading 的說明（兩個方向——
+  // 新句在、舊句不在），以及群組 `owner` 的 `name` 有上限、有 `nameTruncated`（凡是回 `owner` 的工具都要有）。
+  it("#177：heading 說明是逃脫後的 200；群組 owner 帶 name 上限與 nameTruncated", async () => {
+    const ctx = await buildCollabTestApp();
+    const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
+    const { token } = await seedTokenForUser(ctx.db, owner.id, "notes:read notes:write");
+    const res = await mcpPost(ctx.app, rpc("tools/list"), { token });
+    const tools = res.json().result.tools as { name: string; outputSchema?: unknown }[];
+    const outputs = new Map(tools.map(t => [t.name, JSON.stringify(t.outputSchema ?? null)]));
+
+    for (const name of ["read_note_outline", "edit_note"]) {
+      expect(outputs.get(name), name).toContain("The section's heading text, cut at 200 characters as written in JSON.");
+    }
+    expect(res.body).not.toContain("cut at 200 characters.");
+
+    const groupOwner = '"name":{"type":"string","maxLength":200},"nameTruncated":{"type":"boolean","const":true}';
+    const withOwner = [...outputs].filter(([, schema]) => schema.includes('"const":"group"')).map(([name]) => name).sort();
+    expect(withOwner).toEqual(["create_note", "list_notes", "read_note_outline", "search_notes"]);
+    for (const name of withOwner) expect(outputs.get(name), name).toContain(groupOwner);
+  });
+
   // 案 10：唯讀憑證**跳過** `tools/list`，直接 `tools/call` `edit_note`——scope 過濾只在
   // 註冊時擋，沒有第二道守衛防「client 記得舊清單／瞎猜工具名」。⚠ **不是 `insufficient_scope`**
   // （P16 的裁決）：`register.ts` 沒註冊這個名字，SDK 直接判「未知工具名」，(4a) 形——`isError`、
