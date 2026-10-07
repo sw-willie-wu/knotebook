@@ -1,18 +1,20 @@
 import { randomUUID } from "node:crypto";
-import type { FastifyInstance, FastifyRequest } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { asc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
-import { resolveProviderIcon, type AdminAuthProbeResultDto, type AdminAuthProviderDto, type AdminAuthSettingsDto, type AuthProviderTemplate, type ProviderIconKind } from "@knotebook/shared";
+import { MAX_PROVIDER_ICON_BYTES, resolveProviderIcon, type AdminAuthProbeResultDto, type AdminAuthProviderDto, type AdminAuthSettingsDto, type AuthProviderTemplate, type ProviderIconKind } from "@knotebook/shared";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
 import { authProviders, siteSettings } from "../db/schema.js";
 import { checkViolationConstraint } from "../db/pg-errors.js";
+import { drainWithCap } from "../http/drain.js";
 import { sendError } from "../http/errors.js";
 import { TxAbort } from "../http/tx-abort.js";
 import { redactDbError } from "../lib/redact-db-error.js";
 import { SecretDecryptError } from "../lib/sealed-secret.js";
 import { safeTarget } from "../lib/safe-target.js";
 import { UUID_RE } from "../notes/service.js";
+import { detectImageMimeType } from "../uploads/magic-bytes.js";
 import { createProviderSchema, discoverSchema, patchProviderSchema, sendInvalidBody } from "../auth/admin-provider-input.js";
 import { OidcUnavailableError, oidcRedirectUri, type OidcRuntimeRegistry } from "../auth/oidc-client.js";
 import { openClientSecret, probeWarnings, recordResolvedIssuer, sealClientSecret } from "../auth/oidc-providers.js";
@@ -39,6 +41,8 @@ const INSECURE_ISSUER_LOG = "登入服務的 issuer 是明文 http（§5.3）";
 const ISSUER_AUDIT_LOG = "登入服務的 issuer 被寫入";
 const NOT_FOUND_MESSAGE = "找不到此登入服務";
 const DISCOVERY_FAILED_MESSAGE = "無法從這個 issuer 讀到可用的 OIDC 設定";
+const ICON_TOO_LARGE_MESSAGE = "圖檔不得超過 256 KB";
+const ICON_TYPE_MESSAGE = "只接受 PNG、JPEG、WebP";
 
 /** 路徑參數：過 UUID_RE 再轉小寫（RF4）；不合法回 null（呼叫端 404）。 */
 function providerIdParam(request: FastifyRequest): string | null {
@@ -198,6 +202,69 @@ export function adminAuthRoutes(deps: AdminAuthRouteDeps) {
         );
         if (row.issuerUrl.startsWith("http://")) request.log.warn({ providerId: id }, INSECURE_ISSUER_LOG);
       }
+      return reply.send(toAdminProviderDto(row, deps.config));
+    });
+
+    /**
+     * 登入服務圖示上傳（spec 2026-10-07-provider-icon §4.2）。CSRF：`app.ts` 的 `MULTIPART_EXEMPT_ROUTES`（essence＋Origin）。
+     * 處理形比照 `routes/uploads.ts:75-150`：迴圈跑完全部 parts、只取第一個 file part、其餘 resume；每個早退都 drain。
+     * 單句 UPDATE、不開交易、不取 B27（D10／Q2：圖示不影響登入判斷）；不 `registry.invalidate`（圖示不影響 OIDC runtime）。
+     */
+    async function requireAdminDrained(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+      await app.requireAdmin(request, reply);
+      // 尚未進 multipart 解析的早退一律 drain（同 routes/uploads.ts 的 authAndAuthorize）。
+      if (reply.sent) drainWithCap(request);
+    }
+
+    app.put("/api/admin/auth/providers/:id/icon", { preHandler: requireAdminDrained }, async (request, reply) => {
+      const id = providerIdParam(request);
+      if (id === null) {
+        drainWithCap(request);
+        return sendError(reply, 404, "not_found", NOT_FOUND_MESSAGE);
+      }
+      let fileBuf: Buffer | undefined;
+      let truncated = false;
+      try {
+        // 每次呼叫覆寫 fileSize（與註冊選項 deepmerge；throwFileSizeLimit 沿用 false）→ 超過只設 `.truncated`、不丟例外（spec §2.3-2）。
+        for await (const part of request.parts({ limits: { fileSize: MAX_PROVIDER_ICON_BYTES } })) {
+          if (part.type !== "file") continue;
+          if (fileBuf === undefined) {
+            fileBuf = await part.toBuffer();
+            truncated = part.file.truncated;
+          } else {
+            part.file.resume();
+          }
+        }
+      } catch (err) {
+        drainWithCap(request);
+        request.log.warn({ err }, "multipart 解析失敗");
+        return sendError(reply, 400, "invalid_body", "上傳格式錯誤");
+      }
+      if (fileBuf === undefined) {
+        drainWithCap(request);
+        return sendError(reply, 400, "invalid_body", "缺少上傳檔案");
+      }
+      if (truncated) {
+        drainWithCap(request);
+        return sendError(reply, 413, "file_too_large", ICON_TOO_LARGE_MESSAGE);
+      }
+      // 只信檔頭（uploads/magic-bytes.ts:1-6）；偵測器認得 GIF，本端點不收（spec §2.3-4）。
+      const mime = detectImageMimeType(fileBuf);
+      if (mime === null || mime === "image/gif") {
+        drainWithCap(request);
+        return sendError(reply, 415, "unsupported_media_type", ICON_TYPE_MESSAGE);
+      }
+      const [row] = await deps.db
+        .update(authProviders)
+        .set({ iconKind: "upload", iconData: fileBuf, iconMime: mime, iconVersion: sql`${authProviders.iconVersion} + 1`, updatedAt: sql`now()` })
+        .where(eq(authProviders.id, id))
+        .returning(adminProviderColumns())
+        // params 帶整個圖檔：非預期的 DB 錯誤不得原樣進 log（同 POST／PATCH 的 redact）。
+        .catch((err: unknown) => {
+          throw redactDbError(request.log, err, "上傳登入服務圖示");
+        });
+      // 讀不到＝不存在或剛被刪（spec §7.2 PUT ∥ DELETE）。
+      if (!row) return sendError(reply, 404, "not_found", NOT_FOUND_MESSAGE);
       return reply.send(toAdminProviderDto(row, deps.config));
     });
 

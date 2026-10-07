@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import type { FastifyInstance } from "fastify";
 import { expect } from "vitest";
 import type { ProviderIconDto } from "@knotebook/shared";
 import type { Db } from "../../src/db/index.js";
@@ -71,3 +72,48 @@ export function expectNoIconBytes(body: string): void {
   expect(body).not.toContain('"Buffer"');
   for (const key of ["iconData", "iconMime", "iconVersion", "icon_data", "icon_mime", "icon_version"]) expect(body, key).not.toContain(key);
 }
+
+export const ICON_BOUNDARY = "knotebookIconBoundary";
+
+export interface IconPart {
+  name: string;
+  filename?: string;
+  contentType?: string;
+  data: Buffer | string;
+}
+
+/** 手組 multipart/form-data（不可字串往返——圖檔是二進位；寫法同 `test/uploads.test.ts:54`，該函式檔內私有）。 */
+export function multipartBody(parts: IconPart[]): Buffer {
+  const chunks: Buffer[] = [];
+  for (const part of parts) {
+    const dispo = part.filename !== undefined ? `form-data; name="${part.name}"; filename="${part.filename}"` : `form-data; name="${part.name}"`;
+    const head = [`--${ICON_BOUNDARY}`, `Content-Disposition: ${dispo}`];
+    if (part.contentType !== undefined) head.push(`Content-Type: ${part.contentType}`);
+    head.push("", "");
+    chunks.push(Buffer.from(head.join("\r\n"), "utf-8"));
+    chunks.push(typeof part.data === "string" ? Buffer.from(part.data, "utf-8") : part.data);
+    chunks.push(Buffer.from("\r\n", "utf-8"));
+  }
+  chunks.push(Buffer.from(`--${ICON_BOUNDARY}--\r\n`, "utf-8"));
+  return Buffer.concat(chunks);
+}
+
+export function iconFile(data: Buffer, opts: { filename?: string; contentType?: string } = {}): IconPart {
+  return { name: "file", filename: opts.filename ?? "icon.png", contentType: opts.contentType ?? "image/png", data };
+}
+
+export function putIcon(app: FastifyInstance, id: string, body: Buffer, opts: { cookies?: Record<string, string>; headers?: Record<string, string> } = {}) {
+  return app.inject({
+    method: "PUT",
+    url: `/api/admin/auth/providers/${id}/icon`,
+    payload: body,
+    ...(opts.cookies !== undefined ? { cookies: opts.cookies } : {}),
+    headers: { "content-type": `multipart/form-data; boundary=${ICON_BOUNDARY}`, ...opts.headers },
+  });
+}
+
+/** 檔頭樣本（`uploads/magic-bytes.ts`：GIF＝`GIF8`＋`9`/`7`＋`a`；JPEG＝FF D8 FF；WebP＝`RIFF`＋4 位元組＋`WEBP`）。 */
+export const GIF_BYTES = Buffer.concat([Buffer.from("GIF89a", "latin1"), Buffer.alloc(16)]);
+export const JPEG_BYTES = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(16)]);
+export const WEBP_BYTES = Buffer.concat([Buffer.from("RIFF", "latin1"), Buffer.alloc(4), Buffer.from("WEBPVP8 ", "latin1"), Buffer.alloc(8)]);
+export const TEXT_BYTES = Buffer.from("plain text, not an image at all", "utf-8");
