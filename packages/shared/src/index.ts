@@ -1046,3 +1046,4 @@ export * from "./note-schema-config.js";
 export * from "./note-sections.js";
 export * from "./note-markdown.js";
 export * from "./group-roles.js";
+export * from "./provider-icon.js";
