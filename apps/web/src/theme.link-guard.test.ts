@@ -145,8 +145,9 @@ describe("筆記內連結的樣式（issue #153）", () => {
   });
 
   it("`--color-brand:` 只准宣告在 `@theme inline` 內——那是深色模式主題色繞法的前提", () => {
-    // `.bn-root` 在深色模式下帶著 `dark` class，會命中 `index.css` 的 `.dark` 基底塊而把
-    // `--brand` 重設回 indigo。連結與 wikilink 都改走 `--color-brand`（只宣告在
+    // `.bn-root` 在深色模式下帶著 `dark` class；#154 之前它會命中 `index.css` 的裸 `.dark`
+    // 基底塊而把 `--brand` 重設回 indigo（#154 已把基底塊錨到 `:root.dark`，守衛是
+    // `theme.accent-vars.test.ts` (h)；這條是第二道防線）。連結與 wikilink 都走 `--color-brand`（只宣告在
     // `@theme inline`，Tailwind 編譯成 `:root,:host` 一處，在那裡算完值再繼承）來繞過
     // 它。⚠ 只要有人在 `.dark`／`[data-accent]`／任何其他
     // 選擇器裡再宣告一次 `--color-brand:`，那個繞法就靜默失效、bug 原樣回來，而
@@ -171,23 +172,114 @@ describe("筆記內連結的樣式（issue #153）", () => {
       .map((m) => m[1]!.trim())
       .filter((s) => s.includes("::after"));
     expect(wikilinkAfter, "wikilink 是 <button> ＋ 同分頁導航，掛開新分頁圖示就是說謊").toEqual([]);
-    // 反面：::after 那條的**每個**選擇器都要同時帶 link 型別與 http(s) 前綴限定。少了型別
+    // 反面：::after 那條的**每個**選擇器都要同時帶 link 型別與 href 前綴限定。少了型別
     // 限定會命中 wikilink；少了前綴限定會命中 `mailto:`／`tel:`／`sms:`（那些是 link mark
-    // 但不開在分頁裡）與相對路徑，「開新分頁」就成了錯標。
+    // 但不開在分頁裡），「開新分頁」就成了錯標。前綴只准是下面這份白名單（#156 的判準）。
+    const ALLOWED_PREFIXES = [
+      String.raw`[href^="http:" i]`,
+      String.raw`[href^="https:" i]`,
+      String.raw`[href^="//"]`,
+      String.raw`[href^="\\\\"]`,
+      String.raw`[href^="/\\"]`,
+      String.raw`[href^="\\/"]`,
+    ];
     for (const selector of afterRule()[0]!.selectors) {
       expect(selector, `::after 選擇器缺 link 型別限定（會命中 wikilink）：${selector}`).toMatch(
         /\[data-inline-content-type\s*=\s*"link"\]/,
       );
-      expect(selector, `::after 選擇器缺 http(s) 前綴限定：${selector}`).toMatch(
-        /\[href\^="https?:\/\/"\]/,
-      );
+      const hrefParts = selector.match(/\[href[^\]]*\]/g) ?? [];
+      expect(hrefParts, `::after 選擇器要恰好一個 href 前綴限定：${selector}`).toHaveLength(1);
+      expect(ALLOWED_PREFIXES, `::after 選擇器的 href 限定不在 #156 的白名單裡：${selector}`).toContain(hrefParts[0]);
     }
-    // 兩個前綴都要有人蓋到，否則 http:// 或 https:// 其中一種會沒有圖示。
-    for (const scheme of ["http://", "https://"]) {
+    // 白名單每一項都要有人蓋到（少一條＝那種寫法的外連沒有圖示，#156 原貌）。
+    for (const prefix of ALLOWED_PREFIXES) {
       expect(
-        afterRule()[0]!.selectors.some((s) => s.includes(`[href^="${scheme}"]`)),
-        `沒有任何 ::after 選擇器蓋到 ${scheme}`,
+        afterRule()[0]!.selectors.some((s) => s.includes(prefix)),
+        `沒有任何 ::after 選擇器蓋到 ${prefix}`,
       ).toBe(true);
     }
+  });
+
+  describe("#156：圖示判準要與瀏覽器的 URL 剖析一致（選擇器拿去真的比對 href）", () => {
+    // 站在一個 http 頁面上（demo 是明文 http；https 頁面見下方 SAME_SCHEME 的說明）。
+    const PAGE = "http://knotebook.local/n/some-note";
+    // 一律從 index.css 現行的選擇器拿（去掉 `.bn-editor ` 祖先與 `::after`），不自抄一份。
+    const iconMatches = (href: string) => {
+      const a = document.createElement("a");
+      a.setAttribute("data-inline-content-type", "link");
+      a.setAttribute("href", href);
+      return afterRule()[0]!.selectors.some((s) =>
+        a.matches(s.replace(/^\.bn-editor\s+/, "").replace(/::after$/, "")),
+      );
+    };
+    const resolvesToAnotherHttpOrigin = (href: string) => {
+      const url = new URL(href, PAGE);
+      return (url.protocol === "http:" || url.protocol === "https:") && url.origin !== new URL(PAGE).origin;
+    };
+
+    // 會開到**另一個 http(s) 來源**的寫法：一律要有圖示。
+    const EXTERNAL = [
+      "https://x.com",
+      "http://x.com/a?b#c",
+      "HTTPS://X.COM",
+      "Http://x.com",
+      "hTtPs://x.com",
+      "//evil.com",
+      "//evil.com/path",
+      String.raw`\\evil.com`,
+      String.raw`/\evil.com`,
+      String.raw`\/evil.com`,
+      String.raw`https:\\x.com`,
+      String.raw`HTTPS:/\x.com`,
+      "https:x.com", // 跨協定（頁面是 http）：剖析器忽略任意個斜線，主機是 x.com
+    ];
+    it.each(EXTERNAL)("外連 %s → 有圖示", (href) => {
+      expect(resolvesToAnotherHttpOrigin(href), `測資前提：${href} 應解析成另一個 http(s) 來源`).toBe(true);
+      expect(iconMatches(href), `${href} 是外連卻沒有開新分頁圖示`).toBe(true);
+    });
+
+    // 不開在分頁裡的協定（交給協定處理程式）與站內連結：一律沒有圖示。大小寫變體也要擋。
+    const NO_ICON = [
+      "mailto:a@b.com",
+      "MAILTO:a@b.com",
+      "tel:+886212345678",
+      "sms:+886912345678",
+      "callto:someone",
+      "xmpp:a@b.com",
+      "httpfoo:x", // 別的協定，只是名字以 http 開頭
+      "/n/other-note",
+      "other-note",
+      "#heading",
+      "?q=1",
+    ];
+    it.each(NO_ICON)("非外連 %s → 沒有圖示", (href) => {
+      expect(resolvesToAnotherHttpOrigin(href), `測資前提：${href} 不應解析成另一個 http(s) 來源`).toBe(false);
+      expect(iconMatches(href), `${href} 不開到別的網站卻掛了開新分頁圖示`).toBe(false);
+    });
+
+    it("同協定的 `http:foo` 是站內相對路徑：有圖示也不是錯標（target=_blank，確實開新分頁）", () => {
+      // 剖析器：協定與頁面相同、後面不是 `//` ⇒ 相對路徑。圖示宣稱的是「開新分頁」，
+      // 這仍成立；這格只是把「判準刻意比 `http:` 而非 `http://`」的後果釘成明文。
+      expect(new URL("http:foo", PAGE).origin).toBe(new URL(PAGE).origin);
+      expect(iconMatches("http:foo")).toBe(true);
+    });
+
+    it("已知蓋不到（只會少標、不會錯標；舉例非窮舉）：開頭空白／控制字元、網址任何位置夾 tab 或換行", () => {
+      // 字面前綴比不到、剖析器卻會剝掉（tab／換行在**任何位置**都被整個刪除）。寫成測試是為了：
+      // 哪天真的蓋到了，這格會紅，提醒去更新 `docs/known-limitations.md` 與 index.css 註解裡的
+      // 「仍蓋不到」說明。
+      for (const href of [
+        " https://x.com",
+        "\thttps://x.com",
+        "ht\ttps://x.com",
+        "https\n://x.com",
+        "/\t/x.com", // 剝掉 tab 後是 `//x.com`（protocol-relative）
+        "/\n/x.com",
+        // 反例提醒：`https:/\n/x.com` **有**圖示（字面前綴 `https:` 就已命中），所以不在這份清單裡。
+      ]) {
+        expect(resolvesToAnotherHttpOrigin(href), `測資前提：${JSON.stringify(href)} 是外連`).toBe(true);
+        expect(iconMatches(href), `${JSON.stringify(href)} 現在有圖示了——更新已知限制`).toBe(false);
+      }
+    });
   });
 });

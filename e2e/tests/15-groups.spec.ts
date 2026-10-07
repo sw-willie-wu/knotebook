@@ -126,8 +126,8 @@ test("群組：建立 → 群組建筆記（/g/ 網址）→ 設定加人 → �
     await adminPage.getByRole("link", { name: groupName, exact: true }).click();
     await expect(adminPage).toHaveURL(/\/settings\/groups\/[0-9a-f-]{36}$/);
     await adminPage.getByRole("button", { name: `Remove ${secondEmail}` }).click();
-    // ⚠ 不能 getByText(secondEmail)：email 同時出現在儲存格與「Remove <email>」鈕文字裡，
-    // 子字串比對會命中兩個 → strict mode 直接 throw 不重試。等那顆移除鈕消失即可。
+    // 等那顆移除鈕消失＝那一列已移除。移除鈕自 #183 起是圖示鈕，email 只在它的 aria-label
+    // （「Remove <email>」）裡、不在可見文字裡；用可及名稱找它，對到的就是那一列的操作。
     await expect(adminPage.getByRole("button", { name: `Remove ${secondEmail}` })).toHaveCount(0);
 
     // ── B：≤10 秒被踢、回 "/"、該篇從側欄消失、群組段也消失 ─────────────────
