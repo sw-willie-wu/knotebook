@@ -5,7 +5,8 @@ import { SESSION_COOKIE, normalizeEmail, normalizeHandle, validateHandle, type A
 import { sendError, sendLoginThrottled } from "../http/errors.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
-import { handles, users } from "../db/schema.js";
+import { authProviders, handles, users } from "../db/schema.js";
+import { UUID_RE } from "../notes/service.js";
 import { uniqueViolationConstraint } from "../db/pg-errors.js";
 import { verifyPassword, hashPassword, HashBusyError, DUMMY_HASH } from "../auth/password.js";
 import { signSession, type UserGate } from "../auth/session.js";
@@ -18,6 +19,7 @@ import { readRegistrationEnabled } from "../auth/site-settings.js";
 import { isPasswordLoginAccepted, PASSWORD_LOGIN_DISABLED_MESSAGE } from "../auth/password-login.js";
 
 const INVALID_CREDENTIALS_MESSAGE = "帳號或密碼錯誤";
+const ICON_NOT_FOUND_MESSAGE = "找不到此圖示";
 
 // 只驗結構，內容一律讓 DB 查詢/密碼驗證自然決定結果——login 對外只有一種失敗訊息
 // （invalid_credentials），不該讓 email 格式檢查變成一個額外的、可被用來區分
@@ -61,6 +63,30 @@ export function authRoutes(deps: AuthRouteDeps) {
       // §9.5：有效值（DB OR env）；不揭露是否 env 強制。讀不到列 → 開＋log.error（B17）。
       const passwordLoginEnabled = await isPasswordLoginAccepted(deps.db, deps.config, request.log);
       return { providers, registration: { enabled: registrationEnabled ?? false }, passwordLogin: { enabled: passwordLoginEnabled } };
+    });
+
+    /**
+     * 登入服務圖示（spec 2026-10-07-provider-icon §4.4）：免登入、不看 enabled（停用中也可讀——admin 列表要用；圖示非機密、id 為 UUID）。
+     * 只回檔頭驗過的 PNG／JPEG／WebP（PUT 時存的偵測值），`nosniff`＋`default-src 'none'; sandbox`。
+     * `v` 字串**完全等於**現版本才 immutable（`01`、`1.0` 不算——版本不同的網址不得被長快取，§7.3）。不加節流（Q9）。
+     */
+    app.get("/api/auth/providers/:id/icon", async (request, reply) => {
+      const raw = (request.params as { id: string }).id;
+      if (!UUID_RE.test(raw)) return sendError(reply, 404, "not_found", ICON_NOT_FOUND_MESSAGE);
+      const [row] = await deps.db
+        .select({ iconKind: authProviders.iconKind, iconData: authProviders.iconData, iconMime: authProviders.iconMime, iconVersion: authProviders.iconVersion })
+        .from(authProviders)
+        .where(eq(authProviders.id, raw.toLowerCase()))
+        .limit(1);
+      if (!row || row.iconKind !== "upload" || row.iconData === null || row.iconMime === null) {
+        return sendError(reply, 404, "not_found", ICON_NOT_FOUND_MESSAGE);
+      }
+      const v = (request.query as { v?: unknown }).v;
+      reply.header("x-content-type-options", "nosniff");
+      reply.header("content-security-policy", "default-src 'none'; sandbox");
+      reply.header("cache-control", typeof v === "string" && v === String(row.iconVersion) ? "public, max-age=31536000, immutable" : "no-cache");
+      reply.type(row.iconMime);
+      return reply.send(row.iconData);
     });
 
     app.post("/api/auth/login", async (request, reply) => {
