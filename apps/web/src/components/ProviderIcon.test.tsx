@@ -21,15 +21,41 @@ describe("ProviderIcon（spec §6.1、§8.2 W1）", () => {
     }
   });
 
-  it("三個內建圖示是不同的圖形；GitLab／Google 用官方配色、通用圖示用 currentColor", () => {
+  it("三個內建圖示是不同的圖形；GitLab 三色全在、Google 漸層官方色在、通用圖示用 currentColor", () => {
     const html = (name: "gitlab" | "google" | "generic") => render(<ProviderIcon icon={{ type: "builtin", name }} />).container.innerHTML;
     const [gitlab, google, generic] = [html("gitlab"), html("google"), html("generic")];
     expect(new Set([gitlab, google, generic]).size).toBe(3);
-    expect(gitlab).toContain("#E24329");
-    expect(google).toContain("#4285F4");
-    expect(google).toContain("#34A853");
+    for (const c of ["#E24329", "#FC6D26", "#FCA326"]) expect(gitlab, c).toContain(c);
+    for (const c of ["#3186FF", "#FF4641", "#FF5B8B"]) expect(google, c).toContain(c);
     expect(generic).toContain('stroke="currentColor"');
     expect(generic).not.toMatch(/fill="#/);
+  });
+
+  it("Google 圖示沒有按鈕外框／底板（官方包的方框與 #747775 外框線已刪）", () => {
+    const { container } = render(<ProviderIcon icon={{ type: "builtin", name: "google" }} />);
+    expect(container.querySelector("rect")).toBeNull();
+    expect(container.innerHTML).not.toContain("#747775");
+    expect(container.innerHTML).not.toMatch(/fill="white"/);
+    expect(container.querySelector("svg")).toHaveAttribute("viewBox", "10 10 20 20");
+  });
+
+  it("同一頁兩個 Google 圖示：id 不重複，且各自的 url(#…) 都指向自己 svg 內的 id", () => {
+    const { container } = render(
+      <div>
+        <ProviderIcon icon={{ type: "builtin", name: "google" }} />
+        <ProviderIcon icon={{ type: "builtin", name: "google" }} />
+      </div>,
+    );
+    const svgs = Array.from(container.querySelectorAll("svg"));
+    expect(svgs).toHaveLength(2);
+    const ids = svgs.map((svg) => Array.from(svg.querySelectorAll("[id]")).map((e) => e.id));
+    expect(ids[0]!.length).toBeGreaterThanOrEqual(9);
+    expect(new Set([...ids[0]!, ...ids[1]!]).size).toBe(ids[0]!.length + ids[1]!.length);
+    svgs.forEach((svg, i) => {
+      const refs = Array.from(svg.innerHTML.matchAll(/url\(#([^)]+)\)/g)).map((m) => m[1]!);
+      expect(refs.length).toBeGreaterThanOrEqual(9);
+      for (const r of refs) expect(ids[i], r).toContain(r);
+    });
   });
 
   it("upload → <img alt=\"\" aria-hidden> src＝url、object-contain、不可拖曳", () => {
