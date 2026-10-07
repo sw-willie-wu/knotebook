@@ -55,8 +55,8 @@ type RowIndent = "section" | "group";
 function NoteRow({ note, primary, indent }: NoteRowProps) {
   const { activeNoteId, setActiveNoteId } = useActiveNote();
   // #122：active 判準改吃 context 的 note.id（單一真相，理由見 lib/active-note.tsx
-  // 檔頭）——不再比對路由參數（replaceState 換網址後 params 不動、slug 又隨標題
-  // 重算，URL 判斷必失準；前身 matchesNoteRef 已退役）。
+  // 檔頭）——不再比對路由參數（slug 隨標題重算、網址在存檔回來後才換，URL 判斷會
+  // 有落差；前身 matchesNoteRef 已退役）。
   const active = activeNoteId === note.id;
   return (
     <li
@@ -70,7 +70,8 @@ function NoteRow({ note, primary, indent }: NoteRowProps) {
       )}
     >
       {/* 刻意用 `<Link>` + 自算的 active，不用 `<NavLink>`：NavLink 比對的是
-          location，而本 app 的網址會被 `history.replaceState` 換掉（location 不同步）。 */}
+          location，舊形 `/notes/:ref`、prev_slug 等非 canonical 網址都對不上（#179 起收斂走
+          router navigate，location 與網址列一致，但 id 仍是唯一不會變的判準）。 */}
       <Link
         to={canonicalNotePath(note)}
         onClick={(event) => {

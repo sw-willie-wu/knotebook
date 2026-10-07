@@ -43,6 +43,8 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 - In a group's member list, a long email address no longer pushes the table past the edge of the settings window and cuts off the remove button. Long names and email addresses now wrap, and the remove button is a trash icon whose accessible name still includes the email (#183).
 - The "opens in a new tab" icon now also appears on links whose address is written in capitals (`HTTPS://…`), leaves out the scheme (`//example.com`), or uses backslashes in place of slashes. Some rarer spellings still get no icon; see [known limitations](docs/known-limitations.md) (#156).
 - In dark mode, the note editor and its menus reset the accent color to the default indigo for anything inside them styled with the accent. Nothing in the editor was styled that way yet (links and `[[` links already worked around it), so this had no visible effect, but accent-colored elements added there later will show the accent you picked (#154).
+- After renaming a note, opening and closing the settings window no longer puts the note's old address back in the address bar; this affected group notes too. If the page learns of a new address for the note while the settings window is open (for example after someone else renamed it), closing the window now returns to that new address. Changing the address this way doesn't reload the note or reconnect the editor (#179).
+- When your group role changes while you have one of the group's notes open, and the change decides whether you can edit that note, the group's **+** (new note) button in the sidebar now updates right away instead of only after a reload (#182).
 
 ## [0.5.0] - 2026-10-05
 

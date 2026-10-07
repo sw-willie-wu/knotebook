@@ -1,13 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { useLocation, useNavigate, useParams } from "react-router";
+import { NavigationType, useLocation, useNavigate, useNavigationType, useParams } from "react-router";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { canonicalNotePath, type NoteDto, type Role } from "@knotebook/shared";
 import { api, ApiFail } from "@/api/client";
+import { GROUPS_QUERY_KEY } from "@/api/groups";
 import { invalidateNoteQueries, useNote, useNoteByGroupPath, useNoteByPath } from "@/api/notes";
 import { SESSION_QUERY_KEY, useSession } from "@/auth/useSession";
 import { canEdit, isTerminal, type CollabState } from "@/collab/connection";
 import { useActiveNote } from "@/lib/active-note";
+import {
+  useHistoryLocationKey,
+  useRealLocation,
+  useRealNavigationType,
+  withCanonicalizedFrom,
+} from "@/lib/real-location";
 import { NotePageControlsContext, type NotePageControls, type OpenEditsState } from "@/lib/note-page-controls";
 import { createLinkSync, type LinkSync } from "@/collab/link-sync";
 import { useCollab } from "@/collab/useCollab";
@@ -89,6 +96,16 @@ function effectiveRole(state: CollabState, note: NoteDto): Role {
 }
 
 /**
+ * 筆記 canonical 網址對應的 paramsKey（與 NotePage 內 `paramsKey` 的 `g:`／`n:` 兩形同格式；
+ * 判別順序同 `canonicalNotePath`）。兩欄皆非字串時回 null（canonicalNotePath 會 throw 的那格）。
+ */
+function notePathKey(note: NoteDto): string | null {
+  if (typeof note.groupId === "string") return `g:${note.groupId}/${note.slug}`;
+  if (typeof note.ownerHandle === "string") return `n:${note.ownerHandle}/${note.slug}`;
+  return null;
+}
+
+/**
  * 筆記編輯頁——`/n/:handle/:slug`（#122 新形）、`/g/:groupId/:slug`（#175 群組筆記）與
  * `/notes/:ref`（舊形，永久相容）三條 route 共用。
  *
@@ -96,17 +113,19 @@ function effectiveRole(state: CollabState, note: NoteDto): Role {
  * - **解析層**：`paramsKey`（只從 `useParams` 衍生）與 `resolvedFor.key` 不等＝真導航
  *   → 依形解析（新形 `useNoteByPath(handle, slug)`；群組形 `useNoteByGroupPath(groupId, slug)`；
  *   舊形 `useNote(ref)`——legacy slug／`<vanity>-<uuid>`／純 uuid 都由 server 吃掉）→ 成功後 seed `['note', id]`
- *   並記 `resolvedFor`；相等時解析 query 停用——`history.replaceState` 不動 params，
- *   不會重解析。
+ *   並記 `resolvedFor`；相等時解析 query 停用。params 等於常駐層這一篇的 canonical
+ *   時也不重解析（#179：收斂 effect 換網址會改 params，見 `needsResolve`）。
  * - **常駐層**：`useNote(resolvedFor.id)`——key 以 id 為錨永不過時，改標題、
  *   invalidate 全清、focus refetch 都安全；**此後的 404 才是「真刪除」**（解析層的
  *   404 是「連結無效」，兩個出口文案分開）。頁面的 `note` 一律只取常駐層。
  *
  * 網址收斂：**唯一寫網址點**是下面的 canonical 收斂 effect（A3——TitleInput/
  * ShareDialog 的自帶 replaceState 已移除）：常駐層 note 變（含他人改 slug 後的
- * focus refetch）→ effect `replaceState` 到 canonical。不用 `navigate`：那會改動
- * 路由參數、扯斷共編連線；副作用是 location 與真實網址會不同步，所以「這是不是
- * 目前開啟的筆記」一律走 ActiveNoteContext 的 note.id（見 `@/lib/active-note`）。
+ * focus refetch）→ effect 以 router `navigate(…, { replace: true })` 換到 canonical
+ * （#179：之前用 `history.replaceState`，router 的 location 停在舊網址，設定 modal 記下的
+ * `backgroundLocation` 是舊的，關 modal 就把網址列換回舊網址）。換網址會改 params，
+ * 但 `needsResolve` 把「params＝這一篇的 canonical」視為已解析，共編不拆線、編輯器不重掛。
+ * 「這是不是目前開啟的筆記」仍一律走 ActiveNoteContext 的 note.id（見 `@/lib/active-note`）。
  *
  * 終態處理：`kicked`（撤權雙擊確認）與 `deleted`（筆記被刪）都是 toast + 導回 `/`。
  * N4 降級（editor → viewer）不是終態：連線留著，只是 `editable` 變 false 並 toast。
@@ -121,8 +140,8 @@ export default function NotePage() {
   // paramsKey 三形：`n:`（/n/:handle/:slug）、`g:`（/g/:groupId/:slug，#175 群組筆記）、
   // `ref:`（/notes/:ref）。前綴不同是**防禦性設計**（ref 不可能含 `/`，實際上單靠內容就分得開
   // ——別把「跨 pattern 必不等」的功勞記在前綴上，無案守著它）；三條 route 共用本元件、明文
-  // 不依賴 remount。**禁止取自 window.location.pathname**：它會被收斂 effect replaceState
-  // 改掉，拿它當 key 就是無窮重解析迴圈。
+  // 不依賴 remount。**禁止取自 window.location.pathname**：設定 modal 開著時它是
+  // `/settings/*`（主樹吃的是背景 location），拿它當 key 會把背景頁當成另一篇去解析。
   const form: "group" | "user" | "ref" =
     params.groupId !== undefined && params.slug !== undefined
       ? "group"
@@ -135,8 +154,44 @@ export default function NotePage() {
       : form === "user"
         ? `n:${params.handle}/${params.slug}`
         : `ref:${params.ref ?? ""}`;
-  const [resolvedFor, setResolvedFor] = useState<{ key: string; id: string } | null>(null);
-  const needsResolve = resolvedFor?.key !== paramsKey;
+  // `knownKeys`（#179 第 2 輪）：本次掛載期間**確知屬於這一篇**的 paramsKey——解析成功時的那把，
+  // 加上之後 params 跟著收斂（canonical）走過的每一把。常駐的筆記換成別篇時整組重來。
+  const [resolvedFor, setResolvedFor] = useState<{ key: string; id: string; knownKeys: readonly string[] } | null>(
+    null,
+  );
+
+  // 常駐層（說明見下方 `note` 那段）。提前到 needsResolve 之前：判斷「params 是不是正指著
+  // 這一篇的 canonical」要用到它的 data。
+  const noteQuery = useNote(resolvedFor?.id ?? "");
+  // #179：收斂 effect 改走 router `navigate` 之後，改標題換網址**會**改動 params。若只比
+  // `resolvedFor.key`，換網址那一下就被當成真導航——note/noteId 閘成 undefined、共編拆線重連、
+  // 編輯器重掛。所以 params 等於「常駐層這一篇目前的 canonical」時也算已解析：那條網址按
+  // 我們手上最新的資料就是這一篇（不是別篇——別篇的 canonical 不可能與它相同）。
+  const residentKey = noteQuery.data && resolvedFor ? notePathKey(noteQuery.data) : null;
+  // 第 2 輪：params 是這一篇走過的舊網址（`knownKeys`）也不重解析。情境（審查實測）：開過設定、
+  // 關掉、改名（收斂換到新網址）、再按上一頁回到 `/settings/*`——那筆 entry 的 backgroundLocation
+  // 記著改名前的網址，它既不是 resolvedFor.key 也不是現行 canonical，舊版會重解析（共編斷線重連、
+  // 編輯器重掛；舊 slug 已解不回來時甚至被當成連結無效導回首頁）。
+  // 第 3 輪：knownKeys 只在**上一頁／下一頁（POP）**時採用。舊 slug 不保留——A 從 foo 改名 bar 之後，
+  // 新筆記 B 可能自動拿到 foo；這時點連結／側欄（PUSH）到 /n/<me>/foo 必須重解析、落到 B，不能留在 A。
+  // navigationType 取真實的（AppRoutes 提供）：主樹裡的 useNavigationType() 恆為 POP。
+  const localNavigationType = useNavigationType();
+  const navigationType = useRealNavigationType() ?? localNavigationType;
+  const needsResolve =
+    resolvedFor === null ||
+    (resolvedFor.key !== paramsKey &&
+      residentKey !== paramsKey &&
+      !(navigationType === NavigationType.Pop && resolvedFor.knownKeys.includes(paramsKey)));
+  // 已解析且 params 是 canonical 形時把 `resolvedFor.key` 跟上、並記進 knownKeys：否則下一次改標題
+  // （data 先變、網址後換）的那一 render，params 既不等於舊 key、也不等於新 canonical，會被誤判成真導航。
+  useEffect(() => {
+    if (needsResolve || !resolvedFor || resolvedFor.key === paramsKey) return;
+    setResolvedFor({
+      key: paramsKey,
+      id: resolvedFor.id,
+      knownKeys: resolvedFor.knownKeys.includes(paramsKey) ? resolvedFor.knownKeys : [...resolvedFor.knownKeys, paramsKey],
+    });
+  }, [needsResolve, paramsKey, resolvedFor]);
 
   // 解析層依形三擇一（A4：三個 hook 的 query key 各含自己那組 params，data 必屬當下
   // ——此保證依賴 useNote/useNoteByPath/useNoteByGroupPath **沒有** placeholderData/
@@ -156,16 +211,53 @@ export default function NotePage() {
     // `[noteId, doc, provider]` 變動的那一 frame 讀一次 canEditRef——沒有 seed 的話
     // 那一 frame `note` 還是 undefined、canEdit 判 false，link-sync **永遠不會 start()**
     // （殺這行的突變由兩個 link-sync 案接住）。背景 refetch 仍會發一次，可接受。
-    // 已知行為：以已死的舊 slug 在 gc 窗（預設 5 分鐘）內重開同一篇時，這裡命中的是
-    // 解析層舊快取——會把常駐層短暫蓋成舊 DTO（隨後背景 refetch 修正），且死連結在
-    // 窗內不走 linkInvalid。屬可接受的快取語意，不是 bug。
-    queryClient.setQueryData(["note", resolveQuery.data.id], resolveQuery.data);
-    setResolvedFor({ key: paramsKey, id: resolveQuery.data.id });
-  }, [needsResolve, paramsKey, queryClient, resolveQuery.data]);
+    // 已知行為：從**別篇**以已死的舊 slug 在 gc 窗（預設 5 分鐘）內重開某篇時，這裡命中的是
+    // 解析層舊快取——直接 seed、換到那篇（隨後背景 refetch 修正內容），死連結在窗內不走
+    // linkInvalid。屬可接受的快取語意，不是 bug。
+    // #179 例外：解析層快取指向**目前常駐的這一篇**、卻比常駐層的資料舊，而且正在重抓——等重抓
+    // 回來再決定。情境：A 從 foo 改名 bar 後，新筆記 B 拿到 foo；在 A 上點連結（PUSH）到
+    // /n/<me>/foo，解析層快取還是「foo＝A」，照用就會留在 A（錯篇）。重抓回來是 B 就換到 B；仍是 A
+    // （舊 slug 還解得回）就照常 seed；404（舊 slug 已死）就走 linkInvalid。重抓失敗或離線時
+    // react-query 會留著舊資料、isFetching 落回 false，這時照常 seed（可能留在 A）——但下面的
+    // 寫快取有守衛，不會把常駐層蓋回改名前的舊 DTO。
+    if (
+      resolveQuery.isFetching &&
+      resolveQuery.data.id === resolvedFor?.id &&
+      resolveQuery.dataUpdatedAt < noteQuery.dataUpdatedAt
+    ) {
+      return;
+    }
+    const id = resolveQuery.data.id;
+    // 常駐層已有比解析層更新的資料（例如改名後的 DTO）就不寫：解析層的舊快取（重抓失敗、離線、
+    // 或 404 時 react-query 留著的舊資料）會把常駐層蓋回改名前，收斂 effect 再把網址換回舊網址。
+    const residentUpdatedAt = queryClient.getQueryState(["note", id])?.dataUpdatedAt ?? 0;
+    if (residentUpdatedAt <= resolveQuery.dataUpdatedAt) {
+      queryClient.setQueryData(["note", id], resolveQuery.data);
+    }
+    // knownKeys：解析回同一篇（例如經舊形網址回來）就累加；換成別篇才整組重來。
+    setResolvedFor((previous) => ({
+      key: paramsKey,
+      id,
+      knownKeys:
+        previous?.id === id
+          ? previous.knownKeys.includes(paramsKey)
+            ? previous.knownKeys
+            : [...previous.knownKeys, paramsKey]
+          : [paramsKey],
+    }));
+  }, [
+    needsResolve,
+    noteQuery.dataUpdatedAt,
+    paramsKey,
+    queryClient,
+    resolveQuery.data,
+    resolveQuery.dataUpdatedAt,
+    resolveQuery.isFetching,
+    resolvedFor?.id,
+  ]);
 
-  // 常駐層。轉場中（needsResolve）仍訂閱舊 id——render 閘門已擋住舊內容（A1），保留
+  // 常駐層（`noteQuery` 宣告在上方）。轉場中（needsResolve）仍訂閱舊 id——render 閘門已擋住舊內容（A1），保留
   // 訂閱只是讓快取有人養；`note`/`noteId` 在轉場中一律 undefined，collab 連線隨之拆掉。
-  const noteQuery = useNote(resolvedFor?.id ?? "");
   const note = needsResolve ? undefined : noteQuery.data;
   const noteId = needsResolve ? undefined : resolvedFor?.id;
 
@@ -273,23 +365,47 @@ export default function NotePage() {
   // 是 spec 要求的第二道保險——常駐層 key 就是 resolvedFor.id、無 placeholderData，
   // 目前結構下它不可達（別把功勞記在它頭上，突變審查驗過拿掉它無案會紅）。
   // 只在與目前網址不同時改寫，避免每次 render 都往 history 塞東西。
+  //
+  // #179：一律走 router 的 `navigate(…, { replace: true })`，讓 router location 與網址列一致
+  // （舊版 `history.replaceState` 繞過 router，設定 modal 的 backgroundLocation 因此記到舊網址）。
+  // 比對對象是 router 的 location（主樹在 modal 開著時給的是背景 location），不是 window.location。
+  // - 一般：本頁就是真實 entry → replace 成 canonical，**保留既有 state**，另帶
+  //   `canonicalizedFrom` 標記（AppShell 據此不把「同一篇換網址」當成換頁去關抽屜）。
+  // - 設定 modal 開著（真實 entry 的 state 帶 backgroundLocation）：**不動**。真實網址是
+  //   `/settings/*`，換成筆記網址等於關掉 modal；改寫 entry 裡的 backgroundLocation 也不行——
+  //   modal 內切過分頁再按上一頁，會回到還記著舊網址的 entry，params 對不上 resolvedFor.key
+  //   而重解析（共編重連、編輯器重掛；審查實測）。不動的話 resolvedFor.key 仍是背景的舊網址，
+  //   關 modal 回到背景時不重解析，接著照常收斂到新網址。
+  const realLocation = useRealLocation();
+  const readHistoryKey = useHistoryLocationKey();
+  // 最後一次寫出的（location.key, canonical）：同一組不寫第二次——navigate 沒生效（被攔、
+  // 或 router 沒跟上）時，effect 每次重跑都再 replace 一次就成了迴圈。
+  const lastWriteRef = useRef<string | null>(null);
   useEffect(() => {
     if (!note || note.id !== resolvedFor?.id) return;
     const canonical = canonicalNotePath(note);
     // 比對前先 decode：canonicalNotePath 回未編碼字串，真實瀏覽器的 pathname 對非
     // ASCII slug（CJK/重音）回百分比編碼形——不 decode 的話「相同就不寫」對這類
-    // slug 恆失效，每次 note 物件變動都白做一次 replaceState（不會迴圈，只是浪費）。
+    // slug 恆失效，每次 note 物件變動都白做一次 replace（不會迴圈，只是浪費）。
     // decodeURIComponent 對畸形 % 序列會 throw——瀏覽器產生的 pathname 不會畸形，
     // try/catch 只是不讓防衛性比較本身變成炸點。
-    let currentPath = window.location.pathname;
+    let currentPath = location.pathname;
     try {
       currentPath = decodeURIComponent(currentPath);
     } catch {
-      // 保留原字串比對——最壞情況只是多一次 replaceState
+      // 保留原字串比對——最壞情況只是多一次 replace
     }
     if (currentPath === canonical) return;
-    window.history.replaceState(window.history.state, "", canonical);
-  }, [note, resolvedFor]);
+    if ((realLocation?.state as { backgroundLocation?: unknown } | null | undefined)?.backgroundLocation) return;
+    // 有導覽在途（history 已換 entry、router location 還沒跟上——見 useHistoryLocationKey）就先別動：
+    // 這時 replace 會蓋掉剛導過去的 entry。transition commit 後 location 變、本 effect 會重跑。
+    const historyKey = readHistoryKey();
+    if (historyKey !== undefined && historyKey !== (realLocation ?? location).key) return;
+    const write = `${location.key}\n${canonical}`;
+    if (lastWriteRef.current === write) return;
+    lastWriteRef.current = write;
+    void navigate(canonical, { replace: true, state: withCanonicalizedFrom(location.state, location.pathname) });
+  }, [location, navigate, note, readHistoryKey, realLocation, resolvedFor]);
 
   // 「已經決定要離開這一頁了」。共編終態與 API 404 是兩條互相獨立、可能**同時**成立的
   // 離場路徑（筆記被刪時 close(NOTE_DELETED) 與 `GET /api/notes/:ref` 的 404 會前後腳
@@ -358,11 +474,22 @@ export default function NotePage() {
   // N4：連線中的角色變動（撤權降級為 viewer／權限恢復）要讓使用者知道。
   // 恢復沒有 server 通知，靠的是下一次 token 往返帶回來的 role（見 useCollab）。
   const previousRoleRef = useRef<Role | null>(null);
+  const noteGroupId = note?.groupId ?? null;
   useEffect(() => {
     if (state.phase !== "connected") return;
     const previous = previousRoleRef.current;
     previousRoleRef.current = state.role;
     if (previous === null || previous === state.role) return;
+    // #182：重驗後角色變了但仍有存取——群組筆記的角色變動多半來自**群組角色**被改，側欄群組列的
+    // 「＋」看的是 `['groups']` 的 myRole.permissions，不失效就停在舊值直到重整。'none' 不在此
+    // 處理：那是撤權前半段，隨後的 kicked 終態由 scheduleTerminalReconcile 失效 ['groups']。
+    // 同時失效這篇的 `['note', id]`（頁首 ⋮／分享看 `note.permissions`）與 `['notes']`（側欄
+    // 筆記列 ⋮ 看清單裡每篇的 `permissions`）——同一次角色變動，權限欄位一樣停在舊值。
+    if (noteGroupId !== null && state.role !== "none") {
+      void queryClient.invalidateQueries({ queryKey: GROUPS_QUERY_KEY });
+      if (noteId) void queryClient.invalidateQueries({ queryKey: ["note", noteId] });
+      void queryClient.invalidateQueries({ queryKey: ["notes"] });
+    }
     // 只對「真的變成 viewer」報降級。角色變 'none' 是撤權流程的前半段（server 緊接著
     // 就會送 REVOKED close），若也在這裡 toast，使用者會先看到「已改為檢視者」再看到
     // 「已失去存取權」——兩則互相矛盾的訊息（瀏覽器實測到的雜訊）。
@@ -371,7 +498,7 @@ export default function NotePage() {
     } else if (canEdit(state.role) && !canEdit(previous)) {
       toast({ title: t("note.restoredEditAccess") });
     }
-  }, [state, t]);
+  }, [noteGroupId, noteId, queryClient, state, t]);
 
   // PR2（BC2 卡片版面）：loading／error／`doc|provider|user` 未備妥時，一律渲染一張
   // 不含 header/footer slot 的佔位內文卡——`headerSlot` 本來就只在真的掛上
