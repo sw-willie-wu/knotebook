@@ -1,6 +1,6 @@
 import { useId, type SVGProps } from "react";
 
-// 品牌圖示獨立成檔：由 ProviderIcon 以 React.lazy 載入，不進主 bundle（check-bundle-size）。
+// 品牌圖示（GitLab／Google）獨立成檔，由 ProviderIcon 一般 import（即時顯示、進首包；首包上限見 scripts/check-bundle-size.mjs）。
 
 /** 登入服務圖示（`components/ProviderIcon.tsx`）：GitLab 官方 tanuki（about.gitlab.com/images/press/press-kit-icon.svg，已核對），品牌色、**不用** currentColor。viewBox 為該檔的內容外框（原檔 380x380 含大片留白）。 */
 export function GitLabLogo(props: SVGProps<SVGSVGElement>) {

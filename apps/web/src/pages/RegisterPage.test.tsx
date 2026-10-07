@@ -173,7 +173,6 @@ describe("RegisterPage（#187 §9.4、S2）", () => {
       ],
     });
     const gitlab = await screen.findByRole("link", { name: "Sign up with GitLab" });
-    await waitFor(() => expect(gitlab.querySelector('[data-provider-icon="gitlab"]')).not.toBeNull());
     expect(gitlab.firstChild).toBe(gitlab.querySelector('[data-provider-icon="gitlab"]'));
     expect(gitlab.textContent).toBe("Sign up with GitLab");
     expect(screen.getByRole("link", { name: "Sign up with Plain" }).querySelector("[data-provider-icon]")).toBeNull();

@@ -217,12 +217,11 @@ describe("SignInMethodsSection（#187 §8.5）", () => {
     });
     const iconBeforeName = (row: HTMLElement) => document.getElementById(row.getAttribute("aria-labelledby")!)!.previousElementSibling;
     // 等待點：listitem 只在 identities 落地後才出現。
-    const gitlabRow = await screen.findByRole("listitem", { name: "<b>GitLab</b>" });
-    await waitFor(() => expect(iconBeforeName(gitlabRow)).toHaveAttribute("data-provider-icon", "gitlab"));
+    expect(iconBeforeName(await screen.findByRole("listitem", { name: "<b>GitLab</b>" }))).toHaveAttribute("data-provider-icon", "gitlab");
     expect(iconBeforeName(screen.getByRole("listitem", { name: /gone\.example/ }))).toHaveAttribute("data-provider-icon", "generic");
-    await waitFor(() => expect(iconBeforeName(screen.getByRole("listitem", { name: "First / Second" }))).toHaveAttribute("data-provider-icon", "google"));
+    expect(iconBeforeName(screen.getByRole("listitem", { name: "First / Second" }))).toHaveAttribute("data-provider-icon", "google");
     expect(screen.getByRole("listitem", { name: "Hidden" }).querySelector("[data-provider-icon]")).toBeNull();
     const link = screen.getByRole("button", { name: "Link Google" });
-    await waitFor(() => expect(link.firstChild).toBe(link.querySelector('[data-provider-icon="google"]')));
+    expect(link.firstChild).toBe(link.querySelector('[data-provider-icon="google"]'));
   });
 });

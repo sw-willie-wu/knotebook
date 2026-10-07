@@ -526,8 +526,6 @@ describe("LoginPage——#187 PR3：帳密開關、註冊鈕、零方法", () =>
     );
     // 等待點：該 provider 的 link 只在 config 落地後才出現。
     const gitlab = await screen.findByRole("link", { name: "Sign in with GitLab" });
-    // lazy 品牌圖示：等真圖示換掉佔位。
-    await waitFor(() => expect(gitlab.querySelector('[data-provider-icon="gitlab"]')).not.toBeNull());
     expect(gitlab.firstChild).toBe(gitlab.querySelector('[data-provider-icon="gitlab"]'));
     expect(gitlab.textContent).toBe("Sign in with GitLab");
     const corp = screen.getByRole("link", { name: "Sign in with Corp" });

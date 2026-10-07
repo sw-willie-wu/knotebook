@@ -283,7 +283,6 @@ describe("LinkAccountPage（#187 §9.4 /link-account）", () => {
     });
     renderAt("/link-account");
     const gitlab = await screen.findByRole("button", { name: "Confirm by signing in with GitLab" });
-    await waitFor(() => expect(gitlab.querySelector('[data-provider-icon="gitlab"]')).not.toBeNull());
     expect(gitlab.firstChild).toBe(gitlab.querySelector('[data-provider-icon="gitlab"]'));
     expect(gitlab.textContent).toBe("Confirm by signing in with GitLab");
     expect(screen.getByRole("button", { name: "Confirm by signing in with Plain" }).querySelector("[data-provider-icon]")).toBeNull();
