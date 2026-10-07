@@ -275,6 +275,19 @@ function UserActions({ user, currentUserId }: { user: AdminUserDto; currentUserI
 }
 
 /**
+ * 使用者表的欄寬規則（比照群組成員表 #183）。jsdom 不排版，測試對字面 token 斷言。
+ * - `text`：email／username／顯示名稱可在任意處斷行；`wrap-anywhere` 會把斷點算進 min-content，
+ *   auto 表格才肯壓窄這欄（`break-words` 不會，照樣撐爆）。
+ * - `fixed`：角色、狀態兩欄不換行。
+ * - `actions`：操作欄收到內容寬、不換行，按鈕永遠不被擠壓。
+ */
+const USERS_TABLE_LAYOUT = {
+  text: "wrap-anywhere",
+  fixed: "whitespace-nowrap",
+  actions: "w-px whitespace-nowrap",
+} as const;
+
+/**
  * 站台管理頁的使用者區（`/admin/users`，admin only）。歷程：原本是獨立路由
  * `/admin/users`（Task 15）→ Plan 4 併進設定 modal 成為 `/settings/users`（spec §13.4）
  * → 2026-09-30 又搬回獨立頁 `/admin/users`，掛在 `pages/AdminPage.tsx` 的 `<Outlet/>`
@@ -316,23 +329,23 @@ export function SettingsUsersSection() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border text-left text-muted-foreground">
-              <th className="py-2 font-medium">{t("admin.tableEmail")}</th>
-              <th className="py-2 font-medium">{t("admin.tableHandle")}</th>
-              <th className="py-2 font-medium">{t("admin.tableDisplayName")}</th>
-              <th className="py-2 font-medium">{t("admin.tableRole")}</th>
-              <th className="py-2 font-medium">{t("admin.tableStatus")}</th>
-              <th className="py-2 font-medium text-right">{t("admin.tableActions")}</th>
+              <th className="py-2 pr-3 font-medium">{t("admin.tableEmail")}</th>
+              <th className="py-2 pr-3 font-medium">{t("admin.tableHandle")}</th>
+              <th className="py-2 pr-3 font-medium">{t("admin.tableDisplayName")}</th>
+              <th className={`py-2 pr-3 font-medium ${USERS_TABLE_LAYOUT.fixed}`}>{t("admin.tableRole")}</th>
+              <th className={`py-2 pr-3 font-medium ${USERS_TABLE_LAYOUT.fixed}`}>{t("admin.tableStatus")}</th>
+              <th className={`py-2 font-medium text-right ${USERS_TABLE_LAYOUT.actions}`}>{t("admin.tableActions")}</th>
             </tr>
           </thead>
           <tbody>
             {usersQuery.data.map((row) => (
               <tr key={row.id} className="border-b border-border">
-                <td className="py-2">{row.email}</td>
-                <td className="py-2">{row.handle}</td>
-                <td className="py-2">{row.displayName}</td>
-                <td className="py-2">{row.isAdmin ? t("admin.roleAdmin") : t("admin.roleUser")}</td>
-                <td className="py-2">{row.disabledAt ? t("admin.statusDisabled") : t("admin.statusActive")}</td>
-                <td className="py-2">
+                <td className={`py-2 pr-3 ${USERS_TABLE_LAYOUT.text}`}>{row.email}</td>
+                <td className={`py-2 pr-3 ${USERS_TABLE_LAYOUT.text}`}>{row.handle}</td>
+                <td className={`py-2 pr-3 ${USERS_TABLE_LAYOUT.text}`}>{row.displayName}</td>
+                <td className={`py-2 pr-3 ${USERS_TABLE_LAYOUT.fixed}`}>{row.isAdmin ? t("admin.roleAdmin") : t("admin.roleUser")}</td>
+                <td className={`py-2 pr-3 ${USERS_TABLE_LAYOUT.fixed}`}>{row.disabledAt ? t("admin.statusDisabled") : t("admin.statusActive")}</td>
+                <td className={`py-2 ${USERS_TABLE_LAYOUT.actions}`}>
                   <UserActions user={row} currentUserId={currentUserId} />
                 </td>
               </tr>

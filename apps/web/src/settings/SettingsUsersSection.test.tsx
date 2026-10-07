@@ -459,6 +459,37 @@ describe("SettingsUsersSection——使用者名欄（#122 Task 5）", () => {
     expect(screen.getByText("alice-h")).toBeInTheDocument();
     expect(screen.getByText("bob-h")).toBeInTheDocument();
   });
+
+  it("長 email／username／顯示名稱版面守衛：三格 wrap-anywhere、角色狀態不換行、操作欄 w-px 不換行（比照 #183）", async () => {
+    // jsdom 不排版、量不到溢出，只能釘住決定溢出與否的 class token（`classList` 陣列比對）。
+    const LONG_EMAIL = "firstnamelastnamewithnonaturalbreakpoints0123456789@averyveryverylongcompanydomainname.example";
+    const LONG_HANDLE = "averylongusernamewithoutanyseparatorsatall0123456789abcdef";
+    const LONG_NAME = "Averylongdisplaynamewithoutanyspacesorhyphensatall";
+    const longUser = { ...ACTIVE_OTHER, id: "u-long", email: LONG_EMAIL, handle: LONG_HANDLE, displayName: LONG_NAME };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      const base = baseFetchHandlers()(url, method);
+      if (base) return Promise.resolve(base);
+      if (url === ADMIN_USERS_URL && method === "GET") {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([longUser]) }));
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    renderUsersRoute(fetchMock);
+    const emailCell = (await screen.findByText(LONG_EMAIL)).closest("td");
+    const tokens = (el: Element | null) => [...(el?.classList ?? [])];
+    expect(tokens(emailCell)).toContain("wrap-anywhere");
+    expect(tokens(screen.getByText(LONG_HANDLE).closest("td"))).toContain("wrap-anywhere");
+    expect(tokens(screen.getByText(LONG_NAME).closest("td"))).toContain("wrap-anywhere");
+    const cells = (emailCell?.closest("tr") as HTMLElement).querySelectorAll("td");
+    expect(tokens(cells[3])).toContain("whitespace-nowrap");
+    expect(tokens(cells[4])).toContain("whitespace-nowrap");
+    expect(tokens(cells[5])).toEqual(expect.arrayContaining(["w-px", "whitespace-nowrap"]));
+    expect(tokens(screen.getByRole("columnheader", { name: "Actions" }))).toEqual(
+      expect.arrayContaining(["w-px", "whitespace-nowrap"]),
+    );
+  });
 });
 
 describe("SettingsUsersSection——#187 §9.5：帳密登入關閉時代建的說明", () => {
