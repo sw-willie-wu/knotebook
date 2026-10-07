@@ -11,6 +11,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import type { ApiTokenDto, UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
+import { clickOutside } from "@/test/outside-click";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppRoutes } from "@/App";
@@ -98,6 +99,36 @@ describe("ApiTokensSection", () => {
     dismissAllToasts();
   });
   afterEach(() => vi.unstubAllGlobals());
+
+  it("建立表單：點對話框外面不關閉、已填名稱仍在；Esc 仍可關（表單型守衛只擋點外面）", async () => {
+    renderSettings(PASSWORD_USER, []);
+    fireEvent.click(await screen.findByRole("button", { name: i18n.t("settings.account.apiTokensCreate") }));
+    const nameLabel = i18n.t("settings.account.apiTokensNameLabel");
+    fireEvent.change(screen.getByLabelText(nameLabel), { target: { value: "Keep" } });
+    await clickOutside();
+    expect(screen.getByLabelText(nameLabel)).toHaveValue("Keep");
+    fireEvent.keyDown(screen.getByLabelText(nameLabel), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByLabelText(nameLabel)).toBeNull());
+  });
+
+  it("明文畫面：點對話框外面與 Esc 都不關閉（既有 issued 守衛與 dismissOnOutside 並存仍成立）", async () => {
+    const created = { ...PAT_ROW, id: "t-g", name: "G", token: "knb_" + "z".repeat(43) };
+    renderSettings(PASSWORD_USER, [], (url, method) =>
+      url === "/api/auth/tokens" && method === "POST"
+        ? fakeResponse({ ok: true, status: 201, json: () => Promise.resolve(created) })
+        : null
+    );
+    fireEvent.click(await screen.findByRole("button", { name: i18n.t("settings.account.apiTokensCreate") }));
+    fireEvent.change(screen.getByLabelText(i18n.t("settings.account.apiTokensNameLabel")), { target: { value: "G" } });
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("settings.account.apiTokensSubmit") }));
+    const valueLabel = i18n.t("settings.account.apiTokensValueLabel");
+    await screen.findByLabelText(valueLabel);
+    await clickOutside();
+    expect(screen.getByLabelText(valueLabel)).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByLabelText(valueLabel), { key: "Escape" });
+    await clickOutside();
+    expect(screen.getByLabelText(valueLabel)).toBeInTheDocument();
+  });
 
   it("空狀態", async () => {
     renderSettings(PASSWORD_USER, []);

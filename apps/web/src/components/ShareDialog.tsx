@@ -926,7 +926,7 @@ export function ShareDialog({ note }: ShareDialogProps) {
       </DialogTrigger>
       {/* 448px 時「email ＋ 角色下拉 ＋ 新增」擠成一排放不下，加大到 512px
           （＝`DialogContent` default variant 本來的寬度，這裡不再另外收窄）。 */}
-      <DialogContent className="max-w-lg">
+      <DialogContent dismissOnOutside={false} className="max-w-lg">
         <DialogHeader>
           <DialogTitle>{t("share.title")}</DialogTitle>
           {/* 群組筆記的面板對讀者也開（Q14），他什麼都不能管——「管理誰能檢視或編輯」那句對他為假，換群組專用句。 */}

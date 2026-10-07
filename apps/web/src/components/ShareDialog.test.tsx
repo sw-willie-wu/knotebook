@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-quer
 import { MemoryRouter, Route, Routes } from "react-router";
 import type { GroupDto, NoteDto, ShareDto } from "@knotebook/shared";
 import i18n from "@/i18n";
+import { clickOutside } from "@/test/outside-click";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { EDITOR_PERMS, groupDto, memberRole, OWNER_PERMS, VIEWER_PERMS } from "@/test/fixtures";
 import { ShareDialog } from "./ShareDialog";
@@ -115,6 +116,28 @@ describe("ShareDialog", () => {
 
     await openDialog();
     expect(screen.getByRole("heading", { name: "Share note" })).toBeInTheDocument();
+  });
+
+  it("點對話框外面不關閉、已填的 email 仍在（表單型守衛）", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (url === SHARES_URL && method === "GET") {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+      }
+      if (url === PUBLIC_LINK_URL && method === "GET") {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ token: null, slug: null }) }));
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderDialog();
+    await openDialog();
+    await selectMembers();
+    fireEvent.change(screen.getByLabelText("Email address"), { target: { value: "keep@example.com" } });
+    await clickOutside();
+    expect(screen.getByRole("heading", { name: "Share note" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Email address")).toHaveValue("keep@example.com");
   });
 
   it("新增分享送出 PUT {email, role}", async () => {

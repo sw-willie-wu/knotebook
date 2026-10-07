@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { AdminAuthProviderDto } from "@knotebook/shared";
 import i18n from "@/i18n";
+import { clickOutside } from "@/test/outside-click";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { copyText } from "@/lib/clipboard";
 import { SettingsAuthSection } from "./SettingsAuthSection";
@@ -79,6 +80,16 @@ describe("新增登入服務 dialog（#187 §9.4）", () => {
   });
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("點對話框外面不關閉、已填內容仍在（Willie 回報：隨便點周圍就關、已填內容全丟）", async () => {
+    const server = fakeServer([]);
+    renderSection(server.fetchMock);
+    const dialog = await openCreate();
+    fireEvent.change(dialog.getByLabelText("Display name"), { target: { value: "Keep me" } });
+    await clickOutside();
+    expect(screen.getByRole("dialog", { name: "Add sign-in service" })).toBeInTheDocument();
+    expect(dialog.getByLabelText("Display name")).toHaveValue("Keep me");
   });
 
   it("零個服務時也看得到「新增」鈕（空狀態＋新增，r2-N7）", async () => {
@@ -234,6 +245,15 @@ describe("編輯登入服務 dialog（#187 §9.4、§5.2）", () => {
     fireEvent.click(region.getByRole("button", { name: "Edit" }));
     return { region, dialog: within(await screen.findByRole("dialog", { name: "Edit sign-in service" })) };
   }
+
+  it("編輯：點對話框外面不關閉、已改內容仍在（表單型守衛）", async () => {
+    renderSection(fakeServer([LIVE]).fetchMock);
+    const { dialog } = await openEdit();
+    fireEvent.change(dialog.getByLabelText("Display name"), { target: { value: "Edited name" } });
+    await clickOutside();
+    expect(screen.getByRole("dialog", { name: "Edit sign-in service" })).toBeInTheDocument();
+    expect(dialog.getByLabelText("Display name")).toHaveValue("Edited name");
+  });
 
   it("RF5 只改顯示名：不出現警示；PATCH body 只有 displayName（不帶原 issuer、沒有 clientSecret 鍵）；secret 欄是唯寫（空白＋已儲存提示）", async () => {
     const server = fakeServer([LIVE]);

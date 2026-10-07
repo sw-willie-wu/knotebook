@@ -130,7 +130,7 @@ export function DeleteGroupDialog({
 
   return (
     <Dialog open onOpenChange={onOpenChange}>
-      <DialogContent onCloseAutoFocus={returnFocus}>
+      <DialogContent dismissOnOutside={false} onCloseAutoFocus={returnFocus}>
         <DialogHeader>
           <DialogTitle>{t("groups.delete.title")}</DialogTitle>
         </DialogHeader>

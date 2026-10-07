@@ -12,6 +12,7 @@ import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppRoutes } from "@/App";
 import type { CollabState } from "@/collab/connection";
 import { adminRole, groupDto, OWNER_PERMS } from "@/test/fixtures";
+import { clickOutside } from "@/test/outside-click";
 
 // 設定總 modal（spec §13.4）：兩棵 Routes 樹＋modal-over-background 機制，一律用真正的
 // `AppRoutes`（App.tsx 的唯一真相樹）跑，不拆開各自重建等價樹——驗證的是「有沒有接對」
@@ -456,6 +457,22 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
 
     await waitFor(() => expect(screen.getByRole("heading", { name: "Groups" })).toBeInTheDocument());
     expect(screen.getByRole("dialog")).toBe(dialogBefore);
+  });
+
+  it("點 modal 外面不關閉、inline 表單已輸入的文字仍在（Esc／X 照常關由 ui/dialog.test 守）", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      const res = baseFetchHandlers(() => PLAIN_USER)(url, method);
+      if (res) return Promise.resolve(res);
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    renderAt(["/settings/account"], fetchMock);
+    await waitFor(() => expect(screen.getByLabelText("Current password")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("Current password"), { target: { value: "keep-me-typed" } });
+    await clickOutside();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByLabelText("Current password")).toHaveValue("keep-me-typed");
   });
 
   it("modal 內改密碼成功 → 不導航、modal 仍開、toast 出現（onSuccess=()=>toast(...)）", async () => {

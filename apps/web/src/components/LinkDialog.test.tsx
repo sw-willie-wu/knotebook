@@ -20,6 +20,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { I18nextProvider } from "react-i18next";
 import { BlockNoteEditor } from "@blocknote/core";
 import i18n from "@/i18n";
+import { clickOutside } from "@/test/outside-click";
 import { noteSchema } from "@/collab/schema";
 import { LinkDialog } from "./LinkDialog";
 
@@ -41,6 +42,15 @@ function renderDialog(props: { open: boolean; onOpenChange: (open: boolean) => v
 }
 
 describe("LinkDialog", () => {
+  it("點對話框外面不關閉、已填內容仍在（表單型守衛；Esc 仍可關由 ui/dialog.test 守）", async () => {
+    const onOpenChange = vi.fn();
+    renderDialog({ open: true, onOpenChange, onSubmit: vi.fn() });
+    fireEvent.change(screen.getByLabelText(i18n.t("note.link.textLabel")), { target: { value: "keep" } });
+    await clickOutside();
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(screen.getByLabelText(i18n.t("note.link.textLabel"))).toHaveValue("keep");
+  });
+
   it("填文字＋合法網址 → onSubmit 收到 { text, href }", () => {
     const onSubmit = vi.fn();
     renderDialog({ open: true, onOpenChange: vi.fn(), onSubmit });

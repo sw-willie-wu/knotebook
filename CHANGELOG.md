@@ -37,6 +37,7 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 - A group role that can manage public links but cannot edit notes could still change a note's title by sending it together with a `slug` in `PATCH /api/notes/:id`. A body that carries a `title` now always needs edit access, whether or not it also carries `slug` (#186).
 - Deleting a note while an image was being uploaded to it could leave the uploaded file on the server's disk with nothing pointing at it. An upload that arrives while the note is being deleted now waits for the deletion to finish and then answers `404 not_found`, and its file isn't kept. The same change also stops deleting a note from deadlocking with deleting its group with **Delete everything** at the same moment, which could make one of the two fail (#188).
+- Clicking outside a form dialog no longer closes it and throws away what you typed. This covers adding and editing a sign-in service, creating a user, the AI provider, model and action dialogs, roles, group names, deleting a group, inserting a link, sharing a note, creating an API token, and the settings window. Esc and the close button still close them.
 
 ## [0.5.0] - 2026-10-05
 

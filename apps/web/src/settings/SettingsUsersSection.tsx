@@ -93,7 +93,7 @@ function CreateUserDialog() {
       <DialogTrigger asChild>
         <Button type="button" variant="brandDeep">{t("admin.createUser")}</Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent dismissOnOutside={false}>
         <DialogHeader>
           <DialogTitle>{t("admin.createUser")}</DialogTitle>
           <DialogDescription>{t("admin.createUserDescription")}</DialogDescription>
