@@ -18,6 +18,8 @@ import { BUILTIN_ACTION_IDS } from "../db/seed-ai.js";
 import { isForeignKeyViolation, isUniqueViolation } from "../db/pg-errors.js";
 import { UUID_RE } from "../notes/service.js";
 import { safeTarget } from "../lib/safe-target.js";
+import { redactDbError } from "../lib/redact-db-error.js";
+import { fetchErrorSummary, urlHasCredentials } from "../lib/fetch-error-summary.js";
 
 export interface AdminAiRouteDeps {
   db: Db;
@@ -185,7 +187,16 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
       // （issue #14），加密的當下就必須已經知道 id。
       const id = randomUUID();
       const apiKeyEncrypted = apiKey !== undefined ? encryptApiKey(deps.config.appSecret, apiKey, id) : null;
-      const [row] = await deps.db.insert(aiProviders).values({ id, name, type, baseUrl, apiKeyEncrypted }).returning(providerListColumns);
+      // 這一句寫密文欄與 base_url：非預期的 DB 錯誤不得原樣進 log（drizzle 的 DrizzleQueryError 把整條 SQL＋params——
+      // 含 `api_key_encrypted` 的 ct／iv／tag、可能帶 `user:pass@` 的 base_url——串進 message）。ai_providers 沒有
+      // 唯一鍵或 FK，type 的 CHECK 已由 zod enum 先擋，所以這裡沒有「認得的」錯誤，一律遮蔽後交給全域 handler 回 500。
+      const [row] = await deps.db
+        .insert(aiProviders)
+        .values({ id, name, type, baseUrl, apiKeyEncrypted })
+        .returning(providerListColumns)
+        .catch((err: unknown) => {
+          throw redactDbError(request.log, err, "建立 AI provider");
+        });
       return reply.code(201).send(toProviderDto(row, deps.runtime));
     });
 
@@ -262,7 +273,15 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
         return sendError(reply, 400, "invalid_body", "請求格式錯誤：至少需要一個欄位");
       }
 
-      const [row] = await deps.db.update(aiProviders).set(values).where(eq(aiProviders.id, id)).returning(providerListColumns);
+      // 同 POST：這一句可能寫密文欄／base_url，非預期的 DB 錯誤一律遮蔽（沒有交易、沒有業務錯誤要分流）。
+      const [row] = await deps.db
+        .update(aiProviders)
+        .set(values)
+        .where(eq(aiProviders.id, id))
+        .returning(providerListColumns)
+        .catch((err: unknown) => {
+          throw redactDbError(request.log, err, "修改 AI provider");
+        });
       if (!row) return sendError(reply, 404, "not_found", "找不到此 provider");
 
       // ⚠ **只要帶了 `baseUrl` 就記一行**（審查 round 2 實測指出）：原本的條件是
@@ -355,12 +374,12 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
         }
       }
 
+      // openai_compatible：`GET {baseUrl}/models`；anthropic：對稱地打官方 `/v1/models`
+      // 列表端點（§5「與前者對稱、免花錢、不依賴任何 model id」——@anthropic-ai/sdk
+      // 要到 Task 5 才加為依賴，此處故意不引入 SDK，改用等價的原生 fetch 呼叫，行為
+      // 與「client.models.list()」語意相同）。
+      const url = row.type === "anthropic" ? `${row.baseUrl}/v1/models` : `${row.baseUrl}/models`;
       try {
-        // openai_compatible：`GET {baseUrl}/models`；anthropic：對稱地打官方 `/v1/models`
-        // 列表端點（§5「與前者對稱、免花錢、不依賴任何 model id」——@anthropic-ai/sdk
-        // 要到 Task 5 才加為依賴，此處故意不引入 SDK，改用等價的原生 fetch 呼叫，行為
-        // 與「client.models.list()」語意相同）。
-        const url = row.type === "anthropic" ? `${row.baseUrl}/v1/models` : `${row.baseUrl}/models`;
         const headers: Record<string, string> =
           row.type === "anthropic"
             ? { "anthropic-version": "2023-06-01", ...(apiKey !== undefined ? { "x-api-key": apiKey } : {}) }
@@ -386,7 +405,14 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
         }
         return reply.send({ ok: true });
       } catch (err) {
-        request.log.warn({ providerId: id, err }, "AI provider 測試連線失敗（逾時或網路錯誤）");
+        // ⚠ 不記整個 err：base_url 帶 `user:pass@` 時 fetch 會丟「Request cannot be constructed from a URL that includes
+        // credentials: <完整網址>」——message 裡就是明文密碼（query 裡的憑證同理可能出現在別種錯誤訊息裡）。只記不含網址的
+        // 診斷欄位：錯誤名（TimeoutError／TypeError…）、底層 cause 的 name／code（ECONNREFUSED、ENOTFOUND…）、
+        // `safeTarget`（origin＋pathname）與「網址帶不帶 userinfo」——後者就是上面那種 TypeError 的成因，不記 message 也查得出來。
+        request.log.warn(
+          { providerId: id, target: safeTarget(url), urlHasCredentials: urlHasCredentials(url), ...fetchErrorSummary(err) },
+          "AI provider 測試連線失敗（逾時或網路錯誤）"
+        );
         return sendError(reply, 502, "upstream_error", "AI provider 連線失敗或逾時");
       }
     });
@@ -420,7 +446,8 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
       } catch (err) {
         if (isUniqueViolation(err)) return sendError(reply, 409, "model_taken", "此 provider 已有相同 model");
         if (isForeignKeyViolation(err)) return sendError(reply, 400, "invalid_body", "指定的 provider 不存在");
-        throw err;
+        // 其餘非預期錯誤：DrizzleQueryError 的 message 帶 params（model id、顯示名稱…），不原樣進 log。
+        throw redactDbError(request.log, err, "建立 AI model");
       }
     });
 
@@ -469,7 +496,7 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
       } catch (err) {
         if (isUniqueViolation(err)) return sendError(reply, 409, "model_taken", "此 provider 已有相同 model");
         if (isForeignKeyViolation(err)) return sendError(reply, 400, "invalid_body", "指定的 provider 不存在");
-        throw err;
+        throw redactDbError(request.log, err, "修改 AI model");
       }
     });
 
@@ -512,7 +539,8 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
         return reply.code(201).send(toActionDto(row));
       } catch (err) {
         if (isForeignKeyViolation(err)) return sendError(reply, 400, "invalid_body", "指定的 model 不存在");
-        throw err;
+        // 其餘非預期錯誤：params 帶 system prompt／user template 全文，不原樣進 log。
+        throw redactDbError(request.log, err, "建立 AI 動作");
       }
     });
 
@@ -546,7 +574,7 @@ export function adminAiRoutes(deps: AdminAiRouteDeps) {
         return reply.send(toActionDto(row));
       } catch (err) {
         if (isForeignKeyViolation(err)) return sendError(reply, 400, "invalid_body", "指定的 model 不存在");
-        throw err;
+        throw redactDbError(request.log, err, "修改 AI 動作");
       }
     });
 

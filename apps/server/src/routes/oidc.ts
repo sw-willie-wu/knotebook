@@ -7,7 +7,7 @@ import { isUniqueViolation } from "../db/pg-errors.js";
 import { UUID_RE } from "../notes/service.js";
 import { unsealOidcState } from "../auth/oidc-state.js";
 import { clearOidcStateCookie, setOidcStateCookie, startAuthorization } from "../auth/oidc-authorize.js";
-import { OidcUnavailableError, oidcRedirectUri, type OidcRuntimeRegistry } from "../auth/oidc-client.js";
+import { OidcUnavailableError, oidcErrorLogFields, oidcRedirectUri, type OidcRuntimeRegistry } from "../auth/oidc-client.js";
 import { loadEnabledProvider, loadLegacyProvider, providerConfiguration, type OidcProviderRow } from "../auth/oidc-providers.js";
 import type { OidcClaims } from "../auth/oidc-login-decision.js";
 import { resolveOidcLoginInTx, type ResolveOidcLoginResult } from "../auth/tx/oidc-login.js";
@@ -67,7 +67,7 @@ export function oidcRoutes(deps: OidcRouteDeps) {
       try {
         configuration = await providerConfiguration({ ...configDeps, log: request.log }, provider);
       } catch (err) {
-        request.log.warn({ err, providerId: provider.id }, "OIDC discovery 不可用，導回登入頁");
+        request.log.warn({ ...oidcErrorLogFields(err), providerId: provider.id }, "OIDC discovery 不可用，導回登入頁");
         return reply.redirect("/login?error=oidc_unavailable");
       }
       const rawNext = (request.query as Record<string, unknown>).next;
@@ -80,7 +80,7 @@ export function oidcRoutes(deps: OidcRouteDeps) {
       return reply.redirect(url.href);
     } catch (err) {
       // 組 authorization URL 失敗（metadata 缺 endpoint）、DB 錯誤：維持「一律 302」不變量。
-      request.log.warn({ err }, "OIDC login 失敗，導回登入頁");
+      request.log.warn(oidcErrorLogFields(err), "OIDC login 失敗，導回登入頁");
       return reply.redirect("/login?error=oidc_unavailable");
     }
   }
@@ -125,7 +125,7 @@ export function oidcRoutes(deps: OidcRouteDeps) {
         configuration = await providerConfiguration({ ...configDeps, log: request.log }, provider);
       } catch (err) {
         if (!(err instanceof OidcUnavailableError)) throw err;
-        request.log.warn({ err, providerId: provider.id }, "OIDC discovery 不可用，導回登入頁");
+        request.log.warn({ ...oidcErrorLogFields(err), providerId: provider.id }, "OIDC discovery 不可用，導回登入頁");
         return reply.redirect(failLocation("oidc_unavailable"));
       }
 

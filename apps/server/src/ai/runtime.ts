@@ -3,6 +3,7 @@ import type pino from "pino";
 import type { Db } from "../db/index.js";
 import { aiProviders } from "../db/schema.js";
 import { AiKeyDecryptError, decryptApiKey, encryptApiKey } from "./crypto.js";
+import { redactDbError } from "../lib/redact-db-error.js";
 
 /**
  * AI 執行期狀態（spec §13）：目前只有「降級集合」——啟動自檢或之後任何一次解密失敗
@@ -101,8 +102,11 @@ export async function selfCheckAiKeys(db: Db, appSecret: string, runtime: AiRunt
         .where(and(eq(aiProviders.id, id), sql`${aiProviders.apiKeyEncrypted}->>'v' = '1'`));
       upgraded += 1;
     } catch (err) {
+      // ⚠ 不把 err 交給 log：這一句寫的是新密文，drizzle 的 DrizzleQueryError 把 params（ct／iv／tag）串進 message 也掛成屬性。
+      // 遮蔽行只記 {code, constraint, context}（非 pg 錯誤另記 name）；回傳的新 Error 用不到——升級失敗本來就不擋啟動。
+      redactDbError(log, err, "升級 AI provider 密文");
       log.warn(
-        { providerId: id, err },
+        { providerId: id },
         "AI provider API key 密文升級為 v2 失敗（AI 功能不受影響，舊格式仍可解密），下次啟動會再試"
       );
     }

@@ -8,7 +8,7 @@ import { userIdentities } from "../db/schema.js";
 import { sendError } from "../http/errors.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
 import { UUID_RE } from "../notes/service.js";
-import type { OidcRuntimeRegistry } from "../auth/oidc-client.js";
+import { oidcErrorLogFields, type OidcRuntimeRegistry } from "../auth/oidc-client.js";
 import { loadEnabledProvider, providerConfiguration } from "../auth/oidc-providers.js";
 import { setOidcStateCookie, startAuthorization } from "../auth/oidc-authorize.js";
 
@@ -51,7 +51,7 @@ export function oidcLinkRoutes(deps: OidcLinkRouteDeps) {
         setOidcStateCookie(reply, deps.config, started.sealedState);
         url = started.url;
       } catch (err) {
-        request.log.warn({ err, providerId: provider.id }, "手動連結起點：discovery 不可用");
+        request.log.warn({ ...oidcErrorLogFields(err), providerId: provider.id }, "手動連結起點：discovery 不可用");
         return sendError(reply, 503, "oidc_unavailable", "登入服務目前無法使用，請稍後再試");
       }
       const body: OidcRedirectDto = { url: url.href };

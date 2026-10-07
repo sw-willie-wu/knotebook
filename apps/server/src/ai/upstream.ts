@@ -13,8 +13,8 @@ import Anthropic from "@anthropic-ai/sdk";
  */
 
 /** 非 2xx／流未建立成功時拋出。`status` 供呼叫端 log／分類；`upstreamBody`（截 2048 字元）
- * 只給呼叫端 log 用（`request.log.warn({err}, ...)` 會把這個 Error 的所有 own property
- * 一併序列化）——SSE 送給 client 的 error 事件訊息固定文案，絕不含這個欄位的內容。 */
+ * 只給呼叫端 log 用——`routes/ai.ts` 不記整個 err（fetch 錯誤的 message 可能含帶憑證的完整網址），而是把 `status` 與
+ * `upstreamBody` 逐欄挑進 log。SSE 送給 client 的 error 事件訊息固定文案，絕不含這個欄位的內容。 */
 export class UpstreamError extends Error {
   constructor(
     public status: number,
@@ -51,7 +51,8 @@ export function renderUserTemplate(template: string, text: string): string {
 
 const MAX_LOGGED_BODY_CHARS = 2048;
 
-function truncateBody(text: string): string {
+/** 上游回應 body 進 log 前的截斷（2048 字元）；`routes/ai.ts` 記 Anthropic `APIError.error` 時共用。 */
+export function truncateBody(text: string): string {
   return text.length > MAX_LOGGED_BODY_CHARS ? `${text.slice(0, MAX_LOGGED_BODY_CHARS)}...(truncated)` : text;
 }
 
