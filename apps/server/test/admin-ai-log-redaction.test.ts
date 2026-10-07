@@ -79,7 +79,8 @@ const CASES: Case[] = [
     request: async () => ({
       method: "POST",
       url: "/api/admin/ai/providers",
-      payload: { name: `x${NUL}`, type: "openai_compatible", baseUrl: `https://user:${BASE_PASS}@${SECRET_HOST}/v1`, apiKey: "sk-leak-me-not" },
+      // base URL 帶 user:pass@ 在入口就 400 到不了 DB；改把標記放在 query（base_url 仍整串進 params，斷言照樣有判別力）。
+      payload: { name: `x${NUL}`, type: "openai_compatible", baseUrl: `https://${SECRET_HOST}/v1?k=${BASE_PASS}`, apiKey: "sk-leak-me-not" },
     }),
     markers: [BASE_PASS, SECRET_HOST, "sk-leak-me-not"],
     sealed: true,
@@ -92,7 +93,7 @@ const CASES: Case[] = [
       return {
         method: "PATCH",
         url: `/api/admin/ai/providers/${p.id}`,
-        payload: { name: `x${NUL}`, baseUrl: `https://user:${BASE_PASS}@${SECRET_HOST}/v1`, apiKey: "sk-leak-me-not" },
+        payload: { name: `x${NUL}`, baseUrl: `https://${SECRET_HOST}/v1?k=${BASE_PASS}`, apiKey: "sk-leak-me-not" },
       };
     },
     markers: [BASE_PASS, SECRET_HOST, "sk-leak-me-not"],

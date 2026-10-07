@@ -128,13 +128,26 @@ describe("POST /api/admin/auth/discover（#187 §9.2：儲存前試探）", () =
     const logs = captureLogs();
     const { app, cookies, idp } = await probeApp(ISS, logs.options);
     idp.failNext("discovery");
-    const res = await app.inject({ method: "POST", url: "/api/admin/auth/discover", cookies, payload: { issuerUrl: "https://user:pass@idp.example.com" } });
+    // issuer 帶 user:pass@ 現在在入口就 400（見下一條）；這裡改帶 query，仍驗 log 只留 origin+pathname。
+    const res = await app.inject({ method: "POST", url: "/api/admin/auth/discover", cookies, payload: { issuerUrl: "https://idp.example.com?k=query-secret-marker" } });
     expect(res.statusCode).toBe(502);
     expect(res.json().error.code).toBe("oidc_discovery_failed");
     const line = logs.lines.find(l => l.msg === "登入服務先試探失敗");
     expect(line!.obj).toEqual({ issuer: "https://idp.example.com/" });
     // fastify 生命週期行（incoming request／request completed）在 logMethod hook 看到的是序列化前的原始 req／res 物件（含 light-my-request 的 payload）；
     // 實際輸出經 `serializers.req`（app.ts `withTokenRedaction`）只剩 method／url／host／remote，不含 body——排除這兩種行。
+    expect(JSON.stringify(logs.lines.filter(l => l.msg !== "incoming request" && l.msg !== "request completed"))).not.toContain("query-secret-marker");
+  });
+
+  it("issuer 帶帳密 → 400 invalid_body、不打 IdP；log 不含密碼（原 userinfo 斷言移到這裡）", async () => {
+    const logs = captureLogs();
+    const { app, cookies, idp } = await probeApp(ISS, logs.options);
+    for (const issuerUrl of ["https://user:pass@idp.example.com", "https://user@idp.example.com"]) {
+      const res = await app.inject({ method: "POST", url: "/api/admin/auth/discover", cookies, payload: { issuerUrl } });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.code).toBe("invalid_body");
+    }
+    expect(idp.counts.discovery).toBe(0);
     expect(JSON.stringify(logs.lines.filter(l => l.msg !== "incoming request" && l.msg !== "request completed"))).not.toContain("pass@");
   });
 
