@@ -6,7 +6,6 @@ import type { UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ActiveNoteProvider } from "@/lib/active-note";
 import { ThemeProvider } from "@/theme";
-import { FIRST_LAZY_LOAD } from "@/test/lazy";
 import { AppRoutes } from "@/App";
 
 // 站台管理頁（`/admin/*`）：一律用真正的 `AppRoutes` 跑（同 SettingsModal.test.tsx 的
@@ -119,10 +118,9 @@ describe("AdminPage（/admin/*：站台管理獨立頁）", () => {
   it("側欄是管理導覽：「回筆記」＋使用者＋AI＋登入，沒有搜尋框與新增筆記；主區是使用者管理", async () => {
     renderAt("/admin/users", mockFetch(() => ADMIN_USER));
 
-    // 本檔第一次載入 AdminPage lazy chunk（見 test/lazy.ts）
+    // 本檔第一次載入 AdminPage lazy chunk
     await waitFor(
       () => expect(screen.getByRole("heading", { level: 1, name: "User management" })).toBeInTheDocument(),
-      FIRST_LAZY_LOAD,
     );
 
     const nav = within(screen.getByRole("navigation", { name: "Site admin" }));

@@ -6,7 +6,6 @@ import type { PendingLinkDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
-import { FIRST_LAZY_LOAD } from "@/test/lazy";
 import { AppRoutes } from "@/App";
 
 interface Call { method: string; url: string; body: unknown }
@@ -75,9 +74,9 @@ describe("LinkAccountPage（#187 §9.4 /link-account）", () => {
   it("顯示 email 與 provider 名；methods 決定密碼欄與 SSO 鈕；一顆實心鈕（密碼確認）", async () => {
     mockFetch({ "GET /api/auth/oidc/pending": () => fakeResponse(200, PENDING) });
     renderAt("/link-account");
-    // 本檔第一次載入 LinkAccountPage lazy chunk（見 test/lazy.ts）
+    // 本檔第一次載入 LinkAccountPage lazy chunk
     expect(
-      await screen.findByText(/This email \(u@example\.com\) already has an account/, {}, FIRST_LAZY_LOAD),
+      await screen.findByText(/This email \(u@example\.com\) already has an account/),
     ).toBeInTheDocument();
     expect(screen.getByText(/Corp IdP/)).toBeInTheDocument();
     expect(screen.getByLabelText("Password for this account")).toBeInTheDocument();

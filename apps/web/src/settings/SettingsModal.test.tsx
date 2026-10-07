@@ -9,7 +9,6 @@ import i18n from "@/i18n";
 import { ActiveNoteProvider } from "@/lib/active-note";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
-import { FIRST_LAZY_LOAD } from "@/test/lazy";
 import { AppRoutes } from "@/App";
 import type { CollabState } from "@/collab/connection";
 import { adminRole, groupDto, OWNER_PERMS } from "@/test/fixtures";
@@ -411,8 +410,8 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
 
     renderAt(["/admin/users"], fetchMock);
 
-    // 本檔第一次載入 AdminPage lazy chunk（見 test/lazy.ts）
-    await waitFor(() => expect(screen.getByRole("heading", { name: "User management" })).toBeInTheDocument(), FIRST_LAZY_LOAD);
+    // 本檔第一次載入 AdminPage lazy chunk
+    await waitFor(() => expect(screen.getByRole("heading", { name: "User management" })).toBeInTheDocument());
 
     openUserMenu("Admin");
     fireEvent.click(screen.getByText("Settings"));
@@ -577,8 +576,8 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
 
     await openGroupMembersAndSettings(GROUP.name);
 
-    // 本檔第一次載入群組詳情區塊 lazy chunk（見 test/lazy.ts）
-    await waitFor(() => expect(screen.getByRole("heading", { name: GROUP.name })).toBeInTheDocument(), FIRST_LAZY_LOAD);
+    // 本檔第一次載入群組詳情區塊 lazy chunk
+    await waitFor(() => expect(screen.getByRole("heading", { name: GROUP.name })).toBeInTheDocument());
     // 背景頁（NotePage 的替身編輯器）仍在 DOM 裡。
     expect(screen.getByTestId("note-editor")).toBeInTheDocument();
 

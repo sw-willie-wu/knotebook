@@ -5,7 +5,6 @@ import { MemoryRouter, useLocation } from "react-router";
 import type { UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
-import { FIRST_LAZY_LOAD } from "@/test/lazy";
 import { AppRoutes } from "./App";
 
 interface FakeResponseInit {
@@ -89,8 +88,8 @@ describe("App route tree — /settings/users redirects to /admin/users（站台�
     renderAt("/settings/users");
 
     await waitFor(() => expect(screen.getByTestId("redirect-location")).toHaveTextContent("/admin/users"));
-    // 本檔第一次載入 AdminPage lazy chunk（見 test/lazy.ts）
-    await waitFor(() => expect(screen.getByRole("heading", { name: "User management" })).toBeInTheDocument(), FIRST_LAZY_LOAD);
+    // 本檔第一次載入 AdminPage lazy chunk
+    await waitFor(() => expect(screen.getByRole("heading", { name: "User management" })).toBeInTheDocument());
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
