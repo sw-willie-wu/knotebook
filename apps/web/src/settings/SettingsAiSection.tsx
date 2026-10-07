@@ -110,7 +110,7 @@ function CreateProviderDialog() {
           {t("settings.ai.addProvider")}
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent dismissOnOutside={false}>
         <DialogHeader>
           <DialogTitle>{t("settings.ai.addProvider")}</DialogTitle>
         </DialogHeader>
@@ -236,7 +236,7 @@ function EditProviderDialog({ provider }: { provider: AdminAiProviderDto }) {
           {t("settings.ai.edit")}
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent dismissOnOutside={false}>
         <DialogHeader>
           <DialogTitle>{t("settings.ai.editProvider")}</DialogTitle>
         </DialogHeader>
@@ -407,7 +407,7 @@ function CreateModelDialog({ providerId }: { providerId: string }) {
           {t("settings.ai.addModel")}
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent dismissOnOutside={false}>
         <DialogHeader>
           <DialogTitle>{t("settings.ai.addModel")}</DialogTitle>
         </DialogHeader>
@@ -501,7 +501,7 @@ function EditModelDialog({ model }: { model: AdminAiModelDto }) {
           {t("settings.ai.edit")}
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent dismissOnOutside={false}>
         <DialogHeader>
           <DialogTitle>{t("settings.ai.editModel")}</DialogTitle>
         </DialogHeader>
@@ -836,7 +836,7 @@ function CreateActionDialog({ models, nextSortOrder }: { models: AdminAiModelDto
           {t("settings.ai.addAction")}
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent dismissOnOutside={false}>
         <DialogHeader>
           <DialogTitle>{t("settings.ai.addAction")}</DialogTitle>
         </DialogHeader>
@@ -962,7 +962,7 @@ function EditActionDialog({ action, models }: { action: AdminAiActionDto; models
           {t("settings.ai.edit")}
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent dismissOnOutside={false}>
         <DialogHeader>
           <DialogTitle>{t("settings.ai.editAction")}</DialogTitle>
         </DialogHeader>

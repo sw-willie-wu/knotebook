@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { GroupDto, GroupMemberDto } from "@knotebook/shared";
 import i18n from "@/i18n";
+import { clickOutside } from "@/test/outside-click";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { adminRole, groupDto, memberRole } from "@/test/fixtures";
 import { DeleteGroupDialog } from "./DeleteGroupDialog";
@@ -75,6 +76,16 @@ describe("DeleteGroupDialog（#175 PR4，spec §8.6）", () => {
     dismissAllToasts();
   });
   afterEach(() => vi.unstubAllGlobals());
+
+  it("點對話框外面不關閉、已選的接手者仍在（表單型守衛）", async () => {
+    const { onOpenChange } = renderDialog();
+    const select = await screen.findByLabelText("Admin who gets the notes");
+    await waitFor(() => expect(within(select).getAllByRole("option")).toHaveLength(2));
+    fireEvent.change(select, { target: { value: "u-bob" } });
+    await clickOutside();
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Admin who gets the notes")).toHaveValue("u-bob");
+  });
 
   it("預設：轉移選中、下拉只列兩位內建管理員且第一位選中（可以是自己）；說明句帶篇數 2 與選中者名字；確認鈕可按", async () => {
     renderDialog();

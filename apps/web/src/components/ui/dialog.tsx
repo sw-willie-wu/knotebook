@@ -45,13 +45,34 @@ const dialogContentVariants = cva(
   },
 );
 
+/**
+ * `dismissOnOutside`（預設 `true`＝Radix 預設行為，零變）：設為 `false` 時，**只**擋「點對話框外面」
+ * （Radix `onInteractOutside`＝pointerDownOutside＋focusOutside，含焦點移出）。Esc、右上 X、
+ * 取消鈕照常關閉。
+ *
+ * 表單型對話框（有使用者可輸入的欄位、由此對話框送出）一律傳 `false`：誤點周圍就丟掉已填內容。
+ * 刻意不做「有填過才擋」的 dirty 判斷——各表單的 dirty 條件（預設值、trim、select 回到初值…）
+ * 很容易判錯，一律擋最簡單也最不會漏。純確認型／唯讀型對話框維持預設。
+ *
+ * 呼叫端自己傳的 `onInteractOutside` 會先被呼叫，再套這個守衛（不吞呼叫端 handler）；
+ * 呼叫端另傳的 `onPointerDownOutside`／`onFocusOutside` 由 Radix 先於 `onInteractOutside` 觸發，不受影響。
+ */
 export const DialogContent = forwardRef<
   ElementRef<typeof DialogPrimitive.Content>,
-  ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & VariantProps<typeof dialogContentVariants>
->(({ className, children, size, ...props }, ref) => (
+  ComponentPropsWithoutRef<typeof DialogPrimitive.Content> &
+    VariantProps<typeof dialogContentVariants> & { dismissOnOutside?: boolean }
+>(({ className, children, size, dismissOnOutside = true, onInteractOutside, ...props }, ref) => (
   <DialogPortal>
     <DialogOverlay />
-    <DialogPrimitive.Content ref={ref} className={cn(dialogContentVariants({ size }), className)} {...props}>
+    <DialogPrimitive.Content
+      ref={ref}
+      className={cn(dialogContentVariants({ size }), className)}
+      {...props}
+      onInteractOutside={(event) => {
+        onInteractOutside?.(event);
+        if (!dismissOnOutside) event.preventDefault();
+      }}
+    >
       {children}
       <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none">
         <X className="h-4 w-4" />

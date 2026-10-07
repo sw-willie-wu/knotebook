@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import { MIN_PASSWORD_LENGTH, type UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
+import { clickOutside } from "@/test/outside-click";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppRoutes } from "@/App";
@@ -291,6 +292,27 @@ describe("SettingsUsersSection（/admin/users：站台管理頁的使用者區�
       );
       expect(call).toBeDefined();
     });
+  });
+
+  it("建立使用者 dialog：點對話框外面不關閉、已填內容仍在（表單型守衛）", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      const base = baseFetchHandlers()(url, method);
+      if (base) return Promise.resolve(base);
+      if (url === ADMIN_USERS_URL && method === "GET") {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    renderUsersRoute(fetchMock);
+    await waitFor(() => expect(screen.getByRole("heading", { name: "User management" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Create user" }));
+    await waitFor(() => expect(screen.getByLabelText("Email")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "keep@example.com" } });
+    await clickOutside();
+    expect(screen.getByRole("dialog", { name: "Create user" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Email")).toHaveValue("keep@example.com");
   });
 
   it("建立使用者送出 POST /api/admin/users 的確切 body", async () => {

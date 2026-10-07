@@ -253,7 +253,7 @@ export function CreateProviderDialog() {
           {t("admin.auth.create.button")}
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent dismissOnOutside={false}>
         {created !== null ? (
           <SetupSteps provider={created} onDone={() => handleOpenChange(false)} />
         ) : (
@@ -467,7 +467,7 @@ export function EditProviderDialog({ provider }: { provider: AdminAuthProviderDt
           {t("admin.auth.edit.button")}
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent dismissOnOutside={false}>
         <DialogHeader>
           <DialogTitle>{t("admin.auth.edit.title")}</DialogTitle>
           <DialogDescription>{t("admin.auth.edit.description")}</DialogDescription>
