@@ -8,16 +8,16 @@ Three non-negotiables:
 - **Real-time CRDT collaboration** — Yjs-based multiplayer editing, not a commercial add-on.
 - **Bring your own AI endpoint** — point Knotebook at your own OpenAI-compatible or Anthropic endpoint (including a local/on-prem Ollama); no bundled vendor lock-in.
 
-**Status:** the latest release is v0.5.0 (2026-10-05). What it does today:
+**Status:** the latest release is v0.6.0 (2026-10-08). What it does today:
 
 - **Writing together** — a block editor with live multiplayer editing (Yjs/Hocuspocus), `[[wikilinks]]` with backlinks, image uploads, and Mermaid diagrams (see [Diagrams](docs/diagrams.md)).
-- **Accounts** — password sign-in and sign-in through OpenID Connect identity providers (GitLab, Google, or another provider), which can also be made the only way in; people can register on their own unless a site admin turns registration off. Site admins manage users, sign-in services and AI providers on their own **Site admin** pages (`/admin/users`, `/admin/auth`, `/admin/ai`).
+- **Accounts** — password sign-in and sign-in through any number of OpenID Connect identity providers (GitLab, Google, or another provider), which can also be made the only way in; people can register on their own unless a site admin turns registration off, and can link several sign-in services to one account. Site admins manage users, sign-in services (with their icons) and AI providers on their own **Site admin** pages (`/admin/users`, `/admin/auth`, `/admin/ai`) — see [Sign-in providers](docs/self-hosting.md#sign-in-providers) and [Accounts](docs/self-hosting.md#accounts).
 - **Sharing** — a personal note is private, shared with chosen people as editors or viewers, or published as a read-only public link (see [Sharing](docs/sharing.md)).
 - **Groups** — a group owns its notes, which live at `/g/<group id>/<name>`; what each member can do comes from their role in the group — the built-in Admin and Member roles, or custom roles built from six permissions. A personal note can be moved or copied into a group, and deleting a group either gives its notes to one of its admins or deletes them with it (see [Notes in a group](docs/sharing.md#notes-in-a-group)).
 - **AI quick actions** — rewrite, translate, summarize and continue, streamed from an OpenAI-compatible or Anthropic endpoint an admin configures (see [AI quick actions](docs/ai.md)).
 - **Your own AI on your notes** — personal API tokens, or apps authorized over OAuth, can read and write note content; every write shows up live in open tabs and is recorded in the note's AI edit history, where it can be reverted (see [API tokens](docs/api-tokens.md) and [AI editing](docs/ai-editing.md)). An MCP endpoint at `/api/mcp` gives Claude Code, Claude Desktop and other MCP clients six tools to find, read, edit and create notes, group notes included (see [MCP](docs/mcp.md)).
 
-All of it sits on a REST API you can also drive directly (see [API contract summary](docs/api.md)), and it is exercised end-to-end by a Playwright test suite. Upgrading from 0.4.x adds database migrations that can't be undone — back up first, see the [0.5.0 upgrade notes](CHANGELOG.md#050---2026-10-05).
+All of it sits on a REST API you can also drive directly (see [API contract summary](docs/api.md)), and it is exercised end-to-end by a Playwright test suite. Upgrading from 0.5.x moves SSO configuration from `.env` into **Site admin → Sign-in** and opens self-registration by default — back up first and read the [0.6.0 upgrade notes](CHANGELOG.md#060---2026-10-08).
 
 ## Quickstart (~10 minutes)
 
@@ -66,7 +66,7 @@ Read the full [self-hosting guide](docs/self-hosting.md) before running anywhere
 
 ## Documentation
 
-- [Self-hosting guide](docs/self-hosting.md) — deployment prerequisites, compose services/volumes, reverse proxy & TLS, LAN plain-http mode, environment variable reference, OIDC/SSO setup, content security policy, upgrading/rollback, and troubleshooting.
+- [Self-hosting guide](docs/self-hosting.md) — deployment prerequisites, compose services/volumes, reverse proxy & TLS, LAN plain-http mode, environment variable reference, sign-in services (OIDC/SSO) and their setup on GitLab and Google, accounts and registration, SSO-only sign-in and its recovery switch, content security policy, upgrading/rollback, and troubleshooting.
 - [API contract summary](docs/api.md) — full endpoint table with auth requirements and error codes.
 - [API tokens](docs/api-tokens.md) — Personal API tokens for scripts and AI assistants, which can read and write note content today: creating, using (`Authorization: Bearer`), which endpoints accept them, rate limits, revoking, and why changing your password doesn't revoke them; plus how an MCP client authorizes itself over OAuth instead of using a pasted token.
 - [AI editing](docs/ai-editing.md) — the note-content read/write API a token or authorized app uses: the five write operations, fingerprints and conflict handling, reverting a write, the presence cursor and agent display names, and rate limits and error codes.
@@ -80,7 +80,7 @@ Read the full [self-hosting guide](docs/self-hosting.md) before running anywhere
 
 ## Roadmap
 
-All five v0.1 milestones — the API foundation, the web UI with real-time collaboration, wikilinks and image uploads, AI quick actions, and OIDC login — have shipped, followed by a hardening release (0.2), a UI overhaul, Mermaid diagrams, readable note URLs and public share links (0.3.x), API tokens, OAuth and MCP for bringing your own AI (0.4.x), and groups (0.5); see the [CHANGELOG](CHANGELOG.md) for the history.
+All five v0.1 milestones — the API foundation, the web UI with real-time collaboration, wikilinks and image uploads, AI quick actions, and OIDC login — have shipped, followed by a hardening release (0.2), a UI overhaul, Mermaid diagrams, readable note URLs and public share links (0.3.x), API tokens, OAuth and MCP for bringing your own AI (0.4.x), groups (0.5), and multiple sign-in services with self-registration (0.6); see the [CHANGELOG](CHANGELOG.md) for the history.
 
 Planning lives in [GitHub Milestones](https://github.com/sw-willie-wu/knotebook/milestones) and the issue tracker, which stay current as work is scheduled.
 
