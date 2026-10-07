@@ -333,6 +333,36 @@ describe("ProviderIconDialog（spec §6.3、§8.2 W2）", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(mutations(calls)).toEqual([]);
   });
+  it("儲存中取消再重開：PUT 成功回來不關新開的對話框、失敗回來不把錯誤寫進新開的對話框（generation）", async () => {
+    for (const ok of [true, false]) {
+      stubDecoder({ width: 64, height: 64 });
+      let release!: () => void;
+      const gate = new Promise<void>(resolve => {
+        release = resolve;
+      });
+      const { calls, queryClient } = setup(BASE, async call => {
+        if (call.method !== "PUT") return fakeResponse(200, BASE);
+        await gate;
+        return ok ? fakeResponse(200, UPLOADED) : fakeResponse(413, { error: { code: "file_too_large", message: "x" } });
+      });
+      let dialog = await openDialog();
+      chooseFile(dialog, pngFile());
+      await waitFor(() => expect(previewOf(dialog, "Upload an image")).toHaveAttribute("src", "blob:icon-1"));
+      fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+      await waitFor(() => expect(mutations(calls)).toHaveLength(1)); // PUT 已送出、卡在 gate
+      fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      dialog = await openDialog();
+      release();
+      // 等待點：mutation 的結果（成功＝invalidate 標記；失敗＝mutation 已 settle）已落地，再讓 handleSave 的 continuation 與 React 更新走完。
+      if (ok) await waitFor(() => expect(queryClient.getQueryState(ADMIN_AUTH_PROVIDERS_QUERY_KEY)?.isInvalidated).toBe(true));
+      else await waitFor(() => expect(queryClient.isMutating()).toBe(0));
+      await settle();
+      expect(screen.getByRole("dialog", { name: "Sign-in service icon" }), String(ok)).toBe(dialog);
+      expect(within(dialog).queryByRole("alert"), String(ok)).not.toBeInTheDocument();
+      cleanupDialog();
+    }
+  });
 });
 
 /** 迴圈案每輪重新 render 前卸載上一輪（testing-library 的自動 cleanup 只在 afterEach 跑）。 */

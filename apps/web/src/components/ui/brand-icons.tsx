@@ -17,13 +17,14 @@ export function GitLabLogo(props: SVGProps<SVGSVGElement>) {
 /**
  * 登入服務圖示：Google 官方 G（現行漸層 super G）。取自 Google Identity 品牌頁下載包 signin-assets.zip
  * 的 `Android + Web/SVG/Light/Theme=Light, Show text=No, Shape=Square, Platform=Android+Web.svg`。
- * 只做四件事：刪掉按鈕底板與外框（白底方框、#747775 外框線）；viewBox 改成 G 的內容外框（10 10 20 20，即該檔 mask 區）；
+ * 只做四件事：刪掉按鈕底板與外框（白底方框、#747775 外框線）；viewBox 改成 G 的內容外框（10 10 20 20，即該檔 mask 區），根節點拿掉 width／height；
  * 所有 mask／filter／clipPath 的 id 改用 useId（同頁多顆不撞）；轉 JSX 必要的屬性名與 style 物件改寫
  * （另省略 Figma 匯出的 `data-figma-*` 中繼屬性與 foreignObject 內 div 的 xhtml xmlns——React 在 foreignObject 內自動建 HTML 元素；皆不影響繪製）。**未改色、未改任何 path。**
  * ⚠ 官方規範要求此 G 放在白色背景上、不得改尺寸或顏色比例；官方規範的白底襯底經 Willie 裁定不加，直接顯示。
  */
 export function GoogleLogo(props: SVGProps<SVGSVGElement>) {
-  const p = `g${useId().replace(/:/g, "")}`;
+  // React 19.2 的 useId 形如 `_r_0_`，本身就是合法的 id／url(#…) 字元，不必再清洗；前綴 g 只確保不以數字開頭、同頁多顆不撞由 useId 保證。
+  const p = `g${useId()}`;
   return (
     <svg viewBox="10 10 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
       <mask id={`${p}-m`} style={{ maskType: "alpha" }} maskUnits="userSpaceOnUse" x="10" y="10" width="20" height="20">

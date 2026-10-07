@@ -59,7 +59,8 @@ test("20-1：管理員上傳「SSO」的圖示 → 登入頁 SSO 鈕出現縮成
     };
     const sso = list.providers.find(p => p.legacyCallback);
     expect(sso, "e2e 疊應有 OIDC_* 匯入的 SSO").toBeDefined();
-    // 新疊的預設；不是就直接失敗（不嘗試還原——PATCH 不收 upload，spec §8.3）。adminContext 仍由外層 finally 關閉。
+    // 還原目標固定是 template：前置若不是 template，finally 的還原會把原狀改壞，所以不是就直接失敗（也不嘗試還原——PATCH 不收 upload，spec §8.3）。
+    // 若某次執行在上傳後、還原前被中斷，髒疊會一直卡在這個前置檢查紅；救法是 stack:down（帶 -v 清 volume）再重起。adminContext 仍由外層 finally 關閉。
     expect(sso!.iconKind).toBe("template");
 
     // 還原失敗不得蓋掉本體的原錯：本體已失敗時只 console.error 還原錯、rethrow 原錯；本體成功時才丟還原錯。

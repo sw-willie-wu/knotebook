@@ -16,6 +16,7 @@ const GOOGLE_ICON: ProviderIconDto = { type: "builtin", name: "google" };
  * 登入服務圖示對話框（spec 2026-10-07-provider-icon §6.3、D6）：五個選項各附預覽，按「儲存」才生效——上傳走 PUT、其他走 PATCH {iconKind}；
  * 無變更直接關（Q6）。表單型 → `dismissOnOutside={false}`。開或關都重設為目前的 iconKind（RF5）；縮圖的 `blob:` 在換掉或關閉時釋放。
  * 開或關都遞增 `generation`：關閉時還在跑的縮圖，回來後發現 generation 已變就丟掉結果（不建 `blob:`、不寫 state）——否則取消後再開會漏進舊檔。
+ * 儲存同理：儲存中取消（取消鈕未停用）再重開，回來的成功不關新對話框、失敗不寫錯誤進新對話框。
  */
 export function ProviderIconDialog({ provider }: { provider: AdminAuthProviderDto }) {
   const { t } = useTranslation();
@@ -71,6 +72,7 @@ export function ProviderIconDialog({ provider }: { provider: AdminAuthProviderDt
 
   async function handleSave(): Promise<void> {
     setError(null);
+    const started = generation.current;
     try {
       if (choice === "upload" && picked !== null) {
         await upload.mutateAsync({ id: provider.id, file: picked.blob });
@@ -78,8 +80,10 @@ export function ProviderIconDialog({ provider }: { provider: AdminAuthProviderDt
         await patch.mutateAsync({ id: provider.id, body: { iconKind: choice } });
       }
       // 其餘＝無變更（Q6）：不送請求，直接關。
+      if (generation.current !== started) return; // 儲存中被取消、甚至重開：請求照跑（列表由 mutation 的 invalidate 重抓），但不替新開的對話框關門
       handleOpenChange(false);
     } catch (err) {
+      if (generation.current !== started) return; // 同上：錯誤屬於已關掉的那次，不寫進新開的對話框
       setError(authErrorMessage(t, err));
     }
   }
