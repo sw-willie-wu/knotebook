@@ -7,6 +7,7 @@ import i18n from "@/i18n";
 import { clickOutside } from "@/test/outside-click";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
+import { FIRST_LAZY_LOAD } from "@/test/lazy";
 import { AppRoutes } from "@/App";
 import { adminRole, customRole, groupDto, memberRole } from "@/test/fixtures";
 
@@ -132,7 +133,9 @@ const roleUrl = (group: GroupDto, role: GroupRoleDto) => `/api/groups/${group.id
 async function openRoles(group: GroupDto, fetchMock: ReturnType<typeof vi.fn>, waitFor_ = "Admin") {
   renderRoute(rolesPath(group), fetchMock);
   const dialog = await screen.findByRole("dialog");
-  await within(dialog).findByRole("region", { name: waitFor_ });
+  // 每案共用的 helper，無從得知是不是本檔第一次載入角色區塊 lazy chunk——一律給
+  // FIRST_LAZY_LOAD（見 test/lazy.ts；只放寬等待上限，不改斷言）。
+  await within(dialog).findByRole("region", { name: waitFor_ }, FIRST_LAZY_LOAD);
   return dialog;
 }
 

@@ -6,6 +6,7 @@ import type { GroupDto, UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
+import { FIRST_LAZY_LOAD } from "@/test/lazy";
 import { AppRoutes } from "@/App";
 import { adminRole, groupDto, memberRole } from "@/test/fixtures";
 
@@ -122,7 +123,8 @@ describe("SettingsGroupsSection（/settings/groups，spec §8.4：所有登入�
     // 背景頁（HomePage 的側欄工作坊分段）也吃同一份 `useGroups()` 快取，會用同樣的
     // 群組名字渲染另一份 DOM——一律 `within(dialog)` 才不會誤命中背景層。
     const dialog = await screen.findByRole("dialog");
-    await waitFor(() => expect(within(dialog).getByText(ADMIN_GROUP.name)).toBeInTheDocument());
+    // 本檔第一次載入群組區塊 lazy chunk（見 test/lazy.ts；dialog 外殼在首包、不用等）
+    await waitFor(() => expect(within(dialog).getByText(ADMIN_GROUP.name)).toBeInTheDocument(), FIRST_LAZY_LOAD);
     expect(within(dialog).getByText(MEMBER_GROUP.name)).toBeInTheDocument();
 
     expect(within(dialog).getByRole("link", { name: ADMIN_GROUP.name })).toHaveAttribute(

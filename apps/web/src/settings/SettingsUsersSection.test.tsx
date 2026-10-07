@@ -7,6 +7,7 @@ import i18n from "@/i18n";
 import { clickOutside } from "@/test/outside-click";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
+import { FIRST_LAZY_LOAD } from "@/test/lazy";
 import { AppRoutes } from "@/App";
 import type { AdminUserDto } from "@/api/admin";
 
@@ -133,7 +134,8 @@ describe("SettingsUsersSection（/admin/users：站台管理頁的使用者區�
 
     renderUsersRoute(fetchMock);
 
-    expect(await screen.findByRole("heading", { name: "User management" })).toBeInTheDocument();
+    // 本檔第一次載入 AdminPage lazy chunk（見 test/lazy.ts）
+    expect(await screen.findByRole("heading", { name: "User management" }, FIRST_LAZY_LOAD)).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     // 側欄的管理導覽（`AdminNav`），Users 項是目前頁。
     expect(within(screen.getByRole("navigation", { name: "Site admin" })).getByRole("link", { name: "Users" })).toHaveAttribute(

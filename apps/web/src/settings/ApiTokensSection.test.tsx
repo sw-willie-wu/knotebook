@@ -14,6 +14,7 @@ import i18n from "@/i18n";
 import { clickOutside } from "@/test/outside-click";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
+import { FIRST_LAZY_LOAD } from "@/test/lazy";
 import { AppRoutes } from "@/App";
 
 const SSO_ONLY_USER: UserDto = {
@@ -102,7 +103,10 @@ describe("ApiTokensSection", () => {
 
   it("建立表單：點對話框外面不關閉、已填名稱仍在；Esc 仍可關（表單型守衛只擋點外面）", async () => {
     renderSettings(PASSWORD_USER, []);
-    fireEvent.click(await screen.findByRole("button", { name: i18n.t("settings.account.apiTokensCreate") }));
+    // 本檔第一次載入帳號區塊 lazy chunk（見 test/lazy.ts）
+    fireEvent.click(
+      await screen.findByRole("button", { name: i18n.t("settings.account.apiTokensCreate") }, FIRST_LAZY_LOAD),
+    );
     const nameLabel = i18n.t("settings.account.apiTokensNameLabel");
     fireEvent.change(screen.getByLabelText(nameLabel), { target: { value: "Keep" } });
     await clickOutside();

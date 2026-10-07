@@ -6,6 +6,7 @@ import type { GroupDto, GroupMemberDto, GroupRoleDto, UserDto } from "@knotebook
 import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
+import { FIRST_LAZY_LOAD } from "@/test/lazy";
 import { AppRoutes } from "@/App";
 import { adminRole, groupDto, memberRole } from "@/test/fixtures";
 
@@ -149,7 +150,11 @@ describe("SettingsGroupDetailSection（/settings/groups/:id，spec §8.5）", ()
     renderDetailRoute(`/settings/groups/${GROUP_ADMIN.id}`, fetchMock);
 
     const dialog = await screen.findByRole("dialog");
-    await waitFor(() => expect(within(dialog).getByRole("heading", { name: "Team Alpha" })).toBeInTheDocument());
+    // 本檔第一次載入群組詳情區塊 lazy chunk（見 test/lazy.ts；dialog 外殼在首包、不用等）
+    await waitFor(
+      () => expect(within(dialog).getByRole("heading", { name: "Team Alpha" })).toBeInTheDocument(),
+      FIRST_LAZY_LOAD,
+    );
 
     // 名稱可改：輸入框預填目前名稱、Save name 送 PATCH。
     const nameInput = within(dialog).getByLabelText("Group name");

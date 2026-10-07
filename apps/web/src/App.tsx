@@ -1,27 +1,15 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, type ReactNode } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useParams, type Location } from "react-router";
 import { ActiveNoteProvider } from "./lib/active-note";
 import { ThemeProvider } from "./theme";
 import { Toaster } from "./components/ui/toast";
 import { ChangePasswordGate, RequireAdmin, RequireAuth } from "./auth/guards";
-import { AppErrorBoundary, ChunkLoadBeacon, NoteRouteErrorBoundary } from "./components/ErrorBoundary";
+import { AppErrorBoundary, ChunkLoadBeacon, LazyRouteErrorBoundary, LazyRouteLoading, NoteRouteErrorBoundary } from "./components/ErrorBoundary";
 import { NotePageFallback } from "./components/NotePageFallback";
 import { PublicNoteErrorBoundary, PublicNoteFallback } from "./components/PublicNoteShell";
 import LoginPage from "./pages/LoginPage";
-import RegisterPage from "./pages/RegisterPage";
-import LinkAccountPage from "./pages/LinkAccountPage";
-import ChangePasswordPage from "./pages/ChangePasswordPage";
-import AuthorizePage from "./pages/AuthorizePage";
 import HomePage from "./pages/HomePage";
-import AdminPage from "./pages/AdminPage";
 import { SettingsModal } from "./settings/SettingsModal";
-import { SettingsAccountSection } from "./settings/SettingsAccountSection";
-import { SettingsGroupsSection } from "./settings/SettingsGroupsSection";
-import { SettingsGroupDetailSection } from "./settings/SettingsGroupDetailSection";
-import { SettingsGroupRolesSection } from "./settings/SettingsGroupRolesSection";
-import { SettingsUsersSection } from "./settings/SettingsUsersSection";
-import { SettingsAiSection } from "./settings/SettingsAiSection";
-import { SettingsAuthSection } from "./settings/SettingsAuthSection";
 
 /**
  * NotePage 走 lazy（issue #19）：BlockNote＋共編整條相依鏈只有這一頁需要，同步 import
@@ -29,12 +17,63 @@ import { SettingsAuthSection } from "./settings/SettingsAuthSection";
  * （1,629→540 KB；gzip 496→167 KB）；`scripts/check-bundle-size.mjs`（CI 於 build 後
  * 執行）釘住「entry 尺寸上限＋NotePage chunk 確實存在」，防止未來一個不經意的靜態
  * import 把它又拉回首包。
- *
- * 只切這一頁、其餘 route 維持同步：Login/Home/ChangePassword 都很小，切它們只是
- * 多幾次網路往返；Settings 三區掛在 modal-over-background 機制上（見下方大註解），
- * lazy 會讓開 modal 閃 fallback，不值得。
  */
 const NotePage = lazy(() => import("./pages/NotePage"));
+
+/**
+ * #201：首包又長到逼近 700 KiB 上限，把「不是每次都會用到」的頁面也切出去——
+ * - 站台管理（`AdminPage`，連同它三個子區塊，同一個 chunk；理由見 AdminPage.tsx 檔頭）；
+ * - 設定 modal 的四個區塊（外殼 `SettingsModal` 留在首包：modal-over-background 機制與
+ *   開 modal 時外框立刻出現都靠它，只有內容區等 chunk）；
+ * - 登入流程的四頁：註冊、帳號連結、強制改密碼、OAuth 同意頁。
+ *
+ * **登入頁（`LoginPage`）與登入服務圖示刻意留在首包**（Willie 裁示：登入頁的圖示要立即
+ * 出現）。首頁也留：登入後第一個畫面。
+ *
+ * 錯誤處理一律走 #66 那套 `LazyRouteErrorBoundary`（自動 reload 一次＋手動重試），各 route
+ * 一個額度別名（`chunk` prop）；Suspense fallback 與 boundary 的載入中畫面是同一份
+ * （`LazyRouteLoading`，外框依頁面：站台管理＝AppShell、登入流程頁＝置中 `<main>`、
+ * 設定區塊＝modal 內容區）。`scripts/check-bundle-size.mjs` 另釘 AdminPage chunk 存在。
+ */
+const AdminPage = lazy(() => import("./pages/AdminPage"));
+const RegisterPage = lazy(() => import("./pages/RegisterPage"));
+const LinkAccountPage = lazy(() => import("./pages/LinkAccountPage"));
+const ChangePasswordPage = lazy(() => import("./pages/ChangePasswordPage"));
+const AuthorizePage = lazy(() => import("./pages/AuthorizePage"));
+const SettingsAccountSection = lazy(() =>
+  import("./settings/SettingsAccountSection").then(m => ({ default: m.SettingsAccountSection })),
+);
+const SettingsGroupsSection = lazy(() =>
+  import("./settings/SettingsGroupsSection").then(m => ({ default: m.SettingsGroupsSection })),
+);
+const SettingsGroupDetailSection = lazy(() =>
+  import("./settings/SettingsGroupDetailSection").then(m => ({ default: m.SettingsGroupDetailSection })),
+);
+const SettingsGroupRolesSection = lazy(() =>
+  import("./settings/SettingsGroupRolesSection").then(m => ({ default: m.SettingsGroupRolesSection })),
+);
+
+/**
+ * 整頁 lazy route 的 element 外包（#201）：boundary＋Suspense＋beacon，結構與 NoteRoute 同款
+ * （beacon 在 Suspense 內，見 ErrorBoundary.tsx）。
+ *
+ * `key={chunk}` 是承重的：同層兄弟 route（例如 /register ↔ /link-account）的 element 型別
+ * 相同、位置相同，React 會**重用同一個 boundary 實例**——不加 key 的話 register 的錯誤態會
+ * 帶到 link-account（頁面出不來），按重試清的也是 link-account 的額度。選 key 不選
+ * `resetKey={chunk}`：resetKey 變動在錯誤態會整頁 reload，而換到另一頁只需要一個乾淨的新
+ * boundary（自己的額度、自己的 pending 期），不必重載。`resetKey` 因此固定 undefined——
+ * 同一條 route 內沒有「換目的地」的情境。App.lazyPages.test.tsx 末案守著。
+ */
+function LazyPageRoute({ chunk, frame, children }: { chunk: string; frame: "app" | "page"; children: ReactNode }) {
+  return (
+    <LazyRouteErrorBoundary key={chunk} resetKey={undefined} chunk={chunk} frame={frame}>
+      <Suspense fallback={<LazyRouteLoading frame={frame} />}>
+        {children}
+        <ChunkLoadBeacon chunk={chunk} />
+      </Suspense>
+    </LazyRouteErrorBoundary>
+  );
+}
 
 /**
  * `/p/:token` 公開唯讀頁（#72）同樣走 lazy：它與 NotePage 共用 BlockNote 那條相依鏈
@@ -134,8 +173,9 @@ function PublicNoteRoute() {
  * `/settings/*` **絕不可加進主樹**：加進去背景頁就不會渲染，modal-over-background
  * 整個破功。
  *
- * 站台管理（2026-09-30 起）是**一般頁面**、不是 modal：`/admin` layout route
- * （`AdminPage`，子路由 `users`／`ai`／`auth`，index 轉 `/admin/users`）在主樹。舊網址
+ * 站台管理（2026-09-30 起）是**一般頁面**、不是 modal：`/admin/*` route
+ * （`AdminPage`，子路由 `users`／`ai`／`auth` 是它裡面的 descendant `<Routes>`，其餘轉
+ * `/admin/users`）在主樹。舊網址
  * `/settings/users`、`/settings/ai` 在第二棵樹裡 `<Navigate replace>` 過去——掛在
  * `SettingsModal` 外面（不閃 modal）、`RequireAuth` 裡面。方向與 Plan 4 相反
  * （那時是 `/admin/users` 轉 `/settings/users`）。
@@ -162,9 +202,23 @@ export function AppRoutes() {
       <Routes location={state?.backgroundLocation ?? location}>
         <Route path="/login" element={<LoginPage />} />
         {/* #187 PR3：與 /login 同層、在 RequireAuth 之外；已登入者由頁面自己導向 next（經 safeNextPath）或 /。 */}
-        <Route path="/register" element={<RegisterPage />} />
+        <Route
+          path="/register"
+          element={
+            <LazyPageRoute chunk="register" frame="page">
+              <RegisterPage />
+            </LazyPageRoute>
+          }
+        />
         {/* #187：與 /login 同層、在 RequireAuth 之外——只看 pending cookie（§9.4 r2-N7）。 */}
-        <Route path="/link-account" element={<LinkAccountPage />} />
+        <Route
+          path="/link-account"
+          element={
+            <LazyPageRoute chunk="link-account" frame="page">
+              <LinkAccountPage />
+            </LazyPageRoute>
+          }
+        />
         {/* #72：公開分享頁與 /login 同層、排在 RequireAuth **之前**（D2 定案）——
             匿名訪客免登入直達；shared 的 EXCLUDED_PREFIXES（#131 起搬離 spa.ts）不含
             /p，SPA fallback 照常服務這條路徑（noindex 標頭在 server 端，前綴比對天然
@@ -174,11 +228,25 @@ export function AppRoutes() {
         <Route path="/p/:token" element={<PublicNoteRoute />} />
         <Route path="/p/:handle/:slug" element={<PublicNoteRoute />} />
         <Route element={<RequireAuth />}>
-          <Route path="/change-password" element={<ChangePasswordPage />} />
+          <Route
+            path="/change-password"
+            element={
+              <LazyPageRoute chunk="change-password" frame="page">
+                <ChangePasswordPage />
+              </LazyPageRoute>
+            }
+          />
           <Route element={<ChangePasswordGate />}>
             {/* #132：OAuth 同意頁。未登入時 useSessionGate 會帶著 next 去登入頁，登入完
-                回到這裡（#131 的 return-to）。同步 import：頁面很小且是外部流程的關鍵路徑。 */}
-            <Route path="/authorize" element={<AuthorizePage />} />
+                回到這裡（#131 的 return-to）。#201 起 lazy（外部流程偶發才走一次）。 */}
+            <Route
+              path="/authorize"
+              element={
+                <LazyPageRoute chunk="authorize" frame="page">
+                  <AuthorizePage />
+                </LazyPageRoute>
+              }
+            />
             {/* `/notes/:ref`（舊形，永久相容：legacy slug、`<vanity>-<uuid>`、純 uuid）
                 與 `/n/:handle/:slug`（#122 新形）共用 NoteRoute/NotePage——兩條 route
                 並存、明文不依賴 remount（react-router 依 specificity 排序，兩者都不會
@@ -188,15 +256,18 @@ export function AppRoutes() {
             {/* #175：群組筆記 `/g/<group_id>/<slug>`（§8.1）——同一個 NoteRoute/NotePage；
                 只掛主樹（第二棵樹只管 /settings/*）。承接由 App.resetKey.test control 4 釘住。 */}
             <Route path="/g/:groupId/:slug" element={<NoteRoute />} />
-            {/* 站台管理獨立頁（2026-09-30）：layout route，AdminPage 的 <Outlet/> 放兩個
-                子區塊。RequireAdmin 巢狀在 ChangePasswordGate 底下（先強制改密、再判 admin）。 */}
+            {/* 站台管理獨立頁（2026-09-30）：`/admin/*`，子區塊（users／ai／auth）與 index
+                轉址是 AdminPage 裡的 descendant <Routes>（#201：整包一個 lazy chunk，理由見
+                AdminPage.tsx 檔頭）。RequireAdmin 巢狀在 ChangePasswordGate 底下（先強制改密、再判 admin）。 */}
             <Route element={<RequireAdmin />}>
-              <Route path="/admin" element={<AdminPage />}>
-                <Route index element={<Navigate to="/admin/users" replace />} />
-                <Route path="users" element={<SettingsUsersSection />} />
-                <Route path="ai" element={<SettingsAiSection />} />
-                <Route path="auth" element={<SettingsAuthSection />} />
-              </Route>
+              <Route
+                path="/admin/*"
+                element={
+                  <LazyPageRoute chunk="admin" frame="app">
+                    <AdminPage />
+                  </LazyPageRoute>
+                }
+              />
             </Route>
             <Route path="/*" element={<HomePage />} />
           </Route>

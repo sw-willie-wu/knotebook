@@ -6,6 +6,7 @@ import type { UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
+import { FIRST_LAZY_LOAD } from "@/test/lazy";
 import { AppRoutes } from "@/App";
 
 // SettingsAccountSection：`hasPassword === false` → 不渲染 `ChangePasswordForm`；帳密登入有效值開時
@@ -101,7 +102,11 @@ describe("SettingsAccountSection（hasPassword／帳密登入有效值 三形）
   it("hasPassword:true → 渲染 ChangePasswordForm", async () => {
     const queryClient = renderAccountSettings(PASSWORD_USER);
 
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument());
+    // 本檔第一次載入帳號區塊 lazy chunk（見 test/lazy.ts）
+    await waitFor(
+      () => expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument(),
+      FIRST_LAZY_LOAD,
+    );
     expect(screen.getByLabelText("Current password")).toBeInTheDocument();
     // 「不存在」斷言的等待點：identities 已落地（有效值開）——否則關閉說明句本來就還沒出現，斷言空真。
     await waitFor(() => expect(queryClient.getQueryData(["identities"])).toBeDefined());

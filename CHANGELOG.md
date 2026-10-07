@@ -29,6 +29,7 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 - `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` are read only on the first start of this version. They become a sign-in provider named "SSO" that keeps the old callback URL, and are ignored after that. Setting only some of them no longer stops the server from starting (#187).
 - An account an admin created for someone must still change its password even if its owner signs in with SSO or links SSO to it — only changing the password clears that. Accounts that already signed in with SSO before upgrading aren't affected (#187).
 - `GET /api/auth/config` now returns `{providers: [{id, displayName, icon}], registration: {enabled}, passwordLogin: {enabled}}` instead of `{oidc: {enabled}}` (#187).
+- The app's first download is about 15% smaller (725 KB → 616 KB before compression): Site admin, the sections of **Settings**, and the registration, account-linking, change-password and authorization pages now load the first time you open them. The login page and sign-in service icons still load right away. If one of these pages can't be loaded, they behave like note pages already do: when a new version was deployed, Knotebook reloads once on its own and, if that doesn't help, shows an error with **Try again**; while offline it doesn't reload and shows the error right away, with **Try again** available again once you're back online (#201).
 
 ### Removed
 
