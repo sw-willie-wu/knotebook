@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { autoSlugFromTitle, validateHandle, validateSlug } from "@knotebook/shared";
+import { MAX_PROVIDER_ICON_BYTES, autoSlugFromTitle, validateHandle, validateSlug } from "@knotebook/shared";
 import { applyMigrationsThrough, freshDb, freshEmptyDb, idxOfTag, journalEntries } from "./helpers.js";
 import { runMigrations } from "../src/db/migrate.js";
 import { PgDialect, getTableConfig } from "drizzle-orm/pg-core";
@@ -1689,19 +1689,39 @@ describe("0015_provider-icon（登入服務圖示，spec §3）", () => {
     const cases: Array<[string, unknown[], string]> = [
       ["icon_kind = 'upload'", [], "auth_providers_icon_upload_chk"],
       ["icon_kind = 'upload', icon_data = $1", [PNG], "auth_providers_icon_upload_chk"],
+      ["icon_kind = 'upload', icon_mime = 'image/png'", [], "auth_providers_icon_upload_chk"],
       ["icon_kind = 'none', icon_mime = 'image/png'", [], "auth_providers_icon_upload_chk"],
       ["icon_kind = 'gitlab', icon_data = $1", [PNG], "auth_providers_icon_upload_chk"],
       ["icon_kind = 'svg'", [], "auth_providers_icon_kind_chk"],
       ["icon_kind = 'upload', icon_data = $1, icon_mime = 'image/gif'", [PNG], "auth_providers_icon_mime_chk"],
-      ["icon_kind = 'upload', icon_data = $1, icon_mime = 'image/png'", [Buffer.alloc(262145)], "auth_providers_icon_size_chk"],
+      ["icon_kind = 'upload', icon_data = $1, icon_mime = 'image/png'", [Buffer.alloc(MAX_PROVIDER_ICON_BYTES + 1)], "auth_providers_icon_size_chk"],
     ];
     for (const [set, params, constraint] of cases) {
       await expect(upd(set, params), set).rejects.toMatchObject({ code: "23514", constraint });
     }
-    await upd("icon_kind = 'upload', icon_data = $1, icon_mime = 'image/webp', icon_version = icon_version + 1", [Buffer.alloc(262144)]);
+    await upd("icon_kind = 'upload', icon_data = $1, icon_mime = 'image/webp', icon_version = icon_version + 1", [Buffer.alloc(MAX_PROVIDER_ICON_BYTES)]);
     await upd("icon_kind = 'none', icon_data = null, icon_mime = null");
     const { rows } = await pool.query(`select icon_kind, icon_data, icon_mime, icon_version from auth_providers where id = '${P}'`);
     expect(rows).toEqual([{ icon_kind: "none", icon_data: null, icon_mime: null, icon_version: 1 }]);
+  });
+
+  it("放行端逐一放行白名單：mime 三種各一次、kind 五種各一次", async () => {
+    const { pool } = await freshDb();
+    await insertBase(pool);
+    for (const mime of ["image/png", "image/jpeg", "image/webp"]) {
+      await pool.query(`update auth_providers set icon_kind = 'upload', icon_data = $1, icon_mime = $2 where id = '${P}'`, [PNG, mime]);
+      const { rows } = await pool.query(`select icon_kind, icon_mime from auth_providers where id = '${P}'`);
+      expect(rows, mime).toEqual([{ icon_kind: "upload", icon_mime: mime }]);
+    }
+    for (const kind of ["template", "gitlab", "google", "none", "upload"]) {
+      if (kind === "upload") {
+        await pool.query(`update auth_providers set icon_kind = 'upload', icon_data = $1, icon_mime = 'image/png' where id = '${P}'`, [PNG]);
+      } else {
+        await pool.query(`update auth_providers set icon_kind = $1, icon_data = null, icon_mime = null where id = '${P}'`, [kind]);
+      }
+      const { rows } = await pool.query(`select icon_kind from auth_providers where id = '${P}'`);
+      expect(rows, kind).toEqual([{ icon_kind: kind }]);
+    }
   });
 
   it("0015 檔內無 CONCURRENTLY／行首 COMMIT（單一 tx 前提的輔助 grep，比照 0014）", () => {
