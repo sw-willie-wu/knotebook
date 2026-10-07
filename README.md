@@ -11,7 +11,7 @@ Three non-negotiables:
 **Status:** the latest release is v0.5.0 (2026-10-05). What it does today:
 
 - **Writing together** — a block editor with live multiplayer editing (Yjs/Hocuspocus), `[[wikilinks]]` with backlinks, image uploads, and Mermaid diagrams (see [Diagrams](docs/diagrams.md)).
-- **Accounts** — password login with optional OIDC/SSO; there is no public sign-up. Site admins manage users and AI providers on their own **Site admin** pages (`/admin/users`, `/admin/ai`).
+- **Accounts** — password sign-in and sign-in through OpenID Connect identity providers (GitLab, Google, or another provider), which can also be made the only way in; people can register on their own unless a site admin turns registration off. Site admins manage users, sign-in services and AI providers on their own **Site admin** pages (`/admin/users`, `/admin/auth`, `/admin/ai`).
 - **Sharing** — a personal note is private, shared with chosen people as editors or viewers, or published as a read-only public link (see [Sharing](docs/sharing.md)).
 - **Groups** — a group owns its notes, which live at `/g/<group id>/<name>`; what each member can do comes from their role in the group — the built-in Admin and Member roles, or custom roles built from six permissions. A personal note can be moved or copied into a group, and deleting a group either gives its notes to one of its admins or deletes them with it (see [Notes in a group](docs/sharing.md#notes-in-a-group)).
 - **AI quick actions** — rewrite, translate, summarize and continue, streamed from an OpenAI-compatible or Anthropic endpoint an admin configures (see [AI quick actions](docs/ai.md)).
@@ -53,7 +53,7 @@ This brings up the server and a Postgres database with `docker compose`; the fir
 
 6. Open `http://localhost:3000` in a browser and log in with `ADMIN_EMAIL`/`ADMIN_PASSWORD`. You're signed in straight away — there is no forced password change for this account. You can change the password later under **Settings → Account**.
 
-7. Create a note and open it in the block editor. To try live co-editing, open **Site admin → Users** (`/admin/users`; **Site admin** is in the user menu — you're an admin) to create a second account, then log that account in from a second browser or an incognito window, share the note with it, and watch edits sync live. There is no public sign-up; every account is created by an admin, created by the environment-variable bootstrap above, or (if you've set it up) provisioned automatically on first OIDC/SSO login — see [Self-hosting guide](docs/self-hosting.md#sign-in-providers).
+7. Create a note and open it in the block editor. To try live co-editing, open **Site admin → Users** (`/admin/users`; **Site admin** is in the user menu — you're an admin) to create a second account, then log that account in from a second browser or an incognito window, share the note with it, and watch edits sync live. While registration is on (the default; turn it off in **Site admin → Sign-in**), people can also create their own account at `/register`, or get one the first time they sign in through a sign-in service — see [Accounts](docs/self-hosting.md#accounts).
 
 If you'd rather drive the API directly than click through the browser — e.g. to script the whole flow or build another client — the same login endpoints are available over `curl`; see [API contract summary](docs/api.md) for the full endpoint list. The loop is: `ADMIN_EMAIL`/`ADMIN_PASSWORD` from `.env` → `POST /api/auth/login` → authenticated API calls, session cookie carried the same way the browser carries it.
 

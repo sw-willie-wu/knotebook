@@ -146,8 +146,18 @@ describe("#187 §7.3 新必要欄位（providerId／configVersion／intent）", 
     }
   });
 
-  it("intent: \"link\"（PR3 才有，PR1 不收）→ null", () => {
-    expect(unsealOidcState(secret, sealCookieJson(secret, "oidc-state", { ...payload(), intent: "link" }), 1_000_000)).toBeNull();
+  it("intent: \"link\"（PR3）：帶 linkUserId → 收；缺 linkUserId 或不是字串 → null；帶了 next 也丟掉", () => {
+    const base = { ...payload(), intent: "link" };
+    expect(unsealOidcState(secret, sealCookieJson(secret, "oidc-state", base), 1_000_000)).toBeNull();
+    expect(unsealOidcState(secret, sealCookieJson(secret, "oidc-state", { ...base, linkUserId: 7 }), 1_000_000)).toBeNull();
+    const opened = unsealOidcState(secret, sealCookieJson(secret, "oidc-state", { ...base, linkUserId: "u1", next: "/x" }), 1_000_000);
+    expect(opened).toMatchObject({ intent: "link", linkUserId: "u1" });
+    expect(opened).not.toHaveProperty("next");
+  });
+
+  it("intent: \"link\" 也驗 exp", () => {
+    const expired = { ...payload({ exp: 999_999 }), intent: "link", linkUserId: "u1" };
+    expect(unsealOidcState(secret, sealCookieJson(secret, "oidc-state", expired), 1_000_000)).toBeNull();
   });
 });
 

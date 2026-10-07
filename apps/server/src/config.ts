@@ -27,6 +27,8 @@ const schema = z.object({
   // issue #13：反向代理信任設定。比照上面幾組「空字串視同未設」的模式；值本身的
   // 語法交給 `parseTrustProxy` 手動驗證（錯誤訊息要能指出是哪一段不合法）。
   TRUST_PROXY: z.string().min(1).optional().or(z.literal("").transform(() => undefined)),
+  // #187 B18：帳密登入的救援開關。值的語法（只收 true／false，不分大小寫）在 parsePasswordLoginForceEnable 手動驗證。
+  PASSWORD_LOGIN_FORCE_ENABLE: z.string().optional(),
   // #175 §6.10：pool 保險絲（Willie 2026-09-30 Q24）。值的語法（正整數）在 loadConfig 手動驗證，錯誤訊息要點名。
   DATABASE_POOL_MAX: z.string().min(1).optional().or(z.literal("").transform(() => undefined)),
   DATABASE_POOL_CONNECTION_TIMEOUT_MS: z.string().min(1).optional().or(z.literal("").transform(() => undefined)),
@@ -103,6 +105,18 @@ export function parseTrustProxy(raw: string | undefined): boolean | number | str
   }
   return normalized;
 }
+/**
+ * #187 B18：`PASSWORD_LOGIN_FORCE_ENABLE`。`trim` 後不分大小寫：`true` → 強制開啟帳密登入；未設／空／`false` → 不強制；其他值
+ * （`1`、`yes`、`on`…）**擋啟動**——救援是在最慌的時候做的，「以為開了、實際沒開」不可以靜默發生。大小寫與空值的處理比照
+ * `parseTrustProxy`，但不接受它的數字與清單形（spec §2.8、gate r4-M2）。只影響「受不受理帳密」，不寫回 DB。
+ */
+export function parsePasswordLoginForceEnable(raw: string | undefined): boolean {
+  if (raw === undefined) return false;
+  const value = raw.trim().toLowerCase();
+  if (value === "" || value === "false") return false;
+  if (value === "true") return true;
+  throw new Error(`設定錯誤：PASSWORD_LOGIN_FORCE_ENABLE 的值無法解析（只接受 true 或 false，不分大小寫）：${raw}`);
+}
 export interface AppConfig {
   databaseUrl: string;
   appSecret: string;
@@ -130,6 +144,8 @@ export interface AppConfig {
    */
   legacyOidcEnv?: { issuerUrl: string; clientId: string; clientSecret: string };
   legacyOidcEnvProblem?: "partial" | "invalid";
+  /** #187 B18：env 強制開啟帳密登入（救援）。有效值＝DB 值 OR 這個（`auth/password-login.ts` 的 `effectivePasswordLogin`）。 */
+  passwordLoginForceEnable: boolean;
 }
 export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
   const r = schema.safeParse(env);
@@ -198,6 +214,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
   return { databaseUrl: r.data.DATABASE_URL, appSecret: r.data.APP_SECRET, publicUrl,
            cookieSecure: publicUrl.protocol === "https:", insecureHttpWarning,
            trustProxy: parseTrustProxy(r.data.TRUST_PROXY),
+           passwordLoginForceEnable: parsePasswordLoginForceEnable(r.data.PASSWORD_LOGIN_FORCE_ENABLE),
            databasePoolMax, databasePoolConnectionTimeoutMs,
            adminEmail, adminPassword, legacyOidcEnv, legacyOidcEnvProblem };
 }

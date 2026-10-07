@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { MIN_PASSWORD_LENGTH } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
+import { useAuthConfig } from "@/api/authConfig";
 import { useSession } from "@/auth/useSession";
 import {
   useAdminUsers,
@@ -47,6 +48,7 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
 function CreateUserDialog() {
   const { t } = useTranslation();
   const createUser = useCreateAdminUser();
+  const authConfig = useAuthConfig();
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -151,6 +153,10 @@ function CreateUserDialog() {
           </div>
 
           <p className="text-xs text-muted-foreground">{t("admin.mustChangePasswordNotice")}</p>
+          {authConfig.data?.passwordLogin.enabled === false && (
+            // §9.5 表末列：關閉期間代建照常（仍要臨時密碼），但它只用於對方首次 SSO 登入時在連結頁證明本人。
+            <p className="text-xs text-muted-foreground">{t("admin.passwordLoginOffNotice")}</p>
+          )}
 
           {error && (
             <p role="alert" className="text-sm text-destructive">

@@ -12,10 +12,10 @@ import { loadEnabledProvider, loadLegacyProvider, providerConfiguration, type Oi
 import type { OidcClaims } from "../auth/oidc-login-decision.js";
 import { resolveOidcLoginInTx, type ResolveOidcLoginResult } from "../auth/tx/oidc-login.js";
 import { clearPendingCookie, newPendingId, OIDC_PENDING_TTL_SECONDS, readPendingLink, sealPendingLinkWithinLimit, setPendingCookie } from "../auth/oidc-pending.js";
-import { linkPendingIdentityInTx, type LinkedUser } from "../auth/tx/link-identity.js";
+import { linkIdentityToUserInTx, linkPendingIdentityInTx, type LinkedUser } from "../auth/tx/link-identity.js";
 import { TxAbort } from "../http/tx-abort.js";
 import type { OidcTestHook } from "../auth/oidc-test-hook.js";
-import { signSession, type UserGate } from "../auth/session.js";
+import { resolveSessionUser, signSession, type UserGate } from "../auth/session.js";
 import { setSessionCookie } from "../auth/cookies.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
 
@@ -93,9 +93,11 @@ export function oidcRoutes(deps: OidcRouteDeps) {
     let nextPath: string | null = null;
     const loginErrorLocation = (code: string): string =>
       nextPath === null ? `/login?error=${code}` : `/login?error=${code}&next=${encodeURIComponent(nextPath)}`;
-    let intent: "login" | "prove" | null = null;
-    // §7.3：cookie 解開之後，SSO 證明途中的失敗回連結頁（同一顆 pending 還能改用密碼或換 provider）；登入途中的回登入頁（帶 next）。
-    const failLocation = (code: string): string => (intent === "prove" ? `/link-account?error=${code}` : loginErrorLocation(code));
+    let intent: "login" | "prove" | "link" | null = null;
+    // §7.3：cookie 解開之後，SSO 證明途中的失敗回連結頁（同一顆 pending 還能改用密碼或換 provider）；設定頁手動連結的回設定頁（§8.1）；
+    // 登入途中的回登入頁（帶 next）。
+    const failLocation = (code: string): string =>
+      intent === "prove" ? `/link-account?error=${code}` : intent === "link" ? `/settings/account?link_error=${code}` : loginErrorLocation(code);
 
     try {
       // §7.3 第 2 步：provider 不存在或停用 → oidc_unavailable（cookie 解開之前，不帶 next；C6、C19）。
@@ -173,6 +175,20 @@ export function oidcRoutes(deps: OidcRouteDeps) {
       }
       // issuer 單一真相：serverMetadata().issuer（＝ID token iss）——不是管理員填的字面（§2.2）。
       const claims: OidcClaims = { issuer: metadata.issuer, sub, email: normalizedEmail, name, preferredUsername };
+
+      if (payload.intent === "link") {
+        // §8.1 第 1 步：驗目前 session（authenticate 的核心，不掛 preHandler 以維持一律 302）。不在、失效、停用、或不是發起者 → mismatch。
+        const session = await resolveSessionUser(request.cookies, deps.config.appSecret, deps.gate);
+        if (session === null || session.user.id !== payload.linkUserId) return reply.redirect(failLocation("oidc_link_session_mismatch"));
+        const linkInput = { userId: payload.linkUserId, issuer: claims.issuer, sub: claims.sub };
+        try {
+          await deps.db.transaction(tx => linkIdentityToUserInTx(tx, linkInput));
+        } catch (err) {
+          if (!(err instanceof TxAbort)) throw err;
+          return reply.redirect(failLocation(err.errCode));
+        }
+        return reply.redirect(`/settings/account?linked=${provider.id}`);
+      }
 
       if (payload.intent === "prove") {
         // §7.5.3 callback：新身分取自 pending，第二段往返只用來證明本人（claims.issuer／sub＝證明身分）。

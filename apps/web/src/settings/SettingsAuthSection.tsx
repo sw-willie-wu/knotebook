@@ -25,6 +25,7 @@ import { copyText } from "@/lib/clipboard";
 import { authErrorMessage } from "./auth-error-message";
 import { CreateProviderDialog, EditProviderDialog } from "./AuthProviderDialogs";
 import { SettingsGroup, SettingsPage } from "./SettingsLayout";
+import { SiteAccessSettings } from "./SiteAccessSettings";
 
 /** 停用前確認（W11：停用前提示受影響人數）。人數是開 dialog 當下的快照（§9.3）。 */
 function DisableProviderDialog({
@@ -69,6 +70,7 @@ function DisableProviderDialog({
             <p>{t("admin.auth.impactLinked", { number: impact.data.linkedUsers })}</p>
             <p>{t("admin.auth.impactLockedOut", { number: impact.data.lockedOutUsers })}</p>
             {!impact.data.issuerResolved && <p className="text-muted-foreground">{t("admin.auth.impactUnresolved")}</p>}
+            {impact.data.actingAdminLockedOut && <p className="text-destructive">{t("admin.auth.impactActingAdminLockedOut")}</p>}
           </div>
         )}
         <DialogFooter>
@@ -272,7 +274,7 @@ function ProviderCard({ provider }: { provider: AdminAuthProviderDto }) {
 }
 
 /**
- * #187 §9.4：站台管理 → 登入（`/admin/auth`）。PR2 只有登入服務管理；「允許註冊」與「允許帳密登入」兩個 Switch 是 PR3。
+ * #187 §9.4：站台管理 → 登入（`/admin/auth`）。頂部是「允許註冊」與「允許帳密登入」（`SiteAccessSettings`），下面是登入服務管理。
  * 新增與編輯 dialog 在 `AuthProviderDialogs.tsx`。
  */
 export function SettingsAuthSection() {
@@ -281,6 +283,7 @@ export function SettingsAuthSection() {
 
   return (
     <SettingsPage title={t("admin.auth.title")} description={t("admin.auth.description")}>
+      <SiteAccessSettings />
       <SettingsGroup title={t("admin.auth.providersHeading")} action={<CreateProviderDialog />}>
         {providersQuery.isPending ? (
           <p className="text-sm text-muted-foreground">{t("app.loading")}</p>

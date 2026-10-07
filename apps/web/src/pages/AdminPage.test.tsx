@@ -49,7 +49,7 @@ function mockFetch(getUser: () => UserDto | null) {
     }
     if (url === "/api/auth/config" && method === "GET") {
       return Promise.resolve(
-        fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ providers: [], registration: { enabled: true } }) }),
+        fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ providers: [], registration: { enabled: true }, passwordLogin: { enabled: true } }) }),
       );
     }
     if ((url === "/api/groups" || url === "/api/notes" || url === "/api/admin/users") && method === "GET") {
@@ -61,6 +61,21 @@ function mockFetch(getUser: () => UserDto | null) {
     }
     if (url === "/api/admin/auth/providers" && method === "GET") {
       return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ providers: [] }) }));
+    }
+    if (url === "/api/admin/auth/settings" && method === "GET") {
+      return Promise.resolve(
+        fakeResponse({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              registrationEnabled: true,
+              passwordLoginEnabled: true,
+              passwordLoginForced: false,
+              passwordLoginImpact: { usersWithoutSso: 0, actingAdminHasSso: true, enabledProviders: 1 },
+            }),
+        }),
+      );
     }
     throw new Error(`unexpected fetch: ${method} ${url}`);
   });

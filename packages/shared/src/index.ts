@@ -32,12 +32,18 @@ export interface UserDto {
 /** 密碼長度下限，鏡射 apps/server/src/auth/constants.ts 的同名常數——這裡是給
  * web 端表單前端先驗用的唯一真相，兩邊刻意保持同一個數字（12）。 */
 export const MIN_PASSWORD_LENGTH = 12;
+/** #187 PR3 帳密註冊的上限（spec rev 13 待回寫，總管裁定）：email 對齊 SSO 的 254（server `MAX_EMAIL_CLAIM_LENGTH`），
+ * 以 JS `.length` 計；顯示名 100 個 code point。web 先驗（RegisterPage）、server 為準（routes/account.ts）。 */
+export const MAX_REGISTER_EMAIL_LENGTH = 254;
+export const MAX_REGISTER_DISPLAY_NAME_LENGTH = 100;
 
-/** `GET /api/auth/config`（免認證）：登入頁用 `providers` 畫「Sign in with X」、PR3 起用 `registration.enabled` 決定註冊鈕。
+/** `GET /api/auth/config`（免認證）：登入頁用 `providers` 畫「Sign in with X」、`registration.enabled` 決定註冊鈕、
+ * `passwordLogin.enabled`（帳密登入的**有效值**＝DB 值 OR env 強制；不揭露是否 env 強制，#187 §9.5）決定帳密表單。
  * 只曝光 id 與顯示名——issuer／client id 等設定細節不出線（#187 §14.1 第 18 條）。 */
 export interface AuthConfigDto {
   providers: AuthProviderPublicDto[];
   registration: { enabled: boolean };
+  passwordLogin: { enabled: boolean };
 }
 
 /** #187：一個啟用中的單一登入服務（登入頁按鈕、連結頁的證明方式）。只曝光 id 與顯示名——issuer／client id 不出線。 */
@@ -394,6 +400,17 @@ export const ERROR_CODES = [
   "provider_enabled",
   "provider_secret_missing",
   "oidc_discovery_failed",
+  // #187 PR3：註冊、個人設定、帳密登入開關（W24）。`password_login_disabled`＝403，帳密登入的有效值為關時的帳密登入／帳密註冊／
+  // 加上密碼（B20–B22）；`sso_provider_required`＝409，關閉帳密登入（或在關閉狀態下停用 provider）後沒有任何啟用中的登入服務（B19 P1）；
+  // `admin_sso_link_required`＝409，同上但操作的管理員本人沒有可用的 SSO 身分（B19 P2）；`password_already_set`＝409，已有密碼的帳號
+  // 打「加上密碼」（§8.4）；`last_login_method`＝409，解除後帳號不再有任何可用的登入方式（INV-7，§8.2）；`oidc_link_session_mismatch`＝
+  // 302 `/settings/account?link_error=`，手動連結回來時目前 session 不在、失效、停用或不是發起者（§8.1）。
+  "password_login_disabled",
+  "sso_provider_required",
+  "admin_sso_link_required",
+  "password_already_set",
+  "last_login_method",
+  "oidc_link_session_mismatch",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
@@ -474,9 +491,12 @@ export interface AdminAuthProviderDto {
 export interface AdminAuthProviderImpactDto {
   /** 有 identity 對到這個服務、且未停用的帳號數。 */
   linkedUsers: number;
-  /** 其中沒有密碼、也沒有任何 identity 對到「其他啟用中服務」的帳號數——停用後暫時登不進。 */
+  /** 其中**沒有可用密碼**（無密碼，或帳密登入開關的 DB 值為關，#187 W24）、也沒有任何 identity 對到「其他啟用中服務」的帳號數——停用後暫時登不進。 */
   lockedOutUsers: number;
   issuerResolved: boolean;
+  /** 停用這個服務後，操作的管理員本人是否失去最後一個可用 SSO 身分（他有這個服務的身分、且沒有任何身分對到其他啟用中服務）。
+   *  DB 值為關時這種停用會被 B19 P2 擋（409 `admin_sso_link_required`）；dialog 先說明。 */
+  actingAdminLockedOut: boolean;
 }
 
 /** #187 §9.2：測試連線／先試探的非致命提醒。 */
@@ -486,6 +506,50 @@ export type AdminAuthProbeWarning = "insecure_issuer" | "client_secret_post_not_
 export interface AdminAuthProbeResultDto {
   issuer: string;
   warnings: AdminAuthProbeWarning[];
+}
+
+/** #187 §8.3：`GET /api/auth/identities` 的一列。不回 `sub`。 */
+export interface IdentityDto {
+  id: string;
+  /** IdP 回報的 issuer 原字串（身分的鍵之一，B1）。對不到啟用中 provider 時，頁面以它的 host 標示。 */
+  issuer: string;
+  /** effective issuer 等於本列 issuer、且啟用中的 provider（可能 0、1 或多個）。 */
+  providers: AuthProviderPublicDto[];
+  createdAt: string;
+  lastLoginAt: string | null;
+  /** server 以 INV-7（密碼只在 DB 值為真時算數，B24）算出；web 只照它 disable「解除連結」。 */
+  unlinkable: boolean;
+}
+
+/** #187 §8.3：可以從設定頁發起手動連結的 provider（啟用中、且本人沒有同 issuer 的身分）。 */
+export interface LinkableProviderDto {
+  providerId: string;
+  /** 管理員輸入的字串：web 只准放進 React 文字節點。 */
+  displayName: string;
+  template: AuthProviderTemplate;
+}
+
+/** #187 §8.3：`GET /api/auth/identities`（session-only）。`passwordLoginEnabled` 是**有效值**（DB OR env），只決定設定頁顯示「加上密碼」與說明。 */
+export interface IdentitiesDto {
+  identities: IdentityDto[];
+  linkable: LinkableProviderDto[];
+  hasPassword: boolean;
+  passwordLoginEnabled: boolean;
+}
+
+/** #187 §9.5：`GET`／`PATCH /api/admin/auth/settings`。`passwordLoginEnabled` 是 **DB 值**；`passwordLoginForced`＝env `PASSWORD_LOGIN_FORCE_ENABLE`。 */
+export interface AdminAuthSettingsDto {
+  registrationEnabled: boolean;
+  passwordLoginEnabled: boolean;
+  passwordLoginForced: boolean;
+  /** 開 dialog 當下的快照；權威判斷在 PATCH（B19）。 */
+  passwordLoginImpact: {
+    /** 未停用、且沒有任何 identity 對到啟用中 provider 的 effective issuer 的帳號數。 */
+    usersWithoutSso: number;
+    /** 操作者本人有一個 identity 對到某個啟用中 provider 的 effective issuer（與 B19 P2 同一個函式）。 */
+    actingAdminHasSso: boolean;
+    enabledProviders: number;
+  };
 }
 
 export const COLLAB_CLOSE_REVOKED = "knotebook:revoked";
@@ -953,7 +1017,7 @@ const NEXT_PATH_CHARSET_RE = /^[\u0021-\u007e]+$/;
  *    加的。收斂是必要的：react-router 的路徑比對忽略尾斜線、預設大小寫不敏感，所以
  *    `/login/` 與 `/LOGIN` 一樣會渲染登入頁。
  *    判準是「**這個頁的存在前提是尚未登入**」——只有這種頁才該排除。`/change-password`
- *    不算：它對已登入者是一個功能正常的頁。#187 起 `/link-account` 同理（它的存在前提是「正在連結、session 無關」；登入完導回那裡只會被 pending 失效踢回 `/login`）。
+ *    不算：它對已登入者是一個功能正常的頁。#187 起 `/link-account` 同理（它的存在前提是「正在連結、session 無關」；登入完導回那裡只會被 pending 失效踢回 `/login`）。#187 PR3 起 `/register` 同理（已登入者開它會被導向 `next`（經 safeNextPath）或 `/`，§9.4 r2-N7）。
  */
 export function safeNextPath(input: string | null | undefined): string | null {
   if (typeof input !== "string") return null;
@@ -973,7 +1037,7 @@ export function safeNextPath(input: string | null | undefined): string | null {
   if (url.origin !== NEXT_PATH_BASE) return null;
   if (isExcludedPath(url.pathname)) return null;
   const collapsed = url.pathname.replace(/\/+$/, "").toLowerCase();
-  if (collapsed === "/login" || collapsed === "/link-account") return null;
+  if (collapsed === "/login" || collapsed === "/link-account" || collapsed === "/register") return null;
 
   return input;
 }

@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadConfig, parseTrustProxy, publicUrlIssuer, publicUrlPathWarning } from "../../src/config.js";
+import { loadConfig, parsePasswordLoginForceEnable, parseTrustProxy, publicUrlIssuer, publicUrlPathWarning } from "../../src/config.js";
 import { oidcRedirectUri } from "../../src/auth/oidc-client.js";
 const valid = { DATABASE_URL: "postgres://u:p@localhost:5432/db", APP_SECRET: "a".repeat(64), PUBLIC_URL: "https://notes.example.com" };
 describe("loadConfig", () => {
@@ -20,6 +20,7 @@ describe("loadConfig", () => {
       cookieSecure: true,
       insecureHttpWarning: false,
       trustProxy: false,
+      passwordLoginForceEnable: false,
       databasePoolMax: 10,
       databasePoolConnectionTimeoutMs: 10000,
     });
@@ -313,5 +314,39 @@ describe("D12：OAuth issuer 取 origin、PUBLIC_URL 帶其他成分只警告", 
     expect(importAt, "index.ts 必須呼叫 importLegacyOidcEnv(db…").toBeGreaterThan(initAt);
     expect(backfillAt, "補登必須在匯入之後").toBeGreaterThan(importAt);
     expect(backfillAt, "補登必須在 listen 之前").toBeLessThan(listenAt);
+  });
+});
+
+describe("PASSWORD_LOGIN_FORCE_ENABLE（#187 B18、§14.1-27）", () => {
+  it.each([
+    [undefined, false],
+    ["", false],
+    ["  ", false],
+    ["false", false],
+    ["FALSE", false],
+    ["true", true],
+    ["TRUE", true],
+    [" True ", true],
+  ] as const)("%j → %s", (raw, expected) => {
+    expect(parsePasswordLoginForceEnable(raw)).toBe(expected);
+  });
+
+  it.each(["1", "yes", "on", "0", "tru", "true,false"])("%j → throw（以為開了救援、實際沒開不可靜默發生）", raw => {
+    expect(() => parsePasswordLoginForceEnable(raw)).toThrow(/PASSWORD_LOGIN_FORCE_ENABLE/);
+  });
+
+  it("loadConfig 帶出這個欄位；不合法值擋啟動", () => {
+    expect(loadConfig(valid).passwordLoginForceEnable).toBe(false);
+    expect(loadConfig({ ...valid, PASSWORD_LOGIN_FORCE_ENABLE: "True" }).passwordLoginForceEnable).toBe(true);
+    expect(() => loadConfig({ ...valid, PASSWORD_LOGIN_FORCE_ENABLE: "yes" })).toThrow(/PASSWORD_LOGIN_FORCE_ENABLE/);
+  });
+
+  it("結構守衛（§10.4）：開機檢查在 §10.3 補登之後、listen 之前", () => {
+    const src = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../src/index.ts"), "utf8");
+    const backfillAt = src.indexOf("await backfillLegacyOidcIdentities(db");
+    const checkAt = src.indexOf("await warnPasswordLoginAtBoot(db");
+    const listenAt = src.indexOf(".listen(");
+    expect(checkAt, "index.ts 必須呼叫 warnPasswordLoginAtBoot(db…").toBeGreaterThan(backfillAt);
+    expect(checkAt, "開機檢查要在 listen 之前").toBeLessThan(listenAt);
   });
 });

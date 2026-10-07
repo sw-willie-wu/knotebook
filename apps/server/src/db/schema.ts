@@ -137,7 +137,7 @@ export const userIdentities = pgTable(
 
 /**
  * #187 §4.3：站台設定（singleton，INV-6）。`registration_enabled` 一律預設開（W23）。
- * `password_login_enabled`（rev 10，W24）一律預設開；PR1 只建欄、不讀——行為全在 PR3（spec §9.5），PR1 期間 src 只准本檔命中它（§14.1 第 20 條）。
+ * `password_login_enabled`（rev 10，W24）一律預設開；只存 DB 值（env 強制不寫回，B18），讀法見 `auth/password-login.ts`（PR3，spec §9.5）。
  */
 export const siteSettings = pgTable(
   "site_settings",

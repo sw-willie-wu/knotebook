@@ -7,11 +7,18 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
+### Upgrade notes
+
+- **After upgrading, a password registration page is open to anyone who can reach the site.** **Allow registration** is on by default, upgraded instances included: first sign-ins through a sign-in service create accounts as before, and `/register` now lets anyone create an account with an email and a password. Turn it off in **Site admin → Sign-in** if you don't want that (#187).
+
 ### Added
 
 - Groundwork for signing in with more than one identity provider: sign-in services are now stored in the database, the login page shows a "Sign in with …" button for each enabled one, and providers other than the imported one use their own callback URL (`<PUBLIC_URL>/api/auth/oidc/callback/<provider id>`). The service imported from `OIDC_*` (described below) keeps the old callback URL (#187).
 - When someone signs in through an identity provider for the first time and their email already has an account, Knotebook asks whether to link the two. They prove the account is theirs with its password, or by signing in with a sign-in service already linked to it (#187).
 - **Site admin → Sign-in** (`/admin/auth`): add, edit, test, turn off and delete sign-in services — GitLab (including self-managed), Google, or another OpenID Connect provider. Each one shows the callback URL to register on the identity provider. Client secrets are stored encrypted and never shown again; changing a service's issuer clears its secret (unless a new one is entered in the same edit) and turns it off (#187).
+- Registration: `/register` (and `POST /api/auth/register`) creates an account with an email and a password (while password sign-in is on), or with **Sign up with …** through a sign-in service. **Site admin → Sign-in** has an **Allow registration** switch, which also decides whether a first sign-in through a sign-in service may create an account (#187).
+- **Settings → Account**: a **Sign-in methods** group to link another sign-in service, or unlink one as long as another way to sign in remains, and **Add a password** for an account that has none (while password sign-in is on) (#187).
+- An **Allow password sign-in** switch in **Site admin → Sign-in** (on by default). Turn it off to have everyone, admins included, sign in through sign-in services only; people already signed in stay signed in. If that locks you out, set `PASSWORD_LOGIN_FORCE_ENABLE=true` and restart to accept passwords again (#187).
 
 ### Changed
 
@@ -20,7 +27,7 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 - The identity provider's `email_verified` claim is no longer read. Identity providers that don't send it now work, and an email the provider marks as unverified can create an account on first sign-in (#187).
 - `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` are read only on the first start of this version. They become a sign-in provider named "SSO" that keeps the old callback URL, and are ignored after that. Setting only some of them no longer stops the server from starting (#187).
 - An account an admin created for someone must still change its password even if its owner signs in with SSO or links SSO to it — only changing the password clears that. Accounts that already signed in with SSO before upgrading aren't affected (#187).
-- `GET /api/auth/config` now returns `{providers: [{id, displayName}], registration: {enabled}}` instead of `{oidc: {enabled}}` (#187).
+- `GET /api/auth/config` now returns `{providers: [{id, displayName}], registration: {enabled}, passwordLogin: {enabled}}` instead of `{oidc: {enabled}}` (#187).
 
 ### Removed
 

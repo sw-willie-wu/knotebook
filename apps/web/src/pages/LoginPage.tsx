@@ -1,9 +1,10 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { useTranslation } from "react-i18next";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ERROR_CODES, safeNextPath, type AuthConfigDto, type UserDto } from "@knotebook/shared";
+import { useQueryClient } from "@tanstack/react-query";
+import { ERROR_CODES, safeNextPath, type UserDto } from "@knotebook/shared";
 import { api, ApiFail } from "@/api/client";
+import { useAuthConfig } from "@/api/authConfig";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SESSION_QUERY_KEY } from "@/auth/useSession";
@@ -30,6 +31,8 @@ const OIDC_LOGIN_PREFIX = "/api/auth/oidc/login/";
  * 會 302 到 IdP，再 302 回 callback，整條鏈要由瀏覽器的頂層導航
  * 承載（`fetch` 的 redirect 語意與 cookie 寫入時機都不對，見 client.ts 的
  * `credentials:'include'`/manual redirect 說明），因此刻意繞過既有的 `api()` 入口。
+ *
+ * #187 PR3：帳密表單隨 `passwordLogin.enabled`（有效值）顯示；允許註冊時有 outline 的「註冊新帳號」鈕（帶 next）。
  *
  * `?error=<code>`（OIDC 失敗時 callback route 會把使用者導回 `/login?error=<code>`）
  * 走既有的同一套 `errors.<code>` 對映機制，**直接餵進 `errorMessage` 這顆 state 的
@@ -78,10 +81,13 @@ export default function LoginPage() {
     return nextPath === null ? base : `${base}?next=${encodeURIComponent(nextPath)}`;
   };
 
-  const authConfigQuery = useQuery({
-    queryKey: ["auth-config"],
-    queryFn: () => api<AuthConfigDto>("/api/auth/config"),
-  });
+  const authConfigQuery = useAuthConfig();
+
+  // #187 W24：帳密表單只在有效值為真時顯示；設定讀不到（載入中或失敗）時照常顯示——讀不到設定不能把人擋在外面（RF5，同 B17 的
+  // fail-open）；server 若真的關閉，送出會回 403 並顯示 errors.password_login_disabled。
+  const passwordLoginEnabled = authConfigQuery.data?.passwordLogin.enabled !== false;
+  const providers = authConfigQuery.data?.providers ?? [];
+  const registerHref = nextPath === null ? "/register" : `/register?next=${encodeURIComponent(nextPath)}`;
 
   useEffect(() => {
     if (searchParams.has("error")) {
@@ -141,38 +147,8 @@ export default function LoginPage() {
 
   return (
     <main className="flex min-h-screen items-center justify-center p-8">
-      <form onSubmit={(e) => void handleSubmit(e)} className="w-full max-w-sm space-y-4">
+      <div className="w-full max-w-sm space-y-4">
         <h1 className="text-2xl font-semibold">{t("login.title")}</h1>
-
-        <div className="space-y-1">
-          <label htmlFor="login-email" className="text-sm font-medium">
-            {t("login.email")}
-          </label>
-          <Input
-            id="login-email"
-            name="email"
-            type="email"
-            autoComplete="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-        </div>
-
-        <div className="space-y-1">
-          <label htmlFor="login-password" className="text-sm font-medium">
-            {t("login.password")}
-          </label>
-          <Input
-            id="login-password"
-            name="password"
-            type="password"
-            autoComplete="current-password"
-            required
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-        </div>
 
         {errorMessage && (
           <p role="alert" className="text-sm text-destructive">
@@ -181,14 +157,38 @@ export default function LoginPage() {
           </p>
         )}
 
-        <Button type="submit" variant="brandSolid" className="w-full" disabled={submitting}>
-          {submitting ? t("login.submitting") : t("login.submit")}
-        </Button>
+        {passwordLoginEnabled && (
+          <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
+            <div className="space-y-1">
+              <label htmlFor="login-email" className="text-sm font-medium">
+                {t("login.email")}
+              </label>
+              <Input id="login-email" name="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <label htmlFor="login-password" className="text-sm font-medium">
+                {t("login.password")}
+              </label>
+              <Input
+                id="login-password"
+                name="password"
+                type="password"
+                autoComplete="current-password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+            <Button type="submit" variant="brandSolid" className="w-full" disabled={submitting}>
+              {submitting ? t("login.submitting") : t("login.submit")}
+            </Button>
+          </form>
+        )}
 
-        {(authConfigQuery.data?.providers.length ?? 0) > 0 && (
+        {providers.length > 0 && (
           <>
-            <div className="border-t" aria-hidden="true" />
-            {authConfigQuery.data!.providers.map((provider) => (
+            {passwordLoginEnabled && <div className="border-t" aria-hidden="true" />}
+            {providers.map((provider) => (
               // displayName 是管理員輸入：t() 插值後只進文字節點（escapeValue:false，r1-M6）。
               <Button key={provider.id} asChild variant="outline" className="w-full">
                 <a href={ssoHref(provider.id)}>{t("login.signInWith", { name: provider.displayName })}</a>
@@ -196,7 +196,21 @@ export default function LoginPage() {
             ))}
           </>
         )}
-      </form>
+
+        {authConfigQuery.data !== undefined && !passwordLoginEnabled && providers.length === 0 && (
+          // 只可能是手改 DB（INV-8：關閉帳密需要至少一個啟用中的登入服務）。
+          <p role="status" className="text-sm text-muted-foreground">
+            {t("login.noMethods")}
+          </p>
+        )}
+
+        {authConfigQuery.data?.registration.enabled === true && (
+          // spec §3.1 S1（Willie 原話「註冊」鈕）→ outline 按鈕（總管裁定疑點 12）；不得是實心鈕——頁面的唯一實心鈕是「Sign in」。
+          <Button asChild variant="outline" className="w-full">
+            <Link to={registerHref}>{t("login.register")}</Link>
+          </Button>
+        )}
+      </div>
     </main>
   );
 }

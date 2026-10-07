@@ -3,9 +3,11 @@ import type {
   AdminAuthProbeResultDto,
   AdminAuthProviderDto,
   AdminAuthProviderImpactDto,
+  AdminAuthSettingsDto,
   AuthProviderTemplate,
 } from "@knotebook/shared";
-import { api } from "./client";
+import { AUTH_CONFIG_QUERY_KEY } from "./authConfig";
+import { api, ApiFail } from "./client";
 
 /** #187 PR2：`/api/admin/auth/*` 的 query key 一律掛在 `["admin-auth"]` 前綴下——任一 mutation 一次 invalidate 全部。 */
 export const ADMIN_AUTH_PROVIDERS_QUERY_KEY = ["admin-auth", "providers"] as const;
@@ -31,7 +33,7 @@ export function useAuthProviderImpact(id: string, enabled: boolean): UseQueryRes
 /** 任一變更 → admin-auth 全部重抓＋登入頁的 `['auth-config']`（同一分頁登出後看到的按鈕要是新的）。 */
 function invalidateAdminAuth(queryClient: QueryClient): void {
   void queryClient.invalidateQueries({ queryKey: ["admin-auth"] });
-  void queryClient.invalidateQueries({ queryKey: ["auth-config"] });
+  void queryClient.invalidateQueries({ queryKey: AUTH_CONFIG_QUERY_KEY });
 }
 
 export interface CreateAuthProviderBody {
@@ -91,5 +93,34 @@ export function useDiscoverAuthProvider() {
   return useMutation({
     mutationFn: (issuerUrl: string) =>
       api<AdminAuthProbeResultDto>("/api/admin/auth/discover", { method: "POST", body: JSON.stringify({ issuerUrl }) }),
+  });
+}
+
+/** #187 §9.5：站台設定（「允許註冊」「允許帳密登入」）。`passwordLoginEnabled` 是 DB 值、`passwordLoginForced` 是 env。 */
+export const ADMIN_AUTH_SETTINGS_QUERY_KEY = ["admin-auth", "settings"] as const;
+
+export function useAdminAuthSettings(): UseQueryResult<AdminAuthSettingsDto> {
+  return useQuery({ queryKey: ADMIN_AUTH_SETTINGS_QUERY_KEY, queryFn: () => api<AdminAuthSettingsDto>("/api/admin/auth/settings") });
+}
+
+export interface PatchAdminAuthSettingsBody {
+  registrationEnabled?: boolean;
+  passwordLoginEnabled?: boolean;
+}
+
+/**
+ * 成功 → admin-auth 全部（含 settings 與 provider 卡片）＋登入頁的 auth-config 重抓。
+ * 409（`sso_provider_required`／`admin_sso_link_required`）只在本頁快照過期時出現（UI 已預先 disable 關得了的情況）：Switch 受控於 server 值、自然維持原狀，
+ * 但 `passwordLoginImpact` 是過期的——所以 409 也重抓 admin-auth 全部，讓預先 disable 與原因文字跟上。
+ */
+export function usePatchAdminAuthSettings() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: PatchAdminAuthSettingsBody) =>
+      api<AdminAuthSettingsDto>("/api/admin/auth/settings", { method: "PATCH", body: JSON.stringify(body) }),
+    onSuccess: () => invalidateAdminAuth(queryClient),
+    onError: err => {
+      if (err instanceof ApiFail && err.status === 409) invalidateAdminAuth(queryClient);
+    },
   });
 }

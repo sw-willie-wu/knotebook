@@ -29,13 +29,14 @@ function fakeResponse({ ok, status, json }: FakeResponseInit): Response {
 
 const AUTH_CONFIG_URL = "/api/auth/config";
 
-const NO_PROVIDERS: AuthConfigDto = { providers: [], registration: { enabled: true } };
+const NO_PROVIDERS: AuthConfigDto = { providers: [], registration: { enabled: true }, passwordLogin: { enabled: true } };
 const TWO: AuthConfigDto = {
   providers: [
     { id: "11111111-1111-1111-1111-111111111111", displayName: "GitLab" },
     { id: "22222222-2222-2222-2222-222222222222", displayName: "Google" },
   ],
   registration: { enabled: true },
+  passwordLogin: { enabled: true },
 };
 
 /** `/login` 路由本身不掛在 `<RequireAuth>` 底下，因此本檔不需要 `/api/auth/me`
@@ -106,6 +107,7 @@ describe("LoginPage（Plan 5 Task 10：SSO 入口＋?error= 映射）", () => {
       fetchMockWithAuthConfig({
         providers: [{ id: "33333333-3333-3333-3333-333333333333", displayName: evil }],
         registration: { enabled: true },
+        passwordLogin: { enabled: true },
       }),
     );
     const link = await screen.findByRole("link", { name: `Sign in with ${evil}` });
@@ -241,7 +243,7 @@ function fetchMockLoginOk(providers: AuthProviderPublicDto[] = []): ReturnType<t
       return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
     }
     if (url === AUTH_CONFIG_URL && method === "GET") {
-      const config: AuthConfigDto = { providers, registration: { enabled: true } };
+      const config: AuthConfigDto = { providers, registration: { enabled: true }, passwordLogin: { enabled: true } };
       return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(config) }));
     }
     if (url === LOGIN_URL && method === "POST") {
@@ -422,5 +424,90 @@ describe("#131 登入後導回 next", () => {
     submitLogin();
 
     await expectLandedOn("/n/alice/my-note");
+  });
+});
+
+const PROVIDERS = [{ id: "11111111-1111-1111-1111-111111111111", displayName: "GitLab" }];
+const NO_METHODS_TEXT = "There's no way to sign in right now. Please contact the site administrator.";
+
+describe("LoginPage——#187 PR3：帳密開關、註冊鈕、零方法", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("passwordLogin.enabled=false → 沒有 email／密碼欄與 Sign in 鈕；SSO 鈕照常", async () => {
+    renderAt("/login", fetchMockWithAuthConfig({ providers: PROVIDERS, registration: { enabled: true }, passwordLogin: { enabled: false } }));
+    await screen.findByRole("link", { name: "Sign in with GitLab" });
+    expect(document.querySelector("#login-email")).toBeNull();
+    expect(document.querySelector("#login-password")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Sign in" })).not.toBeInTheDocument();
+  });
+
+  it("零 provider＋帳密關 → 說明文字", async () => {
+    renderAt("/login", fetchMockWithAuthConfig({ providers: [], registration: { enabled: true }, passwordLogin: { enabled: false } }));
+    expect(await screen.findByText(NO_METHODS_TEXT)).toBeInTheDocument();
+  });
+
+  it("有 provider＋帳密關 → 沒有說明文字（gate r1-t10-17 M5）", async () => {
+    renderAt("/login", fetchMockWithAuthConfig({ providers: PROVIDERS, registration: { enabled: true }, passwordLogin: { enabled: false } }));
+    await screen.findByRole("link", { name: "Sign in with GitLab" });
+    expect(screen.queryByText(NO_METHODS_TEXT)).not.toBeInTheDocument();
+  });
+
+  it("允許註冊 → outline 按鈕形的「Create an account」（<a>，可及角色 link）連到 /register；帶合法 next 時轉交；不是實心鈕", async () => {
+    renderAt("/login?next=%2Fn%2Falice%2Fx", fetchMockWithAuthConfig({ providers: [], registration: { enabled: true }, passwordLogin: { enabled: true } }));
+    const link = await screen.findByRole("link", { name: "Create an account" });
+    expect(link.getAttribute("href")).toBe("/register?next=%2Fn%2Falice%2Fx");
+    expect(link.className).not.toMatch(/(^|\s)bg-(primary|destructive|brand|brand-deep)(\s|$)/);
+  });
+
+  it("不帶 next → 註冊鈕連到裸 /register", async () => {
+    renderAt("/login", fetchMockWithAuthConfig({ providers: [], registration: { enabled: true }, passwordLogin: { enabled: true } }));
+    const link = await screen.findByRole("link", { name: "Create an account" });
+    expect(link.getAttribute("href")).toBe("/register");
+  });
+
+  it("註冊關閉 → 沒有註冊鈕（先等 config 進 cache 才斷言；帳密表單在載入中就顯示，不能當等待點）", async () => {
+    const config: AuthConfigDto = { providers: [], registration: { enabled: false }, passwordLogin: { enabled: true } };
+    const queryClient = renderAt("/login", fetchMockWithAuthConfig(config));
+    await waitFor(() => expect(queryClient.getQueryData(["auth-config"])).toEqual(config));
+    expect(screen.queryByRole("link", { name: "Create an account" })).not.toBeInTheDocument();
+  });
+
+  it("RF5：/api/auth/config 失敗（500）→ 帳密表單照常顯示", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      if (String(input) === "/api/auth/config") {
+        return Promise.resolve(fakeResponse({ ok: false, status: 500, json: () => Promise.resolve({ error: { code: "internal", message: "x" } }) }));
+      }
+      throw new Error(`unexpected fetch: ${String(input)}`);
+    });
+    renderAt("/login", fetchMock);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(await screen.findByRole("button", { name: "Sign in" })).toBeInTheDocument();
+    expect(document.querySelector("#login-email")).not.toBeNull();
+  });
+
+  it("頁面開著期間被關閉：送出得 403 password_login_disabled → 顯示對應文案", async () => {
+    const config: AuthConfigDto = { providers: [], registration: { enabled: true }, passwordLogin: { enabled: true } };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/auth/config") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(config) }));
+      if (url === "/api/auth/login" && init?.method === "POST") {
+        return Promise.resolve(fakeResponse({ ok: false, status: 403, json: () => Promise.resolve({ error: { code: "password_login_disabled", message: "x" } }) }));
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    renderAt("/login", fetchMock);
+    fireEvent.change(await screen.findByLabelText("Email"), { target: { value: "a@example.com" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "correct-horse-battery" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("This site only allows signing in through a sign-in service."));
+  });
+
+  it("帳密關時 ?error= 仍顯示（例如 SSO 首登被註冊關閉擋下）", async () => {
+    renderAt("/login?error=registration_disabled", fetchMockWithAuthConfig({ providers: PROVIDERS, registration: { enabled: false }, passwordLogin: { enabled: false } }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("This site isn't accepting new accounts right now."));
   });
 });

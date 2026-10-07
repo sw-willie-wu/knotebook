@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { asc, eq, sql } from "drizzle-orm";
-import type { AdminAuthProbeResultDto, AdminAuthProviderDto, AuthProviderTemplate } from "@knotebook/shared";
+import { z } from "zod";
+import type { AdminAuthProbeResultDto, AdminAuthProviderDto, AdminAuthSettingsDto, AuthProviderTemplate } from "@knotebook/shared";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
-import { authProviders } from "../db/schema.js";
+import { authProviders, siteSettings } from "../db/schema.js";
 import { checkViolationConstraint } from "../db/pg-errors.js";
 import { sendError } from "../http/errors.js";
 import { TxAbort } from "../http/tx-abort.js";
@@ -16,6 +17,9 @@ import { createProviderSchema, discoverSchema, patchProviderSchema, sendInvalidB
 import { OidcUnavailableError, oidcRedirectUri, type OidcRuntimeRegistry } from "../auth/oidc-client.js";
 import { openClientSecret, probeWarnings, recordResolvedIssuer, sealClientSecret } from "../auth/oidc-providers.js";
 import { providerImpact } from "../auth/provider-impact.js";
+import { PASSWORD_LOGIN_SETTINGS_MISSING_LOG } from "../auth/password-login.js";
+import { passwordLoginImpact } from "../auth/sign-in-methods.js";
+import { updateSiteSettingsInTx, type UpdateSiteSettingsResult } from "../auth/tx/admin-site-settings.js";
 import {
   adminProviderColumns,
   type AdminProviderRow,
@@ -62,11 +66,59 @@ function toAdminProviderDto(row: AdminProviderRow, config: AppConfig): AdminAuth
 }
 
 /**
- * #187 PR2：站台管理的登入服務 API（spec §9.2；`/api/admin/auth/settings` 是 PR3）。全部 `requireAdmin`；HTTP 層訊息中文。
+ * #187 PR2：站台管理的登入服務 API（spec §9.2）；PR3 加 `/api/admin/auth/settings`（§9.5）。全部 `requireAdmin`；HTTP 層訊息中文。
  * 停用、刪除都不撤 session（Q5）。
  */
 export function adminAuthRoutes(deps: AdminAuthRouteDeps) {
   return async function register(app: FastifyInstance): Promise<void> {
+    const settingsBodySchema = z
+      .object({ registrationEnabled: z.boolean().optional(), passwordLoginEnabled: z.boolean().optional() })
+      .strict()
+      .refine(body => Object.keys(body).length > 0, "請求格式錯誤：至少需要一個欄位");
+
+    /** GET 與 PATCH 回同一形。讀不到列：註冊視同關、帳密視同開（§4.3 兩條）＋log.error；GET 不回 500（PATCH 會）。 */
+    async function settingsDto(request: FastifyRequest): Promise<AdminAuthSettingsDto> {
+      const [row] = await deps.db
+        .select({ registrationEnabled: siteSettings.registrationEnabled, passwordLoginEnabled: siteSettings.passwordLoginEnabled })
+        .from(siteSettings)
+        .where(eq(siteSettings.singleton, true))
+        .limit(1);
+      if (row === undefined) request.log.error({ table: "site_settings" }, PASSWORD_LOGIN_SETTINGS_MISSING_LOG);
+      return {
+        registrationEnabled: row?.registrationEnabled ?? false,
+        passwordLoginEnabled: row?.passwordLoginEnabled ?? true,
+        passwordLoginForced: deps.config.passwordLoginForceEnable,
+        passwordLoginImpact: await passwordLoginImpact(deps.db, request.user!.id),
+      };
+    }
+
+    app.get("/api/admin/auth/settings", { preHandler: app.requireAdmin }, async request => settingsDto(request));
+
+    app.patch("/api/admin/auth/settings", { preHandler: app.requireAdmin }, async (request, reply) => {
+      const parsed = settingsBodySchema.safeParse(request.body);
+      if (!parsed.success) return sendInvalidBody(reply, parsed.error);
+      const input = { actorUserId: request.user!.id, ...parsed.data };
+      let result: UpdateSiteSettingsResult;
+      try {
+        result = await deps.db.transaction(tx => updateSiteSettingsInTx(tx, input));
+      } catch (err) {
+        if (err instanceof TxAbort) {
+          // §4.3：讀不到列（只可能是手改 DB）→ 500＋log.error。
+          if (err.status === 500) request.log.error({ table: "site_settings" }, err.message);
+          return sendError(reply, err.status, err.errCode, err.message);
+        }
+        throw err;
+      }
+      // §9.5 第 4 步：有變才記（舊值是 B27 鎖下讀的，並發不會讓它沉默）。
+      if (result.previousPasswordLoginEnabled !== result.passwordLoginEnabled) {
+        request.log.info(
+          { userId: request.user!.id, passwordLoginEnabled: result.passwordLoginEnabled, passwordLoginForced: deps.config.passwordLoginForceEnable },
+          "帳密登入開關被變更",
+        );
+      }
+      return reply.send(await settingsDto(request));
+    });
+
     app.get("/api/admin/auth/providers", { preHandler: app.requireAdmin }, async () => {
       const rows = await deps.db
         .select(adminProviderColumns())
@@ -113,13 +165,17 @@ export function adminAuthRoutes(deps: AdminAuthRouteDeps) {
       const { clientSecret, ...fields } = parsed.data;
       // 交易外封章（S14：交易內只做 DB）。AAD 綁 id——封給這一列的密文搬到別列解不開（§5.1）。
       const newSecretSealed = clientSecret !== undefined ? sealClientSecret(deps.config.appSecret, id, clientSecret) : undefined;
-      const patchInput = { id, ...fields, ...(newSecretSealed !== undefined ? { newSecretSealed } : {}) };
+      const patchInput = { id, actorUserId: request.user!.id, ...fields, ...(newSecretSealed !== undefined ? { newSecretSealed } : {}) };
 
       let result: UpdateAuthProviderResult;
       try {
         result = await deps.db.transaction(tx => updateAuthProviderInTx(tx, patchInput));
       } catch (err) {
-        if (err instanceof TxAbort) return sendError(reply, err.status, err.errCode, err.message);
+        if (err instanceof TxAbort) {
+          // B27 鎖讀不到 site_settings 列（§17 第 34 條）→ 500＋log.error（§4.3）。
+          if (err.status === 500) request.log.error({ table: "site_settings" }, err.message);
+          return sendError(reply, err.status, err.errCode, err.message);
+        }
         if (checkViolationConstraint(err) === "auth_providers_enabled_secret_chk") {
           return sendError(reply, 409, "provider_secret_missing", "這個登入服務沒有 client secret，不能啟用");
         }
@@ -132,7 +188,7 @@ export function adminAuthRoutes(deps: AdminAuthRouteDeps) {
       const { row, previousIssuerUrl } = result;
       if (fields.issuerUrl !== undefined) {
         // §5.2：帶了 issuerUrl 就記一行（值相同也記——條件式記錄在並發下會整個沉默，見 [[ai-provider-key-exfil]] 第 3 條）。
-        // `hasSecretAfter`／`enabledAfter` 取 DB 回傳值；`from` 是交易內的一般讀，並發下可能落後。
+        // `hasSecretAfter`／`enabledAfter` 取 DB 回傳值；`from` 是 B27 鎖之後的讀——改 issuer 的寫入（provider PATCH）都排在那把鎖後，是當下的值。
         request.log.info(
           { providerId: id, userId: request.user!.id, from: safeTarget(previousIssuerUrl), to: safeTarget(row.issuerUrl), hasSecretAfter: row.hasSecret, enabledAfter: row.enabled },
           ISSUER_AUDIT_LOG,
@@ -149,7 +205,11 @@ export function adminAuthRoutes(deps: AdminAuthRouteDeps) {
       try {
         await deps.db.transaction(tx => deleteAuthProviderInTx(tx, deleteInput));
       } catch (err) {
-        if (err instanceof TxAbort) return sendError(reply, err.status, err.errCode, err.message);
+        if (err instanceof TxAbort) {
+          // B27 鎖讀不到 site_settings 列（§17 第 34 條）→ 500＋log.error（§4.3）。
+          if (err.status === 500) request.log.error({ table: "site_settings" }, err.message);
+          return sendError(reply, err.status, err.errCode, err.message);
+        }
         // 與 PATCH 一致：非預期的 DB 錯誤一律遮蔽後再丟（這一句不帶密文參數，但刪的是含密文欄的列——不讓錯誤本體進 log）。
         throw redactDbError(request.log, err, "刪除登入服務");
       }
@@ -161,7 +221,7 @@ export function adminAuthRoutes(deps: AdminAuthRouteDeps) {
     app.get("/api/admin/auth/providers/:id/impact", { preHandler: app.requireAdmin }, async (request, reply) => {
       const id = providerIdParam(request);
       if (id === null) return sendError(reply, 404, "not_found", NOT_FOUND_MESSAGE);
-      const result = await providerImpact(deps.db, id);
+      const result = await providerImpact(deps.db, id, request.user!.id);
       if (result === null) return sendError(reply, 404, "not_found", NOT_FOUND_MESSAGE);
       return reply.send(result);
     });

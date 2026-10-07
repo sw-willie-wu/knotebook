@@ -125,7 +125,7 @@ describe("LinkAccountPage（#187 §9.4 /link-account）", () => {
     mockFetch({
       "GET /api/auth/oidc/pending": () => fakeResponse(200, PENDING),
       "POST /api/auth/oidc/pending/confirm": () => err(409, "oidc_link_expired"),
-      "GET /api/auth/config": () => fakeResponse(200, { providers: [], registration: { enabled: true } }),
+      "GET /api/auth/config": () => fakeResponse(200, { providers: [], registration: { enabled: true }, passwordLogin: { enabled: true } }),
     });
     renderAt("/link-account");
     fireEvent.change(await screen.findByLabelText("Password for this account"), { target: { value: "pw-123456789012" } });
@@ -152,7 +152,7 @@ describe("LinkAccountPage（#187 §9.4 /link-account）", () => {
     const calls = mockFetch({
       "GET /api/auth/oidc/pending": () => fakeResponse(200, PENDING),
       "POST /api/auth/oidc/pending/cancel": () => fakeResponse(204),
-      "GET /api/auth/config": () => fakeResponse(200, { providers: [], registration: { enabled: true } }),
+      "GET /api/auth/config": () => fakeResponse(200, { providers: [], registration: { enabled: true }, passwordLogin: { enabled: true } }),
     });
     renderAt("/link-account");
     fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
@@ -198,7 +198,7 @@ describe("LinkAccountPage（#187 §9.4 /link-account）", () => {
     for (const [path, expectAlert] of [["/link-account", false], ["/link-account?error=oidc_link_expired", true]] as const) {
       const calls = mockFetch({
         "GET /api/auth/oidc/pending": () => err(401, "unauthorized"),
-        "GET /api/auth/config": () => fakeResponse(200, { providers: [], registration: { enabled: true } }),
+        "GET /api/auth/config": () => fakeResponse(200, { providers: [], registration: { enabled: true }, passwordLogin: { enabled: true } }),
       });
       renderAt(path);
       expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument();
@@ -226,7 +226,7 @@ describe("LinkAccountPage（#187 §9.4 /link-account）", () => {
   it("fix r1 I1：GET pending 回 409 oidc_link_expired（帳號已刪／email 已改）→ 導 /login、登入頁顯示該文案，不停在 Loading", async () => {
     const calls = mockFetch({
       "GET /api/auth/oidc/pending": () => err(409, "oidc_link_expired"),
-      "GET /api/auth/config": () => fakeResponse(200, { providers: [], registration: { enabled: true } }),
+      "GET /api/auth/config": () => fakeResponse(200, { providers: [], registration: { enabled: true }, passwordLogin: { enabled: true } }),
     });
     renderAt("/link-account");
     expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument();
@@ -255,7 +255,7 @@ describe("LinkAccountPage（#187 §9.4 /link-account）", () => {
       mockFetch({
         "GET /api/auth/oidc/pending": fail,
         "POST /api/auth/oidc/pending/cancel": () => fakeResponse(204),
-        "GET /api/auth/config": () => fakeResponse(200, { providers: [], registration: { enabled: true } }),
+        "GET /api/auth/config": () => fakeResponse(200, { providers: [], registration: { enabled: true }, passwordLogin: { enabled: true } }),
       });
       renderAt("/link-account");
       expect(await screen.findByRole("alert")).toHaveTextContent("An unexpected error occurred.");
