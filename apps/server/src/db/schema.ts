@@ -101,6 +101,12 @@ export const authProviders = pgTable(
     configVersion: integer("config_version").notNull().default(1),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // 登入服務圖示（spec 2026-10-07-provider-icon §3）：kind ∈ template|gitlab|google|upload|none；upload ⇔ data 與 mime 皆非 NULL。
+    // icon_version 只在上傳時 +1（公開讀圖網址的 `?v=`）；icon_data 只在 PUT 寫、公開 GET 讀，清單 SELECT 一律不選（§5.3）。
+    iconKind: text("icon_kind").notNull().default("template"),
+    iconData: bytea("icon_data"),
+    iconMime: text("icon_mime"),
+    iconVersion: integer("icon_version").notNull().default(0),
   },
   t => [
     check("auth_providers_template_chk", sql`${t.template} in ('gitlab', 'google', 'oidc')`),
@@ -109,6 +115,14 @@ export const authProviders = pgTable(
     check("auth_providers_resolved_issuer_chk", sql`${t.resolvedIssuer} is null or char_length(${t.resolvedIssuer}) <= 512`),
     check("auth_providers_client_id_chk", sql`char_length(${t.clientId}) between 1 and 512`),
     check("auth_providers_enabled_secret_chk", sql`not ${t.enabled} or ${t.clientSecretEncrypted} is not null`),
+    check("auth_providers_icon_kind_chk", sql`${t.iconKind} in ('template', 'gitlab', 'google', 'upload', 'none')`),
+    check(
+      "auth_providers_icon_upload_chk",
+      sql`(${t.iconKind} = 'upload' and ${t.iconData} is not null and ${t.iconMime} is not null) or (${t.iconKind} <> 'upload' and ${t.iconData} is null and ${t.iconMime} is null)`,
+    ),
+    check("auth_providers_icon_mime_chk", sql`${t.iconMime} is null or ${t.iconMime} in ('image/png', 'image/jpeg', 'image/webp')`),
+    // 262144＝shared `MAX_PROVIDER_ICON_BYTES`（寫字面：插值會變成 SQL 參數；兩邊由 shared 的常數測試對齊）。
+    check("auth_providers_icon_size_chk", sql`${t.iconData} is null or octet_length(${t.iconData}) <= 262144`),
     uniqueIndex("auth_providers_legacy_callback_idx").on(t.legacyCallback).where(sql`${t.legacyCallback}`),
   ],
 );

@@ -11,9 +11,9 @@ import { apiTokens, authProviders, groupMembers, groupRoles, groups, noteRedirec
 
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
-/** drizzle 對 `schema.ts` 的序列化；宣告漂移守衛拿最新一支（0014）當比對基準。 */
-const snapshot0014 = JSON.parse(
-  readFileSync(path.join(drizzleDirForTest, "meta/0014_snapshot.json"), "utf8"),
+/** drizzle 對 `schema.ts` 的序列化；宣告漂移守衛拿最新一支（0015）當比對基準。 */
+const snapshot0015 = JSON.parse(
+  readFileSync(path.join(drizzleDirForTest, "meta/0015_snapshot.json"), "utf8"),
 ) as { tables: Record<string, { checkConstraints?: Record<string, { name: string; value: string }> }> };
 const pgDialect = new PgDialect();
 
@@ -1138,6 +1138,7 @@ describe("0009_api-tokens", () => {
       auth_providers: [
         "id", "template", "display_name", "issuer_url", "resolved_issuer", "client_id", "client_secret_encrypted",
         "enabled", "sort_order", "legacy_callback", "config_version", "created_at", "updated_at",
+        "icon_kind", "icon_data", "icon_mime", "icon_version",
       ],
       user_identities: ["id", "user_id", "issuer", "sub", "created_at", "last_login_at"],
       site_settings: ["singleton", "registration_enabled", "password_login_enabled", "legacy_oidc_env_handled_at", "updated_at"],
@@ -1190,7 +1191,7 @@ describe("0009_api-tokens", () => {
       // 名字仍在、DB 仍是舊值，上面每一條都綠——下一次 generate 才會靜默吐出一支
       // DROP/ADD CONSTRAINT。這個 PR 就踩過一次（長度上限 200↔64 的半套回滾）。
       // snapshot 是 drizzle 對 schema.ts 的序列化，逐字比對它＝真正的漂移守衛。
-      const snapshotChecks = snapshot0014.tables[`public.${table}`]?.checkConstraints ?? {};
+      const snapshotChecks = snapshot0015.tables[`public.${table}`]?.checkConstraints ?? {};
       expect(Object.keys(snapshotChecks).sort(), `${table} 的 CHECK 名集合`).toEqual(
         cfg.checks.map(c => c.name).sort()
       );
@@ -1661,6 +1662,51 @@ describe("0014_auth-providers（#187）", () => {
   it("0014 檔內無 CONCURRENTLY／行首 COMMIT（單一 tx 前提的輔助 grep，比照 0013 之前各支）", () => {
     // ⚠ 比對的是**全檔**（含 `--` 註解）：SQL 的註解裡不得寫出這兩個字——gate r1 t1-7 I1，舊版檔頭註解就因此必紅。
     const sqlText = readFileSync(path.join(drizzleDirForTest, "0014_auth-providers.sql"), "utf8");
+    expect(sqlText).not.toMatch(/CONCURRENTLY/i);
+    expect(sqlText).not.toMatch(/^\s*COMMIT/im);
+  });
+});
+
+describe("0015_provider-icon（登入服務圖示，spec §3）", () => {
+  const P = "33333333-3333-4333-8333-333333333333";
+  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const insertBase = (pool: import("pg").Pool) =>
+    pool.query(`insert into auth_providers (id, template, display_name, issuer_url, client_id) values ('${P}', 'oidc', 'SSO', 'https://idp.example', 'c')`);
+
+  it("既有列（0014 時代建的，例如 env 匯入那一列）遷移後：icon_kind='template'、icon_version=0、icon_data／icon_mime 為 NULL（§3.3）", async () => {
+    const { pool, db } = await freshEmptyDb();
+    await applyMigrationsThrough(pool, idxOfTag("0014_auth-providers"));
+    await insertBase(pool);
+    await runMigrations(db);
+    const { rows } = await pool.query(`select icon_kind, icon_data, icon_mime, icon_version from auth_providers where id = '${P}'`);
+    expect(rows).toEqual([{ icon_kind: "template", icon_data: null, icon_mime: null, icon_version: 0 }]);
+  });
+
+  it("S5 的 CHECK：每一形恰違反一條，constraint 名逐一斷言；合法形放行（含 262144 位元組上界）", async () => {
+    const { pool } = await freshDb();
+    await insertBase(pool);
+    const upd = (set: string, params: unknown[] = []) => pool.query(`update auth_providers set ${set} where id = '${P}'`, params);
+    const cases: Array<[string, unknown[], string]> = [
+      ["icon_kind = 'upload'", [], "auth_providers_icon_upload_chk"],
+      ["icon_kind = 'upload', icon_data = $1", [PNG], "auth_providers_icon_upload_chk"],
+      ["icon_kind = 'none', icon_mime = 'image/png'", [], "auth_providers_icon_upload_chk"],
+      ["icon_kind = 'gitlab', icon_data = $1", [PNG], "auth_providers_icon_upload_chk"],
+      ["icon_kind = 'svg'", [], "auth_providers_icon_kind_chk"],
+      ["icon_kind = 'upload', icon_data = $1, icon_mime = 'image/gif'", [PNG], "auth_providers_icon_mime_chk"],
+      ["icon_kind = 'upload', icon_data = $1, icon_mime = 'image/png'", [Buffer.alloc(262145)], "auth_providers_icon_size_chk"],
+    ];
+    for (const [set, params, constraint] of cases) {
+      await expect(upd(set, params), set).rejects.toMatchObject({ code: "23514", constraint });
+    }
+    await upd("icon_kind = 'upload', icon_data = $1, icon_mime = 'image/webp', icon_version = icon_version + 1", [Buffer.alloc(262144)]);
+    await upd("icon_kind = 'none', icon_data = null, icon_mime = null");
+    const { rows } = await pool.query(`select icon_kind, icon_data, icon_mime, icon_version from auth_providers where id = '${P}'`);
+    expect(rows).toEqual([{ icon_kind: "none", icon_data: null, icon_mime: null, icon_version: 1 }]);
+  });
+
+  it("0015 檔內無 CONCURRENTLY／行首 COMMIT（單一 tx 前提的輔助 grep，比照 0014）", () => {
+    // ⚠ 比對全檔（含 `--` 註解）：檔頭註解裡不得寫出這兩個字。
+    const sqlText = readFileSync(path.join(drizzleDirForTest, "0015_provider-icon.sql"), "utf8");
     expect(sqlText).not.toMatch(/CONCURRENTLY/i);
     expect(sqlText).not.toMatch(/^\s*COMMIT/im);
   });
