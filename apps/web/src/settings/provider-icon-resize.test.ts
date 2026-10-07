@@ -39,6 +39,7 @@ describe("providerIconTargetSize（spec §6.4 第 4 步、§8.2 W3）", () => {
     expect(providerIconTargetSize(100, 50)).toEqual({ width: 100, height: 50 });
     expect(providerIconTargetSize(128, 128)).toEqual({ width: 128, height: 128 });
     expect(providerIconTargetSize(5000, 1)).toEqual({ width: 128, height: 1 });
+    expect(providerIconTargetSize(300, 100)).toEqual({ width: 128, height: 43 });
   });
 });
 
