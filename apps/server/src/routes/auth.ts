@@ -52,7 +52,7 @@ export interface AuthRouteDeps {
  */
 export function authRoutes(deps: AuthRouteDeps) {
   return async function register(app: FastifyInstance): Promise<void> {
-    // 免認證（#187）：登入頁在使用者輸入帳密之前就要知道有哪些登入服務。只曝光 id 與顯示名（AuthProviderPublicDto）。
+    // 免認證（#187）：登入頁在使用者輸入帳密之前就要知道有哪些登入服務。只曝光 id、顯示名與圖示（AuthProviderPublicDto）。
     // GET 不受 app.ts 的 JSON CSRF hook 影響。
     app.get("/api/auth/config", async (request): Promise<AuthConfigDto> => {
       const providers = await listEnabledProvidersPublic(deps.db);

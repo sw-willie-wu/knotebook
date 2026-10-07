@@ -157,7 +157,7 @@ export function accountRoutes(deps: AccountRouteDeps) {
       const identities: IdentityDto[] = mine.map(i => ({
         id: i.id,
         issuer: i.issuer,
-        providers: enabled.filter(p => p.effectiveIssuer === i.issuer).map(p => ({ id: p.id, displayName: p.displayName })),
+        providers: enabled.filter(p => p.effectiveIssuer === i.issuer).map(p => ({ id: p.id, displayName: p.displayName, icon: p.icon })),
         createdAt: i.createdAt.toISOString(),
         lastLoginAt: i.lastLoginAt?.toISOString() ?? null,
         unlinkable: canUnlinkIdentity(i.id, { hasPassword, passwordLoginDbValue: dbValue ?? true, usableIdentityIds: usable }),
@@ -167,7 +167,7 @@ export function accountRoutes(deps: AccountRouteDeps) {
         identities,
         linkable: enabled
           .filter(p => !linkedIssuers.has(p.effectiveIssuer))
-          .map(p => ({ providerId: p.id, displayName: p.displayName, template: p.template as AuthProviderTemplate })),
+          .map(p => ({ providerId: p.id, displayName: p.displayName, template: p.template as AuthProviderTemplate, icon: p.icon })),
         hasPassword,
         // 有效值（DB OR env）：只決定設定頁顯示「加上密碼」與說明；INV-7 不看它（已折進 unlinkable）。
         passwordLoginEnabled: effectivePasswordLogin(dbValue, deps.config.passwordLoginForceEnable),

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { asc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
-import type { AdminAuthProbeResultDto, AdminAuthProviderDto, AdminAuthSettingsDto, AuthProviderTemplate } from "@knotebook/shared";
+import { resolveProviderIcon, type AdminAuthProbeResultDto, type AdminAuthProviderDto, type AdminAuthSettingsDto, type AuthProviderTemplate, type ProviderIconKind } from "@knotebook/shared";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
 import { authProviders, siteSettings } from "../db/schema.js";
@@ -62,6 +62,9 @@ function toAdminProviderDto(row: AdminProviderRow, config: AppConfig): AdminAuth
     insecureIssuer: row.issuerUrl.startsWith("http://"),
     issuerResolved: row.issuerResolved,
     createdAt: row.createdAt.toISOString(),
+    // CHECK `auth_providers_icon_kind_chk` 保證值域（比照上面 template 的轉型）。
+    iconKind: row.iconKind as ProviderIconKind,
+    icon: resolveProviderIcon(row),
   };
 }
 

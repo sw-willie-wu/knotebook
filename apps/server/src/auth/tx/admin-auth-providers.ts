@@ -23,6 +23,8 @@ export interface AdminProviderRow {
   createdAt: Date;
   hasSecret: boolean;
   issuerResolved: boolean;
+  iconKind: string;
+  iconVersion: number;
 }
 
 /** 每次現造（drizzle 的 `sql` 片段與 select 形不重用）。`createdAt` 必須是欄位本身——raw `sql` 選時間戳回字串。 */
@@ -40,6 +42,9 @@ export function adminProviderColumns() {
     createdAt: authProviders.createdAt,
     hasSecret: sql<boolean>`${authProviders.clientSecretEncrypted} is not null`,
     issuerResolved: sql<boolean>`${authProviders.resolvedIssuer} is not null`,
+    // 圖示：只選換算要的兩欄（template 已在上面），**不選 icon_data／icon_mime**（spec §5.3）。
+    iconKind: authProviders.iconKind,
+    iconVersion: authProviders.iconVersion,
   };
 }
 

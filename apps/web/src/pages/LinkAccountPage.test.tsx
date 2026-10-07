@@ -19,7 +19,7 @@ const PENDING: PendingLinkDto = {
   pendingId: "pid-1",
   email: "u@example.com",
   providerDisplayName: "Corp IdP",
-  methods: { password: true, providers: [{ id: "11111111-1111-1111-1111-111111111111", displayName: "GitLab" }] },
+  methods: { password: true, providers: [{ id: "11111111-1111-1111-1111-111111111111", displayName: "GitLab", icon: { type: "builtin", name: "gitlab" } }] },
 };
 const USER = { id: "u1", email: "u@example.com", handle: "u", displayName: "U", isAdmin: false, mustChangePassword: false, hasPassword: true };
 

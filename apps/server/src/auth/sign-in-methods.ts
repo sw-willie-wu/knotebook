@@ -1,5 +1,6 @@
 import { asc, eq, sql, type SQL } from "drizzle-orm";
-import type { AdminAuthSettingsDto } from "@knotebook/shared";
+import { resolveProviderIcon, type AdminAuthSettingsDto, type ProviderIconDto } from "@knotebook/shared";
+import { providerIconColumns } from "./provider-icon.js";
 import type { Db } from "../db/index.js";
 import type { DbOrTx } from "../db/tx.js";
 import { authProviders } from "../db/schema.js";
@@ -13,20 +14,22 @@ export interface EnabledProviderIssuer {
   displayName: string;
   template: string;
   effectiveIssuer: string;
+  icon: ProviderIconDto;
 }
 
 /** 啟用中的 provider 與其 effective issuer（排序同登入頁）。收 `DbOrTx`：解除連結交易內以 tx 呼叫（S14）。 */
 export async function enabledProvidersWithIssuer(q: DbOrTx): Promise<EnabledProviderIssuer[]> {
-  return q
+  const rows = await q
     .select({
       id: authProviders.id,
       displayName: authProviders.displayName,
-      template: authProviders.template,
+      ...providerIconColumns(),
       effectiveIssuer: sql<string>`coalesce(${authProviders.resolvedIssuer}, ${authProviders.issuerUrl})`,
     })
     .from(authProviders)
     .where(eq(authProviders.enabled, true))
     .orderBy(asc(authProviders.sortOrder), asc(authProviders.createdAt), asc(authProviders.id));
+  return rows.map(r => ({ id: r.id, displayName: r.displayName, template: r.template, effectiveIssuer: r.effectiveIssuer, icon: resolveProviderIcon(r) }));
 }
 
 /** 本帳號身分中「可用」者（issuer 等於某個啟用中 provider 的 effective issuer）。 */

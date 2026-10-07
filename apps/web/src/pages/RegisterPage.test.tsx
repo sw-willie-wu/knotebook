@@ -14,7 +14,7 @@ function fakeResponse(status: number, body?: unknown): Response {
 const SOLID_BG = /(^|\s)bg-(primary|destructive|brand|brand-deep)(\s|$)/;
 const USER: UserDto = { id: "u1", email: "new@example.com", handle: "new", displayName: "New", isAdmin: false, mustChangePassword: false, hasPassword: true };
 const OPEN: AuthConfigDto = {
-  providers: [{ id: "11111111-1111-4111-8111-111111111111", displayName: '<b>Corp</b> & "Co"' }],
+  providers: [{ id: "11111111-1111-4111-8111-111111111111", displayName: '<b>Corp</b> & "Co"', icon: null }],
   registration: { enabled: true },
   passwordLogin: { enabled: true },
 };

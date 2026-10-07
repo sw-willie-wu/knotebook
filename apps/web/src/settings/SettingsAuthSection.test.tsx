@@ -31,6 +31,8 @@ const LEGACY: AdminAuthProviderDto = {
   insecureIssuer: true,
   issuerResolved: true,
   createdAt: "2026-10-06T00:00:00.000Z",
+  iconKind: "template",
+  icon: { type: "builtin", name: "generic" },
 };
 const CUSTOM: AdminAuthProviderDto = {
   id: "22222222-2222-4222-8222-222222222222",
@@ -46,6 +48,8 @@ const CUSTOM: AdminAuthProviderDto = {
   insecureIssuer: false,
   issuerResolved: false,
   createdAt: "2026-10-06T00:00:00.000Z",
+  iconKind: "template",
+  icon: { type: "builtin", name: "gitlab" },
 };
 
 type Handler = (method: string, url: string, body: unknown) => Response | null;

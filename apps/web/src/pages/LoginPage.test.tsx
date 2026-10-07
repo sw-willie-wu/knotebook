@@ -32,8 +32,8 @@ const AUTH_CONFIG_URL = "/api/auth/config";
 const NO_PROVIDERS: AuthConfigDto = { providers: [], registration: { enabled: true }, passwordLogin: { enabled: true } };
 const TWO: AuthConfigDto = {
   providers: [
-    { id: "11111111-1111-1111-1111-111111111111", displayName: "GitLab" },
-    { id: "22222222-2222-2222-2222-222222222222", displayName: "Google" },
+    { id: "11111111-1111-1111-1111-111111111111", displayName: "GitLab", icon: { type: "builtin", name: "gitlab" } },
+    { id: "22222222-2222-2222-2222-222222222222", displayName: "Google", icon: { type: "builtin", name: "google" } },
   ],
   registration: { enabled: true },
   passwordLogin: { enabled: true },
@@ -105,7 +105,7 @@ describe("LoginPage（Plan 5 Task 10：SSO 入口＋?error= 映射）", () => {
     renderAt(
       "/login",
       fetchMockWithAuthConfig({
-        providers: [{ id: "33333333-3333-3333-3333-333333333333", displayName: evil }],
+        providers: [{ id: "33333333-3333-3333-3333-333333333333", displayName: evil, icon: null }],
         registration: { enabled: true },
         passwordLogin: { enabled: true },
       }),
@@ -427,7 +427,7 @@ describe("#131 登入後導回 next", () => {
   });
 });
 
-const PROVIDERS = [{ id: "11111111-1111-1111-1111-111111111111", displayName: "GitLab" }];
+const PROVIDERS: AuthProviderPublicDto[] = [{ id: "11111111-1111-1111-1111-111111111111", displayName: "GitLab", icon: { type: "builtin", name: "gitlab" } }];
 const NO_METHODS_TEXT = "There's no way to sign in right now. Please contact the site administrator.";
 
 describe("LoginPage——#187 PR3：帳密開關、註冊鈕、零方法", () => {
