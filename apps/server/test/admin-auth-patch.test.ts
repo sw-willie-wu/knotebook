@@ -120,6 +120,15 @@ describe("PATCH /api/admin/auth/providers/:id（#187 §5.2）", () => {
     expect(await providerRow(db, p.id)).toMatchObject({ issuerUrl: ISS, displayName: "SSO", configVersion: 3 });
   });
 
+  it("RF1p PATCH issuer 格式錯又帶帳密 → 400 invalid_body（不是 500）、列不變", async () => {
+    const { app, db, cookies } = await adminApp();
+    const p = await seedLive(db);
+    const res = await patch(app, cookies, p.id, { issuerUrl: "https://user:pass@ho st/v1" });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ error: { code: "invalid_body" } });
+    expect(await providerRow(db, p.id)).toMatchObject({ issuerUrl: ISS, configVersion: 3 });
+  });
+
   it("RF4 大寫 uuid 路徑 → 與小寫同義；registry.invalidate 收到小寫 id（每次成功的 PATCH 都叫）", async () => {
     const invalidated: string[] = [];
     const inner = createOidcRuntimeRegistry();
@@ -139,15 +148,16 @@ describe("PATCH /api/admin/auth/providers/:id（#187 §5.2）", () => {
   it("稽核 log：帶 issuerUrl 就記一行（值相同也記）；只記 origin+pathname；hasSecretAfter／enabledAfter 取 DB 回傳值", async () => {
     const logs = captureLogs();
     const { app, db, cookies, admin } = await adminApp({}, logs.options);
-    const p = await seedLive(db);
-    await patch(app, cookies, p.id, { issuerUrl: "https://user:pass@evil.example.com/realm?k=secret" });
+    // 模擬新規則上線前就存在的舊資料：issuer 帶 userinfo＋query（現在的入口已會 400，只能直接寫 DB）；`from` 讀自這一列。
+    const p = await seedAuthProvider(db, { issuerUrl: "https://user:pass@idp.example.com/?k=secret", resolvedIssuer: ISS, clientId: "client-a", clientSecret: "secret-a", enabled: true, configVersion: 3 });
+    await patch(app, cookies, p.id, { issuerUrl: "https://evil.example.com/realm?k=secret" });
     const line = logs.lines.find(l => l.msg === "登入服務的 issuer 被寫入");
     expect(line).toBeDefined();
     expect(line!.obj).toMatchObject({ providerId: p.id, userId: admin.id, from: "https://idp.example.com/", to: "https://evil.example.com/realm", hasSecretAfter: false, enabledAfter: false });
     // 只記 origin+pathname：userinfo（user:pass@）與 query（?k=…）都不得出現在 from／to（gate r1-t1-7 M8：比對值本身，不比欄名）。
     for (const field of [line!.obj.from, line!.obj.to]) expect(String(field)).not.toMatch(/[?@]|pass/);
     logs.lines.length = 0;
-    await patch(app, cookies, p.id, { issuerUrl: "https://user:pass@evil.example.com/realm?k=secret" });
+    await patch(app, cookies, p.id, { issuerUrl: "https://evil.example.com/realm?k=secret" });
     expect(logs.lines.filter(l => l.msg === "登入服務的 issuer 被寫入")).toHaveLength(1);
     logs.lines.length = 0;
     await patch(app, cookies, p.id, { displayName: "no issuer" });

@@ -61,6 +61,16 @@ function baseUrlPlaceholder(type: AdminAiProviderDto["type"]): string {
 
 // ═══════════════════════════════ providers ═══════════════════════════════
 
+/** 前端先擋（server 才是權威，同 code `base_url_has_credentials`）：URL 帶帳密時不送出。 */
+function baseUrlHasCredentials(value: string): boolean {
+  try {
+    const u = new URL(value.trim());
+    return u.username !== "" || u.password !== "";
+  } catch {
+    return false;
+  }
+}
+
 function CreateProviderDialog() {
   const { t } = useTranslation();
   const createProvider = useCreateAiProvider();
@@ -82,6 +92,10 @@ function CreateProviderDialog() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     setError(null);
+    if (baseUrlHasCredentials(baseUrl)) {
+      setError(t("errors.base_url_has_credentials"));
+      return;
+    }
     const trimmedKey = apiKey.trim();
     try {
       await createProvider.mutateAsync({
@@ -212,6 +226,10 @@ function EditProviderDialog({ provider }: { provider: AdminAiProviderDto }) {
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     setError(null);
+    if (baseUrlHasCredentials(baseUrl)) {
+      setError(t("errors.base_url_has_credentials"));
+      return;
+    }
     const trimmedKey = apiKey.trim();
     try {
       await patchProvider.mutateAsync({

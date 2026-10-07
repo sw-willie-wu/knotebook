@@ -45,7 +45,17 @@ export const issuerUrlSchema = z
     } catch {
       return false;
     }
-  }, "issuer 不是合法網址");
+  }, "issuer 不是合法網址")
+  // 不得帶帳密（`https://user:pass@host`／`user@host`）：issuer 是明文欄位（DB 明文、GET 原樣回傳、進 log），
+  // 且 fetch 本來就拒絕這種網址。zod 的 refine 鏈不會短路，所以解析失敗要放行（交給上面那條報「不是合法網址」）。
+  .refine(s => {
+    try {
+      const u = new URL(s);
+      return u.username === "" && u.password === "";
+    } catch {
+      return true;
+    }
+  }, "issuer 網址不能包含帳號密碼");
 
 const clientId = z
   .string()
