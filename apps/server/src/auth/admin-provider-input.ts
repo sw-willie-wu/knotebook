@@ -79,6 +79,8 @@ export const patchProviderSchema = z
     clientSecret: clientSecret.optional(),
     enabled: z.boolean().optional(),
     sortOrder: z.number().int().min(0).max(100_000).optional(),
+    // 圖示（spec 2026-10-07-provider-icon §4.3）：upload 只能經 PUT …/icon，這裡不收。值域與 CHECK auth_providers_icon_kind_chk 去掉 upload 一致。
+    iconKind: z.enum(["template", "gitlab", "google", "none"]).optional(),
   })
   .strict()
   .refine(body => Object.keys(body).length > 0, "請求格式錯誤：至少需要一個欄位");

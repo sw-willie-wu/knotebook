@@ -55,6 +55,8 @@ export interface UpdateAuthProviderInput {
   clientId?: string;
   sortOrder?: number;
   enabled?: boolean;
+  /** 圖示種類（不含 upload）。帶了就在同一句 UPDATE 清掉上傳圖（data／mime 設 NULL）；icon_version 不動、config_version 不看它。 */
+  iconKind?: "template" | "gitlab" | "google" | "none";
   /** B19 P2 的「操作者」。 */
   actorUserId: string;
   /** 已封好的新 secret（AAD 綁 id；**交易外**封——S14）。undefined＝這次沒帶 secret，走 §5.2 (a) 句。 */
@@ -99,6 +101,10 @@ export async function updateAuthProviderInTx(tx: Tx, input: UpdateAuthProviderIn
     sortOrder: sql`coalesce(${input.sortOrder ?? null}::integer, ${authProviders.sortOrder})`,
     resolvedIssuer: sql`case when ${issuerChanged()} then null else ${authProviders.resolvedIssuer} end`,
     enabled: sql`case when ${issuerChanged()} then false else coalesce(${input.enabled ?? null}::boolean, ${authProviders.enabled}) end`,
+    // 圖示（spec 2026-10-07-provider-icon §4.3）：沒帶 iconKind → 三欄原值；帶了 → 換 kind 並清圖（CHECK auth_providers_icon_upload_chk 要求非 upload ⇔ 兩欄皆 NULL）。
+    iconKind: sql`coalesce(${input.iconKind ?? null}::text, ${authProviders.iconKind})`,
+    iconData: sql`case when ${input.iconKind ?? null}::text is null then ${authProviders.iconData} else null::bytea end`,
+    iconMime: sql`case when ${input.iconKind ?? null}::text is null then ${authProviders.iconMime} else null::text end`,
     updatedAt: sql`now()`,
   };
   const set =
