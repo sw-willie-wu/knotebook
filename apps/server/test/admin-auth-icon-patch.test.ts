@@ -35,6 +35,8 @@ describe("PATCH /api/admin/auth/providers/:id 的 iconKind（spec §4.3、§8.1 
   it("S5：上傳後 PATCH {iconKind:'gitlab'} → data／mime 清空、icon_version 不變、config_version 不變、enabled 不變；回應帶換算後的 icon、不含圖檔位元組", async () => {
     const { app, db, cookies } = await adminApp();
     const p = await seedUploaded(db);
+    // updated_at 先寫成過去時刻：PATCH 沒更新它就抓得到（同一交易內 now() 與 seed 時刻太近，>= 斷言抓不到）。
+    await db.update(authProviders).set({ updatedAt: new Date("2020-01-01T00:00:00Z") }).where(eq(authProviders.id, p.id));
     const before = await providerRow(db, p.id);
     const res = await patch(app, cookies, p.id, { iconKind: "gitlab" });
     expect(res.statusCode).toBe(200);
@@ -42,7 +44,32 @@ describe("PATCH /api/admin/auth/providers/:id 的 iconKind（spec §4.3、§8.1 
     expectNoIconBytes(res.body);
     const after = await providerRow(db, p.id);
     expect(after).toMatchObject({ iconKind: "gitlab", iconData: null, iconMime: null, iconVersion: 3, configVersion: before!.configVersion, enabled: true });
-    expect(after!.updatedAt.getTime()).toBeGreaterThanOrEqual(before!.updatedAt.getTime());
+    expect(after!.updatedAt.getTime()).toBeGreaterThan(before!.updatedAt.getTime());
+  });
+
+  it("S5：iconKind 與 clientSecret 一起送 → 圖清掉、icon null、secret 已更新、config_version +1", async () => {
+    const { app, db, cookies } = await adminApp();
+    const p = await seedUploaded(db);
+    const before = await providerRow(db, p.id);
+    const res = await patch(app, cookies, p.id, { clientSecret: "secret-new", iconKind: "none" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ iconKind: "none", icon: null, hasSecret: true });
+    expectNoIconBytes(res.body);
+    const after = await providerRow(db, p.id);
+    expect(after).toMatchObject({ iconKind: "none", iconData: null, iconMime: null, iconVersion: 3, configVersion: before!.configVersion + 1 });
+    expect(after!.clientSecretEncrypted).not.toBeNull();
+    expect(after!.clientSecretEncrypted).not.toEqual(before!.clientSecretEncrypted);
+  });
+
+  it("S5：iconKind 與改 issuer 一起送 → 清圖＋清 secret＋自動停用", async () => {
+    const { app, db, cookies } = await adminApp();
+    const p = await seedUploaded(db);
+    const before = await providerRow(db, p.id);
+    const res = await patch(app, cookies, p.id, { issuerUrl: "https://other-issuer.example", iconKind: "gitlab" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ iconKind: "gitlab", icon: { type: "builtin", name: "gitlab" }, enabled: false, hasSecret: false });
+    const after = await providerRow(db, p.id);
+    expect(after).toMatchObject({ iconKind: "gitlab", iconData: null, iconMime: null, clientSecretEncrypted: null, resolvedIssuer: null, enabled: false, configVersion: before!.configVersion + 1 });
   });
 
   it("S5：template／google／none 各自生效（none → icon null）；只帶 iconKind 合法", async () => {
