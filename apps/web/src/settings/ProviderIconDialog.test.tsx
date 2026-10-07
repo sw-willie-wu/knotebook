@@ -5,7 +5,7 @@ import { MAX_PROVIDER_ICON_SOURCE_BYTES, type AdminAuthProviderDto } from "@knot
 import i18n from "@/i18n";
 import { ADMIN_AUTH_PROVIDERS_QUERY_KEY } from "@/api/adminAuth";
 import { AUTH_CONFIG_QUERY_KEY } from "@/api/authConfig";
-import { clickOutside } from "@/test/outside-click";
+import { clickOutside, settle } from "@/test/outside-click";
 import { ProviderIconDialog } from "./ProviderIconDialog";
 
 const ID = "44444444-4444-4444-8444-444444444444";
@@ -97,6 +97,8 @@ describe("ProviderIconDialog（spec §6.3、§8.2 W2）", () => {
     await i18n.changeLanguage("en");
   });
   afterEach(() => {
+    // 先卸載（effect cleanup 會呼叫 URL.revokeObjectURL）再還原替身；順序反了，結束時 picked 非 null 的案會在卸載時 TypeError。
+    cleanup();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
     URL.createObjectURL = originalCreate;
@@ -176,6 +178,29 @@ describe("ProviderIconDialog（spec §6.3、§8.2 W2）", () => {
     expect(within(dialog).getByRole("button", { name: "Save" })).toBeEnabled();
   });
 
+  it("上傳失敗（PUT 413／415）→ 對話框內 role=alert 顯示 errors.<code>、保持開著、不 invalidate", async () => {
+    for (const [status, code] of [
+      [413, "file_too_large"],
+      [415, "unsupported_media_type"],
+    ] as const) {
+      stubDecoder({ width: 64, height: 64 });
+      const { calls, queryClient } = setup(BASE, call =>
+        call.method === "PUT" ? fakeResponse(status, { error: { code, message: "x" } }) : fakeResponse(200, BASE),
+      );
+      const dialog = await openDialog();
+      chooseFile(dialog, pngFile());
+      await waitFor(() => expect(previewOf(dialog, "Upload an image")).toHaveAttribute("src", "blob:icon-1"));
+      fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+      // 等待點：alert 只在 PUT 回來、catch 跑完後出現。
+      expect(await within(dialog).findByRole("alert"), code).toHaveTextContent(i18n.t(`errors.${code}`));
+      expect(screen.getByRole("dialog"), code).toBe(dialog);
+      expect(mutations(calls), code).toMatchObject([{ method: "PUT", url: `/api/admin/auth/providers/${ID}/icon` }]);
+      expect(queryClient.getQueryState(ADMIN_AUTH_PROVIDERS_QUERY_KEY)?.isInvalidated, code).toBe(false);
+      expect(queryClient.getQueryState(AUTH_CONFIG_QUERY_KEY)?.isInvalidated, code).toBe(false);
+      cleanupDialog();
+    }
+  });
+
   it("送出中：儲存鈕 disabled、文字 Saving…", async () => {
     setup(BASE, () => new Promise<Response>(() => {}));
     const dialog = await openDialog();
@@ -253,6 +278,40 @@ describe("ProviderIconDialog（spec §6.3、§8.2 W2）", () => {
     fireEvent.click(radio(dialog, "Upload an image"));
     expect(within(dialog).getByRole("button", { name: "Save" })).toBeDisabled();
     expect(within(dialog).getByRole("button", { name: "Choose image…" })).toBeEnabled();
+  });
+
+  it("RF5 競態：選檔後縮圖未完成就取消 → 再打開 → 縮圖才完成：舊結果丟棄（無預覽、未建 blob:）、上傳選項未選檔時儲存 disabled、不送 PUT", async () => {
+    const { drawImage } = stubDecoder({ width: 64, height: 64 });
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    // 解碼卡在 gate 上：縮圖在取消時仍 pending。
+    vi.stubGlobal(
+      "createImageBitmap",
+      vi.fn(async () => {
+        await gate;
+        return { width: 64, height: 64, close: vi.fn() } as unknown as ImageBitmap;
+      }),
+    );
+    const { calls, createObjectURL } = setup(BASE);
+    let dialog = await openDialog();
+    chooseFile(dialog, pngFile());
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    dialog = await openDialog();
+    release();
+    // 等待點：drawImage 被呼叫＝舊的縮圖確實跑完解碼；再讓 toBlob 之後的 await 與 React 更新走完。
+    await waitFor(() => expect(drawImage).toHaveBeenCalledTimes(1));
+    await settle();
+    expect(createObjectURL).not.toHaveBeenCalled();
+    fireEvent.click(radio(dialog, "Upload an image"));
+    expect(previewOf(dialog, "Upload an image")).toBeNull();
+    expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Choose image…" })).toBeEnabled();
+    expect(mutations(calls)).toEqual([]);
   });
 
   it("RF5：選上傳並選好檔、或碰到錯誤 → 取消 → 再打開：選中回到目前的 iconKind、沒有舊預覽、沒有舊錯誤；按儲存不送請求", async () => {

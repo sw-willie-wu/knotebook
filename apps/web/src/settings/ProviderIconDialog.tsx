@@ -15,12 +15,14 @@ const GOOGLE_ICON: ProviderIconDto = { type: "builtin", name: "google" };
 /**
  * 登入服務圖示對話框（spec 2026-10-07-provider-icon §6.3、D6）：五個選項各附預覽，按「儲存」才生效——上傳走 PUT、其他走 PATCH {iconKind}；
  * 無變更直接關（Q6）。表單型 → `dismissOnOutside={false}`。開或關都重設為目前的 iconKind（RF5）；縮圖的 `blob:` 在換掉或關閉時釋放。
+ * 開或關都遞增 `generation`：關閉時還在跑的縮圖，回來後發現 generation 已變就丟掉結果（不建 `blob:`、不寫 state）——否則取消後再開會漏進舊檔。
  */
 export function ProviderIconDialog({ provider }: { provider: AdminAuthProviderDto }) {
   const { t } = useTranslation();
   const patch = usePatchAuthProvider();
   const upload = useUploadAuthProviderIcon();
   const fileInput = useRef<HTMLInputElement>(null);
+  const generation = useRef(0);
   const [open, setOpen] = useState(false);
   const [choice, setChoice] = useState<ProviderIconKind>(provider.iconKind);
   const [picked, setPicked] = useState<{ blob: Blob; url: string } | null>(null);
@@ -35,8 +37,10 @@ export function ProviderIconDialog({ provider }: { provider: AdminAuthProviderDt
   }, [picked]);
 
   function handleOpenChange(next: boolean): void {
+    generation.current += 1;
     setChoice(provider.iconKind);
     setPicked(null);
+    setReading(false);
     setError(null);
     setOpen(next);
   }
@@ -48,13 +52,16 @@ export function ProviderIconDialog({ provider }: { provider: AdminAuthProviderDt
     setError(null);
     setPicked(null);
     setReading(true);
+    const started = generation.current;
     try {
       const blob = await resizeProviderIcon(file);
+      if (generation.current !== started) return; // 對話框已開關過：這張是被取消的那次選檔
       setPicked({ blob, url: URL.createObjectURL(blob) });
     } catch (err) {
+      if (generation.current !== started) return;
       setError(t(`admin.auth.icon.${err instanceof ProviderIconResizeError ? err.reason : "unreadable"}`));
     } finally {
-      setReading(false);
+      if (generation.current === started) setReading(false);
     }
   }
 
