@@ -582,7 +582,11 @@ describe("SettingsGroupDetailSection（/settings/groups/:id，spec §8.5）", ()
 
     fireEvent.click(backLink);
 
-    await waitFor(() => expect(screen.getByTestId("location").textContent).toMatch(/^\/settings\/groups\|/));
+    // 點 All groups 會第一次冷載入 lazy 的 SettingsGroupsSection chunk → FIRST_LAZY_LOAD（見 test/lazy.ts）。
+    await waitFor(
+      () => expect(screen.getByTestId("location").textContent).toMatch(/^\/settings\/groups\|/),
+      FIRST_LAZY_LOAD,
+    );
     const [, stateJson] = screen.getByTestId("location").textContent!.split("|");
     expect(JSON.parse(stateJson)).toEqual({ backgroundLocation: bgLocation });
   });
@@ -603,7 +607,11 @@ describe("SettingsGroupDetailSection（/settings/groups/:id，spec §8.5）", ()
 
     fireEvent.click(rolesLink);
 
-    await waitFor(() => expect(screen.getByTestId("location").textContent).toMatch(new RegExp(`^/settings/groups/${GROUP_ADMIN.id}/roles\\|`)));
+    // 點 Roles 會第一次冷載入 lazy 的 SettingsGroupRolesSection chunk → FIRST_LAZY_LOAD（見 test/lazy.ts）。
+    await waitFor(
+      () => expect(screen.getByTestId("location").textContent).toMatch(new RegExp(`^/settings/groups/${GROUP_ADMIN.id}/roles\\|`)),
+      FIRST_LAZY_LOAD,
+    );
     const [, stateJson] = screen.getByTestId("location").textContent!.split("|");
     expect(JSON.parse(stateJson)).toEqual({ backgroundLocation: bgLocation });
   });
