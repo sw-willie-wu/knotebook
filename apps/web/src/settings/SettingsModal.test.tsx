@@ -1,8 +1,8 @@
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
+import { act, render, screen, waitFor, fireEvent, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter, useLocation, type MemoryRouterProps } from "react-router";
+import { MemoryRouter, useLocation, useNavigate, type MemoryRouterProps } from "react-router";
 import * as Y from "yjs";
 import type { GroupDto, NoteDto, UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
@@ -79,9 +79,12 @@ const collab = vi.hoisted(() => ({
   onUnauthorized: undefined as (() => void) | undefined,
   doc: undefined as unknown as Y.Doc,
   provider: undefined as unknown as ReturnType<typeof createStubProvider>,
+  /** #179：每次 render 傳進 useCollab 的 noteId（真實 useCollab 依它拆線／重連）。測試自行清空。 */
+  noteIds: [] as (string | undefined)[],
 }));
 vi.mock("@/collab/useCollab", () => ({
-  useCollab: ({ onUnauthorized }: { onUnauthorized: () => void }) => {
+  useCollab: ({ noteId, onUnauthorized }: { noteId: string | undefined; onUnauthorized: () => void }) => {
+    collab.noteIds.push(noteId);
     collab.onUnauthorized = onUnauthorized;
     return { state: collab.state, doc: collab.doc, provider: collab.provider, synced: collab.provider.synced };
   },
@@ -177,6 +180,21 @@ function LocationProbe() {
   return <div data-testid="location">{location.pathname}</div>;
 }
 
+/** #179：模擬瀏覽器「上一頁」（MemoryRouter 的 navigate(-1)）。由 `HistoryNavHandle` 掛上。 */
+const historyNav: { back?: () => void; push?: (to: string) => void } = {};
+function HistoryNavHandle() {
+  const navigate = useNavigate();
+  useEffect(() => {
+    historyNav.back = () => void navigate(-1);
+    historyNav.push = (to) => void navigate(to);
+    return () => {
+      historyNav.back = undefined;
+      historyNav.push = undefined;
+    };
+  }, [navigate]);
+  return null;
+}
+
 function renderAt(
   initialEntries: NonNullable<MemoryRouterProps["initialEntries"]>,
   fetchMock: ReturnType<typeof vi.fn>,
@@ -190,6 +208,7 @@ function renderAt(
           <ActiveNoteProvider>
             <AppRoutes />
             <LocationProbe />
+            <HistoryNavHandle />
           </ActiveNoteProvider>
         </MemoryRouter>
       </ThemeProvider>
@@ -250,7 +269,8 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
 
     await waitFor(() => expect(screen.queryByRole("heading", { name: "Change your password" })).not.toBeInTheDocument());
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    // 關閉後仍落在背景 location（/notes/my-note）——編輯器替身仍在，不是被導去別處。
+    // 關閉後仍落在背景 location（開設定前 NotePage 已把 /notes/my-note 收斂成 /n/tester/my-note，
+    // #179 起收斂走 router，背景記的就是它）——編輯器替身仍在，不是被導去別處。
     expect(screen.getByTestId("note-editor")).toBeInTheDocument();
   });
 
@@ -287,7 +307,7 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
 
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument(), { timeout: 3_000 });
-    // 落在 /notes/my-note，不是被錯誤地帶回 /：`AppShell`（HomePage 也用同一個殼）
+    // 落在這篇筆記（背景已收斂成 /n/tester/my-note，見上一案），不是被錯誤地帶回 /：`AppShell`（HomePage 也用同一個殼）
     // 一律有「New note」按鈕，不能拿來分辨兩者，這裡改斷言 `NotePage` 特有的內容——
     // 編輯器替身仍在，且標題輸入框帶著這篇筆記的標題（HomePage 沒有這個欄位；
     // 若 backgroundLocation 中途丟失、落回 /，這個 label 會直接查不到）。
@@ -628,5 +648,214 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
     } finally {
       sessionStorage.removeItem("knotebook:chunk-reload:settings");
     }
+  });
+
+  // ── #179：改標題換網址後開關設定 modal，網址不得退回改標題前 ──
+
+  /** 可改名的單篇假 server：PATCH 標題時 slug 跟著標題重算（auto slug），之後所有單篇 GET
+   * （by-path、:ref、:id）一律回現行這份——模擬 server 的 prev_slug 也解得回同一篇。 */
+  function renameableFetch() {
+    let current: NoteDto = { ...NOTE, slugIsCustom: false };
+    /** 指定 URL 改回別篇（模擬舊 slug 被新筆記拿走）。 */
+    const overrides = new Map<string, NoteDto>();
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      const override = method === "GET" ? overrides.get(url) : undefined;
+      if (override) return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(override) }));
+      if (url === `/api/notes/${NOTE.id}` && method === "PATCH") {
+        const body = JSON.parse(String(init?.body)) as { title: string };
+        current = { ...current, title: body.title, slug: body.title.toLowerCase().replace(/\s+/g, "-") };
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(current) }));
+      }
+      if (url.startsWith("/api/notes/") && !url.endsWith("/backlinks") && method === "GET") {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(current) }));
+      }
+      const res = baseFetchHandlers(() => PLAIN_USER)(url, method);
+      if (res) return Promise.resolve(res);
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    return {
+      fetchMock,
+      rename: (slug: string) => (current = { ...current, slug }),
+      override: (url: string, note: NoteDto) => overrides.set(url, note),
+    };
+  }
+
+  it("#179（正式 AppRoutes 接線）：改名後舊 slug 被新筆記 B 拿走 → 以 PUSH 導到舊網址會落到 B（主樹的 useNavigationType 恆為 POP，要用真實的）", async () => {
+    const { fetchMock, override } = renameableFetch();
+    renderAt(["/n/tester/my-note"], fetchMock);
+    await waitFor(() => expect(screen.getByTestId("note-editor")).toBeInTheDocument(), { timeout: 3_000 });
+
+    const title = screen.getByLabelText("Note title");
+    fireEvent.change(title, { target: { value: "Renamed Note" } });
+    fireEvent.blur(title);
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/n\/tester\/renamed-note$/));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const NOTE_B: NoteDto = { ...NOTE, id: "33333333-3333-4333-8333-333333333333", title: "Note B", slug: "my-note" };
+    override("/api/notes/by-path/tester/my-note", NOTE_B);
+    override(`/api/notes/${NOTE_B.id}`, NOTE_B);
+    await act(async () => {
+      historyNav.push?.("/n/tester/my-note");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("Note B"));
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/n\/tester\/my-note$/);
+  });
+
+  it("#179：開設定 → 關閉 → 改標題（網址換成新 slug）→ 上一頁回到設定（背景記著改名前網址）→ 不重解析：共編不重連、不再打 by-path、編輯器不重掛", async () => {
+    // 審查第 2 輪實測的形：上一頁那筆 entry 的 backgroundLocation 是改名前的 /n/tester/my-note，它既不是
+    // resolvedFor.key（已跟到新網址）也不是現行 canonical——要靠「這一篇走過的網址」記錄認得它。
+    const { fetchMock } = renameableFetch();
+    renderAt(["/n/tester/my-note"], fetchMock);
+    await waitFor(() => expect(screen.getByTestId("note-editor")).toBeInTheDocument(), { timeout: 3_000 });
+    const editor = screen.getByTestId("note-editor");
+
+    openUserMenu("Plain");
+    fireEvent.click(screen.getByText("Settings"));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument(), {
+      timeout: 3_000,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/n\/tester\/my-note$/));
+
+    const title = screen.getByLabelText("Note title");
+    fireEvent.change(title, { target: { value: "Renamed Note" } });
+    fireEvent.blur(title);
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/n\/tester\/renamed-note$/));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    collab.noteIds.length = 0;
+    const byPathCalls = () =>
+      fetchMock.mock.calls.filter((call) => String(call[0]).startsWith("/api/notes/by-path/")).length;
+    const byPathBefore = byPathCalls();
+
+    await act(async () => {
+      historyNav.back?.();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/settings\/account$/));
+    expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
+    expect(collab.noteIds.length).toBeGreaterThan(0);
+    expect(collab.noteIds.filter((id) => id !== NOTE.id)).toEqual([]);
+    expect(byPathCalls()).toBe(byPathBefore);
+    expect(screen.getByTestId("note-editor")).toBe(editor);
+  });
+
+  it("#179：改標題（網址換成新 slug）→ 開設定 → 關閉 → 網址是新 slug，不退回舊網址；共編不拆線、編輯器不重掛", async () => {
+    const { fetchMock } = renameableFetch();
+    renderAt(["/n/tester/my-note"], fetchMock);
+    await waitFor(() => expect(screen.getByTestId("note-editor")).toBeInTheDocument(), { timeout: 3_000 });
+    const editor = screen.getByTestId("note-editor");
+    collab.noteIds.length = 0;
+
+    const title = screen.getByLabelText("Note title");
+    fireEvent.change(title, { target: { value: "Renamed Note" } });
+    fireEvent.blur(title);
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/n/tester/renamed-note"));
+
+    openUserMenu("Plain");
+    fireEvent.click(screen.getByText("Settings"));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument(), {
+      timeout: 3_000,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    // 修好前：router location 停在舊網址，backgroundLocation 記的是它，關 modal 就導回 /n/tester/my-note。
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/n\/tester\/renamed-note$/);
+    // 換網址（改 params）沒有被當成換筆記：傳給 useCollab 的 noteId 一路是同一篇（真實 useCollab
+    // 依 noteId 拆線重連），編輯器是同一個 DOM 節點（沒有換成佔位卡再重掛）。
+    expect(collab.noteIds.length).toBeGreaterThan(0);
+    expect(collab.noteIds.filter((id) => id !== NOTE.id)).toEqual([]);
+    expect(screen.getByTestId("note-editor")).toBe(editor);
+  });
+
+  it("#179：設定 modal 開著時這篇被改名（重抓帶回新 slug）→ modal 不被關、真實網址不動；關閉後回到新 slug", async () => {
+    const { fetchMock, rename } = renameableFetch();
+    const queryClient = renderAt(["/n/tester/my-note"], fetchMock);
+    await waitFor(() => expect(screen.getByTestId("note-editor")).toBeInTheDocument(), { timeout: 3_000 });
+    const editor = screen.getByTestId("note-editor");
+
+    openUserMenu("Plain");
+    fireEvent.click(screen.getByText("Settings"));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument(), {
+      timeout: 3_000,
+    });
+    collab.noteIds.length = 0;
+
+    rename("renamed-elsewhere");
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["note", NOTE.id] });
+    });
+    // 背景頁的 note 已換成新 slug；modal 開著時收斂 effect 不動網址（真實 entry 帶 backgroundLocation）。
+    await waitFor(() =>
+      expect(queryClient.getQueryData<NoteDto>(["note", NOTE.id])?.slug).toBe("renamed-elsewhere"),
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/settings\/account$/);
+
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/n\/tester\/renamed-elsewhere$/));
+    expect(collab.noteIds.filter((id) => id !== NOTE.id)).toEqual([]);
+    expect(screen.getByTestId("note-editor")).toBe(editor);
+  });
+
+  it("#179：modal 開著時被改名 → 切到 Groups 分頁 → 上一頁回到 Account → 不重解析（共編不重連、編輯器不重掛）；關閉後到新 slug", async () => {
+    // 審查實測的形：若 modal 開著時去改寫當下 entry 的 backgroundLocation，上一頁回到的那筆仍記著
+    // 舊網址，背景 params 與已跟上新網址的 resolvedFor.key 對不上 → 重解析。
+    const { fetchMock, rename } = renameableFetch();
+    const queryClient = renderAt(["/n/tester/my-note"], fetchMock);
+    await waitFor(() => expect(screen.getByTestId("note-editor")).toBeInTheDocument(), { timeout: 3_000 });
+    const editor = screen.getByTestId("note-editor");
+
+    openUserMenu("Plain");
+    fireEvent.click(screen.getByText("Settings"));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument(), {
+      timeout: 3_000,
+    });
+    fireEvent.click(within(screen.getByRole("navigation")).getByText("Groups"));
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/settings\/groups$/));
+    collab.noteIds.length = 0;
+
+    rename("renamed-elsewhere");
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["note", NOTE.id] });
+    });
+    await waitFor(() =>
+      expect(queryClient.getQueryData<NoteDto>(["note", NOTE.id])?.slug).toBe("renamed-elsewhere"),
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    await act(async () => {
+      historyNav.back?.();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/settings\/account$/));
+    expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument();
+    expect(collab.noteIds.filter((id) => id !== NOTE.id)).toEqual([]);
+    expect(screen.getByTestId("note-editor")).toBe(editor);
+
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/n\/tester\/renamed-elsewhere$/));
+    expect(collab.noteIds.filter((id) => id !== NOTE.id)).toEqual([]);
+    expect(screen.getByTestId("note-editor")).toBe(editor);
   });
 });

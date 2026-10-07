@@ -102,9 +102,12 @@ const collab = vi.hoisted(() => ({
   onUnauthorized: undefined as (() => void) | undefined,
   doc: undefined as unknown as Y.Doc,
   provider: undefined as unknown as ReturnType<typeof createStubProvider>,
+  /** #179：每次 render 傳進 useCollab 的 noteId（真實 useCollab 依它拆線／重連）。測試自行清空。 */
+  noteIds: [] as (string | undefined)[],
 }));
 vi.mock("@/collab/useCollab", () => ({
-  useCollab: ({ onUnauthorized }: { onUnauthorized: () => void }) => {
+  useCollab: ({ noteId, onUnauthorized }: { noteId: string | undefined; onUnauthorized: () => void }) => {
+    collab.noteIds.push(noteId);
     collab.onUnauthorized = onUnauthorized;
     // issue #48：NotePage 用 `synced` 閘住 editable。真實 useCollab 的 `synced` 是 sticky
     // 追蹤 `provider.synced`，測試裡直接反映 stub 的 `provider.synced`——設一處就同時餵
@@ -228,14 +231,35 @@ function SeedActive({ id }: { id?: string }) {
   return null;
 }
 
-/** renderNotePage 與各 rerender 案共用的 provider 內部樹——單一定義保證形狀一致。 */
+/** #179：router 的 location（MemoryRouter 內、Routes 之外）。網址收斂 effect 改走
+ * `navigate` 之後，網址的真相是 router location，不再是 `window.location`（MemoryRouter
+ * 不碰它）。 */
+function RouterPathProbe() {
+  const location = useLocation();
+  return (
+    <div data-testid="router-path" data-key={location.key}>
+      {location.pathname}
+    </div>
+  );
+}
+
+function routerPath(): string | null {
+  return screen.getByTestId("router-path").textContent;
+}
+
+/** renderNotePage 與各 rerender 案共用的 provider 內部樹——單一定義保證形狀一致。
+ * #179：收斂 effect 會把 `/notes/:ref` 導成 `/n/<handle>/<slug>`（router navigate），所以
+ * 新形與群組形兩條 route 也要掛，否則收斂後 NotePage 會被卸載。 */
 function NotePageTree({ seedActiveId }: { seedActiveId?: string }) {
   return (
     <ActiveNoteProvider>
       <SeedActive id={seedActiveId} />
       <ActiveProbe />
+      <RouterPathProbe />
       <Routes>
         <Route path="/notes/:ref" element={<NotePage />} />
+        <Route path="/n/:handle/:slug" element={<NotePage />} />
+        <Route path="/g/:groupId/:slug" element={<NotePage />} />
         <Route path="/" element={<div>home landing</div>} />
       </Routes>
     </ActiveNoteProvider>
@@ -263,6 +287,8 @@ describe("NotePage", () => {
     collab.state = { phase: "connecting" };
     collab.doc = new Y.Doc();
     collab.provider = createStubProvider();
+    // 上一案 NotePage 的回呼會殘留在 hoisted 物件上——不清的話「等到回呼出現」會立刻拿到舊頁的那支。
+    collab.onUnauthorized = undefined;
     window.history.replaceState(null, "", "/");
     // toast store 是模組層級的，不歸零的話上一個測試的 toast 會留在畫面上。
     dismissAllToasts();
@@ -274,7 +300,7 @@ describe("NotePage", () => {
     navSpy.current = undefined;
   });
 
-  it("以舊形 uuid ref 開頁：解析出筆記、把網址 replaceState 成新形 canonical、掛上編輯器", async () => {
+  it("以舊形 uuid ref 開頁：解析出筆記、把網址 replace 成新形 canonical、掛上編輯器", async () => {
     vi.stubGlobal("fetch", mockFetch());
     collab.provider.synced = true; // 正常開頁路徑：同步過才有可編輯的標題 input（issue #48）
     window.history.replaceState(null, "", `/notes/${NOTE.id}`);
@@ -284,8 +310,9 @@ describe("NotePage", () => {
     await waitFor(() => expect(screen.getByTestId("note-editor")).toBeInTheDocument());
     expect(screen.getByLabelText("Note title")).toHaveValue("My Note");
     // #122：canonical 是 `/n/<ownerHandle>/<slug>` 單一形——舊形連結進來，網址收斂成新形。
-    expect(window.location.pathname).toBe(canonicalNotePath(NOTE));
-    expect(window.location.pathname).toBe("/n/tester/my-note");
+    // #179：收斂走 router navigate（不再是 window.history.replaceState）。
+    await waitFor(() => expect(routerPath()).toBe(canonicalNotePath(NOTE)));
+    expect(routerPath()).toBe("/n/tester/my-note");
   });
 
   it("issue #48：從未同步過的連線（開頁就連不上）→ 即使 REST 角色是 owner 也唯讀", async () => {
@@ -530,6 +557,8 @@ describe("NotePage", () => {
               {withPage ? (
                 <Routes>
                   <Route path="/notes/:ref" element={<NotePage />} />
+                  {/* #179：收斂 effect 以 router navigate 把舊形換成 /n/ 新形 */}
+                  <Route path="/n/:handle/:slug" element={<NotePage />} />
                   <Route path="/" element={<div>home landing</div>} />
                 </Routes>
               ) : (
@@ -687,6 +716,8 @@ describe("NotePage", () => {
       releaseB: () => releaseB(),
       killRef: (ref: string) => byRef.delete(ref),
       failRef: (ref: string) => failRefs.add(ref),
+      /** #179：讓某個 ref（slug）之後解析到指定筆記——模擬「A 改名後，舊 slug 被新筆記 B 拿走」。 */
+      setRef: (ref: string, note: NoteDto) => byRef.set(ref, note),
     };
   }
 
@@ -699,6 +730,9 @@ describe("NotePage", () => {
         </button>
         <button type="button" onClick={() => void nav("/n/tester/note-b")}>
           go-b-new
+        </button>
+        <button type="button" onClick={() => void nav("/n/tester/my-note")}>
+          go-my-note
         </button>
       </>
     );
@@ -713,6 +747,7 @@ describe("NotePage", () => {
             <ActiveNoteProvider>
               <SeedActive id={undefined} />
               <ActiveProbe />
+              <RouterPathProbe />
               <NavToB />
               <Routes>
                 <Route path="/notes/:ref" element={<NotePage />} />
@@ -766,7 +801,7 @@ describe("NotePage", () => {
     // C6-1(d)：斷**內容**（標題 input 的值），不是高亮——同 pattern 下 params 變更只
     // re-render 不 remount，解析機制必須對 params 變更反應，否則內容卡在舊筆記。
     await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("Note B"));
-    await waitFor(() => expect(window.location.pathname).toBe("/n/tester/note-b"));
+    await waitFor(() => expect(routerPath()).toBe("/n/tester/note-b"));
     expect(screen.getByTestId("active-probe")).toHaveTextContent(NOTE_B.id);
   });
 
@@ -781,7 +816,7 @@ describe("NotePage", () => {
     fireEvent.click(screen.getByRole("button", { name: "go-b-new" }));
 
     await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("Note B"));
-    await waitFor(() => expect(window.location.pathname).toBe("/n/tester/note-b"));
+    await waitFor(() => expect(routerPath()).toBe("/n/tester/note-b"));
     // 高亮延件（Task 4 gate m17）：只斷最終態「active 跟到新筆記」——條件清除的
     // 鑑別力在 NotePage.test 的「真接線卸載清除」案，這行不重複宣稱那個。
     expect(screen.getByTestId("active-probe")).toHaveTextContent(NOTE_B.id);
@@ -800,7 +835,7 @@ describe("NotePage", () => {
     fireEvent.click(screen.getByRole("button", { name: "go-b-new" }));
 
     await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("Note B"));
-    await waitFor(() => expect(window.location.pathname).toBe("/n/tester/note-b"));
+    await waitFor(() => expect(routerPath()).toBe("/n/tester/note-b"));
   });
 
   it("新形 by-path 404 → linkInvalid 出口（兩形分流的 §3b 新分支）", async () => {
@@ -824,7 +859,7 @@ describe("NotePage", () => {
     const urls = fetchMock.mock.calls.map((call) => String(call[0]));
     expect(urls).toContain("/api/notes/by-path/tester/my-note");
     expect(urls).not.toContain("/api/notes/my-note");
-    await waitFor(() => expect(window.location.pathname).toBe("/n/tester/my-note"));
+    await waitFor(() => expect(routerPath()).toBe("/n/tester/my-note"));
   });
 
   it("A1：導航到 B 後、解析回應前——畫面無 A 的標題與可編輯編輯器（loading 佔位）；收斂閘門：舊 note 的快取更新不寫網址", async () => {
@@ -833,7 +868,7 @@ describe("NotePage", () => {
 
     const queryClient = renderTwoNoteTree();
     await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
-    await waitFor(() => expect(window.location.pathname).toBe("/n/tester/my-note"));
+    await waitFor(() => expect(routerPath()).toBe("/n/tester/my-note"));
 
     fireEvent.click(screen.getByRole("button", { name: "go-b" }));
 
@@ -850,13 +885,14 @@ describe("NotePage", () => {
       queryClient.setQueryData(["note", NOTE.id], { ...NOTE, slug: "moved-away" });
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    expect(window.location.pathname).not.toBe("/n/tester/moved-away");
-    expect(window.location.pathname).toBe("/n/tester/my-note"); // 轉場中網址原地不動
+    expect(routerPath()).not.toBe("/n/tester/moved-away");
+    // #179：router 的網址就是剛導過去的 B 的舊形網址（收斂走 navigate 後 router 與網址列一致），轉場中原地不動
+    expect(routerPath()).toBe("/notes/note-b");
 
     // 放行 B：內容與網址一起收斂
     releaseB();
     await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("Note B"));
-    await waitFor(() => expect(window.location.pathname).toBe("/n/tester/note-b"));
+    await waitFor(() => expect(routerPath()).toBe("/n/tester/note-b"));
   });
 
   it("常駐層 404＝**真刪除** → note.deleted 文案導回 /（不得誤入 linkInvalid——needsResolve 前置的牙）", async () => {
@@ -892,13 +928,152 @@ describe("NotePage", () => {
 
     const queryClient = renderTwoNoteTree();
     await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
-    await waitFor(() => expect(window.location.pathname).toBe("/n/tester/my-note"));
+    await waitFor(() => expect(routerPath()).toBe("/n/tester/my-note"));
 
     await act(async () => {
       queryClient.setQueryData(["note", NOTE.id], { ...NOTE, slug: "renamed" });
     });
 
-    await waitFor(() => expect(window.location.pathname).toBe("/n/tester/renamed"));
+    await waitFor(() => expect(routerPath()).toBe("/n/tester/renamed"));
+  });
+
+  it("#179：改名換網址走 router（params 跟著變）但不重解析——共編不拆線、編輯器不重掛；連續改兩次亦然", async () => {
+    // 收斂 effect 改走 `navigate` 之後 params 會變；若被當成真導航，`noteId` 會在轉場那一 render
+    // 變 undefined（真實 useCollab 依 noteId 拆線重連）、NoteEditor 換成佔位卡再重掛，而且新 slug
+    // 在這個假 server 上打 by-path 會 404 → linkInvalid 導回首頁。第二次改名守的是
+    // `resolvedFor.key` 跟上：資料先變、網址後換的那一 render，params 既不是舊 key 也不是新
+    // canonical。
+    const { fetchMock } = stubTwoNotes();
+    collab.provider.synced = true;
+
+    const queryClient = renderTwoNoteTree("/n/tester/my-note");
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
+    await waitFor(() => expect(routerPath()).toBe("/n/tester/my-note"));
+    const editor = screen.getByTestId("note-editor");
+    const byPathCalls = () =>
+      fetchMock.mock.calls.filter((call) => String(call[0]).startsWith("/api/notes/by-path/")).length;
+    const byPathBefore = byPathCalls();
+    collab.noteIds.length = 0;
+
+    for (const slug of ["renamed-once", "renamed-twice"]) {
+      await act(async () => {
+        queryClient.setQueryData(["note", NOTE.id], { ...NOTE, slug });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      await waitFor(() => expect(routerPath()).toBe(`/n/tester/${slug}`));
+    }
+
+    expect(collab.noteIds.length).toBeGreaterThan(0);
+    expect(collab.noteIds.filter((id) => id !== NOTE.id)).toEqual([]);
+    expect(screen.getByTestId("note-editor")).toBe(editor);
+    expect(byPathCalls()).toBe(byPathBefore);
+    expect(screen.queryByText("This link is invalid or the note doesn't exist.")).not.toBeInTheDocument();
+  });
+
+  it("#179：側欄抽屜開著時改名換網址 → 抽屜留著；真的換到別篇 → 抽屜關掉", async () => {
+    // AppShell「pathname 變就關抽屜」：收斂 effect 改走 router navigate 後，同一篇換網址也會換
+    // pathname——靠收斂標記（canonicalizedFrom＝上一個 pathname）分辨。
+    stubTwoNotes();
+    collab.provider.synced = true;
+
+    const queryClient = renderTwoNoteTree("/n/tester/my-note");
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
+    await waitFor(() => expect(routerPath()).toBe("/n/tester/my-note"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
+    await screen.findByRole("dialog", { name: "Navigation" });
+
+    await act(async () => {
+      queryClient.setQueryData(["note", NOTE.id], { ...NOTE, slug: "renamed" });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await waitFor(() => expect(routerPath()).toBe("/n/tester/renamed"));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(screen.getByRole("dialog", { name: "Navigation" })).toBeInTheDocument();
+
+    // 正對照：真導航到另一篇照樣關抽屜（抽屜是 modal，外面的測試鈕被 aria-hidden、可及名稱算成空字串——改用文字查）
+    fireEvent.click(screen.getByText("go-b-new"));
+    await waitFor(() => expect(routerPath()).toBe("/n/tester/note-b"));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Navigation" })).not.toBeInTheDocument());
+  });
+
+  it("#179：A 改名後舊 slug 被新筆記 B 拿走——點連結（PUSH）到舊網址要重解析、落到 B，不得因「A 走過這個網址」留在 A", async () => {
+    // 舊 slug 不保留（唯一性只在現行 (owner_id, slug)）。knownKeys 只能在上一頁／下一頁（POP）採用。
+    const { setRef } = stubTwoNotes();
+    collab.provider.synced = true;
+
+    const queryClient = renderTwoNoteTree("/n/tester/my-note");
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
+    await waitFor(() => expect(routerPath()).toBe("/n/tester/my-note"));
+
+    // A 改名：網址收斂到 /n/tester/renamed，/n/tester/my-note 成了 A 走過的舊網址
+    await act(async () => {
+      queryClient.setQueryData(["note", NOTE.id], { ...NOTE, slug: "renamed" });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await waitFor(() => expect(routerPath()).toBe("/n/tester/renamed"));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    // 新筆記 B 自動拿到 my-note 這個 slug
+    setRef("my-note", { ...NOTE_B, slug: "my-note" });
+    fireEvent.click(screen.getByRole("button", { name: "go-my-note" }));
+
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("Note B"));
+    expect(routerPath()).toBe("/n/tester/my-note");
+    await waitFor(() => expect(screen.getByTestId("active-probe")).toHaveTextContent(NOTE_B.id));
+  });
+
+  it("#179：A 改名後點連結到已死的舊網址 → linkInvalid 導回首頁，且常駐層 ['note', A] 不被解析層舊快取蓋回改名前", async () => {
+    // 解析層對舊 slug 的重抓 404 時，react-query 留著舊資料（改名前的 A）；seed 若照寫，常駐層會回滾。
+    const { killRef } = stubTwoNotes();
+    collab.provider.synced = true;
+
+    const queryClient = renderTwoNoteTree("/n/tester/my-note");
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
+    await waitFor(() => expect(routerPath()).toBe("/n/tester/my-note"));
+
+    await act(async () => {
+      queryClient.setQueryData(["note", NOTE.id], { ...NOTE, title: "Renamed", slug: "renamed" });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await waitFor(() => expect(routerPath()).toBe("/n/tester/renamed"));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    killRef("my-note"); // 舊 slug 已解不回來
+    fireEvent.click(screen.getByRole("button", { name: "go-my-note" }));
+
+    await waitFor(() => expect(screen.getByText("home landing")).toBeInTheDocument());
+    expect(screen.getByText("This link is invalid or the note doesn't exist.")).toBeInTheDocument();
+    const resident = queryClient.getQueryData<NoteDto>(["note", NOTE.id]);
+    expect(resident?.slug).toBe("renamed");
+    expect(resident?.title).toBe("Renamed");
+  });
+
+  it("#179：同一組（location.key, canonical）只寫一次網址——navigate 沒生效時不會每次重跑都再 replace", async () => {
+    stubTwoNotes();
+    collab.provider.synced = true;
+    const navCalls: unknown[] = [];
+    navSpy.current = (to) => void navCalls.push(to); // 壓住導頁：router location 停在 /notes/my-note
+
+    const queryClient = renderTwoNoteTree("/notes/my-note");
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
+    await waitFor(() => expect(navCalls).toContain("/n/tester/my-note"));
+
+    // 常駐層 note 換物件（slug 不變、只換標題——同值物件會被 react-query 結構共享成同一個參考，effect 不會重跑）
+    // → 收斂 effect 重跑兩次
+    for (let i = 0; i < 2; i += 1) {
+      await act(async () => {
+        queryClient.setQueryData(["note", NOTE.id], { ...NOTE, title: `My Note ${i}` });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    }
+    expect(navCalls.filter((to) => to === "/n/tester/my-note")).toHaveLength(1);
   });
 
   it("常駐層非 404 錯誤（500）→ 錯誤卡留在頁上，不導走、不噴 404 文案", async () => {
@@ -992,6 +1167,8 @@ describe("NotePage", () => {
             <ActiveNoteProvider>
               <Routes>
                 <Route path="/notes/:ref" element={<NotePage />} />
+                {/* #179：收斂 effect 以 router navigate 把舊形換成 /n/ 新形 */}
+                <Route path="/n/:handle/:slug" element={<NotePage />} />
                 <Route path="/login" element={<div>login page</div>} />
               </Routes>
             </ActiveNoteProvider>
@@ -1160,6 +1337,7 @@ describe("NotePage × /g/ 群組筆記（#175 §8.1）", () => {
         <ThemeProvider>
           <MemoryRouter initialEntries={[initialEntry]}>
             <ActiveNoteProvider>
+              <RouterPathProbe />
               <NavToGroupNote2 />
               <Routes>
                 <Route path="/notes/:ref" element={<NotePage />} />
@@ -1188,26 +1366,26 @@ describe("NotePage × /g/ 群組筆記（#175 §8.1）", () => {
     expect(gets.some((c) => c.startsWith("GET /api/notes/by-path/"))).toBe(false);
     expect(gets).not.toContain("GET /api/notes/group-note");
     expect(queryClient.getQueryData<NoteDto>(["note", G_NOTE.id])?.id).toBe(G_NOTE.id);
-    expect(window.location.pathname).toBe(`/g/${GROUP_ID}/group-note`);
+    expect(routerPath()).toBe(`/g/${GROUP_ID}/group-note`);
     expect(canonicalNotePath(G_NOTE)).toBe(`/g/${GROUP_ID}/group-note`);
   });
 
-  it("②by-group-path 回的 slug 與網址不同（轉址表／prev_slug 命中）→ 收斂 effect replaceState 成 /g/<gid>/<新 slug>", async () => {
+  it("②by-group-path 回的 slug 與網址不同（轉址表／prev_slug 命中）→ 收斂 effect replace 成 /g/<gid>/<新 slug>", async () => {
     stubGroupNotes({ aliases: { "old-group-note": G_NOTE } });
     window.history.replaceState(null, "", `/g/${GROUP_ID}/old-group-note`);
 
     renderGroupTree(`/g/${GROUP_ID}/old-group-note`);
     await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("Group Note"));
-    await waitFor(() => expect(window.location.pathname).toBe(`/g/${GROUP_ID}/group-note`));
+    await waitFor(() => expect(routerPath()).toBe(`/g/${GROUP_ID}/group-note`));
   });
 
-  it("③/n/<h>/<old> 打 by-path、回的是群組筆記（migration 轉址）→ replaceState 成 /g/<gid>/<slug>", async () => {
+  it("③/n/<h>/<old> 打 by-path、回的是群組筆記（migration 轉址）→ replace 成 /g/<gid>/<slug>", async () => {
     const { calls } = stubGroupNotes({ legacyByPath: { "tester/old-personal": G_NOTE } });
     window.history.replaceState(null, "", "/n/tester/old-personal");
 
     renderGroupTree("/n/tester/old-personal");
     await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("Group Note"));
-    await waitFor(() => expect(window.location.pathname).toBe(`/g/${GROUP_ID}/group-note`));
+    await waitFor(() => expect(routerPath()).toBe(`/g/${GROUP_ID}/group-note`));
     expect(calls).toContain("GET /api/notes/by-path/tester/old-personal");
     expect(calls.some((c) => c.startsWith("GET /api/notes/by-group-path/"))).toBe(false);
   });
@@ -1222,7 +1400,45 @@ describe("NotePage × /g/ 群組筆記（#175 §8.1）", () => {
     fireEvent.click(screen.getByRole("button", { name: "go-g2" }));
 
     await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("Group Note 2"));
-    await waitFor(() => expect(window.location.pathname).toBe(`/g/${GROUP_ID}/group-note-2`));
+    await waitFor(() => expect(routerPath()).toBe(`/g/${GROUP_ID}/group-note-2`));
+  });
+
+  it("#182：群組筆記重驗後角色改變但仍有存取（editor → viewer）→ 重抓 ['groups']（側欄「＋」看 myRole）", async () => {
+    const { calls } = stubGroupNotes();
+    collab.state = { phase: "connected", role: "editor" };
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const tree = () => (
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <MemoryRouter initialEntries={[`/g/${GROUP_ID}/group-note`]}>
+            <ActiveNoteProvider>
+              <Routes>
+                <Route path="/g/:groupId/:slug" element={<NotePage />} />
+              </Routes>
+            </ActiveNoteProvider>
+          </MemoryRouter>
+          <Toaster />
+        </ThemeProvider>
+      </QueryClientProvider>
+    );
+    const count = (call: string) => calls.filter((c) => c === call).length;
+    // 側欄「＋」看 ['groups']；頁首 ⋮／分享看 ['note', id] 的 permissions；側欄筆記列 ⋮ 看 ['notes'] 的 permissions。
+    const watched = ["GET /api/groups", `GET /api/notes/${G_NOTE.id}`, "GET /api/notes"];
+
+    const view = render(tree());
+    await waitFor(() => expect(screen.getByTestId("note-editor")).toHaveAttribute("data-editable", "true"));
+    await waitFor(() => expect(count("GET /api/groups")).toBeGreaterThan(0));
+    // 讓初次載入的請求全部落地，之後的增量只可能來自角色變動
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    const before = watched.map(count);
+
+    collab.state = { phase: "connected", role: "viewer" };
+    view.rerender(tree());
+
+    await waitFor(() => expect(screen.getByTestId("note-editor")).toHaveAttribute("data-editable", "false"));
+    await waitFor(() => expect(watched.map(count)).toEqual(before.map((n) => n + 1)));
   });
 
   it("⑤by-group-path 404 → linkInvalid 出口並導回 /", async () => {
@@ -1257,7 +1473,11 @@ describe("NotePage × /g/ 群組筆記（#175 §8.1）", () => {
 
 function SidebarLocationProbe() {
   const location = useLocation();
-  return <div data-testid="location">{location.pathname}|{JSON.stringify(location.state ?? null)}</div>;
+  return (
+    <div data-testid="location" data-key={location.key}>
+      {location.pathname}|{JSON.stringify(location.state ?? null)}
+    </div>
+  );
 }
 
 /** `mockFetch` 的 catch-all 會把 `/api/notes/:id/edits` 當單篇回 NoteDto——先攔下來回 `{edits: []}`。
@@ -1336,26 +1556,32 @@ describe("NotePage × 側欄筆記列 ⋮", () => {
     plain.unmount();
 
     renderWithProbe({ pathname: "/notes/my-note", state: { openEdits: true } });
-    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/notes\/my-note\|null$/));
+    // 最終落點是 canonical（#179：收斂走 router navigate、保留**當下**的 state——openEdits 已被清掉——只多一個收斂標記）。
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/n\/tester\/my-note\|\{"knotebookCanonicalizedFrom":"\/notes\/my-note"\}$/));
     expect(await screen.findByRole("dialog", { name: "AI edits on this note" })).toBeInTheDocument();
   });
 
   it("側欄 ⋮ 在開著的那篇按 AI 修改紀錄：開同一個對話框、不導頁、不重掛", async () => {
-    // ⚠ 起點刻意是舊形 `/notes/my-note`：從 canonical `/n/tester/my-note` 起跳的話，「側欄拿不到
-    // controls、改走 navigate(canonical, {state})」是同路徑只換 state，NotePage 照樣開對話框、
-    // 不重解析，外觀等價——那個錯法會存活。只有路徑不同時「導頁」才看得出來。
+    // ⚠ 「側欄拿不到 controls、改走 navigate(canonical, {state})」這個錯法，路徑與最終 state 都
+    // 和正確做法一樣（canonical 收斂本來就會把 `/notes/my-note` 換成 `/n/tester/my-note`；
+    // #179 起收斂走 router navigate，params 等於 canonical 也不重解析、不重掛）——看得出差別的
+    // 只有 **location.key**：任何一次導頁（push 或 replace）都會換 key。所以先等收斂落定、記下
+    // key，按完選單項後 key 必須不變。
     const { fn } = withEditsAndList(mockFetch(), () => [NOTE]);
     vi.stubGlobal("fetch", fn);
     collab.state = { phase: "connected", role: "owner" };
 
     renderWithProbe("/notes/my-note");
     const titleInput = await screen.findByLabelText("Note title", { selector: "input" });
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/n\/tester\/my-note\|\{"knotebookCanonicalizedFrom":"\/notes\/my-note"\}$/));
+    const keyBefore = screen.getByTestId("location").dataset.key;
 
     const menu = await openSidebarRowMenu("My Note");
     fireEvent.click(within(menu).getByRole("menuitem", { name: "AI edit history" }));
 
     expect(await screen.findByRole("dialog", { name: "AI edits on this note" })).toBeInTheDocument();
-    expect(screen.getByTestId("location")).toHaveTextContent(/^\/notes\/my-note\|null$/);
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/n\/tester\/my-note\|\{"knotebookCanonicalizedFrom":"\/notes\/my-note"\}$/);
+    expect(screen.getByTestId("location").dataset.key).toBe(keyBefore);
     expect(screen.getByLabelText("Note title", { selector: "input" })).toBe(titleInput);
   });
 

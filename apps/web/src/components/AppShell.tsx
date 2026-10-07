@@ -12,6 +12,7 @@ import { toast } from "@/components/ui/toast";
 import { cardSurface } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { SidebarDrawerContext, useSidebarDrawer } from "@/lib/sidebar-drawer";
+import { canonicalizedFrom } from "@/lib/real-location";
 import { NoteList } from "@/components/NoteList";
 import { UserMenu } from "@/components/UserMenu";
 import {
@@ -351,11 +352,19 @@ export function AppShell({ children, sidebar }: AppShellProps) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  // 路由變化（點抽屜裡的筆記、導向新筆記）→ 關抽屜。deps 是 pathname：mount 時
-  // 跑一次 setDrawerOpen(false) 是無害的 no-op（初值本來就 false）。
+  // 路由變化（點抽屜裡的筆記、導向新筆記）→ 關抽屜。mount 時不動作（初值本來就 false）。
+  // #179：NotePage 的 canonical 收斂（改標題、他人改名）也會換 pathname，但那是**同一篇**換網址，
+  // 不是換頁——抽屜開著就留著。判準是新 entry 的 `canonicalizedFrom` 標記等於上一個 pathname
+  // （只認這一步；之後經上一頁回到帶標記的 entry 時，上一個 pathname 對不上，照常關）。
+  // 只有 state 變、pathname 沒變（例如 openEdits 被清掉）不算路由變化，與先前只看 pathname 一致。
+  const previousPathnameRef = useRef(location.pathname);
   useEffect(() => {
+    const previous = previousPathnameRef.current;
+    previousPathnameRef.current = location.pathname;
+    if (previous === location.pathname) return;
+    if (canonicalizedFrom(location.state) === previous) return;
     setDrawerOpen(false);
-  }, [location.pathname]);
+  }, [location.pathname, location.state]);
 
   // 抽屜關閉（任何路徑：Esc/backdrop/route/resize）→ 清捷徑旗標。Ctrl+K 開啟後
   // 若在 Content 掛載、onOpenAutoFocus 消化旗標**之前**就被關掉，殘留的旗標會讓

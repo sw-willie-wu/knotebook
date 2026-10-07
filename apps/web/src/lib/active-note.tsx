@@ -3,9 +3,10 @@ import { createContext, useCallback, useContext, useMemo, useState, type ReactNo
 /**
  * 「目前開啟中的筆記」單一真相（#122 spec §3b M4-6：廢掉 URL 判斷）。
  *
- * 為什麼不能從網址推：標題存檔後網址靠 `history.replaceState` 換（react-router 的
- * location/params 不會跟著動），slug 又會隨標題重算——任何「比對路由參數」的高亮
- * 判斷都會在改標題後失準（前身 `lib/note-ref.ts` 的 matchesNoteRef 就是為此而生、
+ * 為什麼不能從網址推：slug 會隨標題重算，網址要等存檔回來、NotePage 收斂 effect 才換
+ * （#122 當時用 `history.replaceState`、router 的 location/params 根本不動；#179 起改走
+ * router navigate），加上舊形 `/notes/:ref`、prev_slug 這些非 canonical 網址——任何
+ * 「比對路由參數」的高亮判斷都會失準（前身 `lib/note-ref.ts` 的 matchesNoteRef 就是為此而生、
  * 也因此隨本 context 退役）。id 永不變，拿 id 當唯一判準就沒有這個問題。
  *
  * 寫入點三個：

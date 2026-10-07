@@ -49,7 +49,6 @@ test("群組：建立 → 群組建筆記（/g/ 網址）→ 設定加人 → �
     // ── A：在群組建筆記（段標「＋」；「＋」預設 opacity-0，Playwright 仍視為可見）──
     await sidebar.getByRole("button", { name: `New note in ${groupName}` }).click();
     await adminPage.waitForURL(/\/g\/[0-9a-f-]{36}\/untitled-[0-9a-f]{8}$/, { timeout: 15_000 });
-    const untitledUrl = adminPage.url();
     const title = `E2E group note ${Date.now()}`;
     const titleInput = adminPage.getByLabel("Note title");
     await titleInput.fill(title);
@@ -84,11 +83,9 @@ test("群組：建立 → 群組建筆記（/g/ 網址）→ 設定加人 → �
     await adminPage.getByRole("button", { name: "Add", exact: true }).click();
     await expect(adminPage.getByRole("button", { name: `Remove ${secondEmail}` })).toBeVisible();
     await adminPage.keyboard.press("Escape");
-    // 斷言回到同一篇、但不要求 canonical：backgroundLocation 是 react-router 的 location，
-    // 還是改標題前的 untitled-…（標題改網址走 replaceState，router 不知道）；收斂 effect 只在常駐層
-    // note 物件變了才重跑，而加成員不失效 `['note', id]`——實跑在這裡 15 秒內停在 untitled-…。
-    // 所以接受這兩個網址其中之一（兩者都指同一篇；其他網址＝回錯頁）。
-    await expect.poll(() => [untitledUrl, noteUrl].includes(adminPage.url())).toBe(true);
+    // #179：改標題換網址走 router navigate，開設定時記下的 backgroundLocation 已是改名後的網址，
+    // 關設定必須回到 canonical（不得退回改標題前的 untitled-…）。
+    await expect(adminPage).toHaveURL(noteUrl);
     await expect(adminPage.getByRole("button", { name: `Remove ${secondEmail}` })).toHaveCount(0);
 
     // ── B：首登改密 → 側欄工作坊看得到那篇 → 開啟、可編輯、共編互見 ──────────
@@ -138,12 +135,8 @@ test("群組：建立 → 群組建筆記（/g/ 網址）→ 設定加人 → �
 
     // ── A：關設定 → 側欄群組 ⋮ → 刪除群組 → 對話框預設「轉移給管理員」→ Cancel → 群組與該篇仍在 ──
     await adminPage.keyboard.press("Escape");
-    // backgroundLocation 是 react-router 的 location，可能還是 untitled-… 那個（標題改網址走
-    // replaceState）；先確認回到筆記頁，再等 NotePage 收斂到 canonical。這裡收斂得到是靠前面 B 在
-    // 編輯器打字觸發 `['note', id]` 重抓、note 物件變了，收斂 effect 才重跑（加成員那步沒有這個觸發，
-    // 所以那裡不斷言 canonical）。
-    await expect(adminPage).toHaveURL(/\/g\//);
-    await expect(adminPage).toHaveURL(noteUrl, { timeout: 15_000 });
+    // #179：backgroundLocation 就是 canonical（改名換網址走 router navigate），關設定直接回到它。
+    await expect(adminPage).toHaveURL(noteUrl);
     await sidebar.getByRole("button", { name: `Group actions for ${groupName}` }).click();
     await adminPage.getByRole("menuitem", { name: "Delete group" }).click();
     const deleteDialog = adminPage.getByRole("dialog", { name: "Delete group?" });

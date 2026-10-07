@@ -25,7 +25,7 @@ interface TitleInputProps {
  * 就是這把 id 鍵——寫回它頁面即時反映；`['notes']` 側欄清單由 `useUpdateNote` 自己
  * invalidate）。**本元件不寫網址**（A3）：改標題會重算 auto slug、canonical 跟著變，
  * 但唯一寫網址點是 NotePage 的收斂 effect——快取更新 → 常駐層 note 變 → effect
- * `replaceState`；在途 PATCH 於換筆記後才回來時，收斂 effect 會因為轉場中 `note`
+ * 以 router `navigate` replace（#179）；在途 PATCH 於換筆記後才回來時，收斂 effect 會因為轉場中 `note`
  * 被閘成 undefined 而早退（舊版自帶 replaceState 沒這道閘，會把網址改回前一篇）。
  *
  * 空標題不送（server 端 `z.string().min(1)` 會回 400）：blur 時若內容是空白，

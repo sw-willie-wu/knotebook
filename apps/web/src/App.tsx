@@ -1,6 +1,16 @@
-import { lazy, Suspense, type ReactNode } from "react";
-import { BrowserRouter, Navigate, Route, Routes, useLocation, useParams, type Location } from "react-router";
+import { lazy, Suspense, useMemo, type ReactNode } from "react";
+import {
+  BrowserRouter,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useNavigationType,
+  useParams,
+  type Location,
+} from "react-router";
 import { ActiveNoteProvider } from "./lib/active-note";
+import { RealLocationContext } from "./lib/real-location";
 import { ThemeProvider } from "./theme";
 import { Toaster } from "./components/ui/toast";
 import { ChangePasswordGate, RequireAdmin, RequireAuth } from "./auth/guards";
@@ -195,10 +205,14 @@ function PublicNoteRoute() {
  */
 export function AppRoutes() {
   const location = useLocation();
+  const navigationType = useNavigationType();
+  const realLocation = useMemo(() => ({ location, navigationType }), [location, navigationType]);
   const state = location.state as { backgroundLocation?: Location } | null;
 
   return (
-    <>
+    // #179：真實 location／navigationType 交給背景頁（NotePage）——主樹的 useLocation() 被覆寫成背景、
+    // useNavigationType() 恆為 POP，見 lib/real-location.ts。
+    <RealLocationContext.Provider value={realLocation}>
       <Routes location={state?.backgroundLocation ?? location}>
         <Route path="/login" element={<LoginPage />} />
         {/* #187 PR3：與 /login 同層、在 RequireAuth 之外；已登入者由頁面自己導向 next（經 safeNextPath）或 /。 */}
@@ -302,7 +316,7 @@ export function AppRoutes() {
             /settings/* 時 guard 不跑」的設計前提。 */}
         <Route path="*" element={null} />
       </Routes>
-    </>
+    </RealLocationContext.Provider>
   );
 }
 
