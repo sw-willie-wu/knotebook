@@ -1,6 +1,11 @@
 import { afterEach } from "vitest";
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
+
+// lazy chunk（設定各區塊／站台管理／登入流程頁）在測試裡第一次 render 會做真實的動態
+// import；CI 高負載時可能超過 1 秒，而 Testing Library 的 waitFor／findBy 預設上限就是
+// 1000ms，本機尚可、CI 間歇紅。全域放寬到 3 秒——守門力在斷言內容，不在等待長度。
+configure({ asyncUtilTimeout: 3_000 });
 
 // jsdom 沒有 `ResizeObserver`——`@blocknote/mantine` 的 `<BlockNoteView>` 掛載時，
 // mantine 內部元件（`MantineProvider`／popover／tabs 一路)摸得到它就直接
