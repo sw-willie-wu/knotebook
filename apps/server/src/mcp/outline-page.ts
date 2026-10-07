@@ -68,7 +68,7 @@ export interface OutlineEntryForModel {
 export const outlineEntrySchema = z.object({
   sectionId: z.string().describe("Pass this to read_note_section. `_top` is the text before the first heading."),
   level: z.number().describe("Heading depth; `0` for the `_top` section."),
-  heading: z.string().max(MCP_TEXT_MAX).describe("The section's heading text, cut at 200 characters."),
+  heading: z.string().max(MCP_TEXT_MAX).describe("The section's heading text, cut at 200 characters as written in JSON."),
   headingTruncated: z.literal(true).optional().describe("Present only when `heading` was cut."),
   chars: z.number().describe("Characters in this section — the full length, not the cut heading."),
 });

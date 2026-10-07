@@ -90,4 +90,13 @@ describe("#108 buildOutlinePage", () => {
     expect(page.sections[1]!.heading).toBe("H".repeat(MCP_TEXT_MAX));
     expect(page.sections[1]!.headingTruncated).toBe(true);
   });
+
+  // #177：heading 走 `truncateText`，預算按 JSON 逃脫後計。C0 一個算 6 → 只留 33 個並帶旗標；
+  // 把 `buildOutlinePage` 換回按原長度截（或繞過 `truncateText`）時這一案紅。
+  it("#177：heading 含 C0 時按逃脫後的長度截（40 個 U+0001 → 33 個 ＋ headingTruncated）", () => {
+    const page = buildOutlinePage(entries(2, i => (i === 1 ? "\u0001".repeat(40) : "short")), 0);
+    expect(page.sections[1]!.heading).toBe("\u0001".repeat(33));
+    expect(page.sections[1]!.headingTruncated).toBe(true);
+    expect(JSON.stringify(page.sections[1]!.heading).length - 2).toBeLessThanOrEqual(MCP_TEXT_MAX);
+  });
 });
