@@ -242,7 +242,7 @@ describe("ThemeProvider / useTheme", () => {
   /**
    * 主題色（accent）防閃的等價案：防閃腳本對非法值「不設屬性」（getAttribute
    * 回 null），ThemeProvider 恆設屬性（indigo 也設）——兩者呈現同色是靠
-   * index.css 的 :root/.dark 基底 fallback＝indigo 值撐住，不是屬性字面相等。
+   * index.css 的 :root/:root.dark 基底 fallback＝indigo 值撐住，不是屬性字面相等。
    * 唯一合法的比對法：兩邊都正規化成「屬性值 ?? "indigo"」再比較。
    */
   it.each([null, "", "indigo", "blue", "teal", "sage", "rose", "gold", "Teal", "cyan"])(

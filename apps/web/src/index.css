@@ -51,7 +51,7 @@
   --brand-swatch-gold: oklch(0.550 0.098 82.4); /* ≈#8e6b23 */
 
   /* 程式碼區塊上色（issue #96）。shiki 走 createCssVariablesTheme（prefix --code-），
-     token 顏色一律是 var(--code-…)，色值只在這裡與 .dark 各一套——深淺切換＝換變數值，
+     token 顏色一律是 var(--code-…)，色值只在這裡與 :root.dark 各一套——深淺切換＝換變數值，
      shiki 完全不知情。**刻意不引用 --brand 系**：程式碼配色是語意配色（關鍵字／字串／
      註解…），換 accent 不得改變這裡任何顏色（issue 設計限制；守衛
      theme.code-highlight-vars.test.ts）。色值取自 GitHub Light 的 token 色（在同級
@@ -72,7 +72,18 @@
   --code-token-inserted: #116329;
 }
 
-.dark {
+/* 深色基底塊**必須錨在 `:root`**（issue #154）。`@theme inline` 讓 `text-brand` 這類
+   utility 編譯成 `color: var(--brand)`、在元素自己身上求值；而 BlockNote 把 light/dark
+   當 **class** 寫在 `.bn-root`（編輯器容器）與 `portalElement`（浮層）上。舊的裸 `.dark`
+   會在那些巢狀 `.dark` 上再命中一次，把本塊的 indigo fallback 重新宣告到編輯器子樹裡，
+   使用者選的主題色在編輯器內被靜默重設（深色＋非 indigo 五色全中）。`dark` class 與
+   `data-accent` 都只寫在 `<html>`（`theme.tsx`／`index.html` 防閃腳本），所以錨 `:root`
+   不丟任何正當命中。下面十二個 `[data-accent]` 塊的深色那半同理錨 `:root.dark`。
+   同理任何**不錨在根元素**的規則都不得宣告主題變數——BlockNote 也在 `.bn-root` 寫
+   `data-color-scheme`，`[data-color-scheme=dark]` 一樣會在編輯器裡重設。
+   守衛：`theme.accent-vars.test.ts` 的 (h)——任何宣告主題變數的規則，選擇器清單裡每一項
+   都必須是以 `:root`／`html` 起頭的單一複合選擇器。 */
+:root.dark {
   --background: oklch(0.172 0.007 258.4); /* #0e1013 頁底（PR2：卡片浮在更深的底上） */
   --foreground: oklch(0.982 0.002 247.8); /* #f8f9fa */
   --card: oklch(0.230 0.012 264.3); /* #1a1d23（PR2：原 0.264，卡面比頁底亮一階） */
@@ -94,7 +105,7 @@
   --ring: oklch(0.557 0.017 260.7); /* #6e747e */
 
   /* 主題色（accent）基底＝indigo。與 :root 版本同語意：[data-accent] 屬性不存在時的
-     fallback，必須逐字＝[data-accent=indigo] 那塊，見下方守衛 (c)。 */
+     fallback，必須逐字＝:root.dark[data-accent=indigo] 那塊，見守衛 (c)。 */
   --brand: oklch(0.681 0.058 275.7); /* ≈#8e96bd，indigo dark（=基色） */
   --brand-soft: oklch(0.681 0.058 275.7 / 16%);
   --brand-soft-strong: oklch(0.681 0.058 275.7 / 24%);
@@ -102,7 +113,7 @@
   --brand-deep: oklch(0.721 0.058 275.7); /* ≈#9aa2ca */
   --brand-fg: oklch(0.213 0.008 264.4); /* 深色模式一律近黑字（主色在深色是亮色） */
 
-  /* 六個 swatch 變數：.dark 放各色 dark 基色。 */
+  /* 六個 swatch 變數：:root.dark 放各色 dark 基色。 */
   --brand-swatch-indigo: oklch(0.681 0.058 275.7); /* ≈#8e96bd */
   --brand-swatch-blue: oklch(0.677 0.048 244.4); /* ≈#7f9bb3 */
   --brand-swatch-teal: oklch(0.700 0.046 183.3); /* ≈#7fa8a1 */
@@ -132,10 +143,11 @@
 
 /* 主題色（accent）十二個套用塊：六色 × light/dark。
    - 屬性值不帶引號（`[data-accent=indigo]`），守衛 regex 同調。
-   - 順序規則：**所有 `.dark[data-accent=…]` 塊一律寫在所有 `:root[data-accent=…]`
-     塊之後**。理由：同特異度 (0,2,0) 的 light/dark 塊靠來源順序決勝負；若某色只有
-     light 塊沒有 dark 塊（或順序寫錯：dark 塊落在 light 塊之前），`:root[data-accent]`
-     可能壓過 `.dark` 基底，讓淺色值滲進深色。
+   - 順序規則：**所有 `:root.dark[data-accent=…]` 塊一律寫在所有 `:root[data-accent=…]`
+     塊之後**。原本兩邊同為 (0,2,0)、靠來源順序決勝負；#154 把深色塊錨到 `:root` 後
+     變成 (0,3,0)，dark 塊不論位置都壓得過 light 塊，這條順序改為第二道保險（守衛 (b)
+     照留）。仍要注意的是：若某色只有 light 塊沒有 dark 塊，`:root[data-accent]`
+     (0,2,0) 會壓過 `:root.dark` 基底（同為 (0,2,0)、它寫在後面），讓淺色值滲進深色。
    - `--brand-soft`/`--brand-soft-strong` 底色一律取該色 dark `--brand`（=基色）的
      oklch 三值：light 塊 /14%、/20%；dark 塊 /16%、/24%。不得用 light `--brand`
      當底——`theme.accent-vars.test.ts` 守衛 (e) 機械擋這個錯法。 */
@@ -190,7 +202,7 @@
 
 /* ---- dark ---- */
 
-.dark[data-accent=indigo] {
+:root.dark[data-accent=indigo] {
   --brand: oklch(0.681 0.058 275.7); /* ≈#8e96bd */
   --brand-soft: oklch(0.681 0.058 275.7 / 16%);
   --brand-soft-strong: oklch(0.681 0.058 275.7 / 24%);
@@ -198,7 +210,7 @@
   --brand-deep: oklch(0.721 0.058 275.7); /* ≈#9aa2ca */
 }
 
-.dark[data-accent=blue] {
+:root.dark[data-accent=blue] {
   --brand: oklch(0.677 0.048 244.4); /* ≈#7f9bb3 */
   --brand-soft: oklch(0.677 0.048 244.4 / 16%);
   --brand-soft-strong: oklch(0.677 0.048 244.4 / 24%);
@@ -206,7 +218,7 @@
   --brand-deep: oklch(0.717 0.048 244.4); /* ≈#8ba8c0 */
 }
 
-.dark[data-accent=teal] {
+:root.dark[data-accent=teal] {
   --brand: oklch(0.700 0.046 183.3); /* ≈#7fa8a1 */
   --brand-soft: oklch(0.700 0.046 183.3 / 16%);
   --brand-soft-strong: oklch(0.700 0.046 183.3 / 24%);
@@ -214,7 +226,7 @@
   --brand-deep: oklch(0.740 0.046 183.3); /* ≈#8bb5ae */
 }
 
-.dark[data-accent=sage] {
+:root.dark[data-accent=sage] {
   --brand: oklch(0.692 0.045 137.6); /* ≈#8fa388 */
   --brand-soft: oklch(0.692 0.045 137.6 / 16%);
   --brand-soft-strong: oklch(0.692 0.045 137.6 / 24%);
@@ -222,7 +234,7 @@
   --brand-deep: oklch(0.732 0.045 137.6); /* ≈#9baf94 */
 }
 
-.dark[data-accent=rose] {
+:root.dark[data-accent=rose] {
   --brand: oklch(0.670 0.048 18.4); /* ≈#b18a8a */
   --brand-soft: oklch(0.670 0.048 18.4 / 16%);
   --brand-soft-strong: oklch(0.670 0.048 18.4 / 24%);
@@ -230,7 +242,7 @@
   --brand-deep: oklch(0.710 0.048 18.4); /* ≈#be9696 */
 }
 
-.dark[data-accent=gold] {
+:root.dark[data-accent=gold] {
   --brand: oklch(0.747 0.089 82.4); /* ≈#c9a86a */
   --brand-soft: oklch(0.747 0.089 82.4 / 16%);
   --brand-soft-strong: oklch(0.747 0.089 82.4 / 24%);
@@ -439,8 +451,29 @@ input[name="share-access"] {
   text-decoration-line: underline;
 }
 
-/* 「開新分頁」圖示，**只掛在 `http://`／`https://` 的連結上**（同為 link mark 的
-   `mailto:`／`tel:`／`sms:` 不開在分頁裡，交給協定處理程式）。語意查證過而非推測：
+/* 「開新分頁」圖示，**只掛在解析後是 `http(s)` 網址的連結上**（同為 link mark 的
+   `mailto:`／`tel:`／`sms:` 不開在分頁裡，交給協定處理程式）。
+
+   判準（issue #156；屬性選擇器比的是 href 的**字面值**，所以要把瀏覽器 URL 剖析器會
+   視為 http(s) 的寫法逐一列出來）：
+   - 協定名不分大小寫：`[href^="http:" i]`／`[href^="https:" i]`（`HTTPS://X.COM`）。
+     比的是 `http:` 含冒號，不是 `http`（後者會命中 `httpfoo:` 這種別的協定）。也不要求
+     冒號後面接 `//`：`https:\\x.com`、`https:/\x.com`、跨協定的 `https:x.com` 剖析出來
+     都是那台主機；同協定的 `https:x` 是站內相對路徑——那也確實開在新分頁，不是錯標。
+   - 省略協定（protocol-relative）：`//host`，以及 http(s) 頁面上與它等價的
+     `\\host`、`/\host`、`\/host`（特殊協定的剖析把 `\` 當 `/`）。CSS 字串裡 `\\` 是一個
+     反斜線。
+   已知仍蓋不到、只會**少標**（不會錯標）的形（舉例，非窮舉）：開頭帶空白／控制字元
+   （` https://…`），以及網址**任何位置**夾 tab／換行（剖析器會把它們整個刪掉，例如
+   `ht<tab>tps://…`、`/<tab>/evil.com` 剖析後等於 `https://…`、`//evil.com`）——字面前綴
+   比不到。使用者面說明在
+   `docs/known-limitations.md`。不改走「JS 用 `new URL()` 判斷後寫 data 屬性」：BlockNote
+   的 link mark 只接受靜態 `HTMLAttributes`，要逐條算屬性就得改 schema（attr 會寫進 Yjs）或
+   在 ProseMirror 管的 DOM 上改屬性（會觸發它的 DOM 觀察器），兩條都在跟上游打架。
+   ⚠ 這幾條要逐條寫在逗號清單裡，**別**收成 `:is(…)`：`:is()` 裡的逗號會讓
+   `theme.link-guard.test.ts` 對選擇器清單的逗號拆分切錯、守衛靜默失效。
+
+   語意查證過而非推測：
    `http(s)` 連結帶 `target="_blank"`（守衛見 server 的 `editing-markdown.test.ts`），
    上游 link toolbar 那顆按鈕的 tooltip 逐字也是 "Open in new tab"。站內 wikilink
    刻意沒有它——那是 `<button>` ＋ react-router 的同分頁導航。
@@ -466,8 +499,12 @@ input[name="share-access"] {
    圖示＝點連結文字（都走上游 `handleClick` 開新分頁）、hover 到圖示 link toolbar 照常出
    現且不閃動、游標停在連結尾端打字不會被吸進連結（`inclusive: false`）。所以沒加
    `pointer-events: none`、也沒退回字元方案；量測明細見 issue #153 與 PR。 */
-.bn-editor [data-inline-content-type="link"][href^="http://"]::after,
-.bn-editor [data-inline-content-type="link"][href^="https://"]::after {
+.bn-editor [data-inline-content-type="link"][href^="http:" i]::after,
+.bn-editor [data-inline-content-type="link"][href^="https:" i]::after,
+.bn-editor [data-inline-content-type="link"][href^="//"]::after,
+.bn-editor [data-inline-content-type="link"][href^="\\\\"]::after,
+.bn-editor [data-inline-content-type="link"][href^="/\\"]::after,
+.bn-editor [data-inline-content-type="link"][href^="\\/"]::after {
   content: "";
   display: inline-block;
   width: 0.85em;
@@ -534,7 +571,7 @@ input[name="share-access"] {
 
 /* 程式碼區塊的底與字（issue #96）。BlockNote 內建寫死
    `.bn-block-content[data-content-type=codeBlock] { color:#fff; background:#161616 }`
-   ——淺色模式也是一塊深色方塊。這裡換成 --code-* 變數（值在 :root／.dark 兩套，
+   ——淺色模式也是一塊深色方塊。這裡換成 --code-* 變數（值在 :root／:root.dark 兩套，
    見上方變數區塊）。⚠ `.bn-editor` 錨點不得拿掉：內建是 (0,2,0) 且載入順序晚於
    本檔，同 specificity 必輸——同上面選取外框那條的理由；守衛
    theme.code-highlight-vars.test.ts。
@@ -667,7 +704,7 @@ input[name="share-access"] {
    `color-scheme`。內建寫死 `option{color:#000}`：深色模式下瀏覽器把彈出清單畫成深底，
    黑字疊上去就等於看不見（實測回報）。這裡把兩者都交給主題變數，並讓 `color-scheme`
    跟著主題走，原生清單的底色/捲軸才會是對的那一套。
-   ⚠ `color-scheme` 只掛在這個 select 上，不掛 `:root`/`.dark`——那會一次改掉全 app
+   ⚠ `color-scheme` 只掛在這個 select 上，不掛 `:root`/`:root.dark`——那會一次改掉全 app
    的原生控制項與捲軸外觀，遠超這條的範圍。 */
 .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select {
   color-scheme: light;

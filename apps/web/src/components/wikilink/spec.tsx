@@ -69,8 +69,10 @@ function WikilinkExternalHTML({ inlineContent, contentRef }: WikilinkRenderProps
  * `@theme inline` 裡（Tailwind 把它編譯成 `:root,:host` 一處），在那裡就算完值再往下
  * 繼承，不受那個巢狀重設影響——外部連結那條 CSS 用的就是它，兩邊走同一個 token 才會
  * 同色；`theme.link-guard.test.ts` 釘住「`--color-brand:` 不得宣告在 `@theme inline`
- * 之外」，那是這個繞法成立的前提。（根因在 `.dark` 基底塊會命中巢狀 `.dark`，那是這
- * 條 issue 範圍外的既有問題，另記在 issue #154。）
+ * 之外」，那是這個繞法成立的前提。（上面描述的是 #154 修掉之前的根因：當時深色基底塊
+ * 是裸 `.dark`，會命中巢狀的 `.bn-root.dark`；#154 把它錨到 `:root.dark`，守衛是
+ * `theme.accent-vars.test.ts` 的 (h)。這裡仍走 `--color-brand`——與外部連結同一個
+ * token，兩道防線各自成立。）
  *
  * `content:"none"` + `selectable:false`（見 `createReactInlineContentSpec`）⇒ 這個
  * inline node 沒有 NodeSelection 可用，導航／斷鏈 toast 都得靠這裡自己的 `onClick`，

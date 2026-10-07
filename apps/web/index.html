@@ -13,7 +13,7 @@
       主題色（accent）防閃同樣道理，擴充在同一個 script 內（theme.test.tsx 的
       runInlineThemeScript 只抓 head 第一組 script，不得另開 tag）：只有 storage
       值恰為六個合法色名之一時才 setAttribute("data-accent", …)；null／非法值
-      不設屬性，讓 index.css 的 :root/.dark 基底 fallback（＝indigo 值）頂上——
+      不設屬性，讓 index.css 的 :root/:root.dark 基底 fallback（＝indigo 值）頂上——
       與 ThemeProvider 掛載後恆設 data-accent="indigo" 呈現同色，不閃色。
     -->
     <script>

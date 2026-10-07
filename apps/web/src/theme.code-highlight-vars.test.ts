@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
  * **實際色值只存在 `index.css`**。這裡守三件事，三件都是「壞了不會有任何測試紅、
  * 只有畫面靜默變醜／變不可讀」的形：
  *
- * 1. **兩套色值都要齊**：`--code-*` 在 `:root`（light）與 `.dark` 各定義一次。dark
+ * 1. **兩套色值都要齊**：`--code-*` 在 `:root`（light）與 `:root.dark` 各定義一次。dark
  *    漏一個變數＝該 token 靜默沿用 light 色值（CSS 變數繼承），深色底配淺色文字的
  *    對比就沒了。
  * 2. **codeBlock 底色覆寫要贏內建**：BlockNote 寫死 `color:#fff` + `#161616` 深底
@@ -40,7 +40,7 @@ const CODE_VARS = [
   "--code-token-inserted",
 ] as const;
 
-/** 第一個頂層 `:root {…}`（light 基底）與 `.dark {…}` 的宣告內容。 */
+/** 第一個頂層 `:root {…}`（light 基底）與 `:root.dark {…}` 的宣告內容。 */
 function themeBlocks(): { light: string; dark: string } {
   const css = readIndexCss();
   // ⚠ 取的是**含 --code-* 的那個** `:root`，不是第一個：index.css 自 issue #111 起有
@@ -48,17 +48,18 @@ function themeBlocks(): { light: string; dark: string } {
   const light = [...css.matchAll(/(?:^|\n):root\s*\{([^}]*)\}/g)]
     .map((m) => m[1]!)
     .find((body) => body.includes("--code-"));
-  // 與上面同理由：抓「含 --code-* 的那個 `.dark`」，不靠出現順序。
-  const dark = [...css.matchAll(/(?:^|\n)\.dark\s*\{([^}]*)\}/g)]
+  // 與上面同理由：抓「含 --code-* 的那個 `:root.dark`」，不靠出現順序。深色基底塊自 #154
+  // 起錨在 `:root`（裸 `.dark` 會在 BlockNote 的 `.bn-root.dark` 上再命中一次）。
+  const dark = [...css.matchAll(/(?:^|\n):root\.dark\s*\{([^}]*)\}/g)]
     .map((m) => m[1]!)
     .find((body) => body.includes("--code-"));
   expect(light, "index.css 應有頂層 :root 區塊").toBeDefined();
-  expect(dark, "index.css 應有頂層 .dark 區塊").toBeDefined();
+  expect(dark, "index.css 應有頂層 :root.dark 區塊").toBeDefined();
   return { light: light!, dark: dark! };
 }
 
 describe("程式碼上色變數（--code-*）", () => {
-  it("light（:root）與 dark（.dark）各自定義完整一套——dark 漏一個＝該 token 靜默沿用 light 色", () => {
+  it("light（:root）與 dark（:root.dark）各自定義完整一套——dark 漏一個＝該 token 靜默沿用 light 色", () => {
     const { light, dark } = themeBlocks();
     for (const name of CODE_VARS) {
       expect(light, `light 缺 ${name}`).toContain(`${name}:`);

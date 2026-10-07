@@ -11,10 +11,10 @@ import { type Accent, ACCENTS } from "./theme";
  *
  * 背景見 `index.css` 「主題色（accent）十二個套用塊」上方的區塊註解：
  * - 六色 × light/dark 共十二個 `[data-accent=…]` 塊，值必須逐字抄 spec 值表。
- * - `:root`/`.dark` 基底塊的五個 `--brand*` token（`--brand-fg` 不算，見下）
+ * - `:root`/`:root.dark` 基底塊的五個 `--brand*` token（`--brand-fg` 不算，見下）
  *   是屬性不存在時的 fallback，必須逐字＝indigo 那組——這是「首屏 fallback 與
  *   hydrate 補設同色」的支點。
- * - `--brand-fg` 不分色票——只宣告在 `:root`／`.dark` 兩個基底塊，六色共用同一套
+ * - `--brand-fg` 不分色票——只宣告在 `:root`／`:root.dark` 兩個基底塊，六色共用同一套
  *   前景字色，不隨 accent 變。它不進 `TOKEN_NAMES`（那是給「每色一份」的 token
  *   用的），改在 (g) 另外守：兩個基底塊都要有，且不得出現在任何
  *   `[data-accent=…]` 塊裡。
@@ -62,14 +62,15 @@ function extractBlockBody(css: string, selectorRegex: RegExp, label: string): st
   return css.slice(braceStart + 1, end);
 }
 
-function extractDataAccentBlock(css: string, prefix: ":root" | ".dark", color: Color): string {
-  const escapedPrefix = prefix === ":root" ? ":root" : "\\.dark";
+function extractDataAccentBlock(css: string, prefix: ":root" | ":root.dark", color: Color): string {
+  // `:root\[` 不會吃到 `:root.dark[…]`（中間夾著 `.dark`），兩個 prefix 互不重疊。
+  const escapedPrefix = prefix === ":root" ? ":root" : ":root\\.dark";
   const regex = new RegExp(`${escapedPrefix}\\[data-accent=${color}\\]\\s*\\{`);
   return extractBlockBody(css, regex, `${prefix}[data-accent=${color}]`);
 }
 
-function extractBaseBlock(css: string, prefix: ":root" | ".dark"): string {
-  const escapedPrefix = prefix === ":root" ? ":root" : "\\.dark";
+function extractBaseBlock(css: string, prefix: ":root" | ":root.dark"): string {
+  const escapedPrefix = prefix === ":root" ? ":root" : ":root\\.dark";
   // 基底塊沒有 `[data-accent=…]` 後綴，選擇器後直接接 `{`（可能夾空白）。
   const regex = new RegExp(`${escapedPrefix}\\s*\\{`);
   return extractBlockBody(css, regex, `基底 ${prefix}`);
@@ -100,25 +101,25 @@ function extractOklchTriple(value: string, label: string): string {
 describe("主題色（accent）token parity", () => {
   const cssNoComments = readIndexCssWithoutComments();
 
-  it("(a) 十二個 [data-accent=…] 塊與 :root/.dark 基底塊都齊全四個精確名 token", () => {
+  it("(a) 十二個 [data-accent=…] 塊與 :root/:root.dark 基底塊都齊全四個精確名 token", () => {
     for (const color of COLORS) {
       const lightBody = extractDataAccentBlock(cssNoComments, ":root", color);
-      const darkBody = extractDataAccentBlock(cssNoComments, ".dark", color);
+      const darkBody = extractDataAccentBlock(cssNoComments, ":root.dark", color);
       for (const name of TOKEN_NAMES) {
         extractToken(lightBody, name, `:root[data-accent=${color}]`);
-        extractToken(darkBody, name, `.dark[data-accent=${color}]`);
+        extractToken(darkBody, name, `:root.dark[data-accent=${color}]`);
       }
     }
 
     const baseLight = extractBaseBlock(cssNoComments, ":root");
-    const baseDark = extractBaseBlock(cssNoComments, ".dark");
+    const baseDark = extractBaseBlock(cssNoComments, ":root.dark");
     for (const name of TOKEN_NAMES) {
       extractToken(baseLight, name, "基底 :root");
-      extractToken(baseDark, name, "基底 .dark");
+      extractToken(baseDark, name, "基底 :root.dark");
     }
   });
 
-  it("(b) 所有 .dark[data-accent=…] 塊位置在所有 :root[data-accent=…] 塊之後", () => {
+  it("(b) 所有 :root.dark[data-accent=…] 塊位置在所有 :root[data-accent=…] 塊之後", () => {
     const lightIndices = COLORS.map((color) => {
       const regex = new RegExp(`:root\\[data-accent=${color}\\]\\s*\\{`);
       const match = regex.exec(cssNoComments);
@@ -126,9 +127,9 @@ describe("主題色（accent）token parity", () => {
       return match!.index;
     });
     const darkIndices = COLORS.map((color) => {
-      const regex = new RegExp(`\\.dark\\[data-accent=${color}\\]\\s*\\{`);
+      const regex = new RegExp(`:root\\.dark\\[data-accent=${color}\\]\\s*\\{`);
       const match = regex.exec(cssNoComments);
-      expect(match, `找不到 .dark[data-accent=${color}]`).not.toBeNull();
+      expect(match, `找不到 :root.dark[data-accent=${color}]`).not.toBeNull();
       return match!.index;
     });
 
@@ -137,33 +138,33 @@ describe("主題色（accent）token parity", () => {
     expect(maxLightIndex).toBeLessThan(minDarkIndex);
   });
 
-  it("(c) swatch 與對應塊 --brand 等值；基底 :root/.dark 四 token 值 = indigo 塊值", () => {
+  it("(c) swatch 與對應塊 --brand 等值；基底 :root/:root.dark 四 token 值 = indigo 塊值", () => {
     const baseLight = extractBaseBlock(cssNoComments, ":root");
-    const baseDark = extractBaseBlock(cssNoComments, ".dark");
+    const baseDark = extractBaseBlock(cssNoComments, ":root.dark");
 
     for (const color of COLORS) {
       const lightBody = extractDataAccentBlock(cssNoComments, ":root", color);
-      const darkBody = extractDataAccentBlock(cssNoComments, ".dark", color);
+      const darkBody = extractDataAccentBlock(cssNoComments, ":root.dark", color);
 
       const swatchLight = extractSwatch(baseLight, color, "基底 :root");
-      const swatchDark = extractSwatch(baseDark, color, "基底 .dark");
+      const swatchDark = extractSwatch(baseDark, color, "基底 :root.dark");
 
       expect(swatchLight, `--brand-swatch-${color}（:root）應等於 :root[data-accent=${color}] 的 --brand`).toBe(
         extractToken(lightBody, "--brand", `:root[data-accent=${color}]`),
       );
-      expect(swatchDark, `--brand-swatch-${color}（.dark）應等於 .dark[data-accent=${color}] 的 --brand`).toBe(
-        extractToken(darkBody, "--brand", `.dark[data-accent=${color}]`),
+      expect(swatchDark, `--brand-swatch-${color}（:root.dark）應等於 :root.dark[data-accent=${color}] 的 --brand`).toBe(
+        extractToken(darkBody, "--brand", `:root.dark[data-accent=${color}]`),
       );
     }
 
     const indigoLightBody = extractDataAccentBlock(cssNoComments, ":root", "indigo");
-    const indigoDarkBody = extractDataAccentBlock(cssNoComments, ".dark", "indigo");
+    const indigoDarkBody = extractDataAccentBlock(cssNoComments, ":root.dark", "indigo");
     for (const name of TOKEN_NAMES) {
       expect(extractToken(baseLight, name, "基底 :root"), `基底 :root 的 ${name} 應等於 :root[data-accent=indigo]`).toBe(
         extractToken(indigoLightBody, name, ":root[data-accent=indigo]"),
       );
-      expect(extractToken(baseDark, name, "基底 .dark"), `基底 .dark 的 ${name} 應等於 .dark[data-accent=indigo]`).toBe(
-        extractToken(indigoDarkBody, name, ".dark[data-accent=indigo]"),
+      expect(extractToken(baseDark, name, "基底 :root.dark"), `基底 :root.dark 的 ${name} 應等於 :root.dark[data-accent=indigo]`).toBe(
+        extractToken(indigoDarkBody, name, ":root.dark[data-accent=indigo]"),
       );
     }
   });
@@ -199,11 +200,11 @@ describe("主題色（accent）token parity", () => {
     }
   });
 
-  it("(e) 每色 --brand-soft/--brand-soft-strong = 該色 .dark --brand 三值 + 對應 alpha", () => {
+  it("(e) 每色 --brand-soft/--brand-soft-strong = 該色 :root.dark --brand 三值 + 對應 alpha", () => {
     for (const color of COLORS) {
-      const darkBody = extractDataAccentBlock(cssNoComments, ".dark", color);
-      const darkBrand = extractToken(darkBody, "--brand", `.dark[data-accent=${color}]`);
-      const triple = extractOklchTriple(darkBrand, `.dark[data-accent=${color}]`);
+      const darkBody = extractDataAccentBlock(cssNoComments, ":root.dark", color);
+      const darkBrand = extractToken(darkBody, "--brand", `:root.dark[data-accent=${color}]`);
+      const triple = extractOklchTriple(darkBrand, `:root.dark[data-accent=${color}]`);
 
       const lightBody = extractDataAccentBlock(cssNoComments, ":root", color);
 
@@ -221,12 +222,12 @@ describe("主題色（accent）token parity", () => {
         `:root[data-accent=${color}] 的 --brand-soft-strong 應＝該色 dark --brand 三值 /20%`,
       ).toBe(expectedLightStrong);
       expect(
-        normalizeWhitespace(extractToken(darkBody, "--brand-soft", `.dark[data-accent=${color}]`)),
-        `.dark[data-accent=${color}] 的 --brand-soft 應＝該色 dark --brand 三值 /16%`,
+        normalizeWhitespace(extractToken(darkBody, "--brand-soft", `:root.dark[data-accent=${color}]`)),
+        `:root.dark[data-accent=${color}] 的 --brand-soft 應＝該色 dark --brand 三值 /16%`,
       ).toBe(expectedDarkSoft);
       expect(
-        normalizeWhitespace(extractToken(darkBody, "--brand-soft-strong", `.dark[data-accent=${color}]`)),
-        `.dark[data-accent=${color}] 的 --brand-soft-strong 應＝該色 dark --brand 三值 /24%`,
+        normalizeWhitespace(extractToken(darkBody, "--brand-soft-strong", `:root.dark[data-accent=${color}]`)),
+        `:root.dark[data-accent=${color}] 的 --brand-soft-strong 應＝該色 dark --brand 三值 /24%`,
       ).toBe(expectedDarkStrong);
     }
   });
@@ -240,24 +241,67 @@ describe("主題色（accent）token parity", () => {
     }
   });
 
-  it("(g) --brand-fg 只宣告在 :root/.dark 兩個基底塊——不分色票，六色都共用同一套", () => {
+  it("(g) --brand-fg 只宣告在 :root/:root.dark 兩個基底塊——不分色票，六色都共用同一套", () => {
     const brandFgRe = /--brand-fg:\s*([^;]+);/;
     const baseLight = extractBaseBlock(cssNoComments, ":root");
-    const baseDark = extractBaseBlock(cssNoComments, ".dark");
+    const baseDark = extractBaseBlock(cssNoComments, ":root.dark");
     expect(brandFgRe.exec(baseLight), "基底 :root 找不到 --brand-fg").not.toBeNull();
-    expect(brandFgRe.exec(baseDark), "基底 .dark 找不到 --brand-fg").not.toBeNull();
+    expect(brandFgRe.exec(baseDark), "基底 :root.dark 找不到 --brand-fg").not.toBeNull();
 
     for (const color of COLORS) {
       const lightBody = extractDataAccentBlock(cssNoComments, ":root", color);
-      const darkBody = extractDataAccentBlock(cssNoComments, ".dark", color);
+      const darkBody = extractDataAccentBlock(cssNoComments, ":root.dark", color);
       expect(
         brandFgRe.exec(lightBody),
         `:root[data-accent=${color}] 不該宣告 --brand-fg（不分色票，改色不該讓它跟著換）`,
       ).toBeNull();
       expect(
         brandFgRe.exec(darkBody),
-        `.dark[data-accent=${color}] 不該宣告 --brand-fg（不分色票，改色不該讓它跟著換）`,
+        `:root.dark[data-accent=${color}] 不該宣告 --brand-fg（不分色票，改色不該讓它跟著換）`,
       ).toBeNull();
     }
+  });
+
+  it("(h) 宣告主題變數的規則，選擇器清單裡每一項都必須錨在 :root／html（#154：編輯器子樹不得重設主題變數）", () => {
+    // BlockNote 把 light/dark 當 class 寫在 `.bn-root` 與 `portalElement` 上，也在 `.bn-root`
+    // 寫 `data-color-scheme`。任何**沒錨在根元素**的規則只要宣告了主題變數，就可能在編輯器
+    // 子樹（或任何其他子樹）裡再命中一次，把使用者選的主題色（以及其他主題變數）在那裡重設
+    // ——`text-brand` 這類 utility 在元素上求值，於是編輯器內變回 indigo（#154 原貌）。
+    // 所以判準**不看**選擇器有沒有提到 `.dark`：`[data-color-scheme=dark]`、`.bn-root` 一樣危險。
+    // 主題變數本來就只該在根元素宣告一次、往下繼承。其他測試全都看不到這件事。
+    //
+    // 主題變數＝兩個基底塊宣告的全部自訂屬性（含 `--brand*`、`--code-*`、`--card`…）。
+    const declaredNames = (body: string) => [...body.matchAll(/(?:^|[;{\s])(--[\w-]+)\s*:/g)].map((m) => m[1]!);
+    const themeVars = new Set([
+      ...declaredNames(extractBaseBlock(cssNoComments, ":root")),
+      ...declaredNames(extractBaseBlock(cssNoComments, ":root.dark")),
+    ]);
+    expect(themeVars.has("--brand"), "主題變數集合應含 --brand（抽基底塊失敗就會是空集合、守衛形同虛設）").toBe(true);
+
+    // 合法形：以 `:root` 或 `html` 起頭的**單一複合選擇器**（中間沒有空白或組合子），
+    // 例如 `:root`、`:root.dark`、`:root.dark[data-accent=gold]`、`html.dark`。
+    const anchored = /^(?::root|html)(?![\w-])[^\s>+~]*$/;
+
+    const offenders: string[] = [];
+    let checked = 0;
+    // 最內層的 `selector { body }`：`@media`／`@supports` 裡的規則、CSS 巢狀的 `&.dark { … }`
+    // 也都會被這條命中（巢狀那形抽到的選擇器是 `&.dark`，不以 :root 起頭 ⇒ 判違規）。
+    for (const m of cssNoComments.matchAll(/([^{}]*)\{([^{}]*)\}/g)) {
+      // 頂層第一塊前面還夾著 `@import …;`／`@custom-variant …;`，取最後一個 `;` 之後才是選擇器。
+      const selectorText = m[1]!.split(";").at(-1)!;
+      const declared = declaredNames(m[2]!).filter((name) => themeVars.has(name));
+      if (declared.length === 0) continue;
+      // ⚠ 逗號清單必拆開逐一判（repo 慣例）：`:root.dark, .dark { … }` 整串測會被合法那半騙過。
+      for (const selector of selectorText.split(",").map((s) => s.trim())) {
+        checked += 1;
+        if (!anchored.test(selector)) offenders.push(`${selector}  （宣告了 ${declared.slice(0, 3).join("、")}…）`);
+      }
+    }
+    // 不得空轉：兩個基底塊＋十二個 accent 塊至少十四條要被檢查到。
+    expect(checked, "應至少檢查到 14 條宣告主題變數的規則").toBeGreaterThanOrEqual(2 + 2 * COLORS.length);
+    expect(
+      offenders,
+      "這些規則會在 BlockNote 的 `.bn-root`／浮層（或任何子樹）上把主題變數重設；選擇器要錨在 :root（例如 `:root.dark`）",
+    ).toEqual([]);
   });
 });

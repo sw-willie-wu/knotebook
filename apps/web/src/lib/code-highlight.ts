@@ -13,7 +13,7 @@ import { CODE_BLOCK_BASE_OPTIONS } from "@knotebook/shared";
  * 而那個 parser **寫死用 `getLoadedThemes()[0]`**（不帶 options 呼叫
  * `createParser`）——「載兩個 theme 依主題切換」這條路不存在。所以這裡只載一個
  * `createCssVariablesTheme`：token 顏色全部輸出成 `var(--code-…)`，實際色值定義在
- * `index.css` 的 `:root`／`.dark` 兩塊，跟著 `resolvedTheme` 即時切換，且與六色
+ * `index.css` 的 `:root`／`:root.dark` 兩塊，跟著 `resolvedTheme` 即時切換，且與六色
  * accent 完全脫鉤（issue 的兩條設計限制）。變數清單見 `index.css` 的 code 區塊註解。
  */
 

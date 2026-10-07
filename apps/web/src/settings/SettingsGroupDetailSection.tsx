@@ -13,6 +13,7 @@ import {
 } from "@/api/groups";
 import { useSession } from "@/auth/useSession";
 import { Button } from "@/components/ui/button";
+import { Trash } from "@/components/ui/icons";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
@@ -40,6 +41,21 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
 const SELECT_CLASS =
   "h-8 shrink-0 rounded-md border border-input bg-background px-2 text-sm shadow-sm focus-visible:outline-none " +
   "focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
+
+/**
+ * 成員表的欄寬規則（#183）。jsdom 不排版、量不到「溢出」，所以
+ * `SettingsGroupDetailSection.test.tsx` 逐格對**字面 token** 斷言（不 import 這個常數，
+ * 免得常數被改錯時測試跟著一起錯）。
+ * - `text`：名字、email 兩格可在任意處斷行。`wrap-anywhere`（`overflow-wrap: anywhere`）
+ *   會把斷點算進 min-content，auto 表格才肯把這欄壓窄；`break-words` 不算，照樣撐爆。
+ * - `fixed`：角色欄不換行（下拉本身已是 shrink-0）。
+ * - `actions`：操作欄 `w-px` ＋ 不換行 ⇒ 收到內容寬（一顆 32px 圖示鈕），永遠不被擠壓。
+ */
+const MEMBERS_TABLE_LAYOUT = {
+  text: "wrap-anywhere",
+  fixed: "whitespace-nowrap",
+  actions: "w-px whitespace-nowrap",
+} as const;
 
 /** 名單裡掛內建管理員角色的人數（spec §8.5「看 `builtin === "admin"` 計數」）。 */
 function countAdmins(members: GroupMemberDto[]): number {
@@ -159,13 +175,23 @@ function MembersSection({ group, canManageMembers }: { group: GroupDto; canManag
           {errorMessage(t, membersQuery.error)}
         </p>
       ) : (
+        // #183：很長的 email（例如 e2e 的 uuid 帳號）曾把整張表撐出 modal、移除鈕被裁掉。
+        // 版面規則（`MEMBERS_TABLE_LAYOUT`，有守衛）：名字／email 兩格可在任意處斷行
+        // （`wrap-anywhere` 會一併縮小 auto 表格算欄寬用的 min-content，`break-words` 不會）；
+        // 角色與操作兩欄不換行、操作欄 `w-px` 收到內容寬——移除鈕是固定 32px 的圖示鈕，
+        // 不參與擠壓。可見文字不再帶 email（email 留在 aria-label，與分享面板同一套）。
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border text-left text-muted-foreground">
-              <th className="py-2 font-medium">{t("groups.detail.tableName")}</th>
-              <th className="py-2 font-medium">{t("groups.detail.tableEmail")}</th>
-              <th className="py-2 font-medium">{t("groups.detail.tableRole")}</th>
-              {canManageMembers && <th className="py-2 text-right font-medium">{t("groups.detail.tableActions")}</th>}
+              {/* 表頭不掛 wrap-anywhere：短字，掛了反而會在極窄時被逐字拆開。 */}
+              <th className="py-2 pr-3 font-medium">{t("groups.detail.tableName")}</th>
+              <th className="py-2 pr-3 font-medium">{t("groups.detail.tableEmail")}</th>
+              <th className={`py-2 font-medium ${MEMBERS_TABLE_LAYOUT.fixed}`}>{t("groups.detail.tableRole")}</th>
+              {canManageMembers && (
+                <th className={`py-2 pl-2 text-right font-medium ${MEMBERS_TABLE_LAYOUT.actions}`}>
+                  {t("groups.detail.tableActions")}
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -173,10 +199,10 @@ function MembersSection({ group, canManageMembers }: { group: GroupDto; canManag
               const locked = isLastAdmin(member);
               return (
                 <tr key={member.userId} className="border-b border-border">
-                  <td className="py-2">{member.displayName}</td>
+                  <td className={`py-2 pr-3 ${MEMBERS_TABLE_LAYOUT.text}`}>{member.displayName}</td>
                   {/* A8：成員彼此看得到 email——要收回就刪這一格與表頭 */}
-                  <td className="py-2 text-muted-foreground">{member.email}</td>
-                  <td className="py-2">
+                  <td className={`py-2 pr-3 text-muted-foreground ${MEMBERS_TABLE_LAYOUT.text}`}>{member.email}</td>
+                  <td className={`py-2 ${MEMBERS_TABLE_LAYOUT.fixed}`}>
                     {canManageMembers ? (
                       <select
                         aria-label={t("groups.detail.roleLabel", { email: member.email })}
@@ -202,18 +228,19 @@ function MembersSection({ group, canManageMembers }: { group: GroupDto; canManag
                     )}
                   </td>
                   {canManageMembers && (
-                    <td className="py-2">
+                    <td className={`py-2 pl-2 ${MEMBERS_TABLE_LAYOUT.actions}`}>
                       <div className="flex justify-end">
                         <Button
                           type="button"
                           variant="ghost"
-                          size="sm"
+                          size="icon"
+                          className="shrink-0"
                           aria-label={t("groups.detail.remove", { email: member.email })}
                           disabled={locked || removeMember.isPending}
                           title={locked ? t("groups.detail.lastAdminHint") : undefined}
                           onClick={() => void handleRemove(member)}
                         >
-                          {t("groups.detail.remove", { email: member.email })}
+                          <Trash className="h-4 w-4" />
                         </Button>
                       </div>
                     </td>
