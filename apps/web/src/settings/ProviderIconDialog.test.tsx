@@ -344,22 +344,27 @@ describe("ProviderIconDialog（spec §6.3、§8.2 W2）", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(mutations(calls)).toEqual([]);
   });
-  it("儲存中（PUT pending）不得關閉：Cancel 停用、Esc 無效；PUT 完成後才關、不送任何 PATCH（I1）", async () => {
+  it("上傳儲存中：Cancel 停用、Esc 與右上 X 都關不掉；PUT 回來後等列表重抓完才關；重開選中 Upload，直接按 Save 不送請求（I1）", async () => {
     stubDecoder({ width: 64, height: 64 });
-    let release!: () => void;
-    const gate = new Promise<void>(resolve => {
-      release = resolve;
+    let releasePut!: () => void;
+    const putGate = new Promise<void>(resolve => {
+      releasePut = resolve;
+    });
+    let releaseGet!: () => void;
+    const getGate = new Promise<void>(resolve => {
+      releaseGet = resolve;
     });
     let putDone = false;
-    // provider 由 useQuery 供應（接線同卡片）：PUT 成功後的 invalidate 會重抓到 upload 版。
+    // provider 由 useQuery 供應（接線同卡片）：PUT 成功後的 invalidate 重抓到 upload 版，而且這次 GET 被 getGate 延遲。
     const { calls } = setup(
       BASE,
       async call => {
         if (call.method === "PUT") {
-          await gate;
+          await putGate;
           putDone = true;
           return fakeResponse(200, UPLOADED);
         }
+        if (putDone) await getGate;
         return fakeResponse(200, putDone ? [UPLOADED] : [BASE]);
       },
       true,
@@ -372,12 +377,53 @@ describe("ProviderIconDialog（spec §6.3、§8.2 W2）", () => {
     const cancel = within(dialog).getByRole("button", { name: "Cancel" });
     expect(cancel).toBeDisabled();
     fireEvent.click(cancel);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await settle();
+    expect(screen.getByRole("dialog")).toBe(dialog);
+
+    releasePut();
+    // PUT 已回來、重抓（GET）還卡著：仍開著、仍是 Saving…（busy 涵蓋到重抓完成）。
+    await waitFor(() => expect(calls.filter(c => c.method === "GET" && putDone).length).toBeGreaterThan(0));
+    await settle();
+    expect(screen.getByRole("dialog")).toBe(dialog);
+    expect(within(dialog).getByRole("button", { name: "Saving…" })).toBeDisabled();
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await settle();
+    expect(screen.getByRole("dialog")).toBe(dialog);
+
+    releaseGet();
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    // 重開：列表已是 upload 版，選中的是 Upload；什麼都不動按 Save → 不送任何請求、關閉（守住 I1：不會送 PATCH 清掉剛上傳的圖）。
+    const reopened = await openDialog();
+    expect(radio(reopened, "Upload an image")).toBeChecked();
+    const afterOpen = calls.length;
+    fireEvent.click(within(reopened).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(calls.length).toBe(afterOpen);
+    expect(mutations(calls).map(c => c.method)).toEqual(["PUT"]);
+  });
+
+  it("PATCH 儲存中：Cancel 停用、Esc 與右上 X 都關不掉；PATCH 回來後才關", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    const { calls } = setup(BASE, async call => {
+      if (call.method === "PATCH") await gate;
+      return fakeResponse(200, BASE);
+    });
+    const dialog = await openDialog();
+    fireEvent.click(radio(dialog, "None"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(mutations(calls)).toHaveLength(1));
+    expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeDisabled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
     fireEvent.keyDown(dialog, { key: "Escape" });
     await settle();
     expect(screen.getByRole("dialog")).toBe(dialog);
     release();
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    expect(mutations(calls).map(c => c.method)).toEqual(["PUT"]);
   });
 });
 

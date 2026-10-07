@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { resolveProviderIcon, type AdminAuthProviderDto, type ProviderIconDto, type ProviderIconKind } from "@knotebook/shared";
-import { usePatchAuthProvider, useUploadAuthProviderIcon } from "@/api/adminAuth";
+import { ADMIN_AUTH_PROVIDERS_QUERY_KEY, usePatchAuthProvider, useUploadAuthProviderIcon } from "@/api/adminAuth";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -17,10 +18,12 @@ const GOOGLE_ICON: ProviderIconDto = { type: "builtin", name: "google" };
  * 無變更直接關（Q6）。表單型 → `dismissOnOutside={false}`。開或關都重設為目前的 iconKind（RF5）；縮圖的 `blob:` 在換掉或關閉時釋放。
  * 開或關都遞增 `generation`：關閉時還在跑的縮圖，回來後發現 generation 已變就丟掉結果（不建 `blob:`、不寫 state）——否則取消後再開會漏進舊檔。
  * 儲存中（`busy`）不得關閉：Cancel 停用、`onOpenChange` 擋下 X／Esc（點外面本來就擋）——否則取消再重開時 `choice` 停在舊 iconKind，
- * PUT 成功後直接按 Save 會送 PATCH 把剛上傳的圖清掉。儲存回來的 generation 檢查留作保險（正常路徑到不了）。
+ * PUT 成功後直接按 Save 會送 PATCH 把剛上傳的圖清掉。`busy` 涵蓋到「成功後等 admin providers 重抓完」（`refreshing`）：mutation 的 invalidate 不等 refetch，
+ * 不等的話在重抓回來前重開，選項仍是舊的 iconKind。重抓失敗（invalidateQueries 拋出）也照樣關閉，不卡住。generation 檢查留作保險（正常路徑到不了）。
  */
 export function ProviderIconDialog({ provider }: { provider: AdminAuthProviderDto }) {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const patch = usePatchAuthProvider();
   const upload = useUploadAuthProviderIcon();
   const fileInput = useRef<HTMLInputElement>(null);
@@ -29,6 +32,7 @@ export function ProviderIconDialog({ provider }: { provider: AdminAuthProviderDt
   const [choice, setChoice] = useState<ProviderIconKind>(provider.iconKind);
   const [picked, setPicked] = useState<{ blob: Blob; url: string } | null>(null);
   const [reading, setReading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // `picked` 換掉（含設為 null）或卸載時釋放上一個 blob:（更新不會被 StrictMode 重跑，只有 mount 會——mount 時 picked 為 null）。
@@ -67,7 +71,7 @@ export function ProviderIconDialog({ provider }: { provider: AdminAuthProviderDt
     }
   }
 
-  const busy = patch.isPending || upload.isPending;
+  const busy = patch.isPending || upload.isPending || refreshing;
   // Q6：選上傳、目前不是 upload、還沒有新檔 → 無從儲存。
   const needsFile = choice === "upload" && provider.iconKind !== "upload" && picked === null;
 
@@ -81,6 +85,17 @@ export function ProviderIconDialog({ provider }: { provider: AdminAuthProviderDt
         await patch.mutateAsync({ id: provider.id, body: { iconKind: choice } });
       }
       // 其餘＝無變更（Q6）：不送請求，直接關。
+      if (choice === "upload" ? picked !== null : choice !== provider.iconKind) {
+        // 寫入成功：等列表重抓完再關（沿用進行中的重抓，不取消重來）；重抓失敗不擋關閉。
+        setRefreshing(true);
+        try {
+          await queryClient.invalidateQueries({ queryKey: ADMIN_AUTH_PROVIDERS_QUERY_KEY }, { cancelRefetch: false });
+        } catch {
+          // 照關
+        } finally {
+          setRefreshing(false);
+        }
+      }
       if (generation.current !== started) return; // 儲存中被取消、甚至重開：請求照跑（列表由 mutation 的 invalidate 重抓），但不替新開的對話框關門
       handleOpenChange(false);
     } catch (err) {
