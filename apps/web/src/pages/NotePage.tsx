@@ -473,12 +473,26 @@ export default function NotePage() {
 
   // N4：連線中的角色變動（撤權降級為 viewer／權限恢復）要讓使用者知道。
   // 恢復沒有 server 通知，靠的是下一次 token 往返帶回來的 role（見 useCollab）。
-  const previousRoleRef = useRef<Role | null>(null);
+  //
+  // 基準以「這一條連線」為單位：記 `{ provider, role }`，provider 換了（＝換篇後新的一場連線）
+  // 第一次 connected 只記錄、不比較。換篇不 remount NotePage，只記 role 的話會把上一篇的角色
+  // 當基準（可編輯篇切到唯讀篇誤報降級、反向誤報恢復、#182 的失效也白跑）。
+  // 為什麼不用 noteId 當鍵：換篇後 useCollab 要等新 noteId 的連線 effect 跑完才 setState(INITIAL)，
+  // 之前那幾個 render 的 `state` 仍是**上一篇**殘留的 connected、`noteId` 卻已是新篇——單用 noteId
+  // 當鍵（無 provider 守衛）擋不住這個殘留，會把上一篇的角色記成新篇的基準。既然無論如何都需要
+  // provider 守衛，乾脆以 provider 為鍵。provider 與 state 同步更替：useCollab 在同一個 effect 裡
+  // `setState(INITIAL)`＋`setSession(新 provider)`（同一次 render 生效），殘留的 connected 只會配上
+  // 舊 provider 或 null（cleanup 已 setSession(null)），不會配上新的。同一篇內 provider 恆定
+  // （一次連線 effect 只 new 一個；reconnecting-once、斷線重連都沿用同一個），所以撤權第二擊、
+  // 重連後的角色變動照常比較。
+  // 存 WeakRef：強持有已 destroy 的 provider 會連帶留住上一篇的 Y.Doc。被回收時 deref() 為
+  // undefined，自然視為新連線（本來就是）。
+  const previousRoleRef = useRef<{ provider: WeakRef<NonNullable<typeof provider>>; role: Role } | null>(null);
   const noteGroupId = note?.groupId ?? null;
   useEffect(() => {
-    if (state.phase !== "connected") return;
-    const previous = previousRoleRef.current;
-    previousRoleRef.current = state.role;
+    if (state.phase !== "connected" || !provider) return;
+    const previous = previousRoleRef.current?.provider.deref() === provider ? previousRoleRef.current.role : null;
+    previousRoleRef.current = { provider: new WeakRef(provider), role: state.role };
     if (previous === null || previous === state.role) return;
     // #182：重驗後角色變了但仍有存取——群組筆記的角色變動多半來自**群組角色**被改，側欄群組列的
     // 「＋」看的是 `['groups']` 的 myRole.permissions，不失效就停在舊值直到重整。'none' 不在此
@@ -498,7 +512,7 @@ export default function NotePage() {
     } else if (canEdit(state.role) && !canEdit(previous)) {
       toast({ title: t("note.restoredEditAccess") });
     }
-  }, [noteGroupId, noteId, queryClient, state, t]);
+  }, [noteGroupId, noteId, provider, queryClient, state, t]);
 
   // PR2（BC2 卡片版面）：loading／error／`doc|provider|user` 未備妥時，一律渲染一張
   // 不含 header/footer slot 的佔位內文卡——`headerSlot` 本來就只在真的掛上

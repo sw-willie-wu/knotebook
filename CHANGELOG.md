@@ -45,6 +45,7 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 - In dark mode, the note editor and its menus reset the accent color to the default indigo for anything inside them styled with the accent. Nothing in the editor was styled that way yet (links and `[[` links already worked around it), so this had no visible effect, but accent-colored elements added there later will show the accent you picked (#154).
 - After renaming a note, opening and closing the settings window no longer puts the note's old address back in the address bar; this affected group notes too. If the page learns of a new address for the note while the settings window is open (for example after someone else renamed it), closing the window now returns to that new address. Changing the address this way doesn't reload the note or reconnect the editor (#179).
 - When your group role changes while you have one of the group's notes open, and the change decides whether you can edit that note, the group's **+** (new note) button in the sidebar now updates right away instead of only after a reload (#182).
+- Going from a note you can edit to one you can only view no longer shows "Your access changed to viewer", and going the other way no longer shows "Your edit access has been restored". Your access hadn't changed; only the note had. These messages now appear only when your role changes while the same note stays open.
 
 ## [0.5.0] - 2026-10-05
 
