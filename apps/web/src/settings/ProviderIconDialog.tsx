@@ -16,7 +16,8 @@ const GOOGLE_ICON: ProviderIconDto = { type: "builtin", name: "google" };
  * 登入服務圖示對話框（spec 2026-10-07-provider-icon §6.3、D6）：五個選項各附預覽，按「儲存」才生效——上傳走 PUT、其他走 PATCH {iconKind}；
  * 無變更直接關（Q6）。表單型 → `dismissOnOutside={false}`。開或關都重設為目前的 iconKind（RF5）；縮圖的 `blob:` 在換掉或關閉時釋放。
  * 開或關都遞增 `generation`：關閉時還在跑的縮圖，回來後發現 generation 已變就丟掉結果（不建 `blob:`、不寫 state）——否則取消後再開會漏進舊檔。
- * 儲存同理：儲存中取消（取消鈕未停用）再重開，回來的成功不關新對話框、失敗不寫錯誤進新對話框。
+ * 儲存中（`busy`）不得關閉：Cancel 停用、`onOpenChange` 擋下 X／Esc（點外面本來就擋）——否則取消再重開時 `choice` 停在舊 iconKind，
+ * PUT 成功後直接按 Save 會送 PATCH 把剛上傳的圖清掉。儲存回來的 generation 檢查留作保險（正常路徑到不了）。
  */
 export function ProviderIconDialog({ provider }: { provider: AdminAuthProviderDto }) {
   const { t } = useTranslation();
@@ -105,7 +106,13 @@ export function ProviderIconDialog({ provider }: { provider: AdminAuthProviderDt
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={next => {
+        if (!next && busy) return; // 儲存中忽略關閉請求（X／Esc／Cancel）
+        handleOpenChange(next);
+      }}
+    >
       <DialogTrigger asChild>
         <Button type="button" variant="ghost" size="sm">
           {t("admin.auth.icon.button")}
@@ -151,7 +158,7 @@ export function ProviderIconDialog({ provider }: { provider: AdminAuthProviderDt
         )}
         <DialogFooter>
           <DialogClose asChild>
-            <Button type="button" variant="outline">
+            <Button type="button" variant="outline" disabled={busy}>
               {t("admin.auth.icon.cancel")}
             </Button>
           </DialogClose>

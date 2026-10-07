@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { MAX_PROVIDER_ICON_SOURCE_BYTES, type AdminAuthProviderDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ADMIN_AUTH_PROVIDERS_QUERY_KEY } from "@/api/adminAuth";
@@ -52,7 +52,20 @@ function stubDecoder(result: { width: number; height: number } | "fail") {
 const originalCreate = URL.createObjectURL;
 const originalRevoke = URL.revokeObjectURL;
 
-function setup(provider: AdminAuthProviderDto, respond: (call: Call) => Response | Promise<Response> = () => fakeResponse(200, provider)) {
+/** provider 來自 useQuery（同 AdminAuthPage 的卡片接線）：mutation 的 invalidate 會讓 prop 隨之更新。 */
+function LiveDialog({ fallback }: { fallback: AdminAuthProviderDto }) {
+  const { data } = useQuery({
+    queryKey: ADMIN_AUTH_PROVIDERS_QUERY_KEY,
+    queryFn: async () => (await (await fetch("/api/admin/auth/providers")).json()) as AdminAuthProviderDto[],
+  });
+  return <ProviderIconDialog provider={data?.[0] ?? fallback} />;
+}
+
+function setup(
+  provider: AdminAuthProviderDto,
+  respond: (call: Call) => Response | Promise<Response> = () => fakeResponse(200, provider),
+  live = false,
+) {
   const calls: Call[] = [];
   vi.stubGlobal(
     "fetch",
@@ -72,9 +85,7 @@ function setup(provider: AdminAuthProviderDto, respond: (call: Call) => Response
   queryClient.setQueryData(ADMIN_AUTH_PROVIDERS_QUERY_KEY, [provider]);
   queryClient.setQueryData(AUTH_CONFIG_QUERY_KEY, { providers: [], registration: { enabled: true }, passwordLogin: { enabled: true } });
   render(
-    <QueryClientProvider client={queryClient}>
-      <ProviderIconDialog provider={provider} />
-    </QueryClientProvider>,
+    <QueryClientProvider client={queryClient}>{live ? <LiveDialog fallback={provider} /> : <ProviderIconDialog provider={provider} />}</QueryClientProvider>,
   );
   return { calls, queryClient, createObjectURL, revokeObjectURL };
 }
@@ -333,35 +344,40 @@ describe("ProviderIconDialog（spec §6.3、§8.2 W2）", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(mutations(calls)).toEqual([]);
   });
-  it("儲存中取消再重開：PUT 成功回來不關新開的對話框、失敗回來不把錯誤寫進新開的對話框（generation）", async () => {
-    for (const ok of [true, false]) {
-      stubDecoder({ width: 64, height: 64 });
-      let release!: () => void;
-      const gate = new Promise<void>(resolve => {
-        release = resolve;
-      });
-      const { calls, queryClient } = setup(BASE, async call => {
-        if (call.method !== "PUT") return fakeResponse(200, BASE);
-        await gate;
-        return ok ? fakeResponse(200, UPLOADED) : fakeResponse(413, { error: { code: "file_too_large", message: "x" } });
-      });
-      let dialog = await openDialog();
-      chooseFile(dialog, pngFile());
-      await waitFor(() => expect(previewOf(dialog, "Upload an image")).toHaveAttribute("src", "blob:icon-1"));
-      fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
-      await waitFor(() => expect(mutations(calls)).toHaveLength(1)); // PUT 已送出、卡在 gate
-      fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
-      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-      dialog = await openDialog();
-      release();
-      // 等待點：mutation 的結果（成功＝invalidate 標記；失敗＝mutation 已 settle）已落地，再讓 handleSave 的 continuation 與 React 更新走完。
-      if (ok) await waitFor(() => expect(queryClient.getQueryState(ADMIN_AUTH_PROVIDERS_QUERY_KEY)?.isInvalidated).toBe(true));
-      else await waitFor(() => expect(queryClient.isMutating()).toBe(0));
-      await settle();
-      expect(screen.getByRole("dialog", { name: "Sign-in service icon" }), String(ok)).toBe(dialog);
-      expect(within(dialog).queryByRole("alert"), String(ok)).not.toBeInTheDocument();
-      cleanupDialog();
-    }
+  it("儲存中（PUT pending）不得關閉：Cancel 停用、Esc 無效；PUT 完成後才關、不送任何 PATCH（I1）", async () => {
+    stubDecoder({ width: 64, height: 64 });
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    let putDone = false;
+    // provider 由 useQuery 供應（接線同卡片）：PUT 成功後的 invalidate 會重抓到 upload 版。
+    const { calls } = setup(
+      BASE,
+      async call => {
+        if (call.method === "PUT") {
+          await gate;
+          putDone = true;
+          return fakeResponse(200, UPLOADED);
+        }
+        return fakeResponse(200, putDone ? [UPLOADED] : [BASE]);
+      },
+      true,
+    );
+    const dialog = await openDialog();
+    chooseFile(dialog, pngFile());
+    await waitFor(() => expect(previewOf(dialog, "Upload an image")).toHaveAttribute("src", "blob:icon-1"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(mutations(calls)).toHaveLength(1));
+    const cancel = within(dialog).getByRole("button", { name: "Cancel" });
+    expect(cancel).toBeDisabled();
+    fireEvent.click(cancel);
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await settle();
+    expect(screen.getByRole("dialog")).toBe(dialog);
+    release();
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(mutations(calls).map(c => c.method)).toEqual(["PUT"]);
   });
 });
 
