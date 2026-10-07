@@ -8,6 +8,7 @@ import {
   usePatchAuthProvider,
   useTestAuthProvider,
 } from "@/api/adminAuth";
+import { ProviderIcon } from "@/components/ProviderIcon";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -24,9 +25,9 @@ import { toast } from "@/components/ui/toast";
 import { copyText } from "@/lib/clipboard";
 import { authErrorMessage } from "./auth-error-message";
 import { CreateProviderDialog, EditProviderDialog } from "./AuthProviderDialogs";
+import { ProviderIconDialog } from "./ProviderIconDialog";
 import { SettingsGroup, SettingsPage } from "./SettingsLayout";
 import { SiteAccessSettings } from "./SiteAccessSettings";
-import { ProviderIcon } from "@/components/ProviderIcon";
 
 /** 停用前確認（W11：停用前提示受影響人數）。人數是開 dialog 當下的快照（§9.3）。 */
 function DisableProviderDialog({
@@ -206,6 +207,7 @@ function ProviderCard({ provider }: { provider: AdminAuthProviderDto }) {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          <ProviderIconDialog provider={provider} />
           <EditProviderDialog provider={provider} />
           <DeleteProviderDialog provider={provider} disabledHintId={deleteHintId} />
         </div>

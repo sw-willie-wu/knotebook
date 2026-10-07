@@ -374,4 +374,21 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
     expect(corpIcon).toHaveAttribute("src", url);
     expect(card("SSO").getByRole("heading", { name: "SSO" }).previousElementSibling).toHaveAttribute("data-provider-icon", "generic");
   });
+
+  it("provider-icon：兩張卡片都有「Icon」鈕（ghost：無實心底、無 outline 外框），Edit／Delete 照在；點了開出圖示對話框", async () => {
+    const server = fakeServer([LEGACY, CUSTOM]);
+    renderSection(server.fetchMock);
+    await screen.findByRole("region", { name: "SSO" });
+    for (const name of ["SSO", "<b>Corp</b> & Co"]) {
+      const c = card(name);
+      const icon = c.getByRole("button", { name: "Icon" });
+      expect(icon.className, name).not.toMatch(/(^|\s)bg-(primary|destructive|brand|brand-deep)(\s|$)/);
+      expect(icon.className, name).not.toMatch(/(^|\s)border-input(\s|$)/);
+      expect(c.getByRole("button", { name: "Edit" }), name).toBeInTheDocument();
+      expect(c.getByRole("button", { name: "Delete" }), name).toBeInTheDocument();
+    }
+    const iconButton = card("SSO").getByRole("button", { name: "Icon" });
+    fireEvent.click(iconButton);
+    expect(await screen.findByRole("dialog", { name: "Sign-in service icon" })).toBeInTheDocument();
+  });
 });
