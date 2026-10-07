@@ -68,7 +68,12 @@ export function SettingsModal() {
           未跟著重調），又不會讓說明文字拉得太開（說明本身另有 `max-w-prose` 限寬）。
           高度吃到 `max-h-[88vh]`：這幾頁是往下長的清單（token、群組成員），
           高一點能一次看到更多列，少捲一次。 */}
-      <DialogContent size="lg" className="flex h-[42rem] max-h-[88vh] w-full max-w-4xl overflow-hidden">
+      <DialogContent
+        size="lg"
+        // 點外面不關：內容區的 inline 表單（改密碼、群組改名等）有未存輸入；Esc／右上 X 照常關閉。
+        dismissOnOutside={false}
+        className="flex h-[42rem] max-h-[88vh] w-full max-w-4xl overflow-hidden"
+      >
         {/* 導覽是「機殼」、右邊是「文件」：給左欄一層極淡的底色，兩者才分得開——
             改版前兩側同色、只隔一條 1px 線，整個 modal 讀起來是一整片。
             `settings.title` 在這裡只是定位用的品牌字（13px 靜音），頁標題交給右邊的

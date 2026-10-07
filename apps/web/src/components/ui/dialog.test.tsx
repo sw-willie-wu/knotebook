@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { useState } from "react";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { clickOutside, settle } from "@/test/outside-click";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "./dialog";
 
 type ContentProps = React.ComponentProps<typeof DialogContent>;
@@ -23,25 +24,6 @@ function Harness(props: ContentProps) {
 }
 
 const dialogEl = () => screen.queryByRole("dialog");
-
-/** Radix 在 DismissableLayer 掛載後下一個 tick 才訂閱 document pointerdown；先讓 timer 走完再點。 */
-async function settle(): Promise<void> {
-  await act(async () => {
-    await new Promise((r) => setTimeout(r, 10));
-  });
-}
-
-async function clickOutside(): Promise<void> {
-  await settle();
-  // 這版 Radix 對 button===0 的 pointerdown 延後到 document 的 click 才派發 pointerDownOutside，
-  // 所以要送完整的 pointerdown→mousedown→pointerup→mouseup→click（只送 pointerdown 不會有任何作用）。
-  fireEvent.pointerDown(document.body);
-  fireEvent.mouseDown(document.body);
-  fireEvent.pointerUp(document.body);
-  fireEvent.mouseUp(document.body);
-  fireEvent.click(document.body);
-  await settle();
-}
 
 describe("DialogContent dismissOnOutside", () => {
   it("預設（未傳）：點外面 → 關閉（基準：證明這個 jsdom 觸發方式 Radix 真的處理）", async () => {

@@ -80,7 +80,8 @@ export function GroupNameDialog(props: GroupNameDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent dismissOnOutside={false}
+      <DialogContent
+        dismissOnOutside={false}
         onCloseAutoFocus={(event) => {
           const target = returnFocusRef?.current;
           if (!target) return;

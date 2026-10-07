@@ -124,9 +124,13 @@ function CreateTokenDialog() {
           {t("settings.account.apiTokensCreate")}
         </Button>
       </DialogTrigger>
-      <DialogContent dismissOnOutside={false}
+      <DialogContent
+        // 表單畫面與明文畫面都擋點外面（表單型一律擋）。
+        dismissOnOutside={false}
         // 明文只出現這一次（I2）：明文畫面擋掉 Esc 與點外面，誤觸會讓這支 token 直接報銷
         // （還吃掉 I1 的 20 額度）。只留 Done 與右上 X 這兩個明確的關閉動作。
+        // 加了 dismissOnOutside 後，點外面已被它全程擋下；下方 onPointerDownOutside 與它重疊，
+        // 只剩 onEscapeKeyDown 那支有獨立作用（表單畫面 Esc 仍可關、明文畫面 Esc 擋住）。
         onEscapeKeyDown={event => {
           if (issued !== null) event.preventDefault();
         }}
