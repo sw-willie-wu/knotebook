@@ -28,6 +28,7 @@ import type { CollabHooks } from "../collab/hooks.js";
 import type { CollabServer } from "../collab/server.js";
 import type { EditingRuntime } from "../notes/editing/runtime.js";
 import { loadLastEdited, loadNoteDoc, readNoteContent } from "../notes/editing/read.js";
+import { PALETTE_COLORS } from "../notes/editing/colors.js";
 import { cloneForCopy } from "../notes/copy-doc.js";
 import { docClock } from "../collab/store.js";
 import { listEdits } from "../notes/editing/revert.js";
@@ -102,6 +103,9 @@ const linksBodySchema = z.object({ link_target_ids: z.array(z.string().uuid()).m
 // #106 不變量 S：`section` 進任何比較之前先在 schema 層擋 NUL 並要求格式；語意見 `notes/schemas.ts` 的 `SEC`。
 // `.strict()`：帶未知查詢參數即 400，不靜默忽略。
 const contentQuerySchema = z.object({ section: SEC.optional() }).strict();
+
+/** #222：`unsupported_color` 的 400 訊息列出可用色名（`POST /api/notes` 帶 content 與 `POST …/edits` 共用）。 */
+const UNSUPPORTED_COLOR_MESSAGE = `顏色只接受編輯器內建的色名：${PALETTE_COLORS.join("、")}`;
 
 // `POST /api/notes` 的 body（`createBodySchema`）搬到 `notes/schemas.ts`（#175 PR5）：MCP 的 `create_note`
 // 與它共用同一個 `GROUP_ID`（D18）。
@@ -304,7 +308,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
           throw err;
         }
         if (!out.ok) {
-          if (out.kind === "parse") return sendError(reply, 400, out.code, "無法解析內容");
+          if (out.kind === "parse") return sendError(reply, 400, out.code, out.code === "unsupported_color" ? UNSUPPORTED_COLOR_MESSAGE : "無法解析內容");
           // 套用失敗（**含佇列逾時**）：service 已經 best-effort 刪掉剛建的列。這條路徑的
           // 逾時答案刻意是 500 而不是 503（`docs/ai-editing.md` 逐字）。
           return sendError(reply, 500, "internal", "建立筆記失敗");
@@ -629,7 +633,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
             const body = { ...current, lastEdited: await loadLastEdited(deps.db, id) } satisfies NoteContentDto | NoteSectionDto;
             return reply.code(409).send({ error: { code: "fingerprint_mismatch", message: "內容已被修改" }, current: body });
           }
-          return sendError(reply, out.code === "section_not_found" ? 404 : 400, out.code, "無法套用修改");
+          return sendError(reply, out.code === "section_not_found" ? 404 : 400, out.code, out.code === "unsupported_color" ? UNSUPPORTED_COLOR_MESSAGE : "無法套用修改");
         }
         const result = out.result;
         return reply.code(201).send({ editId: result.editId, fingerprint: result.fingerprint, outline: result.outline, unboundWikilinks: result.unboundWikilinks } satisfies NoteEditResultDto);

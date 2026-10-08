@@ -7,6 +7,7 @@
  *
  * 模型看得到的字串一律英文（同 `docs/`；不是 UI 文案，不走 i18n）。
  */
+import { PALETTE_COLORS } from "../notes/editing/colors.js";
 import type { ParseError } from "../notes/editing/markdown.js";
 
 /** `edit` 桶（`docs/ai-editing.md` 的 Writes 那一列）擋下來時模型看到的字。 */
@@ -14,12 +15,15 @@ export const WRITE_RATE_LIMITED_MESSAGE = "Too many note writes right now. Wait 
 
 /**
  * 解析／套用失敗的逐碼說明。`empty_section` 只有 `edit_note` 產得出來（`create_note` 的失敗
- * 形只有 {@link ParseError} 三個），但它與另外三個是同一張表，分開就會變成兩份。
+ * 形只有 {@link ParseError} 那四個），但它與另外四個是同一張表，分開就會變成兩份。
  */
 export function writeFailureMessage(code: ParseError | "empty_section"): string {
   switch (code) {
     case "unsupported_block":
       return "That markdown contains something this editor cannot store. Plain markdown — headings, text, lists, code, tables — works.";
+    case "unsupported_color":
+      // #222：色名清單取自 `PALETTE_COLORS`（單一真相），不手抄。
+      return `That markdown uses a color this editor cannot show, so nothing was written. Colors must be one of: ${PALETTE_COLORS.join(", ")}.`;
     case "empty_content":
       return "That markdown is empty once parsed. Send at least one non-blank block.";
     case "too_many_blocks":

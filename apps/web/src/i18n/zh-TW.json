@@ -827,6 +827,7 @@
     "section_not_found": "找不到該段落，請重新讀取筆記。",
     "fingerprint_mismatch": "筆記內容在這段期間被修改過，請重新讀取後再試。",
     "unsupported_block": "內容含有這篇筆記無法儲存的區塊類型。",
+    "unsupported_color": "內容用了編輯器沒有的顏色，請改用內建的色名。",
     "empty_content": "內容是空的。",
     "empty_section": "該段落沒有可刪除的內容。",
     "too_many_blocks": "內容的區塊數量超過上限。",

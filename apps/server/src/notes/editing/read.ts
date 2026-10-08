@@ -12,6 +12,7 @@ import { YDOC_FRAGMENT, type LastEditedDto, type NoteContentDto, type NoteSectio
 import type { CollabServer } from "../../collab/server.js";
 import type { Db } from "../../db/index.js";
 import { noteStates, notes, users } from "../../db/schema.js";
+import { blocksToMarkdownWithColors } from "./colors.js";
 import { outlineOf } from "./fingerprint.js";
 import type { EditingRuntime } from "./runtime.js";
 import { EditorSession, forkFrom } from "./session.js";
@@ -54,8 +55,8 @@ export async function loadLastEdited(db: Db, noteId: string): Promise<LastEdited
 async function exportMarkdown(runtime: EditingRuntime, doc: Y.Doc, ids?: Set<string>): Promise<string> {
   const s = await EditorSession.open(runtime, doc);
   try {
-    // blocksToMarkdownLossy 在 @blocknote/core 0.52.1 是同步函式；await 無害，留著防上游改成 async。
-    return await s.editor.blocksToMarkdownLossy(ids ? s.editor.document.filter(b => ids.has(b.id)) : s.editor.document);
+    // #222：有顏色的頂層節點輸出成寫入端認得的 HTML；沒有顏色時與 blocksToMarkdownLossy 位元組相同（colors.ts）。
+    return blocksToMarkdownWithColors(s.editor, ids ? s.editor.document.filter(b => ids.has(b.id)) : s.editor.document);
   } finally {
     s.close();
   }
