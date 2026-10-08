@@ -211,7 +211,7 @@ describe("#175 PR2 POST /api/notes/:id/copy（T4）", () => {
     expect((await db.$client.query("select count(*)::int as n from note_states where note_id = $1", [res.json().id])).rows[0].n).toBe(1);
   });
 
-  it("DB 失敗不留孤兒檔：note-copy-files-copied 縫丟錯 → 500；uploadsDir 只剩來源的檔、沒有副本列與副本 uploads 列", async () => {
+  it("note-copy-files-copied 縫丟錯 → 500；已複製的附件檔清掉、沒有副本筆記（縫在寫任何列之前；列的 rollback 由 drizzle 交易保證）", async () => {
     const { app, db, uploadsDir } = await buildTestApp({
       groupTestHook: async point => {
         if (point === "note-copy-files-copied") throw new Error("boom");

@@ -8,6 +8,9 @@
  *       group_members 列與其 role_id，group_roles 的旗標靠各路徑自守）。不擋改群組名（非鍵 UPDATE＝`FOR NO KEY UPDATE`，
  *       groups 只有 PK 一個唯一索引；C18d 守著，改成 `FOR SHARE` 會讓它卡住）。它也是 (3) 的 FK
  *       檢查本來就會取的同一把鎖，只是提前；鎖序仍是筆記 → groups（spec §11 鎖序段），上述路徑都不在持 groups 鎖後再鎖個人筆記，不成環。
+ *   (1a) 儲存配額（spec 2026-10-08 §6.5）：本篇附件總和（筆記已持 FOR UPDATE）＝移入的位元組 → 目標群組空間鎖＋判定
+ *       （`assertSpaceRoomInTx`；在 (0)／(1) 兩把列鎖之後——Q-S2；在 (2) 刪 shares 與 (3) 群組範圍 slug 寫入之前——Q-S6 (g)、
+ *       Q-S7）。超過 → `StorageQuotaExceeded`，什麼都沒改；附件總和 0 時不取鎖（A4）。來源（個人空間）只會變少，不取鎖
  *   (2) 刪光逐人分享（S5／D16）並記下對象（commit 後踢線）
  *   (3) writeSlugInTx：以舊 slug 為基底在群組範圍去重（B6）；同一句 UPDATE 清 owner、prev（B12）、token（Q4）、別名（S11）
  *       ——`slug_is_custom` 不動（B6）、`updated_at` 不動（§6.3）
@@ -18,9 +21,11 @@
  */
 import { and, eq } from "drizzle-orm";
 import type { Tx } from "../../db/tx.js";
-import { groupMembers, groupRoles, groups, noteShares, notes } from "../../db/schema.js";
+import { groupMembers, groupRoles, groups, noteShares, notes, uploads } from "../../db/schema.js";
 import type { GroupTestHook } from "../../groups/test-hook.js";
 import { TxAbort } from "../../http/tx-abort.js";
+import { sumUploadSizeSql } from "../../storage/space.js";
+import { assertSpaceRoomInTx } from "../../storage/tx/quota.js";
 import { userNotePath } from "../redirects.js";
 import { recordRedirectsInTx } from "./redirects.js";
 import { writeSlugInTx } from "./write-slug.js";
@@ -32,6 +37,8 @@ export interface MoveNoteInput {
   userHandle: string;
   /** 已過 UUID_RE、已轉小寫。 */
   groupId: string;
+  /** 空間鎖等待上限（ms），路由從 deps 帶入。 */
+  lockTimeoutMs: number;
 }
 
 export async function moveNoteToGroupInTx(tx: Tx, input: MoveNoteInput, hook?: GroupTestHook): Promise<{ removedShareUserIds: string[] }> {
@@ -53,6 +60,13 @@ export async function moveNoteToGroupInTx(tx: Tx, input: MoveNoteInput, hook?: G
     .limit(1);
   if (!target || !member || !member.canCreate) throw new TxAbort(404, "group_not_found", "找不到此群組");
   await hook?.("note-move-locked", { noteId: input.noteId, groupId: input.groupId });
+
+  // (1a) 儲存配額 §6.5：筆記已持 FOR UPDATE，附件總和就是移入的位元組；目標群組空間鎖在 (0)／(1) 之後（Q-S2）、刪 shares 與
+  // 群組範圍 slug 寫入之前（Q-S6 (g)、Q-S7）。拒絕時什麼都沒改；來源（個人空間）不取鎖、不需扣。
+  const [sized] = await tx.select({ incoming: sumUploadSizeSql() }).from(uploads).where(eq(uploads.noteId, input.noteId));
+  await assertSpaceRoomInTx(tx, { kind: "group", id: input.groupId }, sized?.incoming ?? 0, {
+    lockTimeoutMs: input.lockTimeoutMs, hook, hookCtx: { noteId: input.noteId, groupId: input.groupId },
+  });
 
   const removed = await tx.delete(noteShares).where(eq(noteShares.noteId, input.noteId)).returning({ userId: noteShares.userId });
 

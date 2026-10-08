@@ -34,7 +34,10 @@ export type GroupRacePoint =
   | "note-copy-target-locked"
   /** #175 PR2 T4（`notes/tx/copy.ts`）：(0) `FOR KEY SHARE` 鎖住來源之後（目標是群組時 (g) 也已持鎖）、讀附件與建副本之前。 */
   | "note-copy-locked"
-  /** #175 PR2 T4：附件檔已複製、uploads 列已寫、`note_states` 尚未寫入之前（測試在這裡丟錯模擬 DB 失敗）。 */
+  /**
+   * #175 PR2 T4；儲存配額起：附件檔已複製（`copyFile` 迴圈之後）、取空間鎖與建副本之前（ctx.noteId＝**來源**——副本此時還沒建）；
+   * 測試在這裡丟錯模擬失敗。
+   */
   | "note-copy-files-copied"
   /** #175 PR2：by-path 兩形（/n/、/g/）取到列之後、授權（`authorizeRow`）之前——「取列後被移動」的窗。 */
   | "path-resolved"

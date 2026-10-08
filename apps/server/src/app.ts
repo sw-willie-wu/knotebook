@@ -704,6 +704,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       groupTestHook: deps.groupTestHook,
       searchIndexHooks: deps.searchIndexHooks,
       uploadsDir: deps.uploadsDir,
+      storageLockTimeoutMs,
     })
   );
   // #103：群組管理（session-only，見 routes/groups.ts 檔頭）。
