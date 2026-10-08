@@ -1,15 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { rename, stat, unlink, writeFile } from "node:fs/promises";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { UserGate } from "../auth/session.js";
+import { createTransferAuth } from "../auth/transfer-auth.js";
 import { drainWithCap } from "../http/drain.js";
 import { sendError } from "../http/errors.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
 import { isForeignKeyViolation } from "../db/pg-errors.js";
-import { uploads } from "../db/schema.js";
-import { resolveRole, UUID_RE } from "../notes/service.js";
+import { transferTokens, uploads } from "../db/schema.js";
+import { resolveNoteAccess, resolveRole, UUID_RE } from "../notes/service.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
 import { detectImageMimeType } from "../uploads/magic-bytes.js";
 import { uploadFilePath } from "../uploads/service.js";
@@ -17,8 +19,14 @@ import { uploadFilePath } from "../uploads/service.js";
 export interface UploadsRouteDeps {
   db: Db;
   config: AppConfig;
-  /** per-user 節流（`UPLOAD_LIMIT`，同 collabToken/slugPatch 慣例，key=userId）。 */
-  limiters: { upload: FixedWindowLimiter };
+  /** #200：transfer token 路徑的 `checkUser`（停權／需改密碼）。 */
+  gate: UserGate;
+  /**
+   * `upload`：per-user 節流（`UPLOAD_LIMIT`，同 collabToken/slugPatch 慣例，key=userId）。
+   * #200：`bearerMiss`（per-IP，帶 header 的 401）與 `tokenRead`（transfer GET，key `token:${userId}`）——
+   * 與 `authenticateAny` 同一個實例（`app.ts` 傳同一個 `limiters` 物件的成員）。
+   */
+  limiters: { upload: FixedWindowLimiter; bearerMiss: FixedWindowLimiter; tokenRead: FixedWindowLimiter };
   uploadsDir: string;
 }
 
@@ -32,9 +40,22 @@ export interface UploadsRouteDeps {
  *
  * `@fastify/multipart` 本身**必須**在頂層 `app`（非 encapsulated plugin）註冊——見
  * `app.ts` 的註冊點註解。本模組不重複註冊它，只消費 `request.parts()`。
+ *
+ * #200：兩支路由在 session 之外加收 **transfer token**（`auth/transfer-auth.ts`；一般 PAT／OAuth Bearer 不收，
+ * spec §5.1）。POST 的 preHandler 順序是契約（spec §5.2）：認證 → token 的筆記＝路徑筆記 → 使用當下角色 → 上傳節流
+ * →（配額預檢插槽）→ 原子消費；全部在 `request.parts()` 之前、每個早退都 drain。**消費之後**（server 開始讀檔之後）
+ * 的任何失敗都燒掉 token、不退還（spec §5.2、Q2）。CSRF：`MULTIPART_EXEMPT_ROUTES` 不變——Bearer 不是 ambient 憑證。
  */
 export function uploadsRoutes(deps: UploadsRouteDeps) {
   return async function register(app: FastifyInstance): Promise<void> {
+    const transferAuth = createTransferAuth({
+      db: deps.db,
+      gate: deps.gate,
+      authenticate: app.authenticate,
+      limiters: { bearerMiss: deps.limiters.bearerMiss },
+    });
+    const uploadAuth = transferAuth.require("upload");
+
     /**
      * 認證 + 授權 + 節流全部收在 preHandler，且**每個早退分支都要先 drain**
      * （`drainWithCap`，spec §13.2）——這幾個檢查都在真的開始解析 multipart body
@@ -42,9 +63,12 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
      * （`setMultipart`）本身完全不讀 body，只是設個旗標；若不主動 drain，未被消費的
      * request body 會讓底層 socket 卡住，client 收不到我們已經送出的結構化錯誤 body
      * （見 task-10-brief 的「大 body + 早退 4xx 仍收到結構化 error body」）。
+     *
+     * #200：認證改走 `transferAuth.require("upload")`（沒帶 `Authorization` 就回退 `app.authenticate`，session 路徑
+     * 行為不變）；transfer 路徑多兩步——「token 的筆記＝路徑筆記」排在角色之前、原子消費排在節流之後（spec §5.2）。
      */
     async function authAndAuthorize(request: FastifyRequest, reply: FastifyReply): Promise<void> {
-      await app.authenticate(request, reply);
+      await uploadAuth(request, reply);
       if (reply.sent) {
         drainWithCap(request);
         return;
@@ -52,23 +76,52 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
 
       const { id: noteId } = request.params as { id: string };
       const userId = request.user!.id;
+      const transfer = request.transfer;
 
-      const role = await resolveRole(deps.db, userId, noteId);
-      if (role === "none") {
+      // #200 spec §5.2 第 2 步：排在角色之前——持 A 篇 token 的人拿 B 篇的 id 來打一律同形 403，不洩漏 B 存不存在。
+      // DB 存小寫正規形、`UUID_RE` 收大寫（M1），所以比對前 toLowerCase。
+      if (transfer !== undefined && transfer.noteId !== noteId.toLowerCase()) {
+        drainWithCap(request);
+        sendError(reply, 403, "forbidden", "此 transfer token 不適用於這篇筆記");
+        return;
+      }
+
+      // 第 3 步：使用當下重驗角色（spec A）。`ownerId`／`groupId` 是配額的空間鍵，也在使用當下決定。
+      const access = await resolveNoteAccess(deps.db, userId, noteId);
+      if (access.role === "none") {
         drainWithCap(request);
         sendError(reply, 404, "not_found", "找不到此筆記");
         return;
       }
-      if (role === "viewer") {
+      if (access.role === "viewer") {
         drainWithCap(request);
         sendError(reply, 403, "forbidden", "沒有編輯權限");
         return;
       }
+      request.uploadSpace = { ownerId: access.ownerId, groupId: access.groupId };
 
+      // 第 4 步：排在消費 token 之前——被 429 擋下時 token 不被燒掉。
       if (!deps.limiters.upload.consume(userId)) {
         drainWithCap(request);
         sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
         return;
+      }
+
+      // 第 4a 步（配額預檢插槽，spec §5.2-4a）：儲存配額的「空間已滿」預檢（不持鎖、不讀 body、在消費 token 之前，
+      // 已滿就不燒 token）由配額那一棒落在這裡（storage-quota spec §6.3-1、§8.3）。本棒不實作判定。
+
+      // 第 5 步：原子消費。兩發並發同一支 token：row lock 讓後到的那句看到 consumed_at 已非 NULL → 0 列 → 401；
+      // body 都還沒讀，第二發不會寫任何東西到磁碟。到期以 DB now() 判（與認證那句同一個時鐘）。
+      if (transfer !== undefined) {
+        const consumed = await deps.db
+          .update(transferTokens)
+          .set({ consumedAt: sql`now()` })
+          .where(and(eq(transferTokens.id, transfer.id), isNull(transferTokens.consumedAt), sql`${transferTokens.expiresAt} > now()`))
+          .returning({ id: transferTokens.id });
+        if (consumed.length === 0) {
+          transferAuth.rejectInvalid(request, reply);
+          return;
+        }
       }
     }
 

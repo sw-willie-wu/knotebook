@@ -34,17 +34,26 @@ function issue(db: Db, parentTokenId: string, noteId: string, purpose: TransferP
   );
 }
 
+/** DB 的 `now()`（epoch 毫秒，可能帶小數）。每次是獨立交易，所以是「這一刻」的時間。 */
+async function dbNowMs(db: Db): Promise<number> {
+  const { rows } = await db.$client.query<{ ms: string }>("select extract(epoch from now()) * 1000 as ms");
+  return Number(rows[0]!.ms);
+}
+
 describe("issueTransferTokenInTx（spec §4.2）", () => {
   it("簽出：一列、noteId 是 DB 小寫形（輸入大寫也一樣）、expiresAt ≈ now＋10 分", async () => {
     const { db } = await freshDb();
     const o = await ownerWithPat(db);
-    const before = Date.now();
+    // 上下界都取 DB 時鐘（與 `expires_at` 同一個 `now()`），不受 WSL 與 Windows 主機時鐘漂移影響。
+    const before = await dbNowMs(db);
     const r = await issue(db, o.patId, o.noteId.toUpperCase(), "upload");
+    const after = await dbNowMs(db);
     expect(r.kind).toBe("issued");
     if (r.kind !== "issued") return;
     expect(r.noteId).toBe(o.noteId);
-    expect(r.expiresAt.getTime()).toBeGreaterThanOrEqual(before + 10 * 60_000 - 5_000);
-    expect(r.expiresAt.getTime()).toBeLessThanOrEqual(Date.now() + 10 * 60_000 + 5_000);
+    // ±1 ms：node-postgres 把微秒截成毫秒，DB 端 epoch 毫秒帶小數。
+    expect(r.expiresAt.getTime()).toBeGreaterThanOrEqual(before + 10 * 60_000 - 1);
+    expect(r.expiresAt.getTime()).toBeLessThanOrEqual(after + 10 * 60_000 + 1);
     expect(await db.select().from(transferTokens)).toHaveLength(1);
   });
 
@@ -67,7 +76,8 @@ describe("issueTransferTokenInTx（spec §4.2）", () => {
   it("母憑證已過期 → INSERT 撞 transfer_tokens_expiry_chk（23514），呼叫端據此判 revoked", async () => {
     const { db } = await freshDb();
     const o = await ownerWithPat(db);
-    await db.update(apiTokens).set({ accessExpiresAt: new Date(Date.now() - 1_000) }).where(eq(apiTokens.id, o.patId));
+    // DB 時鐘、留 1 分鐘餘裕（不用 `Date.now()`：WSL 的 pg 與 Windows 主機時鐘可能漂移數秒）。
+    await db.update(apiTokens).set({ accessExpiresAt: sql`now() - interval '1 minute'` }).where(eq(apiTokens.id, o.patId));
     const err = await issue(db, o.patId, o.noteId, "upload").then(() => null, (e: unknown) => e);
     expect(checkViolationConstraint(err)).toBe(TRANSFER_TOKENS_EXPIRY_CHK);
   });
@@ -89,6 +99,13 @@ describe("未消費 upload token 上限（spec §4.3a）", () => {
     expect((await issue(db, o.patId, o.noteId, "download")).kind).toBe("issued");
     const other = await ownerWithPat(db);
     expect((await issue(db, other.patId, other.noteId, "upload")).kind).toBe("issued");
+  });
+
+  it("同一母憑證先簽 5 支 download，upload 照樣簽得出——計數只算 purpose='upload'", async () => {
+    const { db } = await freshDb();
+    const o = await ownerWithPat(db);
+    for (let i = 0; i < 5; i++) expect((await issue(db, o.patId, o.noteId, "download")).kind).toBe("issued");
+    expect((await issue(db, o.patId, o.noteId, "upload")).kind).toBe("issued");
   });
 
   it("RF4：5 支分散在 5 篇不同筆記也算滿——上限是每支母憑證，不是每篇", async () => {

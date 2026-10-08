@@ -14,7 +14,8 @@ export const TRANSFER_TOKEN_PREFIX = "knbt_";
 
 /**
  * spec §4.3a：每支母憑證同時在外的**未消費、未過期** upload token 上限。只算 upload（download 不寫磁碟，受
- * `contentRead` 約束）。消費前被拒（403／429）的 token 仍佔名額直到過期。與 `tokenWrite`（速率）是兩件事。
+ * `contentRead` 約束）。消費前被拒（403／429，及配額落地後第 4a 步的 409 空間已滿）的
+ * token 仍佔名額直到過期。與 `tokenWrite`（速率）是兩件事。
  */
 export const MAX_PENDING_UPLOAD_TOKENS = 5;
 
