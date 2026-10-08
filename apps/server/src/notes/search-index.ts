@@ -149,7 +149,8 @@ export async function backfillSearchIndex(db: Db, log: BackfillLogger, opts: Bac
           const doc = new Y.Doc();
           try {
             Y.applyUpdate(doc, row.ydoc);
-            // 解碼期間可能收到關機訊號：寫入前再看一次，免得 pool 已關時撞出誤導的 failed:1 warn。
+            // 上面的 ydoc 讀取（await）期間可能收到關機訊號（解碼本身是同步的，中間收不到）：寫入前再看一次，
+            // 免得在 pool 關閉途中發出寫入、撞出誤導的 failed:1 warn。
             if (opts.signal?.aborted) {
               aborted = true;
               break outer;

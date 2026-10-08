@@ -408,10 +408,11 @@ describe("#108 兩支工具的共同接線", () => {
     }
   });
 
-  it("#93 M7：search_notes 吃自己的 search 桶（60/min）；耗盡 → too_many_requests 與逐字訊息；list_notes 不受影響", async () => {
+  it("#93 M7：search_notes 吃自己的 search 桶（60/min）；耗盡 → too_many_requests 與逐字訊息；list_notes 不受影響；桶以使用者為 key", async () => {
     const ctx = await buildCollabTestApp({ limiters: { search: new FixedWindowLimiter({ limit: 1, windowMs: 600_000 }) } });
-    const { ownerId, token } = await scenario(ctx);
+    const { ownerId, otherId, token, otherToken } = await scenario(ctx);
     await ctx.createNote(ownerId, "bucket");
+    await ctx.createNote(otherId, "bucket other");
     expect(payloadOf(await callTool(ctx.app, token, "search_notes", { query: "bucket" })).notes).toHaveLength(1);
     const second = await callTool(ctx.app, token, "search_notes", { query: "bucket" });
     expect(second.status).toBe(200);
@@ -421,6 +422,11 @@ describe("#108 兩支工具的共同接線", () => {
       message: "Too many searches right now. Wait a moment before searching again.",
     });
     expect(payloadOf(await callTool(ctx.app, token, "list_notes")).notes).toHaveLength(1);
+    // 第一位的桶已耗盡；第二位使用者的第一次搜尋照常成功（key＝userId，不是全站共用一桶）。
+    const otherFirst = payloadOf(await callTool(ctx.app, otherToken, "search_notes", { query: "bucket" }));
+    expect(otherFirst.notes.map(n => n.title)).toEqual(["bucket other"]);
+    const otherSecond = await callTool(ctx.app, otherToken, "search_notes", { query: "bucket" });
+    expect(otherSecond.result.structuredContent?.code).toBe("too_many_requests");
   });
 
   it("runTool() 涵蓋率：beforeTool 看到的名字集合逐字等於 {list_notes, search_notes}", async () => {
