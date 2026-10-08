@@ -250,25 +250,29 @@ function randomDoc(seed: number): Y.Doc {
 }
 
 describe("#93 textOf 迭代化（spec §4.1）", () => {
-  // 建鏈本身約 15–24 s（隨機器而異；Yjs insert 走 parent chain，O(n²)；抽取本身只要毫秒）——預設 5 s 會逾時，所以明設 timeout。
-  it("T2：20 000 層 blockContainer 鏈 → sectionize 不拋，最深處的字算進 chars", { timeout: 120_000 }, () => {
+  // 建鏈必須包在單一 doc.transact 裡：逐筆 insert 每次各開一個 transaction、收尾成本隨深度長，整條鏈是 O(n²)
+  // （CI 上單這段同步跑 40–48 s；同步卡住 worker 超過 60 s 會讓 vitest 的 onTaskUpdate RPC 逾時 → Unhandled Error、exit 1）。
+  // 單一 transaction 下 20 000 層本機實測約 20 ms，樹的形狀相同。
+  it("T2：20 000 層 blockContainer 鏈 → sectionize 不拋，最深處的字算進 chars", () => {
     const doc = new Y.Doc();
-    const group = new Y.XmlElement("blockGroup");
-    doc.getXmlFragment(YDOC_FRAGMENT).insert(0, [group]);
-    const top = new Y.XmlElement("blockContainer");
-    group.insert(0, [top]);
-    top.setAttribute("id", "deep");
-    let parent = top;
-    for (let i = 0; i < 20_000; i += 1) {
-      const child = new Y.XmlElement("blockContainer");
-      parent.insert(0, [child]);
-      parent = child;
-    }
-    const leaf = new Y.XmlElement("paragraph");
-    parent.insert(0, [leaf]);
-    const t = new Y.XmlText();
-    leaf.insert(0, [t]);
-    t.insert(0, "DEEPEST");
+    doc.transact(() => {
+      const group = new Y.XmlElement("blockGroup");
+      doc.getXmlFragment(YDOC_FRAGMENT).insert(0, [group]);
+      const top = new Y.XmlElement("blockContainer");
+      group.insert(0, [top]);
+      top.setAttribute("id", "deep");
+      let parent = top;
+      for (let i = 0; i < 20_000; i += 1) {
+        const child = new Y.XmlElement("blockContainer");
+        parent.insert(0, [child]);
+        parent = child;
+      }
+      const leaf = new Y.XmlElement("paragraph");
+      parent.insert(0, [leaf]);
+      const t = new Y.XmlText();
+      leaf.insert(0, [t]);
+      t.insert(0, "DEEPEST");
+    });
     const s = sectionize(doc.getXmlFragment(YDOC_FRAGMENT));
     expect(s).toHaveLength(1);
     expect(s[0]!.chars).toBe("DEEPEST".length);

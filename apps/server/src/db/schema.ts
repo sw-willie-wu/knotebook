@@ -678,3 +678,40 @@ export const oauthCodes = pgTable(
     index("oauth_codes_user_idx").on(t.userId),
   ]
 );
+
+/**
+ * #200 spec §3：transfer token（`create_transfer_token` 簽給模型、讓 shell `curl` 上傳／下載一篇筆記的圖片）。
+ *
+ * - 明文不落庫，`token_hash` 是 `hashToken()`（sha256 hex，同 `api_tokens`）。
+ * - **刻意沒有 `user_id`**：使用者一律經 `parent_token_id → api_tokens.user_id` 取得；母憑證被撤銷（硬刪列）、OAuth
+ *   重新授權（先刪後插）、OAuth client 清理、刪使用者都經 cascade 帶走子列（spec §3.2）。refresh 是原地 UPDATE、
+ *   id 不變，**不**殺子列。
+ * - `consumed_chk`：只有 upload 會被「消費」（單次）；download 在 TTL 內多次使用（spec §4.4）。
+ * - 三個索引：兩條 FK 的支撐（撤銷母憑證／刪筆記時 cascade 掃這張表；parent 那支也服務簽發時的未消費計數），
+ *   `expires_at` 給清理（`auth/transfer-cleanup.ts`）。
+ */
+export const transferTokens = pgTable(
+  "transfer_tokens",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    tokenHash: text("token_hash").notNull().unique(),
+    parentTokenId: uuid("parent_token_id")
+      .notNull()
+      .references(() => apiTokens.id, { onDelete: "cascade" }),
+    noteId: uuid("note_id")
+      .notNull()
+      .references(() => notes.id, { onDelete: "cascade" }),
+    purpose: text().notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  t => [
+    check("transfer_tokens_purpose_chk", sql`${t.purpose} in ('upload','download')`),
+    check("transfer_tokens_consumed_chk", sql`${t.purpose} = 'upload' or ${t.consumedAt} is null`),
+    check("transfer_tokens_expiry_chk", sql`${t.expiresAt} > ${t.createdAt}`),
+    index("transfer_tokens_parent_idx").on(t.parentTokenId),
+    index("transfer_tokens_note_idx").on(t.noteId),
+    index("transfer_tokens_expires_idx").on(t.expiresAt),
+  ]
+);

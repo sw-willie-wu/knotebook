@@ -91,7 +91,8 @@ export function mcpRoutes(deps: McpRouteDeps) {
       app.log.warn("讀不到 apps/server/package.json 的 version，MCP serverInfo 退成 0.0.0");
     }
 
-    const endpointUrl = `${publicUrlIssuer(deps.config.publicUrl)}/api/mcp`;
+    const publicOrigin = publicUrlIssuer(deps.config.publicUrl);
+    const endpointUrl = `${publicOrigin}/api/mcp`;
     const publicHost = deps.config.publicUrl.host;
 
     const authenticate = app.authenticateAny("notes:read", "notes:read notes:write");
@@ -151,6 +152,7 @@ export function mcpRoutes(deps: McpRouteDeps) {
         tokenId: request.tokenId ?? null,
         authKind: request.authKind === "session" ? "session" : "token",
         tokenScope: request.tokenScope ?? null,
+        publicOrigin,
         hooks: deps.testHooks,
         groupTestHook: deps.groupTestHook,
       });

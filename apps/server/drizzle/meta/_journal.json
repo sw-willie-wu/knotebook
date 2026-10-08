@@ -120,6 +120,13 @@
       "when": 1791434041161,
       "tag": "0016_note-search",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1791454326885,
+      "tag": "0017_transfer-tokens",
+      "breakpoints": true
     }
   ]
 }

@@ -234,8 +234,8 @@ describe("#108 create_note", () => {
     const names = tools.map(t => t.name).sort();
     expect(names).toContain("create_note");
     // 讀 live doc 的三支在這個部署形態上整條不宣告——`create_note` 是它們的反例，所以
-    // 這一行順帶釘住「它真的在閘門外」。
-    expect(names).toEqual(["create_note", "list_notes", "search_notes"]);
+    // 這一行順帶釘住「它真的在閘門外」。#200：create_transfer_token 也在閘門外（token 限定）。
+    expect(names).toEqual(["create_note", "create_transfer_token", "list_notes", "search_notes"]);
 
     // P6：`inputSchema` **只能傳 raw shape**——傳錯時公告出去的 JSON Schema 會靜默變成
     // `{"type":"object","properties":{}}`（模型看不到任何欄位），而本檔另外五案（全部都自己

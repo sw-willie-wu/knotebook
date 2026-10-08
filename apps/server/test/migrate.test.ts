@@ -7,23 +7,23 @@ import { MAX_PROVIDER_ICON_BYTES, autoSlugFromTitle, validateHandle, validateSlu
 import { applyMigrationsThrough, freshDb, freshEmptyDb, idxOfTag, journalEntries } from "./helpers.js";
 import { runMigrations } from "../src/db/migrate.js";
 import { PgDialect, getTableConfig } from "drizzle-orm/pg-core";
-import { apiTokens, authProviders, groupMembers, groupRoles, groups, noteRedirects, notes, oauthClients, oauthCodes, noteSearchSections, noteSearchState, oauthRequests, siteSettings, userIdentities } from "../src/db/schema.js";
+import { apiTokens, authProviders, groupMembers, groupRoles, groups, noteRedirects, notes, oauthClients, oauthCodes, noteSearchSections, noteSearchState, oauthRequests, siteSettings, transferTokens, userIdentities } from "../src/db/schema.js";
 
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
-/** drizzle 對 `schema.ts` 的序列化；宣告漂移守衛拿最新一支（0016）當比對基準。 */
-const snapshot0016 = JSON.parse(
-  readFileSync(path.join(drizzleDirForTest, "meta/0016_snapshot.json"), "utf8"),
+/** drizzle 對 `schema.ts` 的序列化；宣告漂移守衛拿最新一支（0017）當比對基準。 */
+const snapshot0017 = JSON.parse(
+  readFileSync(path.join(drizzleDirForTest, "meta/0017_snapshot.json"), "utf8"),
 ) as { tables: Record<string, { checkConstraints?: Record<string, { name: string; value: string }> }> };
 const pgDialect = new PgDialect();
 
 describe("runMigrations", () => {
-  it("migrate 兩次 idempotent 且 26 張表存在", async () => {
+  it("migrate 兩次 idempotent 且 27 張表存在", async () => {
     const { db, pool } = await freshDb();
     await runMigrations(db); // freshDb 已跑過一次——此為第二次
     const r = await pool.query(`select table_name from information_schema.tables where table_schema='public'`);
     const tableNames = r.rows.map(x => x.table_name);
-    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes", "note_ai_edits", "groups", "group_members", "group_roles", "note_redirects", "auth_providers", "user_identities", "site_settings", "note_search_sections", "note_search_state"])
+    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes", "note_ai_edits", "groups", "group_members", "group_roles", "note_redirects", "auth_providers", "user_identities", "site_settings", "note_search_sections", "note_search_state", "transfer_tokens"])
       expect(tableNames).toContain(t);
   });
 
@@ -1098,7 +1098,7 @@ describe("0009_api-tokens", () => {
       expect(names, i).toContain(i);
   });
 
-  it("schema.ts 的十四個宣告沒有靜默漂移（四個 OAuth／token 宣告零 import；#103／#175 的四張表的 CHECK 也在這裡逐字比對、#187 的三張表、#93 的兩張表）", async () => {
+  it("schema.ts 的十五個宣告沒有靜默漂移（四個 OAuth／token 宣告零 import；#103／#175 的四張表的 CHECK 也在這裡逐字比對、#187 的三張表、#93 的兩張表、#200 的一張表）", async () => {
     // 比照 0008 的同族守衛：把 schema.ts 的宣告與 migration 造出來的 DB 對起來。
     // 沒有這一案的話，把 schema.ts 的四段 pgTable 整個刪掉，全套測試照樣綠——
     // 只有下一次 db:generate 會產出 DROP TABLE。
@@ -1144,6 +1144,7 @@ describe("0009_api-tokens", () => {
       site_settings: ["singleton", "registration_enabled", "password_login_enabled", "legacy_oidc_env_handled_at", "updated_at"],
       note_search_sections: ["id", "note_id", "source_kind", "source_id", "section_id", "ord", "heading", "body"],
       note_search_state: ["note_id", "extractor_version", "source_version", "content_hash", "indexed_units", "capped", "indexed_at"],
+      transfer_tokens: ["id", "token_hash", "parent_token_id", "note_id", "purpose", "expires_at", "consumed_at", "created_at"],
       notes: [
         "id", "owner_id", "title", "slug", "slug_is_custom", "prev_slug", "legacy_slug", "public_token", "public_slug",
         "links_clock", "created_at", "updated_at", "last_edited_at", "last_edited_by", "last_edited_token_id",
@@ -1166,6 +1167,7 @@ describe("0009_api-tokens", () => {
       ["site_settings", siteSettings],
       ["note_search_sections", noteSearchSections],
       ["note_search_state", noteSearchState],
+      ["transfer_tokens", transferTokens],
     ] as const) {
       const cfg = getTableConfig(decl);
       // 宣告的欄名 = DB 的欄名 = 這裡寫死的期望（三方對齊，任一邊漂移就紅）
@@ -1195,7 +1197,7 @@ describe("0009_api-tokens", () => {
       // 名字仍在、DB 仍是舊值，上面每一條都綠——下一次 generate 才會靜默吐出一支
       // DROP/ADD CONSTRAINT。這個 PR 就踩過一次（長度上限 200↔64 的半套回滾）。
       // snapshot 是 drizzle 對 schema.ts 的序列化，逐字比對它＝真正的漂移守衛。
-      const snapshotChecks = snapshot0016.tables[`public.${table}`]?.checkConstraints ?? {};
+      const snapshotChecks = snapshot0017.tables[`public.${table}`]?.checkConstraints ?? {};
       expect(Object.keys(snapshotChecks).sort(), `${table} 的 CHECK 名集合`).toEqual(
         cfg.checks.map(c => c.name).sort()
       );
@@ -1784,6 +1786,72 @@ describe("0016_note-search（#93 全文搜尋，spec §3）", () => {
   it("0016 檔內無 CONCURRENTLY／行首 COMMIT（單一 tx 前提的輔助 grep，比照 0015）", () => {
     // ⚠ 比對全檔（含 `--` 註解）：檔頭註解裡不得寫出這兩個字。合併前若重產成別的編號，檔名跟著改。
     const sqlText = readFileSync(path.join(drizzleDirForTest, "0016_note-search.sql"), "utf8");
+    expect(sqlText).not.toMatch(/CONCURRENTLY/i);
+    expect(sqlText).not.toMatch(/^\s*COMMIT/im);
+  });
+});
+
+describe("transfer_tokens（#200 spec §3）", () => {
+  /** user＋個人筆記＋PAT 一支，回三個 id。 */
+  async function seedParent(pool: import("pg").Pool): Promise<{ userId: string; noteId: string; tokenId: string }> {
+    const u = await pool.query(`insert into users (email, display_name) values ($1, 'T') returning id`, [`tt-${randomUUID()}@example.com`]);
+    const userId = u.rows[0].id as string;
+    const n = await pool.query(`insert into notes (owner_id) values ($1) returning id`, [userId]);
+    const t = await pool.query(
+      `insert into api_tokens (user_id, kind, name, scope, access_token_hash) values ($1, 'pat', 'n', 'notes:read notes:write', $2) returning id`,
+      [userId, `h-${randomUUID()}`],
+    );
+    return { userId, noteId: n.rows[0].id as string, tokenId: t.rows[0].id as string };
+  }
+  const insertSql =
+    `insert into transfer_tokens (token_hash, parent_token_id, note_id, purpose, expires_at, consumed_at)
+     values ($1, $2, $3, $4, now() + ($5::text)::interval, $6) returning id`;
+
+  it("三條 CHECK：每一形恰違反一條，constraint 名逐一斷言；合法形放行", async () => {
+    const { pool } = await freshDb();
+    const p = await seedParent(pool);
+    const cases: Array<[unknown[], string]> = [
+      [[`a-${randomUUID()}`, p.tokenId, p.noteId, "other", "10 minutes", null], "transfer_tokens_purpose_chk"],
+      [[`b-${randomUUID()}`, p.tokenId, p.noteId, "download", "10 minutes", new Date()], "transfer_tokens_consumed_chk"],
+      [[`c-${randomUUID()}`, p.tokenId, p.noteId, "upload", "-1 minute", null], "transfer_tokens_expiry_chk"],
+    ];
+    for (const [params, constraint] of cases) {
+      await expect(pool.query(insertSql, params), constraint).rejects.toMatchObject({ code: "23514", constraint });
+    }
+    // 合法：upload 可以被消費；download 不帶 consumed_at
+    await pool.query(insertSql, [`d-${randomUUID()}`, p.tokenId, p.noteId, "upload", "10 minutes", new Date()]);
+    await pool.query(insertSql, [`e-${randomUUID()}`, p.tokenId, p.noteId, "download", "10 minutes", null]);
+    const { rows } = await pool.query(`select count(*)::int as n from transfer_tokens`);
+    expect(rows[0].n).toBe(2);
+  });
+
+  it("token_hash 唯一", async () => {
+    const { pool } = await freshDb();
+    const p = await seedParent(pool);
+    await pool.query(insertSql, ["dup", p.tokenId, p.noteId, "download", "10 minutes", null]);
+    await expect(pool.query(insertSql, ["dup", p.tokenId, p.noteId, "download", "10 minutes", null])).rejects.toMatchObject({
+      code: "23505",
+      constraint: "transfer_tokens_token_hash_unique",
+    });
+  });
+
+  it("兩條 FK 都 ON DELETE CASCADE：刪母憑證、刪筆記都帶走子列（spec §3.2）", async () => {
+    const { pool } = await freshDb();
+    const a = await seedParent(pool);
+    const b = await seedParent(pool);
+    await pool.query(insertSql, [`x-${randomUUID()}`, a.tokenId, a.noteId, "upload", "10 minutes", null]);
+    await pool.query(insertSql, [`y-${randomUUID()}`, b.tokenId, b.noteId, "download", "10 minutes", null]);
+    await pool.query(`delete from api_tokens where id = $1`, [a.tokenId]);
+    await pool.query(`delete from notes where id = $1`, [b.noteId]);
+    const { rows } = await pool.query(`select count(*)::int as n from transfer_tokens`);
+    expect(rows[0].n).toBe(0);
+  });
+
+  it("transfer-tokens 的 SQL 檔無 CONCURRENTLY／行首 COMMIT（單一 tx 前提的輔助 grep，比照 0014／0015）", () => {
+    // 以 tag 後綴找檔：合併前會在 main 上重產成下一號（spec 檔頭 I6 規則），編號不寫死。
+    const entries = journalEntries().filter(e => e.tag.endsWith("_transfer-tokens"));
+    expect(entries, "journal 裡要恰有一支 *_transfer-tokens").toHaveLength(1);
+    const sqlText = readFileSync(path.join(drizzleDirForTest, `${entries[0]!.tag}.sql`), "utf8");
     expect(sqlText).not.toMatch(/CONCURRENTLY/i);
     expect(sqlText).not.toMatch(/^\s*COMMIT/im);
   });

@@ -76,12 +76,19 @@ declare module "fastify" {
      * 的回傳形狀）本身不帶 tv，故另開這個欄位，不擴充 `GateUser` 型別本身。
      */
     sessionTv?: number;
-    /** #107：這一發是 cookie session 還是 API token 認證的。錯誤 log 只印這個與 tokenId。 */
-    authKind?: "session" | "token";
+    /** #107：這一發是 cookie session、API token 還是 #200 的 transfer token 認證的。錯誤 log 只印這個與 tokenId。 */
+    authKind?: "session" | "token" | "transfer";
     /** #107：token 路徑才有——落庫的正規化 scope 集合。 */
     tokenScope?: TokenScope;
-    /** #107：token 路徑才有——`api_tokens.id`（**不是**明文，明文永不進 log）。 */
+    /** #107：token 路徑才有——`api_tokens.id`（**不是**明文，明文永不進 log）。#200 transfer 路徑放**母憑證**的 id。 */
     tokenId?: string;
+    /** #200：transfer 路徑才有（`auth/transfer-auth.ts`）。`noteId` 是 DB 的小寫正規形。 */
+    transfer?: { id: string; noteId: string; purpose: "upload" | "download"; parentTokenId: string };
+    /**
+     * #200 spec §5.2 第 3 步：上傳當下 `resolveNoteAccess` 算出的空間鍵（個人筆記看 owner、群組筆記看群組）。
+     * 消費端＝儲存配額（spec 2026-10-08-storage-quota §6.3-1，未落地）——今天沒有讀者。
+     */
+    uploadSpace?: { ownerId: string | null; groupId: string | null };
   }
 }
 
@@ -709,8 +716,17 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   // #72 起含 `publicLink`，#175 起含 `upload`——複製與上傳端點共用同一個實例；見該 interface 說明）——這裡傳整包
   // `limiters` 給它，屬於變數（非物件
   // 字面值）賦值給較窄的結構型別，TS 不做 excess property check，不需要另外
-  // pick／窄化。`uploadsRoutes` 自己的 deps 只挑 `upload` 這一個節流器。
-  void app.register(uploadsRoutes({ db: deps.db, config: deps.config, limiters: { upload: limiters.upload }, uploadsDir: deps.uploadsDir }));
+  // pick／窄化。`uploadsRoutes` 自己的 deps 逐鍵挑它用到的三個節流器。
+  void app.register(
+    uploadsRoutes({
+      db: deps.db,
+      config: deps.config,
+      gate: deps.gate,
+      // #200：bearerMiss／tokenRead 與 authenticateAny 是**同一個實例**（同一本帳由物件同一性成立）。
+      limiters: { upload: limiters.upload, bearerMiss: limiters.bearerMiss, tokenRead: limiters.tokenRead },
+      uploadsDir: deps.uploadsDir,
+    })
+  );
   // #72 公開端點（免登入）：三步節流順序與 404 同形見 routes/public.ts 檔頭。
   void app.register(publicRoutes({ db: deps.db, uploadsDir: deps.uploadsDir, limiters: { publicMiss: limiters.publicMiss, publicNote: limiters.publicNote, publicUpload: limiters.publicUpload } }));
   // #108：真正的 MCP 端點（六步順序、stateless 一請求一實例、Origin 守衛、bodyLimit

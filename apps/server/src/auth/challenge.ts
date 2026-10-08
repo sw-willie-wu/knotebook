@@ -50,3 +50,15 @@ export function buildBearerChallenge({ issuer, scope, error }: ChallengeInput): 
   ];
   return `Bearer ${params.join(", ")}`;
 }
+
+/**
+ * #200 spec §4.5：transfer token 端點（兩支上傳／下載路由）的 401 challenge。
+ *
+ * **不能用 `buildBearerChallenge`**：它一律附 `resource_metadata`，懂 OAuth 的 client 會以為要走發現流程；transfer
+ * token 也沒有可要求的 scope，所以兩者都不帶。`realm` 是固定常數。帶 error 的形用於「送了 Bearer 但被拒」，不帶的形
+ * 用於 `other-scheme`（RFC 6750 §3：unsupported authentication method SHOULD NOT 帶 error）。值同樣不逸出引號——
+ * 唯一的入口是型別聯集，不得把請求內容回聲進來。
+ */
+export function buildTransferChallenge(error?: "invalid_token"): string {
+  return error === undefined ? `Bearer realm="knotebook-transfer"` : `Bearer realm="knotebook-transfer", error="${error}"`;
+}

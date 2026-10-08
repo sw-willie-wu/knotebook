@@ -2,7 +2,7 @@
  * #108 PR1 Task 5：回應大小的兩道門檻（規格 §14.2 案 11b／11c、不變量 M16）。
  *
  * 兩個數字是**兩件不同的事**，不要混：
- * - {@link N_LIST_MAX} 管 **`tools/list` 的脈絡成本**（六支工具的 input／output schema 全部
+ * - {@link N_LIST_MAX} 管 **`tools/list` 的脈絡成本**（七支工具的 input／output schema 全部
  *   進模型脈絡，「schema 慢慢變胖」需要有東西擋）。它是**測試門檻**，不是生產常數，所以
  *   不進 `src/`。
  * - {@link MCP_MAX_WIRE} 是 §8.1 的 `N`，管**單次 `tools/call` 的回應**。它是**哨兵不是
@@ -49,7 +49,14 @@ export const MCP_MAX_WIRE = 262_144;
  *
  * **基線：2026-10-08 實測（#93），讀寫憑證六支 wire ＝ 20 312**（#93 的 +1 360 來自 search_notes 的 output schema 多了每篇
  * matchedOn／matches 與頂層 matchesTruncated（含 `.describe()`）、description 改寫、`query` 的說明；唯讀憑證四支對照組 12 459）。
- * #93 與 #200 先合的那支依自身實測設定 N_LIST_MAX；#93 先合、20 312 未破 21 300，所以門檻不動（spec §8.7 的合併順序規則）。
+ * #93 與 #200 先合的那支依自身實測設定 N_LIST_MAX；#93 先合、20 312 未破 21 300，所以 #93 合併時門檻不動（spec §8.7 的合併順序規則）；
+ * 後合的 #200 PR1 在 main 之上重量、依原配方重訂（下段）。
+ *
+ * **#200 PR1（2026-10-08，在 main @ 7e20a5e 之上實測，#93 PR1 已合）：讀寫憑證七支 wire ＝ 21 976**（相對 #93 基線 20 312 的
+ * +1 664 來自 create_transfer_token 的 description、input／output schema，含終審把 purpose 的 `.describe()` 改成
+ * 「stores … then reference it with edit_note」的 +38；唯讀憑證五支對照組 13 954）。依原配方（向上取整到
+ * 1024 的倍數 ×1.3）重訂：22 528 × 1.3 ＝ 29 286.4 → 29 300。
+ *
  * 之前：#177 後 18 952（2026-10-07；#177 的 +294 來自群組 `owner` 多了 `name` 的 `maxLength` 與 `nameTruncated`（四份 outputSchema 各展開一次）、heading `.describe()` 加 ` as written in JSON`（+19 × 兩支）；#175 PR5 後 18 658、#175 PR1 後 18 105、PR2／PR3 後
  * 18 144；#175 之前為 16 774，#145 時記為 16 763）。PR5 的 +Δ 來自 `create_note` 的 `groupId` 欄
  * （`.describe()`＋`format`）、description 首句與兩處 edit_note 限定、`title` 片語。PR1 的 +1 331 來自
@@ -59,8 +66,7 @@ export const MCP_MAX_WIRE = 262_144;
  * （改寫模型面敘述那一輪）之後就過期了，而這段註解當時沒跟上——別再拿它去論證餘裕。對照組、
  * 百分比刻意不抄在這裡：案 11b 每次跑都 `console.log` 印出當下的值（剩餘字元一減就有）。
  *
- * ⚠ **這個門檻的推導前提已經不成立**：21 300 ＝「量測值取整到 16 384 再 ×1.3」，而基線
- * **已經大於 16 384**。下次逼近門檻時該做的是**回頭重訂這個數字連同它的推導**，不是逕自調大。
+ * 2026-10-08 依原配方重訂（#200 PR1）；下次逼近時同樣回頭重訂連同推導，不是逕自調大。
  *
  * **什麼樣的迴歸會撞牆**（**突變實跑，2026-09-09**）：把 `edit_note` 的 `if_match`
  * 欄位 `.describe()` 加長 6000 字元（`"x".repeat(6000)` 接在句尾）→ wire 變成 **21 362**，
@@ -68,8 +74,10 @@ export const MCP_MAX_WIRE = 262_144;
  * 餘裕確實存在、且沒有 D11 那種鏡像效應（`tools/list` 的 schema 只進脈絡一份，加長多少 wire
  * 就多長多少，不是 ×2.1）。撞牆時**先問「這段字非進 schema 不可嗎」**：`tools/list` 的每一個
  * 位元組每一次連線都進模型脈絡，而 `instructions` 與 `docs/mcp.md` 是更便宜的落點。
+ * #200 PR1 追記（**突變實跑，2026-10-08**，門檻 28 000、基線 20 578）：同一條 +6000 的迴歸現在是 **26 578、不再撞牆**
+ * （餘裕變大是重訂門檻的直接結果）；加長 7500 → **28 078**，紅（`expected 28078 to be less than or equal to 28000`）。
  */
-export const N_LIST_MAX = 21_300;
+export const N_LIST_MAX = 29_300;
 
 /**
  * 案 (iv) 第一發（#177 之後的群組形最壞情形）的下界哨兵。2026-10-07 實測 **247 056**（餘裕 ×1.06，剩 15 088）；
@@ -152,16 +160,16 @@ describe("#108 tools/list 的脈絡成本（案 11b）", () => {
 
     const roRes = await mcpPost(ctx.app, rpc("tools/list"), { token: o.token });
     expect(roRes.statusCode).toBe(200);
-    expect((roRes.json().result.tools as unknown[]).length).toBe(4);
+    expect((roRes.json().result.tools as unknown[]).length).toBe(5);
     const roWire = roRes.body.length;
 
     const rwRes = await mcpPost(ctx.app, rpc("tools/list"), { token: rwToken });
     expect(rwRes.statusCode).toBe(200);
-    expect((rwRes.json().result.tools as unknown[]).length).toBe(6);
+    expect((rwRes.json().result.tools as unknown[]).length).toBe(7);
     const rwWire = rwRes.body.length;
 
     console.log(
-      `[案 11b] tools/list  唯讀憑證（四支，對照）wire=${roWire}  讀寫憑證（六支，被測）wire=${rwWire}  ` +
+      `[案 11b] tools/list  唯讀憑證（五支，對照）wire=${roWire}  讀寫憑證（七支，被測）wire=${rwWire}  ` +
         `門檻=${N_LIST_MAX}  用掉 ${((rwWire / N_LIST_MAX) * 100).toFixed(1)}%`
     );
     expect(rwWire).toBeLessThanOrEqual(N_LIST_MAX);
@@ -184,7 +192,10 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
   // `titleTruncated:true`**（`toNoteSummary`，`dto.ts`）——與這一案的 `hugeTitle` 同一個
   // 病態形，所以順手擺在 (i)：一發讀寫憑證的 `create_note`，帶一顆同樣 260 000 字元的標題。
   // ⚠ `create_note` 不寫 live doc（不帶 `content`），對這一案其他量測**零污染**。
-  it("(i) 一篇 heading／title 各 260 000 字元的筆記 → 六支工具都 ≤ N", async () => {
+  // #200 PR1：`create_transfer_token` 也在這一案量（spec §9.4(c) 要求每支工具都量）——upload／download 各一發。它的回應
+  // 不帶標題或內容（只有 id、token、網址、curl、固定的 `next`），病態筆記對它不是最壞形，量的是「它也在 N 以內」這件事本身。
+  // `edit_note` 在 (ii) 量（它的最壞形是一整頁逐段指紋）。
+  it("(i) 一篇 heading／title 各 260 000 字元的筆記 → edit_note 以外的六支工具（含 create_transfer_token 兩種 purpose）都 ≤ N", async () => {
     const ctx = await buildCollabTestApp();
     const o = await owner(ctx);
     const { token: rwToken } = await seedTokenForUser(ctx.db, o.id, "notes:read notes:write");
@@ -202,6 +213,8 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
     await callWire(ctx.app, o.token, "(i) list_notes", "list_notes", { limit: MCP_PAGE_MAX });
     await callWire(ctx.app, o.token, "(i) search_notes", "search_notes", { query: "Tiii", limit: 50 });
     await callWire(ctx.app, rwToken, "(i) create_note", "create_note", { title: hugeTitle });
+    await callWire(ctx.app, rwToken, "(i) create_transfer_token upload", "create_transfer_token", { note_id: note.id, purpose: "upload" });
+    await callWire(ctx.app, rwToken, "(i) create_transfer_token download", "create_transfer_token", { note_id: note.id, purpose: "download" });
     client.disconnect();
   });
 
@@ -248,7 +261,7 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
   });
 
   /**
-   * 測資 (iii)：100 筆「每一格都合規但都滿長」的筆記。**六支工具裡最大的回應是它**——
+   * 測資 (iii)：100 筆「每一格都合規但都滿長」的筆記。**七支工具裡最大的回應是它**——
    * 前兩組測資量不到（它們只有一兩筆列）。
    *
    * ⚠ **不能用 `ctx.createNote` 隨手造**：那樣造出來的列 `last_edited_at` 是 NULL，`lastEdited`

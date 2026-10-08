@@ -1,6 +1,6 @@
 # MCP
 
-Knotebook speaks [MCP](https://modelcontextprotocol.io) at `POST /api/mcp`, so an AI client — Claude Code, Claude Desktop, or anything else that speaks the protocol — can read and write your notes **as you**, through six tools. This page is the reference for that surface: how to connect, what each tool takes and answers, what the limits are, and where the edges are.
+Knotebook speaks [MCP](https://modelcontextprotocol.io) at `POST /api/mcp`, so an AI client — Claude Code, Claude Desktop, or anything else that speaks the protocol — can read and write your notes **as you**, through seven tools. This page is the reference for that surface: how to connect, what each tool takes and answers, what the limits are, and where the edges are.
 
 The credential is an ordinary Knotebook credential. How one is issued, listed and revoked — a Personal API token, or one an app obtains for itself over OAuth — is in [API tokens](./api-tokens.md). What a write actually does to a note — what a section is, what fingerprints mean, the five operations, how a change is undone — is in [AI editing](./ai-editing.md). This page does not repeat either; it covers what is different about reaching them over MCP.
 
@@ -12,7 +12,7 @@ The credential is an ordinary Knotebook credential. How one is issued, listed an
 | Transport | Streamable HTTP, stateless, JSON responses — no SSE stream, no session id |
 | Methods | `POST` only. `GET` and `DELETE` are authenticated and Origin-checked first, then answered with `405` and `Allow: POST`. |
 | Capabilities | `tools` only — no resources, no prompts, no sampling. `tools.listChanged` is `false`. |
-| Scope | `notes:read` gets you in; `edit_note` and `create_note` additionally need `notes:write`. |
+| Scope | `notes:read` gets you in; `edit_note` and `create_note` additionally need `notes:write`, and so does `create_transfer_token` when you ask it for an upload token. |
 
 Authentication happens before the MCP transport sees the request, so a request with no credential gets `401` with a `WWW-Authenticate` challenge advertising `scope="notes:read notes:write"` — that challenge is what an OAuth client follows to find the authorization server. A few things are refused by the HTTP layer earlier still, before any credential is looked at: a `Content-Type` that is not `application/json`, a body over the size limit, and a body that is not valid JSON. Those answer without a challenge — see [Errors](#errors).
 
@@ -60,9 +60,9 @@ MCP requires the server and its authorization endpoints to be `https://`, and cl
 
 Both `claude mcp add` forms default to *local* scope — the server only exists in the directory you ran the command in. Add `-s user` to either one to use it from anywhere.
 
-After you press Allow, the client has its credential — once it reconnects it will list Knotebook's tools; how many it sees depends on the credential's scope and on the deployment, see [The six tools](#the-six-tools). A `401` at this point would mean the credential never arrived.
+After you press Allow, the client has its credential — once it reconnects it will list Knotebook's tools; how many it sees depends on the credential's scope and on the deployment, see [The seven tools](#the-seven-tools). A `401` at this point would mean the credential never arrived.
 
-## The six tools
+## The seven tools
 
 | Tool | Scope | What it does |
 |---|---|---|
@@ -72,15 +72,17 @@ After you press Allow, the client has its credential — once it reconnects it w
 | `read_note_section` | `notes:read` | One section's markdown, 4000 characters per call |
 | `edit_note` | `notes:write` | Apply one of the five write operations to a note |
 | `create_note` | `notes:write` | Create a note, optionally with its markdown |
+| `create_transfer_token` | `notes:read` (`download`), `notes:write` (`upload`) | A short-lived token that lets a shell command upload an image to a note, or download its images |
 
-Two things decide how many of these a client actually sees, and both are settled when the request is served rather than when the tool is called:
+Three things decide how many of these a client actually sees, and all three are settled when the request is served rather than when the tool is called:
 
-- **A read-only credential never sees the last two.** They are not registered for that request at all, so — on a deployment with the collaboration component — `tools/list` returns four tools (only two on one without it; see below), and calling `create_note` anyway gets the SDK's own "Tool create_note not found" (an `isError` result, HTTP `200`) rather than a permission error. There is no scope error to handle here, because there is no tool to call. To get `edit_note` and `create_note`, create a token with the `notes:write` scope in **Settings → Account → API tokens** and connect with that one instead.
-- **`read_note_outline`, `read_note_section` and `edit_note` need the collaboration component.** A deployment running without it never registers those three; a `notes:write` credential still sees `create_note`, but a call to it carrying `content` answers `invalid_body` and tells you to create the note without it — unless the call also carries a `groupId` that is refused first (`group_not_found` or `forbidden`). A read-only credential on such a deployment sees only `list_notes` and `search_notes` — `create_note` needs `notes:write` regardless of the deployment.
+- **A read-only credential never sees `edit_note` or `create_note`.** They are not registered for that request at all, so — on a deployment with the collaboration component — `tools/list` returns five tools (only three on one without it; see below), and calling `create_note` anyway gets the SDK's own "Tool create_note not found" (an `isError` result, HTTP `200`) rather than a permission error. There is no scope error to handle here, because there is no tool to call. A read-only credential does see `create_transfer_token`, but it can only ask for a `download` token. To get `edit_note`, `create_note` and upload tokens, create a token with the `notes:write` scope in **Settings → Account → API tokens** and connect with that one instead.
+- **`read_note_outline`, `read_note_section` and `edit_note` need the collaboration component.** A deployment running without it never registers those three; a `notes:write` credential still sees `create_note`, but a call to it carrying `content` answers `invalid_body` and tells you to create the note without it — unless the call also carries a `groupId` that is refused first (`group_not_found` or `forbidden`). A read-only credential on such a deployment sees only `list_notes`, `search_notes` and `create_transfer_token` — `create_note` needs `notes:write` regardless of the deployment.
+- **`create_transfer_token` is only offered to a token or app credential.** A request made with the web app's own sign-in session never sees it — the browser can already upload and fetch images itself.
 
 A result Knotebook itself produces — success or one of its own errors — comes back twice, identically: as `structuredContent` and, as a JSON string, in `content[0].text`. Read whichever your client prefers. (An error the MCP SDK produces itself, rather than a tool, is the exception — see [Errors](#errors).)
 
-Every tool that takes a `note_id` — `read_note_outline`, `read_note_section` and `edit_note` — answers a note you cannot see and a note that does not exist with the **same** `not_found`, byte for byte, so they cannot be used to find out which note ids exist.
+Every tool that takes a `note_id` — `read_note_outline`, `read_note_section`, `edit_note` and `create_transfer_token` — answers a note you cannot see and a note that does not exist with the **same** `not_found`, byte for byte, so they cannot be used to find out which note ids exist.
 
 ### `list_notes`
 
@@ -176,6 +178,29 @@ Fields that do not belong to the operation you asked for are rejected rather tha
 
 **Errors** `invalid_body`, `group_not_found` (with `groupId`: no group with that id among the groups you belong to — including one deleted just before the note would have been created), `forbidden` (with `groupId`: your role in that group can't create notes), `too_many_requests`, `internal` (the content could not be applied; the row that had just been created is then removed again, but only on a best-effort basis — if that removal fails too, an empty note is left behind. In principle this includes the note's write queue timing out, the same way it can for `edit_note`, but in practice that never happens: a note this call just created has no other writer that could be contending for it), and — from parsing the markdown you sent — `unsupported_block`, `empty_content`, `too_many_blocks`. There is no `empty_section` here: that code only comes from `delete_section` being asked to remove a section (including `_top`) that is already empty, and `create_note` never deletes a section.
 
+### `create_transfer_token`
+
+**Takes** `note_id` and `purpose` — `upload` or `download` (a read-only credential is offered `download` only).
+
+**Answers** a short-lived token for one note and one purpose, plus a ready-made `curl` command — your MCP credential can't be sent from a shell, and image bytes don't fit in tool arguments, so this is how an assistant moves an image in or out:
+
+- `token` — starts with `knbt_`; send it only as `Authorization: Bearer <token>` to the address in `url`. It is not accepted anywhere else, and an ordinary API token is not accepted at those two addresses.
+- `expiresAt` — when the token stops working: 10 minutes after it was issued, or earlier if the credential that asked for it expires first.
+- `url`, `method`, `curl` — built from the server's `PUBLIC_URL`. For `upload`: `POST <PUBLIC_URL origin>/api/notes/<noteId>/uploads` with the image as the multipart field `file`. For `download`: `GET <PUBLIC_URL origin>/api/uploads/<upload_id>`, where you replace `<upload_id>` with the id from `/api/uploads/<id>` in the note's markdown.
+- `next` — what to do with the reply and what its status codes mean, written for the assistant.
+
+- **`upload` needs edit access and is good for one file.** The upload answers `{id, url}`; put the image in the note with `edit_note` using `![description](url)`, with `url` exactly as returned — the relative `/api/uploads/<id>`, which is the form copying a note and public pages recognise. A `401` means the token can't be used (expired, already used, or revoked); a `403` or `429` doesn't use it up (after a `429`, wait a moment and retry); a `404` means the note is gone or you can no longer see it. Once the server has started reading the file, a rejection — `413` too large, `415` not a PNG, JPEG, GIF or WebP image, `400` no file — still uses the token up.
+- **A credential can hold at most 5 unused upload tokens at a time.** Using one, or letting it expire, frees its place; a sixth answers `too_many_requests`.
+- **`download` fetches any image uploaded to that note,** any number of times until `expiresAt`, within your 300-reads-per-minute token budget. A `403` means the image belongs to another note, or you can no longer read this one; a `404` means there is no image with that id; a `429` means wait a moment and retry with the same token.
+- Each use is checked again: the token's note, your role on it, and the credential that asked for it. Revoking that credential ends every token it issued.
+- A browser session connected to `/api/mcp` doesn't get this tool.
+
+**Errors** `not_found` (a note you can't see and one that doesn't exist answer the same), `forbidden` (`upload` on a note you can only read), `too_many_requests` (the token-writes budget for `upload`, the content-reads budget for `download`, or 5 unused upload tokens already out), `unauthorized` (the credential was revoked or expired while the request was being handled).
+
+## Images
+
+In a note's markdown, an uploaded image is a reference to its upload, `/api/uploads/<id>`. To add one: `create_transfer_token` with `purpose: "upload"` → run the `curl` it returns with the image's path → `edit_note` with `![description](<url from the reply>)`. To fetch the images of a note you can read: `create_transfer_token` with `purpose: "download"` → run the `curl` with each `<upload_id>` filled in.
+
 ## The read-write loop
 
 Over the REST API the loop is "read the whole note, pick a section, write it back". Over MCP it is not, for two reasons: no tool returns a whole note, and an outline carries no fingerprints. The loop is:
@@ -201,14 +226,16 @@ After a successful `edit_note` you do not have to go back to step 2: the reply a
 | Matches per note | 3 | `search_notes` | the rest aren't listed |
 | Sections per page | 100 | `read_note_outline`, and `edit_note`'s reply | `truncated: true` (plus `nextSectionOffset` on `read_note_outline`) |
 | Blocks after parsing | 2000, counting nested blocks | `edit_note`, `create_note` with `content` | tool error `too_many_blocks` |
-| Content reads | 120 per minute per user | `read_note_outline`, `read_note_section` | tool error `too_many_requests` |
+| Content reads | 120 per minute per user | `read_note_outline`, `read_note_section`, `create_transfer_token` with `download` | tool error `too_many_requests` |
 | Searches | 60 per minute per user | `search_notes` | tool error `too_many_requests` |
 | Writes | 30 per minute per user | `edit_note`, and `create_note` **with `content`** | tool error `too_many_requests` |
-| Token writes | 60 per 10 minutes per user | `edit_note`, and `create_note` **with or without `content`**, made with a token | tool error `too_many_requests` |
+| Token writes | 60 per 10 minutes per user | `edit_note`, `create_note` **with or without `content`**, and `create_transfer_token` with `upload`, made with a token | tool error `too_many_requests` |
 | Concurrent writes to one note | serialised, 10 s wait | `edit_note` | tool error `server_busy` |
 | Concurrent writes to one note | serialised | `create_note` with `content` | not observable in practice — a note this call just created has no other writer to contend with, so the 10 s wait never fires |
-| Token reads | 300 per minute per user | every `POST /api/mcp` made with a token | **HTTP `429`** |
+| Token reads | 300 per minute per user | every `POST /api/mcp` made with a token, and each image download made with a transfer token | **HTTP `429`** |
 | Request body | 262 144 bytes | the whole `POST /api/mcp` request, however many tool calls it carries | **HTTP `413 content_too_large`** |
+| Transfer token lifetime | 10 minutes, or less when the credential that asked for it expires sooner | `create_transfer_token` | the token answers `401` once expired |
+| Unused upload tokens | 5 per credential | `create_transfer_token` with `upload` | tool error `too_many_requests` |
 
 The rate limits above are counted **per tool call, not per request** — one `POST /api/mcp` can carry several calls — with one exception: the 300-reads-per-minute budget is spent once per request, because the endpoint always declares `notes:read` whatever tools the request goes on to call. Apart from the search budget, which only `search_notes` draws on, these are the same per-user budgets the REST endpoints draw on, and a credential pays both its own and the tighter one; the full accounting is in [API tokens](./api-tokens.md#errors-and-rate-limits) and [AI editing](./ai-editing.md#limits).
 
@@ -236,7 +263,7 @@ Three layers answer differently, and a client has to handle all three.
 
 **Everything the tools themselves refuse is HTTP `200` with `isError: true`,** and there are two shapes:
 
-- Errors Knotebook produces carry `structuredContent: {code, message, …}`. `code` comes from the same vocabulary the REST API uses: `not_found`, `group_not_found`, `section_not_found`, `forbidden`, `invalid_body`, `fingerprint_mismatch`, `unsupported_block`, `empty_content`, `empty_section`, `too_many_blocks`, `too_many_requests`, `server_busy`, `internal`. `internal` is not tied to any one tool: every tool handler shares the same catch-all for an unexpected exception, so any of the six can answer it, not only `create_note`, whose own reference is the only place that spells out a cause.
+- Errors Knotebook produces carry `structuredContent: {code, message, …}`. `code` comes from the same vocabulary the REST API uses: `unauthorized`, `not_found`, `group_not_found`, `section_not_found`, `forbidden`, `invalid_body`, `fingerprint_mismatch`, `unsupported_block`, `empty_content`, `empty_section`, `too_many_blocks`, `too_many_requests`, `server_busy`, `internal`. `internal` is not tied to any one tool: every tool handler shares the same catch-all for an unexpected exception, so any of them can answer it, not only `create_note`, whose own reference is the only place that spells out a cause.
 - Errors the MCP SDK produces — an unknown tool name, arguments that do not match a tool's input schema, a reply that does not match its output schema, or an unhandled failure — carry **no `code` and no `structuredContent`**, only a text message. **Do not write a client that reads `code` without checking it is there.**
 
 ## Known limitations
@@ -257,6 +284,11 @@ These are the MCP-specific entries in the shared [Known limitations](./known-lim
 - [Body-text search can lag the editors by a few seconds](./known-limitations.md)
 - [Only about the first million characters and the first 2000 sections of a note are searchable](./known-limitations.md)
 - [Right after an upgrade, older notes can be found by title only until the server has indexed them](./known-limitations.md)
+- [An assistant tricked by a prompt injection can send your notes' images off-site](./known-limitations.md)
+- [An image uploaded but never written into a note is still an attachment](./known-limitations.md)
+- [The `curl` command `create_transfer_token` returns is built from `PUBLIC_URL`](./known-limitations.md)
+- [On a plain-http `PUBLIC_URL` (for example a LAN deployment), transfer tokens cross the network unencrypted](./known-limitations.md)
+- [An MCP connection made with the browser's sign-in session has no `create_transfer_token`](./known-limitations.md)
 
 ## See also
 
