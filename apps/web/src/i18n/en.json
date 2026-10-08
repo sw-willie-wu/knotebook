@@ -482,6 +482,15 @@
       "defaultsSave": "Save defaults",
       "defaultsSaved": "Defaults saved."
     },
+    "groups": {
+      "title": "Groups",
+      "description": "Every group on this site, with its storage use and plan.",
+      "tableName": "Name",
+      "tableMembers": "Members",
+      "tableCreated": "Created",
+      "empty": "No groups yet.",
+      "planFor": "Storage plan for {{name}}"
+    },
     "empty": "No users yet."
   },
   "theme": {

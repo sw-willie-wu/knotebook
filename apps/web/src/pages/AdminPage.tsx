@@ -7,6 +7,7 @@ import { ArrowLeft } from "@/components/ui/icons";
 import { cn } from "@/lib/utils";
 import { NavItemLink } from "@/settings/SettingsNavLink";
 import { SettingsUsersSection } from "@/settings/SettingsUsersSection";
+import { SettingsAdminGroupsSection } from "@/settings/SettingsAdminGroupsSection";
 import { SettingsStorageSection } from "@/settings/SettingsStorageSection";
 import { SettingsAiSection } from "@/settings/SettingsAiSection";
 import { SettingsAuthSection } from "@/settings/SettingsAuthSection";
@@ -22,6 +23,7 @@ function AdminNav() {
       </NavItemLink>
       <div className="my-1 border-t border-border" />
       <NavItemLink to="/admin/users">{t("admin.nav.users")}</NavItemLink>
+      <NavItemLink to="/admin/groups">{t("admin.nav.groups")}</NavItemLink>
       <NavItemLink to="/admin/storage">{t("admin.nav.storage")}</NavItemLink>
       <NavItemLink to="/admin/ai">{t("admin.nav.ai")}</NavItemLink>
       <NavItemLink to="/admin/auth">{t("admin.nav.auth")}</NavItemLink>
@@ -30,8 +32,8 @@ function AdminNav() {
 }
 
 /**
- * 站台管理頁（`/admin/*`，admin only）：`/admin/users`、`/admin/storage`、`/admin/ai`、
- * `/admin/auth`（#187 PR2）各自是 `SettingsUsersSection`、`SettingsStorageSection`、`SettingsAiSection`、
+ * 站台管理頁（`/admin/*`，admin only）：`/admin/users`、`/admin/groups`、`/admin/storage`、`/admin/ai`、
+ * `/admin/auth`（#187 PR2）各自是 `SettingsUsersSection`、`SettingsAdminGroupsSection`、`SettingsStorageSection`、`SettingsAiSection`、
  * `SettingsAuthSection`（使用者與 AI 原本掛在設定 modal 裡，元件本體未改，只換了掛載點）。殼用既有的 `AppShell`，側欄中段換成 `AdminNav`；
  * 主區的內容卡與 `HomePage` 同款（`cardSurface`＋卡自己捲動＋窄視窗頂列）。
  *
@@ -56,6 +58,7 @@ export default function AdminPage() {
         <div className="p-8">
           <Routes>
             <Route path="users" element={<SettingsUsersSection />} />
+            <Route path="groups" element={<SettingsAdminGroupsSection />} />
             <Route path="storage" element={<SettingsStorageSection />} />
             <Route path="ai" element={<SettingsAiSection />} />
             <Route path="auth" element={<SettingsAuthSection />} />

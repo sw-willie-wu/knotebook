@@ -482,6 +482,15 @@
       "defaultsSave": "儲存預設",
       "defaultsSaved": "已儲存預設方案。"
     },
+    "groups": {
+      "title": "群組",
+      "description": "站台上所有群組的儲存空間用量與方案。",
+      "tableName": "名稱",
+      "tableMembers": "成員數",
+      "tableCreated": "建立時間",
+      "empty": "尚無群組。",
+      "planFor": "{{name}} 的儲存方案"
+    },
     "empty": "尚無使用者。"
   },
   "theme": {

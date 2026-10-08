@@ -29,8 +29,10 @@ export function StorageCell({ storage }: { storage: { usedBytes: number; quotaBy
  * 方案清單還沒到 → 只顯示方案名（起草裁定 11）。目前方案不在清單裡（清單快取比列舊）→ 補一個該方案的 option，
  * 否則瀏覽器會把第一個選項顯示成目前值、使用者一碰就改錯（RF4）。
  */
-export function PlanSelect({ label, planId, planName, plans, onAssign }: {
+export function PlanSelect({ label, describedBy, planId, planName, plans, onAssign }: {
   label: string;
+  /** 補充描述的元素 id（群組名不唯一時，指到該列的建立時間格讓同名列可區分）。 */
+  describedBy?: string;
   planId: string;
   planName: string;
   plans: StoragePlanDto[] | undefined;
@@ -44,6 +46,7 @@ export function PlanSelect({ label, planId, planName, plans, onAssign }: {
   return (
     <select
       aria-label={label}
+      aria-describedby={describedBy}
       className={SELECT_CLASS}
       value={pendingId ?? planId}
       disabled={pendingId !== null}
