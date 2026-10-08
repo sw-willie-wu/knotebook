@@ -300,12 +300,13 @@ export default function NotePage() {
   }, [openEditsRequested, location.pathname, location.search, location.hash, navigate]);
 
   /**
-   * 別人（真人或 AI）改了這篇之後，把 note query 對齊 server（spec §10）——`lastEdited`
-   * 就住在 `NoteDto` 上。`ref` 傳的是**解析層那把 key 的第二段**：舊形 `/notes/:ref` 是
+   * 這篇的文件被改了之後（別人——真人或 AI——或自己打的字），把 note query 對齊 server
+   * （spec §10）——`lastEdited` 就住在 `NoteDto` 上，頁首 `LastEditedLabel` 讀的就是它；
+   * 只認別人的話，自己編輯後標籤要重新整理才會更新。`ref` 傳的是**解析層那把 key 的第二段**：舊形 `/notes/:ref` 是
    * `params.ref`，新形 `/n/<handle>/<slug>` 與群組形 `/g/<groupId>/<slug>` 根本沒有這一層，
    * 傳 `note.id` 讓 `invalidateNoteQueries` 跳過那一發（兩種路徑解析層由它依 `note.groupId` 二擇一）。
    */
-  const onRemoteUpdate = useCallback(() => {
+  const onDocUpdate = useCallback(() => {
     if (!note) return;
     invalidateNoteQueries(queryClient, note, params.ref ?? note.id);
   }, [note, params.ref, queryClient]);
@@ -313,7 +314,7 @@ export default function NotePage() {
   const { state, doc, provider, synced } = useCollab({
     noteId,
     onUnauthorized: handleUnauthorized,
-    onRemoteUpdate,
+    onDocUpdate,
   });
 
   // wikilink 連結索引提交器（Task 7，spec §12.3 client 段）。掛載定案在這裡（不是

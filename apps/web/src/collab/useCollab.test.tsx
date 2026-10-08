@@ -92,10 +92,10 @@ function SyncProbe({ noteId = NOTE_ID }: { noteId?: string }) {
 }
 const syncedText = () => screen.getByTestId("synced").textContent;
 
-/** #138：遠端更新通知那一案的探針——把 `useCollab` 回的 `doc` 露出來給測試操作。 */
+/** #138：文件更新通知那一案的探針——把 `useCollab` 回的 `doc` 露出來給測試操作。 */
 const docRef: { current: Y.Doc | null } = { current: null };
-function RemoteProbe({ onRemoteUpdate }: { onRemoteUpdate: () => void }) {
-  const { doc } = useCollab({ noteId: NOTE_ID, onUnauthorized: () => {}, onRemoteUpdate });
+function DocUpdateProbe({ onDocUpdate }: { onDocUpdate: () => void }) {
+  const { doc } = useCollab({ noteId: NOTE_ID, onUnauthorized: () => {}, onDocUpdate });
   docRef.current = doc;
   return null;
 }
@@ -776,17 +776,17 @@ describe("useCollab", () => {
     expect(syncedText()).toBe("false");
   });
 
-  // #138：遠端更新 → debounce → `onRemoteUpdate`（NotePage 據此失效 note query）。
+  // #138：文件 update → debounce → `onDocUpdate`（NotePage 據此失效 note query）。
   // debouncer 掛在 `"synced"` handler 裡而**不是** effect 本體：初次同步那一批 update
   // 的 origin 也是 provider，掛在本體的話一開頁就白白失效一次 note query。
-  it("遠端 update 才通知；首次同步那一批不算；本地打字不通知", async () => {
+  it("同步後的遠端與本地 update 都通知；首次同步那一批不算", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.stubGlobal(
       "fetch",
       vi.fn(() => Promise.resolve(tokenOk("editor"))),
     );
-    const onRemoteUpdate = vi.fn();
-    render(<RemoteProbe onRemoteUpdate={onRemoteUpdate} />);
+    const onDocUpdate = vi.fn();
+    render(<DocUpdateProbe onDocUpdate={onDocUpdate} />);
     const p = provider(0);
     await act(async () => {
       await p.configuration.token();
@@ -802,7 +802,7 @@ describe("useCollab", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3_000);
     });
-    expect(onRemoteUpdate).not.toHaveBeenCalled();
+    expect(onDocUpdate).not.toHaveBeenCalled();
 
     // ② synced 之後的遠端 update 要通知，且多次合併成一次
     p.synced = true;
@@ -814,16 +814,17 @@ describe("useCollab", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3_000);
     });
-    expect(onRemoteUpdate).toHaveBeenCalledTimes(1);
+    expect(onDocUpdate).toHaveBeenCalledTimes(1);
 
-    // ③ 本地 origin 不通知
+    // ③ 本地 origin（自己打字）也要通知：server 對自己的編輯一樣寫 `last_edited_*`，
+    // 不通知的話頁首「最後編輯」要重新整理才會更新
     act(() => {
       doc.transact(() => text.insert(0, "z"), { local: true });
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3_000);
     });
-    expect(onRemoteUpdate).toHaveBeenCalledTimes(1);
+    expect(onDocUpdate).toHaveBeenCalledTimes(2);
     vi.useRealTimers();
   });
 

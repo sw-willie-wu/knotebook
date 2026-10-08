@@ -15,7 +15,7 @@ import { api } from "./client";
  *
  * **改名與改角色另外要失效單篇筆記的 key**（`invalidateSingleNoteKeys`）：NotePage 常駐層是
  * `['note', id]`、解析層是 `['note-by-path', …]`（個人）／`['note-by-group-path', …]`（群組），
- * 三者都不以 `['notes']` 開頭，上面那兩把碰不到；而群組異動不動文件，`onRemoteUpdate` 也不會
+ * 三者都不以 `['notes']` 開頭，上面那兩把碰不到；而群組異動不動文件，`onDocUpdate` 也不會
  * 觸發。不失效的話：改名 → 正開著的那篇群組筆記的 `note.group.name` 停在舊值；改角色 → 改到
  * **自己**的角色時（非最後一位管理員把自己降成一般成員），開著那篇的 `note.permissions`
  * （⋮ 的刪除項、公開連結開關）停在舊角色，多顯示 server 會 403 的項目（Task 11 review r1 M-4）。#175 PR3 的改角色旗標、刪角色同理（`useUpdateRole`／`useDeleteRole`）。
