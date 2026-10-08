@@ -87,11 +87,6 @@ declare module "fastify" {
     tokenId?: string;
     /** #200：transfer 路徑才有（`auth/transfer-auth.ts`）。`noteId` 是 DB 的小寫正規形。 */
     transfer?: { id: string; noteId: string; purpose: "upload" | "download"; parentTokenId: string };
-    /**
-     * #200 spec §5.2 第 3 步：上傳當下 `resolveNoteAccess` 算出的空間鍵（個人筆記看 owner、群組筆記看群組）。
-     * 消費端＝儲存配額（spec 2026-10-08-storage-quota §6.3-1，未落地）——今天沒有讀者。
-     */
-    uploadSpace?: { ownerId: string | null; groupId: string | null };
   }
 }
 

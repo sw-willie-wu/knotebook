@@ -110,7 +110,6 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
         sendError(reply, 403, "forbidden", "沒有編輯權限");
         return;
       }
-      request.uploadSpace = { ownerId: access.ownerId, groupId: access.groupId };
 
       // 第 4 步：排在消費 token 之前——被 429 擋下時 token 不被燒掉。
       if (!deps.limiters.upload.consume(userId)) {
