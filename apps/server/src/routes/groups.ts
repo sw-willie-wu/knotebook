@@ -19,7 +19,8 @@ import {
 } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
 import { groupMembers, groupRoles, groups, users } from "../db/schema.js";
-import { isForeignKeyViolation, isRetryableTxError, uniqueViolationConstraint } from "../db/pg-errors.js";
+import { foreignKeyViolationConstraint, isForeignKeyViolation, isRetryableTxError, notNullViolationColumn, uniqueViolationConstraint } from "../db/pg-errors.js";
+import { SITE_SETTINGS_MISSING_MESSAGE } from "../auth/tx/admin-site-settings.js";
 import type { CollabHooks } from "../collab/hooks.js";
 import type { GroupTestHook } from "../groups/test-hook.js";
 import { sendError, sendStorageQuotaExceeded } from "../http/errors.js";
@@ -100,7 +101,20 @@ export function groupsRoutes(deps: GroupsRouteDeps) {
       const name = validateGroupName(parsed.data.name);
       if (name === null) return invalidName(reply);
       const userId = request.user!.id;
-      const { group } = await deps.db.transaction(tx => createGroupInTx(tx, { name, userId }));
+      let created;
+      try {
+        created = await deps.db.transaction(tx => createGroupInTx(tx, { name, userId }));
+      } catch (err) {
+        // 儲存配額 §10（m9）：改預設 P→Q 後立刻刪 P 與本 INSERT 交錯 → 23503；重試會讀到 Q。
+        if (foreignKeyViolationConstraint(err) === "groups_storage_plan_fk") return serverBusy(reply);
+        // §4.2：site_settings 沒有列 → 23502；同 admin 建帳先記錯（物件開頭）再 500。
+        if (notNullViolationColumn(err) === "storage_plan_id") {
+          request.log.error({ table: "site_settings" }, SITE_SETTINGS_MISSING_MESSAGE);
+          return sendError(reply, 500, "internal", "伺服器內部錯誤");
+        }
+        throw err;
+      }
+      const { group } = created;
       const [row] = await groupWithMyRoleQuery(deps.db, group.id, userId);
       return reply.code(201).send(toGroupDto(row!, request.user!.isAdmin));
     });

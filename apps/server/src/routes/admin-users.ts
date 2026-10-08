@@ -2,17 +2,20 @@ import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
-import { normalizeEmail, normalizeHandle, validateHandle } from "@knotebook/shared";
+import { normalizeEmail, normalizeHandle, validateHandle, type SpaceStorageDto } from "@knotebook/shared";
 import { sendError } from "../http/errors.js";
 import type { Db } from "../db/index.js";
-import { handles, users } from "../db/schema.js";
+import { handles, storagePlans, users } from "../db/schema.js";
 import { deriveHandle } from "../auth/handle.js";
 import { hashPassword, HashBusyError } from "../auth/password.js";
 import type { UserGate } from "../auth/session.js";
 import type { CollabHooks } from "../collab/hooks.js";
 import { UUID_RE } from "../notes/service.js";
 import { MIN_PASSWORD_LENGTH } from "../auth/constants.js";
-import { uniqueViolationConstraint } from "../db/pg-errors.js";
+import { foreignKeyViolationConstraint, notNullViolationColumn, uniqueViolationConstraint } from "../db/pg-errors.js";
+import { SITE_SETTINGS_MISSING_MESSAGE } from "../auth/tx/admin-site-settings.js";
+import { listSpaceUsage, readSpaceUsage } from "../storage/usage.js";
+import { redactDbError } from "../lib/redact-db-error.js";
 
 const createBodySchema = z.object({
   email: z.string().email(),
@@ -22,6 +25,9 @@ const createBodySchema = z.object({
   /** #122：選填使用者名——空＝從 email local-part 派生（spec §2b）。 */
   handle: z.string().optional(),
 });
+
+/** 儲存配額 §7.2：指派方案的 body（strict——多餘欄 400）。 */
+const assignPlanSchema = z.object({ planId: z.string() }).strict();
 
 export interface AdminUsersRouteDeps {
   db: Db;
@@ -37,6 +43,7 @@ interface AdminUserDto {
   isAdmin: boolean;
   disabledAt: string | null;
   createdAt: string;
+  storage: SpaceStorageDto;
 }
 
 interface AdminUserRow {
@@ -49,9 +56,9 @@ interface AdminUserRow {
   createdAt: Date;
 }
 
-// 只選這七欄（形狀鎖，#122 起含 handle）：不可帶 passwordHash/tokenVersion——即使只是內部查詢，也不要
+// 只選這七欄＋方案（storage 另組）（形狀鎖，#122 起含 handle）：不可帶 passwordHash/tokenVersion——即使只是內部查詢，也不要
 // select 出這兩欄再靠序列化階段刻意漏掉，直接在 SQL 端就不撈，斷絕任何洩漏路徑。
-function toAdminUserDto(row: AdminUserRow): AdminUserDto {
+function toAdminUserDto(row: AdminUserRow, storage: SpaceStorageDto): AdminUserDto {
   return {
     id: row.id,
     email: row.email,
@@ -60,6 +67,7 @@ function toAdminUserDto(row: AdminUserRow): AdminUserDto {
     isAdmin: row.isAdmin,
     disabledAt: row.disabledAt ? row.disabledAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
+    storage,
   };
 }
 
@@ -72,6 +80,13 @@ const adminUserColumns = {
   disabledAt: users.disabledAt,
   createdAt: users.createdAt,
 };
+
+/** 單一使用者的 storage 欄（POST／PATCH 回應用；GET 列表走 GROUP BY 一次）。 */
+async function storageOfUser(db: Db, userId: string): Promise<SpaceStorageDto> {
+  const usage = await readSpaceUsage(db, { kind: "user", id: userId });
+  if (!usage) throw new Error(`storageOfUser: 找不到使用者 ${userId}`);
+  return { planId: usage.planId, planName: usage.planName, usedBytes: usage.usedBytes, quotaBytes: usage.quotaBytes };
+}
 
 /**
  * Admin 使用者管理路由：全部端點皆需 `requireAdmin`。
@@ -86,8 +101,14 @@ export function adminUsersRoutes(deps: AdminUsersRouteDeps) {
     app.get("/api/admin/users", { preHandler: app.requireAdmin }, async () => {
       // 次要排序鍵 id asc（同 notes.ts GET /api/notes 清單慣例）：createdAt 精度不足以
       // 保證唯一序，兩筆使用者在同一毫秒建立時排序會不穩定。
-      const rows = await deps.db.select(adminUserColumns).from(users).orderBy(asc(users.createdAt), asc(users.id));
-      return rows.map(toAdminUserDto);
+      // 用量一次 GROUP BY（沒有附件的使用者不在 Map 裡 → 0）；方案以 inner join 帶出（storage_plan_id NOT NULL＋FK）。
+      const usage = await listSpaceUsage(deps.db, "user");
+      const rows = await deps.db
+        .select({ ...adminUserColumns, planId: storagePlans.id, planName: storagePlans.name, quotaBytes: storagePlans.quotaBytes })
+        .from(users)
+        .innerJoin(storagePlans, eq(storagePlans.id, users.storagePlanId))
+        .orderBy(asc(users.createdAt), asc(users.id));
+      return rows.map(r => toAdminUserDto(r, { planId: r.planId, planName: r.planName, usedBytes: usage.get(r.id) ?? 0, quotaBytes: r.quotaBytes }));
     });
 
     app.post("/api/admin/users", { preHandler: app.requireAdmin }, async (request, reply) => {
@@ -165,7 +186,19 @@ export function adminUsersRoutes(deps: AdminUsersRouteDeps) {
             }
             if (attempt <= MAX_DERIVE_ATTEMPTS) continue; // 整 tx 重跑（重新探測；第 4 次退 uuid8）
           }
-          throw err;
+          // 儲存配額 §10（m9）：改預設 P→Q 後立刻刪 P，與本 INSERT（DEFAULT 已讀到 P）交錯 → 23503。重試會讀到 Q。
+          if (foreignKeyViolationConstraint(err) === "users_storage_plan_fk") {
+            return sendError(reply, 409, "server_busy", "伺服器忙碌，請稍後再試");
+          }
+          // §4.2 契約變更：site_settings 沒有列 → DEFAULT 函式回 NULL → 23502。比照 B27（routes/admin-auth.ts:114）：先記錯（物件
+          // 開頭——captureLogs 只收這形）再直接回 500，不把原錯誤丟給全域 handler。
+          if (notNullViolationColumn(err) === "storage_plan_id") {
+            request.log.error({ table: "site_settings" }, SITE_SETTINGS_MISSING_MESSAGE);
+            return sendError(reply, 500, "internal", "伺服器內部錯誤");
+          }
+          // 其餘非預期錯誤一律遮蔽：drizzle 的 DrizzleQueryError 把 INSERT 的 params（含 password_hash）串進 message／params，
+          // pg 的 detail 也帶整列——原樣丟給全域 handler 會把密碼雜湊寫進 log（storage-accounts 測試實測）。
+          throw redactDbError(request.log, err, "建立使用者");
         }
       }
 
@@ -174,7 +207,7 @@ export function adminUsersRoutes(deps: AdminUsersRouteDeps) {
         // fail loud 進全域 500，不靜默重試下去。
         throw new Error("admin 建帳：handle 配置重試耗盡");
       }
-      return reply.code(201).send(toAdminUserDto(created));
+      return reply.code(201).send(toAdminUserDto(created, await storageOfUser(deps.db, created.id)));
     });
 
     app.post("/api/admin/users/:id/disable", { preHandler: app.requireAdmin }, async (request, reply) => {
@@ -256,6 +289,27 @@ export function adminUsersRoutes(deps: AdminUsersRouteDeps) {
       deps.gate.invalidate(id);
 
       return reply.code(204).send();
+    });
+
+    // 儲存配額 §7.2：指派使用者方案。單句非鍵 UPDATE（不取空間鎖、不擋進行中的上傳——R10）；不檢查新方案是否小於現用量。
+    // 停權者照樣可改（S13）。非 UUID 的 :id／planId 各走自己的 404 碼（不落到 22P02 → 500）；大寫 UUID 正規化成小寫。
+    app.patch("/api/admin/users/:id/storage-plan", { preHandler: app.requireAdmin }, async (request, reply) => {
+      const { id: rawId } = request.params as { id: string };
+      if (!UUID_RE.test(rawId)) return sendError(reply, 404, "user_not_found", "找不到此使用者");
+      const id = rawId.toLowerCase();
+      const parsed = assignPlanSchema.safeParse(request.body);
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", "請求格式錯誤");
+      if (!UUID_RE.test(parsed.data.planId)) return sendError(reply, 404, "storage_plan_not_found", "找不到這個方案");
+      let updated: AdminUserRow[];
+      try {
+        updated = await deps.db.update(users).set({ storagePlanId: parsed.data.planId.toLowerCase() }).where(eq(users.id, id)).returning(adminUserColumns);
+      } catch (err) {
+        if (foreignKeyViolationConstraint(err) === "users_storage_plan_fk") return sendError(reply, 404, "storage_plan_not_found", "找不到這個方案");
+        throw err;
+      }
+      const [row] = updated;
+      if (!row) return sendError(reply, 404, "user_not_found", "找不到此使用者");
+      return toAdminUserDto(row, await storageOfUser(deps.db, id));
     });
   };
 }

@@ -63,7 +63,7 @@ function spyCollabHooks(): CollabHooks {
   };
 }
 
-const EXPECTED_KEYS = ["id", "email", "handle", "displayName", "isAdmin", "disabledAt", "createdAt"].sort();
+const EXPECTED_KEYS = ["id", "email", "handle", "displayName", "isAdmin", "disabledAt", "createdAt", "storage"].sort();
 
 describe("requireAdmin 保護：全部端點非 admin 403、未登入 401", () => {
   const endpoints: Array<{ name: string; url: (id: string) => string; method: "GET" | "POST" }> = [

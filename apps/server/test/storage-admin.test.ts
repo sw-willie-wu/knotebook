@@ -120,20 +120,33 @@ describe("GET／POST／PATCH／DELETE /api/admin/storage-plans（S10）", () => 
     for (const id of [free, "nope"]) expect((await req(b, "DELETE", `/api/admin/storage-plans/${id}`)).json().error.code, id).toBe("storage_plan_not_found");
   });
 
-  it("DELETE：既是預設又使用中 → storage_plan_is_default 不依賴 FK 觸發器的先後（site_settings 的 FK 重建到 users／groups 的之後也一樣）", async () => {
+  it("DELETE：既是預設又使用中 → storage_plan_is_default 不靠 site_settings 的 FK（把那兩條 FK 拿掉也一樣）", async () => {
     const b = await adminApp();
     const basic = await basicPlanId(b.db);
-    // PG 的 RI 觸發器依觸發器名（RI_ConstraintTrigger_a_<oid>）排序觸發；migration 建出的庫裡 site_settings 兩條 FK 的 OID 較小、
-    // 先觸發（2026-10-08 實測 pg_trigger），所以光靠 FK 映射也會回 is_default。把它們重建（拿到更大的 OID）讓 users_storage_plan_fk
-    // 先觸發——這時只有 DELETE 的 `not in (預設)` 條件能讓結果仍是 is_default。
+    // 有 site_settings 那兩條 FK 時，光靠 FK 映射也可能回 is_default（取決於 RI 觸發器的觸發順序）。拿掉它們之後，刪 Basic 會撞到的
+    // FK 只剩 users／groups 的（→ in_use）——結果仍是 is_default 只能來自 DELETE 的 `not in (預設)` 條件。不重建：重建後的順序依 OID，不受本案控制。
     await b.db.$client.query(`alter table site_settings
-      drop constraint site_settings_default_user_plan_fk, drop constraint site_settings_default_group_plan_fk,
-      add constraint site_settings_default_user_plan_fk foreign key (default_user_storage_plan_id) references storage_plans(id) on delete restrict,
-      add constraint site_settings_default_group_plan_fk foreign key (default_group_storage_plan_id) references storage_plans(id) on delete restrict`);
-    const order = await b.db.$client.query<{ conname: string }>(`select c.conname from pg_trigger t join pg_constraint c on c.oid = t.tgconstraint
-      where t.tgrelid = 'storage_plans'::regclass and t.tgname like 'RI_ConstraintTrigger_a_%' order by t.tgname limit 1`);
-    expect(order.rows[0]!.conname).toBe("users_storage_plan_fk");
+      drop constraint site_settings_default_user_plan_fk, drop constraint site_settings_default_group_plan_fk`);
+    const left = await b.db.$client.query<{ conname: string }>(`select c.conname from pg_trigger t join pg_constraint c on c.oid = t.tgconstraint
+      where t.tgrelid = 'storage_plans'::regclass and t.tgname like 'RI_ConstraintTrigger_a_%' order by c.conname`);
+    expect([...new Set(left.rows.map(r => r.conname))]).toEqual(["groups_storage_plan_fk", "users_storage_plan_fk"]);
     expect((await req(b, "DELETE", `/api/admin/storage-plans/${basic}`)).json().error.code).toBe("storage_plan_is_default");
+  });
+
+  it("DELETE：與改預設並發時 site_settings 的 FK 擋下（23503）→ storage_plan_is_default；其他名字的 23503 照舊 500（以 trigger 構造的錯誤）", async () => {
+    const b = await adminApp();
+    // 真並發要讓「改預設」恰好在 DELETE 的子查詢快照之後 commit，時序不可控；改以 BEFORE DELETE trigger 拋帶約束名的 23503，直測 catch 的分流。
+    const raise = (constraint: string) => b.db.$client.query(`
+      create or replace function raise_plan_delete_fk() returns trigger language plpgsql as $$
+      begin raise exception using errcode = '23503', constraint = '${constraint}', message = 'constructed'; end $$;`);
+    await raise("site_settings_default_user_plan_fk");
+    await b.db.$client.query("create trigger t_plan_delete_fk before delete on storage_plans for each row execute function raise_plan_delete_fk()");
+    const del = async () => req(b, "DELETE", `/api/admin/storage-plans/${await seedPlan(b.db, `F-${Math.random().toString(36).slice(2, 8)}`, 1)}`);
+    expect((await del()).json()).toEqual({ error: { code: "storage_plan_is_default", message: "這個方案是預設方案，請先改選其他預設" } });
+    await raise("site_settings_default_group_plan_fk");
+    expect((await del()).json().error.code).toBe("storage_plan_is_default");
+    await raise("something_else_fk");
+    expect((await del()).statusCode).toBe(500);
   });
 });
 
