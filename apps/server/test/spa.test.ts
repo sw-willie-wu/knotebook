@@ -19,6 +19,8 @@ describe("SPA fallback（spec §11.5）", () => {
     writeFileSync(path.join(webDist, "index.html"), "<!doctype html><title>knotebook spa</title>");
     mkdirSync(path.join(webDist, "assets"));
     writeFileSync(path.join(webDist, "assets", "app.js"), "console.log('app');");
+    // 根目錄的靜態檔（apps/web/public → dist 根）：瀏覽器分頁圖示。
+    writeFileSync(path.join(webDist, "favicon.svg"), '<svg xmlns="http://www.w3.org/2000/svg"/>');
   });
 
   afterAll(() => {
@@ -75,6 +77,18 @@ describe("SPA fallback（spec §11.5）", () => {
     const res = await app.inject({ method: "GET", url: "/assets/app.js" });
     expect(res.statusCode).toBe(200);
     expect(res.body).toBe("console.log('app');");
+  });
+
+  it("GET /favicon.svg → 200 image/svg+xml（dist 根目錄的檔案由 static 送，不被 SPA fallback 吞成 index.html）", async () => {
+    const { app } = await buildTestApp({}, { webDist });
+    // 瀏覽器抓圖示的 Accept 是 image/*；再用 text/html 證明即使如此也不會落進 fallback。
+    for (const accept of ["image/avif,image/webp,image/*,*/*;q=0.8", "text/html"]) {
+      const res = await app.inject({ method: "GET", url: "/favicon.svg", headers: { accept } });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers["content-type"]).toContain("image/svg+xml");
+      expect(res.body).toContain("<svg");
+      expect(res.body).not.toContain("knotebook spa");
+    }
   });
 
   it("GET /collaborators + text/html → index.html（segment 邊界證明：不受 /collab 排除牽連）", async () => {
