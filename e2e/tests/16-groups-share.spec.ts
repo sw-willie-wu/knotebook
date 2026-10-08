@@ -33,7 +33,7 @@ const PNG_1X1 = Buffer.from(
  * 所以從 ⋮ 鈕第一次移進父選單那一下必記成 `right`）。1280 寬的視窗裡 ⋮ 貼右緣，子選單碰撞翻到**左側**
  * （`data-side="left"`）——瞬移離開觸發項時方向 `right` ≠ 子選單側 `left`，Radix 判定「沒往子選單走」→ 焦點回父選單 →
  * 子選單 `onFocusOutside` 關掉、項目被卸載，click 無限重試到測試逾時（CI run 37732016391 就是這樣卡滿 180 秒）。
- * 真人的滑鼠是連續移動，離開觸發項前最後幾筆 pointermove 就在觸發項內、方向正確，不會遇到。
+ * 真人的滑鼠是連續移動，離開觸發項前最後幾筆 pointermove 就在觸發項內、方向正確，幾乎不會遇到（除非極快地一甩就離開觸發項；最壞也只是子選單關掉、再 hover 一次就開）。
  * 所以這裡分段移動（`steps`）模擬真人：第一段仍落在觸發項內，把方向更新成實際往子選單的方向，之後才離開觸發項。
  */
 async function pickFromSubmenu(page: Page, triggerName: string, itemName: string): Promise<void> {
