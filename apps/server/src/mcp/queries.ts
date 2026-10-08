@@ -1,5 +1,5 @@
 /**
- * #108：`list_notes`／`search_notes` 的查詢**組裝**（只組不執行——呼叫端自己 `await`）。
+ * #108：`list_notes` 的查詢**組裝**（只組不執行——呼叫端自己 `await`；`search_notes` 的在 `notes/search-sql.ts`，#93）。
  *
  * ⚠ **兩支 branch select 是單次使用的一次性物件**：drizzle 的 select builder 可變，同一組
  * 拿去組第二個 `unionAll(...)` 會產出多一段 `union all` 的畸形查詢、**不報錯**，而且污染是
@@ -13,7 +13,7 @@
  *
  * 可見性語意（owned ∪ shared ∪ grouped）不在這裡——它只有一份，在 `notes/list-query.ts`（D-H）。
  */
-import { asc, desc, sql, type SQL } from "drizzle-orm";
+import { desc, sql, type SQL } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/pg-core";
 import type { Db } from "../db/index.js";
 import { notes } from "../db/schema.js";
@@ -37,7 +37,7 @@ export interface NoteListCursor {
  * 日期／時間戳的解析器、改由**欄位**自己 `mapFromDriverValue`，而 raw `sql` 運算式沒有欄位
  * ——不 `mapWith` 拿到的是 pg 的原始字串 `"2026-04-01 00:00:00.123+00"`（不是 `Date`、也不是
  * ISO 形），`toISOString()` 直接 throw。`sql<Date>` 只是**型別標註**，tsc 不會抓到。
- * 數值不受影響（node-postgres 自己的 int 解析器仍在）——所以下面 `search` 的 `rank`
+ * 數值不受影響（node-postgres 自己的 int 解析器仍在）——所以 `notes/search-sql.ts` 的 `rank`
  * 在執行期真的是 `number`，**不需要**也不該替它加 `mapWith`。
  */
 const updatedAtMsExpr = sql`date_trunc('milliseconds', ${notes.updatedAt})`.mapWith(notes.updatedAt);
@@ -60,21 +60,5 @@ export function buildNoteListQuery(
   // 多取一列：第 `limit + 1` 列只用來算 `nextCursor`，不回給模型。
   return unionAll(owned, shared, grouped)
     .orderBy(desc(updatedAtMs), desc(notes.id))
-    .limit(opts.limit + 1);
-}
-
-export function buildNoteSearchQuery(db: Db, opts: { userId: string; query: string; limit: number }) {
-  const q = opts.query;
-  // **非 pattern 判定**：`LIKE`／`ILIKE` 會把 `%`／`_` 當萬用字元，要正確處理就得加 `ESCAPE`
-  // 與跳脫——那條路寫錯了只會「搜尋結果怪怪的」不會變紅。`position()` 完全沒有這個面。
-  const match = sql`position(lower(${q}) in lower(${notes.title})) > 0`;
-  // 三支 select 餵**同一個** `rank`（union 各支的 select shape 必須逐欄同形）。
-  const rank = sql<number>`case
-    when lower(${notes.title}) = lower(${q}) then 0
-    when position(lower(${q}) in lower(${notes.title})) = 1 then 1
-    else 2 end`.as("rank");
-  const { owned, shared, grouped } = visibleNoteBranches(db, opts.userId, { extraWhere: match, extra: { rank } });
-  return unionAll(owned, shared, grouped)
-    .orderBy(asc(rank), desc(notes.updatedAt), desc(notes.id))
     .limit(opts.limit + 1);
 }

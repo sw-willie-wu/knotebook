@@ -15,7 +15,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { createDb } from "../../src/db/index.js";
-import { buildNoteListQuery, buildNoteSearchQuery } from "../../src/mcp/queries.js";
+import { buildNoteListQuery } from "../../src/mcp/queries.js";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { buildNoteSearchQuery as buildFullTextQuery, buildSearchMatchesQuery } from "../../src/notes/search-sql.js";
 
@@ -70,15 +70,15 @@ describe("#108 buildNoteListQuery", () => {
 
 describe("#108 buildNoteSearchQuery", () => {
   it("連呼兩次各恰含兩次 union all（三支），且回頭對第一個物件仍恰兩次", () => {
-    const first = buildNoteSearchQuery(db, { userId: USER, query: "hello", limit: 20 });
-    const second = buildNoteSearchQuery(db, { userId: USER, query: "hello", limit: 20 });
+    const first = buildFullTextQuery(db, { userId: USER, query: "hello", limit: 20 });
+    const second = buildFullTextQuery(db, { userId: USER, query: "hello", limit: 20 });
     expect(countUnionAll(first.toSQL().sql)).toBe(2);
     expect(countUnionAll(second.toSQL().sql)).toBe(2);
     expect(countUnionAll(first.toSQL().sql)).toBe(2);
   });
 
   it("以輸出欄位名 rank 排序，且比對用的是非 pattern 的 position() 不是 like", () => {
-    const { sql, params } = buildNoteSearchQuery(db, { userId: USER, query: "50%", limit: 20 }).toSQL();
+    const { sql, params } = buildFullTextQuery(db, { userId: USER, query: "50%", limit: 20 }).toSQL();
     // ⚠ `orderBy(rankExpr)`（把 CASE 運算式直接放進 ORDER BY）drizzle 產得出來但 pg 直接拒
     // （`invalid UNION/INTERSECT/EXCEPT ORDER BY clause`）——集合運算的 ORDER BY 只收輸出欄位名。
     expect(sql).toContain(`order by "rank" asc, "updated_at" desc, "id" desc`);

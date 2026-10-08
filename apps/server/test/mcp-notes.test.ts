@@ -16,6 +16,7 @@ import type { Db } from "../src/db/index.js";
 import { buildCollabTestApp, buildTestApp, type CollabTestCtx } from "./helpers.js";
 import { seedContent, seedTokenForUser } from "./editing-helpers.js";
 import { mcpPost, rpc } from "./mcp-helpers.js";
+import { waitIndexed } from "./search-helpers.js";
 import type { FastifyInstance } from "fastify";
 
 const PASSWORD = "correct-horse-battery";
@@ -41,7 +42,7 @@ interface ToolPayload extends Record<string, unknown> {
   notes: Summary[];
   nextCursor?: string | null;
   truncated?: boolean;
-  matchedOn?: string;
+  matchesTruncated?: true;
 }
 
 interface ToolCall {
@@ -290,8 +291,8 @@ describe("#108 search_notes", () => {
     const { ownerId, token } = await scenario(ctx);
     for (let i = 0; i < 3; i += 1) await ctx.createNote(ownerId, `dup ${i}`);
     const full = payloadOf(await callTool(ctx.app, token, "search_notes", { query: "dup" }));
-    expect(Object.keys(full).sort()).toEqual(["matchedOn", "notes", "truncated"]);
-    expect(full.matchedOn).toBe("title");
+    expect(Object.keys(full).sort()).toEqual(["notes", "truncated"]);
+    expect(full.notes.map(n => [n.matchedOn, n.matches])).toEqual([["title", []], ["title", []], ["title", []]]);
     expect(full.truncated).toBe(false);
     expect(full.notes).toHaveLength(3);
 
@@ -299,6 +300,7 @@ describe("#108 search_notes", () => {
     expect(capped.notes).toHaveLength(2);
     expect(capped.truncated).toBe(true);
     expect(Object.keys(capped)).not.toContain("nextCursor");
+    expect(JSON.stringify(capped)).not.toMatch(/"(next)?[cC]ursor"/);
   });
 
   it("排序：完全相等 → 前綴 → 子字串，同組內 updatedAt desc, id desc", async () => {
@@ -317,7 +319,7 @@ describe("#108 search_notes", () => {
     expect(out.notes.map(n => n.id)).toEqual([exact.id, prefix.id, substrNew.id, substrOld.id]);
   });
 
-  it("大小寫不敏感，且只比標題不比內文（D17）", async () => {
+  it("大小寫不敏感；內文命中排在標題命中之後（D17 反轉，#93）", async () => {
     const ctx = await buildCollabTestApp();
     const { ownerId, token } = await scenario(ctx);
     const owner = await ctx.db.select({ email: users.email }).from(users).where(eq(users.id, ownerId));
@@ -326,9 +328,12 @@ describe("#108 search_notes", () => {
     const session = await ctx.loginAs(owner[0]!.email, PASSWORD);
     const client = await seedContent(ctx, session, bodyOnly.id, "# unrelated\n\nquarterly plan lives in the body\n");
     client.disconnect();
+    await waitIndexed(ctx.db, bodyOnly.id, b => b.includes("quarterly plan lives in the body"));
 
     const out = payloadOf(await callTool(ctx.app, token, "search_notes", { query: "quarterly plan" }));
-    expect(out.notes.map(n => n.id)).toEqual([titled.id]);
+    expect(out.notes.map(n => n.id)).toEqual([titled.id, bodyOnly.id]);
+    expect(out.notes.map(n => n.matchedOn)).toEqual(["title", "body"]);
+    expect((out.notes[1]!.matches as Array<{ snippet: string }>)[0]!.snippet.toLowerCase()).toContain("quarterly plan");
   });
 
   it("搜尋範圍＝呼叫者看得見的筆記（M2：別人的私有筆記不出現）", async () => {
@@ -361,11 +366,10 @@ describe("#108 兩支工具的共同接線", () => {
   //   #175 再換一次主詞（「renaming it」涵蓋標題與網址代稱兩種 PATCH——plan 規格落差 6），
   //   並把**第三成因句**（翻頁期間被分享、或加入群組而看得到的筆記以原位置加入）也整句釘上：
   //   `list-notes.ts` 檔頭一直宣稱它由這一案守，#175 之前其實沒釘。
-  // - `search_notes`：只比標題，不講清楚模型會在搜不到時得出「這個 workspace 沒有這篇筆記」
-  //   的錯誤結論（§8.5 D17）。
+  // - `search_notes`：#93：只搜標題的句子已刪；改釘排序句，並釘住舊句不在（被否定掉的假敘述加回去也要紅）。
   // 沒有這一案，刪掉它們不會有任何東西變紅。斷言的是**送到 wire 上的 `tools/list`**，
   // 不是原始碼常數——改對了常數卻沒接上 `registerTool` 的形也要抓得到。
-  it("tools/list 的三句逐字文案在 wire 上出現（§8.2 的分頁警告與第三成因、§8.5 的只搜標題）", async () => {
+  it("tools/list 的三句逐字文案在 wire 上出現（§8.2 的分頁警告與第三成因、#93 的排序句）", async () => {
     const ctx = await buildCollabTestApp();
     const { token } = await scenario(ctx);
     const res = await mcpPost(ctx.app, rpc("tools/list"), { token });
@@ -382,8 +386,9 @@ describe("#108 兩支工具的共同接線", () => {
       "While you page, a note shared with you, a note moved into one of your groups, or the notes of a group you join appear at their own unchanged positions, which may already be above your cursor."
     );
     expect(byName("search_notes")).toContain(
-      "Searches note titles only — not the body text. If you cannot find a note, its title may simply not contain your words."
+      "Notes whose title matches come first — exact titles, then titles that start with your text, then the rest — then notes that match only in the body."
     );
+    expect(byName("search_notes")).not.toContain("Searches note titles only");
   });
 
   it("#175：list_notes 的可見性說法涵蓋群組，且不再只說「other people shared with you」", async () => {

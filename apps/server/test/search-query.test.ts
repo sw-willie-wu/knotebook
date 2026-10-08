@@ -1,8 +1,10 @@
 /**
- * #93 §7：查詢（M1 排序、M2 可見性、M4 字面比對、matches、S18 隔離等級、回填前只中標題）。函式層——MCP 輸出在 Task 10。
+ * #93 §7：查詢（M1 排序、M2 可見性、M4 字面比對、matches、S18 隔離等級與快照、非 ASCII／窗口、回填前只中標題）。函式層——MCP 輸出在
+ * `test/mcp-search.test.ts`。
  */
 import { describe, expect, it } from "vitest";
 import { and, eq, sql } from "drizzle-orm";
+import pg from "pg";
 import { freshDb } from "./helpers.js";
 import { seedGroup, seedNote, seedRole, seedShare, seedUser, setMemberRole } from "./group-helpers.js";
 import { groupMembers, noteShares, notes } from "../src/db/schema.js";
@@ -12,6 +14,7 @@ import { groupMatchesByNote, searchNotesForUser } from "../src/notes/search-quer
 import { searchDoc } from "./search-doc.js";
 import { captureLog, seedIndexedNote, seedNoteState } from "./search-helpers.js";
 import type { Db } from "../src/db/index.js";
+import type { Tx } from "../src/db/tx.js";
 
 const at = (db: Db, id: string, iso: string) => db.update(notes).set({ updatedAt: new Date(iso) }).where(eq(notes.id, id));
 const search = (db: Db, userId: string, query: string, limit = 20) => searchNotesForUser(db, { userId, query, limit });
@@ -97,9 +100,36 @@ describe("M2 可見性（索引列與權限無關，可見性只來自三支 uni
     await db.delete(groupMembers).where(and(eq(groupMembers.groupId, g3.id), eq(groupMembers.userId, c.id)));
     expect(await check(c.id)).toEqual([]);
   });
+
+  it("別人的筆記只中標題或只中內文都不出現；群組成員＋殘留分享列恰出現一次；can_read=false／退出群組後消失；陌生人兩句皆空", async () => {
+    const { db } = await freshDb();
+    const [a, b, c] = await Promise.all([seedUser(db), seedUser(db), seedUser(db)]);
+    const Q = "leakprobe";
+    await seedIndexedNote(db, { ownerId: a.id }, `title ${Q}`, [{ id: "p", text: "plain" }]);
+    await seedIndexedNote(db, { ownerId: a.id }, "plain", [{ id: "p", text: `body ${Q}` }]);
+    // B 自己有一篇內文命中——結果非空，第二句（matches）一定會發，才驗得到它沒帶出別人的 id。
+    const own = await seedIndexedNote(db, { ownerId: b.id }, "mine", [{ id: "p", text: `own ${Q}` }]);
+    let r = await search(db, b.id, Q);
+    expect(idsOf(r)).toEqual([own.id]);
+    expect(new Set(r.matches.map(m => m.note_id))).toEqual(new Set([own.id]));
+
+    const g = await seedGroup(db, "G", [{ userId: a.id, role: "admin" }, { userId: b.id, role: "member" }]);
+    const gn = await seedIndexedNote(db, { groupId: g.id }, `grp ${Q}`, [{ id: "p", text: `grp body ${Q}` }]);
+    await db.insert(noteShares).values({ noteId: gn.id, userId: b.id, role: "editor" }); // 殘留分享列：shared 支的 group_id IS NULL 排除
+    r = await search(db, b.id, Q);
+    expect(idsOf(r).sort()).toEqual([own.id, gn.id].sort()); // 恰一次，union all 沒有重複
+    await setMemberRole(db, g.id, b.id, await seedRole(db, g.id, "Blind", { canRead: false }));
+    expect(idsOf(await search(db, b.id, Q))).toEqual([own.id]);
+    await db.delete(groupMembers).where(and(eq(groupMembers.groupId, g.id), eq(groupMembers.userId, b.id)));
+    expect(idsOf(await search(db, b.id, Q))).toEqual([own.id]);
+
+    r = await search(db, c.id, Q);
+    expect(r.rows).toEqual([]);
+    expect(r.matches).toEqual([]);
+  });
 });
 
-describe("M4 字面比對（SQL 層；NUL 在 Task 10 的 MCP 層）", () => {
+describe("M4 字面比對（SQL 層；NUL 在 MCP 的輸入 schema 擋下，見 mcp-notes.test.ts）", () => {
   it("% 與 _ 在內文也是字面", async () => {
     const { db } = await freshDb();
     const u = await seedUser(db);
@@ -144,6 +174,67 @@ describe("S18 隔離等級（I-1、m-A1）", () => {
       return tx.execute(sql`select current_setting('transaction_isolation') as iso, current_setting('transaction_read_only') as ro`);
     });
     expect(res.rows[0]).toEqual({ iso: "repeatable read", ro: "on" });
+  });
+
+  it("第二句釘在第一句的快照上：兩句之間另一條連線刪掉索引列，第二句仍看得到（READ COMMITTED 下會紅）", async () => {
+    const { db, url } = await freshDb();
+    const other = new pg.Pool({ connectionString: url, max: 1 });
+    try {
+      const u = await seedUser(db);
+      const n = await seedIndexedNote(db, { ownerId: u.id }, "t", [{ id: "p", text: "snapword here" }]);
+      const res = await db.transaction(async tx => {
+        // 第一句走 select builder（不經 tx.execute）；第二句（matches）是交易內第一個 tx.execute——在它之前插入另一條連線的刪除（autocommit）。
+        let wiped = false;
+        const proxied = new Proxy(tx, {
+          get(target, prop, recv) {
+            const v = Reflect.get(target, prop, recv);
+            if (prop === "execute" && typeof v === "function") {
+              return async (...args: unknown[]) => {
+                if (!wiped) {
+                  wiped = true;
+                  await other.query("delete from note_search_sections where note_id = $1", [n.id]);
+                }
+                return (v as (...a: unknown[]) => unknown).apply(target, args);
+              };
+            }
+            return typeof v === "function" ? v.bind(target) : v;
+          },
+        }) as Tx;
+        const out = await runNoteSearchInTx(proxied, { userId: u.id, query: "snapword", limit: 5 });
+        expect(wiped, "刪除真的落在兩句之間").toBe(true);
+        return out;
+      });
+      expect(res.rows.map(x => x.bodyHit)).toEqual([true]);
+      expect(res.matches.length).toBe(1); // REPEATABLE READ：刪除對第二句不可見
+      const left = await db.execute<{ n: number }>(sql`select count(*)::int as n from note_search_sections where note_id = ${n.id}::uuid`);
+      expect(left.rows[0]!.n).toBe(0); // 刪除確實發生了
+    } finally {
+      await other.end();
+    }
+  });
+});
+
+describe("非 ASCII 與窗口（libc locale，spec §7.5）", () => {
+  it("CJK 子字串；西里爾字母大小寫不敏感；字面的反斜線與引號；emoji 包圍的命中窗口以 code point 計、沒有孤立代理", async () => {
+    const { db } = await freshDb();
+    const u = await seedUser(db);
+    const cjk = await seedIndexedNote(db, { ownerId: u.id }, "無關", [{ id: "p", text: "這是全文搜尋的測試內容" }]);
+    const cyr = await seedIndexedNote(db, { ownerId: u.id }, "ПРИВЕТ мир", [{ id: "p", text: "x" }]);
+    const bs = await seedIndexedNote(db, { ownerId: u.id }, "t", [{ id: "p", text: String.raw`path C:\dir\'q` }]);
+    const emo = await seedIndexedNote(db, { ownerId: u.id }, "e", [{ id: "p", text: `${"😀".repeat(60)}NeedLE${"😀".repeat(200)}` }]);
+    expect(idsOf(await search(db, u.id, "全文搜尋"))).toEqual([cjk.id]);
+    expect(idsOf(await search(db, u.id, "привет"))).toEqual([cyr.id]);
+    expect(idsOf(await search(db, u.id, String.raw`\dir\'`))).toEqual([bs.id]);
+    const r = await search(db, u.id, "needle");
+    expect(idsOf(r)).toEqual([emo.id]);
+    const m = r.matches[0]!;
+    const cps = [...m.win];
+    const lead = m.p - m.win_start;
+    expect(cps.slice(lead, lead + 6).join("")).toBe("NeedLE");
+    expect(cps.length).toBe(40 + 6 + 160);
+    expect(m.win_start).toBe(61 - 40);
+    expect(m.body_len).toBe(60 + 6 + 200);
+    expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(m.win)).toBe(false);
   });
 });
 
