@@ -68,11 +68,11 @@ export interface McpRouteDeps {
   collab?: CollabServer;
   editing?: EditingRuntime;
   /**
-   * 逐鍵挑（不整包轉傳）：MCP 只該看得到自己會用的三顆桶。`contentRead` 給兩支讀取工具，
+   * 逐鍵挑（不整包轉傳）：MCP 只該看得到自己會用的四顆桶。`contentRead` 給兩支讀取工具，
    * `edit`／`tokenWrite` 給 PR2 的兩支寫入工具（前者在角色檢查之後扣，後者在 scope 檢查
-   * 那一步扣，順序與 REST 對齊）。
+   * 那一步扣，順序與 REST 對齊），`search` 給 `search_notes`（#93）。
    */
-  limiters: { contentRead: FixedWindowLimiter; edit: FixedWindowLimiter; tokenWrite: FixedWindowLimiter };
+  limiters: { contentRead: FixedWindowLimiter; edit: FixedWindowLimiter; tokenWrite: FixedWindowLimiter; search: FixedWindowLimiter };
   presence?: PresenceRegistry;
   /**
    * #108 §10.1（D22／M5）：`buildApp` 建的**同一個**寫入 service（`notesRoutes` 拿到的是

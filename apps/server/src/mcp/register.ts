@@ -21,7 +21,8 @@
  *
  * 部署形態的閘門（D-A）：`read_note_outline`／`read_note_section` 只在 `ctx.collab &&
  * ctx.editing` 都在時註冊——沒有 live doc 的來源就沒有「讀最新內容」這回事，寧可整條不宣告
- * 也不要掛一支只會回半套答案的工具（照抄 `routes/notes.ts` 對內容端點的既有判準）。
+ * 也不要掛一支只會回半套答案的工具（照抄 `routes/notes.ts` 對內容端點的既有判準）。判準存在
+ * `canRead` 變數，#93 起 search_notes 的變體（description 與 `sectionId` 的說明）也看它。
  * `list_notes`／`search_notes` 只查 DB，永遠註冊。
  * **這道閘門唯一的守衛是 `test/mcp-tools-list.test.ts` 的「無 collab 的 app ＋讀寫憑證：只宣告
  * 查得動 DB 的兩支與 create_note」**（Task 4 起改用讀寫憑證，見該案註解）——它斷言的是**三個
@@ -46,7 +47,7 @@ import {
   readNoteSectionInput,
   readNoteSectionOutput,
 } from "./tools/read-note-section.js";
-import { SEARCH_NOTES_DESCRIPTION, searchNotes, searchNotesInput, searchNotesOutput } from "./tools/search-notes.js";
+import { searchNotes, searchNotesDescription, searchNotesInput, searchNotesOutputFor } from "./tools/search-notes.js";
 import { EDIT_NOTE_DESCRIPTION, editNote, editNoteInput, editNoteOutput } from "./tools/edit-note.js";
 import { CREATE_NOTE_DESCRIPTION, createNote, createNoteInput, createNoteOutput } from "./tools/create-note.js";
 import { canWriteNotes } from "./write-scope.js";
@@ -59,6 +60,9 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
   //   所以沒註冊的名字連 handler 都到不了（`tools/call` 走 SDK 的未知工具名分支）——
   //   **`insufficient_scope` 在 HTTP 上因此是死碼**，別在整合測試裡去釘它。
   const canWrite = canWriteNotes(ctx);
+  // #93：讀 live doc 的工具在不在，決定 search_notes 的 description 與 sectionId 說明的變體（spec §8.2 I5）。
+  // 與下面讀取工具的閘門是**同一個判準、同一個時間點**（註冊時）。
+  const canRead = Boolean(ctx.collab && ctx.editing);
 
   server.registerTool(
     "list_notes",
@@ -68,15 +72,15 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
 
   server.registerTool(
     "search_notes",
-    { description: SEARCH_NOTES_DESCRIPTION, inputSchema: searchNotesInput, outputSchema: searchNotesOutput },
+    { description: searchNotesDescription(canRead), inputSchema: searchNotesInput, outputSchema: searchNotesOutputFor(canRead) },
     async args => runTool("search_notes", ctx, () => searchNotes(args, ctx))
   );
 
   // D-A：讀 live doc 的兩支只在生產形態（collab ＋ editing 都在）宣告。`tools/list` 的長度
-  // 因此是**憑證 scope 與部署形態兩者的函式**。
+  // 因此是**憑證 scope 與部署形態兩者的函式**。判準存在 `canRead` 變數，#93 起 search_notes 的變體也看它。
   // ⚠ **寫成區塊而不是 early return**：early return 會讓這道閘門的作用域變成「函式尾端全部」，
   //   之後在下面新增一支**不需要 collab** 的工具會被靜默閘掉，而且沒有任何編譯錯誤。
-  if (ctx.collab && ctx.editing) {
+  if (canRead) {
     server.registerTool(
       "read_note_outline",
       {

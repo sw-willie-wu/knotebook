@@ -176,6 +176,8 @@ then start that build. If you're upgrading from 0.4.1 or earlier, there were no 
 4. **Allow password sign-in starts on**, so password sign-in works as before. To use sign-in services only, turn it off in **Site admin → Sign-in** — read [SSO-only sign-in](#sso-only-sign-in) and its recovery steps first.
 5. **Rolling back to v0.5:** put the three `OIDC_*` variables back into `.env` first — v0.5 only knows SSO from them. Identities linked after the upgrade aren't visible to v0.5, and v0.5 links by verified email again while it runs; whatever it links is picked up again on the next upgrade. So an SSO identity created or linked after the upgrade can sign in under v0.5 only if the identity provider marks its email as verified. When you upgrade again, remove the `OIDC_*` variables you put back — v0.6 doesn't import them a second time and only logs that they're ignored.
 
+**Body-text search.** The first start after upgrading to a version with body-text search indexes the existing notes in the background, after the server is already answering requests. The `app` log shows `全文索引回填開始` when that starts and `全文索引回填完成` when it is done; until then, `search_notes` finds a note it hasn't got to yet by its title only. Rolling back is harmless: an older server ignores the two tables that hold the index, `note_search_sections` and `note_search_state`. When you upgrade again, the first start indexes again whatever was edited or created while the older server ran, because the index has no entry for them, or one built from an older version.
+
 Prefer rolling forward; if you must roll back, treat it as a temporary state.
 
 ## Troubleshooting

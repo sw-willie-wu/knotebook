@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, boolean, integer, bigint, jsonb, customType, primaryKey, uniqueIndex, index, check, foreignKey } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, boolean, integer, bigint, smallint, jsonb, customType, primaryKey, uniqueIndex, index, check, foreignKey } from "drizzle-orm/pg-core";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import type { EncryptedApiKey } from "../ai/crypto.js";
@@ -338,6 +338,46 @@ export const noteStateBackups = pgTable("note_state_backups", {
   ydoc: bytea().notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, t => [index("nsb_note_created_idx").on(t.noteId, t.createdAt)]);
+
+/**
+ * #93 §3.1：全文索引，一段一列（`collab/store.ts` 落盤後、`notes/tx/copy.ts` 複製時、回填時整篇替換；寫入者只有
+ * `notes/tx/search-index.ts`）。`section_id` 恆符合 `SECTION_ID_RE`、同一篇內唯一——唯一性由抽取器保證（§4.2），
+ * 不建唯一索引（附件階段的列可能需要別的規則）。`source_kind='attachment'` 只是預留，本版沒有任何碼寫它。
+ */
+export const noteSearchSections = pgTable(
+  "note_search_sections",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    noteId: uuid("note_id").notNull().references(() => notes.id, { onDelete: "cascade" }),
+    sourceKind: text("source_kind").notNull().default("note"),
+    sourceId: uuid("source_id"),
+    sectionId: text("section_id").notNull(),
+    ord: integer().notNull(),
+    heading: text().notNull().default(""),
+    body: text().notNull(),
+  },
+  t => [
+    check("nss_source_kind_chk", sql`${t.sourceKind} in ('note', 'attachment')`),
+    check("nss_source_id_chk", sql`(${t.sourceKind} = 'note') = (${t.sourceId} is null)`),
+    check("nss_section_id_chk", sql`${t.sectionId} ~ '^[A-Za-z0-9_-]{1,64}$'`),
+    index("nss_note_idx").on(t.noteId, t.sourceKind, t.ord),
+  ],
+);
+
+/**
+ * #93 §3.2：每篇一列的索引狀態。`source_version`＝建索引時依據的 `note_states.version`；`content_hash`＝全部列與 `capped` 的
+ * 正規序列化 sha256（`notes/search-text.ts` 的 `searchContentHash`）。不用 per-note clock：Yjs 的刪除不推進
+ * state vector（spec §2.2 第 4 點），clock 判斷不了「內容沒變」。
+ */
+export const noteSearchState = pgTable("note_search_state", {
+  noteId: uuid("note_id").primaryKey().references(() => notes.id, { onDelete: "cascade" }),
+  extractorVersion: smallint("extractor_version").notNull(),
+  sourceVersion: integer("source_version").notNull(),
+  contentHash: text("content_hash").notNull(),
+  indexedUnits: integer("indexed_units").notNull(),
+  capped: boolean().notNull(),
+  indexedAt: timestamp("indexed_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const noteShares = pgTable("note_shares", {
   noteId: uuid("note_id").notNull().references(() => notes.id, { onDelete: "cascade" }),   // N10：CASCADE

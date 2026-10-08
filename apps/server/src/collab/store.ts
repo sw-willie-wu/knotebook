@@ -22,6 +22,8 @@ import { YDOC_FRAGMENT } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
 import { noteStateBackups, noteStates, notes } from "../db/schema.js";
 import { isForeignKeyViolation } from "../db/pg-errors.js";
+import { bumpSearchIndexVersion, extractForIndex, writeSearchIndex, type SearchIndexOutcome } from "../notes/search-index.js";
+import type { SearchExtract } from "../notes/search-text.js";
 import { crossesBucketBoundary, selectPrunable } from "./backup-policy.js";
 
 /**
@@ -126,7 +128,19 @@ export interface NoteStoreDeps {
    * `test/collab-store.test.ts`），不透過即時協作的 WebSocket 往返。
    */
   now?: () => Date;
+  /**
+   * #93 §5.3：全文索引的寫入／推進函式。預設綁 `db`（`writeSearchIndex`／`bumpSearchIndexVersion`）；測試注入用
+   * （S6 注入會丟例外的、S9 包一層計數）。
+   */
+  indexer?: (noteId: string, version: number, extract: SearchExtract) => Promise<SearchIndexOutcome>;
+  bumper?: (noteId: string, version: number, contentHash: string) => Promise<number>;
+  /** #93 §5.3 第 1 點：同 tick 抽取（預設 `extractForIndex`；S6 注入會丟例外的）。 */
+  extract?: (doc: Y.Doc) => SearchExtract;
+  /** #93 S15：落盤之後、索引之前（生產不注入）。 */
+  afterPersistForTest?: (noteId: string, doc: Y.Doc) => Promise<void>;
 }
+
+export type NoteStoreSearchHooks = Pick<NoteStoreDeps, "indexer" | "bumper" | "extract" | "afterPersistForTest">;
 
 export interface NoteStore {
   /**
@@ -140,9 +154,11 @@ export interface NoteStore {
   onStoreDocument(noteId: string, doc: Y.Doc): Promise<void>;
   /**
    * Hocuspocus `afterUnloadDocument`：文件從記憶體卸載時清掉這個 noteId 的 sv／
-   * lastBackupAt 快取，否則每篇曾經打開過的筆記都會在 process 存活期間永久占一個
-   * Map entry（fix round 1 IMPORTANT 2）。安全：下一次 `onLoadDocument` 會重新以
-   * DB 現況重新初始化這兩個快取，清掉不影響正確性。
+   * lastBackupAt 快取、危險 URL 已警告旗標（`warnedUnsafeUrl`）與全文索引雜湊快取
+   * （`indexedHash`，#93），否則每篇曾經打開過的筆記都會在 process 存活期間永久占
+   * Map／Set entry（fix round 1 IMPORTANT 2）。安全：sv／lastBackupAt 下一次
+   * `onLoadDocument` 會以 DB 現況重新初始化；`warnedUnsafeUrl` 清掉只會讓下個載入週期
+   * 再警告一次；`indexedHash` 清掉只會讓下一次落盤走完整索引交易而非 bump。
    */
   afterUnloadDocument(noteId: string): void;
 }
@@ -159,6 +175,12 @@ export function createNoteStore(deps: NoteStoreDeps): NoteStore {
   const db = deps.db;
   const log = deps.log ?? noopLogger;
   const now = deps.now ?? ((): Date => new Date());
+  const indexer = deps.indexer ?? ((noteId: string, version: number, extract: SearchExtract) => writeSearchIndex(db, noteId, version, extract, { log }));
+  const bumper = deps.bumper ?? ((noteId: string, version: number, contentHash: string) => bumpSearchIndexVersion(db, noteId, version, contentHash));
+  const extractFn = deps.extract ?? extractForIndex;
+  // #93 §5.3 第 4 點：「這篇上次成功寫進索引的內容雜湊」。命中時不開交易，只推進 source_version（bump）；
+  // bump 命中 0 列（索引被別人改過）→ 清掉，同一次落盤就改走完整交易（m10 自癒）。unload／刪除時一併清（forgetNote）。
+  const indexedHash = new Map<string, string>();
 
   // 「上次備份時的 state vector」——onLoadDocument 時以現 doc（已套用 note_states 內容
   // 後）的狀態初始化；之後每次真的寫了一筆備份就更新。key 消失（unset）等同「未知」，
@@ -177,6 +199,7 @@ export function createNoteStore(deps: NoteStoreDeps): NoteStore {
     svCache.delete(noteId);
     lastBackupAtCache.delete(noteId);
     warnedUnsafeUrl.delete(noteId);
+    indexedHash.delete(noteId);
   }
 
   async function onLoadDocument(noteId: string, doc: Y.Doc): Promise<Uint8Array | undefined> {
@@ -221,12 +244,13 @@ export function createNoteStore(deps: NoteStoreDeps): NoteStore {
   }
 
   /**
-   * `note_states` 的樂觀鎖寫入。回傳 `false` 代表筆記已不存在（該次寫入被丟棄）。
+   * `note_states` 的樂觀鎖寫入。成功時回傳剛寫下的 `version`（#93：索引的 `source_version` 以它為準）；
+   * 回傳 `null` 代表筆記已不存在（該次寫入被丟棄）。
    * `at`：一律用 `onStoreDocument` 讀到的同一個「現在時刻」（測試可注入），不在這裡
    * 另外呼叫 `new Date()`——與 `note_state_backups.createdAt`、backup-policy 的桶判斷
    * 共用同一個時間點，避免同一次 store 內部出現兩個不同的「現在」。
    */
-  async function persistNoteState(noteId: string, ydocBuf: Buffer, at: Date): Promise<boolean> {
+  async function persistNoteState(noteId: string, ydocBuf: Buffer, at: Date): Promise<number | null> {
     const [existing] = await db.select({ version: noteStates.version }).from(noteStates).where(eq(noteStates.noteId, noteId)).limit(1);
 
     if (!existing) {
@@ -234,9 +258,9 @@ export function createNoteStore(deps: NoteStoreDeps): NoteStore {
       // 從一開始就沒有這個 noteId），insert 會撞 `note_states.note_id` 的外鍵——接住並丟棄。
       try {
         await db.insert(noteStates).values({ noteId, ydoc: ydocBuf, version: 1, updatedAt: at });
-        return true;
+        return 1;
       } catch (err) {
-        if (isForeignKeyViolation(err)) return false;
+        if (isForeignKeyViolation(err)) return null;
         throw err;
       }
     }
@@ -246,12 +270,12 @@ export function createNoteStore(deps: NoteStoreDeps): NoteStore {
       .set({ ydoc: ydocBuf, version: existing.version + 1, updatedAt: at })
       .where(and(eq(noteStates.noteId, noteId), eq(noteStates.version, existing.version)))
       .returning({ noteId: noteStates.noteId });
-    if (updated.length > 0) return true;
+    if (updated.length > 0) return existing.version + 1;
 
     // UPDATE 命中 0 列：可能是版本被動過（衝突），也可能是這段時間筆記被整筆刪除
     // （cascade 把 row 也帶走了）——重讀一次才分得清楚，兩者的 WHERE 命中結果相同。
     const [reread] = await db.select({ version: noteStates.version }).from(noteStates).where(eq(noteStates.noteId, noteId)).limit(1);
-    if (!reread) return false; // 筆記已刪除：丟棄，絕不復活資料列
+    if (!reread) return null; // 筆記已刪除：丟棄，絕不復活資料列
 
     // row 還在，只是 version 對不上：本 process 是 note_states 的唯一寫入者，沒有第二個
     // 寫入源頭可信，直接覆寫（不重試比對版本）並記一筆警告供事後追查。
@@ -260,7 +284,7 @@ export function createNoteStore(deps: NoteStoreDeps): NoteStore {
       .update(noteStates)
       .set({ ydoc: ydocBuf, version: reread.version + 1, updatedAt: at })
       .where(eq(noteStates.noteId, noteId));
-    return true;
+    return reread.version + 1;
   }
 
   async function maybeBackup(noteId: string, doc: Y.Doc, at: Date): Promise<void> {
@@ -301,12 +325,25 @@ export function createNoteStore(deps: NoteStoreDeps): NoteStore {
   async function onStoreDocument(noteId: string, doc: Y.Doc): Promise<void> {
     const at = now();
     const ydocBuf = Buffer.from(Y.encodeStateAsUpdate(doc));
+    // #93 §5.3 第 1 點（I2）：抽取在編碼的**同一 tick**、第一個 await 之前——索引內容恰好描述 ydocBuf，不受之後
+    // await 期間套進 doc 的 WS 更新影響。不變量：每一列索引都描述某一個已落盤的 note_states 版本。
+    let extract: SearchExtract | null = null;
+    try {
+      extract = extractFn(doc);
+    } catch (err) {
+      try {
+        log.warn({ err, noteId }, "全文索引抽取失敗（不影響落盤/備份；跳過本次索引）");
+      } catch {
+        /* logger 自己炸 */
+      }
+    }
 
-    const exists = await persistNoteState(noteId, ydocBuf, at);
-    if (!exists) {
+    const version = await persistNoteState(noteId, ydocBuf, at);
+    if (version === null) {
       forgetNote(noteId);
       return;
     }
+    await deps.afterPersistForTest?.(noteId, doc);
 
     await maybeBackup(noteId, doc, at);
 
@@ -344,6 +381,33 @@ export function createNoteStore(deps: NoteStoreDeps): NoteStore {
         warnedUnsafeUrl.add(noteId);
         try {
           log.warn({ err, noteId }, "危險 URL 掃描失敗（忽略，不影響落盤/備份）");
+        } catch {
+          /* logger 自己炸：無處可記，僅止損 */
+        }
+      }
+    }
+
+    // #93 §5.3 第 3 點：最尾端、整段 try/catch（形同上面的掃描）——索引失敗不得影響落盤/備份，更不得拋出
+    // onStoreDocument（Hocuspocus 會把文件 pin 在記憶體）。只在落盤成功之後才寫（上面 version === null 已 return）。
+    if (extract !== null) {
+      try {
+        let needFull = indexedHash.get(noteId) !== extract.contentHash;
+        if (!needFull) {
+          const bumped = await bumper(noteId, version, extract.contentHash);
+          // 命中 0 列＝索引被帶外改過（或狀態列不見了），快取已不可信：清掉，並在同一個 try 裡改走完整交易，
+          // 讓這次落盤就索引好（不必等下次落盤或重啟回填）。
+          if (bumped === 0) {
+            indexedHash.delete(noteId);
+            needFull = true;
+          }
+        }
+        if (needFull) {
+          const outcome = await indexer(noteId, version, extract);
+          if (outcome === "written" || outcome === "unchanged") indexedHash.set(noteId, extract.contentHash);
+        }
+      } catch (err) {
+        try {
+          log.warn({ err, noteId }, "全文索引更新失敗（不影響落盤/備份；下次內容變更落盤或重啟回填時重試）");
         } catch {
           /* logger 自己炸：無處可記，僅止損 */
         }

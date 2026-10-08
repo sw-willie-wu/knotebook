@@ -15,7 +15,9 @@ import { afterAll, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { createDb } from "../../src/db/index.js";
-import { buildNoteListQuery, buildNoteSearchQuery } from "../../src/mcp/queries.js";
+import { buildNoteListQuery } from "../../src/mcp/queries.js";
+import { PgDialect } from "drizzle-orm/pg-core";
+import { buildNoteSearchQuery as buildFullTextQuery, buildSearchMatchesQuery } from "../../src/notes/search-sql.js";
 
 const pool = new pg.Pool({ connectionString: "postgres://u:p@127.0.0.1:1/none" });
 const db = createDb(pool);
@@ -68,15 +70,15 @@ describe("#108 buildNoteListQuery", () => {
 
 describe("#108 buildNoteSearchQuery", () => {
   it("連呼兩次各恰含兩次 union all（三支），且回頭對第一個物件仍恰兩次", () => {
-    const first = buildNoteSearchQuery(db, { userId: USER, query: "hello", limit: 20 });
-    const second = buildNoteSearchQuery(db, { userId: USER, query: "hello", limit: 20 });
+    const first = buildFullTextQuery(db, { userId: USER, query: "hello", limit: 20 });
+    const second = buildFullTextQuery(db, { userId: USER, query: "hello", limit: 20 });
     expect(countUnionAll(first.toSQL().sql)).toBe(2);
     expect(countUnionAll(second.toSQL().sql)).toBe(2);
     expect(countUnionAll(first.toSQL().sql)).toBe(2);
   });
 
   it("以輸出欄位名 rank 排序，且比對用的是非 pattern 的 position() 不是 like", () => {
-    const { sql, params } = buildNoteSearchQuery(db, { userId: USER, query: "50%", limit: 20 }).toSQL();
+    const { sql, params } = buildFullTextQuery(db, { userId: USER, query: "50%", limit: 20 }).toSQL();
     // ⚠ `orderBy(rankExpr)`（把 CASE 運算式直接放進 ORDER BY）drizzle 產得出來但 pg 直接拒
     // （`invalid UNION/INTERSECT/EXCEPT ORDER BY clause`）——集合運算的 ORDER BY 只收輸出欄位名。
     expect(sql).toContain(`order by "rank" asc, "updated_at" desc, "id" desc`);
@@ -88,5 +90,36 @@ describe("#108 buildNoteSearchQuery", () => {
     // 第三關：查詢字串以參數送出，不進 SQL 文字。
     expect(sql).not.toContain("50%");
     expect(params).toContain("50%");
+  });
+});
+
+describe("#93 notes/search-sql", () => {
+  it("列表句：三支各帶 EXISTS 子查詢比對 note_search_sections；rank 第四級；title_hit／body_hit；以輸出欄排序；非 pattern", () => {
+    const { sql, params } = buildFullTextQuery(db, { userId: USER, query: "50%", limit: 20 }).toSQL();
+    expect(countUnionAll(sql)).toBe(2);
+    expect(sql.split("note_search_sections").length - 1).toBeGreaterThanOrEqual(3);
+    expect(sql.toLowerCase()).toContain("exists (");
+    expect(sql).toContain("else 3 end");
+    expect(sql).toContain(`"title_hit"`);
+    expect(sql).toContain(`"body_hit"`);
+    expect(sql).toContain(`order by "rank" asc, "updated_at" desc, "id" desc`);
+    expect(sql.toLowerCase()).not.toContain(" like ");
+    expect(sql).not.toContain("50%");
+    expect(params).toContain("50%");
+  });
+  it("連呼兩次各自現造（單次使用的 builder）", () => {
+    const first = buildFullTextQuery(db, { userId: USER, query: "x", limit: 5 });
+    buildFullTextQuery(db, { userId: USER, query: "x", limit: 5 });
+    expect(countUnionAll(first.toSQL().sql)).toBe(2);
+  });
+  it("matches 句：id 清單是 in ($1, $2) 而不是 any(...)；查詢字串走參數；每篇 3 個", () => {
+    const a = randomUUID();
+    const b = randomUUID();
+    const q = new PgDialect().sqlToQuery(buildSearchMatchesQuery({ query: "zeta", ids: [a, b] }));
+    expect(q.sql).toMatch(/in \(\$\d+, \$\d+\)/);
+    expect(q.sql.toLowerCase()).not.toContain("any(");
+    expect(q.sql).not.toContain("zeta");
+    expect(q.params).toEqual(expect.arrayContaining(["zeta", a, b]));
+    expect(q.sql).toMatch(/rn <= \$\d+|rn <= 3/);
   });
 });

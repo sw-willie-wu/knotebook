@@ -67,7 +67,7 @@ After you press Allow, the client has its credential — once it reconnects it w
 | Tool | Scope | What it does |
 |---|---|---|
 | `list_notes` | `notes:read` | Page through the notes you can see, most recently updated first |
-| `search_notes` | `notes:read` | Find notes by **title** |
+| `search_notes` | `notes:read` | Find notes by text in their title or body |
 | `read_note_outline` | `notes:read` | A note's sections — id, heading, depth, length |
 | `read_note_section` | `notes:read` | One section's markdown, 4000 characters per call |
 | `edit_note` | `notes:write` | Apply one of the five write operations to a note |
@@ -92,11 +92,26 @@ Every tool that takes a `note_id` — `read_note_outline`, `read_note_section` a
 
 ### `search_notes`
 
-**Takes** `query` (1–200 characters) and `limit` (1–50, default 20).
+**Takes** `query` (1–200 characters, used exactly as sent — it is not trimmed) and `limit` (1–50, default 20).
 
-**Answers** `notes` (the same entries as `list_notes`, best match first), `truncated`, and `matchedOn`, which is always `"title"`.
+**Answers** `notes`, best match first, and `truncated`, plus `matchesTruncated: true` only when some matches were left out. Each entry in `notes` is a `list_notes` entry with two more fields:
 
-**Titles only.** There is no body-text search: a note whose title does not contain your words will not be found, however well its text matches. Matching is case-insensitive and literal — `%` and `_` are ordinary characters, not wildcards. Exact titles rank first, then titles that start with your words, then the rest. There is also **no next page**: when `truncated` is true the answer is a narrower query, not a cursor.
+- `matchedOn` — `"title"`, `"body"` or `"both"`: where your text was found.
+- `matches` — up to 3 sections of the note that contain your text, in document order, each `{sectionId, heading, headingTruncated?, snippet}`. `heading` is cut like every other heading (see [Limits](#limits)) and is empty for `_top`; `snippet` is an excerpt of that section's text around its first hit. `matches` is always empty when `matchedOn` is `"title"`. For a body match it can be empty only in a reply that carries `matchesTruncated: true`: to keep a reply small, matches are added note by note in the order of `notes`, and adding stops for good at the first one that doesn't fit. Ask for fewer notes with `limit` to get them.
+
+**Matching** is case-insensitive and literal — `%` and `_` are ordinary characters, not wildcards; how far case-insensitivity reaches beyond ASCII depends on the database (see [Known limitations](./known-limitations.md)). Notes whose title contains your text come first — exact titles, then titles that start with your text, then the rest — followed by notes that match only in the body; within each of those groups, the most recently updated note comes first. Body text is matched one section at a time, so text that runs across the boundary between two sections is not found. Inside a section, each block's text is separated from the next block's by one line break, so the end of one paragraph and the start of the next don't run together into a match.
+
+**Snippets** are at most 160 characters as written in JSON (counted the same way as headings, see [Limits](#limits)), with `…` at an end where the section's text goes on. Runs of whitespace on either side of the hit, line breaks included, are shown as a single space; the hit itself is shown as the note has it, which can differ in case from your query. On a database where lower-casing text never changes its length — the default database image is one — a snippet always contains the start of the section's first hit, and contains the whole hit whenever your query is at most 158 characters, none of which JSON escapes.
+
+**When text becomes searchable.** A note's body text is indexed each time the collaboration server saves the note: about 2 seconds after people stop typing, at most about 10 seconds apart while they keep typing, and at once when the last person with it open disconnects. A write made through the REST API, `edit_note` or `create_note` is indexed before its reply comes back. The first time the server starts after an upgrade to a version with body-text search, it indexes the existing notes in the background, and until it gets to a note, that note can only be found by its title.
+
+**Not searched:** attachments, text inside images, a media block's caption and file name, and the address behind a link or a media block (a link's own text is searched).
+
+**On a deployment without the collaboration component**, no tool there reads a `sectionId`, and body text gets into the index only when the server starts and when a note is copied.
+
+There is **no next page**: when `truncated` is true the answer is a narrower query, not a cursor.
+
+**Errors** `too_many_requests` — searches have a budget of their own, 60 per minute per user (see [Limits](#limits)).
 
 ### `read_note_outline`
 
@@ -165,7 +180,7 @@ Fields that do not belong to the operation you asked for are rejected rather tha
 
 Over the REST API the loop is "read the whole note, pick a section, write it back". Over MCP it is not, for two reasons: no tool returns a whole note, and an outline carries no fingerprints. The loop is:
 
-1. `list_notes` or `search_notes` → a note `id`.
+1. `list_notes` or `search_notes` → a note `id`. When `search_notes` already gave you the `sectionId` you want, go straight to step 3 with it.
 2. `read_note_outline` → the section ids, headings and lengths.
 3. `read_note_section` on the section you mean, paging with `offset` until `truncated` is false. **The last page is where the `fingerprint` arrives.**
 4. `edit_note` with that fingerprint as `if_match`.
@@ -182,9 +197,12 @@ After a successful `edit_note` you do not have to go back to step 2: the reply a
 |---|---|---|---|
 | Heading, title and group name length | 200 characters as written in JSON: `"`, `\` and the control characters JSON writes as `\n`, `\t`, `\r`, `\b`, `\f` count as two each, every other control character (U+0000–U+001F) and an unpaired surrogate as six | every tool that returns one | cut, with `headingTruncated` / `titleTruncated` / `nameTruncated: true` |
 | Section text per call | 4000 UTF-16 code units | `read_note_section` | `truncated: true` and a `nextOffset` |
+| Snippet length | 160 characters as written in JSON, counted as in the first row | `search_notes` | cut, with `…` |
+| Matches per note | 3 | `search_notes` | the rest aren't listed |
 | Sections per page | 100 | `read_note_outline`, and `edit_note`'s reply | `truncated: true` (plus `nextSectionOffset` on `read_note_outline`) |
 | Blocks after parsing | 2000, counting nested blocks | `edit_note`, `create_note` with `content` | tool error `too_many_blocks` |
 | Content reads | 120 per minute per user | `read_note_outline`, `read_note_section` | tool error `too_many_requests` |
+| Searches | 60 per minute per user | `search_notes` | tool error `too_many_requests` |
 | Writes | 30 per minute per user | `edit_note`, and `create_note` **with `content`** | tool error `too_many_requests` |
 | Token writes | 60 per 10 minutes per user | `edit_note`, and `create_note` **with or without `content`**, made with a token | tool error `too_many_requests` |
 | Concurrent writes to one note | serialised, 10 s wait | `edit_note` | tool error `server_busy` |
@@ -192,7 +210,7 @@ After a successful `edit_note` you do not have to go back to step 2: the reply a
 | Token reads | 300 per minute per user | every `POST /api/mcp` made with a token | **HTTP `429`** |
 | Request body | 262 144 bytes | the whole `POST /api/mcp` request, however many tool calls it carries | **HTTP `413 content_too_large`** |
 
-The rate limits above are counted **per tool call, not per request** — one `POST /api/mcp` can carry several calls — with one exception: the 300-reads-per-minute budget is spent once per request, because the endpoint always declares `notes:read` whatever tools the request goes on to call. These are the same per-user budgets the REST endpoints draw on, and a credential pays both its own and the tighter one; the full accounting is in [API tokens](./api-tokens.md#errors-and-rate-limits) and [AI editing](./ai-editing.md#limits).
+The rate limits above are counted **per tool call, not per request** — one `POST /api/mcp` can carry several calls — with one exception: the 300-reads-per-minute budget is spent once per request, because the endpoint always declares `notes:read` whatever tools the request goes on to call. Apart from the search budget, which only `search_notes` draws on, these are the same per-user budgets the REST endpoints draw on, and a credential pays both its own and the tighter one; the full accounting is in [API tokens](./api-tokens.md#errors-and-rate-limits) and [AI editing](./ai-editing.md#limits).
 
 Two limits are deliberately **not** in the table above:
 
@@ -236,6 +254,9 @@ These are the MCP-specific entries in the shared [Known limitations](./known-lim
 - [`read_note_outline` pages through live positions, not a snapshot](./known-limitations.md)
 - [`read_note_section` pages through live text, not a snapshot](./known-limitations.md)
 - [`edit_note`'s reply carries fingerprints only for the page its change landed on](./known-limitations.md)
+- [Body-text search can lag the editors by a few seconds](./known-limitations.md)
+- [Only about the first million characters and the first 2000 sections of a note are searchable](./known-limitations.md)
+- [Right after an upgrade, older notes can be found by title only until the server has indexed them](./known-limitations.md)
 
 ## See also
 

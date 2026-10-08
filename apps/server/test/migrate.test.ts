@@ -7,23 +7,23 @@ import { MAX_PROVIDER_ICON_BYTES, autoSlugFromTitle, validateHandle, validateSlu
 import { applyMigrationsThrough, freshDb, freshEmptyDb, idxOfTag, journalEntries } from "./helpers.js";
 import { runMigrations } from "../src/db/migrate.js";
 import { PgDialect, getTableConfig } from "drizzle-orm/pg-core";
-import { apiTokens, authProviders, groupMembers, groupRoles, groups, noteRedirects, notes, oauthClients, oauthCodes, oauthRequests, siteSettings, userIdentities } from "../src/db/schema.js";
+import { apiTokens, authProviders, groupMembers, groupRoles, groups, noteRedirects, notes, oauthClients, oauthCodes, noteSearchSections, noteSearchState, oauthRequests, siteSettings, userIdentities } from "../src/db/schema.js";
 
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
-/** drizzle 對 `schema.ts` 的序列化；宣告漂移守衛拿最新一支（0015）當比對基準。 */
-const snapshot0015 = JSON.parse(
-  readFileSync(path.join(drizzleDirForTest, "meta/0015_snapshot.json"), "utf8"),
+/** drizzle 對 `schema.ts` 的序列化；宣告漂移守衛拿最新一支（0016）當比對基準。 */
+const snapshot0016 = JSON.parse(
+  readFileSync(path.join(drizzleDirForTest, "meta/0016_snapshot.json"), "utf8"),
 ) as { tables: Record<string, { checkConstraints?: Record<string, { name: string; value: string }> }> };
 const pgDialect = new PgDialect();
 
 describe("runMigrations", () => {
-  it("migrate 兩次 idempotent 且 24 張表存在", async () => {
+  it("migrate 兩次 idempotent 且 26 張表存在", async () => {
     const { db, pool } = await freshDb();
     await runMigrations(db); // freshDb 已跑過一次——此為第二次
     const r = await pool.query(`select table_name from information_schema.tables where table_schema='public'`);
     const tableNames = r.rows.map(x => x.table_name);
-    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes", "note_ai_edits", "groups", "group_members", "group_roles", "note_redirects", "auth_providers", "user_identities", "site_settings"])
+    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes", "note_ai_edits", "groups", "group_members", "group_roles", "note_redirects", "auth_providers", "user_identities", "site_settings", "note_search_sections", "note_search_state"])
       expect(tableNames).toContain(t);
   });
 
@@ -1098,7 +1098,7 @@ describe("0009_api-tokens", () => {
       expect(names, i).toContain(i);
   });
 
-  it("schema.ts 的十二個宣告沒有靜默漂移（四個 OAuth／token 宣告零 import；#103／#175 的四張表的 CHECK 也在這裡逐字比對、#187 的三張表）", async () => {
+  it("schema.ts 的十四個宣告沒有靜默漂移（四個 OAuth／token 宣告零 import；#103／#175 的四張表的 CHECK 也在這裡逐字比對、#187 的三張表、#93 的兩張表）", async () => {
     // 比照 0008 的同族守衛：把 schema.ts 的宣告與 migration 造出來的 DB 對起來。
     // 沒有這一案的話，把 schema.ts 的四段 pgTable 整個刪掉，全套測試照樣綠——
     // 只有下一次 db:generate 會產出 DROP TABLE。
@@ -1142,6 +1142,8 @@ describe("0009_api-tokens", () => {
       ],
       user_identities: ["id", "user_id", "issuer", "sub", "created_at", "last_login_at"],
       site_settings: ["singleton", "registration_enabled", "password_login_enabled", "legacy_oidc_env_handled_at", "updated_at"],
+      note_search_sections: ["id", "note_id", "source_kind", "source_id", "section_id", "ord", "heading", "body"],
+      note_search_state: ["note_id", "extractor_version", "source_version", "content_hash", "indexed_units", "capped", "indexed_at"],
       notes: [
         "id", "owner_id", "title", "slug", "slug_is_custom", "prev_slug", "legacy_slug", "public_token", "public_slug",
         "links_clock", "created_at", "updated_at", "last_edited_at", "last_edited_by", "last_edited_token_id",
@@ -1162,6 +1164,8 @@ describe("0009_api-tokens", () => {
       ["auth_providers", authProviders],
       ["user_identities", userIdentities],
       ["site_settings", siteSettings],
+      ["note_search_sections", noteSearchSections],
+      ["note_search_state", noteSearchState],
     ] as const) {
       const cfg = getTableConfig(decl);
       // 宣告的欄名 = DB 的欄名 = 這裡寫死的期望（三方對齊，任一邊漂移就紅）
@@ -1191,7 +1195,7 @@ describe("0009_api-tokens", () => {
       // 名字仍在、DB 仍是舊值，上面每一條都綠——下一次 generate 才會靜默吐出一支
       // DROP/ADD CONSTRAINT。這個 PR 就踩過一次（長度上限 200↔64 的半套回滾）。
       // snapshot 是 drizzle 對 schema.ts 的序列化，逐字比對它＝真正的漂移守衛。
-      const snapshotChecks = snapshot0015.tables[`public.${table}`]?.checkConstraints ?? {};
+      const snapshotChecks = snapshot0016.tables[`public.${table}`]?.checkConstraints ?? {};
       expect(Object.keys(snapshotChecks).sort(), `${table} 的 CHECK 名集合`).toEqual(
         cfg.checks.map(c => c.name).sort()
       );
@@ -1727,6 +1731,59 @@ describe("0015_provider-icon（登入服務圖示，spec §3）", () => {
   it("0015 檔內無 CONCURRENTLY／行首 COMMIT（單一 tx 前提的輔助 grep，比照 0014）", () => {
     // ⚠ 比對全檔（含 `--` 註解）：檔頭註解裡不得寫出這兩個字。
     const sqlText = readFileSync(path.join(drizzleDirForTest, "0015_provider-icon.sql"), "utf8");
+    expect(sqlText).not.toMatch(/CONCURRENTLY/i);
+    expect(sqlText).not.toMatch(/^\s*COMMIT/im);
+  });
+});
+
+describe("0016_note-search（#93 全文搜尋，spec §3）", () => {
+  const seedNote = async (pool: import("pg").Pool): Promise<string> => {
+    const u = (await pool.query(`insert into users (email, handle, display_name) values ('s93@x', 's93', 'S') returning id`)).rows[0].id;
+    return (await pool.query(`insert into notes (owner_id) values ($1) returning id`, [u])).rows[0].id;
+  };
+  const SRC = "44444444-4444-4444-8444-444444444444";
+
+  it("三條 CHECK：每形恰違反一條，constraint 名逐一斷言；合法形放行（含 attachment＋source_id、64 字 id）", async () => {
+    const { pool } = await freshDb();
+    const n = await seedNote(pool);
+    const ins = (kind: string, sourceId: string | null, sectionId: string) =>
+      pool.query(`insert into note_search_sections (note_id, source_kind, source_id, section_id, ord, body) values ($1, $2, $3, $4, 0, 'b')`, [n, kind, sourceId, sectionId]);
+    // PG 依名稱字母序檢查 CHECK（section < source_id < source_kind）：每一形只違反一條，報出的名字才是要測的那條。
+    await expect(ins("pdf", SRC, "a")).rejects.toMatchObject({ code: "23514", constraint: "nss_source_kind_chk" });
+    await expect(ins("note", SRC, "a")).rejects.toMatchObject({ code: "23514", constraint: "nss_source_id_chk" });
+    await expect(ins("attachment", null, "a")).rejects.toMatchObject({ code: "23514", constraint: "nss_source_id_chk" });
+    await expect(ins("note", null, "a/b")).rejects.toMatchObject({ code: "23514", constraint: "nss_section_id_chk" });
+    await expect(ins("note", null, "x".repeat(65))).rejects.toMatchObject({ code: "23514", constraint: "nss_section_id_chk" });
+    await expect(ins("note", null, "")).rejects.toMatchObject({ code: "23514", constraint: "nss_section_id_chk" }); // {1,64} 的下界
+    await ins("note", null, "_top");
+    await ins("attachment", SRC, "x".repeat(64));
+    const { rows } = await pool.query(`select count(*)::int as c from note_search_sections where note_id = $1`, [n]);
+    expect(rows[0].c).toBe(2);
+  });
+
+  it("id 是 identity always：明寫 id 被拒；heading 預設 ''、source_kind 預設 'note'", async () => {
+    const { pool } = await freshDb();
+    const n = await seedNote(pool);
+    await expect(pool.query(`insert into note_search_sections (id, note_id, section_id, ord, body) values (1, $1, 'a', 0, 'b')`, [n])).rejects.toMatchObject({ code: "428C9" });
+    await pool.query(`insert into note_search_sections (note_id, section_id, ord, body) values ($1, 'a', 0, 'b')`, [n]);
+    const { rows } = await pool.query(`select source_kind, source_id, heading from note_search_sections where note_id = $1`, [n]);
+    expect(rows).toEqual([{ source_kind: "note", source_id: null, heading: "" }]);
+  });
+
+  it("刪筆記 cascade 兩表", async () => {
+    const { pool } = await freshDb();
+    const n = await seedNote(pool);
+    await pool.query(`insert into note_search_sections (note_id, section_id, ord, body) values ($1, '_top', 0, 'b')`, [n]);
+    await pool.query(`insert into note_search_state (note_id, extractor_version, source_version, content_hash, indexed_units, capped) values ($1, 1, 1, 'h', 1, false)`, [n]);
+    await pool.query(`delete from notes where id = $1`, [n]);
+    const a = await pool.query(`select count(*)::int as c from note_search_sections`);
+    const b = await pool.query(`select count(*)::int as c from note_search_state`);
+    expect([a.rows[0].c, b.rows[0].c]).toEqual([0, 0]);
+  });
+
+  it("0016 檔內無 CONCURRENTLY／行首 COMMIT（單一 tx 前提的輔助 grep，比照 0015）", () => {
+    // ⚠ 比對全檔（含 `--` 註解）：檔頭註解裡不得寫出這兩個字。合併前若重產成別的編號，檔名跟著改。
+    const sqlText = readFileSync(path.join(drizzleDirForTest, "0016_note-search.sql"), "utf8");
     expect(sqlText).not.toMatch(/CONCURRENTLY/i);
     expect(sqlText).not.toMatch(/^\s*COMMIT/im);
   });

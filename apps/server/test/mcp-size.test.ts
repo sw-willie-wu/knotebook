@@ -16,9 +16,12 @@
  */
 import { afterAll, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
-import { groups, notes, users } from "../src/db/schema.js";
+import { eq, inArray } from "drizzle-orm";
+import * as Y from "yjs";
+import { groups, noteSearchSections, noteStates, notes, users } from "../src/db/schema.js";
 import { MCP_PAGE_MAX } from "../src/mcp/limits.js";
+import { writeSearchIndex } from "../src/notes/search-index.js";
+import { SEARCH_EXTRACTOR_VERSION } from "../src/notes/search-text.js";
 import { buildCollabTestApp, type CollabTestCtx } from "./helpers.js";
 import { getContent, seedContent, seedTokenForUser } from "./editing-helpers.js";
 import { mcpPost, rpc } from "./mcp-helpers.js";
@@ -44,7 +47,10 @@ export const MCP_MAX_WIRE = 262_144;
  * `MAX_ENTRY_BYTES`；`edit_note`／`create_note` 兩支的 input／output schema 一起進脈絡，
  * 是這條線從 PR1 的 13 312 破線 2050 的直接原因。
  *
- * **基線：2026-10-07 實測（#177），讀寫憑證六支 wire ＝ 18 952**（#177 的 +294 來自群組 `owner` 多了 `name` 的 `maxLength` 與 `nameTruncated`（四份 outputSchema 各展開一次）、heading `.describe()` 加 ` as written in JSON`（+19 × 兩支）；#175 PR5 後 18 658、#175 PR1 後 18 105、PR2／PR3 後
+ * **基線：2026-10-08 實測（#93），讀寫憑證六支 wire ＝ 20 312**（#93 的 +1 360 來自 search_notes 的 output schema 多了每篇
+ * matchedOn／matches 與頂層 matchesTruncated（含 `.describe()`）、description 改寫、`query` 的說明；唯讀憑證四支對照組 12 459）。
+ * #93 與 #200 先合的那支依自身實測設定 N_LIST_MAX；#93 先合、20 312 未破 21 300，所以門檻不動（spec §8.7 的合併順序規則）。
+ * 之前：#177 後 18 952（2026-10-07；#177 的 +294 來自群組 `owner` 多了 `name` 的 `maxLength` 與 `nameTruncated`（四份 outputSchema 各展開一次）、heading `.describe()` 加 ` as written in JSON`（+19 × 兩支）；#175 PR5 後 18 658、#175 PR1 後 18 105、PR2／PR3 後
  * 18 144；#175 之前為 16 774，#145 時記為 16 763）。PR5 的 +Δ 來自 `create_note` 的 `groupId` 欄
  * （`.describe()`＋`format`）、description 首句與兩處 edit_note 限定、`title` 片語。PR1 的 +1 331 來自
  * `owner` 判別聯合（`{kind:"user"…}｜{kind:"group"…}`）的 JSON
@@ -351,6 +357,46 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
     await callWire(ctx.app, rwToken, "(iv) create_note（群組形）", "create_note", { title: '"'.repeat(1000), groupId: g.id });
   });
 
+  /**
+   * 測資 (v)（#93 §8.4，M6）：50 篇 (iv) 形的群組筆記，每篇 5 段、heading 200 個 `"`、body 以 `"` 為主並含查詢字。
+   * 沒有 wire 預算時約 328 000 > N（spec §8.4 的估算）；有預算 → ≤ N 且 `matchesTruncated: true`。
+   * 對照組：同一批改成正常 heading 與內文 → 每篇 3 個 match、無 matchesTruncated。
+   */
+  it("(v) #93 search_notes：50 篇最壞群組筆記 × 5 段最壞 heading／內文 → ≤ N、matchesTruncated；正常內容 → 每篇 3 個", async () => {
+    const ctx = await buildCollabTestApp();
+    const o = await owner(ctx);
+    const handle = `h${"a".repeat(31)}`;
+    await ctx.db.update(users).set({ handle }).where(eq(users.id, o.id));
+    const g = await seedGroup(ctx.db, `${'"'.repeat(67)}${"\u0001".repeat(13)}`, [{ userId: o.id, role: "member" }]);
+    const ids: string[] = [];
+    for (let i = 0; i < 50; i += 1) {
+      const n = String(i).padStart(4, "0");
+      const id = await seedMaxNote(ctx.db, { groupId: g.id }, o.id, { title: '"'.repeat(200), slug: `${n}-${"s".repeat(95)}`, agentLabel: "g".repeat(32) });
+      ids.push(id);
+      await ctx.db.insert(noteStates).values({ noteId: id, ydoc: Buffer.from(Y.encodeStateAsUpdate(new Y.Doc())), version: 1 });
+      const rows = Array.from({ length: 5 }, (_, k) => ({
+        sectionId: `${"s".repeat(62)}${String(k).padStart(2, "0")}`,
+        ord: k + 1,
+        heading: '"'.repeat(200),
+        body: `${'"'.repeat(150)}""""${'"'.repeat(150)}`,
+      }));
+      await writeSearchIndex(ctx.db, id, 1, { rows, contentHash: `m6-${i}`, indexedUnits: rows.reduce((s, r) => s + r.body.length, 0), capped: false, extractorVersion: SEARCH_EXTRACTOR_VERSION });
+    }
+    const worst = await mcpPost(ctx.app, rpc("tools/call", { name: "search_notes", arguments: { query: '""""', limit: 50 } }), { token: o.token });
+    console.log(`[案 11c] (v) search_notes 50×5 最壞 wire=${worst.body.length}`);
+    expect(worst.body.length).toBeLessThanOrEqual(MCP_MAX_WIRE);
+    const wp = worst.json().result.structuredContent as { notes: Array<{ matches: unknown[] }>; matchesTruncated?: true };
+    expect(wp.notes).toHaveLength(50);
+    expect(wp.matchesTruncated).toBe(true);
+
+    await ctx.db.update(noteSearchSections).set({ heading: "Heading", body: 'plain text """" here' }).where(inArray(noteSearchSections.noteId, ids));
+    const normal = await mcpPost(ctx.app, rpc("tools/call", { name: "search_notes", arguments: { query: '""""', limit: 50 } }), { token: o.token });
+    const np = normal.json().result.structuredContent as { notes: Array<{ matches: unknown[] }>; matchesTruncated?: true };
+    expect(np.notes).toHaveLength(50); // 下一行的 every 不得因空陣列而真
+    expect(np.notes.every(n => n.matches.length === 3)).toBe(true);
+    expect("matchesTruncated" in np).toBe(false);
+  });
+
   // 整張表印一次（PR 描述要貼）。**刻意是 hook 不是 `it`**：它只彙整前面幾案已經斷言過的
   // 值，寫成 `it` 會讓「只跑其中一案」變成假紅。
   afterAll(() => {
@@ -370,13 +416,17 @@ async function seedMaxNote(
   owner: { ownerId: string } | { groupId: string },
   editorId: string,
   opts: { title: string; slug: string; agentLabel: string }
-): Promise<void> {
-  await db.insert(notes).values({
-    ...("groupId" in owner ? { groupId: owner.groupId } : { ownerId: owner.ownerId }),
-    title: opts.title,
-    slug: opts.slug,
-    lastEditedAt: new Date(),
-    lastEditedBy: editorId,
-    lastEditedAgentLabel: opts.agentLabel,
-  });
+): Promise<string> {
+  const [row] = await db
+    .insert(notes)
+    .values({
+      ...("groupId" in owner ? { groupId: owner.groupId } : { ownerId: owner.ownerId }),
+      title: opts.title,
+      slug: opts.slug,
+      lastEditedAt: new Date(),
+      lastEditedBy: editorId,
+      lastEditedAgentLabel: opts.agentLabel,
+    })
+    .returning({ id: notes.id });
+  return row!.id;
 }

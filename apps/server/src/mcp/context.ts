@@ -37,9 +37,10 @@ export interface McpToolCtx {
   /**
    * `contentRead` 給兩支讀取工具；`edit`／`tokenWrite` 給寫入工具——`tokenWrite` 由
    * `requireWriteScope(ctx)` 扣（在 `resolveRole` **之前**，對齊 REST 的 preHandler），
-   * `edit` 由工具自己在角色檢查**之後**扣（`role === "none"` 的 404 不啃它）。
+   * `edit` 由工具自己在角色檢查**之後**扣（`role === "none"` 的 404 不啃它）；
+   * `search` 給 `search_notes`（#93）。
    */
-  limiters: { contentRead: FixedWindowLimiter; edit: FixedWindowLimiter; tokenWrite: FixedWindowLimiter };
+  limiters: { contentRead: FixedWindowLimiter; edit: FixedWindowLimiter; tokenWrite: FixedWindowLimiter; search: FixedWindowLimiter };
   log: FastifyBaseLogger;
   /** 呼叫者本人（`request.user!.id`）——L3 的可見性一律以它為準。 */
   userId: string;

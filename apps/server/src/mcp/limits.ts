@@ -1,5 +1,5 @@
 /**
- * #108 §8.1「回應大小上限表」的**唯一**落點（M16）。三個數字只在這裡出現一次。
+ * #108 §8.1「回應大小上限表」的**唯一**落點（M16）。本表的數字只在這裡出現一次。
  *
  * `N ＝ 262 144`（一次 wire 回應的上限）**不在這裡**：它是**哨兵不是目標值**——破了代表
  * 下面某條逐欄上限漏接，而不是「該調大 N」。它的落點是 `test/mcp-size.test.ts`（Task 5）。
@@ -16,18 +16,46 @@ export const MCP_TEXT_MAX = 200;
 export const MCP_PAGE_MAX = 100;
 /** `read_note_section` 的 `markdown` 一次最多幾個 code unit（D15）。 */
 export const MCP_SECTION_CHARS = 4000;
+/** #93 §8.3：`search_notes` 摘錄的上限——JSON 逃脫後（同 MCP_TEXT_MAX 的計法）。預算 158＋前後各一個 `…`。 */
+export const MCP_SNIPPET_MAX = 160;
+
+/**
+ * #93 §8.4：`search_notes` 一次回應的 **生產端目標值**（wire，UTF-16 code unit）。⚠ 與測試端的哨兵 N（262 144，
+ * `test/mcp-size.test.ts` 的 `MCP_MAX_WIRE`）不是同一件事：N 是「破了代表逐欄上限漏接」，這裡是 search_notes 主動
+ * 停止加入 matches 的門檻；差額 22 144 留給 JSON-RPC 信封與 `id`。
+ */
+export const MCP_SEARCH_WIRE_BUDGET = 240_000;
 
 /**
  * 一個 UTF-16 code unit 被 `JSON.stringify` 寫成幾個 code unit（不含引號）。與 ES2019 起的
  * well-formed `JSON.stringify` 逐位相同（`test/unit/mcp-limits.test.ts` 對 0x0000–0xFFFF 全掃）：
  * `\b \t \n \f \r` 與 `"`、`\` → 2；其餘 C0（U+0000–U+001F）→ 6（`\u0001`）；孤立代理 → 6。
- * 配對好的代理對不在這裡算（由 {@link truncateText} 整對算 2）。C1、DEL、U+2028／2029 **不**逃脫（→ 1）。
+ * 配對好的代理對不在這裡算（由 `stepAt` 整對算 2）。C1、DEL、U+2028／2029 **不**逃脫（→ 1）。
  */
 function escapedUnitCost(code: number): number {
   if (code < 0x20) return code === 0x08 || code === 0x09 || code === 0x0a || code === 0x0c || code === 0x0d ? 2 : 6;
   if (code === 0x22 || code === 0x5c) return 2;
   if (code >= 0xd800 && code <= 0xdfff) return 6;
   return 1;
+}
+
+/** 第 i 個 code unit 起的一個字元：回傳（逃脫後成本, 佔幾個 code unit）。代理對整對算 2。 */
+function stepAt(s: string, i: number): { cost: number; width: 1 | 2 } {
+  const code = s.charCodeAt(i);
+  const next = i + 1 < s.length ? s.charCodeAt(i + 1) : -1;
+  const isPair = code >= 0xd800 && code <= 0xdbff && next >= 0xdc00 && next <= 0xdfff;
+  return isPair ? { cost: 2, width: 2 } : { cost: escapedUnitCost(code), width: 1 };
+}
+
+/** #93 §8.3：字串 JSON 逃脫後的長度（不含兩端引號）——與 {@link truncateText} 同一套計價（`stepAt`）。 */
+export function escapedLength(s: string): number {
+  let cost = 0;
+  for (let i = 0; i < s.length; ) {
+    const st = stepAt(s, i);
+    cost += st.cost;
+    i += st.width;
+  }
+  return cost;
 }
 
 /**
@@ -50,13 +78,10 @@ export function truncateText(s: string, max: number = MCP_TEXT_MAX): { text: str
   let cost = 0;
   let i = 0;
   while (i < s.length) {
-    const code = s.charCodeAt(i);
-    const next = i + 1 < s.length ? s.charCodeAt(i + 1) : -1;
-    const isPair = code >= 0xd800 && code <= 0xdbff && next >= 0xdc00 && next <= 0xdfff;
-    const w = isPair ? 2 : escapedUnitCost(code);
-    if (cost + w > max) return { text: s.slice(0, i), truncated: true };
-    cost += w;
-    i += isPair ? 2 : 1;
+    const st = stepAt(s, i);
+    if (cost + st.cost > max) return { text: s.slice(0, i), truncated: true };
+    cost += st.cost;
+    i += st.width;
   }
   return { text: s, truncated: false };
 }
