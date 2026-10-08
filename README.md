@@ -1,5 +1,7 @@
 # Knotebook
 
+English | [繁體中文](README.zh-TW.md)
+
 Knotebook is an open-source, self-hostable Notion/HackMD-style collaborative note system with bring-your-own-endpoint AI built in.
 
 Three non-negotiables:
