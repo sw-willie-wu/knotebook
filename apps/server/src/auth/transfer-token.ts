@@ -28,3 +28,12 @@ export function generateTransferToken(): string {
 export function isTransferTokenShape(token: string): boolean {
   return token.startsWith(TRANSFER_TOKEN_PREFIX);
 }
+
+/**
+ * 簽發交易的兩種「預期內」DB 錯誤（spec §4.2），呼叫端在交易外依約束名映射：
+ * - note FK（23503）：`resolveNoteAccess` 之後、INSERT 之前筆記被刪 → `not_found`。
+ * - expiry CHECK（23514）：母憑證恰在 `now()` 到期，`least(…)` 給出 ≤ `created_at` 的值 → 視同 revoked。
+ * 值抄自 migration SQL（drizzle 生成的實名）；`test/migrate.test.ts` 的 cascade 案與 `transfer-token-issue.test.ts` 釘住。
+ */
+export const TRANSFER_TOKENS_NOTE_FK = "transfer_tokens_note_id_notes_id_fk";
+export const TRANSFER_TOKENS_EXPIRY_CHK = "transfer_tokens_expiry_chk";
