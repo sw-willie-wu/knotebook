@@ -4,7 +4,6 @@ import { useNavigate } from "react-router";
 import { canonicalNotePath, type NoteDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
 import { useDeleteNote } from "@/api/notes";
-import { useCopyNote } from "@/api/note-move";
 import { isTerminal, type CollabState } from "@/collab/connection";
 import { copyText } from "@/lib/clipboard";
 import { useNotePageControls, type OpenEditsState } from "@/lib/note-page-controls";
@@ -24,6 +23,12 @@ import {
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { EllipsisVertical, Link as LinkIcon, MessageCircle, Trash } from "@/components/ui/icons";
 import { ManualCopyField } from "@/components/ManualCopyField";
+import {
+  GroupTransferDialog,
+  GroupTransferMenuItems,
+  type GroupTransferKind,
+  type GroupTransferPick,
+} from "@/components/share/GroupTransfer";
 import { toast } from "@/components/ui/toast";
 
 /** ApiFail → errors.<code>；其餘 → errors.fallback。與 NoteList/ShareDialog 同一套對映
@@ -49,7 +54,7 @@ export interface NoteMenuProps {
 }
 
 /**
- * 內文卡頁頭的 ⋮ 選單（spec D.4）：複製連結（任何角色）＋AI 修改紀錄＋複製到我的筆記（群組筆記，任何角色，#175 §8.3、Q14）
+ * 內文卡頁頭的 ⋮ 選單（spec D.4）：複製連結（任何角色）＋AI 修改紀錄＋移動到…／複製到…（#216；選項規則見 `share/GroupTransfer.tsx` 的 `buildTransferOptions`，「複製到我的筆記」已併入「複製到… → 個人空間」）
  * ＋刪除筆記（`permissions.delete`，#175 §8.3）。
  *
  * **focus trap 雷（rev5 定案，⚠ 改動前必讀）**：Radix `DropdownMenu` 預設是 modal，
@@ -144,7 +149,6 @@ function NoteMenuCore({ note, trigger, onOpenEdits, page }: NoteMenuCoreProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const deleteNote = useDeleteNote();
-  const copyNote = useCopyNote(note.id);
 
   // 每次 render 同步寫入——`handleConfirmDelete` 的 catch 分支讀最新值，避開
   // stale closure（見上方檔頭「判斷終態用的是 stateRef.current」的說明）。
@@ -152,7 +156,13 @@ function NoteMenuCore({ note, trigger, onOpenEdits, page }: NoteMenuCoreProps) {
   stateRef.current = page?.state;
 
   const [menuOpen, setMenuOpen] = useState(false);
+  /** 確認框／刪除框關閉後把焦點還給 ⋮ 觸發鈕（兩個 Dialog 都沒有 DialogTrigger，Radix 預設會掉到 body）。 */
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  /** #216：選定的「移動／複製到群組」目標；非 null 時掛確認框（選單已關）。 */
+  const [transfer, setTransfer] = useState<GroupTransferPick | null>(null);
+  /** 窄／觸控的就地展開形展開的是哪一組（flyout 形不用）；Esc 先收合再關選單，見 `onEscapeKeyDown`。 */
+  const [groupExpanded, setGroupExpanded] = useState<GroupTransferKind | null>(null);
   const [manualCopyUrl, setManualCopyUrl] = useState<string | null>(null);
 
   async function handleCopyLink(): Promise<void> {
@@ -164,25 +174,6 @@ function NoteMenuCore({ note, trigger, onOpenEdits, page }: NoteMenuCoreProps) {
       return;
     }
     setManualCopyUrl(url);
-  }
-
-  // #175 §8.3、Q14：複製到自己的筆記。不假設副本的角色（個人筆記的 owner 才是 owner，導頁後以回應為準）。
-  async function handleCopyToPersonal(): Promise<void> {
-    setMenuOpen(false);
-    try {
-      const copy = await copyNote.mutateAsync(undefined);
-      toast({
-        title: t("share.move.copiedToPersonal"),
-        action: {
-          label: t("share.move.openCopy"),
-          // Radix altText：朗讀時取代按鈕，描述不經 toast 也能開到副本的途徑。
-          altText: t("share.move.openCopyAlt"),
-          onClick: () => void navigate(canonicalNotePath(copy)),
-        },
-      });
-    } catch (err) {
-      toast({ title: errorMessage(t, err), variant: "destructive" });
-    }
   }
 
   async function handleConfirmDelete(): Promise<void> {
@@ -224,15 +215,22 @@ function NoteMenuCore({ note, trigger, onOpenEdits, page }: NoteMenuCoreProps) {
 
   return (
     <>
-      <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+      <DropdownMenu
+        open={menuOpen}
+        onOpenChange={(open) => {
+          setMenuOpen(open);
+          if (!open) setGroupExpanded(null); // 下次開啟是收合態
+        }}
+      >
         <DropdownMenuTrigger asChild>
           {trigger === "header" ? (
-            <Button type="button" variant="ghost" size="icon" className="shrink-0" aria-label={t("note.menu.label")}>
+            <Button ref={triggerRef} type="button" variant="ghost" size="icon" className="shrink-0" aria-label={t("note.menu.label")}>
               <EllipsisVertical className="h-4 w-4" />
             </Button>
           ) : (
             // 側欄 24px 例外（button.tsx 檔頭）；hover 浮出與「＋」、群組 ⋮ 共用 ui/reveal.ts。
             <Button
+              ref={triggerRef}
               type="button"
               variant="ghost"
               size="icon"
@@ -243,7 +241,16 @@ function NoteMenuCore({ note, trigger, onOpenEdits, page }: NoteMenuCoreProps) {
             </Button>
           )}
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
+        <DropdownMenuContent
+          align="end"
+          className="max-h-[var(--radix-dropdown-menu-content-available-height)] max-w-[min(20rem,calc(100vw-1rem))] overflow-y-auto"
+          onEscapeKeyDown={(event) => {
+            if (groupExpanded !== null) {
+              event.preventDefault();
+              setGroupExpanded(null);
+            }
+          }}
+        >
           <DropdownMenuItem
             onSelect={(event) => {
               event.preventDefault();
@@ -267,20 +274,18 @@ function NoteMenuCore({ note, trigger, onOpenEdits, page }: NoteMenuCoreProps) {
             <MessageCircle className="mr-2 h-4 w-4" />
             {t("note.menu.aiEdits")}
           </DropdownMenuItem>
-          {/* #175 §8.3、Q14：群組筆記看得到就能複製到自己的筆記（看得到即可讀；不清任何東西，所以不另設確認——plan 規格落差 13、16）。
-              preventDefault 只為與鄰項同形；這一項不碰剪貼簿，檔頭的 focus trap 規矩不適用，拿掉它選單一樣會關、測試照綠——沒有測試守著。
-              進行中 disabled：複製可能很久（交易內做檔案 I/O），選單關掉後沒有別的回饋，避免重按建出第二份副本。 */}
-          {typeof note.groupId === "string" && (
-            <DropdownMenuItem
-              disabled={copyNote.isPending}
-              onSelect={(event) => {
-                event.preventDefault();
-                void handleCopyToPersonal();
-              }}
-            >
-              {t("note.menu.copyToPersonal")}
-            </DropdownMenuItem>
-          )}
+          {/* #216：移動／複製到群組（原分享面板「搬入群組」列）。寬螢幕第二層是 Radix Sub（hover／點擊／方向鍵進出；Esc 由 GroupSub 自接，只關第二層），窄／觸控是就地展開；
+              選定群組 → 先關選單再開確認框，與下面刪除項同一套（確認框的 FocusScope 不與選單互搶）。沒有可選群組整組不渲染。 */}
+          <GroupTransferMenuItems
+            note={note}
+            expanded={groupExpanded}
+            onExpandedChange={setGroupExpanded}
+            onPick={(pick) => {
+              setGroupExpanded(null);
+              setMenuOpen(false);
+              setTransfer(pick);
+            }}
+          />
           {/* #175 §8.3：刪除看 `permissions.delete`（群組筆記的 role 從不是 owner，但角色有
               `can_delete` 的成員要能刪；個人筆記只有 owner 為真）。 */}
           {note.permissions.delete && (
@@ -299,6 +304,8 @@ function NoteMenuCore({ note, trigger, onOpenEdits, page }: NoteMenuCoreProps) {
         </DropdownMenuContent>
       </DropdownMenu>
 
+      {transfer !== null && <GroupTransferDialog note={note} pick={transfer} onClose={() => setTransfer(null)} returnFocusRef={triggerRef} />}
+
       {/* 複製失敗的手動退路——DialogTitle 用 share.copyLink（Radix 必填，沿用選單項
           同一把文案，避免無意義的新 key）。 */}
       <Dialog open={manualCopyUrl !== null} onOpenChange={(open) => !open && setManualCopyUrl(null)}>
@@ -312,7 +319,13 @@ function NoteMenuCore({ note, trigger, onOpenEdits, page }: NoteMenuCoreProps) {
 
       {/* 刪除確認——文案沿用既有 home.* key（跟改版前的側欄刪除鈕同一套）。 */}
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <DialogContent>
+        <DialogContent
+          onCloseAutoFocus={(event) => {
+            // 刪除失敗留在本頁時焦點回 ⋮；成功導頁後 triggerRef 已卸載（null），no-op。
+            event.preventDefault();
+            triggerRef.current?.focus();
+          }}
+        >
           <DialogHeader>
             <DialogTitle>{t("home.deleteTitle")}</DialogTitle>
             <DialogDescription>{t("home.deleteDescription", { title: note.title })}</DialogDescription>

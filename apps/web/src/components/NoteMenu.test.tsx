@@ -370,7 +370,7 @@ describe("NoteMenu（⋮ 選單，spec D.4）", () => {
   });
 });
 
-// ── #175 PR2：⋮「複製到我的筆記」（Task 10）──
+// ── #175 PR2 ⋮「複製到我的筆記」（Task 10），#216 起併入「複製到… → 個人空間」──
 // 兩個外殼（頁首 NoteMenu、側欄 SidebarNoteMenu）共用 NoteMenuCore，各一案守「可見性」。
 
 const GROUP_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
@@ -381,10 +381,9 @@ const GROUP_NOTE: NoteDto = {
   role: "viewer",
   groupId: GROUP_ID,
   group: { id: GROUP_ID, name: "Workshop A" },
-  // 只讀角色：不能編輯也不能刪除，仍要有「複製到我的筆記」（看得到即可讀）。
+  // 只讀角色：不能編輯也不能刪除，仍可複製到個人空間（看得到即可讀）。
   permissions: { ...EDITOR_PERMS, edit: false, delete: false },
 };
-const COPY_NOTE: NoteDto = { ...OWNER_NOTE, id: "22222222-2222-2222-2222-222222222222", slug: "my-note-2" };
 
 function LocationProbe() {
   const location = useLocation();
@@ -396,7 +395,12 @@ function renderCopyMenu(
   note: NoteDto,
   fetchImpl: typeof fetch = vi.fn(() => Promise.reject(new Error("unexpected fetch"))) as unknown as typeof fetch,
 ) {
-  vi.stubGlobal("fetch", fetchImpl);
+  // #216：⋮ 選單掛載後會讀 `GET /api/groups`（決定要不要顯示「移動／複製到群組」）——這裡回空清單（兩項都不出現），
+  // 讓下面對 `fetchImpl` 呼叫次數／第一次呼叫的斷言只看複製本身。群組項的測試在 share/GroupTransfer.test.tsx。
+  const spy = fetchImpl;
+  vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) =>
+    String(input) === "/api/groups" ? Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) })) : spy(input, init),
+  );
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
@@ -418,7 +422,7 @@ function openAnyMenu(shell: "header" | "sidebar"): void {
   fireEvent.pointerDown(screen.getByRole("button", { name }), { button: 0 });
 }
 
-describe("NoteMenu：複製到我的筆記（#175 PR2）", () => {
+describe("NoteMenu：複製到我的筆記已併入「複製到… → 個人空間」（#216）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -427,84 +431,22 @@ describe("NoteMenu：複製到我的筆記（#175 PR2）", () => {
     vi.unstubAllGlobals();
   });
 
-  it.each(["header", "sidebar"] as const)(
-    "#175 PR2：群組筆記（只讀角色）→ 選單有「複製到我的筆記」；個人筆記沒有（%s）",
-    (shell) => {
-      renderCopyMenu(shell, GROUP_NOTE);
-      openAnyMenu(shell);
-      expect(screen.getByRole("menuitem", { name: "Copy to my notes" })).toBeInTheDocument();
-      expect(screen.queryByRole("menuitem", { name: /Delete note/ })).not.toBeInTheDocument();
-      cleanup();
+  it.each(["header", "sidebar"] as const)("群組筆記／個人筆記的選單都沒有獨立的「Copy to my notes」項，改有「Copy to…」（%s）", async (shell) => {
+    renderCopyMenu(shell, GROUP_NOTE);
+    openAnyMenu(shell);
+    expect(await screen.findByTestId("note-menu-copy-to")).toHaveTextContent("Copy to…");
+    expect(screen.queryByRole("menuitem", { name: "Copy to my notes" })).not.toBeInTheDocument();
+    cleanup();
 
-      renderCopyMenu(shell, OWNER_NOTE);
-      openAnyMenu(shell);
-      expect(screen.getByRole("menuitem", { name: /Copy link/ })).toBeInTheDocument();
-      expect(screen.queryByRole("menuitem", { name: "Copy to my notes" })).not.toBeInTheDocument();
-    },
-  );
-
-  it.each(["header", "sidebar"] as const)(
-    "#175 PR2：有編輯／刪除權限的群組筆記也有「複製到我的筆記」（任何角色，%s）",
-    (shell) => {
-      renderCopyMenu(shell, { ...GROUP_NOTE, role: "editor", permissions: { ...EDITOR_PERMS, edit: true, delete: true } });
-      openAnyMenu(shell);
-      expect(screen.getByRole("menuitem", { name: "Copy to my notes" })).toBeInTheDocument();
-      expect(screen.getByRole("menuitem", { name: /Delete note/ })).toBeInTheDocument();
-    },
-  );
-
-  it("複製進行中重開選單 → 該項 aria-disabled，再按 fetch 仍只呼叫 1 次", async () => {
-    const fetchSpy = vi.fn<typeof fetch>(() => new Promise<Response>(() => {}));
-    renderCopyMenu("header", GROUP_NOTE, fetchSpy as unknown as typeof fetch);
-    openAnyMenu("header");
-    fireEvent.click(screen.getByRole("menuitem", { name: "Copy to my notes" }));
-    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(screen.queryByRole("menuitem")).toBeNull());
-
-    openAnyMenu("header");
-    const item = await screen.findByRole("menuitem", { name: "Copy to my notes" });
-    expect(item).toHaveAttribute("aria-disabled", "true");
-    fireEvent.click(item);
-    await new Promise((r) => setTimeout(r, 0));
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    renderCopyMenu(shell, OWNER_NOTE);
+    openAnyMenu(shell);
+    expect(await screen.findByTestId("note-menu-copy-to")).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Copy to my notes" })).not.toBeInTheDocument();
   });
 
-  it("按下 → POST /copy body {}；成功 toast 附「前往副本」，點了導到副本的 /n/ 網址；選單關閉", async () => {
-    const fetchSpy = vi.fn<typeof fetch>(() =>
-      Promise.resolve(fakeResponse({ ok: true, status: 201, json: () => Promise.resolve(COPY_NOTE) })),
-    );
-    renderCopyMenu("header", GROUP_NOTE, fetchSpy as unknown as typeof fetch);
+  it("群組筆記（有刪除權限）：Delete note 照舊在選單裡", async () => {
+    renderCopyMenu("header", { ...GROUP_NOTE, role: "editor", permissions: { ...EDITOR_PERMS, edit: true, delete: true } });
     openAnyMenu("header");
-    fireEvent.click(screen.getByRole("menuitem", { name: "Copy to my notes" }));
-
-    await waitFor(() => expect(screen.getByText("Copied to your notes")).toBeInTheDocument());
-    const [url, init] = fetchSpy.mock.calls[0]!;
-    expect(url).toBe(`/api/notes/${GROUP_NOTE.id}/copy`);
-    expect(init?.method).toBe("POST");
-    expect(init?.body).toBe("{}");
-    expect(screen.queryByRole("menuitem")).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: "Open copy" }));
-    await waitFor(() => expect(screen.getByTestId("loc")).toHaveTextContent("/n/tester/my-note-2"));
-  });
-
-  it("失敗 → destructive toast（errors.<code>），不導頁", async () => {
-    const fetchSpy = vi.fn(() =>
-      Promise.resolve(
-        fakeResponse({
-          ok: false,
-          status: 404,
-          json: () => Promise.resolve({ error: { code: "not_found", message: "x" } }),
-        }),
-      ),
-    );
-    renderCopyMenu("header", GROUP_NOTE, fetchSpy as unknown as typeof fetch);
-    openAnyMenu("header");
-    fireEvent.click(screen.getByRole("menuitem", { name: "Copy to my notes" }));
-
-    await waitFor(() => expect(screen.getByText(i18n.t("errors.not_found"))).toBeInTheDocument());
-    expect(screen.queryByText("Copied to your notes")).not.toBeInTheDocument();
-    expect(screen.getByText(i18n.t("errors.not_found")).closest("li")).toHaveClass("bg-destructive");
-    expect(screen.getByTestId("loc")).toHaveTextContent("/start");
+    expect(await screen.findByRole("menuitem", { name: /Delete note/ })).toBeInTheDocument();
   });
 });
