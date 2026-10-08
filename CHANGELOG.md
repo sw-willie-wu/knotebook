@@ -36,6 +36,7 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ### Fixed
 
+- Browser tabs and iOS home-screen shortcuts now show the Knotebook icon (the sidebar's italic "K") instead of a blank default icon.
 - The last-edited line at the top of a note now updates a few seconds after you edit the note yourself; before, it only followed other people's edits, and your own showed up only after reloading the page.
 
 ## [0.6.0] - 2026-10-08
