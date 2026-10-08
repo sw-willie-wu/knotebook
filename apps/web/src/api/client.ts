@@ -1,4 +1,4 @@
-import type { ErrorCode } from "@knotebook/shared";
+import type { ErrorCode, StorageQuotaErrorDetail } from "@knotebook/shared";
 
 /**
  * 對映 server 的錯誤回應。所有非 2xx 回應最終都會化為一個 `ApiFail` 被 throw：
@@ -8,9 +8,12 @@ import type { ErrorCode } from "@knotebook/shared";
  * - `retryAfterMs`：僅登入 429（`too_many_attempts`）會在 body 頂層附這個欄位；
  *   有值才賦值，其餘情況維持 `undefined`。刻意不放進 constructor 參數列——
  *   這個型別是 Task 11+ 逐字依賴的介面，constructor 簽章不可變動。
+ * - `storage`：僅 409 `storage_quota_exceeded` 會在 body 頂層附這個欄位（`incomingBytes` 恆在，`usedBytes`／`quotaBytes` 依可見性）；逐欄驗型別，不合就整個不收。
  */
 export class ApiFail extends Error {
   public retryAfterMs?: number;
+  /** 409 `storage_quota_exceeded` 的頂層 `storage`（spec §8.1）；形狀不合（或別的碼）一律不收——web 只取已知欄位。 */
+  public storage?: StorageQuotaErrorDetail;
 
   constructor(
     public status: number,
@@ -25,6 +28,7 @@ export class ApiFail extends Error {
 interface ApiErrorBody {
   error: { code: string; message: string };
   retryAfterMs?: number;
+  storage?: unknown;
 }
 
 function isApiErrorBody(value: unknown): value is ApiErrorBody {
@@ -34,6 +38,24 @@ function isApiErrorBody(value: unknown): value is ApiErrorBody {
   const code = (error as { code?: unknown }).code;
   const message = (error as { message?: unknown }).message;
   return typeof code === "string" && typeof message === "string";
+}
+
+const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+
+function parseStorageDetail(value: unknown): StorageQuotaErrorDetail | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const v = value as Record<string, unknown>;
+  if (!(v.incomingBytes === null || isNum(v.incomingBytes))) return undefined;
+  const detail: StorageQuotaErrorDetail = { incomingBytes: v.incomingBytes };
+  if ("usedBytes" in v) {
+    if (!isNum(v.usedBytes)) return undefined;
+    detail.usedBytes = v.usedBytes;
+  }
+  if ("quotaBytes" in v) {
+    if (!(v.quotaBytes === null || isNum(v.quotaBytes))) return undefined;
+    detail.quotaBytes = v.quotaBytes;
+  }
+  return detail;
 }
 
 const SAFE_METHODS = new Set(["GET", "HEAD"]);
@@ -84,6 +106,10 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
       const fail = new ApiFail(response.status, body.error.code, body.error.message);
       if (typeof body.retryAfterMs === "number") {
         fail.retryAfterMs = body.retryAfterMs;
+      }
+      if (body.error.code === "storage_quota_exceeded") {
+        const storage = parseStorageDetail(body.storage);
+        if (storage) fail.storage = storage;
       }
       throw fail;
     }

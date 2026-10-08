@@ -1,4 +1,4 @@
-import { MAX_UPLOAD_BYTES } from "@knotebook/shared";
+import { MAX_UPLOAD_BYTES, formatBytes } from "@knotebook/shared";
 import { api, ApiFail } from "@/api/client";
 import { toast } from "@/components/ui/toast";
 import type { EditorRef } from "@/components/wikilink/menu";
@@ -27,20 +27,36 @@ export async function postUpload(noteId: string, file: File): Promise<{ id: stri
   });
 }
 
+/** 收插值參數的翻譯函式（i18next `t` 相容）。呼叫端若自己包一層 late-bound，**必須轉傳 `opts`**（`NoteEditor.lateBoundTranslate`）。 */
+export type Translate = (key: string, opts?: Record<string, unknown>) => string;
+
+/**
+ * 409 `storage_quota_exceeded` 的說明句（spec §9.1）：server 給了用量與上限（呼叫者看得到該空間）→ `storage.quotaDetail`；
+ * 否則（看不到、或欄位不完整——上限 `null` 不可能被超過，出現就當沒給）→ `storage.quotaFullGeneric`。toast 與 FilePanel 共用。
+ */
+export function storageQuotaDescription(err: ApiFail, translate: Translate): string {
+  const s = err.storage;
+  if (s && typeof s.usedBytes === "number" && typeof s.quotaBytes === "number") {
+    return translate("storage.quotaDetail", { used: formatBytes(s.usedBytes), quota: formatBytes(s.quotaBytes) });
+  }
+  return translate("storage.quotaFullGeneric");
+}
+
 /** 同一個錯誤 code 在這個時間窗內只 toast 一次（module 級，跨呼叫共享）。 */
 const TOAST_DEDUPE_WINDOW_MS = 5000;
 /** code → 上一次 toast 的時間戳。 */
 const lastToastAtByCode = new Map<string, number>();
 
-function codeOf(err: unknown): string {
-  return err instanceof ApiFail ? err.code : "internal";
-}
-
-function toastOncePerCode(code: string, translate: (key: string) => string): void {
+function toastOncePerCode(err: unknown, translate: Translate): void {
+  const code = err instanceof ApiFail ? err.code : "internal";
   const now = Date.now();
   const last = lastToastAtByCode.get(code);
   if (last !== undefined && now - last < TOAST_DEDUPE_WINDOW_MS) return;
   lastToastAtByCode.set(code, now);
+  if (err instanceof ApiFail && code === "storage_quota_exceeded") {
+    toast({ title: translate(`errors.${code}`), description: storageQuotaDescription(err, translate) });
+    return;
+  }
   toast({ title: translate(`errors.${code}`) });
 }
 
@@ -50,7 +66,7 @@ export interface CreateUploadFileOptions {
    * `createUploadFile` 在 editor 建立之前就會被呼叫（掛進 `useCreateBlockNote` 的選項），
    * 失敗時清除 placeholder block 必須讀取「當下」的 editor 實例。 */
   editorRef: EditorRef;
-  translate: (key: string) => string;
+  translate: Translate;
 }
 
 /**
@@ -61,7 +77,8 @@ export interface CreateUploadFileOptions {
  * 契約（spec §12.4，逐字）：
  * - 成功：回傳 `url`（字串），交給 `handleFileInsertion` 塞進 block props。
  * - 失敗：
- *   1. `toastOncePerCode`——同一個錯誤 code 5 秒內只提示一次，文案 `errors.<code>`。
+ *   1. `toastOncePerCode`——同一個錯誤 code 5 秒內只提示一次，文案 `errors.<code>`
+ *      （`storage_quota_exceeded` 另帶 description，見 `storageQuotaDescription`）。
  *   2. **macrotask**（`setTimeout(…, 0)`，不是 microtask）清掉 placeholder block：
  *      `handleFileInsertion` 在 `await editor.uploadFile(...)` 之後緊接著同步呼叫
  *      `editor.updateBlock(insertedBlockId, ...)`（把 `url` 設回 block props）——那一行是
@@ -85,7 +102,7 @@ export function createUploadFile(
       const { url } = await postUpload(noteId, file);
       return url;
     } catch (err) {
-      toastOncePerCode(codeOf(err), translate);
+      toastOncePerCode(err, translate);
       setTimeout(() => {
         try {
           const ed = editorRef.current;

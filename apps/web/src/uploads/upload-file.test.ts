@@ -280,4 +280,54 @@ describe("createUploadFile", () => {
 
     expect(results).toEqual(["", "/api/uploads/u2"]);
   });
+
+  /** 收得到 opts 的翻譯樁：把插值參數印進字串，斷言才看得到數字有沒有傳到。 */
+  const translateWithOpts = (key: string, opts?: Record<string, unknown>) =>
+    opts === undefined ? `t:${key}` : `t:${key}:${JSON.stringify(opts)}`;
+
+  function quota409(storage: unknown) {
+    return fakeResponse({
+      ok: false, status: 409,
+      json: () => Promise.resolve({ error: { code: "storage_quota_exceeded", message: "儲存空間已滿" }, storage }),
+    });
+  }
+
+  it("409 storage_quota_exceeded 帶數字：title＝errors.storage_quota_exceeded、description＝storage.quotaDetail（formatBytes 後的兩數）", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(quota409({ incomingBytes: 700, usedBytes: 1572864, quotaBytes: 1048576 })));
+    const uploadFile = createUploadFile({ noteId: "note-1", editorRef: { current: fakeEditor(new Set(["b1"])) }, translate: translateWithOpts });
+    await uploadFile(file(), "b1");
+    await flushMacrotask();
+    expect(toastMock).toHaveBeenCalledWith({
+      title: "t:errors.storage_quota_exceeded",
+      description: 't:storage.quotaDetail:{"used":"1.5 MB","quota":"1 MB"}',
+    });
+  });
+
+  it("409 storage_quota_exceeded 沒數字（看不到該空間用量）：description＝storage.quotaFullGeneric", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(quota409({ incomingBytes: 700 })));
+    const uploadFile = createUploadFile({ noteId: "note-1", editorRef: { current: fakeEditor(new Set(["b1"])) }, translate: translateWithOpts });
+    await uploadFile(file(), "b1");
+    await flushMacrotask();
+    expect(toastMock).toHaveBeenCalledWith({ title: "t:errors.storage_quota_exceeded", description: "t:storage.quotaFullGeneric" });
+  });
+
+  it("RF5：usedBytes 有、quotaBytes 為 null → 不印半套數字，退回通用文案", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(quota409({ incomingBytes: 700, usedBytes: 5, quotaBytes: null })));
+    const uploadFile = createUploadFile({ noteId: "note-1", editorRef: { current: fakeEditor(new Set(["b1"])) }, translate: translateWithOpts });
+    await uploadFile(file(), "b1");
+    await flushMacrotask();
+    expect(toastMock).toHaveBeenCalledWith({ title: "t:errors.storage_quota_exceeded", description: "t:storage.quotaFullGeneric" });
+  });
+
+  it("去重仍以碼為準：5 秒內先有數字、再沒數字的兩次 409 只 toast 一次", async () => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(quota409({ incomingBytes: 1, usedBytes: 1, quotaBytes: 1 }))
+      .mockResolvedValueOnce(quota409({ incomingBytes: null })));
+    const uploadFile = createUploadFile({ noteId: "note-1", editorRef: { current: fakeEditor(new Set(["b1", "b2"])) }, translate: translateWithOpts });
+    await uploadFile(file(), "b1");
+    await flushMacrotask();
+    await uploadFile(file(), "b2");
+    await flushMacrotask();
+    expect(toastMock).toHaveBeenCalledTimes(1);
+  });
 });
