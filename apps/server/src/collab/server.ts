@@ -89,7 +89,7 @@ import type { UserGate } from "../auth/session.js";
 import type { DirectCtx } from "../notes/editing/session.js";
 import { loadNoteAudience, resolveRole } from "../notes/service.js";
 import { verifyCollabToken } from "./token.js";
-import { createNoteStore, docClock, type StoreLogger } from "./store.js";
+import { createNoteStore, docClock, type NoteStoreSearchHooks, type StoreLogger } from "./store.js";
 import { FixedWindowLimiter } from "../http/rate-limit.js";
 
 /** Hocuspocus 的 `onStoreDocument` debounce（ms）。production 一律 2000——見 Task 7 brief。 */
@@ -309,6 +309,8 @@ export interface CollabDeps {
    * （見 `consoleCollabLogger`）。
    */
   log?: CollabLogger;
+  /** #93：全文索引的測試縫（`NoteStoreSearchHooks`，生產不注入）——透傳給 `createNoteStore`。 */
+  storeSearchHooks?: NoteStoreSearchHooks;
 }
 
 export interface ConnectionHandle {
@@ -481,7 +483,7 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
     const audience = deleting.get(noteId)?.audience;
     return audience !== undefined && audience !== null && audience.has(userId);
   }
-  const noteStore = createNoteStore({ db: deps.db, log });
+  const noteStore = createNoteStore({ ...deps.storeSearchHooks, db: deps.db, log });
 
   /**
    * 拒連／踢除的結構化日誌（issue #37）。`phase` 分辨「握手當下被拒」（handshake）與
@@ -594,8 +596,9 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
       }
     },
     // fix round 1 IMPORTANT 2：文件從記憶體卸載時清掉 noteStore 的 sv／lastBackupAt
-    // 快取，否則每篇曾經打開過的筆記都會在 process 存活期間永久占一個 Map entry（慢性
-    // 洩漏）。安全：下一次 onLoadDocument 會重新以 DB 現況初始化這兩個快取。
+    // 快取、warnedUnsafeUrl 旗標與 indexedHash（#93 全文索引雜湊），否則每篇曾經打開過的
+    // 筆記都會在 process 存活期間永久占 Map／Set entry（慢性洩漏）。安全性見
+    // `NoteStore.afterUnloadDocument` 的註解。
     afterUnloadDocument: async ({ documentName }) => {
       noteStore.afterUnloadDocument(documentName);
     },

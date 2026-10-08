@@ -20,7 +20,7 @@ import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTE
 import { hashPassword } from "../src/auth/password.js";
 import { noopCollabHooks, type CollabHooks } from "../src/collab/hooks.js";
 import type { CollabHooksLogger } from "../src/collab/hooks-impl.js";
-import { COLLAB_PATH, createCollabServer, type CollabServer } from "../src/collab/server.js";
+import { COLLAB_PATH, createCollabServer, type CollabDeps, type CollabServer } from "../src/collab/server.js";
 import { notes, noteShares, users } from "../src/db/schema.js";
 import { createAiRuntime } from "../src/ai/runtime.js";
 import { createEditingRuntime } from "../src/notes/editing/runtime.js";
@@ -447,6 +447,8 @@ export async function buildCollabTestApp(
     editingQueueWaitMs?: number;
     /** #138 presence 的參數（`idleMs`／`heartbeatMs`／`capacity`／`now`），透傳成 `AppDeps.presenceOptions`。 */
     presence?: AppDeps["presenceOptions"];
+    /** #93：全文索引測試縫，語意見 `CollabDeps.storeSearchHooks`。 */
+    storeSearchHooks?: CollabDeps["storeSearchHooks"];
   } = {}
 ): Promise<CollabTestCtx> {
   const { db } = await freshDb();
@@ -469,7 +471,7 @@ export async function buildCollabTestApp(
     warn: (obj: object, msg: string) => collabLogs.push({ level: "warn", obj: { ...obj }, msg }),
     error: (obj: object, msg: string) => collabLogs.push({ level: "error", obj: { ...obj }, msg }),
   };
-  const collab = createCollabServer({ db, config: testConfig, gate, log: collabLog });
+  const collab = createCollabServer({ db, config: testConfig, gate, log: collabLog, storeSearchHooks: opts.storeSearchHooks });
 
   const deps: AppDeps = {
     config: testConfig,

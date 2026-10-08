@@ -3,7 +3,7 @@
  * `replaceNoteSearchIndexInTx(tx, input, hooks)`，引數只准識別字）。
  * - `extractForIndex`：同步抽取（`collab/store.ts` 在 `encodeStateAsUpdate` 的同一 tick 呼叫，§5.3 第 1 點）。
  * - `writeSearchIndex`：開交易；`SearchIndexSkip` → 回 `"gone"`／`"stale"`；FK 違反視同 `"gone"`——**防禦性**：
- *   第 1 步已持 notes KEY SHARE，交易中的刪除會擋在 notes 列上，現行路徑到不了這個分支（沒有測試守著它；刪掉它 13 案全綠）；
+ *   第 1 步已持 notes KEY SHARE，交易中的刪除會擋在 notes 列上，現行路徑到不了這個分支（沒有測試守著它；刪掉它測試仍全綠）；
  *   其餘例外 rethrow（呼叫端自己決定吞不吞：store 吞、回填記 warn）。
  * - `bumpSearchIndexVersion`：單句 UPDATE，只鎖狀態列、不碰 notes 列（刪除方持 notes 列後等狀態列，本句不等任何別的鎖
  *   ——無環）。WHERE 含 hash 與 extractor 版本：只在「索引內容就是這份」時推進。回更新列數（0＝呼叫端清快取自癒）。
