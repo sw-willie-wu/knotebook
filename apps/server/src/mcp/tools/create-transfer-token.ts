@@ -54,7 +54,7 @@ const NOTE_ID_DESCRIBE = "The note's id, as returned by list_notes or search_not
 /** spec §6.1：purpose 的 enum 依憑證二選一。唯讀憑證送 upload → SDK 的輸入驗證錯誤，handler 不跑、不扣 tokenWrite。 */
 export const createTransferTokenInputRw = {
   note_id: NOTE_ID.describe(NOTE_ID_DESCRIBE),
-  purpose: z.enum(["upload", "download"]).describe("`upload` adds one image to the note; `download` fetches its images."),
+  purpose: z.enum(["upload", "download"]).describe("`upload` stores one image for the note (then reference it with edit_note); `download` fetches its images."),
 };
 export const createTransferTokenInputRo = {
   note_id: NOTE_ID.describe(NOTE_ID_DESCRIBE),
@@ -75,22 +75,27 @@ export const createTransferTokenOutput = {
 
 /**
  * spec §6.4 upload `next`（**本棒版**：配額未落地，兩句 409 不在——上傳路徑還沒有 409；配額那棒加）。逐句綁定：
- * 401（T3、T4、T8）；403／429 不燒（T5、T7、T9、T17）；404 的兩個來源——消費前的角色重驗 none（T9「移除分享 → 404」）
+ * 401（T3、T4、T8）；403／429 不燒（T5、T7、T9、T17；per-IP `bearerMiss` 的 429 只取代本來的 401，該次請求同樣沒有
+ * 消費——T19b。所以措辭是「這次被拒不會用掉 token」而不是「token 仍未使用」：bearerMiss 那形的 token 可能早已用過）；404 的兩個來源——消費前的角色重驗 none（T9「移除分享 → 404」）
  * 與消費後筆記在上傳途中被刪（T24，真 socket）；413／415 燒（T11、T12；400 亦燒，RF5）。全在 `test/transfer-tokens.test.ts`。
  * （簽發後、上傳前就刪筆記的那一形答 401——token 列已被 cascade 刪，RF1——由「A 401 means the token can't be used」涵蓋。）
  */
 export const UPLOAD_NEXT =
   "The reply is JSON `{id, url}`. Put the image in the note with edit_note using markdown `![description](url)`, with " +
   "`url` exactly as returned (`/api/uploads/<id>`, relative). The token is good for one upload until `expiresAt`. A 401 " +
-  "means the token can't be used (expired, already used, or revoked) — ask for a new one. A 403 or 429 leaves the token " +
-  "unused; a 404 means the note is gone or you can no longer see it. Once the server has started reading the file, a " +
+  "means the token can't be used (expired, already used, or revoked) — ask for a new one. A 403 or 429 doesn't use the " +
+  "token up (after a 429, wait a moment and retry); a 404 means the note is gone or you can no longer see it. Once the server has started reading the file, a " +
   "rejection (for example 413: too large, 415: not a PNG, JPEG, GIF or WebP image) still uses the token up.";
 
-/** spec §6.4 download `next`。403 的兩個來源（T6 錯筆記、T9 不再可讀）。 */
+/**
+ * spec §6.4 download `next`。403 的兩個來源（T6 錯筆記、T9 不再可讀）；404（非 UUID、查無此上傳——T21、T21b；DB 有列
+ * 但檔案不在磁碟的那形同碼，`uploads.test.ts`）；429 之後等一下、用同一支 token 重試會成功（T21b）。
+ */
 export const DOWNLOAD_NEXT =
   "Replace `<upload_id>` with the id from `/api/uploads/<id>` in the note's markdown. Any image uploaded to this note " +
   "can be fetched with this token until `expiresAt`. A 401 means the token can't be used — ask for a new one. A 403 " +
-  "means this token can't fetch that image: it belongs to another note, or you can no longer read this one.";
+  "means this token can't fetch that image: it belongs to another note, or you can no longer read this one. A 404 " +
+  "means there is no image with that id. A 429 means too many requests: wait a moment and retry with the same token.";
 
 export const VIEWER_UPLOAD_MESSAGE = "You can read this note but not edit it, so you can't upload images to it.";
 export const REVOKED_MESSAGE = "This credential was revoked or expired while the request was being handled.";

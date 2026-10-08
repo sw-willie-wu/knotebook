@@ -52,8 +52,9 @@ export const MCP_MAX_WIRE = 262_144;
  * #93 與 #200 先合的那支依自身實測設定 N_LIST_MAX；#93 先合、20 312 未破 21 300，所以 #93 合併時門檻不動（spec §8.7 的合併順序規則）；
  * 後合的 #200 PR1 在 main 之上重量、依原配方重訂（下段）。
  *
- * **#200 PR1（2026-10-08，在 main @ 7e20a5e 之上實測，#93 PR1 已合）：讀寫憑證七支 wire ＝ 21 938**（相對 #93 基線 20 312 的
- * +1 626 來自 create_transfer_token 的 description、input／output schema；唯讀憑證五支對照組 13 954）。依原配方（向上取整到
+ * **#200 PR1（2026-10-08，在 main @ 7e20a5e 之上實測，#93 PR1 已合）：讀寫憑證七支 wire ＝ 21 976**（相對 #93 基線 20 312 的
+ * +1 664 來自 create_transfer_token 的 description、input／output schema，含終審把 purpose 的 `.describe()` 改成
+ * 「stores … then reference it with edit_note」的 +38；唯讀憑證五支對照組 13 954）。依原配方（向上取整到
  * 1024 的倍數 ×1.3）重訂：22 528 × 1.3 ＝ 29 286.4 → 29 300。
  *
  * 之前：#177 後 18 952（2026-10-07；#177 的 +294 來自群組 `owner` 多了 `name` 的 `maxLength` 與 `nameTruncated`（四份 outputSchema 各展開一次）、heading `.describe()` 加 ` as written in JSON`（+19 × 兩支）；#175 PR5 後 18 658、#175 PR1 後 18 105、PR2／PR3 後

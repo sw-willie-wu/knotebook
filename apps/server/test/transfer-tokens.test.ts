@@ -280,6 +280,22 @@ describe("POST /api/notes/:id/uploads × transfer token（spec §5.2）", () => 
     expect(second.headers["www-authenticate"]).toBeUndefined();
   });
 
+  it("T19b：bearerMiss 桶滿時取代 401 的 429 也不消費 token——等視窗過、原因排除後同一支 token 照樣 201（upload `next`「A 403 or 429 doesn't use the token up」）", async () => {
+    const bearerMiss = new FixedWindowLimiter({ limit: 1, windowMs: 300 });
+    const { app, db } = await buildTestApp({ limiters: freshLimiters({ bearerMiss }) });
+    const o = await ownerWithPat(db);
+    const t = await issueDirect(db, o.patId, o.noteId, "upload");
+    // 401 的原因選「母憑證過期」：SQL 以 now() 每次重判，改回來立刻生效（UserGate 的停權／需改密碼有快取，不好還原）。
+    await db.update(apiTokens).set({ accessExpiresAt: sql`now() - interval '1 minute'` }).where(eq(apiTokens.id, o.patId));
+    expect((await upload(app, o.noteId, fileBody(PNG_BYTES), { token: "knbt_nope" })).statusCode).toBe(401);
+    // 母憑證過期 → 本來答 401（T4），桶已滿 → 改答 429
+    expect((await upload(app, o.noteId, fileBody(PNG_BYTES), { token: t.token })).statusCode).toBe(429);
+    expect((await tokenRow(db, t.id))!.consumedAt).toBeNull();
+    await db.update(apiTokens).set({ accessExpiresAt: sql`now() + interval '1 hour'` }).where(eq(apiTokens.id, o.patId));
+    await new Promise(r => setTimeout(r, 400));
+    expect((await upload(app, o.noteId, fileBody(PNG_BYTES), { token: t.token })).statusCode).toBe(201);
+  });
+
   it("T20：路徑用大寫的同一個 UUID → 201（比對不分大小寫）", async () => {
     const { app, db } = await buildTestApp();
     const o = await ownerWithPat(db);
@@ -573,6 +589,20 @@ describe("GET /api/uploads/:id × transfer token（spec §5.3）", () => {
     expect((await download(app, id, { token: t.token })).statusCode).toBe(429);
     // 同一本帳：同一使用者的 PAT 打 authenticateAny 路由也被擋（key 相同）
     expect((await app.inject({ method: "GET", url: "/api/notes", headers: { authorization: `Bearer ${o.pat}` } })).statusCode).toBe(429);
+  });
+
+  it("T21b：download `next` 的 404／429 兩句——非 UUID 與查無此上傳都 404；429 之後等視窗過、同一支 token 再 GET → 200", async () => {
+    const tokenRead = new FixedWindowLimiter({ limit: 1, windowMs: 300 });
+    const { app, db } = await buildTestApp({ limiters: freshLimiters({ tokenRead }) });
+    const o = await ownerWithPat(db);
+    const id = await seedUpload(app, o.noteId, await cookieOf(o.userId));
+    const t = await issueDirect(db, o.patId, o.noteId, "download");
+    expect((await download(app, "not-a-uuid", { token: t.token })).statusCode).toBe(404);
+    expect((await download(app, randomUUID(), { token: t.token })).statusCode).toBe(404);
+    expect((await download(app, id, { token: t.token })).statusCode).toBe(200);
+    expect((await download(app, id, { token: t.token })).statusCode).toBe(429);
+    await new Promise(r => setTimeout(r, 400));
+    expect((await download(app, id, { token: t.token })).statusCode).toBe(200);
   });
 
   it("RF3：download token ＋大寫 upload id → 200", async () => {

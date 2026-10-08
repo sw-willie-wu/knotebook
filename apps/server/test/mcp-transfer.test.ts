@@ -41,7 +41,7 @@ async function call(app: Parameters<typeof mcpPost>[0], token: string, args: Rec
 async function toolsOf(app: Parameters<typeof mcpPost>[0], opts: { token?: string; cookie?: string }) {
   const res = await mcpPost(app, rpc("tools/list"), opts);
   expect(res.statusCode).toBe(200);
-  return res.json().result.tools as Array<{ name: string; description: string; inputSchema: { properties: Record<string, { enum?: string[] }> } }>;
+  return res.json().result.tools as Array<{ name: string; description: string; inputSchema: { properties: Record<string, { enum?: string[]; description?: string }> } }>;
 }
 
 describe("M1：tools/list（spec §6.1）", () => {
@@ -53,6 +53,11 @@ describe("M1：tools/list（spec §6.1）", () => {
     expect(tool!.description).toBe(CREATE_TRANSFER_TOKEN_DESCRIPTION_RW);
     expect(tool!.inputSchema.properties.purpose!.enum).toEqual(["upload", "download"]);
     expect(Object.keys(tool!.inputSchema.properties).sort()).toEqual(["note_id", "purpose"]);
+    // 上傳只存一張圖、要 edit_note 引用才進筆記（#200 PR1 終審 I-1）——連舊的過度宣稱一起釘，加回去會紅。
+    expect(tool!.inputSchema.properties.purpose!.description).toBe(
+      "`upload` stores one image for the note (then reference it with edit_note); `download` fetches its images."
+    );
+    expect(tool!.inputSchema.properties.purpose!.description).not.toContain("adds one image to the note");
   });
 
   it("唯讀憑證：有、enum 只有 download、唯讀版描述（不描述 upload 這個 purpose）", async () => {
@@ -105,6 +110,9 @@ describe("M2：create_transfer_token 的流程（spec §6.3、§6.4）", () => {
     expect(p.url).toBe(`${ORIGIN}/api/notes/${o.noteId}/uploads`);
     expect(p.curl).toBe(`curl -sS -X POST -H "Authorization: Bearer ${p.token}" -F "file=@<path-to-image>" "${ORIGIN}/api/notes/${o.noteId}/uploads"`);
     expect(p.next).toBe(UPLOAD_NEXT);
+    // bearerMiss 的 429 取代的是 401，token 可能早已用過——只能說「這次被拒不會用掉它」（終審 Minor 1）。
+    expect(UPLOAD_NEXT).toContain("A 403 or 429 doesn't use the token up");
+    expect(UPLOAD_NEXT).not.toContain("leaves the token unused");
     const exp = Date.parse(p.expiresAt);
     expect(exp).toBeGreaterThanOrEqual(before + 10 * 60_000 - 5_000);
     expect(exp).toBeLessThanOrEqual(Date.now() + 10 * 60_000 + 5_000);
@@ -118,6 +126,8 @@ describe("M2：create_transfer_token 的流程（spec §6.3、§6.4）", () => {
     expect(p.url).toBe(`${ORIGIN}/api/uploads/<upload_id>`);
     expect(p.curl).toBe(`curl -sS -H "Authorization: Bearer ${p.token}" -o <output-file> "${ORIGIN}/api/uploads/<upload_id>"`);
     expect(p.next).toBe(DOWNLOAD_NEXT);
+    // describe 承諾「what its status codes mean」：GET 答得出的 401／403／404／429 都要講到（終審 I-2）。
+    for (const code of ["401", "403", "404", "429"]) expect(DOWNLOAD_NEXT).toContain(`A ${code} `);
   });
 
   it("看不到的筆記與不存在的筆記 → 同一個 not_found（逐位元組）", async () => {
