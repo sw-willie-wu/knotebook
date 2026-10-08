@@ -50,7 +50,8 @@ export const NOTE_NOT_FOUND_MESSAGE = "No note with that id. It may not exist, i
 export const SECTION_NOT_FOUND_MESSAGE =
   "This note has no section with that id. Call read_note_outline again — an edit can change a section's id.";
 
-const RATE_LIMITED_MESSAGE = "Too many note reads right now. Wait a moment before reading more.";
+/** 讀取桶（contentRead）的 429 訊息——`create_transfer_token`（download）也扣這顆桶，共用同一句。 */
+export const READ_RATE_LIMITED_MESSAGE = "Too many note reads right now. Wait a moment before reading more.";
 
 export type NoteReadAccess = { ok: true; role: Role } | { ok: false; error: ToolErrorResult };
 
@@ -66,7 +67,7 @@ export async function authorizeNoteRead(
   const role = await resolveRole(ctx.db, ctx.userId, noteId);
   if (role === "none") return { ok: false, error: toolError("not_found", NOTE_NOT_FOUND_MESSAGE) };
   if (!ctx.limiters.contentRead.consume(ctx.userId)) {
-    return { ok: false, error: toolError("too_many_requests", RATE_LIMITED_MESSAGE) };
+    return { ok: false, error: toolError("too_many_requests", READ_RATE_LIMITED_MESSAGE) };
   }
   // cookie session（`tokenId` 為 null）不現身：那是使用者本人在用瀏覽器，規格 §12.2 明講
   // 不設 presence。`touch` 內部只對已載入的文件動作，沒人在線時是 no-op，讀路徑「零副作用」

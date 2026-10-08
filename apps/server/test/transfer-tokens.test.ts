@@ -600,18 +600,14 @@ describe("T8：母憑證消失 → 子 token 一起死（spec §3.2）", () => {
     expect((await upload(app, o.noteId, fileBody(PNG_BYTES), { token: t.token })).statusCode).toBe(401);
   });
 
-  /** 走一輪 OAuth：回 { cookie, clientId, redirectUri, grantId, refresh }。 */
+  /** 走一輪 OAuth（scope notes:write）並給該使用者建一篇筆記：回 { userId, cookie, c（obtainCode 的回傳）, grantId, refresh, noteId }。 */
   async function oauthGrant(app: Parameters<typeof upload>[0], db: Parameters<typeof ownerWithPat>[0]) {
     const { userId, cookie } = await createUserAndLogin(db);
     const c = await obtainCode(app, cookie, { scope: "notes:write" });
     const tokens = (await exchange(app, codeGrant(c))).json() as { access_token: string; refresh_token: string };
     const [grant] = await db.select().from(apiTokens).where(eq(apiTokens.userId, userId));
-    const note = await seedNoteFor(db, userId);
-    return { userId, cookie, c, grantId: grant!.id, refresh: tokens.refresh_token, noteId: note };
-  }
-  async function seedNoteFor(db: Parameters<typeof ownerWithPat>[0], userId: string): Promise<string> {
-    const [n] = await db.insert(notes).values({ ownerId: userId }).returning({ id: notes.id });
-    return n!.id;
+    const note = await seedNote(db, { ownerId: userId });
+    return { userId, cookie, c, grantId: grant!.id, refresh: tokens.refresh_token, noteId: note.id };
   }
 
   it("(b) OAuth 同 client 重新授權（I7 先刪後插）→ 舊子 token 401", async () => {

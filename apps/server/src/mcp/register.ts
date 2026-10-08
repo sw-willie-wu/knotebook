@@ -11,7 +11,8 @@
  * 逐檔各守各的**（集合逐字對照該案本身，不是憑印象簡化）：`mcp-notes.test.ts`
  * （`{list_notes, search_notes}`）、`mcp-content.test.ts`（**四支唯讀工具全打**，
  * `{list_notes, read_note_outline, read_note_section, search_notes}`）、PR2 起
- * `mcp-tools-list.test.ts`（P13：`{edit_note, create_note}`）。**新增工具時要一併把它
+ * `mcp-tools-list.test.ts`（P13：`{edit_note, create_note}`）；#200 起 P13 的集合是
+ * `{create_note, create_transfer_token, edit_note}`。**新增工具時要一併把它
  * 加進其中一個名字集合，否則等於沒有守衛。**
  *
  * ⚠ 呼叫順序是契約（§8.1 D32）：建 `McpServer` → **本函式** → `registerCapabilities` →
@@ -50,6 +51,14 @@ import {
 import { searchNotes, searchNotesDescription, searchNotesInput, searchNotesOutputFor } from "./tools/search-notes.js";
 import { EDIT_NOTE_DESCRIPTION, editNote, editNoteInput, editNoteOutput } from "./tools/edit-note.js";
 import { CREATE_NOTE_DESCRIPTION, createNote, createNoteInput, createNoteOutput } from "./tools/create-note.js";
+import {
+  CREATE_TRANSFER_TOKEN_DESCRIPTION_RO,
+  CREATE_TRANSFER_TOKEN_DESCRIPTION_RW,
+  createTransferToken,
+  createTransferTokenInputRo,
+  createTransferTokenInputRw,
+  createTransferTokenOutput,
+} from "./tools/create-transfer-token.js";
 import { canWriteNotes } from "./write-scope.js";
 
 export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
@@ -124,5 +133,24 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
       { description: CREATE_NOTE_DESCRIPTION, inputSchema: createNoteInput, outputSchema: createNoteOutput },
       async args => runTool("create_note", ctx, () => createNote(args, ctx))
     );
+  }
+
+  // #200 spec §6.1：`create_transfer_token` **只在 token 路徑**註冊（session 沒有母憑證可綁），且在部署形態閘門外
+  // （它只查 DB）。purpose 的 enum 與描述依憑證二選一——唯讀憑證看不到 upload（不描述它沒有的東西，同 instructions）。
+  // 守衛＝`mcp-transfer.test.ts` M1 的三案（讀寫／唯讀／session）與 `mcp-tools-list.test.ts` 的名字集合。
+  if (ctx.authKind === "token") {
+    if (canWrite) {
+      server.registerTool(
+        "create_transfer_token",
+        { description: CREATE_TRANSFER_TOKEN_DESCRIPTION_RW, inputSchema: createTransferTokenInputRw, outputSchema: createTransferTokenOutput },
+        async args => runTool("create_transfer_token", ctx, () => createTransferToken(args, ctx))
+      );
+    } else {
+      server.registerTool(
+        "create_transfer_token",
+        { description: CREATE_TRANSFER_TOKEN_DESCRIPTION_RO, inputSchema: createTransferTokenInputRo, outputSchema: createTransferTokenOutput },
+        async args => runTool("create_transfer_token", ctx, () => createTransferToken(args, ctx))
+      );
+    }
   }
 }

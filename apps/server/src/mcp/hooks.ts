@@ -2,6 +2,8 @@
  * #108：`/api/mcp` 的測試注入縫（形狀比照 `notes/editing/apply.ts` 的 `EditingTestHooks`）。
  * 未注入時三個 hook 都是 `?.()`，生產零成本。
  */
+import type { IssueTransferTokenSeam } from "../auth/tx/issue-transfer-token.js";
+
 export interface McpTestHooks {
   /** 計數 seam（M1(a)）：`finally` 裡 `await server.close()` **之後**呼叫，每發請求恰一次。 */
   afterClose?: () => void;
@@ -15,4 +17,9 @@ export interface McpTestHooks {
   beforeReply?: () => void;
   /** 故障注入 seam（M15／案 29d）：每支工具 handler 進入時、在 `runTool()` 的 try 內呼叫，帶工具名。 */
   beforeTool?: (name: string) => void;
+  /**
+   * #200 spec §4.2：簽發交易的測試縫，原樣傳進 `issueTransferTokenInTx`（S14 ⑤：以屬性存取傳入
+   * `ctx.hooks?.issueTransferToken`）。`beforeLock`／`afterCount` 的語意見該型別。
+   */
+  issueTransferToken?: IssueTransferTokenSeam;
 }

@@ -58,6 +58,11 @@ export interface McpToolCtx {
   authKind: "token" | "session";
   /** token 路徑才有的落庫 scope；`null` ＝ session（視同讀寫全權，§7.3）。消費端同上。 */
   tokenScope: TokenScope | null;
+  /**
+   * #200：`publicUrlIssuer(config.publicUrl)`（scheme://host[:port]，無尾斜線）。唯一消費端＝`create_transfer_token`
+   * 組 `url`／`curl`。只放這個窄欄位，不把 `config` 塞回 ctx（#108 收尾刻意拿掉過 `config`）。
+   */
+  publicOrigin: string;
   hooks?: McpTestHooks;
   /**
    * #175 PR5：群組測試注入縫（生產不注入＝零成本）。唯一消費端＝`tools/create-note.ts` 的 `"membership-checked"`

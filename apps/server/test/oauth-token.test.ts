@@ -13,81 +13,10 @@ import { sql } from "drizzle-orm";
 import { apiTokens, oauthClients, oauthCodes, users } from "../src/db/schema.js";
 import { UserGate } from "../src/auth/session.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
-import { buildTestApp, createUserAndLogin, freshDb, freshLimiters, testConfig, type TestApp } from "./helpers.js";
+import { buildTestApp, createUserAndLogin, freshDb, freshLimiters } from "./helpers.js";
+import { ISSUER, RESOURCE, authorizeAndConsent, codeGrant, exchange, obtainCode } from "./helpers/oauth-flow.js";
 
-const ISSUER = testConfig.publicUrl.origin;
-const RESOURCE = `${ISSUER}/api/mcp`;
 const NUL = String.fromCharCode(0);
-
-function pkce(): { verifier: string; challenge: string } {
-  const verifier = randomBytes(32).toString("base64url");
-  return { verifier, challenge: createHash("sha256").update(verifier).digest("base64url") };
-}
-
-/** 對既有 client 走一輪 authorize → decision allow，回 code 與 verifier。 */
-async function authorizeAndConsent(
-  app: TestApp["app"],
-  cookie: string,
-  clientId: string,
-  redirectUri: string,
-  scope?: string
-): Promise<{ code: string; verifier: string }> {
-  const { verifier, challenge } = pkce();
-  const params = new URLSearchParams({
-    response_type: "code",
-    client_id: clientId,
-    redirect_uri: redirectUri,
-    code_challenge: challenge,
-    code_challenge_method: "S256",
-    resource: RESOURCE,
-    ...(scope === undefined ? {} : { scope }),
-  });
-  const authorized = await app.inject({ method: "GET", url: `/oauth/authorize?${params.toString()}` });
-  expect(authorized.statusCode, "authorize 應 302").toBe(302);
-  const req = new URL(authorized.headers.location as string, "http://x").searchParams.get("req")!;
-  const decided = await app.inject({
-    method: "POST",
-    url: "/api/oauth/decision",
-    headers: { cookie },
-    payload: { req, decision: "allow" },
-  });
-  expect(decided.statusCode, "decision 應 200").toBe(200);
-  const code = new URL(decided.json().redirectTo as string).searchParams.get("code")!;
-  return { code, verifier };
-}
-
-/** DCR → authorize → decision allow，回換發 code 所需的一切。 */
-async function obtainCode(app: TestApp["app"], cookie: string, options: { scope?: string } = {}) {
-  const registered = await app.inject({
-    method: "POST",
-    url: "/oauth/register",
-    payload: { client_name: "Test client", redirect_uris: ["http://127.0.0.1:1234/cb"] },
-  });
-  const clientId = registered.json().client_id as string;
-  const redirectUri = "http://127.0.0.1:5678/cb";
-  const { code, verifier } = await authorizeAndConsent(app, cookie, clientId, redirectUri, options.scope);
-  return { clientId, redirectUri, code, verifier };
-}
-
-function exchange(app: TestApp["app"], fields: Record<string, string>) {
-  return app.inject({
-    method: "POST",
-    url: "/oauth/token",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    payload: new URLSearchParams(fields).toString(),
-  });
-}
-
-function codeGrant(c: { clientId: string; redirectUri: string; code: string; verifier: string }): Record<string, string> {
-  return {
-    grant_type: "authorization_code",
-    code: c.code,
-    code_verifier: c.verifier,
-    client_id: c.clientId,
-    redirect_uri: c.redirectUri,
-    resource: RESOURCE,
-  };
-}
 
 describe("POST /oauth/token — authorization_code（§5.4）", () => {
   it("換發成功：回 access／refresh／scope，header 帶 no-store 與 pragma", async () => {

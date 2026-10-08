@@ -1,4 +1,4 @@
-/** #200：OAuth 授權流程的測試 helper——逐字複製自 test/oauth-token.test.ts:22-91（原檔的是檔內私有，不動它）。 */
+/** #200：OAuth 授權流程的測試 helper——原本是 test/oauth-token.test.ts:18-91 的檔內私有 helper（`NUL` 常數除外，留在原檔），#200 抽到這裡，兩檔共用。 */
 import { createHash, randomBytes } from "node:crypto";
 import { expect } from "vitest";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
