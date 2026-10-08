@@ -30,15 +30,27 @@ function blockContent(container: Y.XmlElement): Y.XmlElement | null {
   return first instanceof Y.XmlElement && first.nodeName !== "blockGroup" ? first : null;
 }
 
-/** 純文字：XmlText 走 delta 的 insert 串接（toString 會把 mark 印成 XML 標籤）。 */
+/**
+ * 純文字：XmlText 走 delta 的 insert 串接（toString 會把 mark 印成 XML 標籤）。
+ * #93 §4.1：**迭代**（顯式 stack）——巢狀深度是 client 可控的，遞迴版在深文件上 RangeError，
+ * 而 `sectionize` 會被全文索引在每次落盤時呼叫。子節點**反序**推入，pop 出來就是前序（＝遞迴版的串接順序）；
+ * 只收 `XmlText | XmlElement`（`Y.XmlHook` 是 `YMap` 子類，同遞迴版被濾掉）。輸出與遞迴版逐位元組相同
+ * （`note-sections.test.ts` 的 T1 對照遞迴參考實作）。
+ */
 function textOf(node: Y.XmlElement | Y.XmlText): string {
-  if (node instanceof Y.XmlText) {
-    return (node.toDelta() as Array<{ insert: unknown }>).map(d => (typeof d.insert === "string" ? d.insert : "")).join("");
-  }
   let s = "";
-  for (let i = 0; i < node.length; i += 1) {
-    const c = node.get(i);
-    if (c instanceof Y.XmlText || c instanceof Y.XmlElement) s += textOf(c);
+  const stack: Array<Y.XmlElement | Y.XmlText> = [node];
+  while (stack.length > 0) {
+    const n = stack.pop()!;
+    if (n instanceof Y.XmlText) {
+      s += (n.toDelta() as Array<{ insert: unknown }>).map(d => (typeof d.insert === "string" ? d.insert : "")).join("");
+      continue;
+    }
+    const kids = n.toArray();
+    for (let i = kids.length - 1; i >= 0; i -= 1) {
+      const c = kids[i];
+      if (c instanceof Y.XmlText || c instanceof Y.XmlElement) stack.push(c);
+    }
   }
   return s;
 }

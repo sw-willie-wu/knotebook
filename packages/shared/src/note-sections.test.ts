@@ -154,3 +154,165 @@ describe("canonicalize", () => {
     expect(canonicalizeSection(f, [])).toBe("");
   });
 });
+
+// ─────────── #93 T1／T2：textOf 迭代化（spec §4.1） ───────────
+/** 改動前的遞迴版 textOf，逐字保留當參考實作（T1 等價性的對照組）。 */
+function refTextOf(node: Y.XmlElement | Y.XmlText): string {
+  if (node instanceof Y.XmlText) {
+    return (node.toDelta() as Array<{ insert: unknown }>).map(d => (typeof d.insert === "string" ? d.insert : "")).join("");
+  }
+  let s = "";
+  for (let i = 0; i < node.length; i += 1) {
+    const c = node.get(i);
+    if (c instanceof Y.XmlText || c instanceof Y.XmlElement) s += refTextOf(c);
+  }
+  return s;
+}
+
+/** 改動前的 sectionize，只換成呼叫 refTextOf（其餘逐字同 note-sections.ts:52-67）。 */
+function refSectionize(fragment: Y.XmlFragment): Array<{ sectionId: string; heading: string; chars: number }> {
+  const out: Array<{ sectionId: string; level: number; heading: string; chars: number }> = [{ sectionId: TOP_SECTION_ID, level: 0, heading: "", chars: 0 }];
+  let current = out[0]!;
+  for (const c of topLevelContainers(fragment)) {
+    const first = c.get(0);
+    const content = first instanceof Y.XmlElement && first.nodeName !== "blockGroup" ? first : null;
+    const level = content && content.nodeName === "heading" ? (Number.isFinite(Number(content.getAttribute("level") ?? "1")) ? Number(content.getAttribute("level") ?? "1") : 1) : null;
+    const id = (c.getAttribute("id") ?? "") as string;
+    if (level !== null && (current.level === 0 || level <= current.level)) {
+      current = { sectionId: id, level, heading: refTextOf(content!), chars: 0 };
+      out.push(current);
+    }
+    current.chars += refTextOf(c).length;
+  }
+  return out.map(({ sectionId, heading, chars }) => ({ sectionId, heading, chars }));
+}
+
+/** 決定性 PRNG（LCG），讓隨機文件可重現。 */
+function lcg(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    return s / 2 ** 32;
+  };
+}
+
+/** 往 el 尾端塞 1–4 個子節點：XmlText、wikilink（content:"none"）、XmlHook、或巢狀元素（含 mermaid）。 */
+function fillInline(el: Y.XmlElement, r: () => number, depth: number): void {
+  const k = 1 + Math.floor(r() * 4);
+  for (let j = 0; j < k; j += 1) {
+    const roll = r();
+    if (roll < 0.45) {
+      const t = new Y.XmlText();
+      el.insert(el.length, [t]);
+      t.insert(0, `t${Math.floor(r() * 1000)} `);
+    } else if (roll < 0.6) {
+      const w = new Y.XmlElement("wikilink");
+      el.insert(el.length, [w]);
+      w.setAttribute("snapshotTitle", "Linked");
+    } else if (roll < 0.7) {
+      el.insert(el.length, [new Y.XmlHook("hook") as unknown as Y.XmlElement]);
+    } else if (depth < 3) {
+      const sub = new Y.XmlElement(roll < 0.85 ? "bold" : "mermaid");
+      el.insert(el.length, [sub]);
+      if (sub.nodeName === "mermaid") sub.setAttribute("code", "graph TD");
+      fillInline(sub, r, depth + 1);
+    }
+  }
+}
+
+function randomDoc(seed: number): Y.Doc {
+  const r = lcg(seed);
+  const doc = new Y.Doc();
+  const group = new Y.XmlElement("blockGroup");
+  doc.getXmlFragment(YDOC_FRAGMENT).insert(0, [group]);
+  const n = 3 + Math.floor(r() * 8);
+  for (let i = 0; i < n; i += 1) {
+    const c = new Y.XmlElement("blockContainer");
+    group.insert(i, [c]);
+    c.setAttribute("id", `b${seed}x${i}`);
+    const heading = r() < 0.4;
+    const content = new Y.XmlElement(heading ? "heading" : "paragraph");
+    c.insert(0, [content]);
+    if (heading) content.setAttribute("level", String(1 + Math.floor(r() * 3)));
+    fillInline(content, r, 0);
+    if (r() < 0.4) {
+      const inner = new Y.XmlElement("blockGroup");
+      c.insert(1, [inner]);
+      const nc = new Y.XmlElement("blockContainer");
+      inner.insert(0, [nc]);
+      nc.setAttribute("id", `n${seed}x${i}`);
+      const np = new Y.XmlElement("paragraph");
+      nc.insert(0, [np]);
+      fillInline(np, r, 0);
+    }
+  }
+  return doc;
+}
+
+describe("#93 textOf 迭代化（spec §4.1）", () => {
+  // 建鏈本身約 24 s（Yjs insert 走 parent chain，O(n²)）——預設 5 s 會逾時，所以明設 timeout。
+  it("T2：20 000 層 blockContainer 鏈 → sectionize 不拋，最深處的字算進 chars", { timeout: 120_000 }, () => {
+    const doc = new Y.Doc();
+    const group = new Y.XmlElement("blockGroup");
+    doc.getXmlFragment(YDOC_FRAGMENT).insert(0, [group]);
+    const top = new Y.XmlElement("blockContainer");
+    group.insert(0, [top]);
+    top.setAttribute("id", "deep");
+    let parent = top;
+    for (let i = 0; i < 20_000; i += 1) {
+      const child = new Y.XmlElement("blockContainer");
+      parent.insert(0, [child]);
+      parent = child;
+    }
+    const leaf = new Y.XmlElement("paragraph");
+    parent.insert(0, [leaf]);
+    const t = new Y.XmlText();
+    leaf.insert(0, [t]);
+    t.insert(0, "DEEPEST");
+    const s = sectionize(doc.getXmlFragment(YDOC_FRAGMENT));
+    expect(s).toHaveLength(1);
+    expect(s[0]!.chars).toBe("DEEPEST".length);
+  });
+
+  it("T1：子節點順序——heading 由三個子節點組成時串接順序與文件順序相同", () => {
+    const doc = new Y.Doc();
+    const group = new Y.XmlElement("blockGroup");
+    doc.getXmlFragment(YDOC_FRAGMENT).insert(0, [group]);
+    const c = new Y.XmlElement("blockContainer");
+    group.insert(0, [c]);
+    c.setAttribute("id", "h");
+    const h = new Y.XmlElement("heading");
+    c.insert(0, [h]);
+    h.setAttribute("level", "1");
+    const a = new Y.XmlText();
+    h.insert(0, [a]);
+    a.insert(0, "ab");
+    const bold = new Y.XmlElement("bold");
+    h.insert(1, [bold]);
+    const b = new Y.XmlText();
+    bold.insert(0, [b]);
+    b.insert(0, "cd");
+    const e = new Y.XmlText();
+    h.insert(2, [e]);
+    e.insert(0, "ef");
+    expect(sectionize(doc.getXmlFragment(YDOC_FRAGMENT))[1]).toMatchObject({ heading: "abcdef", chars: 6 });
+  });
+
+  it("T1：200 份隨機巢狀文件（含 wikilink、mermaid、XmlHook）的 heading／chars 與遞迴參考實作逐一相等", () => {
+    for (let seed = 1; seed <= 200; seed += 1) {
+      const f = randomDoc(seed).getXmlFragment(YDOC_FRAGMENT);
+      const got = sectionize(f).map(({ sectionId, heading, chars }) => ({ sectionId, heading, chars }));
+      expect(got, `seed ${seed}`).toEqual(refSectionize(f));
+    }
+  });
+
+  it("T1：既有 fixture（makeDoc，含巢狀 heading）與參考實作相等", () => {
+    const doc = makeDoc([
+      { id: "p0", type: "paragraph", text: "intro" },
+      { id: "h1", type: "heading", level: 2, text: "A" },
+      { id: "p1", type: "paragraph", text: "li", nested: [{ id: "n1", type: "heading", level: 1, text: "inner" }] },
+    ]);
+    const f = doc.getXmlFragment(YDOC_FRAGMENT);
+    expect(sectionize(f).map(({ sectionId, heading, chars }) => ({ sectionId, heading, chars }))).toEqual(refSectionize(f));
+  });
+});
