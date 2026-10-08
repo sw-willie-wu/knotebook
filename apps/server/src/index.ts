@@ -204,8 +204,9 @@ async function main(): Promise<void> {
   // 全部做完（或任一步驟拋錯，被 `.finally` 接住）才 `process.exit(0)`——不做 exit code
   // 判斷是因為這是主動收到終止訊號的正常關機路徑，非錯誤情境。
   // `backfillAbort.abort()` 先停回填：回填在每篇與每批之前（以及單篇寫入之前）檢查 signal，abort 之後不再開始新的
-  // 筆記或批次；abort 落在單篇的 ydoc 讀取期間時，讀完後寫入前的那次檢查就停下、不發寫入（所以不會有寫入撞上已關的
-  // pool）。批次查詢撞錯的由上面的 `.catch` 吞掉、只記一行 error（不擋關機）。
+  // 筆記或批次；abort 落在單篇的 ydoc 讀取期間時，讀完後寫入前的那次檢查就停下、不發寫入。abort 保證的只是之後不再
+  // 「開始」寫入；abort 時已在途的那一筆持有自己的連線，`pool.end()` 會等它歸還。批次查詢撞錯的由上面的 `.catch`
+  // 吞掉、只記一行 error（不擋關機）。
   for (const sig of ["SIGTERM", "SIGINT"] as const) {
     process.once(sig, () => {
       backfillAbort.abort();

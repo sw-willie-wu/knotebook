@@ -179,7 +179,7 @@ export function createNoteStore(deps: NoteStoreDeps): NoteStore {
   const bumper = deps.bumper ?? ((noteId: string, version: number, contentHash: string) => bumpSearchIndexVersion(db, noteId, version, contentHash));
   const extractFn = deps.extract ?? extractForIndex;
   // #93 §5.3 第 4 點：「這篇上次成功寫進索引的內容雜湊」。命中時不開交易，只推進 source_version（bump）；
-  // bump 命中 0 列（索引被別人改過）→ 清掉，下次走完整交易（m10 自癒）。unload／刪除時一併清（forgetNote）。
+  // bump 命中 0 列（索引被別人改過）→ 清掉，同一次落盤就改走完整交易（m10 自癒）。unload／刪除時一併清（forgetNote）。
   const indexedHash = new Map<string, string>();
 
   // 「上次備份時的 state vector」——onLoadDocument 時以現 doc（已套用 note_states 內容
@@ -391,10 +391,17 @@ export function createNoteStore(deps: NoteStoreDeps): NoteStore {
     // onStoreDocument（Hocuspocus 會把文件 pin 在記憶體）。只在落盤成功之後才寫（上面 version === null 已 return）。
     if (extract !== null) {
       try {
-        if (indexedHash.get(noteId) === extract.contentHash) {
+        let needFull = indexedHash.get(noteId) !== extract.contentHash;
+        if (!needFull) {
           const bumped = await bumper(noteId, version, extract.contentHash);
-          if (bumped === 0) indexedHash.delete(noteId);
-        } else {
+          // 命中 0 列＝索引被帶外改過（或狀態列不見了），快取已不可信：清掉，並在同一個 try 裡改走完整交易，
+          // 讓這次落盤就索引好（不必等下次落盤或重啟回填）。
+          if (bumped === 0) {
+            indexedHash.delete(noteId);
+            needFull = true;
+          }
+        }
+        if (needFull) {
           const outcome = await indexer(noteId, version, extract);
           if (outcome === "written" || outcome === "unchanged") indexedHash.set(noteId, extract.contentHash);
         }

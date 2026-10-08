@@ -10,7 +10,7 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 ### Upgrade notes
 
 - **The first start after upgrading indexes your existing notes in the background.** A new database migration adds the body-text search index, which the server then fills in after it is already answering requests; the `app` log shows `全文索引回填開始` when that starts and `全文索引回填完成` when it is done. Until it gets to a note, `search_notes` finds that note by its title only. Rolling back is harmless — an older server ignores the index — and the next upgrade catches up on whatever was edited in between. See [Upgrading and rolling back](docs/self-hosting.md#upgrading-and-rolling-back) (#93).
-- **`search_notes` is now rate-limited** to 60 searches per minute per user; past that, it answers with the tool error `too_many_requests` (#93).
+- **`search_notes` is now rate-limited** to 60 searches per minute per user; past that, it answers with the tool error `too_many_requests`. Before, only the limits that apply to every MCP request applied to it (#93).
 - **Restart MCP clients to pick up `search_notes`'s new reply shape** (see **Changed** below). A client keeps the tool list it fetched until it restarts, and one that checks replies against the cached output schema can reject the new replies until then — see **A client's cached tool list does not shrink on its own** in [Known limitations](docs/known-limitations.md) (#93).
 
 ### Added
@@ -21,7 +21,6 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 - **Move to…** and **Copy to…** are now in a note's `⋮` menu, each with its own icon like the other items, instead of the **Move or copy into a group** row of the Share dialog, which is gone. Groups are offered only where your role can both create and edit notes. On your own personal note, **Copy to…** starts with **Make a copy**; on a group note there is no **Move to…**, and **Copy to…** offers **Make a copy** (in the same group), **Personal space** and your other groups; on a note shared with you (as a viewer or an editor) it offers **Personal space** and your groups, and no **Move to…**. This replaces the `⋮` item **Copy to my notes** and the **Copy to my notes** button in a group note's Share dialog. Hover an item to open the list beside the menu; on a narrow window or a touch screen it expands right below the item instead. Choosing a target opens a confirmation, and a finished move shows a "Moved into …" notice (#216).
 - `search_notes` replies have a new shape: the top-level `matchedOn` is gone; each note carries its own `matchedOn` (`title`, `body` or `both`) and `matches`, and the reply carries `matchesTruncated: true` when some matches were left out to keep it small. Notes that match only in their body come after every note whose title matches (#93).
-- `search_notes` has a rate limit of its own, 60 searches per minute per user, answered with the tool error `too_many_requests`. Before, only the limits that apply to every MCP request applied to it (#93).
 
 ### Fixed
 

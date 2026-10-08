@@ -256,17 +256,25 @@ describe("S9／S15／RF3（直接呼叫 createNoteStore，決定性）", () => {
     expect((await stateRow(db, n.id))!.sourceVersion).toBe(3);
   });
 
-  it("S9 自癒：bump 命中 0 列 → 清快取，下一次走完整交易", async () => {
+  it("S9 自癒：bump 命中 0 列 → 同一次落盤就改走完整交易（這次就索引好），之後回到 bump", async () => {
     const { db, n, calls, store } = await storeWithCounters();
     const doc = new Y.Doc();
     await store.onLoadDocument(n.id, doc);
     writeParagraph(doc, "p", "heal");
     await store.onStoreDocument(n.id, doc);
-    await db.execute(sql`update note_search_state set content_hash = 'other' where note_id = ${n.id}::uuid`); // 索引被別人改過
-    await store.onStoreDocument(n.id, doc);
-    expect(calls).toEqual({ index: 1, bump: 1 });
+    const goodHash = (await stateRow(db, n.id))!.contentHash;
+    // 索引被別人改過：hash 與段落內容都不再描述這篇
+    await db.execute(sql`update note_search_state set content_hash = 'other' where note_id = ${n.id}::uuid`);
+    await db.execute(sql`update note_search_sections set body = 'stale' where note_id = ${n.id}::uuid`);
     await store.onStoreDocument(n.id, doc);
     expect(calls).toEqual({ index: 2, bump: 1 });
+    const st = (await stateRow(db, n.id))!;
+    expect(st.contentHash).toBe(goodHash);
+    expect(st.sourceVersion).toBe(await noteStateVersion(db, n.id));
+    expect((await indexRows(db, n.id)).map(r => r.body).join("\n")).toContain("heal");
+    // 完整交易寫成功後快取回填 → 同內容再落盤走 bump
+    await store.onStoreDocument(n.id, doc);
+    expect(calls).toEqual({ index: 2, bump: 2 });
   });
 
   it("S15：落盤之後、索引之前對 doc 插入新字 → 索引內容＝落盤快照、source_version＝落盤版本", async () => {
