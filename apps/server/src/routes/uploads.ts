@@ -53,8 +53,9 @@ export interface UploadsRouteDeps {
  *
  * #200：兩支路由在 session 之外加收 **transfer token**（`auth/transfer-auth.ts`；一般 PAT／OAuth Bearer 不收，
  * spec §5.1）。POST 的 preHandler 順序是契約（spec §5.2）：認證 → token 的筆記＝路徑筆記 → 使用當下角色 → 上傳節流
- * →（配額預檢插槽）→ 原子消費；全部在 `request.parts()` 之前、每個早退都 drain。**消費之後**（server 開始讀檔之後）
- * 的任何失敗都燒掉 token、不退還（spec §5.2、Q2）。CSRF：`MULTIPART_EXEMPT_ROUTES` 不變——Bearer 不是 ambient 憑證。
+ * → 儲存配額「已滿」預檢（第 4a 步；已滿不燒 token）→ 原子消費；全部在 `request.parts()` 之前、每個早退都 drain。
+ * **消費之後**（server 開始讀檔之後）的任何失敗都燒掉 token、不退還（spec §5.2、Q2）——含交易內的 409
+ * `storage_quota_exceeded`（放不下）與 409 `server_busy`（空間鎖逾時／死結），兩種 409 都與預檢的同碼同形。CSRF：`MULTIPART_EXEMPT_ROUTES` 不變——Bearer 不是 ambient 憑證。
  */
 export function uploadsRoutes(deps: UploadsRouteDeps) {
   return async function register(app: FastifyInstance): Promise<void> {

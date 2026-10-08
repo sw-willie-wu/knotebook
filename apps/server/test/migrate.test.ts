@@ -12,7 +12,7 @@ import { apiTokens, authProviders, groupMembers, groupRoles, groups, noteRedirec
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
 /** drizzle 對 `schema.ts` 的序列化；宣告漂移守衛拿最新一支當比對基準（Task 14 rebase 後改成實際檔名）。 */
-const SNAPSHOT_FILE = "meta/0017_snapshot.json";
+const SNAPSHOT_FILE = "meta/0018_snapshot.json";
 const snapshotLatest = JSON.parse(readFileSync(path.join(drizzleDirForTest, SNAPSHOT_FILE), "utf8")) as {
   tables: Record<string, { checkConstraints?: Record<string, { name: string; value: string }> }>;
 };
@@ -1872,8 +1872,8 @@ describe("transfer_tokens（#200 spec §3）", () => {
 
 describe("儲存配額 migration（spec 2026-10-08 §4、§11.1 S1）", () => {
   // Task 14 rebase 後只改這兩個 tag（與檔頭 SNAPSHOT_FILE）。
-  const QUOTA_TAG = "0016_storage-quota";
-  const PREV_TAG = "0015_provider-icon";
+  const QUOTA_TAG = "0018_storage-quota";
+  const PREV_TAG = "0017_transfer-tokens";
   const GIB = 1024 ** 3;
 
   async function seededBeforeQuota() {
