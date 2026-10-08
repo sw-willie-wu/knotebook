@@ -419,6 +419,15 @@ export const ERROR_CODES = [
   "oidc_link_session_mismatch",
   // AI provider 的 base URL 帶了帳密（`user:pass@host`／`user@host`）＝400；認證請放 API key 欄位。
   "base_url_has_credentials",
+  // 儲存配額（spec 2026-10-08 §8.1）：`storage_quota_exceeded`＝409，這次新增的附件位元組放不進該空間（上傳、複製、移入群組、
+  // 刪群組・轉移；回應頂層另帶 `storage`，見 `StorageQuotaErrorDetail`）。方案管理（站台管理員）：`storage_plan_in_use`＝409，
+  // 刪除仍有使用者或群組指派的方案；`storage_plan_is_default`＝409，刪除新使用者或新群組的預設方案（既是預設又使用中也回這個）；
+  // `storage_plan_name_taken`＝409，方案名稱（不分大小寫）已存在；`storage_plan_not_found`＝404。
+  "storage_quota_exceeded",
+  "storage_plan_in_use",
+  "storage_plan_is_default",
+  "storage_plan_name_taken",
+  "storage_plan_not_found",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
@@ -1061,3 +1070,4 @@ export * from "./note-sections.js";
 export * from "./note-markdown.js";
 export * from "./group-roles.js";
 export * from "./provider-icon.js";
+export * from "./storage.js";

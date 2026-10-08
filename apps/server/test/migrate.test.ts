@@ -7,23 +7,24 @@ import { MAX_PROVIDER_ICON_BYTES, autoSlugFromTitle, validateHandle, validateSlu
 import { applyMigrationsThrough, freshDb, freshEmptyDb, idxOfTag, journalEntries } from "./helpers.js";
 import { runMigrations } from "../src/db/migrate.js";
 import { PgDialect, getTableConfig } from "drizzle-orm/pg-core";
-import { apiTokens, authProviders, groupMembers, groupRoles, groups, noteRedirects, notes, oauthClients, oauthCodes, noteSearchSections, noteSearchState, oauthRequests, siteSettings, transferTokens, userIdentities } from "../src/db/schema.js";
+import { apiTokens, authProviders, groupMembers, groupRoles, groups, noteRedirects, notes, oauthClients, oauthCodes, noteSearchSections, noteSearchState, oauthRequests, siteSettings, storagePlans, transferTokens, userIdentities, users } from "../src/db/schema.js";
 
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
-/** drizzle 對 `schema.ts` 的序列化；宣告漂移守衛拿最新一支（0017）當比對基準。 */
-const snapshot0017 = JSON.parse(
-  readFileSync(path.join(drizzleDirForTest, "meta/0017_snapshot.json"), "utf8"),
-) as { tables: Record<string, { checkConstraints?: Record<string, { name: string; value: string }> }> };
+/** drizzle 對 `schema.ts` 的序列化；宣告漂移守衛拿最新一支當比對基準（Task 14 rebase 後改成實際檔名）。 */
+const SNAPSHOT_FILE = "meta/0018_snapshot.json";
+const snapshotLatest = JSON.parse(readFileSync(path.join(drizzleDirForTest, SNAPSHOT_FILE), "utf8")) as {
+  tables: Record<string, { checkConstraints?: Record<string, { name: string; value: string }> }>;
+};
 const pgDialect = new PgDialect();
 
 describe("runMigrations", () => {
-  it("migrate 兩次 idempotent 且 27 張表存在", async () => {
+  it("migrate 兩次 idempotent 且 28 張表存在", async () => {
     const { db, pool } = await freshDb();
     await runMigrations(db); // freshDb 已跑過一次——此為第二次
     const r = await pool.query(`select table_name from information_schema.tables where table_schema='public'`);
     const tableNames = r.rows.map(x => x.table_name);
-    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes", "note_ai_edits", "groups", "group_members", "group_roles", "note_redirects", "auth_providers", "user_identities", "site_settings", "note_search_sections", "note_search_state", "transfer_tokens"])
+    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes", "note_ai_edits", "groups", "group_members", "group_roles", "note_redirects", "auth_providers", "user_identities", "site_settings", "note_search_sections", "note_search_state", "transfer_tokens", "storage_plans"])
       expect(tableNames).toContain(t);
   });
 
@@ -1098,7 +1099,7 @@ describe("0009_api-tokens", () => {
       expect(names, i).toContain(i);
   });
 
-  it("schema.ts 的十五個宣告沒有靜默漂移（四個 OAuth／token 宣告零 import；#103／#175 的四張表的 CHECK 也在這裡逐字比對、#187 的三張表、#93 的兩張表、#200 的一張表）", async () => {
+  it("schema.ts 的十七個宣告沒有靜默漂移（四個 OAuth／token 宣告零 import；#103／#175 的四張表的 CHECK 也在這裡逐字比對、#187 的三張表、#93 的兩張表、#200 的一張表、容量上限的 users／storage_plans）", async () => {
     // 比照 0008 的同族守衛：把 schema.ts 的宣告與 migration 造出來的 DB 對起來。
     // 沒有這一案的話，把 schema.ts 的四段 pgTable 整個刪掉，全套測試照樣綠——
     // 只有下一次 db:generate 會產出 DROP TABLE。
@@ -1128,7 +1129,7 @@ describe("0009_api-tokens", () => {
       ],
       oauth_requests: ["id", "client_id", "redirect_uri", "code_challenge", "scope", "state", "expires_at"],
       oauth_codes: ["code_hash", "client_id", "user_id", "scope", "redirect_uri", "code_challenge", "expires_at"],
-      groups: ["id", "name", "created_by", "created_at"],
+      groups: ["id", "name", "created_by", "created_at", "storage_plan_id"],
       group_members: ["group_id", "user_id", "role_id", "created_at"],
       group_roles: [
         "id", "group_id", "builtin", "name", "can_read", "can_create", "can_edit", "can_delete",
@@ -1141,7 +1142,10 @@ describe("0009_api-tokens", () => {
         "icon_kind", "icon_data", "icon_mime", "icon_version",
       ],
       user_identities: ["id", "user_id", "issuer", "sub", "created_at", "last_login_at"],
-      site_settings: ["singleton", "registration_enabled", "password_login_enabled", "legacy_oidc_env_handled_at", "updated_at"],
+      site_settings: [
+        "singleton", "registration_enabled", "password_login_enabled", "legacy_oidc_env_handled_at", "updated_at",
+        "default_user_storage_plan_id", "default_group_storage_plan_id",
+      ],
       note_search_sections: ["id", "note_id", "source_kind", "source_id", "section_id", "ord", "heading", "body"],
       note_search_state: ["note_id", "extractor_version", "source_version", "content_hash", "indexed_units", "capped", "indexed_at"],
       transfer_tokens: ["id", "token_hash", "parent_token_id", "note_id", "purpose", "expires_at", "consumed_at", "created_at"],
@@ -1150,6 +1154,11 @@ describe("0009_api-tokens", () => {
         "links_clock", "created_at", "updated_at", "last_edited_at", "last_edited_by", "last_edited_token_id",
         "last_edited_agent_label", "deleted_at", "group_id",
       ],
+      users: [
+        "id", "email", "handle", "password_hash", "oidc_issuer", "oidc_sub", "display_name", "avatar_url", "is_admin",
+        "disabled_at", "token_version", "must_change_password", "created_at", "storage_plan_id",
+      ],
+      storage_plans: ["id", "name", "quota_bytes", "created_at", "updated_at"],
     };
 
     for (const [table, decl] of [
@@ -1168,6 +1177,8 @@ describe("0009_api-tokens", () => {
       ["note_search_sections", noteSearchSections],
       ["note_search_state", noteSearchState],
       ["transfer_tokens", transferTokens],
+      ["users", users],
+      ["storage_plans", storagePlans],
     ] as const) {
       const cfg = getTableConfig(decl);
       // 宣告的欄名 = DB 的欄名 = 這裡寫死的期望（三方對齊，任一邊漂移就紅）
@@ -1197,7 +1208,7 @@ describe("0009_api-tokens", () => {
       // 名字仍在、DB 仍是舊值，上面每一條都綠——下一次 generate 才會靜默吐出一支
       // DROP/ADD CONSTRAINT。這個 PR 就踩過一次（長度上限 200↔64 的半套回滾）。
       // snapshot 是 drizzle 對 schema.ts 的序列化，逐字比對它＝真正的漂移守衛。
-      const snapshotChecks = snapshot0017.tables[`public.${table}`]?.checkConstraints ?? {};
+      const snapshotChecks = snapshotLatest.tables[`public.${table}`]?.checkConstraints ?? {};
       expect(Object.keys(snapshotChecks).sort(), `${table} 的 CHECK 名集合`).toEqual(
         cfg.checks.map(c => c.name).sort()
       );
@@ -1590,11 +1601,13 @@ describe("0014_auth-providers（#187）", () => {
       const { pool } = await migrateWith(fixture);
       const { rows } = await pool.query(`select singleton, registration_enabled, password_login_enabled, legacy_oidc_env_handled_at from site_settings`);
       expect(rows).toEqual([{ singleton: true, registration_enabled: true, password_login_enabled: true, legacy_oidc_env_handled_at: null }]);
-      await expect(pool.query(`insert into site_settings (singleton) values (false)`)).rejects.toMatchObject({
+      // 本支配額 migration 起 site_settings 多兩個 NOT NULL 預設方案欄；不帶它們會先撞 23502、到不了這裡要測的 CHECK／PK。
+      const plan = `(select id from storage_plans where name = 'Basic')`;
+      await expect(pool.query(`insert into site_settings (singleton, default_user_storage_plan_id, default_group_storage_plan_id) values (false, ${plan}, ${plan})`)).rejects.toMatchObject({
         code: "23514",
         constraint: "site_settings_singleton_chk",
       });
-      await expect(pool.query(`insert into site_settings (singleton) values (true)`)).rejects.toMatchObject({
+      await expect(pool.query(`insert into site_settings (singleton, default_user_storage_plan_id, default_group_storage_plan_id) values (true, ${plan}, ${plan})`)).rejects.toMatchObject({
         code: "23505",
         constraint: "site_settings_pkey",
       });
@@ -1852,6 +1865,145 @@ describe("transfer_tokens（#200 spec §3）", () => {
     const entries = journalEntries().filter(e => e.tag.endsWith("_transfer-tokens"));
     expect(entries, "journal 裡要恰有一支 *_transfer-tokens").toHaveLength(1);
     const sqlText = readFileSync(path.join(drizzleDirForTest, `${entries[0]!.tag}.sql`), "utf8");
+    expect(sqlText).not.toMatch(/CONCURRENTLY/i);
+    expect(sqlText).not.toMatch(/^\s*COMMIT/im);
+  });
+});
+
+describe("儲存配額 migration（spec 2026-10-08 §4、§11.1 S1）", () => {
+  // Task 14 rebase 後只改這兩個 tag（與檔頭 SNAPSHOT_FILE）。
+  const QUOTA_TAG = "0018_storage-quota";
+  const PREV_TAG = "0017_transfer-tokens";
+  const GIB = 1024 ** 3;
+
+  async function seededBeforeQuota() {
+    const { pool, db } = await freshEmptyDb();
+    await applyMigrationsThrough(pool, idxOfTag(PREV_TAG));
+    const u = await pool.query<{ id: string }>(
+      `insert into users (email, handle, display_name) values ('a@x.test','qa','A'),('b@x.test','qb','B'),('c@x.test','qc','C') returning id`,
+    );
+    const [a, b, c] = u.rows.map(r => r.id);
+    const g = await pool.query<{ id: string }>(`insert into groups (name) values ('G1'),('G2') returning id`);
+    const [g1, g2] = g.rows.map(r => r.id);
+    // spec §11.1 S1「使用者 3、群組 2、各有附件」：五個空間各一篇筆記、各有附件。
+    const note = async (col: "owner_id" | "group_id", id: string, slug: string) =>
+      (await pool.query<{ id: string }>(`insert into notes (${col}, slug) values ($1, $2) returning id`, [id, slug])).rows[0]!.id;
+    const [na, nb, nc, ng1, ng2] = [
+      await note("owner_id", a!, "na"), await note("owner_id", b!, "nb"), await note("owner_id", c!, "nc"),
+      await note("group_id", g1!, "ng1"), await note("group_id", g2!, "ng2"),
+    ];
+    // uploads.size 是 integer（上限 2^31-1 < 2 GiB）：兩列各 1.5 GiB 讓 a 的空間超過 2 GiB。
+    await pool.query(`insert into uploads (note_id, uploader_id, mime, size) values ($1,$2,'image/png',$3),($1,$2,'image/png',$3)`, [na, a, Math.floor(1.5 * GIB)]);
+    await pool.query(
+      `insert into uploads (note_id, uploader_id, mime, size) values ($1,$5,'image/png',100),($2,$6,'image/png',200),($3,$5,'image/png',300),($4,$6,'image/png',400)`,
+      [nb, nc, ng1, ng2, b, c],
+    );
+    return { pool, db, userIds: u.rows.map(r => r.id), groupIds: g.rows.map(r => r.id) };
+  }
+
+  it("既有使用者與群組 → Basic；Basic 2 GiB；兩預設＝Basic；超過 2 GiB 的空間不動資料（不刪、不回填用量）", async () => {
+    const { pool, db, userIds, groupIds } = await seededBeforeQuota();
+    await runMigrations(db);
+    const basic = (await pool.query(`select id, name, quota_bytes from storage_plans`)).rows;
+    expect(basic).toHaveLength(1);
+    expect(basic[0]).toMatchObject({ name: "Basic", quota_bytes: "2147483648" }); // int8 經 pool.query 回字串
+    const basicId = basic[0].id as string;
+    const users = (await pool.query(`select id, storage_plan_id from users order by id`)).rows;
+    expect(users.map(r => r.storage_plan_id)).toEqual(userIds.map(() => basicId));
+    const groups = (await pool.query(`select storage_plan_id from groups`)).rows;
+    expect(groups.map(r => r.storage_plan_id)).toEqual(groupIds.map(() => basicId));
+    expect((await pool.query(`select default_user_storage_plan_id u, default_group_storage_plan_id g from site_settings`)).rows)
+      .toEqual([{ u: basicId, g: basicId }]);
+    expect((await pool.query(`select count(*)::int n, sum(size)::text s from uploads`)).rows[0]).toEqual({ n: 6, s: String(2 * Math.floor(1.5 * GIB) + 1000) });
+  });
+
+  it("DEFAULT 函式＝快照：直插不帶方案 → 目前的預設；改預設後新列跟新預設、舊列不動；使用者讀使用者預設、群組讀群組預設（兩者設成不同方案）；search_path 不含 public 也一樣", async () => {
+    const { pool } = await freshDb();
+    const basicId = (await pool.query(`select id from storage_plans where name = 'Basic'`)).rows[0].id;
+    const client = await pool.connect();
+    const insUser = async (h: string) =>
+      (await client.query(`insert into public.users (email, handle, display_name) values ($1, $2, 'D') returning storage_plan_id`, [`${h}@x.test`, h])).rows[0].storage_plan_id;
+    const insGroup = async (name: string) =>
+      (await client.query(`insert into public.groups (name) values ($1) returning storage_plan_id`, [name])).rows[0].storage_plan_id;
+    try {
+      expect(await insUser("d1")).toBe(basicId);
+      expect(await insGroup("G1")).toBe(basicId);
+      const p = (await pool.query(`insert into storage_plans (name, quota_bytes) values ('Pro', null) returning id`)).rows[0].id;
+      const q = (await pool.query(`insert into storage_plans (name, quota_bytes) values ('Team', 1) returning id`)).rows[0].id;
+      // 只改使用者預設：新使用者 → P，新群組仍 Basic（群組不得讀到使用者預設）。
+      await pool.query(`update site_settings set default_user_storage_plan_id = $1`, [p]);
+      expect(await insUser("d2")).toBe(p);
+      expect(await insGroup("G2")).toBe(basicId);
+      // 再改群組預設為 Q（≠ P）：新群組 → Q，新使用者仍 P（使用者不得讀到群組預設）。
+      await pool.query(`update site_settings set default_group_storage_plan_id = $1`, [q]);
+      expect(await insGroup("G3")).toBe(q);
+      expect(await insUser("d3")).toBe(p);
+      // 快照：舊列不動。
+      expect((await pool.query(`select storage_plan_id from users where handle = 'd1'`)).rows[0].storage_plan_id).toBe(basicId);
+      expect((await pool.query(`select name, storage_plan_id from groups order by name`)).rows)
+        .toEqual([{ name: "G1", storage_plan_id: basicId }, { name: "G2", storage_plan_id: basicId }, { name: "G3", storage_plan_id: q }]);
+      // search_path 不含 public：函式本體必須自己寫 `public.site_settings`。
+      await client.query(`set search_path to pg_catalog`);
+      expect(await insUser("d4")).toBe(p);
+      expect(await insGroup("G4")).toBe(q);
+    } finally {
+      await client.query(`reset search_path`);
+      client.release();
+    }
+  });
+
+  it("CHECK 與唯一索引：名稱空字串／41 字、配額 -1／2^50+1 各撞對的約束；lower(name) 唯一；2^50 與 0 與 NULL 放行", async () => {
+    const { pool } = await freshDb();
+    const ins = (name: string, q: string | null) => pool.query(`insert into storage_plans (name, quota_bytes) values ($1, $2::bigint)`, [name, q]);
+    await expect(ins("", "1")).rejects.toMatchObject({ code: "23514", constraint: "storage_plans_name_chk" });
+    await expect(ins("x".repeat(41), "1")).rejects.toMatchObject({ code: "23514", constraint: "storage_plans_name_chk" });
+    await expect(ins("neg", "-1")).rejects.toMatchObject({ code: "23514", constraint: "storage_plans_quota_chk" });
+    await expect(ins("big", "1125899906842625")).rejects.toMatchObject({ code: "23514", constraint: "storage_plans_quota_chk" });
+    await expect(ins("bAsIc", "1")).rejects.toMatchObject({ code: "23505", constraint: "storage_plans_name_lower_idx" });
+    await ins("x".repeat(40), "1125899906842624");
+    await ins("zero", "0");
+    await ins("unlimited", null);
+    expect((await pool.query(`select count(*)::int n from storage_plans`)).rows[0].n).toBe(4);
+  });
+
+  it("四條 FK 名、ON DELETE RESTRICT、兩個索引都在；刪被指派的方案 → 23503", async () => {
+    const { pool } = await freshDb();
+    const fks = (await pool.query(
+      `select conname, confdeltype from pg_constraint where contype = 'f' and confrelid = 'storage_plans'::regclass order by conname`,
+    )).rows;
+    expect(fks).toEqual([
+      { conname: "groups_storage_plan_fk", confdeltype: "r" },
+      { conname: "site_settings_default_group_plan_fk", confdeltype: "r" },
+      { conname: "site_settings_default_user_plan_fk", confdeltype: "r" },
+      { conname: "users_storage_plan_fk", confdeltype: "r" },
+    ]);
+    const idx = (await pool.query(`select indexname from pg_indexes where indexname in ('users_storage_plan_idx','groups_storage_plan_idx','storage_plans_name_lower_idx') order by 1`)).rows.map(r => r.indexname);
+    expect(idx).toEqual(["groups_storage_plan_idx", "storage_plans_name_lower_idx", "users_storage_plan_idx"]);
+    // Basic 此時只被 site_settings 兩欄引用（freshDb 沒有使用者／群組）；哪一條先觸發取決於 RI 觸發器順序，只斷言是兩條之一。
+    await expect(pool.query(`delete from storage_plans where name = 'Basic'`)).rejects.toMatchObject({
+      code: "23503",
+      constraint: expect.stringMatching(/^site_settings_default_(user|group)_plan_fk$/),
+    });
+    const p = (await pool.query(`insert into storage_plans (name, quota_bytes) values ('P', 1) returning id`)).rows[0].id;
+    const q = (await pool.query(`insert into storage_plans (name, quota_bytes) values ('Q', 1) returning id`)).rows[0].id;
+    await pool.query(`insert into users (email, handle, display_name, storage_plan_id) values ('f@x.test','f1','F',$1)`, [p]);
+    await pool.query(`insert into groups (name, storage_plan_id) values ('G', $1)`, [q]);
+    await expect(pool.query(`delete from storage_plans where id = $1`, [p])).rejects.toMatchObject({ code: "23503", constraint: "users_storage_plan_fk" });
+    await expect(pool.query(`delete from storage_plans where id = $1`, [q])).rejects.toMatchObject({ code: "23503", constraint: "groups_storage_plan_fk" });
+  });
+
+  it("site_settings 沒有列 → 直插使用者撞 23502（column storage_plan_id）、不留列（§4.2 契約變更）", async () => {
+    const { pool } = await freshDb();
+    await pool.query(`delete from site_settings`);
+    await expect(pool.query(`insert into users (email, handle, display_name) values ('e@x.test','e1','E')`))
+      .rejects.toMatchObject({ code: "23502", column: "storage_plan_id" });
+    await expect(pool.query(`insert into groups (name) values ('G')`)).rejects.toMatchObject({ code: "23502", column: "storage_plan_id" });
+    expect((await pool.query(`select count(*)::int n from users`)).rows[0].n).toBe(0);
+    expect((await pool.query(`select count(*)::int n from groups`)).rows[0].n).toBe(0);
+  });
+
+  it("本支檔內無平行建索引／行首提交（單一 tx 前提的輔助 grep，比照 0015）", () => {
+    const sqlText = readFileSync(path.join(drizzleDirForTest, `${QUOTA_TAG}.sql`), "utf8");
     expect(sqlText).not.toMatch(/CONCURRENTLY/i);
     expect(sqlText).not.toMatch(/^\s*COMMIT/im);
   });

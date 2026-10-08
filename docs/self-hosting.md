@@ -138,6 +138,14 @@ When both **Allow registration** and **Allow password sign-in** are off, nobody 
 1. In **Site admin → Users**, create an account with the email they use on the identity provider and a temporary password, and give them the password. They sign in with **Sign in with …**, enter the temporary password on the **Link your sign-in** page, and are then asked to choose a new password before they get in (it isn't used to sign in while password sign-in is off, but the temporary one has to be replaced).
 2. Turn **Allow registration** on for a while, have them sign in with **Sign in with …** for the first time — that creates their account — and turn it off again. While it is on, anyone who can sign in to a sign-in service that is turned on, with an email that has no account yet, can create an account.
 
+## Storage quotas
+
+Every user's personal space and every group has a storage plan. A plan has a name and a limit in bytes (or no limit); a space's usage is the total size of the attachments in its notes, as recorded when they were uploaded or copied — note text doesn't count. A note's attachments are every file uploaded to it or copied into it, whether or not its content still shows them: removing an image from a note doesn't give its space back; deleting the note does. When a space is at or over its limit, no more attachments can be added to it: uploads into it are refused, and so are copies and moves into it, and group transfers to its owner, that would bring attachments. Nothing is deleted when a plan is lowered — a space that is over its new limit simply can't add attachments until it's under it again.
+
+A built-in plan named **Basic** (2 GiB) is created by the database migration, on fresh installs and upgrades alike; everyone and every group start on it. Basic can be renamed or resized like any other plan. Two defaults decide the plan of *newly created* users and groups (both Basic at first); changing a default doesn't move anyone who already exists. A plan that is a default, or that any user or group is on, can't be deleted. Plans, defaults and assignments are managed through the admin API (`/api/admin/storage-plans`, `/api/admin/users/:id/storage-plan`, `/api/admin/groups/:id/storage-plan` — see [the API reference](api.md)).
+
+If deleting a group with **transfer** is refused because the receiving admin's personal space has no room, give that person a larger plan, transfer to another admin, or delete the group's notes instead. If the `site_settings` row is ever removed by hand, creating users and groups fails until it's restored.
+
 ## Content Security Policy
 
 Knotebook serves its HTML with a Content-Security-Policy header (plus `Referrer-Policy: no-referrer` and `X-Content-Type-Options: nosniff`). It is not configurable — there is no environment variable for it. Three consequences for a self-hosted deployment:
@@ -177,6 +185,11 @@ then start that build. If you're upgrading from 0.4.1 or earlier, there were no 
 5. **Rolling back to v0.5:** put the three `OIDC_*` variables back into `.env` first — v0.5 only knows SSO from them. Identities linked after the upgrade aren't visible to v0.5, and v0.5 links by verified email again while it runs; whatever it links is picked up again on the next upgrade. So an SSO identity created or linked after the upgrade can sign in under v0.5 only if the identity provider marks its email as verified. When you upgrade again, remove the `OIDC_*` variables you put back — v0.6 doesn't import them a second time and only logs that they're ignored.
 
 **Body-text search.** The first start after upgrading to a version with body-text search indexes the existing notes in the background, after the server is already answering requests. The `app` log shows `全文索引回填開始` when that starts and `全文索引回填完成` when it is done; until then, `search_notes` finds a note it hasn't got to yet by its title only. Rolling back is harmless: an older server ignores the two tables that hold the index, `note_search_sections` and `note_search_state`. When you upgrade again, the first start indexes again whatever was edited or created while the older server ran, because the index has no entry for them, or one built from an older version.
+
+**Upgrading to the next release (storage quotas).**
+
+1. **Everyone starts on a 2 GiB plan.** The storage-quota migration puts every existing user and group on the 2 GiB Basic plan. Spaces already over 2 GiB keep everything but can't add attachments: after upgrading, check usage with `GET /api/admin/users` and `GET /api/admin/groups` and assign larger plans where needed (see [Storage quotas](#storage-quotas)).
+2. **Rolling back** to the previous image means no quota is enforced while it runs: the new table and columns stay in the database and the old server doesn't read them; users and groups it creates still get the default plan.
 
 Prefer rolling forward; if you must roll back, treat it as a temporary state.
 

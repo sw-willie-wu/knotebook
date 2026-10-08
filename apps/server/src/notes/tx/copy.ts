@@ -5,15 +5,19 @@
  *       → 群組不存在、非成員、無 can_create → 404 `group_not_found`（與路由交易外的快速檢查同形；同 `move.ts` (1)）。
  *   (0) 來源 `FOR KEY SHARE`（不擋一般 UPDATE、仍擋刪列——gate r1 M1）；讀不到 → 404
  *   (3) 只留**屬於來源**的附件（他篇的附件原樣引用）
- *   (4) `insertNoteWithAutoSlug` 交易內模式（savepoint 重試，§6.9）
- *   (5) 每個附件：新 id → copyFile → INSERT uploads（uploader＝複製者）→ 記 mapping；檔不在（ENOENT）→ 跳過（plan 規格落差 8）
- *   (6) 改寫網址後寫 `note_states` 首列（version 1，與 `persistNoteState` 首寫同形）
- *   (7) 寫全文索引（#93 §5.4；鎖序在 note_states 之後，對的是本交易新建的列）
- * 失敗時已落盤的新檔 id 留在 `input.copiedFileIds`，路由在交易外 best-effort 刪。
+ *   (4) 每個附件：新 id → 記入 `copiedFileIds` → copyFile；檔不在（ENOENT）→ 跳過（plan 規格落差 8）——**不持空間鎖**
+ *       （儲存配額 spec 2026-10-08 §6.4 I3：磁碟 I/O 不佔空間鎖；持有的只有 (g)／(0) 兩把 KEY SHARE，與改序前相同）
+ *   (5) incoming＝實際複製成功的 size 總和（磁碟已遺失而跳過的不計；`owned` 是 DB 列、已去重——同一附件被引用兩次只算一次）
+ *   (6) `assertSpaceRoomInTx(目標空間, incoming)`——在 (7) `insertNoteWithAutoSlug` **之前**（Q-S7：空間鎖先於該空間的
+ *       slug 寫入；R13）、(g)／(0) 兩把列鎖之後（Q-S2）。incoming＝0 時不取鎖（A4）
+ *   (7) `insertNoteWithAutoSlug` 交易內模式（savepoint 重試，§6.9）
+ *   (8) 逐列 INSERT uploads（uploader＝複製者）→ 改寫網址 → 寫 `note_states` 首列（version 1，與 `persistNoteState` 首寫同形）
+ *   (9) 寫全文索引（#93 §5.4；鎖序在 note_states 之後，對的是本交易新建的列）
+ * 被拒（`StorageQuotaExceeded`）或任何失敗：已落盤的新檔 id 在 `input.copiedFileIds`，路由在交易外 best-effort 刪。
  * 副本的 notes 列經 `insertNoteWithAutoSlug`（`create.ts`）寫入——那條 INSERT 不在本檔，S14 守衛 ① 掃不到它。
  * 副本的 `updated_at` 不在這裡寫：吃 DB default（新筆記＝本交易的 `now()`，必晚於來源；`test/unit/copy-doc.test.ts` 源碼守衛）。
  * 鎖序（spec §11；T4 review r1 I-1 改）：**目標 groups KEY SHARE → 來源筆記 KEY SHARE**（目標是個人時只有後者）。
- * 為什麼 groups 要在來源之前：來源與目標同在群組 G 時，若先鎖來源（G 的筆記）、再由 (4) INSERT 的 FK 檢查取 G 的
+ * 為什麼 groups 要在來源之前：來源與目標同在群組 G 時，若先鎖來源（G 的筆記）、再由 (7) INSERT 的 FK 檢查取 G 的
  * KEY SHARE，會與「groups FOR UPDATE → 該群組筆記 FOR UPDATE」（PR4 全刪的形）成環（review r1 實測 40P01；
  * `groups-v2-copy.test.ts` C19b 釘住）。現序下 `lockGroup` 方與 (g) 在各自的第一把鎖就互斥，後到者等的時候不持任何鎖。
  * (g) 也關掉「複製∥移除成員／降級」的授權窗口（C19a／C19c）：`lockGroup`（T6／T7 刪群組、T9–T11 成員異動、PR3 角色異動）
@@ -23,7 +27,9 @@
  * 與其他路徑的鎖對（逐一）：移動＝筆記 FOR UPDATE → groups KEY SHARE——與 (g) 兩把 KEY SHARE 互容，交集只在來源列
  * （KEY SHARE vs FOR UPDATE），持該列的移動之後只要 groups KEY SHARE、不等複製，不成環；PATCH slug／刪筆記只鎖筆記列、
  * 不碰 groups；shares PUT 的 FOR SHARE、改群組名的 NO KEY UPDATE 都與 KEY SHARE 互容。
- * (g) 之後群組刪不掉，(4) 的 INSERT 不會撞 FK 23503；路由的 23503 → 404 映射只剩防禦縱深。
+ * (g) 之後群組刪不掉，(7) 的 INSERT 不會撞 FK 23503；路由的 23503 → 404 映射只剩防禦縱深。
+ * 空間鎖（(6)）在上述兩把列鎖之後；取得它之後只再取 Q-S6 允許的鎖（新列、`users` 的 FK KEY SHARE、已持有列的 FK、本空間
+ * slug 唯一索引的插入等待）——無環論證見儲存配額 spec §6.1。
  */
 import { randomUUID } from "node:crypto";
 import { copyFile } from "node:fs/promises";
@@ -34,6 +40,8 @@ import { groupMembers, groupRoles, groups, noteStates, notes, uploads } from "..
 import type { GroupTestHook } from "../../groups/test-hook.js";
 import { TxAbort } from "../../http/tx-abort.js";
 import { uploadFilePath } from "../../uploads/service.js";
+import type { StorageSpace } from "../../storage/space.js";
+import { assertSpaceRoomInTx } from "../../storage/tx/quota.js";
 import { rewriteUploadUrls, type CopyDoc } from "../copy-doc.js";
 import { insertNoteWithAutoSlug, type NoteCreateHooks } from "../create.js";
 import type { NoteGroupFlags } from "../service.js";
@@ -51,6 +59,8 @@ export interface CopyNoteInput {
   copiedFileIds: string[];
   /** #93 §5.4：交易前由路由對 clone 抽好的索引（純資料）。交易內唯一改 doc 的 `rewriteUploadUrls` 只改 `url` 屬性，url 不入索引。 */
   searchExtract: SearchExtract;
+  /** 空間鎖等待上限（ms），路由從 deps 帶入。 */
+  lockTimeoutMs: number;
 }
 
 function isMissingFile(err: unknown): boolean {
@@ -99,12 +109,10 @@ export async function copyNoteInTx(tx: Tx, input: CopyNoteInput, hook?: GroupTes
     .from(uploads)
     .where(and(inArray(uploads.id, wanted), eq(uploads.noteId, input.sourceId)));
 
-  const created = await insertNoteWithAutoSlug(tx, input.scope, src.title, createHooks, { inTx: true });
-
-  const mapping = new Map<string, string>();
+  // (4) 先複製檔（不持空間鎖）。先記再複製：copyFile 中途失敗（目的檔可能已寫了一半）時，路由的清檔名單也涵蓋它。
+  const copied: Array<{ newId: string; oldId: string; mime: string; size: number }> = [];
   for (const u of owned) {
     const newId = randomUUID();
-    // 先記再複製：copyFile 中途失敗（目的檔可能已寫了一半）時，路由的清檔名單也涵蓋它。
     input.copiedFileIds.push(newId);
     try {
       await copyFile(uploadFilePath(input.uploadsDir, u.id), uploadFilePath(input.uploadsDir, newId));
@@ -115,15 +123,33 @@ export async function copyNoteInTx(tx: Tx, input: CopyNoteInput, hook?: GroupTes
       }
       throw err;
     }
-    await tx.insert(uploads).values({ id: newId, noteId: created.id, uploaderId: input.userId, mime: u.mime, size: u.size });
-    mapping.set(u.id.toLowerCase(), newId);
+    copied.push({ newId, oldId: u.id, mime: u.mime, size: u.size });
+  }
+  await hook?.("note-copy-files-copied", { noteId: input.sourceId });
+
+  // (5)(6) 儲存配額：只算實際複製成功的；空間鎖在 (g)／(0) 兩把列鎖之後（Q-S2）、slug 寫入之前（Q-S7）。
+  const incoming = copied.reduce((sum, c) => sum + c.size, 0);
+  const targetSpace: StorageSpace = "groupId" in input.scope ? { kind: "group", id: input.scope.groupId } : { kind: "user", id: input.scope.ownerId };
+  await assertSpaceRoomInTx(tx, targetSpace, incoming, {
+    lockTimeoutMs: input.lockTimeoutMs,
+    hook,
+    hookCtx: "groupId" in input.scope ? { noteId: input.sourceId, groupId: input.scope.groupId } : { noteId: input.sourceId },
+  });
+
+  // (7)
+  const created = await insertNoteWithAutoSlug(tx, input.scope, src.title, createHooks, { inTx: true });
+
+  // (8)
+  const mapping = new Map<string, string>();
+  for (const c of copied) {
+    await tx.insert(uploads).values({ id: c.newId, noteId: created.id, uploaderId: input.userId, mime: c.mime, size: c.size });
+    mapping.set(c.oldId.toLowerCase(), c.newId);
   }
   rewriteUploadUrls(input.copy, mapping);
-  await hook?.("note-copy-files-copied", { noteId: created.id });
 
   await tx.insert(noteStates).values({ noteId: created.id, ydoc: Buffer.from(Y.encodeStateAsUpdate(input.copy.doc)), version: 1 });
   // #93 §5.4：同一交易寫索引——複製成功就有索引，失敗一起 rollback。新筆記在本交易內才建立，SearchIndexSkip 不會發生；
-  // 若發生（不可能的路徑）就讓整個複製失敗，不吞（路由的 catch 只認 TxAbort／FK，其餘 rethrow → 500）。
+  // 若發生（不可能的路徑）就讓整個複製失敗，不吞（路由的 catch 只認 TxAbort（含其子類 StorageQuotaExceeded）／FK，其餘 rethrow → 500）。
   await replaceNoteSearchIndexInTx(tx, { noteId: created.id, sourceVersion: 1, extract: input.searchExtract }, searchHooks);
   return { note: created, target };
 }

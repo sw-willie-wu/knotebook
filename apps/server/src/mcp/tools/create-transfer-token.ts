@@ -4,7 +4,7 @@
  *
  * **流程順序是契約**（spec §6.3）：① upload → `requireWriteScope`（扣 `tokenWrite`）② `resolveNoteAccess`（none →
  * not_found 同字串；upload＋viewer → forbidden）③ download → 扣 `contentRead`（不 touch presence：簽 token 不是讀內容）
- * ③a 配額預檢插槽 ④ 交易（`issueTransferTokenInTx`，S14：交易內只有那三句）⑤ 交易外清理（fire-and-forget）→ 結果。
+ * ③a upload → 儲存配額「已滿」預檢（已滿 → storage_quota_exceeded、不簽）④ 交易（`issueTransferTokenInTx`，S14：交易內只有那三句）⑤ 交易外清理（fire-and-forget）→ 結果。
  *
  * **只在 token 路徑註冊**（`register.ts`）：session 沒有母憑證可綁，而經 session 打 `/api/mcp` 的只會是同源瀏覽器，
  * 它本來就能直接用 cookie 上傳與看圖。
@@ -12,6 +12,7 @@
  * **密文不進 log**：明文只在這個回應本文裡；SQL 參數只有雜湊；`runTool` 只在例外時 log `{err, tool}`。
  */
 import { z } from "zod";
+import { eq } from "drizzle-orm";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { hashToken } from "../../auth/api-token.js";
 import { deleteExpiredTransferTokens } from "../../auth/transfer-cleanup.js";
@@ -27,9 +28,13 @@ import {
   type IssueTransferTokenResult,
 } from "../../auth/tx/issue-transfer-token.js";
 import { checkViolationConstraint, isForeignKeyViolation, pgErrorSummary } from "../../db/pg-errors.js";
+import { users } from "../../db/schema.js";
 import { redactDbError } from "../../lib/redact-db-error.js";
 import { NOTE_ID } from "../../notes/schemas.js";
 import { resolveNoteAccess } from "../../notes/service.js";
+import { formatBytes } from "../../storage/format-bytes.js";
+import { spaceOfNote } from "../../storage/space.js";
+import { canViewSpaceUsage, isSpaceFull, readSpaceUsage } from "../../storage/usage.js";
 import { NOTE_NOT_FOUND_MESSAGE, READ_RATE_LIMITED_MESSAGE } from "../note-read.js";
 import { toolError, toolResult } from "../tool-result.js";
 import { requireWriteScope } from "../write-scope.js";
@@ -74,7 +79,9 @@ export const createTransferTokenOutput = {
 };
 
 /**
- * spec §6.4 upload `next`（**本棒版**：配額未落地，兩句 409 不在——上傳路徑還沒有 409；配額那棒加）。逐句綁定：
+ * spec §6.4 upload `next`（定稿全文，含儲存配額那棒加入的兩句 409）。逐句綁定（409 兩句在 `transfer-tokens.test.ts` 的
+ * 「× 儲存配額」describe：`storage_quota_exceeded` 由「空間已滿 → 409、token 未消費、騰出後同一支 201」與「放不下 → 交易內
+ * 409、token 已燒」兩案綁；`server_busy` 由 55P03 縫那案綁——token 已燒、同一支之後 401、新 token 201）；其餘：
  * 401（T3、T4、T8）；403／429 不燒（T5、T7、T9、T17；per-IP `bearerMiss` 的 429 只取代本來的 401，該次請求同樣沒有
  * 消費——T19b。所以措辭是「這次被拒不會用掉 token」而不是「token 仍未使用」：bearerMiss 那形的 token 可能早已用過）；404 的兩個來源——消費前的角色重驗 none（T9「移除分享 → 404」）
  * 與消費後筆記在上傳途中被刪（T24，真 socket）；413／415 燒（T11、T12；400 亦燒，RF5）。全在 `test/transfer-tokens.test.ts`。
@@ -84,7 +91,9 @@ export const UPLOAD_NEXT =
   "The reply is JSON `{id, url}`. Put the image in the note with edit_note using markdown `![description](url)`, with " +
   "`url` exactly as returned (`/api/uploads/<id>`, relative). The token is good for one upload until `expiresAt`. A 401 " +
   "means the token can't be used (expired, already used, or revoked) — ask for a new one. A 403 or 429 doesn't use the " +
-  "token up (after a 429, wait a moment and retry); a 404 means the note is gone or you can no longer see it. Once the server has started reading the file, a " +
+  "token up (after a 429, wait a moment and retry); a 404 means the note is gone or you can no longer see it. " +
+  "A 409 `storage_quota_exceeded` means the note's storage space has no room for this file: don't retry until space has been freed, and then ask for a new token. " +
+  "A 409 `server_busy` means the server was busy and the token is used up: ask for a new token and retry. Once the server has started reading the file, a " +
   "rejection (for example 413: too large, 415: not a PNG, JPEG, GIF or WebP image) still uses the token up.";
 
 /**
@@ -106,6 +115,21 @@ export const REVOKED_MESSAGE = "This credential was revoked or expired while the
  */
 export const TOO_MANY_PENDING_MESSAGE =
   "This credential already has 5 unused upload tokens. Use them, or wait for them to expire (within 10 minutes), before asking for another.";
+
+/**
+ * 儲存配額 spec §8.3-3 逐字（可見形：呼叫者能檢視該空間用量——個人空間本人、群組 manageGroup、站台 admin）。
+ * 數字以 `formatBytes` 印；`extra` 另帶兩個原始數字。綁定：`mcp-transfer.test.ts` 的配額預檢案。
+ */
+export function storageFullVisibleMessage(usedBytes: number, quotaBytes: number): string {
+  return (
+    `This note's storage space is full (${formatBytes(usedBytes)} of ${formatBytes(quotaBytes)} used), so no image can be uploaded to it. ` +
+    "A site admin can assign a larger storage plan; deleting notes that have images also frees space."
+  );
+}
+
+/** 儲存配額 spec §8.3-3 逐字（不可見形：不帶數字、不帶 `extra`）。 */
+export const STORAGE_FULL_HIDDEN_MESSAGE =
+  "This note's storage space is full, so no image can be uploaded to it. Ask the note's owner or a site admin for more space.";
 
 export interface CreateTransferTokenArgs {
   note_id: string;
@@ -133,8 +157,22 @@ export async function createTransferToken(args: CreateTransferTokenArgs, ctx: Mc
     return toolError("too_many_requests", READ_RATE_LIMITED_MESSAGE);
   }
 
-  // ③a 配額預檢插槽（spec §6.3-3a）：upload 時「空間已滿 → storage_quota_exceeded，不簽 token」由配額那一棒落在
-  //    這裡（storage-quota spec §8.3 第 3 點）。本棒不實作判定。
+  // ③a 配額預檢（spec §6.3-3a；儲存配額 spec §8.3-3）：upload 時空間已滿 → storage_quota_exceeded，不簽 token
+  //    （與上傳 preHandler 第 4a 步同一判準 `isSpaceFull`）。空間取 ② 的 `access`，不另查；兩句讀都在交易外（S14）。
+  if (args.purpose === "upload") {
+    const space = spaceOfNote(access);
+    const usage = await readSpaceUsage(ctx.db, space);
+    if (isSpaceFull(usage)) {
+      // `McpToolCtx` 沒有 isAdmin：只在已滿時讀一次（平常路徑不多一句）。
+      const [me] = await ctx.db.select({ isAdmin: users.isAdmin }).from(users).where(eq(users.id, ctx.userId));
+      return (await canViewSpaceUsage(ctx.db, { id: ctx.userId, isAdmin: me?.isAdmin === true }, space))
+        ? toolError("storage_quota_exceeded", storageFullVisibleMessage(usage.usedBytes, usage.quotaBytes), {
+            usedBytes: usage.usedBytes,
+            quotaBytes: usage.quotaBytes,
+          })
+        : toolError("storage_quota_exceeded", STORAGE_FULL_HIDDEN_MESSAGE);
+    }
+  }
 
   // ④ 交易外算好純資料（S14）：明文與雜湊都在這裡，交易內只有三句。
   const token = generateTransferToken();

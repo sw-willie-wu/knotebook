@@ -34,7 +34,10 @@ export type GroupRacePoint =
   | "note-copy-target-locked"
   /** #175 PR2 T4（`notes/tx/copy.ts`）：(0) `FOR KEY SHARE` 鎖住來源之後（目標是群組時 (g) 也已持鎖）、讀附件與建副本之前。 */
   | "note-copy-locked"
-  /** #175 PR2 T4：附件檔已複製、uploads 列已寫、`note_states` 尚未寫入之前（測試在這裡丟錯模擬 DB 失敗）。 */
+  /**
+   * #175 PR2 T4；儲存配額起：附件檔已複製（`copyFile` 迴圈之後）、取空間鎖與建副本之前（ctx.noteId＝**來源**——副本此時還沒建）；
+   * 測試在這裡丟錯模擬失敗。
+   */
   | "note-copy-files-copied"
   /** #175 PR2：by-path 兩形（/n/、/g/）取到列之後、授權（`authorizeRow`）之前——「取列後被移動」的窗。 */
   | "path-resolved"
@@ -43,6 +46,12 @@ export type GroupRacePoint =
   /** #175 PR4 `DELETE /api/groups/:id` 全刪模式（路由，**交易外**）：P0 的 gate 全部開完之後、`BEGIN` 之前——「gate 之後才進群組」（L \ P0，C12）與 C17 的窗。 */
   | "group-delete-gated"
   /** 刪群組（`groups/tx/delete-group.ts`）：T6 轉移＝`lockGroup`＋transferTo 檢查通過之後、取成員與筆記之前；T7 全刪＝`lockGroup` 之後、取 L 之前。 */
-  | "group-delete-locked";
+  | "group-delete-locked"
+  /**
+   * 儲存配額（spec §5.3 第 4a 步）：`assertSpaceRoomInTx` 取得空間 advisory 鎖、`lock_timeout` 已復原之後，讀配額與 SUM 之前。
+   * 四支白名單交易（上傳 U-tx、T3 移動、T4 複製、T6 轉移）都經過它；ctx 由呼叫端帶（上傳 `{noteId}`、移動 `{noteId, groupId}`、
+   * 複製 `{noteId: 來源, groupId?: 目標群組}`、轉移 `{groupId: 被刪的群組}`）。
+   */
+  | "storage-space-locked";
 
 export type GroupTestHook = (point: GroupRacePoint, ctx: { noteId?: string; groupId?: string; slug?: string }) => Promise<void>;

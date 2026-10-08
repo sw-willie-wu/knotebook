@@ -18,7 +18,7 @@ import {
   type ShareDto,
 } from "@knotebook/shared";
 import { WRITE_BODY_LIMIT } from "../http/body-limits.js";
-import { sendError } from "../http/errors.js";
+import { sendError, sendStorageQuotaExceeded } from "../http/errors.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
 import { groups, noteShares, notes, uploads, users } from "../db/schema.js";
@@ -71,8 +71,11 @@ import {
 import { fetchBacklinks, normalizeLinkTargets, syncLinksFromDoc, writeNoteLinks, type WriteNoteLinksHooks } from "../notes/links.js";
 import { signCollabToken } from "../collab/token.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
-import { isForeignKeyViolation, uniqueViolationConstraint } from "../db/pg-errors.js";
+import { isForeignKeyViolation, isRetryableTxError, uniqueViolationConstraint } from "../db/pg-errors.js";
 import { deleteUploadFiles } from "../uploads/service.js";
+import type { StorageSpace } from "../storage/space.js";
+import { StorageQuotaExceeded } from "../storage/tx/quota.js";
+import { isSpaceFull, precheckDetail, quotaErrorDetail, readSpaceUsage } from "../storage/usage.js";
 
 
 // PATCH 契約（spec §11.4 逐字）：title／slug 皆選配，但至少要帶一項——兩者都缺時走
@@ -176,6 +179,8 @@ export interface NotesRouteDeps {
    * （見 `app.ts` 註冊點）。
    */
   uploadsDir: string;
+  /** 空間鎖等待上限（ms），透傳自 `AppDeps.storageLockTimeoutMs`（儲存配額 §5.3；移動與複製交易用）。 */
+  storageLockTimeoutMs: number;
 }
 
 // 只列出 toNoteDto 實際會用到的欄位（而非完整 `typeof notes.$inferSelect`）：GET
@@ -1010,14 +1015,20 @@ export function notesRoutes(deps: NotesRouteDeps) {
       if (!UUID_RE.test(parsed.data.groupId)) return sendError(reply, 404, "group_not_found", "找不到此群組");
 
       // S14：callback 整段就是 `moveNoteToGroupInTx(tx, …)`，引數是交易前備好的純資料與測試縫。
-      const input = { noteId: id, userId, userHandle: request.user!.handle, groupId: parsed.data.groupId.toLowerCase() };
+      const input = {
+        noteId: id, userId, userHandle: request.user!.handle, groupId: parsed.data.groupId.toLowerCase(), lockTimeoutMs: deps.storageLockTimeoutMs,
+      };
       let moved;
       try {
         moved = await deps.db.transaction(tx => moveNoteToGroupInTx(tx, input, deps.groupTestHook));
       } catch (err) {
+        // 先判子類（StorageQuotaExceeded extends TxAbort）：反序會失去數字。數字可見性在交易外判（儲存配額 §8.1）。
+        if (err instanceof StorageQuotaExceeded) return sendStorageQuotaExceeded(reply, await quotaErrorDetail(deps.db, request.user!, err));
         if (err instanceof TxAbort) return sendError(reply, err.status, err.errCode, err.message);
         // 防禦縱深：(1) 已持目標群組列的 KEY SHARE，群組在交易中刪不掉、UPDATE 不會撞 FK 23503；撞到也回同一條 404（catch 在交易外）。
         if (isForeignKeyViolation(err)) return sendError(reply, 404, "group_not_found", "找不到此群組");
+        // 儲存配額 §6.9：空間鎖逾時（55P03）／死結（40P01，含既有 T3×T6 在 note_redirects 的形）／40001 → 409 server_busy。
+        if (isRetryableTxError(err)) return sendError(reply, 409, "server_busy", "伺服器忙碌，請稍後再試");
         throw err;
       }
       deps.collabHooks.onGroupAccessChanged([id], [...new Set([...moved.removedShareUserIds, userId])]);
@@ -1068,16 +1079,25 @@ export function notesRoutes(deps: NotesRouteDeps) {
       const toCopy = wanted.length === 0
         ? 0
         : (await deps.db.select({ n: sql<number>`count(*)::int` }).from(uploads).where(and(inArray(uploads.id, wanted), eq(uploads.noteId, id))))[0]!.n;
+      // 儲存配額 §6.4-3a：不持鎖的「已滿」預檢——有附件要複製、且目標空間已滿 → 409，不開交易、不寫檔、不扣 upload 桶。
+      // 只在 toCopy > 0 時做（A4：無附件的複製不受配額限——起草裁定 1／Review Focus RF2）。權威判定在交易內（鎖內、以實際複製的大小）。
+      if (toCopy > 0) {
+        const targetSpace: StorageSpace = "groupId" in scope ? { kind: "group", id: scope.groupId } : { kind: "user", id: userId };
+        const usage = await readSpaceUsage(deps.db, targetSpace);
+        if (isSpaceFull(usage)) return sendStorageQuotaExceeded(reply, await precheckDetail(deps.db, request.user!, targetSpace, usage));
+      }
       if (!deps.limiters.upload.consumeMany(userId, toCopy)) return sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
       // S14：callback 整段就是 `copyNoteInTx(tx, …)`，引數是交易前備好的純資料（`copiedFileIds` 是 out 參數）與測試縫。
       const copiedFileIds: string[] = [];
-      const input = { sourceId: id, userId, scope, copy, uploadsDir: deps.uploadsDir, copiedFileIds, searchExtract };
+      const input = { sourceId: id, userId, scope, copy, uploadsDir: deps.uploadsDir, copiedFileIds, searchExtract, lockTimeoutMs: deps.storageLockTimeoutMs };
       let created;
       try {
         created = await deps.db.transaction(tx => copyNoteInTx(tx, input, deps.groupTestHook, deps.noteCreateHooks, deps.searchIndexHooks));
       } catch (err) {
-        // 交易已 rollback（uploads 列不在了）：best-effort 刪掉已落盤的新檔，失敗只記 log。
+        // 交易已 rollback（uploads 列不在了；配額被拒時列根本還沒寫）：best-effort 刪掉已落盤的新檔，失敗只記 log。
         await deleteUploadFiles(deps.uploadsDir, copiedFileIds, request.log);
+        // 先判子類（StorageQuotaExceeded extends TxAbort）：反序會失去數字。
+        if (err instanceof StorageQuotaExceeded) return sendStorageQuotaExceeded(reply, await quotaErrorDetail(deps.db, request.user!, err));
         if (err instanceof TxAbort) return sendError(reply, err.status, err.errCode, err.message);
         if (isForeignKeyViolation(err)) {
           // 防禦縱深：群組目標在 (g) 已持 groups KEY SHARE，群組在交易中刪不掉，INSERT 不會撞 FK 23503；撞到也回同一條 404。
@@ -1087,6 +1107,8 @@ export function notesRoutes(deps: NotesRouteDeps) {
           // （詞不對題，review r1 M-3），回通用 404 `not_found`——對已不存在的帳號而言，「找不到」是最不誤導的答案。
           return noteNotFound(reply);
         }
+        // 儲存配額 §6.9：空間鎖逾時（55P03）／死結（40P01）／40001 → 409 server_busy（已複製的檔已在上面清掉）。
+        if (isRetryableTxError(err)) return sendError(reply, 409, "server_busy", "伺服器忙碌，請稍後再試");
         throw err;
       }
       const { note: createdNote, target } = created;

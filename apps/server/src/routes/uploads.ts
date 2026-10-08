@@ -6,15 +6,21 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { UserGate } from "../auth/session.js";
 import { createTransferAuth } from "../auth/transfer-auth.js";
 import { drainWithCap } from "../http/drain.js";
-import { sendError } from "../http/errors.js";
+import { sendError, sendStorageQuotaExceeded } from "../http/errors.js";
+import { TxAbort } from "../http/tx-abort.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
-import { isForeignKeyViolation } from "../db/pg-errors.js";
+import { isForeignKeyViolation, isRetryableTxError } from "../db/pg-errors.js";
 import { transferTokens, uploads } from "../db/schema.js";
+import type { GroupTestHook } from "../groups/test-hook.js";
 import { resolveNoteAccess, resolveRole, UUID_RE } from "../notes/service.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
+import { spaceOfNote } from "../storage/space.js";
+import { StorageQuotaExceeded } from "../storage/tx/quota.js";
+import { isSpaceFull, precheckDetail, quotaErrorDetail, readSpaceUsage } from "../storage/usage.js";
 import { detectImageMimeType } from "../uploads/magic-bytes.js";
 import { uploadFilePath } from "../uploads/service.js";
+import { insertUploadInTx } from "../uploads/tx/insert-upload.js";
 
 export interface UploadsRouteDeps {
   db: Db;
@@ -28,6 +34,10 @@ export interface UploadsRouteDeps {
    */
   limiters: { upload: FixedWindowLimiter; bearerMiss: FixedWindowLimiter; tokenRead: FixedWindowLimiter };
   uploadsDir: string;
+  /** 交錯點測試注入縫（`groups/test-hook.ts`），透傳自 `AppDeps.groupTestHook`（配額的 `storage-space-locked`）。 */
+  groupTestHook?: GroupTestHook;
+  /** 空間鎖等待上限（ms），透傳自 `AppDeps.storageLockTimeoutMs`（預設 `DEFAULT_STORAGE_LOCK_TIMEOUT_MS`）。 */
+  storageLockTimeoutMs: number;
 }
 
 /**
@@ -35,16 +45,17 @@ export interface UploadsRouteDeps {
  *
  * `POST /api/notes/:id/uploads` 的 multipart body 解析與 CSRF 豁免（essence 檢查 +
  * Origin 驗證）在 `app.ts` 的全域 `onRequest` hook 已完成（Task 10a）——本模組只處理
- * routing 之後的邏輯：authenticate → editor+ 權限 → 節流 → 解析 multipart body →
- * magic bytes 偵測 → 寫檔 → INSERT。
+ * routing 之後的邏輯：authenticate → editor+ 權限 → 節流 → 儲存配額「已滿」預檢 → 解析 multipart body →
+ * magic bytes 偵測 → 寫檔 → 交易（筆記 KEY SHARE → 空間鎖＋配額 → INSERT；`uploads/tx/insert-upload.ts`）。
  *
  * `@fastify/multipart` 本身**必須**在頂層 `app`（非 encapsulated plugin）註冊——見
  * `app.ts` 的註冊點註解。本模組不重複註冊它，只消費 `request.parts()`。
  *
  * #200：兩支路由在 session 之外加收 **transfer token**（`auth/transfer-auth.ts`；一般 PAT／OAuth Bearer 不收，
  * spec §5.1）。POST 的 preHandler 順序是契約（spec §5.2）：認證 → token 的筆記＝路徑筆記 → 使用當下角色 → 上傳節流
- * →（配額預檢插槽）→ 原子消費；全部在 `request.parts()` 之前、每個早退都 drain。**消費之後**（server 開始讀檔之後）
- * 的任何失敗都燒掉 token、不退還（spec §5.2、Q2）。CSRF：`MULTIPART_EXEMPT_ROUTES` 不變——Bearer 不是 ambient 憑證。
+ * → 儲存配額「已滿」預檢（第 4a 步；已滿不燒 token）→ 原子消費；全部在 `request.parts()` 之前、每個早退都 drain。
+ * **消費之後**（server 開始讀檔之後）的任何失敗都燒掉 token、不退還（spec §5.2、Q2）——含交易內的 409
+ * `storage_quota_exceeded`（放不下）與 409 `server_busy`（空間鎖逾時／死結），兩種 409 都與預檢的同碼同形。CSRF：`MULTIPART_EXEMPT_ROUTES` 不變——Bearer 不是 ambient 憑證。
  */
 export function uploadsRoutes(deps: UploadsRouteDeps) {
   return async function register(app: FastifyInstance): Promise<void> {
@@ -58,7 +69,7 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
     const downloadAuth = transferAuth.require("download");
 
     /**
-     * 認證 + 授權 + 節流全部收在 preHandler，且**每個早退分支都要先 drain**
+     * 認證 + 授權 + 節流 + 儲存配額「已滿」預檢全部收在 preHandler，且**每個早退分支都要先 drain**
      * （`drainWithCap`，spec §13.2）——這幾個檢查都在真的開始解析 multipart body
      * （`request.parts()`）之前執行，而 `@fastify/multipart` 的 content-type parser
      * （`setMultipart`）本身完全不讀 body，只是設個旗標；若不主動 drain，未被消費的
@@ -99,7 +110,6 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
         sendError(reply, 403, "forbidden", "沒有編輯權限");
         return;
       }
-      request.uploadSpace = { ownerId: access.ownerId, groupId: access.groupId };
 
       // 第 4 步：排在消費 token 之前——被 429 擋下時 token 不被燒掉。
       if (!deps.limiters.upload.consume(userId)) {
@@ -108,8 +118,15 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
         return;
       }
 
-      // 第 4a 步（配額預檢插槽，spec §5.2-4a）：儲存配額的「空間已滿」預檢（不持鎖、不讀 body、在消費 token 之前，
-      // 已滿就不燒 token）由配額那一棒落在這裡（storage-quota spec §6.3-1、§8.3）。本棒不實作判定。
+      // 第 4a 步（配額預檢，#200 spec §5.2-4a；儲存配額 §6.3-1、§8.3）：不持鎖的「已滿」預檢——讀 body 之前、
+      // 消費 token 之前，所以已滿不燒 token。放得下與否的權威判定在交易內（insertUploadInTx）；這裡只擋「已經滿了」。
+      const space = spaceOfNote(access);
+      const usage = await readSpaceUsage(deps.db, space);
+      if (isSpaceFull(usage)) {
+        drainWithCap(request);
+        sendStorageQuotaExceeded(reply, await precheckDetail(deps.db, request.user!, space, usage));
+        return;
+      }
 
       // 第 5 步：原子消費。兩發並發同一支 token：row lock 讓後到的那句看到 consumed_at 已非 NULL → 0 列 → 401；
       // body 都還沒讀，第二發不會寫任何東西到磁碟。到期以 DB now() 判（與認證那句同一個時鐘）。
@@ -212,16 +229,23 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
       await writeFile(tempPath, fileBuf);
       await rename(tempPath, finalPath);
 
+      // 儲存配額 U-tx（§6.3-2）：筆記 KEY SHARE → 空間鎖＋配額 → INSERT。S14：callback 整段是 insertUploadInTx(tx, …)，引數是
+      // 交易前備好的純資料與測試縫（屬性存取）。
+      const input = { id, noteId: noteId.toLowerCase(), uploaderId: userId, mime, size: fileBuf.length, lockTimeoutMs: deps.storageLockTimeoutMs };
       try {
-        await deps.db.insert(uploads).values({ id, noteId, uploaderId: userId, mime, size: fileBuf.length });
+        await deps.db.transaction(tx => insertUploadInTx(tx, input, deps.groupTestHook));
       } catch (err) {
-        // best-effort 清檔：INSERT 失敗（例如 noteId 剛好在這個請求處理期間被刪除，
-        // FK violation）就不該留下一個 DB 沒有紀錄、卻真的佔用磁碟空間的孤兒檔案。
-        // 清檔本身失敗（理論上不太可能，寫入才剛成功）不影響「INSERT 失敗」這個
-        // 結論，不因此吞掉原始錯誤。
+        // 交易任何拋出都先清檔（M4）：DB 沒有列的檔不該留在磁碟。清檔本身失敗（理論上不太可能，寫入才剛成功）
+        // 不吞原錯誤。
         await unlink(finalPath).catch(() => {});
-        // 筆記在處理途中被刪（FK 23503）是預期內的業務情形，回 404（同本檔 authAndAuthorize 的 none 分支），不是 500。
+        // 先判子類（StorageQuotaExceeded extends TxAbort）：反序會失去數字。
+        if (err instanceof StorageQuotaExceeded) return sendStorageQuotaExceeded(reply, await quotaErrorDetail(deps.db, request.user!, err));
+        // 筆記在處理途中被刪：交易內 KEY SHARE 讀到 0 列 → TxAbort 404（同本檔 authAndAuthorize 的 none 分支），不是 500。
+        if (err instanceof TxAbort) return sendError(reply, err.status, err.errCode, err.message);
+        // 防禦縱深：交易已持筆記 KEY SHARE，INSERT 不會撞 FK；撞到也回同一條 404（同既有語意）。
         if (isForeignKeyViolation(err)) return sendError(reply, 404, "not_found", "找不到此筆記");
+        // §6.9：空間鎖逾時（55P03）／死結（40P01）／序列化失敗（40001）→ 409 server_busy（字面同 routes/groups.ts）。
+        if (isRetryableTxError(err)) return sendError(reply, 409, "server_busy", "伺服器忙碌，請稍後再試");
         throw err;
       }
 

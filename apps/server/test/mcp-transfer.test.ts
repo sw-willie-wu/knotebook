@@ -9,7 +9,7 @@ import { eq, sql } from "drizzle-orm";
 import type { IssueTransferTokenSeam } from "../src/auth/tx/issue-transfer-token.js";
 import { MAX_PENDING_UPLOAD_TOKENS } from "../src/auth/transfer-token.js";
 import { loadConfig } from "../src/config.js";
-import { apiTokens, notes, transferTokens } from "../src/db/schema.js";
+import { apiTokens, notes, transferTokens, users } from "../src/db/schema.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 import { NOTE_NOT_FOUND_MESSAGE } from "../src/mcp/note-read.js";
 import {
@@ -17,15 +17,18 @@ import {
   CREATE_TRANSFER_TOKEN_DESCRIPTION_RW,
   DOWNLOAD_NEXT,
   REVOKED_MESSAGE,
+  STORAGE_FULL_HIDDEN_MESSAGE,
   TOO_MANY_PENDING_MESSAGE,
   UPLOAD_NEXT,
   VIEWER_UPLOAD_MESSAGE,
+  storageFullVisibleMessage,
 } from "../src/mcp/tools/create-transfer-token.js";
 import { buildTestApp, freshLimiters } from "./helpers.js";
 import { seedTokenForUser } from "./editing-helpers.js";
 import { cookieOf, seedShare, seedUser } from "./group-helpers.js";
 import { mcpPost, rpc } from "./mcp-helpers.js";
 import { PNG_BYTES, expireToken, fileBody, issueDirect, ownerWithPat, upload } from "./transfer-helpers.js";
+import { giveUserQuota, seedAttachment } from "./storage-helpers.js";
 import { SESSION_COOKIE } from "@knotebook/shared";
 
 const ORIGIN = "https://kb.example.test:8443";
@@ -113,6 +116,17 @@ describe("M2：create_transfer_token 的流程（spec §6.3、§6.4）", () => {
     // bearerMiss 的 429 取代的是 401，token 可能早已用過——只能說「這次被拒不會用掉它」（終審 Minor 1）。
     expect(UPLOAD_NEXT).toContain("A 403 or 429 doesn't use the token up");
     expect(UPLOAD_NEXT).not.toContain("leaves the token unused");
+    // 全文逐字＝#200 spec §6.4 定稿（含儲存配額那棒加入的兩句 409，位置在 404 那句之後、413／415 那句之前）。
+    expect(UPLOAD_NEXT).toBe(
+      "The reply is JSON `{id, url}`. Put the image in the note with edit_note using markdown `![description](url)`, with " +
+        "`url` exactly as returned (`/api/uploads/<id>`, relative). The token is good for one upload until `expiresAt`. A 401 " +
+        "means the token can't be used (expired, already used, or revoked) — ask for a new one. A 403 or 429 doesn't use the " +
+        "token up (after a 429, wait a moment and retry); a 404 means the note is gone or you can no longer see it. A 409 " +
+        "`storage_quota_exceeded` means the note's storage space has no room for this file: don't retry until space has been " +
+        "freed, and then ask for a new token. A 409 `server_busy` means the server was busy and the token is used up: ask for " +
+        "a new token and retry. Once the server has started reading the file, a rejection (for example 413: too large, 415: " +
+        "not a PNG, JPEG, GIF or WebP image) still uses the token up."
+    );
     const exp = Date.parse(p.expiresAt);
     expect(exp).toBeGreaterThanOrEqual(before + 10 * 60_000 - 5_000);
     expect(exp).toBeLessThanOrEqual(Date.now() + 10 * 60_000 + 5_000);
@@ -254,6 +268,89 @@ describe("M2：create_transfer_token 的流程（spec §6.3、§6.4）", () => {
       .where(sql`${transferTokens.purpose} = 'upload' and ${transferTokens.consumedAt} is null`)
       .limit(1);
     await expireToken(db, row!.id);
+    expect((await call(app, o.pat, { note_id: o.noteId, purpose: "upload" })).isError).toBeUndefined();
+  });
+});
+
+describe("③a 儲存配額「已滿」預檢（#200 spec §6.3-3a；儲存配額 spec §8.3-3）", () => {
+  const GIB2 = 2 ** 31;
+  const rowCount = async (db: Awaited<ReturnType<typeof buildTestApp>>["db"]) => (await db.select({ id: transferTokens.id }).from(transferTokens)).length;
+
+  it("可見形（筆記擁有者）：storage_quota_exceeded＋訊息逐字（formatBytes 印的兩數）＋extra 兩個原始數字；不簽 token（列數不變）", async () => {
+    const { app, db, uploadsDir } = await buildTestApp({ config });
+    const o = await ownerWithPat(db);
+    await giveUserQuota(db, o.userId, GIB2);
+    // `uploads.size` 是 int4：兩列各 1 GiB 湊成 2 GiB。
+    for (let i = 0; i < 2; i++) await seedAttachment(db, uploadsDir, o.noteId, o.userId, GIB2 / 2, { noFile: true });
+    const before = await rowCount(db);
+    const r = await call(app, o.pat, { note_id: o.noteId, purpose: "upload" });
+    expect(r.isError).toBe(true);
+    expect(r.structuredContent).toEqual({
+      code: "storage_quota_exceeded",
+      message:
+        "This note's storage space is full (2.0 GB of 2.0 GB used), so no image can be uploaded to it. A site admin can assign a larger storage plan; deleting notes that have images also frees space.",
+      usedBytes: GIB2,
+      quotaBytes: GIB2,
+    });
+    expect(r.content[0]!.text).toBe(JSON.stringify(r.structuredContent));
+    expect(storageFullVisibleMessage(GIB2, GIB2)).toBe((r.structuredContent as { message: string }).message);
+    expect(await rowCount(db)).toBe(before);
+  });
+
+  it("不可見形（被分享的編輯者）：訊息逐字、沒有 extra；不簽 token", async () => {
+    const { app, db, uploadsDir } = await buildTestApp({ config });
+    const owner = await ownerWithPat(db);
+    const editor = await seedUser(db);
+    const { token } = await seedTokenForUser(db, editor.id);
+    await seedShare(db, owner.noteId, editor.id, "editor");
+    await giveUserQuota(db, owner.userId, 1000);
+    await seedAttachment(db, uploadsDir, owner.noteId, owner.userId, 1000, { noFile: true });
+    const before = await rowCount(db);
+    const r = await call(app, token, { note_id: owner.noteId, purpose: "upload" });
+    expect(r.structuredContent).toEqual({
+      code: "storage_quota_exceeded",
+      message: "This note's storage space is full, so no image can be uploaded to it. Ask the note's owner or a site admin for more space.",
+    });
+    expect(STORAGE_FULL_HIDDEN_MESSAGE).toBe((r.structuredContent as { message: string }).message);
+    expect(await rowCount(db)).toBe(before);
+  });
+
+  it("被分享的編輯者是站台 admin → 可見形（isAdmin 由交易外那一句讀出）", async () => {
+    const { app, db, uploadsDir } = await buildTestApp({ config });
+    const owner = await ownerWithPat(db);
+    const admin = await seedUser(db);
+    await db.update(users).set({ isAdmin: true }).where(eq(users.id, admin.id));
+    const { token } = await seedTokenForUser(db, admin.id);
+    await seedShare(db, owner.noteId, admin.id, "editor");
+    await giveUserQuota(db, owner.userId, 1536);
+    await seedAttachment(db, uploadsDir, owner.noteId, owner.userId, 2048, { noFile: true });
+    const r = await call(app, token, { note_id: owner.noteId, purpose: "upload" });
+    expect(r.structuredContent).toEqual({
+      code: "storage_quota_exceeded",
+      message: storageFullVisibleMessage(2048, 1536),
+      usedBytes: 2048,
+      quotaBytes: 1536,
+    });
+    expect(storageFullVisibleMessage(2048, 1536)).toContain("(2.0 KB of 1.5 KB used)");
+  });
+
+  it("download 不預檢：空間已滿時 download 照常簽（多一列）", async () => {
+    const { app, db, uploadsDir } = await buildTestApp({ config });
+    const o = await ownerWithPat(db);
+    await giveUserQuota(db, o.userId, 1000);
+    await seedAttachment(db, uploadsDir, o.noteId, o.userId, 1000, { noFile: true });
+    const before = await rowCount(db);
+    const r = await call(app, o.pat, { note_id: o.noteId, purpose: "download" });
+    expect(r.isError).toBeUndefined();
+    expect((r.structuredContent as Payload).purpose).toBe("download");
+    expect(await rowCount(db)).toBe(before + 1);
+  });
+
+  it("未滿（差 1 byte）→ upload 照常簽：預檢只擋 used ≥ quota", async () => {
+    const { app, db, uploadsDir } = await buildTestApp({ config });
+    const o = await ownerWithPat(db);
+    await giveUserQuota(db, o.userId, 1000);
+    await seedAttachment(db, uploadsDir, o.noteId, o.userId, 999, { noFile: true });
     expect((await call(app, o.pat, { note_id: o.noteId, purpose: "upload" })).isError).toBeUndefined();
   });
 });

@@ -5,6 +5,28 @@ import type { EncryptedApiKey } from "../ai/crypto.js";
 import type { EncryptedSecret } from "../lib/sealed-secret.js";
 const bytea = customType<{ data: Buffer }>({ dataType: () => "bytea" });
 
+/**
+ * 儲存配額（spec 2026-10-08 §4.1）：方案。`quota_bytes` NULL＝無上限；`0..2^50`。名稱 1..40 字元（code point，`char_length`），
+ * 應用層 trim 後寫入；不分大小寫唯一（`storage_plans_name_lower_idx`——409 `storage_plan_name_taken` 的分流鍵）。
+ * 內建「Basic」只在 migration 建立、作為初始預設；之後與其他方案一樣可改名改配額（沒有 builtin 欄，D4a）。
+ * **必須宣告在 `users` 之前**：`users`／`groups`／`site_settings` 的 FK 在 extras 直接引用 `storagePlans.id`（TDZ）。
+ */
+export const storagePlans = pgTable(
+  "storage_plans",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    name: text().notNull(),
+    quotaBytes: bigint("quota_bytes", { mode: "number" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  t => [
+    uniqueIndex("storage_plans_name_lower_idx").on(sql`lower(${t.name})`),
+    check("storage_plans_name_chk", sql`char_length(${t.name}) between 1 and 40`),
+    check("storage_plans_quota_chk", sql`${t.quotaBytes} is null or ${t.quotaBytes} between 0 and 1125899906842624`),
+  ],
+);
+
 export const users = pgTable("users", {
   id: uuid().primaryKey().defaultRandom(),
   email: text().notNull().unique(),
@@ -33,6 +55,11 @@ export const users = pgTable("users", {
   // 寫入端：只有 admin UI 代建時寫 true；OIDC 自動建帳與 env bootstrap 為 false。
   mustChangePassword: boolean("must_change_password").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  // 儲存配額（spec §4.2）：使用者個人空間的方案。DEFAULT 呼叫手寫 SQL 函式 `public.knotebook_default_storage_plan('user')`
+  // （定義在本功能的 `*_storage-quota.sql` migration 檔內；編號在 merge 時重產），在 INSERT 當下讀 `site_settings.default_user_storage_plan_id`——快照語意：之後改預設不影響既有列。
+  // 有 default 才讓四個建帳點與既有測試的 `db.insert(users)` 不必帶它（比照 `handle`）。`site_settings` 沒有列時函式回 NULL →
+  // 23502（§4.2 契約變更）。FK 一律 `foreignKey({ name })`、不得用 `.references()`（自動名會讓 §7.1 依約束名分流落空）。
+  storagePlanId: uuid("storage_plan_id").notNull().default(sql`public.knotebook_default_storage_plan('user')`),
 }, t => [
   uniqueIndex("users_oidc_idx").on(t.oidcIssuer, t.oidcSub),
   // issue #18：email 比對全面走 `lower(users.email) = $1`（登入、分享查人、OIDC 連結，
@@ -42,6 +69,9 @@ export const users = pgTable("users", {
   // uniqueIndex 會讓那條路徑從「可偵測的衝突」變成「寫入直接炸」。migrate.test.ts
   // 有測試釘住「存在且非唯一」。
   index("users_email_lower_idx").on(sql`lower(${t.email})`),
+  foreignKey({ name: "users_storage_plan_fk", columns: [t.storagePlanId], foreignColumns: [storagePlans.id] }).onDelete("restrict"),
+  // 刪方案時 RI 的 RESTRICT 檢查與方案表的 userCount 走它（spec §4.4 M6）。
+  index("users_storage_plan_idx").on(t.storagePlanId),
 ]);
 
 /**
@@ -160,9 +190,16 @@ export const siteSettings = pgTable(
     registrationEnabled: boolean("registration_enabled").notNull().default(true),
     passwordLoginEnabled: boolean("password_login_enabled").notNull().default(true),
     legacyOidcEnvHandledAt: timestamp("legacy_oidc_env_handled_at", { withTimezone: true }),
+    // 儲存配額（spec §4.2、D4b）：新使用者／新群組的預設方案（初始 Basic）。只影響之後建立的（DEFAULT 函式快照）。
+    defaultUserStoragePlanId: uuid("default_user_storage_plan_id").notNull(),
+    defaultGroupStoragePlanId: uuid("default_group_storage_plan_id").notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  t => [check("site_settings_singleton_chk", sql`${t.singleton}`)],
+  t => [
+    check("site_settings_singleton_chk", sql`${t.singleton}`),
+    foreignKey({ name: "site_settings_default_user_plan_fk", columns: [t.defaultUserStoragePlanId], foreignColumns: [storagePlans.id] }).onDelete("restrict"),
+    foreignKey({ name: "site_settings_default_group_plan_fk", columns: [t.defaultGroupStoragePlanId], foreignColumns: [storagePlans.id] }).onDelete("restrict"),
+  ],
 );
 
 /**
@@ -175,7 +212,13 @@ export const groups = pgTable("groups", {
   name: text().notNull(),
   createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, t => [check("groups_name_chk", sql`length(${t.name}) between 1 and 80`)]);
+  // 儲存配額（spec §4.2）：同 `users.storage_plan_id`，讀 `default_group_storage_plan_id`。
+  storagePlanId: uuid("storage_plan_id").notNull().default(sql`public.knotebook_default_storage_plan('group')`),
+}, t => [
+  check("groups_name_chk", sql`length(${t.name}) between 1 and 80`),
+  foreignKey({ name: "groups_storage_plan_fk", columns: [t.storagePlanId], foreignColumns: [storagePlans.id] }).onDelete("restrict"),
+  index("groups_storage_plan_idx").on(t.storagePlanId),
+]);
 
 /**
  * #175（migration 0012）：群組角色。七旗標（spec §4.1）；內建兩個（`builtin` = admin／member，`name` 恆 NULL，

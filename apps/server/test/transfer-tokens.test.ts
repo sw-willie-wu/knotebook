@@ -29,6 +29,7 @@ import {
   tokenRow,
   upload,
 } from "./transfer-helpers.js";
+import { giveGroupQuota, giveUserQuota, quotaBody, seedAttachment, usedOf } from "./storage-helpers.js";
 
 const NOT_AN_IMAGE = Buffer.from("plain text, not an image", "utf-8");
 
@@ -448,15 +449,20 @@ describe("POST /api/notes/:id/uploads × transfer token（spec §5.2）", () => 
     }
   }, 30_000);
 
-  it("T23：簽發後筆記被移進群組 → 依使用當下的群組角色：可編輯 201、只能讀 403", async () => {
+  it("T23：簽發後筆記被移進群組 → 依使用當下的群組角色：可編輯 201、只能讀 403；扣的是群組空間（個人空間已滿也不擋）", async () => {
     const { app, db } = await buildTestApp();
     const o = await ownerWithPat(db);
     const g = await seedGroup(db, `g-${randomUUID().slice(0, 8)}`, [{ userId: o.userId, role: "admin" }]);
+    // 個人空間配額 0（0 ≥ 0＝已滿）、群組無上限：若預檢或交易內判定仍用簽發時（移動前）的個人空間，這發會 409。
+    await giveUserQuota(db, o.userId, 0);
+    await giveGroupQuota(db, g.id, null);
     const t1 = await issueDirect(db, o.patId, o.noteId, "upload");
     const t2 = await issueDirect(db, o.patId, o.noteId, "upload");
     const moved = await app.inject({ method: "POST", url: `/api/notes/${o.noteId}/move`, cookies: await cookieOf(o.userId), payload: { groupId: g.id } });
     expect(moved.statusCode).toBe(200);
     expect((await upload(app, o.noteId, fileBody(PNG_BYTES), { token: t1.token })).statusCode).toBe(201);
+    expect(await usedOf(db.$client, { kind: "group", id: g.id })).toBe(PNG_BYTES.length);
+    expect(await usedOf(db.$client, { kind: "user", id: o.userId })).toBe(0);
     const reader = await seedRole(db, g.id, "reader", { canRead: true });
     await setMemberRole(db, g.id, o.userId, reader);
     expect((await upload(app, o.noteId, fileBody(PNG_BYTES), { token: t2.token })).statusCode).toBe(403);
@@ -478,6 +484,97 @@ describe("POST /api/notes/:id/uploads × transfer token（spec §5.2）", () => 
     const { app, db } = await buildTestApp();
     const o = await ownerWithPat(db);
     expect((await upload(app, o.noteId, fileBody(PNG_BYTES), { cookies: await cookieOf(o.userId) })).statusCode).toBe(201);
+  });
+});
+
+describe("POST /api/notes/:id/uploads × transfer token × 儲存配額（配額 spec §8.3-1／2；#200 spec §5.2-4a、§6.4 兩句 409）", () => {
+  /** 兩種 409 的形：數字換成型別標記，其餘逐欄比（#200 §2.7(3)：同碼同形、不加任何旗標欄）。 */
+  const shapeOf = (body: { storage: Record<string, unknown> } & Record<string, unknown>) => ({
+    ...body,
+    storage: Object.fromEntries(Object.keys(body.storage).map(k => [k, "<n>"])),
+  });
+
+  it("空間已滿 → 409 storage_quota_exceeded（第 4a 步，incomingBytes null）、磁碟零新檔；token 未消費，騰出空間後同一支 token → 201", async () => {
+    const { app, db, uploadsDir } = await buildTestApp();
+    const o = await ownerWithPat(db);
+    await giveUserQuota(db, o.userId, 1000);
+    const filler = await seedAttachment(db, uploadsDir, o.noteId, o.userId, 1000, { noFile: true });
+    const t = await issueDirect(db, o.patId, o.noteId, "upload");
+
+    const full = await upload(app, o.noteId, fileBody(PNG_BYTES), { token: t.token });
+    expect(full.statusCode).toBe(409);
+    expect(full.json()).toEqual(quotaBody({ incomingBytes: null, usedBytes: 1000, quotaBytes: 1000 }));
+    expect((await tokenRow(db, t.id))!.consumedAt).toBeNull();
+    expect(readdirSync(uploadsDir)).toHaveLength(0);
+
+    await db.delete(uploads).where(eq(uploads.id, filler));
+    expect((await upload(app, o.noteId, fileBody(PNG_BYTES), { token: t.token })).statusCode).toBe(201);
+    expect((await tokenRow(db, t.id))!.consumedAt).not.toBeNull();
+  });
+
+  it("空間已滿、token 屬於被分享的編輯者（看不到用量）→ 409 只帶 incomingBytes null；token 未消費", async () => {
+    const { app, db, uploadsDir } = await buildTestApp();
+    const owner = await ownerWithPat(db);
+    const editor = await seedUser(db);
+    const { tokenId } = await seedTokenForUser(db, editor.id);
+    await seedShare(db, owner.noteId, editor.id, "editor");
+    await giveUserQuota(db, owner.userId, 1000);
+    await seedAttachment(db, uploadsDir, owner.noteId, owner.userId, 1000, { noFile: true });
+    const t = await issueDirect(db, tokenId, owner.noteId, "upload");
+    const res = await upload(app, owner.noteId, fileBody(PNG_BYTES), { token: t.token });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toEqual(quotaBody({ incomingBytes: null }));
+    expect((await tokenRow(db, t.id))!.consumedAt).toBeNull();
+  });
+
+  it("未滿但放不下 → 交易內 409（incomingBytes＝檔案大小）、檔已 unlink、無新列；token 已燒——騰出空間後同一支 token 401；兩種 409 除數字外同形", async () => {
+    const { app, db, uploadsDir } = await buildTestApp();
+    const o = await ownerWithPat(db);
+    await giveUserQuota(db, o.userId, 1000);
+    const filler = await seedAttachment(db, uploadsDir, o.noteId, o.userId, 1000 - PNG_BYTES.length + 1, { noFile: true });
+    const t = await issueDirect(db, o.patId, o.noteId, "upload");
+
+    const inTx = await upload(app, o.noteId, fileBody(PNG_BYTES), { token: t.token });
+    expect(inTx.statusCode).toBe(409);
+    expect(inTx.json()).toEqual(quotaBody({ incomingBytes: PNG_BYTES.length, usedBytes: 1000 - PNG_BYTES.length + 1, quotaBytes: 1000 }));
+    expect((await tokenRow(db, t.id))!.consumedAt).not.toBeNull();
+    expect(readdirSync(uploadsDir)).toHaveLength(0);
+    expect(await db.select({ id: uploads.id }).from(uploads).where(eq(uploads.noteId, o.noteId))).toEqual([{ id: filler }]);
+
+    // 同一空間再補滿 → 新 token 吃第 4a 步的 409：與上面那發同碼同形。
+    await seedAttachment(db, uploadsDir, o.noteId, o.userId, PNG_BYTES.length, { noFile: true });
+    const t2 = await issueDirect(db, o.patId, o.noteId, "upload");
+    const pre = await upload(app, o.noteId, fileBody(PNG_BYTES), { token: t2.token });
+    expect(pre.statusCode).toBe(409);
+    expect(pre.json().storage.incomingBytes).toBeNull();
+    expect(shapeOf(pre.json())).toEqual(shapeOf(inTx.json()));
+
+    await db.delete(uploads).where(eq(uploads.noteId, o.noteId));
+    const reused = await upload(app, o.noteId, fileBody(PNG_BYTES), { token: t.token });
+    expect(reused.statusCode).toBe(401);
+    expect(reused.json()).toEqual({ error: { code: "unauthorized", message: TRANSFER_INVALID_MESSAGE } });
+  });
+
+  it("S14／S15 上傳形（transfer 版）：縫 storage-space-locked 拋 55P03 → 409 server_busy、檔已 unlink；token 已燒——同一支 token 之後 401", async () => {
+    let busy = true;
+    const { app, db, uploadsDir } = await buildTestApp({
+      groupTestHook: async point => {
+        if (point === "storage-space-locked" && busy) throw Object.assign(new Error("55P03"), { code: "55P03" });
+      },
+    });
+    const o = await ownerWithPat(db);
+    await giveUserQuota(db, o.userId, 1000);
+    const t = await issueDirect(db, o.patId, o.noteId, "upload");
+    const res = await upload(app, o.noteId, fileBody(PNG_BYTES), { token: t.token });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toEqual({ error: { code: "server_busy", message: "伺服器忙碌，請稍後再試" } });
+    expect((await tokenRow(db, t.id))!.consumedAt).not.toBeNull();
+    expect(readdirSync(uploadsDir)).toHaveLength(0);
+
+    busy = false;
+    expect((await upload(app, o.noteId, fileBody(PNG_BYTES), { token: t.token })).statusCode).toBe(401);
+    const fresh = await issueDirect(db, o.patId, o.noteId, "upload");
+    expect((await upload(app, o.noteId, fileBody(PNG_BYTES), { token: fresh.token })).statusCode).toBe(201);
   });
 });
 

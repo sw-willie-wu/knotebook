@@ -22,6 +22,8 @@ import { groupsRoutes } from "./routes/groups.js";
 import type { WriteNoteLinksHooks } from "./notes/links.js";
 import type { SlugPatchTestHook } from "./notes/tx/patch-slug.js";
 import { adminUsersRoutes } from "./routes/admin-users.js";
+import { adminStorageRoutes } from "./routes/admin-storage.js";
+import { storageRoutes } from "./routes/storage.js";
 import { adminAiRoutes } from "./routes/admin-ai.js";
 import { adminAuthRoutes } from "./routes/admin-auth.js";
 import { accountRoutes } from "./routes/account.js";
@@ -56,6 +58,7 @@ import { NoteWriteService } from "./notes/editing/write-service.js";
 import type { NoteCreateHooks } from "./notes/create.js";
 import type { GroupTestHook } from "./groups/test-hook.js";
 import type { SearchIndexHooks } from "./notes/tx/search-index.js";
+import { DEFAULT_STORAGE_LOCK_TIMEOUT_MS } from "./storage/tx/quota.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -84,11 +87,6 @@ declare module "fastify" {
     tokenId?: string;
     /** #200：transfer 路徑才有（`auth/transfer-auth.ts`）。`noteId` 是 DB 的小寫正規形。 */
     transfer?: { id: string; noteId: string; purpose: "upload" | "download"; parentTokenId: string };
-    /**
-     * #200 spec §5.2 第 3 步：上傳當下 `resolveNoteAccess` 算出的空間鍵（個人筆記看 owner、群組筆記看群組）。
-     * 消費端＝儲存配額（spec 2026-10-08-storage-quota §6.3-1，未落地）——今天沒有讀者。
-     */
-    uploadSpace?: { ownerId: string | null; groupId: string | null };
   }
 }
 
@@ -215,6 +213,11 @@ export interface AppDeps {
   groupTestHook?: GroupTestHook;
   /** #93：全文索引交易的測試縫（`notes/tx/search-index.ts`）。選配；production 不注入。注入面是 `buildTestApp({ searchIndexHooks })`。 */
   searchIndexHooks?: SearchIndexHooks;
+  /**
+   * 儲存配額（spec 2026-10-08 §5.3 m7）：空間鎖等待上限（ms）。**選配、只給測試注入**（不開 env）；未設＝
+   * `DEFAULT_STORAGE_LOCK_TIMEOUT_MS`（5000）。race 測試注入 60000、S15 注入 200。
+   */
+  storageLockTimeoutMs?: number;
   /**
    * Task 9：圖片上傳存放目錄的絕對路徑。**必填**——`buildApp` 啟動時會對它做一次
    * 可寫性探測（`assertUploadsDirWritable`，見該函式說明為何不用 `accessSync`），
@@ -612,6 +615,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       edit: new FixedWindowLimiter(EDIT_LIMIT),
       register: new FixedWindowLimiter(REGISTER_LIMIT),
     } satisfies NonNullable<AppDeps["limiters"]>);
+  const storageLockTimeoutMs = deps.storageLockTimeoutMs ?? DEFAULT_STORAGE_LOCK_TIMEOUT_MS;
 
   // #107：`limiters` 在上面才算出來，所以這個 decorate 必須排在它之後、任何
   // `app.register(路由)` 之前——路由模組的 register 內會呼叫 app.authenticateAny。
@@ -697,11 +701,15 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       groupTestHook: deps.groupTestHook,
       searchIndexHooks: deps.searchIndexHooks,
       uploadsDir: deps.uploadsDir,
+      storageLockTimeoutMs,
     })
   );
   // #103：群組管理（session-only，見 routes/groups.ts 檔頭）。
-  void app.register(groupsRoutes({ db: deps.db, collabHooks: deps.collabHooks, groupTestHook: deps.groupTestHook, uploadsDir: deps.uploadsDir }));
+  void app.register(groupsRoutes({ db: deps.db, collabHooks: deps.collabHooks, groupTestHook: deps.groupTestHook, uploadsDir: deps.uploadsDir, storageLockTimeoutMs }));
   void app.register(adminUsersRoutes({ db: deps.db, gate: deps.gate, collabHooks: deps.collabHooks }));
+  // 儲存配額（spec 2026-10-08 §7）：方案管理、預設、站台群組列表與指派（admin）；個人與群組用量檢視。
+  void app.register(adminStorageRoutes({ db: deps.db }));
+  void app.register(storageRoutes({ db: deps.db }));
   void app.register(adminAiRoutes({ db: deps.db, config: deps.config, runtime: deps.ai }));
   // #187 PR2：站台管理的登入服務。與登入路由共用同一個 registry（PATCH／DELETE 要 invalidate、test／discover 用 probe）。
   void app.register(adminAuthRoutes({ db: deps.db, config: deps.config, registry: oidcRegistry }));
@@ -725,6 +733,8 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       // #200：bearerMiss／tokenRead 與 authenticateAny 是**同一個實例**（同一本帳由物件同一性成立）。
       limiters: { upload: limiters.upload, bearerMiss: limiters.bearerMiss, tokenRead: limiters.tokenRead },
       uploadsDir: deps.uploadsDir,
+      groupTestHook: deps.groupTestHook,
+      storageLockTimeoutMs,
     })
   );
   // #72 公開端點（免登入）：三步節流順序與 404 同形見 routes/public.ts 檔頭。

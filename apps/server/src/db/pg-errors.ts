@@ -99,3 +99,39 @@ export function pgErrorSummary(err: unknown): { code: string | null; constraint:
     constraint: constraintOf(err) ?? constraintOf(cause),
   };
 }
+
+export const PG_LOCK_NOT_AVAILABLE = "55P03";
+export const PG_NOT_NULL_VIOLATION = "23502";
+
+/**
+ * 儲存配額（spec §5.3、§6.9）：空間鎖那一句的 `lock_timeout` 到期＝55P03 `lock_not_available`。與 40001／40P01 同屬
+ * 「交易本身沒錯、純粹是併發」——路由一律映射 409 `server_busy`。
+ */
+export function isLockTimeout(err: unknown): boolean {
+  return matchesCode(err, PG_LOCK_NOT_AVAILABLE);
+}
+
+/** 40001／40P01／55P03：upload／copy／move／刪群組四支路由的 `server_busy` 判準（§6.9）。 */
+export function isRetryableTxError(err: unknown): boolean {
+  return isTransientTransactionError(err) || isLockTimeout(err);
+}
+
+/**
+ * foreign_key_violation（23503）的 constraint 名（§7.1 刪方案的分流、§10 建帳／建群組撞已刪的預設方案）。兩種錯誤形狀同
+ * `uniqueViolationConstraint`；非 23503 或沒有約束名回 null。呼叫端只認自己知道的名字，其餘照舊處理。
+ */
+export function foreignKeyViolationConstraint(err: unknown): string | null {
+  if (!isForeignKeyViolation(err)) return null;
+  return constraintOf(err) ?? constraintOf(err instanceof Error ? err.cause : undefined);
+}
+
+function columnOf(e: unknown): string | null {
+  const value = typeof e === "object" && e !== null && "column" in e ? (e as { column?: unknown }).column : undefined;
+  return typeof value === "string" ? value : null;
+}
+
+/** not_null_violation（23502）的欄名（§4.2：`site_settings` 沒有列時 DEFAULT 函式回 NULL → `storage_plan_id` 23502）。 */
+export function notNullViolationColumn(err: unknown): string | null {
+  if (!matchesCode(err, PG_NOT_NULL_VIOLATION)) return null;
+  return columnOf(err) ?? columnOf(err instanceof Error ? err.cause : undefined);
+}
