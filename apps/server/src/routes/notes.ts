@@ -53,6 +53,8 @@ import { upsertShareInTx } from "../notes/tx/shares.js";
 import { deleteNotesInTx } from "../notes/tx/delete-notes.js";
 import { moveNoteToGroupInTx } from "../notes/tx/move.js";
 import { copyNoteInTx } from "../notes/tx/copy.js";
+import type { SearchIndexHooks } from "../notes/tx/search-index.js";
+import { extractForIndex } from "../notes/search-index.js";
 import { patchSlugInTx, type SlugPatchTestHook, type SlugWriteScope } from "../notes/tx/patch-slug.js";
 import { UPDATED_AT_NOW } from "../notes/clock.js";
 import { groupNotePath, lookupRedirect, userNotePath } from "../notes/redirects.js";
@@ -162,6 +164,8 @@ export interface NotesRouteDeps {
   noteCreateHooks?: NoteCreateHooks;
   /** #103：交錯點測試注入縫（`groups/test-hook.ts`），透傳自 `AppDeps.groupTestHook`。 */
   groupTestHook?: GroupTestHook;
+  /** #93：全文索引交易的測試縫（`notes/tx/search-index.ts`），透傳自 `AppDeps.searchIndexHooks`；只接在複製一處。 */
+  searchIndexHooks?: SearchIndexHooks;
   /**
    * Task 11：DELETE note 交易 commit 後，補刪該筆記名下上傳 blob 檔案要用的目錄——
    * 與 `UploadsRouteDeps.uploadsDir`／`AppConfig` 同一份，透傳自 `AppDeps.uploadsDir`
@@ -1051,6 +1055,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
 
       const { doc: snapshot } = await loadNoteDoc({ db: deps.db, collab: deps.collab }, id);
       const copy = cloneForCopy(snapshot);
+      const searchExtract = extractForIndex(copy.doc); // #93 §5.4：交易前抽（純資料）
       // #175 T4 M-1（Willie 裁決）：複製會多存一份附件檔，依「會被複製的附件數」扣 upload 桶（與上傳端點同桶、同 429 形；
       // 單位＝檔案數，同上傳端點一次一檔）。數法與 `copyNoteInTx` (3) 同一個述詞（文件引用到、且 `note_id`＝來源）；交易前
       // 數、交易內再讀，兩次之間來源新增／刪除附件會讓扣的數與實際複製的差幾張，磁碟檔已遺失而被跳過的那張（RF4）也照扣——
@@ -1062,10 +1067,10 @@ export function notesRoutes(deps: NotesRouteDeps) {
       if (!deps.limiters.upload.consumeMany(userId, toCopy)) return sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
       // S14：callback 整段就是 `copyNoteInTx(tx, …)`，引數是交易前備好的純資料（`copiedFileIds` 是 out 參數）與測試縫。
       const copiedFileIds: string[] = [];
-      const input = { sourceId: id, userId, scope, copy, uploadsDir: deps.uploadsDir, copiedFileIds };
+      const input = { sourceId: id, userId, scope, copy, uploadsDir: deps.uploadsDir, copiedFileIds, searchExtract };
       let created;
       try {
-        created = await deps.db.transaction(tx => copyNoteInTx(tx, input, deps.groupTestHook, deps.noteCreateHooks));
+        created = await deps.db.transaction(tx => copyNoteInTx(tx, input, deps.groupTestHook, deps.noteCreateHooks, deps.searchIndexHooks));
       } catch (err) {
         // 交易已 rollback（uploads 列不在了）：best-effort 刪掉已落盤的新檔，失敗只記 log。
         await deleteUploadFiles(deps.uploadsDir, copiedFileIds, request.log);

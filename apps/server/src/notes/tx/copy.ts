@@ -8,6 +8,7 @@
  *   (4) `insertNoteWithAutoSlug` 交易內模式（savepoint 重試，§6.9）
  *   (5) 每個附件：新 id → copyFile → INSERT uploads（uploader＝複製者）→ 記 mapping；檔不在（ENOENT）→ 跳過（plan 規格落差 8）
  *   (6) 改寫網址後寫 `note_states` 首列（version 1，與 `persistNoteState` 首寫同形）
+ *   (7) 寫全文索引（#93 §5.4；鎖序在 note_states 之後，對的是本交易新建的列）
  * 失敗時已落盤的新檔 id 留在 `input.copiedFileIds`，路由在交易外 best-effort 刪。
  * 副本的 notes 列經 `insertNoteWithAutoSlug`（`create.ts`）寫入——那條 INSERT 不在本檔，S14 守衛 ① 掃不到它。
  * 副本的 `updated_at` 不在這裡寫：吃 DB default（新筆記＝本交易的 `now()`，必晚於來源；`test/unit/copy-doc.test.ts` 源碼守衛）。
@@ -36,7 +37,9 @@ import { uploadFilePath } from "../../uploads/service.js";
 import { rewriteUploadUrls, type CopyDoc } from "../copy-doc.js";
 import { insertNoteWithAutoSlug, type NoteCreateHooks } from "../create.js";
 import type { NoteGroupFlags } from "../service.js";
+import type { SearchExtract } from "../search-text.js";
 import type { SlugScope } from "../slug.js";
+import { replaceNoteSearchIndexInTx, type SearchIndexHooks } from "./search-index.js";
 
 export interface CopyNoteInput {
   sourceId: string;
@@ -46,6 +49,8 @@ export interface CopyNoteInput {
   uploadsDir: string;
   /** out：已落盤的新附件 id（失敗時由路由清檔）。 */
   copiedFileIds: string[];
+  /** #93 §5.4：交易前由路由對 clone 抽好的索引（純資料）。交易內唯一改 doc 的 `rewriteUploadUrls` 只改 `url` 屬性，url 不入索引。 */
+  searchExtract: SearchExtract;
 }
 
 function isMissingFile(err: unknown): boolean {
@@ -62,7 +67,7 @@ export interface CopyNoteResult {
   target: CopyTargetInTx | null;
 }
 
-export async function copyNoteInTx(tx: Tx, input: CopyNoteInput, hook?: GroupTestHook, createHooks?: NoteCreateHooks): Promise<CopyNoteResult> {
+export async function copyNoteInTx(tx: Tx, input: CopyNoteInput, hook?: GroupTestHook, createHooks?: NoteCreateHooks, searchHooks?: SearchIndexHooks): Promise<CopyNoteResult> {
   let target: CopyTargetInTx | null = null;
   if ("groupId" in input.scope) {
     const groupId = input.scope.groupId;
@@ -117,5 +122,8 @@ export async function copyNoteInTx(tx: Tx, input: CopyNoteInput, hook?: GroupTes
   await hook?.("note-copy-files-copied", { noteId: created.id });
 
   await tx.insert(noteStates).values({ noteId: created.id, ydoc: Buffer.from(Y.encodeStateAsUpdate(input.copy.doc)), version: 1 });
+  // #93 §5.4：同一交易寫索引——複製成功就有索引，失敗一起 rollback。新筆記在本交易內才建立，SearchIndexSkip 不會發生；
+  // 若發生（不可能的路徑）就讓整個複製失敗，不吞（路由的 catch 只認 TxAbort／FK，其餘 rethrow → 500）。
+  await replaceNoteSearchIndexInTx(tx, { noteId: created.id, sourceVersion: 1, extract: input.searchExtract }, searchHooks);
   return { note: created, target };
 }

@@ -55,6 +55,7 @@ import { PresenceRegistry, type PresenceOptions } from "./notes/editing/presence
 import { NoteWriteService } from "./notes/editing/write-service.js";
 import type { NoteCreateHooks } from "./notes/create.js";
 import type { GroupTestHook } from "./groups/test-hook.js";
+import type { SearchIndexHooks } from "./notes/tx/search-index.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -203,6 +204,8 @@ export interface AppDeps {
    * `undefined`＝no-op；整合測試的注入面是 `buildTestApp({ groupTestHook })` 與 `buildCollabTestApp({ groupTestHook })`（後者 #175 PR5 起有；帶 content 的 MCP `create_note` 要 collab app）。
    */
   groupTestHook?: GroupTestHook;
+  /** #93：全文索引交易的測試縫（`notes/tx/search-index.ts`）。選配；production 不注入。注入面是 `buildTestApp({ searchIndexHooks })`。 */
+  searchIndexHooks?: SearchIndexHooks;
   /**
    * Task 9：圖片上傳存放目錄的絕對路徑。**必填**——`buildApp` 啟動時會對它做一次
    * 可寫性探測（`assertUploadsDirWritable`，見該函式說明為何不用 `accessSync`），
@@ -682,6 +685,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       slugPatchTestHook: deps.slugPatchTestHook,
       noteCreateHooks: deps.noteCreateHooks,
       groupTestHook: deps.groupTestHook,
+      searchIndexHooks: deps.searchIndexHooks,
       uploadsDir: deps.uploadsDir,
     })
   );
