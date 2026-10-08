@@ -2,17 +2,20 @@
  * #175 刪群組的兩支交易本體（§6.8，PR4；PR1–PR3 的 T5「只刪空群組」已退場）：T6 `transferGroupInTx`（轉移給內建管理員）、
  * T7 `deleteGroupWithNotesInTx`（連筆記一起刪）。兩支都先 `lockGroup`（groups FOR UPDATE），再以群組述詞 FOR UPDATE 該群組的筆記；
  * 鎖之後才到的建立／移入／複製進群組都卡在 groups 的 KEY SHARE，commit 後得 23503 或讀到群組不在 → 404。角色與成員由 FK CASCADE 帶走。
+ * 儲存配額（spec 2026-10-08 §6.6）：T6 在群組筆記 FOR UPDATE 之後另取接收者個人空間的 advisory 鎖；T7 不取（Q-S5）。
  * S14：本檔只收 `tx`／純資料／測試縫，不 import `Db`、不接 `deps`；全刪的 gate（`beforeNoteDeleted`）、commit 後的刪檔與踢線都在路由。
  * 與其他交易的鎖序（含會成環而回 409 server_busy 的兩形）見 PR4 plan 的鎖序表。
  */
 import { and, asc, eq } from "drizzle-orm";
 import type { Tx } from "../../db/tx.js";
-import { groupMembers, groupRoles, groups, notes } from "../../db/schema.js";
+import { groupMembers, groupRoles, groups, notes, uploads } from "../../db/schema.js";
 import { TxAbort } from "../../http/tx-abort.js";
 import { groupNotePath } from "../../notes/redirects.js";
 import { deleteNotesInTx } from "../../notes/tx/delete-notes.js";
 import { recordRedirectsInTx } from "../../notes/tx/redirects.js";
 import { writeSlugInTx } from "../../notes/tx/write-slug.js";
+import { sumUploadSizeSql } from "../../storage/space.js";
+import { assertSpaceRoomInTx } from "../../storage/tx/quota.js";
 import { GROUP_NOT_FOUND_MESSAGE, NOT_ADMIN_MESSAGE, lockGroup } from "../queries.js";
 import type { GroupTestHook } from "../test-hook.js";
 
@@ -20,6 +23,8 @@ export interface TransferGroupInput {
   groupId: string;
   /** 已過 UUID_RE、已轉小寫（路由在交易前做）。 */
   transferTo: string;
+  /** 空間鎖等待上限（ms）。 */
+  lockTimeoutMs: number;
 }
 
 export interface GroupDeletionResult {
@@ -33,6 +38,7 @@ export interface GroupDeletionResult {
  * #175 T6（spec §6.8 transfer）：群組筆記全數改成 transferTo 的個人筆記，再刪群組。S14：只收 `tx`／純資料／測試縫。
  *   lockGroup（不存在 → 404）→ transferTo 是成員且 builtin='admin'（鎖之後查，C9）→ 否則 409 not_admin
  *   → M（CASCADE 前取）→ 該群組筆記 FOR UPDATE，依 created_at, id（撞名時誰拿較小的 -N 是決定性的，RF1；spec 疑點 Q3）
+ *   → 儲存配額：附件總和 → transferTo 個人空間鎖＋判定（writeSlugInTx 之前；放不下 → StorageQuotaExceeded，什麼都沒寫）
  *   → 每篇 writeSlugInTx（scope＝transferTo 個人、base＝舊 slug，B6）：同一句 UPDATE 換歸屬、清 prev（B12）
  *     ——同一句清 public_token／public_slug（Willie 2026-10-02 裁決，比照 move.ts；轉移後是未分享的個人筆記；不扣 publicLink 桶）、
  *     slug_is_custom 不動、updated_at 不動（§9.2）
@@ -58,6 +64,19 @@ export async function transferGroupInTx(tx: Tx, input: TransferGroupInput, hook?
     .where(eq(notes.groupId, input.groupId))
     .orderBy(asc(notes.createdAt), asc(notes.id))
     .for("update");
+
+  // 儲存配額 §6.6：群組筆記已全數 FOR UPDATE（Q-S2），incoming＝它們的附件總和（含 P0 之後才進群組的——以群組述詞取到即算）。
+  // 接收者個人空間鎖在第一個 writeSlugInTx **之前**（Q-S7：反例見 spec §6.1，R13 釘住）。拒絕 → 什麼都沒寫。
+  // 以群組述詞 SUM（rows 已全數 FOR UPDATE，取到的是同一組筆記）——不用 `inArray(…, ids)`：一篇一個綁定參數，
+  // 超過協定上限（65535）的大群組會 500。
+  const [sumRow] = await tx
+    .select({ incoming: sumUploadSizeSql() })
+    .from(uploads)
+    .innerJoin(notes, eq(notes.id, uploads.noteId))
+    .where(eq(notes.groupId, input.groupId));
+  await assertSpaceRoomInTx(tx, { kind: "user", id: input.transferTo }, sumRow?.incoming ?? 0, {
+    lockTimeoutMs: input.lockTimeoutMs, hook, hookCtx: { groupId: input.groupId },
+  });
 
   for (const row of rows) {
     await writeSlugInTx(

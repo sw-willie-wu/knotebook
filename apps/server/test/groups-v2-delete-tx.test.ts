@@ -12,6 +12,7 @@ import { GROUP_NOT_FOUND_MESSAGE, NOT_ADMIN_MESSAGE } from "../src/groups/querie
 import type { GroupRacePoint } from "../src/groups/test-hook.js";
 import { deleteGroupWithNotesInTx, transferGroupInTx } from "../src/groups/tx/delete-group.js";
 import { TxAbort } from "../src/http/tx-abort.js";
+import { DEFAULT_STORAGE_LOCK_TIMEOUT_MS } from "../src/storage/tx/quota.js";
 import type { Db } from "../src/db/index.js";
 import { nextSlugCandidate } from "../src/notes/slug.js";
 import { buildTestApp } from "./helpers.js";
@@ -53,7 +54,7 @@ describe("#175 PR4 transferGroupInTx（T6）", () => {
     await db.insert(noteStates).values({ noteId: n1.id, ydoc: Buffer.from(Y.encodeStateAsUpdate(new Y.Doc())), version: 1 });
     const before = await Promise.all([n1, n2, n3].map(n => noteState(pool, n.id)));
 
-    const out = await db.transaction(tx => transferGroupInTx(tx, { groupId: g.id, transferTo: b.id }));
+    const out = await db.transaction(tx => transferGroupInTx(tx, { groupId: g.id, transferTo: b.id, lockTimeoutMs: DEFAULT_STORAGE_LOCK_TIMEOUT_MS }));
 
     expect(await noteState(pool, n1.id)).toEqual({
       owner_id: b.id, group_id: null, slug: "plan", prev_slug: null, slug_is_custom: true, public_token: null, public_slug: null,
@@ -96,7 +97,7 @@ describe("#175 PR4 transferGroupInTx（T6）", () => {
     await pool.query("update notes set created_at = now() - interval '1 hour' where id = $1", [p.id]);
     await pool.query("update notes set created_at = now() where id = $1", [q.id]);
 
-    const out = await db.transaction(tx => transferGroupInTx(tx, { groupId: g.id, transferTo: b.id }));
+    const out = await db.transaction(tx => transferGroupInTx(tx, { groupId: g.id, transferTo: b.id, lockTimeoutMs: DEFAULT_STORAGE_LOCK_TIMEOUT_MS }));
 
     expect((await noteState(pool, p.id)).slug).toBe("a-2");
     expect((await noteState(pool, q.id)).slug).toBe("a-3");
@@ -116,7 +117,7 @@ describe("#175 PR4 transferGroupInTx（T6）", () => {
     const n = await seedNote(db, { groupId: g.id }, { slug: base, slugIsCustom: true });
     await seedNote(db, { ownerId: b.id }, { slug: base });
 
-    await db.transaction(tx => transferGroupInTx(tx, { groupId: g.id, transferTo: b.id }));
+    await db.transaction(tx => transferGroupInTx(tx, { groupId: g.id, transferTo: b.id, lockTimeoutMs: DEFAULT_STORAGE_LOCK_TIMEOUT_MS }));
 
     const expected = nextSlugCandidate(base, 2);
     expect(Array.from(expected).length).toBeLessThanOrEqual(60);
@@ -141,7 +142,7 @@ describe("#175 PR4 transferGroupInTx（T6）", () => {
 
     const errs: unknown[] = [];
     for (const who of [outsider, c, d]) {
-      const err = await db.transaction(tx => transferGroupInTx(tx, { groupId: g.id, transferTo: who.id })).then(
+      const err = await db.transaction(tx => transferGroupInTx(tx, { groupId: g.id, transferTo: who.id, lockTimeoutMs: DEFAULT_STORAGE_LOCK_TIMEOUT_MS })).then(
         () => null,
         (e: unknown) => e,
       );
@@ -162,7 +163,7 @@ describe("#175 PR4 transferGroupInTx（T6）", () => {
   it("群組不存在 → TxAbort 404 not_found（GROUP_NOT_FOUND_MESSAGE）", async () => {
     const { db } = await buildTestApp();
     const b = await seedUser(db);
-    const err = await db.transaction(tx => transferGroupInTx(tx, { groupId: randomUUID(), transferTo: b.id })).then(
+    const err = await db.transaction(tx => transferGroupInTx(tx, { groupId: randomUUID(), transferTo: b.id, lockTimeoutMs: DEFAULT_STORAGE_LOCK_TIMEOUT_MS })).then(
       () => null,
       (e: unknown) => e,
     );
@@ -175,7 +176,7 @@ describe("#175 PR4 transferGroupInTx（T6）", () => {
     const [a, c] = await Promise.all([seedUser(db), seedUser(db)]);
     const g = await seedGroup(db, "G", [{ userId: a.id, role: "admin" }, { userId: c.id, role: "member" }]);
 
-    const out = await db.transaction(tx => transferGroupInTx(tx, { groupId: g.id, transferTo: a.id }));
+    const out = await db.transaction(tx => transferGroupInTx(tx, { groupId: g.id, transferTo: a.id, lockTimeoutMs: DEFAULT_STORAGE_LOCK_TIMEOUT_MS }));
 
     expect(out.noteIds).toEqual([]);
     expect(sorted(out.memberIds)).toEqual(sorted([a.id, c.id]));
@@ -266,13 +267,13 @@ describe("#175 PR4 刪群組的測試縫", () => {
     // not_admin 形：不呼叫 group-delete-locked（檢查在縫之前）。
     const rejected: GroupRacePoint[] = [];
     await expect(
-      db.transaction(tx => transferGroupInTx(tx, { groupId: g.id, transferTo: c.id }, async point => { rejected.push(point); })),
+      db.transaction(tx => transferGroupInTx(tx, { groupId: g.id, transferTo: c.id, lockTimeoutMs: DEFAULT_STORAGE_LOCK_TIMEOUT_MS }, async point => { rejected.push(point); })),
     ).rejects.toBeInstanceOf(TxAbort);
     expect(rejected).toEqual([]);
 
     const calls: Array<{ point: GroupRacePoint; ctx: unknown; locks?: unknown }> = [];
     await db.transaction(tx =>
-      transferGroupInTx(tx, { groupId: g.id, transferTo: b.id }, async (point, ctx) => {
+      transferGroupInTx(tx, { groupId: g.id, transferTo: b.id, lockTimeoutMs: DEFAULT_STORAGE_LOCK_TIMEOUT_MS }, async (point, ctx) => {
         calls.push({ point, ctx, ...(point === "group-delete-locked" ? { locks: await probeLocks(pool, g.id) } : {}) });
       }),
     );

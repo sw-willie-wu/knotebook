@@ -19,10 +19,10 @@ import {
 } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
 import { groupMembers, groupRoles, groups, users } from "../db/schema.js";
-import { isForeignKeyViolation, isTransientTransactionError, uniqueViolationConstraint } from "../db/pg-errors.js";
+import { isForeignKeyViolation, isRetryableTxError, uniqueViolationConstraint } from "../db/pg-errors.js";
 import type { CollabHooks } from "../collab/hooks.js";
 import type { GroupTestHook } from "../groups/test-hook.js";
-import { sendError } from "../http/errors.js";
+import { sendError, sendStorageQuotaExceeded } from "../http/errors.js";
 import { TxAbort } from "../http/tx-abort.js";
 import { UUID_RE } from "../notes/service.js";
 import {
@@ -33,6 +33,8 @@ import { createGroupInTx } from "../groups/tx/create-group.js";
 import { deleteGroupWithNotesInTx, transferGroupInTx } from "../groups/tx/delete-group.js";
 import { addMemberInTx, removeMemberInTx, setMemberRoleInTx } from "../groups/tx/members.js";
 import { deleteRoleInTx, updateRoleInTx } from "../groups/tx/roles.js";
+import { StorageQuotaExceeded } from "../storage/tx/quota.js";
+import { quotaErrorDetail } from "../storage/usage.js";
 import { deleteUploadFiles } from "../uploads/service.js";
 
 const nameBodySchema = z.object({ name: z.string() }).strict();
@@ -62,6 +64,8 @@ export interface GroupsRouteDeps {
   groupTestHook?: GroupTestHook;
   /** 全刪模式 commit 後刪附件檔（`deleteUploadFiles`）。 */
   uploadsDir: string;
+  /** 空間鎖等待上限（ms），透傳自 `AppDeps.storageLockTimeoutMs`（儲存配額 §5.3；轉移交易用）。 */
+  storageLockTimeoutMs: number;
 }
 
 function toMemberDto(row: { userId: string; email: string; displayName: string; roleId: string; builtin: string | null }): GroupMemberDto {
@@ -123,6 +127,8 @@ export function groupsRoutes(deps: GroupsRouteDeps) {
     // 不經 gate 被刪，commit 後以 onGroupAccessChanged 讓在線者 5 秒內以 revoked 關閉（§6.8 代價、§15 第 10 條）。
     // 兩模式交易外的錯誤映射相同：FK 23503 → 409 group_not_empty（防禦縱深：lockGroup 之後的建立／移入卡在 FK KEY SHARE，
     // 理論上撞不到）；40P01／40001 → 409 server_busy（T15 × T6／T7、同一位 transferTo 的兩筆 T6 會成環，PR4 plan 鎖序表）。
+    // 儲存配額起，transfer 另有 409 `storage_quota_exceeded`（接收者個人空間放不下；數字只給接收者本人與站台 admin——§8.1）；
+    // 55P03（空間鎖逾時）併入 server_busy。
     app.delete("/api/groups/:id", { preHandler: app.authenticate }, async (request, reply) => {
       const { id } = request.params as { id: string };
       const access = await groupAccess(deps.db, id, request.user!);
@@ -137,15 +143,17 @@ export function groupsRoutes(deps: GroupsRouteDeps) {
         // 非 UUID 與「不是這個群組的內建管理員」同形（spec 疑點 Q2），也讓非 UUID 不進交易（否則 PG 22P02 → 500）。
         if (!UUID_RE.test(parsed.data.transferTo)) return notAdmin(reply);
         // 小寫化：下面以 `!==` 從 DB 回來的（小寫）memberIds 裡濾掉 transferTo。
-        const input = { groupId, transferTo: parsed.data.transferTo.toLowerCase() };
+        const input = { groupId, transferTo: parsed.data.transferTo.toLowerCase(), lockTimeoutMs: deps.storageLockTimeoutMs };
         let out;
         try {
           out = await deps.db.transaction(tx => transferGroupInTx(tx, input, deps.groupTestHook));
         } catch (err) {
+          // 先判子類（StorageQuotaExceeded extends TxAbort）：反序會失去數字。數字可見性在交易外判（接收者本人或站台 admin，§8.1）。
+          if (err instanceof StorageQuotaExceeded) return sendStorageQuotaExceeded(reply, await quotaErrorDetail(deps.db, request.user!, err));
           const sent = replyTxAbort(reply, err);
           if (sent) return sent;
           if (isForeignKeyViolation(err)) return groupNotEmpty(reply);
-          if (isTransientTransactionError(err)) return serverBusy(reply);
+          if (isRetryableTxError(err)) return serverBusy(reply);
           throw err;
         }
         if (out.noteIds.length > 0) {
@@ -179,7 +187,7 @@ export function groupsRoutes(deps: GroupsRouteDeps) {
         const sent = replyTxAbort(reply, err);
         if (sent) return sent;
         if (isForeignKeyViolation(err)) return groupNotEmpty(reply);
-        if (isTransientTransactionError(err)) return serverBusy(reply);
+        if (isRetryableTxError(err)) return serverBusy(reply);
         throw err;
       }
       await deleteUploadFiles(deps.uploadsDir, out.uploadIds, request.log);

@@ -708,7 +708,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     })
   );
   // #103：群組管理（session-only，見 routes/groups.ts 檔頭）。
-  void app.register(groupsRoutes({ db: deps.db, collabHooks: deps.collabHooks, groupTestHook: deps.groupTestHook, uploadsDir: deps.uploadsDir }));
+  void app.register(groupsRoutes({ db: deps.db, collabHooks: deps.collabHooks, groupTestHook: deps.groupTestHook, uploadsDir: deps.uploadsDir, storageLockTimeoutMs }));
   void app.register(adminUsersRoutes({ db: deps.db, gate: deps.gate, collabHooks: deps.collabHooks }));
   void app.register(adminAiRoutes({ db: deps.db, config: deps.config, runtime: deps.ai }));
   // #187 PR2：站台管理的登入服務。與登入路由共用同一個 registry（PATCH／DELETE 要 invalidate、test／discover 用 probe）。
