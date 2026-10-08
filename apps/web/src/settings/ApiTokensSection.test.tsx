@@ -77,6 +77,8 @@ function renderSettings(
     if (url === "/api/notes") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
     if (url === "/api/auth/tokens" && method === "GET")
       return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ tokens }) }));
+    if (url === "/api/storage" && method === "GET")
+      return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ usedBytes: 0, quotaBytes: 2147483648, planName: "Basic" }) }));
     throw new Error(`unexpected fetch: ${method} ${url}`);
   });
   vi.stubGlobal("fetch", fetchMock);

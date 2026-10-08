@@ -528,6 +528,7 @@
       "leaveTitle": "Leave group",
       "tabsLabel": "Group settings sections",
       "tabMembers": "Members",
+      "storage": "Storage",
       "tabRoles": "Roles"
     },
     "roles": {
@@ -608,6 +609,7 @@
         "success": "Password added.",
         "ssoOnlyNotice": "This site only allows signing in through a sign-in service right now."
       },
+      "storage": "Storage",
       "handleTitle": "Username",
       "handleDescription": "Your username appears in every /n/ and /p/ link you share (token links don't include it). After a rename those links stop working immediately, and the old name can never be used again — not even by you.",
       "handleLabel": "Username",
@@ -787,7 +789,10 @@
   },
   "storage": {
     "quotaDetail": "{{used}} of {{quota}} used. Ask a site admin for more space.",
-    "quotaFullGeneric": "This space has no room for the file. Ask its owner or a site admin."
+    "quotaFullGeneric": "This space has no room for the file. Ask its owner or a site admin.",
+    "usage": "{{used}} of {{quota}} ({{plan}})",
+    "usageUnlimited": "{{used}} used (unlimited, {{plan}})",
+    "overQuota": "Limit reached — no new attachments can be added"
   },
   "errors": {
     "unauthorized": "You need to sign in to continue.",
