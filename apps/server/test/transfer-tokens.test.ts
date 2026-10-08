@@ -9,13 +9,26 @@ import { describe, expect, it, vi } from "vitest";
 import { and, eq, sql } from "drizzle-orm";
 import { MAX_UPLOAD_BYTES } from "@knotebook/shared";
 import { TRANSFER_INVALID_MESSAGE, TRANSFER_PAT_MESSAGE } from "../src/auth/transfer-auth.js";
-import { apiTokens, noteShares, notes, uploads, users } from "../src/db/schema.js";
+import { apiTokens, noteShares, notes, oauthClients, uploads, users } from "../src/db/schema.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
-import { buildCollabTestApp, buildTestApp, freshLimiters } from "./helpers.js";
+import { runOauthCleanup } from "../src/oauth/cleanup.js";
+import { buildCollabTestApp, buildTestApp, createUserAndLogin, freshLimiters } from "./helpers.js";
 import { seedTokenForUser } from "./editing-helpers.js";
-import { cookieOf, seedGroup, seedRole, seedShare, seedUser, setMemberRole, waitForBlockedOrSettled } from "./group-helpers.js";
+import { cookieOf, seedGroup, seedNote, seedRole, seedShare, seedUser, setMemberRole, waitForBlockedOrSettled } from "./group-helpers.js";
+import { authorizeAndConsent, codeGrant, exchange, obtainCode } from "./helpers/oauth-flow.js";
 import { mcpPost, rpc } from "./mcp-helpers.js";
-import { MULTIPART, PNG_BYTES, expireToken, fieldOnlyBody, fileBody, issueDirect, ownerWithPat, tokenRow, upload } from "./transfer-helpers.js";
+import {
+  MULTIPART,
+  PNG_BYTES,
+  download,
+  expireToken,
+  fieldOnlyBody,
+  fileBody,
+  issueDirect,
+  ownerWithPat,
+  tokenRow,
+  upload,
+} from "./transfer-helpers.js";
 
 const NOT_AN_IMAGE = Buffer.from("plain text, not an image", "utf-8");
 
@@ -343,6 +356,36 @@ describe("POST /api/notes/:id/uploads × transfer token（spec §5.2）", () => 
     expect((await upload(app, o.noteId, fileBody(PNG_BYTES), { token: "knbt_nope" })).statusCode).toBe(429);
   });
 
+  it("消費那一步的到期述詞：通過認證後、卡在原子 UPDATE 期間 token 過期 → 401、token 未消費、零寫入", async () => {
+    // 守 routes/uploads.ts 原子 UPDATE 的 `expires_at > now()`：認證查表時 token 還有效，holder 鎖住列讓 UPDATE 卡住，
+    // 期間把 expires_at 改到過去並 commit → UPDATE 重新評估述詞 → 0 列 → 401。拿掉那個述詞，這裡會變成 201。
+    const { app, db, uploadsDir } = await buildTestApp();
+    const pool = db.$client;
+    const o = await ownerWithPat(db);
+    const t = await issueDirect(db, o.patId, o.noteId, "upload");
+    const holder = await pool.connect();
+    try {
+      await holder.query("begin");
+      await holder.query("select id from transfer_tokens where id = $1 for update", [t.id]);
+      const req = upload(app, o.noteId, fileBody(PNG_BYTES), { token: t.token });
+      expect(await waitForBlockedOrSettled(pool, req)).toBe("blocked");
+      // created_at 一起往前推，否則撞 transfer_tokens_expiry_chk（expires_at > created_at）。
+      await holder.query("update transfer_tokens set created_at = now() - interval '20 minutes', expires_at = now() - interval '1 minute' where id = $1", [
+        t.id,
+      ]);
+      await holder.query("commit");
+      const res = await req;
+      expect(res.statusCode).toBe(401);
+      expect(res.json()).toEqual({ error: { code: "unauthorized", message: TRANSFER_INVALID_MESSAGE } });
+      expect(res.headers["www-authenticate"]).toBe('Bearer realm="knotebook-transfer", error="invalid_token"');
+    } finally {
+      await holder.query("rollback").catch(() => {});
+      holder.release();
+    }
+    expect((await tokenRow(db, t.id))!.consumedAt).toBeNull();
+    expect(readdirSync(uploadsDir)).toHaveLength(0);
+  });
+
   it("T24：上傳途中筆記被刪（真 socket；已過消費、正在送 body）→ 404 not_found；token 列已被 cascade 刪；磁碟零殘留", async () => {
     // spec §6.4 `next`「a 404 means the note is gone」的「消費之後」那個來源、§12.3「刪筆記 ∥ 正在上傳」。
     // 造法：先送 headers＋multipart 前段＋一半檔案 → 輪詢到 consumed_at 非 NULL（preHandler 已過）→ 刪筆記 → 送完剩下 → INSERT 撞 FK。
@@ -415,9 +458,187 @@ describe("POST /api/notes/:id/uploads × transfer token（spec §5.2）", () => 
     expect(readdirSync(uploadsDir)).toHaveLength(0);
   });
 
-  it("session 路徑不變：cookie 上傳仍 201（authKind 走 session）", async () => {
+  it("session 路徑不變：cookie 上傳仍 201", async () => {
     const { app, db } = await buildTestApp();
     const o = await ownerWithPat(db);
     expect((await upload(app, o.noteId, fileBody(PNG_BYTES), { cookies: await cookieOf(o.userId) })).statusCode).toBe(201);
+  });
+});
+
+describe("GET /api/uploads/:id × transfer token（spec §5.3）", () => {
+  /** 用 session 上傳一張，回 id。 */
+  async function seedUpload(app: Parameters<typeof upload>[0], noteId: string, cookies: Record<string, string>, bytes: Buffer = PNG_BYTES) {
+    const res = await upload(app, noteId, fileBody(bytes), { cookies });
+    expect(res.statusCode).toBe(201);
+    return (res.json() as { id: string }).id;
+  }
+
+  it("T2：download token 在 TTL 內多次使用——同篇兩張各 GET 一次都 200、位元組一致、標頭與 session 路徑相同；HEAD 200", async () => {
+    const { app, db } = await buildTestApp();
+    const o = await ownerWithPat(db);
+    const cookies = await cookieOf(o.userId);
+    const second = Buffer.concat([PNG_BYTES, Buffer.from([0x09, 0x09])]);
+    const id1 = await seedUpload(app, o.noteId, cookies);
+    const id2 = await seedUpload(app, o.noteId, cookies, second);
+    const t = await issueDirect(db, o.patId, o.noteId, "download");
+    const r1 = await download(app, id1, { token: t.token });
+    const r2 = await download(app, id2, { token: t.token });
+    expect([r1.statusCode, r2.statusCode]).toEqual([200, 200]);
+    expect(r1.rawPayload.equals(PNG_BYTES)).toBe(true);
+    expect(r2.rawPayload.equals(second)).toBe(true);
+    const viaSession = await download(app, id1, { cookies });
+    for (const h of ["content-type", "cache-control", "x-content-type-options"]) expect(r1.headers[h], h).toBe(viaSession.headers[h]);
+    expect((await download(app, id1, { token: t.token, method: "HEAD" })).statusCode).toBe(200);
+    expect((await tokenRow(db, t.id))!.consumedAt).toBeNull();
+  });
+
+  it("T4（GET）：download token 過期 → 401", async () => {
+    const { app, db } = await buildTestApp();
+    const o = await ownerWithPat(db);
+    const id = await seedUpload(app, o.noteId, await cookieOf(o.userId));
+    const t = await issueDirect(db, o.patId, o.noteId, "download");
+    await expireToken(db, t.id);
+    expect((await download(app, id, { token: t.token })).statusCode).toBe(401);
+  });
+
+  it("T6：A 篇的 download token 讀 B 篇的上傳 → 403 forbidden", async () => {
+    const { app, db } = await buildTestApp();
+    const a = await ownerWithPat(db);
+    const b = await ownerWithPat(db);
+    const idB = await seedUpload(app, b.noteId, await cookieOf(b.userId));
+    const t = await issueDirect(db, a.patId, a.noteId, "download");
+    const res = await download(app, idB, { token: t.token });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe("forbidden");
+  });
+
+  it("T6b：同一位使用者的兩篇筆記——A 篇的 download token 讀 B 篇（他自己看得到）的上傳 → 仍 403", async () => {
+    // T6 的兩篇分屬兩位使用者，拿掉「token 的筆記＝上傳所屬筆記」那道比對後 resolveRole 照樣回 none → 403，守不到它；
+    // 這裡 B 篇是同一人的，只有那道比對擋得住。
+    const { app, db } = await buildTestApp();
+    const o = await ownerWithPat(db);
+    const cookies = await cookieOf(o.userId);
+    const noteB = await seedNote(db, { ownerId: o.userId });
+    const idB = await seedUpload(app, noteB.id, cookies);
+    const t = await issueDirect(db, o.patId, o.noteId, "download");
+    const res = await download(app, idB, { token: t.token });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe("forbidden");
+    expect((await download(app, idB, { cookies })).statusCode).toBe(200);
+  });
+
+  it("T7（GET 半）：upload token 打 GET → 403；upload token 未被消費", async () => {
+    const { app, db } = await buildTestApp();
+    const o = await ownerWithPat(db);
+    const id = await seedUpload(app, o.noteId, await cookieOf(o.userId));
+    const t = await issueDirect(db, o.patId, o.noteId, "upload");
+    expect((await download(app, id, { token: t.token })).statusCode).toBe(403);
+    expect((await tokenRow(db, t.id))!.consumedAt).toBeNull();
+  });
+
+  it("T9（GET）：簽發後移除分享 → GET 403", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await ownerWithPat(db);
+    const reader = await seedUser(db);
+    const { tokenId } = await seedTokenForUser(db, reader.id, "notes:read");
+    await seedShare(db, owner.noteId, reader.id, "viewer");
+    const id = await seedUpload(app, owner.noteId, await cookieOf(owner.userId));
+    const t = await issueDirect(db, tokenId, owner.noteId, "download");
+    expect((await download(app, id, { token: t.token })).statusCode).toBe(200);
+    await db.delete(noteShares).where(eq(noteShares.noteId, owner.noteId));
+    expect((await download(app, id, { token: t.token })).statusCode).toBe(403);
+  });
+
+  it("T14（GET）：有效 PAT 直接 GET → 401 專屬訊息", async () => {
+    const { app, db } = await buildTestApp();
+    const o = await ownerWithPat(db);
+    const id = await seedUpload(app, o.noteId, await cookieOf(o.userId));
+    const res = await download(app, id, { token: o.pat });
+    expect(res.statusCode).toBe(401);
+    expect(res.json()).toEqual({ error: { code: "unauthorized", message: TRANSFER_PAT_MESSAGE } });
+  });
+
+  it("T21：transfer GET 扣 tokenRead（key token:<userId>）——注入 limit:1，第二發 429", async () => {
+    const tokenRead = new FixedWindowLimiter({ limit: 1, windowMs: 60_000 });
+    const { app, db } = await buildTestApp({ limiters: freshLimiters({ tokenRead }) });
+    const o = await ownerWithPat(db);
+    const id = await seedUpload(app, o.noteId, await cookieOf(o.userId));
+    const t = await issueDirect(db, o.patId, o.noteId, "download");
+    expect((await download(app, id, { token: t.token })).statusCode).toBe(200);
+    expect((await download(app, id, { token: t.token })).statusCode).toBe(429);
+    // 同一本帳：同一使用者的 PAT 打 authenticateAny 路由也被擋（key 相同）
+    expect((await app.inject({ method: "GET", url: "/api/notes", headers: { authorization: `Bearer ${o.pat}` } })).statusCode).toBe(429);
+  });
+
+  it("RF3：download token ＋大寫 upload id → 200", async () => {
+    const { app, db } = await buildTestApp();
+    const o = await ownerWithPat(db);
+    const id = await seedUpload(app, o.noteId, await cookieOf(o.userId));
+    const t = await issueDirect(db, o.patId, o.noteId, "download");
+    expect((await download(app, id.toUpperCase(), { token: t.token })).statusCode).toBe(200);
+  });
+
+  it("session GET 路徑不變（不扣 tokenRead）", async () => {
+    const tokenRead = new FixedWindowLimiter({ limit: 1, windowMs: 60_000 });
+    const { app, db } = await buildTestApp({ limiters: freshLimiters({ tokenRead }) });
+    const o = await ownerWithPat(db);
+    const cookies = await cookieOf(o.userId);
+    const id = await seedUpload(app, o.noteId, cookies);
+    expect((await download(app, id, { cookies })).statusCode).toBe(200);
+    expect((await download(app, id, { cookies })).statusCode).toBe(200);
+  });
+});
+
+describe("T8：母憑證消失 → 子 token 一起死（spec §3.2）", () => {
+  it("(a) DELETE /api/auth/tokens/:id 撤銷 PAT → 子 token 401、transfer_tokens 列已不存在", async () => {
+    const { app, db } = await buildTestApp();
+    const o = await ownerWithPat(db);
+    const t = await issueDirect(db, o.patId, o.noteId, "upload");
+    const revoked = await app.inject({ method: "DELETE", url: `/api/auth/tokens/${o.patId}`, cookies: await cookieOf(o.userId) });
+    expect(revoked.statusCode).toBeLessThan(300);
+    expect(await tokenRow(db, t.id)).toBeUndefined();
+    expect((await upload(app, o.noteId, fileBody(PNG_BYTES), { token: t.token })).statusCode).toBe(401);
+  });
+
+  /** 走一輪 OAuth：回 { cookie, clientId, redirectUri, grantId, refresh }。 */
+  async function oauthGrant(app: Parameters<typeof upload>[0], db: Parameters<typeof ownerWithPat>[0]) {
+    const { userId, cookie } = await createUserAndLogin(db);
+    const c = await obtainCode(app, cookie, { scope: "notes:write" });
+    const tokens = (await exchange(app, codeGrant(c))).json() as { access_token: string; refresh_token: string };
+    const [grant] = await db.select().from(apiTokens).where(eq(apiTokens.userId, userId));
+    const note = await seedNoteFor(db, userId);
+    return { userId, cookie, c, grantId: grant!.id, refresh: tokens.refresh_token, noteId: note };
+  }
+  async function seedNoteFor(db: Parameters<typeof ownerWithPat>[0], userId: string): Promise<string> {
+    const [n] = await db.insert(notes).values({ ownerId: userId }).returning({ id: notes.id });
+    return n!.id;
+  }
+
+  it("(b) OAuth 同 client 重新授權（I7 先刪後插）→ 舊子 token 401", async () => {
+    const { app, db } = await buildTestApp();
+    const g = await oauthGrant(app, db);
+    const t = await issueDirect(db, g.grantId, g.noteId, "upload");
+    const again = await authorizeAndConsent(app, g.cookie, g.c.clientId, g.c.redirectUri, "notes:write");
+    expect((await exchange(app, codeGrant({ ...g.c, ...again }))).statusCode).toBe(200);
+    expect(await tokenRow(db, t.id)).toBeUndefined();
+    expect((await upload(app, g.noteId, fileBody(PNG_BYTES), { token: t.token })).statusCode).toBe(401);
+  });
+
+  it("(c) OAuth client 清理的兩層 cascade（oauth_clients → api_tokens → transfer_tokens）→ 子列消失", async () => {
+    const { app, db } = await buildTestApp();
+    const g = await oauthGrant(app, db);
+    const t = await issueDirect(db, g.grantId, g.noteId, "download");
+    await db.update(oauthClients).set({ lastUsedAt: sql`now() - interval '31 days'` }).where(eq(oauthClients.clientId, g.c.clientId));
+    await runOauthCleanup(db);
+    expect(await tokenRow(db, t.id)).toBeUndefined();
+  });
+
+  it("(d) refresh 輪替（原地 UPDATE、id 不變）後子 token 仍可用", async () => {
+    const { app, db } = await buildTestApp();
+    const g = await oauthGrant(app, db);
+    const t = await issueDirect(db, g.grantId, g.noteId, "upload");
+    const rotated = await exchange(app, { grant_type: "refresh_token", refresh_token: g.refresh, client_id: g.c.clientId });
+    expect(rotated.statusCode).toBe(200);
+    expect((await upload(app, g.noteId, fileBody(PNG_BYTES), { token: t.token })).statusCode).toBe(201);
   });
 });

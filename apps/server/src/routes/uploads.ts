@@ -55,6 +55,7 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
       limiters: { bearerMiss: deps.limiters.bearerMiss },
     });
     const uploadAuth = transferAuth.require("upload");
+    const downloadAuth = transferAuth.require("download");
 
     /**
      * 認證 + 授權 + 節流全部收在 preHandler，且**每個早退分支都要先 drain**
@@ -235,9 +236,10 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
      * 有沒有權限看」才是需要明確告知呼叫端的部分，用 403 更精確地表達「你查得到、
      * 但沒有權限」，比起用 404 混淆「不存在」與「無權限」更符合這個資源的語意。
      */
-    app.get("/api/uploads/:id", { preHandler: app.authenticate }, async (request, reply) => {
+    app.get("/api/uploads/:id", { preHandler: downloadAuth }, async (request, reply) => {
       const { id } = request.params as { id: string };
       const userId = request.user!.id;
+      const transfer = request.transfer;
 
       if (!UUID_RE.test(id)) {
         return sendError(reply, 404, "not_found", "找不到此檔案");
@@ -248,9 +250,20 @@ export function uploadsRoutes(deps: UploadsRouteDeps) {
         return sendError(reply, 404, "not_found", "找不到此檔案");
       }
 
+      // #200 spec §5.3：transfer token 只綁一篇筆記——上傳不屬於那一篇 → 403（與下面「看不到的上傳回 403」同碼，
+      // 上方 JSDoc 的理由同樣成立）。兩邊都是 DB 的小寫正規形，不必再 toLowerCase。
+      if (transfer !== undefined && row.noteId !== transfer.noteId) {
+        return sendError(reply, 403, "forbidden", "此 transfer token 不適用於這個檔案");
+      }
+
       const role = await resolveRole(deps.db, userId, row.noteId);
       if (role === "none") {
         return sendError(reply, 403, "forbidden", "無權存取此檔案");
+      }
+
+      // #200：transfer GET 扣 token 讀取桶（key 與 `auth/bearer.ts` 同形 `token:${userId}`、同一實例＝同一本帳）。
+      if (transfer !== undefined && !deps.limiters.tokenRead.consume(`token:${userId}`)) {
+        return sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
       }
 
       const filePath = uploadFilePath(deps.uploadsDir, row.id);
