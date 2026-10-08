@@ -27,8 +27,6 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "@/components/ui/toast";
 import { copyText } from "@/lib/clipboard";
 import { ManualCopyField } from "@/components/ManualCopyField";
-import { CopyToPersonalButton } from "@/components/share/CopyToPersonalButton";
-import { MoveToGroupSection } from "@/components/share/MoveToGroupSection";
 
 /** ApiFail → errors.<code>；其餘 → errors.fallback。與 NoteList/TitleInput 同一套對映（各檔各自一份，
  * 是既有慣例——見那兩處的說明，這裡不再重複抽象）。 */
@@ -450,7 +448,7 @@ function AccessSection({ note }: { note: NoteDto }) {
  * #175 §8.4：群組筆記的分享面板——**無 radio、無成員區**。存取由群組角色決定，所以這裡只說明＋帶去群組設定
  * （點了先關分享面板，否則兩個 Dialog 疊著）；能管公開連結的角色才看得到公開連結開關（群組筆記沒有公開別名，W7）。
  * `useShares` 一律不發（群組筆記沒有逐人分享，S5）；`usePublicLink` 只在 `managePublicLink` 為真時發（否則 server 回 403）。
- * 末尾一律有「複製到我的筆記」（`CopyToPersonalButton`；看得到群組筆記就能讀，不看 `permissions.read`——規格落差 16）。
+ * 複製到我的筆記不在這裡：統一在 ⋮ 選單「複製到… → 個人空間」（#216，`share/GroupTransfer.tsx`）。
  * 角色一律讀 `note.permissions`：移動成功後這份 `NoteDto` 是 server 回應，「能新建、不能編輯」的角色搬完是 viewer
  * （沒有公開連結開關、只剩說明與複製），不得假設搬完是 editor（規格落差 17）。
  *
@@ -531,8 +529,6 @@ function GroupNoteShareSection({ note, onClose }: { note: NoteDto; onClose: () =
           )}
         </>
       )}
-      {/* 複製成功就關面板：模態開著時 focus trap 讓鍵盤碰不到 toast 的「前往副本」，關掉之後焦點回觸發鈕、F8 摸得到。 */}
-      <CopyToPersonalButton note={note} onDone={onClose} />
     </ShareGroup>
   );
 }
@@ -852,7 +848,7 @@ export function ShareDialog({ note }: ShareDialogProps) {
   const [open, setOpen] = useState(false);
   // `typeof` 而非 `!== null`：與 `canonicalNotePath`／`api/notes.ts` 同慣例（沒有 `groupId` 欄的舊物件不得被當群組筆記）。
   const isGroupNote = typeof note.groupId === "string";
-  // Q14：群組筆記的分享鈕對看得到它的人都在（裡面有「群組設定」連結與「複製到我的筆記」）；
+  // Q14：群組筆記的分享鈕對看得到它的人都在（裡面有「群組設定」連結；複製在 ⋮ 選單）；
   // 個人筆記只給能管分享的人（#175 §5.2：看 permissions，不再由 role 推）。
   const canOpen = isGroupNote ? note.permissions.read : note.permissions.manageShares;
 
@@ -935,17 +931,16 @@ export function ShareDialog({ note }: ShareDialogProps) {
         {/* 內部自訂網址（原「連結」區塊：CopyLinkButton／SlugField）已下架
             （Willie 2026-09-17 產品決定）——要連到某篇筆記用 `[[標題]]` wikilink，
             協作者本來就會在自己的工作區看到那篇筆記，不需要傳連結。
-            #175：個人與群組筆記各自一個面板；個人筆記 owner（`moveToGroup`）在存取權之後多一列「移動或複製到
-            群組」（v2 沒有移出）。PR2 起面板開著時個人↔群組會互換（移動成功、PR4 轉移）；兩個分支是不同元件
-            型別，互換即重掛。個人分支以 `note.id` 為 key 包住兩個子元件：不同筆記不共用 `AccessSection` 的 latch
-            （#170），也不把 `MoveToGroupSection` 開著的確認框／選的群組帶到另一篇。 */}
+            #175：個人與群組筆記各自一個面板；個人筆記只有存取權區塊；「移動／複製到群組」自 #216 起
+            改放 ⋮ 選單（`NoteMenu` + `share/GroupTransfer.tsx`）。面板開著時個人↔群組可能互換（PR4 轉移等）；
+            兩個分支是不同元件型別，互換即重掛。個人分支以 `note.id` 為 key：不同筆記不共用 `AccessSection` 的
+            latch（#170）。 */}
         {open &&
           (isGroupNote ? (
             <GroupNoteShareSection note={note} onClose={() => setOpen(false)} />
           ) : (
             <Fragment key={note.id}>
               <AccessSection note={note} />
-              {note.permissions.moveToGroup && <MoveToGroupSection note={note} onDone={() => setOpen(false)} />}
             </Fragment>
           ))}
       </DialogContent>

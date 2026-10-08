@@ -7,7 +7,9 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
-_Nothing yet._
+### Changed
+
+- **Move to…** and **Copy to…** are now in a note's `⋮` menu instead of the **Move or copy into a group** row of the Share dialog, which is gone. Groups are offered only where your role can both create and edit notes. On your own personal note, **Copy to…** starts with **Make a copy**; on a group note there is no **Move to…**, and **Copy to…** offers **Make a copy** (in the same group), **Personal space** and your other groups; on a note shared with you (as a viewer or an editor) it offers **Personal space** and your groups, and no **Move to…**. This replaces the `⋮` item **Copy to my notes** and the **Copy to my notes** button in a group note's Share dialog. Hover an item to open the list beside the menu; on a narrow window or a touch screen it expands right below the item instead. Choosing a target opens a confirmation, and a finished move shows a "Moved into …" notice (#216).
 
 ## [0.6.0] - 2026-10-08
 

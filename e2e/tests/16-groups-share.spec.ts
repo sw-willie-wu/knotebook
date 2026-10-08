@@ -4,9 +4,9 @@ import { ADMIN, createNote, editorLocator, loginAs, randomEmail } from "./helper
 /**
  * #175 PR2（spec §12.3 第 16 條，改寫自 #103 PR3 版）：移入群組與複製到個人。
  * A 建群組、從設定加 B（內建一般成員）→ A 建個人筆記（打字＋**真上傳**一張圖）、逐人分享給 C、開公開連結 →
- * C 開著那篇 → A 從分享面板「Move or copy into a group」把它移進群組（確認框列出 C、說公開連結會關）→
+ * C 開著那篇 → A 從 ⋮「Move to…」第二層選單選群組把它移進群組（確認框列出 C、說公開連結會關）→
  * A 的網址列變 `/g/<group id>/<slug>`、面板換成群組版；C ≤10 秒被踢回首頁；公開網址 404 →
- * B 開**舊的** `/n/<A handle>/<slug>` → 網址列變 `/g/…`、內容正確 → B 在 ⋮「Copy to my notes」→ toast「Open copy」→
+ * B 開**舊的** `/n/<A handle>/<slug>` → 網址列變 `/g/…`、內容正確 → B 在 ⋮「Copy to… → Personal space」→ toast「Open copy」→
  * 副本頁的圖是**新的**上傳網址、真的載得出來 → A 刪群組筆記（原圖的上傳端點 404）→ B 重整副本頁，圖仍載得出來。
  *
  * 不斷言 A 搬完的角色（主檔規格落差 17：create-only 角色搬完是 viewer；A 是群組建立者＝內建管理員，本支不測
@@ -171,22 +171,22 @@ test("移入群組（踢逐人分享、關公開連結、舊網址轉址）→ �
     await expect(guest.page.getByRole("heading", { name: title, level: 1 })).toBeVisible({ timeout: 15_000 });
     await expect(guest.page.getByRole("status").filter({ hasText: /^Connected/ })).toBeVisible({ timeout: 15_000 });
 
-    // ── A：分享面板「Move or copy into a group」→ 選群組 → Move → 確認框 → Move into group ──
-    await adminPage.getByRole("button", { name: "Share", exact: true }).click();
-    await expect(shareDialog).toBeVisible();
-    await expect(shareDialog.getByRole("heading", { name: "Move or copy into a group" })).toBeVisible();
-    // 下拉在 shares 與 public-link 兩支都到之前停用；selectOption 會等到可用。
-    await shareDialog.getByRole("combobox", { name: "Group", exact: true }).selectOption({ label: groupName });
-    await shareDialog.getByRole("button", { name: "Move", exact: true }).click();
-    const confirm = shareDialog.getByRole("alert").filter({ hasText: `Move this note into "${groupName}"?` });
+    // ── A：⋮ → Move to…（第二層選單，桌面 hover／點開）→ 選群組 → 確認框 → Move into group ──
+    await adminPage.getByRole("button", { name: "More", exact: true }).click();
+    await adminPage.getByRole("menuitem", { name: "Move to…", exact: true }).click();
+    await adminPage.getByRole("menuitem", { name: groupName, exact: true }).click();
+    const confirm = adminPage.getByRole("dialog").filter({ hasText: `Move this note into "${groupName}"?` });
+    // 提交鈕在 shares 與 public-link 兩支都到之前停用；確認文案也要等它們到才完整。
     await expect(confirm).toContainText(
       `Per-person sharing with ${guestName} is removed; if they aren't in the group, they lose access.`,
     );
     await expect(confirm).toContainText("Its public link will be turned off.");
     await confirm.getByRole("button", { name: "Move into group", exact: true }).click();
 
-    // A：網址列換成群組形（新群組裡沒有撞名，slug 沿用）；面板換成群組版（無 radio、說明存取看角色）。
+    // A：網址列換成群組形（新群組裡沒有撞名，slug 沿用）；再開分享面板確認已是群組版（無 radio、說明存取看角色）。
     await expect(adminPage).toHaveURL(new RegExp(`/g/${groupId}/${slug}$`), { timeout: 15_000 });
+    await adminPage.getByRole("button", { name: "Share", exact: true }).click();
+    await expect(shareDialog).toBeVisible();
     await expect(shareDialog.getByText(/every member whose role can read has access/)).toBeVisible();
     await expect(shareDialog.getByRole("radio")).toHaveCount(0);
     const groupUrl = adminPage.url();
@@ -208,9 +208,11 @@ test("移入群組（踢逐人分享、關公開連結、舊網址轉址）→ �
     await expect(member.page.getByLabel("Note title")).toHaveValue(title, { timeout: 15_000 }); // B 是 editor：標題是輸入框
     await expect(member.page.locator('[data-testid="note-editor"]')).toContainText(sentence, { timeout: 15_000 });
 
-    // ── B：⋮ → Copy to my notes → toast「Open copy」→ 副本頁的圖是新上傳、載得出來 ─────────
+    // ── B：⋮ → Copy to… → Personal space → 確認 → toast「Open copy」→ 副本頁的圖是新上傳、載得出來 ─────────
     await member.page.getByRole("button", { name: "More", exact: true }).click();
-    await member.page.getByRole("menuitem", { name: "Copy to my notes", exact: true }).click();
+    await member.page.getByRole("menuitem", { name: "Copy to…", exact: true }).click();
+    await member.page.getByRole("menuitem", { name: "Personal space", exact: true }).click();
+    await member.page.getByRole("dialog").getByRole("button", { name: "Copy to my notes", exact: true }).click();
     await expect(member.page.getByText("Copied to your notes", { exact: true })).toBeVisible({ timeout: 15_000 });
     await member.page.getByRole("button", { name: "Open copy", exact: true }).click();
     await member.page.waitForURL(

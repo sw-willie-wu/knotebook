@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
-import { MemoryRouter, Route, Routes } from "react-router";
-import type { GroupDto, NoteDto, ShareDto } from "@knotebook/shared";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router";
+import type { NoteDto, ShareDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { clickOutside } from "@/test/outside-click";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
-import { EDITOR_PERMS, groupDto, memberRole, OWNER_PERMS, VIEWER_PERMS } from "@/test/fixtures";
+import { EDITOR_PERMS, OWNER_PERMS, VIEWER_PERMS } from "@/test/fixtures";
 import { ShareDialog } from "./ShareDialog";
 
 // 同一套約定：mock 全域 fetch，讓真正的 useShares/usePutShare/useDeleteShare/useUpdateNote
@@ -299,8 +299,6 @@ function stubRoutedFetch(opts: {
   /** 公開別名（#122 PR3）：與 token 同屬可變狀態（PUT/DELETE …/slug 會改它）。 */
   slug?: string | null;
   pending?: string[];
-  /** #175 PR2：個人筆記 owner 的面板會掛「搬入群組」列，它發 `GET /api/groups`；預設空清單（整列隱藏）。 */
-  groups?: GroupDto[];
   onCall?: (method: string, url: string) => Response | undefined;
 }) {
   const calls: Array<{ method: string; url: string }> = [];
@@ -319,9 +317,6 @@ function stubRoutedFetch(opts: {
     }
     if (url === PUBLIC_LINK_URL && method === "GET") {
       return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ token: opts.token ?? null, slug: opts.slug ?? null }) }));
-    }
-    if (url === "/api/groups" && method === "GET") {
-      return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([...(opts.groups ?? [])]) }));
     }
     if (url === PUBLIC_LINK_URL && method === "PUT") {
       opts.token = TOKEN;
@@ -1220,62 +1215,17 @@ describe("群組筆記（#175 §8.4）", () => {
     expect(screen.getByRole("dialog")).toHaveAccessibleDescription("Manage who can view or edit this note.");
     expect(screen.queryByRole("combobox", { name: "Group this note belongs to" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Group" })).not.toBeInTheDocument();
-    // #175 PR2：`GET /api/groups` 改由「搬入群組」列發（v1「所屬群組」列的資料來源不再存在）；沒有能新建的群組 →
-    // 等清單真的回來再斷言整列不渲染（光看 DOM 分不出「元件在、只是還沒載完」）。
-    await waitFor(() => expect(stub.calls).toContainEqual({ method: "GET", url: "/api/groups" }));
-    await waitFor(() => expect(screen.getByRole("radio", { name: /Private/ })).toBeChecked());
+    // #216：「搬入群組」列已移到 ⋮ 選單，分享面板不再發 `GET /api/groups`、也沒有任何下拉。
+    expect(stub.calls.filter((c) => c.url === "/api/groups")).toEqual([]);
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    expect(screen.queryByText("Move or copy into a group")).not.toBeInTheDocument();
   });
 });
 
-// ──────────────── #175 PR2：搬入群組列、群組版「複製到我的筆記」、#170 latch ────────────────
+// ──────────────── #175 PR2：#170 latch（搬入群組列 #216 起在 ⋮ 選單） ────────────────
 
-const GROUP_A = groupDto({ id: GROUP_ID, name: "Workshop A" }, memberRole());
-const NOTE_URL = `/api/notes/${NOTE.id}`;
-const MOVE_URL = `${NOTE_URL}/move`;
-const COPY_URL = `${NOTE_URL}/copy`;
-/** create-only 角色（PR3 起合法）搬完的形：viewer、不能編輯、不能管公開連結（主檔規格落差 17）。 */
-const MOVED_VIEWER: NoteDto = { ...GROUP_NOTE, role: "viewer", permissions: { ...VIEWER_PERMS } };
-const COPY_PERSONAL: NoteDto = { ...NOTE, id: "55555555-5555-5555-5555-555555555555", slug: "my-note-2" };
 const okResponse = (body: unknown, status = 200) =>
   fakeResponse({ ok: true, status, json: () => Promise.resolve(body) });
-
-/** 比照 NotePage：`ShareDialog` 吃的是 `['note', id]` 快取裡那份 DTO——移動成功寫快取後面板才會換形。 */
-function CachedNoteDialog({ initial }: { initial: NoteDto }) {
-  const { data } = useQuery({
-    queryKey: ["note", initial.id],
-    queryFn: () => Promise.resolve(initial),
-    initialData: initial,
-    staleTime: Infinity,
-  });
-  return <ShareDialog note={data} />;
-}
-
-function renderCachedDialog(initial: NoteDto) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(
-    <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[`/notes/${initial.id}`]}>
-        <Routes>
-          <Route path="/notes/:id" element={<CachedNoteDialog initial={initial} />} />
-          <Route path="/n/:handle/:slug" element={<p>copy page</p>} />
-        </Routes>
-        <Toaster />
-      </MemoryRouter>
-    </QueryClientProvider>,
-  );
-  return queryClient;
-}
-
-/** 開面板、等下拉可用、選 Workshop A、按「移動」，回傳確認框。 */
-async function startMove(): Promise<HTMLElement> {
-  await openDialog();
-  const select = await screen.findByRole("combobox", { name: "Group" });
-  await waitFor(() => expect(select).not.toBeDisabled());
-  fireEvent.change(select, { target: { value: GROUP_ID } });
-  fireEvent.click(screen.getByRole("button", { name: "Move" }));
-  return screen.findByRole("alert");
-}
 
 describe("#175 PR2", () => {
   beforeEach(async () => {
@@ -1334,166 +1284,9 @@ describe("#175 PR2", () => {
     await waitFor(() => expect(screen.getByRole("radio", { name: /Members only/ })).toBeChecked());
   });
 
-  it("移動成功後（面板開著）：面板換成群組版、群組版在場時觸發鈕 title 從未是公開態（不變量⑥）", async () => {
-    const opts = {
-      shares: [SHARE],
-      token: TOKEN as string | null,
-      groups: [GROUP_A],
-      pending: [] as string[],
-      onCall: (method: string, url: string): Response | undefined => {
-        if (method === "GET" && url === NOTE_URL) return okResponse(NOTE);
-        if (method === "POST" && url === MOVE_URL) {
-          // server 的移動交易關掉公開連結；之後群組版面板的 public-link 重抓懸著，好讓「快取還是舊 token」的窗口看得見。
-          opts.token = null;
-          opts.pending.push(PUBLIC_LINK_URL);
-          return okResponse(GROUP_NOTE_ADMIN);
-        }
-        return undefined;
-      },
-    };
-    const stub = stubRoutedFetch(opts);
-    renderCachedDialog(NOTE);
-    const confirm = await startMove();
-    expect(confirm).toHaveTextContent("Its public link will be turned off.");
-
-    // 面板開著時觸發鈕在 Dialog 外、被 Radix 標成 aria-hidden，查詢要帶 hidden。
-    const trigger = screen.getByRole("button", { name: "Share", hidden: true });
-    // 逐筆紀錄而不是讀「當下」的值：同一個 task 裡先改成公開再改回來時，當下值會漏掉中間那一個。群組版在場期間
-    // 出現過的 title＝群組版掛上之後每一筆 title 變更的 oldValue（變更前的值）＋最後的值。紀錄依 DOM 變更的發生
-    // 順序排列（同一個 observer 看 childList 與 attributes），所以「掛上之前」的變更不會被算進來。
-    const seen: Array<string | null> = [];
-    const settingsLink = `a[href="/settings/groups/${GROUP_ID}"]`;
-    const hasSettingsLink = (node: Node) =>
-      node instanceof Element && (node.matches(settingsLink) || node.querySelector(settingsLink) !== null);
-    let groupPanelUp = false;
-    const observer = new MutationObserver((records) => {
-      for (const record of records) {
-        if (record.type === "childList" && Array.from(record.addedNodes).some(hasSettingsLink)) groupPanelUp = true;
-        else if (record.type === "attributes" && record.target === trigger && groupPanelUp) seen.push(record.oldValue);
-      }
-    });
-    observer.observe(document.body, {
-      subtree: true,
-      childList: true,
-      attributes: true,
-      attributeFilter: ["title"],
-      attributeOldValue: true,
-    });
-
-    fireEvent.click(within(confirm).getByRole("button", { name: "Move into group" }));
-    await screen.findByRole("link", { name: "Group settings" });
-    await waitFor(() =>
-      expect(stub.calls.filter((c) => c.method === "GET" && c.url === PUBLIC_LINK_URL).length).toBeGreaterThanOrEqual(2),
-    );
-    seen.push(trigger.getAttribute("title"));
-    stub.resolve(PUBLIC_LINK_URL, okResponse({ token: null, slug: null }));
-    await waitFor(() => expect(screen.getByRole("switch", { name: "Public link" })).not.toBeDisabled());
-    for (const record of observer.takeRecords()) {
-      if (record.type === "attributes" && record.target === trigger && groupPanelUp) seen.push(record.oldValue);
-    }
-    observer.disconnect();
-    seen.push(trigger.getAttribute("title"));
-
-    expect(groupPanelUp).toBe(true);
-    expect(seen.length).toBeGreaterThan(0);
-    expect(seen).not.toContain("Public — anyone with the link can view");
-    expect(trigger).toHaveAttribute("title", 'Members of "Workshop A" have access');
-    expect(screen.queryAllByRole("radio")).toHaveLength(0);
-    expect(stub.calls).toContainEqual({ method: "POST", url: MOVE_URL });
-  });
-
-  it("群組版面板有「複製到我的筆記」鈕（只讀角色也有）；成功 → POST /copy 帶 {}、toast 附「前往副本」（帶 altText），點了導到副本", async () => {
-    const calls = stubGroupNoteFetch({
-      onCall: (method, url) =>
-        method === "POST" && url === COPY_URL ? Promise.resolve(okResponse(COPY_PERSONAL, 201)) : undefined,
-    });
-    renderCachedDialog({ ...GROUP_NOTE, role: "viewer", permissions: { ...VIEWER_PERMS } });
-    await openGroupDialog();
-
-    fireEvent.click(screen.getByRole("button", { name: "Copy to my notes" }));
-    await waitFor(() => expect(calls).toContainEqual({ method: "POST", url: COPY_URL }));
-    const copyCall = vi.mocked(fetch).mock.calls.find(([input]) => String(input) === COPY_URL);
-    expect(JSON.parse(String((copyCall?.[1] as RequestInit).body))).toEqual({});
-    expect(await screen.findByText("Copied to your notes")).toBeInTheDocument();
-    expect(
-      document.querySelector('[data-radix-toast-announce-alt="You can also open the copy from the sidebar."]'),
-    ).not.toBeNull();
-    // 複製成功就關面板（模態的 focus trap 會讓鍵盤碰不到 toast 的動作鈕）。
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    // 關面板後焦點回「分享」觸發鈕（Radix 預設 onCloseAutoFocus）：鍵盤使用者從這裡按 F8 才進得了 toast viewport。
-    // `DialogContent` 加 `onCloseAutoFocus={e => e.preventDefault()}` 時這行紅。
-    await waitFor(() => expect(screen.getByRole("button", { name: "Share" })).toHaveFocus());
-
-    // 面板關了，toast 的動作鈕不再被 aria-hidden 蓋住。
-    fireEvent.click(screen.getByRole("button", { name: "Open copy" }));
-    expect(await screen.findByText("copy page")).toBeInTheDocument();
-  });
-
-  it("個人筆記「複製到群組」成功 → toast 附「前往副本」、面板關掉、焦點回「分享」觸發鈕（與群組版複製一致）；不發 /move", async () => {
-    const stub = stubRoutedFetch({
-      shares: [],
-      token: null,
-      groups: [GROUP_A],
-      onCall: (method, url) => (method === "POST" && url === COPY_URL ? okResponse(COPY_PERSONAL, 201) : undefined),
-    });
-    renderCachedDialog(NOTE);
-    await openDialog();
-    const select = await screen.findByRole("combobox", { name: "Group" });
-    await waitFor(() => expect(select).not.toBeDisabled());
-    fireEvent.change(select, { target: { value: GROUP_ID } });
-    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
-    fireEvent.click(within(await screen.findByRole("alert")).getByRole("button", { name: "Copy into group" }));
-
-    expect(await screen.findByText('Copied into "Workshop A"')).toBeInTheDocument();
-    // 面板開著時 toast 在模態的 aria-hidden 區、鍵盤摸不到「前往副本」，所以成功就關面板。
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    await waitFor(() => expect(screen.getByRole("button", { name: "Share" })).toHaveFocus());
-    expect(stub.calls.filter((c) => c.url === MOVE_URL)).toEqual([]);
-
-    fireEvent.click(screen.getByRole("button", { name: "Open copy" }));
-    expect(await screen.findByText("copy page")).toBeInTheDocument();
-  });
-
-  // 拿掉 CopyToPersonalButton 的 `submitting` state（連同它在按下當下引起的重繪）→ 這案送出兩次（實測 3/3）。
-  it("群組版「複製到我的筆記」掛著時再按 → 鈕停用、POST /copy 仍只 1 次", async () => {
-    const calls = stubGroupNoteFetch({
-      onCall: (method, url) => (method === "POST" && url === COPY_URL ? new Promise<Response>(() => {}) : undefined),
-    });
-    renderDialog(GROUP_NOTE);
-    await openGroupDialog();
-    const button = screen.getByRole("button", { name: "Copy to my notes" });
-    fireEvent.click(button);
-    fireEvent.click(button);
-    await waitFor(() => expect(calls.filter((c) => c.url === COPY_URL)).toHaveLength(1));
-    expect(button).toBeDisabled();
-    fireEvent.click(button);
-    await act(async () => {});
-    expect(calls.filter((c) => c.url === COPY_URL)).toHaveLength(1);
-  });
-
-  it("群組版「複製到我的筆記」失敗 → destructive toast、沒有成功 toast", async () => {
-    stubGroupNoteFetch({
-      onCall: (method, url) =>
-        method === "POST" && url === COPY_URL
-          ? Promise.resolve(
-              fakeResponse({
-                ok: false,
-                status: 429,
-                json: () => Promise.resolve({ error: { code: "too_many_requests", message: "x" } }),
-              }),
-            )
-          : undefined,
-    });
-    renderDialog(GROUP_NOTE);
-    await openGroupDialog();
-    fireEvent.click(screen.getByRole("button", { name: "Copy to my notes" }));
-    expect(await screen.findByText(i18n.t("errors.too_many_requests"))).toBeInTheDocument();
-    expect(screen.queryByText("Copied to your notes")).not.toBeInTheDocument();
-  });
-
-  it("個人筆記但不能移動（moveToGroup 假）／群組筆記 → 不渲染搬入群組列、不發 /api/groups", async () => {
-    const stub = stubRoutedFetch({ shares: [], token: null, groups: [GROUP_A] });
-    renderDialog({ ...NOTE, permissions: { ...OWNER_PERMS, moveToGroup: false } });
+  it("#216：個人筆記（含 moveToGroup 為真的 owner）／群組筆記的分享面板都沒有搬入群組列、不發 /api/groups", async () => {
+    const stub = stubRoutedFetch({ shares: [], token: null });
+    renderDialog(NOTE);
     await openDialog();
     await waitFor(() => expect(screen.getByRole("radio", { name: /Private/ })).toBeChecked());
     expect(screen.queryByRole("combobox", { name: "Group" })).not.toBeInTheDocument();
@@ -1504,79 +1297,23 @@ describe("#175 PR2", () => {
     const calls = stubGroupNoteFetch();
     renderDialog(GROUP_NOTE_ADMIN);
     await openGroupDialog();
-    await screen.findByRole("button", { name: "Copy to my notes" });
+    await screen.findByText(/every member whose role can read has access/);
+    expect(screen.queryByRole("button", { name: "Copy to my notes" })).not.toBeInTheDocument(); // #216：改在 ⋮ 選單
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
     expect(screen.queryByText("Move or copy into a group")).not.toBeInTheDocument();
     expect(calls.filter((c) => c.url === "/api/groups")).toEqual([]);
   });
 
-  it("個人筆記的 owner（moveToGroup 真）且有能新建的群組 → 搬入群組列在存取權區塊之後", async () => {
-    stubRoutedFetch({ shares: [], token: null, groups: [GROUP_A] });
-    renderDialog();
-    await openDialog();
-    const select = await screen.findByRole("combobox", { name: "Group" });
-    const radiogroup = screen.getByRole("radiogroup");
-    expect(radiogroup.compareDocumentPosition(select) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  });
-
-  it("移動回應是 viewer 形（create-only 角色）→ 面板換成群組版、沒有公開連結控制、仍有「複製到我的筆記」、不報錯", async () => {
-    const stub = stubRoutedFetch({
-      shares: [],
-      token: null,
-      groups: [GROUP_A],
-      onCall: (method, url) => {
-        if (method === "GET" && url === NOTE_URL) return okResponse(NOTE);
-        if (method === "POST" && url === MOVE_URL) return okResponse(MOVED_VIEWER);
-        return undefined;
-      },
-    });
-    renderCachedDialog(NOTE);
-    const confirm = await startMove();
-    fireEvent.click(within(confirm).getByRole("button", { name: "Move into group" }));
-
-    await screen.findByRole("link", { name: "Group settings" });
-    expect(screen.queryAllByRole("radio")).toHaveLength(0);
-    expect(screen.queryByRole("switch")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Copy to my notes" })).toBeInTheDocument();
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Share", hidden: true })).toHaveAttribute(
-      "title",
-      'Members of "Workshop A" have access',
-    );
-    // 群組版面板對不能管公開連結的角色不發 public-link（否則 403）：移動之後不得再有 public-link 請求。
-    const moveIdx = stub.calls.findIndex((c) => c.method === "POST" && c.url === MOVE_URL);
-    expect(stub.calls.slice(moveIdx + 1).filter((c) => c.url === PUBLIC_LINK_URL)).toEqual([]);
-  });
-
-  it("送出前檢查不過（重讀到別處已移進群組）→ 面板換成群組版、仍看得到 changedElsewhere toast、不發 /move", async () => {
-    const stub = stubRoutedFetch({
-      shares: [],
-      token: null,
-      groups: [GROUP_A],
-      onCall: (method, url) => (method === "GET" && url === NOTE_URL ? okResponse(GROUP_NOTE) : undefined),
-    });
-    renderCachedDialog(NOTE);
-    const confirm = await startMove();
-    fireEvent.click(within(confirm).getByRole("button", { name: "Move into group" }));
-
-    // 送出前檢查把重讀到的群組形寫進 ['note', id]：面板換成群組版、搬入群組列卸載——提示若是元件內 state 就看不到了。
-    await screen.findByRole("link", { name: "Group settings" });
-    expect(await screen.findByText("This note was changed elsewhere, so nothing was moved.")).toBeInTheDocument();
-    expect(screen.queryByRole("combobox", { name: "Group" })).not.toBeInTheDocument();
-    expect(stub.calls.filter((c) => c.url === MOVE_URL)).toEqual([]);
-  });
-
-  it("#170／key：面板開著時換成另一篇個人筆記（新筆記的 shares／public-link 懸著）→ 不沿用上一篇的 latch 與移動確認框", async () => {
+  it("#170／key：面板開著時換成另一篇個人筆記（新筆記的 shares／public-link 懸著）→ 不沿用上一篇的 latch", async () => {
     const OTHER: NoteDto = { ...NOTE, id: "66666666-6666-6666-6666-666666666666", slug: "other" };
     stubRoutedFetch({
       shares: [],
       token: TOKEN,
-      groups: [GROUP_A],
       pending: [`/api/notes/${OTHER.id}/shares`, `/api/notes/${OTHER.id}/public-link`],
     });
     const queryClient = renderDialog(NOTE);
-    await startMove();
-    expect(screen.getByRole("radio", { name: /Public/ })).toBeChecked();
+    await openDialog();
+    await waitFor(() => expect(screen.getByRole("radio", { name: /Public/ })).toBeChecked());
 
     queryClient.rerender(OTHER);
     await act(async () => {});
