@@ -169,7 +169,7 @@ function refTextOf(node: Y.XmlElement | Y.XmlText): string {
   return s;
 }
 
-/** 改動前的 sectionize，只換成呼叫 refTextOf（其餘逐字同 note-sections.ts:52-67）。 */
+/** 改動前的 sectionize，只換成呼叫 refTextOf；與 note-sections.ts 的 `sectionize` 行為等價（helper 內聯、省略 blockIds）。 */
 function refSectionize(fragment: Y.XmlFragment): Array<{ sectionId: string; heading: string; chars: number }> {
   const out: Array<{ sectionId: string; level: number; heading: string; chars: number }> = [{ sectionId: TOP_SECTION_ID, level: 0, heading: "", chars: 0 }];
   let current = out[0]!;
@@ -250,7 +250,7 @@ function randomDoc(seed: number): Y.Doc {
 }
 
 describe("#93 textOf 迭代化（spec §4.1）", () => {
-  // 建鏈本身約 24 s（Yjs insert 走 parent chain，O(n²)）——預設 5 s 會逾時，所以明設 timeout。
+  // 建鏈本身約 15–24 s（隨機器而異；Yjs insert 走 parent chain，O(n²)；抽取本身只要毫秒）——預設 5 s 會逾時，所以明設 timeout。
   it("T2：20 000 層 blockContainer 鏈 → sectionize 不拋，最深處的字算進 chars", { timeout: 120_000 }, () => {
     const doc = new Y.Doc();
     const group = new Y.XmlElement("blockGroup");
