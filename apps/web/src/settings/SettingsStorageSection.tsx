@@ -293,7 +293,7 @@ function DefaultsGroup({ data }: { data: StoragePlansResponse }) {
 
 /** 欄寬規則（比照使用者表 `USERS_TABLE_LAYOUT`）：文字欄可任意處斷行、數字欄不換行、操作欄收到內容寬。 */
 const PLAN_TABLE_LAYOUT = {
-  text: "wrap-anywhere",
+  text: "min-w-[14ch] wrap-anywhere",
   fixed: "whitespace-nowrap",
   actions: "w-px whitespace-nowrap",
 } as const;

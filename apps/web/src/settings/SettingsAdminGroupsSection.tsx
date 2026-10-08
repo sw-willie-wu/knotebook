@@ -10,7 +10,7 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
 }
 
 /** 欄寬規則同使用者表（`SettingsUsersSection.tsx`）。 */
-const LAYOUT = { text: "wrap-anywhere", fixed: "whitespace-nowrap" } as const;
+const LAYOUT = { text: "min-w-[14ch] wrap-anywhere", fixed: "whitespace-nowrap" } as const;
 
 /**
  * 站台管理的群組列表（`/admin/groups`，spec §9.3、A9）：站上所有群組（`GET /api/admin/groups`，不論是不是成員）＋成員數、

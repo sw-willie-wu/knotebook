@@ -496,9 +496,10 @@ describe("SettingsUsersSection——使用者名欄（#122 Task 5）", () => {
     renderUsersRoute(fetchMock);
     const emailCell = (await screen.findByText(LONG_EMAIL)).closest("td");
     const tokens = (el: Element | null) => [...(el?.classList ?? [])];
-    expect(tokens(emailCell)).toContain("wrap-anywhere");
-    expect(tokens(screen.getByText(LONG_HANDLE).closest("td"))).toContain("wrap-anywhere");
-    expect(tokens(screen.getByText(LONG_NAME).closest("td"))).toContain("wrap-anywhere");
+    // 三格同時要有 wrap-anywhere（可斷行）與 min-w-[14ch]（窄螢幕下限，否則被壓成一字寬直排）。
+    expect(tokens(emailCell)).toEqual(expect.arrayContaining(["wrap-anywhere", "min-w-[14ch]"]));
+    expect(tokens(screen.getByText(LONG_HANDLE).closest("td"))).toEqual(expect.arrayContaining(["wrap-anywhere", "min-w-[14ch]"]));
+    expect(tokens(screen.getByText(LONG_NAME).closest("td"))).toEqual(expect.arrayContaining(["wrap-anywhere", "min-w-[14ch]"]));
     const cells = (emailCell?.closest("tr") as HTMLElement).querySelectorAll("td");
     expect(tokens(cells[3])).toContain("whitespace-nowrap");
     expect(tokens(cells[4])).toContain("whitespace-nowrap");

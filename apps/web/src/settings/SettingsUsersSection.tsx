@@ -280,12 +280,13 @@ function UserActions({ user, currentUserId }: { user: AdminUserDto; currentUserI
 /**
  * 使用者表的欄寬規則（比照群組成員表 #183）。jsdom 不排版，測試對字面 token 斷言。
  * - `text`：email／username／顯示名稱可在任意處斷行；`wrap-anywhere` 會把斷點算進 min-content，
- *   auto 表格才肯壓窄這欄（`break-words` 不會，照樣撐爆）。
+ *   auto 表格才肯壓窄這欄（`break-words` 不會，照樣撐爆）。`min-w-[14ch]` 是下限：沒有它，窄螢幕（768px 卡片約 474px）
+ *   會把三欄壓到一個字元寬、字一個一個直排；有它，表格寬於卡片時改由卡片層的橫向捲動吸收。
  * - `fixed`：角色、狀態、儲存空間三欄不換行。
  * - `actions`：操作欄收到內容寬、不換行，按鈕永遠不被擠壓。
  */
 const USERS_TABLE_LAYOUT = {
-  text: "wrap-anywhere",
+  text: "min-w-[14ch] wrap-anywhere",
   fixed: "whitespace-nowrap",
   actions: "w-px whitespace-nowrap",
 } as const;
