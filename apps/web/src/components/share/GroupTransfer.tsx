@@ -16,7 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ChevronDown } from "@/components/ui/icons";
+import { ChevronDown, Copy, FolderInput } from "@/components/ui/icons";
 import {
   DropdownMenuGroup,
   DropdownMenuItem,
@@ -144,9 +144,15 @@ export function useInlineGroupList(): boolean {
   return inline;
 }
 
+/** 觸發項前的圖示：與 `NoteMenu` 其他項同一組 class（`mr-2 h-4 w-4`），兩種形態共用。 */
+function TransferIcon({ kind }: { kind: GroupTransferKind }) {
+  return kind === "move" ? <FolderInput className="mr-2 h-4 w-4" /> : <Copy className="mr-2 h-4 w-4" />;
+}
+
 /** 就地展開形的一組：觸發項（Enter／Space／右鍵展開或收合，左鍵收合）＋縮排的群組項（同一個 menu 的一般項，上下鍵照常漫遊）。
  * Esc 的收合由 `NoteMenu` 的 `onEscapeKeyDown` 接（見 `GroupTransferMenuItems` 的 `expanded` 說明）。 */
 function GroupInline({
+  kind,
   label,
   options,
   open,
@@ -155,6 +161,7 @@ function GroupInline({
   testId,
   triggerRef,
 }: {
+  kind: GroupTransferKind;
   label: string;
   options: TransferOption[];
   open: boolean;
@@ -183,6 +190,7 @@ function GroupInline({
           }
         }}
       >
+        <TransferIcon kind={kind} />
         {label}
         <ChevronDown className={"ml-auto h-4 w-4 transition-transform" + (open ? " rotate-180" : "")} />
       </DropdownMenuItem>
@@ -210,11 +218,13 @@ function GroupInline({
 }
 
 function GroupSub({
+  kind,
   label,
   options,
   onPick,
   testId,
 }: {
+  kind: GroupTransferKind;
   label: string;
   options: TransferOption[];
   onPick: (target: TransferTarget) => void;
@@ -227,6 +237,7 @@ function GroupSub({
   return (
     <DropdownMenuSub open={open} onOpenChange={setOpen}>
       <DropdownMenuSubTrigger ref={triggerRef} data-testid={testId}>
+        <TransferIcon kind={kind} />
         {label}
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent
@@ -291,6 +302,7 @@ export function GroupTransferMenuItems({
         inline ? (
           <GroupInline
             key={kind}
+            kind={kind}
             label={label}
             testId={testId}
             options={kindOptions}
@@ -304,6 +316,7 @@ export function GroupTransferMenuItems({
         ) : (
           <GroupSub
             key={kind}
+            kind={kind}
             label={label}
             testId={testId}
             options={kindOptions}

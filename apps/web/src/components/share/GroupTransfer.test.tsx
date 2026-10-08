@@ -197,6 +197,21 @@ describe("⋮ 選單：移動／複製到群組（#216）", () => {
     expect(within(sub).getAllByRole("menuitem").map((e) => e.textContent)).toEqual(["Make a copy"]);
   });
 
+  it("flyout 形：移動／複製觸發項前各有自己的圖示（與其他選單項同款 mr-2 h-4 w-4），右側箭頭仍在", async () => {
+    stub();
+    renderMenu();
+    const move = await openMenuReady("note-menu-move-to");
+    const moveIcon = move.querySelector('svg[data-icon="folder-input"]');
+    expect(moveIcon).not.toBeNull();
+    expect(moveIcon).toHaveClass("mr-2", "h-4", "w-4");
+    expect(move.querySelector('svg[data-icon="chevron-right"]')).not.toBeNull();
+    const copy = screen.getByTestId("note-menu-copy-to");
+    const copyIcon = copy.querySelector('svg[data-icon="copy"]');
+    expect(copyIcon).not.toBeNull();
+    expect(copyIcon).toHaveClass("mr-2", "h-4", "w-4");
+    expect(copy.querySelector('svg[data-icon="chevron-right"]')).not.toBeNull();
+  });
+
   // 選項矩陣（Willie 2026-10-08）。
   it("矩陣：自己的個人筆記 -> 移動＝候選群組；複製＝建立副本＋候選群組（create＋edit）", async () => {
     stub({ groups: [GROUP_A, GROUP_B, GROUP_C] });
@@ -495,6 +510,21 @@ describe("⋮ 選單：移動／複製到群組（#216）", () => {
 
   describe("就地展開形（窄視窗／觸控）", () => {
     beforeEach(() => stubInlineMode(true));
+
+    it("就地展開形：移動／複製觸發項前各有自己的圖示，右側箭頭（向下）仍在", async () => {
+      stub();
+      renderMenu();
+      const move = await openMenuReady("note-menu-move-to");
+      const moveIcon = move.querySelector('svg[data-icon="folder-input"]');
+      expect(moveIcon).not.toBeNull();
+      expect(moveIcon).toHaveClass("mr-2", "h-4", "w-4");
+      expect(move.querySelector('svg[data-icon="chevron-down"]')).not.toBeNull();
+      const copy = screen.getByTestId("note-menu-copy-to");
+      const copyIcon = copy.querySelector('svg[data-icon="copy"]');
+      expect(copyIcon).not.toBeNull();
+      expect(copyIcon).toHaveClass("mr-2", "h-4", "w-4");
+      expect(copy.querySelector('svg[data-icon="chevron-down"]')).not.toBeNull();
+    });
 
     it("沒有 flyout：點觸發項 → 同一個選單內向下展開（縮排的群組項），aria-expanded 同步；再點收合", async () => {
       stub();
