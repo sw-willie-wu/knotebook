@@ -165,7 +165,12 @@ describe("M2：create_transfer_token 的流程（spec §6.3、§6.4）", () => {
       code: "not_found",
       message: NOTE_NOT_FOUND_MESSAGE,
     });
-    expect((await call(app, o.pat, { note_id: o.noteId, purpose: "upload" })).structuredContent!.code).toBe("too_many_requests");
+    // 連訊息一起釘：`too_many_requests` 也是未消費上限的碼（TOO_MANY_PENDING_MESSAGE），只看 code 分不出是被速率桶擋的。
+    // 字面值抄自 `mcp/write-scope.ts` 的 RATE_LIMITED_MESSAGE（未 export）。
+    expect((await call(app, o.pat, { note_id: o.noteId, purpose: "upload" })).structuredContent).toEqual({
+      code: "too_many_requests",
+      message: "Too many writes with this credential right now. Wait a few minutes before writing again.",
+    });
     expect(await db.select().from(transferTokens)).toHaveLength(0);
   });
 

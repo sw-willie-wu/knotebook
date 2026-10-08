@@ -9,7 +9,7 @@ import type { IssueTransferTokenSeam } from "../src/auth/tx/issue-transfer-token
 import { transferTokens } from "../src/db/schema.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 import { TOO_MANY_PENDING_MESSAGE } from "../src/mcp/tools/create-transfer-token.js";
-import { buildCollabTestApp, buildTestApp, freshLimiters } from "./helpers.js";
+import { buildCollabTestApp, buildTestApp, freshLimiters, testConfig } from "./helpers.js";
 import { seedTokenForUser } from "./editing-helpers.js";
 import { waitForBlockedOrSettled } from "./group-helpers.js";
 import { mcpPost, rpc } from "./mcp-helpers.js";
@@ -98,7 +98,9 @@ describe("M4：transfer token 明文從頭到尾不進 log（spec §6.4 末段�
     expect((await callTool(app, o.pat, "create_transfer_token", { note_id: o.noteId, purpose: "download" })).structuredContent.code).toBe("internal");
     const all = chunks.join("");
     expect(all.length).toBeGreaterThan(0);
-    expect(all).toContain("MCP 工具丟出未預期的例外"); // 證明例外那一行真的進了這份 log
+    // 例外那一發在 handler 之前（beforeTool）就丟，這時**還沒有任何新的 transfer token 存在**——這條證明的是「錯誤那一行
+    // 確實進了這份 log（攔截器沒漏接錯誤路徑）」，不是「錯誤行裡的明文被遮掉」；明文不出現由下面三條 not.toContain 守。
+    expect(all).toContain("MCP 工具丟出未預期的例外");
     expect(all).not.toContain(up.token);
     expect(all).not.toContain(down.token);
     expect(all).not.toContain("knbt_");
@@ -116,6 +118,10 @@ describe("T1 端到端（collab app）：工具給的 curl 形真的能用，回
     const m = /^curl -sS -X (POST) -H "Authorization: Bearer (knbt_[A-Za-z0-9_-]{43})" -F "file=@<path-to-image>" "([^"]+)"$/.exec(p.curl);
     expect(m).not.toBeNull();
     const [, method, bearerToken, url] = m!;
+    // curl 裡的網址就是 payload 的 `url`，且 origin 取自 PUBLIC_URL（collab app 用 `testConfig`）——下面 inject 只取 pathname，
+    // 不釘這兩條的話 curl 指向別的主機也照樣綠。
+    expect(url).toBe(p.url);
+    expect(new URL(url!).origin).toBe(testConfig.publicUrl.origin);
     const res = await ctx.app.inject({
       method: method as "POST",
       url: new URL(url!).pathname,

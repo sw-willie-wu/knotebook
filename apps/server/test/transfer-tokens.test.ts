@@ -558,12 +558,17 @@ describe("GET /api/uploads/:id × transfer token（spec §5.3）", () => {
     expect(res.json()).toEqual({ error: { code: "unauthorized", message: TRANSFER_PAT_MESSAGE } });
   });
 
-  it("T21：transfer GET 扣 tokenRead（key token:<userId>）——注入 limit:1，第二發 429", async () => {
+  it("T21：transfer GET 扣 tokenRead（key token:<userId>）——注入 limit:1：先 403／404 不扣，200 扣掉唯一一點，下一發 429", async () => {
     const tokenRead = new FixedWindowLimiter({ limit: 1, windowMs: 60_000 });
     const { app, db } = await buildTestApp({ limiters: freshLimiters({ tokenRead }) });
     const o = await ownerWithPat(db);
     const id = await seedUpload(app, o.noteId, await cookieOf(o.userId));
     const t = await issueDirect(db, o.patId, o.noteId, "download");
+    // 被存取檢查擋下的 403（別篇的上傳）與 404（查無此上傳）都在扣點之前 return，不啃桶——否則下面那發 200 會變 429
+    // （docs/api.md GET 列「that gets past the access checks」的守衛）。
+    const otherId = await seedUpload(app, (await seedNote(db, { ownerId: o.userId })).id, await cookieOf(o.userId));
+    expect((await download(app, otherId, { token: t.token })).statusCode).toBe(403);
+    expect((await download(app, randomUUID(), { token: t.token })).statusCode).toBe(404);
     expect((await download(app, id, { token: t.token })).statusCode).toBe(200);
     expect((await download(app, id, { token: t.token })).statusCode).toBe(429);
     // 同一本帳：同一使用者的 PAT 打 authenticateAny 路由也被擋（key 相同）
