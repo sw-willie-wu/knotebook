@@ -94,7 +94,7 @@ export const createNoteInput = {
       "the note is read-only for you: the reply's `role` is `viewer`.",
   ),
   content: MD.optional()
-    .describe("Markdown for the new note. Leave it out to create an empty note. Some deployments cannot store content this way and answer `invalid_body`; create the note without it and the note still exists."),
+    .describe("Markdown for the new note. Leave it out to create an empty note. Some deployments cannot store content this way and answer `invalid_body`; create the note without it and the note still exists. Colors work as in edit_note."),
 };
 
 export const createNoteOutput = {

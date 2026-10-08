@@ -31,6 +31,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { YDOC_FRAGMENT } from "@knotebook/shared";
 import { outlineOf } from "../../notes/editing/fingerprint.js";
 import { loadNoteDoc } from "../../notes/editing/read.js";
+import { PALETTE_COLORS } from "../../notes/editing/colors.js";
 import { editBodySchema, FP, MD, NOTE_ID, SEC } from "../../notes/schemas.js";
 import { resolveRole } from "../../notes/service.js";
 import { MCP_PAGE_MAX } from "../limits.js";
@@ -67,7 +68,12 @@ export const editNoteInput = {
     .describe("What to do. `replace_section`, `insert_after` and `delete_section` need `section_id`; only `append` may omit `if_match`."),
   section_id: SEC.optional()
     .describe("Which section to act on, from read_note_outline. Required for replace_section, insert_after and delete_section."),
-  markdown: MD.optional().describe("The new markdown. Required for every operation except delete_section."),
+  // #222：色名取自 PALETTE_COLORS（單一真相）；寫法與「讀回同形」在 colors.ts／docs/ai-editing.md#colors 有測試守。
+  markdown: MD.optional().describe(
+    "The new markdown. Required for every operation except delete_section. Colors are HTML, as read_note_section " +
+      `returns them: colored text is <span style="color:red">…</span> inside the markdown; a block's own color is ` +
+      `e.g. <p data-background-color="yellow">…</p>. Only these names are accepted: ${PALETTE_COLORS.join(", ")}.`
+  ),
   if_match: FP.optional()
     .describe("The fingerprint of what you are replacing. Required for every operation except append; the write fails if the note changed since you read it."),
 };

@@ -70,7 +70,8 @@ export const readNoteSectionOutput = {
       .max(MCP_SECTION_CHARS)
       .describe(
         "This page of the section, as markdown. The first page starts with the section's heading line — except " +
-          "`_top`, which has no heading; a later page resumes where the last one stopped."
+          "`_top`, which has no heading; a later page resumes where the last one stopped. Colored text and blocks come back as " +
+          "HTML; write it back unchanged to keep the colors."
       ),
     fingerprint: z
       .string()

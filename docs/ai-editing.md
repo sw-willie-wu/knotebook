@@ -171,6 +171,27 @@ Three more properties of the Markdown:
 - Only block types this note can store are accepted. Anything else is rejected whole, with `400 unsupported_block` — nothing is silently stripped.
 - Non-empty Markdown always ends with a trailing newline. A note that has never been opened or written to returns `markdown: ""`; one that has been reduced back to empty returns `"\n"`. Both report `chars: 0`, so test emptiness with `chars` or the fingerprint, not by comparing the string to `""`.
 
+### Colors
+
+Text and background colors travel as HTML inside the Markdown: a colored stretch of text is a `<span>` inside ordinary Markdown, and only a color Markdown has no place for — on a whole paragraph, heading, list item or quote, or on a table cell — needs the block written as HTML. Only the editor's ten built-in color names are accepted: `default`, `gray`, `brown`, `red`, `orange`, `yellow`, `green`, `blue`, `purple`, `pink` (`default` means no color).
+
+| What | Write it as |
+|---|---|
+| Colored text | `<span style="color:red">…</span>`, `<span style="background-color:yellow">…</span>`, or both in one `style`: `<span style="color:red;background-color:yellow">…</span>` — inside a Markdown paragraph, list item, heading or pipe-table cell. Markdown inside the span still works: `<span style="color:red">**late**</span>` is red bold text |
+| A colored paragraph | `<p data-text-color="red" data-background-color="yellow">…</p>`, as a block of its own with a blank line after it (either attribute can be left out) |
+| A colored heading, list item or quote | the same attributes on `<h1>`–`<h6>`, on an `<li>` inside `<ul>` or `<ol>`, or on `<blockquote>` |
+| A colored table cell | an HTML `<table>` with the same attributes on its `<td>` or `<th>` — a Markdown (pipe) table can't carry a cell's own color (colored text inside a cell is fine) |
+
+- **Any other color value rejects the whole write**: a `#hex` color, `rgb(…)`, a CSS color name that isn't one of the ten, or a `data-` attribute value that isn't written in lowercase. The answer is `400 unsupported_color` (over MCP, the tool error `unsupported_color`), its message lists the ten names, and nothing is stored. Inside `style`, CSS's own case-insensitivity applies, so `color:RED` is accepted as `red`.
+- **Other markup is not a color.** `<mark>`, or `data-text-color` / `data-background-color` on a `<span>`, is accepted, but the color is dropped without an error and only the text is kept.
+- **Inside a block written as HTML, Markdown is not interpreted.** Write bold as `<strong>`, a link as `<a href="…">`, and so on; `**` there is literal text.
+
+Reading gives colors back in the same forms. Content with no color in it reads back as Markdown, exactly as before. Colored text reads back as a `<span>` in the Markdown, with the span outside any bold, italics or link around that text (`<span style="color:red">**late**</span>`). A paragraph, heading, list item or quote with a color of its own reads back as one block of HTML — the whole list, nested items included, when any of its items has one — and so does a whole table when any of its cells has one. Writing back what you read keeps the colors: sending a section back unchanged with `replace_section` and reading it again gives the same text. That holds for the colors; text that merely looks like Markdown or HTML is another matter — see [Known limitations](./known-limitations.md). Three kinds of color are not carried:
+
+- **A file attachment's background color.** A file attachment reads back as a link, as before, and the color is not in it.
+- **A color value that isn't one of the ten names**, stored before Knotebook checked colors. The editor doesn't show it either; it reads back as no color, so writing that block back removes it.
+- **The color of a block with no text in it**, such as an empty paragraph given a background. Written back, an empty colored block would be dropped, so it reads back as it did before colors were read at all.
+
 ## Presence
 
 While a program works on a note, it shows up **in the note** — as a remote cursor, the same one another person editing gets.
