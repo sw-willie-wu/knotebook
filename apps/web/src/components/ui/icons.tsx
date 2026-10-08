@@ -191,3 +191,24 @@ export function SignInGeneric(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+/** 移動到…（⋮ 選單項）。路徑取自 lucide `folder-input`（ISC），手刻同風格。 */
+export function FolderInput(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="folder-input" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M2 9V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-1" />
+      <path d="M2 13h10" />
+      <path d="m9 16 3-3-3-3" />
+    </svg>
+  );
+}
+
+/** 複製到…（⋮ 選單項）。路徑取自 lucide `copy`（ISC），手刻同風格。 */
+export function Copy(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="copy" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
+      <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+    </svg>
+  );
+}
