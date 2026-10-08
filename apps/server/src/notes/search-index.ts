@@ -149,6 +149,11 @@ export async function backfillSearchIndex(db: Db, log: BackfillLogger, opts: Bac
           const doc = new Y.Doc();
           try {
             Y.applyUpdate(doc, row.ydoc);
+            // 解碼期間可能收到關機訊號：寫入前再看一次，免得 pool 已關時撞出誤導的 failed:1 warn。
+            if (opts.signal?.aborted) {
+              aborted = true;
+              break outer;
+            }
             const outcome = await writeSearchIndex(db, noteId, row.version, extractForIndex(doc), { log });
             if (outcome === "written" || outcome === "unchanged") done += 1;
             else skipped += 1;

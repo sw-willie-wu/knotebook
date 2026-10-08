@@ -408,6 +408,21 @@ describe("#108 兩支工具的共同接線", () => {
     }
   });
 
+  it("#93 M7：search_notes 吃自己的 search 桶（60/min）；耗盡 → too_many_requests 與逐字訊息；list_notes 不受影響", async () => {
+    const ctx = await buildCollabTestApp({ limiters: { search: new FixedWindowLimiter({ limit: 1, windowMs: 600_000 }) } });
+    const { ownerId, token } = await scenario(ctx);
+    await ctx.createNote(ownerId, "bucket");
+    expect(payloadOf(await callTool(ctx.app, token, "search_notes", { query: "bucket" })).notes).toHaveLength(1);
+    const second = await callTool(ctx.app, token, "search_notes", { query: "bucket" });
+    expect(second.status).toBe(200);
+    expect(second.result.isError).toBe(true);
+    expect(second.result.structuredContent).toEqual({
+      code: "too_many_requests",
+      message: "Too many searches right now. Wait a moment before searching again.",
+    });
+    expect(payloadOf(await callTool(ctx.app, token, "list_notes")).notes).toHaveLength(1);
+  });
+
   it("runTool() 涵蓋率：beforeTool 看到的名字集合逐字等於 {list_notes, search_notes}", async () => {
     const seen: string[] = [];
     const ctx = await buildCollabTestApp({ mcpTestHooks: { beforeTool: name => void seen.push(name) } });

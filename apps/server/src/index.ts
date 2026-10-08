@@ -189,7 +189,7 @@ async function main(): Promise<void> {
   // 結構守衛：test/unit/search-backfill-wiring.test.ts。
   const backfillAbort = new AbortController();
   void backfillSearchIndex(db, logger, { signal: backfillAbort.signal }).catch((err: unknown) =>
-    logger.error({ err }, "全文索引回填失敗（已中止；下次啟動接續）"),
+    logger.error({ err }, "全文索引回填中止（下次啟動接續）"),
   );
 
   // Graceful shutdown：`docker compose stop`/`down`（以及手動 Ctrl-C）送的都是
@@ -203,8 +203,9 @@ async function main(): Promise<void> {
   // socket（讓最後一條連線離開時把 pending store 落地），逾時未關的直接 terminate。
   // 全部做完（或任一步驟拋錯，被 `.finally` 接住）才 `process.exit(0)`——不做 exit code
   // 判斷是因為這是主動收到終止訊號的正常關機路徑，非錯誤情境。
-  // `backfillAbort.abort()` 先停回填：回填在每篇與每批之前檢查 signal，不會再發新查詢；萬一它在 `pool.end()`
-  // 之後撞到錯誤——單篇內的記一行 warn、批次查詢的由上面的 `.catch` 吞掉、只記一行（都不擋關機）。
+  // `backfillAbort.abort()` 先停回填：回填在每篇與每批之前（以及單篇寫入之前）檢查 signal，abort 之後不再開始新的
+  // 筆記或批次；已在途的單篇讀取可能仍會跑完，其寫入若撞到已關的 pool，只記一行 warn。批次查詢撞錯的由上面的 `.catch`
+  // 吞掉、只記一行（都不擋關機）。
   for (const sig of ["SIGTERM", "SIGINT"] as const) {
     process.once(sig, () => {
       backfillAbort.abort();

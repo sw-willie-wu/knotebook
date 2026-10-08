@@ -211,6 +211,13 @@ export const TOKEN_ENDPOINT_LIMIT = { limit: 60, windowMs: 60_000 } as const;
 export const CONTENT_READ_LIMIT = { limit: 120, windowMs: 60_000 } as const;
 
 /**
+ * #93 §8.6：全文搜尋（MCP `search_notes`；PR2 的 `GET /api/search` 也吃這一顆），key=userId。
+ * 不與 `CONTENT_READ_LIMIT` 共用：搜尋的成本隨「呼叫者看得見的內文總量」成長，與「讀一篇」不同；共用會讓 AI 分頁讀取
+ * 與側欄打字互相餓死（spec §8.6，Q1 總管裁示）。
+ */
+export const SEARCH_LIMIT = { limit: 60, windowMs: 60_000 } as const;
+
+/**
  * #106 寫入端（`POST /api/notes/:id/edits`、`POST …/edits/:editId/revert`、
  * `POST /api/notes` 帶 `content`；key=userId）。**角色檢查之後才消耗**（同
  * `CONTENT_READ_LIMIT` 的理由）。比讀取緊得多：每一次寫入都要 fork、mount 一次

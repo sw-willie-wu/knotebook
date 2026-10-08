@@ -15,7 +15,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { noNul } from "../../notes/schemas.js";
 import { noteSummarySchema, toNoteSummary } from "../dto.js";
 import { buildNoteSearchQuery } from "../queries.js";
-import { toolResult } from "../tool-result.js";
+import { toolError, toolResult } from "../tool-result.js";
 import type { McpToolCtx } from "../context.js";
 
 const DEFAULT_LIMIT = 20;
@@ -58,7 +58,11 @@ export interface SearchNotesArgs {
   limit?: number;
 }
 
+/** #93 §8.6：search 桶耗盡時的訊息（模型面字串，逐字）。 */
+export const SEARCH_RATE_LIMITED_MESSAGE = "Too many searches right now. Wait a moment before searching again.";
+
 export async function searchNotes(args: SearchNotesArgs, ctx: McpToolCtx): Promise<CallToolResult> {
+  if (!ctx.limiters.search.consume(ctx.userId)) return toolError("too_many_requests", SEARCH_RATE_LIMITED_MESSAGE);
   const limit = args.limit ?? DEFAULT_LIMIT;
   // 多取一列判斷「還有更多」，不發第二個計數查詢。
   const rows = await buildNoteSearchQuery(ctx.db, { userId: ctx.userId, query: args.query, limit });

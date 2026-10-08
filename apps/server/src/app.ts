@@ -39,7 +39,7 @@ import { sendError } from "./http/errors.js";
 // #108：`stripDefaultPort` 搬到 `http/origin.ts`（與 `mcpOriginAllowed` 同一個葉節點模組，
 // 兩種比較語意的差別寫在該檔檔頭）。
 import { stripDefaultPort } from "./http/origin.js";
-import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, REGISTER_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_RENAME_LIMIT, TOKEN_WRITE_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
+import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, REGISTER_LIMIT, SEARCH_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_RENAME_LIMIT, TOKEN_WRITE_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
 import { FORM_EXEMPT_ROUTES, isOauthScopedPath, sendOauthError } from "./http/oauth-errors.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { oauthMetadataRoutes } from "./routes/oauth-metadata.js";
@@ -143,6 +143,8 @@ export interface AppDeps {
     tokenEndpoint: FixedWindowLimiter;
     /** #106：`GET /api/notes/:id/content`（key=userId；角色檢查後才消耗，見 `CONTENT_READ_LIMIT`）。 */
     contentRead: FixedWindowLimiter;
+    /** #93：全文搜尋（key=userId，見 `SEARCH_LIMIT`）。 */
+    search: FixedWindowLimiter;
     /** #106 寫入端：`POST /api/notes/:id/edits`、`POST /api/notes` 帶 `content`（key=userId，見 `EDIT_LIMIT`）。 */
     edit: FixedWindowLimiter;
     /** #187 §9.1：帳密註冊（key=ip）。 */
@@ -599,6 +601,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       authorize: new FixedWindowLimiter(AUTHORIZE_LIMIT),
       tokenEndpoint: new FixedWindowLimiter(TOKEN_ENDPOINT_LIMIT),
       contentRead: new FixedWindowLimiter(CONTENT_READ_LIMIT),
+      search: new FixedWindowLimiter(SEARCH_LIMIT),
       edit: new FixedWindowLimiter(EDIT_LIMIT),
       register: new FixedWindowLimiter(REGISTER_LIMIT),
     } satisfies NonNullable<AppDeps["limiters"]>);
@@ -719,8 +722,8 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       config: deps.config,
       collab: deps.collab,
       editing,
-      // 逐鍵挑，不整包轉傳——MCP 只該看得到它自己會用的三顆桶。
-      limiters: { contentRead: limiters.contentRead, edit: limiters.edit, tokenWrite: limiters.tokenWrite },
+      // 逐鍵挑，不整包轉傳——MCP 只該看得到它自己會用的四顆桶。
+      limiters: { contentRead: limiters.contentRead, edit: limiters.edit, tokenWrite: limiters.tokenWrite, search: limiters.search },
       presence,
       writes,
       testHooks: deps.mcpTestHooks,

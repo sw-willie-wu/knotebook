@@ -141,7 +141,8 @@ describe("S11 回填", () => {
           deletedSignal();
         },
       });
-      await deleted;
+      // 與 run 賽跑：run 提早丟例外時立刻失敗，不要空等 120 s。
+      await Promise.race([deleted, run]);
       expect(await waitForBlockedOrSettled(db.$client, run)).toBe("blocked");
       await holder.query("commit");
       open = false;
