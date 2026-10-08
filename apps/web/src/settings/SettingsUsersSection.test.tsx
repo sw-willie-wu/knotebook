@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen, waitFor, fireEvent, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
-import { MIN_PASSWORD_LENGTH, type UserDto } from "@knotebook/shared";
+import { MIN_PASSWORD_LENGTH, type StoragePlanDto, type UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { clickOutside } from "@/test/outside-click";
 import { ThemeProvider } from "@/theme";
@@ -32,6 +32,12 @@ function fakeResponse({ ok, status, json }: FakeResponseInit): Response {
   return { ok, status, json: json ?? (() => Promise.reject(new Error("no body"))) } as unknown as Response;
 }
 
+const BASIC_ID = "11111111-1111-4111-8111-111111111111";
+const BIG_ID = "22222222-2222-4222-8222-222222222222";
+const PLAN_META = { overQuotaCount: 0, isDefaultForUsers: false, isDefaultForGroups: false, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" };
+const BASIC_PLAN: StoragePlanDto = { ...PLAN_META, id: BASIC_ID, name: "Basic", quotaBytes: 2147483648, userCount: 3, groupCount: 0 };
+const BIG_PLAN: StoragePlanDto = { ...PLAN_META, id: BIG_ID, name: "Big", quotaBytes: null, userCount: 0, groupCount: 0 };
+
 const ADMIN_USER: UserDto = {
   id: "u-admin",
   email: "admin@example.com",
@@ -50,6 +56,7 @@ const ACTIVE_OTHER: AdminUserDto = {
   isAdmin: false,
   disabledAt: null,
   createdAt: "2026-01-01T00:00:00.000Z",
+  storage: { planId: BASIC_ID, planName: "Basic", usedBytes: 0, quotaBytes: 2147483648 },
 };
 
 const DISABLED_OTHER: AdminUserDto = {
@@ -60,6 +67,7 @@ const DISABLED_OTHER: AdminUserDto = {
   isAdmin: false,
   disabledAt: "2026-01-02T00:00:00.000Z",
   createdAt: "2026-01-01T00:00:00.000Z",
+  storage: { planId: BASIC_ID, planName: "Basic", usedBytes: 0, quotaBytes: 2147483648 },
 };
 
 /** 已是 admin、但不是目前登入者本人的一列——用來驗證「已是 admin 不出現 Promote 鈕」
@@ -73,6 +81,7 @@ const OTHER_ADMIN: AdminUserDto = {
   isAdmin: true,
   disabledAt: null,
   createdAt: "2026-01-01T00:00:00.000Z",
+  storage: { planId: BASIC_ID, planName: "Basic", usedBytes: 0, quotaBytes: 2147483648 },
 };
 
 const ADMIN_USERS_URL = "/api/admin/users";
@@ -90,6 +99,13 @@ function baseFetchHandlers(): (url: string, method: string) => Response | null {
     }
     if (url === "/api/notes" && method === "GET") {
       return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) });
+    }
+    if (url === "/api/admin/storage-plans" && method === "GET") {
+      return fakeResponse({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ plans: [BASIC_PLAN, BIG_PLAN], defaults: { userPlanId: BASIC_ID, groupPlanId: BASIC_ID } }),
+      });
     }
     return null;
   };
@@ -188,6 +204,7 @@ describe("SettingsUsersSection（/admin/users：站台管理頁的使用者區�
       isAdmin: true,
       disabledAt: null,
       createdAt: "2026-01-01T00:00:00.000Z",
+      storage: { planId: BASIC_ID, planName: "Basic", usedBytes: 0, quotaBytes: 2147483648 },
     };
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -460,7 +477,7 @@ describe("SettingsUsersSection——使用者名欄（#122 Task 5）", () => {
     expect(screen.getByText("bob-h")).toBeInTheDocument();
   });
 
-  it("長 email／username／顯示名稱版面守衛：三格 wrap-anywhere、角色狀態不換行、操作欄 w-px 不換行（比照 #183）", async () => {
+  it("長 email／username／顯示名稱版面守衛：三格 wrap-anywhere、角色／狀態／儲存空間不換行、操作欄 w-px 不換行（比照 #183）", async () => {
     // jsdom 不排版、量不到溢出，只能釘住決定溢出與否的 class token（`classList` 陣列比對）。
     const LONG_EMAIL = "firstnamelastnamewithnonaturalbreakpoints0123456789@averyveryverylongcompanydomainname.example";
     const LONG_HANDLE = "averylongusernamewithoutanyseparatorsatall0123456789abcdef";
@@ -485,7 +502,8 @@ describe("SettingsUsersSection——使用者名欄（#122 Task 5）", () => {
     const cells = (emailCell?.closest("tr") as HTMLElement).querySelectorAll("td");
     expect(tokens(cells[3])).toContain("whitespace-nowrap");
     expect(tokens(cells[4])).toContain("whitespace-nowrap");
-    expect(tokens(cells[5])).toEqual(expect.arrayContaining(["w-px", "whitespace-nowrap"]));
+    expect(tokens(cells[5])).toContain("whitespace-nowrap"); // 儲存空間欄（W5 後插在狀態與方案之間）
+    expect(tokens(cells[7])).toEqual(expect.arrayContaining(["w-px", "whitespace-nowrap"])); // 操作欄移到最後（索引 5→7）
     expect(tokens(screen.getByRole("columnheader", { name: "Actions" }))).toEqual(
       expect.arrayContaining(["w-px", "whitespace-nowrap"]),
     );
@@ -535,5 +553,94 @@ describe("SettingsUsersSection——#187 §9.5：帳密登入關閉時代建的�
     await waitFor(() => expect(configServed).toBe(true));
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
     expect(dialog.queryByText(NOTICE)).not.toBeInTheDocument();
+  });
+});
+
+describe("W5 使用者表的儲存空間與方案（spec §9.3）", () => {
+  beforeEach(async () => { await i18n.changeLanguage("en"); dismissAllToasts(); });
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  const OVER: AdminUserDto = { ...ACTIVE_OTHER, id: "u-over", email: "over@example.com", storage: { planId: BASIC_ID, planName: "Basic", usedBytes: 3 * 1048576, quotaBytes: 2 * 1048576 } };
+  const FREE: AdminUserDto = { ...OTHER_ADMIN, storage: { planId: BIG_ID, planName: "Big", usedBytes: 5 * 1048576, quotaBytes: null } };
+
+  function stub(rows: AdminUserDto[], extra: (url: string, method: string, init?: RequestInit) => Response | null = () => null) {
+    return vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      const custom = extra(url, method, init) ?? baseFetchHandlers()(url, method);
+      if (custom) return Promise.resolve(custom);
+      if (url === ADMIN_USERS_URL && method === "GET") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(rows) }));
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+  }
+
+  it("用量格：一般／無上限／已超過、恰好等於（警示色，>=——起草裁定 4）", async () => {
+    const FULL: AdminUserDto = { ...ACTIVE_OTHER, id: "u-full", email: "full@example.com", storage: { planId: BASIC_ID, planName: "Basic", usedBytes: 1048576, quotaBytes: 1048576 } };
+    renderUsersRoute(stub([ACTIVE_OTHER, OVER, FREE, FULL]));
+    expect(await screen.findByText("over@example.com")).toBeInTheDocument();
+    expect(screen.getByText("3 MB of 2 MB")).toHaveClass("text-destructive");
+    expect(screen.getByText("1 MB of 1 MB")).toHaveClass("text-destructive");
+    expect(screen.getByText("5 MB (no limit)")).not.toHaveClass("text-destructive");
+    expect(screen.getByText("0 B of 2 GB")).not.toHaveClass("text-destructive");
+  });
+
+  it("改方案：PATCH {planId}；成功後該列下拉顯示新方案", async () => {
+    const updated = { ...ACTIVE_OTHER, storage: { planId: BIG_ID, planName: "Big", usedBytes: 0, quotaBytes: null } };
+    const fetchMock = stub([ACTIVE_OTHER], (url, method) =>
+      url === `/api/admin/users/${ACTIVE_OTHER.id}/storage-plan` && method === "PATCH" ? fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(updated) }) : null);
+    renderUsersRoute(fetchMock);
+    const select = await screen.findByRole("combobox", { name: `Storage plan for ${ACTIVE_OTHER.email}` });
+    expect(select).toHaveValue(BASIC_ID);
+    fireEvent.change(select, { target: { value: BIG_ID } });
+    await waitFor(() => expect(select).toHaveValue(BIG_ID));
+    const patch = fetchMock.mock.calls.find(([u, i]) => String(u) === `/api/admin/users/${ACTIVE_OTHER.id}/storage-plan` && (i as RequestInit).method === "PATCH");
+    expect(JSON.parse(String((patch![1] as RequestInit).body))).toEqual({ planId: BIG_ID });
+    expect(screen.getByText("0 B (no limit)")).toBeInTheDocument();
+    // m2：成功後方案清單（人數）要重抓——PATCH 之後 GET storage-plans 又發了一次
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([u, i]) => String(u) === "/api/admin/storage-plans" && ((i as RequestInit | undefined)?.method ?? "GET") === "GET").length).toBeGreaterThanOrEqual(2));
+  });
+
+  it("儲存中（PATCH 未回）：下拉 disabled 且顯示剛選的方案，不彈回舊方案", async () => {
+    renderUsersRoute(stub([ACTIVE_OTHER], (url, method) =>
+      url === `/api/admin/users/${ACTIVE_OTHER.id}/storage-plan` && method === "PATCH" ? (new Promise(() => undefined) as unknown as Response) : null));
+    const select = await screen.findByRole("combobox", { name: `Storage plan for ${ACTIVE_OTHER.email}` });
+    fireEvent.change(select, { target: { value: BIG_ID } });
+    await waitFor(() => expect(select).toBeDisabled());
+    expect(select).toHaveValue(BIG_ID);
+  });
+
+  it("改方案失敗（404 storage_plan_not_found）：toast，下拉留在原方案", async () => {
+    const fetchMock = stub([ACTIVE_OTHER], (url, method) =>
+      url === `/api/admin/users/${ACTIVE_OTHER.id}/storage-plan` && method === "PATCH"
+        ? fakeResponse({ ok: false, status: 404, json: () => Promise.resolve({ error: { code: "storage_plan_not_found", message: "x" } }) })
+        : null);
+    renderUsersRoute(fetchMock);
+    const select = await screen.findByRole("combobox", { name: `Storage plan for ${ACTIVE_OTHER.email}` });
+    fireEvent.change(select, { target: { value: BIG_ID } });
+    expect(await screen.findByText("Plan not found")).toBeInTheDocument();
+    expect(select).toHaveValue(BASIC_ID);
+    // m5：失敗也重抓方案清單（方案可能剛被刪）
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([u]) => String(u) === "/api/admin/storage-plans").length).toBeGreaterThanOrEqual(2));
+  });
+
+  it("RF4：列上的方案不在清單裡 → 下拉仍顯示該方案（補一個 option），不是清單第一個", async () => {
+    const NEWPLAN_ID = "99999999-9999-4999-8999-999999999999";
+    const row: AdminUserDto = { ...ACTIVE_OTHER, storage: { planId: NEWPLAN_ID, planName: "Brand new", usedBytes: 0, quotaBytes: 1048576 } };
+    renderUsersRoute(stub([row]));
+    const select = await screen.findByRole("combobox", { name: `Storage plan for ${ACTIVE_OTHER.email}` });
+    await waitFor(() => expect(select).toHaveValue(NEWPLAN_ID));
+    expect(within(select).getByRole("option", { name: "Brand new" })).toBeInTheDocument();
+  });
+
+  it("方案清單失敗：方案欄只顯示方案名、沒有下拉", async () => {
+    const fetchMock = stub([ACTIVE_OTHER], (url, method) =>
+      url === "/api/admin/storage-plans" && method === "GET" ? fakeResponse({ ok: false, status: 500, json: () => Promise.resolve({ error: { code: "internal", message: "x" } }) }) : null);
+    renderUsersRoute(fetchMock);
+    expect(await screen.findByText(ACTIVE_OTHER.email)).toBeInTheDocument();
+    // 等待點（review I2）：清單 pending 時 plans 也是 undefined、「沒有下拉」恆真——先等請求真的發出，再讓失敗結果落地
+    await waitFor(() => expect(fetchMock.mock.calls.some(([u]) => String(u) === "/api/admin/storage-plans")).toBe(true));
+    for (let i = 0; i < 5; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect(screen.queryByRole("combobox", { name: `Storage plan for ${ACTIVE_OTHER.email}` })).not.toBeInTheDocument();
+    expect(within(screen.getByText(ACTIVE_OTHER.email).closest("tr")!).getByText("Basic")).toBeInTheDocument();
   });
 });

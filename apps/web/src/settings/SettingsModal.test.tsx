@@ -172,6 +172,9 @@ function baseFetchHandlers(getLoggedInAs: () => UserDto | null) {
     if (url === "/api/admin/users" && method === "GET") {
       return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) });
     }
+    if (url === "/api/admin/storage-plans" && method === "GET") {
+      return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ plans: [], defaults: { userPlanId: "", groupPlanId: "" } }) });
+    }
     return null;
   };
 }

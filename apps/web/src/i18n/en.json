@@ -430,6 +430,9 @@
     "tableDisplayName": "Display name",
     "tableRole": "Role",
     "tableStatus": "Status",
+    "tableStorage": "Storage",
+    "tablePlan": "Plan",
+    "planFor": "Storage plan for {{email}}",
     "tableActions": "Actions",
     "roleAdmin": "Admin",
     "roleUser": "User",
@@ -833,7 +836,9 @@
     "quotaFullGeneric": "This space has no room for the file. Ask its owner or a site admin.",
     "usage": "{{used}} of {{quota}} ({{plan}})",
     "usageUnlimited": "{{used}} used (unlimited, {{plan}})",
-    "overQuota": "Limit reached — no new attachments can be added"
+    "overQuota": "Limit reached — no new attachments can be added",
+    "cell": "{{used}} of {{quota}}",
+    "cellUnlimited": "{{used}} (no limit)"
   },
   "errors": {
     "unauthorized": "You need to sign in to continue.",

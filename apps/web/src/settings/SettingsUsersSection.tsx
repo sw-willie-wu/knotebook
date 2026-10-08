@@ -10,8 +10,10 @@ import {
   useDisableAdminUser,
   useEnableAdminUser,
   usePromoteAdminUser,
+  useAssignUserPlan,
   type AdminUserDto,
 } from "@/api/admin";
+import { useAdminStoragePlans } from "@/api/adminStorage";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -27,6 +29,7 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
 import { SettingsGroup, SettingsPage } from "./SettingsLayout";
+import { PlanSelect, StorageCell } from "./StorageAdminCells";
 
 /** ApiFail → errors.<code>；其餘 → errors.fallback。與 NoteList/ShareDialog 同一套對映
  * （各檔各自一份，是既有慣例——見那兩處的說明）。 */
@@ -278,7 +281,7 @@ function UserActions({ user, currentUserId }: { user: AdminUserDto; currentUserI
  * 使用者表的欄寬規則（比照群組成員表 #183）。jsdom 不排版，測試對字面 token 斷言。
  * - `text`：email／username／顯示名稱可在任意處斷行；`wrap-anywhere` 會把斷點算進 min-content，
  *   auto 表格才肯壓窄這欄（`break-words` 不會，照樣撐爆）。
- * - `fixed`：角色、狀態兩欄不換行。
+ * - `fixed`：角色、狀態、儲存空間三欄不換行。
  * - `actions`：操作欄收到內容寬、不換行，按鈕永遠不被擠壓。
  */
 const USERS_TABLE_LAYOUT = {
@@ -298,6 +301,7 @@ const USERS_TABLE_LAYOUT = {
  * - 不包 `<AppShell>`——`AdminPage` 已經用 `AppShell` 包好殼，這裡再包就是雙層殼。
  * - 不帶外層 padding／寬度限制——`AdminPage` 的內容卡已提供 `p-8` 留白，比照
  *   `SettingsAccountSection`：頁首與分組都由 `SettingsPage`／`SettingsGroup` 提供。
+ * - 儲存空間與方案兩欄（spec §9.3）：方案下拉即存、失敗 toast；停權者照樣可改（S13）。
  * - 標題列的建立鈕走 `SettingsPage` 的 `action` 插槽（見 `SettingsLayout.tsx`）。
  *   當初放在 modal 裡時曾因 Radix ✕ 關閉鈕佔住右上角而調整過位置（Task 8 審查交接）；
  *   獨立頁沒有 ✕，那個顧慮已不存在。
@@ -306,6 +310,8 @@ export function SettingsUsersSection() {
   const { t } = useTranslation();
   const { user } = useSession();
   const usersQuery = useAdminUsers();
+  const plansQuery = useAdminStoragePlans();
+  const assignPlan = useAssignUserPlan();
   const currentUserId = user?.id ?? "";
 
   return (
@@ -334,6 +340,8 @@ export function SettingsUsersSection() {
               <th className="py-2 pr-3 font-medium">{t("admin.tableDisplayName")}</th>
               <th className={`py-2 pr-3 font-medium ${USERS_TABLE_LAYOUT.fixed}`}>{t("admin.tableRole")}</th>
               <th className={`py-2 pr-3 font-medium ${USERS_TABLE_LAYOUT.fixed}`}>{t("admin.tableStatus")}</th>
+              <th className={`py-2 pr-3 font-medium ${USERS_TABLE_LAYOUT.fixed}`}>{t("admin.tableStorage")}</th>
+              <th className="py-2 pr-3 font-medium">{t("admin.tablePlan")}</th>
               <th className={`py-2 font-medium text-right ${USERS_TABLE_LAYOUT.actions}`}>{t("admin.tableActions")}</th>
             </tr>
           </thead>
@@ -345,6 +353,16 @@ export function SettingsUsersSection() {
                 <td className={`py-2 pr-3 ${USERS_TABLE_LAYOUT.text}`}>{row.displayName}</td>
                 <td className={`py-2 pr-3 ${USERS_TABLE_LAYOUT.fixed}`}>{row.isAdmin ? t("admin.roleAdmin") : t("admin.roleUser")}</td>
                 <td className={`py-2 pr-3 ${USERS_TABLE_LAYOUT.fixed}`}>{row.disabledAt ? t("admin.statusDisabled") : t("admin.statusActive")}</td>
+                <td className={`py-2 pr-3 ${USERS_TABLE_LAYOUT.fixed}`}><StorageCell storage={row.storage} /></td>
+                <td className="py-2 pr-3">
+                  <PlanSelect
+                    label={t("admin.planFor", { email: row.email })}
+                    planId={row.storage.planId}
+                    planName={row.storage.planName}
+                    plans={plansQuery.data?.plans}
+                    onAssign={(planId) => assignPlan.mutateAsync({ userId: row.id, planId })}
+                  />
+                </td>
                 <td className={`py-2 ${USERS_TABLE_LAYOUT.actions}`}>
                   <UserActions user={row} currentUserId={currentUserId} />
                 </td>

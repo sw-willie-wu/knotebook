@@ -430,6 +430,9 @@
     "tableDisplayName": "顯示名稱",
     "tableRole": "角色",
     "tableStatus": "狀態",
+    "tableStorage": "儲存空間",
+    "tablePlan": "方案",
+    "planFor": "{{email}} 的儲存方案",
     "tableActions": "操作",
     "roleAdmin": "管理員",
     "roleUser": "一般使用者",
@@ -833,7 +836,9 @@
     "quotaFullGeneric": "這個空間放不下這個檔案，請洽擁有者或站台管理員",
     "usage": "已使用 {{used}}／{{quota}}（{{plan}}）",
     "usageUnlimited": "已使用 {{used}}（無上限，{{plan}}）",
-    "overQuota": "已達上限，無法再新增附件"
+    "overQuota": "已達上限，無法再新增附件",
+    "cell": "{{used}}／{{quota}}",
+    "cellUnlimited": "{{used}}（無上限）"
   },
   "errors": {
     "unauthorized": "請先登入才能繼續。",

@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
+import type { SpaceStorageDto } from "@knotebook/shared";
 import { api } from "./client";
+import { ADMIN_STORAGE_PLANS_QUERY_KEY, STORAGE_USAGE_QUERY_KEY } from "./storage";
 
 /**
  * `GET /api/admin/users` 回應形狀（鏡射 `apps/server/src/routes/admin-users.ts` 的
- * `AdminUserDto`——那七欄的 select 形狀鎖，見該檔說明）。刻意不放進
+ * `AdminUserDto`——那七欄（外加 `storage`）的 select 形狀鎖，見該檔說明）。刻意不放進
  * `@knotebook/shared`：與 `NoteDto`/`ShareDto` 不同，這個形狀只有 admin 頁面讀得到，
  * 沒有跨 owner/editor/viewer 角色共用的理由。與 server 端 adminUserColumns 的七欄
  * select 形狀鎖同步（#122 起含 handle）。
@@ -17,6 +19,8 @@ export interface AdminUserDto {
   isAdmin: boolean;
   disabledAt: string | null;
   createdAt: string;
+  /** 儲存配額 §7.2、§7.4：個人空間的方案與用量（GET／POST／PATCH storage-plan 都帶）。 */
+  storage: SpaceStorageDto;
 }
 
 export const ADMIN_USERS_QUERY_KEY = ["admin", "users"] as const;
@@ -74,4 +78,24 @@ export function useEnableAdminUser() {
 
 export function usePromoteAdminUser() {
   return useAdminUserAction("promote");
+}
+
+/**
+ * `PATCH /api/admin/users/:id/storage-plan`（spec §7.2）：回傳更新後的整列 → 直接換掉清單裡那一列（下拉立刻顯示新方案，
+ * 不等重抓）；方案人數與自己的用量（若改的是自己）另行失效。
+ */
+export function useAssignUserPlan() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ userId, planId }: { userId: string; planId: string }) =>
+      api<AdminUserDto>(`/api/admin/users/${encodeURIComponent(userId)}/storage-plan`, { method: "PATCH", body: JSON.stringify({ planId }) }),
+    onSuccess: (updated) => {
+      queryClient.setQueryData<AdminUserDto[]>(ADMIN_USERS_QUERY_KEY, (rows) => rows?.map((r) => (r.id === updated.id ? updated : r)));
+      void queryClient.invalidateQueries({ queryKey: STORAGE_USAGE_QUERY_KEY });
+    },
+    // onSettled：失敗（404 storage_plan_not_found＝方案剛被刪）時清單也已過時，一樣重抓，下拉才不再列出已刪的方案。
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ADMIN_STORAGE_PLANS_QUERY_KEY });
+    },
+  });
 }

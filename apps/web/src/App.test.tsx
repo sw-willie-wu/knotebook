@@ -53,6 +53,9 @@ describe("App route tree — /settings/users redirects to /admin/users（站台�
       if (url === "/api/admin/users" && method === "GET") {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
       }
+      if (url === "/api/admin/storage-plans" && method === "GET") {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ plans: [], defaults: { userPlanId: "", groupPlanId: "" } }) }));
+      }
       throw new Error(`unexpected fetch: ${method} ${url}`);
     });
   }
