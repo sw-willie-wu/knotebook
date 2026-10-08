@@ -168,8 +168,8 @@ describe("S16 還原 runbook（spec §5.5）", () => {
     await db.transaction(async tx => {
       await tx.execute(sql`update note_states set ydoc = ${ydoc}, version = version + ${variant.bump ? 1 : 0} where note_id = ${n.id}::uuid`);
       if (variant.purge) {
-        await tx.execute(sql`delete from note_search_sections where note_id = ${n.id}::uuid`);
         await tx.execute(sql`delete from note_search_state where note_id = ${n.id}::uuid`);
+        await tx.execute(sql`delete from note_search_sections where note_id = ${n.id}::uuid`);
       }
       await tx.execute(sql`update notes set links_clock = 0 where id = ${n.id}::uuid`);
     });
