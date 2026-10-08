@@ -22,6 +22,8 @@ import { groupsRoutes } from "./routes/groups.js";
 import type { WriteNoteLinksHooks } from "./notes/links.js";
 import type { SlugPatchTestHook } from "./notes/tx/patch-slug.js";
 import { adminUsersRoutes } from "./routes/admin-users.js";
+import { adminStorageRoutes } from "./routes/admin-storage.js";
+import { storageRoutes } from "./routes/storage.js";
 import { adminAiRoutes } from "./routes/admin-ai.js";
 import { adminAuthRoutes } from "./routes/admin-auth.js";
 import { accountRoutes } from "./routes/account.js";
@@ -710,6 +712,9 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   // #103：群組管理（session-only，見 routes/groups.ts 檔頭）。
   void app.register(groupsRoutes({ db: deps.db, collabHooks: deps.collabHooks, groupTestHook: deps.groupTestHook, uploadsDir: deps.uploadsDir, storageLockTimeoutMs }));
   void app.register(adminUsersRoutes({ db: deps.db, gate: deps.gate, collabHooks: deps.collabHooks }));
+  // 儲存配額（spec 2026-10-08 §7）：方案管理、預設、站台群組列表與指派（admin）；個人與群組用量檢視。
+  void app.register(adminStorageRoutes({ db: deps.db }));
+  void app.register(storageRoutes({ db: deps.db }));
   void app.register(adminAiRoutes({ db: deps.db, config: deps.config, runtime: deps.ai }));
   // #187 PR2：站台管理的登入服務。與登入路由共用同一個 registry（PATCH／DELETE 要 invalidate、test／discover 用 probe）。
   void app.register(adminAuthRoutes({ db: deps.db, config: deps.config, registry: oidcRegistry }));
