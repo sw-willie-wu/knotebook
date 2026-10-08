@@ -57,6 +57,9 @@ export const MCP_MAX_WIRE = 262_144;
  * 「stores … then reference it with edit_note」的 +38；唯讀憑證五支對照組 13 954）。依原配方（向上取整到
  * 1024 的倍數 ×1.3）重訂：22 528 × 1.3 ＝ 29 286.4 → 29 300。
  *
+ * **#222（2026-10-08，在 main @ 0aec79b 之上實測，#200 PR1 已合）：讀寫憑證七支 wire ＝ 22 388**（+412 來自 edit_note／
+ * create_note／read_note_section 的顏色敘述；唯讀憑證五支對照組 14 041）。依同一配方重推仍是 22 528 × 1.3 → 29 300，門檻不動。
+ *
  * 之前：#177 後 18 952（2026-10-07；#177 的 +294 來自群組 `owner` 多了 `name` 的 `maxLength` 與 `nameTruncated`（四份 outputSchema 各展開一次）、heading `.describe()` 加 ` as written in JSON`（+19 × 兩支）；#175 PR5 後 18 658、#175 PR1 後 18 105、PR2／PR3 後
  * 18 144；#175 之前為 16 774，#145 時記為 16 763）。PR5 的 +Δ 來自 `create_note` 的 `groupId` 欄
  * （`.describe()`＋`format`）、description 首句與兩處 edit_note 限定、`title` 片語。PR1 的 +1 331 來自
