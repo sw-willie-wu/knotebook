@@ -439,16 +439,17 @@ describe("#175 PR4 全刪 × 上傳（C22，Task 2 review r1 M1）", () => {
     throw new Error(`waitForWaiters(${n}) 逾時（${timeoutMs}ms）`);
   }
 
-  it("C22 全刪持 L（群組筆記 FOR UPDATE）時上傳到其中一篇 → 上傳的 uploads INSERT（FK KEY SHARE）等全刪 commit → 刪除 204、上傳 404 not_found（23503 映射，路由已 unlink）；uploads 0 列、磁碟沒有孤兒檔", async () => {
+  it("C22 全刪持 L（群組筆記 FOR UPDATE）時上傳到其中一篇 → 上傳交易的筆記 KEY SHARE 讀等全刪 commit → 刪除 204、上傳 404 not_found（讀到 0 列 → TxAbort，路由已 unlink）；uploads 0 列、磁碟沒有孤兒檔", async () => {
     // 把 T7 停在「已持 L、`deleteNotesInTx` 的 DELETE uploads 還沒做完」：另一條連線先對該篇既有的附件列 u0 取 FOR UPDATE，
-    // T7 的 DELETE uploads 就卡在 u0 上（此時 L 已到手）。在這個窗裡發上傳：有 L 時上傳的 INSERT 要 notes 列的 KEY SHARE
-    // → 與 FOR UPDATE 互斥 → 等 T7 commit 後 23503；沒有 L 時 INSERT 直接成功（201），之後 DELETE uploads 的快照看不到它、
+    // T7 的 DELETE uploads 就卡在 u0 上（此時 L 已到手）。在這個窗裡發上傳：有 L 時上傳交易（`insertUploadInTx`）對 notes 列的
+    // `FOR KEY SHARE` 讀 → 與 FOR UPDATE 互斥 → 等 T7 commit 後讀到 0 列 → TxAbort 404（儲存配額 PR1 以前是 INSERT 的 FK 檢查
+    // 取同一把鎖、撞 23503 → 404）；沒有 L 時上傳直接成功（201），之後 DELETE uploads 的快照看不到它、
     // DELETE notes 以 CASCADE 帶走它的列——它不在回傳的 uploadIds 裡，磁碟檔就成了孤兒（review r1 M1 的最小 schema 實測形）。
     // 鑑別（Task 4–6 review r1 N6）：PR4 時拿掉 T7 的 FOR UPDATE（M8），本案先紅在 interleave 斷言（上傳沒被擋、得 201），
     // 跑不到最後的 readdir；孤兒檔本身是靠測試側變體（拿掉 interleave 斷言後）才實際看到——readdir 那條不是 M8 的守衛。
     // #188 起 `deleteNotesInTx` 在 DELETE uploads 之前也對 L 取 FOR UPDATE：單拿掉 M8 或單拿掉那一把，本案都仍綠（等價）；
     // 兩把都拿掉才紅在 interleave。單篇刪除的同形由 `notes-delete-race.test.ts` 守（拿掉 `deleteNotesInTx` 那一把即紅）。
-    // 上傳 INSERT 撞 FK 時路由先 unlink 再回 404 not_found（Task 4–6 review r1 M1）；本案的 readdir 斷言同時守住「先 unlink」。
+    // 上傳交易被拒（0 列 TxAbort；防禦縱深的 FK 23503 同）時路由先 unlink 再回 404 not_found（Task 4–6 review r1 M1）；本案的 readdir 斷言同時守住「先 unlink」。
     const holder: {
       app?: FastifyInstance; pool?: Pool; noteId?: string; userId?: string; u0?: string;
       up?: Promise<LightMyRequestResponse>; locker?: Promise<void>; t7Blocked?: string; interleave?: string;

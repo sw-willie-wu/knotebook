@@ -56,6 +56,7 @@ import { NoteWriteService } from "./notes/editing/write-service.js";
 import type { NoteCreateHooks } from "./notes/create.js";
 import type { GroupTestHook } from "./groups/test-hook.js";
 import type { SearchIndexHooks } from "./notes/tx/search-index.js";
+import { DEFAULT_STORAGE_LOCK_TIMEOUT_MS } from "./storage/tx/quota.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -215,6 +216,11 @@ export interface AppDeps {
   groupTestHook?: GroupTestHook;
   /** #93：全文索引交易的測試縫（`notes/tx/search-index.ts`）。選配；production 不注入。注入面是 `buildTestApp({ searchIndexHooks })`。 */
   searchIndexHooks?: SearchIndexHooks;
+  /**
+   * 儲存配額（spec 2026-10-08 §5.3 m7）：空間鎖等待上限（ms）。**選配、只給測試注入**（不開 env）；未設＝
+   * `DEFAULT_STORAGE_LOCK_TIMEOUT_MS`（5000）。race 測試注入 60000、S15 注入 200。
+   */
+  storageLockTimeoutMs?: number;
   /**
    * Task 9：圖片上傳存放目錄的絕對路徑。**必填**——`buildApp` 啟動時會對它做一次
    * 可寫性探測（`assertUploadsDirWritable`，見該函式說明為何不用 `accessSync`），
@@ -612,6 +618,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       edit: new FixedWindowLimiter(EDIT_LIMIT),
       register: new FixedWindowLimiter(REGISTER_LIMIT),
     } satisfies NonNullable<AppDeps["limiters"]>);
+  const storageLockTimeoutMs = deps.storageLockTimeoutMs ?? DEFAULT_STORAGE_LOCK_TIMEOUT_MS;
 
   // #107：`limiters` 在上面才算出來，所以這個 decorate 必須排在它之後、任何
   // `app.register(路由)` 之前——路由模組的 register 內會呼叫 app.authenticateAny。
@@ -725,6 +732,8 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       // #200：bearerMiss／tokenRead 與 authenticateAny 是**同一個實例**（同一本帳由物件同一性成立）。
       limiters: { upload: limiters.upload, bearerMiss: limiters.bearerMiss, tokenRead: limiters.tokenRead },
       uploadsDir: deps.uploadsDir,
+      groupTestHook: deps.groupTestHook,
+      storageLockTimeoutMs,
     })
   );
   // #72 公開端點（免登入）：三步節流順序與 404 同形見 routes/public.ts 檔頭。

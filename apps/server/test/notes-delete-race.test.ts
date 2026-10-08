@@ -1,7 +1,8 @@
 /**
  * #188：單篇 `DELETE /api/notes/:id` × 上傳的交錯（比照 `groups-v2-delete-race.test.ts` 的 C22，群組全刪形）。
- * `deleteNotesInTx` 先對待刪筆記取 `FOR UPDATE`，之後才 `DELETE uploads … RETURNING`；上傳的 uploads INSERT 要那篇筆記列的
- * FK KEY SHARE，與 FOR UPDATE 互斥 → 等刪除 commit 後撞 23503 → 404 not_found（`b1430b8`，路由先 unlink）。
+ * `deleteNotesInTx` 先對待刪筆記取 `FOR UPDATE`，之後才 `DELETE uploads … RETURNING`；上傳交易（`insertUploadInTx`）先以
+ * `SELECT … FOR KEY SHARE` 讀那篇筆記列，與 FOR UPDATE 互斥 → 等刪除 commit 後讀到 0 列 → TxAbort 404 not_found（路由先 unlink）。
+ * 儲存配額 PR1 以前同一把鎖是 INSERT 的 FK 檢查取的（撞 23503 → 404，`b1430b8`）；那條映射仍留作防禦縱深。
  */
 import { readdir } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
@@ -47,10 +48,10 @@ async function waitForWaiters(pool: Pool, n: number, other?: Promise<unknown>, t
 }
 
 describe("#188 單篇刪除 × 上傳", () => {
-  it("單篇 DELETE 持筆記 FOR UPDATE 時上傳到同一篇 → 上傳的 uploads INSERT（FK KEY SHARE）等刪除 commit → 刪除 204、上傳 404 not_found（23503 映射，路由已 unlink）；uploads 0 列、磁碟沒有孤兒檔", async () => {
+  it("單篇 DELETE 持筆記 FOR UPDATE 時上傳到同一篇 → 上傳交易的筆記 KEY SHARE 讀等刪除 commit → 刪除 204、上傳 404 not_found（讀到 0 列 → TxAbort，路由已 unlink）；uploads 0 列、磁碟沒有孤兒檔", async () => {
     // 把刪除交易停在「`deleteNotesInTx` 的 DELETE uploads 還沒做完」：另一條連線先對該篇既有的附件列 u0 取 FOR UPDATE，
     // 刪除的 DELETE uploads 就卡在 u0 上（有 #188 的修法時，此時筆記列的 FOR UPDATE 已到手）。在這個窗裡發上傳：
-    // 持筆記 FOR UPDATE 時上傳的 INSERT 要 KEY SHARE → 互斥 → 等刪除 commit 後 23503 → 404；沒有那把鎖時 INSERT 直接成功（201），
+    // 持筆記 FOR UPDATE 時上傳交易的 `FOR KEY SHARE` 讀 → 互斥 → 等刪除 commit 後 0 列 → 404；沒有那把鎖時上傳直接成功（201），
     // 之後 DELETE uploads 的快照看不到它、DELETE notes 以 CASCADE 帶走它的列——它不在回傳的 upload id 裡，磁碟檔成了孤兒。
     // 鑑別：拿掉 `deleteNotesInTx` 的 FOR UPDATE 時本案先紅在 interleave 斷言（上傳沒被擋、`settled`）。
     const { app, db, uploadsDir } = await buildTestApp({ collabHooks: spyCollabHooks() });
