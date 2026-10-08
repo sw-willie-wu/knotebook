@@ -1849,9 +1849,9 @@ describe("transfer_tokens（#200 spec §3）", () => {
 
   it("transfer-tokens 的 SQL 檔無 CONCURRENTLY／行首 COMMIT（單一 tx 前提的輔助 grep，比照 0014／0015）", () => {
     // 以 tag 後綴找檔：合併前會在 main 上重產成下一號（spec 檔頭 I6 規則），編號不寫死。
-    const entry = journalEntries().find(e => e.tag.endsWith("_transfer-tokens"));
-    expect(entry, "journal 裡要恰有一支 *_transfer-tokens").toBeDefined();
-    const sqlText = readFileSync(path.join(drizzleDirForTest, `${entry!.tag}.sql`), "utf8");
+    const entries = journalEntries().filter(e => e.tag.endsWith("_transfer-tokens"));
+    expect(entries, "journal 裡要恰有一支 *_transfer-tokens").toHaveLength(1);
+    const sqlText = readFileSync(path.join(drizzleDirForTest, `${entries[0]!.tag}.sql`), "utf8");
     expect(sqlText).not.toMatch(/CONCURRENTLY/i);
     expect(sqlText).not.toMatch(/^\s*COMMIT/im);
   });
