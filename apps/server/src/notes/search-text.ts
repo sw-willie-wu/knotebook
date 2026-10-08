@@ -89,14 +89,18 @@ function containerSearchText(container: Y.XmlElement): string {
   return out;
 }
 
-export function searchContentHash(version: number, rows: SearchSectionRow[]): string {
+/**
+ * `capped` 一併入雜湊（#93 Task 4 review I-1）：rows 相同但 capped 不同是常態可達的（恰 2000 段→加第 2001 段；空筆記→
+ * 出現空 id container）。不入雜湊的話索引交易第 4 步與 store 的 bump 都只比 hash，會回 `unchanged`、狀態列的 `capped` 停在舊值。
+ */
+export function searchContentHash(version: number, rows: SearchSectionRow[], capped: boolean): string {
   return createHash("sha256")
-    .update(JSON.stringify([version, rows.map(r => [r.sectionId, r.ord, r.heading, r.body])]))
+    .update(JSON.stringify([version, capped, rows.map(r => [r.sectionId, r.ord, r.heading, r.body])]))
     .digest("hex");
 }
 
 function finish(rows: SearchSectionRow[], indexedUnits: number, capped: boolean): SearchExtract {
-  return { rows, indexedUnits, capped, contentHash: searchContentHash(SEARCH_EXTRACTOR_VERSION, rows), extractorVersion: SEARCH_EXTRACTOR_VERSION };
+  return { rows, indexedUnits, capped, contentHash: searchContentHash(SEARCH_EXTRACTOR_VERSION, rows, capped), extractorVersion: SEARCH_EXTRACTOR_VERSION };
 }
 
 export function extractSearchSections(fragment: Y.XmlFragment): SearchExtract {

@@ -1754,6 +1754,7 @@ describe("0016_note-search（#93 全文搜尋，spec §3）", () => {
     await expect(ins("attachment", null, "a")).rejects.toMatchObject({ code: "23514", constraint: "nss_source_id_chk" });
     await expect(ins("note", null, "a/b")).rejects.toMatchObject({ code: "23514", constraint: "nss_section_id_chk" });
     await expect(ins("note", null, "x".repeat(65))).rejects.toMatchObject({ code: "23514", constraint: "nss_section_id_chk" });
+    await expect(ins("note", null, "")).rejects.toMatchObject({ code: "23514", constraint: "nss_section_id_chk" }); // {1,64} 的下界
     await ins("note", null, "_top");
     await ins("attachment", SRC, "x".repeat(64));
     const { rows } = await pool.query(`select count(*)::int as c from note_search_sections where note_id = $1`, [n]);

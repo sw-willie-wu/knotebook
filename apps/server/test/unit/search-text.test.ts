@@ -228,7 +228,20 @@ describe("T8 雜湊", () => {
   it("改 extractor 版本 → 不同；extractorVersion 欄等於常數", () => {
     const ex = extractSearchSections(frag(searchDoc(b)));
     expect(ex.extractorVersion).toBe(SEARCH_EXTRACTOR_VERSION);
-    expect(searchContentHash(SEARCH_EXTRACTOR_VERSION, ex.rows)).toBe(ex.contentHash);
-    expect(searchContentHash(SEARCH_EXTRACTOR_VERSION + 1, ex.rows)).not.toBe(ex.contentHash);
+    expect(searchContentHash(SEARCH_EXTRACTOR_VERSION, ex.rows, ex.capped)).toBe(ex.contentHash);
+    expect(searchContentHash(SEARCH_EXTRACTOR_VERSION + 1, ex.rows, ex.capped)).not.toBe(ex.contentHash);
   });
+  it("rows 相同、只有 capped 不同 → 雜湊不同（2000→2001 段；空筆記→含空 id container）", () => {
+    const heads = (n: number): Blk[] => Array.from({ length: n }, (_, i) => ({ id: `h${i}`, type: "heading", text: `h${i}` }));
+    const exact = extractSearchSections(frag(searchDoc(heads(SEARCH_INDEX_SECTIONS_MAX))));
+    const over = extractSearchSections(frag(searchDoc(heads(SEARCH_INDEX_SECTIONS_MAX + 1))));
+    expect(over.rows).toEqual(exact.rows);
+    expect([exact.capped, over.capped]).toEqual([false, true]);
+    expect(over.contentHash).not.toBe(exact.contentHash);
+    const empty = extractSearchSections(frag(searchDoc([{ id: "p" }])));
+    const badId = extractSearchSections(frag(searchDoc([{ id: "", text: "x" }])));
+    expect([empty.rows, badId.rows]).toEqual([[], []]);
+    expect([empty.capped, badId.capped]).toEqual([false, true]);
+    expect(badId.contentHash).not.toBe(empty.contentHash);
+  }, { timeout: 120_000 });
 });

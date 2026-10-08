@@ -365,7 +365,7 @@ export const noteSearchSections = pgTable(
 );
 
 /**
- * #93 §3.2：每篇一列的索引狀態。`source_version`＝建索引時依據的 `note_states.version`；`content_hash`＝全部列的
+ * #93 §3.2：每篇一列的索引狀態。`source_version`＝建索引時依據的 `note_states.version`；`content_hash`＝全部列與 `capped` 的
  * 正規序列化 sha256（`notes/search-text.ts` 的 `searchContentHash`）。不用 per-note clock：Yjs 的刪除不推進
  * state vector（spec §2.2 第 4 點），clock 判斷不了「內容沒變」。
  */
