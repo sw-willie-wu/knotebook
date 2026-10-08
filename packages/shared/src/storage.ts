@@ -66,3 +66,23 @@ export interface StorageQuotaErrorDetail {
   usedBytes?: number;
   quotaBytes?: number | null;
 }
+
+/**
+ * 位元組數的人類可讀形（儲存配額 spec §8.3-3 MCP 訊息、§9.1 web 顯示共用）。
+ * 1024 進位、B／KB／MB／GB／TB；未滿 1 KB 印整數（`512 B`）；其餘四捨五入到一位小數，結果是整數就不帶 `.0`
+ * （`2 GB`、`500 MB`；`1.2 GB`——Willie 2026-10-08）；TB 以上仍以 TB 表示。
+ * 四捨五入後若恰好進到下一個單位（例：1048575 → 1023.999… KB → 「1024 KB」），改用下一個單位（「1 MB」）。
+ */
+const BYTE_UNITS = ["KB", "MB", "GB", "TB"] as const;
+
+export function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  let value = n / 1024;
+  let i = 0;
+  while (i < BYTE_UNITS.length - 1 && Number(value.toFixed(1)) >= 1024) {
+    value /= 1024;
+    i++;
+  }
+  const fixed = value.toFixed(1);
+  return `${fixed.endsWith(".0") ? fixed.slice(0, -2) : fixed} ${BYTE_UNITS[i]}`;
+}

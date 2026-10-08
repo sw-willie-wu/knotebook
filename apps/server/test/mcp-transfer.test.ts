@@ -288,7 +288,7 @@ describe("③a 儲存配額「已滿」預檢（#200 spec §6.3-3a；儲存配�
     expect(r.structuredContent).toEqual({
       code: "storage_quota_exceeded",
       message:
-        "This note's storage space is full (2.0 GB of 2.0 GB used), so no image can be uploaded to it. A site admin can assign a larger storage plan; deleting notes that have images also frees space.",
+        "This note's storage space is full (2 GB of 2 GB used), so no image can be uploaded to it. A site admin can assign a larger storage plan; deleting notes that have images also frees space.",
       usedBytes: GIB2,
       quotaBytes: GIB2,
     });
@@ -331,7 +331,7 @@ describe("③a 儲存配額「已滿」預檢（#200 spec §6.3-3a；儲存配�
       usedBytes: 2048,
       quotaBytes: 1536,
     });
-    expect(storageFullVisibleMessage(2048, 1536)).toContain("(2.0 KB of 1.5 KB used)");
+    expect(storageFullVisibleMessage(2048, 1536)).toContain("(2 KB of 1.5 KB used)");
   });
 
   it("download 不預檢：空間已滿時 download 照常簽（多一列）", async () => {
