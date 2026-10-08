@@ -25,6 +25,27 @@ const PNG_1X1 = Buffer.from(
   "base64",
 );
 
+/**
+ * ⋮ 選單開著時，點第二層觸發項（「Move to…」／「Copy to…」）再點子選單裡的項目（桌面 flyout 形）。
+ *
+ * 不能直接 `target.click()`：Playwright 的 click 會把滑鼠**一步瞬移**到目標中心。Radix 的子選單靠「指標水平移動方向」
+ * 判斷使用者是不是正往子選單走（`pointerDirRef` 只在父選單內的 pointermove 更新，`lastPointerXRef` 初值 0，
+ * 所以從 ⋮ 鈕第一次移進父選單那一下必記成 `right`）。1280 寬的視窗裡 ⋮ 貼右緣，子選單碰撞翻到**左側**
+ * （`data-side="left"`）——瞬移離開觸發項時方向 `right` ≠ 子選單側 `left`，Radix 判定「沒往子選單走」→ 焦點回父選單 →
+ * 子選單 `onFocusOutside` 關掉、項目被卸載，click 無限重試到測試逾時（CI run 37732016391 就是這樣卡滿 180 秒）。
+ * 真人的滑鼠是連續移動，離開觸發項前最後幾筆 pointermove 就在觸發項內、方向正確，幾乎不會遇到（除非極快地一甩就離開觸發項；最壞也只是子選單關掉、再 hover 一次就開）。
+ * 所以這裡分段移動（`steps`）模擬真人：第一段仍落在觸發項內，把方向更新成實際往子選單的方向，之後才離開觸發項。
+ */
+async function pickFromSubmenu(page: Page, triggerName: string, itemName: string): Promise<void> {
+  await page.getByRole("menuitem", { name: triggerName, exact: true }).click();
+  const target = page.getByRole("menuitem", { name: itemName, exact: true });
+  await expect(target).toBeVisible();
+  const box = await target.boundingBox();
+  expect(box).not.toBeNull();
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2, { steps: 10 });
+  await target.click();
+}
+
 /** admin 在站台管理 → 使用者建一個帳號（同 03／15）。呼叫前後都停在 "/"。 */
 async function createUser(adminPage: Page, email: string, displayName: string): Promise<void> {
   await adminPage.getByRole("button", { name: "admin", exact: true }).click();
@@ -173,8 +194,7 @@ test("移入群組（踢逐人分享、關公開連結、舊網址轉址）→ �
 
     // ── A：⋮ → Move to…（第二層選單，桌面 hover／點開）→ 選群組 → 確認框 → Move into group ──
     await adminPage.getByRole("button", { name: "More", exact: true }).click();
-    await adminPage.getByRole("menuitem", { name: "Move to…", exact: true }).click();
-    await adminPage.getByRole("menuitem", { name: groupName, exact: true }).click();
+    await pickFromSubmenu(adminPage, "Move to…", groupName);
     const confirm = adminPage.getByRole("dialog").filter({ hasText: `Move this note into "${groupName}"?` });
     // 提交鈕在 shares 與 public-link 兩支都到之前停用；確認文案也要等它們到才完整。
     await expect(confirm).toContainText(
@@ -210,8 +230,7 @@ test("移入群組（踢逐人分享、關公開連結、舊網址轉址）→ �
 
     // ── B：⋮ → Copy to… → Personal space → 確認 → toast「Open copy」→ 副本頁的圖是新上傳、載得出來 ─────────
     await member.page.getByRole("button", { name: "More", exact: true }).click();
-    await member.page.getByRole("menuitem", { name: "Copy to…", exact: true }).click();
-    await member.page.getByRole("menuitem", { name: "Personal space", exact: true }).click();
+    await pickFromSubmenu(member.page, "Copy to…", "Personal space");
     await member.page.getByRole("dialog").getByRole("button", { name: "Copy to my notes", exact: true }).click();
     await expect(member.page.getByText("Copied to your notes", { exact: true })).toBeVisible({ timeout: 15_000 });
     await member.page.getByRole("button", { name: "Open copy", exact: true }).click();
