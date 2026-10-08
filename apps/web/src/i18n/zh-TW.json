@@ -862,6 +862,11 @@
     "password_already_set": "這個帳號已經有密碼，請改用「修改密碼」。",
     "last_login_method": "這是這個帳號唯一的登入方式，不能解除連結。",
     "oidc_link_session_mismatch": "你已不是以發起連結的那個帳號登入。請重新登入後再試一次。",
+    "storage_quota_exceeded": "儲存空間已滿",
+    "storage_plan_in_use": "這個方案仍有使用者或群組在用，請先改指派其他方案",
+    "storage_plan_is_default": "這個方案是預設方案，請先改選其他預設",
+    "storage_plan_name_taken": "已有同名的方案",
+    "storage_plan_not_found": "找不到這個方案",
     "fallback": "發生未預期的錯誤。"
   }
 }

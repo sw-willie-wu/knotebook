@@ -862,6 +862,11 @@
     "password_already_set": "This account already has a password. Use Change password instead.",
     "last_login_method": "This is the account's only way to sign in, so it can't be unlinked.",
     "oidc_link_session_mismatch": "You're no longer signed in as the account you were linking. Sign in and try again.",
+    "storage_quota_exceeded": "Storage is full",
+    "storage_plan_in_use": "This plan is assigned to users or groups. Move them to another plan first.",
+    "storage_plan_is_default": "This plan is a default. Choose another default first.",
+    "storage_plan_name_taken": "A plan with this name already exists",
+    "storage_plan_not_found": "Plan not found",
     "fallback": "An unexpected error occurred."
   }
 }
