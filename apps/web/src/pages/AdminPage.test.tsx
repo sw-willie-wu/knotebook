@@ -52,6 +52,11 @@ function mockFetch(getUser: () => UserDto | null) {
         fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ providers: [], registration: { enabled: true }, passwordLogin: { enabled: true } }) }),
       );
     }
+    if (url === "/api/admin/storage-plans" && method === "GET") {
+      return Promise.resolve(
+        fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ plans: [], defaults: { userPlanId: "", groupPlanId: "" } }) }),
+      );
+    }
     if ((url === "/api/groups" || url === "/api/notes" || url === "/api/admin/users") && method === "GET") {
       return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
     }
@@ -126,6 +131,7 @@ describe("AdminPage（/admin/*：站台管理獨立頁）", () => {
     const nav = within(screen.getByRole("navigation", { name: "Site admin" }));
     expect(nav.getByRole("link", { name: "Back to notes" })).toHaveAttribute("href", "/");
     expect(nav.getByRole("link", { name: "Users" })).toHaveAttribute("href", "/admin/users");
+    expect(nav.getByRole("link", { name: "Storage plans" })).toHaveAttribute("href", "/admin/storage");
     expect(nav.getByRole("link", { name: "AI" })).toHaveAttribute("href", "/admin/ai");
     expect(nav.getByRole("link", { name: "Sign-in" })).toHaveAttribute("href", "/admin/auth");
     expect(nav.getByRole("link", { name: "Users" })).toHaveAttribute("aria-current", "page");
@@ -151,6 +157,14 @@ describe("AdminPage（/admin/*：站台管理獨立頁）", () => {
     fireEvent.click(within(screen.getByRole("navigation", { name: "Site admin" })).getByRole("link", { name: "Back to notes" }));
     await expectLocation("/");
     await waitFor(() => expect(screen.getByRole("button", { name: "New note" })).toBeInTheDocument());
+  });
+
+  it("點 Storage plans → /admin/storage，主區是儲存方案（W6）", async () => {
+    renderAt("/admin/users", mockFetch(() => ADMIN_USER));
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "User management" })).toBeInTheDocument());
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Site admin" })).getByRole("link", { name: "Storage plans" }));
+    await expectLocation("/admin/storage");
+    expect(await screen.findByRole("heading", { level: 1, name: "Storage plans" })).toBeInTheDocument();
   });
 
   it("窄視窗入口：內容卡有漢堡鈕（NarrowTopBar），抽屜裡也是管理導覽", async () => {
