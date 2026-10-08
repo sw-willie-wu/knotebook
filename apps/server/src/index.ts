@@ -15,6 +15,7 @@ import { createCollabHooks } from "./collab/hooks-impl.js";
 import { createCollabServer } from "./collab/server.js";
 import { buildApp } from "./app.js";
 import { createAiRuntime, selfCheckAiKeys } from "./ai/runtime.js";
+import { backfillSearchIndex } from "./notes/search-index.js";
 
 // 獨立的 pino instance：`initializeInstance` 與 migration 皆在 `buildApp()` 之前就要跑
 // （見下方 main() 的呼叫順序），此時還沒有 Fastify app、也就還沒有 `app.log` 可用——
@@ -183,6 +184,14 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // #93 §6.3：全文索引回填——**在 listen 之後**、背景跑（spec §6.1 偏離 C：與即時落盤交錯不會算錯，擺在 listen 之前
+  // 會讓升級後第一次啟動等全部筆記解碼完才開始服務）。可續、可中止；關機 handler 第一步 abort。
+  // 結構守衛：test/unit/search-backfill-wiring.test.ts。
+  const backfillAbort = new AbortController();
+  void backfillSearchIndex(db, logger, { signal: backfillAbort.signal }).catch((err: unknown) =>
+    logger.error({ err }, "全文索引回填失敗（已中止；下次啟動接續）"),
+  );
+
   // Graceful shutdown：`docker compose stop`/`down`（以及手動 Ctrl-C）送的都是
   // SIGTERM/SIGINT——不接住的話 Fastify 會被硬殺，進行中的請求與尚未 flush 的
   // pg 連線可能被粗暴中斷。
@@ -194,8 +203,11 @@ async function main(): Promise<void> {
   // socket（讓最後一條連線離開時把 pending store 落地），逾時未關的直接 terminate。
   // 全部做完（或任一步驟拋錯，被 `.finally` 接住）才 `process.exit(0)`——不做 exit code
   // 判斷是因為這是主動收到終止訊號的正常關機路徑，非錯誤情境。
+  // `backfillAbort.abort()` 先停回填：回填在每篇與每批之前檢查 signal，不會再發新查詢；萬一它在 `pool.end()`
+  // 之後撞到錯誤——單篇內的記一行 warn、批次查詢的由上面的 `.catch` 吞掉、只記一行（都不擋關機）。
   for (const sig of ["SIGTERM", "SIGINT"] as const) {
     process.once(sig, () => {
+      backfillAbort.abort();
       void collab
         .destroy()
         .then(() => app.close())
