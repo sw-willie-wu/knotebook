@@ -73,6 +73,8 @@ export const MCP_MAX_WIRE = 262_144;
  * 餘裕確實存在、且沒有 D11 那種鏡像效應（`tools/list` 的 schema 只進脈絡一份，加長多少 wire
  * 就多長多少，不是 ×2.1）。撞牆時**先問「這段字非進 schema 不可嗎」**：`tools/list` 的每一個
  * 位元組每一次連線都進模型脈絡，而 `instructions` 與 `docs/mcp.md` 是更便宜的落點。
+ * #200 PR1 追記（**突變實跑，2026-10-08**，門檻 28 000、基線 20 578）：同一條 +6000 的迴歸現在是 **26 578、不再撞牆**
+ * （餘裕變大是重訂門檻的直接結果）；加長 7500 → **28 078**，紅（`expected 28078 to be less than or equal to 28000`）。
  */
 export const N_LIST_MAX = 29_300;
 
@@ -189,7 +191,10 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
   // `titleTruncated:true`**（`toNoteSummary`，`dto.ts`）——與這一案的 `hugeTitle` 同一個
   // 病態形，所以順手擺在 (i)：一發讀寫憑證的 `create_note`，帶一顆同樣 260 000 字元的標題。
   // ⚠ `create_note` 不寫 live doc（不帶 `content`），對這一案其他量測**零污染**。
-  it("(i) 一篇 heading／title 各 260 000 字元的筆記 → 六支工具都 ≤ N", async () => {
+  // #200 PR1：`create_transfer_token` 也在這一案量（spec §9.4(c) 要求每支工具都量）——upload／download 各一發。它的回應
+  // 不帶標題或內容（只有 id、token、網址、curl、固定的 `next`），病態筆記對它不是最壞形，量的是「它也在 N 以內」這件事本身。
+  // `edit_note` 在 (ii) 量（它的最壞形是一整頁逐段指紋）。
+  it("(i) 一篇 heading／title 各 260 000 字元的筆記 → edit_note 以外的六支工具（含 create_transfer_token 兩種 purpose）都 ≤ N", async () => {
     const ctx = await buildCollabTestApp();
     const o = await owner(ctx);
     const { token: rwToken } = await seedTokenForUser(ctx.db, o.id, "notes:read notes:write");
@@ -207,6 +212,8 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
     await callWire(ctx.app, o.token, "(i) list_notes", "list_notes", { limit: MCP_PAGE_MAX });
     await callWire(ctx.app, o.token, "(i) search_notes", "search_notes", { query: "Tiii", limit: 50 });
     await callWire(ctx.app, rwToken, "(i) create_note", "create_note", { title: hugeTitle });
+    await callWire(ctx.app, rwToken, "(i) create_transfer_token upload", "create_transfer_token", { note_id: note.id, purpose: "upload" });
+    await callWire(ctx.app, rwToken, "(i) create_transfer_token download", "create_transfer_token", { note_id: note.id, purpose: "download" });
     client.disconnect();
   });
 

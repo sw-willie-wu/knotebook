@@ -154,6 +154,21 @@ describe("M2：create_transfer_token 的流程（spec §6.3、§6.4）", () => {
     expect((await call(app, o.pat, { note_id: o.noteId, purpose: "download" })).structuredContent!.code).toBe("too_many_requests");
   });
 
+  // 守檔頭「流程順序是契約」的 ①→②：upload 先扣 tokenWrite、再查筆記權限——所以對看不到的筆記簽 upload 也會扣。
+  // `requireWriteScope` 挪到 `resolveNoteAccess` 之後，none 就在扣之前 return，下面第二發會成功（突變實測見 #200 PR1 Task 7 回報）。
+  it("upload 對看不到的筆記：not_found，但 tokenWrite 已扣（limit:1 → 接著對自己的筆記 upload 被 too_many_requests）", async () => {
+    const tokenWrite = new FixedWindowLimiter({ limit: 1, windowMs: 600_000 });
+    const { app, db } = await buildTestApp({ config, limiters: freshLimiters({ tokenWrite }) });
+    const o = await ownerWithPat(db);
+    const stranger = await ownerWithPat(db);
+    expect((await call(app, o.pat, { note_id: stranger.noteId, purpose: "upload" })).structuredContent).toEqual({
+      code: "not_found",
+      message: NOTE_NOT_FOUND_MESSAGE,
+    });
+    expect((await call(app, o.pat, { note_id: o.noteId, purpose: "upload" })).structuredContent!.code).toBe("too_many_requests");
+    expect(await db.select().from(transferTokens)).toHaveLength(0);
+  });
+
   it("母憑證只剩 60 秒 → expiresAt 截在它；next 與描述沒有 10 分以外的時間承諾", async () => {
     const { app, db } = await buildTestApp({ config });
     const o = await ownerWithPat(db);

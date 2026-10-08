@@ -79,6 +79,9 @@ describe("#108 tools/list", () => {
   //   案 10（唯讀憑證跳過清單直接呼叫）**；案 9／9b 守的是完全不同的東西（六支的集合／順序），
   //   對「唯讀憑證是否被過濾」這件事**確定**零鑑別力。已依實測結果改掉本檔內每一處相關註解，
   //   不回頭把測試遷就那個推翻掉的預期。
+  //   （#200 追記，2026-10-08：上句「唯一的守衛」「四支集合」是 2026-09-09 當時的事實。現在本案斷言五支；
+  //   且 `create_transfer_token` 的描述與 purpose enum 也依 `canWrite` 二選一，`mcp-transfer.test.ts` M1 的唯讀憑證案
+  //   同樣守 scope 過濾——同一條突變實測見 #200 PR1 Task 7 回報。）
   // 今天有鑑別力的除了 scope 過濾本身，還有 `toEqual` 那一行（**生產形態上恰好這五個名字**，
   // 一支不多一支不少、改名也會紅），那是形狀斷言。
   // ⚠ **不要為了「看起來重複」把它與下面那條 D-A 案合併**：兩案的被測對象是**兩種部署形態**，
@@ -107,7 +110,7 @@ describe("#108 tools/list", () => {
   // ⚠ **PR2 起改用讀寫憑證**（Task 3 留給 Task 4 的必辦 #4）：既有唯讀憑證的版本碰不到
   //   `edit_note`——那支工具在**註冊時**就先被 scope 過濾掉，唯讀憑證測不出「它有沒有被部署
   //   形態閘門擋下」；只有讀寫憑證能區分「沒宣告是因為沒有 collab」與「沒宣告是因為沒有 scope」。
-  //   `create_note` 不進這道閘門（D-M），所以三支裡它必須在，`edit_note` 必須不在。
+  //   `create_note` 不進這道閘門（D-M），所以四支裡它必須在，`edit_note` 必須不在。
   it("無 collab 的 app ＋讀寫憑證：只宣告查得動 DB 的兩支、create_note 與 create_transfer_token（D-M 不進閘門，D-A）", async () => {
     const { app, db } = await buildTestApp();
     const userId = await seedUser(db);

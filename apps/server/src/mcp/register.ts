@@ -126,7 +126,7 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
   // `POST /api/notes` 本來就無條件註冊、帶 content 而沒有 collab 時回 `400 invalid_body`
   // （工具側的對等答案是 `invalid_body`，由 `createNote` 自己判 `ctx.writes.available`）。
   // 把它移進閘門就是發明第二套行為——守衛＝`mcp-create-note.test.ts` 的 D-M 那一案
-  // （無 collab 的 app ＋**讀寫**憑證，斷言三個名字的集合）。
+  // （無 collab 的 app ＋**讀寫**憑證，斷言四個名字的集合）。
   if (canWrite) {
     server.registerTool(
       "create_note",
