@@ -4,7 +4,7 @@ import * as Y from "yjs";
 import { SESSION_COOKIE, YDOC_FRAGMENT, topLevelContainers } from "@knotebook/shared";
 import { signSession } from "../src/auth/session.js";
 import { docClock } from "../src/collab/store.js";
-import { noteAiEdits, noteStates, notes } from "../src/db/schema.js";
+import { noteAiEdits, noteLinks, noteStates, notes } from "../src/db/schema.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 import type { EditingTestHooks } from "../src/notes/editing/apply.js";
 import { EditorSession } from "../src/notes/editing/session.js";
@@ -409,6 +409,34 @@ describe("拒絕案假綠守衛", () => {
     expect(r.statusCode).toBe(500);
     expect((await s.content()).markdown).toContain("內容在");
     expect(await s.rows()).toHaveLength(0);
+  });
+});
+
+describe("寫入順序：先紀錄後連結", () => {
+  // ⚠ 與上面 `beforeRecord throw` 那案不同：那案守的是「先落盤（merge）後紀錄」。本案守的是
+  // `record`（insertEditRecord）→ `links`（updateNoteLinks）的順序：afterRecord 縫在兩者之間，
+  // 此刻 note_ai_edits 已有這筆、note_links 尚未更新；放行後才出現。
+  it("afterRecord 縫：紀錄已寫、note_links 尚未更新；放行後 note_links 更新", async () => {
+    let seen: { edits: number; links: number } | null = null;
+    let sctx: Setup | null = null;
+    const s = await setup(undefined, {
+      editingTestHooks: {
+        afterRecord: async () => {
+          const c = sctx!;
+          seen = {
+            edits: (await c.rows()).length,
+            links: (await c.ctx.db.select().from(noteLinks).where(eq(noteLinks.sourceNoteId, c.note.id))).length,
+          };
+        },
+      },
+    });
+    sctx = s;
+    await s.ctx.createNote(s.u.id, "目標筆記");
+    const c = await s.content();
+    const r = await s.post({ op: "append", markdown: "看 [[目標筆記]]", if_match: c.fingerprint });
+    expect(r.statusCode).toBe(201);
+    expect(seen).toEqual({ edits: 1, links: 0 });
+    expect(await s.ctx.db.select().from(noteLinks).where(eq(noteLinks.sourceNoteId, s.note.id))).toHaveLength(1);
   });
 });
 

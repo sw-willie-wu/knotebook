@@ -160,7 +160,7 @@ export interface AppDeps {
   };
   /**
    * #106（#137）：寫入路徑的測試注入縫（比照 `linkSyncTestHooks`）——`beforeMerge`／
-   * `beforeRecord`／`beforeRevertRecord` 分別在「合併之前」「寫紀錄之前」「寫撤回紀錄之前」
+   * `beforeRecord`／`afterRecord`／`beforeRevertRecord` 分別在「合併之前」「寫紀錄之前」「紀錄之後、連結之前」「寫撤回紀錄之前」
    * 被呼叫。**選配**，生產不注入＝零成本。#108 起透傳進 `NoteWriteService`（`buildApp` 建的那一個）。
    */
   editingTestHooks?: EditingTestHooks;

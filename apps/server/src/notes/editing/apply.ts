@@ -29,6 +29,8 @@ import { EditorSession, withDirectConnection, type DirectCtx } from "./session.j
 export interface EditingTestHooks {
   beforeMerge?: () => Promise<void>;
   beforeRecord?: () => Promise<void>;
+  /** 紀錄已寫入、`updateNoteLinks` 尚未執行（守「先紀錄後連結」）。 */
+  afterRecord?: () => Promise<void>;
   beforeRevertRecord?: () => Promise<void>;
   /** 套用版本的 `beforeDisconnect` 第一步；測試以 throw 模擬基底寫回失敗。 */
   beforeVersionBase?: () => Promise<void>;
@@ -312,6 +314,7 @@ export async function applyEdit(deps: ApplyDeps, input: ApplyInput): Promise<App
     sectionId: input.sectionId ?? null, beforeBlocks, anchor,
     ...recordableAfter(deps, input.noteId, afterIds, merged.afterFingerprint),
   });
+  if (deps.testHooks?.afterRecord) await deps.testHooks.afterRecord();
   await updateNoteLinks(deps, { sourceNoteId: input.noteId, userId: input.userId, forkDoc: fork, clock: merged.clock });
   // ⚠ `afterBlockIds` 用 `prepareEdit` 回的**原始** `afterIds`，不是 `recordableAfter(...)` 那份
   // ——後者在退化情形（after_fingerprint 為 null）會把陣列清空，那是給 DB 紀錄用的語意。

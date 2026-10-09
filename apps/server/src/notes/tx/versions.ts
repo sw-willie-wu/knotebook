@@ -13,7 +13,8 @@ export const spaceKeyOf = (r: { ownerId: string | null; groupId: string | null }
   r.ownerId !== null ? `u:${r.ownerId}` : `g:${r.groupId}`;
 
 /**
- * 「這列不是該篇現在的基底」述詞（A6）：在**同一條** DELETE 裡現讀 `notes.version_base_seq`，讀與刪之間基底被改也不會刪到新基底。
+ * 「這列不是該篇現在的基底」述詞（A6）：在**同一條** DELETE 裡現讀 `notes.version_base_seq`，只在該語句讀取當下排除基底。
+ * 已知限制：`setVersionBase` 若在 DELETE 語句執行期間才 commit，子查詢用的是語句快照，那一列仍會被刪（Task 9 已裁定接受，見 docs §13）。
  * 用於 `note_versions` 的單表 DELETE——外層欄位寫帶表名字面（drizzle 雷：`${table.col}` 在單表語句會渲染成裸欄名）。
  */
 export const notBaseVersionSql = (noteId: string): SQL =>
