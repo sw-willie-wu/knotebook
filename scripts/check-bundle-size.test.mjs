@@ -11,8 +11,8 @@ function fakeAssets(files) {
   const dir = mkdtempSync(join(tmpdir(), 'bundle-check-'));
   const assets = join(dir, 'assets');
   mkdirSync(assets);
-  for (const [name, bytes] of Object.entries(files)) {
-    writeFileSync(join(assets, name), Buffer.alloc(bytes));
+  for (const [name, content] of Object.entries(files)) {
+    writeFileSync(join(assets, name), typeof content === 'string' ? content : Buffer.alloc(content));
   }
   return { assets, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
 }
@@ -24,6 +24,7 @@ test('entry 在上限內且 NotePage chunk 存在 → 通過並回報摘要', ()
     'mermaid.core-Ghi789.js': 700_000,
     'shiki-Jkl012.js': 150_000,
     'AdminPage-Mno345.js': 60_000,
+    'PresentationOverlay-Pqr678.js': 200_000,
     'index-Abc123.css': 50_000, // css 不是 entry chunk，pattern 只認 .js
   });
   try {
@@ -34,6 +35,7 @@ test('entry 在上限內且 NotePage chunk 存在 → 通過並回報摘要', ()
     assert.deepEqual(result.mermaidChunks, ['mermaid.core-Ghi789.js']);
     assert.deepEqual(result.shikiChunks, ['shiki-Jkl012.js']);
     assert.deepEqual(result.adminPageChunks, ['AdminPage-Mno345.js']);
+    assert.deepEqual(result.presentationChunks, ['PresentationOverlay-Pqr678.js']);
   } finally {
     cleanup();
   }
@@ -123,5 +125,78 @@ test('AdminPage chunk 不存在（被靜態 import 併回 entry）→ throw', ()
     assert.throws(() => checkBundleSize(assets), /AdminPage[\s\S]*issue #201/);
   } finally {
     cleanup();
+  }
+});
+
+test('簡報層 chunk 不存在（#229 迴歸：PresentationOverlay 被靜態 import）→ throw', () => {
+  const { assets, cleanup } = fakeAssets({
+    'index-Abc123.js': 100, 'NotePage-Def456.js': 10, 'mermaid.core-Ghi789.js': 10, 'shiki-Jkl012.js': 10, 'AdminPage-Mno345.js': 10,
+  });
+  try {
+    assert.throws(() => checkBundleSize(assets), /PresentationOverlay[\s\S]*#229/);
+  } finally {
+    cleanup();
+  }
+});
+
+test('entry CSS 含 .reveal-viewport（reveal.css 進了首包）→ throw；lazy chunk 的 CSS 含它不算', () => {
+  const base = {
+    'index-Abc123.js': 100, 'NotePage-Def456.js': 10, 'mermaid.core-Ghi789.js': 10, 'shiki-Jkl012.js': 10,
+    'AdminPage-Mno345.js': 10, 'PresentationOverlay-Pqr678.js': 10,
+  };
+  const bad = fakeAssets({ ...base, 'index-Css111.css': '.x{}.reveal-viewport{color:#000}' });
+  try {
+    assert.throws(() => checkBundleSize(bad.assets), /reveal-viewport[\s\S]*#229/);
+  } finally {
+    bad.cleanup();
+  }
+  const ok = fakeAssets({ ...base, 'index-Css111.css': '.x{}', 'PresentationOverlay-Css222.css': '.reveal-viewport{color:#000}' });
+  try {
+    assert.doesNotThrow(() => checkBundleSize(ok.assets));
+  } finally {
+    ok.cleanup();
+  }
+});
+
+test('reveal-viewport 字串只准在 PresentationOverlay-*.js：在 overlay 裡通過、在 NotePage 裡 throw（reveal.js 被靜態 import 進 NotePage）', () => {
+  const base = {
+    'index-Abc123.js': 100, 'mermaid.core-Ghi789.js': 10, 'shiki-Jkl012.js': 10, 'AdminPage-Mno345.js': 10,
+  };
+  const ok = fakeAssets({ ...base, 'NotePage-Def456.js': 'x', 'PresentationOverlay-Pqr678.js': 'e.classList.add("reveal-viewport")' });
+  try {
+    assert.doesNotThrow(() => checkBundleSize(ok.assets));
+  } finally {
+    ok.cleanup();
+  }
+  const bad = fakeAssets({ ...base, 'NotePage-Def456.js': 'e.classList.add("reveal-viewport")', 'PresentationOverlay-Pqr678.js': 'x' });
+  try {
+    assert.throws(() => checkBundleSize(bad.assets), /NotePage-Def456\.js[\s\S]*reveal-viewport[\s\S]*#229/);
+  } finally {
+    bad.cleanup();
+  }
+});
+
+test('Q1：簡報 chunk 的靜態 import 閉包（含間接）碰到 shiki → throw；只有動態 import("./shiki-…") 不算', () => {
+  const base = {
+    'index-Abc123.js': 100, 'NotePage-Def456.js': 10, 'mermaid.core-Ghi789.js': 10, 'AdminPage-Mno345.js': 10,
+    'shiki-Jkl012.js': 'export const s=1', 'bundle-full-Zz9.js': 'export const b=1',
+  };
+  const indirect = fakeAssets({ ...base, 'PresentationOverlay-Pqr678.js': 'import{a}from"./mid-Q1.js";', 'mid-Q1.js': 'import{b}from"./bundle-full-Zz9.js";export const a=1' });
+  try {
+    assert.throws(() => checkBundleSize(indirect.assets), /bundle-full-Zz9\.js[\s\S]*Q1/);
+  } finally {
+    indirect.cleanup();
+  }
+  const direct = fakeAssets({ ...base, 'PresentationOverlay-Pqr678.js': 'import"./shiki-Jkl012.js";' });
+  try {
+    assert.throws(() => checkBundleSize(direct.assets), /shiki-Jkl012\.js[\s\S]*Q1/);
+  } finally {
+    direct.cleanup();
+  }
+  const dynamicOnly = fakeAssets({ ...base, 'PresentationOverlay-Pqr678.js': 'import{x}from"./index-Abc123.js";const l=()=>import("./shiki-Jkl012.js")' });
+  try {
+    assert.doesNotThrow(() => checkBundleSize(dynamicOnly.assets));
+  } finally {
+    dynamicOnly.cleanup();
   }
 });
