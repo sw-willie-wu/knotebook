@@ -40,7 +40,9 @@ import type { Db } from "../../db/index.js";
 import { notes } from "../../db/schema.js";
 import { insertNoteWithAutoSlug } from "../create.js";
 import type { SlugScope } from "../slug.js";
+import type { NoteVersionRow } from "../tx/versions.js";
 import { applyEdit, type ApplyDeps, type ApplyResult, type EditingTestHooks } from "./apply.js";
+import { applyVersionEdit, type ApplyVersionFailureCode, type ApplyVersionInput } from "./apply-version.js";
 import { visibleNoteTitles } from "./candidates.js";
 import { parseMarkdownForNote, type ParseError } from "./markdown.js";
 import { presenceIdentity, presenceTargetForWrite, type PresenceRegistry, type PresenceTarget } from "./presence.js";
@@ -74,6 +76,8 @@ export type CreateWithContentResult =
   | { ok: true; noteId: string; inserted: typeof notes.$inferSelect }
   | { ok: false; kind: "parse"; code: ParseError }
   | { ok: false; kind: "internal" };
+
+export type SaveVersionOutcome = { ok: true; row: NoteVersionRow; upgraded: boolean } | { ok: false; kind: "busy" | "note-deleted" };
 
 export interface NoteWriteServiceDeps {
   db: Db;
@@ -199,6 +203,51 @@ export class NoteWriteService {
     // ——落在文件開頭，不為了這件事改 #137 的回傳型別。
     this.touch(input.noteId, input.tokenId, input.userHandle, agentLabel, { kind: "doc-start" });
     return { ok: true, result, agentLabel };
+  }
+
+  /** 版本歷史 §7：佇列（與 `/edits`、撤回、MCP **同一顆**）→ `applyVersionEdit`。`kind: "busy"`＝佇列逾時（路由映 503）。 */
+  async applyVersion(log: FastifyBaseLogger, input: ApplyVersionInput): Promise<WriteOutcome<{ applied: true }, ApplyVersionFailureCode>> {
+    const versions = this.deps.versions;
+    if (!versions) throw new Error("NoteWriteService：沒有版本服務（app.ts 一定會注入；直接 new 本 service 的測試要自己帶）");
+    const deps = { ...this.applyDeps(log), versions };
+    let result: Awaited<ReturnType<typeof applyVersionEdit>>;
+    try {
+      result = await this.queue.run(input.noteId, () => applyVersionEdit(deps, input), this.deps.queueWaitMs);
+    } catch (err) {
+      if (err instanceof QueueBusyError) return { ok: false, kind: "busy" };
+      throw err;
+    }
+    if (!result.ok) return { ok: false, kind: "apply", code: result.code };
+    return { ok: true, result: { applied: true }, agentLabel: null };
+  }
+
+  /**
+   * 版本歷史 §6.3：手動儲存走同一顆佇列（與套用序列化）。不需要 collab／editing：文件沒載入時讀 note_states 當暫時狀態。
+   * `null`（交易內基底或空間對不上、已回寫記憶體）→ 重試一次，再 null → busy。uninitialized／fingerprint-failed → busy（503）。
+   */
+  async saveVersion(log: FastifyBaseLogger, input: { noteId: string; userId: string; name: string | null }): Promise<SaveVersionOutcome> {
+    const versions = this.deps.versions;
+    if (!versions) throw new Error("NoteWriteService：沒有版本服務");
+    try {
+      return await this.queue.run(
+        input.noteId,
+        async (): Promise<SaveVersionOutcome> => {
+          for (let attempt = 0; attempt < 2; attempt += 1) {
+            const { doc, transient } = await versions.docFor(input.noteId);
+            const r = await versions.cutIfDirty(input.noteId, doc, { kind: "manual", name: input.name, extraEditors: [{ userId: input.userId, agentLabel: null }], transient });
+            if (r === null) continue;
+            if ("skipped" in r) return r.skipped === "note-deleted" ? { ok: false, kind: "note-deleted" } : { ok: false, kind: "busy" };
+            return { ok: true, row: r.row, upgraded: r.upgraded };
+          }
+          log.warn({ noteId: input.noteId }, "手動儲存版本：兩次都撞到基底或空間變動");
+          return { ok: false, kind: "busy" };
+        },
+        this.deps.queueWaitMs,
+      );
+    } catch (err) {
+      if (err instanceof QueueBusyError) return { ok: false, kind: "busy" };
+      throw err;
+    }
   }
 
   /**
