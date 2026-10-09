@@ -1,6 +1,6 @@
 import { StrictMode, useEffect, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, MemoryRouter, Route, Routes, useLocation, useNavigate, type InitialEntry } from "react-router";
 import * as Y from "yjs";
@@ -66,12 +66,24 @@ vi.mock("@/collab/useCollab", () => ({
 }));
 
 /** lazy 簡報層的替身：stub＝立刻宣告就緒並模擬 reveal 的 keyboard[27]；pending／fail＝chunk 載入中／失敗；fatal＝呼叫 onFatal。 */
-const stub = vi.hoisted(() => ({ mode: "stub" as "stub" | "pending" | "fail", fatal: null as string | null, mounts: 0 }));
+const stub = vi.hoisted(() => ({
+  mode: "stub" as "stub" | "pending" | "fail",
+  fatal: null as string | null,
+  mounts: 0,
+  /** overlay 卸載（layout cleanup）當下頁面上的網址——外殼被閘門拿掉的那一 render，router 的 location 是什麼。 */
+  shellGoneLoc: null as string | null,
+}));
 vi.mock("@/present/lazy", async () => {
-  const { lazy, useEffect: useEffectInMock } = await import("react");
+  const { lazy, useEffect: useEffectInMock, useLayoutEffect: useLayoutEffectInMock } = await import("react");
   const { usePresentationShell } = await import("@/present/PresentationShell");
   function StubOverlay({ variant, title }: { variant: string; title: string }) {
     const shell = usePresentationShell();
+    useLayoutEffectInMock(
+      () => () => {
+        stub.shellGoneLoc = document.querySelector("[data-testid=loc]")?.textContent ?? null;
+      },
+      [],
+    );
     useEffectInMock(() => {
       stub.mounts += 1;
       if (stub.fatal) {
@@ -182,6 +194,7 @@ describe("NotePage × 簡報（spec §6.1、§6.5、§13.2）", () => {
     stub.mode = "stub";
     stub.fatal = null;
     stub.mounts = 0;
+    stub.shellGoneLoc = null;
     nav.fn.mockClear();
     sessionStorage.clear();
     window.history.replaceState(null, "", "/n/tester/my-note?present");
@@ -300,7 +313,10 @@ describe("NotePage × 簡報（spec §6.1、§6.5、§13.2）", () => {
     );
     await act(async () => queryClient.invalidateQueries({ queryKey: ["note", NOTE.id] }));
     await waitFor(() => expect(loc()).toBe("/"));
-    expect(fake.exitFullscreen).toHaveBeenCalledTimes(1);
+    expectExitBeforeNavigate("/");
+    // 外殼被 `!leavingRef.current` 閘門拿掉的那一 render，router 的 location 仍是 ?present（react-router 以 startTransition 更新 location，
+    // noteGone 出口的 setActiveNoteId(null) 先提交一次 render）——拿掉閘門，外殼要多活到 location 變成 "/" 才卸載。
+    expect(stub.shellGoneLoc).toBe("/n/tester/my-note?present");
   });
 
   it("test 4（K 案）：<StrictMode> 下以 ?present 掛載、已在我們的全螢幕 → 假卸載不退全螢幕", async () => {
@@ -316,7 +332,9 @@ describe("NotePage × 簡報（spec §6.1、§6.5、§13.2）", () => {
   it("test 20：解析回 500 → 外殼錯誤態＋×；× 離開", async () => {
     stubFetch({ note: { status: 500, code: "internal" } });
     renderPresent(["/notes/x?present"]);
-    expect(await screen.findAllByRole("alert")).not.toHaveLength(0);
+    // 頁面本體的錯誤卡也帶 role=alert（且在 inert 內仍查得到），所以限定在簡報 dialog 內查外殼自己的錯誤態。
+    const shellDialog = await screen.findByRole("dialog");
+    expect(await within(shellDialog).findByRole("alert")).toHaveTextContent("Something went wrong. Please try again.");
     fireEvent.click(screen.getByRole("button", { name: "Exit presentation" }));
     await waitFor(() => expect(loc()).toBe("/notes/x"));
   });
@@ -465,8 +483,11 @@ describe("NotePage × 簡報（BrowserRouter：網址寫入點、上一頁）", 
     });
     await waitFor(() => expect(window.location.pathname).toBe("/n/tester/renamed"));
     expect(window.location.search).toBe("?present");
+    nav.fn.mockClear();
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(`${window.location.pathname}${window.location.search}`).toBe("/n/tester/renamed"));
+    // 走的是 navigate(-1)（帶旗標進入），不是 replace：Esc 那一下的 navigate 恰一次且為 -1。
+    expect(nav.fn.mock.calls.filter((call) => call[0] === -1)).toHaveLength(1);
     expect(screen.getByTestId("note-editor")).toBe(editor);
   });
 });
