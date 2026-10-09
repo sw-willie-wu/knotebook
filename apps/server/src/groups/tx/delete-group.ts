@@ -40,6 +40,7 @@ export interface GroupDeletionResult {
  *   lockGroup（不存在 → 404）→ transferTo 是成員且 builtin='admin'（鎖之後查，C9）→ 否則 409 not_admin
  *   → M（CASCADE 前取）→ 該群組筆記 FOR UPDATE，依 created_at, id（撞名時誰拿較小的 -N 是決定性的，RF1；spec 疑點 Q3）
  *   → 儲存配額：附件總和 → transferTo 個人空間鎖＋判定（writeSlugInTx 之前；放不下 → StorageQuotaExceeded，什麼都沒寫）
+ *   → 版本歷史 §9：清空版本（`resetNoteVersionsInTx({ groupId })`，以群組述詞一次處理，必須在改 group_id 之前）
  *   → 每篇 writeSlugInTx（scope＝transferTo 個人、base＝舊 slug，B6）：同一句 UPDATE 換歸屬、清 prev（B12）
  *     ——同一句清 public_token／public_slug（Willie 2026-10-02 裁決，比照 move.ts；轉移後是未分享的個人筆記；不扣 publicLink 桶）、
  *     slug_is_custom 不動、updated_at 不動（§9.2）

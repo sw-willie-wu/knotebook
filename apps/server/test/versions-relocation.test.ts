@@ -67,7 +67,8 @@ describe("REST 形（沒有載入）", () => {
     const g2 = await seedGroup(db, "H", [{ userId: u.id, role: "admin" }]);
     const n2 = await seedNote(db, { groupId: g2.id });
     await seedDoc(db, n2.id, paraDoc(["會被全刪"]));
-    await save(app, n2.id, u.id);
+    expect((await save(app, n2.id, u.id)).statusCode).toBe(201);
+    expect(await db.select().from(noteVersions).where(eq(noteVersions.noteId, n2.id))).toHaveLength(1);
     expect((await app.inject({ method: "DELETE", url: `/api/groups/${g2.id}`, cookies: await cookieOf(u.id), payload: { mode: "delete" } })).statusCode).toBe(204);
     expect(await db.select().from(noteVersions).where(eq(noteVersions.noteId, n2.id))).toEqual([]);
   });

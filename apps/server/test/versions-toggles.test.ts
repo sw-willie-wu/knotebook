@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
+import { hashPassword } from "../src/auth/password.js";
 import { groups, handles, siteSettings, users } from "../src/db/schema.js";
 import { captureLogs } from "./helpers/admin-auth.js";
 import { cookieOf, seedGroup, seedUser } from "./group-helpers.js";
@@ -89,8 +90,13 @@ describe("個人開關 PATCH /api/auth/profile（§6.8）", () => {
   it("登入回應與 /api/auth/me 都帶 autoVersions", async () => {
     const { app, db } = await buildTestApp();
     const u = await seedUser(db);
-    await db.update(users).set({ autoVersions: false }).where(eq(users.id, u.id));
+    const password = "correct-horse-battery";
+    await db.update(users).set({ autoVersions: false, passwordHash: await hashPassword(password) }).where(eq(users.id, u.id));
     expect((await call(app, "GET", "/api/auth/me", u.id)).json().autoVersions).toBe(false);
+    // 登入回應的值取自 DB（不是寫死 true）：先設 false 再登入。
+    const login = await app.inject({ method: "POST", url: "/api/auth/login", payload: { email: u.email, password } });
+    expect(login.statusCode).toBe(200);
+    expect(login.json()).toMatchObject({ id: u.id, autoVersions: false });
   });
 });
 

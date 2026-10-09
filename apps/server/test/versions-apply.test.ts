@@ -123,8 +123,10 @@ describe("套用（§7、§11.2）", () => {
 
   it("dirty 且 discardUnsaved=false → version_unsaved_changes、內容不變；discardUnsaved=true → 套用", async () => {
     const s = await setup();
-    const { client, v1 } = await twoVersions(s);
+    const { client, v1, v2 } = await twoVersions(s);
     await setBlocks(s, client, [{ type: "paragraph", content: "未存的修改" }], "未存的修改");
+    // §6.4 優先序：dirty 文件上 versionId 對不上 → 仍是 version_mismatch（讀列在 isDirty 之前），不是 version_unsaved_changes。
+    expect(await s.apply(1, v2.id)).toEqual({ ok: false, kind: "apply", code: "version_mismatch" });
     expect(await s.apply(1, v1.id)).toEqual({ ok: false, kind: "apply", code: "version_unsaved_changes" });
     expect(docText(s.live())).toContain("未存的修改");
     expect(await s.apply(1, v1.id, true)).toMatchObject({ ok: true });
@@ -143,6 +145,10 @@ describe("套用（§7、§11.2）", () => {
     expect(await s.apply(1, v1.id, true)).toMatchObject({ ok: true });
     expect(n).toBe(2);
     expect(docText(s.live())).not.toContain("插隊一");
+    expect(docText(s.live())).toContain("第一版");
+    // 重試那一輪的 out 寫回基底：指向 v1、套用後不 dirty。
+    expect((await noteBase(s.ctx.db, s.note.id)).baseSeq).toBe(1);
+    expect(await s.ctx.collab.versions.currentOf(s.note.id)).toMatchObject({ baseSeq: 1, dirty: false });
 
     s.setHooks({ merge: async () => {
       n += 1;
@@ -158,6 +164,7 @@ describe("套用（§7、§11.2）", () => {
   it("discardUnsaved=false 且 fork 之後有人改字 → 第一次重試的 isDirty 就 409（只 merge 一次）", async () => {
     const s = await setup();
     const { client, v1 } = await twoVersions(s);
+    const baseBefore = await noteBase(s.ctx.db, s.note.id);
     let n = 0;
     s.setHooks({ merge: async () => {
       n += 1;
@@ -165,6 +172,11 @@ describe("套用（§7、§11.2）", () => {
     } });
     expect(await s.apply(1, v1.id)).toEqual({ ok: false, kind: "apply", code: "version_unsaved_changes" });
     expect(n).toBe(1);
+    // 內容沒被套（仍是插隊的那份）、基底不動（仍指向 v2）。
+    expect(docText(s.live())).toContain("插隊");
+    expect(docText(s.live())).not.toContain("第一版");
+    expect(baseBefore.baseSeq).toBe(2);
+    expect(await noteBase(s.ctx.db, s.note.id)).toEqual(baseBefore);
     client.disconnect();
   });
 

@@ -56,6 +56,11 @@ export interface VersionServiceDeps {
   idleMs?: number;
   /** 測試注入手動觸發的計時器；預設 setTimeout（unref）。 */
   timers?: VersionTimers;
+  /**
+   * 測試注入縫（生產不注入＝零成本）。`afterMetaRead`：`resolve()` 的「文件沒載入」路徑讀完 `readVersionMeta`、回傳暫時狀態之前
+   * （即 `cutIfDirty` 進 `cutVersionInTx` 之前）——`versions-matrix.test.ts` 在這裡設 barrier，讓並發切版全部帶同一份舊基底進交易。
+   */
+  testHooks?: { afterMetaRead?: (noteId: string) => Promise<void> };
 }
 export interface VersionMeta {
   baseSeq: number | null;
@@ -276,6 +281,7 @@ export function createVersionService(deps: VersionServiceDeps): VersionService {
     if (!transient) return "uninitialized";
     const meta = await readVersionMeta(db, noteId);
     if (meta === null) return "note-deleted";
+    if (deps.testHooks?.afterMetaRead) await deps.testHooks.afterMetaRead(noteId);
     return {
       live: false,
       state: {
