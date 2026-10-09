@@ -850,7 +850,8 @@
     "errorTokenLimit": "Token limit reached. Revoke one, then start again from the application."
   },
   "versions": {
-    "bubble": "Version history"
+    "bubble": "Version history",
+    "crash": "Version history couldn't be shown."
   },
   "storage": {
     "quotaDetail": "{{used}} of {{quota}} used. Ask a site admin for more space.",

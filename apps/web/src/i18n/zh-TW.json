@@ -850,7 +850,8 @@
     "errorTokenLimit": "有效 token 已達上限。撤銷一個之後，請從應用程式重新發起授權。"
   },
   "versions": {
-    "bubble": "版本歷史"
+    "bubble": "版本歷史",
+    "crash": "版本歷史無法顯示。"
   },
   "storage": {
     "quotaDetail": "已使用 {{used}}／{{quota}}，請洽站台管理員增加空間",

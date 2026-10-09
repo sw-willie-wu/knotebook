@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -63,8 +64,11 @@ function stubFetch() {
  *           note-editor（BlockNoteView，className 加 flex-1——B-1 定案：wrapper
  *             的 min-h-full 無法把百分比高度傳給孫層，必須讓 BlockNoteView 自己
  *             成為置中 wrapper 的成長項。**兩者都要斷言，缺一即假守衛**）
+ *       {previewSlot}（有值時才渲染，data-testid="preview-slot"；此時捲動容器多一個 hidden）
  *       {footerSlot}
+ *     VersionsPanel（panelOpen 時，經 VersionsLazyBoundary；本檔無 provider＝恆不渲染）
  *     AiPanel
+ *     CornerStack
  *
  * 這裡刻意掛**真正的** `<NoteEditor>`（不是 `NotePage.test.tsx`/`NoteEditorView.test.tsx`
  * 用的 mock 或只測 `NoteEditorView` 半層），驗證 `NoteEditor.tsx` 實際渲染出來的容器
@@ -181,6 +185,73 @@ describe("NoteEditor 佈局（PR2 slot 化：節點鏈 + 雙層 class smoke）",
     );
     expect(aside).not.toHaveClass("w-80");
 
+    doc.destroy();
+  });
+
+  it("previewSlot：捲動容器加 hidden、slot 渲染在同一張卡內（捲動容器之後、footer 之前），活編輯器仍在 DOM（spec §8.1、§8.4）", async () => {
+    const doc = new Y.Doc();
+    const provider = { awareness: null } as never;
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <NoteEditor
+            doc={doc}
+            provider={provider}
+            editable
+            user={{ id: "u1", name: "Ann" }}
+            noteId="note-1"
+            footerSlot={<div data-testid="footer-slot-marker">footer</div>}
+            previewSlot={<div data-testid="preview-marker">preview</div>}
+          />
+        </ThemeProvider>
+      </QueryClientProvider>,
+    );
+    const editorRoot = await screen.findByTestId("note-editor");
+    const scrollWrapper = editorRoot.parentElement!.parentElement!;
+    const contentCard = scrollWrapper.parentElement!;
+    expect(scrollWrapper).toHaveClass("hidden", "overflow-y-auto");
+    const slot = screen.getByTestId("preview-slot");
+    expect(slot).toContainElement(screen.getByTestId("preview-marker"));
+    expect(slot.parentElement).toBe(contentCard);
+    const order = Array.from(contentCard.children);
+    expect(order.indexOf(slot)).toBe(order.indexOf(scrollWrapper) + 1);
+    expect(order.indexOf(slot)).toBeLessThan(order.indexOf(screen.getByTestId("footer-slot-marker")));
+    expect(editorRoot).toBeInTheDocument();
+    doc.destroy();
+  });
+
+  it("沒有 previewSlot → 捲動容器沒有 hidden、沒有 preview-slot 節點", async () => {
+    const doc = new Y.Doc();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <NoteEditor doc={doc} provider={{ awareness: null } as never} editable user={{ id: "u1", name: "Ann" }} noteId="note-1" />
+        </ThemeProvider>
+      </QueryClientProvider>,
+    );
+    const editorRoot = await screen.findByTestId("note-editor");
+    expect(editorRoot.parentElement!.parentElement).not.toHaveClass("hidden");
+    expect(screen.queryByTestId("preview-slot")).not.toBeInTheDocument();
+    doc.destroy();
+  });
+
+  it("活編輯器不重掛：previewSlot 進出時 BlockNoteView 根節點是同一個 DOM 元素", async () => {
+    const doc = new Y.Doc();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const tree = (slot?: ReactNode) => (
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <NoteEditor doc={doc} provider={{ awareness: null } as never} editable user={{ id: "u1", name: "Ann" }} noteId="note-1" previewSlot={slot} />
+        </ThemeProvider>
+      </QueryClientProvider>
+    );
+    const { rerender } = render(tree());
+    const before = await screen.findByTestId("note-editor");
+    rerender(tree(<div>preview</div>));
+    rerender(tree());
+    expect(screen.getByTestId("note-editor")).toBe(before);
     doc.destroy();
   });
 });

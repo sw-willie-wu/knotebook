@@ -3,7 +3,7 @@
 // `@blocknote/core/fonts/inter.css`——那是 latin-only 的自帶字型（9 個 woff 檔），
 // 對以中文為主的介面沒有幫助，只會讓 bundle 變大；字型交給 app 自己的 CSS 決定。
 import "@blocknote/mantine/style.css";
-import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
+import { lazy, useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type * as Y from "yjs";
 import type { HocuspocusProvider } from "@hocuspocus/provider";
@@ -37,7 +37,13 @@ import { createFilePanel } from "@/components/FilePanel";
 import { AiSessionProvider } from "@/components/ai/AiSession";
 import { AiPanel } from "@/components/ai/AiPanel";
 import { CornerStack } from "@/components/CornerStack";
+import { useVersions } from "@/lib/versions-context";
+import { VERSIONS_ERROR_FRAME, VersionsLazyBoundary } from "@/components/versions/VersionsLazyBoundary";
 import { AiToolbar } from "@/components/ai/AiToolbar";
+
+const VersionsPanel = lazy(() =>
+  import("@/components/versions/VersionsLazy").then(m => ({ default: m.VersionsPanel })),
+);
 
 /**
  * 共編游標的顏色。同一個使用者在任何裝置、任何筆記都要是同一色，所以不能用亂數——
@@ -310,6 +316,10 @@ export interface NoteEditorProps {
   headerSlot?: ReactNode;
   /** 內文卡頁尾——`NotePage` 組裝 backlinks chips 後傳入。同上，普通 slot props。 */
   footerSlot?: ReactNode;
+  /** 版本預覽（spec §8.1、§8.4）：有值時**捲動容器加 `hidden`**、同一張卡內在捲動容器之後渲染這個 slot；
+   * 頁首（含預覽橫幅）、頁尾照常。⚠ 活編輯器**不 unmount**：`NoteEditorView` 的重掛會殺掉 y-prosemirror 的
+   * UndoManager 訂閱（[[knotebook-collab-undo]]）；放在 `hidden` 容器裡的活編輯器仍收得到遠端更新（r1 實跑）。 */
+  previewSlot?: ReactNode;
 }
 
 /**
@@ -330,9 +340,20 @@ export function lateBoundTranslate(ref: { current: Translate }): Translate {
  * 共編綁定、媒體 transfer 守衛（spec §12.4：data URL 與非圖片檔攔截、純圖片檔放行上傳）、字典選擇全部在 `buildNoteEditorOptions` 裡，
  * 那支是純函式且有專屬測試（`NoteEditor.test.ts`）——這個元件只負責把它接上 React。
  */
-export function NoteEditor({ doc, provider, editable, user, noteId, headerSlot, footerSlot }: NoteEditorProps) {
+export function NoteEditor({
+  doc,
+  provider,
+  editable,
+  user,
+  noteId,
+  headerSlot,
+  footerSlot,
+  previewSlot,
+}: NoteEditorProps) {
   const { t, i18n } = useTranslation();
   const { resolvedTheme } = useTheme();
+  const { panelOpen } = useVersions();
+  const hasPreview = previewSlot !== undefined && previewSlot !== null;
 
   // handler 是在 editor 建立時就固定下來的閉包；用 ref 取用最新的 t，語言切換時
   // 不必為了文案而重建整個 editor（重建會扯斷 y-prosemirror 綁定）。
@@ -415,8 +436,11 @@ export function NoteEditor({ doc, provider, editable, user, noteId, headerSlot, 
   //           NoteEditorView                         ← className 加 flex-1（B-1 定案：
   //             wrapper 的 min-h-full 無法把百分比高度傳給孫層，唯一有效解是讓
   //             BlockNoteView 自己成為 flex-col wrapper 的成長項；除 className 外零改動）
+  //       {previewSlot}                               ← 版本預覽時才渲染；此時上面的捲動容器加 hidden（活編輯器不 unmount）
   //       {footerSlot}                                ← NotePage 組裝（backlinks chips）
-  //     AiPanel                                       ← AI 入口（#115：收合態是 fixed
+  //     VersionsPanel                                 ← `panelOpen` 時才渲染（lazy，經 VersionsLazyBoundary）；
+  //       與 AiPanel 互斥由 CornerStack 橋接
+  //     AiPanel                                      ← AI 入口（#115：收合態是 fixed
   //       bubble、不佔這個 row 的 flex 空間；展開 md+ 才以並排卡參與，見 AiPanel.tsx）
   //     CornerStack                                   ← 右下泡泡（fixed，不佔 row 的 flex 空間；spec §8.1）
   // `data-testid="note-editor"` 留在 `NoteEditorView`／`BlockNoteView` 上，不隨這次
@@ -427,7 +451,7 @@ export function NoteEditor({ doc, provider, editable, user, noteId, headerSlot, 
       <div className="flex h-full min-h-0 min-w-0 flex-1 gap-3">
         <div className={cn(cardSurface, "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden")}>
           {headerSlot}
-          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-clip">
+          <div className={cn("min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-clip", hasPreview && "hidden")}>
             {/* issue #160：`relative` 承重——BlockNote 表格 hover 浮層走 FloatingPortal 到
                 `editor.portalElement`，沒有 positioned 祖先時 containing block 落到
                 `<html>`，撐出全頁滾軸；wrapper／捲動容器／`.bn-container` 三處等效，選
@@ -459,8 +483,18 @@ export function NoteEditor({ doc, provider, editable, user, noteId, headerSlot, 
               />
             </div>
           </div>
+          {hasPreview && (
+            <div data-testid="preview-slot" className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+              {previewSlot}
+            </div>
+          )}
           {footerSlot}
         </div>
+        {panelOpen && (
+          <VersionsLazyBoundary noteId={noteId} errorClassName={VERSIONS_ERROR_FRAME.panel}>
+            <VersionsPanel />
+          </VersionsLazyBoundary>
+        )}
         <AiPanel />
         <CornerStack />
       </div>
