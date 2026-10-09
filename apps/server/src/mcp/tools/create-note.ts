@@ -69,7 +69,7 @@ export const createNoteInput = {
     //   backtick ④開頭用祈使的「Leave it out」（而非「Leave out `title`」）
     //   ⑤ `edit_note` 兩側不加反引號（`.describe()` 依本檔慣例；docs 有）。
     //   #175 PR5：去重範圍片語（「…against the other notes in the same place — your personal notes, or that
-    //   group's notes — with a numeric suffix」，T1）與 docs 及 spec §9.2 逐字相同，不在上述四項差異內。
+    //   group's notes — with a numeric suffix」，T1）與 docs 及 spec §9.2 逐字相同，不在上述五項差異內。
     //   「same place」的範圍＝`SlugScope`（個人＝owner 自己的筆記、群組＝該群組的筆記），由
     //   `notes/slug.ts` 的 `probeUniqueSlug` 述詞決定（`owner_id = me` 或 `group_id = g`，不含分享給你的筆記）。
     //   ⚠ 不准壓短：「沒給 title → untitled-…」這種縮寫會讓模型反推「給了就跟標題走」，

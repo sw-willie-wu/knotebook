@@ -38,7 +38,9 @@ export async function renameNoteTitle(
   let updated: typeof notes.$inferSelect | undefined;
   for (let attempt = 1; ; attempt++) {
     // 候選來源三分支（原註解照搬）：重試耗盡 → uuid8 退位；要走 auto（或重試中）→ 在歸屬範圍內探測（RF5）；
-    // custom=true → CASE 會保留現行 slug、$auto 只是佔位，傳未探測候選即可。
+    // custom=true → CASE 會保留現行 slug、$auto 只是佔位，傳未探測候選即可
+    // ——若 pre-read 後被併發翻回 auto（罕見競態），只有恰好撞索引才落到重試路徑
+    // 重新探測；沒撞就直接寫入未探測候選（仍唯一，可接受）。
     let auto: string;
     if (attempt > MAX_AUTO_SLUG_RETRIES) auto = fallbackAutoSlug();
     else if (needsAuto || attempt > 1) auto = await deriveUniqueAutoSlug(db, slugScope, id, title);

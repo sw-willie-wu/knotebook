@@ -1,6 +1,7 @@
 /**
  * #108 §8.6 `edit_note`：改一篇筆記的一段或整篇。與 `POST /api/notes/:id/edits` 逐欄同形、
  * 同驗證規則、同必填矩陣（D18：**寫入側不發明第二套契約**）。
+ * `rename` 是 MCP 獨有的第六個 op；REST `/edits` 刻意不加（spec §4.6）。
  *
  * ⚠ **必填矩陣的單一真相**＝`notes/schemas.ts` 的 `editBodySchema`（五支）＋本檔的 `RENAME_BRANCH`，兩者由
  * `mcpEditBodySchema` 合成（#180 spec §4.1）。raw shape 只是把
@@ -13,7 +14,7 @@
  * raw shape 有 `note_id` 而 `editBodySchema` 的每個分支都 `.strict()`，union 會把它判成
  * `unrecognized_keys`，所以每一發呼叫都失敗。**那個副作用是巧合**：union 哪天多一個
  * `note_id` 鍵，八案就全部恢復綠，只剩 S1 紅。**不要把那八案當成這條的守衛。**
- * ⚠ 餵進 `editBodySchema` 的物件要**逐鍵條件展開**：`.strict()` 看的是 `Object.keys`，
+ * ⚠ 餵進 `mcpEditBodySchema` 的物件要**逐鍵條件展開**：`.strict()` 看的是 `Object.keys`，
  * `{op:"append", section_id: undefined}` 會被判 `unrecognized_keys`（`delete_section` ＋
  * `markdown: undefined` 同一顆雷）。守衛＝S4 那兩發。
  *

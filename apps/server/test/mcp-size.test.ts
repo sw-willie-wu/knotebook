@@ -168,11 +168,11 @@ describe("#108 tools/list 的脈絡成本（案 11b）", () => {
 
     const rwRes = await mcpPost(ctx.app, rpc("tools/list"), { token: rwToken });
     expect(rwRes.statusCode).toBe(200);
-    expect((rwRes.json().result.tools as unknown[]).length).toBe(7);
+    expect((rwRes.json().result.tools as unknown[]).length).toBe(8);
     const rwWire = rwRes.body.length;
 
     console.log(
-      `[案 11b] tools/list  唯讀憑證（五支，對照）wire=${roWire}  讀寫憑證（七支，被測）wire=${rwWire}  ` +
+      `[案 11b] tools/list  唯讀憑證（五支，對照）wire=${roWire}  讀寫憑證（八支，被測）wire=${rwWire}  ` +
         `門檻=${N_LIST_MAX}  用掉 ${((rwWire / N_LIST_MAX) * 100).toFixed(1)}%`
     );
     expect(rwWire).toBeLessThanOrEqual(N_LIST_MAX);
@@ -218,6 +218,8 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
     await callWire(ctx.app, rwToken, "(i) create_note", "create_note", { title: hugeTitle });
     await callWire(ctx.app, rwToken, "(i) create_transfer_token upload", "create_transfer_token", { note_id: note.id, purpose: "upload" });
     await callWire(ctx.app, rwToken, "(i) create_transfer_token download", "create_transfer_token", { note_id: note.id, purpose: "download" });
+    // #180 §9-6：copy_note 的最壞形＝副本 title 截斷＋titleTruncated（同 create_note）；來源就是這篇 260 000 字元標題的筆記。
+    await callWire(ctx.app, rwToken, "(i) copy_note", "copy_note", { note_id: note.id });
     // #180 §9-6／R9：rename 的最壞形＝回應 `title` 被截到逃脫後 200 ＋ titleTruncated（鏡像兩份），標題同樣 260 000 字元。
     // 擺在 (i) 最後：它會真的改標題（後面的量測若接在它之後，請排在它前面——整合時 copy／move 排在這行之前）。
     await callWire(ctx.app, rwToken, "(i) edit_note rename", "edit_note", { note_id: note.id, op: "rename", title: `R${"i".repeat(259_999)}` });

@@ -1,12 +1,13 @@
 /**
  * #108 PR2：寫入工具的 schema 與 REST 的**同一份** schema 對得起來（M14／D-N／D-K）。
  *
- * 本檔在 Task 2 只放兩案（op 集合的兩邊）；M14 的 identity 斷言（21b(i)）與行為探針
- * （21b(ii)）在 Task 4 續寫。
+ * 本檔放寫入工具 schema 的同源斷言：op 集合的兩邊、M14 的 identity 斷言（21b(i)）與行為探針
+ * （21b(ii)），以及 #180 起各新工具輸入欄位的 identity（U1／U2-x）。
  *
  * ⚠ **`op` 是唯一沒有共用物件的欄位**：REST 那邊是五個 `z.literal`（`discriminatedUnion` 的
  * 判別鍵），MCP 這邊要的是一個帶 `.describe()` 的 `z.enum`（raw shape 表達不了 union）。
- * 兩份字串集合因此只能靠下面這一案對起來——**沒有它，日後加第六個 op 只有一邊會知道，
+ * #180 起 MCP 的 op 集合＝REST 五個 ∪ {rename}（`rename` 是 MCP 獨有，REST 刻意不加；以下 `MCP_OPS` 斷言）。
+ * 兩份字串集合因此只能靠下面這一案對起來——**沒有它，日後 REST 多一個 op 只有一邊會知道，
  * 而且不會有任何測試變紅**（`editBodySchema` 多一個分支＝MCP 收不到那個 op、raw shape 多一個
  * 成員＝REST 的 `safeParse` 直接 `invalid_union_discriminator`，兩種漂移都只是「功能沒接上」）。
  */
@@ -16,6 +17,7 @@ import { z } from "zod";
 import { createBodySchema, editBodySchema, FP, GROUP_ID, MD, NOTE_ID, NUL, SEC, TITLE, updateBodyObject } from "../../src/notes/schemas.js";
 import { editNoteInput, mcpEditBodySchema } from "../../src/mcp/tools/edit-note.js";
 import { createNoteInput } from "../../src/mcp/tools/create-note.js";
+import { copyNoteInput } from "../../src/mcp/tools/copy-note.js";
 import { readNoteSectionOutput } from "../../src/mcp/tools/read-note-section.js";
 
 /** 寫死一份（不是從實作導出來的）——否則兩邊一起改就一起綠。 */
@@ -148,5 +150,13 @@ describe("#222 顏色在工具說明裡", () => {
     const d = readNoteSectionOutput.section.shape.markdown.description ?? "";
     expect(d).toContain("Colored text and blocks come back as HTML");
     expect(d).toContain("unchanged");
+  });
+});
+
+describe("#180 U2-c：copy_note 的輸入與 notes/schemas.ts 同源", () => {
+  it("copyNoteInput.note_id ↔ NOTE_ID；copyNoteInput.group_id（optional）↔ GROUP_ID", () => {
+    expectSameSchema(copyNoteInput.note_id, NOTE_ID);
+    expectSameSchema(copyNoteInput.group_id, GROUP_ID);
+    expect(copyNoteInput.group_id).toBeInstanceOf(z.ZodOptional);
   });
 });

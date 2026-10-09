@@ -12,7 +12,8 @@
  * （`{list_notes, search_notes}`）、`mcp-content.test.ts`（**四支唯讀工具全打**，
  * `{list_notes, read_note_outline, read_note_section, search_notes}`）、PR2 起
  * `mcp-tools-list.test.ts`（P13：`{edit_note, create_note}`）；#200 起 P13 的集合是
- * `{create_note, create_transfer_token, edit_note}`。**新增工具時要一併把它
+ * `{create_note, create_transfer_token, edit_note}`；#180 起加 `copy_note`，集合是
+ * `{copy_note, create_note, create_transfer_token, edit_note}`。**新增工具時要一併把它
  * 加進其中一個名字集合，否則等於沒有守衛。**
  *
  * ⚠ 呼叫順序是契約（§8.1 D32）：建 `McpServer` → **本函式** → `registerCapabilities` →
@@ -26,8 +27,8 @@
  * `canRead` 變數，#93 起 search_notes 的變體（description 與 `sectionId` 的說明）也看它。
  * `list_notes`／`search_notes` 只查 DB，永遠註冊。
  * **這道閘門唯一的守衛是 `test/mcp-tools-list.test.ts` 的「無 collab 的 app ＋讀寫憑證：只宣告
- * 查得動 DB 的兩支與 create_note」**（Task 4 起改用讀寫憑證，見該案註解）——它斷言的是**三個
- * 名字的集合**（`create_note` 因 D-M 不進這道閘門），所以往任一側搬工具都會紅（兩條突變都實跑過）。
+ * 查得動 DB 的兩支、create_note、copy_note 與 create_transfer_token」**（Task 4 起改用讀寫憑證，見該案註解）——它斷言的是**五個
+ * 名字的集合**（`create_note`／`copy_note` 因 D-M 不進這道閘門），所以往任一側搬工具都會紅（兩條突變都實跑過）。
  * ⚠ 但它**只擋得住「悄悄搬邊」，擋不住「放錯邊」**：新增一支工具一定會讓那一案紅（名字
  * 集合對不上），可是把名字補進 `LIVE_DOC_TOOLS`／`DB_ONLY_TOOLS` 哪一邊是人判的——
  * 判錯了測試照樣綠。**放進閘門的判準是「這支工具要不要讀 live doc」，不是「它比較像哪一支」。**
@@ -52,6 +53,7 @@ import {
 import { searchNotes, searchNotesDescription, searchNotesInput, searchNotesOutputFor } from "./tools/search-notes.js";
 import { EDIT_NOTE_DESCRIPTION, editNote, editNoteInput, editNoteOutput } from "./tools/edit-note.js";
 import { CREATE_NOTE_DESCRIPTION, createNote, createNoteInput, createNoteOutput } from "./tools/create-note.js";
+import { COPY_NOTE_DESCRIPTION, copyNoteInput, copyNoteOutput, copyNoteTool } from "./tools/copy-note.js";
 import {
   CREATE_TRANSFER_TOKEN_DESCRIPTION_RO,
   CREATE_TRANSFER_TOKEN_DESCRIPTION_RW,
@@ -138,6 +140,23 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
       "create_note",
       { description: CREATE_NOTE_DESCRIPTION, inputSchema: z.object(createNoteInput).strict(), outputSchema: createNoteOutput },
       async args => runTool("create_note", ctx, () => createNote(args, ctx))
+    );
+  }
+
+  // #180 spec §6.1：copy_note 在 collab 閘門**外**（REST 複製無條件註冊；`loadNoteDoc` 無 collab 時讀 note_states，F35）。
+  // `.strict()` 註冊（spec §4.7、F60：照 create_note 舊習慣傳 `groupId` 會被靜默丟掉→複製成個人筆記；strict 後回驗證錯誤）。
+  // annotations：`destructiveHint: false`（W12）；`idempotentHint` 不寫（SDK 預設 false，而每一發都建新筆記，F48）。
+  // 守衛：無 collab 集合＝`mcp-tools-list` D-A 案／`mcp-create-note:238`；strict＝`mcp-copy` M-G2；runTool＝P13。
+  if (canWrite) {
+    server.registerTool(
+      "copy_note",
+      {
+        description: COPY_NOTE_DESCRIPTION,
+        inputSchema: z.object(copyNoteInput).strict(),
+        outputSchema: copyNoteOutput,
+        annotations: { destructiveHint: false },
+      },
+      async args => runTool("copy_note", ctx, () => copyNoteTool(args, ctx))
     );
   }
 
