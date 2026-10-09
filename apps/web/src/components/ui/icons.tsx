@@ -212,3 +212,38 @@ export function Copy(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+/** 簡報模式（⋮ 選單項、公開頁按鈕，#229）。路徑取自 lucide `presentation`（ISC），手刻同風格。 */
+export function Presentation(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="presentation" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M2 3h20" />
+      <path d="M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3" />
+      <path d="m7 21 5-5 5 5" />
+    </svg>
+  );
+}
+
+/** 進入全螢幕（簡報工具列，#229）。路徑取自 lucide `maximize`（ISC），手刻同風格。 */
+export function Maximize(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="maximize" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M8 3H5a2 2 0 0 0-2 2v3" />
+      <path d="M21 8V5a2 2 0 0 0-2-2h-3" />
+      <path d="M3 16v3a2 2 0 0 0 2 2h3" />
+      <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
+    </svg>
+  );
+}
+
+/** 離開全螢幕（簡報工具列，#229）。路徑取自 lucide `minimize`（ISC），手刻同風格。 */
+export function Minimize(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="minimize" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M8 3v3a2 2 0 0 1-2 2H3" />
+      <path d="M21 8h-3a2 2 0 0 1-2-2V3" />
+      <path d="M3 16h3a2 2 0 0 1 2 2v3" />
+      <path d="M16 21v-3a2 2 0 0 1 2-2h3" />
+    </svg>
+  );
+}
