@@ -19,6 +19,7 @@ import type { CollabServer } from "./collab/server.js";
 import { VERSION_SWEEP_FIRST_DELAY_MS, VERSION_SWEEP_INTERVAL_MS, createVersionService } from "./collab/versions.js";
 import { authRoutes } from "./routes/auth.js";
 import { notesRoutes } from "./routes/notes.js";
+import { noteVersionsRoutes } from "./routes/note-versions.js";
 import { groupsRoutes } from "./routes/groups.js";
 import type { WriteNoteLinksHooks } from "./notes/links.js";
 import type { SlugPatchTestHook } from "./notes/tx/patch-slug.js";
@@ -723,6 +724,8 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       storageLockTimeoutMs,
     })
   );
+  // 版本歷史（spec 2026-10-09 §6）：cookie 專用六支；apply 只在 writes.available 時註冊（路由內判）。
+  void app.register(noteVersionsRoutes({ db: deps.db, versions, writes, limiters: { edit: limiters.edit } }));
   // #103：群組管理（session-only，見 routes/groups.ts 檔頭）。
   void app.register(groupsRoutes({ db: deps.db, collabHooks: deps.collabHooks, groupTestHook: deps.groupTestHook, uploadsDir: deps.uploadsDir, storageLockTimeoutMs }));
   void app.register(adminUsersRoutes({ db: deps.db, gate: deps.gate, collabHooks: deps.collabHooks }));
