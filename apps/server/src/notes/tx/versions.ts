@@ -85,7 +85,8 @@ export async function cutVersionInTx(tx: Tx, input: CutVersionInput): Promise<{ 
       .where(and(eq(noteVersions.noteId, input.noteId), eq(noteVersions.seq, note.baseSeq)))
       .returning();
     if (upgraded) return { row: upgraded, upgraded: true, fp };
-    // 基底那列不見（A6 由應用層守，理論上到不了）：落到建新版，不 500（起草裁定 18）。
+    // 基底那列不見（§13 READ COMMITTED 競態、或 SQL 直刪）：UPDATE 0 列 → 退回「無基底」規則建新版、基底改指新版，
+    // 新列的 base_seq 不指向已刪的那列（下方存在檢查；起草裁定 18；Task 14b，`versions-legacy-attrs.test.ts` 的手動儲存案）。
   }
   if (input.kind === "auto" && note.baseFingerprint === null) {
     const dirty = (input.loadFingerprint === null || fp !== input.loadFingerprint) && fp !== input.vacuumFingerprint;
@@ -102,7 +103,16 @@ export async function cutVersionInTx(tx: Tx, input: CutVersionInput): Promise<{ 
     .returning({ seq: notes.versionCounter });
   const seq = counted!.seq;
   const maxSeq = maxRow?.maxSeq ?? null;
-  const baseSeq = note.baseSeq !== null && note.baseSeq !== maxSeq ? note.baseSeq : null;
+  let baseSeq = note.baseSeq !== null && note.baseSeq !== maxSeq ? note.baseSeq : null;
+  if (baseSeq !== null) {
+    // 基底列已被刪（內容乾淨走上面 UPDATE 0 列、或內容有改）：「continued from」不得指向不存在的版本 → null（Task 14b）。
+    const [baseRow] = await tx
+      .select({ seq: noteVersions.seq })
+      .from(noteVersions)
+      .where(and(eq(noteVersions.noteId, input.noteId), eq(noteVersions.seq, baseSeq)))
+      .limit(1);
+    if (!baseRow) baseSeq = null;
+  }
   const [row] = await tx
     .insert(noteVersions)
     .values({ noteId: input.noteId, seq, ydoc: Buffer.from(ydoc), kind: input.kind, name: input.name, editors: input.editors, baseSeq })

@@ -3,10 +3,12 @@ import * as Y from "yjs";
 import { BlockNoteEditor, defaultProps } from "@blocknote/core";
 import { yXmlFragmentToBlocks } from "@blocknote/core/yjs";
 import { YDOC_FRAGMENT, createHeadlessNoteSchema, topLevelContainers } from "@knotebook/shared";
-import { outlineOf } from "../../src/notes/editing/fingerprint.js";
+import { fingerprintOf, outlineOf } from "../../src/notes/editing/fingerprint.js";
 import { EditingRuntime } from "../../src/notes/editing/runtime.js";
 import { EditorSession, forkFrom } from "../../src/notes/editing/session.js";
-import { PARAGRAPH_DEFAULT_PROPS, VACUUM_VERSION_FINGERPRINT, versionFingerprint } from "../../src/notes/version-fingerprint.js";
+import {
+  DEFAULT_PROPS_BY_TYPE, PARAGRAPH_DEFAULT_PROPS, VACUUM_VERSION_FINGERPRINT, buildDefaultPropsByType, versionFingerprint,
+} from "../../src/notes/version-fingerprint.js";
 
 // 同 editing-session.test.ts：重建門檻調到不可能觸發，避免中途換掉全域 window。
 const rt = new EditingRuntime({ baseUrl: "http://localhost/", rebuildEvery: 1_000_000, heapGrowthLimit: Number.MAX_SAFE_INTEGER });
@@ -53,6 +55,27 @@ function rawDoc(paras: Array<{ id: string | null; text: string; attrs?: Record<s
   for (const [t, s] of texts) if (s) t.insert(0, s);
   return doc;
 }
+/** 手造單一區塊：blockGroup > blockContainer(id) > <type>(attrs) > [XmlText(text)、inline 元素…]。值照原型別寫進 Yjs（number／boolean 不轉字串）。 */
+function blockDoc(type: string, attrs: Record<string, unknown>, text = "x", inline: Array<{ type: string; attrs: Record<string, unknown> }> = []): Y.Doc {
+  const doc = new Y.Doc();
+  const g = new Y.XmlElement("blockGroup");
+  F(doc).insert(0, [g]);
+  const c = new Y.XmlElement("blockContainer");
+  c.setAttribute("id", "only");
+  const e = new Y.XmlElement(type);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v as string);
+  const t = new Y.XmlText();
+  e.insert(0, [t, ...inline.map(i => {
+    const ie = new Y.XmlElement(i.type);
+    for (const [k, v] of Object.entries(i.attrs)) ie.setAttribute(k, v as string);
+    return ie;
+  })]);
+  c.insert(0, [e]);
+  g.insert(0, [c]);
+  t.insert(0, text);
+  return doc;
+}
+const bfp = (...a: Parameters<typeof blockDoc>) => vfp(blockDoc(...a));
 function deepDoc(depth: number): Y.Doc {
   const doc = new Y.Doc();
   const g = new Y.XmlElement("blockGroup");
@@ -215,5 +238,86 @@ describe("不丟例外（A14 (3)）", () => {
     const doc = rawDoc([{ id: "a", text: "x", attrs: { level: 2, weird: nested, big: BigInt(7) } }]);
     expect(vfp(doc)).toMatch(/^[0-9a-f]{16}$/);
     expect(vfp(rawDoc([{ id: "a", text: "x", attrs: { level: 3, weird: nested, big: BigInt(7) } }]))).not.toBe(vfp(doc));
+  });
+});
+
+describe("屬性值等於 schema 預設視同缺席（spec §13-9 方案二，V2）", () => {
+  const HEADING_FULL = { level: 2, isToggleable: false, backgroundColor: "default", textColor: "default", textAlignment: "left" };
+  const PARA_FULL = { backgroundColor: "default", textAlignment: "left", textColor: "default" };
+
+  it("heading{level:2} 與補齊四個預設屬性的 heading 相等（舊 schema 的筆記被 y-prosemirror 回寫預設值）", () => {
+    expect(bfp("heading", { level: 2 })).toBe(bfp("heading", HEADING_FULL));
+    expect(bfp("heading", { level: 2 })).toMatch(/^[0-9a-f]{16}$/);
+  });
+
+  it("paragraph{} 與補齊三個預設屬性的 paragraph 相等；textAlignment:center 不等", () => {
+    expect(bfp("paragraph", {})).toBe(bfp("paragraph", PARA_FULL));
+    expect(bfp("paragraph", { textAlignment: "center" })).not.toBe(bfp("paragraph", {}));
+    expect(bfp("paragraph", { ...PARA_FULL, textAlignment: "center" })).toBe(bfp("paragraph", { textAlignment: "center" }));
+  });
+
+  it("非預設值仍參與：level 2≠3、checked true≠缺席；level:1（預設）＝缺席", () => {
+    expect(bfp("heading", { level: 2 })).not.toBe(bfp("heading", { level: 3 }));
+    expect(bfp("checkListItem", { checked: true })).not.toBe(bfp("checkListItem", {}));
+    expect(bfp("checkListItem", { checked: false })).toBe(bfp("checkListItem", {}));
+    expect(bfp("heading", { level: 1 })).toBe(bfp("heading", {}));
+  });
+
+  it("值為 undefined 一律視同缺席（numberedListItem.start 的預設就是 undefined，不在表裡）；start:3 不等", () => {
+    expect(DEFAULT_PROPS_BY_TYPE.numberedListItem).not.toHaveProperty("start");
+    const withUndef = blockDoc("numberedListItem", { start: undefined });
+    const li = topLevelContainers(F(withUndef))[0]!.get(0) as Y.XmlElement;
+    expect(Object.hasOwn(li.getAttributes(), "start")).toBe(true); // 真的寫進了 Yjs（不是被 setAttribute 丟掉）
+    expect(vfp(withUndef)).toBe(bfp("numberedListItem", {}));
+    expect(bfp("numberedListItem", { start: 3 })).not.toBe(bfp("numberedListItem", {}));
+  });
+
+  it("值比對用嚴格相等：型別不同視為不等（level:\"1\" ≠ 缺席，雖然 \"1\" == 1）", () => {
+    expect(bfp("heading", { level: "1" })).not.toBe(bfp("heading", {}));
+    expect(bfp("heading", { level: "1" })).not.toBe(bfp("heading", { level: 1 }));
+  });
+
+  it("未知 block type、未知屬性、blockContainer 的非 id 屬性：照舊參與（查不到預設不得丟掉）", () => {
+    expect(bfp("fancyBlock", { backgroundColor: "default" })).not.toBe(bfp("fancyBlock", {}));
+    expect(bfp("paragraph", { weird: "default" })).not.toBe(bfp("paragraph", {}));
+    expect(bfp("paragraph", { constructor: "default" })).not.toBe(bfp("paragraph", {}));
+    expect(bfp("constructor", { level: 1 })).not.toBe(bfp("constructor", {}));
+  });
+
+  it("inline 元素（wikilink）同規則：預設值缺席等價、非預設值參與", () => {
+    const wl = (attrs: Record<string, unknown>) => bfp("paragraph", {}, "x", [{ type: "wikilink", attrs }]);
+    expect(wl({ targetNoteId: "n1", snapshotTitle: "" })).toBe(wl({ targetNoteId: "n1" }));
+    expect(wl({ targetNoteId: "n1" })).not.toBe(wl({ targetNoteId: "n2" }));
+  });
+
+  it("前綴是 V2:：真空常數與一顆段落的完整序列化釘住（屬性全預設的段落與無屬性同一串）", () => {
+    expect(VACUUM_VERSION_FINGERPRINT).toBe(fingerprintOf("V2:vacuum"));
+    const pinned = fingerprintOf('V2:F[E"blockGroup"()[E"blockContainer"()[E"paragraph"()[T[{"attributes":{},"insert":"x"}]]]]]');
+    expect(bfp("paragraph", {})).toBe(pinned);
+    expect(bfp("paragraph", PARA_FULL)).toBe(pinned);
+  });
+
+  it("預設值表從 shared schema 推出（不是手寫）：類型集合、heading／paragraph／codeBlock／mermaid／wikilink 的值；style 不入表", () => {
+    expect(Object.keys(DEFAULT_PROPS_BY_TYPE).sort()).toEqual([
+      "audio", "bulletListItem", "checkListItem", "codeBlock", "file", "heading", "image", "mermaid", "numberedListItem", "paragraph",
+      "quote", "table", "toggleListItem", "video", "wikilink",
+    ]);
+    expect(DEFAULT_PROPS_BY_TYPE.heading).toEqual({ backgroundColor: "default", textColor: "default", textAlignment: "left", level: 1, isToggleable: false });
+    expect(DEFAULT_PROPS_BY_TYPE.paragraph).toEqual(PARAGRAPH_DEFAULT_PROPS);
+    expect(DEFAULT_PROPS_BY_TYPE.checkListItem!.checked).toBe(false);
+    expect(DEFAULT_PROPS_BY_TYPE.codeBlock).toEqual({ language: "text" });
+    expect(DEFAULT_PROPS_BY_TYPE.mermaid).toEqual({ code: "" });
+    expect(DEFAULT_PROPS_BY_TYPE.wikilink).toEqual({ targetNoteId: "", snapshotTitle: "" });
+  });
+
+  it("schema 載入失敗：退回空表、warn(obj, msg) 恰一次，不丟例外", () => {
+    const warns: Array<[object, string]> = [];
+    const table = buildDefaultPropsByType(() => {
+      throw new Error("boom");
+    }, (o, m) => warns.push([o, m]));
+    expect(table).toEqual({});
+    expect(warns).toHaveLength(1);
+    expect(typeof warns[0]![0]).toBe("object");
+    expect(warns[0]![1]).toMatch(/預設值表/);
   });
 });
