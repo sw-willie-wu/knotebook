@@ -125,5 +125,22 @@ describe("⋮「簡報模式」（spec §6.3-3、§9-2）", () => {
     expect(nav.fn).toHaveBeenCalledWith({ pathname: "/n/tester/other", search: "?present" });
     expect(setOpen).toHaveBeenCalledWith(false);
     expect(within(document.body).getByTestId("loc").textContent).toBe("/n/tester/other?present|null");
+    // spec §6.3-3 / §13.2-4：關抽屜 → 要全螢幕 → 導頁（三者都在同一個手勢的同步段，順序固定）
+    const closeDrawerAt = setOpen.mock.invocationCallOrder[0];
+    const fullscreenAt = fake!.requestFullscreen.mock.invocationCallOrder[0];
+    const navigateAt = nav.fn.mock.invocationCallOrder[0];
+    expect(fake!.requestFullscreen).toHaveBeenCalledTimes(1);
+    expect(closeDrawerAt).toBeLessThan(fullscreenAt);
+    expect(fullscreenAt).toBeLessThan(navigateAt);
+  });
+
+  it("一般關閉選單（Esc，沒選「簡報模式」）：焦點照常還給 ⋮ 觸發鈕（onCloseAutoFocus 只在進簡報那條路徑擋）", async () => {
+    renderWith(<NoteMenu note={NOTE} state={CONNECTED} leavingRef={{ current: false }} onOpenEdits={() => {}} />);
+    const trigger = screen.getByRole("button", { name: "More" });
+    fireEvent.pointerDown(trigger, { button: 0 });
+    const menu = await screen.findByRole("menu");
+    fireEvent.keyDown(menu, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    await waitFor(() => expect(trigger).toHaveFocus());
   });
 });

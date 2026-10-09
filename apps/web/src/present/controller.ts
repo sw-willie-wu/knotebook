@@ -181,7 +181,8 @@ export function startDeck(host: HTMLElement, env: () => DeckEnv, hashWriter: Has
     if (!live()) return;
     try {
       applyUpdateNow();
-    } catch {
+    } catch (err) {
+      console.error(err);
       // 匯出在 React 之外（§5.1-6），錯誤邊界接不到——同起草裁定 6 的出口：外殼顯示錯誤、卸載 overlay → teardown。
       env().shell.onFatal("app.noteCrash");
     }
@@ -244,7 +245,8 @@ export function startDeck(host: HTMLElement, env: () => DeckEnv, hashWriter: Has
     }
     try {
       build();
-    } catch {
+    } catch (err) {
+      console.error(err);
       // 匯出在 React 之外（§5.1-6），錯誤邊界接不到——同起草裁定 6 的出口。reveal 沒有 resolve 過，不 destroy（§6.9）。
       keyTarget.current = null;
       dom.revealEl.remove();
@@ -299,7 +301,8 @@ export function startDeck(host: HTMLElement, env: () => DeckEnv, hashWriter: Has
           if (lastSource && (lastSource.doc !== source.doc || lastSource.title !== source.title)) debouncer.schedule();
         }
       })
-      .catch(() => {
+      .catch((err: unknown) => {
+        console.error(err);
         resolved = true;
         if (!disposed) env().shell.onFatal("app.noteCrash"); // 起草裁定 6
       });

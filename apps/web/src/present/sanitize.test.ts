@@ -50,6 +50,7 @@ describe("sanitizeSlideFragment：危險內容（spec §13.1）", () => {
     " data:image/png;base64,AAA",
     "data:image/svg+xml,<svg onload=alert(1)>",
     "mailto:x@example.com",
+    "ma\tilto:x@example.com", // 協定中間夾 C0（tab）：瀏覽器解析 URL 時會剝掉，刪除判斷也要先剝（不是只 trim 頭尾）
   ])("img[src=%j] 的 src 被刪（小寫 data: 承重：DOMPurify 的 DATA_URI_TAGS 放行它，§2.13-3／-8）", (src) => {
     const img = clean(`<img src="${src.replace(/"/g, "&quot;")}" alt="a">`).querySelector("img");
     expect(img).not.toBeNull();

@@ -46,6 +46,13 @@ describe("postprocessSlide（spec §5.3）", () => {
     expect(Array.from(host.querySelectorAll("a")).map((a) => a.getAttribute("href"))).toEqual(["https://e/x", "mailto:a@b", "/n/a/b", null, null]);
   });
 
+  it("不經消毒器直接餵 postprocessSlide：ftp:／tel:／javascript: 連結的 href 由協定白名單拿掉（白名單自己承重）", () => {
+    const template = document.createElement("template");
+    template.innerHTML = '<a href="ftp://e/f">1</a><a href="tel:+886123">2</a><a href="javascript:alert(1)">3</a><a href="https://e/x">4</a><a href="mailto:a@b">5</a>';
+    postprocessSlide(template.content, member());
+    expect(Array.from(template.content.querySelectorAll("a")).map((a) => a.getAttribute("href"))).toEqual([null, null, null, "https://e/x", "mailto:a@b"]);
+  });
+
   it("留下的 a 一律 target=_blank、rel=noopener noreferrer", () => {
     const { host } = run('<a href="https://e/x">1</a>', member());
     const a = host.querySelector("a")!;

@@ -76,6 +76,12 @@ describe("noteToSlides：spec §4.3 表（封面章一律保留，§4.2-5／-7�
     expect(sections[1].slides[0].blocks.map((b) => b.id)).toEqual(["a"]);
   });
 
+  it("標題張 kind 為 heading（由標題 block 起頭的那張，不是 cover 也不是 divider）", () => {
+    const sections = noteToSlides("T", [h("x", 2), p("a"), h("y", 3), p("b")]);
+    expect(sections[0].slides[0].kind).toBe("cover");
+    expect(sections[1].slides.map((slide) => [slide.id, slide.kind])).toEqual([["x", "heading"], ["y", "heading"]]);
+  });
+
   it("含 link／wikilink 的段落不算空白（inline content 不只文字）", () => {
     const withLink: SlideBlock = { id: "l", type: "paragraph", props: {}, content: [{ type: "link", href: "https://x", content: [] }], children: [] };
     expect(show(noteToSlides("T", [d("d"), withLink]))).toBe("_title:[_title]  d:[d(l)]");

@@ -113,7 +113,7 @@ export default function PublicNotePage() {
         <header className="flex items-center gap-3 border-b border-border px-5 py-3">
           <h1 className="min-w-0 flex-1 truncate text-lg font-semibold">{data.title}</h1>
           <Button type="button" variant="ghost" size="sm" className="shrink-0" onClick={presentHere}>
-            <Presentation className="mr-2 h-4 w-4" />
+            <Presentation className="h-4 w-4" />
             {t("note.menu.present")}
           </Button>
           <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-xs text-muted-foreground">

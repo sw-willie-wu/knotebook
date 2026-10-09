@@ -199,16 +199,20 @@ describe("PresentationOverlay（fake reveal）", () => {
   it("初始匯出 throw（microtask 裡、錯誤邊界接不到）→ 外殼顯示 app.noteCrash、不建 reveal、沒有 uncaught exception", async () => {
     const uncaught = vi.fn();
     process.on("uncaughtException", uncaught);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
+      const failure = new Error("export failure");
       vi.mocked(renderDeck).mockImplementationOnce(() => {
-        throw new Error("export failure");
+        throw failure;
       });
       setup();
       expect(await screen.findByRole("alert")).toHaveTextContent("Something went wrong on this page.");
       expect(FakeReveal.instances).toHaveLength(0);
       expect(document.querySelector(".reveal")).toBeNull();
       expect(uncaught).not.toHaveBeenCalled();
+      expect(consoleError).toHaveBeenCalledWith(failure); // 錯誤物件要留在 console，正式環境才查得到
     } finally {
+      consoleError.mockRestore();
       process.off("uncaughtException", uncaught);
     }
   });
@@ -216,19 +220,23 @@ describe("PresentationOverlay（fake reveal）", () => {
   it("更新時匯出 throw（防抖 timer 裡）→ 外殼顯示 app.noteCrash、overlay 拆除（destroy 一次）、沒有 uncaught exception", async () => {
     const uncaught = vi.fn();
     process.on("uncaughtException", uncaught);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       const publicRef = { kind: "token" as const, token: "t" };
       const { rerenderWith } = setup({ props: { variant: "public", doc: makeDoc(), title: "My Note", publicRef } });
       const deck = await ready();
+      const failure = new Error("export failure");
       vi.mocked(renderDeck).mockImplementationOnce(() => {
-        throw new Error("export failure");
+        throw failure;
       });
       rerenderWith({ variant: "public", doc: makeDoc(), title: "Renamed", publicRef });
       expect(await screen.findByRole("alert")).toHaveTextContent("Something went wrong on this page.");
       expect(deck.destroy).toHaveBeenCalledTimes(1);
       expect(document.querySelector(".reveal")).toBeNull();
       expect(uncaught).not.toHaveBeenCalled();
+      expect(consoleError).toHaveBeenCalledWith(failure);
     } finally {
+      consoleError.mockRestore();
       process.off("uncaughtException", uncaught);
     }
   });

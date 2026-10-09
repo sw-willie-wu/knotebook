@@ -41,6 +41,25 @@ describe("createDebouncer（A8：trailing 500 ms＋maxWait 2 s）", () => {
     expect(fn).toHaveBeenCalledTimes(2);
   });
 
+  it("cancel 重設 maxWait 起點：cancel 後超過 maxWait 再 schedule，不會立刻觸發、仍等滿 500 ms", () => {
+    const fn = vi.fn();
+    const debouncer = createDebouncer(fn);
+    for (let elapsed = 0; elapsed < UPDATE_MAX_WAIT_MS - 100; elapsed += 100) {
+      debouncer.schedule(); // 持續重排：第一次 schedule 的時間點留在 firstAt，計時器始終未到期
+      vi.advanceTimersByTime(100);
+    }
+    expect(fn).not.toHaveBeenCalled();
+    debouncer.cancel();
+    vi.advanceTimersByTime(UPDATE_MAX_WAIT_MS); // 距第一次 schedule 已超過 maxWait
+    debouncer.schedule();
+    vi.advanceTimersByTime(1);
+    expect(fn).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(UPDATE_DEBOUNCE_MS - 2);
+    expect(fn).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
   it("cancel 之後不跑", () => {
     const fn = vi.fn();
     const debouncer = createDebouncer(fn);

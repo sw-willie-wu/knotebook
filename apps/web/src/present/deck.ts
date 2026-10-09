@@ -7,7 +7,7 @@ import type { RenderedSection } from "./render";
  * - 更新：同 id 沿用元素，只換內容有變的那幾張的 body；重排時先移除不要的、再依序 insertBefore，沒動到的
  *   元素不離開文件（離開文件的媒體會被瀏覽器暫停，起草裁定 10）。
  * - withoutTransition：包住 sync()＋slide()，套用期間不播轉場（§7.1-4；Task 8 S5 實測）。
- * - data-prevent-swipe：溢出的投影片捲動容器（section 本身）設上，觸控時手指用來捲動（§6.8、F13）。
+ * - data-prevent-swipe：溢出的投影片捲動容器（section 本身）設上，橫向溢出的 `<pre>` 也標上，觸控時手指用來捲動（§6.8、F13）。
  */
 export const SLIDE_ID_ATTR = "data-kn-slide-id";
 export const STACK_CLASS = "kn-present-stack";
