@@ -1,4 +1,5 @@
 import { eq, sql } from "drizzle-orm";
+import { VERSION_DAYS_MAX, type VersionSettingsDto } from "@knotebook/shared";
 import type { Tx } from "../../db/tx.js";
 import { authProviders, siteSettings } from "../../db/schema.js";
 import { TxAbort } from "../../http/tx-abort.js";
@@ -61,4 +62,38 @@ export async function updateSiteSettingsInTx(tx: Tx, input: UpdateSiteSettingsIn
     .where(eq(siteSettings.singleton, true));
   if (input.passwordLoginEnabled === false) await assertSsoOnlyGuardInTx(tx, input.actorUserId);
   return { previousPasswordLoginEnabled: before.passwordLoginEnabled, passwordLoginEnabled };
+}
+
+export const VERSION_DAYS_RANGE_MESSAGE = "保留天數須符合 1 ≤ 全部保留天數 ≤ 每日一版天數 ≤ 3650";
+
+export interface UpdateVersionSettingsInput {
+  keepAllDays?: number;
+  dailyUntilDays?: number;
+  autoVersionsEnabled?: boolean;
+}
+
+/**
+ * 版本歷史 §6.7：照 `updateSiteSettingsInTx` 的形。①B27 鎖（`lockSiteSettingsInTx` 只回兩個登入欄位，三個版本欄在鎖後另讀）
+ * ②合併 ③驗 `1 ≤ F ≤ D ≤ 3650`（違反 → 400 `invalid_body`，DB CHECK `site_settings_version_days_chk` 是同值的最後防線）④UPDATE。
+ * 改了只影響之後的清除（§10.2）。
+ */
+export async function updateVersionSettingsInTx(tx: Tx, input: UpdateVersionSettingsInput): Promise<VersionSettingsDto> {
+  await lockSiteSettingsInTx(tx);
+  const [cur] = await tx
+    .select({ keepAllDays: siteSettings.versionKeepAllDays, dailyUntilDays: siteSettings.versionDailyUntilDays, autoVersionsEnabled: siteSettings.autoVersionsEnabled })
+    .from(siteSettings)
+    .where(eq(siteSettings.singleton, true));
+  const next: VersionSettingsDto = {
+    keepAllDays: input.keepAllDays ?? cur!.keepAllDays,
+    dailyUntilDays: input.dailyUntilDays ?? cur!.dailyUntilDays,
+    autoVersionsEnabled: input.autoVersionsEnabled ?? cur!.autoVersionsEnabled,
+  };
+  if (!(1 <= next.keepAllDays && next.keepAllDays <= next.dailyUntilDays && next.dailyUntilDays <= VERSION_DAYS_MAX)) {
+    throw new TxAbort(400, "invalid_body", VERSION_DAYS_RANGE_MESSAGE);
+  }
+  await tx
+    .update(siteSettings)
+    .set({ versionKeepAllDays: next.keepAllDays, versionDailyUntilDays: next.dailyUntilDays, autoVersionsEnabled: next.autoVersionsEnabled, updatedAt: sql`now()` })
+    .where(eq(siteSettings.singleton, true));
+  return next;
 }

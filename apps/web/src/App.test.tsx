@@ -29,6 +29,7 @@ const ADMIN_USER: UserDto = {
   isAdmin: true,
   mustChangePassword: false,
   hasPassword: true,
+  autoVersions: true,
 };
 
 // 站台管理搬出設定 modal、改成獨立頁 `/admin/*`（2026-09-30）：方向與 Plan 4 相反——

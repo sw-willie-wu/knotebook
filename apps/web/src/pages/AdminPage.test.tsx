@@ -29,6 +29,7 @@ const ADMIN_USER: UserDto = {
   isAdmin: true,
   mustChangePassword: false,
   hasPassword: true,
+  autoVersions: true,
 };
 const PLAIN_USER: UserDto = { ...ADMIN_USER, id: "u-plain", handle: "plain", displayName: "Plain", isAdmin: false };
 

@@ -50,6 +50,7 @@ const ME: UserDto = {
   isAdmin: false,
   mustChangePassword: false,
   hasPassword: true,
+  autoVersions: true,
 };
 
 /** `GET …/roles` 的兩個內建角色（id 刻意不是 "admin"／"member"——送出的必須是角色 id，不是 builtin 名）。 */

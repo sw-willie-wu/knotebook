@@ -68,7 +68,7 @@ describe("GET /api/auth/config", () => {
     const { app } = await buildTestApp();
     const res = await app.inject({ method: "GET", url: "/api/auth/config" });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ providers: [], registration: { enabled: true }, passwordLogin: { enabled: true } });
+    expect(res.json()).toEqual({ providers: [], registration: { enabled: true }, passwordLogin: { enabled: true }, autoVersionsEnabled: true });
   });
 
   it("只列啟用中的 provider、依 sort_order 排；不含 issuer／client id／secret（§14.1 第 18 條）", async () => {
@@ -77,7 +77,7 @@ describe("GET /api/auth/config", () => {
     const a = await seedAuthProvider(db, { issuerUrl: "https://a.example", displayName: "A", sortOrder: 1 });
     await seedAuthProvider(db, { issuerUrl: "https://off.example", displayName: "Off", enabled: false });
     const res = await app.inject({ method: "GET", url: "/api/auth/config" });
-    expect(res.json()).toEqual({ providers: [{ id: a.id, displayName: "A", icon: GENERIC }, { id: b.id, displayName: "B", icon: GENERIC }], registration: { enabled: true }, passwordLogin: { enabled: true } });
+    expect(res.json()).toEqual({ providers: [{ id: a.id, displayName: "A", icon: GENERIC }, { id: b.id, displayName: "B", icon: GENERIC }], registration: { enabled: true }, passwordLogin: { enabled: true }, autoVersionsEnabled: true });
     expect(res.body).not.toMatch(/a\.example|test-client|"ct"/);
   });
 
@@ -85,7 +85,7 @@ describe("GET /api/auth/config", () => {
     const { app, db } = await buildTestApp();
     await db.update(siteSettings).set({ registrationEnabled: false });
     const res = await app.inject({ method: "GET", url: "/api/auth/config" });
-    expect(res.json()).toEqual({ providers: [], registration: { enabled: false }, passwordLogin: { enabled: true } });
+    expect(res.json()).toEqual({ providers: [], registration: { enabled: false }, passwordLogin: { enabled: true }, autoVersionsEnabled: true });
   });
 
   it("site_settings 讀不到列 → registration.enabled false＋error log（§4.3 r1-M5）", async () => {
@@ -106,7 +106,7 @@ describe("GET /api/auth/config", () => {
     );
     await db.delete(siteSettings);
     const res = await app.inject({ method: "GET", url: "/api/auth/config" });
-    expect(res.json()).toEqual({ providers: [], registration: { enabled: false }, passwordLogin: { enabled: true } });
+    expect(res.json()).toEqual({ providers: [], registration: { enabled: false }, passwordLogin: { enabled: true }, autoVersionsEnabled: true });
     expect(logged.some((a) => a.some((x) => typeof x === "string" && x.includes("site_settings")))).toBe(true);
     expect(logged.some((a) => a.some((x) => typeof x === "string" && x.includes("帳密登入視同開啟")))).toBe(true);
   });
@@ -127,6 +127,7 @@ describe("POST /api/auth/login", () => {
       isAdmin: false,
       mustChangePassword: false,
       hasPassword: true,
+      autoVersions: true,
     });
 
     const cookie = res.cookies.find(c => c.name === SESSION_COOKIE);
@@ -144,6 +145,7 @@ describe("POST /api/auth/login", () => {
       isAdmin: false,
       mustChangePassword: false,
       hasPassword: true,
+      autoVersions: true,
     });
   });
 

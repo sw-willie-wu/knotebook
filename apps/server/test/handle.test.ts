@@ -439,10 +439,10 @@ describe("改名 PATCH /api/auth/profile（spec §2a；Task 4）", () => {
     const { app, db, cookies } = await userApp();
     const res = await rename(app, cookies, "New-Name");
     expect(res.statusCode).toBe(200);
-    // 形狀鎖（讀碼審查 n1）：PATCH 回應＝完整 UserDto，無多無少
+    // 形狀鎖（讀碼審查 n1）：PATCH 回應＝完整 UserDto，無多無少；版本歷史 §6.8 加 autoVersions
     const body = res.json();
     expect(Object.keys(body).sort()).toEqual(
-      ["id", "email", "handle", "displayName", "isAdmin", "mustChangePassword", "hasPassword"].sort(),
+      ["id", "email", "handle", "displayName", "isAdmin", "mustChangePassword", "hasPassword", "autoVersions"].sort(),
     );
     expect(body.handle).toBe("new-name");
 

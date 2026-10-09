@@ -28,6 +28,8 @@ export interface UserDto {
   mustChangePassword: boolean;
   /** OIDC-only 帳號為 false；設定 modal 據此隱藏改密表單——spec §14.4。 */
   hasPassword: boolean;
+  /** 版本歷史（spec 2026-10-09 §6.8、D8）：個人空間的自動儲存開關（`users.auto_versions`）。生效值另需站台總開關（A13）。 */
+  autoVersions: boolean;
 }
 
 /** 密碼長度下限，鏡射 apps/server/src/auth/constants.ts 的同名常數——這裡是給
@@ -45,6 +47,8 @@ export interface AuthConfigDto {
   providers: AuthProviderPublicDto[];
   registration: { enabled: boolean };
   passwordLogin: { enabled: boolean };
+  /** 版本歷史 §6.8：站台自動儲存總開關（`site_settings.auto_versions_enabled`）——個人與群組開關在它關閉時顯示 disabled。 */
+  autoVersionsEnabled: boolean;
 }
 
 /** #187：一個啟用中的單一登入服務（登入頁按鈕、連結頁的證明方式）。只曝光 id、顯示名與圖示——issuer／client id 不出線。 */
@@ -227,6 +231,8 @@ export interface GroupDto {
   canManageMembers: boolean;
   canManageGroup: boolean;
   createdAt: string;
+  /** 版本歷史：群組空間的自動儲存開關（`groups.auto_versions`）。 */
+  autoVersions: boolean;
 }
 
 /** #175 §6.8：`DELETE /api/groups/:id` 必填 body；`transfer`＝群組筆記全數改成 `transferTo`（必須是內建管理員）的個人筆記，`delete`＝連筆記一起刪。 */

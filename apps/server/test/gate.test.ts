@@ -38,7 +38,7 @@ describe("UserGate", () => {
     const result = await gate.check(u.id, 3);
     expect(result).toEqual({
       status: "ok",
-      user: { id: u.id, email: u.email, handle: u.handle, displayName: u.displayName, isAdmin: true, mustChangePassword: false, hasPassword: false },
+      user: { id: u.id, email: u.email, handle: u.handle, displayName: u.displayName, isAdmin: true, mustChangePassword: false, hasPassword: false, autoVersions: true },
     });
   });
 
@@ -183,6 +183,7 @@ describe("UserGate", () => {
               tokenVersion: row.tokenVersion,
               mustChangePassword: row.mustChangePassword,
               hasPassword: row.passwordHash !== null,
+              autoVersions: row.autoVersions,
             }
           : null;
       },
@@ -206,6 +207,7 @@ describe("UserGate", () => {
       tokenVersion: 0,
       mustChangePassword: false,
       hasPassword: false,
+      autoVersions: true,
     });
     const first = await firstCheck;
     expect(first.status).toBe("ok"); // 這次呼叫本身仍用它查到的資料正確回答
@@ -249,6 +251,7 @@ describe("UserGate.checkUser（#107：token 路徑的使用者狀態閘）", () 
         isAdmin: true,
         mustChangePassword: false,
         hasPassword: true,
+        autoVersions: true,
       },
     });
   });
@@ -289,6 +292,7 @@ describe("UserGate.checkUser（#107：token 路徑的使用者狀態閘）", () 
           tokenVersion: 7,
           mustChangePassword: false,
           hasPassword: true,
+          autoVersions: true,
         };
       },
     });
@@ -318,6 +322,7 @@ describe("UserGate.checkUser（#107：token 路徑的使用者狀態閘）", () 
           tokenVersion: 0,
           mustChangePassword: false,
           hasPassword: true,
+          autoVersions: true,
         };
       },
     });

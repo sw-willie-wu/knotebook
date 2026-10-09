@@ -19,6 +19,7 @@ const USER: UserDto = {
   isAdmin: false,
   mustChangePassword: false,
   hasPassword: true,
+  autoVersions: true,
 };
 
 const REQUEST: OauthRequestDto = {

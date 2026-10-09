@@ -5,7 +5,7 @@ import { SESSION_COOKIE, normalizeEmail, normalizeHandle, validateHandle, type A
 import { sendError, sendLoginThrottled } from "../http/errors.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
-import { authProviders, handles, users } from "../db/schema.js";
+import { authProviders, handles, siteSettings, users } from "../db/schema.js";
 import { UUID_RE } from "../notes/service.js";
 import { uniqueViolationConstraint } from "../db/pg-errors.js";
 import { verifyPassword, hashPassword, HashBusyError, DUMMY_HASH } from "../auth/password.js";
@@ -62,7 +62,12 @@ export function authRoutes(deps: AuthRouteDeps) {
       if (registrationEnabled === null) request.log.error("site_settings 讀不到列：註冊視同關閉（#187 §4.3）");
       // §9.5：有效值（DB OR env）；不揭露是否 env 強制。讀不到列 → 開＋log.error（B17）。
       const passwordLoginEnabled = await isPasswordLoginAccepted(deps.db, deps.config, request.log);
-      return { providers, registration: { enabled: registrationEnabled ?? false }, passwordLogin: { enabled: passwordLoginEnabled } };
+      // 版本歷史 §6.8：總開關讓非 admin 也讀得到（個人／群組開關的 disabled 顯示）。讀不到列 → true（DB 預設；起草裁定 16）。
+      const [versionsRow] = await deps.db.select({ v: siteSettings.autoVersionsEnabled }).from(siteSettings).where(eq(siteSettings.singleton, true)).limit(1);
+      return {
+        providers, registration: { enabled: registrationEnabled ?? false }, passwordLogin: { enabled: passwordLoginEnabled },
+        autoVersionsEnabled: versionsRow?.v ?? true,
+      };
     });
 
     /**
@@ -165,6 +170,7 @@ export function authRoutes(deps: AuthRouteDeps) {
         isAdmin: user!.isAdmin,
         mustChangePassword: user!.mustChangePassword,
         hasPassword: user!.passwordHash !== null,
+        autoVersions: user!.autoVersions,
       };
 
       return reply.send(dto);
@@ -176,6 +182,15 @@ export function authRoutes(deps: AuthRouteDeps) {
     });
 
     app.get("/api/auth/me", { preHandler: app.authenticate }, async (request): Promise<UserDto> => request.user!);
+
+    const profileBodySchema = z
+      .object({ handle: z.string().optional(), autoVersions: z.boolean().optional() })
+      .refine(b => b.handle !== undefined || b.autoVersions !== undefined, { message: "請求格式錯誤：至少需要一個欄位" });
+    /** 回應形：寫入後的值（交易內 RETURNING）——現行 `{ ...request.user, handle }` 是 gate 的 60 s 快取，不能沿用（r7 M-4）。 */
+    const profileReturning = () => ({
+      id: users.id, email: users.email, handle: users.handle, displayName: users.displayName, isAdmin: users.isAdmin,
+      mustChangePassword: users.mustChangePassword, hasPassword: sql<boolean>`${users.passwordHash} is not null`, autoVersions: users.autoVersions,
+    });
 
     /**
      * #122 改名（spec §2a Task 4）。單一 tx 四步：①額度（**DB registry 計數**，5/日
@@ -189,66 +204,81 @@ export function authRoutes(deps: AuthRouteDeps) {
      * 舊名以 tx 內 SELECT 為準（request.user 是 gate 的 60s 快取，可能落後）。
      * 成功後 `gate.invalidate`（比照改密碼），/api/auth/me 立即反映。
      * 同使用者併發改名可雙過額度計數——非安全邊界，明示接受（spec m4-5）。
+     * 版本歷史 §6.8：只帶 `autoVersions` → 純 UPDATE、不進改名交易、不扣額度；兩者都帶 → 同一交易；
+     * 回應取寫入後的值（RETURNING），不沿用 `request.user` 快取。
      */
     app.patch("/api/auth/profile", { preHandler: app.authenticate }, async (request, reply) => {
-      const parsed = z.object({ handle: z.string() }).safeParse(request.body);
-      if (!parsed.success) {
-        return sendError(reply, 400, "invalid_body", "請求格式錯誤");
-      }
-      const normalized = normalizeHandle(parsed.data.handle);
-      if (validateHandle(normalized) !== null) {
-        return sendError(reply, 400, "invalid_body", "使用者名格式不合法（1–32 字元、小寫英數與連字號，不可頭尾/連續連字號）");
-      }
+      const parsed = profileBodySchema.safeParse(request.body);
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", "請求格式錯誤");
       const userId = request.user!.id;
-
-      // 5/日（spec §2a；plan m10 的「無 limiter 常數」指不建 FixedWindowLimiter，
-      // 具名常數反而消除 JSDoc/判斷/錯誤訊息三處數字漂移面）
-      const RENAME_QUOTA_PER_DAY = 5;
-      const QUOTA_EXCEEDED = Symbol("rename-quota");
-      try {
-        await deps.db.transaction(async tx => {
-          const [spent] = await tx
-            .select({ n: sql<number>`count(*)::int` })
-            .from(handles)
-            .where(and(eq(handles.userId, userId), eq(handles.state, "released"), gt(handles.releasedAt, sql`now() - interval '1 day'`)));
-          if (spent!.n >= RENAME_QUOTA_PER_DAY) throw QUOTA_EXCEEDED;
-
-          // FOR UPDATE（讀碼審查 m1）：同人兩個併發 PATCH 若都讀到同一個舊名，晚者的
-          // 釋放 upsert 會在先者 commit 後對新版本重評 WHERE（仍是本人）而過關——終態
-          // 留下先者新名的 live 孤兒列（永不釋放、破壞「每人恰一列 live」不變量）。
-          // 鎖住本人 users 列讓第二個 tx 在這裡排隊、解鎖後讀到最新名，孤兒形不可達。
-          const [row] = await tx.select({ handle: users.handle }).from(users).where(eq(users.id, userId)).limit(1).for("update");
-          const oldHandle = row!.handle;
-
-          await tx.insert(handles).values({ handle: normalized, userId, state: "live" });
-
-          const released = await tx.execute(
-            sql`INSERT INTO handles (handle, user_id, state, released_at)
-                VALUES (${oldHandle}, ${userId}, 'released', now())
-                ON CONFLICT (handle) DO UPDATE SET state = 'released', released_at = now()
-                WHERE handles.user_id = ${userId}`,
-          );
-          if (released.rowCount !== 1) {
-            // 舊名的 registry 列屬他人（資料不一致形）——絕不靜默吞：整 tx 回滾。
-            throw new Error(`改名釋放失敗：舊名 ${oldHandle} 的 registry 列不屬於本人（rowcount=${released.rowCount}）`);
-          }
-
-          await tx.update(users).set({ handle: normalized }).where(eq(users.id, userId));
-        });
-      } catch (err) {
-        if (err === QUOTA_EXCEEDED) {
-          return sendError(reply, 429, "too_many_requests", "改名太頻繁（每日限額已用完——舊名永不回收，改名是消耗性動作）");
+      const { autoVersions } = parsed.data;
+      let normalized: string | undefined;
+      if (parsed.data.handle !== undefined) {
+        normalized = normalizeHandle(parsed.data.handle);
+        if (validateHandle(normalized) !== null) {
+          return sendError(reply, 400, "invalid_body", "使用者名格式不合法（1–32 字元、小寫英數與連字號，不可頭尾/連續連字號）");
         }
-        const constraint = uniqueViolationConstraint(err);
-        if (constraint === "handles_pkey" || constraint === "users_handle_unique") {
-          return sendError(reply, 409, "handle_taken", "此使用者名已被使用");
-        }
-        throw err;
       }
+      let dto: UserDto | undefined;
+      if (normalized === undefined) {
+        const [row] = await deps.db.update(users).set({ autoVersions: autoVersions! }).where(eq(users.id, userId)).returning(profileReturning());
+        dto = row;
+      } else {
+        const newHandle = normalized;
+        // 5/日（spec §2a；plan m10 的「無 limiter 常數」指不建 FixedWindowLimiter，
+        // 具名常數反而消除 JSDoc/判斷/錯誤訊息三處數字漂移面）
+        const RENAME_QUOTA_PER_DAY = 5;
+        const QUOTA_EXCEEDED = Symbol("rename-quota");
+        try {
+          dto = await deps.db.transaction(async tx => {
+            const [spent] = await tx
+              .select({ n: sql<number>`count(*)::int` })
+              .from(handles)
+              .where(and(eq(handles.userId, userId), eq(handles.state, "released"), gt(handles.releasedAt, sql`now() - interval '1 day'`)));
+            if (spent!.n >= RENAME_QUOTA_PER_DAY) throw QUOTA_EXCEEDED;
 
+            // FOR UPDATE（讀碼審查 m1）：同人兩個併發 PATCH 若都讀到同一個舊名，晚者的
+            // 釋放 upsert 會在先者 commit 後對新版本重評 WHERE（仍是本人）而過關——終態
+            // 留下先者新名的 live 孤兒列（永不釋放、破壞「每人恰一列 live」不變量）。
+            // 鎖住本人 users 列讓第二個 tx 在這裡排隊、解鎖後讀到最新名，孤兒形不可達。
+            const [row] = await tx.select({ handle: users.handle }).from(users).where(eq(users.id, userId)).limit(1).for("update");
+            const oldHandle = row!.handle;
+
+            await tx.insert(handles).values({ handle: newHandle, userId, state: "live" });
+
+            const released = await tx.execute(
+              sql`INSERT INTO handles (handle, user_id, state, released_at)
+                  VALUES (${oldHandle}, ${userId}, 'released', now())
+                  ON CONFLICT (handle) DO UPDATE SET state = 'released', released_at = now()
+                  WHERE handles.user_id = ${userId}`,
+            );
+            if (released.rowCount !== 1) {
+              // 舊名的 registry 列屬他人（資料不一致形）——絕不靜默吞：整 tx 回滾。
+              throw new Error(`改名釋放失敗：舊名 ${oldHandle} 的 registry 列不屬於本人（rowcount=${released.rowCount}）`);
+            }
+
+            // ④ 改名；同一句帶上 autoVersions（兩者都帶 → 同一交易，§6.8）。
+            const [updated] = await tx
+              .update(users)
+              .set(autoVersions === undefined ? { handle: newHandle } : { handle: newHandle, autoVersions })
+              .where(eq(users.id, userId))
+              .returning(profileReturning());
+            return updated!;
+          });
+        } catch (err) {
+          if (err === QUOTA_EXCEEDED) {
+            return sendError(reply, 429, "too_many_requests", "改名太頻繁（每日限額已用完——舊名永不回收，改名是消耗性動作）");
+          }
+          const constraint = uniqueViolationConstraint(err);
+          if (constraint === "handles_pkey" || constraint === "users_handle_unique") {
+            return sendError(reply, 409, "handle_taken", "此使用者名已被使用");
+          }
+          throw err;
+        }
+      }
+      if (dto === undefined) return sendError(reply, 401, "unauthorized", "未登入"); // 帳號在請求途中被刪
       // 比照改密碼的既有慣例：invalidate 讓下一次 authenticate 立刻反映（60s 快取不等 TTL）
       deps.gate.invalidate(userId);
-      const dto: UserDto = { ...request.user!, handle: normalized };
       return reply.send(dto);
     });
 

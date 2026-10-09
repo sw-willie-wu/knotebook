@@ -28,6 +28,7 @@ import { adminStorageRoutes } from "./routes/admin-storage.js";
 import { storageRoutes } from "./routes/storage.js";
 import { adminAiRoutes } from "./routes/admin-ai.js";
 import { adminAuthRoutes } from "./routes/admin-auth.js";
+import { adminVersionsRoutes } from "./routes/admin-versions.js";
 import { accountRoutes } from "./routes/account.js";
 import { aiRoutes } from "./routes/ai.js";
 import { uploadsRoutes } from "./routes/uploads.js";
@@ -735,6 +736,8 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   void app.register(adminAiRoutes({ db: deps.db, config: deps.config, runtime: deps.ai }));
   // #187 PR2：站台管理的登入服務。與登入路由共用同一個 registry（PATCH／DELETE 要 invalidate、test／discover 用 probe）。
   void app.register(adminAuthRoutes({ db: deps.db, config: deps.config, registry: oidcRegistry }));
+  // 版本歷史 §6.7：站台清除天數與自動儲存總開關。
+  void app.register(adminVersionsRoutes({ db: deps.db }));
   // #187 PR3：註冊、個人設定的登入方式與加上密碼（spec §8、§9.1）。
   void app.register(
     accountRoutes({ db: deps.db, config: deps.config, gate: deps.gate, collabHooks: deps.collabHooks, limiters: { register: limiters.register } }),

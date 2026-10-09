@@ -51,6 +51,8 @@ export interface GateUser {
   mustChangePassword: boolean;
   /** OIDC-only 帳號為 false（=`password_hash IS NULL`）——spec §14.4。 */
   hasPassword: boolean;
+  /** 版本歷史 §6.8：`/api/auth/me` 直接回 `request.user`，此欄必須在 Gate 層就撈。 */
+  autoVersions: boolean;
 }
 
 export type GateResult = { status: "ok"; user: GateUser } | { status: "revoked" };
@@ -65,6 +67,7 @@ export interface GateRow {
   tokenVersion: number;
   mustChangePassword: boolean;
   hasPassword: boolean;
+  autoVersions: boolean;
 }
 
 interface CacheEntry {
@@ -179,6 +182,7 @@ export class UserGate {
       tokenVersion: row.tokenVersion,
       mustChangePassword: row.mustChangePassword,
       hasPassword: row.passwordHash !== null,
+      autoVersions: row.autoVersions,
     };
   }
 
@@ -205,6 +209,7 @@ export class UserGate {
         isAdmin: row.isAdmin,
         mustChangePassword: row.mustChangePassword,
         hasPassword: row.hasPassword,
+        autoVersions: row.autoVersions,
       },
     };
   }

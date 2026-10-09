@@ -50,6 +50,7 @@ const ME: UserDto = {
   isAdmin: false,
   mustChangePassword: false,
   hasPassword: true,
+  autoVersions: true,
 };
 
 const ADMIN_ROLE = adminRole({ id: "11111111-1111-1111-1111-111111111111" });

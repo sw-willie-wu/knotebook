@@ -27,6 +27,7 @@ export interface LinkedUser {
   mustChangePassword: boolean;
   hasPassword: boolean;
   tokenVersion: number;
+  autoVersions: boolean;
 }
 
 /**
@@ -53,6 +54,7 @@ export async function linkPendingIdentityInTx(tx: Tx, input: LinkPendingInput, h
       passwordHash: users.passwordHash,
       disabledAt: users.disabledAt,
       tokenVersion: users.tokenVersion,
+      autoVersions: users.autoVersions,
     })
     .from(users)
     .where(eq(users.id, input.targetUserId))
@@ -118,6 +120,7 @@ export async function linkPendingIdentityInTx(tx: Tx, input: LinkPendingInput, h
     mustChangePassword: row.mustChangePassword,
     hasPassword: row.passwordHash !== null,
     tokenVersion: row.tokenVersion,
+    autoVersions: row.autoVersions,
   };
 }
 

@@ -20,6 +20,7 @@ import {
 import type { Db } from "../db/index.js";
 import { groupMembers, groupRoles, groups, users } from "../db/schema.js";
 import { foreignKeyViolationConstraint, isForeignKeyViolation, isRetryableTxError, notNullViolationColumn, uniqueViolationConstraint } from "../db/pg-errors.js";
+import { sendInvalidBody } from "../auth/admin-provider-input.js";
 import { SITE_SETTINGS_MISSING_MESSAGE } from "../auth/tx/admin-site-settings.js";
 import type { CollabHooks } from "../collab/hooks.js";
 import type { GroupTestHook } from "../groups/test-hook.js";
@@ -39,6 +40,11 @@ import { quotaErrorDetail } from "../storage/usage.js";
 import { deleteUploadFiles } from "../uploads/service.js";
 
 const nameBodySchema = z.object({ name: z.string() }).strict();
+// 版本歷史 §6.8：PATCH 另開 schema——`name` 可選、加 `autoVersions`、至少一欄；`nameBodySchema` 與 POST 共用、不得動。
+const groupPatchBodySchema = z
+  .object({ name: z.string().optional(), autoVersions: z.boolean().optional() })
+  .strict()
+  .refine(b => b.name !== undefined || b.autoVersions !== undefined, { message: "請求格式錯誤：至少需要一個欄位" });
 const addMemberBodySchema = z.object({ email: z.string().email(), roleId: z.string().optional() }).strict();
 const memberRoleBodySchema = z.object({ roleId: z.string() }).strict();
 // 六個可設旗標（鍵取自 shared 的 `GROUP_ROLE_FLAGS`，與 web 角色頁同一份），全必填；沒有 `read`（閱讀恆真）——
@@ -124,11 +130,16 @@ export function groupsRoutes(deps: GroupsRouteDeps) {
       const access = await groupAccess(deps.db, id, request.user!);
       if (!access) return notFound(reply);
       if (!access.manageGroup) return forbidden(reply);
-      const parsed = nameBodySchema.safeParse(request.body);
-      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
-      const name = validateGroupName(parsed.data.name);
-      if (name === null) return invalidName(reply);
-      const updated = await deps.db.update(groups).set({ name }).where(eq(groups.id, id)).returning({ id: groups.id });
+      const parsed = groupPatchBodySchema.safeParse(request.body);
+      if (!parsed.success) return sendInvalidBody(reply, parsed.error);
+      let name: string | undefined;
+      if (parsed.data.name !== undefined) {
+        const validated = validateGroupName(parsed.data.name);
+        if (validated === null) return invalidName(reply);
+        name = validated;
+      }
+      const set = { ...(name !== undefined ? { name } : {}), ...(parsed.data.autoVersions !== undefined ? { autoVersions: parsed.data.autoVersions } : {}) };
+      const updated = await deps.db.update(groups).set(set).where(eq(groups.id, id)).returning({ id: groups.id });
       if (updated.length === 0) return notFound(reply);
       const [row] = await groupWithMyRoleQuery(deps.db, id, request.user!.id);
       if (!row) return notFound(reply);

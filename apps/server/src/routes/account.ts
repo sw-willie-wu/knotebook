@@ -135,6 +135,8 @@ export function accountRoutes(deps: AccountRouteDeps) {
         isAdmin: false,
         mustChangePassword: false,
         hasPassword: true,
+        // 新帳號取 DB 預設 `users.auto_versions = true`。
+        autoVersions: true,
       };
       return reply.code(201).send(dto);
     });
