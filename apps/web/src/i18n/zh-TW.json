@@ -940,6 +940,9 @@
     "storage_plan_is_default": "這個方案是預設方案，請先改選其他預設",
     "storage_plan_name_taken": "已有同名的方案",
     "storage_plan_not_found": "找不到這個方案",
+    "version_is_base": "這是目前內容的基底版本，不能刪除",
+    "version_unsaved_changes": "目前有未儲存的修改",
+    "version_mismatch": "這一版已經不存在或已被取代，請重新整理",
     "fallback": "發生未預期的錯誤。"
   }
 }

@@ -428,6 +428,12 @@ export const ERROR_CODES = [
   "storage_plan_is_default",
   "storage_plan_name_taken",
   "storage_plan_not_found",
+  // 筆記版本歷史（spec 2026-10-09 §6）：`version_is_base`＝409，刪除「目前內容的基底版本」（A6）；
+  // `version_unsaved_changes`＝409，套用時有未儲存的修改而 body 沒帶 `discardUnsaved: true`，或套用兩次都遇到併發修改（§7-2c）；
+  // `version_mismatch`＝409，套用 body 的 `versionId` 與該 seq 現在那一列不同（搬移清空後同一個 seq 指向別的內容，§6.4）。
+  "version_is_base",
+  "version_unsaved_changes",
+  "version_mismatch",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
@@ -1071,3 +1077,4 @@ export * from "./note-markdown.js";
 export * from "./group-roles.js";
 export * from "./provider-icon.js";
 export * from "./storage.js";
+export * from "./versions.js";
