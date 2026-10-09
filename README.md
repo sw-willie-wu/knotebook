@@ -76,6 +76,7 @@ Read the full [self-hosting guide](docs/self-hosting.md) before running anywhere
 - [AI editing](docs/ai-editing.md) — the note-content read/write API a token or authorized app uses: the five write operations, fingerprints and conflict handling, reverting a write, the presence cursor and agent display names, and rate limits and error codes.
 - [MCP](docs/mcp.md) — connecting an MCP client (the exact `claude mcp add` and `mcp-remote` commands), the seven tools and what each answers, the read-write loop, MCP's own limits and error shapes, and its known limitations.
 - [Sharing](docs/sharing.md) — the three access levels of a personal note (private / members / public link), notes in a group and what each role permission allows, moving or copying a note into a group, what a public read-only link grants, and how revoking and regenerating behave.
+- [Version history](docs/versions.md) — when a note's versions are saved, previewing, comparing and applying them, who can see them, how long automatic versions are kept, and the three switches that turn automatic versions off.
 - [AI quick actions](docs/ai.md) — admin setup guide (under **Site admin → AI**) for AI providers/models/actions, key encryption, and how quick actions behave in the editor.
 - [Diagrams (Mermaid)](docs/diagrams.md) — inserting, editing and pasting Mermaid diagrams, what copying one out produces, and the on-demand loading and rendering lockdown behind them.
 - [Known limitations](docs/known-limitations.md) — the full list of known rough edges and deliberate trade-offs.
