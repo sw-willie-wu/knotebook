@@ -186,7 +186,7 @@ then start that build. If you're upgrading from 0.4.1 or earlier, there were no 
 
 **Body-text search.** The first start after upgrading to a version with body-text search indexes the existing notes in the background, after the server is already answering requests. The `app` log shows `全文索引回填開始` when that starts and `全文索引回填完成` when it is done; until then, `search_notes` finds a note it hasn't got to yet by its title only. Rolling back is harmless: an older server ignores the two tables that hold the index, `note_search_sections` and `note_search_state`. When you upgrade again, the first start indexes again whatever was edited or created while the older server ran, because the index has no entry for them, or one built from an older version.
 
-**Upgrading to the next release (storage quotas).**
+**Upgrading to v0.7 (storage quotas).**
 
 1. **Everyone starts on a 2 GiB plan.** The storage-quota migration puts every existing user and group on the 2 GiB Basic plan. Spaces already over 2 GiB keep everything but can't add attachments: after upgrading, check usage in **Site admin → Users** and **Site admin → Groups** (or with `GET /api/admin/users` and `GET /api/admin/groups`) and assign larger plans there where needed (see [Storage quotas](#storage-quotas)).
 2. **Rolling back** to the previous image means no quota is enforced while it runs: the new table and columns stay in the database and the old server doesn't read them; users and groups it creates still get the default plan.

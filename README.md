@@ -10,17 +10,18 @@ Three non-negotiables:
 - **Real-time CRDT collaboration** — Yjs-based multiplayer editing, not a commercial add-on.
 - **Bring your own AI endpoint** — point Knotebook at your own OpenAI-compatible or Anthropic endpoint (including a local/on-prem Ollama); no bundled vendor lock-in.
 
-**Status:** the latest release is v0.6.0 (2026-10-08). What it does today:
+**Status:** the latest release is v0.7.0 (2026-10-09). What it does today:
 
 - **Writing together** — a block editor with live multiplayer editing (Yjs/Hocuspocus), `[[wikilinks]]` with backlinks, image uploads, and Mermaid diagrams (see [Diagrams](docs/diagrams.md)).
 - **Presentation mode** — play any note as a slide show: its headings become the slides, the cover is the title, and signed-in viewers see collaborators' edits as they happen (see [Known limitations](docs/known-limitations.md)).
 - **Accounts** — password sign-in and sign-in through any number of OpenID Connect identity providers (GitLab, Google, or another provider), which can also be made the only way in; people can register on their own unless a site admin turns registration off, and can link several sign-in services to one account. Site admins manage users, sign-in services (with their icons) and AI providers on their own **Site admin** pages (`/admin/users`, `/admin/auth`, `/admin/ai`) — see [Sign-in providers](docs/self-hosting.md#sign-in-providers) and [Accounts](docs/self-hosting.md#accounts).
 - **Sharing** — a personal note is private, shared with chosen people as editors or viewers, or published as a read-only public link (see [Sharing](docs/sharing.md)).
 - **Groups** — a group owns its notes, which live at `/g/<group id>/<name>`; what each member can do comes from their role in the group — the built-in Admin and Member roles, or custom roles built from six permissions. A personal note can be moved or copied into a group, and deleting a group either gives its notes to one of its admins or deletes them with it (see [Notes in a group](docs/sharing.md#notes-in-a-group)).
+- **Storage quotas** — every personal space and every group sits on a storage plan that can cap its attachments (or set no limit); site admins manage plans and assignments under **Site admin → Storage plans**, and people see their own usage in **Settings → Account** (see [Storage quotas](docs/self-hosting.md#storage-quotas)).
 - **AI quick actions** — rewrite, translate, summarize and continue, streamed from an OpenAI-compatible or Anthropic endpoint an admin configures (see [AI quick actions](docs/ai.md)).
 - **Your own AI on your notes** — personal API tokens, or apps authorized over OAuth, can read and write note content; every write shows up live in open tabs and is recorded in the note's AI edit history, where it can be reverted (see [API tokens](docs/api-tokens.md) and [AI editing](docs/ai-editing.md)). An MCP endpoint at `/api/mcp` gives Claude Code, Claude Desktop and other MCP clients seven tools to find, read, edit and create notes, group notes included, and to move images in and out (see [MCP](docs/mcp.md)).
 
-All of it sits on a REST API you can also drive directly (see [API contract summary](docs/api.md)), and it is exercised end-to-end by a Playwright test suite. Upgrading from 0.5.x moves SSO configuration from `.env` into **Site admin → Sign-in** and opens self-registration by default — back up first and read the [0.6.0 upgrade notes](CHANGELOG.md#060---2026-10-08).
+All of it sits on a REST API you can also drive directly (see [API contract summary](docs/api.md)), and it is exercised end-to-end by a Playwright test suite. Upgrading to 0.7.0 runs database migrations and puts every existing user and group on a 2 GiB default storage plan — back up first and read the [0.7.0 upgrade notes](CHANGELOG.md#070---2026-10-09). (Coming from 0.5.x? The [0.6.0 upgrade notes](CHANGELOG.md#060---2026-10-08) apply too: SSO configuration moves from `.env` into **Site admin → Sign-in**, and self-registration opens by default.)
 
 ## Quickstart (~10 minutes)
 
@@ -83,7 +84,7 @@ Read the full [self-hosting guide](docs/self-hosting.md) before running anywhere
 
 ## Roadmap
 
-All five v0.1 milestones — the API foundation, the web UI with real-time collaboration, wikilinks and image uploads, AI quick actions, and OIDC login — have shipped, followed by a hardening release (0.2), a UI overhaul, Mermaid diagrams, readable note URLs and public share links (0.3.x), API tokens, OAuth and MCP for bringing your own AI (0.4.x), groups (0.5), and multiple sign-in services with self-registration (0.6); see the [CHANGELOG](CHANGELOG.md) for the history.
+All five v0.1 milestones — the API foundation, the web UI with real-time collaboration, wikilinks and image uploads, AI quick actions, and OIDC login — have shipped, followed by a hardening release (0.2), a UI overhaul, Mermaid diagrams, readable note URLs and public share links (0.3.x), API tokens, OAuth and MCP for bringing your own AI (0.4.x), groups (0.5), multiple sign-in services with self-registration (0.6), and storage quotas and presentation mode (0.7); see the [CHANGELOG](CHANGELOG.md) for the history.
 
 Planning lives in [GitHub Milestones](https://github.com/sw-willie-wu/knotebook/milestones) and the issue tracker, which stay current as work is scheduled.
 

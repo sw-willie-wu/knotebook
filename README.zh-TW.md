@@ -12,17 +12,18 @@ Knotebook 是一套開源、可自行架設的 Notion/HackMD 風格協作筆記�
 - **即時 CRDT 協作**——以 Yjs 為基礎的多人同步編輯，不是付費附加功能。
 - **自備 AI 端點**——把 Knotebook 指向你自己的 OpenAI 相容或 Anthropic 端點（包含本機／機房內的 Ollama），不綁定任何供應商。
 
-**狀態**：最新版本為 v0.6.0（2026-10-08）。目前具備的功能：
+**狀態**：最新版本為 v0.7.0（2026-10-09）。目前具備的功能：
 
 - **一起寫作**——區塊編輯器，支援即時多人編輯（Yjs/Hocuspocus）、附反向連結的 `[[wikilinks]]`、圖片上傳，以及 Mermaid 圖表（見 [圖表](docs/diagrams.md)）。
 - **簡報模式**——把任何一篇筆記當簡報播放：標題自動切成投影片、封面是筆記標題，已登入的觀眾會即時看到共編者的修改（見 [已知限制](docs/known-limitations.md)）。
 - **帳號**——密碼登入，以及透過任意數量的 OpenID Connect 身分提供者（GitLab、Google 或其他提供者）登入，也可以設成只能透過這些登入服務登入；除非站台管理員關閉註冊，否則使用者可以自行註冊，也可以把多個登入服務連結到同一個帳號。站台管理員在專屬的**站台管理**頁面（`/admin/users`、`/admin/auth`、`/admin/ai`）管理使用者、登入服務（含其圖示）與 AI 供應商——見 [登入服務](docs/self-hosting.md#sign-in-providers) 與 [帳號](docs/self-hosting.md#accounts)。
 - **分享**——個人筆記可以維持私人、分享給指定的人編輯或檢視，或以唯讀的公開連結發布（見 [分享](docs/sharing.md)）。
 - **群組**——群組擁有自己的筆記，網址為 `/g/<group id>/<name>`；每位成員能做什麼取決於其在群組中的角色——內建的「管理員」與「一般成員」角色，或由六項權限組成的自訂角色。個人筆記可以移入或複製到群組；刪除群組時，可以把群組的筆記轉交給其中一位管理員，或連同群組一併刪除（見 [群組中的筆記](docs/sharing.md#notes-in-a-group)）。
+- **容量上限**——每個個人空間與每個群組都屬於一個儲存方案，可以限制附件的總大小（或不設上限）；站台管理員在**站台管理 → 儲存方案**管理方案與指派，使用者在**設定 → 帳號**看到自己的用量（見 [容量上限](docs/self-hosting.md#storage-quotas)）。
 - **AI 快速動作**——改寫、翻譯、摘要與續寫，由管理員設定的 OpenAI 相容或 Anthropic 端點以串流方式回傳（見 [AI 快速動作](docs/ai.md)）。
 - **讓你自己的 AI 讀寫筆記**——個人 API token，或透過 OAuth 授權的應用程式，都可以讀寫筆記內容；每次寫入都會即時顯示在已開啟的分頁中，並記錄在該筆記的 AI 修改紀錄裡，可以還原（見 [API token](docs/api-tokens.md) 與 [AI 編輯](docs/ai-editing.md)）。位於 `/api/mcp` 的 MCP 端點提供七項工具，讓 Claude Code、Claude Desktop 與其他 MCP 用戶端可以搜尋、讀取、編輯與建立筆記（包含群組筆記），以及傳入、傳出圖片（見 [MCP](docs/mcp.md)）。
 
-以上全部都建立在一套你也可以直接操作的 REST API 之上（見 [API 規格摘要](docs/api.md)），並且有 Playwright 測試套件做端對端測試。從 0.5.x 升級時，SSO 設定會從 `.env` 移到**站台管理 → 登入**，並且預設開放自行註冊——請先備份，並閱讀 [0.6.0 升級說明](CHANGELOG.md#060---2026-10-08)。
+以上全部都建立在一套你也可以直接操作的 REST API 之上（見 [API 規格摘要](docs/api.md)），並且有 Playwright 測試套件做端對端測試。升級到 0.7.0 會執行資料庫 migration，並把所有既有使用者與群組放進預設 2 GiB 的儲存方案——請先備份，並閱讀 [0.7.0 升級說明](CHANGELOG.md#070---2026-10-09)。（從 0.5.x 跳升？0.6.0 的 [升級說明](CHANGELOG.md#060---2026-10-08) 也適用：SSO 設定會從 `.env` 移到**站台管理 → 登入**，並且預設開放自行註冊。）
 
 ## 快速上手（約 10 分鐘）
 
@@ -85,7 +86,7 @@ Knotebook 是一套開源、可自行架設的 Notion/HackMD 風格協作筆記�
 
 ## 路線圖
 
-v0.1 的五個里程碑——API 基礎、具備即時協作的網頁介面、wikilinks 與圖片上傳、AI 快速動作，以及 OIDC 登入——都已推出，接著是一次強化版本（0.2）、介面大改版、Mermaid 圖表、易讀的筆記網址與公開分享連結（0.3.x）、讓你接上自己 AI 的 API token、OAuth 與 MCP（0.4.x）、群組（0.5），以及多個登入服務與自行註冊（0.6）；歷程見 [CHANGELOG](CHANGELOG.md)。
+v0.1 的五個里程碑——API 基礎、具備即時協作的網頁介面、wikilinks 與圖片上傳、AI 快速動作，以及 OIDC 登入——都已推出，接著是一次強化版本（0.2）、介面大改版、Mermaid 圖表、易讀的筆記網址與公開分享連結（0.3.x）、讓你接上自己 AI 的 API token、OAuth 與 MCP（0.4.x）、群組（0.5），多個登入服務與自行註冊（0.6），以及容量上限與簡報模式（0.7）；歷程見 [CHANGELOG](CHANGELOG.md)。
 
 規劃記錄在 [GitHub Milestones](https://github.com/sw-willie-wu/knotebook/milestones) 與 issue tracker 中，工作排定時就會隨之更新。
 
