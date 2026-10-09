@@ -149,6 +149,25 @@ describe("data-prevent-swipe（§6.8 ②）", () => {
     expect(section.hasAttribute("data-prevent-swipe")).toBe(false);
   });
 
+  it("橫向溢出的 <pre> 標 data-prevent-swipe、不溢出的不標，尺寸變化後切換", () => {
+    const section = sized(600, 600);
+    const wide = document.createElement("pre");
+    const narrow = document.createElement("pre");
+    let wideScroll = 900;
+    Object.defineProperty(wide, "scrollWidth", { configurable: true, get: () => wideScroll });
+    Object.defineProperty(wide, "clientWidth", { configurable: true, get: () => 300 });
+    Object.defineProperty(narrow, "scrollWidth", { configurable: true, get: () => 200 });
+    Object.defineProperty(narrow, "clientWidth", { configurable: true, get: () => 300 });
+    section.append(wide, narrow);
+    updateSwipeGuard(section);
+    expect(section.hasAttribute("data-prevent-swipe")).toBe(false); // section 自己沒溢出，pre 的標記獨立判斷
+    expect(wide.hasAttribute("data-prevent-swipe")).toBe(true);
+    expect(narrow.hasAttribute("data-prevent-swipe")).toBe(false);
+    wideScroll = 250;
+    updateSwipeGuard(section);
+    expect(wide.hasAttribute("data-prevent-swipe")).toBe(false);
+  });
+
   it("ResizeObserver、img load、loadedmetadata、details toggle 都觸發重算", () => {
     const observed: Element[] = [];
     let callback: ResizeObserverCallback = () => {};

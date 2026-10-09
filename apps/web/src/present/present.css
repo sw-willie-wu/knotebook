@@ -31,8 +31,15 @@
 /* 沒有溢出的投影片關掉瀏覽器手勢（E6 揭露，spec §6.8、F13）：section 是 overflow-y:auto 捲動容器，computed touch-action 是 auto，
    Chromium 會在第一個 pointermove 之後送 pointercancel；reveal 6.0.2 走 pointer 事件路徑，位移因此停在約 27px、到不了 40px 的滑動門檻，
    換頁不成。溢出的投影片由 deck.ts 標 data-prevent-swipe，維持瀏覽器捲動（手指用來捲動內容，換頁用畫面箭頭）。
-   不用 pan-y：那會把垂直手勢交給瀏覽器，縱向投影片的上下滑換頁會壞。 */
+   不用 pan-y：那會把垂直手勢交給瀏覽器，縱向投影片的上下滑換頁會壞。
+   ⚠ touch-action 沿祖先鏈取交集，但 Chromium 對「本身是捲動容器」的元素會把繼承來的值再加上 pan（StyleAdjuster 的 effective touch-action）：
+   overflow-x:auto 的 <pre> 與 .kn-present-table 即使內容放得下也是捲動容器，手指從它們身上起手仍會被 pointercancel。
+   表格包裝層本來就標 data-prevent-swipe（橫滑捲表格）；<pre> 由 deck.ts 的 updateSwipeGuard 依橫向溢出標記，沒溢出的 <pre> 由下一條規則顯式關掉。 */
 .kn-present .reveal .slides section[data-kn-slide-id]:not([data-prevent-swipe]) {
+  touch-action: none;
+}
+/* 錨在未溢出的 section 底下：溢出的投影片若讓 <pre> 變 none，從程式碼上起手就捲不動整張。 */
+.kn-present .reveal .slides section[data-kn-slide-id]:not([data-prevent-swipe]) pre:not([data-prevent-swipe]) {
   touch-action: none;
 }
 .kn-present .reveal .slides section.kn-present-stack {

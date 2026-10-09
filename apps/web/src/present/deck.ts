@@ -139,6 +139,8 @@ export function withoutTransition(revealEl: HTMLElement, run: () => void): void 
 
 export function updateSwipeGuard(section: HTMLElement): void {
   section.toggleAttribute("data-prevent-swipe", section.scrollHeight > section.clientHeight);
+  // 橫向溢出的 <pre> 也標上：它是 overflow-x:auto 的捲動容器，手指在它上面橫滑要用來捲程式碼、不換頁（present.css 對沒標的 pre 才關瀏覽器手勢）。
+  section.querySelectorAll<HTMLElement>("pre").forEach((pre) => pre.toggleAttribute("data-prevent-swipe", pre.scrollWidth > pre.clientWidth));
 }
 
 export interface SwipeGuards {

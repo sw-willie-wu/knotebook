@@ -424,7 +424,7 @@ test("E6：觸控——未溢出的投影片滑動換頁；溢出的投影片與
     `| ${Array.from({ length: cols }, () => "---").join(" | ")} |`,
     `| ${Array.from({ length: cols }, (_, i) => `W1C${i + 1}`).join(" | ")} |`,
   ].join("\n");
-  const { context: desktop, page: owner } = await adminPageWithNote(browser, title, ["## Short", "", "short text", "", "## Long", "", longLines, "", "## Table", "", table, "", "## Stack", "", "stack text", "", "### Child", "", "child text", "", "## Picture", ""].join("\n"));
+  const { context: desktop, page: owner } = await adminPageWithNote(browser, title, ["## Short", "", "short text", "", "## Long", "", longLines, "", "## Table", "", table, "", "## Code", "", "```ts", "const shortCode = 1;", "```", "", "## Wide", "", "```ts", `const wideCode = "${"x".repeat(300)}";`, "```", "", "## Stack", "", "stack text", "", "### Child", "", "child text", "", "## Picture", ""].join("\n"));
   const mobile = await browser.newContext({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 640 } });
   try {
     await expect(editorLocator(owner).getByText("line 60")).toBeVisible({ timeout: 15_000 });
@@ -455,6 +455,8 @@ test("E6：觸控——未溢出的投影片滑動換頁；溢出的投影片與
     const short = await slideIdContaining(page, "short text");
     const long = await slideIdContaining(page, "line 60");
     const tableSlide = await slideIdContaining(page, "WideHeader1");
+    const codeSlide = await slideIdContaining(page, "shortCode");
+    const wideSlide = await slideIdContaining(page, "wideCode");
     const stack = await slideIdContaining(page, "stack text");
     const child = await slideIdContaining(page, "child text");
     const picture = await slideIdContaining(page, "Picture");
@@ -479,6 +481,23 @@ test("E6：觸控——未溢出的投影片滑動換頁；溢出的投影片與
     await swipe(page, { x: box.x + box.width - 20, y: box.y + box.height / 2 }, { x: box.x + 20, y: box.y + box.height / 2 });
     await expect.poll(() => wrap.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
     expect(await currentSlideId(page)).toBe(tableSlide);
+
+    // 短程式碼區塊（<pre> 是 overflow-x:auto 的捲動容器，內容放得下也是）：從它上面起手的橫滑要換頁，不是死區
+    await page.locator(".reveal .controls .navigate-right").tap();
+    await expect.poll(() => currentSlideId(page)).toBe(codeSlide);
+    const shortPre = page.locator(`section[data-kn-slide-id="${codeSlide}"] pre`);
+    expect(await shortPre.getAttribute("data-prevent-swipe")).toBeNull();
+    const shortBox = (await shortPre.boundingBox())!;
+    await swipe(page, { x: shortBox.x + shortBox.width - 20, y: shortBox.y + shortBox.height / 2 }, { x: shortBox.x + 20, y: shortBox.y + shortBox.height / 2 });
+    await expect.poll(() => currentSlideId(page)).toBe(wideSlide);
+
+    // 寬程式碼區塊（橫向溢出）：橫滑是捲動程式碼、不換頁
+    const widePre = page.locator(`section[data-kn-slide-id="${wideSlide}"] pre`);
+    await expect(widePre).toHaveAttribute("data-prevent-swipe", "");
+    const wideBox = (await widePre.boundingBox())!;
+    await swipe(page, { x: wideBox.x + wideBox.width - 20, y: wideBox.y + wideBox.height / 2 }, { x: wideBox.x + 20, y: wideBox.y + wideBox.height / 2 });
+    await expect.poll(() => widePre.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
+    expect(await currentSlideId(page)).toBe(wideSlide);
 
     // 有縱向子投影片的章：沒溢出，手指向上滑 → 進到下一張縱向投影片（touch-action:none 的 app 修正守著；pan-y 會讓這步壞掉）
     await page.locator(".reveal .controls .navigate-right").tap();

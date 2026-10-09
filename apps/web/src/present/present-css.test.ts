@@ -35,4 +35,8 @@ describe("present.css", () => {
   it("E6：沒有溢出的投影片 touch-action:none（溢出的帶 data-prevent-swipe，維持瀏覽器捲動）", () => {
     expect(rule(".kn-present .reveal .slides section[data-kn-slide-id]:not([data-prevent-swipe])")).toContain("touch-action: none;");
   });
+
+  it("E6：未溢出投影片裡沒橫向溢出的 <pre> 也 touch-action:none（<pre> 是捲動容器，否則從短程式碼起手的滑動不換頁）", () => {
+    expect(rule(".kn-present .reveal .slides section[data-kn-slide-id]:not([data-prevent-swipe]) pre:not([data-prevent-swipe])")).toContain("touch-action: none;");
+  });
 });
