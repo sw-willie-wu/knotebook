@@ -377,6 +377,7 @@ export default function NotePage() {
   //   modal 內切過分頁再按上一頁，會回到還記著舊網址的 entry，params 對不上 resolvedFor.key
   //   而重解析（共編重連、編輯器重掛；審查實測）。不動的話 resolvedFor.key 仍是背景的舊網址，
   //   關 modal 回到背景時不重解析，接著照常收斂到新網址。
+  // - #229：寫入時保留 search 與 hash（只換 pathname）；比對仍只看 pathname。
   const realLocation = useRealLocation();
   const readHistoryKey = useHistoryLocationKey();
   // 最後一次寫出的（location.key, canonical）：同一組不寫第二次——navigate 沒生效（被攔、
@@ -405,7 +406,12 @@ export default function NotePage() {
     const write = `${location.key}\n${canonical}`;
     if (lastWriteRef.current === write) return;
     lastWriteRef.current = write;
-    void navigate(canonical, { replace: true, state: withCanonicalizedFrom(location.state, location.pathname) });
+    // #229：保留 search／hash——`?present`（簡報模式）與 `#/<slide id>`（目前投影片）是網址狀態，
+    // 直接開 `/notes/:ref` 或播放中改名時收斂只換 pathname（spec §6.3-1）。
+    void navigate(
+      { pathname: canonical, search: location.search, hash: location.hash },
+      { replace: true, state: withCanonicalizedFrom(location.state, location.pathname) },
+    );
   }, [location, navigate, note, readHistoryKey, realLocation, resolvedFor]);
 
   // 「已經決定要離開這一頁了」。共編終態與 API 404 是兩條互相獨立、可能**同時**成立的
