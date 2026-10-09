@@ -849,6 +849,9 @@
     "errorGeneric": "無法讀取這個授權請求，請從應用程式重新發起。",
     "errorTokenLimit": "有效 token 已達上限。撤銷一個之後，請從應用程式重新發起授權。"
   },
+  "versions": {
+    "bubble": "版本歷史"
+  },
   "storage": {
     "quotaDetail": "已使用 {{used}}／{{quota}}，請洽站台管理員增加空間",
     "quotaFullGeneric": "這個空間放不下這個檔案，請洽擁有者或站台管理員",

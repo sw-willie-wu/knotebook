@@ -1,4 +1,3 @@
-import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { MessageCircle, X } from "@/components/ui/icons";
@@ -7,15 +6,36 @@ import { cn } from "@/lib/utils";
 import { useAiSession } from "./AiSession";
 
 /**
+ * AI 泡泡（#115 收合態）。版本歷史（spec §8.1）起與歷史泡泡一起收進 `CornerStack` 的右下容器——**定位與捲動淡出都在容器上**，
+ * 這顆只剩外觀；`variant="brand"` 讓底色與 focus ring 單一出處（全 app 唯一的浮動主控件，缺 ring 鍵盤使用者看不到焦點）。
+ */
+export function AiBubble() {
+  const { t } = useTranslation();
+  const { setCollapsed } = useAiSession();
+  return (
+    <Button
+      type="button"
+      variant="brand"
+      size="icon"
+      data-testid="ai-bubble"
+      aria-label={t("ai.panel.expand")}
+      onClick={() => setCollapsed(false)}
+      className="h-12 w-12 rounded-full border border-border shadow-lg"
+    >
+      <MessageCircle aria-hidden="true" className="h-5 w-5" />
+    </Button>
+  );
+}
+
+/**
  * AI 面板（brief B1 架構決策：整個收在 `NoteEditor` 裡）。`editable===false`（viewer）
  * 或 `actions.length===0` 時整個不渲染（含 bubble）——跟 toolbar 那半條
  * （`AiToolbar.tsx`）共用同一個 `useAiSession()` 來源判定，不會有「toolbar 藏了
  * 但入口還在」這種不一致。
  *
  * #115 起是**同一個開合狀態、兩種呈現**：
- * - **收合（預設）＝右下 bubble**：`fixed` 圓鈕，`md+` 距視窗右下 24px、`<md` 20px
- *   （＝AppShell 根層 `p-3` 的 12px ＋ 12/8px 的內縮，不貼角）。使用者捲動內文時
- *   淡出、停 800ms 後恢復（見下方 scroll 監聽）。
+ * - **收合（預設）＝`AiBubble`**，由 `CornerStack`（`components/CornerStack.tsx`）放進右下容器；
+ *   位置與捲動淡出在容器上。
  * - **展開 `md+`＝並排卡**：`md:static md:w-80`，高度回 auto 由父層 flex stretch
  *   拿滿高，跟編輯器並排；卡面沿用 `cardSurface`。
  * - **展開 `<md`＝滿寬底部浮層**：`fixed inset-x-3 bottom-5`（底緣與 bubble 同線）、
@@ -33,61 +53,11 @@ export function AiPanel() {
   const { actions, editable, state, collapsed, setCollapsed, start, apply, revert, cancel, dismiss, retry, canRevert } =
     useAiSession();
 
-  // 捲動淡出（只作用於 bubble）：scroll 事件**不冒泡**——掛在任何祖先（含 window）
-  // 的冒泡監聽永遠收不到，這與監聽者跟捲動容器有無祖孫關係無關；但捕獲階段會沿
-  // 事件路徑（window → … → target）下行，所以 window 上的 capture 監聽收得到內文
-  // 捲動容器（NoteEditor 的 overflow-y-auto）的捲動。`collapsed` 為 false 時不掛
-  // （展開態不淡出，也省得面板自己的捲動觸發計時器）。
-  const [scrolling, setScrolling] = useState(false);
-  const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  useEffect(() => {
-    // guard 與下面的渲染守門同一組條件：viewer／零動作時整個元件渲染 null，
-    // 監聽與計時器也不該掛（effect 在 early-return 之前執行，光看 JSX 守不住）。
-    if (!collapsed || !editable || actions.length === 0) return;
-    // deps 誠實列出 editable/actions.length：它們翻面（viewer 化、動作清單清空）
-    // 時 cleanup 會把監聽與計時器拆掉，與渲染側的 null 化同步。
-    const handleScroll = () => {
-      setScrolling(true);
-      clearTimeout(fadeTimerRef.current);
-      fadeTimerRef.current = setTimeout(() => setScrolling(false), 800);
-    };
-    window.addEventListener("scroll", handleScroll, { capture: true, passive: true });
-    return () => {
-      window.removeEventListener("scroll", handleScroll, { capture: true });
-      clearTimeout(fadeTimerRef.current);
-      setScrolling(false);
-    };
-  }, [collapsed, editable, actions.length]);
-
   if (!editable || actions.length === 0) {
     return null;
   }
 
-  if (collapsed) {
-    return (
-      // 用 `<Button variant="brand">` 而不是裸 <button>：底/前景色與 focus ring 都
-      // 取自同一個出處（buttonVariants），不各抄一半——它是全 app 唯一的浮動主控
-      // 件，缺 ring 的話鍵盤使用者看不到焦點落在哪。
-      <Button
-        type="button"
-        variant="brand"
-        size="icon"
-        data-testid="ai-bubble"
-        aria-label={t("ai.panel.expand")}
-        onClick={() => setCollapsed(false)}
-        className={cn(
-          "fixed bottom-5 right-5 z-30 h-12 w-12 rounded-full border border-border shadow-lg md:bottom-6 md:right-6",
-          "transition-opacity duration-200",
-          // 淡出只擋滑鼠、不藏鍵盤焦點：Tab 到 bubble 時強制現形（focus-visible
-          // 的 (0,2,0) 特異性壓過下面的 opacity-0），避免「聚焦一顆隱形鈕」。
-          "focus-visible:pointer-events-auto focus-visible:opacity-100",
-          scrolling && "pointer-events-none opacity-0",
-        )}
-      >
-        <MessageCircle aria-hidden="true" className="h-5 w-5" />
-      </Button>
-    );
-  }
+  if (collapsed) return null;
 
   return (
     <aside

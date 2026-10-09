@@ -849,6 +849,9 @@
     "errorGeneric": "Couldn't load this authorization request. Start again from the application.",
     "errorTokenLimit": "Token limit reached. Revoke one, then start again from the application."
   },
+  "versions": {
+    "bubble": "Version history"
+  },
   "storage": {
     "quotaDetail": "{{used}} of {{quota}} used. Ask a site admin for more space.",
     "quotaFullGeneric": "This space has no room for the file. Ask its owner or a site admin.",

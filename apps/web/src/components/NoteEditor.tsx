@@ -36,6 +36,7 @@ import { createUploadFile, type Translate } from "@/uploads/upload-file";
 import { createFilePanel } from "@/components/FilePanel";
 import { AiSessionProvider } from "@/components/ai/AiSession";
 import { AiPanel } from "@/components/ai/AiPanel";
+import { CornerStack } from "@/components/CornerStack";
 import { AiToolbar } from "@/components/ai/AiToolbar";
 
 /**
@@ -417,6 +418,7 @@ export function NoteEditor({ doc, provider, editable, user, noteId, headerSlot, 
   //       {footerSlot}                                ← NotePage 組裝（backlinks chips）
   //     AiPanel                                       ← AI 入口（#115：收合態是 fixed
   //       bubble、不佔這個 row 的 flex 空間；展開 md+ 才以並排卡參與，見 AiPanel.tsx）
+  //     CornerStack                                   ← 右下泡泡（fixed，不佔 row 的 flex 空間；spec §8.1）
   // `data-testid="note-editor"` 留在 `NoteEditorView`／`BlockNoteView` 上，不隨這次
   // 改版搬家——e2e 的 `[data-testid="note-editor"] [contenteditable]` 與
   // `NoteEditor.layout.test.tsx` 的節點鏈都吊在這裡。
@@ -460,6 +462,7 @@ export function NoteEditor({ doc, provider, editable, user, noteId, headerSlot, 
           {footerSlot}
         </div>
         <AiPanel />
+        <CornerStack />
       </div>
       {/* issue #99：`/` 選單「連結」項的對話框。開合 state 在這一層（`openLinkDialog`
           給 `getSlashItems` 用），`LinkDialog` 自己不持有——關閉與焦點回歸的完整

@@ -12,6 +12,7 @@ import { noteSchema } from "@/collab/schema";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AiSessionProvider, useAiSession } from "./AiSession";
 import { AiPanel } from "./AiPanel";
+import { CornerStack } from "@/components/CornerStack";
 
 // ── mount harness（同 `ai/apply.test.ts` 檔頭「wikilink render 需要 elementRenderer
 // shim」的既有結論——這裡的 rebind／wikilink wire payload 測試會真的插入 wikilink 節點，
@@ -170,6 +171,7 @@ function renderPanel(editor: any, noteId: string, editable: boolean, actions: Ai
       >
         <RawRevertDriver />
         <AiPanel />
+        <CornerStack />
       </AiSessionProvider>
       <Toaster />
     </QueryClientProvider>
@@ -245,83 +247,20 @@ describe("AiSession + AiPanel（Task 6）", () => {
     expect(screen.getByRole("button", { name: PREVIEW_ACTION.name })).toBeInTheDocument();
   });
 
-  it("#115：collapsed 態＝右下 bubble（fixed 圓鈕、brand tint），點擊展開後 bubble 消失", async () => {
+  it("#115／§8.1：AI bubble 外觀（定位在 CornerStack 容器），點擊展開後 bubble 消失", async () => {
     editor = mountedEditor([{ type: "paragraph", content: "文字" }]);
     renderPanel(editor, "note-1", true, [DIRECT_ACTION]);
 
     const bubble = await screen.findByTestId("ai-bubble");
     expect(bubble).toHaveAttribute("aria-label", EXPAND_LABEL);
-    // 位置：`<md` 距視窗右下 20px、`md+` 24px（spec §2 定案）；48px 圓鈕。
-    expect(bubble).toHaveClass(
-      "fixed",
-      "bottom-5",
-      "right-5",
-      "md:bottom-6",
-      "md:right-6",
-      "z-30",
-      "h-12",
-      "w-12",
-      "rounded-full",
-    );
-    // 底/前景與 focus ring 都來自 Button（variant="brand"）單一出處（不新造色——
-    // AA 驗證見 PR 紀錄）；淡出時鍵盤焦點強制現形，不藏隱形鈕。
+    // 48px 圓鈕；定位（fixed 右下）與捲動淡出已搬到 CornerStack 容器，由 CornerStack.test 釘。
+    expect(bubble).toHaveClass("h-12", "w-12", "rounded-full");
+    // 底/前景與 focus ring 都來自 Button（variant="brand"）單一出處（不新造色——AA 驗證見 PR 紀錄）。
     expect(bubble).toHaveClass("bg-brand-soft", "text-brand-on-soft", "focus-visible:ring-2");
-    expect(bubble).toHaveClass("focus-visible:pointer-events-auto", "focus-visible:opacity-100");
 
     fireEvent.click(bubble);
     expect(await screen.findByTestId("ai-panel")).toBeInTheDocument();
     expect(screen.queryByTestId("ai-bubble")).not.toBeInTheDocument();
-  });
-
-  it("#115：捲動時 bubble 淡出（capture 收內層容器的 scroll），停 800ms 後恢復", async () => {
-    editor = mountedEditor([{ type: "paragraph", content: "文字" }]);
-    renderPanel(editor, "note-1", true, [DIRECT_ACTION]);
-
-    // 先用真 timer 等 bubble 落地，再切 fake timer 控制淡出窗口（findBy 的 waitFor
-    // 在 fake timer 下不可靠）。
-    const bubble = await screen.findByTestId("ai-bubble");
-    vi.useFakeTimers();
-    try {
-      // scroll 事件不冒泡但走捕獲——對任意子孫節點 dispatch，掛在 window 的
-      // capture 監聽要收得到（jsdom 的事件路徑含 window）。
-      fireEvent.scroll(document.body);
-      expect(bubble).toHaveClass("opacity-0", "pointer-events-none");
-
-      // 釘住 800 這個值本身：799ms 時仍淡出、再過 1ms 才恢復——只 advance 800
-      // 的話任何 ≤800 的實作值都會誤綠（審查突變實測：改 50 仍全綠）。
-      act(() => {
-        vi.advanceTimersByTime(799);
-      });
-      expect(bubble).toHaveClass("opacity-0");
-      act(() => {
-        vi.advanceTimersByTime(1);
-      });
-      expect(bubble).not.toHaveClass("opacity-0");
-      expect(bubble).not.toHaveClass("pointer-events-none");
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("#115：展開態不掛捲動監聽——捲動不起任何計時器，面板不淡出", async () => {
-    editor = mountedEditor([{ type: "paragraph", content: "文字" }]);
-    renderPanel(editor, "note-1", true, [DIRECT_ACTION]);
-
-    fireEvent.click(await screen.findByTestId("ai-bubble"));
-    const panel = await screen.findByTestId("ai-panel");
-
-    // 直接量行為而不是斷 class（展開態 class 串裡本來就沒有條件項，斷
-    // `not.toHaveClass("opacity-0")` 是恆真——審查突變實測：把 effect 的
-    // `if (!collapsed) return` 拔掉仍全綠）。展開態 effect 應提早 return、
-    // 不掛監聽：捲動之後不得存在任何待觸發的淡出計時器。
-    vi.useFakeTimers();
-    try {
-      fireEvent.scroll(document.body);
-      expect(vi.getTimerCount()).toBe(0);
-      expect(panel).toBeVisible();
-    } finally {
-      vi.useRealTimers();
-    }
   });
 
   it("direct＋有選取 → 串流完自動套用；送出的 wire payload 帶正確 noteId/text（I-3）", async () => {
