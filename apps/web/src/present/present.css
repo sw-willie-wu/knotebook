@@ -28,6 +28,13 @@
   font-size: clamp(1rem, 0.6rem + 1.2vw, 1.75rem);
   line-height: 1.5;
 }
+/* 沒有溢出的投影片關掉瀏覽器手勢（E6 揭露，spec §6.8、F13）：section 是 overflow-y:auto 捲動容器，computed touch-action 是 auto，
+   Chromium 會在第一個 pointermove 之後送 pointercancel；reveal 6.0.2 走 pointer 事件路徑，位移因此停在約 27px、到不了 40px 的滑動門檻，
+   換頁不成。溢出的投影片由 deck.ts 標 data-prevent-swipe，維持瀏覽器捲動（手指用來捲動內容，換頁用畫面箭頭）。
+   不用 pan-y：那會把垂直手勢交給瀏覽器，縱向投影片的上下滑換頁會壞。 */
+.kn-present .reveal .slides section[data-kn-slide-id]:not([data-prevent-swipe]) {
+  touch-action: none;
+}
 .kn-present .reveal .slides section.kn-present-stack {
   padding: 0;
   overflow: visible;

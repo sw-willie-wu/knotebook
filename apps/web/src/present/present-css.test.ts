@@ -31,4 +31,8 @@ describe("present.css", () => {
   it("無轉場規則存在（deck.ts 的 NO_TRANSITION_CLASS）", () => {
     expect(rule(".kn-present .reveal.kn-present-no-transition .slides section")).toContain("transition: none !important;");
   });
+
+  it("E6：沒有溢出的投影片 touch-action:none（溢出的帶 data-prevent-swipe，維持瀏覽器捲動）", () => {
+    expect(rule(".kn-present .reveal .slides section[data-kn-slide-id]:not([data-prevent-swipe])")).toContain("touch-action: none;");
+  });
 });

@@ -424,7 +424,7 @@ test("E6：觸控——未溢出的投影片滑動換頁；溢出的投影片與
     `| ${Array.from({ length: cols }, () => "---").join(" | ")} |`,
     `| ${Array.from({ length: cols }, (_, i) => `W1C${i + 1}`).join(" | ")} |`,
   ].join("\n");
-  const { context: desktop, page: owner } = await adminPageWithNote(browser, title, ["## Short", "", "short text", "", "## Long", "", longLines, "", "## Table", "", table, "", "## Picture", ""].join("\n"));
+  const { context: desktop, page: owner } = await adminPageWithNote(browser, title, ["## Short", "", "short text", "", "## Long", "", longLines, "", "## Table", "", table, "", "## Stack", "", "stack text", "", "### Child", "", "child text", "", "## Picture", ""].join("\n"));
   const mobile = await browser.newContext({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 640 } });
   try {
     await expect(editorLocator(owner).getByText("line 60")).toBeVisible({ timeout: 15_000 });
@@ -455,6 +455,8 @@ test("E6：觸控——未溢出的投影片滑動換頁；溢出的投影片與
     const short = await slideIdContaining(page, "short text");
     const long = await slideIdContaining(page, "line 60");
     const tableSlide = await slideIdContaining(page, "WideHeader1");
+    const stack = await slideIdContaining(page, "stack text");
+    const child = await slideIdContaining(page, "child text");
     const picture = await slideIdContaining(page, "Picture");
 
     // 封面 → Short（鍵盤），在 Short 上水平滑動 → 換到 Long
@@ -477,6 +479,13 @@ test("E6：觸控——未溢出的投影片滑動換頁；溢出的投影片與
     await swipe(page, { x: box.x + box.width - 20, y: box.y + box.height / 2 }, { x: box.x + 20, y: box.y + box.height / 2 });
     await expect.poll(() => wrap.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
     expect(await currentSlideId(page)).toBe(tableSlide);
+
+    // 有縱向子投影片的章：沒溢出，手指向上滑 → 進到下一張縱向投影片（touch-action:none 的 app 修正守著；pan-y 會讓這步壞掉）
+    await page.locator(".reveal .controls .navigate-right").tap();
+    await expect.poll(() => currentSlideId(page)).toBe(stack);
+    expect(await page.locator(`section[data-kn-slide-id="${stack}"]`).getAttribute("data-prevent-swipe")).toBeNull();
+    await swipe(page, { x: 200, y: 520 }, { x: 200, y: 160 });
+    await expect.poll(() => currentSlideId(page)).toBe(child);
 
     // Picture：圖還沒到 → 不溢出；到了 → 溢出、垂直滑動捲動不換頁
     await page.locator(".reveal .controls .navigate-right").tap();
