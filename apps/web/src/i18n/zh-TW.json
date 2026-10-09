@@ -899,6 +899,29 @@
       "gone": "這一版已經不存在，清單已重新整理。",
       "leftLabel": "v{{seq}}",
       "rightLabelCurrent": "目前狀態"
+    },
+    "dialog": {
+      "saveTitle": "儲存當前版本",
+      "saveDescription": "以目前內容建立版本 v{{seq}}",
+      "nameLabel": "版本名稱（選填）",
+      "cancel": "取消",
+      "save": "儲存",
+      "applyTitle": "套用 v{{seq}}",
+      "applyDescription": "目前有未儲存的修改，套用 v{{seq}} 會覆蓋它們（也包括其他人尚未存成版本的修改）。",
+      "applyDiscard": "不儲存，直接套用",
+      "applySaveFirst": "儲存當前版本",
+      "renameTitle": "編輯 v{{seq}} 的名稱",
+      "renameAutoHint": "編輯名稱後，這一版會轉為手動版本並永久保留。",
+      "deleteTitle": "刪除 v{{seq}}？",
+      "deleteDescription": "這一版會從版本歷史移除，筆記目前的內容不會改變。",
+      "delete": "刪除"
+    },
+    "toast": {
+      "saved": "已存為 v{{seq}}",
+      "upgraded": "內容與 v{{seq}} 相同，已將 v{{seq}} 設為手動版本",
+      "applied": "已套用 v{{seq}}",
+      "renamed": "已更新版本名稱",
+      "deleted": "已刪除 v{{seq}}"
     }
   },
   "storage": {

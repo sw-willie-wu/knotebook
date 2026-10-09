@@ -11,6 +11,7 @@ import { EllipsisVertical, X } from "@/components/ui/icons";
 import { useVersions } from "@/lib/versions-context";
 import { cn } from "@/lib/utils";
 import { BASE_DOT_COLOR, currentSubtitle, editorsText, formatVersionTime } from "./version-labels";
+import { useApplyFlow } from "./use-apply-flow";
 
 /** 列的兩行內容（面板與窄視窗整頁共用）。 */
 export function VersionRowContent({ version, isBase }: { version: VersionDto; isBase: boolean }) {
@@ -66,7 +67,7 @@ export function VersionRowMenu({ version, isBase, onApply }: { version: VersionD
 export function VersionsPanel({ doc }: { doc: Y.Doc }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const { noteId, preview, startPreview, close, openSave, openDialog } = useVersions();
+  const { noteId, preview, startPreview, close, openSave } = useVersions();
   const id = noteId ?? "";
   const list = useVersionList(id, true);
   const rowsRef = useRef<Array<HTMLButtonElement | null>>([]);
@@ -88,8 +89,8 @@ export function VersionsPanel({ doc }: { doc: Y.Doc }) {
   const current = list.data?.pages[0]?.current;
   const latestSeq = versions[0]?.seq ?? null;
   const selected = versions.find((v) => v.seq === preview?.seq) ?? null;
-  // Task 9 換成 useApplyFlow().requestApply
-  const apply = (v: VersionDto) => openDialog({ kind: "apply", version: v });
+  const { requestApply } = useApplyFlow(id);
+  const apply = (v: VersionDto) => void requestApply(v);
 
   const onRowKey = (index: number) => (event: KeyboardEvent<HTMLButtonElement>) => {
     const next = event.key === "ArrowDown" ? index + 1 : event.key === "ArrowUp" ? index - 1 : null;

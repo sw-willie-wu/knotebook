@@ -899,6 +899,29 @@
       "gone": "This version no longer exists. The list has been refreshed.",
       "leftLabel": "v{{seq}}",
       "rightLabelCurrent": "Current state"
+    },
+    "dialog": {
+      "saveTitle": "Save current version",
+      "saveDescription": "Creates version v{{seq}} from the current content.",
+      "nameLabel": "Version name (optional)",
+      "cancel": "Cancel",
+      "save": "Save",
+      "applyTitle": "Apply v{{seq}}",
+      "applyDescription": "There are unsaved changes. Applying v{{seq}} will overwrite them (including changes by others that haven't been saved as a version yet).",
+      "applyDiscard": "Apply without saving",
+      "applySaveFirst": "Save current version",
+      "renameTitle": "Edit name of v{{seq}}",
+      "renameAutoHint": "Naming an automatic version makes it a manual version, which is kept until you delete it.",
+      "deleteTitle": "Delete v{{seq}}?",
+      "deleteDescription": "This version will be removed from the history. The note's current content doesn't change.",
+      "delete": "Delete"
+    },
+    "toast": {
+      "saved": "Saved as v{{seq}}",
+      "upgraded": "Same content as v{{seq}} — v{{seq}} is now a manual version",
+      "applied": "Applied v{{seq}}",
+      "renamed": "Version name updated",
+      "deleted": "Deleted v{{seq}}"
     }
   },
   "storage": {
