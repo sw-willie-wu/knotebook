@@ -9,3 +9,10 @@ bundled third-party assets that carry a different license.
 - **Copyright:** Copyright 2017 The Playfair Display Project Authors (https://github.com/clauseggers/Playfair-Display), with Reserved Font Name "Playfair Display".
 - **License:** SIL Open Font License, Version 1.1 (OFL-1.1).
 - **Full license text:** the `LICENSE` file inside the installed package (`node_modules/@fontsource/playfair-display/LICENSE`), also available at https://scripts.sil.org/OFL.
+
+## jsdiff (`diff`)
+
+- **Package:** [`diff`](https://www.npmjs.com/package/diff) — bundled into the web app's build output (the version-history preview compares two versions of a note with it).
+- **Copyright:** Copyright (c) 2009-2015, Kevin Decker <kpdecker@gmail.com>.
+- **License:** BSD 3-Clause License (BSD-3-Clause).
+- **Full license text:** the `LICENSE` file inside the installed package (`node_modules/diff/LICENSE`).
