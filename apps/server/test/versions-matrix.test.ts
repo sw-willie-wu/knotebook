@@ -60,7 +60,7 @@ describe("D8 開關矩陣", () => {
     const g = await seedGroup(s.ctx.db, "G", [{ userId: s.u.id, role: "admin" }]);
     const gnote = await seedNote(s.ctx.db, { groupId: g.id });
     const [cuts] = await cutPoints(s, gnote.id);
-    expect(cuts).toBeGreaterThanOrEqual(2); // idle 一刀＋AI 後一刀（AI 前已乾淨）；不寫死確切數，見註
+    expect(cuts).toBe(2); // 「idle 或 AI 寫前」恰一刀（兩種時序都是）＋AI 寫後一刀；unload 時已乾淨、不再切
   });
 
   it("群組開關關 → 群組筆記三切點都不切、手動照建", async () => {

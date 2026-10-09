@@ -31,6 +31,23 @@ export function paraDoc(texts: string[]): Y.Doc {
   return doc;
 }
 
+/** 5000 層巢狀（每層 blockContainer > [paragraph, blockGroup]）：`canonicalizeNode` 的遞迴在這個深度 RangeError（r3 實跑）。 */
+export function deepDoc(depth: number): Y.Doc {
+  const doc = new Y.Doc();
+  const g = new Y.XmlElement("blockGroup");
+  doc.getXmlFragment(YDOC_FRAGMENT).insert(0, [g]);
+  let parent: Y.XmlElement = g;
+  for (let i = 0; i < depth; i += 1) {
+    const c = new Y.XmlElement("blockContainer");
+    c.setAttribute("id", `d${i}`);
+    const inner = new Y.XmlElement("blockGroup");
+    c.insert(0, [new Y.XmlElement("paragraph"), inner]);
+    parent.insert(0, [c]);
+    parent = inner;
+  }
+  return doc;
+}
+
 /** 對第 i 顆頂層段落的 XmlText 做一次編輯（一個 transaction）。 */
 export function editPara(doc: Y.Doc, i: number, fn: (t: Y.XmlText) => void): void {
   const p = topLevelContainers(doc.getXmlFragment(YDOC_FRAGMENT))[i]!.get(0) as Y.XmlElement;

@@ -57,10 +57,16 @@ export interface VersionServiceDeps {
   /** 測試注入手動觸發的計時器；預設 setTimeout（unref）。 */
   timers?: VersionTimers;
   /**
-   * 測試注入縫（生產不注入＝零成本）。`afterMetaRead`：`resolve()` 的「文件沒載入」路徑讀完 `readVersionMeta`、回傳暫時狀態之前
-   * （即 `cutIfDirty` 進 `cutVersionInTx` 之前）——`versions-matrix.test.ts` 在這裡設 barrier，讓並發切版全部帶同一份舊基底進交易。
+   * 測試注入縫（生產不注入＝每個縫點一次可選鏈判斷）。
+   * `afterMetaRead`：`resolve()` 的「文件沒載入」路徑讀完 `readVersionMeta`、回傳暫時狀態之前
+   * （即 `cutIfDirty` 進 `cutVersionInTx` 之前；帶 `transient` 的 `isDirty` 也經 `resolve()` 走到這裡）——
+   * `versions-matrix.test.ts` 在這裡設 barrier，讓並發切版全部帶同一份舊基底進交易。
+   * `afterPruneRead`：`pruneNote` 讀完、算出要刪的 seq 之後、DELETE 之前（驗 DELETE 自帶述詞的並發保險，起草裁定 14）。
    */
-  testHooks?: { afterMetaRead?: (noteId: string) => Promise<void> };
+  testHooks?: {
+    afterMetaRead?: (noteId: string) => Promise<void>;
+    afterPruneRead?: (noteId: string, doomed: number[]) => Promise<void>;
+  };
 }
 export interface VersionMeta {
   baseSeq: number | null;
@@ -423,6 +429,7 @@ export function createVersionService(deps: VersionServiceDeps): VersionService {
       .from(noteVersions)
       .where(eq(noteVersions.noteId, noteId));
     const doomed = selectVersionsToDelete(rows, { now: at, keepAllDays: days.keepAllDays, dailyUntilDays: days.dailyUntilDays, baseSeq: note.baseSeq });
+    if (deps.testHooks?.afterPruneRead) await deps.testHooks.afterPruneRead(noteId, doomed);
     let deleted = 0;
     for (let i = 0; i < doomed.length; i += PRUNE_DELETE_CHUNK) {
       const chunk = doomed.slice(i, i + PRUNE_DELETE_CHUNK);
