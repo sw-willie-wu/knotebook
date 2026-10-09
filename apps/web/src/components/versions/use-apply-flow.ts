@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
 import type { VersionDto } from "@knotebook/shared";
@@ -22,6 +22,9 @@ export function useApplyFlow(noteId: string) {
   const queryClient = useQueryClient();
   const { openDialog, closeDialog, stopPreview, onApplied } = useVersions();
   const { mutateAsync } = useApplyVersion(noteId);
+  // requestApply 進行中旗標（Task 9 minor）：連點「套用」時第二次直接 return。`fetchQuery` 會把同鍵的並發重抓併成一次，
+  // 但兩次呼叫各自拿到結果後都會走到 applyNow——沒有這道旗標就是兩次 POST apply。
+  const inFlight = useRef(false);
 
   const applyNow = useCallback(
     async (version: VersionDto, discardUnsaved: boolean) => {
@@ -56,15 +59,21 @@ export function useApplyFlow(noteId: string) {
 
   const requestApply = useCallback(
     async (version: VersionDto) => {
-      let dirty: boolean;
+      if (inFlight.current) return;
+      inFlight.current = true;
       try {
-        dirty = (await fetchCurrent(queryClient, noteId)).dirty;
-      } catch (err) {
-        toast({ title: errorMessage(t, err), variant: "destructive" });
-        return;
+        let dirty: boolean;
+        try {
+          dirty = (await fetchCurrent(queryClient, noteId)).dirty;
+        } catch (err) {
+          toast({ title: errorMessage(t, err), variant: "destructive" });
+          return;
+        }
+        if (dirty) openDialog({ kind: "apply", version });
+        else await applyNow(version, false);
+      } finally {
+        inFlight.current = false;
       }
-      if (dirty) openDialog({ kind: "apply", version });
-      else await applyNow(version, false);
     },
     [queryClient, noteId, openDialog, applyNow, t],
   );

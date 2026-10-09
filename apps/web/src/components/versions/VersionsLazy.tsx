@@ -7,3 +7,4 @@ export { VersionsPanel } from "./VersionsPanel";
 export { VersionPreview, DiffEditor } from "./VersionPreview";
 export { PreviewBanner } from "./PreviewBanner";
 export { VersionsDialogs } from "./VersionsDialogs";
+export { VersionsSheet } from "./VersionsSheet";

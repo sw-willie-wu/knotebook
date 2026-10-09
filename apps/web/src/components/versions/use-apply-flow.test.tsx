@@ -16,12 +16,13 @@ const APPLY1 = `/api/notes/${NOTE}/versions/1/apply`;
 
 function Harness() {
   const s = useVersions();
-  const { applyNow } = useApplyFlow(NOTE);
+  const { applyNow, requestApply } = useApplyFlow(NOTE);
   return (
     <div>
       <button type="button" onClick={() => s.startPreview({ seq: 1, id: "v-1" })}>h-preview</button>
       <button type="button" onClick={() => s.openDialog({ kind: "apply", version: V1 })}>h-dialog</button>
       <button type="button" onClick={() => void applyNow(V1, true)}>h-apply-now</button>
+      <button type="button" onClick={() => void requestApply(V1)}>h-request</button>
       <span data-testid="h-state">{JSON.stringify({ preview: s.preview, dialog: s.dialog?.kind ?? null })}</span>
     </div>
   );
@@ -134,5 +135,39 @@ describe("useApplyFlow × onApplied（Task 10 fix round 1）", () => {
     expect(onApplied).toHaveBeenCalledTimes(1);
     expect(hState()).toEqual({ preview: null, dialog: null });
     expect(screen.queryByText(i18n.t("errors.fallback"))).not.toBeInTheDocument();
+  });
+
+  it("requestApply 連點（Task 9 minor）：進行中的第二次直接 return——fetchCurrent 與 apply 各只打一次；結束後可再套用", async () => {
+    const calls: string[] = [];
+    const pending: Array<(r: Response) => void> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        calls.push(url);
+        if (url === APPLY1) return new Promise<Response>((resolve) => pending.push(resolve));
+        if (url.startsWith(`/api/notes/${NOTE}/versions`)) return Promise.resolve(jsonResponse(200, { versions: [V1], current: CURRENT, nextBefore: null }));
+        throw new Error(`unexpected fetch: ${url}`);
+      }),
+    );
+    renderFlow(vi.fn());
+    const count = (u: string) => calls.filter((c) => c === u).length;
+    fireEvent.click(screen.getByText("h-request"));
+    fireEvent.click(screen.getByText("h-request"));
+    await waitFor(() => expect(count(APPLY1)).toBe(1));
+    // 第一次的 apply 還懸著：多等一段，第二次點擊不得補打。
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    expect(count(APPLY1)).toBe(1);
+    expect(count(`/api/notes/${NOTE}/versions?limit=1`)).toBe(1);
+    await act(async () => {
+      pending[0](jsonResponse(200, { current: CURRENT }));
+    });
+    expect(await screen.findByText("Applied v1")).toBeInTheDocument();
+    // 進行中旗標在結束後放開：再點一次照常走完整流程。
+    fireEvent.click(screen.getByText("h-request"));
+    await waitFor(() => expect(count(APPLY1)).toBe(2));
+    expect(count(`/api/notes/${NOTE}/versions?limit=1`)).toBe(2);
   });
 });

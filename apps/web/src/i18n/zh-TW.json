@@ -883,6 +883,12 @@
     "loadMore": "載入更早的版本",
     "baseDot": "目前內容的基底",
     "crash": "版本歷史無法顯示。",
+    "sheet": {
+      "back": "返回",
+      "backToList": "清單",
+      "prev": "較舊的版本",
+      "next": "較新的版本"
+    },
     "preview": {
       "banner": "正在預覽 v{{seq}} · {{when}} · {{who}}",
       "compareLabel": "比較對象",

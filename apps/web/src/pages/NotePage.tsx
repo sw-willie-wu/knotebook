@@ -39,10 +39,11 @@ import { LazyPresentation } from "@/present/lazy";
 import { PresentationShell, type PresentationShellStatus } from "@/present/PresentationShell";
 import { exitFullscreenIfLeftPresentation, isPresentingSearch } from "@/present/present-url";
 
-// 版本歷史 UI（spec §8；起草裁定 2）：只經 `VersionsLazy` 這個 lazy 入口引用，三個掛載點各包一層 `VersionsLazyBoundary`。
+// 版本歷史 UI（spec §8；起草裁定 2）：只經 `VersionsLazy` 這個 lazy 入口引用，每個掛載點各包一層 `VersionsLazyBoundary`。
 const PreviewBanner = lazy(() => import("@/components/versions/VersionsLazy").then((m) => ({ default: m.PreviewBanner })));
 const VersionPreview = lazy(() => import("@/components/versions/VersionsLazy").then((m) => ({ default: m.VersionPreview })));
 const VersionsDialogs = lazy(() => import("@/components/versions/VersionsLazy").then((m) => ({ default: m.VersionsDialogs })));
+const VersionsSheet = lazy(() => import("@/components/versions/VersionsLazy").then((m) => ({ default: m.VersionsSheet })));
 
 /** 終態後兩次重抓之間的間隔。 */
 const TERMINAL_RECONCILE_INTERVAL_MS = 750;
@@ -698,6 +699,13 @@ export default function NotePage() {
           />
           {/* dialog 掛在 header 之外：它的開關由本頁持有，兩個觸發點共用（見上）。 */}
           <AiEditsDialog note={note} open={editsOpen} onOpenChange={setEditsOpen} />
+          {/* 窄視窗整頁（spec §8.3）。整頁一定比對話框先開（對話框是 modal，開著時點不到 ⋮，不可能再開整頁）；
+              兩者同為 z-50、portal 到 body，後掛的在上——所以對話框一定疊在整頁之上。 */}
+          {versions.mode === "sheet" && (
+            <VersionsLazyBoundary noteId={noteId ?? null} errorClassName={VERSIONS_ERROR_FRAME.floating}>
+              <VersionsSheet doc={doc} lastEdited={note.lastEdited} />
+            </VersionsLazyBoundary>
+          )}
           {versions.dialog !== null && (
             <VersionsLazyBoundary noteId={noteId ?? null} errorClassName={VERSIONS_ERROR_FRAME.floating}>
               <VersionsDialogs />

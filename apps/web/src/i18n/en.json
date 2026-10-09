@@ -883,6 +883,12 @@
     "loadMore": "Load older versions",
     "baseDot": "Base of the current content",
     "crash": "Version history couldn't be shown.",
+    "sheet": {
+      "back": "Back",
+      "backToList": "List",
+      "prev": "Older version",
+      "next": "Newer version"
+    },
     "preview": {
       "banner": "Previewing v{{seq}} · {{when}} · {{who}}",
       "compareLabel": "Compare with",
