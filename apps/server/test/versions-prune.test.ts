@@ -66,7 +66,7 @@ describe("切版後清除（§5.3 第 5 步）", () => {
 });
 
 describe("sweep 規模（§11.2：連續三輪涵蓋 ≥ 250 篇中的每一篇）", () => {
-  it("250 篇各有一列該刪：三輪（100／100／50）後每篇都清乾淨；第四輪 0 並歸零", async () => {
+  it("250 篇各有一列該刪：三輪（100／100／50）後每篇都清乾淨；第四輪回 0", async () => {
     const { db } = await buildTestApp();
     const u = await seedUser(db);
     await db.execute(sql`insert into notes (owner_id, slug) select ${u.id}, 'sw-' || g from generate_series(1, 250) g`);
@@ -84,7 +84,7 @@ describe("sweep 規模（§11.2：連續三輪涵蓋 ≥ 250 篇中的每一篇�
   });
 });
 
-describe("病態文件（§11.2 深巢狀、§13-9 的 500 範圍）", () => {
+describe("病態文件（§11.2 深巢狀：5000 層巢狀不讓版本路由與搬移回 500）", () => {
   it("5000 層：GET /versions 不 500、手動存 201、GET 快照 200、搬到群組成功", async () => {
     const { app, db } = await buildTestApp();
     const u = await seedUser(db);

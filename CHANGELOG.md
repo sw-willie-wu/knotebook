@@ -7,7 +7,17 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
-_Nothing yet._
+### Upgrade notes
+
+- **Back up the database first.** This release's database migration (0019: note versions) runs automatically when the new server starts. It only adds a table, columns, indexes and constraints, but take a dump before you start the new version anyway, for example `docker compose exec -T db pg_dump -U knotebook knotebook > knotebook-before-upgrade.sql`.
+- **Automatic note versions are on after upgrading**, for the whole site and for every user and group. Each version is a full copy of a note's content, kept in the database; to turn automatic saving off for the whole site, use `PATCH /api/admin/versions/settings`.
+- **Changes an existing API or MCP client may notice:**
+  - The user object from `GET /api/auth/me`, `POST /api/auth/login`, `POST /api/auth/register`, `POST /api/auth/oidc/pending/confirm` (its `user`) and `PATCH /api/auth/profile` now includes `autoVersions`; group objects from `GET`/`POST /api/groups` and `PATCH /api/groups/:id` include `autoVersions`; `GET /api/auth/config` includes `autoVersionsEnabled`. `PATCH /api/auth/profile` accepts `{autoVersions}` without `handle`, and `PATCH /api/groups/:id` accepts `{autoVersions}` without `name`.
+  - Moving a note into a group, and deleting a group by transferring its notes, clear those notes' version history.
+
+### Added
+
+- **Note version history (API).** Every note keeps a history of versions. When something has changed, one is saved automatically once nobody has edited the note for about 5 minutes, when everyone leaves it, and before and after AI or API writes; you can also save one by hand. List, read, apply, rename and delete them through `/api/notes/:id/versions`; applying a version replaces the note's content for everyone. Older automatic versions are thinned out over time (all kept for 7 days, then the newest of each UTC day up to 30 days, then the newest of each UTC week — both numbers are site settings, `/api/admin/versions/settings`); manual versions are never thinned out, and versions don't count towards storage plans. Automatic saving can be turned off for the whole site, for your own notes or for a group. The web app doesn't show versions yet. See **Note versions** in [API](docs/api.md).
 
 ## [0.7.0] - 2026-10-09
 
