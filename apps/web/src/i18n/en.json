@@ -880,7 +880,26 @@
     "save": "Save current version",
     "loadMore": "Load older versions",
     "baseDot": "Base of the current content",
-    "crash": "Version history couldn't be shown."
+    "crash": "Version history couldn't be shown.",
+    "preview": {
+      "banner": "Previewing v{{seq}} · {{when}} · {{who}}",
+      "compareLabel": "Compare with",
+      "comparePrevious": "Previous version",
+      "compareCurrent": "Current state",
+      "vsEmpty": "vs empty document",
+      "split": "Side by side",
+      "single": "Single column",
+      "onlyChanges": "Only changes",
+      "close": "Close preview",
+      "collapsed": "… {{count}} unchanged blocks …",
+      "nonTextChanged": "Changed · see before and after",
+      "before": "Before",
+      "after": "After",
+      "loading": "Loading version…",
+      "gone": "This version no longer exists. The list has been refreshed.",
+      "leftLabel": "v{{seq}}",
+      "rightLabelCurrent": "Current state"
+    }
   },
   "storage": {
     "quotaDetail": "{{used}} of {{quota}} used. Ask a site admin for more space.",

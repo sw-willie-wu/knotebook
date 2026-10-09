@@ -4,3 +4,5 @@
  * （`scripts/check-bundle-size.mjs` 守著）。
  */
 export { VersionsPanel } from "./VersionsPanel";
+export { VersionPreview, DiffEditor } from "./VersionPreview";
+export { PreviewBanner } from "./PreviewBanner";

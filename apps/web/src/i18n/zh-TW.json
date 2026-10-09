@@ -880,7 +880,26 @@
     "save": "儲存當前版本",
     "loadMore": "載入更早的版本",
     "baseDot": "目前內容的基底",
-    "crash": "版本歷史無法顯示。"
+    "crash": "版本歷史無法顯示。",
+    "preview": {
+      "banner": "正在預覽 v{{seq}} · {{when}} · {{who}}",
+      "compareLabel": "比較對象",
+      "comparePrevious": "前一版",
+      "compareCurrent": "目前狀態",
+      "vsEmpty": "vs 空文件",
+      "split": "並排",
+      "single": "單欄",
+      "onlyChanges": "只看差異",
+      "close": "關閉預覽",
+      "collapsed": "… {{count}} 個未變更的區塊 …",
+      "nonTextChanged": "已變更 · 看前後",
+      "before": "之前",
+      "after": "之後",
+      "loading": "正在載入版本…",
+      "gone": "這一版已經不存在，清單已重新整理。",
+      "leftLabel": "v{{seq}}",
+      "rightLabelCurrent": "目前狀態"
+    }
   },
   "storage": {
     "quotaDetail": "已使用 {{used}}／{{quota}}，請洽站台管理員增加空間",
