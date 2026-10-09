@@ -203,12 +203,12 @@
 - **Following a link to the current note's own old address briefly reconnects the editor.** If the note was renamed and its old address hasn't been taken by another note, opening that old address (from a link, not with Back or Forward) looks the note up again: the editor shows the loading state for a moment, reconnects, and the address switches to the note's current name (#179).
 - **A presentation opened from a public link is not live.** It picks up changes only when the page fetches the note again — for example when the tab regains focus — and then stays on the same slide when it can.
 - **The cover slide's title can lag behind a rename by someone else.** The title comes from the note's details, not from the live document, so another person's rename reaches the cover when your copy of the note is refreshed (for example when the tab regains focus).
-- **A `[[wikilink]]` in a presentation keeps the linked note's old title until that slide's content changes.** Renaming the linked note does not redraw the slides by itself.
+- **A `[[wikilink]]` in a presentation can show an old title.** When you are signed in, it keeps the linked note's old title until that slide's content changes — renaming the linked note does not redraw the slides by itself. On a public link it shows the title the linked note had when the link was made.
 - **Opening a presentation link while signed out starts at the cover after you sign in.** The slide part of the address (`#/…`) is not carried through sign-in.
 - **Changing the slide part of the address by hand while presenting does not move to that slide.** It is read when the presentation opens; reload to jump there.
-- **On touch screens, a swipe doesn't change slides on a slide that scrolls, or on a table.** There your finger scrolls the content; use the arrows on the screen to move between slides.
+- **On touch screens, a swipe doesn't change slides on a slide that scrolls, or on a table.** There a swipe is left to the content, which scrolls if it can; use the arrows on the screen to move between slides.
 - **iPhone Safari can't show a presentation full screen.** It fills the browser window instead.
 - **Code in a presentation isn't syntax-highlighted.**
 - **Diagrams in a presentation follow the same rules as in the editor**, including that a diagram can load images from other sites (see [Diagrams](./diagrams.md)).
-- **Opening a presentation removes any other query parameters from the address.** The address is rewritten to end in exactly `?present` (plus the `#/…` slide) before the slides start, so that nothing else in the address can change how the presentation behaves.
+- **Opening a presentation removes any other query parameters from the address.** The address is rewritten to end in exactly `?present` (keeping whatever follows the `#`) before the slides start, so that nothing else in the address can change how the presentation behaves.
 - **A link to a `#…` anchor inside a slide isn't clickable.** The presentation would otherwise take it as a jump to another slide.
