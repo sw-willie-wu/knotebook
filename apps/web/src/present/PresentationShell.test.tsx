@@ -6,7 +6,7 @@ import i18n from "@/i18n";
 import { installFakeFullscreen, type FakeFullscreen } from "@/test/fake-fullscreen";
 import { enterPresentationFullscreen } from "./fullscreen";
 import { isPresentingSearch } from "./present-url";
-import { PresentationShell, usePresentationShell, type PresentationShellContextValue, type PresentationShellStatus } from "./PresentationShell";
+import { PresentationErrorBoundary, PresentationShell, usePresentationShell, type PresentationShellContextValue, type PresentationShellStatus } from "./PresentationShell";
 
 // navigate 計次：包住真的 useNavigate（NotePage.test.tsx 的 navSpy 同手法）。
 const nav = vi.hoisted(() => ({ fn: vi.fn() }));
@@ -254,5 +254,67 @@ describe("PresentationShell（spec §6.1、§6.3-4、§6.6、§6.7）", () => {
     fireEvent.mouseMove(screen.getByRole("dialog"));
     expect(toolbar.classList.contains("opacity-100")).toBe(true);
     expect(toolbar.classList.contains("opacity-0")).toBe(false);
+  });
+});
+
+describe("PresentationErrorBoundary（公開頁簡報的錯誤邊界，spec §6.2 末段）", () => {
+  function Boom(): never {
+    throw new Error("failed to fetch dynamically imported module: /assets/PresentationOverlay-x.js");
+  }
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    // React 會把邊界攔到的錯誤印進 console.error；比照 PublicNoteShell.test.tsx 吞掉，測試輸出才乾淨。
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("正常時原樣渲染 children", () => {
+    render(
+      <PresentationErrorBoundary reload={vi.fn()}>
+        <p>deck-content</p>
+      </PresentationErrorBoundary>,
+    );
+    expect(screen.getByText("deck-content")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("child throw → role=alert＋public.loadError 文案；按重試 → 注入的 reload 恰一次", () => {
+    const reload = vi.fn();
+    render(
+      <PresentationErrorBoundary reload={reload}>
+        <Boom />
+      </PresentationErrorBoundary>,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent("Couldn't load this page — check your connection and try again.");
+    expect(reload).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("離線時重試鈕 disabled＋顯示離線說明、按了不呼叫 reload（離線 reload 只會落到瀏覽器錯誤頁）", () => {
+    const reload = vi.fn();
+    // 與 ErrorBoundary.test.tsx／PublicNoteShell.test.tsx 同款手法：defineProperty 蓋 instance own property，
+    // restoreAllMocks 管不到它，這裡自己刪回（回落到 prototype getter）。
+    Object.defineProperty(window.navigator, "onLine", { value: false, configurable: true });
+    try {
+      render(
+        <PresentationErrorBoundary reload={reload}>
+          <Boom />
+        </PresentationErrorBoundary>,
+      );
+      const retry = screen.getByRole("button", { name: "Try again" });
+      expect(retry).toBeDisabled();
+      expect(
+        screen.getByText("You appear to be offline — this button will re-enable when the connection returns."),
+      ).toBeInTheDocument();
+      fireEvent.click(retry);
+      expect(reload).not.toHaveBeenCalled();
+    } finally {
+      delete (window.navigator as unknown as Record<string, unknown>).onLine;
+    }
   });
 });

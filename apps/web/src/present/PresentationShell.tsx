@@ -4,6 +4,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router";
+import { useOnline } from "@/components/ErrorBoundary";
 import { Button } from "@/components/ui/button";
 import { Maximize, Minimize, X } from "@/components/ui/icons";
 import { useHistoryLocationKey, useRealLocation } from "@/lib/real-location";
@@ -231,12 +232,16 @@ export class PresentationErrorBoundary extends Component<PresentationErrorBounda
 
 function PresentationErrorFallback({ onRetry }: { onRetry: () => void }) {
   const { t } = useTranslation();
+  // 離線時 reload 只會把頁面換成瀏覽器的網路錯誤頁——比照 PublicNoteErrorFallback 與 ErrorBoundary 的
+  // 錯誤畫面，按鈕灰掉並以文字說明，恢復連線（online 事件）即重新啟用。
+  const online = useOnline();
   return (
     <div role="alert" className="flex h-full flex-col items-center justify-center gap-3 p-6">
       <p className="text-sm text-muted-foreground">{t("public.loadError")}</p>
-      <Button type="button" variant="outline" onClick={onRetry}>
+      <Button type="button" variant="outline" disabled={!online} onClick={onRetry}>
         {t("app.retry")}
       </Button>
+      {!online && <p className="text-sm text-muted-foreground">{t("app.offlineHint")}</p>}
     </div>
   );
 }
