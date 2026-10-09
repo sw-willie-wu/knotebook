@@ -2,10 +2,16 @@
 // 判斷邏輯，不必真的 build——真 dist 的檢查在 CI 的 build 之後跑 check-bundle-size.mjs。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { checkBundleSize } from './check-bundle-size.mjs';
+import { fileURLToPath } from 'node:url';
+import { VERSIONS_MARKERS, checkBundleSize } from './check-bundle-size.mjs';
+
+const MARKER_BASE = {
+  'index-Abc123.js': 100, 'mermaid.core-Ghi789.js': 10, 'shiki-Jkl012.js': 10, 'AdminPage-Mno345.js': 10,
+  'PresentationOverlay-Pqr678.js': 10,
+};
 
 function fakeAssets(files) {
   const dir = mkdtempSync(join(tmpdir(), 'bundle-check-'));
@@ -24,6 +30,7 @@ test('entry 在上限內且 NotePage chunk 存在 → 通過並回報摘要', ()
     'mermaid.core-Ghi789.js': 700_000,
     'shiki-Jkl012.js': 150_000,
     'AdminPage-Mno345.js': 60_000,
+    'VersionsLazy-Pqr678.js': 40_000,
     'PresentationOverlay-Pqr678.js': 200_000,
     'index-Abc123.css': 50_000, // css 不是 entry chunk，pattern 只認 .js
   });
@@ -35,6 +42,7 @@ test('entry 在上限內且 NotePage chunk 存在 → 通過並回報摘要', ()
     assert.deepEqual(result.mermaidChunks, ['mermaid.core-Ghi789.js']);
     assert.deepEqual(result.shikiChunks, ['shiki-Jkl012.js']);
     assert.deepEqual(result.adminPageChunks, ['AdminPage-Mno345.js']);
+    assert.deepEqual(result.versionsChunks, ['VersionsLazy-Pqr678.js']);
     assert.deepEqual(result.presentationChunks, ['PresentationOverlay-Pqr678.js']);
   } finally {
     cleanup();
@@ -128,9 +136,23 @@ test('AdminPage chunk 不存在（被靜態 import 併回 entry）→ throw', ()
   }
 });
 
+// spec §11.4／起草裁定 2：版本歷史 UI（含 diff 套件）必須是自己的 lazy chunk
+test('VersionsLazy chunk 不存在（被靜態 import 併回 NotePage／entry）→ throw', () => {
+  const { assets, cleanup } = fakeAssets({
+    'index-Abc123.js': 100, 'NotePage-Def456.js': 10, 'mermaid.core-Ghi789.js': 10, 'shiki-Jkl012.js': 10,
+    'AdminPage-Mno345.js': 10, 'PresentationOverlay-Pqr678.js': 10,
+  });
+  try {
+    assert.throws(() => checkBundleSize(assets), /VersionsLazy[\s\S]*diff/);
+  } finally {
+    cleanup();
+  }
+});
+
 test('簡報層 chunk 不存在（#229 迴歸：PresentationOverlay 被靜態 import）→ throw', () => {
   const { assets, cleanup } = fakeAssets({
     'index-Abc123.js': 100, 'NotePage-Def456.js': 10, 'mermaid.core-Ghi789.js': 10, 'shiki-Jkl012.js': 10, 'AdminPage-Mno345.js': 10,
+    'VersionsLazy-Vvv000.js': 10,
   });
   try {
     assert.throws(() => checkBundleSize(assets), /PresentationOverlay[\s\S]*#229/);
@@ -142,7 +164,7 @@ test('簡報層 chunk 不存在（#229 迴歸：PresentationOverlay 被靜態 im
 test('entry CSS 含 .reveal-viewport（reveal.css 進了首包）→ throw；lazy chunk 的 CSS 含它不算', () => {
   const base = {
     'index-Abc123.js': 100, 'NotePage-Def456.js': 10, 'mermaid.core-Ghi789.js': 10, 'shiki-Jkl012.js': 10,
-    'AdminPage-Mno345.js': 10, 'PresentationOverlay-Pqr678.js': 10,
+    'AdminPage-Mno345.js': 10, 'VersionsLazy-Vvv000.js': 10, 'PresentationOverlay-Pqr678.js': 10,
   };
   const bad = fakeAssets({ ...base, 'index-Css111.css': '.x{}.reveal-viewport{color:#000}' });
   try {
@@ -160,7 +182,7 @@ test('entry CSS 含 .reveal-viewport（reveal.css 進了首包）→ throw；laz
 
 test('reveal-viewport 字串只准在 PresentationOverlay-*.js：在 overlay 裡通過、在 NotePage 裡 throw（reveal.js 被靜態 import 進 NotePage）', () => {
   const base = {
-    'index-Abc123.js': 100, 'mermaid.core-Ghi789.js': 10, 'shiki-Jkl012.js': 10, 'AdminPage-Mno345.js': 10,
+    'index-Abc123.js': 100, 'mermaid.core-Ghi789.js': 10, 'shiki-Jkl012.js': 10, 'AdminPage-Mno345.js': 10, 'VersionsLazy-Vvv000.js': 10,
   };
   const ok = fakeAssets({ ...base, 'NotePage-Def456.js': 'x', 'PresentationOverlay-Pqr678.js': 'e.classList.add("reveal-viewport")' });
   try {
@@ -178,7 +200,7 @@ test('reveal-viewport 字串只准在 PresentationOverlay-*.js：在 overlay 裡
 
 test('Q1：簡報 chunk 的靜態 import 閉包（含間接）碰到 shiki → throw；只有動態 import("./shiki-…") 不算', () => {
   const base = {
-    'index-Abc123.js': 100, 'NotePage-Def456.js': 10, 'mermaid.core-Ghi789.js': 10, 'AdminPage-Mno345.js': 10,
+    'index-Abc123.js': 100, 'NotePage-Def456.js': 10, 'mermaid.core-Ghi789.js': 10, 'AdminPage-Mno345.js': 10, 'VersionsLazy-Vvv000.js': 10,
     'shiki-Jkl012.js': 'export const s=1', 'bundle-full-Zz9.js': 'export const b=1',
   };
   const indirect = fakeAssets({ ...base, 'PresentationOverlay-Pqr678.js': 'import{a}from"./mid-Q1.js";', 'mid-Q1.js': 'import{b}from"./bundle-full-Zz9.js";export const a=1' });
@@ -199,4 +221,46 @@ test('Q1：簡報 chunk 的靜態 import 閉包（含間接）碰到 shiki → t
   } finally {
     dynamicOnly.cleanup();
   }
+});
+
+test('VersionsLazy 自己含 marker 則通過', () => {
+  const { assets, cleanup } = fakeAssets({ ...MARKER_BASE, 'NotePage-Def456.js': 'x', 'VersionsLazy-Vvv000.js': VERSIONS_MARKERS.join(' ') });
+  try {
+    assert.doesNotThrow(() => checkBundleSize(assets));
+  } finally {
+    cleanup();
+  }
+});
+
+for (const marker of VERSIONS_MARKERS) {
+  test(`非 VersionsLazy 的 chunk 含 marker ${marker}（元件被靜態 import 搬進 NotePage）→ throw，訊息含 VersionsLazy`, () => {
+    const { assets, cleanup } = fakeAssets({ ...MARKER_BASE, 'NotePage-Def456.js': `x("${marker}")`, 'VersionsLazy-Vvv000.js': 'x' });
+    try {
+      assert.throws(() => checkBundleSize(assets), /NotePage-Def456\.js[\s\S]*VersionsLazy/);
+    } finally {
+      cleanup();
+    }
+  });
+}
+
+// marker 改名即靜默失效——把 i18n key 型 marker 綁回 en.json（`diff` 套件的字面不是 key，另外只准一個）。
+test('每個 i18n key 型 marker 都存在於 en.json；非 key 的只有 diff 套件那一個', () => {
+  const en = JSON.parse(readFileSync(fileURLToPath(new URL('../apps/web/src/i18n/en.json', import.meta.url)), 'utf8'));
+  const nonKeys = [];
+  for (const marker of VERSIONS_MARKERS) {
+    if (!marker.startsWith('versions.')) {
+      nonKeys.push(marker);
+      continue;
+    }
+    let node = en;
+    for (const part of marker.split('.')) node = node?.[part];
+    assert.equal(typeof node, 'string', `${marker} 不在 en.json——key 改名了，請同步更新 VERSIONS_MARKERS`);
+  }
+  assert.deepEqual(nonKeys, ['u{2DE}-']);
+});
+
+// `u{2DE}-` marker 取自 diff 套件 word.js 的 extendedWordChars；diff 升版改寫該字面時這案會紅，提醒換 marker。
+test('diff 套件的 word.js 仍含 marker 字面 u{2DE}-', () => {
+  const wordJs = fileURLToPath(new URL('../apps/web/node_modules/diff/libesm/diff/word.js', import.meta.url));
+  assert.ok(readFileSync(wordJs, 'utf8').includes('u{2DE}-'), 'diff 的 word.js 不再含 u{2DE}-——請改挑新的 diff 獨有字面並更新 VERSIONS_MARKERS');
 });
