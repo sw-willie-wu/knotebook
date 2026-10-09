@@ -111,7 +111,7 @@ const ARG_BANNED: Array<[string, RegExp]> = [
   ["閉包 function", /\bfunction\b/],
   ...HELPERS,
 ];
-const ROUTE_FILES = ["routes/notes.ts", "routes/groups.ts", "notes/links.ts", "routes/oidc.ts", "routes/oidc-pending.ts", "routes/admin-auth.ts", "routes/account.ts", "notes/search-index.ts", "notes/search-query.ts", "mcp/tools/create-transfer-token.ts", "routes/uploads.ts"];
+const ROUTE_FILES = ["routes/notes.ts", "routes/groups.ts", "notes/links.ts", "routes/oidc.ts", "routes/oidc-pending.ts", "routes/admin-auth.ts", "routes/account.ts", "notes/search-index.ts", "notes/search-query.ts", "mcp/tools/create-transfer-token.ts", "routes/uploads.ts", "collab/versions.ts"];
 
 describe("S14 結構性守衛（#175 §4.4）", () => {
   const files = walk(SRC);
@@ -184,6 +184,7 @@ describe("S14 結構性守衛（#175 §4.4）", () => {
       { f: "notes/search-query.ts", all: 1, inTx: 1 }, // 搜尋快照讀取（#93 §7.3）
       { f: "mcp/tools/create-transfer-token.ts", all: 1, inTx: 1 }, // #200 簽發（spec §4.2）
       { f: "routes/uploads.ts", all: 1, inTx: 1 }, // 儲存配額 U-tx（insertUploadInTx）
+      { f: "collab/versions.ts", all: 1, inTx: 1 }, // 版本歷史：切版（cutVersionInTx）
     ]);
   });
 
