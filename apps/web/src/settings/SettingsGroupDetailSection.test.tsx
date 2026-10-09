@@ -661,7 +661,7 @@ describe("群組詳情 × 自動儲存版本（spec §6.8、§8.5）", () => {
     expect(sw).toBeDisabled();
     expect(sw).toHaveAttribute("aria-checked", "true");
     expect(screen.getByText("Only members whose role can manage the group can change this.")).toBeInTheDocument();
-    expect(screen.queryByText("Automatic saving is turned off for the whole site.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Automatic saving is turned off for the whole site")).not.toBeInTheDocument();
     fireEvent.click(sw);
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
@@ -677,7 +677,7 @@ describe("群組詳情 × 自動儲存版本（spec §6.8、§8.5）", () => {
     renderDetailRoute(`/settings/groups/${GROUP_ADMIN.id}`, fetchMock);
     const sw = await screen.findByRole("switch", { name: "Automatic versions" });
     await waitFor(() => expect(sw).toBeDisabled());
-    expect(screen.getByText("Automatic saving is turned off for the whole site.")).toBeInTheDocument();
+    expect(screen.getByText("Automatic saving is turned off for the whole site")).toBeInTheDocument();
     expect(screen.queryByText("Only members whose role can manage the group can change this.")).not.toBeInTheDocument();
   });
 });

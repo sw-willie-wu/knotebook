@@ -887,7 +887,7 @@
       "dirtyFrom": "從 v{{seq}} 接著改，有未儲存的修改"
     },
     "autoOff": "此空間已關閉自動儲存",
-    "siteOff": "站台已關閉自動儲存。",
+    "siteOff": "站台已關閉自動儲存",
     "takesEffectNote": "正開著的筆記要等所有人關閉後才會套用變更。",
     "kind": {
       "manual": "手動",

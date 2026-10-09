@@ -887,7 +887,7 @@
       "dirtyFrom": "Continued from v{{seq}}, with unsaved changes"
     },
     "autoOff": "Automatic saving is off for this space",
-    "siteOff": "Automatic saving is turned off for the whole site.",
+    "siteOff": "Automatic saving is turned off for the whole site",
     "takesEffectNote": "Notes that are open right now pick up the change after everyone has closed them.",
     "kind": {
       "manual": "Manual",

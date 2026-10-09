@@ -521,7 +521,7 @@ describe("帳號頁 × 自動儲存版本（spec §6.8、§8.5）", () => {
     renderAutoVersions({ user: { ...PASSWORD_USER, autoVersions: true }, siteOn: false });
     const sw = await screen.findByRole("switch", { name: "Automatic versions" });
     await waitFor(() => expect(sw).toBeDisabled());
-    expect(screen.getByText("Automatic saving is turned off for the whole site.")).toBeInTheDocument();
+    expect(screen.getByText("Automatic saving is turned off for the whole site")).toBeInTheDocument();
   });
 
   it("站台總開關開啟 → 開關 enabled、沒有「站台已關閉」說明", async () => {
@@ -533,7 +533,7 @@ describe("帳號頁 × 自動儲存版本（spec §6.8、§8.5）", () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
     });
     expect(sw).toBeEnabled();
-    expect(screen.queryByText("Automatic saving is turned off for the whole site.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Automatic saving is turned off for the whole site")).not.toBeInTheDocument();
     expect(screen.getByText("Notes that are open right now pick up the change after everyone has closed them.")).toBeInTheDocument();
   });
 });
