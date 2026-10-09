@@ -131,6 +131,26 @@ describe("versions-context", () => {
     expect(result.current.dialog).toBeNull();
   });
 
+  it("enabled 翻 false（降級／終態）→ 面板、預覽、對話框都清掉；再翻回 true 也不會重現", () => {
+    const { result, rerender } = renderHook(({ enabled }: { enabled: boolean }) => useVersionsController({ noteId: "n1", enabled }), {
+      initialProps: { enabled: true },
+    });
+    act(() => {
+      result.current.open();
+      result.current.startPreview({ seq: 2, id: "v-2" });
+      result.current.openSave();
+    });
+    expect(result.current.mode).toBe("panel");
+    expect(result.current.preview).toEqual({ seq: 2, id: "v-2" });
+    expect(result.current.dialog).toEqual({ kind: "save" });
+    rerender({ enabled: false });
+    rerender({ enabled: true });
+    expect(result.current.mode).toBeNull();
+    expect(result.current.panelOpen).toBe(false);
+    expect(result.current.preview).toBeNull();
+    expect(result.current.dialog).toBeNull();
+  });
+
   it("換筆記 → splitMode／compareTo／onlyChanges 重設為預設", () => {
     const { result, rerender } = renderHook(({ id }: { id: string }) => useVersionsController({ noteId: id, enabled: true }), { initialProps: { id: "n1" } });
     act(() => {

@@ -8,6 +8,7 @@ import { isTerminal, type CollabState } from "@/collab/connection";
 import { copyText } from "@/lib/clipboard";
 import { useNotePageControls, type OpenEditsState } from "@/lib/note-page-controls";
 import { useCloseSidebarDrawer } from "@/lib/sidebar-drawer";
+import { useVersions } from "@/lib/versions-context";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { hoverReveal } from "@/components/ui/reveal";
@@ -21,7 +22,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { EllipsisVertical, Link as LinkIcon, MessageCircle, Presentation, Trash } from "@/components/ui/icons";
+import { EllipsisVertical, History, Link as LinkIcon, MessageCircle, Presentation, Trash } from "@/components/ui/icons";
 import { ManualCopyField } from "@/components/ManualCopyField";
 import {
   GroupTransferDialog,
@@ -155,6 +156,7 @@ function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page }: NoteMenuC
   const { t } = useTranslation();
   const navigate = useNavigate();
   const deleteNote = useDeleteNote();
+  const versions = useVersions();
 
   // 每次 render 同步寫入——`handleConfirmDelete` 的 catch 分支讀最新值，避開
   // stale closure（見上方檔頭「判斷終態用的是 stateRef.current」的說明）。
@@ -286,6 +288,33 @@ function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page }: NoteMenuC
             <Presentation className="mr-2 h-4 w-4" />
             {t("note.menu.present")}
           </DropdownMenuItem>
+          {/* 版本歷史（spec §8.5）：只在 `useVersions().enabled`（＝canEdit，且在 NotePage 的 VersionsProvider 之內）時渲染——
+              側欄每列的 ⋮ 在 provider 之外，拿到的是 no-op 預設（enabled=false），所以兩項只出現在頁首 ⋮（起草裁定 5）。
+              三步形同下方 AI 修改紀錄項（focus trap 規矩，見檔頭）。 */}
+          {versions.enabled && (
+            <>
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  setMenuOpen(false);
+                  versions.open();
+                }}
+              >
+                <History className="mr-2 h-4 w-4" />
+                {t("note.menu.versions")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  setMenuOpen(false);
+                  versions.openSave();
+                }}
+              >
+                <History className="mr-2 h-4 w-4 opacity-0" aria-hidden="true" />
+                {t("note.menu.saveVersion")}
+              </DropdownMenuItem>
+            </>
+          )}
           {/* AI 修改紀錄（#106）。三步形與下面的刪除項逐字同形：⚠ 少了
               `event.preventDefault()` 選單一樣會關、新案照樣綠——**沒有任何測試守著
               這一行**，它是照本檔檔頭那條 focus trap 規矩留的（Radix 預設的關閉路徑

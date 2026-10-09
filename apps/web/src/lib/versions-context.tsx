@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { VersionDto } from "@knotebook/shared";
 import type { VersionTarget } from "@/api/versions";
 
@@ -44,6 +44,8 @@ export interface VersionsContextValue {
   setOnlyChanges(v: boolean): void;
   openDialog(d: VersionsDialog): void;
   closeDialog(): void;
+  /** 套用成功後由 `useApplyFlow` 呼叫：轉給 controller 的 `onApplied` 選項（NotePage 用它讓筆記 query 整組失效）。 */
+  onApplied(): void;
 }
 
 const noop = () => {};
@@ -68,6 +70,7 @@ export const NOOP_VERSIONS: VersionsContextValue = {
   setOnlyChanges: noop,
   openDialog: noop,
   closeDialog: noop,
+  onApplied: noop,
 };
 
 const VersionsContext = createContext<VersionsContextValue>(NOOP_VERSIONS);
@@ -89,7 +92,21 @@ function isNarrow(): boolean {
   return window.matchMedia(NARROW_QUERY).matches;
 }
 
-export function useVersionsController({ noteId, enabled }: { noteId: string | null; enabled: boolean }): VersionsContextValue {
+export function useVersionsController({
+  noteId,
+  enabled,
+  onApplied,
+}: {
+  noteId: string | null;
+  enabled: boolean;
+  /** 套用成功後的通知（NotePage：`invalidateNoteQueries`）。存 ref 取最新值，不進 context value 的 deps。 */
+  onApplied?: () => void;
+}): VersionsContextValue {
+  const onAppliedRef = useRef(onApplied);
+  useEffect(() => {
+    onAppliedRef.current = onApplied;
+  });
+  const notifyApplied = useCallback(() => onAppliedRef.current?.(), []);
   const [mode, setMode] = useState<VersionsMode | null>(null);
   const [preview, setPreview] = useState<VersionTarget | null>(null);
   const [compareTo, setCompareTo] = useState<CompareTo>("previous");
@@ -110,6 +127,15 @@ export function useVersionsController({ noteId, enabled }: { noteId: string | nu
   }
 
   const active = enabled && noteId !== null;
+
+  // enabled 翻 false（降級成 viewer、終態）→ 面板／預覽／對話框一併關掉（Task 10 fix round 1，總管裁定）。
+  // 只遮輸出不清 state 的話，共編角色與 REST 角色短暫不一致時 enabled 會翻回 true，降級前開著的東西會重現。
+  useEffect(() => {
+    if (active) return;
+    setMode(null);
+    setPreview(null);
+    setDialog(null);
+  }, [active]);
 
   useEffect(() => {
     if (mode === null && preview === null) return;
@@ -160,7 +186,8 @@ export function useVersionsController({ noteId, enabled }: { noteId: string | nu
       setOnlyChanges,
       openDialog,
       closeDialog,
+      onApplied: notifyApplied,
     }),
-    [active, noteId, mode, preview, compareTo, splitMode, onlyChanges, dialog, open, close, openSave, startPreview, stopPreview, openDialog, closeDialog],
+    [active, noteId, mode, preview, compareTo, splitMode, onlyChanges, dialog, open, close, openSave, startPreview, stopPreview, openDialog, closeDialog, notifyApplied],
   );
 }

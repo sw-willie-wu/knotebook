@@ -1,4 +1,4 @@
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { NavigationType, useLocation, useNavigate, useNavigationType, useParams } from "react-router";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
@@ -16,6 +16,7 @@ import {
   withCanonicalizedFrom,
 } from "@/lib/real-location";
 import { NotePageControlsContext, type NotePageControls, type OpenEditsState } from "@/lib/note-page-controls";
+import { isOverlayOpen, useVersionsController, VersionsProvider } from "@/lib/versions-context";
 import { createLinkSync, type LinkSync } from "@/collab/link-sync";
 import { useCollab } from "@/collab/useCollab";
 import { AiEditsDialog } from "@/components/AiEditsDialog";
@@ -29,6 +30,7 @@ import { NoteEditor } from "@/components/NoteEditor";
 import { NoteMenu } from "@/components/NoteMenu";
 import { ShareDialog } from "@/components/ShareDialog";
 import { TitleInput } from "@/components/TitleInput";
+import { VERSIONS_ERROR_FRAME, VersionsLazyBoundary } from "@/components/versions/VersionsLazyBoundary";
 import { toast } from "@/components/ui/toast";
 import { cardSurface } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -36,6 +38,11 @@ import { exitOwnedFullscreen } from "@/present/fullscreen";
 import { LazyPresentation } from "@/present/lazy";
 import { PresentationShell, type PresentationShellStatus } from "@/present/PresentationShell";
 import { exitFullscreenIfLeftPresentation, isPresentingSearch } from "@/present/present-url";
+
+// 版本歷史 UI（spec §8；起草裁定 2）：只經 `VersionsLazy` 這個 lazy 入口引用，三個掛載點各包一層 `VersionsLazyBoundary`。
+const PreviewBanner = lazy(() => import("@/components/versions/VersionsLazy").then((m) => ({ default: m.PreviewBanner })));
+const VersionPreview = lazy(() => import("@/components/versions/VersionsLazy").then((m) => ({ default: m.VersionPreview })));
+const VersionsDialogs = lazy(() => import("@/components/versions/VersionsLazy").then((m) => ({ default: m.VersionsDialogs })));
 
 /** 終態後兩次重抓之間的間隔。 */
 const TERMINAL_RECONCILE_INTERVAL_MS = 750;
@@ -340,6 +347,52 @@ export default function NotePage() {
   canEditRef.current = note ? canEdit(effectiveRole(state, note)) : false;
   const linkSyncRef = useRef<LinkSync | null>(null);
 
+  // 版本歷史（spec §8.1、§9）：canEdit 判準與標題／分享同一條（REST 角色、非終態；不看 synced——版本 API 走 REST）。
+  const versionsEnabled = note !== undefined && !isTerminal(state) && canEdit(effectiveRole(state, note));
+  const versions = useVersionsController({
+    noteId: noteId ?? null,
+    enabled: versionsEnabled,
+    // 套用成功後筆記 query 整組失效（id 鍵＋舊形 ref 鍵＋路徑解析層）——就是 onDocUpdate 那一支，直接共用。
+    onApplied: onDocUpdate,
+  });
+
+  // A9：Ctrl／Cmd+S＝儲存當前版本。一般 window keydown（與 AppShell 的 Ctrl+K 同形、非 capture）；
+  // canEdit、不在簡報模式、且沒有對話框／選單開著才攔並 preventDefault（BlockNote／ProseMirror 預設鍵盤表沒綁 Mod+S，spec §2.5）。
+  // 例外：自家的儲存對話框開著時照樣 preventDefault（不讓瀏覽器跳另存網頁），但不再開第二次（fix round 1 Minor-3）。
+  const { enabled: vEnabled, openSave, preview: vPreview, stopPreview } = versions;
+  const saveDialogOpen = versions.dialog?.kind === "save";
+  useEffect(() => {
+    if (!vEnabled || presenting) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== "s") return;
+      if (saveDialogOpen) {
+        event.preventDefault();
+        return;
+      }
+      if (isOverlayOpen()) return;
+      event.preventDefault();
+      openSave();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [vEnabled, presenting, saveDialogOpen, openSave]);
+
+  // 預覽中 Esc＝橫幅 ✕（spec §8.4）。RF3：有對話框／選單開著時讓它們自己吃 Esc。
+  // ⚠ 主判準是 `event.defaultPrevented`（gate r1 I-3）：Radix 的 DismissableLayer 在 **document capture** 階段處理 Esc、
+  // 一定 `preventDefault()` 後 `onDismiss()`；真實按鍵在每個 listener 之間有 microtask checkpoint，React 19 的 SyncLane 會在
+  // 事件冒泡到 window **之前**就把浮層卸掉——所以「浮層 DOM 還在嗎」（isOverlayOpen）在真瀏覽器裡讀到 false、不可靠。
+  // isOverlayOpen 留作第二道（沒有 preventDefault 的浮層）。jsdom 的 fireEvent 不清 microtask，兩條判準在 jsdom 裡分不出來，
+  // 真鍵盤的行為由 e2e 22 守（part 5 Task 14）。
+  useEffect(() => {
+    if (vPreview === null) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || isOverlayOpen()) return;
+      stopPreview();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [vPreview, stopPreview]);
+
   useEffect(() => {
     if (!noteId || !doc || !provider) return;
 
@@ -598,34 +651,60 @@ export default function NotePage() {
     // 時，改標題完全安全、重整也真的在。跟著 synced 一起鎖死是功能倒退。
     const editable = roleCanEdit && synced;
     body = (
-      <div className="flex min-h-0 flex-1">
-        <NoteEditor
-          doc={doc}
-          provider={provider}
-          editable={editable}
-          user={{ id: user.id, name: user.displayName }}
-          noteId={noteId!}
-          headerSlot={
-            // #115：頁首滿卡寬（置左置右）——單層 header 自己就是內容列，標題貼左、
-            // 控制項貼右；`px-5`（20px）與 `<md` 的內文左緣共線。#88 的文章欄對齊
-            // 已刻意拆除（見 ui/article-column.ts 檔頭）。
-            <header className="flex items-center gap-3 border-b border-border px-5 py-3">
-              {/* #115：窄視窗的抽屜入口（md:hidden）——筆記載入成功態不掛
-                  NarrowTopBar（頁首自己有這顆）；載入中/錯誤的佔位卡沒有頁首，
-                  由 placeholderCard 裡的 NarrowTopBar 補位。 */}
-              <SidebarDrawerButton />
-              <TitleInput note={note} readOnly={!roleCanEdit} />
-              <ConnectionBadge state={state} synced={synced} canEdit={roleCanEdit} />
-              <LastEditedLabel note={note} onOpenEdits={openEdits} />
-              <ShareDialog note={note} />
-              <NoteMenu note={note} state={state} leavingRef={leavingRef} onOpenEdits={openEdits} />
-            </header>
-          }
-          footerSlot={<BacklinksSection noteId={noteId} />}
-        />
-        {/* dialog 掛在 header 之外：它的開關由本頁持有，兩個觸發點共用（見上）。 */}
-        <AiEditsDialog note={note} open={editsOpen} onOpenChange={setEditsOpen} />
-      </div>
+      <VersionsProvider value={versions}>
+        <div className="flex min-h-0 flex-1">
+          <NoteEditor
+            doc={doc}
+            provider={provider}
+            editable={editable}
+            user={{ id: user.id, name: user.displayName }}
+            noteId={noteId!}
+            headerSlot={
+              // #115：頁首滿卡寬（置左置右）——單層 header 自己就是內容列，標題貼左、
+              // 控制項貼右；`px-5`（20px）與 `<md` 的內文左緣共線。#88 的文章欄對齊
+              // 已刻意拆除（見 ui/article-column.ts 檔頭）。
+              <>
+                <header className="flex items-center gap-3 border-b border-border px-5 py-3">
+                  {/* #115：窄視窗的抽屜入口（md:hidden）——筆記載入成功態不掛
+                      NarrowTopBar（頁首自己有這顆）；載入中/錯誤的佔位卡沒有頁首，
+                      由 placeholderCard 裡的 NarrowTopBar 補位。 */}
+                  <SidebarDrawerButton />
+                  <TitleInput note={note} readOnly={!roleCanEdit} />
+                  <ConnectionBadge state={state} synced={synced} canEdit={roleCanEdit} />
+                  <LastEditedLabel note={note} onOpenEdits={openEdits} />
+                  <ShareDialog note={note} />
+                  <NoteMenu note={note} state={state} leavingRef={leavingRef} onOpenEdits={openEdits} />
+                </header>
+                {/* 版本預覽橫幅（spec §8.4）：寬版預覽時在頁首下方；整頁（sheet）模式由整頁自己畫。 */}
+                {versions.preview !== null && versions.mode !== "sheet" && (
+                  <VersionsLazyBoundary noteId={noteId ?? null} errorClassName={VERSIONS_ERROR_FRAME.inline}>
+                    <PreviewBanner />
+                  </VersionsLazyBoundary>
+                )}
+              </>
+            }
+            footerSlot={<BacklinksSection noteId={noteId} />}
+            previewSlot={
+              versions.preview !== null && versions.mode !== "sheet" ? (
+                <VersionsLazyBoundary
+                  noteId={noteId ?? null}
+                  errorClassName={VERSIONS_ERROR_FRAME.inline}
+                  fallback={<p className="p-6 text-sm text-muted-foreground">{t("versions.preview.loading")}</p>}
+                >
+                  <VersionPreview doc={doc} />
+                </VersionsLazyBoundary>
+              ) : undefined
+            }
+          />
+          {/* dialog 掛在 header 之外：它的開關由本頁持有，兩個觸發點共用（見上）。 */}
+          <AiEditsDialog note={note} open={editsOpen} onOpenChange={setEditsOpen} />
+          {versions.dialog !== null && (
+            <VersionsLazyBoundary noteId={noteId ?? null} errorClassName={VERSIONS_ERROR_FRAME.floating}>
+              <VersionsDialogs />
+            </VersionsLazyBoundary>
+          )}
+        </div>
+      </VersionsProvider>
     );
   }
 

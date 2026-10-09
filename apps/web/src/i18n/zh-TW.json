@@ -138,6 +138,8 @@
     "menu": {
       "label": "更多",
       "labelFor": "{{title}} 的筆記選單",
+      "versions": "版本歷史",
+      "saveVersion": "儲存當前版本",
       "aiEdits": "AI 修改紀錄",
       "present": "簡報模式",
       "moveTo": "移動到…",

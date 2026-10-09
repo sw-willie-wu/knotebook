@@ -20,7 +20,7 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
 export function useApplyFlow(noteId: string) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const { openDialog, closeDialog, stopPreview } = useVersions();
+  const { openDialog, closeDialog, stopPreview, onApplied } = useVersions();
   const { mutateAsync } = useApplyVersion(noteId);
 
   const applyNow = useCallback(
@@ -29,6 +29,14 @@ export function useApplyFlow(noteId: string) {
         await mutateAsync({ version, discardUnsaved });
         closeDialog();
         stopPreview();
+        // 筆記 query 整組失效（id 鍵＋路徑解析層，NotePage 的 invalidateNoteQueries）——`useApplyVersion.onSuccess`
+        // 只失效 `['note', id]`，舊形／路徑鍵由頁面層補（Task 1 carry 裁定）。排在關對話框／離開預覽之後，
+        // 自己再包一層：通知出錯不得把已成功的套用變成錯誤 toast（fix round 1 Nit-2）。
+        try {
+          onApplied();
+        } catch {
+          // 失效只是讓頁首資料早點對齊；失敗時等下一次 refetch，不影響套用結果。
+        }
         toast({ title: t("versions.toast.applied", { seq: version.seq }) });
       } catch (err) {
         if (err instanceof ApiFail && err.status === 409 && err.code === "version_unsaved_changes") {
@@ -43,7 +51,7 @@ export function useApplyFlow(noteId: string) {
         toast({ title: errorMessage(t, err), variant: "destructive" });
       }
     },
-    [mutateAsync, closeDialog, stopPreview, openDialog, queryClient, noteId, t],
+    [mutateAsync, onApplied, closeDialog, stopPreview, openDialog, queryClient, noteId, t],
   );
 
   const requestApply = useCallback(

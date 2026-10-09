@@ -33,13 +33,16 @@ vi.mock("@/components/NoteEditor", () => ({
     editable,
     headerSlot,
     footerSlot,
+    previewSlot,
   }: {
     editable: boolean;
     headerSlot?: ReactNode;
     footerSlot?: ReactNode;
+    previewSlot?: ReactNode;
   }) => (
     <div data-testid="note-editor" data-editable={String(editable)}>
       {headerSlot}
+      {previewSlot !== undefined && <div data-testid="mock-preview-slot">{previewSlot}</div>}
       {footerSlot}
     </div>
   ),

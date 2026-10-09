@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -8,6 +9,7 @@ import i18n from "@/i18n";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { NoteMenu, SidebarNoteMenu } from "./NoteMenu";
 import { EDITOR_PERMS, OWNER_PERMS } from "@/test/fixtures";
+import { useVersionsController, VersionsProvider } from "@/lib/versions-context";
 
 // ⋮ 選單（spec D.4）：複製連結（任何角色）＋刪除筆記（#175 起看 `permissions.delete`，含 M11 的
 // leavingRef 時序：刪除失敗且已進終態時，`NoteMenu` 必須自己補一套「同文案同
@@ -448,5 +450,68 @@ describe("NoteMenu：複製到我的筆記已併入「複製到… → 個人空
     renderCopyMenu("header", { ...GROUP_NOTE, role: "editor", permissions: { ...EDITOR_PERMS, edit: true, delete: true } });
     openAnyMenu("header");
     expect(await screen.findByRole("menuitem", { name: /Delete note/ })).toBeInTheDocument();
+  });
+});
+
+describe("NoteMenu × 版本歷史（spec §8.5）", () => {
+  function VersionsHost({ enabled, children }: { enabled: boolean; children: ReactNode }) {
+    const value = useVersionsController({ noteId: OWNER_NOTE.id, enabled });
+    return (
+      <VersionsProvider value={value}>
+        <span data-testid="v-state">{JSON.stringify({ mode: value.mode, dialog: value.dialog?.kind ?? null })}</span>
+        {children}
+      </VersionsProvider>
+    );
+  }
+
+  /** provider: "enabled" | "disabled" | "none"（none＝側欄每列 ⋮ 的處境：沒有 VersionsProvider）。 */
+  function renderVersionsMenu(provider: "enabled" | "disabled" | "none") {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("unexpected fetch"))));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const menu = <NoteMenu note={OWNER_NOTE} state={CONNECTED} leavingRef={{ current: false }} onOpenEdits={() => {}} />;
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/notes/my-note"]}>
+          {provider === "none" ? menu : <VersionsHost enabled={provider === "enabled"}>{menu}</VersionsHost>}
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+  }
+
+  async function openVersionsMenu(): Promise<HTMLElement> {
+    fireEvent.pointerDown(screen.getByRole("button", { name: "More" }), { button: 0 });
+    return screen.findByRole("menu");
+  }
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("canEdit（provider enabled）→ 「Version history」「Save current version」在「AI edit history」上方", async () => {
+    renderVersionsMenu("enabled");
+    const menu = await openVersionsMenu();
+    const names = within(menu).getAllByRole("menuitem").map((el) => el.textContent?.trim());
+    const iv = names.indexOf("Version history");
+    expect(iv).toBeGreaterThanOrEqual(0);
+    expect(names[iv + 1]).toBe("Save current version");
+    expect(names.indexOf("AI edit history")).toBe(iv + 2);
+  });
+
+  it("點「Version history」→ open()；點「Save current version」→ 開儲存對話框", async () => {
+    renderVersionsMenu("enabled");
+    fireEvent.click(within(await openVersionsMenu()).getByRole("menuitem", { name: "Version history" }));
+    expect(JSON.parse(screen.getByTestId("v-state").textContent!).mode).not.toBeNull();
+    fireEvent.click(within(await openVersionsMenu()).getByRole("menuitem", { name: "Save current version" }));
+    expect(JSON.parse(screen.getByTestId("v-state").textContent!).dialog).toBe("save");
+  });
+
+  it.each([["disabled（viewer）"], ["none（側欄每列 ⋮，provider 之外）"]] as const)("%s → 兩項都不渲染", async (label) => {
+    renderVersionsMenu(label.startsWith("disabled") ? "disabled" : "none");
+    const menu = await openVersionsMenu();
+    expect(within(menu).getByRole("menuitem", { name: "AI edit history" })).toBeInTheDocument();
+    expect(within(menu).queryByRole("menuitem", { name: "Version history" })).not.toBeInTheDocument();
+    expect(within(menu).queryByRole("menuitem", { name: "Save current version" })).not.toBeInTheDocument();
   });
 });
