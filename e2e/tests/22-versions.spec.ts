@@ -57,7 +57,9 @@ test("22 版本歷史：存、改、預覽 diff、套用、從 vX 接著改、�
     // 預覽 v2（vs 前一版 v1）：beta-two 那顆是新增
     await panel.getByRole("button", { name: /^v2(?!\d)/ }).click();
     await expect(page.getByTestId("preview-banner")).toContainText("Previewing v2");
-    await expect(page.locator('[data-testid="diff-single"] [data-diff="added"]').first()).toBeVisible();
+    const diffBlocks = page.getByTestId("diff-single").locator("[data-diff]");
+    await expect(diffBlocks.filter({ hasText: "beta-two" })).toHaveAttribute("data-diff", "added");
+    await expect(diffBlocks.filter({ hasText: "alpha-one" })).toHaveAttribute("data-diff", "context");
     await expect(editorLocator(page)).toBeHidden();
 
     // 預覽 v1 → 套用 → dirty → 三選一「不儲存，直接套用」
