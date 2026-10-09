@@ -851,6 +851,35 @@
   },
   "versions": {
     "bubble": "版本歷史",
+    "title": "版本歷史",
+    "close": "關閉版本歷史",
+    "currentLabel": "目前狀態",
+    "current": {
+      "none": "尚無版本",
+      "noBase": "沒有基底版本",
+      "clean": "＝ v{{seq}}，沒有未儲存的修改",
+      "dirtyLatest": "v{{seq}} 之後有未儲存的修改",
+      "dirtyFrom": "從 v{{seq}} 接著改，有未儲存的修改"
+    },
+    "autoOff": "此空間已關閉自動儲存",
+    "kind": {
+      "manual": "手動",
+      "auto": "自動"
+    },
+    "from": "從 v{{seq}} 接著改",
+    "deletedUser": "已刪除的使用者",
+    "rowMenu": "v{{seq}} 的動作",
+    "menu": {
+      "apply": "套用",
+      "rename": "編輯版本名稱",
+      "delete": "刪除",
+      "baseNotDeletable": "目前內容的基底版本不能刪除"
+    },
+    "applySeq": "套用 v{{seq}}",
+    "applyNone": "套用",
+    "save": "儲存當前版本",
+    "loadMore": "載入更早的版本",
+    "baseDot": "目前內容的基底",
     "crash": "版本歷史無法顯示。"
   },
   "storage": {

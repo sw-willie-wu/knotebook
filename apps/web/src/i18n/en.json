@@ -851,6 +851,35 @@
   },
   "versions": {
     "bubble": "Version history",
+    "title": "Version history",
+    "close": "Close version history",
+    "currentLabel": "Current state",
+    "current": {
+      "none": "No versions yet",
+      "noBase": "No base version",
+      "clean": "= v{{seq}}, no unsaved changes",
+      "dirtyLatest": "Unsaved changes after v{{seq}}",
+      "dirtyFrom": "Continued from v{{seq}}, with unsaved changes"
+    },
+    "autoOff": "Automatic saving is off for this space",
+    "kind": {
+      "manual": "Manual",
+      "auto": "Auto"
+    },
+    "from": "continued from v{{seq}}",
+    "deletedUser": "Deleted user",
+    "rowMenu": "Actions for v{{seq}}",
+    "menu": {
+      "apply": "Apply",
+      "rename": "Edit version name",
+      "delete": "Delete",
+      "baseNotDeletable": "The base of the current content can't be deleted"
+    },
+    "applySeq": "Apply v{{seq}}",
+    "applyNone": "Apply",
+    "save": "Save current version",
+    "loadMore": "Load older versions",
+    "baseDot": "Base of the current content",
     "crash": "Version history couldn't be shown."
   },
   "storage": {

@@ -492,7 +492,7 @@ export function NoteEditor({
         </div>
         {panelOpen && (
           <VersionsLazyBoundary noteId={noteId} errorClassName={VERSIONS_ERROR_FRAME.panel}>
-            <VersionsPanel />
+            <VersionsPanel doc={doc} />
           </VersionsLazyBoundary>
         )}
         <AiPanel />

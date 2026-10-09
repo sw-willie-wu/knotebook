@@ -3,6 +3,4 @@
  * 任何靜態 import 都會讓 Rollup 把 `diff` 與整組元件併回 NotePage chunk，`VersionsLazy-<hash>.js` 隨即消失
  * （`scripts/check-bundle-size.mjs` 守著）。
  */
-export function VersionsPanel() {
-  return <aside data-testid="versions-panel" />;
-}
+export { VersionsPanel } from "./VersionsPanel";
