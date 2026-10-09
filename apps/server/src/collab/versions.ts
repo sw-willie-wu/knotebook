@@ -466,9 +466,7 @@ export function createVersionService(deps: VersionServiceDeps): VersionService {
   }
 
   async function noteStored(noteId: string, doc: Y.Doc, ctx: unknown): Promise<void> {
-    // `source` 先放寬成 string：`DirectCtx.source` 要到 Task 7 才加 "version-apply"，今天的型別下
-    // `=== "version-apply"` 是 TS2367（兩邊沒有交集）。
-    const c = ctx as (Partial<Omit<DirectCtx, "source">> & { source?: string }) | undefined;
+    const c = ctx as Partial<DirectCtx> | undefined;
     const s = states.get(noteId);
     if (c?.source === "ai-edit" && c.applied === true) {
       if (s) clearTimer(s);
@@ -491,11 +489,13 @@ export function createVersionService(deps: VersionServiceDeps): VersionService {
       const live = host?.documents.get(noteId);
       if (!live) return;
       // 計時器回呼不受 saveMutex 保護、沒有人 await 它：cutIfDirty 對非 VersionCutAbort 的 DB 錯誤會往上拋，一律在這裡吞掉只 warn。
-      s.timerCut = cutIfDirty(noteId, live, { kind: "auto" })
+      // 只清自己這一發：這發還沒落地時若已有下一發掛上 timerCut，finally 不得把下一發的引用清掉。
+      const p: Promise<unknown> = cutIfDirty(noteId, live, { kind: "auto" })
         .catch(err => deps.log.warn({ err, noteId }, "idle 切版失敗"))
         .finally(() => {
-          s.timerCut = null;
+          if (s.timerCut === p) s.timerCut = null;
         });
+      s.timerCut = p;
     }, idleMs);
   }
 

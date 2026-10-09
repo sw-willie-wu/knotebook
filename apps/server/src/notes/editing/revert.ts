@@ -12,7 +12,7 @@ import type { CollabServer } from "../../collab/server.js";
 import type { Db } from "../../db/index.js";
 import { apiTokens, noteAiEdits, users } from "../../db/schema.js";
 import { agentLabelOf } from "../../auth/agent-label.js";
-import { FingerprintMismatch, RETENTION, mergeDiff, recordableAfter, updateNoteLinks, type ApplyDeps, type MergeOutput } from "./apply.js";
+import { FingerprintMismatch, RETENTION, mergeDiff, preWriteCut, recordableAfter, updateNoteLinks, type ApplyDeps, type MergeOutput } from "./apply.js";
 import { fingerprintForIds } from "./fingerprint.js";
 import { loadNoteDoc } from "./read.js";
 import { EditorSession, type DirectCtx } from "./session.js";
@@ -134,6 +134,7 @@ export async function revertEdit(deps: ApplyDeps, input: { noteId: string; editI
   );
   if (staleNow) return { ok: false, code: "stale" };
 
+  await preWriteCut(deps, input.noteId, fork);
   const prepared = await prepareRevert(deps, row, fork, sv, anchor);
   const { diff, reinsertedIds, removedSnapshot } = prepared;
 

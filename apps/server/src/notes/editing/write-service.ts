@@ -35,6 +35,7 @@ import * as Y from "yjs";
 import type { EditOp } from "@knotebook/shared";
 import { currentAgentLabel } from "../../auth/agent-label.js";
 import type { CollabServer } from "../../collab/server.js";
+import type { VersionService } from "../../collab/versions.js";
 import type { Db } from "../../db/index.js";
 import { notes } from "../../db/schema.js";
 import { insertNoteWithAutoSlug } from "../create.js";
@@ -85,6 +86,8 @@ export interface NoteWriteServiceDeps {
   queueWaitMs?: number;
   /** 寫入路徑的測試注入縫（生產不注入＝零成本）。 */
   testHooks?: EditingTestHooks;
+  /** 版本歷史：寫前切版、套用、手動儲存（`app.ts` 傳 collab 那份或未綁定的那份）。選配＝寫前切版 no-op（既有測試直接 new 本 service）。 */
+  versions?: VersionService;
 }
 
 export class NoteWriteService {
@@ -109,7 +112,7 @@ export class NoteWriteService {
   private applyDeps(log: FastifyBaseLogger): ApplyDeps {
     const { collab, editing } = this.deps;
     if (!collab || !editing) throw new Error("NoteWriteService：此部署沒有 collab／editing，呼叫端必須先檢查 available");
-    return { db: this.deps.db, collab, editing, log, testHooks: this.deps.testHooks };
+    return { db: this.deps.db, collab, editing, log, testHooks: this.deps.testHooks, versions: this.deps.versions };
   }
 
   /**

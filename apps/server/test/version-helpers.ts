@@ -72,7 +72,7 @@ export async function seedOldNote(db: Db, noteId: string, markdown: string): Pro
   await seedDoc(db, noteId, doc);
 }
 
-export function fakeHost():VersionDocsHost & { docs: Map<string, Y.Doc> } {
+export function fakeHost(): VersionDocsHost & { docs: Map<string, Y.Doc> } {
   const docs = new Map<string, Y.Doc>();
   return { docs, documents: { get: name => docs.get(name), has: name => docs.has(name) } };
 }

@@ -700,6 +700,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     presence,
     queueWaitMs: deps.editingQueueWaitMs,
     testHooks: deps.editingTestHooks,
+    versions,
   });
 
   void app.register(

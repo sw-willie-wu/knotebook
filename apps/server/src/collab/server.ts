@@ -573,16 +573,17 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
   async function stampLastEdited(documentName: string, lastContext: unknown): Promise<void> {
     const ctx = lastContext as Partial<DirectCtx> | undefined;
     if (typeof ctx?.userId !== "string") return;
-    const isAi = ctx.source === "ai-edit";
-    if (isAi && ctx.applied !== true) return;
+    // 版本歷史 §7-3：直連（AI 寫入與套用版本）一律看 applied——套用失敗的那次 store 也不落款。
+    const isDirect = ctx.source !== undefined;
+    if (isDirect && ctx.applied !== true) return;
     try {
       await deps.db
         .update(notes)
         .set({
           lastEditedAt: new Date(),
           lastEditedBy: ctx.userId,
-          lastEditedTokenId: isAi ? (ctx.tokenId ?? null) : null,
-          lastEditedAgentLabel: isAi ? (ctx.agentLabel ?? null) : null,
+          lastEditedTokenId: isDirect ? (ctx.tokenId ?? null) : null,
+          lastEditedAgentLabel: isDirect ? (ctx.agentLabel ?? null) : null,
         })
         .where(eq(notes.id, documentName));
     } catch (err) {
