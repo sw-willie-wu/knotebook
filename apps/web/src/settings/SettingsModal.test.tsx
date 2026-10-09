@@ -159,6 +159,9 @@ function baseFetchHandlers(getLoggedInAs: () => UserDto | null) {
     if (url === "/api/auth/tokens" && method === "GET") {
       return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ tokens: [] }) });
     }
+    if (url === "/api/storage" && method === "GET") {
+      return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ usedBytes: 0, quotaBytes: 2147483648, planName: "Basic" }) });
+    }
     if (url.endsWith("/backlinks") && method === "GET") {
       return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ backlinks: [] }) });
     }
@@ -168,6 +171,9 @@ function baseFetchHandlers(getLoggedInAs: () => UserDto | null) {
     // 站台管理頁（/admin/users）：`/settings/users` 轉址過去後會打這支。
     if (url === "/api/admin/users" && method === "GET") {
       return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) });
+    }
+    if (url === "/api/admin/storage-plans" && method === "GET") {
+      return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ plans: [], defaults: { userPlanId: "", groupPlanId: "" } }) });
     }
     return null;
   };

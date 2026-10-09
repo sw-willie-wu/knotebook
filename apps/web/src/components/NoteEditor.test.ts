@@ -12,7 +12,7 @@ import type { EditorRef } from "@/components/wikilink/menu";
 const toastMock = vi.hoisted(() => vi.fn());
 vi.mock("@/components/ui/toast", () => ({ toast: toastMock }));
 
-const { buildNoteEditorOptions, collabUserColor, createMediaBlockingDOMEvents, insertLinkAtSavedSelection, useLinkMenuState } =
+const { buildNoteEditorOptions, collabUserColor, createMediaBlockingDOMEvents, insertLinkAtSavedSelection, lateBoundTranslate, useLinkMenuState } =
   await import("./NoteEditor");
 
 /**
@@ -778,5 +778,17 @@ describe("useLinkMenuState", () => {
 
     realEditor.unmount();
     container.remove();
+  });
+});
+
+describe("lateBoundTranslate（RF1：late-bound 包裝必須轉傳插值參數）", () => {
+  it("轉傳 opts，且每次呼叫讀 ref 的當下值", () => {
+    const ref: { current: (key: string, opts?: Record<string, unknown>) => string } = {
+      current: (key, opts) => `a:${key}:${JSON.stringify(opts ?? null)}`,
+    };
+    const translate = lateBoundTranslate(ref);
+    expect(translate("storage.quotaDetail", { used: "1.5 MB", quota: "1 MB" })).toBe('a:storage.quotaDetail:{"used":"1.5 MB","quota":"1 MB"}');
+    ref.current = (key) => `b:${key}`;
+    expect(translate("x")).toBe("b:x");
   });
 });

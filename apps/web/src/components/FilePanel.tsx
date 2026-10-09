@@ -5,7 +5,7 @@ import { useBlockNoteEditor, type FilePanelProps } from "@blocknote/react";
 import { ApiFail } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { postUpload } from "@/uploads/upload-file";
+import { postUpload, storageQuotaDescription } from "@/uploads/upload-file";
 import { isAllowedEmbedUrl } from "@/lib/media-url";
 
 /** `noteSchema` 恢復啟用的 image block 型別名（`@blocknote/core` 的 `image` block spec）。 */
@@ -28,7 +28,7 @@ function UploadTab({ noteId, blockId }: { noteId: string; blockId: string }) {
   const { t } = useTranslation();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 編輯器泛型三元組，走 repo 慣例用 any（同 NoteEditor.tsx/wikilink/menu.ts）
   const editor = useBlockNoteEditor<any, any, any>();
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ title: string; detail?: string } | null>(null);
   const [uploading, setUploading] = useState(false);
 
   const handleChange = useCallback(
@@ -68,7 +68,9 @@ function UploadTab({ noteId, blockId }: { noteId: string; blockId: string }) {
           // （`defaultValue` 保底：不是 `ApiFail`、或是查不到的陌生 code，才落回這裡
           // 唯一的通用文案 `note.filePanel.upload.error`）。
           const code = err instanceof ApiFail ? err.code : undefined;
-          setError(code ? t(`errors.${code}`, { defaultValue: t("note.filePanel.upload.error") }) : t("note.filePanel.upload.error"));
+          const title = code ? t(`errors.${code}`, { defaultValue: t("note.filePanel.upload.error") }) : t("note.filePanel.upload.error");
+          // spec §9.1：配額 409 的行內錯誤與 toast 同文案（主句＋說明句）。
+          setError(err instanceof ApiFail && code === "storage_quota_exceeded" ? { title, detail: storageQuotaDescription(err, t) } : { title });
         },
       );
     },
@@ -89,7 +91,8 @@ function UploadTab({ noteId, blockId }: { noteId: string; blockId: string }) {
       />
       {error && (
         <p role="alert" className="text-xs text-destructive">
-          {error}
+          <span className="block">{error.title}</span>
+          {error.detail !== undefined && <span className="block">{error.detail}</span>}
         </p>
       )}
     </div>

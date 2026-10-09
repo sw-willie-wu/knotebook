@@ -14,6 +14,7 @@
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { formatBytes } from "@knotebook/shared";
 import { hashToken } from "../../auth/api-token.js";
 import { deleteExpiredTransferTokens } from "../../auth/transfer-cleanup.js";
 import {
@@ -32,7 +33,6 @@ import { users } from "../../db/schema.js";
 import { redactDbError } from "../../lib/redact-db-error.js";
 import { NOTE_ID } from "../../notes/schemas.js";
 import { resolveNoteAccess } from "../../notes/service.js";
-import { formatBytes } from "../../storage/format-bytes.js";
 import { spaceOfNote } from "../../storage/space.js";
 import { canViewSpaceUsage, isSpaceFull, readSpaceUsage } from "../../storage/usage.js";
 import { NOTE_NOT_FOUND_MESSAGE, READ_RATE_LIMITED_MESSAGE } from "../note-read.js";

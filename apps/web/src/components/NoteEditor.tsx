@@ -32,7 +32,7 @@ import { cn } from "@/lib/utils";
 import { useTheme } from "@/theme";
 import { buildWikilinkMenuItems, type EditorRef } from "@/components/wikilink/menu";
 import { safeMediaUrl } from "@/lib/media-url";
-import { createUploadFile } from "@/uploads/upload-file";
+import { createUploadFile, type Translate } from "@/uploads/upload-file";
 import { createFilePanel } from "@/components/FilePanel";
 import { AiSessionProvider } from "@/components/ai/AiSession";
 import { AiPanel } from "@/components/ai/AiPanel";
@@ -50,9 +50,6 @@ export function collabUserColor(seed: string): string {
   }
   return `hsl(${hash % 360} 65% 45%)`;
 }
-
-/** i18n 查表函式的最小介面（`useTranslation()` 的 `t` 相容）。 */
-type Translate = (key: string) => string;
 
 /** {@link classifyMediaTransfer} 的攔截原因 → toast i18n key（§12.4）。 */
 const BLOCKED_TRANSFER_TOAST_KEYS: Record<BlockedTransferReason, string> = {
@@ -315,6 +312,15 @@ export interface NoteEditorProps {
 }
 
 /**
+ * 編輯器建立時就固定下來的閉包要讀「當下」的 `t`（語言切換不重建編輯器），所以包一層 late-bound。
+ * **必須轉傳 `opts`**：上傳 409 的說明句帶 `{{used}}`／`{{quota}}` 插值（spec §9.1）；丟掉它，真 app 會印出原樣佔位，
+ * 而單元測試直接傳樁、看不到（RF1）。
+ */
+export function lateBoundTranslate(ref: { current: Translate }): Translate {
+  return (key, opts) => ref.current(key, opts);
+}
+
+/**
  * BlockNote 編輯器本體。刻意跟 `NotePage` 分開成獨立元件：
  * ① 它只在 provider/doc 都備妥之後才掛載，內部不必處理 null；
  * ② 頁面層的測試可以把整個模組 mock 掉——BlockNote 依賴大量 jsdom 沒有的
@@ -329,7 +335,7 @@ export function NoteEditor({ doc, provider, editable, user, noteId, headerSlot, 
 
   // handler 是在 editor 建立時就固定下來的閉包；用 ref 取用最新的 t，語言切換時
   // 不必為了文案而重建整個 editor（重建會扯斷 y-prosemirror 綁定）。
-  const translateRef = useRef(t);
+  const translateRef = useRef<Translate>(t);
   translateRef.current = t;
 
   // Task 3：`[[` 觸發（`handleTextInput`）與「建立並連結」的 item handler 都要在
@@ -344,7 +350,7 @@ export function NoteEditor({ doc, provider, editable, user, noteId, headerSlot, 
       provider,
       user,
       language: i18n.language,
-      translate: (key) => translateRef.current(key),
+      translate: lateBoundTranslate(translateRef),
       editorRef,
       noteId,
     }),

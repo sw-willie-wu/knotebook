@@ -4,6 +4,7 @@ import { normalizeHandle, validateHandle } from "@knotebook/shared";
 import { ChangePasswordForm } from "@/auth/ChangePasswordForm";
 import { useIdentities } from "@/api/account";
 import { useUpdateHandle } from "@/api/profile";
+import { useStorageUsage } from "@/api/storage";
 import { ApiFail } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +14,7 @@ import { ApiTokensSection } from "./ApiTokensSection";
 import { SettingsGroup, SettingsPage } from "./SettingsLayout";
 import { SetPasswordForm } from "./SetPasswordForm";
 import { SignInMethodsSection } from "./SignInMethodsSection";
+import { StorageUsageGroup } from "./StorageUsageGroup";
 
 /** 逐檔複製的既有慣例（無共用 helper——比照 ShareDialog/SettingsUsersSection）。 */
 function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
@@ -106,7 +108,7 @@ function HandleSection() {
  *   → 「加上密碼」表單（`SetPasswordForm`）；不渲染改密碼表單（打了也一定 `invalid_credentials`）。
  * - `hasPassword === false`＋有效值關（B22）→ 只有說明、沒有表單。
  * - 有密碼 → 改密碼表單；有效值關時多一句說明。
- * 使用者名段在三形都照常渲染。`hasPassword` 仍用 `=== false` 明確比對（而非 `!user.hasPassword`），
+ * 使用者名段在三形都照常渲染；最後一組是儲存空間用量（spec §9.2；只顯示）。`hasPassword` 仍用 `=== false` 明確比對（而非 `!user.hasPassword`），
  * 讓「query 尚未就緒」（`undefined`）預設落在改密碼表單那條分支，不誤閃加密碼表單；
  * `passwordLoginEnabled` 同理以 `!== false` 預設為開（identities 尚未載入時不誤閃「關」說明）。
  *
@@ -116,6 +118,7 @@ export function SettingsAccountSection() {
   const { t } = useTranslation();
   const { user } = useSession();
   const identities = useIdentities();
+  const storage = useStorageUsage();
   const passwordLoginEnabled = identities.data?.passwordLoginEnabled !== false;
 
   return (
@@ -143,6 +146,7 @@ export function SettingsAccountSection() {
           <ChangePasswordForm tone="panel" onSuccess={() => toast({ title: t("changePassword.successMessage") })} />
         </SettingsGroup>
       )}
+      <StorageUsageGroup title={t("settings.account.storage")} query={storage} />
     </SettingsPage>
   );
 }

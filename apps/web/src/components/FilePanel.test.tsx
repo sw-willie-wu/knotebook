@@ -139,6 +139,31 @@ describe("FilePanel（Task 14：image block 恢復＋自家 Upload/Embed tab）"
       expect((block!.props as Record<string, unknown>).url).toBe("");
     });
 
+    it("上傳被配額拒（帶數字）：行內兩行——「Storage is full」＋用量句；block 不動", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(fakeResponse({
+        ok: false, status: 409,
+        json: () => Promise.resolve({ error: { code: "storage_quota_exceeded", message: "x" }, storage: { incomingBytes: 3, usedBytes: 1572864, quotaBytes: 1048576 } }),
+      })));
+      const blockId = insertBlock(editor, "image");
+      renderPanel(editor, "note-1", blockId);
+      fireEvent.change(screen.getByLabelText("Choose an image file to upload"), { target: { files: [pngFile()] } });
+      await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Storage is full"));
+      expect(screen.getByRole("alert")).toHaveTextContent("1.5 MB of 1 MB used. Ask a site admin for more space.");
+      expect((editor.getBlock(blockId)!.props as Record<string, unknown>).url).toBe("");
+    });
+
+    it("上傳被配額拒（沒數字）：行內用通用句", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(fakeResponse({
+        ok: false, status: 409,
+        json: () => Promise.resolve({ error: { code: "storage_quota_exceeded", message: "x" }, storage: { incomingBytes: null } }),
+      })));
+      const blockId = insertBlock(editor, "image");
+      renderPanel(editor, "note-1", blockId);
+      fireEvent.change(screen.getByLabelText("Choose an image file to upload"), { target: { files: [pngFile()] } });
+      await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Storage is full"));
+      expect(screen.getByRole("alert")).toHaveTextContent("This space has no room for the file. Ask its owner or a site admin.");
+    });
+
     it("上傳失敗（檔案過大，client 前驗 reject，不打 fetch）：顯示 errors.file_too_large，不是誤導的通用「請再試一次」", async () => {
       const fetchMock = vi.fn();
       vi.stubGlobal("fetch", fetchMock);

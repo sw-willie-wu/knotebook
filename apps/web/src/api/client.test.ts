@@ -151,6 +151,44 @@ describe("api()", () => {
     }
   });
 
+  it("storage_quota_exceeded：保留頂層 storage（三數）", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(fakeResponse({
+      ok: false, status: 409,
+      json: () => Promise.resolve({ error: { code: "storage_quota_exceeded", message: "儲存空間已滿" }, storage: { incomingBytes: 10, usedBytes: 600, quotaBytes: 1000 } }),
+    })));
+    const err = await api("/x", { method: "POST", body: "{}" }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiFail);
+    expect((err as ApiFail).storage).toEqual({ incomingBytes: 10, usedBytes: 600, quotaBytes: 1000 });
+  });
+
+  it("storage_quota_exceeded：只有 incomingBytes（null）也收；看不到數字時 usedBytes／quotaBytes 不出現", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(fakeResponse({
+      ok: false, status: 409,
+      json: () => Promise.resolve({ error: { code: "storage_quota_exceeded", message: "x" }, storage: { incomingBytes: null } }),
+    })));
+    const err = (await api("/x").catch((e: unknown) => e)) as ApiFail;
+    expect(err.storage).toEqual({ incomingBytes: null });
+  });
+
+  it("RF5：storage 形狀不對（usedBytes 是字串）→ 整個不收，storage 為 undefined", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(fakeResponse({
+      ok: false, status: 409,
+      json: () => Promise.resolve({ error: { code: "storage_quota_exceeded", message: "x" }, storage: { incomingBytes: 1, usedBytes: "600", quotaBytes: 1000 } }),
+    })));
+    const err = (await api("/x").catch((e: unknown) => e)) as ApiFail;
+    expect(err.code).toBe("storage_quota_exceeded");
+    expect(err.storage).toBeUndefined();
+  });
+
+  it("別的錯誤碼帶了 storage 也不收（只認 storage_quota_exceeded）", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(fakeResponse({
+      ok: false, status: 409,
+      json: () => Promise.resolve({ error: { code: "server_busy", message: "x" }, storage: { incomingBytes: 1 } }),
+    })));
+    const err = (await api("/x").catch((e: unknown) => e)) as ApiFail;
+    expect(err.storage).toBeUndefined();
+  });
+
   it("falls back to code 'internal' when the error body is not JSON", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       fakeResponse({

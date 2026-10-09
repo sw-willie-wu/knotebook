@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useNavigate, type Location } from "react-router";
 import type { GroupDto, GroupMemberDto, GroupRoleDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
+import { useGroupStorageUsage } from "@/api/storage";
 import {
   useAddMember,
   useGroupMembers,
@@ -30,6 +31,7 @@ import { GROUP_NAME_MAX_LENGTH } from "@/components/groups/GroupNameDialog";
 import { roleLabel } from "@/lib/group-role";
 import { GroupDetailShell } from "./GroupDetailShell";
 import { SettingsGroup } from "./SettingsLayout";
+import { StorageUsageGroup } from "./StorageUsageGroup";
 
 function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
   if (err instanceof ApiFail) {
@@ -415,10 +417,17 @@ function DangerSection({
   );
 }
 
+/** 群組用量（spec §9.2）：只在 `canManageGroup` 時**掛載**——不掛載就不發請求（非管理者打會 403）。 */
+function GroupStorageSection({ group }: { group: GroupDto }) {
+  const { t } = useTranslation();
+  const query = useGroupStorageUsage(group.id);
+  return <StorageUsageGroup title={t("groups.detail.storage")} query={query} />;
+}
+
 /**
  * `/settings/groups/:id` 的「成員」分頁（#103 spec §8.4；#175 spec §8.5；外框、not_found 三形見 `GroupDetailShell`）：
  * **只看 `GroupDto` 的兩個管理旗標**——`canManageGroup`＝名稱行內可改＋刪除群組；`canManageMembers`＝成員表的
- * 角色下拉與移除、加人；兩者都沒有＝名稱與成員表唯讀。不是最後一位管理員＝退出群組。
+ * 角色下拉與移除、加人；兩者都沒有＝名稱與成員表唯讀。不是最後一位管理員＝退出群組。`canManageGroup` 另顯示群組儲存用量。
  */
 export function SettingsGroupDetailSection() {
   return (
@@ -427,6 +436,7 @@ export function SettingsGroupDetailSection() {
         <>
           {group.canManageGroup ? <NameSection key={group.name} group={group} /> : null}
           <MembersSection group={group} canManageMembers={group.canManageMembers} />
+          {group.canManageGroup ? <GroupStorageSection group={group} /> : null}
           <DangerSection group={group} canManageGroup={group.canManageGroup} backgroundLocation={backgroundLocation} />
         </>
       )}

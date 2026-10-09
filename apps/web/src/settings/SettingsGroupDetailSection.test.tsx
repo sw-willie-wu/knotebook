@@ -87,6 +87,7 @@ function fetchFor(group: GroupDto, getMembers: () => GroupMemberDto[] | Promise<
       return members instanceof Promise ? members : Promise.resolve(ok(members));
     }
     if (url === `/api/groups/${group.id}/roles` && method === "GET") return Promise.resolve(ok(ROLES));
+    if (url === `/api/groups/${group.id}/storage` && method === "GET") return Promise.resolve(ok({ usedBytes: 0, quotaBytes: 2147483648, planName: "Basic" }));
     throw new Error(`unexpected fetch: ${method} ${url}`);
   });
 }

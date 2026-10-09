@@ -61,6 +61,9 @@ function baseFetchHandlers(user: UserDto, passwordLoginEnabled = true) {
     if (url === "/api/auth/tokens" && method === "GET") {
       return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ tokens: [] }) });
     }
+    if (url === "/api/storage" && method === "GET") {
+      return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ usedBytes: 0, quotaBytes: 2147483648, planName: "Basic" }) });
+    }
     return null;
   };
 }
