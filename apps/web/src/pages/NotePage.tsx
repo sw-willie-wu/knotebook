@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { NavigationType, useLocation, useNavigate, useNavigationType, useParams } from "react-router";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
@@ -23,6 +23,7 @@ import { AppShell, SidebarDrawerButton } from "@/components/AppShell";
 import { NarrowTopBar } from "@/components/NarrowTopBar";
 import { BacklinksSection } from "@/components/BacklinksSection";
 import { ConnectionBadge } from "@/components/ConnectionBadge";
+import { ChunkLoadBeacon, LazyRouteErrorBoundary, LazyRouteLoading } from "@/components/ErrorBoundary";
 import { LastEditedLabel } from "@/components/LastEditedLabel";
 import { NoteEditor } from "@/components/NoteEditor";
 import { NoteMenu } from "@/components/NoteMenu";
@@ -31,6 +32,10 @@ import { TitleInput } from "@/components/TitleInput";
 import { toast } from "@/components/ui/toast";
 import { cardSurface } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { exitOwnedFullscreen } from "@/present/fullscreen";
+import { LazyPresentation } from "@/present/lazy";
+import { PresentationShell, type PresentationShellStatus } from "@/present/PresentationShell";
+import { exitFullscreenIfLeftPresentation, isPresentingSearch } from "@/present/present-url";
 
 /** 終態後兩次重抓之間的間隔。 */
 const TERMINAL_RECONCILE_INTERVAL_MS = 750;
@@ -275,6 +280,7 @@ export default function NotePage() {
   // 401：session 真的沒了（不是撤權）。清掉 ['me'] 並導去登入頁——與 UserMenu 的
   // 登出流程同一套終點，只是沒有 server round-trip 可打。
   const handleUnauthorized = useCallback(() => {
+    exitOwnedFullscreen(); // #229 §6.5 呼叫點 1：導頁之前
     queryClient.setQueryData(SESSION_QUERY_KEY, null);
     void queryClient.invalidateQueries({ queryKey: SESSION_QUERY_KEY });
     void navigate("/login", { replace: true });
@@ -289,6 +295,8 @@ export default function NotePage() {
   // 筆記就緒才渲染）並 replace 掉 state——不清的話重整／返回會再跳一次（history.state.usr 會被讀回）。
   // 這時一定在 needsResolve，canonical 收斂 effect 還沒寫過網址，用 router 的 pathname replace 是安全的。
   const location = useLocation();
+  // #229：簡報模式（spec §6.1）——location 取本頁自己的 useLocation()（主樹，與收斂 effect 同一來源）。
+  const presenting = isPresentingSearch(location.search);
   const openEditsRequested = (location.state as Partial<OpenEditsState> | null)?.openEdits === true;
   useEffect(() => {
     if (!openEditsRequested) return;
@@ -437,6 +445,7 @@ export default function NotePage() {
   useEffect(() => {
     if (!linkInvalid || leavingRef.current) return;
     leavingRef.current = true;
+    exitOwnedFullscreen(); // #229 §6.5：導頁之前退出我們要的全螢幕
     setActiveNoteId(null);
     toast({ title: t("note.linkInvalid"), variant: "destructive" });
     void navigate("/", { replace: true });
@@ -450,6 +459,7 @@ export default function NotePage() {
   useEffect(() => {
     if (!noteGone || leavingRef.current) return;
     leavingRef.current = true;
+    exitOwnedFullscreen(); // #229 §6.5：導頁之前退出我們要的全螢幕
     setActiveNoteId(null);
     toast({ title: t("note.deleted"), variant: "destructive" });
     void navigate("/", { replace: true });
@@ -458,6 +468,7 @@ export default function NotePage() {
   useEffect(() => {
     if (!isTerminal(state) || leavingRef.current) return;
     leavingRef.current = true;
+    exitOwnedFullscreen(); // #229 §6.5：導頁之前退出我們要的全螢幕
     toast({
       title: state.phase === "kicked" ? t("note.accessRevoked") : t("note.deleted"),
       variant: "destructive",
@@ -477,6 +488,9 @@ export default function NotePage() {
     scheduleTerminalReconcile(queryClient, noteId);
     void navigate("/", { replace: true });
   }, [navigate, noteId, queryClient, state, t]);
+
+  // #229 §6.5 卸載型呼叫點（後備）：NotePage 整頁卸載時，若網址已不含 present 就退出我們要的全螢幕。
+  useEffect(() => () => exitFullscreenIfLeftPresentation(), []);
 
   // N4：連線中的角色變動（撤權降級為 viewer／權限恢復）要讓使用者知道。
   // 恢復沒有 server 通知，靠的是下一次 token 往返帶回來的 role（見 useCollab）。
@@ -544,10 +558,12 @@ export default function NotePage() {
   );
 
   const loadingCard = () => placeholderCard(<p className="p-6 text-sm text-muted-foreground">{t("app.loading")}</p>);
+  const errorText = (err: unknown) =>
+    err instanceof ApiFail ? t(`errors.${err.code}`, { defaultValue: t("errors.fallback") }) : t("errors.fallback");
   const errorCard = (err: unknown) =>
     placeholderCard(
       <p role="alert" className="p-6 text-sm text-destructive">
-        {err instanceof ApiFail ? t(`errors.${err.code}`, { defaultValue: t("errors.fallback") }) : t("errors.fallback")}
+        {errorText(err)}
       </p>,
     );
 
@@ -613,9 +629,45 @@ export default function NotePage() {
     );
   }
 
+  // #229 簡報外殼（spec §6.1、§6.2）：presenting 時一律掛（離場出口一設 leavingRef 就不掛）；overlay 要常駐層資料、
+  // 共編 doc／provider 都到、且首次 synced 之後才掛（m9）——刻意不跟 body 分支（常駐層一時錯誤時 body 是錯誤卡，
+  // 簡報層不受影響，§12）。
+  const presentFailure: unknown = needsResolve
+    ? resolveQuery.isError && !linkInvalid
+      ? resolveQuery.error
+      : null
+    : noteQuery.isError && !noteQuery.data && !noteGone
+      ? noteQuery.error
+      : null;
+  const overlayReady = !needsResolve && note !== undefined && doc !== null && provider !== null && synced;
+  const presentStatus: PresentationShellStatus = presentFailure !== null ? "error" : overlayReady ? "ready" : "loading";
+  const presentRoleCanEdit = note ? !isTerminal(state) && canEdit(effectiveRole(state, note)) : false;
+  const shellMounted = presenting && !leavingRef.current;
+
   return (
     <NotePageControlsContext.Provider value={controls}>
-      <AppShell>{body}</AppShell>
+      <AppShell inert={presenting}>{body}</AppShell>
+      {shellMounted && (
+        <PresentationShell
+          title={note?.title ?? ""}
+          status={presentStatus}
+          errorMessage={presentFailure !== null ? errorText(presentFailure) : undefined}
+          toolbarExtra={
+            note && (state.phase !== "connected" || !synced) ? (
+              <ConnectionBadge state={state} synced={synced} canEdit={presentRoleCanEdit} />
+            ) : null
+          }
+        >
+          {overlayReady && doc !== null && note !== undefined && (
+            <LazyRouteErrorBoundary resetKey={paramsKey} chunk="present" frame="inline">
+              <Suspense fallback={<LazyRouteLoading frame="inline" />}>
+                <LazyPresentation variant="member" doc={doc} title={note.title} />
+                <ChunkLoadBeacon chunk="present" />
+              </Suspense>
+            </LazyRouteErrorBoundary>
+          )}
+        </PresentationShell>
+      )}
     </NotePageControlsContext.Provider>
   );
 }

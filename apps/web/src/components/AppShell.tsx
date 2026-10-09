@@ -243,6 +243,8 @@ interface AppShellProps {
    * 新增筆記（`handleNewNote`）在插槽模式沒有觸發點，照樣建構、不另拆。
    */
   sidebar?: ReactNode;
+  /** #229：簡報模式時整個背景不可互動（spec §6.6-7）；簡報層是 AppShell 的兄弟、不在它底下。 */
+  inert?: boolean;
 }
 
 /**
@@ -298,7 +300,7 @@ interface AppShellProps {
  * 壓住 aside 右框一個框寬）——所以根的 `gap-3`
  * 與 `main` 都不動；`<aside>` 在 `<md` 是 `hidden`，把手跟著消失。抽屜仍固定 `w-64`。
  */
-export function AppShell({ children, sidebar }: AppShellProps) {
+export function AppShell({ children, sidebar, inert }: AppShellProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
@@ -424,7 +426,7 @@ export function AppShell({ children, sidebar }: AppShellProps) {
     // `min-h-0 min-w-0 flex-1 flex flex-col` 撐開版面（`min-w-0` 顯式宣告——
     // `main` 沒有 overflow、少了隱含的自我裁切途徑，寬度鏈全靠它）。
     <SidebarDrawerContext.Provider value={{ setOpen: setDrawerOpen }}>
-      <div className="flex h-screen gap-3 overflow-hidden bg-background p-3">
+      <div inert={inert} className="flex h-screen gap-3 overflow-hidden bg-background p-3">
         <aside className={cn(cardSurface, "relative hidden shrink-0 md:flex md:flex-col")} style={{ width: sidebarWidth }}>
           <SidebarContent {...sidebarProps} searchRef={searchInputRef} />
           <SidebarResizeHandle width={sidebarWidth} onChange={handleSidebarWidth} />
