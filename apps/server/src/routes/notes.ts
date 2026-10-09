@@ -26,6 +26,7 @@ import type { GroupTestHook } from "../groups/test-hook.js";
 import { TxAbort } from "../http/tx-abort.js";
 import type { CollabHooks } from "../collab/hooks.js";
 import type { CollabServer } from "../collab/server.js";
+import type { VersionService } from "../collab/versions.js";
 import type { EditingRuntime } from "../notes/editing/runtime.js";
 import { loadLastEdited, loadNoteDoc, readNoteContent } from "../notes/editing/read.js";
 import { PALETTE_COLORS } from "../notes/editing/colors.js";
@@ -143,6 +144,8 @@ export interface NotesRouteDeps {
    * `editingTestHooks`／`editingQueueWaitMs` 兩個透傳欄位隨佇列一起搬進 service，本介面不再有。
    */
   writes: NoteWriteService;
+  /** 版本歷史 §9：搬到群組 commit 後重建載入中筆記的版本狀態（`relocated`）。 */
+  versions: VersionService;
   /**
    * #138：AI presence 註冊表，透傳自 `AppDeps.presence`。**選配**（呼叫端一律 `?.`），
    * 沒有 collab 的部署拿到的是全 no-op 空殼。
@@ -1031,6 +1034,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
         if (isRetryableTxError(err)) return sendError(reply, 409, "server_busy", "伺服器忙碌，請稍後再試");
         throw err;
       }
+      deps.versions.relocated([id]);
       deps.collabHooks.onGroupAccessChanged([id], [...new Set([...moved.removedShareUserIds, userId])]);
       const fresh = await loadNoteWithOwner(id);
       if (!fresh) return noteNotFound(reply);

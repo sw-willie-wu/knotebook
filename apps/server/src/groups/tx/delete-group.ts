@@ -13,6 +13,7 @@ import { TxAbort } from "../../http/tx-abort.js";
 import { groupNotePath } from "../../notes/redirects.js";
 import { deleteNotesInTx } from "../../notes/tx/delete-notes.js";
 import { recordRedirectsInTx } from "../../notes/tx/redirects.js";
+import { resetNoteVersionsInTx } from "../../notes/tx/versions.js";
 import { writeSlugInTx } from "../../notes/tx/write-slug.js";
 import { sumUploadSizeSql } from "../../storage/space.js";
 import { assertSpaceRoomInTx } from "../../storage/tx/quota.js";
@@ -77,6 +78,9 @@ export async function transferGroupInTx(tx: Tx, input: TransferGroupInput, hook?
   await assertSpaceRoomInTx(tx, { kind: "user", id: input.transferTo }, sumRow?.incoming ?? 0, {
     lockTimeoutMs: input.lockTimeoutMs, hook, hookCtx: { groupId: input.groupId },
   });
+
+  // 版本歷史 §9：在改 group_id **之前**以群組述詞一次清空（rows 已全數 FOR UPDATE；不組 ANY($ids)——起草裁定 19）。
+  await resetNoteVersionsInTx(tx, { groupId: input.groupId });
 
   for (const row of rows) {
     await writeSlugInTx(

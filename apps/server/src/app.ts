@@ -714,6 +714,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       editing,
       limiters,
       writes,
+      versions,
       presence,
       linkSyncTestHooks: deps.linkSyncTestHooks,
       slugUpdateTestHook: deps.slugUpdateTestHook,
@@ -728,7 +729,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   // 版本歷史（spec 2026-10-09 §6）：cookie 專用六支；apply 只在 writes.available 時註冊（路由內判）。
   void app.register(noteVersionsRoutes({ db: deps.db, versions, writes, limiters: { edit: limiters.edit } }));
   // #103：群組管理（session-only，見 routes/groups.ts 檔頭）。
-  void app.register(groupsRoutes({ db: deps.db, collabHooks: deps.collabHooks, groupTestHook: deps.groupTestHook, uploadsDir: deps.uploadsDir, storageLockTimeoutMs }));
+  void app.register(groupsRoutes({ db: deps.db, collabHooks: deps.collabHooks, groupTestHook: deps.groupTestHook, uploadsDir: deps.uploadsDir, storageLockTimeoutMs, versions }));
   void app.register(adminUsersRoutes({ db: deps.db, gate: deps.gate, collabHooks: deps.collabHooks }));
   // 儲存配額（spec 2026-10-08 §7）：方案管理、預設、站台群組列表與指派（admin）；個人與群組用量檢視。
   void app.register(adminStorageRoutes({ db: deps.db }));

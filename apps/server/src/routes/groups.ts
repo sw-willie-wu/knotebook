@@ -23,6 +23,7 @@ import { foreignKeyViolationConstraint, isForeignKeyViolation, isRetryableTxErro
 import { sendInvalidBody } from "../auth/admin-provider-input.js";
 import { SITE_SETTINGS_MISSING_MESSAGE } from "../auth/tx/admin-site-settings.js";
 import type { CollabHooks } from "../collab/hooks.js";
+import type { VersionService } from "../collab/versions.js";
 import type { GroupTestHook } from "../groups/test-hook.js";
 import { sendError, sendStorageQuotaExceeded } from "../http/errors.js";
 import { TxAbort } from "../http/tx-abort.js";
@@ -73,6 +74,8 @@ export interface GroupsRouteDeps {
   uploadsDir: string;
   /** 空間鎖等待上限（ms），透傳自 `AppDeps.storageLockTimeoutMs`（儲存配額 §5.3；轉移交易用）。 */
   storageLockTimeoutMs: number;
+  /** 版本歷史 §9：刪群組・轉移 commit 後重建載入中筆記的版本狀態（`relocated`）。 */
+  versions: VersionService;
 }
 
 function toMemberDto(row: { userId: string; email: string; displayName: string; roleId: string; builtin: string | null }): GroupMemberDto {
@@ -182,6 +185,7 @@ export function groupsRoutes(deps: GroupsRouteDeps) {
           throw err;
         }
         if (out.noteIds.length > 0) {
+          deps.versions.relocated(out.noteIds);
           // §7「刪群組・轉移」：其他成員失去存取（重驗 → none → 關閉）；transferTo 升 owner（重驗 → 解除唯讀）。
           deps.collabHooks.onGroupAccessChanged(out.noteIds, out.memberIds.filter(u => u !== input.transferTo));
           deps.collabHooks.onGroupAccessChanged(out.noteIds, [input.transferTo]);
