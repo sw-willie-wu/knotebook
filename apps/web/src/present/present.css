@@ -1,0 +1,127 @@
+/* #229 簡報層樣式（spec §10）。只被 present/PresentationOverlay.tsx import → 只進簡報 lazy chunk。
+   每條規則都錨在 .kn-present（深色：:root.dark .kn-present）底下——present-css.test.ts 守著。
+   不載 reveal 主題；色彩、字型吃 app 的 token（index.css）。reveal.css 的全域選擇器以 reveal 自己加的 class
+   為閘（§2.11-9）；.reveal-viewport 寫死的黑字白底在這裡覆寫成 token。 */
+
+.kn-present .reveal-viewport,
+.kn-present .reveal {
+  background: var(--card);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+}
+.kn-present .reveal {
+  width: 100%;
+  height: 100%;
+}
+.kn-present .reveal .slides {
+  text-align: left;
+}
+.kn-present .reveal .slides > section,
+.kn-present .reveal .slides > section > section {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+}
+.kn-present .reveal .slides section[data-kn-slide-id] {
+  overflow-y: auto;
+  padding: clamp(1.5rem, 5vh, 4rem) clamp(1rem, 6vw, 6rem);
+  font-size: clamp(1rem, 0.6rem + 1.2vw, 1.75rem);
+  line-height: 1.5;
+}
+.kn-present .reveal .slides section.kn-present-stack {
+  padding: 0;
+  overflow: visible;
+}
+.kn-present .kn-slide-body {
+  max-width: 40em;
+  margin: 0 auto;
+  overflow-wrap: anywhere;
+}
+.kn-present section.kn-slide-title-only > .kn-slide-body {
+  display: flex;
+  min-height: 100%;
+  flex-direction: column;
+  justify-content: center;
+}
+.kn-present .reveal.kn-present-no-transition .slides section {
+  transition: none !important;
+}
+
+.kn-present .kn-slide-body h1 { font-size: 2.25em; font-weight: 700; line-height: 1.2; margin: 0 0 0.5em; }
+.kn-present .kn-slide-body h2 { font-size: 1.75em; font-weight: 700; line-height: 1.25; margin: 0 0 0.5em; }
+.kn-present .kn-slide-body h3 { font-size: 1.4em; font-weight: 600; margin: 0.8em 0 0.4em; }
+.kn-present .kn-slide-body h4 { font-size: 1.2em; font-weight: 600; margin: 0.8em 0 0.4em; }
+.kn-present .kn-slide-body h5,
+.kn-present .kn-slide-body h6 { font-size: 1em; font-weight: 600; margin: 0.8em 0 0.4em; }
+.kn-present .kn-slide-body p { margin: 0 0 0.75em; }
+.kn-present .kn-slide-body ul { list-style: disc; padding-left: 1.5em; margin: 0 0 0.75em; }
+.kn-present .kn-slide-body ol { list-style: decimal; padding-left: 1.5em; margin: 0 0 0.75em; }
+.kn-present .kn-slide-body li > ul,
+.kn-present .kn-slide-body li > ol { margin: 0.25em 0 0; }
+.kn-present .kn-slide-body ul:has(> li > input[type="checkbox"]) { list-style: none; padding-left: 0; }
+.kn-present .kn-slide-body li:has(> input[type="checkbox"]) { display: flex; align-items: baseline; gap: 0.5em; }
+.kn-present .kn-slide-body li:has(> input[type="checkbox"]) > p { margin: 0; }
+.kn-present .kn-slide-body blockquote { border-left: 4px solid var(--border); padding-left: 1em; margin: 0 0 0.75em; color: var(--muted-foreground); }
+.kn-present .kn-present-table { overflow-x: auto; margin: 0 0 0.75em; }
+.kn-present .kn-slide-body table { border-collapse: collapse; }
+.kn-present .kn-slide-body th,
+.kn-present .kn-slide-body td { border: 1px solid var(--border); padding: 0.3em 0.6em; text-align: left; vertical-align: top; }
+.kn-present .kn-slide-body th { background: var(--muted); font-weight: 600; }
+.kn-present .kn-slide-body figure { margin: 0 0 0.75em; text-align: center; }
+.kn-present .kn-slide-body figcaption { font-size: 0.8em; color: var(--muted-foreground); margin-top: 0.25em; }
+.kn-present .kn-slide-body img,
+.kn-present .kn-slide-body video { max-width: 100%; height: auto; }
+.kn-present .kn-slide-body details > summary { cursor: pointer; display: list-item; }
+.kn-present .kn-slide-body pre { background: var(--code-background); color: var(--code-foreground); padding: 0.75em 1em; border-radius: 0.375rem; overflow-x: auto; font-size: 0.8em; margin: 0 0 0.75em; }
+.kn-present .kn-slide-body code { font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); }
+.kn-present .kn-slide-body :not(pre) > code { background: var(--muted); padding: 0.1em 0.3em; border-radius: 0.25rem; font-size: 0.9em; }
+.kn-present .kn-slide-body a[href] { color: var(--color-brand); text-decoration: underline; }
+.kn-present .kn-present-wikilink-broken { color: var(--muted-foreground); border-bottom: 1px dashed var(--muted-foreground); }
+.kn-present .kn-present-untitled { color: var(--muted-foreground); }
+.kn-present .kn-present-mermaid svg { max-width: 100%; height: auto; }
+.kn-present .kn-present-mermaid-error { color: var(--destructive); font-size: 0.8em; }
+.kn-present [data-text-alignment="left"] { text-align: left; }
+.kn-present [data-text-alignment="center"] { text-align: center; }
+.kn-present [data-text-alignment="right"] { text-align: right; }
+.kn-present [data-text-alignment="justify"] { text-align: justify; }
+
+.kn-present .reveal .controls,
+.kn-present .reveal .progress { color: var(--color-brand); }
+.kn-present .reveal.overview .slides section[data-kn-slide-id] { background: var(--card); }
+
+.kn-present [data-text-color="gray"], .kn-present [data-style-type="textColor"][data-value="gray"] { color: #9b9a97; }
+.kn-present [data-background-color="gray"], .kn-present [data-style-type="backgroundColor"][data-value="gray"] { background-color: #ebeced; }
+.kn-present [data-text-color="brown"], .kn-present [data-style-type="textColor"][data-value="brown"] { color: #64473a; }
+.kn-present [data-background-color="brown"], .kn-present [data-style-type="backgroundColor"][data-value="brown"] { background-color: #e9e5e3; }
+.kn-present [data-text-color="red"], .kn-present [data-style-type="textColor"][data-value="red"] { color: #e03e3e; }
+.kn-present [data-background-color="red"], .kn-present [data-style-type="backgroundColor"][data-value="red"] { background-color: #fbe4e4; }
+.kn-present [data-text-color="orange"], .kn-present [data-style-type="textColor"][data-value="orange"] { color: #d9730d; }
+.kn-present [data-background-color="orange"], .kn-present [data-style-type="backgroundColor"][data-value="orange"] { background-color: #f6e9d9; }
+.kn-present [data-text-color="yellow"], .kn-present [data-style-type="textColor"][data-value="yellow"] { color: #dfab01; }
+.kn-present [data-background-color="yellow"], .kn-present [data-style-type="backgroundColor"][data-value="yellow"] { background-color: #fbf3db; }
+.kn-present [data-text-color="green"], .kn-present [data-style-type="textColor"][data-value="green"] { color: #4d6461; }
+.kn-present [data-background-color="green"], .kn-present [data-style-type="backgroundColor"][data-value="green"] { background-color: #ddedea; }
+.kn-present [data-text-color="blue"], .kn-present [data-style-type="textColor"][data-value="blue"] { color: #0b6e99; }
+.kn-present [data-background-color="blue"], .kn-present [data-style-type="backgroundColor"][data-value="blue"] { background-color: #ddebf1; }
+.kn-present [data-text-color="purple"], .kn-present [data-style-type="textColor"][data-value="purple"] { color: #6940a5; }
+.kn-present [data-background-color="purple"], .kn-present [data-style-type="backgroundColor"][data-value="purple"] { background-color: #eae4f2; }
+.kn-present [data-text-color="pink"], .kn-present [data-style-type="textColor"][data-value="pink"] { color: #ad1a72; }
+.kn-present [data-background-color="pink"], .kn-present [data-style-type="backgroundColor"][data-value="pink"] { background-color: #f4dfeb; }
+:root.dark .kn-present [data-text-color="gray"], :root.dark .kn-present [data-style-type="textColor"][data-value="gray"] { color: #bebdb8; }
+:root.dark .kn-present [data-background-color="gray"], :root.dark .kn-present [data-style-type="backgroundColor"][data-value="gray"] { background-color: #9b9a97; }
+:root.dark .kn-present [data-text-color="brown"], :root.dark .kn-present [data-style-type="textColor"][data-value="brown"] { color: #8e6552; }
+:root.dark .kn-present [data-background-color="brown"], :root.dark .kn-present [data-style-type="backgroundColor"][data-value="brown"] { background-color: #64473a; }
+:root.dark .kn-present [data-text-color="red"], :root.dark .kn-present [data-style-type="textColor"][data-value="red"] { color: #ec4040; }
+:root.dark .kn-present [data-background-color="red"], :root.dark .kn-present [data-style-type="backgroundColor"][data-value="red"] { background-color: #be3434; }
+:root.dark .kn-present [data-text-color="orange"], :root.dark .kn-present [data-style-type="textColor"][data-value="orange"] { color: #e3790d; }
+:root.dark .kn-present [data-background-color="orange"], :root.dark .kn-present [data-style-type="backgroundColor"][data-value="orange"] { background-color: #b7600a; }
+:root.dark .kn-present [data-text-color="yellow"], :root.dark .kn-present [data-style-type="textColor"][data-value="yellow"] { color: #dfab01; }
+:root.dark .kn-present [data-background-color="yellow"], :root.dark .kn-present [data-style-type="backgroundColor"][data-value="yellow"] { background-color: #b58b00; }
+:root.dark .kn-present [data-text-color="green"], :root.dark .kn-present [data-style-type="textColor"][data-value="green"] { color: #6b8b87; }
+:root.dark .kn-present [data-background-color="green"], :root.dark .kn-present [data-style-type="backgroundColor"][data-value="green"] { background-color: #4d6461; }
+:root.dark .kn-present [data-text-color="blue"], :root.dark .kn-present [data-style-type="textColor"][data-value="blue"] { color: #0e87bc; }
+:root.dark .kn-present [data-background-color="blue"], :root.dark .kn-present [data-style-type="backgroundColor"][data-value="blue"] { background-color: #0b6e99; }
+:root.dark .kn-present [data-text-color="purple"], :root.dark .kn-present [data-style-type="textColor"][data-value="purple"] { color: #8552d7; }
+:root.dark .kn-present [data-background-color="purple"], :root.dark .kn-present [data-style-type="backgroundColor"][data-value="purple"] { background-color: #6940a5; }
+:root.dark .kn-present [data-text-color="pink"], :root.dark .kn-present [data-style-type="textColor"][data-value="pink"] { color: #da208f; }
+:root.dark .kn-present [data-background-color="pink"], :root.dark .kn-present [data-style-type="backgroundColor"][data-value="pink"] { background-color: #ad1a72; }
