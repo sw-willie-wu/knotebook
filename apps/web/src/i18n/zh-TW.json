@@ -923,6 +923,7 @@
       "split": "並排",
       "single": "單欄",
       "onlyChanges": "只看差異",
+      "onlyChangesSplitHint": "只看差異只適用於單欄",
       "close": "關閉預覽",
       "collapsed": "… {{count}} 個未變更的區塊 …",
       "nonTextChanged": "已變更 · 看前後",

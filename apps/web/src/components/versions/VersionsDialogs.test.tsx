@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useRef, useState } from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { VersionCurrentDto, VersionDto, VersionListDto } from "@knotebook/shared";
@@ -42,15 +43,37 @@ function Harness({ target }: { target: VersionDto }) {
       <button type="button" onClick={() => s.openDialog({ kind: "rename", version: target })}>h-rename</button>
       <button type="button" onClick={() => s.openDialog({ kind: "delete", version: target })}>h-delete</button>
       <span data-testid="h-state">{JSON.stringify({ preview: s.preview, dialog: s.dialog?.kind ?? null })}</span>
+      {/* 編輯器替身（final I-2）：Ctrl+S 時焦點在 contenteditable 上。 */}
+      <div data-testid="h-editor" contentEditable suppressContentEditableWarning tabIndex={-1}>
+        editor
+      </div>
     </div>
   );
 }
 function Host({ target }: { target: VersionDto }) {
   const value = useVersionsController({ noteId: NOTE, enabled: true });
+  // final I-2 fallback：模擬頁首 ⋮——選單項按下（開儲存對話框）的同一批次就卸載；`fake-menu-trigger` 是交下來的 returnFocusRef。
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const [menuOpen, setMenuOpen] = useState(true);
   return (
     <VersionsProvider value={value}>
       <Harness target={target} />
-      <VersionsDialogs />
+      <button ref={triggerRef} type="button">
+        fake-menu-trigger
+      </button>
+      {menuOpen && (
+        <button
+          type="button"
+          onClick={() => {
+            setMenuOpen(false);
+            value.openSave();
+          }}
+        >
+          menu-item-save
+        </button>
+      )}
+      {/* 照 NotePage 的掛法（final fix 2 I-A）：只在 dialog !== null 時掛，關閉即卸載。 */}
+      {value.dialog !== null && <VersionsDialogs returnFocusRef={triggerRef} />}
     </VersionsProvider>
   );
 }
@@ -239,6 +262,119 @@ describe("VersionsDialogs＋useApplyFlow（spec §8.5）", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
     expect(await screen.findByText("Deleted v1")).toBeInTheDocument();
     expect(hState().preview).toBeNull();
+  });
+
+  it("final I-2：編輯器有焦點 → 開儲存對話框 → 取消／存完關閉 → 焦點都回到編輯器（受控 Dialog 沒有 Trigger，Radix 不會自己還原）", async () => {
+    stub((url, init) => {
+      if (url === LIST) return { status: 200, body: listBody(cur({ dirty: true })) };
+      if (url === `/api/notes/${NOTE}/versions` && init?.method === "POST") return { status: 201, body: { ...v(3, { kind: "manual" }), upgraded: false } };
+      return undefined;
+    });
+    renderDialogs();
+    const editor = screen.getByTestId("h-editor");
+    editor.focus();
+    expect(document.activeElement).toBe(editor);
+    fireEvent.click(screen.getByText("h-save"));
+    let dialog = await screen.findByRole("dialog", { name: "Save current version" });
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(document.activeElement).toBe(editor));
+    // 第二輪：送出成功關閉也一樣。
+    fireEvent.click(screen.getByText("h-save"));
+    dialog = await screen.findByRole("dialog", { name: "Save current version" });
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("Saved as v3")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(document.activeElement).toBe(editor));
+  });
+
+  it("final I-2 fallback：從 ⋮ 選單開儲存對話框（記到的選單項已卸載）→ 取消 → 焦點退回 ⋮ 觸發鈕", async () => {
+    stub((url) => (url === LIST ? { status: 200, body: listBody(cur({ dirty: true })) } : undefined));
+    renderDialogs();
+    const item = screen.getByText("menu-item-save");
+    item.focus();
+    expect(document.activeElement).toBe(item);
+    fireEvent.click(item);
+    const dialog = await screen.findByRole("dialog", { name: "Save current version" });
+    expect(screen.queryByText("menu-item-save")).not.toBeInTheDocument();
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "fake-menu-trigger" })));
+  });
+
+  it("final fix 2 M-A：開對話框時焦點在 body（沒有可還的元素）→ 關閉後退回 ⋮ 觸發鈕，不是還給 body", async () => {
+    stub((url) => (url === LIST ? { status: 200, body: listBody(cur({ dirty: true })) } : undefined));
+    renderDialogs();
+    (document.activeElement as HTMLElement | null)?.blur();
+    expect(document.activeElement).toBe(document.body);
+    fireEvent.click(screen.getByText("h-save"));
+    const dialog = await screen.findByRole("dialog", { name: "Save current version" });
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "fake-menu-trigger" })));
+  });
+
+  it("final I-2：三選一 → 「儲存當前版本」換成儲存對話框時焦點留在新對話框裡（不被拉回編輯器）；存完套用後才回到編輯器", async () => {
+    stub((url, init) => {
+      if (url === CUR) return { status: 200, body: listBody(cur({ dirty: true })) };
+      if (url === LIST) return { status: 200, body: listBody(cur({ dirty: true })) };
+      if (url === `/api/notes/${NOTE}/versions` && init?.method === "POST") return { status: 201, body: { ...v(3, { kind: "manual" }), upgraded: false } };
+      if (url === APPLY1) return { status: 200, body: { current: cur({ baseSeq: 1 }) } };
+      return undefined;
+    });
+    renderDialogs();
+    const editor = screen.getByTestId("h-editor");
+    editor.focus();
+    fireEvent.click(screen.getByText("h-apply"));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Apply v1" })).getByRole("button", { name: "Save current version" }));
+    const save = await screen.findByRole("dialog", { name: "Save current version" });
+    await waitFor(() => expect(save.contains(document.activeElement)).toBe(true));
+    // 舊對話框卸載時 FocusScope 的還原事件在 setTimeout 0 送出——等過那一拍，焦點仍要在新對話框裡。
+    await new Promise((r) => setTimeout(r, 50));
+    expect(save.contains(document.activeElement)).toBe(true);
+    fireEvent.click(within(save).getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("Applied v1")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(document.activeElement).toBe(editor));
+  });
+
+  it("final M-4：存完再套用——存檔成功到套用完成之間，送出鈕不可再按（第二次點擊不觸發第二次 POST）", async () => {
+    let releaseApply: () => void = () => {};
+    const calls: Array<{ method: string; url: string }> = [];
+    const res = (status: number, body?: unknown) => ({ ok: status < 400, status, json: () => Promise.resolve(body) }) as Response;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        calls.push({ method, url });
+        if (url === CUR || url === LIST) return Promise.resolve(res(200, listBody(cur({ dirty: true }))));
+        if (url === `/api/notes/${NOTE}/versions` && method === "POST") return Promise.resolve(res(201, { ...v(3, { kind: "manual" }), upgraded: false }));
+        if (url === APPLY1) return new Promise<Response>((resolve) => (releaseApply = () => resolve(res(200, { current: cur({ baseSeq: 1 }) }))));
+        throw new Error(`unexpected fetch: ${method} ${url}`);
+      }),
+    );
+    renderDialogs();
+    fireEvent.click(screen.getByText("h-apply"));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Apply v1" })).getByRole("button", { name: "Save current version" }));
+    const save = await screen.findByRole("dialog", { name: "Save current version" });
+    const submit = within(save).getByRole("button", { name: "Save" });
+    fireEvent.click(submit);
+    // 存檔已成功（toast 出現）、套用 POST 還沒回來。
+    expect(await screen.findByText("Saved as v3")).toBeInTheDocument();
+    await waitFor(() => expect(calls.some((c) => c.url === APPLY1)).toBe(true));
+    expect(submit).toBeDisabled();
+    fireEvent.click(submit);
+    fireEvent.submit(submit.closest("form")!);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(calls.filter((c) => c.method === "POST" && c.url === `/api/notes/${NOTE}/versions`)).toHaveLength(1);
+    expect(calls.filter((c) => c.url === APPLY1)).toHaveLength(1);
+    releaseApply();
+    expect(await screen.findByText("Applied v1")).toBeInTheDocument();
   });
 
   it("刪除遇到 409 version_is_base → 對話框內行內錯誤、對話框留著", async () => {

@@ -1,6 +1,14 @@
 import type { TFunction } from "i18next";
 import type { VersionCurrentDto, VersionEditorDto } from "@knotebook/shared";
 
+/**
+ * 切換鈕的按下態（橫幅、整頁共用；預檢 P11：橫幅本身是 `bg-accent`，按下態不能也用 accent）。
+ * 一定要連 `hover:` 一起給（final fix 2）：ghost 變體的 `hover:bg-accent` 與橫幅底色相同，只給 `bg-primary/15` 的話，
+ * 滑鼠停在按下鈕上時 hover 規則蓋過按下底色、看起來像沒按下。帶上 `hover:bg-primary/20` 後，`cn`（tailwind-merge）
+ * 會把 ghost 的 `hover:bg-accent` 換掉。
+ */
+export const PRESSED_CLASS = "bg-primary/15 hover:bg-primary/20";
+
 /** 「目前狀態」副標五種（spec §8.2；判斷順序照 spec 逐字）。`latestSeq`＝已載入清單的第一列 seq（清單空＝null）。 */
 export function currentSubtitle(t: TFunction, current: VersionCurrentDto, latestSeq: number | null): string {
   if (latestSeq === null) return t("versions.current.none");

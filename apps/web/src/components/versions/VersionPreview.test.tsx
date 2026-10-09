@@ -16,7 +16,7 @@ import { VersionPreview } from "./VersionPreview";
 import { PreviewBanner } from "./PreviewBanner";
 
 vi.mock("@/lib/use-container-width", () => ({ useContainerWidth: () => widthRef.current }));
-const widthRef = vi.hoisted(() => ({ current: 800 }));
+const widthRef = vi.hoisted(() => ({ current: 600 }));
 
 const NOTE = "n1";
 function b64(blocks: unknown[]): string {
@@ -98,7 +98,8 @@ describe("VersionPreview（spec §8.4）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
-    widthRef.current = 800;
+    // 預設 < 720（並排門檻）：單欄。
+    widthRef.current = 600;
   });
   afterEach(() => vi.unstubAllGlobals());
 
@@ -199,21 +200,201 @@ describe("VersionPreview（spec §8.4）", () => {
     expect(await screen.findByText("… 2 unchanged blocks …")).toBeInTheDocument();
   });
 
-  it("並排：寬 >= 1100 自動並排（兩顆唯讀編輯器、左右各標）；寬 < 1100 單欄；手動鈕蓋過", async () => {
+  it("並排（門檻 720）：寬 >= 720 自動並排（兩顆唯讀編輯器、左右各標、grid 兩欄）；手動「單欄」蓋過", async () => {
     stub({
       [`/api/notes/${NOTE}/versions?limit=50`]: list([ver(2), ver(1)]),
       [`/api/notes/${NOTE}/versions/2`]: { id: "v-2", seq: 2, ydoc: b64(V2) },
       [`/api/notes/${NOTE}/versions/1`]: { id: "v-1", seq: 1, ydoc: b64(V1) },
     });
-    widthRef.current = 1200;
+    widthRef.current = 720;
     renderPreview({ seq: 2 });
     const split = await screen.findByTestId("diff-split");
-    expect(split).toHaveClass("@min-[1100px]:grid-cols-2");
+    // 窄時不走並排渲染，所以並排一律兩欄（沒有「窄時上下疊」的容器查詢）。
+    expect(split).toHaveClass("grid", "grid-cols-2");
+    expect(split).not.toHaveClass("grid-cols-1");
     const [left, right] = within(split).getAllByTestId("diff-pane");
     await waitFor(() => expect(left.querySelector('[data-id="B"][data-diff="deleted"]')).not.toBeNull());
     await waitFor(() => expect(right.querySelector('[data-id="C"][data-diff="added"]')).not.toBeNull());
     fireEvent.click(screen.getByRole("button", { name: "Single column" }));
     expect(await screen.findByTestId("diff-single")).toBeInTheDocument();
+  });
+
+  it("final M-1：並排時「只看差異」不起作用 → 橫幅的開關 aria-disabled＋title 說明、點了不切；切回單欄後恢復可按", async () => {
+    stub({
+      [`/api/notes/${NOTE}/versions?limit=50`]: list([ver(2), ver(1)]),
+      [`/api/notes/${NOTE}/versions/2`]: { id: "v-2", seq: 2, ydoc: b64(V2) },
+      [`/api/notes/${NOTE}/versions/1`]: { id: "v-1", seq: 1, ydoc: b64(V1) },
+    });
+    widthRef.current = 900;
+    renderPreview({ seq: 2 });
+    await screen.findByTestId("diff-split");
+    const banner = within(screen.getByTestId("preview-banner"));
+    const only = banner.getByRole("button", { name: "Only changes" });
+    await waitFor(() => expect(only).toHaveAttribute("aria-disabled", "true"));
+    expect(only).toHaveAttribute("title", "Only changes works in single column");
+    // N-B：報讀器的說明走 aria-describedby 指向 sr-only 文字，不只靠 title（toHaveAccessibleDescription 會退回 title，分不出來，所以直接查參照）。
+    const describedBy = only.getAttribute("aria-describedby");
+    expect(describedBy).toBeTruthy();
+    expect(document.getElementById(describedBy!)).toHaveTextContent("Only changes works in single column");
+    expect(document.getElementById(describedBy!)).toHaveClass("sr-only");
+    fireEvent.click(only);
+    expect(only).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(banner.getByRole("button", { name: "Single column" }));
+    await screen.findByTestId("diff-single");
+    await waitFor(() => expect(only).not.toHaveAttribute("aria-disabled"));
+    expect(only).not.toHaveAttribute("title");
+    expect(only).not.toHaveAttribute("aria-describedby");
+    fireEvent.click(only);
+    expect(only).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("final §14-6：預覽區 < 720 px → 沒有並排：「Side by side」「Single column」兩顆都不渲染，DOM 只有單欄 diff", async () => {
+    stub({
+      [`/api/notes/${NOTE}/versions?limit=50`]: list([ver(2), ver(1)]),
+      [`/api/notes/${NOTE}/versions/2`]: { id: "v-2", seq: 2, ydoc: b64(V2) },
+      [`/api/notes/${NOTE}/versions/1`]: { id: "v-1", seq: 1, ydoc: b64(V1) },
+    });
+    widthRef.current = 719;
+    renderPreview({ seq: 2 });
+    const view = await screen.findByTestId("diff-single");
+    await waitFor(() => expect(view.querySelector('[data-id="C"][data-diff="added"]')).not.toBeNull());
+    const banner = within(screen.getByTestId("preview-banner"));
+    expect(banner.getByRole("button", { name: "Only changes" })).toBeInTheDocument();
+    expect(banner.queryByRole("button", { name: "Side by side" })).not.toBeInTheDocument();
+    expect(banner.queryByRole("button", { name: "Single column" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("diff-split")).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("diff-single-editor")).toHaveLength(1);
+    expect(screen.queryByTestId("diff-pane")).not.toBeInTheDocument();
+  });
+
+  it("final §14-6：≥ 720 px 鈕存在、auto 以實際生效的「Side by side」為按下；選單欄 → 單欄按下；選回並排 → 兩欄；縮窄 → 只剩單欄且鈕消失；再變寬 → 回到選過的並排", async () => {
+    stub({
+      [`/api/notes/${NOTE}/versions?limit=50`]: list([ver(2), ver(1)]),
+      [`/api/notes/${NOTE}/versions/2`]: { id: "v-2", seq: 2, ydoc: b64(V2) },
+      [`/api/notes/${NOTE}/versions/1`]: { id: "v-1", seq: 1, ydoc: b64(V1) },
+    });
+    widthRef.current = 900;
+    renderPreview({ seq: 2 });
+    await screen.findByTestId("diff-split");
+    const banner = () => within(screen.getByTestId("preview-banner"));
+    const split = () => banner().getByRole("button", { name: "Side by side" });
+    const single = () => banner().getByRole("button", { name: "Single column" });
+    await waitFor(() => expect(split()).toHaveAttribute("aria-pressed", "true"));
+    expect(single()).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(single());
+    await screen.findByTestId("diff-single");
+    expect(single()).toHaveAttribute("aria-pressed", "true");
+    expect(split()).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(split());
+    expect(await screen.findByTestId("diff-split")).toHaveClass("grid-cols-2");
+    expect(split()).toHaveAttribute("aria-pressed", "true");
+    // 縮窄：useContainerWidth 被 mock 成讀 widthRef，靠一次 context 變動（切比較對象）觸發重新 render。
+    widthRef.current = 600;
+    fireEvent.click(banner().getByRole("button", { name: "Current state" }));
+    expect(await screen.findByTestId("diff-single")).toBeInTheDocument();
+    await waitFor(() => expect(banner().queryByRole("button", { name: "Side by side" })).not.toBeInTheDocument());
+    expect(screen.queryByTestId("diff-split")).not.toBeInTheDocument();
+    widthRef.current = 900;
+    fireEvent.click(banner().getByRole("button", { name: "Previous version" }));
+    expect(await screen.findByTestId("diff-split")).toBeInTheDocument();
+    await waitFor(() => expect(split()).toHaveAttribute("aria-pressed", "true"));
+  });
+
+  it("final fix 2 M-B：寬時手動選單欄 → 縮到 < 720 → 再變回 ≥ 720 仍是單欄（手動選擇有保留，不被 auto 蓋掉）", async () => {
+    stub({
+      [`/api/notes/${NOTE}/versions?limit=50`]: list([ver(2), ver(1)]),
+      [`/api/notes/${NOTE}/versions/2`]: { id: "v-2", seq: 2, ydoc: b64(V2) },
+      [`/api/notes/${NOTE}/versions/1`]: { id: "v-1", seq: 1, ydoc: b64(V1) },
+    });
+    widthRef.current = 900;
+    renderPreview({ seq: 2 });
+    await screen.findByTestId("diff-split");
+    const banner = () => within(screen.getByTestId("preview-banner"));
+    fireEvent.click(banner().getByRole("button", { name: "Single column" }));
+    await screen.findByTestId("diff-single");
+    // 縮窄／變寬：useContainerWidth 被 mock 成讀 widthRef，靠一次 context 變動（切比較對象）觸發重新 render。
+    widthRef.current = 600;
+    fireEvent.click(banner().getByRole("button", { name: "Current state" }));
+    await waitFor(() => expect(banner().queryByRole("button", { name: "Single column" })).not.toBeInTheDocument());
+    widthRef.current = 900;
+    fireEvent.click(banner().getByRole("button", { name: "Previous version" }));
+    await waitFor(() => expect(banner().getByRole("button", { name: "Single column" })).toHaveAttribute("aria-pressed", "true"));
+    expect(banner().getByRole("button", { name: "Side by side" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByTestId("diff-single")).toBeInTheDocument();
+    expect(screen.queryByTestId("diff-split")).not.toBeInTheDocument();
+  });
+
+  it("final fix 2 樣式：兩組切換鈕（比較對象、並排／單欄）的按下鈕帶同一組按下 class，且 hover 不會把按下底色換回 bg-accent", async () => {
+    stub({
+      [`/api/notes/${NOTE}/versions?limit=50`]: list([ver(2), ver(1)]),
+      [`/api/notes/${NOTE}/versions/2`]: { id: "v-2", seq: 2, ydoc: b64(V2) },
+      [`/api/notes/${NOTE}/versions/1`]: { id: "v-1", seq: 1, ydoc: b64(V1) },
+    });
+    widthRef.current = 900;
+    renderPreview({ seq: 2 });
+    await screen.findByTestId("diff-split");
+    const banner = within(screen.getByTestId("preview-banner"));
+    const previous = banner.getByRole("button", { name: "Previous version" });
+    const split = banner.getByRole("button", { name: "Side by side" });
+    await waitFor(() => expect(split).toHaveAttribute("aria-pressed", "true"));
+    expect(previous).toHaveAttribute("aria-pressed", "true");
+    for (const pressed of [previous, split]) {
+      expect(pressed).toHaveClass("bg-primary/15", "hover:bg-primary/20");
+      // ghost 的 hover:bg-accent 與橫幅底色相同：留著的話，滑鼠停在按下鈕上時按下態會消失（真瀏覽器截圖 12／13 的現象）。
+      expect(pressed).not.toHaveClass("hover:bg-accent");
+    }
+    for (const idle of [banner.getByRole("button", { name: "Current state" }), banner.getByRole("button", { name: "Single column" })]) {
+      expect(idle).toHaveAttribute("aria-pressed", "false");
+      expect(idle).not.toHaveClass("bg-primary/15");
+    }
+  });
+
+  it("final fix 2 樣式：並排兩欄的內文不套 justify（index.css 在 .kb-diff-split 之下把未自訂對齊的區塊改回 left；jsdom 不載 index.css，計算樣式由 e2e 截圖驗）", async () => {
+    const { readFileSync } = await import("node:fs");
+    const css = readFileSync(`${process.cwd()}/src/index.css`, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+    const justifyAt = css.search(/text-align:\s*justify;/);
+    const rule = /\.kb-diff-split \.bn-editor \.bn-block-content:not\(\[data-text-alignment\]\)\s*\{[^}]*text-align:\s*left;[^}]*\}/.exec(css);
+    expect(justifyAt).toBeGreaterThan(-1);
+    expect(rule, "找不到 .kb-diff-split 的 text-align:left 覆寫").not.toBeNull();
+    // 特性相同（0,4,0），靠出現順序勝出：覆寫必須在 justify 規則之後。
+    expect(rule!.index).toBeGreaterThan(justifyAt);
+    stub({
+      [`/api/notes/${NOTE}/versions?limit=50`]: list([ver(2), ver(1)]),
+      [`/api/notes/${NOTE}/versions/2`]: { id: "v-2", seq: 2, ydoc: b64(V2) },
+      [`/api/notes/${NOTE}/versions/1`]: { id: "v-1", seq: 1, ydoc: b64(V1) },
+    });
+    widthRef.current = 900;
+    renderPreview({ seq: 2 });
+    expect(await screen.findByTestId("diff-split")).toHaveClass("kb-diff-split");
+  });
+
+  it("final Task 8 ready：預覽最舊那版（比空文件）時清單背景重抓失敗 → 預覽留著，不變回「正在載入」", async () => {
+    let failList = false;
+    const listUrl = `/api/notes/${NOTE}/versions?limit=50`;
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        calls.push(url);
+        if (url === listUrl) {
+          if (failList) return Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({ error: { code: "internal", message: "boom" } }) } as Response);
+          return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(list([ver(1)])) } as Response);
+        }
+        if (url === `/api/notes/${NOTE}/versions/1`) return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ id: "v-1", seq: 1, ydoc: b64(V1) }) } as Response);
+        throw new Error(`unexpected fetch: ${url}`);
+      }),
+    );
+    const { queryClient } = renderPreview({ seq: 1 });
+    const view = await screen.findByTestId("diff-single");
+    await waitFor(() => expect(view.querySelector('[data-id="A"][data-diff="added"]')).not.toBeNull());
+    failList = true;
+    await queryClient.invalidateQueries({ queryKey: ["notes", NOTE, "versions"] });
+    await waitFor(() => expect(queryClient.getQueryState(["notes", NOTE, "versions"])?.status).toBe("error"));
+    expect(calls.filter((u) => u === listUrl).length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText("Loading version…")).not.toBeInTheDocument();
+    expect(screen.getByTestId("diff-single")).toBeInTheDocument();
+    expect(screen.queryByText("An unexpected error occurred.")).not.toBeInTheDocument();
   });
 
   it("forceSingle（窄視窗整頁）：一律單欄、沒有並排／單欄切換鈕", async () => {

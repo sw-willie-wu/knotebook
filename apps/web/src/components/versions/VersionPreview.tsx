@@ -17,8 +17,11 @@ import { useVersions } from "@/lib/versions-context";
 import { useTheme } from "@/theme";
 import { cn } from "@/lib/utils";
 
-/** 並排的門檻（content box 寬）。與 `@min-[1100px]:grid-cols-2` 同值——兩處要一起動。 */
-const SPLIT_MIN_WIDTH = 1100;
+/**
+ * 並排的門檻（content box 寬，`useContainerWidth` 量；final §14-6，Willie 裁定 720）。門檻的唯一來源：
+ * 不到門檻就不走並排渲染（只有單欄），所以並排的 grid 一律兩欄、不另用容器查詢。
+ */
+const SPLIT_MIN_WIDTH = 720;
 
 const NO_MARKS: Map<string, DiffMark> = new Map();
 
@@ -79,7 +82,8 @@ function usePreviousTarget(list: ReturnType<typeof useVersionList>, seq: number 
   if (seq === null) return { target: null, ready: false, failed: false };
   if (target) return { target, ready: true, failed: false };
   if (needMore) return { target: null, ready: false, failed: isFetchNextPageError };
-  return { target: null, ready: list.isSuccess, failed: false };
+  // 「已有資料」就算 ready（final Task 8）：用 isSuccess 的話，背景重抓失敗（data 還在）會把預覽打回「正在載入」。
+  return { target: null, ready: list.data !== undefined, failed: false };
 }
 
 interface NonTextChange {
@@ -131,7 +135,7 @@ function NonTextDialog({ change, onClose }: { change: NonTextChange; onClose: ()
  */
 export function VersionPreview({ doc, forceSingle = false }: { doc: Y.Doc; forceSingle?: boolean }) {
   const { t } = useTranslation();
-  const { noteId, preview, compareTo, splitMode, onlyChanges, stopPreview } = useVersions();
+  const { noteId, preview, compareTo, splitMode, onlyChanges, stopPreview, reportPreviewWide } = useVersions();
   const ref = useRef<HTMLDivElement>(null);
   const width = useContainerWidth(ref);
 
@@ -172,7 +176,17 @@ export function VersionPreview({ doc, forceSingle = false }: { doc: Y.Doc; force
   const sides = useMemo(() => (entries ? sideBySideMarks(entries) : null), [entries]);
   const nonText = useMemo(() => (entries && single ? collectNonText(entries, single.marks) : []), [entries, single]);
 
-  const split = !forceSingle && (splitMode === "split" || (splitMode === "auto" && width >= SPLIT_MIN_WIDTH));
+  // 並排只在預覽區夠寬時存在（final §14-6）：窄時一律單欄，使用者選過的「並排」留在 splitMode、變寬後恢復。
+  // 與 controller 的 `splitActive`（`previewWide && splitMode !== "single"`）同一條。
+  const wide = !forceSingle && width >= SPLIT_MIN_WIDTH;
+  const split = wide && splitMode !== "single";
+  // 回報寬度判定給橫幅／整頁（final M-1、§14-6）：寬度只有本元件量得到。卸載時歸零。
+  // useLayoutEffect（final fix 2 N-A）：寬版第一次進預覽時，在瀏覽器繪製前就讓橫幅拿到 previewWide，避免閃一格沒有並排鈕【推】
+  // （jsdom 分不出 useEffect／useLayoutEffect：換回 useEffect 測試照樣綠，突變 R6；沒有測試守著）。
+  useLayoutEffect(() => {
+    reportPreviewWide(wide);
+    return () => reportPreviewWide(false);
+  }, [wide, reportPreviewWide]);
 
   // 非文字 changed 的「看前後」鈕：疊在 wrapper 上，top 對齊該區塊（右欄／單欄那一顆）。按鈕集合、版面、寬度變了才重量；
   // 子層 DiffEditor 的 DOM 在它自己的 layout effect 之前就已掛上（Step 1 探針），所以這裡量得到。
@@ -214,7 +228,7 @@ export function VersionPreview({ doc, forceSingle = false }: { doc: Y.Doc; force
       const older = compareTo === "previous" ? (previous.target ? t("versions.preview.leftLabel", { seq: previous.target.seq }) : t("versions.preview.vsEmpty")) : t("versions.preview.leftLabel", { seq: preview.seq });
       const newer = compareTo === "previous" ? t("versions.preview.leftLabel", { seq: preview.seq }) : t("versions.preview.rightLabelCurrent");
       body = (
-        <div data-testid="diff-split" className="grid grid-cols-1 gap-4 @min-[1100px]:grid-cols-2">
+        <div data-testid="diff-split" className="kb-diff-split grid grid-cols-2 gap-4">
           <section className="min-w-0">
             <h3 className="mb-1 px-4 text-xs text-muted-foreground">{older}</h3>
             <DiffEditor blocks={a} marks={sides.left} />
@@ -235,7 +249,7 @@ export function VersionPreview({ doc, forceSingle = false }: { doc: Y.Doc; force
   }
 
   return (
-    <div ref={ref} className="@container relative p-4">
+    <div ref={ref} className="relative p-4">
       {body}
       {nonText.map((c) => (
         <Button key={c.key} type="button" variant="outline" size="sm" className="absolute h-7 bg-background text-xs" style={{ top: tops[c.key] ?? 0, right: "1rem" }} onClick={() => setOpened(c)}>

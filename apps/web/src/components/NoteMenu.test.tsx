@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { createRef, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -505,6 +505,21 @@ describe("NoteMenu × 版本歷史（spec §8.5）", () => {
     expect(JSON.parse(screen.getByTestId("v-state").textContent!).mode).not.toBeNull();
     fireEvent.click(within(await openVersionsMenu()).getByRole("menuitem", { name: "Save current version" }));
     expect(JSON.parse(screen.getByTestId("v-state").textContent!).dialog).toBe("save");
+  });
+
+  it("final I-1：triggerRef（NotePage 交給版本歷史整頁當焦點退路）指到頁首 ⋮ 觸發鈕本身", () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("unexpected fetch"))));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const triggerRef = createRef<HTMLButtonElement>();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/notes/my-note"]}>
+          <NoteMenu note={OWNER_NOTE} state={CONNECTED} leavingRef={{ current: false }} onOpenEdits={() => {}} triggerRef={triggerRef} />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    expect(triggerRef.current).not.toBeNull();
+    expect(triggerRef.current).toBe(screen.getByRole("button", { name: "More" }));
   });
 
   it.each([["disabled（viewer）"], ["none（側欄每列 ⋮，provider 之外）"]] as const)("%s → 兩項都不渲染", async (label) => {

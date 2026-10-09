@@ -481,6 +481,8 @@ export default function NotePage() {
   // 到），共用同一道閘門才不會噴兩則一模一樣的 toast、導兩次頁。`navigate` 之後這個
   // 元件還會再 render 至少一次，所以閘門是必要的而不只是保險。
   const leavingRef = useRef(false);
+  /** 頁首 ⋮ 觸發鈕（final I-1）：版本歷史整頁關閉時，開啟前的焦點元素（⋮ 選單項）已卸載就退回這裡。 */
+  const noteMenuTriggerRef = useRef<HTMLButtonElement>(null);
 
   // 交給側欄筆記列 ⋮ 的「目前開著的那篇」（lib/note-page-controls.ts）：只在已解析出 noteId 時有值——
   // 側欄對這一篇刪除要共用上面這道 `leavingRef`（否則自己刪完會再多一則「筆記已被刪除」toast），
@@ -674,7 +676,7 @@ export default function NotePage() {
                   <ConnectionBadge state={state} synced={synced} canEdit={roleCanEdit} />
                   <LastEditedLabel note={note} onOpenEdits={openEdits} />
                   <ShareDialog note={note} />
-                  <NoteMenu note={note} state={state} leavingRef={leavingRef} onOpenEdits={openEdits} />
+                  <NoteMenu note={note} state={state} leavingRef={leavingRef} onOpenEdits={openEdits} triggerRef={noteMenuTriggerRef} />
                 </header>
                 {/* 版本預覽橫幅（spec §8.4）：寬版預覽時在頁首下方；整頁（sheet）模式由整頁自己畫。 */}
                 {versions.preview !== null && versions.mode !== "sheet" && (
@@ -703,12 +705,12 @@ export default function NotePage() {
               兩者同為 z-50、portal 到 body，後掛的在上——所以對話框一定疊在整頁之上。 */}
           {versions.mode === "sheet" && (
             <VersionsLazyBoundary noteId={noteId ?? null} errorClassName={VERSIONS_ERROR_FRAME.floating}>
-              <VersionsSheet doc={doc} lastEdited={note.lastEdited} />
+              <VersionsSheet doc={doc} lastEdited={note.lastEdited} returnFocusRef={noteMenuTriggerRef} />
             </VersionsLazyBoundary>
           )}
           {versions.dialog !== null && (
             <VersionsLazyBoundary noteId={noteId ?? null} errorClassName={VERSIONS_ERROR_FRAME.floating}>
-              <VersionsDialogs />
+              <VersionsDialogs returnFocusRef={noteMenuTriggerRef} />
             </VersionsLazyBoundary>
           )}
         </div>

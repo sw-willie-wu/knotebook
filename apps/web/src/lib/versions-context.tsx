@@ -33,6 +33,12 @@ export interface VersionsContextValue {
   compareTo: CompareTo;
   splitMode: SplitMode;
   onlyChanges: boolean;
+  /** 預覽區夠不夠並排（`VersionPreview` 量到的 content box ≥ `SPLIT_MIN_WIDTH`、且不是 `forceSingle`）；由 `VersionPreview` 回報——
+   * 寬度只有它量得到（final §14-6）。不夠寬時沒有並排：橫幅不渲染並排／單欄兩顆鈕。 */
+  previewWide: boolean;
+  /** 預覽目前實際是並排：`previewWide` 且使用者沒選單欄。窄時選過的「並排」留在 `splitMode`、不生效，變寬後恢復。
+   * 「只看差異」只對單欄有效（spec §8.4），橫幅與整頁依它把開關停用（final M-1）；並排／單欄的按下態也看它。 */
+  splitActive: boolean;
   dialog: VersionsDialog | null;
   open(): void;
   close(): void;
@@ -42,6 +48,8 @@ export interface VersionsContextValue {
   setCompareTo(v: CompareTo): void;
   setSplitMode(v: SplitMode): void;
   setOnlyChanges(v: boolean): void;
+  /** `VersionPreview` 專用：回報 `previewWide`。 */
+  reportPreviewWide(v: boolean): void;
   openDialog(d: VersionsDialog): void;
   closeDialog(): void;
   /** 套用成功後由 `useApplyFlow` 呼叫：轉給 controller 的 `onApplied` 選項（NotePage 用它讓筆記 query 整組失效）。 */
@@ -59,6 +67,8 @@ export const NOOP_VERSIONS: VersionsContextValue = {
   compareTo: "previous",
   splitMode: "auto",
   onlyChanges: false,
+  previewWide: false,
+  splitActive: false,
   dialog: null,
   open: noop,
   close: noop,
@@ -68,6 +78,7 @@ export const NOOP_VERSIONS: VersionsContextValue = {
   setCompareTo: noop,
   setSplitMode: noop,
   setOnlyChanges: noop,
+  reportPreviewWide: noop,
   openDialog: noop,
   closeDialog: noop,
   onApplied: noop,
@@ -112,6 +123,7 @@ export function useVersionsController({
   const [compareTo, setCompareTo] = useState<CompareTo>("previous");
   const [splitMode, setSplitMode] = useState<SplitMode>("auto");
   const [onlyChanges, setOnlyChanges] = useState(false);
+  const [previewWide, reportPreviewWide] = useState(false);
   const [dialog, setDialog] = useState<VersionsDialog | null>(null);
   const [forNote, setForNote] = useState(noteId);
 
@@ -175,6 +187,8 @@ export function useVersionsController({
       compareTo,
       splitMode,
       onlyChanges,
+      previewWide: active && preview !== null && previewWide,
+      splitActive: active && preview !== null && previewWide && splitMode !== "single",
       dialog: active ? dialog : null,
       open,
       close,
@@ -184,10 +198,11 @@ export function useVersionsController({
       setCompareTo,
       setSplitMode,
       setOnlyChanges,
+      reportPreviewWide,
       openDialog,
       closeDialog,
       onApplied: notifyApplied,
     }),
-    [active, noteId, mode, preview, compareTo, splitMode, onlyChanges, dialog, open, close, openSave, startPreview, stopPreview, openDialog, closeDialog, notifyApplied],
+    [active, noteId, mode, preview, compareTo, splitMode, onlyChanges, previewWide, dialog, open, close, openSave, startPreview, stopPreview, openDialog, closeDialog, notifyApplied],
   );
 }

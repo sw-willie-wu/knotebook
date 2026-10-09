@@ -12,15 +12,15 @@ Each version lists the people who changed the note since the version before it �
 
 **Automatically**, as long as automatic versions are on for the note (see [Turning automatic versions off](#turning-automatic-versions-off)):
 
-- once a note that has been edited goes 5 minutes without further changes;
+- once a note whose content has changed goes 5 minutes without further changes;
 - when everyone has left a note that has changes not yet in a version, without waiting for the 5 minutes;
 - around a write by an AI assistant (through the API or MCP), including reverting one: if there are human changes that aren't in a version yet, they are saved as a version first, and the assistant's write is then saved as a version of its own.
 
-Opening a note and closing it again without editing doesn't save a version.
+A version is saved automatically only when the content has actually changed: opening a note and closing it again doesn't save a version, nor does typing something and deleting it again, and block attributes that merely restate the editor's defaults (for example a paragraph aligned left) don't count as a change.
 
 **By hand**: choose **Save current version** from the `⋮` menu at the top of the note (the `⋮` on a note's row in the sidebar doesn't have it), press **Ctrl+S** (**Cmd+S** on a Mac), or use **Save current version** at the bottom of the version list. A dialog asks for an optional **Version name** (up to 120 characters). Ctrl+S is left to the browser while another dialog or a drop-down menu (such as a `⋮` menu) is open — the full-screen version history on a narrow window counts as a dialog, the sidebar on a narrow window doesn't — and during a presentation; on a note you can only view, it is always left to the browser. If the note's content is the same as the version it is based on, no new version is created: that version is turned into a manual one (and given the name, if you entered one), and the notice says so.
 
-**Nothing else creates a version.** A note that existed before version history was added has no versions until someone edits it, and the content it had before that first edit is not kept as a version. A copied or moved note has no versions until it is edited (or saved by hand) in its new place.
+**Nothing else creates a version.** A note that existed before version history was added has no versions until its content changes, and the content it had before that first change is not kept as a version. A copied or moved note has no versions until its content changes (or a version is saved by hand) in its new place.
 
 ## The current state and the base
 
@@ -43,8 +43,8 @@ On a wide window, open the history with the round **Version history** button at 
 Click a row to preview that version; its content isn't loaded until you do. The ↑ and ↓ keys move between rows and preview each one. While you preview, a bar under the page header shows the version and lets you choose:
 
 - **Compare with**: **Previous version** (the default — for v1, or the oldest version left, it is compared with an empty document) or **Current state** (the note's content at the moment you pick it; it doesn't follow edits made while you look).
-- **Side by side** or **Single column**. When the preview area is at least 1100 pixels wide, the two versions are shown side by side unless you pick **Single column**. When it is narrower, a single column is the default; if you pick **Side by side** there, the two versions are shown one above the other rather than next to each other.
-- **Only changes**, which folds runs of unchanged blocks into one line.
+- **Side by side** or **Single column**. When the preview area is at least 720 pixels wide, the two versions are shown side by side unless you pick **Single column**. When it is narrower, there is only a single column and these two buttons aren't shown; if you had picked **Side by side**, it comes back once the area is wide enough again.
+- **Only changes**, which folds runs of unchanged blocks into one line. It works only in a single column: while the versions are shown side by side, it is greyed out and can't be switched.
 
 Added, deleted, changed and moved blocks are marked with a colored bar at their left, and changed text shows what was removed and what was added. For a changed block that isn't text, such as an image, **Changed · see before and after** opens both versions of it.
 
@@ -103,3 +103,7 @@ A note gets automatic versions only when both the site switch and the switch of 
 ## Storage
 
 Versions don't count toward a space's storage limit, and there is no site-wide limit on their total size; the retention settings above are what keeps automatic versions in check.
+
+## API
+
+See **Note versions** in the [API contract summary](./api.md) for the endpoints behind version history and exactly when a version is saved automatically.

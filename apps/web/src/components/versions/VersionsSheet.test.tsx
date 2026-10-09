@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useRef, useState } from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as Y from "yjs";
@@ -77,6 +78,32 @@ function Host({ doc }: { doc: Y.Doc }) {
       <button type="button" onClick={() => value.setOnlyChanges(true)}>host-only-changes</button>
       <span data-testid="s-only">{String(value.onlyChanges)}</span>
       {value.mode === "sheet" && <VersionsSheet doc={doc} lastEdited={{ byHandle: "ann", agentLabel: null, at: "2026-10-09T00:00:00.000Z" } as never} />}
+    </VersionsProvider>
+  );
+}
+
+/** final I-1：模擬頁首 ⋮ 開整頁——選單項按下後即卸載；`fake-menu-trigger` 是交給整頁的 returnFocusRef（NotePage 的 ⋮ 鈕）。 */
+function MenuHost({ doc }: { doc: Y.Doc }) {
+  const value = useVersionsController({ noteId: NOTE, enabled: true });
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const [menuOpen, setMenuOpen] = useState(true);
+  return (
+    <VersionsProvider value={value}>
+      <button ref={triggerRef} type="button">
+        fake-menu-trigger
+      </button>
+      {menuOpen && (
+        <button
+          type="button"
+          onClick={() => {
+            setMenuOpen(false);
+            value.open();
+          }}
+        >
+          menu-item
+        </button>
+      )}
+      {value.mode === "sheet" && <VersionsSheet doc={doc} lastEdited={null as never} returnFocusRef={triggerRef} />}
     </VersionsProvider>
   );
 }
@@ -200,6 +227,58 @@ describe("VersionsSheet（spec §8.3）", () => {
     await waitFor(() => expect(sheet.contains(document.activeElement)).toBe(true));
     fireEvent.click(within(sheet).getByRole("button", { name: "Back" }));
     await waitFor(() => expect(document.activeElement).toBe(opener));
+  });
+
+  it("final I-1：開啟前的焦點元素（⋮ 選單項）在關閉前已卸載 → 關整頁後焦點退回 returnFocusRef（頁首 ⋮ 鈕）", async () => {
+    stub({ [LIST]: list([ver(1)]) });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <MenuHost doc={new Y.Doc()} />
+        </ThemeProvider>
+      </QueryClientProvider>,
+    );
+    const item = screen.getByText("menu-item");
+    item.focus();
+    expect(document.activeElement).toBe(item);
+    // 同一批次：開整頁＋選單項卸載（同 NoteMenu 的 setMenuOpen(false)＋versions.open()）。整頁掛載當下記到的是選單項。
+    fireEvent.click(item);
+    const sheet = await screen.findByRole("dialog", { name: "Version history" });
+    expect(screen.queryByText("menu-item")).not.toBeInTheDocument();
+    await waitFor(() => expect(sheet.contains(document.activeElement)).toBe(true));
+    fireEvent.click(within(sheet).getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Version history" })).not.toBeInTheDocument());
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "fake-menu-trigger" })));
+  });
+
+  it("final fix 2 M-A：開整頁時焦點在 body → 關閉後退回 returnFocusRef（⋮ 鈕），不是還給 body", async () => {
+    stub({ [LIST]: list([ver(1)]) });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <MenuHost doc={new Y.Doc()} />
+        </ThemeProvider>
+      </QueryClientProvider>,
+    );
+    (document.activeElement as HTMLElement | null)?.blur();
+    expect(document.activeElement).toBe(document.body);
+    // fireEvent.click 不移動焦點：整頁掛載當下 activeElement 仍是 body。
+    fireEvent.click(screen.getByText("menu-item"));
+    const sheet = await screen.findByRole("dialog", { name: "Version history" });
+    await waitFor(() => expect(sheet.contains(document.activeElement)).toBe(true));
+    fireEvent.click(within(sheet).getByRole("button", { name: "Back" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Version history" })).not.toBeInTheDocument());
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "fake-menu-trigger" })));
+  });
+
+  it("final I-1(b)：步二比較對象 group 允許換行（flex-wrap；320 px 不溢出是依 class 推論，真瀏覽器量測留 e2e）", async () => {
+    stub({ [LIST]: list([ver(2), ver(1)]), [SNAP(2)]: { id: "v-2", seq: 2, ydoc: b64(V2) }, [SNAP(1)]: { id: "v-1", seq: 1, ydoc: b64(V1) } });
+    renderSheet();
+    const sheet = await screen.findByRole("dialog", { name: "Version history" });
+    fireEvent.click(await within(sheet).findByRole("button", { name: /^v2(?!\d)/ }));
+    expect(await within(sheet).findByRole("group", { name: "Compare with" })).toHaveClass("flex-wrap");
   });
 
   it("上一版／下一版：在 seq 間移動，最舊那版的上一版 disabled", async () => {

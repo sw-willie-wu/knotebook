@@ -923,6 +923,7 @@
       "split": "Side by side",
       "single": "Single column",
       "onlyChanges": "Only changes",
+      "onlyChangesSplitHint": "Only changes works in single column",
       "close": "Close preview",
       "collapsed": "… {{count}} unchanged blocks …",
       "nonTextChanged": "Changed · see before and after",

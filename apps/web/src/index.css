@@ -849,3 +849,12 @@ input[name="share-access"] {
 .kb-diff [data-diff="changed"] > .bn-block { border-left: 3px solid oklch(0.8 0.15 85); background: oklch(0.8 0.15 85 / 0.1); }
 .kb-diff [data-diff="moved"] > .bn-block { border-left: 3px dashed oklch(0.65 0.02 260); }
 .kb-diff [data-diff="collapsed"] > .bn-block { color: var(--muted-foreground); font-style: italic; }
+
+/* 並排兩欄（final fix 2）：欄寬只有文章欄的一半左右（1400px 視窗約 363px），上方「內文左右對齊」那組 justify 在這麼窄的欄裡
+   會把字距拉開（真瀏覽器截圖 11）。只在並排容器 `.kb-diff-split`（VersionPreview 的 diff-split）之下把**沒自訂對齊**的區塊改回
+   left（BlockNote 預設）；使用者挑過對齊的區塊帶 `data-text-alignment`，不匹配，照舊。特性與 justify 那組同為 (0,4,0)，
+   靠出現在它之後勝出——不得把這段搬到 justify 規則之前（`VersionPreview.test.tsx` 釘住順序）。單欄 diff 與活編輯器同寬，照舊 justify。 */
+.kb-diff-split .bn-editor .bn-block-content:not([data-text-alignment]) {
+  text-align: left;
+  hyphens: manual;
+}
