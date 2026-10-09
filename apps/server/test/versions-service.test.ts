@@ -367,3 +367,94 @@ describe("pruneNote／sweep（§10.2）", () => {
     expect((await versionsOf(s.db, s.note.id)).map(v => v.seq)).toEqual([2, 3]);
   });
 });
+
+describe("idle 計時器與 hook 分派（§5.2）", () => {
+  const humanCtx = (userId: string) => ({ userId });
+  it("人的落盤 → 掛計時器；到期切版；期間再落盤則重設（只剩一顆）", async () => {
+    const s = await setup();
+    const doc = paraDoc(["a"]);
+    await s.load(doc);
+    editPara(doc, 0, t => t.insert(0, "x"));
+    await s.svc.noteStored(s.note.id, doc, humanCtx(s.u.id));
+    await s.svc.noteStored(s.note.id, doc, humanCtx(s.u.id));
+    expect(s.clock.size()).toBe(1);
+    s.clock.fire();
+    await expect.poll(async () => (await versionsOf(s.db, s.note.id)).length).toBe(1);
+  });
+
+  it("autoEnabled=false → 不掛計時器", async () => {
+    const s = await setup();
+    await s.db.update(users).set({ autoVersions: false }).where(eq(users.id, s.u.id));
+    const doc = paraDoc(["a"]);
+    await s.load(doc);
+    await s.svc.noteStored(s.note.id, doc, humanCtx(s.u.id));
+    expect(s.clock.size()).toBe(0);
+  });
+
+  it("到期時文件已不在 host → 不切", async () => {
+    const s = await setup();
+    const doc = paraDoc(["a"]);
+    await s.load(doc);
+    editPara(doc, 0, t => t.insert(0, "x"));
+    await s.svc.noteStored(s.note.id, doc, humanCtx(s.u.id));
+    s.host.docs.delete(s.note.id);
+    s.clock.fire();
+    await new Promise(r => setTimeout(r, 50));
+    expect(await versionsOf(s.db, s.note.id)).toEqual([]);
+  });
+
+  it("ai-edit 且 applied → 立即切（editors 含 agentLabel）並清計時器；applied=false 不切、照人的規則掛計時器（起草裁定 22）", async () => {
+    const s = await setup();
+    const doc = paraDoc(["a"]);
+    await s.load(doc);
+    editPara(doc, 0, t => t.insert(0, "x"));
+    expect(s.clock.size()).toBe(0);
+    await s.svc.noteStored(s.note.id, doc, { source: "ai-edit", userId: s.u.id, tokenId: null, agentLabel: "Claude", applied: false });
+    expect(await versionsOf(s.db, s.note.id)).toEqual([]);
+    expect(s.clock.size()).toBe(1); // 被拒的 AI 落盤取代了人那批 store：人的修改要靠這顆計時器切
+    await s.svc.noteStored(s.note.id, doc, { source: "ai-edit", userId: s.u.id, tokenId: null, agentLabel: "Claude", applied: true });
+    expect(s.clock.size()).toBe(0);
+    expect((await versionsOf(s.db, s.note.id)).map(v => v.editors)).toEqual([[{ user_id: s.u.id, agent_label: "Claude" }]]);
+  });
+
+  it("version-apply：不切；applied 時清計時器；被拒的照人的規則掛計時器（起草裁定 22）", async () => {
+    const s = await setup();
+    const doc = paraDoc(["a"]);
+    await s.load(doc);
+    editPara(doc, 0, t => t.insert(0, "x"));
+    expect(s.clock.size()).toBe(0);
+    await s.svc.noteStored(s.note.id, doc, { source: "version-apply", userId: s.u.id, tokenId: null, agentLabel: null, applied: false });
+    expect(s.clock.size()).toBe(1);
+    await s.svc.noteStored(s.note.id, doc, { source: "version-apply", userId: s.u.id, tokenId: null, agentLabel: null, applied: true });
+    expect(s.clock.size()).toBe(0);
+    expect(await versionsOf(s.db, s.note.id)).toEqual([]);
+  });
+
+  it("beforeUnload：清計時器、有改就切；applying 中不切", async () => {
+    const s = await setup();
+    const doc = paraDoc(["a"]);
+    await s.load(doc);
+    editPara(doc, 0, t => t.insert(0, "x"));
+    await s.svc.noteStored(s.note.id, doc, humanCtx(s.u.id));
+    s.svc.beginApply(s.note.id);
+    await s.svc.beforeUnload(s.note.id, doc);
+    expect(s.clock.size()).toBe(0);
+    expect(await versionsOf(s.db, s.note.id)).toEqual([]);
+    s.svc.endApply(s.note.id);
+    await s.svc.beforeUnload(s.note.id, doc);
+    expect(await versionsOf(s.db, s.note.id)).toHaveLength(1);
+  });
+
+  it("forget 清計時器；close 清全部", async () => {
+    const s = await setup();
+    const doc = paraDoc(["a"]);
+    await s.load(doc);
+    await s.svc.noteStored(s.note.id, doc, humanCtx(s.u.id));
+    s.svc.forget(s.note.id);
+    expect(s.clock.size()).toBe(0);
+    await s.load(doc);
+    await s.svc.noteStored(s.note.id, doc, humanCtx(s.u.id));
+    s.svc.close();
+    expect(s.clock.size()).toBe(0);
+  });
+});

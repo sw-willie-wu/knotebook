@@ -16,6 +16,7 @@ import { createAuthenticateAny } from "./auth/bearer.js";
 import type { LoginThrottle } from "./auth/rate-limit.js";
 import type { CollabHooks } from "./collab/hooks.js";
 import type { CollabServer } from "./collab/server.js";
+import { VERSION_SWEEP_FIRST_DELAY_MS, VERSION_SWEEP_INTERVAL_MS, createVersionService } from "./collab/versions.js";
 import { authRoutes } from "./routes/auth.js";
 import { notesRoutes } from "./routes/notes.js";
 import { groupsRoutes } from "./routes/groups.js";
@@ -218,6 +219,8 @@ export interface AppDeps {
    * `DEFAULT_STORAGE_LOCK_TIMEOUT_MS`（5000）。race 測試注入 60000、S15 注入 200。
    */
   storageLockTimeoutMs?: number;
+  /** 版本歷史 §10.2：每小時背景清除（啟動後 5 分鐘首跑）。`index.ts` 傳 true；測試 app 不傳＝不啟動、直接呼叫 `sweep`。 */
+  startVersionSweep?: boolean;
   /**
    * Task 9：圖片上傳存放目錄的絕對路徑。**必填**——`buildApp` 啟動時會對它做一次
    * 可寫性探測（`assertUploadsDirWritable`，見該函式說明為何不用 `accessSync`），
@@ -616,6 +619,21 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       register: new FixedWindowLimiter(REGISTER_LIMIT),
     } satisfies NonNullable<AppDeps["limiters"]>);
   const storageLockTimeoutMs = deps.storageLockTimeoutMs ?? DEFAULT_STORAGE_LOCK_TIMEOUT_MS;
+  // 版本歷史：有 collab 就用它那份（已 bind hocuspocus）；沒有 collab（buildTestApp）另建一份未綁定的——REST 讀 note_states 當暫時狀態。
+  const versions = deps.collab?.versions ?? createVersionService({ db: deps.db, log: app.log });
+  if (deps.startVersionSweep) {
+    const runSweep = (): void => {
+      void versions.sweep(new Date()).catch(err => app.log.warn({ err }, "版本清除背景掃描失敗"));
+    };
+    const first = setTimeout(runSweep, VERSION_SWEEP_FIRST_DELAY_MS);
+    first.unref();
+    const every = setInterval(runSweep, VERSION_SWEEP_INTERVAL_MS);
+    every.unref();
+    app.addHook("onClose", async () => {
+      clearTimeout(first);
+      clearInterval(every);
+    });
+  }
 
   // #107：`limiters` 在上面才算出來，所以這個 decorate 必須排在它之後、任何
   // `app.register(路由)` 之前——路由模組的 register 內會呼叫 app.authenticateAny。

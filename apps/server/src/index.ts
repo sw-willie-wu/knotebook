@@ -173,6 +173,7 @@ async function main(): Promise<void> {
       collab,
       uploadsDir,
       ai,
+      startVersionSweep: true,
     },
     { webDist }
   );

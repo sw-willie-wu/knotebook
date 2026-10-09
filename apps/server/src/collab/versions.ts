@@ -9,10 +9,11 @@
 import { and, asc, eq, gt, inArray, lt, sql } from "drizzle-orm";
 import * as Y from "yjs";
 import {
-  VERSION_DAILY_UNTIL_DAYS_DEFAULT, VERSION_KEEP_ALL_DAYS_DEFAULT, YDOC_FRAGMENT, type VersionCurrentDto,
+  VERSION_DAILY_UNTIL_DAYS_DEFAULT, VERSION_IDLE_MS, VERSION_KEEP_ALL_DAYS_DEFAULT, YDOC_FRAGMENT, type VersionCurrentDto,
 } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
 import { groups, noteStates, noteVersions, notes, siteSettings, users } from "../db/schema.js";
+import type { DirectCtx } from "../notes/editing/session.js";
 import { UUID_RE } from "../notes/service.js";
 import { VersionCutAbort, cutVersionInTx, notBaseVersionSql, spaceKeyOf, type CutVersionInput, type NoteVersionRow, type VersionEditorJson } from "../notes/tx/versions.js";
 import { VACUUM_VERSION_FINGERPRINT, versionFingerprint } from "../notes/version-fingerprint.js";
@@ -101,6 +102,12 @@ export interface VersionService {
   pruneNote(noteId: string, now?: Date): Promise<number>;
   sweep(now: Date): Promise<number>;
   debugState(noteId: string): VersionStateSnapshot | undefined;
+  /** §5.2：onStoreDocument 之後（server.ts await 它，受 saveMutex 保護）。 */
+  noteStored(noteId: string, doc: Y.Doc, ctx: unknown): Promise<void>;
+  /** §5.2：beforeUnloadDocument。先等進行中的計時器切版（起草裁定 6）。 */
+  beforeUnload(noteId: string, doc: Y.Doc): Promise<void>;
+  /** 關機：清掉所有計時器。 */
+  close(): void;
 }
 
 const realTimers: VersionTimers = {
@@ -184,6 +191,7 @@ export function createVersionService(deps: VersionServiceDeps): VersionService {
   const db = deps.db;
   const now = deps.now ?? ((): Date => new Date());
   const timers = deps.timers ?? realTimers;
+  const idleMs = deps.idleMs ?? VERSION_IDLE_MS;
   const states = new Map<string, NoteVersionState>();
   const applyingSet = new Set<string>();
   const warnedUninitialized = new Set<string>();
@@ -457,6 +465,53 @@ export function createVersionService(deps: VersionServiceDeps): VersionService {
     }
   }
 
+  async function noteStored(noteId: string, doc: Y.Doc, ctx: unknown): Promise<void> {
+    // `source` 先放寬成 string：`DirectCtx.source` 要到 Task 7 才加 "version-apply"，今天的型別下
+    // `=== "version-apply"` 是 TS2367（兩邊沒有交集）。
+    const c = ctx as (Partial<Omit<DirectCtx, "source">> & { source?: string }) | undefined;
+    const s = states.get(noteId);
+    if (c?.source === "ai-edit" && c.applied === true) {
+      if (s) clearTimer(s);
+      if (typeof c.userId === "string") {
+        await cutIfDirty(noteId, doc, { kind: "auto", extraEditors: [{ userId: c.userId, agentLabel: c.agentLabel ?? null }] });
+      }
+      return;
+    }
+    if (c?.source === "version-apply" && c.applied === true) {
+      if (s) clearTimer(s);
+      return;
+    }
+    // 「其他（人）」（spec §5.2）：人的落盤，以及被拒的 ai-edit／version-apply（applied=false；它取代了同一批人待送 store 的
+    // lastContext，起草裁定 22）——重設 idle 計時器。
+    if (!s?.initialized || !s.autoEnabled) return;
+    clearTimer(s);
+    s.idleTimer = timers.set(() => {
+      s.idleTimer = null;
+      if (states.get(noteId) !== s) return;
+      const live = host?.documents.get(noteId);
+      if (!live) return;
+      // 計時器回呼不受 saveMutex 保護、沒有人 await 它：cutIfDirty 對非 VersionCutAbort 的 DB 錯誤會往上拋，一律在這裡吞掉只 warn。
+      s.timerCut = cutIfDirty(noteId, live, { kind: "auto" })
+        .catch(err => deps.log.warn({ err, noteId }, "idle 切版失敗"))
+        .finally(() => {
+          s.timerCut = null;
+        });
+    }, idleMs);
+  }
+
+  async function beforeUnload(noteId: string, doc: Y.Doc): Promise<void> {
+    const s = states.get(noteId);
+    if (s) {
+      clearTimer(s);
+      if (s.timerCut) await s.timerCut;
+    }
+    await cutIfDirty(noteId, doc, { kind: "auto" });
+  }
+
+  function close(): void {
+    for (const s of states.values()) clearTimer(s);
+  }
+
   function debugState(noteId: string): VersionStateSnapshot | undefined {
     const s = states.get(noteId);
     if (!s) return undefined;
@@ -471,5 +526,6 @@ export function createVersionService(deps: VersionServiceDeps): VersionService {
       host = h;
     },
     noteLoaded, noteChanged, forget, relocated, isDirty, cutIfDirty, beginApply, endApply, docFor, currentOf, pruneNote, sweep, debugState,
+    noteStored, beforeUnload, close,
   };
 }

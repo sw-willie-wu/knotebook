@@ -1,5 +1,5 @@
 // 版本歷史整合測試的共用縫（spec 2026-10-09 §11.2）。文件一律以「BlockNote 形」手造（blockGroup > blockContainer(id) > paragraph > XmlText），
-// 不 mount 編輯器——版本服務只讀 Yjs 結構，造法與內容指紋無關。
+// 不 mount 編輯器——版本服務只讀 Yjs 結構，造法與內容指紋無關。例外：`seedOldNote` 模擬「瀏覽器寫過的舊筆記」，走 EditorSession。
 import { randomUUID } from "node:crypto";
 import { asc, eq } from "drizzle-orm";
 import * as Y from "yjs";
@@ -8,6 +8,9 @@ import type { Db } from "../src/db/index.js";
 import { noteVersions, notes } from "../src/db/schema.js";
 import type { VersionDocsHost, VersionTimers } from "../src/collab/versions.js";
 import type { NoteVersionRow } from "../src/notes/tx/versions.js";
+import { EditorSession } from "../src/notes/editing/session.js";
+import { seedDoc } from "./copy-helpers.js";
+import { testEditingRuntime } from "./helpers.js";
 
 export function paraDoc(texts: string[]): Y.Doc {
   const doc = new Y.Doc();
@@ -57,7 +60,19 @@ export async function noteBase(db: Db, noteId: string): Promise<{ counter: numbe
   return r!;
 }
 
-export function fakeHost(): VersionDocsHost & { docs: Map<string, Y.Doc> } {
+/** 「舊筆記」：功能上線前就存在、`note_states` 有內容、沒有任何版本（以 server 端 EditorSession 寫 markdown 再直接插 `note_states`）。 */
+export async function seedOldNote(db: Db, noteId: string, markdown: string): Promise<void> {
+  const doc = new Y.Doc();
+  const s = await EditorSession.open(testEditingRuntime, doc);
+  try {
+    s.editor.replaceBlocks(s.editor.document, s.editor.tryParseMarkdownToBlocks(markdown));
+  } finally {
+    s.close();
+  }
+  await seedDoc(db, noteId, doc);
+}
+
+export function fakeHost():VersionDocsHost & { docs: Map<string, Y.Doc> } {
   const docs = new Map<string, Y.Doc>();
   return { docs, documents: { get: name => docs.get(name), has: name => docs.has(name) } };
 }

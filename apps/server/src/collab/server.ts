@@ -90,6 +90,7 @@ import type { DirectCtx } from "../notes/editing/session.js";
 import { loadNoteAudience, resolveRole } from "../notes/service.js";
 import { verifyCollabToken } from "./token.js";
 import { createNoteStore, docClock, type NoteStoreSearchHooks, type StoreLogger } from "./store.js";
+import { createVersionService, type VersionService } from "./versions.js";
 import { FixedWindowLimiter } from "../http/rate-limit.js";
 
 /** Hocuspocus 的 `onStoreDocument` debounce（ms）。production 一律 2000——見 Task 7 brief。 */
@@ -311,6 +312,8 @@ export interface CollabDeps {
   log?: CollabLogger;
   /** #93：全文索引的測試縫（`NoteStoreSearchHooks`，生產不注入）——透傳給 `createNoteStore`。 */
   storeSearchHooks?: NoteStoreSearchHooks;
+  /** 版本歷史（spec 2026-10-09 A12）：idle 切版的安靜時間；未傳＝5 分鐘。整合測試壓到 50 ms。 */
+  versionIdleMs?: number;
 }
 
 export interface ConnectionHandle {
@@ -327,6 +330,8 @@ export interface ConnectionHandle {
 
 export interface CollabServer {
   hocuspocus: Hocuspocus<CollabContext>;
+  /** 筆記版本歷史的切版狀態與切版（`collab/versions.ts`）。`app.ts` 透傳給寫入 service 與版本路由。 */
+  versions: VersionService;
   /** 把 `/collab` 的 WebSocket upgrade 掛到 Fastify 的底層 http server 上。只能呼叫一次。 */
   attach(app: FastifyInstance): void;
   connectionsOf(userId: string): ReadonlySet<ConnectionHandle>;
@@ -484,6 +489,7 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
     return audience !== undefined && audience !== null && audience.has(userId);
   }
   const noteStore = createNoteStore({ ...deps.storeSearchHooks, db: deps.db, log });
+  const versions = createVersionService({ db: deps.db, log, idleMs: deps.versionIdleMs });
 
   /**
    * 拒連／踢除的結構化日誌（issue #37）。`phase` 分辨「握手當下被拒」（handshake）與
@@ -556,6 +562,34 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
     throw new CollabAuthError(reason);
   }
 
+  // #106 D6 落款（spec §9）。`lastContext` ＝ 排定這次 store 的那一批編輯的 context：
+  // WS 連線是 `CollabContext`（人），直連是 `DirectCtx`（AI）。三件事要記住：
+  // ① 合併的 `disconnect()` 是**立即 store**，會取代同一批待送的 debounced store——所以同一批
+  //    人的編輯會被記成 AI 落款（內容不掉，只是落款歸給那次 AI 寫入，spec §13 接受）。
+  // ② 拒絕路徑的 `disconnect()` **也會 store**，`applied === false` 是唯一擋住落款的閘；
+  //    它同樣取代那批待送 store 的 `lastContext`（人那批的落款不寫、內容不掉）。
+  // ③ UPDATE **不得讓 store 失敗**（同 `collab/store.ts` 的紀律：onStoreDocument 拋錯會讓
+  //    Hocuspocus 把文件留在記憶體、且落盤停擺）——所以整段包 try/catch，只 warn。
+  async function stampLastEdited(documentName: string, lastContext: unknown): Promise<void> {
+    const ctx = lastContext as Partial<DirectCtx> | undefined;
+    if (typeof ctx?.userId !== "string") return;
+    const isAi = ctx.source === "ai-edit";
+    if (isAi && ctx.applied !== true) return;
+    try {
+      await deps.db
+        .update(notes)
+        .set({
+          lastEditedAt: new Date(),
+          lastEditedBy: ctx.userId,
+          lastEditedTokenId: isAi ? (ctx.tokenId ?? null) : null,
+          lastEditedAgentLabel: isAi ? (ctx.agentLabel ?? null) : null,
+        })
+        .where(eq(notes.id, documentName));
+    } catch (err) {
+      log.warn({ err, noteId: documentName }, "last_edited 落款失敗（不影響落盤）");
+    }
+  }
+
   const hocuspocus = new Hocuspocus<CollabContext>({
     // 不印 Hocuspocus 自己的啟動畫面／噪音；本專案的日誌一律走 Fastify logger。
     quiet: true,
@@ -566,41 +600,49 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
 
     // `document` 是 Hocuspocus 的 `Document`（`extends Y.Doc`），結構相容於
     // `NoteStore` 兩個方法要的 `Y.Doc` 參數。
-    onLoadDocument: async ({ documentName, document }) => noteStore.onLoadDocument(documentName, document),
-    // #106 D6 落款（spec §9）。`lastContext` ＝ 排定這次 store 的那一批編輯的 context：
-    // WS 連線是 `CollabContext`（人），直連是 `DirectCtx`（AI）。三件事要記住：
-    // ① 合併的 `disconnect()` 是**立即 store**，會取代同一批待送的 debounced store——所以同一批
-    //    人的編輯會被記成 AI 落款（內容不掉，只是落款歸給那次 AI 寫入，spec §13 接受）。
-    // ② 拒絕路徑的 `disconnect()` **也會 store**，`applied === false` 是唯一擋住落款的閘；
-    //    它同樣取代那批待送 store 的 `lastContext`（人那批的落款不寫、內容不掉）。
-    // ③ UPDATE **不得讓 store 失敗**（同 `collab/store.ts` 的紀律：onStoreDocument 拋錯會讓
-    //    Hocuspocus 把文件留在記憶體、且落盤停擺）——所以整段包 try/catch，只 warn。
+    // 版本歷史（spec §4.5、§5.2）：noteStore 先把 note_states 套進 doc，再初始化版本狀態（先同步抓 loadFingerprint）。
+    // 失敗只 warn：initialized 留 false＝這個載入週期不切自動版本、手動儲存回 503（§13-13）。
+    onLoadDocument: async ({ documentName, document }) => {
+      const update = await noteStore.onLoadDocument(documentName, document);
+      try {
+        await versions.noteLoaded(documentName, document);
+      } catch (err) {
+        log.warn({ err, noteId: documentName }, "版本狀態初始化失敗（這個載入週期不切自動版本）");
+      }
+      return update;
+    },
+    // 版本歷史 §5.2：只累積編輯者，零 DB。人＝CollabContext；直連＝DirectCtx（帶 agentLabel）。沒有 userId 的忽略。
+    onChange: async ({ documentName, context }) => {
+      const c = context as Partial<DirectCtx> | undefined;
+      if (typeof c?.userId !== "string") return;
+      versions.noteChanged(documentName, { userId: c.userId, agentLabel: c.source !== undefined ? (c.agentLabel ?? null) : null });
+    },
+    // 落款（`stampLastEdited` 的註解 ①②③）之後接版本歷史。
     onStoreDocument: async ({ documentName, document, lastContext }) => {
       await noteStore.onStoreDocument(documentName, document);
-      const ctx = lastContext as Partial<DirectCtx> | undefined;
-      if (typeof ctx?.userId !== "string") return;
-      const isAi = ctx.source === "ai-edit";
-      if (isAi && ctx.applied !== true) return;
+      await stampLastEdited(documentName, lastContext);
+      // 版本歷史 §5.2：await 才受 saveMutex 保護（unload 會等它）；③ 不得讓 store 失敗——只 warn。
       try {
-        await deps.db
-          .update(notes)
-          .set({
-            lastEditedAt: new Date(),
-            lastEditedBy: ctx.userId,
-            lastEditedTokenId: isAi ? (ctx.tokenId ?? null) : null,
-            lastEditedAgentLabel: isAi ? (ctx.agentLabel ?? null) : null,
-          })
-          .where(eq(notes.id, documentName));
+        await versions.noteStored(documentName, document, lastContext);
       } catch (err) {
-        log.warn({ err, noteId: documentName }, "last_edited 落款失敗（不影響落盤）");
+        log.warn({ err, noteId: documentName }, "版本歷史：落盤後切版／計時器失敗（不影響落盤）");
+      }
+    },
+    // 版本歷史 §5.2：所有人離開時有改就切。⚠ 這個 hook 拋錯會讓 Hocuspocus 重試一次後放棄 unload（§2.2）——一律吞掉只 warn。
+    beforeUnloadDocument: async ({ documentName, document }) => {
+      try {
+        await versions.beforeUnload(documentName, document);
+      } catch (err) {
+        log.warn({ err, noteId: documentName }, "版本歷史：卸載前切版失敗");
       }
     },
     // fix round 1 IMPORTANT 2：文件從記憶體卸載時清掉 noteStore 的 sv／lastBackupAt
     // 快取、warnedUnsafeUrl 旗標與 indexedHash（#93 全文索引雜湊），否則每篇曾經打開過的
     // 筆記都會在 process 存活期間永久占 Map／Set entry（慢性洩漏）。安全性見
-    // `NoteStore.afterUnloadDocument` 的註解。
+    // `NoteStore.afterUnloadDocument` 的註解。版本狀態同理（`forget` 連計時器一起清）。
     afterUnloadDocument: async ({ documentName }) => {
       noteStore.afterUnloadDocument(documentName);
+      versions.forget(documentName);
     },
 
     // 真授權：驗 token 簽章 → 重跑 resolveRole + gate.check——token 內帶的 role 只是
@@ -800,6 +842,8 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
     },
   });
 
+  versions.bind(hocuspocus);
+
   const wss = new WebSocketServer({ noServer: true });
 
   function handleUpgrade(app: FastifyInstance, request: IncomingMessage, socket: Duplex, head: Buffer): void {
@@ -892,10 +936,12 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
     byNote.clear();
     tokenSyncCallbacks.clear();
     deleting.clear();
+    versions.close();
   }
 
   return {
     hocuspocus,
+    versions,
 
     attach(app: FastifyInstance): void {
       if (attached) throw new Error("CollabServer.attach 只能呼叫一次");
