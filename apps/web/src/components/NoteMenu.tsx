@@ -21,7 +21,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { EllipsisVertical, Link as LinkIcon, MessageCircle, Trash } from "@/components/ui/icons";
+import { EllipsisVertical, Link as LinkIcon, MessageCircle, Presentation, Trash } from "@/components/ui/icons";
 import { ManualCopyField } from "@/components/ManualCopyField";
 import {
   GroupTransferDialog,
@@ -30,6 +30,7 @@ import {
   type GroupTransferPick,
 } from "@/components/share/GroupTransfer";
 import { toast } from "@/components/ui/toast";
+import { usePresentEntry } from "@/present/usePresentEntry";
 
 /** ApiFail → errors.<code>；其餘 → errors.fallback。與 NoteList/ShareDialog 同一套對映
  * （各檔各自一份，是既有慣例）。 */
@@ -54,7 +55,7 @@ export interface NoteMenuProps {
 }
 
 /**
- * 內文卡頁頭的 ⋮ 選單（spec D.4）：複製連結（任何角色）＋AI 修改紀錄＋移動到…／複製到…（#216；選項規則見 `share/GroupTransfer.tsx` 的 `buildTransferOptions`，「複製到我的筆記」已併入「複製到… → 個人空間」）
+ * 內文卡頁頭的 ⋮ 選單（spec D.4）：複製連結（任何角色）＋簡報模式（#229，任何角色）＋AI 修改紀錄＋移動到…／複製到…（#216；選項規則見 `share/GroupTransfer.tsx` 的 `buildTransferOptions`，「複製到我的筆記」已併入「複製到… → 個人空間」）
  * ＋刪除筆記（`permissions.delete`，#175 §8.3）。
  *
  * **focus trap 雷（rev5 定案，⚠ 改動前必讀）**：Radix `DropdownMenu` 預設是 modal，
@@ -114,12 +115,15 @@ interface NoteMenuCoreProps {
   note: NoteDto;
   trigger: "header" | "sidebar";
   onOpenEdits: () => void;
+  /** 「簡報模式」（#229）：在選單項的 onSelect 裡同步呼叫（要求全螢幕需要使用者手勢）。 */
+  onPresent: () => void;
   page: PageExit | null;
 }
 
 /** 頁首 ⋮（props 不變）。 */
 export function NoteMenu({ note, state, leavingRef, onOpenEdits }: NoteMenuProps) {
-  return <NoteMenuCore note={note} trigger="header" onOpenEdits={onOpenEdits} page={{ state, leavingRef }} />;
+  const { presentHere } = usePresentEntry();
+  return <NoteMenuCore note={note} trigger="header" onOpenEdits={onOpenEdits} onPresent={presentHere} page={{ state, leavingRef }} />;
 }
 
 /** 側欄筆記列 ⋮。開著的那篇＝與頁首 ⋮ 同一套；別篇＝刪了不導頁、AI 修改紀錄導過去並自動開。 */
@@ -128,10 +132,12 @@ export function SidebarNoteMenu({ note }: { note: NoteDto }) {
   const controls = useNotePageControls();
   const closeDrawer = useCloseSidebarDrawer();
   const isOpenPage = controls !== null && controls.noteId === note.id;
+  const { presentHere, presentNote } = usePresentEntry();
   return (
     <NoteMenuCore
       note={note}
       trigger="sidebar"
+      onPresent={isOpenPage ? presentHere : () => presentNote(canonicalNotePath(note))}
       page={isOpenPage ? { state: controls.state, leavingRef: controls.leavingRef } : null}
       onOpenEdits={
         isOpenPage
@@ -145,7 +151,7 @@ export function SidebarNoteMenu({ note }: { note: NoteDto }) {
   );
 }
 
-function NoteMenuCore({ note, trigger, onOpenEdits, page }: NoteMenuCoreProps) {
+function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page }: NoteMenuCoreProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const deleteNote = useDeleteNote();
@@ -158,6 +164,8 @@ function NoteMenuCore({ note, trigger, onOpenEdits, page }: NoteMenuCoreProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   /** 確認框／刪除框關閉後把焦點還給 ⋮ 觸發鈕（兩個 Dialog 都沒有 DialogTrigger，Radix 預設會掉到 body）。 */
   const triggerRef = useRef<HTMLButtonElement>(null);
+  /** #229 §6.6-6：從這一項進入簡報時，選單關閉別把焦點還給觸發鈕（它即將在 inert 的 AppShell 裡）；簡報層掛上後自己聚焦根。 */
+  const enteringPresentationRef = useRef(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   /** #216：選定的「移動／複製到群組」目標；非 null 時掛確認框（選單已關）。 */
   const [transfer, setTransfer] = useState<GroupTransferPick | null>(null);
@@ -250,6 +258,11 @@ function NoteMenuCore({ note, trigger, onOpenEdits, page }: NoteMenuCoreProps) {
               setGroupExpanded(null);
             }
           }}
+          onCloseAutoFocus={(event) => {
+            if (!enteringPresentationRef.current) return;
+            enteringPresentationRef.current = false;
+            event.preventDefault();
+          }}
         >
           <DropdownMenuItem
             onSelect={(event) => {
@@ -259,6 +272,19 @@ function NoteMenuCore({ note, trigger, onOpenEdits, page }: NoteMenuCoreProps) {
           >
             <LinkIcon className="mr-2 h-4 w-4" />
             {t("share.copyLink")}
+          </DropdownMenuItem>
+          {/* #229 簡報模式（任何能讀的角色；F10：預設在「複製連結」之後）。三步形同下面兩項；onPresent 在這個
+              使用者事件裡同步要求全螢幕再導頁（usePresentEntry）。 */}
+          <DropdownMenuItem
+            onSelect={(event) => {
+              event.preventDefault();
+              enteringPresentationRef.current = true;
+              setMenuOpen(false);
+              onPresent();
+            }}
+          >
+            <Presentation className="mr-2 h-4 w-4" />
+            {t("note.menu.present")}
           </DropdownMenuItem>
           {/* AI 修改紀錄（#106）。三步形與下面的刪除項逐字同形：⚠ 少了
               `event.preventDefault()` 選單一樣會關、新案照樣綠——**沒有任何測試守著

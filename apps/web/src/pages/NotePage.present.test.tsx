@@ -491,3 +491,75 @@ describe("NotePage × 簡報（BrowserRouter：網址寫入點、上一頁）", 
     expect(screen.getByTestId("note-editor")).toBe(editor);
   });
 });
+
+describe("NotePage × ⋮ 進入簡報", () => {
+  let fake: FakeFullscreen | null = null;
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    collab.state = { phase: "connected", role: "owner" };
+    collab.doc = new Y.Doc();
+    collab.provider = createStubProvider();
+    stub.mode = "stub";
+    stub.fatal = null;
+    nav.fn.mockClear();
+    fake = installFakeFullscreen();
+    dismissAllToasts();
+  });
+
+  afterEach(async () => {
+    await fake?.uninstall();
+    fake = null;
+    collab.doc.destroy();
+    vi.unstubAllGlobals();
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("test 16：從頁首 ⋮ 進入 → 選單關閉後焦點在簡報層根（Radix 不把焦點還給 inert 背景裡的觸發鈕）", async () => {
+    stubFetch();
+    window.history.replaceState(null, "", "/n/tester/my-note");
+    renderPresent(["/n/tester/my-note"]);
+    await screen.findByTestId("note-editor");
+    fireEvent.pointerDown(screen.getByRole("button", { name: "More" }), { button: 0 });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Present" }));
+    const shell = await screen.findByRole("dialog", { name: "My Note — presentation" });
+    await waitFor(() => expect(document.activeElement).toBe(shell));
+    await new Promise((resolve) => setTimeout(resolve, 30)); // Radix FocusScope 的卸載回焦在 setTimeout(0)
+    expect(document.activeElement).toBe(shell);
+  });
+
+  it("test 4（K 案，從選單）：<StrictMode>＋BrowserRouter 從 ⋮ 進入 → 全螢幕 resolve 後 exitFullscreen 未被呼叫", async () => {
+    stubFetch();
+    window.history.replaceState(null, "", "/n/tester/my-note");
+    renderPresent([], { strict: true, browser: true });
+    await screen.findByTestId("note-editor");
+    fireEvent.pointerDown(screen.getByRole("button", { name: "More" }), { button: 0 });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Present" }));
+    await screen.findByTestId("present-overlay");
+    await act(async () => fake!.grantEventFirst());
+    expect(fake!.requestFullscreen).toHaveBeenCalledTimes(1);
+    expect(fake!.exitFullscreen).not.toHaveBeenCalled();
+  });
+
+  it("test 14：側欄 ⋮ 到別篇、該篇解析 404 → exitFullscreen 被呼叫、toast note.linkInvalid、導 /", async () => {
+    const OTHER: NoteDto = { ...NOTE, id: "22222222-2222-2222-2222-222222222222", title: "Other", slug: "other" };
+    const fetchFn = stubFetch({ list: [NOTE, OTHER] });
+    const base = fetchFn.getMockImplementation()!;
+    fetchFn.mockImplementation((input: RequestInfo | URL, init?: RequestInit) =>
+      String(input) === "/api/notes/by-path/tester/other"
+        ? Promise.resolve(respond(404, { error: { code: "not_found", message: "x" } }))
+        : base(input, init),
+    );
+    window.history.replaceState(null, "", "/n/tester/my-note");
+    renderPresent(["/n/tester/my-note"]);
+    await screen.findByTestId("note-editor");
+    const section = await screen.findByTestId("notegroup-myNotes");
+    fireEvent.pointerDown(await within(section).findByRole("button", { name: "Note actions for Other" }), { button: 0 });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Present" }));
+    expect(fake!.requestFullscreen).toHaveBeenCalledTimes(1);
+    await act(async () => fake!.grantEventFirst());
+    await waitFor(() => expect(loc()).toBe("/"));
+    expect(await screen.findByText("This link is invalid or the note doesn't exist.")).toBeInTheDocument();
+    expect(fake!.exitFullscreen).toHaveBeenCalledTimes(1);
+  });
+});
