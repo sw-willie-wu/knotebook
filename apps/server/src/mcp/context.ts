@@ -18,6 +18,9 @@ import type { NoteWriteService } from "../notes/editing/write-service.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
 import type { McpTestHooks } from "./hooks.js";
 import type { GroupTestHook } from "../groups/test-hook.js";
+import type { CollabHooks } from "../collab/hooks.js";
+import type { NoteCreateHooks } from "../notes/create.js";
+import type { SearchIndexHooks } from "../notes/tx/search-index.js";
 
 export interface McpToolCtx {
   db: Db;
@@ -38,9 +41,16 @@ export interface McpToolCtx {
    * `contentRead` 給兩支讀取工具；`edit`／`tokenWrite` 給寫入工具——`tokenWrite` 由
    * `requireWriteScope(ctx)` 扣（在 `resolveRole` **之前**，對齊 REST 的 preHandler），
    * `edit` 由工具自己在角色檢查**之後**扣（`role === "none"` 的 404 不啃它）；
-   * `search` 給 `search_notes`（#93）。
+   * `search` 給 `search_notes`（#93）；`upload` 給 `copy_note`（#180）。
    */
-  limiters: { contentRead: FixedWindowLimiter; edit: FixedWindowLimiter; tokenWrite: FixedWindowLimiter; search: FixedWindowLimiter };
+  limiters: {
+    contentRead: FixedWindowLimiter;
+    edit: FixedWindowLimiter;
+    tokenWrite: FixedWindowLimiter;
+    search: FixedWindowLimiter;
+    /** #180：`copy_note` 依「會被複製的附件數」扣——與上傳端點、REST 複製**同一實例**（spec §3.5、F40）。 */
+    upload: FixedWindowLimiter;
+  };
   log: FastifyBaseLogger;
   /** 呼叫者本人（`request.user!.id`）——L3 的可見性一律以它為準。 */
   userId: string;
@@ -69,4 +79,18 @@ export interface McpToolCtx {
    * （群組成員與新建旗標檢查之後、建立筆記之前——與 `POST /api/notes {groupId}` 同一個點名）。
    */
   groupTestHook?: GroupTestHook;
+  /** #180：`move_note_to_group` commit 後踢線（`onGroupAccessChanged`）。`app.ts` 傳 `deps.collabHooks`（與 `notesRoutes` 同一個）。 */
+  collabHooks: CollabHooks;
+  /**
+   * #180：`copy_note` 複製附件檔的目錄；#200 §7 的 `read_note_image` 重用同一欄（spec §9-2：只加這一次）。
+   */
+  uploadsDir: string;
+  /** #180：移動與複製的空間鎖等待上限（ms），與 `notesRoutes` 同一個值。 */
+  storageLockTimeoutMs: number;
+  /** #180 測試縫（生產不注入）：`edit_note` 的 rename 每輪候選、UPDATE 之前（語意同 `NotesRouteDeps.slugUpdateTestHook`）。 */
+  slugUpdateTestHook?: (candidate: string) => void | Promise<void>;
+  /** #180 測試縫：`copy_note` 交易內建列的 slug 迴圈（語意同 `NotesRouteDeps.noteCreateHooks`）。 */
+  noteCreateHooks?: NoteCreateHooks;
+  /** #180 測試縫：`copy_note` 交易內全文索引（語意同 `NotesRouteDeps.searchIndexHooks`）。 */
+  searchIndexHooks?: SearchIndexHooks;
 }

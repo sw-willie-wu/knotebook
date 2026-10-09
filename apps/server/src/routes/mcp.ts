@@ -13,6 +13,9 @@ import { sendError } from "../http/errors.js";
 import { mcpOriginAllowed } from "../http/origin.js";
 import type { McpTestHooks } from "../mcp/hooks.js";
 import type { GroupTestHook } from "../groups/test-hook.js";
+import type { CollabHooks } from "../collab/hooks.js";
+import type { NoteCreateHooks } from "../notes/create.js";
+import type { SearchIndexHooks } from "../notes/tx/search-index.js";
 import { registerMcpTools } from "../mcp/register.js";
 import { mcpInstructions, MCP_SERVER_NAME, MCP_SERVER_VERSION, versionReadFailed } from "../mcp/server-info.js";
 import { canWriteNotes } from "../mcp/write-scope.js";
@@ -68,11 +71,17 @@ export interface McpRouteDeps {
   collab?: CollabServer;
   editing?: EditingRuntime;
   /**
-   * 逐鍵挑（不整包轉傳）：MCP 只該看得到自己會用的四顆桶。`contentRead` 給兩支讀取工具，
+   * 逐鍵挑（不整包轉傳）：MCP 只該看得到自己會用的五顆桶。`contentRead` 給兩支讀取工具，
    * `edit`／`tokenWrite` 給 PR2 的兩支寫入工具（前者在角色檢查之後扣，後者在 scope 檢查
-   * 那一步扣，順序與 REST 對齊），`search` 給 `search_notes`（#93）。
+   * 那一步扣，順序與 REST 對齊），`search` 給 `search_notes`（#93），`upload` 給 `copy_note`（#180）。
    */
-  limiters: { contentRead: FixedWindowLimiter; edit: FixedWindowLimiter; tokenWrite: FixedWindowLimiter; search: FixedWindowLimiter };
+  limiters: {
+    contentRead: FixedWindowLimiter;
+    edit: FixedWindowLimiter;
+    tokenWrite: FixedWindowLimiter;
+    search: FixedWindowLimiter;
+    upload: FixedWindowLimiter;
+  };
   presence?: PresenceRegistry;
   /**
    * #108 §10.1（D22／M5）：`buildApp` 建的**同一個**寫入 service（`notesRoutes` 拿到的是
@@ -83,6 +92,18 @@ export interface McpRouteDeps {
   testHooks?: McpTestHooks;
   /** #175 PR5：群組測試注入縫，原樣帶進 `McpToolCtx.groupTestHook`（`app.ts` 傳 `deps.groupTestHook`）。 */
   groupTestHook?: GroupTestHook;
+  /** #180：原樣帶進 `McpToolCtx.collabHooks`（`app.ts` 傳 `deps.collabHooks`，與 `notesRoutes` 同一個）。 */
+  collabHooks: CollabHooks;
+  /** #180：原樣帶進 `McpToolCtx.uploadsDir`。 */
+  uploadsDir: string;
+  /** #180：原樣帶進 `McpToolCtx.storageLockTimeoutMs`。 */
+  storageLockTimeoutMs: number;
+  /** #180：原樣帶進 `McpToolCtx.slugUpdateTestHook`。 */
+  slugUpdateTestHook?: (candidate: string) => void | Promise<void>;
+  /** #180：原樣帶進 `McpToolCtx.noteCreateHooks`。 */
+  noteCreateHooks?: NoteCreateHooks;
+  /** #180：原樣帶進 `McpToolCtx.searchIndexHooks`。 */
+  searchIndexHooks?: SearchIndexHooks;
 }
 
 export function mcpRoutes(deps: McpRouteDeps) {
@@ -155,6 +176,12 @@ export function mcpRoutes(deps: McpRouteDeps) {
         publicOrigin,
         hooks: deps.testHooks,
         groupTestHook: deps.groupTestHook,
+        collabHooks: deps.collabHooks,
+        uploadsDir: deps.uploadsDir,
+        storageLockTimeoutMs: deps.storageLockTimeoutMs,
+        slugUpdateTestHook: deps.slugUpdateTestHook,
+        noteCreateHooks: deps.noteCreateHooks,
+        searchIndexHooks: deps.searchIndexHooks,
       });
       server.server.registerCapabilities({ tools: { listChanged: false } });
       const transport = new WebStandardStreamableHTTPServerTransport({ enableJsonResponse: true });

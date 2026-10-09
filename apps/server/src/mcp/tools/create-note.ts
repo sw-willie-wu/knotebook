@@ -20,17 +20,15 @@
  *
  * `url` 走 `canonicalNotePath`，與 `list_notes`／`search_notes` 是**同一個組字點**（`dto.ts`）。
  */
-import { eq } from "drizzle-orm";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { notes } from "../../db/schema.js";
 import { isForeignKeyViolation } from "../../db/pg-errors.js";
-import { visibleNoteBranches } from "../../notes/list-query.js";
 import { insertNoteWithAutoSlug } from "../../notes/create.js";
 import { loadCreateTarget } from "../../notes/create-target.js";
 import { roleFromGroupFlags } from "../../notes/service.js";
 import type { SlugScope } from "../../notes/slug.js";
 import { GROUP_ID, MD, TITLE } from "../../notes/schemas.js";
-import { noteSummarySchema, toNoteSummary, type NoteSummaryRow } from "../dto.js";
+import { noteSummarySchema, toNoteSummary } from "../dto.js";
+import { insertedRow, rereadVisibleNote } from "../note-rows.js";
 import { toolError, toolResult } from "../tool-result.js";
 import { WRITE_RATE_LIMITED_MESSAGE, writeFailureMessage } from "../write-messages.js";
 import { requireWriteScope } from "../write-scope.js";
@@ -116,48 +114,6 @@ const NO_CONTENT_SUPPORT_MESSAGE =
   "This deployment cannot create a note with content. Call create_note again without `content`.";
 const CREATE_FAILED_MESSAGE = "The note could not be created and nothing was stored. Try again.";
 
-/**
- * insert 的 `returning()` 那一列 → `toNoteSummary` 收的形。`owner` 由呼叫端依 scope 給——個人＝呼叫者的
- * handle（建立者即 owner，同 REST 的 A12，不必補查 `users`）、群組＝群組名（`ownerHandle` 為 null）；**不得**再無條件填
- * `ctx.userHandle`（gate r1 I3：群組筆記會被組成 `/n/<me>/<slug>`）。`groupId` 取列本身。
- * `editorHandle` 恆為 `null`——這一列的 `last_edited_by` 若已落款，落款人也就是呼叫者本人，而
- * **只有重讀落空的競態**才會走到這裡。
- */
-function insertedRow(
-  row: typeof notes.$inferSelect,
-  owner: { ownerHandle: string | null; groupName: string | null }
-): NoteSummaryRow {
-  return {
-    id: row.id,
-    title: row.title,
-    ownerHandle: owner.ownerHandle,
-    groupId: row.groupId,
-    groupName: owner.groupName,
-    slug: row.slug,
-    updatedAt: row.updatedAt,
-    lastEditedAt: row.lastEditedAt,
-    lastEditedAgentLabel: row.lastEditedAgentLabel,
-    editorHandle: null,
-  };
-}
-
-/**
- * 重讀那一列拿新鮮的落款（理由逐字在 `routes/notes.ts` 建立路徑的長註解裡：insert 的
- * `returning()` 是在合併**之前**取的，四欄還是 null，直接回它就是送出一個恆空的
- * `lastEdited` 假答案）。可見性走 `visibleNoteBranches` 依 scope 選的分支（個人＝owned、群組＝grouped）——
- * 與 `list_notes`／`search_notes` **同一份**可見性語意，不新增第二種查詢形狀。grouped 分支要求 `can_read`：
- * 建立者必在其中（「新建 ⇒ 閱讀」由 `group_roles_read_implied_chk` 保證）；grouped 的 `role` 欄是 SQL
- * `CASE WHEN can_edit THEN 'editor' ELSE 'viewer' END`，與 `roleFromGroupFlags` 同規則。
- * 落空＝回應組裝前這篇又被別的請求刪掉、或呼叫者剛被移出群組的競態；內容已經寫進去了，呼叫端退回 insert
- * 的那一列（與 REST 同一個判斷：回一個過期的 `lastEdited` 比讓外部 AI 重試建出第二篇有內容的筆記好）。
- * ⚠ `visibleNoteBranches` 每次現造、只 await 要的那一支（drizzle select builder 單次使用）。
- */
-async function reread(ctx: McpToolCtx, noteId: string, scope: SlugScope): Promise<(NoteSummaryRow & { role: string }) | undefined> {
-  const branches = visibleNoteBranches(ctx.db, ctx.userId, { extraWhere: eq(notes.id, noteId) });
-  const [row] = await ("groupId" in scope ? branches.grouped : branches.owned);
-  return row;
-}
-
 export async function createNote(args: CreateNoteArgs, ctx: McpToolCtx): Promise<CallToolResult> {
   // 1. §10.2 D23／M13：scope、session 跳過、`tokenWrite` 三件事的**單一入口**。
   //    ⚠ **不帶 `content` 的呼叫一樣走它**——`tokenWrite` 因此照扣，與 REST 的 `POST /api/notes`
@@ -236,7 +192,7 @@ export async function createNote(args: CreateNoteArgs, ctx: McpToolCtx): Promise
       if (out.kind === "parse") return toolError(out.code, writeFailureMessage(out.code));
       return toolError("internal", CREATE_FAILED_MESSAGE);
     }
-    const fresh = await reread(ctx, out.noteId, target.scope);
+    const fresh = await rereadVisibleNote(ctx, out.noteId, target.scope);
     return toolResult({ note: toNoteSummary(fresh ?? insertedRow(out.inserted, target), fresh?.role ?? target.role) });
   }
 
