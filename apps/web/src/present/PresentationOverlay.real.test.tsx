@@ -82,17 +82,20 @@ describe("PresentationOverlay（真 reveal.js 6.0.2）", () => {
   it("test 13：查詢字串鎖定——初始化前網址已正規化、鎖定鍵全符合、沒有 message 監聽、<html> 無列印 class", async () => {
     window.history.replaceState(null, "", "/n/tester/my-note?present&postMessage=true&hash=true&parallaxBackgroundImage=x&print-pdf");
     const addListener = vi.spyOn(window, "addEventListener");
-    const { unmount } = render(<App />);
-    await waitFor(() => expect(document.querySelector(".reveal.ready")).not.toBeNull());
-    expect(window.location.search).toBe("?present");
-    const config = captured.instances[0].getConfig();
-    expect(config).toMatchObject({ postMessage: false, hash: false, parallaxBackgroundImage: "", view: null, postMessageEvents: false });
-    expect(addListener.mock.calls.some(([type]) => type === "message")).toBe(false);
-    await new Promise((r) => requestAnimationFrame(() => r(null)));
-    const html = document.documentElement.classList;
-    expect([html.contains("reveal-print"), html.contains("print-pdf"), html.contains("reveal-full-page")]).toEqual([false, false, false]);
-    unmount();
-    addListener.mockRestore();
+    try {
+      const { unmount } = render(<App />);
+      await waitFor(() => expect(document.querySelector(".reveal.ready")).not.toBeNull());
+      expect(window.location.search).toBe("?present");
+      const config = captured.instances[0].getConfig();
+      expect(config).toMatchObject({ postMessage: false, hash: false, parallaxBackgroundImage: "", view: null, postMessageEvents: false });
+      expect(addListener.mock.calls.some(([type]) => type === "message")).toBe(false);
+      await new Promise((r) => requestAnimationFrame(() => r(null)));
+      const html = document.documentElement.classList;
+      expect([html.contains("reveal-print"), html.contains("print-pdf"), html.contains("reveal-full-page")]).toEqual([false, false, false]);
+      unmount();
+    } finally {
+      addListener.mockRestore(); // 案失敗時也還原
+    }
   });
 
   it("test 15：點全螢幕鈕後按 Space → 全螢幕只切一次、reveal 只前進一張、焦點不在鈕上", async () => {

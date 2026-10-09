@@ -190,6 +190,71 @@ describe("PresentationOverlay（fake reveal）", () => {
     setup({ windowSearch: "?present&hash=true" });
     expect(await screen.findByRole("alert")).toHaveTextContent("Presentation settings were unexpected, so playback stopped");
     expect(FakeReveal.instances).toHaveLength(0);
+    expect(document.querySelector(".kn-present")).toBeNull(); // overlay 已卸載
+    expect(nav.fn).not.toHaveBeenCalled();
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(nav.fn).toHaveBeenCalledTimes(1));
+  });
+
+  it("初始匯出 throw（microtask 裡、錯誤邊界接不到）→ 外殼顯示 app.noteCrash、不建 reveal、沒有 uncaught exception", async () => {
+    const uncaught = vi.fn();
+    process.on("uncaughtException", uncaught);
+    try {
+      vi.mocked(renderDeck).mockImplementationOnce(() => {
+        throw new Error("export failure");
+      });
+      setup();
+      expect(await screen.findByRole("alert")).toHaveTextContent("Something went wrong on this page.");
+      expect(FakeReveal.instances).toHaveLength(0);
+      expect(document.querySelector(".reveal")).toBeNull();
+      expect(uncaught).not.toHaveBeenCalled();
+    } finally {
+      process.off("uncaughtException", uncaught);
+    }
+  });
+
+  it("更新時匯出 throw（防抖 timer 裡）→ 外殼顯示 app.noteCrash、overlay 拆除（destroy 一次）、沒有 uncaught exception", async () => {
+    const uncaught = vi.fn();
+    process.on("uncaughtException", uncaught);
+    try {
+      const publicRef = { kind: "token" as const, token: "t" };
+      const { rerenderWith } = setup({ props: { variant: "public", doc: makeDoc(), title: "My Note", publicRef } });
+      const deck = await ready();
+      vi.mocked(renderDeck).mockImplementationOnce(() => {
+        throw new Error("export failure");
+      });
+      rerenderWith({ variant: "public", doc: makeDoc(), title: "Renamed", publicRef });
+      expect(await screen.findByRole("alert")).toHaveTextContent("Something went wrong on this page.");
+      expect(deck.destroy).toHaveBeenCalledTimes(1);
+      expect(document.querySelector(".reveal")).toBeNull();
+      expect(uncaught).not.toHaveBeenCalled();
+    } finally {
+      process.off("uncaughtException", uncaught);
+    }
+  });
+
+  it("卸載後：投影片 DOM 清空、keyboard handler 不再碰 reveal 與外殼（reveal 6.0.2 interval 洩漏的緩解）", async () => {
+    fake = installFakeFullscreen();
+    const { unmount } = setup();
+    const deck = await ready();
+    const slidesEl = deck.el.querySelector(".slides")!;
+    const body = slideEl("a").querySelector(".kn-slide-body")!;
+    expect(body.childNodes.length).toBeGreaterThan(0);
+    unmount();
+    expect(deck.destroy).toHaveBeenCalledTimes(1);
+    expect(slidesEl.childElementCount).toBe(0);
+    expect(body.childNodes).toHaveLength(0);
+    nav.fn.mockClear();
+    deck.isOverview.mockClear();
+    deck.toggleOverview.mockClear();
+    // reveal 的 interval 會一直留住 config.keyboard——handler 必須已和這次簡報斷開。
+    deck.pressKey(27);
+    deck.pressKey(79);
+    deck.pressKey(70);
+    expect(deck.isOverview).not.toHaveBeenCalled();
+    expect(deck.toggleOverview).not.toHaveBeenCalled();
+    expect(fake.requestFullscreen).not.toHaveBeenCalled();
+    expect(nav.fn).not.toHaveBeenCalled();
   });
 
   it("test 8：initialize resolve 前卸載 → resolve 後才 destroy、恰一次", async () => {
@@ -219,7 +284,7 @@ describe("PresentationOverlay（fake reveal）", () => {
     expect(deck.slide).toHaveBeenCalledWith(1, 1);
   });
 
-  it.each(["#/%E0%A4%A", "#/nope", "#/1", "#/2/0", "#x"])("RF1：hash %s 找不到投影片 → 不 throw、明確 slide(0, 0) 回封面、仍 ready", async (hash) => {
+  it.each(["#/%E0%A4%A", "#/nope", "#/", "#/1", "#/2/0", "#x"])("RF1：hash %s 找不到投影片 → 不 throw、明確 slide(0, 0) 回封面、仍 ready", async (hash) => {
     setup({ entry: `${BASE}?present${hash}` });
     const deck = await ready();
     expect(deck.slide).toHaveBeenCalledWith(0, 0);
@@ -332,6 +397,7 @@ describe("PresentationOverlay（fake reveal）", () => {
     ] as never, YDOC_FRAGMENT);
     rerenderWith({ variant: "public", doc: v4, title: "My Note", publicRef: { kind: "token", token: "t" } });
     await waitFor(() => expect(loc()).toBe(`${BASE}?present#/a`), { timeout: 2000 });
+    expect(nav.fn).toHaveBeenLastCalledWith({ pathname: BASE, search: "?present", hash: "#/a" }, { replace: true, state: null });
     expect(deck.slide).toHaveBeenLastCalledWith(1, 0);
     expect(deck.sync).toHaveBeenCalled();
     expect(deck.destroy).not.toHaveBeenCalled(); // 不重建 reveal

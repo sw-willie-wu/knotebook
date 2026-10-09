@@ -14,7 +14,7 @@ import { mermaidJobsIn, runMermaidJob, type MermaidJob, type PostprocessContext 
 import { PRESENT_SEARCH, slideIdFromHash } from "./present-url";
 import { createExportEditor, renderDeck, type ExportEditor } from "./render";
 import { locateSlide, repositionAfterUpdate } from "./reposition";
-import { buildRevealConfig, configMatches, htmlHasPrintClasses } from "./reveal-config";
+import { buildRevealConfig, configMatches, htmlHasPrintClasses, type RevealKeyHandlers } from "./reveal-config";
 import { COVER_ID } from "./slides";
 
 /**
@@ -54,6 +54,35 @@ export interface DeckController {
   sourceChanged(): void;
   themeChanged(): void;
   dispose(): void;
+}
+
+/** keyboard handler 經由它找到「這一次」的 reveal 與外殼；teardown 時清成 null。 */
+interface KeyTargetBox {
+  current: { reveal: () => RevealApi | null; shell: () => PresentationShellContextValue } | null;
+}
+
+/**
+ * reveal 6.0.2 的 setupScrollPrevention（js/reveal.js:459-467）建的 1 s setInterval 沒存 id、destroy() 也不清，
+ * 它的閉包會一直留住該實例的 config，連帶留住我們傳進去的 keyboard handler。handler 若在 startDeck 裡建，V8 共用
+ * 閉包 context 會把 startDeck 整個作用域（投影片 DOM、匯出 editor、env → Y.Doc）一起留住。緩解做法：handler 在這裡
+ * （startDeck 作用域外）建，只捕獲一個 teardown 時清空的 box；teardown 另清投影片 DOM 與各參照。不攔截全域 setInterval。
+ * 這是緩解、不是根治——每次簡報仍會留下 reveal 自己的空殼與一個空 box。升 reveal 版本時重新確認 destroy() 是否已清這支 interval。
+ */
+function createKeyHandlers(box: KeyTargetBox): RevealKeyHandlers {
+  return {
+    onEsc: () => {
+      const target = box.current;
+      if (!target) return;
+      const deck = target.reveal();
+      if (deck?.isOverview()) {
+        deck.toggleOverview(false);
+        return;
+      }
+      target.shell().onEsc();
+    },
+    onF: () => box.current?.shell().toggleFullscreen(),
+    onO: () => box.current?.reveal()?.toggleOverview(),
+  };
 }
 
 export function startDeck(host: HTMLElement, env: () => DeckEnv, hashWriter: HashWriter): DeckController {
@@ -120,8 +149,7 @@ export function startDeck(host: HTMLElement, env: () => DeckEnv, hashWriter: Has
     });
   };
 
-  const applyUpdate = () => {
-    if (!live()) return;
+  const applyUpdateNow = () => {
     const deck = reveal!;
     const oldSections = dom.sections;
     const oldCurrent = currentId;
@@ -147,6 +175,16 @@ export function startDeck(host: HTMLElement, env: () => DeckEnv, hashWriter: Has
       runMermaid(mermaidJobsIn(els.body));
     }
     swipe?.refreshAll();
+  };
+
+  const applyUpdate = () => {
+    if (!live()) return;
+    try {
+      applyUpdateNow();
+    } catch {
+      // 匯出在 React 之外（§5.1-6），錯誤邊界接不到——同起草裁定 6 的出口：外殼顯示錯誤、卸載 overlay → teardown。
+      env().shell.onFatal("app.noteCrash");
+    }
   };
 
   const debouncer = createDebouncer(applyUpdate);
@@ -178,23 +216,25 @@ export function startDeck(host: HTMLElement, env: () => DeckEnv, hashWriter: Has
     reveal?.off("slidechanged", onSlideChanged);
     reveal?.destroy();
     dom.revealEl.remove();
+    // interval 洩漏的緩解（見 createKeyHandlers）：切斷 handler → 本作用域，清掉投影片內容與各參照。
+    keyTarget.current = null;
+    for (const els of dom.els.values()) els.body.replaceChildren();
+    dom.slidesEl.replaceChildren();
+    dom.els.clear();
+    dom.keys.clear();
+    dom.sections = [];
+    reveal = null;
+    editor = null;
+    swipe = null;
+    unsubscribeSource = null;
+    lastSource = null;
     if (announced) {
       announced = false;
       env().shell.onRevealReady(false);
     }
   };
 
-  const keyHandlers = {
-    onEsc: () => {
-      if (reveal?.isOverview()) {
-        reveal.toggleOverview(false);
-        return;
-      }
-      env().shell.onEsc();
-    },
-    onF: () => env().shell.toggleFullscreen(),
-    onO: () => reveal?.toggleOverview(),
-  };
+  const keyTarget: KeyTargetBox = { current: { reveal: () => reveal, shell: () => env().shell } };
 
   queueMicrotask(() => {
     if (disposed) return;
@@ -202,10 +242,21 @@ export function startDeck(host: HTMLElement, env: () => DeckEnv, hashWriter: Has
       env().shell.onFatal("present.configRefused"); // §6.4-1
       return;
     }
+    try {
+      build();
+    } catch {
+      // 匯出在 React 之外（§5.1-6），錯誤邊界接不到——同起草裁定 6 的出口。reveal 沒有 resolve 過，不 destroy（§6.9）。
+      keyTarget.current = null;
+      dom.revealEl.remove();
+      env().shell.onFatal("app.noteCrash");
+    }
+  });
+
+  function build() {
     editor = createExportEditor();
     applyRenderedDeck(dom, render());
     host.append(dom.revealEl);
-    const config = buildRevealConfig(keyHandlers);
+    const config = buildRevealConfig(createKeyHandlers(keyTarget));
     const instance = new Reveal(dom.revealEl, config);
     reveal = instance;
     instance
@@ -252,7 +303,7 @@ export function startDeck(host: HTMLElement, env: () => DeckEnv, hashWriter: Has
         resolved = true;
         if (!disposed) env().shell.onFatal("app.noteCrash"); // 起草裁定 6
       });
-  });
+  }
 
   return {
     sourceChanged() {
