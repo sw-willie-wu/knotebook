@@ -9,14 +9,14 @@
 //   2. NotePage 的 lazy chunk（NotePage-<hash>.js）存在——entry 上限擋「胖回去」，
 //      這條擋「切分本身被拿掉」（若某天 rollup 改了 chunk 命名慣例，這裡會紅，
 //      屆時把 pattern 跟著改，別直接刪檢查）。
-//   3. 其餘 lazy chunk 存在：mermaid（#94）、shiki（#96）、AdminPage（#201）——理由各見常數註解。
+//   3. 其餘 lazy chunk 存在：mermaid（#94）、shiki（#96）、AdminPage（#201）、簡報層（#229）——理由各見常數註解。
 //
 // 全程 fail-closed：dist 不存在、找不到 entry、找到多個 entry，一律 throw 而非放行
 // ——「沒東西可檢查」不等於「檢查通過」（比照 check-licenses.mjs 的紀律）。
 //
 // 任一檢查失敗 exit 1 並列出實際尺寸/檔名。
 
-import { readdirSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -46,6 +46,45 @@ export const SHIKI_RE = /^shiki-[A-Za-z0-9_-]+\.js$/;
 // 裡的 descendant <Routes>）。判準同 mermaid：任何靜態 import 都會讓 Rollup 把它併回 entry，
 // 這個 chunk 隨即消失。
 export const ADMINPAGE_RE = /^AdminPage-[A-Za-z0-9_-]+\.js$/;
+// issue #229：簡報層（reveal.js、reveal.css、DOMPurify 的使用端、presentationSchema、present.css）必須是自己的
+// lazy chunk——只有按「簡報模式」的人才付這個代價。`apps/web/src/present/lazy.ts` 的
+// `lazy(() => import("./PresentationOverlay"))` 是唯一允許 import 它的地方：PresentationOverlay 被別處靜態 import
+// 時 Rollup 把它併回引用它的 chunk，這個獨立 chunk 消失（gate r1-p3 C 案實跑）。⚠ 這條**抓不到** reveal.js 本身被
+// 別處靜態 import——那時 reveal 被拆進引用者或共用 chunk（gate r2-p3 實測拆成獨立的 reveal-*.js）、overlay chunk
+// 縮小但仍在（r1-p3 B 案）；那一形由下面的
+// REVEAL_MARKER 檢查負責。
+export const PRESENTATION_RE = /^PresentationOverlay-[A-Za-z0-9_-]+\.js$/;
+// 首包 CSS：reveal.css 的 `.reveal-viewport` 規則（寫死黑字白底）若出現在這裡＝reveal.css 被靜態 import 進首包。
+export const ENTRY_CSS_RE = /^index-[A-Za-z0-9_-]+\.css$/;
+// reveal.js 的 JS 會寫 `reveal-viewport` 這個 class 名；入口側的外殼與其他程式碼都不用它。這個字串只准出現在
+// PresentationOverlay-*.js——出現在別的 JS chunk＝reveal.js 被簡報 lazy 鏈以外的地方靜態 import（spec §6.2）。
+export const REVEAL_MARKER = 'reveal-viewport';
+// #229 Q1：shiki 的 chunk 名（index 形由 vite.config.ts 改名成 shiki-*；正常 build 全量已併進 shiki-*，只有 shiki 被
+// 靜態 import 時才會另拆出 bundle-full-*——gate r2-p3 實測，所以兩個都要擋）。簡報 chunk 的
+// **靜態** import 閉包不得碰到它們——shiki 只能經 lib/code-highlight.ts 的 import("shiki") 動態載入。
+export const SHIKI_BUNDLE_RE = /^bundle-full-[A-Za-z0-9_-]+\.js$/;
+// Vite 產物裡同目錄 chunk 的靜態 import 形：`from"./X.js"`、`import"./X.js"`（不含動態的 `import("./X.js")`——
+// `import` 後面緊接引號才算）。
+const STATIC_IMPORT_RE = /(?:\bfrom\s*|\bimport\s*)["']\.\/([^"']+\.js)["']/g;
+
+/** 從 start 起遞迴收集同目錄 chunk 的靜態 import 閉包（以檔名判斷，不看內容字串：共用 chunk 的 __vite__mapDeps 會列出別的檔名）。 */
+export function staticImportClosure(assetsDir, start) {
+  const seen = new Set();
+  const queue = [start];
+  while (queue.length > 0) {
+    const name = queue.pop();
+    if (seen.has(name)) continue;
+    seen.add(name);
+    let source;
+    try {
+      source = readFileSync(join(assetsDir, name), 'utf8');
+    } catch {
+      continue;
+    }
+    for (const match of source.matchAll(STATIC_IMPORT_RE)) queue.push(match[1]);
+  }
+  return seen;
+}
 
 /**
  * 對指定 assets 目錄跑檢查。回傳檢查通過的摘要；違規 throw（訊息含實際數字）。
@@ -107,7 +146,40 @@ export function checkBundleSize(assetsDir, { maxEntryBytes = MAX_ENTRY_BYTES } =
     );
   }
 
-  return { entryName, entryBytes, notePageChunks, mermaidChunks, shikiChunks, adminPageChunks };
+  const presentationChunks = names.filter(name => PRESENTATION_RE.test(name));
+  if (presentationChunks.length === 0) {
+    throw new Error(
+      `找不到簡報層的 lazy chunk（PresentationOverlay-<hash>.js）——最可能的原因是有人在 present/lazy.ts 以外 ` +
+        `靜態 import 了 PresentationOverlay（issue #229 的迴歸）；若是 rollup 改了 chunk 命名慣例，請更新本檢查的 pattern，不要刪檢查`
+    );
+  }
+
+  for (const name of names.filter(n => n.endsWith('.js') && !PRESENTATION_RE.test(n))) {
+    if (readFileSync(join(assetsDir, name), 'utf8').includes(REVEAL_MARKER)) {
+      throw new Error(
+        `${name} 含 ${REVEAL_MARKER}——reveal.js 被簡報 lazy 鏈以外的地方靜態 import（issue #229：reveal 只能經 ` +
+          `present/lazy.ts → PresentationOverlay 載入）`
+      );
+    }
+  }
+
+  for (const chunk of presentationChunks) {
+    const shikiHits = [...staticImportClosure(assetsDir, chunk)].filter(n => SHIKI_RE.test(n) || SHIKI_BUNDLE_RE.test(n));
+    if (shikiHits.length > 0) {
+      throw new Error(
+        `簡報層 chunk ${chunk} 的靜態 import 閉包碰到 shiki：[${shikiHits.join(', ')}]——shiki 只能經 ` +
+          `lib/code-highlight.ts 的 import("shiki") 動態載入（issue #229 Q1）`
+      );
+    }
+  }
+
+  for (const cssName of names.filter(name => ENTRY_CSS_RE.test(name))) {
+    if (readFileSync(join(assetsDir, cssName), 'utf8').includes('.reveal-viewport')) {
+      throw new Error(`entry CSS ${cssName} 含 .reveal-viewport——reveal.css 被靜態 import 進首包（issue #229 的迴歸）`);
+    }
+  }
+
+  return { entryName, entryBytes, notePageChunks, mermaidChunks, shikiChunks, adminPageChunks, presentationChunks };
 }
 
 // 直接執行（非被 import）時跑真的 dist。
@@ -118,7 +190,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
     console.log(
       `bundle OK：entry ${result.entryName} = ${result.entryBytes} bytes（上限 ${MAX_ENTRY_BYTES}）；` +
         `lazy chunk：${result.notePageChunks.join(', ')}、${result.mermaidChunks.join(', ')}、${result.shikiChunks.join(', ')}、` +
-        `${result.adminPageChunks.join(', ')}`
+        `${result.adminPageChunks.join(', ')}、${result.presentationChunks.join(', ')}`
     );
   } catch (err) {
     console.error(String(err instanceof Error ? err.message : err));

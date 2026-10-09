@@ -32,10 +32,12 @@ import { Button } from "./ui/button";
  * 融入。不選 per-page 覆寫 bn 變數的理由是成本：那要 light＋dark 兩條新規則＋
  * 新錨點 class，還會讓編輯器底色離開 --color-card、牽動 BlockNote 以它為基底的
  * 內建 color-mix——換一個 token 的改動不划算。
+ *
+ * `inert`（#229）：簡報外殼掛著時背景不可互動；外殼是它的兄弟。
  */
-export function PublicPageFrame({ children }: { children: ReactNode }) {
+export function PublicPageFrame({ children, inert }: { children: ReactNode; inert?: boolean }) {
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-card">
+    <div inert={inert} className="flex h-screen flex-col overflow-hidden bg-card">
       {children}
     </div>
   );

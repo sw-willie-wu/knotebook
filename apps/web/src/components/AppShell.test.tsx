@@ -291,13 +291,13 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
     );
   }
 
-  function renderShell() {
+  function renderShell(inert?: boolean) {
     return render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <ThemeProvider>
           <MemoryRouter initialEntries={["/"]}>
             <ActiveNoteProvider>
-              <AppShell>home</AppShell>
+              <AppShell inert={inert}>home</AppShell>
             </ActiveNoteProvider>
           </MemoryRouter>
         </ThemeProvider>
@@ -437,6 +437,17 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
 
     await waitFor(() => expect(screen.queryAllByRole("link", { name: "Beta Note" })).toHaveLength(0));
     expect(screen.getAllByRole("link", { name: "Alpha Note" }).length).toBeGreaterThan(0);
+  });
+
+  it("#229：inert 傳 true → AppShell 根 div 帶 inert 屬性；不傳 → 沒有", async () => {
+    stubFetchWithNotes([ALPHA_NOTE]);
+    const first = renderShell(true);
+    await screen.findByRole("textbox", { name: "Search notes" });
+    expect(first.container.querySelector(".h-screen")).toHaveAttribute("inert");
+    first.unmount();
+    const second = renderShell();
+    await screen.findByRole("textbox", { name: "Search notes" });
+    expect(second.container.querySelector(".h-screen")).not.toHaveAttribute("inert");
   });
 });
 

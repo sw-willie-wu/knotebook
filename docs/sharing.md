@@ -65,7 +65,8 @@ Turning on **Public link** generates an unguessable token (`base64url(randomByte
 - is **read-only** — there is no anonymous editing, and the page ships none of the editing machinery;
 - shows the note's title and content, including images uploaded to that note (served through a public image endpoint that the token authorizes — see the `/api/public/...` rows in the [API contract summary](./api.md));
 - shows **no** backlinks, no AI actions, and no timestamp (the note record's timestamp only tracks title/slug changes, not content edits, so showing it would mislead);
-- is sent with `X-Robots-Tag: noindex`, so well-behaved search engines won't index it. The link itself is still a capability: anyone it's forwarded to can read the note.
+- is sent with `X-Robots-Tag: noindex`, so well-behaved search engines won't index it. The link itself is still a capability: anyone it's forwarded to can read the note;
+- has a **Present** button that plays the note as a slide show. Like the page itself, the presentation is a snapshot: it picks up new content when the page fetches the note again (for example when the tab regains focus), and keeps your current slide when it can — it is not live.
 
 **The content is a snapshot, not a live view.** Anonymous readers get the state the collaboration server last persisted — during active editing that lags the editors by roughly the persistence debounce (about 2 seconds, up to 10 seconds under continuous typing, flushed when the last editor disconnects). Reloading the page fetches a fresh snapshot. Live sync for anonymous readers is deliberately out of scope.
 

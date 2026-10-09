@@ -1066,11 +1066,13 @@ describe("NotePage", () => {
     stubTwoNotes();
     collab.provider.synced = true;
     const navCalls: unknown[] = [];
+    /** #229：收斂改成物件形（{ pathname, search, hash }）之後，以 pathname 比對。 */
+    const pathOf = (to: unknown) => (typeof to === "string" ? to : (to as { pathname?: string }).pathname);
     navSpy.current = (to) => void navCalls.push(to); // 壓住導頁：router location 停在 /notes/my-note
 
     const queryClient = renderTwoNoteTree("/notes/my-note");
     await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
-    await waitFor(() => expect(navCalls).toContain("/n/tester/my-note"));
+    await waitFor(() => expect(navCalls.map(pathOf)).toContain("/n/tester/my-note"));
 
     // 常駐層 note 換物件（slug 不變、只換標題——同值物件會被 react-query 結構共享成同一個參考，effect 不會重跑）
     // → 收斂 effect 重跑兩次
@@ -1080,7 +1082,7 @@ describe("NotePage", () => {
         await new Promise((resolve) => setTimeout(resolve, 0));
       });
     }
-    expect(navCalls.filter((to) => to === "/n/tester/my-note")).toHaveLength(1);
+    expect(navCalls.filter((to) => pathOf(to) === "/n/tester/my-note")).toHaveLength(1);
   });
 
   it("常駐層非 404 錯誤（500）→ 錯誤卡留在頁上，不導走、不噴 404 文案", async () => {
@@ -1858,5 +1860,82 @@ describe("scheduleTerminalReconcile", () => {
     await vi.advanceTimersByTimeAsync(RECONCILE_INTERVAL_MS * 3);
     expect(notesFn.mock.calls.length).toBeGreaterThanOrEqual(3);
     expect(groupsFn).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ── #229：收斂保留 search／hash（spec §6.3-1）──────────────────────────────────────
+// `?present` 與 `#/<slide id>` 是簡報模式的網址狀態；收斂（直接開 `/notes/:ref`、播放中改名）
+// 若只寫 pathname，簡報層會在第一次收斂時消失。
+
+function FullLocationProbe() {
+  const location = useLocation();
+  return (
+    <div data-testid="full-location" data-key={location.key}>
+      {location.pathname}
+      {location.search}
+      {location.hash}
+    </div>
+  );
+}
+
+function renderAtEntry(entry: string) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const result = render(
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider>
+        <MemoryRouter initialEntries={[entry]}>
+          <ActiveNoteProvider>
+            <FullLocationProbe />
+            <Routes>
+              <Route path="/notes/:ref" element={<NotePage />} />
+              <Route path="/n/:handle/:slug" element={<NotePage />} />
+              <Route path="/" element={<div>home landing</div>} />
+            </Routes>
+          </ActiveNoteProvider>
+        </MemoryRouter>
+        <Toaster />
+      </ThemeProvider>
+    </QueryClientProvider>,
+  );
+  return { ...result, queryClient };
+}
+
+describe("#229 網址收斂保留 search／hash（spec §6.3-1）", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    collab.state = { phase: "connected", role: "owner" };
+    collab.doc = new Y.Doc();
+    collab.provider = createStubProvider();
+    collab.provider.synced = true;
+    window.history.replaceState(null, "", "/");
+    dismissAllToasts();
+  });
+
+  afterEach(() => {
+    collab.doc.destroy();
+    vi.unstubAllGlobals();
+    navSpy.current = undefined;
+  });
+
+  it("舊形 /notes/<uuid>?present#/x → canonical /n/tester/my-note?present#/x（search 與 hash 都在）", async () => {
+    vi.stubGlobal("fetch", mockFetch());
+    renderAtEntry(`/notes/${NOTE.id}?present#/x`);
+    await waitFor(() => expect(screen.getByTestId("full-location").textContent).toBe("/n/tester/my-note?present#/x"));
+  });
+
+  it("播放中改名：網址換新 slug、?present＋hash 保留，編輯器同一個實例（不重掛）", async () => {
+    vi.stubGlobal("fetch", mockFetch());
+    const { queryClient } = renderAtEntry("/n/tester/my-note?present#/x");
+    const editorBefore = await screen.findByTestId("note-editor");
+    await waitFor(() => expect(screen.getByTestId("full-location").textContent).toBe("/n/tester/my-note?present#/x"));
+
+    // react-query 的通知走 macrotask：同步 act 會讓斷言落在 re-render 之前（本檔 A1 案的既有註解）。
+    await act(async () => {
+      queryClient.setQueryData(["note", NOTE.id], { ...NOTE, title: "Renamed", slug: "renamed" });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    await waitFor(() => expect(screen.getByTestId("full-location").textContent).toBe("/n/tester/renamed?present#/x"));
+    expect(screen.getByTestId("note-editor")).toBe(editorBefore);
   });
 });

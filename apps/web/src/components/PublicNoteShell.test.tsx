@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import i18n from "@/i18n";
-import { PublicNoteErrorBoundary, PublicNoteFallback } from "./PublicNoteShell";
+import { PublicNoteErrorBoundary, PublicNoteFallback, PublicPageFrame } from "./PublicNoteShell";
 
 beforeEach(async () => {
   await i18n.changeLanguage("en");
@@ -17,6 +17,15 @@ describe("PublicNoteFallback（#72 Task 3：/p/ chunk 載入中的專屬 fallbac
     expect(screen.getByText("Loading…")).toBeInTheDocument();
     expect(screen.queryByText("New note")).not.toBeInTheDocument();
     expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
+  });
+});
+
+describe("PublicPageFrame（#229：inert prop）", () => {
+  it("inert 時根 div 有 inert 屬性；沒給時沒有", () => {
+    const { container, rerender } = render(<PublicPageFrame inert>x</PublicPageFrame>);
+    expect(container.firstElementChild).toHaveAttribute("inert");
+    rerender(<PublicPageFrame>x</PublicPageFrame>);
+    expect(container.firstElementChild).not.toHaveAttribute("inert");
   });
 });
 

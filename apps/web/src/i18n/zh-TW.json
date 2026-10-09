@@ -139,6 +139,7 @@
       "label": "更多",
       "labelFor": "{{title}} 的筆記選單",
       "aiEdits": "AI 修改紀錄",
+      "present": "簡報模式",
       "moveTo": "移動到…",
       "copyTo": "複製到…",
       "makeCopy": "建立副本",
@@ -818,6 +819,14 @@
     "readonly": "唯讀",
     "invalidLink": "連結不存在或已失效",
     "loadError": "頁面載入失敗——請檢查連線後重試。"
+  },
+  "present": {
+    "dialogLabel": "{{title}}——簡報模式",
+    "close": "離開簡報",
+    "enterFullscreen": "全螢幕",
+    "exitFullscreen": "離開全螢幕",
+    "mermaidError": "圖表無法繪製，以下是原始碼",
+    "configRefused": "簡報設定異常，已停止播放"
   },
   "authorize": {
     "titleSuffix": " 想存取你的 Knotebook",

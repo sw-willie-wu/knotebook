@@ -1,6 +1,6 @@
-import { useMemo, type ReactNode } from "react";
+import { Suspense, useEffect, useMemo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Link, useParams } from "react-router";
+import { Link, useLocation, useParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { api, ApiFail } from "@/api/client";
 import { decodePublicYdoc } from "@/collab/public-doc";
@@ -9,6 +9,13 @@ import { PublicPageFrame } from "@/components/PublicNoteShell";
 import { publicNoteApiPath, publicNoteQueryKey, type PublicNoteRef } from "@/lib/public-note-ref";
 import { ARTICLE_COLUMN, ARTICLE_COLUMN_PADDING } from "@/components/ui/article-column";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Presentation } from "@/components/ui/icons";
+import { exitOwnedFullscreen } from "@/present/fullscreen";
+import { LazyPresentation } from "@/present/lazy";
+import { PresentationErrorBoundary, PresentationShell, type PresentationShellStatus } from "@/present/PresentationShell";
+import { exitFullscreenIfLeftPresentation, isPresentingSearch } from "@/present/present-url";
+import { usePresentEntry } from "@/present/usePresentEntry";
 
 /** 公開內容端點的回應形（server 端 routes/public.ts，兩形同形；刻意不含 noteId／updatedAt）。 */
 interface PublicNoteDto {
@@ -33,6 +40,11 @@ interface PublicNoteDto {
 export default function PublicNotePage() {
   const params = useParams<{ token?: string; handle?: string; slug?: string }>();
   const { t } = useTranslation();
+
+  // #229：簡報模式（spec §6.1、§8）。location 取本頁自己的 useLocation()。
+  const location = useLocation();
+  const presenting = isPresentingSearch(location.search);
+  const { presentHere } = usePresentEntry();
 
   // 與 NotePage 的 isPathForm 同名同判準（可 grep 的慣例錨點）
   const isPathForm = params.handle !== undefined && params.slug !== undefined;
@@ -66,6 +78,13 @@ export default function PublicNotePage() {
   // 時仍保留），下次 refetch 成功自癒。
   const notFound = query.isError && query.error instanceof ApiFail && query.error.status === 404;
 
+  // #229 §6.5 呼叫點：重抓到 404（撤銷）→ 頁面切失效卡、外殼不掛，先退出我們要的全螢幕。
+  useEffect(() => {
+    if (notFound) exitOwnedFullscreen();
+  }, [notFound]);
+  // 卸載型呼叫點（讀真實網址）。
+  useEffect(() => () => exitFullscreenIfLeftPresentation(), []);
+
   let body: ReactNode;
   if (query.isPending) {
     body = <p className="p-6 text-sm text-muted-foreground">{t("app.loading")}</p>;
@@ -93,6 +112,10 @@ export default function PublicNotePage() {
             導去 /login——那就是這顆連結的用途：從分享頁通往產品本身）。 */}
         <header className="flex items-center gap-3 border-b border-border px-5 py-3">
           <h1 className="min-w-0 flex-1 truncate text-lg font-semibold">{data.title}</h1>
+          <Button type="button" variant="ghost" size="sm" className="shrink-0" onClick={presentHere}>
+            <Presentation className="h-4 w-4" />
+            {t("note.menu.present")}
+          </Button>
           <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-xs text-muted-foreground">
             {t("public.readonly")}
           </span>
@@ -111,5 +134,30 @@ export default function PublicNotePage() {
     );
   }
 
-  return <PublicPageFrame>{body}</PublicPageFrame>;
+  // #229：外殼在 presenting 且不是 404 時掛（§6.1）；非 404 失敗且已有資料 → 續渲快照，外殼與簡報層不動（§8-2）。
+  const shellMounted = presenting && !notFound;
+  const presentStatus: PresentationShellStatus = query.isPending ? "loading" : query.isError && !query.data ? "error" : "ready";
+  const presentError =
+    query.isError && !query.data
+      ? query.error instanceof ApiFail
+        ? t(`errors.${query.error.code}`, { defaultValue: t("errors.fallback") })
+        : t("errors.fallback")
+      : undefined;
+
+  return (
+    <>
+      <PublicPageFrame inert={shellMounted}>{body}</PublicPageFrame>
+      {shellMounted && (
+        <PresentationShell title={query.data?.title ?? ""} status={presentStatus} errorMessage={presentError}>
+          {query.data && doc && (
+            <PresentationErrorBoundary>
+              <Suspense fallback={<p className="p-6 text-sm text-muted-foreground">{t("app.loading")}</p>}>
+                <LazyPresentation variant="public" doc={doc} title={query.data.title} publicRef={publicRef} />
+              </Suspense>
+            </PresentationErrorBoundary>
+          )}
+        </PresentationShell>
+      )}
+    </>
+  );
 }
