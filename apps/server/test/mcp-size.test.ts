@@ -370,7 +370,7 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
     // 260 000 個 `"` 逃脫後超過請求的 bodyLimit（413），而截斷後的形與長度無關。
     // 只靠 `callWire` 內建的 `≤ N` 與非錯誤；不加下界哨兵（create_note 回應本來就小）。
     const { token: rwToken } = await seedTokenForUser(ctx.db, o.id, "notes:read notes:write");
-    await callWire(ctx.app, rwToken, "(iv) create_note（群組形）", "create_note", { title: '"'.repeat(1000), groupId: g.id });
+    await callWire(ctx.app, rwToken, "(iv) create_note（群組形）", "create_note", { title: '"'.repeat(1000), group_id: g.id });
   });
 
   /**

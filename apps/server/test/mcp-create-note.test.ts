@@ -248,8 +248,8 @@ describe("#108 create_note", () => {
     //     [ 'content', 'title' ]`），`mcp-create-note` 另外五案 ＋ `mcp-edit-note` 12 案全綠。
     //   也就是本行守的是 `ZodEffects`／union 那一族，不是「所有非 raw shape 的寫法」。
     const entry = tools.find(t => t.name === "create_note")!;
-    // #175 PR5：三欄。鍵集合變大是這一棒交付的形（`groupId`），不是弱化這條守衛。
-    expect(Object.keys(entry.inputSchema.properties ?? {}).sort()).toEqual(["content", "groupId", "title"]);
+    // #180 W15：鍵名改 `group_id`（MCP 輸入一律 snake_case）；鍵數不變。
+    expect(Object.keys(entry.inputSchema.properties ?? {}).sort()).toEqual(["content", "group_id", "title"]);
 
     const { note } = payloadOf(await createNote(app, token));
     expect(note.title).toBe("Untitled");
@@ -278,7 +278,7 @@ describe("#108 create_note", () => {
     const foreign = await seedGroup(db, "Foreign", [{ userId: other.id, role: "admin" }]);
     const { token } = await seedTokenForUser(db, me.id, "notes:read notes:write");
 
-    const err = errorOf(await createNote(app, token, { title: "T", content: "# x", groupId: foreign.id }));
+    const err = errorOf(await createNote(app, token, { title: "T", content: "# x", group_id: foreign.id }));
     expect(err.code).toBe("group_not_found");
     expect(err.message).toBe("No group with that id among the groups you belong to.");
     expect((await db.select().from(notes)).length).toBe(0);

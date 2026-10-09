@@ -1,6 +1,7 @@
 /**
- * #108 §8.7 `create_note`：建一篇新筆記。與 `POST /api/notes` 的 body 同形、同驗證規則、
- * 同管線（D18：**寫入側不發明第二套契約**）——`content` 逐字重用 `MD`、`title` 逐字重用 `TITLE`（M14）。
+ * #108 §8.7 `create_note`：建一篇新筆記。與 `POST /api/notes` 的 body 同物件（`TITLE`／`MD`／`GROUP_ID`）、同驗證規則、
+ * 同管線；鍵名依 MCP 輸入一律 snake_case（W15）——REST 是 `groupId`、這裡是 `group_id`，這是對 D18 的鍵名偏離（#180 spec §4.7）。
+ * （D18：**寫入側不發明第二套契約**）——`content` 逐字重用 `MD`、`title` 逐字重用 `TITLE`（M14）。
  *
  * ⚠ **這支工具不進部署形態閘門**（裁決 D-M）：判準是「要不要讀 live doc」。不帶 `content` 時
  * 它只建一列（`notes/create.ts`；帶 `title` 時多一次——最壞每輪 20 次、最多 5 輪——scope 範圍
@@ -43,7 +44,7 @@ import type { McpToolCtx } from "../context.js";
 //   `role` 是 `viewer`，`edit_note` 對它一律 `forbidden`（`edit-note.ts` 的 viewer 分支）——「可以之後 edit_note」
 //   對它是假話，gate r1 I-1。
 export const CREATE_NOTE_DESCRIPTION =
-  "Create a new note — yours, or in one of your groups when you pass `groupId`. Pass `content` to fill it in at the same time, " +
+  "Create a new note — yours, or in one of your groups when you pass `group_id`. Pass `content` to fill it in at the same time, " +
   "or leave it out for an empty note, which edit_note can fill in later if the reply's `role` is `owner` or `editor`. " +
   // ⚠ #146：**只有解析失敗那條路**「沒有留下筆記」。`internal`（套用失敗）那條路是先 insert
   //   再套用，清理是 best-effort——`write-service.ts` 的 catch 刪不掉時只 `log.warn`，照樣回
@@ -82,11 +83,11 @@ export const createNoteInput = {
         "word, or a uuid, or a title ending in one. No tool here renames a note afterwards, so " +
         "pass one if you know it.",
     ),
-  // ⚠ #175 PR5：G2 逐字取自 `docs/mcp.md` `groupId` bullet 的第二到第五句（「Pass the id of one of your
+  // ⚠ #175 PR5：G2 逐字取自 `docs/mcp.md` `group_id` bullet 的第二到第五句（「Pass the id of one of your
   //   groups…」→ `.describe()` 句首改「The id of one of your groups…」，唯一差異）。bullet 其餘句子（id 去哪找、
   //   兩種拒絕、非 uuid 的輸入檢查）是文件對人說的，不放進模型面字串。
   //   `GROUP_ID` 與 REST `createBodySchema.groupId` 是同一個物件（D18／M14；`mcp-write-schemas.test.ts` 釘同源）。
-  groupId: GROUP_ID.optional().describe(
+  group_id: GROUP_ID.optional().describe(
     "The id of one of your groups where your role lets you create notes. The note then belongs to the group, " +
       "not to you. Leave it out for a personal note. If your role there can create notes but not edit them, " +
       "the note is read-only for you: the reply's `role` is `viewer`.",
@@ -102,13 +103,13 @@ export const createNoteOutput = {
 export interface CreateNoteArgs {
   title?: string;
   content?: string;
-  groupId?: string;
+  group_id?: string;
 }
 
 /** spec §9.2 兩句專用訊息（逐字；`docs/mcp.md` Errors 段描述同一條件）。**不得**重用 `NOTE_NOT_FOUND_MESSAGE`——
  *  那句談「筆記」，這裡談「群組」，且兩種 404（非成員／不存在）必須逐位元組相同。 */
 const GROUP_NOT_FOUND_MESSAGE = "No group with that id among the groups you belong to.";
-const CREATE_IN_GROUP_FORBIDDEN_MESSAGE = "Your role in that group can't create notes. Leave out `groupId` to create a personal note.";
+const CREATE_IN_GROUP_FORBIDDEN_MESSAGE = "Your role in that group can't create notes. Leave out `group_id` to create a personal note.";
 
 const NO_CONTENT_SUPPORT_MESSAGE =
   "This deployment cannot create a note with content. Call create_note again without `content`.";
@@ -145,12 +146,12 @@ export async function createNote(args: CreateNoteArgs, ctx: McpToolCtx): Promise
   //    非成員（含站台 admin，§5.5 無豁免）與不存在同一條 `group_not_found`；成員但沒有新建旗標 → `forbidden`。
   //    `role` 照旗標算、不假設 editor：0013 起 create-only 角色（能建不能編）得 `viewer`。
   let target: { scope: SlugScope; ownerHandle: string | null; groupName: string | null; role: string };
-  if (args.groupId !== undefined) {
-    const m = await loadCreateTarget(ctx.db, ctx.userId, args.groupId);
+  if (args.group_id !== undefined) {
+    const m = await loadCreateTarget(ctx.db, ctx.userId, args.group_id);
     if (!m) return toolError("group_not_found", GROUP_NOT_FOUND_MESSAGE);
     if (!m.canCreate) return toolError("forbidden", CREATE_IN_GROUP_FORBIDDEN_MESSAGE);
-    await ctx.groupTestHook?.("membership-checked", { groupId: args.groupId });
-    target = { scope: { groupId: args.groupId }, ownerHandle: null, groupName: m.name, role: roleFromGroupFlags(m) };
+    await ctx.groupTestHook?.("membership-checked", { groupId: args.group_id });
+    target = { scope: { groupId: args.group_id }, ownerHandle: null, groupName: m.name, role: roleFromGroupFlags(m) };
   } else {
     target = { scope: { ownerId: ctx.userId }, ownerHandle: ctx.userHandle, groupName: null, role: "owner" };
   }
@@ -158,7 +159,7 @@ export async function createNote(args: CreateNoteArgs, ctx: McpToolCtx): Promise
   // 原樣拋到這裡）。**只在群組分支映射**——個人分支的 23503 只可能來自 `owner_id → users`，而 `src/` 內沒有硬刪
   // users 的路徑，不擴大映射面。
   const mapGroupFk = (err: unknown): CallToolResult => {
-    if (args.groupId !== undefined && isForeignKeyViolation(err)) return toolError("group_not_found", GROUP_NOT_FOUND_MESSAGE);
+    if (args.group_id !== undefined && isForeignKeyViolation(err)) return toolError("group_not_found", GROUP_NOT_FOUND_MESSAGE);
     throw err;
   };
 

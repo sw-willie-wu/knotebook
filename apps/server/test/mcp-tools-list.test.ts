@@ -152,7 +152,7 @@ describe("#108 tools/list", () => {
   // 字面值寫死在這裡，與 `docs/mcp.md` 的定稿句對照（docs 在此檔外，本檔不比對 docs；實作時以腳本逐字比對過 `docs/mcp.md` 與 `create-note.ts`）。
   // 比的是 JSON.parse 之後的字串（模型看到的），並另外以 `JSON.stringify(s).slice(1, -1)` 比原始 body，
   // 確認 wire 上的逃脫形與預期一致（`—`、反引號、`'` 在 JSON 裡是否被逃脫）。
-  it("#175 PR5：create_note 的 description／groupId／title 字串逐字在 wire 上，舊說法不在", async () => {
+  it("#175 PR5：create_note 的 description／group_id／title 字串逐字在 wire 上，舊說法不在", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
     const { token } = await seedTokenForUser(ctx.db, owner.id, "notes:read notes:write");
@@ -160,7 +160,7 @@ describe("#108 tools/list", () => {
     const tools = res.json().result.tools as { name: string; description: string; inputSchema: { properties: Record<string, { type?: string; format?: string; description?: string }> } }[];
     const entry = tools.find(t => t.name === "create_note")!;
 
-    const G1 = "Create a new note — yours, or in one of your groups when you pass `groupId`.";
+    const G1 = "Create a new note — yours, or in one of your groups when you pass `group_id`.";
     const D2 = "or leave it out for an empty note, which edit_note can fill in later if the reply's `role` is `owner` or `editor`.";
     const D3 = "pass it to read_note_outline, or to edit_note when its `role` allows writing";
     const G2 =
@@ -172,11 +172,12 @@ describe("#108 tools/list", () => {
     expect(entry.description).toContain(G1);
     expect(entry.description).toContain(D2);
     expect(entry.description).toContain(D3);
-    const groupId = entry.inputSchema.properties.groupId!;
+    const groupId = entry.inputSchema.properties.group_id!;
     expect(groupId.type).toBe("string");
     expect(groupId.format).toBe("uuid");
     expect(groupId.description).toBe(G2);
     expect(entry.inputSchema.properties.title!.description).toContain(T1);
+    expect(Object.keys(entry.inputSchema.properties)).not.toContain("groupId");
 
     // 撤掉的舊說法：一句都不能留在任何一處（description、兩個欄位的 describe）。
     const everywhere = [entry.description, ...Object.values(entry.inputSchema.properties).map(p => p.description ?? "")].join("\n");
@@ -185,6 +186,7 @@ describe("#108 tools/list", () => {
       "an empty note you can write to later with edit_note",
       "pass it to edit_note or read_note_outline",
       "de-duplicated against your other notes",
+      "when you pass `groupId`",
     ]) {
       expect(everywhere, gone).not.toContain(gone);
     }

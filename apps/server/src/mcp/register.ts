@@ -33,6 +33,7 @@
  * 判錯了測試照樣綠。**放進閘門的判準是「這支工具要不要讀 live doc」，不是「它比較像哪一支」。**
  */
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
 import { runTool } from "./tool-result.js";
 import type { McpToolCtx } from "./context.js";
 import { LIST_NOTES_DESCRIPTION, listNotes, listNotesInput, listNotesOutput } from "./tools/list-notes.js";
@@ -127,10 +128,15 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
   // （工具側的對等答案是 `invalid_body`，由 `createNote` 自己判 `ctx.writes.available`）。
   // 把它移進閘門就是發明第二套行為——守衛＝`mcp-create-note.test.ts` 的 D-M 那一案
   // （無 collab 的 app ＋**讀寫**憑證，斷言四個名字的集合）。
+  //
+  // #180 W15／spec §4.7：以 `.strict()` 物件註冊——raw shape 會**靜默丟掉**未知鍵（spec F60 實測），用舊鍵 `groupId`
+  // 呼叫會被當成「沒給群組」建成個人筆記。strict 後回 SDK 輸入驗證錯誤、什麼都沒建；`tools/list` 的 JSON 與 raw shape
+  // 逐字相同（F60），`inputSchema.properties` 不會空掉（裸 `ZodObject`，[[g:mcp-typescript-sdk-gotchas]] 第 1 節）。
+  // 只套 create_note／move_note_to_group／copy_note 三支（「少認一個鍵就改變結果歸屬」的工具）。守衛＝`mcp-groups.test.ts` M-G1。
   if (canWrite) {
     server.registerTool(
       "create_note",
-      { description: CREATE_NOTE_DESCRIPTION, inputSchema: createNoteInput, outputSchema: createNoteOutput },
+      { description: CREATE_NOTE_DESCRIPTION, inputSchema: z.object(createNoteInput).strict(), outputSchema: createNoteOutput },
       async args => runTool("create_note", ctx, () => createNote(args, ctx))
     );
   }
