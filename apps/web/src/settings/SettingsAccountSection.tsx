@@ -3,6 +3,8 @@ import { useTranslation } from "react-i18next";
 import { normalizeHandle, validateHandle } from "@knotebook/shared";
 import { ChangePasswordForm } from "@/auth/ChangePasswordForm";
 import { useIdentities } from "@/api/account";
+import { useAuthConfig } from "@/api/authConfig";
+import { useUpdateAutoVersions } from "@/api/versionSettings";
 import { useUpdateHandle } from "@/api/profile";
 import { useStorageUsage } from "@/api/storage";
 import { ApiFail } from "@/api/client";
@@ -11,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
 import { useSession } from "@/auth/useSession";
 import { ApiTokensSection } from "./ApiTokensSection";
+import { AutoVersionsSwitch } from "./AutoVersionsSwitch";
 import { SettingsGroup, SettingsPage } from "./SettingsLayout";
 import { SetPasswordForm } from "./SetPasswordForm";
 import { SignInMethodsSection } from "./SignInMethodsSection";
@@ -98,6 +101,31 @@ function HandleSection() {
 }
 
 /**
+ * 個人空間的「自動儲存版本」開關（spec §6.8、§8.5）：立即生效，只送 `{ autoVersions }`；
+ * 站台總開關關閉（`/api/auth/config` 的 `autoVersionsEnabled === false`）時 disabled 並給看得見的說明。
+ * `config` 尚未載入時當作開（同 `passwordLoginEnabled` 的 `!== false` 預設，不誤閃「站台已關閉」）。
+ */
+function AutoVersionsGroup() {
+  const { t } = useTranslation();
+  const { user } = useSession();
+  const config = useAuthConfig();
+  const update = useUpdateAutoVersions();
+  return (
+    <SettingsGroup>
+      <AutoVersionsSwitch
+        id="account-auto-versions"
+        title={t("settings.account.autoVersions.title")}
+        description={t("settings.account.autoVersions.description")}
+        checked={user?.autoVersions ?? true}
+        siteOff={config.data?.autoVersionsEnabled === false}
+        pending={update.isPending}
+        onCheckedChange={(value) => update.mutate(value, { onError: (err) => toast({ title: errorMessage(t, err), variant: "destructive" }) })}
+      />
+    </SettingsGroup>
+  );
+}
+
+/**
  * 設定 modal 的帳號區（`/settings/account`，所有人可見；spec §13.4）——使用者名
  * 編輯段（#122，兩分支皆渲染）＋自助改密碼。改密成功後**只 toast、不導航**：
  * `navigate("/")` 會關掉 modal，甚至扯掉背景 `/notes/:ref` 的共編 provider，
@@ -128,6 +156,7 @@ export function SettingsAccountSection() {
       {/* #107：與 HandleSection 同層、在 hasPassword 三元式之外——SSO-only 帳號
           也要能建 PAT。 */}
       <ApiTokensSection />
+      <AutoVersionsGroup />
       {user?.hasPassword === false ? (
         passwordLoginEnabled ? (
           <SettingsGroup title={t("settings.account.setPassword.title")} description={t("settings.account.setPassword.description")}>

@@ -285,6 +285,7 @@
       "users": "使用者",
       "groups": "群組",
       "storage": "儲存方案",
+      "versions": "版本歷史",
       "ai": "AI",
       "auth": "登入"
     },
@@ -485,6 +486,19 @@
       "defaultsSave": "儲存預設",
       "defaultsSaved": "已儲存預設方案。"
     },
+    "versions": {
+      "title": "版本歷史",
+      "description": "這個站台上筆記怎麼保留版本。",
+      "autoTitle": "自動儲存版本",
+      "autoDescription": "關閉後所有空間都不會自動儲存版本，仍可手動儲存。",
+      "retentionTitle": "自動版本的保留",
+      "retentionDescription": "{{keepAll}} 天內的自動版本全部保留；{{dailyUntil}} 天內每天留一版；更早的每週留一版。日與週以 UTC 計算。手動版本不會被清除。",
+      "keepAllLabel": "全部保留（天）",
+      "dailyUntilLabel": "每天一版直到（天）",
+      "daysInvalid": "請填整數，且 1 ≤ 前者 ≤ 後者 ≤ 3650。",
+      "save": "儲存",
+      "saved": "已儲存版本設定"
+    },
     "groups": {
       "title": "群組",
       "description": "站台上所有群組的儲存空間用量與方案。",
@@ -510,6 +524,11 @@
     "gold": "金"
   },
   "groups": {
+    "autoVersions": {
+      "title": "自動儲存版本",
+      "description": "關閉後，這個群組的筆記只在手動儲存時建立版本。",
+      "managersOnly": "只有角色能管理群組的成員可以變更。"
+    },
     "menu": {
       "label": "{{name}} 的群組選單",
       "manage": "成員與設定",
@@ -654,6 +673,10 @@
     },
     "account": {
       "description": "管理你的使用者名、密碼與 API token。",
+      "autoVersions": {
+        "title": "自動儲存版本",
+        "description": "關閉後，個人筆記只在手動儲存時建立版本。"
+      },
       "passwordLoginOffNote": "本站目前只允許 SSO 登入；密碼暫時只用於連結帳號時證明本人。",
       "setPassword": {
         "title": "加上密碼",
@@ -864,6 +887,8 @@
       "dirtyFrom": "從 v{{seq}} 接著改，有未儲存的修改"
     },
     "autoOff": "此空間已關閉自動儲存",
+    "siteOff": "站台已關閉自動儲存。",
+    "takesEffectNote": "正開著的筆記要等所有人關閉後才會套用變更。",
     "kind": {
       "manual": "手動",
       "auto": "自動"

@@ -3,7 +3,9 @@ import { useTranslation } from "react-i18next";
 import { useNavigate, type Location } from "react-router";
 import type { GroupDto, GroupMemberDto, GroupRoleDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
+import { useAuthConfig } from "@/api/authConfig";
 import { useGroupStorageUsage } from "@/api/storage";
+import { useUpdateGroupAutoVersions } from "@/api/versionSettings";
 import {
   useAddMember,
   useGroupMembers,
@@ -29,6 +31,7 @@ import { toast } from "@/components/ui/toast";
 import { DeleteGroupDialog } from "@/components/groups/DeleteGroupDialog";
 import { GROUP_NAME_MAX_LENGTH } from "@/components/groups/GroupNameDialog";
 import { roleLabel } from "@/lib/group-role";
+import { AutoVersionsSwitch } from "./AutoVersionsSwitch";
 import { GroupDetailShell } from "./GroupDetailShell";
 import { SettingsGroup } from "./SettingsLayout";
 import { StorageUsageGroup } from "./StorageUsageGroup";
@@ -425,6 +428,32 @@ function GroupStorageSection({ group }: { group: GroupDto }) {
 }
 
 /**
+ * 群組的「自動儲存版本」開關（spec §6.8、§8.5）：**對所有成員渲染**；非 `canManageGroup` 時 disabled 並說明誰能改，
+ * 站台總開關關閉時 disabled 並說明站台已關（`AutoVersionsSwitch` 以 siteOff 優先）。
+ */
+function GroupAutoVersionsSection({ group }: { group: GroupDto }) {
+  const { t } = useTranslation();
+  const config = useAuthConfig();
+  const update = useUpdateGroupAutoVersions();
+  return (
+    <SettingsGroup>
+      <AutoVersionsSwitch
+        id={`group-auto-versions-${group.id}`}
+        title={t("groups.autoVersions.title")}
+        description={t("groups.autoVersions.description")}
+        checked={group.autoVersions}
+        siteOff={config.data?.autoVersionsEnabled === false}
+        disabledReason={group.canManageGroup ? undefined : t("groups.autoVersions.managersOnly")}
+        pending={update.isPending}
+        onCheckedChange={(value) =>
+          update.mutate({ groupId: group.id, autoVersions: value }, { onError: (err) => toast({ title: errorMessage(t, err), variant: "destructive" }) })
+        }
+      />
+    </SettingsGroup>
+  );
+}
+
+/**
  * `/settings/groups/:id` 的「成員」分頁（#103 spec §8.4；#175 spec §8.5；外框、not_found 三形見 `GroupDetailShell`）：
  * **只看 `GroupDto` 的兩個管理旗標**——`canManageGroup`＝名稱行內可改＋刪除群組；`canManageMembers`＝成員表的
  * 角色下拉與移除、加人；兩者都沒有＝名稱與成員表唯讀。不是最後一位管理員＝退出群組。`canManageGroup` 另顯示群組儲存用量。
@@ -436,6 +465,7 @@ export function SettingsGroupDetailSection() {
         <>
           {group.canManageGroup ? <NameSection key={group.name} group={group} /> : null}
           <MembersSection group={group} canManageMembers={group.canManageMembers} />
+          <GroupAutoVersionsSection group={group} />
           {group.canManageGroup ? <GroupStorageSection group={group} /> : null}
           <DangerSection group={group} canManageGroup={group.canManageGroup} backgroundLocation={backgroundLocation} />
         </>

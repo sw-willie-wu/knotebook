@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
+import { act, render, screen, waitFor, fireEvent, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation, type Location } from "react-router";
 import type { GroupDto, GroupMemberDto, GroupRoleDto, UserDto } from "@knotebook/shared";
@@ -82,6 +82,9 @@ function fetchFor(group: GroupDto, getMembers: () => GroupMemberDto[] | Promise<
     if (custom) return Promise.resolve(custom);
     if (url === "/api/auth/me" && method === "GET") return Promise.resolve(ok(ME));
     if (url === "/api/notes" && method === "GET") return Promise.resolve(ok([]));
+    if (url === "/api/auth/config" && method === "GET") {
+      return Promise.resolve(ok({ providers: [], registration: { enabled: false }, passwordLogin: { enabled: true }, autoVersionsEnabled: true }));
+    }
     if (url === "/api/groups" && method === "GET") return Promise.resolve(ok([group]));
     if (url === `/api/groups/${group.id}/members` && method === "GET") {
       const members = getMembers();
@@ -612,5 +615,69 @@ describe("SettingsGroupDetailSection（/settings/groups/:id，spec §8.5）", ()
     );
     const [, stateJson] = screen.getByTestId("location").textContent!.split("|");
     expect(JSON.parse(stateJson)).toEqual({ backgroundLocation: bgLocation });
+  });
+});
+
+describe("群組詳情 × 自動儲存版本（spec §6.8、§8.5）", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const siteConfig = (autoVersionsEnabled: boolean) =>
+    ok({ providers: [], registration: { enabled: false }, passwordLogin: { enabled: true }, autoVersionsEnabled });
+
+  it("canManageGroup → 可切換，PATCH /api/groups/:id body 恰為 { autoVersions:false }，之後 ['groups'] 重抓、開關翻面", async () => {
+    let group: GroupDto = { ...GROUP_ADMIN, autoVersions: true };
+    const members = [member(ME.id, ME.email, "Me", ADMIN_ROLE)];
+    const fetchMock = fetchFor(GROUP_ADMIN, () => members, (url, method, init) => {
+      if (url === "/api/groups" && method === "GET") return ok([group]);
+      if (url === `/api/groups/${GROUP_ADMIN.id}` && method === "PATCH") {
+        group = { ...group, ...JSON.parse(String(init?.body)) };
+        return ok(group);
+      }
+      return null;
+    });
+    renderDetailRoute(`/settings/groups/${GROUP_ADMIN.id}`, fetchMock);
+    const sw = await screen.findByRole("switch", { name: "Automatic versions" });
+    expect(sw).toHaveAttribute("aria-checked", "true");
+    await waitFor(() => expect(sw).toBeEnabled());
+    const groupGetsBefore = callsTo(fetchMock, "GET", "/api/groups").length;
+    fireEvent.click(sw);
+    await waitFor(() => expect(callsTo(fetchMock, "PATCH", `/api/groups/${GROUP_ADMIN.id}`)).toHaveLength(1));
+    expect(JSON.parse(String(callsTo(fetchMock, "PATCH", `/api/groups/${GROUP_ADMIN.id}`)[0].body))).toEqual({ autoVersions: false });
+    await waitFor(() => expect(callsTo(fetchMock, "GET", "/api/groups").length).toBeGreaterThan(groupGetsBefore));
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Automatic versions" })).toHaveAttribute("aria-checked", "false"));
+  });
+
+  it("非 manageGroup → 開關看得到但 disabled，並有「只有…可以變更」說明；點了也不送 PATCH", async () => {
+    const fetchMock = fetchFor({ ...GROUP_MEMBER, autoVersions: true }, () => []);
+    renderDetailRoute(`/settings/groups/${GROUP_MEMBER.id}`, fetchMock);
+    const sw = await screen.findByRole("switch", { name: "Automatic versions" });
+    expect(sw).toBeDisabled();
+    expect(sw).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByText("Only members whose role can manage the group can change this.")).toBeInTheDocument();
+    expect(screen.queryByText("Automatic saving is turned off for the whole site.")).not.toBeInTheDocument();
+    fireEvent.click(sw);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(callsTo(fetchMock, "PATCH", `/api/groups/${GROUP_MEMBER.id}`)).toHaveLength(0);
+  });
+
+  it("站台總開關關閉 → 管理者也 disabled＋「站台已關閉自動儲存」（取代「只有…」說明）", async () => {
+    const members = [member(ME.id, ME.email, "Me", ADMIN_ROLE)];
+    const fetchMock = fetchFor({ ...GROUP_ADMIN, autoVersions: true }, () => members, (url, method) =>
+      url === "/api/auth/config" && method === "GET" ? siteConfig(false) : null,
+    );
+    renderDetailRoute(`/settings/groups/${GROUP_ADMIN.id}`, fetchMock);
+    const sw = await screen.findByRole("switch", { name: "Automatic versions" });
+    await waitFor(() => expect(sw).toBeDisabled());
+    expect(screen.getByText("Automatic saving is turned off for the whole site.")).toBeInTheDocument();
+    expect(screen.queryByText("Only members whose role can manage the group can change this.")).not.toBeInTheDocument();
   });
 });

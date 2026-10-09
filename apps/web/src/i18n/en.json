@@ -285,6 +285,7 @@
       "users": "Users",
       "groups": "Groups",
       "storage": "Storage plans",
+      "versions": "Version history",
       "ai": "AI",
       "auth": "Sign-in"
     },
@@ -485,6 +486,19 @@
       "defaultsSave": "Save defaults",
       "defaultsSaved": "Defaults saved."
     },
+    "versions": {
+      "title": "Version history",
+      "description": "How notes keep their versions on this site.",
+      "autoTitle": "Automatic versions",
+      "autoDescription": "When off, no space saves versions automatically; people can still save versions by hand.",
+      "retentionTitle": "Keeping automatic versions",
+      "retentionDescription": "All automatic versions from the last {{keepAll}} days are kept; up to {{dailyUntil}} days, one a day; older, one a week. Days and weeks are counted in UTC. Manual versions are never removed.",
+      "keepAllLabel": "Keep all for (days)",
+      "dailyUntilLabel": "One a day until (days)",
+      "daysInvalid": "Use whole numbers with 1 ≤ first ≤ second ≤ 3650.",
+      "save": "Save",
+      "saved": "Version settings saved"
+    },
     "groups": {
       "title": "Groups",
       "description": "Every group on this site, with its storage use and plan.",
@@ -510,6 +524,11 @@
     "gold": "Gold"
   },
   "groups": {
+    "autoVersions": {
+      "title": "Automatic versions",
+      "description": "When off, this group's notes only get a new version when someone saves one by hand.",
+      "managersOnly": "Only members whose role can manage the group can change this."
+    },
     "menu": {
       "label": "Group actions for {{name}}",
       "manage": "Members & settings",
@@ -654,6 +673,10 @@
     },
     "account": {
       "description": "Manage your username, password, and API tokens.",
+      "autoVersions": {
+        "title": "Automatic versions",
+        "description": "When off, your personal notes only get a new version when you save one by hand."
+      },
       "passwordLoginOffNote": "This site only allows signing in through a sign-in service right now; your password is only used to prove it's you when linking an account.",
       "setPassword": {
         "title": "Add a password",
@@ -864,6 +887,8 @@
       "dirtyFrom": "Continued from v{{seq}}, with unsaved changes"
     },
     "autoOff": "Automatic saving is off for this space",
+    "siteOff": "Automatic saving is turned off for the whole site.",
+    "takesEffectNote": "Notes that are open right now pick up the change after everyone has closed them.",
     "kind": {
       "manual": "Manual",
       "auto": "Auto"
