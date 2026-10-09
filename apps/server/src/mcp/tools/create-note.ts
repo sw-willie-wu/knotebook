@@ -1,7 +1,7 @@
 /**
  * #108 §8.7 `create_note`：建一篇新筆記。與 `POST /api/notes` 的 body 同物件（`TITLE`／`MD`／`GROUP_ID`）、同驗證規則、
  * 同管線；鍵名依 MCP 輸入一律 snake_case（W15）——REST 是 `groupId`、這裡是 `group_id`，這是對 D18 的鍵名偏離（#180 spec §4.7）。
- * （D18：**寫入側不發明第二套契約**）——`content` 逐字重用 `MD`、`title` 逐字重用 `TITLE`（M14）。
+ * 除鍵名外仍守 D18（寫入側不發明第二套契約）——`content` 逐字重用 `MD`、`title` 逐字重用 `TITLE`（M14）。
  *
  * ⚠ **這支工具不進部署形態閘門**（裁決 D-M）：判準是「要不要讀 live doc」。不帶 `content` 時
  * 它只建一列（`notes/create.ts`；帶 `title` 時多一次——最壞每輪 20 次、最多 5 輪——scope 範圍
@@ -64,9 +64,10 @@ export const CREATE_NOTE_DESCRIPTION =
 
 export const createNoteInput = {
   title: TITLE.optional()
-    // ⚠ #145：這一段與 `docs/mcp.md` 的 `create_note` bullet **除下列四項差異外逐字同源**：
+    // ⚠ #145：這一段與 `docs/mcp.md` 的 `create_note` bullet **除下列五項差異外逐字同源**：
     //   ① 前面多一句「The note's title.」②去掉 markdown 粗體 ③去掉 `title` 兩側的
-    //   backtick ④開頭用祈使的「Leave it out」（而非「Leave out `title`」）。
+    //   backtick ④開頭用祈使的「Leave it out」（而非「Leave out `title`」）
+    //   ⑤ `edit_note` 兩側不加反引號（`.describe()` 依本檔慣例；docs 有）。
     //   #175 PR5：去重範圍片語（「…against the other notes in the same place — your personal notes, or that
     //   group's notes — with a numeric suffix」，T1）與 docs 及 spec §9.2 逐字相同，不在上述四項差異內。
     //   「same place」的範圍＝`SlugScope`（個人＝owner 自己的筆記、群組＝該群組的筆記），由
@@ -80,8 +81,8 @@ export const createNoteInput = {
         "your personal notes, or that group's notes — with a numeric suffix (`meeting-notes`, " +
         "then `meeting-notes-2`). Some titles have no usable URL form " +
         "and fall back to `untitled`, numbered the same way — punctuation on its own, a reserved " +
-        "word, or a uuid, or a title ending in one. No tool here renames a note afterwards, so " +
-        "pass one if you know it.",
+        "word, or a uuid, or a title ending in one. Pass a title if you know it; edit_note's `rename` can change it later " +
+        "when the reply's `role` is `owner` or `editor`.",
     ),
   // ⚠ #175 PR5：G2 逐字取自 `docs/mcp.md` `group_id` bullet 的第二到第五句（「Pass the id of one of your
   //   groups…」→ `.describe()` 句首改「The id of one of your groups…」，唯一差異）。bullet 其餘句子（id 去哪找、

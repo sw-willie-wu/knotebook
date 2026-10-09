@@ -196,6 +196,51 @@ describe("#108 tools/list", () => {
     for (const s of [G1, D2, D3, G2, T1]) expect(res.body).toContain(JSON.stringify(s).slice(1, -1));
   });
 
+  // #180 R13：edit_note／create_note／instructions 的新字串逐字在 wire 上；舊句一句都不在（spec §4.3、§4.5）。
+  it("#180 R13：rename 相關字串逐字在 wire 上，舊句不在", async () => {
+    const ctx = await buildCollabTestApp();
+    const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
+    const { token } = await seedTokenForUser(ctx.db, owner.id, "notes:read notes:write");
+    const res = await mcpPost(ctx.app, rpc("tools/list"), { token });
+    const tools = res.json().result.tools as { name: string; description: string; inputSchema: { properties: Record<string, { description?: string }> }; outputSchema: { properties: Record<string, { description?: string }> } }[];
+    const edit = tools.find(t => t.name === "edit_note")!;
+    const create = tools.find(t => t.name === "create_note")!;
+    const DESC =
+      "Change one note. Six operations: `replace_all` rewrites the whole note, `replace_section` and `delete_section` act on one section, " +
+      "`insert_after` puts new markdown after a section, `append` adds to the end, and `rename` changes its title. Every operation except " +
+      "`append` and `rename` needs `if_match`, the fingerprint of what you are replacing — a section's from read_note_section (once you have " +
+      "read to its end) or from a previous edit_note reply; the whole note's from a previous edit_note reply. A change to the content is " +
+      "recorded in the note's history, where anyone who can edit the note can usually undo it. A rename is not recorded: the last title " +
+      "written wins, and to undo it, rename the note back. Unless the note has a custom URL, its URL follows the new title and the old URL " +
+      "usually stops working. A rename's reply has `title` and `url` instead of `editId`, `fingerprint`, `outline` and `unboundWikilinks`.";
+    const OP = "What to do. `replace_section`, `insert_after` and `delete_section` need `section_id`; `append` may omit `if_match`; `rename` takes `title` and nothing else.";
+    const MD_HEAD = "The new markdown. Required for every operation except delete_section and rename. Colors are HTML, as read_note_section returns them:";
+    const IF_MATCH = "The fingerprint of what you are replacing. Required for every operation except append and rename; the write fails if the note changed since you read it.";
+    const TITLE_IN = "The note's new title. Only rename takes it.";
+    const TITLE_OUT = "After a rename, the note's new title.";
+    const URL_OUT = "After a rename, the note's page as a site-relative path, as in list_notes.";
+    const CREATE_TITLE_TAIL = "Pass a title if you know it; edit_note's `rename` can change it later when the reply's `role` is `owner` or `editor`.";
+
+    expect(edit.description).toBe(DESC);
+    expect(edit.inputSchema.properties.op!.description).toBe(OP);
+    expect(edit.inputSchema.properties.markdown!.description!.startsWith(MD_HEAD)).toBe(true);
+    expect(edit.inputSchema.properties.if_match!.description).toBe(IF_MATCH);
+    expect(edit.inputSchema.properties.title!.description).toBe(TITLE_IN);
+    expect(edit.outputSchema.properties.title!.description).toBe(TITLE_OUT);
+    expect(edit.outputSchema.properties.url!.description).toBe(URL_OUT);
+    expect(create.inputSchema.properties.title!.description!.endsWith(CREATE_TITLE_TAIL)).toBe(true);
+    for (const s of [DESC, OP, MD_HEAD, IF_MATCH, TITLE_IN, TITLE_OUT, URL_OUT, CREATE_TITLE_TAIL]) expect(res.body).toContain(JSON.stringify(s).slice(1, -1));
+    for (const gone of [
+      "Five operations",
+      "only `append` may omit `if_match`",
+      "Required for every operation except delete_section.",
+      "Required for every operation except append;",
+      "No tool here renames a note afterwards",
+    ]) {
+      expect(res.body, gone).not.toContain(JSON.stringify(gone).slice(1, -1));
+    }
+  });
+
   // #177：截斷改按 JSON 逃脫後的長度計。outputSchema 上模型讀得到的兩件事要跟著改：heading 的說明（兩個方向——
   // 新句在、舊句不在），以及群組 `owner` 的 `name` 有上限、有 `nameTruncated`（凡是回 `owner` 的工具都要有）。
   it("#177：heading 說明是逃脫後的 200；群組 owner 帶 name 上限與 nameTruncated", async () => {

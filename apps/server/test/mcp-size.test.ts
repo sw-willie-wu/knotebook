@@ -198,7 +198,7 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
   // #200 PR1：`create_transfer_token` 也在這一案量（spec §9.4(c) 要求每支工具都量）——upload／download 各一發。它的回應
   // 不帶標題或內容（只有 id、token、網址、curl、固定的 `next`），病態筆記對它不是最壞形，量的是「它也在 N 以內」這件事本身。
   // `edit_note` 在 (ii) 量（它的最壞形是一整頁逐段指紋）。
-  it("(i) 一篇 heading／title 各 260 000 字元的筆記 → edit_note 以外的六支工具（含 create_transfer_token 兩種 purpose）都 ≤ N", async () => {
+  it("(i) 一篇 heading／title 各 260 000 字元的筆記 → edit_note 的 rename 與其他工具（含 create_transfer_token 兩種 purpose）都 ≤ N", async () => {
     const ctx = await buildCollabTestApp();
     const o = await owner(ctx);
     const { token: rwToken } = await seedTokenForUser(ctx.db, o.id, "notes:read notes:write");
@@ -218,6 +218,9 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
     await callWire(ctx.app, rwToken, "(i) create_note", "create_note", { title: hugeTitle });
     await callWire(ctx.app, rwToken, "(i) create_transfer_token upload", "create_transfer_token", { note_id: note.id, purpose: "upload" });
     await callWire(ctx.app, rwToken, "(i) create_transfer_token download", "create_transfer_token", { note_id: note.id, purpose: "download" });
+    // #180 §9-6／R9：rename 的最壞形＝回應 `title` 被截到逃脫後 200 ＋ titleTruncated（鏡像兩份），標題同樣 260 000 字元。
+    // 擺在 (i) 最後：它會真的改標題（後面的量測若接在它之後，請排在它前面——整合時 copy／move 排在這行之前）。
+    await callWire(ctx.app, rwToken, "(i) edit_note rename", "edit_note", { note_id: note.id, op: "rename", title: `R${"i".repeat(259_999)}` });
     client.disconnect();
   });
 

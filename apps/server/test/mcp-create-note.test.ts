@@ -237,7 +237,7 @@ describe("#108 create_note", () => {
     // 這一行順帶釘住「它真的在閘門外」。#200：create_transfer_token 也在閘門外（token 限定）。
     expect(names).toEqual(["create_note", "create_transfer_token", "list_notes", "search_notes"]);
 
-    // P6：`inputSchema` **只能傳 raw shape**——傳錯時公告出去的 JSON Schema 會靜默變成
+    // P6：`inputSchema` **只能傳 raw shape 或裸 `ZodObject`（`.strict()` 亦可）**——傳 `ZodEffects`／union 時公告出去的 JSON Schema 會靜默變成
     // `{"type":"object","properties":{}}`（模型看不到任何欄位），而本檔另外五案（全部都自己
     // 送對參數）**照樣全綠**。這一行是那個症狀在 `create_note` 上唯一的守衛（`edit_note` 是 S1）。
     // ⚠ **「傳錯」在這支工具上是哪一種形，是量出來的，不是照抄 P6**（2026-09-08 實跑）：

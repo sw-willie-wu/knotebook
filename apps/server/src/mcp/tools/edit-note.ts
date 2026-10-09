@@ -2,7 +2,8 @@
  * #108 §8.6 `edit_note`：改一篇筆記的一段或整篇。與 `POST /api/notes/:id/edits` 逐欄同形、
  * 同驗證規則、同必填矩陣（D18：**寫入側不發明第二套契約**）。
  *
- * ⚠ **必填矩陣的單一真相是 `notes/schemas.ts` 的 `editBodySchema`**（D-N）。raw shape 只是把
+ * ⚠ **必填矩陣的單一真相**＝`notes/schemas.ts` 的 `editBodySchema`（五支）＋本檔的 `RENAME_BRANCH`，兩者由
+ * `mcpEditBodySchema` 合成（#180 spec §4.1）。raw shape 只是把
  * 欄位攤平給模型看——**不得把整個 discriminatedUnion 當 `inputSchema` 傳給 `registerTool`**：
  * 它**不會 throw、執行期驗證照常**，但公告出去的 JSON Schema 會靜默變成
  * `{"type":"object","properties":{}}`——**模型看不到任何欄位**（實測 2026-09-08：entry 從
@@ -28,13 +29,16 @@
  */
 import { z } from "zod";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { YDOC_FRAGMENT } from "@knotebook/shared";
+import { eq } from "drizzle-orm";
+import { canonicalNotePath, YDOC_FRAGMENT } from "@knotebook/shared";
+import { users } from "../../db/schema.js";
 import { outlineOf } from "../../notes/editing/fingerprint.js";
 import { loadNoteDoc } from "../../notes/editing/read.js";
 import { PALETTE_COLORS } from "../../notes/editing/colors.js";
-import { editBodySchema, FP, MD, NOTE_ID, SEC } from "../../notes/schemas.js";
-import { resolveRole } from "../../notes/service.js";
-import { MCP_PAGE_MAX } from "../limits.js";
+import { renameNoteTitle } from "../../notes/rename-note.js";
+import { editBodySchema, FP, MD, NOTE_ID, SEC, TITLE } from "../../notes/schemas.js";
+import { resolveNoteAccess, resolveRole } from "../../notes/service.js";
+import { MCP_PAGE_MAX, MCP_TEXT_MAX, truncateText } from "../limits.js";
 import { NOTE_NOT_FOUND_MESSAGE, SECTION_NOT_FOUND_MESSAGE } from "../note-read.js";
 import { buildOutlinePage, outlineEntryWithFingerprintSchema } from "../outline-page.js";
 import { toolError, toolResult } from "../tool-result.js";
@@ -44,39 +48,53 @@ import type { McpToolCtx } from "../context.js";
 
 /** 模型看得到的字串一律英文（同 `docs/`；不是 UI 文案，不走 i18n）。 */
 export const EDIT_NOTE_DESCRIPTION =
-  "Change one note. Five operations: `replace_all` rewrites the whole note, `replace_section` " +
+  "Change one note. Six operations: `replace_all` rewrites the whole note, `replace_section` " +
   "and `delete_section` act on one section, `insert_after` puts new markdown after a section, " +
-  "and `append` adds to the end. Every operation except `append` needs `if_match`, the " +
+  "`append` adds to the end, and `rename` changes its title. Every operation except " +
+  "`append` and `rename` needs `if_match`, the " +
   "fingerprint of what you are replacing — a section's from read_note_section (once you have " +
   "read to its end) or from a previous edit_note reply; the whole note's from a previous " +
   // ⚠ #146：**不是 owner**。撤回端點 `POST /api/notes/:id/edits/:editId/revert` 的角色閘門是
   //   `role === "none"` → 404、`role === "viewer"` → 403（`routes/notes.ts`），**editor 撤得回**。
   //   而「can undo it」不得寫成無條件——條件全文在下面 `editId` 的 `.describe()`。
-  "edit_note reply. A change is recorded in the note's history, where anyone who can edit the " +
-  "note can usually undo it.";
+  // #180：主詞收窄成 `A change to the content`——為了不把 rename 包進去（[[g:model-facing-string-claims]] 限定詞兩方向）。
+  "edit_note reply. A change to the content is recorded in the note's history, where anyone who can edit the " +
+  "note can usually undo it. A rename is not recorded: the last title written wins, and to undo it, rename the " +
+  "note back. Unless the note has a custom URL, its URL follows the new title and the old URL usually stops " +
+  "working. A rename's reply has `title` and `url` instead of `editId`, `fingerprint`, `outline` and `unboundWikilinks`.";
 
 /**
  * ⚠ **`op` 是唯一沒有與 REST 共用物件的欄位**：那邊是 `discriminatedUnion` 的五個 `z.literal`，
  * 這邊要的是一個帶 `.describe()` 的 `z.enum`（raw shape 表達不了 per-op 必填矩陣）。兩份字串
- * 集合由 `test/unit/mcp-write-schemas.test.ts` 對起來——沒有它，加第六個 op 只有一邊會知道。
- * 其餘四個欄位逐字重用 `notes/schemas.ts` 的 base（M14），建法一律 `BASE.optional().describe()`。
+ * 集合由 `test/unit/mcp-write-schemas.test.ts` 對起來——#180：MCP 是 REST 五 ∪ {rename}（spec §4.6 的刻意偏離），由
+ * 同檔 U1 對起來。
+ * 其餘欄位逐字重用 `notes/schemas.ts` 的 base（M14），建法一律 `BASE.optional().describe()`。
  */
 export const editNoteInput = {
   note_id: NOTE_ID.describe("The note's id, as returned by list_notes or search_notes."),
   op: z
-    .enum(["replace_all", "replace_section", "insert_after", "append", "delete_section"])
-    .describe("What to do. `replace_section`, `insert_after` and `delete_section` need `section_id`; only `append` may omit `if_match`."),
+    .enum(["replace_all", "replace_section", "insert_after", "append", "delete_section", "rename"])
+    .describe("What to do. `replace_section`, `insert_after` and `delete_section` need `section_id`; `append` may omit `if_match`; `rename` takes `title` and nothing else."),
   section_id: SEC.optional()
     .describe("Which section to act on, from read_note_outline. Required for replace_section, insert_after and delete_section."),
   // #222：色名取自 PALETTE_COLORS（單一真相）；寫法與「讀回同形」在 colors.ts／docs/ai-editing.md#colors 有測試守。
   markdown: MD.optional().describe(
-    "The new markdown. Required for every operation except delete_section. Colors are HTML, as read_note_section " +
+    "The new markdown. Required for every operation except delete_section and rename. Colors are HTML, as read_note_section " +
       `returns them: colored text is <span style="color:red">…</span> inside the markdown; a block's own color is ` +
       `e.g. <p data-background-color="yellow">…</p>. Only these names are accepted: ${PALETTE_COLORS.join(", ")}.`
   ),
   if_match: FP.optional()
-    .describe("The fingerprint of what you are replacing. Required for every operation except append; the write fails if the note changed since you read it."),
+    .describe("The fingerprint of what you are replacing. Required for every operation except append and rename; the write fails if the note changed since you read it."),
+  // #180 W1：與 `TITLE` 同一物件（U2）。
+  title: TITLE.optional().describe("The note's new title. Only rename takes it."),
 };
+
+/**
+ * #180 spec §4.1：MCP 側的必填矩陣。前五支**就是** `editBodySchema.options` 的同一批物件（U1 以 `toBe` 逐支斷言）；
+ * REST 的 `editBodySchema` 一字不改，所以 REST 收到 `op:"rename"` 照舊 `invalid_union_discriminator`、收到 `title` 照舊 `unrecognized_keys`。
+ */
+export const RENAME_BRANCH = z.object({ op: z.literal("rename"), title: TITLE }).strict();
+export const mcpEditBodySchema = z.discriminatedUnion("op", [...editBodySchema.options, RENAME_BRANCH]);
 
 export const editNoteOutput = {
   // ⚠ #146：撤回的條件全文放在這裡（`.describe()` 沒有長度預算，`instructions` 有）。
@@ -93,6 +111,7 @@ export const editNoteOutput = {
   //   （`revert.ts:62-63` 的註解逐字講這一刻）。
   editId: z
     .string()
+    .optional()
     .describe(
       "Id of this change in the note's history. Anyone who can edit the note can undo it with this, while the " +
         "blocks it wrote are unchanged and it is still among the at most 100 history entries a note keeps; a " +
@@ -100,12 +119,13 @@ export const editNoteOutput = {
         "next to, and stops being undoable once the blocks it removed are back in the note — which is what a person " +
         "pressing undo in the browser does. The exact rule is in docs/ai-editing.md, under Revert."
     ),
-  fingerprint: z.string().describe("The whole note's new fingerprint. Pass it as `if_match` to a following replace_all."),
+  fingerprint: z.string().optional().describe("The whole note's new fingerprint. Pass it as `if_match` to a following replace_all."),
   outline: z
     .object({
       sections: z.array(outlineEntryWithFingerprintSchema).describe("One page of the note's sections, in document order."),
       truncated: z.boolean().describe("True when the note has more sections than this page shows."),
     })
+    .optional()
     .describe(
       `The note's sections after your change, at most ${MCP_PAGE_MAX}. For replace_section and insert_after the page ` +
         "starts at the section that now holds what you wrote — which may be the preceding section, if your markdown " +
@@ -118,18 +138,25 @@ export const editNoteOutput = {
   //   落空：同名兩篇、大小寫不同、指向你看不見的筆記，同樣算 unbound。措辭與 `docs/mcp.md` 同。
   unboundWikilinks: z
     .number()
+    .optional()
     .describe(
       "How many `[[wikilinks]]` in what you wrote were left as plain text because no note you can see has that " +
         "exact title, or more than one does."
     ),
+  // #180 W5：rename 的回應只有 title／url（＋截斷旗標）。四欄改選配是為了讓 rename 過 SDK 的 `validateToolOutput`（spec F49）——
+  // 四欄必填時每一發成功的 rename 都會變成 SDK 自產錯誤。五個內容 op 照舊回四欄（R12）。守衛＝R1 的「isError 不存在」。
+  title: z.string().max(MCP_TEXT_MAX).optional().describe("After a rename, the note's new title."),
+  titleTruncated: z.literal(true).optional(),
+  url: z.string().optional().describe("After a rename, the note's page as a site-relative path, as in list_notes."),
 };
 
 export interface EditNoteArgs {
   note_id: string;
-  op: "replace_all" | "replace_section" | "insert_after" | "append" | "delete_section";
+  op: "replace_all" | "replace_section" | "insert_after" | "append" | "delete_section" | "rename";
   section_id?: string;
   markdown?: string;
   if_match?: string;
+  title?: string;
 }
 
 /** #175 §9.2：不指名 owner——群組筆記沒有 owner，能給編輯權的是能管理群組成員的人；個人筆記則是 owner。
@@ -139,18 +166,22 @@ export const FORBIDDEN_MESSAGE =
 const MISMATCH_MESSAGE =
   "The note changed since you read it, so this write was not applied. The current outline is below; read what you " +
   "want to change again and retry with a fresh `if_match`.";
+/** #180 spec §4.3（code `conflict`）：UPDATE 0 列而列仍在的成因只有歸屬改變——個人筆記被移進群組、或群組被刪＋轉移。 */
+export const RENAME_CONFLICT_MESSAGE =
+  "The note was moved into a group, or its group was deleted, after your access was checked, so its title was not changed. Try again.";
 
 /** `section_id` 有意義的三個 op（**三個不是四個**——`replace_all`／`append` 規格明文從 0 起算）。 */
 const SECTION_SCOPED = new Set(["replace_section", "insert_after", "delete_section"]);
 
 /** 逐 op 的必填矩陣說明——`editBodySchema` 擋下來時模型要知道自己少了什麼。 */
-function invalidBodyMessage(op: string, issues: readonly { path: PropertyKey[] }[]): string {
+export function invalidBodyMessage(op: string, issues: readonly { path: PropertyKey[] }[]): string {
   const fields = [...new Set(issues.map(i => String(i.path[0] ?? "")).filter(Boolean))];
   const which = fields.length === 0 ? "" : ` Check: ${fields.join(", ")}.`;
   return (
     `This \`${op}\` call does not match what that operation needs.${which} ` +
-    "replace_section, insert_after and delete_section need `section_id`; every operation except delete_section needs " +
-    "`markdown`; every operation except append needs `if_match`. Fields that do not belong to the operation are rejected."
+    "replace_section, insert_after and delete_section need `section_id`; every operation except delete_section and rename needs " +
+    "`markdown`; every operation except append and rename needs `if_match`; rename needs `title`, and no other operation takes it. " +
+    "Fields that do not belong to the operation are rejected."
   );
 }
 
@@ -161,15 +192,21 @@ export async function editNote(args: EditNoteArgs, ctx: McpToolCtx): Promise<Cal
   const denied = requireWriteScope(ctx);
   if (denied !== null) return denied;
 
-  // 2. 必填矩陣（D-N）。⚠ `note_id` **不進去**（`editBodySchema` 每個分支都 `.strict()`，
-  //    多一把鍵就是 `unrecognized_keys`）；`op` 恆帶；其餘三個**逐鍵條件展開**（P15）。
-  const parsed = editBodySchema.safeParse({
+  // 2. 必填矩陣（D-N；#180 起是 `mcpEditBodySchema`）。⚠ `note_id` **不進去**（每個分支都 `.strict()`，
+  //    多一把鍵就是 `unrecognized_keys`）；`op` 恆帶；其餘四個**逐鍵條件展開**（P15，#180 加 title）。
+  const parsed = mcpEditBodySchema.safeParse({
     op: args.op,
     ...(args.section_id === undefined ? {} : { section_id: args.section_id }),
     ...(args.markdown === undefined ? {} : { markdown: args.markdown }),
     ...(args.if_match === undefined ? {} : { if_match: args.if_match }),
+    ...(args.title === undefined ? {} : { title: args.title }),
   });
   if (!parsed.success) return toolError("invalid_body", invalidBodyMessage(args.op, parsed.error.issues));
+
+  // 2a. #180 §4.2：rename 排在 `resolveRole`、`edit` 桶、`writes.available` **之前**——它不碰 live doc，
+  //     不該因為部署沒有寫入 service 而 throw，也不扣 `edit` 桶（W6；REST title PATCH 本來無節流，F18）。
+  if (parsed.data.op === "rename") return renameViaMcp(ctx, args.note_id, parsed.data.title);
+  const data = parsed.data;
 
   // 3. L3：每支工具自己 `resolveRole`。`none` 一律當「找不到」，與「存在但你沒權限」用**同一個
   //    字串**（M2／案 17，重用 `note-read.ts` 那一份）。
@@ -191,10 +228,10 @@ export async function editNote(args: EditNoteArgs, ctx: McpToolCtx): Promise<Cal
     userId: ctx.userId,
     userHandle: ctx.userHandle,
     tokenId: ctx.tokenId,
-    op: parsed.data.op,
-    sectionId: "section_id" in parsed.data ? parsed.data.section_id : undefined,
-    markdown: "markdown" in parsed.data ? parsed.data.markdown : undefined,
-    ifMatch: "if_match" in parsed.data ? parsed.data.if_match : undefined,
+    op: data.op,
+    sectionId: "section_id" in data ? data.section_id : undefined,
+    markdown: "markdown" in data ? data.markdown : undefined,
+    ifMatch: "if_match" in data ? data.if_match : undefined,
   });
 
   if (!out.ok) {
@@ -230,5 +267,33 @@ async function mismatchError(ctx: McpToolCtx, args: EditNoteArgs): Promise<CallT
   const page = buildOutlinePage(outline, offset);
   return toolError("fingerprint_mismatch", MISMATCH_MESSAGE, {
     outline: { sections: page.sections, truncated: page.truncated },
+  });
+}
+
+/**
+ * #180 §4.2 第 3 步。權限＝PATCH title（`permissions.edit`，W6）；對個人／分享／群組筆記 `!permissions.edit` ⇔ `role === "viewer"`（F28）。
+ * 不寫 `note_ai_edits`、不動 `last_edited_*`、不 touch presence、不進寫入佇列；`updated_at` 會動（F17）。
+ * owner handle 補查與 REST `ownerHandleOf` 同一個 FK 不變量（查不到 → throw，`runTool` 轉 `internal`）；**用 `row.ownerId`，不用 `ctx.userHandle`**
+ * （分享 editor 改別人的筆記要回 owner 的 handle——R2）。
+ */
+async function renameViaMcp(ctx: McpToolCtx, noteId: string, title: string): Promise<CallToolResult> {
+  const access = await resolveNoteAccess(ctx.db, ctx.userId, noteId);
+  if (access.role === "none") return toolError("not_found", NOTE_NOT_FOUND_MESSAGE);
+  if (!access.permissions.edit) return toolError("forbidden", FORBIDDEN_MESSAGE);
+  const out = await renameNoteTitle(ctx.db, { noteId, access, title }, ctx.slugUpdateTestHook);
+  if (out.kind === "gone") return toolError("not_found", NOTE_NOT_FOUND_MESSAGE);
+  if (out.kind === "ownership_changed") return toolError("conflict", RENAME_CONFLICT_MESSAGE);
+  const row = out.row;
+  let ownerHandle: string | null = null;
+  if (row.ownerId !== null) {
+    const [u] = await ctx.db.select({ handle: users.handle }).from(users).where(eq(users.id, row.ownerId)).limit(1);
+    if (!u) throw new Error(`notes.owner_id ${row.ownerId} 查無對應 users 列（FK 不變量被打破）`);
+    ownerHandle = u.handle;
+  }
+  const t = truncateText(row.title);
+  return toolResult({
+    title: t.text,
+    ...(t.truncated ? { titleTruncated: true as const } : {}),
+    url: canonicalNotePath({ ownerHandle, groupId: row.groupId, slug: row.slug }),
   });
 }

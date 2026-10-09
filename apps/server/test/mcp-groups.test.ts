@@ -119,7 +119,7 @@ describe("#175 read_note_outline／edit_note 的群組筆記（需 collab）", (
   });
 });
 
-// ───────────────────────────── #175 PR5：create_note {groupId}（spec §9.3、§12.1、Q23） ─────────────────────────────
+// ───────────────────────────── #175 PR5：create_note {group_id}（spec §9.3、§12.1、Q23） ─────────────────────────────
 
 /** spec §9.2 兩句專用訊息，逐字（測試**不**從實作 import——字面值才釘得住 spec）。 */
 const E1_GROUP_NOT_FOUND = "No group with that id among the groups you belong to.";
@@ -153,7 +153,7 @@ function cellsLeft(limiter: FixedWindowLimiter, userId: string): number {
   return n;
 }
 
-describe("#175 PR5 create_note {groupId}", () => {
+describe("#175 PR5 create_note {group_id}", () => {
   it("A 一般成員：群組列、owner＝群組、url /g/、role editor；slug 去重範圍＝該群組（不對稱測資：個人那發另得 plan-3）", async () => {
     const { app, db } = await buildTestApp();
     const me = await seedUser(db);
@@ -296,7 +296,7 @@ describe("#175 PR5 create_note {groupId}", () => {
     expect(JSON.stringify(asAdmin.structuredContent)).toBe(JSON.stringify(adminMissing.structuredContent));
   });
 
-  it("G groupId 不是 uuid：零新增列、isError 且沒有 structuredContent（SDK 輸入驗證形，無 code）", async () => {
+  it("G group_id 不是 uuid：零新增列、isError 且沒有 structuredContent（SDK 輸入驗證形，無 code）", async () => {
     const { app, db } = await buildTestApp();
     const me = await seedUser(db);
     await seedGroup(db, "Team", [{ userId: me.id, role: "member" }]);
@@ -339,7 +339,7 @@ describe("#175 PR5 create_note {groupId}", () => {
     expect(r2.structuredContent!.message).toBe(E1_GROUP_NOT_FOUND);
   });
 
-  it("I 大寫 uuid 的 groupId：成功，owner.id 與 url 都是小寫", async () => {
+  it("I 大寫 uuid 的 group_id：成功，owner.id 與 url 都是小寫", async () => {
     const { app, db } = await buildTestApp();
     const me = await seedUser(db);
     const g = await seedGroup(db, "Team", [{ userId: me.id, role: "member" }]);

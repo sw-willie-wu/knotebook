@@ -13,13 +13,15 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { createBodySchema, editBodySchema, FP, GROUP_ID, MD, NOTE_ID, NUL, SEC, TITLE } from "../../src/notes/schemas.js";
-import { editNoteInput } from "../../src/mcp/tools/edit-note.js";
+import { createBodySchema, editBodySchema, FP, GROUP_ID, MD, NOTE_ID, NUL, SEC, TITLE, updateBodyObject } from "../../src/notes/schemas.js";
+import { editNoteInput, mcpEditBodySchema } from "../../src/mcp/tools/edit-note.js";
 import { createNoteInput } from "../../src/mcp/tools/create-note.js";
 import { readNoteSectionOutput } from "../../src/mcp/tools/read-note-section.js";
 
 /** 寫死一份（不是從實作導出來的）——否則兩邊一起改就一起綠。 */
 const OPS = ["replace_all", "replace_section", "insert_after", "append", "delete_section"];
+/** #180 W8：MCP 多一個 op（REST 五 ∪ {rename}）。**刻意不相等**——REST `/edits` 不加 rename 是對 D18 的刻意偏離（spec §4.6：rename 不進 `note_ai_edits`、REST 已有 PATCH、MCP 加 op 比另開工具便宜）。日後別「修正」成兩邊相等。 */
+const MCP_OPS = [...OPS, "rename"];
 
 describe("#108 寫入 schema 的兩邊", () => {
   it("editBodySchema 的五個分支 op literal 逐字等於寫死的五元陣列（含順序）", () => {
@@ -27,10 +29,10 @@ describe("#108 寫入 schema 的兩邊", () => {
     expect(editBodySchema.options.map(o => o.shape.op.value)).toEqual(OPS);
   });
 
-  it("edit_note 的 op enum 成員逐字等於 editBodySchema 的五個 literal（D-N）", () => {
-    // 兩邊各自與寫死的那份對，而不是互相對——互相對的話兩邊一起漏一個 op 仍然綠。
-    expect(editNoteInput.op.options).toEqual(OPS);
-    expect(editNoteInput.op.options).toEqual(editBodySchema.options.map(o => o.shape.op.value));
+  it("edit_note 的 op enum ＝ REST 五 ∪ {rename}（W8）；mcpEditBodySchema 的 literal ＝ MCP_OPS 且前五支就是 editBodySchema 的同一批物件", () => {
+    expect(editNoteInput.op.options).toEqual(MCP_OPS);
+    expect(mcpEditBodySchema.options.map(o => o.shape.op.value)).toEqual(MCP_OPS);
+    for (let i = 0; i < OPS.length; i += 1) expect(mcpEditBodySchema.options[i]).toBe(editBodySchema.options[i]);
   });
 });
 
@@ -64,6 +66,11 @@ describe("#108 M14：raw shape 六個欄位與 notes/schemas.ts 的 base 同源�
     expectSameSchema(editNoteInput.if_match, FP);
     expectSameSchema(editNoteInput.section_id, SEC);
     expectSameSchema(editNoteInput.note_id, NOTE_ID);
+  });
+
+  it("#180：editNoteInput.title 與 TITLE 同源；PATCH 的 updateBodyObject.title 與 TITLE 同源（W16）", () => {
+    expectSameSchema(editNoteInput.title, TITLE);
+    expectSameSchema(updateBodyObject.shape.title, TITLE);
   });
 
   it("createNoteInput 的 title／content／group_id 各自與 TITLE／MD／GROUP_ID 同源", () => {

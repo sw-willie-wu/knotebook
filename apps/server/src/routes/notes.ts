@@ -1,11 +1,10 @@
 import { randomBytes } from "node:crypto";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
-import { and, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/pg-core";
 import {
   MAX_LINK_TARGETS,
-  autoSlugFromTitle,
   normalizeEmail,
   normalizeHandle,
   normalizeSlug,
@@ -37,7 +36,8 @@ import { presenceIdentity, presenceTargetForRead, type PresenceRegistry } from "
 import { accessFromListRow, editor, lastEditedSelection, visibleNoteBranches } from "../notes/list-query.js";
 // ⚠ `FP` 在本檔已無呼叫端（`editBodySchema` 是它唯一的使用者，搬去 `notes/schemas.ts` 了）——
 // `no-unused-vars` 是 error ＋ `--max-warnings=0`，留著會 lint 紅。
-import { createBodySchema, editBodySchema, SEC } from "../notes/schemas.js";
+import { createBodySchema, editBodySchema, SEC, updateBodySchema } from "../notes/schemas.js";
+import { renameNoteTitle } from "../notes/rename-note.js";
 import { loadCreateTarget } from "../notes/create-target.js";
 import { type NoteWriteService } from "../notes/editing/write-service.js";
 import { insertNoteWithAutoSlug, type NoteCreateHooks } from "../notes/create.js";
@@ -58,7 +58,6 @@ import { copyNoteInTx } from "../notes/tx/copy.js";
 import type { SearchIndexHooks } from "../notes/tx/search-index.js";
 import { extractForIndex } from "../notes/search-index.js";
 import { patchSlugInTx, type SlugPatchTestHook, type SlugWriteScope } from "../notes/tx/patch-slug.js";
-import { UPDATED_AT_NOW } from "../notes/clock.js";
 import { groupNotePath, lookupRedirect, userNotePath } from "../notes/redirects.js";
 import {
   deriveUniqueAutoSlug,
@@ -79,19 +78,7 @@ import { StorageQuotaExceeded } from "../storage/tx/quota.js";
 import { isSpaceFull, precheckDetail, quotaErrorDetail, readSpaceUsage } from "../storage/usage.js";
 
 
-// PATCH 契約（spec §11.4 逐字）：title／slug 皆選配，但至少要帶一項——兩者都缺時走
-// safeParse 失敗路徑，回 400 invalid_body（與其他 body schema 一致，不特地為「空
-// payload」開一條不同的錯誤碼）。`slug` 允許顯式 `null`（清除既有自訂網址代稱）與
-// 字串（新設定，routes 內再走 `prepareSlugForPatch` 正規化+驗證）——`undefined`
-// （鍵不存在）代表「這次 PATCH 不動 slug」，三態語意靠 zod 的 `nullable().optional()`
-// 表達，不能只用 `nullable()`（那樣呼叫端必須每次都明確傳 `slug: null` 才能不改動）。
-// 未知欄位一律被 z.object 預設的 strip 行為丟棄（不需要額外 `.strict()`/`.passthrough()`）。
-const updateBodySchema = z
-  .object({
-    title: z.string().min(1).optional(),
-    slug: z.string().nullable().optional(),
-  })
-  .refine(b => b.title !== undefined || b.slug !== undefined, { message: "title 與 slug 至少需帶一項" });
+// PATCH 的 body 搬到 `notes/schemas.ts`（#180 W16：`title` 改吃 `TITLE`，契約註解一併搬過去）。
 const putShareBodySchema = z.object({ email: z.string().email(), role: z.enum(["viewer", "editor"]) });
 // #175 §6.3 移動的 body：`groupId` 只驗是字串（非 UUID 由路由回 404 `group_not_found`，與「群組不存在」逐位元組相同——plan 規格落差 5）。
 const moveBodySchema = z.object({ groupId: z.string() }).strict();
@@ -780,7 +767,8 @@ export function notesRoutes(deps: NotesRouteDeps) {
      *    轉址（個人 scope 才發，§4.3 B4）；撞 `notes_owner_slug_idx` 或 `notes_group_slug_idx` → 409
      *    `slug_taken`（**constraint 名分流**，其他唯一鍵違反 rethrow——比照 PR1 的 M4-2 契約）；
      *    同請求帶 title 不觸發重算。
-     * 2. `{title}`：pre-read 本列 slug_is_custom（特赦，見下）；custom=false 才重算
+     * 2. （#180：本體在 `notes/rename-note.ts`（`renameNoteTitle`），MCP rename 共用）
+     *    `{title}`：pre-read 本列 slug_is_custom（特赦，見下）；custom=false 才重算
      *    （以請求新 title 算＋在歸屬範圍內探測，#175 RF5）：單一 UPDATE `title=$1, slug=CASE WHEN
      *    slug_is_custom THEN slug ELSE $auto END`（prev 不動、不開交易；帶授權當下歸屬的 scope 述詞，
      *    0 列 → 列不在 404、列在 409 `conflict`——#175 PR2 Q-C）。**不計 slugPatch**
@@ -856,47 +844,37 @@ export function notesRoutes(deps: NotesRouteDeps) {
         return respondPatched(updated, access);
       }
 
-      // 格 2–4：auto 路徑。clearingSlug＝格 3／4（body 帶 slug:null）；否則格 2（title-only）。
-      const clearingSlug = hasSlug;
-      if (clearingSlug && !deps.limiters.slugPatch.consume(userId)) return sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+      // 格 2（title-only）：#180 spec §3.1 抽成 `notes/rename-note.ts`（MCP `edit_note` 的 rename 共用）。行為逐位元組不變。
+      if (!hasSlug) {
+        const out = await renameNoteTitle(deps.db, { noteId: id, access, title: title! }, deps.slugUpdateTestHook);
+        if (out.kind === "gone") return noteNotFound(reply);
+        if (out.kind === "ownership_changed") return sendError(reply, 409, "conflict", "筆記的歸屬已變更，請重新整理後再試");
+        return respondPatched(out.row, access);
+      }
 
-      // pre-read（特赦界線見上）只在需要時發：格 2 要 slug_is_custom（決定探不探測）、
-      // 格 4 要現行 title；格 3 兩者都在請求裡（必走 auto）——不多發一次查詢。
-      let preReadSlugIsCustom = false;
+      // 格 3／4：auto 路徑（body 帶 slug:null）。
+      if (!deps.limiters.slugPatch.consume(userId)) return sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+
+      // pre-read（特赦界線見上）只在格 4 發：要現行 title；格 3 的 title 已在請求裡（必走 auto）——不多發一次查詢。
       let effectiveTitle = title ?? "";
-      if (!clearingSlug || title === undefined) {
+      if (title === undefined) {
         const [row] = await deps.db.select({ title: notes.title, slugIsCustom: notes.slugIsCustom }).from(notes).where(eq(notes.id, id)).limit(1);
         if (!row) return noteNotFound(reply);
-        preReadSlugIsCustom = row.slugIsCustom;
-        effectiveTitle = title ?? row.title;
+        effectiveTitle = row.title;
       }
-      const needsAuto = clearingSlug || !preReadSlugIsCustom;
-      if (clearingSlug) await deps.slugPatchTestHook?.("authorized", { noteId: id });
+      await deps.slugPatchTestHook?.("authorized", { noteId: id });
 
       let updated;
       for (let attempt = 1; ; attempt++) {
-        // 候選來源三分支：重試耗盡 → uuid8 退位；要走 auto（或重試中）→ 在歸屬範圍內探測（RF5）；
-        // 格 2 的 custom=true → CASE 會保留現行 slug、$auto 只是佔位，傳未探測候選即可
-        // ——若 pre-read 後被併發翻回 auto（罕見競態），只有恰好撞索引才落到重試路徑
-        // 重新探測；沒撞就直接寫入未探測候選（仍唯一，可接受）。
+        // 候選來源兩分支：重試耗盡 → uuid8 退位；否則在歸屬範圍內探測（RF5）。格 3／4 恆走 auto。
         let auto: string;
         if (attempt > MAX_AUTO_SLUG_RETRIES) auto = fallbackAutoSlug();
-        else if (needsAuto || attempt > 1) auto = await deriveUniqueAutoSlug(deps.db, slugScope, id, effectiveTitle);
-        else auto = autoSlugFromTitle(effectiveTitle);
+        else auto = await deriveUniqueAutoSlug(deps.db, slugScope, id, effectiveTitle);
         await deps.slugUpdateTestHook?.(auto);
         try {
-          if (clearingSlug) {
-            // 格 3／4：每一輪一個新的 T1 交易（23505 只 abort 那一輪，所以不需要 savepoint——§6.9 只管長交易內的重試）。
-            updated = await runT1({ ...(title !== undefined ? { title } : {}), slug: auto, slugIsCustom: false });
-            if (!updated) return ownershipChanged(reply, id);
-          } else {
-            // 格 2：不寫 prev、不開交易（語句形狀守衛：恰一條 UPDATE）。
-            [updated] = await deps.db
-              .update(notes)
-              .set({ updatedAt: UPDATED_AT_NOW, title, slug: sql`case when ${notes.slugIsCustom} then ${notes.slug} else ${auto} end` })
-              .where(and(eq(notes.id, id), access.groupId !== null ? eq(notes.groupId, access.groupId) : and(eq(notes.ownerId, access.ownerId!), isNull(notes.groupId))))
-              .returning();
-          }
+          // 格 3／4：每一輪一個新的 T1 交易（23505 只 abort 那一輪，所以不需要 savepoint——§6.9 只管長交易內的重試）。
+          updated = await runT1({ ...(title !== undefined ? { title } : {}), slug: auto, slugIsCustom: false });
+          if (!updated) return ownershipChanged(reply, id);
           break;
         } catch (err) {
           // 同格 1 的 constraint 名分流：兩把 slug 唯一索引撞名走重試，其他 23505 rethrow。
@@ -904,7 +882,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
           throw err;
         }
       }
-      // I2＋Q-C：格 2 命中 0 列＝授權之後被刪（404）或歸屬變了（409 conflict）。
+      // I2＋Q-C：命中 0 列＝授權之後被刪（404）或歸屬變了（409 conflict）。
       if (!updated) return ownershipChanged(reply, id);
       return respondPatched(updated, access);
     });

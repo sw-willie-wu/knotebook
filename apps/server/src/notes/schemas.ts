@@ -59,7 +59,7 @@ export const GROUP_ID = z.string().uuid();
 // ⚠ `title` 也補上 `.refine(noNul)`：這是**既有的洞**，不是新開的——今天 `title` 只有 `.min(1)`，
 // 含 U+0000 的標題會一路寫進 pg 的 text 欄位，pg 直接拒收（`22021`），錯誤逃到全域
 // errorHandler → 500。既然正在改這一行就順手拉進不變量 S（行為只從 500 變成正常的 400）。
-// `PATCH /api/notes/:id` 的 `updateBodySchema.title` 有同一個洞，**本棒刻意不改**（不在觸及面上）。
+// `PATCH /api/notes/:id` 的 `updateBodySchema.title` 原本有同一個洞，#180 W16 改成 `TITLE.optional()`（搬到本檔檔尾）。
 // `.refine` 排在 `.min(1)` 之後（ZodEffects 上沒有 `.min`）。
 // #103 §6.4：`groupId` 建在群組裡；#175 Q13：與 `content` 可以並存（帶內容建在群組裡）。
 export const createBodySchema = z
@@ -82,3 +82,20 @@ export const editBodySchema = z.discriminatedUnion("op", [
   z.object({ op: z.literal("append"), markdown: MD, if_match: FP.optional() }).strict(),
   z.object({ op: z.literal("delete_section"), section_id: SEC, if_match: FP }).strict(),
 ]);
+
+// PATCH 契約（spec §11.4 逐字）：title／slug 皆選配，但至少要帶一項——兩者都缺時走
+// safeParse 失敗路徑，回 400 invalid_body（與其他 body schema 一致，不特地為「空
+// payload」開一條不同的錯誤碼）。`slug` 允許顯式 `null`（清除既有自訂網址代稱）與
+// 字串（新設定，routes 內再走 `prepareSlugForPatch` 正規化+驗證）——`undefined`
+// （鍵不存在）代表「這次 PATCH 不動 slug」，三態語意靠 zod 的 `nullable().optional()`
+// 表達，不能只用 `nullable()`（那樣呼叫端必須每次都明確傳 `slug: null` 才能不改動）。
+// 未知欄位一律被 z.object 預設的 strip 行為丟棄（不需要額外 `.strict()`/`.passthrough()`）。
+// #180 W16：`title` 改吃 `TITLE`（含 NUL 守衛）——PATCH、`POST /api/notes`、`create_note`、`edit_note` 的 rename 四條改標題的路
+// 吃同一個物件。export 內層 `updateBodyObject` 是為了 `mcp-write-schemas.test.ts` 的同源斷言（外層 `.refine` 是 ZodEffects，沒有 `.shape`）。
+export const updateBodyObject = z.object({
+  title: TITLE.optional(),
+  slug: z.string().nullable().optional(),
+});
+export const updateBodySchema = updateBodyObject.refine(b => b.title !== undefined || b.slug !== undefined, {
+  message: "title 與 slug 至少需帶一項",
+});
