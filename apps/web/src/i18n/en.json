@@ -138,6 +138,8 @@
     "menu": {
       "label": "More",
       "labelFor": "Note actions for {{title}}",
+      "versions": "Version history",
+      "saveVersion": "Save current version",
       "aiEdits": "AI edit history",
       "present": "Present",
       "moveTo": "Move to…",
@@ -283,6 +285,7 @@
       "users": "Users",
       "groups": "Groups",
       "storage": "Storage plans",
+      "versions": "Version history",
       "ai": "AI",
       "auth": "Sign-in"
     },
@@ -483,6 +486,19 @@
       "defaultsSave": "Save defaults",
       "defaultsSaved": "Defaults saved."
     },
+    "versions": {
+      "title": "Version history",
+      "description": "How notes keep their versions on this site.",
+      "autoTitle": "Automatic versions",
+      "autoDescription": "When off, no space saves versions automatically; people can still save versions by hand.",
+      "retentionTitle": "Keeping automatic versions",
+      "retentionDescription": "All automatic versions from the last {{keepAll}} days are kept; up to {{dailyUntil}} days, one a day; older, one a week. Days and weeks are counted in UTC. Manual versions are never removed.",
+      "keepAllLabel": "Keep all for (days)",
+      "dailyUntilLabel": "One a day until (days)",
+      "daysInvalid": "Use whole numbers with 1 ≤ first ≤ second ≤ 3650.",
+      "save": "Save",
+      "saved": "Version settings saved"
+    },
     "groups": {
       "title": "Groups",
       "description": "Every group on this site, with its storage use and plan.",
@@ -508,6 +524,11 @@
     "gold": "Gold"
   },
   "groups": {
+    "autoVersions": {
+      "title": "Automatic versions",
+      "description": "When off, this group's notes only get a new version when someone saves one by hand.",
+      "managersOnly": "Only members whose role can manage the group can change this."
+    },
     "menu": {
       "label": "Group actions for {{name}}",
       "manage": "Members & settings",
@@ -652,6 +673,10 @@
     },
     "account": {
       "description": "Manage your username, password, and API tokens.",
+      "autoVersions": {
+        "title": "Automatic versions",
+        "description": "When off, your personal notes only get a new version when you save one by hand."
+      },
       "passwordLoginOffNote": "This site only allows signing in through a sign-in service right now; your password is only used to prove it's you when linking an account.",
       "setPassword": {
         "title": "Add a password",
@@ -848,6 +873,86 @@
     "errorMissingReq": "The URL is missing the authorization request id. Start again from the application.",
     "errorGeneric": "Couldn't load this authorization request. Start again from the application.",
     "errorTokenLimit": "Token limit reached. Revoke one, then start again from the application."
+  },
+  "versions": {
+    "bubble": "Version history",
+    "title": "Version history",
+    "close": "Close version history",
+    "currentLabel": "Current state",
+    "current": {
+      "none": "No versions yet",
+      "noBase": "No base version",
+      "clean": "= v{{seq}}, no unsaved changes",
+      "dirtyLatest": "Unsaved changes after v{{seq}}",
+      "dirtyFrom": "Continued from v{{seq}}, with unsaved changes"
+    },
+    "autoOff": "Automatic saving is off for this space",
+    "siteOff": "Automatic saving is turned off for the whole site",
+    "takesEffectNote": "Notes that are open right now pick up the change after everyone has closed them.",
+    "kind": {
+      "manual": "Manual",
+      "auto": "Auto"
+    },
+    "from": "continued from v{{seq}}",
+    "deletedUser": "Deleted user",
+    "rowMenu": "Actions for v{{seq}}",
+    "menu": {
+      "apply": "Apply",
+      "rename": "Edit version name",
+      "delete": "Delete",
+      "baseNotDeletable": "The base of the current content can't be deleted"
+    },
+    "applySeq": "Apply v{{seq}}",
+    "applyNone": "Apply",
+    "save": "Save current version",
+    "loadMore": "Load older versions",
+    "baseDot": "Base of the current content",
+    "crash": "Version history couldn't be shown.",
+    "sheet": {
+      "back": "Back",
+      "backToList": "List",
+      "prev": "Older version",
+      "next": "Newer version"
+    },
+    "preview": {
+      "banner": "Previewing v{{seq}}",
+      "leftPicker": "Left side",
+      "rightPicker": "Right side",
+      "currentOption": "Current state",
+      "split": "Side by side",
+      "single": "Single column",
+      "onlyChanges": "Only changes",
+      "onlyChangesSplitHint": "Only changes works in single column",
+      "collapsed": "… {{count}} unchanged blocks …",
+      "nonTextChanged": "Changed · see before and after",
+      "before": "Before",
+      "after": "After",
+      "loading": "Loading version…",
+      "gone": "This version no longer exists. The list has been refreshed."
+    },
+    "dialog": {
+      "saveTitle": "Save current version",
+      "saveDescription": "Creates version v{{seq}} from the current content.",
+      "nameLabel": "Version name (optional)",
+      "cancel": "Cancel",
+      "save": "Save",
+      "applyTitle": "Apply v{{seq}}",
+      "applyDescription": "There are unsaved changes. Applying v{{seq}} will overwrite them (including changes by others that haven't been saved as a version yet).",
+      "applyDiscard": "Apply without saving",
+      "applySaveFirst": "Save current version",
+      "renameTitle": "Edit name of v{{seq}}",
+      "renameAutoHint": "Naming an automatic version makes it a manual version, which is kept until you delete it.",
+      "deleteTitle": "Delete v{{seq}}?",
+      "deleteDescription": "This version will be removed from the history. The note's current content doesn't change.",
+      "delete": "Delete"
+    },
+    "toast": {
+      "saved": "Saved as v{{seq}}",
+      "upgraded": "Same content as v{{seq}} — v{{seq}} is now a manual version",
+      "applied": "Applied v{{seq}}",
+      "renamed": "Version name updated",
+      "deleted": "Deleted v{{seq}}"
+    }
   },
   "storage": {
     "quotaDetail": "{{used}} of {{quota}} used. Ask a site admin for more space.",

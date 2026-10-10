@@ -138,6 +138,8 @@
     "menu": {
       "label": "更多",
       "labelFor": "{{title}} 的筆記選單",
+      "versions": "版本歷史",
+      "saveVersion": "儲存當前版本",
       "aiEdits": "AI 修改紀錄",
       "present": "簡報模式",
       "moveTo": "移動到…",
@@ -283,6 +285,7 @@
       "users": "使用者",
       "groups": "群組",
       "storage": "儲存方案",
+      "versions": "版本歷史",
       "ai": "AI",
       "auth": "登入"
     },
@@ -483,6 +486,19 @@
       "defaultsSave": "儲存預設",
       "defaultsSaved": "已儲存預設方案。"
     },
+    "versions": {
+      "title": "版本歷史",
+      "description": "這個站台上筆記怎麼保留版本。",
+      "autoTitle": "自動儲存版本",
+      "autoDescription": "關閉後所有空間都不會自動儲存版本，仍可手動儲存。",
+      "retentionTitle": "自動版本的保留",
+      "retentionDescription": "{{keepAll}} 天內的自動版本全部保留；{{dailyUntil}} 天內每天留一版；更早的每週留一版。日與週以 UTC 計算。手動版本不會被清除。",
+      "keepAllLabel": "全部保留（天）",
+      "dailyUntilLabel": "每天一版直到（天）",
+      "daysInvalid": "請填整數，且 1 ≤ 前者 ≤ 後者 ≤ 3650。",
+      "save": "儲存",
+      "saved": "已儲存版本設定"
+    },
     "groups": {
       "title": "群組",
       "description": "站台上所有群組的儲存空間用量與方案。",
@@ -508,6 +524,11 @@
     "gold": "金"
   },
   "groups": {
+    "autoVersions": {
+      "title": "自動儲存版本",
+      "description": "關閉後，這個群組的筆記只在手動儲存時建立版本。",
+      "managersOnly": "只有角色能管理群組的成員可以變更。"
+    },
     "menu": {
       "label": "{{name}} 的群組選單",
       "manage": "成員與設定",
@@ -652,6 +673,10 @@
     },
     "account": {
       "description": "管理你的使用者名、密碼與 API token。",
+      "autoVersions": {
+        "title": "自動儲存版本",
+        "description": "關閉後，個人筆記只在手動儲存時建立版本。"
+      },
       "passwordLoginOffNote": "本站目前只允許 SSO 登入；密碼暫時只用於連結帳號時證明本人。",
       "setPassword": {
         "title": "加上密碼",
@@ -848,6 +873,86 @@
     "errorMissingReq": "網址缺少授權請求編號，請從應用程式重新發起。",
     "errorGeneric": "無法讀取這個授權請求，請從應用程式重新發起。",
     "errorTokenLimit": "有效 token 已達上限。撤銷一個之後，請從應用程式重新發起授權。"
+  },
+  "versions": {
+    "bubble": "版本歷史",
+    "title": "版本歷史",
+    "close": "關閉版本歷史",
+    "currentLabel": "目前狀態",
+    "current": {
+      "none": "尚無版本",
+      "noBase": "沒有基底版本",
+      "clean": "＝ v{{seq}}，沒有未儲存的修改",
+      "dirtyLatest": "v{{seq}} 之後有未儲存的修改",
+      "dirtyFrom": "從 v{{seq}} 接著改，有未儲存的修改"
+    },
+    "autoOff": "此空間已關閉自動儲存",
+    "siteOff": "站台已關閉自動儲存",
+    "takesEffectNote": "正開著的筆記要等所有人關閉後才會套用變更。",
+    "kind": {
+      "manual": "手動",
+      "auto": "自動"
+    },
+    "from": "從 v{{seq}} 接著改",
+    "deletedUser": "已刪除的使用者",
+    "rowMenu": "v{{seq}} 的動作",
+    "menu": {
+      "apply": "套用",
+      "rename": "編輯版本名稱",
+      "delete": "刪除",
+      "baseNotDeletable": "目前內容的基底版本不能刪除"
+    },
+    "applySeq": "套用 v{{seq}}",
+    "applyNone": "套用",
+    "save": "儲存當前版本",
+    "loadMore": "載入更早的版本",
+    "baseDot": "目前內容的基底",
+    "crash": "版本歷史無法顯示。",
+    "sheet": {
+      "back": "返回",
+      "backToList": "清單",
+      "prev": "較舊的版本",
+      "next": "較新的版本"
+    },
+    "preview": {
+      "banner": "正在預覽 v{{seq}}",
+      "leftPicker": "左側版本",
+      "rightPicker": "右側版本",
+      "currentOption": "目前狀態",
+      "split": "並排",
+      "single": "單欄",
+      "onlyChanges": "只看差異",
+      "onlyChangesSplitHint": "只看差異只適用於單欄",
+      "collapsed": "… {{count}} 個未變更的區塊 …",
+      "nonTextChanged": "已變更 · 看前後",
+      "before": "之前",
+      "after": "之後",
+      "loading": "正在載入版本…",
+      "gone": "這一版已經不存在，清單已重新整理。"
+    },
+    "dialog": {
+      "saveTitle": "儲存當前版本",
+      "saveDescription": "以目前內容建立版本 v{{seq}}",
+      "nameLabel": "版本名稱（選填）",
+      "cancel": "取消",
+      "save": "儲存",
+      "applyTitle": "套用 v{{seq}}",
+      "applyDescription": "目前有未儲存的修改，套用 v{{seq}} 會覆蓋它們（也包括其他人尚未存成版本的修改）。",
+      "applyDiscard": "不儲存，直接套用",
+      "applySaveFirst": "儲存當前版本",
+      "renameTitle": "編輯 v{{seq}} 的名稱",
+      "renameAutoHint": "編輯名稱後，這一版會轉為手動版本並永久保留。",
+      "deleteTitle": "刪除 v{{seq}}？",
+      "deleteDescription": "這一版會從版本歷史移除，筆記目前的內容不會改變。",
+      "delete": "刪除"
+    },
+    "toast": {
+      "saved": "已存為 v{{seq}}",
+      "upgraded": "內容與 v{{seq}} 相同，已將 v{{seq}} 設為手動版本",
+      "applied": "已套用 v{{seq}}",
+      "renamed": "已更新版本名稱",
+      "deleted": "已刪除 v{{seq}}"
+    }
   },
   "storage": {
     "quotaDetail": "已使用 {{used}}／{{quota}}，請洽站台管理員增加空間",

@@ -17,7 +17,7 @@ import { ActiveNoteProvider, useActiveNote } from "@/lib/active-note";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { canEdit as canEditRole, type CollabState } from "@/collab/connection";
-import { OWNER_PERMS } from "@/test/fixtures";
+import { OWNER_PERMS, VIEWER_PERMS } from "@/test/fixtures";
 import { invalidateNoteQueries } from "@/api/notes";
 
 // BlockNote 需要一整套 jsdom 沒有的 DOM/Range API，掛進單元測試只會測到環境；
@@ -28,22 +28,48 @@ import { invalidateNoteQueries } from "@/api/notes";
 // 渲染 `headerSlot`/`footerSlot`，讓下面依賴 `getByLabelText("Note title")` 等查詢的
 // 既有測試在新結構下繼續照過。`SettingsModal.test.tsx` 有第二處綁定同一份 mock 形狀
 // （該檔檔頭自述沿用這裡的最小替身慣例），兩處要同步改。
-vi.mock("@/components/NoteEditor", () => ({
-  NoteEditor: ({
+// 版本歷史（Task 10）：替身另渲染 `previewSlot`（包在 `mock-preview-slot` 裡），並給兩顆驅動鈕——
+// 進入預覽（`startPreview`）與開套用三選一（`openDialog({ kind: "apply" })`）；真的 NoteEditor 裡這兩條路徑由面板觸發，
+// 面板掛在 NoteEditor 的第三欄，替身不渲染它。
+const VERSION_1 = vi.hoisted(() => ({
+  id: "v-1",
+  seq: 1,
+  kind: "manual" as const,
+  name: null,
+  editors: [],
+  baseSeq: null,
+  createdAt: "2026-01-01T00:00:00.000Z",
+}));
+vi.mock("@/components/NoteEditor", async () => {
+  const { useVersions } = await import("@/lib/versions-context");
+  function NoteEditorMock({
     editable,
     headerSlot,
     footerSlot,
+    previewSlot,
   }: {
     editable: boolean;
     headerSlot?: ReactNode;
     footerSlot?: ReactNode;
-  }) => (
-    <div data-testid="note-editor" data-editable={String(editable)}>
-      {headerSlot}
-      {footerSlot}
-    </div>
-  ),
-}));
+    previewSlot?: ReactNode;
+  }) {
+    const versions = useVersions();
+    return (
+      <div data-testid="note-editor" data-editable={String(editable)}>
+        {headerSlot}
+        <button type="button" onClick={() => versions.startPreview({ seq: 1, id: "v-1" })}>
+          mock-start-preview
+        </button>
+        <button type="button" onClick={() => versions.openDialog({ kind: "apply", version: VERSION_1 })}>
+          mock-open-apply
+        </button>
+        {previewSlot !== undefined && <div data-testid="mock-preview-slot">{previewSlot}</div>}
+        {footerSlot}
+      </div>
+    );
+  }
+  return { NoteEditor: NoteEditorMock };
+});
 
 /** `provider.on("synced", …)`／`.off(…)`／`.synced` 的最小替身（Task 7）。多數既有測試
  * 不主動 emit、`synced` 也維持預設 `false`——那些測試裡 link-sync 狀態機不會送出任何
@@ -194,6 +220,38 @@ function mockFetch(
     // 分支回的是 `note` 而不是 `{backlinks:[]}`），這支測試檔案裡的 NotePage 測試
     // 多數不驗證 backlinks 內容，固定回空陣列即可（0 篇時 `BacklinksSection` 整塊
     // 隱藏，不干擾既有斷言）；佈局回饋那組測試會傳非空陣列。
+    // 版本歷史（Task 10）：清單（面板 `limit=50`、套用前重抓 `limit=1`）、快照、套用。同樣要在
+    // `GET /api/notes/` catch-all 之前。快照的 `AAA=` 是 `Y.encodeStateAsUpdate(new Y.Doc())`（空 doc，node 實跑取得）。
+    const versionsBase = `/api/notes/${encodeURIComponent(NOTE.id)}/versions`;
+    const versionCurrent = { baseSeq: 1, dirty: false, nextSeq: 2, autoEnabled: true };
+    if ((url === `${versionsBase}?limit=50` || url === `${versionsBase}?limit=1`) && method === "GET") {
+      return Promise.resolve(
+        fakeResponse({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ versions: [VERSION_1], current: versionCurrent, nextBefore: null }),
+        }),
+      );
+    }
+    if (url === `${versionsBase}/1` && method === "GET") {
+      return Promise.resolve(
+        fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ id: "v-1", seq: 1, ydoc: "AAA=" }) }),
+      );
+    }
+    if (url === `${versionsBase}/1/apply` && method === "POST") {
+      return Promise.resolve(
+        fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ current: versionCurrent }) }),
+      );
+    }
+    if (url === versionsBase && method === "POST") {
+      return Promise.resolve(
+        fakeResponse({
+          ok: true,
+          status: 201,
+          json: () => Promise.resolve({ ...VERSION_1, id: "v-2", seq: 2, upgraded: false }),
+        }),
+      );
+    }
     if (url.endsWith("/backlinks") && method === "GET") {
       return Promise.resolve(
         fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ backlinks }) }),
@@ -1938,5 +1996,214 @@ describe("#229 網址收斂保留 search／hash（spec §6.3-1）", () => {
 
     await waitFor(() => expect(screen.getByTestId("full-location").textContent).toBe("/n/tester/renamed?present#/x"));
     expect(screen.getByTestId("note-editor")).toBe(editorBefore);
+  });
+});
+
+// ── 版本歷史（Task 10，spec §8.1、§8.4、§8.5、A9）─────────────────────────────────────
+
+describe("NotePage × 版本歷史（spec §8.1、§8.4、§8.5、A9）", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    collab.state = { phase: "connecting" };
+    collab.doc = new Y.Doc();
+    collab.provider = createStubProvider();
+    collab.onUnauthorized = undefined;
+    window.history.replaceState(null, "", "/");
+    dismissAllToasts();
+  });
+
+  afterEach(() => {
+    collab.doc.destroy();
+    vi.unstubAllGlobals();
+    navSpy.current = undefined;
+  });
+
+  it("Ctrl+S（owner）→ preventDefault、開儲存對話框", async () => {
+    vi.stubGlobal("fetch", mockFetch());
+    collab.state = { phase: "connected", role: "owner" };
+    renderNotePage(NOTE.id);
+    await screen.findByTestId("note-editor");
+    const ev = new KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true, cancelable: true });
+    window.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    // 單案放寬 timeout（不動全域 asyncUtilTimeout 3 s）：這是版本 describe 第一個開對話框的案，lazy chunk 冷啟動＋全套平行負載下實測到 3043 ms 逾時紅。
+    expect(await screen.findByRole("dialog", { name: "Save current version" }, { timeout: 10_000 })).toBeInTheDocument();
+  });
+
+  it("儲存對話框已開著再按 Ctrl+S → 仍 preventDefault（不跳瀏覽器另存），不開第二個、已填的名稱還在", async () => {
+    vi.stubGlobal("fetch", mockFetch());
+    collab.state = { phase: "connected", role: "owner" };
+    renderNotePage(NOTE.id);
+    await screen.findByTestId("note-editor");
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true, cancelable: true }));
+    const dialog = await screen.findByRole("dialog", { name: "Save current version" });
+    fireEvent.change(within(dialog).getByLabelText("Version name (optional)"), { target: { value: "草稿" } });
+    const ev = new KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true, cancelable: true });
+    act(() => {
+      window.dispatchEvent(ev);
+    });
+    expect(ev.defaultPrevented).toBe(true);
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    expect(within(screen.getByRole("dialog", { name: "Save current version" })).getByLabelText("Version name (optional)")).toHaveValue("草稿");
+  });
+
+  it("套用三選一按「先儲存」開的儲存對話框，再按 Ctrl+S 不會把「存完接著套用」洗掉", async () => {
+    const fetchSpy = mockFetch();
+    vi.stubGlobal("fetch", fetchSpy);
+    collab.state = { phase: "connected", role: "owner" };
+    renderNotePage(NOTE.id);
+    fireEvent.click(await screen.findByText("mock-open-apply"));
+    const applyDialog = await screen.findByRole("dialog", { name: "Apply v1" });
+    fireEvent.click(within(applyDialog).getByRole("button", { name: "Save current version" }));
+    const saveDialog = await screen.findByRole("dialog", { name: "Save current version" });
+    const ev = new KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true, cancelable: true });
+    act(() => {
+      window.dispatchEvent(ev);
+    });
+    expect(ev.defaultPrevented).toBe(true);
+    fireEvent.click(within(saveDialog).getByRole("button", { name: "Save" }));
+    const applyUrl = `/api/notes/${encodeURIComponent(NOTE.id)}/versions/1/apply`;
+    await waitFor(() =>
+      expect(fetchSpy.mock.calls.some(([input, init]) => String(input) === applyUrl && init?.method === "POST")).toBe(true),
+    );
+  });
+
+  it("Cmd+S（metaKey）同樣攔", async () => {
+    vi.stubGlobal("fetch", mockFetch());
+    collab.state = { phase: "connected", role: "owner" };
+    renderNotePage(NOTE.id);
+    await screen.findByTestId("note-editor");
+    const ev = new KeyboardEvent("keydown", { key: "s", metaKey: true, bubbles: true, cancelable: true });
+    window.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+  });
+
+  it("viewer → Ctrl+S 不攔（瀏覽器預設行為保留）、沒有對話框", async () => {
+    vi.stubGlobal("fetch", mockFetch({ ...NOTE, role: "viewer", permissions: VIEWER_PERMS }));
+    collab.state = { phase: "connected", role: "viewer" };
+    renderNotePage(NOTE.id);
+    await screen.findByTestId("note-editor");
+    const ev = new KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true, cancelable: true });
+    window.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(false);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("已有對話框開著（例如分享）→ Ctrl+S 不攔", async () => {
+    vi.stubGlobal("fetch", mockFetch());
+    collab.state = { phase: "connected", role: "owner" };
+    renderNotePage(NOTE.id);
+    await screen.findByTestId("note-editor");
+    const fake = document.createElement("div");
+    fake.setAttribute("role", "dialog");
+    document.body.append(fake);
+    try {
+      const ev = new KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true, cancelable: true });
+      window.dispatchEvent(ev);
+      expect(ev.defaultPrevented).toBe(false);
+    } finally {
+      fake.remove();
+    }
+  });
+
+  it("Ctrl+Shift+S、Alt+S、單按 s 都不攔", async () => {
+    vi.stubGlobal("fetch", mockFetch());
+    collab.state = { phase: "connected", role: "owner" };
+    renderNotePage(NOTE.id);
+    await screen.findByTestId("note-editor");
+    for (const init of [{ ctrlKey: true, shiftKey: true }, { altKey: true, ctrlKey: true }, {}]) {
+      const ev = new KeyboardEvent("keydown", { key: "s", bubbles: true, cancelable: true, ...init });
+      window.dispatchEvent(ev);
+      expect(ev.defaultPrevented).toBe(false);
+    }
+  });
+
+  it("簡報模式（?present）中 Ctrl+S 不攔、不開儲存對話框", async () => {
+    vi.stubGlobal("fetch", mockFetch());
+    collab.state = { phase: "connected", role: "owner" };
+    collab.provider.synced = true;
+    renderAtEntry("/n/tester/my-note?present");
+    await screen.findByTestId("note-editor");
+    const ev = new KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true, cancelable: true });
+    window.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(false);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByRole("dialog", { name: "Save current version" })).not.toBeInTheDocument();
+  });
+
+  it("預覽：previewSlot 交給 NoteEditor、頁首出現橫幅；編輯器替身仍在", async () => {
+    vi.stubGlobal("fetch", mockFetch());
+    collab.state = { phase: "connected", role: "owner" };
+    renderNotePage(NOTE.id);
+    fireEvent.click(await screen.findByText("mock-start-preview"));
+    expect(await screen.findByTestId("mock-preview-slot")).toBeInTheDocument();
+    expect(await screen.findByTestId("preview-banner")).toBeInTheDocument();
+    expect(screen.getByTestId("note-editor")).toBeInTheDocument();
+  });
+
+  it("Esc（沒有浮層）：離開預覽", async () => {
+    vi.stubGlobal("fetch", mockFetch());
+    collab.state = { phase: "connected", role: "owner" };
+    renderNotePage(NOTE.id);
+    fireEvent.click(await screen.findByText("mock-start-preview"));
+    await screen.findByTestId("mock-preview-slot");
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("mock-preview-slot")).not.toBeInTheDocument());
+  });
+
+  it("RF3：預覽中開著 ⋮ 選單按 Esc → 只關選單、預覽留著（jsdom；真鍵盤見 e2e 22）", async () => {
+    vi.stubGlobal("fetch", mockFetch());
+    collab.state = { phase: "connected", role: "owner" };
+    renderNotePage(NOTE.id);
+    fireEvent.click(await screen.findByText("mock-start-preview"));
+    await screen.findByTestId("mock-preview-slot");
+    fireEvent.pointerDown(screen.getByRole("button", { name: "More" }), { button: 0, ctrlKey: false });
+    const menu = await screen.findByRole("menu");
+    fireEvent.keyDown(menu, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+    expect(screen.getByTestId("mock-preview-slot")).toBeInTheDocument();
+  });
+
+  it("RF3：預覽中開著儲存對話框按 Esc → 只關對話框、預覽留著（jsdom；真鍵盤見 e2e 22）", async () => {
+    vi.stubGlobal("fetch", mockFetch());
+    collab.state = { phase: "connected", role: "owner" };
+    renderNotePage(NOTE.id);
+    fireEvent.click(await screen.findByText("mock-start-preview"));
+    await screen.findByTestId("mock-preview-slot");
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true, cancelable: true }));
+    const dialog = await screen.findByRole("dialog", { name: "Save current version" });
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByTestId("mock-preview-slot")).toBeInTheDocument();
+  });
+
+  it("RF3（I-3 的判準本身）：Esc 已被別人 preventDefault（＝Radix 處理過、浮層已卸）→ 預覽留著，即使 DOM 裡已沒有任何浮層", async () => {
+    vi.stubGlobal("fetch", mockFetch());
+    collab.state = { phase: "connected", role: "owner" };
+    renderNotePage(NOTE.id);
+    fireEvent.click(await screen.findByText("mock-start-preview"));
+    await screen.findByTestId("mock-preview-slot");
+    expect(document.querySelector('[role="dialog"], [role="menu"]')).toBeNull();
+    const ev = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    ev.preventDefault();
+    act(() => {
+      window.dispatchEvent(ev);
+    });
+    expect(screen.getByTestId("mock-preview-slot")).toBeInTheDocument();
+  });
+
+  it("套用成功 → 筆記 query 整組失效（invalidateNoteQueries：['note', id] 與路徑解析層 ['note-by-path', handle, slug]）", async () => {
+    vi.stubGlobal("fetch", mockFetch());
+    collab.state = { phase: "connected", role: "owner" };
+    const { queryClient } = renderNotePage(NOTE.id);
+    fireEvent.click(await screen.findByText("mock-open-apply"));
+    const dialog = await screen.findByRole("dialog", { name: "Apply v1" });
+    const spy = vi.spyOn(queryClient, "invalidateQueries");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Apply without saving" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    const keys = spy.mock.calls.map(([filters]) => JSON.stringify(filters?.queryKey));
+    expect(keys).toContain(JSON.stringify(["note-by-path", "tester", "my-note"]));
+    expect(keys).toContain(JSON.stringify(["note", NOTE.id]));
   });
 });

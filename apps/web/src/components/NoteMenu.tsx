@@ -8,6 +8,7 @@ import { isTerminal, type CollabState } from "@/collab/connection";
 import { copyText } from "@/lib/clipboard";
 import { useNotePageControls, type OpenEditsState } from "@/lib/note-page-controls";
 import { useCloseSidebarDrawer } from "@/lib/sidebar-drawer";
+import { useVersions } from "@/lib/versions-context";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { hoverReveal } from "@/components/ui/reveal";
@@ -21,7 +22,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { EllipsisVertical, Link as LinkIcon, MessageCircle, Presentation, Trash } from "@/components/ui/icons";
+import { EllipsisVertical, History, Link as LinkIcon, MessageCircle, Presentation, Trash } from "@/components/ui/icons";
 import { ManualCopyField } from "@/components/ManualCopyField";
 import {
   GroupTransferDialog,
@@ -52,6 +53,9 @@ export interface NoteMenuProps {
   /** 開啟 AI 修改紀錄 dialog（#106）。狀態住在 `NotePage`——這個 dialog 有兩個觸發點
    * （這裡與頁首的 `LastEditedLabel`），放在任一個元件內另一個就打不開。 */
   onOpenEdits: () => void;
+  /** 頁首 ⋮ 觸發鈕的 ref（選填）：NotePage 拿它當版本歷史整頁關閉時的焦點退路（從 ⋮ 開整頁時記到的選單項已卸載，final I-1）。
+   * 不傳時用內部自己的 ref。 */
+  triggerRef?: RefObject<HTMLButtonElement | null>;
 }
 
 /**
@@ -91,7 +95,7 @@ export interface NoteMenuProps {
  *   是呼叫當時的 `connected`，直接讀它會誤判成「非終態」而走錯分支。
  *
  * **兩個外殼（側欄筆記列 ⋮）**：選單本體是內部的 `NoteMenuCore`，外面兩個薄殼——
- * - `NoteMenu`（頁首，props 不變）：`leavingRef`／`state` 必填，所以 NotePage 漏傳
+ * - `NoteMenu`（頁首）：`leavingRef`／`state` 必填，所以 NotePage 漏傳
  *   `leavingRef` 編譯不過，上面 M11 的契約留在型別上（沒有改成 optional 的理由）。
  * - `SidebarNoteMenu`（側欄每列，24px、hover 浮出）：「開著的那篇」看 NotePage 提供的
  *   `NotePageControlsContext`（`controls.noteId === note.id`），**不看** `useActiveNote`——
@@ -118,12 +122,13 @@ interface NoteMenuCoreProps {
   /** 「簡報模式」（#229）：在選單項的 onSelect 裡同步呼叫（要求全螢幕需要使用者手勢）。 */
   onPresent: () => void;
   page: PageExit | null;
+  triggerRef?: RefObject<HTMLButtonElement | null>;
 }
 
-/** 頁首 ⋮（props 不變）。 */
-export function NoteMenu({ note, state, leavingRef, onOpenEdits }: NoteMenuProps) {
+/** 頁首 ⋮。 */
+export function NoteMenu({ note, state, leavingRef, onOpenEdits, triggerRef }: NoteMenuProps) {
   const { presentHere } = usePresentEntry();
-  return <NoteMenuCore note={note} trigger="header" onOpenEdits={onOpenEdits} onPresent={presentHere} page={{ state, leavingRef }} />;
+  return <NoteMenuCore note={note} trigger="header" onOpenEdits={onOpenEdits} onPresent={presentHere} page={{ state, leavingRef }} triggerRef={triggerRef} />;
 }
 
 /** 側欄筆記列 ⋮。開著的那篇＝與頁首 ⋮ 同一套；別篇＝刪了不導頁、AI 修改紀錄導過去並自動開。 */
@@ -151,10 +156,11 @@ export function SidebarNoteMenu({ note }: { note: NoteDto }) {
   );
 }
 
-function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page }: NoteMenuCoreProps) {
+function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef: externalTriggerRef }: NoteMenuCoreProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const deleteNote = useDeleteNote();
+  const versions = useVersions();
 
   // 每次 render 同步寫入——`handleConfirmDelete` 的 catch 分支讀最新值，避開
   // stale closure（見上方檔頭「判斷終態用的是 stateRef.current」的說明）。
@@ -163,7 +169,8 @@ function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page }: NoteMenuC
 
   const [menuOpen, setMenuOpen] = useState(false);
   /** 確認框／刪除框關閉後把焦點還給 ⋮ 觸發鈕（兩個 Dialog 都沒有 DialogTrigger，Radix 預設會掉到 body）。 */
-  const triggerRef = useRef<HTMLButtonElement>(null);
+  const ownTriggerRef = useRef<HTMLButtonElement>(null);
+  const triggerRef = externalTriggerRef ?? ownTriggerRef;
   /** #229 §6.6-6：從這一項進入簡報時，選單關閉別把焦點還給觸發鈕（它即將在 inert 的 AppShell 裡）；簡報層掛上後自己聚焦根。 */
   const enteringPresentationRef = useRef(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -286,6 +293,33 @@ function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page }: NoteMenuC
             <Presentation className="mr-2 h-4 w-4" />
             {t("note.menu.present")}
           </DropdownMenuItem>
+          {/* 版本歷史（spec §8.5）：只在 `useVersions().enabled`（＝canEdit，且在 NotePage 的 VersionsProvider 之內）時渲染——
+              側欄每列的 ⋮ 在 provider 之外，拿到的是 no-op 預設（enabled=false），所以兩項只出現在頁首 ⋮（起草裁定 5）。
+              三步形同下方 AI 修改紀錄項（focus trap 規矩，見檔頭）。 */}
+          {versions.enabled && (
+            <>
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  setMenuOpen(false);
+                  versions.open();
+                }}
+              >
+                <History className="mr-2 h-4 w-4" />
+                {t("note.menu.versions")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  setMenuOpen(false);
+                  versions.openSave();
+                }}
+              >
+                <History className="mr-2 h-4 w-4 opacity-0" aria-hidden="true" />
+                {t("note.menu.saveVersion")}
+              </DropdownMenuItem>
+            </>
+          )}
           {/* AI 修改紀錄（#106）。三步形與下面的刪除項逐字同形：⚠ 少了
               `event.preventDefault()` 選單一樣會關、新案照樣綠——**沒有任何測試守著
               這一行**，它是照本檔檔頭那條 focus trap 規矩留的（Radix 預設的關閉路徑

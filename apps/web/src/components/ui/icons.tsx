@@ -247,3 +247,43 @@ export function Minimize(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+export function History(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="history" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+      <path d="M3 3v5h5" />
+      <path d="M12 7v5l4 2" />
+    </svg>
+  );
+}
+
+// 版本預覽橫幅的三顆模式鈕（spec §8.4 rev 10 追記）：並排＝兩欄、單欄＝框內橫列（與兩欄同框、一眼對照）、只看差異＝篩選。
+export function Columns2(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="columns-2" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <rect width="18" height="18" x="3" y="3" rx="2" />
+      <path d="M12 3v18" />
+    </svg>
+  );
+}
+
+export function Rows3(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="rows-3" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <rect width="18" height="18" x="3" y="3" rx="2" />
+      <path d="M21 9H3" />
+      <path d="M21 15H3" />
+    </svg>
+  );
+}
+
+export function ListFilter(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="list-filter" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M3 6h18" />
+      <path d="M7 12h10" />
+      <path d="M10 18h4" />
+    </svg>
+  );
+}

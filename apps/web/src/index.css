@@ -839,3 +839,22 @@ input[name="share-access"] {
     padding-inline: 1.25rem;
   }
 }
+
+/* 版本預覽 diff（spec §8.4）：左邊 3px 色條＋淡底。顏色只在 diff 預覽內（D7「唯一的顏色是綠點」的例外）。
+   選擇器掛在 .kb-diff（DiffEditor 的 wrapper）之下，活編輯器不受影響。字面色、不碰 --brand（#154：.bn-root 內 brand token 會被重設）。
+   `data-diff` 貼在 `.bn-block-outer[data-id]`，`.bn-block` 是它的直接子（Task 8 Step 1 探針印出的 DOM）。
+   未分層：與 BlockNote 自己未分層的 CSS 同層比特性。 */
+.kb-diff [data-diff="added"] > .bn-block { border-left: 3px solid oklch(0.72 0.17 152); background: oklch(0.72 0.17 152 / 0.12); }
+.kb-diff [data-diff="deleted"] > .bn-block { border-left: 3px solid oklch(0.63 0.2 25); background: oklch(0.63 0.2 25 / 0.1); text-decoration: line-through; opacity: 0.85; }
+.kb-diff [data-diff="changed"] > .bn-block { border-left: 3px solid oklch(0.8 0.15 85); background: oklch(0.8 0.15 85 / 0.1); }
+.kb-diff [data-diff="moved"] > .bn-block { border-left: 3px dashed oklch(0.65 0.02 260); }
+.kb-diff [data-diff="collapsed"] > .bn-block { color: var(--muted-foreground); font-style: italic; }
+
+/* 並排兩欄（final fix 2）：欄寬只有文章欄的一半左右（1400px 視窗約 363px），上方「內文左右對齊」那組 justify 在這麼窄的欄裡
+   會把字距拉開（真瀏覽器截圖 11）。只在並排容器 `.kb-diff-split`（VersionPreview 的 diff-split）之下把**沒自訂對齊**的區塊改回
+   left（BlockNote 預設）；使用者挑過對齊的區塊帶 `data-text-alignment`，不匹配，照舊。特性與 justify 那組同為 (0,4,0)，
+   靠出現在它之後勝出——不得把這段搬到 justify 規則之前（`VersionPreview.test.tsx` 釘住順序）。單欄 diff 與活編輯器同寬，照舊 justify。 */
+.kb-diff-split .bn-editor .bn-block-content:not([data-text-alignment]) {
+  text-align: left;
+  hyphens: manual;
+}

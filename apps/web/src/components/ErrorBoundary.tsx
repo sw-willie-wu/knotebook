@@ -35,8 +35,10 @@ import { NarrowTopBar } from "./NarrowTopBar";
  * 不違反這個前提（見 AdminPage.tsx 檔頭）。（現有的巢狀動態 import——語法高亮那兩個
  * chunk——失敗是 promise rejection 不經 render，boundary 接不到，不在此列，也因此
  * 不在本機制的涵蓋範圍內。）key 的 route 別名（`chunk` prop，預設 `notepage`）讓每條
- * lazy route 各自有額度（#201 起：`admin`、`settings`、四個登入流程頁各一個）。測試刻意
- * 寫字面 key（釘住 key 名不被改），這裡不匯出常數。
+ * lazy route 各自有額度（#201 起：`admin`、`settings`、四個登入流程頁各一個；版本歷史的
+ * `versions`）。`versions` 是 NotePage 底下的巢狀 lazy：用自己的別名，且五個掛載點都 `import()`
+ * 同一個模組 `VersionsLazy`，任一成功後其餘不可能再以 chunk 錯誤失敗，滿足上面的收斂前提
+ * （起草裁定 23）。測試刻意寫字面 key（釘住 key 名不被改），這裡不匯出常數。
  */
 const DEFAULT_CHUNK = "notepage";
 
@@ -149,7 +151,8 @@ type BoundaryStatus = "normal" | "pending" | "reloading" | "error";
  * - `app`：AppShell＋內文卡（NotePage、站台管理——頁面本身就坐在 AppShell 裡）；
  * - `page`：置中的滿版 `<main>`（登入流程那幾頁的版面，未登入也能到，**不得**包 AppShell
  *   ——它會打 `/api/auth/me`、露出側欄）；
- * - `inline`：不加外框，只有內容（設定 modal 的內容區——外殼與導覽留在原地）。
+ * - `inline`：不加外框，只有內容（設定 modal 的內容區——外殼與導覽留在原地；版本歷史各掛載點
+ *   也用它，錯誤態的外框由 `inlineErrorClassName` 給）。
  */
 export type LazyRouteFrame = "app" | "page" | "inline";
 
@@ -166,6 +169,10 @@ interface LazyRouteErrorBoundaryProps {
   frame?: LazyRouteFrame;
   /** 測試 seam：jsdom 30 下 location.reload 是 non-configurable、spy 不進去，只能注入。 */
   reload?: () => void;
+  /** 非 chunk 錯誤的文案 i18n key，預設 `app.noteCrash`。 */
+  crashMessageKey?: string;
+  /** 只在 `frame="inline"` 且處於 error 態時，把錯誤內容外包一層帶這個 class 的 div（正常態與載入態不包）。 */
+  inlineErrorClassName?: string;
   children: ReactNode;
 }
 
@@ -182,7 +189,8 @@ function defaultReload() {
  * lazy route 的崩潰處理器——接的不只 chunk 載入失敗：底下任何 render 錯誤
  * （NotePage 的 BlockNote／共編等）都落進來，文案分 chunk／非 chunk 兩支。最早是
  * NotePage 專用（#66）；#201 把站台管理、設定 modal 各區、登入流程頁也改 lazy 後
- * 共用這一份，差別只在 `chunk`（額度別名）與 `frame`（外框）兩個 prop。
+ * 共用這一份，差別只在 `chunk`（額度別名）與 `frame`（外框）兩個 prop，外加版本歷史用的可選
+ * `crashMessageKey`（非 chunk 錯誤的文案）與 `inlineErrorClassName`（inline 錯誤態的外框）。
  *
  * 三態時序：錯誤發生 → getDerivedStateFromError 設 `pending`（它是唯一動作——dev
  * 模式下一次錯誤會呼叫它**兩次**，副作用放這裡會翻倍）→ componentDidCatch（恰一次）
@@ -268,7 +276,15 @@ export class LazyRouteErrorBoundary extends Component<LazyRouteErrorBoundaryProp
     const frame = this.props.frame ?? "app";
     if (status === "normal") return this.props.children;
     if (status === "error") {
-      return <LazyRouteErrorFallback frame={frame} isChunkError={isChunkError} onRetry={this.handleRetry} />;
+      return (
+        <LazyRouteErrorFallback
+          frame={frame}
+          isChunkError={isChunkError}
+          onRetry={this.handleRetry}
+          crashMessageKey={this.props.crashMessageKey}
+          inlineErrorClassName={this.props.inlineErrorClassName}
+        />
+      );
     }
     // pending／reloading：與 chunk 載入中同一種畫面，不閃錯誤
     return <LazyRouteLoading frame={frame} />;
@@ -302,16 +318,20 @@ function LazyRouteErrorFallback({
   frame,
   isChunkError,
   onRetry,
+  crashMessageKey,
+  inlineErrorClassName,
 }: {
   frame: LazyRouteFrame;
   isChunkError: boolean;
   onRetry: () => void;
+  crashMessageKey?: string;
+  inlineErrorClassName?: string;
 }) {
   const { t } = useTranslation();
   const online = useOnline();
   const content = (
     <div role="alert" className={cn("flex flex-col items-start gap-3", frame === "app" && "p-6")}>
-      <p className="text-sm text-muted-foreground">{t(isChunkError ? "app.chunkLoadError" : "app.noteCrash")}</p>
+      <p className="text-sm text-muted-foreground">{t(isChunkError ? "app.chunkLoadError" : (crashMessageKey ?? "app.noteCrash"))}</p>
       <Button type="button" variant="outline" disabled={!online} onClick={onRetry}>
         {t("app.retry")}
       </Button>
@@ -320,7 +340,7 @@ function LazyRouteErrorFallback({
     </div>
   );
   if (frame === "page") return <PageFrame>{content}</PageFrame>;
-  if (frame === "inline") return content;
+  if (frame === "inline") return inlineErrorClassName ? <div className={inlineErrorClassName}>{content}</div> : content;
   return (
     <AppShell>
       {/* PR2（G 節，M5 第四個呼叫端）：跟 NotePage/HomePage/NotePageFallback 同一款

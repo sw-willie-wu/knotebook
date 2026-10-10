@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClientProvider, QueryClient } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import type { UserDto } from "@knotebook/shared";
@@ -46,8 +46,15 @@ const SSO_ONLY_USER: UserDto = {
   autoVersions: true,
 };
 
-function baseFetchHandlers(user: UserDto, passwordLoginEnabled = true) {
+function baseFetchHandlers(user: UserDto, passwordLoginEnabled = true, siteOn = true) {
   return (url: string, method: string): Response | null => {
+    if (url === "/api/auth/config" && method === "GET") {
+      return fakeResponse({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ providers: [], registration: { enabled: false }, passwordLogin: { enabled: true }, autoVersionsEnabled: siteOn }),
+      });
+    }
     if (url === "/api/groups" && method === "GET") {
       return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) });
     }
@@ -234,6 +241,11 @@ describe("SettingsAccountSection——使用者名欄（#122 Task 5）", () => {
       const method = (init?.method ?? "GET").toUpperCase();
       if (url === "/api/groups" && method === "GET") {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+      }
+      if (url === "/api/auth/config" && method === "GET") {
+        return Promise.resolve(
+          fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ providers: [], registration: { enabled: false }, passwordLogin: { enabled: true }, autoVersionsEnabled: true }) }),
+        );
       }
       if (url === "/api/auth/profile" && method === "PATCH") {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(updated) }));
@@ -441,3 +453,87 @@ describe("SetPasswordForm——送出後的狀態切換（#187 §8.4）", () => 
   });
 });
 
+interface AccountCall {
+  method: string;
+  url: string;
+  body: unknown;
+}
+
+/** 帳號頁 × 自動儲存版本：`/me` 固定回 `user`，PATCH /api/auth/profile 回 `profileReply`——開關翻面只能來自 setQueryData（沒有 refetch 路徑）。 */
+function renderAutoVersions({ user, siteOn, profileReply }: { user: UserDto; siteOn: boolean; profileReply?: UserDto }): AccountCall[] {
+  const calls: AccountCall[] = [];
+  const handlers = baseFetchHandlers(user, true, siteOn);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      calls.push({ method, url, body: init?.body === undefined ? undefined : JSON.parse(String(init.body)) });
+      if (url === "/api/auth/profile" && method === "PATCH" && profileReply) {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(profileReply) }));
+      }
+      const res = handlers(url, method);
+      if (res) return Promise.resolve(res);
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    }),
+  );
+  render(
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <ThemeProvider>
+        <MemoryRouter initialEntries={["/settings/account"]}>
+          <AppRoutes />
+        </MemoryRouter>
+      </ThemeProvider>
+      <Toaster />
+    </QueryClientProvider>,
+  );
+  return calls;
+}
+
+describe("帳號頁 × 自動儲存版本（spec §6.8、§8.5）", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("開關反映 user.autoVersions；切換 → PATCH /api/auth/profile 的 body 恰為 { autoVersions:false }（不觸發改名流程）", async () => {
+    const calls = renderAutoVersions({ user: { ...PASSWORD_USER, autoVersions: true }, siteOn: true, profileReply: { ...PASSWORD_USER, autoVersions: false } });
+    const sw = await screen.findByRole("switch", { name: "Automatic versions" });
+    expect(sw).toHaveAttribute("aria-checked", "true");
+    await waitFor(() => expect(sw).toBeEnabled()); // toBeEnabled 在 config 到之前就成立（siteOff 預設當作開）；這裡只確認可點，config 是否載入由「站台關閉」案守
+    fireEvent.click(sw);
+    await waitFor(() => expect(calls.find((c) => c.method === "PATCH" && c.url === "/api/auth/profile")?.body).toEqual({ autoVersions: false }));
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Automatic versions" })).toHaveAttribute("aria-checked", "false"));
+    expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(1);
+    expect(calls.some((c) => c.method === "PATCH" && JSON.stringify(c.body).includes("handle"))).toBe(false);
+  });
+
+  it("user.autoVersions=false → 開關 aria-checked=false（與上一案區分）", async () => {
+    renderAutoVersions({ user: { ...PASSWORD_USER, autoVersions: false }, siteOn: true });
+    expect(await screen.findByRole("switch", { name: "Automatic versions" })).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("站台總開關關閉（/api/auth/config autoVersionsEnabled:false）→ 開關 disabled＋看得見的「站台已關閉自動儲存」", async () => {
+    renderAutoVersions({ user: { ...PASSWORD_USER, autoVersions: true }, siteOn: false });
+    const sw = await screen.findByRole("switch", { name: "Automatic versions" });
+    await waitFor(() => expect(sw).toBeDisabled());
+    expect(screen.getByText("Automatic saving is turned off for the whole site")).toBeInTheDocument();
+  });
+
+  it("站台總開關開啟 → 開關 enabled、沒有「站台已關閉」說明", async () => {
+    const calls = renderAutoVersions({ user: { ...PASSWORD_USER, autoVersions: true }, siteOn: true });
+    const sw = await screen.findByRole("switch", { name: "Automatic versions" });
+    // toBeEnabled 在 config 到之前就成立——先等 /api/auth/config 的請求發出，再讓回應與 react-query 通知落地，才斷言「沒有站台已關閉」
+    await waitFor(() => expect(calls.some((c) => c.method === "GET" && c.url === "/api/auth/config")).toBe(true));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(sw).toBeEnabled();
+    expect(screen.queryByText("Automatic saving is turned off for the whole site")).not.toBeInTheDocument();
+    expect(screen.getByText("Notes that are open right now pick up the change after everyone has closed them.")).toBeInTheDocument();
+  });
+});

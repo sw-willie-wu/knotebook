@@ -558,6 +558,35 @@ describe("LazyRouteErrorBoundary 的 chunk／frame（#201）", () => {
     expect(screen.queryByRole("button", { name: "Open navigation" })).not.toBeInTheDocument();
     expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
+
+  it("案 E（版本歷史 M-5）：frame=inline 給 crashMessageKey／inlineErrorClassName → 非 chunk 錯誤顯示該 key 的文案且包在該 class 裡；不給時與預設逐字相同", () => {
+    const { unmount } = render(
+      <LazyRouteErrorBoundary
+        resetKey={undefined}
+        chunk="versions"
+        frame="inline"
+        reload={vi.fn()}
+        crashMessageKey="versions.crash"
+        inlineErrorClassName="kb-test-frame"
+      >
+        <PlainBomb />
+      </LazyRouteErrorBoundary>,
+    );
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent("Version history couldn't be shown.");
+    expect(alert).not.toHaveTextContent(i18n.t("app.noteCrash"));
+    expect(alert.parentElement).toHaveClass("kb-test-frame");
+    unmount();
+    const plain = render(
+      <LazyRouteErrorBoundary resetKey={undefined} chunk="versions" frame="inline" reload={vi.fn()}>
+        <PlainBomb />
+      </LazyRouteErrorBoundary>,
+    );
+    const defaultAlert = screen.getByRole("alert");
+    expect(defaultAlert).toHaveTextContent(i18n.t("app.noteCrash"));
+    expect(plain.container.querySelector(".kb-test-frame")).toBeNull();
+    expect(defaultAlert.parentElement).toBe(plain.container);
+  });
 });
 
 describe("AppErrorBoundary（spec 案 10）", () => {
