@@ -1,6 +1,6 @@
 import path from "node:path";
 import { test, expect, type Page } from "@playwright/test";
-import { ADMIN, createNote, editorLocator, loginAs } from "./helpers.js";
+import { ADMIN, createNote, editorLocator, loginAs, waitForEditorSelection } from "./helpers.js";
 
 /**
  * 並排逐區塊對齊（spec rev 12 §8.4）：兩欄頂層區塊帶 `data-diff-row`。同列兩側 top 相差 ≤ 1 px；只在一側出現的列，
@@ -67,6 +67,8 @@ async function typeAtEnd(page: Page, text: string) {
   const editor = editorLocator(page);
   await editor.click();
   await page.keyboard.press("Control+End");
+  // Ctrl+End 是瀏覽器原生移游標，ProseMirror 要等 selectionchange 才跟上；沒等到就按 Enter 會在舊位置分段（見 helper 註解）
+  await waitForEditorSelection(page);
   await page.keyboard.press("Enter");
   await page.keyboard.type(text);
 }
@@ -223,13 +225,16 @@ test("22b 並排逐區塊對齊（spec rev 12）：中間插一段＋前一段�
 
     const editor = editorLocator(page);
     // 中間插一段（one-top 之後）；再把 one-top 改長到在並排欄裡換行 → 同列兩側高度不同（矮側要補留白）。
-    // 游標要確定落在 one-top 才按 Enter：修正輪 1 實跑過一次插入跑到 two-bottom 之後（儲存對話框關閉後的焦點還原晚於點擊，
-    // 讀碼推論），斷言仍綠卻沒驗到「中間插入」。所以點完先讀 selection 確認，並在預覽前斷言三段的順序。
+    // 游標要確定落在 one-top 才按 Enter：插入曾跑到 two-bottom 之後（修正輪 1 本機一次、CI run 38047114343 一次）。
+    // 原因不是存版對話框的焦點還原，而是 ProseMirror 還沒收到點擊／End 的 selectionchange（不經對話框也重現，見
+    // `waitForEditorSelection` 註解）：DOM selection 已在 one-top，state.selection 還在 two-bottom 尾。所以除了 DOM
+    // selection，還要等 ProseMirror 的 state 對齊；預覽前再斷言三段的順序。
     const caretAtEndOf = async (text: string) => {
       await expect(async () => {
         await editor.getByText(text).click();
         await page.keyboard.press("End");
         expect(await page.evaluate(() => window.getSelection()?.anchorNode?.textContent ?? "")).toContain(text);
+        await waitForEditorSelection(page, 1_000);
       }).toPass({ timeout: 10_000 });
     };
     await caretAtEndOf("one-top");

@@ -106,3 +106,55 @@ export async function createNote(page: Page, title: string): Promise<void> {
 export function editorLocator(page: Page) {
   return page.locator('[data-testid="note-editor"] [contenteditable="true"]').first();
 }
+
+/**
+ * 等編輯器（ProseMirror）把目前的 DOM selection 讀進自己的 state，才能接著按 Enter／打字。
+ *
+ * 點擊、End、Ctrl+End 這類游標移動是瀏覽器原生做的：DOM selection 當下就變了，但 ProseMirror 要等
+ * `selectionchange` 事件（瀏覽器另排的 task）才把它讀回 `state.selection`；Enter 與一般按鍵輸入用的是
+ * `state.selection`。Playwright 緊接著送的 Enter 若趕在 selectionchange 之前被處理，新段落／文字就落在
+ * **上一個**游標位置（為什麼 selectionchange 會晚到輸入事件之後：推測是 Chromium 對輸入事件的排程優先序，未量測）。
+ * 2026-10-10 在 e2e 疊上不經任何對話框就重現：點段尾 → End → Enter，修前 30 次錯 3 次、加本 helper 後 30/30 正確；
+ * 錯的那幾次從點擊到 Enter 的 23 ms 內一個 selectionchange 都沒送到，`state.selection` 還停在前一段尾。
+ * CI run 38047114343 的 22b（inserted-middle 落到 two-bottom 之後）trace 同型。所以只驗 `window.getSelection()`
+ * 不夠——要對到 ProseMirror 的 state。
+ *
+ * ⚠ 只適用於文字游標：collapsed 的 TextSelection、caret 在文字節點內（例如段尾純文字）。NodeSelection、
+ * 或 caret 在 inline atom（圖片、wikilink 等）旁時，`posAtDOM`（bias −1）跟 PM 自己讀 selection 的換算／正規化
+ * 不同，可能在合法的穩定狀態下永遠對不上而超時。
+ *
+ * 讀的是 Tiptap 掛在 contenteditable 上的 `editor`（`view.dom.editor`）。超時時失敗訊息帶最後一次的診斷值：
+ * `"no-editor"`（editor 物件沒掛上）、`{ focusOutside: … }`（activeElement／caret 不在編輯器內）、
+ * `{ pm, dom }`（PM 的 selection.head 與 DOM caret 換算的位置）。
+ */
+export async function waitForEditorSelection(page: Page, timeout = 2_000): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        editorLocator(page).evaluate((el) => {
+          type View = { state: { selection: { head: number } }; posAtDOM(node: Node, offset: number): number };
+          const view = (el as Element & { editor?: { view?: View } }).editor?.view;
+          if (!view) return "no-editor";
+          const sel = window.getSelection();
+          const active = document.activeElement;
+          if (!active || !el.contains(active) || !sel?.focusNode || !el.contains(sel.focusNode)) {
+            return {
+              focusOutside: {
+                activeElement: active ? `${active.tagName}.${String(active.className).slice(0, 40)}` : null,
+                caretInEditor: !!sel?.focusNode && el.contains(sel.focusNode),
+              },
+            };
+          }
+          const pm = view.state.selection.head;
+          let dom: number | string;
+          try {
+            dom = view.posAtDOM(sel.focusNode, sel.focusOffset);
+          } catch (err) {
+            dom = `posAtDOM threw: ${String(err)}`;
+          }
+          return dom === pm ? "synced" : { pm, dom };
+        }),
+      { timeout, message: "ProseMirror 的 state.selection 要跟 DOM selection 對齊（值：no-editor／focusOutside／{pm, dom}）" },
+    )
+    .toEqual("synced");
+}
