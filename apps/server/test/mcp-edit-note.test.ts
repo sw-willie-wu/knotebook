@@ -23,6 +23,7 @@ import { MCP_PAGE_MAX } from "../src/mcp/limits.js";
 import { buildCollabTestApp, type CollabTestCtx, type HttpSession } from "./helpers.js";
 import { bearer, docText, getContent, seedContent, seedTokenForUser, tick, waitFor } from "./editing-helpers.js";
 import { INITIALIZE, mcpPost, rpc } from "./mcp-helpers.js";
+import { loadDoc, xmlOf } from "./copy-helpers.js";
 import type { FastifyInstance } from "fastify";
 
 const PASSWORD = "correct-horse-battery";
@@ -611,5 +612,26 @@ describe("#241 E-241：append 帶 ifMatch（拼錯的 if_match）", () => {
     expect(call.result.structuredContent).toBeUndefined();
     expect(call.result.content[0]!.text).toContain("ifMatch");
     s.disconnect();
+  });
+});
+
+describe("#240 大寫 note_id（MCP 寫入）", () => {
+  it("L3 WS 在線、MARK 只在 live doc：大寫 note_id 的 append 寫進小寫那份 live doc", async () => {
+    const s = await scene(null);
+    const MARK = `MARK-${randomUUID()}`;
+    const Y_TEXT = `Y-${randomUUID()}`;
+    const client = await seedContent(s.ctx, s.session, s.noteId, `# Head\n\n${MARK}`);
+    const out = await editNote(s.ctx.app, s.token, { note_id: s.noteId.toUpperCase(), op: "append", markdown: Y_TEXT });
+    // 排最前：拿掉轉小寫時，寫入落在另開的大寫 doc，小寫 live doc 收不到。
+    expect(docText(s.ctx.collab.hocuspocus.documents.get(s.noteId)!)).toContain(Y_TEXT);
+    payloadOf<EditPayload>(out);
+    expect(docText(s.ctx.collab.hocuspocus.documents.get(s.noteId)!)).toContain(MARK);
+    await waitFor("WS client 收到 AI 的寫入", 5_000, () => docText(client.doc).includes(Y_TEXT));
+    expect(s.ctx.collab.hocuspocus.documents.has(s.noteId.toUpperCase())).toBe(false);
+    client.disconnect();
+    await waitFor("落盤並卸載", 10_000, () => s.ctx.collab.hocuspocus.documents.size === 0);
+    const xml = xmlOf((await loadDoc(s.ctx.db, s.noteId))!);
+    expect(xml).toContain(MARK);
+    expect(xml).toContain(Y_TEXT);
   });
 });

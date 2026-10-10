@@ -19,6 +19,7 @@ import { MCP_PAGE_MAX, MCP_SECTION_CHARS, MCP_TEXT_MAX } from "../src/mcp/limits
 import { buildCollabTestApp, testConfig, type CollabTestCtx } from "./helpers.js";
 import { bearer, docText, getContent, seedContent, seedTokenForUser, tick, waitFor } from "./editing-helpers.js";
 import { mcpPost, rpc } from "./mcp-helpers.js";
+import { loadDoc, xmlOf } from "./copy-helpers.js";
 import type { FastifyInstance } from "fastify";
 
 const PASSWORD = "correct-horse-battery";
@@ -631,6 +632,57 @@ describe("#108 兩支內容工具的共同接線", () => {
     // 漏把某一支包進 `runTool()` 不會有任何編譯錯誤——未捕捉例外會被 SDK 原樣送進模型脈絡。
     expect([...new Set(seen)].sort()).toEqual(
       ["list_notes", "read_note_outline", "read_note_section", "search_notes"].sort()
+    );
+    s.disconnect();
+  });
+});
+
+describe("#240 大寫 note_id（MCP 讀取）", () => {
+  /** 前置全部做完才 seed：回傳時 debounce 窗剛開始。 */
+  async function liveScene(markdown: string) {
+    const ctx = await buildCollabTestApp();
+    const email = `l1-${randomUUID()}@example.com`;
+    const owner = await ctx.createUser({ email, password: PASSWORD });
+    const note = await ctx.createNote(owner.id);
+    const { token, tokenId } = await seedTokenForUser(ctx.db, owner.id, "notes:read notes:write", "Claude Code");
+    const session = await ctx.loginAs(email, PASSWORD);
+    const client = await seedContent(ctx, session, note.id, markdown);
+    const seededAt = Date.now();
+    return { ctx, token, tokenId, noteId: note.id, client, seededAt };
+  }
+  const stateHas = async (ctx: CollabTestCtx, noteId: string, text: string) => {
+    const d = await loadDoc(ctx.db, noteId);
+    return d !== null && xmlOf(d).includes(text);
+  };
+
+  it("L1a live doc 比 note_states 新：大寫 note_id 的 outline 讀到 live 的段落，note.id 回小寫", async () => {
+    const s = await liveScene("# Head\n\n第一段內容");
+    const outline = await outlineOf(s.ctx.app, s.token, s.noteId.toUpperCase());
+    // 排最前：拿掉轉小寫時 outline 從 note_states 讀，那裡還沒有 Head。
+    expect(outline.sections.map(e => e.heading)).toContain("Head");
+    expect(await stateHas(s.ctx, s.noteId, "Head")).toBe(false); // 讀發生在 debounce 窗內；變真＝這案失去鑑別力
+    console.log(`[L1a] seed→斷言 ${Date.now() - s.seededAt} ms（store debounce 2000 ms）`);
+    expect(outline.note.id).toBe(s.noteId);
+    s.client.disconnect();
+  });
+
+  it("L1b live doc 比 note_states 新：大寫 note_id 的 read_note_section(_top) 讀到 live 內容", async () => {
+    const MARK = `MARK-${randomUUID()}`;
+    const s = await liveScene(`${MARK}\n\n# 尾段`); // MARK 在第一個標題之前＝_top 段，不必先讀 outline 拿 section id
+    const section = await sectionOf(s.ctx.app, s.token, s.noteId.toUpperCase(), "_top");
+    expect(section.section.markdown).toContain(MARK);
+    expect(await stateHas(s.ctx, s.noteId, MARK)).toBe(false);
+    console.log(`[L1b] seed→斷言 ${Date.now() - s.seededAt} ms（store debounce 2000 ms）`);
+    s.client.disconnect();
+  });
+
+  it("L2 大寫 note_id 讀取 → presence 以小寫 id 現身", async () => {
+    const s = await scene("# A\n\n第一段內容");
+    const doc = s.ctx.collab.hocuspocus.documents.get(s.noteId)!;
+    await outlineOf(s.ctx.app, s.token, s.noteId.toUpperCase());
+    await tick();
+    await waitFor("大寫 id 的讀取讓 presence 出現在小寫 doc 上", 2_000, () =>
+      doc.awareness.getStates().get(presenceClientId(s.noteId, s.tokenId)) !== undefined
     );
     s.disconnect();
   });

@@ -93,6 +93,15 @@ describe("#108 M14：raw shape 六個欄位與 notes/schemas.ts 的 base 同源�
     expect(GROUP_ID.safeParse(randomUUID().toUpperCase()).success).toBe(true);
     for (const bad of ["", "not-a-uuid", `${randomUUID()}x`, randomUUID().replace(/-/g, "")]) expect(GROUP_ID.safeParse(bad).success).toBe(false);
   });
+
+  it("#240 U-240a：NOTE_ID 把大寫／大小寫混雜的 uuid 轉成小寫；NUL、非 uuid 仍拒", () => {
+    const lower = "0f8fad5b-d9cb-469f-a165-70867728950e";
+    const mixed = "0F8fAd5B-d9Cb-469F-a165-70867728950E";
+    expect(NOTE_ID.parse(lower.toUpperCase())).toBe(lower);
+    expect(NOTE_ID.parse(mixed)).toBe(lower);
+    expect(NOTE_ID.parse(lower)).toBe(lower);
+    for (const bad of ["", "not-a-uuid", `${lower}${NUL}`, `${lower}x`]) expect(NOTE_ID.safeParse(bad).success).toBe(false);
+  });
 });
 
 /**
