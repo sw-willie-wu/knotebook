@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { randomUUID } from "node:crypto";
 import { MAX_LINK_TARGETS } from "@knotebook/shared";
 import { normalizeLinkTargets } from "../../src/notes/links.js";
 
@@ -49,5 +50,31 @@ describe("normalizeLinkTargets", () => {
     ];
     const result = normalizeLinkTargets(SOURCE, raw);
     expect(result).toEqual({ ok: true, targets: [t1, t2] });
+  });
+});
+
+describe("#240 normalizeLinkTargets：大小寫", () => {
+  const SRC = "0f8fad5b-d9cb-469f-a165-70867728950e";
+  const SRC_MIXED = "0F8fAd5B-d9Cb-469F-a165-70867728950E";
+  const T = "6ecc5cdd-7666-45a4-8740-3ccff326fa97";
+  const T_MIXED = "6ECc5cDd-7666-45A4-8740-3cCff326Fa97";
+
+  it("大寫／混雜大小寫的自身 id 被排除", () => {
+    expect(normalizeLinkTargets(SRC, [SRC.toUpperCase(), SRC_MIXED, T])).toEqual({ ok: true, targets: [T] });
+  });
+
+  it("大小寫變體去重成一個小寫；輸出全小寫", () => {
+    expect(normalizeLinkTargets(SRC, [T.toUpperCase(), T, T_MIXED])).toEqual({ ok: true, targets: [T] });
+  });
+
+  it("MAX_LINK_TARGETS 個不同目標＋其中一個的大寫變體 → ok（不再因大小寫重複超限）", () => {
+    const ids = Array.from({ length: MAX_LINK_TARGETS }, () => randomUUID());
+    const r = normalizeLinkTargets(SRC, [...ids, ids[0]!.toUpperCase()]);
+    expect(r.ok).toBe(true);
+    expect(r.ok && r.targets.length).toBe(MAX_LINK_TARGETS);
+  });
+
+  it("sourceNoteId 以大寫傳入時，小寫的自身 id 也被排除", () => {
+    expect(normalizeLinkTargets(SRC.toUpperCase(), [SRC, T])).toEqual({ ok: true, targets: [T] });
   });
 });

@@ -16,15 +16,21 @@ export type NormalizeLinkTargetsResult = { ok: true; targets: string[] } | { ok:
 
 /**
  * 純函式（供 `test/unit/links-normalize.test.ts` 直接測，不碰 DB）：去重（`Set`）、濾掉
- * 指向自己的 self-link（`target === sourceNoteId`），**在此之後**才判定正規化後的集合是否
+ * 指向自己的 self-link（比對方式見下方 #240 段），**在此之後**才判定正規化後的集合是否
  * 超過 `MAX_LINK_TARGETS` → `{ ok: false }`（routes 端映射成 400 `invalid_body`）。
  *
  * zod 層的 `.max(MAX_LINK_TARGETS * 2)` 只是提交前的粗閘（效能考量，見 routes/notes.ts
  * body schema 旁註解），語意上限一律在這裡（正規化之後）判定——去重與濾除 self-link 都可能
  * 讓一個超過粗閘但正規化後合法的集合通過，反之亦然（重複元素多但正規化後仍在上限內）。
+ *
+ * #240：比較前先把來源與每個目標轉小寫——`note_links` 是 uuid 欄（DB 不分大小寫），JS 端若分大小寫，
+ * 大寫的自身 id 會過自身過濾、寫進 uuid 欄時被正規化成小寫而成為自連結，大小寫變體也會各佔一個
+ * `MAX_LINK_TARGETS` 名額。兩個呼叫端（`POST /links`、`syncLinksFromDoc`）都經過這裡。
+ * 守衛＝`links-normalize.test.ts` 的 #240 族、`collab-links.test.ts` R9／R9b。
  */
 export function normalizeLinkTargets(sourceNoteId: string, rawTargetIds: string[]): NormalizeLinkTargetsResult {
-  const deduped = [...new Set(rawTargetIds)].filter(targetId => targetId !== sourceNoteId);
+  const self = sourceNoteId.toLowerCase();
+  const deduped = [...new Set(rawTargetIds.map(targetId => targetId.toLowerCase()))].filter(targetId => targetId !== self);
   if (deduped.length > MAX_LINK_TARGETS) return { ok: false };
   return { ok: true, targets: deduped };
 }
@@ -89,10 +95,9 @@ export async function syncLinksFromDoc(
   deps: { db: Db; log: { warn(o: object, m: string): void } },
   p: { sourceNoteId: string; userId: string; doc: Y.Doc; clock: number },
 ): Promise<void> {
-  // spec §6.1 步驟 5 說「先自行去重、濾自連結、slice」——去重那半 `extractLinkTargets` 已經做完了
-  // （shared `note-markdown.ts` 結尾就是 `[...new Set(found)].sort()`），這裡再包一層 Set 是死碼。
-  // 濾自連結必須排在 slice **之前**：反過來的話，一個排在前面的 self-link 會佔掉一個名額，把真正
-  // 的第 1000 個目標擠掉。
+  // 這裡的濾自連結與 slice 分大小寫：目標超過 MAX_LINK_TARGETS 且含大小寫變體時，變體可能先佔名額
+  // （spec §5.5 接受）；最終集合由 `normalizeLinkTargets` 轉小寫後收斂。
+  // 濾自連結排在 slice 之前，所以與 sourceNoteId 同形的 self-link 不會佔掉名額。
   const deduped = extractLinkTargets(p.doc).filter(t => t !== p.sourceNoteId);
   const trimmed = deduped.slice(0, MAX_LINK_TARGETS);
   if (trimmed.length < deduped.length) deps.log.warn({ noteId: p.sourceNoteId, kept: trimmed.length, dropped: deduped.length - trimmed.length }, "wikilink 目標超過 MAX_LINK_TARGETS，已截斷");
