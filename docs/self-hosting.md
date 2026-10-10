@@ -186,6 +186,12 @@ then start that build. If you're upgrading from 0.4.1 or earlier, there were no 
 
 **Body-text search.** The first start after upgrading to a version with body-text search indexes the existing notes in the background, after the server is already answering requests. The `app` log shows `全文索引回填開始` when that starts and `全文索引回填完成` when it is done; until then, `search_notes` finds a note it hasn't got to yet by its title only. Rolling back is harmless: an older server ignores the two tables that hold the index, `note_search_sections` and `note_search_state`. When you upgrade again, the first start indexes again whatever was edited or created while the older server ran, because the index has no entry for them, or one built from an older version.
 
+**Upgrading to v0.9 (MCP tools).**
+
+1. **There is no database migration.** Upgrading is pulling the new version and running `docker compose up -d --build`.
+2. **Restart your MCP clients** so they list the new tools (`move_note_to_group`, `copy_note`, `read_note_image`) and `edit_note`'s `rename` operation. Scripts that call `create_note` must change `groupId` to `group_id`: a call with the old key is rejected by the input check and creates nothing.
+3. **Rolling back** to v0.8 is harmless, since nothing in the database changed; those tools and the `rename` operation are simply gone.
+
 **Upgrading to v0.8 (note versions).**
 
 1. **Back up the database first.** Migration 0019 runs automatically when the new server starts. It only adds a table, columns, indexes and constraints, but take a dump before you start the new version anyway, for example `docker compose exec -T db pg_dump -U knotebook knotebook > knotebook-before-upgrade.sql`.

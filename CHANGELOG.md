@@ -7,6 +7,10 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.9.0] - 2026-10-10
+
 ### Upgrade notes
 
 - Changes an existing MCP client may notice: a read-write token or app credential now lists three more tools (`move_note_to_group`, `copy_note`, `read_note_image`) and a read-only one lists one more (`read_note_image`); `edit_note` has a sixth operation and a looser output schema. **Scripts that call `create_note` with `groupId` must switch to `group_id`.** Restart your MCP client to see the new tools and key names.
