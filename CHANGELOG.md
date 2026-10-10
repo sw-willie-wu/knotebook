@@ -7,6 +7,10 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.8.0] - 2026-10-10
+
 ### Upgrade notes
 
 - **Back up the database first.** This release's database migration (0019: note versions) runs automatically when the new server starts. It only adds a table, columns, indexes and constraints, but take a dump before you start the new version anyway, for example `docker compose exec -T db pg_dump -U knotebook knotebook > knotebook-before-upgrade.sql`.
