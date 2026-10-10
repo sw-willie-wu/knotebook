@@ -136,12 +136,18 @@ test("23b §13-5：2000 區塊筆記，點版本列到 diff 標記出現的耗�
   await expect(dialog).not.toBeVisible();
   await page.getByTestId("versions-bubble").click();
   const panel = page.getByTestId("versions-panel");
-  const row = panel.getByRole("button", { name: /^v2/ });
+  // 點 v1 而不是 v2：rev 10 起比較是左右一對，點列只換左邊、右邊預設是目前狀態（Current state）。v2 是上面剛存的，
+  // 內容與目前狀態相同，兩邊沒有差異、不會出現任何非 context 標記；v1（建立時的內容）與目前狀態差在第 0 段。
+  const row = panel.getByRole("button", { name: /^v1/ });
   await expect(row).toBeVisible({ timeout: 15_000 });
   const t0 = Date.now();
   await row.click();
-  await expect(page.locator('[data-testid="diff-single"] [data-diff="changed"]').first()).toBeVisible({ timeout: 60_000 });
+  // 看並排（diff-split）而不是單欄：1400 px 視窗開著面板時預覽區約 774 px，≥ 720 px 門檻就自動並排，DOM 上沒有 diff-single。
+  // 等並排欄內第一個非 context 的 data-diff 標記可見（並排兩側各自標記，不一定是 "changed"）。
+  await expect(page.locator('[data-testid="diff-split"] [data-diff]:not([data-diff="context"])').first()).toBeVisible({
+    timeout: 60_000,
+  });
   const previewMs = Date.now() - t0;
-  console.log(`MEASURE-13-5 blocks=2000 previewMs=${previewMs}`);
+  console.log(`MEASURE-13-5 blocks=2000 previewMs=${previewMs} mode=split left=v1 right=current`);
   expect(previewMs).toBeGreaterThan(0);
 });
