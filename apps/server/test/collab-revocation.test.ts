@@ -350,4 +350,39 @@ describe("撤權 SLA：CollabHooks（Task 6）", () => {
     const getRes = await editorSession.fetch(`/api/notes/${note.id}`);
     expect(getRes.status).toBe(404);
   });
+
+  for (const variant of ["upper-note", "upper-user"] as const) {
+    it(`#240 R4${variant === "upper-note" ? "a" : "b"} DELETE /shares 的${variant === "upper-note" ? " :id" : " :userId"} 大寫：被撤者 10 秒內收 CLOSE(revoked)，旁觀者不受影響`, async () => {
+      const ctx = await buildApp();
+      const tag = `r4${variant}`;
+      const owner = await ctx.createUser({ email: `owner-${tag}@example.com`, password: PASSWORD });
+      const victim = await ctx.createUser({ email: `victim-${tag}@example.com`, password: PASSWORD });
+      const bystander = await ctx.createUser({ email: `by-${tag}@example.com`, password: PASSWORD });
+      const note = await ctx.createNote(owner.id);
+      await ctx.share(note.id, victim.id, "editor");
+      await ctx.share(note.id, bystander.id, "editor");
+      const ownerSession = await ctx.loginAs(`owner-${tag}@example.com`, PASSWORD);
+      const victimClient = await (await ctx.loginAs(`victim-${tag}@example.com`, PASSWORD)).connect(note.id);
+      const bystanderClient = await (await ctx.loginAs(`by-${tag}@example.com`, PASSWORD)).connect(note.id);
+      const noteSeg = variant === "upper-note" ? note.id.toUpperCase() : note.id;
+      const userSeg = variant === "upper-user" ? victim.id.toUpperCase() : victim.id;
+      const del = await ownerSession.fetch(`/api/notes/${noteSeg}/shares/${userSeg}`, { method: "DELETE" });
+      expect(del.status).toBe(204);
+      await waitFor("被撤者收到 CLOSE(revoked)", 10_000, () => victimClient.closes.some(c => c.reason === COLLAB_CLOSE_REVOKED));
+      await sleep(1_000);
+      expect(bystanderClient.closes).toEqual([]);
+    });
+  }
+
+  it("#240 R8 DELETE /api/notes/<大寫>：在線者收 CLOSE(note-deleted)", async () => {
+    const ctx = await buildApp();
+    const owner = await ctx.createUser({ email: "owner-r8@example.com", password: PASSWORD });
+    const note = await ctx.createNote(owner.id);
+    const ownerSession = await ctx.loginAs("owner-r8@example.com", PASSWORD);
+    const ownerClient = await ownerSession.connect(note.id);
+    const del = await ownerSession.fetch(`/api/notes/${note.id.toUpperCase()}`, { method: "DELETE" });
+    expect(del.status).toBe(204);
+    await waitFor("在線者收到 CLOSE(note-deleted)", 10_000, () => ownerClient.closes.some(c => c.reason === COLLAB_CLOSE_NOTE_DELETED));
+    expect(ctx.collab.hocuspocus.documents.has(note.id)).toBe(false);
+  });
 });

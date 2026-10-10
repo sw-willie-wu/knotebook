@@ -12,7 +12,7 @@ import { apiTokens, authProviders, groupMembers, groupRoles, groups, noteRedirec
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
 /** drizzle 對 `schema.ts` 的序列化；宣告漂移守衛拿最新一支當比對基準（Task 14 rebase 後改成實際檔名）。 */
-const SNAPSHOT_FILE = "meta/0019_snapshot.json";
+const SNAPSHOT_FILE = "meta/0020_snapshot.json";
 const snapshotLatest = JSON.parse(readFileSync(path.join(drizzleDirForTest, SNAPSHOT_FILE), "utf8")) as {
   tables: Record<string, { checkConstraints?: Record<string, { name: string; value: string }> }>;
 };
@@ -141,6 +141,22 @@ describe("runMigrations", () => {
     expect(idx).toHaveLength(1);
     expect(idx[0].indexdef).toMatch(/UNIQUE/);
     expect(idx[0].indexdef).toMatch(/WHERE \(?public_token IS NOT NULL\)?/);
+  });
+
+  it("#240 0020：刪除 note_links 的自連結列、保留正常列；再跑 runMigrations 不動到資料", async () => {
+    const { pool, db } = await freshEmptyDb();
+    await applyMigrationsThrough(pool, idxOfTag("0019_note-versions"));
+    const u = "00000000-0000-4000-8000-0000000000a1";
+    const a = "00000000-0000-4000-8000-0000000000b1";
+    const b = "00000000-0000-4000-8000-0000000000b2";
+    await pool.query(`insert into users (id, email, display_name) values ($1, 'r9m@x.example', 'U')`, [u]);
+    await pool.query(`insert into notes (id, owner_id, title) values ($1, $3, 'A'), ($2, $3, 'B')`, [a, b, u]);
+    await pool.query(`insert into note_links (source_note_id, target_note_id) values ($1, $1), ($1, $2)`, [a, b]);
+    await runMigrations(db);
+    const rows = async () => (await pool.query(`select source_note_id, target_note_id from note_links order by target_note_id`)).rows;
+    expect(await rows()).toEqual([{ source_note_id: a, target_note_id: b }]);
+    await runMigrations(db);
+    expect(await rows()).toEqual([{ source_note_id: a, target_note_id: b }]);
   });
 });
 

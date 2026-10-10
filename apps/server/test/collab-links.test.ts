@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import * as Y from "yjs";
-import { YDOC_FRAGMENT, type Role } from "@knotebook/shared";
+import { YDOC_FRAGMENT, MAX_LINK_TARGETS, type Role } from "@knotebook/shared";
 import { createCollabHooks } from "../src/collab/hooks-impl.js";
 import { docClock } from "../src/collab/store.js";
 import { notes, noteLinks } from "../src/db/schema.js";
@@ -407,5 +408,37 @@ describe("Task 8：links 共編整合——真 Hocuspocus gate、真 provider", 
     expect(await readLinksClock(ctx.db, note.id)).toBe(docClock(reconnected.doc));
 
     reconnected.disconnect();
+  });
+});
+
+describe("#240 link_target_ids 的大小寫", () => {
+  it("R9 大寫的自身 id 與大小寫重複：不寫自連結、目標照常落地", async () => {
+    const ctx = await buildApp();
+    const owner = await ctx.createUser({ email: "owner-r9@example.com", password: PASSWORD });
+    const note = await ctx.createNote(owner.id);
+    const target = await ctx.createNote(owner.id, "Target");
+    const session = await ctx.loginAs("owner-r9@example.com", PASSWORD);
+    const client = await session.connect(note.id);
+    insertWikilink(client.doc, target.id);
+    await waitForServerClock(ctx, note.id, owner.id, docClock(client.doc));
+    const res = await postLinks(session, note.id, [note.id.toUpperCase(), target.id, target.id.toUpperCase()]);
+    // 排最前：拿掉轉小寫時，大寫自身 id 過了 JS 過濾、在授權查詢被 DB 正規化成小寫，寫出 source = target 的列。
+    expect(await linkedTargets(ctx.db, note.id)).toEqual([target.id]);
+    expect(res.status).toBe(204);
+  });
+
+  it("R9b MAX_LINK_TARGETS 個不同 id＋其中一個的大寫變體 → 204（不再假 400）", async () => {
+    const ctx = await buildApp();
+    const owner = await ctx.createUser({ email: "owner-r9b@example.com", password: PASSWORD });
+    const note = await ctx.createNote(owner.id);
+    const target = await ctx.createNote(owner.id, "Target");
+    const session = await ctx.loginAs("owner-r9b@example.com", PASSWORD);
+    const client = await session.connect(note.id);
+    insertWikilink(client.doc, target.id);
+    await waitForServerClock(ctx, note.id, owner.id, docClock(client.doc));
+    const ids = Array.from({ length: MAX_LINK_TARGETS }, () => randomUUID());
+    const res = await postLinks(session, note.id, [...ids, ids[0]!.toUpperCase()]);
+    expect(res.status).toBe(204);
+    expect(await linkedTargets(ctx.db, note.id)).toEqual([]); // 隨機 id 不存在 → 授權交集為空 → 整組取代成空
   });
 });

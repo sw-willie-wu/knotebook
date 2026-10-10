@@ -1,7 +1,7 @@
 /**
  * #180 spec §3.3：複製的本體——REST `POST /api/notes/:id/copy` 與 MCP `copy_note` 共用（W7／W12：不讓共用函式長出 MCP 模式分支）。
- * 順序逐條＝原路由（F32）：入口 `sourceId.toLowerCase()`（MCP 的 NOTE_ID 收大寫；live doc 與踢線以小寫字串為鍵——gate r1 I1；
- * 對 web 是 no-op）→ `role === "none"` → `not_found` → 有 `groupId`：非 UUID 或 `loadCreateTarget` 落空／`!canCreate` →
+ * 順序逐條＝原路由（F32）：入口 `sourceId.toLowerCase()`（MCP 的 `NOTE_ID` 與 REST 的 app 層 `lowercaseUuidParams` 送進來已是小寫；這裡保留作防禦——
+ * live doc 與踢線以小寫字串為鍵，gate r1 I1）→ `role === "none"` → `not_found` → 有 `groupId`：非 UUID 或 `loadCreateTarget` 落空／`!canCreate` →
  * `group_not_found`（交易外只是快速 404；授權本身在 `copyNoteInTx` (g) 重驗）→ 扣 **`edit` 桶** → 交易前 `loadNoteDoc`＋
  * `cloneForCopy`＋`extractForIndex`（S14：`loadNoteDoc` 借連線，不得在交易內）→ 數「會被複製的附件」→ `toCopy > 0` 時不持鎖
  * 預檢目標空間已滿 → `space_full`（不扣 upload 桶）→ **`upload` 桶 `consumeMany(userId, toCopy)`** → 交易 → catch：先 best-effort

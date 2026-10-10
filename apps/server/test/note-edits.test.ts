@@ -186,6 +186,19 @@ describe("POST /api/notes/:id/edits：五 op", () => {
     const [row] = await rows();
     expect(row).toMatchObject({ tokenId: null, agentLabel: null, userId: u.id });
   });
+
+  it("#240 R3 Bearer POST /edits 的大寫 id：append 寫進小寫那份 live doc", async () => {
+    const s = await setup("# Head\n\n人寫的一行");
+    const Y_TEXT = `Y-${Date.now()}`;
+    const res = await s.ctx.app.inject({
+      method: "POST", url: `/api/notes/${s.note.id.toUpperCase()}/edits`, headers: bearer(s.token), payload: { op: "append", markdown: Y_TEXT },
+    });
+    expect(docText(s.ctx.collab.hocuspocus.documents.get(s.note.id)!)).toContain(Y_TEXT);
+    expect(res.statusCode).toBe(201);
+    expect(docText(s.ctx.collab.hocuspocus.documents.get(s.note.id)!)).toContain("人寫的一行");
+    await waitFor("client 收到", 5_000, () => docText(s.client.doc).includes(Y_TEXT));
+    s.client.disconnect();
+  });
 });
 
 describe("if_match 與併發", () => {

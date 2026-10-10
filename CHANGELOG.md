@@ -7,7 +7,24 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
-_Nothing yet._
+### Upgrade notes
+
+The full checklist is under **Upgrading to v0.10** in [Upgrading and rolling back](docs/self-hosting.md#upgrading-and-rolling-back).
+
+- **Back up the database first.** This release's database migration (0020: drop note self-links) runs automatically when the new server starts. It only deletes rows of `note_links` that record a note as linking to itself — rows a note id written with uppercase letters could create, and that were never correct — but take a dump before you start the new version anyway, for example `docker compose exec -T db pg_dump -U knotebook knotebook > knotebook-before-upgrade.sql`. Rolling back to 0.9 is harmless.
+- MCP: every tool now rejects an argument it doesn't know. Until now only `create_note`, `move_note_to_group` and `copy_note` did; the other seven tools dropped it silently. A client or script that sends an extra or misspelled argument — `ifMatch` instead of `if_match`, say — now gets an input-check error (an `isError` result with no `code`) and the tool does nothing; fix the argument's name. The tool list a client sees is unchanged.
+
+### Changed
+
+- **Breaking (MCP):** `list_notes`, `search_notes`, `read_note_outline`, `read_note_section`, `edit_note`, `create_transfer_token` and `read_note_image` reject arguments they don't know instead of ignoring them. Before, `edit_note`'s `append` with `ifMatch` instead of `if_match` skipped the fingerprint check and wrote anyway (#241).
+
+### Fixed
+
+- MCP: a `note_id` with uppercase letters now reaches the same live note the web app edits: `read_note_outline` and `read_note_section` return what is being typed rather than the last saved copy, the assistant shows up for people who have the note open whenever it would with a lowercase id, and `edit_note` writes into that note — before, with the note open in the web app, an `append` reported success, but the people editing never received the text, and the note as saved afterwards didn't have it either. `read_note_outline` now answers with the note's id in lowercase (#240).
+- API: a note id with uppercase letters in the path of `GET /api/notes/:id/content`, `POST /api/notes/:id/edits`, `GET /api/notes/:id/edits` and `POST /api/notes/:id/edits/:editId/revert` is now treated like the lowercase id: reading the content returns what is being typed rather than the last saved copy and shows the caller to people who have the note open whenever the same read with a lowercase id would, and an edit reaches the note as they have it open; listing edits and reverting one get the same fix (#240).
+- API: an uppercase user id in `DELETE /api/notes/:id/shares/:userId` or `DELETE /api/groups/:id/members/:userId`, or an uppercase note id when removing a share, now ends that person's open editing connection the same way a lowercase id does, and deleting a note by an uppercase id now closes everyone's open editing connection to it, as a lowercase id does; other share changes and changing a member's role in a group get the same fix, and `PATCH /api/groups/:id/members/:userId` now answers with the member's id in lowercase. A member who isn't a group manager can now leave a group using their own id in uppercase, which used to be refused (#240).
+- API: `POST /api/notes/:id/collab-token` with uppercase letters in the id now issues a token for the lowercase id. Connect to `/collab` with the lowercase id; an uppercase one is now refused instead of opening a separate copy of the note (#240).
+- API: `POST /api/notes/:id/links` matches the ids in `link_target_ids` regardless of letter case: the note's own id in capitals is no longer recorded as a link from the note to itself, and one id sent in two letter cases counts once toward the 1000-target limit instead of pushing a request over it with `400`. Upgrading removes self-links already stored (#240).
 
 ## [0.9.0] - 2026-10-10
 

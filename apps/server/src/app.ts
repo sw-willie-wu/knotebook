@@ -50,6 +50,7 @@ import { oauthRoutes } from "./routes/oauth.js";
 import { oauthMetadataRoutes } from "./routes/oauth-metadata.js";
 import { oauthApiRoutes } from "./routes/oauth-api.js";
 import { registerSpaFallback } from "./http/spa.js";
+import { lowercaseUuidParams } from "./http/uuid-params.js";
 import { assertUploadsDirWritable } from "./uploads/service.js";
 import type { AiRuntime } from "./ai/runtime.js";
 import { createOidcRuntimeRegistry, type OidcRuntimeRegistry } from "./auth/oidc-client.js";
@@ -654,6 +655,11 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       limiters: { bearerMiss: limiters.bearerMiss, tokenRead: limiters.tokenRead, tokenWrite: limiters.tokenWrite },
     })
   );
+
+  // #240：所有路由 plugin 的 `:id`／`:userId` UUID 一律先轉小寫（preValidation 排在路由層 preHandler 之前，
+  // `app.authenticate*` 與 handler 都看到小寫；app 層 hook 套到所有子 plugin——Fastify 5.11.2 實測，spec §5.3）。
+  // 加在任何 `app.register(路由)` 之前。
+  app.addHook("preValidation", lowercaseUuidParams);
 
   void app.register(
     authRoutes({ db: deps.db, config: deps.config, gate: deps.gate, throttle: deps.throttle, collabHooks: deps.collabHooks })

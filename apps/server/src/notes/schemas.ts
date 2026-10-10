@@ -33,14 +33,19 @@ export const SEC = z.string().max(64).regex(SECTION_ID_RE).refine(noNul);
 export const TITLE = z.string().min(1).refine(noNul);
 
 /** #108：MCP 工具收進來的 `note_id`（不變量 S／M9 的格式 guard ＋ NUL 兩關）。REST 側的
- * 同一道關是路由裡的 `UUID_RE.test(id)`（路徑參數不走 zod），兩者共用同一個 regex。
+ * 同一道關是路由裡的 `UUID_RE.test(id)`（路徑參數不走 zod），兩者共用同一個 regex；REST 的轉小寫在 app 層
+ * `lowercaseUuidParams`（`http/uuid-params.ts`）。
  * `.refine(noNul)` 今天完全被 `UUID_RE` 蓋住，理由與 `SEC`／`FP` 那兩道相同（見上）。
  * ⚠ 這裡**不**兼作授權：格式關只是不讓垃圾進到 pg 的 uuid 欄位（`22P02` 會變成 500），
  * 「這篇筆記你看不看得到」一律由呼叫端的 `resolveRole` 決定。
  * ⚠ 這道 `.regex()` 是**第二層**：`resolveRole` 內部也有同一個 guard，所以拿掉它行為只從
  * 「輸入驗證錯誤」退化成 `not_found`（突變實測過）。守衛＝`mcp-content.test.ts` 的
- * 「不合格式的 section_id／note_id …」那一案後半。 */
-export const NOTE_ID = z.string().regex(UUID_RE).refine(noNul);
+ * 「不合格式的 section_id／note_id …」那一案後半。
+ * #240：`.transform` 轉小寫——**wire 上 MCP `note_id` 的收斂點**（只有 MCP 工具用這個 schema；SDK 把 parse 後的值交給
+ * handler）。live doc、presence、寫入佇列、版本狀態都以小寫字串為鍵，大寫 id 會打到另一份。handler 內殘留的
+ * `toLowerCase()`（`read-note-image.ts:61`、`move-note-to-group.ts:95`）是防禦，不是保證。
+ * 守衛＝`mcp-write-schemas.test.ts` U-240a、`unit/mcp-register.test.ts` U-F1 ②、`mcp-content`／`mcp-edit-note` 的 L1a／L1b／L2／L3。 */
+export const NOTE_ID = z.string().regex(UUID_RE).refine(noNul).transform(s => s.toLowerCase());
 
 /** #175 PR5：`groupId` 的格式 guard——REST `POST /api/notes` 的 `createBodySchema` 與 MCP `create_note`
  * 吃**同一個物件**（D18／M14：寫入側不發明第二套契約）。**不含 `.optional()`**（呼叫端的事）。

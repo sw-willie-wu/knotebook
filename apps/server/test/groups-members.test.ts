@@ -268,6 +268,19 @@ describe("#103／#175 S1：每個群組至少一位內建管理員", () => {
     expectLastCall(removed.id);
   });
 
+  it("#240 R5b 一般成員以大寫的自己 id 退出群組 → 204、成員列刪除、踢線名單是小寫 id", async () => {
+    const hooks = spyCollabHooks();
+    const { app, db } = await buildTestApp({ collabHooks: hooks });
+    const admin = await seedUser(db);
+    const leaver = await seedUser(db);
+    const g = await seedGroup(db, "G", [{ userId: admin.id, role: "admin" }, { userId: leaver.id, role: "member" }]);
+    await seedNote(db, { groupId: g.id });
+    const res = await app.inject({ method: "DELETE", url: `/api/groups/${g.id}/members/${leaver.id.toUpperCase()}`, cookies: await cookieOf(leaver.id) });
+    expect(res.statusCode).toBe(204);
+    expect(await roleOf(db, g.id, leaver.id)).toBeUndefined();
+    expect(hooks.onGroupAccessChanged.mock.calls.at(-1)![1]).toEqual([leaver.id]);
+  });
+
   it("並發 C3（spec gate r2 E）：兩位管理員同時退出 → 恰一個 204、一個 409 last_admin；群組最後剩一位內建管理員", async () => {
     let groupId = "";
     let second: Promise<LightMyRequestResponse> | undefined;

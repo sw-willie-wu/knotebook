@@ -1,7 +1,7 @@
 /**
  * #180 spec §3.2：移入群組的本體——REST `POST /api/notes/:id/move` 與 MCP `move_note_to_group` 共用。
- * 入口 `noteId.toLowerCase()`（MCP 的 NOTE_ID 收大寫；踢線與 live doc 以小寫字串為鍵——gate r1 I1；對 web 是 no-op；
- * 對手寫大寫 id 的 REST 呼叫是修正，回應仍逐位元組不變）。順序逐條＝原路由（F26）：`resolveNoteAccess` → `none` →
+ * 入口 `noteId.toLowerCase()`（MCP 的 `NOTE_ID` 與 REST 的 app 層 `lowercaseUuidParams` 送進來已是小寫；這裡保留作防禦——
+ * 踢線與 live doc 以小寫字串為鍵，gate r1 I1）。順序逐條＝原路由（F26）：`resolveNoteAccess` → `none` →
  * `!permissions.moveToGroup` → `UUID_RE.test(groupId)`（MCP 的 GROUP_ID 已擋非 uuid，這一關對 MCP 永不觸發，留著為 REST）→
  * `groupId.toLowerCase()` → 交易 → catch 分類（`TxAbort`（含 `StorageQuotaExceeded`）→ `aborted`、FK → `group_not_found`
  * （防禦縱深）、`isRetryableTxError` → `busy`、其餘 rethrow）→ **commit 成功後**依序：`versions.relocated([noteId])`（版本歷史
