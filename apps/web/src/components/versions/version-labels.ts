@@ -6,9 +6,15 @@ import type { VersionCurrentDto, VersionEditorDto } from "@knotebook/shared";
  * 所以是再深一階的 `bg-brand/25`（整頁頁首是 `bg-card`，同一組在白底上也只是淡品牌色，不另開常數）。
  * 用 brand 而非 primary：`--primary` 是中性近黑，會渲染成灰。
  * 一定要連 `hover:` 一起給（final fix 2）：ghost 變體的 `hover:bg-accent` 會在滑鼠停在按下鈕上時蓋過按下底色、
- * 看起來像沒按下。帶上 `hover:bg-brand/30` 後，`cn`（tailwind-merge）會把 ghost 的 `hover:bg-accent` 換掉。
+ * 看起來像沒按下。帶上 `hover:bg-brand/35` 後，`cn`（tailwind-merge）會把 ghost 的 `hover:bg-accent` 換掉。
+ *
+ * 閒置鈕的 hover 也不能用 ghost 的 `hover:bg-accent`：亮色 `--accent` 是 oklch L 0.94 的灰，而橫幅（`bg-brand-soft`，
+ * 14% 品牌 tint 疊在頁面底色上）的合成色約 L 0.93，兩者幾乎一樣，hover 看不出變化；所以在這種底色上 hover 改成品牌 tint
+ * （`TINT_HOVER_CLASS`，同樣靠 `cn` 換掉 ghost 的 `hover:bg-accent`）。
+ * 階梯：閒置 → hover 15% → 按下 25% → 按下後 hover 35%（相鄰兩階的 alpha 差拉大，5 個百分點的差距看不出來）。
  */
-export const PRESSED_CLASS = "bg-brand/25 hover:bg-brand/30";
+export const TINT_HOVER_CLASS = "hover:bg-brand/15";
+export const PRESSED_CLASS = "bg-brand/25 hover:bg-brand/35";
 
 /** 版本的短標籤：`vN`，有名稱時 `vN 名稱`（同 `VersionRowContent` 第一行；比較對象下拉的觸發鈕與選項用）。 */
 export function versionLabel(version: { seq: number; name: string | null }): string {
