@@ -531,7 +531,7 @@ describe("#108 M14 案 21b(ii) 的 HTTP 落點（「無任何落盤」那一半�
     const call = await editNote(s.ctx.app, s.token, { note_id: s.noteId, op: "append", markdown: "x" + NUL });
     expect(call.status).toBe(200);
     expect(call.result.isError).toBe(true);
-    // SDK 自己拒絕 raw shape 驗證失敗的呼叫——(4a) 形，沒有 `structuredContent`（我們的
+    // SDK 自己拒絕 input schema 驗證失敗的呼叫——(4a) 形，沒有 `structuredContent`（我們的
     // handler 從沒被呼叫到，`toolError()` 也就沒有機會產生它）。
     expect(call.result.structuredContent).toBeUndefined();
 

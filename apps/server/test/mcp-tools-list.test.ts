@@ -395,3 +395,33 @@ describe("#108 JSON-RPC 批次", () => {
     expect(third.json().result.structuredContent.code).toBe("too_many_requests");
   });
 });
+
+describe("#241 X-241：每支工具都拒未知鍵（wire 層；結構面由 unit/mcp-register.test.ts 守）", () => {
+  for (const scope of ["notes:read notes:write", "notes:read"] as const) {
+    it(`${scope}：tools/list 的每個名字收 { zz_unknown: 1 } → isError、無 structuredContent、訊息含 zz_unknown`, async () => {
+      const ctx = await buildCollabTestApp();
+      const owner = await ctx.createUser({ email: `x241-${randomUUID()}@example.com`, password: PASSWORD });
+      const { token } = await seedTokenForUser(ctx.db, owner.id, scope);
+      const names = await toolNames(ctx.app, token, { sort: false });
+      expect(names.length).toBeGreaterThan(0);
+      for (const name of names) {
+        const res = await mcpPost(ctx.app, rpc("tools/call", { name, arguments: { zz_unknown: 1 } }), { token });
+        const result = res.json().result as { isError?: true; structuredContent?: unknown; content: { text: string }[] };
+        expect({ name, text: result.content[0]!.text.includes("zz_unknown") }).toEqual({ name, text: true });
+        expect(result.isError).toBe(true);
+        expect(result.structuredContent).toBeUndefined();
+      }
+    });
+  }
+
+  it("X-241b：strict 不誤傷——list_notes 的 {} 成功；不帶 arguments 仍是 SDK 的 Required（與 raw shape 時相同）", async () => {
+    const ctx = await buildCollabTestApp();
+    const owner = await ctx.createUser({ email: `x241b-${randomUUID()}@example.com`, password: PASSWORD });
+    const { token } = await seedTokenForUser(ctx.db, owner.id, "notes:read");
+    const ok = (await mcpPost(ctx.app, rpc("tools/call", { name: "list_notes", arguments: {} }), { token })).json().result;
+    expect(ok.isError).toBeUndefined();
+    const bare = (await mcpPost(ctx.app, rpc("tools/call", { name: "list_notes" }), { token })).json().result;
+    expect(bare.isError).toBe(true);
+    expect(bare.content[0].text).toContain("Required");
+  });
+});

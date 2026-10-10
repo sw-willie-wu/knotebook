@@ -239,7 +239,7 @@ describe("#108 edit_note：成功回應的形（案 19b／19c／S4）", () => {
 
 describe("#108 edit_note：必填矩陣的拒絕側（D-N）", () => {
   // ⚠⚠ **這一發守的是「跳過指紋核對直接落盤」**，是資料正確性層級的關，不是形狀檢查。
-  //   raw shape 把 `if_match` 宣告成 `.optional()`（它對 `append` 真的是選配），所以 SDK 的
+  //   工具的 input schema 把 `if_match` 宣告成 `.optional()`（它對 `append` 真的是選配），所以 SDK 的
   //   `validateToolInput` **會放行**一發不帶 `if_match` 的 `replace_section`；MCP 路徑上
   //   **唯一**擋下它的是 handler 第 2 步共用的 `editBodySchema`（per-op 必填矩陣）。
   //   那一關失效 ＝ 整段內容在沒有比對過指紋的情況下被覆寫，而且不會有任何錯誤。
@@ -593,5 +593,23 @@ describe("#108 edit_note：宣告面與 scope 過濾（案 S1／S2／S3）", () 
     expect(readOnly.length).toBeLessThanOrEqual(1000);
     // 兩版真的不同（同一個常數兩邊都回的話上面全部照樣綠，除了這一行）。
     expect(readOnly).not.toBe(rw);
+  });
+});
+
+describe("#241 E-241：append 帶 ifMatch（拼錯的 if_match）", () => {
+  it("先斷內容未變、零新 note_ai_edits 列，再斷 SDK 輸入驗證錯誤（無 structuredContent、訊息含 ifMatch）", async () => {
+    const s = await scene(THREE_SECTIONS);
+    const before = await restOutline(s.ctx.app, s.noteId, s.token);
+    const call = await editNote(s.ctx.app, s.token, {
+      note_id: s.noteId, op: "append", markdown: "不該寫進去的一行", ifMatch: "0000000000000000",
+    });
+    // 副作用排最前：raw shape 時 ifMatch 被靜默丟掉、append 照寫——這兩行就是那個危害。
+    expect((await restOutline(s.ctx.app, s.noteId, s.token)).markdown).toBe(before.markdown);
+    expect(await s.ctx.db.select().from(noteAiEdits).where(eq(noteAiEdits.noteId, s.noteId))).toHaveLength(0);
+    expect(call.status).toBe(200);
+    expect(call.result.isError).toBe(true);
+    expect(call.result.structuredContent).toBeUndefined();
+    expect(call.result.content[0]!.text).toContain("ifMatch");
+    s.disconnect();
   });
 });

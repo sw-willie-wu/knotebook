@@ -16,6 +16,8 @@
  * `{copy_note, create_note, create_transfer_token, edit_note, move_note_to_group, read_note_image}`。**新增工具時要一併把它
  * 加進其中一個名字集合，否則等於沒有守衛。**
  *
+ * ⚠ 新增工具一律 `z.object(<shape>).strict()` 註冊；`test/unit/mcp-register.test.ts`（U-F1，覆蓋 authKind × scope × 有無 collab 的六種組合）的名字常數也要補——它會紅。
+ *
  * ⚠ 呼叫順序是契約（§8.1 D32）：建 `McpServer` → **本函式** → `registerCapabilities` →
  * `connect()`。`registerTool` 內部會無條件把 `listChanged` 設回 `true`。**守衛＝
  * `test/mcp-tools-list.test.ts` 的 `listChanged === false` 那一案**（順序調換 → 只有它紅，
@@ -91,13 +93,13 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
 
   server.registerTool(
     "list_notes",
-    { description: LIST_NOTES_DESCRIPTION, inputSchema: listNotesInput, outputSchema: listNotesOutput },
+    { description: LIST_NOTES_DESCRIPTION, inputSchema: z.object(listNotesInput).strict(), outputSchema: listNotesOutput },
     async args => runTool("list_notes", ctx, () => listNotes(args, ctx))
   );
 
   server.registerTool(
     "search_notes",
-    { description: searchNotesDescription(canRead), inputSchema: searchNotesInput, outputSchema: searchNotesOutputFor(canRead) },
+    { description: searchNotesDescription(canRead), inputSchema: z.object(searchNotesInput).strict(), outputSchema: searchNotesOutputFor(canRead) },
     async args => runTool("search_notes", ctx, () => searchNotes(args, ctx))
   );
 
@@ -110,7 +112,7 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
       "read_note_outline",
       {
         description: READ_NOTE_OUTLINE_DESCRIPTION,
-        inputSchema: readNoteOutlineInput,
+        inputSchema: z.object(readNoteOutlineInput).strict(),
         outputSchema: readNoteOutlineOutput,
       },
       async args => runTool("read_note_outline", ctx, () => readNoteOutline(args, ctx))
@@ -120,7 +122,7 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
       "read_note_section",
       {
         description: READ_NOTE_SECTION_DESCRIPTION,
-        inputSchema: readNoteSectionInput,
+        inputSchema: z.object(readNoteSectionInput).strict(),
         outputSchema: readNoteSectionOutput,
       },
       async args => runTool("read_note_section", ctx, () => readNoteSection(args, ctx))
@@ -131,7 +133,7 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
     if (canWrite) {
       server.registerTool(
         "edit_note",
-        { description: EDIT_NOTE_DESCRIPTION, inputSchema: editNoteInput, outputSchema: editNoteOutput },
+        { description: EDIT_NOTE_DESCRIPTION, inputSchema: z.object(editNoteInput).strict(), outputSchema: editNoteOutput },
         async args => runTool("edit_note", ctx, () => editNote(args, ctx))
       );
     }
@@ -144,10 +146,12 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
   // 把它移進閘門就是發明第二套行為——守衛＝`mcp-create-note.test.ts` 的 D-M 那一案
   // （無 collab 的 app ＋**讀寫**憑證，斷言名字的集合）。
   //
-  // #180 W15／spec §4.7：以 `.strict()` 物件註冊——raw shape 會**靜默丟掉**未知鍵（spec F60 實測），用舊鍵 `groupId`
-  // 呼叫會被當成「沒給群組」建成個人筆記。strict 後回 SDK 輸入驗證錯誤、什麼都沒建；`tools/list` 的 JSON 與 raw shape
+  // #241（原 #180 W15／spec §4.7 只套三支）：**所有工具**都以 `.strict()` 物件註冊——raw shape 會**靜默丟掉**未知鍵
+  // （spec F60 實測）：用舊鍵 `groupId` 呼叫 `create_note` 會被當成「沒給群組」建成個人筆記；`edit_note` 的 `append`
+  // 帶拼錯的 `ifMatch` 會跳過指紋比對照寫。strict 後回 SDK 輸入驗證錯誤、什麼都沒做；`tools/list` 的 JSON 與 raw shape
   // 逐字相同（F60），`inputSchema.properties` 不會空掉（裸 `ZodObject`，[[g:mcp-typescript-sdk-gotchas]] 第 1 節）。
-  // 只套 create_note／move_note_to_group／copy_note 三支（「少認一個鍵就改變結果歸屬」的工具）。守衛＝`mcp-groups.test.ts` M-G1。
+  // 守衛＝`test/unit/mcp-register.test.ts`（U-F1，實際註冊物的結構）與 `mcp-tools-list.test.ts` 的 X-241（wire）；
+  // 另有 `mcp-groups.test.ts` M-G1、`mcp-edit-note.test.ts` E-241。
   if (canWrite) {
     server.registerTool(
       "create_note",
@@ -196,13 +200,13 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
     if (canWrite) {
       server.registerTool(
         "create_transfer_token",
-        { description: CREATE_TRANSFER_TOKEN_DESCRIPTION_RW, inputSchema: createTransferTokenInputRw, outputSchema: createTransferTokenOutput },
+        { description: CREATE_TRANSFER_TOKEN_DESCRIPTION_RW, inputSchema: z.object(createTransferTokenInputRw).strict(), outputSchema: createTransferTokenOutput },
         async args => runTool("create_transfer_token", ctx, () => createTransferToken(args, ctx))
       );
     } else {
       server.registerTool(
         "create_transfer_token",
-        { description: CREATE_TRANSFER_TOKEN_DESCRIPTION_RO, inputSchema: createTransferTokenInputRo, outputSchema: createTransferTokenOutput },
+        { description: CREATE_TRANSFER_TOKEN_DESCRIPTION_RO, inputSchema: z.object(createTransferTokenInputRo).strict(), outputSchema: createTransferTokenOutput },
         async args => runTool("create_transfer_token", ctx, () => createTransferToken(args, ctx))
       );
     }
@@ -215,7 +219,7 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
     "read_note_image",
     {
       description: ctx.authKind === "token" ? READ_NOTE_IMAGE_DESCRIPTION_TOKEN : READ_NOTE_IMAGE_DESCRIPTION_SESSION,
-      inputSchema: readNoteImageInput,
+      inputSchema: z.object(readNoteImageInput).strict(),
       outputSchema: readNoteImageOutput,
     },
     async args => runTool("read_note_image", ctx, () => readNoteImage(args, ctx))
