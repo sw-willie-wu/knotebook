@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
@@ -9,6 +10,7 @@ import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 import { loadNoteDoc } from "../src/notes/editing/read.js";
 import { buildCollabTestApp, buildTestApp, testConfig } from "./helpers.js";
 import { bearer, docText, getContent, seedContent, seedTokenForUser, waitFor } from "./editing-helpers.js";
+import { loadDoc, xmlOf } from "./copy-helpers.js";
 
 const PASSWORD = "correct-horse-battery";
 const cookieFor = async (userId: string) => `${SESSION_COOKIE}=${await signSession(testConfig.appSecret, { userId, tv: 0 })}`;
@@ -273,5 +275,24 @@ describe("GET /api/notes/:id/content", () => {
     const plain = await buildTestApp();
     const r2 = await plain.app.inject({ method: "GET", url: `/api/notes/${note.id}/content` });
     expect(r2.statusCode).toBe(404);
+  });
+
+  it("#240 R1 Bearer GET /content 的大寫 id：debounce 窗內讀到 live 內容", async () => {
+    const ctx = await buildCollabTestApp();
+    const u = await ctx.createUser({ email: "r1@example.com", password: PASSWORD });
+    const note = await ctx.createNote(u.id);
+    const { token } = await seedTokenForUser(ctx.db, u.id); // 前置都排在 seed 之前：seed 一回傳 debounce 窗就開始
+    const session = await ctx.loginAs("r1@example.com", PASSWORD);
+    const MARK = `MARK-${randomUUID()}`;
+    const client = await seedContent(ctx, session, note.id, `# Head\n\n${MARK}`);
+    const seededAt = Date.now();
+    const res = await getContent(ctx.app, note.id.toUpperCase(), token);
+    // 排最前：拿掉 hook 時讀的是 note_states，那裡還沒有 MARK。
+    expect(res.json().markdown).toContain(MARK);
+    const stateHasMark = async () => { const d = await loadDoc(ctx.db, note.id); return d !== null && xmlOf(d).includes(MARK); };
+    expect(await stateHasMark()).toBe(false); // 讀發生在 debounce 窗內；變真＝這案失去鑑別力
+    console.log(`[R1] seed→斷言 ${Date.now() - seededAt} ms（store debounce 2000 ms）`);
+    expect(res.statusCode).toBe(200);
+    client.disconnect();
   });
 });

@@ -583,6 +583,16 @@ describe("共編認證：onAuthenticate / onTokenSync 真驗證（Task 5）", ()
     expect(line?.level).toBe("info");
     expect(line?.obj).toMatchObject({ noteId: note.id, userId: owner.id });
   });
+
+  it("#240 R7 以大寫 documentName 連線被拒（token 由同一個大寫 id 簽出，claims 已是小寫）", async () => {
+    const ctx = await buildCollabTestApp();
+    const owner = await ctx.createUser({ email: "owner-r7@example.com", password: PASSWORD });
+    const note = await ctx.createNote(owner.id);
+    const session = await ctx.loginAs("owner-r7@example.com", PASSWORD);
+    // 預設取 token 邏輯＝POST /api/notes/<大寫>/collab-token，再以同一個大寫字串當 documentName。
+    await expect(session.connect(note.id.toUpperCase())).rejects.toThrow(COLLAB_REJECT_INVALID_TOKEN);
+    expect(ctx.collab.hocuspocus.documents.has(note.id.toUpperCase())).toBe(false);
+  });
 });
 
 /**

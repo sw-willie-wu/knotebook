@@ -104,6 +104,17 @@ describe("#175 踢線（spec §7，群組筆記）", () => {
     expect(adminClient.closes).toEqual([]);
   });
 
+  it("#240 R5 移人的 :userId 大寫：只靠群組取得存取的人 10 秒內被 close(revoked)", async () => {
+    const ctx = await buildApp();
+    const admin = await user(ctx, "admin-r5@example.com");
+    const member = await user(ctx, "m-r5@example.com");
+    const groupId = await makeGroup(admin.session, ["m-r5@example.com"]);
+    const noteId = await createGroupNote(member.session, groupId, "crew note");
+    const memberClient = await member.session.connect(noteId);
+    expect((await api(admin.session, "DELETE", `/api/groups/${groupId}/members/${member.id.toUpperCase()}`)).status).toBe(204);
+    await waitFor("被移出的人被踢", 10_000, () => revoked(memberClient.closes));
+  });
+
   it("換成只讀自訂角色：成員續留但變唯讀（寫入不再傳到管理員那邊）", async () => {
     const ctx = await buildApp();
     const admin = await user(ctx, "admin-v2@example.com");

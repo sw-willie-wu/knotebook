@@ -160,4 +160,15 @@ describe("POST /api/notes/:id/collab-token", () => {
     expect(body).toEqual({ error: { code: "too_many_requests", message: expect.any(String) } });
     expect(body.retryAfterMs).toBeUndefined();
   });
+
+  it("#240 R6 大寫 id 簽出的 token，claims.noteId 是小寫", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-r6@example.com" });
+    const cookie = await cookieFor(owner.id);
+    const note = (await app.inject({ method: "POST", url: "/api/notes", cookies: { [SESSION_COOKIE]: cookie }, payload: {} })).json();
+    const res = await app.inject({ method: "POST", url: `/api/notes/${note.id.toUpperCase()}/collab-token`, cookies: { [SESSION_COOKIE]: cookie } });
+    const claims = await verifyCollabToken(testConfig.appSecret, res.json().token);
+    expect(claims?.noteId).toBe(note.id);
+    expect(res.statusCode).toBe(200);
+  });
 });

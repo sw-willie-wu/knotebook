@@ -33,7 +33,8 @@ export const SEC = z.string().max(64).regex(SECTION_ID_RE).refine(noNul);
 export const TITLE = z.string().min(1).refine(noNul);
 
 /** #108：MCP 工具收進來的 `note_id`（不變量 S／M9 的格式 guard ＋ NUL 兩關）。REST 側的
- * 同一道關是路由裡的 `UUID_RE.test(id)`（路徑參數不走 zod），兩者共用同一個 regex。
+ * 同一道關是路由裡的 `UUID_RE.test(id)`（路徑參數不走 zod），兩者共用同一個 regex；REST 的轉小寫在 app 層
+ * `lowercaseUuidParams`（`http/uuid-params.ts`）。
  * `.refine(noNul)` 今天完全被 `UUID_RE` 蓋住，理由與 `SEC`／`FP` 那兩道相同（見上）。
  * ⚠ 這裡**不**兼作授權：格式關只是不讓垃圾進到 pg 的 uuid 欄位（`22P02` 會變成 500），
  * 「這篇筆記你看不看得到」一律由呼叫端的 `resolveRole` 決定。

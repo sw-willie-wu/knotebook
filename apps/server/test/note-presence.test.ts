@@ -161,4 +161,11 @@ describe("presence", () => {
     expect(s.remote()?.user?.name).toBe(s.expectedName);
     s.client.disconnect();
   }, 60_000);
+
+  it("#240 R2 Bearer 以大寫 id 讀 → presence 以小寫 id 現身、名牌正確", async () => {
+    const s = await scene();
+    await getContent(s.ctx.app, s.note.id.toUpperCase(), s.token); await tick();
+    await waitFor("名字到達", 2_000, () => s.remote()?.user?.name === s.expectedName);
+    s.client.disconnect();
+  });
 });
