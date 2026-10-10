@@ -254,6 +254,9 @@ describe("VersionPreview（spec §8.4）", () => {
     // 窄時不走並排渲染，所以並排一律兩欄（沒有「窄時上下疊」的容器查詢）。
     expect(split).toHaveClass("grid", "grid-cols-2");
     expect(split).not.toHaveClass("grid-cols-1");
+    // 垂直線貫穿整個預覽區高度：wrapper 至少撐滿捲動容器、內容 grid 填滿剩餘高度（右 section 的 border-l 隨 stretch 到底）。
+    expect(split.parentElement).toHaveClass("relative", "min-h-full", "flex", "flex-col");
+    expect(split).toHaveClass("flex-1");
     const [left, right] = within(split).getAllByTestId("diff-pane");
     await waitFor(() => expect(left.querySelector('[data-id="B"][data-diff="deleted"]')).not.toBeNull());
     await waitFor(() => expect(right.querySelector('[data-id="C"][data-diff="added"]')).not.toBeNull());
@@ -262,6 +265,7 @@ describe("VersionPreview（spec §8.4）", () => {
     expect(single).toBeInTheDocument();
     expect(single.querySelector(".border-l")).toBeNull();
     expect(single).not.toHaveClass("border-l");
+    expect(single).not.toHaveClass("flex-1");
   });
 
   it("rev 10：並排時兩欄標頭是兩個下拉（左側 v1／右側 Current state），不是純文字 h3；橫幅沒有下拉", async () => {

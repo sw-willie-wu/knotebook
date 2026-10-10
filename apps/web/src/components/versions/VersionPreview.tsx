@@ -221,7 +221,7 @@ export function VersionPreview({ doc, forceSingle = false }: { doc: Y.Doc; force
       body = <p className="text-sm text-muted-foreground">{t("versions.preview.loading")}</p>;
     } else if (split) {
       body = (
-        <div data-testid="diff-split" className="kb-diff-split grid grid-cols-2 gap-4">
+        <div data-testid="diff-split" className="kb-diff-split grid min-h-0 flex-1 grid-cols-2 gap-4">
           <section className="min-w-0">
             <DiffEditor blocks={a} marks={sides.left} />
           </section>
@@ -240,7 +240,7 @@ export function VersionPreview({ doc, forceSingle = false }: { doc: Y.Doc; force
   }
 
   return (
-    <div ref={ref} className="relative p-4">
+    <div ref={ref} className="relative flex min-h-full flex-col p-4">
       {splitHead}
       {body}
       {nonText.map((c) => (
