@@ -3,7 +3,12 @@ import { diffWordsWithSpace } from "diff";
 /**
  * 版本預覽的 diff（spec §8.4，A7：在 client 算）。純函式、不碰 DOM、不碰 Y.Doc。
  *
- * 配對是**逐層**的（起草裁定 11）：只在同一個父的子清單之間以 `id` 配對，所以跨層搬移＝刪除＋新增（§13-7）。
+ * 配對是**逐層**的（起草裁定 11）：只在同一個父的子清單之間配對，所以跨層搬移＝刪除＋新增（§13-7）。
+ * 同一層內分三道（spec rev 11 §8.4 規則 1，每道只處理前一道剩下的）：1a 以 `id` 配對——但內容不同的一對若任一顆
+ * 的內容在對側未配對區塊裡有完全相同、且己側沒有別顆能接走的，就讓位（區塊開頭按 Enter：舊 id 留在空區塊、原文字
+ * 換新 id）；1b 內容完全相同者依出現順序配（整篇貼上重發所有 id）；1c 文字型區塊在候選帶內取 token bigram Dice
+ * 最高且 ≥ 0.5 者配（空的文字型區塊 token 為 0，不做 1c）。兩側都是空文字區塊的對子不標 moved。
+ * `moved` 對三道的全部對子一起算 LIS。
  * 渲染 id：b 側（新增、保留）沿用 b 的 id；刪除的區塊與其子孫一律換合成 id `diff-del-<n>`（§8.4-4）——
  * 否則「父刪子升」時 a 側的子和 b 側的同一顆會撞 id。缺 id 或同一側重複出現的 id（RF1：壞掉的快照）一律
  * 當成無法配對：b 側合成 `diff-anon-<n>` 當新增、a 側當刪除。
@@ -106,28 +111,239 @@ function addedSubtree(b: DiffBlock, ctx: Ctx, pairable: boolean): DiffEntry {
   };
 }
 
-function diffLevel(a: readonly DiffBlock[], b: readonly DiffBlock[], ctx: Ctx): DiffEntry[] {
-  const aOk = pairableIds(a);
-  const bOk = pairableIds(b);
-  const both = new Set([...aOk].filter((id) => bOk.has(id)));
-  const aIndex = new Map<string, number>();
+/** 1c 的候選帶半寬（a 未配對序列中的位置差）與相似度門檻（spec rev 11 §8.4 規則 1c）。 */
+export const FUZZY_WINDOW = 30;
+export const FUZZY_THRESHOLD = 0.5;
+/** 1c 兩側 token 至少要這麼多（bigram ≥ 3）才比；更短的只靠 1b 的完全相等。 */
+export const FUZZY_MIN_TOKENS = 4;
+
+/** 區塊的純文字（與 inline diff 同一套攤平；非文字 inline 如 wikilink 算一個 U+FFFC）。 */
+function textOf(b: DiffBlock): string {
+  return flatten(b.content)
+    .map((u) => u.ch)
+    .join("");
+}
+
+const LATIN_OR_DIGIT = /[\p{Script=Latin}\p{Nd}]/u;
+const SEPARATOR = /[\s\p{P}]/u;
+
+/**
+ * 切 token（spec §8.4 規則 1c，review I-1）：連續的拉丁字母／數字一段為一個 token；其他字元（CJK、emoji、
+ * U+FFFC 等）每個 code point 各自一個 token；空白與標點只當分隔、不成 token。
+ * 字元 bigram 在英文上太寬鬆（同主題不相關段落常過 0.5），token bigram 對英文是詞對、對中文仍是字對。
+ */
+function tokensOf(text: string): string[] {
+  const out: string[] = [];
+  let run = "";
+  for (const ch of text) {
+    if (LATIN_OR_DIGIT.test(ch)) {
+      run += ch;
+      continue;
+    }
+    if (run) out.push(run);
+    run = "";
+    if (!SEPARATOR.test(ch)) out.push(ch);
+  }
+  if (run) out.push(run);
+  return out;
+}
+
+/** token bigram（相鄰 token 對）的多重集合；回 [集合, bigram 個數]。 */
+function bigrams(tokens: readonly string[]): [Map<string, number>, number] {
+  const m = new Map<string, number>();
+  for (let i = 0; i + 1 < tokens.length; i += 1) {
+    const g = `${tokens[i]}\u0001${tokens[i + 1]}`;
+    m.set(g, (m.get(g) ?? 0) + 1);
+  }
+  return [m, Math.max(0, tokens.length - 1)];
+}
+
+/**
+ * 兩個 bigram 多重集合的 Dice 係數。給了 `floor` 時，一旦證明結果必定 < floor 就提早回 -1
+ * （剩下的 bigram 全數命中也到不了）——互不相似的長段落大多在掃到一半前就能放棄。
+ */
+function diceOf(x: Map<string, number>, xn: number, y: Map<string, number>, yn: number, floor = 0): number {
+  if (xn + yn === 0) return 0;
+  const [small, big, smallN] = x.size <= y.size ? [x, y, xn] : [y, x, yn];
+  const need = (floor * (xn + yn)) / 2; // 交集至少要這麼大才 ≥ floor
+  let inter = 0;
+  let left = smallN; // small 裡還沒掃的 bigram 個數（含重複）
+  for (const [g, n] of small) {
+    inter += Math.min(n, big.get(g) ?? 0);
+    left -= n;
+    if (inter + left < need) return -1;
+  }
+  return (2 * inter) / (xn + yn);
+}
+
+/**
+ * token bigram Dice 係數：2·|A∩B| ÷ (|A|+|B|)（多重集合交集）。任一側沒有 bigram（token < 2）→ 0。
+ * （1c 另要求兩側 token ≥ `FUZZY_MIN_TOKENS` 才比；這裡不管那條，量測與單元測試用。）
+ */
+export function bigramDice(a: string, b: string): number {
+  const [ga, na] = bigrams(tokensOf(a));
+  const [gb, nb] = bigrams(tokensOf(b));
+  if (na === 0 || nb === 0) return 0;
+  return diceOf(ga, na, gb, nb);
+}
+
+/** INLINE 型且沒有任何文字的區塊（空段落等）：照常配對，但兩側都是空的對子不參與 LIS、不標 moved（review M-2：空行 moved 是雜訊）。 */
+function isBlankText(b: DiffBlock): boolean {
+  return INLINE_DIFF_TYPES.has(b.type) && textOf(b) === "";
+}
+
+/**
+ * 同一層的三道配對（spec rev 11 §8.4 規則 1）。只在**可配對**的區塊之間進行（RF1：缺 id、同層重複 id 一律不配）。
+ * 回傳 b 索引 → a 索引。
+ */
+function pairLevel(a: readonly DiffBlock[], b: readonly DiffBlock[], aOk: Set<string>, bOk: Set<string>): Map<number, number> {
+  const aCan = a.map((blk) => typeof blk.id === "string" && aOk.has(blk.id));
+  const bCan = b.map((blk) => typeof blk.id === "string" && bOk.has(blk.id));
+  const aKey = a.map(shallow);
+  const bKey = b.map(shallow);
+  const aIndexById = new Map<string, number>();
   a.forEach((blk, i) => {
-    if (blk.id !== undefined && both.has(blk.id)) aIndex.set(blk.id, i);
+    if (aCan[i]) aIndexById.set(blk.id!, i);
   });
 
-  const common = b.filter((blk) => blk.id !== undefined && both.has(blk.id));
-  const keep = lisPositions(common.map((blk) => aIndex.get(blk.id!)!));
-  const moved = new Set(common.filter((_, i) => !keep.has(i)).map((blk) => blk.id!));
+  // 讓位池的材料：所有可配對區塊，**含空的文字型區塊**——在文末空段落打字時 BlockNote 會補一顆新的空段落，
+  // 舊 id 那顆（原本空）讓位、兩顆空段落以 1b 配成 unchanged，新字才會是 added（修正輪 2 裁定）。
+  // 空段落對子不參與 moved（見 diffLevel）；1c 因 token 數為 0 本來就不做。
+  const aMat = aCan;
+  const bMat = bCan;
+
+  // 1a id 配對：同 id 且 shallow 相等 → 固定。不相等時，若某一顆的內容在對側未配對池裡「多出來」（對側池中相等者的
+  // 個數 > 己側池中相等者的個數，即己側沒有別顆能接走它）→ 讓位（拆開回池）——解「區塊開頭按 Enter」。
+  // 只看「有沒有」會在同層有重複內容時交叉配對、生出假 moved（review M-1），所以比個數。
+  // 未配對池＝內容材料中不在 id 對子裡的＋已讓位的。讓位會讓池變大、可能觸發另一對讓位（連鎖），所以依 b 順序
+  // 重跑到不再有新的讓位為止。
+  const idPairs: Array<[number, number]> = []; // [bi, ai]，依 b 順序
+  b.forEach((blk, bi) => {
+    if (!bCan[bi]) return;
+    const ai = aIndexById.get(blk.id!);
+    if (ai !== undefined) idPairs.push([bi, ai]);
+  });
+  const aInIdPair = new Set<number>(idPairs.map(([, ai]) => ai));
+  const bInIdPair = new Set<number>(idPairs.map(([bi]) => bi));
+  const aPool = new Map<string, number>(); // 池中區塊的 shallow → 個數
+  const bPool = new Map<string, number>();
+  const bump = (pool: Map<string, number>, key: string) => pool.set(key, (pool.get(key) ?? 0) + 1);
+  a.forEach((_, ai) => {
+    if (aMat[ai] && !aInIdPair.has(ai)) bump(aPool, aKey[ai]);
+  });
+  b.forEach((_, bi) => {
+    if (bMat[bi] && !bInIdPair.has(bi)) bump(bPool, bKey[bi]);
+  });
+  const surplus = (key: string, there: Map<string, number>, here: Map<string, number>) => (there.get(key) ?? 0) > (here.get(key) ?? 0);
+  const contested = idPairs.filter(([bi, ai]) => aKey[ai] !== bKey[bi]);
+  const yielded = new Set<number>(); // 讓位的 b 索引
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const [bi, ai] of contested) {
+      if (yielded.has(bi)) continue;
+      const aWanted = aMat[ai] && surplus(aKey[ai], bPool, aPool);
+      const bWanted = bMat[bi] && surplus(bKey[bi], aPool, bPool);
+      if (!aWanted && !bWanted) continue;
+      yielded.add(bi);
+      if (aMat[ai]) bump(aPool, aKey[ai]);
+      if (bMat[bi]) bump(bPool, bKey[bi]);
+      grew = true;
+    }
+  }
+  const pairs = new Map<number, number>();
+  const aUsed = new Set<number>();
+  for (const [bi, ai] of idPairs) {
+    if (yielded.has(bi)) continue;
+    pairs.set(bi, ai);
+    aUsed.add(ai);
+  }
+
+  // 1b 內容精確配對：shallow 完全相等者依出現順序一一配（所有型別，含空的文字型區塊）。
+  const byKey = new Map<string, number[]>();
+  a.forEach((_, ai) => {
+    if (!aCan[ai] || aUsed.has(ai)) return;
+    const list = byKey.get(aKey[ai]);
+    if (list) list.push(ai);
+    else byKey.set(aKey[ai], [ai]);
+  });
+  const cursor = new Map<string, number>();
+  b.forEach((_, bi) => {
+    if (!bCan[bi] || pairs.has(bi)) return;
+    const list = byKey.get(bKey[bi]);
+    const k = cursor.get(bKey[bi]) ?? 0;
+    if (!list || k >= list.length) return;
+    cursor.set(bKey[bi], k + 1);
+    pairs.set(bi, list[k]);
+    aUsed.add(list[k]);
+  });
+
+  // 1c 文字相似配對：同 type、屬 INLINE_DIFF_TYPES、兩側 token ≥ FUZZY_MIN_TOKENS；在 a 未配對序列的候選帶內取
+  // token bigram Dice 最高且 ≥ 門檻者（同分取前者）。
+  // 候選帶的中心＝上一次 1c 配到的 a 在未配對序列中的位置＋1（起點 0）：b 側配不到的新區塊不推移中心，所以前面插入
+  // 任意多顆新區塊仍配得到（照 b 在未配對序列中的位置當中心的話，b 側插入與 a 側刪除的淨差超過帶寬就整段配不到）。
+  // 代價：a 側連續超過帶寬顆都配不到時，中心追不上，其後整段退回刪＋增（不會配錯）。
+  type Fuzzy = { idx: number; type: string; grams: Map<string, number>; n: number };
+  const fuzzyOf = (blk: DiffBlock, idx: number): Fuzzy | null => {
+    if (!INLINE_DIFF_TYPES.has(blk.type)) return null;
+    const tokens = tokensOf(textOf(blk));
+    if (tokens.length < FUZZY_MIN_TOKENS) return null;
+    const [grams, n] = bigrams(tokens);
+    return { idx, type: blk.type, grams, n };
+  };
+  const aRest: Array<Fuzzy | null> = [];
+  a.forEach((blk, ai) => {
+    if (aCan[ai] && !aUsed.has(ai)) aRest.push(fuzzyOf(blk, ai));
+  });
+  const restTaken = new Array<boolean>(aRest.length).fill(false);
+  let center = 0;
+  b.forEach((blk, bi) => {
+    if (!bCan[bi] || pairs.has(bi)) return;
+    const fb = fuzzyOf(blk, bi);
+    if (!fb) return;
+    let best = -1;
+    let bestScore = FUZZY_THRESHOLD;
+    const hi = Math.min(aRest.length - 1, center + FUZZY_WINDOW);
+    for (let r = Math.max(0, center - FUZZY_WINDOW); r <= hi; r += 1) {
+      const fa = aRest[r];
+      if (!fa || restTaken[r] || fa.type !== fb.type) continue;
+      // Dice 的上界是 2·min/(和)：連上界都低於目前最佳（或門檻）就不必算交集。
+      if ((2 * Math.min(fa.n, fb.n)) / (fa.n + fb.n) < bestScore) continue;
+      const score = diceOf(fa.grams, fa.n, fb.grams, fb.n, bestScore);
+      if (best === -1 ? score >= bestScore : score > bestScore) {
+        best = r;
+        bestScore = score;
+      }
+    }
+    if (best === -1) return;
+    restTaken[best] = true;
+    pairs.set(bi, aRest[best]!.idx);
+    center = best + 1;
+  });
+  return pairs;
+}
+
+function diffLevel(a: readonly DiffBlock[], b: readonly DiffBlock[], ctx: Ctx): DiffEntry[] {
+  const bOk = pairableIds(b);
+  const pairs = pairLevel(a, b, pairableIds(a), bOk); // b 索引 → a 索引
+  const pairedA = new Map<number, number>(); // a 索引 → b 索引
+  for (const [bi, ai] of pairs) pairedA.set(ai, bi);
+
+  // moved：三道配對的全部對子一起，依 b 順序取 a 索引做 LIS（規則 3）。兩側都是空文字區塊的對子不參與、moved 恆 false
+  // （空行的相對順序沒有意義，標 moved 只是雜訊；review M-2／修正輪 2）。
+  const commonB = b.map((_, bi) => bi).filter((bi) => pairs.has(bi) && !(isBlankText(b[bi]) && isBlankText(a[pairs.get(bi)!])));
+  const keep = lisPositions(commonB.map((bi) => pairs.get(bi)!));
+  const moved = new Set(commonB.filter((_, i) => !keep.has(i)));
 
   const out: DiffEntry[] = [];
-  const posOf = new Map<string, number>(); // b 側 id → 在 out 裡的位置
-  for (const blk of b) {
-    if (blk.id !== undefined && both.has(blk.id)) {
-      const before = a[aIndex.get(blk.id)!];
+  const posOfB = new Array<number>(b.length).fill(-1); // b 索引 → 在 out 裡的位置
+  b.forEach((blk, bi) => {
+    const ai = pairs.get(bi);
+    if (ai !== undefined) {
+      const before = a[ai];
       out.push({
-        key: blk.id,
+        key: blk.id!, // 配到的 b 一定可配對（b 內唯一）
         status: shallow(before) === shallow(blk) ? "unchanged" : "changed",
-        moved: moved.has(blk.id),
+        moved: moved.has(bi),
         before,
         after: blk,
         children: diffLevel(before.children ?? [], blk.children ?? [], ctx),
@@ -135,35 +351,36 @@ function diffLevel(a: readonly DiffBlock[], b: readonly DiffBlock[], ctx: Ctx): 
     } else {
       out.push(addedSubtree(blk, ctx, typeof blk.id === "string" && bOk.has(blk.id)));
     }
-    posOf.set(out[out.length - 1].key, out.length - 1);
-  }
+    posOfB[bi] = out.length - 1;
+  });
 
-  // 刪除：依 a 的順序，插在「a 裡它前一顆存活區塊」之後（同一顆存活區塊後的多顆刪除維持 a 的順序）；沒有就放開頭。
+  // 刪除：依 a 的順序，插在「a 裡它前一顆已配對區塊」（在 out 裡的位置）之後（同一錨點後的多顆刪除維持 a 的順序）；沒有就放開頭。
+  // 錨點跳過「兩側皆空文字、且 id 不同」的對子（＝靠 1b 配起來的空行）：1b 會把被刪的空行配給任意遠處的新空行，
+  // 拿它當錨點會讓緊接其後被刪的段落顯示到遠處（fix2 review I-A）。
   let headInsert = 0;
-  const afterCount = new Map<string, number>();
+  const afterCount = new Map<number, number>(); // 錨點 b 索引 → 其後已插幾顆
   for (let i = 0; i < a.length; i += 1) {
-    const blk = a[i];
-    if (blk.id !== undefined && both.has(blk.id)) continue;
-    let anchor: string | null = null;
+    if (pairedA.has(i)) continue;
+    let anchor: number | null = null;
     for (let j = i - 1; j >= 0; j -= 1) {
-      const cand = a[j].id;
-      if (cand !== undefined && both.has(cand)) {
-        anchor = cand;
+      const bj = pairedA.get(j);
+      if (bj !== undefined && !(isBlankText(a[j]) && isBlankText(b[bj]) && a[j].id !== b[bj].id)) {
+        anchor = bj;
         break;
       }
     }
-    const entry = deletedSubtree(blk, ctx);
+    const entry = deletedSubtree(a[i], ctx);
     let at: number;
     if (anchor === null) {
       at = headInsert;
       headInsert += 1;
     } else {
       const n = afterCount.get(anchor) ?? 0;
-      at = posOf.get(anchor)! + 1 + n;
+      at = posOfB[anchor] + 1 + n;
       afterCount.set(anchor, n + 1);
     }
     out.splice(at, 0, entry);
-    for (const [k, v] of posOf) if (v >= at) posOf.set(k, v + 1);
+    for (let k = 0; k < posOfB.length; k += 1) if (posOfB[k] >= at) posOfB[k] += 1;
   }
   return out;
 }
@@ -312,4 +529,79 @@ export function sideBySideMarks(entries: DiffEntry[]): { left: Map<string, DiffM
   };
   walk(entries);
   return { left, right };
+}
+
+/** 並排的一列：a／b **頂層**陣列的索引，單側列對面為 null（spec rev 12 §8.4「並排逐區塊對齊」）。 */
+export interface SplitRow {
+  left: number | null;
+  right: number | null;
+}
+
+/**
+ * 並排逐區塊對齊的列（spec rev 12 §8.4「列的產生」）。只看頂層 entries；巢狀子區塊跟著所屬頂層區塊走。
+ * 用索引不用 id：RF1 重複 id 在 DOM 上 `data-id` 會撞；兩欄 DOM 的頂層 `.bn-block-outer` 依文件順序與 a／b 一一對應。
+ *
+ * 1. 錨列＝配對且 `moved === false` 的 entry（`diffLevel` 裡 `before === a[ai]`、`after === b[bi]`，以物件身分取索引），分兩階
+ *    （Task 2 review I-1）：
+ *    1a 先取**非**「兩側皆空文字」的對子——它們來自 `diffLevel` 的 LIS，依 b 順序時 a 索引天然遞增；仍留遞增檢查當防線
+ *       （不遞增就降級）。
+ *    1b 兩側皆空文字的對子（1b 配對可配到很遠、`moved` 恆 false）只有 a 索引與 b 索引都嚴格夾在相鄰兩個錨列之間
+ *       （開頭前、結尾後也算區間）才升格為錨列，否則降級。依 b 順序處理、升格的也算錨列（後面的空行對子要夾在它之間）。
+ *       不分階、依 b 順序先到先贏的話，遠處配到的空行對子會搶先當錨列，把其後所有真正未變的區塊全部降級錯開。
+ *    降級與 moved 對子一樣當成兩側各自未對齊。
+ * 2. 相鄰兩錨列之間（含開頭前、結尾後）：左側未對齊的 a 索引依 a 順序、右側未對齊的 b 索引依 b 順序，逐顆並排成列，
+ *    多出的那側各自成列、對面為 null。因為錨列在 a、b 兩側都嚴格遞增，「兩錨列之間」就是兩側各一段連續索引區間。
+ * 不變量：每列 left／right 各自（忽略 null）嚴格遞增；a、b 的每個索引各恰出現一次。
+ */
+export function splitRows(a: readonly DiffBlock[], b: readonly DiffBlock[], entries: readonly DiffEntry[]): SplitRow[] {
+  const aIdx = new Map<DiffBlock, number>();
+  a.forEach((blk, i) => aIdx.set(blk, i));
+  const bIdx = new Map<DiffBlock, number>();
+  b.forEach((blk, i) => bIdx.set(blk, i));
+  const anchors: Array<[number, number]> = []; // 依 b（也依 a）嚴格遞增
+  const blanks: Array<[number, number]> = [];
+  let lastA = -1;
+  for (const e of entries) {
+    if (!e.before || !e.after || e.moved) continue;
+    const ai = aIdx.get(e.before);
+    const bi = bIdx.get(e.after);
+    if (ai === undefined || bi === undefined) continue;
+    if (isBlankText(e.before) && isBlankText(e.after)) {
+      blanks.push([ai, bi]);
+      continue;
+    }
+    if (ai <= lastA) continue; // 防線：LIS 保證不會發生；真發生就降級
+    anchors.push([ai, bi]);
+    lastA = ai;
+  }
+  // 1b：空行對子依 b 順序，夾在相鄰兩錨列之間（a、b 兩側都嚴格落在中間）才插入成錨列。
+  for (const [ai, bi] of blanks) {
+    let lo = 0;
+    let hi = anchors.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (anchors[mid][1] < bi) lo = mid + 1;
+      else hi = mid;
+    }
+    const prevA = lo > 0 ? anchors[lo - 1][0] : -1;
+    const nextA = lo < anchors.length ? anchors[lo][0] : a.length;
+    if (prevA < ai && ai < nextA) anchors.splice(lo, 0, [ai, bi]);
+  }
+  const rows: SplitRow[] = [];
+  let ia = 0;
+  let ib = 0;
+  const gap = (endA: number, endB: number) => {
+    const n = Math.max(endA - ia, endB - ib);
+    for (let k = 0; k < n; k += 1) {
+      rows.push({ left: ia + k < endA ? ia + k : null, right: ib + k < endB ? ib + k : null });
+    }
+  };
+  for (const [ai, bi] of anchors) {
+    gap(ai, bi);
+    rows.push({ left: ai, right: bi });
+    ia = ai + 1;
+    ib = bi + 1;
+  }
+  gap(a.length, b.length);
+  return rows;
 }

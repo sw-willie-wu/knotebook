@@ -93,7 +93,8 @@ function Host({ doc, seq, seq2, right, forceSingle, profile }: { doc: Y.Doc; seq
     </VersionsProvider>
   );
 }
-function renderPreview(opts: { seq: number; seq2?: number; right?: number; live?: unknown[]; forceSingle?: boolean; profile?: () => void }) {
+/** `rightLater`：渲染「r」鈕但不自動按（先看 vs 目前狀態，之後才換右邊）。 */
+function renderPreview(opts: { seq: number; seq2?: number; right?: number; rightLater?: boolean; live?: unknown[]; forceSingle?: boolean; profile?: () => void }) {
   const live = new Y.Doc();
   if (opts.live) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -109,7 +110,7 @@ function renderPreview(opts: { seq: number; seq2?: number; right?: number; live?
     </QueryClientProvider>,
   );
   fireEvent.click(screen.getByText("go"));
-  if (opts.right !== undefined) fireEvent.click(screen.getByText("r"));
+  if (opts.right !== undefined && !opts.rightLater) fireEvent.click(screen.getByText("r"));
   return { live, queryClient };
 }
 /** 左 v1（V1）vs 活文件（V2）——rev 10 的預設比較：A changed、B deleted、C added。 */
@@ -266,6 +267,82 @@ describe("VersionPreview（spec §8.4）", () => {
     expect(single.querySelector(".border-l")).toBeNull();
     expect(single).not.toHaveClass("border-l");
     expect(single).not.toHaveClass("flex-1");
+  });
+
+  describe("rev 12 並排逐區塊對齊（左 v1＝[A 甲, B 乙]、右目前狀態＝[A 甲改, N 新, B 乙]：列 {0,0}{null,1}{1,2}）", () => {
+    const INS_V1 = [{ id: "A", type: "paragraph", content: "甲" }, { id: "B", type: "paragraph", content: "乙" }];
+    const INS_LIVE = [{ id: "A", type: "paragraph", content: "甲改" }, { id: "N", type: "paragraph", content: "新" }, { id: "B", type: "paragraph", content: "乙" }];
+    const routesIns = () => ({
+      [`/api/notes/${NOTE}/versions?limit=50`]: list([ver(1)]),
+      [`/api/notes/${NOTE}/versions/1`]: { id: "v-1", seq: 1, ydoc: b64(INS_V1) },
+    });
+    const rowOf = (pane: Element) => Array.from(pane.querySelectorAll<HTMLElement>(".bn-block-outer")).map((el) => [el.dataset.id, el.dataset.diffRow]);
+
+    it("兩欄頂層 block-outer 帶 data-diff-row：同列同號、單側列（N）只在右欄有該號；jsdom 高度全 0 → 沒有 spacer、沒有 inline margin", async () => {
+      stub(routesIns());
+      widthRef.current = 900;
+      renderPreview({ seq: 1, live: INS_LIVE });
+      const split = await screen.findByTestId("diff-split");
+      const [left, right] = within(split).getAllByTestId("diff-pane");
+      await waitFor(() => expect(rowOf(right)).toEqual([["A", "0"], ["N", "1"], ["B", "2"]]));
+      expect(rowOf(left)).toEqual([["A", "0"], ["B", "2"]]);
+      expect(split.querySelector(".kb-diff-spacer")).toBeNull();
+      for (const el of split.querySelectorAll<HTMLElement>(".bn-block-outer")) {
+        expect(el.style.marginTop).toBe("");
+        expect(el.style.marginBottom).toBe("");
+      }
+      expect(split.querySelectorAll("section")[0]).toHaveClass("relative");
+      expect(split.querySelectorAll("section")[1]).toHaveClass("relative");
+    });
+
+    it("量得到高度時（getBoundingClientRect 以文字長度假造：每字 12.4px、區塊 left 20／width 100）：矮側差值＋對面單側列整列高累加成下一顆的 margin-top（小數不四捨五入）；單側列對面有等高、收窄到區塊橫向範圍的 spacer；列變了先清舊 margin", async () => {
+      const orig = Element.prototype.getBoundingClientRect;
+      const spy = vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+        if (!this.classList.contains("bn-block-outer")) return orig.call(this);
+        const h = 12.4 * (this.textContent ?? "").length;
+        return { x: 20, y: 0, left: 20, top: 0, width: 100, height: h, right: 120, bottom: h, toJSON: () => ({}) } as DOMRect;
+      });
+      try {
+        stub(routesIns());
+        widthRef.current = 900;
+        renderPreview({ seq: 1, live: INS_LIVE, right: 1, rightLater: true });
+        const split = await screen.findByTestId("diff-split");
+        const [left, right] = within(split).getAllByTestId("diff-pane");
+        await waitFor(() => expect(rowOf(right)).toEqual([["A", "0"], ["N", "1"], ["B", "2"]]));
+        // 列 0：左 A 12.4、右 A「甲改」24.8 → 左欠 12.4；列 1：左空、整列 12.4 → 左 B 的 margin-top＝24.8（整數 offsetHeight 會得 24，review M-1）。
+        await waitFor(() => expect(left.querySelector<HTMLElement>('.bn-block-outer[data-id="B"]')!.style.marginTop).toBe("24.8px"));
+        expect(left.querySelector<HTMLElement>('.bn-block-outer[data-id="A"]')!.style.marginTop).toBe("");
+        for (const el of right.querySelectorAll<HTMLElement>(".bn-block-outer")) expect(el.style.marginTop).toBe("");
+        const [leftSec, rightSec] = split.querySelectorAll("section");
+        const spacers = leftSec.querySelectorAll<HTMLElement>(".kb-diff-spacer");
+        expect(spacers).toHaveLength(1);
+        expect(spacers[0]).toHaveAttribute("aria-hidden", "true");
+        expect(spacers[0].style.height).toBe("12.4px");
+        expect(spacers[0].style.left).toBe("20px");
+        expect(spacers[0].style.width).toBe("100px");
+        expect(rightSec.querySelector(".kb-diff-spacer")).toBeNull();
+        expect((leftSec as HTMLElement).style.paddingBottom).toBe("");
+        // 右邊換成 v1（與左相同）：左欄編輯器不重建（a 身分不變），上一輪寫的 margin 必須被清掉、spacer 消失。
+        const leftB = left.querySelector<HTMLElement>('.bn-block-outer[data-id="B"]')!;
+        fireEvent.click(screen.getByText("r"));
+        await waitFor(() => expect(rowOf(within(screen.getByTestId("diff-split")).getAllByTestId("diff-pane")[1])).toEqual([["A", "0"], ["B", "1"]]));
+        expect(left.querySelector('.bn-block-outer[data-id="B"]')).toBe(leftB);
+        expect(leftB.style.marginTop).toBe("");
+        expect(screen.getByTestId("diff-split").querySelector(".kb-diff-spacer")).toBeNull();
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("寬度不足（單欄）不回貼 data-diff-row、不產生 spacer", async () => {
+      stub(routesIns());
+      widthRef.current = 600;
+      renderPreview({ seq: 1, live: INS_LIVE });
+      const view = await screen.findByTestId("diff-single");
+      await waitFor(() => expect(view.querySelector('[data-id="N"][data-diff="added"]')).not.toBeNull());
+      expect(document.querySelector("[data-diff-row]")).toBeNull();
+      expect(document.querySelector(".kb-diff-spacer")).toBeNull();
+    });
   });
 
   it("rev 10：並排時兩欄標頭是兩個下拉（左側 v1／右側 Current state），不是純文字 h3；橫幅沒有下拉", async () => {
