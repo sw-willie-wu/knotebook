@@ -28,8 +28,8 @@ function toDto(row: typeof apiTokens.$inferSelect): ApiTokenDto {
   return {
     id: row.id,
     // kind 只 cast（CHECK 只有兩值，沒有正規化的需求）；scope 走 normalizeScope 讓
-    // CHECK 漂移時退化成唯讀（fail-closed）——代價是未來若加第三個 scope，這裡會
-    // 靜默少報落庫值，屆時要一起改。
+    // CHECK 漂移時退化成不大於原值的合法形（fail-closed）。normalizeScope 對三種合法落庫形
+    // （TOKEN_SCOPES）恆等，所以正常情況下這裡回的就是 DB 的值。
     kind: row.kind as ApiTokenDto["kind"],
     name: row.name,
     // D7：欄位有值＝使用者改過的名字，NULL＝回派生值（`agentLabelOf` 是唯一現值運算式）。
