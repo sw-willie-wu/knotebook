@@ -189,7 +189,7 @@ describe("#175 PR5 create_note {group_id}", () => {
     expect(inGroup.url).toBe(`/g/${g.id}/plan`);
   });
 
-  it("B 帶 content（collab app）：內容落盤、note_ai_edits 一列、role editor、owner 是群組、lastEdited 非 null（reread 走了 grouped 分支）", async () => {
+  it("B 帶 content（collab app）：內容落盤、note_ai_edits 一列、role editor、owner 是群組、lastEdited 非 null（rereadVisibleNote 走了 grouped 分支）", async () => {
     const ctx = await buildCollabTestApp();
     const me = await seedUser(ctx.db);
     const g = await seedGroup(ctx.db, "Team", [{ userId: me.id, role: "member" }]);
