@@ -7,7 +7,9 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- Comparing versions no longer shows unchanged text as deleted in one place and added in another just because the editor gave its block a new identity — which happens when you press Enter at the start of a paragraph, or paste over the whole note. Blocks under the same parent are now also matched by their content: identical blocks of any kind, and text blocks of at least four words whose wording stayed close (a reworded sentence then shows what was removed and added inside it). Typing into the empty paragraph at the end of a note now shows just the new text as added, as long as no other empty paragraph at the same level was removed in the meantime (if one was, the paragraph you typed into may show as changed).
 
 ## [0.8.0] - 2026-10-10
 

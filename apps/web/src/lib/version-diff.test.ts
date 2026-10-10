@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { diffBlocks, markOf, renderDiff, sideBySideMarks, type DiffBlock } from "./version-diff";
+import { bigramDice, diffBlocks, markOf, renderDiff, sideBySideMarks, type DiffBlock } from "./version-diff";
 
 const p = (id: string, text: string, children: DiffBlock[] = []): DiffBlock => ({
   id,
@@ -143,5 +143,265 @@ describe("diffBlocks（spec §8.4）", () => {
   it("RF1 對照：同一個 id 只在一側重複時，另一側那顆也不配對（重複判定是逐側、逐層）", () => {
     const entries = diffBlocks([p("A", "a")], [p("A", "a"), p("A", "a2")]);
     expect(entries.map(markOf).sort()).toEqual(["added", "added", "deleted"]);
+  });
+});
+
+/** 決定性的亂字（小寫字母）：同一個 seed 永遠同一串；不同 seed 的 bigram 幾乎不重疊（Dice 遠低於 0.5）。 */
+const gibberish = (seed: number, len = 40): string => {
+  // mulberry32：各 seed 的序列彼此獨立（線性同餘的不同 seed 只是同一條序列錯位，會偶發撞出相似字串）。
+  let x = seed >>> 0;
+  let s = "";
+  for (let i = 0; i < len; i += 1) {
+    x = (x + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(x ^ (x >>> 15), x | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    s += "abcdefghijklmnopqrstuvwxyz"[((t ^ (t >>> 14)) >>> 0) % 26];
+  }
+  return s;
+};
+/** 決定性的亂句：n 個 5 字母的亂字、空白分隔（token bigram 才有 n−1 個；單一長串只算一個 token）。 */
+const words = (seed: number, n = 8): string => (gibberish(seed, 5 * n).match(/.{5}/g) ?? []).join(" ");
+const h =(id: string, text: string): DiffBlock => ({ id, type: "heading", props: { level: 1 }, content: [{ type: "text", text, styles: {} }], children: [] });
+
+describe("diffBlocks 配對的內容後備（spec rev 11 §8.4 規則 1a／1b／1c）", () => {
+  it("1a 讓位＋1b：在區塊開頭按 Enter（舊 id 留在新的空白區塊、原文字換新 id）→ 只有新區塊是 added，原文字 context、沒有 deleted", () => {
+    const entries = diffBlocks([p("id1", "first"), p("id2", "hello")], [p("id1", "first"), p("id2", "new"), p("id3", "hello")]);
+    expect(entries.map((e) => [e.key, markOf(e)])).toEqual([
+      ["id1", "context"],
+      ["id2", "added"],
+      ["id3", "context"],
+    ]);
+    expect(entries[2].before?.id).toBe("id2");
+  });
+
+  it("1b：整篇貼上（所有 id 都換新、文字不變）→ 全部 unchanged、沒有 moved", () => {
+    const texts = ["one", "two", "three", "four", "five"];
+    const entries = diffBlocks(
+      texts.map((t, i) => p(`id${i + 1}`, t)),
+      texts.map((t, i) => p(`id${i + 6}`, t)),
+    );
+    expect(entries.map((e) => [e.key, e.status, e.moved])).toEqual(texts.map((_, i) => [`id${i + 6}`, "unchanged", false]));
+  });
+
+  it("1b＋LIS：整篇貼上且第 2、3 顆對調 → 恰一顆 moved，其餘 context", () => {
+    const texts = ["one", "two", "three", "four", "five"];
+    const swapped = [texts[0], texts[2], texts[1], texts[3], texts[4]];
+    const entries = diffBlocks(
+      texts.map((t, i) => p(`id${i + 1}`, t)),
+      swapped.map((t, i) => p(`id${i + 6}`, t)),
+    );
+    expect(entries.every((e) => e.status === "unchanged")).toBe(true);
+    expect(entries.map(markOf).filter((m) => m === "moved")).toHaveLength(1);
+    expect(entries.map(markOf).filter((m) => m === "context")).toHaveLength(4);
+  });
+
+  it("1c：整篇貼上且第 3 顆改了一個詞（相似度 > 0.5）→ 該顆 changed 且 inline 有刪／增片段，其餘 context", () => {
+    const texts = ["Alpha beta gamma delta", "Lorem ipsum dolor sit amet", "The quick brown fox jumps over the lazy dog", "Pack my box with five dozen", "Sphinx of black quartz judge"];
+    const after = [...texts];
+    after[2] = "The quick brown cat jumps over the lazy dog";
+    const entries = diffBlocks(
+      texts.map((t, i) => p(`id${i + 1}`, t)),
+      after.map((t, i) => p(`id${i + 6}`, t)),
+    );
+    expect(entries.map(markOf)).toEqual(["context", "context", "changed", "context", "context"]);
+    expect(entries[2].before?.id).toBe("id3");
+    const { blocks } = renderDiff(entries);
+    const inline = blocks[2].content as Array<{ text: string; styles: Record<string, unknown> }>;
+    expect(inline).toContainEqual({ type: "text", text: "fox", styles: { strike: true, backgroundColor: "red" } });
+    expect(inline).toContainEqual({ type: "text", text: "cat", styles: { backgroundColor: "green" } });
+  });
+
+  it("1c 門檻：同 type 但相似度不足 0.5 → 不配對（刪除＋新增）", () => {
+    expect(marksOf([p("id1", "完全不同的內容")], [p("id2", "another thing entirely different here")])).toEqual([
+      ["diff-del-1", "deleted"],
+      ["id2", "added"],
+    ]);
+  });
+
+  // 以下兩段取自 docs/known-limitations.md：同主題、措辭相近但講的是兩件事。字元 bigram Dice 0.603（舊定義會誤配），
+  // token bigram Dice 0.415——是該檔 229 段兩兩配對中最高的一對（review I-1／M-3：守門檻與 token 化）。
+  const SIGNIN_SERVICE =
+    "Turning a sign-in service off doesn't sign anyone out. People who signed in through it keep their session until it expires, and their API tokens and connected apps keep working (a token created without an expiry keeps working until it's revoked). Deleting the service doesn't change that either. To cut someone off right away, disable their account in Site admin → Users — that stops their sessions and tokens too.";
+  const SIGNIN_PASSWORD =
+    "Turning password sign-in off doesn't sign anyone out. Existing sessions, API tokens, connected apps and MCP clients keep working. To cut someone off right away, disable their account in Site admin → Users.";
+
+  it("1c 門檻（token bigram）：刪掉一段、原處寫一段同主題但不相關的英文 → 不配對（刪除＋新增）", () => {
+    expect(bigramDice(SIGNIN_SERVICE, SIGNIN_PASSWORD)).toBeGreaterThan(0.4);
+    expect(bigramDice(SIGNIN_SERVICE, SIGNIN_PASSWORD)).toBeLessThan(0.5);
+    expect(marksOf([p("k0", "Kept first paragraph stays here"), p("k1", SIGNIN_SERVICE), p("k2", "Kept last paragraph stays here")], [p("k0", "Kept first paragraph stays here"), p("n1", SIGNIN_PASSWORD), p("k2", "Kept last paragraph stays here")])).toEqual([
+      ["k0", "context"],
+      ["diff-del-1", "deleted"],
+      ["n1", "added"],
+      ["k2", "context"],
+    ]);
+  });
+
+  it("1c 門檻（token bigram）：整篇貼上後同一段只改一個詞 → 仍配對（changed）", () => {
+    const edited = SIGNIN_SERVICE.replace("connected apps", "connected tools");
+    expect(bigramDice(SIGNIN_SERVICE, edited)).toBeGreaterThanOrEqual(0.5);
+    const entries = diffBlocks([p("id1", SIGNIN_SERVICE)], [p("id2", edited)]);
+    expect(entries.map((e) => [e.key, markOf(e), e.before?.id])).toEqual([["id2", "changed", "id1"]]);
+  });
+
+  it("1c 只比 token ≥ 4 的區塊：3 個詞的短段改一個詞 → 不配對（只靠 1b 的完全相等）", () => {
+    expect(marksOf([p("id1", "alpha beta gamma")], [p("id2", "alpha beta delta")])).toEqual([
+      ["diff-del-1", "deleted"],
+      ["id2", "added"],
+    ]);
+  });
+
+  it("非文字型只做精確配對：image props 相同 → unchanged；url 不同 → 刪除＋新增（不走 1c）", () => {
+    expect(marksOf([img("id1", "/api/uploads/1")], [img("id2", "/api/uploads/1")])).toEqual([["id2", "context"]]);
+    expect(marksOf([img("id1", "/api/uploads/1")], [img("id2", "/api/uploads/2")])).toEqual([
+      ["diff-del-1", "deleted"],
+      ["id2", "added"],
+    ]);
+  });
+
+  it("1b：同一層重複的相同內容依出現順序一一配（id3↔id1、id4↔id2）", () => {
+    const entries = diffBlocks([p("id1", "x"), p("id2", "x")], [p("id3", "x"), p("id4", "x")]);
+    expect(entries.map((e) => [e.key, e.status, e.before?.id])).toEqual([
+      ["id3", "unchanged", "id1"],
+      ["id4", "unchanged", "id2"],
+    ]);
+  });
+
+  it("1c 候選帶：a 前面 5 顆被刪、b 前面插 40 顆新區塊、其後 100 顆換 id 且各改了尾巴 → 100 顆仍全部配到（changed）", () => {
+    const a = [...Array.from({ length: 5 }, (_, i) => p(`gone${i}`, words(1000 + i))), ...Array.from({ length: 100 }, (_, i) => p(`a${i}`, words(i)))];
+    const b = [
+      ...Array.from({ length: 40 }, (_, i) => p(`new${i}`, words(2000 + i))),
+      ...Array.from({ length: 100 }, (_, i) => p(`b${i}`, `${words(i).slice(0, -5)}xyzzy`)), // 換掉最後一個字：Dice 6/7
+    ];
+    const entries = diffBlocks(a, b);
+    const paired = entries.filter((e) => e.status === "changed");
+    expect(paired.map((e) => [e.key, e.before?.id, e.moved])).toEqual(Array.from({ length: 100 }, (_, i) => [`b${i}`, `a${i}`, false]));
+    expect(entries.filter((e) => e.status === "added")).toHaveLength(40);
+    expect(entries.filter((e) => e.status === "deleted")).toHaveLength(5);
+  });
+
+  it("1a 不讓位：同 id 的一對內容不同、但對側沒有內容相等的未配對區塊 → 仍是這一對 changed", () => {
+    const entries = diffBlocks([p("id1", "abc")], [p("id1", "abd")]);
+    expect(entries.map((e) => [e.key, markOf(e), e.before?.id])).toEqual([["id1", "changed", "id1"]]);
+  });
+
+  it("RF1 不變：b 側兩顆同 id 同文字、缺 id 的同文字區塊 → 文字相同也不配對", () => {
+    const dup = diffBlocks([p("id1", "same text")], [p("id9", "same text"), p("id9", "same text")]);
+    expect(dup.map(markOf).sort()).toEqual(["added", "added", "deleted"]);
+    const noId: DiffBlock = { type: "paragraph", props: { textAlignment: "left" }, content: [{ type: "text", text: "same text", styles: {} }], children: [] };
+    const missing = diffBlocks([p("id1", "same text")], [noId]);
+    expect(missing.map(markOf).sort()).toEqual(["added", "deleted"]);
+    const missingA = diffBlocks([{ ...noId }], [p("id1", "same text")]);
+    expect(missingA.map(markOf).sort()).toEqual(["added", "deleted"]);
+  });
+
+  it("型別守衛：paragraph 與 heading 文字相同 → 1b（shallow 含 type）與 1c（type 須相同）都不配 → 刪除＋新增", () => {
+    // 文字 ≥ 4 個 token，1c 真的會比到（不看 type 的話 Dice＝1 就配了；fix2 review M-B2）。
+    const text = "The quick brown fox jumps over the lazy dog";
+    expect(marksOf([p("id1", text)], [h("id2", text)])).toEqual([
+      ["diff-del-1", "deleted"],
+      ["id2", "added"],
+    ]);
+  });
+
+  it("1a 讓位（b 側方向）：id 對子的新內容在 a 的未配對區塊裡有完全相同者 → 讓位，b 配給那顆、a 的舊那顆刪除", () => {
+    const entries = diffBlocks([p("id1", "t"), p("id5", "t2")], [p("id1", "t2")]);
+    expect(entries.map((e) => [e.key, markOf(e), e.before?.id])).toEqual([
+      ["diff-del-1", "deleted", "id1"],
+      ["id1", "context", "id5"],
+    ]);
+  });
+
+  it("1a 讓位連鎖：後面那對讓位後釋出的內容才讓前面那對讓位（要重跑到不再有新的讓位）", () => {
+    // 第一輪：id2（w→x）的舊內容 w 在 b 池（id3）→ 讓位，b 池多了 x；第二輪：id1（x→y）的舊內容 x 這時才在 b 池 → 讓位。
+    const entries = diffBlocks([p("id1", "x"), p("id2", "w")], [p("id1", "y"), p("id2", "x"), p("id3", "w")]);
+    expect(entries.map((e) => [e.key, markOf(e), e.before?.id])).toEqual([
+      ["id1", "added", undefined],
+      ["id2", "context", "id1"],
+      ["id3", "context", "id2"],
+    ]);
+  });
+
+  it("1a 讓位比個數：同層有重複內容、己側還有別顆能接走時不讓位 → 不交叉配對、沒有假 moved（review M-1）", () => {
+    const entries = diffBlocks([p("id1", "hello world"), p("id5", "hello world")], [p("id1", "hello world!"), p("id6", "hello world")]);
+    expect(entries.map((e) => [e.key, e.status, e.moved, e.before?.id])).toEqual([
+      ["id1", "changed", false, "id1"],
+      ["id6", "unchanged", false, "id5"],
+    ]);
+  });
+
+  it("空的文字型區塊照常配對但不標 moved：刪一顆空行＋別處新增空行 → 兩顆空行配成 unchanged、moved=false（review M-2／修正輪 2）", () => {
+    const entries = diffBlocks([p("id1", ""), p("id2", "alpha"), p("id3", "beta")], [p("id2", "alpha"), p("id3", "beta"), p("id9", "")]);
+    expect(entries.map((e) => [e.key, e.status, e.moved, e.before?.id])).toEqual([
+      ["id2", "unchanged", false, "id2"],
+      ["id3", "unchanged", false, "id3"],
+      ["id9", "unchanged", false, "id1"],
+    ]);
+  });
+
+  it("在文末空段落打字（BlockNote 補一顆新的空段落）→ 新字 added、空段落 unchanged 且不 moved、沒有 deleted（修正輪 2）", () => {
+    const entries = diffBlocks([p("id1", "hello"), p("id2", "")], [p("id1", "hello"), p("id2", "new text"), p("id3", "")]);
+    expect(entries.map((e) => [e.key, e.status, e.moved, e.before?.id])).toEqual([
+      ["id1", "unchanged", false, "id1"],
+      ["id2", "added", false, undefined],
+      ["id3", "unchanged", false, "id2"],
+    ]);
+  });
+
+  it("空行對子先排除再算 LIS：空行移到前面不會把唯一的非空對子擠出 LIS 標成 moved（fix2 review M-B1）", () => {
+    // 若空行也進 LIS（a 索引序列 [1, 2, 0]），LIS 是兩顆空行、x 會被標 moved；先排除則 x 單獨成 LIS。
+    const entries = diffBlocks([p("x", "keep me"), p("e", ""), p("f", "")], [p("e2", ""), p("f2", ""), p("x", "keep me")]);
+    expect(entries.map((e) => [e.key, e.status, e.moved, e.before?.id])).toEqual([
+      ["e2", "unchanged", false, "e"],
+      ["f2", "unchanged", false, "f"],
+      ["x", "unchanged", false, "x"],
+    ]);
+  });
+
+  it("刪除錨點跳過靠內容配起來的空行：刪掉「空行＋下一段」、別處新增空行 → 被刪段落仍在原處（Title 之後），不跑到文末（fix2 review I-A）", () => {
+    const a = [p("h", "Title"), p("e1", ""), p("d", "This paragraph gets deleted"), p("k1", "keep one"), p("k2", "keep two"), p("t", "")];
+    const b = [p("h", "Title"), p("k1", "keep one"), p("k2", "keep two"), p("n", ""), p("t", "")];
+    expect(diffBlocks(a, b).map((e) => [e.key, e.status, e.before?.id])).toEqual([
+      ["h", "unchanged", "h"],
+      ["diff-del-1", "deleted", "d"],
+      ["k1", "unchanged", "k1"],
+      ["k2", "unchanged", "k2"],
+      ["n", "unchanged", "e1"],
+      ["t", "unchanged", "t"],
+    ]);
+  });
+
+  it("真實的區塊開頭按 Enter（舊 id 那顆變成空行）→ 空行 added、原文字 context", () => {
+    const entries = diffBlocks([p("id1", "first"), p("id2", "hello")], [p("id1", "first"), p("id2", ""), p("id3", "hello")]);
+    expect(entries.map((e) => [e.key, markOf(e), e.before?.id])).toEqual([
+      ["id1", "context", "id1"],
+      ["id2", "added", undefined],
+      ["id3", "context", "id2"],
+    ]);
+  });
+
+  it("bigramDice：token bigram（拉丁字母／數字連成一個 token、其他字元各一個、空白標點是分隔）、多重集合交集", () => {
+    expect(bigramDice("a b c d", "a b c e")).toBeCloseTo(4 / 6);
+    expect(bigramDice("x x x", "x x")).toBeCloseTo(2 / 3);
+    expect(bigramDice("hello, world!", "hello world")).toBe(1);
+    expect(bigramDice("abc def", "abc deg")).toBe(0); // 拉丁字母連成一個 token：def ≠ deg
+    expect(bigramDice("中文字", "中文字")).toBe(1);
+    expect(bigramDice("v2 release", "v3 release")).toBe(0);
+    expect(bigramDice("abcd", "abcd")).toBe(0); // 只有一個 token → 沒有 bigram
+  });
+
+  it("bigramDice 以 code point 切：代理對 emoji 是一個 token（以 UTF-16 code unit 切會得 0.5）", () => {
+    expect(bigramDice("a😀", "a😁")).toBe(0);
+    expect(bigramDice("a😀", "a😀")).toBe(1);
+  });
+
+  it("效能（只印不斷言時間）：2000 顆對 2000 顆、全新 id、文字各異且互不相似 → 全部刪＋增", () => {
+    const a = Array.from({ length: 2000 }, (_, i) => p(`a${i}`, words(i)));
+    const b = Array.from({ length: 2000 }, (_, i) => p(`b${i}`, words(10000 + i)));
+    const t0 = performance.now();
+    const entries = diffBlocks(a, b);
+    const ms = performance.now() - t0;
+    console.log(`[version-diff 案 12] diffBlocks 2000×2000 全不相似：${ms.toFixed(1)} ms`);
+    expect(entries.filter((e) => e.status === "added")).toHaveLength(2000);
+    expect(entries.filter((e) => e.status === "deleted")).toHaveLength(2000);
   });
 });
