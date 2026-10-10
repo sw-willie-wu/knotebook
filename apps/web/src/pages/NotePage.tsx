@@ -378,7 +378,7 @@ export default function NotePage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [vEnabled, presenting, saveDialogOpen, openSave]);
 
-  // 預覽中 Esc＝橫幅 ✕（spec §8.4）。RF3：有對話框／選單開著時讓它們自己吃 Esc。
+  // 預覽中 Esc＝離開預覽（spec §8.4；橫幅自 rev 10 追記起沒有 ✕）。RF3：有對話框／選單開著時讓它們自己吃 Esc。
   // ⚠ 主判準是 `event.defaultPrevented`（gate r1 I-3）：Radix 的 DismissableLayer 在 **document capture** 階段處理 Esc、
   // 一定 `preventDefault()` 後 `onDismiss()`；真實按鍵在每個 listener 之間有 microtask checkpoint，React 19 的 SyncLane 會在
   // 事件冒泡到 window **之前**就把浮層卸掉——所以「浮層 DOM 還在嗎」（isOverlayOpen）在真瀏覽器裡讀到 false、不可靠。

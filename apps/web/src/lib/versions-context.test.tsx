@@ -77,17 +77,31 @@ describe("versions-context", () => {
     expect(result.current.preview).toBeNull();
   });
 
-  it("previewSeq 由 preview 衍生；close() 不離開預覽（spec §8.1：預覽由橫幅 ✕ 關）", () => {
+  it("previewSeq 由 preview 衍生；stopPreview → null", () => {
     const { result } = renderHook(() => useVersionsController({ noteId: "n1", enabled: true }));
     act(() => {
       result.current.open();
       result.current.startPreview({ seq: 3, id: "v-3" });
     });
     expect(result.current.previewSeq).toBe(3);
-    act(() => result.current.close());
-    expect(result.current.preview).toEqual({ seq: 3, id: "v-3" });
     act(() => result.current.stopPreview());
     expect(result.current.previewSeq).toBeNull();
+    expect(result.current.mode).toBe("panel");
+  });
+
+  it("Task 19（spec §8.4 rev 10 追記）：close() 關面板＝一併離開預覽，右邊也重設 current", () => {
+    const { result } = renderHook(() => useVersionsController({ noteId: "n1", enabled: true }));
+    act(() => {
+      result.current.open();
+      result.current.startPreview({ seq: 3, id: "v-3" });
+      result.current.setCompareRight({ seq: 1, id: "v-1" });
+    });
+    expect(result.current.preview).toEqual({ seq: 3, id: "v-3" });
+    act(() => result.current.close());
+    expect(result.current.mode).toBeNull();
+    expect(result.current.preview).toBeNull();
+    expect(result.current.previewSeq).toBeNull();
+    expect(result.current.compareRight).toBe("current");
   });
 
   it("openSave(then) → dialog={kind:'save', then}；closeDialog 清掉", () => {

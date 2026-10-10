@@ -70,6 +70,8 @@ const REMOVED_KEYS = [
   "versions.preview.vsEmpty",
   "versions.preview.leftLabel",
   "versions.preview.rightLabelCurrent",
+  // Task 19：橫幅不再有 ✕。
+  "versions.preview.close",
 ];
 
 describe("rev 10 刪除的鍵不殘留", () => {

@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
  * 只在「容器內至少一顆泡泡在渲染」時掛（effect guard 與渲染守門同一組條件）。鍵盤焦點落在任一顆時強制現形。
  *
  * **互斥橋接**（必須在 `AiSessionProvider` 之下，`NoteEditor` 內）：版本面板 **false → true 的那一刻** 收合 AI；
- * AI **true → false**（`start()` 自動展開或點 AI 泡泡）的那一刻關版本面板——預覽不關（由橫幅 ✕ 關）。
+ * AI **true → false**（`start()` 自動展開或點 AI 泡泡）的那一刻關版本面板——`close()` 一併離開預覽（spec §8.4 rev 10 追記：面板關了預覽卻留著就沒有出口，Task 19）。
  * 兩邊都用 ref 存前值做邊緣觸發：用位準（「面板開著就收合 AI」）會讓 AI 一展開就被立刻收回，兩邊互踢。
  */
 export function CornerStack() {

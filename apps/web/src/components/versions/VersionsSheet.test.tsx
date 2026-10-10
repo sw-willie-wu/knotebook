@@ -175,7 +175,10 @@ describe("VersionsSheet（spec §8.3）", () => {
     await waitFor(() => expect(left).toHaveTextContent("v2"));
     expect(right).toHaveTextContent("Current state");
     expect(row.getByText("→")).toHaveAttribute("aria-hidden", "true");
-    expect(row.getByRole("button", { name: "Only changes" })).toBeInTheDocument();
+    // Task 19 M-3：整頁（觸控沒有 hover 看不到 title）保留文字鈕，不是橫幅那種圖示鈕。
+    const only = row.getByRole("button", { name: "Only changes" });
+    expect(only).toHaveTextContent("Only changes");
+    expect(only.querySelector("svg")).toBeNull();
     // 收尾 M-A：整頁一律單欄（forceSingle）——預覽區沒有欄標頭列，下拉只有列 2 那一對（寬 800 ≥ 720 也一樣）。
     await within(sheet).findByTestId("diff-single");
     expect(within(sheet).queryByTestId("diff-split-head")).toBeNull();

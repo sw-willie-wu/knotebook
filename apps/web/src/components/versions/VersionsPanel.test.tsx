@@ -147,6 +147,67 @@ describe("VersionsPanel（spec §8.2）", () => {
     expect(state().preview).toEqual({ seq: 2, id: "v-2" });
   });
 
+  it("Task 19：再點已選中的那一列 → 離開預覽（toggle）；再點一次又進預覽", async () => {
+    stub({ [FIRST]: { versions: [v(2), v(1)], current: cur({ baseSeq: 2, nextSeq: 3 }), nextBefore: null } });
+    renderPanel();
+    const row1 = await screen.findByRole("button", { name: /^v1/ });
+    fireEvent.click(row1);
+    expect(state().preview).toEqual({ seq: 1, id: "v-1" });
+    fireEvent.click(row1);
+    expect(state().preview).toBeNull();
+    expect(row1).not.toHaveClass("bg-accent");
+    fireEvent.click(row1);
+    expect(state().preview).toEqual({ seq: 1, id: "v-1" });
+  });
+
+  it("Task 19：點清單空白處（<ul> 本身）→ 離開預覽；點列、點 ⋯ 都不算空白（不離開）", async () => {
+    stub({ [FIRST]: { versions: [v(2), v(1)], current: cur({ baseSeq: 2, nextSeq: 3 }), nextBefore: null } });
+    renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: /^v1/ }));
+    expect(state().preview).toEqual({ seq: 1, id: "v-1" });
+    // 點另一列（事件冒泡到 <ul>）：換預覽、不離開。
+    fireEvent.click(screen.getByRole("button", { name: /^v2/ }));
+    expect(state().preview).toEqual({ seq: 2, id: "v-2" });
+    // 點 ⋯（冒泡到 <ul>）：預覽留著。
+    fireEvent.click(screen.getByRole("button", { name: "Actions for v1" }));
+    expect(state().preview).toEqual({ seq: 2, id: "v-2" });
+    // 點 <li> 列與 ⋯ 之間的空隙也不算（target 是 <li> 不是 <ul>）。
+    fireEvent.click(screen.getByRole("button", { name: /^v1/ }).closest("li")!);
+    expect(state().preview).toEqual({ seq: 2, id: "v-2" });
+    // 按下與放開都在 <ul> 本身才算點空白（review M-1）。
+    const list = screen.getByRole("list");
+    fireEvent.pointerDown(list);
+    fireEvent.click(list);
+    expect(state().preview).toBeNull();
+    expect(state().mode).toBe("panel");
+  });
+
+  it("Task 19 review M-1：在列上按下、拖到列間縫放開（click 派到 <ul>）→ 不離開預覽；之後單獨一發 click 到 <ul> 也不算", async () => {
+    stub({ [FIRST]: { versions: [v(2), v(1)], current: cur({ baseSeq: 2, nextSeq: 3 }), nextBefore: null } });
+    renderPanel();
+    const row1 = await screen.findByRole("button", { name: /^v1/ });
+    fireEvent.click(row1);
+    expect(state().preview).toEqual({ seq: 1, id: "v-1" });
+    const list = screen.getByRole("list");
+    // 瀏覽器在按下與放開的元素不同時，click 派給兩者的共同祖先（這裡是 <ul>）。
+    fireEvent.pointerDown(row1);
+    fireEvent.click(list);
+    expect(state().preview).toEqual({ seq: 1, id: "v-1" });
+    // 上一發的記錄用過即清：沒有 pointerdown 的 click 不會沿用。
+    fireEvent.click(list);
+    expect(state().preview).toEqual({ seq: 1, id: "v-1" });
+  });
+
+  it("Task 19：面板 ✕ 關面板 → 一併離開預覽", async () => {
+    stub({ [FIRST]: { versions: [v(1)], current: cur({ baseSeq: 1, nextSeq: 2 }), nextBefore: null } });
+    renderPanel();
+    fireEvent.click(await screen.findByRole("button", { name: /^v1/ }));
+    expect(state().preview).toEqual({ seq: 1, id: "v-1" });
+    fireEvent.click(screen.getByRole("button", { name: "Close version history" }));
+    expect(state().mode).toBeNull();
+    expect(state().preview).toBeNull();
+  });
+
   it("鍵盤：在列上按 ↓／↑ 移動焦點並切換預覽", async () => {
     stub({ [FIRST]: { versions: [v(3), v(2), v(1)], current: cur({ baseSeq: 3, nextSeq: 4 }), nextBefore: null } });
     renderPanel();

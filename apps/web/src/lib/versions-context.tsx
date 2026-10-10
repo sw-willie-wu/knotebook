@@ -167,7 +167,13 @@ export function useVersionsController({
   const open = useCallback(() => {
     if (active) setMode(isNarrow() ? "sheet" : "panel");
   }, [active]);
-  const close = useCallback(() => setMode(null), []);
+  // 關面板＝一併離開預覽（spec §8.4 rev 10 追記，Task 19）：橫幅不再有 ✕，面板關了預覽卻留著就沒有出口。
+  // 右邊同 stopPreview 重設 current。CornerStack 的 AI 橋接呼叫 close() 也因此一併離開預覽。
+  const close = useCallback(() => {
+    setMode(null);
+    setPreview(null);
+    setCompareRight("current");
+  }, []);
   const openSave = useCallback((then?: VersionDto) => {
     if (active) setDialog(then ? { kind: "save", then } : { kind: "save" });
   }, [active]);

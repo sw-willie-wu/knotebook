@@ -3,7 +3,7 @@ import { ADMIN, createNote, editorLocator, loginAs } from "./helpers.js";
 
 /**
  * 版本歷史 e2e（spec §11.3）：存（命名）→ 改 → 存 → 改 → 預覽 v1 看到 diff 標記 → 套用（「不儲存」）→ 內容回到 v1 →
- * 再改並存 → 清單出現「從 v1 接著改」→ 預覽期間另一個 context 改字、✕ 回來後游標與浮層正常 → 窄視窗（390）整頁兩步套用。
+ * 再改並存 → 清單出現「從 v1 接著改」→ 預覽期間另一個 context 改字、再點選中列離開預覽後游標與浮層正常 → 窄視窗（390）整頁兩步套用。
  * 自動切版要安靜 5 分鐘，本案只用手動儲存（Ctrl+S）建版；三切點的自動行為由 server 整合測試守（PR1）。
  *
  * 列的可及名稱是「v1 ＋（基底版的 sr-only 說明）＋名稱＋第二行」連成一串（例：`v1Manual · …`），所以列一律用
@@ -95,11 +95,11 @@ test("22 版本歷史：存、改、預覽 diff、套用、從 vX 接著改、�
     await saveVersion(page);
     await expect(panel.getByRole("button", { name: /^v3(?!\d)/ })).toContainText("continued from v1", { timeout: 10_000 });
 
-    // 預覽期間另一個 context 改字；✕ 回來後看得到遠端的字，且還能打字、`/` 選單正常
+    // 預覽期間另一個 context 改字；離開預覽後看得到遠端的字，且還能打字、`/` 選單正常
     await panel.getByRole("button", { name: /^v3(?!\d)/ }).click();
     await expect(page.getByTestId("preview-banner")).toBeVisible();
 
-    // RF3（gate r1 I-3）真鍵盤：預覽中開著儲存對話框／⋯ 列選單按 Esc → 只關浮層，預覽橫幅留著；沒有浮層時 Esc＝✕
+    // RF3（gate r1 I-3）真鍵盤：預覽中開著儲存對話框／⋯ 列選單按 Esc → 只關浮層，預覽橫幅留著；沒有浮層時 Esc＝離開預覽
     // 先等 toast（「Saved as v3」，5 s）消失：toast 還在時第一下 Esc 被 Radix Toast 吃掉（關的是 toast、對話框留著），
     // 量的就不是本段要守的東西（Task 14 首跑實測：toast 在 → Esc 後對話框仍開；toast 不在 → 對話框關）。
     await expect(page.getByRole("region", { name: /^Notifications/ }).getByRole("listitem")).toHaveCount(0, { timeout: 15_000 });
@@ -124,7 +124,9 @@ test("22 版本歷史：存、改、預覽 diff、套用、從 vX 接著改、�
     await otherPage.goto(url);
     await expect(otherPage.getByRole("status").filter({ hasText: /^Connected/ })).toBeVisible({ timeout: 15_000 });
     await typeAtEnd(otherPage, "remote-five");
-    await page.getByTestId("preview-banner").getByRole("button", { name: "Close preview" }).click();
+    // Task 19：橫幅沒有 ✕；再點已選中的 v3 列＝離開預覽（toggle）。
+    await panel.getByRole("button", { name: /^v3(?!\d)/ }).click();
+    await expect(page.getByTestId("preview-banner")).toBeHidden();
     await expect(editorLocator(page)).toContainText("remote-five", { timeout: 15_000 });
     await typeAtEnd(page, "local-six");
     await expect(editorLocator(otherPage)).toContainText("local-six", { timeout: 15_000 });

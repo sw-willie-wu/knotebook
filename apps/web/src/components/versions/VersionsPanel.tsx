@@ -63,14 +63,19 @@ export function VersionRowMenu({ version, isBase, onApply }: { version: VersionD
 /**
  * 版本面板（spec §8.2，md+ 第三欄卡）。與 AI 面板同位置同規則、互斥（橋接在 CornerStack）。
  * `current` 的刷新：面板開著時訂閱活 `Y.Doc` 的 `update`，去抖動 1 s 後 invalidate `['notes', id, 'versions']`。
+ * 離開預覽（spec §8.4 rev 10 追記，Task 19；橫幅沒有 ✕）：點清單空白處（`<ul>` 本身，點到列或 ⋯ 不算）、
+ * 再點已選中的那一列（toggle）、✕ 關面板（`close()` 一併離開預覽）；另有 NotePage 的 Esc。
  */
 export function VersionsPanel({ doc }: { doc: Y.Doc }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const { noteId, preview, startPreview, close, openSave } = useVersions();
+  const { noteId, preview, startPreview, stopPreview, close, openSave } = useVersions();
   const id = noteId ?? "";
   const list = useVersionList(id, true);
   const rowsRef = useRef<Array<HTMLButtonElement | null>>([]);
+  // 這一發 click 的按下點是否也在 <ul> 本身（review M-1）：在列上按下、拖到列間縫放開時，瀏覽器把 click 派給共同祖先 <ul>，
+  // 只看 click 的 target 會誤判成點空白。
+  const pressedOnListRef = useRef(false);
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -122,7 +127,19 @@ export function VersionsPanel({ doc }: { doc: Y.Doc }) {
         {current && <p className="text-xs text-muted-foreground">{currentSubtitle(t, current, latestSeq)}</p>}
         {current && !current.autoEnabled && <p className="text-xs text-muted-foreground">{t("versions.autoOff")}</p>}
       </div>
-      <ul className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-2">
+      {/* 只認按下與放開都在 <ul> 本身（內距、列間空隙、清單下方空白）；列與 ⋯ 的點擊冒泡上來時 target 不是 <ul>，不算。
+          滑鼠專用的捷徑，不給鍵盤焦點（鍵盤離開預覽用 Esc 或再按一次選中列）。 */}
+      <ul
+        className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-2"
+        onPointerDown={(event) => {
+          pressedOnListRef.current = event.target === event.currentTarget;
+        }}
+        onClick={(event) => {
+          const pressedOnList = pressedOnListRef.current;
+          pressedOnListRef.current = false;
+          if (pressedOnList && event.target === event.currentTarget) stopPreview();
+        }}
+      >
         {versions.map((version, index) => {
           const isBase = current?.baseSeq === version.seq;
           return (
@@ -132,7 +149,8 @@ export function VersionsPanel({ doc }: { doc: Y.Doc }) {
                   rowsRef.current[index] = el;
                 }}
                 type="button"
-                onClick={() => startPreview({ seq: version.seq, id: version.id })}
+                // 已選中的列再點一次＝離開預覽（toggle）；↑↓ 走 onRowKey，不受影響。
+                onClick={() => (preview?.seq === version.seq ? stopPreview() : startPreview({ seq: version.seq, id: version.id }))}
                 onKeyDown={onRowKey(index)}
                 className={cn("flex min-w-0 flex-1 rounded-md px-2 py-1.5 text-left hover:bg-accent/60", preview?.seq === version.seq && "bg-accent")}
               >

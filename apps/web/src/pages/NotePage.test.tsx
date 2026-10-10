@@ -2141,7 +2141,7 @@ describe("NotePage × 版本歷史（spec §8.1、§8.4、§8.5、A9）", () => 
     expect(screen.getByTestId("note-editor")).toBeInTheDocument();
   });
 
-  it("Esc（沒有浮層）＝✕：離開預覽", async () => {
+  it("Esc（沒有浮層）：離開預覽", async () => {
     vi.stubGlobal("fetch", mockFetch());
     collab.state = { phase: "connected", role: "owner" };
     renderNotePage(NOTE.id);

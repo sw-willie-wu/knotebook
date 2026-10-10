@@ -352,7 +352,8 @@ describe("VersionPreview（spec §8.4）", () => {
     fireEvent.click(banner.getByRole("button", { name: "Single column" }));
     await screen.findByTestId("diff-single");
     await waitFor(() => expect(only).not.toHaveAttribute("aria-disabled"));
-    expect(only).not.toHaveAttribute("title");
+    // Task 19：圖示鈕的 title 平時是名稱（hover 看得到），停用時才換成說明。
+    expect(only).toHaveAttribute("title", "Only changes");
     expect(only).not.toHaveAttribute("aria-describedby");
     fireEvent.click(only);
     expect(only).toHaveAttribute("aria-pressed", "true");
@@ -565,7 +566,38 @@ describe("VersionPreview（spec §8.4）", () => {
     expect(screen.getByTestId("preview-state")).toHaveTextContent('"seq":2');
   });
 
-  it("rev 10 橫幅：bg-brand-soft（不是 bg-accent、不是 bg-primary）、「Previewing v1」、沒有時間／editors／Compare with；單欄時有左右兩個下拉（中間 →）；✕ → 離開預覽", async () => {
+  it("Task 19 橫幅：三顆模式鈕是圖示鈕（aria-label＋title＝名稱、沒有文字、h-7 w-7）、包在 ml-auto 容器裡置右；沒有 ✕（Close preview）", async () => {
+    stub(routesV1());
+    widthRef.current = 900;
+    renderPreview({ seq: 1, live: V2 });
+    await screen.findByTestId("diff-split");
+    const banner = screen.getByTestId("preview-banner");
+    const names = ["Side by side", "Single column", "Only changes"] as const;
+    const buttons = names.map((name) => within(banner).getByRole("button", { name }));
+    await waitFor(() => expect(buttons[2]).toHaveAttribute("aria-disabled", "true"));
+    buttons.forEach((b, i) => {
+      expect(b).toHaveAttribute("aria-label", names[i]);
+      expect(b).toHaveClass("h-7", "w-7");
+      expect(b.textContent).toBe("");
+      expect(b.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+    });
+    expect(buttons[0]).toHaveAttribute("title", "Side by side");
+    expect(buttons[1]).toHaveAttribute("title", "Single column");
+    // 只看差異在並排時停用：title 換成說明（final M-1 保留）。
+    expect(buttons[2]).toHaveAttribute("title", "Only changes works in single column");
+    expect(buttons[0].querySelector("svg")).toHaveAttribute("data-icon", "columns-2");
+    expect(buttons[1].querySelector("svg")).toHaveAttribute("data-icon", "rows-3");
+    expect(buttons[2].querySelector("svg")).toHaveAttribute("data-icon", "list-filter");
+    // 三顆同一個 ml-auto 容器（置右；真瀏覽器的實際位置由截圖驗【推】）。
+    const group = buttons[0].parentElement!;
+    expect(group).toHaveClass("ml-auto");
+    expect(buttons[1].parentElement).toBe(group);
+    expect(buttons[2].parentElement).toBe(group);
+    expect(within(banner).queryByRole("button", { name: "Close preview" })).not.toBeInTheDocument();
+    expect(within(banner).queryByRole("button", { name: /close/i })).not.toBeInTheDocument();
+  });
+
+  it("rev 10 橫幅：bg-brand-soft（不是 bg-accent、不是 bg-primary）、「Previewing v1」、沒有時間／editors／Compare with；單欄時有左右兩個下拉（中間 →）", async () => {
     stub({
       [`/api/notes/${NOTE}/versions?limit=50`]: list([ver(1)]),
       [`/api/notes/${NOTE}/versions/1`]: { id: "v-1", seq: 1, ydoc: b64(V1) },
@@ -589,8 +621,8 @@ describe("VersionPreview（spec §8.4）", () => {
     expect(banner).not.toHaveTextContent("Compare with");
     expect(banner).not.toHaveTextContent("2026");
     expect(banner).not.toHaveTextContent("Previous version");
-    fireEvent.click(within(banner).getByRole("button", { name: "Close preview" }));
-    expect(screen.getByTestId("preview-state")).toHaveTextContent("null");
+    // Task 19：橫幅不再有 ✕；Esc 離開預覽由 NotePage.test「Esc（沒有浮層）」守，面板的離開方式由 VersionsPanel.test 守。
+    expect(within(banner).queryByRole("button", { name: "Close preview" })).not.toBeInTheDocument();
   });
 
   it("fix1 M-4：「看前後」對話框開著時換一版預覽 → 對話框關掉，新一版的鈕照常出現", async () => {

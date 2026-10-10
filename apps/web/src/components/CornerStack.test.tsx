@@ -133,7 +133,7 @@ describe("CornerStack（spec §8.1）", () => {
     expect(screen.getByTestId("ai-collapsed")).toHaveTextContent("true");
   });
 
-  it("點 AI 泡泡 → 版本面板關、預覽不關（spec §8.1：預覽由橫幅 ✕ 關）", async () => {
+  it("點 AI 泡泡 → 版本面板關、預覽一併離開（spec §8.4 rev 10 追記：關面板＝離開預覽，Task 19）", async () => {
     const { queryClient } = renderStack({ enabled: true, actions: [ACTION] });
     await settled(queryClient);
     fireEvent.click(screen.getByText("probe-open-versions"));
@@ -141,7 +141,7 @@ describe("CornerStack（spec §8.1）", () => {
     // 面板開著時 AI 泡泡仍在容器裡（spec：任一面板展開時另一顆照常顯示）
     fireEvent.click(within(screen.getByTestId("corner-stack")).getByTestId("ai-bubble"));
     expect(screen.getByTestId("panel-open")).toHaveTextContent("false");
-    expect(screen.getByTestId("preview")).toHaveTextContent("2");
+    expect(screen.getByTestId("preview")).toHaveTextContent("null");
   });
 
   it("I-4／起草裁定 22：沒有面板展開 → 容器在原位（沒有讓位 class）；版本面板展開 → 容器加 md:right-[calc(20rem+2.25rem)]，bottom 不變", async () => {
