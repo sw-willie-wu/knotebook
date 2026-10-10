@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
-import type { ApiTokenDto, CreatedApiTokenDto } from "@knotebook/shared";
+import type { ApiTokenDto, CreatedApiTokenDto, TokenScope } from "@knotebook/shared";
 import { api } from "./client";
 
 export const API_TOKENS_QUERY_KEY = ["api-tokens"] as const;
@@ -14,8 +14,8 @@ export function useApiTokens(): UseQueryResult<ApiTokenDto[]> {
 
 export interface CreateApiTokenInput {
   name: string;
-  /** UI 的兩檔；server 落庫前會轉成集合形（`notes:write` ⊇ `notes:read`）。 */
-  scope: "notes:read" | "notes:write";
+  /** #239：三種落庫形之一，由建立對話框的兩個勾選框經 `scopeFromChecks` 算出。 */
+  scope: TokenScope;
   expiresInDays: 30 | 90 | 365 | null;
 }
 

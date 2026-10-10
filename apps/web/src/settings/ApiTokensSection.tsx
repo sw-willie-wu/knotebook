@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { ApiTokenDto } from "@knotebook/shared";
+import type { ApiTokenDto, TokenScope } from "@knotebook/shared";
 import {
   useApiTokens,
   useCreateApiToken,
@@ -23,6 +23,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
 import { copyText } from "@/lib/clipboard";
+import { scopeFromChecks, type ScopeChecks } from "@/lib/token-scope";
+import { ScopeChecksField } from "./ScopeChecksField";
 import { SettingsGroup } from "./SettingsLayout";
 
 /** 逐檔複製的既有慣例（無共用 helper——比照 ShareDialog／SettingsAccountSection）。 */
@@ -91,20 +93,25 @@ function CreateTokenDialog() {
   const create = useCreateApiToken();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
-  const [scope, setScope] = useState<CreateApiTokenInput["scope"]>("notes:read");
+  // #239 W7'：兩個勾選框預設都不勾（＝唯讀）。
+  const [checks, setChecks] = useState<ScopeChecks>({ write: false, move: false });
   const [expiresInDays, setExpiresInDays] = useState<CreateApiTokenInput["expiresInDays"]>(null);
   const [issued, setIssued] = useState<string | null>(null);
 
   function reset(): void {
     setName("");
-    setScope("notes:read");
+    setChecks({ write: false, move: false });
     setExpiresInDays(null);
     setIssued(null);
   }
 
   async function submit(): Promise<void> {
     try {
-      const created = await create.mutateAsync({ name: name.trim(), scope, expiresInDays });
+      const created = await create.mutateAsync({
+        name: name.trim(),
+        scope: scopeFromChecks(checks.write, checks.move),
+        expiresInDays,
+      });
       setIssued(created.token);
     } catch (err) {
       toast({ title: errorMessage(t, err), variant: "destructive" });
@@ -159,15 +166,10 @@ function CreateTokenDialog() {
                 maxLength={64}
                 onChange={event => setName(event.target.value)}
               />
-              <select
-                className={SELECT_CLASS}
-                aria-label={t("settings.account.apiTokensScopeLabel")}
-                value={scope}
-                onChange={event => setScope(event.target.value as CreateApiTokenInput["scope"])}
-              >
-                <option value="notes:read">{t("settings.account.apiTokensScopeRead")}</option>
-                <option value="notes:write">{t("settings.account.apiTokensScopeWrite")}</option>
-              </select>
+              <fieldset aria-label={t("settings.account.apiTokensScopeLabel")} className="space-y-2">
+                <p className="text-sm">{t("settings.account.apiTokensScopeReadFixed")}</p>
+                <ScopeChecksField value={checks} onChange={setChecks} />
+              </fieldset>
               <select
                 className={SELECT_CLASS}
                 aria-label={t("settings.account.apiTokensExpiryLabel")}
@@ -327,6 +329,13 @@ function AgentLabelField({ token }: { token: ApiTokenDto }) {
   );
 }
 
+/** 列上的權限標籤：三種落庫形各一句（#239）。 */
+function scopeLabel(t: (key: string) => string, scope: TokenScope): string {
+  if (scope === "notes:read notes:write notes:move") return t("settings.account.apiTokensScopeWriteMove");
+  if (scope === "notes:read notes:write") return t("settings.account.apiTokensScopeWrite");
+  return t("settings.account.apiTokensScopeRead");
+}
+
 function TokenRow({ token }: { token: ApiTokenDto }) {
   const { t, i18n } = useTranslation();
   const expired = token.expiresAt !== null && new Date(token.expiresAt).getTime() <= Date.now();
@@ -350,9 +359,7 @@ function TokenRow({ token }: { token: ApiTokenDto }) {
           <p className="text-xs text-muted-foreground">{t("settings.account.apiTokensUnverifiedName")}</p>
         )}
         <p className="text-xs text-muted-foreground">
-          {token.scope === "notes:read notes:write"
-            ? t("settings.account.apiTokensScopeWrite")
-            : t("settings.account.apiTokensScopeRead")}
+          {scopeLabel(t, token.scope)}
           {" · "}
           {token.lastUsedAt === null
             ? t("settings.account.apiTokensNeverUsed")
