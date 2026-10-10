@@ -2,7 +2,7 @@
  * #108 PR1 Task 5：回應大小的兩道門檻（規格 §14.2 案 11b／11c、不變量 M16）。
  *
  * 兩個數字是**兩件不同的事**，不要混：
- * - {@link N_LIST_MAX} 管 **`tools/list` 的脈絡成本**（七支工具的 input／output schema 全部
+ * - {@link N_LIST_MAX} 管 **`tools/list` 的脈絡成本**（所有工具的 input／output schema 全部
  *   進模型脈絡，「schema 慢慢變胖」需要有東西擋）。它是**測試門檻**，不是生產常數，所以
  *   不進 `src/`。
  * - {@link MCP_MAX_WIRE} 是 §8.1 的 `N`，管**單次 `tools/call` 的回應**。它是**哨兵不是
@@ -168,11 +168,11 @@ describe("#108 tools/list 的脈絡成本（案 11b）", () => {
 
     const rwRes = await mcpPost(ctx.app, rpc("tools/list"), { token: rwToken });
     expect(rwRes.statusCode).toBe(200);
-    expect((rwRes.json().result.tools as unknown[]).length).toBe(8);
+    expect((rwRes.json().result.tools as unknown[]).length).toBe(9);
     const rwWire = rwRes.body.length;
 
     console.log(
-      `[案 11b] tools/list  唯讀憑證（五支，對照）wire=${roWire}  讀寫憑證（八支，被測）wire=${rwWire}  ` +
+      `[案 11b] tools/list  唯讀憑證（五支，對照）wire=${roWire}  讀寫憑證（九支，被測）wire=${rwWire}  ` +
         `門檻=${N_LIST_MAX}  用掉 ${((rwWire / N_LIST_MAX) * 100).toFixed(1)}%`
     );
     expect(rwWire).toBeLessThanOrEqual(N_LIST_MAX);
@@ -220,8 +220,11 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
     await callWire(ctx.app, rwToken, "(i) create_transfer_token download", "create_transfer_token", { note_id: note.id, purpose: "download" });
     // #180 §9-6：copy_note 的最壞形＝副本 title 截斷＋titleTruncated（同 create_note）；來源就是這篇 260 000 字元標題的筆記。
     await callWire(ctx.app, rwToken, "(i) copy_note", "copy_note", { note_id: note.id });
+    // #180 §9-6：move_note_to_group 的最壞形＝搬後 title 截斷＋群組 owner。先建一個群組，把這篇病態筆記搬進去。
+    const mg = await seedGroup(ctx.db, "Move target", [{ userId: o.id, role: "admin" }]);
+    await callWire(ctx.app, rwToken, "(i) move_note_to_group", "move_note_to_group", { note_id: note.id, group_id: mg.id });
     // #180 §9-6／R9：rename 的最壞形＝回應 `title` 被截到逃脫後 200 ＋ titleTruncated（鏡像兩份），標題同樣 260 000 字元。
-    // 擺在 (i) 最後：它會真的改標題（後面的量測若接在它之後，請排在它前面——整合時 copy／move 排在這行之前）。
+    // 擺在 (i) 最後：它會真的改標題（後面的量測若接在它之後，請排在它前面——copy／move 已排在這行之前）。
     await callWire(ctx.app, rwToken, "(i) edit_note rename", "edit_note", { note_id: note.id, op: "rename", title: `R${"i".repeat(259_999)}` });
     client.disconnect();
   });
@@ -269,7 +272,7 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
   });
 
   /**
-   * 測資 (iii)：100 筆「每一格都合規但都滿長」的筆記。**七支工具裡最大的回應是它**——
+   * 測資 (iii)：100 筆「每一格都合規但都滿長」的筆記。**所有工具裡最大的回應是它**——
    * 前兩組測資量不到（它們只有一兩筆列）。
    *
    * ⚠ **不能用 `ctx.createNote` 隨手造**：那樣造出來的列 `last_edited_at` 是 NULL，`lastEdited`

@@ -12,8 +12,8 @@
  * （`{list_notes, search_notes}`）、`mcp-content.test.ts`（**四支唯讀工具全打**，
  * `{list_notes, read_note_outline, read_note_section, search_notes}`）、PR2 起
  * `mcp-tools-list.test.ts`（P13：`{edit_note, create_note}`）；#200 起 P13 的集合是
- * `{create_note, create_transfer_token, edit_note}`；#180 起加 `copy_note`，集合是
- * `{copy_note, create_note, create_transfer_token, edit_note}`。**新增工具時要一併把它
+ * `{create_note, create_transfer_token, edit_note}`；#180 起加 `copy_note`、`move_note_to_group`，集合是
+ * `{copy_note, create_note, create_transfer_token, edit_note, move_note_to_group}`。**新增工具時要一併把它
  * 加進其中一個名字集合，否則等於沒有守衛。**
  *
  * ⚠ 呼叫順序是契約（§8.1 D32）：建 `McpServer` → **本函式** → `registerCapabilities` →
@@ -27,8 +27,8 @@
  * `canRead` 變數，#93 起 search_notes 的變體（description 與 `sectionId` 的說明）也看它。
  * `list_notes`／`search_notes` 只查 DB，永遠註冊。
  * **這道閘門唯一的守衛是 `test/mcp-tools-list.test.ts` 的「無 collab 的 app ＋讀寫憑證：只宣告
- * 查得動 DB 的兩支、create_note、copy_note 與 create_transfer_token」**（Task 4 起改用讀寫憑證，見該案註解）——它斷言的是**五個
- * 名字的集合**（`create_note`／`copy_note` 因 D-M 不進這道閘門），所以往任一側搬工具都會紅（兩條突變都實跑過）。
+ * 查得動 DB 的兩支、create_note、copy_note、move_note_to_group 與 create_transfer_token」**（Task 4 起改用讀寫憑證，見該案註解）——它斷言的是**六個
+ * 名字的集合**（`create_note`／`copy_note`／`move_note_to_group` 因 D-M 不進這道閘門），所以往任一側搬工具都會紅（兩條突變都實跑過）。
  * ⚠ 但它**只擋得住「悄悄搬邊」，擋不住「放錯邊」**：新增一支工具一定會讓那一案紅（名字
  * 集合對不上），可是把名字補進 `LIVE_DOC_TOOLS`／`DB_ONLY_TOOLS` 哪一邊是人判的——
  * 判錯了測試照樣綠。**放進閘門的判準是「這支工具要不要讀 live doc」，不是「它比較像哪一支」。**
@@ -54,6 +54,12 @@ import { searchNotes, searchNotesDescription, searchNotesInput, searchNotesOutpu
 import { EDIT_NOTE_DESCRIPTION, editNote, editNoteInput, editNoteOutput } from "./tools/edit-note.js";
 import { CREATE_NOTE_DESCRIPTION, createNote, createNoteInput, createNoteOutput } from "./tools/create-note.js";
 import { COPY_NOTE_DESCRIPTION, copyNoteInput, copyNoteOutput, copyNoteTool } from "./tools/copy-note.js";
+import {
+  MOVE_NOTE_TO_GROUP_DESCRIPTION,
+  moveNoteToGroupInput,
+  moveNoteToGroupOutput,
+  moveNoteToGroupTool,
+} from "./tools/move-note-to-group.js";
 import {
   CREATE_TRANSFER_TOKEN_DESCRIPTION_RO,
   CREATE_TRANSFER_TOKEN_DESCRIPTION_RW,
@@ -140,6 +146,22 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
       "create_note",
       { description: CREATE_NOTE_DESCRIPTION, inputSchema: z.object(createNoteInput).strict(), outputSchema: createNoteOutput },
       async args => runTool("create_note", ctx, () => createNote(args, ctx))
+    );
+  }
+
+  // #180 spec §5.1：move_note_to_group 在 collab 閘門外（只碰 DB；踢線經 collabHooks），token 與 session 都有（canWrite）。
+  // `.strict()` 註冊（spec §4.7）；annotations 兩值都等於 SDK 預設，寫出來讓 client 不必依賴預設——**不宣稱任何 client 因此改變行為**。
+  // 守衛：annotations＝`mcp-tools-list` V11；strict＝`mcp-move` M-G2；runTool＝P13。
+  if (canWrite) {
+    server.registerTool(
+      "move_note_to_group",
+      {
+        description: MOVE_NOTE_TO_GROUP_DESCRIPTION,
+        inputSchema: z.object(moveNoteToGroupInput).strict(),
+        outputSchema: moveNoteToGroupOutput,
+        annotations: { destructiveHint: true, idempotentHint: false },
+      },
+      async args => runTool("move_note_to_group", ctx, () => moveNoteToGroupTool(args, ctx))
     );
   }
 

@@ -783,6 +783,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       collabHooks: deps.collabHooks,
       uploadsDir: deps.uploadsDir,
       storageLockTimeoutMs,
+      versions,
       slugUpdateTestHook: deps.slugUpdateTestHook,
       noteCreateHooks: deps.noteCreateHooks,
       searchIndexHooks: deps.searchIndexHooks,

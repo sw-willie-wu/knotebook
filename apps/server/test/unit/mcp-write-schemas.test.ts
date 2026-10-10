@@ -18,6 +18,7 @@ import { createBodySchema, editBodySchema, FP, GROUP_ID, MD, NOTE_ID, NUL, SEC, 
 import { editNoteInput, mcpEditBodySchema } from "../../src/mcp/tools/edit-note.js";
 import { createNoteInput } from "../../src/mcp/tools/create-note.js";
 import { copyNoteInput } from "../../src/mcp/tools/copy-note.js";
+import { moveNoteToGroupInput } from "../../src/mcp/tools/move-note-to-group.js";
 import { readNoteSectionOutput } from "../../src/mcp/tools/read-note-section.js";
 
 /** 寫死一份（不是從實作導出來的）——否則兩邊一起改就一起綠。 */
@@ -158,5 +159,13 @@ describe("#180 U2-c：copy_note 的輸入與 notes/schemas.ts 同源", () => {
     expectSameSchema(copyNoteInput.note_id, NOTE_ID);
     expectSameSchema(copyNoteInput.group_id, GROUP_ID);
     expect(copyNoteInput.group_id).toBeInstanceOf(z.ZodOptional);
+  });
+});
+
+describe("#180 U2-d：move_note_to_group 的輸入與 notes/schemas.ts 同源", () => {
+  it("moveNoteToGroupInput.note_id ↔ NOTE_ID；.group_id（必填，無 optional）↔ GROUP_ID", () => {
+    expectSameSchema(moveNoteToGroupInput.note_id, NOTE_ID);
+    expectSameSchema(moveNoteToGroupInput.group_id, GROUP_ID);
+    expect(moveNoteToGroupInput.group_id).not.toBeInstanceOf(z.ZodOptional);
   });
 });

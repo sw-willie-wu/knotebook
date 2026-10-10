@@ -21,6 +21,7 @@ import type { GroupTestHook } from "../groups/test-hook.js";
 import type { CollabHooks } from "../collab/hooks.js";
 import type { NoteCreateHooks } from "../notes/create.js";
 import type { SearchIndexHooks } from "../notes/tx/search-index.js";
+import type { VersionService } from "../collab/versions.js";
 
 export interface McpToolCtx {
   db: Db;
@@ -87,6 +88,8 @@ export interface McpToolCtx {
   uploadsDir: string;
   /** #180：移動與複製的空間鎖等待上限（ms），與 `notesRoutes` 同一個值。 */
   storageLockTimeoutMs: number;
+  /** #180 §9-10：move_note_to_group commit 後 relocated（與 notesRoutes 同一個實例，app.ts 的 versions）。 */
+  versions: VersionService;
   /** #180 測試縫（生產不注入）：`edit_note` 的 rename 每輪候選、UPDATE 之前（語意同 `NotesRouteDeps.slugUpdateTestHook`）。 */
   slugUpdateTestHook?: (candidate: string) => void | Promise<void>;
   /** #180 測試縫：`copy_note` 交易內建列的 slug 迴圈（語意同 `NotesRouteDeps.noteCreateHooks`）。 */

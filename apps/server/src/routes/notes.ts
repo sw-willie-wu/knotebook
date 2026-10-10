@@ -51,7 +51,7 @@ import {
 } from "../notes/service.js";
 import { upsertShareInTx } from "../notes/tx/shares.js";
 import { deleteNotesInTx } from "../notes/tx/delete-notes.js";
-import { moveNoteToGroupInTx } from "../notes/tx/move.js";
+import { moveNoteToGroup } from "../notes/move-note.js";
 import { copyNote } from "../notes/copy-note.js";
 import type { SearchIndexHooks } from "../notes/tx/search-index.js";
 import { patchSlugInTx, type SlugPatchTestHook, type SlugWriteScope } from "../notes/tx/patch-slug.js";
@@ -68,7 +68,7 @@ import {
 import { fetchBacklinks, normalizeLinkTargets, writeNoteLinks, type WriteNoteLinksHooks } from "../notes/links.js";
 import { signCollabToken } from "../collab/token.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
-import { isForeignKeyViolation, isRetryableTxError, uniqueViolationConstraint } from "../db/pg-errors.js";
+import { isForeignKeyViolation, uniqueViolationConstraint } from "../db/pg-errors.js";
 import { deleteUploadFiles } from "../uploads/service.js";
 import { StorageQuotaExceeded } from "../storage/tx/quota.js";
 import { precheckDetail, quotaErrorDetail } from "../storage/usage.js";
@@ -980,6 +980,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
      * `group_not_found`（spec §6.3；與 `POST /api/notes` 的 403 不同——plan 規格落差 4）。
      * commit 後踢線：被清掉的逐人分享者 ∪ 呼叫者（owner→群組角色，重驗）。回 200 NoteDto（新網址形）；
      * `role`／`permissions` 照呼叫者在目標群組的角色實算（授權只看 can_create，搬完可能是 viewer——規格落差 17）。
+     * #180：本體搬到 `notes/move-note.ts`（MCP `move_note_to_group` 共用）；本路由只剩 body 驗證與 outcome → HTTP 映射。
      */
     app.post("/api/notes/:id/move", { preHandler: app.authenticate }, async (request, reply) => {
       const { id } = request.params as { id: string };
@@ -987,33 +988,30 @@ export function notesRoutes(deps: NotesRouteDeps) {
       const parsed = moveBodySchema.safeParse(request.body ?? {});
       if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
 
-      const access = await resolveNoteAccess(deps.db, userId, id);
-      if (access.role === "none") return noteNotFound(reply);
-      if (!access.permissions.moveToGroup) return sendError(reply, 403, "forbidden", "只有筆記擁有者可以把筆記移進群組");
-      if (!UUID_RE.test(parsed.data.groupId)) return sendError(reply, 404, "group_not_found", "找不到此群組");
-
-      // S14：callback 整段就是 `moveNoteToGroupInTx(tx, …)`，引數是交易前備好的純資料與測試縫。
-      const input = {
-        noteId: id, userId, userHandle: request.user!.handle, groupId: parsed.data.groupId.toLowerCase(), lockTimeoutMs: deps.storageLockTimeoutMs,
-      };
-      let moved;
-      try {
-        moved = await deps.db.transaction(tx => moveNoteToGroupInTx(tx, input, deps.groupTestHook));
-      } catch (err) {
-        // 先判子類（StorageQuotaExceeded extends TxAbort）：反序會失去數字。數字可見性在交易外判（儲存配額 §8.1）。
-        if (err instanceof StorageQuotaExceeded) return sendStorageQuotaExceeded(reply, await quotaErrorDetail(deps.db, request.user!, err));
-        if (err instanceof TxAbort) return sendError(reply, err.status, err.errCode, err.message);
-        // 防禦縱深：(1) 已持目標群組列的 KEY SHARE，群組在交易中刪不掉、UPDATE 不會撞 FK 23503；撞到也回同一條 404（catch 在交易外）。
-        if (isForeignKeyViolation(err)) return sendError(reply, 404, "group_not_found", "找不到此群組");
-        // 儲存配額 §6.9：空間鎖逾時（55P03）／死結（40P01，含既有 T3×T6 在 note_redirects 的形）／40001 → 409 server_busy。
-        if (isRetryableTxError(err)) return sendError(reply, 409, "server_busy", "伺服器忙碌，請稍後再試");
-        throw err;
+      // #180 spec §3.2：本體在 `notes/move-note.ts`（MCP `move_note_to_group` 共用；commit 後的 relocated 與踢線也在裡面）。
+      const out = await moveNoteToGroup(
+        { db: deps.db, collabHooks: deps.collabHooks, versions: deps.versions, storageLockTimeoutMs: deps.storageLockTimeoutMs, groupTestHook: deps.groupTestHook },
+        { noteId: id, userId, userHandle: request.user!.handle, groupId: parsed.data.groupId },
+      );
+      switch (out.kind) {
+        case "not_found":
+          return noteNotFound(reply);
+        case "forbidden":
+          return sendError(reply, 403, "forbidden", "只有筆記擁有者可以把筆記移進群組");
+        case "group_not_found":
+          return sendError(reply, 404, "group_not_found", "找不到此群組");
+        case "aborted":
+          // 先判子類（StorageQuotaExceeded extends TxAbort）：反序會失去數字。數字可見性在交易外判（儲存配額 §8.1）。
+          if (out.err instanceof StorageQuotaExceeded) return sendStorageQuotaExceeded(reply, await quotaErrorDetail(deps.db, request.user!, out.err));
+          return sendError(reply, out.err.status, out.err.errCode, out.err.message);
+        case "busy":
+          return sendError(reply, 409, "server_busy", "伺服器忙碌，請稍後再試");
+        case "moved": {
+          const fresh = await loadNoteWithOwner(id);
+          if (!fresh) return noteNotFound(reply);
+          return authorizeRow(reply, userId, fresh);
+        }
       }
-      deps.versions.relocated([id]);
-      deps.collabHooks.onGroupAccessChanged([id], [...new Set([...moved.removedShareUserIds, userId])]);
-      const fresh = await loadNoteWithOwner(id);
-      if (!fresh) return noteNotFound(reply);
-      return authorizeRow(reply, userId, fresh);
     });
 
     /**

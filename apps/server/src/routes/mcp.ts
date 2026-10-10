@@ -14,6 +14,7 @@ import { mcpOriginAllowed } from "../http/origin.js";
 import type { McpTestHooks } from "../mcp/hooks.js";
 import type { GroupTestHook } from "../groups/test-hook.js";
 import type { CollabHooks } from "../collab/hooks.js";
+import type { VersionService } from "../collab/versions.js";
 import type { NoteCreateHooks } from "../notes/create.js";
 import type { SearchIndexHooks } from "../notes/tx/search-index.js";
 import { registerMcpTools } from "../mcp/register.js";
@@ -98,6 +99,8 @@ export interface McpRouteDeps {
   uploadsDir: string;
   /** #180：原樣帶進 `McpToolCtx.storageLockTimeoutMs`。 */
   storageLockTimeoutMs: number;
+  /** #180 §9-10：原樣帶進 `McpToolCtx.versions`（`app.ts` 傳 `versions`，與 `notesRoutes` 同一個實例）。 */
+  versions: VersionService;
   /** #180：原樣帶進 `McpToolCtx.slugUpdateTestHook`。 */
   slugUpdateTestHook?: (candidate: string) => void | Promise<void>;
   /** #180：原樣帶進 `McpToolCtx.noteCreateHooks`。 */
@@ -179,6 +182,7 @@ export function mcpRoutes(deps: McpRouteDeps) {
         collabHooks: deps.collabHooks,
         uploadsDir: deps.uploadsDir,
         storageLockTimeoutMs: deps.storageLockTimeoutMs,
+        versions: deps.versions,
         slugUpdateTestHook: deps.slugUpdateTestHook,
         noteCreateHooks: deps.noteCreateHooks,
         searchIndexHooks: deps.searchIndexHooks,
