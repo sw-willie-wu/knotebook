@@ -2,12 +2,13 @@ import type { TFunction } from "i18next";
 import type { VersionCurrentDto, VersionEditorDto } from "@knotebook/shared";
 
 /**
- * 切換鈕的按下態（橫幅、整頁共用）。rev 10：橫幅底色改半透明主色 `bg-primary/10`，按下態要在它上面看得出，
- * 所以是再深一階的 `bg-primary/25`（整頁頁首是 `bg-card`，同一組在白底上也只是淡主色，不另開常數）。
+ * 切換鈕的按下態（橫幅、整頁共用）。rev 10：橫幅底色是品牌色 tint `bg-brand-soft`（14%），按下態要在它上面看得出，
+ * 所以是再深一階的 `bg-brand/25`（整頁頁首是 `bg-card`，同一組在白底上也只是淡品牌色，不另開常數）。
+ * 用 brand 而非 primary：`--primary` 是中性近黑，會渲染成灰。
  * 一定要連 `hover:` 一起給（final fix 2）：ghost 變體的 `hover:bg-accent` 會在滑鼠停在按下鈕上時蓋過按下底色、
- * 看起來像沒按下。帶上 `hover:bg-primary/30` 後，`cn`（tailwind-merge）會把 ghost 的 `hover:bg-accent` 換掉。
+ * 看起來像沒按下。帶上 `hover:bg-brand/30` 後，`cn`（tailwind-merge）會把 ghost 的 `hover:bg-accent` 換掉。
  */
-export const PRESSED_CLASS = "bg-primary/25 hover:bg-primary/30";
+export const PRESSED_CLASS = "bg-brand/25 hover:bg-brand/30";
 
 /** 版本的短標籤：`vN`，有名稱時 `vN 名稱`（同 `VersionRowContent` 第一行；比較對象下拉的觸發鈕與選項用）。 */
 export function versionLabel(version: { seq: number; name: string | null }): string {

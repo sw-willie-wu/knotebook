@@ -9,7 +9,7 @@ import { PRESSED_CLASS } from "./version-labels";
 
 /**
  * 頁首下方的預覽橫幅（spec §8.4【rev 10】）：「正在預覽 vN ｜（單欄時：左下拉 → 右下拉）｜ 並排／單欄 ｜ 只看差異 ｜ ✕」。Esc＝✕（掛在 NotePage，Task 10）。
- * 時間與 editors 不放（面板列已有）、沒有「比較對象」標籤；底色 `bg-primary/10`（半透明主色）。
+ * 時間與 editors 不放（面板列已有）、沒有「比較對象」標籤；底色 `bg-brand-soft`（品牌色 tint；`--primary` 是中性近黑，不能用）。
  * 單排：容器 `flex-nowrap`、每顆鈕 `shrink-0`（目標 1400 px 視窗開面板、預覽區約 774 px 放得下；放不下會橫向溢出，不換行）。
  * 切換鈕的按下態用 `PRESSED_CLASS`（`version-labels.ts`，在主色底上再深一階）＋`aria-pressed`。
  * `narrow`：窄視窗整頁沒有並排，並排／單欄兩顆鈕不渲染；預覽區不到 `SPLIT_MIN_WIDTH`（controller 的 `previewWide` 為 false）時也不渲染。
@@ -56,7 +56,7 @@ export function PreviewBanner({ narrow = false }: { narrow?: boolean }) {
   if (!preview) return null;
   const toggle = (on: boolean) => cn("h-7 shrink-0", on && PRESSED_CLASS);
   return (
-    <div data-testid="preview-banner" className="flex flex-nowrap items-center gap-2 border-b border-border bg-primary/10 px-5 py-2 text-xs">
+    <div data-testid="preview-banner" className="flex flex-nowrap items-center gap-2 border-b border-border bg-brand-soft px-5 py-2 text-xs">
       <span className="shrink-0 font-medium">{t("versions.preview.banner", { seq: preview.seq })}</span>
       {/* 比較對象（rev 10）：並排時兩個下拉是兩欄的標頭，橫幅只在單欄時放「左 → 右」。 */}
       {!splitActive && (

@@ -423,7 +423,7 @@ describe("VersionPreview（spec §8.4）", () => {
     expect(screen.queryByTestId("diff-split")).not.toBeInTheDocument();
   });
 
-  it("rev 10 樣式：切換鈕（並排／單欄、只看差異）的按下鈕帶 bg-primary/25＋hover:bg-primary/30（主色底上看得出），hover 不會換回 bg-accent", async () => {
+  it("rev 10 樣式：切換鈕（並排／單欄、只看差異）的按下鈕帶 bg-brand/25＋hover:bg-brand/30（品牌色底上看得出），hover 不會換回 bg-accent", async () => {
     stub(routesV1());
     widthRef.current = 900;
     renderPreview({ seq: 1, live: V2 });
@@ -431,12 +431,12 @@ describe("VersionPreview（spec §8.4）", () => {
     const banner = within(screen.getByTestId("preview-banner"));
     const split = banner.getByRole("button", { name: "Side by side" });
     await waitFor(() => expect(split).toHaveAttribute("aria-pressed", "true"));
-    expect(split).toHaveClass("bg-primary/25", "hover:bg-primary/30");
+    expect(split).toHaveClass("bg-brand/25", "hover:bg-brand/30");
     // ghost 的 hover:bg-accent：留著的話，滑鼠停在按下鈕上時按下底色會被蓋掉（final fix 2，真瀏覽器截圖 12／13 的現象）。
     expect(split).not.toHaveClass("hover:bg-accent");
     const idle = banner.getByRole("button", { name: "Single column" });
     expect(idle).toHaveAttribute("aria-pressed", "false");
-    expect(idle).not.toHaveClass("bg-primary/25");
+    expect(idle).not.toHaveClass("bg-brand/25");
   });
 
   it("final fix 2 樣式：並排兩欄的內文不套 justify（index.css 在 .kb-diff-split 之下把未自訂對齊的區塊改回 left；jsdom 不載 index.css，計算樣式由 e2e 截圖驗）", async () => {
@@ -565,14 +565,14 @@ describe("VersionPreview（spec §8.4）", () => {
     expect(screen.getByTestId("preview-state")).toHaveTextContent('"seq":2');
   });
 
-  it("rev 10 橫幅：bg-primary/10（不是 bg-accent）、「Previewing v1」、沒有時間／editors／Compare with；單欄時有左右兩個下拉（中間 →）；✕ → 離開預覽", async () => {
+  it("rev 10 橫幅：bg-brand-soft（不是 bg-accent、不是 bg-primary）、「Previewing v1」、沒有時間／editors／Compare with；單欄時有左右兩個下拉（中間 →）；✕ → 離開預覽", async () => {
     stub({
       [`/api/notes/${NOTE}/versions?limit=50`]: list([ver(1)]),
       [`/api/notes/${NOTE}/versions/1`]: { id: "v-1", seq: 1, ydoc: b64(V1) },
     });
     renderPreview({ seq: 1 });
     const banner = await screen.findByTestId("preview-banner");
-    expect(banner).toHaveClass("bg-primary/10");
+    expect(banner).toHaveClass("bg-brand-soft");
     expect(banner).not.toHaveClass("bg-accent");
     expect(banner).not.toHaveClass("flex-wrap");
     expect(banner).toHaveClass("flex-nowrap");
