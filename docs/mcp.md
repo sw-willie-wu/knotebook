@@ -87,7 +87,7 @@ A result Knotebook itself produces — success or one of its own errors — come
 
 Every tool that takes a `note_id` — `read_note_outline`, `read_note_section`, `edit_note`, `move_note_to_group`, `copy_note`, `create_transfer_token` and `read_note_image` — answers a note you cannot see and a note that does not exist with the **same** `not_found`, byte for byte, so they cannot be used to find out which note ids exist.
 
-Tool inputs are snake_case (`note_id`, `group_id`); replies use camelCase. `create_note`, `move_note_to_group` and `copy_note` reject an argument they don't know; the other tools ignore it.
+Tool inputs are snake_case (`note_id`, `group_id`); replies use camelCase. Every tool rejects an argument it doesn't know instead of ignoring it — `ifMatch` for `if_match`, for example, fails the tool's input check (see [Errors](#errors) — that answer carries no `code`).
 
 ### `list_notes`
 

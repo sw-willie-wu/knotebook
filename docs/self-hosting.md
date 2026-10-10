@@ -186,6 +186,14 @@ then start that build. If you're upgrading from 0.4.1 or earlier, there were no 
 
 **Body-text search.** The first start after upgrading to a version with body-text search indexes the existing notes in the background, after the server is already answering requests. The `app` log shows `全文索引回填開始` when that starts and `全文索引回填完成` when it is done; until then, `search_notes` finds a note it hasn't got to yet by its title only. Rolling back is harmless: an older server ignores the two tables that hold the index, `note_search_sections` and `note_search_state`. When you upgrade again, the first start indexes again whatever was edited or created while the older server ran, because the index has no entry for them, or one built from an older version.
 
+**Upgrading to v0.10 (note ids in any letter case, stricter MCP input).**
+
+1. **Back up the database first.** The migrations below run automatically when the new server starts; take a dump before you start the new version anyway, for example `docker compose exec -T db pg_dump -U knotebook knotebook > knotebook-before-upgrade.sql`.
+   - **0020 (drop note self-links)** deletes rows of `note_links` that record a note as linking to itself. A note id written with uppercase letters could create them; they were never correct.
+2. **MCP clients and scripts:** the seven tools that used to ignore an argument they don't know (all but `create_note`, `move_note_to_group` and `copy_note`) now reject it, so a call with an extra or misspelled argument fails the input check and does nothing — fix the argument's name.
+3. **Rolling back** to v0.9:
+   - **0020:** harmless — no table or column changed, and the deleted rows were wrong. While v0.9 runs it can store such self-links again; upgrading again doesn't run 0020 a second time, so those stay until that note's set of links is next saved, which replaces the whole set.
+
 **Upgrading to v0.9 (MCP tools).**
 
 1. **There is no database migration.** Upgrading is pulling the new version and running `docker compose up -d --build`.
