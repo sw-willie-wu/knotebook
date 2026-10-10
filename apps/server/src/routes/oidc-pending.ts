@@ -40,7 +40,7 @@ export interface OidcPendingRouteDeps {
 }
 
 function toUserDto(u: LinkedUser): UserDto {
-  return { id: u.id, email: u.email, handle: u.handle, displayName: u.displayName, isAdmin: u.isAdmin, mustChangePassword: u.mustChangePassword, hasPassword: u.hasPassword };
+  return { id: u.id, email: u.email, handle: u.handle, displayName: u.displayName, isAdmin: u.isAdmin, mustChangePassword: u.mustChangePassword, hasPassword: u.hasPassword, autoVersions: u.autoVersions };
 }
 
 /**

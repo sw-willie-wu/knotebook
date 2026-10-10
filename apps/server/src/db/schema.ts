@@ -60,6 +60,8 @@ export const users = pgTable("users", {
   // 有 default 才讓四個建帳點與既有測試的 `db.insert(users)` 不必帶它（比照 `handle`）。`site_settings` 沒有列時函式回 NULL →
   // 23502（§4.2 契約變更）。FK 一律 `foreignKey({ name })`、不得用 `.references()`（自動名會讓 §7.1 依約束名分流落空）。
   storagePlanId: uuid("storage_plan_id").notNull().default(sql`public.knotebook_default_storage_plan('user')`),
+  // 筆記版本歷史（spec 2026-10-09 §4.3、D8）：個人空間的自動儲存開關。生效值＝站台總開關 且 這欄（A13），筆記載入時查一次。
+  autoVersions: boolean("auto_versions").notNull().default(true),
 }, t => [
   uniqueIndex("users_oidc_idx").on(t.oidcIssuer, t.oidcSub),
   // issue #18：email 比對全面走 `lower(users.email) = $1`（登入、分享查人、OIDC 連結，
@@ -193,10 +195,18 @@ export const siteSettings = pgTable(
     // 儲存配額（spec §4.2、D4b）：新使用者／新群組的預設方案（初始 Basic）。只影響之後建立的（DEFAULT 函式快照）。
     defaultUserStoragePlanId: uuid("default_user_storage_plan_id").notNull(),
     defaultGroupStoragePlanId: uuid("default_group_storage_plan_id").notNull(),
+    // 筆記版本歷史（spec §4.3、§10）：自動版本清除的兩個天數與自動儲存總開關。
+    versionKeepAllDays: integer("version_keep_all_days").notNull().default(7),
+    versionDailyUntilDays: integer("version_daily_until_days").notNull().default(30),
+    autoVersionsEnabled: boolean("auto_versions_enabled").notNull().default(true),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   t => [
     check("site_settings_singleton_chk", sql`${t.singleton}`),
+    check(
+      "site_settings_version_days_chk",
+      sql`1 <= ${t.versionKeepAllDays} and ${t.versionKeepAllDays} <= ${t.versionDailyUntilDays} and ${t.versionDailyUntilDays} <= 3650`,
+    ),
     foreignKey({ name: "site_settings_default_user_plan_fk", columns: [t.defaultUserStoragePlanId], foreignColumns: [storagePlans.id] }).onDelete("restrict"),
     foreignKey({ name: "site_settings_default_group_plan_fk", columns: [t.defaultGroupStoragePlanId], foreignColumns: [storagePlans.id] }).onDelete("restrict"),
   ],
@@ -214,6 +224,8 @@ export const groups = pgTable("groups", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   // 儲存配額（spec §4.2）：同 `users.storage_plan_id`，讀 `default_group_storage_plan_id`。
   storagePlanId: uuid("storage_plan_id").notNull().default(sql`public.knotebook_default_storage_plan('group')`),
+  // 筆記版本歷史（spec 2026-10-09 §4.3、D8）：群組空間的自動儲存開關。生效值＝站台總開關 且 這欄（A13），筆記載入時查一次。
+  autoVersions: boolean("auto_versions").notNull().default(true),
 }, t => [
   check("groups_name_chk", sql`length(${t.name}) between 1 and 80`),
   foreignKey({ name: "groups_storage_plan_fk", columns: [t.storagePlanId], foreignColumns: [storagePlans.id] }).onDelete("restrict"),
@@ -328,6 +340,11 @@ export const notes = pgTable("notes", {
   // ——權限只看成員的群組角色。
   groupId: uuid("group_id").references(() => groups.id, { onDelete: "restrict" }),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),   // 保留欄位；v0.1 硬刪
+  // 筆記版本歷史（spec §4.2）：配號器（A5：原子遞增、清除不倒退；§9 清空時歸零）；基底版號與基底指紋（A15）兩欄同進同出——
+  // NULL＝沒有基底。全文判斷一律看 `version_base_seq`，不看版本列數。不加 FK：基底不可刪由應用層守（A6）。
+  versionCounter: integer("version_counter").notNull().default(0),
+  versionBaseSeq: integer("version_base_seq"),
+  versionBaseFingerprint: text("version_base_fingerprint"),
 }, t => [
   index("notes_owner_idx").on(t.ownerId),   // GET /api/notes 自有分支（owner_id = $u）用
   // per-user 唯一（#122）：同 owner 不重複、跨 owner 可同名。PATCH 的 slug 寫入
@@ -352,6 +369,7 @@ export const notes = pgTable("notes", {
   check("notes_owner_xor_group_chk", sql`(${t.ownerId} is null) <> (${t.groupId} is null)`),
   // S11：群組筆記沒有公開別名（W7）。
   check("notes_group_no_public_slug_chk", sql`${t.groupId} is null or ${t.publicSlug} is null`),
+  check("notes_version_base_pair_chk", sql`(${t.versionBaseSeq} is null) = (${t.versionBaseFingerprint} is null)`),
 ]);
 
 /**
@@ -381,6 +399,37 @@ export const noteStateBackups = pgTable("note_state_backups", {
   ydoc: bytea().notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, t => [index("nsb_note_created_idx").on(t.noteId, t.createdAt)]);
+
+/** `note_versions.editors` 的一筆：依 (user_id, agent_label) 去重、首次出現順序（spec §4.1）。 */
+export interface VersionEditorJson {
+  user_id: string;
+  agent_label: string | null;
+}
+
+/**
+ * 筆記版本歷史（spec 2026-10-09 §4.1）：每版一份完整 Y.Doc 快照（方案 A）。`seq`＝vN（同篇唯一，配號在 `notes.version_counter`）；
+ * `kind='manual'` 永久保留、`auto` 依站台天數分層清除（§10）；`base_seq` 只在「基底 ≠ 這篇當時最新版」時填（顯示「從 vX 接著改」）。
+ * 寫入者：`notes/tx/versions.ts`（切版）、`routes/note-versions.ts`（改名、刪除）、`collab/versions.ts`（清除）。刪筆記 CASCADE。
+ */
+export const noteVersions = pgTable(
+  "note_versions",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    noteId: uuid("note_id").notNull().references(() => notes.id, { onDelete: "cascade" }),
+    seq: integer().notNull(),
+    ydoc: bytea().notNull(),
+    kind: text().notNull(),
+    name: text(),
+    editors: jsonb().$type<VersionEditorJson[]>().notNull().default([]),
+    baseSeq: integer("base_seq"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  t => [
+    uniqueIndex("note_versions_note_seq_idx").on(t.noteId, t.seq),
+    index("note_versions_note_kind_created_idx").on(t.noteId, t.kind, t.createdAt),
+    check("note_versions_kind_chk", sql`${t.kind} in ('auto','manual')`),
+  ],
+);
 
 /**
  * #93 §3.1：全文索引，一段一列（`collab/store.ts` 落盤後、`notes/tx/copy.ts` 複製時、回填時整篇替換；寫入者只有

@@ -32,6 +32,7 @@ const PASSWORD_USER: UserDto = {
   isAdmin: false,
   mustChangePassword: false,
   hasPassword: true,
+  autoVersions: true,
 };
 
 const SSO_ONLY_USER: UserDto = {
@@ -42,6 +43,7 @@ const SSO_ONLY_USER: UserDto = {
   isAdmin: false,
   mustChangePassword: false,
   hasPassword: false,
+  autoVersions: true,
 };
 
 function baseFetchHandlers(user: UserDto, passwordLoginEnabled = true) {

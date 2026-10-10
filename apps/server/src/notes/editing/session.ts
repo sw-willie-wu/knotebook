@@ -66,7 +66,8 @@ export class EditorSession {
 }
 
 export interface DirectCtx extends CollabContext {
-  source: "ai-edit";
+  /** `ai-edit`＝AI／API 寫入與撤回；`version-apply`＝套用版本（spec 2026-10-09 §7，不寫 note_ai_edits、不切版）。 */
+  source: "ai-edit" | "version-apply";
   tokenId: string | null;
   agentLabel: string | null;
   applied: boolean;
@@ -74,12 +75,15 @@ export interface DirectCtx extends CollabContext {
 
 /** 唯一開直連的地方，只為合併開；fn 在單一同步 transact 內；一定 disconnect（＝落盤點）。
  * `fn` 的原始錯誤優先於 disconnect 的錯誤（m4）：disconnect 失敗只 log，不取代 fn 丟出的錯誤，
- * 否則 Task 4 的錯誤分類會拿到錯的 error（例如把「AI 內容不合法」誤判成「落盤失敗」）。 */
+ * 否則 Task 4 的錯誤分類會拿到錯的 error（例如把「AI 內容不合法」誤判成「落盤失敗」）。
+ * 版本歷史（spec 2026-10-09 §7-2d）：`opts.beforeDisconnect` 在 transact **成功**之後、disconnect 之前 await，收到 `fn` 的回傳；
+ * 它失敗只 log、不影響 disconnect 與回傳（套用的基底寫回失敗＝內容已套、基底未更新，§11.2 接受）。fn 失敗時不呼叫。 */
 export async function withDirectConnection<T>(
   hocuspocus: Hocuspocus<CollabContext>,
   noteId: string,
   ctx: DirectCtx,
-  fn: (doc: Document) => T
+  fn: (doc: Document) => T,
+  opts?: { beforeDisconnect?: (result: T) => Promise<void> }
 ): Promise<T> {
   const direct = await hocuspocus.openDirectConnection(noteId, ctx);
   let result!: T;
@@ -92,6 +96,13 @@ export async function withDirectConnection<T>(
   } catch (err) {
     fnFailed = true;
     fnError = err;
+  }
+  if (!fnFailed && opts?.beforeDisconnect) {
+    try {
+      await opts.beforeDisconnect(result);
+    } catch (bdErr) {
+      console.error("withDirectConnection: beforeDisconnect failed", bdErr);
+    }
   }
   // disconnect 一定只呼叫一次（＝落盤一次）；fn 有錯時 disconnect 的錯誤只 log，不能蓋過 fn 的錯誤。
   try {

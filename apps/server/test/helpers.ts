@@ -450,6 +450,8 @@ export async function buildCollabTestApp(
     presence?: AppDeps["presenceOptions"];
     /** #93：全文索引測試縫，語意見 `CollabDeps.storeSearchHooks`。 */
     storeSearchHooks?: CollabDeps["storeSearchHooks"];
+    /** 版本歷史：idle 切版的安靜時間（毫秒），語意見 `CollabDeps.versionIdleMs`。 */
+    versionIdleMs?: number;
   } = {}
 ): Promise<CollabTestCtx> {
   const { db } = await freshDb();
@@ -472,7 +474,7 @@ export async function buildCollabTestApp(
     warn: (obj: object, msg: string) => collabLogs.push({ level: "warn", obj: { ...obj }, msg }),
     error: (obj: object, msg: string) => collabLogs.push({ level: "error", obj: { ...obj }, msg }),
   };
-  const collab = createCollabServer({ db, config: testConfig, gate, log: collabLog, storeSearchHooks: opts.storeSearchHooks });
+  const collab = createCollabServer({ db, config: testConfig, gate, log: collabLog, storeSearchHooks: opts.storeSearchHooks, versionIdleMs: opts.versionIdleMs });
 
   const deps: AppDeps = {
     config: testConfig,

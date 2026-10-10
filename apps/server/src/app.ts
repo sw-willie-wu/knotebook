@@ -16,8 +16,10 @@ import { createAuthenticateAny } from "./auth/bearer.js";
 import type { LoginThrottle } from "./auth/rate-limit.js";
 import type { CollabHooks } from "./collab/hooks.js";
 import type { CollabServer } from "./collab/server.js";
+import { VERSION_SWEEP_FIRST_DELAY_MS, VERSION_SWEEP_INTERVAL_MS, createVersionService } from "./collab/versions.js";
 import { authRoutes } from "./routes/auth.js";
 import { notesRoutes } from "./routes/notes.js";
+import { noteVersionsRoutes } from "./routes/note-versions.js";
 import { groupsRoutes } from "./routes/groups.js";
 import type { WriteNoteLinksHooks } from "./notes/links.js";
 import type { SlugPatchTestHook } from "./notes/tx/patch-slug.js";
@@ -26,6 +28,7 @@ import { adminStorageRoutes } from "./routes/admin-storage.js";
 import { storageRoutes } from "./routes/storage.js";
 import { adminAiRoutes } from "./routes/admin-ai.js";
 import { adminAuthRoutes } from "./routes/admin-auth.js";
+import { adminVersionsRoutes } from "./routes/admin-versions.js";
 import { accountRoutes } from "./routes/account.js";
 import { aiRoutes } from "./routes/ai.js";
 import { uploadsRoutes } from "./routes/uploads.js";
@@ -157,7 +160,7 @@ export interface AppDeps {
   };
   /**
    * #106（#137）：寫入路徑的測試注入縫（比照 `linkSyncTestHooks`）——`beforeMerge`／
-   * `beforeRecord`／`beforeRevertRecord` 分別在「合併之前」「寫紀錄之前」「寫撤回紀錄之前」
+   * `beforeRecord`／`afterRecord`／`beforeRevertRecord` 分別在「合併之前」「寫紀錄之前」「紀錄之後、連結之前」「寫撤回紀錄之前」
    * 被呼叫。**選配**，生產不注入＝零成本。#108 起透傳進 `NoteWriteService`（`buildApp` 建的那一個）。
    */
   editingTestHooks?: EditingTestHooks;
@@ -218,6 +221,8 @@ export interface AppDeps {
    * `DEFAULT_STORAGE_LOCK_TIMEOUT_MS`（5000）。race 測試注入 60000、S15 注入 200。
    */
   storageLockTimeoutMs?: number;
+  /** 版本歷史 §10.2：每小時背景清除（啟動後 5 分鐘首跑）。`index.ts` 傳 true；測試 app 不傳＝不啟動、直接呼叫 `sweep`。 */
+  startVersionSweep?: boolean;
   /**
    * Task 9：圖片上傳存放目錄的絕對路徑。**必填**——`buildApp` 啟動時會對它做一次
    * 可寫性探測（`assertUploadsDirWritable`，見該函式說明為何不用 `accessSync`），
@@ -616,6 +621,21 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       register: new FixedWindowLimiter(REGISTER_LIMIT),
     } satisfies NonNullable<AppDeps["limiters"]>);
   const storageLockTimeoutMs = deps.storageLockTimeoutMs ?? DEFAULT_STORAGE_LOCK_TIMEOUT_MS;
+  // 版本歷史：有 collab 就用它那份（已 bind hocuspocus）；沒有 collab（buildTestApp）另建一份未綁定的——REST 讀 note_states 當暫時狀態。
+  const versions = deps.collab?.versions ?? createVersionService({ db: deps.db, log: app.log });
+  if (deps.startVersionSweep) {
+    const runSweep = (): void => {
+      void versions.sweep(new Date()).catch(err => app.log.warn({ err }, "版本清除背景掃描失敗"));
+    };
+    const first = setTimeout(runSweep, VERSION_SWEEP_FIRST_DELAY_MS);
+    first.unref();
+    const every = setInterval(runSweep, VERSION_SWEEP_INTERVAL_MS);
+    every.unref();
+    app.addHook("onClose", async () => {
+      clearTimeout(first);
+      clearInterval(every);
+    });
+  }
 
   // #107：`limiters` 在上面才算出來，所以這個 decorate 必須排在它之後、任何
   // `app.register(路由)` 之前——路由模組的 register 內會呼叫 app.authenticateAny。
@@ -682,6 +702,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     presence,
     queueWaitMs: deps.editingQueueWaitMs,
     testHooks: deps.editingTestHooks,
+    versions,
   });
 
   void app.register(
@@ -693,6 +714,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       editing,
       limiters,
       writes,
+      versions,
       presence,
       linkSyncTestHooks: deps.linkSyncTestHooks,
       slugUpdateTestHook: deps.slugUpdateTestHook,
@@ -704,8 +726,10 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       storageLockTimeoutMs,
     })
   );
+  // 版本歷史（spec 2026-10-09 §6）：cookie 專用六支；apply 只在 writes.available 時註冊（路由內判）。
+  void app.register(noteVersionsRoutes({ db: deps.db, versions, writes, limiters: { edit: limiters.edit } }));
   // #103：群組管理（session-only，見 routes/groups.ts 檔頭）。
-  void app.register(groupsRoutes({ db: deps.db, collabHooks: deps.collabHooks, groupTestHook: deps.groupTestHook, uploadsDir: deps.uploadsDir, storageLockTimeoutMs }));
+  void app.register(groupsRoutes({ db: deps.db, collabHooks: deps.collabHooks, groupTestHook: deps.groupTestHook, uploadsDir: deps.uploadsDir, storageLockTimeoutMs, versions }));
   void app.register(adminUsersRoutes({ db: deps.db, gate: deps.gate, collabHooks: deps.collabHooks }));
   // 儲存配額（spec 2026-10-08 §7）：方案管理、預設、站台群組列表與指派（admin）；個人與群組用量檢視。
   void app.register(adminStorageRoutes({ db: deps.db }));
@@ -713,6 +737,8 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   void app.register(adminAiRoutes({ db: deps.db, config: deps.config, runtime: deps.ai }));
   // #187 PR2：站台管理的登入服務。與登入路由共用同一個 registry（PATCH／DELETE 要 invalidate、test／discover 用 probe）。
   void app.register(adminAuthRoutes({ db: deps.db, config: deps.config, registry: oidcRegistry }));
+  // 版本歷史 §6.7：站台清除天數與自動儲存總開關。
+  void app.register(adminVersionsRoutes({ db: deps.db }));
   // #187 PR3：註冊、個人設定的登入方式與加上密碼（spec §8、§9.1）。
   void app.register(
     accountRoutes({ db: deps.db, config: deps.config, gate: deps.gate, collabHooks: deps.collabHooks, limiters: { register: limiters.register } }),

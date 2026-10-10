@@ -3,17 +3,19 @@ import type { Block, PartialBlock } from "@blocknote/core";
 import * as Y from "yjs";
 import { YDOC_FRAGMENT, topLevelContainers, type EditOp, type NoteOutlineEntry, type WikilinkTarget } from "@knotebook/shared";
 import type { CollabServer } from "../../collab/server.js";
+import type { VersionService } from "../../collab/versions.js";
 import { docClock } from "../../collab/store.js";
 import type { Db } from "../../db/index.js";
 import { noteAiEdits } from "../../db/schema.js";
 import { syncLinksFromDoc } from "../links.js";
+import { versionFingerprint } from "../version-fingerprint.js";
 import { fingerprintForIds, outlineOf, type OutlineEntry } from "./fingerprint.js";
 import { parseMarkdownForNote, type ParseError } from "./markdown.js";
 import { loadNoteDoc } from "./read.js";
 import type { EditingRuntime } from "./runtime.js";
 import { EditorSession, withDirectConnection, type DirectCtx } from "./session.js";
 
-// 順序（spec §6.1）：讀路徑 fork → 指紋比對 → parse/驗證 → 單一編輯器呼叫 → diff → **關掉編輯器**
+// 順序（spec §6.1）：讀路徑 fork → 指紋比對 → 寫前切版（版本歷史 §5.4） → parse/驗證 → 單一編輯器呼叫 → diff → **關掉編輯器**
 // → mergeDiff＝withDirectConnection 內一個同步 transact（live doc 重算目標段指紋／anchor → docClock（applyUpdate
 // 前，links CAS 用）→ applyUpdate → ctx.applied → 同 transact 算 after_fingerprint／回覆指紋大綱）→ finally disconnect（落盤）
 // → note_ai_edits 交易（含裁切 100）→ note_links（writeNoteLinks 自己的交易，CAS 對更晚的瀏覽器寫入 no-op）。
@@ -24,10 +26,26 @@ import { EditorSession, withDirectConnection, type DirectCtx } from "./session.j
 // 的相對位置由 CRDT 決定。⚠ 編輯器（＝runtime lease）只活到取出 diff 為止（`prepareEdit`）：
 // **持有 lease 期間絕不再取得 lease**，否則跨過重建門檻時內外層互等，是無訊息的死鎖
 // （見 `runtime.ts` 的 acquire 不可重入）。
-export interface EditingTestHooks { beforeMerge?: () => Promise<void>; beforeRecord?: () => Promise<void>; beforeRevertRecord?: () => Promise<void> }
+export interface EditingTestHooks {
+  beforeMerge?: () => Promise<void>;
+  beforeRecord?: () => Promise<void>;
+  /** 紀錄已寫入、`updateNoteLinks` 尚未執行（守「先紀錄後連結」）。 */
+  afterRecord?: () => Promise<void>;
+  beforeRevertRecord?: () => Promise<void>;
+  /** 套用版本的 `beforeDisconnect` 第一步；測試以 throw 模擬基底寫回失敗。 */
+  beforeVersionBase?: () => Promise<void>;
+}
 // ⚠ `log` 兩個方法都要：`updateNoteLinks` 用 `warn`、`recordableAfter` 用 `error`。少宣告 `error`
 // 就是 typecheck 紅。
-export interface ApplyDeps { db: Db; collab: CollabServer; editing: EditingRuntime; log: { warn(o: object, m: string): void; error(o: object, m: string): void }; testHooks?: EditingTestHooks }
+export interface ApplyDeps {
+  db: Db;
+  collab: CollabServer;
+  editing: EditingRuntime;
+  log: { warn(o: object, m: string): void; error(o: object, m: string): void };
+  testHooks?: EditingTestHooks;
+  /** 版本歷史：寫前切版（`preWriteCut`）與套用（`apply-version.ts`）。測試不注入＝no-op。 */
+  versions?: VersionService;
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 泛型三元組，走 repo 慣例（同 session.ts）
 type AnyPartialBlock = PartialBlock<any, any, any>;
@@ -68,13 +86,19 @@ export const RETENTION = 100;
 export class FingerprintMismatch extends Error {}
 
 export interface MergeInput { targetIds: string[] | null; expectFingerprint: string | null; anchorId: string | null; diff: Uint8Array; afterIds: string[] }
-export interface MergeOutput { afterFingerprint: string | null; fingerprint: string; outline: NoteOutlineEntry[]; clock: number; afterSectionIndex: number | null }
+export interface MergeOutput { afterFingerprint: string | null; fingerprint: string; outline: NoteOutlineEntry[]; clock: number; afterSectionIndex: number | null; versionFingerprint: string | null }
 
 const stripIds = (o: { outline: Array<NoteOutlineEntry & { blockIds: string[] }> }): NoteOutlineEntry[] =>
   o.outline.map(({ blockIds: _b, ...e }) => e);
 
 /** 本棒唯一的 withDirectConnection 呼叫點；撤回（revert.ts）也走這裡。 */
-export async function mergeDiff(deps: ApplyDeps, noteId: string, ctx: DirectCtx, input: MergeInput): Promise<MergeOutput> {
+export async function mergeDiff(
+  deps: ApplyDeps,
+  noteId: string,
+  ctx: DirectCtx,
+  input: MergeInput,
+  opts?: { beforeDisconnect?: (out: MergeOutput) => Promise<void> }
+): Promise<MergeOutput> {
   return withDirectConnection(deps.collab.hocuspocus, noteId, ctx, doc => {
     const fragment = doc.getXmlFragment(YDOC_FRAGMENT);
     if (input.expectFingerprint !== null) {
@@ -90,6 +114,13 @@ export async function mergeDiff(deps: ApplyDeps, noteId: string, ctx: DirectCtx,
     const clock = docClock(doc);
     Y.applyUpdate(doc, input.diff);
     ctx.applied = true;
+    // 版本歷史 §7-2d：合併後活文件的版本指紋（套用把它寫成基底指紋，A15）。A14 (3) 保證不丟例外，這裡仍防禦性包住。
+    let versionFp: string | null = null;
+    try {
+      versionFp = versionFingerprint(fragment);
+    } catch {
+      versionFp = null;
+    }
     const merged = outlineOf(fragment);
     const afterFingerprint = input.afterIds.length === 0 ? null : fingerprintForIds(fragment, input.afterIds);
     // #108 D-J：**一定要在 `stripIds(merged)` 之前算**——那一步就是把 `blockIds` 丟掉的地方，
@@ -99,8 +130,15 @@ export async function mergeDiff(deps: ApplyDeps, noteId: string, ctx: DirectCtx,
     //   但**證不出它不可達**——所以退成 `null`（呼叫端 `?? 0` 回第 0 頁）。**不要寫成「不可能」。**
     const firstAfter = input.afterIds[0];
     const afterIndex = firstAfter === undefined ? -1 : merged.outline.findIndex(s => s.blockIds.includes(firstAfter));
-    return { afterFingerprint, fingerprint: merged.whole, outline: stripIds(merged), clock, afterSectionIndex: afterIndex === -1 ? null : afterIndex };
-  });
+    return {
+      afterFingerprint,
+      fingerprint: merged.whole,
+      outline: stripIds(merged),
+      clock,
+      afterSectionIndex: afterIndex === -1 ? null : afterIndex,
+      versionFingerprint: versionFp,
+    };
+  }, opts);
 }
 
 /**
@@ -133,6 +171,36 @@ export async function updateNoteLinks(deps: ApplyDeps, p: { sourceNoteId: string
   return syncLinksFromDoc(deps, { sourceNoteId: p.sourceNoteId, userId: p.userId, doc: p.forkDoc, clock: p.clock });
 }
 
+/** `applyEdit`／`applyVersionEdit` 共用的第一段：fork（活文件在記憶體就 fork 它，否則讀 note_states）＋整篇大綱與指紋。
+ * ⚠ `whole` 必須在 prepare 之前算（prepare 會在 fork 上 mount 並 replaceBlocks，§7-2c）。 */
+export interface ForkChecked {
+  fork: Y.Doc;
+  sv: Uint8Array;
+  outline: OutlineEntry[];
+  whole: string;
+  isEmptyDoc: boolean;
+}
+export async function forkAndCheck(deps: ApplyDeps, noteId: string): Promise<ForkChecked> {
+  const { doc: fork } = await loadNoteDoc({ db: deps.db, collab: deps.collab }, noteId);
+  const sv = Y.encodeStateVector(fork);
+  const fragment = fork.getXmlFragment(YDOC_FRAGMENT);
+  const { outline, whole } = outlineOf(fragment);
+  return { fork, sv, outline, whole, isEmptyDoc: topLevelContainers(fragment).length === 0 };
+}
+
+/**
+ * 版本歷史 §5.4：AI／MCP 寫入**前**若有未存的人工修改，先存一版（A2）。文件載入中用版本服務的 Map 狀態，沒載入用這份 fork 當暫時狀態。
+ * 回 `{ skipped }` 或 `null` 時寫入照常；切版失敗只 warn（寫入不因版本子系統失敗）。**不取 lease**（在 prepare 之前，Global Constraints 1）。
+ */
+export async function preWriteCut(deps: ApplyDeps, noteId: string, fork: Y.Doc): Promise<void> {
+  if (!deps.versions) return;
+  try {
+    await deps.versions.cutIfDirty(noteId, fork, { kind: "auto", transient: fork });
+  } catch (err) {
+    deps.log.warn({ err, noteId }, "AI 寫入前切版失敗（寫入照常）");
+  }
+}
+
 /**
  * 編輯器的生命只到「取出 diff」為止：mount → 單一編輯器呼叫 → `diffSince` → `close()`，
  * 全部關在這個函式內。**不變量：持有 lease 期間絕不再取得 lease**（`runtime.acquire()` 的
@@ -142,7 +210,7 @@ export async function updateNoteLinks(deps: ApplyDeps, p: { sourceNoteId: string
  * （`unmount()` 只拆 ProseMirror view，y-prosemirror 的 `binding.destroy()` 僅 unobserve、
  * 不動 doc 內容，所以 close 之後 fork 仍是合併前那份）。
  */
-async function prepareEdit(
+export async function prepareEdit(
   deps: ApplyDeps,
   input: ApplyInput,
   fork: Y.Doc,
@@ -216,11 +284,7 @@ async function prepareEdit(
 }
 
 export async function applyEdit(deps: ApplyDeps, input: ApplyInput): Promise<ApplyResult> {
-  const { doc: fork } = await loadNoteDoc({ db: deps.db, collab: deps.collab }, input.noteId);
-  const sv = Y.encodeStateVector(fork);
-  const fragment = fork.getXmlFragment(YDOC_FRAGMENT);
-  const { outline, whole } = outlineOf(fragment);
-  const isEmptyDoc = topLevelContainers(fragment).length === 0;
+  const { fork, sv, outline, whole, isEmptyDoc } = await forkAndCheck(deps, input.noteId);
   const section = input.sectionId === undefined ? undefined : outline.find(o => o.sectionId === input.sectionId);
   if (input.sectionId !== undefined && !section) return { ok: false, code: "section_not_found" };
   const expect = input.ifMatch ?? null;
@@ -228,6 +292,7 @@ export async function applyEdit(deps: ApplyDeps, input: ApplyInput): Promise<App
   if (expect !== null && (targetIds === null ? whole : section!.fingerprint) !== expect) return { ok: false, code: "fingerprint_mismatch" };
   if (input.op === "delete_section" && (isEmptyDoc || section!.blockIds.length === 0)) return { ok: false, code: "empty_section" };
 
+  await preWriteCut(deps, input.noteId, fork);
   // 真空文件：三 op 等同 replace_all（正規化殘留 paragraph 被 replace 掉）
   const op: EditOp = isEmptyDoc ? "replace_all" : input.op;
   const prepared = await prepareEdit(deps, input, fork, sv, { op, isEmptyDoc, section });
@@ -249,6 +314,7 @@ export async function applyEdit(deps: ApplyDeps, input: ApplyInput): Promise<App
     sectionId: input.sectionId ?? null, beforeBlocks, anchor,
     ...recordableAfter(deps, input.noteId, afterIds, merged.afterFingerprint),
   });
+  if (deps.testHooks?.afterRecord) await deps.testHooks.afterRecord();
   await updateNoteLinks(deps, { sourceNoteId: input.noteId, userId: input.userId, forkDoc: fork, clock: merged.clock });
   // ⚠ `afterBlockIds` 用 `prepareEdit` 回的**原始** `afterIds`，不是 `recordableAfter(...)` 那份
   // ——後者在退化情形（after_fingerprint 為 null）會把陣列清空，那是給 DB 紀錄用的語意。

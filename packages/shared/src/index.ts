@@ -28,6 +28,8 @@ export interface UserDto {
   mustChangePassword: boolean;
   /** OIDC-only 帳號為 false；設定 modal 據此隱藏改密表單——spec §14.4。 */
   hasPassword: boolean;
+  /** 版本歷史（spec 2026-10-09 §6.8、D8）：個人空間的自動儲存開關（`users.auto_versions`）。生效值另需站台總開關（A13）。 */
+  autoVersions: boolean;
 }
 
 /** 密碼長度下限，鏡射 apps/server/src/auth/constants.ts 的同名常數——這裡是給
@@ -45,6 +47,8 @@ export interface AuthConfigDto {
   providers: AuthProviderPublicDto[];
   registration: { enabled: boolean };
   passwordLogin: { enabled: boolean };
+  /** 版本歷史 §6.8：站台自動儲存總開關（`site_settings.auto_versions_enabled`）——個人與群組開關在它關閉時顯示 disabled。 */
+  autoVersionsEnabled: boolean;
 }
 
 /** #187：一個啟用中的單一登入服務（登入頁按鈕、連結頁的證明方式）。只曝光 id、顯示名與圖示——issuer／client id 不出線。 */
@@ -227,6 +231,8 @@ export interface GroupDto {
   canManageMembers: boolean;
   canManageGroup: boolean;
   createdAt: string;
+  /** 版本歷史：群組空間的自動儲存開關（`groups.auto_versions`）。 */
+  autoVersions: boolean;
 }
 
 /** #175 §6.8：`DELETE /api/groups/:id` 必填 body；`transfer`＝群組筆記全數改成 `transferTo`（必須是內建管理員）的個人筆記，`delete`＝連筆記一起刪。 */
@@ -428,6 +434,12 @@ export const ERROR_CODES = [
   "storage_plan_is_default",
   "storage_plan_name_taken",
   "storage_plan_not_found",
+  // 筆記版本歷史（spec 2026-10-09 §6）：`version_is_base`＝409，刪除「目前內容的基底版本」（A6）；
+  // `version_unsaved_changes`＝409，套用時有未儲存的修改而 body 沒帶 `discardUnsaved: true`，或套用兩次都遇到併發修改（§7-2c）；
+  // `version_mismatch`＝409，套用 body 的 `versionId` 與該 seq 現在那一列不同（搬移清空後同一個 seq 指向別的內容，§6.4）。
+  "version_is_base",
+  "version_unsaved_changes",
+  "version_mismatch",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
@@ -1071,3 +1083,4 @@ export * from "./note-markdown.js";
 export * from "./group-roles.js";
 export * from "./provider-icon.js";
 export * from "./storage.js";
+export * from "./versions.js";

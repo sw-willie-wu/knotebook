@@ -7,24 +7,24 @@ import { MAX_PROVIDER_ICON_BYTES, autoSlugFromTitle, validateHandle, validateSlu
 import { applyMigrationsThrough, freshDb, freshEmptyDb, idxOfTag, journalEntries } from "./helpers.js";
 import { runMigrations } from "../src/db/migrate.js";
 import { PgDialect, getTableConfig } from "drizzle-orm/pg-core";
-import { apiTokens, authProviders, groupMembers, groupRoles, groups, noteRedirects, notes, oauthClients, oauthCodes, noteSearchSections, noteSearchState, oauthRequests, siteSettings, storagePlans, transferTokens, userIdentities, users } from "../src/db/schema.js";
+import { apiTokens, authProviders, groupMembers, groupRoles, groups, noteRedirects, notes, oauthClients, oauthCodes, noteSearchSections, noteSearchState, noteVersions, oauthRequests, siteSettings, storagePlans, transferTokens, userIdentities, users } from "../src/db/schema.js";
 
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
 /** drizzle 對 `schema.ts` 的序列化；宣告漂移守衛拿最新一支當比對基準（Task 14 rebase 後改成實際檔名）。 */
-const SNAPSHOT_FILE = "meta/0018_snapshot.json";
+const SNAPSHOT_FILE = "meta/0019_snapshot.json";
 const snapshotLatest = JSON.parse(readFileSync(path.join(drizzleDirForTest, SNAPSHOT_FILE), "utf8")) as {
   tables: Record<string, { checkConstraints?: Record<string, { name: string; value: string }> }>;
 };
 const pgDialect = new PgDialect();
 
 describe("runMigrations", () => {
-  it("migrate 兩次 idempotent 且 28 張表存在", async () => {
+  it("migrate 兩次 idempotent 且 29 張表存在", async () => {
     const { db, pool } = await freshDb();
     await runMigrations(db); // freshDb 已跑過一次——此為第二次
     const r = await pool.query(`select table_name from information_schema.tables where table_schema='public'`);
     const tableNames = r.rows.map(x => x.table_name);
-    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes", "note_ai_edits", "groups", "group_members", "group_roles", "note_redirects", "auth_providers", "user_identities", "site_settings", "note_search_sections", "note_search_state", "transfer_tokens", "storage_plans"])
+    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes", "note_ai_edits", "groups", "group_members", "group_roles", "note_redirects", "auth_providers", "user_identities", "site_settings", "note_search_sections", "note_search_state", "transfer_tokens", "storage_plans", "note_versions"])
       expect(tableNames).toContain(t);
   });
 
@@ -1099,7 +1099,7 @@ describe("0009_api-tokens", () => {
       expect(names, i).toContain(i);
   });
 
-  it("schema.ts 的十七個宣告沒有靜默漂移（四個 OAuth／token 宣告零 import；#103／#175 的四張表的 CHECK 也在這裡逐字比對、#187 的三張表、#93 的兩張表、#200 的一張表、容量上限的 users／storage_plans）", async () => {
+  it("schema.ts 的十八個宣告沒有靜默漂移（四個 OAuth／token 宣告零 import；#103／#175 的四張表的 CHECK 也在這裡逐字比對、#187 的三張表、#93 的兩張表、#200 的一張表、容量上限的 users／storage_plans、版本歷史的 note_versions）", async () => {
     // 比照 0008 的同族守衛：把 schema.ts 的宣告與 migration 造出來的 DB 對起來。
     // 沒有這一案的話，把 schema.ts 的四段 pgTable 整個刪掉，全套測試照樣綠——
     // 只有下一次 db:generate 會產出 DROP TABLE。
@@ -1129,7 +1129,7 @@ describe("0009_api-tokens", () => {
       ],
       oauth_requests: ["id", "client_id", "redirect_uri", "code_challenge", "scope", "state", "expires_at"],
       oauth_codes: ["code_hash", "client_id", "user_id", "scope", "redirect_uri", "code_challenge", "expires_at"],
-      groups: ["id", "name", "created_by", "created_at", "storage_plan_id"],
+      groups: ["id", "name", "created_by", "created_at", "storage_plan_id", "auto_versions"],
       group_members: ["group_id", "user_id", "role_id", "created_at"],
       group_roles: [
         "id", "group_id", "builtin", "name", "can_read", "can_create", "can_edit", "can_delete",
@@ -1145,6 +1145,7 @@ describe("0009_api-tokens", () => {
       site_settings: [
         "singleton", "registration_enabled", "password_login_enabled", "legacy_oidc_env_handled_at", "updated_at",
         "default_user_storage_plan_id", "default_group_storage_plan_id",
+        "version_keep_all_days", "version_daily_until_days", "auto_versions_enabled",
       ],
       note_search_sections: ["id", "note_id", "source_kind", "source_id", "section_id", "ord", "heading", "body"],
       note_search_state: ["note_id", "extractor_version", "source_version", "content_hash", "indexed_units", "capped", "indexed_at"],
@@ -1153,12 +1154,14 @@ describe("0009_api-tokens", () => {
         "id", "owner_id", "title", "slug", "slug_is_custom", "prev_slug", "legacy_slug", "public_token", "public_slug",
         "links_clock", "created_at", "updated_at", "last_edited_at", "last_edited_by", "last_edited_token_id",
         "last_edited_agent_label", "deleted_at", "group_id",
+        "version_counter", "version_base_seq", "version_base_fingerprint",
       ],
       users: [
         "id", "email", "handle", "password_hash", "oidc_issuer", "oidc_sub", "display_name", "avatar_url", "is_admin",
-        "disabled_at", "token_version", "must_change_password", "created_at", "storage_plan_id",
+        "disabled_at", "token_version", "must_change_password", "created_at", "storage_plan_id", "auto_versions",
       ],
       storage_plans: ["id", "name", "quota_bytes", "created_at", "updated_at"],
+      note_versions: ["id", "note_id", "seq", "ydoc", "kind", "name", "editors", "base_seq", "created_at"],
     };
 
     for (const [table, decl] of [
@@ -1179,6 +1182,7 @@ describe("0009_api-tokens", () => {
       ["transfer_tokens", transferTokens],
       ["users", users],
       ["storage_plans", storagePlans],
+      ["note_versions", noteVersions],
     ] as const) {
       const cfg = getTableConfig(decl);
       // 宣告的欄名 = DB 的欄名 = 這裡寫死的期望（三方對齊，任一邊漂移就紅）
@@ -2006,5 +2010,60 @@ describe("儲存配額 migration（spec 2026-10-08 §4、§11.1 S1）", () => {
     const sqlText = readFileSync(path.join(drizzleDirForTest, `${QUOTA_TAG}.sql`), "utf8");
     expect(sqlText).not.toMatch(/CONCURRENTLY/i);
     expect(sqlText).not.toMatch(/^\s*COMMIT/im);
+  });
+});
+
+describe("版本歷史 migration（spec 2026-10-09 §4、§11.4）", () => {
+  // Task 14 rebase 後只改這兩個 tag（與檔頭 SNAPSHOT_FILE）。
+  const VERSIONS_TAG = "0019_note-versions";
+  const PREV_TAG = "0018_storage-quota";
+
+  it("既有列取預設：筆記計數 0、沒有基底；使用者與群組開；站台 7／30／開", async () => {
+    const { pool, db } = await freshEmptyDb();
+    await applyMigrationsThrough(pool, idxOfTag(PREV_TAG));
+    const u = await pool.query<{ id: string }>(`insert into users (email, handle, display_name) values ('v@x.test','vv','V') returning id`);
+    await pool.query(`insert into groups (name) values ('G')`);
+    await pool.query(`insert into notes (owner_id, slug) values ($1, 'n1')`, [u.rows[0]!.id]);
+    await runMigrations(db);
+    expect((await pool.query(`select version_counter, version_base_seq, version_base_fingerprint from notes`)).rows)
+      .toEqual([{ version_counter: 0, version_base_seq: null, version_base_fingerprint: null }]);
+    expect((await pool.query(`select auto_versions from users`)).rows).toEqual([{ auto_versions: true }]);
+    expect((await pool.query(`select auto_versions from groups`)).rows).toEqual([{ auto_versions: true }]);
+    expect((await pool.query(`select version_keep_all_days, version_daily_until_days, auto_versions_enabled from site_settings`)).rows)
+      .toEqual([{ version_keep_all_days: 7, version_daily_until_days: 30, auto_versions_enabled: true }]);
+    expect(journalEntries().map(e => e.tag)).toContain(VERSIONS_TAG);
+  });
+
+  it("CHECK：天數 1 ≤ F ≤ D ≤ 3650；基底兩欄同進同出；kind 只收 auto／manual", async () => {
+    const { pool } = await freshDb();
+    for (const [f, d] of [[0, 30], [8, 7], [1, 3651]] as const) {
+      await expect(pool.query(`update site_settings set version_keep_all_days = $1, version_daily_until_days = $2`, [f, d]))
+        .rejects.toMatchObject({ code: "23514", constraint: "site_settings_version_days_chk" });
+    }
+    await pool.query(`update site_settings set version_keep_all_days = 1, version_daily_until_days = 1`); // F = D 合法
+    await pool.query(`update site_settings set version_keep_all_days = 3650, version_daily_until_days = 3650`);
+    const u = await pool.query<{ id: string }>(`insert into users (email, display_name) values ('c@x.test','C') returning id`);
+    const n = await pool.query<{ id: string }>(`insert into notes (owner_id) values ($1) returning id`, [u.rows[0]!.id]);
+    const noteId = n.rows[0]!.id;
+    await expect(pool.query(`update notes set version_base_seq = 1 where id = $1`, [noteId]))
+      .rejects.toMatchObject({ code: "23514", constraint: "notes_version_base_pair_chk" });
+    await expect(pool.query(`update notes set version_base_fingerprint = 'x' where id = $1`, [noteId]))
+      .rejects.toMatchObject({ code: "23514", constraint: "notes_version_base_pair_chk" });
+    await pool.query(`update notes set version_base_seq = 1, version_base_fingerprint = 'x' where id = $1`, [noteId]);
+    await expect(pool.query(`insert into note_versions (note_id, seq, ydoc, kind) values ($1, 1, $2, 'bogus')`, [noteId, Buffer.from([0])]))
+      .rejects.toMatchObject({ code: "23514", constraint: "note_versions_kind_chk" });
+  });
+
+  it("(note_id, seq) 唯一；editors 預設 []；刪筆記 CASCADE", async () => {
+    const { pool } = await freshDb();
+    const u = await pool.query<{ id: string }>(`insert into users (email, display_name) values ('d@x.test','D') returning id`);
+    const n = await pool.query<{ id: string }>(`insert into notes (owner_id) values ($1) returning id`, [u.rows[0]!.id]);
+    const noteId = n.rows[0]!.id;
+    await pool.query(`insert into note_versions (note_id, seq, ydoc, kind) values ($1, 1, $2, 'auto')`, [noteId, Buffer.from([0])]);
+    await expect(pool.query(`insert into note_versions (note_id, seq, ydoc, kind) values ($1, 1, $2, 'manual')`, [noteId, Buffer.from([0])]))
+      .rejects.toMatchObject({ code: "23505", constraint: "note_versions_note_seq_idx" });
+    expect((await pool.query(`select editors, name, base_seq from note_versions`)).rows).toEqual([{ editors: [], name: null, base_seq: null }]);
+    await pool.query(`delete from notes where id = $1`, [noteId]);
+    expect((await pool.query(`select count(*)::int as n from note_versions`)).rows).toEqual([{ n: 0 }]);
   });
 });

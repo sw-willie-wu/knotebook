@@ -116,7 +116,7 @@ vi.mock("@/present/lazy", async () => {
 
 const { default: NotePage } = await import("./NotePage");
 
-const USER: UserDto = { id: "u1", email: "a@example.com", handle: "tester", displayName: "Ann", isAdmin: false, mustChangePassword: false, hasPassword: true };
+const USER: UserDto = { id: "u1", email: "a@example.com", handle: "tester", displayName: "Ann", isAdmin: false, mustChangePassword: false, hasPassword: true, autoVersions: true };
 const NOTE: NoteDto = {
   id: "11111111-1111-1111-1111-111111111111", title: "My Note", ownerId: "u1", role: "owner",
   createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", slug: "my-note", slugIsCustom: true,

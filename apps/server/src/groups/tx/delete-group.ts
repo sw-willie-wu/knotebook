@@ -13,6 +13,7 @@ import { TxAbort } from "../../http/tx-abort.js";
 import { groupNotePath } from "../../notes/redirects.js";
 import { deleteNotesInTx } from "../../notes/tx/delete-notes.js";
 import { recordRedirectsInTx } from "../../notes/tx/redirects.js";
+import { resetNoteVersionsInTx } from "../../notes/tx/versions.js";
 import { writeSlugInTx } from "../../notes/tx/write-slug.js";
 import { sumUploadSizeSql } from "../../storage/space.js";
 import { assertSpaceRoomInTx } from "../../storage/tx/quota.js";
@@ -39,6 +40,7 @@ export interface GroupDeletionResult {
  *   lockGroup（不存在 → 404）→ transferTo 是成員且 builtin='admin'（鎖之後查，C9）→ 否則 409 not_admin
  *   → M（CASCADE 前取）→ 該群組筆記 FOR UPDATE，依 created_at, id（撞名時誰拿較小的 -N 是決定性的，RF1；spec 疑點 Q3）
  *   → 儲存配額：附件總和 → transferTo 個人空間鎖＋判定（writeSlugInTx 之前；放不下 → StorageQuotaExceeded，什麼都沒寫）
+ *   → 版本歷史 §9：清空版本（`resetNoteVersionsInTx({ groupId })`，以群組述詞一次處理，必須在改 group_id 之前）
  *   → 每篇 writeSlugInTx（scope＝transferTo 個人、base＝舊 slug，B6）：同一句 UPDATE 換歸屬、清 prev（B12）
  *     ——同一句清 public_token／public_slug（Willie 2026-10-02 裁決，比照 move.ts；轉移後是未分享的個人筆記；不扣 publicLink 桶）、
  *     slug_is_custom 不動、updated_at 不動（§9.2）
@@ -77,6 +79,9 @@ export async function transferGroupInTx(tx: Tx, input: TransferGroupInput, hook?
   await assertSpaceRoomInTx(tx, { kind: "user", id: input.transferTo }, sumRow?.incoming ?? 0, {
     lockTimeoutMs: input.lockTimeoutMs, hook, hookCtx: { groupId: input.groupId },
   });
+
+  // 版本歷史 §9：在改 group_id **之前**以群組述詞一次清空（rows 已全數 FOR UPDATE；不組 ANY($ids)——起草裁定 19）。
+  await resetNoteVersionsInTx(tx, { groupId: input.groupId });
 
   for (const row of rows) {
     await writeSlugInTx(

@@ -89,7 +89,7 @@ export function toGroupRoleDto(r: RoleColumnsRow): GroupRoleDto | null {
 }
 
 /** `GroupDto`：兩個 `canManage*`＝角色旗標 OR 站台 admin（§5.5，不論是否成員——gate r2 M-3）。 */
-export function toGroupDto(row: { id: string; name: string; createdAt: Date } & RoleColumnsRow, isSiteAdmin: boolean): GroupDto {
+export function toGroupDto(row: { id: string; name: string; createdAt: Date; autoVersions: boolean } & RoleColumnsRow, isSiteAdmin: boolean): GroupDto {
   const myRole = toGroupRoleDto(row);
   return {
     id: row.id,
@@ -98,6 +98,7 @@ export function toGroupDto(row: { id: string; name: string; createdAt: Date } & 
     canManageMembers: (myRole?.permissions.manageMembers ?? false) || isSiteAdmin,
     canManageGroup: (myRole?.permissions.manageGroup ?? false) || isSiteAdmin,
     createdAt: row.createdAt.toISOString(),
+    autoVersions: row.autoVersions,
   };
 }
 
@@ -111,7 +112,7 @@ export interface GroupAccess {
 /** 單一群組＋呼叫者的角色（只組不執行）：`groupAccess` 與 `POST`／`PATCH /api/groups…` 的回應共用。 */
 export function groupWithMyRoleQuery(db: DbOrTx, groupId: string, userId: string) {
   return db
-    .select({ id: groups.id, name: groups.name, createdAt: groups.createdAt, ...roleColumns() })
+    .select({ id: groups.id, name: groups.name, createdAt: groups.createdAt, autoVersions: groups.autoVersions, ...roleColumns() })
     .from(groups)
     .leftJoin(groupMembers, and(eq(groupMembers.groupId, groups.id), eq(groupMembers.userId, userId)))
     .leftJoin(groupRoles, eq(groupRoles.id, groupMembers.roleId))
@@ -172,7 +173,7 @@ export async function builtinRoleId(db: DbOrTx, groupId: string, builtin: Builti
 /** `GET /api/groups`：我所屬的群組，依 name 再依 id（只組不執行——路由與 EXPLAIN 測試共用同一個形）。 */
 export function listMyGroupsQuery(db: DbOrTx, userId: string) {
   return db
-    .select({ id: groups.id, name: groups.name, createdAt: groups.createdAt, ...roleColumns() })
+    .select({ id: groups.id, name: groups.name, createdAt: groups.createdAt, autoVersions: groups.autoVersions, ...roleColumns() })
     .from(groupMembers)
     .innerJoin(groups, eq(groups.id, groupMembers.groupId))
     .innerJoin(groupRoles, eq(groupRoles.id, groupMembers.roleId))

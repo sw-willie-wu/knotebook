@@ -134,6 +134,13 @@
       "when": 1791460703230,
       "tag": "0018_storage-quota",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1791547854129,
+      "tag": "0019_note-versions",
+      "breakpoints": true
     }
   ]
 }

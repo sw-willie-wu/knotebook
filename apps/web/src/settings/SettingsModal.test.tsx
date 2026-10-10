@@ -107,6 +107,7 @@ const ADMIN_USER: UserDto = {
   isAdmin: true,
   mustChangePassword: false,
   hasPassword: true,
+  autoVersions: true,
 };
 const PLAIN_USER: UserDto = {
   id: "u-plain",
@@ -116,6 +117,7 @@ const PLAIN_USER: UserDto = {
   isAdmin: false,
   mustChangePassword: false,
   hasPassword: true,
+  autoVersions: true,
 };
 
 const NOTE: NoteDto = {

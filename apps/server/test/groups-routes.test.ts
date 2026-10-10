@@ -25,7 +25,7 @@ describe("#103／#175 POST／GET /api/groups", () => {
     const res = await app.inject({ method: "POST", url: "/api/groups", cookies: await cookieOf(me.id), payload: { name: "  Design  " } });
     expect(res.statusCode).toBe(201);
     const body = res.json() as GroupDto;
-    expect(Object.keys(body).sort()).toEqual(["canManageGroup", "canManageMembers", "createdAt", "id", "myRole", "name"]);
+    expect(Object.keys(body).sort()).toEqual(["autoVersions", "canManageGroup", "canManageMembers", "createdAt", "id", "myRole", "name"]);
     expect(body).toMatchObject({ name: "Design", canManageMembers: true, canManageGroup: true });
     expect(body.myRole).toEqual({ id: expect.any(String), builtin: "admin", name: null, memberCount: 1, permissions: ADMIN_PERMISSIONS });
 

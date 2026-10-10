@@ -33,6 +33,7 @@ const ADMIN_USER: UserDto = {
   isAdmin: true,
   mustChangePassword: false,
   hasPassword: true,
+  autoVersions: true,
 };
 
 const ADMIN_GROUP: GroupDto = groupDto(

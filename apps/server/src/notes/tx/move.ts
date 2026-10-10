@@ -15,6 +15,7 @@
  *   (3) writeSlugInTx：以舊 slug 為基底在群組範圍去重（B6）；同一句 UPDATE 清 owner、prev（B12）、token（Q4）、別名（S11）
  *       ——`slug_is_custom` 不動（B6）、`updated_at` 不動（§6.3）
  *   (4) 只替現行 slug 寫轉址（B12 已刪）：`/n/<呼叫者 handle>/<舊 slug>`——(0) 已證明呼叫者就是 owner
+ *   (5) 版本歷史 §9：清空該篇版本（`resetNoteVersionsInTx`）；commit 後路由呼叫 `versions.relocated`
  * 刪群組持 `lockGroup` 時到的移動：(1) 的 KEY SHARE 等刪除 commit → 讀到 0 列 → 404（C5a 只驗結果，分不出
  * 是這個機制還是 FK 23503 分支；機制由 C18a／C18b 分辨——拿掉 KEY SHARE 時那兩案紅）。(1) 取得鎖之後群組就刪不掉，
  * (3) 的 UPDATE 不會撞 FK 23503；路由的 23503 → 404 映射只剩防禦縱深。
@@ -28,6 +29,7 @@ import { sumUploadSizeSql } from "../../storage/space.js";
 import { assertSpaceRoomInTx } from "../../storage/tx/quota.js";
 import { userNotePath } from "../redirects.js";
 import { recordRedirectsInTx } from "./redirects.js";
+import { resetNoteVersionsInTx } from "./versions.js";
 import { writeSlugInTx } from "./write-slug.js";
 
 export interface MoveNoteInput {
@@ -84,5 +86,7 @@ export async function moveNoteToGroupInTx(tx: Tx, input: MoveNoteInput, hook?: G
   );
 
   await recordRedirectsInTx(tx, [userNotePath(input.userHandle, row.slug)], input.noteId);
+  // 版本歷史 §9：個人時期的版本與編輯者名單不隨搬移暴露給群組編輯者（Willie 裁決）——清空、計數歸零、基底清空；不建任何版本（D9）。
+  await resetNoteVersionsInTx(tx, { noteId: input.noteId });
   return { removedShareUserIds: removed.map(r => r.userId) };
 }

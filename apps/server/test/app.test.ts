@@ -114,6 +114,7 @@ describe("buildApp", () => {
       isAdmin: false,
       mustChangePassword: false,
       hasPassword: false,
+      autoVersions: true,
     });
   });
 
