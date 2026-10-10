@@ -915,11 +915,10 @@
       "next": "較新的版本"
     },
     "preview": {
-      "banner": "正在預覽 v{{seq}} · {{when}} · {{who}}",
-      "compareLabel": "比較對象",
-      "comparePrevious": "前一版",
-      "compareCurrent": "目前狀態",
-      "vsEmpty": "vs 空文件",
+      "banner": "正在預覽 v{{seq}}",
+      "leftPicker": "左側版本",
+      "rightPicker": "右側版本",
+      "currentOption": "目前狀態",
       "split": "並排",
       "single": "單欄",
       "onlyChanges": "只看差異",
@@ -930,9 +929,7 @@
       "before": "之前",
       "after": "之後",
       "loading": "正在載入版本…",
-      "gone": "這一版已經不存在，清單已重新整理。",
-      "leftLabel": "v{{seq}}",
-      "rightLabelCurrent": "目前狀態"
+      "gone": "這一版已經不存在，清單已重新整理。"
     },
     "dialog": {
       "saveTitle": "儲存當前版本",

@@ -54,11 +54,18 @@ test("22 版本歷史：存、改、預覽 diff、套用、從 vX 接著改、�
     await expect(panel.getByRole("button", { name: /^v1(?!\d)/ })).toContainText("milestone");
     await expect(panel.getByTestId("versions-current")).toContainText("Unsaved changes after v2", { timeout: 10_000 });
 
-    // 預覽 v2（vs 前一版 v1）：beta-two 那顆是新增
+    // 預覽 v2（rev 10：預設 vs 目前狀態）：v2 之後才打的 gamma-three 是新增，beta-two、alpha-one 未變
     await panel.getByRole("button", { name: /^v2(?!\d)/ }).click();
     await expect(page.getByTestId("preview-banner")).toContainText("Previewing v2");
+    // 1400 px 開面板：預覽區約 774 px ≥ 720 → 自動並排；兩欄標頭是左右一對下拉（rev 10）。切單欄再看 data-diff。
+    await expect(page.getByTestId("diff-split")).toBeVisible();
+    const splitHead = page.getByTestId("diff-split-head");
+    await expect(splitHead.getByRole("button", { name: "Left side" })).toHaveText(/v2/);
+    await expect(splitHead.getByRole("button", { name: "Right side" })).toHaveText(/Current state/);
+    await page.getByTestId("preview-banner").getByRole("button", { name: "Single column" }).click();
     const diffBlocks = page.getByTestId("diff-single").locator("[data-diff]");
-    await expect(diffBlocks.filter({ hasText: "beta-two" })).toHaveAttribute("data-diff", "added");
+    await expect(diffBlocks.filter({ hasText: "gamma-three" })).toHaveAttribute("data-diff", "added");
+    await expect(diffBlocks.filter({ hasText: "beta-two" })).toHaveAttribute("data-diff", "context");
     await expect(diffBlocks.filter({ hasText: "alpha-one" })).toHaveAttribute("data-diff", "context");
     await expect(editorLocator(page)).toBeHidden();
 

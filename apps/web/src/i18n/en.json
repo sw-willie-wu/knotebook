@@ -915,11 +915,10 @@
       "next": "Newer version"
     },
     "preview": {
-      "banner": "Previewing v{{seq}} · {{when}} · {{who}}",
-      "compareLabel": "Compare with",
-      "comparePrevious": "Previous version",
-      "compareCurrent": "Current state",
-      "vsEmpty": "vs empty document",
+      "banner": "Previewing v{{seq}}",
+      "leftPicker": "Left side",
+      "rightPicker": "Right side",
+      "currentOption": "Current state",
       "split": "Side by side",
       "single": "Single column",
       "onlyChanges": "Only changes",
@@ -930,9 +929,7 @@
       "before": "Before",
       "after": "After",
       "loading": "Loading version…",
-      "gone": "This version no longer exists. The list has been refreshed.",
-      "leftLabel": "v{{seq}}",
-      "rightLabelCurrent": "Current state"
+      "gone": "This version no longer exists. The list has been refreshed."
     },
     "dialog": {
       "saveTitle": "Save current version",

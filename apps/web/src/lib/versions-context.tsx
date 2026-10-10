@@ -20,7 +20,6 @@ export type VersionsDialog =
   | { kind: "apply"; version: VersionDto }
   | { kind: "rename"; version: VersionDto }
   | { kind: "delete"; version: VersionDto };
-export type CompareTo = "previous" | "current";
 export type SplitMode = "auto" | "split" | "single";
 
 export interface VersionsContextValue {
@@ -30,7 +29,8 @@ export interface VersionsContextValue {
   panelOpen: boolean;
   preview: VersionTarget | null;
   previewSeq: number | null;
-  compareTo: CompareTo;
+  /** 比較對象的右邊（spec §8.4【rev 10】）：預設 `"current"`（活文件的 fork）；左邊就是 `preview`。diff 方向固定左→右。 */
+  compareRight: VersionTarget | "current";
   splitMode: SplitMode;
   onlyChanges: boolean;
   /** 預覽區夠不夠並排（`VersionPreview` 量到的 content box ≥ `SPLIT_MIN_WIDTH`、且不是 `forceSingle`）；由 `VersionPreview` 回報——
@@ -43,9 +43,11 @@ export interface VersionsContextValue {
   open(): void;
   close(): void;
   openSave(then?: VersionDto): void;
+  /** 只設左邊（面板點列、左下拉、整頁上下一版），右邊保持（Willie：「面板選版本的時候如果右側有選成其他版的話不用跳回目前」）。 */
   startPreview(target: VersionTarget): void;
+  /** 離開預覽；右邊一併重設為 `"current"`（換筆記、`enabled` 翻 false、跨斷點同）。 */
   stopPreview(): void;
-  setCompareTo(v: CompareTo): void;
+  setCompareRight(v: VersionTarget | "current"): void;
   setSplitMode(v: SplitMode): void;
   setOnlyChanges(v: boolean): void;
   /** `VersionPreview` 專用：回報 `previewWide`。 */
@@ -64,7 +66,7 @@ export const NOOP_VERSIONS: VersionsContextValue = {
   panelOpen: false,
   preview: null,
   previewSeq: null,
-  compareTo: "previous",
+  compareRight: "current",
   splitMode: "auto",
   onlyChanges: false,
   previewWide: false,
@@ -75,7 +77,7 @@ export const NOOP_VERSIONS: VersionsContextValue = {
   openSave: noop,
   startPreview: noop,
   stopPreview: noop,
-  setCompareTo: noop,
+  setCompareRight: noop,
   setSplitMode: noop,
   setOnlyChanges: noop,
   reportPreviewWide: noop,
@@ -120,7 +122,7 @@ export function useVersionsController({
   const notifyApplied = useCallback(() => onAppliedRef.current?.(), []);
   const [mode, setMode] = useState<VersionsMode | null>(null);
   const [preview, setPreview] = useState<VersionTarget | null>(null);
-  const [compareTo, setCompareTo] = useState<CompareTo>("previous");
+  const [compareRight, setCompareRight] = useState<VersionTarget | "current">("current");
   const [splitMode, setSplitMode] = useState<SplitMode>("auto");
   const [onlyChanges, setOnlyChanges] = useState(false);
   const [previewWide, reportPreviewWide] = useState(false);
@@ -133,7 +135,7 @@ export function useVersionsController({
     setMode(null);
     setPreview(null);
     setDialog(null);
-    setCompareTo("previous");
+    setCompareRight("current");
     setSplitMode("auto");
     setOnlyChanges(false);
   }
@@ -146,6 +148,7 @@ export function useVersionsController({
     if (active) return;
     setMode(null);
     setPreview(null);
+    setCompareRight("current");
     setDialog(null);
   }, [active]);
 
@@ -155,6 +158,7 @@ export function useVersionsController({
     const onChange = () => {
       setMode(null);
       setPreview(null);
+      setCompareRight("current");
     };
     mql.addEventListener("change", onChange);
     return () => mql.removeEventListener("change", onChange);
@@ -170,7 +174,14 @@ export function useVersionsController({
   const startPreview = useCallback((t: VersionTarget) => {
     if (active) setPreview(t);
   }, [active]);
-  const stopPreview = useCallback(() => setPreview(null), []);
+  const stopPreview = useCallback(() => {
+    setPreview(null);
+    setCompareRight("current");
+  }, []);
+  // 同 startPreview／openDialog：inactive 時不收（review N-2）。
+  const setCompareRightGated = useCallback((v: VersionTarget | "current") => {
+    if (active) setCompareRight(v);
+  }, [active]);
   const openDialog = useCallback((d: VersionsDialog) => {
     if (active) setDialog(d);
   }, [active]);
@@ -184,7 +195,7 @@ export function useVersionsController({
       panelOpen: active && mode === "panel",
       preview: active ? preview : null,
       previewSeq: active ? (preview?.seq ?? null) : null,
-      compareTo,
+      compareRight: active ? compareRight : "current",
       splitMode,
       onlyChanges,
       previewWide: active && preview !== null && previewWide,
@@ -195,7 +206,7 @@ export function useVersionsController({
       openSave,
       startPreview,
       stopPreview,
-      setCompareTo,
+      setCompareRight: setCompareRightGated,
       setSplitMode,
       setOnlyChanges,
       reportPreviewWide,
@@ -203,6 +214,6 @@ export function useVersionsController({
       closeDialog,
       onApplied: notifyApplied,
     }),
-    [active, noteId, mode, preview, compareTo, splitMode, onlyChanges, previewWide, dialog, open, close, openSave, startPreview, stopPreview, openDialog, closeDialog, notifyApplied],
+    [active, noteId, mode, preview, compareRight, splitMode, onlyChanges, previewWide, dialog, open, close, openSave, startPreview, stopPreview, setCompareRightGated, openDialog, closeDialog, notifyApplied],
   );
 }

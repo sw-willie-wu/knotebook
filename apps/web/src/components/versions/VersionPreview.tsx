@@ -4,7 +4,7 @@ import type * as Y from "yjs";
 import { useCreateBlockNote } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/mantine";
 import { noteSchema } from "@/collab/schema";
-import { useVersionList, useVersionSnapshot, VersionSnapshotMismatch, type VersionTarget } from "@/api/versions";
+import { useVersionList, useVersionSnapshot, VersionSnapshotMismatch } from "@/api/versions";
 import { ARTICLE_COLUMN, ARTICLE_COLUMN_PADDING } from "@/components/ui/article-column";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -16,6 +16,7 @@ import { useContainerWidth } from "@/lib/use-container-width";
 import { useVersions } from "@/lib/versions-context";
 import { useTheme } from "@/theme";
 import { cn } from "@/lib/utils";
+import { ComparePicker } from "./ComparePicker";
 
 /**
  * 並排的門檻（content box 寬，`useContainerWidth` 量；final §14-6，Willie 裁定 720）。門檻的唯一來源：
@@ -60,30 +61,6 @@ export function DiffEditor({ blocks, marks, testId = "diff-pane" }: { blocks: Di
       <BlockNoteView editor={editor} editable={false} theme={resolvedTheme} />
     </div>
   );
-}
-
-/**
- * RF5：「前一版」＝已載入清單中第一列 `seq < 預覽的 seq`。找不到且還有下一頁 → 先載下一頁（不誤判成比空文件）；
- * 找不到且已到底 → `{ target: null, ready: true }`＝比空文件。
- */
-function usePreviousTarget(list: ReturnType<typeof useVersionList>, seq: number | null): { target: VersionTarget | null; ready: boolean; failed: boolean } {
-  const rows = list.data?.pages.flatMap((p) => p.versions) ?? [];
-  const found = seq === null ? undefined : rows.find((r) => r.seq < seq);
-  const foundSeq = found?.seq ?? null;
-  const foundId = found?.id ?? null;
-  const needMore = seq !== null && found === undefined && list.hasNextPage;
-  const { fetchNextPage, isFetchingNextPage, isFetchNextPageError } = list;
-  // 失敗後不自動再抓（fix round 1 M-1）：失敗時 isFetchingNextPage 會翻回 false、hasNextPage 仍是 true，
-  // 不擋就會無限重抓。錯誤由 VersionPreview 的錯誤分支顯示；清單被 invalidate 重抓成功後旗標會清掉。
-  useEffect(() => {
-    if (needMore && !isFetchingNextPage && !isFetchNextPageError) void fetchNextPage();
-  }, [needMore, isFetchingNextPage, isFetchNextPageError, fetchNextPage]);
-  const target = useMemo(() => (foundSeq !== null && foundId !== null ? { seq: foundSeq, id: foundId } : null), [foundSeq, foundId]);
-  if (seq === null) return { target: null, ready: false, failed: false };
-  if (target) return { target, ready: true, failed: false };
-  if (needMore) return { target: null, ready: false, failed: isFetchNextPageError };
-  // 「已有資料」就算 ready（final Task 8）：用 isSuccess 的話，背景重抓失敗（data 還在）會把預覽打回「正在載入」。
-  return { target: null, ready: list.data !== undefined, failed: false };
 }
 
 interface NonTextChange {
@@ -135,41 +112,44 @@ function NonTextDialog({ change, onClose }: { change: NonTextChange; onClose: ()
  */
 export function VersionPreview({ doc, forceSingle = false }: { doc: Y.Doc; forceSingle?: boolean }) {
   const { t } = useTranslation();
-  const { noteId, preview, compareTo, splitMode, onlyChanges, stopPreview, reportPreviewWide } = useVersions();
+  const { noteId, preview, compareRight, splitMode, onlyChanges, stopPreview, setCompareRight, reportPreviewWide } = useVersions();
   const ref = useRef<HTMLDivElement>(null);
   const width = useContainerWidth(ref);
 
+  // 比較對象＝左右一對（spec §8.4【rev 10】）：左＝預覽的那一版、右＝compareRight（"current" 時不抓快照、讀活文件的 fork）。
   const list = useVersionList(noteId ?? "", preview !== null);
-  const previous = usePreviousTarget(list, preview?.seq ?? null);
-  const mine = useVersionSnapshot(noteId ?? "", preview);
-  const prev = useVersionSnapshot(noteId ?? "", compareTo === "previous" ? previous.target : null);
+  const rightTarget = compareRight === "current" ? null : compareRight;
+  const left = useVersionSnapshot(noteId ?? "", preview);
+  const right = useVersionSnapshot(noteId ?? "", rightTarget);
 
-  // 只有「預覽的那一版」不符才離開預覽；「前一版」不符時 useVersionSnapshot 已 invalidate 清單，
-  // usePreviousTarget 依重抓後的清單重算比較對象（fix round 1 M-3）。
-  const gone = mine.error instanceof VersionSnapshotMismatch;
-  // 讀取失敗（非 mismatch）→ 預覽區顯示通用錯誤，不停在「正在載入」（fix round 1 M-1）。清單只看「沒有任何資料」與
-  // 「比前一版時載下一頁失敗」：已有資料時的背景重抓失敗不打斷預覽。
-  const failed =
-    (mine.isError && !gone) ||
-    (prev.isError && !(prev.error instanceof VersionSnapshotMismatch)) ||
-    (list.isError && list.data === undefined) ||
-    (compareTo === "previous" && previous.failed);
+  // 左邊不符 → 離開預覽（原行為）；右邊不符 → 右邊回到「目前狀態」、同一句 toast、不離開預覽。
+  // 兩邊的 useVersionSnapshot 都已 invalidate 清單。
+  const leftGone = left.error instanceof VersionSnapshotMismatch;
+  const rightGone = rightTarget !== null && right.error instanceof VersionSnapshotMismatch;
+  // 讀取失敗（非 mismatch）→ 預覽區顯示通用錯誤，不停在「正在載入」（fix round 1 M-1）。清單只看「沒有任何資料」：
+  // 已有資料時的背景重抓失敗不打斷預覽。
+  const failed = (left.isError && !leftGone) || (rightTarget !== null && right.isError && !rightGone) || (list.isError && list.data === undefined);
   useEffect(() => {
-    if (!gone) return;
+    if (!leftGone) return;
     toast({ title: t("versions.preview.gone") });
     stopPreview();
-  }, [gone, stopPreview, t]);
+  }, [leftGone, stopPreview, t]);
+  useEffect(() => {
+    if (!rightGone) return;
+    toast({ title: t("versions.preview.gone") });
+    setCompareRight("current");
+  }, [rightGone, setCompareRight, t]);
 
-  const b0 = useMemo(() => (mine.data ? ydocBytesToBlocks(mine.data) : null), [mine.data]);
-  const prevBlocks = useMemo(() => (prev.data ? ydocBytesToBlocks(prev.data) : null), [prev.data]);
-  const prevId = previous.target?.id ?? null;
-  const prevReady = previous.ready;
+  const leftBlocks = useMemo(() => (left.data ? ydocBytesToBlocks(left.data) : null), [left.data]);
+  const rightBlocks = useMemo(() => (right.data ? ydocBytesToBlocks(right.data) : null), [right.data]);
+  const rightIsCurrent = compareRight === "current";
   const [a, b] = useMemo<[DiffBlock[] | null, DiffBlock[] | null]>(() => {
-    // 「目前狀態」：預覽的那一版是 a、活文件的 fork 是 b；在切換當下讀一次、不訂閱活文件（預覽是快照比較）。
-    if (compareTo === "current") return [b0, forkLiveBlocks(doc)];
-    if (!prevReady) return [null, b0];
-    return [prevId !== null ? prevBlocks : [], b0];
-  }, [compareTo, b0, prevBlocks, prevId, prevReady, doc]);
+    // diff 方向固定左→右（左＝a、右＝b）；選到左新右舊就是反向 diff，不自動換邊。
+    // 「目前狀態」：讀活文件的 fork，在切換當下（右邊或預覽的那一版換了）讀一次、不訂閱活文件（預覽是快照比較）。
+    // 依 `preview` 重讀：面板換一版時「目前狀態」也重新取樣。
+    if (rightIsCurrent) return [leftBlocks, preview ? forkLiveBlocks(doc) : null];
+    return [leftBlocks, rightBlocks];
+  }, [rightIsCurrent, leftBlocks, rightBlocks, preview, doc]);
   const entries = useMemo(() => (a && b ? diffBlocks(a, b) : null), [a, b]);
   const collapsedText = useCallback((n: number) => t("versions.preview.collapsed", { count: n }), [t]);
   const single = useMemo(() => (entries ? renderDiff(entries, { onlyChanges, collapsedText }) : null), [entries, onlyChanges, collapsedText]);
@@ -205,14 +185,29 @@ export function VersionPreview({ doc, forceSingle = false }: { doc: Y.Doc; force
     setTops((cur) => (JSON.stringify(cur) === JSON.stringify(next) ? cur : next));
   }, [nonText, split, width]);
   const [opened, setOpened] = useState<NonTextChange | null>(null);
-  // 換一版預覽：render 期間重設「看前後」對話框與鈕位（fix round 1 M-4；同 useVersionsController 的「依 props 重設 state」形）。
-  const seqNow = preview?.seq ?? null;
+  // 換一版預覽（或換右邊）：render 期間重設「看前後」對話框與鈕位（fix round 1 M-4；同 useVersionsController 的「依 props 重設 state」形）。
+  const seqNow = `${preview?.id ?? ""}|${rightTarget?.id ?? "current"}`;
   const [forSeq, setForSeq] = useState(seqNow);
   if (forSeq !== seqNow) {
     setForSeq(seqNow);
     setOpened(null);
     setTops({});
   }
+
+  // 並排時兩個比較對象下拉就是兩欄的標頭（rev 10，取代原本純文字的 vN 標籤，位置不變）；橫幅那時不放下拉。
+  // 標頭列只看 `preview && split`，**不跟著 body 的載入／失敗分支消失**（review I-1）：否則右快照讀取失敗時沒有任何控制項能把右邊換掉，
+  // 在欄標頭選一個未快取的版本時觸發鈕會在選單關閉前卸載、焦點掉到 body。標頭列與兩欄共用同一組 grid 欄寬與 gap，左右對齊。
+  const splitHead =
+    preview && split ? (
+      <div data-testid="diff-split-head" className="grid grid-cols-2 gap-4">
+        <div className="mb-1 min-w-0 px-4 text-xs">
+          <ComparePicker side="left" />
+        </div>
+        <div className="mb-1 min-w-0 px-4 text-xs">
+          <ComparePicker side="right" />
+        </div>
+      </div>
+    ) : null;
 
   let body: ReactNode = null;
   if (preview) {
@@ -225,16 +220,12 @@ export function VersionPreview({ doc, forceSingle = false }: { doc: Y.Doc; force
     } else if (!a || !b || !single || !sides) {
       body = <p className="text-sm text-muted-foreground">{t("versions.preview.loading")}</p>;
     } else if (split) {
-      const older = compareTo === "previous" ? (previous.target ? t("versions.preview.leftLabel", { seq: previous.target.seq }) : t("versions.preview.vsEmpty")) : t("versions.preview.leftLabel", { seq: preview.seq });
-      const newer = compareTo === "previous" ? t("versions.preview.leftLabel", { seq: preview.seq }) : t("versions.preview.rightLabelCurrent");
       body = (
         <div data-testid="diff-split" className="kb-diff-split grid grid-cols-2 gap-4">
           <section className="min-w-0">
-            <h3 className="mb-1 px-4 text-xs text-muted-foreground">{older}</h3>
             <DiffEditor blocks={a} marks={sides.left} />
           </section>
           <section className="min-w-0">
-            <h3 className="mb-1 px-4 text-xs text-muted-foreground">{newer}</h3>
             <DiffEditor blocks={b} marks={sides.right} />
           </section>
         </div>
@@ -250,6 +241,7 @@ export function VersionPreview({ doc, forceSingle = false }: { doc: Y.Doc; force
 
   return (
     <div ref={ref} className="relative p-4">
+      {splitHead}
       {body}
       {nonText.map((c) => (
         <Button key={c.key} type="button" variant="outline" size="sm" className="absolute h-7 bg-background text-xs" style={{ top: tops[c.key] ?? 0, right: "1rem" }} onClick={() => setOpened(c)}>

@@ -151,20 +151,70 @@ describe("versions-context", () => {
     expect(result.current.dialog).toBeNull();
   });
 
-  it("換筆記 → splitMode／compareTo／onlyChanges 重設為預設", () => {
+  it("換筆記 → splitMode／compareRight／onlyChanges 重設為預設", () => {
     const { result, rerender } = renderHook(({ id }: { id: string }) => useVersionsController({ noteId: id, enabled: true }), { initialProps: { id: "n1" } });
     act(() => {
       result.current.setSplitMode("split");
-      result.current.setCompareTo("current");
+      result.current.setCompareRight({ seq: 1, id: "v-1" });
       result.current.setOnlyChanges(true);
     });
     expect(result.current.splitMode).toBe("split");
-    expect(result.current.compareTo).toBe("current");
+    expect(result.current.compareRight).toEqual({ seq: 1, id: "v-1" });
     expect(result.current.onlyChanges).toBe(true);
     rerender({ id: "n2" });
     expect(result.current.splitMode).toBe("auto");
-    expect(result.current.compareTo).toBe("previous");
+    expect(result.current.compareRight).toBe("current");
     expect(result.current.onlyChanges).toBe(false);
+  });
+
+  // ── rev 10：比較對象＝左右一對（spec §8.4【rev 10】） ─────────────────────────────
+  it("rev 10：右邊預設 current；沒有 provider 的 no-op 也是 current", () => {
+    const { result } = renderHook(() => useVersionsController({ noteId: "n1", enabled: true }));
+    expect(result.current.compareRight).toBe("current");
+    const { result: noop } = renderHook(() => useVersions());
+    expect(noop.current.compareRight).toBe("current");
+  });
+
+  it("rev 10：startPreview 只換左邊，右邊選過的版保持（「面板選版本的時候如果右側有選成其他版的話不用跳回目前」）", () => {
+    const { result } = renderHook(() => useVersionsController({ noteId: "n1", enabled: true }));
+    act(() => result.current.startPreview({ seq: 3, id: "v-3" }));
+    act(() => result.current.setCompareRight({ seq: 1, id: "v-1" }));
+    act(() => result.current.startPreview({ seq: 2, id: "v-2" }));
+    expect(result.current.preview).toEqual({ seq: 2, id: "v-2" });
+    expect(result.current.compareRight).toEqual({ seq: 1, id: "v-1" });
+  });
+
+  it("rev 10：stopPreview → 右邊重設 current", () => {
+    const { result } = renderHook(() => useVersionsController({ noteId: "n1", enabled: true }));
+    act(() => result.current.startPreview({ seq: 3, id: "v-3" }));
+    act(() => result.current.setCompareRight({ seq: 1, id: "v-1" }));
+    act(() => result.current.stopPreview());
+    expect(result.current.compareRight).toBe("current");
+  });
+
+  it("rev 10：enabled 翻 false → 右邊重設 current（翻回 true 也不重現）", () => {
+    const { result, rerender } = renderHook(({ enabled }: { enabled: boolean }) => useVersionsController({ noteId: "n1", enabled }), { initialProps: { enabled: true } });
+    act(() => result.current.startPreview({ seq: 3, id: "v-3" }));
+    act(() => result.current.setCompareRight({ seq: 1, id: "v-1" }));
+    rerender({ enabled: false });
+    rerender({ enabled: true });
+    expect(result.current.compareRight).toBe("current");
+  });
+
+  it("rev 10 N-2：enabled=false 時 setCompareRight 不生效（翻回 true 仍是 current）", () => {
+    const { result, rerender } = renderHook(({ enabled }: { enabled: boolean }) => useVersionsController({ noteId: "n1", enabled }), { initialProps: { enabled: false } });
+    act(() => result.current.setCompareRight({ seq: 1, id: "v-1" }));
+    rerender({ enabled: true });
+    expect(result.current.compareRight).toBe("current");
+  });
+
+  it("rev 10：跨斷點（預覽一併離開）→ 右邊重設 current", () => {
+    const { result } = renderHook(() => useVersionsController({ noteId: "n1", enabled: true }));
+    act(() => result.current.startPreview({ seq: 3, id: "v-3" }));
+    act(() => result.current.setCompareRight({ seq: 1, id: "v-1" }));
+    mm.set(true);
+    expect(result.current.preview).toBeNull();
+    expect(result.current.compareRight).toBe("current");
   });
 
   it("VersionsProvider 把 value 交給子孫", () => {

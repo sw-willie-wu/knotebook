@@ -6,11 +6,11 @@ import type { NoteDto, VersionDto } from "@knotebook/shared";
 import { useVersionList } from "@/api/versions";
 import { Button } from "@/components/ui/button";
 import { useVersions } from "@/lib/versions-context";
-import { cn } from "@/lib/utils";
+import { ComparePicker } from "./ComparePicker";
 import { VersionPreview } from "./VersionPreview";
 import { OnlyChangesToggle } from "./PreviewBanner";
 import { VersionRowContent, VersionRowMenu } from "./VersionsPanel";
-import { PRESSED_CLASS, currentSubtitle, editorsText, formatVersionTime } from "./version-labels";
+import { currentSubtitle, editorsText, formatVersionTime } from "./version-labels";
 import { useApplyFlow } from "./use-apply-flow";
 
 /**
@@ -19,24 +19,21 @@ import { useApplyFlow } from "./use-apply-flow";
  * 步二＝預覽（「‹ 清單 · vN · 時間」、單欄 diff、底部「‹ 上一版 ｜ 套用 vN ｜ 下一版 ›」）。步數就是 `preview` 是否為 null。
  * 底部「較舊的版本」＝seq 較小的下一筆、「較新的版本」＝較大的那筆（文案刻意不用「前一版」，免得與比較對象撞名）；
  * 到頭就 disabled（較舊那側還有下一頁時先載，載入中 disabled）。
- * 整頁不掛 `PreviewBanner`，步二頁首第二列自己給它的控制項：比較對象兩顆鈕、「只看差異」、「vs 空文件」提示——
- * 鍵、按下態與條件都照 `PreviewBanner`；兩者都讀 controller 的狀態，寬版設過的值跨斷點後仍生效，所以整頁必須能切。
- * 只有並排／單欄不提供（`forceSingle`）。
+ * 整頁不掛 `PreviewBanner`，步二頁首第二列自己給它的控制項：比較對象一對下拉（`ComparePicker`，左 → 右；spec §8.3／§8.4【rev 10】）、
+ * 「只看差異」——兩者都讀 controller 的狀態。只有並排／單欄不提供（`forceSingle`），所以下拉一律放列 2。
  * 焦點：受控 Dialog 沒有 Trigger，Radix 關閉時不會還原焦點——掛載當下記住 `document.activeElement`，關閉時手動還（同 `GroupNameDialog`）。
  * 記到的元素已不在 DOM（從頁首 ⋮ 開：記到的是選單項，選單關掉就卸載）→ 退回 `returnFocusRef`（NotePage 交下來的 ⋮ 觸發鈕，final I-1）。
- * 320 px：步二頁首第二列的比較對象 group 帶 `flex-wrap`，兩顆鈕放不下就換行（依 class 推論；jsdom 量不到版面，真瀏覽器量測留 e2e）。
+ * 320 px：步二頁首第二列帶 `flex-wrap`，放不下就換行（依 class 推論；jsdom 量不到版面，真瀏覽器量測留 e2e）。
  * Esc：步二＝回清單、步一＝關整頁，兩者都 `preventDefault`（NotePage 的預覽 Esc 以 `defaultPrevented` 讓路）。
  */
 export function VersionsSheet({ doc, lastEdited, returnFocusRef }: { doc: Y.Doc; lastEdited: NoteDto["lastEdited"]; returnFocusRef?: RefObject<HTMLElement | null> }) {
   const { t, i18n } = useTranslation();
-  const { noteId, preview, startPreview, stopPreview, close, openSave, compareTo, setCompareTo } = useVersions();
+  const { noteId, preview, startPreview, stopPreview, close, openSave } = useVersions();
   // body 不算「可還的元素」（final fix 2 M-A）：當成沒記到，關閉時走 returnFocusRef（⋮）。
   const [returnFocus] = useState(() => {
     const active = document.activeElement;
     return active instanceof HTMLElement && active !== document.body ? active : null;
   });
-  // 按下態同 PreviewBanner（預檢 P11）：`PRESSED_CLASS`＋`aria-pressed`。
-  const toggle = (on: boolean) => cn("h-7", on && PRESSED_CLASS);
   const id = noteId ?? "";
   const list = useVersionList(id, true);
   const { requestApply } = useApplyFlow(id);
@@ -47,8 +44,8 @@ export function VersionsSheet({ doc, lastEdited, returnFocusRef }: { doc: Y.Doc;
   const row: VersionDto | undefined = index >= 0 ? rows[index] : undefined;
   const older = index >= 0 ? rows[index + 1] : undefined;
   const newer = index > 0 ? rows[index - 1] : undefined;
+  // 底部「較舊／較新的版本」只換左邊（同面板點列；右邊保持，rev 10）。
   const go = (v: VersionDto) => startPreview({ seq: v.seq, id: v.id });
-  const hasOlder = preview !== null && (rows.some((r) => r.seq < preview.seq) || list.hasNextPage);
 
   const shut = () => {
     stopPreview();
@@ -117,18 +114,13 @@ export function VersionsSheet({ doc, lastEdited, returnFocusRef }: { doc: Y.Doc;
             {row && `${formatVersionTime(row.createdAt, i18n.language)} · ${editorsText(t, row.editors)}`}
           </span>
         </div>
-        <div className="flex flex-wrap items-center gap-1 text-xs">
-          <div role="group" aria-label={t("versions.preview.compareLabel")} className="flex flex-wrap items-center gap-1">
-            <span className="text-muted-foreground">{t("versions.preview.compareLabel")}</span>
-            <Button type="button" variant="ghost" size="sm" className={toggle(compareTo === "previous")} aria-pressed={compareTo === "previous"} onClick={() => setCompareTo("previous")}>
-              {t("versions.preview.comparePrevious")}
-            </Button>
-            <Button type="button" variant="ghost" size="sm" className={toggle(compareTo === "current")} aria-pressed={compareTo === "current"} onClick={() => setCompareTo("current")}>
-              {t("versions.preview.compareCurrent")}
-            </Button>
-          </div>
+        <div data-testid="sheet-compare-row" className="flex flex-wrap items-center gap-1 text-xs">
+          <ComparePicker side="left" />
+          <span aria-hidden="true" className="text-muted-foreground">
+            →
+          </span>
+          <ComparePicker side="right" />
           <OnlyChangesToggle />
-          {compareTo === "previous" && !hasOlder && list.isSuccess && <span>{t("versions.preview.vsEmpty")}</span>}
         </div>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto">

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import zhTW from "./zh-TW.json";
+import en from "./en.json";
 
 /** spec rev 8 §3.1 D7、§8.2–§8.5 的字面（Willie 逐題定案）。改這些字串＝改產品決定，先問 Willie。 */
 const SPEC_COPY: Record<string, string> = {
@@ -29,11 +30,11 @@ const SPEC_COPY: Record<string, string> = {
   "versions.kind.manual": "手動",
   "versions.kind.auto": "自動",
   "versions.applySeq": "套用 v{{seq}}",
-  "versions.preview.banner": "正在預覽 v{{seq}} · {{when}} · {{who}}",
-  "versions.preview.compareLabel": "比較對象",
-  "versions.preview.comparePrevious": "前一版",
-  "versions.preview.compareCurrent": "目前狀態",
-  "versions.preview.vsEmpty": "vs 空文件",
+  // rev 10（§8.4【rev 10】）：橫幅拿掉時間／editors／「比較對象」標籤；比較對象改左右一對下拉
+  "versions.preview.banner": "正在預覽 v{{seq}}",
+  "versions.preview.leftPicker": "左側版本",
+  "versions.preview.rightPicker": "右側版本",
+  "versions.preview.currentOption": "目前狀態",
   "versions.preview.split": "並排",
   "versions.preview.single": "單欄",
   "versions.preview.onlyChanges": "只看差異",
@@ -58,5 +59,24 @@ function get(obj: unknown, path: string): unknown {
 describe("版本歷史文案＝spec 字面（zh-TW）", () => {
   for (const [key, text] of Object.entries(SPEC_COPY)) {
     it(key, () => expect(get(zhTW, key)).toBe(text));
+  }
+});
+
+/** spec rev 10 §8.4【rev 10】明列刪除的鍵（「前一版」概念、「vs 空文件」、「比較對象」標籤、純文字欄標頭）：兩個語系都不得殘留。 */
+const REMOVED_KEYS = [
+  "versions.preview.compareLabel",
+  "versions.preview.comparePrevious",
+  "versions.preview.compareCurrent",
+  "versions.preview.vsEmpty",
+  "versions.preview.leftLabel",
+  "versions.preview.rightLabelCurrent",
+];
+
+describe("rev 10 刪除的鍵不殘留", () => {
+  for (const key of REMOVED_KEYS) {
+    it(key, () => {
+      expect(get(zhTW, key)).toBeUndefined();
+      expect(get(en, key)).toBeUndefined();
+    });
   }
 });

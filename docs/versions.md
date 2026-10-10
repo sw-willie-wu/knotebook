@@ -42,7 +42,7 @@ On a wide window, open the history with the round **Version history** button at 
 
 Click a row to preview that version; its content isn't loaded until you do. The ↑ and ↓ keys move between rows and preview each one. While you preview, a bar under the page header shows the version and lets you choose:
 
-- **Compare with**: **Previous version** (the default — for v1, or the oldest version left, it is compared with an empty document) or **Current state** (the note's content at the moment you pick it; it doesn't follow edits made while you look).
+- What to compare, as a pair: on the left the version you clicked, on the right **Current state** by default — the note's content when you picked the pair; it doesn't follow edits made while you look. Both sides are menus listing the versions (the right one also lists **Current state**), so you can compare any two versions; the changes always read from the left side to the right side, whichever of the two is newer. Clicking another row changes only the left side; the right side stays as you set it until you close the preview. While the versions are shown side by side, the two menus head the two columns; otherwise they sit in the bar, left → right. **Apply vN** always applies the left side.
 - **Side by side** or **Single column**. When the preview area is at least 720 pixels wide, the two versions are shown side by side unless you pick **Single column**. When it is narrower, there is only a single column and these two buttons aren't shown; if you had picked **Side by side**, it comes back once the area is wide enough again.
 - **Only changes**, which folds runs of unchanged blocks into one line. It works only in a single column: while the versions are shown side by side, it is greyed out and can't be switched.
 
@@ -50,7 +50,7 @@ Added, deleted, changed and moved blocks are marked with a colored bar at their 
 
 Previewing doesn't change the note, and the editor stays open underneath: other people's edits keep arriving. Close the preview with ✕ in the bar or with Esc.
 
-On a narrow window (narrower than 768 pixels) there is no **Version history** button: choose **Version history** from the `⋮` menu. It opens full screen: tap a version to see its changes in a single column, with **Older version**, **Apply vN** and **Newer version** at the bottom. Esc goes back from a version to the list, and from the list closes the history.
+On a narrow window (narrower than 768 pixels) there is no **Version history** button: choose **Version history** from the `⋮` menu. It opens full screen: tap a version to see its changes in a single column, with the same pair of menus at the top and **Older version**, **Apply vN** and **Newer version** at the bottom (these two change the left side only). Esc goes back from a version to the list, and from the list closes the history.
 
 ## Applying a version
 

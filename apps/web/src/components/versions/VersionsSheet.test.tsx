@@ -73,7 +73,7 @@ function Host({ doc }: { doc: Y.Doc }) {
     <VersionsProvider value={value}>
       <button type="button" onClick={value.open}>host-open</button>
       <span data-testid="s-state">{JSON.stringify({ mode: value.mode, preview: value.preview })}</span>
-      <span data-testid="s-compare">{value.compareTo}</span>
+      <span data-testid="s-compare">{JSON.stringify(value.compareRight)}</span>
       {/* 模擬「寬版先開了只看差異」：controller 的 onlyChanges 跨斷點不重設。 */}
       <button type="button" onClick={() => value.setOnlyChanges(true)}>host-only-changes</button>
       <span data-testid="s-only">{String(value.onlyChanges)}</span>
@@ -164,21 +164,32 @@ describe("VersionsSheet（spec §8.3）", () => {
     expect(footer.getByRole("button", { name: "Newer version" })).toBeDisabled();
   });
 
-  it("步二頁首的比較對象兩顆鈕：預設按下「前一版」，點「目前狀態」→ compareTo=current、aria-pressed 跟著換", async () => {
+  it("rev 10：步二頁首列 2 是左右一對下拉（左 v2 → 右 Current state）＋只看差異；右選 v1 → compareRight=v1；底部「較舊的版本」只換左、右保持", async () => {
     stub({ [LIST]: list([ver(2), ver(1)]), [SNAP(2)]: { id: "v-2", seq: 2, ydoc: b64(V2) }, [SNAP(1)]: { id: "v-1", seq: 1, ydoc: b64(V1) } });
     renderSheet();
     const sheet = await screen.findByRole("dialog", { name: "Version history" });
     fireEvent.click(await within(sheet).findByRole("button", { name: /^v2(?!\d)/ }));
-    const group = within(await within(sheet).findByRole("group", { name: "Compare with" }));
-    const previous = group.getByRole("button", { name: "Previous version" });
-    const current = group.getByRole("button", { name: "Current state" });
-    expect(screen.getByTestId("s-compare")).toHaveTextContent("previous");
-    expect(previous).toHaveAttribute("aria-pressed", "true");
-    expect(current).toHaveAttribute("aria-pressed", "false");
-    fireEvent.click(current);
-    expect(screen.getByTestId("s-compare")).toHaveTextContent("current");
-    expect(current).toHaveAttribute("aria-pressed", "true");
-    expect(previous).toHaveAttribute("aria-pressed", "false");
+    const row = within(await within(sheet).findByTestId("sheet-compare-row"));
+    const left = row.getByRole("button", { name: "Left side" });
+    const right = row.getByRole("button", { name: "Right side" });
+    await waitFor(() => expect(left).toHaveTextContent("v2"));
+    expect(right).toHaveTextContent("Current state");
+    expect(row.getByText("→")).toHaveAttribute("aria-hidden", "true");
+    expect(row.getByRole("button", { name: "Only changes" })).toBeInTheDocument();
+    // 收尾 M-A：整頁一律單欄（forceSingle）——預覽區沒有欄標頭列，下拉只有列 2 那一對（寬 800 ≥ 720 也一樣）。
+    await within(sheet).findByTestId("diff-single");
+    expect(within(sheet).queryByTestId("diff-split-head")).toBeNull();
+    expect(within(sheet).getAllByRole("button", { name: "Left side" })).toHaveLength(1);
+    expect(within(sheet).getAllByRole("button", { name: "Right side" })).toHaveLength(1);
+    expect(screen.getByTestId("s-compare")).toHaveTextContent('"current"');
+    expect(within(sheet).queryByText("Compare with")).not.toBeInTheDocument();
+    fireEvent.pointerDown(right, { button: 0, ctrlKey: false });
+    fireEvent.click(within(await screen.findByRole("menu")).getByRole("menuitemradio", { name: "v1" }));
+    expect(screen.getByTestId("s-compare")).toHaveTextContent(JSON.stringify({ seq: 1, id: "v-1" }));
+    await waitFor(() => expect(row.getByRole("button", { name: "Right side" })).toHaveTextContent("v1"));
+    fireEvent.click(footerOf(sheet).getByRole("button", { name: "Older version" }));
+    await waitFor(() => expect(sState().preview).toEqual({ seq: 1, id: "v-1" }));
+    expect(screen.getByTestId("s-compare")).toHaveTextContent(JSON.stringify({ seq: 1, id: "v-1" }));
   });
 
   it("「只看差異」：寬版先開著 → 整頁步二的開關顯示 on，按一下關回 off", async () => {
@@ -193,20 +204,6 @@ describe("VersionsSheet（spec §8.3）", () => {
     fireEvent.click(toggle);
     expect(screen.getByTestId("s-only")).toHaveTextContent("false");
     expect(toggle).toHaveAttribute("aria-pressed", "false");
-  });
-
-  it("「vs 空文件」：預覽最舊那版（沒有更舊、沒有下一頁）且比前一版時顯示；有更舊的版本時不顯示", async () => {
-    stub({ [LIST]: list([ver(2), ver(1)]), [SNAP(2)]: { id: "v-2", seq: 2, ydoc: b64(V2) }, [SNAP(1)]: { id: "v-1", seq: 1, ydoc: b64(V1) } });
-    renderSheet();
-    const sheet = await screen.findByRole("dialog", { name: "Version history" });
-    fireEvent.click(await within(sheet).findByRole("button", { name: /^v2(?!\d)/ }));
-    // 清單已載入（列已渲染）——v2 有更舊的 v1，提示若會出現此刻就已出現。
-    await within(sheet).findByRole("button", { name: /^List · v2/ });
-    expect(within(sheet).queryByText("vs empty document")).not.toBeInTheDocument();
-    fireEvent.click(footerOf(sheet).getByRole("button", { name: "Older version" }));
-    expect(await within(sheet).findByText("vs empty document")).toBeInTheDocument();
-    fireEvent.click(within(within(sheet).getByRole("group", { name: "Compare with" })).getByRole("button", { name: "Current state" }));
-    expect(within(sheet).queryByText("vs empty document")).not.toBeInTheDocument();
   });
 
   it("關整頁後焦點回到開啟前的元素（受控 Dialog 沒有 Trigger，Radix 不會自己還原）", async () => {
@@ -273,12 +270,12 @@ describe("VersionsSheet（spec §8.3）", () => {
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "fake-menu-trigger" })));
   });
 
-  it("final I-1(b)：步二比較對象 group 允許換行（flex-wrap；320 px 不溢出是依 class 推論，真瀏覽器量測留 e2e）", async () => {
+  it("final I-1(b)：步二頁首列 2（左右下拉＋只看差異）允許換行（flex-wrap；320 px 不溢出是依 class 推論，真瀏覽器量測留 e2e）", async () => {
     stub({ [LIST]: list([ver(2), ver(1)]), [SNAP(2)]: { id: "v-2", seq: 2, ydoc: b64(V2) }, [SNAP(1)]: { id: "v-1", seq: 1, ydoc: b64(V1) } });
     renderSheet();
     const sheet = await screen.findByRole("dialog", { name: "Version history" });
     fireEvent.click(await within(sheet).findByRole("button", { name: /^v2(?!\d)/ }));
-    expect(await within(sheet).findByRole("group", { name: "Compare with" })).toHaveClass("flex-wrap");
+    expect(await within(sheet).findByTestId("sheet-compare-row")).toHaveClass("flex-wrap");
   });
 
   it("上一版／下一版：在 seq 間移動，最舊那版的上一版 disabled", async () => {
