@@ -13,18 +13,21 @@
  * 鏡像讓同一份 payload 在回應裡出現兩次（第二次還被 JSON 逃脫），`wire ≈ 2.1 × payload`。
  * `tools/list` 那一發還含 SDK 自產的 `"execution":{"taskSupport":"forbidden"}` 與兩份 schema
  * 各自的 `"$schema"` 行——量整個 body 才算得到真正進脈絡的成本。
+ *
+ * image block 是 N 的唯一豁免，由 `MCP_IMAGE_MAX_BYTES` 管——案 (vi)。
  */
 import { afterAll, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { eq, inArray } from "drizzle-orm";
 import * as Y from "yjs";
-import { groups, noteSearchSections, noteStates, notes, users } from "../src/db/schema.js";
-import { MCP_PAGE_MAX } from "../src/mcp/limits.js";
+import { groups, noteSearchSections, noteStates, notes, uploads, users } from "../src/db/schema.js";
+import { MCP_IMAGE_MAX_BYTES, MCP_PAGE_MAX } from "../src/mcp/limits.js";
 import { writeSearchIndex } from "../src/notes/search-index.js";
 import { SEARCH_EXTRACTOR_VERSION } from "../src/notes/search-text.js";
 import { buildCollabTestApp, type CollabTestCtx } from "./helpers.js";
 import { getContent, seedContent, seedTokenForUser } from "./editing-helpers.js";
 import { mcpPost, rpc } from "./mcp-helpers.js";
+import { seedUpload } from "./copy-helpers.js";
 import { seedGroup } from "./group-helpers.js";
 import type { Db } from "../src/db/index.js";
 import type { FastifyInstance } from "fastify";
@@ -60,6 +63,11 @@ export const MCP_MAX_WIRE = 262_144;
  * **#222（2026-10-08，在 main @ 0aec79b 之上實測，#200 PR1 已合）：讀寫憑證七支 wire ＝ 22 388**（+412 來自 edit_note／
  * create_note／read_note_section 的顏色敘述；唯讀憑證五支對照組 14 041）。依同一配方重推仍是 22 528 × 1.3 → 29 300，門檻不動。
  *
+ * **#180＋#200 PR2（2026-10-10，整合分支 @ 904ad47，main 含 #236）：讀寫憑證十支 wire ＝ 29 437**（相對 #222 基線 22 388 的 +7 049：
+ * #180 的 rename／move／copy／create_note 改鍵名 ＋5 707（spec 預估 +5 707；I-4 整合點量到 28 095）、#200 的 read_note_image 與
+ * read_note_section 一句 ＋1 342（spec 預估 +1 392；唯讀憑證那邊同樣多 1 342）；唯讀憑證六支對照組 15 383）。實測比 spec §8 預期的 29 487
+ * 少 50（#200 那一段預估 +1 392、實測 +1 342；#180 那一段與預估吻合）。已破 29 300，依原配方（向上取整到 1024 的倍數 ×1.3）重訂：29 696 × 1.3 ＝ 38 604.8 → 38 700。
+ *
  * 之前：#177 後 18 952（2026-10-07；#177 的 +294 來自群組 `owner` 多了 `name` 的 `maxLength` 與 `nameTruncated`（四份 outputSchema 各展開一次）、heading `.describe()` 加 ` as written in JSON`（+19 × 兩支）；#175 PR5 後 18 658、#175 PR1 後 18 105、PR2／PR3 後
  * 18 144；#175 之前為 16 774，#145 時記為 16 763）。PR5 的 +Δ 來自 `create_note` 的 `groupId` 欄
  * （`.describe()`＋`format`）、description 首句與兩處 edit_note 限定、`title` 片語。PR1 的 +1 331 來自
@@ -69,7 +77,7 @@ export const MCP_MAX_WIRE = 262_144;
  * （改寫模型面敘述那一輪）之後就過期了，而這段註解當時沒跟上——別再拿它去論證餘裕。對照組、
  * 百分比刻意不抄在這裡：案 11b 每次跑都 `console.log` 印出當下的值（剩餘字元一減就有）。
  *
- * 2026-10-08 依原配方重訂（#200 PR1）；下次逼近時同樣回頭重訂連同推導，不是逕自調大。
+ * 最近一次依原配方重訂：2026-10-10（#180＋#200 PR2，見上；前一次 2026-10-08 是 #200 PR1）；下次逼近時同樣回頭重訂連同推導，不是逕自調大。
  *
  * **什麼樣的迴歸會撞牆**（**突變實跑，2026-09-09**）：把 `edit_note` 的 `if_match`
  * 欄位 `.describe()` 加長 6000 字元（`"x".repeat(6000)` 接在句尾）→ wire 變成 **21 362**，
@@ -79,8 +87,11 @@ export const MCP_MAX_WIRE = 262_144;
  * 位元組每一次連線都進模型脈絡，而 `instructions` 與 `docs/mcp.md` 是更便宜的落點。
  * #200 PR1 追記（**突變實跑，2026-10-08**，門檻 28 000、基線 20 578）：同一條 +6000 的迴歸現在是 **26 578、不再撞牆**
  * （餘裕變大是重訂門檻的直接結果）；加長 7500 → **28 078**，紅（`expected 28078 to be less than or equal to 28000`）。
+ * #180＋#200 PR2 追記（**突變實跑，2026-10-10**，門檻 38 700、基線 29 437；舊數字不得沿用，spec §8）：同一條 +6000 的迴歸現在是 **35 437、不再撞牆**
+ * （用掉 91.6%）；要撞牆得加長 `N_LIST_MAX − W + 100` ＝ 9 363 → **38 800**，紅（`expected 38800 to be less than or equal to 38700`）。
+ * 兩發都已 revert（棚內突變，md5 還原確認）。
  */
-export const N_LIST_MAX = 29_300;
+export const N_LIST_MAX = 38_700;
 
 /**
  * 案 (iv) 第一發（#177 之後的群組形最壞情形）的下界哨兵。2026-10-07 實測 **247 056**（餘裕 ×1.06，剩 15 088）；
@@ -163,16 +174,16 @@ describe("#108 tools/list 的脈絡成本（案 11b）", () => {
 
     const roRes = await mcpPost(ctx.app, rpc("tools/list"), { token: o.token });
     expect(roRes.statusCode).toBe(200);
-    expect((roRes.json().result.tools as unknown[]).length).toBe(5);
+    expect((roRes.json().result.tools as unknown[]).length).toBe(6);
     const roWire = roRes.body.length;
 
     const rwRes = await mcpPost(ctx.app, rpc("tools/list"), { token: rwToken });
     expect(rwRes.statusCode).toBe(200);
-    expect((rwRes.json().result.tools as unknown[]).length).toBe(9);
+    expect((rwRes.json().result.tools as unknown[]).length).toBe(10);
     const rwWire = rwRes.body.length;
 
     console.log(
-      `[案 11b] tools/list  唯讀憑證（五支，對照）wire=${roWire}  讀寫憑證（九支，被測）wire=${rwWire}  ` +
+      `[案 11b] tools/list  唯讀憑證（六支，對照）wire=${roWire}  讀寫憑證（十支，被測）wire=${rwWire}  ` +
         `門檻=${N_LIST_MAX}  用掉 ${((rwWire / N_LIST_MAX) * 100).toFixed(1)}%`
     );
     expect(rwWire).toBeLessThanOrEqual(N_LIST_MAX);
@@ -419,6 +430,29 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
     expect(np.notes).toHaveLength(50); // 下一行的 every 不得因空陣列而真
     expect(np.notes.every(n => n.matches.length === 3)).toBe(true);
     expect("matchesTruncated" in np).toBe(false);
+  });
+
+  /**
+   * 測資 (vi)（#200 §7.5）：image block 是 N 的**唯一豁免**，上限由 `MCP_IMAGE_MAX_BYTES` 單獨管。
+   * 剛好上限的圖：wire − image.data.length ≤ N（其餘部分照樣受哨兵管）、data.length ≤ 4·ceil(MAX/3)（base64 膨脹的精確上界）；
+   * 上限＋1 → file_too_large（不讀檔）。
+   */
+  it("(vi) #200 read_note_image：剛好上限的圖符合兩條界線；上限＋1 → file_too_large", async () => {
+    const ctx = await buildCollabTestApp();
+    const o = await owner(ctx);
+    const note = await ctx.createNote(o.id, "image cap");
+    const atCap = await seedUpload(ctx.db, ctx.uploadsDir, note.id, o.id, Buffer.alloc(MCP_IMAGE_MAX_BYTES, 7));
+    const res = await mcpPost(ctx.app, rpc("tools/call", { name: "read_note_image", arguments: { note_id: note.id, upload_id: atCap } }), { token: o.token });
+    expect(res.statusCode).toBe(200);
+    const result = res.json().result as { isError?: true; content: Array<{ type: string; data?: string }> };
+    expect(result.isError).toBeUndefined();
+    const data = result.content[1]!.data!;
+    console.log(`[案 11c] (vi) read_note_image 上限 wire=${res.body.length}  非圖部分=${res.body.length - data.length}  data=${data.length}`);
+    expect(res.body.length - data.length).toBeLessThanOrEqual(MCP_MAX_WIRE);
+    expect(data.length).toBeLessThanOrEqual(4 * Math.ceil(MCP_IMAGE_MAX_BYTES / 3));
+    const [over] = await ctx.db.insert(uploads).values({ noteId: note.id, uploaderId: o.id, mime: "image/png", size: MCP_IMAGE_MAX_BYTES + 1 }).returning({ id: uploads.id });
+    const r2 = await mcpPost(ctx.app, rpc("tools/call", { name: "read_note_image", arguments: { note_id: note.id, upload_id: over!.id } }), { token: o.token });
+    expect(r2.json().result.structuredContent.code).toBe("file_too_large");
   });
 
   // 整張表印一次（PR 描述要貼）。**刻意是 hook 不是 `it`**：它只彙整前面幾案已經斷言過的

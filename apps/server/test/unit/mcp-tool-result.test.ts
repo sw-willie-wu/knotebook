@@ -7,7 +7,8 @@
  */
 import { describe, expect, it } from "vitest";
 import { ERROR_CODES } from "@knotebook/shared";
-import { toolError } from "../../src/mcp/tool-result.js";
+import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
+import { toolError, toolResultWithImage } from "../../src/mcp/tool-result.js";
 
 describe("#108 toolError", () => {
   it("回 isError ＋ structuredContent，且 content[0].text 逐字等於 structuredContent 的 JSON", () => {
@@ -44,5 +45,17 @@ describe("#108 toolError", () => {
     const result = toolError("internal", `a"b\\c`);
     expect(result.content[0]!.text).toBe(JSON.stringify(result.structuredContent));
     expect(JSON.parse(result.content[0]!.text)).toEqual(result.structuredContent);
+  });
+});
+
+describe("#200 toolResultWithImage（§7.4）", () => {
+  it("content[0] 鏡像 structuredContent、content[1] 是 image、structuredContent 不含 data；CallToolResultSchema 驗得過", () => {
+    const meta = { noteId: "n", uploadId: "u", mimeType: "image/png", bytes: 3 };
+    const r = toolResultWithImage(meta, { data: Buffer.from([1, 2, 3]).toString("base64"), mimeType: "image/png" });
+    expect(r.content[0]).toEqual({ type: "text", text: JSON.stringify(r.structuredContent) });
+    expect(r.content[1]).toEqual({ type: "image", data: "AQID", mimeType: "image/png" });
+    expect(r.structuredContent).toEqual(meta);
+    expect("data" in (r.structuredContent as object)).toBe(false);
+    expect(CallToolResultSchema.safeParse(r).success).toBe(true);
   });
 });

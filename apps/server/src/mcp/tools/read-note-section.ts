@@ -30,7 +30,8 @@ export const READ_NOTE_SECTION_DESCRIPTION =
   "Read one section of a note as markdown. Take `section_id` from read_note_outline. " +
   `At most ${MCP_SECTION_CHARS} characters per call: while \`truncated\` is true, call again with \`offset\` ` +
   "set to `nextOffset`. The `fingerprint` you need to replace this section arrives with the page that " +
-  "finishes it, so read to the end before you rewrite it.";
+  "finishes it, so read to the end before you rewrite it. " +
+  "Uploaded images appear as `![name](/api/uploads/<id>)`, or inside `<figure><img src=\"/api/uploads/<id>\">…</figure>` when captioned; see them with read_note_image.";
 
 /** 被截斷時附上的解釋文案（不是防線，見檔頭）。 */
 const TRUNCATED_NOTE =
