@@ -97,3 +97,12 @@ export function truncateCodeUnits(s: string, max: number): { text: string; trunc
   const cut = code >= 0xd800 && code <= 0xdbff ? max - 1 : max;
   return { text: s.slice(0, cut), truncated: true };
 }
+
+/**
+ * #200 §7.5／#180 spec §9-0：`read_note_image` 原樣回傳的最大原始位元組數。**Willie 2026-10-10 裁定 5 MiB。**
+ * 依據：#200 §8 spike（2026-10-10，Claude Code 2.1.295，`MAX_MCP_OUTPUT_TOKENS` 未設）：PNG 16 KiB～10 MiB 全數送達且模型念得出標記，
+ * JPEG／GIF／WebP 原檔都過；形 (i)（outputSchema＋structuredContent＋image block）與 (ii) 都看得到 → 照形 (i)。
+ * 5 MiB 的 base64 ＝ 6 990 508 字元，wire 約 6 990 942（spike `wire.txt`）——遠大於 `MCP_MAX_WIRE`（262 144）：
+ * image block 是那個哨兵的**唯一豁免**，由本常數單獨管（`test/mcp-size.test.ts` 案 (vi)）。
+ */
+export const MCP_IMAGE_MAX_BYTES = 5_242_880;

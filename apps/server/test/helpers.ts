@@ -417,6 +417,8 @@ export interface CollabTestCtx {
    */
   breakGate(err: Error): void;
   db: Db;
+  /** #180：實際掛進 app 的 uploadsDir（磁碟斷言用）。 */
+  uploadsDir: string;
   createUser(opts: { email: string; password: string; isAdmin?: boolean }): Promise<{ id: string }>;
   createNote(ownerId: string, title?: string): Promise<{ id: string }>;
   share(noteId: string, userId: string, role: "editor" | "viewer"): Promise<void>;
@@ -438,6 +440,14 @@ export async function buildCollabTestApp(
     collabHooks?: (server: CollabServer, log: CollabHooksLogger) => CollabHooks;
     /** 只換掉要驗的那一顆桶（其餘走 `freshLimiters` 預設）——⚠ 整包轉傳，別逐鍵展開，理由見 `freshLimiters`。 */
     limiters?: Partial<NonNullable<AppDeps["limiters"]>>;
+    /** #180：PATCH／MCP rename 的 slug 候選縫，語意見 `AppDeps.slugUpdateTestHook`。 */
+    slugUpdateTestHook?: AppDeps["slugUpdateTestHook"];
+    /** #180：建立／複製路徑的 slug 縫，語意見 `AppDeps.noteCreateHooks`。 */
+    noteCreateHooks?: AppDeps["noteCreateHooks"];
+    /** #180：全文索引交易縫，語意見 `AppDeps.searchIndexHooks`。 */
+    searchIndexHooks?: AppDeps["searchIndexHooks"];
+    /** #180：空間鎖等待上限（ms），語意見 `AppDeps.storageLockTimeoutMs`。 */
+    storageLockTimeoutMs?: number;
     /** #106（#137）寫入路徑的注入縫，語意見 `AppDeps.editingTestHooks`。 */
     editingTestHooks?: AppDeps["editingTestHooks"];
     /** #108 `/api/mcp` 的注入縫，語意見 `AppDeps.mcpTestHooks`。 */
@@ -476,6 +486,7 @@ export async function buildCollabTestApp(
   };
   const collab = createCollabServer({ db, config: testConfig, gate, log: collabLog, storeSearchHooks: opts.storeSearchHooks, versionIdleMs: opts.versionIdleMs });
 
+  const uploadsDir = freshUploadsDir();
   const deps: AppDeps = {
     config: testConfig,
     db,
@@ -488,9 +499,13 @@ export async function buildCollabTestApp(
     editingTestHooks: opts.editingTestHooks,
     mcpTestHooks: opts.mcpTestHooks,
     groupTestHook: opts.groupTestHook,
+    slugUpdateTestHook: opts.slugUpdateTestHook,
+    noteCreateHooks: opts.noteCreateHooks,
+    searchIndexHooks: opts.searchIndexHooks,
+    ...(opts.storageLockTimeoutMs === undefined ? {} : { storageLockTimeoutMs: opts.storageLockTimeoutMs }),
     editingQueueWaitMs: opts.editingQueueWaitMs,
     presenceOptions: opts.presence,
-    uploadsDir: freshUploadsDir(),
+    uploadsDir,
     ai: createAiRuntime(),
   };
   const app = buildApp(deps, { logger: false });
@@ -666,7 +681,7 @@ export async function buildCollabTestApp(
     return session;
   }
 
-  return { baseUrl, app, collab, collabLogs, breakGate, db, createUser, createNote, share, loginAs, destroy };
+  return { baseUrl, app, collab, collabLogs, breakGate, db, uploadsDir, createUser, createNote, share, loginAs, destroy };
 }
 
 /**

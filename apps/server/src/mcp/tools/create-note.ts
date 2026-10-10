@@ -1,6 +1,7 @@
 /**
- * #108 §8.7 `create_note`：建一篇新筆記。與 `POST /api/notes` 的 body 同形、同驗證規則、
- * 同管線（D18：**寫入側不發明第二套契約**）——`content` 逐字重用 `MD`、`title` 逐字重用 `TITLE`（M14）。
+ * #108 §8.7 `create_note`：建一篇新筆記。與 `POST /api/notes` 的 body 同物件（`TITLE`／`MD`／`GROUP_ID`）、同驗證規則、
+ * 同管線；鍵名依 MCP 輸入一律 snake_case（W15）——REST 是 `groupId`、這裡是 `group_id`，這是對 D18 的鍵名偏離（#180 spec §4.7）。
+ * 除鍵名外仍守 D18（寫入側不發明第二套契約）——`content` 逐字重用 `MD`、`title` 逐字重用 `TITLE`（M14）。
  *
  * ⚠ **這支工具不進部署形態閘門**（裁決 D-M）：判準是「要不要讀 live doc」。不帶 `content` 時
  * 它只建一列（`notes/create.ts`；帶 `title` 時多一次——最壞每輪 20 次、最多 5 輪——scope 範圍
@@ -20,17 +21,15 @@
  *
  * `url` 走 `canonicalNotePath`，與 `list_notes`／`search_notes` 是**同一個組字點**（`dto.ts`）。
  */
-import { eq } from "drizzle-orm";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { notes } from "../../db/schema.js";
 import { isForeignKeyViolation } from "../../db/pg-errors.js";
-import { visibleNoteBranches } from "../../notes/list-query.js";
 import { insertNoteWithAutoSlug } from "../../notes/create.js";
 import { loadCreateTarget } from "../../notes/create-target.js";
 import { roleFromGroupFlags } from "../../notes/service.js";
 import type { SlugScope } from "../../notes/slug.js";
 import { GROUP_ID, MD, TITLE } from "../../notes/schemas.js";
-import { noteSummarySchema, toNoteSummary, type NoteSummaryRow } from "../dto.js";
+import { noteSummarySchema, toNoteSummary } from "../dto.js";
+import { insertedRow, rereadVisibleNote } from "../note-rows.js";
 import { toolError, toolResult } from "../tool-result.js";
 import { WRITE_RATE_LIMITED_MESSAGE, writeFailureMessage } from "../write-messages.js";
 import { requireWriteScope } from "../write-scope.js";
@@ -45,7 +44,7 @@ import type { McpToolCtx } from "../context.js";
 //   `role` 是 `viewer`，`edit_note` 對它一律 `forbidden`（`edit-note.ts` 的 viewer 分支）——「可以之後 edit_note」
 //   對它是假話，gate r1 I-1。
 export const CREATE_NOTE_DESCRIPTION =
-  "Create a new note — yours, or in one of your groups when you pass `groupId`. Pass `content` to fill it in at the same time, " +
+  "Create a new note — yours, or in one of your groups when you pass `group_id`. Pass `content` to fill it in at the same time, " +
   "or leave it out for an empty note, which edit_note can fill in later if the reply's `role` is `owner` or `editor`. " +
   // ⚠ #146：**只有解析失敗那條路**「沒有留下筆記」。`internal`（套用失敗）那條路是先 insert
   //   再套用，清理是 best-effort——`write-service.ts` 的 catch 刪不掉時只 `log.warn`，照樣回
@@ -65,11 +64,12 @@ export const CREATE_NOTE_DESCRIPTION =
 
 export const createNoteInput = {
   title: TITLE.optional()
-    // ⚠ #145：這一段與 `docs/mcp.md` 的 `create_note` bullet **除下列四項差異外逐字同源**：
+    // ⚠ #145：這一段與 `docs/mcp.md` 的 `create_note` bullet **除下列五項差異外逐字同源**：
     //   ① 前面多一句「The note's title.」②去掉 markdown 粗體 ③去掉 `title` 兩側的
-    //   backtick ④開頭用祈使的「Leave it out」（而非「Leave out `title`」）。
+    //   backtick ④開頭用祈使的「Leave it out」（而非「Leave out `title`」）
+    //   ⑤ `edit_note` 兩側不加反引號（`.describe()` 依本檔慣例；docs 有）。
     //   #175 PR5：去重範圍片語（「…against the other notes in the same place — your personal notes, or that
-    //   group's notes — with a numeric suffix」，T1）與 docs 及 spec §9.2 逐字相同，不在上述四項差異內。
+    //   group's notes — with a numeric suffix」，T1）與 docs 及 spec §9.2 逐字相同，不在上述五項差異內。
     //   「same place」的範圍＝`SlugScope`（個人＝owner 自己的筆記、群組＝該群組的筆記），由
     //   `notes/slug.ts` 的 `probeUniqueSlug` 述詞決定（`owner_id = me` 或 `group_id = g`，不含分享給你的筆記）。
     //   ⚠ 不准壓短：「沒給 title → untitled-…」這種縮寫會讓模型反推「給了就跟標題走」，
@@ -81,14 +81,14 @@ export const createNoteInput = {
         "your personal notes, or that group's notes — with a numeric suffix (`meeting-notes`, " +
         "then `meeting-notes-2`). Some titles have no usable URL form " +
         "and fall back to `untitled`, numbered the same way — punctuation on its own, a reserved " +
-        "word, or a uuid, or a title ending in one. No tool here renames a note afterwards, so " +
-        "pass one if you know it.",
+        "word, or a uuid, or a title ending in one. Pass a title if you know it; edit_note's `rename` can change it later " +
+        "when the reply's `role` is `owner` or `editor`.",
     ),
-  // ⚠ #175 PR5：G2 逐字取自 `docs/mcp.md` `groupId` bullet 的第二到第五句（「Pass the id of one of your
+  // ⚠ #175 PR5：G2 逐字取自 `docs/mcp.md` `group_id` bullet 的第二到第五句（「Pass the id of one of your
   //   groups…」→ `.describe()` 句首改「The id of one of your groups…」，唯一差異）。bullet 其餘句子（id 去哪找、
   //   兩種拒絕、非 uuid 的輸入檢查）是文件對人說的，不放進模型面字串。
   //   `GROUP_ID` 與 REST `createBodySchema.groupId` 是同一個物件（D18／M14；`mcp-write-schemas.test.ts` 釘同源）。
-  groupId: GROUP_ID.optional().describe(
+  group_id: GROUP_ID.optional().describe(
     "The id of one of your groups where your role lets you create notes. The note then belongs to the group, " +
       "not to you. Leave it out for a personal note. If your role there can create notes but not edit them, " +
       "the note is read-only for you: the reply's `role` is `viewer`.",
@@ -104,59 +104,17 @@ export const createNoteOutput = {
 export interface CreateNoteArgs {
   title?: string;
   content?: string;
-  groupId?: string;
+  group_id?: string;
 }
 
 /** spec §9.2 兩句專用訊息（逐字；`docs/mcp.md` Errors 段描述同一條件）。**不得**重用 `NOTE_NOT_FOUND_MESSAGE`——
  *  那句談「筆記」，這裡談「群組」，且兩種 404（非成員／不存在）必須逐位元組相同。 */
 const GROUP_NOT_FOUND_MESSAGE = "No group with that id among the groups you belong to.";
-const CREATE_IN_GROUP_FORBIDDEN_MESSAGE = "Your role in that group can't create notes. Leave out `groupId` to create a personal note.";
+const CREATE_IN_GROUP_FORBIDDEN_MESSAGE = "Your role in that group can't create notes. Leave out `group_id` to create a personal note.";
 
 const NO_CONTENT_SUPPORT_MESSAGE =
   "This deployment cannot create a note with content. Call create_note again without `content`.";
 const CREATE_FAILED_MESSAGE = "The note could not be created and nothing was stored. Try again.";
-
-/**
- * insert 的 `returning()` 那一列 → `toNoteSummary` 收的形。`owner` 由呼叫端依 scope 給——個人＝呼叫者的
- * handle（建立者即 owner，同 REST 的 A12，不必補查 `users`）、群組＝群組名（`ownerHandle` 為 null）；**不得**再無條件填
- * `ctx.userHandle`（gate r1 I3：群組筆記會被組成 `/n/<me>/<slug>`）。`groupId` 取列本身。
- * `editorHandle` 恆為 `null`——這一列的 `last_edited_by` 若已落款，落款人也就是呼叫者本人，而
- * **只有重讀落空的競態**才會走到這裡。
- */
-function insertedRow(
-  row: typeof notes.$inferSelect,
-  owner: { ownerHandle: string | null; groupName: string | null }
-): NoteSummaryRow {
-  return {
-    id: row.id,
-    title: row.title,
-    ownerHandle: owner.ownerHandle,
-    groupId: row.groupId,
-    groupName: owner.groupName,
-    slug: row.slug,
-    updatedAt: row.updatedAt,
-    lastEditedAt: row.lastEditedAt,
-    lastEditedAgentLabel: row.lastEditedAgentLabel,
-    editorHandle: null,
-  };
-}
-
-/**
- * 重讀那一列拿新鮮的落款（理由逐字在 `routes/notes.ts` 建立路徑的長註解裡：insert 的
- * `returning()` 是在合併**之前**取的，四欄還是 null，直接回它就是送出一個恆空的
- * `lastEdited` 假答案）。可見性走 `visibleNoteBranches` 依 scope 選的分支（個人＝owned、群組＝grouped）——
- * 與 `list_notes`／`search_notes` **同一份**可見性語意，不新增第二種查詢形狀。grouped 分支要求 `can_read`：
- * 建立者必在其中（「新建 ⇒ 閱讀」由 `group_roles_read_implied_chk` 保證）；grouped 的 `role` 欄是 SQL
- * `CASE WHEN can_edit THEN 'editor' ELSE 'viewer' END`，與 `roleFromGroupFlags` 同規則。
- * 落空＝回應組裝前這篇又被別的請求刪掉、或呼叫者剛被移出群組的競態；內容已經寫進去了，呼叫端退回 insert
- * 的那一列（與 REST 同一個判斷：回一個過期的 `lastEdited` 比讓外部 AI 重試建出第二篇有內容的筆記好）。
- * ⚠ `visibleNoteBranches` 每次現造、只 await 要的那一支（drizzle select builder 單次使用）。
- */
-async function reread(ctx: McpToolCtx, noteId: string, scope: SlugScope): Promise<(NoteSummaryRow & { role: string }) | undefined> {
-  const branches = visibleNoteBranches(ctx.db, ctx.userId, { extraWhere: eq(notes.id, noteId) });
-  const [row] = await ("groupId" in scope ? branches.grouped : branches.owned);
-  return row;
-}
 
 export async function createNote(args: CreateNoteArgs, ctx: McpToolCtx): Promise<CallToolResult> {
   // 1. §10.2 D23／M13：scope、session 跳過、`tokenWrite` 三件事的**單一入口**。
@@ -189,12 +147,12 @@ export async function createNote(args: CreateNoteArgs, ctx: McpToolCtx): Promise
   //    非成員（含站台 admin，§5.5 無豁免）與不存在同一條 `group_not_found`；成員但沒有新建旗標 → `forbidden`。
   //    `role` 照旗標算、不假設 editor：0013 起 create-only 角色（能建不能編）得 `viewer`。
   let target: { scope: SlugScope; ownerHandle: string | null; groupName: string | null; role: string };
-  if (args.groupId !== undefined) {
-    const m = await loadCreateTarget(ctx.db, ctx.userId, args.groupId);
+  if (args.group_id !== undefined) {
+    const m = await loadCreateTarget(ctx.db, ctx.userId, args.group_id);
     if (!m) return toolError("group_not_found", GROUP_NOT_FOUND_MESSAGE);
     if (!m.canCreate) return toolError("forbidden", CREATE_IN_GROUP_FORBIDDEN_MESSAGE);
-    await ctx.groupTestHook?.("membership-checked", { groupId: args.groupId });
-    target = { scope: { groupId: args.groupId }, ownerHandle: null, groupName: m.name, role: roleFromGroupFlags(m) };
+    await ctx.groupTestHook?.("membership-checked", { groupId: args.group_id });
+    target = { scope: { groupId: args.group_id }, ownerHandle: null, groupName: m.name, role: roleFromGroupFlags(m) };
   } else {
     target = { scope: { ownerId: ctx.userId }, ownerHandle: ctx.userHandle, groupName: null, role: "owner" };
   }
@@ -202,7 +160,7 @@ export async function createNote(args: CreateNoteArgs, ctx: McpToolCtx): Promise
   // 原樣拋到這裡）。**只在群組分支映射**——個人分支的 23503 只可能來自 `owner_id → users`，而 `src/` 內沒有硬刪
   // users 的路徑，不擴大映射面。
   const mapGroupFk = (err: unknown): CallToolResult => {
-    if (args.groupId !== undefined && isForeignKeyViolation(err)) return toolError("group_not_found", GROUP_NOT_FOUND_MESSAGE);
+    if (args.group_id !== undefined && isForeignKeyViolation(err)) return toolError("group_not_found", GROUP_NOT_FOUND_MESSAGE);
     throw err;
   };
 
@@ -236,7 +194,7 @@ export async function createNote(args: CreateNoteArgs, ctx: McpToolCtx): Promise
       if (out.kind === "parse") return toolError(out.code, writeFailureMessage(out.code));
       return toolError("internal", CREATE_FAILED_MESSAGE);
     }
-    const fresh = await reread(ctx, out.noteId, target.scope);
+    const fresh = await rereadVisibleNote(ctx, out.noteId, target.scope);
     return toolResult({ note: toNoteSummary(fresh ?? insertedRow(out.inserted, target), fresh?.role ?? target.role) });
   }
 

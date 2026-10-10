@@ -610,6 +610,21 @@ describe("PATCH /api/notes/:id — #122 分流矩陣", () => {
     }
   });
 
+  it("#180 W16（X3）：PATCH {title:'a\\0b'} → 400 invalid_body、DB 不變（`TITLE` 的 NUL 守衛；拿掉它會落到 pg 22021 → 500）", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-x3@example.com" });
+    const cookie = await cookieFor(owner.id);
+    const note = (await app.inject({ method: "POST", url: "/api/notes", cookies: { [SESSION_COOKIE]: cookie }, payload: { title: "Keep" } })).json();
+    const cols = async () =>
+      (await db.select({ title: notes.title, slug: notes.slug, updatedAt: notes.updatedAt }).from(notes).where(eq(notes.id, note.id)))[0];
+    const before = await cols();
+    expect(before?.title).toBe("Keep");
+    const res = await app.inject({ method: "PATCH", url: `/api/notes/${note.id}`, cookies: { [SESSION_COOKIE]: cookie }, payload: { title: `a${String.fromCharCode(0)}b` } });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("invalid_body");
+    expect(await cols()).toEqual(before);
+  });
+
   it("slugPatch 成敗都計：10 次非法格式（400）耗盡額度後，第 11 次合法 slug 也 429", async () => {
     const { app, db } = await buildTestApp();
     const owner = await insertUser(db, { email: "owner-mx9@example.com" });

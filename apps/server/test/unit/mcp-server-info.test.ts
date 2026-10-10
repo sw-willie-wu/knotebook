@@ -85,3 +85,12 @@ describe("#108 MCP server-info", () => {
     expect(text).not.toContain("cut at 200 characters.");
   });
 });
+
+describe("#180 U5：讀寫版 instructions 改為 six ops", () => {
+  it("含「six ops; all but append and rename need」、不含「five ops」；唯讀版不動", () => {
+    const rw = mcpInstructions(true);
+    expect(rw).toContain("six ops; all but append and rename need");
+    expect(rw).not.toContain("five ops");
+    expect(mcpInstructions(false)).not.toContain("rename");
+  });
+});

@@ -14,7 +14,7 @@ import type { GroupTestHook } from "../src/groups/test-hook.js";
 import { buildCollabTestApp, buildTestApp } from "./helpers.js";
 import { bearer, getContent, seedContent, seedTokenForUser } from "./editing-helpers.js";
 import { mcpPost, rpc } from "./mcp-helpers.js";
-import { seedGroup, seedNote, seedRole, seedShare, seedUser, setMemberRole } from "./group-helpers.js";
+import { cookieOf, seedGroup, seedNote, seedRole, seedShare, seedUser, setMemberRole } from "./group-helpers.js";
 
 const PASSWORD = "correct-horse-battery";
 
@@ -119,11 +119,11 @@ describe("#175 read_note_outline／edit_note 的群組筆記（需 collab）", (
   });
 });
 
-// ───────────────────────────── #175 PR5：create_note {groupId}（spec §9.3、§12.1、Q23） ─────────────────────────────
+// ───────────────────────────── #175 PR5：create_note {group_id}（spec §9.3、§12.1、Q23） ─────────────────────────────
 
 /** spec §9.2 兩句專用訊息，逐字（測試**不**從實作 import——字面值才釘得住 spec）。 */
 const E1_GROUP_NOT_FOUND = "No group with that id among the groups you belong to.";
-const E2_CREATE_FORBIDDEN = "Your role in that group can't create notes. Leave out `groupId` to create a personal note.";
+const E2_CREATE_FORBIDDEN = "Your role in that group can't create notes. Leave out `group_id` to create a personal note.";
 const RW = "notes:read notes:write" as const;
 
 interface CreatedNote {
@@ -153,7 +153,7 @@ function cellsLeft(limiter: FixedWindowLimiter, userId: string): number {
   return n;
 }
 
-describe("#175 PR5 create_note {groupId}", () => {
+describe("#175 PR5 create_note {group_id}", () => {
   it("A 一般成員：群組列、owner＝群組、url /g/、role editor；slug 去重範圍＝該群組（不對稱測資：個人那發另得 plan-3）", async () => {
     const { app, db } = await buildTestApp();
     const me = await seedUser(db);
@@ -163,7 +163,7 @@ describe("#175 PR5 create_note {groupId}", () => {
     await seedNote(db, { ownerId: me.id }, { title: "Plan 2", slug: "plan-2" });
     const { token } = await seedTokenForUser(db, me.id, RW);
 
-    const inGroup = await createdNote(app, token, { title: "Plan", groupId: g.id });
+    const inGroup = await createdNote(app, token, { title: "Plan", group_id: g.id });
     const [row] = await db.select().from(notes).where(eq(notes.id, inGroup.id));
     expect(row!.groupId).toBe(g.id);
     expect(row!.ownerId).toBeNull();
@@ -184,17 +184,17 @@ describe("#175 PR5 create_note {groupId}", () => {
     const g = await seedGroup(db, "Team", [{ userId: me.id, role: "member" }]);
     await seedNote(db, { ownerId: me.id }, { title: "Plan", slug: "plan" });
     const { token } = await seedTokenForUser(db, me.id, RW);
-    const inGroup = await createdNote(app, token, { title: "Plan", groupId: g.id });
+    const inGroup = await createdNote(app, token, { title: "Plan", group_id: g.id });
     expect(inGroup.slug).toBe("plan");
     expect(inGroup.url).toBe(`/g/${g.id}/plan`);
   });
 
-  it("B 帶 content（collab app）：內容落盤、note_ai_edits 一列、role editor、owner 是群組、lastEdited 非 null（reread 走了 grouped 分支）", async () => {
+  it("B 帶 content（collab app）：內容落盤、note_ai_edits 一列、role editor、owner 是群組、lastEdited 非 null（rereadVisibleNote 走了 grouped 分支）", async () => {
     const ctx = await buildCollabTestApp();
     const me = await seedUser(ctx.db);
     const g = await seedGroup(ctx.db, "Team", [{ userId: me.id, role: "member" }]);
     const { token } = await seedTokenForUser(ctx.db, me.id, RW, "Claude Code");
-    const note = await createdNote(ctx.app, token, { title: "Doc", content: "# Hello\n\n群組內容", groupId: g.id });
+    const note = await createdNote(ctx.app, token, { title: "Doc", content: "# Hello\n\n群組內容", group_id: g.id });
     expect(note.role).toBe("editor");
     expect(note.owner).toEqual({ kind: "group", id: g.id, name: "Team" });
     expect(note.url.startsWith("/g/")).toBe(true);
@@ -212,8 +212,8 @@ describe("#175 PR5 create_note {groupId}", () => {
     await setMemberRole(ctx.db, g.id, me.id, await seedRole(ctx.db, g.id, "Creator", { canRead: true, canCreate: true }));
     const { token } = await seedTokenForUser(ctx.db, me.id, RW, "Claude Code");
 
-    const empty = await createdNote(ctx.app, token, { title: "Empty", groupId: g.id });
-    const filled = await createdNote(ctx.app, token, { title: "Filled", content: "# Body\n\n文字", groupId: g.id });
+    const empty = await createdNote(ctx.app, token, { title: "Empty", group_id: g.id });
+    const filled = await createdNote(ctx.app, token, { title: "Filled", content: "# Body\n\n文字", group_id: g.id });
     expect(empty.role).toBe("viewer");
     expect(filled.role).toBe("viewer");
     expect(empty.owner).toEqual({ kind: "group", id: g.id, name: "Team" });
@@ -244,8 +244,8 @@ describe("#175 PR5 create_note {groupId}", () => {
     const { token } = await seedTokenForUser(ctx.db, me.id, RW);
     const before = await noteCount(ctx.db);
 
-    const nonMember = await callTool(ctx.app, token, "create_note", { title: "T", content: "# x", groupId: foreign.id });
-    const missing = await callTool(ctx.app, token, "create_note", { title: "T", content: "# x", groupId: randomUUID() });
+    const nonMember = await callTool(ctx.app, token, "create_note", { title: "T", content: "# x", group_id: foreign.id });
+    const missing = await callTool(ctx.app, token, "create_note", { title: "T", content: "# x", group_id: randomUUID() });
 
     expect(await noteCount(ctx.db)).toBe(before);
     expect(cellsLeft(edit, me.id), "group_not_found 不得啃 edit 桶").toBe(EDIT_LIMIT.limit);
@@ -268,7 +268,7 @@ describe("#175 PR5 create_note {groupId}", () => {
     const { token } = await seedTokenForUser(ctx.db, me.id, RW);
     const before = await noteCount(ctx.db);
 
-    const r = await callTool(ctx.app, token, "create_note", { title: "T", content: "# x", groupId: g.id });
+    const r = await callTool(ctx.app, token, "create_note", { title: "T", content: "# x", group_id: g.id });
 
     expect(await noteCount(ctx.db)).toBe(before);
     expect(cellsLeft(edit, me.id), "forbidden 不得啃 edit 桶").toBe(EDIT_LIMIT.limit);
@@ -285,9 +285,9 @@ describe("#175 PR5 create_note {groupId}", () => {
     const plainToken = (await seedTokenForUser(db, plain.id, RW)).token;
     const before = await noteCount(db);
 
-    const asAdmin = await callTool(app, adminToken, "create_note", { title: "T", groupId: foreign.id });
-    const asPlain = await callTool(app, plainToken, "create_note", { title: "T", groupId: foreign.id });
-    const adminMissing = await callTool(app, adminToken, "create_note", { title: "T", groupId: randomUUID() });
+    const asAdmin = await callTool(app, adminToken, "create_note", { title: "T", group_id: foreign.id });
+    const asPlain = await callTool(app, plainToken, "create_note", { title: "T", group_id: foreign.id });
+    const adminMissing = await callTool(app, adminToken, "create_note", { title: "T", group_id: randomUUID() });
 
     expect(await noteCount(db)).toBe(before);
     expect(asAdmin.isError).toBe(true);
@@ -296,13 +296,13 @@ describe("#175 PR5 create_note {groupId}", () => {
     expect(JSON.stringify(asAdmin.structuredContent)).toBe(JSON.stringify(adminMissing.structuredContent));
   });
 
-  it("G groupId 不是 uuid：零新增列、isError 且沒有 structuredContent（SDK 輸入驗證形，無 code）", async () => {
+  it("G group_id 不是 uuid：零新增列、isError 且沒有 structuredContent（SDK 輸入驗證形，無 code）", async () => {
     const { app, db } = await buildTestApp();
     const me = await seedUser(db);
     await seedGroup(db, "Team", [{ userId: me.id, role: "member" }]);
     const { token } = await seedTokenForUser(db, me.id, RW);
     const before = await noteCount(db);
-    const r = await callTool(app, token, "create_note", { title: "T", groupId: "not-a-uuid" });
+    const r = await callTool(app, token, "create_note", { title: "T", group_id: "not-a-uuid" });
     expect(await noteCount(db)).toBe(before);
     expect(r.isError).toBe(true);
     expect(r.structuredContent).toBeUndefined();
@@ -320,7 +320,7 @@ describe("#175 PR5 create_note {groupId}", () => {
     const me1 = await seedUser(plain.db);
     const g1 = await seedGroup(plain.db, "Doomed", [{ userId: me1.id, role: "member" }]);
     const t1 = (await seedTokenForUser(plain.db, me1.id, RW)).token;
-    const r1 = await callTool(plain.app, t1, "create_note", { title: "T", groupId: g1.id });
+    const r1 = await callTool(plain.app, t1, "create_note", { title: "T", group_id: g1.id });
     expect(await noteCount(plain.db)).toBe(0);
     expect(r1.isError).toBe(true);
     expect(r1.structuredContent!.code).toBe("group_not_found");
@@ -331,7 +331,7 @@ describe("#175 PR5 create_note {groupId}", () => {
     const me2 = await seedUser(collab.db);
     const g2 = await seedGroup(collab.db, "Doomed", [{ userId: me2.id, role: "member" }]);
     const t2 = (await seedTokenForUser(collab.db, me2.id, RW)).token;
-    const r2 = await callTool(collab.app, t2, "create_note", { title: "T", content: "# x", groupId: g2.id });
+    const r2 = await callTool(collab.app, t2, "create_note", { title: "T", content: "# x", group_id: g2.id });
     expect(await noteCount(collab.db)).toBe(0);
     expect(await collab.db.select().from(noteAiEdits)).toHaveLength(0);
     expect(r2.isError).toBe(true);
@@ -339,14 +339,44 @@ describe("#175 PR5 create_note {groupId}", () => {
     expect(r2.structuredContent!.message).toBe(E1_GROUP_NOT_FOUND);
   });
 
-  it("I 大寫 uuid 的 groupId：成功，owner.id 與 url 都是小寫", async () => {
+  it("I 大寫 uuid 的 group_id：成功，owner.id 與 url 都是小寫", async () => {
     const { app, db } = await buildTestApp();
     const me = await seedUser(db);
     const g = await seedGroup(db, "Team", [{ userId: me.id, role: "member" }]);
     const { token } = await seedTokenForUser(db, me.id, RW);
-    const note = await createdNote(app, token, { title: "Up", groupId: g.id.toUpperCase() });
+    const note = await createdNote(app, token, { title: "Up", group_id: g.id.toUpperCase() });
     expect(note.owner.id).toBe(g.id);
     expect(note.url).toBe(`/g/${g.id}/${note.slug}`);
     expect(note.url).toBe(note.url.toLowerCase());
+  });
+});
+
+// ───────────────────────────── #180 W15：create_note 改鍵名 group_id（spec §4.7、§10.5a） ─────────────────────────────
+
+describe("#180 create_note 的 group_id 與 strict 註冊", () => {
+  it("M-G1 用舊鍵 groupId（合法群組 id）→ 先斷零新增筆記，再斷 SDK 輸入驗證錯誤（isError、無 code、訊息含 groupId）", async () => {
+    const { app, db } = await buildTestApp();
+    const me = await seedUser(db);
+    const g = await seedGroup(db, "Team", [{ userId: me.id, role: "member" }]);
+    const { token } = await seedTokenForUser(db, me.id, RW);
+    const before = await noteCount(db);
+
+    const res = await mcpPost(app, rpc("tools/call", { name: "create_note", arguments: { title: "Old key", groupId: g.id } }), { token });
+
+    expect(await noteCount(db)).toBe(before);
+    expect(res.statusCode).toBe(200);
+    const result = res.json().result as { isError?: true; content: { text: string }[]; structuredContent?: { code?: string } };
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toBeUndefined();
+    expect(result.content[0]!.text).toContain("groupId");
+  });
+
+  it("M-G3 REST POST /api/notes {groupId} 照舊 201（鍵名偏離只在 MCP，createBodySchema 不動）", async () => {
+    const { app, db } = await buildTestApp();
+    const me = await seedUser(db);
+    const g = await seedGroup(db, "Team", [{ userId: me.id, role: "member" }]);
+    const res = await app.inject({ method: "POST", url: "/api/notes", cookies: await cookieOf(me.id), payload: { title: "REST", groupId: g.id } });
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).toMatchObject({ groupId: g.id, ownerId: null });
   });
 });

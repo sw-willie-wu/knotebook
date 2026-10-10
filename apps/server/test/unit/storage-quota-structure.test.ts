@@ -121,7 +121,7 @@ describe("儲存配額結構性守衛（spec §11.3）", () => {
   });
 
   it("⑥ 限定範圍不得設隔離等級", () => {
-    const scoped = ["storage/tx/quota.ts", ...WHITELIST, "routes/uploads.ts", "routes/notes.ts", "routes/groups.ts"];
+    const scoped = ["storage/tx/quota.ts", ...WHITELIST, "routes/uploads.ts", "routes/notes.ts", "routes/groups.ts", "notes/copy-note.ts", "notes/move-note.ts"];
     // 非空洞：每個限定檔都讀得到內容（at 讀不到會 throw）
     for (const f of scoped) expect(at(f).length, `${f} 非空`).toBeGreaterThan(100);
     const bad = scoped.filter(f => /isolationLevel|setTransaction|set\s+transaction/i.test(at(f)));

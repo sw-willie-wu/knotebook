@@ -41,9 +41,9 @@ export const versionReadFailed = pkg.failed;
  * 只描述**這個憑證真的用得到的東西**。英文——與 `docs/` 及工具 `.describe()` 同語言；
  * 它進的是模型脈絡不是 UI，不走 i18n。
  *
- * ⚠ **兩支尾巴是二選一，不是相加**（#108 D-Q）。讀寫那支實測 **959** 字元，餘裕 **41**
+ * ⚠ **兩支尾巴是二選一，不是相加**（#108 D-Q）。讀寫那支實測 **969** 字元，餘裕 **31**
  * （#177：`cut at 200 characters` 改成 `cut at 200 characters as written in JSON` +19，刪「; each tool's `limit`
- * describes its own ceiling」−47；之前是 987）
+ * describes its own ceiling」−47；之前是 987；#180：five ops → six ops; all but append and rename +10）
  * （上限 1000；唯讀那支 867／餘裕 133——#175：`owner` 比 `ownerHandle` 短 6、可見性句改寫又省 1），追加第二段必破線；而唯讀憑證用不到寫入工具的說明，
  * 換成處置說明總長反而更短。⚠ **這個數字只有這裡一份**（#146：測試那邊原本也抄一份、已過期成
  * 「約 20」，現在改成指回本行）。餘裕從 40 掉到 17 是 #146 換掉最後一句的代價，同時把 BASE
@@ -80,9 +80,12 @@ result carries \`owner\` and \`role\` so you can tell whose content you are read
  * (3) 「usually」——撤回會失敗：`revert.ts` 的 `editRevertable` 要求寫進去的 block 還在且
  *     沒被動過，而 `apply.ts` 的 `RETENTION = 100` 每篇只留最近 100 列。**條件的全文放在
  *     `edit-note.ts` 的 `editId` `.describe()`**（那裡沒有長度預算），這裡只給不說謊的短版。
+ *
+ * #180：five → six ops（rename 不要 `if_match`）；末句不改——rename／move 不改內容，copy 把內容寫進一篇**新**筆記且不留紀錄，
+ * 由 `COPY_NOTE_DESCRIPTION` 明說（spec §4.5）。
  */
 const WRITE_INSTRUCTIONS =
-  "Writing needs the notes:write scope. edit_note changes one note (five ops; all but append " +
+  "Writing needs the notes:write scope. edit_note changes one note (six ops; all but append and rename " +
   "need `if_match`, the fingerprint of what you replace) and create_note makes a new one. " +
   "A successful write that changes a note's content is recorded, and can usually be undone.";
 

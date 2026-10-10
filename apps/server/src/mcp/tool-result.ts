@@ -6,6 +6,8 @@
  * ⚠ 錯誤側只涵蓋 (4b)。SDK 自產的四條路徑（未知工具名／輸入 schema 不符／輸出驗證失敗／未捕捉例外，D12 的
  * (4a)）**攔不到**——它們在 SDK 內部組裝，**沒有** `code`、**沒有** `structuredContent`。
  * 任何「所有工具錯誤都帶 `code`」的宣稱都是假的。
+ * 另（#200 §7.4）：SDK 對**整個結果**另做一次 `CallToolResultSchema` 驗證，在 `runTool()` 的 try/catch 之外，
+ * 失敗會變成 JSON-RPC 協定錯誤而不是 `toolError`——見 `toolResultWithImage`。
  *
  * `runTool()` 是第四條路徑的堵口：每支工具 handler 都由它包起來，未預期的例外轉成
  * `internal` ＋ 固定字串，**不得**讓原始 `error.message` 冒到 SDK 的 catch 直送模型。
@@ -53,6 +55,24 @@ export function toolError(code: ErrorCode, message: string, extra?: Record<strin
  */
 export function toolResult<T extends Record<string, unknown>>(payload: T): CallToolResult {
   return { content: [{ type: "text", text: JSON.stringify(payload) }], structuredContent: payload };
+}
+
+/**
+ * #200 §7.4：成功側帶一張圖。`content[0]` 仍逐字是 `JSON.stringify(structuredContent)`（D11／M10 鏡像等式照舊）；
+ * image block 是**附加的第二個元素**，不進 `structuredContent`（base64 在 wire 上只出現一次，不被 ×2.1）。
+ * ⚠ M15 的例外：SDK 對**整個結果**另做一次 `CallToolResultSchema` 驗證（`Server.setRequestHandler` 的 tools/call 包裝），
+ * 它在 `runTool()` 的 try/catch **之外**，失敗會變成 JSON-RPC 協定錯誤而不是 `toolError`。`Buffer#toString("base64")`
+ * 永遠是合法 base64、`mimeType` 是 string，今天不可達；`docs/mcp.md` Errors 段記著。成本：每次成功呼叫對 ≤ 約 7 MB
+ * 的字串跑一次 `atob`＋一次物件複製（5 MiB 上限下）——可接受。
+ */
+export function toolResultWithImage<T extends Record<string, unknown>>(
+  payload: T,
+  image: { data: string; mimeType: string }
+): CallToolResult {
+  return {
+    content: [{ type: "text", text: JSON.stringify(payload) }, { type: "image", data: image.data, mimeType: image.mimeType }],
+    structuredContent: payload,
+  };
 }
 
 /** 例外逃出 handler 時模型會看到的固定字串（**不含任何例外訊息**）。 */
