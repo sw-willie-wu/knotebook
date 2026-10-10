@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Check, ChevronDown } from "@/components/ui/icons";
 import { useVersions } from "@/lib/versions-context";
-import { versionLabel } from "./version-labels";
+import { TINT_HOVER_CLASS, versionLabel } from "./version-labels";
 
 const CURRENT = "current";
 
@@ -58,7 +58,7 @@ export function ComparePicker({ side }: { side: "left" | "right" }) {
           type="button"
           variant="ghost"
           size="sm"
-          className="h-7 min-w-0 shrink-0 gap-1"
+          className={`h-7 min-w-0 shrink-0 gap-1 ${TINT_HOVER_CLASS}`}
           aria-label={t(side === "left" ? "versions.preview.leftPicker" : "versions.preview.rightPicker")}
         >
           <span>{label}</span>

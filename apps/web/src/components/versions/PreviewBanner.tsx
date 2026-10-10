@@ -5,10 +5,10 @@ import { Columns2, ListFilter, Rows3 } from "@/components/ui/icons";
 import { useVersions } from "@/lib/versions-context";
 import { cn } from "@/lib/utils";
 import { ComparePicker } from "./ComparePicker";
-import { PRESSED_CLASS } from "./version-labels";
+import { PRESSED_CLASS, TINT_HOVER_CLASS } from "./version-labels";
 
 /** 模式鈕共用的圖示鈕形（spec §8.4 rev 10 追記：`size="icon"`、`h-7 w-7`，名稱放 `aria-label`＋`title`，hover 看得到）。 */
-const MODE_BUTTON = "h-7 w-7 shrink-0";
+const MODE_BUTTON = `h-7 w-7 shrink-0 ${TINT_HOVER_CLASS}`;
 
 /**
  * 頁首下方的預覽橫幅（spec §8.4【rev 10】＋ rev 10 追記 2026-10-10）：
@@ -39,7 +39,7 @@ export function OnlyChangesToggle({ iconOnly = false }: { iconOnly?: boolean }) 
         type="button"
         variant="ghost"
         size={iconOnly ? "icon" : "sm"}
-        className={cn(iconOnly ? MODE_BUTTON : "h-7 shrink-0", onlyChanges && PRESSED_CLASS, splitActive && "cursor-not-allowed opacity-50")}
+        className={cn(iconOnly ? MODE_BUTTON : `h-7 shrink-0 ${TINT_HOVER_CLASS}`, onlyChanges && PRESSED_CLASS, splitActive && "cursor-not-allowed opacity-50")}
         aria-label={iconOnly ? label : undefined}
         aria-pressed={onlyChanges}
         aria-disabled={splitActive || undefined}
