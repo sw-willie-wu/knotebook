@@ -17,8 +17,11 @@ import { seedGroup, seedNote, seedRole, seedShare, seedUser, setMemberRole } fro
 import { imageDoc, loadDoc, seedDoc, xmlOf } from "./copy-helpers.js";
 import { filesIn, giveGroupQuota, giveUserQuota, seedAttachment } from "./storage-helpers.js";
 import { searchDoc } from "./search-doc.js";
+import { COPY_NEEDS_MOVE_MESSAGE } from "../src/mcp/tools/copy-note.js";
 
 const RW = "notes:read notes:write" as const;
+/** #239：帶 `group_id` 的 copy_note（成功與失敗皆是）要 notes:move——這些案改用讀寫搬移憑證，期望值不動（spec §11.2 M1）。 */
+const RWM = "notes:read notes:write notes:move" as const;
 const GROUP_NO_CREATE = "No group with that id among your groups where your role can create notes.";
 const WRITE_RATE = "Too many note writes right now. Wait a moment before writing again.";
 const TOKEN_RATE = "Too many writes with this credential right now. Wait a few minutes before writing again.";
@@ -67,7 +70,7 @@ describe("#180 copy_note", () => {
     const g = await seedGroup(db, "Team", [{ userId: me.id, role: "member" }]);
     await setMemberRole(db, g.id, me.id, await seedRole(db, g.id, "Creator", { canRead: true, canCreate: true }));
     const src = await seedNote(db, { ownerId: me.id }, { title: "Mine" });
-    const { token } = await seedTokenForUser(db, me.id, RW);
+    const { token } = await seedTokenForUser(db, me.id, RWM);
     const note = await copied(app, token, { note_id: src.id, group_id: g.id });
     expect(note.role).toBe("viewer");
     expect(note.owner).toEqual({ kind: "group", id: g.id, name: "Team" });
@@ -126,7 +129,7 @@ describe("#180 copy_note", () => {
     const ro = await seedGroup(db, "ReadOnly", [{ userId: me.id, role: "member" }]);
     await setMemberRole(db, ro.id, me.id, await seedRole(db, ro.id, "Reader", { canRead: true }));
     const src = await seedNote(db, { ownerId: me.id });
-    const { token } = await seedTokenForUser(db, me.id, RW);
+    const { token } = await seedTokenForUser(db, me.id, RWM);
     const before = await noteCount(db);
     const bodies = [];
     for (const gid of [randomUUID(), foreign.id, ro.id]) {
@@ -215,14 +218,14 @@ describe("#180 copy_note", () => {
         return n.id;
       };
       const [s1, s2] = [await mk(gAdmin.id), await mk(gMember.id)];
-      const r1 = await call(app, (await seedTokenForUser(db, gAdmin.id, RW)).token, "copy_note", { note_id: s1, group_id: g.id });
+      const r1 = await call(app, (await seedTokenForUser(db, gAdmin.id, RWM)).token, "copy_note", { note_id: s1, group_id: g.id });
       expect(r1.structuredContent).toEqual({
         code: "storage_quota_exceeded",
         message: `The group's storage space has no room for this note's images (50 B of 50 B used), so the note was not copied. ${TAIL}`,
         usedBytes: 50,
         quotaBytes: 50,
       });
-      const r2 = await call(app, (await seedTokenForUser(db, gMember.id, RW)).token, "copy_note", { note_id: s2, group_id: g.id });
+      const r2 = await call(app, (await seedTokenForUser(db, gMember.id, RWM)).token, "copy_note", { note_id: s2, group_id: g.id });
       expect(r2.structuredContent).toEqual({
         code: "storage_quota_exceeded",
         message: "The group's storage space has no room for this note's images, so the note was not copied. Ask a site admin for more space.",
@@ -331,7 +334,7 @@ describe("#180 copy_note", () => {
     const me = await seedUser(db);
     const g = await seedGroup(db, "Team", [{ userId: me.id, role: "member" }]);
     const src = await seedNote(db, { ownerId: me.id });
-    const { token } = await seedTokenForUser(db, me.id, RW);
+    const { token } = await seedTokenForUser(db, me.id, RWM);
     const note = await copied(app, token, { note_id: src.id, group_id: g.id.toUpperCase() });
     expect(note.owner).toMatchObject({ kind: "group", id: g.id });
     expect(note.url.startsWith(`/g/${g.id}/`)).toBe(true);
@@ -344,7 +347,7 @@ describe("#180 copy_note", () => {
     const me = await seedUser(db);
     const g = await seedGroup(db, "Team", [{ userId: me.id, role: "member" }]);
     const src = await seedNote(db, { groupId: g.id }, { title: "Plan", slug: "plan" });
-    const { token } = await seedTokenForUser(db, me.id, RW);
+    const { token } = await seedTokenForUser(db, me.id, RWM);
     const note = await copied(app, token, { note_id: src.id, group_id: g.id });
     expect(note.slug).toBe("plan-2");
     expect(note.url).toBe(`/g/${g.id}/plan-2`);
@@ -353,10 +356,11 @@ describe("#180 copy_note", () => {
     expect(orig).toMatchObject({ slug: "plan", groupId: g.id, title: "Plan" });
   });
 
+  // #239：(a) 這一版只在 canMove 時出現（spec §7.5(a)）——改用讀寫搬移憑證，字串期望值不動；讀寫版的 (b)(c) 由 mcp-tools-list 的 M1b 釘。
   it("C13 模型面字串 wire 斷言（spec §6.6 全部）", async () => {
     const { app, db } = await buildTestApp();
     const me = await seedUser(db);
-    const { token } = await seedTokenForUser(db, me.id, RW);
+    const { token } = await seedTokenForUser(db, me.id, RWM);
     const res = await mcpPost(app, rpc("tools/list"), { token });
     const tool = (res.json().result.tools as Array<{ name: string; description: string; inputSchema: { properties: Record<string, { description?: string }> }; outputSchema: { properties: Record<string, { description?: string }> } }>).find(t => t.name === "copy_note")!;
     const DESC =
@@ -375,5 +379,33 @@ describe("#180 copy_note", () => {
     expect(tool.outputSchema.properties.note!.description).toBe(OUT);
     expect(Object.keys(tool.inputSchema.properties).sort()).toEqual(["group_id", "note_id"]);
     for (const s of [DESC, GID, OUT]) expect(res.body).toContain(JSON.stringify(s).slice(1, -1));
+  });
+
+  // #239 M3：copy_note 帶 group_id 的 move 檢查在 HTTP 上**到得了**（讀寫憑證的清單上有 copy_note）。
+  // 檢查在 copyNote 之前 ⇒ 不建任何東西、不扣 tokenWrite；也在查筆記之前 ⇒ 不存在的 note_id 同樣先回 insufficient_scope。
+  it("#239 M3：讀寫憑證帶 group_id → insufficient_scope、訊息逐字 (d)、什麼都沒建、tokenWrite 不扣", async () => {
+    const tokenWrite = new FixedWindowLimiter({ limit: 1, windowMs: 600_000 }); // 同本檔 C9 的注入法
+    const { app, db } = await buildTestApp({ limiters: freshLimiters({ tokenWrite }) });
+    const me = await seedUser(db);
+    const g = await seedGroup(db, "Team", [{ userId: me.id, role: "admin" }]);
+    const src = await seedNote(db, { ownerId: me.id }, { title: "Mine" });
+    const { token } = await seedTokenForUser(db, me.id, RW);
+    const before = await noteCount(db);
+    const r = await call(app, token, "copy_note", { note_id: src.id, group_id: g.id });
+    expect(r.structuredContent).toEqual({ code: "insufficient_scope", message: COPY_NEEDS_MOVE_MESSAGE });
+    expect(await noteCount(db)).toBe(before);
+    // tokenWrite 那唯一一格還在：不帶 group_id 的複製成功
+    await copied(app, token, { note_id: src.id });
+  });
+
+  // 本案守的是「在 scope 檢查之前先查筆記、not_found 就提早 return」那類；「檢查移到 copyNote 之後」由上一案的列數守
+  // （對那類突變，不存在的筆記在任何副作用之前就回 not_found，再被改回 insufficient_scope，回應相同）。
+  it("#239 M3：不存在的 note_id 帶 group_id 同樣 insufficient_scope（檢查在查筆記之前）", async () => {
+    const { app, db } = await buildTestApp();
+    const me = await seedUser(db);
+    const g = await seedGroup(db, "Team", [{ userId: me.id, role: "admin" }]);
+    const { token } = await seedTokenForUser(db, me.id, RW);
+    const r = await call(app, token, "copy_note", { note_id: randomUUID(), group_id: g.id });
+    expect(r.structuredContent).toEqual({ code: "insufficient_scope", message: COPY_NEEDS_MOVE_MESSAGE });
   });
 });

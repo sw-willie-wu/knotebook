@@ -227,7 +227,8 @@ describe("#108 create_note", () => {
     const { app, db } = await buildTestApp({ limiters: freshLimiters({ edit }) });
     const [user] = await db.insert(users).values({ email: `p-${randomUUID()}@example.com`, displayName: "P" }).returning();
     const userId = user!.id;
-    const { token } = await seedTokenForUser(db, userId, "notes:read notes:write");
+    // #239：讀寫搬移憑證——七名集合含 move_note_to_group，它只在 notes:move 時註冊；期望值不動。
+    const { token } = await seedTokenForUser(db, userId, "notes:read notes:write notes:move");
 
     const list = await mcpPost(app, rpc("tools/list"), { token });
     const tools = list.json().result.tools as { name: string; inputSchema: { properties?: Record<string, unknown> } }[];

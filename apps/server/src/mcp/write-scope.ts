@@ -1,5 +1,5 @@
 /**
- * #108 §10.2 D23／不變量 M13：需要 `notes:write` 的工具**唯一**的執行許可入口。
+ * #108 §10.2 D23／不變量 M13：需要 `notes:write` 的工具的執行許可入口（`requireWriteScope`；#239 起搬移類走同形的 `requireMoveScope`）。
  *
  * 三件事**不可分割**——scope 檢查、session 跳過、`tokenWrite` 扣點——所以收成一支，每一支
  * 寫入工具的**第一個動作**就是呼叫它。目的：讓「token 寫入 60 次／10 分鐘」這條既有承諾
@@ -12,14 +12,19 @@
  * 桶 key 逐字 `token:${userId}`，與 `auth/bearer.ts` 同形——寫成裸 userId 會讓 MCP 與 REST
  * 各記一本帳（守衛＝`test/unit/mcp-write-scope.test.ts` 最後那一發）。
  *
- * ⚠ **第 2 步（scope 檢查）在 HTTP 上是死碼**：`McpServer` 的「清單」就是「註冊表」，
- * `register.ts` 已經按 scope 過濾，所以唯讀憑證根本沒有寫入工具可以呼叫（`tools/call` 走 SDK
- * 的未知工具名分支，永遠到不了這裡）；HTTP 上到得了第 2 步的只有 session，而 session 在第 1 步
- * 就 return 了。**唯一的守衛是 `test/unit/mcp-write-scope.test.ts` 的第 2 發**——不得寫成
+ * ⚠ **`requireWriteScope` 的第 2 步（scope 檢查）在 HTTP 上是死碼**：`McpServer` 的「清單」就是
+ * 「註冊表」，`register.ts` 已經按 scope 過濾，所以唯讀憑證根本沒有寫入工具可以呼叫（`tools/call`
+ * 走 SDK 的未知工具名分支，永遠到不了這裡）；HTTP 上到得了第 2 步的只有 session，而 session 在
+ * 第 1 步就 return 了。**唯一的守衛是 `test/unit/mcp-write-scope.test.ts` 的第 2 發**——不得寫成
  * 「案 10 守著」，那一案釘的是 SDK 的「Tool not found」形。保留它的理由：(a) 日後有人拿掉
  * 註冊時過濾（規格 D6(b) 要防的正是這件事），它是唯一的網；(b) 三件事收成一支，第七支工具的
  * 作者照抄時不會只抄到扣桶那一半。
- * ⚠ **誠實缺口**：`insufficient_scope` 這條路上**模型永遠看不到**下面那段處置訊息——D7 的
+ * #239：`requireMoveScope` 的 write 分支同理是死碼（兩支用它的工具都只在 `canWrite` 時註冊）。
+ * 它的 move 分支則**分兩支看**：`copy_note` 帶 `group_id` 走這條在 HTTP 上**到得了**（讀寫憑證
+ * 清單上有 `copy_note`；守衛＝`test/mcp-copy.test.ts` 的 #239 M3）；`move_note_to_group` 那一支
+ * 是死碼（沒 `notes:move` 時不註冊；唯一的守衛＝本檔單元測試的 #239 U3）。
+ * ⚠ **誠實缺口**：write 分支（`INSUFFICIENT_SCOPE_MESSAGE`）的 `insufficient_scope` 模型永遠看不到
+ * （copy 帶 `group_id` 的 `COPY_NEEDS_MOVE_MESSAGE` 是看得到的）——D7 的
  * 意圖改由 per-request 的 `instructions` 承接（唯讀憑證那一版逐字寫了同樣的處置，D-Q）。
  * ⚠ **M13 是紀律不是繞不過的事實**：第七支寫入工具漏呼叫它不會有任何測試變紅（今天全部的
  * 守衛是「兩支工具各跑一次」那一族）。要變成繞不過就得走註冊器形，規格 §10.2 已延後。
@@ -28,15 +33,19 @@ import { hasScope } from "@knotebook/shared";
 import { toolError, type ToolErrorResult } from "./tool-result.js";
 import type { McpToolCtx } from "./context.js";
 
-/** 模型看得到的字串一律英文。處置字樣與 `docs/api-tokens.md` 教使用者的路徑同字。 */
-const INSUFFICIENT_SCOPE_MESSAGE =
-  "This credential cannot change notes. Create a token with the notes:write scope in Settings → Account → API tokens.";
+/**
+ * spec §7.5(g)，173 字元。HTTP 上是死碼（唯讀憑證沒有寫入工具可呼叫）。模型看得到的字串一律英文；
+ * 引號內＝建立 token 對話框的勾選框字樣（spec §9.4 `settings.account.apiTokensScopeEdit`）。
+ */
+export const INSUFFICIENT_SCOPE_MESSAGE =
+  'This credential cannot change notes. Ask the user to create a token with "Create and edit notes" (notes:write) ticked in Settings → Account → API tokens and connect with it.';
 const RATE_LIMITED_MESSAGE = "Too many writes with this credential right now. Wait a few minutes before writing again.";
 
 /**
  * 「這份憑證寫得動筆記嗎」——**三個呼叫點共用一份判準**：`register.ts` 的註冊時過濾、
  * `routes/mcp.ts` 挑 per-request `instructions`（D-Q）、以及下面的 `requireWriteScope`。
  * 三份各寫各的話，最難看見的漂移是「清單裡有工具但 instructions 說你是唯讀的」。
+ * #239 起 `canMoveNotes`／`requireMoveScope` 也以它為前提（搬移權必須先有寫入權）。
  * `?? "notes:read"` 是 fail-closed 的退路（token 路徑必有 scope）。
  */
 export function canWriteNotes(auth: Pick<McpToolCtx, "authKind" | "tokenScope">): boolean {
@@ -55,5 +64,26 @@ export function requireWriteScope(ctx: McpToolCtx): ToolErrorResult | null {
   if (!ctx.limiters.tokenWrite.consume(`token:${ctx.userId}`)) {
     return toolError("too_many_requests", RATE_LIMITED_MESSAGE);
   }
+  return null;
+}
+
+/**
+ * #239「這份憑證能把筆記移入／複製進群組嗎」——`register.ts` 的註冊時過濾與 `requireMoveScope` 共用。
+ * 寫成「write **且** move」：這是 MCP 的授權判定，不依賴上游已正規化（CHECK 漂移成
+ * `notes:read notes:move` 時不得放行，W3；同 `hasScope` 不依賴 CHECK 的理由）。
+ */
+export function canMoveNotes(auth: Pick<McpToolCtx, "authKind" | "tokenScope">): boolean {
+  return auth.authKind === "session" || (canWriteNotes(auth) && hasScope(auth.tokenScope ?? "notes:read", "notes:move"));
+}
+
+/**
+ * 同 `requireWriteScope`，多一道 move 檢查；兩道都在扣 `tokenWrite` 之前（403 不啃桶）。
+ * 沒 write → 回 write 的處置訊息（先補 write 才談得上 move）；有 write 沒 move → 回呼叫端給的 `message`。
+ */
+export function requireMoveScope(ctx: McpToolCtx, message: string): ToolErrorResult | null {
+  if (ctx.authKind === "session") return null;
+  if (!canWriteNotes(ctx)) return toolError("insufficient_scope", INSUFFICIENT_SCOPE_MESSAGE);
+  if (!canMoveNotes(ctx)) return toolError("insufficient_scope", message);
+  if (!ctx.limiters.tokenWrite.consume(`token:${ctx.userId}`)) return toolError("too_many_requests", RATE_LIMITED_MESSAGE);
   return null;
 }

@@ -380,3 +380,19 @@ describe("#180 create_note 的 group_id 與 strict 註冊", () => {
     expect(res.json()).toMatchObject({ groupId: g.id, ownerId: null });
   });
 });
+
+// ───────────────────────────── #239 W9：notes:move 不管 create_note／edit_note（spec §11.2 M6） ─────────────────────────────
+
+describe("#239 W9：notes:move 不管 create_note／edit_note", () => {
+  it("讀寫無搬移憑證：create_note {group_id} 成功、owner 是群組；edit_note append 群組筆記成功", async () => {
+    const ctx = await buildCollabTestApp();
+    const me = await seedUser(ctx.db);
+    const g = await seedGroup(ctx.db, "Team", [{ userId: me.id, role: "admin" }]);
+    // 第三參數明寫讀寫（無 notes:move），不依賴 seedTokenForUser 的預設值——預設值日後若改，這案的意圖不能跟著變。
+    const { token } = await seedTokenForUser(ctx.db, me.id, "notes:read notes:write");
+    const created = await createdNote(ctx.app, token, { title: "W9", group_id: g.id });
+    expect(created.owner.kind).toBe("group");
+    const appended = await callTool(ctx.app, token, "edit_note", { note_id: created.id, op: "append", markdown: "W9" });
+    expect(appended.isError).toBeUndefined();
+  });
+});

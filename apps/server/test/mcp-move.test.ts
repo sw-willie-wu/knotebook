@@ -18,6 +18,9 @@ import { cookieOf, noteState, seedGroup, seedNote, seedRole, seedShare, seedUser
 import { seedAttachment, giveGroupQuota } from "./storage-helpers.js";
 import { noteBase, versionsOf } from "./version-helpers.js";
 
+/** #239：move_note_to_group 只在 notes:move 時註冊——本檔呼叫它的案（成功與失敗皆是）一律用讀寫搬移憑證，期望值不動（spec §11.2 M1）。 */
+const RWM = "notes:read notes:write notes:move" as const;
+/** #239 M2：讀寫無搬移憑證（清單上沒有 move_note_to_group）。 */
 const RW = "notes:read notes:write" as const;
 const FORBIDDEN_MOVE = "Only the owner of a personal note can move it into a group; this note is someone else's, or it is already in a group.";
 const GROUP_NO_CREATE = "No group with that id among your groups where your role can create notes.";
@@ -55,7 +58,7 @@ describe("#180 move_note_to_group", () => {
     await seedShare(ctx.db, n.id, friend.id, "editor");
     await ctx.db.insert(noteAiEdits).values({ noteId: n.id, userId: owner.id, op: "append" });
     const before = await noteState(ctx.db.$client, n.id);
-    const { token } = await seedTokenForUser(ctx.db, owner.id, RW);
+    const { token } = await seedTokenForUser(ctx.db, owner.id, RWM);
 
     const note = await moved(ctx.app, token, n.id, g.id);
 
@@ -74,7 +77,7 @@ describe("#180 move_note_to_group", () => {
     );
     expect(rows).toEqual([{ ok: true }]);
     expect((await ctx.app.inject({ method: "GET", url: `/api/public/notes/${token43}` })).statusCode).toBe(404);
-    const ft = (await seedTokenForUser(ctx.db, friend.id, RW)).token;
+    const ft = (await seedTokenForUser(ctx.db, friend.id, RWM)).token;
     expect((await call(ctx.app, { token: ft }, "read_note_outline", { note_id: n.id })).structuredContent!.code).toBe("not_found");
   });
 
@@ -84,7 +87,7 @@ describe("#180 move_note_to_group", () => {
     const g = await seedGroup(ctx.db, "Team", [{ userId: me.id, role: "member" }]);
     await setMemberRole(ctx.db, g.id, me.id, await seedRole(ctx.db, g.id, "Creator", { canRead: true, canCreate: true }));
     const n = await seedNote(ctx.db, { ownerId: me.id });
-    const { token } = await seedTokenForUser(ctx.db, me.id, RW);
+    const { token } = await seedTokenForUser(ctx.db, me.id, RWM);
     expect((await moved(ctx.app, token, n.id, g.id)).role).toBe("viewer");
     expect((await call(ctx.app, { token }, "edit_note", { note_id: n.id, op: "append", markdown: "x" })).structuredContent).toEqual({ code: "forbidden", message: EDIT_FORBIDDEN });
   });
@@ -100,9 +103,9 @@ describe("#180 move_note_to_group", () => {
     const g = await seedGroup(db, "Team", [{ userId: owner.id, role: "member" }]);
     const n = await seedNote(db, { ownerId: owner.id });
     await seedShare(db, n.id, friend.id, "viewer");
-    const { token } = await seedTokenForUser(db, owner.id, RW);
+    const { token } = await seedTokenForUser(db, owner.id, RWM);
     expect((await move(app, token, n.id, randomUUID())).structuredContent!.code).toBe("group_not_found");
-    const ft = (await seedTokenForUser(db, friend.id, RW)).token;
+    const ft = (await seedTokenForUser(db, friend.id, RWM)).token;
     expect((await move(app, ft, n.id, g.id)).structuredContent!.code).toBe("forbidden");
     // 配額拒絕（V6 形）：另一個配額 10 的群組、帶 11 B 附件的筆記
     const full = await seedGroup(db, "Full", [{ userId: owner.id, role: "member" }]);
@@ -133,8 +136,8 @@ describe("#180 move_note_to_group", () => {
     await seedShare(ctx.db, n.id, ed.id, "editor");
     await seedShare(ctx.db, n.id, vw.id, "viewer");
     const gn = await seedNote(ctx.db, { groupId: g.id });
-    const edT = (await seedTokenForUser(ctx.db, ed.id, RW)).token;
-    const vwT = (await seedTokenForUser(ctx.db, vw.id, RW)).token;
+    const edT = (await seedTokenForUser(ctx.db, ed.id, RWM)).token;
+    const vwT = (await seedTokenForUser(ctx.db, vw.id, RWM)).token;
     const bodies = [
       JSON.stringify((await move(ctx.app, edT, n.id, g.id)).structuredContent),
       JSON.stringify((await move(ctx.app, vwT, n.id, g.id)).structuredContent),
@@ -142,7 +145,7 @@ describe("#180 move_note_to_group", () => {
     ];
     expect(new Set(bodies).size).toBe(1);
     expect(JSON.parse(bodies[0]!)).toEqual({ code: "forbidden", message: FORBIDDEN_MOVE });
-    const st = (await seedTokenForUser(ctx.db, stranger.id, RW)).token;
+    const st = (await seedTokenForUser(ctx.db, stranger.id, RWM)).token;
     const outline = JSON.stringify((await call(ctx.app, { token: st }, "read_note_outline", { note_id: n.id })).structuredContent);
     expect(JSON.stringify((await move(ctx.app, st, n.id, g.id)).structuredContent)).toBe(outline);
     expect(JSON.stringify((await move(ctx.app, st, randomUUID(), g.id)).structuredContent)).toBe(outline);
@@ -156,7 +159,7 @@ describe("#180 move_note_to_group", () => {
     await setMemberRole(db, ro.id, me.id, await seedRole(db, ro.id, "Reader", { canRead: true }));
     const n = await seedNote(db, { ownerId: me.id });
     const before = await noteState(db.$client, n.id);
-    const { token } = await seedTokenForUser(db, me.id, RW);
+    const { token } = await seedTokenForUser(db, me.id, RWM);
     const bodies = [];
     for (const gid of [randomUUID(), foreign.id, ro.id]) bodies.push(JSON.stringify((await move(app, token, n.id, gid)).structuredContent));
     expect(new Set(bodies).size).toBe(1);
@@ -177,7 +180,7 @@ describe("#180 move_note_to_group", () => {
     await seedAttachment(db, uploadsDir, a.id, admin.id, 101);
     await seedShare(db, a.id, friend.id, "editor");
     const before = await noteState(db.$client, a.id);
-    const r1 = await move(app, (await seedTokenForUser(db, admin.id, RW)).token, a.id, g.id);
+    const r1 = await move(app, (await seedTokenForUser(db, admin.id, RWM)).token, a.id, g.id);
     expect(r1.structuredContent).toEqual({
       code: "storage_quota_exceeded",
       message: `The group's storage space has no room for this note's images (0 B of 100 B used; they need 101 B), so the note was not moved. ${TAIL}`,
@@ -190,7 +193,7 @@ describe("#180 move_note_to_group", () => {
     expect(await redirectCount(db)).toBe(0);
     const m = await seedNote(db, { ownerId: member.id });
     await seedAttachment(db, uploadsDir, m.id, member.id, 101);
-    const r2 = await move(app, (await seedTokenForUser(db, member.id, RW)).token, m.id, g.id);
+    const r2 = await move(app, (await seedTokenForUser(db, member.id, RWM)).token, m.id, g.id);
     expect(r2.structuredContent).toEqual({
       code: "storage_quota_exceeded",
       message: "The group's storage space has no room for this note's images, so the note was not moved. Ask a site admin for more space.",
@@ -214,7 +217,7 @@ describe("#180 move_note_to_group", () => {
     const g1 = await seedGroup(db, "G1", [{ userId: owner.id, role: "member" }]);
     const g2 = await seedGroup(db, "G2", [{ userId: owner.id, role: "member" }]);
     const n = await seedNote(db, { ownerId: owner.id }, { slug: "plan" });
-    const { token } = await seedTokenForUser(db, owner.id, RW);
+    const { token } = await seedTokenForUser(db, owner.id, RWM);
     state.fire = () => move(app, token, n.id, g2.id);
     const first: LightMyRequestResponse = await app.inject({ method: "POST", url: `/api/notes/${n.id}/move`, cookies: await cookieOf(owner.id), payload: { groupId: g1.id } });
     const second = await state.second!;
@@ -236,7 +239,7 @@ describe("#180 move_note_to_group", () => {
       const n = await seedNote(db, { ownerId: o.id });
       await seedAttachment(db, uploadsDir, n.id, o.id, 10); // 空間鎖只在 incomingBytes > 0 時取（storage/tx/quota.ts:51）
       const before = await noteState(db.$client, n.id);
-      expect((await move(app, (await seedTokenForUser(db, o.id, RW)).token, n.id, g.id)).structuredContent).toEqual({ code: "server_busy", message: BUSY });
+      expect((await move(app, (await seedTokenForUser(db, o.id, RWM)).token, n.id, g.id)).structuredContent).toEqual({ code: "server_busy", message: BUSY });
       expect(await noteState(db.$client, n.id)).toEqual(before);
     });
   }
@@ -249,7 +252,7 @@ describe("#180 move_note_to_group", () => {
     const g = await seedGroup(db, "G", [{ userId: me.id, role: "member" }]);
     const n = await seedNote(db, { ownerId: me.id });
     const before = await noteState(db.$client, n.id);
-    const { token } = await seedTokenForUser(db, me.id, RW);
+    const { token } = await seedTokenForUser(db, me.id, RWM);
     expect((await call(app, { token }, "create_note", {})).isError).toBeUndefined(); // 不帶 content：只扣 tokenWrite，不扣 edit
     expect((await move(app, token, n.id, g.id)).structuredContent).toEqual({ code: "too_many_requests", message: TOKEN_RATE });
     expect(await noteState(db.$client, n.id)).toEqual(before);
@@ -272,10 +275,25 @@ describe("#180 move_note_to_group", () => {
     expect((r.structuredContent!.note as Note).owner).toMatchObject({ kind: "group", id: g.id });
   });
 
+  // #239 M2：讀寫無搬移憑證的清單上沒有 move_note_to_group（register.ts 依 canMove 註冊），跳過清單直接呼叫 → SDK 的
+  // 未知工具名形（同 mcp-tools-list 案 10 的 edit_note），不是 insufficient_scope；筆記仍是個人筆記。
+  it("#239 M2：讀寫憑證 tools/call move_note_to_group → Tool not found、筆記仍是個人筆記", async () => {
+    const { app, db } = await buildTestApp();
+    const me = await seedUser(db);
+    const g = await seedGroup(db, "G", [{ userId: me.id, role: "admin" }]);
+    const n = await seedNote(db, { ownerId: me.id });
+    const { token } = await seedTokenForUser(db, me.id, RW);
+    const r = await move(app, token, n.id, g.id);
+    expect(r.isError).toBe(true);
+    expect(r.content[0]!.text).toContain("Tool move_note_to_group not found");
+    expect(r.structuredContent).toBeUndefined();
+    expect(await noteState(db.$client, n.id)).toMatchObject({ owner_id: me.id, group_id: null });
+  });
+
   it("V12 模型面字串 wire 斷言（spec §5.5 全部）", async () => {
     const { app, db } = await buildTestApp();
     const me = await seedUser(db);
-    const { token } = await seedTokenForUser(db, me.id, RW);
+    const { token } = await seedTokenForUser(db, me.id, RWM);
     const res = await mcpPost(app, rpc("tools/list"), { token });
     const tool = (res.json().result.tools as Array<{ name: string; description: string; inputSchema: { properties: Record<string, { description?: string }> }; outputSchema: { properties: Record<string, { description?: string }> } }>).find(t => t.name === "move_note_to_group")!;
     const DESC =
@@ -307,7 +325,7 @@ describe("#180 move_note_to_group", () => {
     await ctx.collab.versions.cutIfDirty(note.id, live, { kind: "manual" });
     expect(await versionsOf(ctx.db, note.id)).toHaveLength(1);
     expect(ctx.collab.versions.debugState(note.id)!.autoEnabled).toBe(true);
-    const { token } = await seedTokenForUser(ctx.db, u.id, RW);
+    const { token } = await seedTokenForUser(ctx.db, u.id, RWM);
     await moved(ctx.app, token, note.id, g.id);
     expect(await versionsOf(ctx.db, note.id)).toEqual([]);
     expect(await noteBase(ctx.db, note.id)).toEqual({ counter: 0, baseSeq: null, baseFingerprint: null });
@@ -322,7 +340,7 @@ describe("#180 move_note_to_group", () => {
     const g = await seedGroup(db, "G", [{ userId: me.id, role: "member" }]);
     const n = await seedNote(db, { ownerId: me.id });
     const before = await noteState(db.$client, n.id);
-    const r = await call(app, { token: (await seedTokenForUser(db, me.id, RW)).token }, "move_note_to_group", { note_id: n.id, group_id: g.id, groupId: g.id });
+    const r = await call(app, { token: (await seedTokenForUser(db, me.id, RWM)).token }, "move_note_to_group", { note_id: n.id, group_id: g.id, groupId: g.id });
     expect(r.isError).toBe(true);
     expect(r.structuredContent).toBeUndefined();
     expect(r.content[0]!.text).toContain("groupId");
@@ -334,7 +352,7 @@ describe("#180 move_note_to_group", () => {
     const me = await seedUser(db);
     const g = await seedGroup(db, "G", [{ userId: me.id, role: "member" }]);
     const n = await seedNote(db, { ownerId: me.id });
-    const note = await moved(app, (await seedTokenForUser(db, me.id, RW)).token, n.id, g.id.toUpperCase());
+    const note = await moved(app, (await seedTokenForUser(db, me.id, RWM)).token, n.id, g.id.toUpperCase());
     expect(note.owner).toMatchObject({ kind: "group", id: g.id });
     expect(note.url.startsWith(`/g/${g.id}/`)).toBe(true);
     expect((await noteState(db.$client, n.id)).group_id).toBe(g.id);
@@ -345,7 +363,7 @@ describe("#180 move_note_to_group", () => {
     const me = await seedUser(db);
     const g = await seedGroup(db, "G", [{ userId: me.id, role: "member" }]);
     const n = await seedNote(db, { ownerId: me.id }, { slug: "my-custom", slugIsCustom: true });
-    const note = await moved(app, (await seedTokenForUser(db, me.id, RW)).token, n.id, g.id);
+    const note = await moved(app, (await seedTokenForUser(db, me.id, RWM)).token, n.id, g.id);
     expect(note.url).toBe(`/g/${g.id}/my-custom`);
     expect(await noteState(db.$client, n.id)).toMatchObject({ slug: "my-custom", slug_is_custom: true });
     const old = await app.inject({ method: "GET", url: `/api/notes/by-path/${me.handle}/my-custom`, cookies: await cookieOf(me.id) });

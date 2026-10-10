@@ -153,6 +153,8 @@ export function mcpRoutes(deps: McpRouteDeps) {
       // #108 D-Q：`instructions` 是 **per-request 二選一**（不是相加）——唯讀憑證看到的那一版
       // 刻意不提寫入工具的名字，改講「怎麼取得寫入權」。判準與註冊時的 scope 過濾**同一份**
       // （`canWriteNotes`），否則會出現「清單裡有工具但 instructions 說你是唯讀的」這種漂移。
+      // #239：`canMoveNotes` 不影響 instructions（仍二選一）——讀寫版首句只講 notes:write 這個必要條件，
+      // 有沒有 notes:move 都為真（spec §7.4）；搬移權只決定註冊（`register.ts`）。
       const canWrite = canWriteNotes({
         authKind: request.authKind === "session" ? "session" : "token",
         tokenScope: request.tokenScope ?? null,
