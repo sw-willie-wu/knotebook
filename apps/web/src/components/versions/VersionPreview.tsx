@@ -200,10 +200,10 @@ export function VersionPreview({ doc, forceSingle = false }: { doc: Y.Doc; force
   const splitHead =
     preview && split ? (
       <div data-testid="diff-split-head" className="grid grid-cols-2 gap-4">
-        <div className="mb-1 min-w-0 px-4 text-xs">
+        <div className="min-w-0 px-4 pb-1 text-xs">
           <ComparePicker side="left" />
         </div>
-        <div className="mb-1 min-w-0 px-4 text-xs">
+        <div className="min-w-0 border-l border-border px-4 pb-1 text-xs">
           <ComparePicker side="right" />
         </div>
       </div>
@@ -225,7 +225,7 @@ export function VersionPreview({ doc, forceSingle = false }: { doc: Y.Doc; force
           <section className="min-w-0">
             <DiffEditor blocks={a} marks={sides.left} />
           </section>
-          <section className="min-w-0">
+          <section className="min-w-0 border-l border-border">
             <DiffEditor blocks={b} marks={sides.right} />
           </section>
         </div>

@@ -258,7 +258,10 @@ describe("VersionPreview（spec §8.4）", () => {
     await waitFor(() => expect(left.querySelector('[data-id="B"][data-diff="deleted"]')).not.toBeNull());
     await waitFor(() => expect(right.querySelector('[data-id="C"][data-diff="added"]')).not.toBeNull());
     fireEvent.click(screen.getByRole("button", { name: "Single column" }));
-    expect(await screen.findByTestId("diff-single")).toBeInTheDocument();
+    const single = await screen.findByTestId("diff-single");
+    expect(single).toBeInTheDocument();
+    expect(single.querySelector(".border-l")).toBeNull();
+    expect(single).not.toHaveClass("border-l");
   });
 
   it("rev 10：並排時兩欄標頭是兩個下拉（左側 v1／右側 Current state），不是純文字 h3；橫幅沒有下拉", async () => {
@@ -274,6 +277,12 @@ describe("VersionPreview（spec §8.4）", () => {
     expect(within(leftCell).getByRole("button", { name: "Left side" })).toHaveTextContent("v1");
     expect(within(rightCell).getByRole("button", { name: "Right side" })).toHaveTextContent("Current state");
     expect(document.querySelector('[data-testid="diff-split-head"] h3, [data-testid="diff-split"] h3')).toBeNull();
+    // 兩欄中間一條 1px border-border 垂直線：右欄（標頭右格＋內容右 section）帶 border-l，左欄不帶；標頭用 pb 而非 mb，線才連續。
+    const [leftSection, rightSection] = Array.from(split.children) as HTMLElement[];
+    for (const el of [rightCell, rightSection]) expect(el).toHaveClass("border-l", "border-border");
+    for (const el of [leftCell, leftSection]) expect(el).not.toHaveClass("border-l");
+    expect(leftCell).not.toHaveClass("mb-1");
+    expect(rightCell).not.toHaveClass("mb-1");
     const banner = within(screen.getByTestId("preview-banner"));
     await waitFor(() => expect(banner.getByRole("button", { name: "Side by side" })).toHaveAttribute("aria-pressed", "true"));
     expect(banner.queryByRole("button", { name: "Left side" })).not.toBeInTheDocument();
