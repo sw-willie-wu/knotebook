@@ -395,6 +395,32 @@ describe("POST /oauth/token — refresh_token", () => {
     }
   });
 
+  // #239 O3（迴歸守衛）：exchange 回的是 decision 夾出來的授予值；refresh 不碰 scope——列上被改過的值原樣回傳。
+  it("#239：要求三形、只勾讀寫 → exchange 回讀寫；列改成三形後 refresh 回三形、列 id 不變", async () => {
+    const { app, db, close } = await buildTestApp();
+    try {
+      const { cookie } = await createUserAndLogin(db);
+      const c = await obtainCode(app, cookie, { scope: "notes:read notes:write notes:move", grant: "notes:read notes:write" });
+      const first = await exchange(app, codeGrant(c));
+      expect(first.statusCode).toBe(200);
+      expect(first.json().scope).toBe("notes:read notes:write");
+      const [before] = await db.select({ id: apiTokens.id }).from(apiTokens);
+
+      await db.update(apiTokens).set({ scope: "notes:read notes:write notes:move" });
+      const rotated = await exchange(app, {
+        grant_type: "refresh_token",
+        refresh_token: first.json().refresh_token as string,
+        client_id: c.clientId,
+      });
+      expect(rotated.statusCode).toBe(200);
+      expect(rotated.json().scope).toBe("notes:read notes:write notes:move");
+      const after = await db.select({ id: apiTokens.id }).from(apiTokens);
+      expect(after.map(r => r.id)).toEqual([before!.id]);
+    } finally {
+      await close();
+    }
+  });
+
   it("access 過期後 refresh 仍可換發，新 access 立即可用（§9.2 Bearer 段）", async () => {
     const { app, db, close } = await buildTestApp();
     try {

@@ -28,6 +28,7 @@ const REQUEST: OauthRequestDto = {
   scope: "notes:read notes:write",
   scopes: ["notes:read", "notes:write"],
   replacesExisting: false,
+  existingScope: null,
 };
 
 /** 落點探針：只要 location 逐字（同 App.test.tsx 的慣例）。 */

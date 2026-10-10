@@ -18,7 +18,7 @@ export function oauthMetadataRoutes(deps: { config: AppConfig }) {
       reply.header("cache-control", "public, max-age=3600").send({
         resource: canonicalResource(issuer),
         authorization_servers: [issuer],
-        scopes_supported: ["notes:read", "notes:write"],
+        scopes_supported: ["notes:read", "notes:write", "notes:move"],
         bearer_methods_supported: ["header"],
         resource_name: "Knotebook",
       })
@@ -34,7 +34,7 @@ export function oauthMetadataRoutes(deps: { config: AppConfig }) {
         grant_types_supported: ["authorization_code", "refresh_token"],
         code_challenge_methods_supported: ["S256"],
         token_endpoint_auth_methods_supported: ["none"],
-        scopes_supported: ["notes:read", "notes:write"],
+        scopes_supported: ["notes:read", "notes:write", "notes:move"],
         authorization_response_iss_parameter_supported: true,
       })
     );

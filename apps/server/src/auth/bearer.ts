@@ -35,9 +35,7 @@ const LAST_USED_THROTTLE_MS = 60_000;
  * 兩個 scope 參數刻意分開：
  * - `required` 是**授權判定**用的單值（`hasScope(stored, required)`）。
  * - `challenge` 是 401／403 的 `WWW-Authenticate` 上宣告的 scope 集合，預設等於
- *   `required`。MCP client 會把 challenge 的 scope 當作本次操作的權威值、只要這麼多，
- *   所以 `/api/mcp` 必須宣告 `notes:read notes:write`，否則 client 走完 OAuth 只會
- *   拿到唯讀 token。
+ *   `required`。`/api/mcp` 為什麼要宣告比 `required` 多的 scope，見 `auth/challenge.ts`。
  *
  * 有 `Authorization` header 就**只走 token 路徑、不回退 cookie**（同時帶兩者時無歧義；
  * 已確認 web 端從不送這個 header）。

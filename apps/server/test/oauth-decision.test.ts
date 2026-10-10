@@ -49,6 +49,26 @@ function decide(app: TestApp["app"], cookie: string, body: object) {
   return app.inject({ method: "POST", url: "/api/oauth/decision", headers: { cookie }, payload: body });
 }
 
+/** #239：allow 一律要帶 `scope`。既有案送第三形，由 server 的 narrowerScope 夾回 pending（等價 #239 前的行為）。 */
+const RWM = "notes:read notes:write notes:move";
+
+const getRequest = (app: TestApp["app"], cookie: string, req: string) =>
+  app.inject({ method: "GET", url: `/api/oauth/request?req=${req}`, headers: { cookie } });
+
+/** 給某使用者塞一列某 client 的 oauth grant（同本檔既有插 api_tokens 的欄位組）。 */
+async function seedGrant(db: TestApp["db"], userId: string, clientId: string, scope: string, tag: string) {
+  await db.insert(apiTokens).values({
+    userId,
+    kind: "oauth",
+    name: "Test client",
+    scope,
+    accessTokenHash: tag.padEnd(64, "a"),
+    refreshTokenHash: tag.padEnd(64, "b"),
+    clientId,
+    accessExpiresAt: new Date(Date.now() + 86_400_000),
+  });
+}
+
 describe("GET /api/oauth/request（§5.3.1）", () => {
   it("200 回四要素；不消費（可重新整理）", async () => {
     const { app, db, close } = await buildTestApp();
@@ -64,6 +84,7 @@ describe("GET /api/oauth/request（§5.3.1）", () => {
           scope: "notes:read notes:write",
           scopes: ["notes:read", "notes:write"],
           replacesExisting: false,
+          existingScope: null,
         });
       }
       expect(await db.select().from(oauthRequests)).toHaveLength(1); // 沒被消費
@@ -189,7 +210,7 @@ describe("POST /api/oauth/decision（§5.3.2）", () => {
       // 「建 code 後更新 last_used_at」的 UPDATE 被拿掉時才分得出來。
       const staleStamp = new Date(Date.now() - 10 * 86_400_000); // 須 < I5 ① 的 30 天，否則 client 會被清掉
       await db.update(oauthClients).set({ lastUsedAt: staleStamp }).where(sql`${oauthClients.clientId} = ${clientId}`);
-      const res = await decide(app, cookie, { req, decision: "allow" });
+      const res = await decide(app, cookie, { req, decision: "allow", scope: RWM });
       expect(res.statusCode).toBe(200);
       const url = new URL(res.json().redirectTo as string);
       expect(`${url.origin}${url.pathname}`).toBe("http://127.0.0.1:5678/cb");
@@ -244,7 +265,7 @@ describe("POST /api/oauth/decision（§5.3.2）", () => {
       const dto = await app.inject({ method: "GET", url: `/api/oauth/request?req=${req}`, headers: { cookie } });
       expect(dto.json()).toMatchObject({ clientName: "MCP client", scope: "notes:read", scopes: ["notes:read"] });
 
-      const res = await decide(app, cookie, { req, decision: "allow" });
+      const res = await decide(app, cookie, { req, decision: "allow", scope: RWM });
       const url = new URL(res.json().redirectTo as string);
       expect(url.searchParams.has("state")).toBe(false);
       expect(url.searchParams.has("code")).toBe(true);
@@ -267,7 +288,7 @@ describe("POST /api/oauth/decision（§5.3.2）", () => {
       expect(url.searchParams.get("iss")).toBe(ISSUER);
       expect(await db.select().from(oauthCodes)).toHaveLength(0);
 
-      const again = await decide(app, cookie, { req, decision: "allow" });
+      const again = await decide(app, cookie, { req, decision: "allow", scope: RWM });
       expect(again.statusCode).toBe(410);
     } finally {
       await close();
@@ -279,8 +300,8 @@ describe("POST /api/oauth/decision（§5.3.2）", () => {
     try {
       const { cookie } = await createUserAndLogin(db);
       const { req } = await startFlow(app);
-      expect((await decide(app, cookie, { req, decision: "allow" })).statusCode).toBe(200);
-      const second = await decide(app, cookie, { req, decision: "allow" });
+      expect((await decide(app, cookie, { req, decision: "allow", scope: RWM })).statusCode).toBe(200);
+      const second = await decide(app, cookie, { req, decision: "allow", scope: RWM });
       expect(second.statusCode).toBe(410);
       expect(second.json().error.code).toBe("oauth_request_invalid");
       expect(await db.select().from(oauthCodes)).toHaveLength(1);
@@ -300,7 +321,8 @@ describe("POST /api/oauth/decision（§5.3.2）", () => {
       }
       // 同上：NUL 那兩發是唯一分得出「有守衛」與「沒守衛但查不到」的案
       for (const req of ["\u0000", `a\u0000${"b".repeat(20)}`, "nope", "x".repeat(65)]) {
-        const res = await decide(app, cookie, { req, decision: "allow" });
+        // 補合法 scope：不補會先被 body 驗證擋成 400，不變量 S 的守衛就測不到了
+        const res = await decide(app, cookie, { req, decision: "allow", scope: RWM });
         expect(res.statusCode, JSON.stringify(req)).toBe(410);
         expect(res.headers["content-type"], JSON.stringify(req)).toContain("application/json");
         expect(res.json().error.code).toBe("oauth_request_invalid");
@@ -318,7 +340,7 @@ describe("POST /api/oauth/decision（§5.3.2）", () => {
       expect(anon.statusCode).toBe(401);
 
       const locked = await createUserAndLogin(db, { mustChangePassword: true });
-      const res = await decide(app, locked.cookie, { req, decision: "allow" });
+      const res = await decide(app, locked.cookie, { req, decision: "allow", scope: RWM });
       expect(res.statusCode).toBe(403);
       expect(res.json().error.code).toBe("forbidden");
       expect(await db.select().from(oauthRequests)).toHaveLength(1); // 沒被白吃掉
@@ -353,16 +375,16 @@ describe("POST /api/oauth/decision（§5.3.2）", () => {
         accessExpiresAt: sql`now() + interval '1 day'`,
       });
 
-      const ok = await decide(app, cookie, { req, decision: "allow" });
+      const ok = await decide(app, cookie, { req, decision: "allow", scope: RWM });
       expect(ok.statusCode).toBe(200); // 扣掉會被 I7 取代的那一列
 
       // 換一個新 client：同樣 20 支，這次沒得扣 → 409
       const other = await startFlow(app);
-      const limited = await decide(app, cookie, { req: other.req, decision: "allow" });
+      const limited = await decide(app, cookie, { req: other.req, decision: "allow", scope: RWM });
       expect(limited.statusCode).toBe(409);
       expect(limited.json().error.code).toBe("token_limit");
       // 409 那一發仍然消費了 pending request（I6 在額度檢查之前）
-      expect((await decide(app, cookie, { req: other.req, decision: "allow" })).statusCode).toBe(410);
+      expect((await decide(app, cookie, { req: other.req, decision: "allow", scope: RWM })).statusCode).toBe(410);
     } finally {
       await close();
     }
@@ -392,7 +414,7 @@ describe("POST /api/oauth/decision（§5.3.2）", () => {
         });
       }
       const { req } = await startFlow(app); // 全新的第 21 個 client
-      const res = await decide(app, cookie, { req, decision: "allow" });
+      const res = await decide(app, cookie, { req, decision: "allow", scope: RWM });
       expect(res.statusCode).toBe(409);
       expect(res.json().error.code).toBe("token_limit");
     } finally {
@@ -409,7 +431,7 @@ describe("POST /api/oauth/decision（§5.3.2）", () => {
         .update(oauthClients)
         .set({ redirectUris: ["http://127.0.0.1:1234/elsewhere"] })
         .where(sql`${oauthClients.clientId} = ${clientId}`);
-      const res = await decide(app, cookie, { req, decision: "allow" });
+      const res = await decide(app, cookie, { req, decision: "allow", scope: RWM });
       expect(res.statusCode).toBe(404);
       expect(await db.select().from(oauthCodes)).toHaveLength(0);
     } finally {
@@ -427,8 +449,111 @@ describe("POST /api/oauth/decision（§5.3.2）", () => {
         .update(oauthClients)
         .set({ createdAt: sql`now() - interval '25 hours'` })
         .where(sql`${oauthClients.clientId} = ${clientId}`);
-      const res = await decide(app, cookie, { req, decision: "allow" });
+      const res = await decide(app, cookie, { req, decision: "allow", scope: RWM });
       expect(res.statusCode).toBe(410);
+    } finally {
+      await close();
+    }
+  });
+});
+
+describe("#239 decision scope", () => {
+  it("(a) allow 缺 scope → 400，pending 仍在（GET request 仍 200）", async () => {
+    const { app, db, close } = await buildTestApp();
+    try {
+      const { cookie } = await createUserAndLogin(db);
+      const { req } = await startFlow(app, { scope: "notes:write" });
+      const res = await decide(app, cookie, { req, decision: "allow" });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.code).toBe("invalid_body");
+      expect((await getRequest(app, cookie, req)).statusCode).toBe(200);
+      expect(await db.select().from(oauthRequests)).toHaveLength(1);
+    } finally {
+      await close();
+    }
+  });
+
+  // spec §5.5「不在三形內」那一半：別名與不成鏈的組合一律 400，不正規化、不消費。
+  it.each(["notes:write", "notes:read notes:move", "notes:move"])(
+    "(a') allow 帶非落庫形 scope=%s → 400，pending 仍在；同一 req 帶合法 scope 仍可 allow",
+    async scope => {
+      const { app, db, close } = await buildTestApp();
+      try {
+        const { cookie } = await createUserAndLogin(db);
+        const { req } = await startFlow(app, { scope: RWM });
+        const res = await decide(app, cookie, { req, decision: "allow", scope });
+        expect(res.statusCode).toBe(400);
+        expect(res.json().error.code).toBe("invalid_body");
+        expect(await db.select().from(oauthRequests)).toHaveLength(1);
+        expect((await decide(app, cookie, { req, decision: "allow", scope: RWM })).statusCode).toBe(200);
+      } finally {
+        await close();
+      }
+    }
+  );
+
+  it.each([
+    [RWM, "notes:read notes:write", "notes:read notes:write"], // (b)
+    ["notes:write", RWM, "notes:read notes:write"], // (c) 夾回 pending
+    [RWM, "notes:read", "notes:read"], // (d)
+  ])("pending=%s、body=%s → code.scope=%s", async (requested, body, granted) => {
+    const { app, db, close } = await buildTestApp();
+    try {
+      const { cookie } = await createUserAndLogin(db);
+      const { req } = await startFlow(app, { scope: requested });
+      const res = await decide(app, cookie, { req, decision: "allow", scope: body });
+      expect(res.statusCode).toBe(200);
+      const codes = await db.select().from(oauthCodes);
+      expect(codes.map(c => c.scope)).toEqual([granted]);
+    } finally {
+      await close();
+    }
+  });
+
+  it("(e) deny 不帶 scope → 200、redirectTo 含 error=access_denied", async () => {
+    const { app, db, close } = await buildTestApp();
+    try {
+      const { cookie } = await createUserAndLogin(db);
+      const { req } = await startFlow(app, { scope: RWM });
+      const res = await decide(app, cookie, { req, decision: "deny" });
+      expect(res.statusCode).toBe(200);
+      expect(new URL(res.json().redirectTo as string).searchParams.get("error")).toBe("access_denied");
+    } finally {
+      await close();
+    }
+  });
+
+  it("(e') deny 帶垃圾 scope → 照常 200 access_denied（deny 忽略 scope）", async () => {
+    const { app, db, close } = await buildTestApp();
+    try {
+      const { cookie } = await createUserAndLogin(db);
+      const { req } = await startFlow(app, { scope: RWM });
+      const res = await decide(app, cookie, { req, decision: "deny", scope: "garbage" });
+      expect(res.statusCode).toBe(200);
+      expect(new URL(res.json().redirectTo as string).searchParams.get("error")).toBe("access_denied");
+      expect(await db.select().from(oauthCodes)).toHaveLength(0);
+    } finally {
+      await close();
+    }
+  });
+});
+
+describe("#239 O2b existingScope", () => {
+  it("無既有列 → null／false；本人同 client 讀寫列 → 讀寫／true；別人的同 client 列、本人別 client 的列都不算", async () => {
+    const { app, db, close } = await buildTestApp();
+    try {
+      const me = await createUserAndLogin(db);
+      const other = await createUserAndLogin(db);
+      const { clientId, req } = await startFlow(app, { scope: RWM });
+      const { clientId: otherClient } = await startFlow(app, { scope: RWM });
+      await seedGrant(db, other.userId, clientId, RWM, "o1"); // 別人的、同 client
+      await seedGrant(db, me.userId, otherClient, RWM, "m1"); // 本人的、別 client
+      expect((await getRequest(app, me.cookie, req)).json()).toMatchObject({ existingScope: null, replacesExisting: false });
+      await seedGrant(db, me.userId, clientId, "notes:read notes:write", "m2");
+      expect((await getRequest(app, me.cookie, req)).json()).toMatchObject({
+        existingScope: "notes:read notes:write",
+        replacesExisting: true,
+      });
     } finally {
       await close();
     }

@@ -119,7 +119,7 @@ export function mcpRoutes(deps: McpRouteDeps) {
     const endpointUrl = `${publicOrigin}/api/mcp`;
     const publicHost = deps.config.publicUrl.host;
 
-    const authenticate = app.authenticateAny("notes:read", "notes:read notes:write");
+    const authenticate = app.authenticateAny("notes:read", "notes:read notes:write notes:move");
 
     /**
      * 第二支 preHandler，**排在認證之後**（不帶憑證的請求一律先拿 401 ＋ challenge）。

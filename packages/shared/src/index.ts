@@ -955,8 +955,13 @@ export interface OauthRequestDto {
   scope: TokenScope;
   /** `scope` 拆成單值陣列，供同意頁逐條列出人話說明。 */
   scopes: string[];
-  /** 呼叫者本人已有同 client 的 oauth grant（I7 會取代它）。 */
+  /** 呼叫者本人已有同 client 的 oauth grant（I7 會取代它）。恆等於 `existingScope !== null`。 */
   replacesExisting: boolean;
+  /**
+   * #239：呼叫者本人同 client 的 oauth grant 目前的 scope；無則 `null`。載入當下的快照，
+   * 只給同意頁當預設勾選——server 授予值不依賴它。
+   */
+  existingScope: TokenScope | null;
 }
 
 /**

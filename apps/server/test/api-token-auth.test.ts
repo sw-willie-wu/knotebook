@@ -76,14 +76,14 @@ async function seedToken(
 }
 
 describe("/api/mcp 的 method 形狀與 Bearer challenge", () => {
-  it("三個 method 無憑證 → 401，challenge 帶 resource_metadata 與兩個 scope、不帶 error", async () => {
+  it("三個 method 無憑證 → 401，challenge 帶 resource_metadata 與三個 scope、不帶 error", async () => {
     const { app } = await buildTestApp();
     for (const method of ["GET", "POST", "DELETE"] as const) {
       const res = await app.inject({ method, url: "/api/mcp", ...(method === "POST" ? { payload: {} } : {}) });
       expect(res.statusCode, method).toBe(401);
       const challenge = res.headers["www-authenticate"] as string;
       expect(challenge, method).toContain(`resource_metadata="${ISSUER}/.well-known/oauth-protected-resource/api/mcp"`);
-      expect(challenge, method).toContain(`scope="notes:read notes:write"`);
+      expect(challenge, method).toContain(`scope="notes:read notes:write notes:move"`);
       expect(challenge, method).not.toContain("error=");
     }
   });

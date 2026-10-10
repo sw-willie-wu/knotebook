@@ -83,6 +83,26 @@ describe("GET /oauth/authorize（§5.3）", () => {
     }
   });
 
+  // #239 O1：搬移只在同時要了編輯時才算數（normalizeScope）。
+  it.each([
+    ["notes:read notes:write notes:move", "notes:read notes:write notes:move"],
+    ["notes:read notes:move", "notes:read"],
+  ])("#239 scope=%s → 落庫 %s", async (requested, stored) => {
+    const { app, db, close } = await buildTestApp();
+    try {
+      const clientId = await seedClient(app, "http://127.0.0.1:1234/cb");
+      const res = await app.inject({
+        method: "GET",
+        url: authorizeUrl({ ...baseParams(clientId, "http://127.0.0.1:1234/cb"), scope: requested }),
+      });
+      expect(res.statusCode).toBe(302);
+      const [row] = await db.select().from(oauthRequests);
+      expect(row!.scope).toBe(stored);
+    } finally {
+      await close();
+    }
+  });
+
   it("未註冊的 client_id 與不匹配的 redirect_uri → 400 靜態純文字，不導回、不回聲參數", async () => {
     const { app, db, close } = await buildTestApp();
     try {
