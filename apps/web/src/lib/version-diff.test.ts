@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bigramDice, diffBlocks, markOf, renderDiff, sideBySideMarks, type DiffBlock } from "./version-diff";
+import { bigramDice, diffBlocks, markOf, renderDiff, sideBySideMarks, splitRows, type DiffBlock, type SplitRow } from "./version-diff";
 
 const p = (id: string, text: string, children: DiffBlock[] = []): DiffBlock => ({
   id,
@@ -403,5 +403,168 @@ describe("diffBlocks 配對的內容後備（spec rev 11 §8.4 規則 1a／1b／
     console.log(`[version-diff 案 12] diffBlocks 2000×2000 全不相似：${ms.toFixed(1)} ms`);
     expect(entries.filter((e) => e.status === "added")).toHaveLength(2000);
     expect(entries.filter((e) => e.status === "deleted")).toHaveLength(2000);
+  });
+});
+
+describe("splitRows（spec rev 12 §8.4 並排逐區塊對齊）", () => {
+  const rowsOf = (a: DiffBlock[], b: DiffBlock[]) => splitRows(a, b, diffBlocks(a, b));
+  const textOfP = (blk: DiffBlock) => (blk.content as Array<{ text: string }>)[0].text;
+  /** 不變量：left／right 各自（忽略 null）嚴格遞增，且 a、b 每個索引各恰出現一次。 */
+  const checkInvariants = (a: DiffBlock[], b: DiffBlock[], rows: SplitRow[]) => {
+    const ls = rows.map((r) => r.left).filter((x): x is number => x !== null);
+    const rs = rows.map((r) => r.right).filter((x): x is number => x !== null);
+    expect(ls).toEqual(a.map((_, i) => i));
+    expect(rs).toEqual(b.map((_, i) => i));
+    expect(rows.every((r) => r.left !== null || r.right !== null)).toBe(true);
+  };
+
+  it("中間插入：a=[p1,p2]、b=[p1,new,p2] → 左 2 與右 3 同列", () => {
+    const a = [p("A", "one"), p("B", "two")];
+    const b = [p("A", "one"), p("N", "new"), p("B", "two")];
+    expect(rowsOf(a, b)).toEqual([
+      { left: 0, right: 0 },
+      { left: null, right: 1 },
+      { left: 1, right: 2 },
+    ]);
+  });
+
+  it("刪除：左單側列", () => {
+    const a = [p("A", "one"), p("D", "gone"), p("B", "two")];
+    const b = [p("A", "one"), p("B", "two")];
+    expect(rowsOf(a, b)).toEqual([
+      { left: 0, right: 0 },
+      { left: 1, right: null },
+      { left: 2, right: 1 },
+    ]);
+  });
+
+  it("修改：changed 仍同列", () => {
+    const a = [p("A", "one"), p("B", "two")];
+    const b = [p("A", "one changed"), p("B", "two")];
+    expect(rowsOf(a, b)).toEqual([
+      { left: 0, right: 0 },
+      { left: 1, right: 1 },
+    ]);
+  });
+
+  it("moved 對子不對齊：左右各佔一列、不同列", () => {
+    const a = [p("A", "a"), p("B", "b"), p("C", "c")];
+    const b = [p("C", "c"), p("A", "a"), p("B", "b")];
+    expect(diffBlocks(a, b).find((e) => e.key === "C")?.moved).toBe(true);
+    const rows = rowsOf(a, b);
+    expect(rows).toEqual([
+      { left: null, right: 0 },
+      { left: 0, right: 1 },
+      { left: 1, right: 2 },
+      { left: 2, right: null },
+    ]);
+    checkInvariants(a, b, rows);
+  });
+
+  it("刪增交錯：a 刪 2、b 增 3 → 兩列兩側並排、一列只有右側", () => {
+    const a = [p("A", "head"), p("D1", "x"), p("D2", "y"), p("B", "tail")];
+    const b = [p("A", "head"), p("N1", "p"), p("N2", "q"), p("N3", "r"), p("B", "tail")];
+    expect(rowsOf(a, b)).toEqual([
+      { left: 0, right: 0 },
+      { left: 1, right: 1 },
+      { left: 2, right: 2 },
+      { left: null, right: 3 },
+      { left: 3, right: 4 },
+    ]);
+  });
+
+  it("錨列交叉降級：兩側皆空文字的對子 moved=false 但 a 索引倒退 → 當成兩側未對齊", () => {
+    const a = [p("e1", ""), p("X", "x")];
+    const b = [p("X", "x"), p("e2", "")];
+    const entries = diffBlocks(a, b);
+    // 前提：空行對子確實配上了、且 moved 恆 false（否則這案沒有鑑別力）
+    const blank = entries.find((e) => e.before === a[0]);
+    expect(blank?.after).toBe(b[1]);
+    expect(blank?.moved).toBe(false);
+    const rows = splitRows(a, b, entries);
+    expect(rows).toEqual([
+      { left: 0, right: null },
+      { left: 1, right: 0 },
+      { left: null, right: 1 },
+    ]);
+    checkInvariants(a, b, rows);
+  });
+
+  it("review I-1：第一段開頭按 Enter＋文末空段打字 → 遠處配到的空行對子不搶錨列，alpha／beta／gamma 各自左右同列", () => {
+    // a＝存版時：三段＋文末空段 T；b＝現在：第一段開頭按 Enter（舊 id 1 留在空段、alpha 換新 id X）、在 T 打字、又多一個空段 M。
+    const a = [p("1", "alpha"), p("2", "beta"), p("3", "gamma"), p("T", "")];
+    const b = [p("1", ""), p("X", "alpha"), p("2", "beta"), p("3", "gamma"), p("T", "tail"), p("M", "")];
+    const entries = diffBlocks(a, b);
+    // 前提（真 diffBlocks）：a 的空段 T 與 b 開頭的空段配成對子、moved=false，且在 entries 裡排第一（舊寫法會先拿它當錨）。
+    expect(entries[0].before).toBe(a[3]);
+    expect(entries[0].after).toBe(b[0]);
+    expect(entries[0].moved).toBe(false);
+    const rows = splitRows(a, b, entries);
+    for (const [ai, bi] of [
+      [0, 1],
+      [1, 2],
+      [2, 3],
+    ]) {
+      expect(rows, `a[${ai}] 與 b[${bi}] 同列`).toContainEqual({ left: ai, right: bi });
+    }
+    expect(rows).toEqual([
+      { left: null, right: 0 },
+      { left: 0, right: 1 },
+      { left: 1, right: 2 },
+      { left: 2, right: 3 },
+      { left: 3, right: 4 },
+      { left: null, right: 5 },
+    ]);
+    checkInvariants(a, b, rows);
+  });
+
+  it("空行對子夾在相鄰兩錨列之間 → 升格為錨列（同列）", () => {
+    // a 多一顆只在左側的 D：不升格的話降級逐顆並排會把 D 與 b 的空行排同列，空行對子與 Y 都錯開。
+    const a = [p("X", "x"), p("D", "gone"), p("e1", ""), p("Y", "y")];
+    const b = [p("X", "x"), p("e2", ""), p("Y", "y")];
+    const entries = diffBlocks(a, b);
+    expect(entries.some((e) => e.before === a[2] && e.after === b[1])).toBe(true);
+    expect(splitRows(a, b, entries)).toEqual([
+      { left: 0, right: 0 },
+      { left: 1, right: null },
+      { left: 2, right: 1 },
+      { left: 3, right: 2 },
+    ]);
+  });
+
+  it("空側：a 為空 → 全是右側單側列；b 為空 → 全是左側單側列", () => {
+    const b = [p("A", "a"), p("B", "b")];
+    expect(rowsOf([], b)).toEqual([
+      { left: null, right: 0 },
+      { left: null, right: 1 },
+    ]);
+    expect(rowsOf(b, [])).toEqual([
+      { left: 0, right: null },
+      { left: 1, right: null },
+    ]);
+  });
+
+  it("巢狀子區塊不另成列：只看頂層", () => {
+    const a = [p("A", "a", [p("A1", "child")])];
+    const b = [p("A", "a", [p("A1", "child"), p("A2", "new child")]), p("B", "b")];
+    expect(rowsOf(a, b)).toEqual([
+      { left: 0, right: 0 },
+      { left: null, right: 1 },
+    ]);
+  });
+
+  it("不變量：多組亂數編輯（刪、增、改、搬、空行、換 id）每列兩側索引嚴格遞增、a／b 每個索引恰出現一次", () => {
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+    const words = ["alpha", "beta", "gamma", "delta", "", "", "epsilon zeta eta theta", "iota kappa lambda mu nu"];
+    for (let round = 0; round < 200; round += 1) {
+      const n = Math.floor(rnd() * 8);
+      const a = Array.from({ length: n }, (_, i) => p(`a${i}`, words[Math.floor(rnd() * words.length)]));
+      let b = a.filter(() => rnd() > 0.25).map((blk) => (rnd() < 0.2 ? p(rnd() < 0.5 ? blk.id! : `r${round}-${blk.id}`, `${textOfP(blk)} more`) : blk));
+      const adds = Math.floor(rnd() * 4);
+      for (let k = 0; k < adds; k += 1) b.splice(Math.floor(rnd() * (b.length + 1)), 0, p(`n${round}-${k}`, words[Math.floor(rnd() * words.length)]));
+      if (rnd() < 0.3 && b.length > 1) b = [...b.slice(1), b[0]];
+      checkInvariants(a, b, splitRows(a, b, diffBlocks(a, b)));
+    }
   });
 });

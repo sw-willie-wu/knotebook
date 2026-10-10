@@ -1,5 +1,48 @@
+import path from "node:path";
 import { test, expect, type Page } from "@playwright/test";
 import { ADMIN, createNote, editorLocator, loginAs } from "./helpers.js";
+
+/**
+ * 並排逐區塊對齊（spec rev 12 §8.4）：兩欄頂層區塊帶 `data-diff-row`。同列兩側 top 相差 ≤ 1 px；只在一側出現的列，
+ * 對面欄有一塊 `.kb-diff-spacer` 蓋住那一列的高度（容差 1 px）。`minSingle`：至少要有幾個單側列（避免空斷言）。
+ * 版面在 layout effect／ResizeObserver＋rAF 裡寫，所以用 toPass 重試。一次 evaluate 讀完兩欄（同一個 layout 快照）。
+ */
+async function expectSplitAligned(page: Page, minSingle: number) {
+  const split = page.getByTestId("diff-split");
+  await expect(async () => {
+    const m = await split.evaluate((root) => {
+      const secs = Array.from(root.querySelectorAll<HTMLElement>(":scope > section"));
+      return secs.map((sec) => ({
+        blocks: Array.from(sec.querySelectorAll<HTMLElement>(".bn-editor > .bn-block-group > .bn-block-outer[data-diff-row]")).map((el) => ({
+          row: el.dataset.diffRow!,
+          top: el.getBoundingClientRect().top,
+          height: el.offsetHeight,
+        })),
+        spacers: Array.from(sec.querySelectorAll<HTMLElement>(":scope > .kb-diff-spacer")).map((el) => ({ top: el.getBoundingClientRect().top, height: el.offsetHeight })),
+      }));
+    });
+    expect(m).toHaveLength(2);
+    const [L, R] = m;
+    expect(L.blocks.length + R.blocks.length).toBeGreaterThan(0);
+    let single = 0;
+    for (const [mine, other] of [
+      [L, R],
+      [R, L],
+    ] as const) {
+      for (const blk of mine.blocks) {
+        const twin = other.blocks.find((o) => o.row === blk.row);
+        if (twin) {
+          expect(Math.abs(twin.top - blk.top), `row ${blk.row} 兩側 top`).toBeLessThanOrEqual(1);
+          continue;
+        }
+        single += 1;
+        const covered = other.spacers.some((s) => s.top <= blk.top + 1 && s.top + s.height >= blk.top + blk.height - 1);
+        expect(covered, `row ${blk.row} 單側列對面要有 spacer 蓋住 ${JSON.stringify(blk)}；spacers=${JSON.stringify(other.spacers)}`).toBe(true);
+      }
+    }
+    expect(single).toBeGreaterThanOrEqual(minSingle);
+  }).toPass({ timeout: 10_000 });
+}
 
 /**
  * 版本歷史 e2e（spec §11.3）：存（命名）→ 改 → 存 → 改 → 預覽 v1 看到 diff 標記 → 套用（「不儲存」）→ 內容回到 v1 →
@@ -62,6 +105,8 @@ test("22 版本歷史：存、改、預覽 diff、套用、從 vX 接著改、�
     const splitHead = page.getByTestId("diff-split-head");
     await expect(splitHead.getByRole("button", { name: "Left side" })).toHaveText(/v2/);
     await expect(splitHead.getByRole("button", { name: "Right side" })).toHaveText(/Current state/);
+    // rev 12 並排逐區塊對齊：v2 之後才打的 gamma-three 只在右欄 → 至少一個單側列，左欄同位置有斜紋 spacer。
+    await expectSplitAligned(page, 1);
     await page.getByTestId("preview-banner").getByRole("button", { name: "Single column" }).click();
     const diffBlocks = page.getByTestId("diff-single").locator("[data-diff]");
     await expect(diffBlocks.filter({ hasText: "gamma-three" })).toHaveAttribute("data-diff", "added");
@@ -159,6 +204,64 @@ test("22 版本歷史：存、改、預覽 diff、套用、從 vX 接著改、�
     await expect(editorLocator(page)).not.toContainText("local-six");
   } finally {
     await other.close();
+    await ctx.close();
+  }
+});
+
+test("22b 並排逐區塊對齊（spec rev 12）：中間插一段＋前一段改長 → 左 2 與右 3 同列、插入那列左欄留斜紋", async ({ browser }) => {
+  test.setTimeout(120_000);
+  const shotDir = process.env.VERSIONS_SCREENSHOT_DIR; // 目視截圖：設了才截，本檔不寫絕對路徑
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 } });
+  const page = await ctx.newPage();
+  try {
+    await loginAs(page, ADMIN.email, ADMIN.password);
+    await createNote(page, `E2E split align ${Date.now()}`);
+    await typeAtEnd(page, "one-top");
+    await typeAtEnd(page, "two-bottom");
+    await saveVersion(page);
+    await expect(page.getByText("Saved as v1", { exact: true })).toBeVisible();
+
+    const editor = editorLocator(page);
+    // 中間插一段（one-top 之後）；再把 one-top 改長到在並排欄裡換行 → 同列兩側高度不同（矮側要補留白）。
+    // 游標要確定落在 one-top 才按 Enter：修正輪 1 實跑過一次插入跑到 two-bottom 之後（儲存對話框關閉後的焦點還原晚於點擊，
+    // 讀碼推論），斷言仍綠卻沒驗到「中間插入」。所以點完先讀 selection 確認，並在預覽前斷言三段的順序。
+    const caretAtEndOf = async (text: string) => {
+      await expect(async () => {
+        await editor.getByText(text).click();
+        await page.keyboard.press("End");
+        expect(await page.evaluate(() => window.getSelection()?.anchorNode?.textContent ?? "")).toContain(text);
+      }).toPass({ timeout: 10_000 });
+    };
+    await caretAtEndOf("one-top");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("inserted-middle paragraph that exists only in the current state");
+    await caretAtEndOf("one-top");
+    await page.keyboard.type(" and now a much longer tail that wraps over several lines in the narrow side-by-side column of the preview");
+    const order = await editor.innerText();
+    expect(order).toContain("one-top and now a much longer tail");
+    expect(order.indexOf("one-top")).toBeLessThan(order.indexOf("inserted-middle"));
+    expect(order.indexOf("inserted-middle")).toBeLessThan(order.indexOf("two-bottom"));
+
+    await page.getByTestId("versions-bubble").click();
+    const panel = page.getByTestId("versions-panel");
+    await panel.getByRole("button", { name: /^v1(?!\d)/ }).click();
+    await expect(page.getByTestId("diff-split")).toBeVisible();
+    const split = page.getByTestId("diff-split");
+    await expect(split.locator("section").nth(1).getByText("inserted-middle", { exact: false })).toBeVisible();
+    await expectSplitAligned(page, 1);
+    // 「左 2 跟右 3 對齊」：two-bottom 在兩欄同一列、top 相同
+    const left = split.locator("section").nth(0).locator(".bn-block-outer", { hasText: "two-bottom" }).last();
+    const right = split.locator("section").nth(1).locator(".bn-block-outer", { hasText: "two-bottom" }).last();
+    await expect(left).toHaveAttribute("data-diff-row", (await right.getAttribute("data-diff-row"))!);
+    expect(Math.abs((await left.boundingBox())!.y - (await right.boundingBox())!.y)).toBeLessThanOrEqual(1);
+    await expect(split.locator("section").nth(0).locator(".kb-diff-spacer")).toHaveCount(1);
+    if (shotDir) {
+      await page.screenshot({ path: path.join(shotDir, "task-2-split-align.png") });
+      await page.emulateMedia({ colorScheme: "dark" });
+      await expectSplitAligned(page, 1);
+      await page.screenshot({ path: path.join(shotDir, "task-2-split-align-dark.png") });
+    }
+  } finally {
     await ctx.close();
   }
 });

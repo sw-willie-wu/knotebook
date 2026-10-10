@@ -530,3 +530,78 @@ export function sideBySideMarks(entries: DiffEntry[]): { left: Map<string, DiffM
   walk(entries);
   return { left, right };
 }
+
+/** 並排的一列：a／b **頂層**陣列的索引，單側列對面為 null（spec rev 12 §8.4「並排逐區塊對齊」）。 */
+export interface SplitRow {
+  left: number | null;
+  right: number | null;
+}
+
+/**
+ * 並排逐區塊對齊的列（spec rev 12 §8.4「列的產生」）。只看頂層 entries；巢狀子區塊跟著所屬頂層區塊走。
+ * 用索引不用 id：RF1 重複 id 在 DOM 上 `data-id` 會撞；兩欄 DOM 的頂層 `.bn-block-outer` 依文件順序與 a／b 一一對應。
+ *
+ * 1. 錨列＝配對且 `moved === false` 的 entry（`diffLevel` 裡 `before === a[ai]`、`after === b[bi]`，以物件身分取索引），分兩階
+ *    （Task 2 review I-1）：
+ *    1a 先取**非**「兩側皆空文字」的對子——它們來自 `diffLevel` 的 LIS，依 b 順序時 a 索引天然遞增；仍留遞增檢查當防線
+ *       （不遞增就降級）。
+ *    1b 兩側皆空文字的對子（1b 配對可配到很遠、`moved` 恆 false）只有 a 索引與 b 索引都嚴格夾在相鄰兩個錨列之間
+ *       （開頭前、結尾後也算區間）才升格為錨列，否則降級。依 b 順序處理、升格的也算錨列（後面的空行對子要夾在它之間）。
+ *       不分階、依 b 順序先到先贏的話，遠處配到的空行對子會搶先當錨列，把其後所有真正未變的區塊全部降級錯開。
+ *    降級與 moved 對子一樣當成兩側各自未對齊。
+ * 2. 相鄰兩錨列之間（含開頭前、結尾後）：左側未對齊的 a 索引依 a 順序、右側未對齊的 b 索引依 b 順序，逐顆並排成列，
+ *    多出的那側各自成列、對面為 null。因為錨列在 a、b 兩側都嚴格遞增，「兩錨列之間」就是兩側各一段連續索引區間。
+ * 不變量：每列 left／right 各自（忽略 null）嚴格遞增；a、b 的每個索引各恰出現一次。
+ */
+export function splitRows(a: readonly DiffBlock[], b: readonly DiffBlock[], entries: readonly DiffEntry[]): SplitRow[] {
+  const aIdx = new Map<DiffBlock, number>();
+  a.forEach((blk, i) => aIdx.set(blk, i));
+  const bIdx = new Map<DiffBlock, number>();
+  b.forEach((blk, i) => bIdx.set(blk, i));
+  const anchors: Array<[number, number]> = []; // 依 b（也依 a）嚴格遞增
+  const blanks: Array<[number, number]> = [];
+  let lastA = -1;
+  for (const e of entries) {
+    if (!e.before || !e.after || e.moved) continue;
+    const ai = aIdx.get(e.before);
+    const bi = bIdx.get(e.after);
+    if (ai === undefined || bi === undefined) continue;
+    if (isBlankText(e.before) && isBlankText(e.after)) {
+      blanks.push([ai, bi]);
+      continue;
+    }
+    if (ai <= lastA) continue; // 防線：LIS 保證不會發生；真發生就降級
+    anchors.push([ai, bi]);
+    lastA = ai;
+  }
+  // 1b：空行對子依 b 順序，夾在相鄰兩錨列之間（a、b 兩側都嚴格落在中間）才插入成錨列。
+  for (const [ai, bi] of blanks) {
+    let lo = 0;
+    let hi = anchors.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (anchors[mid][1] < bi) lo = mid + 1;
+      else hi = mid;
+    }
+    const prevA = lo > 0 ? anchors[lo - 1][0] : -1;
+    const nextA = lo < anchors.length ? anchors[lo][0] : a.length;
+    if (prevA < ai && ai < nextA) anchors.splice(lo, 0, [ai, bi]);
+  }
+  const rows: SplitRow[] = [];
+  let ia = 0;
+  let ib = 0;
+  const gap = (endA: number, endB: number) => {
+    const n = Math.max(endA - ia, endB - ib);
+    for (let k = 0; k < n; k += 1) {
+      rows.push({ left: ia + k < endA ? ia + k : null, right: ib + k < endB ? ib + k : null });
+    }
+  };
+  for (const [ai, bi] of anchors) {
+    gap(ai, bi);
+    rows.push({ left: ai, right: bi });
+    ia = ai + 1;
+    ib = bi + 1;
+  }
+  gap(a.length, b.length);
+  return rows;
+}

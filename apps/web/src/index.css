@@ -858,3 +858,18 @@ input[name="share-access"] {
   text-align: left;
   hyphens: manual;
 }
+
+/* 並排逐區塊對齊（spec rev 12 §8.4）：VersionPreview 以 inline margin-top 把兩欄同列的頂層區塊推到同一高度。
+   BlockNote 的 `.bn-block-outer{transition:margin .2s}` 會讓這些 margin 用 0.2s 動畫長出來——期間位置一直在變，
+   ResizeObserver 每幀觸發、e2e 量到的是半途值；並排容器內關掉。 */
+.kb-diff-split .bn-block-outer {
+  transition: none;
+}
+/* 單側列在對面欄留的空白：斜紋、低對比、不擋點擊（像 GitHub split diff 的灰格）。定位基準是欄的 section（relative）。 */
+.kb-diff-spacer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(45deg, transparent 0 6px, oklch(0.6 0.02 260 / 0.12) 6px 12px);
+}
