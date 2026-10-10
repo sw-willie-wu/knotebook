@@ -32,3 +32,10 @@ export function writeFailureMessage(code: ParseError | "empty_section"): string 
       return "That would leave the section empty. Use delete_section if you meant to remove it.";
   }
 }
+
+/**
+ * #180 spec §5.5（move 與 copy 共用，code `group_not_found`）：涵蓋「不存在／非成員／成員但無 `can_create`／檢查後被刪」。
+ * 與 `create_note` 的 `GROUP_NOT_FOUND_MESSAGE` **刻意不同字**——`create_note` 把「無新建權」分成 `forbidden`，這裡不分（W10）。
+ * Task 0 先落常數（併行車道 B、C 都要它）；wire 行為由 `mcp-copy.test.ts` C5（Task 2）與 `mcp-move.test.ts` V5（Task 3）守。
+ */
+export const GROUP_NO_CREATE_MESSAGE = "No group with that id among your groups where your role can create notes.";

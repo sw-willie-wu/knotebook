@@ -774,12 +774,19 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       config: deps.config,
       collab: deps.collab,
       editing,
-      // 逐鍵挑，不整包轉傳——MCP 只該看得到它自己會用的四顆桶。
-      limiters: { contentRead: limiters.contentRead, edit: limiters.edit, tokenWrite: limiters.tokenWrite, search: limiters.search },
+      // 逐鍵挑，不整包轉傳——MCP 只該看得到它自己會用的五顆桶（#180：`upload` 給 copy_note，與 uploadsRoutes／notesRoutes 同一實例）。
+      limiters: { contentRead: limiters.contentRead, edit: limiters.edit, tokenWrite: limiters.tokenWrite, search: limiters.search, upload: limiters.upload },
       presence,
       writes,
       testHooks: deps.mcpTestHooks,
       groupTestHook: deps.groupTestHook,
+      collabHooks: deps.collabHooks,
+      uploadsDir: deps.uploadsDir,
+      storageLockTimeoutMs,
+      versions,
+      slugUpdateTestHook: deps.slugUpdateTestHook,
+      noteCreateHooks: deps.noteCreateHooks,
+      searchIndexHooks: deps.searchIndexHooks,
     })
   );
 

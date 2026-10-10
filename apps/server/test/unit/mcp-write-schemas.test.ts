@@ -1,25 +1,30 @@
 /**
  * #108 PR2：寫入工具的 schema 與 REST 的**同一份** schema 對得起來（M14／D-N／D-K）。
  *
- * 本檔在 Task 2 只放兩案（op 集合的兩邊）；M14 的 identity 斷言（21b(i)）與行為探針
- * （21b(ii)）在 Task 4 續寫。
+ * 本檔放寫入工具 schema 的同源斷言：op 集合的兩邊、M14 的 identity 斷言（21b(i)）與行為探針
+ * （21b(ii)），以及 #180 起各新工具輸入欄位的 identity（U1／U2-x）。
  *
  * ⚠ **`op` 是唯一沒有共用物件的欄位**：REST 那邊是五個 `z.literal`（`discriminatedUnion` 的
  * 判別鍵），MCP 這邊要的是一個帶 `.describe()` 的 `z.enum`（raw shape 表達不了 union）。
- * 兩份字串集合因此只能靠下面這一案對起來——**沒有它，日後加第六個 op 只有一邊會知道，
+ * #180 起 MCP 的 op 集合＝REST 五個 ∪ {rename}（`rename` 是 MCP 獨有，REST 刻意不加；以下 `MCP_OPS` 斷言）。
+ * 兩份字串集合因此只能靠下面這一案對起來——**沒有它，日後 REST 多一個 op 只有一邊會知道，
  * 而且不會有任何測試變紅**（`editBodySchema` 多一個分支＝MCP 收不到那個 op、raw shape 多一個
  * 成員＝REST 的 `safeParse` 直接 `invalid_union_discriminator`，兩種漂移都只是「功能沒接上」）。
  */
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { createBodySchema, editBodySchema, FP, GROUP_ID, MD, NOTE_ID, NUL, SEC, TITLE } from "../../src/notes/schemas.js";
-import { editNoteInput } from "../../src/mcp/tools/edit-note.js";
+import { createBodySchema, editBodySchema, FP, GROUP_ID, MD, NOTE_ID, NUL, SEC, TITLE, updateBodyObject } from "../../src/notes/schemas.js";
+import { editNoteInput, mcpEditBodySchema } from "../../src/mcp/tools/edit-note.js";
 import { createNoteInput } from "../../src/mcp/tools/create-note.js";
+import { copyNoteInput } from "../../src/mcp/tools/copy-note.js";
+import { moveNoteToGroupInput } from "../../src/mcp/tools/move-note-to-group.js";
 import { readNoteSectionOutput } from "../../src/mcp/tools/read-note-section.js";
 
 /** 寫死一份（不是從實作導出來的）——否則兩邊一起改就一起綠。 */
 const OPS = ["replace_all", "replace_section", "insert_after", "append", "delete_section"];
+/** #180 W8：MCP 多一個 op（REST 五 ∪ {rename}）。**刻意不相等**——REST `/edits` 不加 rename 是對 D18 的刻意偏離（spec §4.6：rename 不進 `note_ai_edits`、REST 已有 PATCH、MCP 加 op 比另開工具便宜）。日後別「修正」成兩邊相等。 */
+const MCP_OPS = [...OPS, "rename"];
 
 describe("#108 寫入 schema 的兩邊", () => {
   it("editBodySchema 的五個分支 op literal 逐字等於寫死的五元陣列（含順序）", () => {
@@ -27,10 +32,10 @@ describe("#108 寫入 schema 的兩邊", () => {
     expect(editBodySchema.options.map(o => o.shape.op.value)).toEqual(OPS);
   });
 
-  it("edit_note 的 op enum 成員逐字等於 editBodySchema 的五個 literal（D-N）", () => {
-    // 兩邊各自與寫死的那份對，而不是互相對——互相對的話兩邊一起漏一個 op 仍然綠。
-    expect(editNoteInput.op.options).toEqual(OPS);
-    expect(editNoteInput.op.options).toEqual(editBodySchema.options.map(o => o.shape.op.value));
+  it("edit_note 的 op enum ＝ REST 五 ∪ {rename}（W8）；mcpEditBodySchema 的 literal ＝ MCP_OPS 且前五支就是 editBodySchema 的同一批物件", () => {
+    expect(editNoteInput.op.options).toEqual(MCP_OPS);
+    expect(mcpEditBodySchema.options.map(o => o.shape.op.value)).toEqual(MCP_OPS);
+    for (let i = 0; i < OPS.length; i += 1) expect(mcpEditBodySchema.options[i]).toBe(editBodySchema.options[i]);
   });
 });
 
@@ -66,10 +71,15 @@ describe("#108 M14：raw shape 六個欄位與 notes/schemas.ts 的 base 同源�
     expectSameSchema(editNoteInput.note_id, NOTE_ID);
   });
 
-  it("createNoteInput 的 title／content／groupId 各自與 TITLE／MD／GROUP_ID 同源", () => {
+  it("#180：editNoteInput.title 與 TITLE 同源；PATCH 的 updateBodyObject.title 與 TITLE 同源（W16）", () => {
+    expectSameSchema(editNoteInput.title, TITLE);
+    expectSameSchema(updateBodyObject.shape.title, TITLE);
+  });
+
+  it("createNoteInput 的 title／content／group_id 各自與 TITLE／MD／GROUP_ID 同源", () => {
     expectSameSchema(createNoteInput.title, TITLE);
     expectSameSchema(createNoteInput.content, MD);
-    expectSameSchema(createNoteInput.groupId, GROUP_ID);
+    expectSameSchema(createNoteInput.group_id, GROUP_ID);
   });
 
   it("#175 PR5：REST createBodySchema 的 groupId 與 GROUP_ID 同源（D18：寫入側不發明第二套契約）", () => {
@@ -141,5 +151,21 @@ describe("#222 顏色在工具說明裡", () => {
     const d = readNoteSectionOutput.section.shape.markdown.description ?? "";
     expect(d).toContain("Colored text and blocks come back as HTML");
     expect(d).toContain("unchanged");
+  });
+});
+
+describe("#180 U2-c：copy_note 的輸入與 notes/schemas.ts 同源", () => {
+  it("copyNoteInput.note_id ↔ NOTE_ID；copyNoteInput.group_id（optional）↔ GROUP_ID", () => {
+    expectSameSchema(copyNoteInput.note_id, NOTE_ID);
+    expectSameSchema(copyNoteInput.group_id, GROUP_ID);
+    expect(copyNoteInput.group_id).toBeInstanceOf(z.ZodOptional);
+  });
+});
+
+describe("#180 U2-d：move_note_to_group 的輸入與 notes/schemas.ts 同源", () => {
+  it("moveNoteToGroupInput.note_id ↔ NOTE_ID；.group_id（必填，無 optional）↔ GROUP_ID", () => {
+    expectSameSchema(moveNoteToGroupInput.note_id, NOTE_ID);
+    expectSameSchema(moveNoteToGroupInput.group_id, GROUP_ID);
+    expect(moveNoteToGroupInput.group_id).not.toBeInstanceOf(z.ZodOptional);
   });
 });

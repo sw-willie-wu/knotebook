@@ -234,10 +234,10 @@ describe("#108 create_note", () => {
     const names = tools.map(t => t.name).sort();
     expect(names).toContain("create_note");
     // 讀 live doc 的三支在這個部署形態上整條不宣告——`create_note` 是它們的反例，所以
-    // 這一行順帶釘住「它真的在閘門外」。#200：create_transfer_token 也在閘門外（token 限定）。
-    expect(names).toEqual(["create_note", "create_transfer_token", "list_notes", "search_notes"]);
+    // 這一行順帶釘住「它真的在閘門外」。#200：create_transfer_token 也在閘門外（token 限定）；read_note_image 亦然（任何憑證）。#180：copy_note、move_note_to_group 也在閘門外。
+    expect(names).toEqual(["copy_note", "create_note", "create_transfer_token", "list_notes", "move_note_to_group", "read_note_image", "search_notes"]);
 
-    // P6：`inputSchema` **只能傳 raw shape**——傳錯時公告出去的 JSON Schema 會靜默變成
+    // P6：`inputSchema` **只能傳 raw shape 或裸 `ZodObject`（`.strict()` 亦可）**——傳 `ZodEffects`／union 時公告出去的 JSON Schema 會靜默變成
     // `{"type":"object","properties":{}}`（模型看不到任何欄位），而本檔另外五案（全部都自己
     // 送對參數）**照樣全綠**。這一行是那個症狀在 `create_note` 上唯一的守衛（`edit_note` 是 S1）。
     // ⚠ **「傳錯」在這支工具上是哪一種形，是量出來的，不是照抄 P6**（2026-09-08 實跑）：
@@ -248,8 +248,8 @@ describe("#108 create_note", () => {
     //     [ 'content', 'title' ]`），`mcp-create-note` 另外五案 ＋ `mcp-edit-note` 12 案全綠。
     //   也就是本行守的是 `ZodEffects`／union 那一族，不是「所有非 raw shape 的寫法」。
     const entry = tools.find(t => t.name === "create_note")!;
-    // #175 PR5：三欄。鍵集合變大是這一棒交付的形（`groupId`），不是弱化這條守衛。
-    expect(Object.keys(entry.inputSchema.properties ?? {}).sort()).toEqual(["content", "groupId", "title"]);
+    // #180 W15：鍵名改 `group_id`（MCP 輸入一律 snake_case）；鍵數不變。
+    expect(Object.keys(entry.inputSchema.properties ?? {}).sort()).toEqual(["content", "group_id", "title"]);
 
     const { note } = payloadOf(await createNote(app, token));
     expect(note.title).toBe("Untitled");
@@ -278,7 +278,7 @@ describe("#108 create_note", () => {
     const foreign = await seedGroup(db, "Foreign", [{ userId: other.id, role: "admin" }]);
     const { token } = await seedTokenForUser(db, me.id, "notes:read notes:write");
 
-    const err = errorOf(await createNote(app, token, { title: "T", content: "# x", groupId: foreign.id }));
+    const err = errorOf(await createNote(app, token, { title: "T", content: "# x", group_id: foreign.id }));
     expect(err.code).toBe("group_not_found");
     expect(err.message).toBe("No group with that id among the groups you belong to.");
     expect((await db.select().from(notes)).length).toBe(0);

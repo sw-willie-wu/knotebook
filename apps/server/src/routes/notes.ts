@@ -1,11 +1,10 @@
 import { randomBytes } from "node:crypto";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
-import { and, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, sql, type SQL } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/pg-core";
 import {
   MAX_LINK_TARGETS,
-  autoSlugFromTitle,
   normalizeEmail,
   normalizeHandle,
   normalizeSlug,
@@ -21,23 +20,22 @@ import { WRITE_BODY_LIMIT } from "../http/body-limits.js";
 import { sendError, sendStorageQuotaExceeded } from "../http/errors.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
-import { groups, noteShares, notes, uploads, users } from "../db/schema.js";
+import { groups, noteShares, notes, users } from "../db/schema.js";
 import type { GroupTestHook } from "../groups/test-hook.js";
 import { TxAbort } from "../http/tx-abort.js";
 import type { CollabHooks } from "../collab/hooks.js";
 import type { CollabServer } from "../collab/server.js";
 import type { VersionService } from "../collab/versions.js";
 import type { EditingRuntime } from "../notes/editing/runtime.js";
-import { loadLastEdited, loadNoteDoc, readNoteContent } from "../notes/editing/read.js";
+import { loadLastEdited, readNoteContent } from "../notes/editing/read.js";
 import { PALETTE_COLORS } from "../notes/editing/colors.js";
-import { cloneForCopy } from "../notes/copy-doc.js";
-import { docClock } from "../collab/store.js";
 import { listEdits } from "../notes/editing/revert.js";
 import { presenceIdentity, presenceTargetForRead, type PresenceRegistry } from "../notes/editing/presence.js";
 import { accessFromListRow, editor, lastEditedSelection, visibleNoteBranches } from "../notes/list-query.js";
 // ⚠ `FP` 在本檔已無呼叫端（`editBodySchema` 是它唯一的使用者，搬去 `notes/schemas.ts` 了）——
 // `no-unused-vars` 是 error ＋ `--max-warnings=0`，留著會 lint 紅。
-import { createBodySchema, editBodySchema, SEC } from "../notes/schemas.js";
+import { createBodySchema, editBodySchema, SEC, updateBodySchema } from "../notes/schemas.js";
+import { renameNoteTitle } from "../notes/rename-note.js";
 import { loadCreateTarget } from "../notes/create-target.js";
 import { type NoteWriteService } from "../notes/editing/write-service.js";
 import { insertNoteWithAutoSlug, type NoteCreateHooks } from "../notes/create.js";
@@ -53,12 +51,10 @@ import {
 } from "../notes/service.js";
 import { upsertShareInTx } from "../notes/tx/shares.js";
 import { deleteNotesInTx } from "../notes/tx/delete-notes.js";
-import { moveNoteToGroupInTx } from "../notes/tx/move.js";
-import { copyNoteInTx } from "../notes/tx/copy.js";
+import { moveNoteToGroup } from "../notes/move-note.js";
+import { copyNote } from "../notes/copy-note.js";
 import type { SearchIndexHooks } from "../notes/tx/search-index.js";
-import { extractForIndex } from "../notes/search-index.js";
 import { patchSlugInTx, type SlugPatchTestHook, type SlugWriteScope } from "../notes/tx/patch-slug.js";
-import { UPDATED_AT_NOW } from "../notes/clock.js";
 import { groupNotePath, lookupRedirect, userNotePath } from "../notes/redirects.js";
 import {
   deriveUniqueAutoSlug,
@@ -69,29 +65,16 @@ import {
   resolveNoteIdFromRef,
   type SlugScope,
 } from "../notes/slug.js";
-import { fetchBacklinks, normalizeLinkTargets, syncLinksFromDoc, writeNoteLinks, type WriteNoteLinksHooks } from "../notes/links.js";
+import { fetchBacklinks, normalizeLinkTargets, writeNoteLinks, type WriteNoteLinksHooks } from "../notes/links.js";
 import { signCollabToken } from "../collab/token.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
-import { isForeignKeyViolation, isRetryableTxError, uniqueViolationConstraint } from "../db/pg-errors.js";
+import { isForeignKeyViolation, uniqueViolationConstraint } from "../db/pg-errors.js";
 import { deleteUploadFiles } from "../uploads/service.js";
-import type { StorageSpace } from "../storage/space.js";
 import { StorageQuotaExceeded } from "../storage/tx/quota.js";
-import { isSpaceFull, precheckDetail, quotaErrorDetail, readSpaceUsage } from "../storage/usage.js";
+import { precheckDetail, quotaErrorDetail } from "../storage/usage.js";
 
 
-// PATCH 契約（spec §11.4 逐字）：title／slug 皆選配，但至少要帶一項——兩者都缺時走
-// safeParse 失敗路徑，回 400 invalid_body（與其他 body schema 一致，不特地為「空
-// payload」開一條不同的錯誤碼）。`slug` 允許顯式 `null`（清除既有自訂網址代稱）與
-// 字串（新設定，routes 內再走 `prepareSlugForPatch` 正規化+驗證）——`undefined`
-// （鍵不存在）代表「這次 PATCH 不動 slug」，三態語意靠 zod 的 `nullable().optional()`
-// 表達，不能只用 `nullable()`（那樣呼叫端必須每次都明確傳 `slug: null` 才能不改動）。
-// 未知欄位一律被 z.object 預設的 strip 行為丟棄（不需要額外 `.strict()`/`.passthrough()`）。
-const updateBodySchema = z
-  .object({
-    title: z.string().min(1).optional(),
-    slug: z.string().nullable().optional(),
-  })
-  .refine(b => b.title !== undefined || b.slug !== undefined, { message: "title 與 slug 至少需帶一項" });
+// PATCH 的 body 搬到 `notes/schemas.ts`（#180 W16：`title` 改吃 `TITLE`，契約註解一併搬過去）。
 const putShareBodySchema = z.object({ email: z.string().email(), role: z.enum(["viewer", "editor"]) });
 // #175 §6.3 移動的 body：`groupId` 只驗是字串（非 UUID 由路由回 404 `group_not_found`，與「群組不存在」逐位元組相同——plan 規格落差 5）。
 const moveBodySchema = z.object({ groupId: z.string() }).strict();
@@ -780,7 +763,8 @@ export function notesRoutes(deps: NotesRouteDeps) {
      *    轉址（個人 scope 才發，§4.3 B4）；撞 `notes_owner_slug_idx` 或 `notes_group_slug_idx` → 409
      *    `slug_taken`（**constraint 名分流**，其他唯一鍵違反 rethrow——比照 PR1 的 M4-2 契約）；
      *    同請求帶 title 不觸發重算。
-     * 2. `{title}`：pre-read 本列 slug_is_custom（特赦，見下）；custom=false 才重算
+     * 2. （#180：本體在 `notes/rename-note.ts`（`renameNoteTitle`），MCP rename 共用）
+     *    `{title}`：pre-read 本列 slug_is_custom（特赦，見下）；custom=false 才重算
      *    （以請求新 title 算＋在歸屬範圍內探測，#175 RF5）：單一 UPDATE `title=$1, slug=CASE WHEN
      *    slug_is_custom THEN slug ELSE $auto END`（prev 不動、不開交易；帶授權當下歸屬的 scope 述詞，
      *    0 列 → 列不在 404、列在 409 `conflict`——#175 PR2 Q-C）。**不計 slugPatch**
@@ -856,47 +840,38 @@ export function notesRoutes(deps: NotesRouteDeps) {
         return respondPatched(updated, access);
       }
 
-      // 格 2–4：auto 路徑。clearingSlug＝格 3／4（body 帶 slug:null）；否則格 2（title-only）。
-      const clearingSlug = hasSlug;
-      if (clearingSlug && !deps.limiters.slugPatch.consume(userId)) return sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+      // 格 2（title-only）：#180 spec §3.1 抽成 `notes/rename-note.ts`（MCP `edit_note` 的 rename 共用）。行為逐位元組不變。
+      if (!hasSlug) {
+        const out = await renameNoteTitle(deps.db, { noteId: id, access, title: title! }, deps.slugUpdateTestHook);
+        if (out.kind === "gone") return noteNotFound(reply);
+        if (out.kind === "ownership_changed") return sendError(reply, 409, "conflict", "筆記的歸屬已變更，請重新整理後再試");
+        return respondPatched(out.row, access);
+      }
 
-      // pre-read（特赦界線見上）只在需要時發：格 2 要 slug_is_custom（決定探不探測）、
-      // 格 4 要現行 title；格 3 兩者都在請求裡（必走 auto）——不多發一次查詢。
-      let preReadSlugIsCustom = false;
+      // 格 3／4：auto 路徑（body 帶 slug:null）。
+      if (!deps.limiters.slugPatch.consume(userId)) return sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+
+      // pre-read（特赦界線見上）只在格 4 發：要現行 title；格 3 的 title 已在請求裡（必走 auto）——不多發一次查詢。
       let effectiveTitle = title ?? "";
-      if (!clearingSlug || title === undefined) {
+      if (title === undefined) {
+        // 留給 `notes-slug.test.ts` 的語句形狀守衛辨認格 4（它靠 SQL 含 slug_is_custom 欄數 pre-read）。
         const [row] = await deps.db.select({ title: notes.title, slugIsCustom: notes.slugIsCustom }).from(notes).where(eq(notes.id, id)).limit(1);
         if (!row) return noteNotFound(reply);
-        preReadSlugIsCustom = row.slugIsCustom;
-        effectiveTitle = title ?? row.title;
+        effectiveTitle = row.title;
       }
-      const needsAuto = clearingSlug || !preReadSlugIsCustom;
-      if (clearingSlug) await deps.slugPatchTestHook?.("authorized", { noteId: id });
+      await deps.slugPatchTestHook?.("authorized", { noteId: id });
 
       let updated;
       for (let attempt = 1; ; attempt++) {
-        // 候選來源三分支：重試耗盡 → uuid8 退位；要走 auto（或重試中）→ 在歸屬範圍內探測（RF5）；
-        // 格 2 的 custom=true → CASE 會保留現行 slug、$auto 只是佔位，傳未探測候選即可
-        // ——若 pre-read 後被併發翻回 auto（罕見競態），只有恰好撞索引才落到重試路徑
-        // 重新探測；沒撞就直接寫入未探測候選（仍唯一，可接受）。
+        // 候選來源兩分支：重試耗盡 → uuid8 退位；否則在歸屬範圍內探測（RF5）。格 3／4 恆走 auto。
         let auto: string;
         if (attempt > MAX_AUTO_SLUG_RETRIES) auto = fallbackAutoSlug();
-        else if (needsAuto || attempt > 1) auto = await deriveUniqueAutoSlug(deps.db, slugScope, id, effectiveTitle);
-        else auto = autoSlugFromTitle(effectiveTitle);
+        else auto = await deriveUniqueAutoSlug(deps.db, slugScope, id, effectiveTitle);
         await deps.slugUpdateTestHook?.(auto);
         try {
-          if (clearingSlug) {
-            // 格 3／4：每一輪一個新的 T1 交易（23505 只 abort 那一輪，所以不需要 savepoint——§6.9 只管長交易內的重試）。
-            updated = await runT1({ ...(title !== undefined ? { title } : {}), slug: auto, slugIsCustom: false });
-            if (!updated) return ownershipChanged(reply, id);
-          } else {
-            // 格 2：不寫 prev、不開交易（語句形狀守衛：恰一條 UPDATE）。
-            [updated] = await deps.db
-              .update(notes)
-              .set({ updatedAt: UPDATED_AT_NOW, title, slug: sql`case when ${notes.slugIsCustom} then ${notes.slug} else ${auto} end` })
-              .where(and(eq(notes.id, id), access.groupId !== null ? eq(notes.groupId, access.groupId) : and(eq(notes.ownerId, access.ownerId!), isNull(notes.groupId))))
-              .returning();
-          }
+          // 格 3／4：每一輪一個新的 T1 交易（23505 只 abort 那一輪，所以不需要 savepoint——§6.9 只管長交易內的重試）。
+          updated = await runT1({ ...(title !== undefined ? { title } : {}), slug: auto, slugIsCustom: false });
+          if (!updated) return ownershipChanged(reply, id);
           break;
         } catch (err) {
           // 同格 1 的 constraint 名分流：兩把 slug 唯一索引撞名走重試，其他 23505 rethrow。
@@ -904,7 +879,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
           throw err;
         }
       }
-      // I2＋Q-C：格 2 命中 0 列＝授權之後被刪（404）或歸屬變了（409 conflict）。
+      // I2＋Q-C：命中 0 列＝授權之後被刪（404）或歸屬變了（409 conflict）。
       if (!updated) return ownershipChanged(reply, id);
       return respondPatched(updated, access);
     });
@@ -1005,6 +980,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
      * `group_not_found`（spec §6.3；與 `POST /api/notes` 的 403 不同——plan 規格落差 4）。
      * commit 後踢線：被清掉的逐人分享者 ∪ 呼叫者（owner→群組角色，重驗）。回 200 NoteDto（新網址形）；
      * `role`／`permissions` 照呼叫者在目標群組的角色實算（授權只看 can_create，搬完可能是 viewer——規格落差 17）。
+     * #180：本體搬到 `notes/move-note.ts`（MCP `move_note_to_group` 共用）；本路由只剩 body 驗證與 outcome → HTTP 映射。
      */
     app.post("/api/notes/:id/move", { preHandler: app.authenticate }, async (request, reply) => {
       const { id } = request.params as { id: string };
@@ -1012,33 +988,30 @@ export function notesRoutes(deps: NotesRouteDeps) {
       const parsed = moveBodySchema.safeParse(request.body ?? {});
       if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
 
-      const access = await resolveNoteAccess(deps.db, userId, id);
-      if (access.role === "none") return noteNotFound(reply);
-      if (!access.permissions.moveToGroup) return sendError(reply, 403, "forbidden", "只有筆記擁有者可以把筆記移進群組");
-      if (!UUID_RE.test(parsed.data.groupId)) return sendError(reply, 404, "group_not_found", "找不到此群組");
-
-      // S14：callback 整段就是 `moveNoteToGroupInTx(tx, …)`，引數是交易前備好的純資料與測試縫。
-      const input = {
-        noteId: id, userId, userHandle: request.user!.handle, groupId: parsed.data.groupId.toLowerCase(), lockTimeoutMs: deps.storageLockTimeoutMs,
-      };
-      let moved;
-      try {
-        moved = await deps.db.transaction(tx => moveNoteToGroupInTx(tx, input, deps.groupTestHook));
-      } catch (err) {
-        // 先判子類（StorageQuotaExceeded extends TxAbort）：反序會失去數字。數字可見性在交易外判（儲存配額 §8.1）。
-        if (err instanceof StorageQuotaExceeded) return sendStorageQuotaExceeded(reply, await quotaErrorDetail(deps.db, request.user!, err));
-        if (err instanceof TxAbort) return sendError(reply, err.status, err.errCode, err.message);
-        // 防禦縱深：(1) 已持目標群組列的 KEY SHARE，群組在交易中刪不掉、UPDATE 不會撞 FK 23503；撞到也回同一條 404（catch 在交易外）。
-        if (isForeignKeyViolation(err)) return sendError(reply, 404, "group_not_found", "找不到此群組");
-        // 儲存配額 §6.9：空間鎖逾時（55P03）／死結（40P01，含既有 T3×T6 在 note_redirects 的形）／40001 → 409 server_busy。
-        if (isRetryableTxError(err)) return sendError(reply, 409, "server_busy", "伺服器忙碌，請稍後再試");
-        throw err;
+      // #180 spec §3.2：本體在 `notes/move-note.ts`（MCP `move_note_to_group` 共用；commit 後的 relocated 與踢線也在裡面）。
+      const out = await moveNoteToGroup(
+        { db: deps.db, collabHooks: deps.collabHooks, versions: deps.versions, storageLockTimeoutMs: deps.storageLockTimeoutMs, groupTestHook: deps.groupTestHook },
+        { noteId: id, userId, userHandle: request.user!.handle, groupId: parsed.data.groupId },
+      );
+      switch (out.kind) {
+        case "not_found":
+          return noteNotFound(reply);
+        case "forbidden":
+          return sendError(reply, 403, "forbidden", "只有筆記擁有者可以把筆記移進群組");
+        case "group_not_found":
+          return sendError(reply, 404, "group_not_found", "找不到此群組");
+        case "aborted":
+          // 先判子類（StorageQuotaExceeded extends TxAbort）：反序會失去數字。數字可見性在交易外判（儲存配額 §8.1）。
+          if (out.err instanceof StorageQuotaExceeded) return sendStorageQuotaExceeded(reply, await quotaErrorDetail(deps.db, request.user!, out.err));
+          return sendError(reply, out.err.status, out.err.errCode, out.err.message);
+        case "busy":
+          return sendError(reply, 409, "server_busy", "伺服器忙碌，請稍後再試");
+        case "moved": {
+          const fresh = await loadNoteWithOwner(id);
+          if (!fresh) return noteNotFound(reply);
+          return authorizeRow(reply, userId, fresh);
+        }
       }
-      deps.versions.relocated([id]);
-      deps.collabHooks.onGroupAccessChanged([id], [...new Set([...moved.removedShareUserIds, userId])]);
-      const fresh = await loadNoteWithOwner(id);
-      if (!fresh) return noteNotFound(reply);
-      return authorizeRow(reply, userId, fresh);
     });
 
     /**
@@ -1049,80 +1022,50 @@ export function notesRoutes(deps: NotesRouteDeps) {
      * 快照在交易**之前**讀（`loadNoteDoc` 借連線，S14／gate r2 M-6）。commit 後：以複製者身分寫副本的出向
      * note_links（`syncLinksFromDoc`）。複製不踢任何人（§7）。回 201 NoteDto（副本）：`role`／`permissions` 由目標推得
      * ——個人＝owner；群組＝照呼叫者角色旗標實算（授權只看 can_create，create-only 角色得 viewer——規格落差 17）。
+     * #180：本體搬到 `notes/copy-note.ts`（REST 與 MCP `copy_note` 共用）；這裡只剩 body 驗證與結果 → 回應形。
      */
     app.post("/api/notes/:id/copy", { preHandler: app.authenticate }, async (request, reply) => {
       const { id } = request.params as { id: string };
       const userId = request.user!.id;
       const parsed = copyBodySchema.safeParse(request.body ?? {});
       if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
-
-      // 看得到就能讀（規格落差 16：role 非 none ⇒ permissions.read 恆真），不另看 read 旗標。
-      if ((await resolveNoteAccess(deps.db, userId, id)).role === "none") return noteNotFound(reply);
-
-      let scope: SlugScope;
-      const groupId = parsed.data.groupId;
-      if (groupId === undefined) {
-        scope = { ownerId: userId };
-      } else {
-        if (!UUID_RE.test(groupId)) return sendError(reply, 404, "group_not_found", "找不到此群組");
-        // 快速 404 only：結果不用來組 DTO（降級可能落在這裡與 (g) 之間——review r2 M-2）。
-        const m = await loadCreateTarget(deps.db, userId, groupId.toLowerCase());
-        if (!m || !m.canCreate) return sendError(reply, 404, "group_not_found", "找不到此群組");
-        scope = { groupId: groupId.toLowerCase() };
-      }
-      if (!deps.limiters.edit.consume(userId)) return sendError(reply, 429, "too_many_requests", "寫入過於頻繁");
-
-      const { doc: snapshot } = await loadNoteDoc({ db: deps.db, collab: deps.collab }, id);
-      const copy = cloneForCopy(snapshot);
-      const searchExtract = extractForIndex(copy.doc); // #93 §5.4：交易前抽（純資料）
-      // #175 T4 M-1（Willie 裁決）：複製會多存一份附件檔，依「會被複製的附件數」扣 upload 桶（與上傳端點同桶、同 429 形；
-      // 單位＝檔案數，同上傳端點一次一檔）。數法與 `copyNoteInTx` (3) 同一個述詞（文件引用到、且 `note_id`＝來源）；交易前
-      // 數、交易內再讀，兩次之間來源新增／刪除附件會讓扣的數與實際複製的差幾張，磁碟檔已遺失而被跳過的那張（RF4）也照扣——
-      // 都只在「多扣或少扣幾張」的量級，不值得為此把扣桶搬進交易。0 張不碰桶。額度不足 → 429、不做任何寫入（edit 桶已扣）。
-      const wanted = [...copy.uploadNodes.keys()];
-      const toCopy = wanted.length === 0
-        ? 0
-        : (await deps.db.select({ n: sql<number>`count(*)::int` }).from(uploads).where(and(inArray(uploads.id, wanted), eq(uploads.noteId, id))))[0]!.n;
-      // 儲存配額 §6.4-3a：不持鎖的「已滿」預檢——有附件要複製、且目標空間已滿 → 409，不開交易、不寫檔、不扣 upload 桶。
-      // 只在 toCopy > 0 時做（A4：無附件的複製不受配額限——起草裁定 1／Review Focus RF2）。權威判定在交易內（鎖內、以實際複製的大小）。
-      if (toCopy > 0) {
-        const targetSpace: StorageSpace = "groupId" in scope ? { kind: "group", id: scope.groupId } : { kind: "user", id: userId };
-        const usage = await readSpaceUsage(deps.db, targetSpace);
-        if (isSpaceFull(usage)) return sendStorageQuotaExceeded(reply, await precheckDetail(deps.db, request.user!, targetSpace, usage));
-      }
-      if (!deps.limiters.upload.consumeMany(userId, toCopy)) return sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
-      // S14：callback 整段就是 `copyNoteInTx(tx, …)`，引數是交易前備好的純資料（`copiedFileIds` 是 out 參數）與測試縫。
-      const copiedFileIds: string[] = [];
-      const input = { sourceId: id, userId, scope, copy, uploadsDir: deps.uploadsDir, copiedFileIds, searchExtract, lockTimeoutMs: deps.storageLockTimeoutMs };
-      let created;
-      try {
-        created = await deps.db.transaction(tx => copyNoteInTx(tx, input, deps.groupTestHook, deps.noteCreateHooks, deps.searchIndexHooks));
-      } catch (err) {
-        // 交易已 rollback（uploads 列不在了；配額被拒時列根本還沒寫）：best-effort 刪掉已落盤的新檔，失敗只記 log。
-        await deleteUploadFiles(deps.uploadsDir, copiedFileIds, request.log);
-        // 先判子類（StorageQuotaExceeded extends TxAbort）：反序會失去數字。
-        if (err instanceof StorageQuotaExceeded) return sendStorageQuotaExceeded(reply, await quotaErrorDetail(deps.db, request.user!, err));
-        if (err instanceof TxAbort) return sendError(reply, err.status, err.errCode, err.message);
-        if (isForeignKeyViolation(err)) {
-          // 防禦縱深：群組目標在 (g) 已持 groups KEY SHARE，群組在交易中刪不掉，INSERT 不會撞 FK 23503；撞到也回同一條 404。
-          if ("groupId" in scope) return sendError(reply, 404, "group_not_found", "找不到此群組");
-          // 個人目標唯一可能的 23503 是 notes.owner_id／uploads.uploader_id → users（複製者帳號在交易中被硬刪；`src/` 目前
-          // 沒有這條路徑）。個人建立路徑沒有對應的錯誤形（它把 23503 一律當群組被刪），這裡不借用 `group_not_found`
-          // （詞不對題，review r1 M-3），回通用 404 `not_found`——對已不存在的帳號而言，「找不到」是最不誤導的答案。
+      // #180 spec §3.3：本體在 `notes/copy-note.ts`（MCP `copy_note` 共用）。這裡只做結果 → 回應形，逐位元組同今天。
+      const out = await copyNote(
+        {
+          db: deps.db, collab: deps.collab, log: request.log, uploadsDir: deps.uploadsDir, storageLockTimeoutMs: deps.storageLockTimeoutMs,
+          limiters: { edit: deps.limiters.edit, upload: deps.limiters.upload },
+          groupTestHook: deps.groupTestHook, noteCreateHooks: deps.noteCreateHooks, searchIndexHooks: deps.searchIndexHooks,
+        },
+        { sourceId: id, userId, groupId: parsed.data.groupId },
+      );
+      switch (out.kind) {
+        case "not_found":
+        case "fk_personal":
           return noteNotFound(reply);
+        case "group_not_found":
+          return sendError(reply, 404, "group_not_found", "找不到此群組");
+        case "edit_rate_limited":
+          return sendError(reply, 429, "too_many_requests", "寫入過於頻繁");
+        case "space_full":
+          return sendStorageQuotaExceeded(reply, await precheckDetail(deps.db, request.user!, out.space, out.usage));
+        case "upload_rate_limited":
+          return sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+        case "aborted":
+          // 先判子類（StorageQuotaExceeded extends TxAbort）：反序會失去數字。
+          if (out.err instanceof StorageQuotaExceeded) return sendStorageQuotaExceeded(reply, await quotaErrorDetail(deps.db, request.user!, out.err));
+          return sendError(reply, out.err.status, out.err.errCode, out.err.message);
+        case "busy":
+          return sendError(reply, 409, "server_busy", "伺服器忙碌，請稍後再試");
+        case "copied": {
+          // role／permissions 取 (g) 交易內、持 groups KEY SHARE 時讀到的值（與 `lockGroup` 互斥，讀到即 commit 時的值）；
+          // 群組名不受此保證：改名走單句 UPDATE、不與 KEY SHARE 衝突，回應可能是舊名。
+          const { note: createdNote, target } = out;
+          const dto = target === null
+            ? toNoteDto({ ...createdNote, ownerHandle: request.user!.handle, editorHandle: null, groupName: null }, { role: "owner", permissions: OWNER_PERMISSIONS })
+            : toNoteDto({ ...createdNote, ownerHandle: null, editorHandle: null, groupName: target.name }, { role: roleFromGroupFlags(target), permissions: groupNotePermissions(target) });
+          return reply.code(201).send(dto);
         }
-        // 儲存配額 §6.9：空間鎖逾時（55P03）／死結（40P01）／40001 → 409 server_busy（已複製的檔已在上面清掉）。
-        if (isRetryableTxError(err)) return sendError(reply, 409, "server_busy", "伺服器忙碌，請稍後再試");
-        throw err;
       }
-      const { note: createdNote, target } = created;
-      await syncLinksFromDoc({ db: deps.db, log: request.log }, { sourceNoteId: createdNote.id, userId, doc: copy.doc, clock: docClock(copy.doc) });
-      // role／permissions 取 (g) 交易內、持 groups KEY SHARE 時讀到的值（與 `lockGroup` 互斥，讀到即 commit 時的值）；
-      // 群組名不受此保證：改名走單句 UPDATE、不與 KEY SHARE 衝突，回應可能是舊名。
-      const dto = target === null
-        ? toNoteDto({ ...createdNote, ownerHandle: request.user!.handle, editorHandle: null, groupName: null }, { role: "owner", permissions: OWNER_PERMISSIONS })
-        : toNoteDto({ ...createdNote, ownerHandle: null, editorHandle: null, groupName: target.name }, { role: roleFromGroupFlags(target), permissions: groupNotePermissions(target) });
-      return reply.code(201).send(dto);
     });
 
     app.delete("/api/notes/:id", { preHandler: app.authenticate }, async (request, reply) => {

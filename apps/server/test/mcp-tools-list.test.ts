@@ -3,13 +3,13 @@
  * `listChanged` 那半）與批次（§10.3／§14.6 案 33）。
  *
  * 兩種 harness 各有被測對象，**不可互換**（D-A 的分工表）：
- * - `buildCollabTestApp` ＝生產形態（collab ＋ editing 都在）→ 讀寫憑證上七支工具全在。
+ * - `buildCollabTestApp` ＝生產形態（collab ＋ editing 都在）→ 讀寫憑證上十支工具全在（#180 起含 copy_note、move_note_to_group；#200 起含 read_note_image）。
  * - `buildTestApp` ＝無 collab → 只有查得動 DB 的工具（讀寫憑證上多 `create_note`，D-M；token 路徑上另有
  *   `create_transfer_token`，#200）。
  *
  * ⚠ **案 8 從 PR2 起才是守衛**：PR1 落地時 `edit_note`／`create_note` 還不存在，那兩行
  * `not.toContain` 是同義反覆（PR1 的 PR 描述已聲明過，不得回頭宣稱它當時守住了 scope 過濾）。
- * 案 9／9b／10（讀寫憑證六支、寫死的六元清單、跳過清單直接呼叫 `edit_note`）與 P13 的
+ * 案 9／9b／10（讀寫憑證的完整工具清單、寫死的有序名字清單、跳過清單直接呼叫 `edit_note`）與 P13 的
  * `runTool()` 涵蓋率是本棒（PR2 Task 4）才落地的。
  */
 import { describe, expect, it } from "vitest";
@@ -25,22 +25,25 @@ import type { FastifyInstance } from "fastify";
 
 const PASSWORD = "correct-horse-battery";
 
-/** 只查 DB 的兩支——**任何**部署形態上都必須在。 */
-const DB_ONLY_TOOLS = ["list_notes", "search_notes"];
+/** 只查 DB（read_note_image 另讀磁碟）的三支——任何部署形態、任何憑證都在（#200 §7.1）。 */
+const DB_ONLY_TOOLS = ["list_notes", "read_note_image", "search_notes"];
 /** 讀 live doc 的兩支——只在 `collab && editing` 都在時才宣告（D-A）。 */
 const LIVE_DOC_TOOLS = ["read_note_outline", "read_note_section"];
 /** #200：只在 token 路徑註冊（session 沒有），在部署形態閘門外。 */
 const TOKEN_ONLY_TOOLS = ["create_transfer_token"];
 /** `register.ts` 的**註冊順序**（M11）：list_notes → search_notes → 兩支讀取 → edit_note →
- *  （閘門外）create_note →（閘門外、token 限定）create_transfer_token。案 9b 逐字釘住這個順序，不排序。 */
-const SEVEN_TOOLS_IN_ORDER = [
+ *  （閘門外）create_note → move_note_to_group → copy_note（#180）→（閘門外、token 限定）create_transfer_token →（閘門外、全憑證）read_note_image。案 9b 逐字釘住這個順序，不排序。 */
+const TEN_TOOLS_IN_ORDER = [
   "list_notes",
   "search_notes",
   "read_note_outline",
   "read_note_section",
   "edit_note",
   "create_note",
+  "move_note_to_group",
+  "copy_note",
   "create_transfer_token",
+  "read_note_image",
 ];
 
 /** `{ sort: false }` 走一條不排序的取名路徑——**既有呼叫端全部不傳，行為不變**（default true）。
@@ -76,17 +79,17 @@ describe("#108 tools/list", () => {
   //   突變下維持全綠**。理由：案 9／9b 用的是**讀寫**憑證，這條突變只影響「唯讀憑證還看不看得
   //   到過濾」，讀寫憑證原本就看得到全部工具，`canWrite` 對它而言本來就是 `true`——把判斷式换成
   //   恆真對它的可見清單一個字都不改。**scope 過濾唯一的守衛是本案（唯讀憑證的四支集合）與
-  //   案 10（唯讀憑證跳過清單直接呼叫）**；案 9／9b 守的是完全不同的東西（六支的集合／順序），
+  //   案 10（唯讀憑證跳過清單直接呼叫）**；案 9／9b 守的是完全不同的東西（讀寫憑證完整清單的集合／順序），
   //   對「唯讀憑證是否被過濾」這件事**確定**零鑑別力。已依實測結果改掉本檔內每一處相關註解，
   //   不回頭把測試遷就那個推翻掉的預期。
-  //   （#200 追記，2026-10-08：上句「唯一的守衛」「四支集合」是 2026-09-09 當時的事實。現在本案斷言五支；
+  //   （#200 追記，2026-10-08：上句「唯一的守衛」「四支集合」是 2026-09-09 當時的事實。現在本案斷言六支；
   //   且 `create_transfer_token` 的描述與 purpose enum 也依 `canWrite` 二選一，`mcp-transfer.test.ts` M1 的唯讀憑證案
   //   同樣守 scope 過濾——同一條突變實測見 #200 PR1 Task 7 回報。）
-  // 今天有鑑別力的除了 scope 過濾本身，還有 `toEqual` 那一行（**生產形態上恰好這五個名字**，
+  // 今天有鑑別力的除了 scope 過濾本身，還有 `toEqual` 那一行（**生產形態上恰好這六個名字**，
   // 一支不多一支不少、改名也會紅），那是形狀斷言。
   // ⚠ **不要為了「看起來重複」把它與下面那條 D-A 案合併**：兩案的被測對象是**兩種部署形態**，
   //   合併必然丟掉一邊——MUT-1（拿掉閘門）只讓 D-A 紅、案 8 綠，就是它們互不涵蓋的證明。
-  it("唯讀憑證的 tools/list ＝恰好五支（四支讀取＋create_transfer_token），不含 edit_note／create_note（案 8）", async () => {
+  it("唯讀憑證的 tools/list ＝恰好六支（五支讀取＋create_transfer_token），不含 edit_note／create_note（案 8）", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
     const { token } = await seedTokenForUser(ctx.db, owner.id, "notes:read");
@@ -102,7 +105,7 @@ describe("#108 tools/list", () => {
   //      ctx.editing)` 換成 `if (true)` → **只有本案紅**（`expected ['create_note',
   //      'edit_note', …(4)] to deeply equal ['create_note','list_notes','search_notes']`——
   //      無 collab 的 app 上此時也冒出 `edit_note`／`read_note_outline`／`read_note_section`，
-  //      六支對三支）；案 8／9／9b／10 全部走 `buildCollabTestApp`（本來就有 collab），這條突變
+  //      當時是六支對三支）；案 8／9／9b／10 全部走 `buildCollabTestApp`（本來就有 collab），這條突變
   //      對它們零效果，維持全綠。
   //   2. 反過來把 `list_notes`／`search_notes` 也移進閘門 → 本案紅（一支都沒註冊，
   //      `tools/list` 退成 `-32601`），連帶 `mcp-notes.test.ts` 的 29d 紅——它也走無 collab 的 app
@@ -110,41 +113,41 @@ describe("#108 tools/list", () => {
   // ⚠ **PR2 起改用讀寫憑證**（Task 3 留給 Task 4 的必辦 #4）：既有唯讀憑證的版本碰不到
   //   `edit_note`——那支工具在**註冊時**就先被 scope 過濾掉，唯讀憑證測不出「它有沒有被部署
   //   形態閘門擋下」；只有讀寫憑證能區分「沒宣告是因為沒有 collab」與「沒宣告是因為沒有 scope」。
-  //   `create_note` 不進這道閘門（D-M），所以四支裡它必須在，`edit_note` 必須不在。
-  it("無 collab 的 app ＋讀寫憑證：只宣告查得動 DB 的兩支、create_note 與 create_transfer_token（D-M 不進閘門，D-A）", async () => {
+  //   `create_note` 不進這道閘門（D-M），所以七支裡它（與 `copy_note`、`move_note_to_group`、`create_transfer_token`）必須在，`edit_note` 必須不在。
+  it("無 collab 的 app ＋讀寫憑證：只宣告查得動 DB 的三支（含 read_note_image）、create_note、copy_note、move_note_to_group 與 create_transfer_token（D-M 不進閘門，D-A）", async () => {
     const { app, db } = await buildTestApp();
     const userId = await seedUser(db);
     const { token } = await seedTokenForUser(db, userId, "notes:read notes:write");
 
-    expect(await toolNames(app, token)).toEqual(["create_note", ...DB_ONLY_TOOLS, ...TOKEN_ONLY_TOOLS].sort());
+    expect(await toolNames(app, token)).toEqual(["copy_note", "create_note", "move_note_to_group", ...DB_ONLY_TOOLS, ...TOKEN_ONLY_TOOLS].sort());
   });
 
-  // 案 9：讀寫憑證的 `tools/list` ＝七支（生產形態）。與案 9b 的差異：這裡走 `.sort()`，
+  // 案 9：讀寫憑證的 `tools/list` ＝十支（生產形態）。與案 9b 的差異：這裡走 `.sort()`，
   // 守的是**集合**，不重疊案 9b 的順序斷言。
-  it("讀寫憑證的 tools/list 含七支工具（案 9）", async () => {
+  it("讀寫憑證的 tools/list 含十支工具（案 9）", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
     const { token } = await seedTokenForUser(ctx.db, owner.id, "notes:read notes:write");
 
     const names = await toolNames(ctx.app, token);
-    expect(names).toEqual([...DB_ONLY_TOOLS, ...LIVE_DOC_TOOLS, "edit_note", "create_note", ...TOKEN_ONLY_TOOLS].sort());
+    expect(names).toEqual([...DB_ONLY_TOOLS, ...LIVE_DOC_TOOLS, "edit_note", "create_note", "move_note_to_group", "copy_note", ...TOKEN_ONLY_TOOLS].sort());
   });
 
-  // 案 9b（M11）：名字陣列**逐字**等於寫死的七元清單，**含順序**——`{ sort: false }` 的
+  // 案 9b（M11）：名字陣列**逐字**等於寫死的十元清單，**含順序**——`{ sort: false }` 的
   // `toolNames()` 才測得到；走 `.sort()` 的版本（案 9 那條）對順序永遠零鑑別力。
   // ⚠ **本案對「拿掉 scope 過濾」這條突變零鑑別力**（案 8 那條的註解已詳述、實測推翻了
-  //   plan 的預期）：本案打的是讀寫憑證，讀寫憑證的六支清單在那條突變前後一個字都不變。
+  //   plan 的預期）：本案打的是讀寫憑證，讀寫憑證的完整清單在那條突變前後一個字都不變。
   //   本案真正殺的是**順序**。突變實測（2026-09-09，把 `register.ts` 的 `list_notes`／
   //   `search_notes` 註冊順序對調）：**只有本案紅**（`expected ['search_notes','list_notes',
   //   …(4)] to deeply equal ['list_notes','search_notes',…(4)]`），案 9（走 `.sort()`）
   //   維持綠——這就是兩案不重疊的證明：一個守集合，一個守順序。
-  it("讀寫憑證的 tools/list 名字陣列逐字等於寫死的七元清單，含順序（案 9b／M11）", async () => {
+  it("讀寫憑證的 tools/list 名字陣列逐字等於寫死的十元清單，含順序（案 9b／M11）", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
     const { token } = await seedTokenForUser(ctx.db, owner.id, "notes:read notes:write");
 
     const names = await toolNames(ctx.app, token, { sort: false });
-    expect(names).toEqual(SEVEN_TOOLS_IN_ORDER);
+    expect(names).toEqual(TEN_TOOLS_IN_ORDER);
   });
 
   // #175 PR5：create_note 的模型面字串（G1／D2／D3／G2／T1）逐字在 wire 上，被撤掉的舊說法一句都不在
@@ -152,7 +155,7 @@ describe("#108 tools/list", () => {
   // 字面值寫死在這裡，與 `docs/mcp.md` 的定稿句對照（docs 在此檔外，本檔不比對 docs；實作時以腳本逐字比對過 `docs/mcp.md` 與 `create-note.ts`）。
   // 比的是 JSON.parse 之後的字串（模型看到的），並另外以 `JSON.stringify(s).slice(1, -1)` 比原始 body，
   // 確認 wire 上的逃脫形與預期一致（`—`、反引號、`'` 在 JSON 裡是否被逃脫）。
-  it("#175 PR5：create_note 的 description／groupId／title 字串逐字在 wire 上，舊說法不在", async () => {
+  it("#175 PR5：create_note 的 description／group_id／title 字串逐字在 wire 上，舊說法不在", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
     const { token } = await seedTokenForUser(ctx.db, owner.id, "notes:read notes:write");
@@ -160,7 +163,7 @@ describe("#108 tools/list", () => {
     const tools = res.json().result.tools as { name: string; description: string; inputSchema: { properties: Record<string, { type?: string; format?: string; description?: string }> } }[];
     const entry = tools.find(t => t.name === "create_note")!;
 
-    const G1 = "Create a new note — yours, or in one of your groups when you pass `groupId`.";
+    const G1 = "Create a new note — yours, or in one of your groups when you pass `group_id`.";
     const D2 = "or leave it out for an empty note, which edit_note can fill in later if the reply's `role` is `owner` or `editor`.";
     const D3 = "pass it to read_note_outline, or to edit_note when its `role` allows writing";
     const G2 =
@@ -172,11 +175,12 @@ describe("#108 tools/list", () => {
     expect(entry.description).toContain(G1);
     expect(entry.description).toContain(D2);
     expect(entry.description).toContain(D3);
-    const groupId = entry.inputSchema.properties.groupId!;
+    const groupId = entry.inputSchema.properties.group_id!;
     expect(groupId.type).toBe("string");
     expect(groupId.format).toBe("uuid");
     expect(groupId.description).toBe(G2);
     expect(entry.inputSchema.properties.title!.description).toContain(T1);
+    expect(Object.keys(entry.inputSchema.properties)).not.toContain("groupId");
 
     // 撤掉的舊說法：一句都不能留在任何一處（description、兩個欄位的 describe）。
     const everywhere = [entry.description, ...Object.values(entry.inputSchema.properties).map(p => p.description ?? "")].join("\n");
@@ -185,6 +189,7 @@ describe("#108 tools/list", () => {
       "an empty note you can write to later with edit_note",
       "pass it to edit_note or read_note_outline",
       "de-duplicated against your other notes",
+      "when you pass `groupId`",
     ]) {
       expect(everywhere, gone).not.toContain(gone);
     }
@@ -192,6 +197,51 @@ describe("#108 tools/list", () => {
     // wire 形：原始 body 含 `JSON.stringify(s).slice(1, -1)`。JSON.stringify 不逃脫非 ASCII，所以本條通過＝
     // wire 上的 `—`（U+2014）、反引號、`'` 都是未逃脫的原字元（2026-10-02 實跑通過，不需要改比跳脫形）。
     for (const s of [G1, D2, D3, G2, T1]) expect(res.body).toContain(JSON.stringify(s).slice(1, -1));
+  });
+
+  // #180 R13：edit_note／create_note／instructions 的新字串逐字在 wire 上；舊句一句都不在（spec §4.3、§4.5）。
+  it("#180 R13：rename 相關字串逐字在 wire 上，舊句不在", async () => {
+    const ctx = await buildCollabTestApp();
+    const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
+    const { token } = await seedTokenForUser(ctx.db, owner.id, "notes:read notes:write");
+    const res = await mcpPost(ctx.app, rpc("tools/list"), { token });
+    const tools = res.json().result.tools as { name: string; description: string; inputSchema: { properties: Record<string, { description?: string }> }; outputSchema: { properties: Record<string, { description?: string }> } }[];
+    const edit = tools.find(t => t.name === "edit_note")!;
+    const create = tools.find(t => t.name === "create_note")!;
+    const DESC =
+      "Change one note. Six operations: `replace_all` rewrites the whole note, `replace_section` and `delete_section` act on one section, " +
+      "`insert_after` puts new markdown after a section, `append` adds to the end, and `rename` changes its title. Every operation except " +
+      "`append` and `rename` needs `if_match`, the fingerprint of what you are replacing — a section's from read_note_section (once you have " +
+      "read to its end) or from a previous edit_note reply; the whole note's from a previous edit_note reply. A change to the content is " +
+      "recorded in the note's history, where anyone who can edit the note can usually undo it. A rename is not recorded: the last title " +
+      "written wins, and to undo it, rename the note back. Unless the note has a custom URL, its URL follows the new title and the old URL " +
+      "usually stops working. A rename's reply has `title` and `url` instead of `editId`, `fingerprint`, `outline` and `unboundWikilinks`.";
+    const OP = "What to do. `replace_section`, `insert_after` and `delete_section` need `section_id`; `append` may omit `if_match`; `rename` takes `title` and nothing else.";
+    const MD_HEAD = "The new markdown. Required for every operation except delete_section and rename. Colors are HTML, as read_note_section returns them:";
+    const IF_MATCH = "The fingerprint of what you are replacing. Required for every operation except append and rename; the write fails if the note changed since you read it.";
+    const TITLE_IN = "The note's new title. Only rename takes it.";
+    const TITLE_OUT = "After a rename, the note's new title.";
+    const URL_OUT = "After a rename, the note's page as a site-relative path, as in list_notes.";
+    const CREATE_TITLE_TAIL = "Pass a title if you know it; edit_note's `rename` can change it later when the reply's `role` is `owner` or `editor`.";
+
+    expect(edit.description).toBe(DESC);
+    expect(edit.inputSchema.properties.op!.description).toBe(OP);
+    expect(edit.inputSchema.properties.markdown!.description!.startsWith(MD_HEAD)).toBe(true);
+    expect(edit.inputSchema.properties.if_match!.description).toBe(IF_MATCH);
+    expect(edit.inputSchema.properties.title!.description).toBe(TITLE_IN);
+    expect(edit.outputSchema.properties.title!.description).toBe(TITLE_OUT);
+    expect(edit.outputSchema.properties.url!.description).toBe(URL_OUT);
+    expect(create.inputSchema.properties.title!.description!.endsWith(CREATE_TITLE_TAIL)).toBe(true);
+    for (const s of [DESC, OP, MD_HEAD, IF_MATCH, TITLE_IN, TITLE_OUT, URL_OUT, CREATE_TITLE_TAIL]) expect(res.body).toContain(JSON.stringify(s).slice(1, -1));
+    for (const gone of [
+      "Five operations",
+      "only `append` may omit `if_match`",
+      "Required for every operation except delete_section.",
+      "Required for every operation except append;",
+      "No tool here renames a note afterwards",
+    ]) {
+      expect(res.body, gone).not.toContain(JSON.stringify(gone).slice(1, -1));
+    }
   });
 
   // #177：截斷改按 JSON 逃脫後的長度計。outputSchema 上模型讀得到的兩件事要跟著改：heading 的說明（兩個方向——
@@ -211,7 +261,7 @@ describe("#108 tools/list", () => {
 
     const groupOwner = '"name":{"type":"string","maxLength":200},"nameTruncated":{"type":"boolean","const":true}';
     const withOwner = [...outputs].filter(([, schema]) => schema.includes('"const":"group"')).map(([name]) => name).sort();
-    expect(withOwner).toEqual(["create_note", "list_notes", "read_note_outline", "search_notes"]);
+    expect(withOwner).toEqual(["copy_note", "create_note", "list_notes", "move_note_to_group", "read_note_outline", "search_notes"]);
     for (const name of withOwner) expect(outputs.get(name), name).toContain(groupOwner);
   });
 
@@ -245,10 +295,10 @@ describe("#108 tools/list", () => {
   });
 
   // P13：`runTool()` 涵蓋率守衛現在分散在三個檔（`register.ts` 檔頭已具名）——這裡守
-  // `edit_note`／`create_note`／`create_transfer_token`（#200）那一半。`mcp-notes.test.ts` 只打 `list_notes`／`search_notes`、
-  // `mcp-content.test.ts` 只打兩支讀取工具，兩者對這兩支寫入工具都**恆綠**（不在它們的名字
-  // 集合裡）；沒有這一案，PR2 新增的兩支工具就沒有 D31／M15 的 try/catch 守衛。
-  it("P13：runTool() 涵蓋率——beforeTool 看到的名字集合逐字等於 {create_note, create_transfer_token, edit_note}", async () => {
+  // `edit_note`／`create_note`／`create_transfer_token`／`read_note_image`（#200）／`copy_note`、`move_note_to_group`（#180）那一半。`mcp-notes.test.ts` 只打 `list_notes`／`search_notes`、
+  // `mcp-content.test.ts` 只打兩支讀取工具，兩者對這幾支寫入／傳輸／讀圖工具都**恆綠**（不在它們的名字
+  // 集合裡）；沒有這一案，這些後加的工具就沒有 D31／M15 的 try/catch 守衛。
+  it("P13：runTool() 涵蓋率——beforeTool 看到的名字集合逐字等於 {copy_note, create_note, create_transfer_token, edit_note, move_note_to_group, read_note_image}", async () => {
     const seen: string[] = [];
     const ctx = await buildCollabTestApp({ mcpTestHooks: { beforeTool: name => void seen.push(name) } });
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
@@ -259,11 +309,25 @@ describe("#108 tools/list", () => {
       token,
     });
     await mcpPost(ctx.app, rpc("tools/call", { name: "create_note", arguments: {} }), { token });
+    await mcpPost(ctx.app, rpc("tools/call", { name: "copy_note", arguments: { note_id: randomUUID() } }), { token });
     await mcpPost(ctx.app, rpc("tools/call", { name: "create_transfer_token", arguments: { note_id: note.id, purpose: "download" } }), {
       token,
     });
+    await mcpPost(ctx.app, rpc("tools/call", { name: "move_note_to_group", arguments: { note_id: randomUUID(), group_id: randomUUID() } }), { token });
+    await mcpPost(ctx.app, rpc("tools/call", { name: "read_note_image", arguments: { note_id: note.id, upload_id: randomUUID() } }), { token });
 
-    expect([...new Set(seen)].sort()).toEqual(["create_note", "create_transfer_token", "edit_note"]);
+    expect([...new Set(seen)].sort()).toEqual(["copy_note", "create_note", "create_transfer_token", "edit_note", "move_note_to_group", "read_note_image"]);
+  });
+
+  // #180 V11：annotations 只出現在 move_note_to_group（destructiveHint true、idempotentHint false）與 copy_note（destructiveHint false），其餘工具（含 read_note_image）一律沒有這把鍵。
+  it("#180 V11：move_note_to_group.annotations 逐字 {destructiveHint:true, idempotentHint:false}；copy_note.annotations 逐字 {destructiveHint:false}；其餘工具無 annotations 鍵", async () => {
+    const ctx = await buildCollabTestApp();
+    const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
+    const { token } = await seedTokenForUser(ctx.db, owner.id, "notes:read notes:write");
+    const tools = (await mcpPost(ctx.app, rpc("tools/list"), { token })).json().result.tools as { name: string; annotations?: unknown }[];
+    expect(tools.find(t => t.name === "move_note_to_group")!.annotations).toEqual({ destructiveHint: true, idempotentHint: false });
+    expect(tools.find(t => t.name === "copy_note")!.annotations).toEqual({ destructiveHint: false });
+    expect(tools.filter(t => !["copy_note", "move_note_to_group"].includes(t.name) && "annotations" in t).map(t => t.name)).toEqual([]);
   });
 
   // 案 2 的 `listChanged` 那半（Task 2 從傳輸層那一族移過來的）。

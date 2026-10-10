@@ -515,7 +515,7 @@ describe("#108 edit_note：宣告面與 scope 過濾（案 S1／S2／S3）", () 
   // ⚠ 同一條突變在**今天的接線上**還讓另外八案紅，但那是巧合不是守衛——raw shape 有
   //   `note_id` 而 union 每個分支都 `.strict()`，所以每一發呼叫都被判 `unrecognized_keys`。
   //   union 哪天多一個 `note_id` 鍵，那八案就全部恢復綠，只剩本案紅。
-  it("tools/list 的 edit_note.inputSchema.properties 含全部五個欄位名（S1／P6）", async () => {
+  it("tools/list 的 edit_note.inputSchema.properties 含全部六個欄位名（S1／P6；#180 加 title）", async () => {
     const s = await scene(null);
     const res = await mcpPost(s.ctx.app, rpc("tools/list"), { token: s.token });
     expect(res.statusCode).toBe(200);
@@ -523,7 +523,7 @@ describe("#108 edit_note：宣告面與 scope 過濾（案 S1／S2／S3）", () 
     const entry = tools.find(t => t.name === "edit_note");
     expect(entry, "讀寫憑證的 tools/list 必須含 edit_note").toBeDefined();
     expect(Object.keys(entry!.inputSchema!.properties ?? {}).sort()).toEqual(
-      ["if_match", "markdown", "note_id", "op", "section_id"].sort()
+      ["if_match", "markdown", "note_id", "op", "section_id", "title"].sort()
     );
   });
 
