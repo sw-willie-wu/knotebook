@@ -98,8 +98,9 @@ export function createTransferAuth(deps: TransferAuthDeps) {
       const gateResult = await deps.gate.checkUser(row.userId);
       if (gateResult.status !== "ok" || gateResult.user.mustChangePassword) return rejectInvalid(request, reply);
 
-      // 母憑證的 scope 沒有原地改寫路徑（spec §3.2），這裡實務上到不了；fail-closed 仍重驗。刻意不像 `bearer.ts` 那支
-      // 403 帶 `WWW-Authenticate: … error="insufficient_scope"`：到不了的分支，差異只是外觀（#200 PR1 終審 Minor 5）。
+      // 母憑證可經 `PATCH /api/auth/tokens/:id` 原地降權（#239），所以這條**可達**；每次使用都以母憑證當下的 scope 重驗。
+      // 刻意不像 `bearer.ts` 那支帶 `WWW-Authenticate: … error="insufficient_scope"`：transfer token 沒有可要求的 scope，
+      // 行為不改（spec §8）。守衛：`transfer-tokens.test.ts` 的 #239 T1。
       if (!hasScope(row.scope as TokenScope, purpose === "upload" ? "notes:write" : "notes:read")) {
         drainWithCap(request);
         sendError(reply, 403, "insufficient_scope", "此 token 沒有執行這個操作的權限");

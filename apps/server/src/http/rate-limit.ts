@@ -181,7 +181,8 @@ export const PAT_CREATE_LIMIT = { limit: 10, windowMs: 3_600_000 } as const;
 /**
  * #106 D7：`PATCH /api/auth/tokens/:id`（改 agent 名稱，key=userId）。比 `PAT_CREATE_LIMIT`
  * 寬得多——改名不簽發任何憑證、不佔 I1 額度，只是單語句 UPDATE；使用者在設定頁一次改好
- * 幾個名字是正常操作，這桶擋的是失控迴圈。
+ * 幾個名字是正常操作，這桶擋的是失控迴圈。#239 起同一個 PATCH 也調整權限（`scope`），
+ * 共用這個桶：同樣是單語句 UPDATE、不簽發憑證。
  */
 export const TOKEN_RENAME_LIMIT = { limit: 60, windowMs: 600_000 } as const;
 
