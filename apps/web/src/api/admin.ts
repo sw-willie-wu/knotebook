@@ -54,19 +54,18 @@ export function useCreateAdminUser() {
   });
 }
 
-/** 三支 `:id` 操作端點共用同一套殼：皆為 bodyless POST、皆回 204、皆只需要
+/** 四支 `:id` 操作端點共用同一套殼：皆為 bodyless POST、皆回 204、皆只需要
  * invalidate 名單。刻意不帶 body（`api()` 只在 `init.body != null` 時才補
  * `Content-Type: application/json`——帶空字串/`{}` 反而可能撞 server 端的
  * `FST_ERR_CTP_EMPTY_JSON_BODY`，見 `client.ts` 的說明與 `useSession.logout`
- * 的既有用法）。 */
-function useAdminUserAction(action: "disable" | "enable" | "promote") {
+ * 的既有用法）。`onSuccess` 回傳失效的 promise，讓呼叫端的 pending 涵蓋重抓（#247）：
+ * `mutateAsync` 等名單重抓完才 resolve，列內剛選的角色／toggle 不會在重抓前彈回舊值。 */
+function useAdminUserAction(action: "disable" | "enable" | "promote" | "demote") {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
       api<void>(`/api/admin/users/${encodeURIComponent(id)}/${action}`, { method: "POST" }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ADMIN_USERS_QUERY_KEY });
-    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ADMIN_USERS_QUERY_KEY }),
   });
 }
 
@@ -80,6 +79,11 @@ export function useEnableAdminUser() {
 
 export function usePromoteAdminUser() {
   return useAdminUserAction("promote");
+}
+
+/** #247 §9.4：`POST /api/admin/users/:id/demote`（204；400 `cannot_demote_self`、409 `last_site_admin`）。 */
+export function useDemoteAdminUser() {
+  return useAdminUserAction("demote");
 }
 
 /**

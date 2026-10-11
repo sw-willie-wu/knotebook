@@ -1,12 +1,13 @@
-import { useState, type FormEvent } from "react";
+import { useId, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { MIN_PASSWORD_LENGTH } from "@knotebook/shared";
+import { MIN_PASSWORD_LENGTH, type StoragePlanDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
 import { useAuthConfig } from "@/api/authConfig";
 import { useSession } from "@/auth/useSession";
 import {
   useAdminUsers,
   useCreateAdminUser,
+  useDemoteAdminUser,
   useDisableAdminUser,
   useEnableAdminUser,
   usePromoteAdminUser,
@@ -17,6 +18,7 @@ import { useAdminStoragePlans } from "@/api/adminStorage";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogClose,
@@ -27,7 +29,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { toast } from "@/components/ui/toast";
 import { SettingsGroup, SettingsPage } from "./SettingsLayout";
 import { PlanSelect, StorageCell } from "./StorageAdminCells";
 
@@ -94,7 +95,7 @@ function CreateUserDialog() {
       }}
     >
       <DialogTrigger asChild>
-        <Button type="button" variant="brandDeep">{t("admin.createUser")}</Button>
+        <Button type="button" variant="outline">{t("admin.createUser")}</Button>
       </DialogTrigger>
       <DialogContent dismissOnOutside={false}>
         <DialogHeader>
@@ -179,111 +180,12 @@ function CreateUserDialog() {
 }
 
 /**
- * 一列使用者的操作區：disable/enable 依 `disabledAt` 互斥（同一時間只會出現其中一顆），
- * promote 只在非 admin 時出現（已是 admin 不需要再升級）。
- *
- * disable 對自己那列（`user.id === currentUserId`）刻意整顆按鈕都不渲染——server 端
- * `cannot_disable_self` 反正會擋，但讓 UI 一開始就不給這個選項，體驗上更清楚（brief
- * 允許「隱藏或停用」擇一，這裡選隱藏）。enable/promote 沒有這個限制：對自己 promote
- * 沒有意義但無害，也不會發生（自己已經是 admin 才看得到這頁）；enable 只會出現在
- * disabled 的列，而 disable-self 已被擋下，自己不可能出現在 disabled 列。
- */
-function UserActions({ user, currentUserId }: { user: AdminUserDto; currentUserId: string }) {
-  const { t } = useTranslation();
-  const disableUser = useDisableAdminUser();
-  const enableUser = useEnableAdminUser();
-  const promoteUser = usePromoteAdminUser();
-  const [confirmOpen, setConfirmOpen] = useState(false);
-
-  const isDisabled = user.disabledAt !== null;
-  const isSelf = user.id === currentUserId;
-
-  async function handleDisableConfirm(): Promise<void> {
-    try {
-      await disableUser.mutateAsync(user.id);
-      setConfirmOpen(false);
-    } catch (err) {
-      toast({ title: errorMessage(t, err), variant: "destructive" });
-    }
-  }
-
-  async function handleEnable(): Promise<void> {
-    try {
-      await enableUser.mutateAsync(user.id);
-    } catch (err) {
-      toast({ title: errorMessage(t, err), variant: "destructive" });
-    }
-  }
-
-  async function handlePromote(): Promise<void> {
-    try {
-      await promoteUser.mutateAsync(user.id);
-    } catch (err) {
-      toast({ title: errorMessage(t, err), variant: "destructive" });
-    }
-  }
-
-  return (
-    <div className="flex items-center justify-end gap-2">
-      {!user.isAdmin && (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={() => void handlePromote()}
-          disabled={promoteUser.isPending}
-        >
-          {t("admin.promote")}
-        </Button>
-      )}
-
-      {isDisabled && (
-        <Button type="button" variant="ghost" size="sm" onClick={() => void handleEnable()} disabled={enableUser.isPending}>
-          {t("admin.enable")}
-        </Button>
-      )}
-
-      {!isDisabled && !isSelf && (
-        <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-          <DialogTrigger asChild>
-            <Button type="button" variant="ghost" size="sm">
-              {t("admin.disable")}
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{t("admin.disableTitle")}</DialogTitle>
-              <DialogDescription>{t("admin.disableDescription", { email: user.email })}</DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <DialogClose asChild>
-                <Button type="button" variant="outline">
-                  {t("home.cancel")}
-                </Button>
-              </DialogClose>
-              <Button
-                type="button"
-                variant="destructive"
-                onClick={() => void handleDisableConfirm()}
-                disabled={disableUser.isPending}
-              >
-                {t("admin.disable")}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      )}
-    </div>
-  );
-}
-
-/**
  * 使用者表的欄寬規則（比照群組成員表 #183）。jsdom 不排版，測試對字面 token 斷言。
  * - `text`：email／username／顯示名稱可在任意處斷行；`wrap-anywhere` 會把斷點算進 min-content，
  *   auto 表格才肯壓窄這欄（`break-words` 不會，照樣撐爆）。`min-w-[14ch]` 是下限：沒有它，窄螢幕（768px 卡片約 474px）
  *   會把三欄壓到一個字元寬、字一個一個直排；有它，表格寬於卡片時改由卡片層的橫向捲動吸收。
- * - `fixed`：角色、狀態、儲存空間三欄不換行。
- * - `actions`：操作欄收到內容寬、不換行，按鈕永遠不被擠壓。
+ * - `fixed`：角色、用量、最後登入三欄不換行。
+ * - `actions`：啟用欄收到內容寬、不換行，按鈕永遠不被擠壓。
  */
 const USERS_TABLE_LAYOUT = {
   text: "min-w-[14ch] wrap-anywhere",
@@ -291,21 +193,159 @@ const USERS_TABLE_LAYOUT = {
   actions: "w-px whitespace-nowrap",
 } as const;
 
+const SELECT_CLASS =
+  "h-8 shrink-0 rounded-md border border-input bg-background px-2 text-sm shadow-sm focus-visible:outline-none " +
+  "focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
+
 /**
- * 站台管理頁的使用者區（`/admin/users`，admin only）。歷程：原本是獨立路由
- * `/admin/users`（Task 15）→ Plan 4 併進設定 modal 成為 `/settings/users`（spec §13.4）
- * → 2026-09-30 又搬回獨立頁 `/admin/users`，掛在 `pages/AdminPage.tsx` 的 `<Outlet/>`
- * 底下（本元件未改，只換掛載點；舊網址 `/settings/users` 轉址過來）。
+ * 一列使用者（#247 §7.0，W27）：角色**下拉**（管理員／一般：升級送 `promote`、降級送 `demote`）、方案下拉、用量、最後登入、
+ * 列尾**啟用 toggle**。
+ * - 角色：自己那列 disabled＋`title`（server 另以 400 `cannot_demote_self` 把關）；pending 時 disabled 並顯示剛選的值；失敗（含 409
+ *   `last_site_admin`）下拉自然留在原值（受控於列資料）、列內紅字。
+ * - 啟用：關 → 先開確認框（停用會踢掉線上 session）、確認才送 `disable`；開 → 直接送 `enable`。自己那列照常渲染、恆為開，但
+ *   `aria-disabled`＋`title`、不送請求（現行是整顆停用鈕不渲染；改成 toggle 欄後每列都要有一格）。server 的 `cannot_disable_self`
+ *   照舊是最後防線。失敗：toggle 受控於列資料、自然彈回，列內紅字。
+ */
+function UserRow({ row, currentUserId, plans, onAssignPlan, enabledHeaderId }: {
+  row: AdminUserDto;
+  currentUserId: string;
+  plans: StoragePlanDto[] | undefined;
+  onAssignPlan: (planId: string) => Promise<unknown>;
+  /** 「Enabled」欄頭的 id：switch 的可及名稱＝欄頭＋該列 email（`aria-labelledby`）。 */
+  enabledHeaderId: string;
+}) {
+  const { t, i18n } = useTranslation();
+  const emailCellId = useId();
+  const promote = usePromoteAdminUser();
+  const demote = useDemoteAdminUser();
+  const disableUser = useDisableAdminUser();
+  const enableUser = useEnableAdminUser();
+  const [pickedRole, setPickedRole] = useState<"admin" | "user" | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const isSelf = row.id === currentUserId;
+  const rolePending = promote.isPending || demote.isPending;
+  const roleValue = rolePending && pickedRole !== null ? pickedRole : row.isAdmin ? "admin" : "user";
+  const enabled = row.disabledAt === null;
+
+  async function handleRole(next: "admin" | "user"): Promise<void> {
+    if (isSelf || rolePending || next === (row.isAdmin ? "admin" : "user")) return;
+    setError(null);
+    setPickedRole(next);
+    try {
+      await (next === "admin" ? promote : demote).mutateAsync(row.id);
+    } catch (err) {
+      setError(errorMessage(t, err));
+    } finally {
+      setPickedRole(null);
+    }
+  }
+
+  async function handleEnabled(next: boolean): Promise<void> {
+    if (isSelf) return;
+    setError(null);
+    if (!next) {
+      setConfirmOpen(true);
+      return;
+    }
+    try {
+      await enableUser.mutateAsync(row.id);
+    } catch (err) {
+      setError(errorMessage(t, err));
+    }
+  }
+
+  async function handleDisableConfirm(): Promise<void> {
+    try {
+      await disableUser.mutateAsync(row.id);
+      setConfirmOpen(false);
+    } catch (err) {
+      setConfirmOpen(false);
+      setError(errorMessage(t, err));
+    }
+  }
+
+  return (
+    <tr className="border-b border-border align-top">
+      <td className={`py-2 pr-3 ${USERS_TABLE_LAYOUT.text}`}>
+        <p>{row.displayName}</p>
+        <p className="text-xs text-muted-foreground">@{row.handle}</p>
+      </td>
+      <td id={emailCellId} className={`py-2 pr-3 ${USERS_TABLE_LAYOUT.text}`}>{row.email}</td>
+      <td className={`py-2 pr-3 ${USERS_TABLE_LAYOUT.fixed}`}>
+        <select
+          aria-label={t("admin.users.roleFor", { email: row.email })}
+          value={roleValue}
+          disabled={isSelf || rolePending}
+          title={isSelf ? t("errors.cannot_demote_self") : undefined}
+          onChange={(event) => void handleRole(event.target.value as "admin" | "user")}
+          className={SELECT_CLASS}
+        >
+          <option value="admin">{t("admin.roleAdmin")}</option>
+          <option value="user">{t("admin.roleUser")}</option>
+        </select>
+        {error && (
+          <p role="alert" className="mt-1 whitespace-normal text-xs text-destructive">
+            {error}
+          </p>
+        )}
+      </td>
+      <td className="py-2 pr-3">
+        <PlanSelect
+          label={t("admin.planFor", { email: row.email })}
+          planId={row.storage.planId}
+          planName={row.storage.planName}
+          plans={plans}
+          onAssign={onAssignPlan}
+        />
+      </td>
+      <td className={`py-2 pr-3 ${USERS_TABLE_LAYOUT.fixed}`}>
+        <StorageCell storage={row.storage} />
+      </td>
+      <td className={`py-2 pr-3 ${USERS_TABLE_LAYOUT.fixed}`}>
+        {row.lastLoginAt === null ? t("admin.users.neverLoggedIn") : new Date(row.lastLoginAt).toLocaleDateString(i18n.language)}
+      </td>
+      <td className={`py-2 ${USERS_TABLE_LAYOUT.actions}`}>
+        <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+          <Switch
+            aria-labelledby={`${enabledHeaderId} ${emailCellId}`}
+            checked={isSelf ? true : enabled}
+            aria-disabled={isSelf || undefined}
+            title={isSelf ? t("errors.cannot_disable_self") : undefined}
+            className={isSelf ? "cursor-not-allowed opacity-50" : undefined}
+            disabled={!isSelf && (enableUser.isPending || disableUser.isPending)}
+            onCheckedChange={(next) => void handleEnabled(next)}
+          />
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{t("admin.disableTitle")}</DialogTitle>
+              <DialogDescription>{t("admin.disableDescription", { email: row.email })}</DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <DialogClose asChild>
+                <Button type="button" variant="outline">
+                  {t("home.cancel")}
+                </Button>
+              </DialogClose>
+              <Button type="button" variant="destructive" onClick={() => void handleDisableConfirm()} disabled={disableUser.isPending}>
+                {t("admin.disable")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </td>
+    </tr>
+  );
+}
+
+/**
+ * 站台管理 modal 的使用者區（`/admin/users`，#247 §7.0）。歷程：Task 15 獨立頁 → Plan 4 併進設定 modal →
+ * 2026-09-30 獨立頁 `/admin/*` → #247 起是站台管理 modal 的第一項（`AdminSections` 聚合 chunk）。
+ * 頁首的「建立使用者」是面板層級動作，`outline`（§4.8）；它開出的對話框內送出鈕照舊 `brandDeep`。
  *
- * 版面外殼由掛載點提供，本元件自己不帶：
- *
- * - 不包 `<AppShell>`——`AdminPage` 已經用 `AppShell` 包好殼，這裡再包就是雙層殼。
- * - 不帶外層 padding／寬度限制——`AdminPage` 的內容卡已提供 `p-8` 留白，比照
- *   `SettingsAccountSection`：頁首與分組都由 `SettingsPage`／`SettingsGroup` 提供。
- * - 儲存空間與方案兩欄（spec §9.3）：方案下拉即存、失敗 toast；停權者照樣可改（S13）。
+ * - 方案下拉即存、失敗 toast（spec §9.3，`PlanSelect`）；停權者照樣可改（S13）。
  * - 標題列的建立鈕走 `SettingsPage` 的 `action` 插槽（見 `SettingsLayout.tsx`）。
- *   當初放在 modal 裡時曾因 Radix ✕ 關閉鈕佔住右上角而調整過位置（Task 8 審查交接）；
- *   獨立頁沒有 ✕，那個顧慮已不存在。
  */
 export function SettingsUsersSection() {
   const { t } = useTranslation();
@@ -313,6 +353,7 @@ export function SettingsUsersSection() {
   const usersQuery = useAdminUsers();
   const plansQuery = useAdminStoragePlans();
   const assignPlan = useAssignUserPlan();
+  const enabledHeaderId = useId();
   const currentUserId = user?.id ?? "";
 
   return (
@@ -336,38 +377,25 @@ export function SettingsUsersSection() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border text-left text-muted-foreground">
+              <th className="py-2 pr-3 font-medium">{t("admin.users.user")}</th>
               <th className="py-2 pr-3 font-medium">{t("admin.tableEmail")}</th>
-              <th className="py-2 pr-3 font-medium">{t("admin.tableHandle")}</th>
-              <th className="py-2 pr-3 font-medium">{t("admin.tableDisplayName")}</th>
               <th className={`py-2 pr-3 font-medium ${USERS_TABLE_LAYOUT.fixed}`}>{t("admin.tableRole")}</th>
-              <th className={`py-2 pr-3 font-medium ${USERS_TABLE_LAYOUT.fixed}`}>{t("admin.tableStatus")}</th>
-              <th className={`py-2 pr-3 font-medium ${USERS_TABLE_LAYOUT.fixed}`}>{t("admin.tableStorage")}</th>
               <th className="py-2 pr-3 font-medium">{t("admin.tablePlan")}</th>
-              <th className={`py-2 font-medium text-right ${USERS_TABLE_LAYOUT.actions}`}>{t("admin.tableActions")}</th>
+              <th className={`py-2 pr-3 font-medium ${USERS_TABLE_LAYOUT.fixed}`}>{t("admin.tableStorage")}</th>
+              <th className={`py-2 pr-3 font-medium ${USERS_TABLE_LAYOUT.fixed}`}>{t("admin.users.lastLogin")}</th>
+              <th id={enabledHeaderId} className={`py-2 font-medium ${USERS_TABLE_LAYOUT.actions}`}>{t("admin.users.enabled")}</th>
             </tr>
           </thead>
           <tbody>
             {usersQuery.data.map((row) => (
-              <tr key={row.id} className="border-b border-border">
-                <td className={`py-2 pr-3 ${USERS_TABLE_LAYOUT.text}`}>{row.email}</td>
-                <td className={`py-2 pr-3 ${USERS_TABLE_LAYOUT.text}`}>{row.handle}</td>
-                <td className={`py-2 pr-3 ${USERS_TABLE_LAYOUT.text}`}>{row.displayName}</td>
-                <td className={`py-2 pr-3 ${USERS_TABLE_LAYOUT.fixed}`}>{row.isAdmin ? t("admin.roleAdmin") : t("admin.roleUser")}</td>
-                <td className={`py-2 pr-3 ${USERS_TABLE_LAYOUT.fixed}`}>{row.disabledAt ? t("admin.statusDisabled") : t("admin.statusActive")}</td>
-                <td className={`py-2 pr-3 ${USERS_TABLE_LAYOUT.fixed}`}><StorageCell storage={row.storage} /></td>
-                <td className="py-2 pr-3">
-                  <PlanSelect
-                    label={t("admin.planFor", { email: row.email })}
-                    planId={row.storage.planId}
-                    planName={row.storage.planName}
-                    plans={plansQuery.data?.plans}
-                    onAssign={(planId) => assignPlan.mutateAsync({ userId: row.id, planId })}
-                  />
-                </td>
-                <td className={`py-2 ${USERS_TABLE_LAYOUT.actions}`}>
-                  <UserActions user={row} currentUserId={currentUserId} />
-                </td>
-              </tr>
+              <UserRow
+                key={row.id}
+                row={row}
+                currentUserId={currentUserId}
+                plans={plansQuery.data?.plans}
+                onAssignPlan={(planId) => assignPlan.mutateAsync({ userId: row.id, planId })}
+                enabledHeaderId={enabledHeaderId}
+              />
             ))}
           </tbody>
         </table>

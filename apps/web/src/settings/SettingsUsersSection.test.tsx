@@ -13,10 +13,11 @@ import type { AdminUserDto } from "@/api/admin";
 // 歷程：Task 15 的獨立頁 `/admin/users` → Plan 4 併進設定 modal（`/settings/users`，
 // Task 8 逐案有意識重寫，spec §13.5-5）→ 2026-09-30 搬回獨立頁 `/admin/users`
 // （`pages/AdminPage.tsx`，殼是 `AppShell`）→ #247 改回 modal（第二棵樹的 `AdminModal`）。
-// 元件本體沒改，本檔各案直接查 heading/row 的寫法不依賴外殼，只換了那一則外殼 smoke。
+// 本檔各案直接查 heading/row 的寫法不依賴外殼，只換了那一則外殼 smoke。
 // - fetch mock 裡的 `/api/notes`、`/api/groups`：站台管理 modal 疊在主樹的背景 `HomePage` 上，
 //   背景側欄的 NoteList 會打這兩支。
-// - 「停用」案的確認 dialog 疊在站台管理 modal 上；該案取最後一個 dialog 的寫法照樣成立。
+// - #247 §7.0：狀態欄與列尾文字鈕（Disable／Enable／Promote）改為角色下拉＋啟用 toggle，舊的按鈕案由檔尾 U 系列取代；
+//   停用確認 dialog 疊在站台管理 modal 上，U6／U7 以 dialog 名稱「Disable this user?」定位。
 //
 // 「非 admin → 導 `/`」與未登入導向在 `components/admin/AdminModal.test.tsx`（route-level，驗證
 // `RequireAdmin` 有接對），這裡不重複。
@@ -72,9 +73,8 @@ const DISABLED_OTHER: AdminUserDto = {
   storage: { planId: BASIC_ID, planName: "Basic", usedBytes: 0, quotaBytes: 2147483648 },
 };
 
-/** 已是 admin、但不是目前登入者本人的一列——用來驗證「已是 admin 不出現 Promote 鈕」
- * 這條規則本身，跟「自己那列不出現 Disable/Enable 鈕」是兩件獨立的事，不能共用
- * 同一筆 fixture（沿用原案的說明，見遷移前的舊版 admin 使用者頁測試檔）。 */
+/** 已是 admin、但不是目前登入者本人的一列——降級（demote）與 `last_site_admin` 案要的是
+ * 「別人的管理員列」，跟「自己那列 disabled」是兩件獨立的事，不能共用同一筆 fixture。 */
 const OTHER_ADMIN: AdminUserDto = {
   id: "u-other-admin",
   email: "carol@example.com",
@@ -160,160 +160,7 @@ describe("SettingsUsersSection（/admin/users：站台管理頁的使用者區�
       "aria-current",
       "page",
     );
-  });
-
-  it("admin 造訪 /admin/users → 渲染表格，disabled 徽章與 enable/disable 依狀態互斥", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      const method = (init?.method ?? "GET").toUpperCase();
-      const base = baseFetchHandlers()(url, method);
-      if (base) return Promise.resolve(base);
-      if (url === ADMIN_USERS_URL && method === "GET") {
-        return Promise.resolve(
-          fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([ACTIVE_OTHER, DISABLED_OTHER]) }),
-        );
-      }
-      throw new Error(`unexpected fetch: ${method} ${url}`);
-    });
-
-    renderUsersRoute(fetchMock);
-
-    await waitFor(() => expect(screen.getByRole("heading", { name: "User management" })).toBeInTheDocument());
-
-    await waitFor(() => expect(screen.getByText(ACTIVE_OTHER.email)).toBeInTheDocument());
-    expect(screen.getByText(DISABLED_OTHER.email)).toBeInTheDocument();
-
-    const bobRow = screen.getByText(DISABLED_OTHER.email).closest("tr");
-    expect(bobRow).not.toBeNull();
-    expect(bobRow && bobRow.textContent).toContain("Disabled");
-
-    const aliceRow = screen.getByText(ACTIVE_OTHER.email).closest("tr");
-    expect(aliceRow).not.toBeNull();
-    expect(aliceRow && aliceRow.textContent).toContain("Active");
-
-    expect(aliceRow && within(aliceRow).queryByRole("button", { name: "Disable" })).toBeInTheDocument();
-    expect(aliceRow && within(aliceRow).queryByRole("button", { name: "Enable" })).not.toBeInTheDocument();
-
-    expect(bobRow && within(bobRow).queryByRole("button", { name: "Enable" })).toBeInTheDocument();
-    expect(bobRow && within(bobRow).queryByRole("button", { name: "Disable" })).not.toBeInTheDocument();
-  });
-
-  it("目前登入的 admin 自己那列不出現 Disable 鈕", async () => {
-    const selfRow: AdminUserDto = {
-      id: ADMIN_USER.id,
-      email: ADMIN_USER.email,
-      handle: ADMIN_USER.handle,
-      displayName: ADMIN_USER.displayName,
-      isAdmin: true,
-      disabledAt: null,
-      createdAt: "2026-01-01T00:00:00.000Z",
-      lastLoginAt: null,
-      storage: { planId: BASIC_ID, planName: "Basic", usedBytes: 0, quotaBytes: 2147483648 },
-    };
-    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      const method = (init?.method ?? "GET").toUpperCase();
-      const base = baseFetchHandlers()(url, method);
-      if (base) return Promise.resolve(base);
-      if (url === ADMIN_USERS_URL && method === "GET") {
-        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([selfRow]) }));
-      }
-      throw new Error(`unexpected fetch: ${method} ${url}`);
-    });
-
-    renderUsersRoute(fetchMock);
-
-    await waitFor(() => expect(screen.getByText(ADMIN_USER.email)).toBeInTheDocument());
-    const selfRowEl = screen.getByText(ADMIN_USER.email).closest("tr");
-    expect(selfRowEl).not.toBeNull();
-    expect(selfRowEl && within(selfRowEl).queryByRole("button", { name: "Disable" })).not.toBeInTheDocument();
-    expect(selfRowEl && within(selfRowEl).queryByRole("button", { name: "Enable" })).not.toBeInTheDocument();
-  });
-
-  it("非 admin 那列出現 Promote 鈕", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      const method = (init?.method ?? "GET").toUpperCase();
-      const base = baseFetchHandlers()(url, method);
-      if (base) return Promise.resolve(base);
-      if (url === ADMIN_USERS_URL && method === "GET") {
-        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([ACTIVE_OTHER]) }));
-      }
-      throw new Error(`unexpected fetch: ${method} ${url}`);
-    });
-
-    renderUsersRoute(fetchMock);
-
-    await waitFor(() => expect(screen.getByText(ACTIVE_OTHER.email)).toBeInTheDocument());
-    const row = screen.getByText(ACTIVE_OTHER.email).closest("tr");
-    expect(row && within(row).queryByRole("button", { name: "Promote to admin" })).toBeInTheDocument();
-  });
-
-  it("已是 admin 的使用者那列（非自己）不出現 Promote 鈕", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      const method = (init?.method ?? "GET").toUpperCase();
-      const base = baseFetchHandlers()(url, method);
-      if (base) return Promise.resolve(base);
-      if (url === ADMIN_USERS_URL && method === "GET") {
-        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([OTHER_ADMIN]) }));
-      }
-      throw new Error(`unexpected fetch: ${method} ${url}`);
-    });
-
-    renderUsersRoute(fetchMock);
-
-    await waitFor(() => expect(screen.getByText(OTHER_ADMIN.email)).toBeInTheDocument());
-    const row = screen.getByText(OTHER_ADMIN.email).closest("tr");
-    expect(row && within(row).queryByRole("button", { name: "Promote to admin" })).not.toBeInTheDocument();
-  });
-
-  it("停用 disable 送出 POST /api/admin/users/:id/disable（confirm dialog 後）", async () => {
-    let calledDisable = false;
-    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      const method = (init?.method ?? "GET").toUpperCase();
-      const base = baseFetchHandlers()(url, method);
-      if (base) return Promise.resolve(base);
-      if (url === ADMIN_USERS_URL && method === "GET") {
-        return Promise.resolve(
-          fakeResponse({
-            ok: true,
-            status: 200,
-            json: () => Promise.resolve([calledDisable ? { ...ACTIVE_OTHER, disabledAt: "2026-01-03T00:00:00.000Z" } : ACTIVE_OTHER]),
-          }),
-        );
-      }
-      if (url === `${ADMIN_USERS_URL}/${ACTIVE_OTHER.id}/disable` && method === "POST") {
-        calledDisable = true;
-        return Promise.resolve(fakeResponse({ ok: true, status: 204 }));
-      }
-      throw new Error(`unexpected fetch: ${method} ${url}`);
-    });
-
-    renderUsersRoute(fetchMock);
-
-    await waitFor(() => expect(screen.getByText(ACTIVE_OTHER.email)).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Disable" }));
-
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Disable this user?" })).toBeInTheDocument());
-    expect(screen.getByText(/signed out immediately/)).toBeInTheDocument();
-
-    // Radix Dialog 開啟後背景整片會標成 aria-hidden，確認鈕只能從 dialog 內找。
-    // `getAllByRole` 取最後一個（最上層、最新掛載的那個）——設定 modal 時代這裡疊著
-    // 兩層 Dialog；搬到 /admin/users 後只剩確認 dialog 一層，寫法照樣成立。
-    const dialogs = screen.getAllByRole("dialog");
-    const confirmDialog = dialogs[dialogs.length - 1];
-    fireEvent.click(within(confirmDialog).getByRole("button", { name: "Disable" }));
-
-    await waitFor(() => {
-      const call = fetchMock.mock.calls.find(
-        ([reqUrl, reqInit]) =>
-          String(reqUrl) === `${ADMIN_USERS_URL}/${ACTIVE_OTHER.id}/disable` &&
-          (reqInit as RequestInit | undefined)?.method === "POST",
-      );
-      expect(call).toBeDefined();
-    });
+    expect(within(dialog).getByRole("button", { name: "Create user" }).className).not.toMatch(/(^|\s)bg-(primary|brand|brand-deep)(\s|$)/);
   });
 
   it("建立使用者 dialog：點對話框外面不關閉、已填內容仍在（表單型守衛）", async () => {
@@ -456,65 +303,6 @@ describe("SettingsUsersSection（/admin/users：站台管理頁的使用者區�
   });
 });
 
-// #122 PR1 Task 5：表格新增使用者名欄（AdminUserDto.handle）。fixture 的 handle 由
-// 下面這案自帶（既有 fixture 未含 handle——AdminUserDto 收緊後 typecheck 會逼齊）。
-describe("SettingsUsersSection——使用者名欄（#122 Task 5）", () => {
-  it("表頭有 Username 欄、cell 顯示各列 handle", async () => {
-    const withHandles = [
-      { ...ACTIVE_OTHER, handle: "alice-h" },
-      { ...DISABLED_OTHER, handle: "bob-h" },
-    ];
-    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      const method = (init?.method ?? "GET").toUpperCase();
-      const base = baseFetchHandlers()(url, method);
-      if (base) return Promise.resolve(base);
-      if (url === ADMIN_USERS_URL && method === "GET") {
-        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(withHandles) }));
-      }
-      throw new Error(`unexpected fetch: ${method} ${url}`);
-    });
-    renderUsersRoute(fetchMock);
-    await screen.findByText("alice@example.com");
-    expect(screen.getByRole("columnheader", { name: "Username" })).toBeInTheDocument();
-    expect(screen.getByText("alice-h")).toBeInTheDocument();
-    expect(screen.getByText("bob-h")).toBeInTheDocument();
-  });
-
-  it("長 email／username／顯示名稱版面守衛：三格 wrap-anywhere、角色／狀態／儲存空間不換行、操作欄 w-px 不換行（比照 #183）", async () => {
-    // jsdom 不排版、量不到溢出，只能釘住決定溢出與否的 class token（`classList` 陣列比對）。
-    const LONG_EMAIL = "firstnamelastnamewithnonaturalbreakpoints0123456789@averyveryverylongcompanydomainname.example";
-    const LONG_HANDLE = "averylongusernamewithoutanyseparatorsatall0123456789abcdef";
-    const LONG_NAME = "Averylongdisplaynamewithoutanyspacesorhyphensatall";
-    const longUser = { ...ACTIVE_OTHER, id: "u-long", email: LONG_EMAIL, handle: LONG_HANDLE, displayName: LONG_NAME };
-    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      const method = (init?.method ?? "GET").toUpperCase();
-      const base = baseFetchHandlers()(url, method);
-      if (base) return Promise.resolve(base);
-      if (url === ADMIN_USERS_URL && method === "GET") {
-        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([longUser]) }));
-      }
-      throw new Error(`unexpected fetch: ${method} ${url}`);
-    });
-    renderUsersRoute(fetchMock);
-    const emailCell = (await screen.findByText(LONG_EMAIL)).closest("td");
-    const tokens = (el: Element | null) => [...(el?.classList ?? [])];
-    // 三格同時要有 wrap-anywhere（可斷行）與 min-w-[14ch]（窄螢幕下限，否則被壓成一字寬直排）。
-    expect(tokens(emailCell)).toEqual(expect.arrayContaining(["wrap-anywhere", "min-w-[14ch]"]));
-    expect(tokens(screen.getByText(LONG_HANDLE).closest("td"))).toEqual(expect.arrayContaining(["wrap-anywhere", "min-w-[14ch]"]));
-    expect(tokens(screen.getByText(LONG_NAME).closest("td"))).toEqual(expect.arrayContaining(["wrap-anywhere", "min-w-[14ch]"]));
-    const cells = (emailCell?.closest("tr") as HTMLElement).querySelectorAll("td");
-    expect(tokens(cells[3])).toContain("whitespace-nowrap");
-    expect(tokens(cells[4])).toContain("whitespace-nowrap");
-    expect(tokens(cells[5])).toContain("whitespace-nowrap"); // 儲存空間欄（W5 後插在狀態與方案之間）
-    expect(tokens(cells[7])).toEqual(expect.arrayContaining(["w-px", "whitespace-nowrap"])); // 操作欄移到最後（索引 5→7）
-    expect(tokens(screen.getByRole("columnheader", { name: "Actions" }))).toEqual(
-      expect.arrayContaining(["w-px", "whitespace-nowrap"]),
-    );
-  });
-});
-
 describe("SettingsUsersSection——#187 §9.5：帳密登入關閉時代建的說明", () => {
   beforeEach(async () => { await i18n.changeLanguage("en"); dismissAllToasts(); configServed = false; });
   afterEach(() => vi.unstubAllGlobals());
@@ -647,5 +435,202 @@ describe("W5 使用者表的儲存空間與方案（spec §9.3）", () => {
     for (let i = 0; i < 5; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
     expect(screen.queryByRole("combobox", { name: `Storage plan for ${ACTIVE_OTHER.email}` })).not.toBeInTheDocument();
     expect(within(screen.getByText(ACTIVE_OTHER.email).closest("tr")!).getByText("Basic")).toBeInTheDocument();
+  });
+});
+
+describe("使用者表（#247 §7.0，W27）", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const SELF_ROW: AdminUserDto = { ...OTHER_ADMIN, id: ADMIN_USER.id, email: ADMIN_USER.email, handle: ADMIN_USER.handle, displayName: ADMIN_USER.displayName, lastLoginAt: "2026-10-01T09:12:00.000Z" };
+
+  function stubUsers(getRows: () => AdminUserDto[], extra: (url: string, method: string, init?: RequestInit) => Response | Promise<Response> | null = () => null) {
+    return vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      const custom = extra(url, method, init) ?? baseFetchHandlers()(url, method);
+      if (custom) return Promise.resolve(custom);
+      if (url === ADMIN_USERS_URL && method === "GET") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(getRows()) }));
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+  }
+  const posts = (fetchMock: ReturnType<typeof vi.fn>, url: string) =>
+    fetchMock.mock.calls.filter(([u, i]) => String(u) === url && (i as RequestInit | undefined)?.method === "POST");
+  const rowOf = (email: string) => screen.getByText(email).closest("tr") as HTMLElement;
+
+  it("U1 欄位：User（顯示名稱＋灰字 @handle）、Email、Role、Plan、Storage、Last sign-in、Enabled；沒有 Status 欄、沒有列尾文字鈕", async () => {
+    renderUsersRoute(stubUsers(() => [SELF_ROW, ACTIVE_OTHER]));
+    await screen.findByText(ACTIVE_OTHER.email);
+    expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["User", "Email", "Role", "Plan", "Storage", "Last sign-in", "Enabled"]);
+    // 啟用 switch 的可及名稱＝表頭「Enabled」＋該列 email（aria-labelledby 兩個 id）
+    expect(within(rowOf(ACTIVE_OTHER.email)).getByRole("switch", { name: `Enabled ${ACTIVE_OTHER.email}` })).toBeInTheDocument();
+    const row = within(rowOf(ACTIVE_OTHER.email));
+    expect(row.getByText("Alice")).toBeInTheDocument();
+    expect(row.getByText(`@${ACTIVE_OTHER.handle}`)).toBeInTheDocument();
+    expect(row.queryByRole("button", { name: /^(Disable|Enable|Promote to admin)$/ })).not.toBeInTheDocument();
+  });
+
+  it("U2 角色下拉：一般 → 管理員送 promote；管理員 → 一般送 demote（bodyless POST）", async () => {
+    let rows = [SELF_ROW, ACTIVE_OTHER, OTHER_ADMIN];
+    const fetchMock = stubUsers(() => rows, (url, method) => {
+      if (method !== "POST") return null;
+      if (url === `${ADMIN_USERS_URL}/${ACTIVE_OTHER.id}/promote`) {
+        rows = rows.map((r) => (r.id === ACTIVE_OTHER.id ? { ...r, isAdmin: true } : r));
+        return fakeResponse({ ok: true, status: 204 });
+      }
+      if (url === `${ADMIN_USERS_URL}/${OTHER_ADMIN.id}/demote`) {
+        rows = rows.map((r) => (r.id === OTHER_ADMIN.id ? { ...r, isAdmin: false } : r));
+        return fakeResponse({ ok: true, status: 204 });
+      }
+      return null;
+    });
+    renderUsersRoute(fetchMock);
+    const alice = await screen.findByRole("combobox", { name: `Role for ${ACTIVE_OTHER.email}` });
+    expect(alice).toHaveValue("user");
+    fireEvent.change(alice, { target: { value: "admin" } });
+    await waitFor(() => expect(posts(fetchMock, `${ADMIN_USERS_URL}/${ACTIVE_OTHER.id}/promote`)).toHaveLength(1));
+    expect(posts(fetchMock, `${ADMIN_USERS_URL}/${ACTIVE_OTHER.id}/promote`)[0][1]).not.toHaveProperty("body");
+    await waitFor(() => expect(alice).toHaveValue("admin"));
+
+    const carol = screen.getByRole("combobox", { name: `Role for ${OTHER_ADMIN.email}` });
+    fireEvent.change(carol, { target: { value: "user" } });
+    await waitFor(() => expect(posts(fetchMock, `${ADMIN_USERS_URL}/${OTHER_ADMIN.id}/demote`)).toHaveLength(1));
+    await waitFor(() => expect(carol).toHaveValue("user"));
+  });
+
+  it("U2b promote 204 之後、名單重抓（GET）延遲期間：下拉值恆為 admin（不先彈回 user）", async () => {
+    let rows = [SELF_ROW, ACTIVE_OTHER];
+    let holdGet = false;
+    let releaseGet: () => void = () => {};
+    const fetchMock = stubUsers(() => rows, (url, method) => {
+      if (url === `${ADMIN_USERS_URL}/${ACTIVE_OTHER.id}/promote` && method === "POST") {
+        rows = rows.map((r) => (r.id === ACTIVE_OTHER.id ? { ...r, isAdmin: true } : r));
+        holdGet = true;
+        return fakeResponse({ ok: true, status: 204 });
+      }
+      if (url === ADMIN_USERS_URL && method === "GET" && holdGet) {
+        holdGet = false;
+        return new Promise<Response>((resolve) => (releaseGet = () => resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(rows) }))));
+      }
+      return null;
+    });
+    renderUsersRoute(fetchMock);
+    const alice = await screen.findByRole("combobox", { name: `Role for ${ACTIVE_OTHER.email}` });
+    fireEvent.change(alice, { target: { value: "admin" } });
+    await waitFor(() => expect(posts(fetchMock, `${ADMIN_USERS_URL}/${ACTIVE_OTHER.id}/promote`)).toHaveLength(1));
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([u, i]) => String(u) === ADMIN_USERS_URL && ((i as RequestInit | undefined)?.method ?? "GET") === "GET").length).toBeGreaterThanOrEqual(2));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(alice).toHaveValue("admin");
+    releaseGet();
+    await waitFor(() => expect(alice).not.toBeDisabled());
+    expect(alice).toHaveValue("admin");
+  });
+
+  it("U3 自己那列：角色下拉 disabled＋title「You can't remove your own admin role.」", async () => {
+    renderUsersRoute(stubUsers(() => [SELF_ROW, ACTIVE_OTHER]));
+    const mine = await screen.findByRole("combobox", { name: `Role for ${SELF_ROW.email}` });
+    expect(mine).toBeDisabled();
+    expect(mine).toHaveAttribute("title", "You can't remove your own admin role.");
+  });
+
+  it("U4 demote 409 last_site_admin → 下拉彈回管理員＋列內紅字是站台那句（不是群組的 last_admin 文案）", async () => {
+    const fetchMock = stubUsers(() => [SELF_ROW, OTHER_ADMIN], (url, method) =>
+      url === `${ADMIN_USERS_URL}/${OTHER_ADMIN.id}/demote` && method === "POST"
+        ? fakeResponse({ ok: false, status: 409, json: () => Promise.resolve({ error: { code: "last_site_admin", message: "x" } }) })
+        : null,
+    );
+    renderUsersRoute(fetchMock);
+    const carol = await screen.findByRole("combobox", { name: `Role for ${OTHER_ADMIN.email}` });
+    fireEvent.change(carol, { target: { value: "user" } });
+    const alert = await within(rowOf(OTHER_ADMIN.email)).findByRole("alert");
+    expect(alert).toHaveTextContent("The site needs at least one enabled admin.");
+    expect(alert).not.toHaveTextContent(i18n.t("errors.last_admin"));
+    expect(carol).toHaveValue("admin");
+  });
+
+  it("U5（Review Focus 4）角色 pending 時下拉 disabled、顯示剛選的值；再改一次不送第二發", async () => {
+    const fetchMock = stubUsers(() => [SELF_ROW, ACTIVE_OTHER], (url, method) =>
+      url === `${ADMIN_USERS_URL}/${ACTIVE_OTHER.id}/promote` && method === "POST" ? new Promise<Response>(() => {}) : null,
+    );
+    renderUsersRoute(fetchMock);
+    const alice = await screen.findByRole("combobox", { name: `Role for ${ACTIVE_OTHER.email}` });
+    fireEvent.change(alice, { target: { value: "admin" } });
+    await waitFor(() => expect(alice).toBeDisabled());
+    expect(alice).toHaveValue("admin");
+    fireEvent.change(alice, { target: { value: "user" } });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(posts(fetchMock, `${ADMIN_USERS_URL}/${ACTIVE_OTHER.id}/demote`)).toHaveLength(0);
+    expect(posts(fetchMock, `${ADMIN_USERS_URL}/${ACTIVE_OTHER.id}/promote`)).toHaveLength(1);
+  });
+
+  it("U6 啟用 toggle：關 → 先開確認框（不送）→ 確認 → POST disable、重抓後 toggle 為關；開（已停用者）→ 直接 POST enable", async () => {
+    let rows = [SELF_ROW, ACTIVE_OTHER, DISABLED_OTHER];
+    const fetchMock = stubUsers(() => rows, (url, method) => {
+      if (method !== "POST") return null;
+      if (url === `${ADMIN_USERS_URL}/${ACTIVE_OTHER.id}/disable`) {
+        rows = rows.map((r) => (r.id === ACTIVE_OTHER.id ? { ...r, disabledAt: "2026-10-11T00:00:00.000Z" } : r));
+        return fakeResponse({ ok: true, status: 204 });
+      }
+      if (url === `${ADMIN_USERS_URL}/${DISABLED_OTHER.id}/enable`) {
+        rows = rows.map((r) => (r.id === DISABLED_OTHER.id ? { ...r, disabledAt: null } : r));
+        return fakeResponse({ ok: true, status: 204 });
+      }
+      return null;
+    });
+    renderUsersRoute(fetchMock);
+    const aliceSwitch = await screen.findByRole("switch", { name: `Enabled ${ACTIVE_OTHER.email}` });
+    expect(aliceSwitch).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(aliceSwitch);
+    const confirm = await screen.findByRole("dialog", { name: "Disable this user?" });
+    expect(posts(fetchMock, `${ADMIN_USERS_URL}/${ACTIVE_OTHER.id}/disable`)).toHaveLength(0);
+    fireEvent.click(within(confirm).getByRole("button", { name: "Disable" }));
+    await waitFor(() => expect(posts(fetchMock, `${ADMIN_USERS_URL}/${ACTIVE_OTHER.id}/disable`)).toHaveLength(1));
+    await waitFor(() => expect(screen.getByRole("switch", { name: `Enabled ${ACTIVE_OTHER.email}` })).toHaveAttribute("aria-checked", "false"));
+
+    const bobSwitch = screen.getByRole("switch", { name: `Enabled ${DISABLED_OTHER.email}` });
+    expect(bobSwitch).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(bobSwitch);
+    await waitFor(() => expect(posts(fetchMock, `${ADMIN_USERS_URL}/${DISABLED_OTHER.id}/enable`)).toHaveLength(1));
+    expect(screen.queryByRole("dialog", { name: "Disable this user?" })).not.toBeInTheDocument();
+  });
+
+  it("U7（Review Focus 4）停用確認框按取消 → 不送任何請求、toggle 留在開", async () => {
+    const fetchMock = stubUsers(() => [SELF_ROW, ACTIVE_OTHER]);
+    renderUsersRoute(fetchMock);
+    fireEvent.click(await screen.findByRole("switch", { name: `Enabled ${ACTIVE_OTHER.email}` }));
+    const confirm = await screen.findByRole("dialog", { name: "Disable this user?" });
+    fireEvent.click(within(confirm).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Disable this user?" })).not.toBeInTheDocument());
+    expect(screen.getByRole("switch", { name: `Enabled ${ACTIVE_OTHER.email}` })).toHaveAttribute("aria-checked", "true");
+    expect(fetchMock.mock.calls.filter(([, i]) => (i as RequestInit | undefined)?.method === "POST")).toHaveLength(0);
+  });
+
+  it("U8 自己那列的啟用 toggle：照常渲染、恆為開、aria-disabled＋title「You can't disable your own account.」；按下不送、不開確認框", async () => {
+    const fetchMock = stubUsers(() => [SELF_ROW, ACTIVE_OTHER]);
+    renderUsersRoute(fetchMock);
+    const mine = await screen.findByRole("switch", { name: `Enabled ${SELF_ROW.email}` });
+    expect(mine).toHaveAttribute("aria-checked", "true");
+    expect(mine).toHaveAttribute("aria-disabled", "true");
+    expect(mine).toHaveAttribute("title", "You can't disable your own account.");
+    fireEvent.click(mine);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(screen.queryByRole("dialog", { name: "Disable this user?" })).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([, i]) => (i as RequestInit | undefined)?.method === "POST")).toHaveLength(0);
+  });
+
+  it("U9 最後登入：有值顯示 toLocaleDateString(en)、null 顯示「Never」；長 email／使用者格 wrap-anywhere、其餘欄不換行", async () => {
+    renderUsersRoute(stubUsers(() => [SELF_ROW, { ...ACTIVE_OTHER, lastLoginAt: null }]));
+    await screen.findByText(ACTIVE_OTHER.email);
+    expect(within(rowOf(SELF_ROW.email)).getByText(new Date("2026-10-01T09:12:00.000Z").toLocaleDateString("en"))).toBeInTheDocument();
+    expect(within(rowOf(ACTIVE_OTHER.email)).getByText("Never")).toBeInTheDocument();
+    const tokens = (el: Element | null) => [...(el?.classList ?? [])];
+    expect(tokens(screen.getByText(ACTIVE_OTHER.email).closest("td"))).toContain("wrap-anywhere");
+    expect(tokens(screen.getByText("Alice").closest("td"))).toContain("wrap-anywhere");
+    expect(tokens(screen.getByRole("combobox", { name: `Role for ${ACTIVE_OTHER.email}` }).closest("td"))).toContain("whitespace-nowrap");
   });
 });
