@@ -26,8 +26,8 @@ export const DialogOverlay = forwardRef<
 DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 
 /** `size="default"`＝既有的單欄表單 dialog 尺寸（NoteList/ShareDialog 既有用法，
- * 未傳 `size` 時行為零變）；`size="lg"`＝現行設定 modal 的大尺寸（#247 Task 11 刪除）；
- * `size="panel"`＝三個管理面板（`components/management/ManagementShell.tsx`，#247 §4.1／§4.6）：
+ * 未傳 `size` 時行為零變）；`lg` 已於 #247 刪除：再用會直接型別錯誤，比照 `button.tsx` 刪 `secondary`
+ * 的做法，不靠 grep 測試；`size="panel"`＝三個管理面板（`components/management/ManagementShell.tsx`，#247 §4.1／§4.6）：
  * 外框本身透明無邊、不投影，托盤與兩張卡由 ManagementShell 自己畫；窄視窗 `96vw × 92vh`，
  * `md:` 以上 `92vw × 88vh` 夾在 896×672～1360×896 之間。`panel` 時**不渲染內建 Close**——
  * 面板在右卡自己放一顆帶 i18n 名稱的 ✕（§4.5），這裡再放就會有兩顆 Close。 */
@@ -40,7 +40,6 @@ const dialogContentVariants = cva(
     variants: {
       size: {
         default: "max-w-lg p-6",
-        lg: "max-w-3xl p-0",
         panel:
           "p-0 bg-transparent border-0 shadow-none overflow-visible w-[96vw] h-[92vh] " +
           "md:w-[clamp(min(56rem,96vw),92vw,85rem)] md:h-[clamp(min(42rem,92vh),88vh,56rem)]",

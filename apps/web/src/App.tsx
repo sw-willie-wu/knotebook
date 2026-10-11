@@ -33,7 +33,7 @@ const NotePage = lazy(() => import("./pages/NotePage"));
 /**
  * #201：首包又長到逼近 700 KiB 上限，把「不是每次都會用到」的頁面也切出去——
  * - 站台管理（`AdminPage`，連同它三個子區塊，同一個 chunk；理由見 AdminPage.tsx 檔頭）；
- * - 設定 modal 的四個區塊（外殼 `SettingsModal` 留在首包：modal-over-background 機制與
+ * - 設定 modal 的六個頁面（#247；過渡期另有群組詳情與角色兩頁，Part 3 移到群組 modal）（外殼 `SettingsModal` 留在首包：modal-over-background 機制與
  *   開 modal 時外框立刻出現都靠它，只有內容區等 chunk）；
  * - 登入流程的四頁：註冊、帳號連結、強制改密碼、OAuth 同意頁。
  *
@@ -186,7 +186,7 @@ function PublicNoteRoute() {
  *   且後掛載」上**：哪天把某個 modal-over-background 路由移出第二棵樹，`next` 會
  *   **靜默**退化成背景頁。守衛在 `App.test.tsx` 的「未登入開設定 modal → next 取
  *   真實網址」那案。
- * - **第二棵樹**：只含 `/settings/*`（modal 三區＋兩條往 `/admin/*` 的舊網址轉址），
+ * - **第二棵樹**：只含 `/settings/*`（modal 六頁＋過渡期的群組詳情兩頁、`/settings` 與兩條往 `/admin/*` 的轉址），
  *   吃真實 location（不帶 `location` prop）；
  *   非 `/settings/*` 路徑下整棵 match 不到任何 route → render `null`，樹內的
  *   guard 元件根本不會執行，不會有幽靈重導。guard 元件在這裡
@@ -305,7 +305,7 @@ export function AppRoutes() {
         <Route element={<RequireAuth />}>
           <Route element={<ChangePasswordGate />}>
             <Route element={<SettingsModal />}>
-              {/* Dialog 外殼＝layout route，區塊切換不重掛 */}
+              {/* Dialog 外殼＝layout route，項次切換不重掛（#247 §5.1：六項） */}
               <Route path="/settings/account" element={<SettingsAccountSection />} />
               {/* #247 §5.2／§5.3：密碼＋已連結登入方式（OIDC 連結回程落點，§9.9）／API token */}
               <Route path="/settings/login" element={<SettingsLoginSection />} />
@@ -314,14 +314,16 @@ export function AppRoutes() {
               <Route path="/settings/storage" element={<SettingsStorageUsageSection />} />
               {/* #247：群組唯讀總覽（所有登入者） */}
               <Route path="/settings/groups" element={<SettingsGroupsOverview />} />
+              <Route path="/settings/about" element={<SettingsAboutSection />} />
+              {/* 過渡（#247 Part 3 改成 LegacyGroupRedirect 轉 /groups/:id，並刪這兩支 lazy）。 */}
               <Route path="/settings/groups/:id" element={<SettingsGroupDetailSection />} />
               <Route path="/settings/groups/:id/roles" element={<SettingsGroupRolesSection />} />
-              <Route path="/settings/about" element={<SettingsAboutSection />} />
             </Route>
           </Route>
-          {/* 舊網址（書籤、舊文件連結）：站台管理搬到 /admin/* 後轉址過去。刻意掛在
-              SettingsModal **外面**（不先閃一下 modal 再跳走），仍在 RequireAuth 內；
-              admin 與否交給 /admin 那邊的 RequireAdmin 判。 */}
+          {/* 轉址一律掛在 SettingsModal **外面**、RequireAuth 裡面（不先閃一下 modal；目的地自己的守衛照常判）。
+              `/settings` → 第一個項次（#247 §5.1）。舊網址 `/settings/users`、`/settings/ai`（書籤、舊文件連結）：
+              站台管理搬到 /admin/* 後轉址過去，admin 與否交給 /admin 那邊的 RequireAdmin 判。 */}
+          <Route path="/settings" element={<Navigate to="/settings/account" replace />} />
           <Route path="/settings/users" element={<Navigate to="/admin/users" replace />} />
           <Route path="/settings/ai" element={<Navigate to="/admin/ai" replace />} />
         </Route>

@@ -3,13 +3,9 @@ import { NavLink } from "react-router";
 import { cn } from "@/lib/utils";
 
 /**
- * 左側導覽項的共用樣式（設定 modal 的導覽與站台管理頁 `/admin/*` 的側欄導覽共用）。
- * 用 `NavLink` 而非 `Button`／`onClick` 手動 `navigate`，讓「目前在哪一區」的高亮
- * 完全交給 react-router 判斷（不用自己比對 pathname）。
- *
- * 這一層**不帶任何 `state` 語意**：要轉傳 `backgroundLocation` 的是設定 modal，由它
- * 自己包一層（見 `SettingsModal.tsx` 的 `SettingsNavLink`）；站台管理頁是一般頁面、
- * 不需要 state，直接用這個。
+ * 左側導覽項的共用樣式——**只剩站台管理頁 `/admin/*`（`pages/AdminPage.tsx`）在用**；設定 modal
+ * 自 #247 起改用 `components/management/ManagementShell` 的 `ManagementNavItem`。#247 Part 3 把站台
+ * 管理改成 modal 後本檔刪除。
  */
 export function NavItemLink({
   to,

@@ -11,7 +11,7 @@ import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppRoutes } from "@/App";
 import type { CollabState } from "@/collab/connection";
-import { OWNER_PERMS } from "@/test/fixtures";
+import { adminRole, groupDto, OWNER_PERMS } from "@/test/fixtures";
 import { clickOutside } from "@/test/outside-click";
 
 // 設定總 modal（spec §13.4）：兩棵 Routes 樹＋modal-over-background 機制，一律用真正的
@@ -287,11 +287,11 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
     expect(screen.getByTestId("note-editor")).toBeInTheDocument();
   });
 
-  it("backgroundLocation 跨區塊切換仍保留：/notes/x 開設定 → 切到 Groups → 關閉 → 回到 /notes/x（不是回退到 /）", async () => {
-    // 這一案專門守 `SettingsNavLink` 的 `state={backgroundLocation ? {...} : undefined}`
-    // ——沒有它，區塊互切一次後 `location.state.backgroundLocation` 就會變 undefined，
-    // 關閉時只能落回 `/`，靜默扯掉背景 `/notes/:ref` 的共編 provider。
-    // （站台管理搬到 /admin/* 後，modal 只剩帳號／群組兩項，切的是 Groups。）
+  it("backgroundLocation 跨區塊切換仍保留：/notes/x 開設定 → 切到 Storage → 再切 Groups → 關閉 → 回到 /notes/x（不是回退到 /）", async () => {
+    // 這一案專門守 `ManagementNavItem`（components/management/ManagementShell.tsx）的
+    // `state={backgroundLocation ? {...} : undefined}`——沒有它，項次互切一次後
+    // `location.state.backgroundLocation` 就會變 undefined，關閉時只能落回 `/`，靜默扯掉背景
+    // `/notes/:ref` 的共編 provider。#247 起六個項次：連切兩個新項次，背景仍要一路帶著。
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method ?? "GET").toUpperCase();
@@ -312,7 +312,12 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
       timeout: 3_000,
     });
 
-    fireEvent.click(within(screen.getByRole("navigation")).getByText("Groups"));
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Settings" })).getByText("Storage"));
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Storage" })).toBeInTheDocument(), {
+      timeout: 3_000,
+    });
+
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Settings" })).getByText("Groups"));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Groups" })).toBeInTheDocument(), {
       timeout: 3_000,
     });
@@ -442,7 +447,7 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
     expect(screen.getByRole("heading", { name: "User management" })).toBeInTheDocument();
   });
 
-  it("admin 深連結 /settings/account → 導覽只有帳號／群組，**看不到**使用者／AI（站台管理不在設定裡）", async () => {
+  it("admin 深連結 /settings/account → 導覽恰為六項、順序固定，**看不到**使用者／AI（站台管理不在設定裡）", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method ?? "GET").toUpperCase();
@@ -454,16 +459,16 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
     renderAt(["/settings/account"], fetchMock);
 
     await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Account info" })).toBeInTheDocument());
-    const nav = within(screen.getByRole("navigation"));
-    expect(nav.getByText("Account info")).toBeInTheDocument();
+    const nav = within(screen.getByRole("navigation", { name: "Settings" }));
+    // 取每個項次的標籤 span（「群組」項右側另有計數 span，textContent 會黏在一起）
+    expect(nav.getAllByRole("link").map((a) => a.querySelector("span")?.textContent)).toEqual([
+      "Account info", "Sign-in", "Authorization", "Storage", "Groups", "About",
+    ]);
     expect(nav.queryByText("Users")).not.toBeInTheDocument();
     expect(nav.queryByText("AI")).not.toBeInTheDocument();
-    // #103：群組頁所有登入者都看得到，admin 也不例外。
-    expect(nav.getByText("Groups")).toBeInTheDocument();
-    expect(nav.getAllByRole("link")).toHaveLength(2);
   });
 
-  it("非 admin 深連結 /settings/account → 導覽只看得到帳號", async () => {
+  it("非 admin 深連結 /settings/account → 導覽同樣恰為六項（非 admin 也一樣）", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method ?? "GET").toUpperCase();
@@ -475,12 +480,92 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
     renderAt(["/settings/account"], fetchMock);
 
     await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Account info" })).toBeInTheDocument());
-    const nav = within(screen.getByRole("navigation"));
-    expect(nav.getByText("Account info")).toBeInTheDocument();
+    const nav = within(screen.getByRole("navigation", { name: "Settings" }));
+    expect(nav.getAllByRole("link").map((a) => a.querySelector("span")?.textContent)).toEqual([
+      "Account info", "Sign-in", "Authorization", "Storage", "Groups", "About",
+    ]);
     expect(nav.queryByText("Users")).not.toBeInTheDocument();
     expect(nav.queryByText("AI")).not.toBeInTheDocument();
-    // #103：群組頁所有登入者都看得到，非 admin 也一樣。
-    expect(nav.getByText("Groups")).toBeInTheDocument();
+  });
+
+  it("#247 Q7：左卡「群組」項右側顯示所屬群組數", async () => {
+    const groups = [
+      groupDto({ id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", name: "Team Alpha" }, adminRole()),
+      groupDto({ id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", name: "Team Beta" }, adminRole()),
+    ];
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (url === "/api/groups" && method === "GET") {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(groups) }));
+      }
+      const res = baseFetchHandlers(() => PLAIN_USER)(url, method);
+      if (res) return Promise.resolve(res);
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    renderAt(["/settings/about"], fetchMock);
+    const nav = within(await screen.findByRole("navigation", { name: "Settings" }));
+    const groupsLink = nav.getByRole("link", { name: "Groups" }); // 計數 aria-hidden，可及名稱維持「Groups」
+    await waitFor(() => expect(within(groupsLink).getByText("2")).toHaveClass("text-muted-foreground"));
+    // 計數出現**之後**再以名稱取一次：可及名稱仍恰為「Groups」（上面那次取連結時計數還沒到）。
+    // ByRole 的字串 name 本來就是全字串精確比對（ByRoleOptions 沒有 `exact` 選項），"Groups 2" 不會命中。
+    expect(nav.getByRole("link", { name: "Groups" })).toBe(groupsLink);
+    expect(within(groupsLink).getByText("2")).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("#247 Q7：群組清單載入中 →「群組」項不顯示計數", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (url === "/api/groups" && method === "GET") return new Promise<Response>(() => {}); // 永遠不回
+      const res = baseFetchHandlers(() => PLAIN_USER)(url, method);
+      if (res) return Promise.resolve(res);
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    renderAt(["/settings/about"], fetchMock);
+    const nav = within(await screen.findByRole("navigation", { name: "Settings" }));
+    const groupsLink = nav.getByRole("link", { name: "Groups" });
+    expect(within(groupsLink).queryByText(/^\d+$/)).toBeNull(); // 只有標籤，沒有計數
+  });
+
+  it("#247 §5.1：/settings → 轉址 /settings/account（掛在 SettingsModal 外、RequireAuth 內）", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const res = baseFetchHandlers(() => PLAIN_USER)(String(input), (init?.method ?? "GET").toUpperCase());
+      if (res) return Promise.resolve(res);
+      throw new Error(`unexpected fetch: ${String(input)}`);
+    });
+    renderAt(["/settings"], fetchMock);
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/settings\/account$/));
+    expect(await screen.findByRole("heading", { level: 1, name: "Account info" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Settings" })).toBeInTheDocument();
+  });
+
+  it("#247 §5.1：未登入開 /settings → 導 /login?next=%2Fsettings（轉址在 RequireAuth 內）", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === "/api/auth/config") {
+        // /login 的 LoginPage 會打這支（useAuthConfig）
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ providers: [], registration: { enabled: false }, passwordLogin: { enabled: true }, autoVersionsEnabled: true }) }));
+      }
+      const res = baseFetchHandlers(() => null)(String(input), (init?.method ?? "GET").toUpperCase());
+      if (res) return Promise.resolve(res);
+      throw new Error(`unexpected fetch: ${String(input)}`);
+    });
+    renderAt(["/settings"], fetchMock);
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/login$/));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("#247 §4.5：面板內恰一顆 Close、恰一個 DialogTitle（＝「Settings」）", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const res = baseFetchHandlers(() => PLAIN_USER)(String(input), (init?.method ?? "GET").toUpperCase());
+      if (res) return Promise.resolve(res);
+      throw new Error(`unexpected fetch: ${String(input)}`);
+    });
+    renderAt(["/settings/about"], fetchMock);
+    const dialog = await screen.findByRole("dialog", { name: "Settings" });
+    await within(dialog).findByRole("heading", { level: 1, name: "About" });
+    expect(within(dialog).getAllByRole("button", { name: "Close" })).toHaveLength(1);
+    expect(document.getElementById(dialog.getAttribute("aria-labelledby")!)).toHaveTextContent("Settings");
   });
 
   it("/settings/account ↔ /settings/groups 切換：Dialog DOM 節點不重掛（identity 不變）", async () => {

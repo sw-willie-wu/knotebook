@@ -1,108 +1,59 @@
 import { Suspense } from "react";
 import { Outlet, useLocation, useNavigate, type Location } from "react-router";
 import { useTranslation } from "react-i18next";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { useGroups } from "@/api/groups";
 import { ChunkLoadBeacon, LazyRouteErrorBoundary, LazyRouteLoading } from "@/components/ErrorBoundary";
-import { NavItemLink } from "./SettingsNavLink";
+import { ManagementShell, type ManagementNavItemSpec } from "@/components/management/ManagementShell";
 
 interface SettingsLocationState {
   backgroundLocation?: Location;
 }
 
 /**
- * 一條左側導覽項——樣式與高亮交給共用的 `NavItemLink`，這一層只多做一件事：
- * `state={backgroundLocation ? { backgroundLocation } : undefined}` 把目前這次
- * 導覽帶進來的 `backgroundLocation` 原封傳給下一個 route entry——沒有這個，
- * 帳號／群組兩個區塊互切時 `state` 會變 `undefined`，關閉 modal 時就找不回原本的
- * 背景頁，只能落回 `/`（見 `SettingsModal` 的關閉行為）。
- */
-function SettingsNavLink({
-  to,
-  label,
-  backgroundLocation,
-}: {
-  to: string;
-  label: string;
-  backgroundLocation: Location | undefined;
-}) {
-  return (
-    <NavItemLink to={to} state={backgroundLocation ? { backgroundLocation } : undefined}>
-      {label}
-    </NavItemLink>
-  );
-}
-
-/**
- * 設定總 modal 外殼（spec §13.4）——第二棵 Routes 樹的 layout route：Radix Dialog
- * 包 `<Outlet/>`，`/settings/account`｜`/settings/groups`｜`/settings/groups/:id`｜`/settings/groups/:id/roles`
- * 之間切換是巢狀 route 切換，`<Dialog>`／`<DialogContent>` 本身不隨切換卸載重掛
- * （layout route 的既有語意——比照 `ChangePasswordGate` 那些 `<Outlet/>` 元件）。
+ * 個人設定 modal（#247 §5）——第二棵 Routes 樹的 layout route。外殼（托盤、兩卡、✕、窄視窗雙層、
+ * 項次轉傳 `backgroundLocation`）全在 `components/management/ManagementShell`；這一層只做兩件事：
+ * 1. 關閉（Esc／✕）時導回開啟前的背景 location（`location.state.backgroundLocation`）；深連結沒有這個
+ *    state 時導回 `/`。點外面不關（外殼的 `dismissOnOutside={false}`）。
+ * 2. 六個項次（帳戶資訊／登入／授權／儲存空間／群組／關於，Willie W8）。站台管理不在這裡（入口在 `UserMenu`）。
  *
- * 導覽項只有帳號、群組兩項，所有登入者一樣。站台管理（使用者、AI）2026-09-30 起是
- * 獨立頁 `/admin/*`（`pages/AdminPage.tsx`，入口在 `UserMenu`），不在這個 modal 裡；
- * 舊網址 `/settings/users`、`/settings/ai` 由 `App.tsx` 第二棵樹轉址過去，而且轉址
- * 路由掛在本元件**外面**——不會先閃一下 modal。
- *
- * 關閉（Esc／✕／backdrop，都會走 Radix 的 `onOpenChange(false)`）：導回開啟前的
- * 背景 location（`location.state.backgroundLocation`）；深連結進來時沒有這個 state
- * （例如直接貼網址），就導回 `/`。背景是 `/admin/users` 時（在管理頁上開設定）照樣
- * 回到管理頁，不需另外處理。
- *
- * 各區塊是 lazy chunk（#201，`App.tsx` 的 route element）：本外殼留在首包，開 modal 時
- * 外框與導覽立刻出現，只有內容區在 chunk 到手前顯示「載入中」。chunk 載入失敗走
- * `LazyRouteErrorBoundary`（#66 的同一套：自動 reload 一次、之後落到內容區的錯誤＋重試）；
- * `resetKey` 取真實 pathname——錯誤畫面上點另一個導覽項＝換目的地，整頁 reload 落在新網址。
- * `ChunkLoadBeacon` 必須在 Suspense 內、與 `<Outlet/>` 並列（擺放不變量見 ErrorBoundary.tsx）。
+ * 項次之間切換是巢狀 route 切換，`<Dialog>` 不隨切換卸載重掛（layout route 的既有語意）。
+ * 各頁是 lazy chunk（#201）：外殼留在首包，開 modal 時外框與導覽立刻出現，只有內容區在 chunk 到手前顯示
+ * 「載入中」。chunk 載入失敗走 `LazyRouteErrorBoundary`（自動 reload 一次、之後內容區顯示錯誤＋重試）；
+ * `resetKey` 取真實 pathname——錯誤畫面上點另一個項次＝換目的地。`ChunkLoadBeacon` 必須在 Suspense 內、
+ * 與 `<Outlet/>` 並列（擺放不變量見 ErrorBoundary.tsx）。`chunk="settings"` 只是錯誤邊界的額度別名，不代表一個 chunk。
  */
 export function SettingsModal() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
-  const state = location.state as SettingsLocationState | null;
-  const backgroundLocation = state?.backgroundLocation;
+  const backgroundLocation = (location.state as SettingsLocationState | null)?.backgroundLocation;
+  // 「群組」項右側灰字計數（原型 v30、#247 Q7 裁定）：與側欄同一份 ['groups'] 快取；載入中（data undefined）不顯示。
+  const groups = useGroups();
 
   function handleOpenChange(open: boolean): void {
     if (open) return;
     navigate(backgroundLocation ?? "/");
   }
 
+  // 群組項不帶 `end`：過渡期（#247 Part 2 → Part 3 之間）`/settings/groups/:id(/roles)` 仍在本 modal 裡，
+  // 停在那裡時「群組」要維持高亮。Part 3 把那兩條改成轉址後，有無 `end` 結果相同。
+  const items: ManagementNavItemSpec[] = [
+    { to: "/settings/account", label: t("settings.nav.account") },
+    { to: "/settings/login", label: t("settings.nav.login") },
+    { to: "/settings/authorization", label: t("settings.nav.authorization") },
+    { to: "/settings/storage", label: t("settings.nav.storage") },
+    { to: "/settings/groups", label: t("settings.nav.groups"), count: groups.data?.length },
+    { to: "/settings/about", label: t("settings.nav.about") },
+  ];
+
   return (
-    <Dialog open onOpenChange={handleOpenChange}>
-      {/* 設定面板的幾何全部集中在這兩行（`size="lg"` 只有這裡在用）：外框
-          896×672（`max-w-4xl`／`h-[42rem]`，蓋掉 variant 的 `max-w-3xl`，由
-          tailwind-merge 消解衝突），扣掉 208px 導覽與內容區 32px 內距後，內容
-          可用寬約 624px——比改版前的 528px 寬，當初是為了讓 AI／使用者那兩區的
-          表格與並排欄位不折行（那兩區 2026-09-30 已搬到 `/admin/*` 獨立頁，尺寸
-          未跟著重調），又不會讓說明文字拉得太開（說明本身另有 `max-w-prose` 限寬）。
-          高度吃到 `max-h-[88vh]`：這幾頁是往下長的清單（token、群組成員），
-          高一點能一次看到更多列，少捲一次。 */}
-      <DialogContent
-        size="lg"
-        // 點外面不關：內容區的 inline 表單（改密碼、群組改名等）有未存輸入；Esc／右上 X 照常關閉。
-        dismissOnOutside={false}
-        className="flex h-[42rem] max-h-[88vh] w-full max-w-4xl overflow-hidden"
-      >
-        {/* 導覽是「機殼」、右邊是「文件」：給左欄一層極淡的底色，兩者才分得開——
-            改版前兩側同色、只隔一條 1px 線，整個 modal 讀起來是一整片。
-            `settings.title` 在這裡只是定位用的品牌字（13px 靜音），頁標題交給右邊的
-            `SettingsPage`；它同時是 Radix 要求的 `DialogTitle`（modal 的可及名稱）。 */}
-        <nav className="flex w-52 shrink-0 flex-col gap-1 border-r border-border bg-muted/40 p-4">
-          <DialogTitle className="px-2 pb-3 text-[0.8125rem] font-medium text-muted-foreground">
-            {t("settings.title")}
-          </DialogTitle>
-          <DialogDescription className="sr-only">{t("settings.description")}</DialogDescription>
-          <SettingsNavLink to="/settings/account" label={t("settings.nav.account")} backgroundLocation={backgroundLocation} />
-          <SettingsNavLink to="/settings/groups" label={t("settings.nav.groups")} backgroundLocation={backgroundLocation} />
-        </nav>
-        <div className="flex-1 overflow-y-auto p-8">
-          <LazyRouteErrorBoundary resetKey={location.pathname} chunk="settings" frame="inline">
-            <Suspense fallback={<LazyRouteLoading frame="inline" />}>
-              <Outlet />
-              <ChunkLoadBeacon chunk="settings" />
-            </Suspense>
-          </LazyRouteErrorBoundary>
-        </div>
-      </DialogContent>
-    </Dialog>
+    <ManagementShell title={t("settings.title")} description={t("settings.description")} items={items} onOpenChange={handleOpenChange}>
+      <LazyRouteErrorBoundary resetKey={location.pathname} chunk="settings" frame="inline">
+        <Suspense fallback={<LazyRouteLoading frame="inline" />}>
+          <Outlet />
+          <ChunkLoadBeacon chunk="settings" />
+        </Suspense>
+      </LazyRouteErrorBoundary>
+    </ManagementShell>
   );
 }
