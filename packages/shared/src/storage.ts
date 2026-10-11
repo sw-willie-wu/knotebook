@@ -15,6 +15,61 @@ export interface StorageUsageDto {
   planName: string;
 }
 
+/**
+ * #247 §9.1：上傳媒體依類型的位元組數。五鍵恆在（W30：UI 五列恆顯示，含 0）。
+ * 現況上傳只收四種圖片 mime（server `uploads/magic-bytes.ts`），所以只有 image 會非零；版面先為多類型留好。
+ */
+export interface StorageByKind {
+  image: number;
+  audio: number;
+  video: number;
+  document: number;
+  other: number;
+}
+export type StorageKind = keyof StorageByKind;
+
+/** UI「依類型」五列的固定順序。 */
+export const STORAGE_KINDS: readonly StorageKind[] = ["image", "audio", "video", "document", "other"];
+
+/** 每次回新物件（呼叫端會就地累加）。 */
+export function emptyStorageByKind(): StorageByKind {
+  return { image: 0, audio: 0, video: 0, document: 0, other: 0 };
+}
+
+const DOCUMENT_MIMES = new Set([
+  "application/pdf",
+  "application/msword",
+  "application/vnd.ms-excel",
+  "application/vnd.ms-powerpoint",
+  "application/rtf",
+]);
+
+/**
+ * mime → 類型（spec #247 §9.1）。正規化（取 `;` 前、trim、小寫）是 spec 未寫、刻意加的（總管裁定 5）。分類規則只有這一份：server 以 `GROUP BY uploads.mime` 取各 mime 的總和後在 JS 端歸類，
+ * 不在 SQL 重寫一次。先取 `;` 前的部分、trim、轉小寫（`text/plain; charset=utf-8`、`IMAGE/PNG` 照常歸類）。
+ */
+export function kindOfMime(mime: string): StorageKind {
+  const m = (mime.split(";")[0] ?? "").trim().toLowerCase();
+  if (m.startsWith("image/")) return "image";
+  if (m.startsWith("audio/")) return "audio";
+  if (m.startsWith("video/")) return "video";
+  if (m.startsWith("text/") || DOCUMENT_MIMES.has(m) || m.startsWith("application/vnd.openxmlformats-officedocument.")) return "document";
+  return "other";
+}
+
+/** 群組用量的「依成員」一列（#247 §9.2）。`userId` null＝上傳者帳號已刪除（`uploads.uploader_id` on delete set null），全部彙總成一列。 */
+export interface GroupStorageMemberUsageDto {
+  userId: string | null;
+  handle: string | null;
+  displayName: string | null;
+  bytes: number;
+}
+
+/** `GET /api/groups/:id/storage`（#247 §9.2）。`byMember` 只含 bytes > 0 的列，bytes 降冪；同 bytes 依 userId 升冪、null 列最後。 */
+export interface GroupStorageUsageDto extends StorageUsageDto {
+  byMember: GroupStorageMemberUsageDto[];
+}
+
 /** 站台管理的使用者列與群組列上的儲存欄（`AdminUserDto.storage`、`AdminGroupDto.storage`）。 */
 export interface SpaceStorageDto {
   planId: string;
