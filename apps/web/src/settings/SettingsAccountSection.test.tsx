@@ -320,7 +320,7 @@ describe("SettingsAccountSection——使用者名欄（#122 Task 5）", () => {
     const input = await screen.findByLabelText("URL name");
     fireEvent.change(input, { target: { value: "occupied" } });
     fireEvent.click(screen.getByRole("button", { name: "Save URL name" }));
-    await waitFor(() => expect(screen.getByText("That username is already taken.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("That URL name is already taken.")).toBeInTheDocument());
   });
 
   it("429 too_many_requests → 顯示對應文案（plan gate 注意事項 8）", async () => {

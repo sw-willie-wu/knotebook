@@ -32,6 +32,8 @@ The full checklist is under **Upgrading to v0.10** in [Upgrading and rolling bac
 - API: `PATCH /api/auth/profile` accepts `displayName` to change the name others see; it follows the same rule as registering and doesn't count against the rename limit (#247).
 - API: `POST /api/admin/users/:id/demote` removes a user's site admin role. It refuses to remove your own (`400 cannot_demote_self`) or when no other enabled admin would be left (`409 last_site_admin`) (#247).
 - API: `GET /api/admin/users` returns `lastLoginAt`, when each user last signed in (`null` if they haven't since upgrading). A sign-in made while another change to the same account is in progress can go unrecorded (#247).
+- Group storage shows usage by file type and by member, and every member of the group can see it (#247).
+- You can change your display name — the name others see — in **Settings → Account info** (#247).
 
 ### Changed
 
@@ -45,6 +47,11 @@ The full checklist is under **Upgrading to v0.10** in [Upgrading and rolling bac
 - **Breaking (MCP):** `list_notes`, `search_notes`, `read_note_outline`, `read_note_section`, `edit_note`, `create_transfer_token` and `read_note_image` reject arguments they don't know instead of ignoring them. Before, `edit_note`'s `append` with `ifMatch` instead of `if_match` skipped the fingerprint check and wrote anyway (#241).
 - API: any member of a group can now read `GET /api/groups/:id/storage`; before, only roles that can manage the group could (others got `403`). Someone who isn't a member still gets `404` (#247).
 - After linking a sign-in service from Settings, the browser now comes back to `/settings/login` (`?linked=` or `?link_error=`) instead of `/settings/account` (#247).
+- **Settings has six pages:** **Account info** (display name and URL name), **Sign-in** (password and linked sign-in services), **Authorization** (API tokens and the apps you've authorized, and how to connect Claude over MCP), **Groups** (your groups, with your role and its permissions in each), **Storage** (your usage, by type, and the switch for automatic versions of your notes) and **About** (#247).
+- **Site admin is a panel again**, opened from **Site admin** in the user menu over the page you were on, with five sections: **Users**, **Groups**, **Sign-in** (was `/admin/auth`, now `/admin/login`), **Storage plans** (now also holds the site's version-history settings; `/admin/versions` redirects there) and **AI agents** (was **AI**). Closing it returns to that page, or to the home page if you opened it from a bookmark or a pasted address; the **Back to notes** link is gone (#247).
+- **Each group has its own panel** at `/groups/<id>` — the group's `⋮` menu in the sidebar → **Members & settings** (or **View members**) — with **Members**, **Roles**, **Storage** and **About**; it no longer lives inside Settings, and `/settings/groups/<id>` redirects there. Leaving or deleting the group from it returns you to the page you were on, or to the home page if that was one of the group's notes or you opened the panel from a bookmark or a pasted address (#247).
+- Group roles: a permission switch takes effect as soon as you flip it; there is no **Apply** button. Rename a custom role with the pencil (#247).
+- Site admin → Users: the role is a menu (**Admin**/**User**) — choosing **User** removes the admin role, which the web app couldn't do before — and **Enabled** is a switch in place of the **Status** column and the **Disable**/**Enable** buttons; turning it off still asks first. A new **Last sign-in** column shows **Never** until the person next signs in after upgrading (#247).
 
 ### Fixed
 

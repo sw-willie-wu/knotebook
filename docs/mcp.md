@@ -45,7 +45,15 @@ A static header involves no OAuth token exchange, so this also works on a plain 
 }
 ```
 
-On a plain `http://` deployment, add `"--allow-http"` at the end of `args`. On Windows, Claude Desktop usually needs the command wrapped in `cmd /c`, as shown further down.
+On a plain `http://` deployment, add `"--allow-http"` at the end of `args`. On Windows, Claude Desktop usually needs the command wrapped in `cmd /c`: set `command` to `"cmd"` and put `"/c", "npx"` at the start of `args`, keeping `env` as it is:
+
+```json
+"knotebook": {
+  "command": "cmd",
+  "args": ["/c", "npx", "-y", "mcp-remote", "https://<your-host>/api/mcp", "--header", "Authorization:${AUTH_HEADER}"],
+  "env": { "AUTH_HEADER": "Bearer knb_…" }
+}
+```
 
 The commands below are the other route: letting the client obtain a credential of its own over OAuth, which is what Claude Code and `mcp-remote` do.
 
@@ -214,7 +222,7 @@ Fields that do not belong to the operation you asked for are rejected rather tha
 
 **Answers** `note` — the same entry shape `list_notes` returns. Its `id` is what you pass to `read_note_outline`, or to `edit_note` when its `role` allows writing; its `url` is the same site-relative path described under `list_notes`, not a link you can hand over as it stands. A personal note comes back with `role: "owner"`. A note created with `group_id` belongs to the group: its `owner` is `{kind: "group", id, name, nameTruncated?}`, its `url` is `/g/<group id>/<slug>`, and its `role` is what your role in that group gives you on the group's notes — `"editor"`, or `"viewer"` if your role can create notes but not edit them, in which case your role doesn't let you change the note's content: `edit_note` answers `forbidden`.
 
-- **`group_id` puts the note in one of your groups.** Pass the id of one of your groups where your role lets you create notes. The note then belongs to the group, not to you. Leave it out for a personal note. If your role there can create notes but not edit them, the note is read-only for you: the reply's `role` is `viewer`. The id is the `id` in the `owner` of any of that group's notes from `list_notes` or `search_notes`; there is no tool that lists your groups, so a group with no notes yet doesn't show up anywhere here — its id is in the address of the group's settings page in the web app (`/settings/groups/<group id>`). A group you don't belong to and a group that doesn't exist both answer the same `group_not_found`, byte for byte; a group where your role can't create notes answers `forbidden`. A `group_id` that is not a uuid fails the tool's input check (see [Errors](#errors) — that answer carries no `code`).
+- **`group_id` puts the note in one of your groups.** Pass the id of one of your groups where your role lets you create notes. The note then belongs to the group, not to you. Leave it out for a personal note. If your role there can create notes but not edit them, the note is read-only for you: the reply's `role` is `viewer`. The id is the `id` in the `owner` of any of that group's notes from `list_notes` or `search_notes`; there is no tool that lists your groups, so a group with no notes yet doesn't show up anywhere here — its id is in the address of the group's panel in the web app (the group's `⋮` menu in the sidebar → **Members & settings**, or **View members** if your role can't manage members), `/groups/<group id>`. A group you don't belong to and a group that doesn't exist both answer the same `group_not_found`, byte for byte; a group where your role can't create notes answers `forbidden`. A `group_id` that is not a uuid fails the tool's input check (see [Errors](#errors) — that answer carries no `code`).
 - Leave out `title` and the note is called "Untitled" and keeps a database-assigned `untitled-<8 hex characters>` URL. A `title` you pass here is also what the note's URL is derived from, de-duplicated against the other notes in the same place — your personal notes, or that group's notes — with a numeric suffix (`meeting-notes`, then `meeting-notes-2`). Some titles have no usable URL form and fall back to `untitled`, numbered the same way — punctuation on its own, a reserved word, or a uuid, or a title ending in one. Pass a title if you know it; `edit_note`'s `rename` can change it later when the reply's `role` is `owner` or `editor`.
 - `content` is the new note's markdown. Leave `content` out for an empty note, which `edit_note` can fill in later if the reply's `role` is `owner` or `editor`. Bad markdown is rejected before anything is stored, so a call that fails to parse leaves no note behind.
 - **Only a call carrying `content` is recorded and can be undone** — undone by anyone who can edit the note, which leaves out the creator when their role in the group can create notes but not edit them. Creating an empty note writes no history row — there is nothing to revert. Filling it in afterwards with `edit_note`, when your `role` on the note lets you, is what produces a revertable entry.
