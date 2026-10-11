@@ -104,7 +104,7 @@ const AdminAiSection = lazy(() => import("./components/admin/AdminSections").the
  * boundary（自己的額度、自己的 pending 期），不必重載。`resetKey` 因此固定 undefined——
  * 同一條 route 內沒有「換目的地」的情境。App.lazyPages.test.tsx 末案守著。
  */
-function LazyPageRoute({ chunk, frame, children }: { chunk: string; frame: "app" | "page"; children: ReactNode }) {
+function LazyPageRoute({ chunk, frame, children }: { chunk: string; frame: "page"; children: ReactNode }) {
   return (
     <LazyRouteErrorBoundary key={chunk} resetKey={undefined} chunk={chunk} frame={frame}>
       <Suspense fallback={<LazyRouteLoading frame={frame} />}>
