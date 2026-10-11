@@ -1036,7 +1036,7 @@ function expectGroupPanelShape() {
   expect(within(dialog).queryByRole("textbox", { name: "Email address" })).not.toBeInTheDocument();
   expect(within(dialog).getByText(/In "Workshop A", every member whose role can read has access\./)).toBeInTheDocument();
   const link = within(dialog).getByRole("link", { name: "Group settings" });
-  expect(link).toHaveAttribute("href", `/settings/groups/${GROUP_ID}`);
+  expect(link).toHaveAttribute("href", `/groups/${GROUP_ID}`);
   return link;
 }
 

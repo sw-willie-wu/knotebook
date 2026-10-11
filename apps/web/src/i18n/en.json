@@ -542,6 +542,13 @@
       "byMemberEmpty": "No one has uploaded files yet.",
       "deletedUser": "Deleted user"
     },
+    "about": {
+      "infoTitle": "Details",
+      "createdAt": "Created",
+      "members": "Members",
+      "memberCount_one": "{{count}} member",
+      "memberCount_other": "{{count}} members"
+    },
     "menu": {
       "label": "Group actions for {{name}}",
       "manage": "Members & settings",

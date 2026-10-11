@@ -488,7 +488,7 @@ function GroupNoteShareSection({ note, onClose }: { note: NoteDto; onClose: () =
         {t("share.groupNote.access", { name: note.group?.name ?? "" })}{" "}
         {typeof note.groupId === "string" && (
           <Link
-            to={`/settings/groups/${encodeURIComponent(note.groupId)}`}
+            to={`/groups/${encodeURIComponent(note.groupId)}`}
             state={{ backgroundLocation: location }}
             onClick={onClose}
             className="text-brand underline-offset-4 hover:underline"

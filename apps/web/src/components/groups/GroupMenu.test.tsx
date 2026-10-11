@@ -114,11 +114,12 @@ describe("GroupMenu", () => {
     expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["View members", "Rename", "Delete group", "Leave group"]);
   });
 
-  it("成員與設定 → navigate /settings/groups/:id 並帶 backgroundLocation", async () => {
+  it("成員與設定 → navigate /groups/:id 並帶 backgroundLocation（#247 §6.6）", async () => {
     renderMenu(ADMIN_GROUP, () => fakeResponse(500));
     const menu = await openMenu("Workshop A");
     fireEvent.click(within(menu).getByRole("menuitem", { name: "Members & settings" }));
-    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(`/settings/groups/${ADMIN_GROUP.id}|`));
+    // 取 `|` 前的 pathname 整段比對：子字串比對擋不住舊目的地（`/settings/groups/<id>|` 也含 `/groups/<id>|`）
+    await waitFor(() => expect(screen.getByTestId("location").textContent?.split("|")[0]).toBe(`/groups/${ADMIN_GROUP.id}`));
     expect(screen.getByTestId("location").textContent).toContain('"backgroundLocation"');
     expect(screen.getByTestId("location").textContent).toContain("/n/me/some-note");
   });

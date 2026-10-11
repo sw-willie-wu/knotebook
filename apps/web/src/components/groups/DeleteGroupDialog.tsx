@@ -34,7 +34,7 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
 }
 
 /**
- * 刪除群組的兩模式對話框（#175 spec §8.6 PR4）。側欄 ⋮（`GroupMenu`）與設定頁（`SettingsGroupDetailSection`）
+ * 刪除群組的兩模式對話框（#175 spec §8.6 PR4）。側欄 ⋮（`GroupMenu`）與群組 modal「關於」頁（`GroupAboutSection`）
  * 兩個入口共用；呼叫端以 `open && <DeleteGroupDialog … />` 掛載，每次開都是新狀態（比照 `GroupNameDialog`）。
  *
  * - **轉移給管理員**（預設）：下拉只列持內建管理員角色的成員，順序沿用 server（`GET …/members` 內建管理員在前），

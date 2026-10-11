@@ -6,6 +6,7 @@ import type { GroupDto, GroupMemberDto, GroupRoleDto, UserDto } from "@knotebook
 import { ThemeProvider } from "@/theme";
 import { Toaster } from "@/components/ui/toast";
 import { AppRoutes } from "@/App";
+import { ActiveNoteProvider } from "@/lib/active-note";
 import { adminRole, groupDto, memberRole } from "@/test/fixtures";
 
 /**
@@ -117,8 +118,11 @@ export function renderGroupRoute(entry: string | { pathname: string; state?: unk
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <ThemeProvider>
         <MemoryRouter initialEntries={[entry]}>
-          <LocationProbe />
-          <AppRoutes />
+          {/* 同 `App()`：ActiveNoteProvider 包住 AppRoutes——退出／刪除後導回背景筆記頁時 NotePage 要它（#247 §6.5） */}
+          <ActiveNoteProvider>
+            <LocationProbe />
+            <AppRoutes />
+          </ActiveNoteProvider>
         </MemoryRouter>
       </ThemeProvider>
       <Toaster />

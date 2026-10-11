@@ -542,6 +542,13 @@
       "byMemberEmpty": "尚未有人上傳檔案",
       "deletedUser": "已刪除的使用者"
     },
+    "about": {
+      "infoTitle": "資訊",
+      "createdAt": "建立於",
+      "members": "成員",
+      "memberCount_one": "{{count}} 人",
+      "memberCount_other": "{{count}} 人"
+    },
     "menu": {
       "label": "{{name}} 的群組選單",
       "manage": "成員與設定",

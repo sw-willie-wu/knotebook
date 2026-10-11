@@ -81,6 +81,9 @@ const GroupRolesSection = lazy(() =>
 const GroupStorageSection = lazy(() =>
   import("./components/groups/GroupSections").then(m => ({ default: m.GroupStorageSection })),
 );
+const GroupAboutSection = lazy(() =>
+  import("./components/groups/GroupSections").then(m => ({ default: m.GroupAboutSection })),
+);
 
 /**
  * 整頁 lazy route 的 element 外包（#201）：boundary＋Suspense＋beacon，結構與 NoteRoute 同款
@@ -329,6 +332,7 @@ export function AppRoutes() {
               <Route index element={<GroupMembersSection />} />
               <Route path="roles" element={<GroupRolesSection />} />
               <Route path="storage" element={<GroupStorageSection />} />
+              <Route path="about" element={<GroupAboutSection />} />
               <Route path="*" element={<GroupSubpathRedirect />} />
             </Route>
           </Route>
