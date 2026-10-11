@@ -1,8 +1,9 @@
 import type { TokenScope } from "@knotebook/shared";
 
 /**
- * #239：「編輯」「移動或複製到群組」兩個勾選框 ↔ 三種落庫形（spec §9.1）。
- * 同意頁與建立 token 對話框共用。
+ * #239：「編輯」「移動或複製到群組」兩個開關 ↔ 三種落庫形（spec §9.1）。
+ * OAuth 同意頁（勾選框，`ScopeChecksField`）與建立 token 對話框、token 列內編輯（toggle，
+ * `ScopeTogglesField`，#247 W22）共用。
  */
 export interface ScopeChecks {
   write: boolean;

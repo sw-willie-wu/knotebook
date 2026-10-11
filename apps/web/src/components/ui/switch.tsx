@@ -7,6 +7,8 @@ import { cn } from "@/lib/utils";
  * AI 設定的 provider/model/action enabled、群組角色的權限旗標）。表單欄位那種「按下送出才生效」的
  * 布林設定請用同目錄的 `Checkbox`，不要用這顆——語意不同，見兩檔案各自的
  * JSDoc（`settings/SettingsAiSection.tsx` 的 isDefault vs enabled 分野）。
+ * 例外：建立 API token 對話框的「編輯」「搬移」用這顆、按送出才生效——#247 W22 的明文例外（與行內編輯共用
+ * `settings/ScopeTogglesField.tsx`，同一組控制項不在兩處長成兩種樣子）。
  *
  * ⚠ **可及性角色是 `role="switch"`，不是 `role="checkbox"`**——原生
  * `<input type="checkbox">` 換成這顆之後，任何用 `getByRole("checkbox", …)` 找它

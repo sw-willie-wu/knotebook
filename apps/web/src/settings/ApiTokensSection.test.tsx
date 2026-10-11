@@ -161,10 +161,10 @@ describe("ApiTokensSection", () => {
         : null
     );
     fireEvent.click(await screen.findByRole("button", { name: i18n.t("settings.account.apiTokensCreate") }));
-    // #239 W7'：兩個勾選框預設都不勾，且都在「Access」那一組裡。
+    // #239 W7'：兩個開關預設都關，且都在「Access」那一組裡（#247 W22：建立對話框改用 toggle）。
     const access = screen.getByRole("group", { name: i18n.t("settings.account.apiTokensScopeLabel") });
-    expect(within(access).getByRole("checkbox", { name: i18n.t("settings.account.apiTokensScopeEdit") })).not.toBeChecked();
-    expect(within(access).getByRole("checkbox", { name: i18n.t("settings.account.apiTokensScopeMove") })).not.toBeChecked();
+    expect(within(access).getByRole("switch",{ name: i18n.t("settings.account.apiTokensScopeEdit") })).not.toBeChecked();
+    expect(within(access).getByRole("switch",{ name: i18n.t("settings.account.apiTokensScopeMove") })).not.toBeChecked();
     expect(within(access).getByText(i18n.t("settings.account.apiTokensScopeReadFixed"))).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText(i18n.t("settings.account.apiTokensNameLabel")), { target: { value: "D" } });
     fireEvent.click(screen.getByRole("button", { name: i18n.t("settings.account.apiTokensSubmit") }));
@@ -192,25 +192,6 @@ describe("ApiTokensSection", () => {
     expect(screen.getAllByText(i18n.t("settings.account.apiTokensUnverifiedName"))).toHaveLength(1);
   });
 
-  it("列表：每列顯示自己的 scope 文案（read 列與 write 列不同）", async () => {
-    const readRow: ApiTokenDto = { ...PAT_ROW, id: "t-r", name: "Reader", scope: "notes:read" };
-    renderSettings(PASSWORD_USER, [PAT_ROW, readRow]);
-    const writeLi = (await screen.findByText("Script")).closest("li")!;
-    const readLi = screen.getByText("Reader").closest("li")!;
-    expect(within(writeLi).getByText(new RegExp(i18n.t("settings.account.apiTokensScopeWrite")))).toBeInTheDocument();
-    expect(within(readLi).getByText(new RegExp(i18n.t("settings.account.apiTokensScopeRead")))).toBeInTheDocument();
-    expect(within(readLi).queryByText(new RegExp(i18n.t("settings.account.apiTokensScopeWrite")))).not.toBeInTheDocument();
-  });
-
-  it("列表：第三形（讀寫搬移）的列顯示 apiTokensScopeWriteMove（#239）", async () => {
-    const moveRow: ApiTokenDto = { ...PAT_ROW, id: "t-m", name: "Mover", scope: "notes:read notes:write notes:move" };
-    renderSettings(PASSWORD_USER, [moveRow, PAT_ROW]);
-    const moveLi = (await screen.findByText("Mover")).closest("li")!;
-    const writeLi = screen.getByText("Script").closest("li")!;
-    expect(within(moveLi).getByText(new RegExp(i18n.t("settings.account.apiTokensScopeWriteMove")))).toBeInTheDocument();
-    expect(within(writeLi).queryByText(new RegExp(i18n.t("settings.account.apiTokensScopeWriteMove")))).not.toBeInTheDocument();
-  });
-
   it("列表：過期的列標示 Expired，不到期的列標示 No expiry", async () => {
     const expiredRow: ApiTokenDto = { ...PAT_ROW, id: "t-exp", name: "Old", expiresAt: "2020-01-01T00:00:00.000Z" };
     renderSettings(PASSWORD_USER, [PAT_ROW, expiredRow]);
@@ -227,7 +208,7 @@ describe("ApiTokensSection", () => {
     );
     fireEvent.click(await screen.findByRole("button", { name: i18n.t("settings.account.apiTokensCreate") }));
     fireEvent.change(screen.getByLabelText(i18n.t("settings.account.apiTokensNameLabel")), { target: { value: "New" } });
-    fireEvent.click(screen.getByRole("checkbox", { name: i18n.t("settings.account.apiTokensScopeEdit") }));
+    fireEvent.click(screen.getByRole("switch",{ name: i18n.t("settings.account.apiTokensScopeEdit") }));
     fireEvent.change(screen.getByLabelText(i18n.t("settings.account.apiTokensExpiryLabel")), { target: { value: "90" } });
     fireEvent.click(screen.getByRole("button", { name: i18n.t("settings.account.apiTokensSubmit") }));
 
@@ -244,14 +225,14 @@ describe("ApiTokensSection", () => {
   it("建立：勾選後關掉對話框再重開 → 兩框回到未勾（reset 一併重設，#239）", async () => {
     renderSettings(PASSWORD_USER, []);
     fireEvent.click(await screen.findByRole("button", { name: i18n.t("settings.account.apiTokensCreate") }));
-    fireEvent.click(screen.getByRole("checkbox", { name: i18n.t("settings.account.apiTokensScopeEdit") }));
-    fireEvent.click(screen.getByRole("checkbox", { name: i18n.t("settings.account.apiTokensScopeMove") }));
+    fireEvent.click(screen.getByRole("switch",{ name: i18n.t("settings.account.apiTokensScopeEdit") }));
+    fireEvent.click(screen.getByRole("switch",{ name: i18n.t("settings.account.apiTokensScopeMove") }));
     const nameLabel = i18n.t("settings.account.apiTokensNameLabel");
     fireEvent.keyDown(screen.getByLabelText(nameLabel), { key: "Escape" });
     await waitFor(() => expect(screen.queryByLabelText(nameLabel)).toBeNull());
     fireEvent.click(screen.getByRole("button", { name: i18n.t("settings.account.apiTokensCreate") }));
-    expect(screen.getByRole("checkbox", { name: i18n.t("settings.account.apiTokensScopeEdit") })).not.toBeChecked();
-    expect(screen.getByRole("checkbox", { name: i18n.t("settings.account.apiTokensScopeMove") })).not.toBeChecked();
+    expect(screen.getByRole("switch",{ name: i18n.t("settings.account.apiTokensScopeEdit") })).not.toBeChecked();
+    expect(screen.getByRole("switch",{ name: i18n.t("settings.account.apiTokensScopeMove") })).not.toBeChecked();
   });
 
   it("建立：勾編輯與搬移 → 送第三形（#239）", async () => {
@@ -263,8 +244,8 @@ describe("ApiTokensSection", () => {
     );
     fireEvent.click(await screen.findByRole("button", { name: i18n.t("settings.account.apiTokensCreate") }));
     fireEvent.change(screen.getByLabelText(i18n.t("settings.account.apiTokensNameLabel")), { target: { value: "M" } });
-    fireEvent.click(screen.getByRole("checkbox", { name: i18n.t("settings.account.apiTokensScopeEdit") }));
-    fireEvent.click(screen.getByRole("checkbox", { name: i18n.t("settings.account.apiTokensScopeMove") }));
+    fireEvent.click(screen.getByRole("switch",{ name: i18n.t("settings.account.apiTokensScopeEdit") }));
+    fireEvent.click(screen.getByRole("switch",{ name: i18n.t("settings.account.apiTokensScopeMove") }));
     fireEvent.click(screen.getByRole("button", { name: i18n.t("settings.account.apiTokensSubmit") }));
     await screen.findByLabelText(i18n.t("settings.account.apiTokensValueLabel"));
     const post = calls.find(c => c.url === "/api/auth/tokens" && c.method === "POST");
@@ -280,8 +261,8 @@ describe("ApiTokensSection", () => {
     );
     fireEvent.click(await screen.findByRole("button", { name: i18n.t("settings.account.apiTokensCreate") }));
     fireEvent.change(screen.getByLabelText(i18n.t("settings.account.apiTokensNameLabel")), { target: { value: "U" } });
-    const edit = screen.getByRole("checkbox", { name: i18n.t("settings.account.apiTokensScopeEdit") });
-    const move = screen.getByRole("checkbox", { name: i18n.t("settings.account.apiTokensScopeMove") });
+    const edit = screen.getByRole("switch",{ name: i18n.t("settings.account.apiTokensScopeEdit") });
+    const move = screen.getByRole("switch",{ name: i18n.t("settings.account.apiTokensScopeMove") });
     fireEvent.click(edit);
     fireEvent.click(move);
     expect(move).toBeChecked();
@@ -335,64 +316,6 @@ describe("ApiTokensSection", () => {
     });
   });
 
-  // #138 D7：agent 名稱（AI 名牌與修改紀錄上顯示的短名）。`agentLabel` 恆非 null——
-  // 欄位為 NULL 時 server 回派生值，所以「清空」＝送 null 讓它退回派生值，不是空字串。
-  it("agent 名稱：顯示現值 → 改名送 PATCH {agentLabel} → 清空送 {agentLabel: null} 並顯示回傳的派生值", async () => {
-    // 清單就地更新，重抓時才看得到 PATCH 之後的新值。⚠ GET 每次都回**新複本**：
-    // `useApiTokens` 直接回 body 裡那個陣列，回同一個實例的話 react-query 的結構共享
-    // 會判定「沒變」而不 re-render（真實 server 每次都是新解析出來的物件）。
-    const rows: ApiTokenDto[] = [{ ...PAT_ROW }, { ...OAUTH_ROW }];
-    const { calls } = renderSettings(PASSWORD_USER, [], (url, method, init) => {
-      if (url === "/api/auth/tokens" && method === "GET") {
-        return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ tokens: rows.map(r => ({ ...r })) }) });
-      }
-      if (url !== `/api/auth/tokens/${PAT_ROW.id}` || method !== "PATCH") return null;
-      const body = JSON.parse(String(init?.body)) as { agentLabel: string | null };
-      // server 端：欄位存 null → 回應仍是 `deriveAgentLabel(name)` 的派生值（這裡就是 "script"）。
-      rows[0] = { ...rows[0]!, agentLabel: body.agentLabel ?? "script" };
-      return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(rows[0]) });
-    });
-
-    // 兩列各自顯示自己的 agentLabel（fixture 的值是 "script" / "claude"）。
-    expect(await screen.findByText("(script)")).toBeInTheDocument();
-    expect(screen.getByText("(claude)")).toBeInTheDocument();
-
-    const patLi = screen.getByText("Script").closest("li")!;
-    fireEvent.click(within(patLi).getByRole("button", { name: i18n.t("settings.account.apiTokensRename") }));
-    const input = within(patLi).getByLabelText(i18n.t("settings.account.apiTokensAgentLabel"));
-    expect(input).toHaveValue("script");
-    expect(within(patLi).getByText(i18n.t("settings.account.apiTokensRenameHint"))).toBeInTheDocument();
-
-    fireEvent.change(input, { target: { value: "bot" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-    await waitFor(() => expect(screen.getByText("(bot)")).toBeInTheDocument());
-    expect(calls.find(c => c.method === "PATCH")?.body).toEqual({ agentLabel: "bot" });
-
-    // 清空 → null → 回派生值 "script"
-    fireEvent.click(within(patLi).getByRole("button", { name: i18n.t("settings.account.apiTokensRename") }));
-    const again = within(patLi).getByLabelText(i18n.t("settings.account.apiTokensAgentLabel"));
-    fireEvent.change(again, { target: { value: "" } });
-    fireEvent.keyDown(again, { key: "Enter" });
-    await waitFor(() => expect(screen.getByText("(script)")).toBeInTheDocument());
-    expect(calls.filter(c => c.method === "PATCH").at(-1)?.body).toEqual({ agentLabel: null });
-  });
-
-  // review r1 I-1（測過的探針）：改名輸入框上按 Esc 不會「取消改名、留在設定頁」——
-  // Radix 在 document 的 capture 階段先吃掉 Escape，整個設定 dialog 被關掉。這裡釘住
-  // 的是「Esc 真正會發生什麼」，不是我們希望它做什麼；要改必須動 SettingsModal 的
-  // DialogContent（不在本棒範圍），詳見 AgentLabelField 上方的檔頭註解。
-  it("agent 名稱：改名輸入框按 Esc 不是取消——會把整個設定 dialog 關掉", async () => {
-    renderSettings(PASSWORD_USER, [PAT_ROW]);
-
-    const patLi = (await screen.findByText("Script")).closest("li")!;
-    fireEvent.click(within(patLi).getByRole("button", { name: i18n.t("settings.account.apiTokensRename") }));
-    const input = within(patLi).getByLabelText(i18n.t("settings.account.apiTokensAgentLabel"));
-
-    expect(screen.queryAllByRole("dialog")).toHaveLength(1); // 設定 dialog 本身
-    fireEvent.keyDown(input, { key: "Escape" });
-    await waitFor(() => expect(screen.queryAllByRole("dialog")).toHaveLength(0));
-  });
-
   it("明文畫面按 Esc 不會關閉（誤觸會讓 token 報銷）；按 Done 關閉後重開是乾淨表單", async () => {
     const created = { ...PAT_ROW, id: "t-new", name: "New", token: "knb_" + "z".repeat(43) };
     renderSettings(PASSWORD_USER, [], (url, method) =>
@@ -416,5 +339,216 @@ describe("ApiTokensSection", () => {
     fireEvent.click(screen.getByRole("button", { name: i18n.t("settings.account.apiTokensCreate") }));
     expect(screen.queryByLabelText(i18n.t("settings.account.apiTokensValueLabel"))).not.toBeInTheDocument();
     expect(screen.getByLabelText(i18n.t("settings.account.apiTokensNameLabel"))).toHaveValue("");
+  });
+});
+
+describe("ApiTokensSection 表格與行內編輯（#247 §5.3、W22）", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  const OVERRIDE: ApiTokenDto = {
+    ...PAT_ROW, id: "t-o", name: "Claude Code laptop", agentLabel: "claude-laptop", scope: "notes:read notes:write notes:move",
+  };
+  const DERIVED: ApiTokenDto = { ...PAT_ROW, id: "t-d", name: "Claude Desktop", agentLabel: "claude", scope: "notes:read" };
+  const WRITER: ApiTokenDto = { ...PAT_ROW, id: "t-w", name: "n8n bot", agentLabel: "n8n", scope: "notes:read notes:write" };
+  const ROWS = [OVERRIDE, DERIVED, WRITER];
+
+  const rowOf = (name: string) => screen.getByText(name).closest("tr")!;
+  const pills = (row: HTMLElement) => Array.from(row.querySelectorAll("[data-pill]")).map((p) => p.textContent);
+
+  function withPatch(respond: (id: string, body: Record<string, unknown>) => Response) {
+    const bodies: Array<{ id: string; body: Record<string, unknown> }> = [];
+    const r = renderSettings(PASSWORD_USER, ROWS, (url, method, init) => {
+      const m = /^\/api\/auth\/tokens\/([^/]+)$/.exec(url);
+      if (m && method === "PATCH") {
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        bodies.push({ id: decodeURIComponent(m[1]!), body });
+        return respond(m[1]!, body);
+      }
+      return null;
+    });
+    return { ...r, bodies };
+  }
+  const ok = (id: string, body: Record<string, unknown>) =>
+    fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ ...ROWS.find((t) => t.id === id)!, ...body }) });
+
+  it("權限 pill 三種組合：讀取／讀取＋編輯／讀取＋編輯＋搬移（搬移是 destructive 淡底）", async () => {
+    withPatch(ok);
+    await screen.findByText("Claude Desktop");
+    expect(pills(rowOf("Claude Desktop"))).toEqual(["Read"]);
+    expect(pills(rowOf("n8n bot"))).toEqual(["Read", "Edit"]);
+    expect(pills(rowOf("Claude Code laptop"))).toEqual(["Read", "Edit", "Move"]);
+    expect(within(rowOf("Claude Code laptop")).getByText("Move")).toHaveClass("text-destructive");
+  });
+
+  it("label 等於 deriveAgentLabel(name) 時灰字、不等時一般字", async () => {
+    withPatch(ok);
+    await screen.findByText("Claude Desktop");
+    expect(within(rowOf("Claude Desktop")).getByText("claude")).toHaveClass("text-muted-foreground");
+    expect(within(rowOf("Claude Code laptop")).getByText("claude-laptop")).not.toHaveClass("text-muted-foreground");
+  });
+
+  it("鉛筆 → 編輯態：該列 bg-brand-soft、只有 label 一個輸入框（名稱不可改）、其他列鉛筆停用", async () => {
+    withPatch(ok);
+    await screen.findByText("Claude Desktop");
+    fireEvent.click(within(rowOf("Claude Desktop")).getByRole("button", { name: "Edit" }));
+    const row = rowOf("Claude Desktop");
+    expect(row).toHaveClass("bg-brand-soft");
+    expect(within(row).getAllByRole("textbox")).toHaveLength(1);
+    expect(within(row).getByRole("textbox", { name: "Label" })).toHaveValue("claude");
+    expect(within(row).getByText("1–32 letters, digits, . _ or -. Leave empty to go back to “claude”, derived from the name.")).toBeInTheDocument();
+    const other = within(rowOf("n8n bot")).getByRole("button", { name: "Edit" });
+    expect(other).toHaveAttribute("aria-disabled", "true");
+    expect(other).toHaveClass("pointer-events-none", "opacity-35");
+  });
+
+  it("取消不送請求、回顯示態", async () => {
+    const { bodies } = withPatch(ok);
+    await screen.findByText("Claude Desktop");
+    fireEvent.click(within(rowOf("Claude Desktop")).getByRole("button", { name: "Edit" }));
+    fireEvent.change(within(rowOf("Claude Desktop")).getByRole("textbox", { name: "Label" }), { target: { value: "x" } });
+    fireEvent.click(within(rowOf("Claude Desktop")).getByRole("button", { name: "Cancel" }));
+    expect(within(rowOf("Claude Desktop")).queryByRole("textbox")).toBeNull();
+    expect(bodies).toHaveLength(0);
+  });
+
+  it("只改 label → body 只有 agentLabel", async () => {
+    const { bodies } = withPatch(ok);
+    await screen.findByText("Claude Desktop");
+    fireEvent.click(within(rowOf("Claude Desktop")).getByRole("button", { name: "Edit" }));
+    fireEvent.change(within(rowOf("Claude Desktop")).getByRole("textbox", { name: "Label" }), { target: { value: "desk" } });
+    fireEvent.click(within(rowOf("Claude Desktop")).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(bodies).toEqual([{ id: "t-d", body: { agentLabel: "desk" } }]));
+    // 儲存成功 → 回顯示態
+    await waitFor(() => expect(within(rowOf("Claude Desktop")).queryByRole("textbox")).toBeNull());
+  });
+
+  it("正在編的那列在重抓後消失（別處撤銷）→ 不再卡住其他列的鉛筆", async () => {
+    let rows: ApiTokenDto[] = ROWS;
+    renderSettings(PASSWORD_USER, [], (url, method) => {
+      if (url === "/api/auth/tokens" && method === "GET")
+        return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ tokens: rows.map(r => ({ ...r })) }) });
+      if (url === "/api/auth/tokens/t-w" && method === "DELETE") return fakeResponse({ ok: true, status: 204 });
+      return null;
+    });
+    await screen.findByText("Claude Desktop");
+    fireEvent.click(within(rowOf("Claude Desktop")).getByRole("button", { name: "Edit" }));
+    expect(within(rowOf("Claude Code laptop")).getByRole("button", { name: "Edit" })).toHaveAttribute("aria-disabled", "true");
+    // 撤銷另一列觸發重抓；重抓回來時正在編的 "Claude Desktop" 也已被別處撤銷。
+    rows = [OVERRIDE];
+    fireEvent.click(within(rowOf("n8n bot")).getByRole("button", { name: "Revoke" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Revoke token" }));
+    await waitFor(() => expect(screen.queryByText("Claude Desktop")).toBeNull());
+    expect(within(rowOf("Claude Code laptop")).getByRole("button", { name: "Edit" })).not.toHaveAttribute("aria-disabled");
+  });
+
+  it("只改權限 → body 只有 scope（scopeFromChecks 的落庫形）", async () => {
+    const { bodies } = withPatch(ok);
+    await screen.findByText("Claude Desktop");
+    fireEvent.click(within(rowOf("Claude Desktop")).getByRole("button", { name: "Edit" }));
+    fireEvent.click(within(rowOf("Claude Desktop")).getByRole("switch", { name: "Create and edit notes" }));
+    fireEvent.click(within(rowOf("Claude Desktop")).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(bodies).toEqual([{ id: "t-d", body: { scope: "notes:read notes:write" } }]));
+  });
+
+  it("清空 label（原本是覆寫值）→ 送 agentLabel: null；Enter＝儲存", async () => {
+    const { bodies } = withPatch(ok);
+    await screen.findByText("Claude Code laptop");
+    fireEvent.click(within(rowOf("Claude Code laptop")).getByRole("button", { name: "Edit" }));
+    const input = within(rowOf("Claude Code laptop")).getByRole("textbox", { name: "Label" });
+    fireEvent.change(input, { target: { value: "  " } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(bodies).toEqual([{ id: "t-o", body: { agentLabel: null } }]));
+  });
+
+  it("什麼都沒改按儲存 → 不送請求、回顯示態", async () => {
+    const { bodies } = withPatch(ok);
+    await screen.findByText("n8n bot");
+    fireEvent.click(within(rowOf("n8n bot")).getByRole("button", { name: "Edit" }));
+    fireEvent.click(within(rowOf("n8n bot")).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(within(rowOf("n8n bot")).queryByRole("textbox")).toBeNull());
+    expect(bodies).toHaveLength(0);
+  });
+
+  it("label 格式不合 → 列內紅字、不送請求", async () => {
+    const { bodies } = withPatch(ok);
+    await screen.findByText("n8n bot");
+    fireEvent.click(within(rowOf("n8n bot")).getByRole("button", { name: "Edit" }));
+    fireEvent.change(within(rowOf("n8n bot")).getByRole("textbox", { name: "Label" }), { target: { value: "has space" } });
+    fireEvent.click(within(rowOf("n8n bot")).getByRole("button", { name: "Save" }));
+    expect(await within(rowOf("n8n bot")).findByRole("alert")).toHaveTextContent("A label can only use 1–32 letters, digits, . _ or -.");
+    expect(bodies).toHaveLength(0);
+  });
+
+  it("關掉「編輯」→「搬移」disabled 且清為關；儲存送 notes:read", async () => {
+    const { bodies } = withPatch(ok);
+    await screen.findByText("Claude Code laptop");
+    fireEvent.click(within(rowOf("Claude Code laptop")).getByRole("button", { name: "Edit" }));
+    const row = within(rowOf("Claude Code laptop"));
+    expect(row.getByRole("switch", { name: "Move or copy notes into groups" })).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(row.getByRole("switch", { name: "Create and edit notes" }));
+    const move = row.getByRole("switch", { name: "Move or copy notes into groups" });
+    expect(move).toHaveAttribute("aria-checked", "false");
+    expect(move).toBeDisabled();
+    fireEvent.click(row.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(bodies).toEqual([{ id: "t-o", body: { scope: "notes:read" } }]));
+  });
+
+  it("行內編輯：「搬移」開時顯示搬移提示全文、關時不在", async () => {
+    withPatch(ok);
+    await screen.findByText("n8n bot");
+    fireEvent.click(within(rowOf("n8n bot")).getByRole("button", { name: "Edit" }));
+    const hint = i18n.t("settings.account.apiTokensScopeMoveHint");
+    expect(within(rowOf("n8n bot")).queryByText(hint)).toBeNull();
+    fireEvent.click(within(rowOf("n8n bot")).getByRole("switch", { name: "Move or copy notes into groups" }));
+    expect(within(rowOf("n8n bot")).getByText(hint)).toBeInTheDocument();
+  });
+
+  it("PATCH 失敗 → 留在編輯態、列內 alert", async () => {
+    withPatch(() => fakeResponse({ ok: false, status: 400, json: () => Promise.resolve({ error: { code: "invalid_body", message: "x" } }) }));
+    await screen.findByText("n8n bot");
+    fireEvent.click(within(rowOf("n8n bot")).getByRole("button", { name: "Edit" }));
+    fireEvent.change(within(rowOf("n8n bot")).getByRole("textbox", { name: "Label" }), { target: { value: "bot2" } });
+    fireEvent.click(within(rowOf("n8n bot")).getByRole("button", { name: "Save" }));
+    expect(await within(rowOf("n8n bot")).findByRole("alert")).toHaveTextContent("The request was malformed.");
+    expect(within(rowOf("n8n bot")).getByRole("textbox", { name: "Label" })).toBeInTheDocument();
+  });
+
+  it("沒有 Esc 取消：label 輸入框按 Esc 會關掉整個設定面板（Radix 在 capture 階段吃 Escape）", async () => {
+    withPatch(ok);
+    await screen.findByText("n8n bot");
+    fireEvent.click(within(rowOf("n8n bot")).getByRole("button", { name: "Edit" }));
+    fireEvent.keyDown(within(rowOf("n8n bot")).getByRole("textbox", { name: "Label" }), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("撤銷是列尾紅垃圾桶 icon 鈕，確認框照舊", async () => {
+    withPatch(ok);
+    await screen.findByText("n8n bot");
+    const trash = within(rowOf("n8n bot")).getByRole("button", { name: "Revoke" });
+    expect(trash).toHaveClass("text-destructive");
+    expect(trash).toHaveAttribute("title", "Revoke");
+    fireEvent.click(trash);
+    expect(await screen.findByRole("dialog", { name: "Revoke this token?" })).toBeInTheDocument();
+  });
+
+  it("建立對話框：兩個 toggle 預設皆關；「搬移」開時出現搬移提示全文、關時不在", async () => {
+    withPatch(ok);
+    fireEvent.click(await screen.findByRole("button", { name: "Create API token" }));
+    const dialog = within(await screen.findByRole("dialog", { name: "Create API token" }));
+    const edit = dialog.getByRole("switch", { name: "Create and edit notes" });
+    const move = dialog.getByRole("switch", { name: "Move or copy notes into groups" });
+    expect(edit).toHaveAttribute("aria-checked", "false");
+    expect(move).toHaveAttribute("aria-checked", "false");
+    const hint = i18n.t("settings.account.apiTokensScopeMoveHint");
+    expect(dialog.queryByText(hint)).toBeNull();
+    fireEvent.click(edit);
+    fireEvent.click(move);
+    expect(dialog.getByText(hint)).toBeInTheDocument();
+    fireEvent.click(move);
+    expect(dialog.queryByText(hint)).toBeNull();
   });
 });

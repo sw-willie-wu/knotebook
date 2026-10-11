@@ -688,6 +688,21 @@
         "copied": "已複製。",
         "copyFailed": "無法自動複製——請手動選取。",
         "scopes": "讀取：可用 list_notes、search_notes、read_note_outline、read_note_section、read_note_image、create_transfer_token（下載）。編輯：另開 edit_note、create_note、copy_note（複製到個人）與 create_transfer_token 的上傳。搬移：才能用 move_note_to_group 與複製到群組（移入群組不可逆，所以獨立成一個權限）。"
+      },
+      "tokens": {
+        "name": "名稱",
+        "label": "label",
+        "permissions": "權限",
+        "lastUsed": "最後使用",
+        "expires": "到期",
+        "pillRead": "讀取",
+        "pillEdit": "編輯",
+        "pillMove": "搬移",
+        "edit": "編輯",
+        "save": "儲存",
+        "editHint": "1–32 個英數、. _ -；清空則回到從名稱派生的「{{derived}}」",
+        "labelInvalid": "label 只能用 1–32 個英數、. _ -。",
+        "footnote": "「名稱」是建立時登記的來源（手動建立的由你取、OAuth 授權的由 client 自報），不可改。「label」是 AI 名牌與修改紀錄上顯示的短名，可改，多個 token 可以用同一個 label。"
       }
     },
     "storage": {
@@ -776,9 +791,6 @@
       "apiTokensNameLabel": "名稱",
       "apiTokensNamePlaceholder": "例如 Claude Desktop",
       "apiTokensScopeLabel": "存取範圍",
-      "apiTokensScopeRead": "讀取筆記",
-      "apiTokensScopeWrite": "讀取與寫入筆記",
-      "apiTokensScopeWriteMove": "讀取與寫入筆記；可移動或複製筆記到群組",
       "apiTokensScopeReadFixed": "讀取筆記（一律包含）",
       "apiTokensScopeEdit": "建立與修改筆記",
       "apiTokensScopeMove": "移動或複製筆記到群組",
@@ -800,17 +812,12 @@
       "apiTokensKindOauth": "應用程式",
       "apiTokensUnverifiedName": "名稱由應用程式自述，未經驗證。",
       "apiTokensNeverUsed": "從未使用",
-      "apiTokensLastUsed": "最後使用於 {{when}}",
       "apiTokensExpired": "已過期",
       "apiTokensNoExpiry": "不到期",
-      "apiTokensExpires": "{{when}} 到期",
       "apiTokensRevoke": "撤銷",
       "apiTokensRevokeTitle": "要撤銷這個 token 嗎？",
       "apiTokensRevokeDescription": "所有正在使用「{{name}}」的程式會立即失效，且無法復原。",
       "apiTokensRevokeConfirm": "撤銷 token",
-      "apiTokensAgentLabel": "agent 名稱",
-      "apiTokensRename": "更改 agent 名稱",
-      "apiTokensRenameHint": "會顯示在 AI 的名牌與修改紀錄上。只能使用英數字、句點、底線與連字號（最多 32 字元）。清空則回到預設值。按取消可放棄這次修改。",
       "handleInvalid": "1–32 字元：小寫英數與連字號；連字號不可在頭尾或連續出現。"
     },
     "ai": {

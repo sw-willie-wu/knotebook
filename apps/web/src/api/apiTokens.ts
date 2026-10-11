@@ -14,7 +14,7 @@ export function useApiTokens(): UseQueryResult<ApiTokenDto[]> {
 
 export interface CreateApiTokenInput {
   name: string;
-  /** #239：三種落庫形之一，由建立對話框的兩個勾選框經 `scopeFromChecks` 算出。 */
+  /** #239：三種落庫形之一，由建立對話框的兩個 toggle（`ScopeTogglesField`）經 `scopeFromChecks` 算出（#247）。 */
   scope: TokenScope;
   expiresInDays: 30 | 90 | 365 | null;
 }
@@ -36,19 +36,23 @@ export function useCreateApiToken() {
 }
 
 /**
- * `PATCH /api/auth/tokens/:id`（#106 D7）——改這個憑證的 agent 顯示名稱。
- * `agentLabel: null`＝**把欄位清成 NULL**，回應仍是 server 端 `deriveAgentLabel(name)`
- * 的派生值（不是空字串）。
+ * PATCH 的可改欄位（#239 server；#247 行內編輯只送改過的鍵）。`agentLabel: null`＝**把欄位清成 NULL**、
+ * 回到派生值——回應仍是 server 端 `deriveAgentLabel(name)` 的派生值（不是空字串）。`name` 不可改。
  */
-export function useRenameApiToken() {
+export interface UpdateApiTokenPatch {
+  agentLabel?: string | null;
+  scope?: TokenScope;
+}
+
+/** `PATCH /api/auth/tokens/:id`：改 label 與／或權限（下一個請求生效）。 */
+export function useUpdateApiToken() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, agentLabel }: { id: string; agentLabel: string | null }) =>
-      api<ApiTokenDto>(`/api/auth/tokens/${encodeURIComponent(id)}`, {
-        method: "PATCH",
-        body: JSON.stringify({ agentLabel }),
-      }),
-    onSuccess: () => {
+    mutationFn: ({ id, patch }: { id: string; patch: UpdateApiTokenPatch }) =>
+      api<ApiTokenDto>(`/api/auth/tokens/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(patch) }),
+    // 先用回應換掉快取裡那一列、再失效重抓：回顯示態時不會在重抓完成前閃一下舊值。
+    onSuccess: updated => {
+      queryClient.setQueryData<ApiTokenDto[]>(API_TOKENS_QUERY_KEY, rows => rows?.map(r => (r.id === updated.id ? updated : r)));
       void queryClient.invalidateQueries({ queryKey: API_TOKENS_QUERY_KEY });
     },
   });

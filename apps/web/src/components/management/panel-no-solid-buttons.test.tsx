@@ -97,7 +97,7 @@ export const PANEL_PAGES: PanelPageCase[] = [
   { name: "個人：帳戶資訊", path: "/settings/account", ready: () => screen.findByRole("button", { name: "Save URL name" }), minButtons: 2 },
   { name: "個人：登入（有密碼）", path: "/settings/login", ready: () => loginReady("Change password"), minButtons: 3 },
   { name: "個人：登入（SSO-only）", path: "/settings/login", user: SSO_ADMIN, ready: () => loginReady("Add password"), minButtons: 3 },
-  { name: "個人：授權", path: "/settings/authorization", ready: () => screen.findByText("Script"), minButtons: 7 }, // token 區三顆＋MCP 教學三顆「Copy」＋一個 docs 外連 <a class>
+  { name: "個人：授權", path: "/settings/authorization", ready: () => screen.findByText("Script"), minButtons: 7 }, // token 區三顆（建立＋列內鉛筆＋紅垃圾桶，#247 Task 16 起；之前是建立＋改名＋撤銷，數目相同）＋MCP 教學三顆「Copy」＋一個 docs 外連 <a class>
   // 開關只看 config；用量那組（無 button，但同頁）要等 `/api/storage` 到才算載完。
   { name: "個人：儲存空間", path: "/settings/storage", ready: async () => { await screen.findByRole("switch"); return screen.findByText(/\(Basic\)/); }, minButtons: 1 },
   { name: "個人：群組", path: "/settings/groups", ready: async () => within(await screen.findByRole("dialog")).findByText("Team Alpha"), minButtons: 0 }, // 背景 NoteList 側欄也有同名群組

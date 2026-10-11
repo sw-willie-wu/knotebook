@@ -237,7 +237,7 @@ Every credential has a short **agent name**. It is the `(agent)` half of the cur
 
 By default it is derived from the credential's own name: the first whitespace-separated word, Unicode-normalized, lowercased, with everything outside `A-Za-z0-9._-` removed, cut to 32 characters. `Claude Code (knotebook)` becomes `claude`, `MCP CLI Proxy` becomes `mcp`, and a name that leaves nothing usable behind becomes `agent`.
 
-To change it: **Settings → Authorization → API tokens → Rename agent** next to the credential, or `PATCH /api/auth/tokens/:id` with `{"agentLabel": "researcher"}`. Like the rest of `/api/auth/tokens`, that endpoint is **session-cookie only** — a token cannot rename itself, or anything else. Sending `{"agentLabel": null}` clears your override and goes back to the derived value; the response, and `GET /api/auth/tokens`, always report the name actually in effect, so `agentLabel` there is never `null`.
+To change it: the pencil button on the credential's row in **Settings → Authorization → API tokens**, or `PATCH /api/auth/tokens/:id` with `{"agentLabel": "researcher"}`. Like the rest of `/api/auth/tokens`, that endpoint is **session-cookie only** — a token cannot rename itself, or anything else. Sending `{"agentLabel": null}` clears your override and goes back to the derived value; the response, and `GET /api/auth/tokens`, always report the name actually in effect, so `agentLabel` there is never `null`.
 
 A name must match `^[A-Za-z0-9._-]{1,32}$`; anything else is `400 invalid_body`. Renames are limited to 60 per 10 minutes per user — a limit they share with changing a credential's scope through the same endpoint (see [API tokens](./api-tokens.md#changing-a-tokens-access)).
 

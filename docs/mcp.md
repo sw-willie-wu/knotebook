@@ -33,7 +33,7 @@ The server announces itself as `knotebook`, and most clients use that name to na
 claude mcp add knotebook https://<your-host>/api/mcp -t http -H "Authorization: Bearer knb_…"
 ```
 
-A static header involves no OAuth token exchange, so this also works on a plain `http://` deployment. `claude mcp add` only writes the client's configuration, with the token in it as you typed it; a Claude Code session that is already running doesn't pick it up, so start a new one. To change what the assistant can do later, create another token with the boxes you want and put that one in the header instead.
+A static header involves no OAuth token exchange, so this also works on a plain `http://` deployment. `claude mcp add` only writes the client's configuration, with the token in it as you typed it; a Claude Code session that is already running doesn't pick it up, so start a new one. To change what the assistant can do later, turn **Edit** or **Move** on or off for the token with the pencil button on its row in **Settings → Authorization → API tokens**; the header stays the same, and the client picks up the new tool list once it is restarted (see [Changing a token's access](./api-tokens.md#changing-a-tokens-access)).
 
 **Claude Desktop with a personal access token.** Claude Desktop reaches `/api/mcp` through `mcp-remote`, which can send the same header. Put the header's value in `env` rather than in `args`: mcp-remote's README notes that Cursor, Codex CLI and Claude Desktop on Windows don't escape spaces inside `args` when they invoke `npx`, so `Authorization: Bearer knb_…` written as one argument would be split apart. Add this under `mcpServers` in `claude_desktop_config.json`:
 

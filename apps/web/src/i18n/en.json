@@ -688,6 +688,21 @@
         "copied": "Copied.",
         "copyFailed": "Couldn't copy automatically — select it by hand.",
         "scopes": "Read: list_notes, search_notes, read_note_outline, read_note_section, read_note_image and create_transfer_token (download). Edit adds edit_note, create_note, copy_note (into your own notes) and create_transfer_token uploads. Move is needed for move_note_to_group and copying into a group (moving into a group can't be undone, so it is a separate permission)."
+      },
+      "tokens": {
+        "name": "Name",
+        "label": "Label",
+        "permissions": "Permissions",
+        "lastUsed": "Last used",
+        "expires": "Expires",
+        "pillRead": "Read",
+        "pillEdit": "Edit",
+        "pillMove": "Move",
+        "edit": "Edit",
+        "save": "Save",
+        "editHint": "1–32 letters, digits, . _ or -. Leave empty to go back to “{{derived}}”, derived from the name.",
+        "labelInvalid": "A label can only use 1–32 letters, digits, . _ or -.",
+        "footnote": "The name is where the token came from when it was created (yours for a token you made, self-reported by the client for an OAuth app) and can't be changed. The label is the short name shown on the AI's name tag and in the edit history; you can change it, and several tokens can share one."
       }
     },
     "storage": {
@@ -776,9 +791,6 @@
       "apiTokensNameLabel": "Name",
       "apiTokensNamePlaceholder": "e.g. Claude Desktop",
       "apiTokensScopeLabel": "Access",
-      "apiTokensScopeRead": "Read notes",
-      "apiTokensScopeWrite": "Read and write notes",
-      "apiTokensScopeWriteMove": "Read and write notes; move or copy notes into groups",
       "apiTokensScopeReadFixed": "Read your notes (always included)",
       "apiTokensScopeEdit": "Create and edit notes",
       "apiTokensScopeMove": "Move or copy notes into groups",
@@ -800,17 +812,12 @@
       "apiTokensKindOauth": "App",
       "apiTokensUnverifiedName": "Name is self-reported by the application and is not verified.",
       "apiTokensNeverUsed": "Never used",
-      "apiTokensLastUsed": "Last used {{when}}",
       "apiTokensExpired": "Expired",
       "apiTokensNoExpiry": "No expiry",
-      "apiTokensExpires": "Expires {{when}}",
       "apiTokensRevoke": "Revoke",
       "apiTokensRevokeTitle": "Revoke this token?",
       "apiTokensRevokeDescription": "Anything using \"{{name}}\" will stop working immediately. This can't be undone.",
       "apiTokensRevokeConfirm": "Revoke token",
-      "apiTokensAgentLabel": "Agent name",
-      "apiTokensRename": "Rename agent",
-      "apiTokensRenameHint": "Shown on the AI's name tag and in the edit history. Letters, numbers, dots, underscores and hyphens only (max 32 characters). Leave empty to go back to the default. Press Cancel to leave it unchanged.",
       "handleInvalid": "1–32 characters: lowercase letters, numbers and hyphens; hyphens can't lead, trail, or repeat."
     },
     "ai": {
