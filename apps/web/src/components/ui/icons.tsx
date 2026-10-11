@@ -297,3 +297,26 @@ export function ListFilter(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+/** 列內「測試連線」（#247 §4.9）。 */
+export function Plug(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="plug" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M12 22v-5" />
+      <path d="M9 8V2" />
+      <path d="M15 8V2" />
+      <path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z" />
+    </svg>
+  );
+}
+
+/** 登入服務列的「圖示」對話框觸發鈕（#247 §7.0）。名稱避開 DOM 的 `Image` 全域。 */
+export function ImageIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="image" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <circle cx="9" cy="9" r="2" />
+      <path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21" />
+    </svg>
+  );
+}
