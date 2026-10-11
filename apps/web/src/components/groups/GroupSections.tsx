@@ -6,3 +6,4 @@
  */
 export { GroupMembersSection } from "./GroupMembersSection";
 export { SettingsGroupRolesSection as GroupRolesSection } from "@/settings/SettingsGroupRolesSection";
+export { GroupStorageSection } from "./GroupStorageSection";

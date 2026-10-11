@@ -1,13 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
-import type { StorageUsageDto, UserDto } from "@knotebook/shared";
+import type { GroupStorageUsageDto, StorageUsageDto, UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
 import { AppRoutes } from "@/App";
+import { adminRole, groupDto, memberRole } from "@/test/fixtures";
 
-// W3（spec §11.5）：個人設定「儲存空間」頁的用量。群組用量 #247 起搬到群組 modal 的 `/groups/:id/storage`，測試跟著該頁走（`components/groups/`）。走真的 AppRoutes（同 SettingsAccountSection.test.tsx 慣例）。
+// W3（spec §11.5）：個人設定「儲存空間」頁與群組 modal「儲存空間」頁（`/groups/:id/storage`，#247 §6.4）的用量。
+// 群組頁的依成員／版本開關細節在 `components/groups/GroupStorageSection.test.tsx`。走真的 AppRoutes（同 SettingsAccountSection.test.tsx 慣例）。
 
 function fakeResponse(status: number, body: unknown): Response {
   return { ok: status < 400, status, json: () => Promise.resolve(body) } as unknown as Response;
@@ -82,5 +84,41 @@ describe("W3 帳號頁的儲存空間", () => {
     await waitFor(() => expect(screen.getByTestId("storage-usage")).toHaveTextContent("1 MB of 1 MB (Basic)"));
     expect(screen.getByTestId("storage-usage")).not.toHaveClass("text-destructive");
     expect(screen.queryByText("Limit reached — no new attachments can be added")).not.toBeInTheDocument();
+  });
+});
+
+const ADMIN_ROLE = adminRole({ id: "11111111-1111-1111-1111-111111111111" });
+const MEMBER_ROLE = memberRole({ id: "22222222-2222-2222-2222-222222222222" });
+const groupUsage = (u: Partial<GroupStorageUsageDto>): GroupStorageUsageDto => ({ ...usage({}), byMember: [{ userId: "u-me", handle: "me", displayName: "Me", bytes: 1048576 }], ...u });
+
+describe("W3 群組儲存空間頁（/groups/:id/storage，#247 §6.4）", () => {
+  beforeEach(async () => { await i18n.changeLanguage("en"); });
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("canManageGroup：打 GET /api/groups/:id/storage 並顯示「1 MB of 2 GB (Team plan)」", async () => {
+    const g = groupDto({ id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", name: "Team Alpha" }, ADMIN_ROLE);
+    const fetchMock = renderAt(`/groups/${g.id}/storage`, (url) => {
+      if (url === "/api/groups") return fakeResponse(200, [g]);
+      if (url === `/api/groups/${g.id}/storage`) return fakeResponse(200, groupUsage({ planName: "Team plan" }));
+      return null;
+    });
+    const dialog = await screen.findByRole("dialog", { name: "Team Alpha" });
+    expect(await within(dialog).findByRole("heading", { level: 1, name: "Storage" })).toBeInTheDocument();
+    await waitFor(() => expect(within(dialog).getByTestId("storage-usage")).toHaveTextContent("1 MB of 2 GB (Team plan)"));
+    expect(fetchMock.mock.calls.some(([u]) => String(u) === `/api/groups/${g.id}/storage`)).toBe(true);
+  });
+
+  it("不是群組管理者：§9.2 放寬後照樣渲染、照樣打 storage 端點（#247 前是不渲染、不打）", async () => {
+    const g = groupDto({ id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", name: "Team Beta" }, MEMBER_ROLE);
+    const fetchMock = renderAt(`/groups/${g.id}/storage`, (url) => {
+      if (url === "/api/groups") return fakeResponse(200, [g]);
+      if (url === `/api/groups/${g.id}/storage`) return fakeResponse(200, groupUsage({ usedBytes: 3 * 1048576, quotaBytes: 2 * 1048576, planName: "Tight" }));
+      return null;
+    });
+    const dialog = await screen.findByRole("dialog", { name: "Team Beta" });
+    await within(dialog).findByRole("heading", { level: 1, name: "Storage" });
+    await waitFor(() => expect(within(dialog).getByTestId("storage-usage")).toHaveTextContent("3 MB of 2 MB (Tight)"));
+    expect(within(dialog).getByTestId("storage-usage")).toHaveClass("text-destructive");
+    expect(fetchMock.mock.calls.some(([u]) => String(u) === `/api/groups/${g.id}/storage`)).toBe(true);
   });
 });

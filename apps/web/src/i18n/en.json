@@ -536,6 +536,12 @@
       "storage": "Storage",
       "about": "About"
     },
+    "storage": {
+      "byMember": "By member",
+      "byMemberDescription": "How much each member has uploaded to this group's notes.",
+      "byMemberEmpty": "No one has uploaded files yet.",
+      "deletedUser": "Deleted user"
+    },
     "menu": {
       "label": "Group actions for {{name}}",
       "manage": "Members & settings",

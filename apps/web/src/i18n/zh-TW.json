@@ -536,6 +536,12 @@
       "storage": "儲存空間",
       "about": "關於"
     },
+    "storage": {
+      "byMember": "依成員",
+      "byMemberDescription": "每位成員在這個群組的筆記裡上傳了多少。",
+      "byMemberEmpty": "尚未有人上傳檔案",
+      "deletedUser": "已刪除的使用者"
+    },
     "menu": {
       "label": "{{name}} 的群組選單",
       "manage": "成員與設定",
