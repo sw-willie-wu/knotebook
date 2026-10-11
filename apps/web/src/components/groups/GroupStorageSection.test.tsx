@@ -68,10 +68,19 @@ describe("GroupStorageSection（/groups/:id/storage，#247 §6.4）", () => {
     expect(within(section).queryByText("Zero")).not.toBeInTheDocument();
   });
 
-  it("S3 依成員沒有任何列 → 「No one has uploaded files yet.」；byKind 和為 0 時不 NaN", async () => {
+  it("S3 依成員沒有任何列 → 「This group's notes have no files yet.」；說明是佔用者語意（§9.2 rev 10，兩語言）；byKind 和為 0 時不 NaN", async () => {
     const { dialog } = await openStorage(GROUP_ADMIN, EMPTY_GROUP_USAGE);
     const section = (await within(dialog).findByRole("heading", { name: "By member" })).closest("section")!;
-    expect(within(section).getByText("No one has uploaded files yet.")).toBeInTheDocument();
+    expect(within(section).getByText("This group's notes have no files yet.")).toBeInTheDocument();
+    expect(
+      within(section).getByText(
+        "How much of this group's space each person has taken up: files they uploaded into its notes, plus the files that came with notes they moved or copied into the group.",
+      ),
+    ).toBeInTheDocument();
+    expect(i18n.t("groups.storage.byMemberEmpty", { lng: "zh-TW" })).toBe("這個群組的筆記還沒有檔案");
+    expect(i18n.t("groups.storage.byMemberDescription", { lng: "zh-TW" })).toBe(
+      "每個人佔用了這個群組多少空間：在群組筆記裡上傳的檔案，加上他移入或複製進群組的筆記帶進來的檔案。",
+    );
     expect(dialog.innerHTML).not.toContain("NaN");
   });
 

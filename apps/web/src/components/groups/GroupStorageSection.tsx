@@ -18,8 +18,9 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
 }
 
 /**
- * 「依成員」（#247 §6.4）：每位成員在**這個群組的筆記**裡上傳了多少（server 依 `uploads.uploader_id` 分組；帳號已刪除者彙總成
- * `userId: null` 一列）。只列 `bytes > 0`；沒有任何列時一句說明。佔比分母同「依類型」：`byKind` 五值之和。
+ * 「依成員」（#247 §6.4、§9.2 rev 11）：每個人佔用了這個群組多少空間——server 依 `uploads.charged_to_id`（佔用者）分組：
+ * 在群組筆記裡直接上傳＝上傳者；把筆記移入或複製進群組＝執行的人（移入含該篇全部附件；複製只含隨副本複製的附件）。佔用者帳號已刪除者彙總成
+ * `userId: null` 一列。只列 `bytes > 0`；沒有任何列時一句說明。佔比分母同「依類型」：`byKind` 五值之和。
  */
 function ByMemberGroup({ usage }: { usage: GroupStorageUsageDto }) {
   const { t } = useTranslation();

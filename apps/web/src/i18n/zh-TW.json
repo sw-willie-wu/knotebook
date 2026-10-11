@@ -530,8 +530,8 @@
     },
     "storage": {
       "byMember": "依成員",
-      "byMemberDescription": "每位成員在這個群組的筆記裡上傳了多少。",
-      "byMemberEmpty": "尚未有人上傳檔案",
+      "byMemberDescription": "每個人佔用了這個群組多少空間：在群組筆記裡上傳的檔案，加上他移入或複製進群組的筆記帶進來的檔案。",
+      "byMemberEmpty": "這個群組的筆記還沒有檔案",
       "deletedUser": "已刪除的使用者"
     },
     "about": {

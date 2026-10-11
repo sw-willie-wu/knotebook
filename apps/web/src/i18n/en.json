@@ -530,8 +530,8 @@
     },
     "storage": {
       "byMember": "By member",
-      "byMemberDescription": "How much each member has uploaded to this group's notes.",
-      "byMemberEmpty": "No one has uploaded files yet.",
+      "byMemberDescription": "How much of this group's space each person has taken up: files they uploaded into its notes, plus the files that came with notes they moved or copied into the group.",
+      "byMemberEmpty": "This group's notes have no files yet.",
       "deletedUser": "Deleted user"
     },
     "about": {
