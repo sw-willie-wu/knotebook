@@ -529,6 +529,13 @@
       "description": "關閉後，這個群組的筆記只在手動儲存時建立版本。",
       "managersOnly": "只有角色能管理群組的成員可以變更。"
     },
+    "nav": {
+      "label": "群組",
+      "members": "成員",
+      "roles": "角色",
+      "storage": "儲存空間",
+      "about": "關於"
+    },
     "menu": {
       "label": "{{name}} 的群組選單",
       "manage": "成員與設定",

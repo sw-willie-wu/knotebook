@@ -1,6 +1,6 @@
 import { useEffect, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen, waitFor, fireEvent, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, fireEvent, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation, useNavigate, type MemoryRouterProps } from "react-router";
 import * as Y from "yjs";
@@ -48,14 +48,43 @@ vi.mock("@/components/NoteEditor", () => ({
   ),
 }));
 
-// #201：群組角色區塊在本檔只拿來驗「區塊 chunk 載入失敗被 modal 內的 boundary 接住」——
+// #201：「授權」區塊在本檔只拿來驗「區塊 chunk 載入失敗被 modal 內的 boundary 接住」——
 // 替身直接丟 chunk 失敗的訊息（真實 lazy reject 經 Suspense 後也是以 render throw 抵達
-// boundary；Vite preload 那條訊息見 ErrorBoundary.tsx 的白名單）。本檔其餘案子不碰這一區。
-vi.mock("@/settings/SettingsGroupRolesSection", () => ({
-  SettingsGroupRolesSection: () => {
-    throw new Error("Failed to fetch dynamically imported module: https://x/assets/SettingsGroupRolesSection-abc.js");
+// boundary；Vite preload 那條訊息見 ErrorBoundary.tsx 的白名單）。本檔其餘案子不進 `/settings/authorization`
+// （#247 Part 3 前掛在群組角色頁，該頁搬去群組 modal；「關於」頁另有案子要它的 h1，所以不掛那裡）。
+vi.mock("@/settings/SettingsAuthorizationSection", () => ({
+  SettingsAuthorizationSection: () => {
+    throw new Error("Failed to fetch dynamically imported module: https://x/assets/SettingsAuthorizationSection-abc.js");
   },
 }));
+
+/**
+ * §5.1 的「不閃設定面板」負面判準：轉址過程中掛進 DOM 的任何 `[role=dialog]`，可及名稱（`aria-labelledby` 指到的
+ * `DialogTitle` 文字）不得是設定面板的標題「Settings」。只記錄、不判斷「必須等於目的地」（群組 modal 會先是備用標題）。
+ * 記 `addedNodes`（含子孫）而不是回呼當下 `querySelectorAll`——閃一下的節點可能在回呼跑之前就被移除了（同本檔
+ * 「不先閃一下 modal」那案）；標題也先在被加入的子樹裡找（節點已脫離 document 時 `getElementById` 找不到）。
+ */
+function watchDialogTitles() {
+  const titles = new Set<string>();
+  const titleOf = (dialog: Element): string => {
+    const labelId = dialog.getAttribute("aria-labelledby");
+    if (!labelId) return "";
+    const inSubtree = [...dialog.querySelectorAll("[id]")].find((el) => el.id === labelId);
+    return (inSubtree ?? document.getElementById(labelId))?.textContent ?? "";
+  };
+  const observer = new MutationObserver((records) => {
+    for (const record of records) {
+      for (const node of record.addedNodes) {
+        if (!(node instanceof Element)) continue;
+        const dialogs = node.matches('[role="dialog"]') ? [node] : [];
+        dialogs.push(...node.querySelectorAll('[role="dialog"]'));
+        for (const dialog of dialogs) titles.add(titleOf(dialog));
+      }
+    }
+  });
+  observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true });
+  return { titles, stop: () => observer.disconnect() };
+}
 
 function createStubProvider() {
   const listeners = new Map<string, Set<(...args: unknown[]) => void>>();
@@ -643,7 +672,7 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
       throw new Error(`unexpected fetch: ${method} ${url}`);
     });
     try {
-      renderAt(["/settings/groups/g1/roles"], fetchMock);
+      renderAt(["/settings/authorization"], fetchMock);
 
       const dialog = await screen.findByRole("dialog", {}, { timeout: 3_000 });
       await waitFor(
@@ -662,6 +691,44 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
     } finally {
       sessionStorage.removeItem("knotebook:chunk-reload:settings");
     }
+  });
+
+  it("L1 舊網址 /settings/groups/:id → /groups/:id、/roles → /groups/:id/roles；過程中掛進的 dialog 標題從不是 Settings（§5.1 負面判準）", async () => {
+    const G = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+    for (const [from, to] of [[`/settings/groups/${G}`, `/groups/${G}`], [`/settings/groups/${G}/roles`, `/groups/${G}/roles`]] as const) {
+      const watcher = watchDialogTitles();
+      try {
+        const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+          const res = baseFetchHandlers(() => PLAIN_USER)(String(input), (init?.method ?? "GET").toUpperCase());
+          if (res) return Promise.resolve(res);
+          throw new Error(`unexpected fetch: ${String(input)}`);
+        });
+        renderAt([from], fetchMock);
+        await waitFor(() => expect(screen.getByTestId("location").textContent).toBe(to));
+        // baseFetchHandlers 的 /api/groups 回 []：群組 modal 以 S4 備用標題「Group」顯示 not_found
+        expect(await screen.findByRole("dialog", { name: "Group" })).toBeInTheDocument();
+        expect([...watcher.titles]).not.toContain("Settings");
+      } finally {
+        watcher.stop();
+        cleanup();
+        vi.unstubAllGlobals();
+      }
+    }
+  });
+
+  it("L2 舊網址帶 backgroundLocation 進入 → 轉址後關閉群組 modal 回到該背景頁（LegacyGroupRedirect 轉傳 location.state）", async () => {
+    const G = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+    // 背景用正規網址：`/notes/x` 這類舊形會被 NotePage 收斂成 `/n/tester/my-note`（#179），落點就不是原字串
+    const bg = { pathname: "/n/tester/my-note", search: "", hash: "", state: null, key: "bg" };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const res = baseFetchHandlers(() => PLAIN_USER)(String(input), (init?.method ?? "GET").toUpperCase());
+      if (res) return Promise.resolve(res);
+      throw new Error(`unexpected fetch: ${String(input)}`);
+    });
+    renderAt([{ pathname: `/settings/groups/${G}`, state: { backgroundLocation: bg } }], fetchMock);
+    const dialog = await screen.findByRole("dialog", { name: "Group" });
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await waitFor(() => expect(screen.getByTestId("location").textContent).toBe("/n/tester/my-note"));
   });
 
   // ── #179：改標題換網址後開關設定 modal，網址不得退回改標題前 ──

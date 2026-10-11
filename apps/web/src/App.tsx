@@ -20,6 +20,7 @@ import { PublicNoteErrorBoundary, PublicNoteFallback } from "./components/Public
 import LoginPage from "./pages/LoginPage";
 import HomePage from "./pages/HomePage";
 import { SettingsModal } from "./settings/SettingsModal";
+import { GroupModal, GroupSubpathRedirect, LegacyGroupRedirect } from "./components/groups/GroupModal";
 
 /**
  * NotePage 走 lazy（issue #19）：BlockNote＋共編整條相依鏈只有這一頁需要，同步 import
@@ -33,7 +34,7 @@ const NotePage = lazy(() => import("./pages/NotePage"));
 /**
  * #201：首包又長到逼近 700 KiB 上限，把「不是每次都會用到」的頁面也切出去——
  * - 站台管理（`AdminPage`，連同它三個子區塊，同一個 chunk；理由見 AdminPage.tsx 檔頭）；
- * - 設定 modal 的六個頁面（#247；過渡期另有群組詳情與角色兩頁，Part 3 移到群組 modal）（外殼 `SettingsModal` 留在首包：modal-over-background 機制與
+ * - 設定 modal 的六個頁面與群組 modal 的區塊（#247；後者共用一個 chunk，見 `GroupMembersSection` 那段）（外殼 `SettingsModal`／`GroupModal` 留在首包：modal-over-background 機制與
  *   開 modal 時外框立刻出現都靠它，只有內容區等 chunk）；
  * - 登入流程的四頁：註冊、帳號連結、強制改密碼、OAuth 同意頁。
  *
@@ -65,14 +66,14 @@ const SettingsStorageUsageSection = lazy(() =>
 const SettingsGroupsOverview = lazy(() =>
   import("./settings/SettingsGroupsOverview").then(m => ({ default: m.SettingsGroupsOverview })),
 );
-const SettingsGroupDetailSection = lazy(() =>
-  import("./settings/SettingsGroupDetailSection").then(m => ({ default: m.SettingsGroupDetailSection })),
-);
-const SettingsGroupRolesSection = lazy(() =>
-  import("./settings/SettingsGroupRolesSection").then(m => ({ default: m.SettingsGroupRolesSection })),
-);
 const SettingsAboutSection = lazy(() =>
   import("./settings/SettingsAboutSection").then(m => ({ default: m.SettingsAboutSection })),
+);
+/**
+ * #247 §6.1：群組 modal 的四個區塊來自同一個聚合模組 `components/groups/GroupSections`（一個 chunk）；外殼 `GroupModal` 在首包。
+ */
+const GroupMembersSection = lazy(() =>
+  import("./components/groups/GroupSections").then(m => ({ default: m.GroupMembersSection })),
 );
 
 /**
@@ -186,13 +187,13 @@ function PublicNoteRoute() {
  *   且後掛載」上**：哪天把某個 modal-over-background 路由移出第二棵樹，`next` 會
  *   **靜默**退化成背景頁。守衛在 `App.test.tsx` 的「未登入開設定 modal → next 取
  *   真實網址」那案。
- * - **第二棵樹**：只含 `/settings/*`（modal 六頁＋過渡期的群組詳情兩頁、`/settings` 與兩條往 `/admin/*` 的轉址），
+ * - **第二棵樹**：只含 `/settings/*` 與 `/groups/:id/*`（設定 modal 六頁、群組 modal、`/settings` 與兩條往 `/admin/*`、兩條舊群組網址的轉址），
  *   吃真實 location（不帶 `location` prop）；
- *   非 `/settings/*` 路徑下整棵 match 不到任何 route → render `null`，樹內的
+ *   非 `/settings/*`、`/groups/:id/*` 的路徑下整棵 match 不到任何 route → render `null`，樹內的
  *   guard 元件根本不會執行，不會有幽靈重導。guard 元件在這裡
  *   直接複用同一份，以 pathless layout route 掛上——不是塞進主樹。
  *
- * `/settings/*` **絕不可加進主樹**：加進去背景頁就不會渲染，modal-over-background
+ * `/settings/*`、`/groups/:id/*` **絕不可加進主樹**：加進去背景頁就不會渲染，modal-over-background
  * 整個破功。
  *
  * 站台管理（2026-09-30 起）是**一般頁面**、不是 modal：`/admin/*` route
@@ -280,7 +281,7 @@ export function AppRoutes() {
             <Route path="/notes/:ref" element={<NoteRoute />} />
             <Route path="/n/:handle/:slug" element={<NoteRoute />} />
             {/* #175：群組筆記 `/g/<group_id>/<slug>`（§8.1）——同一個 NoteRoute/NotePage；
-                只掛主樹（第二棵樹只管 /settings/*）。承接由 App.resetKey.test control 4 釘住。 */}
+                只掛主樹（第二棵樹只管 /settings/* 與 /groups/:id/*）。承接由 App.resetKey.test control 4 釘住。 */}
             <Route path="/g/:groupId/:slug" element={<NoteRoute />} />
             {/* 站台管理獨立頁（2026-09-30）：`/admin/*`，子區塊（users／ai／auth）與 index
                 轉址是 AdminPage 裡的 descendant <Routes>（#201：整包一個 lazy chunk，理由見
@@ -299,7 +300,7 @@ export function AppRoutes() {
           </Route>
         </Route>
       </Routes>
-      {/* 第二棵樹：只含 /settings/*，吃真實 location；非 /settings/* 路徑下整棵
+      {/* 第二棵樹：只含 /settings/* 與 /groups/:id/*，吃真實 location；其餘路徑下整棵
           match 不到 → render null，guard 不會跑（無幽靈重導）。guard 元件直接複用。 */}
       <Routes>
         <Route element={<RequireAuth />}>
@@ -315,11 +316,18 @@ export function AppRoutes() {
               {/* #247：群組唯讀總覽（所有登入者） */}
               <Route path="/settings/groups" element={<SettingsGroupsOverview />} />
               <Route path="/settings/about" element={<SettingsAboutSection />} />
-              {/* 過渡（#247 Part 3 改成 LegacyGroupRedirect 轉 /groups/:id，並刪這兩支 lazy）。 */}
-              <Route path="/settings/groups/:id" element={<SettingsGroupDetailSection />} />
-              <Route path="/settings/groups/:id/roles" element={<SettingsGroupRolesSection />} />
+            </Route>
+            {/* #247 §6：群組 modal（所有登入者，不在 RequireAdmin 底下）。`/groups/:id` 本身是「成員」項次；
+                未知子路徑在 modal 內轉回 `/groups/:id`（GroupSubpathRedirect）。主樹對 /groups/* 落在 `/*` 的 HomePage。 */}
+            <Route path="/groups/:id" element={<GroupModal />}>
+              <Route index element={<GroupMembersSection />} />
+              <Route path="*" element={<GroupSubpathRedirect />} />
             </Route>
           </Route>
+          {/* #247 §5.1：舊群組網址（書籤、尚未改到的呼叫點）轉到群組 modal。掛在 ChangePasswordGate 與 SettingsModal 外——
+              不先閃設定面板；轉傳 location.state（LegacyGroupRedirect 內）才不會丟掉 backgroundLocation。 */}
+          <Route path="/settings/groups/:id" element={<LegacyGroupRedirect suffix="" />} />
+          <Route path="/settings/groups/:id/roles" element={<LegacyGroupRedirect suffix="/roles" />} />
           {/* 轉址一律掛在 SettingsModal **外面**、RequireAuth 裡面（不先閃一下 modal；目的地自己的守衛照常判）。
               `/settings` → 第一個項次（#247 §5.1）。舊網址 `/settings/users`、`/settings/ai`（書籤、舊文件連結）：
               站台管理搬到 /admin/* 後轉址過去，admin 與否交給 /admin 那邊的 RequireAdmin 判。 */}
@@ -328,12 +336,12 @@ export function AppRoutes() {
           <Route path="/settings/ai" element={<Navigate to="/admin/ai" replace />} />
         </Route>
         {/* 與上面那棵 pathless `<RequireAuth>` 平行（不是它的子路由）：純粹吸收
-            react-router 對非 /settings/* 路徑的「No routes matched」warning——
+            react-router 對非 /settings/*、/groups/:id/* 路徑的「No routes matched」warning——
             這棵樹本來就設計成那些路徑下什麼都不 render，這是預期行為，不是漏
             接的路由。element 固定 `null`，**絕不可**塞進任何 guard 底下：guard
-            會在每個非 /settings/* 頁面都執行一次（session query、可能的
+            會在每個非 /settings/*、/groups/:id/* 頁面都執行一次（session query、可能的
             <Navigate>），那就是貨真價實的幽靈重導，違反本樹「非
-            /settings/* 時 guard 不跑」的設計前提。 */}
+            /settings/*、/groups/:id/* 時 guard 不跑」的設計前提。 */}
         <Route path="*" element={null} />
       </Routes>
     </RealLocationContext.Provider>

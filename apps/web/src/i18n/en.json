@@ -529,6 +529,13 @@
       "description": "When off, this group's notes only get a new version when someone saves one by hand.",
       "managersOnly": "Only members whose role can manage the group can change this."
     },
+    "nav": {
+      "label": "Group",
+      "members": "Members",
+      "roles": "Roles",
+      "storage": "Storage",
+      "about": "About"
+    },
     "menu": {
       "label": "Group actions for {{name}}",
       "manage": "Members & settings",

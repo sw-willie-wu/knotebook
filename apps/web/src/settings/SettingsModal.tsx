@@ -35,8 +35,6 @@ export function SettingsModal() {
     navigate(backgroundLocation ?? "/");
   }
 
-  // 群組項不帶 `end`：過渡期（#247 Part 2 → Part 3 之間）`/settings/groups/:id(/roles)` 仍在本 modal 裡，
-  // 停在那裡時「群組」要維持高亮。Part 3 把那兩條改成轉址後，有無 `end` 結果相同。
   const items: ManagementNavItemSpec[] = [
     { to: "/settings/account", label: t("settings.nav.account") },
     { to: "/settings/login", label: t("settings.nav.login") },
