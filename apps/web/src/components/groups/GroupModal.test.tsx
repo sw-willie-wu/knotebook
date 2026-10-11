@@ -41,6 +41,16 @@ describe("GroupModal（/groups/:id/*，#247 §6.0、§6.1）", () => {
     expect(within(nav).getByRole("link", { name: "Members" })).toHaveAttribute("aria-current", "page");
   });
 
+  it("G2 Members 帶 end：在 /groups/:id/roles 時 Members 不是 aria-current（Roles 才是）", async () => {
+    renderGroupRoute(`/groups/${GROUP_ADMIN.id}/roles`, groupFetch(() => [GROUP_ADMIN]));
+    const dialog = await screen.findByRole("dialog", { name: "Team Alpha" });
+    // 先等角色頁的 h1：證明 roles route 已掛上（沒有它會被 splat 轉回成員頁；轉址前那一瞬 aria-current 也會暫時對）。
+    await within(dialog).findByRole("heading", { level: 1, name: "Roles" });
+    const nav = within(dialog).getByRole("navigation", { name: "Team Alpha" });
+    expect(within(nav).getByRole("link", { name: "Roles" })).toHaveAttribute("aria-current", "page");
+    expect(within(nav).getByRole("link", { name: "Members" })).not.toHaveAttribute("aria-current");
+  });
+
   it("G3 標題＝群組名、副文字＝我的角色（roleLabel：內建一般成員顯示 Member）；成員頁 h1 是 Members", async () => {
     renderGroupRoute(`/groups/${GROUP_MEMBER.id}`, groupFetch(() => [GROUP_MEMBER]));
     const dialog = await screen.findByRole("dialog", { name: "Team Beta" });

@@ -579,11 +579,9 @@
       "member": "一般成員"
     },
     "detail": {
-      "back": "所有群組",
       "nameTitle": "名稱",
       "nameSave": "儲存名稱",
       "nameSaved": "群組已重新命名。",
-      "membersTitle": "成員",
       "membersDescriptionAdmin": "以 email 加入成員。成員看得到這個群組裡的所有筆記。",
       "membersDescriptionMember": "只有角色能管理成員的人可以加入或移除成員。",
       "tableName": "名稱",
@@ -598,14 +596,9 @@
       "add": "加入",
       "dangerTitle": "刪除群組",
       "dangerDescription": "刪除群組時，筆記可以轉移給其中一位管理員，或連同群組一起刪除。",
-      "leaveTitle": "退出群組",
-      "tabsLabel": "群組設定分頁",
-      "tabMembers": "成員",
-      "storage": "儲存空間",
-      "tabRoles": "角色"
+      "leaveTitle": "退出群組"
     },
     "roles": {
-      "title": "角色",
       "descriptionManage": "每位成員各有一個角色，角色決定他能做什麼。內建「管理員」角色不能修改；內建「一般成員」是新成員預設的角色，不能改名或刪除。",
       "descriptionView": "每位成員各有一個角色，角色決定他能做什麼。只有角色能管理角色與群組的人可以修改。",
       "legendTitle": "各項權限的意思",
@@ -640,10 +633,9 @@
       "flagFor": "{{role}}：{{flag}}",
       "nameFor": "{{role}} 的名稱",
       "adminLocked": "內建管理員角色永遠擁有全部權限，不能修改。",
-      "apply": "套用",
-      "applyFor": "套用 {{role}} 的變更",
-      "applied": "已套用變更。",
-      "deleteShort": "刪除",
+      "renameFor": "重新命名「{{role}}」",
+      "save": "儲存",
+      "cancel": "取消",
       "deleteFor": "刪除 {{role}}",
       "delete": {
         "title": "刪除角色？",

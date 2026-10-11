@@ -75,6 +75,9 @@ const SettingsAboutSection = lazy(() =>
 const GroupMembersSection = lazy(() =>
   import("./components/groups/GroupSections").then(m => ({ default: m.GroupMembersSection })),
 );
+const GroupRolesSection = lazy(() =>
+  import("./components/groups/GroupSections").then(m => ({ default: m.GroupRolesSection })),
+);
 
 /**
  * 整頁 lazy route 的 element 外包（#201）：boundary＋Suspense＋beacon，結構與 NoteRoute 同款
@@ -321,6 +324,7 @@ export function AppRoutes() {
                 未知子路徑在 modal 內轉回 `/groups/:id`（GroupSubpathRedirect）。主樹對 /groups/* 落在 `/*` 的 HomePage。 */}
             <Route path="/groups/:id" element={<GroupModal />}>
               <Route index element={<GroupMembersSection />} />
+              <Route path="roles" element={<GroupRolesSection />} />
               <Route path="*" element={<GroupSubpathRedirect />} />
             </Route>
           </Route>

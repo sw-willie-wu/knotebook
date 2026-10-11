@@ -185,20 +185,31 @@ export function useCreateRole(groupId: string) {
   });
 }
 
-/** body 只帶有給的鍵（`JSON.stringify` 丟掉 undefined）；server `.strict()`，`permissions` 給就要六鍵全給、不得帶 `read`。 */
+/**
+ * body 只帶有給的鍵（`JSON.stringify` 丟掉 undefined）；server `.strict()`，`permissions` 給就要六鍵全給、不得帶 `read`。
+ *
+ * #247 §6.3（W28：toggle 按下即生效）：
+ * - **`onSettled` 回傳 `['groups']` 失效的 promise**——TanStack Query 會等它結束才把 mutation 轉成 settled，所以呼叫端
+ *   `isPending` 涵蓋整個 refetch（角色卡「一卡一在飛」靠這條：不再 pending 時快取必為真值）。`['groups']` 是
+ *   `groupRolesKey(id)` 的前綴。失敗也走這裡：refetch 讓 switch 彈回 server 值。
+ * - **`onSuccess` 以 PATCH 回應 `setQueryData` 該角色列**：refetch 失敗時 `invalidateQueries` 仍 resolve、快取不會更新，
+ *   沒有這一步下一發會拿舊值覆寫。唯一的快取寫入；不做樂觀寫入。
+ * - `['notes']` 與單篇三把 key 照舊 fire-and-forget（見檔頭）。
+ */
 export function useUpdateRole(groupId: string) {
   const queryClient = useQueryClient();
-  const invalidate = useInvalidateGroupsAndNotes();
   return useMutation({
     mutationFn: ({ roleId, name, permissions }: { roleId: string; name?: string; permissions?: GroupRoleFlags }) =>
       api<GroupRoleDto>(`/api/groups/${encodeURIComponent(groupId)}/roles/${encodeURIComponent(roleId)}`, {
         method: "PATCH",
         body: JSON.stringify({ name, permissions }),
       }),
-    onSuccess: () => {
+    onSuccess: (updated) => {
+      queryClient.setQueryData<GroupRoleDto[]>(groupRolesKey(groupId), (rows) => rows?.map((row) => (row.id === updated.id ? updated : row)));
       void invalidateSingleNoteKeys(queryClient);
-      invalidate();
+      void queryClient.invalidateQueries({ queryKey: ["notes"] });
     },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: GROUPS_QUERY_KEY }),
   });
 }
 

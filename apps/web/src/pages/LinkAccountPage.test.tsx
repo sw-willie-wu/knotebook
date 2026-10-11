@@ -58,7 +58,7 @@ function renderAt(path: string): QueryClient {
   return queryClient;
 }
 const loc = () => screen.getByTestId("loc").textContent;
-/** `button.tsx` 的實心變體（default／destructive／brandSolid／brandDeep）的底色 class——同 `SettingsGroupRolesSection.test.tsx:143` 的判法。 */
+/** `button.tsx` 的實心變體（default／destructive／brandSolid／brandDeep）的底色 class——同 `SettingsGroupRolesSection.test.tsx:91` 的判法。 */
 const SOLID_BG = /(^|\s)bg-(primary|destructive|brand|brand-deep)(\s|$)/;
 /** errors.oidc_link_expired 的英文（Task 1）。LoginPage 掛載時會以 replace 把 ?error= 從網址清掉，所以「導到 /login?error=…」
  * 只能用「登入頁顯示了這則文案、網址最後是 /login」來斷言（gate r1 t8-13 I2）。 */

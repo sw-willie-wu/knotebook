@@ -5,3 +5,4 @@
  * 外殼 `GroupModal` 在首包；錯誤邊界別名 `chunk="group"`。
  */
 export { GroupMembersSection } from "./GroupMembersSection";
+export { SettingsGroupRolesSection as GroupRolesSection } from "@/settings/SettingsGroupRolesSection";

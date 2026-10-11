@@ -579,11 +579,9 @@
       "member": "Member"
     },
     "detail": {
-      "back": "All groups",
       "nameTitle": "Name",
       "nameSave": "Save name",
       "nameSaved": "Group renamed.",
-      "membersTitle": "Members",
       "membersDescriptionAdmin": "Add people by email. Members see every note in this group.",
       "membersDescriptionMember": "Only people whose role can manage members can add or remove members.",
       "tableName": "Name",
@@ -598,14 +596,9 @@
       "add": "Add",
       "dangerTitle": "Delete group",
       "dangerDescription": "Deleting the group either gives its notes to one of its admins or deletes them with it.",
-      "leaveTitle": "Leave group",
-      "tabsLabel": "Group settings sections",
-      "tabMembers": "Members",
-      "storage": "Storage",
-      "tabRoles": "Roles"
+      "leaveTitle": "Leave group"
     },
     "roles": {
-      "title": "Roles",
       "descriptionManage": "Each member has one role, and the role decides what they can do. The built-in Admin role can't be changed; the built-in Member role is what new members get, and it can't be renamed or deleted.",
       "descriptionView": "Each member has one role, and the role decides what they can do. Only people whose role can manage roles and the group can change these.",
       "legendTitle": "What each permission allows",
@@ -640,10 +633,9 @@
       "flagFor": "{{flag}} for {{role}}",
       "nameFor": "Name of {{role}}",
       "adminLocked": "The built-in Admin role always has every permission and can't be changed.",
-      "apply": "Apply",
-      "applyFor": "Apply changes to {{role}}",
-      "applied": "Changes applied.",
-      "deleteShort": "Delete",
+      "renameFor": "Rename {{role}}",
+      "save": "Save",
+      "cancel": "Cancel",
       "deleteFor": "Delete {{role}}",
       "delete": {
         "title": "Delete role?",
