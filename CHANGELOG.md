@@ -31,7 +31,7 @@ The full checklist is under **Upgrading to v0.10** in [Upgrading and rolling bac
 - API: `GET /api/storage` and `GET /api/groups/:id/storage` also return `byKind`, the bytes of uploads of each kind (image, audio, video, document, other); the group endpoint also returns `byMember`, how much each person has uploaded to the group's notes (#247).
 - API: `PATCH /api/auth/profile` accepts `displayName` to change the name others see; it follows the same rule as registering and doesn't count against the rename limit (#247).
 - API: `POST /api/admin/users/:id/demote` removes a user's site admin role. It refuses to remove your own (`400 cannot_demote_self`) or when no other enabled admin would be left (`409 last_site_admin`) (#247).
-- API: `GET /api/admin/users` returns `lastLoginAt`, when each user last signed in (`null` if they haven't since upgrading) (#247).
+- API: `GET /api/admin/users` returns `lastLoginAt`, when each user last signed in (`null` if they haven't since upgrading). A sign-in made while another change to the same account is in progress can go unrecorded (#247).
 
 ### Changed
 

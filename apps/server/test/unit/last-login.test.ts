@@ -7,10 +7,20 @@ import { touchLastLogin } from "../../src/auth/last-login.js";
 describe("touchLastLogin", () => {
   it("UPDATE 拋錯：不往外拋；log.warn 一次，物件形帶 err 與 userId", async () => {
     const boom = new Error("db down");
-    const db = { update: () => ({ set: () => ({ where: () => Promise.reject(boom) }) }) } as unknown as Db;
+    const db = { execute: () => Promise.reject(boom) } as unknown as Db;
     const warn = vi.fn();
     await expect(touchLastLogin(db, "u-1", { warn } as unknown as FastifyBaseLogger)).resolves.toBeUndefined();
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]![0]).toMatchObject({ err: boom, userId: "u-1" });
+  });
+
+  it("0 列（列被鎖、SKIP LOCKED 跳過）：不拋；log.warn 一次帶 userId；1 列時不 warn", async () => {
+    const warn = vi.fn();
+    const log = { warn } as unknown as FastifyBaseLogger;
+    await expect(touchLastLogin({ execute: () => Promise.resolve({ rowCount: 0 }) } as unknown as Db, "u-2", log)).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]).toEqual([{ userId: "u-2" }, "last_login_at skipped: row locked"]);
+    await touchLastLogin({ execute: () => Promise.resolve({ rowCount: 1 }) } as unknown as Db, "u-3", log);
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 });

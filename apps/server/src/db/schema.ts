@@ -63,7 +63,8 @@ export const users = pgTable("users", {
   // 筆記版本歷史（spec 2026-10-09 §4.3、D8）：個人空間的自動儲存開關。生效值＝站台總開關 且 這欄（A13），筆記載入時查一次。
   autoVersions: boolean("auto_versions").notNull().default(true),
   // #247 §9.5：最後一次「新簽登入 session」的時間（帳密登入、OIDC 登入與首登建帳、SSO／密碼證明連結、註冊）。顯示用，站台管理使用者表讀它；
-  // 寫入是交易外的單句 `auth/last-login.ts` 的 `touchLastLogin`（不進 `resolveOidcLoginInTx`，不動「先 users 後 identity」鎖序，C24）。
+  // 寫入是交易外的單句 `auth/last-login.ts` 的 `touchLastLogin`（不進 `resolveOidcLoginInTx`，不動「先 users 後 identity」鎖序，C24）；
+  // 永不等鎖（`SKIP LOCKED`）：該列正被別的交易鎖著時略過，所以併發下偶爾會漏記這一次登入。
   // 不回填：升級前的帳號在下次登入前是 NULL。
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
 }, t => [

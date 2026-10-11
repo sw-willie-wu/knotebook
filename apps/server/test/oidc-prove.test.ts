@@ -18,23 +18,6 @@ const nowS = () => Math.floor(Date.now() / 1000);
 const lastLoginOf = async (db: Db, id: string) =>
   (await db.execute<{ t: string | null }>(sql`select last_login_at::text as t from users where id = ${id}`)).rows[0]!.t;
 
-/** 輪詢到 `other` 結束（回 "settled"）或出現等鎖的連線（回它們的 query，與它是否持有 user_identities 上的鎖）。比照 `waitForBlockedOrSettled`，多回等的是哪一句。 */
-async function lockWaitersOrSettled(pool: OidcTestApp["db"]["$client"], other: Promise<unknown>, timeoutMs = 5_000): Promise<"settled" | Array<{ query: string; holdsIdentityLock: boolean }>> {
-  let settled = false;
-  void other.then(() => { settled = true; }, () => { settled = true; });
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (settled) return "settled";
-    const { rows } = await pool.query<{ query: string; holdsIdentityLock: boolean }>(
-      `select a.query, exists (select 1 from pg_locks l where l.pid = a.pid and l.granted and l.relation = 'user_identities'::regclass) as "holdsIdentityLock"
-         from pg_stat_activity a where a.datname = current_database() and a.wait_event_type = 'Lock'`,
-    );
-    if (rows.length >= 1) return rows;
-    await new Promise(r => setTimeout(r, 20));
-  }
-  throw new Error(`lockWaitersOrSettled 逾時（${timeoutMs}ms）`);
-}
-
 /** 純 SSO 帳號 U（身分在 A）＋ B 同 email 首登 → pending。 */
 async function ssoOnlyPending(t: OidcTestApp, next?: string) {
   await ssoRoundTrip(t.app, t.idp("a"), { loginUrl: `/api/auth/oidc/login/${t.provider("a").id}`, claims: { sub: "ua", email: "u@x.example" } });
@@ -264,7 +247,7 @@ describe("SSO 證明（#187 §7.5.3，§14.1-4a）", () => {
     }
   });
 
-  it("C24：SSO 證明持有 users 列鎖時，同一帳號的 SSO 登入交易（只碰 user_identities）不被擋，只有交易後 touchLastLogin 的單句等那把鎖；兩者都成功、無 40P01", async () => {
+  it("C24：SSO 證明持有 users 列鎖時，同一帳號的 SSO 登入（只碰 user_identities）不被擋、照樣完成，last_login_at 被 SKIP LOCKED 略過；放行後證明成功並記上、無 40P01", async () => {
     const gate = { release: () => {}, entered: () => {} };
     const held = new Promise<void>(r => (gate.release = r));
     const entered = new Promise<void>(r => (gate.entered = r));
@@ -278,14 +261,16 @@ describe("SSO 證明（#187 §7.5.3，§14.1-4a）", () => {
     };
     const t = await app2({ oidcTestHook: hook });
     const { user, pending, pendingId } = await ssoOnlyPending(t);
+    await t.db.execute(sql`update users set last_login_at = null where id = ${user.id}`); // 清掉 ssoOnlyPending 首登記的值
     const proveP = prove(t, "a", { [OIDC_PENDING_COOKIE]: pending }, pendingId, { sub: "ua", email: "u@x.example" });
     await entered;
     const loginP = ssoRoundTrip(t.app, t.idp("a"), { loginUrl: `/api/auth/oidc/login/${t.provider("a").id}`, claims: { sub: "ua", email: "u@x.example" } });
     try {
-      // 登入交易本身不寫 users（B15），與 A2 的 users 鎖不相交，不被擋。#247 §9.5 起，交易 commit 後的 touchLastLogin
-      // （`UPDATE users SET last_login_at`）會等 A2 放鎖——它是交易外的單句、等待時不持 user_identities 的鎖（A2 之後要拿的那把），
-      // 無循環等待。等鎖的若是別句、或是還持著 user_identities 鎖的這句（被搬進登入交易），這裡紅。
-      expect(await lockWaitersOrSettled(t.db.$client, loginP)).toEqual([{ query: expect.stringMatching(/^update "users" set "last_login_at" = now\(\)/), holdsIdentityLock: false }]);
+      // 這一案要證明的就是「不被擋」：login 分支不寫 users（B15），與 A2 的 users 鎖不相交；交易後的 touchLastLogin 以
+      // SKIP LOCKED 取列，A2 持鎖時整句 0 列、不等（#247 §9.5）。
+      expect(await waitForBlockedOrSettled(t.db.$client, loginP)).toBe("settled");
+      expect((await loginP).callbackRes.headers.location).toBe("/");
+      expect(await lastLoginOf(t.db, user.id)).toBeNull();
     } finally {
       gate.release();
     }
@@ -293,6 +278,6 @@ describe("SSO 證明（#187 §7.5.3，§14.1-4a）", () => {
     expect(l.callbackRes.headers.location).toBe("/");
     expect(p.callback!.headers.location).toBe("/");
     expect(await identitiesOf(t.db, user.id)).toEqual([{ issuer: A, sub: "ua" }, { issuer: B, sub: "ub" }]);
-    expect(await lastLoginOf(t.db, user.id)).not.toBeNull();
+    expect(await lastLoginOf(t.db, user.id)).not.toBeNull(); // A2 commit 後寫入點 3（SSO 證明）記上
   });
 });
