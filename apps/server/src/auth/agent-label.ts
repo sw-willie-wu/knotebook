@@ -1,18 +1,12 @@
 import { eq } from "drizzle-orm";
+import { AGENT_LABEL_RE, deriveAgentLabel } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
 import { apiTokens } from "../db/schema.js";
 
-/** #106 D7（spec §8）：token 名稱 → agent label 的唯一派生規則。讀時派生，寫入時快照。
- * 現值＝`api_tokens.agent_label ?? deriveAgentLabel(name)`：`agentLabelOf` 是**純述詞**
- * （`listEdits` 一次 JOIN 撈最多 100 列，逐列查 DB 就是 N+1），`currentAgentLabel` 是它的查詢殼。
- * 派生表釘在 test/unit/agent-label.test.ts；AGENT_LABEL_RE 與 DB CHECK api_tokens_agent_label_chk 同形。 */
-export function deriveAgentLabel(name: string): string {
-  const first = name.trim().split(/\s+/)[0] ?? "";
-  const cleaned = first.normalize("NFKC").toLowerCase().replace(/[^A-Za-z0-9._-]/g, "").slice(0, 32);
-  return cleaned.length > 0 ? cleaned : "agent";
-}
-
-export const AGENT_LABEL_RE = /^[A-Za-z0-9._-]{1,32}$/;
+/** #106 D7（spec §8）：現值＝`api_tokens.agent_label ?? deriveAgentLabel(name)`。派生規則本體在 `@knotebook/shared`
+ * （`packages/shared/src/agent-label.ts`，#247 §9.6 搬過去讓 web 共用），這裡重新匯出同一個參考，既有 import 不必改。
+ * `agentLabelOf` 是**純述詞**（`listEdits` 一次 JOIN 撈最多 100 列，逐列查 DB 就是 N+1），`currentAgentLabel` 是它的查詢殼。 */
+export { AGENT_LABEL_RE, deriveAgentLabel };
 
 export function agentLabelOf(row: { agentLabel: string | null; name: string }): string {
   return row.agentLabel ?? deriveAgentLabel(row.name);

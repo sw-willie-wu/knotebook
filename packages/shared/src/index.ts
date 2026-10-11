@@ -1115,5 +1115,6 @@ export * from "./note-sections.js";
 export * from "./note-markdown.js";
 export * from "./group-roles.js";
 export * from "./provider-icon.js";
+export * from "./agent-label.js";
 export * from "./storage.js";
 export * from "./versions.js";
