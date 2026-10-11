@@ -571,15 +571,6 @@
       "admin": "Admin",
       "member": "Member"
     },
-    "settings": {
-      "title": "Groups",
-      "description": "Groups you belong to. Notes in a group are visible to every member.",
-      "empty": "You're not in any group yet.",
-      "newGroup": "New group",
-      "tableName": "Name",
-      "tableRole": "Your role",
-      "tableActions": "Actions"
-    },
     "detail": {
       "back": "All groups",
       "nameTitle": "Name",
@@ -612,6 +603,7 @@
       "descriptionView": "Each member has one role, and the role decides what they can do. Only people whose role can manage roles and the group can change these.",
       "legendTitle": "What each permission allows",
       "readAlways": "Every role can read the group's notes, their backlinks and their AI edit history.",
+      "readPill": "Read",
       "flags": {
         "create": {
           "label": "Create",
@@ -675,6 +667,15 @@
       "account": "Account",
       "groups": "Groups",
       "about": "About"
+    },
+    "groups": {
+      "overview": "Groups you belong to, and your role in each. Create or manage groups from the sidebar.",
+      "count_one": "You're in {{count}} group",
+      "count_other": "You're in {{count}} groups",
+      "empty": "You're not in any group yet.",
+      "tableGroup": "Group",
+      "tableRole": "My role",
+      "tablePermissions": "Permissions"
     },
     "about": {
       "description": "Knotebook is a self-hosted collaborative notebook.",

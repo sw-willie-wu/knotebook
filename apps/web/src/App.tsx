@@ -53,8 +53,8 @@ const AuthorizePage = lazy(() => import("./pages/AuthorizePage"));
 const SettingsAccountSection = lazy(() =>
   import("./settings/SettingsAccountSection").then(m => ({ default: m.SettingsAccountSection })),
 );
-const SettingsGroupsSection = lazy(() =>
-  import("./settings/SettingsGroupsSection").then(m => ({ default: m.SettingsGroupsSection })),
+const SettingsGroupsOverview = lazy(() =>
+  import("./settings/SettingsGroupsOverview").then(m => ({ default: m.SettingsGroupsOverview })),
 );
 const SettingsGroupDetailSection = lazy(() =>
   import("./settings/SettingsGroupDetailSection").then(m => ({ default: m.SettingsGroupDetailSection })),
@@ -298,8 +298,8 @@ export function AppRoutes() {
             <Route element={<SettingsModal />}>
               {/* Dialog 外殼＝layout route，區塊切換不重掛 */}
               <Route path="/settings/account" element={<SettingsAccountSection />} />
-              {/* #103：群組（所有登入者，spec §8.4）——不巢狀在下面的 RequireAdmin 底下。 */}
-              <Route path="/settings/groups" element={<SettingsGroupsSection />} />
+              {/* #247：群組唯讀總覽（所有登入者） */}
+              <Route path="/settings/groups" element={<SettingsGroupsOverview />} />
               <Route path="/settings/groups/:id" element={<SettingsGroupDetailSection />} />
               <Route path="/settings/groups/:id/roles" element={<SettingsGroupRolesSection />} />
               <Route path="/settings/about" element={<SettingsAboutSection />} />

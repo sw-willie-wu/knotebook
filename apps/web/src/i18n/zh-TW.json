@@ -571,15 +571,6 @@
       "admin": "管理員",
       "member": "一般成員"
     },
-    "settings": {
-      "title": "群組",
-      "description": "你所屬的群組。群組裡的筆記對所有成員可見。",
-      "empty": "你尚未加入任何群組。",
-      "newGroup": "新增群組",
-      "tableName": "名稱",
-      "tableRole": "你的角色",
-      "tableActions": "操作"
-    },
     "detail": {
       "back": "所有群組",
       "nameTitle": "名稱",
@@ -612,6 +603,7 @@
       "descriptionView": "每位成員各有一個角色，角色決定他能做什麼。只有角色能管理角色與群組的人可以修改。",
       "legendTitle": "各項權限的意思",
       "readAlways": "每個角色都能閱讀群組的筆記、它們的反向連結與 AI 修改紀錄。",
+      "readPill": "閱讀",
       "flags": {
         "create": {
           "label": "新建",
@@ -675,6 +667,15 @@
       "account": "帳號",
       "groups": "群組",
       "about": "關於"
+    },
+    "groups": {
+      "overview": "你所屬的群組，以及你在每個群組裡的角色。建立或管理群組都從側欄進行。",
+      "count_one": "你在 {{count}} 個群組裡",
+      "count_other": "你在 {{count}} 個群組裡",
+      "empty": "你尚未加入任何群組。",
+      "tableGroup": "群組",
+      "tableRole": "我的角色",
+      "tablePermissions": "權限"
     },
     "about": {
       "description": "Knotebook 是自架的協作筆記。",
