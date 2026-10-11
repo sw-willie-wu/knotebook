@@ -239,7 +239,7 @@ By default it is derived from the credential's own name: the first whitespace-se
 
 To change it: **Settings → Account → API tokens → Rename agent** next to the credential, or `PATCH /api/auth/tokens/:id` with `{"agentLabel": "researcher"}`. Like the rest of `/api/auth/tokens`, that endpoint is **session-cookie only** — a token cannot rename itself, or anything else. Sending `{"agentLabel": null}` clears your override and goes back to the derived value; the response, and `GET /api/auth/tokens`, always report the name actually in effect, so `agentLabel` there is never `null`.
 
-A name must match `^[A-Za-z0-9._-]{1,32}$`; anything else is `400 invalid_body`. Renames are limited to 60 per 10 minutes per user.
+A name must match `^[A-Za-z0-9._-]{1,32}$`; anything else is `400 invalid_body`. Renames are limited to 60 per 10 minutes per user — a limit they share with changing a credential's scope through the same endpoint (see [API tokens](./api-tokens.md#changing-a-tokens-access)).
 
 Two things worth knowing:
 

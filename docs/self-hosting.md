@@ -186,13 +186,19 @@ then start that build. If you're upgrading from 0.4.1 or earlier, there were no 
 
 **Body-text search.** The first start after upgrading to a version with body-text search indexes the existing notes in the background, after the server is already answering requests. The `app` log shows `全文索引回填開始` when that starts and `全文索引回填完成` when it is done; until then, `search_notes` finds a note it hasn't got to yet by its title only. Rolling back is harmless: an older server ignores the two tables that hold the index, `note_search_sections` and `note_search_state`. When you upgrade again, the first start indexes again whatever was edited or created while the older server ran, because the index has no entry for them, or one built from an older version.
 
-**Upgrading to v0.10 (note ids in any letter case, stricter MCP input).**
+**Upgrading to v0.10 (note ids in any letter case, stricter MCP input, a separate scope for moving notes into groups).**
 
 1. **Back up the database first.** The migrations below run automatically when the new server starts; take a dump before you start the new version anyway, for example `docker compose exec -T db pg_dump -U knotebook knotebook > knotebook-before-upgrade.sql`.
    - **0020 (drop note self-links)** deletes rows of `note_links` that record a note as linking to itself. A note id written with uppercase letters could create them; they were never correct.
+   - **0021 (`notes:move` scope)** replaces the `scope` checks on `api_tokens`, `oauth_requests` and `oauth_codes` with wider ones that also allow `notes:read notes:write notes:move`. It changes no stored value, so no existing credential gets `notes:move`.
 2. **MCP clients and scripts:** the seven tools that used to ignore an argument they don't know (all but `create_note`, `move_note_to_group` and `copy_note`) now reject it, so a call with an extra or misspelled argument fails the input check and does nothing — fix the argument's name.
-3. **Rolling back** to v0.9:
+3. **Tokens and apps:**
+   - **Moving and copying notes into groups need the new `notes:move` scope.** Existing tokens and apps no longer get `move_note_to_group`, and their `copy_note` refuses `group_id`. To allow it, create a token with "Create and edit notes" and "Move or copy notes into groups" ticked in **Settings → Account → API tokens** and switch to it, or authorize the app again and tick both (the second box appears only if the app asks for `notes:move`; an MCP client that follows the `/api/mcp` challenge does).
+   - **Apps you authorize for the first time after the upgrade are read-only** unless you tick "Create and edit notes" on the consent page; re-authorizing an app starts from the access it already has, never more than it is asking for this time.
+   - Restart an MCP client after changing its credential's access, so that it lists the right tools. A consent page left open from before the upgrade fails when you press Allow; reload it and choose again.
+4. **Rolling back** to v0.9:
    - **0020:** harmless — no table or column changed, and the deleted rows were wrong. While v0.9 runs it can store such self-links again; upgrading again doesn't run 0020 a second time, so those stay until that note's set of links is next saved, which replaces the whole set.
+   - **0021:** the wider checks stay, and v0.9 doesn't mind them — it only stores the two scopes it knows. v0.9 has no `notes:move`, so while it runs every credential with `notes:write` can move notes into groups and copy them there again, and a credential that has `notes:move` works as an ordinary read-write one. Access you lowered with `PATCH /api/auth/tokens/:id` stays lowered. Upgrading again doesn't run 0021 a second time; credentials keep the scope they have.
 
 **Upgrading to v0.9 (MCP tools).**
 

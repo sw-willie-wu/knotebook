@@ -2,7 +2,7 @@
  * #108：工具本體與 `registerTool` 接線的分界。
  *
  * ⚠ **`tools/list` 的過濾不是安全邊界**：client 可以直接 `tools/call` 一個從沒列過的名字，
- * 所以真正的關是**呼叫時再驗**（D6(b)；PR2 的 `requireWriteScope()`）。這裡的過濾只是
+ * 所以真正的關是**呼叫時再驗**（D6(b)；PR2 的 `requireWriteScope()`、#239 的 `requireMoveScope()`）。這裡的過濾只是
  * 「不宣告服務不了的東西」，讓模型少打一輪。
  *
  * ⚠ **每一支工具都要經過 `runTool()`**：它是 D31／M15 的 try/catch（未捕捉例外不得冒到
@@ -89,10 +89,12 @@ import { canMoveNotes, canWriteNotes } from "./write-scope.js";
 export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
   // 唯讀工具的最低 scope 都是 `notes:read`，而 L1（`authenticateAny`）已經保證
   // 到得了這裡的憑證至少有它——所以它們沒有 scope 過濾面。寫入工具才有。
-  // ⚠ **這道過濾不是安全邊界**（見檔頭）：真正的關是每支寫入工具第一行的 `requireWriteScope()`。
+  // ⚠ **這道過濾不是安全邊界**（見檔頭）：真正的關是每支寫入工具第一行的 `requireWriteScope()`／`requireMoveScope()`。
   //   ⚠ 但反過來說也成立，而且是 PR2 的實測結論：`McpServer` 的「清單」**就是**「註冊表」，
   //   所以沒註冊的名字連 handler 都到不了（`tools/call` 走 SDK 的未知工具名分支）——
-  //   **`insufficient_scope` 在 HTTP 上因此是死碼**，別在整合測試裡去釘它。
+  //   **write 檢查的 `insufficient_scope` 在 HTTP 上因此是死碼**（別在整合測試裡去釘它；`move_note_to_group`
+  //   的 move 檢查同理）。例外是 `copy_note` 帶 `group_id` 的 move 檢查（#239）：讀寫憑證的清單上有
+  //   `copy_note`，那條 `insufficient_scope` 在 HTTP 上到得了，守衛＝`test/mcp-copy.test.ts` 的 #239 M3。
   const canWrite = canWriteNotes(ctx);
   // #239：移入／複製進群組要 `notes:move`（session 恆真；token 要 write 且 move）。只管 move_note_to_group 的註冊與
   // copy_note 的說明二選一；create_note／edit_note 不看它（W9）。

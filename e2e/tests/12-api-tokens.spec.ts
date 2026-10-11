@@ -4,7 +4,11 @@ import { createHash, randomBytes } from "node:crypto";
 import { expect, test } from "@playwright/test";
 import { ADMIN, loginAs } from "./helpers.js";
 
-test("PAT：設定頁建立 → 無 cookie 的 Bearer 請求可用 → 撤銷後立即 401", async ({ page, browser, baseURL }) => {
+test("PAT：設定頁建立 → 無 cookie 的 Bearer 請求可用 → PATCH 改 scope 後 tools/list 跟著變（#239）→ 撤銷後立即 401", async ({
+  page,
+  browser,
+  baseURL,
+}) => {
   await loginAs(page, ADMIN.email, ADMIN.password);
 
   // §14.5 隨機化：多 spec 共用一座疊、失敗時刻意不 down，固定名稱在重跑時會在
@@ -16,7 +20,8 @@ test("PAT：設定頁建立 → 無 cookie 的 Bearer 請求可用 → 撤銷後
   // ⚠ `getByLabel` 預設是「不分大小寫的子字串比對」，而同頁 HandleSection 的
   // aria-label 是 "Username"——不加 exact 會同時命中兩個元素，strict mode violation。
   await page.getByLabel("Name", { exact: true }).fill(tokenName);
-  await page.getByLabel("Access", { exact: true }).selectOption("notes:write");
+  // #239：存取權改成兩個勾選框（預設都不勾）；勾「編輯」＝notes:read notes:write。
+  await page.getByRole("checkbox", { name: "Create and edit notes" }).click();
   await page.getByRole("button", { name: "Create token" }).click();
 
   // 明文只出現這一次，用它自己的 aria-label 讀出來（不要用模糊比對）
@@ -34,12 +39,50 @@ test("PAT：設定頁建立 → 無 cookie 的 Bearer 請求可用 → 撤銷後
     const api = anonymous.request;
     const ok = await api.get(`${baseURL}/api/notes`, { headers: { Authorization: `Bearer ${token}` } });
     expect(ok.status()).toBe(200);
-    // 同一支 token 也建得了筆記（scope 選的是 notes:write）
+    // 同一支 token 也建得了筆記（勾的是 Create and edit notes＝notes:read notes:write）
     const created = await api.post(`${baseURL}/api/notes`, {
       headers: { Authorization: `Bearer ${token}` },
       data: { title: "E2E via token" },
     });
     expect(created.status()).toBe(201);
+
+    // #239：PATCH /api/auth/tokens/:id 改 scope → 同一支 token 的 tools/list 下一個請求就跟著變。
+    // W11：設定頁沒有改權限的 UI——用 page.request（與頁面共用 session cookie）直接打 cookie-only 的 PATCH。
+    // ⚠ 刻意沿用這支 PAT、不另建：`PAT_CREATE_LIMIT`（`http/rate-limit.ts`）是每人每小時 10 支、存在 server
+    //   行程記憶體，e2e 全用 ADMIN；髒疊重跑時映像沒變，`stack:up` 的 `up --build` 不會重建容器、計數還在——每輪多建一支，連跑幾輪就會撞 429 假紅
+    //   （本檔與 13 號每輪各建一支，與 #239 之前相同）。
+    const listed = await page.request.get("/api/auth/tokens");
+    expect(listed.status()).toBe(200);
+    const { tokens } = (await listed.json()) as { tokens: { id: string; name: string; scope: string }[] };
+    const mine = tokens.find(t => t.name === tokenName);
+    expect(mine?.scope).toBe("notes:read notes:write");
+    const id = mine!.id;
+    const toolNames = async (): Promise<string[]> => {
+      const res = await api.post(`${baseURL}/api/mcp`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json, text/event-stream",
+          "Content-Type": "application/json",
+        },
+        data: { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
+      });
+      expect(res.status()).toBe(200);
+      const body = (await res.json()) as { result: { tools: { name: string }[] } };
+      return body.result.tools.map(t => t.name);
+    };
+    const setScope = async (scope: string): Promise<void> => {
+      const res = await page.request.patch(`/api/auth/tokens/${id}`, { data: { scope } });
+      expect(res.status()).toBe(200);
+      expect(((await res.json()) as { scope: string }).scope).toBe(scope);
+    };
+    const before = await toolNames();
+    // 對照：讀寫憑證確實列得到寫入工具，`move_note_to_group` 不在是因為少了 notes:move。
+    expect(before).toContain("copy_note");
+    expect(before).not.toContain("move_note_to_group");
+    await setScope("notes:read notes:write notes:move");
+    expect(await toolNames()).toContain("move_note_to_group");
+    await setScope("notes:read notes:write");
+    expect(await toolNames()).not.toContain("move_note_to_group");
 
     // 撤銷——鎖定這一輪建的那一列（名稱已隨機化，前一輪殘留不會同名）
     const row = page.getByRole("listitem").filter({ hasText: tokenName });
@@ -56,6 +99,15 @@ test("PAT：設定頁建立 → 無 cookie 的 Bearer 請求可用 → 撤銷後
     expect(revoked.headers()["www-authenticate"]).toContain("resource_metadata=");
   } finally {
     await anonymous.close();
+    // 撤銷不依賴上面的斷言成功：中途紅了也要撤，否則髒疊重跑會累積憑證（每人上限 20）。
+    // 正常路徑已經在上面經 UI 撤銷，這裡查不到就不動；清理本身失敗不得蓋掉原本的錯誤。
+    try {
+      const listed = (await (await page.request.get("/api/auth/tokens")).json()) as { tokens: { id: string; name: string }[] };
+      const left = listed.tokens.find(t => t.name === tokenName);
+      if (left) await page.request.delete(`/api/auth/tokens/${left.id}`);
+    } catch {
+      // 忽略：清理盡力而為。
+    }
   }
 });
 
@@ -67,8 +119,10 @@ test("OAuth：未登入開 authorize → 登入 → 同意 → 本機 callback �
   // 測試程式扮演 MCP client：本機 callback server 收 code。Playwright 與 chromium 都在
   // WSL 主機同一個 network namespace，loopback 直達。
   const received: URLSearchParams[] = [];
+  // 只收 `/cb`：瀏覽器在 callback 頁可能另抓 `/favicon.ico` 之類，混進來會讓 `received[n]` 錯位。
   const server = createServer((req, res) => {
-    received.push(new URL(req.url ?? "/", "http://127.0.0.1").searchParams);
+    const url = new URL(req.url ?? "/", "http://127.0.0.1");
+    if (url.pathname === "/cb") received.push(url.searchParams);
     res.writeHead(200, { "content-type": "text/plain" });
     res.end("ok");
   });
@@ -91,16 +145,19 @@ test("OAuth：未登入開 authorize → 登入 → 同意 → 本機 callback �
       const verifier = randomBytes(32).toString("base64url");
       const challenge = createHash("sha256").update(verifier).digest("base64url");
       const state = `st-${Date.now()}`;
-      const authorizeUrl = `${baseURL}/oauth/authorize?${new URLSearchParams({
-        response_type: "code",
-        client_id: clientId,
-        redirect_uri: redirectUri,
-        code_challenge: challenge,
-        code_challenge_method: "S256",
-        resource: `${baseURL}/api/mcp`,
-        scope: "notes:read notes:write",
-        state,
-      }).toString()}`;
+      // #239：要求三個 scope（MCP 的 challenge 就是這三個），同意頁才會出現兩個勾選框。
+      const authorizeUrlFor = (s: string): string =>
+        `${baseURL}/oauth/authorize?${new URLSearchParams({
+          response_type: "code",
+          client_id: clientId,
+          redirect_uri: redirectUri,
+          code_challenge: challenge,
+          code_challenge_method: "S256",
+          resource: `${baseURL}/api/mcp`,
+          scope: "notes:read notes:write notes:move",
+          state: s,
+        }).toString()}`;
+      const authorizeUrl = authorizeUrlFor(state);
 
       // **未登入**進來：#131 的 return-to 應該把我們送到登入頁再送回同意頁。
       // ⚠ 不能用 `loginAs`——它第一行就 `page.goto("/login")`，會把 `?next=` 沖掉，
@@ -113,7 +170,12 @@ test("OAuth：未登入開 authorize → 登入 → 同意 → 本機 callback �
       await expect(page).toHaveURL(/\/authorize\?req=/);
 
       await expect(page.getByText(`127.0.0.1:${port}`)).toBeVisible();
-      await expect(page.getByText("Create and modify your notes")).toBeVisible();
+      // #239 W4'：第一次授權兩框預設都不勾——直接按 Allow 只拿到 notes:read。勾「編輯」再 Allow。
+      const edit = page.getByRole("checkbox", { name: "Create and edit notes" });
+      const move = page.getByRole("checkbox", { name: "Move or copy notes into groups" });
+      await expect(edit).not.toBeChecked();
+      await expect(move).not.toBeChecked();
+      await edit.click();
       await page.getByRole("button", { name: "Allow" }).click();
 
       await expect.poll(() => received.length).toBeGreaterThan(0);
@@ -145,6 +207,19 @@ test("OAuth：未登入開 authorize → 登入 → 同意 → 本機 callback �
       // 同一份清單看得到這個 App 列（名稱是 client 自述、標成 App）
       await page.goto("/settings/account");
       await expect(page.getByRole("listitem").filter({ hasText: `E2E client` }).first()).toBeVisible();
+
+      // #239 W8：同一個 client 再授權一次——編輯框沿用目前已授予的權限（預設勾）並標「Currently
+      // granted」，搬移框仍不勾。按 Deny，不留第二支憑證（舊憑證不受影響：deny 不碰 api_tokens）。
+      const state2 = `st2-${Date.now()}`;
+      await page.goto(authorizeUrlFor(state2));
+      await expect(page).toHaveURL(/\/authorize\?req=/);
+      await expect(edit).toBeChecked();
+      await expect(move).not.toBeChecked();
+      await expect(page.getByText("Currently granted")).toHaveCount(1);
+      await page.getByRole("button", { name: "Deny" }).click();
+      await expect.poll(() => received.length).toBeGreaterThan(1);
+      expect(received[1]!.get("state")).toBe(state2);
+      expect(received[1]!.get("error")).toBe("access_denied");
     } finally {
       await anonymous.close();
     }

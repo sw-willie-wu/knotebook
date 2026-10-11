@@ -12,9 +12,9 @@ The credential is an ordinary Knotebook credential. How one is issued, listed an
 | Transport | Streamable HTTP, stateless, JSON responses — no SSE stream, no session id |
 | Methods | `POST` only. `GET` and `DELETE` are authenticated and Origin-checked first, then answered with `405` and `Allow: POST`. |
 | Capabilities | `tools` only — no resources, no prompts, no sampling. `tools.listChanged` is `false`. |
-| Scope | `notes:read` gets you in; `edit_note`, `create_note`, `move_note_to_group` and `copy_note` additionally need `notes:write`, and so does `create_transfer_token` when you ask it for an upload token. |
+| Scope | `notes:read` gets you in; `edit_note`, `create_note`, `move_note_to_group` and `copy_note` additionally need `notes:write`, and so does `create_transfer_token` when you ask it for an upload token. `move_note_to_group`, and `copy_note` with `group_id`, also need `notes:move`, which only comes together with `notes:write`. |
 
-Authentication happens before the MCP transport sees the request, so a request with no credential gets `401` with a `WWW-Authenticate` challenge advertising `scope="notes:read notes:write"` — that challenge is what an OAuth client follows to find the authorization server. A few things are refused by the HTTP layer earlier still, before any credential is looked at: a `Content-Type` that is not `application/json`, a body over the size limit, and a body that is not valid JSON. Those answer without a challenge — see [Errors](#errors).
+Authentication happens before the MCP transport sees the request, so a request with no credential gets `401` with a `WWW-Authenticate` challenge advertising `scope="notes:read notes:write notes:move"` — that challenge is what an OAuth client follows to find the authorization server. A few things are refused by the HTTP layer earlier still, before any credential is looked at: a `Content-Type` that is not `application/json`, a body over the size limit, and a body that is not valid JSON. Those answer without a challenge — see [Errors](#errors).
 
 Two things trip up hand-written clients:
 
@@ -25,7 +25,15 @@ The server announces itself as `knotebook`, and most clients use that name to na
 
 ## How to connect
 
-`/api/mcp` takes an ordinary Knotebook credential as a Bearer token, so a client that lets you set an `Authorization` header yourself can point at it with a Personal API token — [Creating one](./api-tokens.md#creating-one) covers issuing it. The commands below are the other route: letting the client obtain a credential of its own over OAuth, which is what Claude Code and `mcp-remote` do.
+`/api/mcp` takes an ordinary Knotebook credential as a Bearer token, so a client that lets you set an `Authorization` header yourself can point at it with a Personal API token — [Creating one](./api-tokens.md#creating-one) covers issuing it. Tick *Create and edit notes* when you create it if the assistant should write, and *Move or copy notes into groups* as well if it should be able to move notes into your groups or copy them there. With Claude Code, for example:
+
+```sh
+claude mcp add knotebook https://<your-host>/api/mcp -t http -H "Authorization: Bearer knb_…"
+```
+
+A static header involves no OAuth token exchange, so this also works on a plain `http://` deployment. `claude mcp add` only writes the client's configuration, with the token in it as you typed it; a Claude Code session that is already running doesn't pick it up, so start a new one. To change what the assistant can do later, create another token with the boxes you want and put that one in the header instead.
+
+The commands below are the other route: letting the client obtain a credential of its own over OAuth, which is what Claude Code and `mcp-remote` do.
 
 MCP requires the server and its authorization endpoints to be `https://`, and clients enforce that differently — which command you run depends on whether your deployment is `https://` or plain `http://` (see [Self-hosting](./self-hosting.md#deployment-prerequisites)).
 
@@ -58,7 +66,9 @@ MCP requires the server and its authorization endpoints to be `https://`, and cl
 
   Drop `--allow-http` once the host is `https://`. The consent page shows the app as **"MCP CLI Proxy"**, and mcp-remote caches its registration and tokens under `~/.mcp-auth/mcp-remote-v1/` on the machine running the client.
 
-Both `claude mcp add` forms default to *local* scope — the server only exists in the directory you ran the command in. Add `-s user` to either one to use it from anywhere.
+Every `claude mcp add` command on this page defaults to *local* scope — the server only exists in the directory you ran the command in. Add `-s user` to any of them to use it from anywhere.
+
+On the consent page, tick *Create and edit notes* if the assistant should write: the first time you authorize a client, the boxes start unticked, and pressing **Allow** straight away gives it read-only access. Tick *Move or copy notes into groups* as well, if the page offers it, for `move_note_to_group` and for copying into a group. A client that only connects through OAuth and got less than you want can be authorized again, ticking the boxes this time — the consent page then starts from the access it already has (see [Authorizing an app instead](./api-tokens.md#authorizing-an-app-instead-oauth)); or connect it with a token instead, as above.
 
 After you press Allow, the client has its credential — once it reconnects it will list Knotebook's tools; how many it sees depends on the credential's scope and on the deployment, see [The ten tools](#the-ten-tools). A `401` at this point would mean the credential never arrived.
 
@@ -72,14 +82,15 @@ After you press Allow, the client has its credential — once it reconnects it w
 | `read_note_section` | `notes:read` | One section's markdown, 4000 characters per call |
 | `edit_note` | `notes:write` | Apply one of the five write operations to a note, or rename it |
 | `create_note` | `notes:write` | Create a note, optionally with its markdown |
-| `move_note_to_group` | `notes:write` | Move one of your personal notes into one of your groups |
-| `copy_note` | `notes:write` | Copy a note you can read into a new note, yours or a group's |
+| `move_note_to_group` | `notes:move` (with `notes:write`) | Move one of your personal notes into one of your groups |
+| `copy_note` | `notes:write`; with `group_id`, `notes:move` as well | Copy a note you can read into a new note, yours or a group's |
 | `create_transfer_token` | `notes:read` (`download`), `notes:write` (`upload`) | A short-lived token that lets a shell command upload an image to a note, or download its images |
 | `read_note_image` | `notes:read` | Look at an image uploaded to a note |
 
-Three things decide how many of these a client actually sees, and all three are settled when the request is served rather than when the tool is called:
+Four things decide how many of these a client actually sees, and all four are settled when the request is served rather than when the tool is called:
 
-- **A read-only credential never sees `edit_note`, `create_note`, `move_note_to_group` or `copy_note`.** They are not registered for that request at all, so — on a deployment with the collaboration component — `tools/list` returns six tools (only four on one without it; see below), and calling `create_note` anyway gets the SDK's own "Tool create_note not found" (an `isError` result, HTTP `200`) rather than a permission error. There is no scope error to handle here, because there is no tool to call. A read-only credential does see `create_transfer_token`, but it can only ask for a `download` token. To get the writing tools and upload tokens, create a token with the `notes:write` scope in **Settings → Account → API tokens** and connect with that one instead.
+- **A read-only credential never sees `edit_note`, `create_note`, `move_note_to_group` or `copy_note`.** They are not registered for that request at all, so — on a deployment with the collaboration component — `tools/list` returns six tools (only four on one without it; see below), and calling `create_note` anyway gets the SDK's own "Tool create_note not found" (an `isError` result, HTTP `200`) rather than a permission error. There is no scope error to handle here, because there is no tool to call. A read-only credential does see `create_transfer_token`, but it can only ask for a `download` token. To get the writing tools and upload tokens, create a token with *Create and edit notes* (`notes:write`) ticked in **Settings → Account → API tokens** and connect with that one instead.
+- **A credential without `notes:move` never sees `move_note_to_group`.** A `notes:write` token or app credential without it gets nine tools on a deployment with the collaboration component (six without), and all ten (seven) once it has `notes:move` as well. It still sees `copy_note`, whose description then says that copying into a group needs `notes:move`, and a call with `group_id` answers `insufficient_scope` without copying anything. To get `move_note_to_group`, create a token with both *Create and edit notes* and *Move or copy notes into groups* ticked and connect with that one. A connection made with the web app's own sign-in session isn't limited by scope; it gets nine tools (six), because it has no `create_transfer_token` (see the last point).
 - **`read_note_outline`, `read_note_section` and `edit_note` need the collaboration component.** A deployment running without it never registers those three; a `notes:write` credential still sees `create_note`, but a call to it carrying `content` answers `invalid_body` and tells you to create the note without it — unless the call also carries a `group_id` that is refused first (`group_not_found` or `forbidden`). A read-only credential on such a deployment sees only `list_notes`, `search_notes`, `create_transfer_token` and `read_note_image` — `create_note` needs `notes:write` regardless of the deployment. `move_note_to_group`, `copy_note` and `read_note_image` don't need the collaboration component.
 - **`create_transfer_token` is only offered to a token or app credential.** A request made with the web app's own sign-in session never sees it — the browser can already upload and fetch images itself.
 
@@ -216,7 +227,7 @@ Fields that do not belong to the operation you asked for are rejected rather tha
 
 ### `move_note_to_group`
 
-**Takes** `note_id` and `group_id`, both required. It moves one of your own personal notes into one of your groups — what **Move to…** does in the web app.
+**Takes** `note_id` and `group_id`, both required. It moves one of your own personal notes into one of your groups — what **Move to…** does in the web app. A token or app credential needs `notes:move` for it; one without it isn't offered this tool at all.
 
 **Answers** `note` — the note after the move, in the entry shape `list_notes` returns: its `owner` is the group, its `url` is `/g/<group id>/<slug>`, and its `role` is what your role in that group gives you, which can be `viewer`.
 
@@ -227,7 +238,7 @@ Fields that do not belong to the operation you asked for are rejected rather tha
 
 ### `copy_note`
 
-**Takes** `note_id`, and optionally `group_id`. It copies a note you can read into a new note — yours, or one of your groups' when you pass `group_id` — what **Make a copy** and **Copy to…** do in the web app.
+**Takes** `note_id`, and optionally `group_id`. It copies a note you can read into a new note — yours, or one of your groups' when you pass `group_id` — what **Make a copy** and **Copy to…** do in the web app. With a token or app credential, passing `group_id` needs `notes:move`.
 
 **Answers** `note` — the new copy, in the entry shape `list_notes` returns. A personal copy comes back with `role: "owner"`; a copy in a group has the role your group role gives you, which can be `viewer`.
 
@@ -235,7 +246,7 @@ Fields that do not belong to the operation you asked for are rejected rather tha
 - **The copy gets the note's title and its current content**, and usually its own copies of the images uploaded to that note: an image block pointing at another note's upload, an upload URL inside a text link, and a full `https://…/api/uploads/…` URL keep pointing at the original, and an image whose file is already missing on the server is skipped and keeps its original URL (see [Known limitations](./known-limitations.md)). From then on the two notes change separately.
 - Per-person shares, the public link, the AI edit history and the version history are not copied, and making the copy isn't recorded in any note's history — the copy starts with none.
 - **Three budgets apply**: with a token, one token write (60 per 10 minutes); one write from the 30-writes-per-minute budget; and, when the copy will include images, one upload per image from the 120-per-10-minutes upload budget it shares with uploading images, counted before anything is copied.
-- **Errors** `not_found`, `group_not_found`, `storage_quota_exceeded` (the target space has no room for the note's images — a copy without images is never refused for space; someone who can see that space's usage also gets `usedBytes` and `quotaBytes`, and `incomingBytes` when the server got as far as measuring the images), `too_many_requests` (any of the three budgets), `server_busy` (nothing was copied — try again in a moment).
+- **Errors** `insufficient_scope` (`group_id` was passed and the credential doesn't have `notes:move`; this is checked before the note is looked up or any of the three budgets above is spent, so nothing is copied, and a `note_id` that doesn't exist answers the same), `not_found`, `group_not_found`, `storage_quota_exceeded` (the target space has no room for the note's images — a copy without images is never refused for space; someone who can see that space's usage also gets `usedBytes` and `quotaBytes`, and `incomingBytes` when the server got as far as measuring the images), `too_many_requests` (any of the three budgets), `server_busy` (nothing was copied — try again in a moment).
 
 ### `read_note_image`
 
@@ -318,7 +329,7 @@ Three layers answer differently, and a client has to handle all three.
 
 **Everything the tools themselves refuse is HTTP `200` with `isError: true`,** and there are two shapes:
 
-- Errors Knotebook produces carry `structuredContent: {code, message, …}`. `code` comes from the same vocabulary the REST API uses: `unauthorized`, `not_found`, `group_not_found`, `section_not_found`, `forbidden`, `conflict`, `invalid_body`, `fingerprint_mismatch`, `unsupported_block`, `unsupported_color`, `empty_content`, `empty_section`, `too_many_blocks`, `too_many_requests`, `server_busy`, `storage_quota_exceeded`, `file_too_large`, `internal`. `internal` is not tied to any one tool: every tool handler shares the same catch-all for an unexpected exception, so any of them can answer it, not only `create_note`, whose own reference is the only place that spells out a cause.
+- Errors Knotebook produces carry `structuredContent: {code, message, …}`. `code` comes from the same vocabulary the REST API uses: `unauthorized`, `insufficient_scope`, `not_found`, `group_not_found`, `section_not_found`, `forbidden`, `conflict`, `invalid_body`, `fingerprint_mismatch`, `unsupported_block`, `unsupported_color`, `empty_content`, `empty_section`, `too_many_blocks`, `too_many_requests`, `server_busy`, `storage_quota_exceeded`, `file_too_large`, `internal`. `internal` is not tied to any one tool: every tool handler shares the same catch-all for an unexpected exception, so any of them can answer it, not only `create_note`, whose own reference is the only place that spells out a cause.
 - Errors the MCP SDK produces — an unknown tool name, arguments that do not match a tool's input schema, a reply that does not match its output schema, or an unhandled failure — carry **no `code` and no `structuredContent`**, only a text message. **Do not write a client that reads `code` without checking it is there.**
 
 One check the SDK makes sits outside the tool altogether: a reply that doesn't match the protocol's `CallToolResult` shape reaches the client as a JSON-RPC error rather than a tool result. Knotebook's replies always match it; it is listed so that a client knows the shape exists.

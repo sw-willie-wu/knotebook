@@ -42,7 +42,8 @@ test("外部 AI 改一段：不重整看到新內容、遠端游標名牌、最�
   await page.getByRole("button", { name: "Create API token" }).click();
   // ⚠ `getByLabel` 預設是不分大小寫的子字串比對，同頁還有 "Username"——要 exact（同 12）。
   await page.getByLabel("Name", { exact: true }).fill(tokenName);
-  await page.getByLabel("Access", { exact: true }).selectOption("notes:write");
+  // #239：存取權改成兩個勾選框（預設都不勾）；勾「編輯」＝notes:read notes:write（同 12）。
+  await page.getByRole("checkbox", { name: "Create and edit notes" }).click();
   await page.getByRole("button", { name: "Create token" }).click();
   const token = await page.getByLabel("New API token", { exact: true }).inputValue();
   expect(token).toMatch(/^knb_/);
