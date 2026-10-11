@@ -76,7 +76,7 @@ export function SiteAccessSettings() {
             />
             <label htmlFor="site-registration" className="text-sm font-medium">{t("admin.auth.access.registration")}</label>
           </div>
-          <p className="max-w-prose text-xs text-muted-foreground">{t("admin.auth.access.registrationHelp")}</p>
+          <p className="text-xs text-muted-foreground">{t("admin.auth.access.registrationHelp")}</p>
         </div>
         <div className="space-y-1">
           <div className="flex items-center gap-2">
@@ -89,7 +89,7 @@ export function SiteAccessSettings() {
             />
             <label htmlFor="site-password-login" className="text-sm font-medium">{t("admin.auth.access.passwordLogin")}</label>
           </div>
-          <p className="max-w-prose text-xs text-muted-foreground">{t("admin.auth.access.passwordLoginHelp")}</p>
+          <p className="text-xs text-muted-foreground">{t("admin.auth.access.passwordLoginHelp")}</p>
           {turnOffBlockedReason !== null && (
             <p id={reasonId} className="text-xs text-muted-foreground">{turnOffBlockedReason}</p>
           )}

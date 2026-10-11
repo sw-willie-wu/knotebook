@@ -58,7 +58,7 @@ export function ScopeChecksField({
             </label>
             {granted?.move && <span className="text-xs text-muted-foreground">{t("authorize.currentlyGranted")}</span>}
           </div>
-          <p id={moveHintId} className="max-w-prose text-xs text-muted-foreground">
+          <p id={moveHintId} className="text-xs text-muted-foreground">
             {t("settings.account.apiTokensScopeMoveHint")}
           </p>
         </div>

@@ -35,7 +35,7 @@ function SiteSwitchGroup({ data }: { data: VersionSettingsDto }) {
             {t("admin.versions.autoTitle")}
           </label>
         </div>
-        <p className="max-w-prose text-sm text-muted-foreground">{t("admin.versions.autoDescription")}</p>
+        <p className="text-sm text-muted-foreground">{t("admin.versions.autoDescription")}</p>
         <p className="text-xs text-muted-foreground">{t("versions.takesEffectNote")}</p>
       </div>
     </SettingsGroup>

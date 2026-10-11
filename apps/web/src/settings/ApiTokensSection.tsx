@@ -417,7 +417,7 @@ export function ApiTokensSection() {
         )}
         {/* 清理提示是看完自己有哪些 token 之後才用得上的附註，所以放在清單後面當註腳，
             不擠在說明下面跟它搶同一個位置。 */}
-        <p className="max-w-prose pt-1 text-justify text-xs text-muted-foreground hyphens-auto">
+        <p className="pt-1 text-xs text-muted-foreground">
           {t("settings.account.apiTokensCleanupHint")}
         </p>
       </div>
