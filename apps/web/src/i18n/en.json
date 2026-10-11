@@ -665,9 +665,17 @@
     "description": "Manage your account and workspace settings.",
     "nav": {
       "account": "Account info",
+      "login": "Sign-in",
+      "authorization": "Authorization",
       "groups": "Groups",
       "storage": "Storage",
       "about": "About"
+    },
+    "login": {
+      "description": "The ways you can sign in to this site."
+    },
+    "authorization": {
+      "description": "Let outside tools, such as Claude, read and write your notes as you."
     },
     "storage": {
       "description": "How much space the files uploaded to your personal notes take.",

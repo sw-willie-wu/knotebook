@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClientProvider, QueryClient } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import type { UserDto } from "@knotebook/shared";
@@ -8,8 +8,9 @@ import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppRoutes } from "@/App";
 
-// SettingsAccountSection：`hasPassword === false` → 不渲染 `ChangePasswordForm`；帳密登入有效值開時
-// 改渲染「加上密碼」表單、關時只有說明（#187 §8.5）。
+// 密碼三形（#187 §8.5；#247 起在「登入」頁 `/settings/login`＝`SettingsLoginSection`）：`hasPassword === false`
+// → 不渲染 `ChangePasswordForm`；帳密登入有效值開時改渲染「加上密碼」表單、關時只有說明。
+// 帳戶資訊頁（`SettingsAccountSection`）只剩顯示名稱與網址名稱。
 // 走真正的 `AppRoutes`（同 SettingsModal.test.tsx/SettingsUsersSection.test.tsx 慣例，
 // 不拆開重建等價樹）——驗證的是「有沒有接對」。fetch 樁比照
 // `SettingsUsersSection.test.tsx:89-101`。
@@ -77,7 +78,7 @@ function baseFetchHandlers(user: UserDto, passwordLoginEnabled = true, siteOn = 
   };
 }
 
-function renderAccountSettings(user: UserDto, passwordLoginEnabled = true) {
+function renderLoginSettings(user: UserDto, passwordLoginEnabled = true) {
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const method = (init?.method ?? "GET").toUpperCase();
@@ -90,7 +91,7 @@ function renderAccountSettings(user: UserDto, passwordLoginEnabled = true) {
   render(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <MemoryRouter initialEntries={["/settings/account"]}>
+        <MemoryRouter initialEntries={["/settings/login"]}>
           <AppRoutes />
         </MemoryRouter>
       </ThemeProvider>
@@ -100,7 +101,7 @@ function renderAccountSettings(user: UserDto, passwordLoginEnabled = true) {
   return queryClient;
 }
 
-describe("SettingsAccountSection（hasPassword／帳密登入有效值 三形）", () => {
+describe("SettingsLoginSection（hasPassword／帳密登入有效值 三形）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -111,9 +112,9 @@ describe("SettingsAccountSection（hasPassword／帳密登入有效值 三形）
   });
 
   it("hasPassword:true → 渲染 ChangePasswordForm", async () => {
-    const queryClient = renderAccountSettings(PASSWORD_USER);
+    const queryClient = renderLoginSettings(PASSWORD_USER);
 
-    // 本檔第一次載入帳號區塊 lazy chunk
+    // 本檔第一次載入登入頁 lazy chunk
     await waitFor(
       () => expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument(),
     );
@@ -125,7 +126,7 @@ describe("SettingsAccountSection（hasPassword／帳密登入有效值 三形）
   });
 
   it("hasPassword:false＋有效值開 →「Add a password」表單取代舊的 SSO-only 文案；沒有改密碼表單", async () => {
-    renderAccountSettings(SSO_ONLY_USER);
+    renderLoginSettings(SSO_ONLY_USER);
     expect(await screen.findByRole("heading", { name: "Add a password" })).toBeInTheDocument();
     expect(screen.getByLabelText("New password")).toBeInTheDocument();
     expect(screen.queryByLabelText("Current password")).not.toBeInTheDocument();
@@ -133,13 +134,13 @@ describe("SettingsAccountSection（hasPassword／帳密登入有效值 三形）
   });
 
   it("hasPassword:false＋有效值關 → 只有說明、沒有表單（B22）", async () => {
-    renderAccountSettings(SSO_ONLY_USER, false);
+    renderLoginSettings(SSO_ONLY_USER, false);
     expect(await screen.findByText("This site only allows signing in through a sign-in service right now.")).toBeInTheDocument();
     expect(screen.queryByLabelText("New password")).not.toBeInTheDocument();
   });
 
   it("hasPassword:true＋有效值關 → 改密碼表單仍在＋說明句", async () => {
-    renderAccountSettings(PASSWORD_USER, false);
+    renderLoginSettings(PASSWORD_USER, false);
     expect(await screen.findByLabelText("Current password")).toBeInTheDocument();
     // 說明句要等 identities 落地才出現（改密碼表單先以預設「開」渲染）——用 findBy 等。
     expect(await screen.findByText("This site only allows signing in through a sign-in service right now; your password is only used to prove it's you when linking an account.")).toBeInTheDocument();
@@ -210,8 +211,27 @@ describe("SettingsAccountSection——使用者名欄（#122 Task 5）", () => {
     const input = (await screen.findByLabelText("URL name")) as HTMLInputElement;
     expect(input.value).toBe("tester");
     expect(input).not.toBeDisabled();
-    // 「加上密碼」群組仍在（兩者並存，不互斥）
-    expect(await screen.findByRole("heading", { name: "Add a password" })).toBeInTheDocument();
+  });
+
+  it("帳戶資訊頁只有顯示名稱與網址名稱兩區塊（密碼、登入方式、token、用量都搬走了，#247 §5.2）", async () => {
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const res = baseFetchHandlers(PASSWORD_USER)(String(input), (init?.method ?? "GET").toUpperCase());
+      if (res) return Promise.resolve(res);
+      throw new Error(`unexpected fetch: ${String(input)}`);
+    }));
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <ThemeProvider>
+          <MemoryRouter initialEntries={["/settings/account"]}>
+            <AppRoutes />
+          </MemoryRouter>
+        </ThemeProvider>
+      </QueryClientProvider>,
+    );
+    const h1 = await screen.findByRole("heading", { level: 1, name: "Account info" });
+    // 範圍限在頁面本身（SettingsPage 根＝h1 所在 header 的父層）：Radix DialogTitle 也是 h2，掃全頁會掃到它。
+    const page = h1.closest("header")!.parentElement!;
+    expect(within(page).getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual(["Display name", "URL name"]);
   });
 
   it("改名成功：PATCH body 正規化後送出、invalidateQueries **全清**（無過濾參數）、全清 refetch 後畫面顯示新值＋成功 toast", async () => {
@@ -348,7 +368,7 @@ describe("SetPasswordForm（#187 §8.4）", () => {
     }));
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-        <ThemeProvider><MemoryRouter initialEntries={["/settings/account"]}><AppRoutes /></MemoryRouter></ThemeProvider>
+        <ThemeProvider><MemoryRouter initialEntries={["/settings/login"]}><AppRoutes /></MemoryRouter></ThemeProvider>
         <Toaster />
       </QueryClientProvider>,
     );
@@ -384,7 +404,7 @@ describe("SetPasswordForm（#187 §8.4）", () => {
     }));
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-        <ThemeProvider><MemoryRouter initialEntries={["/settings/account"]}><AppRoutes /></MemoryRouter></ThemeProvider>
+        <ThemeProvider><MemoryRouter initialEntries={["/settings/login"]}><AppRoutes /></MemoryRouter></ThemeProvider>
         <Toaster />
       </QueryClientProvider>,
     );
@@ -420,7 +440,7 @@ describe("SetPasswordForm——送出後的狀態切換（#187 §8.4）", () => 
     vi.stubGlobal("fetch", fetchMock);
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-        <ThemeProvider><MemoryRouter initialEntries={["/settings/account"]}><AppRoutes /></MemoryRouter></ThemeProvider>
+        <ThemeProvider><MemoryRouter initialEntries={["/settings/login"]}><AppRoutes /></MemoryRouter></ThemeProvider>
         <Toaster />
       </QueryClientProvider>,
     );

@@ -665,9 +665,17 @@
     "description": "管理你的帳號與工作區設定。",
     "nav": {
       "account": "帳戶資訊",
+      "login": "登入",
+      "authorization": "授權",
       "groups": "群組",
       "storage": "儲存空間",
       "about": "關於"
+    },
+    "login": {
+      "description": "你可以用哪些方式登入這個站台。"
+    },
+    "authorization": {
+      "description": "讓外部工具（例如 Claude）用你的身分讀寫筆記。"
     },
     "storage": {
       "description": "你個人筆記裡上傳檔案的用量。",

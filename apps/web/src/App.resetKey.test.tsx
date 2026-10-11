@@ -198,7 +198,7 @@ describe("resetKey 選型守門——錯誤畫面上開/關設定 modal 不觸�
     openUserMenu("Plain");
     fireEvent.click(screen.getByText("Settings"));
 
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument(), {
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Account info" })).toBeInTheDocument(), {
       timeout: 3_000,
     });
     // 開 modal 期間：背景 location（含其 key）被保存原封不動，ref 不變 → 不 reload；

@@ -99,7 +99,7 @@ Days and weeks are counted in UTC, and weeks start on Monday at 00:00 UTC. F and
 There are three switches named **Automatic versions**:
 
 - **Site admin → Version history** — for the whole site. When it is off, the other two can't be changed, and they say that the site has turned automatic saving off.
-- **Settings → Account** — for your personal notes.
+- **Settings → Storage** — for your personal notes.
 - A group's page in **Settings → Groups** — for the group's notes; only members whose role has **Manage roles & group** (and site admins) can change it.
 
 A note gets automatic versions only when both the site switch and the switch of the space it belongs to (your personal space, or its group) are on. A change reaches a note that is open right now only after everyone has closed it. With automatic versions off, you can still save versions by hand.

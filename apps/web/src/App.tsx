@@ -53,6 +53,12 @@ const AuthorizePage = lazy(() => import("./pages/AuthorizePage"));
 const SettingsAccountSection = lazy(() =>
   import("./settings/SettingsAccountSection").then(m => ({ default: m.SettingsAccountSection })),
 );
+const SettingsLoginSection = lazy(() =>
+  import("./settings/SettingsLoginSection").then(m => ({ default: m.SettingsLoginSection })),
+);
+const SettingsAuthorizationSection = lazy(() =>
+  import("./settings/SettingsAuthorizationSection").then(m => ({ default: m.SettingsAuthorizationSection })),
+);
 const SettingsStorageUsageSection = lazy(() =>
   import("./settings/SettingsStorageUsageSection").then(m => ({ default: m.SettingsStorageUsageSection })),
 );
@@ -301,6 +307,9 @@ export function AppRoutes() {
             <Route element={<SettingsModal />}>
               {/* Dialog 外殼＝layout route，區塊切換不重掛 */}
               <Route path="/settings/account" element={<SettingsAccountSection />} />
+              {/* #247 §5.2／§5.3：密碼＋已連結登入方式（OIDC 連結回程落點，§9.9）／API token */}
+              <Route path="/settings/login" element={<SettingsLoginSection />} />
+              <Route path="/settings/authorization" element={<SettingsAuthorizationSection />} />
               {/* #247 §5.4：個人儲存空間（用量／依類型／版本歷史） */}
               <Route path="/settings/storage" element={<SettingsStorageUsageSection />} />
               {/* #247：群組唯讀總覽（所有登入者） */}

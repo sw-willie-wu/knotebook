@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router";
-import type { IdentitiesDto } from "@knotebook/shared";
+import type { IdentitiesDto, UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
+import { AppRoutes } from "@/App";
+import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { SignInMethodsSection } from "./SignInMethodsSection";
 
@@ -24,7 +26,7 @@ const BASE: IdentitiesDto = {
   passwordLoginEnabled: true,
 };
 
-function setup(data: IdentitiesDto, path = "/settings/account", extra: (m: string, u: string) => Response | null = () => null) {
+function setup(data: IdentitiesDto, path = "/settings/login", extra: (m: string, u: string) => Response | null = () => null) {
   const calls: Array<{ method: string; url: string; body?: string }> = [];
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -74,19 +76,23 @@ describe("SignInMethodsSection（#187 §8.5）", () => {
     const row2 = within(await screen.findByRole("listitem", { name: /gone\.example/ }));
     const button = row2.getByRole("button", { name: "Unlink" });
     expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("title", "Unlink");
     const hint = document.getElementById(button.getAttribute("aria-describedby")!);
     expect(hint).toHaveTextContent("This is your only way to sign in, so it can't be unlinked.");
   });
 
   it("解除 → 確認 dialog（destructive）→ DELETE、重抓列表", async () => {
     let current = BASE;
-    const { calls } = setup(BASE, "/settings/account", (m, u) => {
+    const { calls } = setup(BASE, "/settings/login", (m, u) => {
       if (m === "DELETE" && u === "/api/auth/identities/i1") { current = { ...BASE, identities: [BASE.identities[1]!] }; return fakeResponse(204); }
       if (m === "GET" && u === "/api/auth/identities") return fakeResponse(200, current);
       return null;
     });
     const row1 = within(await screen.findByRole("listitem", { name: "<b>GitLab</b>" }));
-    fireEvent.click(row1.getByRole("button", { name: "Unlink" }));
+    const trigger = row1.getByRole("button", { name: "Unlink" });
+    expect(trigger.querySelector('[data-icon="trash"]')).not.toBeNull();
+    expect(trigger).toHaveClass("text-destructive");
+    fireEvent.click(trigger);
     const dialog = within(await screen.findByRole("dialog", { name: "Unlink this sign-in service?" }));
     fireEvent.click(dialog.getByRole("button", { name: "Unlink" }));
     // 點確認後 dialog 仍開著、Radix 把背景標 aria-hidden：先等 dialog 消失（列被重抓移除、連同 Dialog 卸載），再以 hidden:true 斷言列不存在。
@@ -99,7 +105,7 @@ describe("SignInMethodsSection（#187 §8.5）", () => {
 
   it("解除 409 → 也重抓列表（server 狀態已與畫面不同）：列表依新狀態更新", async () => {
     let current = BASE;
-    setup(BASE, "/settings/account", (m, u) => {
+    setup(BASE, "/settings/login", (m, u) => {
       if (m === "DELETE" && u === "/api/auth/identities/i1") {
         current = { ...BASE, identities: [BASE.identities[1]!] }; // 失敗當下另一處已解除了這一列
         return fakeResponse(409, { error: { code: "last_login_method", message: "x" } });
@@ -118,7 +124,7 @@ describe("SignInMethodsSection（#187 §8.5）", () => {
 
   it("已有資料時 refetch 失敗：列表仍在，不被換成錯誤文字", async () => {
     let failGets = false;
-    setup(BASE, "/settings/account", (m, u) => {
+    setup(BASE, "/settings/login", (m, u) => {
       if (m === "DELETE" && u === "/api/auth/identities/i1") {
         failGets = true; // 409 後的重抓會失敗
         return fakeResponse(409, { error: { code: "last_login_method", message: "x" } });
@@ -137,7 +143,7 @@ describe("SignInMethodsSection（#187 §8.5）", () => {
   });
 
   it("解除 409 last_login_method → toast 錯誤文案、列表仍在", async () => {
-    setup(BASE, "/settings/account", (m, u) =>
+    setup(BASE, "/settings/login", (m, u) =>
       m === "DELETE" && u === "/api/auth/identities/i1" ? fakeResponse(409, { error: { code: "last_login_method", message: "x" } }) : null);
     const row1 = within(await screen.findByRole("listitem", { name: "<b>GitLab</b>" }));
     fireEvent.click(row1.getByRole("button", { name: "Unlink" }));
@@ -151,7 +157,7 @@ describe("SignInMethodsSection（#187 §8.5）", () => {
 
   it("連結 → POST /api/auth/oidc/link/p2 帶 JSON {} → location.assign(url)", async () => {
     const assign = vi.fn();
-    const { calls } = setup(BASE, "/settings/account", (m, u) => (m === "POST" && u === "/api/auth/oidc/link/p2" ? fakeResponse(200, { url: "https://idp.example/authorize?x=1" }) : null));
+    const { calls } = setup(BASE, "/settings/login", (m, u) => (m === "POST" && u === "/api/auth/oidc/link/p2" ? fakeResponse(200, { url: "https://idp.example/authorize?x=1" }) : null));
     vi.stubGlobal("location", { ...window.location, assign });
     fireEvent.click(await screen.findByRole("button", { name: "Link Google" }));
     await waitFor(() => expect(assign).toHaveBeenCalledWith("https://idp.example/authorize?x=1"));
@@ -159,25 +165,25 @@ describe("SignInMethodsSection（#187 §8.5）", () => {
   });
 
   it("?linked= → toast 成功；只刪 linked／link_error 兩鍵、其餘參數保留", async () => {
-    setup(BASE, "/settings/account?linked=p2&keep=1");
+    setup(BASE, "/settings/login?linked=p2&keep=1");
     expect(await screen.findByText("Sign-in service linked.")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/settings\/account\?keep=1$/));
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/settings\/login\?keep=1$/));
   });
 
   it("?link_error= 帶 keep=1 → 只刪 link_error，keep 保留", async () => {
-    setup(BASE, "/settings/account?link_error=identity_taken&keep=1");
+    setup(BASE, "/settings/login?link_error=identity_taken&keep=1");
     expect(await screen.findByText("This sign-in identity is already linked to a different account.")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/settings\/account\?keep=1$/));
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/settings\/login\?keep=1$/));
   });
 
   it("回程參數：?link_error= 是 __proto__ → fallback 文案、不炸、參數被清掉", async () => {
-    setup(BASE, "/settings/account?link_error=__proto__");
+    setup(BASE, "/settings/login?link_error=__proto__");
     expect(await screen.findByText("An unexpected error occurred.")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/settings\/account$/));
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/settings\/login$/));
   });
 
   it("回程參數：?link_error=forbidden（是合法 errors 鍵、但不在白名單）→ fallback 文案，不渲染該鍵的文案", async () => {
-    setup(BASE, "/settings/account?link_error=forbidden");
+    setup(BASE, "/settings/login?link_error=forbidden");
     expect(await screen.findByText("An unexpected error occurred.")).toBeInTheDocument();
     expect(screen.queryByText("You don't have permission to do that.")).not.toBeInTheDocument();
   });
@@ -192,7 +198,7 @@ describe("SignInMethodsSection（#187 §8.5）", () => {
     ["oidc_state_mismatch", "Your sign-in session expired or is invalid. Please try signing in again."],
     ["oidc_claim_too_long", "Your identity provider sent an email address or account ID that is too long to use."],
   ])("?link_error=%s → 對應文案", async (code, text) => {
-    setup(BASE, `/settings/account?link_error=${code}`);
+    setup(BASE, `/settings/login?link_error=${code}`);
     expect(await screen.findByText(text)).toBeInTheDocument();
   });
   it("provider-icon V4：已連結列名稱前有圖示——第一個 provider 的 icon、以 host 標示者用通用圖示、icon null 不渲染；「Link X」鈕文字前有圖示", async () => {
@@ -223,5 +229,48 @@ describe("SignInMethodsSection（#187 §8.5）", () => {
     expect(screen.getByRole("listitem", { name: "Hidden" }).querySelector("[data-provider-icon]")).toBeNull();
     const link = screen.getByRole("button", { name: "Link Google" });
     expect(link.firstChild).toBe(link.querySelector('[data-provider-icon="google"]'));
+  });
+});
+
+describe("回程落點：以 AppRoutes 渲染 /settings/login（#247 §9.9、§11.1）", () => {
+  beforeEach(async () => { await i18n.changeLanguage("en"); dismissAllToasts(); });
+  afterEach(() => vi.unstubAllGlobals());
+
+  const USER: UserDto = {
+    id: "u1", email: "a@example.com", handle: "a", displayName: "A",
+    isAdmin: false, mustChangePassword: false, hasPassword: true, autoVersions: true,
+  };
+
+  function renderAppAt(path: string) {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (method === "GET" && url === "/api/auth/me") return fakeResponse(200, USER);
+      if (method === "GET" && url === "/api/auth/identities") return fakeResponse(200, BASE);
+      if (method === "GET" && (url === "/api/groups" || url === "/api/notes")) return fakeResponse(200, []);
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    }));
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <ThemeProvider>
+          <MemoryRouter initialEntries={[path]}>
+            <AppRoutes />
+            <LocationProbe />
+          </MemoryRouter>
+        </ThemeProvider>
+        <Toaster />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("/settings/login?linked=p2 →「登入」頁出現成功 toast、參數被清掉（突變：SignInMethodsSection 留在帳戶資訊頁要紅）", async () => {
+    renderAppAt("/settings/login?linked=p2");
+    expect(await screen.findByText("Sign-in service linked.")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/settings\/login$/));
+  });
+
+  it("/settings/login?link_error=identity_taken → 對應錯誤 toast", async () => {
+    renderAppAt("/settings/login?link_error=identity_taken");
+    expect(await screen.findByText("This sign-in identity is already linked to a different account.")).toBeInTheDocument();
   });
 });

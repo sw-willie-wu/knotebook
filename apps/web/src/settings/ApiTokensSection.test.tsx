@@ -86,7 +86,7 @@ function renderSettings(
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <ThemeProvider>
-        <MemoryRouter initialEntries={["/settings/account"]}>
+        <MemoryRouter initialEntries={["/settings/authorization"]}>
           <AppRoutes />
         </MemoryRouter>
       </ThemeProvider>

@@ -3,7 +3,9 @@ import { useSearchParams } from "react-router";
 import { useTranslation } from "react-i18next";
 import type { IdentityDto, ProviderIconDto } from "@knotebook/shared";
 import { useIdentities, useStartLink, useUnlinkIdentity } from "@/api/account";
+import { ROW_ICON_DANGER } from "@/components/management/row-actions";
 import { Button } from "@/components/ui/button";
+import { Trash } from "@/components/ui/icons";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
 import i18n from "@/i18n";
@@ -79,8 +81,19 @@ function IdentityRow({ identity }: { identity: IdentityDto }) {
       </div>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger asChild>
-          <Button type="button" variant="ghost" size="sm" disabled={!identity.unlinkable} aria-describedby={identity.unlinkable ? undefined : hintId}>
-            {t("settings.account.signInMethods.unlink")}
+          {/* #247 §4.9（W20、W23）：解除連結＝列尾紅垃圾桶 icon 鈕，確認框照舊。不可解除時維持 disabled＋
+              aria-describedby 指向看得見的原因（disabled 讓 title 浮不出來，所以原因一定要是可見文字）。 */}
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className={ROW_ICON_DANGER}
+            title={t("settings.account.signInMethods.unlink")}
+            aria-label={t("settings.account.signInMethods.unlink")}
+            disabled={!identity.unlinkable}
+            aria-describedby={identity.unlinkable ? undefined : hintId}
+          >
+            <Trash className="h-4 w-4" aria-hidden="true" />
           </Button>
         </DialogTrigger>
         <DialogContent>

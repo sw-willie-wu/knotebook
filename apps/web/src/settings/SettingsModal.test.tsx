@@ -167,6 +167,9 @@ function baseFetchHandlers(getLoggedInAs: () => UserDto | null) {
     if (url === "/api/storage" && method === "GET") {
       return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ usedBytes: 0, quotaBytes: 2147483648, planName: "Basic" }) });
     }
+    if (url === "/api/auth/identities" && method === "GET") {
+      return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ identities: [], linkable: [], hasPassword: true, passwordLoginEnabled: true }) });
+    }
     if (url.endsWith("/backlinks") && method === "GET") {
       return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ backlinks: [] }) });
     }
@@ -269,7 +272,7 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
     openUserMenu("Plain");
     fireEvent.click(screen.getByText("Settings"));
 
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument(), {
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Account info" })).toBeInTheDocument(), {
       timeout: 3_000,
     });
     // 背景頁（NotePage 的替身編輯器）仍在 DOM 裡——兩者共存，不是背景被卸載換成 modal。
@@ -277,7 +280,7 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
 
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
 
-    await waitFor(() => expect(screen.queryByRole("heading", { name: "Change your password" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("heading", { level: 1, name: "Account info" })).not.toBeInTheDocument());
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     // 關閉後仍落在背景 location（開設定前 NotePage 已把 /notes/my-note 收斂成 /n/tester/my-note，
     // #179 起收斂走 router，背景記的就是它）——編輯器替身仍在，不是被導去別處。
@@ -305,7 +308,7 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
     openUserMenu("Plain");
     fireEvent.click(screen.getByText("Settings"));
 
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument(), {
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Account info" })).toBeInTheDocument(), {
       timeout: 3_000,
     });
 
@@ -336,7 +339,7 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
 
     renderAt(["/settings/account"], fetchMock);
 
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Account info" })).toBeInTheDocument());
     // Radix Dialog 開啟時會把背景兄弟節點標成 `aria-hidden`（focus trap 的一部分），
     // `getByRole` 依可及性樹過濾會找不到——這裡改用不受 `aria-hidden` 影響的
     // `getByText`（同 `note-editor` testid 那組斷言的道理），驗證的是「HomePage 真的
@@ -427,7 +430,7 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
     openUserMenu("Admin");
     fireEvent.click(screen.getByText("Settings"));
 
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Account info" })).toBeInTheDocument());
     expect(screen.getByTestId("location")).toHaveTextContent("/settings/account");
     // 背景仍是管理頁（Dialog 開著時背景 aria-hidden，用 getByText）。
     expect(screen.getByText("User management")).toBeInTheDocument();
@@ -450,7 +453,7 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
 
     renderAt(["/settings/account"], fetchMock);
 
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Account info" })).toBeInTheDocument());
     const nav = within(screen.getByRole("navigation"));
     expect(nav.getByText("Account info")).toBeInTheDocument();
     expect(nav.queryByText("Users")).not.toBeInTheDocument();
@@ -471,7 +474,7 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
 
     renderAt(["/settings/account"], fetchMock);
 
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Account info" })).toBeInTheDocument());
     const nav = within(screen.getByRole("navigation"));
     expect(nav.getByText("Account info")).toBeInTheDocument();
     expect(nav.queryByText("Users")).not.toBeInTheDocument();
@@ -491,7 +494,7 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
 
     renderAt(["/settings/account"], fetchMock);
 
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Account info" })).toBeInTheDocument());
     const dialogBefore = screen.getByRole("dialog");
 
     fireEvent.click(within(screen.getByRole("navigation")).getByText("Groups"));
@@ -508,7 +511,7 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
       if (res) return Promise.resolve(res);
       throw new Error(`unexpected fetch: ${method} ${url}`);
     });
-    renderAt(["/settings/account"], fetchMock);
+    renderAt(["/settings/login"], fetchMock);
     await waitFor(() => expect(screen.getByLabelText("Current password")).toBeInTheDocument());
     fireEvent.change(screen.getByLabelText("Current password"), { target: { value: "keep-me-typed" } });
     await clickOutside();
@@ -528,7 +531,7 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
       throw new Error(`unexpected fetch: ${method} ${url}`);
     });
 
-    renderAt(["/settings/account"], fetchMock);
+    renderAt(["/settings/login"], fetchMock);
 
     await waitFor(() => expect(screen.getByLabelText("Current password")).toBeInTheDocument());
     fireEvent.change(screen.getByLabelText("Current password"), { target: { value: "correct-horse-battery" } });
@@ -537,7 +540,7 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
     fireEvent.click(screen.getByRole("button", { name: "Change password" }));
 
     await waitFor(() => expect(screen.getByText("Password updated.")).toBeInTheDocument());
-    // 沒有導航：帳號區的標題與表單仍在——若走了強制頁那條 navigate("/") 分支，
+    // 沒有導航：登入頁的改密碼標題與表單仍在——若走了強制頁那條 navigate("/") 分支，
     // 第二棵樹整個會不 match 而卸載，這個標題會消失。
     expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument();
     expect(screen.getByRole("dialog")).toBeInTheDocument();
@@ -643,7 +646,7 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
 
     openUserMenu("Plain");
     fireEvent.click(screen.getByText("Settings"));
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument(), {
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Account info" })).toBeInTheDocument(), {
       timeout: 3_000,
     });
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
@@ -667,7 +670,7 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/settings\/account$/));
-    expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Account info" })).toBeInTheDocument();
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
     });
@@ -692,7 +695,7 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
 
     openUserMenu("Plain");
     fireEvent.click(screen.getByText("Settings"));
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument(), {
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Account info" })).toBeInTheDocument(), {
       timeout: 3_000,
     });
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
@@ -715,7 +718,7 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
 
     openUserMenu("Plain");
     fireEvent.click(screen.getByText("Settings"));
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument(), {
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Account info" })).toBeInTheDocument(), {
       timeout: 3_000,
     });
     collab.noteIds.length = 0;
@@ -731,7 +734,7 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Account info" })).toBeInTheDocument();
     expect(screen.getByTestId("location")).toHaveTextContent(/^\/settings\/account$/);
 
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
@@ -751,7 +754,7 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
 
     openUserMenu("Plain");
     fireEvent.click(screen.getByText("Settings"));
-    await waitFor(() => expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument(), {
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Account info" })).toBeInTheDocument(), {
       timeout: 3_000,
     });
     fireEvent.click(within(screen.getByRole("navigation")).getByText("Groups"));
@@ -774,7 +777,7 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/settings\/account$/));
-    expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Account info" })).toBeInTheDocument();
     expect(collab.noteIds.filter((id) => id !== NOTE.id)).toEqual([]);
     expect(screen.getByTestId("note-editor")).toBe(editor);
 
