@@ -2,8 +2,8 @@
  * 儲存配額的非交易讀（spec 2026-10-08 §5.4）。收 `Db`／`DbOrTx`、會借 pool——**只准在交易外呼叫**（S14）。
  * 不在 `tx/` 目錄：它們不是交易本體。
  */
-import { eq } from "drizzle-orm";
-import type { StorageQuotaErrorDetail } from "@knotebook/shared";
+import { eq, sql } from "drizzle-orm";
+import { emptyStorageByKind, kindOfMime, type GroupStorageMemberUsageDto, type StorageByKind, type StorageQuotaErrorDetail } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
 import type { DbOrTx } from "../db/tx.js";
 import { groups, notes, storagePlans, uploads, users } from "../db/schema.js";
@@ -27,6 +27,39 @@ export async function readSpaceUsage(db: DbOrTx, space: StorageSpace): Promise<S
   if (!plan) return null;
   const [row] = await db.select({ used: sumUploadSizeSql() }).from(uploads).innerJoin(notes, eq(notes.id, uploads.noteId)).where(spaceNotesWhere(space));
   return { usedBytes: row?.used ?? 0, quotaBytes: plan.quotaBytes, planId: plan.planId, planName: plan.planName };
+}
+
+/**
+ * #247 §9.1：空間內上傳依 mime 分組加總，JS 端以 shared 的 `kindOfMime` 歸類（分類規則只有一份）。只給兩支用量 GET 用——
+ * **不得**搬進 `readSpaceUsage`：那句也是上傳 preHandler 與複製的「已滿」預檢（熱路徑），不加 GROUP BY。
+ */
+export async function readSpaceUsageByKind(db: DbOrTx, space: StorageSpace): Promise<StorageByKind> {
+  const rows = await db
+    .select({ mime: uploads.mime, bytes: sumUploadSizeSql() })
+    .from(uploads)
+    .innerJoin(notes, eq(notes.id, uploads.noteId))
+    .where(spaceNotesWhere(space))
+    .groupBy(uploads.mime);
+  const out = emptyStorageByKind();
+  for (const r of rows) out[kindOfMime(r.mime)] += r.bytes;
+  return out;
+}
+
+/**
+ * #247 §9.2：群組筆記的上傳依上傳者分組。上傳者帳號已刪除（`uploader_id` on delete set null）者彙總成 `userId: null` 一列；
+ * 不看是否仍是成員（已離開的人上傳過的照列）。只回 bytes > 0；bytes 降冪，同 bytes 依 uploader_id 升冪、null 最後。
+ */
+export async function readGroupUsageByMember(db: DbOrTx, groupId: string): Promise<GroupStorageMemberUsageDto[]> {
+  const rows = await db
+    .select({ userId: uploads.uploaderId, handle: users.handle, displayName: users.displayName, bytes: sumUploadSizeSql() })
+    .from(uploads)
+    .innerJoin(notes, eq(notes.id, uploads.noteId))
+    .leftJoin(users, eq(users.id, uploads.uploaderId))
+    .where(spaceNotesWhere({ kind: "group", id: groupId }))
+    .groupBy(uploads.uploaderId, users.handle, users.displayName)
+    .having(sql`sum(${uploads.size}) > 0`)
+    .orderBy(sql`sum(${uploads.size}) desc`, sql`${uploads.uploaderId} asc nulls last`);
+  return rows.map(r => ({ userId: r.userId, handle: r.handle, displayName: r.displayName, bytes: r.bytes }));
 }
 
 /**

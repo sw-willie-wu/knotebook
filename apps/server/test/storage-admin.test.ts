@@ -2,16 +2,24 @@
  * 方案管理、預設、站台群組列表、用量檢視（spec 2026-10-08 §7；§11.1 S10、S11（預設）、S12（群組與檢視）；Review Focus RF3、RF4）。
  */
 import { describe, expect, it } from "vitest";
+import type { StorageByKind } from "@knotebook/shared";
 import { SITE_SETTINGS_MISSING_MESSAGE } from "../src/auth/tx/admin-site-settings.js";
-import { siteSettings } from "../src/db/schema.js";
+import type { Db } from "../src/db/index.js";
+import { siteSettings, uploads } from "../src/db/schema.js";
 import { adminApp, captureLogs, expectAdminOnly } from "./helpers/admin-auth.js";
-import { cookieOf, seedGroup, seedNote, seedUser } from "./group-helpers.js";
+import { cookieOf, runGroupAuthMatrix, seedGroup, seedNote, seedRole, seedUser, setMemberRole } from "./group-helpers.js";
 import { basicPlanId, giveUserQuota, seedAttachment, seedPlan, setGroupPlan, setUserPlan, upload } from "./storage-helpers.js";
 
 type B = Awaited<ReturnType<typeof adminApp>>;
 const req = (b: B, method: "GET" | "POST" | "PATCH" | "DELETE", url: string, payload?: object) =>
   b.app.inject({ method, url, cookies: b.cookies, ...(payload ? { payload } : {}) });
 const NUL = String.fromCodePoint(0);
+
+/** 直插一列 uploads（#247：上傳端點只收四種圖片，其他 kind 只能這樣造——spec §9.1 SCOPE）。不寫磁碟檔：GET 用量不讀檔。 */
+async function seedUploadRow(db: Db, noteId: string, uploaderId: string | null, mime: string, size: number): Promise<void> {
+  await db.insert(uploads).values({ noteId, uploaderId, mime, size });
+}
+const ZERO: StorageByKind = { image: 0, audio: 0, video: 0, document: 0, other: 0 };
 
 describe("GET／POST／PATCH／DELETE /api/admin/storage-plans（S10）", () => {
   it("只限站台 admin（四支＋defaults）", async () => {
@@ -224,21 +232,103 @@ describe("用量檢視（S12）", () => {
     const n = await seedNote(b.db, { ownerId: u.id });
     await seedAttachment(b.db, b.uploadsDir, n.id, u.id, 12);
     const r = await b.app.inject({ method: "GET", url: "/api/storage", cookies: await cookieOf(u.id) });
-    expect(r.json()).toEqual({ usedBytes: 12, quotaBytes: 999, planName: "Mine" });
+    expect(r.json()).toEqual({ usedBytes: 12, quotaBytes: 999, planName: "Mine", byKind: { ...ZERO, image: 12 } });
     expect((await b.app.inject({ method: "GET", url: "/api/storage" })).statusCode).toBe(401);
   });
 
-  it("GET /api/groups/:id/storage：manageGroup 200；一般成員 403；非成員 404；非成員站台 admin 200；非 UUID 404", async () => {
+  it("GET /api/groups/:id/storage（#247 §9.2 放寬）：任何成員 200（含六旗標全關的自訂角色）；非成員／非 UUID／不存在 404 逐位元組相同；非成員站台 admin 200；沒有 403", async () => {
     const b = await adminApp();
-    const [gAdmin, gMember, outsider] = await Promise.all([seedUser(b.db), seedUser(b.db), seedUser(b.db)]);
-    const g = await seedGroup(b.db, "G", [{ userId: gAdmin.id, role: "admin" }, { userId: gMember.id, role: "member" }]);
+    const [gAdmin, gMember, plain, outsider] = await Promise.all([seedUser(b.db), seedUser(b.db), seedUser(b.db), seedUser(b.db)]);
+    const g = await seedGroup(b.db, "G", [{ userId: gAdmin.id, role: "admin" }, { userId: gMember.id, role: "member" }, { userId: plain.id, role: "member" }]);
+    const bare = await seedRole(b.db, g.id, "Bare", { canRead: true });
+    await setMemberRole(b.db, g.id, plain.id, bare);
     const pid = await seedPlan(b.db, "GP", null);
     await setGroupPlan(b.db, g.id, pid);
     const get = async (userId: string, id = g.id) => b.app.inject({ method: "GET", url: `/api/groups/${id}/storage`, cookies: await cookieOf(userId) });
-    expect((await get(gAdmin.id)).json()).toEqual({ usedBytes: 0, quotaBytes: null, planName: "GP" });
-    expect((await get(gMember.id)).statusCode).toBe(403);
-    expect((await get(outsider.id)).statusCode).toBe(404);
+    const expected = { usedBytes: 0, quotaBytes: null, planName: "GP", byKind: ZERO, byMember: [] };
+    expect((await get(gMember.id)).json()).toEqual(expected);
+    expect((await get(plain.id)).json()).toEqual(expected);
+    expect((await get(gAdmin.id)).json()).toEqual(expected);
     expect((await get(b.admin.id)).statusCode).toBe(200);
-    expect((await get(gAdmin.id, "nope")).statusCode).toBe(404);
+    const bodies = [await get(outsider.id), await get(gAdmin.id, "nope"), await get(gAdmin.id, "00000000-0000-4000-8000-000000000000")];
+    for (const r of bodies) expect(r.statusCode).toBe(404);
+    expect(new Set(bodies.map(r => r.body)).size).toBe(1);
+    expect(bodies[0]!.json()).toEqual({ error: { code: "not_found", message: "找不到此群組" } });
+  });
+
+  it("GET /api/groups/:id/storage：群組授權矩陣（anon 401／nonMember 404／member 200／admin 200／siteAdmin 200／badId 404／missing 404）", async () => {
+    const b = await adminApp();
+    await runGroupAuthMatrix(b.app, b.db, {
+      method: "GET",
+      url: id => `/api/groups/${id}/storage`,
+      expected: { anon: 401, nonMember: 404, member: 200, admin: 200, siteAdmin: 200, badId: 404, missing: 404 },
+    });
+  });
+});
+
+describe("#247 §9.1／§9.2：byKind 與 byMember", () => {
+  it("GET /api/storage：每條分類規則落到對的 kind、未知 mime → other、別人筆記裡的附件不算；byKind 之和＝usedBytes", async () => {
+    const b = await adminApp();
+    const u = await seedUser(b.db);
+    const other = await seedUser(b.db);
+    const n = await seedNote(b.db, { ownerId: u.id });
+    const theirs = await seedNote(b.db, { ownerId: other.id });
+    const rows: Array<[string, number]> = [
+      ["image/png", 10], ["image/webp", 5], ["audio/mpeg", 20], ["video/mp4", 30],
+      ["application/pdf", 40], ["text/plain", 1], ["application/vnd.openxmlformats-officedocument.wordprocessingml.document", 2],
+      ["application/msword", 4], ["application/vnd.ms-excel", 8], ["application/vnd.ms-powerpoint", 16], ["application/rtf", 32],
+      ["application/zip", 100],
+    ];
+    for (const [mime, size] of rows) await seedUploadRow(b.db, n.id, u.id, mime, size);
+    await seedUploadRow(b.db, theirs.id, other.id, "image/png", 1000);
+    const body = (await b.app.inject({ method: "GET", url: "/api/storage", cookies: await cookieOf(u.id) })).json();
+    expect(body.byKind).toEqual({ image: 15, audio: 20, video: 30, document: 103, other: 100 });
+    expect(body.usedBytes).toBe(268);
+    const sum = Object.values(body.byKind as StorageByKind).reduce((a, x) => a + x, 0);
+    expect(sum).toBe(body.usedBytes);
+  });
+
+  it("GET /api/storage：沒有任何上傳 → byKind 五鍵恆在、皆 0", async () => {
+    const b = await adminApp();
+    const u = await seedUser(b.db);
+    expect((await b.app.inject({ method: "GET", url: "/api/storage", cookies: await cookieOf(u.id) })).json().byKind).toEqual(ZERO);
+  });
+
+  it("GET /api/groups/:id/storage：byMember 依上傳者分組（含非成員上傳者）、null 上傳者合成一列、0 位元組不列、bytes 降冪；byKind 只算群組筆記", async () => {
+    const b = await adminApp();
+    const alice = await seedUser(b.db, { displayName: "Alice" });
+    const bob = await seedUser(b.db, { displayName: "Bob" });
+    const zero = await seedUser(b.db, { displayName: "Zero" });
+    const leaver = await seedUser(b.db, { displayName: "Leaver" });
+    const g = await seedGroup(b.db, "G", [{ userId: alice.id, role: "admin" }, { userId: bob.id, role: "member" }, { userId: zero.id, role: "member" }]);
+    const gn = await seedNote(b.db, { groupId: g.id });
+    const personal = await seedNote(b.db, { ownerId: alice.id });
+    await seedUploadRow(b.db, gn.id, alice.id, "image/png", 100);
+    await seedUploadRow(b.db, gn.id, alice.id, "application/pdf", 50);
+    await seedUploadRow(b.db, gn.id, bob.id, "image/jpeg", 300);
+    await seedUploadRow(b.db, gn.id, zero.id, "image/png", 0);
+    await seedUploadRow(b.db, gn.id, leaver.id, "video/mp4", 60); // leaver 不是（或已不是）成員：照列
+    await seedUploadRow(b.db, gn.id, null, "audio/ogg", 30);
+    await seedUploadRow(b.db, gn.id, null, "application/zip", 40);
+    await seedUploadRow(b.db, personal.id, alice.id, "image/png", 9999); // 個人筆記：不算進群組
+    const body = (await b.app.inject({ method: "GET", url: `/api/groups/${g.id}/storage`, cookies: await cookieOf(bob.id) })).json();
+    expect(body.byMember).toEqual([
+      { userId: bob.id, handle: bob.handle, displayName: "Bob", bytes: 300 },
+      { userId: alice.id, handle: alice.handle, displayName: "Alice", bytes: 150 },
+      { userId: null, handle: null, displayName: null, bytes: 70 },
+      { userId: leaver.id, handle: leaver.handle, displayName: "Leaver", bytes: 60 },
+    ]);
+    expect(body.byKind).toEqual({ image: 400, audio: 30, video: 60, document: 50, other: 40 });
+    expect(body.usedBytes).toBe(580);
+  });
+
+  it("byMember 排序：同 bytes 依 userId 升冪，null 列排在同 bytes 的最後", async () => {
+    const b = await adminApp();
+    const [x, y] = await Promise.all([seedUser(b.db), seedUser(b.db)]);
+    const g = await seedGroup(b.db, "G", [{ userId: x.id, role: "admin" }, { userId: y.id, role: "member" }]);
+    const gn = await seedNote(b.db, { groupId: g.id });
+    for (const who of [x.id, y.id, null]) await seedUploadRow(b.db, gn.id, who, "image/png", 7);
+    const body = (await b.app.inject({ method: "GET", url: `/api/groups/${g.id}/storage`, cookies: await cookieOf(x.id) })).json();
+    expect(body.byMember.map((r: { userId: string | null }) => r.userId)).toEqual([[x.id, y.id].sort()[0], [x.id, y.id].sort()[1], null]);
   });
 });

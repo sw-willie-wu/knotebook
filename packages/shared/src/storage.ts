@@ -8,11 +8,13 @@ export const STORAGE_QUOTA_MAX_BYTES = 1125899906842624;
 /** 內建 Basic 方案在 migration 的初始配額：2 GiB（UI 以 1024 進位標「GB」，Q2）。 */
 export const BASIC_STORAGE_QUOTA_BYTES = 2147483648;
 
-/** `GET /api/storage`、`GET /api/groups/:id/storage`。`quotaBytes` null＝無上限。 */
+/** `GET /api/storage`、`GET /api/groups/:id/storage`（後者實際回 `GroupStorageUsageDto`）。`quotaBytes` null＝無上限。 */
 export interface StorageUsageDto {
   usedBytes: number;
   quotaBytes: number | null;
   planName: string;
+  /** #247 §9.1。與 `usedBytes` 是兩句查詢、不在同一時點：UI 的佔比分母取這五值之和，不取 `usedBytes`。 */
+  byKind: StorageByKind;
 }
 
 /**

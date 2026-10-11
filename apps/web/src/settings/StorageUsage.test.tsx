@@ -44,7 +44,7 @@ function renderAt(path: string, handlers: (url: string, method: string) => Respo
   return fetchMock;
 }
 
-const usage = (u: Partial<StorageUsageDto>): StorageUsageDto => ({ usedBytes: 1048576, quotaBytes: 2147483648, planName: "Basic", ...u });
+const usage = (u: Partial<StorageUsageDto>): StorageUsageDto => ({ usedBytes: 1048576, quotaBytes: 2147483648, planName: "Basic", byKind: { image: 1048576, audio: 0, video: 0, document: 0, other: 0 }, ...u });
 
 describe("W3 帳號頁的儲存空間", () => {
   beforeEach(async () => { await i18n.changeLanguage("en"); });

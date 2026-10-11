@@ -420,7 +420,7 @@ function DangerSection({
   );
 }
 
-/** 群組用量（spec §9.2）：只在 `canManageGroup` 時**掛載**——不掛載就不發請求（非管理者打會 403）。 */
+/** 群組用量（spec §9.2）：只在 `canManageGroup` 時**掛載**——非管理者目前不掛載（UI 決定；server 已放寬為成員可讀）。 */
 function GroupStorageSection({ group }: { group: GroupDto }) {
   const { t } = useTranslation();
   const query = useGroupStorageUsage(group.id);

@@ -28,6 +28,10 @@ The full checklist is under **Upgrading to v0.10** in [Upgrading and rolling bac
 - `PATCH /api/auth/tokens/:id` accepts `scope`, to raise or lower an existing token's or app's access from a signed-in browser session; it applies from the credential's next request. Settings has no control for this (#239).
 - Self-hosting with your own PostgreSQL: set `BUNDLED_DB=0` in `.env` and point `DATABASE_URL` at your server, and `docker compose up -d` no longer starts the bundled `db` container. Leaving `BUNDLED_DB` unset keeps the bundled database, as before. Inside the `app` container, `host.docker.internal` now points at the machine running Docker, for a PostgreSQL running there (see [Using your own PostgreSQL](docs/self-hosting.md#using-your-own-postgresql)).
 
+### Added
+
+- API: `GET /api/storage` and `GET /api/groups/:id/storage` also return `byKind`, the bytes of uploads of each kind (image, audio, video, document, other); the group endpoint also returns `byMember`, how much each person has uploaded to the group's notes (#247).
+
 ### Changed
 
 - Version history: an automatic version now shows a grey **Auto-saved** tag next to its number; the row no longer spells out "Manual" or "Auto" and no longer has the green dot on the base version. The line under **Current state** now reads **Based on vN · no changes** or **Based on vN · unsaved changes** (or **No base version**), whichever versions the list shows, and a row's "continued from vN" reads "based on vN" (#258).
@@ -38,6 +42,7 @@ The full checklist is under **Upgrading to v0.10** in [Upgrading and rolling bac
 - The `/api/mcp` challenge and both OAuth metadata documents list `notes:move` (#239).
 - The read-only MCP `instructions` now tell the assistant to ask for a token with "Create and edit notes" ticked and to connect with it (#239).
 - **Breaking (MCP):** `list_notes`, `search_notes`, `read_note_outline`, `read_note_section`, `edit_note`, `create_transfer_token` and `read_note_image` reject arguments they don't know instead of ignoring them. Before, `edit_note`'s `append` with `ifMatch` instead of `if_match` skipped the fingerprint check and wrote anyway (#241).
+- API: any member of a group can now read `GET /api/groups/:id/storage`; before, only roles that can manage the group could (others got `403`). Someone who isn't a member still gets `404` (#247).
 
 ### Fixed
 
