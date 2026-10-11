@@ -7,6 +7,10 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.10.0] - 2026-10-11
+
 ### Upgrade notes
 
 The full checklist is under **Upgrading to v0.10** in [Upgrading and rolling back](docs/self-hosting.md#upgrading-and-rolling-back).
