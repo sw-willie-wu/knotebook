@@ -664,7 +664,7 @@
     "title": "設定",
     "description": "管理你的帳號與工作區設定。",
     "nav": {
-      "account": "帳號",
+      "account": "帳戶資訊",
       "groups": "群組",
       "about": "關於"
     },
@@ -686,7 +686,15 @@
       "license": "授權條款"
     },
     "account": {
-      "description": "管理你的使用者名、密碼與 API token。",
+      "description": "別人看到的名字，以及公開網址裡的名字。",
+      "displayName": {
+        "title": "顯示名稱",
+        "description": "在分享面板、版本歷史與群組成員表裡顯示的名字。",
+        "label": "顯示名稱",
+        "save": "儲存顯示名稱",
+        "saved": "顯示名稱已更新。",
+        "invalid": "顯示名稱須為 1–100 個字元。"
+      },
       "autoVersions": {
         "title": "自動儲存版本",
         "description": "關閉後，個人筆記只在手動儲存時建立版本。"
@@ -703,11 +711,11 @@
         "ssoOnlyNotice": "本站目前只允許 SSO 登入。"
       },
       "storage": "儲存空間",
-      "handleTitle": "使用者名",
-      "handleDescription": "使用者名會出現在你分享的所有 /n/ 與 /p/ 網址中（token 連結不含）。改名後這些網址立即失效，舊名永不可再用——包括你自己改回去。",
-      "handleLabel": "使用者名",
-      "handleSave": "儲存使用者名",
-      "handleSaved": "使用者名已更新。",
+      "handleTitle": "網址名稱",
+      "handleDescription": "公開網址用的名字（/p/<handle>/…）。它會出現在你分享的所有 /n/ 與 /p/ 網址中（token 連結不含）。改名後這些網址立即失效，舊名永不可再用——包括你自己改回去。",
+      "handleLabel": "網址名稱",
+      "handleSave": "儲存網址名稱",
+      "handleSaved": "網址名稱已更新。",
       "signInMethods": {
         "title": "登入方式",
         "description": "連結到這個帳號的登入服務。可以再連結一個，或在至少保留一種登入方式的前提下解除連結。",

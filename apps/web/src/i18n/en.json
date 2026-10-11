@@ -664,7 +664,7 @@
     "title": "Settings",
     "description": "Manage your account and workspace settings.",
     "nav": {
-      "account": "Account",
+      "account": "Account info",
       "groups": "Groups",
       "about": "About"
     },
@@ -686,7 +686,15 @@
       "license": "License"
     },
     "account": {
-      "description": "Manage your username, password, and API tokens.",
+      "description": "The name others see, and the name in your public links.",
+      "displayName": {
+        "title": "Display name",
+        "description": "The name shown in the share panel, version history and group member lists.",
+        "label": "Display name",
+        "save": "Save display name",
+        "saved": "Display name updated.",
+        "invalid": "Display names must be 1–100 characters."
+      },
       "autoVersions": {
         "title": "Automatic versions",
         "description": "When off, your personal notes only get a new version when you save one by hand."
@@ -703,11 +711,11 @@
         "ssoOnlyNotice": "This site only allows signing in through a sign-in service right now."
       },
       "storage": "Storage",
-      "handleTitle": "Username",
-      "handleDescription": "Your username appears in every /n/ and /p/ link you share (token links don't include it). After a rename those links stop working immediately, and the old name can never be used again — not even by you.",
-      "handleLabel": "Username",
-      "handleSave": "Save username",
-      "handleSaved": "Username updated.",
+      "handleTitle": "URL name",
+      "handleDescription": "The name used in your public links (/p/<handle>/…). It appears in every /n/ and /p/ link you share (token links don't include it). After a rename those links stop working immediately, and the old name can never be used again — not even by you.",
+      "handleLabel": "URL name",
+      "handleSave": "Save URL name",
+      "handleSaved": "URL name saved.",
       "signInMethods": {
         "title": "Sign-in methods",
         "description": "Sign-in services linked to this account. You can link another one, or unlink one as long as you keep at least one way to sign in.",

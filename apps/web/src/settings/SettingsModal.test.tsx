@@ -452,7 +452,7 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
 
     await waitFor(() => expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument());
     const nav = within(screen.getByRole("navigation"));
-    expect(nav.getByText("Account")).toBeInTheDocument();
+    expect(nav.getByText("Account info")).toBeInTheDocument();
     expect(nav.queryByText("Users")).not.toBeInTheDocument();
     expect(nav.queryByText("AI")).not.toBeInTheDocument();
     // #103：群組頁所有登入者都看得到，admin 也不例外。
@@ -473,7 +473,7 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
 
     await waitFor(() => expect(screen.getByRole("heading", { name: "Change your password" })).toBeInTheDocument());
     const nav = within(screen.getByRole("navigation"));
-    expect(nav.getByText("Account")).toBeInTheDocument();
+    expect(nav.getByText("Account info")).toBeInTheDocument();
     expect(nav.queryByText("Users")).not.toBeInTheDocument();
     expect(nav.queryByText("AI")).not.toBeInTheDocument();
     // #103：群組頁所有登入者都看得到，非 admin 也一樣。
@@ -569,7 +569,7 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
       );
       expect(within(dialog).getByRole("button", { name: "Try again" })).toBeInTheDocument();
       // 外框與導覽仍在：boundary 在 modal 內容區，不是包整個 modal
-      expect(within(dialog).getByRole("link", { name: "Account" })).toBeInTheDocument();
+      expect(within(dialog).getByRole("link", { name: "Account info" })).toBeInTheDocument();
       expect(screen.queryByText("Something went wrong")).not.toBeInTheDocument();
     } finally {
       sessionStorage.removeItem("knotebook:chunk-reload:settings");

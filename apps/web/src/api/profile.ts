@@ -26,3 +26,20 @@ export function useUpdateHandle() {
     },
   });
 }
+
+/**
+ * `PATCH /api/auth/profile` 只帶 `{ displayName }`（#247 §9.3）：server 走純 UPDATE、不進改名交易、
+ * 不扣改名額度。onSuccess 比照 `useUpdateHandle`：先 `setQueryData` 寫入 session（畫面立即是新名），
+ * 再 fire-and-forget 全清——顯示名稱出現在成員表、版本 editors、分享面板等處，都是 JOIN 當下的值。
+ */
+export function useUpdateDisplayName() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { displayName: string }) =>
+      api<UserDto>("/api/auth/profile", { method: "PATCH", body: JSON.stringify(input) }),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(SESSION_QUERY_KEY, updated);
+      void queryClient.invalidateQueries();
+    },
+  });
+}
