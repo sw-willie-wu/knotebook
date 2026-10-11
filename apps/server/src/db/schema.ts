@@ -541,6 +541,10 @@ export const uploads = pgTable("uploads", {
   id: uuid().primaryKey().defaultRandom(),
   noteId: uuid("note_id").notNull().references(() => notes.id, { onDelete: "cascade" }),
   uploaderId: uuid("uploader_id").references(() => users.id, { onDelete: "set null" }),
+  // #247 §9.2：佔用者——把這筆附件的位元組帶進其空間的人：上傳＝上傳者；移入群組＝移入者（該篇每一筆附件）；複製＝複製者。
+  // 群組用量「依成員」依它分組；`uploader_id` 是出處，兩者並存。NULL＝佔用者帳號已刪除，或在回滾到 v0.9 期間新建的列。
+  // 不加索引（同 uploader_id）：查詢從 notes join 進來，刪帳號時的 SET NULL 掃描成本與 uploader_id 同級。
+  chargedToId: uuid("charged_to_id").references(() => users.id, { onDelete: "set null" }),
   mime: text().notNull(),
   size: integer().notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

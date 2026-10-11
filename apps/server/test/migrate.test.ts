@@ -12,7 +12,7 @@ import { apiTokens, authProviders, groupMembers, groupRoles, groups, noteRedirec
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
 /** drizzle 對 `schema.ts` 的序列化；宣告漂移守衛拿最新一支當比對基準（Task 14 rebase 後改成實際檔名）。 */
-const SNAPSHOT_FILE = "meta/0022_snapshot.json";
+const SNAPSHOT_FILE = "meta/0023_snapshot.json";
 const snapshotLatest = JSON.parse(readFileSync(path.join(drizzleDirForTest, SNAPSHOT_FILE), "utf8")) as {
   tables: Record<string, { checkConstraints?: Record<string, { name: string; value: string }> }>;
 };
@@ -172,6 +172,47 @@ describe("runMigrations", () => {
       `select data_type, is_nullable, column_default from information_schema.columns where table_schema = 'public' and table_name = 'users' and column_name = 'last_login_at'`,
     )).rows;
     expect(col).toEqual([{ data_type: "timestamp with time zone", is_nullable: "YES", column_default: null }]);
+  });
+
+  it("#247 0023 uploads.charged_to_id：既有列回填＝uploader_id（NULL 仍 NULL）；欄位 uuid、可 NULL、無 default；FK → users ON DELETE SET NULL；再跑 runMigrations 不變", async () => {
+    const { pool, db } = await freshEmptyDb();
+    await applyMigrationsThrough(pool, idxOfTag("0022_users-last-login-at"));
+    const u = "00000000-0000-4000-8000-0000000000d1";
+    const n = "00000000-0000-4000-8000-0000000000d2";
+    const withUploader = "00000000-0000-4000-8000-0000000000d3";
+    const orphan = "00000000-0000-4000-8000-0000000000d4";
+    const u2 = "00000000-0000-4000-8000-0000000000d5";
+    const withUploader2 = "00000000-0000-4000-8000-0000000000d6";
+    await pool.query(`insert into users (id, email, display_name) values ($1, 'ct@x.example', 'C')`, [u]);
+    await pool.query(`insert into users (id, email, display_name) values ($1, 'ct2@x.example', 'C2')`, [u2]);
+    await pool.query(`insert into notes (id, owner_id, title) values ($1, $2, 'N')`, [n, u]);
+    await pool.query(
+      `insert into uploads (id, note_id, uploader_id, mime, size) values ($1, $3, $4, 'image/png', 10), ($2, $3, null, 'image/png', 20), ($5, $3, $6, 'image/png', 30)`,
+      [withUploader, orphan, n, u, withUploader2, u2],
+    );
+    await runMigrations(db);
+    const rows = async () => (await pool.query(`select id, uploader_id, charged_to_id from uploads order by id`)).rows;
+    expect(await rows()).toEqual([
+      { id: withUploader, uploader_id: u, charged_to_id: u },
+      { id: orphan, uploader_id: null, charged_to_id: null },
+      { id: withUploader2, uploader_id: u2, charged_to_id: u2 },
+    ]);
+    const col = (await pool.query(
+      `select data_type, is_nullable, column_default from information_schema.columns where table_schema = 'public' and table_name = 'uploads' and column_name = 'charged_to_id'`,
+    )).rows;
+    expect(col).toEqual([{ data_type: "uuid", is_nullable: "YES", column_default: null }]);
+    const fk = (await pool.query(
+      `select c.conname, c.confrelid::regclass::text as ref, c.confdeltype
+         from pg_constraint c join pg_attribute a on a.attrelid = c.conrelid and a.attnum = any(c.conkey)
+        where c.conrelid = 'public.uploads'::regclass and c.contype = 'f' and a.attname = 'charged_to_id'`,
+    )).rows;
+    expect(fk).toEqual([{ conname: "uploads_charged_to_id_users_id_fk", ref: "users", confdeltype: "n" }]);
+    await runMigrations(db);
+    expect(await rows()).toEqual([
+      { id: withUploader, uploader_id: u, charged_to_id: u },
+      { id: orphan, uploader_id: null, charged_to_id: null },
+      { id: withUploader2, uploader_id: u2, charged_to_id: u2 },
+    ]);
   });
 });
 
