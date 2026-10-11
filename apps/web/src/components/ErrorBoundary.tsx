@@ -27,15 +27,15 @@ import { NarrowTopBar } from "./NarrowTopBar";
  * 掛載成功清額度→再失敗 的迴圈——加巢狀 lazy 前要重看這段。
  *
  * 收斂的前提（#201 起明文）：**不得有「只在另一個 lazy 成功掛載之後才 render」的 lazy
- * 共用同一個額度**。設定 modal（`chunk="settings"`）是一個額度涵蓋四個區塊 chunk 的例子，
- * 它成立是因為四個區塊是**並列**的 route element、不是巢狀：beacon 在第一個區塊成功掛載時
+ * 共用同一個額度**。設定 modal（`chunk="settings"`）是一個額度涵蓋多個區塊 chunk 的例子，
+ * 它成立是因為各區塊是**並列**的 route element、不是巢狀：beacon 在第一個區塊成功掛載時
  * 清額度，之後切到另一區塊失敗 → 自動 reload 落在**失敗的那個網址**，重載後的第一次
  * render 就是那個失敗的 chunk（beacon 尚未 commit）→ 再失敗即看到旗標、進錯誤畫面，
  * 最多一次 reload。站台管理 modal（`chunk="admin"`，#247）同形：五個區塊是並列的 route element，
  * 且同屬一個 `AdminSections` chunk（見 components/admin/AdminSections.tsx 檔頭）。（現有的巢狀動態 import——語法高亮那兩個
  * chunk——失敗是 promise rejection 不經 render，boundary 接不到，不在此列，也因此
  * 不在本機制的涵蓋範圍內。）key 的 route 別名（`chunk` prop，預設 `notepage`）讓每條
- * lazy route 各自有額度（#201 起：`admin`、`settings`、四個登入流程頁各一個；版本歷史的
+ * lazy route 各自有額度（#201 起：`admin`、`group`、`settings`、四個登入流程頁各一個；版本歷史的
  * `versions`）。`versions` 是 NotePage 底下的巢狀 lazy：用自己的別名，且五個掛載點都 `import()`
  * 同一個模組 `VersionsLazy`，任一成功後其餘不可能再以 chunk 錯誤失敗，滿足上面的收斂前提
  * （起草裁定 23）。測試刻意寫字面 key（釘住 key 名不被改），這裡不匯出常數。

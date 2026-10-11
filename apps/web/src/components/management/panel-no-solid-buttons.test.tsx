@@ -18,7 +18,7 @@ import { adminRole, customRole, groupDto, memberRole } from "@/test/fixtures";
  *
  * Part 3 已擴充：PANEL_PAGES 尾端加了群組四頁、站台五頁（端點 fixture 在 `PANEL3_GETS`，由 panelFetch 精確比對 URL）。
  */
-const SOLID_TOKENS = ["bg-brand-deep", "bg-brand", "bg-primary"];
+const SOLID_TOKENS = ["bg-brand-deep", "bg-brand", "bg-primary", "bg-destructive"];
 
 const ADMIN: UserDto = {
   id: "u-admin", email: "admin@example.com", handle: "admin", displayName: "Admin",
