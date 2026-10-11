@@ -19,13 +19,12 @@ export interface ChangePasswordFormProps {
    */
   onSuccess: () => void;
   /**
-   * 送出鈕主色實心的階層（ui/button.tsx 規範：兩階不得同時出現在同一個畫面）。
-   * 本元件同時裝在兩種表面——`ChangePasswordPage`（整頁強制改密）與
-   * `SettingsAccountSection`（設定 modal 內）——不能寫死一邊，改由呼叫端決定：
-   * `"page"`（預設，`ChangePasswordPage` 用它）→ `brandSolid`；
-   * `"panel"`（`SettingsAccountSection` 傳入）→ `brandDeep`。
+   * 送出鈕的階層（ui/button.tsx 規範）。本元件同時裝在兩種表面，由呼叫端決定：
+   * `"page"`（預設，`/change-password` 整頁強制改密）→ `brandSolid` 滿寬；
+   * `"panel"`（過渡用，#247 Task 10 刪除）→ `brandDeep`；
+   * `"outline"`（個人設定 modal 的「登入」頁，#247 §4.8：面板右卡不放實心鈕）→ `outline`、不滿寬。
    */
-  tone?: "page" | "panel";
+  tone?: "page" | "panel" | "outline";
 }
 
 /**
@@ -154,8 +153,8 @@ export function ChangePasswordForm({ onSuccess, tone = "page" }: ChangePasswordF
 
       <Button
         type="submit"
-        variant={tone === "panel" ? "brandDeep" : "brandSolid"}
-        className="w-full"
+        variant={tone === "outline" ? "outline" : tone === "panel" ? "brandDeep" : "brandSolid"}
+        className={tone === "page" ? "w-full" : undefined}
         disabled={submitting}
       >
         {submitting ? t("changePassword.submitting") : t("changePassword.submit")}

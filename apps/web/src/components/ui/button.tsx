@@ -40,7 +40,8 @@ import { cn } from "@/lib/utils";
  *   所以它一顆實心都不該有——**畫面裡沒有唯一主角時，就不要有實心鈕**。
  * - `outline`——面板內部真正要按的動作（儲存、新增、複製、取消、重試），
  *   以及群組標題列的「新增…」。面板內部的日常動作絕大多數都落在這一級。
- * - `ghost`——**列內的動作一律用它**（編輯、刪除、撤銷、停用、測試、上移下移、圖示鈕），
+ *   hover／按下填 `brand-deep`（#247 §4.8，全站；hover 對比即下方 `brandDeep` 的量測）。
+ * - `ghost`——**列內的動作一律用它，而且一律是 icon 形**（`size="icon"`：鉛筆＝編輯、插頭＝測試連線、紅垃圾桶＝危險動作，類名在 `components/management/row-actions.ts`；#247 §4.9），
  *   同一列裡跟在 `outline` 動作後面的「還原型」動作（清除、回自動網址、重新產生），
  *   以及該退到背景的文字動作（忽略、強制改密頁的「登出」）。
  *   同一列出現兩顆動作時：主動作 `outline`、還原／次動作 `ghost`，才分得出誰是誰。
@@ -54,14 +55,15 @@ import { cn } from "@/lib/utils";
  *   全頁錯誤的主要出路）；`brandDeep`（`--brand-deep`，深一階）給 **modal 與 panel
  *   內部**的唯一主動作（對話框底部的送出鈕、設定頁首的建立鈕、AI 面板的套用）。
  *   兩階不會同時出現在同一個畫面，所以畫面上永遠只有一種主色實心塊。
+ *   ⚠ **例外：設定管理類面板（個人設定、群組、站台管理三個 modal，#247 §4.8）的右卡不放實心鈕**——面板層級動作一律 `outline`。由面板開出的對話框（建立 token、建立使用者、刪除群組…）內的送出鈕不受影響，照本規則用 `brandDeep`。守衛：`components/management/panel-no-solid-buttons.test.tsx`（渲染期掃描）。
  *   對比（六個色票、明暗兩模式全部量過）：`brandSolid` 淺色
  *   白字 4.53–4.77、深色近黑字 5.75–7.78；`brandDeep` 淺色 6.36–6.71、深色
  *   6.69–8.96。⚠ 調整任何色票明度後要重量——`brandSolid` 淺色最低只有 4.53，
  *   離 AA 門檻 4.5 剩 0.03，往亮調一點就會掉下去。
  *
- * ⚠ **列內的刪除鈕不要塗紅**（使用者回報「太五顏六色」）：確認對話框已經有一顆
- * `destructive` 承擔危險訊號，列上再紅一次是重複，而且清單有幾列就紅幾次，整頁在喊。
- * 列內保持安靜、確認時才變紅，是這套規範裡唯一由「動作性質」決定顏色的地方。
+ * ⚠ **列內的危險動作一律是紅色的垃圾桶圖示鈕**（`text-destructive`、hover `bg-destructive/10`；會跳確認框的也一樣紅——Willie 2026-10-11 W20，取代 2026-09-16 的『列內刪除不塗紅』）。當年的反例是『每列一顆紅字文字鈕』，清單有幾列就紅幾次、整頁在喊；現在是 32px 內的小圖示，看得出危險又不吵。`destructive` 變體仍只給確認對話框那一顆。
+ *
+ * **`outline` 按下態的對比**（深色模式 `--brand-fg` 近黑字壓在混了 15% 黑的 `--brand-deep` 上）：六色票 4.43–5.83（最低是 rose 4.43，低於 AA 4.5）；淺色模式白字只會更高（實測 8.64–9.04）。量法：oklch→sRGB→WCAG 相對亮度（#247 Part 2 計畫 Task 2 的腳本）。
  *
  * ⚠ **不要加回 `secondary`**：`--secondary` 在淺色是 oklch(0.97)、與面板底
  * （`--popover`＝白）幾乎同色，在深色則與 `--accent`（＝ghost 的 hover 底色）
@@ -80,8 +82,13 @@ const buttonVariants = cva(
         // ⚠ 底色一定要 `bg-transparent`，不要 `bg-background`：`--background` 是**頁底**色，
         // 深色模式下是 #0e1013，而對話框是 `--popover`（#22252c）、卡片是 `--card`（#1a1d23）——
         // 用頁底色等於在比它亮的表面上畫一塊更暗的方塊，看起來就是一顆黑底鈕（使用者回報
-        // 「複製連結按鈕是黑底也很怪」）。透明底讓它永遠貼合所在表面，hover 仍由 `bg-accent` 提供。
-        outline: "border border-input bg-transparent hover:bg-accent hover:text-accent-foreground",
+        // 「複製連結按鈕是黑底也很怪」）。透明底讓它永遠貼合所在表面，hover 改由 `brand-deep` 填色（見下）。
+        // #247 §4.8（Willie W17）：hover 填 brand-deep 白字、按下再深一階。按下態用 color-mix 混 15% 黑
+        // ——`active:bg-brand-deep/85` 是混**透明**，疊在卡面上反而變淺，不用。Tailwind 4.3.3 的編譯產物
+        // 自帶 `@supports (color: color-mix(...))` 分支，不支援的環境退回 `--brand-deep` 平塗。
+        outline:
+          "border border-input bg-transparent hover:bg-brand-deep hover:text-brand-fg hover:border-transparent " +
+          "active:[background:color-mix(in_oklch,var(--brand-deep)_85%,black)]",
         ghost: "hover:bg-accent hover:text-accent-foreground",
         link: "text-primary underline-offset-4 hover:underline",
         // PR3：主題色 tint 樣式（無邊框），首個用途：側欄「新增筆記」鈕。
