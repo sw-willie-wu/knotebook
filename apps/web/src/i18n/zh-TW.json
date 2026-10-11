@@ -675,7 +675,20 @@
       "description": "你可以用哪些方式登入這個站台。"
     },
     "authorization": {
-      "description": "讓外部工具（例如 Claude）用你的身分讀寫筆記。"
+      "description": "讓外部工具（例如 Claude）用你的身分讀寫筆記。",
+      "mcp": {
+        "title": "用 MCP 連接 Claude",
+        "description": "把這個站台接進 Claude Code 或 Claude Desktop。設定片段裡的 <YOUR_TOKEN> 換成上面建立的 token。",
+        "endpoint": "本站 MCP 端點",
+        "claudeCode": "Claude Code：在終端機執行",
+        "claudeDesktop": "Claude Desktop：加進 claude_desktop_config.json 的 mcpServers 底下",
+        "windowsNote": "Windows 上的 Claude Desktop 通常要把指令包成 cmd /c …。",
+        "windowsNoteLink": "寫法見 docs/mcp.md",
+        "copy": "複製",
+        "copied": "已複製。",
+        "copyFailed": "無法自動複製——請手動選取。",
+        "scopes": "讀取：可用 list_notes、search_notes、read_note_outline、read_note_section、read_note_image、create_transfer_token（下載）。編輯：另開 edit_note、create_note、copy_note（複製到個人）與 create_transfer_token 的上傳。搬移：才能用 move_note_to_group 與複製到群組（移入群組不可逆，所以獨立成一個權限）。"
+      }
     },
     "storage": {
       "description": "你個人筆記裡上傳檔案的用量。",

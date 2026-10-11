@@ -675,7 +675,20 @@
       "description": "The ways you can sign in to this site."
     },
     "authorization": {
-      "description": "Let outside tools, such as Claude, read and write your notes as you."
+      "description": "Let outside tools, such as Claude, read and write your notes as you.",
+      "mcp": {
+        "title": "Connect Claude with MCP",
+        "description": "Hook this site up to Claude Code or Claude Desktop. Replace <YOUR_TOKEN> in the snippets with a token created above.",
+        "endpoint": "This site's MCP endpoint",
+        "claudeCode": "Claude Code: run in a terminal",
+        "claudeDesktop": "Claude Desktop: add under mcpServers in claude_desktop_config.json",
+        "windowsNote": "On Windows, Claude Desktop usually needs the command wrapped in cmd /c ….",
+        "windowsNoteLink": "See docs/mcp.md",
+        "copy": "Copy",
+        "copied": "Copied.",
+        "copyFailed": "Couldn't copy automatically — select it by hand.",
+        "scopes": "Read: list_notes, search_notes, read_note_outline, read_note_section, read_note_image and create_transfer_token (download). Edit adds edit_note, create_note, copy_note (into your own notes) and create_transfer_token uploads. Move is needed for move_note_to_group and copying into a group (moving into a group can't be undone, so it is a separate permission)."
+      }
     },
     "storage": {
       "description": "How much space the files uploaded to your personal notes take.",

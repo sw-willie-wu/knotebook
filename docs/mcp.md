@@ -25,6 +25,8 @@ The server announces itself as `knotebook`, and most clients use that name to na
 
 ## How to connect
 
+**The quickest way in is the app itself:** **Settings → Authorization → Connect Claude with MCP** shows this deployment's endpoint and ready-to-paste snippets for Claude Code and Claude Desktop that use a Personal API token.
+
 `/api/mcp` takes an ordinary Knotebook credential as a Bearer token, so a client that lets you set an `Authorization` header yourself can point at it with a Personal API token — [Creating one](./api-tokens.md#creating-one) covers issuing it. Tick *Create and edit notes* when you create it if the assistant should write, and *Move or copy notes into groups* as well if it should be able to move notes into your groups or copy them there. With Claude Code, for example:
 
 ```sh
@@ -32,6 +34,18 @@ claude mcp add knotebook https://<your-host>/api/mcp -t http -H "Authorization: 
 ```
 
 A static header involves no OAuth token exchange, so this also works on a plain `http://` deployment. `claude mcp add` only writes the client's configuration, with the token in it as you typed it; a Claude Code session that is already running doesn't pick it up, so start a new one. To change what the assistant can do later, create another token with the boxes you want and put that one in the header instead.
+
+**Claude Desktop with a personal access token.** Claude Desktop reaches `/api/mcp` through `mcp-remote`, which can send the same header. Put the header's value in `env` rather than in `args`: mcp-remote's README notes that Cursor, Codex CLI and Claude Desktop on Windows don't escape spaces inside `args` when they invoke `npx`, so `Authorization: Bearer knb_…` written as one argument would be split apart. Add this under `mcpServers` in `claude_desktop_config.json`:
+
+```json
+"knotebook": {
+  "command": "npx",
+  "args": ["-y", "mcp-remote", "https://<your-host>/api/mcp", "--header", "Authorization:${AUTH_HEADER}"],
+  "env": { "AUTH_HEADER": "Bearer knb_…" }
+}
+```
+
+On a plain `http://` deployment, add `"--allow-http"` at the end of `args`. On Windows, Claude Desktop usually needs the command wrapped in `cmd /c`, as shown further down.
 
 The commands below are the other route: letting the client obtain a credential of its own over OAuth, which is what Claude Code and `mcp-remote` do.
 
@@ -86,6 +100,8 @@ After you press Allow, the client has its credential — once it reconnects it w
 | `copy_note` | `notes:write`; with `group_id`, `notes:move` as well | Copy a note you can read into a new note, yours or a group's |
 | `create_transfer_token` | `notes:read` (`download`), `notes:write` (`upload`) | A short-lived token that lets a shell command upload an image to a note, or download its images |
 | `read_note_image` | `notes:read` | Look at an image uploaded to a note |
+
+The permission summary under **Settings → Authorization → Connect Claude with MCP** is copied from this table; keep the two in sync.
 
 Four things decide how many of these a client actually sees, and all four are settled when the request is served rather than when the tool is called:
 
