@@ -1,8 +1,8 @@
 import { test, expect, type Page } from "@playwright/test";
-import { ADMIN, createNote, editorLocator, loginAs } from "./helpers.js";
+import { ADMIN, adminNav, createNote, editorLocator, loginAs, openSiteAdmin } from "./helpers.js";
 
 /**
- * §14.5 流程 4：站台管理頁（`/admin/ai`）建 provider（指向 ai-stub）＋ model → AI 動作 apply →
+ * §14.5 流程 4：站台管理 modal（`/admin/ai`）建 provider（指向 ai-stub）＋ model → AI 動作 apply →
  * revert → 守門（ai-stub 拉長串流、另一 context 改錨點 block → 中止提示）。
  * 「admin AI 三層 CRUD」（provider 建立＋編輯／model 建立）順帶獲得覆蓋。
  *
@@ -29,29 +29,24 @@ const MODEL_DISPLAY_NAME = `E2E AI Model ${RUN_ID}`;
 const REWRITTEN_TEXT = "E2E rewritten text"; // ai-stub 固定輸出（e2e/stubs/ai-stub.mjs FINAL_CONTENT）
 const REASONING_MARKER = "internal reasoning"; // ai-stub 固定塞進 reasoning_content 的字樣，server 絕不轉送給 client（apps/server/src/routes/ai.ts）
 
-/** UserMenu →「Site admin」→ 站台管理頁側欄點「AI」到 `/admin/ai`（一般頁面，不是
- * modal；回筆記走側欄的「Back to notes」，落在 `/`）。 */
+/** UserMenu →『Site admin』→ 站台管理 modal 的『AI agents』（`/admin/ai`）（站台管理是
+ * modal；回筆記用 Esc 關站台管理 modal，落在 `/`）。 */
 async function openAiSettings(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "admin", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Site admin", exact: true }).click();
-  await expect(page).toHaveURL(/\/admin\/users$/);
-  await page.getByRole("link", { name: "AI", exact: true }).click();
-  await expect(page).toHaveURL(/\/admin\/ai$/);
+  await openSiteAdmin(page);
+  await adminNav(page, "AI agents");
 }
 
-/** 站台管理頁 → 側欄「Back to notes」→ `/`。 */
+/** 站台管理 modal → Esc → `/`。 */
 async function leaveAdmin(page: Page): Promise<void> {
-  await page.getByRole("link", { name: "Back to notes", exact: true }).click();
+  await page.keyboard.press("Escape");
   await expect(page).toHaveURL(/\/$/);
 }
 
-/** provider 卡片（`ProviderCard`，`space-y-3 rounded-md border border-border p-4`）——
- * 用卡片內的 `<h3>` provider 名稱鎖定範圍，避免誤中卡片內嵌的 model 列（同樣有
- * 「Edit」/「Delete」等同名按鈕）。 */
+/** provider 列（`ProviderRow`）：#247 起每個供應商是以名稱為可及名稱的 `region`
+ * （`<section aria-labelledby>` 指向 `<h3>` 供應商名）——用它鎖定範圍，避免誤中別的
+ * 供應商列；region 內 provider 層的「Edit」／「Delete」在 model 列之前（DOM 順序）。 */
 function providerCardLocator(page: Page, name: string) {
-  return page.locator("div.rounded-md.border.border-border.p-4").filter({
-    has: page.getByRole("heading", { name, level: 3 }),
-  });
+  return page.getByRole("region", { name });
 }
 
 test.describe.configure({ mode: "serial" }); // 兩支測試共用同一顆 provider（第二支改它的 baseUrl）——單 worker 下本已序列，這裡把意圖寫明。
@@ -63,9 +58,8 @@ test("站台管理頁建 provider/model → toolbar 改寫 → 串流不洩漏 r
     await loginAs(page, ADMIN.email, ADMIN.password);
     await expect(page).toHaveURL(/\/$/);
 
-    // ── 站台管理頁：建 provider（openai_compatible，指向 ai-stub /fast，無 key）──
-    // 先設定、後建筆記：站台管理是一般頁面（2026-09-30 前是疊在筆記頁上的設定
-    // modal，那時先建筆記、Esc 關 modal 回同一篇）。
+    // ── 站台管理 modal：建 provider（openai_compatible，指向 ai-stub /fast，無 key）──
+    // 先設定、後建筆記：站台管理 modal 開在首頁上，關掉回 `/` 再建筆記
     await openAiSettings(page);
     await page.getByRole("button", { name: "Add provider", exact: true }).click();
     const createProviderDialog = page.getByRole("dialog", { name: "Add provider" });
@@ -90,7 +84,8 @@ test("站台管理頁建 provider/model → toolbar 改寫 → 串流不洩漏 r
     await createModelDialog.getByLabel("Default model", { exact: true }).check();
     await createModelDialog.getByRole("button", { name: "Create", exact: true }).click();
     await expect(createModelDialog).not.toBeVisible();
-    await expect(providerCard.getByText(MODEL_DISPLAY_NAME)).toBeVisible();
+    // 模型名同時在列的「Models」欄與下方模型清單出現，`getByText` 會 strict mode 失敗——鎖清單項。
+    await expect(providerCard.getByRole("listitem").filter({ hasText: MODEL_DISPLAY_NAME })).toBeVisible();
 
     // ── 回筆記：建筆記＋打一段文字 ────────────────────────────────────────
     await leaveAdmin(page);

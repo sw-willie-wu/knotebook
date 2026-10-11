@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { ADMIN, createNote, loginAs, randomEmail } from "./helpers.js";
+import { ADMIN, createNote, loginAs, openSiteAdmin, randomEmail } from "./helpers.js";
 
 /**
  * §14.5 流程 3：admin 於站台管理頁建第二使用者（admin 代建帳號 `mustChangePassword:
@@ -7,8 +7,8 @@ import { ADMIN, createNote, loginAs, randomEmail } from "./helpers.js";
  * → 他開啟可見 → admin 撤銷 → **≤10 秒**他的頁面出現 `note.accessRevoked` toast
  * 文案＋被導回 `/`（§10 SLA 的機器斷言）。
  *
- * 建第二使用者走 `/admin/users`（站台管理頁），從 `UserMenu` 的「Site admin」入口進去
- * （走真實入口，不 `page.goto` 深連結），完成後點側欄「Back to notes」回 `/`。
+ * 建第二使用者走站台管理 modal（`/admin/users`），從 `UserMenu` 的「Site admin」入口進去
+ * （走真實入口，不 `page.goto` 深連結），完成後按 Esc 關掉回 `/`。
  */
 test("admin 建第二使用者 → 分享筆記 → 撤銷 → SLA 內失去存取", async ({ browser }) => {
   const adminContext = await browser.newContext();
@@ -19,9 +19,7 @@ test("admin 建第二使用者 → 分享筆記 → 撤銷 → SLA 內失去存�
     await expect(adminPage).toHaveURL(/\/$/);
 
     // ── 站台管理頁 → 使用者區 → 建立第二使用者 ────────────────────────
-    await adminPage.getByRole("button", { name: "admin", exact: true }).click(); // UserMenu 觸發鈕＝displayName
-    await adminPage.getByRole("menuitem", { name: "Site admin", exact: true }).click();
-    await expect(adminPage).toHaveURL(/\/admin\/users$/);
+    await openSiteAdmin(adminPage);
 
     const secondEmail = randomEmail();
     const tempPassword = "e2e-second-user-temp-pw";
@@ -37,8 +35,8 @@ test("admin 建第二使用者 → 分享筆記 → 撤銷 → SLA 內失去存�
     await expect(createUserDialog).not.toBeVisible();
     await expect(adminPage.getByText(secondEmail)).toBeVisible();
 
-    // ── 側欄「Back to notes」回 "/" ───────────────────────────────────
-    await adminPage.getByRole("link", { name: "Back to notes", exact: true }).click();
+    // ── Esc 關站台管理 modal、回 "/" ──────────────────────────────────
+    await adminPage.keyboard.press("Escape");
     await expect(adminPage).toHaveURL(/\/$/);
 
     // ── 建筆記＋分享給第二使用者 ─────────────────────────────────────

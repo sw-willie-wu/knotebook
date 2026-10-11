@@ -1,11 +1,11 @@
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
-import { ADMIN, editorLocator, loginAs, randomEmail } from "./helpers.js";
+import { ADMIN, editorLocator, loginAs, openGroupPanel, openSiteAdmin, randomEmail } from "./helpers.js";
 
 /**
  * #175 群組 v2 PR3（spec §12.3 第 17 條）：自訂角色即時生效。
- * A 建第二使用者 B → A 建群組、在群組建筆記 → A 從設定加 B（內建一般成員）→ B 開那篇：徽章 Editor、可編輯 →
- * A 到「角色」分頁新增角色 Reader（對話框沒有 Read 開關、六個旗標預設全關＝只能閱讀）→ A 在「成員」分頁把 B 改成
+ * A 建第二使用者 B → A 建群組、在群組建筆記 → A 從群組面板加 B（內建一般成員）→ B 開那篇：徽章 Editor、可編輯 →
+ * A 到「Roles」項次新增角色 Reader（對話框沒有 Read 開關、六個旗標預設全關＝只能閱讀）→ A 在「Members」項次把 B 改成
  * Reader → B 10 秒內徽章 Viewer、編輯器不可編輯 → A 改回 Member → B 10 秒內徽章 Editor、打字 A 看得到。
  * 斷言形沿用 15-groups（兩個 context、UI 建第二使用者、首登改密、`editorLocator`、10 秒 SLA）。
  * 群組與筆記留著不清：e2e 疊每次 `stack:down -v` 重置。
@@ -25,9 +25,7 @@ test("群組角色：新增自訂角色 → 改成員角色即時變唯讀 → �
     await expect(adminPage).toHaveURL(/\/$/);
 
     // ── 1. A 建第二使用者 B（同 15）────────────────────────────────────
-    await adminPage.getByRole("button", { name: "admin", exact: true }).click();
-    await adminPage.getByRole("menuitem", { name: "Site admin", exact: true }).click();
-    await expect(adminPage).toHaveURL(/\/admin\/users$/);
+    await openSiteAdmin(adminPage);
     const secondEmail = randomEmail();
     const tempPassword = "e2e-role-user-temp-pw";
     await adminPage.getByRole("button", { name: "Create user" }).click();
@@ -37,7 +35,7 @@ test("群組角色：新增自訂角色 → 改成員角色即時變唯讀 → �
     await createUserDialog.locator("#admin-create-display-name").fill("E2E Role Member");
     await createUserDialog.getByRole("button", { name: "Create", exact: true }).click();
     await expect(createUserDialog).not.toBeVisible();
-    await adminPage.getByRole("link", { name: "Back to notes", exact: true }).click();
+    await adminPage.keyboard.press("Escape");
     await expect(adminPage).toHaveURL(/\/$/);
 
     // ── 2. A 建群組、在群組建筆記、改標題（同 15）──────────────────────────
@@ -64,15 +62,9 @@ test("群組角色：新增自訂角色 → 改成員角色即時變唯讀 → �
     await expect(adminPage.getByRole("status").filter({ hasText: /^Connected/ })).toBeVisible({ timeout: 15_000 });
     await editorLocator(adminPage).waitFor({ timeout: 15_000 });
 
-    // ── 3. A：設定 → Groups → 該群組 → 加 B（預設內建一般成員）──────────────
-    await adminPage.getByRole("button", { name: "admin", exact: true }).click();
-    await adminPage.getByRole("menuitem", { name: "Settings" }).click();
-    await adminPage.getByRole("link", { name: "Groups", exact: true }).click();
-    await expect(adminPage).toHaveURL(/\/settings\/groups$/);
-    await adminPage.getByRole("link", { name: groupName, exact: true }).click();
-    await expect(adminPage).toHaveURL(/\/settings\/groups\/[0-9a-f-]{36}$/);
+    // ── 3. A：側欄群組 ⋮ →「Members & settings」（群組面板）→ 加 B（預設內建一般成員）──
+    const groupId = await openGroupPanel(adminPage, groupName);
     const membersUrl = adminPage.url();
-    const groupId = new URL(membersUrl).pathname.split("/")[3];
     await adminPage.getByLabel("Email address", { exact: true }).fill(secondEmail);
     await adminPage.getByRole("button", { name: "Add", exact: true }).click();
     await expect(adminPage.getByRole("button", { name: `Remove ${secondEmail}` })).toBeVisible();
@@ -104,10 +96,11 @@ test("群組角色：新增自訂角色 → 改成員角色即時變唯讀 → �
       await shot(userPage, "pr3-sidebar-member-hover.png");
     }
 
-    // ── 5. A：「Roles」分頁 → 新增角色 Reader（預設＝只能閱讀）──────────────
-    const tabs = adminPage.getByRole("navigation", { name: "Group settings sections" });
+    // ── 5. A：「Roles」項次 → 新增角色 Reader（預設＝只能閱讀）──────────────
+    // 群組面板左卡項次的 nav 可及名稱＝面板標題（群組名）。
+    const tabs = adminPage.getByRole("navigation", { name: groupName, exact: true });
     await tabs.getByRole("link", { name: "Roles", exact: true }).click();
-    await expect(adminPage).toHaveURL(new RegExp(`/settings/groups/${groupId}/roles$`));
+    await expect(adminPage).toHaveURL(new RegExp(`/groups/${groupId}/roles$`));
     await adminPage.getByRole("button", { name: "New role", exact: true }).click();
     const newRoleDialog = adminPage.getByRole("dialog", { name: "New role" });
     await newRoleDialog.getByLabel("Role name", { exact: true }).fill("Reader");
@@ -117,9 +110,10 @@ test("群組角色：新增自訂角色 → 改成員角色即時變唯讀 → �
     for (let i = 0; i < 6; i += 1) await expect(dialogSwitches.nth(i)).not.toBeChecked();
     await newRoleDialog.getByRole("button", { name: "Create", exact: true }).click();
     await expect(newRoleDialog).not.toBeVisible();
-    await expect(adminPage.getByLabel("Name of Reader", { exact: true })).toBeVisible();
+    // 角色卡是以角色名為名的 region；名稱輸入框（「Name of Reader」）只在按鉛筆後才出現。
+    await expect(adminPage.getByRole("region", { name: "Reader", exact: true })).toBeVisible();
 
-    // ── 6. A：「Members」分頁 → B 改成 Reader ───────────────────────────
+    // ── 6. A：「Members」項次 → B 改成 Reader ───────────────────────────
     await tabs.getByRole("link", { name: "Members", exact: true }).click();
     await expect(adminPage).toHaveURL(membersUrl);
     const roleSelect = adminPage.getByLabel(`Role for ${secondEmail}`, { exact: true });
@@ -159,7 +153,7 @@ test("群組角色：新增自訂角色 → 改成員角色即時變唯讀 → �
 
     // ── 10. A 回到角色頁截圖（Task 8 Step 4.3 的視覺檢查）────────────────
     await tabs.getByRole("link", { name: "Roles", exact: true }).click();
-    await expect(adminPage.getByLabel("Name of Reader", { exact: true })).toBeVisible();
+    await expect(adminPage.getByRole("region", { name: "Reader", exact: true })).toBeVisible();
     await shot(adminPage, "pr3-roles-page.png");
   } finally {
     await adminContext.close();

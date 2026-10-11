@@ -4,7 +4,7 @@ import { test, expect } from "@playwright/test";
 import { ADMIN, loginAs } from "./helpers.js";
 
 /**
- * 登入服務圖示 E1（spec 2026-10-07-provider-icon §8.3）：管理員在 /admin/auth 以 UI 對 e2e 疊既有的「SSO」（OIDC_* 匯入的 legacy）上傳 PNG →
+ * 登入服務圖示 E1（spec 2026-10-07-provider-icon §8.3）：管理員在 /admin/login（站台管理 → Sign-in）以 UI 對 e2e 疊既有的「SSO」（OIDC_* 匯入的 legacy）上傳 PNG →
  * 未登入的登入頁「Sign in with SSO」內有 <img>，src 帶 ?v=，而且是真瀏覽器 canvas 縮過的結果（256×128 → 128×64）。
  * 不新增服務（05 等以名稱定位 SSO 鈕）。測前斷言 iconKind === "template"（不是就失敗，不猜怎麼還原——PATCH 不收 upload）；finally 一律還原成 template。
  *
@@ -66,7 +66,7 @@ test("20-1：管理員上傳「SSO」的圖示 → 登入頁 SSO 鈕出現縮成
     // 還原失敗不得蓋掉本體的原錯：本體已失敗時只 console.error 還原錯、rethrow 原錯；本體成功時才丟還原錯。
     let failure: unknown;
     try {
-      await page.goto("/admin/auth");
+      await page.goto("/admin/login");
       const card = page.getByRole("region", { name: sso!.displayName, exact: true });
       await card.getByRole("button", { name: "Icon", exact: true }).click();
       const dialog = page.getByRole("dialog", { name: "Sign-in service icon" });

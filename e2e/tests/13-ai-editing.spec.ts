@@ -38,12 +38,12 @@ test("外部 AI 改一段：不重整看到新內容、遠端游標名牌、最�
   //   數字、共 23 字元」，派生值就等於名稱本身，底下一律用同一個變數斷言、不另外寫死。
   const tokenName = `e2e-agent-${Date.now()}`;
 
-  await page.goto("/settings/account");
+  await page.goto("/settings/authorization");
   await page.getByRole("button", { name: "Create API token" }).click();
-  // ⚠ `getByLabel` 預設是不分大小寫的子字串比對，同頁還有 "Username"——要 exact（同 12）。
+  // ⚠ `getByLabel` 預設是不分大小寫的子字串比對——保留 exact（理由同 12）。
   await page.getByLabel("Name", { exact: true }).fill(tokenName);
-  // #239：存取權改成兩個勾選框（預設都不勾）；勾「編輯」＝notes:read notes:write（同 12）。
-  await page.getByRole("checkbox", { name: "Create and edit notes" }).click();
+  // #239／#247：存取權是兩個開關（預設都關）；開「編輯」＝notes:read notes:write（同 12）。
+  await page.getByRole("switch", { name: "Create and edit notes", exact: true }).click();
   await page.getByRole("button", { name: "Create token" }).click();
   const token = await page.getByLabel("New API token", { exact: true }).inputValue();
   expect(token).toMatch(/^knb_/);

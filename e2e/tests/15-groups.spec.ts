@@ -1,10 +1,10 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN, editorLocator, loginAs, randomEmail } from "./helpers.js";
+import { ADMIN, editorLocator, loginAs, openGroupPanel, openSiteAdmin, randomEmail } from "./helpers.js";
 
 /**
  * #175 群組 v2（spec §12.3 第 15 條，PR1 改寫自 #103 版）：A 建群組 → A 在群組建筆記（群組持有、
- * 網址 `/g/<group_id>/<slug>`）→ 分享面板是群組版（無 radio、只說明＋連到群組設定）→ A 從設定 → 群組
- * 以 email 加 B（內建一般成員）→ B 側欄看得到、能編輯（共編互見）、也有分享鈕 → A 移除 B → B 連線
+ * 網址 `/g/<group_id>/<slug>`）→ 分享面板是群組版（無 radio、只說明＋連到群組設定）→ A 從側欄群組 ⋮ →
+ *『成員與設定』（群組面板）以 email 加 B（內建一般成員）→ B 側欄看得到、能編輯（共編互見）、也有分享鈕 → A 移除 B → B 連線
  * 被踢、該篇從 B 的側欄消失 → A 開刪除群組對話框：兩模式、預設「轉移給管理員」→ Cancel → 群組與該篇仍在
  * （PR4 起非空群組也刪得掉，真的刪除由 18-groups-delete 測）。
  * 斷言形沿用 03-share-revoke（兩個 context、UI 建第二使用者、10 秒 SLA、exact toast）。
@@ -19,9 +19,7 @@ test("群組：建立 → 群組建筆記（/g/ 網址）→ 設定加人 → �
     await expect(adminPage).toHaveURL(/\/$/);
 
     // ── admin 建第二使用者（同 03）──────────────────────────────────────
-    await adminPage.getByRole("button", { name: "admin", exact: true }).click();
-    await adminPage.getByRole("menuitem", { name: "Site admin", exact: true }).click();
-    await expect(adminPage).toHaveURL(/\/admin\/users$/);
+    await openSiteAdmin(adminPage);
     const secondEmail = randomEmail();
     const tempPassword = "e2e-second-user-temp-pw";
     await adminPage.getByRole("button", { name: "Create user" }).click();
@@ -31,7 +29,7 @@ test("群組：建立 → 群組建筆記（/g/ 網址）→ 設定加人 → �
     await createUserDialog.locator("#admin-create-display-name").fill("E2E Group Member");
     await createUserDialog.getByRole("button", { name: "Create", exact: true }).click();
     await expect(createUserDialog).not.toBeVisible();
-    await adminPage.getByRole("link", { name: "Back to notes", exact: true }).click();
+    await adminPage.keyboard.press("Escape");
     await expect(adminPage).toHaveURL(/\/$/);
 
     // ── A：側欄工作坊「＋」建群組 ─────────────────────────────────────
@@ -72,19 +70,14 @@ test("群組：建立 → 群組建筆記（/g/ 網址）→ 設定加人 → �
     await adminPage.keyboard.press("Escape");
     await expect(shareDialog).not.toBeVisible();
 
-    // ── A：設定 → 群組 → 該群組 → 以 email 加 B（角色預設內建一般成員）──────────
-    await adminPage.getByRole("button", { name: "admin", exact: true }).click();
-    await adminPage.getByRole("menuitem", { name: "Settings" }).click();
-    await adminPage.getByRole("link", { name: "Groups", exact: true }).click();
-    await expect(adminPage).toHaveURL(/\/settings\/groups$/);
-    await adminPage.getByRole("link", { name: groupName, exact: true }).click();
-    await expect(adminPage).toHaveURL(/\/settings\/groups\/[0-9a-f-]{36}$/);
+    // ── A：側欄群組 ⋮ →「Members & settings」（群組面板）→ 以 email 加 B（角色預設內建一般成員）──
+    await openGroupPanel(adminPage, groupName);
     await adminPage.getByLabel("Email address", { exact: true }).fill(secondEmail);
     await adminPage.getByRole("button", { name: "Add", exact: true }).click();
     await expect(adminPage.getByRole("button", { name: `Remove ${secondEmail}` })).toBeVisible();
     await adminPage.keyboard.press("Escape");
-    // #179：改標題換網址走 router navigate，開設定時記下的 backgroundLocation 已是改名後的網址，
-    // 關設定必須回到 canonical（不得退回改標題前的 untitled-…）。
+    // #179：改標題換網址走 router navigate，開群組面板時記下的 backgroundLocation 已是改名後的網址，
+    // 關群組面板必須回到 canonical（不得退回改標題前的 untitled-…）。
     await expect(adminPage).toHaveURL(noteUrl);
     await expect(adminPage.getByRole("button", { name: `Remove ${secondEmail}` })).toHaveCount(0);
 
@@ -115,13 +108,8 @@ test("群組：建立 → 群組建筆記（/g/ 網址）→ 設定加人 → �
     await userPage.keyboard.type(sentence);
     await expect(editorLocator(adminPage)).toContainText(sentence, { timeout: 15_000 });
 
-    // ── A：設定 → 群組 → 該群組 → 移除 B ──────────────────────────────
-    await adminPage.getByRole("button", { name: "admin", exact: true }).click();
-    await adminPage.getByRole("menuitem", { name: "Settings" }).click();
-    await adminPage.getByRole("link", { name: "Groups", exact: true }).click();
-    await expect(adminPage).toHaveURL(/\/settings\/groups$/);
-    await adminPage.getByRole("link", { name: groupName, exact: true }).click();
-    await expect(adminPage).toHaveURL(/\/settings\/groups\/[0-9a-f-]{36}$/);
+    // ── A：側欄群組 ⋮ →「Members & settings」（群組面板）→ 移除 B ──────────────
+    await openGroupPanel(adminPage, groupName);
     await adminPage.getByRole("button", { name: `Remove ${secondEmail}` }).click();
     // 等那顆移除鈕消失＝那一列已移除。移除鈕自 #183 起是圖示鈕，email 只在它的 aria-label
     // （「Remove <email>」）裡、不在可見文字裡；用可及名稱找它，對到的就是那一列的操作。
@@ -133,9 +121,9 @@ test("群組：建立 → 群組建筆記（/g/ 網址）→ 設定加人 → �
     await expect(userSidebar.getByRole("link", { name: title })).toHaveCount(0, { timeout: 10_000 });
     await expect(userSidebar.getByRole("button", { name: groupName, exact: true })).toHaveCount(0, { timeout: 10_000 });
 
-    // ── A：關設定 → 側欄群組 ⋮ → 刪除群組 → 對話框預設「轉移給管理員」→ Cancel → 群組與該篇仍在 ──
+    // ── A：關群組面板 → 側欄群組 ⋮ → 刪除群組 → 對話框預設「轉移給管理員」→ Cancel → 群組與該篇仍在 ──
     await adminPage.keyboard.press("Escape");
-    // #179：backgroundLocation 就是 canonical（改名換網址走 router navigate），關設定直接回到它。
+    // #179：backgroundLocation 就是 canonical（改名換網址走 router navigate），關群組面板直接回到它。
     await expect(adminPage).toHaveURL(noteUrl);
     await sidebar.getByRole("button", { name: `Group actions for ${groupName}` }).click();
     await adminPage.getByRole("menuitem", { name: "Delete group" }).click();

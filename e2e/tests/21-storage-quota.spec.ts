@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { test, expect, type Page } from "@playwright/test";
-import { ADMIN, createNote, editorLocator, loginAs, randomEmail } from "./helpers.js";
+import { ADMIN, adminNav, createNote, editorLocator, loginAs, openSiteAdmin, randomEmail } from "./helpers.js";
 
 /**
  * 儲存配額 E1（spec §11.6）：管理員在 Site admin → Storage plans 建一個 1 MB 方案、在 Site admin → Users 指派給新建的
@@ -42,9 +42,7 @@ test("21 儲存配額 E1：1 MB 方案指派給使用者 → 貼 > 1 MB 圖 → 
     // ── admin：建使用者（同 15-groups）──────────────────────────────
     await loginAs(adminPage, ADMIN.email, ADMIN.password);
     await expect(adminPage).toHaveURL(/\/$/);
-    await adminPage.getByRole("button", { name: "admin", exact: true }).click();
-    await adminPage.getByRole("menuitem", { name: "Site admin", exact: true }).click();
-    await expect(adminPage).toHaveURL(/\/admin\/users$/);
+    await openSiteAdmin(adminPage);
     await adminPage.getByRole("button", { name: "Create user" }).click();
     const createUser = adminPage.getByRole("dialog", { name: "Create user" });
     await createUser.locator("#admin-create-email").fill(userEmail);
@@ -54,9 +52,7 @@ test("21 儲存配額 E1：1 MB 方案指派給使用者 → 貼 > 1 MB 圖 → 
     await expect(createUser).not.toBeVisible();
 
     // ── admin：建 1 MB 方案 ────────────────────────────────────────
-    const nav = adminPage.getByRole("navigation", { name: "Site admin" });
-    await nav.getByRole("link", { name: "Storage plans" }).click();
-    await expect(adminPage).toHaveURL(/\/admin\/storage$/);
+    await adminNav(adminPage, "Storage plans");
     await adminPage.getByRole("button", { name: "New plan" }).click();
     const planDialog = adminPage.getByRole("dialog", { name: "New storage plan" });
     await planDialog.getByLabel("Name", { exact: true }).fill(PLAN_NAME);
@@ -67,8 +63,7 @@ test("21 儲存配額 E1：1 MB 方案指派給使用者 → 貼 > 1 MB 圖 → 
     await expect(adminPage.getByRole("row").filter({ hasText: PLAN_NAME })).toContainText("1 MB");
 
     // ── admin：在使用者表指派 ──────────────────────────────────────
-    await nav.getByRole("link", { name: "Users" }).click();
-    await expect(adminPage).toHaveURL(/\/admin\/users$/);
+    await adminNav(adminPage, "Users");
     const planSelect = adminPage.getByLabel(`Storage plan for ${userEmail}`, { exact: true });
     const assigned = adminPage.waitForResponse((r) => r.url().endsWith("/storage-plan") && r.request().method() === "PATCH");
     await planSelect.selectOption({ label: PLAN_NAME });

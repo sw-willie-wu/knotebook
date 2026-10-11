@@ -1,11 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
-import { ADMIN, editorLocator, loginAs, randomEmail } from "./helpers.js";
+import { ADMIN, editorLocator, loginAs, openGroupPanel, openSiteAdmin, randomEmail } from "./helpers.js";
 
 /**
  * #175 群組 v2 PR4（spec §12.3 第 18 條）：刪群組的兩個模式。
  *
  * 轉移段：A 建第二使用者 B → A 建群組 G1、在 G1 建筆記 X、打一句字、記下 `/g/` 網址 → A 在群組版分享面板打開
- * Public link、記下公開網址 → A 從設定加 B（內建一般成員）→ B 開 X（徽章 Editor）→ A 側欄 G1 ⋮ → Delete group，
+ * Public link、記下公開網址 → A 從群組面板加 B（內建一般成員）→ B 開 X（徽章 Editor）→ A 側欄 G1 ⋮ → Delete group，
  * 對話框預設「Give them to an admin」、接手者是 A → 確認 → B 10 秒內被踢回首頁、側欄沒有 X 也沒有 G1 →
  * A 的「My notes」出現 X；開舊的 `/g/` 網址收斂成 `/n/<A>/<slug>`、內容還在 → A 的分享面板是個人形、Private 已勾
  * （Willie 2026-10-02 裁決：轉移清掉公開連結）→ 匿名開舊公開網址顯示失效文案。
@@ -49,14 +49,9 @@ async function createGroupNote(adminPage: Page, groupName: string, title: string
   return adminPage.url();
 }
 
-/** A：設定 → Groups → 該群組 → 以 email 加成員（預設內建一般成員）→ Escape 關設定（同 15）。 */
+/** A：側欄群組 ⋮ →「Members & settings」（群組面板）→ 以 email 加成員（預設內建一般成員）→ Escape 關群組面板（同 15）。 */
 async function addMember(adminPage: Page, groupName: string, email: string): Promise<void> {
-  await adminPage.getByRole("button", { name: "admin", exact: true }).click();
-  await adminPage.getByRole("menuitem", { name: "Settings" }).click();
-  await adminPage.getByRole("link", { name: "Groups", exact: true }).click();
-  await expect(adminPage).toHaveURL(/\/settings\/groups$/);
-  await adminPage.getByRole("link", { name: groupName, exact: true }).click();
-  await expect(adminPage).toHaveURL(/\/settings\/groups\/[0-9a-f-]{36}$/);
+  await openGroupPanel(adminPage, groupName);
   await adminPage.getByLabel("Email address", { exact: true }).fill(email);
   await adminPage.getByRole("button", { name: "Add", exact: true }).click();
   await expect(adminPage.getByRole("button", { name: `Remove ${email}` })).toBeVisible();
@@ -86,9 +81,7 @@ test("刪群組：轉移給管理員（成員被踢、舊網址轉址、公開�
     const sidebar = adminPage.getByRole("complementary");
 
     // ── 1. A 建第二使用者 B（同 15／17）──────────────────────────────────
-    await adminPage.getByRole("button", { name: "admin", exact: true }).click();
-    await adminPage.getByRole("menuitem", { name: "Site admin", exact: true }).click();
-    await expect(adminPage).toHaveURL(/\/admin\/users$/);
+    await openSiteAdmin(adminPage);
     const secondEmail = randomEmail();
     await adminPage.getByRole("button", { name: "Create user" }).click();
     const createUserDialog = adminPage.getByRole("dialog", { name: "Create user" });
@@ -97,7 +90,7 @@ test("刪群組：轉移給管理員（成員被踢、舊網址轉址、公開�
     await createUserDialog.locator("#admin-create-display-name").fill("E2E Delete Member");
     await createUserDialog.getByRole("button", { name: "Create", exact: true }).click();
     await expect(createUserDialog).not.toBeVisible();
-    await adminPage.getByRole("link", { name: "Back to notes", exact: true }).click();
+    await adminPage.keyboard.press("Escape");
     await expect(adminPage).toHaveURL(/\/$/);
 
     // ── 2. 轉移段：A 建 G1、在 G1 建 X、打一句字、記下 /g/ 網址 ──────────────────

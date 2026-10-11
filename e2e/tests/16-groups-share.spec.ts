@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type BrowserContext, type Locator, type Page } from "@playwright/test";
-import { ADMIN, createNote, editorLocator, loginAs, randomEmail } from "./helpers.js";
+import { ADMIN, createNote, editorLocator, loginAs, openGroupPanel, openSiteAdmin, randomEmail } from "./helpers.js";
 
 /**
  * #175 PR2（spec §12.3 第 16 條，改寫自 #103 PR3 版）：移入群組與複製到個人。
@@ -46,11 +46,9 @@ async function pickFromSubmenu(page: Page, triggerName: string, itemName: string
   await target.click();
 }
 
-/** admin 在站台管理 → 使用者建一個帳號（同 03／15）。呼叫前後都停在 "/"。 */
+/** admin 在站台管理 modal → 使用者建一個帳號（同 03／15）。呼叫前後都停在 "/"。 */
 async function createUser(adminPage: Page, email: string, displayName: string): Promise<void> {
-  await adminPage.getByRole("button", { name: "admin", exact: true }).click();
-  await adminPage.getByRole("menuitem", { name: "Site admin", exact: true }).click();
-  await expect(adminPage).toHaveURL(/\/admin\/users$/);
+  await openSiteAdmin(adminPage);
   await adminPage.getByRole("button", { name: "Create user" }).click();
   const dialog = adminPage.getByRole("dialog", { name: "Create user" });
   await dialog.locator("#admin-create-email").fill(email);
@@ -58,7 +56,7 @@ async function createUser(adminPage: Page, email: string, displayName: string): 
   await dialog.locator("#admin-create-display-name").fill(displayName);
   await dialog.getByRole("button", { name: "Create", exact: true }).click();
   await expect(dialog).not.toBeVisible();
-  await adminPage.getByRole("link", { name: "Back to notes", exact: true }).click();
+  await adminPage.keyboard.press("Escape");
   await expect(adminPage).toHaveURL(/\/$/);
 }
 
@@ -120,7 +118,7 @@ test("移入群組（踢逐人分享、關公開連結、舊網址轉址）→ �
     await createUser(adminPage, memberEmail, "E2E Group Member");
     await createUser(adminPage, guestEmail, guestName);
 
-    // ── A：建群組（側欄工作坊「＋」）→ 設定 → 群組 → 以 email 加 B（同 15）────────────
+    // ── A：建群組（側欄工作坊「＋」）→ 群組面板 → 以 email 加 B（同 15）────────────────
     const sidebar = adminPage.getByRole("complementary");
     await sidebar.getByRole("button", { name: "New group", exact: true }).click();
     const groupDialog = adminPage.getByRole("dialog", { name: "New group" });
@@ -131,12 +129,7 @@ test("移入群組（踢逐人分享、關公開連結、舊網址轉址）→ �
     const groupId = await groupIdNamed(adminContext, groupName);
     expect(groupId).toMatch(/^[0-9a-f-]{36}$/);
 
-    await adminPage.getByRole("button", { name: "admin", exact: true }).click();
-    await adminPage.getByRole("menuitem", { name: "Settings" }).click();
-    await adminPage.getByRole("link", { name: "Groups", exact: true }).click();
-    await expect(adminPage).toHaveURL(/\/settings\/groups$/);
-    await adminPage.getByRole("link", { name: groupName, exact: true }).click();
-    await expect(adminPage).toHaveURL(/\/settings\/groups\/[0-9a-f-]{36}$/);
+    await openGroupPanel(adminPage, groupName);
     await adminPage.getByLabel("Email address", { exact: true }).fill(memberEmail);
     await adminPage.getByRole("button", { name: "Add", exact: true }).click();
     await expect(adminPage.getByRole("button", { name: `Remove ${memberEmail}` })).toBeVisible();

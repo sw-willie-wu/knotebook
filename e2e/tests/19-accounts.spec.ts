@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { test, expect, type Browser, type APIRequestContext } from "@playwright/test";
-import { ADMIN, loginAs, randomEmail } from "./helpers.js";
+import { ADMIN, adminNav, loginAs, openSiteAdmin, randomEmail } from "./helpers.js";
 
 /**
  * #187 e2e 19（spec §14.3）：1–8（含 6a）；2–6、6a、8 是 #187 PR3。
@@ -25,16 +25,13 @@ async function adminOnSignInPage(browser: Browser) {
   const page = await context.newPage();
   await loginAs(page, ADMIN.email, ADMIN.password);
   await expect(page).toHaveURL(/\/$/);
-  await page.getByRole("button", { name: "admin", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Site admin", exact: true }).click();
-  await expect(page).toHaveURL(/\/admin\/users$/);
-  await page.getByRole("navigation", { name: "Site admin" }).getByRole("link", { name: "Sign-in" }).click();
-  await expect(page).toHaveURL(/\/admin\/auth$/);
+  await openSiteAdmin(page);
+  await adminNav(page, "Sign-in");
   return { context, page };
 }
 
 test.describe.serial("19 帳號與登入服務（#187）", () => {
-  test("19-1：admin 在 /admin/auth 建第二個登入服務 → 回呼網址 → 填 secret → 測試 → 啟用；登入頁出現按鈕、首登建帳", async ({ browser, request }) => {
+  test("19-1：admin 在 /admin/login 建第二個登入服務 → 回呼網址 → 填 secret → 測試 → 啟用；登入頁出現按鈕、首登建帳", async ({ browser, request }) => {
     const { context, page } = await adminOnSignInPage(browser);
     try {
       await page.getByRole("button", { name: "Add sign-in service" }).click();
@@ -64,8 +61,9 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
       await card.getByRole("button", { name: "Test connection" }).click();
       await expect(card.getByText(`Connection OK. The identity provider reports issuer ${SECOND_ISSUER}.`)).toBeVisible();
       await expect(card.getByText("The issuer uses plain http.")).toBeVisible();
-      await card.getByRole("switch", { name: "On" }).click();
-      await expect(card.getByRole("switch", { name: "On" })).toHaveAttribute("aria-checked", "true");
+      // #247：啟用 switch 的可及名稱＝「Enabled」欄頭＋服務顯示名（aria-labelledby）。
+      await card.getByRole("switch", { name: `Enabled ${SECOND_NAME}`, exact: true }).click();
+      await expect(card.getByRole("switch", { name: `Enabled ${SECOND_NAME}`, exact: true })).toHaveAttribute("aria-checked", "true");
     } finally {
       await context.close();
     }
@@ -93,12 +91,15 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
       const page = await ctx.newPage();
       const reg = await page.request.post("/api/auth/register", { data: { email, password: NEW_PASSWORD, displayName: "E2E Linker" } });
       expect(reg.status()).toBe(201);
-      await page.goto("/settings/account");
+      await page.goto("/settings/login");
       await nextLogin(request, SECOND_CONTROL_URL, { sub, email: `other-${randomUUID()}@e2e.local` });
       await page.getByRole("button", { name: `Link ${SECOND_NAME}` }).click();
-      // 整條 OIDC 來回之後才回到設定頁（URL 等待無作用——出發前就在 /settings/account，gate r1-t10-17 M3）。
+      // 整條 OIDC 來回之後才回到設定頁（URL 等待無作用——出發前就在 /settings/login，gate r1-t10-17 M3）。
       // toast 文字另有一份在 `role="status"` 的「Notification …」朗讀節點：不加 exact 會 strict mode 兩個命中（03 先例）。
       await expect(page.getByText("Sign-in service linked.", { exact: true })).toBeVisible({ timeout: 20_000 });
+      // #247 §9.9：回程落點是設定的「Sign-in」頁（server 導 `/settings/login?linked=…`，toast 後清參數）；
+      // 等到 toast 才斷言，這時已是回程那一頁，不是出發前那一頁。
+      await expect(page).toHaveURL(/\/settings\/login(\?.*)?$/);
       await expect(page.getByRole("listitem", { name: new RegExp(SECOND_NAME) })).toBeVisible();
     } finally {
       await ctx.close();
@@ -157,7 +158,7 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
       await page.goto("/register");
       await page.getByRole("link", { name: `Sign up with ${SECOND_NAME}` }).click();
       await expect(page).toHaveURL(/\/$/, { timeout: 20_000 });
-      await page.goto("/settings/account");
+      await page.goto("/settings/login");
       const row = page.getByRole("listitem", { name: new RegExp(SECOND_NAME) });
       await expect(row.getByRole("button", { name: "Unlink" })).toBeDisabled();
       await expect(row.getByText("This is your only way to sign in, so it can't be unlinked.")).toBeVisible();
@@ -246,7 +247,7 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
       await prove.click();
       await expect(page).toHaveURL(/\/$/, { timeout: 20_000 });
       await expect(page.getByRole("button", { name: "E2E Prover", exact: true })).toBeVisible();
-      await page.goto("/settings/account");
+      await page.goto("/settings/login");
       await expect(page.getByRole("listitem", { name: /^SSO/ })).toBeVisible();
       await expect(page.getByRole("listitem", { name: new RegExp(SECOND_NAME) })).toBeVisible();
     } finally {
@@ -264,7 +265,7 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
       for (const identity of ids.identities as Array<{ id: string; issuer: string }>) {
         if (identity.issuer === SECOND_ISSUER) expect((await page.request.delete(`/api/auth/identities/${identity.id}`)).status()).toBe(204);
       }
-      await page.goto("/settings/account");
+      await page.goto("/settings/login");
       await nextLogin(request, SECOND_CONTROL_URL, { sub: `e2e-19-8-admin-${randomUUID()}`, email: ADMIN.email });
       await page.getByRole("button", { name: `Link ${SECOND_NAME}` }).click();
       await expect(page.getByText("Sign-in service linked.", { exact: true })).toBeVisible({ timeout: 20_000 });
@@ -278,7 +279,7 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
       await create.getByRole("button", { name: "Create", exact: true }).click();
       await expect(create).not.toBeVisible();
 
-      await page.goto("/admin/auth");
+      await page.goto("/admin/login");
       await page.getByRole("switch", { name: "Allow password sign-in" }).click();
       const confirm = page.getByRole("dialog", { name: "Turn off password sign-in?" });
       await expect(confirm.getByText(/^Accounts with no usable sign-in service: \d+$/)).toBeVisible();
@@ -329,14 +330,14 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
     const { context, page } = await adminOnSignInPage(browser);
     try {
       const card = page.getByRole("region", { name: SECOND_NAME });
-      await card.getByRole("switch", { name: "On" }).click();
+      await card.getByRole("switch", { name: `Enabled ${SECOND_NAME}`, exact: true }).click();
       const dialog = page.getByRole("dialog", { name: "Turn this sign-in service off?" });
       // 不釘死人數：身分以 issuer 為鍵、刪服務後保留（§14.1-9），髒疊重跑時 `/b` 上可能已有前幾輪的身分；前輪若在刪除前失敗，
       // 殘留的同 issuer 啟用服務會讓 lockedOut 變 0（RF2）。只斷言「至少有本輪 19-1 那一個」與數字形（gate r1-t8-12 I4）。
       await expect(dialog.getByText(/^Linked accounts: [1-9]\d*$/)).toBeVisible();
       await expect(dialog.getByText(/^Of those, with no other way to sign in: \d+$/)).toBeVisible();
       await dialog.getByRole("button", { name: "Turn off" }).click();
-      await expect(card.getByRole("switch", { name: "On" })).toHaveAttribute("aria-checked", "false");
+      await expect(card.getByRole("switch", { name: `Enabled ${SECOND_NAME}`, exact: true })).toHaveAttribute("aria-checked", "false");
 
       const anon = await browser.newContext();
       try {

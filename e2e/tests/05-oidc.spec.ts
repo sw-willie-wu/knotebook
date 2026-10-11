@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { test, expect } from "@playwright/test";
-import { ADMIN, loginAs, randomEmail } from "./helpers.js";
+import { ADMIN, loginAs, openSiteAdmin, randomEmail } from "./helpers.js";
 
 /**
  * §14.5 流程 5（#187 改寫）：SSO 兩情境（fake-idp）。e2e 疊仍設 OIDC_* 三變數——新版第一次啟動把它們匯入成名為「SSO」的
@@ -52,9 +52,7 @@ test("情境二：SSO 首登 email 命中代建帳號 → 輸入代建密碼連�
     const adminPage = await adminContext.newPage();
     await loginAs(adminPage, ADMIN.email, ADMIN.password);
     await expect(adminPage).toHaveURL(/\/$/);
-    await adminPage.getByRole("button", { name: "admin", exact: true }).click();
-    await adminPage.getByRole("menuitem", { name: "Site admin", exact: true }).click();
-    await expect(adminPage).toHaveURL(/\/admin\/users$/);
+    await openSiteAdmin(adminPage);
     await adminPage.getByRole("button", { name: "Create user" }).click();
     const dialog = adminPage.getByRole("dialog", { name: "Create user" });
     await dialog.locator("#admin-create-email").fill(linkedEmail);
