@@ -663,6 +663,10 @@
       "invalidName": "Role names must be 1–40 characters."
     }
   },
+  "management": {
+    "close": "Close",
+    "back": "Back to sections"
+  },
   "settings": {
     "entry": "Settings",
     "title": "Settings",

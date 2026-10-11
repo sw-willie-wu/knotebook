@@ -663,6 +663,10 @@
       "invalidName": "角色名稱須為 1–40 個字元。"
     }
   },
+  "management": {
+    "close": "關閉",
+    "back": "返回項次"
+  },
   "settings": {
     "entry": "設定",
     "title": "設定",
