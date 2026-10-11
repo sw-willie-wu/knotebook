@@ -1,7 +1,7 @@
 /**
  * #240／#241 U-F1：看**實際註冊**的東西，不看 export。
- * 用只收集 `(name, config)` 的假 `registerTool` 呼叫真的 `registerMcpTools`，六種 ctx
- * （＝authKind × scope × canRead 的全組合：讀寫 token、唯讀 token、session，各有／無 collab+editing）：
+ * 用只收集 `(name, config)` 的假 `registerTool` 呼叫真的 `registerMcpTools`，八種 ctx
+ * （＝authKind × scope × canRead 的全組合：讀寫搬移 token、讀寫 token、唯讀 token、session，各有／無 collab+editing；#239 加讀寫搬移）：
  * ① 每個 inputSchema 都是 strict 的 ZodObject（W2，含 `catchall` 必須是 ZodNever——否則 `unknownKeys` 不生效）；
  * ② 帶 `note_id` 的欄位與 `NOTE_ID` 同源（W3 收斂點）；
  * ③ 名字陣列逐字（含順序）——新增工具時這裡會紅，逼人補名字常數；①② 對每支註冊物自動生效。
@@ -38,17 +38,22 @@ function expectSameSchema(field: z.ZodTypeAny, base: z.ZodTypeAny): void {
 }
 
 const LIVE = { collab: {} as never, editing: {} as never };
-export const RW_TOKEN = ["list_notes", "search_notes", "read_note_outline", "read_note_section", "edit_note", "create_note", "move_note_to_group", "copy_note", "create_transfer_token", "read_note_image"];
+// #239：讀寫 token 不再註冊 move_note_to_group（要 notes:move）；讀寫搬移 token 與 session 才有。
+export const RWM_TOKEN = ["list_notes", "search_notes", "read_note_outline", "read_note_section", "edit_note", "create_note", "move_note_to_group", "copy_note", "create_transfer_token", "read_note_image"];
+export const RW_TOKEN = ["list_notes", "search_notes", "read_note_outline", "read_note_section", "edit_note", "create_note", "copy_note", "create_transfer_token", "read_note_image"];
 export const RO_TOKEN = ["list_notes", "search_notes", "read_note_outline", "read_note_section", "create_transfer_token", "read_note_image"];
 export const SESSION = ["list_notes", "search_notes", "read_note_outline", "read_note_section", "edit_note", "create_note", "move_note_to_group", "copy_note", "read_note_image"];
 export const RO_NO_COLLAB = ["list_notes", "search_notes", "create_transfer_token", "read_note_image"];
 export const SESSION_NO_COLLAB = ["list_notes", "search_notes", "create_note", "move_note_to_group", "copy_note", "read_note_image"];
-export const RW_NO_COLLAB = ["list_notes", "search_notes", "create_note", "move_note_to_group", "copy_note", "create_transfer_token", "read_note_image"];
+export const RWM_NO_COLLAB = ["list_notes", "search_notes", "create_note", "move_note_to_group", "copy_note", "create_transfer_token", "read_note_image"];
+export const RW_NO_COLLAB = ["list_notes", "search_notes", "create_note", "copy_note", "create_transfer_token", "read_note_image"];
 
 const CASES: Array<[string, Partial<McpToolCtx>, string[]]> = [
+  ["讀寫搬移 token", { ...LIVE, authKind: "token", tokenScope: "notes:read notes:write notes:move" as never }, RWM_TOKEN],
   ["讀寫 token", { ...LIVE, authKind: "token", tokenScope: "notes:read notes:write" as never }, RW_TOKEN],
   ["唯讀 token", { ...LIVE, authKind: "token", tokenScope: "notes:read" as never }, RO_TOKEN],
   ["session", { ...LIVE, authKind: "session", tokenScope: null }, SESSION],
+  ["讀寫搬移 token、無 collab", { authKind: "token", tokenScope: "notes:read notes:write notes:move" as never }, RWM_NO_COLLAB],
   ["讀寫 token、無 collab", { authKind: "token", tokenScope: "notes:read notes:write" as never }, RW_NO_COLLAB],
   ["唯讀 token、無 collab", { authKind: "token", tokenScope: "notes:read" as never }, RO_NO_COLLAB],
   ["session、無 collab", { authKind: "session", tokenScope: null }, SESSION_NO_COLLAB],

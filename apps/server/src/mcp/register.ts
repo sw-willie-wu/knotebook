@@ -16,7 +16,7 @@
  * `{copy_note, create_note, create_transfer_token, edit_note, move_note_to_group, read_note_image}`。**新增工具時要一併把它
  * 加進其中一個名字集合，否則等於沒有守衛。**
  *
- * ⚠ 新增工具一律 `z.object(<shape>).strict()` 註冊；`test/unit/mcp-register.test.ts`（U-F1，覆蓋 authKind × scope × 有無 collab 的六種組合）的名字常數也要補——它會紅。
+ * ⚠ 新增工具一律 `z.object(<shape>).strict()` 註冊；`test/unit/mcp-register.test.ts`（U-F1，覆蓋 authKind × scope × 有無 collab 的八種組合）的名字常數也要補——它會紅。
  *
  * ⚠ 呼叫順序是契約（§8.1 D32）：建 `McpServer` → **本函式** → `registerCapabilities` →
  * `connect()`。`registerTool` 內部會無條件把 `listChanged` 設回 `true`。**守衛＝
@@ -191,7 +191,7 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
   // #180 spec §6.1：copy_note 在 collab 閘門**外**（REST 複製無條件註冊；`loadNoteDoc` 無 collab 時讀 note_states，F35）。
   // `.strict()` 註冊（spec §4.7、F60：照 create_note 舊習慣傳 `groupId` 會被靜默丟掉→複製成個人筆記；strict 後回驗證錯誤）。
   // annotations：`destructiveHint: false`（W12）；`idempotentHint` 不寫（SDK 預設 false，而每一發都建新筆記，F48）。
-  // 守衛：無 collab 集合＝`mcp-tools-list` D-A 案／`mcp-create-note:238`；strict＝`mcp-copy` M-G2；runTool＝P13。
+  // 守衛：無 collab 集合＝`mcp-tools-list` D-A 案／`mcp-create-note` 的 D-M 案；strict＝`mcp-copy` M-G2；runTool＝P13。
   // #239：仍在 canWrite 內（不帶 group_id 的複製只要 notes:write）；description 與 `group_id` 的說明依 canMove 二選一
   // （spec §7.5(b)(c)），帶 group_id 時執行期另驗 notes:move（`copy-note.ts`）。守衛＝`mcp-tools-list` 的 #239 M1b。
   if (canWrite) {

@@ -444,7 +444,8 @@ describe("#108 JSON-RPC 批次", () => {
 });
 
 describe("#241 X-241：每支工具都拒未知鍵（wire 層；結構面由 unit/mcp-register.test.ts 守）", () => {
-  for (const scope of ["notes:read notes:write", "notes:read"] as const) {
+  // #239：讀寫憑證不再列 move_note_to_group、copy_note 是無 group_id 版——加讀寫搬移憑證讓兩者的另一版也過 wire 層。
+  for (const scope of [RWM, "notes:read notes:write", "notes:read"] as const) {
     it(`${scope}：tools/list 的每個名字收 { zz_unknown: 1 } → isError、無 structuredContent、訊息含 zz_unknown`, async () => {
       const ctx = await buildCollabTestApp();
       const owner = await ctx.createUser({ email: `x241-${randomUUID()}@example.com`, password: PASSWORD });
