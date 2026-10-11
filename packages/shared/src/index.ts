@@ -311,6 +311,10 @@ export const ERROR_CODES = [
   "email_taken",
   "user_not_found",
   "cannot_disable_self",
+  // #247 §9.4 站台管理員降級（`POST /api/admin/users/:id/demote`）：`cannot_demote_self`＝400，降自己；`last_site_admin`＝409，
+  // 降級後站台沒有任何啟用中的管理員。⚠ 不可沿用 `last_admin`——那是**群組**的碼（見下方 #103 段），web 以 `errors.<code>` 對映訊息。
+  "cannot_demote_self",
+  "last_site_admin",
   "cannot_share_with_self",
   "share_not_found",
   "slug_taken",

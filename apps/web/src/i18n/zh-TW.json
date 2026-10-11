@@ -989,6 +989,8 @@
     "email_taken": "此電子郵件已被使用。",
     "user_not_found": "找不到該使用者。",
     "cannot_disable_self": "無法停用自己的帳號。",
+    "cannot_demote_self": "無法移除自己的管理員身分。",
+    "last_site_admin": "站台至少要保留一位啟用中的管理員。",
     "cannot_share_with_self": "無法與自己共享筆記。",
     "share_not_found": "此共享項目已不存在。",
     "slug_taken": "此網址已被你的另一篇筆記使用。",

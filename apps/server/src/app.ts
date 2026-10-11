@@ -55,6 +55,7 @@ import { assertUploadsDirWritable } from "./uploads/service.js";
 import type { AiRuntime } from "./ai/runtime.js";
 import { createOidcRuntimeRegistry, type OidcRuntimeRegistry } from "./auth/oidc-client.js";
 import type { OidcTestHook } from "./auth/oidc-test-hook.js";
+import type { AdminTestHook } from "./auth/admin-test-hook.js";
 import { createEditingRuntime, type EditingRuntime } from "./notes/editing/runtime.js";
 import type { EditingTestHooks } from "./notes/editing/apply.js";
 import { PresenceRegistry, type PresenceOptions } from "./notes/editing/presence.js";
@@ -257,6 +258,11 @@ export interface AppDeps {
    * 組 deps 時不傳它，env／HTTP 都沒有設定它的路徑——注入面只有測試直接呼叫 `buildApp`／`buildTestApp` 時帶的 deps。
    */
   oidcTestHook?: OidcTestHook;
+  /**
+   * #247 §9.4 站台管理員降級的測試縫（`auth/admin-test-hook.ts`）；`undefined`＝no-op。只能經這個欄位注入：production 的 `index.ts`
+   * 組 deps 時不傳它，env／HTTP 都沒有設定它的路徑。
+   */
+  adminTestHook?: AdminTestHook;
 }
 
 export interface BuildAppOptions {
@@ -736,7 +742,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   void app.register(noteVersionsRoutes({ db: deps.db, versions, writes, limiters: { edit: limiters.edit } }));
   // #103：群組管理（session-only，見 routes/groups.ts 檔頭）。
   void app.register(groupsRoutes({ db: deps.db, collabHooks: deps.collabHooks, groupTestHook: deps.groupTestHook, uploadsDir: deps.uploadsDir, storageLockTimeoutMs, versions }));
-  void app.register(adminUsersRoutes({ db: deps.db, gate: deps.gate, collabHooks: deps.collabHooks }));
+  void app.register(adminUsersRoutes({ db: deps.db, gate: deps.gate, collabHooks: deps.collabHooks, adminTestHook: deps.adminTestHook }));
   // 儲存配額（spec 2026-10-08 §7）：方案管理、預設、站台群組列表與指派（admin）；個人與群組用量檢視。
   void app.register(adminStorageRoutes({ db: deps.db }));
   void app.register(storageRoutes({ db: deps.db }));

@@ -1,11 +1,14 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { eq } from "drizzle-orm";
+import type { LightMyRequestResponse } from "fastify";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { SESSION_COOKIE } from "@knotebook/shared";
 import { buildTestApp, testConfig } from "./helpers.js";
+import { cookieOf, seedUser, waitForBlockedOrSettled } from "./group-helpers.js";
 import { users } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
 import { signSession } from "../src/auth/session.js";
 import type { CollabHooks } from "../src/collab/hooks.js";
+import type { AdminTestHook } from "../src/auth/admin-test-hook.js";
 
 // hashPassword 包成 vi.fn(actual)：預設行為與真實實作一致，只有 HashBusyError 那條
 // 測試用 mockRejectedValueOnce 覆寫下一次呼叫——同 auth.test.ts 的手法。
@@ -72,6 +75,7 @@ describe("requireAdmin 保護：全部端點非 admin 403、未登入 401", () =
     { name: "POST /api/admin/users/:id/disable", method: "POST", url: id => `/api/admin/users/${id}/disable` },
     { name: "POST /api/admin/users/:id/enable", method: "POST", url: id => `/api/admin/users/${id}/enable` },
     { name: "POST /api/admin/users/:id/promote", method: "POST", url: id => `/api/admin/users/${id}/promote` },
+    { name: "POST /api/admin/users/:id/demote", method: "POST", url: id => `/api/admin/users/${id}/demote` },
   ];
 
   for (const ep of endpoints) {
@@ -532,5 +536,124 @@ describe("POST /api/admin/users/:id/promote", () => {
     });
     expect(res.statusCode).toBe(404);
     expect(res.json()).toMatchObject({ error: { code: "user_not_found" } });
+  });
+});
+
+/** 這幾位裡仍是「啟用中的 admin」的人數（只看本案種的人；不受其他列影響）。 */
+async function enabledAdminsAmong(db: Db, ids: string[]): Promise<number> {
+  const rows = await db.select({ id: users.id }).from(users).where(and(inArray(users.id, ids), eq(users.isAdmin, true), isNull(users.disabledAt)));
+  return rows.length;
+}
+const demote = (app: Awaited<ReturnType<typeof buildTestApp>>["app"], targetId: string, cookies: Record<string, string>) =>
+  app.inject({ method: "POST", url: `/api/admin/users/${targetId}/demote`, cookies });
+
+describe("POST /api/admin/users/:id/demote（#247 §9.4）", () => {
+  it("成功 204、DB is_admin=false；被降級者緊接打 admin API → 403（gate.invalidate，不等 60 秒快取）", async () => {
+    const { app, db } = await buildTestApp();
+    const a = await seedUser(db, { isAdmin: true });
+    const b = await seedUser(db, { isAdmin: true });
+    const bCookies = await cookieOf(b.id);
+    expect((await app.inject({ method: "GET", url: "/api/admin/users", cookies: bCookies })).statusCode).toBe(200); // 灌 gate 快取
+    const res = await demote(app, b.id, await cookieOf(a.id));
+    expect((await app.inject({ method: "GET", url: "/api/admin/users", cookies: bCookies })).statusCode).toBe(403);
+    expect(res.statusCode).toBe(204);
+    const [row] = await db.select({ isAdmin: users.isAdmin }).from(users).where(eq(users.id, b.id));
+    expect(row!.isAdmin).toBe(false);
+  });
+
+  it("降自己（小寫與大寫 UUID 兩形）→ 400 cannot_demote_self；仍是 admin", async () => {
+    const { app, db } = await buildTestApp();
+    const a = await seedUser(db, { isAdmin: true });
+    await seedUser(db, { isAdmin: true }); // 另一位 admin 在：證明擋下的是「自己」而不是「最後一位」
+    for (const id of [a.id, a.id.toUpperCase()]) {
+      const r = await demote(app, id, await cookieOf(a.id));
+      expect(r.statusCode, id).toBe(400);
+      expect(r.json().error, id).toEqual({ code: "cannot_demote_self", message: "無法移除自己的管理員身分" });
+    }
+    expect(await enabledAdminsAmong(db, [a.id])).toBe(1);
+  });
+
+  it("不存在／非 UUID → 404 user_not_found；本來就不是 admin → 204 冪等、仍不是 admin", async () => {
+    const { app, db } = await buildTestApp();
+    const a = await seedUser(db, { isAdmin: true });
+    const plain = await seedUser(db);
+    const cookies = await cookieOf(a.id);
+    for (const id of ["00000000-0000-4000-8000-000000000000", "nope"]) {
+      const r = await demote(app, id, cookies);
+      expect(r.statusCode, id).toBe(404);
+      expect(r.json().error.code, id).toBe("user_not_found");
+    }
+    expect((await demote(app, plain.id, cookies)).statusCode).toBe(204);
+    const [row] = await db.select({ isAdmin: users.isAdmin }).from(users).where(eq(users.id, plain.id));
+    expect(row!.isAdmin).toBe(false);
+  });
+
+  it("Review Focus 4（序列）：呼叫者已被降級但 gate 快取仍是 admin → 降唯一的 admin 得 409 last_site_admin（不是群組的 last_admin）、不寫", async () => {
+    const { app, db } = await buildTestApp();
+    const a = await seedUser(db, { isAdmin: true });
+    const b = await seedUser(db, { isAdmin: true });
+    const aCookies = await cookieOf(a.id);
+    expect((await app.inject({ method: "GET", url: "/api/admin/users", cookies: aCookies })).statusCode).toBe(200); // 灌 a 的快取
+    await db.update(users).set({ isAdmin: false }).where(eq(users.id, a.id)); // 繞過端點、不 invalidate：a 的快取仍是 admin
+    const r = await demote(app, b.id, aCookies);
+    expect(r.statusCode).toBe(409);
+    expect(r.json().error).toEqual({ code: "last_site_admin", message: "站台至少要保留一位啟用中的管理員" });
+    expect(await enabledAdminsAmong(db, [a.id, b.id])).toBe(1);
+  });
+
+  it("Review Focus 4（序列，停用形）：呼叫者已被停用但快取仍有效 → 只剩目標一位啟用中的 admin → 409；停用中的 admin 不算", async () => {
+    const { app, db } = await buildTestApp();
+    const a = await seedUser(db, { isAdmin: true });
+    const b = await seedUser(db, { isAdmin: true });
+    const aCookies = await cookieOf(a.id);
+    expect((await app.inject({ method: "GET", url: "/api/admin/users", cookies: aCookies })).statusCode).toBe(200);
+    await db.update(users).set({ disabledAt: new Date() }).where(eq(users.id, a.id));
+    const r = await demote(app, b.id, aCookies);
+    expect(r.statusCode).toBe(409);
+    expect(r.json().error.code).toBe("last_site_admin");
+  });
+
+  it("併發互降（注入縫交錯）：A 降 B 持鎖未寫時 B 降 A → B 那發卡在鎖上；恰一個 204、另一個 409 last_site_admin；剩一位啟用中的 admin", async () => {
+    const race: { fire?: () => Promise<LightMyRequestResponse> } = {};
+    let second: Promise<LightMyRequestResponse> | undefined;
+    let interleave: "blocked" | "settled" | undefined;
+    const hook: AdminTestHook = async point => {
+      if (point !== "demote-locked" || second || !race.fire) return;
+      second = race.fire();
+      interleave = await waitForBlockedOrSettled(built.db.$client, second);
+    };
+    const built = await buildTestApp({ adminTestHook: hook });
+    const a = await seedUser(built.db, { isAdmin: true });
+    const b = await seedUser(built.db, { isAdmin: true });
+    const bCookies = await cookieOf(b.id);
+    race.fire = () => demote(built.app, a.id, bCookies);
+    const first = await demote(built.app, b.id, await cookieOf(a.id));
+    const other = await second!;
+    expect(interleave).toBe("blocked");
+    expect([first.statusCode, other.statusCode].sort()).toEqual([204, 409]);
+    expect([first, other].find(r => r.statusCode === 409)!.json().error.code).toBe("last_site_admin");
+    expect(await enabledAdminsAmong(built.db, [a.id, b.id])).toBe(1);
+  });
+
+  it("disabled_at 併發形：C 是已停用的 admin；A、B 同時互降 → 恰一個 204、另一個 409（計數只算啟用中的，C 不算）", async () => {
+    const race: { fire?: () => Promise<LightMyRequestResponse> } = {};
+    let second: Promise<LightMyRequestResponse> | undefined;
+    let interleave: "blocked" | "settled" | undefined;
+    const hook: AdminTestHook = async point => {
+      if (point !== "demote-locked" || second || !race.fire) return;
+      second = race.fire();
+      interleave = await waitForBlockedOrSettled(built.db.$client, second);
+    };
+    const built = await buildTestApp({ adminTestHook: hook });
+    const a = await seedUser(built.db, { isAdmin: true });
+    const b = await seedUser(built.db, { isAdmin: true });
+    const c = await seedUser(built.db, { isAdmin: true, disabled: true });
+    const bCookies = await cookieOf(b.id);
+    race.fire = () => demote(built.app, a.id, bCookies);
+    const first = await demote(built.app, b.id, await cookieOf(a.id));
+    const other = await second!;
+    expect(interleave).toBe("blocked");
+    expect([first.statusCode, other.statusCode].sort()).toEqual([204, 409]);
+    expect(await enabledAdminsAmong(built.db, [a.id, b.id, c.id])).toBe(1);
   });
 });
