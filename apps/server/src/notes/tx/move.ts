@@ -14,11 +14,15 @@
  *   (2) 刪光逐人分享（S5／D16）並記下對象（commit 後踢線）
  *   (3) writeSlugInTx：以舊 slug 為基底在群組範圍去重（B6）；同一句 UPDATE 清 owner、prev（B12）、token（Q4）、別名（S11）
  *       ——`slug_is_custom` 不動（B6）、`updated_at` 不動（§6.3）
+ *   (3a) #247 §9.2：`UPDATE uploads SET charged_to_id = 呼叫者 WHERE note_id = 本篇`——佔用者＝移入者，該篇每一筆附件，不論原上傳者。
+ *        在 writeSlugInTx **回傳之後**、callback 之外：callback 撞 slug 唯一索引時會在 savepoint 回滾後以新候選重跑，這句只該跑一次。
+ *        空間鎖之後多取的鎖：本筆記（已持 FU）的 uploads 子列、對 users（呼叫者）的 FK KEY SHARE（儲存配額 spec Q-S6 (c)、(h)）
  *   (4) 只替現行 slug 寫轉址（B12 已刪）：`/n/<呼叫者 handle>/<舊 slug>`——(0) 已證明呼叫者就是 owner
  *   (5) 版本歷史 §9：清空該篇版本（`resetNoteVersionsInTx`）；commit 後由 `notes/move-note.ts` 的 `moveNoteToGroup` 呼叫 `versions.relocated`
  * 刪群組持 `lockGroup` 時到的移動：(1) 的 KEY SHARE 等刪除 commit → 讀到 0 列 → 404（C5a 只驗結果，分不出
  * 是這個機制還是 FK 23503 分支；機制由 C18a／C18b 分辨——拿掉 KEY SHARE 時那兩案紅）。(1) 取得鎖之後群組就刪不掉，
- * (3) 的 UPDATE 不會撞 FK 23503；`notes/move-note.ts` 的 23503 → 404 映射只剩防禦縱深。
+ * (3) 的 UPDATE 不會撞群組 FK 23503；(3a) 對 users 的 FK 只在移入者帳號於交易中被硬刪時才會撞（`src/` 沒有這條路徑）——
+ * `notes/move-note.ts` 的 23503 → 404 映射只剩防禦縱深。
  */
 import { and, eq } from "drizzle-orm";
 import type { Tx } from "../../db/tx.js";
@@ -84,6 +88,11 @@ export async function moveNoteToGroupInTx(tx: Tx, input: MoveNoteInput, hook?: G
     },
     { excludeNoteId: input.noteId, beforeWrite: slug => hook?.("note-move-slug-candidate", { noteId: input.noteId, groupId: input.groupId, slug }) },
   );
+
+  // (3a) #247 §9.2：佔用者＝移入者——本篇每一筆附件，不論原上傳者。位置承重：writeSlugInTx 回傳之後、callback 之外
+  // （callback 撞 slug 唯一索引時會在 savepoint 回滾後以新候選重跑；這句只該跑一次），此時 notes 列已確定是群組筆記。
+  // 移入只允許 owner＝呼叫者（上方 409 檢查），所以佔用者恆為移入前的擁有者本人。
+  await tx.update(uploads).set({ chargedToId: input.userId }).where(eq(uploads.noteId, input.noteId));
 
   await recordRedirectsInTx(tx, [userNotePath(input.userHandle, row.slug)], input.noteId);
   // 版本歷史 §9：個人時期的版本與編輯者名單不隨搬移暴露給群組編輯者（Willie 裁決）——清空、計數歸零、基底清空；不建任何版本（D9）。

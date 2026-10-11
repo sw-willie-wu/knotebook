@@ -11,6 +11,8 @@
  *      search-query.ts 合法使用 setTransaction——跨 spec I-1，所以不掃整個 src/）
  *   ⑦ HTTP 409 的中文訊息「儲存空間已滿」只在 storage/space.ts（STORAGE_QUOTA_EXCEEDED_MESSAGE）——errors.ts 的 helper 與
  *      StorageQuotaExceeded 都引用它；字面散在兩處時，改一處另一處就漂（PR1 review 擱置項）
+ *   ⑧ `update(uploads)` 只在 notes/tx/move.ts、恰一次，且在 moveNoteToGroupInTx 內 `writeSlugInTx(…)` 整個呼叫結束之後、
+ *      `recordRedirectsInTx(` 之前（#247 §9.2 rev 10：不在會隨撞 slug 重試重跑的 callback 裡；Part 4 Review Focus 1）
  */
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -132,5 +134,22 @@ describe("儲存配額結構性守衛（spec §11.3）", () => {
     const hits = files.filter(p => code(p).includes("儲存空間已滿")).map(rel).sort();
     expect(hits).toEqual(["storage/space.ts"]);
     expect(at("http/errors.ts")).toContain("STORAGE_QUOTA_EXCEEDED_MESSAGE");
+  });
+
+  it("⑧ update(uploads) 只在 notes/tx/move.ts 恰一次，位在 writeSlugInTx(…) 呼叫之後、recordRedirectsInTx( 之前（#247 §9.2）", () => {
+    const hits = files.filter(p => /\.update\(\s*uploads\s*\)/.test(code(p))).map(rel).sort();
+    expect(hits).toEqual(["notes/tx/move.ts"]);
+    const src = at("notes/tx/move.ts");
+    const { start, end } = fnBody(src, "moveNoteToGroupInTx");
+    const body = src.slice(start, end);
+    expect([...src.matchAll(/\.update\(\s*uploads\s*\)/g)]).toHaveLength(1);
+    const ws = body.search(/\bwriteSlugInTx\(/);
+    const rr = body.search(/\brecordRedirectsInTx\(/);
+    const up = body.search(/\.update\(\s*uploads\s*\)/);
+    expect(ws, "move.ts 有 writeSlugInTx(").toBeGreaterThan(-1);
+    expect(rr, "move.ts 有 recordRedirectsInTx(").toBeGreaterThan(-1);
+    expect(up, "UPDATE uploads 在 moveNoteToGroupInTx 函式體內").toBeGreaterThan(-1);
+    const wsEnd = balanced(body, ws + "writeSlugInTx".length).end;
+    expect(up > wsEnd && up < rr, "UPDATE uploads 必須在 writeSlugInTx(…) 整個呼叫之後、recordRedirectsInTx 之前").toBe(true);
   });
 });

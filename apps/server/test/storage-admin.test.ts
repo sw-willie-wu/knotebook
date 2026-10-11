@@ -15,9 +15,14 @@ const req = (b: B, method: "GET" | "POST" | "PATCH" | "DELETE", url: string, pay
   b.app.inject({ method, url, cookies: b.cookies, ...(payload ? { payload } : {}) });
 const NUL = String.fromCodePoint(0);
 
-/** 直插一列 uploads（#247：上傳端點只收四種圖片，其他 kind 只能這樣造——spec §9.1 SCOPE）。不寫磁碟檔：GET 用量不讀檔。 */
-async function seedUploadRow(db: Db, noteId: string, uploaderId: string | null, mime: string, size: number): Promise<void> {
-  await db.insert(uploads).values({ noteId, uploaderId, mime, size });
+/**
+ * 直插一列 uploads（#247：上傳端點只收四種圖片，其他 kind 只能這樣造——spec §9.1 SCOPE）。不寫磁碟檔：GET 用量不讀檔。
+ * `chargedToId`（佔用者，#247 §9.2 rev 9）省略時＝`uploaderId`——真實上傳路徑就是這樣寫；要造「佔用者≠上傳者」時顯式給。
+ */
+async function seedUploadRow(
+  db: Db, noteId: string, uploaderId: string | null, mime: string, size: number, chargedToId: string | null = uploaderId,
+): Promise<void> {
+  await db.insert(uploads).values({ noteId, uploaderId, chargedToId, mime, size });
 }
 const ZERO: StorageByKind = { image: 0, audio: 0, video: 0, document: 0, other: 0 };
 
@@ -294,7 +299,7 @@ describe("#247 §9.1／§9.2：byKind 與 byMember", () => {
     expect((await b.app.inject({ method: "GET", url: "/api/storage", cookies: await cookieOf(u.id) })).json().byKind).toEqual(ZERO);
   });
 
-  it("GET /api/groups/:id/storage：byMember 依上傳者分組（含非成員上傳者）、null 上傳者合成一列、0 位元組不列、bytes 降冪；byKind 只算群組筆記", async () => {
+  it("GET /api/groups/:id/storage：byMember 依佔用者分組（seed 佔用者＝上傳者；含非成員）、null 佔用者合成一列、0 位元組不列、bytes 降冪；byKind 只算群組筆記", async () => {
     const b = await adminApp();
     const alice = await seedUser(b.db, { displayName: "Alice" });
     const bob = await seedUser(b.db, { displayName: "Bob" });
@@ -330,5 +335,22 @@ describe("#247 §9.1／§9.2：byKind 與 byMember", () => {
     for (const who of [x.id, y.id, null]) await seedUploadRow(b.db, gn.id, who, "image/png", 7);
     const body = (await b.app.inject({ method: "GET", url: `/api/groups/${g.id}/storage`, cookies: await cookieOf(x.id) })).json();
     expect(body.byMember.map((r: { userId: string | null }) => r.userId)).toEqual([[x.id, y.id].sort()[0], [x.id, y.id].sort()[1], null]);
+  });
+
+  it("byMember 依佔用者（charged_to_id）分組：userId／handle／displayName 取佔用者的；佔用者 NULL 而上傳者仍在 → 匿名列，不回落給上傳者（§9.2 rev 9）", async () => {
+    const b = await adminApp();
+    const occ = await seedUser(b.db, { displayName: "Occupant" });
+    const up = await seedUser(b.db, { displayName: "Uploader" });
+    const g = await seedGroup(b.db, "G", [{ userId: occ.id, role: "admin" }]);
+    const gn = await seedNote(b.db, { groupId: g.id });
+    await seedUploadRow(b.db, gn.id, up.id, "image/png", 100, occ.id); // 上傳者 up、佔用者 occ
+    await seedUploadRow(b.db, gn.id, occ.id, "image/png", 5, up.id);   // 反向：上傳者 occ、佔用者 up
+    await seedUploadRow(b.db, gn.id, up.id, "image/png", 5, null);     // 佔用者已刪（NULL）、上傳者仍在
+    const body = (await b.app.inject({ method: "GET", url: `/api/groups/${g.id}/storage`, cookies: await cookieOf(occ.id) })).json();
+    expect(body.byMember).toEqual([
+      { userId: occ.id, handle: occ.handle, displayName: "Occupant", bytes: 100 },
+      { userId: up.id, handle: up.handle, displayName: "Uploader", bytes: 5 },
+      { userId: null, handle: null, displayName: null, bytes: 5 },
+    ]);
   });
 });

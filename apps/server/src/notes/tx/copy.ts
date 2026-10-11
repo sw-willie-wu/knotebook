@@ -142,7 +142,8 @@ export async function copyNoteInTx(tx: Tx, input: CopyNoteInput, hook?: GroupTes
   // (8)
   const mapping = new Map<string, string>();
   for (const c of copied) {
-    await tx.insert(uploads).values({ id: c.newId, noteId: created.id, uploaderId: input.userId, mime: c.mime, size: c.size });
+    // #247 §9.2：副本列的出處與佔用者都是複製者（目標為個人時也照寫）。
+    await tx.insert(uploads).values({ id: c.newId, noteId: created.id, uploaderId: input.userId, chargedToId: input.userId, mime: c.mime, size: c.size });
     mapping.set(c.oldId.toLowerCase(), c.newId);
   }
   rewriteUploadUrls(input.copy, mapping);

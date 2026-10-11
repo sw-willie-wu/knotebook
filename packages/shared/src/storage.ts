@@ -59,7 +59,7 @@ export function kindOfMime(mime: string): StorageKind {
   return "other";
 }
 
-/** 群組用量的「依成員」一列（#247 §9.2）。`userId` null＝上傳者帳號已刪除（`uploads.uploader_id` on delete set null），全部彙總成一列。 */
+/** 群組用量的「依成員」一列（#247 §9.2）。依佔用者（`uploads.charged_to_id`）分組；`userId` null＝佔用者帳號已刪除（on delete set null）或該列沒有佔用者（回滾到 v0.9 期間新建），全部彙總成一列。 */
 export interface GroupStorageMemberUsageDto {
   userId: string | null;
   handle: string | null;

@@ -117,7 +117,7 @@ export async function copyNote(
     if (isForeignKeyViolation(err)) {
       // 防禦縱深：群組目標在 (g) 已持 groups KEY SHARE，群組在交易中刪不掉，INSERT 不會撞 FK 23503；撞到也回同一條 404。
       if ("groupId" in scope) return { kind: "group_not_found" };
-      // 個人目標唯一可能的 23503 是 notes.owner_id／uploads.uploader_id → users（複製者帳號在交易中被硬刪；`src/` 目前
+      // 個人目標唯一可能的 23503 是 notes.owner_id／uploads.uploader_id／uploads.charged_to_id → users（複製者帳號在交易中被硬刪；`src/` 目前
       // 沒有這條路徑）。個人建立路徑沒有對應的錯誤形（它把 23503 一律當群組被刪），這裡不借用 `group_not_found`
       // （詞不對題，review r1 M-3），回通用 404 `not_found`——對已不存在的帳號而言，「找不到」是最不誤導的答案。
       return { kind: "fk_personal" };

@@ -46,19 +46,21 @@ export async function readSpaceUsageByKind(db: DbOrTx, space: StorageSpace): Pro
 }
 
 /**
- * #247 §9.2：群組筆記的上傳依上傳者分組。上傳者帳號已刪除（`uploader_id` on delete set null）者彙總成 `userId: null` 一列；
- * 不看是否仍是成員（已離開的人上傳過的照列）。只回 bytes > 0；bytes 降冪，同 bytes 依 uploader_id 升冪、null 最後。
+ * #247 §9.2（rev 9）：群組筆記的附件依**佔用者**（`uploads.charged_to_id`：把位元組帶進群組空間的人——直接上傳＝上傳者，
+ * 移入／複製進群組＝執行者）分組。佔用者帳號已刪除（on delete set null）或回滾到 v0.9 期間新建的列（NULL）彙總成
+ * `userId: null` 一列——**不**用 `COALESCE(charged_to_id, uploader_id)`：佔用者已刪而上傳者仍在時會錯算給上傳者。
+ * 不看是否仍是成員（已離開的人照列）。只回 bytes > 0；bytes 降冪，同 bytes 依 charged_to_id 升冪、null 最後。
  */
 export async function readGroupUsageByMember(db: DbOrTx, groupId: string): Promise<GroupStorageMemberUsageDto[]> {
   const rows = await db
-    .select({ userId: uploads.uploaderId, handle: users.handle, displayName: users.displayName, bytes: sumUploadSizeSql() })
+    .select({ userId: uploads.chargedToId, handle: users.handle, displayName: users.displayName, bytes: sumUploadSizeSql() })
     .from(uploads)
     .innerJoin(notes, eq(notes.id, uploads.noteId))
-    .leftJoin(users, eq(users.id, uploads.uploaderId))
+    .leftJoin(users, eq(users.id, uploads.chargedToId))
     .where(spaceNotesWhere({ kind: "group", id: groupId }))
-    .groupBy(uploads.uploaderId, users.handle, users.displayName)
+    .groupBy(uploads.chargedToId, users.handle, users.displayName)
     .having(sql`sum(${uploads.size}) > 0`)
-    .orderBy(sql`sum(${uploads.size}) desc`, sql`${uploads.uploaderId} asc nulls last`);
+    .orderBy(sql`sum(${uploads.size}) desc`, sql`${uploads.chargedToId} asc nulls last`);
   return rows.map(r => ({ userId: r.userId, handle: r.handle, displayName: r.displayName, bytes: r.bytes }));
 }
 

@@ -57,7 +57,9 @@ export async function moveNoteToGroup(
   } catch (err) {
     // 先判子類（StorageQuotaExceeded extends TxAbort）：呼叫端要先判子類才拿得到數字；數字可見性在交易外判（儲存配額 §8.1）。
     if (err instanceof TxAbort) return { kind: "aborted", err };
-    // 防禦縱深：(1) 已持目標群組列的 KEY SHARE，群組在交易中刪不掉、UPDATE 不會撞 FK 23503；撞到也回同一條 group_not_found（catch 在交易外）。
+    // 防禦縱深：(1) 已持目標群組列的 KEY SHARE，群組在交易中刪不掉，notes 的 UPDATE 不會撞群組 FK 23503。#247 起交易內另有
+    // `uploads.charged_to_id` → users 的 FK（(3a) 寫入移入者）：只有移入者帳號在交易中被硬刪才會撞——`src/` 目前沒有硬刪使用者的路徑。
+    // 兩者撞到都回同一條 group_not_found（catch 在交易外）。
     if (isForeignKeyViolation(err)) return { kind: "group_not_found" };
     // 儲存配額 §6.9：空間鎖逾時（55P03）／死結（40P01，含既有 T3×T6 在 note_redirects 的形）／40001 → busy（REST 409 server_busy）。
     if (isRetryableTxError(err)) return { kind: "busy" };
