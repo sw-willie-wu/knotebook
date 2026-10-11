@@ -21,13 +21,13 @@ export function versionLabel(version: { seq: number; name: string | null }): str
   return version.name !== null ? `v${version.seq} ${version.name}` : `v${version.seq}`;
 }
 
-/** 「目前狀態」副標五種（spec §8.2；判斷順序照 spec 逐字）。`latestSeq`＝已載入清單的第一列 seq（清單空＝null）。 */
-export function currentSubtitle(t: TFunction, current: VersionCurrentDto, latestSeq: number | null): string {
-  if (latestSeq === null) return t("versions.current.none");
+/**
+ * 「目前狀態」副標三種（#258，Willie 2026-10-11）：只看 `baseSeq`／`dirty`，**不看清單**——清單可能被「僅手動」篩過，
+ * 第一筆不一定是最新一版，所以不再有「尚無版本」「v{{seq}} 之後」「從 v{{seq}} 接著改」的區分。
+ */
+export function currentSubtitle(t: TFunction, current: VersionCurrentDto): string {
   if (current.baseSeq === null) return t("versions.current.noBase");
-  if (!current.dirty) return t("versions.current.clean", { seq: current.baseSeq });
-  if (current.baseSeq === latestSeq) return t("versions.current.dirtyLatest", { seq: current.baseSeq });
-  return t("versions.current.dirtyFrom", { seq: current.baseSeq });
+  return t(current.dirty ? "versions.current.dirty" : "versions.current.clean", { seq: current.baseSeq });
 }
 
 /** 「handle (agent)」逗號相接；刪除的使用者（handle ""）換成替代字。 */
@@ -43,6 +43,3 @@ export function editorsText(t: TFunction, editors: VersionEditorDto[]): string {
 export function formatVersionTime(iso: string, language: string): string {
   return new Date(iso).toLocaleString(language, { dateStyle: "short", timeStyle: "short" });
 }
-
-/** 綠點色：沿用 ConnectionBadge 的語意綠（起草裁定 7）——版本 UI 唯一的顏色。 */
-export const BASE_DOT_COLOR = "oklch(0.8 0.17 152)";

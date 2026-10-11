@@ -888,20 +888,21 @@
     "close": "Close version history",
     "currentLabel": "Current state",
     "current": {
-      "none": "No versions yet",
       "noBase": "No base version",
-      "clean": "= v{{seq}}, no unsaved changes",
-      "dirtyLatest": "Unsaved changes after v{{seq}}",
-      "dirtyFrom": "Continued from v{{seq}}, with unsaved changes"
+      "clean": "Based on v{{seq}} · no changes",
+      "dirty": "Based on v{{seq}} · unsaved changes"
     },
     "autoOff": "Automatic saving is off for this space",
     "siteOff": "Automatic saving is turned off for the whole site",
     "takesEffectNote": "Notes that are open right now pick up the change after everyone has closed them.",
-    "kind": {
-      "manual": "Manual",
-      "auto": "Auto"
+    "autoBadge": "Auto-saved",
+    "filter": {
+      "label": "Filter versions",
+      "all": "All",
+      "manual": "Manual only",
+      "emptyManual": "No manually saved versions"
     },
-    "from": "continued from v{{seq}}",
+    "from": "based on v{{seq}}",
     "deletedUser": "Deleted user",
     "rowMenu": "Actions for v{{seq}}",
     "menu": {
@@ -914,7 +915,6 @@
     "applyNone": "Apply",
     "save": "Save current version",
     "loadMore": "Load older versions",
-    "baseDot": "Base of the current content",
     "crash": "Version history couldn't be shown.",
     "sheet": {
       "back": "Back",

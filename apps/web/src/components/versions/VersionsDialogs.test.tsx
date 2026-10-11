@@ -6,6 +6,7 @@ import type { VersionCurrentDto, VersionDto, VersionListDto } from "@knotebook/s
 import i18n from "@/i18n";
 import { Toaster, dismissAllToasts } from "@/components/ui/toast";
 import { clickOutside } from "@/test/outside-click";
+import { versionListKey } from "@/api/versions";
 import { VersionsProvider, useVersions, useVersionsController } from "@/lib/versions-context";
 import { VersionsDialogs } from "./VersionsDialogs";
 import { useApplyFlow } from "./use-apply-flow";
@@ -161,7 +162,9 @@ describe("VersionsDialogs＋useApplyFlow（spec §8.5）", () => {
       return undefined;
     });
     const { queryClient } = renderDialogs();
-    queryClient.setQueryData(["notes", NOTE, "versions"], { pages: [listBody(cur({ dirty: false }))], pageParams: [undefined] });
+    queryClient.setQueryData(versionListKey(NOTE, "all"), { pages: [listBody(cur({ dirty: false }))], pageParams: [undefined] });
+    // 種子要真的落在面板讀的鍵上（#258：鍵變長後曾種到沒人讀的鍵，這案的前提就空了）。
+    expect(queryClient.getQueryData(versionListKey(NOTE, "all"))).toBeDefined();
     fireEvent.click(screen.getByText("h-apply"));
     const dialog = await screen.findByRole("dialog", { name: "Apply v1" });
     expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeInTheDocument();

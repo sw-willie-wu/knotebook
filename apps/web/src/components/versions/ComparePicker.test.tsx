@@ -5,12 +5,13 @@ import type { VersionDto, VersionListDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { useMemo } from "react";
 import { useVersionList } from "@/api/versions";
-import { VersionsProvider, useVersionsController } from "@/lib/versions-context";
+import { KIND_FILTER_STORAGE_KEY, VersionsProvider, useVersions, useVersionsController } from "@/lib/versions-context";
 import { ComparePicker } from "./ComparePicker";
 
 const NOTE = "n1";
 const FIRST = `/api/notes/${NOTE}/versions?limit=50`;
-const ver = (seq: number, name: string | null = null): VersionDto => ({ id: `v-${seq}`, seq, kind: "manual", name, editors: [], baseSeq: null, createdAt: "2026-10-09T00:00:00.000Z" });
+const FIRST_MANUAL = `/api/notes/${NOTE}/versions?kind=manual&limit=50`;
+const ver = (seq: number, name: string | null = null, kind: VersionDto["kind"] = "manual"): VersionDto => ({ id: `v-${seq}`, seq, kind, name, editors: [], baseSeq: null, createdAt: "2026-10-09T00:00:00.000Z" });
 const list = (versions: VersionDto[], nextBefore: number | null = null): VersionListDto => ({
   versions,
   current: { baseSeq: versions[0]?.seq ?? null, dirty: false, nextSeq: (versions[0]?.seq ?? 0) + 1, autoEnabled: true },
@@ -33,7 +34,8 @@ function stub(routes: Record<string, unknown>) {
 
 /** 清單已載入的探針：觸發鈕只顯示 vN（C1），不再能拿它判斷清單到了沒。同一個 query key，與 picker 共用快取。 */
 function ListProbe() {
-  const list = useVersionList(NOTE, true);
+  const { kindFilter } = useVersions();
+  const list = useVersionList(NOTE, true, kindFilter);
   return <span data-testid="rows">{list.data ? "loaded" : "pending"}</span>;
 }
 async function listLoaded() {
@@ -60,6 +62,9 @@ function Host({ start }: { start: { seq: number; id: string } }) {
         go
       </button>
       <ListProbe />
+      <button type="button" onClick={() => value.setKindFilter("manual")}>
+        filter-manual
+      </button>
       <span data-testid="left">{JSON.stringify(value.preview)}</span>
       <span data-testid="right">{JSON.stringify(value.compareRight)}</span>
       {value.preview && (
@@ -90,6 +95,7 @@ async function openPicker(name: "Left side" | "Right side") {
 describe("ComparePicker（spec §8.4【rev 10】）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
+    window.localStorage.clear();
     startCalls.length = 0;
   });
   afterEach(() => vi.unstubAllGlobals());
@@ -232,5 +238,64 @@ describe("ComparePicker（spec §8.4【rev 10】）", () => {
     await listLoaded();
     const menu = await openPicker("Left side");
     expect(within(menu).queryByRole("menuitem", { name: "Load older versions" })).not.toBeInTheDocument();
+  });
+
+  describe("跟著清單篩選（#258）", () => {
+    const AUTO = (seq: number) => ver(seq, null, "auto");
+
+    it("僅手動：左右下拉都只列手動版本（右邊「Current state」永遠在）；預覽的那一版被篩掉，觸發鈕仍顯示 v2（標籤不是從清單查的）", async () => {
+      window.localStorage.setItem(KIND_FILTER_STORAGE_KEY, "manual");
+      stub({ [FIRST_MANUAL]: list([ver(3), ver(1)]) });
+      renderPicker({ seq: 2, id: "v-2" });
+      await listLoaded();
+      expect(screen.getByRole("button", { name: "Left side" }).textContent).toBe("v2");
+      const left = within(await openPicker("Left side"));
+      expect(left.getAllByRole("menuitemradio").map((i) => i.textContent)).toEqual(["v3", "v1"]);
+      expect(left.getAllByRole("menuitemradio").every((i) => i.getAttribute("aria-checked") === "false")).toBe(true);
+      fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+      const right = within(await openPicker("Right side"));
+      expect(right.getAllByRole("menuitemradio").map((i) => i.textContent)).toEqual(["Current state", "v3", "v1"]);
+    });
+
+    it("右邊已選的版本被篩掉：觸發鈕仍顯示它的 vN；切換篩選不動 preview／compareRight", async () => {
+      stub({ [FIRST]: list([ver(3), AUTO(2), ver(1)]), [FIRST_MANUAL]: list([ver(3), ver(1)]) });
+      renderPicker({ seq: 3, id: "v-3" });
+      await listLoaded();
+      fireEvent.click(within(await openPicker("Right side")).getByRole("menuitemradio", { name: "v2" }));
+      await waitFor(() => expect(screen.getByRole("button", { name: "Right side" })).toHaveTextContent("v2"));
+      fireEvent.click(screen.getByText("filter-manual"));
+      await waitFor(() => expect(screen.getByTestId("rows")).toHaveTextContent("loaded"));
+      expect(screen.getByRole("button", { name: "Right side" }).textContent).toBe("v2");
+      expect(screen.getByRole("button", { name: "Left side" }).textContent).toBe("v3");
+      expect(screen.getByTestId("right")).toHaveTextContent(JSON.stringify({ seq: 2, id: "v-2" }));
+      expect(screen.getByTestId("left")).toHaveTextContent(JSON.stringify({ seq: 3, id: "v-3" }));
+      expect(startCalls).toHaveLength(1);
+      const right = within(await openPicker("Right side"));
+      expect(right.getAllByRole("menuitemradio").map((i) => i.textContent)).toEqual(["Current state", "v3", "v1"]);
+    });
+
+    it("即時共用：面板切到「僅手動」時，已掛載的下拉選項馬上跟著變", async () => {
+      stub({ [FIRST]: list([ver(3), AUTO(2), ver(1)]), [FIRST_MANUAL]: list([ver(3), ver(1)]) });
+      renderPicker({ seq: 3, id: "v-3" });
+      await listLoaded();
+      expect(within(await openPicker("Left side")).getAllByRole("menuitemradio").map((i) => i.textContent)).toEqual(["v3", "v2", "v1"]);
+      fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+      fireEvent.click(screen.getByText("filter-manual"));
+      await waitFor(() => expect(screen.getByTestId("rows")).toHaveTextContent("loaded"));
+      expect(within(await openPicker("Left side")).getAllByRole("menuitemradio").map((i) => i.textContent)).toEqual(["v3", "v1"]);
+    });
+
+    it("「載入更早的版本」帶 kind=manual 與游標", async () => {
+      window.localStorage.setItem(KIND_FILTER_STORAGE_KEY, "manual");
+      const calls = stub({
+        [FIRST_MANUAL]: list([ver(5)], 5),
+        [`/api/notes/${NOTE}/versions?kind=manual&before=5&limit=50`]: list([ver(2)]),
+      });
+      renderPicker({ seq: 5, id: "v-5" });
+      await listLoaded();
+      fireEvent.click(within(await openPicker("Left side")).getByRole("menuitem", { name: "Load older versions" }));
+      await waitFor(() => expect(calls).toContain(`/api/notes/${NOTE}/versions?kind=manual&before=5&limit=50`));
+      await waitFor(() => expect(within(screen.getByRole("menu")).getByRole("menuitemradio", { name: "v2" })).toBeInTheDocument());
+    });
   });
 });

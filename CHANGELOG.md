@@ -21,6 +21,7 @@ The full checklist is under **Upgrading to v0.10** in [Upgrading and rolling bac
 
 ### Added
 
+- Version history: **All** and **Manual only** buttons above the version list (and above the full-screen list on a narrow window) switch between every version and only those saved by hand or automatic ones whose name was edited (that turns them into manual versions). The two menus used to pick the versions to compare follow the choice; a version you are previewing or comparing isn't affected by it. The choice is the same for every note and is remembered in the browser. `GET /api/notes/:id/versions` accepts `kind=manual` or `kind=auto` to list only that kind (400 `invalid_body` for anything else); it combines with `before` and `limit` (#258).
 - `notes:move` scope: with a token or app credential, moving a note into a group (`move_note_to_group`) and copying one into a group (`copy_note` with `group_id`) need it, on top of `notes:write`. It is off unless you ask for it (#239).
 - The Create API token dialog has a checkbox for each permission — "Create and edit notes" and "Move or copy notes into groups" — both unticked to start, and the token list shows a third kind of access (#239).
 - The consent page lets you choose each permission the app asks for; when you authorize the same app again, it starts from the access the app already has and marks it "Currently granted" (#239).
@@ -29,6 +30,8 @@ The full checklist is under **Upgrading to v0.10** in [Upgrading and rolling bac
 
 ### Changed
 
+- Version history: an automatic version now shows a grey **Auto-saved** tag next to its number; the row no longer spells out "Manual" or "Auto" and no longer has the green dot on the base version. The line under **Current state** now reads **Based on vN · no changes** or **Based on vN · unsaved changes** (or **No base version**), whichever versions the list shows, and a row's "continued from vN" reads "based on vN" (#258).
+- Version history: opening another note while the list beside the note is open (wide window) keeps it open and shows that note's versions, instead of closing it. It still closes when the other note can't be edited by you; the full-screen history on a narrow window still closes when you open another note (#258).
 - **Breaking (MCP):** `move_note_to_group` and `copy_note` with `group_id` need the `notes:move` scope. A credential without it isn't offered `move_note_to_group`, and its `copy_note` answers `insufficient_scope` when given `group_id`, copying nothing; its `copy_note` description says so (#239).
 - **Breaking (API):** `POST /api/oauth/decision` requires `scope` — what was ticked — when allowing, and grants the narrower of it and what the app asked for; an Allow without it is `400`. `GET /api/oauth/request` also returns `existingScope` (#239).
 - `POST /api/auth/tokens` accepts `notes:read notes:write` and `notes:read notes:write notes:move` as `scope`; `notes:write` is still accepted for `notes:read notes:write` (#239).

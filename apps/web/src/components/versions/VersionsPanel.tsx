@@ -1,23 +1,26 @@
-import { useEffect, useRef, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
 import type * as Y from "yjs";
 import type { VersionDto } from "@knotebook/shared";
-import { useVersionList, versionsKey } from "@/api/versions";
+import { useVersionCurrent, useVersionList, versionsKey } from "@/api/versions";
 import { Button } from "@/components/ui/button";
 import { cardSurface } from "@/components/ui/card";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { EllipsisVertical, X } from "@/components/ui/icons";
 import { useVersions } from "@/lib/versions-context";
 import { cn } from "@/lib/utils";
-import { BASE_DOT_COLOR, currentSubtitle, editorsText, formatVersionTime } from "./version-labels";
+import { KindFilter, KindFilterEmpty } from "./KindFilter";
+import { currentSubtitle, editorsText, formatVersionTime } from "./version-labels";
 import { useApplyFlow } from "./use-apply-flow";
 
-/** 列的兩行內容（面板與窄視窗整頁共用）。 */
-export function VersionRowContent({ version, isBase }: { version: VersionDto; isBase: boolean }) {
+/**
+ * 列的兩行內容（面板與窄視窗整頁共用）。第一行 vN、名稱，**只有自動版本**再加一顆中性色「自動存檔」pill（#258；手動版本不標，
+ * 不再有「手動／自動」文字）；第二行 編輯者 · 時間 · 沿自 vX。基底版不在列上標示（「目前狀態」副標寫「沿自 vN」）。
+ */
+export function VersionRowContent({ version }: { version: VersionDto }) {
   const { t, i18n } = useTranslation();
   const meta = [
-    version.kind === "manual" ? t("versions.kind.manual") : t("versions.kind.auto"),
     editorsText(t, version.editors),
     formatVersionTime(version.createdAt, i18n.language),
     ...(version.baseSeq !== null ? [t("versions.from", { seq: version.baseSeq })] : []),
@@ -25,12 +28,13 @@ export function VersionRowContent({ version, isBase }: { version: VersionDto; is
   return (
     <span className="min-w-0 flex-1">
       <span className="flex items-center gap-1.5 text-sm">
-        {isBase && (
-          <span data-testid="base-dot" aria-hidden="true" title={t("versions.baseDot")} className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: BASE_DOT_COLOR }} />
-        )}
-        <span className="font-medium">v{version.seq}</span>
-        {isBase && <span className="sr-only">{t("versions.baseDot")}</span>}
+        <span className="shrink-0 font-medium">v{version.seq}</span>
         {version.name !== null && <span className="min-w-0 truncate">{version.name}</span>}
+        {version.kind === "auto" && (
+          <span data-testid="auto-badge" className="shrink-0 rounded-full border border-border bg-muted px-1.5 text-[11px] leading-4 text-foreground/70">
+            {t("versions.autoBadge")}
+          </span>
+        )}
       </span>
       <span className="block truncate text-xs text-muted-foreground">{meta.join(" · ")}</span>
     </span>
@@ -69,9 +73,9 @@ export function VersionRowMenu({ version, isBase, onApply }: { version: VersionD
 export function VersionsPanel({ doc }: { doc: Y.Doc }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const { noteId, preview, startPreview, stopPreview, close, openSave } = useVersions();
+  const { noteId, preview, kindFilter, startPreview, stopPreview, close, openSave } = useVersions();
   const id = noteId ?? "";
-  const list = useVersionList(id, true);
+  const list = useVersionList(id, true, kindFilter);
   const rowsRef = useRef<Array<HTMLButtonElement | null>>([]);
   // 這一發 click 的按下點是否也在 <ul> 本身（review M-1）：在列上按下、拖到列間縫放開時，瀏覽器把 click 派給共同祖先 <ul>，
   // 只看 click 的 target 會誤判成點空白。
@@ -91,9 +95,15 @@ export function VersionsPanel({ doc }: { doc: Y.Doc }) {
   }, [doc, id, queryClient]);
 
   const versions = list.data?.pages.flatMap((p) => p.versions) ?? [];
-  const current = list.data?.pages[0]?.current;
-  const latestSeq = versions[0]?.seq ?? null;
-  const selected = versions.find((v) => v.seq === preview?.seq) ?? null;
+  const current = useVersionCurrent(id, list, kindFilter);
+  // 預覽中的那一版被篩選篩出清單時（#258）仍要能「套用 vN」：記住最後一次在清單裡看到的那一列。一律用 `id` 對（不用 seq：
+  // 搬移清空歷史後 seq 會重用，同一個 seq 可能是另一版）。換筆記、換版本時 id 對不上就自然不命中；
+  // `remembered.id === preview.id` 這一道是承重的：`remembered` 不會自己清，preview 變 null（離開預覽）或換成清單外的版本時，
+  // 靠這道比對讓「套用」回到 disabled，否則會套用到上一個預覽的版本。
+  const inList = versions.find((v) => v.id === preview?.id) ?? null;
+  const [remembered, setRemembered] = useState<VersionDto | null>(null);
+  if (inList !== null && inList !== remembered) setRemembered(inList);
+  const selected = inList ?? (remembered !== null && remembered.id === preview?.id ? remembered : null);
   const { requestApply } = useApplyFlow(id);
   const apply = (v: VersionDto) => void requestApply(v);
 
@@ -124,9 +134,10 @@ export function VersionsPanel({ doc }: { doc: Y.Doc }) {
       </div>
       <div data-testid="versions-current" className="mx-3 mt-3 border-b border-dashed border-border pb-2">
         <p className="text-sm font-medium">{t("versions.currentLabel")}</p>
-        {current && <p className="text-xs text-muted-foreground">{currentSubtitle(t, current, latestSeq)}</p>}
+        {current && <p className="text-xs text-muted-foreground">{currentSubtitle(t, current)}</p>}
         {current && !current.autoEnabled && <p className="text-xs text-muted-foreground">{t("versions.autoOff")}</p>}
       </div>
+      <KindFilter className="px-3 pt-2" />
       {/* 只認按下與放開都在 <ul> 本身（內距、列間空隙、清單下方空白）；列與 ⋯ 的點擊冒泡上來時 target 不是 <ul>，不算。
           滑鼠專用的捷徑，不給鍵盤焦點（鍵盤離開預覽用 Esc 或再按一次選中列）。 */}
       <ul
@@ -150,16 +161,17 @@ export function VersionsPanel({ doc }: { doc: Y.Doc }) {
                 }}
                 type="button"
                 // 已選中的列再點一次＝離開預覽（toggle）；↑↓ 走 onRowKey，不受影響。
-                onClick={() => (preview?.seq === version.seq ? stopPreview() : startPreview({ seq: version.seq, id: version.id }))}
+                onClick={() => (preview?.id === version.id ? stopPreview() : startPreview({ seq: version.seq, id: version.id }))}
                 onKeyDown={onRowKey(index)}
-                className={cn("flex min-w-0 flex-1 rounded-md px-2 py-1.5 text-left hover:bg-accent/60", preview?.seq === version.seq && "bg-accent")}
+                className={cn("flex min-w-0 flex-1 rounded-md px-2 py-1.5 text-left hover:bg-accent/60", preview?.id === version.id && "bg-accent")}
               >
-                <VersionRowContent version={version} isBase={isBase} />
+                <VersionRowContent version={version} />
               </button>
               <VersionRowMenu version={version} isBase={isBase} onApply={apply} />
             </li>
           );
         })}
+        {kindFilter === "manual" && list.isSuccess && versions.length === 0 && <KindFilterEmpty />}
         {list.hasNextPage && (
           <li>
             <Button type="button" variant="ghost" size="sm" className="w-full" disabled={list.isFetchingNextPage} onClick={() => void list.fetchNextPage()}>

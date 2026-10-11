@@ -26,8 +26,9 @@ const CURRENT = "current";
  */
 export function ComparePicker({ side }: { side: "left" | "right" }) {
   const { t } = useTranslation();
-  const { noteId, preview, compareRight, startPreview, setCompareRight } = useVersions();
-  const list = useVersionList(noteId ?? "", preview !== null);
+  const { noteId, preview, compareRight, kindFilter, startPreview, setCompareRight } = useVersions();
+  // 選項跟著清單篩選（#258）；觸發鈕的標籤來自 `target`（preview／compareRight 本身），不從清單查——被篩掉的那一版照樣顯示 vN。
+  const list = useVersionList(noteId ?? "", preview !== null, kindFilter);
   const rows = list.data?.pages.flatMap((p) => p.versions) ?? [];
   const target = side === "left" ? preview : compareRight;
   const value = target === CURRENT ? CURRENT : (target?.id ?? "");

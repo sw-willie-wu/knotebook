@@ -11,6 +11,8 @@ import { noteSchema } from "@/collab/schema";
 import { Toaster, dismissAllToasts } from "@/components/ui/toast";
 import { ARTICLE_COLUMN, ARTICLE_COLUMN_PADDING } from "@/components/ui/article-column";
 import { ThemeProvider } from "@/theme";
+import { versionListKey } from "@/api/versions";
+import { KIND_FILTER_STORAGE_KEY } from "@/lib/versions-context";
 import { VersionsProvider, useVersions, useVersionsController } from "@/lib/versions-context";
 import { VersionPreview } from "./VersionPreview";
 import { PreviewBanner } from "./PreviewBanner";
@@ -123,6 +125,7 @@ const routesV1 = () => ({
 describe("VersionPreview（spec §8.4）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
+    window.localStorage.clear();
     dismissAllToasts();
     // 預設 < 720（並排門檻）：單欄。
     widthRef.current = 600;
@@ -570,11 +573,34 @@ describe("VersionPreview（spec §8.4）", () => {
     await waitFor(() => expect(view.querySelector('[data-id="C"][data-diff="added"]')).not.toBeNull());
     failList = true;
     await queryClient.invalidateQueries({ queryKey: ["notes", NOTE, "versions"] });
-    await waitFor(() => expect(queryClient.getQueryState(["notes", NOTE, "versions"])?.status).toBe("error"));
+    await waitFor(() => expect(queryClient.getQueryState(versionListKey(NOTE, "all"))?.status).toBe("error"));
     expect(calls.filter((u) => u === listUrl).length).toBeGreaterThanOrEqual(2);
     expect(screen.queryByText("Loading version…")).not.toBeInTheDocument();
     expect(screen.getByTestId("diff-single")).toBeInTheDocument();
     expect(screen.queryByText("An unexpected error occurred.")).not.toBeInTheDocument();
+  });
+
+  it("#258 M2：篩選清單（kind=manual）抓失敗 → 預覽照常顯示 diff，不出現錯誤、不卡在載入（預覽只吃快照，不訂閱清單）", async () => {
+    window.localStorage.setItem(KIND_FILTER_STORAGE_KEY, "manual");
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        calls.push(url);
+        if (url === `/api/notes/${NOTE}/versions?kind=manual&limit=50`) return Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({ error: { code: "internal", message: "boom" } }) } as Response);
+        if (url === `/api/notes/${NOTE}/versions/1`) return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ id: "v-1", seq: 1, ydoc: b64(V1) }) } as Response);
+        throw new Error(`unexpected fetch: ${url}`);
+      }),
+    );
+    const { queryClient } = renderPreview({ seq: 1, live: V2 });
+    const view = await screen.findByTestId("diff-single");
+    await waitFor(() => expect(view.querySelector('[data-id="C"][data-diff="added"]')).not.toBeNull());
+    await waitFor(() => expect(queryClient.getQueryState(versionListKey(NOTE, "manual"))?.status).toBe("error"));
+    expect(screen.queryByText("An unexpected error occurred.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Loading version…")).not.toBeInTheDocument();
+    // 也沒有為了預覽去抓「全部」那份清單。
+    expect(calls).not.toContain(`/api/notes/${NOTE}/versions?limit=50`);
   });
 
   it("forceSingle（窄視窗整頁）：一律單欄、沒有並排／單欄切換鈕", async () => {

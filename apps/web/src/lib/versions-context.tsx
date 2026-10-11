@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { VersionDto } from "@knotebook/shared";
-import type { VersionTarget } from "@/api/versions";
+import type { VersionKindFilter, VersionTarget } from "@/api/versions";
 
 /**
  * 版本歷史的頁面層狀態（spec §8.1）。`NotePage` 呼叫 `useVersionsController` 持有、以 `VersionsProvider`
@@ -22,6 +22,25 @@ export type VersionsDialog =
   | { kind: "delete"; version: VersionDto };
 export type SplitMode = "auto" | "split" | "single";
 
+/** 清單篩選記在這一把（全站一個，#258）；讀寫都包 try/catch，讀不到或值不合法當 `"all"`。 */
+export const KIND_FILTER_STORAGE_KEY = "knotebook.versions.filter";
+
+function readKindFilter(): VersionKindFilter {
+  try {
+    return window.localStorage.getItem(KIND_FILTER_STORAGE_KEY) === "manual" ? "manual" : "all";
+  } catch {
+    return "all";
+  }
+}
+
+function writeKindFilter(v: VersionKindFilter): void {
+  try {
+    window.localStorage.setItem(KIND_FILTER_STORAGE_KEY, v);
+  } catch {
+    // 私密視窗／被封鎖時只是不記住，本次照樣生效。
+  }
+}
+
 export interface VersionsContextValue {
   enabled: boolean;
   noteId: string | null;
@@ -33,6 +52,9 @@ export interface VersionsContextValue {
   compareRight: VersionTarget | "current";
   splitMode: SplitMode;
   onlyChanges: boolean;
+  /** 清單篩選（「全部」／「僅手動」，#258）：面板、整頁與比較下拉共用；**換筆記不重設**，記在 localStorage（全站一個）。
+   * 只影響清單與比較下拉的選項，不影響目前的預覽／比較對象，也不影響「目前狀態」。 */
+  kindFilter: VersionKindFilter;
   /** 預覽區夠不夠並排（`VersionPreview` 量到的 content box ≥ `SPLIT_MIN_WIDTH`、且不是 `forceSingle`）；由 `VersionPreview` 回報——
    * 寬度只有它量得到（final §14-6）。不夠寬時沒有並排：橫幅不渲染並排／單欄兩顆鈕。 */
   previewWide: boolean;
@@ -50,6 +72,7 @@ export interface VersionsContextValue {
   setCompareRight(v: VersionTarget | "current"): void;
   setSplitMode(v: SplitMode): void;
   setOnlyChanges(v: boolean): void;
+  setKindFilter(v: VersionKindFilter): void;
   /** `VersionPreview` 專用：回報 `previewWide`。 */
   reportPreviewWide(v: boolean): void;
   openDialog(d: VersionsDialog): void;
@@ -69,6 +92,7 @@ export const NOOP_VERSIONS: VersionsContextValue = {
   compareRight: "current",
   splitMode: "auto",
   onlyChanges: false,
+  kindFilter: "all",
   previewWide: false,
   splitActive: false,
   dialog: null,
@@ -80,6 +104,7 @@ export const NOOP_VERSIONS: VersionsContextValue = {
   setCompareRight: noop,
   setSplitMode: noop,
   setOnlyChanges: noop,
+  setKindFilter: noop,
   reportPreviewWide: noop,
   openDialog: noop,
   closeDialog: noop,
@@ -125,14 +150,19 @@ export function useVersionsController({
   const [compareRight, setCompareRight] = useState<VersionTarget | "current">("current");
   const [splitMode, setSplitMode] = useState<SplitMode>("auto");
   const [onlyChanges, setOnlyChanges] = useState(false);
+  const [kindFilter, setKindFilterState] = useState<VersionKindFilter>(readKindFilter);
   const [previewWide, reportPreviewWide] = useState(false);
   const [dialog, setDialog] = useState<VersionsDialog | null>(null);
   const [forNote, setForNote] = useState(noteId);
 
-  // 換筆記：render 期間重設（React 文件的「依 props 重設 state」形），不留上一篇的面板／預覽／對話框。
+  // 換筆記：render 期間重設（React 文件的「依 props 重設 state」形），不留上一篇的預覽／對話框。
+  // **寬版面板（`mode === "panel"`）與清單篩選（`kindFilter`）不在此重設**（#258）：面板開著換筆記就留著、顯示新那篇的清單；
+  // 新那篇不可編輯／已終態時，下面 `active` 翻 false 的 effect 才把面板關掉。
+  // **窄視窗整頁（`"sheet"`）照舊關閉**（Willie 2026-10-11 裁定）：全螢幕蓋住筆記，換筆記時沒有「留著」的意義。
+  // NotePage 換筆記會先經過 `noteId === null` 的轉場，所以這一步（noteId 第一次變）就關掉整頁。
   if (forNote !== noteId) {
     setForNote(noteId);
-    setMode(null);
+    if (mode === "sheet") setMode(null);
     setPreview(null);
     setDialog(null);
     setCompareRight("current");
@@ -144,13 +174,16 @@ export function useVersionsController({
 
   // enabled 翻 false（降級成 viewer、終態）→ 面板／預覽／對話框一併關掉（Task 10 fix round 1，總管裁定）。
   // 只遮輸出不清 state 的話，共編角色與 REST 角色短暫不一致時 enabled 會翻回 true，降級前開著的東西會重現。
+  // 例外（#258）：`noteId === null` 是 NotePage 換筆記的轉場（`needsResolve` 期間 noteId 一律 undefined），不是降級——
+  // 這時只收預覽／對話框、保留寬版面板的 `mode`（整頁 `"sheet"` 已在上面換筆記區塊、noteId 第一次變時關掉），新那篇解析完（`active` 回 true）
+  // 面板就接著顯示；解析完的新筆記若不可編輯，`noteId` 非 null 而 `active` 仍為 false，才關面板。
   useEffect(() => {
     if (active) return;
-    setMode(null);
+    if (noteId !== null) setMode(null);
     setPreview(null);
     setCompareRight("current");
     setDialog(null);
-  }, [active]);
+  }, [active, noteId]);
 
   useEffect(() => {
     if (mode === null && preview === null) return;
@@ -192,6 +225,10 @@ export function useVersionsController({
     if (active) setDialog(d);
   }, [active]);
   const closeDialog = useCallback(() => setDialog(null), []);
+  const setKindFilter = useCallback((v: VersionKindFilter) => {
+    setKindFilterState(v);
+    writeKindFilter(v);
+  }, []);
 
   return useMemo<VersionsContextValue>(
     () => ({
@@ -204,6 +241,7 @@ export function useVersionsController({
       compareRight: active ? compareRight : "current",
       splitMode,
       onlyChanges,
+      kindFilter,
       previewWide: active && preview !== null && previewWide,
       splitActive: active && preview !== null && previewWide && splitMode !== "single",
       dialog: active ? dialog : null,
@@ -215,11 +253,12 @@ export function useVersionsController({
       setCompareRight: setCompareRightGated,
       setSplitMode,
       setOnlyChanges,
+      setKindFilter,
       reportPreviewWide,
       openDialog,
       closeDialog,
       onApplied: notifyApplied,
     }),
-    [active, noteId, mode, preview, compareRight, splitMode, onlyChanges, previewWide, dialog, open, close, openSave, startPreview, stopPreview, setCompareRightGated, openDialog, closeDialog, notifyApplied],
+    [active, noteId, mode, preview, compareRight, splitMode, onlyChanges, kindFilter, previewWide, dialog, open, close, openSave, startPreview, stopPreview, setCompareRightGated, setKindFilter, openDialog, closeDialog, notifyApplied],
   );
 }

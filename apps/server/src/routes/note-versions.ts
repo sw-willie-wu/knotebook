@@ -2,7 +2,7 @@
  * 筆記版本歷史 REST（spec 2026-10-09-note-versions-design.md §6）。全部 cookie（`app.authenticate`）；PAT／MCP 不在本 spec（§14-2）。
  * 判準六支一致：`:id` 先 `UUID_RE` → `resolveRole`：none → 404 `not_found`、viewer → 403 `forbidden`「沒有編輯權限」（D5）。
  * 寫入四支（存、套用、改名、刪除）吃既有 `edit` 桶，排在角色檢查之後。apply 只在 `writes.available` 時註冊（與 `/edits` 同閘門）。
- * 參數（不變量 S）：`:seq` 走 `/^[1-9]\d{0,9}$/` 且 ≤ 2147483647，否則 404；`before` 同規則、`limit` 1..100，否則 400。
+ * 參數（不變量 S）：`:seq` 走 `/^[1-9]\d{0,9}$/` 且 ≤ 2147483647，否則 404；`before` 同規則、`limit` 1..100、`kind` 只收 manual／auto，否則 400。
  */
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
@@ -42,7 +42,7 @@ export function parseSeq(raw: string): number | null {
   return n <= INT4_MAX ? n : null;
 }
 
-const listQuerySchema = z.object({ before: z.string().optional(), limit: z.string().optional() }).strict();
+const listQuerySchema = z.object({ before: z.string().optional(), limit: z.string().optional(), kind: z.enum(["manual", "auto"]).optional() }).strict();
 const saveBodySchema = z.object({ name: z.string().optional() }).strict();
 const renameBodySchema = z.object({ name: z.string().nullable() }).strict();
 // 形＝shared 的 `ApplyVersionBody`（`satisfies` 讓兩邊漂移在編譯期紅）。
@@ -101,7 +101,11 @@ export function noteVersionsRoutes(deps: NoteVersionsRouteDeps) {
       const rows = await deps.db
         .select()
         .from(noteVersions)
-        .where(and(eq(noteVersions.noteId, id), before === null ? undefined : lt(noteVersions.seq, before)))
+        .where(and(
+          eq(noteVersions.noteId, id),
+          before === null ? undefined : lt(noteVersions.seq, before),
+          q.data.kind === undefined ? undefined : eq(noteVersions.kind, q.data.kind),
+        ))
         .orderBy(desc(noteVersions.seq))
         .limit(limit + 1);
       const page = rows.slice(0, limit);

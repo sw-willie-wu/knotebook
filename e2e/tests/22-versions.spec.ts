@@ -46,10 +46,10 @@ async function expectSplitAligned(page: Page, minSingle: number) {
 
 /**
  * 版本歷史 e2e（spec §11.3）：存（命名）→ 改 → 存 → 改 → 預覽 v1 看到 diff 標記 → 套用（「不儲存」）→ 內容回到 v1 →
- * 再改並存 → 清單出現「從 v1 接著改」→ 預覽期間另一個 context 改字、再點選中列離開預覽後游標與浮層正常 → 窄視窗（390）整頁兩步套用。
+ * 再改並存 → 清單出現「沿自 v1」→ 預覽期間另一個 context 改字、再點選中列離開預覽後游標與浮層正常 → 窄視窗（390）整頁兩步套用。
  * 自動切版要安靜 5 分鐘，本案只用手動儲存（Ctrl+S）建版；三切點的自動行為由 server 整合測試守（PR1）。
  *
- * 列的可及名稱是「v1 ＋（基底版的 sr-only 說明）＋名稱＋第二行」連成一串（例：`v1Manual · …`），所以列一律用
+ * 列的可及名稱是「vN ＋名稱＋（自動版本的「Auto-saved」pill）＋第二行」連成一串（例：`v1milestoneann · …`），所以列一律用
  * `/^vN(?!\d)/` 找（不讓 v1 撞到 v10 以後）；列的 ⋯ 是「Actions for vN」，不會被 `^vN` 撞到。
  * toast 斷言一律 `exact: true`（Radix toast 的 live region 會播報含子字串的文案）。
  */
@@ -92,12 +92,16 @@ test("22 版本歷史：存、改、預覽 diff、套用、從 vX 接著改、�
     await expect(page.getByText("Saved as v2", { exact: true })).toBeVisible();
     await typeAtEnd(page, "gamma-three");
 
-    // 面板：泡泡 → 清單有 v2、v1 milestone；目前狀態寫「v2 之後有未儲存的修改」（面板去抖動 1 s）
+    // 面板：泡泡 → 清單有 v2、v1 milestone；目前狀態寫「Based on v2 · unsaved changes」（面板去抖動 1 s）
     await page.getByTestId("versions-bubble").click();
     const panel = page.getByTestId("versions-panel");
     await expect(panel).toBeVisible();
     await expect(panel.getByRole("button", { name: /^v1(?!\d)/ })).toContainText("milestone");
-    await expect(panel.getByTestId("versions-current")).toContainText("Unsaved changes after v2", { timeout: 10_000 });
+    await expect(panel.getByTestId("versions-current")).toContainText("Based on v2 · unsaved changes", { timeout: 10_000 });
+    // #258：手動版本的列沒有「Auto-saved」pill、沒有「Manual／Auto」文字、沒有基底綠點。
+    await expect(panel.getByTestId("auto-badge")).toHaveCount(0);
+    await expect(panel.getByTestId("base-dot")).toHaveCount(0);
+    await expect(panel.getByRole("button", { name: /^v2(?!\d)/ })).not.toContainText(/Manual|Auto/);
 
     // 預覽 v2（rev 10：預設 vs 目前狀態）：v2 之後才打的 gamma-three 是新增，beta-two、alpha-one 未變
     await panel.getByRole("button", { name: /^v2(?!\d)/ }).click();
@@ -137,10 +141,11 @@ test("22 版本歷史：存、改、預覽 diff、套用、從 vX 接著改、�
     await expect(editorLocator(page)).not.toContainText("beta-two");
     await expect(editorLocator(page)).not.toContainText("gamma-three");
 
-    // 再改 → 存 → v3 的副標有「continued from v1」
+    // 再改 → 存 → v3 的副標有「based on v1」；目前狀態寫「Based on v3 · no changes」
     await typeAtEnd(page, "delta-four");
     await saveVersion(page);
-    await expect(panel.getByRole("button", { name: /^v3(?!\d)/ })).toContainText("continued from v1", { timeout: 10_000 });
+    await expect(panel.getByRole("button", { name: /^v3(?!\d)/ })).toContainText("based on v1", { timeout: 10_000 });
+    await expect(panel.getByTestId("versions-current")).toContainText("Based on v3 · no changes", { timeout: 10_000 });
 
     // 預覽期間另一個 context 改字；離開預覽後看得到遠端的字，且還能打字、`/` 選單正常
     await panel.getByRole("button", { name: /^v3(?!\d)/ }).click();
@@ -266,6 +271,113 @@ test("22b 並排逐區塊對齊（spec rev 12）：中間插一段＋前一段�
       await expectSplitAligned(page, 1);
       await page.screenshot({ path: path.join(shotDir, "task-2-split-align-dark.png") });
     }
+  } finally {
+    await ctx.close();
+  }
+});
+
+test("22c 版本清單篩選（#258）：自動版本標 pill、全部／僅手動切換、預覽不受影響、localStorage 記憶、切筆記不關面板", async ({ browser }) => {
+  test.setTimeout(180_000);
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 } });
+  const page = await ctx.newPage();
+  try {
+    await loginAs(page, ADMIN.email, ADMIN.password);
+    const titleA = `E2E vfilter A ${Date.now()}`;
+    const titleB = `E2E vfilter B ${Date.now()}`;
+    await createNote(page, titleA);
+    const urlA = page.url();
+    await typeAtEnd(page, "auto-source-text");
+    // 離開這一篇（最後一個編輯者離線且有改）→ server 自動存一版（v1，kind=auto）；自動切版的 5 分鐘計時器等不起，走這條。
+    await createNote(page, titleB);
+
+    // 回 A：自動版本 v1 出現後（重整重試到出現為止）再存一個手動 v2。
+    await page.goto(urlA);
+    await expect(page.getByRole("status").filter({ hasText: /^Connected/ })).toBeVisible({ timeout: 15_000 });
+    await expect(async () => {
+      await page.reload();
+      await page.getByTestId("versions-bubble").click();
+      await expect(page.getByTestId("versions-panel").getByTestId("auto-badge")).toHaveCount(1, { timeout: 3_000 });
+    }).toPass({ timeout: 45_000 });
+    const panel = page.getByTestId("versions-panel");
+    await expect(panel.getByRole("button", { name: /^v1(?!\d)/ })).toContainText("Auto-saved");
+    await expect(panel.getByRole("button", { name: /^v1(?!\d)/ })).not.toContainText(/Manual|Auto\b(?!-)/);
+    await typeAtEnd(page, "manual-line");
+    await saveVersion(page, "keeper");
+    await expect(page.getByText("Saved as v2", { exact: true })).toBeVisible();
+    const v1Row = panel.getByRole("button", { name: /^v1(?!\d)/ });
+    const v2Row = panel.getByRole("button", { name: /^v2(?!\d)/ });
+    await expect(v2Row).toBeVisible();
+    await expect(v2Row).not.toContainText("Auto-saved");
+    await expect(panel.getByTestId("versions-current")).toContainText("Based on v2 · no changes", { timeout: 10_000 });
+
+    // 預覽自動版本 v1，再切「僅手動」：清單只剩 v2，但預覽（橫幅、左下拉的 v1）不受影響。
+    const filter = panel.getByTestId("versions-filter");
+    const allBtn = filter.getByRole("button", { name: "All", exact: true });
+    const manualBtn = filter.getByRole("button", { name: "Manual only", exact: true });
+    await expect(allBtn).toHaveAttribute("aria-pressed", "true");
+    await v1Row.click();
+    const banner = page.getByTestId("preview-banner");
+    await expect(banner).toContainText("Previewing v1");
+    await manualBtn.click();
+    await expect(manualBtn).toHaveAttribute("aria-pressed", "true");
+    await expect(allBtn).toHaveAttribute("aria-pressed", "false");
+    await expect(v1Row).toHaveCount(0);
+    await expect(v2Row).toBeVisible();
+    await expect(banner).toContainText("Previewing v1");
+    await expect(page.getByRole("button", { name: "Left side" }).first()).toHaveText(/v1/);
+    await expect(panel.getByTestId("versions-footer").getByRole("button", { name: "Apply v1" })).toBeEnabled();
+    // 比較下拉跟著篩選：左邊只列 v2（v1 被篩掉）、右邊是「Current state」＋ v2。
+    await page.getByRole("button", { name: "Left side" }).first().click();
+    const leftItems = page.getByRole("menuitemradio");
+    await expect(leftItems).toHaveCount(1);
+    await expect(leftItems.first()).toHaveText(/v2/);
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("menu")).toBeHidden();
+    // 目前狀態副標不受篩選影響。
+    await expect(panel.getByTestId("versions-current")).toContainText("Based on v2 · no changes");
+    // 切回「全部」：v1 回來，預覽仍在。
+    await allBtn.click();
+    await expect(v1Row).toBeVisible();
+    await expect(banner).toContainText("Previewing v1");
+    await v1Row.click(); // 再點已選中的列＝離開預覽
+    await expect(banner).toBeHidden();
+
+    // 自動版本改名＝轉手動：「僅手動」立刻出現它。
+    await manualBtn.click();
+    await expect(v1Row).toHaveCount(0);
+    await allBtn.click();
+    await expect(v1Row).toBeVisible();
+    await panel.getByRole("button", { name: "Actions for v1" }).click();
+    await page.getByRole("menuitem", { name: "Edit version name" }).click();
+    const renameDlg = page.getByRole("dialog", { name: /^Edit name of v1/ });
+    await renameDlg.getByRole("textbox").fill("promoted");
+    await renameDlg.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(renameDlg).toBeHidden();
+    await expect(v1Row).not.toContainText("Auto-saved");
+    await manualBtn.click();
+    await expect(v1Row).toBeVisible();
+    await expect(v1Row).toContainText("promoted");
+
+    // localStorage 記憶：重整後面板一開就是「僅手動」。
+    expect(await page.evaluate(() => window.localStorage.getItem("knotebook.versions.filter"))).toBe("manual");
+    await page.reload();
+    await page.getByTestId("versions-bubble").click();
+    await expect(page.getByTestId("versions-panel").getByTestId("versions-filter").getByRole("button", { name: "Manual only", exact: true })).toHaveAttribute("aria-pressed", "true");
+
+    // 切筆記不關面板、篩選不重設：點側欄的 B（沒有任何版本）→ 面板還在、仍是「僅手動」、顯示篩選空狀態。
+    // 側欄同一篇會出現在「最近」與「我的筆記」兩區，取第一個。
+    await page.getByRole("link", { name: titleB }).first().click();
+    await expect(page.getByTestId("versions-panel")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("versions-panel").getByTestId("versions-filter").getByRole("button", { name: "Manual only", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("versions-panel").getByTestId("versions-filter-empty")).toContainText("No manually saved versions");
+    await expect(page.getByTestId("versions-panel").getByRole("button", { name: /^v1(?!\d)/ })).toHaveCount(0);
+    // 切到全部：B 沒有版本，清單空（沒有 A 的列殘留）。
+    await page.getByTestId("versions-panel").getByTestId("versions-filter").getByRole("button", { name: "All", exact: true }).click();
+    await expect(page.getByTestId("versions-panel").getByRole("button", { name: /^v\d+(?!\d)/ })).toHaveCount(0);
+    await page.getByTestId("versions-panel").getByTestId("versions-filter").getByRole("button", { name: "Manual only", exact: true }).click();
+    // 回 A：面板仍開著，列回來。
+    await page.getByRole("link", { name: titleA }).first().click();
+    await expect(page.getByTestId("versions-panel").getByRole("button", { name: /^v1(?!\d)/ })).toBeVisible({ timeout: 15_000 });
   } finally {
     await ctx.close();
   }

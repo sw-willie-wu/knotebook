@@ -10,8 +10,10 @@ import {
   fetchCurrent,
   fetchVersionList,
   saveVersion,
+  useRenameVersion,
   useVersionList,
   useVersionSnapshot,
+  versionListKey,
   versionSnapshotKey,
   versionsKey,
 } from "./versions";
@@ -62,6 +64,9 @@ describe("api/versions", () => {
 
   it("查詢鍵：清單在 ['notes'] 前綴下、快照在獨立前綴 ['note-versions', noteId, id]", () => {
     expect(versionsKey(NOTE)).toEqual(["notes", NOTE, "versions"]);
+    // #258：清單鍵＝versionsKey 前綴＋"list"＋篩選，invalidate(versionsKey) 一次刷到兩種篩選。
+    expect(versionListKey(NOTE, "all")).toEqual(["notes", NOTE, "versions", "list", "all"]);
+    expect(versionListKey(NOTE, "manual")).toEqual(["notes", NOTE, "versions", "list", "manual"]);
     expect(versionSnapshotKey(NOTE, V1)).toEqual(["note-versions", NOTE, V1]);
   });
 
@@ -194,5 +199,69 @@ describe("api/versions", () => {
     renderHook(() => useVersionSnapshot(NOTE, { seq: 1, id: V1 }), { wrapper });
     await new Promise((r) => setTimeout(r, 20));
     expect(calls.filter((c) => c.endsWith("/versions/1"))).toHaveLength(1);
+  });
+
+  it("#258 清單篩選：kind=manual 照實帶上（與 before、limit 並用）；全部時不帶 kind；兩種篩選各一份快取", async () => {
+    const { calls, queryClient, wrapper } = setup((url) => {
+      if (url === `/api/notes/${NOTE}/versions?limit=50`) return fakeResponse(200, listBody());
+      if (url === `/api/notes/${NOTE}/versions?kind=manual&limit=50`) return fakeResponse(200, listBody({ nextBefore: 9 }));
+      if (url === `/api/notes/${NOTE}/versions?kind=manual&before=9&limit=50`) return fakeResponse(200, listBody());
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    const all = renderHook(() => useVersionList(NOTE, true), { wrapper });
+    const manual = renderHook(() => useVersionList(NOTE, true, "manual"), { wrapper });
+    await waitFor(() => expect(all.result.current.isSuccess && manual.result.current.isSuccess).toBe(true));
+    expect(manual.result.current.hasNextPage).toBe(true);
+    expect(all.result.current.hasNextPage).toBe(false);
+    await manual.result.current.fetchNextPage();
+    await waitFor(() => expect(manual.result.current.data?.pages).toHaveLength(2));
+    expect(calls).toEqual([
+      `GET /api/notes/${NOTE}/versions?limit=50`,
+      `GET /api/notes/${NOTE}/versions?kind=manual&limit=50`,
+      `GET /api/notes/${NOTE}/versions?kind=manual&before=9&limit=50`,
+    ]);
+    expect(queryClient.getQueryData(versionListKey(NOTE, "all"))).toBeDefined();
+    expect(queryClient.getQueryData(versionListKey(NOTE, "manual"))).toBeDefined();
+    await expect(fetchVersionList(NOTE, { kind: "auto" })).rejects.toThrow("unexpected fetch");
+    expect(calls.at(-1)).toBe(`GET /api/notes/${NOTE}/versions?kind=auto`);
+  });
+
+  it("#258 以 versionsKey 前綴 invalidate → 兩種篩選的清單都被標記並（有人訂閱時）重抓；current 單發重抓的鍵也在前綴下", async () => {
+    const { calls, queryClient, wrapper } = setup((url) => {
+      if (url.includes("?")) return fakeResponse(200, listBody());
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    const all = renderHook(() => useVersionList(NOTE, true), { wrapper });
+    const manual = renderHook(() => useVersionList(NOTE, true, "manual"), { wrapper });
+    await waitFor(() => expect(all.result.current.isSuccess && manual.result.current.isSuccess).toBe(true));
+    await fetchCurrent(queryClient, NOTE);
+    expect(queryClient.getQueryState(["notes", NOTE, "versions", "current"])).toBeDefined();
+    const before = calls.length;
+    await queryClient.invalidateQueries({ queryKey: versionsKey(NOTE) });
+    await waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(before + 2));
+    expect(calls.slice(before).sort()).toEqual([
+      `GET /api/notes/${NOTE}/versions?kind=manual&limit=50`,
+      `GET /api/notes/${NOTE}/versions?limit=50`,
+    ].sort());
+  });
+
+  it("#258 自動版本改名（PATCH）成功 → 帶 kind 的清單立刻重抓，轉成手動的那一版會出現在「僅手動」", async () => {
+    let renamed = false;
+    const row = (kind: "auto" | "manual") => ({ id: V1, seq: 1, kind, name: null, editors: [], baseSeq: null, createdAt: "x" });
+    const { calls, wrapper } = setup((url, init) => {
+      if (init?.method === "PATCH") {
+        renamed = true;
+        return fakeResponse(200, row("manual"));
+      }
+      if (url === `/api/notes/${NOTE}/versions?kind=manual&limit=50`) return fakeResponse(200, listBody({ versions: renamed ? [row("manual")] : [] }));
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    const manual = renderHook(() => useVersionList(NOTE, true, "manual"), { wrapper });
+    const rename = renderHook(() => useRenameVersion(NOTE), { wrapper });
+    await waitFor(() => expect(manual.result.current.isSuccess).toBe(true));
+    expect(manual.result.current.data?.pages[0]?.versions).toEqual([]);
+    await rename.result.current.mutateAsync({ seq: 1, name: "命名" });
+    await waitFor(() => expect(manual.result.current.data?.pages[0]?.versions.map((v) => v.seq)).toEqual([1]));
+    expect(calls.filter((c) => c.includes("kind=manual"))).toHaveLength(2);
   });
 });

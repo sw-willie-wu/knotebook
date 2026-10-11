@@ -14,21 +14,23 @@ const SPEC_COPY: Record<string, string> = {
   "versions.toast.saved": "已存為 v{{seq}}",
   "versions.toast.upgraded": "內容與 v{{seq}} 相同，已將 v{{seq}} 設為手動版本",
   "versions.toast.applied": "已套用 v{{seq}}",
-  "versions.current.none": "尚無版本",
+  // #258（Willie 2026-10-11）：「目前狀態」副標只看 baseSeq／dirty；列的來源字樣改「沿自」。
   "versions.current.noBase": "沒有基底版本",
-  "versions.current.clean": "＝ v{{seq}}，沒有未儲存的修改",
-  "versions.current.dirtyLatest": "v{{seq}} 之後有未儲存的修改",
-  "versions.current.dirtyFrom": "從 v{{seq}} 接著改，有未儲存的修改",
+  "versions.current.clean": "沿自 v{{seq}} · 無修改",
+  "versions.current.dirty": "沿自 v{{seq}} · 有未儲存的修改",
   "versions.autoOff": "此空間已關閉自動儲存",
-  "versions.from": "從 v{{seq}} 接著改",
+  "versions.from": "沿自 v{{seq}}",
   "versions.siteOff": "站台已關閉自動儲存",
   "versions.title": "版本歷史",
   "note.menu.versions": "版本歷史",
   "note.menu.saveVersion": "儲存當前版本",
   // gate r1 M-8：§3.1 D7、§8.3、§8.4 的其餘字面
   "versions.currentLabel": "目前狀態",
-  "versions.kind.manual": "手動",
-  "versions.kind.auto": "自動",
+  // #258：只有自動版本的列標「自動存檔」pill；清單加「全部／僅手動」篩選
+  "versions.autoBadge": "自動存檔",
+  "versions.filter.all": "全部",
+  "versions.filter.manual": "僅手動",
+  "versions.filter.emptyManual": "沒有手動儲存的版本",
   "versions.applySeq": "套用 v{{seq}}",
   // rev 10（§8.4【rev 10】）：橫幅拿掉時間／editors／「比較對象」標籤；比較對象改左右一對下拉
   "versions.preview.banner": "正在預覽 v{{seq}}",
@@ -62,7 +64,7 @@ describe("版本歷史文案＝spec 字面（zh-TW）", () => {
   }
 });
 
-/** spec rev 10 §8.4【rev 10】明列刪除的鍵（「前一版」概念、「vs 空文件」、「比較對象」標籤、純文字欄標頭）：兩個語系都不得殘留。 */
+/** spec rev 10 §8.4【rev 10】明列刪除的鍵（「前一版」概念、「vs 空文件」、「比較對象」標籤、純文字欄標頭）與 #258 刪除的鍵：兩個語系都不得殘留。 */
 const REMOVED_KEYS = [
   "versions.preview.compareLabel",
   "versions.preview.comparePrevious",
@@ -72,9 +74,16 @@ const REMOVED_KEYS = [
   "versions.preview.rightLabelCurrent",
   // Task 19：橫幅不再有 ✕。
   "versions.preview.close",
+  // #258：列不再標手動／自動文字、不再有基底綠點；「目前狀態」不再看清單第一筆。
+  "versions.kind.manual",
+  "versions.kind.auto",
+  "versions.baseDot",
+  "versions.current.none",
+  "versions.current.dirtyLatest",
+  "versions.current.dirtyFrom",
 ];
 
-describe("rev 10 刪除的鍵不殘留", () => {
+describe("已刪除的鍵不殘留", () => {
   for (const key of REMOVED_KEYS) {
     it(key, () => {
       expect(get(zhTW, key)).toBeUndefined();

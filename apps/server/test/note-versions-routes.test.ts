@@ -96,7 +96,7 @@ describe("參數驗證（不變量 S）", () => {
       expect(r.statusCode, seq).toBe(404);
       expect((await call(s.app, "DELETE", `${s.base}/${seq}`, s.owner.id)).statusCode, `DELETE ${seq}`).toBe(404);
     }
-    for (const q of ["before=0", "before=2147483648", "before=x", "limit=0", "limit=101", "limit=1.5", "limit=01", "limit=-1", "foo=1", "limit=1&limit=2"]) {
+    for (const q of ["before=0", "before=2147483648", "before=x", "limit=0", "limit=101", "limit=1.5", "limit=01", "limit=-1", "foo=1", "limit=1&limit=2", "kind=", "kind=foo", "kind=MANUAL", "kind=manual&kind=auto"]) {
       const r = await call(s.app, "GET", `${s.base}?${q}`, s.owner.id);
       expect(r.statusCode, q).toBe(400);
       expect(r.json().error.code).toBe("invalid_body");
@@ -134,6 +134,62 @@ describe("GET 清單與快照（§6.1、§6.2）", () => {
     expect(exact.nextBefore).toBeNull(); // 剛好整頁不多給空頁游標（起草裁定 10）
     await s.setContent("內容變了");
     expect((await call(s.app, "GET", s.base, s.owner.id)).json().current.dirty).toBe(true);
+  });
+
+  it("kind 篩選（#258）：manual／auto／省略；與 before、limit、nextBefore 並用；current 不受篩選影響", async () => {
+    const s = await restSetup();
+    // seq 1..9：manual＝2、5、6、9；其餘 auto。
+    const manual = new Set([2, 5, 6, 9]);
+    for (let seq = 1; seq <= 9; seq += 1) {
+      await s.db.insert(noteVersions).values({
+        noteId: s.note.id, seq, ydoc: Buffer.from([0]), kind: manual.has(seq) ? "manual" : "auto", name: null, editors: [], baseSeq: null,
+      });
+    }
+    await s.db.update(notes).set({ versionCounter: 9 }).where(eq(notes.id, s.note.id));
+    const seqs = (b: { versions: Array<{ seq: number }> }) => b.versions.map(v => v.seq);
+    const get = async (q: string) => (await call(s.app, "GET", `${s.base}${q}`, s.owner.id)).json();
+
+    const all = await get("");
+    expect(seqs(all)).toEqual([9, 8, 7, 6, 5, 4, 3, 2, 1]);
+    const onlyManual = await get("?kind=manual");
+    expect(seqs(onlyManual)).toEqual([9, 6, 5, 2]);
+    expect(onlyManual.versions.every((v: { kind: string }) => v.kind === "manual")).toBe(true);
+    expect(onlyManual.nextBefore).toBeNull();
+    const onlyAuto = await get("?kind=auto");
+    expect(seqs(onlyAuto)).toEqual([8, 7, 4, 3, 1]);
+    expect(onlyAuto.versions.every((v: { kind: string }) => v.kind === "auto")).toBe(true);
+    // current 與篩選無關。
+    expect(onlyManual.current).toEqual(all.current);
+    expect(onlyAuto.current).toEqual(all.current);
+
+    // 與 limit／before 並用：nextBefore 是「篩選後該頁最後一筆」的 seq，接著帶 before 取下一頁不漏不重。
+    const m1 = await get("?kind=manual&limit=2");
+    expect(seqs(m1)).toEqual([9, 6]);
+    expect(m1.nextBefore).toBe(6);
+    const m2 = await get(`?kind=manual&limit=2&before=${m1.nextBefore}`);
+    expect(seqs(m2)).toEqual([5, 2]);
+    expect(m2.nextBefore).toBeNull(); // 剛好整頁、後面沒有符合的
+    const a1 = await get("?kind=auto&limit=3");
+    expect(seqs(a1)).toEqual([8, 7, 4]);
+    expect(a1.nextBefore).toBe(4);
+    const a2 = await get(`?kind=auto&limit=3&before=${a1.nextBefore}`);
+    expect(seqs(a2)).toEqual([3, 1]);
+    expect(a2.nextBefore).toBeNull();
+    // before 之後沒有符合的 → 空清單、current 照給。
+    const none = await get("?kind=manual&before=2");
+    expect(none.versions).toEqual([]);
+    expect(none.nextBefore).toBeNull();
+    expect(none.current).toEqual(all.current);
+  });
+
+  it("kind 篩選：自動版本改名轉手動後，立刻出現在 kind=manual、從 kind=auto 消失", async () => {
+    const s = await restSetup();
+    await s.db.insert(noteVersions).values({ noteId: s.note.id, seq: 1, ydoc: Buffer.from([0]), kind: "auto", name: null, editors: [], baseSeq: null });
+    await s.db.update(notes).set({ versionCounter: 1 }).where(eq(notes.id, s.note.id));
+    expect((await call(s.app, "GET", `${s.base}?kind=manual`, s.owner.id)).json().versions).toEqual([]);
+    expect((await call(s.app, "PATCH", `${s.base}/1`, s.owner.id, { name: "命名" })).statusCode).toBe(200);
+    expect((await call(s.app, "GET", `${s.base}?kind=manual`, s.owner.id)).json().versions.map((v: { seq: number }) => v.seq)).toEqual([1]);
+    expect((await call(s.app, "GET", `${s.base}?kind=auto`, s.owner.id)).json().versions).toEqual([]);
   });
 
   it("快照：{ id, seq, ydoc(base64) }、Cache-Control private, no-store；不存在 → 404", async () => {

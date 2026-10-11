@@ -888,20 +888,21 @@
     "close": "關閉版本歷史",
     "currentLabel": "目前狀態",
     "current": {
-      "none": "尚無版本",
       "noBase": "沒有基底版本",
-      "clean": "＝ v{{seq}}，沒有未儲存的修改",
-      "dirtyLatest": "v{{seq}} 之後有未儲存的修改",
-      "dirtyFrom": "從 v{{seq}} 接著改，有未儲存的修改"
+      "clean": "沿自 v{{seq}} · 無修改",
+      "dirty": "沿自 v{{seq}} · 有未儲存的修改"
     },
     "autoOff": "此空間已關閉自動儲存",
     "siteOff": "站台已關閉自動儲存",
     "takesEffectNote": "正開著的筆記要等所有人關閉後才會套用變更。",
-    "kind": {
-      "manual": "手動",
-      "auto": "自動"
+    "autoBadge": "自動存檔",
+    "filter": {
+      "label": "版本篩選",
+      "all": "全部",
+      "manual": "僅手動",
+      "emptyManual": "沒有手動儲存的版本"
     },
-    "from": "從 v{{seq}} 接著改",
+    "from": "沿自 v{{seq}}",
     "deletedUser": "已刪除的使用者",
     "rowMenu": "v{{seq}} 的動作",
     "menu": {
@@ -914,7 +915,6 @@
     "applyNone": "套用",
     "save": "儲存當前版本",
     "loadMore": "載入更早的版本",
-    "baseDot": "目前內容的基底",
     "crash": "版本歷史無法顯示。",
     "sheet": {
       "back": "返回",

@@ -22,19 +22,23 @@ A version is saved automatically only when the content has actually changed: ope
 
 **Nothing else creates a version.** A note that existed before version history was added has no versions until its content changes, and the content it had before that first change is not kept as a version. A copied or moved note has no versions until its content changes (or a version is saved by hand) in its new place.
 
+## The version list
+
+Each row shows the version number, its name if it has one, who took part, when it was saved and — for a version saved while its base was not the newest version (after an older version was applied, with a newer one still there) — **based on vN**. A version saved automatically also carries a grey **Auto-saved** tag next to its number and name; versions saved by hand have no tag. Renaming an automatic version turns it into a manual one, and the tag goes away.
+
+Between **Current state** and the list, **All** and **Manual only** switch which versions the list shows. **Manual only** hides the automatic versions, so the versions saved by hand, and automatic ones whose name was edited (even cleared), are easy to find among many automatic ones. The choice applies to the version list on a wide window, to the full-screen list on a narrow one and to the two menus used to pick the versions to compare; it is the same for every note, stays when you open another note, and is remembered in this browser. If no version is left after filtering, the list says so. Filtering changes only what is listed: a version you are previewing or comparing stays that way even if the filter hides it, and **Current state** doesn't change.
+
 ## The current state and the base
 
-At the top of the list, **Current state** describes how the note's content relates to its versions. The version the current content is based on — the one last saved, or the one last applied — is the **base**, and its row has a green dot. The line under **Current state** is one of:
+At the top of the list, **Current state** describes how the note's content relates to its versions. The version the current content is based on — the one last saved, or the one last applied — is the **base**. The line under **Current state** is one of:
 
-- **No versions yet**
-- **No base version** — there are versions, but the current content isn't based on any of them. This happens when the version being applied is deleted at that same moment (see [Known limitations](./known-limitations.md#version-history)).
-- **= vN, no unsaved changes**
-- **Unsaved changes after vN** — vN is the newest version.
-- **Continued from vN, with unsaved changes** — vN is an older version that was applied.
+- **No base version** — the current content isn't based on any version: the note has none yet, or the version being applied was deleted at that same moment (see [Known limitations](./known-limitations.md#version-history)).
+- **Based on vN · no changes**
+- **Based on vN · unsaved changes**
+
+The line looks only at the note's base, never at which versions the list shows, so it reads the same under either filter.
 
 When automatic versions are off for the note, a second line says **Automatic saving is off for this space**.
-
-A version saved while its base was not the newest version in the list — that is, after an older version was applied and while a newer version still exists — says **continued from vN** on its row.
 
 ## Previewing and comparing
 
@@ -50,11 +54,11 @@ Added, deleted, changed and moved blocks are marked with a colored bar at their 
 
 Previewing doesn't change the note, and the editor stays open underneath: other people's edits keep arriving. To close the preview, press Esc, click an empty part of the version list, click the selected version again, or close the version history.
 
-On a narrow window (narrower than 768 pixels) there is no **Version history** button: choose **Version history** from the `⋮` menu. It opens full screen: tap a version to see its changes in a single column, with the same pair of menus at the top and **Older version**, **Apply vN** and **Newer version** at the bottom (these two change the left side only). Esc goes back from a version to the list, and from the list closes the history.
+On a narrow window (narrower than 768 pixels) there is no **Version history** button: choose **Version history** from the `⋮` menu. It opens full screen: tap a version to see its changes in a single column, with the same pair of menus at the top and **Older version**, **Apply vN** and **Newer version** at the bottom (these two change the left side only). Esc goes back from a version to the list, and from the list closes the history. Opening another note closes the full-screen history, whereas the list beside the note on a wide window stays open and shows the other note's versions (it closes if you can't edit that note).
 
 ## Applying a version
 
-Applying a version makes its content the note's current content, for everyone who has the note open. It is not a rollback: the versions after it stay in the list, applying doesn't create a version, and the applied version becomes the base. If the applied version isn't the newest one, the next version saved after it is marked **continued from vN** — unless every newer version has been deleted by then. To get back, apply another version.
+Applying a version makes its content the note's current content, for everyone who has the note open. It is not a rollback: the versions after it stay in the list, applying doesn't create a version, and the applied version becomes the base. If the applied version isn't the newest one, the next version saved after it is marked **based on vN** — unless every newer version has been deleted by then. To get back, apply another version.
 
 Choose **Apply vN** at the bottom of the list, or **Apply** from a row's `⋯` menu. If the note has changes that aren't in a version yet — yours or anyone else's — a dialog offers three choices:
 

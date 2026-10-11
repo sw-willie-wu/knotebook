@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState, type FormEvent, type RefObject } fro
 import { useTranslation } from "react-i18next";
 import type { VersionDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
-import { useDeleteVersion, useRenameVersion, useSaveVersion, useVersionList } from "@/api/versions";
+import { useDeleteVersion, useRenameVersion, useSaveVersion, useVersionCurrent, useVersionList } from "@/api/versions";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -24,8 +24,8 @@ type CloseAutoFocus = (event: Event) => void;
 
 function SaveDialog({ noteId, then, onCloseAutoFocus }: { noteId: string; then?: VersionDto; onCloseAutoFocus: CloseAutoFocus }) {
   const { t } = useTranslation();
-  const { closeDialog } = useVersions();
-  const list = useVersionList(noteId, true);
+  const { closeDialog, kindFilter } = useVersions();
+  const list = useVersionList(noteId, true, kindFilter);
   const save = useSaveVersion(noteId);
   const { applyNow } = useApplyFlow(noteId);
   const [name, setName] = useState("");
@@ -34,7 +34,7 @@ function SaveDialog({ noteId, then, onCloseAutoFocus }: { noteId: string; then?:
   // 但還要等套用完成——這段期間不得再送出（否則多存一次、多送一次 apply）。ref 擋重入、state 讓鈕 disabled。
   const busyRef = useRef(false);
   const [busy, setBusy] = useState(false);
-  const nextSeq = list.data?.pages[0]?.current.nextSeq;
+  const nextSeq = useVersionCurrent(noteId, list, kindFilter)?.nextSeq;
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

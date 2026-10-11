@@ -4,7 +4,7 @@ import type * as Y from "yjs";
 import { useCreateBlockNote } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/mantine";
 import { noteSchema } from "@/collab/schema";
-import { useVersionList, useVersionSnapshot, VersionSnapshotMismatch } from "@/api/versions";
+import { useVersionSnapshot, VersionSnapshotMismatch } from "@/api/versions";
 import { ARTICLE_COLUMN, ARTICLE_COLUMN_PADDING } from "@/components/ui/article-column";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -251,7 +251,6 @@ export function VersionPreview({ doc, forceSingle = false }: { doc: Y.Doc; force
   const width = useContainerWidth(ref);
 
   // 比較對象＝左右一對（spec §8.4【rev 10】）：左＝預覽的那一版、右＝compareRight（"current" 時不抓快照、讀活文件的 fork）。
-  const list = useVersionList(noteId ?? "", preview !== null);
   const rightTarget = compareRight === "current" ? null : compareRight;
   const left = useVersionSnapshot(noteId ?? "", preview);
   const right = useVersionSnapshot(noteId ?? "", rightTarget);
@@ -260,9 +259,10 @@ export function VersionPreview({ doc, forceSingle = false }: { doc: Y.Doc; force
   // 兩邊的 useVersionSnapshot 都已 invalidate 清單。
   const leftGone = left.error instanceof VersionSnapshotMismatch;
   const rightGone = rightTarget !== null && right.error instanceof VersionSnapshotMismatch;
-  // 讀取失敗（非 mismatch）→ 預覽區顯示通用錯誤，不停在「正在載入」（fix round 1 M-1）。清單只看「沒有任何資料」：
-  // 已有資料時的背景重抓失敗不打斷預覽。
-  const failed = (left.isError && !leftGone) || (rightTarget !== null && right.isError && !rightGone) || (list.isError && list.data === undefined);
+  // 讀取失敗（非 mismatch）→ 預覽區顯示通用錯誤，不停在「正在載入」（fix round 1 M-1）。
+  // 只看兩份快照：diff 只吃快照（與活文件 fork），不吃版本清單；清單（尤其是有篩選的那份，#258）抓不到或還沒到都不該打斷預覽，
+  // 所以本元件不訂閱清單（清單由面板／整頁／比較下拉各自訂閱，錯誤顯示在它們那邊）。
+  const failed = (left.isError && !leftGone) || (rightTarget !== null && right.isError && !rightGone);
   useEffect(() => {
     if (!leftGone) return;
     toast({ title: t("versions.preview.gone") });

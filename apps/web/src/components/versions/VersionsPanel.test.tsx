@@ -4,8 +4,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as Y from "yjs";
 import type { VersionCurrentDto, VersionDto, VersionListDto } from "@knotebook/shared";
 import i18n from "@/i18n";
-import { versionsKey } from "@/api/versions";
-import { VersionsProvider, useVersions, useVersionsController } from "@/lib/versions-context";
+import { versionListKey, versionsKey } from "@/api/versions";
+import { KIND_FILTER_STORAGE_KEY, VersionsProvider, useVersions, useVersionsController } from "@/lib/versions-context";
 import { VersionsPanel } from "./VersionsPanel";
 
 const NOTE = "n1";
@@ -36,6 +36,7 @@ function stub(pages: Record<string, VersionListDto>) {
   return calls;
 }
 const FIRST = `/api/notes/${NOTE}/versions?limit=50`;
+const FIRST_MANUAL = `/api/notes/${NOTE}/versions?kind=manual&limit=50`;
 
 function Probe() {
   const s = useVersions();
@@ -70,6 +71,7 @@ const state = () => JSON.parse(screen.getByTestId("state").textContent!);
 describe("VersionsPanel（spec §8.2）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
+    window.localStorage.clear();
   });
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -84,12 +86,14 @@ describe("VersionsPanel（spec §8.2）", () => {
     expect(panel).not.toHaveClass("w-80");
   });
 
+  // #258：副標只看 current.baseSeq／dirty，與清單內容無關（清單可能被篩過、或根本是空的）。
   it.each([
-    ["尚無版本", { versions: [], current: cur() }, "No versions yet"],
+    ["沒有基底（清單空）", { versions: [], current: cur() }, "No base version"],
     ["沒有基底版本", { versions: [v(2), v(1)], current: cur({ baseSeq: null, dirty: true, nextSeq: 3 }) }, "No base version"],
-    ["＝vN", { versions: [v(2), v(1)], current: cur({ baseSeq: 2, dirty: false, nextSeq: 3 }) }, "= v2, no unsaved changes"],
-    ["vN 之後有未儲存修改", { versions: [v(2), v(1)], current: cur({ baseSeq: 2, dirty: true, nextSeq: 3 }) }, "Unsaved changes after v2"],
-    ["從 vN 接著改", { versions: [v(2), v(1)], current: cur({ baseSeq: 1, dirty: true, nextSeq: 3 }) }, "Continued from v1, with unsaved changes"],
+    ["沿自 vN · 無修改", { versions: [v(2), v(1)], current: cur({ baseSeq: 2, dirty: false, nextSeq: 3 }) }, "Based on v2 · no changes"],
+    ["沿自 vN · 有未儲存的修改（vN 是最新）", { versions: [v(2), v(1)], current: cur({ baseSeq: 2, dirty: true, nextSeq: 3 }) }, "Based on v2 · unsaved changes"],
+    ["沿自 vN · 有未儲存的修改（vN 不是最新）", { versions: [v(2), v(1)], current: cur({ baseSeq: 1, dirty: true, nextSeq: 3 }) }, "Based on v1 · unsaved changes"],
+    ["基底不在清單裡（被篩掉）", { versions: [v(2)], current: cur({ baseSeq: 7, dirty: false, nextSeq: 8 }) }, "Based on v7 · no changes"],
   ])("目前狀態副標：%s", async (_name, body, text) => {
     stub({ [FIRST]: { ...(body as Omit<VersionListDto, "nextBefore">), nextBefore: null } });
     renderPanel();
@@ -103,16 +107,16 @@ describe("VersionsPanel（spec §8.2）", () => {
     const top = await screen.findByTestId("versions-current");
     expect(await within(top).findByText("Automatic saving is off for this space")).toBeInTheDocument();
     act(() => {
-      queryClient.setQueryData(versionsKey(NOTE), {
+      queryClient.setQueryData(versionListKey(NOTE, "all"), {
         pages: [{ versions: [v(1)], current: cur({ baseSeq: 1, autoEnabled: true, nextSeq: 2 }), nextBefore: null }],
         pageParams: [undefined],
       });
     });
     await waitFor(() => expect(screen.queryByText("Automatic saving is off for this space")).not.toBeInTheDocument());
-    expect(within(top).getByText("= v1, no unsaved changes")).toBeInTheDocument();
+    expect(within(top).getByText("Based on v1 · no changes")).toBeInTheDocument();
   });
 
-  it("列：綠點只在基底那版、vN＋名稱、第二行 手動／自動 · 編輯者（agent）· 從 vX 接著改；刪除的使用者顯示替代字", async () => {
+  it("列（#258）：沒有基底綠點、沒有「手動／自動」文字；只有自動版本有「Auto-saved」pill；第二行 編輯者（agent）· 時間 · 沿自 vX；刪除的使用者顯示替代字", async () => {
     stub({
       [FIRST]: {
         versions: [
@@ -127,13 +131,18 @@ describe("VersionsPanel（spec §8.2）", () => {
     renderPanel();
     const row3 = await screen.findByRole("button", { name: /^v3/ });
     expect(within(row3).getByText("給客戶")).toBeInTheDocument();
-    expect(within(row3).getByTestId("base-dot")).toHaveStyle({ backgroundColor: "oklch(0.8 0.17 152)" });
-    expect(row3).toHaveTextContent("Manual · ann, bob (Claude) ·");
-    expect(row3).toHaveTextContent("continued from v1");
+    expect(screen.queryByTestId("base-dot")).not.toBeInTheDocument();
+    expect(row3).toHaveTextContent("ann, bob (Claude) ·");
+    expect(row3).toHaveTextContent("based on v1");
+    expect(row3).not.toHaveTextContent("Manual");
+    expect(within(row3).queryByTestId("auto-badge")).not.toBeInTheDocument();
     const row2 = screen.getByRole("button", { name: /^v2/ });
-    expect(within(row2).queryByTestId("base-dot")).not.toBeInTheDocument();
-    expect(row2).toHaveTextContent("Auto · Deleted user ·");
-    expect(screen.getAllByTestId("base-dot")).toHaveLength(1);
+    expect(row2).toHaveTextContent("Deleted user ·");
+    expect(within(row2).getByTestId("auto-badge")).toHaveTextContent("Auto-saved");
+    expect(within(row2).getByTestId("auto-badge")).toHaveClass("shrink-0", "rounded-full", "border", "border-border", "bg-muted", "text-foreground/70");
+    expect(screen.getAllByTestId("auto-badge")).toHaveLength(2);
+    // 名稱很長時 pill 不被擠掉：名稱 truncate、pill shrink-0。
+    expect(within(row3).getByText("給客戶")).toHaveClass("truncate");
   });
 
   it("點列＝切換預覽（startPreview 帶 seq 與 id）；選中列 bg-accent；再點另一列換過去", async () => {
@@ -315,6 +324,213 @@ describe("VersionsPanel（spec §8.2）", () => {
     expect(calls.filter((c) => c === FIRST)).toHaveLength(2);
     // 卸載後沒有 observer，invalidate 只會把 query 標 stale、不會重抓——所以光看 fetch 次數抓不到「監聽沒拆」；
     // 殘留的監聽會把 query 標成 invalidated，這裡直接看這個旗標。
-    expect(queryClient.getQueryState(versionsKey(NOTE))?.isInvalidated).toBe(false);
+    expect(queryClient.getQueryState(versionListKey(NOTE, "all"))?.isInvalidated).toBe(false);
+  });
+  describe("篩選（#258）", () => {
+    const manual = (seq: number) => v(seq, { kind: "manual" });
+    const ALL = { versions: [manual(4), v(3), manual(2), v(1)], current: cur({ baseSeq: 4, nextSeq: 5 }), nextBefore: null };
+    const ONLY = { versions: [manual(4), manual(2)], current: cur({ baseSeq: 4, nextSeq: 5 }), nextBefore: null };
+
+    it("清單上方有「All／Manual only」兩段切換（aria-pressed）；預設全部；按「Manual only」改打 kind=manual、清單只剩手動、按下態 PRESSED_CLASS", async () => {
+      const calls = stub({ [FIRST]: ALL, [FIRST_MANUAL]: ONLY });
+      renderPanel();
+      await screen.findByRole("button", { name: /^v3/ });
+      const group = screen.getByRole("group", { name: "Filter versions" });
+      const allBtn = within(group).getByRole("button", { name: "All" });
+      const manualBtn = within(group).getByRole("button", { name: "Manual only" });
+      expect(allBtn).toHaveAttribute("aria-pressed", "true");
+      expect(manualBtn).toHaveAttribute("aria-pressed", "false");
+      expect(allBtn).toHaveClass("bg-brand/25");
+      // 位置：在「目前狀態」之後、清單之前。
+      const order = [screen.getByTestId("versions-current"), group, screen.getByRole("list")];
+      for (let i = 1; i < order.length; i += 1) expect(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      fireEvent.click(manualBtn);
+      expect(await screen.findByRole("button", { name: /^v4/ })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /^v2/ })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /^v3/ })).not.toBeInTheDocument();
+      expect(calls).toContain(FIRST_MANUAL);
+      expect(manualBtn).toHaveAttribute("aria-pressed", "true");
+      expect(manualBtn).toHaveClass("bg-brand/25");
+      expect(allBtn).toHaveAttribute("aria-pressed", "false");
+      // 「目前狀態」不受篩選影響。
+      expect(within(screen.getByTestId("versions-current")).getByText("Based on v4 · no changes")).toBeInTheDocument();
+    });
+
+    it("篩選寫進 localStorage；初值讀 localStorage（不合法的值當全部）", async () => {
+      stub({ [FIRST]: ALL, [FIRST_MANUAL]: ONLY });
+      const first = renderPanel();
+      await screen.findByRole("button", { name: /^v3/ });
+      fireEvent.click(screen.getByRole("button", { name: "Manual only" }));
+      expect(window.localStorage.getItem(KIND_FILTER_STORAGE_KEY)).toBe("manual");
+      first.unmount();
+      const second = renderPanel();
+      expect(await screen.findByRole("button", { name: "Manual only" })).toHaveAttribute("aria-pressed", "true");
+      await screen.findByRole("button", { name: /^v2/ });
+      expect(screen.queryByRole("button", { name: /^v3/ })).not.toBeInTheDocument();
+      second.unmount();
+      window.localStorage.setItem(KIND_FILTER_STORAGE_KEY, "auto");
+      renderPanel();
+      expect(await screen.findByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
+    });
+
+    it("localStorage 讀寫丟例外 → 不當掉：初值全部，切換本次照樣生效", async () => {
+      stub({ [FIRST]: ALL, [FIRST_MANUAL]: ONLY });
+      const get = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+        throw new Error("denied");
+      });
+      const set = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+        throw new Error("denied");
+      });
+      try {
+        renderPanel();
+        await screen.findByRole("button", { name: /^v3/ });
+        expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
+        fireEvent.click(screen.getByRole("button", { name: "Manual only" }));
+        await waitFor(() => expect(screen.queryByRole("button", { name: /^v3/ })).not.toBeInTheDocument());
+        expect(screen.getByRole("button", { name: "Manual only" })).toHaveAttribute("aria-pressed", "true");
+      } finally {
+        get.mockRestore();
+        set.mockRestore();
+      }
+    });
+
+    it("僅手動且沒有符合的版本 → 一行灰字空狀態（載入中不顯示）；切回全部就消失", async () => {
+      window.localStorage.setItem(KIND_FILTER_STORAGE_KEY, "manual");
+      stub({ [FIRST_MANUAL]: { versions: [], current: cur({ baseSeq: 2, nextSeq: 3 }), nextBefore: null }, [FIRST]: { versions: [v(2)], current: cur({ baseSeq: 2, nextSeq: 3 }), nextBefore: null } });
+      renderPanel();
+      expect(screen.queryByTestId("versions-filter-empty")).not.toBeInTheDocument();
+      const empty = await screen.findByTestId("versions-filter-empty");
+      expect(empty).toHaveTextContent("No manually saved versions");
+      expect(empty).toHaveClass("text-muted-foreground");
+      fireEvent.click(screen.getByRole("button", { name: "All" }));
+      await screen.findByRole("button", { name: /^v2/ });
+      expect(screen.queryByTestId("versions-filter-empty")).not.toBeInTheDocument();
+    });
+
+    it("全部且沒有任何版本 → 不顯示篩選空狀態", async () => {
+      stub({ [FIRST]: { versions: [], current: cur(), nextBefore: null } });
+      renderPanel();
+      await within(await screen.findByTestId("versions-current")).findByText("No base version");
+      expect(screen.queryByTestId("versions-filter-empty")).not.toBeInTheDocument();
+    });
+
+    it("預覽中的版本被篩掉：預覽不變（preview 不動）、底部「Apply vN」仍可按", async () => {
+      stub({ [FIRST]: ALL, [FIRST_MANUAL]: ONLY });
+      renderPanel();
+      fireEvent.click(await screen.findByRole("button", { name: /^v3/ }));
+      expect(state().preview).toEqual({ seq: 3, id: "v-3" });
+      const footer = screen.getByTestId("versions-footer");
+      expect(within(footer).getByRole("button", { name: "Apply v3" })).toBeEnabled();
+      fireEvent.click(screen.getByRole("button", { name: "Manual only" }));
+      await waitFor(() => expect(screen.queryByRole("button", { name: /^v3/ })).not.toBeInTheDocument());
+      expect(state().preview).toEqual({ seq: 3, id: "v-3" });
+      expect(within(footer).getByRole("button", { name: "Apply v3" })).toBeEnabled();
+      // 再選別的版本 → 換成它。
+      fireEvent.click(await screen.findByRole("button", { name: /^v2/ }));
+      expect(within(footer).getByRole("button", { name: "Apply v2" })).toBeEnabled();
+      expect(screen.queryByRole("button", { name: /^v3/ })).not.toBeInTheDocument();
+    });
+
+    it("活文件 update 的去抖動 invalidate 以前綴同時標記兩種篩選的快取", async () => {
+      stub({ [FIRST]: ALL, [FIRST_MANUAL]: ONLY });
+      const { queryClient } = renderPanel();
+      await screen.findByRole("button", { name: /^v3/ });
+      fireEvent.click(screen.getByRole("button", { name: "Manual only" }));
+      await waitFor(() => expect(queryClient.getQueryState(versionListKey(NOTE, "manual"))?.status).toBe("success"));
+      await act(async () => {
+        await queryClient.invalidateQueries({ queryKey: versionsKey(NOTE), refetchType: "none" });
+      });
+      expect(queryClient.getQueryState(versionListKey(NOTE, "all"))?.isInvalidated).toBe(true);
+      expect(queryClient.getQueryState(versionListKey(NOTE, "manual"))?.isInvalidated).toBe(true);
+    });
+  });
+  it("#258 切筆記不關面板：新那篇的清單換上來，上一篇的列、選取（預覽／Apply）不殘留", async () => {
+    const N2 = "n2";
+    stub({
+      [FIRST]: { versions: [v(2, { name: "舊筆記的版本" }), v(1)], current: cur({ baseSeq: 2, nextSeq: 3 }), nextBefore: null },
+      [`/api/notes/${N2}/versions?limit=50`]: { versions: [v(9, { id: "w-9", name: "新筆記的版本" })], current: cur({ baseSeq: 9, nextSeq: 10 }), nextBefore: null },
+    });
+    function SwitchHost({ noteId, doc }: { noteId: string; doc: Y.Doc }) {
+      const value = useVersionsController({ noteId, enabled: true });
+      return (
+        <VersionsProvider value={value}>
+          <button type="button" onClick={value.open}>host-open</button>
+          <Probe />
+          {value.panelOpen && <VersionsPanel doc={doc} />}
+        </VersionsProvider>
+      );
+    }
+    const doc = new Y.Doc();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const ui = (noteId: string) => (
+      <QueryClientProvider client={queryClient}>
+        <SwitchHost noteId={noteId} doc={doc} />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(ui(NOTE));
+    fireEvent.click(screen.getByText("host-open"));
+    const row2 = await screen.findByRole("button", { name: /^v2/ });
+    row2.focus();
+    fireEvent.click(row2);
+    expect(state().preview).toEqual({ seq: 2, id: "v-2" });
+    expect(within(screen.getByTestId("versions-footer")).getByRole("button", { name: "Apply v2" })).toBeEnabled();
+
+    rerender(ui(N2));
+    expect(state().mode).toBe("panel");
+    expect(state().preview).toBeNull();
+    expect(screen.getByTestId("versions-panel")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^v2/ })).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /^v9/ })).toBeInTheDocument();
+    expect(screen.queryByText("舊筆記的版本")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^v1(?!\d)/ })).not.toBeInTheDocument();
+    expect(within(screen.getByTestId("versions-footer")).getByRole("button", { name: "Apply" })).toBeDisabled();
+    expect(within(screen.getByTestId("versions-current")).getByText("Based on v9 · no changes")).toBeInTheDocument();
+  });
+
+  it("#258 M1：切篩選的瞬間（新鍵還沒資料）「目前狀態」副標與儲存鈕不消失，改讀另一個篩選已快取的 current；新資料到了以新的為準", async () => {
+    let release!: () => void;
+    const body = (current: VersionCurrentDto, versions: VersionDto[]): VersionListDto => ({ versions, current, nextBefore: null });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === FIRST) return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body(cur({ baseSeq: 2, dirty: true, nextSeq: 3 }), [v(2, { kind: "manual" }), v(1)])) } as Response);
+        if (url === FIRST_MANUAL)
+          return new Promise<Response>((r) => (release = () => r({ ok: true, status: 200, json: () => Promise.resolve(body(cur({ baseSeq: 2, dirty: false, nextSeq: 3 }), [v(2, { kind: "manual" })])) } as Response)));
+        throw new Error(`unexpected fetch: ${url}`);
+      }),
+    );
+    renderPanel();
+    const top = await screen.findByTestId("versions-current");
+    expect(await within(top).findByText("Based on v2 · unsaved changes")).toBeInTheDocument();
+    const save = within(screen.getByTestId("versions-footer")).getByRole("button", { name: "Save current version" });
+    await waitFor(() => expect(save).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Manual only" }));
+    // 新鍵載入中：列空了，但副標還在、儲存鈕沒閃 disabled。
+    await waitFor(() => expect(screen.queryByRole("button", { name: /^v1(?!\d)/ })).not.toBeInTheDocument());
+    expect(within(top).getByText("Based on v2 · unsaved changes")).toBeInTheDocument();
+    expect(save).toBeEnabled();
+    release();
+    // 新資料到了以新的為準。
+    expect(await within(top).findByText("Based on v2 · no changes")).toBeInTheDocument();
+  });
+  it("#258 m-3：自己篩選的清單查詢失敗 → 不退回另一份可能過期的 current（副標消失、儲存鈕 disabled）", async () => {
+    const body = (current: VersionCurrentDto, versions: VersionDto[]): VersionListDto => ({ versions, current, nextBefore: null });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === FIRST) return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body(cur({ baseSeq: 2, dirty: true, nextSeq: 3 }), [v(2, { kind: "manual" }), v(1)])) } as Response);
+        if (url === FIRST_MANUAL) return Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({ error: { code: "internal", message: "boom" } }) } as Response);
+        throw new Error(`unexpected fetch: ${url}`);
+      }),
+    );
+    const { queryClient } = renderPanel();
+    const top = await screen.findByTestId("versions-current");
+    expect(await within(top).findByText("Based on v2 · unsaved changes")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Manual only" }));
+    await waitFor(() => expect(queryClient.getQueryState(versionListKey(NOTE, "manual"))?.status).toBe("error"));
+    await waitFor(() => expect(within(top).queryByText(/^Based on v2/)).not.toBeInTheDocument());
+    expect(within(screen.getByTestId("versions-footer")).getByRole("button", { name: "Save current version" })).toBeDisabled();
   });
 });

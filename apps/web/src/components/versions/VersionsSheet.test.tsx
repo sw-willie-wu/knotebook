@@ -10,7 +10,7 @@ import i18n from "@/i18n";
 import { noteSchema } from "@/collab/schema";
 import { Toaster, dismissAllToasts } from "@/components/ui/toast";
 import { ThemeProvider } from "@/theme";
-import { NARROW_QUERY, VersionsProvider, useVersionsController } from "@/lib/versions-context";
+import { KIND_FILTER_STORAGE_KEY, NARROW_QUERY, VersionsProvider, useVersionsController } from "@/lib/versions-context";
 import { VersionsSheet } from "./VersionsSheet";
 
 vi.mock("@/lib/use-container-width", () => ({ useContainerWidth: () => widthRef.current }));
@@ -18,6 +18,7 @@ const widthRef = vi.hoisted(() => ({ current: 800 }));
 
 const NOTE = "n1";
 const LIST = `/api/notes/${NOTE}/versions?limit=50`;
+const LIST_MANUAL = `/api/notes/${NOTE}/versions?kind=manual&limit=50`;
 const SNAP = (n: number) => `/api/notes/${NOTE}/versions/${n}`;
 
 function b64(blocks: unknown[]): string {
@@ -26,7 +27,7 @@ function b64(blocks: unknown[]): string {
   blocksToYXmlFragment(BlockNoteEditor.create({ schema: noteSchema }), blocks as any, doc.getXmlFragment(YDOC_FRAGMENT));
   return btoa(String.fromCharCode(...Y.encodeStateAsUpdate(doc)));
 }
-const ver = (seq: number): VersionDto => ({ id: `v-${seq}`, seq, kind: "auto", name: null, editors: [{ handle: "ann", agentLabel: null }], baseSeq: null, createdAt: "2026-10-09T00:00:00.000Z" });
+const ver = (seq: number, over: Partial<VersionDto> = {}): VersionDto => ({ id: `v-${seq}`, seq, kind: "auto", name: null, editors: [{ handle: "ann", agentLabel: null }], baseSeq: null, createdAt: "2026-10-09T00:00:00.000Z", ...over });
 const V1 = [{ id: "A", type: "paragraph", content: "甲" }, { id: "B", type: "paragraph", content: "乙" }];
 const V2 = [{ id: "A", type: "paragraph", content: "甲改" }, { id: "C", type: "paragraph", content: "丙" }];
 
@@ -127,6 +128,7 @@ describe("VersionsSheet（spec §8.3）", () => {
   let restoreMatchMedia: () => void;
   beforeEach(async () => {
     await i18n.changeLanguage("en");
+    window.localStorage.clear();
     dismissAllToasts();
     widthRef.current = 800;
     restoreMatchMedia = installMatchMedia(true);
@@ -143,7 +145,7 @@ describe("VersionsSheet（spec §8.3）", () => {
     expect(sheet).toHaveClass("fixed", "inset-0");
     expect(within(sheet).getByRole("button", { name: "Back" })).toBeInTheDocument();
     expect(within(sheet).getByTestId("sheet-last-edited")).toHaveTextContent("ann");
-    expect(await within(sheet).findByText("= v2, no unsaved changes")).toBeInTheDocument();
+    expect(await within(sheet).findByText("Based on v2 · no changes")).toBeInTheDocument();
     expect(within(sheet).getByRole("button", { name: /^v1(?!\d)/ })).toBeInTheDocument();
     expect(within(sheet).getByRole("button", { name: "Save current version" })).toBeInTheDocument();
   });
@@ -348,5 +350,35 @@ describe("VersionsSheet（spec §8.3）", () => {
     expect(calls.indexOf(`/api/notes/${NOTE}/versions?limit=1`)).toBeLessThan(calls.indexOf(`/api/notes/${NOTE}/versions/1/apply`));
     // 套用成功 → 離開預覽回步一（useApplyFlow 的成功路徑）。
     await waitFor(() => expect(sState()).toEqual({ mode: "sheet", preview: null }));
+  });
+
+  it("篩選（#258）：步一的「目前狀態」與清單之間有「All／Manual only」；按下改打 kind=manual；列只有自動版本有 Auto-save pill；沒有符合時顯示空狀態", async () => {
+    stub({
+      [LIST]: list([ver(3, { kind: "manual", name: "里程碑" }), ver(2), ver(1)]),
+      [LIST_MANUAL]: { ...list([ver(3, { kind: "manual", name: "里程碑" })]), current: list([ver(3)]).current },
+    });
+    renderSheet();
+    const sheet = await screen.findByRole("dialog", { name: "Version history" });
+    const row2 = await within(sheet).findByRole("button", { name: /^v2(?!\d)/ });
+    expect(within(row2).getByTestId("auto-badge")).toHaveTextContent("Auto-saved");
+    expect(within(within(sheet).getByRole("button", { name: /^v3/ })).queryByTestId("auto-badge")).not.toBeInTheDocument();
+    const group = within(sheet).getByRole("group", { name: "Filter versions" });
+    const order = [within(sheet).getByTestId("sheet-current"), group, within(sheet).getByRole("list")];
+    for (let i = 1; i < order.length; i += 1) expect(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(group).getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(within(group).getByRole("button", { name: "Manual only" }));
+    expect(within(group).getByRole("button", { name: "Manual only" })).toHaveAttribute("aria-pressed", "true");
+    await waitFor(() => expect(within(sheet).queryByRole("button", { name: /^v2(?!\d)/ })).not.toBeInTheDocument());
+    expect(await within(sheet).findByRole("button", { name: /^v3/ })).toBeInTheDocument();
+    expect(window.localStorage.getItem(KIND_FILTER_STORAGE_KEY)).toBe("manual");
+  });
+
+  it("篩選（#258）：僅手動且沒有符合 → 空狀態一行灰字；「目前狀態」仍在", async () => {
+    window.localStorage.setItem(KIND_FILTER_STORAGE_KEY, "manual");
+    stub({ [LIST_MANUAL]: { ...list([]), current: { baseSeq: 2, dirty: true, nextSeq: 3, autoEnabled: true } } });
+    renderSheet();
+    const sheet = await screen.findByRole("dialog", { name: "Version history" });
+    expect(await within(sheet).findByTestId("versions-filter-empty")).toHaveTextContent("No manually saved versions");
+    expect(within(sheet).getByText("Based on v2 · unsaved changes")).toBeInTheDocument();
   });
 });

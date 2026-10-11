@@ -3,13 +3,14 @@ import { useTranslation } from "react-i18next";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import type * as Y from "yjs";
 import type { NoteDto, VersionDto } from "@knotebook/shared";
-import { useVersionList } from "@/api/versions";
+import { useVersionCurrent, useVersionList } from "@/api/versions";
 import { Button } from "@/components/ui/button";
 import { useVersions } from "@/lib/versions-context";
 import { ComparePicker } from "./ComparePicker";
 import { VersionPreview } from "./VersionPreview";
 import { OnlyChangesToggle } from "./PreviewBanner";
 import { VersionRowContent, VersionRowMenu } from "./VersionsPanel";
+import { KindFilter, KindFilterEmpty } from "./KindFilter";
 import { currentSubtitle, editorsText, formatVersionTime } from "./version-labels";
 import { useApplyFlow } from "./use-apply-flow";
 
@@ -28,19 +29,18 @@ import { useApplyFlow } from "./use-apply-flow";
  */
 export function VersionsSheet({ doc, lastEdited, returnFocusRef }: { doc: Y.Doc; lastEdited: NoteDto["lastEdited"]; returnFocusRef?: RefObject<HTMLElement | null> }) {
   const { t, i18n } = useTranslation();
-  const { noteId, preview, startPreview, stopPreview, close, openSave } = useVersions();
+  const { noteId, preview, kindFilter, startPreview, stopPreview, close, openSave } = useVersions();
   // body 不算「可還的元素」（final fix 2 M-A）：當成沒記到，關閉時走 returnFocusRef（⋮）。
   const [returnFocus] = useState(() => {
     const active = document.activeElement;
     return active instanceof HTMLElement && active !== document.body ? active : null;
   });
   const id = noteId ?? "";
-  const list = useVersionList(id, true);
+  const list = useVersionList(id, true, kindFilter);
   const { requestApply } = useApplyFlow(id);
   const rows = list.data?.pages.flatMap((p) => p.versions) ?? [];
-  const current = list.data?.pages[0]?.current;
-  const latestSeq = rows[0]?.seq ?? null;
-  const index = preview ? rows.findIndex((r) => r.seq === preview.seq) : -1;
+  const current = useVersionCurrent(id, list, kindFilter);
+  const index = preview ? rows.findIndex((r) => r.id === preview.id) : -1;
   const row: VersionDto | undefined = index >= 0 ? rows[index] : undefined;
   const older = index >= 0 ? rows[index + 1] : undefined;
   const newer = index > 0 ? rows[index - 1] : undefined;
@@ -72,21 +72,23 @@ export function VersionsSheet({ doc, lastEdited, returnFocusRef }: { doc: Y.Doc;
       </p>
       <div data-testid="sheet-current" className="mx-4 mt-3 border-b border-dashed border-border pb-2">
         <p className="text-sm font-medium">{t("versions.currentLabel")}</p>
-        {current && <p className="text-xs text-muted-foreground">{currentSubtitle(t, current, latestSeq)}</p>}
+        {current && <p className="text-xs text-muted-foreground">{currentSubtitle(t, current)}</p>}
         {current && !current.autoEnabled && <p className="text-xs text-muted-foreground">{t("versions.autoOff")}</p>}
       </div>
+      <KindFilter className="px-4 pt-2" />
       <ul className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-2">
         {rows.map((version) => {
           const isBase = current?.baseSeq === version.seq;
           return (
             <li key={version.id} className="flex items-start gap-1">
               <button type="button" onClick={() => go(version)} className="flex min-w-0 flex-1 rounded-md px-2 py-1.5 text-left hover:bg-accent/60">
-                <VersionRowContent version={version} isBase={isBase} />
+                <VersionRowContent version={version} />
               </button>
               <VersionRowMenu version={version} isBase={isBase} onApply={(v) => void requestApply(v)} />
             </li>
           );
         })}
+        {kindFilter === "manual" && list.isSuccess && rows.length === 0 && <KindFilterEmpty />}
         {list.hasNextPage && (
           <li>
             <Button type="button" variant="ghost" size="sm" className="w-full" disabled={list.isFetchingNextPage} onClick={() => void list.fetchNextPage()}>
