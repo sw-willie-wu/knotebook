@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render } from "@testing-library/react";
-import { Columns2, History, ListFilter, Rows3, Users } from "./icons";
+import { Columns2, History, ListFilter, Pencil, Rows3, Users } from "./icons";
 
 describe("icons", () => {
   it("Users 帶 data-icon=\"users\"（ShareDialog 測試靠它斷觸發鈕圖示）且吃 className", () => {
@@ -23,6 +23,13 @@ describe("icons", () => {
     const { container } = render(<Icon className="h-4 w-4" />);
     const svg = container.querySelector("svg");
     expect(svg).toHaveAttribute("data-icon", name);
+    expect(svg).toHaveAttribute("aria-hidden", "true");
+    expect(svg).toHaveClass("h-4", "w-4");
+  });
+  it('Pencil 帶 data-icon="pencil"、預設 aria-hidden、吃 className（#247 §4.9 編輯鈕）', () => {
+    const { container } = render(<Pencil className="h-4 w-4" />);
+    const svg = container.querySelector("svg");
+    expect(svg).toHaveAttribute("data-icon", "pencil");
     expect(svg).toHaveAttribute("aria-hidden", "true");
     expect(svg).toHaveClass("h-4", "w-4");
   });

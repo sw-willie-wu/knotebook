@@ -56,6 +56,16 @@ export function Trash(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+/** 編輯／重新命名／進入行內編輯（#247 §4.9 列內動作）。路徑取自 lucide `pencil`（ISC），手刻同風格。 */
+export function Pencil(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="pencil" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" />
+      <path d="m15 5 4 4" />
+    </svg>
+  );
+}
+
 export function Search(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
