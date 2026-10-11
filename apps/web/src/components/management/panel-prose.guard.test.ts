@@ -38,6 +38,7 @@ describe("面板內容不得含 max-w-prose（#247 §4.5、§11.1）", () => {
     expect(files).toContain("settings/AutoVersionsSwitch.tsx");
     expect(files).toContain("components/management/ManagementShell.tsx");
     expect(files).toContain("components/groups/GroupMenu.tsx");
+    expect(files).toContain("components/admin/AdminModal.tsx");
   });
 
   it("沒有任何一檔含 max-w-prose（含註解）", () => {
