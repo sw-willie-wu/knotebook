@@ -3,6 +3,7 @@
  * 這裡另寫一份，不動那支檔。
  */
 import { eq, sql } from "drizzle-orm";
+import type { TokenScope } from "@knotebook/shared";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import { hashToken } from "../src/auth/api-token.js";
 import { generateTransferToken, MAX_PENDING_UPLOAD_TOKENS, type TransferPurpose } from "../src/auth/transfer-token.js";
@@ -31,7 +32,7 @@ export function fieldOnlyBody(): Buffer {
 /** 一位使用者＋一篇他的個人筆記＋一支 PAT（預設讀寫）。 */
 export async function ownerWithPat(
   db: Db,
-  scope: "notes:read" | "notes:read notes:write" = "notes:read notes:write",
+  scope: TokenScope = "notes:read notes:write",
 ): Promise<{ userId: string; pat: string; patId: string; noteId: string }> {
   const user = await seedUser(db);
   const { token, tokenId } = await seedTokenForUser(db, user.id, scope);

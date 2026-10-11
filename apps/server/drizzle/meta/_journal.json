@@ -148,6 +148,13 @@
       "when": 1791657449902,
       "tag": "0020_note-links-drop-self",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1791676587125,
+      "tag": "0021_notes-move-scope",
+      "breakpoints": true
     }
   ]
 }

@@ -3,11 +3,11 @@
  *
  * 這一族守的是：①明文只出現一次、DB 只存 sha256（I2）；②I1 額度述詞的形狀（過期 PAT
  * 不計、oauth 計）；③I5 ⑤ 的機會性清理；④撤銷＝硬刪且跨使用者同形 404（D9）；
- * ⑤四條端點是 cookie 專用——token 不能簽發、改名或撤銷 token。
+ * ⑤四條端點是 cookie 專用——token 不能簽發、改名、改權限或撤銷 token。
  */
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
-import { SESSION_COOKIE } from "@knotebook/shared";
+import { SESSION_COOKIE, type TokenScope } from "@knotebook/shared";
 import type { FastifyInstance } from "fastify";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 import { apiTokens, oauthClients } from "../src/db/schema.js";
@@ -15,6 +15,7 @@ import { signSession } from "../src/auth/session.js";
 import type { AppDeps } from "../src/app.js";
 import type { Db } from "../src/db/index.js";
 import { hashToken } from "../src/auth/api-token.js";
+import { mcpPost, rpc } from "./mcp-helpers.js";
 import { buildTestApp, freshLimiters, insertPasswordUser, testConfig } from "./helpers.js";
 
 /**
@@ -41,7 +42,7 @@ async function anotherUser(db: Db): Promise<{ userId: string; cookie: string }> 
   return { userId: user.id, cookie: await signSession(testConfig.appSecret, { userId: user.id, tv: 0 }) };
 }
 
-type CreateBody = { name: string; scope: "notes:read" | "notes:write"; expiresInDays: 30 | 90 | 365 | null };
+type CreateBody = { name: string; scope: TokenScope | "notes:write"; expiresInDays: 30 | 90 | 365 | null };
 
 function create(app: FastifyInstance, cookie: string, payload: CreateBody) {
   return app.inject({ method: "POST", url: "/api/auth/tokens", cookies: { [SESSION_COOKIE]: cookie }, payload });
@@ -332,15 +333,18 @@ describe("PAT 管理端點", () => {
       // #106 D7：改名也不例外——一支外洩的 token 若能替自己改 agent 名稱，名牌上顯示的
       // 就不再是使用者授權的那個身分。
       ["PATCH", `/api/auth/tokens/${created.id}`],
+      // #239：PATCH 也能改權限；Bearer 若打得到，外洩的讀寫 token 就能替自己升成搬移。
+      // 認證在 preHandler、早於讀 body，所以 {agentLabel} 那列其實已涵蓋；這列把 scope 形明寫出來。
+      ["PATCH", `/api/auth/tokens/${created.id}`, { scope: RWM }],
       ["DELETE", `/api/auth/tokens/${created.id}`],
     ] as const;
-    for (const [method, url] of cases) {
+    for (const [method, url, body] of cases) {
       const res = await app.inject({
         method,
         url,
         headers: auth,
         ...(method === "POST" ? { payload: READ_FOREVER } : {}),
-        ...(method === "PATCH" ? { payload: { agentLabel: "x" } } : {}),
+        ...(method === "PATCH" ? { payload: body ?? { agentLabel: "x" } } : {}),
       });
       expect(res.statusCode, `${method} ${url}`).toBe(401);
       expect(res.headers["www-authenticate"], `${method} ${url}`).toBeUndefined();
@@ -525,5 +529,105 @@ describe("PATCH /api/auth/tokens/:id（agent 名稱）", () => {
     expect((await db.select({ l: apiTokens.agentLabel }).from(apiTokens).where(eq(apiTokens.id, bGrant)))[0]!.l).toBeNull();
     const bList = (await app.inject({ method: "GET", url: "/api/auth/tokens", cookies: { [SESSION_COOKIE]: b.cookie } })).json().tokens;
     expect(bList.find((t: { id: string }) => t.id === bGrant).agentLabel).toBe("mcp");
+  });
+});
+
+const RWM = "notes:read notes:write notes:move";
+function patch(app: FastifyInstance, cookie: string, id: string, payload: unknown) {
+  return app.inject({ method: "PATCH", url: `/api/auth/tokens/${id}`, cookies: { [SESSION_COOKIE]: cookie }, payload: payload as object });
+}
+
+describe("#239 POST scope", () => {
+  it("收三種落庫形與舊別名 notes:write；拒 notes:move 單值", async () => {
+    const { app, cookie } = await signedInApp();
+    for (const [sent, stored] of [
+      ["notes:read", "notes:read"],
+      ["notes:read notes:write", "notes:read notes:write"],
+      [RWM, RWM],
+      ["notes:write", "notes:read notes:write"],
+    ] as const) {
+      const res = await create(app, cookie, { name: `n-${sent}`, scope: sent as never, expiresInDays: null });
+      expect(res.statusCode, sent).toBe(201);
+      expect(res.json().scope).toBe(stored);
+    }
+    expect((await create(app, cookie, { name: "bad", scope: "notes:move" as never, expiresInDays: null })).statusCode).toBe(400);
+  });
+});
+
+describe("#239 PATCH scope", () => {
+  it("升與降都生效、回 DTO；別人的 id → 404 且對方列不變", async () => {
+    const { app, db, cookie } = await signedInApp();
+    const id = (await create(app, cookie, READ_FOREVER)).json().id as string;
+    const up = await patch(app, cookie, id, { scope: RWM });
+    expect(up.statusCode).toBe(200);
+    expect(up.json().scope).toBe(RWM);
+    expect((await patch(app, cookie, id, { scope: "notes:read" })).json().scope).toBe("notes:read");
+    const other = await anotherUser(db);
+    const theirs = (await create(app, other.cookie, READ_FOREVER)).json().id as string;
+    expect((await patch(app, cookie, theirs, { scope: RWM })).statusCode).toBe(404);
+    const [row] = await db.select().from(apiTokens).where(eq(apiTokens.id, theirs));
+    expect(row!.scope).toBe("notes:read");
+  });
+  it("oauth 列也能改", async () => {
+    const { app, db, cookie, userId } = await signedInApp();
+    await db.insert(oauthClients).values({ clientId: "c-239", clientName: "C", redirectUris: ["http://127.0.0.1:1/cb"] });
+    const [row] = await db
+      .insert(apiTokens)
+      .values({ userId, kind: "oauth", name: "app", scope: "notes:read", accessTokenHash: "e".repeat(64), refreshTokenHash: "f".repeat(64), clientId: "c-239", accessExpiresAt: new Date(Date.now() + 86_400_000) })
+      .returning();
+    const res = await patch(app, cookie, row!.id, { scope: RWM });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ kind: "oauth", scope: RWM });
+  });
+  it("{} → 400；未知鍵 → 400；scope 非三形 → 400 且訊息是 scope 格式錯誤", async () => {
+    const { app, cookie } = await signedInApp();
+    const id = (await create(app, cookie, READ_FOREVER)).json().id as string;
+    expect((await patch(app, cookie, id, {})).statusCode).toBe(400);
+    expect((await patch(app, cookie, id, { scope: RWM, extra: 1 })).statusCode).toBe(400);
+    // PATCH 不收 "notes:write" 別名（別名只開在 POST）；亂序與缺 write 的集合也不收。
+    for (const scope of ["notes:move", "notes:write", "notes:read notes:move", "notes:write notes:read"]) {
+      const bad = await patch(app, cookie, id, { scope });
+      expect(bad.statusCode, scope).toBe(400);
+      expect(bad.json().error.message, scope).toBe("scope 格式錯誤");
+    }
+    // 其餘兩類訊息（spec §6.2）：agentLabel 不合 → agentLabel 格式錯誤；空物件 → 請求格式錯誤。
+    expect((await patch(app, cookie, id, { agentLabel: "bad label!" })).json().error.message).toBe("agentLabel 格式錯誤");
+    expect((await patch(app, cookie, id, {})).json().error.message).toBe("請求格式錯誤");
+  });
+  it("mustChangePassword：帶 scope → 403 且列不變；純 agentLabel → 200（現狀不退）", async () => {
+    const { app, db, cookie, userId } = await signedInApp({ mustChangePassword: true });
+    const [row] = await db
+      .insert(apiTokens)
+      .values({ userId, kind: "pat", name: "p", scope: "notes:read", accessTokenHash: "9".repeat(64), accessExpiresAt: null })
+      .returning();
+    const denied = await patch(app, cookie, row!.id, { scope: RWM });
+    expect(denied.statusCode).toBe(403);
+    expect(denied.json().error.code).toBe("forbidden");
+    const [after] = await db.select().from(apiTokens).where(eq(apiTokens.id, row!.id));
+    expect(after!.scope).toBe("notes:read");
+    expect((await patch(app, cookie, row!.id, { agentLabel: "bot" })).statusCode).toBe(200);
+  });
+  it("mustChangePassword 的 403 擋在節流之前：桶只剩 1 次，連送兩次帶 scope 都是 403，之後純改名仍 200", async () => {
+    const { app, db, cookie, userId } = await signedInApp({
+      mustChangePassword: true,
+      overrides: { limiters: freshLimiters({ tokenRename: new FixedWindowLimiter({ limit: 1, windowMs: 60_000 }) }) },
+    });
+    const [row] = await db
+      .insert(apiTokens)
+      .values({ userId, kind: "pat", name: "p", scope: "notes:read", accessTokenHash: "8".repeat(64), accessExpiresAt: null })
+      .returning();
+    expect((await patch(app, cookie, row!.id, { scope: RWM })).statusCode).toBe(403);
+    expect((await patch(app, cookie, row!.id, { scope: RWM })).statusCode).toBe(403);
+    expect((await patch(app, cookie, row!.id, { agentLabel: "bot" })).statusCode).toBe(200);
+  });
+  it("改完下一個請求生效：同一支 token 的 tools/list 6 ↔ 7（buildTestApp 無共編，spec §7.1）", async () => {
+    const { app, cookie } = await signedInApp();
+    const created = (await create(app, cookie, { name: "live", scope: "notes:read notes:write", expiresInDays: null })).json();
+    const count = async () => ((await mcpPost(app, rpc("tools/list"), { token: created.token })).json().result.tools as unknown[]).length;
+    expect(await count()).toBe(6);
+    await patch(app, cookie, created.id, { scope: RWM });
+    expect(await count()).toBe(7);
+    await patch(app, cookie, created.id, { scope: "notes:read notes:write" });
+    expect(await count()).toBe(6);
   });
 });

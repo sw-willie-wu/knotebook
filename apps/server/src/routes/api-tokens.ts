@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { and, desc, eq } from "drizzle-orm";
-import { normalizeScope, type ApiTokenDto, type CreatedApiTokenDto } from "@knotebook/shared";
+import { normalizeScope, TOKEN_SCOPES, type ApiTokenDto, type CreatedApiTokenDto } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
 import { apiTokens } from "../db/schema.js";
 import { sendError } from "../http/errors.js";
@@ -14,22 +14,27 @@ import { countBillableGrants, TOKEN_LIMIT_PER_USER } from "../auth/grant-quota.j
 
 const createBodySchema = z.object({
   name: z.string().trim().min(1).max(64),
-  /** UI 的兩檔；落庫前一律過 `normalizeScope` 轉成集合形。 */
-  scope: z.enum(["notes:read", "notes:write"]),
+  /** 三種落庫形；"notes:write" 是升版前 SPA 的值，保留為別名（spec §6.1）。落庫前一律 normalizeScope。 */
+  scope: z.enum([...TOKEN_SCOPES, "notes:write"]),
   expiresInDays: z.union([z.literal(30), z.literal(90), z.literal(365), z.null()]),
 });
 
-/** #106 D7：改 agent 名稱。`null`＝清掉覆寫、回到派生值。不變量 S：`AGENT_LABEL_RE`
- * 本身就擋掉 NUL 與空字串，所以不需要 `.refine`；若日後加了，順序照 Global Constraints
- * （`.refine()` 一律排在 `.regex()`／`.max()` 之後，見 routes/notes.ts 的 contentQuerySchema 旁註解）。 */
-const patchBodySchema = z.object({ agentLabel: z.string().regex(AGENT_LABEL_RE).nullable() }).strict();
+/** #106 D7＋#239：`agentLabel`（改 agent 名稱；`null`＝清掉覆寫、回到派生值）與 `scope`（三種落庫形之一，
+ * 不收 `"notes:write"` 別名——別名只開在 POST），兩鍵至少給一個。不變量 S：`AGENT_LABEL_RE` 本身就擋掉 NUL
+ * 與空字串，所以欄位層不需要 `.refine`；物件層「至少一鍵」的 `.refine` 排在欄位驗證之後
+ * （順序照 Global Constraints：`.refine()` 一律排在 `.regex()`／`.max()` 之後，見 routes/notes.ts 的
+ * contentQuerySchema 旁註解）。 */
+const patchBodySchema = z
+  .object({ agentLabel: z.string().regex(AGENT_LABEL_RE).nullable().optional(), scope: z.enum(TOKEN_SCOPES).optional() })
+  .strict()
+  .refine(b => b.agentLabel !== undefined || b.scope !== undefined);
 
 function toDto(row: typeof apiTokens.$inferSelect): ApiTokenDto {
   return {
     id: row.id,
     // kind 只 cast（CHECK 只有兩值，沒有正規化的需求）；scope 走 normalizeScope 讓
-    // CHECK 漂移時退化成唯讀（fail-closed）——代價是未來若加第三個 scope，這裡會
-    // 靜默少報落庫值，屆時要一起改。
+    // CHECK 漂移時退化成不大於原值的合法形（fail-closed）。normalizeScope 對三種合法落庫形
+    // （TOKEN_SCOPES）恆等，所以正常情況下這裡回的就是 DB 的值。
     kind: row.kind as ApiTokenDto["kind"],
     name: row.name,
     // D7：欄位有值＝使用者改過的名字，NULL＝回派生值（`agentLabelOf` 是唯一現值運算式）。
@@ -49,8 +54,9 @@ export interface ApiTokensRouteDeps {
 
 /**
  * PAT 管理端點。**一律 cookie session 專用**（`app.authenticate`，不是
- * `authenticateAny`）——token 不能拿來簽發或撤銷 token，否則一支外洩的 token 就能
- * 自我延續，D2「最壞情況只是筆記被讀寫」的邊界就破了。
+ * `authenticateAny`）——token 不能拿來簽發、改權限或撤銷 token，否則一支外洩的 token 就能
+ * 自我延續，D2「最壞情況只是筆記被讀寫」的邊界就破了。#239 起 PATCH 能改 `scope`：
+ * 若 Bearer 打得到它，外洩的讀寫 token 就能替自己升成搬移。
  *
  * 列表**同時列出 OAuth grant**（#132 之後才會有）：使用者只有這一個地方能看到與
  * 撤銷所有憑證，兩種來源共用同一份 UI。
@@ -108,28 +114,46 @@ export function apiTokensRoutes(deps: ApiTokensRouteDeps) {
     });
 
     /**
-     * `PATCH /api/auth/tokens/:id`（#106 D7）——改這個憑證的 agent 顯示名稱。
+     * `PATCH /api/auth/tokens/:id`（#106 D7）——改這個憑證的 agent 顯示名稱，或（#239）調整 `scope`。
      *
-     * 順序：格式（不變量 S：uuid → body）→ 節流 → 單語句 UPDATE。⚠ 與 DELETE（完全不節流）
+     * 順序：格式（不變量 S：uuid → body）→（帶 `scope` 時）mustChangePassword 403（不吃節流額度）→
+     * 節流 → 單語句 UPDATE。⚠ 與 DELETE（完全不節流）
      * 及 `POST /api/notes`（`role === "none"` 明文不啃桶）不同，這裡節流排在 UPDATE **之前**
      * 且不看結果──改別人的／不存在的 token 那個 404 一樣會先吃掉一次 `TOKEN_RENAME_LIMIT`
      * 額度（格式錯在 400 那關就擋掉，不會）。`AND user_id=$me` 讓
      * 「別人的 token」與「不存在」同形 404（同 DELETE 的 D9 紀律）。`agentLabel: null`
      * ＝**把欄位清成 NULL**，不是把當下的派生值寫進去——回應仍是派生值，兩者只有直接看
      * 欄位才分得出來（守衛：api-tokens.test.ts 第 2 案的 `.toBeNull()`）。
+     *
+     * #239：body 可帶 `scope`（三種落庫形之一，spec §6.2）——**可升可降**，PAT 與 oauth 列皆可，
+     * 不看 client 原本要求過什麼。下一個請求生效：`authenticateAny` 每請求查表、MCP 每請求依 scope
+     * 註冊工具；`refresh` 輪替只換 token 與 access 到期時間、不碰 `scope`，所以降權不會被下一次 refresh 洗回去。
+     * 帶 `scope` 且 `mustChangePassword` → 403（比照 POST）；純改名不擋（維持現狀）。
+     * 兩個欄位都給時一起寫、同一語句。
      */
     app.patch("/api/auth/tokens/:id", { preHandler: app.authenticate }, async (request, reply) => {
       const { id } = request.params as { id: string };
       // 同 DELETE：非 uuid 直接 404——丟給 pg 會是 22P02，經全域 error handler 冒成 500。
       if (!UUID_RE.test(id)) return sendError(reply, 404, "token_not_found", "找不到此 token");
       const parsed = patchBodySchema.safeParse(request.body ?? {});
-      if (!parsed.success) return sendError(reply, 400, "invalid_body", "agentLabel 格式錯誤");
-      if (!deps.limiters.tokenRename.consume(request.user!.id)) {
-        return sendError(reply, 429, "too_many_requests", "改名過於頻繁");
+      if (!parsed.success) {
+        const field = parsed.error.issues[0]?.path[0];
+        const message = field === "agentLabel" ? "agentLabel 格式錯誤" : field === "scope" ? "scope 格式錯誤" : "請求格式錯誤";
+        return sendError(reply, 400, "invalid_body", message);
       }
+      // 擋在節流之前（比照 POST）：被擋下的請求不吃額度。
+      if (parsed.data.scope !== undefined && request.user!.mustChangePassword) {
+        return sendError(reply, 403, "forbidden", "請先修改密碼");
+      }
+      if (!deps.limiters.tokenRename.consume(request.user!.id)) {
+        return sendError(reply, 429, "too_many_requests", "修改過於頻繁");
+      }
+      const set: Partial<typeof apiTokens.$inferInsert> = {};
+      if (parsed.data.agentLabel !== undefined) set.agentLabel = parsed.data.agentLabel;
+      if (parsed.data.scope !== undefined) set.scope = parsed.data.scope;
       const [row] = await deps.db
         .update(apiTokens)
-        .set({ agentLabel: parsed.data.agentLabel })
+        .set(set)
         .where(and(eq(apiTokens.id, id), eq(apiTokens.userId, request.user!.id)))
         .returning();
       if (!row) return sendError(reply, 404, "token_not_found", "找不到此 token");

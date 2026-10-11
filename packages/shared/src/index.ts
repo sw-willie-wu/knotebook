@@ -848,13 +848,23 @@ export function publicAliasPath(ref: { handle: string; slug: string }): string {
 export const EMPTY_YDOC_UPDATE_B64 = "AAA=";
 
 /**
- * #107：API token 的 scope。**是集合不是單值**——OAuth 的 scope 參數是空白分隔的
- * 集合，且「write 涵蓋 read」，所以落庫形只有兩種：只讀，或讀寫（write 一定把 read
- * 顯式寫進字串，讓 DB CHECK、token 回應 body、設定頁三處看到同一個值）。
+ * #107／#239：API token 的 scope。**是集合不是單值**——OAuth 的 scope 參數是空白分隔的
+ * 集合，且「write 涵蓋 read」，所以落庫形是一條鏈、共三種：只讀、讀寫、讀寫加搬移
+ * （write 一定把 read 顯式寫進字串，move 一定帶著 write，讓 DB CHECK、token 回應 body、
+ * 設定頁三處看到同一個值）。順序即權限由小到大——`narrowerScope` 靠索引取較小者。
+ * DB 三條 `scope` CHECK、zod enum 都以這份為準（`scope-check-sync.test.ts` 守 CHECK）。
  */
-export type TokenScope = "notes:read" | "notes:read notes:write";
+export const TOKEN_SCOPES = ["notes:read", "notes:read notes:write", "notes:read notes:write notes:move"] as const;
+export type TokenScope = (typeof TOKEN_SCOPES)[number];
 
-/** 路由宣告「這個操作至少需要什麼」時用的單值，與落庫形（集合）刻意不同型別。 */
+/** 單一 scope 名（`hasScope` 的第二參數）。 */
+export type ScopeName = "notes:read" | "notes:write" | "notes:move";
+
+/**
+ * 路由宣告「這個操作至少需要什麼」時用的單值，與落庫形（集合）刻意不同型別。
+ * 刻意不含 `notes:move`：`bearer.ts` 的扣桶只分 write／其他，搬移不是路由層的 scope 門檻
+ * （由 MCP 的 `canMoveNotes`／`requireMoveScope` 在工具層判定）。
+ */
 export type RequiredScope = "notes:read" | "notes:write";
 
 /**
@@ -875,28 +885,42 @@ export type RequiredScope = "notes:read" | "notes:write";
  *
  * 回應裡的 `scope` 一律是這個函式的輸出（我們實際授予的集合），被忽略的值不回聲；
  * client 依 RFC 6749 §5.1 應以回應為準。
+ *
+ * **要 `notes:move` 不要 `notes:write` → 丟掉 move、給 `notes:read`**（fail-closed）：
+ * 1. 自動補 `notes:write` ＝授予沒要求的寫入權（scope 放大）；
+ * 2. `notes:read notes:move` 不是合法落庫形（DB CHECK 拒）；
+ * 3. 回 `invalid_scope`（null）會破壞上面「永不回 null」的契約；RFC 6749 §3.3 允許 AS 部分忽略。
+ *
+ * 對三種合法落庫形恆等（`bearer.ts`、`api-tokens.ts` 拿它讀 DB 值，不必另判）。
  */
 export function normalizeScope(input: string | null | undefined): TokenScope {
-  // 只需要知道有沒有要求 write——read 在兩種落庫形裡都有，不必另外判斷。
-  return (input ?? "").split(" ").includes("notes:write") ? "notes:read notes:write" : "notes:read";
+  const parts = (input ?? "").split(" ");
+  // read 在三種落庫形裡都有，不必另外判斷；move 只在同時有 write 時才算數。
+  if (!parts.includes("notes:write")) return "notes:read";
+  return parts.includes("notes:move") ? "notes:read notes:write notes:move" : "notes:read notes:write";
+}
+
+/**
+ * 兩個落庫形中較小者（三形是鏈，取索引小者）。不在三形內的值視為 `notes:read`——
+ * 輸入來自 `text` 欄位的 `as TokenScope` 斷言，不得把垃圾字串原樣傳回去。
+ */
+export function narrowerScope(a: TokenScope, b: TokenScope): TokenScope {
+  const rank = (s: TokenScope): number => Math.max(0, TOKEN_SCOPES.indexOf(s));
+  return TOKEN_SCOPES[Math.min(rank(a), rank(b))]!;
 }
 
 /**
  * 落庫的 scope 集合是否涵蓋這個操作所需的權限。
  *
  * 用**成員判定**，不是「`required === "notes:read"` 恆真 ‖ `stored` 整串等於讀寫形」
- * 那種寫死的階層判斷。兩者在**合法**的兩種落庫形上答案完全相同——`scope` 欄有
- * `CHECK (scope in ('notes:read','notes:read notes:write'))`，連 psql 直插都繞不過去，
- * 所以這不是在修一個現在會發生的 bug。差別在**不依賴那條 CHECK**：這支函式是授權
+ * 那種寫死的階層判斷：後者遇到第三形（讀寫搬移）會把 write 判成沒有。這支函式是授權
  * 判定的最後一關，而它拿到的 `stored` 來自 `text` 欄位、型別是靠 `as TokenScope`
- * 斷言來的。萬一哪天 CHECK 被放寬、或多一種落庫形（例如未來加第三個 scope），
- * 字面相等會把讀寫 token 靜默降成唯讀——失敗形態是「功能莫名其妙壞掉」，很難查；
- * 成員判定則自然涵蓋。
+ * 斷言來的，所以也不依賴 `scope` 欄的 CHECK。
  *
  * 守衛見 `apps/server/test/unit/shared-scope.test.ts`：帶 cast 的漂移案會讓字面
  * 相等版本紅掉。
  */
-export function hasScope(stored: TokenScope, required: RequiredScope): boolean {
+export function hasScope(stored: TokenScope, required: ScopeName): boolean {
   return stored.split(" ").includes(required);
 }
 
@@ -931,8 +955,13 @@ export interface OauthRequestDto {
   scope: TokenScope;
   /** `scope` 拆成單值陣列，供同意頁逐條列出人話說明。 */
   scopes: string[];
-  /** 呼叫者本人已有同 client 的 oauth grant（I7 會取代它）。 */
+  /** 呼叫者本人已有同 client 的 oauth grant（I7 會取代它）。恆等於 `existingScope !== null`。 */
   replacesExisting: boolean;
+  /**
+   * #239：呼叫者本人同 client 的 oauth grant 目前的 scope；無則 `null`。載入當下的快照，
+   * 只給同意頁當預設勾選——server 授予值不依賴它。
+   */
+  existingScope: TokenScope | null;
 }
 
 /**

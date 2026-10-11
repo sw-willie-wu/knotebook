@@ -17,7 +17,7 @@ import { NOTE_NOT_FOUND_MESSAGE } from "../note-read.js";
 import { rereadVisibleNote } from "../note-rows.js";
 import { toolError, toolResult } from "../tool-result.js";
 import { GROUP_NO_CREATE_MESSAGE } from "../write-messages.js";
-import { requireWriteScope } from "../write-scope.js";
+import { requireMoveScope } from "../write-scope.js";
 import type { McpToolCtx } from "../context.js";
 
 export const MOVE_NOTE_TO_GROUP_DESCRIPTION =
@@ -40,6 +40,11 @@ export const MOVE_FORBIDDEN_MESSAGE =
   "Only the owner of a personal note can move it into a group; this note is someone else's, or it is already in a group.";
 export const MOVE_CONFLICT_MESSAGE = "This note stopped being your personal note after your access was checked, so it was not moved.";
 export const MOVE_BUSY_MESSAGE = "The server was busy, so the note was not moved. Try again in a moment.";
+/** spec §7.5(e)，273 字元。HTTP 上是死碼（沒 notes:move 時這支不註冊；唯一的守衛＝`test/unit/mcp-write-scope.test.ts` 的 #239 U3）。 */
+export const MOVE_NEEDS_MOVE_MESSAGE =
+  "Moving a note into a group needs the notes:move scope, and this credential doesn't have it, so nothing was moved. " +
+  'Ask the user to create a token with "Create and edit notes" and "Move or copy notes into groups" ticked in ' +
+  "Settings → Account → API tokens and connect with it.";
 const MOVE_QUOTA_HIDDEN_MESSAGE =
   "The group's storage space has no room for this note's images, so the note was not moved. Ask a site admin for more space.";
 
@@ -57,7 +62,7 @@ export interface MoveNoteToGroupArgs {
 }
 
 export async function moveNoteToGroupTool(args: MoveNoteToGroupArgs, ctx: McpToolCtx): Promise<CallToolResult> {
-  const denied = requireWriteScope(ctx);
+  const denied = requireMoveScope(ctx, MOVE_NEEDS_MOVE_MESSAGE);
   if (denied !== null) return denied;
   const out = await moveNoteToGroup(
     { db: ctx.db, collabHooks: ctx.collabHooks, versions: ctx.versions, storageLockTimeoutMs: ctx.storageLockTimeoutMs, groupTestHook: ctx.groupTestHook },

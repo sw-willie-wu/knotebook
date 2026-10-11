@@ -19,7 +19,7 @@ describe("OAuth 元資料端點（§5.1）", () => {
       // 絕對值：自我參照的斷言擋不住 `.href` 突變（尾斜線會一路傳遞而處處自洽）
       expect(body.resource).toBe(`${testConfig.publicUrl.origin}/api/mcp`);
       expect(body.authorization_servers).toEqual([testConfig.publicUrl.origin]);
-      expect(body.scopes_supported).toEqual(["notes:read", "notes:write"]);
+      expect(body.scopes_supported).toEqual(["notes:read", "notes:write", "notes:move"]);
       expect(body.bearer_methods_supported).toEqual(["header"]);
       expect(body.resource_name).toBe("Knotebook");
     } finally {
@@ -36,7 +36,7 @@ describe("OAuth 元資料端點（§5.1）", () => {
       expect(res.headers["cache-control"]).toBe("public, max-age=3600");
       // 絕對值，理由同 PRM 案
       expect(body.issuer).toBe(testConfig.publicUrl.origin);
-      expect(body.scopes_supported).toEqual(["notes:read", "notes:write"]);
+      expect(body.scopes_supported).toEqual(["notes:read", "notes:write", "notes:move"]);
       expect(body.authorization_endpoint).toBe(`${body.issuer}/oauth/authorize`);
       expect(body.token_endpoint).toBe(`${body.issuer}/oauth/token`);
       expect(body.registration_endpoint).toBe(`${body.issuer}/oauth/register`);

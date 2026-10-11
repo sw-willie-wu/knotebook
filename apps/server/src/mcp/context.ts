@@ -63,7 +63,8 @@ export interface McpToolCtx {
    * 四支唯讀工具不讀這兩欄（它們都只要 `notes:read`，而 L1 的 `authenticateAny` 已經保證
    * 到得了這裡的憑證至少有它）。**消費端是 `mcp/write-scope.ts`**（規格 §10.2 D23／M13）：
    * `canWriteNotes(...)` 拿它們判有沒有 `notes:write`（`register.ts` 的註冊時過濾、
-   * `routes/mcp.ts` 挑 per-request `instructions`、`requireWriteScope` 三處共用同一份判準），
+   * `routes/mcp.ts` 挑 per-request `instructions`、`requireWriteScope` 三處共用同一份判準；#239 起
+   * `canMoveNotes(...)`／`requireMoveScope` 也拿它們判有沒有 `notes:move`），
    * `authKind === "session"` 則整條跳過 scope 檢查與 token 桶。
    */
   authKind: "token" | "session";

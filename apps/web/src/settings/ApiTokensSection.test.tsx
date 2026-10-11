@@ -161,6 +161,11 @@ describe("ApiTokensSection", () => {
         : null
     );
     fireEvent.click(await screen.findByRole("button", { name: i18n.t("settings.account.apiTokensCreate") }));
+    // #239 W7'：兩個勾選框預設都不勾，且都在「Access」那一組裡。
+    const access = screen.getByRole("group", { name: i18n.t("settings.account.apiTokensScopeLabel") });
+    expect(within(access).getByRole("checkbox", { name: i18n.t("settings.account.apiTokensScopeEdit") })).not.toBeChecked();
+    expect(within(access).getByRole("checkbox", { name: i18n.t("settings.account.apiTokensScopeMove") })).not.toBeChecked();
+    expect(within(access).getByText(i18n.t("settings.account.apiTokensScopeReadFixed"))).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText(i18n.t("settings.account.apiTokensNameLabel")), { target: { value: "D" } });
     fireEvent.click(screen.getByRole("button", { name: i18n.t("settings.account.apiTokensSubmit") }));
     await screen.findByLabelText(i18n.t("settings.account.apiTokensValueLabel"));
@@ -197,6 +202,15 @@ describe("ApiTokensSection", () => {
     expect(within(readLi).queryByText(new RegExp(i18n.t("settings.account.apiTokensScopeWrite")))).not.toBeInTheDocument();
   });
 
+  it("列表：第三形（讀寫搬移）的列顯示 apiTokensScopeWriteMove（#239）", async () => {
+    const moveRow: ApiTokenDto = { ...PAT_ROW, id: "t-m", name: "Mover", scope: "notes:read notes:write notes:move" };
+    renderSettings(PASSWORD_USER, [moveRow, PAT_ROW]);
+    const moveLi = (await screen.findByText("Mover")).closest("li")!;
+    const writeLi = screen.getByText("Script").closest("li")!;
+    expect(within(moveLi).getByText(new RegExp(i18n.t("settings.account.apiTokensScopeWriteMove")))).toBeInTheDocument();
+    expect(within(writeLi).queryByText(new RegExp(i18n.t("settings.account.apiTokensScopeWriteMove")))).not.toBeInTheDocument();
+  });
+
   it("列表：過期的列標示 Expired，不到期的列標示 No expiry", async () => {
     const expiredRow: ApiTokenDto = { ...PAT_ROW, id: "t-exp", name: "Old", expiresAt: "2020-01-01T00:00:00.000Z" };
     renderSettings(PASSWORD_USER, [PAT_ROW, expiredRow]);
@@ -213,7 +227,7 @@ describe("ApiTokensSection", () => {
     );
     fireEvent.click(await screen.findByRole("button", { name: i18n.t("settings.account.apiTokensCreate") }));
     fireEvent.change(screen.getByLabelText(i18n.t("settings.account.apiTokensNameLabel")), { target: { value: "New" } });
-    fireEvent.change(screen.getByLabelText(i18n.t("settings.account.apiTokensScopeLabel")), { target: { value: "notes:write" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: i18n.t("settings.account.apiTokensScopeEdit") }));
     fireEvent.change(screen.getByLabelText(i18n.t("settings.account.apiTokensExpiryLabel")), { target: { value: "90" } });
     fireEvent.click(screen.getByRole("button", { name: i18n.t("settings.account.apiTokensSubmit") }));
 
@@ -221,10 +235,63 @@ describe("ApiTokensSection", () => {
     expect(field).toHaveValue(created.token);
     expect(screen.getByText(i18n.t("settings.account.apiTokensOnceWarning"))).toBeInTheDocument();
     const post = calls.find(c => c.url === "/api/auth/tokens" && c.method === "POST");
-    expect(post?.body).toEqual({ name: "New", scope: "notes:write", expiresInDays: 90 });
+    expect(post?.body).toEqual({ name: "New", scope: "notes:read notes:write", expiresInDays: 90 });
     await waitFor(() => {
       expect(calls.filter(c => c.url === "/api/auth/tokens" && c.method === "GET").length).toBeGreaterThan(1);
     });
+  });
+
+  it("建立：勾選後關掉對話框再重開 → 兩框回到未勾（reset 一併重設，#239）", async () => {
+    renderSettings(PASSWORD_USER, []);
+    fireEvent.click(await screen.findByRole("button", { name: i18n.t("settings.account.apiTokensCreate") }));
+    fireEvent.click(screen.getByRole("checkbox", { name: i18n.t("settings.account.apiTokensScopeEdit") }));
+    fireEvent.click(screen.getByRole("checkbox", { name: i18n.t("settings.account.apiTokensScopeMove") }));
+    const nameLabel = i18n.t("settings.account.apiTokensNameLabel");
+    fireEvent.keyDown(screen.getByLabelText(nameLabel), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByLabelText(nameLabel)).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("settings.account.apiTokensCreate") }));
+    expect(screen.getByRole("checkbox", { name: i18n.t("settings.account.apiTokensScopeEdit") })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: i18n.t("settings.account.apiTokensScopeMove") })).not.toBeChecked();
+  });
+
+  it("建立：勾編輯與搬移 → 送第三形（#239）", async () => {
+    const created = { ...PAT_ROW, id: "t-m", name: "M", token: "knb_" + "m".repeat(43) };
+    const { calls } = renderSettings(PASSWORD_USER, [], (url, method) =>
+      url === "/api/auth/tokens" && method === "POST"
+        ? fakeResponse({ ok: true, status: 201, json: () => Promise.resolve(created) })
+        : null
+    );
+    fireEvent.click(await screen.findByRole("button", { name: i18n.t("settings.account.apiTokensCreate") }));
+    fireEvent.change(screen.getByLabelText(i18n.t("settings.account.apiTokensNameLabel")), { target: { value: "M" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: i18n.t("settings.account.apiTokensScopeEdit") }));
+    fireEvent.click(screen.getByRole("checkbox", { name: i18n.t("settings.account.apiTokensScopeMove") }));
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("settings.account.apiTokensSubmit") }));
+    await screen.findByLabelText(i18n.t("settings.account.apiTokensValueLabel"));
+    const post = calls.find(c => c.url === "/api/auth/tokens" && c.method === "POST");
+    expect(post?.body).toEqual({ name: "M", scope: "notes:read notes:write notes:move", expiresInDays: null });
+  });
+
+  it("建立：勾編輯→勾搬移→取消編輯 → 搬移 disabled 且清掉，送 notes:read（#239）", async () => {
+    const created = { ...PAT_ROW, id: "t-u", name: "U", token: "knb_" + "u".repeat(43) };
+    const { calls } = renderSettings(PASSWORD_USER, [], (url, method) =>
+      url === "/api/auth/tokens" && method === "POST"
+        ? fakeResponse({ ok: true, status: 201, json: () => Promise.resolve(created) })
+        : null
+    );
+    fireEvent.click(await screen.findByRole("button", { name: i18n.t("settings.account.apiTokensCreate") }));
+    fireEvent.change(screen.getByLabelText(i18n.t("settings.account.apiTokensNameLabel")), { target: { value: "U" } });
+    const edit = screen.getByRole("checkbox", { name: i18n.t("settings.account.apiTokensScopeEdit") });
+    const move = screen.getByRole("checkbox", { name: i18n.t("settings.account.apiTokensScopeMove") });
+    fireEvent.click(edit);
+    fireEvent.click(move);
+    expect(move).toBeChecked();
+    fireEvent.click(edit);
+    expect(move).toBeDisabled();
+    expect(move).not.toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("settings.account.apiTokensSubmit") }));
+    await screen.findByLabelText(i18n.t("settings.account.apiTokensValueLabel"));
+    const post = calls.find(c => c.url === "/api/auth/tokens" && c.method === "POST");
+    expect(post?.body).toEqual({ name: "U", scope: "notes:read", expiresInDays: null });
   });
 
   it("建立失敗（409 token_limit）→ 停留在表單並 toast 錯誤，不顯示明文欄", async () => {

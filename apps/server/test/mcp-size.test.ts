@@ -80,6 +80,11 @@ export const MCP_MAX_WIRE = 262_144;
  * Task 5 複量（2026-10-10，rebase 到 main @ f3017a7 之後）：讀寫憑證十支 W' ＝ 29 437（唯讀六支對照組 15 383），與整合分支上的實測相同；
  * 依原配方重推仍是 29 696 × 1.3 ＝ 38 604.8 → 38 700，門檻不動。
  *
+ * **#239（2026-10-11，feat/239-notes-move-scope，Task 2 的改動（Task 1 之上））：被測改讀寫搬移憑證**（`move_note_to_group` 只在
+ * notes:move 時註冊，讀寫憑證的 `copy_note` 換短版說明）。實測讀寫搬移十支 wire ＝ 29 437（與 #180＋#200 PR2 的讀寫十支同值——集合與字串皆同）、
+ * 讀寫九支對照組 26 930、唯讀六支對照組 15 383。最壞情形仍是 29 437，依原配方重推 29 696 × 1.3 ＝ 38 604.8 → 38 700，門檻不動。
+ * 合流複量（2026-10-11，rebase 到 main @ 666dbd6——#241 全面 `.strict()` 之後）：三個數字逐一相同（29 437／26 930／15 383），門檻不動。
+ *
  * 最近一次依原配方重訂：2026-10-10（#180＋#200 PR2，見上；前一次 2026-10-08 是 #200 PR1）；下次逼近時同樣回頭重訂連同推導，不是逕自調大。
  *
  * **什麼樣的迴歸會撞牆**（**突變實跑，2026-09-09**）：把 `edit_note` 的 `if_match`
@@ -170,10 +175,13 @@ describe("#108 tools/list 的脈絡成本（案 11b）", () => {
   // PR1 量的是唯讀憑證（四支工具）；PR2 起讀寫憑證（六支工具）才是最壞情形——`edit_note`／
   // `create_note` 的 input／output schema 一起進脈絡。本案改打讀寫憑證，唯讀憑證只當對照
   // 一起印出來，門檻只釘在讀寫憑證那個數字上。
-  it("讀寫憑證的 tools/list 完整 wire 回應 ≤ N_LIST_MAX（唯讀憑證當對照）", async () => {
+  // #239（spec §7.6）：最壞情形換成**讀寫搬移**憑證（十支；`move_note_to_group` 只在 notes:move 時註冊，
+  // `copy_note` 的說明是長版）——被測改它；讀寫（九支）與唯讀（六支）一起印出來當對照，門檻只釘在讀寫搬移那個數字上。
+  it("讀寫搬移憑證的 tools/list 完整 wire 回應 ≤ N_LIST_MAX（讀寫、唯讀憑證當對照）", async () => {
     const ctx = await buildCollabTestApp();
     const o = await owner(ctx);
     const { token: rwToken } = await seedTokenForUser(ctx.db, o.id, "notes:read notes:write");
+    const { token: rwmToken } = await seedTokenForUser(ctx.db, o.id, "notes:read notes:write notes:move");
 
     const roRes = await mcpPost(ctx.app, rpc("tools/list"), { token: o.token });
     expect(roRes.statusCode).toBe(200);
@@ -182,14 +190,19 @@ describe("#108 tools/list 的脈絡成本（案 11b）", () => {
 
     const rwRes = await mcpPost(ctx.app, rpc("tools/list"), { token: rwToken });
     expect(rwRes.statusCode).toBe(200);
-    expect((rwRes.json().result.tools as unknown[]).length).toBe(10);
+    expect((rwRes.json().result.tools as unknown[]).length).toBe(9);
     const rwWire = rwRes.body.length;
 
+    const rwmRes = await mcpPost(ctx.app, rpc("tools/list"), { token: rwmToken });
+    expect(rwmRes.statusCode).toBe(200);
+    expect((rwmRes.json().result.tools as unknown[]).length).toBe(10);
+    const rwmWire = rwmRes.body.length;
+
     console.log(
-      `[案 11b] tools/list  唯讀憑證（六支，對照）wire=${roWire}  讀寫憑證（十支，被測）wire=${rwWire}  ` +
-        `門檻=${N_LIST_MAX}  用掉 ${((rwWire / N_LIST_MAX) * 100).toFixed(1)}%`
+      `[案 11b] tools/list  唯讀憑證（六支，對照）wire=${roWire}  讀寫憑證（九支，對照）wire=${rwWire}  ` +
+        `讀寫搬移憑證（十支，被測）wire=${rwmWire}  門檻=${N_LIST_MAX}  用掉 ${((rwmWire / N_LIST_MAX) * 100).toFixed(1)}%`
     );
-    expect(rwWire).toBeLessThanOrEqual(N_LIST_MAX);
+    expect(rwmWire).toBeLessThanOrEqual(N_LIST_MAX);
   });
 });
 
@@ -235,8 +248,10 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
     // #180 §9-6：copy_note 的最壞形＝副本 title 截斷＋titleTruncated（同 create_note）；來源就是這篇 260 000 字元標題的筆記。
     await callWire(ctx.app, rwToken, "(i) copy_note", "copy_note", { note_id: note.id });
     // #180 §9-6：move_note_to_group 的最壞形＝搬後 title 截斷＋群組 owner。先建一個群組，把這篇病態筆記搬進去。
+    // #239：move_note_to_group 只在 notes:move 時註冊——這一發改用讀寫搬移憑證（callWire 斷 isError 為 undefined）。
     const mg = await seedGroup(ctx.db, "Move target", [{ userId: o.id, role: "admin" }]);
-    await callWire(ctx.app, rwToken, "(i) move_note_to_group", "move_note_to_group", { note_id: note.id, group_id: mg.id });
+    const { token: rwmToken } = await seedTokenForUser(ctx.db, o.id, "notes:read notes:write notes:move");
+    await callWire(ctx.app, rwmToken, "(i) move_note_to_group", "move_note_to_group", { note_id: note.id, group_id: mg.id });
     // #180 §9-6／R9：rename 的最壞形＝回應 `title` 被截到逃脫後 200 ＋ titleTruncated（鏡像兩份），標題同樣 260 000 字元。
     // 擺在 (i) 最後：它會真的改標題（後面的量測若接在它之後，請排在它前面——copy／move 已排在這行之前）。
     await callWire(ctx.app, rwToken, "(i) edit_note rename", "edit_note", { note_id: note.id, op: "rename", title: `R${"i".repeat(259_999)}` });

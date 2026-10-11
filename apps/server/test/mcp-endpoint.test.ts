@@ -117,7 +117,7 @@ describe("#108 /api/mcp 傳輸層形狀", () => {
     const res = await mcpRequest(app, "GET");
     expect(res.statusCode).toBe(401);
     const challenge = res.headers["www-authenticate"] as string;
-    expect(challenge).toContain(`scope="notes:read notes:write"`);
+    expect(challenge).toContain(`scope="notes:read notes:write notes:move"`);
     expect(challenge).toContain(`resource_metadata="${ISSUER}/.well-known/oauth-protected-resource/api/mcp"`);
   });
 

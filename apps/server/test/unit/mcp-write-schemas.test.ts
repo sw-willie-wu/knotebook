@@ -17,7 +17,7 @@ import { z } from "zod";
 import { createBodySchema, editBodySchema, FP, GROUP_ID, MD, NOTE_ID, NUL, SEC, TITLE, updateBodyObject } from "../../src/notes/schemas.js";
 import { editNoteInput, mcpEditBodySchema } from "../../src/mcp/tools/edit-note.js";
 import { createNoteInput } from "../../src/mcp/tools/create-note.js";
-import { copyNoteInput } from "../../src/mcp/tools/copy-note.js";
+import { COPY_GROUP_ID_DESCRIBE_NO_MOVE, copyNoteInput, copyNoteInputNoMove } from "../../src/mcp/tools/copy-note.js";
 import { moveNoteToGroupInput } from "../../src/mcp/tools/move-note-to-group.js";
 import { readNoteSectionOutput } from "../../src/mcp/tools/read-note-section.js";
 
@@ -168,6 +168,13 @@ describe("#180 U2-c：copy_note 的輸入與 notes/schemas.ts 同源", () => {
     expectSameSchema(copyNoteInput.note_id, NOTE_ID);
     expectSameSchema(copyNoteInput.group_id, GROUP_ID);
     expect(copyNoteInput.group_id).toBeInstanceOf(z.ZodOptional);
+  });
+
+  it("#239：copyNoteInputNoMove.note_id ↔ NOTE_ID；.group_id（optional）↔ GROUP_ID，說明是無搬移版", () => {
+    expectSameSchema(copyNoteInputNoMove.note_id, NOTE_ID);
+    expectSameSchema(copyNoteInputNoMove.group_id, GROUP_ID);
+    expect(copyNoteInputNoMove.group_id).toBeInstanceOf(z.ZodOptional);
+    expect(copyNoteInputNoMove.group_id.description).toBe(COPY_GROUP_ID_DESCRIBE_NO_MOVE);
   });
 });
 

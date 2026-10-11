@@ -44,7 +44,8 @@ export const versionReadFailed = pkg.failed;
  * ⚠ **兩支尾巴是二選一，不是相加**（#108 D-Q）。讀寫那支實測 **969** 字元，餘裕 **31**
  * （#177：`cut at 200 characters` 改成 `cut at 200 characters as written in JSON` +19，刪「; each tool's `limit`
  * describes its own ceiling」−47；之前是 987；#180：five ops → six ops; all but append and rename +10）
- * （上限 1000；唯讀那支 867／餘裕 133——#175：`owner` 比 `ownerHandle` 短 6、可見性句改寫又省 1），追加第二段必破線；而唯讀憑證用不到寫入工具的說明，
+ * （上限 1000；唯讀那支 926／餘裕 74——#175：`owner` 比 `ownerHandle` 短 6、可見性句改寫又省 1，當時 867；#239：處置句改成
+ * 「建一支勾了 Create and edit notes 的 token 並用它連線」+59），追加第二段必破線；而唯讀憑證用不到寫入工具的說明，
  * 換成處置說明總長反而更短。⚠ **這個數字只有這裡一份**（#146：測試那邊原本也抄一份、已過期成
  * 「約 20」，現在改成指回本行）。餘裕從 40 掉到 17 是 #146 換掉最後一句的代價，同時把 BASE
  * 縮了 23 字元（`for one section's text`／刪 `Also,`／`a single response`）——**下次撞牆先縮字，
@@ -89,10 +90,15 @@ const WRITE_INSTRUCTIONS =
   "need `if_match`, the fingerprint of what you replace) and create_note makes a new one. " +
   "A successful write that changes a note's content is recorded, and can usually be undone.";
 
-/** 唯讀憑證的尾段——**刻意不提兩支寫入工具的名字**，只講怎麼取得寫入權。 */
+/**
+ * 唯讀憑證的尾段——**刻意不提寫入工具的名字**，只講怎麼取得寫入權。
+ * #239 spec §7.5(f)：處置是在設定頁建一支勾了編輯的 token、換用它連線（沒有原地升權的 UI）；引號內＝建立對話框的
+ * 勾選框字樣（spec §9.4 `settings.account.apiTokensScopeEdit`）。不提 `notes:move`（唯讀憑證沒有任何搬移相關工具）。
+ * 字面 `notes:write`、`Settings` 刻意保留（S3 斷這兩個字樣）。
+ */
 const READ_ONLY_INSTRUCTIONS =
   "This credential is read-only, so there are no tools here that change anything. To let it " +
-  "write, create a token with the notes:write scope in Settings → Account → API tokens.";
+  'write, ask the user to create a token with "Create and edit notes" (notes:write) ticked in Settings → Account → API tokens and connect with it.';
 
 /** 每發請求依憑證挑一支（`routes/mcp.ts` 用 `canWriteNotes(...)` 判，與註冊時過濾同一份判準）。 */
 export function mcpInstructions(canWrite: boolean): string {

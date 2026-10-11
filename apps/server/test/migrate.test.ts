@@ -12,7 +12,7 @@ import { apiTokens, authProviders, groupMembers, groupRoles, groups, noteRedirec
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
 /** drizzle 對 `schema.ts` 的序列化；宣告漂移守衛拿最新一支當比對基準（Task 14 rebase 後改成實際檔名）。 */
-const SNAPSHOT_FILE = "meta/0020_snapshot.json";
+const SNAPSHOT_FILE = "meta/0021_snapshot.json";
 const snapshotLatest = JSON.parse(readFileSync(path.join(drizzleDirForTest, SNAPSHOT_FILE), "utf8")) as {
   tables: Record<string, { checkConstraints?: Record<string, { name: string; value: string }> }>;
 };
@@ -2081,5 +2081,51 @@ describe("版本歷史 migration（spec 2026-10-09 §4、§11.4）", () => {
     expect((await pool.query(`select editors, name, base_seq from note_versions`)).rows).toEqual([{ editors: [], name: null, base_seq: null }]);
     await pool.query(`delete from notes where id = $1`, [noteId]);
     expect((await pool.query(`select count(*)::int as n from note_versions`)).rows).toEqual([{ n: 0 }]);
+  });
+});
+
+describe("0021_notes-move-scope（#239）", () => {
+  // 重編號時只改這一個字串：前一支用 journal 的相對位置取，不寫死前一支的 tag。
+  const TAG = "0021_notes-move-scope";
+  it("既有讀寫列原樣保留；三表都收第三形、拒 read＋move 與裸 move", async () => {
+    const { pool } = await freshEmptyDb();
+    await applyMigrationsThrough(pool, idxOfTag(TAG) - 1);
+    await pool.query(`insert into users (email, display_name) values ('m20@example.com','M')`);
+    const userId = (await pool.query(`select id from users limit 1`)).rows[0].id;
+    await pool.query(
+      `insert into api_tokens (user_id, kind, name, scope, access_token_hash) values ($1,'pat','n','notes:read notes:write','h-old')`,
+      [userId]
+    );
+    await applyMigrationsThrough(pool, idxOfTag(TAG), idxOfTag(TAG));
+    expect((await pool.query(`select scope from api_tokens where access_token_hash='h-old'`)).rows[0].scope).toBe("notes:read notes:write");
+
+    await pool.query(`insert into oauth_clients (client_id, client_name, redirect_uris) values ('c20','C','["http://127.0.0.1:1/cb"]'::jsonb)`);
+    const RWM = "notes:read notes:write notes:move";
+    await pool.query(`insert into api_tokens (user_id, kind, name, scope, access_token_hash) values ($1,'pat','n',$2,'h-new')`, [userId, RWM]);
+    await pool.query(
+      `insert into oauth_requests (id, client_id, redirect_uri, code_challenge, scope, expires_at) values ('r20','c20','http://127.0.0.1:1/cb','${"a".repeat(43)}',$1, now() + interval '1 minute')`,
+      [RWM]
+    );
+    await pool.query(
+      `insert into oauth_codes (code_hash, client_id, user_id, scope, redirect_uri, code_challenge, expires_at) values ('k20','c20',$1,$2,'http://127.0.0.1:1/cb','${"a".repeat(43)}', now() + interval '1 minute')`,
+      [userId, RWM]
+    );
+    for (const bad of ["notes:read notes:move", "notes:move"]) {
+      await expect(
+        pool.query(`insert into api_tokens (user_id, kind, name, scope, access_token_hash) values ($1,'pat','n',$2,$3)`, [userId, bad, `h-${bad}`])
+      ).rejects.toMatchObject({ code: "23514", constraint: "api_tokens_scope_chk" });
+      await expect(
+        pool.query(
+          `insert into oauth_requests (id, client_id, redirect_uri, code_challenge, scope, expires_at) values ($1,'c20','http://127.0.0.1:1/cb','${"a".repeat(43)}',$2, now() + interval '1 minute')`,
+          [`r-${bad}`, bad]
+        )
+      ).rejects.toMatchObject({ code: "23514", constraint: "oauth_requests_scope_chk" });
+      await expect(
+        pool.query(
+          `insert into oauth_codes (code_hash, client_id, user_id, scope, redirect_uri, code_challenge, expires_at) values ($1,'c20',$2,$3,'http://127.0.0.1:1/cb','${"a".repeat(43)}', now() + interval '1 minute')`,
+          [`k-${bad}`, userId, bad]
+        )
+      ).rejects.toMatchObject({ code: "23514", constraint: "oauth_codes_scope_chk" });
+    }
   });
 });

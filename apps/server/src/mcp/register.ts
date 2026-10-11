@@ -2,7 +2,7 @@
  * #108：工具本體與 `registerTool` 接線的分界。
  *
  * ⚠ **`tools/list` 的過濾不是安全邊界**：client 可以直接 `tools/call` 一個從沒列過的名字，
- * 所以真正的關是**呼叫時再驗**（D6(b)；PR2 的 `requireWriteScope()`）。這裡的過濾只是
+ * 所以真正的關是**呼叫時再驗**（D6(b)；PR2 的 `requireWriteScope()`、#239 的 `requireMoveScope()`）。這裡的過濾只是
  * 「不宣告服務不了的東西」，讓模型少打一輪。
  *
  * ⚠ **每一支工具都要經過 `runTool()`**：它是 D31／M15 的 try/catch（未捕捉例外不得冒到
@@ -16,7 +16,7 @@
  * `{copy_note, create_note, create_transfer_token, edit_note, move_note_to_group, read_note_image}`。**新增工具時要一併把它
  * 加進其中一個名字集合，否則等於沒有守衛。**
  *
- * ⚠ 新增工具一律 `z.object(<shape>).strict()` 註冊；`test/unit/mcp-register.test.ts`（U-F1，覆蓋 authKind × scope × 有無 collab 的六種組合）的名字常數也要補——它會紅。
+ * ⚠ 新增工具一律 `z.object(<shape>).strict()` 註冊；`test/unit/mcp-register.test.ts`（U-F1，覆蓋 authKind × scope × 有無 collab 的八種組合）的名字常數也要補——它會紅。
  *
  * ⚠ 呼叫順序是契約（§8.1 D32）：建 `McpServer` → **本函式** → `registerCapabilities` →
  * `connect()`。`registerTool` 內部會無條件把 `listChanged` 設回 `true`。**守衛＝
@@ -28,10 +28,10 @@
  * 也不要掛一支只會回半套答案的工具（照抄 `routes/notes.ts` 對內容端點的既有判準）。判準存在
  * `canRead` 變數，#93 起 search_notes 的變體（description 與 `sectionId` 的說明）也看它。
  * `list_notes`／`search_notes` 只查 DB，永遠註冊；`read_note_image`（#200）只讀 DB 與磁碟，同樣在閘門外、任何憑證都註冊。
- * **這道閘門唯一的守衛是 `test/mcp-tools-list.test.ts` 的「無 collab 的 app ＋讀寫憑證：只宣告
- * 查得動 DB 的三支（含 read_note_image）、create_note、copy_note、move_note_to_group 與 create_transfer_token」**（Task 4 起改用讀寫憑證，見該案註解）——它斷言的是**七個
- * 名字的集合**（`create_note`／`copy_note`／`move_note_to_group` 因 D-M 不進這道閘門），所以往任一側搬工具都會紅（兩條突變都實跑過）。
- * ⚠ 但它**只擋得住「悄悄搬邊」，擋不住「放錯邊」**：新增一支工具一定會讓那一案紅（名字
+ * **這道閘門由兩案守**（都是無 collab 的 app，斷名字集合）：`test/mcp-tools-list.test.ts` 的 D-A 案（讀寫憑證，六支）、
+ * `test/mcp-create-note.test.ts` 的 D-M 案（讀寫搬移憑證，七支，多 `move_note_to_group`）。`create_note`／`copy_note`／
+ * `move_note_to_group` 都在閘門外（D-M）。
+ * ⚠ 但它們**只擋得住「悄悄搬邊」，擋不住「放錯邊」**：新增一支工具一定會讓那一案紅（名字
  * 集合對不上），可是把名字補進 `LIVE_DOC_TOOLS`／`DB_ONLY_TOOLS` 哪一邊是人判的——
  * 判錯了測試照樣綠。**放進閘門的判準是「這支工具要不要讀 live doc」，不是「它比較像哪一支」。**
  */
@@ -55,7 +55,14 @@ import {
 import { searchNotes, searchNotesDescription, searchNotesInput, searchNotesOutputFor } from "./tools/search-notes.js";
 import { EDIT_NOTE_DESCRIPTION, editNote, editNoteInput, editNoteOutput } from "./tools/edit-note.js";
 import { CREATE_NOTE_DESCRIPTION, createNote, createNoteInput, createNoteOutput } from "./tools/create-note.js";
-import { COPY_NOTE_DESCRIPTION, copyNoteInput, copyNoteOutput, copyNoteTool } from "./tools/copy-note.js";
+import {
+  COPY_NOTE_DESCRIPTION,
+  COPY_NOTE_DESCRIPTION_NO_MOVE,
+  copyNoteInput,
+  copyNoteInputNoMove,
+  copyNoteOutput,
+  copyNoteTool,
+} from "./tools/copy-note.js";
 import {
   MOVE_NOTE_TO_GROUP_DESCRIPTION,
   moveNoteToGroupInput,
@@ -77,16 +84,21 @@ import {
   readNoteImageInput,
   readNoteImageOutput,
 } from "./tools/read-note-image.js";
-import { canWriteNotes } from "./write-scope.js";
+import { canMoveNotes, canWriteNotes } from "./write-scope.js";
 
 export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
   // 唯讀工具的最低 scope 都是 `notes:read`，而 L1（`authenticateAny`）已經保證
   // 到得了這裡的憑證至少有它——所以它們沒有 scope 過濾面。寫入工具才有。
-  // ⚠ **這道過濾不是安全邊界**（見檔頭）：真正的關是每支寫入工具第一行的 `requireWriteScope()`。
+  // ⚠ **這道過濾不是安全邊界**（見檔頭）：真正的關是每支寫入工具第一行的 `requireWriteScope()`／`requireMoveScope()`。
   //   ⚠ 但反過來說也成立，而且是 PR2 的實測結論：`McpServer` 的「清單」**就是**「註冊表」，
   //   所以沒註冊的名字連 handler 都到不了（`tools/call` 走 SDK 的未知工具名分支）——
-  //   **`insufficient_scope` 在 HTTP 上因此是死碼**，別在整合測試裡去釘它。
+  //   **write 檢查的 `insufficient_scope` 在 HTTP 上因此是死碼**（別在整合測試裡去釘它；`move_note_to_group`
+  //   的 move 檢查同理）。例外是 `copy_note` 帶 `group_id` 的 move 檢查（#239）：讀寫憑證的清單上有
+  //   `copy_note`，那條 `insufficient_scope` 在 HTTP 上到得了，守衛＝`test/mcp-copy.test.ts` 的 #239 M3。
   const canWrite = canWriteNotes(ctx);
+  // #239：移入／複製進群組要 `notes:move`（session 恆真；token 要 write 且 move）。只管 move_note_to_group 的註冊與
+  // copy_note 的說明二選一；create_note／edit_note 不看它（W9）。
+  const canMove = canMoveNotes(ctx);
   // #93：讀 live doc 的工具在不在，決定 search_notes 的 description 與 sectionId 說明的變體（spec §8.2 I5）。
   // 與下面讀取工具的閘門是**同一個判準、同一個時間點**（註冊時）。
   const canRead = Boolean(ctx.collab && ctx.editing);
@@ -160,10 +172,12 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
     );
   }
 
-  // #180 spec §5.1：move_note_to_group 在 collab 閘門外（只碰 DB；踢線經 collabHooks），token 與 session 都有（canWrite）。
+  // #180 spec §5.1：move_note_to_group 在 collab 閘門外（只碰 DB；踢線經 collabHooks）。
+  // #239：沒 notes:move 不註冊（同 canWrite 慣例：不宣告服務不了的工具）——session 與讀寫搬移 token 才有；讀寫 token 呼叫它
+  // 拿到 SDK 的 Tool not found。守衛＝`mcp-tools-list` 的「#239：讀寫無搬移憑證 → 九支」案。
   // `.strict()` 註冊（spec §4.7）；annotations 兩值都等於 SDK 預設，寫出來讓 client 不必依賴預設——**不宣稱任何 client 因此改變行為**。
   // 守衛：annotations＝`mcp-tools-list` V11；strict＝`mcp-move` M-G2；runTool＝P13。
-  if (canWrite) {
+  if (canMove) {
     server.registerTool(
       "move_note_to_group",
       {
@@ -179,13 +193,15 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
   // #180 spec §6.1：copy_note 在 collab 閘門**外**（REST 複製無條件註冊；`loadNoteDoc` 無 collab 時讀 note_states，F35）。
   // `.strict()` 註冊（spec §4.7、F60：照 create_note 舊習慣傳 `groupId` 會被靜默丟掉→複製成個人筆記；strict 後回驗證錯誤）。
   // annotations：`destructiveHint: false`（W12）；`idempotentHint` 不寫（SDK 預設 false，而每一發都建新筆記，F48）。
-  // 守衛：無 collab 集合＝`mcp-tools-list` D-A 案／`mcp-create-note:238`；strict＝`mcp-copy` M-G2；runTool＝P13。
+  // 守衛：無 collab 集合＝`mcp-tools-list` D-A 案／`mcp-create-note` 的 D-M 案；strict＝`mcp-copy` M-G2；runTool＝P13。
+  // #239：仍在 canWrite 內（不帶 group_id 的複製只要 notes:write）；description 與 `group_id` 的說明依 canMove 二選一
+  // （spec §7.5(b)(c)），帶 group_id 時執行期另驗 notes:move（`copy-note.ts`）。守衛＝`mcp-tools-list` 的 #239 M1b。
   if (canWrite) {
     server.registerTool(
       "copy_note",
       {
-        description: COPY_NOTE_DESCRIPTION,
-        inputSchema: z.object(copyNoteInput).strict(),
+        description: canMove ? COPY_NOTE_DESCRIPTION : COPY_NOTE_DESCRIPTION_NO_MOVE,
+        inputSchema: z.object(canMove ? copyNoteInput : copyNoteInputNoMove).strict(),
         outputSchema: copyNoteOutput,
         annotations: { destructiveHint: false },
       },

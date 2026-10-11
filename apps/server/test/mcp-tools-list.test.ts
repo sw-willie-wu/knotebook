@@ -3,7 +3,8 @@
  * `listChanged` 那半）與批次（§10.3／§14.6 案 33）。
  *
  * 兩種 harness 各有被測對象，**不可互換**（D-A 的分工表）：
- * - `buildCollabTestApp` ＝生產形態（collab ＋ editing 都在）→ 讀寫憑證上十支工具全在（#180 起含 copy_note、move_note_to_group；#200 起含 read_note_image）。
+ * - `buildCollabTestApp` ＝生產形態（collab ＋ editing 都在）→ 讀寫搬移憑證上十支工具全在（#180 起含 copy_note、move_note_to_group；#200 起含 read_note_image）；
+ *   #239 起讀寫（無 notes:move）憑證是九支——`move_note_to_group` 只在 `notes:move` 時註冊。
  * - `buildTestApp` ＝無 collab → 只有查得動 DB 的工具（讀寫憑證上多 `create_note`，D-M；token 路徑上另有
  *   `create_transfer_token`，#200）。
  *
@@ -17,13 +18,19 @@ import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { noteAiEdits, users } from "../src/db/schema.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
+import { SESSION_COOKIE, type TokenScope } from "@knotebook/shared";
+import { COPY_GROUP_ID_DESCRIBE, COPY_GROUP_ID_DESCRIBE_NO_MOVE, COPY_NOTE_DESCRIPTION, COPY_NOTE_DESCRIPTION_NO_MOVE } from "../src/mcp/tools/copy-note.js";
 import { buildCollabTestApp, buildTestApp } from "./helpers.js";
 import { seedTokenForUser } from "./editing-helpers.js";
+import { cookieOf } from "./group-helpers.js";
 import { INITIALIZE, mcpPost, rpc } from "./mcp-helpers.js";
 import type { Db } from "../src/db/index.js";
 import type { FastifyInstance } from "fastify";
 
 const PASSWORD = "correct-horse-battery";
+/** #239：讀寫搬移憑證——清單上才有 move_note_to_group（spec §7.1）。 */
+const RWM = "notes:read notes:write notes:move" as const;
+const sessionCookie = async (userId: string) => (await cookieOf(userId))[SESSION_COOKIE]!;
 
 /** 只查 DB（read_note_image 另讀磁碟）的三支——任何部署形態、任何憑證都在（#200 §7.1）。 */
 const DB_ONLY_TOOLS = ["list_notes", "read_note_image", "search_notes"];
@@ -32,7 +39,8 @@ const LIVE_DOC_TOOLS = ["read_note_outline", "read_note_section"];
 /** #200：只在 token 路徑註冊（session 沒有），在部署形態閘門外。 */
 const TOKEN_ONLY_TOOLS = ["create_transfer_token"];
 /** `register.ts` 的**註冊順序**（M11）：list_notes → search_notes → 兩支讀取 → edit_note →
- *  （閘門外）create_note → move_note_to_group → copy_note（#180）→（閘門外、token 限定）create_transfer_token →（閘門外、全憑證）read_note_image。案 9b 逐字釘住這個順序，不排序。 */
+ *  （閘門外）create_note → move_note_to_group → copy_note（#180）→（閘門外、token 限定）create_transfer_token →（閘門外、全憑證）read_note_image。案 9b 逐字釘住這個順序，不排序。
+ *  #239：`move_note_to_group` 只在 `notes:move` 時註冊（讀寫搬移憑證與 session）；其餘的相對順序不變。 */
 const TEN_TOOLS_IN_ORDER = [
   "list_notes",
   "search_notes",
@@ -113,21 +121,23 @@ describe("#108 tools/list", () => {
   // ⚠ **PR2 起改用讀寫憑證**（Task 3 留給 Task 4 的必辦 #4）：既有唯讀憑證的版本碰不到
   //   `edit_note`——那支工具在**註冊時**就先被 scope 過濾掉，唯讀憑證測不出「它有沒有被部署
   //   形態閘門擋下」；只有讀寫憑證能區分「沒宣告是因為沒有 collab」與「沒宣告是因為沒有 scope」。
-  //   `create_note` 不進這道閘門（D-M），所以七支裡它（與 `copy_note`、`move_note_to_group`、`create_transfer_token`）必須在，`edit_note` 必須不在。
-  it("無 collab 的 app ＋讀寫憑證：只宣告查得動 DB 的三支（含 read_note_image）、create_note、copy_note、move_note_to_group 與 create_transfer_token（D-M 不進閘門，D-A）", async () => {
+  //   `create_note` 不進這道閘門（D-M），所以六支裡它（與 `copy_note`、`create_transfer_token`）必須在，`edit_note` 必須不在。
+  //   #239：讀寫（無 notes:move）憑證看不到 `move_note_to_group`（它只在 `notes:move` 時註冊），所以從七支變六支；
+  //   憑證刻意維持讀寫——換成讀寫搬移會讓這案同時改測「搬移權」與「部署形態」兩件事。
+  it("無 collab 的 app ＋讀寫憑證：只宣告查得動 DB 的三支（含 read_note_image）、create_note、copy_note 與 create_transfer_token（D-M 不進閘門，D-A）", async () => {
     const { app, db } = await buildTestApp();
     const userId = await seedUser(db);
     const { token } = await seedTokenForUser(db, userId, "notes:read notes:write");
 
-    expect(await toolNames(app, token)).toEqual(["copy_note", "create_note", "move_note_to_group", ...DB_ONLY_TOOLS, ...TOKEN_ONLY_TOOLS].sort());
+    expect(await toolNames(app, token)).toEqual(["copy_note", "create_note", ...DB_ONLY_TOOLS, ...TOKEN_ONLY_TOOLS].sort());
   });
 
   // 案 9：讀寫憑證的 `tools/list` ＝十支（生產形態）。與案 9b 的差異：這裡走 `.sort()`，
-  // 守的是**集合**，不重疊案 9b 的順序斷言。
-  it("讀寫憑證的 tools/list 含十支工具（案 9）", async () => {
+  // 守的是**集合**，不重疊案 9b 的順序斷言。#239 起被測改讀寫搬移憑證（十支的前提），期望值不動；讀寫九支見下方 #239 案。
+  it("讀寫搬移憑證的 tools/list 含十支工具（案 9）", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
-    const { token } = await seedTokenForUser(ctx.db, owner.id, "notes:read notes:write");
+    const { token } = await seedTokenForUser(ctx.db, owner.id, RWM);
 
     const names = await toolNames(ctx.app, token);
     expect(names).toEqual([...DB_ONLY_TOOLS, ...LIVE_DOC_TOOLS, "edit_note", "create_note", "move_note_to_group", "copy_note", ...TOKEN_ONLY_TOOLS].sort());
@@ -141,10 +151,11 @@ describe("#108 tools/list", () => {
   //   `search_notes` 註冊順序對調）：**只有本案紅**（`expected ['search_notes','list_notes',
   //   …(4)] to deeply equal ['list_notes','search_notes',…(4)]`），案 9（走 `.sort()`）
   //   維持綠——這就是兩案不重疊的證明：一個守集合，一個守順序。
-  it("讀寫憑證的 tools/list 名字陣列逐字等於寫死的十元清單，含順序（案 9b／M11）", async () => {
+  // #239 起被測改讀寫搬移憑證（十元清單的前提），期望值不動。
+  it("讀寫搬移憑證的 tools/list 名字陣列逐字等於寫死的十元清單，含順序（案 9b／M11）", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
-    const { token } = await seedTokenForUser(ctx.db, owner.id, "notes:read notes:write");
+    const { token } = await seedTokenForUser(ctx.db, owner.id, RWM);
 
     const names = await toolNames(ctx.app, token, { sort: false });
     expect(names).toEqual(TEN_TOOLS_IN_ORDER);
@@ -261,7 +272,9 @@ describe("#108 tools/list", () => {
 
     const groupOwner = '"name":{"type":"string","maxLength":200},"nameTruncated":{"type":"boolean","const":true}';
     const withOwner = [...outputs].filter(([, schema]) => schema.includes('"const":"group"')).map(([name]) => name).sort();
-    expect(withOwner).toEqual(["copy_note", "create_note", "list_notes", "move_note_to_group", "read_note_outline", "search_notes"]);
+    // #239：讀寫憑證的清單上沒有 move_note_to_group，本案因此不再檢查它的 owner 形——它與 copy_note 共用
+    // `noteSummarySchema`（`mcp/dto.ts`），spec §11.2 M1 接受這個取捨。
+    expect(withOwner).toEqual(["copy_note", "create_note", "list_notes", "read_note_outline", "search_notes"]);
     for (const name of withOwner) expect(outputs.get(name), name).toContain(groupOwner);
   });
 
@@ -298,11 +311,12 @@ describe("#108 tools/list", () => {
   // `edit_note`／`create_note`／`create_transfer_token`／`read_note_image`（#200）／`copy_note`、`move_note_to_group`（#180）那一半。`mcp-notes.test.ts` 只打 `list_notes`／`search_notes`、
   // `mcp-content.test.ts` 只打兩支讀取工具，兩者對這幾支寫入／傳輸／讀圖工具都**恆綠**（不在它們的名字
   // 集合裡）；沒有這一案，這些後加的工具就沒有 D31／M15 的 try/catch 守衛。
+  // #239：讀寫搬移憑證（move_note_to_group 只在 notes:move 時註冊），期望值不動。
   it("P13：runTool() 涵蓋率——beforeTool 看到的名字集合逐字等於 {copy_note, create_note, create_transfer_token, edit_note, move_note_to_group, read_note_image}", async () => {
     const seen: string[] = [];
     const ctx = await buildCollabTestApp({ mcpTestHooks: { beforeTool: name => void seen.push(name) } });
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
-    const { token } = await seedTokenForUser(ctx.db, owner.id, "notes:read notes:write");
+    const { token } = await seedTokenForUser(ctx.db, owner.id, RWM);
     const note = await ctx.createNote(owner.id);
 
     await mcpPost(ctx.app, rpc("tools/call", { name: "edit_note", arguments: { note_id: note.id, op: "append", markdown: "x" } }), {
@@ -323,11 +337,44 @@ describe("#108 tools/list", () => {
   it("#180 V11：move_note_to_group.annotations 逐字 {destructiveHint:true, idempotentHint:false}；copy_note.annotations 逐字 {destructiveHint:false}；其餘工具無 annotations 鍵", async () => {
     const ctx = await buildCollabTestApp();
     const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
-    const { token } = await seedTokenForUser(ctx.db, owner.id, "notes:read notes:write");
+    const { token } = await seedTokenForUser(ctx.db, owner.id, RWM); // #239：讀寫搬移憑證，清單上才有 move_note_to_group
     const tools = (await mcpPost(ctx.app, rpc("tools/list"), { token })).json().result.tools as { name: string; annotations?: unknown }[];
     expect(tools.find(t => t.name === "move_note_to_group")!.annotations).toEqual({ destructiveHint: true, idempotentHint: false });
     expect(tools.find(t => t.name === "copy_note")!.annotations).toEqual({ destructiveHint: false });
     expect(tools.filter(t => !["copy_note", "move_note_to_group"].includes(t.name) && "annotations" in t).map(t => t.name)).toEqual([]);
+  });
+
+  // #239：`move_note_to_group` 依 `canMove` 註冊。突變「`register.ts` 的 `if (canMove)` 改回 `if (canWrite)`」→ 本案紅。
+  it("#239：讀寫無搬移憑證 → 九支，不含 move_note_to_group（註冊順序不變）", async () => {
+    const ctx = await buildCollabTestApp();
+    const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
+    const { token } = await seedTokenForUser(ctx.db, owner.id, "notes:read notes:write");
+    expect(await toolNames(ctx.app, token, { sort: false })).toEqual(TEN_TOOLS_IN_ORDER.filter(n => n !== "move_note_to_group"));
+  });
+
+  it("#239：session → 九支（無 create_transfer_token，有 move_note_to_group）", async () => {
+    const ctx = await buildCollabTestApp();
+    const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
+    const res = await mcpPost(ctx.app, rpc("tools/list"), { cookie: await sessionCookie(owner.id) });
+    const names = (res.json().result.tools as { name: string }[]).map(t => t.name);
+    expect(names).toEqual(TEN_TOOLS_IN_ORDER.filter(n => n !== "create_transfer_token"));
+  });
+
+  // 突變「`register.ts` 把 copy 的兩版對調」→ 本案紅。
+  it("#239 M1b：copy_note 的 description 與 group_id 說明依 canMove 二選一", async () => {
+    const ctx = await buildCollabTestApp();
+    const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
+    // 憑證是 scope 字串＝token；`"session"`＝cookie（spec §11.2 M1b：讀寫搬移與 session 都拿 (a)）。
+    const copyOf = async (cred: TokenScope | "session") => {
+      const auth = cred === "session" ? { cookie: await sessionCookie(owner.id) } : { token: (await seedTokenForUser(ctx.db, owner.id, cred)).token };
+      const res = await mcpPost(ctx.app, rpc("tools/list"), auth);
+      const tool = (res.json().result.tools as Array<{ name: string; description: string; inputSchema: { properties: Record<string, { description?: string }> } }>)
+        .find(t => t.name === "copy_note")!;
+      return { description: tool.description, groupId: tool.inputSchema.properties.group_id!.description };
+    };
+    expect(await copyOf("notes:read notes:write")).toEqual({ description: COPY_NOTE_DESCRIPTION_NO_MOVE, groupId: COPY_GROUP_ID_DESCRIBE_NO_MOVE });
+    expect(await copyOf("notes:read notes:write notes:move")).toEqual({ description: COPY_NOTE_DESCRIPTION, groupId: COPY_GROUP_ID_DESCRIBE });
+    expect(await copyOf("session")).toEqual({ description: COPY_NOTE_DESCRIPTION, groupId: COPY_GROUP_ID_DESCRIBE });
   });
 
   // 案 2 的 `listChanged` 那半（Task 2 從傳輸層那一族移過來的）。
@@ -397,7 +444,8 @@ describe("#108 JSON-RPC 批次", () => {
 });
 
 describe("#241 X-241：每支工具都拒未知鍵（wire 層；結構面由 unit/mcp-register.test.ts 守）", () => {
-  for (const scope of ["notes:read notes:write", "notes:read"] as const) {
+  // #239：讀寫憑證不再列 move_note_to_group、copy_note 是無 group_id 版——加讀寫搬移憑證讓兩者的另一版也過 wire 層。
+  for (const scope of [RWM, "notes:read notes:write", "notes:read"] as const) {
     it(`${scope}：tools/list 的每個名字收 { zz_unknown: 1 } → isError、無 structuredContent、訊息含 zz_unknown`, async () => {
       const ctx = await buildCollabTestApp();
       const owner = await ctx.createUser({ email: `x241-${randomUUID()}@example.com`, password: PASSWORD });

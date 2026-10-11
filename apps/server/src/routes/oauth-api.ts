@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { and, eq, sql } from "drizzle-orm";
-import type { OauthRequestDto, TokenScope } from "@knotebook/shared";
+import { narrowerScope, normalizeScope, TOKEN_SCOPES, type OauthRequestDto, type TokenScope } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
 import { publicUrlIssuer, type AppConfig } from "../config.js";
 import { apiTokens, oauthClients, oauthCodes, oauthRequests } from "../db/schema.js";
@@ -20,10 +20,14 @@ const CODE_TTL_MS = 10 * 60_000;
  */
 const REQUEST_ID_RE = /^[A-Za-z0-9_-]{22}$/;
 
-const decisionBodySchema = z.object({
-  req: z.string(),
-  decision: z.enum(["allow", "deny"]),
-});
+/**
+ * #239：allow 必帶同意頁的勾選結果 `scope`（三種落庫形之一），缺或錯一律 400——在 body 解析這關擋下，早於消費。
+ * 這也擋住升版前開著的舊分頁（舊 bundle 不送 `scope`），不推定成 pending。deny 忽略 `scope`。
+ */
+const decisionBodySchema = z.discriminatedUnion("decision", [
+  z.object({ req: z.string(), decision: z.literal("deny") }),
+  z.object({ req: z.string(), decision: z.literal("allow"), scope: z.enum(TOKEN_SCOPES) }),
+]);
 
 /** 同意頁把 scope 字串拆成單值，逐條列人話。 */
 function splitScopes(scope: TokenScope): string[] {
@@ -77,8 +81,9 @@ export function oauthApiRoutes(deps: OauthApiRouteDeps) {
         return sendError(reply, 404, "not_found", "找不到此授權請求");
       }
 
+      // #239：existingScope 是載入當下的快照，只給同意頁當預設勾選；decision 不重查，server 不依賴它（spec §5.4）。
       const [existing] = await deps.db
-        .select({ id: apiTokens.id })
+        .select({ scope: apiTokens.scope })
         .from(apiTokens)
         .where(
           and(eq(apiTokens.userId, request.user!.id), eq(apiTokens.kind, "oauth"), eq(apiTokens.clientId, row.clientId))
@@ -90,6 +95,7 @@ export function oauthApiRoutes(deps: OauthApiRouteDeps) {
         redirectHost: new URL(row.redirectUri).host,
         scope,
         scopes: splitScopes(scope),
+        existingScope: existing === undefined ? null : normalizeScope(existing.scope),
         replacesExisting: existing !== undefined,
       };
       return body;
@@ -135,12 +141,14 @@ export function oauthApiRoutes(deps: OauthApiRouteDeps) {
         return sendError(reply, 409, "token_limit", `有效 token 已達 ${TOKEN_LIMIT_PER_USER} 個上限，請先撤銷一個`);
       }
 
+      // #239：授予值＝要求 ∩ 勾選。超出 pending 的 body 被夾回、不報錯。
+      const granted = narrowerScope(pending.scope as TokenScope, parsed.data.scope);
       const code = randomBytes(32).toString("base64url");
       await deps.db.insert(oauthCodes).values({
         codeHash: hashToken(code),
         clientId: pending.clientId,
         userId,
-        scope: pending.scope,
+        scope: granted,
         redirectUri: pending.redirectUri,
         codeChallenge: pending.codeChallenge,
         expiresAt: new Date(Date.now() + CODE_TTL_MS),

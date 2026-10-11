@@ -14,7 +14,9 @@
  */
 import { describe, expect, it } from "vitest";
 import { FixedWindowLimiter } from "../../src/http/rate-limit.js";
-import { requireWriteScope } from "../../src/mcp/write-scope.js";
+import type { TokenScope } from "@knotebook/shared";
+import { canMoveNotes, requireMoveScope, requireWriteScope } from "../../src/mcp/write-scope.js";
+import { moveNoteToGroupTool, MOVE_NEEDS_MOVE_MESSAGE } from "../../src/mcp/tools/move-note-to-group.js";
 import type { McpToolCtx } from "../../src/mcp/context.js";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -84,5 +86,57 @@ describe("#108 requireWriteScope", () => {
     expect(tokenWrite.consume(`token:${USER_ID}`)).toBe(true);
     const err = requireWriteScope(ctxWith({ authKind: "token", tokenScope: "notes:read notes:write", tokenWrite }));
     expect(err!.structuredContent.code).toBe("too_many_requests");
+  });
+});
+
+const MSG = "test message";
+
+describe("#239 canMoveNotes", () => {
+  it("四格＋漂移形", () => {
+    expect(canMoveNotes({ authKind: "session", tokenScope: null })).toBe(true);
+    expect(canMoveNotes({ authKind: "token", tokenScope: "notes:read" })).toBe(false);
+    expect(canMoveNotes({ authKind: "token", tokenScope: "notes:read notes:write" })).toBe(false);
+    expect(canMoveNotes({ authKind: "token", tokenScope: "notes:read notes:write notes:move" })).toBe(true);
+    // CHECK 漂移形：有 move 沒 write → 不得放行（W3）。
+    expect(canMoveNotes({ authKind: "token", tokenScope: "notes:read notes:move" as TokenScope })).toBe(false);
+  });
+});
+
+describe("#239 requireMoveScope", () => {
+  it("讀寫憑證：insufficient_scope＋呼叫端訊息，且不啃 tokenWrite", () => {
+    const tokenWrite = oneShot();
+    const err = requireMoveScope(ctxWith({ authKind: "token", tokenScope: "notes:read notes:write", tokenWrite }), MSG);
+    expect(err!.structuredContent.code).toBe("insufficient_scope");
+    expect(err!.structuredContent.message).toBe(MSG);
+    expect(tokenWrite.consume(`token:${USER_ID}`)).toBe(true);
+  });
+  it("唯讀憑證：回 write 的處置訊息（不是呼叫端訊息）", () => {
+    const err = requireMoveScope(ctxWith({ authKind: "token", tokenScope: "notes:read", tokenWrite: oneShot() }), MSG);
+    expect(err!.structuredContent.message).not.toBe(MSG);
+    expect(err!.structuredContent.message).toContain("notes:write");
+  });
+  it("讀寫搬移：放行並扣一格；session：放行不扣", () => {
+    const tw = oneShot();
+    expect(requireMoveScope(ctxWith({ authKind: "token", tokenScope: "notes:read notes:write notes:move", tokenWrite: tw }), MSG)).toBeNull();
+    expect(tw.consume(`token:${USER_ID}`)).toBe(false);
+    const ts = oneShot();
+    expect(requireMoveScope(ctxWith({ authKind: "session", tokenScope: null, tokenWrite: ts }), MSG)).toBeNull();
+    expect(ts.consume(`token:${USER_ID}`)).toBe(true);
+  });
+});
+
+// U3：move_note_to_group 的 scope 分支在 HTTP 上到不了（未註冊），這是它唯一的守衛。
+// `ctxWith` 沒有 `db`：若實作在 scope 檢查之前碰了 DB，這案會炸 `undefined`——這正是要釘的順序。
+describe("#239 U3 moveNoteToGroupTool", () => {
+  it("讀寫憑證直接呼叫 → insufficient_scope、訊息逐字 (e)，在碰 DB 之前", async () => {
+    const r = await moveNoteToGroupTool(
+      { note_id: "11111111-1111-4111-8111-111111111111", group_id: "22222222-2222-4222-8222-222222222222" },
+      ctxWith({ authKind: "token", tokenScope: "notes:read notes:write", tokenWrite: oneShot() }),
+    );
+    expect(r.isError).toBe(true);
+    expect(r.structuredContent).toEqual({
+      code: "insufficient_scope",
+      message: MOVE_NEEDS_MOVE_MESSAGE,
+    });
   });
 });

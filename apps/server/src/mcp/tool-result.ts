@@ -87,7 +87,7 @@ export interface RunToolCtx {
  * 每支工具 handler 的統一外殼：`beforeTool` 注入縫 ＋ try/catch。
  *
  * ⚠ **只做 try/catch ＋ hook**：不做 scope 檢查、不扣桶。scope 與扣桶是
- * `requireWriteScope()`（PR2）的事，兩者不得混為一談。
+ * `requireWriteScope()`（PR2）／`requireMoveScope()`（#239）的事，兩者不得混為一談。
  */
 export async function runTool<T extends CallToolResult>(
   name: string,

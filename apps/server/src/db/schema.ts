@@ -678,8 +678,10 @@ export const apiTokens = pgTable(
   },
   t => [
     check("api_tokens_kind_chk", sql`${t.kind} in ('pat','oauth')`),
-    // 落庫形是正規化過的**集合**字串（`normalizeScope` 的兩個輸出），不是裸的單值。
-    check("api_tokens_scope_chk", sql`${t.scope} in ('notes:read','notes:read notes:write')`),
+    // 落庫形是正規化過的**集合**字串，不是裸的單值：
+    // 三種合法落庫形（`normalizeScope` 的輸出），與 `TOKEN_SCOPES` 同值
+    // （scope-check-sync.test.ts 守 snapshot ≡ TOKEN_SCOPES；schema.ts ≡ snapshot 由 migrate.test.ts 的漂移守衛守）。
+    check("api_tokens_scope_chk", sql`${t.scope} in ('notes:read','notes:read notes:write','notes:read notes:write notes:move')`),
     check("api_tokens_name_chk", sql`length(${t.name}) between 1 and 64`),
     // 兩條都是**雙向**蘊含：pat ⇔ 沒有 client／refresh，oauth ⇔ 兩者都有。單向版
     // （只擋 pat 那半邊）會讓 #132 少塞一欄時靜默放行半截列——測試四格矩陣都釘住了。
@@ -728,7 +730,9 @@ export const oauthRequests = pgTable(
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   },
   t => [
-    check("oauth_requests_scope_chk", sql`${t.scope} in ('notes:read','notes:read notes:write')`),
+    // 三種合法落庫形（`normalizeScope` 的輸出），與 `TOKEN_SCOPES` 同值
+    // （scope-check-sync.test.ts 守 snapshot ≡ TOKEN_SCOPES；schema.ts ≡ snapshot 由 migrate.test.ts 的漂移守衛守）。
+    check("oauth_requests_scope_chk", sql`${t.scope} in ('notes:read','notes:read notes:write','notes:read notes:write notes:move')`),
     check("oauth_requests_state_chk", sql`${t.state} is null or length(${t.state}) <= 2048`),
     index("oauth_requests_client_idx").on(t.clientId),
   ]
@@ -765,7 +769,9 @@ export const oauthCodes = pgTable(
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   },
   t => [
-    check("oauth_codes_scope_chk", sql`${t.scope} in ('notes:read','notes:read notes:write')`),
+    // 三種合法落庫形（`normalizeScope` 的輸出），與 `TOKEN_SCOPES` 同值
+    // （scope-check-sync.test.ts 守 snapshot ≡ TOKEN_SCOPES；schema.ts ≡ snapshot 由 migrate.test.ts 的漂移守衛守）。
+    check("oauth_codes_scope_chk", sql`${t.scope} in ('notes:read','notes:read notes:write','notes:read notes:write notes:move')`),
     index("oauth_codes_client_idx").on(t.clientId),
     index("oauth_codes_user_idx").on(t.userId),
   ]

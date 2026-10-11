@@ -485,6 +485,24 @@ describe("POST /api/notes/:id/uploads × transfer token（spec §5.2）", () => 
     const o = await ownerWithPat(db);
     expect((await upload(app, o.noteId, fileBody(PNG_BYTES), { cookies: await cookieOf(o.userId) })).statusCode).toBe(201);
   });
+
+  it("#239 T1：母憑證降成唯讀後，先前簽的 upload transfer token → 403 insufficient_scope、沒有 uploads 列", async () => {
+    const { app, db } = await buildTestApp();
+    const { patId, noteId, userId } = await ownerWithPat(db, "notes:read notes:write");
+    const { token } = await issueDirect(db, patId, noteId, "upload");
+    // 真的走 PATCH /api/auth/tokens/:id 降權（cookie 為母憑證的擁有者）。
+    const down = await app.inject({
+      method: "PATCH",
+      url: `/api/auth/tokens/${patId}`,
+      cookies: await cookieOf(userId),
+      payload: { scope: "notes:read" },
+    });
+    expect(down.statusCode).toBe(200);
+    const res = await upload(app, noteId, fileBody(PNG_BYTES), { token });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe("insufficient_scope");
+    expect(await db.select().from(uploads).where(eq(uploads.noteId, noteId))).toHaveLength(0);
+  });
 });
 
 describe("POST /api/notes/:id/uploads × transfer token × 儲存配額（配額 spec §8.3-1／2；#200 spec §5.2-4a、§6.4 兩句 409）", () => {

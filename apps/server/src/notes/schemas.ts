@@ -43,7 +43,7 @@ export const TITLE = z.string().min(1).refine(noNul);
  * 「不合格式的 section_id／note_id …」那一案後半。
  * #240：`.transform` 轉小寫——**wire 上 MCP `note_id` 的收斂點**（只有 MCP 工具用這個 schema；SDK 把 parse 後的值交給
  * handler）。live doc、presence、寫入佇列、版本狀態都以小寫字串為鍵，大寫 id 會打到另一份。handler 內殘留的
- * `toLowerCase()`（`read-note-image.ts:61`、`move-note-to-group.ts:95`）是防禦，不是保證。
+ * `toLowerCase()`（`read-note-image.ts:61`、`move-note-to-group.ts` 的 moved 分支重讀）是防禦，不是保證。
  * 守衛＝`mcp-write-schemas.test.ts` U-240a、`unit/mcp-register.test.ts` U-F1 ②、`mcp-content`／`mcp-edit-note` 的 L1a／L1b／L2／L3。 */
 export const NOTE_ID = z.string().regex(UUID_RE).refine(noNul).transform(s => s.toLowerCase());
 

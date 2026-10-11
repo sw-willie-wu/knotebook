@@ -3,7 +3,7 @@
 // 且需要「指定 user 的 token」——`api-token-auth.test.ts` 的 `seedToken` 自建 user，用不上。
 import type { FastifyInstance } from "fastify";
 import * as Y from "yjs";
-import { YDOC_FRAGMENT } from "@knotebook/shared";
+import { YDOC_FRAGMENT, type TokenScope } from "@knotebook/shared";
 import { generateAccessToken, hashToken } from "../src/auth/api-token.js";
 import { apiTokens } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
@@ -13,7 +13,7 @@ import { testEditingRuntime, type CollabTestCtx, type HttpSession, type TestClie
 export async function seedTokenForUser(
   db: Db,
   userId: string,
-  scope: "notes:read" | "notes:read notes:write" = "notes:read notes:write",
+  scope: TokenScope = "notes:read notes:write",
   name = "test"
 ): Promise<{ token: string; tokenId: string }> {
   const token = generateAccessToken();

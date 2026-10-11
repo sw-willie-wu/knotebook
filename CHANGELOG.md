@@ -11,11 +11,27 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 The full checklist is under **Upgrading to v0.10** in [Upgrading and rolling back](docs/self-hosting.md#upgrading-and-rolling-back).
 
-- **Back up the database first.** This release's database migration (0020: drop note self-links) runs automatically when the new server starts. It only deletes rows of `note_links` that record a note as linking to itself — rows a note id written with uppercase letters could create, and that were never correct — but take a dump before you start the new version anyway, for example `docker compose exec -T db pg_dump -U knotebook knotebook > knotebook-before-upgrade.sql`. Rolling back to 0.9 is harmless.
-- MCP: every tool now rejects an argument it doesn't know. Until now only `create_note`, `move_note_to_group` and `copy_note` did; the other seven tools dropped it silently. A client or script that sends an extra or misspelled argument — `ifMatch` instead of `if_match`, say — now gets an input-check error (an `isError` result with no `code`) and the tool does nothing; fix the argument's name. The tool list a client sees is unchanged.
+- **Back up the database first.** This release's database migrations (0020: drop note self-links; 0021: `notes:move` scope) run automatically when the new server starts. 0020 only deletes rows of `note_links` that record a note as linking to itself — rows a note id written with uppercase letters could create, and that were never correct — and 0021 only lets the `scope` of tokens, app credentials and pending authorizations also be `notes:read notes:write notes:move`, without changing any stored value; but take a dump before you start the new version anyway, for example `docker compose exec -T db pg_dump -U knotebook knotebook > knotebook-before-upgrade.sql`. Rolling back to 0.9 is harmless for the database; what 0.9 then does with `notes:move` is in the checklist.
+- MCP: every tool now rejects an argument it doesn't know. Until now only `create_note`, `move_note_to_group` and `copy_note` did; the other seven tools dropped it silently. A client or script that sends an extra or misspelled argument — `ifMatch` instead of `if_match`, say — now gets an input-check error (an `isError` result with no `code`) and the tool does nothing; fix the argument's name. The tool list a client sees is unchanged by this.
+- **Existing tokens and apps can no longer call `move_note_to_group`, or `copy_note` with `group_id`:** both now need the new `notes:move` scope, which no existing credential has. To allow it, create a token with "Create and edit notes" and "Move or copy notes into groups" ticked in Settings → Account → API tokens and switch to it, or authorize the app again and tick both (the second box appears only if the app asks for `notes:move`; an MCP client that follows the `/api/mcp` challenge does); an existing credential's scope can also be changed with `PATCH /api/auth/tokens/:id` from a signed-in browser session (#239).
+- **Apps you authorize for the first time are read-only by default.** On the consent page, tick "Create and edit notes" to let an app write: pressing Allow straight away now gives it read-only access, where before it got everything it asked for. Re-authorizing an app starts from the access it already has, never more than it is asking for this time. Personal API tokens were already read-only by default; the Create API token dialog now has a checkbox for each permission, both unticked to start (#239).
+- MCP clients cache their tool list; after changing a credential's access, restart the client to see the change (#239).
+- A consent page left open from before the upgrade answers Allow with an error; reload it and choose again (#239).
+
+### Added
+
+- `notes:move` scope: with a token or app credential, moving a note into a group (`move_note_to_group`) and copying one into a group (`copy_note` with `group_id`) need it, on top of `notes:write`. It is off unless you ask for it (#239).
+- The Create API token dialog has a checkbox for each permission — "Create and edit notes" and "Move or copy notes into groups" — both unticked to start, and the token list shows a third kind of access (#239).
+- The consent page lets you choose each permission the app asks for; when you authorize the same app again, it starts from the access the app already has and marks it "Currently granted" (#239).
+- `PATCH /api/auth/tokens/:id` accepts `scope`, to raise or lower an existing token's or app's access from a signed-in browser session; it applies from the credential's next request. Settings has no control for this (#239).
 
 ### Changed
 
+- **Breaking (MCP):** `move_note_to_group` and `copy_note` with `group_id` need the `notes:move` scope. A credential without it isn't offered `move_note_to_group`, and its `copy_note` answers `insufficient_scope` when given `group_id`, copying nothing; its `copy_note` description says so (#239).
+- **Breaking (API):** `POST /api/oauth/decision` requires `scope` — what was ticked — when allowing, and grants the narrower of it and what the app asked for; an Allow without it is `400`. `GET /api/oauth/request` also returns `existingScope` (#239).
+- `POST /api/auth/tokens` accepts `notes:read notes:write` and `notes:read notes:write notes:move` as `scope`; `notes:write` is still accepted for `notes:read notes:write` (#239).
+- The `/api/mcp` challenge and both OAuth metadata documents list `notes:move` (#239).
+- The read-only MCP `instructions` now tell the assistant to ask for a token with "Create and edit notes" ticked and to connect with it (#239).
 - **Breaking (MCP):** `list_notes`, `search_notes`, `read_note_outline`, `read_note_section`, `edit_note`, `create_transfer_token` and `read_note_image` reject arguments they don't know instead of ignoring them. Before, `edit_note`'s `append` with `ifMatch` instead of `if_match` skipped the fingerprint check and wrote anyway (#241).
 
 ### Fixed
