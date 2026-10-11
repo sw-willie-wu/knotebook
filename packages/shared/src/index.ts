@@ -420,7 +420,7 @@ export const ERROR_CODES = [
   // 加上密碼（B20–B22）；`sso_provider_required`＝409，關閉帳密登入（或在關閉狀態下停用 provider）後沒有任何啟用中的登入服務（B19 P1）；
   // `admin_sso_link_required`＝409，同上但操作的管理員本人沒有可用的 SSO 身分（B19 P2）；`password_already_set`＝409，已有密碼的帳號
   // 打「加上密碼」（§8.4）；`last_login_method`＝409，解除後帳號不再有任何可用的登入方式（INV-7，§8.2）；`oidc_link_session_mismatch`＝
-  // 302 `/settings/account?link_error=`，手動連結回來時目前 session 不在、失效、停用或不是發起者（§8.1）。
+  // 302 `/settings/login?link_error=`，手動連結回來時目前 session 不在、失效、停用或不是發起者（§8.1）。
   "password_login_disabled",
   "sso_provider_required",
   "admin_sso_link_required",

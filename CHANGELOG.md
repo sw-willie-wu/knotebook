@@ -45,6 +45,7 @@ The full checklist is under **Upgrading to v0.10** in [Upgrading and rolling bac
 - The read-only MCP `instructions` now tell the assistant to ask for a token with "Create and edit notes" ticked and to connect with it (#239).
 - **Breaking (MCP):** `list_notes`, `search_notes`, `read_note_outline`, `read_note_section`, `edit_note`, `create_transfer_token` and `read_note_image` reject arguments they don't know instead of ignoring them. Before, `edit_note`'s `append` with `ifMatch` instead of `if_match` skipped the fingerprint check and wrote anyway (#241).
 - API: any member of a group can now read `GET /api/groups/:id/storage`; before, only roles that can manage the group could (others got `403`). Someone who isn't a member still gets `404` (#247).
+- After linking a sign-in service from Settings, the browser now comes back to `/settings/login` (`?linked=` or `?link_error=`) instead of `/settings/account` (#247).
 
 ### Fixed
 

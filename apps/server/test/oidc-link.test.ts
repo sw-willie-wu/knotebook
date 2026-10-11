@@ -135,12 +135,12 @@ describe("POST /api/auth/oidc/link/:providerId（#187 §7.6、B7）", () => {
 });
 
 describe("callback 的 intent: \"link\" 分支（#187 §8.1）", () => {
-  it("成功 → 302 /settings/account?linked=<id>、寫身分（last_login_at 有值）；不要求 email 相同；不簽新 session", async () => {
+  it("成功 → 302 /settings/login?linked=<id>、寫身分（last_login_at 有值）；不要求 email 相同；不簽新 session", async () => {
     const t = await twoProviders();
     const u = await insertPasswordUser(t.db);
     const { callback } = await linkRoundTrip(t, "b", await cookieOf(u.id), { sub: "sb", email: "totally-different@elsewhere.example" });
     const res = await callback;
-    expect(res.headers.location).toBe(`/settings/account?linked=${t.provider("b").id}`);
+    expect(res.headers.location).toBe(`/settings/login?linked=${t.provider("b").id}`);
     expect(await identitiesOf(t.db, u.id)).toEqual([{ issuer: B, sub: "sb" }]);
     const [row] = await t.db.select({ at: userIdentities.lastLoginAt }).from(userIdentities).where(eq(userIdentities.userId, u.id));
     expect(row!.at).not.toBeNull();
@@ -151,7 +151,7 @@ describe("callback 的 intent: \"link\" 分支（#187 §8.1）", () => {
     const t = await twoProviders();
     const u = await insertPasswordUser(t.db);
     const { callback } = await linkRoundTrip(t, "b", await cookieOf(u.id), { sub: "sb" }, { providerIdInPath: t.provider("b").id.toUpperCase() });
-    expect((await callback).headers.location).toBe(`/settings/account?linked=${t.provider("b").id}`);
+    expect((await callback).headers.location).toBe(`/settings/login?linked=${t.provider("b").id}`);
   });
 
   it("session 不符 → ?link_error=oidc_link_session_mismatch：沒有 session、別人的 session", async () => {
@@ -160,7 +160,7 @@ describe("callback 的 intent: \"link\" 分支（#187 §8.1）", () => {
     const v = await insertPasswordUser(t.db);
     for (const callbackCookies of [{}, await cookieOf(v.id)]) {
       const { callback } = await linkRoundTrip(t, "b", await cookieOf(u.id), { sub: `sb-${Math.random()}` }, { callbackCookies });
-      expect((await callback).headers.location).toBe("/settings/account?link_error=oidc_link_session_mismatch");
+      expect((await callback).headers.location).toBe("/settings/login?link_error=oidc_link_session_mismatch");
     }
     expect(await identitiesOf(t.db, u.id)).toEqual([]);
   });
@@ -171,28 +171,28 @@ describe("callback 的 intent: \"link\" 分支（#187 §8.1）", () => {
     const { callback } = await linkRoundTrip(t, "b", await cookieOf(u.id), { sub: "sb-disabled" }, {
       beforeCallback: async () => { await t.db.update(users).set({ disabledAt: new Date() }).where(eq(users.id, u.id)); },
     });
-    expect((await callback).headers.location).toBe("/settings/account?link_error=account_disabled");
+    expect((await callback).headers.location).toBe("/settings/login?link_error=account_disabled");
     expect(await identitiesOf(t.db, u.id)).toEqual([]);
   });
 
-  it("身分屬別人 → identity_taken；已屬本人 → 冪等 linked；同 issuer 已有另一個 sub → identity_already_linked", async () => {
+  it("身分屬別人 → 302 location 恰為 /settings/login?link_error=identity_taken；已屬本人 → 冪等 linked；同 issuer 已有另一個 sub → identity_already_linked", async () => {
     const t = await twoProviders();
     const u = await insertPasswordUser(t.db);
     const other = await insertPasswordUser(t.db);
     await t.db.insert(userIdentities).values({ userId: other.id, issuer: B, sub: "theirs" });
     const taken = await linkRoundTrip(t, "b", await cookieOf(u.id), { sub: "theirs" });
-    expect((await taken.callback).headers.location).toBe("/settings/account?link_error=identity_taken");
+    expect((await taken.callback).headers.location).toBe("/settings/login?link_error=identity_taken");
 
     const mine = await linkRoundTrip(t, "b", await cookieOf(u.id), { sub: "mine" }, {
       beforeCallback: async () => { await t.db.insert(userIdentities).values({ userId: u.id, issuer: B, sub: "mine" }); },
     });
-    expect((await mine.callback).headers.location).toBe(`/settings/account?linked=${t.provider("b").id}`);
+    expect((await mine.callback).headers.location).toBe(`/settings/login?linked=${t.provider("b").id}`);
 
     const w = await insertPasswordUser(t.db);
     const b2 = await linkRoundTrip(t, "b", await cookieOf(w.id), { sub: "second" }, {
       beforeCallback: async () => { await t.db.insert(userIdentities).values({ userId: w.id, issuer: B, sub: "first" }); },
     });
-    expect((await b2.callback).headers.location).toBe("/settings/account?link_error=identity_already_linked");
+    expect((await b2.callback).headers.location).toBe("/settings/login?link_error=identity_already_linked");
     expect(await identitiesOf(t.db, w.id)).toEqual([{ issuer: B, sub: "first" }]);
   });
 
@@ -221,7 +221,7 @@ describe("callback 的 intent: \"link\" 分支（#187 §8.1）", () => {
       });
       expect(await waitForBlockedOrSettled(t.db.$client, callback)).toBe("blocked");
       await holder.query("commit");
-      expect((await callback).headers.location).toBe("/settings/account?link_error=identity_taken");
+      expect((await callback).headers.location).toBe("/settings/login?link_error=identity_taken");
     } finally {
       await holder.end();
     }
@@ -242,7 +242,7 @@ describe("callback 的 intent: \"link\" 分支（#187 §8.1）", () => {
       });
       expect(await waitForBlockedOrSettled(t.db.$client, callback)).toBe("blocked");
       await holder.query("commit");
-      expect((await callback).headers.location).toBe("/settings/account?link_error=identity_already_linked");
+      expect((await callback).headers.location).toBe("/settings/login?link_error=identity_already_linked");
     } finally {
       await holder.end();
     }
@@ -254,7 +254,7 @@ describe("callback 的 intent: \"link\" 分支（#187 §8.1）", () => {
     const u = await seedUser(t.db);
     await t.db.insert(userIdentities).values({ userId: u.id, issuer: A, sub: "sa" });
     const { callback } = await linkRoundTrip(t, "b", await cookieOf(u.id), { sub: "sb" });
-    expect((await callback).headers.location).toBe(`/settings/account?linked=${t.provider("b").id}`);
+    expect((await callback).headers.location).toBe(`/settings/login?linked=${t.provider("b").id}`);
     expect(await identitiesOf(t.db, u.id)).toEqual([{ issuer: A, sub: "sa" }, { issuer: B, sub: "sb" }]);
   });
 });

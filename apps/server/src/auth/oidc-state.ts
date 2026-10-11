@@ -47,7 +47,7 @@ export type OidcStateIntent = {
 } | {
   /**
    * #187 §7.6／§8.1 設定頁的手動連結：`linkUserId`＝發起者。callback 以「目前 session 的使用者 === linkUserId」判斷，
-   * 不符 → `oidc_link_session_mismatch`。**沒有 `next`**——完成後一律回 `/settings/account`（unseal 時即使帶了 next 也丟掉）。
+   * 不符 → `oidc_link_session_mismatch`。**沒有 `next`**——完成後一律回 `/settings/login`（#247 §9.9）（unseal 時即使帶了 next 也丟掉）。
    */
   intent: "link";
   linkUserId: string;
