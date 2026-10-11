@@ -666,7 +666,23 @@
     "nav": {
       "account": "帳戶資訊",
       "groups": "群組",
+      "storage": "儲存空間",
       "about": "關於"
+    },
+    "storage": {
+      "description": "你個人筆記裡上傳檔案的用量。",
+      "usageTitle": "用量",
+      "byKind": "依類型",
+      "byKindDescription": "上傳的檔案依類型分組。",
+      "kinds": {
+        "image": "影像",
+        "audio": "音訊",
+        "video": "影片",
+        "document": "文件",
+        "other": "其他"
+      },
+      "versionsTitle": "版本歷史",
+      "versionsNote": "版本歷史與筆記文字不佔用儲存空間，配額只計上傳的檔案。"
     },
     "groups": {
       "overview": "你所屬的群組，以及你在每個群組裡的角色。建立或管理群組都從側欄進行。",
@@ -710,7 +726,6 @@
         "success": "已加上密碼。",
         "ssoOnlyNotice": "本站目前只允許 SSO 登入。"
       },
-      "storage": "儲存空間",
       "handleTitle": "網址名稱",
       "handleDescription": "公開網址用的名字（/p/<handle>/…）。它會出現在你分享的所有 /n/ 與 /p/ 網址中（token 連結不含）。改名後這些網址立即失效，舊名永不可再用——包括你自己改回去。",
       "handleLabel": "網址名稱",

@@ -3,21 +3,16 @@ import { useTranslation } from "react-i18next";
 import { MAX_REGISTER_DISPLAY_NAME_LENGTH, normalizeHandle, validateHandle } from "@knotebook/shared";
 import { ChangePasswordForm } from "@/auth/ChangePasswordForm";
 import { useIdentities } from "@/api/account";
-import { useAuthConfig } from "@/api/authConfig";
-import { useUpdateAutoVersions } from "@/api/versionSettings";
 import { useUpdateDisplayName, useUpdateHandle } from "@/api/profile";
-import { useStorageUsage } from "@/api/storage";
 import { ApiFail } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
 import { useSession } from "@/auth/useSession";
 import { ApiTokensSection } from "./ApiTokensSection";
-import { AutoVersionsSwitch } from "./AutoVersionsSwitch";
 import { SettingsGroup, SettingsPage } from "./SettingsLayout";
 import { SetPasswordForm } from "./SetPasswordForm";
 import { SignInMethodsSection } from "./SignInMethodsSection";
-import { StorageUsageGroup } from "./StorageUsageGroup";
 
 /** 逐檔複製的既有慣例（無共用 helper——比照 ShareDialog/SettingsUsersSection）。 */
 function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
@@ -160,31 +155,6 @@ function HandleSection() {
 }
 
 /**
- * 個人空間的「自動儲存版本」開關（spec §6.8、§8.5）：立即生效，只送 `{ autoVersions }`；
- * 站台總開關關閉（`/api/auth/config` 的 `autoVersionsEnabled === false`）時 disabled 並給看得見的說明。
- * `config` 尚未載入時當作開（同 `passwordLoginEnabled` 的 `!== false` 預設，不誤閃「站台已關閉」）。
- */
-function AutoVersionsGroup() {
-  const { t } = useTranslation();
-  const { user } = useSession();
-  const config = useAuthConfig();
-  const update = useUpdateAutoVersions();
-  return (
-    <SettingsGroup>
-      <AutoVersionsSwitch
-        id="account-auto-versions"
-        title={t("settings.account.autoVersions.title")}
-        description={t("settings.account.autoVersions.description")}
-        checked={user?.autoVersions ?? true}
-        siteOff={config.data?.autoVersionsEnabled === false}
-        pending={update.isPending}
-        onCheckedChange={(value) => update.mutate(value, { onError: (err) => toast({ title: errorMessage(t, err), variant: "destructive" }) })}
-      />
-    </SettingsGroup>
-  );
-}
-
-/**
  * 設定 modal 的帳號區（`/settings/account`，所有人可見；spec §13.4）——使用者名
  * 編輯段（#122，兩分支皆渲染）＋自助改密碼。改密成功後**只 toast、不導航**：
  * `navigate("/")` 會關掉 modal，甚至扯掉背景 `/notes/:ref` 的共編 provider，
@@ -195,7 +165,7 @@ function AutoVersionsGroup() {
  *   → 「加上密碼」表單（`SetPasswordForm`）；不渲染改密碼表單（打了也一定 `invalid_credentials`）。
  * - `hasPassword === false`＋有效值關（B22）→ 只有說明、沒有表單。
  * - 有密碼 → 改密碼表單；有效值關時多一句說明。
- * 使用者名段在三形都照常渲染；最後一組是儲存空間用量（spec §9.2；只顯示）。`hasPassword` 仍用 `=== false` 明確比對（而非 `!user.hasPassword`），
+ * 使用者名段在三形都照常渲染。`hasPassword` 仍用 `=== false` 明確比對（而非 `!user.hasPassword`），
  * 讓「query 尚未就緒」（`undefined`）預設落在改密碼表單那條分支，不誤閃加密碼表單；
  * `passwordLoginEnabled` 同理以 `!== false` 預設為開（identities 尚未載入時不誤閃「關」說明）。
  *
@@ -205,7 +175,6 @@ export function SettingsAccountSection() {
   const { t } = useTranslation();
   const { user } = useSession();
   const identities = useIdentities();
-  const storage = useStorageUsage();
   const passwordLoginEnabled = identities.data?.passwordLoginEnabled !== false;
 
   return (
@@ -216,7 +185,6 @@ export function SettingsAccountSection() {
       {/* #107：與 HandleSection 同層、在 hasPassword 三元式之外——SSO-only 帳號
           也要能建 PAT。 */}
       <ApiTokensSection />
-      <AutoVersionsGroup />
       {user?.hasPassword === false ? (
         passwordLoginEnabled ? (
           <SettingsGroup title={t("settings.account.setPassword.title")} description={t("settings.account.setPassword.description")}>
@@ -235,7 +203,6 @@ export function SettingsAccountSection() {
           <ChangePasswordForm tone="panel" onSuccess={() => toast({ title: t("changePassword.successMessage") })} />
         </SettingsGroup>
       )}
-      <StorageUsageGroup title={t("settings.account.storage")} query={storage} />
     </SettingsPage>
   );
 }

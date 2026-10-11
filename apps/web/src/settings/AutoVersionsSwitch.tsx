@@ -34,7 +34,7 @@ export function AutoVersionsSwitch({
           {title}
         </label>
       </div>
-      <p className="max-w-prose text-sm text-muted-foreground">{description}</p>
+      <p className="text-sm text-muted-foreground">{description}</p>
       {siteOff && <p className="text-sm text-muted-foreground">{t("versions.siteOff")}</p>}
       {!siteOff && disabledReason !== undefined && <p className="text-sm text-muted-foreground">{disabledReason}</p>}
       <p className="text-xs text-muted-foreground">{t("versions.takesEffectNote")}</p>

@@ -666,7 +666,23 @@
     "nav": {
       "account": "Account info",
       "groups": "Groups",
+      "storage": "Storage",
       "about": "About"
+    },
+    "storage": {
+      "description": "How much space the files uploaded to your personal notes take.",
+      "usageTitle": "Usage",
+      "byKind": "By type",
+      "byKindDescription": "Uploaded files, grouped by type.",
+      "kinds": {
+        "image": "Images",
+        "audio": "Audio",
+        "video": "Video",
+        "document": "Documents",
+        "other": "Other"
+      },
+      "versionsTitle": "Version history",
+      "versionsNote": "Versions and note text don't count toward storage; quotas count uploaded files only."
     },
     "groups": {
       "overview": "Groups you belong to, and your role in each. Create or manage groups from the sidebar.",
@@ -710,7 +726,6 @@
         "success": "Password added.",
         "ssoOnlyNotice": "This site only allows signing in through a sign-in service right now."
       },
-      "storage": "Storage",
       "handleTitle": "URL name",
       "handleDescription": "The name used in your public links (/p/<handle>/…). It appears in every /n/ and /p/ link you share (token links don't include it). After a rename those links stop working immediately, and the old name can never be used again — not even by you.",
       "handleLabel": "URL name",

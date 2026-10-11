@@ -480,7 +480,7 @@ function renderAutoVersions({ user, siteOn, profileReply }: { user: UserDto; sit
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <ThemeProvider>
-        <MemoryRouter initialEntries={["/settings/account"]}>
+        <MemoryRouter initialEntries={["/settings/storage"]}>
           <AppRoutes />
         </MemoryRouter>
       </ThemeProvider>

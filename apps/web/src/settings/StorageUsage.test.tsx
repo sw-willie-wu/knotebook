@@ -29,6 +29,8 @@ function renderAt(path: string, handlers: (url: string, method: string) => Respo
     if (url === "/api/notes") return Promise.resolve(fakeResponse(200, []));
     if (url === "/api/auth/identities") return Promise.resolve(fakeResponse(200, { identities: [], linkable: [], hasPassword: true, passwordLoginEnabled: true }));
     if (url === "/api/auth/tokens") return Promise.resolve(fakeResponse(200, { tokens: [] }));
+    // 儲存空間頁的版本歷史開關要打（#247 §5.4；回應形同 SettingsAccountSection.test.tsx 的 baseFetchHandlers）
+    if (url === "/api/auth/config") return Promise.resolve(fakeResponse(200, { providers: [], registration: { enabled: false }, passwordLogin: { enabled: true }, autoVersionsEnabled: true }));
     throw new Error(`unexpected fetch: ${method} ${url}`);
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -51,36 +53,36 @@ describe("W3 帳號頁的儲存空間", () => {
   afterEach(() => { vi.unstubAllGlobals(); });
 
   it("有上限：「1 MB of 2 GB (Basic)」，沒有警示", async () => {
-    renderAt("/settings/account", (url) => (url === "/api/groups" ? fakeResponse(200, []) : url === "/api/storage" ? fakeResponse(200, usage({})) : null));
-    expect(await screen.findByRole("heading", { name: "Storage" })).toBeInTheDocument();
+    renderAt("/settings/storage", (url) => (url === "/api/groups" ? fakeResponse(200, []) : url === "/api/storage" ? fakeResponse(200, usage({})) : null));
+    expect(await screen.findByRole("heading", { level: 1, name: "Storage" })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId("storage-usage")).toHaveTextContent("1 MB of 2 GB (Basic)"));
     expect(screen.getByTestId("storage-usage")).not.toHaveClass("text-destructive");
     expect(screen.queryByText("Limit reached — no new attachments can be added")).not.toBeInTheDocument();
   });
 
   it("無上限：「5 MB used (unlimited, Big)」，沒有警示", async () => {
-    renderAt("/settings/account", (url) => (url === "/api/groups" ? fakeResponse(200, []) : url === "/api/storage" ? fakeResponse(200, usage({ usedBytes: 5 * 1048576, quotaBytes: null, planName: "Big" })) : null));
+    renderAt("/settings/storage", (url) => (url === "/api/groups" ? fakeResponse(200, []) : url === "/api/storage" ? fakeResponse(200, usage({ usedBytes: 5 * 1048576, quotaBytes: null, planName: "Big" })) : null));
     await waitFor(() => expect(screen.getByTestId("storage-usage")).toHaveTextContent("5 MB used (unlimited, Big)"));
     expect(screen.getByTestId("storage-usage")).not.toHaveClass("text-destructive");
     expect(screen.queryByText("Limit reached — no new attachments can be added")).not.toBeInTheDocument();
   });
 
   it("已超過：警示色＋「Limit reached…」", async () => {
-    renderAt("/settings/account", (url) => (url === "/api/groups" ? fakeResponse(200, []) : url === "/api/storage" ? fakeResponse(200, usage({ usedBytes: 3 * 1048576, quotaBytes: 2 * 1048576, planName: "Tight" })) : null));
+    renderAt("/settings/storage", (url) => (url === "/api/groups" ? fakeResponse(200, []) : url === "/api/storage" ? fakeResponse(200, usage({ usedBytes: 3 * 1048576, quotaBytes: 2 * 1048576, planName: "Tight" })) : null));
     await waitFor(() => expect(screen.getByTestId("storage-usage")).toHaveTextContent("3 MB of 2 MB (Tight)"));
     expect(screen.getByTestId("storage-usage")).toHaveClass("text-destructive");
     expect(screen.getByText("Limit reached — no new attachments can be added")).toHaveClass("text-destructive");
   });
 
   it("恰好等於上限：也警示（Willie 2026-10-08，起草裁定 4）", async () => {
-    renderAt("/settings/account", (url) => (url === "/api/groups" ? fakeResponse(200, []) : url === "/api/storage" ? fakeResponse(200, usage({ usedBytes: 1048576, quotaBytes: 1048576 })) : null));
+    renderAt("/settings/storage", (url) => (url === "/api/groups" ? fakeResponse(200, []) : url === "/api/storage" ? fakeResponse(200, usage({ usedBytes: 1048576, quotaBytes: 1048576 })) : null));
     await waitFor(() => expect(screen.getByTestId("storage-usage")).toHaveTextContent("1 MB of 1 MB (Basic)"));
     expect(screen.getByTestId("storage-usage")).toHaveClass("text-destructive");
     expect(screen.getByText("Limit reached — no new attachments can be added")).toHaveClass("text-destructive");
   });
 
   it("差 1 byte 未達上限：不警示（>= 的邊界另一側）", async () => {
-    renderAt("/settings/account", (url) => (url === "/api/groups" ? fakeResponse(200, []) : url === "/api/storage" ? fakeResponse(200, usage({ usedBytes: 1048575, quotaBytes: 1048576 })) : null));
+    renderAt("/settings/storage", (url) => (url === "/api/groups" ? fakeResponse(200, []) : url === "/api/storage" ? fakeResponse(200, usage({ usedBytes: 1048575, quotaBytes: 1048576 })) : null));
     await waitFor(() => expect(screen.getByTestId("storage-usage")).toHaveTextContent("1 MB of 1 MB (Basic)"));
     expect(screen.getByTestId("storage-usage")).not.toHaveClass("text-destructive");
     expect(screen.queryByText("Limit reached — no new attachments can be added")).not.toBeInTheDocument();
