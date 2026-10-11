@@ -4,7 +4,9 @@ import type { AdminAuthProbeResultDto, AdminAuthProviderDto, AuthProviderTemplat
 import { useCreateAuthProvider, useDiscoverAuthProvider, usePatchAuthProvider, type PatchAuthProviderBody } from "@/api/adminAuth";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Pencil } from "@/components/ui/icons";
 import { Input } from "@/components/ui/input";
+import { RowIconButton } from "@/components/ui/row-icon-button";
 import { toast } from "@/components/ui/toast";
 import { copyText } from "@/lib/clipboard";
 import { authErrorMessage } from "./auth-error-message";
@@ -466,9 +468,7 @@ export function EditProviderDialog({ provider }: { provider: AdminAuthProviderDt
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <Button type="button" variant="ghost" size="sm">
-          {t("admin.auth.edit.button")}
-        </Button>
+        <RowIconButton label={t("admin.auth.edit.button")} icon={<Pencil className="h-4 w-4" />} />
       </DialogTrigger>
       <DialogContent dismissOnOutside={false}>
         <DialogHeader>

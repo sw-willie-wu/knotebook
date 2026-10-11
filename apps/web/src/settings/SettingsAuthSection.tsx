@@ -20,6 +20,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Copy, Plug, Trash } from "@/components/ui/icons";
+import { RowIconButton } from "@/components/ui/row-icon-button";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/components/ui/toast";
 import { copyText } from "@/lib/clipboard";
@@ -61,7 +63,9 @@ function DisableProviderDialog({
         </DialogHeader>
         {/* 顯示名是管理員輸入：獨立文字節點，不進 t() 插值（Global Constraints）。 */}
         <p className="text-sm font-medium">{provider.displayName}</p>
-        {impact.isPending ? (
+        {/* 列上的「已連結」欄與這裡共用同一把 query key：開框時快取裡已有列載入時的舊人數（isPending=false），
+            重抓完成前一律顯示載入中，才維持「開框當下的快照」、不先閃過期人數（#247 §7.0）。 */}
+        {impact.isPending || impact.isFetching ? (
           <p className="text-sm text-muted-foreground">{t("admin.auth.impactLoading")}</p>
         ) : impact.isError ? (
           <p role="alert" className="text-sm text-destructive">
@@ -91,9 +95,8 @@ function DisableProviderDialog({
 }
 
 /**
- * 刪除（W11：刪除要先停用——啟用中時觸發鈕 disabled；server 另以 409 `provider_enabled` 把關）。
- * 停用原因不用 `title`：disabled 的鈕帶 `pointer-events-none`，滑鼠、鍵盤、觸控都碰不到它的 tooltip——改由卡片渲染可見文字，
- * 這裡以 `aria-describedby`（`disabledHintId`）連過去。
+ * 刪除（W11）。刪除要先停用：啟用中時是 `aria-disabled`（`RowIconButton` 的 softDisabled），`title` 與明細區的可見文字都說明原因，
+ * 並以 `aria-describedby`（`disabledHintId`）連過去；server 另以 409 `provider_enabled` 把關。
  */
 function DeleteProviderDialog({ provider, disabledHintId }: { provider: AdminAuthProviderDto; disabledHintId: string }) {
   const { t } = useTranslation();
@@ -112,15 +115,14 @@ function DeleteProviderDialog({ provider, disabledHintId }: { provider: AdminAut
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          disabled={provider.enabled}
+        <RowIconButton
+          label={t("admin.auth.delete")}
+          tone="destructive"
+          icon={<Trash className="h-4 w-4" />}
+          softDisabled={provider.enabled}
+          softDisabledReason={t("admin.auth.deleteDisabledHint")}
           aria-describedby={provider.enabled ? disabledHintId : undefined}
-        >
-          {t("admin.auth.delete")}
-        </Button>
+        />
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
@@ -146,11 +148,38 @@ function DeleteProviderDialog({ provider, disabledHintId }: { provider: AdminAut
 
 type TestState = { ok: true; result: AdminAuthProbeResultDto } | { ok: false; message: string } | null;
 
-/** 一個登入服務的卡片（§9.4）。`<section aria-labelledby>`＝以顯示名為可及名稱的 region（測試以它定位）。 */
-function ProviderCard({ provider }: { provider: AdminAuthProviderDto }) {
+/** 登入服務表的欄（#247 §7.0）：服務｜Issuer｜已連結｜列尾動作｜啟用。表頭與每一列共用同一個 grid 模板才對得齊。 */
+const PROVIDER_ROW_GRID = "grid grid-cols-[minmax(0,1.3fr)_minmax(0,2fr)_4rem_auto_3.5rem] items-center gap-x-3";
+
+function ProviderTableHeader({ enabledHeaderId }: { enabledHeaderId: string }) {
+  const { t } = useTranslation();
+  return (
+    // 每一列是以顯示名為名的 region（測試與 e2e 以它定位），欄名對輔助科技另以每格的 sr-only 前綴補上；這一列只給眼睛看。
+    // 保留 aria-hidden：「Enabled」欄頭仍可被各列 switch 的 aria-labelledby 引用（accname 走 labelledby 時會納入 hidden 節點）。
+    <div
+      aria-hidden="true"
+      data-testid="auth-provider-table-header"
+      className={`${PROVIDER_ROW_GRID} border-b border-border px-3 py-2 text-left text-sm text-muted-foreground`}
+    >
+      <span>{t("admin.auth.tableService")}</span>
+      <span>{t("admin.auth.tableIssuer")}</span>
+      <span>{t("admin.auth.tableLinked")}</span>
+      <span className="sr-only">{t("admin.auth.tableActions")}</span>
+      <span id={enabledHeaderId}>{t("admin.auth.tableEnabled")}</span>
+    </div>
+  );
+}
+
+/**
+ * 一個登入服務＝一列（#247 §7.0）：第一行是對齊表頭的格線列，其餘資訊（client ID、回呼網址、secret、未連線／http 警示、測試結果）
+ * 留在下方明細區（Q3 裁定：採預設）。`<section aria-labelledby>`＝以顯示名為可及名稱的 region（測試以它定位）。
+ */
+function ProviderCard({ provider, enabledHeaderId }: { provider: AdminAuthProviderDto; enabledHeaderId: string }) {
   const { t } = useTranslation();
   const headingId = useId();
   const deleteHintId = useId();
+  // 已連結人數（Q2 裁定：每列一支唯讀的 impact 查詢，不改 server）；`DisableProviderDialog` 共用同一把 key，開框時照舊重抓。
+  const impact = useAuthProviderImpact(provider.id, true);
   const patch = usePatchAuthProvider();
   const testProvider = useTestAuthProvider();
   const [disableOpen, setDisableOpen] = useState(false);
@@ -192,12 +221,12 @@ function ProviderCard({ provider }: { provider: AdminAuthProviderDto }) {
   }
 
   return (
-    <section aria-labelledby={headingId} className="space-y-3 rounded-md border border-border p-4">
-      <div className="flex items-start justify-between gap-2">
+    <section aria-labelledby={headingId} className="border-b border-border px-3 py-3">
+      <div data-testid="auth-provider-row" className={PROVIDER_ROW_GRID}>
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <ProviderIcon icon={provider.icon} />
-            <h3 id={headingId} className="text-sm font-semibold">
+            <h3 id={headingId} className="truncate text-sm font-semibold">
               {provider.displayName}
             </h3>
           </div>
@@ -206,73 +235,78 @@ function ProviderCard({ provider }: { provider: AdminAuthProviderDto }) {
             {provider.legacyCallback && ` · ${t("admin.auth.legacyBadge")}`}
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <ProviderIconDialog provider={provider} />
+        <p className="min-w-0 break-all text-sm">
+          <span className="sr-only">{t("admin.auth.tableIssuer")}: </span>
+          {provider.issuerUrl}
+        </p>
+        <p className="text-sm tabular-nums">
+          <span className="sr-only">{t("admin.auth.tableLinked")}: </span>
+          {impact.data ? impact.data.linkedUsers : "—"}
+        </p>
+        <div className="flex shrink-0 items-center">
+          <RowIconButton
+            label={t("admin.auth.test")}
+            icon={<Plug className="h-4 w-4" />}
+            onClick={() => void handleTest()}
+            disabled={testProvider.isPending}
+          />
           <EditProviderDialog provider={provider} />
+          <ProviderIconDialog provider={provider} />
           <DeleteProviderDialog provider={provider} disabledHintId={deleteHintId} />
         </div>
-      </div>
-      {provider.enabled && (
-        <p id={deleteHintId} className="text-right text-xs text-muted-foreground">
-          {t("admin.auth.deleteDisabledHint")}
-        </p>
-      )}
-
-      <dl className="grid grid-cols-[max-content_minmax(0,1fr)] items-center gap-x-3 gap-y-1 text-xs">
-        <dt className="text-muted-foreground">{t("admin.auth.issuerLabel")}</dt>
-        <dd className="break-all">{provider.issuerUrl}</dd>
-        <dt className="text-muted-foreground">{t("admin.auth.clientIdLabel")}</dt>
-        <dd className="break-all">{provider.clientId}</dd>
-        <dt className="text-muted-foreground">{t("admin.auth.callbackLabel")}</dt>
-        <dd className="flex min-w-0 items-center gap-2">
-          <code className="min-w-0 break-all">{provider.callbackUrl}</code>
-          <Button type="button" variant="ghost" size="sm" onClick={handleCopy}>
-            {t("admin.auth.copyCallback")}
-          </Button>
-        </dd>
-      </dl>
-
-      <p className="text-xs text-muted-foreground">{provider.hasSecret ? t("admin.auth.secretSaved") : t("admin.auth.secretMissing")}</p>
-      {!provider.issuerResolved && (
-        <p role="status" className="text-xs text-muted-foreground">
-          {t("admin.auth.notConnected")}
-        </p>
-      )}
-      {provider.insecureIssuer && <p className="text-xs text-destructive">{t("admin.auth.insecureIssuer")}</p>}
-
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2">
-          <Switch
-            id={`auth-provider-enabled-${provider.id}`}
-            checked={provider.enabled}
-            onCheckedChange={checked => void handleToggle(checked)}
-            disabled={patch.isPending}
-          />
-          <label htmlFor={`auth-provider-enabled-${provider.id}`} className="text-xs font-medium">
-            {t("admin.auth.enabled")}
-          </label>
-        </div>
-        <Button type="button" variant="ghost" size="sm" onClick={() => void handleTest()} disabled={testProvider.isPending}>
-          {testProvider.isPending ? t("admin.auth.testing") : t("admin.auth.test")}
-        </Button>
+        {/* 可及名稱＝「Enabled」欄頭＋該列顯示名（對齊站台使用者表，Task 7）。 */}
+        <Switch
+          aria-labelledby={`${enabledHeaderId} ${headingId}`}
+          checked={provider.enabled}
+          onCheckedChange={checked => void handleToggle(checked)}
+          disabled={patch.isPending}
+        />
       </div>
 
-      {testState?.ok === true && (
-        <div role="status" className="space-y-1 text-xs">
-          <p>{t("admin.auth.testOk", { issuer: testState.result.issuer })}</p>
-          {testState.result.warnings.map(warning => (
-            <p key={warning} className="text-destructive">
-              {t(`admin.auth.warnings.${warning}`)}
-            </p>
-          ))}
-          <p className="text-muted-foreground">{t("admin.auth.testScope")}</p>
-        </div>
-      )}
-      {testState?.ok === false && (
-        <p role="alert" className="text-xs text-destructive">
-          {testState.message}
-        </p>
-      )}
+      <div className="mt-2 space-y-2 pl-6 text-xs">
+        {provider.enabled && (
+          <p id={deleteHintId} className="text-muted-foreground">
+            {t("admin.auth.deleteDisabledHint")}
+          </p>
+        )}
+        <dl className="grid grid-cols-[max-content_minmax(0,1fr)] items-center gap-x-3 gap-y-1">
+          <dt className="text-muted-foreground">{t("admin.auth.clientIdLabel")}</dt>
+          <dd className="break-all">{provider.clientId}</dd>
+          <dt className="text-muted-foreground">{t("admin.auth.callbackLabel")}</dt>
+          <dd className="flex min-w-0 items-center gap-1">
+            <code className="min-w-0 break-all">{provider.callbackUrl}</code>
+            <RowIconButton label={t("admin.auth.copyCallback")} icon={<Copy className="h-4 w-4" />} onClick={handleCopy} />
+          </dd>
+        </dl>
+        <p className="text-muted-foreground">{provider.hasSecret ? t("admin.auth.secretSaved") : t("admin.auth.secretMissing")}</p>
+        {!provider.issuerResolved && (
+          <p role="status" className="text-muted-foreground">
+            {t("admin.auth.notConnected")}
+          </p>
+        )}
+        {provider.insecureIssuer && <p className="text-destructive">{t("admin.auth.insecureIssuer")}</p>}
+        {testProvider.isPending && (
+          <p role="status" className="text-muted-foreground">
+            {t("admin.auth.testing")}
+          </p>
+        )}
+        {testState?.ok === true && (
+          <div role="status" className="space-y-1">
+            <p>{t("admin.auth.testOk", { issuer: testState.result.issuer })}</p>
+            {testState.result.warnings.map(warning => (
+              <p key={warning} className="text-destructive">
+                {t(`admin.auth.warnings.${warning}`)}
+              </p>
+            ))}
+            <p className="text-muted-foreground">{t("admin.auth.testScope")}</p>
+          </div>
+        )}
+        {testState?.ok === false && (
+          <p role="alert" className="text-destructive">
+            {testState.message}
+          </p>
+        )}
+      </div>
 
       <DisableProviderDialog provider={provider} open={disableOpen} onOpenChange={setDisableOpen} />
     </section>
@@ -280,12 +314,13 @@ function ProviderCard({ provider }: { provider: AdminAuthProviderDto }) {
 }
 
 /**
- * #187 §9.4：站台管理 → 登入（`/admin/auth`）。頂部是「允許註冊」與「允許帳密登入」（`SiteAccessSettings`），下面是登入服務管理。
+ * #187 §9.4：站台管理 → 登入（站台 modal 的 `/admin/login`；舊網址 `/admin/auth` 轉過來，#247 §7.0）。頂部是「允許註冊」與「允許帳密登入」（`SiteAccessSettings`），下面是登入服務管理。
  * 新增與編輯 dialog 在 `AuthProviderDialogs.tsx`。
  */
 export function SettingsAuthSection() {
   const { t } = useTranslation();
   const providersQuery = useAdminAuthProviders();
+  const enabledHeaderId = useId();
 
   return (
     <SettingsPage title={t("admin.auth.title")} description={t("admin.auth.description")}>
@@ -300,9 +335,10 @@ export function SettingsAuthSection() {
         ) : providersQuery.data.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t("admin.auth.empty")}</p>
         ) : (
-          <div className="space-y-3">
+          <div>
+            <ProviderTableHeader enabledHeaderId={enabledHeaderId} />
             {providersQuery.data.map(provider => (
-              <ProviderCard key={provider.id} provider={provider} />
+              <ProviderCard key={provider.id} provider={provider} enabledHeaderId={enabledHeaderId} />
             ))}
           </div>
         )}

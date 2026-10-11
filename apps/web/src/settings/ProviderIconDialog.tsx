@@ -6,6 +6,8 @@ import { ADMIN_AUTH_PROVIDERS_QUERY_KEY, usePatchAuthProvider, useUploadAuthProv
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { ImageIcon } from "@/components/ui/icons";
+import { RowIconButton } from "@/components/ui/row-icon-button";
 import { authErrorMessage } from "./auth-error-message";
 import { PROVIDER_ICON_ACCEPT, ProviderIconResizeError, resizeProviderIcon } from "./provider-icon-resize";
 
@@ -129,9 +131,7 @@ export function ProviderIconDialog({ provider }: { provider: AdminAuthProviderDt
       }}
     >
       <DialogTrigger asChild>
-        <Button type="button" variant="ghost" size="sm">
-          {t("admin.auth.icon.button")}
-        </Button>
+        <RowIconButton label={t("admin.auth.icon.button")} icon={<ImageIcon className="h-4 w-4" />} />
       </DialogTrigger>
       <DialogContent dismissOnOutside={false}>
         <DialogHeader>

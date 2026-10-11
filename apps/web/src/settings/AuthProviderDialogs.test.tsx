@@ -394,7 +394,7 @@ describe("編輯登入服務 dialog（#187 §9.4、§5.2）", () => {
     fireEvent.change(dialog.getByLabelText("Client secret"), { target: { value: "new-secret" } });
     expect(dialog.getByText("Changing the issuer turns this service off. Test it, then turn it back on.")).toBeInTheDocument();
     fireEvent.click(dialog.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(region.getByRole("switch", { name: "On" })).toHaveAttribute("aria-checked", "false"));
+    await waitFor(() => expect(region.getByRole("switch", { name: `Enabled ${LIVE.displayName}` })).toHaveAttribute("aria-checked", "false"));
     expect(screen.getByText("This sign-in service was turned off.")).toBeInTheDocument();
     expect((server.calls.find(c => c.method === "PATCH")!.body as { clientSecret?: string }).clientSecret).toBe("new-secret");
   });
