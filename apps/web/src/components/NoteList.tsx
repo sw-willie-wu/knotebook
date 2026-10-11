@@ -61,11 +61,12 @@ function NoteRow({ note, primary, indent }: NoteRowProps) {
   return (
     <li
       className={cn(
-        "group/noterow flex h-11 items-center gap-1 rounded-md pr-2 text-[13px] hover:bg-accent/60 md:h-7",
+        "group/noterow flex h-11 items-center gap-1 rounded-md pr-2 text-[13px] hover:bg-brand-soft hover:text-brand-on-soft active:bg-brand-soft-strong md:h-7",
         indent === "section" ? "pl-6" : "pl-3",
-        // active 時 hover 必須跟主題色走：twMerge 對同一個 variant 群組（這裡是
-        // `hover:bg-*`）互斥，後面這個 class 會蓋掉前面的 `hover:bg-accent/60`。
-        // 非 active 的列維持中性 hover，不受這裡影響。
+        // #247 §4.10（Willie W18）：非 active 的列走主題色四態（與管理面板左卡項次同）：平常無底、hover
+        // `bg-brand-soft`、按下 `active:bg-brand-soft-strong`、selected `bg-brand-soft`。
+        // active 時 hover 要再深一階：twMerge 對同一個 variant 群組（`hover:bg-*`）互斥，後面這個 class
+        // 會蓋掉前面的 `hover:bg-brand-soft`——所以這裡必須走 `cn(...)`，不能字串串接。
         active && "bg-brand-soft text-brand-on-soft font-medium hover:bg-brand-soft-strong",
       )}
     >
@@ -218,14 +219,14 @@ function GroupSection({ sectionKey, label, testId, actions, forceExpanded, child
   const open = forceExpanded || expanded;
   return (
     <div data-testid={testId} className="flex flex-col gap-0.5">
-      <div className="group/grouprow flex h-7 items-center gap-0.5 rounded-md hover:bg-accent/60">
+      <div className="group/grouprow flex h-7 items-center gap-0.5 rounded-md hover:bg-brand-soft active:bg-brand-soft-strong">
         <button
           type="button"
           aria-expanded={open}
           onClick={toggle}
-          className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 text-left text-[13px] font-medium text-foreground"
+          className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 text-left text-[13px] font-medium text-foreground group-hover/grouprow:text-brand-on-soft"
         >
-          <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center text-muted-foreground">
+          <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center text-muted-foreground group-hover/grouprow:text-brand-on-soft">
             <Users
               aria-hidden="true"
               className="h-3.5 w-3.5 group-hover/grouprow:hidden group-has-[:focus-visible]/grouprow:hidden [@media(hover:none)]:hidden"

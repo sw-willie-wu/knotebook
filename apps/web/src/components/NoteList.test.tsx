@@ -325,7 +325,7 @@ describe("NoteList", () => {
   });
 
   // PR3：active 列跟主題色，且 hover 態要一起換成 brand（B3——twMerge 讓後出的
-  // hover:bg-brand-soft-strong 蓋掉 hover:bg-accent/60，同一個 variant 群組互斥）。
+  // hover:bg-brand-soft-strong 蓋掉 hover:bg-brand-soft，同一個 variant 群組互斥）。
   // 握把：class 掛在 <li>，不是 <a>，因此用 getByRole("link").closest("li") 取。
   it("active 列套用主題色 tint（bg-brand-soft/text-brand-on-soft/hover:bg-brand-soft-strong）", async () => {
     stubNotesFetch([OWNER_NOTE, SHARED_NOTE]);
@@ -335,15 +335,16 @@ describe("NoteList", () => {
     const activeLink = await screen.findByRole("link", { current: "page" });
     const activeRow = activeLink.closest("li");
     expect(activeRow).toHaveClass("bg-brand-soft", "text-brand-on-soft", "font-medium", "hover:bg-brand-soft-strong");
-    // twMerge 真的蓋掉了中性 hover，不是兩個 class 並存靠優先權僥倖對——驗證
-    // hover:bg-accent/60 確實從 active 列的 class 清單裡消失。
-    expect(activeRow).not.toHaveClass("hover:bg-accent/60");
+    // twMerge 真的把基底的 `hover:bg-brand-soft` 換成 `hover:bg-brand-soft-strong`，
+    // 不是兩者並存靠優先權僥倖對。
+    expect(activeRow).not.toHaveClass("hover:bg-brand-soft");
 
     const sharedGroup = screen.getByTestId("notegroup-shared");
     const inactiveLink = within(sharedGroup).getByRole("link", { name: "No Slug Note" });
     const inactiveRow = inactiveLink.closest("li");
     expect(inactiveRow).not.toHaveClass("bg-brand-soft");
-    expect(inactiveRow).toHaveClass("hover:bg-accent/60");
+    expect(inactiveRow).toHaveClass("hover:bg-brand-soft", "hover:text-brand-on-soft", "active:bg-brand-soft-strong");
+    expect(inactiveRow).not.toHaveClass("hover:bg-accent/60");
   });
 
   it("點擊即亮：樂觀 set，不等任何解析", async () => {
@@ -475,6 +476,19 @@ describe("NoteList", () => {
   describe("側欄分段與折疊（#103）", () => {
     beforeEach(() => {
       window.localStorage.clear();
+    });
+
+    it("#247 §4.10：群組列 hover 是品牌 tint，不是中性灰", async () => {
+      stubNotesFetch([MY_GROUP_NOTE], [GROUP_A]);
+      renderNoteList();
+      const section = await screen.findByTestId(`notegroup-group-${GROUP_A.id}`);
+      const row = section.firstElementChild as HTMLElement; // `group/grouprow` 那一列（NoteList.tsx:221）
+      expect(row).toHaveClass("group/grouprow", "hover:bg-brand-soft", "active:bg-brand-soft-strong");
+      expect(row).not.toHaveClass("hover:bg-accent/60");
+      // 文字色掛在子元素上（button 自帶 text-foreground、圖示槽自帶 text-muted-foreground，不繼承外層）。
+      const button = within(row).getByRole("button", { name: GROUP_A.name });
+      expect(button).toHaveClass("group-hover/grouprow:text-brand-on-soft");
+      expect(button.firstElementChild).toHaveClass("group-hover/grouprow:text-brand-on-soft");
     });
 
     it("#175 §8.2 四列：我的／群組／與我共享各落各段，群組段不標角色", async () => {
@@ -831,7 +845,7 @@ describe("NoteList", () => {
       expect(header).toHaveAccessibleName("Workshop A");
       expect(header).toHaveClass("h-7", "gap-1.5", "px-2", "text-[13px]", "font-medium", "text-foreground");
       expect(header).not.toHaveClass("text-muted-foreground");
-      expect(header.parentElement).toHaveClass("group/grouprow", "hover:bg-accent/60");
+      expect(header.parentElement).toHaveClass("group/grouprow", "hover:bg-brand-soft");
 
       const users = header.querySelector('svg[data-icon="users"]');
       const chevron = header.querySelector('svg[data-icon="chevron-right"]');
