@@ -20,8 +20,8 @@ describe("#239 W3", () => {
     expect(MOVE).toBe("Move or copy notes into groups");
   });
   it("模型面字串引用的名稱與標籤逐字一致", () => {
-    expect(COPY_NEEDS_MOVE_MESSAGE).toContain(`"${EDIT}" and "${MOVE}"`);
-    expect(MOVE_NEEDS_MOVE_MESSAGE).toContain(`"${EDIT}" and "${MOVE}"`);
+    expect(COPY_NEEDS_MOVE_MESSAGE).toContain(`turn on "${MOVE}"`);
+    expect(MOVE_NEEDS_MOVE_MESSAGE).toContain(`turn on "${MOVE}"`);
     expect(INSUFFICIENT_SCOPE_MESSAGE).toContain(`"${EDIT}"`);
     expect(mcpInstructions(false)).toContain(`"${EDIT}"`);
   });

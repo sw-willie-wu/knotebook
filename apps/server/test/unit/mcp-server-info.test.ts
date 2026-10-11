@@ -85,10 +85,12 @@ describe("#108 MCP server-info", () => {
     expect(text).not.toContain("cut at 200 characters.");
   });
 
-  it("#239 唯讀版 instructions：處置是建一支勾了「Create and edit notes」的 token 並用它連線；≤ 1000", () => {
+  it("#247 唯讀版 instructions：處置是在設定 → 授權的 token 列（鉛筆）開啟「Create and edit notes」並重連；≤ 1000", () => {
     const ro = mcpInstructions(false);
-    expect(ro).toContain('create a token with "Create and edit notes" (notes:write) ticked');
-    expect(ro).toContain("and connect with it");
+    expect(ro).toContain('turn on "Create and edit notes" (notes:write) for this credential via the pencil on its row in Settings → Authorization');
+    expect(ro).toContain("then reconnect so the writing tools appear");
+    expect(ro).not.toContain("Settings → Account");
+    expect(ro).not.toContain("create a token");
     expect(ro.length).toBeLessThanOrEqual(1000);
   });
 });

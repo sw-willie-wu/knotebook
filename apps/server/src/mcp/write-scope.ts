@@ -34,11 +34,11 @@ import { toolError, type ToolErrorResult } from "./tool-result.js";
 import type { McpToolCtx } from "./context.js";
 
 /**
- * spec §7.5(g)，173 字元。HTTP 上是死碼（唯讀憑證沒有寫入工具可呼叫）。模型看得到的字串一律英文；
- * 引號內＝建立 token 對話框的勾選框字樣（spec §9.4 `settings.account.apiTokensScopeEdit`）。
+ * spec §7.5(g)，#247 §12 改寫後 189 字元（原 173）。HTTP 上是死碼（唯讀憑證沒有寫入工具可呼叫）。模型看得到的字串一律英文；
+ * 處置＝在「設定 → 授權」的 token 列上以鉛筆開啟權限、再重連；引號內＝該列與建立對話框上 toggle 的字樣（`settings.account.apiTokensScopeEdit`）。
  */
 export const INSUFFICIENT_SCOPE_MESSAGE =
-  'This credential cannot change notes. Ask the user to create a token with "Create and edit notes" (notes:write) ticked in Settings → Account → API tokens and connect with it.';
+  'This credential cannot change notes. Ask the user to turn on "Create and edit notes" (notes:write) for this credential via the pencil on its row in Settings → Authorization, then reconnect.';
 const RATE_LIMITED_MESSAGE = "Too many writes with this credential right now. Wait a few minutes before writing again.";
 
 /**
