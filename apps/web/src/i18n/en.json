@@ -673,7 +673,16 @@
     "description": "Manage your account and workspace settings.",
     "nav": {
       "account": "Account",
-      "groups": "Groups"
+      "groups": "Groups",
+      "about": "About"
+    },
+    "about": {
+      "description": "Knotebook is a self-hosted collaborative notebook.",
+      "version": "Version",
+      "source": "Source code",
+      "docs": "Documentation",
+      "docsLink": "docs/ folder",
+      "license": "License"
     },
     "account": {
       "description": "Manage your username, password, and API tokens.",

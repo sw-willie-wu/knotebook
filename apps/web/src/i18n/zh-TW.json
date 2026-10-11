@@ -673,7 +673,16 @@
     "description": "管理你的帳號與工作區設定。",
     "nav": {
       "account": "帳號",
-      "groups": "群組"
+      "groups": "群組",
+      "about": "關於"
+    },
+    "about": {
+      "description": "Knotebook 是自架的協作筆記。",
+      "version": "版本",
+      "source": "原始碼",
+      "docs": "文件",
+      "docsLink": "docs/ 目錄",
+      "license": "授權條款"
     },
     "account": {
       "description": "管理你的使用者名、密碼與 API token。",

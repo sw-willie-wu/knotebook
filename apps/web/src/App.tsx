@@ -62,6 +62,9 @@ const SettingsGroupDetailSection = lazy(() =>
 const SettingsGroupRolesSection = lazy(() =>
   import("./settings/SettingsGroupRolesSection").then(m => ({ default: m.SettingsGroupRolesSection })),
 );
+const SettingsAboutSection = lazy(() =>
+  import("./settings/SettingsAboutSection").then(m => ({ default: m.SettingsAboutSection })),
+);
 
 /**
  * 整頁 lazy route 的 element 外包（#201）：boundary＋Suspense＋beacon，結構與 NoteRoute 同款
@@ -299,6 +302,7 @@ export function AppRoutes() {
               <Route path="/settings/groups" element={<SettingsGroupsSection />} />
               <Route path="/settings/groups/:id" element={<SettingsGroupDetailSection />} />
               <Route path="/settings/groups/:id/roles" element={<SettingsGroupRolesSection />} />
+              <Route path="/settings/about" element={<SettingsAboutSection />} />
             </Route>
           </Route>
           {/* 舊網址（書籤、舊文件連結）：站台管理搬到 /admin/* 後轉址過去。刻意掛在
