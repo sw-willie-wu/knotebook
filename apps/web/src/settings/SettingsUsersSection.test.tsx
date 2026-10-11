@@ -12,14 +12,13 @@ import type { AdminUserDto } from "@/api/admin";
 
 // 歷程：Task 15 的獨立頁 `/admin/users` → Plan 4 併進設定 modal（`/settings/users`，
 // Task 8 逐案有意識重寫，spec §13.5-5）→ 2026-09-30 搬回獨立頁 `/admin/users`
-// （`pages/AdminPage.tsx` 的 `<Outlet/>`，殼是 `AppShell`）。元件本體沒改，本檔各案
-// 直接查 heading/row 的寫法不依賴外殼，只換了進入網址與那一則外殼 smoke。
-// - fetch mock 裡的 `/api/notes`、`/api/groups` 是設定 modal 時代留下的（當時主樹在
-//   背景 render `HomePage`）；搬到 `/admin/users` 後側欄不再有 NoteList，留著無害。
-// - 「停用」案的確認 dialog 現在是畫面上唯一一層 Dialog（不再疊在設定 modal 上）；
-//   該案取最後一個 dialog 的寫法兩種情況都成立。
+// （`pages/AdminPage.tsx`，殼是 `AppShell`）→ #247 改回 modal（第二棵樹的 `AdminModal`）。
+// 元件本體沒改，本檔各案直接查 heading/row 的寫法不依賴外殼，只換了那一則外殼 smoke。
+// - fetch mock 裡的 `/api/notes`、`/api/groups`：站台管理 modal 疊在主樹的背景 `HomePage` 上，
+//   背景側欄的 NoteList 會打這兩支。
+// - 「停用」案的確認 dialog 疊在站台管理 modal 上；該案取最後一個 dialog 的寫法照樣成立。
 //
-// 「非 admin → 導 `/`」與未登入導向在 `pages/AdminPage.test.tsx`（route-level，驗證
+// 「非 admin → 導 `/`」與未登入導向在 `components/admin/AdminModal.test.tsx`（route-level，驗證
 // `RequireAdmin` 有接對），這裡不重複。
 
 interface FakeResponseInit {
@@ -139,7 +138,7 @@ describe("SettingsUsersSection（/admin/users：站台管理頁的使用者區�
     vi.unstubAllGlobals();
   });
 
-  it("外殼 smoke：/admin/users 掛在站台管理頁（AppShell＋管理導覽）底下，不是設定 modal", async () => {
+  it("外殼 smoke：/admin/users 在站台管理 modal（dialog 名為 Site admin）裡", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method ?? "GET").toUpperCase();
@@ -153,11 +152,11 @@ describe("SettingsUsersSection（/admin/users：站台管理頁的使用者區�
 
     renderUsersRoute(fetchMock);
 
-    // 本檔第一次載入 AdminPage lazy chunk
+    // 本檔第一次載入 AdminSections lazy chunk
     expect(await screen.findByRole("heading", { name: "User management" })).toBeInTheDocument();
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    // 側欄的管理導覽（`AdminNav`），Users 項是目前頁。
-    expect(within(screen.getByRole("navigation", { name: "Site admin" })).getByRole("link", { name: "Users" })).toHaveAttribute(
+    const dialog = await screen.findByRole("dialog", { name: "Site admin" });
+    // 站台管理 modal 左卡的項次導覽，Users 項是目前頁。
+    expect(within(within(dialog).getByRole("navigation", { name: "Site admin" })).getByRole("link", { name: "Users" })).toHaveAttribute(
       "aria-current",
       "page",
     );

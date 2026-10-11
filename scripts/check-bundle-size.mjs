@@ -9,7 +9,7 @@
 //   2. NotePage 的 lazy chunk（NotePage-<hash>.js）存在——entry 上限擋「胖回去」，
 //      這條擋「切分本身被拿掉」（若某天 rollup 改了 chunk 命名慣例，這裡會紅，
 //      屆時把 pattern 跟著改，別直接刪檢查）。
-//   3. 其餘 lazy chunk 存在：mermaid（#94）、shiki（#96）、AdminPage（#201）、簡報層（#229）、版本歷史（筆記版本 spec）——理由各見常數註解。
+//   3. 其餘 lazy chunk 存在：mermaid（#94）、shiki（#96）、AdminSections（#201／#247）、簡報層（#229）、版本歷史（筆記版本 spec）——理由各見常數註解。
 //
 // 全程 fail-closed：dist 不存在、找不到 entry、找到多個 entry，一律 throw 而非放行
 // ——「沒東西可檢查」不等於「檢查通過」（比照 check-licenses.mjs 的紀律）。
@@ -40,12 +40,11 @@ export const MERMAID_RE = /^mermaid\.core-[A-Za-z0-9_-]+\.js$/;
 // vite.config.ts 的 chunkFileNames：shiki 套件入口檔叫 index.mjs，Rollup 預設以檔名
 // 命名 chunk 會產出第二個 index-<hash>.js、撞上上面 ENTRY_RE 的「恰一個 entry」偵測。
 export const SHIKI_RE = /^shiki-[A-Za-z0-9_-]+\.js$/;
-// issue #201：站台管理頁（連同 users／ai／auth 三個子區塊）必須是自己的 lazy chunk——
-// 大多數使用者從不打開它，卻曾佔首包約 60 KB。App.tsx 的 `lazy(() => import("./pages/AdminPage"))`
-// 是唯一允許 import 它的地方；子區塊只被 AdminPage.tsx 靜態 import（它們的 route 是 AdminPage
-// 裡的 descendant <Routes>）。判準同 mermaid：任何靜態 import 都會讓 Rollup 把它併回 entry，
-// 這個 chunk 隨即消失。
-export const ADMINPAGE_RE = /^AdminPage-[A-Za-z0-9_-]+\.js$/;
+// issue #201／#247：站台管理 modal 的五個區塊（users／groups／login／storage＋版本設定／ai）必須是自己的 lazy chunk——
+// 大多數使用者從不打開它。App.tsx 的五個 `lazy(() => import("./components/admin/AdminSections"))` 是唯一允許 import 它的地方；
+// 外殼 `AdminModal` 在首包。判準同 mermaid：任何對 AdminSections 或它重新匯出之區塊的靜態 import，都會讓 Rollup 把它們
+// 併回 entry，這個 chunk 隨即消失。
+export const ADMINSECTIONS_RE = /^AdminSections-[A-Za-z0-9_-]+\.js$/;
 // 版本歷史（筆記版本 spec §11.4）：面板、預覽、diff（`diff` 套件）與對話框必須是自己的 lazy chunk——只在使用者打開
 // 版本歷史時才下載。`components/versions/VersionsLazy.tsx` 是唯一入口，所有呼叫端都是 `lazy(() => import(...VersionsLazy))`；
 // ⚠ 判準**不同於** mermaid：這條存在性檢查只擋「整組被併回／chunk 命名慣例改變」。VersionsLazy 的呼叫端（NotePage、NoteEditor）
@@ -162,12 +161,12 @@ export function checkBundleSize(assetsDir, { maxEntryBytes = MAX_ENTRY_BYTES } =
     );
   }
 
-  const adminPageChunks = names.filter(name => ADMINPAGE_RE.test(name));
-  if (adminPageChunks.length === 0) {
+  const adminSectionsChunks = names.filter(name => ADMINSECTIONS_RE.test(name));
+  if (adminSectionsChunks.length === 0) {
     throw new Error(
-      `找不到站台管理頁的 lazy chunk（AdminPage-<hash>.js）——最可能的原因是有人在 App.tsx 的 ` +
-        `\`lazy(() => import("./pages/AdminPage"))\` 以外靜態 import 了 AdminPage，使它被併回 entry ` +
-        `（issue #201 的迴歸）；若是 rollup 改了 chunk 命名慣例，請更新本檢查的 pattern，不要刪檢查`
+      `找不到站台管理區塊的 lazy chunk（AdminSections-<hash>.js）——最可能的原因是有人在 App.tsx 的 ` +
+        `\`lazy(() => import("./components/admin/AdminSections"))\` 以外靜態 import 了它或它重新匯出的區塊元件，使它們被併回 entry ` +
+        `（issue #201／#247 的迴歸）；若是 rollup 改了 chunk 命名慣例，請更新本檢查的 pattern，不要刪檢查`
     );
   }
 
@@ -224,7 +223,7 @@ export function checkBundleSize(assetsDir, { maxEntryBytes = MAX_ENTRY_BYTES } =
     }
   }
 
-  return { entryName, entryBytes, notePageChunks, mermaidChunks, shikiChunks, adminPageChunks, versionsChunks, presentationChunks };
+  return { entryName, entryBytes, notePageChunks, mermaidChunks, shikiChunks, adminSectionsChunks, versionsChunks, presentationChunks };
 }
 
 // 直接執行（非被 import）時跑真的 dist。
@@ -235,7 +234,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
     console.log(
       `bundle OK：entry ${result.entryName} = ${result.entryBytes} bytes（上限 ${MAX_ENTRY_BYTES}）；` +
         `lazy chunk：${result.notePageChunks.join(', ')}、${result.mermaidChunks.join(', ')}、${result.shikiChunks.join(', ')}、` +
-        `${result.adminPageChunks.join(', ')}、${result.versionsChunks.join(', ')}、${result.presentationChunks.join(', ')}`
+        `${result.adminSectionsChunks.join(', ')}、${result.versionsChunks.join(', ')}、${result.presentationChunks.join(', ')}`
     );
   } catch (err) {
     console.error(String(err instanceof Error ? err.message : err));

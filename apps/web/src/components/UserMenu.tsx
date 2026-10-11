@@ -29,7 +29,7 @@ const THEMES: Theme[] = ["light", "dark", "system"];
  * 顯示 displayName、語言切換（en/zh-TW）、主題切換（light/dark/system）、
  * 設定入口（所有人皆可見，開 `/settings/account`，帶目前 location 當
  * `backgroundLocation`——設定總 modal，spec §13.4）、站台管理入口（admin only，
- * 導 `/admin/users` 獨立頁、不帶 `backgroundLocation`，2026-09-30）、登出。
+ * 導站台管理 modal `/admin/users`，帶 `backgroundLocation`（#247 §5.7））、登出。
  * 未登入（`user` 為 `null`/`undefined`）時不渲染任何東西——這個元件只掛在
  * `<RequireAuth>` 底下的頁面，理論上此時一定已登入，但保留這道防呆，
  * 避免元件被單獨挪用到未受保護的頁面時炸掉。
@@ -171,10 +171,9 @@ export function UserMenu() {
         >
           {t("settings.entry")}
         </DropdownMenuItem>
-        {/* 站台管理是一般頁面（/admin/*），不是疊在背景上的 modal——刻意**不帶**
-            backgroundLocation。非 admin 不渲染；/admin 的 RequireAdmin 才是防線。 */}
+        {/* 站台管理是 modal（#247）：帶 backgroundLocation，關閉時回到原頁。非 admin 不渲染；/admin 的 RequireAdmin 才是防線。 */}
         {user.isAdmin && (
-          <DropdownMenuItem onSelect={() => navigate("/admin/users")}>{t("userMenu.siteAdmin")}</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => navigate("/admin/users", { state: { backgroundLocation: location } })}>{t("userMenu.siteAdmin")}</DropdownMenuItem>
         )}
 
         <DropdownMenuSeparator />

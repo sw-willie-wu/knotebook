@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useNavigate } from "react-router";
 import type { UserDto } from "@knotebook/shared";
@@ -13,7 +13,7 @@ import { AppRoutes } from "./App";
  * 分實例。boundary 自身的行為在 ErrorBoundary.test.tsx（案 A–D），那裡手組的形狀對
  * 不代表 App.tsx 的對——比照 App.errorBoundary.test.tsx 案 11／11a。
  *
- * ⚠⚠ 每個頁面的「throw」案必須是本檔第一個觸發該頁 lazy 的案子（AdminPage、RegisterPage
+ * ⚠⚠ 每個頁面的「throw」案必須是本檔第一個觸發該頁 lazy 的案子（AdminSections（站台 modal 的五個區塊，#247）、RegisterPage
  * 各自的 lazy 是模組級單例，只有第一次觸發會經過 suspend 期）。「beacon 錯放到 Suspense
  * 外」的守門靠那次 pending 期：錯放的 beacon 會在 pending 期 commit、清掉種下的旗標，
  * 讓 componentDidCatch 誤判「首次」而走 reload＋載入畫面——錯誤文案斷言與「reload 沒被
@@ -36,15 +36,22 @@ const mockPages = vi.hoisted(() => ({
   registerLoaded: false,
 }));
 
-vi.mock("./pages/AdminPage", () => {
+vi.mock("./components/admin/AdminSections", () => {
   mockPages.adminLoaded = true;
-  return {
-    default: function AdminPageMock() {
+  function make(label: string) {
+    return function AdminSectionMock() {
       if (mockPages.admin === "throw") {
-        throw new Error("Failed to fetch dynamically imported module: https://x/assets/AdminPage-abc.js");
+        throw new Error("Failed to fetch dynamically imported module: https://x/assets/AdminSections-abc.js");
       }
-      return <p>adminpage-mock-ok</p>;
-    },
+      return <p>{label}</p>;
+    };
+  }
+  return {
+    AdminUsersSection: make("adminsections-mock-ok"),
+    AdminGroupsSection: make("adminsections-groups"),
+    AdminLoginSection: make("adminsections-login"),
+    AdminStorageSection: make("adminsections-storage"),
+    AdminAiSection: make("adminsections-ai"),
   };
 });
 
@@ -141,24 +148,26 @@ afterEach(() => {
 });
 
 describe("App route tree — 整頁 lazy route 的 ErrorBoundary 接線（#201）", () => {
-  it("/admin/users（frame=app）：AdminPage chunk 失敗（旗標已設）→ 錯誤畫面＋重試、不 reload、旗標仍在", async () => {
-    // 前置斷言（見檔頭）：AdminPage 的 lazy 還沒被任何先前的案子觸發過
+  it("/admin/users（frame=inline）：AdminSections chunk 失敗（旗標已設）→ 錯誤＋重試在站台 modal 右卡、外殼與導覽仍在、不 reload、旗標仍在", async () => {
     expect(mockPages.adminLoaded).toBe(false);
     sessionStorage.setItem(ADMIN_FLAG, "1");
     renderAt("/admin/users");
 
-    await waitFor(() => expect(screen.getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument(), { timeout: 3_000 });
-    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+    const dialog = await screen.findByRole("dialog", { name: "Site admin" }, { timeout: 3_000 });
+    await waitFor(() => expect(within(dialog).getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument(), { timeout: 3_000 });
+    expect(within(dialog).getByRole("button", { name: "Try again" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("navigation", { name: "Site admin" })).toBeInTheDocument();
+    expect(screen.queryByText("Something went wrong")).not.toBeInTheDocument();
     expect(reload).not.toHaveBeenCalled();
     expect(sessionStorage.getItem(ADMIN_FLAG)).toBe("1");
   });
 
-  it("/admin/users：AdminPage 正常 render（旗標已設）→ beacon 清掉 admin 旗標", async () => {
+  it("/admin/users：AdminSections 正常 render（旗標已設）→ beacon 清掉 admin 旗標", async () => {
     sessionStorage.setItem(ADMIN_FLAG, "1"); // 先種：起始為空的話刪掉 beacon 也綠
     mockPages.admin = "ok";
     renderAt("/admin/users");
 
-    await waitFor(() => expect(screen.getByText("adminpage-mock-ok")).toBeInTheDocument(), { timeout: 3_000 });
+    await waitFor(() => expect(screen.getByText("adminsections-mock-ok")).toBeInTheDocument(), { timeout: 3_000 });
     expect(sessionStorage.getItem(ADMIN_FLAG)).toBeNull();
   });
 

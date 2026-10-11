@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { VERSIONS_MARKERS, checkBundleSize } from './check-bundle-size.mjs';
 
 const MARKER_BASE = {
-  'index-Abc123.js': 100, 'mermaid.core-Ghi789.js': 10, 'shiki-Jkl012.js': 10, 'AdminPage-Mno345.js': 10,
+  'index-Abc123.js': 100, 'mermaid.core-Ghi789.js': 10, 'shiki-Jkl012.js': 10, 'AdminSections-Mno345.js': 10,
   'PresentationOverlay-Pqr678.js': 10,
 };
 
@@ -29,7 +29,7 @@ test('entry 在上限內且 NotePage chunk 存在 → 通過並回報摘要', ()
     'NotePage-Def456.js': 1_000_000,
     'mermaid.core-Ghi789.js': 700_000,
     'shiki-Jkl012.js': 150_000,
-    'AdminPage-Mno345.js': 60_000,
+    'AdminSections-Mno345.js': 60_000,
     'VersionsLazy-Pqr678.js': 40_000,
     'PresentationOverlay-Pqr678.js': 200_000,
     'index-Abc123.css': 50_000, // css 不是 entry chunk，pattern 只認 .js
@@ -41,7 +41,7 @@ test('entry 在上限內且 NotePage chunk 存在 → 通過並回報摘要', ()
     assert.deepEqual(result.notePageChunks, ['NotePage-Def456.js']);
     assert.deepEqual(result.mermaidChunks, ['mermaid.core-Ghi789.js']);
     assert.deepEqual(result.shikiChunks, ['shiki-Jkl012.js']);
-    assert.deepEqual(result.adminPageChunks, ['AdminPage-Mno345.js']);
+    assert.deepEqual(result.adminSectionsChunks, ['AdminSections-Mno345.js']);
     assert.deepEqual(result.versionsChunks, ['VersionsLazy-Pqr678.js']);
     assert.deepEqual(result.presentationChunks, ['PresentationOverlay-Pqr678.js']);
   } finally {
@@ -120,9 +120,10 @@ test('shiki chunk 不存在（被靜態 import 併回去）→ throw', () => {
   }
 });
 
-// issue #201：站台管理頁必須是自己的 lazy chunk（App.tsx 的 `lazy(() => import("./pages/AdminPage"))`
-// 是唯一 import 點）——有人靜態 import 它，Rollup 會把整頁連同三個子區塊併回 entry、這個 chunk 消失。
-test('AdminPage chunk 不存在（被靜態 import 併回 entry）→ throw', () => {
+// issue #201／#247：站台管理的五個區塊必須是自己的 lazy chunk（App.tsx 的五個
+// `lazy(() => import("./components/admin/AdminSections"))` 是唯一 import 點）——有人靜態 import 它或它重新匯出的區塊，
+// Rollup 會把它們併回 entry、這個 chunk 消失。
+test('AdminSections chunk 不存在（被靜態 import 併回 entry）→ throw', () => {
   const { assets, cleanup } = fakeAssets({
     'index-Abc123.js': 100,
     'NotePage-Def456.js': 100,
@@ -130,7 +131,7 @@ test('AdminPage chunk 不存在（被靜態 import 併回 entry）→ throw', ()
     'shiki-Jkl012.js': 100,
   });
   try {
-    assert.throws(() => checkBundleSize(assets), /AdminPage[\s\S]*issue #201/);
+    assert.throws(() => checkBundleSize(assets), /AdminSections[\s\S]*#247/);
   } finally {
     cleanup();
   }
@@ -140,7 +141,7 @@ test('AdminPage chunk 不存在（被靜態 import 併回 entry）→ throw', ()
 test('VersionsLazy chunk 不存在（被靜態 import 併回 NotePage／entry）→ throw', () => {
   const { assets, cleanup } = fakeAssets({
     'index-Abc123.js': 100, 'NotePage-Def456.js': 10, 'mermaid.core-Ghi789.js': 10, 'shiki-Jkl012.js': 10,
-    'AdminPage-Mno345.js': 10, 'PresentationOverlay-Pqr678.js': 10,
+    'AdminSections-Mno345.js': 10, 'PresentationOverlay-Pqr678.js': 10,
   });
   try {
     assert.throws(() => checkBundleSize(assets), /VersionsLazy[\s\S]*diff/);
@@ -151,7 +152,7 @@ test('VersionsLazy chunk 不存在（被靜態 import 併回 NotePage／entry）
 
 test('簡報層 chunk 不存在（#229 迴歸：PresentationOverlay 被靜態 import）→ throw', () => {
   const { assets, cleanup } = fakeAssets({
-    'index-Abc123.js': 100, 'NotePage-Def456.js': 10, 'mermaid.core-Ghi789.js': 10, 'shiki-Jkl012.js': 10, 'AdminPage-Mno345.js': 10,
+    'index-Abc123.js': 100, 'NotePage-Def456.js': 10, 'mermaid.core-Ghi789.js': 10, 'shiki-Jkl012.js': 10, 'AdminSections-Mno345.js': 10,
     'VersionsLazy-Vvv000.js': 10,
   });
   try {
@@ -164,7 +165,7 @@ test('簡報層 chunk 不存在（#229 迴歸：PresentationOverlay 被靜態 im
 test('entry CSS 含 .reveal-viewport（reveal.css 進了首包）→ throw；lazy chunk 的 CSS 含它不算', () => {
   const base = {
     'index-Abc123.js': 100, 'NotePage-Def456.js': 10, 'mermaid.core-Ghi789.js': 10, 'shiki-Jkl012.js': 10,
-    'AdminPage-Mno345.js': 10, 'VersionsLazy-Vvv000.js': 10, 'PresentationOverlay-Pqr678.js': 10,
+    'AdminSections-Mno345.js': 10, 'VersionsLazy-Vvv000.js': 10, 'PresentationOverlay-Pqr678.js': 10,
   };
   const bad = fakeAssets({ ...base, 'index-Css111.css': '.x{}.reveal-viewport{color:#000}' });
   try {
@@ -182,7 +183,7 @@ test('entry CSS 含 .reveal-viewport（reveal.css 進了首包）→ throw；laz
 
 test('reveal-viewport 字串只准在 PresentationOverlay-*.js：在 overlay 裡通過、在 NotePage 裡 throw（reveal.js 被靜態 import 進 NotePage）', () => {
   const base = {
-    'index-Abc123.js': 100, 'mermaid.core-Ghi789.js': 10, 'shiki-Jkl012.js': 10, 'AdminPage-Mno345.js': 10, 'VersionsLazy-Vvv000.js': 10,
+    'index-Abc123.js': 100, 'mermaid.core-Ghi789.js': 10, 'shiki-Jkl012.js': 10, 'AdminSections-Mno345.js': 10, 'VersionsLazy-Vvv000.js': 10,
   };
   const ok = fakeAssets({ ...base, 'NotePage-Def456.js': 'x', 'PresentationOverlay-Pqr678.js': 'e.classList.add("reveal-viewport")' });
   try {
@@ -200,7 +201,7 @@ test('reveal-viewport 字串只准在 PresentationOverlay-*.js：在 overlay 裡
 
 test('Q1：簡報 chunk 的靜態 import 閉包（含間接）碰到 shiki → throw；只有動態 import("./shiki-…") 不算', () => {
   const base = {
-    'index-Abc123.js': 100, 'NotePage-Def456.js': 10, 'mermaid.core-Ghi789.js': 10, 'AdminPage-Mno345.js': 10, 'VersionsLazy-Vvv000.js': 10,
+    'index-Abc123.js': 100, 'NotePage-Def456.js': 10, 'mermaid.core-Ghi789.js': 10, 'AdminSections-Mno345.js': 10, 'VersionsLazy-Vvv000.js': 10,
     'shiki-Jkl012.js': 'export const s=1', 'bundle-full-Zz9.js': 'export const b=1',
   };
   const indirect = fakeAssets({ ...base, 'PresentationOverlay-Pqr678.js': 'import{a}from"./mid-Q1.js";', 'mid-Q1.js': 'import{b}from"./bundle-full-Zz9.js";export const a=1' });

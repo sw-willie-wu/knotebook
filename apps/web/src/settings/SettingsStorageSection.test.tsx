@@ -8,7 +8,7 @@ import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppRoutes } from "@/App";
 
-// W4（spec §11.5）：/admin/storage。走真的 AppRoutes（AdminPage lazy chunk＋descendant route）。
+// W4（spec §11.5）：/admin/storage。走真的 AppRoutes（站台管理 modal＋AdminSections lazy chunk）。
 
 function res(status: number, body?: unknown): Response {
   return { ok: status < 400, status, json: () => (body === undefined ? Promise.reject(new Error("no body")) : Promise.resolve(body)) } as unknown as Response;
@@ -96,7 +96,7 @@ describe("/admin/storage（儲存方案頁）", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Create" }));
     await waitFor(() => expect(callsTo(fetchMock, "POST", "/api/admin/storage-plans")).toHaveLength(1));
     expect(bodyOf(callsTo(fetchMock, "POST", "/api/admin/storage-plans")[0])).toEqual({ name: "Team", quotaBytes: 1610612736 });
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "New storage plan" })).not.toBeInTheDocument());
     await waitFor(() => expect(callsTo(fetchMock, "GET", "/api/admin/storage-plans").length).toBeGreaterThanOrEqual(2));
   });
 
@@ -178,7 +178,7 @@ describe("/admin/storage（儲存方案頁）", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Edit Tight" }));
     const dialog = await screen.findByRole("dialog", { name: "Edit storage plan" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Edit storage plan" })).not.toBeInTheDocument());
     expect(callsTo(fetchMock, "PATCH", `/api/admin/storage-plans/${TIGHT.id}`)).toHaveLength(0);
   });
 

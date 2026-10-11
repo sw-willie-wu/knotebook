@@ -31,8 +31,8 @@ import { NarrowTopBar } from "./NarrowTopBar";
  * 它成立是因為四個區塊是**並列**的 route element、不是巢狀：beacon 在第一個區塊成功掛載時
  * 清額度，之後切到另一區塊失敗 → 自動 reload 落在**失敗的那個網址**，重載後的第一次
  * render 就是那個失敗的 chunk（beacon 尚未 commit）→ 再失敗即看到旗標、進錯誤畫面，
- * 最多一次 reload。站台管理反過來把三個子區塊併進 AdminPage 同一個 chunk，正是為了
- * 不違反這個前提（見 AdminPage.tsx 檔頭）。（現有的巢狀動態 import——語法高亮那兩個
+ * 最多一次 reload。站台管理 modal（`chunk="admin"`，#247）同形：五個區塊是並列的 route element，
+ * 且同屬一個 `AdminSections` chunk（見 components/admin/AdminSections.tsx 檔頭）。（現有的巢狀動態 import——語法高亮那兩個
  * chunk——失敗是 promise rejection 不經 render，boundary 接不到，不在此列，也因此
  * 不在本機制的涵蓋範圍內。）key 的 route 別名（`chunk` prop，預設 `notepage`）讓每條
  * lazy route 各自有額度（#201 起：`admin`、`settings`、四個登入流程頁各一個；版本歷史的

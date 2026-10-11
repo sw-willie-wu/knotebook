@@ -281,12 +281,10 @@
   "admin": {
     "nav": {
       "label": "站台管理",
-      "backToNotes": "回筆記",
       "users": "使用者",
       "groups": "群組",
       "storage": "儲存方案",
-      "versions": "版本歷史",
-      "ai": "AI",
+      "ai": "AI 代理",
       "auth": "登入"
     },
     "auth": {

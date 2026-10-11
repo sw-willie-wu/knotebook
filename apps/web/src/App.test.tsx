@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router";
 import type { UserDto } from "@knotebook/shared";
@@ -32,12 +32,9 @@ const ADMIN_USER: UserDto = {
   autoVersions: true,
 };
 
-// 站台管理搬出設定 modal、改成獨立頁 `/admin/*`（2026-09-30）：方向與 Plan 4 相反——
-// 現在是 `/settings/users`（舊書籤、舊文件連結）轉址到 `/admin/users`，`/admin/users`
-// 本身直達管理頁。這支只釘兩個落點；/admin 的 guard 串接、導覽、index 轉址等細節守在
-// `pages/AdminPage.test.tsx`，`/settings/ai` 的轉址與非 admin 案守在
-// `SettingsModal.test.tsx`，不重複斷言在這裡。
-describe("App route tree — /settings/users redirects to /admin/users（站台管理獨立頁）", () => {
+// 站台管理（#247 起是第二棵樹裡的 modal）：`/settings/users`（舊書籤）轉 `/admin/users`；`/admin/*` 不在主樹——
+// 主樹對它落在 `/*` 的 HomePage 當背景。guard 串接、轉址與導覽的細節守在 `components/admin/AdminModal.test.tsx`。
+describe("App route tree — /settings/users → /admin/users（站台管理 modal，#247）", () => {
   function mockFetchForRedirect() {
     return vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -87,23 +84,24 @@ describe("App route tree — /settings/users redirects to /admin/users（站台�
     vi.unstubAllGlobals();
   });
 
-  it("admin 深連結 /settings/users → 轉址 /admin/users（管理頁，不開設定 modal）", async () => {
+  it("admin 深連結 /settings/users → 轉址 /admin/users（站台管理 modal，不是設定 modal）", async () => {
     vi.stubGlobal("fetch", mockFetchForRedirect());
     renderAt("/settings/users");
 
     await waitFor(() => expect(screen.getByTestId("redirect-location")).toHaveTextContent("/admin/users"));
-    // 本檔第一次載入 AdminPage lazy chunk
-    await waitFor(() => expect(screen.getByRole("heading", { name: "User management" })).toBeInTheDocument());
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    const dialog = await screen.findByRole("dialog", { name: "Site admin" });
+    await waitFor(() => expect(within(dialog).getByRole("heading", { name: "User management" })).toBeInTheDocument());
+    expect(screen.queryByRole("dialog", { name: "Settings" })).not.toBeInTheDocument();
   });
 
-  it("admin 深連結 /admin/users → 直達（不再轉去 /settings/users）", async () => {
+  it("admin 深連結 /admin/users → 直達站台 modal；主樹不含 /admin/*（背景是 /* 的 HomePage：New note 在）", async () => {
     vi.stubGlobal("fetch", mockFetchForRedirect());
     renderAt("/admin/users");
 
-    await waitFor(() => expect(screen.getByRole("heading", { name: "User management" })).toBeInTheDocument());
+    const dialog = await screen.findByRole("dialog", { name: "Site admin" });
+    await waitFor(() => expect(within(dialog).getByRole("heading", { name: "User management" })).toBeInTheDocument());
     expect(screen.getByTestId("redirect-location")).toHaveTextContent("/admin/users");
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "New note", hidden: true })).toBeInTheDocument();
   });
 });
 

@@ -36,6 +36,7 @@ function renderGroups(rows: AdminGroupDto[], extra: Handler = () => null) {
     if (custom) return Promise.resolve(custom);
     if (url === "/api/auth/me") return Promise.resolve(res(200, ADMIN));
     if (url === "/api/notes") return Promise.resolve(res(200, []));
+    if (url === "/api/groups" && method === "GET") return Promise.resolve(res(200, []));
     if (url === "/api/admin/groups" && method === "GET") return Promise.resolve(res(200, rows));
     if (url === "/api/admin/storage-plans" && method === "GET") return Promise.resolve(res(200, PLANS));
     throw new Error(`unexpected fetch: ${method} ${url}`);
@@ -90,8 +91,10 @@ describe("W5 /admin/groups", () => {
       expect(within(nameCell).queryByRole("link")).toBeNull();
     }
     await flush();
-    // 本頁只載入這三支（/api/auth/me 守衛會打不只一次，所以去重比對）；沒載入「我的群組」，所以沒有任何群組有理由變成連結
-    expect([...new Set(requested(fetchMock))].sort()).toEqual(["GET /api/admin/groups", "GET /api/admin/storage-plans", "GET /api/auth/me"]);
+    // 背景 HomePage（站台管理是疊在首頁上的 modal）的側欄會載入「我的群組」（`GET /api/groups`）與筆記清單，但 stub 回空陣列，
+    // 側欄沒有任何群組；本頁自己只打下面兩支 admin 端點——沒有成員／角色／群組用量端點，群組名沒有理由變成連結。
+    expect([...new Set(requested(fetchMock))].filter((r) => r.includes(" /api/admin/")).sort()).toEqual(["GET /api/admin/groups", "GET /api/admin/storage-plans"]);
+    expect(requested(fetchMock).some((r) => /\/api\/groups\/[^/]+\/(members|roles|storage)$/.test(r))).toBe(false);
   });
 
   it("同名群組：各列下拉用 aria-describedby 指到該列的建立時間格（id 依群組 id），描述可區分", async () => {

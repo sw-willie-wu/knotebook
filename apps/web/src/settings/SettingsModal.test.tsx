@@ -205,7 +205,7 @@ function baseFetchHandlers(getLoggedInAs: () => UserDto | null) {
     if (url.startsWith("/api/notes/") && method === "GET") {
       return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(NOTE) });
     }
-    // 站台管理頁（/admin/users）：`/settings/users` 轉址過去後會打這支。
+    // 站台管理 modal（/admin/users）：`/settings/users` 轉址過去後會打這支。
     if (url === "/api/admin/users" && method === "GET") {
       return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) });
     }
@@ -381,13 +381,13 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
     expect(screen.getByText("New note")).toBeInTheDocument();
   });
 
-  // 站台管理搬到 /admin/*：舊的 /settings/users、/settings/ai 一律轉址過去（舊書籤、
-  // 舊文件連結不斷），不先閃一下 modal；非 admin 轉過去後再被 /admin 的 RequireAdmin 導 /。
+  // 站台管理在 /admin/*（#247 起是第二棵樹裡的 modal）：舊的 /settings/users、/settings/ai 一律轉址過去（舊書籤、
+  // 舊文件連結不斷），不先閃設定面板（§5.1 負面判準）；非 admin 轉過去後再被 /admin 的 RequireAdmin 導 /。
   for (const [from, to, heading] of [
     ["/settings/users", "/admin/users", "User management"],
     ["/settings/ai", "/admin/ai", "AI providers & actions"],
   ] as const) {
-    it(`admin 深連結 ${from} → 轉址 ${to}（站台管理頁、不是設定 modal）`, async () => {
+    it(`admin 深連結 ${from} → 轉址 ${to}（站台管理 modal、不是設定 modal）`, async () => {
       const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
         const method = (init?.method ?? "GET").toUpperCase();
@@ -400,33 +400,19 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
         throw new Error(`unexpected fetch: ${method} ${url}`);
       });
 
-      // 「不先閃一下 modal」：最終畫面沒有 dialog 不夠（轉址掛在 SettingsModal 底下時
-      // 最終也沒有），要看**過程中**有沒有任何 dialog 節點被掛進 DOM。記 addedNodes
-      // 而不是回呼當下 querySelector——閃一下的節點可能在回呼跑之前就被移除了。
-      let dialogEverMounted = false;
-      const observer = new MutationObserver((records) => {
-        for (const record of records) {
-          for (const node of record.addedNodes) {
-            if (
-              node instanceof Element &&
-              (node.matches('[role="dialog"]') || node.querySelector('[role="dialog"]') !== null)
-            ) {
-              dialogEverMounted = true;
-            }
-          }
-        }
-      });
-      observer.observe(document.body, { childList: true, subtree: true });
+      // 「不先閃設定面板」：目的地本身是 modal（站台管理），所以不能再斷「全程沒有 dialog」；
+      // 改斷過程中掛進的 dialog 標題從不是「Settings」（§5.1 負面判準，`watchDialogTitles`）。
+      const watcher = watchDialogTitles();
       try {
         renderAt([from], fetchMock);
 
         await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(to));
-        await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: heading })).toBeInTheDocument());
-        expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+        const dialog = await screen.findByRole("dialog", { name: "Site admin" });
+        await waitFor(() => expect(within(dialog).getByRole("heading", { level: 1, name: heading })).toBeInTheDocument());
+        expect([...watcher.titles]).not.toContain("Settings");
       } finally {
-        observer.disconnect();
+        watcher.stop();
       }
-      expect(dialogEverMounted).toBe(false);
     });
   }
 
@@ -439,41 +425,18 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
       throw new Error(`unexpected fetch: ${method} ${url}`);
     });
 
-    renderAt(["/settings/users"], fetchMock);
+    const watcher = watchDialogTitles();
+    try {
+      renderAt(["/settings/users"], fetchMock);
 
-    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/$/));
-    await waitFor(() => expect(screen.getByRole("button", { name: "New note" })).toBeInTheDocument());
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/$/));
+      await waitFor(() => expect(screen.getByRole("button", { name: "New note" })).toBeInTheDocument());
+      expect(screen.queryByRole("dialog", { name: "Site admin" })).not.toBeInTheDocument();
+      expect([...watcher.titles]).not.toContain("Settings");
+    } finally {
+      watcher.stop();
+    }
     expect(fetchMock).not.toHaveBeenCalledWith("/api/admin/users", expect.anything());
-  });
-
-  it("admin 在 /admin/users 開設定 → modal 疊在管理頁上；關閉 → 回到 /admin/users", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      const method = (init?.method ?? "GET").toUpperCase();
-      const res = baseFetchHandlers(() => ADMIN_USER)(url, method);
-      if (res) return Promise.resolve(res);
-      throw new Error(`unexpected fetch: ${method} ${url}`);
-    });
-
-    renderAt(["/admin/users"], fetchMock);
-
-    // 本檔第一次載入 AdminPage lazy chunk
-    await waitFor(() => expect(screen.getByRole("heading", { name: "User management" })).toBeInTheDocument());
-
-    openUserMenu("Admin");
-    fireEvent.click(screen.getByText("Settings"));
-
-    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Account info" })).toBeInTheDocument());
-    expect(screen.getByTestId("location")).toHaveTextContent("/settings/account");
-    // 背景仍是管理頁（Dialog 開著時背景 aria-hidden，用 getByText）。
-    expect(screen.getByText("User management")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Close" }));
-
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    expect(screen.getByTestId("location")).toHaveTextContent("/admin/users");
-    expect(screen.getByRole("heading", { name: "User management" })).toBeInTheDocument();
   });
 
   it("admin 深連結 /settings/account → 導覽恰為六項、順序固定，**看不到**使用者／AI（站台管理不在設定裡）", async () => {

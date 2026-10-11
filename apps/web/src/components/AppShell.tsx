@@ -232,7 +232,8 @@ function SidebarResizeHandle({ width, onChange }: { width: number; onChange: (px
 interface AppShellProps {
   children: ReactNode;
   /**
-   * 側欄中段的替換內容（站台管理頁 `/admin/*` 放管理導覽）。不傳＝現狀：搜尋框＋
+   * 側欄中段的替換內容（原為站台管理頁 `/admin/*` 的管理導覽；#247 起站台管理改 modal，
+   * 目前沒有正式呼叫端，只剩 `AppShell.test.tsx` 的插槽案組）。不傳＝現狀：搜尋框＋
    * NoteList＋新增鈕。傳了＝那三樣整段換成它，logo 列與底部 UserMenu 照舊；靜態卡
    * 與抽屜兩份 `SidebarContent` 吃同一個值。
    *
@@ -250,10 +251,9 @@ interface AppShellProps {
 /**
  * 主佈局：側欄（`md+`＝固定卡片；`<md`＝隱藏，改由抽屜承載，入口是
  * `SidebarDrawerButton` 漢堡鈕——NotePage 頁首或 `NarrowTopBar` 提供）、右側主
- * 內容區（呼叫端傳入的 `children`）。五個呼叫端共用同一個插槽：`HomePage`（`/`）、
+ * 內容區（呼叫端傳入的 `children`）。四個呼叫端共用同一個插槽：`HomePage`（`/`）、
  * `NotePage`（`/n/:handle/:slug`、`/g/:groupId/:slug`（#175）與舊形 `/notes/:ref` 三條 route 共用）、
- * `NotePageFallback`、`NoteRouteErrorFallback`、`AdminPage`（`/admin/*`，唯一傳
- * `sidebar` 的呼叫端）。
+ * `NotePageFallback`、`NoteRouteErrorFallback`（#247 起站台管理是 modal，不再用 AppShell）。
  *
  * 側欄內容抽成 `SidebarContent`，靜態卡與抽屜共用；抽屜開著時 DOM 上同時有兩份
  * （靜態那份 `hidden`——真實瀏覽器 display:none 不進 a11y tree、不可聚焦；jsdom

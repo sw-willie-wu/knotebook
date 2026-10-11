@@ -216,8 +216,8 @@ describe("UserMenu 主題色選擇器（PR3）", () => {
   });
 });
 
-// 站台管理入口：admin 才看得到「Site admin」，點了導 /admin/users 且**不帶**
-// backgroundLocation（它是一般頁面，不是疊在背景上的 modal）。
+// 站台管理入口：admin 才看得到「Site admin」，點了導 /admin/users 且**帶**
+// backgroundLocation（#247 起站台管理是 modal，關閉時回到原頁）。
 describe("UserMenu 站台管理入口", () => {
   const ADMIN: UserDto = { ...USER, displayName: "Plain", isAdmin: true };
 
@@ -264,7 +264,7 @@ describe("UserMenu 站台管理入口", () => {
     vi.unstubAllGlobals();
   });
 
-  it("admin：看得到「Site admin」；點了導 /admin/users，state 沒有 backgroundLocation", async () => {
+  it("admin：看得到「Site admin」；點了導 /admin/users，state 帶 backgroundLocation（#247 §5.7：站台管理是 modal）", async () => {
     stubFetchAs(ADMIN);
     renderMenuWithProbe();
     await openMenu();
@@ -272,8 +272,8 @@ describe("UserMenu 站台管理入口", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Site admin" }));
 
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/admin/users"));
-    const state = lastLocation?.state as { backgroundLocation?: unknown } | null;
-    expect(state?.backgroundLocation).toBeUndefined();
+    const state = lastLocation?.state as { backgroundLocation?: { pathname: string } } | null;
+    expect(state?.backgroundLocation?.pathname).toBe("/n/tester/some-note");
   });
 
   it("非 admin：看不到「Site admin」（「Settings」仍在）", async () => {

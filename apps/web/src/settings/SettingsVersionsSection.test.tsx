@@ -8,7 +8,7 @@ import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppRoutes } from "@/App";
 
-// 站台版本設定（spec §6.7、§8.5；#247 §7.0 起嵌在 `/admin/storage` 方案頁、方案表之後）：走真的 AppRoutes（AdminPage lazy chunk＋descendant route），
+// 站台版本設定（spec §6.7、§8.5；#247 §7.0 起嵌在 `/admin/storage` 方案頁、方案表之後）：走真的 AppRoutes（站台管理 modal＋AdminSections lazy chunk），
 // 形比照 SettingsStorageSection.test.tsx。
 
 function res(status: number, body?: unknown): Response {

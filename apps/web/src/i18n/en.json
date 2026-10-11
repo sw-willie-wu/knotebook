@@ -281,12 +281,10 @@
   "admin": {
     "nav": {
       "label": "Site admin",
-      "backToNotes": "Back to notes",
       "users": "Users",
       "groups": "Groups",
       "storage": "Storage plans",
-      "versions": "Version history",
-      "ai": "AI",
+      "ai": "AI agents",
       "auth": "Sign-in"
     },
     "auth": {
