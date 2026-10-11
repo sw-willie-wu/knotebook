@@ -80,3 +80,37 @@ describe("DialogContent dismissOnOutside", () => {
     expect(dialogEl()).not.toBeNull();
   });
 });
+
+describe("DialogContent size（#247 §4.1）", () => {
+  it("預設 size：恰一顆內建 Close（行為零變的基準）", async () => {
+    render(<Harness />);
+    await settle();
+    expect(screen.getAllByRole("button", { name: "Close" })).toHaveLength(1);
+  });
+
+  it('size="panel"：不渲染內建 Close（由 ManagementShell 自己放一顆）', async () => {
+    render(<Harness size="panel" />);
+    await settle();
+    expect(screen.queryAllByRole("button", { name: "Close" })).toHaveLength(0);
+  });
+
+  it('size="panel"：透明外框、§4.6 窄視窗寬高＋§4.1 的 md: clamp', async () => {
+    render(<Harness size="panel" />);
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveClass(
+      "p-0",
+      "bg-transparent",
+      "border-0",
+      "shadow-none",
+      "overflow-visible",
+      "w-[96vw]",
+      "h-[92vh]",
+      "md:w-[clamp(min(56rem,96vw),92vw,85rem)]",
+      "md:h-[clamp(min(42rem,92vh),88vh,56rem)]",
+    );
+    // twMerge 要把 base 的 bg-popover／shadow-lg／w-full 蓋掉
+    expect(dialog).not.toHaveClass("bg-popover");
+    expect(dialog).not.toHaveClass("shadow-lg");
+    expect(dialog).not.toHaveClass("w-full");
+  });
+});

@@ -26,9 +26,11 @@ export const DialogOverlay = forwardRef<
 DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 
 /** `size="default"`＝既有的單欄表單 dialog 尺寸（NoteList/ShareDialog 既有用法，
- * 未傳 `size` 時行為零變）；`size="lg"`＝設定總 modal 用的大尺寸（左側導覽＋
- * 內容區雙欄版面，見 `SettingsModal`）——`p-0` 讓內部各欄自行控制留白，不像
- * `default` 由外層 `DialogContent` 統一 `p-6`。 */
+ * 未傳 `size` 時行為零變）；`size="lg"`＝現行設定 modal 的大尺寸（#247 Task 11 刪除）；
+ * `size="panel"`＝三個管理面板（`components/management/ManagementShell.tsx`，#247 §4.1／§4.6）：
+ * 外框本身透明無邊、不投影，托盤與兩張卡由 ManagementShell 自己畫；窄視窗 `96vw × 92vh`，
+ * `md:` 以上 `92vw × 88vh` 夾在 896×672～1360×896 之間。`panel` 時**不渲染內建 Close**——
+ * 面板在右卡自己放一顆帶 i18n 名稱的 ✕（§4.5），這裡再放就會有兩顆 Close。 */
 const dialogContentVariants = cva(
   "fixed left-1/2 top-1/2 z-50 grid w-full -translate-x-1/2 -translate-y-1/2 gap-4 " +
     "rounded-lg border border-border bg-popover text-popover-foreground shadow-lg duration-200 " +
@@ -39,6 +41,9 @@ const dialogContentVariants = cva(
       size: {
         default: "max-w-lg p-6",
         lg: "max-w-3xl p-0",
+        panel:
+          "p-0 bg-transparent border-0 shadow-none overflow-visible w-[96vw] h-[92vh] " +
+          "md:w-[clamp(min(56rem,96vw),92vw,85rem)] md:h-[clamp(min(42rem,92vh),88vh,56rem)]",
       },
     },
     defaultVariants: { size: "default" },
@@ -61,26 +66,32 @@ export const DialogContent = forwardRef<
   ElementRef<typeof DialogPrimitive.Content>,
   ComponentPropsWithoutRef<typeof DialogPrimitive.Content> &
     VariantProps<typeof dialogContentVariants> & { dismissOnOutside?: boolean }
->(({ className, children, size, dismissOnOutside = true, onInteractOutside, ...props }, ref) => (
-  <DialogPortal>
-    <DialogOverlay />
-    <DialogPrimitive.Content
-      ref={ref}
-      className={cn(dialogContentVariants({ size }), className)}
-      {...props}
-      onInteractOutside={(event) => {
-        onInteractOutside?.(event);
-        if (!dismissOnOutside) event.preventDefault();
-      }}
-    >
-      {children}
-      <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none">
-        <X className="h-4 w-4" />
-        <span className="sr-only">Close</span>
-      </DialogPrimitive.Close>
-    </DialogPrimitive.Content>
-  </DialogPortal>
-));
+>(({ className, children, size, dismissOnOutside = true, onInteractOutside, ...props }, ref) => {
+  // #247 §4.1：panel 由 ManagementShell 在右卡放自己的 ✕；這裡只決定要不要渲染，不新增 prop。
+  const renderBuiltInClose = size !== "panel";
+  return (
+    <DialogPortal>
+      <DialogOverlay />
+      <DialogPrimitive.Content
+        ref={ref}
+        className={cn(dialogContentVariants({ size }), className)}
+        {...props}
+        onInteractOutside={(event) => {
+          onInteractOutside?.(event);
+          if (!dismissOnOutside) event.preventDefault();
+        }}
+      >
+        {children}
+        {renderBuiltInClose && (
+          <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none">
+            <X className="h-4 w-4" />
+            <span className="sr-only">Close</span>
+          </DialogPrimitive.Close>
+        )}
+      </DialogPrimitive.Content>
+    </DialogPortal>
+  );
+});
 DialogContent.displayName = DialogPrimitive.Content.displayName;
 
 export function DialogHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
