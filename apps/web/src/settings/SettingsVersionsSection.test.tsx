@@ -8,7 +8,7 @@ import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppRoutes } from "@/App";
 
-// /admin/versions（spec §6.7、§8.5）：走真的 AppRoutes（AdminPage lazy chunk＋descendant route），
+// 站台版本設定（spec §6.7、§8.5；#247 §7.0 起嵌在 `/admin/storage` 方案頁、方案表之後）：走真的 AppRoutes（AdminPage lazy chunk＋descendant route），
 // 形比照 SettingsStorageSection.test.tsx。
 
 function res(status: number, body?: unknown): Response {
@@ -37,6 +37,7 @@ function stubAdmin({ settings, patchStatus }: { settings: VersionSettingsDto; pa
       if (url === "/api/auth/config" && method === "GET") return Promise.resolve(res(200, AUTH_CONFIG));
       if (url === "/api/groups" && method === "GET") return Promise.resolve(res(200, []));
       if (url === "/api/notes" && method === "GET") return Promise.resolve(res(200, []));
+      if (url === "/api/admin/storage-plans" && method === "GET") return Promise.resolve(res(200, { plans: [], defaults: { userPlanId: "", groupPlanId: "" } }));
       if (url === "/api/admin/versions/settings" && method === "GET") return Promise.resolve(res(200, settings));
       if (url === "/api/admin/versions/settings" && method === "PATCH") {
         if (patchStatus !== undefined && patchStatus >= 400) {
@@ -67,7 +68,7 @@ function renderAt(path: string) {
 
 const SETTINGS: VersionSettingsDto = { keepAllDays: 7, dailyUntilDays: 30, autoVersionsEnabled: true };
 
-describe("SettingsVersionsSection（/admin/versions，spec §6.7、§8.5）", () => {
+describe("站台版本設定（/admin/storage 內，#247 §7.0）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -77,9 +78,20 @@ describe("SettingsVersionsSection（/admin/versions，spec §6.7、§8.5）", ()
     vi.unstubAllGlobals();
   });
 
+  it("V1 頁首只有方案頁一個（h1 Storage plans）；版本設定是 h2「Version history」區塊，接在方案表之後；沒有「How notes keep their versions on this site.」；說明含「版本不佔額度」", async () => {
+    stubAdmin({ settings: SETTINGS });
+    renderAt("/admin/storage");
+    await screen.findByRole("switch", { name: "Automatic versions" });
+    expect(screen.getAllByRole("heading", { level: 1 }).map((h) => h.textContent)).toEqual(["Storage plans"]);
+    const versions = screen.getByRole("heading", { level: 2, name: "Version history" });
+    expect(versions.compareDocumentPosition(screen.getByRole("heading", { level: 1, name: "Storage plans" })) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    expect(screen.queryByText("How notes keep their versions on this site.")).not.toBeInTheDocument();
+    expect(screen.getByText(/Versions and note text don't count toward storage/)).toBeInTheDocument();
+  });
+
   it("載入：總開關與兩個天數照 GET 顯示", async () => {
     stubAdmin({ settings: SETTINGS });
-    renderAt("/admin/versions");
+    renderAt("/admin/storage");
     expect(await screen.findByRole("switch", { name: "Automatic versions" })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByLabelText("Keep all for (days)")).toHaveValue("7");
     expect(screen.getByLabelText("One a day until (days)")).toHaveValue("30");
@@ -88,13 +100,13 @@ describe("SettingsVersionsSection（/admin/versions，spec §6.7、§8.5）", ()
 
   it("總開關關閉的設定 → switch aria-checked=false（與載入案區分）", async () => {
     stubAdmin({ settings: { ...SETTINGS, autoVersionsEnabled: false } });
-    renderAt("/admin/versions");
+    renderAt("/admin/storage");
     expect(await screen.findByRole("switch", { name: "Automatic versions" })).toHaveAttribute("aria-checked", "false");
   });
 
   it("切總開關 → PATCH 只帶 { autoVersionsEnabled:false }，並失效 ['auth-config']", async () => {
     const calls = stubAdmin({ settings: SETTINGS });
-    const { queryClient } = renderAt("/admin/versions");
+    const { queryClient } = renderAt("/admin/storage");
     const sw = await screen.findByRole("switch", { name: "Automatic versions" });
     // gate r1 I-6：/admin/versions 上沒有任何元件訂閱 ['auth-config']，invalidate 只標 stale、不發請求——
     // 不能等 GET /api/auth/config。先種一份快取，再斷言它被標成 invalidated。
@@ -109,7 +121,7 @@ describe("SettingsVersionsSection（/admin/versions，spec §6.7、§8.5）", ()
 
   it("天數不合法（前者 > 後者、非整數、0、3651、空）→ 不發請求、行內錯誤（每一組各自出現）", async () => {
     const calls = stubAdmin({ settings: SETTINGS });
-    renderAt("/admin/versions");
+    renderAt("/admin/storage");
     const keepAll = await screen.findByLabelText("Keep all for (days)");
     const daily = screen.getByLabelText("One a day until (days)");
     for (const [a, b] of [["40", "30"], ["1.5", "30"], ["0", "30"], ["7", "3651"], ["", "30"]]) {
@@ -125,7 +137,7 @@ describe("SettingsVersionsSection（/admin/versions，spec §6.7、§8.5）", ()
 
   it("天數合法（F = D 也可）→ PATCH { keepAllDays, dailyUntilDays }、toast", async () => {
     const calls = stubAdmin({ settings: SETTINGS });
-    renderAt("/admin/versions");
+    renderAt("/admin/storage");
     fireEvent.change(await screen.findByLabelText("Keep all for (days)"), { target: { value: "14" } });
     fireEvent.change(screen.getByLabelText("One a day until (days)"), { target: { value: "14" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -136,7 +148,7 @@ describe("SettingsVersionsSection（/admin/versions，spec §6.7、§8.5）", ()
 
   it("server 回 400 invalid_body → 行內 errors.invalid_body", async () => {
     stubAdmin({ settings: SETTINGS, patchStatus: 400 });
-    renderAt("/admin/versions");
+    renderAt("/admin/storage");
     fireEvent.change(await screen.findByLabelText("Keep all for (days)"), { target: { value: "8" } });
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Save" }));

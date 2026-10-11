@@ -36,6 +36,7 @@ function renderStorage(extra: Handler = () => null, client = new QueryClient({ d
     if (url === "/api/auth/me") return Promise.resolve(res(200, ADMIN));
     if (url === "/api/groups" || url === "/api/notes") return Promise.resolve(res(200, []));
     if (url === "/api/admin/storage-plans" && method === "GET") return Promise.resolve(res(200, LIST));
+    if (url === "/api/admin/versions/settings" && method === "GET") return Promise.resolve(res(200, { keepAllDays: 7, dailyUntilDays: 30, autoVersionsEnabled: true }));
     throw new Error(`unexpected fetch: ${method} ${url}`);
   });
   vi.stubGlobal("fetch", fetchMock);

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/components/ui/toast";
-import { SettingsGroup, SettingsPage } from "./SettingsLayout";
+import { SettingsGroup } from "./SettingsLayout";
 
 /** 逐檔複製的既有慣例（見 SettingsUsersSection）。 */
 function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
@@ -20,7 +20,7 @@ function SiteSwitchGroup({ data }: { data: VersionSettingsDto }) {
   const { t } = useTranslation();
   const update = useUpdateVersionSettings();
   return (
-    <SettingsGroup>
+    <SettingsGroup title={t("admin.versions.title")}>
       <div className="space-y-1">
         <div className="flex items-center gap-3">
           <Switch
@@ -123,30 +123,33 @@ function RetentionGroup({ data }: { data: VersionSettingsDto }) {
 }
 
 /**
- * `/admin/versions`（站台管理頁，spec §6.7、§8.5）：自動儲存總開關（立即生效）＋自動版本的保留天數。
- * 只被 `AdminPage.tsx` 靜態 import（#201：與本頁同一個 chunk，不逐區 lazy）。
+ * 站台版本設定（spec §6.7、§8.5）：「版本歷史」（站台自動開關，立即生效）＋「保留政策」。#247 §7.0 起嵌在站台管理的
+ * 「儲存方案」頁（`SettingsStorageSection` 的 `SettingsPage` 裡、方案表之後），不再有自己的頁首——整段嵌進去會疊出兩個頁首。
+ * 載入中／錯誤各以一個 `SettingsGroup` 呈現。
  */
-export function SettingsVersionsSection() {
+export function SiteVersionsGroups() {
   const { t } = useTranslation();
   const query = useVersionSettings();
+  if (query.isPending) {
+    return (
+      <SettingsGroup title={t("admin.versions.title")}>
+        <p className="text-sm text-muted-foreground">{t("app.loading")}</p>
+      </SettingsGroup>
+    );
+  }
+  if (query.isError) {
+    return (
+      <SettingsGroup title={t("admin.versions.title")}>
+        <p role="alert" className="text-sm text-destructive">
+          {errorMessage(t, query.error)}
+        </p>
+      </SettingsGroup>
+    );
+  }
   return (
-    <SettingsPage title={t("admin.versions.title")} description={t("admin.versions.description")}>
-      {query.isPending ? (
-        <SettingsGroup>
-          <p className="text-sm text-muted-foreground">{t("app.loading")}</p>
-        </SettingsGroup>
-      ) : query.isError ? (
-        <SettingsGroup>
-          <p role="alert" className="text-sm text-destructive">
-            {errorMessage(t, query.error)}
-          </p>
-        </SettingsGroup>
-      ) : (
-        <>
-          <SiteSwitchGroup data={query.data} />
-          <RetentionGroup data={query.data} />
-        </>
-      )}
-    </SettingsPage>
+    <>
+      <SiteSwitchGroup data={query.data} />
+      <RetentionGroup data={query.data} />
+    </>
   );
 }

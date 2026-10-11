@@ -140,11 +140,10 @@ describe("AdminPage（/admin/*：站台管理獨立頁）", () => {
     const nav = within(screen.getByRole("navigation", { name: "Site admin" }));
     expect(nav.getByRole("link", { name: "Back to notes" })).toHaveAttribute("href", "/");
     // 順序（起草裁定 13）：回筆記｜使用者、群組、儲存方案、版本歷史、AI、登入
-    expect(nav.getAllByRole("link").map((a) => a.textContent)).toEqual(["Back to notes", "Users", "Groups", "Storage plans", "Version history", "AI", "Sign-in"]);
+    expect(nav.getAllByRole("link").map((a) => a.textContent)).toEqual(["Back to notes", "Users", "Groups", "Storage plans", "AI", "Sign-in"]);
     expect(nav.getByRole("link", { name: "Users" })).toHaveAttribute("href", "/admin/users");
     expect(nav.getByRole("link", { name: "Groups" })).toHaveAttribute("href", "/admin/groups");
     expect(nav.getByRole("link", { name: "Storage plans" })).toHaveAttribute("href", "/admin/storage");
-    expect(nav.getByRole("link", { name: "Version history" })).toHaveAttribute("href", "/admin/versions");
     expect(nav.getByRole("link", { name: "AI" })).toHaveAttribute("href", "/admin/ai");
     expect(nav.getByRole("link", { name: "Sign-in" })).toHaveAttribute("href", "/admin/auth");
     expect(nav.getByRole("link", { name: "Users" })).toHaveAttribute("aria-current", "page");
@@ -180,13 +179,10 @@ describe("AdminPage（/admin/*：站台管理獨立頁）", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Storage plans" })).toBeInTheDocument();
   });
 
-  it("點 Version history → /admin/versions，主區是版本歷史設定（總開關照 GET 顯示）", async () => {
-    renderAt("/admin/users", mockFetch(() => ADMIN_USER));
-    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "User management" })).toBeInTheDocument());
-    fireEvent.click(within(screen.getByRole("navigation", { name: "Site admin" })).getByRole("link", { name: "Version history" }));
-    await expectLocation("/admin/versions");
-    expect(await screen.findByRole("heading", { level: 1, name: "Version history" })).toBeInTheDocument();
-    expect(await screen.findByRole("switch", { name: "Automatic versions" })).toHaveAttribute("aria-checked", "true");
+  it("/admin/versions → 轉 /admin/storage（版本設定嵌在方案頁，#247 §7.0）", async () => {
+    renderAt("/admin/versions", mockFetch(() => ADMIN_USER));
+    await expectLocation("/admin/storage");
+    expect(await screen.findByRole("switch", { name: "Automatic versions" })).toBeInTheDocument();
   });
 
   it("點 Groups → /admin/groups，主區是群組列表（W6）", async () => {

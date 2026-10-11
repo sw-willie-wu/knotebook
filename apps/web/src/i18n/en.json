@@ -490,7 +490,7 @@
       "title": "Version history",
       "description": "How notes keep their versions on this site.",
       "autoTitle": "Automatic versions",
-      "autoDescription": "When off, no space saves versions automatically; people can still save versions by hand.",
+      "autoDescription": "When off, no space saves versions automatically; people can still save versions by hand. Versions and note text don't count toward storage; quotas count uploaded files only.",
       "retentionTitle": "Keeping automatic versions",
       "retentionDescription": "All automatic versions from the last {{keepAll}} days are kept; up to {{dailyUntil}} days, one a day; older, one a week. Days and weeks are counted in UTC. Manual versions are never removed.",
       "keepAllLabel": "Keep all for (days)",

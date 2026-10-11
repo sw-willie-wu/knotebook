@@ -490,7 +490,7 @@
       "title": "版本歷史",
       "description": "這個站台上筆記怎麼保留版本。",
       "autoTitle": "自動儲存版本",
-      "autoDescription": "關閉後所有空間都不會自動儲存版本，仍可手動儲存。",
+      "autoDescription": "關閉後所有空間都不會自動儲存版本，仍可手動儲存。版本歷史與筆記文字不佔用儲存空間，配額只計上傳的檔案。",
       "retentionTitle": "自動版本的保留",
       "retentionDescription": "{{keepAll}} 天內的自動版本全部保留；{{dailyUntil}} 天內每天留一版；更早的每週留一版。日與週以 UTC 計算。手動版本不會被清除。",
       "keepAllLabel": "全部保留（天）",

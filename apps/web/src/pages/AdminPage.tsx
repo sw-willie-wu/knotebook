@@ -9,7 +9,6 @@ import { NavItemLink } from "@/settings/SettingsNavLink";
 import { SettingsUsersSection } from "@/settings/SettingsUsersSection";
 import { SettingsAdminGroupsSection } from "@/settings/SettingsAdminGroupsSection";
 import { SettingsStorageSection } from "@/settings/SettingsStorageSection";
-import { SettingsVersionsSection } from "@/settings/SettingsVersionsSection";
 import { SettingsAiSection } from "@/settings/SettingsAiSection";
 import { SettingsAuthSection } from "@/settings/SettingsAuthSection";
 
@@ -26,7 +25,6 @@ function AdminNav() {
       <NavItemLink to="/admin/users">{t("admin.nav.users")}</NavItemLink>
       <NavItemLink to="/admin/groups">{t("admin.nav.groups")}</NavItemLink>
       <NavItemLink to="/admin/storage">{t("admin.nav.storage")}</NavItemLink>
-      <NavItemLink to="/admin/versions">{t("admin.nav.versions")}</NavItemLink>
       <NavItemLink to="/admin/ai">{t("admin.nav.ai")}</NavItemLink>
       <NavItemLink to="/admin/auth">{t("admin.nav.auth")}</NavItemLink>
     </nav>
@@ -34,9 +32,9 @@ function AdminNav() {
 }
 
 /**
- * 站台管理頁（`/admin/*`，admin only）：`/admin/users`、`/admin/groups`、`/admin/storage`、`/admin/versions`、`/admin/ai`、
- * `/admin/auth`（#187 PR2）各自是 `SettingsUsersSection`、`SettingsAdminGroupsSection`、`SettingsStorageSection`、`SettingsVersionsSection`、`SettingsAiSection`、
- * `SettingsAuthSection`（使用者與 AI 原本掛在設定 modal 裡，元件本體未改，只換了掛載點）。殼用既有的 `AppShell`，側欄中段換成 `AdminNav`；
+ * 站台管理頁（`/admin/*`，admin only）：`/admin/users`、`/admin/groups`、`/admin/storage`（含站台版本設定）、`/admin/ai`、
+ * `/admin/auth`（#187 PR2）各自是 `SettingsUsersSection`、`SettingsAdminGroupsSection`、`SettingsStorageSection`、`SettingsAiSection`、
+ * `SettingsAuthSection`（`/admin/versions` 轉 `/admin/storage`）（使用者與 AI 原本掛在設定 modal 裡，元件本體未改，只換了掛載點）。殼用既有的 `AppShell`，側欄中段換成 `AdminNav`；
  * 主區的內容卡與 `HomePage` 同款（`cardSurface`＋卡自己捲動＋窄視窗頂列）。
  *
  * 守衛不在這裡：`App.tsx` 把本路由掛在 `RequireAuth` → `ChangePasswordGate` →
@@ -62,7 +60,7 @@ export default function AdminPage() {
             <Route path="users" element={<SettingsUsersSection />} />
             <Route path="groups" element={<SettingsAdminGroupsSection />} />
             <Route path="storage" element={<SettingsStorageSection />} />
-            <Route path="versions" element={<SettingsVersionsSection />} />
+            <Route path="versions" element={<Navigate to="/admin/storage" replace />} />
             <Route path="ai" element={<SettingsAiSection />} />
             <Route path="auth" element={<SettingsAuthSection />} />
             <Route path="*" element={<Navigate to="/admin/users" replace />} />
