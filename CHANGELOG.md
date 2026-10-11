@@ -17,6 +17,7 @@ The full checklist is under **Upgrading to v0.10** in [Upgrading and rolling bac
 - **Apps you authorize for the first time are read-only by default.** On the consent page, tick "Create and edit notes" to let an app write: pressing Allow straight away now gives it read-only access, where before it got everything it asked for. Re-authorizing an app starts from the access it already has, never more than it is asking for this time. Personal API tokens were already read-only by default; the Create API token dialog now has a checkbox for each permission, both unticked to start (#239).
 - MCP clients cache their tool list; after changing a credential's access, restart the client to see the change (#239).
 - A consent page left open from before the upgrade answers Allow with an error; reload it and choose again (#239).
+- The first `docker compose up -d` with the new `docker-compose.yml` re-creates the bundled `db` container, because its healthcheck changed; the data in the `db_data` volume is kept.
 
 ### Added
 
@@ -24,6 +25,7 @@ The full checklist is under **Upgrading to v0.10** in [Upgrading and rolling bac
 - The Create API token dialog has a checkbox for each permission — "Create and edit notes" and "Move or copy notes into groups" — both unticked to start, and the token list shows a third kind of access (#239).
 - The consent page lets you choose each permission the app asks for; when you authorize the same app again, it starts from the access the app already has and marks it "Currently granted" (#239).
 - `PATCH /api/auth/tokens/:id` accepts `scope`, to raise or lower an existing token's or app's access from a signed-in browser session; it applies from the credential's next request. Settings has no control for this (#239).
+- Self-hosting with your own PostgreSQL: set `BUNDLED_DB=0` in `.env` and point `DATABASE_URL` at your server, and `docker compose up -d` no longer starts the bundled `db` container. Leaving `BUNDLED_DB` unset keeps the bundled database, as before. Inside the `app` container, `host.docker.internal` now points at the machine running Docker, for a PostgreSQL running there (see [Using your own PostgreSQL](docs/self-hosting.md#using-your-own-postgresql)).
 
 ### Changed
 
@@ -36,6 +38,7 @@ The full checklist is under **Upgrading to v0.10** in [Upgrading and rolling bac
 
 ### Fixed
 
+- The bundled database's healthcheck runs `pg_isready` without a shell and over TCP. When a check timed out, the shell was killed but `pg_isready` was left behind, and if it then gave up without a response, PostgreSQL treated it as a crashed server process and restarted, dropping every open connection; and on the first start the check could report the database ready while it was still being initialized.
 - MCP: a `note_id` with uppercase letters now reaches the same live note the web app edits: `read_note_outline` and `read_note_section` return what is being typed rather than the last saved copy, the assistant shows up for people who have the note open whenever it would with a lowercase id, and `edit_note` writes into that note — before, with the note open in the web app, an `append` reported success, but the people editing never received the text, and the note as saved afterwards didn't have it either. `read_note_outline` now answers with the note's id in lowercase (#240).
 - API: a note id with uppercase letters in the path of `GET /api/notes/:id/content`, `POST /api/notes/:id/edits`, `GET /api/notes/:id/edits` and `POST /api/notes/:id/edits/:editId/revert` is now treated like the lowercase id: reading the content returns what is being typed rather than the last saved copy and shows the caller to people who have the note open whenever the same read with a lowercase id would, and an edit reaches the note as they have it open; listing edits and reverting one get the same fix (#240).
 - API: an uppercase user id in `DELETE /api/notes/:id/shares/:userId` or `DELETE /api/groups/:id/members/:userId`, or an uppercase note id when removing a share, now ends that person's open editing connection the same way a lowercase id does, and deleting a note by an uppercase id now closes everyone's open editing connection to it, as a lowercase id does; other share changes and changing a member's role in a group get the same fix, and `PATCH /api/groups/:id/members/:userId` now answers with the member's id in lowercase. A member who isn't a group manager can now leave a group using their own id in uppercase, which used to be refused (#240).

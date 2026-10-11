@@ -13,6 +13,7 @@ services:
     ports: !override
       - "127.0.0.1:3100:3000"
   db:
+    scale: 1 # 同理顯式釘死：基底的 ${BUNDLED_DB:-1} 也讀 .env/shell——誰設了 BUNDLED_DB=0，e2e 疊就沒有 db
     environment:
       POSTGRES_PASSWORD: knotebook # 顯式釘死：基底的 ${POSTGRES_PASSWORD:-knotebook} 插值會讀 .env/shell——
                                     # 誰設過該變數，db 就用新密碼初始化而 app 連舊密碼（plan-gate 一輪 MINOR-6）

@@ -27,10 +27,56 @@ In-memory state (login rate limiting, the collab-token/slug-change rate limiters
 
 `docker-compose.yml` (repo root) defines two services:
 
-- **`app`** — built from `docker/Dockerfile`, reads its configuration from `.env` (`env_file: .env`), and by default publishes only on `127.0.0.1:3000` (see topology (a) above to expose it on the LAN instead). It depends on `db` being healthy before starting, and has its own `/healthz`-based healthcheck. Uploaded images are persisted to the `uploads` named volume, mounted at `/app/uploads` — if you customize the compose file and drop that mount, uploaded images vanish on the next container rebuild.
-- **`db`** — `pgvector/pgvector:pg17`, with data persisted to the `db_data` named volume. `POSTGRES_PASSWORD` can be overridden via `.env`, but Postgres only applies it while initializing a brand-new (empty) data directory — see the env var reference below.
+- **`app`** — built from `docker/Dockerfile`, reads its configuration from `.env` (`env_file: .env`), and by default publishes only on `127.0.0.1:3000` (see topology (a) above to expose it on the LAN instead). It waits for `db` to be healthy before starting — unless the bundled database is turned off (see [Using your own PostgreSQL](#using-your-own-postgresql)) — and has its own `/healthz`-based healthcheck. Inside it, the name `host.docker.internal` points at the machine running Docker. Uploaded images are persisted to the `uploads` named volume, mounted at `/app/uploads` — if you customize the compose file and drop that mount, uploaded images vanish on the next container rebuild.
+- **`db`** — the bundled PostgreSQL, `pgvector/pgvector:pg17`, with data persisted to the `db_data` named volume. It is started by default; to use a PostgreSQL server of your own instead, see [Using your own PostgreSQL](#using-your-own-postgresql). `POSTGRES_PASSWORD` can be overridden via `.env`, but Postgres only applies it while initializing a brand-new (empty) data directory — see the env var reference below.
 
-`docker compose down -v` discards *all* named volumes, not just `db` — it takes the `uploads` volume with it too, so every note and every uploaded image is gone.
+`docker compose down -v` discards *all* named volumes, not just `db` — it takes the `uploads` volume with it too, so every uploaded image is gone — and, with the bundled database, every note as well.
+
+## Using your own PostgreSQL
+
+By default `docker compose up -d` also starts the bundled PostgreSQL (the `db` service), and nothing in this section applies. To use a PostgreSQL server you run yourself instead — on the machine running Docker or on another host:
+
+1. **Create a database and an account for Knotebook.** The server creates its tables itself — migrations run every time it starts, and they include a `drizzle` schema that records which ones have run — so the account in `DATABASE_URL` has to be able to create schemas and tables in that database. Making it the owner of the database is enough; it doesn't need to be a superuser, and the database needs no extensions:
+
+   ```sql
+   CREATE ROLE knotebook LOGIN PASSWORD '...';
+   CREATE DATABASE knotebook OWNER knotebook;
+   ```
+
+2. **Point `DATABASE_URL` at it and turn the bundled database off.** In `.env`:
+
+   ```
+   DATABASE_URL=postgres://knotebook:<password>@db.example.com:5432/knotebook
+   BUNDLED_DB=0
+   ```
+
+   Then run `docker compose up -d` as usual. With `BUNDLED_DB=0` the `db` container isn't created, `app` doesn't wait for it, and `docker compose ps` lists only `app` (Compose still creates an empty `db_data` volume, which nothing uses). `BUNDLED_DB` takes only `0` or `1`, the default; any other value makes `docker compose` fail. It needs Docker Compose v2.3.0 or newer. As in any URL, characters such as `@`, `:` or `/` in the password have to be percent-encoded.
+
+   If the server can't reach the database, or the database refuses it, the `app` container keeps restarting; `docker compose logs app` shows the database's error.
+
+**PostgreSQL on the machine running Docker.** Inside the `app` container, `localhost` is the container itself, not your machine. Use `host.docker.internal` as the host instead — `docker-compose.yml` maps that name to the machine running Docker (`extra_hosts: host.docker.internal:host-gateway`); on Linux that is the address of Docker's `docker0` bridge, `172.17.0.1` unless your Docker daemon is configured otherwise:
+
+```
+DATABASE_URL=postgres://knotebook:<password>@host.docker.internal:5432/knotebook
+```
+
+With Docker Engine on Linux, PostgreSQL's own defaults refuse this connection in two places (Docker Desktop forwards the connection differently and hasn't been tried):
+
+- **`listen_addresses`** defaults to `localhost`. Add the bridge address (`listen_addresses = 'localhost,172.17.0.1'`) or use `'*'`, then restart PostgreSQL. Until then the `app` log shows `ECONNREFUSED 172.17.0.1:5432`. PostgreSQL only warns about an address it can't listen on when it starts, so if it can start before Docker has created `docker0` (at boot, for example), it won't be listening there; `'*'` avoids that.
+- **`pg_hba.conf`** as `initdb` writes it only allows local and loopback connections. The connection comes from the `app` container's address on the Compose network — not from `172.17.0.1` — so allow that network's subnet, which `docker network inspect <project>_default` shows (the project name is the directory name unless you set one), for example `host knotebook knotebook 172.16.0.0/12 scram-sha-256`, then reload (`SELECT pg_reload_conf();`). Until then PostgreSQL logs `no pg_hba.conf entry for host "172.x.x.x"`. Compose can give the network a different subnet when it's created again (after `docker compose down`, for example), so allow a range that covers where your Docker allocates networks rather than one address.
+
+A host firewall between the bridge and PostgreSQL has to let the connection through as well.
+
+**Moving an existing installation off the bundled database** needs PostgreSQL 17 or newer on your server (tried with 17): the bundled database is PostgreSQL 17, and its dump doesn't load into PostgreSQL 16 — it stops at `unrecognized configuration parameter "transaction_timeout"`. A new installation can use PostgreSQL 16 (see **Versions** below).
+
+1. `docker compose stop app`
+2. `docker compose exec -T db pg_dump -U knotebook --no-owner --no-privileges knotebook > knotebook.sql` — `--no-owner --no-privileges` lets the dump load under an account with a different name.
+3. Load it into the empty database you created: `psql -v ON_ERROR_STOP=1 '<your DATABASE_URL>' < knotebook.sql`.
+4. Change `DATABASE_URL` in `.env`, add `BUNDLED_DB=0`, and run `docker compose up -d`. Compose removes the `db` container; the `db_data` volume stays until you remove it yourself (`docker volume rm <project>_db_data`), so keep it until you've checked the new setup. Uploaded images stay in the `uploads` volume.
+
+**Backups.** The `docker compose exec -T db pg_dump …` commands elsewhere in this guide are for the bundled database. With your own PostgreSQL, run `pg_dump` against it directly, for example `pg_dump '<your DATABASE_URL>' > knotebook-backup.sql`, with a `pg_dump` of the same major version as the server or newer — one from an older major version refuses (`aborting because of server version mismatch`).
+
+**Versions.** From an empty database, every migration runs and the server starts and signs in on the stock `postgres:16` (16.15) and `postgres:17` (17.11) images, without pgvector; the bundled database and the test suites use PostgreSQL 17 (`pgvector/pgvector:pg17`). Older versions haven't been tried.
 
 ## Environment variables
 
@@ -38,7 +84,7 @@ Reference: `.env.example` (repo root) is the canonical source — copy it to `.e
 
 | Variable | Required | Notes |
 |---|---|---|
-| `DATABASE_URL` | yes | Postgres connection string. With `docker compose`, use the `db` service name as host: `postgres://knotebook:knotebook@db:5432/knotebook`. Outside docker, use `localhost` instead. |
+| `DATABASE_URL` | yes | Postgres connection string. With `docker compose` and the bundled database, use the `db` service name as host: `postgres://knotebook:knotebook@db:5432/knotebook`. With your own PostgreSQL, see [Using your own PostgreSQL](#using-your-own-postgresql). Outside docker, use `localhost` instead. |
 | `DATABASE_POOL_MAX` | no | Maximum number of database connections the server opens (default 10). |
 | `DATABASE_POOL_CONNECTION_TIMEOUT_MS` | no | How long a request waits for a free database connection before failing, in milliseconds (default 10000, maximum 2147483647). When every connection stays busy for that long the request fails with a server error and the server logs an error, instead of hanging. |
 | `APP_SECRET` | yes | 64+ hex characters (`openssl rand -hex 32`). Signs session cookies and collab tokens, and derives the keys used to encrypt stored AI provider credentials (see [AI quick actions](./ai.md)) and sign-in services' client secrets — rotating it invalidates all of those. |
@@ -46,6 +92,7 @@ Reference: `.env.example` (repo root) is the canonical source — copy it to `.e
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | yes, on first boot (set both) | Creates the first (admin) account at startup — this is the **only** way to initialize a fresh instance; the server refuses to start on an empty/uninitialized database without both set. `ADMIN_PASSWORD` must be 12+ characters. **Only takes effect on first initialization** (empty database, not yet initialized) — once an instance is initialized, these are silently ignored on every subsequent start, with no error or warning (see [Known limitations](./known-limitations.md)). After first login, consider removing these two lines from `.env` — a plaintext password sitting there is one less secret to leak once the account already exists. |
 | `TRUST_PROXY` | no (**set it when you run behind a reverse proxy**) | Whether to believe `X-Forwarded-For`. Unset means the header is ignored and the socket address is used — the safe default when clients can reach the app directly. Behind a proxy, leaving it unset makes every visitor look like the proxy, so they all share one rate-limit and lockout bucket (this includes the per-IP limits on invalid API-token attempts and on the three OAuth endpoints — registration, authorization and token exchange — see [Known limitations](./known-limitations.md)). Accepts a list of trusted proxy addresses (IPs, CIDRs, or `loopback`/`linklocal`/`uniquelocal`), a hop count, or `true`. See [Deployment prerequisites](#deployment-prerequisites). |
 | `PASSWORD_LOGIN_FORCE_ENABLE` | no | Recovery switch, read when the server starts: `true` makes password sign-in work again while **Allow password sign-in** is off in Site admin, without changing that setting — see [SSO-only sign-in](#sso-only-sign-in). Only `true` or `false` (any letter case); empty counts as not set, and any other value stops the server from starting. Remove it once you're done. |
+| `BUNDLED_DB` (docker-compose.yml, not read by the server) | no | `1` (the default) starts the bundled `db` service; `0` leaves it out, for when `DATABASE_URL` points at your own PostgreSQL. Only `0` or `1`. See [Using your own PostgreSQL](#using-your-own-postgresql). |
 | `POSTGRES_PASSWORD` (docker-compose.yml, not `.env.example`) | no | Overrides the `db` service's Postgres password (default `knotebook`). Only applied by Postgres while initializing a brand-new (empty) data directory — see [Known limitations](./known-limitations.md) for how to change it after the `db` volume already exists. |
 
 ## Sign-in providers
@@ -167,13 +214,13 @@ Database migrations run automatically at startup and are idempotent — upgradin
 - **Custom slugs set during the window** are recorded without the "custom" marker, so after upgrading back, the next title change silently overwrites them with an automatic slug.
 - **Clearing a custom slug back to automatic breaks** during the window: the old server writes `NULL` where the new schema forbids it, returning a 500 until you upgrade again. The web UI no longer has a way to trigger this on its own — the Share dialog's custom-URL editor was removed (2026-09-17; see [Sharing](./sharing.md)) — so this degradation is now only reachable through a direct `PATCH` with `slug: null`.
 
-**The groups migration in this release (0012) can't be undone.** It changes data in ways that can't be reversed — which notes were read-only for their group, and who owned each group note, are gone. Back up the database before upgrading, for example `docker compose exec -T db pg_dump -U knotebook knotebook > knotebook-before-upgrade.sql`. If you ran a build of the `main` branch from after #103 and before migration 0012 (a pre-release build with groups), that build still starts on the migrated database but can't serve notes any more — loading a note or the note list fails with a server error — because columns it reads are gone. To go back to it, restore the dump into an empty database and run that build against it:
+**The groups migration in this release (0012) can't be undone.** It changes data in ways that can't be reversed — which notes were read-only for their group, and who owned each group note, are gone. Back up the database before upgrading, for example `docker compose exec -T db pg_dump -U knotebook knotebook > knotebook-before-upgrade.sql` (with your own PostgreSQL, run `pg_dump` against it directly — see [Using your own PostgreSQL](#using-your-own-postgresql)). If you ran a build of the `main` branch from after #103 and before migration 0012 (a pre-release build with groups), that build still starts on the migrated database but can't serve notes any more — loading a note or the note list fails with a server error — because columns it reads are gone. To go back to it, restore the dump into an empty database and run that build against it:
 
 1. `docker compose stop app`
 2. `docker compose exec -T db psql -U knotebook -d postgres -c 'DROP DATABASE knotebook WITH (FORCE)' -c 'CREATE DATABASE knotebook OWNER knotebook'`
 3. `docker compose exec -T db psql -v ON_ERROR_STOP=1 -U knotebook knotebook < knotebook-before-upgrade.sql`
 
-then start that build. If you're upgrading from 0.4.1 or earlier, there were no groups, so none of the data changes above apply to you. [Restoring note content from a backup](./backup-restore.md) is a different procedure: it puts one note's content back, not the whole database.
+then start that build. Steps 2 and 3 are for the bundled database; with your own PostgreSQL, drop the database and create it again owned by the account in `DATABASE_URL` (`CREATE DATABASE knotebook OWNER knotebook`), then load the dump with `psql` against your server. If you're upgrading from 0.4.1 or earlier, there were no groups, so none of the data changes above apply to you. [Restoring note content from a backup](./backup-restore.md) is a different procedure: it puts one note's content back, not the whole database.
 
 **Upgrading to v0.6 (sign-in providers).**
 
@@ -188,7 +235,7 @@ then start that build. If you're upgrading from 0.4.1 or earlier, there were no 
 
 **Upgrading to v0.10 (note ids in any letter case, stricter MCP input, a separate scope for moving notes into groups).**
 
-1. **Back up the database first.** The migrations below run automatically when the new server starts; take a dump before you start the new version anyway, for example `docker compose exec -T db pg_dump -U knotebook knotebook > knotebook-before-upgrade.sql`.
+1. **Back up the database first.** The migrations below run automatically when the new server starts; take a dump before you start the new version anyway, for example `docker compose exec -T db pg_dump -U knotebook knotebook > knotebook-before-upgrade.sql` (with your own PostgreSQL, run `pg_dump` against it directly — see [Using your own PostgreSQL](#using-your-own-postgresql)).
    - **0020 (drop note self-links)** deletes rows of `note_links` that record a note as linking to itself. A note id written with uppercase letters could create them; they were never correct.
    - **0021 (`notes:move` scope)** replaces the `scope` checks on `api_tokens`, `oauth_requests` and `oauth_codes` with wider ones that also allow `notes:read notes:write notes:move`. It changes no stored value, so no existing credential gets `notes:move`.
 2. **MCP clients and scripts:** the seven tools that used to ignore an argument they don't know (all but `create_note`, `move_note_to_group` and `copy_note`) now reject it, so a call with an extra or misspelled argument fails the input check and does nothing — fix the argument's name.
@@ -196,9 +243,11 @@ then start that build. If you're upgrading from 0.4.1 or earlier, there were no 
    - **Moving and copying notes into groups need the new `notes:move` scope.** Existing tokens and apps no longer get `move_note_to_group`, and their `copy_note` refuses `group_id`. To allow it, create a token with "Create and edit notes" and "Move or copy notes into groups" ticked in **Settings → Account → API tokens** and switch to it, or authorize the app again and tick both (the second box appears only if the app asks for `notes:move`; an MCP client that follows the `/api/mcp` challenge does).
    - **Apps you authorize for the first time after the upgrade are read-only** unless you tick "Create and edit notes" on the consent page; re-authorizing an app starts from the access it already has, never more than it is asking for this time.
    - Restart an MCP client after changing its credential's access, so that it lists the right tools. A consent page left open from before the upgrade fails when you press Allow; reload it and choose again.
-4. **Rolling back** to v0.9:
+4. **The bundled database container is re-created once.** Its healthcheck changed, so the first `docker compose up -d` with the new `docker-compose.yml` replaces the `db` container; the data in the `db_data` volume is kept. Using your own PostgreSQL instead is new in this version — see [Using your own PostgreSQL](#using-your-own-postgresql).
+5. **Rolling back** to v0.9:
    - **0020:** harmless — no table or column changed, and the deleted rows were wrong. While v0.9 runs it can store such self-links again; upgrading again doesn't run 0020 a second time, so those stay until that note's set of links is next saved, which replaces the whole set.
    - **0021:** the wider checks stay, and v0.9 doesn't mind them — it only stores the two scopes it knows. v0.9 has no `notes:move`, so while it runs every credential with `notes:write` can move notes into groups and copy them there again, and a credential that has `notes:move` works as an ordinary read-write one. Access you lowered with `PATCH /api/auth/tokens/:id` stays lowered. Upgrading again doesn't run 0021 a second time; credentials keep the scope they have.
+   - **`docker-compose.yml`:** going back to v0.9's file re-creates the bundled `db` container once more (its healthcheck changes back), keeping the data in `db_data`. v0.9's file doesn't know `BUNDLED_DB`: if you use your own PostgreSQL, it starts the bundled one again — from the `db_data` volume if it's still there, otherwise as a new empty database — and `app` waits for it to be healthy. Nothing uses it: `app` still connects to `DATABASE_URL`, so your data isn't affected.
 
 **Upgrading to v0.9 (MCP tools).**
 
@@ -208,7 +257,7 @@ then start that build. If you're upgrading from 0.4.1 or earlier, there were no 
 
 **Upgrading to v0.8 (note versions).**
 
-1. **Back up the database first.** Migration 0019 runs automatically when the new server starts. It only adds a table, columns, indexes and constraints, but take a dump before you start the new version anyway, for example `docker compose exec -T db pg_dump -U knotebook knotebook > knotebook-before-upgrade.sql`.
+1. **Back up the database first.** Migration 0019 runs automatically when the new server starts. It only adds a table, columns, indexes and constraints, but take a dump before you start the new version anyway, for example `docker compose exec -T db pg_dump -U knotebook knotebook > knotebook-before-upgrade.sql` (with your own PostgreSQL, run `pg_dump` against it directly — see [Using your own PostgreSQL](#using-your-own-postgresql)).
 2. **Automatic note versions are on after upgrading**, for the whole site and for every user and group. Each version is a full copy of a note's content, kept in the database, and versions don't count towards storage plans. To turn automatic saving off for the whole site, use **Site admin → Version history** (or `PATCH /api/admin/versions/settings`); people turn it off for their own notes in **Settings → Account**, and group managers for a group's notes on the group's settings page (see [Version history](versions.md#turning-automatic-versions-off)).
 3. **Rolling back** to the previous image means no versions are saved while it runs: the new table and columns stay in the database and the old server doesn't read them, and the versions already saved remain. Prefer rolling forward; if you must roll back, treat it as a temporary state.
 

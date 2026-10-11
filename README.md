@@ -50,7 +50,7 @@ This brings up the server and a Postgres database with `docker compose`; the fir
 
 4. Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `.env` — this creates the first (admin) account at startup. `ADMIN_PASSWORD` must be 12+ characters. This is the only way to initialize a fresh instance: the server refuses to start on an empty database without these set (see `.env.example` and [Known limitations](docs/known-limitations.md) — it only takes effect on first initialization).
 
-5. Start the stack (`app` + `db` services; see [Deployment prerequisites](docs/self-hosting.md#deployment-prerequisites) before doing this in production):
+5. Start the stack (`app` + `db` services, where `db` is a bundled PostgreSQL — to use your own PostgreSQL instead, see [Using your own PostgreSQL](docs/self-hosting.md#using-your-own-postgresql); see [Deployment prerequisites](docs/self-hosting.md#deployment-prerequisites) before doing this in production):
 
    ```sh
    docker compose up -d

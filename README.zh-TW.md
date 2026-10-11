@@ -52,7 +52,7 @@ Knotebook 是一套開源、可自行架設的 Notion/HackMD 風格協作筆記�
 
 4. 在 `.env` 中設定 `ADMIN_EMAIL` 與 `ADMIN_PASSWORD`——這會在啟動時建立第一個（管理員）帳號。`ADMIN_PASSWORD` 必須至少 12 個字元。這是初始化全新實例的唯一方式：資料庫是空的、又沒有設定這兩項時，伺服器會拒絕啟動（見 `.env.example` 與 [已知限制](docs/known-limitations.md)——它只在第一次初始化時生效）。
 
-5. 啟動整套服務（`app` 與 `db` 兩個服務；若要在正式環境進行，請先閱讀 [部署前提](docs/self-hosting.md#deployment-prerequisites)）：
+5. 啟動整套服務（`app` 與 `db` 兩個服務，`db` 是內建的 PostgreSQL——想改用自己的 PostgreSQL，見 [使用自己的 PostgreSQL](docs/self-hosting.md#using-your-own-postgresql)；若要在正式環境進行，請先閱讀 [部署前提](docs/self-hosting.md#deployment-prerequisites)）：
 
    ```sh
    docker compose up -d
