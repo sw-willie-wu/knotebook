@@ -86,6 +86,9 @@ describe("DialogContent size（#247 §4.1）", () => {
     render(<Harness />);
     await settle();
     expect(screen.getAllByRole("button", { name: "Close" })).toHaveLength(1);
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).not.toHaveClass("grid-cols-[minmax(0,1fr)]");
+    expect(dialog).not.toHaveClass("grid-rows-[minmax(0,1fr)]");
   });
 
   it('size="panel"：不渲染內建 Close（由 ManagementShell 自己放一顆）', async () => {
@@ -107,6 +110,8 @@ describe("DialogContent size（#247 §4.1）", () => {
       "h-[92vh]",
       "md:w-[clamp(min(56rem,96vw),92vw,85rem)]",
       "md:h-[clamp(min(42rem,92vh),88vh,56rem)]",
+      "grid-cols-[minmax(0,1fr)]",
+      "grid-rows-[minmax(0,1fr)]",
     );
     // twMerge 要把 base 的 bg-popover／shadow-lg／w-full 蓋掉
     expect(dialog).not.toHaveClass("bg-popover");

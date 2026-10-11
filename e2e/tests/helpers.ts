@@ -169,6 +169,8 @@ export async function openSiteAdmin(page: Page): Promise<Locator> {
   await expect(page).toHaveURL(/\/admin\/users$/);
   const dialog = page.getByRole("dialog", { name: "Site admin" });
   await expect(dialog).toBeVisible();
+  // §11.3：等左卡目前項次標好 aria-current 才算開好（窄視窗左卡是 display:none，用 CSS locator 才不受隱藏影響）。
+  await expect(dialog.locator('nav a[aria-current="page"]')).toHaveCount(1);
   return dialog;
 }
 
@@ -190,6 +192,8 @@ export async function openGroupPanel(page: Page, groupName: string): Promise<str
   await page.getByRole("complementary").getByRole("button", { name: `Group actions for ${groupName}` }).click();
   await page.getByRole("menuitem", { name: "Members & settings" }).click();
   await expect(page).toHaveURL(/\/groups\/[0-9a-f-]{36}$/);
-  await expect(page.getByRole("dialog", { name: groupName })).toBeVisible();
+  const dialog = page.getByRole("dialog", { name: groupName });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator('nav a[aria-current="page"]')).toHaveCount(1);
   return new URL(page.url()).pathname.split("/")[2]!;
 }

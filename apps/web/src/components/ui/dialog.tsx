@@ -30,7 +30,8 @@ DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
  * 的做法，不靠 grep 測試；`size="panel"`＝三個管理面板（`components/management/ManagementShell.tsx`，#247 §4.1／§4.6）：
  * 外框本身透明無邊、不投影，托盤與兩張卡由 ManagementShell 自己畫；窄視窗 `96vw × 92vh`，
  * `md:` 以上 `92vw × 88vh` 夾在 896×672～1360×896 之間。`panel` 時**不渲染內建 Close**——
- * 面板在右卡自己放一顆帶 i18n 名稱的 ✕（§4.5），這裡再放就會有兩顆 Close。 */
+ * 面板在右卡自己放一顆帶 i18n 名稱的 ✕（§4.5），這裡再放就會有兩顆 Close。
+ * `panel` 的 grid 軌道是 `minmax(0,1fr)`：預設的 `auto` 軌道會依托盤內容撐大，托盤就會在高度與寬度上都長出外框、右卡永遠不捲動。 */
 const dialogContentVariants = cva(
   "fixed left-1/2 top-1/2 z-50 grid w-full -translate-x-1/2 -translate-y-1/2 gap-4 " +
     "rounded-lg border border-border bg-popover text-popover-foreground shadow-lg duration-200 " +
@@ -42,6 +43,7 @@ const dialogContentVariants = cva(
         default: "max-w-lg p-6",
         panel:
           "p-0 bg-transparent border-0 shadow-none overflow-visible w-[96vw] h-[92vh] " +
+          "grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)] " +
           "md:w-[clamp(min(56rem,96vw),92vw,85rem)] md:h-[clamp(min(42rem,92vh),88vh,56rem)]",
       },
     },
