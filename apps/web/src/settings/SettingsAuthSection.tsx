@@ -148,8 +148,13 @@ function DeleteProviderDialog({ provider, disabledHintId }: { provider: AdminAut
 
 type TestState = { ok: true; result: AdminAuthProbeResultDto } | { ok: false; message: string } | null;
 
-/** 登入服務表的欄（#247 §7.0）：服務｜Issuer｜已連結｜列尾動作｜啟用。表頭與每一列共用同一個 grid 模板才對得齊。 */
-const PROVIDER_ROW_GRID = "grid grid-cols-[minmax(0,1.3fr)_minmax(0,2fr)_4rem_auto_3.5rem] items-center gap-x-3";
+/**
+ * 登入服務表的欄（#247 §7.0）：服務｜Issuer｜已連結｜列尾動作｜啟用。表頭與每一列共用同一個 grid 模板才對得齊。
+ * 格線只在 `md` 以上：固定寬（4rem＋四顆鈕＋3.5rem＋四道間距≈296px）在 390px 視窗（列內可用≈302px）只剩約 6px 給服務與 Issuer。
+ * `<md` 時列改成 flex：服務（佔滿）＋已連結＋啟用 switch＋列尾鈕（`order-last`，放不下就換行）；Issuer 欄隱藏，由明細區 `md:hidden` 那一行補上。
+ */
+const PROVIDER_COLS = "md:grid-cols-[minmax(0,1.3fr)_minmax(0,2fr)_4rem_auto_3.5rem]";
+const PROVIDER_ROW = `flex flex-wrap items-center gap-x-3 gap-y-1 md:grid ${PROVIDER_COLS}`;
 
 function ProviderTableHeader({ enabledHeaderId }: { enabledHeaderId: string }) {
   const { t } = useTranslation();
@@ -159,7 +164,7 @@ function ProviderTableHeader({ enabledHeaderId }: { enabledHeaderId: string }) {
     <div
       aria-hidden="true"
       data-testid="auth-provider-table-header"
-      className={`${PROVIDER_ROW_GRID} border-b border-border px-3 py-2 text-left text-sm text-muted-foreground`}
+      className={`hidden items-center gap-x-3 md:grid ${PROVIDER_COLS} border-b border-border px-3 py-2 text-left text-sm text-muted-foreground`}
     >
       <span>{t("admin.auth.tableService")}</span>
       <span>{t("admin.auth.tableIssuer")}</span>
@@ -222,11 +227,12 @@ function ProviderCard({ provider, enabledHeaderId }: { provider: AdminAuthProvid
 
   return (
     <section aria-labelledby={headingId} className="border-b border-border px-3 py-3">
-      <div data-testid="auth-provider-row" className={PROVIDER_ROW_GRID}>
-        <div className="min-w-0">
+      <div data-testid="auth-provider-row" className={PROVIDER_ROW}>
+        {/* 窄視窗：`grow basis-32`＝服務名至少留 8rem，放不下時列尾鈕整組換到第二行（而不是把名稱壓到 0）。 */}
+        <div className="min-w-0 grow basis-32">
           <div className="flex items-center gap-2">
             <ProviderIcon icon={provider.icon} />
-            <h3 id={headingId} className="truncate text-sm font-semibold">
+            <h3 id={headingId} className="min-w-0 truncate text-sm font-semibold">
               {provider.displayName}
             </h3>
           </div>
@@ -235,7 +241,7 @@ function ProviderCard({ provider, enabledHeaderId }: { provider: AdminAuthProvid
             {provider.legacyCallback && ` · ${t("admin.auth.legacyBadge")}`}
           </p>
         </div>
-        <p className="min-w-0 break-all text-sm">
+        <p className="hidden min-w-0 break-all text-sm md:block">
           <span className="sr-only">{t("admin.auth.tableIssuer")}: </span>
           {provider.issuerUrl}
         </p>
@@ -243,7 +249,7 @@ function ProviderCard({ provider, enabledHeaderId }: { provider: AdminAuthProvid
           <span className="sr-only">{t("admin.auth.tableLinked")}: </span>
           {impact.data ? impact.data.linkedUsers : "—"}
         </p>
-        <div className="flex shrink-0 items-center">
+        <div className="order-last flex shrink-0 items-center md:order-none">
           <RowIconButton
             label={t("admin.auth.test")}
             icon={<Plug className="h-4 w-4" />}
@@ -270,6 +276,9 @@ function ProviderCard({ provider, enabledHeaderId }: { provider: AdminAuthProvid
           </p>
         )}
         <dl className="grid grid-cols-[max-content_minmax(0,1fr)] items-center gap-x-3 gap-y-1">
+          {/* 窄視窗補回被隱藏的 Issuer 欄（md 以上已在格線列，不重複）。 */}
+          <dt className="text-muted-foreground md:hidden">{t("admin.auth.tableIssuer")}</dt>
+          <dd className="break-all md:hidden">{provider.issuerUrl}</dd>
           <dt className="text-muted-foreground">{t("admin.auth.clientIdLabel")}</dt>
           <dd className="break-all">{provider.clientId}</dd>
           <dt className="text-muted-foreground">{t("admin.auth.callbackLabel")}</dt>

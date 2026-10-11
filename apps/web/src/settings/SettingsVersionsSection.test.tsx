@@ -108,7 +108,7 @@ describe("站台版本設定（/admin/storage 內，#247 §7.0）", () => {
     const calls = stubAdmin({ settings: SETTINGS });
     const { queryClient } = renderAt("/admin/storage");
     const sw = await screen.findByRole("switch", { name: "Automatic versions" });
-    // gate r1 I-6：/admin/versions 上沒有任何元件訂閱 ['auth-config']，invalidate 只標 stale、不發請求——
+    // gate r1 I-6：/admin/storage 上沒有任何元件訂閱 ['auth-config']，invalidate 只標 stale、不發請求——
     // 不能等 GET /api/auth/config。先種一份快取，再斷言它被標成 invalidated。
     queryClient.setQueryData(["auth-config"], AUTH_CONFIG);
     expect(queryClient.getQueryState(["auth-config"])?.isInvalidated).toBe(false);

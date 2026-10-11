@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useId, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import type { AdminAiActionDto, AdminAiModelDto, AdminAiProviderDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
@@ -19,6 +19,8 @@ import {
 } from "@/api/adminAi";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Pencil, Plug, Trash } from "@/components/ui/icons";
+import { RowIconButton } from "@/components/ui/row-icon-button";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
@@ -250,9 +252,7 @@ function EditProviderDialog({ provider }: { provider: AdminAiProviderDto }) {
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <Button type="button" variant="ghost" size="sm">
-          {t("settings.ai.edit")}
-        </Button>
+        <RowIconButton label={t("settings.ai.edit")} icon={<Pencil className="h-4 w-4" />} />
       </DialogTrigger>
       <DialogContent dismissOnOutside={false}>
         <DialogHeader>
@@ -353,9 +353,7 @@ function DeleteProviderDialog({ provider }: { provider: AdminAiProviderDto }) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button type="button" variant="ghost" size="sm">
-          {t("settings.ai.delete")}
-        </Button>
+        <RowIconButton label={t("settings.ai.delete")} tone="destructive" icon={<Trash className="h-4 w-4" />} />
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
@@ -515,9 +513,7 @@ function EditModelDialog({ model }: { model: AdminAiModelDto }) {
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <Button type="button" variant="ghost" size="sm">
-          {t("settings.ai.edit")}
-        </Button>
+        <RowIconButton label={t("settings.ai.edit")} icon={<Pencil className="h-4 w-4" />} />
       </DialogTrigger>
       <DialogContent dismissOnOutside={false}>
         <DialogHeader>
@@ -593,9 +589,7 @@ function DeleteModelDialog({ model }: { model: AdminAiModelDto }) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button type="button" variant="ghost" size="sm">
-          {t("settings.ai.delete")}
-        </Button>
+        <RowIconButton label={t("settings.ai.delete")} tone="destructive" icon={<Trash className="h-4 w-4" />} />
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
@@ -641,7 +635,7 @@ function ModelRow({ model }: { model: AdminAiModelDto }) {
         )}
         <span className="ml-2 text-muted-foreground">{model.modelId}</span>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1">
         <Switch
           id={`model-enabled-${model.id}`}
           checked={model.enabled}
@@ -658,10 +652,51 @@ function ModelRow({ model }: { model: AdminAiModelDto }) {
   );
 }
 
-/** provider 卡片：name/type/baseUrl/enabled 開關/degraded 警示＋重輸提示/test 鈕/編輯/刪除，
- * 內嵌這個 provider 底下的 models 列表＋「新增 model」（spec §13.4）。 */
-function ProviderCard({ provider, models }: { provider: AdminAiProviderDto; models: AdminAiModelDto[] }) {
+/**
+ * AI 供應商表的欄（#247 §7.0）：名稱｜類型｜Base URL｜模型｜列尾動作｜啟用。表頭與每一列共用同一個 grid 模板才對得齊。
+ * 格線只在 `md` 以上：固定寬（7rem＋三顆鈕＋3.5rem＋五道間距≈324px）在 390px 視窗（列內可用≈302px）會把三個 fr 欄壓到 0。
+ * `<md` 時列改成 flex：名稱（佔滿）＋啟用 switch＋列尾鈕（`order-last`，放不下就換行），類型／Base URL／模型三欄隱藏——
+ * 資訊不丟：模型在下方清單，類型與 Base URL 由明細區第一行（`md:hidden`）補上。
+ */
+const AI_PROVIDER_COLS = "md:grid-cols-[minmax(0,1fr)_7rem_minmax(0,1.5fr)_minmax(0,1fr)_auto_3.5rem]";
+const AI_PROVIDER_ROW = `flex flex-wrap items-center gap-x-3 gap-y-1 md:grid ${AI_PROVIDER_COLS}`;
+
+function ProviderTableHeader({ enabledHeaderId }: { enabledHeaderId: string }) {
   const { t } = useTranslation();
+  return (
+    // 每一列是以供應商名為名的 region（測試與 e2e 以它定位）；這一列只給眼睛看。
+    // 保留 aria-hidden：「Enabled」欄頭仍可被各列 switch 的 aria-labelledby 引用（accname 走 labelledby 時會納入 hidden 節點）。
+    <div
+      aria-hidden="true"
+      data-testid="ai-provider-table-header"
+      className={`hidden items-center gap-x-3 md:grid ${AI_PROVIDER_COLS} border-b border-border px-3 py-2 text-left text-sm text-muted-foreground`}
+    >
+      <span>{t("settings.ai.tableName")}</span>
+      <span>{t("settings.ai.tableType")}</span>
+      <span>{t("settings.ai.tableBaseUrl")}</span>
+      <span>{t("settings.ai.tableModels")}</span>
+      <span className="sr-only">{t("settings.ai.tableActions")}</span>
+      <span id={enabledHeaderId}>{t("settings.ai.tableEnabled")}</span>
+    </div>
+  );
+}
+
+/**
+ * 供應商一列（#247 §7.0）：第一行是對齊表頭的格線列（名稱、類型、Base URL、模型、插頭＋鉛筆＋紅垃圾桶、啟用）；
+ * degraded／無金鑰／測試結果與內嵌模型清單（spec §13.4）留在下方明細區（Q3 裁定：採預設）。
+ * `<section aria-labelledby>`＝以供應商名為可及名稱的 region（測試與 e2e 以它定位）。
+ */
+function ProviderCard({
+  provider,
+  models,
+  enabledHeaderId,
+}: {
+  provider: AdminAiProviderDto;
+  models: AdminAiModelDto[];
+  enabledHeaderId: string;
+}) {
+  const { t } = useTranslation();
+  const headingId = useId();
   const patchProvider = usePatchAiProvider();
   const testProvider = useTestAiProvider();
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
@@ -689,81 +724,91 @@ function ProviderCard({ provider, models }: { provider: AdminAiProviderDto; mode
     provider.type === "anthropic" ? t("settings.ai.providerTypeAnthropic") : t("settings.ai.providerTypeOpenAiCompatible");
 
   return (
-    <div className="space-y-3 rounded-md border border-border p-4">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <h3 className="text-sm font-semibold">{provider.name}</h3>
-          <p className="truncate text-xs text-muted-foreground">
-            {typeLabel} · {provider.baseUrl}
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
+    <section aria-labelledby={headingId} className="border-b border-border px-3 py-3">
+      <div data-testid="ai-provider-row" className={AI_PROVIDER_ROW}>
+        {/* 窄視窗：`grow basis-32`＝名稱至少留 8rem，放不下時列尾鈕整組換到第二行（而不是把名稱壓到 0）。 */}
+        <h3 id={headingId} className="min-w-0 grow basis-32 truncate text-sm font-semibold">
+          {provider.name}
+        </h3>
+        <span className="hidden text-sm text-muted-foreground md:block">{typeLabel}</span>
+        <span className="hidden min-w-0 truncate text-sm md:block">{provider.baseUrl}</span>
+        <span className="hidden min-w-0 truncate text-sm md:block">
+          {providerModels.length === 0 ? "—" : providerModels.map((model) => model.displayName).join(", ")}
+        </span>
+        <div className="order-last flex shrink-0 items-center md:order-none">
+          <RowIconButton
+            label={t("settings.ai.test")}
+            icon={<Plug className="h-4 w-4" />}
+            onClick={() => void handleTest()}
+            disabled={testProvider.isPending}
+          />
           <EditProviderDialog provider={provider} />
           <DeleteProviderDialog provider={provider} />
         </div>
+        {/* 可及名稱＝「Enabled」欄頭＋供應商名（對齊站台使用者表與登入服務表）。 */}
+        <Switch
+          aria-labelledby={`${enabledHeaderId} ${headingId}`}
+          checked={provider.enabled}
+          onCheckedChange={(checked) => void handleToggleEnabled(checked)}
+          disabled={patchProvider.isPending}
+        />
       </div>
 
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2">
-          <Switch
-            id={`provider-enabled-${provider.id}`}
-            checked={provider.enabled}
-            onCheckedChange={(checked) => void handleToggleEnabled(checked)}
-            disabled={patchProvider.isPending}
-          />
-          <label htmlFor={`provider-enabled-${provider.id}`} className="text-xs font-medium">
-            {t("settings.ai.enabled")}
-          </label>
-        </div>
-        <Button type="button" variant="ghost" size="sm" onClick={() => void handleTest()} disabled={testProvider.isPending}>
-          {testProvider.isPending ? t("settings.ai.testing") : t("settings.ai.test")}
-        </Button>
-      </div>
-
-      {provider.degraded && (
-        <p role="alert" className="text-xs text-destructive">
-          {t("settings.ai.degradedBadge")}: {t("settings.ai.degradedNotice")}
+      <div className="mt-2 space-y-2 pl-3">
+        {/* 窄視窗補回被隱藏的「類型」「Base URL」兩欄（md 以上已在格線列，不重複）。 */}
+        <p className="truncate text-xs text-muted-foreground md:hidden">
+          {typeLabel} · {provider.baseUrl}
         </p>
-      )}
-
-      {/* issue #46 審查：改網址會把金鑰作廢，但在此之前卡片上**完全看不出**一個 provider
-          有沒有金鑰（`hasKey` 以前只有 Edit dialog 用）——於是「金鑰被清掉」變成一個沒有
-          任何 UI 表示的狀態，degraded 的紅字還會在同一時間消失（沒金鑰就不叫解不開）而
-          沒有東西接手。這一行就是接手的那個。degraded 時不重複顯示：那句已經在講同一件
-          事（去重新輸入金鑰），兩行並排只會吵。
-
-          ⚠ 文案必須是**中性事實**：`hasKey` 分不出「從來沒有」（自架的無授權服務，
-          `docs/ai.md` 明講那是合法設定）與「剛剛被清掉」（要行動），所以這一行不能預言
-          後果、也不能說「直到重新輸入為止」——對一顆從來沒有金鑰的 Ollama provider
-          那是假話，而且它永遠不會消失（審查抓到）。 */}
-      {!provider.hasKey && !provider.degraded && (
-        <p role="status" className="text-xs text-muted-foreground">
-          {t("settings.ai.noKeyNotice")}
-        </p>
-      )}
-
-      {testResult && (
-        <p role={testResult.ok ? "status" : "alert"} className={testResult.ok ? "text-xs text-muted-foreground" : "text-xs text-destructive"}>
-          {testResult.message}
-        </p>
-      )}
-
-      <div className="space-y-2 border-t border-border pt-3">
-        <div className="flex items-center justify-between">
-          <h4 className="text-xs font-semibold text-muted-foreground">{t("settings.ai.modelsHeading")}</h4>
-          <CreateModelDialog providerId={provider.id} />
-        </div>
-        {providerModels.length === 0 ? (
-          <p className="text-xs text-muted-foreground">{t("settings.ai.modelEmpty")}</p>
-        ) : (
-          <ul className="space-y-1">
-            {providerModels.map((model) => (
-              <ModelRow key={model.id} model={model} />
-            ))}
-          </ul>
+        {provider.degraded && (
+          <p role="alert" className="text-xs text-destructive">
+            {t("settings.ai.degradedBadge")}: {t("settings.ai.degradedNotice")}
+          </p>
         )}
+
+        {/* issue #46 審查：改網址會把金鑰作廢，但在此之前卡片上**完全看不出**一個 provider
+            有沒有金鑰（`hasKey` 以前只有 Edit dialog 用）——於是「金鑰被清掉」變成一個沒有
+            任何 UI 表示的狀態，degraded 的紅字還會在同一時間消失（沒金鑰就不叫解不開）而
+            沒有東西接手。這一行就是接手的那個。degraded 時不重複顯示：那句已經在講同一件
+            事（去重新輸入金鑰），兩行並排只會吵。
+
+            ⚠ 文案必須是**中性事實**：`hasKey` 分不出「從來沒有」（自架的無授權服務，
+            `docs/ai.md` 明講那是合法設定）與「剛剛被清掉」（要行動），所以這一行不能預言
+            後果、也不能說「直到重新輸入為止」——對一顆從來沒有金鑰的 Ollama provider
+            那是假話，而且它永遠不會消失（審查抓到）。 */}
+        {!provider.hasKey && !provider.degraded && (
+          <p role="status" className="text-xs text-muted-foreground">
+            {t("settings.ai.noKeyNotice")}
+          </p>
+        )}
+
+        {testProvider.isPending && (
+          <p role="status" className="text-xs text-muted-foreground">
+            {t("settings.ai.testing")}
+          </p>
+        )}
+        {testResult && (
+          <p role={testResult.ok ? "status" : "alert"} className={testResult.ok ? "text-xs text-muted-foreground" : "text-xs text-destructive"}>
+            {testResult.message}
+          </p>
+        )}
+
+        <div className="space-y-2 border-t border-border pt-3">
+          <div className="flex items-center justify-between">
+            <h4 className="text-xs font-semibold text-muted-foreground">{t("settings.ai.modelsHeading")}</h4>
+            <CreateModelDialog providerId={provider.id} />
+          </div>
+          {providerModels.length === 0 ? (
+            <p className="text-xs text-muted-foreground">{t("settings.ai.modelEmpty")}</p>
+          ) : (
+            <ul className="space-y-1">
+              {providerModels.map((model) => (
+                <ModelRow key={model.id} model={model} />
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -976,9 +1021,7 @@ function EditActionDialog({ action, models }: { action: AdminAiActionDto; models
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <Button type="button" variant="ghost" size="sm">
-          {t("settings.ai.edit")}
-        </Button>
+        <RowIconButton label={t("settings.ai.edit")} icon={<Pencil className="h-4 w-4" />} />
       </DialogTrigger>
       <DialogContent dismissOnOutside={false}>
         <DialogHeader>
@@ -1086,9 +1129,7 @@ function DeleteActionDialog({ action }: { action: AdminAiActionDto }) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button type="button" variant="ghost" size="sm">
-          {t("settings.ai.delete")}
-        </Button>
+        <RowIconButton label={t("settings.ai.delete")} tone="destructive" icon={<Trash className="h-4 w-4" />} />
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
@@ -1143,7 +1184,7 @@ function ActionRow({
     action.applyMode === "direct" ? t("settings.ai.actionApplyModeDirect") : t("settings.ai.actionApplyModePreview");
 
   return (
-    <li className="space-y-2 rounded-md border border-border p-3 text-sm">
+    <li className="space-y-2 border-b border-border px-3 py-3 text-sm">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="font-medium">
@@ -1162,8 +1203,9 @@ function ActionRow({
           <Button
             type="button"
             variant="ghost"
-            size="sm"
+            size="icon"
             aria-label={t("settings.ai.moveUp", { name: action.name })}
+            title={t("settings.ai.moveUp", { name: action.name })}
             disabled={!canMoveUp || movePending}
             onClick={() => onMove("up")}
           >
@@ -1172,8 +1214,9 @@ function ActionRow({
           <Button
             type="button"
             variant="ghost"
-            size="sm"
+            size="icon"
             aria-label={t("settings.ai.moveDown", { name: action.name })}
+            title={t("settings.ai.moveDown", { name: action.name })}
             disabled={!canMoveDown || movePending}
             onClick={() => onMove("down")}
           >
@@ -1192,7 +1235,7 @@ function ActionRow({
         <label htmlFor={`action-enabled-${action.id}`} className="text-xs font-medium">
           {t("settings.ai.enabled")}
         </label>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-1">
           <EditActionDialog action={action} models={models} />
           {!action.builtin && <DeleteActionDialog action={action} />}
         </div>
@@ -1268,8 +1311,8 @@ function ActionsSection({ actions, models }: { actions: AdminAiActionDto[]; mode
 // ═══════════════════════════════ section root ═══════════════════════════════
 
 /**
- * 站台管理頁的 AI 區（`/admin/ai`，admin only；2026-09-30 前掛在設定 modal 的
- * `/settings/ai`，現在該網址轉址過來，見 `pages/AdminPage.tsx`）——provider／model／
+ * 站台管理頁的 AI 區（`/admin/ai`，站台管理 modal 的「AI 代理」，#247；舊網址
+ * `/settings/ai` 轉址過來，見 `App.tsx` 第二棵樹）——provider／model／
  * action 三層 CRUD：三個獨立 query（key 定死 `["admin-ai","providers"|"models"|"actions"]`，
  * 見 `@/api/adminAi`），任一 mutation 成功都會 invalidate 這三個＋`["ai-actions"]`
  * （`AiSession` 讀的可執行動作清單，讓筆記側欄同分頁立即生效）。
@@ -1279,6 +1322,7 @@ export function SettingsAiSection() {
   const providersQuery = useAdminAiProviders();
   const modelsQuery = useAdminAiModels();
   const actionsQuery = useAdminAiActions();
+  const enabledHeaderId = useId();
 
   const models = modelsQuery.data ?? [];
   const actions = actionsQuery.data ?? [];
@@ -1295,9 +1339,10 @@ export function SettingsAiSection() {
         ) : providersQuery.data.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t("settings.ai.providerEmpty")}</p>
         ) : (
-          <div className="space-y-3">
+          <div>
+            <ProviderTableHeader enabledHeaderId={enabledHeaderId} />
             {providersQuery.data.map((provider) => (
-              <ProviderCard key={provider.id} provider={provider} models={models} />
+              <ProviderCard key={provider.id} provider={provider} models={models} enabledHeaderId={enabledHeaderId} />
             ))}
           </div>
         )}

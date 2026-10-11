@@ -112,7 +112,8 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
     const legacy = card("SSO");
     expect(legacy.getByText(/Custom OIDC/)).toBeInTheDocument();
     expect(legacy.getByText(/Imported from OIDC_\*/)).toBeInTheDocument();
-    expect(legacy.getByText("http://idp.lan")).toBeInTheDocument();
+    // Issuer：格線列的 Issuer 欄＋明細區窄視窗那一行（`md:hidden`，jsdom 不套媒體查詢）各一份。
+    expect(legacy.getAllByText("http://idp.lan")).toHaveLength(2);
     expect(legacy.getByText("https://notes.example.com/api/auth/oidc/callback")).toBeInTheDocument();
     expect(legacy.getByText("Client secret saved.")).toBeInTheDocument();
     expect(legacy.getByText(/plain http/)).toBeInTheDocument();
@@ -329,8 +330,8 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
     const dialog = within(await screen.findByRole("dialog", { name: "Turn this sign-in service off?" }));
     fireEvent.click(dialog.getByRole("button", { name: "Turn off" }));
 
-    const after = await screen.findByText("http://other.lan");
-    expect(after).toBeInTheDocument();
+    // 格線列的 Issuer 欄＋明細區窄視窗那一行（`md:hidden`，jsdom 不套媒體查詢）各一份。
+    expect(await screen.findAllByText("http://other.lan")).toHaveLength(2);
     const refreshed = within(screen.getByRole("region", { name: "SSO" }));
     expect(refreshed.queryByText(/Connection OK/)).toBeNull();
     expect(refreshed.getByText(/Hasn't connected successfully yet/)).toBeInTheDocument();
@@ -415,6 +416,26 @@ describe("登入服務表格列（#247 §7.0，W21／W27）", () => {
     expect(within(legacyRow).getByText("http://idp.lan")).toBeInTheDocument();
     await waitFor(() => expect(within(legacyRow).getByText("11")).toBeInTheDocument());
     expect(within(legacyRow).getByRole("switch", { name: "Enabled SSO" })).toBeInTheDocument();
+  });
+
+  it("L1n 窄視窗（<md）：格線只在 md 以上；Issuer 欄 hidden md:block、名稱格 min-w-0；表頭 hidden md:grid（390px 不把名稱／Issuer 壓到 0）", async () => {
+    const server = fakeServer([LEGACY]);
+    renderSection(server.fetchMock);
+    const rowEl = within(await screen.findByRole("region", { name: "SSO" })).getByTestId("auth-provider-row");
+    expect(rowEl).toHaveClass("flex", "flex-wrap", "md:grid");
+    expect(rowEl).not.toHaveClass("grid");
+    const [name, issuer] = Array.from(rowEl.children);
+    expect(name).toHaveTextContent("SSO");
+    expect(name).toHaveClass("min-w-0");
+    expect(issuer).toHaveTextContent("http://idp.lan");
+    expect(issuer).toHaveClass("hidden", "md:block");
+    // 資訊不丟：窄視窗由明細區補一行 Issuer（md 以上隱藏）。
+    const regionEl = screen.getByRole("region", { name: "SSO" });
+    const narrowIssuer = within(regionEl).getAllByText("http://idp.lan").find((el) => !rowEl.contains(el));
+    expect(narrowIssuer).toHaveClass("md:hidden");
+    const header = screen.getByTestId("auth-provider-table-header");
+    expect(header).toHaveClass("hidden", "md:grid");
+    expect(header).not.toHaveClass("grid");
   });
 
   it("L2 列尾四顆 icon 鈕：Test connection（插頭）、Edit（鉛筆）、Icon（圖片）、Delete（紅垃圾桶）；都是 ghost size icon、帶 title，沒有可見文字", async () => {

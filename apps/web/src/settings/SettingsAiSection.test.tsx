@@ -177,9 +177,10 @@ describe("SettingsAiSection（spec §13.4：provider／model／action 三層 CRU
 
     await waitFor(() => expect(screen.getByText(PROVIDER_A.name)).toBeInTheDocument());
     expect(screen.getByText(PROVIDER_B.name)).toBeInTheDocument();
-    expect(screen.getByText(MODEL_A1.displayName)).toBeInTheDocument();
+    // 模型名出現兩次：供應商列的「模型」欄＋下方模型清單（#247 §7.0）。
+    expect(screen.getAllByText(MODEL_A1.displayName)).toHaveLength(2);
     expect(screen.getByText(MODEL_A1.modelId)).toBeInTheDocument();
-    expect(screen.getByText(MODEL_B1.displayName)).toBeInTheDocument();
+    expect(screen.getAllByText(MODEL_B1.displayName)).toHaveLength(2);
     expect(screen.getByText(ACTION_BUILTIN.name)).toBeInTheDocument();
     expect(screen.getByText(ACTION_CUSTOM.name)).toBeInTheDocument();
   });
@@ -344,10 +345,10 @@ describe("SettingsAiSection（spec §13.4：provider／model／action 三層 CRU
     // ⚠ 要驗它**掛在哪一張卡**，不能只數數量（審查用變異實測抓到：把顯示條件反轉成
     // `hasKey && !degraded`，提示改掛在有金鑰的那張卡上、真正沒金鑰的反而不顯示，只數
     // 數量的話 16 條測試全綠）。而三份文件唯一依靠的就是這道釘子。
-    const noKeyCard = screen.getByText(PROVIDER_B.name).closest<HTMLElement>("div.rounded-md");
-    const hasKeyCard = screen.getByText(PROVIDER_A.name).closest<HTMLElement>("div.rounded-md");
-    expect(noKeyCard && within(noKeyCard).getByText(/No API key stored/)).toBeInTheDocument();
-    expect(hasKeyCard && within(hasKeyCard).queryByText(/No API key stored/)).not.toBeInTheDocument();
+    const noKeyCard = screen.getByRole("region", { name: PROVIDER_B.name });
+    const hasKeyCard = screen.getByRole("region", { name: PROVIDER_A.name });
+    expect(within(noKeyCard).getByText(/No API key stored/)).toBeInTheDocument();
+    expect(within(hasKeyCard).queryByText(/No API key stored/)).not.toBeInTheDocument();
   });
 
   it("沒有金鑰的 provider 改網址不提示「會清除金鑰」（本來就沒有東西可清）", async () => {
@@ -432,7 +433,7 @@ describe("SettingsAiSection（spec §13.4：provider／model／action 三層 CRU
 
     renderSection(fetchMock);
 
-    await waitFor(() => expect(screen.getByText(MODEL_A1.displayName)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getAllByText(MODEL_A1.displayName).length).toBeGreaterThan(0));
     expect(screen.getByTitle("Default")).toHaveTextContent("★");
   });
 
@@ -669,12 +670,93 @@ describe("SettingsAiSection（spec §13.4：provider／model／action 三層 CRU
     renderSection(fetchMock, queryClient);
 
     await waitFor(() => expect(screen.getByText(PROVIDER_A.name)).toBeInTheDocument());
-    fireEvent.click(screen.getByLabelText("Enabled"));
+    // 供應商列的啟用 switch：可及名稱＝「Enabled」欄頭＋供應商名（#247 §7.0，對齊使用者表／登入服務表）。
+    fireEvent.click(screen.getByRole("switch", { name: `Enabled ${PROVIDER_A.name}` }));
 
     await waitFor(() => {
       const keys = invalidateSpy.mock.calls.map(([arg]) => (arg as { queryKey: unknown[] }).queryKey);
       expect(keys).toContainEqual(["admin-ai"]);
       expect(keys).toContainEqual(["ai-actions"]);
     });
+  });
+});
+
+describe("AI 代理表格列（#247 §7.0，W21／W27）", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function stubDefault() {
+    return vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      const res = defaultGetHandlers()(url, method);
+      if (res) return Promise.resolve(res);
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+  }
+
+  it("AI1 供應商列：region（名稱）的第一行依序是名稱、類型、Base URL、模型名、列尾插頭＋鉛筆＋紅垃圾桶、啟用 switch；表頭 Name／Type／Base URL／Models／Enabled", async () => {
+    renderSection(stubDefault());
+    const region = await screen.findByRole("region", { name: PROVIDER_A.name });
+    const row = within(within(region).getByTestId("ai-provider-row"));
+    expect(row.getByText(PROVIDER_A.baseUrl)).toBeInTheDocument();
+    expect(row.getByText(MODEL_A1.displayName)).toBeInTheDocument();
+    for (const name of ["Test connection", "Edit", "Delete"]) {
+      const button = row.getByRole("button", { name });
+      expect(button).toHaveClass("h-8", "w-8");
+      expect(button.textContent).toBe("");
+      expect(button).toHaveAttribute("title", name);
+    }
+    expect(row.getByRole("button", { name: "Delete" })).toHaveClass("text-destructive");
+    expect(row.getByRole("switch", { name: `Enabled ${PROVIDER_A.name}` })).toBeInTheDocument();
+    expect(screen.getByTestId("ai-provider-table-header")).toHaveTextContent(/Name.*Type.*Base URL.*Models.*Enabled/);
+  });
+
+  it("AI2 模型列與動作列：Edit／Delete 都是 icon 鈕（無可見文字），Delete 紅；動作的上下移鈕仍在", async () => {
+    renderSection(stubDefault());
+    await screen.findByText(ACTION_CUSTOM.name);
+    for (const button of screen.getAllByRole("button", { name: "Edit" })) expect(button.textContent).toBe("");
+    for (const button of screen.getAllByRole("button", { name: "Delete" })) {
+      expect(button.textContent).toBe("");
+      expect(button).toHaveClass("text-destructive");
+    }
+    expect(screen.getByRole("button", { name: `Move up ${ACTION_CUSTOM.name}` })).toBeInTheDocument();
+  });
+
+  it("AI3 頁內「Add provider」「Add model」「Add action」都不是實心鈕", async () => {
+    renderSection(stubDefault());
+    await screen.findByText(ACTION_CUSTOM.name);
+    for (const name of ["Add provider", "Add action"]) {
+      expect(screen.getByRole("button", { name }).className).not.toMatch(/(^|\s)bg-(primary|brand|brand-deep)(\s|$)/);
+    }
+    for (const button of screen.getAllByRole("button", { name: "Add model" })) {
+      expect(button.className).not.toMatch(/(^|\s)bg-(primary|brand|brand-deep)(\s|$)/);
+    }
+  });
+
+  it("AI4 窄視窗（<md）：格線只在 md 以上；類型／Base URL／模型三欄 hidden md:block、名稱 min-w-0；表頭 hidden md:grid（390px 不橫向溢出）", async () => {
+    renderSection(stubDefault());
+    const region = await screen.findByRole("region", { name: PROVIDER_A.name });
+    const rowEl = within(region).getByTestId("ai-provider-row");
+    expect(rowEl).toHaveClass("flex", "flex-wrap", "md:grid");
+    expect(rowEl).not.toHaveClass("grid");
+    const [name, type, baseUrl, modelsCell] = Array.from(rowEl.children);
+    expect(name).toHaveTextContent(PROVIDER_A.name);
+    expect(name).toHaveClass("min-w-0");
+    expect(baseUrl).toHaveTextContent(PROVIDER_A.baseUrl);
+    expect(modelsCell).toHaveTextContent(MODEL_A1.displayName);
+    for (const cell of [type, baseUrl, modelsCell]) expect(cell).toHaveClass("hidden", "md:block");
+    // 資訊不丟：窄視窗由明細區補一行「類型 · Base URL」（md 以上隱藏）；模型名在下方模型清單。
+    const narrowLine = within(region).getByText((_, el) => el?.tagName === "P" && (el.textContent ?? "").endsWith(` · ${PROVIDER_A.baseUrl}`));
+    expect(rowEl.contains(narrowLine)).toBe(false);
+    expect(narrowLine).toHaveClass("md:hidden");
+    const header = screen.getByTestId("ai-provider-table-header");
+    expect(header).toHaveClass("hidden", "md:grid");
+    expect(header).not.toHaveClass("grid");
   });
 });

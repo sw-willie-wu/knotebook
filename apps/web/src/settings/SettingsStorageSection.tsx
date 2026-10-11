@@ -11,6 +11,8 @@ import {
 } from "@/api/adminStorage";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Pencil, Trash } from "@/components/ui/icons";
+import { RowIconButton } from "@/components/ui/row-icon-button";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
@@ -200,16 +202,13 @@ function DeletePlanButton({ plan, disabled }: { plan: StoragePlanDto; disabled: 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          aria-label={t("admin.storage.deleteLabel", { name: plan.name })}
-          disabled={disabled}
-          title={disabled ? t("admin.storage.deleteBlockedHint") : undefined}
-        >
-          {t("admin.storage.delete")}
-        </Button>
+        <RowIconButton
+          label={t("admin.storage.deleteLabel", { name: plan.name })}
+          tone="destructive"
+          icon={<Trash className="h-4 w-4" />}
+          softDisabled={disabled}
+          softDisabledReason={t("admin.storage.deleteBlockedHint")}
+        />
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
@@ -333,14 +332,10 @@ function PlanTable({ plans }: { plans: StoragePlanDto[] }) {
                 {p.overQuotaCount}
               </td>
               <td className={`py-2 ${PLAN_TABLE_LAYOUT.actions}`}>
-                <div className="flex justify-end gap-1">
+                <div className="flex justify-end">
                   <PlanDialog
                     plan={p}
-                    trigger={
-                      <Button type="button" variant="ghost" size="sm" aria-label={t("admin.storage.editLabel", { name: p.name })}>
-                        {t("admin.storage.edit")}
-                      </Button>
-                    }
+                    trigger={<RowIconButton label={t("admin.storage.editLabel", { name: p.name })} icon={<Pencil className="h-4 w-4" />} />}
                   />
                   <DeletePlanButton
                     plan={p}
@@ -373,7 +368,7 @@ export function SettingsStorageSection() {
       action={
         <PlanDialog
           trigger={
-            <Button type="button" variant="brandDeep">
+            <Button type="button" variant="outline">
               {t("admin.storage.create")}
             </Button>
           }
