@@ -31,6 +31,7 @@ The full checklist is under **Upgrading to v0.10** in [Upgrading and rolling bac
 ### Added
 
 - API: `GET /api/storage` and `GET /api/groups/:id/storage` also return `byKind`, the bytes of uploads of each kind (image, audio, video, document, other); the group endpoint also returns `byMember`, how much each person has uploaded to the group's notes (#247).
+- API: `PATCH /api/auth/profile` accepts `displayName` to change the name others see; it follows the same rule as registering and doesn't count against the rename limit (#247).
 
 ### Changed
 

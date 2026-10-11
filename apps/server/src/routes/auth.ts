@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { and, eq, gt, sql } from "drizzle-orm";
-import { SESSION_COOKIE, normalizeEmail, normalizeHandle, validateHandle, type AuthConfigDto, type UserDto } from "@knotebook/shared";
+import { MAX_REGISTER_DISPLAY_NAME_LENGTH, SESSION_COOKIE, normalizeEmail, normalizeHandle, validateHandle, type AuthConfigDto, type UserDto } from "@knotebook/shared";
 import { sendError, sendLoginThrottled } from "../http/errors.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
@@ -17,6 +17,7 @@ import { MIN_PASSWORD_LENGTH } from "../auth/constants.js";
 import { listEnabledProvidersPublic } from "../auth/oidc-providers.js";
 import { readRegistrationEnabled } from "../auth/site-settings.js";
 import { isPasswordLoginAccepted, PASSWORD_LOGIN_DISABLED_MESSAGE } from "../auth/password-login.js";
+import { isStorableText } from "../auth/admin-provider-input.js";
 
 const INVALID_CREDENTIALS_MESSAGE = "帳號或密碼錯誤";
 const ICON_NOT_FOUND_MESSAGE = "找不到此圖示";
@@ -184,8 +185,19 @@ export function authRoutes(deps: AuthRouteDeps) {
     app.get("/api/auth/me", { preHandler: app.authenticate }, async (request): Promise<UserDto> => request.user!);
 
     const profileBodySchema = z
-      .object({ handle: z.string().optional(), autoVersions: z.boolean().optional() })
-      .refine(b => b.handle !== undefined || b.autoVersions !== undefined, { message: "請求格式錯誤：至少需要一個欄位" });
+      .object({
+        handle: z.string().optional(),
+        autoVersions: z.boolean().optional(),
+        // #247 §9.3：驗證與註冊同一套（routes/account.ts 的 registerBodySchema.displayName）。
+        displayName: z
+          .string()
+          .trim()
+          .refine(isStorableText, "顯示名稱含有無法儲存的字元")
+          .refine(s => s.length > 0, "顯示名稱不得為空")
+          .refine(s => [...s].length <= MAX_REGISTER_DISPLAY_NAME_LENGTH, `顯示名稱不得超過 ${MAX_REGISTER_DISPLAY_NAME_LENGTH} 個字`)
+          .optional(),
+      })
+      .refine(b => b.handle !== undefined || b.autoVersions !== undefined || b.displayName !== undefined, { message: "請求格式錯誤：至少需要一個欄位" });
     /** 回應形：寫入後的值（交易內 RETURNING）——現行 `{ ...request.user, handle }` 是 gate 的 60 s 快取，不能沿用（r7 M-4）。 */
     const profileReturning = () => ({
       id: users.id, email: users.email, handle: users.handle, displayName: users.displayName, isAdmin: users.isAdmin,
@@ -204,14 +216,20 @@ export function authRoutes(deps: AuthRouteDeps) {
      * 舊名以 tx 內 SELECT 為準（request.user 是 gate 的 60s 快取，可能落後）。
      * 成功後 `gate.invalidate`（比照改密碼），/api/auth/me 立即反映。
      * 同使用者併發改名可雙過額度計數——非安全邊界，明示接受（spec m4-5）。
-     * 版本歷史 §6.8：只帶 `autoVersions` → 純 UPDATE、不進改名交易、不扣額度；兩者都帶 → 同一交易；
-     * 回應取寫入後的值（RETURNING），不沿用 `request.user` 快取。
+     * 版本歷史 §6.8、#247 §9.3：只帶 `autoVersions`／`displayName`（任一或兩者）→ 純 UPDATE、不進改名交易、不扣額度；與 `handle` 一起帶 →
+     * 在改名交易的 `UPDATE users` 同一句寫（撞名回滾時一起不寫）。回應取寫入後的值（RETURNING），不沿用 `request.user` 快取；
+     * 所有分支都經過下方同一個 `gate.invalidate` 出口——不得為 displayName 加提前 return。
      */
     app.patch("/api/auth/profile", { preHandler: app.authenticate }, async (request, reply) => {
       const parsed = profileBodySchema.safeParse(request.body);
       if (!parsed.success) return sendError(reply, 400, "invalid_body", "請求格式錯誤");
       const userId = request.user!.id;
-      const { autoVersions } = parsed.data;
+      const { autoVersions, displayName } = parsed.data;
+      // 不在 handle 之列的欄位：純 UPDATE 分支整組寫、改名交易的 UPDATE 同一句帶上。
+      const extra = {
+        ...(autoVersions !== undefined ? { autoVersions } : {}),
+        ...(displayName !== undefined ? { displayName } : {}),
+      };
       let normalized: string | undefined;
       if (parsed.data.handle !== undefined) {
         normalized = normalizeHandle(parsed.data.handle);
@@ -221,7 +239,7 @@ export function authRoutes(deps: AuthRouteDeps) {
       }
       let dto: UserDto | undefined;
       if (normalized === undefined) {
-        const [row] = await deps.db.update(users).set({ autoVersions: autoVersions! }).where(eq(users.id, userId)).returning(profileReturning());
+        const [row] = await deps.db.update(users).set(extra).where(eq(users.id, userId)).returning(profileReturning());
         dto = row;
       } else {
         const newHandle = normalized;
@@ -257,10 +275,10 @@ export function authRoutes(deps: AuthRouteDeps) {
               throw new Error(`改名釋放失敗：舊名 ${oldHandle} 的 registry 列不屬於本人（rowcount=${released.rowCount}）`);
             }
 
-            // ④ 改名；同一句帶上 autoVersions（兩者都帶 → 同一交易，§6.8）。
+            // ④ 改名；同一句帶上 autoVersions／displayName（兩者都帶 → 同一交易，§6.8、#247 §9.3）。
             const [updated] = await tx
               .update(users)
-              .set(autoVersions === undefined ? { handle: newHandle } : { handle: newHandle, autoVersions })
+              .set({ handle: newHandle, ...extra })
               .where(eq(users.id, userId))
               .returning(profileReturning());
             return updated!;
