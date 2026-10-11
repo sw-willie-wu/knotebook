@@ -11,6 +11,7 @@ import { uniqueViolationConstraint } from "../db/pg-errors.js";
 import { verifyPassword, hashPassword, HashBusyError, DUMMY_HASH } from "../auth/password.js";
 import { signSession, type UserGate } from "../auth/session.js";
 import { setSessionCookie } from "../auth/cookies.js";
+import { touchLastLogin } from "../auth/last-login.js";
 import type { LoginThrottle } from "../auth/rate-limit.js";
 import type { CollabHooks } from "../collab/hooks.js";
 import { MIN_PASSWORD_LENGTH } from "../auth/constants.js";
@@ -158,6 +159,7 @@ export function authRoutes(deps: AuthRouteDeps) {
       }
 
       deps.throttle.recordSuccess(email, request.ip);
+      await touchLastLogin(deps.db, user!.id, request.log); // #247 §9.5 寫入點 1：帳密登入
       const token = await signSession(deps.config.appSecret, { userId: user!.id, tv: user!.tokenVersion });
       setSessionCookie(reply, deps.config, token);
 

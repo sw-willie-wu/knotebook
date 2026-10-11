@@ -17,6 +17,7 @@ import { TxAbort } from "../http/tx-abort.js";
 import type { OidcTestHook } from "../auth/oidc-test-hook.js";
 import { resolveSessionUser, signSession, type UserGate } from "../auth/session.js";
 import { setSessionCookie } from "../auth/cookies.js";
+import { touchLastLogin } from "../auth/last-login.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
 
 /** r3-M3：IdP claim 的長度上限——pending cookie 的大小上界靠它（§7.5.1）。 */
@@ -220,6 +221,7 @@ export function oidcRoutes(deps: OidcRouteDeps) {
         }
         clearPendingCookie(reply, deps.config);
         deps.gate.invalidate(linked.id);
+        await touchLastLogin(deps.db, linked.id, request.log); // #247 §9.5 寫入點 3：SSO 證明連結
         const proveToken = await signSession(deps.config.appSecret, { userId: linked.id, tv: linked.tokenVersion });
         setSessionCookie(reply, deps.config, proveToken);
         return reply.redirect((pending.next !== undefined ? safeNextPath(pending.next) : null) ?? "/");
@@ -266,8 +268,10 @@ export function oidcRoutes(deps: OidcRouteDeps) {
         setPendingCookie(reply, deps.config, sealed.sealed);
         return reply.redirect("/link-account");
       }
-      // created 寫了 users（新列）：invalidate 讓 gate 不吐舊快取；login 不寫 users（B15），不需要。
+      // created 寫了 users（新列）：invalidate 讓 gate 不吐舊快取。交易內 login 不寫 users（B15）；交易後的 last_login_at 不在 UserDto 裡，
+      // gate 快取不含它，不需 invalidate。
       if (outcome.kind === "created") deps.gate.invalidate(outcome.userId);
+      await touchLastLogin(deps.db, outcome.userId, request.log); // #247 §9.5 寫入點 2：OIDC 登入（login／created）
       const token = await signSession(deps.config.appSecret, { userId: outcome.userId, tv: outcome.tokenVersion });
       setSessionCookie(reply, deps.config, token);
       return reply.redirect(nextPath ?? "/");

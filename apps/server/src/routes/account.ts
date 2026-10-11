@@ -24,6 +24,7 @@ import { MIN_PASSWORD_LENGTH } from "../auth/constants.js";
 import { HashBusyError, hashPassword } from "../auth/password.js";
 import { signSession, type UserGate } from "../auth/session.js";
 import { setSessionCookie } from "../auth/cookies.js";
+import { touchLastLogin } from "../auth/last-login.js";
 import { isStorableText, sendInvalidBody } from "../auth/admin-provider-input.js";
 import {
   effectivePasswordLogin,
@@ -125,6 +126,7 @@ export function accountRoutes(deps: AccountRouteDeps) {
       if (created === undefined) throw new Error("註冊：handle 配置重試耗盡");
 
       // 第 7 步：成功即登入（B9）。
+      await touchLastLogin(deps.db, created.id, request.log); // #247 §9.5 寫入點 5：註冊（建帳即自動登入）
       const token = await signSession(deps.config.appSecret, { userId: created.id, tv: created.tokenVersion });
       setSessionCookie(reply, deps.config, token);
       const dto: UserDto = {

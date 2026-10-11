@@ -57,6 +57,7 @@ const ACTIVE_OTHER: AdminUserDto = {
   isAdmin: false,
   disabledAt: null,
   createdAt: "2026-01-01T00:00:00.000Z",
+  lastLoginAt: null,
   storage: { planId: BASIC_ID, planName: "Basic", usedBytes: 0, quotaBytes: 2147483648 },
 };
 
@@ -68,6 +69,7 @@ const DISABLED_OTHER: AdminUserDto = {
   isAdmin: false,
   disabledAt: "2026-01-02T00:00:00.000Z",
   createdAt: "2026-01-01T00:00:00.000Z",
+  lastLoginAt: null,
   storage: { planId: BASIC_ID, planName: "Basic", usedBytes: 0, quotaBytes: 2147483648 },
 };
 
@@ -82,6 +84,7 @@ const OTHER_ADMIN: AdminUserDto = {
   isAdmin: true,
   disabledAt: null,
   createdAt: "2026-01-01T00:00:00.000Z",
+  lastLoginAt: null,
   storage: { planId: BASIC_ID, planName: "Basic", usedBytes: 0, quotaBytes: 2147483648 },
 };
 
@@ -205,6 +208,7 @@ describe("SettingsUsersSection（/admin/users：站台管理頁的使用者區�
       isAdmin: true,
       disabledAt: null,
       createdAt: "2026-01-01T00:00:00.000Z",
+      lastLoginAt: null,
       storage: { planId: BASIC_ID, planName: "Basic", usedBytes: 0, quotaBytes: 2147483648 },
     };
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {

@@ -3,6 +3,7 @@ import { Client } from "pg";
 import { eq, sql } from "drizzle-orm";
 import { OIDC_STATE_COOKIE, SESSION_COOKIE } from "@knotebook/shared";
 import { userIdentities, users } from "../src/db/schema.js";
+import type { Db } from "../src/db/index.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 import { freshLimiters, insertPasswordUser } from "./helpers.js";
 import { cookieOf, seedUser, waitForBlockedOrSettled } from "./group-helpers.js";
@@ -12,6 +13,8 @@ import { bearer, seedTokenForUser } from "./editing-helpers.js";
 
 const A = "https://idp-a.example";
 const B = "https://idp-b.example";
+const lastLoginOf = async (db: Db, id: string) =>
+  (await db.execute<{ t: string | null }>(sql`select last_login_at::text as t from users where id = ${id}`)).rows[0]!.t;
 const twoProviders = (overrides = {}) =>
   buildOidcApp({ providers: [{ key: "a", issuerUrl: A, displayName: "A" }, { key: "b", issuerUrl: B, displayName: "B" }] }, overrides);
 
@@ -145,6 +148,7 @@ describe("callback 的 intent: \"link\" 分支（#187 §8.1）", () => {
     const [row] = await t.db.select({ at: userIdentities.lastLoginAt }).from(userIdentities).where(eq(userIdentities.userId, u.id));
     expect(row!.at).not.toBeNull();
     expect(res.cookies.find(c => c.name === SESSION_COOKIE)).toBeUndefined();
+    expect(await lastLoginOf(t.db, u.id)).toBeNull(); // 已登入時連結第二個身分：不簽 session、不寫 users.last_login_at
   });
 
   it("RF4：起點路徑的 provider id 大寫 → 照常連結（state 綁小寫 id，callback 不 oidc_state_mismatch）", async () => {

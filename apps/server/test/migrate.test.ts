@@ -12,7 +12,7 @@ import { apiTokens, authProviders, groupMembers, groupRoles, groups, noteRedirec
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
 /** drizzle 對 `schema.ts` 的序列化；宣告漂移守衛拿最新一支當比對基準（Task 14 rebase 後改成實際檔名）。 */
-const SNAPSHOT_FILE = "meta/0021_snapshot.json";
+const SNAPSHOT_FILE = "meta/0022_snapshot.json";
 const snapshotLatest = JSON.parse(readFileSync(path.join(drizzleDirForTest, SNAPSHOT_FILE), "utf8")) as {
   tables: Record<string, { checkConstraints?: Record<string, { name: string; value: string }> }>;
 };
@@ -157,6 +157,21 @@ describe("runMigrations", () => {
     expect(await rows()).toEqual([{ source_note_id: a, target_note_id: b }]);
     await runMigrations(db);
     expect(await rows()).toEqual([{ source_note_id: a, target_note_id: b }]);
+  });
+
+  it("#247 last_login_at：套用前既有的 users 列套用後為 NULL（不回填）；欄位 timestamptz、可 NULL、無 default", async () => {
+    const { pool, db } = await freshEmptyDb();
+    const target = journalEntries().find(e => e.tag.endsWith("_users-last-login-at"));
+    expect(target, "journal 裡要有 *_users-last-login-at").toBeDefined();
+    await applyMigrationsThrough(pool, target!.idx - 1);
+    const id = "00000000-0000-4000-8000-0000000000c1";
+    await pool.query(`insert into users (id, email, display_name) values ($1, 'll@x.example', 'L')`, [id]);
+    await runMigrations(db);
+    expect((await pool.query(`select last_login_at from users where id = $1`, [id])).rows).toEqual([{ last_login_at: null }]);
+    const col = (await pool.query(
+      `select data_type, is_nullable, column_default from information_schema.columns where table_schema = 'public' and table_name = 'users' and column_name = 'last_login_at'`,
+    )).rows;
+    expect(col).toEqual([{ data_type: "timestamp with time zone", is_nullable: "YES", column_default: null }]);
   });
 });
 
@@ -1175,6 +1190,7 @@ describe("0009_api-tokens", () => {
       users: [
         "id", "email", "handle", "password_hash", "oidc_issuer", "oidc_sub", "display_name", "avatar_url", "is_admin",
         "disabled_at", "token_version", "must_change_password", "created_at", "storage_plan_id", "auto_versions",
+        "last_login_at",
       ],
       storage_plans: ["id", "name", "quota_bytes", "created_at", "updated_at"],
       note_versions: ["id", "note_id", "seq", "ydoc", "kind", "name", "editors", "base_seq", "created_at"],

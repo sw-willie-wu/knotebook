@@ -3,6 +3,7 @@ import { Client } from "pg";
 import { eq, sql } from "drizzle-orm";
 import { SESSION_COOKIE } from "@knotebook/shared";
 import { handles, siteSettings, users } from "../src/db/schema.js";
+import type { Db } from "../src/db/index.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 import { buildTestApp, freshLimiters, insertPasswordUser, testConfig, type TestApp } from "./helpers.js";
 import { waitForBlockedOrSettled } from "./group-helpers.js";
@@ -16,6 +17,8 @@ afterEach(() => vi.mocked(hashPassword).mockClear());
 
 const PW = "correct-horse-battery-staple";
 const NUL = String.fromCodePoint(0);
+const lastLoginOf = async (db: Db, id: string) =>
+  (await db.execute<{ t: string | null }>(sql`select last_login_at::text as t from users where id = ${id}`)).rows[0]!.t;
 const register = (app: TestApp["app"], payload: object) => app.inject({ method: "POST", url: "/api/auth/register", payload });
 
 /** 另一條連線（同 test/admin-auth-patch.test.ts:171-175）。 */
@@ -43,6 +46,7 @@ describe("POST /api/auth/register（#187 §9.1、B9）", () => {
     expect(row!.handle).toBe("new-user");
     const [h] = await db.select().from(handles).where(eq(handles.userId, row!.id));
     expect(h).toMatchObject({ handle: "new-user", state: "live" });
+    expect(await lastLoginOf(db, res.json().id)).not.toBeNull();
   });
 
   it("沒給顯示名 → 用 email local-part", async () => {

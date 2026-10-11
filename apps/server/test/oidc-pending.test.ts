@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { SESSION_COOKIE } from "@knotebook/shared";
 import { insertPasswordUser, testConfig } from "./helpers.js";
 import { buildOidcApp, identitiesOf, ssoRoundTrip, type OidcTestApp } from "./helpers/oidc-provider.js";
 import { expectedIcon, expectNoIconBytes, GENERIC, seedIconMatrix } from "./helpers/provider-icon.js";
 import { authProviders, userIdentities, users } from "../src/db/schema.js";
+import type { Db } from "../src/db/index.js";
 import { OIDC_PENDING_COOKIE, sealPendingLink, unsealPendingLink } from "../src/auth/oidc-pending.js";
 import { signSession } from "../src/auth/session.js";
 import { hashPassword } from "../src/auth/password.js";
@@ -20,6 +21,8 @@ afterEach(() => vi.mocked(verifyPassword).mockClear());
 const A = "https://idp-a.example";
 const B = "https://idp-b.example";
 const PW = "correct-horse-battery-staple";
+const lastLoginOf = async (db: Db, id: string) =>
+  (await db.execute<{ t: string | null }>(sql`select last_login_at::text as t from users where id = ${id}`)).rows[0]!.t;
 
 /**
  * 既有帳號（有密碼）＋ provider B 同 email 首登 → 停在 /link-account（內含斷言）。回 pending cookie 與 pendingId。
@@ -119,9 +122,11 @@ describe("POST /api/auth/oidc/pending/confirm（#187 §7.5.2–§7.5.4）", () =
   it("§14.1-2：密碼正確 → 200 {user, next:'/'}、簽 session、清 pending、寫第二列 identity；之後 B 直接登入", async () => {
     const t = await twoProviders();
     const { user, cookie, pendingId } = await toPending(t);
+    expect(await lastLoginOf(t.db, user.id)).toBeNull(); // 停在 /link-account（confirm_link）不簽 session、不寫
     await t.db.insert(userIdentities).values({ userId: user.id, issuer: A, sub: "sa" });
     const res = await confirm(t, cookie, { password: PW, pendingId });
     expect(res.statusCode).toBe(200);
+    expect(await lastLoginOf(t.db, user.id)).not.toBeNull();
     expect(res.json()).toMatchObject({ user: { id: user.id, email: user.email, hasPassword: true, mustChangePassword: false }, next: "/" });
     expect(res.cookies.find(c => c.name === SESSION_COOKIE)?.value).toBeTruthy();
     expect(res.cookies.find(c => c.name === OIDC_PENDING_COOKIE)?.value).toBe("");
