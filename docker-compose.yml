@@ -31,6 +31,15 @@ services:
     # （`process.cwd()/uploads`，WORKDIR 為 /app）解析。
     volumes:
       - uploads:/app/uploads
+    # 讓 DATABASE_URL 能用 host.docker.internal 指到「跑 docker 的這台主機」上的 PostgreSQL
+    # （Linux 的 docker 預設不提供這個名字）。用內建 db 時用不到，留著無害。見
+    # docs/self-hosting.md「Using your own PostgreSQL」。
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # BUNDLED_DB=0（不起內建 db，見下方 db 的 scale）時 compose 不等這個依賴：scale 為 0 的依賴
+    # 不等是 Docker Compose v2.3.0 起的有意行為（`shouldWaitForDependency` 的 `GetScale() == 0`
+    # 分支，commit 09e0fa94；v2.27 實測同），所以 BUNDLED_DB 需要 Compose v2.3.0 以上。這裡不必寫
+    # required: false——寫了的話，內建 db 起不來時 app 也會照樣被啟動，預設起法的失敗行為就變了。
     depends_on:
       db:
         condition: service_healthy
@@ -47,6 +56,11 @@ services:
 
   db:
     image: pgvector/pgvector:pg17
+    # 內建 PostgreSQL：預設會起（BUNDLED_DB 未設＝1）。改用自己的 PostgreSQL 時在 .env 設
+    # BUNDLED_DB=0、並把 DATABASE_URL 指過去——這個容器就不會被建立，已在跑的會被移除
+    # （db_data volume 保留）。只接受 0 或 1：非數字插值失敗、負數讓 compose panic、大於 1 會讓
+    # 多個 postgres 共用同一個 db_data。
+    scale: ${BUNDLED_DB:-1}
     environment:
       POSTGRES_USER: knotebook
       # 可用 shell/.env 的 POSTGRES_PASSWORD 覆寫預設值；注意 Postgres 只在「第一次
@@ -57,11 +71,18 @@ services:
     volumes:
       - db_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U knotebook -d knotebook"]
+      # CMD 陣列形（不經 shell）、走 TCP：
+      # - CMD-SHELL 形會讓 sh 留著當 pg_isready 的父程序；逾時時 docker 只殺 sh，孤兒 pg_isready
+      #   被 PID 1 的 postmaster 收養，之後以 exit 2 結束會被當成 backend 崩潰、整座 cluster 重啟。
+      # - 走 unix socket 的話，第一次初始化（initdb）期間那個只聽 socket 的暫時 server 會讓它提早
+      #   回報就緒；走 TCP 要等正式 server 起來才通。
+      # timeout 5s 大於 pg_isready 自己的 3 秒連線逾時，讓它自己結束。start_period 60s：首次初始化
+      # 較慢的機器在這段期間的失敗不計入 retries，一成功就 healthy，所以快的機器不會因此等更久。
+      test: ["CMD", "pg_isready", "--host", "127.0.0.1", "--username", "knotebook", "--dbname", "knotebook"]
       interval: 5s
-      timeout: 3s
+      timeout: 5s
       retries: 5
-      start_period: 10s
+      start_period: 60s
     restart: unless-stopped
 
 volumes:
