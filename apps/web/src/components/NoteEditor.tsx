@@ -35,7 +35,6 @@ import { safeMediaUrl } from "@/lib/media-url";
 import { createUploadFile, type Translate } from "@/uploads/upload-file";
 import { createFilePanel } from "@/components/FilePanel";
 import { AiSessionProvider } from "@/components/ai/AiSession";
-import { AiPanel } from "@/components/ai/AiPanel";
 import { CornerStack } from "@/components/CornerStack";
 import { useVersions } from "@/lib/versions-context";
 import { VERSIONS_ERROR_FRAME, VersionsLazyBoundary } from "@/components/versions/VersionsLazyBoundary";
@@ -416,11 +415,11 @@ export function NoteEditor({
   // issue #94／#99：`/` 選單接管（內建項全數保留 ＋ mermaid 圖表 ＋ 連結）的
   // `getSlashItems` 本體在 `useLinkMenuState`（上面）——這裡不重複組。
 
-  // B1（plan gate 定案，不得偏離）：AI 狀態／側欄／toolbar 全部收在這裡，editor
+  // B1（plan gate 定案，不得偏離）：AI 狀態與框選 AI 框（#263）全部收在這裡，editor
   // 建立點（上面 `useCreateBlockNote` 及其 deps）完全不動——`AiSessionProvider` 只是
   // 包住既有的版面，不會讓 `NotePage` 任何 re-render 有機會扯到 editor 重建。
   //
-  // PR2（BC2 卡片版面，spec A 節）：內文卡＋AI 卡都在這裡。DOM 樹（逐字對齊
+  // PR2（BC2 卡片版面，spec A 節）：內文卡在這裡。DOM 樹（逐字對齊
   // spec，寬度鏈 BLK-3 的起點）：
   //   根 row（flex h-full min-h-0 min-w-0 flex-1 gap-3）
   //     內文卡（cardSurface，flex-col）
@@ -438,11 +437,8 @@ export function NoteEditor({
   //             BlockNoteView 自己成為 flex-col wrapper 的成長項；除 className 外零改動）
   //       {previewSlot}                               ← 版本預覽時才渲染；此時上面的捲動容器加 hidden（活編輯器不 unmount）
   //       {footerSlot}                                ← NotePage 組裝（backlinks chips）
-  //     VersionsPanel                                 ← `panelOpen` 時才渲染（lazy，經 VersionsLazyBoundary）；
-  //       與 AiPanel 互斥由 CornerStack 橋接
-  //     AiPanel                                      ← AI 入口（#115：收合態是 fixed
-  //       bubble、不佔這個 row 的 flex 空間；展開 md+ 才以並排卡參與，見 AiPanel.tsx）
-  //     CornerStack                                   ← 右下泡泡（fixed，不佔 row 的 flex 空間；spec §8.1）
+  //     VersionsPanel                                 ← `panelOpen` 時才渲染（lazy，經 VersionsLazyBoundary）
+  //     CornerStack                                   ← 右下歷史泡泡（fixed，不佔 row 的 flex 空間；spec §8.1）
   // `data-testid="note-editor"` 留在 `NoteEditorView`／`BlockNoteView` 上，不隨這次
   // 改版搬家——e2e 的 `[data-testid="note-editor"] [contenteditable]` 與
   // `NoteEditor.layout.test.tsx` 的節點鏈都吊在這裡。
@@ -495,7 +491,6 @@ export function NoteEditor({
             <VersionsPanel doc={doc} />
           </VersionsLazyBoundary>
         )}
-        <AiPanel />
         <CornerStack />
       </div>
       {/* issue #99：`/` 選單「連結」項的對話框。開合 state 在這一層（`openLinkDialog`
@@ -520,6 +515,8 @@ export interface NoteEditorViewProps {
   /** `/` 選單的候選來源（issue #94：內建項 ＋ mermaid）。同 `getItems`——閉包由
    * `NoteEditor` 組好轉交進來，這裡不重新組。 */
   getSlashItems: (query: string) => Promise<DefaultReactSuggestionItem[]>;
+  /** #263：轉進 `<BlockNoteView>` 內（`NoteEditor` 傳 `SelectionAiController`，Task 8）。BlockNoteView 的 children 加在預設 UI 之外。 */
+  children?: ReactNode;
 }
 
 /**
@@ -533,7 +530,7 @@ export interface NoteEditorViewProps {
  * `NoteEditorView.test.tsx`；jsdom 缺的 `ResizeObserver`/`window.matchMedia` 兩個
  * mantine 內部會摸到的全域已經補進 `test/setup.ts`）。
  */
-export function NoteEditorView({ editor, editable, theme, noteId, getItems, getSlashItems }: NoteEditorViewProps) {
+export function NoteEditorView({ editor, editable, theme, noteId, getItems, getSlashItems, children }: NoteEditorViewProps) {
   // Task 14：`createFilePanel(noteId)` 回傳一個新的元件型別——`FilePanelController`
   // 拿它跟前一輪比對身分，身分一變就會整個卸載重掛（見 `createFilePanel` 檔頭的完整
   // 說明），所以這裡必須 `useMemo` 釘住，只在 `noteId` 真的換手時才重建。`noteId`
@@ -582,6 +579,7 @@ export function NoteEditorView({ editor, editable, theme, noteId, getItems, getS
       <SuggestionMenuController triggerCharacter="/" getItems={getSlashItems} />
       <FilePanelController filePanel={filePanel} />
       <FormattingToolbarController formattingToolbar={aiToolbar} />
+      {children}
     </BlockNoteView>
   );
 }

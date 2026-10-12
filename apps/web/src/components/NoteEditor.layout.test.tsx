@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as Y from "yjs";
 import type { AiActionDto } from "@knotebook/shared";
@@ -67,7 +67,6 @@ function stubFetch() {
  *       {previewSlot}（有值時才渲染，data-testid="preview-slot"；此時捲動容器多一個 hidden）
  *       {footerSlot}
  *     VersionsPanel（panelOpen 時，經 VersionsLazyBoundary；本檔無 provider＝恆不渲染）
- *     AiPanel
  *     CornerStack
  *
  * 這裡刻意掛**真正的** `<NoteEditor>`（不是 `NotePage.test.tsx`/`NoteEditorView.test.tsx`
@@ -154,36 +153,6 @@ describe("NoteEditor 佈局（PR2 slot 化：節點鏈 + 雙層 class smoke）",
     expect(contentCard).toContainElement(screen.getByTestId("footer-slot-marker"));
     expect(scrollWrapper).not.toContainElement(screen.getByTestId("header-slot-marker"));
     expect(scrollWrapper).not.toContainElement(screen.getByTestId("footer-slot-marker"));
-
-    // AI 側欄預設收合（#115：收合態是右下 bubble），展開才會出現完整的
-    // `<aside data-testid="ai-panel">`。
-    fireEvent.click(await screen.findByRole("button", { name: "Expand AI panel" }));
-    const aside = await screen.findByTestId("ai-panel");
-    // #115 展開態雙呈現（同一元素）：`<md` 滿寬底部浮層（fixed inset-x-3 bottom-5、
-    // 高 min(80dvh, 100dvh−5rem)）、`md+` 並排卡（static、w-80、高度回 auto 由父層
-    // stretch）。`md:w-80`（非裸 w-80）與 `md:h-auto/md:max-h-none` 缺一即踩
-    // over-constrained／高度外洩雷（spec §2 定案）；卡面視覺沿用 cardSurface。
-    expect(aside).toHaveClass(
-      "z-30",
-      "shrink-0",
-      "overflow-y-auto",
-      "fixed",
-      "inset-x-3",
-      "bottom-5",
-      "h-[80dvh]",
-      "max-h-[calc(100dvh-5rem)]",
-      "md:static",
-      "md:inset-auto",
-      "md:bottom-auto",
-      "md:h-auto",
-      "md:max-h-none",
-      "md:w-80",
-      "rounded-xl",
-      "border",
-      "border-border",
-      "bg-card",
-    );
-    expect(aside).not.toHaveClass("w-80");
 
     doc.destroy();
   });
