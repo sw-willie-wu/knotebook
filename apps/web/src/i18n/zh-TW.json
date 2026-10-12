@@ -897,7 +897,9 @@
     "box": {
       "applyGuardFailed": "原文在此結果產生後已被改動，因此未套用。",
       "revertStale": "此變更已無法還原——內容可能已被改動。",
-      "rebindNotice": "結果中有部分 [[連結]] 無法自動連結。"
+      "rebindNotice": "結果中有部分 [[連結]] 無法自動連結。",
+      "loadingPreview": "載入預覽中…",
+      "previewCrash": "無法顯示預覽。"
     }
   },
   "aiEdits": {

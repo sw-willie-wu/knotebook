@@ -81,6 +81,7 @@ export const SHIKI_BUNDLE_RE = /^bundle-full-[A-Za-z0-9_-]+\.js$/;
 // DiffEditor 刻意不設 marker：它不拉進 diff 套件，BlockNote 本來就在 NotePage，單獨靜態 import 它的代價可忽略。
 //   versions.dialog.applyDiscard → VersionsDialogs
 //   u{2DE}- → `diff` 套件（word.js 的 extendedWordChars；錯誤訊息字串會被 tree-shake 掉，這個正則字面不會）
+//   SelectionAiPreview（#263 框選 AI 預覽）→ 不另設：它 import version-diff 的值，被靜態 import 時 diff 套件跟著搬家，由 u{2DE}- 抓
 export const VERSIONS_MARKERS = [
   'versions.menu.baseNotDeletable',
   'versions.sheet.backToList',

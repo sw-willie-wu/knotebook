@@ -850,6 +850,19 @@ input[name="share-access"] {
 .kb-diff [data-diff="moved"] > .bn-block { border-left: 3px dashed oklch(0.65 0.02 260); }
 .kb-diff [data-diff="collapsed"] > .bn-block { color: var(--muted-foreground); font-style: italic; }
 
+/* #263 框選 AI 框的預覽（spec 2026-10-12 §5.3、§5.4）。上下文塊（前後各一塊）淡色、不改版面。 */
+.kb-diff [data-diff="surround"] > .bn-block { opacity: 0.5; }
+/* 預覽寬度＝區塊寬度（D7，換行時機與正文一致）：框內唯讀編輯器左右內距歸零，蓋過上游裸 `.bn-editor`（(0,1,0)）與上面窄視窗的
+   `.bn-editor.bn-editor`（(0,2,0)）——這裡 (0,3,0)。`.kb-ai-preview` 是 SelectionAiResult 在 DiffEditor 外面包的一層（DiffEditor 的根
+   寫死 `.kb-diff`），所以只能用後代選擇器。
+   色條改 inset box-shadow：border-left 會吃掉 3px 文字欄、換行就跟正文不同；`.kb-ai-preview .kb-diff [data-diff=…] > .bn-block` 是
+   (0,4,0)，高於上面四條的 (0,3,0)，不靠出現順序。moved 的虛線畫不出 inset 陰影，改實線同色（接受）；色條壓在首字左緣 3px 上（接受）。 */
+.kb-ai-preview .bn-editor.bn-editor { padding-inline: 0; }
+.kb-ai-preview .kb-diff [data-diff="added"] > .bn-block { border-left: 0; box-shadow: inset 3px 0 0 oklch(0.72 0.17 152); }
+.kb-ai-preview .kb-diff [data-diff="deleted"] > .bn-block { border-left: 0; box-shadow: inset 3px 0 0 oklch(0.63 0.2 25); }
+.kb-ai-preview .kb-diff [data-diff="changed"] > .bn-block { border-left: 0; box-shadow: inset 3px 0 0 oklch(0.8 0.15 85); }
+.kb-ai-preview .kb-diff [data-diff="moved"] > .bn-block { border-left: 0; box-shadow: inset 3px 0 0 oklch(0.65 0.02 260); }
+
 /* 並排兩欄（final fix 2）：欄寬只有文章欄的一半左右（1400px 視窗約 363px），上方「內文左右對齊」那組 justify 在這麼窄的欄裡
    會把字距拉開（真瀏覽器截圖 11）。只在並排容器 `.kb-diff-split`（VersionPreview 的 diff-split）之下把**沒自訂對齊**的區塊改回
    left（BlockNote 預設）；使用者挑過對齊的區塊帶 `data-text-alignment`，不匹配，照舊。特性與 justify 那組同為 (0,4,0)，

@@ -897,7 +897,9 @@
     "box": {
       "applyGuardFailed": "The original text changed since this result was generated, so it wasn't applied.",
       "revertStale": "This change can no longer be reverted — the text may have changed since.",
-      "rebindNotice": "Some [[links]] in the result couldn't be linked automatically."
+      "rebindNotice": "Some [[links]] in the result couldn't be linked automatically.",
+      "loadingPreview": "Loading preview…",
+      "previewCrash": "The preview couldn't be shown."
     }
   },
   "aiEdits": {
