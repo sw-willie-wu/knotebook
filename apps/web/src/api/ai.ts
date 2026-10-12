@@ -67,6 +67,8 @@ export async function streamAiAction(
     actionId: string;
     noteId: string;
     text: string;
+    instruction?: string;
+    focus?: string;
     signal: AbortSignal;
   } & StreamCallbacks,
 ): Promise<void> {
@@ -75,7 +77,14 @@ export async function streamAiAction(
     headers: { "Content-Type": "application/json" },
     credentials: "include",
     signal: opts.signal,
-    body: JSON.stringify({ action_id: opts.actionId, note_id: opts.noteId, text: opts.text }),
+    body: JSON.stringify({
+      action_id: opts.actionId,
+      note_id: opts.noteId,
+      text: opts.text,
+      // #263 §4.3：只有 Instruct 帶這兩欄；非 Instruct 帶了（含空字串）server 會回 400，所以沒傳就不出現。
+      ...(opts.instruction !== undefined ? { instruction: opts.instruction } : {}),
+      ...(opts.focus !== undefined ? { focus: opts.focus } : {}),
+    }),
   });
 
   if (!response.ok) {

@@ -180,4 +180,21 @@ describe("streamAiAction（手寫 SSE client）", () => {
     expect(headers.get("Content-Type")).toBe("application/json");
     expect(JSON.parse(String(init.body))).toEqual({ action_id: "a1", note_id: "n1", text: "hi" });
   });
+
+  it("#263：instruction／focus 有傳才帶進 body，沒傳就不出現", async () => {
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(() =>
+      Promise.resolve(fakeResponse({ ok: true, status: 200, body: sseBody(["event: done\ndata: {}\n\n"]) })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const signal = new AbortController().signal;
+
+    await streamAiAction({ actionId: "a1", noteId: "n1", text: "hi", instruction: "shorter", focus: "h", signal, onDelta: vi.fn() });
+    await streamAiAction({ actionId: "a1", noteId: "n1", text: "hi", instruction: "shorter", signal, onDelta: vi.fn() });
+
+    const bodies = fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init!.body)));
+    expect(bodies).toEqual([
+      { action_id: "a1", note_id: "n1", text: "hi", instruction: "shorter", focus: "h" },
+      { action_id: "a1", note_id: "n1", text: "hi", instruction: "shorter" },
+    ]);
+  });
 });

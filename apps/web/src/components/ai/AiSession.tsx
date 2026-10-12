@@ -16,7 +16,7 @@ import type { AiActionDto } from "@knotebook/shared";
 import { fetchAiActions, streamAiAction } from "@/api/ai";
 import { ApiFail } from "@/api/client";
 import { useNotes } from "@/api/notes";
-import { applyAiResult, hasNonTextBlock, revertAiResult } from "@/ai/apply";
+import { applyAiResult, hasNonTextBlock, prepareAiResult, revertAiResult } from "@/ai/apply";
 import { captureAnchor, verifyAnchor, type AiAnchor } from "@/ai/anchor";
 import { toast } from "@/components/ui/toast";
 
@@ -87,10 +87,12 @@ function runGuardedApply(
   | { ok: true; insertedAnchor: AiAnchor; replacedSnapshot: AnyBlock[]; unboundCount: number }
   | { ok: false; reason: "missing" | "changed" | "empty" | "noteMismatch" } {
   if (anchor.noteId !== noteId) return { ok: false, reason: "noteMismatch" };
-  const outcome = applyAiResult(editor, anchor, markdown, { notes });
+  const prepared = prepareAiResult(editor, markdown, { notes });
+  if ("empty" in prepared) return { ok: false, reason: "empty" };
+  const outcome = applyAiResult(editor, anchor, prepared);
   if (!outcome.ok) return { ok: false, reason: outcome.reason };
   const insertedAnchor = captureAnchor(editor, noteId, outcome.insertedIds);
-  return { ok: true, insertedAnchor, replacedSnapshot: outcome.replacedSnapshot, unboundCount: outcome.unboundCount };
+  return { ok: true, insertedAnchor, replacedSnapshot: outcome.replacedSnapshot, unboundCount: prepared.unboundCount };
 }
 
 export function AiSessionProvider(props: {
