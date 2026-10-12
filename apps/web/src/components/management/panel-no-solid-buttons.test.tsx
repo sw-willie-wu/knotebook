@@ -80,7 +80,7 @@ const PANEL3_GETS: Record<string, unknown> = {
   [`/api/admin/auth/providers/${PROVIDER_ID}/impact`]: { linkedUsers: 1, lockedOutUsers: 0, issuerResolved: true, actingAdminLockedOut: false },
   "/api/admin/ai/providers": { providers: [{ id: "p1", name: "Claude", type: "anthropic", baseUrl: "https://api.anthropic.com", enabled: true, hasKey: true, degraded: false, createdAt: T }] },
   "/api/admin/ai/models": { models: [{ id: "m1", providerId: "p1", modelId: "claude", displayName: "Claude Sonnet", purpose: "chat", isDefault: true, enabled: true, createdAt: T }] },
-  "/api/admin/ai/actions": { actions: [{ id: "a1", name: "Custom action", systemPrompt: "x", userTemplate: "{{text}}", modelId: null, applyMode: "preview", sortOrder: 1, enabled: true, builtin: false }] },
+  "/api/admin/ai/actions": { actions: [{ id: "a1", name: "Custom action", systemPrompt: "x", userTemplate: "{{text}}", modelId: null, applyMode: "preview", sortOrder: 1, enabled: true, builtin: false, kind: "quick" }] },
 };
 
 function json(body: unknown): Response {

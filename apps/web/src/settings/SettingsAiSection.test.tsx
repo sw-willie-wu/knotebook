@@ -76,6 +76,7 @@ const ACTION_BUILTIN: AdminAiActionDto = {
   sortOrder: 0,
   enabled: true,
   builtin: true,
+  kind: "quick",
 };
 
 const ACTION_CUSTOM: AdminAiActionDto = {
@@ -88,6 +89,7 @@ const ACTION_CUSTOM: AdminAiActionDto = {
   sortOrder: 1,
   enabled: true,
   builtin: false,
+  kind: "quick",
 };
 
 /** 三層 GET 端點的假回應——`overrides` 讓每案覆寫任一層清單，其餘沿用預設 fixture。 */

@@ -4,7 +4,7 @@ import { onTestFinished } from "vitest";
 import http from "node:http";
 import { Client } from "pg";
 import { eq, sql } from "drizzle-orm";
-import { SESSION_COOKIE } from "@knotebook/shared";
+import { BUILTIN_ACTION_IDS, INSTRUCT_ACTION_ID, REWRITE_ACTION_ID, SESSION_COOKIE } from "@knotebook/shared";
 import { buildTestApp, testConfig } from "./helpers.js";
 import { aiActions, aiModels, aiProviders, users } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
@@ -12,7 +12,6 @@ import { signSession } from "../src/auth/session.js";
 import { hashPassword } from "../src/auth/password.js";
 import { decryptApiKey, encryptApiKey } from "../src/ai/crypto.js";
 import { createAiRuntime } from "../src/ai/runtime.js";
-import { BUILTIN_ACTION_IDS } from "../src/db/seed-ai.js";
 
 const VALID_PASSWORD = "correct-horse-battery";
 
@@ -884,7 +883,7 @@ describe("models CRUD", () => {
 });
 
 describe("actions CRUD", () => {
-  it("GET 列表：builtin 旗標正確（內建四動作 true，自訂 false）", async () => {
+  it("GET 列表：builtin 旗標正確（內建動作 true，自訂 false）", async () => {
     const { app, db } = await buildTestApp();
     const admin = await insertUser(db, { isAdmin: true, email: "admin-a1@example.com" });
     const cookie = await cookieFor(admin.id);
@@ -897,6 +896,20 @@ describe("actions CRUD", () => {
       expect(rows.find(r => r.id === id)?.builtin).toBe(true);
     }
     expect(rows.find(r => r.name === "Custom")?.builtin).toBe(false);
+  });
+
+  it("#263：GET 列表帶 kind（Instruct＝instruct；內建 Rewrite 與自訂動作＝quick）", async () => {
+    const { app, db } = await buildTestApp();
+    const admin = await insertUser(db, { isAdmin: true, email: "admin-k1@example.com" });
+    const cookie = await cookieFor(admin.id);
+    await db.insert(aiActions).values({ name: "CustomKind", systemPrompt: "sp", userTemplate: "{{text}}", applyMode: "direct", sortOrder: 100 });
+
+    const res = await app.inject({ method: "GET", url: "/api/admin/ai/actions", cookies: { [SESSION_COOKIE]: cookie } });
+    const rows: Array<{ id: string; name: string; kind: string }> = res.json().actions;
+    expect(rows.find((r) => r.id === INSTRUCT_ACTION_ID)?.kind).toBe("instruct");
+    expect(rows.find((r) => r.id === REWRITE_ACTION_ID)?.kind).toBe("quick");
+    expect(rows.find((r) => r.name === "CustomKind")?.kind).toBe("quick");
+    expect(res.statusCode).toBe(200);
   });
 
   it("POST userTemplate 缺 {{text}} → 400 invalid_body", async () => {

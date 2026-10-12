@@ -3,10 +3,12 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { and, asc, eq, ne, sql } from "drizzle-orm";
 import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
-import type {
-  AdminAiActionDto,
-  AdminAiModelDto,
-  AdminAiProviderDto,
+import {
+  BUILTIN_ACTION_IDS,
+  aiActionKind,
+  type AdminAiActionDto,
+  type AdminAiModelDto,
+  type AdminAiProviderDto,
 } from "@knotebook/shared";
 import { sendError } from "../http/errors.js";
 import type { Db } from "../db/index.js";
@@ -14,7 +16,6 @@ import type { AppConfig } from "../config.js";
 import { aiActions, aiModels, aiProviders } from "../db/schema.js";
 import { AiKeyDecryptError, decryptApiKey, encryptApiKey, type EncryptedApiKey } from "../ai/crypto.js";
 import type { AiRuntime } from "../ai/runtime.js";
-import { BUILTIN_ACTION_IDS } from "../db/seed-ai.js";
 import { isForeignKeyViolation, isUniqueViolation } from "../db/pg-errors.js";
 import { UUID_RE } from "../notes/service.js";
 import { safeTarget } from "../lib/safe-target.js";
@@ -189,6 +190,7 @@ function toActionDto(row: AiActionRow): AdminAiActionDto {
     sortOrder: row.sortOrder,
     enabled: row.enabled,
     builtin: BUILTIN_ACTION_IDS.includes(row.id),
+    kind: aiActionKind(row.id),
   };
 }
 

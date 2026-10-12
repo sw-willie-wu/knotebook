@@ -9,7 +9,7 @@ import { AiPanel } from "@/components/ai/AiPanel";
 import { VersionsProvider, useVersions, useVersionsController } from "@/lib/versions-context";
 import { CornerStack } from "./CornerStack";
 
-const ACTION: AiActionDto = { id: "a1", name: "Rewrite", applyMode: "direct" };
+const ACTION: AiActionDto = { id: "a1", name: "Rewrite", applyMode: "direct", kind: "quick" };
 
 function stubFetch(actions: AiActionDto[]) {
   vi.stubGlobal(

@@ -1,5 +1,6 @@
 export { YDOC_FRAGMENT } from "./ydoc.js";
 import type { ProviderIconDto, ProviderIconKind } from "./provider-icon.js";
+import type { AiActionKind } from "./ai.js";
 
 export const SESSION_COOKIE = "knotebook_session";
 
@@ -444,6 +445,8 @@ export const ERROR_CODES = [
   "version_is_base",
   "version_unsaved_changes",
   "version_mismatch",
+  // #263（spec 2026-10-12 §4.4）：`instruct_preview_only`＝400，把內建 Instruct 動作的套用模式改成 direct——自由指令的結果一律先預覽（D4）。
+  "instruct_preview_only",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
@@ -457,6 +460,8 @@ export interface AiActionDto {
   id: string;
   name: string;
   applyMode: "direct" | "preview";
+  /** #263：`"instruct"`＝內建 Instruct（web 畫輸入框），其餘 `"quick"`（web 畫 chip）。由 id 判（`aiActionKind`）。 */
+  kind: AiActionKind;
 }
 
 export interface AdminAiProviderDto {
@@ -491,6 +496,8 @@ export interface AdminAiActionDto {
   sortOrder: number;
   enabled: boolean;
   builtin: boolean;
+  /** #263：同 `AiActionDto.kind`；管理頁據此對 Instruct 不畫套用模式控制項（§4.4）。 */
+  kind: AiActionKind;
 }
 
 /** #187 PR2：登入服務範本（W1；只決定新增表單的預填值與卡片標籤）。值域與 DB CHECK `auth_providers_template_chk` 相同。 */
@@ -1118,3 +1125,4 @@ export * from "./provider-icon.js";
 export * from "./agent-label.js";
 export * from "./storage.js";
 export * from "./versions.js";
+export * from "./ai.js";

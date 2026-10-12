@@ -19,7 +19,7 @@ function fakeResponse({ ok, status, json }: FakeResponseInit): Response {
   return { ok, status, json: json ?? (() => Promise.reject(new Error("no body"))) } as unknown as Response;
 }
 
-const AI_ACTION: AiActionDto = { id: "action-1", name: "Rewrite", applyMode: "direct" };
+const AI_ACTION: AiActionDto = { id: "action-1", name: "Rewrite", applyMode: "direct", kind: "quick" };
 
 function stubFetch() {
   vi.stubGlobal(

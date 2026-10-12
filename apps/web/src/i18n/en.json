@@ -1133,6 +1133,7 @@
     "version_is_base": "This version is what the current content is based on, so it can't be deleted",
     "version_unsaved_changes": "There are unsaved changes",
     "version_mismatch": "This version no longer exists or has been replaced. Refresh and try again.",
+    "instruct_preview_only": "The Instruct action always shows a preview before it's applied; it can't be set to apply directly.",
     "fallback": "An unexpected error occurred."
   }
 }

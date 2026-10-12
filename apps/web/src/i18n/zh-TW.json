@@ -1133,6 +1133,7 @@
     "version_is_base": "這是目前內容的基底版本，不能刪除",
     "version_unsaved_changes": "目前有未儲存的修改",
     "version_mismatch": "這一版已經不存在或已被取代，請重新整理",
+    "instruct_preview_only": "Instruct 動作一律先預覽再套用，不能設成直接套用。",
     "fallback": "發生未預期的錯誤。"
   }
 }

@@ -168,7 +168,7 @@ function fakeResponse({ ok, status, json }: FakeResponseInit): Response {
   return { ok, status, json: json ?? (() => Promise.reject(new Error("no body"))) } as unknown as Response;
 }
 
-const AI_ACTION: AiActionDto = { id: "action-1", name: "Summarize", applyMode: "preview" };
+const AI_ACTION: AiActionDto = { id: "action-1", name: "Summarize", applyMode: "preview", kind: "quick" };
 
 function stubAiFetch(actions: AiActionDto[]) {
   return vi.fn((input: RequestInfo | URL, init?: RequestInit) => {

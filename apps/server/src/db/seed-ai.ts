@@ -1,24 +1,23 @@
+import {
+  CONTINUE_WRITING_ACTION_ID,
+  INSTRUCT_ACTION_ID,
+  REWRITE_ACTION_ID,
+  SUMMARIZE_ACTION_ID,
+  TRANSLATE_ACTION_ID,
+} from "@knotebook/shared";
 import type { Db } from "./index.js";
 import { aiActions } from "./schema.js";
 
-// 內建四動作的固定 UUID——一次生成後寫死，讓 seed 具備跨環境（開發機/CI/生產）一致的
-// 冪等身分：`ON CONFLICT (id) DO NOTHING` 需要一個穩定的衝突鍵，若每次啟動都
-// `defaultRandom()` 現生，第二次啟動會插出四筆重複的內建動作，而非「維持已存在的那筆」。
-const REWRITE_ID = "ab0a1517-bec1-4709-b13f-756548375b86";
-const TRANSLATE_ID = "362788cb-d2f0-41ce-b697-c929b67bf20e";
-const SUMMARIZE_ID = "2e37a47e-a6cd-4f14-b2f6-0cdebd715b2a";
-const CONTINUE_WRITING_ID = "4a8e18da-1d9c-4be1-ba32-a0c5429b0a22";
-
-export const BUILTIN_ACTION_IDS: readonly string[] = [REWRITE_ID, TRANSLATE_ID, SUMMARIZE_ID, CONTINUE_WRITING_ID];
-
 /**
- * 內建四動作定案內容（brief 逐字，不做 i18n key 映射——`name` 是 DB 資料、UI 原樣
- * 顯示，非 UI chrome；admin 可在後台自行改名，docs/ai.md 會說明）。`modelId` 留空
- * （NULL）：內建動作預設不綁特定 model，由 admin 於後台設定；`sortOrder` 依表列順序。
+ * 內建五動作定案內容（brief 逐字，不做 i18n key 映射——`name` 是 DB 資料、UI 原樣顯示，非 UI chrome；admin 可在後台自行改名，
+ * docs/ai.md 會說明）。固定 UUID 住 `@knotebook/shared` 的 `ai.ts`（#263：web 也要用它判 chip 的 icon 與 Instruct）。
+ * `modelId` 留空（NULL）：內建動作預設不綁特定 model，由 admin 於後台設定；`sortOrder` 依表列順序。
+ * Instruct（#263 §4.1）：自由指令；template 的三個佔位符由 `routes/ai.ts` 包上固定標記後代入、system prompt 前置 server 固定的守門
+ * （`ai/instruct.ts`），這裡的 systemPrompt 只管語氣與風格。
  */
 const BUILTIN_ACTIONS = [
   {
-    id: REWRITE_ID,
+    id: REWRITE_ACTION_ID,
     name: "Rewrite",
     systemPrompt:
       "You are an expert editor. Rewrite the user's text to improve clarity and flow while preserving its meaning, language, and Markdown formatting. Reply with the rewritten text only.",
@@ -27,7 +26,7 @@ const BUILTIN_ACTIONS = [
     sortOrder: 0,
   },
   {
-    id: TRANSLATE_ID,
+    id: TRANSLATE_ACTION_ID,
     name: "Translate",
     systemPrompt:
       "Translate the user's text: if it is mostly Chinese, translate to English; otherwise translate to Traditional Chinese. Preserve Markdown formatting. Reply with the translation only.",
@@ -36,7 +35,7 @@ const BUILTIN_ACTIONS = [
     sortOrder: 1,
   },
   {
-    id: SUMMARIZE_ID,
+    id: SUMMARIZE_ACTION_ID,
     name: "Summarize",
     systemPrompt: "Summarize the user's text concisely in its own language, preserving the key points. Reply with the summary only, in Markdown.",
     userTemplate: "{{text}}",
@@ -44,13 +43,22 @@ const BUILTIN_ACTIONS = [
     sortOrder: 2,
   },
   {
-    id: CONTINUE_WRITING_ID,
+    id: CONTINUE_WRITING_ACTION_ID,
     name: "Continue writing",
     systemPrompt:
       "Continue writing from where the user's text ends, matching its language, tone, and Markdown formatting. Reply with the complete text: the original followed by your continuation.",
     userTemplate: "{{text}}",
     applyMode: "preview" as const,
     sortOrder: 3,
+  },
+  {
+    id: INSTRUCT_ACTION_ID,
+    name: "Instruct",
+    systemPrompt:
+      "You are an expert editor working on a note. Follow the user's instruction for the given text, preserving its language and Markdown formatting unless the instruction says otherwise.",
+    userTemplate: "{{instruction}}\n{{focus}}\n{{text}}",
+    applyMode: "preview" as const,
+    sortOrder: 4,
   },
 ];
 

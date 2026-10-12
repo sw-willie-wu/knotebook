@@ -1,13 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { describe, it, expect } from "vitest";
 import { eq } from "drizzle-orm";
-import { SESSION_COOKIE } from "@knotebook/shared";
+import { BUILTIN_ACTION_IDS, INSTRUCT_ACTION_ID, SESSION_COOKIE } from "@knotebook/shared";
 import { buildTestApp, testConfig } from "./helpers.js";
 import { aiActions, aiModels, aiProviders, users } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
 import { signSession } from "../src/auth/session.js";
 import { hashPassword } from "../src/auth/password.js";
-import { BUILTIN_ACTION_IDS } from "../src/db/seed-ai.js";
 
 const VALID_PASSWORD = "correct-horse-battery";
 
@@ -63,12 +62,12 @@ describe("GET /api/ai/actions（一般 session，spec §13.2）", () => {
     expect(res.statusCode).toBe(401);
   });
 
-  it("全新實例（seed 過內建四動作但零 provider）→ {actions: []}——未設定＝功能不存在", async () => {
+  it("全新實例（seed 過內建五動作但零 provider）→ {actions: []}——未設定＝功能不存在", async () => {
     const { app, db } = await buildTestApp();
     const user = await insertUser(db);
     const cookie = await cookieFor(user.id);
 
-    // seed 確實已跑過（migrate 尾端呼叫 seedAiActions）：DB 裡有四筆內建動作，
+    // seed 確實已跑過（migrate 尾端呼叫 seedAiActions）：DB 裡有五筆內建動作，
     // 但因為零 provider，解析全數失敗，清單必須是空陣列，不能因為 seed 存在就洩漏出來。
     const [seeded] = await db.select().from(aiActions).where(eq(aiActions.id, BUILTIN_ACTION_IDS[0]));
     expect(seeded).toBeDefined();
@@ -78,7 +77,7 @@ describe("GET /api/ai/actions（一般 session，spec §13.2）", () => {
     expect(res.json()).toEqual({ actions: [] });
   });
 
-  it("建 provider + enabled model（未設 default）→ 四筆內建動作全出（閘門一致性正向案）", async () => {
+  it("建 provider + enabled model（未設 default）→ 五筆內建動作全出（閘門一致性正向案）", async () => {
     const { app, db } = await buildTestApp();
     const user = await insertUser(db);
     const cookie = await cookieFor(user.id);
@@ -90,8 +89,27 @@ describe("GET /api/ai/actions（一般 session，spec §13.2）", () => {
     const ids = res.json().actions.map((a: { id: string }) => a.id).sort();
     expect(ids).toEqual([...BUILTIN_ACTION_IDS].sort());
     for (const a of res.json().actions) {
-      expect(Object.keys(a).sort()).toEqual(["applyMode", "id", "name"].sort());
+      expect(Object.keys(a).sort()).toEqual(["applyMode", "id", "kind", "name"]);
     }
+  });
+
+  it("#263：kind——Instruct 為 instruct，其餘內建與自訂動作為 quick", async () => {
+    const { app, db } = await buildTestApp();
+    const user = await insertUser(db);
+    const cookie = await cookieFor(user.id);
+    const provider = await insertProvider(db);
+    await insertModel(db, provider.id);
+    const [custom] = await db
+      .insert(aiActions)
+      .values({ name: "Custom", systemPrompt: "sp", userTemplate: "{{text}}", applyMode: "preview", sortOrder: 9 })
+      .returning();
+
+    const res = await app.inject({ method: "GET", url: "/api/ai/actions", cookies: { [SESSION_COOKIE]: cookie } });
+    const kinds = new Map((res.json().actions as Array<{ id: string; kind: string }>).map((a) => [a.id, a.kind]));
+    expect(kinds.get(INSTRUCT_ACTION_ID)).toBe("instruct");
+    for (const id of BUILTIN_ACTION_IDS.filter((x) => x !== INSTRUCT_ACTION_ID)) expect(kinds.get(id)).toBe("quick");
+    expect(kinds.get(custom.id)).toBe("quick");
+    expect(res.statusCode).toBe(200);
   });
 
   it("停用唯一可用的 model → 回空", async () => {

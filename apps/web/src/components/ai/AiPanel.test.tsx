@@ -180,8 +180,8 @@ function renderPanel(editor: any, noteId: string, editable: boolean, actions: Ai
   return { ai, queryClient, rerender: (overrides?: RenderOverrides) => result.rerender(buildTree(overrides)) };
 }
 
-const DIRECT_ACTION: AiActionDto = { id: "action-direct", name: "Rewrite", applyMode: "direct" };
-const PREVIEW_ACTION: AiActionDto = { id: "action-preview", name: "Summarize", applyMode: "preview" };
+const DIRECT_ACTION: AiActionDto = { id: "action-direct", name: "Rewrite", applyMode: "direct", kind: "quick" };
+const PREVIEW_ACTION: AiActionDto = { id: "action-preview", name: "Summarize", applyMode: "preview", kind: "quick" };
 
 const IDLE_TEXT = "Select some text and use the toolbar for a partial edit, or pick an action below to run it on the whole note.";
 const EXPAND_LABEL = "Expand AI panel";

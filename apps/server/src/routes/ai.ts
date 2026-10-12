@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { asc, eq } from "drizzle-orm";
-import { AI_SSE_EVENTS, type AiActionDto } from "@knotebook/shared";
+import { AI_SSE_EVENTS, aiActionKind, type AiActionDto } from "@knotebook/shared";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
 import { aiActions } from "../db/schema.js";
@@ -59,7 +59,7 @@ export function aiRoutes(deps: AiRouteDeps) {
   const idleTimeoutMs = deps.idleTimeoutMs ?? IDLE_TIMEOUT_MS;
   return async function register(app: FastifyInstance): Promise<void> {
     // 依 sort_order, id 排序（次要鍵慣例，同 `admin-users.ts` GET 列表）；只帶
-    // `{id, name, applyMode}`——systemPrompt/userTemplate 這些不需要洩給非 admin。
+    // `{id, name, applyMode, kind}`——systemPrompt/userTemplate 這些不需要洩給非 admin。
     //
     // 「可解析」判定與 `POST /api/ai`（Task 5）**共用同一支 `resolveActionModel`**
     // （spec §13.2 單一真相）：一次 `loadAiSnapshot` 取快照，對每筆 enabled action 套用，
@@ -77,7 +77,7 @@ export function aiRoutes(deps: AiRouteDeps) {
       for (const row of actionRows) {
         const resolved = resolveActionModel({ modelId: row.modelId }, snapshot);
         if (resolved === null) continue;
-        actions.push({ id: row.id, name: row.name, applyMode: row.applyMode as "direct" | "preview" });
+        actions.push({ id: row.id, name: row.name, applyMode: row.applyMode as "direct" | "preview", kind: aiActionKind(row.id) });
       }
 
       return { actions };
