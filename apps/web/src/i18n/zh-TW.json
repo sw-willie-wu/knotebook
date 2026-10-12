@@ -877,6 +877,7 @@
       "actionSystemPrompt": "系統提示詞",
       "actionUserTemplate": "使用者模板",
       "actionUserTemplateHint": "必須包含 {{placeholder}} 佔位符（代表選取的文字）。",
+      "actionUserTemplateHintInstruct": "必須包含 {{instruction}} 與 {{text}}；{{focus}} 可省略。伺服器會替三者各包上固定標記。",
       "actionApplyMode": "套用模式",
       "actionApplyModeDirect": "直接套用",
       "actionApplyModePreview": "預覽",

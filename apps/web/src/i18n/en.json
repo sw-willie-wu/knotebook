@@ -877,6 +877,7 @@
       "actionSystemPrompt": "System prompt",
       "actionUserTemplate": "User template",
       "actionUserTemplateHint": "Must include a {{placeholder}} placeholder for the selected text.",
+      "actionUserTemplateHintInstruct": "Must include {{instruction}} and {{text}}; {{focus}} is optional. The server wraps each one in fixed tags.",
       "actionApplyMode": "Apply mode",
       "actionApplyModeDirect": "Direct",
       "actionApplyModePreview": "Preview",

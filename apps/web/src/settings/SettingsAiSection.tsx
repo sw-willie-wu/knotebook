@@ -991,6 +991,8 @@ function EditActionDialog({ action, models }: { action: AdminAiActionDto; models
   const [modelId, setModelId] = useState(action.modelId ?? "");
   const [applyMode, setApplyMode] = useState<AdminAiActionDto["applyMode"]>(action.applyMode);
   const [error, setError] = useState<string | null>(null);
+  // #263 §4.4：內建 Instruct 一律預覽——不畫套用模式控制項、PATCH 也不帶 applyMode；template 提示列出三個佔位符。
+  const isInstruct = action.kind === "instruct";
 
   function handleOpenChange(next: boolean): void {
     setOpen(next);
@@ -1010,7 +1012,13 @@ function EditActionDialog({ action, models }: { action: AdminAiActionDto; models
     try {
       await patchAction.mutateAsync({
         id: action.id,
-        body: { name, systemPrompt, userTemplate, modelId: modelId.length > 0 ? modelId : null, applyMode },
+        body: {
+          name,
+          systemPrompt,
+          userTemplate,
+          modelId: modelId.length > 0 ? modelId : null,
+          ...(isInstruct ? {} : { applyMode }),
+        },
       });
       setOpen(false);
     } catch (err) {
@@ -1066,25 +1074,29 @@ function EditActionDialog({ action, models }: { action: AdminAiActionDto; models
               onChange={(event) => setUserTemplate(event.target.value)}
               className={TEXTAREA_CLASS}
             />
-            <p className="text-xs text-muted-foreground">
-              {t("settings.ai.actionUserTemplateHint", { placeholder: "{{text}}" })}
+            <p data-testid="ai-action-edit-template-hint" className="text-xs text-muted-foreground">
+              {isInstruct
+                ? t("settings.ai.actionUserTemplateHintInstruct", { instruction: "{{instruction}}", focus: "{{focus}}", text: "{{text}}" })
+                : t("settings.ai.actionUserTemplateHint", { placeholder: "{{text}}" })}
             </p>
           </div>
 
-          <div className="space-y-1">
-            <label htmlFor={`ai-action-edit-apply-mode-${action.id}`} className="text-sm font-medium">
-              {t("settings.ai.actionApplyMode")}
-            </label>
-            <select
-              id={`ai-action-edit-apply-mode-${action.id}`}
-              value={applyMode}
-              onChange={(event) => setApplyMode(event.target.value as AdminAiActionDto["applyMode"])}
-              className={SELECT_CLASS}
-            >
-              <option value="direct">{t("settings.ai.actionApplyModeDirect")}</option>
-              <option value="preview">{t("settings.ai.actionApplyModePreview")}</option>
-            </select>
-          </div>
+          {!isInstruct && (
+            <div className="space-y-1">
+              <label htmlFor={`ai-action-edit-apply-mode-${action.id}`} className="text-sm font-medium">
+                {t("settings.ai.actionApplyMode")}
+              </label>
+              <select
+                id={`ai-action-edit-apply-mode-${action.id}`}
+                value={applyMode}
+                onChange={(event) => setApplyMode(event.target.value as AdminAiActionDto["applyMode"])}
+                className={SELECT_CLASS}
+              >
+                <option value="direct">{t("settings.ai.actionApplyModeDirect")}</option>
+                <option value="preview">{t("settings.ai.actionApplyModePreview")}</option>
+              </select>
+            </div>
+          )}
 
           <div className="space-y-1">
             <label htmlFor={`ai-action-edit-model-${action.id}`} className="text-sm font-medium">

@@ -1047,4 +1047,65 @@ describe("actions CRUD", () => {
     expect(res.statusCode).toBe(404);
     expect(res.json()).toMatchObject({ error: { code: "not_found" } });
   });
+
+  it("#263 PATCH Instruct applyMode direct → 400 instruct_preview_only，DB 不變；preview 照收", async () => {
+    const { app, db } = await buildTestApp();
+    const admin = await insertUser(db, { isAdmin: true, email: "admin-i1@example.com" });
+    const cookie = await cookieFor(admin.id);
+    const patch = (payload: Record<string, unknown>) =>
+      app.inject({ method: "PATCH", url: `/api/admin/ai/actions/${INSTRUCT_ACTION_ID}`, cookies: { [SESSION_COOKIE]: cookie }, payload });
+
+    const bad = await patch({ applyMode: "direct" });
+    expect(bad.json()).toMatchObject({ error: { code: "instruct_preview_only" } });
+    expect(bad.statusCode).toBe(400);
+    const [row] = await db.select().from(aiActions).where(eq(aiActions.id, INSTRUCT_ACTION_ID));
+    expect(row?.applyMode).toBe("preview");
+    expect((await patch({ applyMode: "preview" })).statusCode).toBe(200);
+  });
+
+  it("#263 PATCH Instruct 的 userTemplate：缺 {{instruction}} → 400；缺 {{text}} → 400；兩者都有、{{focus}} 可省 → 200", async () => {
+    const { app, db } = await buildTestApp();
+    const admin = await insertUser(db, { isAdmin: true, email: "admin-i2@example.com" });
+    const cookie = await cookieFor(admin.id);
+    const patch = (userTemplate: string) =>
+      app.inject({ method: "PATCH", url: `/api/admin/ai/actions/${INSTRUCT_ACTION_ID}`, cookies: { [SESSION_COOKIE]: cookie }, payload: { userTemplate } });
+
+    const noInstruction = await patch("{{text}} {{focus}}");
+    expect(noInstruction.json()).toMatchObject({ error: { code: "invalid_body" } });
+    expect(noInstruction.statusCode).toBe(400);
+    const noText = await patch("{{instruction}} {{focus}}");
+    expect(noText.json()).toMatchObject({ error: { code: "invalid_body" } });
+    expect(noText.statusCode).toBe(400);
+    const ok = await patch("Do: {{instruction}}\n{{text}}");
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json()).toMatchObject({ userTemplate: "Do: {{instruction}}\n{{text}}", kind: "instruct" });
+  });
+
+  it("#263 大寫路徑 id 的 Instruct 同樣受限（路徑 id 先小寫化再比對）", async () => {
+    const { app, db } = await buildTestApp();
+    const admin = await insertUser(db, { isAdmin: true, email: "admin-i3@example.com" });
+    const cookie = await cookieFor(admin.id);
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/admin/ai/actions/${INSTRUCT_ACTION_ID.toUpperCase()}`,
+      cookies: { [SESSION_COOKIE]: cookie },
+      payload: { applyMode: "direct" },
+    });
+    expect(res.json()).toMatchObject({ error: { code: "instruct_preview_only" } });
+  });
+
+  it("#263 其他動作不受 Instruct 規則影響：Rewrite 改 direct、template 只有 {{text}} 都照收；DELETE Instruct → 400 builtin_action", async () => {
+    const { app, db } = await buildTestApp();
+    const admin = await insertUser(db, { isAdmin: true, email: "admin-i4@example.com" });
+    const cookie = await cookieFor(admin.id);
+    const rewrite = await app.inject({
+      method: "PATCH",
+      url: `/api/admin/ai/actions/${REWRITE_ACTION_ID}`,
+      cookies: { [SESSION_COOKIE]: cookie },
+      payload: { applyMode: "direct", userTemplate: "{{text}}" },
+    });
+    expect(rewrite.statusCode).toBe(200);
+    const del = await app.inject({ method: "DELETE", url: `/api/admin/ai/actions/${INSTRUCT_ACTION_ID}`, cookies: { [SESSION_COOKIE]: cookie } });
+    expect(del.json()).toMatchObject({ error: { code: "builtin_action" } });
+  });
 });

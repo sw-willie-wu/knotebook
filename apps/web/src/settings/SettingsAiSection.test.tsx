@@ -92,6 +92,19 @@ const ACTION_CUSTOM: AdminAiActionDto = {
   kind: "quick",
 };
 
+const ACTION_INSTRUCT: AdminAiActionDto = {
+  id: "58ef60fd-e99e-4f19-aa57-6fea5e652749",
+  name: "Instruct",
+  systemPrompt: "You are an expert editor.",
+  userTemplate: "{{instruction}}\n{{focus}}\n{{text}}",
+  modelId: null,
+  applyMode: "preview",
+  sortOrder: 4,
+  enabled: true,
+  builtin: true,
+  kind: "instruct",
+};
+
 /** 三層 GET 端點的假回應——`overrides` 讓每案覆寫任一層清單，其餘沿用預設 fixture。 */
 function defaultGetHandlers(
   overrides: Partial<{ providers: AdminAiProviderDto[]; models: AdminAiModelDto[]; actions: AdminAiActionDto[] }> = {},
@@ -488,6 +501,69 @@ describe("SettingsAiSection（spec §13.4：provider／model／action 三層 CRU
     expect(customRow).not.toBeNull();
     expect(builtinRow && within(builtinRow).queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
     expect(customRow && within(customRow).queryByRole("button", { name: "Delete" })).toBeInTheDocument();
+  });
+
+  it("#263 Instruct 的編輯框：不渲染套用模式控制項、送出的 PATCH 不帶 applyMode", async () => {
+    let patchBody: Record<string, unknown> | undefined;
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      const res = defaultGetHandlers({ providers: [], models: [], actions: [ACTION_INSTRUCT] })(url, method);
+      if (res) return Promise.resolve(res);
+      if (url === `/api/admin/ai/actions/${ACTION_INSTRUCT.id}` && method === "PATCH") {
+        patchBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(ACTION_INSTRUCT) }));
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+
+    renderSection(fetchMock);
+
+    await waitFor(() => expect(screen.getByText(ACTION_INSTRUCT.name)).toBeInTheDocument());
+    const row = screen.getByText(ACTION_INSTRUCT.name).closest("li")!;
+    fireEvent.click(within(row).getByRole("button", { name: "Edit" }));
+    const dialog = await screen.findByRole("dialog", { name: "Edit action" });
+    expect(within(dialog).queryByLabelText("Apply mode")).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(patchBody).toBeDefined());
+    expect(patchBody).not.toHaveProperty("applyMode");
+  });
+
+  it("#263 Instruct 的編輯框：template 提示列出三個佔位符（只讀提示那一行——userTemplate textarea 的值也在對話框的 textContent 裡，讀整個對話框會空轉）", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      const res = defaultGetHandlers({ providers: [], models: [], actions: [ACTION_INSTRUCT] })(url, method);
+      if (res) return Promise.resolve(res);
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+
+    renderSection(fetchMock);
+
+    await waitFor(() => expect(screen.getByText(ACTION_INSTRUCT.name)).toBeInTheDocument());
+    fireEvent.click(within(screen.getByText(ACTION_INSTRUCT.name).closest("li")!).getByRole("button", { name: "Edit" }));
+    const dialog = await screen.findByRole("dialog", { name: "Edit action" });
+    const hint = within(dialog).getByTestId("ai-action-edit-template-hint");
+    expect(hint).toHaveTextContent("Must include {{instruction}} and {{text}}; {{focus}} is optional.");
+    expect(hint).not.toHaveTextContent("placeholder for the selected text");
+  });
+
+  it("#263 反例：quick 動作的編輯框仍有套用模式控制項", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      const res = defaultGetHandlers({ providers: [], models: [], actions: [ACTION_CUSTOM] })(url, method);
+      if (res) return Promise.resolve(res);
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+
+    renderSection(fetchMock);
+
+    await waitFor(() => expect(screen.getByText(ACTION_CUSTOM.name)).toBeInTheDocument());
+    fireEvent.click(within(screen.getByText(ACTION_CUSTOM.name).closest("li")!).getByRole("button", { name: "Edit" }));
+    const dialog = await screen.findByRole("dialog", { name: "Edit action" });
+    expect(within(dialog).getByLabelText("Apply mode")).toBeInTheDocument();
+    expect(within(dialog).getByTestId("ai-action-edit-template-hint")).toHaveTextContent("Must include a {{text}} placeholder for the selected text.");
   });
 
   it("userTemplate 缺 {{text}} → 400 invalid_body，表單顯示錯誤", async () => {
