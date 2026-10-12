@@ -893,24 +893,28 @@
   },
   "ai": {
     "toolbar": {
-      "trigger": "AI",
-      "menuLabel": "AI actions"
+      "trigger": "AI"
     },
-    "panel": {
-      "title": "AI",
-      "collapse": "Collapse AI panel",
-      "expand": "Expand AI panel",
-      "idle": "Select some text and use the toolbar for a partial edit, or pick an action below to run it on the whole note.",
-      "streaming": "Generating…",
-      "apply": "Apply",
-      "revert": "Revert",
-      "cancel": "Cancel",
-      "dismiss": "Dismiss",
-      "retry": "Retry",
+    "box": {
       "applyGuardFailed": "The original text changed since this result was generated, so it wasn't applied.",
-      "emptyResult": "The AI returned an empty result. Nothing was applied.",
       "revertStale": "This change can no longer be reverted — the text may have changed since.",
-      "rebindNotice": "Some [[links]] in the result couldn't be linked automatically."
+      "rebindNotice": "Some [[links]] in the result couldn't be linked automatically.",
+      "loadingPreview": "Loading preview…",
+      "previewCrash": "The preview couldn't be shown.",
+      "apply": "Apply",
+      "discard": "Discard",
+      "retry": "Retry",
+      "revert": "Revert",
+      "close": "Close",
+      "noChange": "No changes — the result is the same as the original text.",
+      "label": "AI on selection",
+      "inputLabel": "Instruction for the selected text",
+      "placeholder": "Tell the AI what to do with the selection…",
+      "send": "Send",
+      "instructLabel": "Your instruction",
+      "streaming": "Generating…",
+      "cancel": "Cancel",
+      "stale": "The original text has changed since this was opened."
     }
   },
   "aiEdits": {
@@ -1135,6 +1139,7 @@
     "version_unsaved_changes": "There are unsaved changes",
     "version_mismatch": "This version no longer exists or has been replaced. Refresh and try again.",
     "instruct_preview_only": "The Instruct action always shows a preview before it's applied; it can't be set to apply directly.",
+    "empty_result": "The AI returned an empty result.",
     "fallback": "An unexpected error occurred."
   }
 }

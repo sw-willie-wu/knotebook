@@ -68,6 +68,22 @@ describe("VersionsLazyBoundary（起草裁定 23）", () => {
     expect(container).toBeDefined();
   });
 
+  it("#263：crashMessageKey 換掉非 chunk 錯誤的文案（框選 AI 預覽傳 ai.box.previewCrash）", async () => {
+    await i18n.changeLanguage("en");
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    function Crash(): never {
+      throw new Error("render bug");
+    }
+    render(
+      <VersionsLazyBoundary noteId="n1" reload={vi.fn()} crashMessageKey="ai.box.previewCrash">
+        <Crash />
+      </VersionsLazyBoundary>,
+    );
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("The preview couldn't be shown.");
+    expect(alert).not.toHaveTextContent("Version history couldn't be shown.");
+  });
+
   it("成功載入：Suspense 內的 beacon 清掉 versions 的旗標", async () => {
     sessionStorage.setItem("knotebook:chunk-reload:versions", "1");
     render(

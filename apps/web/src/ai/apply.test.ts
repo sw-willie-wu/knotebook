@@ -1,10 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { BlockNoteEditor } from "@blocknote/core";
 import { noteSchema } from "@/collab/schema";
 import { blockSnapshot, captureAnchor, verifyAnchor } from "./anchor";
-import { applyAiResult, hasNonTextBlock, revertAiResult } from "./apply";
+import { applyAiResult, hasNonTextBlock, prepareAiResult, revertAiResult, type PreparedResult } from "./apply";
 
 // ⚠ 自我審查發現（不在 brief 的逐字程式碼裡，brief 只驗過 anchor/apply 邏輯本身；
 // fix round 1 M-1 已用 fetch spy probe 驗證下述因果，見 task-1-report.md）：
@@ -37,12 +37,19 @@ function mountedEditor(initial?: any[]) {
   return editor;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同上
+function prep(editor: any, markdown: string, notes: { id: string; title: string }[] = []): PreparedResult {
+  const prepared = prepareAiResult(editor, markdown, { notes });
+  if ("empty" in prepared) throw new Error("預期非空結果");
+  return prepared;
+}
+
 describe("AI 套用鏈（spec §13.3）", () => {
   it("套用：markdown 結果替換錨定 blocks，回傳插入 ids 與被替換快照", () => {
     const editor = mountedEditor([{ type: "paragraph", content: "原文一" }, { type: "paragraph", content: "原文二" }]);
     const ids = editor.document.slice(0, 2).map((b) => b.id);
     const anchor = captureAnchor(editor, "note-1", ids);
-    const out = applyAiResult(editor, anchor, "改寫後的第一段\n\n改寫後的第二段", { notes: [] });
+    const out = applyAiResult(editor, anchor, prep(editor, "改寫後的第一段\n\n改寫後的第二段"));
     expect(out.ok).toBe(true);
     if (!out.ok) return;
     expect(out.insertedIds.length).toBeGreaterThan(0);
@@ -58,7 +65,7 @@ describe("AI 套用鏈（spec §13.3）", () => {
     const anchor = captureAnchor(editor, "note-1", ids);
     editor.removeBlocks([ids[0]]);
     const before = JSON.stringify(editor.document);
-    const out = applyAiResult(editor, anchor, "任何結果", { notes: [] });
+    const out = applyAiResult(editor, anchor, prep(editor, "任何結果"));
     expect(out).toEqual({ ok: false, reason: "missing" });
     expect(JSON.stringify(editor.document)).toBe(before);
   });
@@ -68,21 +75,21 @@ describe("AI 套用鏈（spec §13.3）", () => {
     const id = editor.document[0].id;
     const anchor = captureAnchor(editor, "note-1", [id]);
     editor.updateBlock(id, { content: "被協作者改掉了" });
-    const out = applyAiResult(editor, anchor, "任何結果", { notes: [] });
+    const out = applyAiResult(editor, anchor, prep(editor, "任何結果"));
     expect(out).toEqual({ ok: false, reason: "changed" });
   });
 
   it("revert：replaceBlocks(插入ids, 快照) 還原原文；插入 block 被改/被刪後 revert 皆回 'stale' 且不動文件", () => {
     const editor = mountedEditor([{ type: "paragraph", content: "原文" }]);
     const anchor = captureAnchor(editor, "note-1", [editor.document[0].id]);
-    const out = applyAiResult(editor, anchor, "新文", { notes: [] });
+    const out = applyAiResult(editor, anchor, prep(editor, "新文"));
     if (!out.ok) throw new Error("apply 應成功");
     const inserted = captureAnchor(editor, "note-1", out.insertedIds); // 套用後立刻存插入錨點（Task 6 同款）
     expect(revertAiResult(editor, inserted, out.replacedSnapshot)).toBe("ok");
     expect(JSON.stringify(editor.document)).toContain("原文");
     // 再套一次後「內容被改」→ stale 且文件不變
     const anchor2 = captureAnchor(editor, "note-1", [editor.document[0].id]);
-    const out2 = applyAiResult(editor, anchor2, "新文二", { notes: [] });
+    const out2 = applyAiResult(editor, anchor2, prep(editor, "新文二"));
     if (!out2.ok) throw new Error("apply 應成功");
     const inserted2 = captureAnchor(editor, "note-1", out2.insertedIds);
     editor.updateBlock(out2.insertedIds[0], { content: "他人改動" });
@@ -102,14 +109,15 @@ describe("AI 套用鏈（spec §13.3）", () => {
       { id: "aaaaaaaa-0000-0000-0000-000000000002", title: "重複標題" },
       { id: "aaaaaaaa-0000-0000-0000-000000000003", title: "重複標題" },
     ];
-    const out = applyAiResult(editor, anchor, "見 [[產品規劃]] 與 [[重複標題]] 及 [[不存在]]", { notes });
+    const p = prep(editor, "見 [[產品規劃]] 與 [[重複標題]] 及 [[不存在]]", notes);
+    const out = applyAiResult(editor, anchor, p);
     if (!out.ok) throw new Error("apply 應成功");
     const doc = JSON.stringify(editor.document);
     expect(doc).toContain('"wikilink"');
     expect(doc).toContain("aaaaaaaa-0000-0000-0000-000000000001");
     expect(doc).toContain("[[重複標題]]"); // 多重命中→純文字
     expect(doc).toContain("[[不存在]]");   // 零命中→純文字
-    expect(out.unboundCount).toBe(2);
+    expect(p.unboundCount).toBe(2);
   });
 
   // fix round 1 I-1：codeBlock 的 content 型態是 "plain"，但 parse 出來的節點形狀跟
@@ -120,30 +128,35 @@ describe("AI 套用鏈（spec §13.3）", () => {
     const editor = mountedEditor([{ type: "paragraph", content: "上下文" }]);
     const anchor = captureAnchor(editor, "note-1", [editor.document[0].id]);
     const notes = [{ id: "aaaaaaaa-0000-0000-0000-000000000001", title: "產品規劃" }];
-    const out = applyAiResult(editor, anchor, "```\n見 [[產品規劃]]\n```", { notes });
+    const p = prep(editor, "```\n見 [[產品規劃]]\n```", notes);
+    const out = applyAiResult(editor, anchor, p);
     if (!out.ok) throw new Error("apply 應成功");
     const doc = JSON.stringify(editor.document);
     expect(doc).toContain('"codeBlock"');
     expect(doc).not.toContain('"wikilink"');
     expect(doc).toContain("[[產品規劃]]");
-    expect(out.unboundCount).toBe(0);
+    expect(p.unboundCount).toBe(0);
   });
 
   // fix round 1 I-2：`tryParseMarkdownToBlocks` 對空／純空白 markdown 實測回傳單一空
   // 段落（不是 `[]`，見 apply.ts `isBlankParseResult` 的實測註記）——不擋的話
   // `replaceBlocks` 會把使用者原本的段落換成空段落、卻回報 ok。
-  it("空結果守門：空字串／純空白 markdown → {ok:false, reason:'empty'}，文件不變", () => {
+  it("空結果：空字串／純空白 markdown → prepareAiResult 回 {empty:true}，不碰文件", () => {
     const editor = mountedEditor([{ type: "paragraph", content: "別刪我" }]);
-    const anchor = captureAnchor(editor, "note-1", [editor.document[0].id]);
     const before = JSON.stringify(editor.document);
-
-    const outEmpty = applyAiResult(editor, anchor, "", { notes: [] });
-    expect(outEmpty).toEqual({ ok: false, reason: "empty" });
+    expect(prepareAiResult(editor, "", { notes: [] })).toEqual({ empty: true });
+    expect(prepareAiResult(editor, "   \n  \n", { notes: [] })).toEqual({ empty: true });
     expect(JSON.stringify(editor.document)).toBe(before);
+  });
 
-    const outBlank = applyAiResult(editor, anchor, "   \n  \n", { notes: [] });
-    expect(outBlank).toEqual({ ok: false, reason: "empty" });
-    expect(JSON.stringify(editor.document)).toBe(before);
+  it("#263：applyAiResult 寫進文件的就是 prepared.blocks 這個陣列（同一物件，預覽與寫入同一份）", () => {
+    const editor = mountedEditor([{ type: "paragraph", content: "原文" }]);
+    const anchor = captureAnchor(editor, "note-1", [editor.document[0].id]);
+    const prepared = prep(editor, "新文");
+    const spy = vi.spyOn(editor, "replaceBlocks");
+    const out = applyAiResult(editor, anchor, prepared);
+    expect(spy.mock.calls[0]![1]).toBe(prepared.blocks);
+    expect(out.ok).toBe(true);
   });
 
   it("hasNonTextBlock：image block 在錨點內 → true（降級 preview 判定）", () => {

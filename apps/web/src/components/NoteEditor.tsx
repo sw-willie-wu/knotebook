@@ -11,7 +11,6 @@ import { BlockNoteEditor, filterSuggestionItems, SuggestionMenu } from "@blockno
 import { withCollaboration } from "@blocknote/core/yjs";
 import {
   FilePanelController,
-  FormattingToolbarController,
   SuggestionMenuController,
   useCreateBlockNote,
   type DefaultReactSuggestionItem,
@@ -35,11 +34,10 @@ import { safeMediaUrl } from "@/lib/media-url";
 import { createUploadFile, type Translate } from "@/uploads/upload-file";
 import { createFilePanel } from "@/components/FilePanel";
 import { AiSessionProvider } from "@/components/ai/AiSession";
-import { AiPanel } from "@/components/ai/AiPanel";
 import { CornerStack } from "@/components/CornerStack";
 import { useVersions } from "@/lib/versions-context";
 import { VERSIONS_ERROR_FRAME, VersionsLazyBoundary } from "@/components/versions/VersionsLazyBoundary";
-import { AiToolbar } from "@/components/ai/AiToolbar";
+import { SelectionAiController } from "@/components/ai/SelectionAiController";
 
 const VersionsPanel = lazy(() =>
   import("@/components/versions/VersionsLazy").then(m => ({ default: m.VersionsPanel })),
@@ -416,11 +414,11 @@ export function NoteEditor({
   // issue #94／#99：`/` 選單接管（內建項全數保留 ＋ mermaid 圖表 ＋ 連結）的
   // `getSlashItems` 本體在 `useLinkMenuState`（上面）——這裡不重複組。
 
-  // B1（plan gate 定案，不得偏離）：AI 狀態／側欄／toolbar 全部收在這裡，editor
+  // B1（plan gate 定案，不得偏離）：AI 狀態與框選 AI 框（#263）全部收在這裡，editor
   // 建立點（上面 `useCreateBlockNote` 及其 deps）完全不動——`AiSessionProvider` 只是
   // 包住既有的版面，不會讓 `NotePage` 任何 re-render 有機會扯到 editor 重建。
   //
-  // PR2（BC2 卡片版面，spec A 節）：內文卡＋AI 卡都在這裡。DOM 樹（逐字對齊
+  // PR2（BC2 卡片版面，spec A 節）：內文卡在這裡。DOM 樹（逐字對齊
   // spec，寬度鏈 BLK-3 的起點）：
   //   根 row（flex h-full min-h-0 min-w-0 flex-1 gap-3）
   //     內文卡（cardSurface，flex-col）
@@ -438,11 +436,8 @@ export function NoteEditor({
   //             BlockNoteView 自己成為 flex-col wrapper 的成長項；除 className 外零改動）
   //       {previewSlot}                               ← 版本預覽時才渲染；此時上面的捲動容器加 hidden（活編輯器不 unmount）
   //       {footerSlot}                                ← NotePage 組裝（backlinks chips）
-  //     VersionsPanel                                 ← `panelOpen` 時才渲染（lazy，經 VersionsLazyBoundary）；
-  //       與 AiPanel 互斥由 CornerStack 橋接
-  //     AiPanel                                      ← AI 入口（#115：收合態是 fixed
-  //       bubble、不佔這個 row 的 flex 空間；展開 md+ 才以並排卡參與，見 AiPanel.tsx）
-  //     CornerStack                                   ← 右下泡泡（fixed，不佔 row 的 flex 空間；spec §8.1）
+  //     VersionsPanel                                 ← `panelOpen` 時才渲染（lazy，經 VersionsLazyBoundary）
+  //     CornerStack                                   ← 右下歷史泡泡（fixed，不佔 row 的 flex 空間；spec §8.1）
   // `data-testid="note-editor"` 留在 `NoteEditorView`／`BlockNoteView` 上，不隨這次
   // 改版搬家——e2e 的 `[data-testid="note-editor"] [contenteditable]` 與
   // `NoteEditor.layout.test.tsx` 的節點鏈都吊在這裡。
@@ -480,7 +475,10 @@ export function NoteEditor({
                 noteId={noteId}
                 getItems={getItems}
                 getSlashItems={getSlashItems}
-              />
+              >
+                {/* #263 §5.3：formatting toolbar controller 與框選 AI 框的唯一擁有者；NoteEditorView 不碰 AI context。 */}
+                <SelectionAiController />
+              </NoteEditorView>
             </div>
           </div>
           {hasPreview && (
@@ -495,7 +493,6 @@ export function NoteEditor({
             <VersionsPanel doc={doc} />
           </VersionsLazyBoundary>
         )}
-        <AiPanel />
         <CornerStack />
       </div>
       {/* issue #99：`/` 選單「連結」項的對話框。開合 state 在這一層（`openLinkDialog`
@@ -520,6 +517,8 @@ export interface NoteEditorViewProps {
   /** `/` 選單的候選來源（issue #94：內建項 ＋ mermaid）。同 `getItems`——閉包由
    * `NoteEditor` 組好轉交進來，這裡不重新組。 */
   getSlashItems: (query: string) => Promise<DefaultReactSuggestionItem[]>;
+  /** #263：轉進 `<BlockNoteView>` 內（`NoteEditor` 傳 `SelectionAiController`，Task 8）。BlockNoteView 的 children 加在預設 UI 之外。 */
+  children?: ReactNode;
 }
 
 /**
@@ -532,8 +531,9 @@ export interface NoteEditorViewProps {
  * 只需要一個掛好的 `<BlockNoteView>` + 真編輯器就測得到（見
  * `NoteEditorView.test.tsx`；jsdom 缺的 `ResizeObserver`/`window.matchMedia` 兩個
  * mantine 內部會摸到的全域已經補進 `test/setup.ts`）。
+ * #263 起 formatting toolbar 不在這裡掛：它與框選 AI 框由 children（`SelectionAiController`）擁有。
  */
-export function NoteEditorView({ editor, editable, theme, noteId, getItems, getSlashItems }: NoteEditorViewProps) {
+export function NoteEditorView({ editor, editable, theme, noteId, getItems, getSlashItems, children }: NoteEditorViewProps) {
   // Task 14：`createFilePanel(noteId)` 回傳一個新的元件型別——`FilePanelController`
   // 拿它跟前一輪比對身分，身分一變就會整個卸載重掛（見 `createFilePanel` 檔頭的完整
   // 說明），所以這裡必須 `useMemo` 釘住，只在 `noteId` 真的換手時才重建。`noteId`
@@ -541,13 +541,6 @@ export function NoteEditorView({ editor, editable, theme, noteId, getItems, getS
   // 註解：noteId 一換，`doc`/`provider` 必然跟著換，等於整個 `NoteEditor` 重新掛載），
   // 但依賴陣列仍誠實列出，不靠這個隱含假設省略。
   const filePanel = useMemo(() => createFilePanel(noteId), [noteId]);
-  // Task 6：`AiToolbar` 本身是模組層級的具名匯出（不像 `createFilePanel` 是「依 noteId
-  // 生一個新元件型別」的工廠），identity 本來就跨 render 穩定——這裡仍然 `useMemo` 釘一次
-  // 是刻意逐字比照 filePanel 這支的既有寫法/註解風格（brief 明文要求）：
-  // `FormattingToolbarController` 拿 `formattingToolbar` prop 跟前一輪比對身分，同一套
-  // 「身分不穩會被當成換元件、整個卸載重掛」的風險模型也適用在它身上，`useMemo` 讓這個
-  // 不變量在原始碼層級直接可見，不必倚賴「反正它是模組層級函式」這個隱含事實。
-  const aiToolbar = useMemo(() => AiToolbar, []);
 
   // issue #97：共編的 undo/redo 生命線。`<BlockNoteView>` 會在 `editable` 翻面時把
   // ProseMirror view 拆掉重掛，而 y-prosemirror 的 undo plugin 在 view 銷毀時會
@@ -569,9 +562,9 @@ export function NoteEditorView({ editor, editable, theme, noteId, getItems, getS
       // 理由見 `components/FilePanel.tsx` 檔頭）。不明確設 `false` 這裡會同時掛兩個
       // file panel controller，使用者點開檔案 block 會看到兩份面板疊在一起。
       filePanel={false}
-      // 同理關掉內建的 FormattingToolbarController：下面接管的是我們自家的
-      // `AiToolbar`（`getFormattingToolbarItems()` 全數復原＋追加 AI 動作選單，見
-      // `components/ai/AiToolbar.tsx` 檔頭）。
+      // 同理關掉內建的 FormattingToolbarController：接管的是 children 裡的 `SelectionAiController`（#263 §5.3：它獨自擁有
+      // formatting toolbar controller 與框選 AI 框，含「框開著時壓住工具列」）。**這個 false 不可拿掉**：拿掉會多出一份預設工具列，
+      // 壓制只壓得到 controller 那一份（起草時 jsdom 實測）。
       formattingToolbar={false}
       // 同理關掉內建的 slash menu controller（issue #94）：下面接管的是我們自己的
       // `getSlashItems`（內建項全數保留＋mermaid 圖表＋連結，見 `components/slash-menu.tsx`）。
@@ -581,7 +574,7 @@ export function NoteEditorView({ editor, editable, theme, noteId, getItems, getS
       <SuggestionMenuController triggerCharacter="[[" getItems={getItems} />
       <SuggestionMenuController triggerCharacter="/" getItems={getSlashItems} />
       <FilePanelController filePanel={filePanel} />
-      <FormattingToolbarController formattingToolbar={aiToolbar} />
+      {children}
     </BlockNoteView>
   );
 }

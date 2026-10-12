@@ -16,12 +16,15 @@ export function VersionsLazyBoundary({
   fallback = null,
   reload,
   errorClassName,
+  crashMessageKey = "versions.crash",
   children,
 }: {
   noteId: string | null;
   fallback?: ReactNode;
   reload?: () => void;
   errorClassName?: string;
+  /** #263：非 chunk 的 render 錯誤文案的 i18n key（預設 `versions.crash`）；框選 AI 預覽傳 `ai.box.previewCrash`。重試語意不變（chunk 失敗＝整頁重載）。 */
+  crashMessageKey?: string;
   children: ReactNode;
 }) {
   return (
@@ -30,7 +33,7 @@ export function VersionsLazyBoundary({
       chunk="versions"
       frame="inline"
       reload={reload}
-      crashMessageKey="versions.crash"
+      crashMessageKey={crashMessageKey}
       inlineErrorClassName={errorClassName}
     >
       <Suspense fallback={fallback}>
