@@ -33,20 +33,25 @@ export interface UpstreamHandle {
   abort(): void;
 }
 
+/** `renderUserTemplate` 的三個變數（#263 §4.3）。非 Instruct 動作的 `instruction`／`focus` 一律傳空字串。 */
+export interface TemplateVars {
+  text: string;
+  instruction: string;
+  focus: string;
+}
+
+const PLACEHOLDER_RE = /\{\{(text|instruction|focus)\}\}/g;
+
 /**
- * `{{text}}` 佔位替換（spec §13.5-1）：`replaceAll` 的搜尋端傳純字串（非 regex）——字面比對
- * `{{text}}`，不會把它的任何字元解讀成正規表示式語法，這是選 `replaceAll` 而非 regex-based
- * `.replace()` 的理由。
+ * 佔位符代入（spec §13.5-1；#263 §4.3 起三個佔位符）。**單次**正則掃過整個 template 一次替換完——代入值裡就算含字面
+ * `{{instruction}}`，也不會在下一輪被展開（三次 `replaceAll` 依序代入會）。只做代入、不知道動作種類；Instruct 的固定標記
+ * 由呼叫端（`routes/ai.ts`）先包好再傳進來（§4.2）。
  *
- * 但替換端若也傳純字串，JS 規範對「替換字串」本身仍會解讀 `$&`／`$$`／`` $` ``／`$'`／
- * `$<name>` 這類特殊模式（即使搜尋端是純字串搜尋，這條規則對替換端一律生效——不是只有 regex
- * 搜尋才會觸發）。使用者選取的文字若剛好含這些字元組合（例如 `$$`、程式碼裡的樣板字串
- * `${...}`），naive 字串替換會靜默吃掉／扭曲這些字元，等同資料損毀。改用**函式形式**的第二
- * 引數（`() => text`）完全繞開這條替換模式解析——這才是「`replaceAll` 字面語意」真正要求的
- * 行為：字面比對＋字面替換，兩端都不做任何特殊字元解讀，text 逐字元原樣貼回。
+ * 替換端用**函式**形式：JS 對「替換字串」會解讀 `$&`／`$$`／`` $` ``／`$'`／`$<name>`，使用者選取的文字若剛好含這些字元組合，
+ * 字串形式會靜默吃掉或扭曲它們；函式回傳值不做任何解讀，逐字元原樣貼回。
  */
-export function renderUserTemplate(template: string, text: string): string {
-  return template.replaceAll("{{text}}", () => text);
+export function renderUserTemplate(template: string, vars: TemplateVars): string {
+  return template.replace(PLACEHOLDER_RE, (_match, name: keyof TemplateVars) => vars[name]);
 }
 
 const MAX_LOGGED_BODY_CHARS = 2048;

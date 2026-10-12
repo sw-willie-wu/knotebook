@@ -248,21 +248,29 @@ describe("streamAnthropic", () => {
   });
 });
 
-describe("renderUserTemplate", () => {
-  it("多個佔位符皆替換", () => {
-    expect(renderUserTemplate("A {{text}} B {{text}} C", "X")).toBe("A X B X C");
+describe("renderUserTemplate（#263 §4.3：三佔位符、單次替換）", () => {
+  const vars = { text: "T", instruction: "I", focus: "F" };
+
+  it("三個佔位符各自代入、可重複出現", () => {
+    expect(renderUserTemplate("{{instruction}}|{{focus}}|{{text}}|{{text}}", vars)).toBe("I|F|T|T");
   });
 
-  it("無佔位符時原樣返回", () => {
-    expect(renderUserTemplate("no placeholder here", "X")).toBe("no placeholder here");
+  it("代入值裡的字面佔位符不會被二次展開（單次正則）", () => {
+    const tricky = { text: "{{instruction}}", instruction: "{{focus}}", focus: "{{text}}" };
+    expect(renderUserTemplate("{{text}} {{instruction}} {{focus}}", tricky)).toBe("{{instruction}} {{focus}} {{text}}");
   });
 
-  it("替換值含 $ 特殊字元時逐字元原樣貼回（不觸發 replaceAll 替換模式解析：$$、$&、反引號變體、$'）", () => {
+  it("其他 {{名字}} 原樣保留；無佔位符時原樣返回", () => {
+    expect(renderUserTemplate("{{other}} {{text}}", vars)).toBe("{{other}} T");
+    expect(renderUserTemplate("no placeholder here", vars)).toBe("no placeholder here");
+  });
+
+  it("替換值含 $ 特殊字元時逐字元原樣貼回（不觸發替換模式解析：$$、$&、反引號變體、$'）", () => {
     const weird = "$$ and $& and $` and $' and ${template literal} and $<name>";
-    expect(renderUserTemplate("before {{text}} after", weird)).toBe(`before ${weird} after`);
+    expect(renderUserTemplate("before {{text}} after", { ...vars, text: weird })).toBe(`before ${weird} after`);
   });
 
   it("空字串替換值：佔位符被移除，其餘文字不變", () => {
-    expect(renderUserTemplate("[{{text}}]", "")).toBe("[]");
+    expect(renderUserTemplate("[{{instruction}}][{{text}}]", { text: "", instruction: "", focus: "" })).toBe("[][]");
   });
 });

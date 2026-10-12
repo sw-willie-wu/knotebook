@@ -215,7 +215,7 @@ export function aiRoutes(deps: AiRouteDeps) {
           baseUrl: resolved.provider.baseUrl,
           model: resolved.model.modelId,
           system: action.systemPrompt,
-          user: renderUserTemplate(action.userTemplate, text),
+          user: renderUserTemplate(action.userTemplate, { text, instruction: "", focus: "" }),
           signal: upstreamAbort.signal,
         };
         handle =
