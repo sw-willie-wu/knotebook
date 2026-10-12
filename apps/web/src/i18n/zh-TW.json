@@ -899,7 +899,13 @@
       "revertStale": "此變更已無法還原——內容可能已被改動。",
       "rebindNotice": "結果中有部分 [[連結]] 無法自動連結。",
       "loadingPreview": "載入預覽中…",
-      "previewCrash": "無法顯示預覽。"
+      "previewCrash": "無法顯示預覽。",
+      "apply": "套用",
+      "discard": "捨棄",
+      "retry": "重試",
+      "revert": "還原",
+      "close": "關閉",
+      "noChange": "沒有變更——結果與原文相同。"
     }
   },
   "aiEdits": {

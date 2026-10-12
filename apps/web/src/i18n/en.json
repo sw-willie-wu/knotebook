@@ -899,7 +899,13 @@
       "revertStale": "This change can no longer be reverted — the text may have changed since.",
       "rebindNotice": "Some [[links]] in the result couldn't be linked automatically.",
       "loadingPreview": "Loading preview…",
-      "previewCrash": "The preview couldn't be shown."
+      "previewCrash": "The preview couldn't be shown.",
+      "apply": "Apply",
+      "discard": "Discard",
+      "retry": "Retry",
+      "revert": "Revert",
+      "close": "Close",
+      "noChange": "No changes — the result is the same as the original text."
     }
   },
   "aiEdits": {

@@ -9,11 +9,12 @@ import { noteSchema } from "@/collab/schema";
 import { AiSessionProvider } from "@/components/ai/AiSession";
 import { NoteEditorView } from "@/components/NoteEditor";
 import { Toaster } from "@/components/ui/toast";
+import { ThemeProvider } from "@/theme";
 
 /**
  * #263 AI 框測試的共用 Host（spec §7；memory knotebook-review-probe-fidelity-lessons）：照 `NoteEditor.tsx` 的真實掛載鏈——
  * `AiSessionProvider`（:450）包 `NoteEditorView`（:476），AI 元件是 `<BlockNoteView>` 的 children（:561-585），`editor.portalElement`
- * 由 BlockNoteView 掛上。外層 `MemoryRouter`＋`QueryClientProvider`：wikilink inline 用到 `useNavigate`／`useNotes`。
+ * 由 BlockNoteView 掛上。外層 `MemoryRouter`＋`QueryClientProvider`：wikilink inline 用到 `useNavigate`／`useNotes`；`ThemeProvider`：預覽的 `DiffEditor` 用到 `useTheme`。
  * 不是 `NoteEditor` 本體——`NoteEditor` 自己 `useCreateBlockNote` 建 editor，測試拿不到實例去設選取。
  */
 
@@ -101,21 +102,23 @@ export function renderAiHost(props: AiHostProps) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const tree = (p: AiHostProps) => (
     <MemoryRouter>
-      <QueryClientProvider client={queryClient}>
-        <AiSessionProvider editor={p.editor} noteId={p.noteId ?? "note-1"} editable={p.editable ?? true} onAutoClose={p.onAutoClose}>
-          <NoteEditorView
-            editor={p.editor}
-            editable={p.editable ?? true}
-            theme="light"
-            noteId={p.noteId ?? "note-1"}
-            getItems={noItems}
-            getSlashItems={noItems}
-          >
-            {p.children}
-          </NoteEditorView>
-        </AiSessionProvider>
-        <Toaster />
-      </QueryClientProvider>
+      <ThemeProvider>
+        <QueryClientProvider client={queryClient}>
+          <AiSessionProvider editor={p.editor} noteId={p.noteId ?? "note-1"} editable={p.editable ?? true} onAutoClose={p.onAutoClose}>
+            <NoteEditorView
+              editor={p.editor}
+              editable={p.editable ?? true}
+              theme="light"
+              noteId={p.noteId ?? "note-1"}
+              getItems={noItems}
+              getSlashItems={noItems}
+            >
+              {p.children}
+            </NoteEditorView>
+          </AiSessionProvider>
+          <Toaster />
+        </QueryClientProvider>
+      </ThemeProvider>
     </MemoryRouter>
   );
   const result = render(tree(props));
