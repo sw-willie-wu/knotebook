@@ -905,7 +905,15 @@
       "retry": "Retry",
       "revert": "Revert",
       "close": "Close",
-      "noChange": "No changes — the result is the same as the original text."
+      "noChange": "No changes — the result is the same as the original text.",
+      "label": "AI on selection",
+      "inputLabel": "Instruction for the selected text",
+      "placeholder": "Tell the AI what to do with the selection…",
+      "send": "Send",
+      "instructLabel": "Your instruction",
+      "streaming": "Generating…",
+      "cancel": "Cancel",
+      "stale": "The original text has changed since this was opened."
     }
   },
   "aiEdits": {

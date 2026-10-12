@@ -905,7 +905,15 @@
       "retry": "重試",
       "revert": "還原",
       "close": "關閉",
-      "noChange": "沒有變更——結果與原文相同。"
+      "noChange": "沒有變更——結果與原文相同。",
+      "label": "框選 AI",
+      "inputLabel": "對選取文字的指令",
+      "placeholder": "告訴 AI 要怎麼處理選取的文字…",
+      "send": "送出",
+      "instructLabel": "你的指令",
+      "streaming": "產生中…",
+      "cancel": "取消",
+      "stale": "原文已變更。"
     }
   },
   "aiEdits": {

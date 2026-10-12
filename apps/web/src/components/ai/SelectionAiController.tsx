@@ -10,6 +10,7 @@ import {
 import { selectionInsideAnchor } from "@/ai/selection";
 import { activeAnchorOf, useAiSession } from "./AiSession";
 import { AiToolbar } from "./AiToolbar";
+import { SelectionAiBox } from "./SelectionAiBox";
 
 /**
  * 框選 AI 的掛載點（#263 §5.3）：`NoteEditor` 把它當 `NoteEditorView` 的 children 傳進 `<BlockNoteView>`，它是 **formatting toolbar
@@ -34,5 +35,10 @@ export function SelectionAiController() {
   // FormattingToolbarController 內部的 useMemo 以這個物件的身分為依賴——每次 render 新建會讓它每次重算。
   const floatingUIOptions = useMemo<FloatingUIOptions>(() => ({ useFloatingOptions: { open: toolbarOpen } }), [toolbarOpen]);
 
-  return <FormattingToolbarController formattingToolbar={AiToolbar} floatingUIOptions={floatingUIOptions} />;
+  return (
+    <>
+      <FormattingToolbarController formattingToolbar={AiToolbar} floatingUIOptions={floatingUIOptions} />
+      <SelectionAiBox />
+    </>
+  );
 }

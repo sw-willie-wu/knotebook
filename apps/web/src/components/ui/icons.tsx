@@ -333,3 +333,60 @@ export function Sparkles(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+/** #263 框選 AI 框的送出鈕。路徑取自 lucide `send`（ISC），手刻同風格。 */
+export function Send(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="send" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" />
+      <path d="m21.854 2.147-10.94 10.939" />
+    </svg>
+  );
+}
+
+/** #263 內建 Rewrite 的 chip。路徑取自 lucide `pen-line`（ISC）。 */
+export function PenLine(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="pen-line" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M12 20h9" />
+      <path d="M16.376 3.622a1 1 0 0 1 3.002 3.002L7.368 18.635a2 2 0 0 1-.855.506l-2.872.838a.5.5 0 0 1-.62-.62l.838-2.872a2 2 0 0 1 .506-.854z" />
+    </svg>
+  );
+}
+
+/** #263 內建 Translate 的 chip。路徑取自 lucide `languages`（ISC）。 */
+export function Languages(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="languages" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="m5 8 6 6" />
+      <path d="m4 14 6-6 2-3" />
+      <path d="M2 5h12" />
+      <path d="M7 2h1" />
+      <path d="m22 22-5-10-5 10" />
+      <path d="M14 18h6" />
+    </svg>
+  );
+}
+
+/** #263 內建 Summarize 的 chip。路徑取自 lucide `list-collapse`（ISC）。 */
+export function ListCollapse(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="list-collapse" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="m3 10 2.5-2.5L3 5" />
+      <path d="m3 19 2.5-2.5L3 14" />
+      <path d="M10 6h11" />
+      <path d="M10 12h11" />
+      <path d="M10 18h11" />
+    </svg>
+  );
+}
+
+/** #263 內建 Continue writing 的 chip。路徑取自 lucide `chevrons-right`（ISC）。 */
+export function ChevronsRight(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="chevrons-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="m6 17 5-5-5-5" />
+      <path d="m13 17 5-5-5-5" />
+    </svg>
+  );
+}
