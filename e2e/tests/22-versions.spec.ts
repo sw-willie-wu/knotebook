@@ -123,7 +123,7 @@ test("22 版本歷史：存、改、預覽 diff、套用、從 vX 接著改、�
     // 預覽 v1 → 套用 → dirty → 三選一「不儲存，直接套用」
     await panel.getByRole("button", { name: /^v1(?!\d)/ }).click();
     const applyV1 = page.getByTestId("versions-footer").getByRole("button", { name: "Apply v1" });
-    // I-4／起草裁定 22：面板開著時右下泡泡堆疊讓到面板外側，不得蓋住「Apply v1」（04-ai 在共用疊上設好 AI 動作，AI 泡泡會在）
+    // I-4／起草裁定 22：面板開著時右下泡泡堆疊讓到面板外側，不得蓋住「Apply v1」（#263 起容器裡只剩歷史泡泡，面板開著時整個容器不渲染；容器若在，就不得蓋住）
     const stack = page.getByTestId("corner-stack");
     if ((await stack.count()) > 0) {
       const s = (await stack.boundingBox())!;

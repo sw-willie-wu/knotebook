@@ -7,7 +7,24 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
-_Nothing yet._
+### Upgrade notes
+
+- The first start after upgrading adds the **Instruct** action, enabled, with no model of its own, so it uses the default model. On a site that has a default model, every editor can send free-form instructions to it right away; disable the action in **Site admin → AI agents** if you don't want that.
+- If you roll back to 0.10, the Instruct action stays in the database and 0.10 lists it as an ordinary quick action that only fills in `{{text}}`: the literal `{{instruction}}` and `{{focus}}` would reach the model, without the guard. Disable the action before rolling back.
+
+### Added
+
+- AI on a selection: the **AI** button on the formatting toolbar now opens a box in place of the toolbar, where you can type your own instruction for the selected text or pick a quick action. The result is shown as an inline diff of the selected blocks — with the blocks around them faded for context. Instructions and preview actions wait for you to apply, discard or retry, while direct actions apply as before and can be reverted (#263).
+- A fifth built-in AI action, **Instruct**, carries those free-form instructions. It always shows a preview first, and the server wraps it in fixed tags and a fixed guard that admins can't change (#263).
+
+### Changed
+
+- The admin AI actions list and `GET /api/ai/actions` include each action's `kind` (`"instruct"` or `"quick"`); `PATCH /api/admin/ai/actions/:id` refuses to set the Instruct action to `direct` (`instruct_preview_only`) (#263).
+- **Breaking (API):** `POST /api/ai` takes `instruction` and `focus` for the Instruct action and now rejects them with 400 for any other action; they used to be silently dropped (#263).
+
+### Removed
+
+- The AI panel and the round AI button at the bottom-right of the note page, together with running an action over the whole note from them. Select everything with Ctrl+A and use the toolbar instead (#263).
 
 ## [0.10.0] - 2026-10-11
 

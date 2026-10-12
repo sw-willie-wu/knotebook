@@ -65,7 +65,7 @@ export function VersionRowMenu({ version, isBase, onApply }: { version: VersionD
 }
 
 /**
- * 版本面板（spec §8.2，md+ 第三欄卡）。與 AI 面板同位置同規則、互斥（橋接在 CornerStack）。
+ * 版本面板（spec §8.2，md+ 第三欄卡）。
  * `current` 的刷新：面板開著時訂閱活 `Y.Doc` 的 `update`，去抖動 1 s 後 invalidate `['notes', id, 'versions']`。
  * 離開預覽（spec §8.4 rev 10 追記，Task 19；橫幅沒有 ✕）：點清單空白處（`<ul>` 本身，點到列或 ⋯ 不算）、
  * 再點已選中的那一列（toggle）、✕ 關面板（`close()` 一併離開預覽）；另有 NotePage 的 Esc。

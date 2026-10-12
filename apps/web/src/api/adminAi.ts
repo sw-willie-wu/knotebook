@@ -42,7 +42,7 @@ export function useAdminAiActions(): UseQueryResult<AdminAiActionDto[]> {
  * 任一 admin-ai mutation 成功 → invalidate 三層 admin-ai query（`["admin-ai"]` 前綴一次
  * 命中 providers/models/actions）＋ `["ai-actions"]`（`AiSession` 讀的可執行動作清單，
  * spec §13.4「同分頁立即生效」——admin 改了 action/model/provider 設定後，不必整頁重整，
- * 筆記側欄的 AI 面板馬上跟著換手）。
+ * 框選 AI 框的動作清單馬上跟著換手）。
  */
 function invalidateAdminAi(queryClient: QueryClient): void {
   void queryClient.invalidateQueries({ queryKey: ["admin-ai"] });

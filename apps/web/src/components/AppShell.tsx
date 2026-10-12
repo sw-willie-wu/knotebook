@@ -269,8 +269,8 @@ interface AppShellProps {
  *
  * 側欄寬度（Task 4）：靜態卡寬度是 `<aside style={{ width }}>` 的 React state，範圍
  * 200–480、預設 256（＝改版前的 `w-64`），存在 localStorage（`sidebar-width.ts`）。下限讓
- * 群組內筆記列還留得下約 3 個中文字；上限不相對視窗——窄視窗＋AI 面板展開＋拉到最寬時
- * 頁首會裁到按鈕，雙擊把手即回 256。把手（`SidebarResizeHandle`）是 `<aside>` 內
+ * 群組內筆記列還留得下約 3 個中文字；上限不相對視窗——窄視窗下拉到最寬會擠壓內文，
+ * 雙擊把手即回 256。把手（`SidebarResizeHandle`）是 `<aside>` 內
  * `absolute left-full w-3` 的子元素，約略蓋在根容器既有的 `gap-3` 上（以 padding box 定位，
  * 壓住 aside 右框一個框寬）——所以根的 `gap-3`
  * 與 `main` 都不動；`<aside>` 在 `<md` 是 `hidden`，把手跟著消失。抽屜仍固定 `w-64`。

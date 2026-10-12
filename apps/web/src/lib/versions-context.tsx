@@ -6,7 +6,7 @@ import type { VersionKindFilter, VersionTarget } from "@/api/versions";
  * 版本歷史的頁面層狀態（spec §8.1）。`NotePage` 呼叫 `useVersionsController` 持有、以 `VersionsProvider`
  * 包住 `<NoteEditor>`；⋮ 選單、Ctrl+S、歷史泡泡、面板、預覽、對話框都從 `useVersions()` 取。
  *
- * **沒有 provider 時回 no-op 預設**（`enabled: false`）：`AiPanel.test.tsx`／`NoteEditorView.test.tsx`
+ * **沒有 provider 時回 no-op 預設**（`enabled: false`）：AI 元件的測試 Host（`test/ai-host.tsx`）
  * 單獨包 `AiSessionProvider` 渲染、側欄每列的 ⋮（在 provider 之外）都靠它——入口一律以 `enabled` 判斷要不要渲染。
  *
  * 寬窄（起草裁定 3、4）：`open()` 當下以 `NARROW_QUERY` 決定開第三欄卡（`panel`）還是整頁（`sheet`）；

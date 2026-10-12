@@ -8,7 +8,7 @@ import { Switch } from "./switch";
  * N 條全綠」這種會隨全套測試數量漂移、換一台機器就對不上的說法）：全樹 `grep -rn
  * 'bg-brand"' src --include="*.test.*"` 只命中這個檔案自己這一行——`bg-brand-soft`／
  * `bg-brand-soft-strong` 那幾個 token 有別的測試守著（`NoteList.test.tsx`／
- * `AppShell.layout.test.tsx`／`AiPanel.test.tsx`），但精確的 `bg-brand` 沒有，
+ * `AppShell.layout.test.tsx`／`CornerStack.test.tsx`），但精確的 `bg-brand` 沒有，
  * 拿掉 `data-[state=checked]:bg-brand` 不會讓任何既有測試變紅。這裡補上：
  * 開啟態必須帶 `data-[state=checked]:bg-brand` 這個 class token（Tailwind 把整個
  * arbitrary-variant 名稱原樣寫進 `class`，CSS 才靠 `[data-state=checked]` 屬性選擇器決定

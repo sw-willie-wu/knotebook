@@ -51,7 +51,7 @@ describe("toast()", () => {
 
   it("#115：viewport 帶 pointer-events-none、toast item 帶 pointer-events-auto（成對不變量）", () => {
     // 源碼掃描（本檔是 .ts、渲染 Radix viewport 又需要 provider 整組）：空 viewport
-    // 是右下角一塊 fixed 命中區，缺 `pointer-events-none` 會擋住 AI bubble 下緣；
+    // 是右下角一塊 fixed 命中區，缺 `pointer-events-none` 會擋住右下角歷史泡泡的下緣；
     // 但這個 class 只有在 item 自帶 `pointer-events-auto` 時才安全——兩者成對，
     // 拆開任一半都要紅。
     //
