@@ -202,6 +202,16 @@ describe("SelectionAiBox（#263 §5.3、§5.4）", () => {
     expect(box()).toBeInTheDocument();
   });
 
+  it("輸入態的關閉鈕（X）：點了關框、回 idle、焦點回編輯器（點之前焦點在框內）", async () => {
+    await mount();
+    const region = await openViaToolbar();
+    expect(document.activeElement).toBe(within(region).getByRole("textbox"));
+    fireEvent.click(within(region).getByRole("button", { name: "Close" }));
+    expect(session.state.phase).toBe("idle");
+    await waitFor(() => expect(box()).not.toBeInTheDocument());
+    expect(editorHasFocus()).toBe(true);
+  });
+
   it("重開時輸入框為空（不沿用舊指令）", async () => {
     await mount();
     let region = await openViaToolbar();

@@ -9,7 +9,7 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ### Upgrade notes
 
-- The first start after upgrading adds the **Instruct** action, enabled, with no model of its own, so it uses the default model. On a site that has a default model, every editor can send free-form instructions to it right away; disable the action in **Site admin → AI agents** if you don't want that.
+- The first start after upgrading adds the **Instruct** action, enabled, with no model of its own, so it uses the same model as any other action without one: the default model, or, when no default is available (none is marked, or it or its provider is disabled), the earliest-added enabled chat model. On any site where AI actions already work, every editor can send free-form instructions right away, whether or not a model is marked as the default; disable the action in **Site admin → AI agents** if you don't want that.
 - If you roll back to 0.10, the Instruct action stays in the database and 0.10 lists it as an ordinary quick action that only fills in `{{text}}`: the literal `{{instruction}}` and `{{focus}}` would reach the model, without the guard. Disable the action before rolling back.
 
 ### Added

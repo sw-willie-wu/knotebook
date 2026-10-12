@@ -4,8 +4,8 @@ import { ADMIN, adminNav, createNote, editorLocator, loginAs, openSelectionAiBox
 /**
  * #263 框選 AI 框的幾何守衛（spec 2026-10-12 §7 e2e「幾何」）。provider 自建（流程照 10-responsive）——「Default model」的勾選承重：
  * 全套順序下 04 留下的 provider 已被改指 `/slow`，不勾的話 auto 解析會選到它。
- * 量法（memory knotebook-blocknote-floating-containing-block）：全頁滾軸量 `documentElement.scrollHeight <= clientHeight`；捲動後等 150ms
- * 再量（floating-ui 的 ancestorScroll 回呼下一幀才派送）。捲動容器＝note-editor 的祖父（同 14-table-hover 的節點鏈）。
+ * 量法（memory knotebook-blocknote-floating-containing-block）：全頁滾軸量 `documentElement.scrollHeight <= clientHeight`；捲動後不固定等待，
+ * 以 expect.poll 等框的位置跟上（floating-ui 的 ancestorScroll 回呼下一幀才派送）。捲動容器＝note-editor 的祖父（同 14-table-hover 的節點鏈）。
  */
 
 const RUN_ID = Date.now();
@@ -42,7 +42,6 @@ async function scrollContainerBy(page: Page, dy: number): Promise<void> {
     const scroller = document.querySelector('[data-testid="note-editor"]')?.parentElement?.parentElement as HTMLElement | null | undefined;
     if (scroller) scroller.scrollTop += delta;
   }, dy);
-  await page.waitForTimeout(150);
 }
 
 async function noPageScrollbar(page: Page): Promise<boolean> {
@@ -97,7 +96,13 @@ test("開框不長全頁滾軸；點內文（空選取）框仍在；在別段�
 
     // 空選取：單擊第 7 段（只放游標）→ 框不關（D6）
     await editorLocator(page).getByText(paragraphs[7]!, { exact: true }).click();
+    await waitForEditorSelection(page); // 等 PM 的選取真的落到第 7 段（D12 的判定已跑過）再斷言
+    // 只斷言 toBeVisible 判不出「框被關了」：關閉時 BlockNote 的 GenericPopover 跑淡出轉場，轉場期間改顯示框最後一次的 innerHTML 複本（輸入框也在），
+    // DOM 晚一點才卸（e2e 探針實量：關框後 50ms 框仍在 DOM、500ms 時已卸；只斷言可見時，「空選取也關框」的突變照綠）。
+    // 所以等兩個畫格讓 React 提交選取變更排下的更新，再看外層 popover 的 inline opacity：關閉轉場把它設成 "0"（floating-ui useTransitionStyles 的預設，PositionPopover 沒改）。
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
     await expect(box).toBeVisible();
+    expect(await box.evaluate((el) => (el.parentElement as HTMLElement).style.opacity)).not.toBe("0");
 
     // 拖選第 8 段（滑鼠非空選取）→ 框關（D12；store 在 pointerdown 期間恆為 false，這條是 onSelectionChange 判定的守衛）
     const target = editorLocator(page).getByText(paragraphs[8]!, { exact: true });
@@ -125,8 +130,7 @@ test("捲動內文後框的 top 跟著變（釘在框選區塊旁）", async ({ 
     const box = await openSelectionAiBox(page, paragraphs[8]!);
     const before = (await box.boundingBox())!.y;
     await scrollContainerBy(page, 120);
-    const after = (await box.boundingBox())!.y;
-    expect(Math.abs(before - after - 120)).toBeLessThanOrEqual(2);
+    await expect.poll(async () => Math.abs(before - (await box.boundingBox())!.y - 120)).toBeLessThanOrEqual(2);
   } finally {
     await context.close();
   }

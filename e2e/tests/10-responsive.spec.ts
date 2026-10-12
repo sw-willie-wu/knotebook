@@ -96,6 +96,10 @@ test("窄視窗：靜態側欄隱藏、抽屜導覽、框選 AI 框不超出視�
     const box = await openSelectionAiBox(page, original);
     const boxRect = (await box.boundingBox())!;
     expect(boxRect.width).toBeLessThanOrEqual(390 - 16);
+    // 寬度＝錨點區塊 `.bn-block-outer` 寬＋左右外框 2px。390 寬實量：區塊 324、框 326、框 x=33——上面的 ≤ 374 離得太遠，寬度邏輯壞掉也照綠
+    // （e2e 突變把框寬固定成 302px 時，≤ 374 照過、紅在下一行：差 24）。
+    const anchorWidth = (await editor.locator(".bn-block-outer").filter({ hasText: original }).boundingBox())!.width;
+    expect(Math.abs(boxRect.width - (anchorWidth + 2))).toBeLessThanOrEqual(1);
     expect(boxRect.x).toBeGreaterThanOrEqual(0);
     expect(boxRect.x + boxRect.width).toBeLessThanOrEqual(390);
     await page.keyboard.press("Escape");

@@ -9,7 +9,7 @@ export type { WikilinkTarget };
 export interface ApplyDeps {
   notes: WikilinkTarget[];
 }
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 編輯器泛型三元組，走 repo 慣例用 any（同 ApplyOutcome 的 M-2 說明）
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote Block 的泛型三元組，走 repo 慣例用 any（同 ApplyOutcome 的 M-2 說明）
 type AnyBlock = Block<any, any, any>;
 
 /** #263 §5.2 第 1 步的產物：預覽（`buildPreview` 的 after）與寫入（`applyAiResult`）用**同一個** `blocks` 陣列。 */
@@ -64,7 +64,7 @@ export type RevertOutcome = "ok" | "stale";
 export function revertAiResult(
   editor: AnyEditor,
   insertedAnchor: AiAnchor,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同 ApplyOutcome.replacedSnapshot（M-2），BlockNote 編輯器泛型三元組走 repo 慣例用 any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同 ApplyOutcome.replacedSnapshot（M-2），BlockNote Block 的泛型三元組走 repo 慣例用 any
   replacedSnapshot: Block<any, any, any>[],
 ): RevertOutcome {
   if (verifyAnchor(editor, insertedAnchor) !== "ok") return "stale";
