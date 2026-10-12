@@ -91,8 +91,15 @@ export async function createNote(page: Page, title: string): Promise<void> {
 
   // 編輯器（BlockNote）節點掛上——呼叫端緊接著通常就要 click/type，還沒 mount 會
   // 直接找不到 contenteditable 節點。（#48 之後這行也隱含等到首次 sync，見檔頭。）
-  await page.locator('[data-testid="note-editor"] [contenteditable="true"]').first().waitFor({ timeout: 15_000 });
+  await page.locator(MAIN_EDITOR_SELECTOR).first().waitFor({ timeout: 15_000 });
 }
+
+/**
+ * #263：主編輯器的 contenteditable。框選 AI 框掛在主編輯器的 DOM 之內（`editor.portalElement` 在 `.bn-container` 裡），預覽時框裡
+ * 多一顆唯讀編輯器——它是 `contenteditable="false"`，本來就不會中這個選擇器；`:not(…)` 把「框內一律排除」寫明，日後框內若出現可編輯
+ * 元素也不會被誤選。以主編輯器為範圍的斷言一律經 `editorLocator`。
+ */
+export const MAIN_EDITOR_SELECTOR = '[data-testid="note-editor"] [contenteditable="true"]:not([data-testid="selection-ai-box"] *)';
 
 /**
  * BlockNote（`@blocknote/mantine`）把呼叫端傳給 `<BlockNoteView data-testid=…>`
@@ -104,7 +111,7 @@ export async function createNote(page: Page, title: string): Promise<void> {
  * 不能只用 testid 本身（click/type 會作用在容器而非真正的 ProseMirror root）。
  */
 export function editorLocator(page: Page) {
-  return page.locator('[data-testid="note-editor"] [contenteditable="true"]').first();
+  return page.locator(MAIN_EDITOR_SELECTOR).first();
 }
 
 /**
@@ -196,4 +203,18 @@ export async function openGroupPanel(page: Page, groupName: string): Promise<str
   await expect(dialog).toBeVisible();
   await expect(dialog.locator('nav a[aria-current="page"]')).toHaveCount(1);
   return new URL(page.url()).pathname.split("/")[2]!;
+}
+
+/** #263：框選 AI 框（`role="region"`、`data-testid="selection-ai-box"`）。 */
+export function selectionAiBox(page: Page): Locator {
+  return page.getByTestId("selection-ai-box");
+}
+
+/** #263：三擊選取整段（非空選取，`getSelection()` 才吃得到）→ 按工具列的 AI 鈕 → 等框出現。 */
+export async function openSelectionAiBox(page: Page, paragraphText: string): Promise<Locator> {
+  await editorLocator(page).getByText(paragraphText, { exact: true }).click({ clickCount: 3 });
+  await page.getByRole("button", { name: "AI", exact: true }).click();
+  const box = selectionAiBox(page);
+  await expect(box).toBeVisible();
+  return box;
 }

@@ -1,65 +1,71 @@
 import { test, expect, type Page } from "@playwright/test";
-import { ADMIN, adminNav, createNote, editorLocator, loginAs, openSiteAdmin } from "./helpers.js";
+import { ADMIN, adminNav, createNote, editorLocator, loginAs, openSelectionAiBox, openSiteAdmin, waitForEditorSelection } from "./helpers.js";
 
 /**
- * §14.5 流程 4：站台管理 modal（`/admin/ai`）建 provider（指向 ai-stub）＋ model → AI 動作 apply →
- * revert → 守門（ai-stub 拉長串流、另一 context 改錨點 block → 中止提示）。
- * 「admin AI 三層 CRUD」（provider 建立＋編輯／model 建立）順帶獲得覆蓋。
+ * §14.5 流程 4（#263 改版）：站台管理 modal（`/admin/ai`）建 provider（指向 ai-stub）＋ model → 框選文字 → 工具列 AI 鈕開框 →
+ * 自由指令（Instruct）→ 串流 → diff 預覽 → 套用（框關閉）→ Ctrl+Z；chip（direct 的 Rewrite）自動套用 → 還原；守門（ai-stub 拉長串流、
+ * 第二個 context 改錨點 → 框顯示「原文已變更」、沒有套用鈕、direct 自動套用失敗的 toast；同一支順帶驗串流中捲走後、完成時焦點移進框
+ * 不把筆記捲回去）。
  *
- * ai-stub base URL 一律填 app 容器視角（`http://ai-stub:9500/...`，見
- * `docker-compose.e2e.yml` 的 compose 網路，非瀏覽器視角的 `localhost`）。內建動作
- * 「Rewrite」（`applyMode: "direct"`，`modelId` 留空＝auto——見
- * `apps/server/src/db/seed-ai.ts`）：選取文字時 `forcePreview=false`，串流結束會
- * 自動套用，不需要手動按「Apply」；auto-apply 失敗（守門）才會出現「Apply」鈕讓
- * 使用者自行決定。auto 解析 model 靠 `apps/server/src/ai/resolve.ts` 的
- * `ORDER BY isDefault DESC, createdAt ASC, id ASC` 排序取第一筆——`isDefault`
- * **只是排序偏好**，不是可用性開關（該檔頭註解逐字明訂）；本檔全程只建這一顆
- * enabled 的 chat model，即使不勾「Default model」它也會是唯一候選、一樣被選中。
- * 建 model 時仍勾它，純粹是照真實 admin 操作流程走（多 model 情境下才會實際影響
- * 排序），不是這條鏈能不能吃到的必要條件。
+ * ai-stub base URL 一律填 app 容器視角（`http://ai-stub:9500/...`）。ai-stub 不看請求內容，任何動作（含 Instruct）都回固定的
+ * FINAL_CONTENT。auto 解析 model 靠 `apps/server/src/ai/resolve.ts` 的排序取第一筆；本檔全程只建這一顆 enabled 的 chat model。
+ * 三支測試 `serial`：第一支建 provider，第二支沿用 `/fast`，第三支把它改成 `/slow`。
  */
 
-// 模組層 `RUN_ID`：兩支 `serial` 測試共用同一顆 provider/model（第二支只 PATCH
-// baseUrl），名稱寫死會在「失敗保留疊、手動重跑」時撞名——`providerCardLocator`
-// 用 provider 名稱鎖定範圍，重跑撞出兩張同名卡片會是 strict-mode violation，
-// 蓋掉真正的失敗原因（fix round 1 Minor-2）。
+// 模組層 `RUN_ID`：三支 `serial` 測試共用同一顆 provider/model，名稱寫死會在「失敗保留疊、手動重跑」時撞名。
 const RUN_ID = Date.now();
 const PROVIDER_NAME = `E2E AI Provider ${RUN_ID}`;
 const MODEL_DISPLAY_NAME = `E2E AI Model ${RUN_ID}`;
 const REWRITTEN_TEXT = "E2E rewritten text"; // ai-stub 固定輸出（e2e/stubs/ai-stub.mjs FINAL_CONTENT）
-const REASONING_MARKER = "internal reasoning"; // ai-stub 固定塞進 reasoning_content 的字樣，server 絕不轉送給 client（apps/server/src/routes/ai.ts）
+const REASONING_MARKER = "internal reasoning"; // ai-stub 固定塞進 reasoning_content 的字樣，server 絕不轉送
+const STALE_TEXT = "The original text has changed since this was opened.";
+const GUARD_TOAST = "The original text changed since this result was generated, so it wasn't applied.";
 
-/** UserMenu →『Site admin』→ 站台管理 modal 的『AI agents』（`/admin/ai`）（站台管理是
- * modal；回筆記用 Esc 關站台管理 modal，落在 `/`）。 */
 async function openAiSettings(page: Page): Promise<void> {
   await openSiteAdmin(page);
   await adminNav(page, "AI agents");
 }
 
-/** 站台管理 modal → Esc → `/`。 */
 async function leaveAdmin(page: Page): Promise<void> {
   await page.keyboard.press("Escape");
   await expect(page).toHaveURL(/\/$/);
 }
 
-/** provider 列（`ProviderRow`）：#247 起每個供應商是以名稱為可及名稱的 `region`
- * （`<section aria-labelledby>` 指向 `<h3>` 供應商名）——用它鎖定範圍，避免誤中別的
- * 供應商列；region 內 provider 層的「Edit」／「Delete」在 model 列之前（DOM 順序）。 */
+/** provider 列：#247 起每個供應商是以名稱為可及名稱的 `region`。 */
 function providerCardLocator(page: Page, name: string) {
   return page.getByRole("region", { name });
 }
 
-test.describe.configure({ mode: "serial" }); // 兩支測試共用同一顆 provider（第二支改它的 baseUrl）——單 worker 下本已序列，這裡把意圖寫明。
+/**
+ * 筆記頁的捲動容器＝主編輯器最近一個會捲的祖先（筆記卡 `overflow-y-auto`；頁面本身不捲，`window.scrollY` 恆 0）。
+ * `to` 有給就先捲到那裡（`"nearBottom"`＝離底 40px，留餘裕給內容高度的小幅變動）。回傳捲動後的 scrollTop、`window.scrollY`、
+ * 以及框底緣與容器頂緣的視窗座標（框底緣在容器頂緣之上＝框已捲出可視範圍）。
+ */
+async function noteScroll(page: Page, to?: "nearBottom") {
+  return editorLocator(page).evaluate((el, target) => {
+    let node: HTMLElement | null = el.parentElement;
+    while (node && !(/(auto|scroll)/.test(getComputedStyle(node).overflowY) && node.scrollHeight > node.clientHeight)) node = node.parentElement;
+    if (!node) throw new Error("找不到筆記的捲動容器");
+    if (target === "nearBottom") node.scrollTop = node.scrollHeight - node.clientHeight - 40;
+    const boxEl = document.querySelector('[data-testid="selection-ai-box"]');
+    return {
+      scrollTop: node.scrollTop,
+      windowScrollY: window.scrollY,
+      boxBottom: boxEl ? boxEl.getBoundingClientRect().bottom : null,
+      scrollerTop: node.getBoundingClientRect().top,
+    };
+  }, to);
+}
 
-test("站台管理頁建 provider/model → toolbar 改寫 → 串流不洩漏 reasoning → 套用 → revert", async ({ browser }) => {
+test.describe.configure({ mode: "serial" });
+
+test("建 provider/model → 框選 → 指令 → 串流不洩漏 reasoning → diff 預覽 → 套用（框關閉）→ Ctrl+Z 還原", async ({ browser }) => {
   const context = await browser.newContext();
   try {
     const page = await context.newPage();
     await loginAs(page, ADMIN.email, ADMIN.password);
     await expect(page).toHaveURL(/\/$/);
 
-    // ── 站台管理 modal：建 provider（openai_compatible，指向 ai-stub /fast，無 key）──
-    // 先設定、後建筆記：站台管理 modal 開在首頁上，關掉回 `/` 再建筆記
     await openAiSettings(page);
     await page.getByRole("button", { name: "Add provider", exact: true }).click();
     const createProviderDialog = page.getByRole("dialog", { name: "Add provider" });
@@ -68,15 +74,9 @@ test("站台管理頁建 provider/model → toolbar 改寫 → 串流不洩漏 r
     await createProviderDialog.locator("#ai-provider-base-url").fill("http://ai-stub:9500/fast");
     await createProviderDialog.getByRole("button", { name: "Create", exact: true }).click();
     await expect(createProviderDialog).not.toBeVisible();
-
     const providerCard = providerCardLocator(page, PROVIDER_NAME);
     await expect(providerCard).toBeVisible();
 
-    // ── 建 model：勾「Default model」──────────────────────────────────
-    // 不是「auto 解析挑中它」的必要條件（這是本檔唯一一顆 enabled 的 chat
-    // model，isDefault 與否都會是唯一候選，見檔頭 `apps/server/src/ai/resolve.ts`
-    // 排序規則的說明），純粹照真實 admin 操作流程勾選。內建 Rewrite 動作
-    // modelId 留空（auto）才是它吃得到任何 model 的必要條件。
     await providerCard.getByRole("button", { name: "Add model", exact: true }).click();
     const createModelDialog = page.getByRole("dialog", { name: "Add model" });
     await createModelDialog.getByLabel("Model ID", { exact: true }).fill("e2e-model");
@@ -84,46 +84,37 @@ test("站台管理頁建 provider/model → toolbar 改寫 → 串流不洩漏 r
     await createModelDialog.getByLabel("Default model", { exact: true }).check();
     await createModelDialog.getByRole("button", { name: "Create", exact: true }).click();
     await expect(createModelDialog).not.toBeVisible();
-    // 模型名同時在列的「Models」欄與下方模型清單出現，`getByText` 會 strict mode 失敗——鎖清單項。
     await expect(providerCard.getByRole("listitem").filter({ hasText: MODEL_DISPLAY_NAME })).toBeVisible();
 
-    // ── 回筆記：建筆記＋打一段文字 ────────────────────────────────────────
     await leaveAdmin(page);
-    const title = `E2E ai ${Date.now()}`;
-    await createNote(page, title);
-    await expect(page).toHaveURL(new RegExp(`/n/`)); // #122：筆記頁網址是 /n/<handle>/<slug> 新形
+    await createNote(page, `E2E ai ${Date.now()}`);
+    await expect(page).toHaveURL(/\/n\//);
     const original = "Selecting this phrase should trigger a rewrite action.";
     const editor = editorLocator(page);
     await editor.waitFor({ timeout: 15_000 });
     await editor.click();
     await editor.pressSequentially(original);
 
-    // ── 選取文字 → toolbar AI 動作（內建「Rewrite」）───────────────────
-    await editor.getByText(original, { exact: true }).click({ clickCount: 3 }); // 三擊選取整段（非 collapsed selection，getSelection() 才吃得到）
-    await page.getByRole("button", { name: "AI", exact: true }).click(); // FormattingToolbar 上的 AI 觸發鈕
-    await page.locator('[aria-label="AI actions"]').getByRole("button", { name: "Rewrite", exact: true }).click();
+    // ── 框選 → AI 鈕 → 框（焦點在指令輸入框）→ 打指令 Enter ──
+    const box = await openSelectionAiBox(page, original);
+    const input = box.getByRole("textbox", { name: "Instruction for the selected text" });
+    await expect(input).toBeFocused();
+    await input.fill("Make it shorter");
+    await input.press("Enter");
 
-    // ── 側欄自動展開。/fast 是 0ms 間隔的 8 個 delta，整輪串流在單一 microtask
-    // 迴圈內近乎同步寫完（見 e2e/stubs/ai-stub.mjs streamCompletions）——「streaming」
-    // 這個中繼態的可觀察窗口短到不可靠斷言（實測：偶爾在第一次 poll 前就已經翻到
-    // done），不釘「Generating…」，只釘頭尾：面板可見 → 最終 done 態的結果文字。
-    // reasoning 不洩漏的斷言就在**這支測試自己**的 done 態收斂驗證（下面）：
-    // 守門測試（provider 打 /slow）沒有任何 reasoning 相關斷言，別誤讀成兩支
-    // 測試分工覆蓋——不洩漏這條全靠這裡的 exact 比對＋`not.toContainText`。
-    const aiPanel = page.getByTestId("ai-panel");
-    await expect(aiPanel).toBeVisible();
+    // ── 串流完成 → diff 預覽（/fast 幾乎同步寫完，不釘中繼的 Generating…）。reasoning 不洩漏只能在這支驗。──
+    const preview = box.getByTestId("selection-ai-preview");
+    await expect(preview).toContainText(REWRITTEN_TEXT, { timeout: 15_000 });
+    await expect(box).not.toContainText(REASONING_MARKER);
+    const apply = box.getByRole("button", { name: "Apply", exact: true });
+    await expect(apply).toBeEnabled();
+    await apply.click();
 
-    // ── done：applyMode direct + 有選取（非全文）→ 串流結束自動套用，側欄直接
-    // 顯示「Revert」（不是「Apply」）。結果段落斷言 exact，順帶證明沒有任何
-    // reasoning 文字混進最終文字。────────────────────────────────────
-    await expect(aiPanel.getByText(REWRITTEN_TEXT, { exact: true })).toBeVisible({ timeout: 15_000 });
-    await expect(aiPanel).not.toContainText(REASONING_MARKER);
-    await expect(aiPanel.getByRole("button", { name: "Revert", exact: true })).toBeVisible();
+    // ── 手動套用 → 框關閉（S1）；Ctrl+Z 還原（undo 生命線 #97）──
+    await expect(box).toBeHidden();
     await expect(editor).toContainText(REWRITTEN_TEXT);
     await expect(editor).not.toContainText(original);
-
-    // ── revert：內容還原 ───────────────────────────────────────────
-    await aiPanel.getByRole("button", { name: "Revert", exact: true }).click();
+    await page.keyboard.press("Control+z");
     await expect(editor).toContainText(original);
     await expect(editor).not.toContainText(REWRITTEN_TEXT);
   } finally {
@@ -131,7 +122,37 @@ test("站台管理頁建 provider/model → toolbar 改寫 → 串流不洩漏 r
   }
 });
 
-test("守門：provider 改指向 /slow → 串流中錨點被第二個 context 改動 → 套用中止", async ({ browser }) => {
+test("chip（direct 的 Rewrite）：串流完自動套用、框留著顯示 Revert；Revert 後回到 Apply／Discard／Retry", async ({ browser }) => {
+  const context = await browser.newContext();
+  try {
+    const page = await context.newPage();
+    await loginAs(page, ADMIN.email, ADMIN.password);
+    await createNote(page, `E2E ai chip ${Date.now()}`);
+    const original = "Chip rewrite paragraph that gets replaced automatically.";
+    const editor = editorLocator(page);
+    await editor.waitFor({ timeout: 15_000 });
+    await editor.click();
+    await editor.pressSequentially(original);
+
+    const box = await openSelectionAiBox(page, original);
+    await box.getByRole("button", { name: "Rewrite", exact: true }).click();
+    const revert = box.getByRole("button", { name: "Revert", exact: true });
+    await expect(revert).toBeVisible({ timeout: 15_000 });
+    await expect(editor).toContainText(REWRITTEN_TEXT);
+    await expect(editor).not.toContainText(original);
+
+    await revert.click();
+    await expect(editor).toContainText(original);
+    await expect(editor).not.toContainText(REWRITTEN_TEXT);
+    await expect(box).toBeVisible();
+    await expect(revert).toHaveCount(0);
+    for (const name of ["Apply", "Discard", "Retry"]) await expect(box.getByRole("button", { name, exact: true })).toBeVisible();
+  } finally {
+    await context.close();
+  }
+});
+
+test("守門：provider 改指向 /slow → 串流中第二個 context 改錨點 → 框顯示原文已變更、沒有套用鈕；direct 自動套用失敗的 toast", async ({ browser }) => {
   const ownerContext = await browser.newContext();
   const otherContext = await browser.newContext();
   try {
@@ -139,29 +160,25 @@ test("守門：provider 改指向 /slow → 串流中錨點被第二個 context 
     await loginAs(ownerPage, ADMIN.email, ADMIN.password);
     await expect(ownerPage).toHaveURL(/\/$/);
 
-    // ── admin PATCH：把上一支測試建立的 provider baseUrl 改成 /slow ─────────
     await openAiSettings(ownerPage);
     const providerCard = providerCardLocator(ownerPage, PROVIDER_NAME);
     await expect(providerCard).toBeVisible();
-    // provider 層的「Edit」是卡片內第一顆同名鈕（model 列的「Edit」在它下方、DOM 順序更後）。
     await providerCard.getByRole("button", { name: "Edit", exact: true }).first().click();
     const editProviderDialog = ownerPage.getByRole("dialog", { name: "Edit provider" });
-    const baseUrlInput = editProviderDialog.getByLabel("Base URL", { exact: true });
-    await baseUrlInput.fill("http://ai-stub:9500/slow");
+    await editProviderDialog.getByLabel("Base URL", { exact: true }).fill("http://ai-stub:9500/slow");
     await editProviderDialog.getByRole("button", { name: "Save", exact: true }).click();
     await expect(editProviderDialog).not.toBeVisible();
     await expect(providerCard).toContainText("http://ai-stub:9500/slow");
-
     await leaveAdmin(ownerPage);
 
-    // ── owner 建筆記，第二個 context（同一 admin 帳號另一台裝置）開同一篇 ─────
-    const title = `E2E ai guard ${Date.now()}`;
-    await createNote(ownerPage, title);
+    await createNote(ownerPage, `E2E ai guard ${Date.now()}`);
     const noteUrl = ownerPage.url();
     const original = "Guarded paragraph awaiting a concurrent edit mid stream.";
     const ownerEditor = editorLocator(ownerPage);
     await ownerEditor.click();
     await ownerEditor.pressSequentially(original);
+    // 段落下方墊 50 個空段落，讓筆記卡捲得動（下面驗「完成時焦點移進框不捲動頁面」用）。
+    for (let i = 0; i < 50; i += 1) await ownerPage.keyboard.press("Enter");
 
     const otherPage = await otherContext.newPage();
     await loginAs(otherPage, ADMIN.email, ADMIN.password);
@@ -169,39 +186,35 @@ test("守門：provider 改指向 /slow → 串流中錨點被第二個 context 
     const otherEditor = editorLocator(otherPage);
     await expect(otherEditor).toContainText(original, { timeout: 15_000 });
 
-    // ── owner：選取整段 → 觸發 Rewrite（現在打 /slow，~11 秒的串流窗口）──────
-    await ownerEditor.getByText(original, { exact: true }).click({ clickCount: 3 });
-    await ownerPage.getByRole("button", { name: "AI", exact: true }).click();
-    await ownerPage.locator('[aria-label="AI actions"]').getByRole("button", { name: "Rewrite", exact: true }).click();
+    // ── owner：框選 → Rewrite chip（/slow：~11 秒的串流窗口）──
+    const box = await openSelectionAiBox(ownerPage, original);
+    await box.getByRole("button", { name: "Rewrite", exact: true }).click();
+    await expect(box.getByText("Generating…", { exact: true })).toBeVisible();
 
-    const aiPanel = ownerPage.getByTestId("ai-panel");
-    await expect(aiPanel.getByText("Generating…", { exact: true })).toBeVisible();
-
-    // ── 串流中：第二個 context 改動同一個錨點 block（append 文字）──────────
-    // 透過即時共編同步回 owner 的編輯器，讓 owner 端 `verifyAnchor` 在串流結束時
-    // 讀到跟 `captureAnchor` 當下不同的快照 → reason "changed"。
-    // 必須點在錨點段落的文字本身，**不能**點編輯器容器空白處——BlockNote 在內容
-    // 下方留了一段可點擊空白（點了會把游標放進文件尾端的空白 trailing block），
-    // 點容器會讓這次編輯落在另一個新 block，owner 端錨點段落因此「看起來沒變」，
-    // 守門永遠不會觸發（fix round 1 實測：容器點法讓 guard 恆假、auto-apply 誤判成功）。
+    // ── 串流中：第二個 context 改同一個錨點段落（點在段落文字本身，不能點容器空白處——會落到尾端的 trailing block）──
     const editedMarker = "EDITED BY SECOND CONTEXT";
     await otherEditor.getByText(original, { exact: true }).click();
+    await waitForEditorSelection(otherPage); // click→End→打字前等 PM 讀進 DOM caret（helpers 檔頭：不等會落在舊位置）
     await otherPage.keyboard.press("End");
     await otherPage.keyboard.type(` ${editedMarker}`);
-    await expect(ownerEditor).toContainText(editedMarker, { timeout: 10_000 }); // 確認已同步回 owner 端（守門要讀到的正是這份快照）
+    await expect(ownerEditor).toContainText(editedMarker, { timeout: 10_000 });
 
-    // ── 串流結束：自動套用因錨點已變而失敗 → 守門中止文案 ──────────────────
-    await expect(
-      ownerPage.getByText("The original text changed since this result was generated, so it wasn't applied.", {
-        exact: true,
-      }),
-    ).toBeVisible({ timeout: 15_000 });
+    // ── 框：串流中就顯示「原文已變更」；串流結束時自動套用撞守門 → toast，框裡沒有套用鈕、只剩捨棄 ──
+    await expect(box.getByText(STALE_TEXT, { exact: true })).toBeVisible();
 
-    // ── 未套用：編輯器仍是第二個 context 改過的內容，AI 改寫結果沒有覆蓋上去；
-    // 側欄回到「pendingPreview」態，顯示「Apply」而非已套用的「Revert」。──────
+    // ── 串流中把筆記捲到底（框捲出可視範圍）；完成時焦點移進框容器（焦點原在框內的取消鈕）用 preventScroll，捲動位置不得變（§5.3）──
+    const scrolled = await noteScroll(ownerPage, "nearBottom");
+    await expect(box.getByText("Generating…", { exact: true })).toBeVisible(); // 前提：捲動發生在串流完成之前
+    expect(scrolled.boxBottom).not.toBeNull();
+    expect(scrolled.boxBottom!).toBeLessThan(scrolled.scrollerTop);
+    await expect(ownerPage.getByText(GUARD_TOAST, { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(box).toBeFocused(); // 完成時焦點確實移進了框容器（不然「沒捲動」不證明什麼）
+    expect(await noteScroll(ownerPage)).toMatchObject({ scrollTop: scrolled.scrollTop, windowScrollY: scrolled.windowScrollY });
+    await expect(box.getByRole("button", { name: "Apply", exact: true })).toHaveCount(0);
+    await expect(box.getByRole("button", { name: "Retry", exact: true })).toHaveCount(0); // 錨點已變：重試也收掉（§5.2）
+    await expect(box.getByRole("button", { name: "Discard", exact: true })).toBeVisible();
     await expect(ownerEditor).toContainText(editedMarker);
     await expect(ownerEditor).not.toContainText(REWRITTEN_TEXT);
-    await expect(aiPanel.getByRole("button", { name: "Apply", exact: true })).toBeVisible();
   } finally {
     await ownerContext.close();
     await otherContext.close();

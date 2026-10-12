@@ -1,29 +1,22 @@
 import { test, expect, type Page } from "@playwright/test";
-import { ADMIN, adminNav, createNote, editorLocator, loginAs, openSiteAdmin } from "./helpers.js";
+import { ADMIN, adminNav, createNote, editorLocator, loginAs, openSelectionAiBox, openSiteAdmin } from "./helpers.js";
 
 /**
- * #115 版面改版：窄視窗（<768）的抽屜導覽與 AI bubble 浮層。
+ * #115 版面改版：窄視窗（<768）的抽屜導覽；#263 起 AI 段驗框選 AI 框的寬度。
  *
  * 佈局策略：provider/model 的建立與筆記內容輸入都在**預設 1280 視窗**完成（站台
  * 管理 modal 的表單在 390 下擁擠，且不是本檔要驗的東西），然後 `setViewportSize(390×844)`
  * 驗窄視窗行為。AI provider **自建**（流程照 04-ai 的建置段）——不依賴 04 殘留
  * 狀態（plan gate M4）。
  *
- * ⚠ 與 04 有一處刻意不同：**這裡的「Default model」勾選是承重的**。04 的註解說
- * isDefault 不是那條鏈的必要條件（該檔只有一顆 model），但全套順序下 04 留下的
- * model createdAt 較早、且其 provider 已被 04 第二支測試改指 `/slow`——本檔靠
- * admin-ai 建立時「unset 其他 chat model 的 default」讓 auto 解析選到自己的
- * `/fast`。拿掉 `.check()` 的話 Rewrite 會靜默改走 `/slow`（~11s 串流對 15s
- * 預算），綠但測錯東西。
+ * 自建 provider 只為讓工具列的 AI 鈕出現（動作清單非空）；本檔不跑任何動作，所以 auto 解析選到哪顆 model 不影響結果。
  *
- * 幾何斷言帶 ±2px 容差：bubble 距視窗右下 20px（<md）、48px 圓鈕；浮層滿寬
- * （inset-x-3＝視窗寬 −24）、底緣與 bubble 同線（bottom-5＝20px）。
+ * 幾何：框選 AI 框寬度 ≤ 視窗寬減 16（框寬＝區塊寬＋外框，上限 calc(100vw - 16px)），左右都不出視窗。
  */
 
 const RUN_ID = Date.now();
 const PROVIDER_NAME = `E2E RWD Provider ${RUN_ID}`;
 const MODEL_DISPLAY_NAME = `E2E RWD Model ${RUN_ID}`;
-const REWRITTEN_TEXT = "E2E rewritten text"; // ai-stub 固定輸出（e2e/stubs/ai-stub.mjs FINAL_CONTENT）
 
 async function openAiSettings(page: Page): Promise<void> {
   await openSiteAdmin(page);
@@ -35,7 +28,7 @@ function providerCardLocator(page: Page, name: string) {
   return page.getByRole("region", { name });
 }
 
-test("窄視窗：靜態側欄隱藏、抽屜導覽、AI bubble 展開成滿寬浮層並跑完整動作", async ({ browser }) => {
+test("窄視窗：靜態側欄隱藏、抽屜導覽、框選 AI 框不超出視窗", async ({ browser }) => {
   const context = await browser.newContext();
   try {
     const page = await context.newPage();
@@ -68,7 +61,7 @@ test("窄視窗：靜態側欄隱藏、抽屜導覽、AI bubble 展開成滿寬�
     // ── 1280：建筆記＋打一段文字 ─────────────────────────────────────────────
     const title = `E2E rwd ${RUN_ID}`;
     await createNote(page, title);
-    const original = "Narrow viewport paragraph for the whole-note rewrite.";
+    const original = "Narrow viewport paragraph for the AI box.";
     const editor = editorLocator(page);
     await editor.click();
     await editor.pressSequentially(original);
@@ -99,34 +92,14 @@ test("窄視窗：靜態側欄隱藏、抽屜導覽、AI bubble 展開成滿寬�
     await page.keyboard.press("Escape");
     await expect(drawer).not.toBeVisible();
 
-    // AI bubble：位置（距右下各 20px、48px 圓鈕）。
-    const bubble = page.getByTestId("ai-bubble");
-    await expect(bubble).toBeVisible();
-    const bubbleBox = (await bubble.boundingBox())!;
-    expect(Math.abs(bubbleBox.width - 48)).toBeLessThanOrEqual(2);
-    expect(Math.abs(390 - (bubbleBox.x + bubbleBox.width) - 20)).toBeLessThanOrEqual(2);
-    expect(Math.abs(844 - (bubbleBox.y + bubbleBox.height) - 20)).toBeLessThanOrEqual(2);
-
-    // 點開 → 滿寬底部浮層（inset-x-3：寬＝390−24；底緣與 bubble 同線 20px）。
-    await bubble.click();
-    const panel = page.getByTestId("ai-panel");
-    await expect(panel).toBeVisible();
-    const panelBox = (await panel.boundingBox())!;
-    expect(Math.abs(panelBox.x - 12)).toBeLessThanOrEqual(2);
-    expect(Math.abs(panelBox.width - (390 - 24))).toBeLessThanOrEqual(2);
-    expect(Math.abs(844 - (panelBox.y + panelBox.height) - 20)).toBeLessThanOrEqual(2);
-
-    // 浮層裡跑全文 Rewrite（無選取 → 強制 preview）→ Apply → 內文換字。
-    await panel.getByRole("button", { name: "Rewrite", exact: true }).click();
-    await expect(panel.getByRole("button", { name: "Apply", exact: true })).toBeVisible({ timeout: 15_000 });
-    await panel.getByRole("button", { name: "Apply", exact: true }).click();
-    await expect(editor).toContainText(REWRITTEN_TEXT, { timeout: 15_000 });
-    await expect(editor).not.toContainText(original);
-
-    // 收合回 bubble。
-    await panel.getByRole("button", { name: "Collapse AI panel" }).click();
-    await expect(panel).not.toBeVisible();
-    await expect(bubble).toBeVisible();
+    // #263：窄視窗下框選 AI 框照樣出現，寬度不超過視窗寬減 16、左右不出視窗；框內 Esc 關閉。
+    const box = await openSelectionAiBox(page, original);
+    const boxRect = (await box.boundingBox())!;
+    expect(boxRect.width).toBeLessThanOrEqual(390 - 16);
+    expect(boxRect.x).toBeGreaterThanOrEqual(0);
+    expect(boxRect.x + boxRect.width).toBeLessThanOrEqual(390);
+    await page.keyboard.press("Escape");
+    await expect(box).toBeHidden();
   } finally {
     await context.close();
   }
