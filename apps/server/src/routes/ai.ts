@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { asc, eq } from "drizzle-orm";
-import { AI_SSE_EVENTS, aiActionKind, type AiActionDto } from "@knotebook/shared";
+import { AI_SSE_EVENTS, INSTRUCT_ACTION_ID, aiActionKind, type AiActionDto } from "@knotebook/shared";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
 import { aiActions } from "../db/schema.js";
@@ -10,6 +10,7 @@ import { AiKeyDecryptError, decryptApiKey } from "../ai/crypto.js";
 import type { AiRuntime } from "../ai/runtime.js";
 import Anthropic from "@anthropic-ai/sdk";
 import { renderUserTemplate, streamAnthropic, streamOpenAiCompatible, truncateBody, UpstreamError, type UpstreamHandle } from "../ai/upstream.js";
+import { checkInstructFields, withInstructGuard, wrapInstructVars } from "../ai/instruct.js";
 import { sendError } from "../http/errors.js";
 import { safeTarget } from "../lib/safe-target.js";
 import { fetchErrorSummary, urlHasCredentials } from "../lib/fetch-error-summary.js";
@@ -37,10 +38,14 @@ export interface AiRouteDeps {
 }
 
 // body 刻意 snake_case（spec §6 明文例外，與其他路由的 camelCase 慣例不同）。
+// #263 §4.3：`instruction`／`focus` 只有內建 Instruct 收；誰可以帶、長度（code point）由下方 checkInstructFields 判——
+// 要先把 action_id 小寫化才知道是不是 Instruct，所以不放進 zod。
 const postAiBodySchema = z.object({
   action_id: z.string().min(1),
   note_id: z.string().min(1),
   text: z.string().min(1),
+  instruction: z.string().optional(),
+  focus: z.string().optional(),
 });
 
 const AI_UNAVAILABLE_MESSAGE = "此 AI 服務目前無法使用，請聯絡管理員";
@@ -84,7 +89,7 @@ export function aiRoutes(deps: AiRouteDeps) {
     });
 
     /**
-     * `POST /api/ai`（spec §13.2/§13.5-1）：body 為 snake_case `{action_id, note_id, text}`
+     * `POST /api/ai`（spec §13.2/§13.5-1）：body 為 snake_case `{action_id, note_id, text, instruction?, focus?}`
      * （spec §6 刻意例外）。授權/節流/解析全在 `reply.hijack()` **之前**完成——pre-stream 錯誤
      * 走一般 `sendError`（400/401/403/404/429/503）；一旦 hijack，之後整段 try/catch/finally
      * 包死，任何例外只會送出固定文案的 SSE `error` 事件，絕不逃到全域 errorHandler
@@ -98,7 +103,14 @@ export function aiRoutes(deps: AiRouteDeps) {
       if (!parsed.success) {
         return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
       }
-      const { action_id: actionId, note_id: noteId, text } = parsed.data;
+      const { text, instruction, focus } = parsed.data;
+      // #263 §4.3：先小寫化（與 #240 路徑參數同語意）——之後的 UUID 檢查、DB 查詢、常數比對都用小寫值。
+      const actionId = parsed.data.action_id.toLowerCase();
+      const noteId = parsed.data.note_id.toLowerCase();
+
+      // #263 §4.3：Instruct 相關的 400 以常數判、不查 DB，排在 UUID 檢查、角色檢查與節流之前（節流額度不扣）。
+      const fields = checkInstructFields(actionId === INSTRUCT_ACTION_ID, instruction, focus);
+      if (!fields.ok) return sendError(reply, 400, "invalid_body", fields.message);
 
       // 非 uuid 一律 400（不進 resolveRole/DB 查詢——UUID_RE 是 resolveRole 內部同一份
       // guard，但這裡刻意提前擋掉，避免「格式不合法」與「無權限/找不到」在同一個 404 分支
@@ -211,11 +223,19 @@ export function aiRoutes(deps: AiRouteDeps) {
       // timeout、client 斷線四種收尾路徑，兩個 provider 分支皆受惠。
       let handle: UpstreamHandle | undefined;
       try {
+        // #263 §4.2：「是不是 Instruct」依 DB 讀回的 id（上面的常數比對只管串流前的 400）。`action` 是以 eq(aiActions.id, actionId)
+        // 查回的，兩者同值；Instruct 時 fields.instruct 必非 null（checkInstructFields 的回傳形）。
+        const isInstruct = action.id === INSTRUCT_ACTION_ID;
         const opts = {
           baseUrl: resolved.provider.baseUrl,
           model: resolved.model.modelId,
-          system: action.systemPrompt,
-          user: renderUserTemplate(action.userTemplate, { text, instruction: "", focus: "" }),
+          system: isInstruct ? withInstructGuard(action.systemPrompt) : action.systemPrompt,
+          user: renderUserTemplate(
+            action.userTemplate,
+            isInstruct
+              ? wrapInstructVars({ text, instruction: fields.instruct?.instruction ?? "", focus: fields.instruct?.focus })
+              : { text, instruction: "", focus: "" },
+          ),
           signal: upstreamAbort.signal,
         };
         handle =

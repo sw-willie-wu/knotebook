@@ -3,7 +3,7 @@ import { setTimeout as realDelay } from "node:timers/promises";
 import http from "node:http";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { eq } from "drizzle-orm";
-import { SESSION_COOKIE } from "@knotebook/shared";
+import { INSTRUCT_ACTION_ID, REWRITE_ACTION_ID, SESSION_COOKIE } from "@knotebook/shared";
 import { buildTestApp, freshLimiters, testConfig } from "./helpers.js";
 import { aiActions, aiModels, aiProviders, notes, noteShares, users } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
@@ -12,6 +12,7 @@ import { hashPassword } from "../src/auth/password.js";
 import { encryptApiKey } from "../src/ai/crypto.js";
 import { createAiRuntime } from "../src/ai/runtime.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
+import { INSTRUCT_GUARD_PROMPT } from "../src/ai/instruct.js";
 
 const VALID_PASSWORD = "correct-horse-battery";
 
@@ -767,5 +768,150 @@ describe("POST /api/ai — openai_compatible 無金鑰撞上游授權錯誤（is
     const body = await run(500, { apiKeyEncrypted: null });
     expect(body).toContain("upstream_error");
     expect(body).not.toContain("provider_unavailable");
+  });
+});
+
+describe("POST /api/ai — #263 Instruct 欄位矩陣（§4.3：串流前 400、在角色檢查與節流之前）", () => {
+  // 刻意用使用者無權限的 note：400 若排在 resolveRole 之後，這些案會變 404。
+  const NO_ACCESS_NOTE = "11111111-2222-4333-8444-555555555555";
+  const cases: Array<[string, Record<string, unknown>]> = [
+    ["Instruct 缺 instruction", { action_id: INSTRUCT_ACTION_ID }],
+    ["Instruct instruction 為空字串", { action_id: INSTRUCT_ACTION_ID, instruction: "" }],
+    ["Instruct instruction 只有空白（含全形空白，RF2）", { action_id: INSTRUCT_ACTION_ID, instruction: " 　\t" }],
+    ["Instruct instruction trim 後 501 code point", { action_id: INSTRUCT_ACTION_ID, instruction: `  ${"字".repeat(501)}  ` }],
+    ["Instruct focus 2001 code point", { action_id: INSTRUCT_ACTION_ID, instruction: "改短", focus: "😀".repeat(2001) }],
+    ["非 Instruct 帶 instruction（空字串也算帶）", { action_id: REWRITE_ACTION_ID, instruction: "" }],
+    ["非 Instruct 只帶 focus（空字串也算帶）", { action_id: REWRITE_ACTION_ID, focus: "" }],
+    ["大寫的 Instruct id 缺 instruction（小寫化後同樣走 Instruct 規則）", { action_id: INSTRUCT_ACTION_ID.toUpperCase() }],
+  ];
+  for (const [name, extra] of cases) {
+    it(`${name} → 400 invalid_body（筆記無權限也先回 400）`, async () => {
+      const { app, db } = await buildTestApp();
+      const user = await insertUser(db);
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/ai",
+        cookies: { [SESSION_COOKIE]: await cookieFor(user.id) },
+        payload: { note_id: NO_ACCESS_NOTE, text: "hi", ...extra },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.code).toBe("invalid_body");
+    });
+  }
+
+  it("Instruct 的 400 不扣節流額度：limit 1 下先送兩發 400，第三發才吃額度（404：動作不存在），第四發 429", async () => {
+    // 節流在 resolveRole 之後（routes/ai.ts），所以要用有編輯權的筆記，請求才走得到 consume。
+    const smallAiLimiter = new FixedWindowLimiter({ limit: 1, windowMs: 600_000 });
+    const { app, db } = await buildTestApp({ limiters: limitersWithAi(smallAiLimiter) });
+    const access = await setupNoteAccess(db);
+    const bad = { action_id: INSTRUCT_ACTION_ID, note_id: access.noteId, text: "hi" };
+    const ok = { action_id: "00000000-0000-0000-0000-000000000000", note_id: access.noteId, text: "hi" };
+    const send = (payload: Record<string, unknown>) =>
+      app.inject({ method: "POST", url: "/api/ai", cookies: { [SESSION_COOKIE]: access.editorCookie }, payload });
+
+    const statuses = [(await send(bad)).statusCode, (await send(bad)).statusCode, (await send(ok)).statusCode, (await send(ok)).statusCode];
+    expect(statuses).toEqual([400, 400, 404, 429]);
+  });
+
+  it("Instruct：instruction 1..500＋focus 為 2000 個 emoji → 串流 200（不是 400）", async () => {
+    const fakeUpstream = await startFakeUpstream((_req, res) => {
+      res.writeHead(200, SSE_HEADERS);
+      res.end(`${sseDelta("ok")}data: [DONE]\n\n`);
+    });
+    const { app, db } = await buildTestApp();
+    const access = await setupNoteAccess(db);
+    const provider = await insertProvider(db, { baseUrl: fakeUpstream.baseUrl });
+    await insertModel(db, provider.id);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/ai",
+      cookies: { [SESSION_COOKIE]: access.editorCookie },
+      payload: { action_id: INSTRUCT_ACTION_ID, note_id: access.noteId, text: "hi", instruction: "😀".repeat(500), focus: "😀".repeat(2000) },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(eventSequence(res.body)).toEqual(["delta", "done"]);
+  });
+});
+
+describe("POST /api/ai — #263 組裝（§4.2：固定標記與守門）", () => {
+  async function instructRun(payload: Record<string, unknown>, before?: (db: Db) => Promise<void>) {
+    const fakeUpstream = await startFakeUpstream((_req, res) => {
+      res.writeHead(200, SSE_HEADERS);
+      res.end(`${sseDelta("ok")}data: [DONE]\n\n`);
+    });
+    const { app, db } = await buildTestApp();
+    const access = await setupNoteAccess(db);
+    const provider = await insertProvider(db, { baseUrl: fakeUpstream.baseUrl });
+    await insertModel(db, provider.id);
+    if (before) await before(db);
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/ai",
+      cookies: { [SESSION_COOKIE]: access.editorCookie },
+      payload: { note_id: access.noteId, ...payload },
+    });
+    return { res, db, sent: fakeUpstream.requestBodies };
+  }
+
+  it("Instruct：user＝預設 template 依序代入三個標記（instruction 用 trim 後的值）；system＝守門＋空行＋動作 prompt", async () => {
+    const { res, db, sent } = await instructRun({
+      action_id: INSTRUCT_ACTION_ID,
+      text: "第一段\n\n第二段",
+      instruction: "  改成條列  ",
+      focus: "第二段",
+    });
+    const [instruct] = await db.select().from(aiActions).where(eq(aiActions.id, INSTRUCT_ACTION_ID));
+    expect(sent).toHaveLength(1); // 前置條件：上游確實收到一發請求（否則下面讀 sent[0] 會是 TypeError）
+    expect(sent[0]!.messages).toEqual([
+      { role: "system", content: `${INSTRUCT_GUARD_PROMPT}\n\n${instruct!.systemPrompt}` },
+      { role: "user", content: "<instruction>\n改成條列\n</instruction>\n<selected>\n第二段\n</selected>\n<text>\n第一段\n\n第二段\n</text>" },
+    ]);
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("Instruct 不帶 focus → <selected></selected>", async () => {
+    const { sent } = await instructRun({ action_id: INSTRUCT_ACTION_ID, text: "body", instruction: "x" });
+    expect(sent).toHaveLength(1); // 前置條件：上游確實收到一發請求（否則下面讀 sent[0] 會是 TypeError）
+    expect(sent[0]!.messages?.[1]).toEqual({ role: "user", content: "<instruction>\nx\n</instruction>\n<selected></selected>\n<text>\nbody\n</text>" });
+  });
+
+  it("Instruct 的 template 被管理員改過：標記仍由路由包，template 只決定順序與中間的字", async () => {
+    const { sent } = await instructRun({ action_id: INSTRUCT_ACTION_ID, text: "body", instruction: "x" }, async (db) => {
+      await db.update(aiActions).set({ userTemplate: "B:{{text}} A:{{instruction}}" }).where(eq(aiActions.id, INSTRUCT_ACTION_ID));
+    });
+    expect(sent).toHaveLength(1); // 前置條件：上游確實收到一發請求（否則下面讀 sent[0] 會是 TypeError）
+    expect(sent[0]!.messages?.[1]?.content).toBe("B:<text>\nbody\n</text> A:<instruction>\nx\n</instruction>");
+  });
+
+  it("大寫的 Instruct id：同樣包標記、前置守門（小寫化後判 DB id）", async () => {
+    const { sent } = await instructRun({ action_id: INSTRUCT_ACTION_ID.toUpperCase(), text: "body", instruction: "x" });
+    expect(sent).toHaveLength(1); // 前置條件：上游確實收到一發請求（否則下面讀 sent[0] 會是 TypeError）
+    expect(sent[0]!.messages?.[0]?.content.startsWith(`${INSTRUCT_GUARD_PROMPT}\n\n`)).toBe(true);
+    expect(sent[0]!.messages?.[1]?.content).toContain("<text>\nbody\n</text>");
+  });
+
+  it("quick 動作：不前置守門、text 裸代入、{{instruction}}／{{focus}} 代入空字串", async () => {
+    const fakeUpstream = await startFakeUpstream((_req, res) => {
+      res.writeHead(200, SSE_HEADERS);
+      res.end(`${sseDelta("ok")}data: [DONE]\n\n`);
+    });
+    const { app, db } = await buildTestApp();
+    const access = await setupNoteAccess(db);
+    const provider = await insertProvider(db, { baseUrl: fakeUpstream.baseUrl });
+    const model = await insertModel(db, provider.id);
+    const action = await insertAction(db, { modelId: model.id, systemPrompt: "quick sp", userTemplate: "[{{instruction}}|{{focus}}|{{text}}]" });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/ai",
+      cookies: { [SESSION_COOKIE]: access.editorCookie },
+      payload: { action_id: action.id, note_id: access.noteId, text: "hi" },
+    });
+    expect(fakeUpstream.requestBodies[0]!.messages).toEqual([
+      { role: "system", content: "quick sp" },
+      { role: "user", content: "[||hi]" },
+    ]);
+    expect(res.statusCode).toBe(200);
   });
 });
