@@ -11,7 +11,6 @@ import { BlockNoteEditor, filterSuggestionItems, SuggestionMenu } from "@blockno
 import { withCollaboration } from "@blocknote/core/yjs";
 import {
   FilePanelController,
-  FormattingToolbarController,
   SuggestionMenuController,
   useCreateBlockNote,
   type DefaultReactSuggestionItem,
@@ -38,7 +37,7 @@ import { AiSessionProvider } from "@/components/ai/AiSession";
 import { CornerStack } from "@/components/CornerStack";
 import { useVersions } from "@/lib/versions-context";
 import { VERSIONS_ERROR_FRAME, VersionsLazyBoundary } from "@/components/versions/VersionsLazyBoundary";
-import { AiToolbar } from "@/components/ai/AiToolbar";
+import { SelectionAiController } from "@/components/ai/SelectionAiController";
 
 const VersionsPanel = lazy(() =>
   import("@/components/versions/VersionsLazy").then(m => ({ default: m.VersionsPanel })),
@@ -476,7 +475,10 @@ export function NoteEditor({
                 noteId={noteId}
                 getItems={getItems}
                 getSlashItems={getSlashItems}
-              />
+              >
+                {/* #263 §5.3：formatting toolbar controller 與框選 AI 框的唯一擁有者；NoteEditorView 不碰 AI context。 */}
+                <SelectionAiController />
+              </NoteEditorView>
             </div>
           </div>
           {hasPreview && (
@@ -529,6 +531,7 @@ export interface NoteEditorViewProps {
  * 只需要一個掛好的 `<BlockNoteView>` + 真編輯器就測得到（見
  * `NoteEditorView.test.tsx`；jsdom 缺的 `ResizeObserver`/`window.matchMedia` 兩個
  * mantine 內部會摸到的全域已經補進 `test/setup.ts`）。
+ * #263 起 formatting toolbar 不在這裡掛：它與框選 AI 框由 children（`SelectionAiController`）擁有。
  */
 export function NoteEditorView({ editor, editable, theme, noteId, getItems, getSlashItems, children }: NoteEditorViewProps) {
   // Task 14：`createFilePanel(noteId)` 回傳一個新的元件型別——`FilePanelController`
@@ -538,13 +541,6 @@ export function NoteEditorView({ editor, editable, theme, noteId, getItems, getS
   // 註解：noteId 一換，`doc`/`provider` 必然跟著換，等於整個 `NoteEditor` 重新掛載），
   // 但依賴陣列仍誠實列出，不靠這個隱含假設省略。
   const filePanel = useMemo(() => createFilePanel(noteId), [noteId]);
-  // Task 6：`AiToolbar` 本身是模組層級的具名匯出（不像 `createFilePanel` 是「依 noteId
-  // 生一個新元件型別」的工廠），identity 本來就跨 render 穩定——這裡仍然 `useMemo` 釘一次
-  // 是刻意逐字比照 filePanel 這支的既有寫法/註解風格（brief 明文要求）：
-  // `FormattingToolbarController` 拿 `formattingToolbar` prop 跟前一輪比對身分，同一套
-  // 「身分不穩會被當成換元件、整個卸載重掛」的風險模型也適用在它身上，`useMemo` 讓這個
-  // 不變量在原始碼層級直接可見，不必倚賴「反正它是模組層級函式」這個隱含事實。
-  const aiToolbar = useMemo(() => AiToolbar, []);
 
   // issue #97：共編的 undo/redo 生命線。`<BlockNoteView>` 會在 `editable` 翻面時把
   // ProseMirror view 拆掉重掛，而 y-prosemirror 的 undo plugin 在 view 銷毀時會
@@ -566,9 +562,9 @@ export function NoteEditorView({ editor, editable, theme, noteId, getItems, getS
       // 理由見 `components/FilePanel.tsx` 檔頭）。不明確設 `false` 這裡會同時掛兩個
       // file panel controller，使用者點開檔案 block 會看到兩份面板疊在一起。
       filePanel={false}
-      // 同理關掉內建的 FormattingToolbarController：下面接管的是我們自家的
-      // `AiToolbar`（`getFormattingToolbarItems()` 全數復原＋追加 AI 動作選單，見
-      // `components/ai/AiToolbar.tsx` 檔頭）。
+      // 同理關掉內建的 FormattingToolbarController：接管的是 children 裡的 `SelectionAiController`（#263 §5.3：它獨自擁有
+      // formatting toolbar controller 與框選 AI 框，含「框開著時壓住工具列」）。**這個 false 不可拿掉**：拿掉會多出一份預設工具列，
+      // 壓制只壓得到 controller 那一份（起草時 jsdom 實測）。
       formattingToolbar={false}
       // 同理關掉內建的 slash menu controller（issue #94）：下面接管的是我們自己的
       // `getSlashItems`（內建項全數保留＋mermaid 圖表＋連結，見 `components/slash-menu.tsx`）。
@@ -578,7 +574,6 @@ export function NoteEditorView({ editor, editable, theme, noteId, getItems, getS
       <SuggestionMenuController triggerCharacter="[[" getItems={getItems} />
       <SuggestionMenuController triggerCharacter="/" getItems={getSlashItems} />
       <FilePanelController filePanel={filePanel} />
-      <FormattingToolbarController formattingToolbar={aiToolbar} />
       {children}
     </BlockNoteView>
   );

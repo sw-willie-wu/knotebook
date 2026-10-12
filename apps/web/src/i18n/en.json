@@ -892,8 +892,7 @@
   },
   "ai": {
     "toolbar": {
-      "trigger": "AI",
-      "menuLabel": "AI actions"
+      "trigger": "AI"
     },
     "box": {
       "applyGuardFailed": "The original text changed since this result was generated, so it wasn't applied.",

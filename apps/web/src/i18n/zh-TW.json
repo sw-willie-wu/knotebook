@@ -892,8 +892,7 @@
   },
   "ai": {
     "toolbar": {
-      "trigger": "AI",
-      "menuLabel": "AI 動作"
+      "trigger": "AI"
     },
     "box": {
       "applyGuardFailed": "原文在此結果產生後已被改動，因此未套用。",
