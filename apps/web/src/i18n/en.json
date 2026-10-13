@@ -666,6 +666,10 @@
     "entry": "Settings",
     "title": "Settings",
     "description": "Manage your account and workspace settings.",
+    "table": {
+      "rowDetails": "{{name}} details",
+      "rowError": "{{name}} error"
+    },
     "nav": {
       "account": "Account info",
       "login": "Sign-in",

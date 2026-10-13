@@ -666,6 +666,10 @@
     "entry": "設定",
     "title": "設定",
     "description": "管理你的帳號與工作區設定。",
+    "table": {
+      "rowDetails": "{{name}} 明細",
+      "rowError": "{{name}} 錯誤"
+    },
     "nav": {
       "account": "帳戶資訊",
       "login": "登入",
