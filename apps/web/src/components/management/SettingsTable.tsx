@@ -123,7 +123,7 @@ export function orderSettingsTableColumns(columns: SettingsTableColumn[]): Setti
 const ENABLED_TRACK = "3.5rem";
 
 /** 一欄的 grid 軌道（spec §2.1）。 */
-export function settingsTableTrack(column: SettingsTableColumn, isLast: boolean): string {
+function settingsTableTrack(column: SettingsTableColumn, isLast: boolean): string {
   switch (column.kind) {
     case "primary":
       return "minmax(14ch,2fr)";
@@ -252,8 +252,9 @@ function useScrollBox(active: boolean, stickyKey: string | undefined) {
 
   /**
    * 聚焦帶捲的補捲：瀏覽器只在焦點目標落在捲動框可視範圍外時才捲（捲的時候才套用 scroll-padding）；目標整顆在框內、
-   * 只是左半壓在 sticky 主欄底下時不會捲（Chromium 實測），這裡把 scrollLeft 往左補到目標露出。焦點在頂層資料列的
-   * 主欄格（sticky 格本身）裡就不補。
+   * 只是左半壓在 sticky 主欄底下時不會捲（Chromium 實測），這裡把 scrollLeft 往左補到目標露出。只補頂層資料列
+   * （捲動框 > table > row、帶 aria-labelledby）的非主欄格：明細列、錯誤列、子表列沒有 sticky 格，控制項完全可見，
+   * 補捲反而讓滑鼠按下（先 focus）時按鈕移離游標、click 被吃掉；主欄格（sticky 格本身）裡也不補。
    */
   function revealPastSticky(target: Element): void {
     const scroller = boxRef.current;
@@ -261,9 +262,8 @@ function useScrollBox(active: boolean, stickyKey: string | undefined) {
     // React 的 onFocus 會穿過 portal 冒泡：列上開的對話框（DOM 在 body）裡的焦點不是表內控制項，不補。
     if (scroller === null || sticky === null || !scroller.contains(target)) return;
     const row = target.closest('[role="row"]');
-    if (row !== null && row.hasAttribute("aria-labelledby") && row.parentElement?.parentElement === scroller && row.firstElementChild?.contains(target)) {
-      return;
-    }
+    if (row === null || !row.hasAttribute("aria-labelledby") || row.parentElement?.parentElement !== scroller) return;
+    if (row.firstElementChild?.contains(target)) return;
     const covered = sticky.getBoundingClientRect().right - target.getBoundingClientRect().left;
     // 進位成整數：scrollLeft 可能被取整，補不足會留下小於 1px 的遮擋。
     if (covered > 0) scroller.scrollLeft -= Math.ceil(covered);

@@ -324,6 +324,36 @@ describe("SettingsTable（spec §2、§5.1）", () => {
     expect(scrollLeft).toBe(241);
   });
 
+  it("§2.4 聚焦補捲只補頂層資料列：明細列與子表列裡的按鈕左緣在 sticky 右緣左側也不動 scrollLeft（它們沒有 sticky 格、完全可見；補捲會讓滑鼠點擊落空）", () => {
+    const detailRow = row("a", "Alpha", {
+      detail: (
+        <>
+          <button type="button">Copy URL</button>
+          <SettingsTable nested label="Sub" columns={[NAME, { ...ACTIONS, buttons: 2 }, ENABLED]} rows={[row("m", "Model one")]} />
+        </>
+      ),
+    });
+    render(<SettingsTable label="Things" columns={ALL} rows={[detailRow]} />);
+    const box = screen.getByRole("region", { name: "Things" });
+    let scrollLeft = 241;
+    Object.defineProperty(box, "scrollLeft", { configurable: true, get: () => scrollLeft, set: (value: number) => (scrollLeft = value) });
+    const stickyHeader = headersOf(tableNamed())[0]!;
+    const copy = screen.getByRole("button", { name: "Copy URL" });
+    const subEdit = screen.getByRole("button", { name: "Edit Model one" });
+    const topEdit = screen.getByRole("button", { name: "Edit Alpha" });
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      return this === stickyHeader ? new DOMRect(0, 0, 124.6875, 30) : new DOMRect(20, 0, 32, 32); // 一律在 sticky 右緣左側
+    });
+
+    act(() => copy.focus());
+    expect(scrollLeft).toBe(241);
+    act(() => subEdit.focus());
+    expect(scrollLeft).toBe(241);
+    // 對照：同樣幾何下頂層資料列的按鈕照補（證明上面不動不是因為量測沒生效）。
+    act(() => topEdit.focus());
+    expect(scrollLeft).toBe(136);
+  });
+
   it("§2.4 聚焦補捲只管捲動框內的焦點：列上 portal 到 body 的控制項（對話框）取得焦點時，React onFocus 冒泡上來也不動 scrollLeft", () => {
     const portalRow = row("a", "Alpha", {
       actions: createPortal(
