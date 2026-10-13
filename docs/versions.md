@@ -18,7 +18,7 @@ Each version lists the people who changed the note since the version before it �
 
 A version is saved automatically only when the content has actually changed: opening a note and closing it again doesn't save a version, nor does typing something and deleting it again, and block attributes that merely restate the editor's defaults (for example a paragraph aligned left) don't count as a change.
 
-**By hand**: choose **Save current version** from the `⋮` menu at the top of the note (the `⋮` on a note's row in the sidebar doesn't have it), press **Ctrl+S** (**Cmd+S** on a Mac), or use **Save current version** at the bottom of the version list. A dialog asks for an optional **Version name** (up to 120 characters). Ctrl+S is left to the browser while another dialog or a drop-down menu (such as a `⋮` menu) is open — the full-screen version history on a narrow window counts as a dialog, the sidebar on a narrow window doesn't — and during a presentation; on a note you can only view, it is always left to the browser. If the note's content is the same as the version it is based on, no new version is created: that version is turned into a manual one (and given the name, if you entered one), and the notice says so.
+**By hand**: press **Ctrl+S** (**Cmd+S** on a Mac), or use **Save current version** at the bottom of the version list. A dialog asks for an optional **Version name** (up to 120 characters). Ctrl+S is left to the browser while another dialog or a drop-down menu (such as a `⋮` menu) is open — the full-screen version history on a narrow window counts as a dialog, the sidebar on a narrow window doesn't — and during a presentation; on a note you can only view, it is always left to the browser. If the note's content is the same as the version it is based on, no new version is created: that version is turned into a manual one (and given the name, if you entered one), and the notice says so.
 
 **Nothing else creates a version.** A note that existed before version history was added has no versions until its content changes, and the content it had before that first change is not kept as a version. A copied or moved note has no versions until its content changes (or a version is saved by hand) in its new place.
 
@@ -42,7 +42,7 @@ When automatic versions are off for the note, a second line says **Automatic sav
 
 ## Previewing and comparing
 
-On a wide window, open the history with the round **Version history** button at the bottom right of the note, or from **Version history** in the `⋮` menu at the top of the note. The list opens beside the note.
+On a wide window, open the history with the round **Version history** button at the bottom right of the note. The list opens beside the note.
 
 Click a row to preview that version; its content isn't loaded until you do. The ↑ and ↓ keys move between rows and preview each one. While you preview, a bar under the page header shows the version and lets you choose:
 

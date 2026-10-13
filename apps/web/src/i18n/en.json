@@ -139,7 +139,6 @@
       "label": "More",
       "labelFor": "Note actions for {{title}}",
       "versions": "Version history",
-      "saveVersion": "Save current version",
       "aiEdits": "AI edit history",
       "present": "Present",
       "moveTo": "Move to…",

@@ -8,7 +8,7 @@ import { isTerminal, type CollabState } from "@/collab/connection";
 import { copyText } from "@/lib/clipboard";
 import { useNotePageControls, type OpenEditsState } from "@/lib/note-page-controls";
 import { useCloseSidebarDrawer } from "@/lib/sidebar-drawer";
-import { useVersions } from "@/lib/versions-context";
+import { useIsNarrow, useVersions } from "@/lib/versions-context";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { hoverReveal } from "@/components/ui/reveal";
@@ -156,6 +156,26 @@ export function SidebarNoteMenu({ note }: { note: NoteDto }) {
   );
 }
 
+/** 「版本歷史」項：只在窄視窗渲染——寬視窗有右下歷史泡泡（CornerStack 讀同一個 `useIsNarrow()`），同一寬度只留一個入口。
+ * 用條件渲染而非 `md:hidden`：display:none 的 Radix 項目仍在選單集合裡，方向鍵／typeahead 會停在看不見的項目。
+ * matchMedia 訂閱放在這個子元件，選單內容掛著才訂閱，不讓每個側欄列的 NoteMenuCore 都掛一份。 */
+function VersionsMenuItem({ onActivate }: { onActivate: () => void }) {
+  const { t } = useTranslation();
+  const narrow = useIsNarrow();
+  if (!narrow) return null;
+  return (
+    <DropdownMenuItem
+      onSelect={(event) => {
+        event.preventDefault();
+        onActivate();
+      }}
+    >
+      <History className="mr-2 h-4 w-4" />
+      {t("note.menu.versions")}
+    </DropdownMenuItem>
+  );
+}
+
 function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef: externalTriggerRef }: NoteMenuCoreProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -294,31 +314,16 @@ function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef:
             {t("note.menu.present")}
           </DropdownMenuItem>
           {/* 版本歷史（spec §8.5）：只在 `useVersions().enabled`（＝canEdit，且在 NotePage 的 VersionsProvider 之內）時渲染——
-              側欄每列的 ⋮ 在 provider 之外，拿到的是 no-op 預設（enabled=false），所以兩項只出現在頁首 ⋮（起草裁定 5）。
+              側欄每列的 ⋮ 在 provider 之外，拿到的是 no-op 預設（enabled=false），所以只出現在頁首 ⋮（起草裁定 5）。
+              項目本身只在窄視窗渲染（見 `VersionsMenuItem`）；「儲存當前版本」不在 ⋮（入口是 Ctrl+S 與版本面板／整頁底部的按鈕）。
               三步形同下方 AI 修改紀錄項（focus trap 規矩，見檔頭）。 */}
           {versions.enabled && (
-            <>
-              <DropdownMenuItem
-                onSelect={(event) => {
-                  event.preventDefault();
-                  setMenuOpen(false);
-                  versions.open();
-                }}
-              >
-                <History className="mr-2 h-4 w-4" />
-                {t("note.menu.versions")}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onSelect={(event) => {
-                  event.preventDefault();
-                  setMenuOpen(false);
-                  versions.openSave();
-                }}
-              >
-                <History className="mr-2 h-4 w-4 opacity-0" aria-hidden="true" />
-                {t("note.menu.saveVersion")}
-              </DropdownMenuItem>
-            </>
+            <VersionsMenuItem
+              onActivate={() => {
+                setMenuOpen(false);
+                versions.open();
+              }}
+            />
           )}
           {/* AI 修改紀錄（#106）。三步形與下面的刪除項逐字同形：⚠ 少了
               `event.preventDefault()` 選單一樣會關、新案照樣綠——**沒有任何測試守著

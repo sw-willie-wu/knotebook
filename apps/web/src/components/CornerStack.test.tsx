@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import i18n from "@/i18n";
-import { VersionsProvider, useVersions, useVersionsController } from "@/lib/versions-context";
+import { NARROW_QUERY, VersionsProvider, useVersions, useVersionsController } from "@/lib/versions-context";
 import { CornerStack } from "./CornerStack";
 
 /** 探針：印出版本面板狀態，並提供「從 ⋮ 開版本面板」的外部按鈕。 */
@@ -53,16 +53,47 @@ describe("CornerStack（spec 2026-10-09 §8.1；#263 起只剩歷史泡泡）", 
     expect(stack).not.toHaveClass(SHIFT);
   });
 
+  function installMatchMedia(narrow: boolean): (next: boolean) => void {
+    let current = narrow;
+    const listeners = new Set<() => void>();
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn((query: string) => ({
+        get matches() {
+          return query === NARROW_QUERY ? current : false;
+        },
+        media: query,
+        addEventListener: (_: string, fn: () => void) => listeners.add(fn),
+        removeEventListener: (_: string, fn: () => void) => listeners.delete(fn),
+      })),
+    );
+    return (next) => {
+      current = next;
+      act(() => listeners.forEach((fn) => fn()));
+    };
+  }
+
+  it("窄視窗：沒有歷史泡泡（整個容器不渲染）；寬：有；跨斷點跟著變", async () => {
+    const setNarrow = installMatchMedia(true);
+    renderStack(true);
+    expect(screen.queryByTestId("versions-bubble")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("corner-stack")).not.toBeInTheDocument();
+    setNarrow(false);
+    expect(await screen.findByTestId("versions-bubble")).toBeInTheDocument();
+    setNarrow(true);
+    expect(screen.queryByTestId("versions-bubble")).not.toBeInTheDocument();
+  });
+
   it("viewer（versions enabled=false）→ 整個容器不渲染", () => {
     renderStack(false);
     expect(screen.queryByTestId("corner-stack")).not.toBeInTheDocument();
   });
 
-  it("歷史泡泡：<md 不渲染（max-md:hidden）、brand icon 鈕同形、aria-label；點了開面板，開著時整個容器消失", async () => {
+  it("歷史泡泡：brand icon 鈕同形、aria-label；點了開面板，開著時整個容器消失", async () => {
     renderStack(true);
     const bubble = await screen.findByTestId("versions-bubble");
     expect(bubble).toHaveAttribute("aria-label", "Version history");
-    expect(bubble).toHaveClass("max-md:hidden", "h-12", "w-12", "rounded-full", "bg-brand-soft");
+    expect(bubble).toHaveClass("h-12", "w-12", "rounded-full", "bg-brand-soft");
     fireEvent.click(bubble);
     expect(screen.getByTestId("panel-open")).toHaveTextContent("true");
     expect(screen.queryByTestId("corner-stack")).not.toBeInTheDocument();

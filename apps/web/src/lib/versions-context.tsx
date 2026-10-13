@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import type { VersionDto } from "@knotebook/shared";
 import type { VersionKindFilter, VersionTarget } from "@/api/versions";
 
@@ -128,6 +128,18 @@ export function isOverlayOpen(): boolean {
 
 function isNarrow(): boolean {
   return window.matchMedia(NARROW_QUERY).matches;
+}
+
+function subscribeNarrow(onChange: () => void): () => void {
+  const mql = window.matchMedia(NARROW_QUERY);
+  mql.addEventListener("change", onChange);
+  return () => mql.removeEventListener("change", onChange);
+}
+
+/** 目前是不是窄視窗（`NARROW_QUERY`）；視窗跨斷點時跟著更新。歷史泡泡（CornerStack 的 `max-md:hidden`）與此同界：
+ * 窄＝沒有泡泡，所以頁首 ⋮ 的「版本歷史」只在窄時渲染。 */
+export function useIsNarrow(): boolean {
+  return useSyncExternalStore(subscribeNarrow, isNarrow, () => false);
 }
 
 export function useVersionsController({

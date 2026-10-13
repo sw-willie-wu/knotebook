@@ -1,6 +1,6 @@
 import { createRef, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import type { CollabState } from "@/collab/connection";
@@ -9,7 +9,7 @@ import i18n from "@/i18n";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { NoteMenu, SidebarNoteMenu } from "./NoteMenu";
 import { EDITOR_PERMS, OWNER_PERMS } from "@/test/fixtures";
-import { useVersionsController, VersionsProvider } from "@/lib/versions-context";
+import { NARROW_QUERY, useVersionsController, VersionsProvider } from "@/lib/versions-context";
 
 // ⋮ 選單（spec D.4）：複製連結（任何角色）＋刪除筆記（#175 起看 `permissions.delete`，含 M11 的
 // leavingRef 時序：刪除失敗且已進終態時，`NoteMenu` 必須自己補一套「同文案同
@@ -489,22 +489,74 @@ describe("NoteMenu × 版本歷史（spec §8.5）", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("canEdit（provider enabled）→ 「Version history」「Save current version」在「AI edit history」上方", async () => {
+  /** 可控 matchMedia：只有 `NARROW_QUERY` 回 `narrow`；回傳「跨斷點」的把手（會通知已註冊的 change 監聽）。 */
+  let liveListeners = (): number => 0;
+  function installMatchMedia(narrow: boolean): (next: boolean) => void {
+    let current = narrow;
+    const listeners = new Set<() => void>();
+    liveListeners = () => listeners.size;
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn((query: string) => ({
+        get matches() {
+          return query === NARROW_QUERY ? current : false;
+        },
+        media: query,
+        addEventListener: (_: string, fn: () => void) => listeners.add(fn),
+        removeEventListener: (_: string, fn: () => void) => listeners.delete(fn),
+      })),
+    );
+    return (next) => {
+      current = next;
+      act(() => listeners.forEach((fn) => fn()));
+    };
+  }
+
+  it("窄（沒有歷史泡泡）：canEdit → 「Version history」在「AI edit history」上方；沒有「Save current version」", async () => {
+    installMatchMedia(true);
     renderVersionsMenu("enabled");
     const menu = await openVersionsMenu();
     const names = within(menu).getAllByRole("menuitem").map((el) => el.textContent?.trim());
     const iv = names.indexOf("Version history");
     expect(iv).toBeGreaterThanOrEqual(0);
-    expect(names[iv + 1]).toBe("Save current version");
-    expect(names.indexOf("AI edit history")).toBe(iv + 2);
+    expect(names.indexOf("AI edit history")).toBe(iv + 1);
+    expect(names).not.toContain("Save current version");
   });
 
-  it("點「Version history」→ open()；點「Save current version」→ 開儲存對話框", async () => {
+  it("寬（有歷史泡泡）：沒有「Version history」也沒有「Save current version」", async () => {
+    installMatchMedia(false);
+    renderVersionsMenu("enabled");
+    const menu = await openVersionsMenu();
+    expect(within(menu).getByRole("menuitem", { name: "AI edit history" })).toBeInTheDocument();
+    expect(within(menu).queryByRole("menuitem", { name: "Version history" })).not.toBeInTheDocument();
+    expect(within(menu).queryByRole("menuitem", { name: "Save current version" })).not.toBeInTheDocument();
+  });
+
+  it("視窗跨斷點：選單開著時窄→寬項目消失、寬→窄項目出現", async () => {
+    const setNarrow = installMatchMedia(true);
+    renderVersionsMenu("enabled");
+    const menu = await openVersionsMenu();
+    expect(within(menu).getByRole("menuitem", { name: "Version history" })).toBeInTheDocument();
+    setNarrow(false);
+    expect(within(menu).queryByRole("menuitem", { name: "Version history" })).not.toBeInTheDocument();
+    setNarrow(true);
+    expect(within(menu).getByRole("menuitem", { name: "Version history" })).toBeInTheDocument();
+  });
+
+  it("卸載後 change 監聽被移除（不留訂閱）", async () => {
+    installMatchMedia(true);
+    const { unmount } = renderVersionsMenu("enabled");
+    await openVersionsMenu();
+    expect(liveListeners()).toBeGreaterThan(0);
+    unmount();
+    expect(liveListeners()).toBe(0);
+  });
+
+  it("窄：點「Version history」→ open()", async () => {
+    installMatchMedia(true);
     renderVersionsMenu("enabled");
     fireEvent.click(within(await openVersionsMenu()).getByRole("menuitem", { name: "Version history" }));
     expect(JSON.parse(screen.getByTestId("v-state").textContent!).mode).not.toBeNull();
-    fireEvent.click(within(await openVersionsMenu()).getByRole("menuitem", { name: "Save current version" }));
-    expect(JSON.parse(screen.getByTestId("v-state").textContent!).dialog).toBe("save");
   });
 
   it("final I-1：triggerRef（NotePage 交給版本歷史整頁當焦點退路）指到頁首 ⋮ 觸發鈕本身", () => {
@@ -522,7 +574,8 @@ describe("NoteMenu × 版本歷史（spec §8.5）", () => {
     expect(triggerRef.current).toBe(screen.getByRole("button", { name: "More" }));
   });
 
-  it.each([["disabled（viewer）"], ["none（側欄每列 ⋮，provider 之外）"]] as const)("%s → 兩項都不渲染", async (label) => {
+  it.each([["disabled（viewer）"], ["none（側欄每列 ⋮，provider 之外）"]] as const)("%s → 窄視窗也不渲染", async (label) => {
+    installMatchMedia(true);
     renderVersionsMenu(label.startsWith("disabled") ? "disabled" : "none");
     const menu = await openVersionsMenu();
     expect(within(menu).getByRole("menuitem", { name: "AI edit history" })).toBeInTheDocument();

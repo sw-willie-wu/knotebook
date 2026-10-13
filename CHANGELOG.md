@@ -22,6 +22,7 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 - The admin AI actions list and `GET /api/ai/actions` include each action's `kind` (`"instruct"` or `"quick"`); `PATCH /api/admin/ai/actions/:id` refuses to set the Instruct action to `direct` (`instruct_preview_only`) (#263).
 - **Breaking (API):** `POST /api/ai` takes `instruction` and `focus` for the Instruct action and now rejects them with 400 for any other action; they used to be silently dropped (#263).
+- Version history: each window width now has one way in. The `⋮` menu at the top of a note no longer has **Save current version** (use Ctrl+S, or the button at the bottom of the version list), and shows **Version history** only on a narrow window, where there is no round button at the bottom right.
 
 ### Removed
 

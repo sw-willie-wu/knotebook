@@ -23,7 +23,6 @@ const SPEC_COPY: Record<string, string> = {
   "versions.siteOff": "站台已關閉自動儲存",
   "versions.title": "版本歷史",
   "note.menu.versions": "版本歷史",
-  "note.menu.saveVersion": "儲存當前版本",
   // gate r1 M-8：§3.1 D7、§8.3、§8.4 的其餘字面
   "versions.currentLabel": "目前狀態",
   // #258：只有自動版本的列標「自動存檔」pill；清單加「全部／僅手動」篩選

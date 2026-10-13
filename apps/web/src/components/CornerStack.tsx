@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { History } from "@/components/ui/icons";
-import { useVersions } from "@/lib/versions-context";
+import { useIsNarrow, useVersions } from "@/lib/versions-context";
 import { cn } from "@/lib/utils";
 
 /**
@@ -15,7 +15,9 @@ import { cn } from "@/lib/utils";
 export function CornerStack() {
   const { t } = useTranslation();
   const versions = useVersions();
-  const showVersions = versions.enabled && !versions.panelOpen;
+  const narrow = useIsNarrow();
+  // 窄視窗沒有泡泡；與 ⋮ 的「版本歷史」項讀同一個 `useIsNarrow()`，同一寬度恰好一個入口。
+  const showVersions = versions.enabled && !versions.panelOpen && !narrow;
 
   const [scrolling, setScrolling] = useState(false);
   const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -52,7 +54,7 @@ export function CornerStack() {
         data-testid="versions-bubble"
         aria-label={t("versions.bubble")}
         onClick={versions.open}
-        className="h-12 w-12 rounded-full border border-border shadow-lg max-md:hidden"
+        className="h-12 w-12 rounded-full border border-border shadow-lg"
       >
         <History aria-hidden="true" className="h-5 w-5" />
       </Button>
