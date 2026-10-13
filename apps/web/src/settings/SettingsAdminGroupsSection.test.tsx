@@ -54,10 +54,13 @@ function renderGroups(rows: AdminGroupDto[], extra: Handler = () => null) {
   );
   return fetchMock;
 }
-/** 以該列的方案下拉定位列（等到下拉出現才回傳）；名稱格的包法（連結或 span）不影響定位。 */
-const rowByDropdown = async (name: string) => (await screen.findByRole("combobox", { name: `Storage plan for ${name}` })).closest("tr")!;
-/** 沒有下拉的情況（方案清單失敗）：以第一格的文字找列。 */
-const rowByName = (name: string) => screen.getAllByRole("row").find((r) => within(r).queryAllByRole("cell")[0]?.textContent === name)!;
+/** 等該列的方案下拉出現（＝方案清單已到）再以列名取列（spec 2026-10-13 settings-table §3 #6：列名＝群組名）。 */
+const rowByDropdown = async (name: string) => {
+  await screen.findByRole("combobox", { name: `Storage plan for ${name}` });
+  return screen.getByRole("row", { name });
+};
+/** 沒有下拉的情況（方案清單失敗）：直接以列名取列。 */
+const rowByName = (name: string) => screen.getByRole("row", { name });
 const requested = (fetchMock: ReturnType<typeof vi.fn>) => fetchMock.mock.calls.map(([u, i]) => `${((i as RequestInit | undefined)?.method ?? "GET").toUpperCase()} ${String(u)}`);
 const PLANS_URL = "/api/admin/storage-plans";
 const plansGets = (fetchMock: ReturnType<typeof vi.fn>) =>
@@ -74,11 +77,19 @@ describe("W5 /admin/groups", () => {
     renderGroups([ALPHA, BETA]);
     expect(await screen.findByRole("heading", { level: 1, name: "Groups" })).toBeInTheDocument();
     const beta = await rowByDropdown("Beta");
-    const cells = within(beta).getAllByRole("cell");
-    expect(cells.map((c) => c.textContent).slice(0, 4)).toEqual(["Beta", "1", new Date(T).toLocaleDateString("en"), "3 MB of 2 MB"]);
+    // 依格的可及名稱（＝內容）查，不依欄序號（spec 2026-10-13 settings-table §5.2；欄序由下一案的欄名陣列守）。
+    for (const text of ["Beta", "1", new Date(T).toLocaleDateString("en"), "3 MB of 2 MB"]) {
+      expect(within(beta).getByRole("cell", { name: text })).toBeInTheDocument();
+    }
     expect(within(beta).getByText("3 MB of 2 MB")).toHaveClass("text-destructive");
     expect(within(beta).getByRole("combobox", { name: "Storage plan for Beta" })).toHaveValue(TIGHT_ID);
     expect(within(await rowByDropdown("Alpha")).getByText("1 MB of 2 GB")).not.toHaveClass("text-destructive");
+  });
+
+  it("表名 Groups、欄名 Name／Members／Created／Storage／Plan（spec 2026-10-13 settings-table §3 #6）", async () => {
+    renderGroups([ALPHA, BETA]);
+    const table = await screen.findByRole("table", { name: "Groups" });
+    expect(within(table).getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual(["Name", "Members", "Created", "Storage", "Plan"]);
   });
 
   it("群組名一律純文字、不打任何成員／角色／群組用量端點（Willie 2026-10-08）", async () => {
@@ -86,7 +97,7 @@ describe("W5 /admin/groups", () => {
     for (const g of [ALPHA, BETA]) {
       // 以下拉定位列：下拉出現＝方案清單已到，本頁 query 都已落地；若名稱格會變成連結，此刻一定已是
       const row = await rowByDropdown(g.name);
-      const nameCell = within(row).getAllByRole("cell")[0]!;
+      const nameCell = within(row).getByRole("cell", { name: g.name });
       expect(nameCell).toHaveTextContent(g.name);
       expect(within(nameCell).queryByRole("link")).toBeNull();
     }

@@ -25,6 +25,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
+import { SettingsTable, type SettingsTableColumn, type SettingsTableRow } from "@/components/management/SettingsTable";
 import { quotaBytesFromInput, quotaInputFromBytes, validPlanName, type QuotaUnit } from "@/lib/storage-plan-form";
 import { SettingsGroup, SettingsPage } from "./SettingsLayout";
 import { SiteVersionsGroups } from "./SettingsVersionsSection";
@@ -291,62 +292,52 @@ function DefaultsGroup({ data }: { data: StoragePlansResponse }) {
   );
 }
 
-/** 欄寬規則（比照使用者表 `USERS_TABLE_LAYOUT`）：文字欄可任意處斷行、數字欄不換行、操作欄收到內容寬。 */
-const PLAN_TABLE_LAYOUT = {
-  text: "min-w-[14ch] wrap-anywhere",
-  fixed: "whitespace-nowrap",
-  actions: "w-px whitespace-nowrap",
-} as const;
+const BADGE_CLASS = "whitespace-nowrap rounded border border-border px-1 text-xs text-muted-foreground";
 
-const BADGE_CLASS = "ml-2 whitespace-nowrap rounded border border-border px-1 text-xs text-muted-foreground";
-
+/**
+ * 方案表（spec 2026-10-13 settings-table §3 #7）：名稱（預設標籤）｜上限｜使用者｜群組｜超過上限（>0 紅）｜操作（編輯、刪除）。
+ * 刪除鈕不可用時 softDisabled＋原因（`title`），表下另有看得見的說明。
+ */
 function PlanTable({ plans }: { plans: StoragePlanDto[] }) {
   const { t } = useTranslation();
+  const columns: SettingsTableColumn[] = [
+    { id: "name", header: t("admin.storage.tableName"), kind: "primary" },
+    { id: "quota", header: t("admin.storage.tableQuota"), kind: "fixed" },
+    { id: "users", header: t("admin.storage.tableUsers"), kind: "fixed" },
+    { id: "groups", header: t("admin.storage.tableGroups"), kind: "fixed" },
+    { id: "overQuota", header: t("admin.storage.tableOverQuota"), kind: "fixed" },
+    { id: "actions", header: t("admin.storage.tableActions"), kind: "actions", buttons: 2 },
+  ];
+  const rows: SettingsTableRow[] = plans.map((p) => ({
+    id: p.id,
+    primary: {
+      name: p.name,
+      badges: (
+        <>
+          {p.isDefaultForUsers && <span className={BADGE_CLASS}>{t("admin.storage.defaultForUsers")}</span>}
+          {p.isDefaultForGroups && <span className={BADGE_CLASS}>{t("admin.storage.defaultForGroups")}</span>}
+        </>
+      ),
+    },
+    cells: {
+      quota: p.quotaBytes === null ? t("admin.storage.unlimited") : formatBytes(p.quotaBytes),
+      users: p.userCount,
+      groups: p.groupCount,
+      overQuota: { content: p.overQuotaCount, tone: p.overQuotaCount > 0 ? "danger" : "default" },
+    },
+    actions: (
+      <>
+        <PlanDialog
+          plan={p}
+          trigger={<RowIconButton label={t("admin.storage.editLabel", { name: p.name })} icon={<Pencil className="h-4 w-4" />} />}
+        />
+        <DeletePlanButton plan={p} disabled={p.userCount + p.groupCount > 0 || p.isDefaultForUsers || p.isDefaultForGroups} />
+      </>
+    ),
+  }));
   return (
     <>
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-border text-left text-muted-foreground">
-            <th className="py-2 pr-3 font-medium">{t("admin.storage.tableName")}</th>
-            <th className={`py-2 pr-3 font-medium ${PLAN_TABLE_LAYOUT.fixed}`}>{t("admin.storage.tableQuota")}</th>
-            <th className={`py-2 pr-3 font-medium ${PLAN_TABLE_LAYOUT.fixed}`}>{t("admin.storage.tableUsers")}</th>
-            <th className={`py-2 pr-3 font-medium ${PLAN_TABLE_LAYOUT.fixed}`}>{t("admin.storage.tableGroups")}</th>
-            <th className={`py-2 pr-3 font-medium ${PLAN_TABLE_LAYOUT.fixed}`}>{t("admin.storage.tableOverQuota")}</th>
-            <th className={`py-2 font-medium text-right ${PLAN_TABLE_LAYOUT.actions}`}>{t("admin.storage.tableActions")}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {plans.map((p) => (
-            <tr key={p.id} className="border-b border-border">
-              <td className={`py-2 pr-3 ${PLAN_TABLE_LAYOUT.text}`}>
-                {p.name}
-                {p.isDefaultForUsers && <span className={BADGE_CLASS}>{t("admin.storage.defaultForUsers")}</span>}
-                {p.isDefaultForGroups && <span className={BADGE_CLASS}>{t("admin.storage.defaultForGroups")}</span>}
-              </td>
-              <td className={`py-2 pr-3 ${PLAN_TABLE_LAYOUT.fixed}`}>
-                {p.quotaBytes === null ? t("admin.storage.unlimited") : formatBytes(p.quotaBytes)}
-              </td>
-              <td className={`py-2 pr-3 ${PLAN_TABLE_LAYOUT.fixed}`}>{p.userCount}</td>
-              <td className={`py-2 pr-3 ${PLAN_TABLE_LAYOUT.fixed}`}>{p.groupCount}</td>
-              <td className={`py-2 pr-3 ${PLAN_TABLE_LAYOUT.fixed} ${p.overQuotaCount > 0 ? "text-destructive" : ""}`}>
-                {p.overQuotaCount}
-              </td>
-              <td className={`py-2 ${PLAN_TABLE_LAYOUT.actions}`}>
-                <div className="flex justify-end">
-                  <PlanDialog
-                    plan={p}
-                    trigger={<RowIconButton label={t("admin.storage.editLabel", { name: p.name })} icon={<Pencil className="h-4 w-4" />} />}
-                  />
-                  <DeletePlanButton
-                    plan={p}
-                    disabled={p.userCount + p.groupCount > 0 || p.isDefaultForUsers || p.isDefaultForGroups}
-                  />
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <SettingsTable label={t("admin.storage.title")} columns={columns} rows={rows} />
       <p className="mt-2 text-xs text-muted-foreground">{t("admin.storage.deleteBlockedHint")}</p>
     </>
   );

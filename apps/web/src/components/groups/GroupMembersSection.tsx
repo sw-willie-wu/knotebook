@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { GroupDto, GroupMemberDto, GroupRoleDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
 import { useAddMember, useGroupMembers, useGroupRoles, useRemoveMember, useSetMemberRole } from "@/api/groups";
+import { SettingsTable, type SettingsTableColumn, type SettingsTableRow } from "@/components/management/SettingsTable";
 import { Button } from "@/components/ui/button";
 import { Trash } from "@/components/ui/icons";
 import { Input } from "@/components/ui/input";
@@ -23,21 +24,6 @@ const SELECT_CLASS =
   "h-8 shrink-0 rounded-md border border-input bg-background px-2 text-sm shadow-sm focus-visible:outline-none " +
   "focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
 
-/**
- * 成員表的欄寬規則（#183）。jsdom 不排版、量不到「溢出」，所以
- * `GroupMembersSection.test.tsx` 逐格對**字面 token** 斷言（不 import 這個常數，
- * 免得常數被改錯時測試跟著一起錯）。
- * - `text`：名字、email 兩格可在任意處斷行。`wrap-anywhere`（`overflow-wrap: anywhere`）
- *   會把斷點算進 min-content，auto 表格才肯把這欄壓窄；`break-words` 不算，照樣撐爆。
- * - `fixed`：角色欄不換行（下拉本身已是 shrink-0）。
- * - `actions`：操作欄 `w-px` ＋ 不換行 ⇒ 收到內容寬（一顆 32px 圖示鈕），永遠不被擠壓。
- */
-const MEMBERS_TABLE_LAYOUT = {
-  text: "wrap-anywhere",
-  fixed: "whitespace-nowrap",
-  actions: "w-px whitespace-nowrap",
-} as const;
-
 /** 名單裡掛內建管理員角色的人數（spec §8.5「看 `builtin === "admin"` 計數」）。 */
 function countAdmins(members: GroupMemberDto[]): number {
   return members.filter((member) => member.builtin === "admin").length;
@@ -49,9 +35,11 @@ function memberRoleLabel(t: (key: string) => string, roles: GroupRoleDto[], memb
 }
 
 /**
- * 成員表：`canManageMembers` 有角色下拉與移除鈕（最後一位管理員的列兩者鎖住＋title），否則唯讀。
- * 角色下拉的選項與送出的值都是 `GET …/roles` 的**角色 id**（spec §8.5；gate r2 M-7：兩位管理員、沒有
- * 一般成員的群組，一般成員角色的 id 只拿得到那裡）。下拉列全部角色、含內建管理員（不防升權，Q9）。
+ * 成員表（spec 2026-10-13 settings-table §3 #8）：名稱｜Email｜角色（`canManageMembers` 時是下拉，否則純文字）｜操作（移除；只在有管理權時有這欄）。
+ * 列名以 email 為準（`nameColumn="email"`）；移除鈕與角色下拉的名稱也帶 email（各自的 aria-label）。最後一位管理員那列：角色下拉原生 disabled＋title、
+ * 移除鈕 softDisabled＋原因（spec §2.7）。角色下拉的選項與送出的值都是 `GET …/roles` 的**角色 id**（spec §8.5；gate r2 M-7：
+ * 兩位管理員、沒有一般成員的群組，一般成員角色的 id 只拿得到那裡）。下拉列全部角色、含內建管理員（不防升權，Q9）。
+ * #183：很長的 email 交給表格的 text 欄（wrap-anywhere、14ch 下限）與框內橫向捲動，不再把面板撐寬；移除鈕的可見文字不帶 email。
  */
 function MembersSection({ group, canManageMembers }: { group: GroupDto; canManageMembers: boolean }) {
   const { t } = useTranslation();
@@ -101,6 +89,58 @@ function MembersSection({ group, canManageMembers }: { group: GroupDto; canManag
     }
   }
 
+  const columns: SettingsTableColumn[] = [
+    { id: "name", header: t("groups.detail.tableName"), kind: "primary" },
+    { id: "email", header: t("groups.detail.tableEmail"), kind: "text" },
+    { id: "role", header: t("groups.detail.tableRole"), kind: canManageMembers ? "control" : "fixed" },
+  ];
+  if (canManageMembers) columns.push({ id: "actions", header: t("groups.detail.tableActions"), kind: "actions", buttons: 1 });
+  const rows: SettingsTableRow[] = members.map((member) => {
+    const locked = isLastAdmin(member);
+    return {
+      id: member.userId,
+      primary: { name: member.displayName },
+      cells: {
+        // A8：成員彼此看得到 email——要收回就刪這一欄（連同 nameColumn 改回主欄）
+        email: { content: member.email, tone: "muted" },
+        role: canManageMembers ? (
+          <select
+            aria-label={t("groups.detail.roleLabel", { email: member.email })}
+            value={member.roleId}
+            // roles 還沒到：只有目前角色那一個選項可顯示，先鎖住
+            disabled={locked || setRole.isPending || roles.length === 0}
+            title={locked ? t("groups.detail.lastAdminHint") : undefined}
+            onChange={(event) => void handleRole(member, event.target.value)}
+            className={SELECT_CLASS}
+          >
+            {roles.length === 0 ? (
+              <option value={member.roleId}>{memberRoleLabel(t, roles, member)}</option>
+            ) : (
+              roles.map((role) => (
+                <option key={role.id} value={role.id}>
+                  {roleLabel(t, role)}
+                </option>
+              ))
+            )}
+          </select>
+        ) : (
+          memberRoleLabel(t, roles, member)
+        ),
+      },
+      actions: canManageMembers ? (
+        <RowIconButton
+          label={t("groups.detail.remove", { email: member.email })}
+          tone="destructive"
+          icon={<Trash className="h-4 w-4" />}
+          softDisabled={locked}
+          softDisabledReason={t("groups.detail.lastAdminHint")}
+          disabled={removeMember.isPending}
+          onClick={() => void handleRemove(member)}
+        />
+      ) : undefined,
+    };
+  });
+
   return (
     <SettingsGroup>
       {membersQuery.isPending ? (
@@ -110,78 +150,7 @@ function MembersSection({ group, canManageMembers }: { group: GroupDto; canManag
           {errorMessage(t, membersQuery.error)}
         </p>
       ) : (
-        // #183：很長的 email（例如 e2e 的 uuid 帳號）曾把整張表撐出 modal、移除鈕被裁掉。
-        // 版面規則（`MEMBERS_TABLE_LAYOUT`，有守衛）：名字／email 兩格可在任意處斷行
-        // （`wrap-anywhere` 會一併縮小 auto 表格算欄寬用的 min-content，`break-words` 不會）；
-        // 角色與操作兩欄不換行、操作欄 `w-px` 收到內容寬——移除鈕是固定 32px 的圖示鈕，
-        // 不參與擠壓。可見文字不再帶 email（email 留在 aria-label，與分享面板同一套）。
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border text-left text-muted-foreground">
-              {/* 表頭不掛 wrap-anywhere：短字，掛了反而會在極窄時被逐字拆開。 */}
-              <th className="py-2 pr-3 font-medium">{t("groups.detail.tableName")}</th>
-              <th className="py-2 pr-3 font-medium">{t("groups.detail.tableEmail")}</th>
-              <th className={`py-2 font-medium ${MEMBERS_TABLE_LAYOUT.fixed}`}>{t("groups.detail.tableRole")}</th>
-              {canManageMembers && (
-                <th className={`py-2 pl-2 text-right font-medium ${MEMBERS_TABLE_LAYOUT.actions}`}>
-                  {t("groups.detail.tableActions")}
-                </th>
-              )}
-            </tr>
-          </thead>
-          <tbody>
-            {members.map((member) => {
-              const locked = isLastAdmin(member);
-              return (
-                <tr key={member.userId} className="border-b border-border">
-                  <td className={`py-2 pr-3 ${MEMBERS_TABLE_LAYOUT.text}`}>{member.displayName}</td>
-                  {/* A8：成員彼此看得到 email——要收回就刪這一格與表頭 */}
-                  <td className={`py-2 pr-3 text-muted-foreground ${MEMBERS_TABLE_LAYOUT.text}`}>{member.email}</td>
-                  <td className={`py-2 ${MEMBERS_TABLE_LAYOUT.fixed}`}>
-                    {canManageMembers ? (
-                      <select
-                        aria-label={t("groups.detail.roleLabel", { email: member.email })}
-                        value={member.roleId}
-                        // roles 還沒到：只有目前角色那一個選項可顯示，先鎖住
-                        disabled={locked || setRole.isPending || roles.length === 0}
-                        title={locked ? t("groups.detail.lastAdminHint") : undefined}
-                        onChange={(event) => void handleRole(member, event.target.value)}
-                        className={SELECT_CLASS}
-                      >
-                        {roles.length === 0 ? (
-                          <option value={member.roleId}>{memberRoleLabel(t, roles, member)}</option>
-                        ) : (
-                          roles.map((role) => (
-                            <option key={role.id} value={role.id}>
-                              {roleLabel(t, role)}
-                            </option>
-                          ))
-                        )}
-                      </select>
-                    ) : (
-                      memberRoleLabel(t, roles, member)
-                    )}
-                  </td>
-                  {canManageMembers && (
-                    <td className={`py-2 pl-2 ${MEMBERS_TABLE_LAYOUT.actions}`}>
-                      <div className="flex justify-end">
-                        <RowIconButton
-                          label={t("groups.detail.remove", { email: member.email })}
-                          tone="destructive"
-                          icon={<Trash className="h-4 w-4" />}
-                          softDisabled={locked}
-                          softDisabledReason={t("groups.detail.lastAdminHint")}
-                          disabled={removeMember.isPending}
-                          onClick={() => void handleRemove(member)}
-                        />
-                      </div>
-                    </td>
-                  )}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <SettingsTable label={t("groups.nav.members")} nameColumn="email" columns={columns} rows={rows} />
       )}
 
       {/* 最後一位管理員的提示：移除鈕是 `aria-disabled`（`title` 浮得出來），但角色下拉仍是原生 disabled、

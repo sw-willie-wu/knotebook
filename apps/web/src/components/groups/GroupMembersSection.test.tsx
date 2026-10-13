@@ -62,9 +62,8 @@ describe("GroupMembersSection（/groups/:id，#247 §6.2）", () => {
     expect(within(dialog).getByRole("button", { name: "Add" })).toBeInTheDocument();
   });
 
-  it("#183 長 email 版面守衛：名字／email 兩格 wrap-anywhere、操作欄 w-px 不換行、移除鈕是固定寬的圖示鈕且可見文字不含 email", async () => {
-    // jsdom 不排版——量不到溢出，只能釘住決定溢出與否的 class token（真瀏覽器的量測見 PR）。
-    // token 一律 `classList` 陣列比對，不用字串 includes（`min-w-px` 也含 `w-px`）。
+  it("#183 長 email：列名＝email（spec 2026-10-13 settings-table §3 #8）、移除鈕的可見文字不含 email（可及名稱帶 email）；表名 Members、欄名 Name／Email／Role／Actions", async () => {
+    // 欄寬（wrap-anywhere、14ch 下限、框內橫向捲動）由 SettingsTable.test.tsx 與 e2e 26-settings-tables 守（spec §5.1、§5.3）。
     const LONG = "e2e-24c8c7dd-e54e-4237-9f72-a87df48a3fc2@e2e.local";
     renderGroupRoute(
       `/groups/${GROUP_CO_ADMIN.id}`,
@@ -74,30 +73,13 @@ describe("GroupMembersSection（/groups/:id，#247 §6.2）", () => {
       ]),
     );
     const dialog = await screen.findByRole("dialog", { name: GROUP_CO_ADMIN.name });
-    await waitFor(() => expect(within(dialog).getByText(LONG)).toBeInTheDocument());
-    const tokens = (el: Element | null) => [...(el?.classList ?? [])];
-
-    // email 與名字那兩格要能在任意處斷行（auto 表格的 min-content 才會跟著縮）。
-    const emailCell = within(dialog).getByText(LONG).closest("td");
-    expect(emailCell, "email 應該在一個 <td> 裡").not.toBeNull();
-    expect(tokens(emailCell)).toContain("wrap-anywhere");
-    const nameCell = within(dialog).getByText("A-very-long-display-name-without-any-spaces-at-all").closest("td");
-    expect(tokens(nameCell)).toContain("wrap-anywhere");
-
-    // 移除鈕：可見文字不帶 email（曾經是「Remove <email>」整串、不換行，自己就把欄撐爆），
-    // 可及名稱仍帶 email（e2e 15／16／17 靠它）；固定 32px 寬、不參與 flex 擠壓。
-    const removeButton = within(dialog).getByRole("button", { name: `Remove ${LONG}` });
+    const row = await within(dialog).findByRole("row", { name: LONG });
+    expect(within(row).getByRole("cell", { name: "A-very-long-display-name-without-any-spaces-at-all" })).toBeInTheDocument();
+    const removeButton = within(row).getByRole("button", { name: `Remove ${LONG}` });
     expect(removeButton.textContent ?? "").not.toContain(LONG);
     expect(removeButton.textContent ?? "").not.toContain("@");
-    expect(tokens(removeButton)).toEqual(expect.arrayContaining(["w-8", "h-8", "shrink-0"]));
-
-    // 操作欄（表頭與每一列的那一格）收到內容寬、不換行。
-    const actionCell = removeButton.closest("td");
-    expect(tokens(actionCell)).toEqual(expect.arrayContaining(["w-px", "whitespace-nowrap"]));
-    const actionHeader = within(dialog).getByRole("columnheader", { name: "Actions" });
-    expect(tokens(actionHeader)).toEqual(expect.arrayContaining(["w-px", "whitespace-nowrap"]));
-    // 角色欄也不換行（下拉不能被擠成兩行高）。
-    expect(tokens(within(dialog).getByLabelText(`Role for ${LONG}`).closest("td"))).toContain("whitespace-nowrap");
+    const table = within(dialog).getByRole("table", { name: "Members" });
+    expect(within(table).getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual(["Name", "Email", "Role", "Actions"]);
   });
 
   it("最後一位管理員的列（builtin admin 只有一人）：角色下拉 disabled、移除鈕 aria-disabled，兩者 title=lastAdminHint、表格下方有可見提示；兩位管理員時不 disabled、無提示", async () => {
@@ -114,7 +96,6 @@ describe("GroupMembersSection（/groups/:id，#247 §6.2）", () => {
     expect(meRoleSelect).toHaveAttribute("title", HINT);
     const meRemoveButton = within(dialog).getByRole("button", { name: "Remove me@example.com" });
     expect(meRemoveButton).toHaveAttribute("aria-disabled", "true");
-    expect(meRemoveButton).toHaveClass("aria-disabled:opacity-40", "text-destructive");
     expect(meRemoveButton).toHaveAttribute("title", HINT);
     expect(within(dialog).getByText(HINT)).toBeInTheDocument();
     // 一般成員那列不受影響
@@ -275,10 +256,16 @@ describe("GroupMembersSection（/groups/:id，#247 §6.2）", () => {
     // 成員表無控制項：沒有角色下拉、沒有移除鈕；角色以純文字顯示。
     expect(within(dialog).queryByLabelText(/Role for/)).not.toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: /Remove/ })).not.toBeInTheDocument();
-    const roleCell = (email: string) => within(dialog).getByText(email).closest("tr")!.querySelectorAll("td")[2];
-    expect(roleCell("admin2@example.com")).toHaveTextContent(/^Admin$/);
-    expect(roleCell("me@example.com")).toHaveTextContent(/^Member$/);
-    await waitFor(() => expect(roleCell("dan@example.com")).toHaveTextContent(/^Reader$/));
+    // 無管理權：角色欄是純文字（spec §3 #8 的 fixed），以列名（email）取列、以格的可及名稱找角色。
+    const rowOf = (email: string) => within(within(dialog).getByRole("row", { name: email }));
+    expect(rowOf("admin2@example.com").getByRole("cell", { name: "Admin" })).toBeInTheDocument();
+    expect(rowOf("me@example.com").getByRole("cell", { name: "Member" })).toBeInTheDocument();
+    await waitFor(() => expect(rowOf("dan@example.com").getByRole("cell", { name: "Reader" })).toBeInTheDocument());
+    expect(within(within(dialog).getByRole("table", { name: "Members" })).getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual([
+      "Name",
+      "Email",
+      "Role",
+    ]);
     expect(within(dialog).queryByText("[object Object]", { exact: false })).not.toBeInTheDocument();
 
     // 沒有加人表單。

@@ -55,7 +55,8 @@ function renderStorage(extra: Handler = () => null, client = new QueryClient({ d
 const callsTo = (m: ReturnType<typeof vi.fn>, method: string, url: string) =>
   m.mock.calls.filter(([u, i]) => String(u) === url && ((i as RequestInit | undefined)?.method ?? "GET").toUpperCase() === method).map(([, i]) => i as RequestInit);
 const bodyOf = (init: RequestInit | undefined) => JSON.parse(String(init?.body));
-const row = (name: string) => screen.getByText(name, { selector: "td" }).closest("tr") as HTMLElement; // 列的可及名在 jsdom 算不出以方案名開頭（計畫預告的退路）：改從名稱格往上找 <tr>
+/** 方案表的列名＝方案名（spec 2026-10-13 settings-table §3 #7；列以 aria-labelledby 指向名稱）。 */
+const row = (name: string) => screen.getByRole("row", { name });
 
 describe("/admin/storage（儲存方案頁）", () => {
   beforeEach(async () => {
@@ -76,24 +77,34 @@ describe("/admin/storage（儲存方案頁）", () => {
     expect(within(row("Starter")).getByText("1 MB")).toBeInTheDocument();
     expect(within(row("Big")).getByText("No limit")).toBeInTheDocument();
     expect(within(row("Tight")).getByText("1004 B")).toBeInTheDocument();
-    const tightCells = within(row("Tight")).getAllByRole("cell").map((c) => c.textContent);
-    expect(tightCells.slice(2, 5)).toEqual(["2", "0", "1"]); // 使用者、群組、超過上限
+    // 使用者 2、群組 0、超過上限 1：依格名稱查（spec §5.2；欄序由下方欄名陣列守）。
+    for (const text of ["2", "0", "1"]) expect(within(row("Tight")).getByRole("cell", { name: text })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete Basic" })).toHaveAttribute("aria-disabled", "true"); // 預設（也在用）
     expect(screen.getByRole("button", { name: "Delete Tight" })).toHaveAttribute("aria-disabled", "true"); // 只因在用
     expect(screen.getByRole("button", { name: "Delete Big" })).toHaveAttribute("aria-disabled", "true"); // 只因在用（1 位使用者）
     expect(screen.getByRole("button", { name: "Delete Starter" })).toHaveAttribute("aria-disabled", "true"); // 只因是預設（沒人在用）——M7b 守
     expect(screen.getByRole("button", { name: "Delete Spare" })).not.toHaveAttribute("aria-disabled");
     expect(screen.getByText("A plan that is a default, or that any user or group is on, can't be deleted.")).toBeInTheDocument();
+    expect(within(screen.getByRole("table", { name: "Storage plans" })).getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual([
+      "Name",
+      "Limit",
+      "Users",
+      "Groups",
+      "Spaces over limit",
+      "Actions",
+    ]);
+    // 超過上限的空間數 > 0 用 danger 語氣（spec §3 #7「保留紅色」）；0 不紅（Basic 列的 "0" 唯一：使用者 3、群組 1）
+    expect(within(row("Tight")).getByText("1")).toHaveClass("text-destructive");
+    expect(within(row("Basic")).getByText("0")).not.toHaveClass("text-destructive");
   });
 
-  it("P1 方案列的 Edit／Delete 是 icon 鈕（無可見文字、帶 title）、Delete 紅；不可刪的 title 是原因；「New plan」不是實心鈕", async () => {
+  it("P1 方案列的 Edit／Delete 是 icon 鈕（無可見文字、帶 title）；不可刪的 title 是原因；「New plan」不是實心鈕", async () => {
     renderStorage();
     const edit = await screen.findByRole("button", { name: "Edit Basic" });
     const del = screen.getByRole("button", { name: "Delete Basic" });
     expect(edit.textContent).toBe("");
     expect(edit).toHaveAttribute("title", "Edit Basic");
     expect(del.textContent).toBe("");
-    expect(del).toHaveClass("text-destructive");
     expect(del).toHaveAttribute("title", "A plan that is a default, or that any user or group is on, can't be deleted.");
     expect(screen.getByRole("button", { name: "New plan" }).className).not.toMatch(/(^|\s)bg-(primary|brand|brand-deep)(\s|$)/);
   });
