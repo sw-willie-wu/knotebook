@@ -390,3 +390,23 @@ export function ChevronsRight(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+/** AI 動作列的「上移」（spec 2026-10-13 settings-table §2.7：取代文字箭頭）。路徑取自 lucide `arrow-up`（ISC）。 */
+export function ArrowUp(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="arrow-up" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="m5 12 7-7 7 7" />
+      <path d="M12 19V5" />
+    </svg>
+  );
+}
+
+/** AI 動作列的「下移」。路徑取自 lucide `arrow-down`（ISC）。 */
+export function ArrowDown(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="arrow-down" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M12 5v14" />
+      <path d="m19 12-7 7-7-7" />
+    </svg>
+  );
+}

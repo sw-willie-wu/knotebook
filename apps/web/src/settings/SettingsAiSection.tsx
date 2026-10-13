@@ -1,4 +1,4 @@
-import { useId, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import type { AdminAiActionDto, AdminAiModelDto, AdminAiProviderDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
@@ -19,7 +19,7 @@ import {
 } from "@/api/adminAi";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Pencil, Plug, Trash } from "@/components/ui/icons";
+import { ArrowDown, ArrowUp, Pencil, Plug, Trash } from "@/components/ui/icons";
 import { RowIconButton } from "@/components/ui/row-icon-button";
 import { Input } from "@/components/ui/input";
 import {
@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/components/ui/toast";
+import { SettingsTable, type SettingsTableColumn, type SettingsTableRow } from "@/components/management/SettingsTable";
 import { SettingsGroup, SettingsPage } from "./SettingsLayout";
 
 /** ApiFail → errors.<code>；其餘 → errors.fallback。與 SettingsUsersSection/ShareDialog
@@ -611,12 +612,12 @@ function DeleteModelDialog({ model }: { model: AdminAiModelDto }) {
   );
 }
 
-/** 一列 model：displayName＋modelId、`isDefault` 星號徽章、`enabled` 開關、編輯／刪除。 */
-function ModelRow({ model }: { model: AdminAiModelDto }) {
+/** 模型列的啟用開關（`SettingsTable` 的 enabled 欄）：可及名稱「Enabled ＜模型名＞」由表格的 aria-labelledby 給（spec §1 的唯一例外：原為「Enabled」）。 */
+function ModelEnabledSwitch({ model, labelledBy }: { model: AdminAiModelDto; labelledBy: string }) {
   const { t } = useTranslation();
   const patchModel = usePatchAiModel();
 
-  async function handleToggleEnabled(next: boolean): Promise<void> {
+  async function handleToggle(next: boolean): Promise<void> {
     try {
       await patchModel.mutateAsync({ id: model.id, body: { enabled: next } });
     } catch (err) {
@@ -625,83 +626,72 @@ function ModelRow({ model }: { model: AdminAiModelDto }) {
   }
 
   return (
-    <li className="flex items-center justify-between gap-2 text-xs">
-      <div className="min-w-0 flex-1">
-        <span className="font-medium">{model.displayName}</span>
-        {model.isDefault && (
-          <span title={t("settings.ai.modelDefaultBadge")} aria-label={t("settings.ai.modelDefaultBadge")} className="ml-1">
-            ★
-          </span>
-        )}
-        <span className="ml-2 text-muted-foreground">{model.modelId}</span>
-      </div>
-      <div className="flex items-center gap-1">
-        <Switch
-          id={`model-enabled-${model.id}`}
-          checked={model.enabled}
-          onCheckedChange={(checked) => void handleToggleEnabled(checked)}
-          disabled={patchModel.isPending}
-        />
-        <label htmlFor={`model-enabled-${model.id}`} className="sr-only">
-          {t("settings.ai.enabled")}
-        </label>
+    <Switch
+      aria-labelledby={labelledBy}
+      checked={model.enabled}
+      onCheckedChange={(checked) => void handleToggle(checked)}
+      disabled={patchModel.isPending}
+    />
+  );
+}
+
+/**
+ * 供應商明細列裡的模型子表（spec §3 #2）：`nested`、表名「Models – ＜供應商名＞」、標題列＝Models＋「Add model」（不論有無模型都在）。
+ * 欄：名稱（★預設標籤、副標 modelId）｜操作（編輯、刪除）｜啟用。子表與父表的啟用軌同為 56px、在最右；操作軌緊鄰其左、鈕群靠右（子表 2 顆鈕，軌比父表的 3 顆窄），
+ * 所以子列鈕群右緣與開關中心和父列上下對齊（spec §2.5）。
+ */
+function ModelsTable({ provider, models }: { provider: AdminAiProviderDto; models: AdminAiModelDto[] }) {
+  const { t } = useTranslation();
+  const columns: SettingsTableColumn[] = [
+    { id: "name", header: t("settings.ai.tableName"), kind: "primary" },
+    { id: "actions", header: t("settings.ai.tableActions"), kind: "actions", buttons: 2 },
+    { id: "enabled", header: t("settings.ai.tableEnabled"), kind: "enabled" },
+  ];
+  const rows: SettingsTableRow[] = models.map((model) => ({
+    id: model.id,
+    primary: {
+      name: model.displayName,
+      weight: "medium",
+      badges: model.isDefault ? (
+        <span title={t("settings.ai.modelDefaultBadge")} aria-label={t("settings.ai.modelDefaultBadge")}>
+          ★
+        </span>
+      ) : undefined,
+      subtitles: [model.modelId],
+    },
+    actions: (
+      <>
         <EditModelDialog model={model} />
         <DeleteModelDialog model={model} />
-      </div>
-    </li>
-  );
-}
-
-/**
- * AI 供應商表的欄（#247 §7.0）：名稱｜類型｜Base URL｜模型｜列尾動作｜啟用。表頭與每一列共用同一個 grid 模板才對得齊。
- * 格線只在 `md` 以上：固定寬（7rem＋三顆鈕＋3.5rem＋五道間距≈324px）在 390px 視窗（列內可用≈302px）會把三個 fr 欄壓到 0。
- * `<md` 時列改成 flex：名稱（佔滿）＋啟用 switch＋列尾鈕（`order-last`，放不下就換行），類型／Base URL／模型三欄隱藏——
- * 資訊不丟：模型在下方清單，類型與 Base URL 由明細區第一行（`md:hidden`）補上。
- */
-const AI_PROVIDER_COLS = "md:grid-cols-[minmax(0,1fr)_7rem_minmax(0,1.5fr)_minmax(0,1fr)_auto_3.5rem]";
-const AI_PROVIDER_ROW = `flex flex-wrap items-center gap-x-3 gap-y-1 md:grid ${AI_PROVIDER_COLS}`;
-
-function ProviderTableHeader({ enabledHeaderId }: { enabledHeaderId: string }) {
-  const { t } = useTranslation();
+      </>
+    ),
+    enabled: (labelledBy) => <ModelEnabledSwitch model={model} labelledBy={labelledBy} />,
+  }));
   return (
-    // 每一列是以供應商名為名的 region（測試與 e2e 以它定位）；這一列只給眼睛看。
-    // 保留 aria-hidden：「Enabled」欄頭仍可被各列 switch 的 aria-labelledby 引用（accname 走 labelledby 時會納入 hidden 節點）。
-    <div
-      aria-hidden="true"
-      data-testid="ai-provider-table-header"
-      className={`hidden items-center gap-x-3 md:grid ${AI_PROVIDER_COLS} border-b border-border px-3 py-2 text-left text-sm text-muted-foreground`}
-    >
-      <span>{t("settings.ai.tableName")}</span>
-      <span>{t("settings.ai.tableType")}</span>
-      <span>{t("settings.ai.tableBaseUrl")}</span>
-      <span>{t("settings.ai.tableModels")}</span>
-      <span className="sr-only">{t("settings.ai.tableActions")}</span>
-      <span id={enabledHeaderId}>{t("settings.ai.tableEnabled")}</span>
-    </div>
+    <SettingsTable
+      nested
+      label={`${t("settings.ai.modelsHeading")} – ${provider.name}`}
+      title={t("settings.ai.modelsHeading")}
+      titleAction={<CreateModelDialog providerId={provider.id} />}
+      columns={columns}
+      rows={rows}
+      empty={t("settings.ai.modelEmpty")}
+    />
   );
 }
 
-/**
- * 供應商一列（#247 §7.0）：第一行是對齊表頭的格線列（名稱、類型、Base URL、模型、插頭＋鉛筆＋紅垃圾桶、啟用）；
- * degraded／無金鑰／測試結果與內嵌模型清單（spec §13.4）留在下方明細區（Q3 裁定：採預設）。
- * `<section aria-labelledby>`＝以供應商名為可及名稱的 region（測試與 e2e 以它定位）。
- */
-function ProviderCard({
-  provider,
-  models,
-  enabledHeaderId,
-}: {
-  provider: AdminAiProviderDto;
-  models: AdminAiModelDto[];
-  enabledHeaderId: string;
-}) {
-  const { t } = useTranslation();
-  const headingId = useId();
-  const patchProvider = usePatchAiProvider();
-  const testProvider = useTestAiProvider();
-  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+/** 測試連線的狀態。按鈕在操作欄、結果在明細列，所以由 `SettingsAiSection` 以供應商 id 為鍵保存。 */
+interface ProviderTestState {
+  pending: boolean;
+  result: { ok: boolean; message: string } | null;
+}
 
-  async function handleToggleEnabled(next: boolean): Promise<void> {
+/** 供應商的啟用開關（可及名稱「Enabled ＜供應商名＞」，由表格的 aria-labelledby 給；對齊站台使用者表與登入服務表）。 */
+function ProviderEnabledSwitch({ provider, labelledBy }: { provider: AdminAiProviderDto; labelledBy: string }) {
+  const { t } = useTranslation();
+  const patchProvider = usePatchAiProvider();
+
+  async function handleToggle(next: boolean): Promise<void> {
     try {
       await patchProvider.mutateAsync({ id: provider.id, body: { enabled: next } });
     } catch (err) {
@@ -709,58 +699,72 @@ function ProviderCard({
     }
   }
 
+  return (
+    <Switch
+      aria-labelledby={labelledBy}
+      checked={provider.enabled}
+      onCheckedChange={(checked) => void handleToggle(checked)}
+      disabled={patchProvider.isPending}
+    />
+  );
+}
+
+/** 供應商列的操作鈕（spec §2.7 的順序：測試 → 編輯 → 刪除）。測試的進行中與結果交給上層保存、在明細列顯示。 */
+function ProviderActions({
+  provider,
+  onTestStart,
+  onTestDone,
+}: {
+  provider: AdminAiProviderDto;
+  onTestStart: () => void;
+  onTestDone: (result: { ok: boolean; message: string }) => void;
+}) {
+  const { t } = useTranslation();
+  const testProvider = useTestAiProvider();
+
   async function handleTest(): Promise<void> {
-    setTestResult(null);
+    onTestStart();
     try {
       await testProvider.mutateAsync(provider.id);
-      setTestResult({ ok: true, message: t("settings.ai.testSuccess") });
+      onTestDone({ ok: true, message: t("settings.ai.testSuccess") });
     } catch (err) {
-      setTestResult({ ok: false, message: errorMessage(t, err) });
+      onTestDone({ ok: false, message: errorMessage(t, err) });
     }
   }
 
-  const providerModels = models.filter((model) => model.providerId === provider.id);
-  const typeLabel =
-    provider.type === "anthropic" ? t("settings.ai.providerTypeAnthropic") : t("settings.ai.providerTypeOpenAiCompatible");
-
   return (
-    <section aria-labelledby={headingId} className="border-b border-border px-3 py-3">
-      <div data-testid="ai-provider-row" className={AI_PROVIDER_ROW}>
-        {/* 窄視窗：`grow basis-32`＝名稱至少留 8rem，放不下時列尾鈕整組換到第二行（而不是把名稱壓到 0）。 */}
-        <h3 id={headingId} className="min-w-0 grow basis-32 truncate text-sm font-semibold">
-          {provider.name}
-        </h3>
-        <span className="hidden text-sm text-muted-foreground md:block">{typeLabel}</span>
-        <span className="hidden min-w-0 truncate text-sm md:block">{provider.baseUrl}</span>
-        <span className="hidden min-w-0 truncate text-sm md:block">
-          {providerModels.length === 0 ? "—" : providerModels.map((model) => model.displayName).join(", ")}
-        </span>
-        <div className="order-last flex shrink-0 items-center md:order-none">
-          <RowIconButton
-            label={t("settings.ai.test")}
-            icon={<Plug className="h-4 w-4" />}
-            onClick={() => void handleTest()}
-            disabled={testProvider.isPending}
-          />
-          <EditProviderDialog provider={provider} />
-          <DeleteProviderDialog provider={provider} />
-        </div>
-        {/* 可及名稱＝「Enabled」欄頭＋供應商名（對齊站台使用者表與登入服務表）。 */}
-        <Switch
-          aria-labelledby={`${enabledHeaderId} ${headingId}`}
-          checked={provider.enabled}
-          onCheckedChange={(checked) => void handleToggleEnabled(checked)}
-          disabled={patchProvider.isPending}
-        />
-      </div>
+    <>
+      <RowIconButton
+        label={t("settings.ai.test")}
+        icon={<Plug className="h-4 w-4" />}
+        onClick={() => void handleTest()}
+        disabled={testProvider.isPending}
+      />
+      <EditProviderDialog provider={provider} />
+      <DeleteProviderDialog provider={provider} />
+    </>
+  );
+}
 
-      <div className="mt-2 space-y-2 pl-3">
-        {/* 窄視窗補回被隱藏的「類型」「Base URL」兩欄（md 以上已在格線列，不重複）。 */}
-        <p className="truncate text-xs text-muted-foreground md:hidden">
-          {typeLabel} · {provider.baseUrl}
-        </p>
+/**
+ * 供應商的明細列（spec §3 #1：現有內容全數保留）：降級警示、金鑰說明行、測試中狀態與測試結果、模型子表。
+ * 明細內容排在整個表格寬度上，窄螢幕時一部分要捲動才看得到（spec §8 已知風險）。
+ */
+function ProviderDetail({
+  provider,
+  models,
+  test,
+}: {
+  provider: AdminAiProviderDto;
+  models: AdminAiModelDto[];
+  test: ProviderTestState | undefined;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div className="space-y-2">
+      <div className="space-y-2 px-3 text-xs">
         {provider.degraded && (
-          <p role="alert" className="text-xs text-destructive">
+          <p role="alert" className="text-destructive">
             {t("settings.ai.degradedBadge")}: {t("settings.ai.degradedNotice")}
           </p>
         )}
@@ -776,39 +780,24 @@ function ProviderCard({
             後果、也不能說「直到重新輸入為止」——對一顆從來沒有金鑰的 Ollama provider
             那是假話，而且它永遠不會消失（審查抓到）。 */}
         {!provider.hasKey && !provider.degraded && (
-          <p role="status" className="text-xs text-muted-foreground">
+          <p role="status" className="text-muted-foreground">
             {t("settings.ai.noKeyNotice")}
           </p>
         )}
 
-        {testProvider.isPending && (
-          <p role="status" className="text-xs text-muted-foreground">
+        {test?.pending === true && (
+          <p role="status" className="text-muted-foreground">
             {t("settings.ai.testing")}
           </p>
         )}
-        {testResult && (
-          <p role={testResult.ok ? "status" : "alert"} className={testResult.ok ? "text-xs text-muted-foreground" : "text-xs text-destructive"}>
-            {testResult.message}
+        {test?.result != null && (
+          <p role={test.result.ok ? "status" : "alert"} className={test.result.ok ? "text-muted-foreground" : "text-destructive"}>
+            {test.result.message}
           </p>
         )}
-
-        <div className="space-y-2 border-t border-border pt-3">
-          <div className="flex items-center justify-between">
-            <h4 className="text-xs font-semibold text-muted-foreground">{t("settings.ai.modelsHeading")}</h4>
-            <CreateModelDialog providerId={provider.id} />
-          </div>
-          {providerModels.length === 0 ? (
-            <p className="text-xs text-muted-foreground">{t("settings.ai.modelEmpty")}</p>
-          ) : (
-            <ul className="space-y-1">
-              {providerModels.map((model) => (
-                <ModelRow key={model.id} model={model} />
-              ))}
-            </ul>
-          )}
-        </div>
       </div>
-    </section>
+      <ModelsTable provider={provider} models={models} />
+    </div>
   );
 }
 
@@ -845,7 +834,7 @@ function ModelSelectField({
  * `nextSortOrder`（fix round 1，M-1）：新 action 一律附加在清單最後，而不是讓 body
  * 省略 `sortOrder`（server 端 `sortOrder ?? 0` 會跟內建 Rewrite 之類同分變成 0——
  * 上下移鈕互換的是「相鄰兩項的 sortOrder 值」，同分時互換等於原地不動：兩支 PATCH
- * 照發、皆成功、但排序靜默失效）。呼叫端（`ActionsSection`）算好目前最大值 +1 傳進來。
+ * 照發、皆成功、但排序靜默失效）。呼叫端（`SettingsAiSection`）算好目前最大值 +1 傳進來。
  */
 function CreateActionDialog({ models, nextSortOrder }: { models: AdminAiModelDto[]; nextSortOrder: number }) {
   const { t } = useTranslation();
@@ -1163,7 +1152,34 @@ function DeleteActionDialog({ action }: { action: AdminAiActionDto }) {
   );
 }
 
-function ActionRow({
+/** 動作的啟用開關（可及名稱「Enabled ＜動作名＞」——spec §1 的唯一例外：原為帶可見文字的「Enabled」）。 */
+function ActionEnabledSwitch({ action, labelledBy }: { action: AdminAiActionDto; labelledBy: string }) {
+  const { t } = useTranslation();
+  const patchAction = usePatchAiAction();
+
+  async function handleToggle(next: boolean): Promise<void> {
+    try {
+      await patchAction.mutateAsync({ id: action.id, body: { enabled: next } });
+    } catch (err) {
+      toast({ title: errorMessage(t, err), variant: "destructive" });
+    }
+  }
+
+  return (
+    <Switch
+      aria-labelledby={labelledBy}
+      checked={action.enabled}
+      onCheckedChange={(checked) => void handleToggle(checked)}
+      disabled={patchAction.isPending}
+    />
+  );
+}
+
+/**
+ * 動作列的操作鈕（spec §2.7：上移 → 下移 → 編輯 → 刪除）。上下移在清單邊界、或兩支 PATCH 進行中用原生 disabled（暫時性的不可用）；
+ * 內建動作沒有刪除鈕（builtin 雙保險之一，server 端見 `routes/admin-ai.ts` 的 `BUILTIN_ACTION_IDS`）。
+ */
+function ActionButtons({
   action,
   models,
   canMoveUp,
@@ -1179,103 +1195,63 @@ function ActionRow({
   onMove: (direction: "up" | "down") => void;
 }) {
   const { t } = useTranslation();
-  const patchAction = usePatchAiAction();
-
-  async function handleToggleEnabled(next: boolean): Promise<void> {
-    try {
-      await patchAction.mutateAsync({ id: action.id, body: { enabled: next } });
-    } catch (err) {
-      toast({ title: errorMessage(t, err), variant: "destructive" });
-    }
-  }
-
-  const modelLabel = action.modelId
-    ? (models.find((model) => model.id === action.modelId)?.displayName ?? action.modelId)
-    : t("settings.ai.modelAuto");
-  const applyModeLabel =
-    action.applyMode === "direct" ? t("settings.ai.actionApplyModeDirect") : t("settings.ai.actionApplyModePreview");
-
   return (
-    <li className="space-y-2 border-b border-border px-3 py-3 text-sm">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="font-medium">
-            {action.name}
-            {action.builtin && (
-              <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                {t("settings.ai.actionBuiltinBadge")}
-              </span>
-            )}
-          </p>
-          <p className="truncate text-xs text-muted-foreground">
-            {applyModeLabel} · {modelLabel}
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-1">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            aria-label={t("settings.ai.moveUp", { name: action.name })}
-            title={t("settings.ai.moveUp", { name: action.name })}
-            disabled={!canMoveUp || movePending}
-            onClick={() => onMove("up")}
-          >
-            ↑
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            aria-label={t("settings.ai.moveDown", { name: action.name })}
-            title={t("settings.ai.moveDown", { name: action.name })}
-            disabled={!canMoveDown || movePending}
-            onClick={() => onMove("down")}
-          >
-            ↓
-          </Button>
-        </div>
-      </div>
-
-      <div className="flex items-center gap-2">
-        <Switch
-          id={`action-enabled-${action.id}`}
-          checked={action.enabled}
-          onCheckedChange={(checked) => void handleToggleEnabled(checked)}
-          disabled={patchAction.isPending}
-        />
-        <label htmlFor={`action-enabled-${action.id}`} className="text-xs font-medium">
-          {t("settings.ai.enabled")}
-        </label>
-        <div className="ml-auto flex items-center gap-1">
-          <EditActionDialog action={action} models={models} />
-          {!action.builtin && <DeleteActionDialog action={action} />}
-        </div>
-      </div>
-    </li>
+    <>
+      <RowIconButton
+        label={t("settings.ai.moveUp", { name: action.name })}
+        icon={<ArrowUp className="h-4 w-4" />}
+        disabled={!canMoveUp || movePending}
+        onClick={() => onMove("up")}
+      />
+      <RowIconButton
+        label={t("settings.ai.moveDown", { name: action.name })}
+        icon={<ArrowDown className="h-4 w-4" />}
+        disabled={!canMoveDown || movePending}
+        onClick={() => onMove("down")}
+      />
+      <EditActionDialog action={action} models={models} />
+      {!action.builtin && <DeleteActionDialog action={action} />}
+    </>
   );
 }
 
-/** Actions 列表——照 `sortOrder` 排序（`GET /api/admin/ai/actions` 已經
- * `orderBy(sortOrder, id)`，這裡直接沿用回應順序，不再重排）。上下移鈕＝跟相鄰項目
- * 對調 `sortOrder` 值：兩支循序 PATCH（先目標項、後鄰居項），值取自目前已知的
- * `actions` 陣列（不必等第一支 PATCH 的回應/重新查詢），故意循序 await 避免競態。
+// ═══════════════════════════════ section root ═══════════════════════════════
+
+/**
+ * 站台管理頁的 AI 區（`/admin/ai`，站台管理 modal 的「AI 代理」，#247；舊網址
+ * `/settings/ai` 轉址過來，見 `App.tsx` 第二棵樹）——provider／model／
+ * action 三層 CRUD：三個獨立 query（key 定死 `["admin-ai","providers"|"models"|"actions"]`，
+ * 見 `@/api/adminAi`），任一 mutation 成功都會 invalidate 這三個＋`["ai-actions"]`
+ * （`AiSession` 讀的可執行動作清單，讓筆記側欄同分頁立即生效）。
  *
- * fix round 2：上下移鈕在兩支 PATCH 進行中必須鎖死，否則連點會用同一組 stale
- * `actions` 陣列送出第二組「跟相鄰項目對調」的 PATCH——兩次對調抵銷，UI 呈現原地
- * 不動，但兩列已經同 `sortOrder`（PATCH body 不含 sortOrder 的 Edit 表單救不回來）。
- * `patchAction`（本層 `usePatchAiAction()` 實例）才是 `handleMove` 實際呼叫
- * `mutateAsync` 的那個——`ActionRow` 內部另有一個自己的 `usePatchAiAction()` 實例
- * （給 enabled checkbox 用），彼此 `isPending` 不共享，所以 move 鈕的鎖必須從這層
- * 往下傳，不能指望 `ActionRow` 自己那份。 */
-function ActionsSection({ actions, models }: { actions: AdminAiActionDto[]; models: AdminAiModelDto[] }) {
+ * 版面（spec 2026-10-13 settings-table §3 #1–#3）：供應商表（模型是每個供應商明細列裡的子表）與動作表都是 `SettingsTable`；
+ * 動作表的標題與「Add action」由 `SettingsGroup` 的 title／action 提供。
+ *
+ * 動作照 `sortOrder` 排序（`GET /api/admin/ai/actions` 已經 `orderBy(sortOrder, id)`，這裡直接沿用回應順序，不再重排）。
+ * 上下移鈕＝跟相鄰項目對調 `sortOrder` 值：兩支循序 PATCH（先目標項、後鄰居項），值取自目前已知的 `actions` 陣列
+ * （不必等第一支 PATCH 的回應／重新查詢），故意循序 await 避免競態。
+ *
+ * fix round 2：上下移鈕在兩支 PATCH 進行中必須鎖死，否則連點會用同一組 stale `actions` 陣列送出第二組「跟相鄰項目對調」
+ * 的 PATCH——兩次對調抵銷，UI 呈現原地不動，但兩列已經同 `sortOrder`（PATCH body 不含 sortOrder 的 Edit 表單救不回來）。
+ * 本層的 `patchAction`（`usePatchAiAction()` 實例）才是 `handleMove` 實際呼叫 `mutateAsync` 的那個——每列開關各有自己的
+ * `usePatchAiAction()` 實例，彼此 `isPending` 不共享，所以上下移鈕的鎖從這層往下傳（`movePending`）。
+ */
+export function SettingsAiSection() {
   const { t } = useTranslation();
+  const providersQuery = useAdminAiProviders();
+  const modelsQuery = useAdminAiModels();
+  const actionsQuery = useAdminAiActions();
   const patchAction = usePatchAiAction();
+  const [tests, setTests] = useState<Record<string, ProviderTestState>>({});
+
+  const models = modelsQuery.data ?? [];
+  const actions = actionsQuery.data ?? [];
 
   // fix round 1（M-1）：新 action 附加在清單最後——`sortOrder` 沒有 DB 唯一約束，若
   // create body 省略這個欄位，server 端 `sortOrder ?? 0` 會讓新動作跟 sortOrder=0
   // 的既有項（例如內建 Rewrite）同分，之後上下移鈕互換同分值＝原地不動，排序功能
   // 對這個新動作靜默失效。`Math.max(...) + 1` 保證新項一律排在現有最大值之後。
+  // 「Add action」只在動作清單載入成功後才渲染，這個值才不會在載入中誤算成 0。
   const nextSortOrder = actions.length > 0 ? Math.max(...actions.map((action) => action.sortOrder)) + 1 : 0;
 
   async function handleMove(action: AdminAiActionDto, direction: "up" | "down"): Promise<void> {
@@ -1291,53 +1267,74 @@ function ActionsSection({ actions, models }: { actions: AdminAiActionDto[]; mode
     }
   }
 
-  return (
-    <div className="space-y-3">
-      {/* 這一組的標題列自己渲染（建立鈕要吃 `nextSortOrder`，那是本元件才算得出來的），
-          但字級與版位跟 `SettingsGroup` 的標題列對齊——16px，動作靠右。 */}
-      <div className="flex items-center justify-between gap-4">
-        <h2 className="text-base font-semibold">{t("settings.ai.actionsHeading")}</h2>
-        <CreateActionDialog models={models} nextSortOrder={nextSortOrder} />
-      </div>
-      {actions.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{t("settings.ai.actionEmpty")}</p>
-      ) : (
-        <ul className="space-y-2">
-          {actions.map((action, index) => (
-            <ActionRow
-              key={action.id}
-              action={action}
-              models={models}
-              canMoveUp={index > 0}
-              canMoveDown={index < actions.length - 1}
-              movePending={patchAction.isPending}
-              onMove={(direction) => void handleMove(action, direction)}
-            />
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
+  const providerColumns: SettingsTableColumn[] = [
+    { id: "name", header: t("settings.ai.tableName"), kind: "primary" },
+    { id: "type", header: t("settings.ai.tableType"), kind: "fixed" },
+    { id: "baseUrl", header: t("settings.ai.tableBaseUrl"), kind: "url" },
+    { id: "models", header: t("settings.ai.tableModels"), kind: "text" },
+    { id: "actions", header: t("settings.ai.tableActions"), kind: "actions", buttons: 3 },
+    { id: "enabled", header: t("settings.ai.tableEnabled"), kind: "enabled" },
+  ];
+  const providerRows: SettingsTableRow[] = (providersQuery.data ?? []).map((provider) => {
+    const providerModels = models.filter((model) => model.providerId === provider.id);
+    return {
+      id: provider.id,
+      primary: { name: provider.name, weight: "semibold" },
+      cells: {
+        type: {
+          content:
+            provider.type === "anthropic" ? t("settings.ai.providerTypeAnthropic") : t("settings.ai.providerTypeOpenAiCompatible"),
+          tone: "muted",
+        },
+        baseUrl: provider.baseUrl,
+        models: providerModels.length === 0 ? "—" : providerModels.map((model) => model.displayName).join(", "),
+      },
+      actions: (
+        <ProviderActions
+          provider={provider}
+          onTestStart={() => setTests((prev) => ({ ...prev, [provider.id]: { pending: true, result: null } }))}
+          onTestDone={(result) => setTests((prev) => ({ ...prev, [provider.id]: { pending: false, result } }))}
+        />
+      ),
+      enabled: (labelledBy) => <ProviderEnabledSwitch provider={provider} labelledBy={labelledBy} />,
+      detail: <ProviderDetail provider={provider} models={providerModels} test={tests[provider.id]} />,
+    };
+  });
 
-// ═══════════════════════════════ section root ═══════════════════════════════
-
-/**
- * 站台管理頁的 AI 區（`/admin/ai`，站台管理 modal 的「AI 代理」，#247；舊網址
- * `/settings/ai` 轉址過來，見 `App.tsx` 第二棵樹）——provider／model／
- * action 三層 CRUD：三個獨立 query（key 定死 `["admin-ai","providers"|"models"|"actions"]`，
- * 見 `@/api/adminAi`），任一 mutation 成功都會 invalidate 這三個＋`["ai-actions"]`
- * （`AiSession` 讀的可執行動作清單，讓筆記側欄同分頁立即生效）。
- */
-export function SettingsAiSection() {
-  const { t } = useTranslation();
-  const providersQuery = useAdminAiProviders();
-  const modelsQuery = useAdminAiModels();
-  const actionsQuery = useAdminAiActions();
-  const enabledHeaderId = useId();
-
-  const models = modelsQuery.data ?? [];
-  const actions = actionsQuery.data ?? [];
+  const actionColumns: SettingsTableColumn[] = [
+    { id: "name", header: t("settings.ai.tableName"), kind: "primary" },
+    { id: "applyMode", header: t("settings.ai.actionApplyMode"), kind: "fixed" },
+    { id: "model", header: t("settings.ai.actionModel"), kind: "text" },
+    { id: "actions", header: t("settings.ai.tableActions"), kind: "actions", buttons: 4 },
+    { id: "enabled", header: t("settings.ai.tableEnabled"), kind: "enabled" },
+  ];
+  const actionRows: SettingsTableRow[] = actions.map((action, index) => ({
+    id: action.id,
+    primary: {
+      name: action.name,
+      weight: "medium",
+      badges: action.builtin ? (
+        <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">{t("settings.ai.actionBuiltinBadge")}</span>
+      ) : undefined,
+    },
+    cells: {
+      applyMode: action.applyMode === "direct" ? t("settings.ai.actionApplyModeDirect") : t("settings.ai.actionApplyModePreview"),
+      model: action.modelId
+        ? (models.find((model) => model.id === action.modelId)?.displayName ?? action.modelId)
+        : t("settings.ai.modelAuto"),
+    },
+    actions: (
+      <ActionButtons
+        action={action}
+        models={models}
+        canMoveUp={index > 0}
+        canMoveDown={index < actions.length - 1}
+        movePending={patchAction.isPending}
+        onMove={(direction) => void handleMove(action, direction)}
+      />
+    ),
+    enabled: (labelledBy) => <ActionEnabledSwitch action={action} labelledBy={labelledBy} />,
+  }));
 
   return (
     <SettingsPage title={t("settings.ai.title")} description={t("settings.ai.description")}>
@@ -1348,21 +1345,21 @@ export function SettingsAiSection() {
           <p role="alert" className="text-sm text-destructive">
             {errorMessage(t, providersQuery.error)}
           </p>
-        ) : providersQuery.data.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t("settings.ai.providerEmpty")}</p>
         ) : (
-          <div>
-            <ProviderTableHeader enabledHeaderId={enabledHeaderId} />
-            {providersQuery.data.map((provider) => (
-              <ProviderCard key={provider.id} provider={provider} models={models} enabledHeaderId={enabledHeaderId} />
-            ))}
-          </div>
+          <SettingsTable
+            label={t("settings.ai.providersHeading")}
+            columns={providerColumns}
+            rows={providerRows}
+            empty={t("settings.ai.providerEmpty")}
+          />
         )}
       </SettingsGroup>
 
-      {/* 群組之間的分隔線由 `SettingsPage` 的 `divide-y` 統一長出來，這裡不再自己
-          寫 `border-t pt-6`——否則兩套分隔規則並存，間距會對不齊。 */}
-      <SettingsGroup>
+      {/* 群組之間的分隔線由 `SettingsPage` 的 `divide-y` 統一長出來。 */}
+      <SettingsGroup
+        title={t("settings.ai.actionsHeading")}
+        action={actionsQuery.isSuccess ? <CreateActionDialog models={models} nextSortOrder={nextSortOrder} /> : undefined}
+      >
         {actionsQuery.isPending ? (
           <p className="text-sm text-muted-foreground">{t("app.loading")}</p>
         ) : actionsQuery.isError ? (
@@ -1370,7 +1367,7 @@ export function SettingsAiSection() {
             {errorMessage(t, actionsQuery.error)}
           </p>
         ) : (
-          <ActionsSection actions={actions} models={models} />
+          <SettingsTable label={t("settings.ai.actionsHeading")} columns={actionColumns} rows={actionRows} empty={t("settings.ai.actionEmpty")} />
         )}
       </SettingsGroup>
     </SettingsPage>

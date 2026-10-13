@@ -192,7 +192,7 @@ describe("SettingsAiSection（spec §13.4：provider／model／action 三層 CRU
 
     await waitFor(() => expect(screen.getByText(PROVIDER_A.name)).toBeInTheDocument());
     expect(screen.getByText(PROVIDER_B.name)).toBeInTheDocument();
-    // 模型名出現兩次：供應商列的「模型」欄＋下方模型清單（#247 §7.0）。
+    // 模型名出現兩次：供應商列的「模型」欄＋明細列的模型子表（spec 2026-10-13 settings-table §3 #1–#2）。
     expect(screen.getAllByText(MODEL_A1.displayName)).toHaveLength(2);
     expect(screen.getByText(MODEL_A1.modelId)).toBeInTheDocument();
     expect(screen.getAllByText(MODEL_B1.displayName)).toHaveLength(2);
@@ -339,8 +339,8 @@ describe("SettingsAiSection（spec §13.4：provider／model／action 三層 CRU
     expect(screen.getByText(notice)).toBeInTheDocument();
   });
 
-  it("沒有金鑰的 provider 在卡片上就看得出來；有金鑰的不顯示（issue #46 審查）", async () => {
-    // 「金鑰被清掉」以前是一個完全沒有 UI 表示的狀態——卡片不顯示 hasKey，degraded 的紅字
+  it("沒有金鑰的 provider 在該供應商的明細列就看得出來；有金鑰的不顯示（issue #46 審查）", async () => {
+    // 「金鑰被清掉」以前是一個完全沒有 UI 表示的狀態——供應商不顯示 hasKey，degraded 的紅字
     // 又剛好在同一時間消失（沒金鑰就不叫「解不開」）。文件宣稱的「shows as having no key」
     // 就是靠這一行才成立。
     // 用現成的 PROVIDER_B（Local Ollama，hasKey:false）——自己捏 id 撞到 PROVIDER_A 的話
@@ -357,11 +357,12 @@ describe("SettingsAiSection（spec §13.4：provider／model／action 三層 CRU
     renderSection(fetchMock);
     await waitFor(() => expect(screen.getByText(PROVIDER_B.name)).toBeInTheDocument());
 
-    // ⚠ 要驗它**掛在哪一張卡**，不能只數數量（審查用變異實測抓到：把顯示條件反轉成
-    // `hasKey && !degraded`，提示改掛在有金鑰的那張卡上、真正沒金鑰的反而不顯示，只數
+    // ⚠ 要驗它**掛在哪一個供應商的明細列**，不能只數數量（審查用變異實測抓到：把顯示條件反轉成
+    // `hasKey && !degraded`，提示改掛在有金鑰的那一列、真正沒金鑰的反而不顯示，只數
     // 數量的話 16 條測試全綠）。而三份文件唯一依靠的就是這道釘子。
-    const noKeyCard = screen.getByRole("region", { name: PROVIDER_B.name });
-    const hasKeyCard = screen.getByRole("region", { name: PROVIDER_A.name });
+    // 供應商的說明行在緊接資料列的明細列（spec 2026-10-13 settings-table §2.5：「＜名稱＞ details」）。
+    const noKeyCard = screen.getByRole("row", { name: `${PROVIDER_B.name} details` });
+    const hasKeyCard = screen.getByRole("row", { name: `${PROVIDER_A.name} details` });
     expect(within(noKeyCard).getByText(/No API key stored/)).toBeInTheDocument();
     expect(within(hasKeyCard).queryByText(/No API key stored/)).not.toBeInTheDocument();
   });
@@ -431,7 +432,7 @@ describe("SettingsAiSection（spec §13.4：provider／model／action 三層 CRU
     await waitFor(() => expect(screen.getByText("AI provider is unavailable — ask an admin to re-enter the API key")).toBeInTheDocument());
 
     // 重點：mutation 失敗仍要 invalidate（server 端只在失敗路徑對 runtime.degraded
-    // 做 add，若沿用 onSuccess，剛變 degraded 的卡片直到下一次無關操作前都不會刷新）。
+    // 做 add，若沿用 onSuccess，剛變 degraded 的供應商列與明細列直到下一次無關操作前都不會刷新）。
     const keys = invalidateSpy.mock.calls.map(([arg]) => (arg as { queryKey: unknown[] }).queryKey);
     expect(keys).toContainEqual(["admin-ai"]);
     expect(keys).toContainEqual(["ai-actions"]);
@@ -495,12 +496,10 @@ describe("SettingsAiSection（spec §13.4：provider／model／action 三層 CRU
     renderSection(fetchMock);
 
     await waitFor(() => expect(screen.getByText(ACTION_BUILTIN.name)).toBeInTheDocument());
-    const builtinRow = screen.getByText(ACTION_BUILTIN.name).closest("li");
-    const customRow = screen.getByText(ACTION_CUSTOM.name).closest("li");
-    expect(builtinRow).not.toBeNull();
-    expect(customRow).not.toBeNull();
-    expect(builtinRow && within(builtinRow).queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
-    expect(customRow && within(customRow).queryByRole("button", { name: "Delete" })).toBeInTheDocument();
+    const builtinRow = screen.getByRole("row", { name: ACTION_BUILTIN.name });
+    const customRow = screen.getByRole("row", { name: ACTION_CUSTOM.name });
+    expect(within(builtinRow).queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+    expect(within(customRow).getByRole("button", { name: "Delete" })).toBeInTheDocument();
   });
 
   it("#263 Instruct 的編輯框：不渲染套用模式控制項、送出的 PATCH 不帶 applyMode", async () => {
@@ -520,7 +519,7 @@ describe("SettingsAiSection（spec §13.4：provider／model／action 三層 CRU
     renderSection(fetchMock);
 
     await waitFor(() => expect(screen.getByText(ACTION_INSTRUCT.name)).toBeInTheDocument());
-    const row = screen.getByText(ACTION_INSTRUCT.name).closest("li")!;
+    const row = screen.getByRole("row", { name: ACTION_INSTRUCT.name });
     fireEvent.click(within(row).getByRole("button", { name: "Edit" }));
     const dialog = await screen.findByRole("dialog", { name: "Edit action" });
     expect(within(dialog).queryByLabelText("Apply mode")).not.toBeInTheDocument();
@@ -541,7 +540,7 @@ describe("SettingsAiSection（spec §13.4：provider／model／action 三層 CRU
     renderSection(fetchMock);
 
     await waitFor(() => expect(screen.getByText(ACTION_INSTRUCT.name)).toBeInTheDocument());
-    fireEvent.click(within(screen.getByText(ACTION_INSTRUCT.name).closest("li")!).getByRole("button", { name: "Edit" }));
+    fireEvent.click(within(screen.getByRole("row", { name: ACTION_INSTRUCT.name })).getByRole("button", { name: "Edit" }));
     const dialog = await screen.findByRole("dialog", { name: "Edit action" });
     const hint = within(dialog).getByTestId("ai-action-edit-template-hint");
     expect(hint).toHaveTextContent("Must include {{instruction}} and {{text}}; {{focus}} is optional.");
@@ -560,7 +559,7 @@ describe("SettingsAiSection（spec §13.4：provider／model／action 三層 CRU
     renderSection(fetchMock);
 
     await waitFor(() => expect(screen.getByText(ACTION_CUSTOM.name)).toBeInTheDocument());
-    fireEvent.click(within(screen.getByText(ACTION_CUSTOM.name).closest("li")!).getByRole("button", { name: "Edit" }));
+    fireEvent.click(within(screen.getByRole("row", { name: ACTION_CUSTOM.name })).getByRole("button", { name: "Edit" }));
     const dialog = await screen.findByRole("dialog", { name: "Edit action" });
     expect(within(dialog).getByLabelText("Apply mode")).toBeInTheDocument();
     expect(within(dialog).getByTestId("ai-action-edit-template-hint")).toHaveTextContent("Must include a {{text}} placeholder for the selected text.");
@@ -748,7 +747,7 @@ describe("SettingsAiSection（spec §13.4：provider／model／action 三層 CRU
     renderSection(fetchMock, queryClient);
 
     await waitFor(() => expect(screen.getByText(PROVIDER_A.name)).toBeInTheDocument());
-    // 供應商列的啟用 switch：可及名稱＝「Enabled」欄頭＋供應商名（#247 §7.0，對齊使用者表／登入服務表）。
+    // 供應商列的啟用 switch：可及名稱＝「Enabled」欄頭＋供應商名（spec 2026-10-13 settings-table §2.8，對齊使用者表／登入服務表）。
     fireEvent.click(screen.getByRole("switch", { name: `Enabled ${PROVIDER_A.name}` }));
 
     await waitFor(() => {
@@ -759,7 +758,7 @@ describe("SettingsAiSection（spec §13.4：provider／model／action 三層 CRU
   });
 });
 
-describe("AI 代理表格列（#247 §7.0，W21／W27）", () => {
+describe("AI 代理表格（spec 2026-10-13 settings-table §3 #1–#3）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -778,32 +777,40 @@ describe("AI 代理表格列（#247 §7.0，W21／W27）", () => {
     });
   }
 
-  it("AI1 供應商列：region（名稱）的第一行依序是名稱、類型、Base URL、模型名、列尾插頭＋鉛筆＋紅垃圾桶、啟用 switch；表頭 Name／Type／Base URL／Models／Enabled", async () => {
+  /** 只取這張表自己的表頭（模型子表的 sr-only 表頭也在供應商表的子樹裡）。 */
+  const ownHeaders = (table: HTMLElement) =>
+    within(table)
+      .getAllByRole("columnheader")
+      .filter((cell) => cell.closest('[role="table"]') === table)
+      .map((cell) => cell.textContent);
+  const buttonNames = (scope: HTMLElement) => within(scope).getAllByRole("button").map((button) => button.getAttribute("aria-label"));
+
+  it("AI1 供應商表：表名 Providers、欄名 Name／Type／Base URL／Models／Actions／Enabled；列名＝供應商名，列內有類型、Base URL、模型名、Test connection／Edit／Delete（依序）與「Enabled ＜名稱＞」開關", async () => {
     renderSection(stubDefault());
-    const region = await screen.findByRole("region", { name: PROVIDER_A.name });
-    const row = within(within(region).getByTestId("ai-provider-row"));
-    expect(row.getByText(PROVIDER_A.baseUrl)).toBeInTheDocument();
-    expect(row.getByText(MODEL_A1.displayName)).toBeInTheDocument();
-    for (const name of ["Test connection", "Edit", "Delete"]) {
-      const button = row.getByRole("button", { name });
-      expect(button).toHaveClass("h-8", "w-8");
-      expect(button.textContent).toBe("");
-      expect(button).toHaveAttribute("title", name);
-    }
-    expect(row.getByRole("button", { name: "Delete" })).toHaveClass("text-destructive");
-    expect(row.getByRole("switch", { name: `Enabled ${PROVIDER_A.name}` })).toBeInTheDocument();
-    expect(screen.getByTestId("ai-provider-table-header")).toHaveTextContent(/Name.*Type.*Base URL.*Models.*Enabled/);
+    const table = await screen.findByRole("table", { name: "Providers" });
+    expect(ownHeaders(table)).toEqual(["Name", "Type", "Base URL", "Models", "Actions", "Enabled"]);
+    const row = within(table).getByRole("row", { name: PROVIDER_A.name });
+    expect(within(row).getByRole("cell", { name: "Anthropic" })).toBeInTheDocument();
+    expect(within(row).getByRole("cell", { name: PROVIDER_A.baseUrl })).toBeInTheDocument();
+    expect(within(row).getByRole("cell", { name: MODEL_A1.displayName })).toBeInTheDocument();
+    expect(buttonNames(row)).toEqual(["Test connection", "Edit", "Delete"]);
+    expect(within(row).getByRole("switch", { name: `Enabled ${PROVIDER_A.name}` })).toBeInTheDocument();
   });
 
-  it("AI2 模型列與動作列：Edit／Delete 都是 icon 鈕（無可見文字），Delete 紅；動作的上下移鈕仍在", async () => {
+  it("AI2 供應商明細列：緊接資料列、名為「＜名稱＞ details」，含金鑰說明與模型子表「Models – ＜名稱＞」（nested：沒有自己的捲動框；標題 Models＋Add model；子表列名＝模型名、副標 modelId、Edit／Delete、開關「Enabled ＜模型名＞」）", async () => {
     renderSection(stubDefault());
-    await screen.findByText(ACTION_CUSTOM.name);
-    for (const button of screen.getAllByRole("button", { name: "Edit" })) expect(button.textContent).toBe("");
-    for (const button of screen.getAllByRole("button", { name: "Delete" })) {
-      expect(button.textContent).toBe("");
-      expect(button).toHaveClass("text-destructive");
-    }
-    expect(screen.getByRole("button", { name: `Move up ${ACTION_CUSTOM.name}` })).toBeInTheDocument();
+    const dataRow = await screen.findByRole("row", { name: PROVIDER_B.name });
+    const details = screen.getByRole("row", { name: `${PROVIDER_B.name} details` });
+    expect(dataRow.nextElementSibling).toBe(details);
+    expect(within(details).getByText(/No API key stored/)).toBeInTheDocument();
+    const models = within(details).getByRole("table", { name: `Models – ${PROVIDER_B.name}` });
+    expect(screen.queryByRole("region", { name: `Models – ${PROVIDER_B.name}` })).toBeNull();
+    expect(within(details).getByText("Models")).toBeInTheDocument();
+    expect(within(details).getByRole("button", { name: "Add model" })).toBeInTheDocument();
+    const modelRow = within(models).getByRole("row", { name: MODEL_B1.displayName });
+    expect(within(modelRow).getByText(MODEL_B1.modelId)).toBeInTheDocument();
+    expect(buttonNames(modelRow)).toEqual(["Edit", "Delete"]);
+    expect(within(modelRow).getByRole("switch", { name: `Enabled ${MODEL_B1.displayName}` })).toBeInTheDocument();
   });
 
   it("AI3 頁內「Add provider」「Add model」「Add action」都不是實心鈕", async () => {
@@ -817,24 +824,100 @@ describe("AI 代理表格列（#247 §7.0，W21／W27）", () => {
     }
   });
 
-  it("AI4 窄視窗（<md）：格線只在 md 以上；類型／Base URL／模型三欄 hidden md:block、名稱 min-w-0；表頭 hidden md:grid（390px 不橫向溢出）", async () => {
+  it("AI4 動作表：群組標題與表名都是 Actions；欄名 Name／Apply mode／Model／Actions／Enabled；內建列有 Built-in 標籤、沒有 Delete；鈕的順序＝上移、下移、編輯、刪除（spec §2.7）；開關名稱「Enabled ＜動作名＞」（spec §1 的例外）", async () => {
     renderSection(stubDefault());
-    const region = await screen.findByRole("region", { name: PROVIDER_A.name });
-    const rowEl = within(region).getByTestId("ai-provider-row");
-    expect(rowEl).toHaveClass("flex", "flex-wrap", "md:grid");
-    expect(rowEl).not.toHaveClass("grid");
-    const [name, type, baseUrl, modelsCell] = Array.from(rowEl.children);
-    expect(name).toHaveTextContent(PROVIDER_A.name);
-    expect(name).toHaveClass("min-w-0");
-    expect(baseUrl).toHaveTextContent(PROVIDER_A.baseUrl);
-    expect(modelsCell).toHaveTextContent(MODEL_A1.displayName);
-    for (const cell of [type, baseUrl, modelsCell]) expect(cell).toHaveClass("hidden", "md:block");
-    // 資訊不丟：窄視窗由明細區補一行「類型 · Base URL」（md 以上隱藏）；模型名在下方模型清單。
-    const narrowLine = within(region).getByText((_, el) => el?.tagName === "P" && (el.textContent ?? "").endsWith(` · ${PROVIDER_A.baseUrl}`));
-    expect(rowEl.contains(narrowLine)).toBe(false);
-    expect(narrowLine).toHaveClass("md:hidden");
-    const header = screen.getByTestId("ai-provider-table-header");
-    expect(header).toHaveClass("hidden", "md:grid");
-    expect(header).not.toHaveClass("grid");
+    const table = await screen.findByRole("table", { name: "Actions" });
+    expect(screen.getByRole("heading", { level: 2, name: "Actions" })).toBeInTheDocument();
+    expect(ownHeaders(table)).toEqual(["Name", "Apply mode", "Model", "Actions", "Enabled"]);
+    const builtin = within(table).getByRole("row", { name: ACTION_BUILTIN.name });
+    expect(within(builtin).getByText("Built-in")).toBeInTheDocument();
+    expect(buttonNames(builtin)).toEqual([`Move up ${ACTION_BUILTIN.name}`, `Move down ${ACTION_BUILTIN.name}`, "Edit"]);
+    const custom = within(table).getByRole("row", { name: ACTION_CUSTOM.name });
+    expect(buttonNames(custom)).toEqual([`Move up ${ACTION_CUSTOM.name}`, `Move down ${ACTION_CUSTOM.name}`, "Edit", "Delete"]);
+    expect(within(custom).getByRole("cell", { name: "Preview" })).toBeInTheDocument();
+    expect(within(custom).getByRole("cell", { name: "Auto (prefers the default model)" })).toBeInTheDocument();
+    expect(within(custom).getByRole("switch", { name: `Enabled ${ACTION_CUSTOM.name}` })).toBeInTheDocument();
+  });
+
+  it("AI5 上移／下移在清單邊界是原生 disabled（第一列不能上移、最後一列不能下移；spec §2.7 的暫時性停用）", async () => {
+    renderSection(stubDefault());
+    await screen.findByRole("table", { name: "Actions" });
+    expect(screen.getByRole("button", { name: `Move up ${ACTION_BUILTIN.name}` })).toBeDisabled();
+    expect(screen.getByRole("button", { name: `Move down ${ACTION_CUSTOM.name}` })).toBeDisabled();
+    expect(screen.getByRole("button", { name: `Move down ${ACTION_BUILTIN.name}` })).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: `Move up ${ACTION_CUSTOM.name}` })).not.toBeDisabled();
+  });
+
+  it("AI6 模型與動作的開關（新名稱「Enabled ＜名稱＞」）照樣送 PATCH {enabled}", async () => {
+    const patches: Array<{ url: string; body: unknown }> = [];
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      const res = defaultGetHandlers()(url, method);
+      if (res) return Promise.resolve(res);
+      if (method === "PATCH" && url === `/api/admin/ai/models/${MODEL_A1.id}`) {
+        patches.push({ url, body: JSON.parse(String(init?.body)) });
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ ...MODEL_A1, enabled: false }) }));
+      }
+      if (method === "PATCH" && url === `/api/admin/ai/actions/${ACTION_CUSTOM.id}`) {
+        patches.push({ url, body: JSON.parse(String(init?.body)) });
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ ...ACTION_CUSTOM, enabled: false }) }));
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    renderSection(fetchMock);
+    fireEvent.click(await screen.findByRole("switch", { name: `Enabled ${MODEL_A1.displayName}` }));
+    fireEvent.click(screen.getByRole("switch", { name: `Enabled ${ACTION_CUSTOM.name}` }));
+    await waitFor(() =>
+      expect(patches).toEqual([
+        { url: `/api/admin/ai/models/${MODEL_A1.id}`, body: { enabled: false } },
+        { url: `/api/admin/ai/actions/${ACTION_CUSTOM.id}`, body: { enabled: false } },
+      ]),
+    );
+  });
+
+  it("AI7 測試連線的進行中與結果只出現在被測那個供應商的明細列（根元件以供應商 id 為鍵保存；fix round 1 I-1）", async () => {
+    const FAIL = "AI provider is unavailable — ask an admin to re-enter the API key";
+    let resolveB: (res: Response) => void = () => {};
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      const res = defaultGetHandlers({ providers: [PROVIDER_A, PROVIDER_B], models: [], actions: [] })(url, method);
+      if (res) return Promise.resolve(res);
+      if (method === "POST" && url === `/api/admin/ai/providers/${PROVIDER_B.id}/test`) {
+        // 先卡住，才看得到「Testing…」掛在哪一列。
+        return new Promise<Response>((resolve) => {
+          resolveB = resolve;
+        });
+      }
+      if (method === "POST" && url === `/api/admin/ai/providers/${PROVIDER_A.id}/test`) {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ ok: true }) }));
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    renderSection(fetchMock);
+    const details = (provider: AdminAiProviderDto) => screen.getByRole("row", { name: `${provider.name} details` });
+    await screen.findByRole("row", { name: `${PROVIDER_B.name} details` });
+
+    fireEvent.click(within(screen.getByRole("row", { name: PROVIDER_B.name })).getByRole("button", { name: "Test connection" }));
+    expect(await within(details(PROVIDER_B)).findByText("Testing…")).toHaveAttribute("role", "status");
+    expect(within(details(PROVIDER_A)).queryByText("Testing…")).toBeNull();
+
+    resolveB(
+      fakeResponse({
+        ok: false,
+        status: 503,
+        json: () => Promise.resolve({ error: { code: "provider_unavailable", message: "此 provider 目前無法使用" } }),
+      }),
+    );
+    await waitFor(() => expect(within(details(PROVIDER_B)).getByRole("alert")).toHaveTextContent(FAIL));
+    expect(within(details(PROVIDER_B)).queryByText("Testing…")).toBeNull();
+    expect(within(details(PROVIDER_A)).queryByText(FAIL)).toBeNull();
+
+    // 成功路徑：A 的結果只掛在 A，B 的失敗結果不被蓋掉。
+    fireEvent.click(within(screen.getByRole("row", { name: PROVIDER_A.name })).getByRole("button", { name: "Test connection" }));
+    expect(await within(details(PROVIDER_A)).findByText("Connection succeeded.")).toHaveAttribute("role", "status");
+    expect(within(details(PROVIDER_B)).queryByText("Connection succeeded.")).toBeNull();
+    expect(within(details(PROVIDER_B)).getByRole("alert")).toHaveTextContent(FAIL);
   });
 });

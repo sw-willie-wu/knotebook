@@ -144,8 +144,8 @@ async function adminLoginReady(): Promise<unknown> {
 
 /** 站台：AI 代理——供應商、模型、動作三支請求各自到；三者都等到才掃。 */
 async function adminAiReady(): Promise<unknown> {
-  await screen.findByRole("region", { name: "Claude" });
-  await screen.findAllByText("Claude Sonnet"); // 模型名在供應商列的「模型」格與下方模型清單各出現一次
+  await screen.findByRole("row", { name: "Claude" });
+  await screen.findAllByText("Claude Sonnet"); // 模型名在供應商列的「模型」格與明細列的模型子表各出現一次
   return screen.findByText("Custom action");
 }
 
