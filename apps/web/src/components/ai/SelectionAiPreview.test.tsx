@@ -9,26 +9,20 @@ import { SelectionAiPreview } from "./SelectionAiPreview";
 const para = (id: string, text: string): DiffBlock => ({ id, type: "paragraph", props: {}, content: [{ type: "text", text, styles: {} }], children: [] });
 
 function makePreview(afterText: string): AiPreview {
-  const before = [para("s1", "context before"), para("a1", "original middle sentence"), para("s2", "context after")];
-  const after = [before[0]!, para("n1", afterText), before[2]!];
-  return { before, after, surroundIds: ["s1", "s2"], noChange: false };
+  return { before: [para("a1", "original middle sentence")], after: [para("n1", afterText)], noChange: false };
 }
 
-const outer = (id: string) => document.querySelector<HTMLElement>(`[data-testid="selection-ai-preview"] .bn-block-outer[data-id="${id}"]`);
-
 describe("SelectionAiPreview（#263 §5.4）", () => {
-  it("上下文塊貼 data-diff=\"surround\"（在 .bn-block-outer 上）；中間照 diff 標記", async () => {
+  it("只渲染被改的區塊，每塊照 diff 標記（added／deleted／changed）", async () => {
     render(
       <ThemeProvider>
         <SelectionAiPreview preview={makePreview("totally new text")} onReady={() => {}} />
       </ThemeProvider>,
     );
     await screen.findByTestId("selection-ai-preview");
-    expect(outer("s1")).toHaveAttribute("data-diff", "surround");
-    expect(outer("s2")).toHaveAttribute("data-diff", "surround");
-    const marks = Array.from(document.querySelectorAll<HTMLElement>('[data-testid="selection-ai-preview"] .bn-block-outer[data-id]'))
-      .map((el) => el.getAttribute("data-diff"))
-      .filter((mark) => mark !== "surround");
+    const marks = Array.from(document.querySelectorAll<HTMLElement>('[data-testid="selection-ai-preview"] .bn-block-outer[data-id]')).map((el) =>
+      el.getAttribute("data-diff"),
+    );
     expect(marks.length).toBeGreaterThan(0);
     expect(marks.every((mark) => mark === "added" || mark === "deleted" || mark === "changed")).toBe(true);
   });
@@ -57,8 +51,8 @@ describe("SelectionAiPreview（#263 §5.4）", () => {
 
 describe("index.css：框選 AI 預覽的樣式規則（#263 §5.3、§5.4）", () => {
   const css = readFileSync(`${process.cwd()}/src/index.css`, "utf8");
-  it("上下文塊淡色（不改版面）", () => {
-    expect(css).toMatch(/\.kb-diff \[data-diff="surround"\] > \.bn-block \{[^}]*opacity:/);
+  it("沒有上下文塊的淡色規則（#263 後續：預覽不再帶前後上下文，surround 已移除）", () => {
+    expect(css).not.toContain('data-diff="surround"');
   });
   it("框內唯讀編輯器左右內距歸零，選擇器墊到 (0,3,0)", () => {
     expect(css).toMatch(/\.kb-ai-preview \.bn-editor\.bn-editor \{[^}]*padding-inline: 0;/);

@@ -9,9 +9,10 @@ import { ADMIN, adminNav, createNote, editorLocator, loginAs, openSelectionAiBox
  * 驗窄視窗行為。AI provider **自建**（流程照 04-ai 的建置段）——不依賴 04 殘留
  * 狀態（plan gate M4）。
  *
- * 自建 provider 只為讓工具列的 AI 鈕出現（動作清單非空）；本檔不跑任何動作，所以 auto 解析選到哪顆 model 不影響結果。
+ * 自建 provider 讓工具列的 AI 鈕出現（動作清單非空），並勾「Default model」：本檔跑一次 Instruct 到結果態，auto 解析要選到這顆
+ * 指向 `/fast` 的 model（全套順序下 04 留下的 provider 已被改指 `/slow`，同 25 的說法）。
  *
- * 幾何：框選 AI 框寬度 ≤ 視窗寬減 16（框寬＝區塊寬＋外框，上限 calc(100vw - 16px)），左右都不出視窗。
+ * 幾何：框選 AI 框寬度 ≤ 視窗寬減 16（框寬＝區塊寬＋外框，上限 calc(100vw - 16px)），左右都不出視窗；結果態（框蓋在區塊上）同樣不出視窗。
  */
 
 const RUN_ID = Date.now();
@@ -102,7 +103,16 @@ test("窄視窗：靜態側欄隱藏、抽屜導覽、框選 AI 框不超出視�
     expect(Math.abs(boxRect.width - (anchorWidth + 2))).toBeLessThanOrEqual(1);
     expect(boxRect.x).toBeGreaterThanOrEqual(0);
     expect(boxRect.x + boxRect.width).toBeLessThanOrEqual(390);
-    await page.keyboard.press("Escape");
+
+    // 結果態（#263 後續：框改蓋在區塊上、placement 換成 bottom-start）：左右仍不出視窗（容差 1px）。
+    const input = box.getByRole("textbox", { name: "Instruction for the selected text" });
+    await input.fill("Shorten it");
+    await input.press("Enter");
+    await expect(box.getByTestId("selection-ai-preview")).toContainText("E2E rewritten text", { timeout: 15_000 });
+    const doneRect = (await box.boundingBox())!;
+    expect(doneRect.x).toBeGreaterThanOrEqual(-1);
+    expect(doneRect.x + doneRect.width).toBeLessThanOrEqual(390 + 1);
+    await box.press("Escape");
     await expect(box).toBeHidden();
   } finally {
     await context.close();

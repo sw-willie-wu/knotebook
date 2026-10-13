@@ -16,13 +16,13 @@ describe("seedAiActions（內建五動作 idempotent seed，spec §13；#263 §4
     expect(rows).toHaveLength(5);
   });
 
-  it("name/applyMode 照定案表：Rewrite/Translate 為 direct，Summarize/Continue writing/Instruct 為 preview", async () => {
+  it("name/applyMode 照定案表：五個內建動作新安裝一律 preview（#263 後續：Rewrite/Translate 由 direct 改 preview）", async () => {
     const { db } = await freshDb();
     const rows = await db.select().from(aiActions);
     const byName = new Map(rows.map((r) => [r.name, r]));
 
-    expect(byName.get("Rewrite")).toMatchObject({ applyMode: "direct" });
-    expect(byName.get("Translate")).toMatchObject({ applyMode: "direct" });
+    expect(byName.get("Rewrite")).toMatchObject({ applyMode: "preview" });
+    expect(byName.get("Translate")).toMatchObject({ applyMode: "preview" });
     expect(byName.get("Summarize")).toMatchObject({ applyMode: "preview" });
     expect(byName.get("Continue writing")).toMatchObject({ applyMode: "preview" });
     expect(byName.get("Instruct")).toMatchObject({ applyMode: "preview" });
@@ -49,7 +49,11 @@ describe("seedAiActions（內建五動作 idempotent seed，spec §13；#263 §4
     const [rewrite] = await db.select().from(aiActions).where(eq(aiActions.name, "Rewrite"));
     expect(rewrite).toBeDefined();
 
-    await db.update(aiActions).set({ systemPrompt: "已由 admin 改寫過的 system prompt", enabled: false }).where(eq(aiActions.id, rewrite!.id));
+    // applyMode 也算：既有站台（或 admin）留著的 direct 不會被新預設 preview 蓋掉（升級不改既有站台的值）。
+    await db
+      .update(aiActions)
+      .set({ systemPrompt: "已由 admin 改寫過的 system prompt", enabled: false, applyMode: "direct" })
+      .where(eq(aiActions.id, rewrite!.id));
     await db.update(aiActions).set({ userTemplate: "{{text}} / {{instruction}}" }).where(eq(aiActions.id, INSTRUCT_ACTION_ID));
 
     // 重跑 seed（模擬下次啟動的 runMigrations）——ON CONFLICT (id) DO NOTHING 不應覆寫。
@@ -57,7 +61,7 @@ describe("seedAiActions（內建五動作 idempotent seed，spec §13；#263 §4
     await runMigrations(db); // 連 migrate 整條路徑也重跑一次，確保接縫本身也是 idempotent
 
     const [afterRewrite] = await db.select().from(aiActions).where(eq(aiActions.id, rewrite!.id));
-    expect(afterRewrite).toMatchObject({ systemPrompt: "已由 admin 改寫過的 system prompt", enabled: false });
+    expect(afterRewrite).toMatchObject({ systemPrompt: "已由 admin 改寫過的 system prompt", enabled: false, applyMode: "direct" });
     const [afterInstruct] = await db.select().from(aiActions).where(eq(aiActions.id, INSTRUCT_ACTION_ID));
     expect(afterInstruct?.userTemplate).toBe("{{text}} / {{instruction}}");
 

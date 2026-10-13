@@ -11,7 +11,8 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { flip, offset, shift, size, type UseFloatingOptions } from "@floating-ui/react";
-import { PositionPopover, useBlockNoteEditor, useEditorState } from "@blocknote/react";
+import { GenericPopover, useBlockNoteEditor, useEditorState, type GenericPopoverReference } from "@blocknote/react";
+import { posToDOMRect } from "@tiptap/core";
 import {
   CONTINUE_WRITING_ACTION_ID,
   INSTRUCTION_MAX_CODE_POINTS,
@@ -43,12 +44,25 @@ const NO_DISMISS = { enabled: false };
 const NO_FOCUS_MANAGER = { disabled: true };
 const ELEMENT_PROPS = { style: { zIndex: 40 } };
 
+/** 最近一個會捲動的祖先（筆記卡 `overflow-y-auto`）；沒有就回 null。 */
+function scrollParentOf(el: Element | null | undefined): HTMLElement | null {
+  for (let node = el?.parentElement ?? null; node; node = node.parentElement) {
+    if (/(auto|scroll|overlay)/.test(getComputedStyle(node).overflowY)) return node;
+  }
+  return null;
+}
+
 /**
  * 框選 AI 框（#263 spec §5.3、§5.4）：工具列原位的浮動框，四態（輸入、串流、預覽、錯誤）。由 `SelectionAiController` 渲染在
- * `<BlockNoteView>` 內，經 `PositionPopover` 掛到 `editor.portalElement`（DOM 上在 `[data-testid="note-editor"]` 之內）。
+ * `<BlockNoteView>` 內，經 `GenericPopover` 掛到 `editor.portalElement`（DOM 上在 `[data-testid="note-editor"]` 之內）。
  *
  * - 定位（S3）：reference＝**活動錨點的首區塊**（posBefore～posAfter），每次 editor 交易經 `getNodeById` 重算；找不到節點時沿用上一次位置
- *   （RF4）。middleware 依內建工具列的順序 `offset(10)`、`shift()`、`flip()`，再加 `size()` 把最大高度設為 `min(40vh, 可用高度)`。
+ *   （RF4）。輸入／串流／錯誤態：`top-start`，middleware 依內建工具列的順序 `offset(10)`、`shift()`、`flip()`，再加 `size()` 把最大高度設為
+ *   `min(40vh, 可用高度)`（框浮在區塊上方）。
+ * - 結果態（`done`，含 direct 已套用；#263 後續 2026-10-13）：框**蓋在**首區塊上——reference 換成首區塊 `.bn-block-outer` 頂邊的零高矩形、
+ *   `bottom-start`、無 offset，框頂＝區塊頂、左緣＝區塊左緣，往下延伸暫時蓋住後面的段落。不 flip（翻上去會蓋到別段）；留 `shift()` 防左右出界；
+ *   `size()` 同上（可用高度改是框頂以下）。區塊頂捲出捲動容器頂時，頂邊夾在容器頂（不越過、不蓋頁首）。找不到區塊元素時退回 posBefore 的座標。
+ *   reference 的 `element` 同 `PositionPopover`（編輯器根 blockGroup），autoUpdate 才會掛捲動容器的 scroll 監聽、隨捲動跟著區塊走。
  * - 寬度：量活動錨點首區塊 `.bn-block-outer` 的寬度（ResizeObserver，目標換了就重新 observe）＋左右外框；上限可視寬減 16px。
  *   窄視窗（<768）同一個框、寬度同樣取區塊寬，chips 可換行（§5.6）。
  * - `role="region"` 而不是 `dialog`：全站快捷鍵與版本預覽的 Esc 以「頁上有 dialog」為放棄條件。
@@ -95,27 +109,51 @@ export function SelectionAiBox() {
   }, [editor, firstBlockId]);
   const boxWidth = blockWidth > 0 ? `min(${blockWidth + BOX_BORDER_X}px, calc(100vw - 16px))` : undefined;
 
-  const floatingOptions = useMemo<UseFloatingOptions>(
-    () => ({
+  // ── 位置 ──
+  // reference 物件不隨 phase 換（不依賴 overlay）：getBoundingClientRect 讀 render 期間寫入的 overlayRef／firstBlockIdRef 分支。
+  // placement 換成 bottom-start 的那次 floating-ui 重算（useFloating 的 layout effect）因此已經量到結果態的矩形——若 reference 跟著 overlay
+  // 換新，新的 reference 要等 GenericPopover 的 passive effect 才裝上，中間那次重算會拿舊矩形配新 placement。
+  const overlay = state.phase === "done";
+  const overlayRef = useRef(overlay);
+  overlayRef.current = overlay;
+  const firstBlockIdRef = useRef(firstBlockId);
+  firstBlockIdRef.current = firstBlockId;
+  const from = position?.from;
+  const to = position?.to;
+  const reference = useMemo<GenericPopoverReference | undefined>(() => {
+    if (from === undefined || to === undefined) return undefined;
+    const atAnchor = () => posToDOMRect(editor.prosemirrorView, from, to);
+    let scroller: HTMLElement | null | undefined;
+    const overlayRect = () => {
+      const blockId = firstBlockIdRef.current;
+      const block = blockId ? editor.domElement?.querySelector(`.bn-block-outer[data-id="${blockId}"]`) : null;
+      const rect = block ? block.getBoundingClientRect() : atAnchor();
+      if (scroller === undefined || (scroller && !scroller.isConnected)) scroller = scrollParentOf(editor.domElement);
+      const clipTop = scroller ? scroller.getBoundingClientRect().top : 0;
+      return new DOMRect(rect.left, Math.max(rect.top, clipTop), rect.width, 0);
+    };
+    return {
+      element: editor.domElement?.firstElementChild ?? undefined,
+      getBoundingClientRect: () => (overlayRef.current ? overlayRect() : atAnchor()),
+    };
+  }, [editor, from, to]);
+
+  const floatingOptions = useMemo<UseFloatingOptions>(() => {
+    const maxHeight = size({
+      apply({ availableHeight, elements }) {
+        const cap = Math.max(0, Math.floor(Math.min(window.innerHeight * 0.4, availableHeight)));
+        elements.floating.style.setProperty("--kb-ai-box-max-h", `${cap}px`);
+      },
+    });
+    return {
       open: boxOpen && editable,
-      placement: "top-start",
-      middleware: [
-        offset(10),
-        shift(),
-        flip(),
-        size({
-          apply({ availableHeight, elements }) {
-            const cap = Math.max(0, Math.floor(Math.min(window.innerHeight * 0.4, availableHeight)));
-            elements.floating.style.setProperty("--kb-ai-box-max-h", `${cap}px`);
-          },
-        }),
-      ],
-    }),
-    [boxOpen, editable],
-  );
+      placement: overlay ? "bottom-start" : "top-start",
+      middleware: overlay ? [shift(), maxHeight] : [offset(10), shift(), flip(), maxHeight],
+    };
+  }, [boxOpen, editable, overlay]);
 
   // ── 焦點 ──
-  // 框的 DOM 由 PositionPopover 掛：floating-ui 的轉場（useTransitionStyles）讓它比 phase 變更晚一個 render 才真正掛上（jsdom 實測：
+  // 框的 DOM 由 GenericPopover 掛：floating-ui 的轉場（useTransitionStyles）讓它比 phase 變更晚一個 render 才真正掛上（jsdom 實測：
   // 只靠 phase 驅動的 layout effect 時 ref 還是 null、焦點落空）。所以另用 state 記「框元素已掛上」，開啟的焦點轉移等它到位才做。
   const boxRef = useRef<HTMLDivElement | null>(null);
   const [boxEl, setBoxEl] = useState<HTMLDivElement | null>(null);
@@ -168,7 +206,9 @@ export function SelectionAiBox() {
     if (!inputTarget || !boxEl || focusedTargetRef.current === inputTarget) return;
     focusedTargetRef.current = inputTarget;
     setInstruction("");
-    (textareaRef.current ?? firstChipRef.current)?.focus();
+    // preventScroll：這一刻框可能還沒被 floating-ui 定位（還在 portal 的原點），不加的話瀏覽器會把筆記捲去那裡（e2e 25「開框、送出、完成都不改變
+    // 筆記的捲動位置」的突變實量：捲到 150 的筆記開框後 scrollTop→0）。框內所有程式性焦點轉移一律 preventScroll——開框、送出、完成都不得改變筆記的捲動位置。
+    (textareaRef.current ?? firstChipRef.current)?.focus({ preventScroll: true });
   }, [inputTarget, boxEl]);
 
   useLayoutEffect(() => {
@@ -180,8 +220,9 @@ export function SelectionAiBox() {
     const target = pendingFocusRef.current;
     if (target === null) return;
     pendingFocusRef.current = null;
-    if (target === "cancel") cancelRef.current?.focus();
-    // preventScroll：串流期間使用者可能已捲走，完成／還原的焦點轉移不該把頁面捲回框（spec 沒要求捲動；jsdom 量不到，留 e2e）。
+    if (target === "cancel") cancelRef.current?.focus({ preventScroll: true });
+    // preventScroll：串流期間使用者可能已捲走，完成／還原的焦點轉移不該把頁面捲回框（jsdom 量不到，e2e 04／25 守）。
+    // editor.focus() 走 ProseMirror 的 view.focus()，內部本來就是 focusPreventScroll。
     else if (target === "container") boxRef.current?.focus({ preventScroll: true });
     else editor.focus();
   }, [state, editor]);
@@ -213,14 +254,14 @@ export function SelectionAiBox() {
   );
 
   return (
-    <PositionPopover
-      position={position}
+    <GenericPopover
+      reference={reference}
       useFloatingOptions={floatingOptions}
       useDismissProps={NO_DISMISS}
       focusManagerProps={NO_FOCUS_MANAGER}
       elementProps={ELEMENT_PROPS}
     >
-      {boxOpen && editable && (
+      {position !== undefined && boxOpen && editable && (
         <div
           ref={setBoxRef}
           role="region"
@@ -333,6 +374,6 @@ export function SelectionAiBox() {
             ))}
         </div>
       )}
-    </PositionPopover>
+    </GenericPopover>
   );
 }

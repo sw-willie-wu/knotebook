@@ -12,6 +12,8 @@ import { aiActions } from "./schema.js";
  * 內建五動作定案內容（brief 逐字，不做 i18n key 映射——`name` 是 DB 資料、UI 原樣顯示，非 UI chrome；admin 可在後台自行改名，
  * docs/ai.md 會說明）。固定 UUID 住 `@knotebook/shared` 的 `ai.ts`（#263：web 也要用它判 chip 的 icon 與 Instruct）。
  * `modelId` 留空（NULL）：內建動作預設不綁特定 model，由 admin 於後台設定；`sortOrder` 依表列順序。
+ * `applyMode`：五個一律 preview（#263 後續，2026-10-13：Rewrite/Translate 原為 direct）。seed 只插入缺的 id，所以只影響新安裝；
+ * 既有站台的值不動，direct 仍可由 admin 在後台設定。
  * Instruct（#263 §4.1）：自由指令；template 的三個佔位符由 `routes/ai.ts` 包上固定標記後代入、system prompt 前置 server 固定的守門
  * （`ai/instruct.ts`），這裡的 systemPrompt 只管語氣與風格。
  */
@@ -22,7 +24,7 @@ const BUILTIN_ACTIONS = [
     systemPrompt:
       "You are an expert editor. Rewrite the user's text to improve clarity and flow while preserving its meaning, language, and Markdown formatting. Reply with the rewritten text only.",
     userTemplate: "{{text}}",
-    applyMode: "direct" as const,
+    applyMode: "preview" as const,
     sortOrder: 0,
   },
   {
@@ -31,7 +33,7 @@ const BUILTIN_ACTIONS = [
     systemPrompt:
       "Translate the user's text: if it is mostly Chinese, translate to English; otherwise translate to Traditional Chinese. Preserve Markdown formatting. Reply with the translation only.",
     userTemplate: "{{text}}",
-    applyMode: "direct" as const,
+    applyMode: "preview" as const,
     sortOrder: 1,
   },
   {

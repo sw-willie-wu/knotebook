@@ -74,13 +74,16 @@ describe("SelectionAiResult（#263 §5.4 預覽態，真的 lazy 模組）", () 
     expect(docText()).toContain("SUMMARY TEXT");
   });
 
-  it("預覽的前後上下文塊貼 surround（.kb-ai-preview 之內），中間是 diff", async () => {
+  it("預覽只顯示被改的區塊（.kb-ai-preview 之內）：前後的 p0／p2 不在預覽裡，也沒有任何 surround 標記", async () => {
     const ai = await mount();
     await runToDone(ai, SUMMARIZE.id, "SUMMARY TEXT");
-    await screen.findByTestId("selection-ai-preview");
-    const outer = (id: string) => document.querySelector(`.kb-ai-preview [data-testid="selection-ai-preview"] .bn-block-outer[data-id="${id}"]`);
-    await waitFor(() => expect(outer("p0")).toHaveAttribute("data-diff", "surround"));
-    expect(outer("p2")).toHaveAttribute("data-diff", "surround");
+    const preview = await screen.findByTestId("selection-ai-preview");
+    expect(preview.closest(".kb-ai-preview")).not.toBeNull();
+    await waitFor(() => expect(preview).toHaveTextContent("SUMMARY TEXT"));
+    expect(preview).toHaveTextContent("alpha beta gamma"); // 原文（deleted）仍在
+    expect(preview).not.toHaveTextContent("context before");
+    expect(preview).not.toHaveTextContent("context after");
+    expect(preview.querySelector('[data-diff="surround"]')).toBeNull();
   });
 
   it("noChange → 顯示「沒有變更」、預覽就緒後套用仍停用", async () => {

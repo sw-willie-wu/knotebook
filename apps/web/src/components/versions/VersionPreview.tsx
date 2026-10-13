@@ -29,7 +29,7 @@ const NO_MARKS: Map<string, DiffMark> = new Map();
 /**
  * 唯讀 diff 編輯器（單欄、並排的一側、前後對話框共用）。**不掛 collaboration**、`editable={false}`；
  * `resolveFileUrl` 一律過 `safeMediaUrl`（RF2：快照可能帶協作者寫進去的危險網址，issue #12 同一道守衛）。
- * render 後依 `marks` 以 `data-id` 回貼 `data-diff`（spec §8.4）；沒在 marks 裡的區塊貼 `context`；`surroundIds` 裡的 id 一律貼 `surround`（#263）。
+ * render 後依 `marks` 以 `data-id` 回貼 `data-diff`（spec §8.4）；沒在 marks 裡的區塊貼 `context`。
  *
  * `useCreateBlockNote(…, [blocks])` 在 `blocks` 身分一換就重建整顆編輯器——呼叫端傳進來的 `blocks` 必須是記憶化的參照
  * （見 `VersionPreview` 的 useMemo 鏈）。`data-diff` 貼在 `.bn-block-outer[data-id]` 上：Task 8 Step 1 探針在 jsdom 實跑，
@@ -40,15 +40,12 @@ export function DiffEditor({
   marks,
   testId = "diff-pane",
   rootRef,
-  surroundIds,
 }: {
   blocks: DiffBlock[];
   marks: Map<string, DiffMark | DiffMarkInfo>;
   testId?: string;
   /** 交出 `editor.domElement`（＝`.bn-editor` 本身，見 `topLevelOuters`）給父層量版面（rev 12 並排對齊、看前後鈕重量）。 */
   rootRef?: MutableRefObject<HTMLElement | null>;
-  /** #263：框選 AI 預覽的前後上下文塊；這些 id 一律貼 `data-diff="surround"`（淡色，index.css），其餘照 marks。 */
-  surroundIds?: ReadonlySet<string>;
 }) {
   const { resolvedTheme } = useTheme();
   const editor = useCreateBlockNote(
@@ -68,7 +65,7 @@ export function DiffEditor({
     root.querySelectorAll<HTMLElement>(".bn-block-outer[data-id]").forEach((el) => {
       const info = marks.get(el.dataset.id!);
       const mark = typeof info === "string" ? info : (info?.mark ?? "context");
-      el.setAttribute("data-diff", surroundIds?.has(el.dataset.id!) ? "surround" : mark);
+      el.setAttribute("data-diff", mark);
       if (typeof info === "object" && info.moved && mark !== "moved") el.setAttribute("data-diff-moved", "true");
     });
   });

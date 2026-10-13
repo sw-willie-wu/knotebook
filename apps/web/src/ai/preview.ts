@@ -11,8 +11,6 @@ type AnyBlock = Block<any, any, any>;
 export interface AiPreview {
   before: DiffBlock[];
   after: DiffBlock[];
-  /** 前後上下文塊的 id（`DiffEditor` 對它們貼 `data-diff="surround"`）。 */
-  surroundIds: string[];
   noChange: boolean;
 }
 
@@ -37,32 +35,10 @@ export function isNoChange(result: string, original: string): boolean {
 }
 
 /**
- * §5.4 預覽資料：`before = [prev?, ...錨點區塊, next?]`、`after = [prev?, ...afterBlocks, next?]`。prev／next 是首／末區塊在**自己那一層**
- * 的前／後兄弟，存在才放、一律 `children: []`（不帶子樹）。排除兩種：祖先——open() 到串流完成之間文件被搬動時可達，錨點仍可能
- * verify ok；錨點子樹內的區塊——只在錨點已 `changed` 時可達（snapshot 含子樹），但串流完成時 buildPreview 先於守門呼叫，所以仍會跑到。
- * `afterBlocks` 原物件放進 after（預覽與寫入同一份）。
+ * §5.4 預覽資料：`before` ＝錨點區塊（呼叫當下的現值，含子樹；找不到的 id 略過）、`after` ＝ `afterBlocks` 原物件（預覽與寫入同一份）。
+ * 只放被改的區塊——#263 後續（2026-10-13）拿掉了前後各一塊的淡色上下文：結果框改蓋在被改區塊上，旁邊的正文就是上下文。
  */
 export function buildPreview(editor: AnyEditor, blockIds: readonly string[], afterBlocks: readonly DiffBlock[], noChange: boolean): AiPreview {
   const anchorBlocks = blockIds.map((id) => editor.getBlock(id)).filter((block): block is AnyBlock => block !== undefined);
-  const excluded = new Set<string>();
-  const collect = (block: AnyBlock): void => {
-    excluded.add(block.id);
-    block.children.forEach(collect);
-  };
-  anchorBlocks.forEach(collect);
-  for (const id of blockIds) {
-    for (let parent = editor.getParentBlock(id); parent; parent = editor.getParentBlock(parent.id)) excluded.add(parent.id);
-  }
-  const asSurround = (block: AnyBlock | undefined): DiffBlock | null =>
-    block && !excluded.has(block.id) ? { ...block, children: [] } : null;
-  const prev = blockIds.length > 0 ? asSurround(editor.getPrevBlock(blockIds[0])) : null;
-  const next = blockIds.length > 0 ? asSurround(editor.getNextBlock(blockIds[blockIds.length - 1])) : null;
-  const head = prev ? [prev] : [];
-  const tail = next ? [next] : [];
-  return {
-    before: [...head, ...anchorBlocks, ...tail],
-    after: [...head, ...afterBlocks, ...tail],
-    surroundIds: [prev?.id, next?.id].filter((id): id is string => typeof id === "string"),
-    noChange,
-  };
+  return { before: anchorBlocks, after: [...afterBlocks], noChange };
 }

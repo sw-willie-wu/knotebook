@@ -4,7 +4,6 @@ import { createRoot } from "react-dom/client";
 import { BlockNoteEditor } from "@blocknote/core";
 import { noteSchema } from "@/collab/schema";
 import type { DiffBlock } from "@/lib/version-diff";
-import { captureAnchor, verifyAnchor } from "./anchor";
 import { buildPreview, isNoChange, normalizeMarkdown, stripTextWrapper } from "./preview";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 泛型三元組，repo 慣例
@@ -48,7 +47,7 @@ describe("isNoChange（#263 §5.2 第 3 步，RF5）", () => {
   });
 });
 
-describe("buildPreview（#263 §5.4：上下文塊與 surroundIds）", () => {
+describe("buildPreview（#263 §5.4；後續 2026-10-13：只放被改的區塊，不再帶前後上下文）", () => {
   const DOC = [
     { id: "p0", type: "paragraph", content: "zero" },
     { id: "p1", type: "paragraph", content: "one" },
@@ -60,69 +59,35 @@ describe("buildPreview（#263 §5.4：上下文塊與 surroundIds）", () => {
     { id: "p4", type: "paragraph", content: "four" },
   ];
 
-  it("平面：前後各一個同層兄弟當上下文、不帶子樹；after 中間是傳入的區塊（同一物件）", () => {
+  it("平面：before 只有錨點區塊、after 只有傳入的區塊（同一物件）；前後兄弟 p0／p2 都不出現；沒有 surroundIds 欄位", () => {
     const editor = mounted(DOC);
     const preview = buildPreview(editor, ["p1"], AFTER, false);
-    expect(ids(preview.before)).toEqual(["p0", "p1", "p2"]);
-    expect(ids(preview.after)).toEqual(["p0", "new-1", "p2"]);
-    expect(preview.surroundIds).toEqual(["p0", "p2"]);
-    expect(preview.before[2]!.children).toEqual([]);
-    expect(preview.after[1]).toBe(AFTER[0]);
+    expect(ids(preview.before)).toEqual(["p1"]);
+    expect(ids(preview.after)).toEqual(["new-1"]);
+    expect(preview.after[0]).toBe(AFTER[0]);
+    expect(Object.keys(preview).sort()).toEqual(["after", "before", "noChange"]);
     expect(preview.noChange).toBe(false);
   });
 
-  it("巢狀（選取從子區塊 c2 拉到 p3，getSelection 回 [c2, p3]）：prev 是 c2 同層的 c1、next 是 p4；祖先 p2 不出現", () => {
+  it("巢狀（選取從子區塊 c2 拉到 p3，getSelection 回 [c2, p3]）：before 恰為 [c2, p3]，同層的 c1、p4 與祖先 p2 都不出現", () => {
     const editor = mounted(DOC);
     const preview = buildPreview(editor, ["c2", "p3"], AFTER, true);
-    expect(ids(preview.before)).toEqual(["c1", "c2", "p3", "p4"]);
-    expect(preview.surroundIds).toEqual(["c1", "p4"]);
-    expect(ids(preview.before)).not.toContain("p2");
-    expect(ids(preview.after)).not.toContain("p2");
+    expect(ids(preview.before)).toEqual(["c2", "p3"]);
+    expect(ids(preview.after)).toEqual(["new-1"]);
     expect(preview.noChange).toBe(true);
   });
 
-  it("首區塊沒有前一個兄弟、末區塊沒有後一個兄弟 → 不放上下文", () => {
+  it("錨點區塊帶子樹：before 照 getBlock 帶上子區塊（被改的範圍本來就含子樹）", () => {
     const editor = mounted(DOC);
-    const preview = buildPreview(editor, ["c1", "c2"], AFTER, false);
-    expect(preview.surroundIds).toEqual([]);
-    expect(ids(preview.before)).toEqual(["c1", "c2"]);
+    const preview = buildPreview(editor, ["p2"], AFTER, false);
+    expect(ids(preview.before)).toEqual(["p2", "c1", "c2"]);
   });
 
-  it("I-1：open() 之後、串流完成之前文件被搬動：prev 兄弟變成錨點區塊的祖先時不放（錨點仍 verify ok）", () => {
-    const editor = mounted([
-      { id: "p0", type: "paragraph", content: "zero" },
-      { id: "p1", type: "paragraph", content: "one" },
-      { id: "p2", type: "paragraph", content: "two" },
-      { id: "p3", type: "paragraph", content: "three" },
-    ]);
-    const anchor = captureAnchor(editor, "note-1", ["p1", "p2"]);
-    const p2 = editor.getBlock("p2")!;
-    editor.removeBlocks(["p2"]);
-    editor.updateBlock("p0", { children: [p2] });
-    expect(verifyAnchor(editor, anchor)).toBe("ok");
-    const preview = buildPreview(editor, ["p1", "p2"], AFTER, false);
-    expect(preview.surroundIds).not.toContain("p0");
-    expect(ids(preview.before)).not.toContain("p0");
-    expect(ids(preview.after)).not.toContain("p0");
-    expect(preview.surroundIds).toEqual([]);
-    expect(preview.before.map((b) => b.id)).toEqual(["p1", "p2"]);
-  });
-
-  it("m-1：prev 落在某錨點區塊的子樹內（錨點 [p1,p2]，p1 被拖成 p2 的最後一個子區塊）→ 不放；verify 會是 changed", () => {
-    const editor = mounted([
-      { id: "p1", type: "paragraph", content: "one" },
-      { id: "p2", type: "paragraph", content: "two", children: [{ id: "c", type: "paragraph", content: "kid" }] },
-    ]);
-    const anchor = captureAnchor(editor, "note-1", ["p1", "p2"]);
-    const p1 = editor.getBlock("p1")!;
-    editor.removeBlocks(["p1"]);
-    editor.insertBlocks([p1], "c", "after");
-    expect(verifyAnchor(editor, anchor)).toBe("changed");
-    expect(editor.getPrevBlock("p1")?.id).toBe("c");
-    const preview = buildPreview(editor, ["p1", "p2"], AFTER, false);
-    expect(preview.surroundIds).not.toContain("c");
-    expect(preview.surroundIds).toEqual([]);
-    expect(preview.before.map((b) => b.id)).toEqual(["p1", "p2"]);
+  it("錨點裡找不到的 id（已被刪）略過，其餘照放", () => {
+    const editor = mounted(DOC);
+    editor.removeBlocks(["p3"]);
+    const preview = buildPreview(editor, ["p1", "p3"], AFTER, false);
+    expect(ids(preview.before)).toEqual(["p1"]);
   });
 
   it("before 是呼叫當下的現值：之後再改文件，已產出的 preview 不變（凍結由呼叫端保管這份物件）", () => {

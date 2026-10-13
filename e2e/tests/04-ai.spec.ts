@@ -10,6 +10,9 @@ import { ADMIN, adminNav, createNote, editorLocator, loginAs, openSelectionAiBox
  * ai-stub base URL 一律填 app 容器視角（`http://ai-stub:9500/...`）。ai-stub 不看請求內容，任何動作（含 Instruct）都回固定的
  * FINAL_CONTENT。auto 解析 model 靠 `apps/server/src/ai/resolve.ts` 的排序取第一筆；本檔全程只建這一顆 enabled 的 chat model。
  * 三支測試 `serial`：第一支建 provider，第二支沿用 `/fast`，第三支把它改成 `/slow`。
+ *
+ * 內建 Rewrite 新安裝預設是 preview（#263 後續，2026-10-13）。第二、三支要的是 direct 自動套用（＋還原、＋套用撞守門的 toast），
+ * 所以各自先以 admin API 把 Rewrite 改成 direct（`setRewriteApplyMode`）；第一次改之前記下原值，`afterAll` 改回那個原值（不寫死 preview）。
  */
 
 // 模組層 `RUN_ID`：三支 `serial` 測試共用同一顆 provider/model，名稱寫死會在「失敗保留疊、手動重跑」時撞名。
@@ -57,7 +60,38 @@ async function noteScroll(page: Page, to?: "nearBottom") {
   }, to);
 }
 
+type ApplyMode = "direct" | "preview";
+/** 本檔第一次改 Rewrite 之前讀到的 applyMode；`afterAll` 還原成它。 */
+let originalRewriteMode: ApplyMode | undefined;
+
+/**
+ * 以 admin API（`page.request` 與頁面共用 session cookie）把內建 Rewrite 的 applyMode 改掉；依名稱找 id（e2e 不依賴 shared 套件）。
+ * 本檔第一次呼叫時先記下改之前的值（`originalRewriteMode`）。
+ */
+async function setRewriteApplyMode(page: Page, applyMode: ApplyMode): Promise<void> {
+  const listed = await page.request.get("/api/admin/ai/actions");
+  expect(listed.status()).toBe(200);
+  const { actions } = (await listed.json()) as { actions: { id: string; name: string; builtin: boolean; applyMode: ApplyMode }[] };
+  const rewrite = actions.find((action) => action.builtin && action.name === "Rewrite");
+  expect(rewrite, "內建 Rewrite 動作").toBeDefined();
+  originalRewriteMode ??= rewrite!.applyMode;
+  const res = await page.request.patch(`/api/admin/ai/actions/${rewrite!.id}`, { data: { applyMode } });
+  expect(res.status()).toBe(200);
+}
+
 test.describe.configure({ mode: "serial" });
+
+test.afterAll(async ({ browser }) => {
+  if (originalRewriteMode === undefined) return; // 本檔沒改過
+  const context = await browser.newContext();
+  try {
+    const page = await context.newPage();
+    await loginAs(page, ADMIN.email, ADMIN.password);
+    await setRewriteApplyMode(page, originalRewriteMode);
+  } finally {
+    await context.close();
+  }
+});
 
 test("建 provider/model → 框選 → 指令 → 串流不洩漏 reasoning → diff 預覽 → 套用（框關閉）→ Ctrl+Z 還原", async ({ browser }) => {
   const context = await browser.newContext();
@@ -127,6 +161,8 @@ test("chip（direct 的 Rewrite）：串流完自動套用、框留著顯示 Rev
   try {
     const page = await context.newPage();
     await loginAs(page, ADMIN.email, ADMIN.password);
+    await expect(page).toHaveURL(/\/$/);
+    await setRewriteApplyMode(page, "direct");
     await createNote(page, `E2E ai chip ${Date.now()}`);
     const original = "Chip rewrite paragraph that gets replaced automatically.";
     const editor = editorLocator(page);
@@ -140,6 +176,15 @@ test("chip（direct 的 Rewrite）：串流完自動套用、框留著顯示 Rev
     await expect(revert).toBeVisible({ timeout: 15_000 });
     await expect(editor).toContainText(REWRITTEN_TEXT);
     await expect(editor).not.toContainText(original);
+    // 已套用時的結果框同樣蓋在被改區塊（＝插入的區塊）上：框頂＝該區塊頂、左緣對齊（容差 1px）。
+    const inserted = editor.locator(".bn-block-outer").filter({ hasText: REWRITTEN_TEXT });
+    await expect(inserted).toHaveCount(1);
+    await expect
+      .poll(async () => {
+        const [b, r] = [(await box.boundingBox())!, (await inserted.boundingBox())!];
+        return Math.max(Math.abs(b.y - r.y), Math.abs(b.x - r.x));
+      })
+      .toBeLessThanOrEqual(1);
 
     await revert.click();
     await expect(editor).toContainText(original);
@@ -159,6 +204,7 @@ test("守門：provider 改指向 /slow → 串流中第二個 context 改錨點
     const ownerPage = await ownerContext.newPage();
     await loginAs(ownerPage, ADMIN.email, ADMIN.password);
     await expect(ownerPage).toHaveURL(/\/$/);
+    await setRewriteApplyMode(ownerPage, "direct"); // 下面要驗 direct 自動套用撞守門的 toast
 
     await openAiSettings(ownerPage);
     const providerCard = providerCardLocator(ownerPage, PROVIDER_NAME);
