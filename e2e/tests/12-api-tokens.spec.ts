@@ -12,7 +12,7 @@ test("PAT：設定頁建立 → 無 cookie 的 Bearer 請求可用 → PATCH 改
   await loginAs(page, ADMIN.email, ADMIN.password);
 
   // §14.5 隨機化：多 spec 共用一座疊、失敗時刻意不 down，固定名稱在重跑時會在
-  // filter({ hasText }) 撞出 strict mode violation，把真正的回歸訊息蓋掉。
+  // 列名查詢（getByRole("row", { name, exact: true })）撞出 strict mode violation，把真正的回歸訊息蓋掉。
   const tokenName = `E2E script ${Date.now()}`;
 
   await page.goto("/settings/authorization");
@@ -86,7 +86,7 @@ test("PAT：設定頁建立 → 無 cookie 的 Bearer 請求可用 → PATCH 改
 
     // 撤銷——鎖定這一輪建的那一列（名稱已隨機化，前一輪殘留不會同名）。#247：token 是表格列，
     // 撤銷是列尾紅垃圾桶 icon 鈕（aria-label「Revoke」）。
-    const row = page.getByRole("row").filter({ hasText: tokenName });
+    const row = page.getByRole("row", { name: tokenName, exact: true });
     await row.getByRole("button", { name: "Revoke", exact: true }).click();
     await page.getByRole("button", { name: "Revoke token" }).click();
     // 斷言「剛建的那筆消失」而不是「列表全空」——多 spec 共用一座疊，admin 帳號
@@ -207,7 +207,7 @@ test("OAuth：未登入開 authorize → 登入 → 同意 → 本機 callback �
 
       // 同一份清單看得到這個 App 列（名稱是 client 自述、標成 App）
       await page.goto("/settings/authorization");
-      await expect(page.getByRole("row").filter({ hasText: `E2E client` }).first()).toBeVisible();
+      await expect(page.getByRole("row", { name: /^E2E client \d+$/ }).first()).toBeVisible();
 
       // #239 W8：同一個 client 再授權一次——編輯框沿用目前已授予的權限（預設勾）並標「Currently
       // granted」，搬移框仍不勾。按 Deny，不留第二支憑證（舊憑證不受影響：deny 不碰 api_tokens）。

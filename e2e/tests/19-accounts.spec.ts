@@ -49,18 +49,20 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
       await steps.getByRole("button", { name: "Done" }).click();
       await expect(steps).not.toBeVisible();
 
-      const card = page.getByRole("region", { name: SECOND_NAME });
-      await expect(card.getByText(/No client secret yet/)).toBeVisible();
+      // 登入服務＝資料列（Edit、Test connection、開關）＋「＜名稱＞ details」明細列（secret 狀態、測試結果；spec 2026-10-13 settings-table §3 #4）。
+      const card = page.getByRole("row", { name: SECOND_NAME, exact: true });
+      const details = page.getByRole("row", { name: `${SECOND_NAME} details`, exact: true });
+      await expect(details.getByText(/No client secret yet/)).toBeVisible();
       await card.getByRole("button", { name: "Edit" }).click();
       const edit = page.getByRole("dialog", { name: "Edit sign-in service" });
       await edit.getByLabel("Client secret").fill("e2e-oidc-secret");
       await edit.getByRole("button", { name: "Save" }).click();
       await expect(edit).not.toBeVisible();
-      await expect(card.getByText("Client secret saved.")).toBeVisible();
+      await expect(details.getByText("Client secret saved.")).toBeVisible();
 
       await card.getByRole("button", { name: "Test connection" }).click();
-      await expect(card.getByText(`Connection OK. The identity provider reports issuer ${SECOND_ISSUER}.`)).toBeVisible();
-      await expect(card.getByText("The issuer uses plain http.")).toBeVisible();
+      await expect(details.getByText(`Connection OK. The identity provider reports issuer ${SECOND_ISSUER}.`)).toBeVisible();
+      await expect(details.getByText("The issuer uses plain http.")).toBeVisible();
       // #247：啟用 switch 的可及名稱＝「Enabled」欄頭＋服務顯示名（aria-labelledby）。
       await card.getByRole("switch", { name: `Enabled ${SECOND_NAME}`, exact: true }).click();
       await expect(card.getByRole("switch", { name: `Enabled ${SECOND_NAME}`, exact: true })).toHaveAttribute("aria-checked", "true");
@@ -100,7 +102,7 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
       // #247 §9.9：回程落點是設定的「Sign-in」頁（server 導 `/settings/login?linked=…`，toast 後清參數）；
       // 等到 toast 才斷言，這時已是回程那一頁，不是出發前那一頁。
       await expect(page).toHaveURL(/\/settings\/login(\?.*)?$/);
-      await expect(page.getByRole("listitem", { name: new RegExp(SECOND_NAME) })).toBeVisible();
+      await expect(page.getByRole("table", { name: "Sign-in methods", exact: true }).getByRole("row", { name: new RegExp(SECOND_NAME) })).toBeVisible();
     } finally {
       await ctx.close();
     }
@@ -159,14 +161,16 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
       await page.getByRole("link", { name: `Sign up with ${SECOND_NAME}` }).click();
       await expect(page).toHaveURL(/\/$/, { timeout: 20_000 });
       await page.goto("/settings/login");
-      const row = page.getByRole("listitem", { name: new RegExp(SECOND_NAME) });
-      await expect(row.getByRole("button", { name: "Unlink" })).toBeDisabled();
+      const row = page.getByRole("table", { name: "Sign-in methods", exact: true }).getByRole("row", { name: new RegExp(SECOND_NAME) });
+      // 唯一的登入方式：解除鈕 softDisabled（aria-disabled、可聚焦、title 說原因；spec 2026-10-13 settings-table §2.7）。
+      await expect(row.getByRole("button", { name: "Unlink" })).toHaveAttribute("aria-disabled", "true");
       await expect(row.getByText("This is your only way to sign in, so it can't be unlinked.")).toBeVisible();
       // id 定位：Playwright 的 getByLabel 預設子字串比對，「New password」會同時命中「Confirm new password」（strict mode 錯，`05-oidc.spec.ts:87-89` 先例）。
       await page.locator("#set-password-new").fill(NEW_PASSWORD);
       await page.locator("#set-password-confirm").fill(NEW_PASSWORD);
       await page.getByRole("button", { name: "Add password" }).click();
       await expect(page.getByText("Password added.", { exact: true })).toBeVisible();
+      await expect(row.getByRole("button", { name: "Unlink" })).not.toHaveAttribute("aria-disabled");
       await expect(row.getByRole("button", { name: "Unlink" })).toBeEnabled();
     } finally {
       await ctx.close();
@@ -248,8 +252,9 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
       await expect(page).toHaveURL(/\/$/, { timeout: 20_000 });
       await expect(page.getByRole("button", { name: "E2E Prover", exact: true })).toBeVisible();
       await page.goto("/settings/login");
-      await expect(page.getByRole("listitem", { name: /^SSO/ })).toBeVisible();
-      await expect(page.getByRole("listitem", { name: new RegExp(SECOND_NAME) })).toBeVisible();
+      const methods = page.getByRole("table", { name: "Sign-in methods", exact: true });
+      await expect(methods.getByRole("row", { name: /^SSO/ })).toBeVisible();
+      await expect(methods.getByRole("row", { name: new RegExp(SECOND_NAME) })).toBeVisible();
     } finally {
       await ctx.close();
     }
@@ -329,7 +334,7 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
   test("19-7：停用（dialog 顯示人數）→ 登入頁按鈕消失 → 刪除", async ({ browser }) => {
     const { context, page } = await adminOnSignInPage(browser);
     try {
-      const card = page.getByRole("region", { name: SECOND_NAME });
+      const card = page.getByRole("row", { name: SECOND_NAME, exact: true });
       await card.getByRole("switch", { name: `Enabled ${SECOND_NAME}`, exact: true }).click();
       const dialog = page.getByRole("dialog", { name: "Turn this sign-in service off?" });
       // 不釘死人數：身分以 issuer 為鍵、刪服務後保留（§14.1-9），髒疊重跑時 `/b` 上可能已有前幾輪的身分；前輪若在刪除前失敗，
@@ -352,7 +357,7 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
       await card.getByRole("button", { name: "Delete" }).click();
       const confirm = page.getByRole("dialog", { name: "Delete this sign-in service?" });
       await confirm.getByRole("button", { name: "Delete" }).click();
-      await expect(page.getByRole("region", { name: SECOND_NAME })).toHaveCount(0);
+      await expect(page.getByRole("row", { name: SECOND_NAME, exact: true })).toHaveCount(0);
     } finally {
       await context.close();
     }

@@ -34,9 +34,18 @@ async function leaveAdmin(page: Page): Promise<void> {
   await expect(page).toHaveURL(/\/$/);
 }
 
-/** provider 列：#247 起每個供應商是以名稱為可及名稱的 `region`。 */
-function providerCardLocator(page: Page, name: string) {
-  return page.getByRole("region", { name });
+/**
+ * 供應商表（spec 2026-10-13 settings-table §3 #1）：一個供應商＝以名稱為名的資料列；金鑰說明、測試結果與模型子表在緊接的
+ * 「＜名稱＞ details」明細列。列名一律 exact（Playwright 的 name 預設是子字串比對，「X」會命中「X details」）。
+ */
+function providerRowLocator(page: Page, name: string) {
+  return page.getByRole("table", { name: "Providers", exact: true }).getByRole("row", { name, exact: true });
+}
+function providerDetailsLocator(page: Page, name: string) {
+  return page.getByRole("row", { name: `${name} details`, exact: true });
+}
+function modelsTableLocator(page: Page, providerName: string) {
+  return page.getByRole("table", { name: `Models – ${providerName}`, exact: true });
 }
 
 /**
@@ -108,17 +117,16 @@ test("建 provider/model → 框選 → 指令 → 串流不洩漏 reasoning →
     await createProviderDialog.locator("#ai-provider-base-url").fill("http://ai-stub:9500/fast");
     await createProviderDialog.getByRole("button", { name: "Create", exact: true }).click();
     await expect(createProviderDialog).not.toBeVisible();
-    const providerCard = providerCardLocator(page, PROVIDER_NAME);
-    await expect(providerCard).toBeVisible();
+    await expect(providerRowLocator(page, PROVIDER_NAME)).toBeVisible();
 
-    await providerCard.getByRole("button", { name: "Add model", exact: true }).click();
+    await providerDetailsLocator(page, PROVIDER_NAME).getByRole("button", { name: "Add model", exact: true }).click();
     const createModelDialog = page.getByRole("dialog", { name: "Add model" });
     await createModelDialog.getByLabel("Model ID", { exact: true }).fill("e2e-model");
     await createModelDialog.getByLabel("Display name", { exact: true }).fill(MODEL_DISPLAY_NAME);
     await createModelDialog.getByLabel("Default model", { exact: true }).check();
     await createModelDialog.getByRole("button", { name: "Create", exact: true }).click();
     await expect(createModelDialog).not.toBeVisible();
-    await expect(providerCard.getByRole("listitem").filter({ hasText: MODEL_DISPLAY_NAME })).toBeVisible();
+    await expect(modelsTableLocator(page, PROVIDER_NAME).getByRole("row", { name: MODEL_DISPLAY_NAME, exact: true })).toBeVisible();
 
     await leaveAdmin(page);
     await createNote(page, `E2E ai ${Date.now()}`);
@@ -207,14 +215,15 @@ test("守門：provider 改指向 /slow → 串流中第二個 context 改錨點
     await setRewriteApplyMode(ownerPage, "direct"); // 下面要驗 direct 自動套用撞守門的 toast
 
     await openAiSettings(ownerPage);
-    const providerCard = providerCardLocator(ownerPage, PROVIDER_NAME);
-    await expect(providerCard).toBeVisible();
-    await providerCard.getByRole("button", { name: "Edit", exact: true }).first().click();
+    // 資料列只有供應商自己的 Edit（模型的 Edit 在明細列的子表裡），不必再 .first()。
+    const providerRow = providerRowLocator(ownerPage, PROVIDER_NAME);
+    await expect(providerRow).toBeVisible();
+    await providerRow.getByRole("button", { name: "Edit", exact: true }).click();
     const editProviderDialog = ownerPage.getByRole("dialog", { name: "Edit provider" });
     await editProviderDialog.getByLabel("Base URL", { exact: true }).fill("http://ai-stub:9500/slow");
     await editProviderDialog.getByRole("button", { name: "Save", exact: true }).click();
     await expect(editProviderDialog).not.toBeVisible();
-    await expect(providerCard).toContainText("http://ai-stub:9500/slow");
+    await expect(providerRow).toContainText("http://ai-stub:9500/slow");
     await leaveAdmin(ownerPage);
 
     await createNote(ownerPage, `E2E ai guard ${Date.now()}`);

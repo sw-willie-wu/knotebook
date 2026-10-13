@@ -100,10 +100,11 @@ test.describe.serial("24 管理面板（#247）", () => {
       const admin = await openSiteAdmin(page);
       await expect(admin.getByRole("navigation", { name: "Site admin" }).getByRole("link", { name: "Users" })).toHaveAttribute("aria-current", "page");
       await expect(admin.getByRole("heading", { level: 1, name: "User management" })).toBeVisible();
-      // #267：「最後活動」欄——管理員自己剛才的 session 請求就是活動，那列顯示 Online（欄序同表頭：第 6 欄）。
-      await expect(admin.getByRole("columnheader").nth(5)).toHaveText("Last active");
-      const selfRow = admin.getByRole("row").filter({ has: page.getByText(ADMIN.email, { exact: true }) });
-      await expect(selfRow.getByRole("cell").nth(5)).toHaveText("Online");
+      // #267：「最後活動」欄——管理員自己剛才的 session 請求就是活動，那列顯示 Online。
+      // 依表名／列名（＝email，spec 2026-10-13 settings-table §3 #5）／格名查詢，不依欄序號（spec §5.2）。
+      const usersTable = admin.getByRole("table", { name: "Users", exact: true });
+      await expect(usersTable.getByRole("columnheader", { name: "Last active", exact: true })).toHaveCount(1);
+      await expect(usersTable.getByRole("row", { name: ADMIN.email, exact: true }).getByRole("cell", { name: "Online", exact: true })).toBeVisible();
       await shot(page, "24-admin-1440.png");
       await page.keyboard.press("Escape");
       await expect(page).toHaveURL(/\/$/);

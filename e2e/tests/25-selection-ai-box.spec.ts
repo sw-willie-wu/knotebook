@@ -103,8 +103,8 @@ test("建 provider（/fast，勾 Default model）", async ({ browser }) => {
     await providerDialog.locator("#ai-provider-base-url").fill("http://ai-stub:9500/fast");
     await providerDialog.getByRole("button", { name: "Create", exact: true }).click();
     await expect(providerDialog).not.toBeVisible();
-    const card = page.getByRole("region", { name: PROVIDER_NAME });
-    await card.getByRole("button", { name: "Add model", exact: true }).click();
+    // 「Add model」在供應商的明細列（spec 2026-10-13 settings-table §3 #1）。
+    await page.getByRole("row", { name: `${PROVIDER_NAME} details`, exact: true }).getByRole("button", { name: "Add model", exact: true }).click();
     const modelDialog = page.getByRole("dialog", { name: "Add model" });
     await modelDialog.getByLabel("Model ID", { exact: true }).fill("e2e-box-model");
     await modelDialog.getByLabel("Display name", { exact: true }).fill(MODEL_DISPLAY_NAME);

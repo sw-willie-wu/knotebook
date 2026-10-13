@@ -60,7 +60,7 @@ test("21 儲存配額 E1：1 MB 方案指派給使用者 → 貼 > 1 MB 圖 → 
     await planDialog.getByLabel("Unit", { exact: true }).selectOption("MB");
     await planDialog.getByRole("button", { name: "Create", exact: true }).click();
     await expect(planDialog).not.toBeVisible();
-    await expect(adminPage.getByRole("row").filter({ hasText: PLAN_NAME })).toContainText("1 MB");
+    await expect(adminPage.getByRole("row", { name: PLAN_NAME, exact: true })).toContainText("1 MB");
 
     // ── admin：在使用者表指派 ──────────────────────────────────────
     await adminNav(adminPage, "Users");

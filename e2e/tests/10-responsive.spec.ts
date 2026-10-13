@@ -24,9 +24,9 @@ async function openAiSettings(page: Page): Promise<void> {
   await adminNav(page, "AI agents");
 }
 
-/** #247 起每個供應商是以名稱為可及名稱的 `region`（同 04-ai）。 */
-function providerCardLocator(page: Page, name: string) {
-  return page.getByRole("region", { name });
+/** 供應商的明細列（spec 2026-10-13 settings-table §3 #1：「＜名稱＞ details」，模型子表與「Add model」在這裡；同 04-ai）。 */
+function providerDetailsLocator(page: Page, name: string) {
+  return page.getByRole("row", { name: `${name} details`, exact: true });
 }
 
 test("窄視窗：靜態側欄隱藏、抽屜導覽、框選 AI 框不超出視窗", async ({ browser }) => {
@@ -46,9 +46,9 @@ test("窄視窗：靜態側欄隱藏、抽屜導覽、框選 AI 框不超出視�
     await createProviderDialog.getByRole("button", { name: "Create", exact: true }).click();
     await expect(createProviderDialog).not.toBeVisible();
 
-    const providerCard = providerCardLocator(page, PROVIDER_NAME);
-    await expect(providerCard).toBeVisible();
-    await providerCard.getByRole("button", { name: "Add model", exact: true }).click();
+    const providerDetails = providerDetailsLocator(page, PROVIDER_NAME);
+    await expect(providerDetails).toBeVisible();
+    await providerDetails.getByRole("button", { name: "Add model", exact: true }).click();
     const createModelDialog = page.getByRole("dialog", { name: "Add model" });
     await createModelDialog.getByLabel("Model ID", { exact: true }).fill("e2e-rwd-model");
     await createModelDialog.getByLabel("Display name", { exact: true }).fill(MODEL_DISPLAY_NAME);

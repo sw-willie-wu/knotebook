@@ -67,7 +67,8 @@ test("20-1：管理員上傳「SSO」的圖示 → 登入頁 SSO 鈕出現縮成
     let failure: unknown;
     try {
       await page.goto("/admin/login");
-      const card = page.getByRole("region", { name: sso!.displayName, exact: true });
+      // 登入服務的資料列（spec 2026-10-13 settings-table §3 #4）：Icon 鈕與名稱前的圖示都在這一列。
+      const card = page.getByRole("row", { name: sso!.displayName, exact: true });
       await card.getByRole("button", { name: "Icon", exact: true }).click();
       const dialog = page.getByRole("dialog", { name: "Sign-in service icon" });
       await dialog.getByRole("radio", { name: "Upload an image" }).check();
