@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
  *   cell 撐滿列的內容高（grid 預設 stretch），內容一律包成單一個 `flex-1 min-w-0` 子元素，欄的水平對齊設在這個子元素上。
  * - 窄螢幕（§2.4）：不重排。頂層表外包 `role="region"` 的橫向捲動框，主欄 sticky 在左（不透明底、z-index 1：開關圓鈕用 translate，
  *   會建立堆疊環境）。捲動框只在內容實際溢出時可聚焦；`scroll-padding-inline-start` 取表頭主欄格的實際寬，Tab 帶捲時焦點目標
- *   落在 sticky 欄右側（WCAG 2.4.11）。
+ *   落在 sticky 欄右側（WCAG 2.4.11）；目標已在框內、只是壓在 sticky 欄底下時瀏覽器不捲，由捲動框的 focus 處理補捲。
  * - 明細列與錯誤列（§2.5）是緊接在資料列後的獨立 row（不是 subgrid）。子表以 `nested` 宣告：沒有捲動框、主欄不 sticky（sticky 盒
  *   不能離開所屬列，子表主欄軌很寬，黏住會蓋掉同列的操作鈕與開關）、表頭列 sr-only（供開關的 aria-labelledby 引用）。
  * - 編輯中（§2.6）：主欄 cell 保留，其餘欄合併成一格放呼叫端的表單。
@@ -250,8 +250,27 @@ function useScrollBox(active: boolean, stickyKey: string | undefined) {
     return () => observer.disconnect();
   }, [active, stickyKey]);
 
+  /**
+   * 聚焦帶捲的補捲：瀏覽器只在焦點目標落在捲動框可視範圍外時才捲（捲的時候才套用 scroll-padding）；目標整顆在框內、
+   * 只是左半壓在 sticky 主欄底下時不會捲（Chromium 實測），這裡把 scrollLeft 往左補到目標露出。焦點在頂層資料列的
+   * 主欄格（sticky 格本身）裡就不補。
+   */
+  function revealPastSticky(target: Element): void {
+    const scroller = boxRef.current;
+    const sticky = stickyHeaderRef.current;
+    // React 的 onFocus 會穿過 portal 冒泡：列上開的對話框（DOM 在 body）裡的焦點不是表內控制項，不補。
+    if (scroller === null || sticky === null || !scroller.contains(target)) return;
+    const row = target.closest('[role="row"]');
+    if (row !== null && row.hasAttribute("aria-labelledby") && row.parentElement?.parentElement === scroller && row.firstElementChild?.contains(target)) {
+      return;
+    }
+    const covered = sticky.getBoundingClientRect().right - target.getBoundingClientRect().left;
+    // 進位成整數：scrollLeft 可能被取整，補不足會留下小於 1px 的遮擋。
+    if (covered > 0) scroller.scrollLeft -= Math.ceil(covered);
+  }
+
   // 只在溢出時可聚焦；捲動框正有焦點時不移除 tabIndex，等它失焦後再依溢出狀態更新。
-  return { boxRef, headerRowRef, stickyHeaderRef, tabbable: overflowing || focused, setFocused };
+  return { boxRef, headerRowRef, stickyHeaderRef, tabbable: overflowing || focused, setFocused, revealPastSticky };
 }
 
 export function SettingsTable({ label, columns, rows, nameColumn, empty, title, titleAction, nested = false }: SettingsTableProps) {
@@ -434,6 +453,7 @@ export function SettingsTable({ label, columns, rows, nameColumn, empty, title, 
         tabIndex={box.tabbable ? 0 : undefined}
         onFocus={(event) => {
           if (event.target === event.currentTarget) box.setFocused(true);
+          else box.revealPastSticky(event.target);
         }}
         onBlur={(event) => {
           if (event.target === event.currentTarget) box.setFocused(false);

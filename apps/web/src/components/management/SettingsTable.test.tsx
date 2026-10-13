@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createPortal } from "react-dom";
 import { act, render, screen, within } from "@testing-library/react";
 import i18n from "@/i18n";
 import { Switch } from "@/components/ui/switch";
@@ -291,6 +292,60 @@ describe("SettingsTable（spec §2、§5.1）", () => {
     const stickyHeader = headersOf(tableNamed())[0]!;
     expect(FakeResizeObserver.instances.at(-1)!.targets).toContain(stickyHeader);
     expect(first.targets).toHaveLength(0);
+  });
+
+  it("§2.4 聚焦補捲：焦點目標左緣壓在 sticky 主欄右緣之下 → scrollLeft 往左補（進位成整數）；沒壓到、或焦點在主欄格裡 → 不動", () => {
+    const badgeRow = row("a", "Alpha", { primary: { name: "Alpha", badges: <button type="button">Badge</button> } });
+    render(<SettingsTable label="Things" columns={ALL} rows={[badgeRow]} />);
+    const box = screen.getByRole("region", { name: "Things" });
+    let scrollLeft = 241;
+    Object.defineProperty(box, "scrollLeft", { configurable: true, get: () => scrollLeft, set: (value: number) => (scrollLeft = value) });
+    const stickyHeader = headersOf(tableNamed())[0]!;
+    const edit = screen.getByRole("button", { name: "Edit Alpha" });
+    const role = screen.getByRole("combobox", { name: "Role for Alpha" });
+    const badge = screen.getByRole("button", { name: "Badge" });
+    const lefts = new Map<Element, number>([
+      [stickyHeader, 0],
+      [edit, 116.1], // 壓在 sticky 右緣（124.6875）下 8.5875px
+      [role, 200], // 在 sticky 右側
+      [badge, 20], // 在主欄格裡
+    ]);
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      return this === stickyHeader ? new DOMRect(0, 0, 124.6875, 30) : new DOMRect(lefts.get(this) ?? 0, 0, 32, 32);
+    });
+
+    act(() => edit.focus());
+    expect(scrollLeft).toBe(232);
+
+    scrollLeft = 241;
+    act(() => role.focus());
+    expect(scrollLeft).toBe(241);
+    act(() => badge.focus());
+    expect(scrollLeft).toBe(241);
+  });
+
+  it("§2.4 聚焦補捲只管捲動框內的焦點：列上 portal 到 body 的控制項（對話框）取得焦點時，React onFocus 冒泡上來也不動 scrollLeft", () => {
+    const portalRow = row("a", "Alpha", {
+      actions: createPortal(
+        <button type="button" aria-label="Dialog field">
+          d
+        </button>,
+        document.body,
+      ),
+    });
+    render(<SettingsTable label="Things" columns={ALL} rows={[portalRow]} />);
+    const box = screen.getByRole("region", { name: "Things" });
+    let scrollLeft = 241;
+    Object.defineProperty(box, "scrollLeft", { configurable: true, get: () => scrollLeft, set: (value: number) => (scrollLeft = value) });
+    const stickyHeader = headersOf(tableNamed())[0]!;
+    const dialogField = screen.getByRole("button", { name: "Dialog field" });
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      return this === stickyHeader ? new DOMRect(0, 0, 124.6875, 30) : new DOMRect(20, 0, 32, 32); // 對話框欄位左緣在 sticky 右緣左邊
+    });
+
+    act(() => dialogField.focus());
+    expect(scrollLeft).toBe(241);
+    expect(box.contains(dialogField)).toBe(false);
   });
 
   it("§2.4／§2.5 主欄 sticky（表頭格與資料列主欄格：left-0、z-[1]、不透明 bg-card、右緣框線）；nested 子表不 sticky、沒有捲動框、表頭列 sr-only、主欄內容 pl-4、標題列 pl-7", () => {
