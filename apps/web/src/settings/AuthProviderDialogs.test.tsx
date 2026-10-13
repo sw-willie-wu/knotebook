@@ -255,9 +255,10 @@ describe("編輯登入服務 dialog（#187 §9.4、§5.2）", () => {
   });
 
   async function openEdit() {
-    const region = within(await screen.findByRole("region", { name: "Corp SSO" }));
-    fireEvent.click(region.getByRole("button", { name: "Edit" }));
-    return { region, dialog: within(await screen.findByRole("dialog", { name: "Edit sign-in service" })) };
+    // 登入服務是以顯示名為名的資料列（spec 2026-10-13 settings-table §3 #4）；Edit 與開關都在這一列。
+    const row = within(await screen.findByRole("row", { name: "Corp SSO" }));
+    fireEvent.click(row.getByRole("button", { name: "Edit" }));
+    return { row, dialog: within(await screen.findByRole("dialog", { name: "Edit sign-in service" })) };
   }
 
   it("編輯：點對話框外面不關閉、已改內容仍在（表單型守衛）", async () => {
@@ -388,13 +389,13 @@ describe("編輯登入服務 dialog（#187 §9.4、§5.2）", () => {
       return fakeResponse(200, server.state.providers[0]);
     });
     renderSection(server.fetchMock);
-    const { region, dialog } = await openEdit();
+    const { row, dialog } = await openEdit();
     fireEvent.change(dialog.getByLabelText("Issuer URL"), { target: { value: "https://other.example.com" } });
     expect(dialog.getByText("Changing the issuer clears the saved client secret and turns this service off.")).toBeInTheDocument();
     fireEvent.change(dialog.getByLabelText("Client secret"), { target: { value: "new-secret" } });
     expect(dialog.getByText("Changing the issuer turns this service off. Test it, then turn it back on.")).toBeInTheDocument();
     fireEvent.click(dialog.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(region.getByRole("switch", { name: `Enabled ${LIVE.displayName}` })).toHaveAttribute("aria-checked", "false"));
+    await waitFor(() => expect(row.getByRole("switch", { name: `Enabled ${LIVE.displayName}` })).toHaveAttribute("aria-checked", "false"));
     expect(screen.getByText("This sign-in service was turned off.")).toBeInTheDocument();
     expect((server.calls.find(c => c.method === "PATCH")!.body as { clientSecret?: string }).clientSecret).toBe("new-secret");
   });
@@ -431,8 +432,8 @@ describe("編輯登入服務 dialog（#187 §9.4、§5.2）", () => {
   it("顯示名是 HTML 形：編輯 dialog 只把它放進輸入框的值（字面）、不成為元素", async () => {
     const htmlName = "<b>Corp</b> & Co";
     renderSection(fakeServer([{ ...LIVE, displayName: htmlName }]).fetchMock);
-    const region = within(await screen.findByRole("region", { name: htmlName }));
-    fireEvent.click(region.getByRole("button", { name: "Edit" }));
+    const row = within(await screen.findByRole("row", { name: htmlName }));
+    fireEvent.click(row.getByRole("button", { name: "Edit" }));
     const dialog = within(await screen.findByRole("dialog", { name: "Edit sign-in service" }));
     expect(dialog.getByLabelText("Display name")).toHaveValue(htmlName);
     expect(document.querySelector("b")).toBeNull();

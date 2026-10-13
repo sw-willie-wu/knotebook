@@ -135,11 +135,11 @@ async function loginReady(passwordButton: string): Promise<unknown> {
 
 /**
  * 站台：登入——頂部開關（`/api/admin/auth/settings`）、服務列（`/providers`）、列內「已連結」格（每列一支 `/impact`）是三支各自到的請求；
- * 只等其中一支會在其他還在載入時就掃。發行者網址在寬／窄兩格各出現一次，所以以列 region 定位、等「已連結」格從「—」變成 1。
+ * 只等其中一支會在其他還在載入時就掃。以登入服務的資料列定位、等「已連結」格從「—」變成 1。
  */
 async function adminLoginReady(): Promise<unknown> {
   await screen.findByRole("switch", { name: "Allow registration" });
-  return within(await screen.findByRole("region", { name: "SSO" })).findByText("1");
+  return within(await screen.findByRole("row", { name: "SSO" })).findByText("1");
 }
 
 /** 站台：AI 代理——供應商、模型、動作三支請求各自到；三者都等到才掃。 */

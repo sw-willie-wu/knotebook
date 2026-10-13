@@ -52,7 +52,8 @@ const CUSTOM: AdminAuthProviderDto = {
   icon: { type: "builtin", name: "gitlab" },
 };
 
-type Handler = (method: string, url: string, body: unknown) => Response | null;
+/** 回 Promise＝延後回應（測「進行中」狀態用）。 */
+type Handler = (method: string, url: string, body: unknown) => Response | Promise<Response> | null;
 
 /** 有狀態的假 server：GET 列表回目前的 `providers`；`on()` 掛額外端點；`calls` 記每一次請求。 */
 function fakeServer(initial: AdminAuthProviderDto[]) {
@@ -91,7 +92,11 @@ function renderSection(fetchMock: ReturnType<typeof vi.fn>) {
   );
 }
 
-const card = (name: string) => within(screen.getByRole("region", { name }));
+/** 一個登入服務＝以顯示名為名的資料列＋緊接的「＜名稱＞ details」明細列（spec 2026-10-13 settings-table §3 #4）。 */
+const row = (name: string) => within(screen.getByRole("row", { name }));
+const details = (name: string) => within(screen.getByRole("row", { name: `${name} details` }));
+/** 名稱元素（列的 aria-labelledby 指向它）；圖示是它的前一個兄弟。 */
+const nameElementOf = (rowEl: HTMLElement) => document.getElementById(rowEl.getAttribute("aria-labelledby")!)!;
 
 describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
   beforeEach(async () => {
@@ -103,30 +108,34 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
     vi.unstubAllGlobals();
   });
 
-  it("卡片：顯示名（HTML 形渲染為字面）、範本、legacy 標記、issuer、client id、回呼網址、secret 狀態、未連線提醒、http 警示", async () => {
+  it("列＋明細列：顯示名（HTML 形渲染為字面）、範本、legacy 標記、issuer（只在列上一份）、client id、回呼網址、secret 狀態、未連線提醒、http 警示", async () => {
     const server = fakeServer([LEGACY, CUSTOM]);
     renderSection(server.fetchMock);
-    await waitFor(() => expect(screen.getByRole("region", { name: "<b>Corp</b> & Co" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("row", { name: "<b>Corp</b> & Co" })).toBeInTheDocument());
     expect(document.querySelector("b")).toBeNull();
+    expect(screen.getByRole("row", { name: "SSO" }).nextElementSibling).toBe(screen.getByRole("row", { name: "SSO details" }));
 
-    const legacy = card("SSO");
+    const legacy = row("SSO");
     expect(legacy.getByText(/Custom OIDC/)).toBeInTheDocument();
     expect(legacy.getByText(/Imported from OIDC_\*/)).toBeInTheDocument();
-    // Issuer：格線列的 Issuer 欄＋明細區窄視窗那一行（`md:hidden`，jsdom 不套媒體查詢）各一份。
-    expect(legacy.getAllByText("http://idp.lan")).toHaveLength(2);
-    expect(legacy.getByText("https://notes.example.com/api/auth/oidc/callback")).toBeInTheDocument();
-    expect(legacy.getByText("Client secret saved.")).toBeInTheDocument();
-    expect(legacy.getByText(/plain http/)).toBeInTheDocument();
-    expect(legacy.queryByText(/Hasn't connected successfully yet/)).toBeNull();
+    // Issuer 只在列上的 Issuer 欄：窄版重複段落已拿掉（spec §4）。
+    expect(legacy.getByRole("cell", { name: "http://idp.lan" })).toBeInTheDocument();
+    expect(screen.getAllByText("http://idp.lan")).toHaveLength(1);
+    const legacyDetails = details("SSO");
+    expect(legacyDetails.getByText("https://notes.example.com/api/auth/oidc/callback")).toBeInTheDocument();
+    expect(legacyDetails.getByText("Client secret saved.")).toBeInTheDocument();
+    expect(legacyDetails.getByText(/plain http/)).toBeInTheDocument();
+    expect(legacyDetails.queryByText(/Hasn't connected successfully yet/)).toBeNull();
 
-    const custom = card("<b>Corp</b> & Co");
+    const custom = row("<b>Corp</b> & Co");
     expect(custom.getByText(/GitLab/)).toBeInTheDocument();
     expect(custom.queryByText(/Imported from OIDC_\*/)).toBeNull();
-    expect(custom.getByText("corp-client")).toBeInTheDocument();
-    expect(custom.getByText(CUSTOM.callbackUrl)).toBeInTheDocument();
-    expect(custom.getByText(/No client secret yet/)).toBeInTheDocument();
-    expect(custom.getByText(/Hasn't connected successfully yet/)).toBeInTheDocument();
-    expect(custom.queryByText(/plain http/)).toBeNull();
+    const customDetails = details("<b>Corp</b> & Co");
+    expect(customDetails.getByText("corp-client")).toBeInTheDocument();
+    expect(customDetails.getByText(CUSTOM.callbackUrl)).toBeInTheDocument();
+    expect(customDetails.getByText(/No client secret yet/)).toBeInTheDocument();
+    expect(customDetails.getByText(/Hasn't connected successfully yet/)).toBeInTheDocument();
+    expect(customDetails.queryByText(/plain http/)).toBeNull();
   });
 
   it("零個登入服務 → 空狀態文字", async () => {
@@ -134,10 +143,10 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
     await waitFor(() => expect(screen.getByText("No sign-in services yet.")).toBeInTheDocument());
   });
 
-  it("複製回呼網址 → copyText 收到 callbackUrl、toast", async () => {
+  it("複製回呼網址（明細列）→ copyText 收到 callbackUrl、toast", async () => {
     renderSection(fakeServer([CUSTOM]).fetchMock);
-    const custom = within(await screen.findByRole("region", { name: "<b>Corp</b> & Co" }));
-    fireEvent.click(custom.getByRole("button", { name: "Copy" }));
+    await screen.findByRole("row", { name: "<b>Corp</b> & Co details" });
+    fireEvent.click(details("<b>Corp</b> & Co").getByRole("button", { name: "Copy" }));
     await waitFor(() => expect(screen.getByText("Callback URL copied.")).toBeInTheDocument());
     expect(vi.mocked(copyText)).toHaveBeenCalledWith(CUSTOM.callbackUrl);
   });
@@ -150,7 +159,7 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
         : null,
     );
     renderSection(server.fetchMock);
-    const custom = within(await screen.findByRole("region", { name: "<b>Corp</b> & Co" }));
+    const custom = within(await screen.findByRole("row", { name: "<b>Corp</b> & Co" }));
     fireEvent.click(custom.getByRole("switch", { name: "Enabled <b>Corp</b> & Co" }));
     await waitFor(() => expect(screen.getByText("Enter a client secret before turning this sign-in service on.")).toBeInTheDocument());
     expect(server.calls.find(c => c.method === "PATCH")!.body).toEqual({ enabled: true });
@@ -171,7 +180,7 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
       return fakeResponse(200, server.state.providers[0]);
     });
     renderSection(server.fetchMock);
-    const custom = within(await screen.findByRole("region", { name: "<b>Corp</b> & Co" }));
+    const custom = within(await screen.findByRole("row", { name: "<b>Corp</b> & Co" }));
     fireEvent.click(custom.getByRole("switch", { name: "Enabled <b>Corp</b> & Co" }));
 
     const dialog = within(await screen.findByRole("dialog", { name: "Turn this sign-in service off?" }));
@@ -192,7 +201,7 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
       method === "GET" && url.endsWith("/impact") ? fakeResponse(200, { linkedUsers: 0, lockedOutUsers: 0, issuerResolved: true, actingAdminLockedOut: false }) : null,
     );
     renderSection(server.fetchMock);
-    const custom = within(await screen.findByRole("region", { name: "<b>Corp</b> & Co" }));
+    const custom = within(await screen.findByRole("row", { name: "<b>Corp</b> & Co" }));
     fireEvent.click(custom.getByRole("switch", { name: "Enabled <b>Corp</b> & Co" }));
     const dialog = within(await screen.findByRole("dialog", { name: "Turn this sign-in service off?" }));
     fireEvent.click(dialog.getByRole("button", { name: "Cancel" }));
@@ -201,7 +210,7 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
     expect(custom.getByRole("switch", { name: "Enabled <b>Corp</b> & Co" })).toHaveAttribute("aria-checked", "true");
   });
 
-  it("刪除：啟用中的刪除鈕 disabled；停用中的 → dialog（legacy 有舊回呼網址說明；確認鈕是 destructive）→ DELETE → 重抓後卡片消失", async () => {
+  it("刪除：啟用中的刪除鈕 aria-disabled；停用中的 → dialog（legacy 有舊回呼網址說明；確認鈕是 destructive）→ DELETE → 重抓後列消失", async () => {
     const disabledLegacy = { ...LEGACY, enabled: false };
     const server = fakeServer([disabledLegacy, { ...CUSTOM, hasSecret: true, enabled: true }]);
     server.on((method, url) => {
@@ -210,20 +219,20 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
       return fakeResponse(204);
     });
     renderSection(server.fetchMock);
-    const custom = within(await screen.findByRole("region", { name: "<b>Corp</b> & Co" }));
+    const custom = within(await screen.findByRole("row", { name: "<b>Corp</b> & Co" }));
     expect(custom.getByRole("button", { name: "Delete" })).toHaveAttribute("aria-disabled", "true");
 
-    fireEvent.click(card("SSO").getByRole("button", { name: "Delete" }));
+    fireEvent.click(row("SSO").getByRole("button", { name: "Delete" }));
     const dialog = within(await screen.findByRole("dialog", { name: "Delete this sign-in service?" }));
     expect(dialog.getByText(/uses the old callback URL/)).toBeInTheDocument();
     const confirm = dialog.getByRole("button", { name: "Delete" });
     expect(confirm.className).toMatch(/destructive/);
     fireEvent.click(confirm);
-    await waitFor(() => expect(screen.queryByRole("region", { name: "SSO" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("row", { name: "SSO" })).toBeNull());
     expect(server.calls.filter(c => c.method === "DELETE")).toHaveLength(1);
   });
 
-  it("刪除鈕停用的原因：看得到的文字＋`title`，以 aria-describedby 連到刪除鈕；停用服務後文字消失、刪除鈕可按", async () => {
+  it("刪除鈕停用的原因：明細列看得到的文字＋`title`，以 aria-describedby 連到刪除鈕；停用服務後文字消失、刪除鈕可按", async () => {
     const enabled = { ...CUSTOM, hasSecret: true, enabled: true };
     const server = fakeServer([enabled]);
     server.on((method, url) =>
@@ -235,8 +244,9 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
       return fakeResponse(200, server.state.providers[0]);
     });
     renderSection(server.fetchMock);
-    const custom = within(await screen.findByRole("region", { name: "<b>Corp</b> & Co" }));
-    const hint = custom.getByText("Turn it off before deleting it.");
+    const custom = within(await screen.findByRole("row", { name: "<b>Corp</b> & Co" }));
+    const customDetails = details("<b>Corp</b> & Co");
+    const hint = customDetails.getByText("Turn it off before deleting it.");
     const deleteButton = custom.getByRole("button", { name: "Delete" });
     expect(deleteButton).toHaveAttribute("aria-disabled", "true");
     expect(hint.id).not.toBe("");
@@ -247,7 +257,7 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
     const dialog = within(await screen.findByRole("dialog", { name: "Turn this sign-in service off?" }));
     fireEvent.click(dialog.getByRole("button", { name: "Turn off" }));
     await waitFor(() => expect(custom.getByRole("switch", { name: "Enabled <b>Corp</b> & Co" })).toHaveAttribute("aria-checked", "false"));
-    expect(custom.queryByText("Turn it off before deleting it.")).toBeNull();
+    expect(customDetails.queryByText("Turn it off before deleting it.")).toBeNull();
     expect(custom.getByRole("button", { name: "Delete" })).not.toHaveAttribute("aria-disabled");
     expect(custom.getByRole("button", { name: "Delete" })).not.toHaveAttribute("aria-describedby");
   });
@@ -264,7 +274,7 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
       return fakeResponse(200, server.state.providers[0]);
     });
     renderSection(server.fetchMock);
-    const custom = within(await screen.findByRole("region", { name: "<b>Corp</b> & Co" }));
+    const custom = within(await screen.findByRole("row", { name: "<b>Corp</b> & Co" }));
 
     fireEvent.click(custom.getByRole("switch", { name: "Enabled <b>Corp</b> & Co" }));
     const disableDialog = within(await screen.findByRole("dialog", { name: "Turn this sign-in service off?" }));
@@ -280,7 +290,7 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
     expect(document.querySelector("b")).toBeNull();
   });
 
-  it("測試連線：成功顯示 issuer、warning、能力範圍說明，列表重抓後「未連線」提醒消失；502 → 錯誤文案", async () => {
+  it("測試連線（列上的鈕、結果在明細列）：成功顯示 issuer、warning、能力範圍說明，列表重抓後「未連線」提醒消失；502 → 錯誤文案", async () => {
     const server = fakeServer([{ ...LEGACY, issuerResolved: false }]);
     let fail = false;
     server.on((method, url) => {
@@ -290,18 +300,19 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
       return fakeResponse(200, { issuer: "http://idp.lan", warnings: ["insecure_issuer", "client_secret_post_not_advertised"] });
     });
     renderSection(server.fetchMock);
-    const legacy = within(await screen.findByRole("region", { name: "SSO" }));
-    expect(legacy.getByText(/Hasn't connected successfully yet/)).toBeInTheDocument();
+    const legacy = within(await screen.findByRole("row", { name: "SSO" }));
+    const legacyDetails = details("SSO");
+    expect(legacyDetails.getByText(/Hasn't connected successfully yet/)).toBeInTheDocument();
     fireEvent.click(legacy.getByRole("button", { name: "Test connection" }));
-    await waitFor(() => expect(legacy.queryByText(/Hasn't connected successfully yet/)).toBeNull());
-    await waitFor(() => expect(legacy.getByText("Connection OK. The identity provider reports issuer http://idp.lan.")).toBeInTheDocument());
-    expect(legacy.getByText("The issuer uses plain http.")).toBeInTheDocument();
-    expect(legacy.getByText(/doesn't list client_secret_post/)).toBeInTheDocument();
-    expect(legacy.getByText(/can't tell whether the client ID or secret is right/)).toBeInTheDocument();
+    await waitFor(() => expect(legacyDetails.queryByText(/Hasn't connected successfully yet/)).toBeNull());
+    await waitFor(() => expect(legacyDetails.getByText("Connection OK. The identity provider reports issuer http://idp.lan.")).toBeInTheDocument());
+    expect(legacyDetails.getByText("The issuer uses plain http.")).toBeInTheDocument();
+    expect(legacyDetails.getByText(/doesn't list client_secret_post/)).toBeInTheDocument();
+    expect(legacyDetails.getByText(/can't tell whether the client ID or secret is right/)).toBeInTheDocument();
 
     fail = true;
     fireEvent.click(legacy.getByRole("button", { name: "Test connection" }));
-    await waitFor(() => expect(legacy.getByText("Couldn't read a usable OpenID Connect configuration from that issuer URL.")).toBeInTheDocument());
+    await waitFor(() => expect(legacyDetails.getByText("Couldn't read a usable OpenID Connect configuration from that issuer URL.")).toBeInTheDocument());
   });
 
   it("測試連線成功後，列表重抓回來的 issuer 變了 → 舊的「Connection OK」訊息消失（不與未連線提醒並存）", async () => {
@@ -322,19 +333,76 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
       return fakeResponse(200, server.state.providers[0]);
     });
     renderSection(server.fetchMock);
-    const legacy = within(await screen.findByRole("region", { name: "SSO" }));
+    const legacy = within(await screen.findByRole("row", { name: "SSO" }));
     fireEvent.click(legacy.getByRole("button", { name: "Test connection" }));
-    await waitFor(() => expect(legacy.getByText("Connection OK. The identity provider reports issuer http://idp.lan.")).toBeInTheDocument());
+    await waitFor(() => expect(details("SSO").getByText("Connection OK. The identity provider reports issuer http://idp.lan.")).toBeInTheDocument());
 
     fireEvent.click(legacy.getByRole("switch", { name: "Enabled SSO" }));
     const dialog = within(await screen.findByRole("dialog", { name: "Turn this sign-in service off?" }));
     fireEvent.click(dialog.getByRole("button", { name: "Turn off" }));
 
-    // 格線列的 Issuer 欄＋明細區窄視窗那一行（`md:hidden`，jsdom 不套媒體查詢）各一份。
-    expect(await screen.findAllByText("http://other.lan")).toHaveLength(2);
-    const refreshed = within(screen.getByRole("region", { name: "SSO" }));
+    // Issuer 只在列上的 Issuer 欄一份（窄版重複段落已拿掉，spec §4）。
+    expect(await screen.findAllByText("http://other.lan")).toHaveLength(1);
+    const refreshed = details("SSO");
     expect(refreshed.queryByText(/Connection OK/)).toBeNull();
     expect(refreshed.getByText(/Hasn't connected successfully yet/)).toBeInTheDocument();
+  });
+
+  it("T2 兩列各自的測試結果：結果只出現在被測那一列的明細列；一列的設定變了只清掉那一列的結果", async () => {
+    const corp = { ...CUSTOM, hasSecret: true };
+    const server = fakeServer([LEGACY, corp]);
+    server.on((method, url) => {
+      if (method !== "POST") return null;
+      if (url === `/api/admin/auth/providers/${LEGACY.id}/test`) return fakeResponse(200, { issuer: "http://idp.lan", warnings: [] });
+      if (url === `/api/admin/auth/providers/${CUSTOM.id}/test`) return fakeResponse(502, { error: { code: "oidc_discovery_failed", message: "x" } });
+      return null;
+    });
+    server.on((method, url) => {
+      if (method !== "PATCH" || url !== `/api/admin/auth/providers/${CUSTOM.id}`) return null;
+      // 打開 Corp 的同時 server 端 issuer 也換了（模擬另一處改了設定）：Corp 的測試結果過期，SSO 的不受影響。
+      server.state.providers = [LEGACY, { ...corp, enabled: true, issuerUrl: "https://gitlab.other.example" }];
+      return fakeResponse(200, server.state.providers[1]);
+    });
+    renderSection(server.fetchMock);
+    const ok = "Connection OK. The identity provider reports issuer http://idp.lan.";
+    const failed = "Couldn't read a usable OpenID Connect configuration from that issuer URL.";
+    await screen.findByRole("row", { name: "SSO" });
+
+    fireEvent.click(row("SSO").getByRole("button", { name: "Test connection" }));
+    await waitFor(() => expect(details("SSO").getByText(ok)).toBeInTheDocument());
+    expect(details("<b>Corp</b> & Co").queryByText(ok)).toBeNull();
+
+    fireEvent.click(row("<b>Corp</b> & Co").getByRole("button", { name: "Test connection" }));
+    await waitFor(() => expect(details("<b>Corp</b> & Co").getByText(failed)).toBeInTheDocument());
+    expect(details("SSO").queryByText(failed)).toBeNull();
+    expect(details("SSO").getByText(ok)).toBeInTheDocument();
+
+    fireEvent.click(row("<b>Corp</b> & Co").getByRole("switch", { name: "Enabled <b>Corp</b> & Co" }));
+    await waitFor(() => expect(row("<b>Corp</b> & Co").getByRole("cell", { name: "https://gitlab.other.example" })).toBeInTheDocument());
+    expect(details("<b>Corp</b> & Co").queryByText(failed)).toBeNull();
+    expect(details("SSO").getByText(ok)).toBeInTheDocument();
+  });
+
+  it("T3 測試進行中（POST /test 未回）：「Testing…」只在被測那一列的明細列；回應後消失", async () => {
+    const server = fakeServer([LEGACY, { ...CUSTOM, hasSecret: true }]);
+    let release: (res: Response) => void = () => {};
+    server.on((method, url) =>
+      method === "POST" && url === `/api/admin/auth/providers/${LEGACY.id}/test`
+        ? new Promise<Response>((resolve) => {
+            release = resolve;
+          })
+        : null,
+    );
+    renderSection(server.fetchMock);
+    await screen.findByRole("row", { name: "SSO" });
+
+    fireEvent.click(row("SSO").getByRole("button", { name: "Test connection" }));
+    await waitFor(() => expect(details("SSO").getByText("Testing…")).toBeInTheDocument());
+    expect(details("<b>Corp</b> & Co").queryByText("Testing…")).toBeNull();
+
+    release(fakeResponse(200, { issuer: "http://idp.lan", warnings: [] }));
+    await waitFor(() => expect(details("SSO").getByText("Connection OK. The identity provider reports issuer http://idp.lan.")).toBeInTheDocument());
+    expect(details("SSO").queryByText("Testing…")).toBeNull();
   });
 
   it("停用 dialog：actingAdminLockedOut=true → 顯示「停用後你自己將無法用登入服務登入」", async () => {
@@ -346,7 +414,7 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
         : null,
     );
     renderSection(server.fetchMock);
-    const custom = within(await screen.findByRole("region", { name: "<b>Corp</b> & Co" }));
+    const custom = within(await screen.findByRole("row", { name: "<b>Corp</b> & Co" }));
     fireEvent.click(custom.getByRole("switch", { name: "Enabled <b>Corp</b> & Co" }));
     const dialog = within(await screen.findByRole("dialog", { name: "Turn this sign-in service off?" }));
     expect(await dialog.findByText("After turning this off, you won't be able to sign in through a sign-in service yourself.")).toBeInTheDocument();
@@ -361,43 +429,42 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
         : null,
     );
     renderSection(server.fetchMock);
-    const custom = within(await screen.findByRole("region", { name: "<b>Corp</b> & Co" }));
+    const custom = within(await screen.findByRole("row", { name: "<b>Corp</b> & Co" }));
     fireEvent.click(custom.getByRole("switch", { name: "Enabled <b>Corp</b> & Co" }));
     const dialog = within(await screen.findByRole("dialog", { name: "Turn this sign-in service off?" }));
     expect(await dialog.findByText("Linked accounts: 4")).toBeInTheDocument();
     expect(dialog.queryByText("After turning this off, you won't be able to sign in through a sign-in service yourself.")).not.toBeInTheDocument();
   });
-  it("provider-icon V5：卡片標題前有圖示（admin DTO 已換算的 icon）；upload 的 <img src> 等於 DTO icon.url；region 名不變", async () => {
+
+  it("provider-icon V5：名稱前有圖示（admin DTO 已換算的 icon）；upload 的 <img src> 等於 DTO icon.url；列名不變", async () => {
     const url = `/api/auth/providers/${CUSTOM.id}/icon?v=5`;
     const server = fakeServer([LEGACY, { ...CUSTOM, iconKind: "upload", icon: { type: "upload", url } }]);
     renderSection(server.fetchMock);
-    // 等待點：region 只在列表落地後才出現。
-    const corp = await screen.findByRole("region", { name: "<b>Corp</b> & Co" });
-    const corpIcon = within(corp).getByRole("heading", { name: "<b>Corp</b> & Co" }).previousElementSibling;
+    // 等待點：列只在列表落地後才出現。
+    const corp = await screen.findByRole("row", { name: "<b>Corp</b> & Co" });
+    const corpIcon = nameElementOf(corp).previousElementSibling;
     expect(corpIcon?.tagName).toBe("IMG");
     expect(corpIcon).toHaveAttribute("src", url);
-    expect(card("SSO").getByRole("heading", { name: "SSO" }).previousElementSibling).toHaveAttribute("data-provider-icon", "generic");
+    expect(nameElementOf(screen.getByRole("row", { name: "SSO" })).previousElementSibling).toHaveAttribute("data-provider-icon", "generic");
   });
 
-  it("provider-icon：兩張卡片都有「Icon」鈕（ghost：無實心底、無 outline 外框），Edit／Delete 照在；點了開出圖示對話框", async () => {
+  // 「Icon」鈕是 RowIconButton：外觀（ghost、無實心底）由它自己的測試與 panel-no-solid-buttons 守，這裡只查名稱與行為（spec §5.2）。
+  it("provider-icon：兩列都有「Icon」鈕，Edit／Delete 照在；點了開出圖示對話框", async () => {
     const server = fakeServer([LEGACY, CUSTOM]);
     renderSection(server.fetchMock);
-    await screen.findByRole("region", { name: "SSO" });
+    await screen.findByRole("row", { name: "SSO" });
     for (const name of ["SSO", "<b>Corp</b> & Co"]) {
-      const c = card(name);
-      const icon = c.getByRole("button", { name: "Icon" });
-      expect(icon.className, name).not.toMatch(/(^|\s)bg-(primary|destructive|brand|brand-deep)(\s|$)/);
-      expect(icon.className, name).not.toMatch(/(^|\s)border-input(\s|$)/);
-      expect(c.getByRole("button", { name: "Edit" }), name).toBeInTheDocument();
-      expect(c.getByRole("button", { name: "Delete" }), name).toBeInTheDocument();
+      const r = row(name);
+      expect(r.getByRole("button", { name: "Icon" }), name).toBeInTheDocument();
+      expect(r.getByRole("button", { name: "Edit" }), name).toBeInTheDocument();
+      expect(r.getByRole("button", { name: "Delete" }), name).toBeInTheDocument();
     }
-    const iconButton = card("SSO").getByRole("button", { name: "Icon" });
-    fireEvent.click(iconButton);
+    fireEvent.click(row("SSO").getByRole("button", { name: "Icon" }));
     expect(await screen.findByRole("dialog", { name: "Sign-in service icon" })).toBeInTheDocument();
   });
 });
 
-describe("登入服務表格列（#247 §7.0，W21／W27）", () => {
+describe("登入服務表格（spec 2026-10-13 settings-table §3 #4）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     dismissAllToasts();
@@ -406,55 +473,25 @@ describe("登入服務表格列（#247 §7.0，W21／W27）", () => {
     vi.unstubAllGlobals();
   });
 
-  it("L1 表頭：Service／Issuer／Linked／（動作）／Enabled；每列第一行依序是圖示＋名稱、Issuer、已連結人數、動作鈕、啟用 switch", async () => {
-    const server = fakeServer([LEGACY, CUSTOM]);
-    renderSection(server.fetchMock);
-    await screen.findByRole("region", { name: "SSO" });
-    const header = screen.getByTestId("auth-provider-table-header");
-    expect(header).toHaveTextContent(/Service.*Issuer.*Linked.*Enabled/);
-    const legacyRow = within(screen.getByRole("region", { name: "SSO" })).getByTestId("auth-provider-row");
-    expect(within(legacyRow).getByText("http://idp.lan")).toBeInTheDocument();
-    await waitFor(() => expect(within(legacyRow).getByText("11")).toBeInTheDocument());
+  it("L1 表名 Sign-in services；欄名 Service／Issuer／Linked／Actions／Enabled；列內：Issuer、已連結人數、Test connection／Icon／Edit／Delete（依序，spec §2.7、§3 #4）、「Enabled ＜名稱＞」開關", async () => {
+    renderSection(fakeServer([LEGACY, CUSTOM]).fetchMock);
+    const table = await screen.findByRole("table", { name: "Sign-in services" });
+    expect(within(table).getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual(["Service", "Issuer", "Linked", "Actions", "Enabled"]);
+    const legacyRow = within(table).getByRole("row", { name: "SSO" });
+    expect(within(legacyRow).getByRole("cell", { name: "http://idp.lan" })).toBeInTheDocument();
+    await waitFor(() => expect(within(legacyRow).getByRole("cell", { name: "11" })).toBeInTheDocument());
+    expect(within(legacyRow).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual([
+      "Test connection",
+      "Icon",
+      "Edit",
+      "Delete",
+    ]);
     expect(within(legacyRow).getByRole("switch", { name: "Enabled SSO" })).toBeInTheDocument();
   });
 
-  it("L1n 窄視窗（<md）：格線只在 md 以上；Issuer 欄 hidden md:block、名稱格 min-w-0；表頭 hidden md:grid（390px 不把名稱／Issuer 壓到 0）", async () => {
-    const server = fakeServer([LEGACY]);
-    renderSection(server.fetchMock);
-    const rowEl = within(await screen.findByRole("region", { name: "SSO" })).getByTestId("auth-provider-row");
-    expect(rowEl).toHaveClass("flex", "flex-wrap", "md:grid");
-    expect(rowEl).not.toHaveClass("grid");
-    const [name, issuer] = Array.from(rowEl.children);
-    expect(name).toHaveTextContent("SSO");
-    expect(name).toHaveClass("min-w-0");
-    expect(issuer).toHaveTextContent("http://idp.lan");
-    expect(issuer).toHaveClass("hidden", "md:block");
-    // 資訊不丟：窄視窗由明細區補一行 Issuer（md 以上隱藏）。
-    const regionEl = screen.getByRole("region", { name: "SSO" });
-    const narrowIssuer = within(regionEl).getAllByText("http://idp.lan").find((el) => !rowEl.contains(el));
-    expect(narrowIssuer).toHaveClass("md:hidden");
-    const header = screen.getByTestId("auth-provider-table-header");
-    expect(header).toHaveClass("hidden", "md:grid");
-    expect(header).not.toHaveClass("grid");
-  });
-
-  it("L2 列尾四顆 icon 鈕：Test connection（插頭）、Edit（鉛筆）、Icon（圖片）、Delete（紅垃圾桶）；都是 ghost size icon、帶 title，沒有可見文字", async () => {
-    const server = fakeServer([LEGACY]);
-    renderSection(server.fetchMock);
-    const row = within(within(await screen.findByRole("region", { name: "SSO" })).getByTestId("auth-provider-row"));
-    for (const name of ["Test connection", "Edit", "Icon", "Delete"]) {
-      const button = row.getByRole("button", { name });
-      expect(button, name).toHaveClass("h-8", "w-8");
-      expect(button, name).toHaveAttribute("title");
-      expect(button.textContent, name).toBe("");
-    }
-    expect(row.getByRole("button", { name: "Delete" })).toHaveClass("text-destructive");
-  });
-
   it("L3 啟用中的 Delete：aria-disabled＋title 是「Turn it off before deleting it.」，點了不開刪除對話框", async () => {
-    const server = fakeServer([LEGACY]);
-    renderSection(server.fetchMock);
-    const del = within(await screen.findByRole("region", { name: "SSO" })).getByRole("button", { name: "Delete" });
+    renderSection(fakeServer([LEGACY]).fetchMock);
+    const del = within(await screen.findByRole("row", { name: "SSO" })).getByRole("button", { name: "Delete" });
     expect(del).toHaveAttribute("title", "Turn it off before deleting it.");
     fireEvent.click(del);
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -470,8 +507,8 @@ describe("登入服務表格列（#247 §7.0，W21／W27）", () => {
         : null,
     );
     renderSection(server.fetchMock);
-    const legacy = within(await screen.findByRole("region", { name: "SSO" }));
-    await waitFor(() => expect(within(legacy.getByTestId("auth-provider-row")).getByText("7")).toBeInTheDocument());
+    const legacy = within(await screen.findByRole("row", { name: "SSO" }));
+    await waitFor(() => expect(legacy.getByRole("cell", { name: "7" })).toBeInTheDocument());
 
     linkedUsers = 3;
     fireEvent.click(legacy.getByRole("switch", { name: "Enabled SSO" }));
@@ -482,8 +519,7 @@ describe("登入服務表格列（#247 §7.0，W21／W27）", () => {
   });
 
   it("L4 「Add sign-in service」是 outline（面板層級動作，§4.8）", async () => {
-    const server = fakeServer([]);
-    renderSection(server.fetchMock);
+    renderSection(fakeServer([]).fetchMock);
     const add = await screen.findByRole("button", { name: "Add sign-in service" });
     expect(add.className).not.toMatch(/(^|\s)bg-(primary|brand|brand-deep)(\s|$)/);
   });
