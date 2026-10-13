@@ -280,6 +280,16 @@ export const MAX_LINK_TARGETS = 1000;
 /** 單篇筆記 backlinks 面板回傳的來源筆記數上限（Plan 3）。 */
 export const MAX_BACKLINKS = 200;
 
+/**
+ * #267：server 對同一使用者的 `users.last_active_at` 至多每這麼久寫一次（ms）——行程內節流表與 SQL 條件都用它
+ * （`apps/server/src/auth/last-active.ts`）。必須明顯短於 `ONLINE_WINDOW_MS`：持續有活動的人，記錄最多落後這麼久，
+ * 所以只要兩者差距夠大，他一直顯示「上線中」。
+ */
+export const LAST_ACTIVE_WRITE_INTERVAL_MS = 60 * 1000;
+
+/** #267：web 站台管理使用者表把 `now - lastActiveAt` 小於它（ms）的人顯示「上線中」。 */
+export const ONLINE_WINDOW_MS = 5 * 60 * 1000;
+
 // 權威清單：`grep -rn "sendError(" apps/server/src` + auth.ts 手寫 429（`too_many_attempts`）
 // 逐一核對後的全集，另加本 plan 新增碼 `too_many_requests`（Task 8 slug limiter）與
 // `slug_taken`（Task 8 slug unique violation）——這兩碼尚未落地於 grep 結果，屬預先保留。

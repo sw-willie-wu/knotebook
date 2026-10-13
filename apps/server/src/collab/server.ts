@@ -91,6 +91,7 @@ import { loadNoteAudience, resolveRole } from "../notes/service.js";
 import { verifyCollabToken } from "./token.js";
 import { createNoteStore, docClock, type NoteStoreSearchHooks, type StoreLogger } from "./store.js";
 import { createVersionService, type VersionService } from "./versions.js";
+import { LastActiveTracker, type LastActiveTrackerOptions } from "../auth/last-active.js";
 import { FixedWindowLimiter } from "../http/rate-limit.js";
 
 /** Hocuspocus 的 `onStoreDocument` debounce（ms）。production 一律 2000——見 Task 7 brief。 */
@@ -314,6 +315,8 @@ export interface CollabDeps {
   storeSearchHooks?: NoteStoreSearchHooks;
   /** 版本歷史（spec 2026-10-09 A12）：idle 切版的安靜時間；未傳＝5 分鐘。整合測試壓到 50 ms。 */
   versionIdleMs?: number;
+  /** #267：`LastActiveTracker` 的測試縫（節流表時鐘／上限），生產不注入。 */
+  lastActiveOptions?: LastActiveTrackerOptions;
 }
 
 export interface ConnectionHandle {
@@ -332,6 +335,8 @@ export interface CollabServer {
   hocuspocus: Hocuspocus<CollabContext>;
   /** 筆記版本歷史的切版狀態與切版（`collab/versions.ts`）。`app.ts` 透傳給寫入 service 與版本路由。 */
   versions: VersionService;
+  /** #267「最後活動」的節流記錄器：共編連線與變更在這裡記；`app.ts` 拿同一份給 REST 的 session 請求用（同一行程共用一張節流表）。 */
+  lastActive: LastActiveTracker;
   /** 把 `/collab` 的 WebSocket upgrade 掛到 Fastify 的底層 http server 上。只能呼叫一次。 */
   attach(app: FastifyInstance): void;
   connectionsOf(userId: string): ReadonlySet<ConnectionHandle>;
@@ -490,6 +495,7 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
   }
   const noteStore = createNoteStore({ ...deps.storeSearchHooks, db: deps.db, log });
   const versions = createVersionService({ db: deps.db, log, idleMs: deps.versionIdleMs });
+  const lastActive = new LastActiveTracker(deps.db, log, deps.lastActiveOptions);
 
   /**
    * 拒連／踢除的結構化日誌（issue #37）。`phase` 分辨「握手當下被拒」（handshake）與
@@ -617,6 +623,9 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
       const c = context as Partial<DirectCtx> | undefined;
       if (typeof c?.userId !== "string") return;
       versions.noteChanged(documentName, { userId: c.userId, agentLabel: c.source !== undefined ? (c.agentLabel ?? null) : null });
+      // #267：人在 WebSocket 上的編輯算「最後活動」（直連＝AI／套用版本，不算）。不 await：`touch` 先查行程內節流表（打字的每個變更都會到這裡），
+      // 間隔內不碰 DB；要寫也只是 best-effort 單句、永不 reject——不拖慢、不弄壞這次變更。
+      if (c.source === undefined) void lastActive.touch(c.userId);
     },
     // 落款（`stampLastEdited` 的註解 ①②③）之後接版本歷史。
     onStoreDocument: async ({ documentName, document, lastContext }) => {
@@ -770,6 +779,9 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
       // 期間斷掉），那樣 Connection.close 的回呼會早於上面這行註冊而跑掉，死連線就會
       // 永遠留在索引裡。
       if (!connection.document.hasConnection(connection)) unregister(key, handle);
+
+      // #267：通過驗證的共編連線算一次「最後活動」（共編 token 只能由 session 換得）。不 await，理由同 onChange。
+      void lastActive.touch(context.userId);
     },
 
     // 重驗：與 onAuthenticate 同一套邏輯（驗簽章 → 重跑 resolveRole + gate.check，
@@ -943,6 +955,7 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
   return {
     hocuspocus,
     versions,
+    lastActive,
 
     attach(app: FastifyInstance): void {
       if (attached) throw new Error("CollabServer.attach 只能呼叫一次");

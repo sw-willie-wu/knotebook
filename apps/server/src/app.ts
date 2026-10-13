@@ -12,6 +12,7 @@ import { MAX_UPLOAD_BYTES, type ErrorCode, type RequiredScope, type TokenScope }
 import { publicUrlIssuer, type AppConfig } from "./config.js";
 import type { Db } from "./db/index.js";
 import { resolveSessionUser as resolveSessionUserFromCookies, type GateUser, type UserGate } from "./auth/session.js";
+import { LastActiveTracker } from "./auth/last-active.js";
 import { createAuthenticateAny } from "./auth/bearer.js";
 import type { LoginThrottle } from "./auth/rate-limit.js";
 import type { CollabHooks } from "./collab/hooks.js";
@@ -568,9 +569,16 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
    * 內含 `reply.send()`，之後再 `reply.header()` 補 `WWW-Authenticate` 只會寫進
    * `kReplyHeaders`、而 onSend 鏈已經排程——header 會**靜默消失**（fastify 5 實測）。
    * 兩個 decorator 因此各自決定回應，只共用這一支解析。
+   *
+   * #267：解出有效 session 就順手記「最後活動」（`LastActiveTracker`：節流、永不等鎖、不拋）。放在這裡而不是 decorator，
+   * 是因為 `authenticate` 與 `authenticateAny` 的 session 路徑都走這支；bearer token 路徑不走，所以 token 請求不算活動。
+   * 有共編就用它那份（共編連線與變更也在那裡記），同一行程共用一張節流表；沒有共編（buildTestApp）另建一份。
    */
+  const lastActive = deps.collab?.lastActive ?? new LastActiveTracker(deps.db, app.log);
   async function resolveSessionUser(request: FastifyRequest): Promise<{ user: GateUser; tv: number } | null> {
-    return resolveSessionUserFromCookies(request.cookies, deps.config.appSecret, deps.gate);
+    const resolved = await resolveSessionUserFromCookies(request.cookies, deps.config.appSecret, deps.gate);
+    if (resolved) await lastActive.touch(resolved.user.id);
+    return resolved;
   }
 
   // 以下兩個 decorator 都以一般具名函式（而非箭頭函式綁 this）宣告，但內部完全不用

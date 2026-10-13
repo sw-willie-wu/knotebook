@@ -5,10 +5,10 @@ import { ADMIN_STORAGE_PLANS_QUERY_KEY, STORAGE_USAGE_QUERY_KEY } from "./storag
 
 /**
  * `GET /api/admin/users` 回應形狀（鏡射 `apps/server/src/routes/admin-users.ts` 的
- * `AdminUserDto`——那八欄（外加 `storage`）的 select 形狀鎖，見該檔說明）。刻意不放進
+ * `AdminUserDto`——那九欄（外加 `storage`）的 select 形狀鎖，見該檔說明）。刻意不放進
  * `@knotebook/shared`：與 `NoteDto`/`ShareDto` 不同，這個形狀只有 admin 頁面讀得到，
- * 沒有跨 owner/editor/viewer 角色共用的理由。與 server 端 adminUserColumns 的八欄
- * select 形狀鎖同步（#122 起含 handle、#247 起含 lastLoginAt）。
+ * 沒有跨 owner/editor/viewer 角色共用的理由。與 server 端 adminUserColumns 的九欄
+ * select 形狀鎖同步（#122 起含 handle、#247 起含 lastLoginAt、#267 起含 lastActiveAt）。
  */
 export interface AdminUserDto {
   id: string;
@@ -19,8 +19,10 @@ export interface AdminUserDto {
   isAdmin: boolean;
   disabledAt: string | null;
   createdAt: string;
-  /** #247 §9.5：最後一次登入（ISO）；null＝升級後尚未登入過（UI 顯示「從未」）。 */
+  /** #247 §9.5：最後一次登入（ISO）；null＝升級後尚未登入過。#267 起使用者表不再顯示它。 */
   lastLoginAt: string | null;
+  /** #267：最後一次帶 session 的請求、共編連線或編輯、或登入（ISO）；null＝從無紀錄。使用者表「最後活動」欄讀它。 */
+  lastActiveAt: string | null;
   /** 儲存配額 §7.2、§7.4：個人空間的方案與用量（GET／POST／PATCH storage-plan 都帶）。 */
   storage: SpaceStorageDto;
 }

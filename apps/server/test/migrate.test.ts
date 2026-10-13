@@ -12,7 +12,7 @@ import { apiTokens, authProviders, groupMembers, groupRoles, groups, noteRedirec
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
 /** drizzle 對 `schema.ts` 的序列化；宣告漂移守衛拿最新一支當比對基準（Task 14 rebase 後改成實際檔名）。 */
-const SNAPSHOT_FILE = "meta/0023_snapshot.json";
+const SNAPSHOT_FILE = "meta/0024_snapshot.json";
 const snapshotLatest = JSON.parse(readFileSync(path.join(drizzleDirForTest, SNAPSHOT_FILE), "utf8")) as {
   tables: Record<string, { checkConstraints?: Record<string, { name: string; value: string }> }>;
 };
@@ -213,6 +213,34 @@ describe("runMigrations", () => {
       { id: orphan, uploader_id: null, charged_to_id: null },
       { id: withUploader2, uploader_id: u2, charged_to_id: u2 },
     ]);
+  });
+
+  it("#267 0024 users.last_active_at：既有列回填＝last_login_at（NULL 仍 NULL）；欄位 timestamptz、可 NULL、無 default；再跑 runMigrations 不變", async () => {
+    const { pool, db } = await freshEmptyDb();
+    await applyMigrationsThrough(pool, idxOfTag("0023_uploads-charged-to"));
+    const seen = "00000000-0000-4000-8000-0000000000e1";
+    const seen2 = "00000000-0000-4000-8000-0000000000e2";
+    const never = "00000000-0000-4000-8000-0000000000e3";
+    await pool.query(
+      `insert into users (id, email, display_name, last_login_at) values
+         ($1, 'la1@x.example', 'A', '2026-10-01T09:12:00.123456Z'), ($2, 'la2@x.example', 'B', '2026-09-30T23:59:59Z'), ($3, 'la3@x.example', 'C', null)`,
+      [seen, seen2, never],
+    );
+    await runMigrations(db);
+    const rows = async () =>
+      (await pool.query(`select id, (last_active_at at time zone 'UTC')::text as active, last_active_at is not distinct from last_login_at as same from users order by id`)).rows;
+    const expected = [
+      { id: seen, active: "2026-10-01 09:12:00.123456", same: true },
+      { id: seen2, active: "2026-09-30 23:59:59", same: true },
+      { id: never, active: null, same: true },
+    ];
+    expect(await rows()).toEqual(expected);
+    const col = (await pool.query(
+      `select data_type, is_nullable, column_default from information_schema.columns where table_schema = 'public' and table_name = 'users' and column_name = 'last_active_at'`,
+    )).rows;
+    expect(col).toEqual([{ data_type: "timestamp with time zone", is_nullable: "YES", column_default: null }]);
+    await runMigrations(db);
+    expect(await rows()).toEqual(expected);
   });
 });
 
@@ -1231,7 +1259,7 @@ describe("0009_api-tokens", () => {
       users: [
         "id", "email", "handle", "password_hash", "oidc_issuer", "oidc_sub", "display_name", "avatar_url", "is_admin",
         "disabled_at", "token_version", "must_change_password", "created_at", "storage_plan_id", "auto_versions",
-        "last_login_at",
+        "last_login_at", "last_active_at",
       ],
       storage_plans: ["id", "name", "quota_bytes", "created_at", "updated_at"],
       note_versions: ["id", "note_id", "seq", "ydoc", "kind", "name", "editors", "base_seq", "created_at"],

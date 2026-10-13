@@ -65,8 +65,13 @@ export const users = pgTable("users", {
   // #247 §9.5：最後一次「新簽登入 session」的時間（帳密登入、OIDC 登入與首登建帳、SSO／密碼證明連結、註冊）。顯示用，站台管理使用者表讀它；
   // 寫入是交易外的單句 `auth/last-login.ts` 的 `touchLastLogin`（不進 `resolveOidcLoginInTx`，不動「先 users 後 identity」鎖序，C24）；
   // 永不等鎖（`SKIP LOCKED`）：該列正被別的交易鎖著時略過，所以併發下偶爾會漏記這一次登入。
-  // 不回填：升級前的帳號在下次登入前是 NULL。
+  // 不回填：升級前的帳號在下次登入前是 NULL。#267 起站台管理使用者表改顯示 `lastActiveAt`，這欄仍照寫、API 仍回。
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+  // #267：最後一次「帶 session cookie 的已驗證請求」、共編連線或編輯、或登入的時間。顯示用，站台管理使用者表讀它（`ONLINE_WINDOW_MS` 內＝「上線中」）。
+  // 寫入：`auth/last-active.ts` 的 `LastActiveTracker`（`app.ts` 的 `resolveSessionUser` 解出 session 後、共編連線建立與人的文件變更；
+  // bearer token 與 AI 直連不算）與 `touchLastLogin`（登入時一併寫）。同一使用者至多每 `LAST_ACTIVE_WRITE_INTERVAL_MS` 寫一次：行程內節流表先擋，SQL 條件保底；
+  // 跟 last_login_at 一樣永不等鎖（`SKIP LOCKED`），併發下偶爾漏記。migration 0024 以 last_login_at 回填。
+  lastActiveAt: timestamp("last_active_at", { withTimezone: true }),
 }, t => [
   uniqueIndex("users_oidc_idx").on(t.oidcIssuer, t.oidcSub),
   // issue #18：email 比對全面走 `lower(users.email) = $1`（登入、分享查人、OIDC 連結，

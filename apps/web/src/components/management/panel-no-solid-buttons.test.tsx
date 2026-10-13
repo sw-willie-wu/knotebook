@@ -63,8 +63,8 @@ const PANEL3_GETS: Record<string, unknown> = {
     byMember: [{ userId: "u-admin", handle: "admin", displayName: "Admin", bytes: 1048576 }],
   },
   "/api/admin/users": [
-    { id: "u-admin", email: "admin@example.com", handle: "admin", displayName: "Admin", isAdmin: true, disabledAt: null, createdAt: T, lastLoginAt: T, storage: PLAN_STORAGE },
-    { id: "u-b", email: "b@example.com", handle: "b", displayName: "B", isAdmin: false, disabledAt: null, createdAt: T, lastLoginAt: null, storage: PLAN_STORAGE },
+    { id: "u-admin", email: "admin@example.com", handle: "admin", displayName: "Admin", isAdmin: true, disabledAt: null, createdAt: T, lastLoginAt: T, lastActiveAt: T, storage: PLAN_STORAGE },
+    { id: "u-b", email: "b@example.com", handle: "b", displayName: "B", isAdmin: false, disabledAt: null, createdAt: T, lastLoginAt: null, lastActiveAt: null, storage: PLAN_STORAGE },
   ],
   "/api/admin/storage-plans": { plans: [PLAN], defaults: { userPlanId: PLAN.id, groupPlanId: PLAN.id } },
   "/api/admin/groups": [{ id: GROUP_ID, name: "Team Alpha", createdAt: T, memberCount: 2, storage: PLAN_STORAGE }],

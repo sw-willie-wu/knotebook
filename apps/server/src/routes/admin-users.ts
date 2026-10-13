@@ -50,6 +50,8 @@ interface AdminUserDto {
   createdAt: string;
   /** #247 §9.5：最後一次新簽登入 session 的時間；null＝升級後尚未登入過（不回填）。 */
   lastLoginAt: string | null;
+  /** #267：最後一次帶 session cookie 的請求、共編連線或編輯、或登入的時間（`users.last_active_at`，同一使用者至多每分鐘更新一次）；null＝從無紀錄。 */
+  lastActiveAt: string | null;
   storage: SpaceStorageDto;
 }
 
@@ -62,9 +64,10 @@ interface AdminUserRow {
   disabledAt: Date | null;
   createdAt: Date;
   lastLoginAt: Date | null;
+  lastActiveAt: Date | null;
 }
 
-// 只選這八欄＋方案（storage 另組）（形狀鎖，#122 起含 handle、#247 起含 lastLoginAt）：不可帶 passwordHash/tokenVersion——即使只是內部查詢，也不要
+// 只選這九欄＋方案（storage 另組）（形狀鎖，#122 起含 handle、#247 起含 lastLoginAt、#267 起含 lastActiveAt）：不可帶 passwordHash/tokenVersion——即使只是內部查詢，也不要
 // select 出這兩欄再靠序列化階段刻意漏掉，直接在 SQL 端就不撈，斷絕任何洩漏路徑。
 function toAdminUserDto(row: AdminUserRow, storage: SpaceStorageDto): AdminUserDto {
   return {
@@ -76,6 +79,7 @@ function toAdminUserDto(row: AdminUserRow, storage: SpaceStorageDto): AdminUserD
     disabledAt: row.disabledAt ? row.disabledAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
     lastLoginAt: row.lastLoginAt ? row.lastLoginAt.toISOString() : null,
+    lastActiveAt: row.lastActiveAt ? row.lastActiveAt.toISOString() : null,
     storage,
   };
 }
@@ -89,6 +93,7 @@ const adminUserColumns = {
   disabledAt: users.disabledAt,
   createdAt: users.createdAt,
   lastLoginAt: users.lastLoginAt,
+  lastActiveAt: users.lastActiveAt,
 };
 
 /** 單一使用者的 storage 欄（POST／PATCH 回應用；GET 列表走 GROUP BY 一次）。 */

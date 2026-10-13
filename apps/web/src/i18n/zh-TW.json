@@ -286,7 +286,7 @@
       "ai": "AI 代理",
       "auth": "登入"
     },
-    "users": { "user": "使用者", "lastLogin": "最後登入", "enabled": "啟用", "roleFor": "{{email}} 的角色", "neverLoggedIn": "從未" },
+    "users": { "user": "使用者", "lastActive": "最後活動", "online": "上線中", "lastActiveNone": "尚無紀錄", "enabled": "啟用", "roleFor": "{{email}} 的角色" },
     "auth": {
       "title": "登入",
       "description": "可以用來登入的身分提供者（OpenID Connect）。每個登入服務都有自己的回呼網址，要登記在身分提供者那一側。",

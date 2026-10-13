@@ -286,7 +286,7 @@
       "ai": "AI agents",
       "auth": "Sign-in"
     },
-    "users": { "user": "User", "lastLogin": "Last sign-in", "enabled": "Enabled", "roleFor": "Role for {{email}}", "neverLoggedIn": "Never" },
+    "users": { "user": "User", "lastActive": "Last active", "online": "Online", "lastActiveNone": "Not recorded", "enabled": "Enabled", "roleFor": "Role for {{email}}" },
     "auth": {
       "title": "Sign-in",
       "description": "Identity providers (OpenID Connect) that people can sign in with. Each sign-in service has its own callback URL to register on the identity provider.",

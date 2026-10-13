@@ -12,6 +12,7 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 - The first start after upgrading adds the **Instruct** action, enabled, with no model of its own, so it uses the same model as any other action without one: the default model, or, when no default is available (none is marked, or it or its provider is disabled), the earliest-added enabled chat model. On any site where AI actions already work, every editor can send free-form instructions right away, whether or not a model is marked as the default; disable the action in **Site admin → AI agents** if you don't want that.
 - On a new install, the built-in **Rewrite** and **Translate** actions show a preview first, like the other built-in actions, instead of applying directly. Upgrading doesn't change an existing site's actions: there, Rewrite and Translate keep the apply mode they have — direct, unless an admin changed it — and an admin can switch them to preview under **Apply mode** in **Site admin → AI agents**.
 - If you roll back to 0.10, the Instruct action stays in the database and 0.10 lists it as an ordinary quick action that only fills in `{{text}}`: the literal `{{instruction}}` and `{{focus}}` would reach the model, without the guard. Disable the action before rolling back.
+- Migration 0024 adds the time each account was last active and fills it in from the last sign-in time, so after the upgrade **Last active** shows when someone last signed in until they next use the site. Accounts with no recorded sign-in show **Not recorded** until then. Rolling back to 0.10 is harmless for the database: 0.10 doesn't read or write the new column.
 
 ### Added
 
@@ -23,6 +24,8 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 - The admin AI actions list and `GET /api/ai/actions` include each action's `kind` (`"instruct"` or `"quick"`); `PATCH /api/admin/ai/actions/:id` refuses to set the Instruct action to `direct` (`instruct_preview_only`) (#263).
 - **Breaking (API):** `POST /api/ai` takes `instruction` and `focus` for the Instruct action and now rejects them with 400 for any other action; they used to be silently dropped (#263).
 - Version history: each window width now has one way in. The `⋮` menu at the top of a note no longer has **Save current version** (use Ctrl+S, or the button at the bottom of the version list), and shows **Version history** only on a narrow window, where there is no round button at the bottom right.
+- Site admin → Users: the **Last sign-in** column is now **Last active** — when someone last used the site while signed in: a request from the browser, opening a note for live editing or typing in one, or signing in — shown as **Online** when that was less than 5 minutes ago, otherwise as the date and time, or **Not recorded**. Requests made with an API token or a connected app don't count. **Online** is not a live connection status; see [known limitations](docs/known-limitations.md) (#267).
+- API: `GET /api/admin/users` also returns `lastActiveAt`, when each user last made a signed-in request from the browser, opened or edited a note over the live editing connection, or signed in (`null` if never recorded); `lastLoginAt` is still returned (#267).
 
 ### Removed
 

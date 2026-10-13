@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen, waitFor, fireEvent, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
-import { MIN_PASSWORD_LENGTH, type StoragePlanDto, type UserDto } from "@knotebook/shared";
+import { MIN_PASSWORD_LENGTH, ONLINE_WINDOW_MS, type StoragePlanDto, type UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { clickOutside } from "@/test/outside-click";
 import { ThemeProvider } from "@/theme";
@@ -58,6 +58,7 @@ const ACTIVE_OTHER: AdminUserDto = {
   disabledAt: null,
   createdAt: "2026-01-01T00:00:00.000Z",
   lastLoginAt: null,
+  lastActiveAt: null,
   storage: { planId: BASIC_ID, planName: "Basic", usedBytes: 0, quotaBytes: 2147483648 },
 };
 
@@ -70,6 +71,7 @@ const DISABLED_OTHER: AdminUserDto = {
   disabledAt: "2026-01-02T00:00:00.000Z",
   createdAt: "2026-01-01T00:00:00.000Z",
   lastLoginAt: null,
+  lastActiveAt: null,
   storage: { planId: BASIC_ID, planName: "Basic", usedBytes: 0, quotaBytes: 2147483648 },
 };
 
@@ -84,6 +86,7 @@ const OTHER_ADMIN: AdminUserDto = {
   disabledAt: null,
   createdAt: "2026-01-01T00:00:00.000Z",
   lastLoginAt: null,
+  lastActiveAt: null,
   storage: { planId: BASIC_ID, planName: "Basic", usedBytes: 0, quotaBytes: 2147483648 },
 };
 
@@ -447,7 +450,7 @@ describe("使用者表（#247 §7.0，W27）", () => {
     vi.unstubAllGlobals();
   });
 
-  const SELF_ROW: AdminUserDto = { ...OTHER_ADMIN, id: ADMIN_USER.id, email: ADMIN_USER.email, handle: ADMIN_USER.handle, displayName: ADMIN_USER.displayName, lastLoginAt: "2026-10-01T09:12:00.000Z" };
+  const SELF_ROW: AdminUserDto = { ...OTHER_ADMIN, id: ADMIN_USER.id, email: ADMIN_USER.email, handle: ADMIN_USER.handle, displayName: ADMIN_USER.displayName, lastLoginAt: "2026-10-01T09:12:00.000Z", lastActiveAt: "2026-10-01T09:12:00.000Z" };
 
   function stubUsers(getRows: () => AdminUserDto[], extra: (url: string, method: string, init?: RequestInit) => Response | Promise<Response> | null = () => null) {
     return vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -463,10 +466,10 @@ describe("使用者表（#247 §7.0，W27）", () => {
     fetchMock.mock.calls.filter(([u, i]) => String(u) === url && (i as RequestInit | undefined)?.method === "POST");
   const rowOf = (email: string) => screen.getByText(email).closest("tr") as HTMLElement;
 
-  it("U1 欄位：User（顯示名稱＋灰字 @handle）、Email、Role、Plan、Storage、Last sign-in、Enabled；沒有 Status 欄、沒有列尾文字鈕", async () => {
+  it("U1 欄位：User（顯示名稱＋灰字 @handle）、Email、Role、Plan、Storage、Last active、Enabled；沒有 Status 欄、沒有列尾文字鈕", async () => {
     renderUsersRoute(stubUsers(() => [SELF_ROW, ACTIVE_OTHER]));
     await screen.findByText(ACTIVE_OTHER.email);
-    expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["User", "Email", "Role", "Plan", "Storage", "Last sign-in", "Enabled"]);
+    expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["User", "Email", "Role", "Plan", "Storage", "Last active", "Enabled"]);
     // 啟用 switch 的可及名稱＝表頭「Enabled」＋該列 email（aria-labelledby 兩個 id）
     expect(within(rowOf(ACTIVE_OTHER.email)).getByRole("switch", { name: `Enabled ${ACTIVE_OTHER.email}` })).toBeInTheDocument();
     const row = within(rowOf(ACTIVE_OTHER.email));
@@ -623,11 +626,23 @@ describe("使用者表（#247 §7.0，W27）", () => {
     expect(fetchMock.mock.calls.filter(([, i]) => (i as RequestInit | undefined)?.method === "POST")).toHaveLength(0);
   });
 
-  it("U9 最後登入：有值顯示 toLocaleDateString(en)、null 顯示「Never」；長 email／使用者格 wrap-anywhere、其餘欄不換行", async () => {
-    renderUsersRoute(stubUsers(() => [SELF_ROW, { ...ACTIVE_OTHER, lastLoginAt: null }]));
+  it("U9 最後活動（#267）：視窗內顯示「Online」、更早顯示日期＋時間（toLocaleString(en, short/short)）、null 顯示「Not recorded」（不看 lastLoginAt）；長 email／使用者格 wrap-anywhere、其餘欄不換行", async () => {
+    const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
+    const justOutside = ago(ONLINE_WINDOW_MS + 60_000);
+    const dateTime = (iso: string) => new Date(iso).toLocaleString("en", { dateStyle: "short", timeStyle: "short" });
+    renderUsersRoute(stubUsers(() => [
+      SELF_ROW,
+      { ...ACTIVE_OTHER, lastLoginAt: "2026-09-01T00:00:00.000Z", lastActiveAt: ago(3 * 60_000) }, // 寫入間隔（1 分鐘）之外、上線視窗（5 分鐘）之內
+      { ...DISABLED_OTHER, lastLoginAt: "2026-09-01T00:00:00.000Z", lastActiveAt: null },
+      { ...OTHER_ADMIN, lastActiveAt: justOutside },
+    ]));
     await screen.findByText(ACTIVE_OTHER.email);
-    expect(within(rowOf(SELF_ROW.email)).getByText(new Date("2026-10-01T09:12:00.000Z").toLocaleDateString("en"))).toBeInTheDocument();
-    expect(within(rowOf(ACTIVE_OTHER.email)).getByText("Never")).toBeInTheDocument();
+    const lastActiveCell = (email: string) => within(rowOf(email)).getAllByRole("cell")[5]!.textContent;
+    expect(lastActiveCell(SELF_ROW.email)).toBe(dateTime("2026-10-01T09:12:00.000Z"));
+    expect(lastActiveCell(SELF_ROW.email)).toMatch(/\d{1,2}:\d{2}/); // 有時間，不只日期
+    expect(lastActiveCell(ACTIVE_OTHER.email)).toBe("Online");
+    expect(lastActiveCell(DISABLED_OTHER.email)).toBe("Not recorded");
+    expect(lastActiveCell(OTHER_ADMIN.email)).toBe(dateTime(justOutside));
     const tokens = (el: Element | null) => [...(el?.classList ?? [])];
     expect(tokens(screen.getByText(ACTIVE_OTHER.email).closest("td"))).toContain("wrap-anywhere");
     expect(tokens(screen.getByText("Alice").closest("td"))).toContain("wrap-anywhere");

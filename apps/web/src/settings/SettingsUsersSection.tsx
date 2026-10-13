@@ -1,6 +1,6 @@
 import { useId, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { MIN_PASSWORD_LENGTH, type StoragePlanDto } from "@knotebook/shared";
+import { MIN_PASSWORD_LENGTH, ONLINE_WINDOW_MS, type StoragePlanDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
 import { useAuthConfig } from "@/api/authConfig";
 import { useSession } from "@/auth/useSession";
@@ -184,7 +184,7 @@ function CreateUserDialog() {
  * - `text`：email／username／顯示名稱可在任意處斷行；`wrap-anywhere` 會把斷點算進 min-content，
  *   auto 表格才肯壓窄這欄（`break-words` 不會，照樣撐爆）。`min-w-[14ch]` 是下限：沒有它，窄螢幕（768px 卡片約 474px）
  *   會把三欄壓到一個字元寬、字一個一個直排；有它，表格寬於卡片時改由卡片層的橫向捲動吸收。
- * - `fixed`：角色、用量、最後登入三欄不換行。
+ * - `fixed`：角色、用量、最後活動三欄不換行。
  * - `actions`：啟用欄收到內容寬、不換行，按鈕永遠不被擠壓。
  */
 const USERS_TABLE_LAYOUT = {
@@ -193,12 +193,24 @@ const USERS_TABLE_LAYOUT = {
   actions: "w-px whitespace-nowrap",
 } as const;
 
+/**
+ * #267「最後活動」欄：`now - lastActiveAt` 小於 `ONLINE_WINDOW_MS` →「上線中」（server 至多每 `LAST_ACTIVE_WRITE_INTERVAL_MS` 記一次，
+ * 遠短於視窗，持續有活動的人不會掉出來）；更早 → 日期＋時間（與版本面板 `formatVersionTime` 同格式：dateStyle／timeStyle short）；
+ * null（從無紀錄）→「尚無紀錄」。`now` 取瀏覽器時鐘、在 render 當下算；沒有計時器重算，停在畫面上的「上線中」要等下次 render（例如列表重新取得）才會變。
+ */
+function lastActiveLabel(lastActiveAt: string | null, t: (key: string) => string, language: string): string {
+  if (lastActiveAt === null) return t("admin.users.lastActiveNone");
+  const at = new Date(lastActiveAt);
+  if (Date.now() - at.getTime() < ONLINE_WINDOW_MS) return t("admin.users.online");
+  return at.toLocaleString(language, { dateStyle: "short", timeStyle: "short" });
+}
+
 const SELECT_CLASS =
   "h-8 shrink-0 rounded-md border border-input bg-background px-2 text-sm shadow-sm focus-visible:outline-none " +
   "focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
 
 /**
- * 一列使用者（#247 §7.0，W27）：角色**下拉**（管理員／一般：升級送 `promote`、降級送 `demote`）、方案下拉、用量、最後登入、
+ * 一列使用者（#247 §7.0，W27）：角色**下拉**（管理員／一般：升級送 `promote`、降級送 `demote`）、方案下拉、用量、最後活動、
  * 列尾**啟用 toggle**。
  * - 角色：自己那列 disabled＋`title`（server 另以 400 `cannot_demote_self` 把關）；pending 時 disabled 並顯示剛選的值；失敗（含 409
  *   `last_site_admin`）下拉自然留在原值（受控於列資料）、列內紅字。
@@ -304,7 +316,7 @@ function UserRow({ row, currentUserId, plans, onAssignPlan, enabledHeaderId }: {
         <StorageCell storage={row.storage} />
       </td>
       <td className={`py-2 pr-3 ${USERS_TABLE_LAYOUT.fixed}`}>
-        {row.lastLoginAt === null ? t("admin.users.neverLoggedIn") : new Date(row.lastLoginAt).toLocaleDateString(i18n.language)}
+        {lastActiveLabel(row.lastActiveAt, t, i18n.language)}
       </td>
       <td className={`py-2 ${USERS_TABLE_LAYOUT.actions}`}>
         <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
@@ -382,7 +394,7 @@ export function SettingsUsersSection() {
               <th className={`py-2 pr-3 font-medium ${USERS_TABLE_LAYOUT.fixed}`}>{t("admin.tableRole")}</th>
               <th className="py-2 pr-3 font-medium">{t("admin.tablePlan")}</th>
               <th className={`py-2 pr-3 font-medium ${USERS_TABLE_LAYOUT.fixed}`}>{t("admin.tableStorage")}</th>
-              <th className={`py-2 pr-3 font-medium ${USERS_TABLE_LAYOUT.fixed}`}>{t("admin.users.lastLogin")}</th>
+              <th className={`py-2 pr-3 font-medium ${USERS_TABLE_LAYOUT.fixed}`}>{t("admin.users.lastActive")}</th>
               <th id={enabledHeaderId} className={`py-2 font-medium ${USERS_TABLE_LAYOUT.actions}`}>{t("admin.users.enabled")}</th>
             </tr>
           </thead>

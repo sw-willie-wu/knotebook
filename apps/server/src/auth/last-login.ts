@@ -11,11 +11,12 @@ import type { Db } from "../db/index.js";
  * 「SSO 登入不等 users」（C24，`identities.test.ts`、`oidc-prove.test.ts` 守）優先於記錄；代價是併發下偶爾漏記這一次登入。
  * 顯示用欄位：失敗也只記 warn、照常完成登入——這裡自己吞錯，因為 OIDC callback 的外層 catch 會把任何例外變成 `oidc_exchange_failed`。
  * `last_login_at` 不在 `UserDto` 裡，gate 快取不含它，不需 invalidate。
+ * #267：同一句也寫 `last_active_at = now()`（登入就是一次活動；不經 `LastActiveTracker` 的節流），同樣不在 `UserDto` 裡。
  */
 export async function touchLastLogin(db: Db, userId: string, log: FastifyBaseLogger): Promise<void> {
   try {
     const res = await db.execute(
-      sql`update users set last_login_at = now() where id = (select id from users where id = ${userId} for no key update skip locked)`,
+      sql`update users set last_login_at = now(), last_active_at = now() where id = (select id from users where id = ${userId} for no key update skip locked)`,
     );
     if (res.rowCount === 0) log.warn({ userId }, "last_login_at skipped: row locked");
   } catch (err) {

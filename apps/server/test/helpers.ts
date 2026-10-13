@@ -462,6 +462,8 @@ export async function buildCollabTestApp(
     storeSearchHooks?: CollabDeps["storeSearchHooks"];
     /** 版本歷史：idle 切版的安靜時間（毫秒），語意見 `CollabDeps.versionIdleMs`。 */
     versionIdleMs?: number;
+    /** #267：「最後活動」節流表的測試縫（時鐘），語意見 `CollabDeps.lastActiveOptions`。 */
+    lastActiveOptions?: CollabDeps["lastActiveOptions"];
   } = {}
 ): Promise<CollabTestCtx> {
   const { db } = await freshDb();
@@ -484,7 +486,7 @@ export async function buildCollabTestApp(
     warn: (obj: object, msg: string) => collabLogs.push({ level: "warn", obj: { ...obj }, msg }),
     error: (obj: object, msg: string) => collabLogs.push({ level: "error", obj: { ...obj }, msg }),
   };
-  const collab = createCollabServer({ db, config: testConfig, gate, log: collabLog, storeSearchHooks: opts.storeSearchHooks, versionIdleMs: opts.versionIdleMs });
+  const collab = createCollabServer({ db, config: testConfig, gate, log: collabLog, storeSearchHooks: opts.storeSearchHooks, versionIdleMs: opts.versionIdleMs, lastActiveOptions: opts.lastActiveOptions });
 
   const uploadsDir = freshUploadsDir();
   const deps: AppDeps = {
