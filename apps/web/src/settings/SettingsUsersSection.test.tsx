@@ -437,7 +437,7 @@ describe("W5 使用者表的儲存空間與方案（spec §9.3）", () => {
     await waitFor(() => expect(fetchMock.mock.calls.some(([u]) => String(u) === "/api/admin/storage-plans")).toBe(true));
     for (let i = 0; i < 5; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
     expect(screen.queryByRole("combobox", { name: `Storage plan for ${ACTIVE_OTHER.email}` })).not.toBeInTheDocument();
-    expect(within(screen.getByText(ACTIVE_OTHER.email).closest("tr")!).getByText("Basic")).toBeInTheDocument();
+    expect(within(screen.getByRole("row", { name: ACTIVE_OTHER.email })).getByText("Basic")).toBeInTheDocument();
   });
 });
 
@@ -464,12 +464,22 @@ describe("使用者表（#247 §7.0，W27）", () => {
   }
   const posts = (fetchMock: ReturnType<typeof vi.fn>, url: string) =>
     fetchMock.mock.calls.filter(([u, i]) => String(u) === url && (i as RequestInit | undefined)?.method === "POST");
-  const rowOf = (email: string) => screen.getByText(email).closest("tr") as HTMLElement;
+  /** 使用者表的列名＝email（spec 2026-10-13 settings-table §3 #5：`nameColumn` 是 Email 欄）。 */
+  const rowOf = (email: string) => screen.getByRole("row", { name: email });
 
-  it("U1 欄位：User（顯示名稱＋灰字 @handle）、Email、Role、Plan、Storage、Last active、Enabled；沒有 Status 欄、沒有列尾文字鈕", async () => {
+  it("U1 欄位：User（顯示名稱＋灰字 @handle）、Email、Storage、Last active、Role、Plan、Enabled；沒有 Status 欄、沒有列尾文字鈕", async () => {
     renderUsersRoute(stubUsers(() => [SELF_ROW, ACTIVE_OTHER]));
     await screen.findByText(ACTIVE_OTHER.email);
-    expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["User", "Email", "Role", "Plan", "Storage", "Last active", "Enabled"]);
+    // spec 2026-10-13 settings-table §3 #5 的欄序：主欄 → 資訊欄（Email、Storage、最後活動）→ 可編輯欄（Role、Plan）→ 啟用。
+    expect(within(screen.getByRole("table", { name: "Users" })).getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
+      "User",
+      "Email",
+      "Storage",
+      "Last active",
+      "Role",
+      "Plan",
+      "Enabled",
+    ]);
     // 啟用 switch 的可及名稱＝表頭「Enabled」＋該列 email（aria-labelledby 兩個 id）
     expect(within(rowOf(ACTIVE_OTHER.email)).getByRole("switch", { name: `Enabled ${ACTIVE_OTHER.email}` })).toBeInTheDocument();
     const row = within(rowOf(ACTIVE_OTHER.email));
@@ -541,7 +551,7 @@ describe("使用者表（#247 §7.0，W27）", () => {
     expect(mine).toHaveAttribute("title", "You can't remove your own admin role.");
   });
 
-  it("U4 demote 409 last_site_admin → 下拉彈回管理員＋列內紅字是站台那句（不是群組的 last_admin 文案）", async () => {
+  it("U4 demote 409 last_site_admin → 下拉彈回管理員＋錯誤列的紅字是站台那句（不是群組的 last_admin 文案）", async () => {
     const fetchMock = stubUsers(() => [SELF_ROW, OTHER_ADMIN], (url, method) =>
       url === `${ADMIN_USERS_URL}/${OTHER_ADMIN.id}/demote` && method === "POST"
         ? fakeResponse({ ok: false, status: 409, json: () => Promise.resolve({ error: { code: "last_site_admin", message: "x" } }) })
@@ -550,7 +560,10 @@ describe("使用者表（#247 §7.0，W27）", () => {
     renderUsersRoute(fetchMock);
     const carol = await screen.findByRole("combobox", { name: `Role for ${OTHER_ADMIN.email}` });
     fireEvent.change(carol, { target: { value: "user" } });
-    const alert = await within(rowOf(OTHER_ADMIN.email)).findByRole("alert");
+    // 列層級錯誤走資料列之後的錯誤列（spec §2.5 末），不放在角色那格（會撐寬 max-content 軌）。
+    const errorRow = await screen.findByRole("row", { name: `${OTHER_ADMIN.email} error` });
+    expect(within(rowOf(OTHER_ADMIN.email)).queryByRole("alert")).toBeNull();
+    const alert = within(errorRow).getByRole("alert");
     expect(alert).toHaveTextContent("The site needs at least one enabled admin.");
     expect(alert).not.toHaveTextContent(i18n.t("errors.last_admin"));
     expect(carol).toHaveValue("admin");
@@ -626,7 +639,7 @@ describe("使用者表（#247 §7.0，W27）", () => {
     expect(fetchMock.mock.calls.filter(([, i]) => (i as RequestInit | undefined)?.method === "POST")).toHaveLength(0);
   });
 
-  it("U9 最後活動（#267）：視窗內顯示「Online」、更早顯示日期＋時間（toLocaleString(en, short/short)）、null 顯示「Not recorded」（不看 lastLoginAt）；長 email／使用者格 wrap-anywhere、其餘欄不換行", async () => {
+  it("U9 最後活動（#267）：視窗內顯示「Online」、更早顯示日期＋時間（toLocaleString(en, short/short)）、null 顯示「Not recorded」（不看 lastLoginAt）", async () => {
     const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
     const justOutside = ago(ONLINE_WINDOW_MS + 60_000);
     const dateTime = (iso: string) => new Date(iso).toLocaleString("en", { dateStyle: "short", timeStyle: "short" });
@@ -637,15 +650,77 @@ describe("使用者表（#247 §7.0，W27）", () => {
       { ...OTHER_ADMIN, lastActiveAt: justOutside },
     ]));
     await screen.findByText(ACTIVE_OTHER.email);
-    const lastActiveCell = (email: string) => within(rowOf(email)).getAllByRole("cell")[5]!.textContent;
-    expect(lastActiveCell(SELF_ROW.email)).toBe(dateTime("2026-10-01T09:12:00.000Z"));
-    expect(lastActiveCell(SELF_ROW.email)).toMatch(/\d{1,2}:\d{2}/); // 有時間，不只日期
-    expect(lastActiveCell(ACTIVE_OTHER.email)).toBe("Online");
-    expect(lastActiveCell(DISABLED_OTHER.email)).toBe("Not recorded");
-    expect(lastActiveCell(OTHER_ADMIN.email)).toBe(dateTime(justOutside));
-    const tokens = (el: Element | null) => [...(el?.classList ?? [])];
-    expect(tokens(screen.getByText(ACTIVE_OTHER.email).closest("td"))).toContain("wrap-anywhere");
-    expect(tokens(screen.getByText("Alice").closest("td"))).toContain("wrap-anywhere");
-    expect(tokens(screen.getByRole("combobox", { name: `Role for ${ACTIVE_OTHER.email}` }).closest("td"))).toContain("whitespace-nowrap");
+    // 依格的可及名稱（＝內容）找，不依欄序號（spec 2026-10-13 settings-table §5.2；欄序見 U1）。
+    const lastActiveCell = (email: string, text: string) => within(rowOf(email)).getByRole("cell", { name: text });
+    expect(lastActiveCell(SELF_ROW.email, dateTime("2026-10-01T09:12:00.000Z"))).toBeInTheDocument();
+    expect(dateTime("2026-10-01T09:12:00.000Z")).toMatch(/\d{1,2}:\d{2}/); // 有時間，不只日期
+    expect(lastActiveCell(ACTIVE_OTHER.email, "Online")).toBeInTheDocument();
+    expect(lastActiveCell(DISABLED_OTHER.email, "Not recorded")).toBeInTheDocument();
+    expect(lastActiveCell(OTHER_ADMIN.email, dateTime(justOutside))).toBeInTheDocument();
+  });
+
+  it("U10（RF4）角色變更失敗 → 錯誤列「＜email＞ error」；再改一次成功 → 錯誤列消失、不留空的 alert", async () => {
+    let fail = true;
+    let rows = [SELF_ROW, OTHER_ADMIN];
+    const fetchMock = stubUsers(() => rows, (url, method) => {
+      if (url !== `${ADMIN_USERS_URL}/${OTHER_ADMIN.id}/demote` || method !== "POST") return null;
+      if (fail) return fakeResponse({ ok: false, status: 409, json: () => Promise.resolve({ error: { code: "last_site_admin", message: "x" } }) });
+      rows = rows.map((r) => (r.id === OTHER_ADMIN.id ? { ...r, isAdmin: false } : r));
+      return fakeResponse({ ok: true, status: 204 });
+    });
+    renderUsersRoute(fetchMock);
+    const carol = await screen.findByRole("combobox", { name: `Role for ${OTHER_ADMIN.email}` });
+    fireEvent.change(carol, { target: { value: "user" } });
+    const errorRow = await screen.findByRole("row", { name: `${OTHER_ADMIN.email} error` });
+    expect(within(errorRow).getByRole("alert")).toHaveTextContent("The site needs at least one enabled admin.");
+    await waitFor(() => expect(carol).not.toBeDisabled());
+    expect(carol).toHaveValue("admin");
+
+    fail = false;
+    fireEvent.change(carol, { target: { value: "user" } });
+    await waitFor(() => expect(screen.queryByRole("row", { name: `${OTHER_ADMIN.email} error` })).toBeNull());
+    expect(screen.queryByRole("alert")).toBeNull();
+    await waitFor(() => expect(carol).toHaveValue("user"));
+  });
+
+  it("U11 錯誤狀態以使用者 id 為鍵：角色、啟用、停用確認三處的失敗各自只進自己那列的錯誤列；一列開始新動作只清自己那列", async () => {
+    const notFound = () => fakeResponse({ ok: false, status: 404, json: () => Promise.resolve({ error: { code: "user_not_found", message: "x" } }) });
+    const fetchMock = stubUsers(() => [SELF_ROW, ACTIVE_OTHER, OTHER_ADMIN, DISABLED_OTHER], (url, method) => {
+      if (method !== "POST") return null;
+      if (url === `${ADMIN_USERS_URL}/${OTHER_ADMIN.id}/demote`) {
+        return fakeResponse({ ok: false, status: 409, json: () => Promise.resolve({ error: { code: "last_site_admin", message: "x" } }) });
+      }
+      if (url === `${ADMIN_USERS_URL}/${DISABLED_OTHER.id}/enable`) return notFound();
+      if (url === `${ADMIN_USERS_URL}/${ACTIVE_OTHER.id}/disable`) return notFound();
+      return null;
+    });
+    renderUsersRoute(fetchMock);
+    const errorRowOf = (email: string) => screen.queryByRole("row", { name: `${email} error` });
+
+    // 角色下拉的失敗：只有 carol 有錯誤列
+    fireEvent.change(await screen.findByRole("combobox", { name: `Role for ${OTHER_ADMIN.email}` }), { target: { value: "user" } });
+    await waitFor(() => expect(errorRowOf(OTHER_ADMIN.email)).not.toBeNull());
+    expect(errorRowOf(ACTIVE_OTHER.email)).toBeNull();
+    expect(errorRowOf(DISABLED_OTHER.email)).toBeNull();
+    expect(errorRowOf(SELF_ROW.email)).toBeNull();
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+
+    // 啟用開關（開）的失敗：bob 的錯誤列出現；bob 開始動作時清的是 bob 自己那列，carol 的錯誤列還在
+    fireEvent.click(screen.getByRole("switch", { name: `Enabled ${DISABLED_OTHER.email}` }));
+    await waitFor(() => expect(errorRowOf(DISABLED_OTHER.email)).not.toBeNull());
+    expect(within(errorRowOf(DISABLED_OTHER.email)!).getByRole("alert")).toHaveTextContent("We couldn't find that user.");
+    expect(within(errorRowOf(OTHER_ADMIN.email)!).getByRole("alert")).toHaveTextContent("The site needs at least one enabled admin.");
+    expect(errorRowOf(ACTIVE_OTHER.email)).toBeNull();
+
+    // 停用確認後的失敗：alice 的錯誤列出現；另兩列的錯誤列不受影響
+    fireEvent.click(screen.getByRole("switch", { name: `Enabled ${ACTIVE_OTHER.email}` }));
+    const confirm = await screen.findByRole("dialog", { name: "Disable this user?" });
+    fireEvent.click(within(confirm).getByRole("button", { name: "Disable" }));
+    await waitFor(() => expect(errorRowOf(ACTIVE_OTHER.email)).not.toBeNull());
+    expect(within(errorRowOf(ACTIVE_OTHER.email)!).getByRole("alert")).toHaveTextContent("We couldn't find that user.");
+    expect(errorRowOf(OTHER_ADMIN.email)).not.toBeNull();
+    expect(errorRowOf(DISABLED_OTHER.email)).not.toBeNull();
+    expect(errorRowOf(SELF_ROW.email)).toBeNull();
+    expect(screen.getAllByRole("alert")).toHaveLength(3);
   });
 });
