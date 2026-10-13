@@ -709,6 +709,8 @@
         "save": "Save",
         "editHint": "1–32 letters, digits, . _ or -. Leave empty to go back to “{{derived}}”, derived from the name.",
         "labelInvalid": "A label can only use 1–32 letters, digits, . _ or -.",
+        "actions": "Actions",
+        "editLocked": "Finish editing the other token first.",
         "footnote": "The name is where the token came from when it was created (yours for a token you made, self-reported by the client for an OAuth app) and can't be changed. The label is the short name shown on the AI's name tag and in the edit history; you can change it, and several tokens can share one."
       }
     },
@@ -777,8 +779,10 @@
       "signInMethods": {
         "title": "Sign-in methods",
         "description": "Sign-in services linked to this account. You can link another one, or unlink one as long as you keep at least one way to sign in.",
-        "linkedOn": "Linked {{when}}",
-        "lastUsed": "Last used {{when}}",
+        "tableService": "Service",
+        "tableLinkedOn": "Linked",
+        "tableLastUsed": "Last used",
+        "tableActions": "Actions",
         "neverUsed": "Never used",
         "unknownProvider": "Removed or turned-off sign-in service",
         "unlink": "Unlink",

@@ -709,6 +709,8 @@
         "save": "儲存",
         "editHint": "1–32 個英數、. _ -；清空則回到從名稱派生的「{{derived}}」",
         "labelInvalid": "label 只能用 1–32 個英數、. _ -。",
+        "actions": "操作",
+        "editLocked": "請先完成另一列的編輯。",
         "footnote": "「名稱」是建立時登記的來源（手動建立的由你取、OAuth 授權的由 client 自報），不可改。「label」是 AI 名牌與修改紀錄上顯示的短名，可改，多個 token 可以用同一個 label。"
       }
     },
@@ -777,8 +779,10 @@
       "signInMethods": {
         "title": "登入方式",
         "description": "連結到這個帳號的登入服務。可以再連結一個，或在至少保留一種登入方式的前提下解除連結。",
-        "linkedOn": "連結於 {{when}}",
-        "lastUsed": "最後使用 {{when}}",
+        "tableService": "服務",
+        "tableLinkedOn": "連結於",
+        "tableLastUsed": "最後使用",
+        "tableActions": "操作",
         "neverUsed": "尚未使用",
         "unknownProvider": "已移除或停用的登入方式",
         "unlink": "解除連結",

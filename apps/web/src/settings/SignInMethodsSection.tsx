@@ -3,9 +3,10 @@ import { useSearchParams } from "react-router";
 import { useTranslation } from "react-i18next";
 import type { IdentityDto, ProviderIconDto } from "@knotebook/shared";
 import { useIdentities, useStartLink, useUnlinkIdentity } from "@/api/account";
-import { ROW_ICON_DANGER } from "@/components/management/row-actions";
+import { SettingsTable, type SettingsTableColumn, type SettingsTableRow } from "@/components/management/SettingsTable";
 import { Button } from "@/components/ui/button";
 import { Trash } from "@/components/ui/icons";
+import { RowIconButton } from "@/components/ui/row-icon-button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
 import i18n from "@/i18n";
@@ -33,20 +34,14 @@ function issuerHost(issuer: string): string {
 /** §5.4：以 host 標示的列（服務已刪或停用中）一律通用圖示。 */
 const HOST_ROW_ICON: ProviderIconDto = { type: "builtin", name: "generic" };
 
-function IdentityRow({ identity }: { identity: IdentityDto }) {
+/**
+ * 解除連結（#247 §4.9：列尾紅垃圾桶 icon 鈕，確認框照舊）。不可解除時 softDisabled＋原因（spec 2026-10-13 settings-table §2.7：
+ * 有理由要讓人看見的不可用），並以 `aria-describedby` 指向主欄副標裡看得見的同一段原因（`hintId`）。
+ */
+function UnlinkButton({ identity, names, hintId }: { identity: IdentityDto; names: string; hintId: string }) {
   const { t } = useTranslation();
-  const nameId = useId();
-  const hintId = useId();
   const unlink = useUnlinkIdentity();
   const [open, setOpen] = useState(false);
-  const formatDate = (iso: string): string => new Date(iso).toLocaleDateString(i18n.language);
-  // provider 顯示名是管理員輸入：只進文字節點，不當 i18n 插值參數。對不到啟用中 provider：issuer host（§8.5）。
-  const names = identity.providers.length > 0 ? identity.providers.map(p => p.displayName).join(" / ") : issuerHost(identity.issuer);
-
-  // §5.4：多個時取第一個（server 已依 sort_order, created_at, id 排序，auth/sign-in-methods.ts）。
-  // ⚠ 不得寫成 `identity.providers[0]?.icon ?? HOST_ROW_ICON`——`??` 會把「不顯示」（null）吞成通用圖示。
-  const first = identity.providers[0];
-  const rowIcon = first === undefined ? HOST_ROW_ICON : first.icon;
 
   async function handleConfirm(): Promise<void> {
     try {
@@ -58,70 +53,46 @@ function IdentityRow({ identity }: { identity: IdentityDto }) {
   }
 
   return (
-    <li aria-labelledby={nameId} className="flex items-start justify-between gap-3 py-2">
-      <div className="min-w-0 space-y-0.5 text-sm">
-        <div className="flex items-center gap-2">
-          <ProviderIcon icon={rowIcon} />
-          <p id={nameId} className="font-medium">{names}</p>
-        </div>
-        {identity.providers.length === 0 && (
-          <p className="text-xs text-muted-foreground">{t("settings.account.signInMethods.unknownProvider")}</p>
-        )}
-        <p className="text-xs text-muted-foreground">{t("settings.account.signInMethods.linkedOn", { when: formatDate(identity.createdAt) })}</p>
-        <p className="text-xs text-muted-foreground">
-          {identity.lastLoginAt === null
-            ? t("settings.account.signInMethods.neverUsed")
-            : t("settings.account.signInMethods.lastUsed", { when: formatDate(identity.lastLoginAt) })}
-        </p>
-        {!identity.unlinkable && (
-          <p id={hintId} className="text-xs text-muted-foreground">
-            {t("settings.account.signInMethods.lastMethodHint")}
-          </p>
-        )}
-      </div>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogTrigger asChild>
-          {/* #247 §4.9（W20、W23）：解除連結＝列尾紅垃圾桶 icon 鈕，確認框照舊。不可解除時維持 disabled＋
-              aria-describedby 指向看得見的原因（disabled 讓 title 浮不出來，所以原因一定要是可見文字）。 */}
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className={ROW_ICON_DANGER}
-            title={t("settings.account.signInMethods.unlink")}
-            aria-label={t("settings.account.signInMethods.unlink")}
-            disabled={!identity.unlinkable}
-            aria-describedby={identity.unlinkable ? undefined : hintId}
-          >
-            <Trash className="h-4 w-4" aria-hidden="true" />
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <RowIconButton
+          label={t("settings.account.signInMethods.unlink")}
+          tone="destructive"
+          icon={<Trash className="h-4 w-4" aria-hidden="true" />}
+          softDisabled={!identity.unlinkable}
+          softDisabledReason={t("settings.account.signInMethods.lastMethodHint")}
+          aria-describedby={identity.unlinkable ? undefined : hintId}
+        />
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t("settings.account.signInMethods.unlinkTitle")}</DialogTitle>
+          <DialogDescription>{t("settings.account.signInMethods.unlinkDescription")}</DialogDescription>
+        </DialogHeader>
+        <p className="text-sm font-medium">{names}</p>
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button type="button" variant="outline">{t("settings.account.signInMethods.cancel")}</Button>
+          </DialogClose>
+          <Button type="button" variant="destructive" onClick={() => void handleConfirm()} disabled={unlink.isPending}>
+            {t("settings.account.signInMethods.unlink")}
           </Button>
-        </DialogTrigger>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t("settings.account.signInMethods.unlinkTitle")}</DialogTitle>
-            <DialogDescription>{t("settings.account.signInMethods.unlinkDescription")}</DialogDescription>
-          </DialogHeader>
-          <p className="text-sm font-medium">{names}</p>
-          <DialogFooter>
-            <DialogClose asChild>
-              <Button type="button" variant="outline">{t("settings.account.signInMethods.cancel")}</Button>
-            </DialogClose>
-            <Button type="button" variant="destructive" onClick={() => void handleConfirm()} disabled={unlink.isPending}>
-              {t("settings.account.signInMethods.unlink")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </li>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
-/** #187 §8.5「登入方式」群組。解除鈕的可否由 server 的 `unlinkable` 決定（B24：web 不自己推 INV-7）。 */
+/**
+ * #187 §8.5「登入方式」群組。解除鈕的可否由 server 的 `unlinkable` 決定（B24：web 不自己推 INV-7）。
+ * 表格（spec 2026-10-13 settings-table §3 #10）：服務（圖示、名稱；副標＝提示行、`unknownProvider` 行）｜連結於｜最後使用｜操作（解除連結）。
+ */
 export function SignInMethodsSection() {
   const { t } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
   const identities = useIdentities();
   const startLink = useStartLink();
+  const baseId = useId();
 
   useEffect(() => {
     const linked = searchParams.get("linked");
@@ -150,6 +121,36 @@ export function SignInMethodsSection() {
     }
   }
 
+  const formatDate = (iso: string): string => new Date(iso).toLocaleDateString(i18n.language);
+  const columns: SettingsTableColumn[] = [
+    { id: "service", header: t("settings.account.signInMethods.tableService"), kind: "primary" },
+    { id: "linkedOn", header: t("settings.account.signInMethods.tableLinkedOn"), kind: "fixed" },
+    { id: "lastUsed", header: t("settings.account.signInMethods.tableLastUsed"), kind: "fixed" },
+    { id: "actions", header: t("settings.account.signInMethods.tableActions"), kind: "actions", buttons: 1 },
+  ];
+  const rows: SettingsTableRow[] = (identities.data?.identities ?? []).map(identity => {
+    const hintId = `${baseId}-${identity.id}-hint`;
+    // provider 顯示名是管理員輸入：只進文字節點，不當 i18n 插值參數。對不到啟用中 provider：issuer host（§8.5）。
+    const names = identity.providers.length > 0 ? identity.providers.map(p => p.displayName).join(" / ") : issuerHost(identity.issuer);
+    // §5.4：多個時取第一個（server 已依 sort_order, created_at, id 排序，auth/sign-in-methods.ts）。
+    // ⚠ 不得寫成 `identity.providers[0]?.icon ?? HOST_ROW_ICON`——`??` 會把「不顯示」（null）吞成通用圖示。
+    const first = identity.providers[0];
+    const rowIcon = first === undefined ? HOST_ROW_ICON : first.icon;
+    const subtitles = [
+      ...(!identity.unlinkable ? [<span id={hintId}>{t("settings.account.signInMethods.lastMethodHint")}</span>] : []),
+      ...(identity.providers.length === 0 ? [t("settings.account.signInMethods.unknownProvider")] : []),
+    ];
+    return {
+      id: identity.id,
+      primary: { name: names, weight: "medium", icon: <ProviderIcon icon={rowIcon} />, subtitles },
+      cells: {
+        linkedOn: formatDate(identity.createdAt),
+        lastUsed: identity.lastLoginAt === null ? t("settings.account.signInMethods.neverUsed") : formatDate(identity.lastLoginAt),
+      },
+      actions: <UnlinkButton identity={identity} names={names} hintId={hintId} />,
+    };
+  });
+
   return (
     <SettingsGroup title={t("settings.account.signInMethods.title")} description={t("settings.account.signInMethods.description")}>
       {identities.isPending ? (
@@ -158,13 +159,12 @@ export function SignInMethodsSection() {
         <p role="alert" className="text-sm text-destructive">{authErrorMessage(t, identities.error)}</p>
       ) : (
         <div className="space-y-3">
-          {identities.data.identities.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t("settings.account.signInMethods.empty")}</p>
-          ) : (
-            <ul className="divide-y divide-border">
-              {identities.data.identities.map(identity => <IdentityRow key={identity.id} identity={identity} />)}
-            </ul>
-          )}
+          <SettingsTable
+            label={t("settings.account.signInMethods.title")}
+            columns={columns}
+            rows={rows}
+            empty={t("settings.account.signInMethods.empty")}
+          />
           {identities.data.linkable.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {identities.data.linkable.map(p => (

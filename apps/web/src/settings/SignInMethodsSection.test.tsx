@@ -55,30 +55,49 @@ describe("SignInMethodsSection（#187 §8.5）", () => {
 
   it("已連結列：provider 名（HTML 形渲染為字面）、對不到 provider 時顯示 issuer host、日期；可連結列：Link X", async () => {
     setup(BASE);
-    const row1 = within(await screen.findByRole("listitem", { name: "<b>GitLab</b>" }));
-    expect(row1.getByText(/^Linked /)).toBeInTheDocument();
-    expect(row1.getByText(/^Last used /)).toBeInTheDocument();
+    const row1 = within(await screen.findByRole("row", { name: "<b>GitLab</b>" }));
+    // 欄名「Linked」「Last used」在表頭；格內只有日期（spec 2026-10-13 settings-table §3 #10）。
+    expect(row1.getByRole("cell", { name: new Date("2026-10-01T00:00:00.000Z").toLocaleDateString("en") })).toBeInTheDocument();
+    expect(row1.getByRole("cell", { name: new Date("2026-10-05T00:00:00.000Z").toLocaleDateString("en") })).toBeInTheDocument();
+    expect(within(screen.getByRole("table", { name: "Sign-in methods" })).getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual([
+      "Service",
+      "Linked",
+      "Last used",
+      "Actions",
+    ]);
     expect(document.querySelector("b")).toBeNull();
-    const row2 = within(screen.getByRole("listitem", { name: /gone\.example/ }));
+    const row2 = within(screen.getByRole("row", { name: /gone\.example/ }));
     expect(row2.getByText("Removed or turned-off sign-in service")).toBeInTheDocument();
     expect(row2.getByText("Never used")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Link Google" })).toBeInTheDocument();
   });
 
+  it("沒有任何已連結的登入方式 → 顯示空狀態句、不渲染表格（SettingsTable 的 empty）；可連結鈕照常", async () => {
+    setup({ ...BASE, identities: [] });
+    expect(await screen.findByText("No sign-in services linked.")).toBeInTheDocument();
+    expect(screen.queryByRole("table", { name: "Sign-in methods" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Link Google" })).toBeInTheDocument();
+  });
+
   it("對不到 provider 的列只顯示 issuer 的 host（不含 scheme 與 path）", async () => {
     setup(BASE);
-    const row2 = await screen.findByRole("listitem", { name: /gone\.example/ });
+    const row2 = await screen.findByRole("row", { name: /gone\.example/ });
     expect(document.getElementById(row2.getAttribute("aria-labelledby")!)).toHaveTextContent(/^gone\.example$/);
   });
 
-  it("unlinkable=false → 解除鈕 disabled，原因以可見文字＋aria-describedby 說明", async () => {
+  it("unlinkable=false → 解除鈕 softDisabled（aria-disabled、可聚焦、title＝原因、點了不開確認框），原因另以可見文字＋aria-describedby 說明（spec §2.7）", async () => {
     setup(BASE);
-    const row2 = within(await screen.findByRole("listitem", { name: /gone\.example/ }));
+    const row2 = within(await screen.findByRole("row", { name: /gone\.example/ }));
     const button = row2.getByRole("button", { name: "Unlink" });
-    expect(button).toBeDisabled();
-    expect(button).toHaveAttribute("title", "Unlink");
+    expect(button).toHaveAttribute("aria-disabled", "true");
+    expect(button).not.toBeDisabled();
+    expect(button).toHaveAttribute("title", "This is your only way to sign in, so it can't be unlinked.");
     const hint = document.getElementById(button.getAttribute("aria-describedby")!);
     expect(hint).toHaveTextContent("This is your only way to sign in, so it can't be unlinked.");
+    expect(row2.getByText("This is your only way to sign in, so it can't be unlinked.")).toBe(hint);
+    fireEvent.click(button);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(screen.queryByRole("dialog", { name: "Unlink this sign-in service?" })).toBeNull();
   });
 
   it("解除 → 確認 dialog（destructive）→ DELETE、重抓列表", async () => {
@@ -88,17 +107,16 @@ describe("SignInMethodsSection（#187 §8.5）", () => {
       if (m === "GET" && u === "/api/auth/identities") return fakeResponse(200, current);
       return null;
     });
-    const row1 = within(await screen.findByRole("listitem", { name: "<b>GitLab</b>" }));
+    const row1 = within(await screen.findByRole("row", { name: "<b>GitLab</b>" }));
     const trigger = row1.getByRole("button", { name: "Unlink" });
     expect(trigger.querySelector('[data-icon="trash"]')).not.toBeNull();
-    expect(trigger).toHaveClass("text-destructive");
     fireEvent.click(trigger);
     const dialog = within(await screen.findByRole("dialog", { name: "Unlink this sign-in service?" }));
     fireEvent.click(dialog.getByRole("button", { name: "Unlink" }));
     // 點確認後 dialog 仍開著、Radix 把背景標 aria-hidden：先等 dialog 消失（列被重抓移除、連同 Dialog 卸載），再以 hidden:true 斷言列不存在。
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    await waitFor(() => expect(screen.queryByRole("listitem", { name: "<b>GitLab</b>", hidden: true })).not.toBeInTheDocument());
-    expect(screen.getByRole("listitem", { name: /gone\.example/ })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("row", { name: "<b>GitLab</b>", hidden: true })).not.toBeInTheDocument());
+    expect(screen.getByRole("row", { name: /gone\.example/ })).toBeInTheDocument();
     expect(calls.some(c => c.method === "DELETE" && c.url === "/api/auth/identities/i1")).toBe(true);
     expect(calls.filter(c => c.method === "GET" && c.url === "/api/auth/identities").length).toBeGreaterThanOrEqual(2);
   });
@@ -113,13 +131,13 @@ describe("SignInMethodsSection（#187 §8.5）", () => {
       if (m === "GET" && u === "/api/auth/identities") return fakeResponse(200, current);
       return null;
     });
-    const row1 = within(await screen.findByRole("listitem", { name: "<b>GitLab</b>" }));
+    const row1 = within(await screen.findByRole("row", { name: "<b>GitLab</b>" }));
     fireEvent.click(row1.getByRole("button", { name: "Unlink" }));
     const dialog = within(await screen.findByRole("dialog", { name: "Unlink this sign-in service?" }));
     fireEvent.click(dialog.getByRole("button", { name: "Unlink" }));
     expect(await screen.findByText("This is the account's only way to sign in, so it can't be unlinked.")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    await waitFor(() => expect(screen.queryByRole("listitem", { name: "<b>GitLab</b>", hidden: true })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("row", { name: "<b>GitLab</b>", hidden: true })).not.toBeInTheDocument());
   });
 
   it("已有資料時 refetch 失敗：列表仍在，不被換成錯誤文字", async () => {
@@ -132,27 +150,27 @@ describe("SignInMethodsSection（#187 §8.5）", () => {
       if (failGets && m === "GET" && u === "/api/auth/identities") return fakeResponse(500, { error: { code: "internal", message: "x" } });
       return null;
     });
-    const row1 = within(await screen.findByRole("listitem", { name: "<b>GitLab</b>" }));
+    const row1 = within(await screen.findByRole("row", { name: "<b>GitLab</b>" }));
     fireEvent.click(row1.getByRole("button", { name: "Unlink" }));
     const dialog = within(await screen.findByRole("dialog", { name: "Unlink this sign-in service?" }));
     fireEvent.click(dialog.getByRole("button", { name: "Unlink" }));
     expect(await screen.findByText("This is the account's only way to sign in, so it can't be unlinked.")).toBeInTheDocument();
     await new Promise(r => setTimeout(r, 50)); // 讓失敗的重抓結算
-    expect(screen.getByRole("listitem", { name: "<b>GitLab</b>", hidden: true })).toBeInTheDocument();
+    expect(screen.getByRole("row", { name: "<b>GitLab</b>", hidden: true })).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("解除 409 last_login_method → toast 錯誤文案、列表仍在", async () => {
     setup(BASE, "/settings/login", (m, u) =>
       m === "DELETE" && u === "/api/auth/identities/i1" ? fakeResponse(409, { error: { code: "last_login_method", message: "x" } }) : null);
-    const row1 = within(await screen.findByRole("listitem", { name: "<b>GitLab</b>" }));
+    const row1 = within(await screen.findByRole("row", { name: "<b>GitLab</b>" }));
     fireEvent.click(row1.getByRole("button", { name: "Unlink" }));
     const dialog = within(await screen.findByRole("dialog", { name: "Unlink this sign-in service?" }));
     fireEvent.click(dialog.getByRole("button", { name: "Unlink" }));
     expect(await screen.findByText("This is the account's only way to sign in, so it can't be unlinked.")).toBeInTheDocument();
     // 失敗時 dialog 維持開著（列表被 modal 設為 aria-hidden，故以 hidden:true 取列）。
     expect(screen.getByRole("dialog", { name: "Unlink this sign-in service?" })).toBeInTheDocument();
-    expect(screen.getByRole("listitem", { name: "<b>GitLab</b>", hidden: true })).toBeInTheDocument();
+    expect(screen.getByRole("row", { name: "<b>GitLab</b>", hidden: true })).toBeInTheDocument();
   });
 
   it("連結 → POST /api/auth/oidc/link/p2 帶 JSON {} → location.assign(url)", async () => {
@@ -222,11 +240,11 @@ describe("SignInMethodsSection（#187 §8.5）", () => {
       ],
     });
     const iconBeforeName = (row: HTMLElement) => document.getElementById(row.getAttribute("aria-labelledby")!)!.previousElementSibling;
-    // 等待點：listitem 只在 identities 落地後才出現。
-    expect(iconBeforeName(await screen.findByRole("listitem", { name: "<b>GitLab</b>" }))).toHaveAttribute("data-provider-icon", "gitlab");
-    expect(iconBeforeName(screen.getByRole("listitem", { name: /gone\.example/ }))).toHaveAttribute("data-provider-icon", "generic");
-    expect(iconBeforeName(screen.getByRole("listitem", { name: "First / Second" }))).toHaveAttribute("data-provider-icon", "google");
-    expect(screen.getByRole("listitem", { name: "Hidden" }).querySelector("[data-provider-icon]")).toBeNull();
+    // 等待點：列只在 identities 落地後才出現。
+    expect(iconBeforeName(await screen.findByRole("row", { name: "<b>GitLab</b>" }))).toHaveAttribute("data-provider-icon", "gitlab");
+    expect(iconBeforeName(screen.getByRole("row", { name: /gone\.example/ }))).toHaveAttribute("data-provider-icon", "generic");
+    expect(iconBeforeName(screen.getByRole("row", { name: "First / Second" }))).toHaveAttribute("data-provider-icon", "google");
+    expect(screen.getByRole("row", { name: "Hidden" }).querySelector("[data-provider-icon]")).toBeNull();
     const link = screen.getByRole("button", { name: "Link Google" });
     expect(link.firstChild).toBe(link.querySelector('[data-provider-icon="google"]'));
   });

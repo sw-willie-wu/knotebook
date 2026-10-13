@@ -192,11 +192,26 @@ describe("ApiTokensSection", () => {
     expect(screen.getAllByText(i18n.t("settings.account.apiTokensUnverifiedName"))).toHaveLength(1);
   });
 
-  it("列表：過期的列標示 Expired，不到期的列標示 No expiry", async () => {
+  it("列表：過期的列標示 Expired（danger 語氣，spec 2026-10-13 settings-table §3 #9「保留過期紅色」），不到期的列標示 No expiry", async () => {
     const expiredRow: ApiTokenDto = { ...PAT_ROW, id: "t-exp", name: "Old", expiresAt: "2020-01-01T00:00:00.000Z" };
     renderSettings(PASSWORD_USER, [PAT_ROW, expiredRow]);
-    expect(await screen.findByText(i18n.t("settings.account.apiTokensExpired"))).toBeInTheDocument();
-    expect(screen.getByText(i18n.t("settings.account.apiTokensNoExpiry"))).toBeInTheDocument();
+    expect(await screen.findByText(i18n.t("settings.account.apiTokensExpired"))).toHaveClass("text-destructive");
+    expect(screen.getByText(i18n.t("settings.account.apiTokensNoExpiry"))).not.toHaveClass("text-destructive");
+  });
+
+  it("表名 API tokens；欄名 Name／Label／Permissions／Last used／Expires／Actions（spec §3 #9）；列名＝token 名", async () => {
+    renderSettings(PASSWORD_USER, [PAT_ROW, OAUTH_ROW]);
+    const table = await screen.findByRole("table", { name: "API tokens" });
+    expect(within(table).getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual([
+      "Name",
+      "Label",
+      "Permissions",
+      "Last used",
+      "Expires",
+      "Actions",
+    ]);
+    expect(within(table).getByRole("row", { name: "Script" })).toBeInTheDocument();
+    expect(within(table).getByRole("row", { name: "Claude Code" })).toBeInTheDocument();
   });
 
   it("建立成功 → 同位置一次性顯示明文，且列表 API 被重抓；送出的 body 形狀正確", async () => {
@@ -356,7 +371,8 @@ describe("ApiTokensSection 表格與行內編輯（#247 §5.3、W22）", () => {
   const WRITER: ApiTokenDto = { ...PAT_ROW, id: "t-w", name: "n8n bot", agentLabel: "n8n", scope: "notes:read notes:write" };
   const ROWS = [OVERRIDE, DERIVED, WRITER];
 
-  const rowOf = (name: string) => screen.getByText(name).closest("tr")!;
+  /** token 表的列名＝token 名（spec 2026-10-13 settings-table §3 #9）。 */
+  const rowOf = (name: string) => screen.getByRole("row", { name });
   const pills = (row: HTMLElement) => Array.from(row.querySelectorAll("[data-pill]")).map((p) => p.textContent);
 
   function withPatch(respond: (id: string, body: Record<string, unknown>) => Response) {
@@ -391,18 +407,43 @@ describe("ApiTokensSection 表格與行內編輯（#247 §5.3、W22）", () => {
     expect(within(rowOf("Claude Code laptop")).getByText("claude-laptop")).not.toHaveClass("text-muted-foreground");
   });
 
-  it("鉛筆 → 編輯態：該列 bg-brand-soft、只有 label 一個輸入框（名稱不可改）、其他列鉛筆停用", async () => {
+  it("鉛筆 → 編輯態：主欄保留、其餘欄合併成一格表單（spec §2.6）、只有 label 一個輸入框（名稱不可改）；存檔／取消是 icon 鈕（無可見文字）在表單最右；其他列鉛筆 softDisabled＋原因", async () => {
     withPatch(ok);
     await screen.findByText("Claude Desktop");
     fireEvent.click(within(rowOf("Claude Desktop")).getByRole("button", { name: "Edit" }));
+    // 編輯中的列仍以 token 名為列名：主欄就是 nameColumn，aria-labelledby 指向仍在的主欄名稱（主欄不是 nameColumn 時才會掉名）。
+    // 先以「含輸入框的那一列」取列再斷名稱，不靠列名取列（否則掉名時紅在取列，而不是這條斷言）。
+    const editingRow = screen.getAllByRole("row").find((candidate) => within(candidate).queryByRole("textbox") !== null);
+    expect(editingRow).toHaveAccessibleName("Claude Desktop");
     const row = rowOf("Claude Desktop");
-    expect(row).toHaveClass("bg-brand-soft");
+    expect(within(row).getAllByRole("cell")).toHaveLength(2);
     expect(within(row).getAllByRole("textbox")).toHaveLength(1);
-    expect(within(row).getByRole("textbox", { name: "Label" })).toHaveValue("claude");
+    const input = within(row).getByRole("textbox", { name: "Label" });
+    expect(input).toHaveValue("claude");
+    expect(input).toHaveFocus(); // autoFocus 是 TokenEditForm 自己的（SettingsTable 不管焦點，spec §2.6「保留現有鍵盤行為」）
     expect(within(row).getByText("1–32 letters, digits, . _ or -. Leave empty to go back to “claude”, derived from the name.")).toBeInTheDocument();
+    const save = within(row).getByRole("button", { name: "Save" });
+    const cancel = within(row).getByRole("button", { name: "Cancel" });
+    expect(save.textContent).toBe("");
+    expect(cancel.textContent).toBe("");
+    expect(input.compareDocumentPosition(save) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(save.compareDocumentPosition(cancel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const other = within(rowOf("n8n bot")).getByRole("button", { name: "Edit" });
     expect(other).toHaveAttribute("aria-disabled", "true");
-    expect(other).toHaveClass("pointer-events-none", "opacity-35");
+    expect(other).toHaveAttribute("title", "Finish editing the other token first.");
+    expect(other).not.toHaveAttribute("tabindex");
+  });
+
+  it("T-RF5 鎖定中的鉛筆：可聚焦；按下（鍵盤 Enter／Space 也是觸發 click）不進編輯、不搶走正在編的那一列", async () => {
+    withPatch(ok);
+    await screen.findByText("Claude Desktop");
+    fireEvent.click(within(rowOf("Claude Desktop")).getByRole("button", { name: "Edit" }));
+    const other = within(rowOf("n8n bot")).getByRole("button", { name: "Edit" });
+    other.focus();
+    expect(other).toHaveFocus();
+    fireEvent.click(other);
+    expect(within(rowOf("n8n bot")).queryByRole("textbox")).toBeNull();
+    expect(within(rowOf("Claude Desktop")).getByRole("textbox", { name: "Label" })).toBeInTheDocument();
   });
 
   it("取消不送請求、回顯示態", async () => {
@@ -462,6 +503,26 @@ describe("ApiTokensSection 表格與行內編輯（#247 §5.3、W22）", () => {
     fireEvent.change(input, { target: { value: "  " } });
     fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() => expect(bodies).toEqual([{ id: "t-o", body: { agentLabel: null } }]));
+  });
+
+  it("存檔請求在飛時：輸入框與存檔／取消鈕都原生 disabled（暫時性不可用，spec §2.7）；回應落地後回顯示態", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { bodies } = withPatch((id, body) =>
+      fakeResponse({ ok: true, status: 200, json: () => gate.then(() => ({ ...ROWS.find((t) => t.id === id)!, ...body })) })
+    );
+    await screen.findByText("Claude Desktop");
+    fireEvent.click(within(rowOf("Claude Desktop")).getByRole("button", { name: "Edit" }));
+    fireEvent.change(within(rowOf("Claude Desktop")).getByRole("textbox", { name: "Label" }), { target: { value: "desk" } });
+    fireEvent.click(within(rowOf("Claude Desktop")).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(within(rowOf("Claude Desktop")).getByRole("button", { name: "Save" })).toBeDisabled());
+    expect(within(rowOf("Claude Desktop")).getByRole("button", { name: "Cancel" })).toBeDisabled();
+    expect(within(rowOf("Claude Desktop")).getByRole("textbox", { name: "Label" })).toBeDisabled();
+    expect(bodies).toEqual([{ id: "t-d", body: { agentLabel: "desk" } }]);
+    release();
+    await waitFor(() => expect(within(rowOf("Claude Desktop")).queryByRole("textbox")).toBeNull());
   });
 
   it("什麼都沒改按儲存 → 不送請求、回顯示態", async () => {
@@ -525,12 +586,11 @@ describe("ApiTokensSection 表格與行內編輯（#247 §5.3、W22）", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
-  it("撤銷是列尾紅垃圾桶 icon 鈕，確認框照舊", async () => {
+  it("撤銷是列尾的 Revoke 鈕，確認框照舊（外觀由 RowIconButton 自己的測試守，spec §5.2）", async () => {
     withPatch(ok);
     await screen.findByText("n8n bot");
     const trash = within(rowOf("n8n bot")).getByRole("button", { name: "Revoke" });
-    expect(trash).toHaveClass("text-destructive");
-    expect(trash).toHaveAttribute("title", "Revoke");
+    expect(trash.textContent).toBe("");
     fireEvent.click(trash);
     expect(await screen.findByRole("dialog", { name: "Revoke this token?" })).toBeInTheDocument();
   });

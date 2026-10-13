@@ -14,8 +14,9 @@ export type RowIconButtonProps = Omit<ButtonProps, "variant" | "size" | "childre
   /**
    * 不可用但仍要讓人看得到原因（例如最後一位管理員不能移除）：`aria-disabled`（class 常數的 `aria-disabled:opacity-40`）、`title` 換成
    * `softDisabledReason`，點了不觸發。不用原生 `disabled`：`disabled:pointer-events-none` 會讓 `title` 永遠浮不出來。
-   * 擋住 `DialogTrigger asChild` 開啟的是 `handleClick` 不轉呼叫 `onClick`（Radix 的 trigger 是靠注入的 onClick 開對話框）；
-   * `preventDefault()` 承重的是 `type="submit"` 在 form 裡的情境。只攔 click：`onPointerDown`／`onKeyDown` 照樣轉傳，
+   * 對 `DialogTrigger asChild`，`handleClick` 的兩道各自都擋得住開啟：不轉呼叫注入的 `onClick`；或 `preventDefault()`
+   * （Radix 的 `composeEventHandlers` 見 `defaultPrevented` 就不呼叫 `onOpenToggle`）。`preventDefault()` 另外擋
+   * `type="submit"` 在 form 裡的送出；一般 `onClick` 則只靠不轉呼叫。只攔 click：`onPointerDown`／`onKeyDown` 照樣轉傳，
    * 所以不適合當 `DropdownMenuTrigger`。
    */
   softDisabled?: boolean;

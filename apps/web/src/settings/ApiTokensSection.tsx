@@ -11,7 +11,7 @@ import {
 } from "@/api/apiTokens";
 import { ApiFail } from "@/api/client";
 import { Pill } from "@/components/management/Pill";
-import { ROW_ICON_BUTTON, ROW_ICON_DANGER } from "@/components/management/row-actions";
+import { SettingsTable, type SettingsTableColumn, type SettingsTableRow } from "@/components/management/SettingsTable";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -23,8 +23,9 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Pencil, Trash } from "@/components/ui/icons";
+import { Check, Pencil, Trash, X } from "@/components/ui/icons";
 import { Input } from "@/components/ui/input";
+import { RowIconButton } from "@/components/ui/row-icon-button";
 import { toast } from "@/components/ui/toast";
 import { copyText } from "@/lib/clipboard";
 import { checksFromScope, scopeFromChecks, type ScopeChecks } from "@/lib/token-scope";
@@ -47,7 +48,7 @@ const SELECT_CLASS =
   "h-8 shrink-0 rounded-md border border-input bg-background px-2 text-sm shadow-sm focus-visible:outline-none " +
   "focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
 
-/** 撤銷確認（比照 SettingsAiSection 的 DeleteProviderDialog）。 */
+/** 撤銷確認（比照 SettingsAiSection 的 DeleteProviderDialog）。觸發鈕是列尾的紅垃圾桶 `RowIconButton`（spec 2026-10-13 settings-table §2.7）。 */
 function RevokeDialog({ token }: { token: ApiTokenDto }) {
   const { t } = useTranslation();
   const revoke = useRevokeApiToken();
@@ -65,16 +66,7 @@ function RevokeDialog({ token }: { token: ApiTokenDto }) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className={ROW_ICON_DANGER}
-          title={t("settings.account.apiTokensRevoke")}
-          aria-label={t("settings.account.apiTokensRevoke")}
-        >
-          <Trash className="h-4 w-4" aria-hidden="true" />
-        </Button>
+        <RowIconButton label={t("settings.account.apiTokensRevoke")} tone="destructive" icon={<Trash className="h-4 w-4" aria-hidden="true" />} />
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
@@ -271,9 +263,9 @@ function TokenScopePills({ scope }: { scope: TokenScope }) {
   );
 }
 
-function useTokenDates(token: ApiTokenDto) {
-  const { t, i18n } = useTranslation();
-  const formatDate = (iso: string): string => new Date(iso).toLocaleDateString(i18n.language);
+/** 一列的日期文字（純函式：列在 `ApiTokensSection` 的 map 裡建，不能呼叫 hook）。 */
+function tokenDates(token: ApiTokenDto, t: (key: string, opts?: Record<string, unknown>) => string, language: string) {
+  const formatDate = (iso: string): string => new Date(iso).toLocaleDateString(language);
   const expired = token.expiresAt !== null && new Date(token.expiresAt).getTime() <= Date.now();
   const lastUsed = token.lastUsedAt === null ? t("settings.account.apiTokensNeverUsed") : formatDate(token.lastUsedAt);
   const expires =
@@ -286,80 +278,15 @@ function useTokenDates(token: ApiTokenDto) {
 }
 
 /**
- * 名稱欄（不可改）。名稱是外部字串（oauth 列是 client 自述）——bidi 隔離，避免 U+202E 之類的覆寫字元
- * 把下面那行「未經驗證」旁註在視覺上推走；oauth 列標「未經驗證」。
- */
-function TokenNameCell({ token }: { token: ApiTokenDto }) {
-  const { t } = useTranslation();
-  const { created } = useTokenDates(token);
-  return (
-    <td className="py-2 pr-3">
-      <div className="flex items-center gap-2">
-        <span dir="ltr" className="truncate font-medium [unicode-bidi:isolate]">
-          {token.name}
-        </span>
-        <span className="shrink-0 rounded border border-border px-1 text-xs text-muted-foreground">
-          {token.kind === "oauth" ? t("settings.account.apiTokensKindOauth") : t("settings.account.apiTokensKindPat")}
-        </span>
-      </div>
-      {token.kind === "oauth" && <p className="text-xs text-muted-foreground">{t("settings.account.apiTokensUnverifiedName")}</p>}
-      <p className="text-xs text-muted-foreground">{created}</p>
-    </td>
-  );
-}
-
-function TokenViewRow({ token, locked, onEdit }: { token: ApiTokenDto; locked: boolean; onEdit: () => void }) {
-  const { t } = useTranslation();
-  const { lastUsed, expires, expired } = useTokenDates(token);
-  // 灰字＝顯示的是從名稱派生的值（§5.3、§9.6）。接受的誤判：手動設成恰等於派生值時也灰——對外效果相同。
-  const derived = token.agentLabel === deriveAgentLabel(token.name);
-  return (
-    <tr className="border-t border-border align-top">
-      <TokenNameCell token={token} />
-      <td className="py-2 pr-3">
-        <span dir="ltr" className={cn("[unicode-bidi:isolate]", derived && "text-muted-foreground")}>
-          {token.agentLabel}
-        </span>
-      </td>
-      <td className="py-2 pr-3">
-        <TokenScopePills scope={token.scope} />
-      </td>
-      <td className="py-2 pr-3 text-xs text-muted-foreground">{lastUsed}</td>
-      <td className={cn("py-2 pr-3 text-xs", expired ? "text-destructive" : "text-muted-foreground")}>{expires}</td>
-      <td className="whitespace-nowrap py-2 text-right">
-        {/* 一次只編一列：別列在編輯時鉛筆停用（aria-disabled＋點不到＋不可聚焦）。 */}
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className={cn(ROW_ICON_BUTTON, locked && "pointer-events-none opacity-35")}
-          title={t("settings.authorization.tokens.edit")}
-          aria-label={t("settings.authorization.tokens.edit")}
-          aria-disabled={locked || undefined}
-          tabIndex={locked ? -1 : undefined}
-          onClick={() => {
-            if (!locked) onEdit();
-          }}
-        >
-          <Pencil className="h-4 w-4" aria-hidden="true" />
-        </Button>
-        <RevokeDialog token={token} />
-      </td>
-    </tr>
-  );
-}
-
-/**
- * 行內編輯態（§5.3）。名稱不可改，只有 label 一個輸入框＋兩個權限 toggle。label 改了才帶 `agentLabel`
- * （清空＝`null`：把欄位清成 NULL、回到派生值；server 的 `AGENT_LABEL_RE` 也不收空字串）、權限改了才帶
- * `scope`；都沒改就直接回顯示態。
+ * 行內編輯的表單（§5.3；放進 `SettingsTable` 的 editing 列：主欄保留、其餘欄合併成這一格，spec 2026-10-13 settings-table §2.6）。
+ * 名稱不可改，只有 label 一個輸入框＋兩個權限 toggle。label 改了才帶 `agentLabel`（清空＝`null`：把欄位清成 NULL、回到派生值；
+ * server 的 `AGENT_LABEL_RE` 也不收空字串）、權限改了才帶 `scope`；都沒改就直接回顯示態。存檔／取消是表單最右的兩顆 icon 鈕（勾、叉）。
  * Enter＝儲存。**沒有 Esc 取消**：這一列坐在設定面板的 `DialogContent` 裡，Radix 在 document 的 capture 階段
  * 監聽 Escape，input 的 `onKeyDown`（bubble）永遠來不及擋，結果是整個面板被關掉——「取消」鈕是唯一的退路。
  */
-function TokenEditRow({ token, onDone }: { token: ApiTokenDto; onDone: () => void }) {
+function TokenEditForm({ token, onDone }: { token: ApiTokenDto; onDone: () => void }) {
   const { t } = useTranslation();
   const update = useUpdateApiToken();
-  const { lastUsed, expires, expired } = useTokenDates(token);
   const derivedLabel = deriveAgentLabel(token.name);
   const [label, setLabel] = useState(token.agentLabel);
   const [checks, setChecks] = useState<ScopeChecks>(() => checksFromScope(token.scope));
@@ -394,9 +321,8 @@ function TokenEditRow({ token, onDone }: { token: ApiTokenDto; onDone: () => voi
   }
 
   return (
-    <tr className="border-t border-border bg-brand-soft align-top">
-      <TokenNameCell token={token} />
-      <td className="py-2 pr-3">
+    <div className="flex flex-wrap items-start gap-3">
+      <div className="min-w-[14ch] flex-1 space-y-1">
         <Input
           autoFocus
           value={label}
@@ -409,46 +335,98 @@ function TokenEditRow({ token, onDone }: { token: ApiTokenDto; onDone: () => voi
             if (event.key === "Enter") void save();
           }}
         />
-        <p className="mt-1 text-xs text-muted-foreground">
-          {t("settings.authorization.tokens.editHint", { derived: derivedLabel })}
-        </p>
+        <p className="text-xs text-muted-foreground">{t("settings.authorization.tokens.editHint", { derived: derivedLabel })}</p>
         {error !== null && (
-          <p role="alert" className="mt-1 text-xs text-destructive">
+          <p role="alert" className="text-xs text-destructive">
             {error}
           </p>
         )}
-      </td>
-      <td className="py-2 pr-3">
-        <ScopeTogglesField value={checks} onChange={setChecks} disabled={update.isPending} />
-      </td>
-      <td className="py-2 pr-3 text-xs text-muted-foreground">{lastUsed}</td>
-      <td className={cn("py-2 pr-3 text-xs", expired ? "text-destructive" : "text-muted-foreground")}>{expires}</td>
-      <td className="whitespace-nowrap py-2 text-right">
-        <Button type="button" variant="outline" size="sm" disabled={update.isPending} onClick={() => void save()}>
-          {t("settings.authorization.tokens.save")}
-        </Button>{" "}
-        <Button type="button" variant="ghost" size="sm" disabled={update.isPending} onClick={onDone}>
-          {t("settings.account.apiTokensCancel")}
-        </Button>
-      </td>
-    </tr>
+      </div>
+      <ScopeTogglesField value={checks} onChange={setChecks} disabled={update.isPending} />
+      <div className="ml-auto flex shrink-0 items-center gap-1">
+        <RowIconButton
+          label={t("settings.authorization.tokens.save")}
+          icon={<Check className="h-4 w-4" aria-hidden="true" />}
+          disabled={update.isPending}
+          onClick={() => void save()}
+        />
+        <RowIconButton
+          label={t("settings.account.apiTokensCancel")}
+          icon={<X className="h-4 w-4" aria-hidden="true" />}
+          disabled={update.isPending}
+          onClick={onDone}
+        />
+      </div>
+    </div>
   );
 }
 
 /**
- * 設定→授權的「API token」段（#107；#247 §5.3 起是表格＋行內編輯）。
+ * 設定→授權的「API token」段（#107；#247 §5.3 起是表格＋行內編輯；spec 2026-10-13 settings-table §3 #9 起是 `SettingsTable`）。
  *
  * **位置**：與 `HandleSection` 同層、在 `hasPassword` 三元式**之外**——SSO-only
  * 帳號也要能建 PAT（他們沒有密碼可用，更需要 token 這條路）。
- * 「一次只編一列」：`editingId` 持有正在編的那列；其餘列的鉛筆停用。
+ * 「一次只編一列」：`editingId` 持有正在編的那列；其餘列的鉛筆 softDisabled＋原因（可聚焦，spec §2.7）。
+ * 欄：名稱（kind 標籤；副標＝建立日、oauth 的「未驗證名稱」）｜Label（派生值灰字）｜權限｜最後使用｜到期（過期紅）｜操作（編輯、撤銷）。
  */
 export function ApiTokensSection() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const tokens = useApiTokens();
   const [editingIdState, setEditingId] = useState<string | null>(null);
   // 正在編的那列被重抓掉了（別的分頁撤銷了它）：視為沒有在編，否則其餘列的鉛筆會永遠停用。衍生值即可，不必 effect。
   const editingId =
     editingIdState !== null && tokens.data?.some(token => token.id === editingIdState) === true ? editingIdState : null;
+
+  const columns: SettingsTableColumn[] = [
+    { id: "name", header: t("settings.authorization.tokens.name"), kind: "primary" },
+    { id: "label", header: t("settings.authorization.tokens.label"), kind: "text" },
+    { id: "permissions", header: t("settings.authorization.tokens.permissions"), kind: "text" },
+    { id: "lastUsed", header: t("settings.authorization.tokens.lastUsed"), kind: "fixed" },
+    { id: "expires", header: t("settings.authorization.tokens.expires"), kind: "fixed" },
+    { id: "actions", header: t("settings.authorization.tokens.actions"), kind: "actions", buttons: 2 },
+  ];
+  const rows: SettingsTableRow[] = (tokens.data ?? []).map(token => {
+    const dates = tokenDates(token, t, i18n.language);
+    // 灰字＝顯示的是從名稱派生的值（§5.3、§9.6）。接受的誤判：手動設成恰等於派生值時也灰——對外效果相同。
+    const derived = token.agentLabel === deriveAgentLabel(token.name);
+    return {
+      id: token.id,
+      primary: {
+        // 名稱是外部字串（oauth 列是 client 自述）——SettingsTable 一律 bidi 隔離；oauth 列另標「未經驗證」。
+        name: token.name,
+        weight: "medium",
+        badges: (
+          <span className="shrink-0 rounded border border-border px-1 text-xs text-muted-foreground">
+            {token.kind === "oauth" ? t("settings.account.apiTokensKindOauth") : t("settings.account.apiTokensKindPat")}
+          </span>
+        ),
+        subtitles: token.kind === "oauth" ? [dates.created, t("settings.account.apiTokensUnverifiedName")] : [dates.created],
+      },
+      cells: {
+        label: (
+          <span dir="ltr" className={cn("[unicode-bidi:isolate]", derived && "text-muted-foreground")}>
+            {token.agentLabel}
+          </span>
+        ),
+        permissions: <TokenScopePills scope={token.scope} />,
+        lastUsed: { content: dates.lastUsed, tone: "muted" },
+        expires: { content: dates.expires, tone: dates.expired ? "danger" : "muted" },
+      },
+      actions: (
+        <>
+          <RowIconButton
+            label={t("settings.authorization.tokens.edit")}
+            icon={<Pencil className="h-4 w-4" aria-hidden="true" />}
+            softDisabled={editingId !== null}
+            softDisabledReason={t("settings.authorization.tokens.editLocked")}
+            onClick={() => setEditingId(token.id)}
+          />
+          <RevokeDialog token={token} />
+        </>
+      ),
+      editing: token.id === editingId ? <TokenEditForm token={token} onDone={() => setEditingId(null)} /> : undefined,
+    };
+  });
 
   return (
     <SettingsGroup
@@ -464,36 +442,8 @@ export function ApiTokensSection() {
             {t("errors.fallback")}
           </p>
         )}
-        {tokens.data !== undefined && tokens.data.length === 0 && (
-          <p className="text-sm text-muted-foreground">{t("settings.account.apiTokensEmpty")}</p>
-        )}
-        {tokens.data !== undefined && tokens.data.length > 0 && (
-          <table className="w-full text-left text-sm">
-            <thead className="text-xs text-muted-foreground">
-              <tr>
-                <th className="py-2 pr-3 font-medium">{t("settings.authorization.tokens.name")}</th>
-                <th className="py-2 pr-3 font-medium">{t("settings.authorization.tokens.label")}</th>
-                <th className="py-2 pr-3 font-medium">{t("settings.authorization.tokens.permissions")}</th>
-                <th className="py-2 pr-3 font-medium">{t("settings.authorization.tokens.lastUsed")}</th>
-                <th className="py-2 pr-3 font-medium">{t("settings.authorization.tokens.expires")}</th>
-                <th className="py-2" />
-              </tr>
-            </thead>
-            <tbody>
-              {tokens.data.map(token =>
-                token.id === editingId ? (
-                  <TokenEditRow key={token.id} token={token} onDone={() => setEditingId(null)} />
-                ) : (
-                  <TokenViewRow
-                    key={token.id}
-                    token={token}
-                    locked={editingId !== null}
-                    onEdit={() => setEditingId(token.id)}
-                  />
-                )
-              )}
-            </tbody>
-          </table>
+        {tokens.data !== undefined && (
+          <SettingsTable label={t("settings.account.apiTokensTitle")} columns={columns} rows={rows} empty={t("settings.account.apiTokensEmpty")} />
         )}
         {/* 名稱與 label 的分野、清理提示都是看完自己有哪些 token 之後才用得上的附註，放在表格後面當註腳。 */}
         <p className="pt-1 text-xs text-muted-foreground">{t("settings.authorization.tokens.footnote")}</p>
