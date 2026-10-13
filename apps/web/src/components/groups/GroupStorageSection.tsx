@@ -21,6 +21,7 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
  * 「依成員」（#247 §6.4、§9.2 rev 11）：每個人佔用了這個群組多少空間——server 依 `uploads.charged_to_id`（佔用者）分組：
  * 在群組筆記裡直接上傳＝上傳者；把筆記移入或複製進群組＝執行的人（移入含該篇全部附件；複製只含隨副本複製的附件）。佔用者帳號已刪除者彙總成
  * `userId: null` 一列。只列 `bytes > 0`；沒有任何列時一句說明。佔比分母同「依類型」：`byKind` 五值之和。
+ * 列距與列間框線同設定表格（spec 2026-10-13 settings-table §3：只統一列距與框線、不換元件，保留進度條 grid）。
  */
 function ByMemberGroup({ usage }: { usage: GroupStorageUsageDto }) {
   const { t } = useTranslation();
@@ -31,11 +32,11 @@ function ByMemberGroup({ usage }: { usage: GroupStorageUsageDto }) {
       {rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">{t("groups.storage.byMemberEmpty")}</p>
       ) : (
-        <ul className="space-y-3">
+        <ul>
           {rows.map((row) => {
             const deleted = row.userId === null;
             return (
-              <li key={row.userId ?? "deleted"} data-testid="by-member-row" className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 text-sm">
+              <li key={row.userId ?? "deleted"} data-testid="by-member-row" className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 border-b border-border py-2.5 text-sm">
                 <div className="min-w-0">
                   <p className={cn("truncate", deleted && "text-muted-foreground")}>
                     {deleted ? t("groups.storage.deletedUser") : (row.displayName ?? row.handle ?? "")}

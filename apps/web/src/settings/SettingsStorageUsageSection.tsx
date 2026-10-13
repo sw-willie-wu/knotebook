@@ -22,6 +22,7 @@ function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string
  * 兩句查詢，中間有上傳時可能瞬間不等（§9.1）；和為 0 時五條都是 0%。
  * ⚠ 現況上傳只收四種圖片，所以只有「影像」會非零——版面先為多類型留好（上傳放寬另開 issue）。
  * `byKind` 為 undefined（載入中或錯誤）時不渲染列：錯誤訊息由同頁的 `StorageUsageGroup` 負責。
+ * 列距與列間框線同設定表格（spec 2026-10-13 settings-table §3：只統一列距與框線、不換元件）。
  */
 export function StorageByKindGroup({ byKind, pending }: { byKind: StorageByKind | undefined; pending: boolean }) {
   const { t } = useTranslation();
@@ -31,12 +32,12 @@ export function StorageByKindGroup({ byKind, pending }: { byKind: StorageByKind 
       {pending ? (
         <p className="text-sm text-muted-foreground">{t("app.loading")}</p>
       ) : byKind === undefined ? null : (
-        <ul className="space-y-2">
+        <ul>
           {STORAGE_KINDS.map((kind) => {
             const bytes = byKind[kind];
             const pct = total === 0 ? 0 : (bytes / total) * 100;
             return (
-              <li key={kind} data-testid={`by-kind-${kind}`} className="grid grid-cols-[6rem_1fr_6rem] items-center gap-3 text-sm">
+              <li key={kind} data-testid={`by-kind-${kind}`} className="grid grid-cols-[6rem_1fr_6rem] items-center gap-3 border-b border-border py-2.5 text-sm">
                 <span>{t(`settings.storage.kinds.${kind}`)}</span>
                 <div className="h-1.5 rounded-full bg-brand-soft">
                   <div data-testid={`by-kind-bar-${kind}`} className="h-1.5 rounded-full bg-brand" style={{ width: `${pct}%` }} />

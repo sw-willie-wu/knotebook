@@ -13,7 +13,7 @@ import { ApiFail } from "@/api/client";
 import { useCreateRole, useDeleteRole, useGroupRoles, useUpdateRole } from "@/api/groups";
 import { useGroupOutlet } from "@/components/groups/group-outlet";
 import { Button } from "@/components/ui/button";
-import { Pencil, Trash } from "@/components/ui/icons";
+import { Check, Pencil, Trash, X } from "@/components/ui/icons";
 import { Input } from "@/components/ui/input";
 import { RowIconButton } from "@/components/ui/row-icon-button";
 import { Switch } from "@/components/ui/switch";
@@ -206,13 +206,17 @@ function RoleCard({ groupId, role, canManage }: { groupId: string; role: GroupRo
               onChange={(event) => setName(event.target.value)}
               className="w-48"
             />
-            <Button type="submit" variant="outline" size="sm" disabled={trimmed.length === 0 || pending}>
-              {t("groups.roles.save")}
-            </Button>
-            {/* 沒有 Esc 取消：Radix Dialog 在 capture 階段吃 Escape 會關整個面板（同 ApiTokensSection 的行內編輯）。 */}
-            <Button type="button" variant="ghost" size="sm" onClick={() => setRenaming(false)}>
-              {t("groups.roles.cancel")}
-            </Button>
+            {/* 存檔／取消是表單最右的 icon 鈕（spec 2026-10-13 settings-table §2.6、§3 角色卡：勾＝存檔、叉＝取消）。
+                沒有 Esc 取消：Radix Dialog 在 capture 階段吃 Escape 會關整個面板（同 ApiTokensSection 的行內編輯）。 */}
+            <div className="ml-auto flex shrink-0 items-center gap-1">
+              <RowIconButton
+                type="submit"
+                label={t("groups.roles.save")}
+                icon={<Check className="h-4 w-4" aria-hidden="true" />}
+                disabled={trimmed.length === 0 || pending}
+              />
+              <RowIconButton label={t("groups.roles.cancel")} icon={<X className="h-4 w-4" aria-hidden="true" />} onClick={() => setRenaming(false)} />
+            </div>
           </form>
         ) : (
           <h3 className="text-sm font-medium">{label}</h3>

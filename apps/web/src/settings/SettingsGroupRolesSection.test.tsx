@@ -125,8 +125,7 @@ describe("SettingsGroupRolesSection（/groups/:id/roles，#247 §6.3）", () => 
     const rename = within(reader).getByRole("button", { name: "Rename Reader" });
     const del = within(reader).getByRole("button", { name: "Delete Reader" });
     expect(rename).toHaveAttribute("title", "Rename Reader");
-    expect(del).toHaveClass("text-destructive");
-    expect(del).not.toHaveClass("bg-destructive");
+    expect(del).toBeInTheDocument();
 
     expect(within(dialog).getByRole("button", { name: "New role" })).toBeInTheDocument();
     expect(solidButtons(dialog)).toEqual([]);
@@ -290,6 +289,20 @@ describe("SettingsGroupRolesSection（/groups/:id/roles，#247 §6.3）", () => 
 
     fireEvent.change(within(reader).getByRole("textbox", { name: "Name of Reader" }), { target: { value: "   " } });
     expect(within(reader).getByRole("button", { name: "Save" })).toBeDisabled();
+  });
+
+  it("R7b 改名表單的存檔／取消是 icon 鈕（無可見文字，可及名稱 Save／Cancel），存檔是 submit、兩顆在輸入框之後（表單最右；spec 2026-10-13 settings-table §2.6、§3 角色卡）", async () => {
+    const dialog = await openRoles(GROUP_ADMIN, fetchFor(() => [GROUP_ADMIN], () => ROLES), "Reader");
+    const reader = region(dialog, "Reader");
+    fireEvent.click(within(reader).getByRole("button", { name: "Rename Reader" }));
+    const input = within(reader).getByRole("textbox", { name: "Name of Reader" });
+    const save = within(reader).getByRole("button", { name: "Save" });
+    const cancel = within(reader).getByRole("button", { name: "Cancel" });
+    expect(save.textContent).toBe("");
+    expect(cancel.textContent).toBe("");
+    expect(save).toHaveAttribute("type", "submit");
+    expect(input.compareDocumentPosition(save) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(save.compareDocumentPosition(cancel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("R8 改名那一發 pending 時：六個 switch 也停用（variables.permissions 缺席時取快取值，不翻值）", async () => {

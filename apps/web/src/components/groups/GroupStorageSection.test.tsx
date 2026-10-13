@@ -40,12 +40,11 @@ describe("GroupStorageSection（/groups/:id/storage，#247 §6.4）", () => {
   it("S1 用量＋依類型五列恆在（含 0 的列）", async () => {
     const { dialog } = await openStorage(GROUP_ADMIN, USAGE);
     await waitFor(() => expect(within(dialog).getByTestId("storage-usage")).toHaveTextContent("4 MB"));
-    const byKind = within(dialog).getByRole("heading", { name: "By type" }).closest("section")!;
-    for (const kind of ["image", "audio", "video", "document", "other"]) {
-      expect(within(byKind).getByTestId(`by-kind-${kind}`)).toBeInTheDocument();
-    }
-    for (const label of ["Images", "Audio", "Video", "Documents", "Other"]) {
-      expect(within(byKind).getByText(label)).toBeInTheDocument();
+    expect(within(dialog).getByRole("heading", { name: "By type" })).toBeInTheDocument();
+    // 依類型的列以 data-testid 取（spec 2026-10-13 settings-table §4 保留 by-kind-*；§5.2 不再以 closest("section") 圈範圍）。
+    const kinds: Array<[string, string]> = [["image", "Images"], ["audio", "Audio"], ["video", "Video"], ["document", "Documents"], ["other", "Other"]];
+    for (const [kind, label] of kinds) {
+      expect(within(within(dialog).getByTestId(`by-kind-${kind}`)).getByText(label)).toBeInTheDocument();
     }
   });
 
@@ -54,8 +53,8 @@ describe("GroupStorageSection（/groups/:id/storage，#247 §6.4）", () => {
       ...USAGE,
       byMember: [...USAGE.byMember, { userId: "u-zero", handle: "zero", displayName: "Zero", bytes: 0 }],
     });
-    const section = (await within(dialog).findByRole("heading", { name: "By member" })).closest("section")!;
-    const rows = within(section).getAllByTestId("by-member-row");
+    await within(dialog).findByRole("heading", { name: "By member" });
+    const rows = within(dialog).getAllByTestId("by-member-row");
     expect(rows).toHaveLength(2);
     expect(within(rows[0]).getByText("Bob")).toBeInTheDocument();
     expect(within(rows[0]).getByText("@bob")).toBeInTheDocument();
@@ -65,15 +64,15 @@ describe("GroupStorageSection（/groups/:id/storage，#247 §6.4）", () => {
     // 分母＝byKind 之和（3 MB），不是 usedBytes：2/3 → 66.666…%
     const bar = rows[0].querySelector<HTMLElement>("[data-testid='by-member-bar']")!;
     expect(parseFloat(bar.style.width)).toBeCloseTo(66.667, 2);
-    expect(within(section).queryByText("Zero")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("Zero")).not.toBeInTheDocument();
   });
 
   it("S3 依成員沒有任何列 → 「This group's notes have no files yet.」；說明是佔用者語意（§9.2 rev 10，兩語言）；byKind 和為 0 時不 NaN", async () => {
     const { dialog } = await openStorage(GROUP_ADMIN, EMPTY_GROUP_USAGE);
-    const section = (await within(dialog).findByRole("heading", { name: "By member" })).closest("section")!;
-    expect(within(section).getByText("This group's notes have no files yet.")).toBeInTheDocument();
+    await within(dialog).findByRole("heading", { name: "By member" });
+    expect(within(dialog).getByText("This group's notes have no files yet.")).toBeInTheDocument();
     expect(
-      within(section).getByText(
+      within(dialog).getByText(
         "How much of this group's space each person has taken up: files they uploaded into its notes, plus the files that came with notes they moved or copied into the group.",
       ),
     ).toBeInTheDocument();
