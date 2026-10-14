@@ -1,8 +1,19 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router";
+import {
+  MemoryRouter,
+  Route,
+  Router,
+  Routes,
+  UNSAFE_createMemoryHistory,
+  useLocation,
+  useNavigate,
+  useNavigationType,
+  type Location,
+  type NavigationType,
+} from "react-router";
 import * as Y from "yjs";
 import {
   COLLAB_CLOSE_REVOKED,
@@ -14,6 +25,7 @@ import {
 } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ActiveNoteProvider, useActiveNote } from "@/lib/active-note";
+import { RealLocationContext, withCanonicalizedFrom } from "@/lib/real-location";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { canEdit as canEditRole, type CollabState } from "@/collab/connection";
@@ -1167,6 +1179,226 @@ describe("NotePage", () => {
       });
     }
     expect(navCalls.filter((to) => pathOf(to) === "/n/tester/my-note")).toHaveLength(1);
+  });
+
+  // ── 換篇空窗（BrowserRouter 把 setState 包在 startTransition：history 先換、畫面後換） ──
+
+  /** 可「壓住」的 router：hold 時 history 照常換 entry，router 的 location 不跟上——重現轉場提交前的空窗。 */
+  function renderHeldTree(
+    initialEntry: string | { pathname: string; state: unknown },
+    earlierEntries: { pathname: string; state: unknown }[] = [],
+  ) {
+    const history = UNSAFE_createMemoryHistory({
+      initialEntries: [...earlierEntries, initialEntry],
+      initialIndex: earlierEntries.length,
+      v5Compat: true,
+    });
+    const gate = { held: false, commit: undefined as (() => void) | undefined };
+    function HeldRouter({ children }: { children: ReactNode }) {
+      const [state, setState] = useState<{ action: NavigationType; location: Location }>({
+        action: history.action,
+        location: history.location,
+      });
+      useLayoutEffect(() => {
+        gate.commit = () => setState({ action: history.action, location: history.location });
+        return history.listen(() => {
+          if (!gate.held) gate.commit?.();
+        });
+      }, []);
+      return (
+        <Router location={state.location} navigationType={state.action} navigator={history}>
+          {children}
+        </Router>
+      );
+    }
+    /** 照 App.tsx 的 AppRoutes：真實 location 進 RealLocationContext、主樹吃 backgroundLocation（設定 modal）。 */
+    function AppRoutesLike() {
+      const location = useLocation();
+      const navigationType = useNavigationType();
+      const real = useMemo(() => ({ location, navigationType }), [location, navigationType]);
+      const background = (location.state as { backgroundLocation?: Location } | null)?.backgroundLocation;
+      return (
+        <RealLocationContext.Provider value={real}>
+          <Routes location={background ?? location}>
+            <Route path="/notes/:ref" element={<NotePage />} />
+            <Route path="/n/:handle/:slug" element={<NotePage />} />
+            <Route path="/" element={<div>home landing</div>} />
+          </Routes>
+        </RealLocationContext.Provider>
+      );
+    }
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <HeldRouter>
+            <ActiveNoteProvider>
+              <RouterPathProbe />
+              <NavToB />
+              <AppRoutesLike />
+            </ActiveNoteProvider>
+          </HeldRouter>
+          <Toaster />
+        </ThemeProvider>
+      </QueryClientProvider>,
+    );
+    return {
+      history,
+      queryClient,
+      hold: () => void (gate.held = true),
+      release: () => {
+        gate.held = false;
+        act(() => gate.commit?.());
+      },
+    };
+  }
+
+  const titlePatches = (fetchMock: ReturnType<typeof stubTwoNotes>["fetchMock"]) =>
+    fetchMock.mock.calls
+      .filter(([, init]) => (init?.method ?? "GET").toUpperCase() === "PATCH")
+      .map(([url, init]) => ({ url: String(url), body: JSON.parse(String(init?.body)) as unknown }));
+
+  const flushMacrotask = () =>
+    act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+  it("換篇空窗：網址已換到 B、畫面仍是 A——在 A 的標題框打字＋blur 不得 PATCH 到 A", async () => {
+    const { fetchMock } = stubTwoNotes();
+    collab.provider.synced = true;
+    const nav = renderHeldTree("/n/tester/my-note");
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
+
+    nav.hold();
+    fireEvent.click(screen.getByRole("button", { name: "go-b-new" }));
+    expect(nav.history.location.pathname).toBe("/n/tester/note-b");
+    const input = screen.getByLabelText("Note title");
+    expect(input).toHaveValue("My Note"); // 空窗：舊頁仍掛著、可互動
+
+    fireEvent.change(input, { target: { value: "Typed in the gap" } });
+    fireEvent.blur(input);
+    await flushMacrotask();
+    expect(titlePatches(fetchMock)).toEqual([]);
+
+    nav.release();
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("Note B"));
+    expect(titlePatches(fetchMock)).toEqual([]);
+  });
+
+  it("換篇空窗：上一頁回到別篇（那筆 entry 是當初收斂留下、帶收斂標記）也算換篇，不得 PATCH 到 A", async () => {
+    const { fetchMock } = stubTwoNotes();
+    collab.provider.synced = true;
+    const nav = renderHeldTree("/n/tester/my-note", [
+      { pathname: "/n/tester/note-b", state: withCanonicalizedFrom(null, "/notes/note-b") },
+    ]);
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
+
+    nav.hold();
+    act(() => nav.history.go(-1));
+    expect(nav.history.location.pathname).toBe("/n/tester/note-b");
+
+    const input = screen.getByLabelText("Note title");
+    fireEvent.change(input, { target: { value: "Typed in the gap" } });
+    fireEvent.blur(input);
+    await flushMacrotask();
+    expect(titlePatches(fetchMock)).toEqual([]);
+    nav.release();
+  });
+
+  it("換篇空窗：上一頁回到的別篇 entry，收斂標記剛好＝目前網址（舊網址被別篇重用）也不放過", async () => {
+    const { fetchMock } = stubTwoNotes();
+    collab.provider.synced = true;
+    const nav = renderHeldTree("/n/tester/my-note", [
+      { pathname: "/n/tester/note-b", state: withCanonicalizedFrom(null, "/n/tester/my-note") },
+    ]);
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
+
+    nav.hold();
+    act(() => nav.history.go(-1));
+
+    const input = screen.getByLabelText("Note title");
+    fireEvent.change(input, { target: { value: "Typed in the gap" } });
+    fireEvent.blur(input);
+    await flushMacrotask();
+    expect(titlePatches(fetchMock)).toEqual([]);
+    nav.release();
+  });
+
+  it("換篇空窗：REPLACE 換到別篇、state 帶的是別的網址的收斂標記（例如沿用舊 state）也算換篇", async () => {
+    const { fetchMock } = stubTwoNotes();
+    collab.provider.synced = true;
+    const nav = renderHeldTree("/n/tester/my-note");
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
+
+    nav.hold();
+    act(() => nav.history.replace("/n/tester/note-b", withCanonicalizedFrom(null, "/notes/note-b")));
+
+    const input = screen.getByLabelText("Note title");
+    fireEvent.change(input, { target: { value: "Typed in the gap" } });
+    fireEvent.blur(input);
+    await flushMacrotask();
+    expect(titlePatches(fetchMock)).toEqual([]);
+    nav.release();
+  });
+
+  it("換篇空窗的反例：設定 modal 開著（主樹吃背景 location）、沒有導覽在途時，背景頁標題照常存", async () => {
+    // 比對基準必須是真實 location：拿背景 location 比，key 與 pathname 都跟 history 當下不同，會被誤判成換篇。
+    const { fetchMock } = stubTwoNotes();
+    collab.provider.synced = true;
+    renderHeldTree({
+      pathname: "/settings/profile",
+      state: { backgroundLocation: { pathname: "/n/tester/my-note", search: "", hash: "", state: null, key: "bg" } },
+    });
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
+
+    const input = screen.getByLabelText("Note title");
+    fireEvent.change(input, { target: { value: "Behind the modal" } });
+    fireEvent.blur(input);
+    await waitFor(() =>
+      expect(titlePatches(fetchMock)).toEqual([{ url: `/api/notes/${NOTE.id}`, body: { title: "Behind the modal" } }]),
+    );
+  });
+
+  it("換篇空窗的反例：同一篇改名後收斂換網址（transition 未提交）期間繼續打字＋blur，照常存到同一篇", async () => {
+    const { fetchMock } = stubTwoNotes();
+    collab.provider.synced = true;
+    const nav = renderHeldTree("/n/tester/my-note");
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
+
+    nav.hold();
+    await act(async () => {
+      nav.queryClient.setQueryData(["note", NOTE.id], { ...NOTE, slug: "renamed" });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    // 收斂 effect 已 replace（history 換了），router 還停在舊網址
+    expect(nav.history.location.pathname).toBe("/n/tester/renamed");
+    expect(routerPath()).toBe("/n/tester/my-note");
+
+    const input = screen.getByLabelText("Note title");
+    fireEvent.change(input, { target: { value: "Keep typing" } });
+    fireEvent.blur(input);
+    await waitFor(() =>
+      expect(titlePatches(fetchMock)).toEqual([{ url: `/api/notes/${NOTE.id}`, body: { title: "Keep typing" } }]),
+    );
+    nav.release();
+  });
+
+  it("換篇空窗的反例：同一篇只換 hash（段落錨點）的導覽在途時，打字＋blur 照常存", async () => {
+    const { fetchMock } = stubTwoNotes();
+    collab.provider.synced = true;
+    const nav = renderHeldTree("/n/tester/my-note");
+    await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
+
+    nav.hold();
+    act(() => nav.history.push("/n/tester/my-note#some-block"));
+
+    const input = screen.getByLabelText("Note title");
+    fireEvent.change(input, { target: { value: "Same note" } });
+    fireEvent.blur(input);
+    await waitFor(() =>
+      expect(titlePatches(fetchMock)).toEqual([{ url: `/api/notes/${NOTE.id}`, body: { title: "Same note" } }]),
+    );
+    nav.release();
   });
 
   it("常駐層非 404 錯誤（500）→ 錯誤卡留在頁上，不導走、不噴 404 文案", async () => {

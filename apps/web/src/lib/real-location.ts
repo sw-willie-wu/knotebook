@@ -48,6 +48,17 @@ export function useHistoryLocationKey(): () => string | undefined {
   return useCallback(() => (navigator as { location?: { key?: string } }).location?.key, [navigator]);
 }
 
+type HistorySnapshot = Pick<Location, "key" | "pathname" | "state"> & { action: NavigationType | undefined };
+
+/** 同 `useHistoryLocationKey`，但讀整筆 history location，外加最後一次改動它的 action（PUSH／REPLACE／POP）。 */
+export function useHistoryLocation(): () => HistorySnapshot | undefined {
+  const { navigator } = useContext(UNSAFE_NavigationContext);
+  return useCallback(() => {
+    const history = navigator as { location?: Pick<Location, "key" | "pathname" | "state">; action?: NavigationType };
+    return history.location ? { ...history.location, action: history.action } : undefined;
+  }, [navigator]);
+}
+
 /** history state 裡標記「這次換網址是同一篇筆記的 canonical 收斂」的鍵（值＝換之前的 pathname）。 */
 const CANONICALIZED_FROM_KEY = "knotebookCanonicalizedFrom";
 

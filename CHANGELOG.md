@@ -57,6 +57,7 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 ### Fixed
 
 - Copying a selection that contains a link to a note (one made with `[[`) no longer leaves the clipboard empty (#269).
+- Typing in the title right after creating or opening another note could rename the note you were leaving. While the next note is still loading, the old title box now ignores typing.
 
 ## [0.10.0] - 2026-10-11
 

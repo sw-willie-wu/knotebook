@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { act, render, screen } from "@testing-library/react";
 import { BrowserRouter, useLocation, useNavigate } from "react-router";
-import { canonicalizedFrom, useHistoryLocationKey, withCanonicalizedFrom } from "./real-location";
+import { canonicalizedFrom, useHistoryLocation, useHistoryLocationKey, withCanonicalizedFrom } from "./real-location";
 
 // #179：NotePage 的收斂 effect 靠 `useHistoryLocationKey` 判斷「有沒有導覽在途」。它讀的是
 // `UNSAFE_NavigationContext.navigator.location`——型別上不保證存在。正式 app 用 BrowserRouter，
@@ -45,6 +45,36 @@ describe("useHistoryLocationKey（BrowserRouter）", () => {
     expect(typeof second).toBe("string");
     expect(second).not.toBe(first);
     expect(second).toBe(screen.getByTestId("rendered-key").textContent);
+  });
+
+  it("useHistoryLocation：同一筆 entry 的 pathname、state 與 action（NotePage 換篇空窗判斷用）", async () => {
+    window.history.replaceState(null, "", "/start");
+    let readLocation: ReturnType<typeof useHistoryLocation> | undefined;
+    let goWithState: ((to: string, state: unknown, replace?: boolean) => void) | undefined;
+    function LocationProbe() {
+      const navigate = useNavigate();
+      readLocation = useHistoryLocation();
+      goWithState = (to, state, replace) => void navigate(to, { state, replace });
+      return null;
+    }
+    render(
+      <BrowserRouter>
+        <LocationProbe />
+      </BrowserRouter>,
+    );
+
+    expect(readLocation?.()?.pathname).toBe("/start");
+    await act(async () => {
+      goWithState?.("/next", withCanonicalizedFrom(null, "/start"));
+    });
+    expect(readLocation?.()?.pathname).toBe("/next");
+    expect(canonicalizedFrom(readLocation?.()?.state)).toBe("/start");
+    expect(readLocation?.()?.action).toBe("PUSH");
+
+    await act(async () => {
+      goWithState?.("/renamed", withCanonicalizedFrom(null, "/next"), true);
+    });
+    expect(readLocation?.()?.action).toBe("REPLACE");
   });
 });
 

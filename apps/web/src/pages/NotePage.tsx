@@ -10,6 +10,8 @@ import { SESSION_QUERY_KEY, useSession } from "@/auth/useSession";
 import { canEdit, isTerminal, stopsReconnect, type CollabState } from "@/collab/connection";
 import { useActiveNote } from "@/lib/active-note";
 import {
+  canonicalizedFrom,
+  useHistoryLocation,
   useHistoryLocationKey,
   useRealLocation,
   useRealNavigationType,
@@ -483,6 +485,17 @@ export default function NotePage() {
     );
   }, [location, navigate, note, readHistoryKey, realLocation, resolvedFor]);
 
+  // 換篇空窗：history 已換到別的網址、這一頁還沒被轉場換掉——此時標題框收的字會存進這篇（舊篇）。
+  // 同一篇的導覽不算：本頁收斂換 slug（REPLACE 且標記＝目前 pathname；上一頁／下一頁回到的舊 entry 不算）或只換 search／hash。
+  const readHistoryLocation = useHistoryLocation();
+  const isNavigatingAway = useCallback((): boolean => {
+    const pending = readHistoryLocation();
+    const rendered = realLocation ?? location;
+    if (pending === undefined || pending.key === rendered.key) return false;
+    if (pending.action === NavigationType.Replace && canonicalizedFrom(pending.state) === rendered.pathname) return false;
+    return pending.pathname !== rendered.pathname;
+  }, [location, readHistoryLocation, realLocation]);
+
   // 「已經決定要離開這一頁了」。共編終態與 API 404 是兩條互相獨立、可能**同時**成立的
   // 離場路徑（筆記被刪時 close(NOTE_DELETED) 與 `GET /api/notes/:ref` 的 404 會前後腳
   // 到），共用同一道閘門才不會噴兩則一模一樣的 toast、導兩次頁。`navigate` 之後這個
@@ -683,7 +696,7 @@ export default function NotePage() {
                       NarrowTopBar（頁首自己有這顆）；載入中/錯誤的佔位卡沒有頁首，
                       由 placeholderCard 裡的 NarrowTopBar 補位。 */}
                   <SidebarDrawerButton />
-                  <TitleInput note={note} readOnly={!roleCanEdit} />
+                  <TitleInput note={note} readOnly={!roleCanEdit} isNavigatingAway={isNavigatingAway} />
                   <ConnectionBadge state={state} synced={synced} canEdit={roleCanEdit} />
                   <LastEditedLabel note={note} onOpenEdits={openEdits} />
                   <ShareDialog note={note} />

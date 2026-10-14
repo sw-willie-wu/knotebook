@@ -13,6 +13,11 @@ interface TitleInputProps {
   note: NoteDto;
   /** 沒有編輯權限（viewer／none／連線已終止）時改成純文字顯示。 */
   readOnly: boolean;
+  /**
+   * 為真＝網址已換到別篇、畫面還是這篇（轉場空窗）。此時不收新輸入，免得存進這篇；
+   * 空窗前已打的字仍照常存（那是在這篇上打的）。
+   */
+  isNavigatingAway?: () => boolean;
 }
 
 /**
@@ -31,7 +36,7 @@ interface TitleInputProps {
  * 空標題不送（server 端 `z.string().min(1)` 會回 400）：blur 時若內容是空白，
  * 一律還原成目前的標題。
  */
-export function TitleInput({ note, readOnly }: TitleInputProps) {
+export function TitleInput({ note, readOnly, isNavigatingAway }: TitleInputProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const updateNote = useUpdateNote();
@@ -93,6 +98,7 @@ export function TitleInput({ note, readOnly }: TitleInputProps) {
   useEffect(() => clearTimer, []);
 
   function handleChange(next: string): void {
+    if (isNavigatingAway?.()) return; // 受控 input：不 setValue，React 會把畫面值還原
     setValue(next);
     clearTimer();
     timerRef.current = setTimeout(() => {

@@ -34,11 +34,17 @@ const NOTE: NoteDto = {
   permissions: OWNER_PERMS,
 };
 
-function renderTitle(props: Partial<{ note: NoteDto; readOnly: boolean }> = {}) {
+function renderTitle(
+  props: Partial<{ note: NoteDto; readOnly: boolean; isNavigatingAway: () => boolean }> = {},
+) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <TitleInput note={props.note ?? NOTE} readOnly={props.readOnly ?? false} />
+      <TitleInput
+        note={props.note ?? NOTE}
+        readOnly={props.readOnly ?? false}
+        isNavigatingAway={props.isNavigatingAway}
+      />
       <Toaster />
     </QueryClientProvider>,
   );
@@ -238,6 +244,42 @@ describe("TitleInput", () => {
     // settle 的 microtask 鏈之前，變成恆真空轉（讀碼審 M3 抓到的形）。
     await waitFor(() => expect(queryClient.getQueryData<NoteDto>(["note", NOTE.id])?.title).toBe("Saved"));
     expect(input).toHaveValue("Saved and more");
+  });
+
+  // 換篇空窗：網址已換到別篇、畫面仍是這篇。空窗裡打的字不收，不然 blur／debounce 會存進這篇。
+  it("isNavigatingAway() 為真時不收輸入：值不變，blur 與 debounce 都不送 PATCH", async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(patchOk("Typed in the gap")));
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderTitle({ isNavigatingAway: () => true });
+    const input = screen.getByLabelText("Note title");
+    fireEvent.change(input, { target: { value: "Typed in the gap" } });
+    expect(input).toHaveValue(NOTE.title);
+    fireEvent.blur(input);
+
+    act(() => void vi.advanceTimersByTime(TITLE_DEBOUNCE_MS + 100));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("空窗前已打的字照樣在 blur 時存進這篇（那是在這篇上打的）", async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(patchOk("Typed before")));
+    vi.stubGlobal("fetch", fetchMock);
+    let away = false;
+
+    renderTitle({ isNavigatingAway: () => away });
+    const input = screen.getByLabelText("Note title");
+    fireEvent.change(input, { target: { value: "Typed before" } });
+    away = true;
+    fireEvent.blur(input);
+
+    // 要在 debounce 到期前就送出——由 blur 沖出，不是靠計時器補送
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1), { timeout: TITLE_DEBOUNCE_MS / 2 });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe(`/api/notes/${NOTE.id}`);
+    expect(JSON.parse(String(init.body))).toEqual({ title: "Typed before" });
   });
 
   it("readOnly（viewer）→ 顯示純文字，沒有輸入框", () => {
