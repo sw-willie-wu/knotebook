@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import type * as Y from "yjs";
 import type { NoteDto, VersionDto } from "@knotebook/shared";
-import { useVersionCurrent, useVersionList } from "@/api/versions";
+import { useVersionCurrent, useVersionList, type VersionTarget } from "@/api/versions";
 import { Button } from "@/components/ui/button";
 import { useVersions } from "@/lib/versions-context";
 import { ComparePicker } from "./ComparePicker";
@@ -11,13 +11,13 @@ import { VersionPreview } from "./VersionPreview";
 import { OnlyChangesToggle } from "./PreviewBanner";
 import { VersionRowContent, VersionRowMenu } from "./VersionsPanel";
 import { KindFilter, KindFilterEmpty } from "./KindFilter";
-import { currentSubtitle, editorsText, formatVersionTime } from "./version-labels";
+import { currentSubtitle, editorsText, formatVersionTime, versionLabel } from "./version-labels";
 import { useApplyFlow } from "./use-apply-flow";
 
 /**
  * 窄視窗（`<md`）的版本歷史：全螢幕 Radix Dialog、不改網址（spec §8.3）。
  * 步一＝清單（「‹ 返回 · 版本歷史」、最後編輯、目前狀態、清單、底部「儲存當前版本」）；
- * 步二＝預覽（「‹ 清單 · vN · 時間」、單欄 diff、底部「‹ 上一版 ｜ 套用 vN ｜ 下一版 ›」）。步數就是 `preview` 是否為 null。
+ * 步二＝預覽（「‹ 清單 · 名稱 (短 id) · 時間」、單欄 diff、底部「‹ 上一版 ｜ 套用 名稱 (短 id) ｜ 下一版 ›」）。步數就是 `preview` 是否為 null。
  * 底部「較舊的版本」＝seq 較小的下一筆、「較新的版本」＝較大的那筆（文案刻意不用「前一版」，免得與比較對象撞名）；
  * 到頭就 disabled（較舊那側還有下一頁時先載，載入中 disabled）。
  * 整頁不掛 `PreviewBanner`，步二頁首第二列自己給它的控制項：比較對象一對下拉（`ComparePicker`，左 → 右；spec §8.3／§8.4【rev 10】）、
@@ -45,7 +45,7 @@ export function VersionsSheet({ doc, lastEdited, returnFocusRef }: { doc: Y.Doc;
   const older = index >= 0 ? rows[index + 1] : undefined;
   const newer = index > 0 ? rows[index - 1] : undefined;
   // 底部「較舊／較新的版本」只換左邊（同面板點列；右邊保持，rev 10）。
-  const go = (v: VersionDto) => startPreview({ seq: v.seq, id: v.id });
+  const go = (v: VersionDto) => startPreview({ seq: v.seq, id: v.id, name: v.name });
 
   const shut = () => {
     stopPreview();
@@ -105,42 +105,46 @@ export function VersionsSheet({ doc, lastEdited, returnFocusRef }: { doc: Y.Doc;
     </>
   );
 
-  const renderPreview = (seq: number) => (
-    <>
-      <header className="space-y-1 border-b border-border px-3 py-2">
-        <div className="flex min-w-0 items-center gap-2">
-          <Button type="button" variant="ghost" size="sm" className="shrink-0" onClick={stopPreview}>
-            <span aria-hidden="true">‹</span> {t("versions.sheet.backToList")} · v{seq}
+  // #272 D5：頁首「‹ 清單 · 名稱 (短 id)」與套用鈕用清單那一列（改名立刻反映，RF1）；清單裡沒有時用選取時記下的名稱。
+  const renderPreview = (target: VersionTarget) => {
+    const label = versionLabel(row ?? target);
+    return (
+      <>
+        <header className="space-y-1 border-b border-border px-3 py-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <Button type="button" variant="ghost" size="sm" className="min-w-0 max-w-[60%]" onClick={stopPreview}>
+              <span aria-hidden="true">‹</span> <span className="truncate">{t("versions.sheet.backToList")} · {label}</span>
+            </Button>
+            <span className="min-w-0 truncate text-xs text-muted-foreground">
+              {row && `${formatVersionTime(row.createdAt, i18n.language)} · ${editorsText(t, row.editors)}`}
+            </span>
+          </div>
+          <div data-testid="sheet-compare-row" className="flex flex-wrap items-center gap-1 text-xs">
+            <ComparePicker side="left" />
+            <span aria-hidden="true" className="text-muted-foreground">
+              →
+            </span>
+            <ComparePicker side="right" />
+            <OnlyChangesToggle />
+          </div>
+        </header>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <VersionPreview doc={doc} forceSingle />
+        </div>
+        <footer data-testid="sheet-footer" className="grid grid-cols-3 gap-2 border-t border-border p-3">
+          <Button type="button" variant="outline" disabled={older ? false : !list.hasNextPage || list.isFetchingNextPage} onClick={() => (older ? go(older) : void list.fetchNextPage())}>
+            {t("versions.sheet.prev")}
           </Button>
-          <span className="min-w-0 truncate text-xs text-muted-foreground">
-            {row && `${formatVersionTime(row.createdAt, i18n.language)} · ${editorsText(t, row.editors)}`}
-          </span>
-        </div>
-        <div data-testid="sheet-compare-row" className="flex flex-wrap items-center gap-1 text-xs">
-          <ComparePicker side="left" />
-          <span aria-hidden="true" className="text-muted-foreground">
-            →
-          </span>
-          <ComparePicker side="right" />
-          <OnlyChangesToggle />
-        </div>
-      </header>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <VersionPreview doc={doc} forceSingle />
-      </div>
-      <footer data-testid="sheet-footer" className="grid grid-cols-3 gap-2 border-t border-border p-3">
-        <Button type="button" variant="outline" disabled={older ? false : !list.hasNextPage || list.isFetchingNextPage} onClick={() => (older ? go(older) : void list.fetchNextPage())}>
-          {t("versions.sheet.prev")}
-        </Button>
-        <Button type="button" variant="brandDeep" disabled={!row} onClick={() => row && void requestApply(row)}>
-          {t("versions.applySeq", { seq })}
-        </Button>
-        <Button type="button" variant="outline" disabled={!newer} onClick={() => newer && go(newer)}>
-          {t("versions.sheet.next")}
-        </Button>
-      </footer>
-    </>
-  );
+          <Button type="button" variant="brandDeep" className="min-w-0" disabled={!row} onClick={() => row && void requestApply(row)}>
+            <span className="truncate">{t("versions.applySeq", { label })}</span>
+          </Button>
+          <Button type="button" variant="outline" disabled={!newer} onClick={() => newer && go(newer)}>
+            {t("versions.sheet.next")}
+          </Button>
+        </footer>
+      </>
+    );
+  };
 
   return (
     <DialogPrimitive.Root open onOpenChange={(open) => !open && shut()}>
@@ -161,7 +165,7 @@ export function VersionsSheet({ doc, lastEdited, returnFocusRef }: { doc: Y.Doc;
           }}
         >
           <DialogPrimitive.Title className="sr-only">{t("versions.title")}</DialogPrimitive.Title>
-          {preview === null ? renderList() : renderPreview(preview.seq)}
+          {preview === null ? renderList() : renderPreview(preview)}
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>

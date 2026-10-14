@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { baseRef, baseRefOrNull, reEscape, vid, vlabel, vrow, vtarget } from "@/test/version-fixtures";
 import { useRef, useState } from "react";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as Y from "yjs";
 import { BlockNoteEditor } from "@blocknote/core";
@@ -10,6 +11,7 @@ import i18n from "@/i18n";
 import { noteSchema } from "@/collab/schema";
 import { Toaster, dismissAllToasts } from "@/components/ui/toast";
 import { ThemeProvider } from "@/theme";
+import { versionListKey } from "@/api/versions";
 import { KIND_FILTER_STORAGE_KEY, NARROW_QUERY, VersionsProvider, useVersionsController } from "@/lib/versions-context";
 import { VersionsSheet } from "./VersionsSheet";
 
@@ -27,7 +29,7 @@ function b64(blocks: unknown[]): string {
   blocksToYXmlFragment(BlockNoteEditor.create({ schema: noteSchema }), blocks as any, doc.getXmlFragment(YDOC_FRAGMENT));
   return btoa(String.fromCharCode(...Y.encodeStateAsUpdate(doc)));
 }
-const ver = (seq: number, over: Partial<VersionDto> = {}): VersionDto => ({ id: `v-${seq}`, seq, kind: "auto", name: null, editors: [{ handle: "ann", agentLabel: null }], baseSeq: null, base: null, createdAt: "2026-10-09T00:00:00.000Z", ...over });
+const ver = (seq: number, over: Partial<VersionDto> = {}): VersionDto => ({ id: vid(seq), seq, kind: "auto", name: null, editors: [{ handle: "ann", agentLabel: null }], baseSeq: null, base: baseRefOrNull(over.baseSeq), createdAt: "2026-10-09T00:00:00.000Z", ...over });
 const V1 = [{ id: "A", type: "paragraph", content: "甲" }, { id: "B", type: "paragraph", content: "乙" }];
 const V2 = [{ id: "A", type: "paragraph", content: "甲改" }, { id: "C", type: "paragraph", content: "丙" }];
 
@@ -46,7 +48,7 @@ function stub(routes: Record<string, unknown>) {
 }
 const list = (versions: VersionDto[], nextBefore: number | null = null): VersionListDto => ({
   versions,
-  current: { baseSeq: versions[0]?.seq ?? null, base: null, dirty: false, nextSeq: (versions[0]?.seq ?? 0) + 1, autoEnabled: true },
+  current: { baseSeq: versions[0]?.seq ?? null, base: versions[0] ? { id: versions[0].id, name: versions[0].name, deleted: false } : null, dirty: false, nextSeq: (versions[0]?.seq ?? 0) + 1, autoEnabled: true },
   nextBefore,
 });
 
@@ -120,6 +122,7 @@ function renderSheet() {
     </QueryClientProvider>,
   );
   fireEvent.click(screen.getByText("host-open"));
+  return { queryClient };
 }
 const sState = () => JSON.parse(screen.getByTestId("s-state").textContent!);
 const footerOf = (sheet: HTMLElement) => within(within(sheet).getByTestId("sheet-footer"));
@@ -145,36 +148,36 @@ describe("VersionsSheet（spec §8.3）", () => {
     expect(sheet).toHaveClass("fixed", "inset-0");
     expect(within(sheet).getByRole("button", { name: "Back" })).toBeInTheDocument();
     expect(within(sheet).getByTestId("sheet-last-edited")).toHaveTextContent("ann");
-    expect(await within(sheet).findByText("Based on v2 · no changes")).toBeInTheDocument();
-    expect(within(sheet).getByRole("button", { name: /^v1(?!\d)/ })).toBeInTheDocument();
+    expect(await within(sheet).findByText("Based on amber-bison (0002aaa) · no changes")).toBeInTheDocument();
+    expect(within(sheet).getByRole("button", { name: vrow(1) })).toBeInTheDocument();
     expect(within(sheet).getByRole("button", { name: "Save current version" })).toBeInTheDocument();
   });
 
-  it("點列 → 步二：標題「List · v2」、單欄 diff（沒有並排鈕；容器寬 1600 仍單欄）、底部 上一版｜套用 v2｜下一版", async () => {
+  it("點列 → 步二：標題「List · 名稱 (短 id)」、單欄 diff（沒有並排鈕；容器寬 1600 仍單欄）、底部 上一版｜套用 名稱 (短 id)｜下一版", async () => {
     widthRef.current = 1600;
-    stub({ [LIST]: list([ver(2), ver(1)]), [SNAP(2)]: { id: "v-2", seq: 2, ydoc: b64(V2) }, [SNAP(1)]: { id: "v-1", seq: 1, ydoc: b64(V1) } });
+    stub({ [LIST]: list([ver(2), ver(1)]), [SNAP(2)]: { id: vid(2), seq: 2, ydoc: b64(V2) }, [SNAP(1)]: { id: vid(1), seq: 1, ydoc: b64(V1) } });
     renderSheet();
     const sheet = await screen.findByRole("dialog", { name: "Version history" });
-    fireEvent.click(await within(sheet).findByRole("button", { name: /^v2(?!\d)/ }));
+    fireEvent.click(await within(sheet).findByRole("button", { name: vrow(2) }));
     expect(await within(sheet).findByTestId("diff-single")).toBeInTheDocument();
     expect(within(sheet).queryByTestId("diff-split")).not.toBeInTheDocument();
-    expect(within(sheet).getByRole("button", { name: /^List · v2/ })).toBeInTheDocument();
+    expect(within(sheet).getByRole("button", { name: new RegExp(`^List · ${reEscape(vlabel(2))}`) })).toBeInTheDocument();
     expect(within(sheet).queryByRole("button", { name: "Side by side" })).not.toBeInTheDocument();
     const footer = footerOf(sheet);
     expect(footer.getByRole("button", { name: "Older version" })).toBeEnabled();
-    expect(footer.getByRole("button", { name: "Apply v2" })).toBeEnabled();
+    expect(footer.getByRole("button", { name: `Apply ${vlabel(2)}` })).toBeEnabled();
     expect(footer.getByRole("button", { name: "Newer version" })).toBeDisabled();
   });
 
-  it("rev 10：步二頁首列 2 是左右一對下拉（左 v2 → 右 Current state）＋只看差異；右選 v1 → compareRight=v1；底部「較舊的版本」只換左、右保持", async () => {
-    stub({ [LIST]: list([ver(2), ver(1)]), [SNAP(2)]: { id: "v-2", seq: 2, ydoc: b64(V2) }, [SNAP(1)]: { id: "v-1", seq: 1, ydoc: b64(V1) } });
+  it("rev 10：步二頁首列 2 是左右一對下拉（左 seq 2 → 右 Current state）＋只看差異；右選 seq 1 → compareRight＝seq 1；底部「較舊的版本」只換左、右保持", async () => {
+    stub({ [LIST]: list([ver(2), ver(1)]), [SNAP(2)]: { id: vid(2), seq: 2, ydoc: b64(V2) }, [SNAP(1)]: { id: vid(1), seq: 1, ydoc: b64(V1) } });
     renderSheet();
     const sheet = await screen.findByRole("dialog", { name: "Version history" });
-    fireEvent.click(await within(sheet).findByRole("button", { name: /^v2(?!\d)/ }));
+    fireEvent.click(await within(sheet).findByRole("button", { name: vrow(2) }));
     const row = within(await within(sheet).findByTestId("sheet-compare-row"));
     const left = row.getByRole("button", { name: "Left side" });
     const right = row.getByRole("button", { name: "Right side" });
-    await waitFor(() => expect(left).toHaveTextContent("v2"));
+    await waitFor(() => expect(left).toHaveTextContent(vlabel(2)));
     expect(right).toHaveTextContent("Current state");
     expect(row.getByText("→")).toHaveAttribute("aria-hidden", "true");
     // Task 19 M-3：整頁（觸控沒有 hover 看不到 title）保留文字鈕，不是橫幅那種圖示鈕。
@@ -189,21 +192,21 @@ describe("VersionsSheet（spec §8.3）", () => {
     expect(screen.getByTestId("s-compare")).toHaveTextContent('"current"');
     expect(within(sheet).queryByText("Compare with")).not.toBeInTheDocument();
     fireEvent.pointerDown(right, { button: 0, ctrlKey: false });
-    fireEvent.click(within(await screen.findByRole("menu")).getByRole("menuitemradio", { name: "v1" }));
-    expect(screen.getByTestId("s-compare")).toHaveTextContent(JSON.stringify({ seq: 1, id: "v-1" }));
-    await waitFor(() => expect(row.getByRole("button", { name: "Right side" })).toHaveTextContent("v1"));
+    fireEvent.click(within(await screen.findByRole("menu")).getByRole("menuitemradio", { name: vlabel(1) }));
+    expect(screen.getByTestId("s-compare")).toHaveTextContent(JSON.stringify(vtarget(1)));
+    await waitFor(() => expect(row.getByRole("button", { name: "Right side" })).toHaveTextContent(vlabel(1)));
     fireEvent.click(footerOf(sheet).getByRole("button", { name: "Older version" }));
-    await waitFor(() => expect(sState().preview).toEqual({ seq: 1, id: "v-1" }));
-    expect(screen.getByTestId("s-compare")).toHaveTextContent(JSON.stringify({ seq: 1, id: "v-1" }));
+    await waitFor(() => expect(sState().preview).toEqual(vtarget(1)));
+    expect(screen.getByTestId("s-compare")).toHaveTextContent(JSON.stringify(vtarget(1)));
   });
 
   it("「只看差異」：寬版先開著 → 整頁步二的開關顯示 on，按一下關回 off", async () => {
-    stub({ [LIST]: list([ver(2), ver(1)]), [SNAP(2)]: { id: "v-2", seq: 2, ydoc: b64(V2) }, [SNAP(1)]: { id: "v-1", seq: 1, ydoc: b64(V1) } });
+    stub({ [LIST]: list([ver(2), ver(1)]), [SNAP(2)]: { id: vid(2), seq: 2, ydoc: b64(V2) }, [SNAP(1)]: { id: vid(1), seq: 1, ydoc: b64(V1) } });
     renderSheet();
     fireEvent.click(screen.getByText("host-only-changes"));
     expect(screen.getByTestId("s-only")).toHaveTextContent("true");
     const sheet = await screen.findByRole("dialog", { name: "Version history" });
-    fireEvent.click(await within(sheet).findByRole("button", { name: /^v2(?!\d)/ }));
+    fireEvent.click(await within(sheet).findByRole("button", { name: vrow(2) }));
     const toggle = await within(sheet).findByRole("button", { name: "Only changes" });
     expect(toggle).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(toggle);
@@ -276,30 +279,46 @@ describe("VersionsSheet（spec §8.3）", () => {
   });
 
   it("final I-1(b)：步二頁首列 2（左右下拉＋只看差異）允許換行（flex-wrap；320 px 不溢出是依 class 推論，真瀏覽器量測留 e2e）", async () => {
-    stub({ [LIST]: list([ver(2), ver(1)]), [SNAP(2)]: { id: "v-2", seq: 2, ydoc: b64(V2) }, [SNAP(1)]: { id: "v-1", seq: 1, ydoc: b64(V1) } });
+    stub({ [LIST]: list([ver(2), ver(1)]), [SNAP(2)]: { id: vid(2), seq: 2, ydoc: b64(V2) }, [SNAP(1)]: { id: vid(1), seq: 1, ydoc: b64(V1) } });
     renderSheet();
     const sheet = await screen.findByRole("dialog", { name: "Version history" });
-    fireEvent.click(await within(sheet).findByRole("button", { name: /^v2(?!\d)/ }));
+    fireEvent.click(await within(sheet).findByRole("button", { name: vrow(2) }));
     expect(await within(sheet).findByTestId("sheet-compare-row")).toHaveClass("flex-wrap");
   });
 
-  it("上一版／下一版：在 seq 間移動，最舊那版的上一版 disabled", async () => {
-    stub({ [LIST]: list([ver(2), ver(1)]), [SNAP(2)]: { id: "v-2", seq: 2, ydoc: b64(V2) }, [SNAP(1)]: { id: "v-1", seq: 1, ydoc: b64(V1) } });
+  it("上一版／下一版：在 seq 間移動（預覽對象帶著那一列的名稱，#272），最舊那版的上一版 disabled", async () => {
+    stub({ [LIST]: list([ver(2), ver(1, { kind: "manual", name: "初稿" })]), [SNAP(2)]: { id: vid(2), seq: 2, ydoc: b64(V2) }, [SNAP(1)]: { id: vid(1), seq: 1, ydoc: b64(V1) } });
     renderSheet();
     const sheet = await screen.findByRole("dialog", { name: "Version history" });
-    fireEvent.click(await within(sheet).findByRole("button", { name: /^v2(?!\d)/ }));
+    fireEvent.click(await within(sheet).findByRole("button", { name: vrow(2) }));
     fireEvent.click(footerOf(sheet).getByRole("button", { name: "Older version" }));
-    await waitFor(() => expect(sState().preview).toEqual({ seq: 1, id: "v-1" }));
+    await waitFor(() => expect(sState().preview).toEqual(vtarget(1, "初稿")));
     expect(footerOf(sheet).getByRole("button", { name: "Older version" })).toBeDisabled();
     fireEvent.click(footerOf(sheet).getByRole("button", { name: "Newer version" }));
-    await waitFor(() => expect(sState().preview).toEqual({ seq: 2, id: "v-2" }));
+    await waitFor(() => expect(sState().preview).toEqual(vtarget(2)));
+  });
+
+  it("RF1（窄視窗）：預覽中的那一版被改名 → 頁首「List · …」與套用鈕立刻換成新名稱（清單那一列優先，不停在選取時記下的名稱）", async () => {
+    stub({ [LIST]: list([ver(2), ver(1)]), [SNAP(2)]: { id: vid(2), seq: 2, ydoc: b64(V2) } });
+    const { queryClient } = renderSheet();
+    const sheet = await screen.findByRole("dialog", { name: "Version history" });
+    fireEvent.click(await within(sheet).findByRole("button", { name: vrow(2) }));
+    expect(await within(sheet).findByRole("button", { name: new RegExp(`^List · ${reEscape(vlabel(2))}`) })).toBeInTheDocument();
+    act(() => {
+      queryClient.setQueryData(versionListKey(NOTE, "all"), {
+        pages: [list([{ ...ver(2), kind: "manual" as const, name: "改好的名字" }, ver(1)])],
+        pageParams: [undefined],
+      });
+    });
+    expect(await within(sheet).findByRole("button", { name: new RegExp(`^List · ${reEscape(vlabel(2, "改好的名字"))}`) })).toBeInTheDocument();
+    expect(footerOf(sheet).getByRole("button", { name: `Apply ${vlabel(2, "改好的名字")}` })).toBeEnabled();
   });
 
   it("‹ 清單 → 回步一並離開預覽；‹ 返回 → 關整頁（mode=null）", async () => {
-    stub({ [LIST]: list([ver(1)]), [SNAP(1)]: { id: "v-1", seq: 1, ydoc: b64(V1) } });
+    stub({ [LIST]: list([ver(1)]), [SNAP(1)]: { id: vid(1), seq: 1, ydoc: b64(V1) } });
     renderSheet();
     const sheet = await screen.findByRole("dialog", { name: "Version history" });
-    fireEvent.click(await within(sheet).findByRole("button", { name: /^v1(?!\d)/ }));
+    fireEvent.click(await within(sheet).findByRole("button", { name: vrow(1) }));
     fireEvent.click(await within(sheet).findByRole("button", { name: /^List/ }));
     expect(sState().preview).toBeNull();
     fireEvent.click(within(sheet).getByRole("button", { name: "Back" }));
@@ -308,12 +327,12 @@ describe("VersionsSheet（spec §8.3）", () => {
   });
 
   it("從整頁外 pointerdown＋click 關閉時預覽也停（不留 mode=null 的孤兒預覽）", async () => {
-    stub({ [LIST]: list([ver(1)]), [SNAP(1)]: { id: "v-1", seq: 1, ydoc: b64(V1) } });
+    stub({ [LIST]: list([ver(1)]), [SNAP(1)]: { id: vid(1), seq: 1, ydoc: b64(V1) } });
     renderSheet();
     const sheet = await screen.findByRole("dialog", { name: "Version history" });
-    fireEvent.click(await within(sheet).findByRole("button", { name: /^v1(?!\d)/ }));
+    fireEvent.click(await within(sheet).findByRole("button", { name: vrow(1) }));
     await within(sheet).findByRole("button", { name: /^List/ });
-    expect(sState()).toEqual({ mode: "sheet", preview: { seq: 1, id: "v-1" } });
+    expect(sState()).toEqual({ mode: "sheet", preview: vtarget(1) });
     // Radix 對左鍵的「點外面」延到 click 才判（deferPointerDownOutside），所以 pointerdown＋click 一組送。
     const outside = screen.getByTestId("s-state");
     fireEvent.pointerDown(outside, { button: 0 });
@@ -322,10 +341,10 @@ describe("VersionsSheet（spec §8.3）", () => {
   });
 
   it("Esc：步二回清單（preventDefault、整頁留著），步一再按才關整頁（同樣 preventDefault）", async () => {
-    stub({ [LIST]: list([ver(1)]), [SNAP(1)]: { id: "v-1", seq: 1, ydoc: b64(V1) } });
+    stub({ [LIST]: list([ver(1)]), [SNAP(1)]: { id: vid(1), seq: 1, ydoc: b64(V1) } });
     renderSheet();
     const sheet = await screen.findByRole("dialog", { name: "Version history" });
-    fireEvent.click(await within(sheet).findByRole("button", { name: /^v1(?!\d)/ }));
+    fireEvent.click(await within(sheet).findByRole("button", { name: vrow(1) }));
     const listButton = await within(sheet).findByRole("button", { name: /^List/ });
     // fireEvent 回傳 false＝事件被 preventDefault（NotePage 的 Esc 監聽以 defaultPrevented 讓路）。
     expect(fireEvent.keyDown(listButton, { key: "Escape" })).toBe(false);
@@ -335,17 +354,17 @@ describe("VersionsSheet（spec §8.3）", () => {
     await waitFor(() => expect(sState()).toEqual({ mode: null, preview: null }));
   });
 
-  it("步二按「套用 v1」→ 走 requestApply（先重抓 current，不 dirty 直接 POST apply）", async () => {
+  it("步二按「套用 名稱 (短 id)」→ 走 requestApply（先重抓 current，不 dirty 直接 POST apply）", async () => {
     const calls = stub({
       [LIST]: list([ver(1)]),
-      [SNAP(1)]: { id: "v-1", seq: 1, ydoc: b64(V1) },
+      [SNAP(1)]: { id: vid(1), seq: 1, ydoc: b64(V1) },
       [`/api/notes/${NOTE}/versions?limit=1`]: list([ver(1)]),
-      [`/api/notes/${NOTE}/versions/1/apply`]: { current: { baseSeq: 1, base: null, dirty: false, nextSeq: 2, autoEnabled: true } },
+      [`/api/notes/${NOTE}/versions/1/apply`]: { current: { baseSeq: 1, base: baseRef(1), dirty: false, nextSeq: 2, autoEnabled: true } },
     });
     renderSheet();
     const sheet = await screen.findByRole("dialog", { name: "Version history" });
-    fireEvent.click(await within(sheet).findByRole("button", { name: /^v1(?!\d)/ }));
-    fireEvent.click(footerOf(sheet).getByRole("button", { name: "Apply v1" }));
+    fireEvent.click(await within(sheet).findByRole("button", { name: vrow(1) }));
+    fireEvent.click(footerOf(sheet).getByRole("button", { name: `Apply ${vlabel(1)}` }));
     await waitFor(() => expect(calls).toContain(`/api/notes/${NOTE}/versions/1/apply`));
     expect(calls.indexOf(`/api/notes/${NOTE}/versions?limit=1`)).toBeLessThan(calls.indexOf(`/api/notes/${NOTE}/versions/1/apply`));
     // 套用成功 → 離開預覽回步一（useApplyFlow 的成功路徑）。
@@ -359,26 +378,26 @@ describe("VersionsSheet（spec §8.3）", () => {
     });
     renderSheet();
     const sheet = await screen.findByRole("dialog", { name: "Version history" });
-    const row2 = await within(sheet).findByRole("button", { name: /^v2(?!\d)/ });
+    const row2 = await within(sheet).findByRole("button", { name: vrow(2) });
     expect(within(row2).getByTestId("auto-badge")).toHaveTextContent("Auto-saved");
-    expect(within(within(sheet).getByRole("button", { name: /^v3/ })).queryByTestId("auto-badge")).not.toBeInTheDocument();
+    expect(within(within(sheet).getByRole("button", { name: vrow(3, "里程碑") })).queryByTestId("auto-badge")).not.toBeInTheDocument();
     const group = within(sheet).getByRole("group", { name: "Filter versions" });
     const order = [within(sheet).getByTestId("sheet-current"), group, within(sheet).getByRole("list")];
     for (let i = 1; i < order.length; i += 1) expect(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(group).getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(within(group).getByRole("button", { name: "Manual only" }));
     expect(within(group).getByRole("button", { name: "Manual only" })).toHaveAttribute("aria-pressed", "true");
-    await waitFor(() => expect(within(sheet).queryByRole("button", { name: /^v2(?!\d)/ })).not.toBeInTheDocument());
-    expect(await within(sheet).findByRole("button", { name: /^v3/ })).toBeInTheDocument();
+    await waitFor(() => expect(within(sheet).queryByRole("button", { name: vrow(2) })).not.toBeInTheDocument());
+    expect(await within(sheet).findByRole("button", { name: vrow(3, "里程碑") })).toBeInTheDocument();
     expect(window.localStorage.getItem(KIND_FILTER_STORAGE_KEY)).toBe("manual");
   });
 
   it("篩選（#258）：僅手動且沒有符合 → 空狀態一行灰字；「目前狀態」仍在", async () => {
     window.localStorage.setItem(KIND_FILTER_STORAGE_KEY, "manual");
-    stub({ [LIST_MANUAL]: { ...list([]), current: { baseSeq: 2, base: null, dirty: true, nextSeq: 3, autoEnabled: true } } });
+    stub({ [LIST_MANUAL]: { ...list([]), current: { baseSeq: 2, base: baseRef(2), dirty: true, nextSeq: 3, autoEnabled: true } } });
     renderSheet();
     const sheet = await screen.findByRole("dialog", { name: "Version history" });
     expect(await within(sheet).findByTestId("versions-filter-empty")).toHaveTextContent("No manually saved versions");
-    expect(within(sheet).getByText("Based on v2 · unsaved changes")).toBeInTheDocument();
+    expect(within(sheet).getByText(`Based on ${vlabel(2)} · unsaved changes`)).toBeInTheDocument();
   });
 });

@@ -2,24 +2,24 @@ import { describe, expect, it } from "vitest";
 import zhTW from "./zh-TW.json";
 import en from "./en.json";
 
-/** spec rev 8 §3.1 D7、§8.2–§8.5 的字面（Willie 逐題定案）。改這些字串＝改產品決定，先問 Willie。 */
+/** spec rev 8 §3.1 D7、§8.2–§8.5 的字面（Willie 逐題定案）；#272 起 vN → 「名稱 (短 id)」（spec 2026-10-13 §10.4）。改這些字串＝改產品決定，先問 Willie。 */
 const SPEC_COPY: Record<string, string> = {
   "versions.save": "儲存當前版本",
   "versions.dialog.saveTitle": "儲存當前版本",
-  "versions.dialog.saveDescription": "以目前內容建立版本 v{{seq}}",
+  "versions.dialog.saveDescription": "以目前內容建立一個新版本。",
   "versions.dialog.nameLabel": "版本名稱（選填）",
-  "versions.dialog.applyDescription": "目前有未儲存的修改，套用 v{{seq}} 會覆蓋它們（也包括其他人尚未存成版本的修改）。",
+  "versions.dialog.applyDescription": "目前有未儲存的修改，套用 {{label}} 會覆蓋它們（也包括其他人尚未存成版本的修改）。",
   "versions.dialog.applyDiscard": "不儲存，直接套用",
   "versions.dialog.applySaveFirst": "儲存當前版本",
-  "versions.toast.saved": "已存為 v{{seq}}",
-  "versions.toast.upgraded": "內容與 v{{seq}} 相同，已將 v{{seq}} 設為手動版本",
-  "versions.toast.applied": "已套用 v{{seq}}",
+  "versions.toast.saved": "已存為 {{label}}",
+  "versions.toast.upgraded": "內容與 {{label}} 相同，已將它設為手動版本",
+  "versions.toast.applied": "已套用 {{label}}",
   // #258（Willie 2026-10-11）：「目前狀態」副標只看 baseSeq／dirty；列的來源字樣改「沿自」。
   "versions.current.noBase": "沒有基底版本",
-  "versions.current.clean": "沿自 v{{seq}} · 無修改",
-  "versions.current.dirty": "沿自 v{{seq}} · 有未儲存的修改",
+  "versions.current.clean": "沿自 {{label}} · 無修改",
+  "versions.current.dirty": "沿自 {{label}} · 有未儲存的修改",
   "versions.autoOff": "此空間已關閉自動儲存",
-  "versions.from": "沿自 v{{seq}}",
+  "versions.from": "沿自 {{label}}",
   "versions.siteOff": "站台已關閉自動儲存",
   "versions.title": "版本歷史",
   "note.menu.versions": "版本歷史",
@@ -30,9 +30,9 @@ const SPEC_COPY: Record<string, string> = {
   "versions.filter.all": "全部",
   "versions.filter.manual": "僅手動",
   "versions.filter.emptyManual": "沒有手動儲存的版本",
-  "versions.applySeq": "套用 v{{seq}}",
+  "versions.applySeq": "套用 {{label}}",
   // rev 10（§8.4【rev 10】）：橫幅拿掉時間／editors／「比較對象」標籤；比較對象改左右一對下拉
-  "versions.preview.banner": "正在預覽 v{{seq}}",
+  "versions.preview.banner": "正在預覽 {{label}}",
   "versions.preview.leftPicker": "左側版本",
   "versions.preview.rightPicker": "右側版本",
   "versions.preview.currentOption": "目前狀態",
@@ -51,6 +51,9 @@ const SPEC_COPY: Record<string, string> = {
   "versions.sheet.prev": "較舊的版本",
   // Task 11 裁定（避免與比較對象同名）
   "versions.sheet.next": "較新的版本",
+  // #272 D12：基底版已刪除
+  "versions.deletedSuffix": "{{label}}（已刪除）",
+  "versions.deletedVersion": "已刪除的版本",
 };
 
 function get(obj: unknown, path: string): unknown {
@@ -87,6 +90,16 @@ describe("已刪除的鍵不殘留", () => {
     it(key, () => {
       expect(get(zhTW, key)).toBeUndefined();
       expect(get(en, key)).toBeUndefined();
+    });
+  }
+});
+
+describe("#272：versions.* 不再有 {{seq}}（兩語系；UI 不顯示 vN）", () => {
+  const leaves = (o: unknown, path = "versions"): Array<[string, string]> =>
+    typeof o === "string" ? [[path, o]] : o && typeof o === "object" ? Object.entries(o).flatMap(([k, v]) => leaves(v, `${path}.${k}`)) : [];
+  for (const [lang, dict] of [["zh-TW", zhTW], ["en", en]] as const) {
+    it(lang, () => {
+      expect(leaves((dict as Record<string, unknown>).versions).filter(([, v]) => v.includes("{{seq}}"))).toEqual([]);
     });
   }
 });

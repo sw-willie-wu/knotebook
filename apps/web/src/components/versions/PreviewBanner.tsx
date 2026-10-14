@@ -6,13 +6,14 @@ import { useVersions } from "@/lib/versions-context";
 import { cn } from "@/lib/utils";
 import { ComparePicker } from "./ComparePicker";
 import { PRESSED_CLASS, TINT_HOVER_CLASS } from "./version-labels";
+import { useTargetLabel } from "./use-target-label";
 
 /** 模式鈕共用的圖示鈕形（spec §8.4 rev 10 追記：`size="icon"`、`h-7 w-7`，名稱放 `aria-label`＋`title`，hover 看得到）。 */
 const MODE_BUTTON = `h-7 w-7 shrink-0 ${TINT_HOVER_CLASS}`;
 
 /**
  * 頁首下方的預覽橫幅（spec §8.4【rev 10】＋ rev 10 追記 2026-10-10）：
- * 「正在預覽 vN ｜（單欄時：左下拉 → 右下拉）｜……｜ 並排 單欄 只看差異」——三顆是圖示鈕，包成一組 `ml-auto` 靠右。
+ * 「正在預覽 名稱 (短 id) ｜（單欄時：左下拉 → 右下拉）｜……｜ 並排 單欄 只看差異」——三顆是圖示鈕，包成一組 `ml-auto` 靠右。
  * **橫幅不放 ✕**：離開預覽＝Esc（掛在 NotePage）、面板清單點空白處、再點已選中的列、關面板（`close()` 一併離開預覽）。
  * 時間與 editors 不放（面板列已有）、沒有「比較對象」標籤；底色 `bg-brand-soft`（品牌色 tint；`--primary` 是中性近黑，不能用）。
  * 單排：容器 `flex-nowrap`、每顆鈕 `shrink-0`（放不下會橫向溢出，不換行）。
@@ -63,11 +64,12 @@ export function OnlyChangesToggle({ iconOnly = false }: { iconOnly?: boolean }) 
 export function PreviewBanner({ narrow = false }: { narrow?: boolean }) {
   const { t } = useTranslation();
   const { preview, setSplitMode, previewWide, splitActive } = useVersions();
+  const label = useTargetLabel(preview);
   if (!preview) return null;
   const toggle = (on: boolean) => cn(MODE_BUTTON, on && PRESSED_CLASS);
   return (
     <div data-testid="preview-banner" className="flex flex-nowrap items-center gap-2 border-b border-border bg-brand-soft px-5 py-2 text-xs">
-      <span className="shrink-0 font-medium">{t("versions.preview.banner", { seq: preview.seq })}</span>
+      <span className="min-w-0 truncate font-medium">{t("versions.preview.banner", { label })}</span>
       {/* 比較對象（rev 10）：並排時兩個下拉是兩欄的標頭，橫幅只在單欄時放「左 → 右」。 */}
       {!splitActive && (
         <>

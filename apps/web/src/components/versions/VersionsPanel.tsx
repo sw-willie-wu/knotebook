@@ -11,25 +11,24 @@ import { EllipsisVertical, X } from "@/components/ui/icons";
 import { useVersions } from "@/lib/versions-context";
 import { cn } from "@/lib/utils";
 import { KindFilter, KindFilterEmpty } from "./KindFilter";
-import { currentSubtitle, editorsText, formatVersionTime } from "./version-labels";
+import { baseLabelOrDeleted, currentSubtitle, editorsText, formatVersionTime, versionLabel } from "./version-labels";
 import { useApplyFlow } from "./use-apply-flow";
 
 /**
- * 列的兩行內容（面板與窄視窗整頁共用）。第一行 vN、名稱，**只有自動版本**再加一顆中性色「自動存檔」pill（#258；手動版本不標，
- * 不再有「手動／自動」文字）；第二行 編輯者 · 時間 · 沿自 vX。基底版不在列上標示（「目前狀態」副標寫「沿自 vN」）。
+ * 列的兩行內容（面板與窄視窗整頁共用）。第一行「名稱 (短 id)」（#272 D5；未命名的用 uuid 推出的英文名），**只有自動版本**再加一顆
+ * 中性色「自動存檔」pill（#258）；第二行 編輯者 · 時間 · 沿自 …（基底版已刪除時標「(deleted)」，D12）。基底版不在列上標示。
  */
 export function VersionRowContent({ version }: { version: VersionDto }) {
   const { t, i18n } = useTranslation();
   const meta = [
     editorsText(t, version.editors),
     formatVersionTime(version.createdAt, i18n.language),
-    ...(version.baseSeq !== null ? [t("versions.from", { seq: version.baseSeq })] : []),
+    ...(version.baseSeq !== null ? [t("versions.from", { label: baseLabelOrDeleted(t, version.base) })] : []),
   ].filter((s) => s !== "");
   return (
     <span className="min-w-0 flex-1">
       <span className="flex items-center gap-1.5 text-sm">
-        <span className="shrink-0 font-medium">v{version.seq}</span>
-        {version.name !== null && <span className="min-w-0 truncate">{version.name}</span>}
+        <span className="min-w-0 truncate font-medium">{versionLabel(version)}</span>
         {version.kind === "auto" && (
           <span data-testid="auto-badge" className="shrink-0 rounded-full border border-border bg-muted px-1.5 text-[11px] leading-4 text-foreground/70">
             {t("versions.autoBadge")}
@@ -48,7 +47,7 @@ export function VersionRowMenu({ version, isBase, onApply }: { version: VersionD
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button type="button" variant="ghost" size="icon" className="shrink-0" aria-label={t("versions.rowMenu", { seq: version.seq })}>
+        <Button type="button" variant="ghost" size="icon" className="shrink-0" aria-label={t("versions.rowMenu", { label: versionLabel(version) })}>
           <EllipsisVertical aria-hidden="true" className="h-4 w-4" />
         </Button>
       </DropdownMenuTrigger>
@@ -96,7 +95,7 @@ export function VersionsPanel({ doc }: { doc: Y.Doc }) {
 
   const versions = list.data?.pages.flatMap((p) => p.versions) ?? [];
   const current = useVersionCurrent(id, list, kindFilter);
-  // 預覽中的那一版被篩選篩出清單時（#258）仍要能「套用 vN」：記住最後一次在清單裡看到的那一列。一律用 `id` 對（不用 seq：
+  // 預覽中的那一版被篩選篩出清單時（#258）仍要能套用它：記住最後一次在清單裡看到的那一列。一律用 `id` 對（不用 seq：
   // 搬移清空歷史後 seq 會重用，同一個 seq 可能是另一版）。換筆記、換版本時 id 對不上就自然不命中；
   // `remembered.id === preview.id` 這一道是承重的：`remembered` 不會自己清，preview 變 null（離開預覽）或換成清單外的版本時，
   // 靠這道比對讓「套用」回到 disabled，否則會套用到上一個預覽的版本。
@@ -112,7 +111,7 @@ export function VersionsPanel({ doc }: { doc: Y.Doc }) {
     if (next === null || next < 0 || next >= versions.length) return;
     event.preventDefault();
     rowsRef.current[next]?.focus();
-    startPreview({ seq: versions[next].seq, id: versions[next].id });
+    startPreview({ seq: versions[next].seq, id: versions[next].id, name: versions[next].name });
   };
 
   return (
@@ -161,7 +160,7 @@ export function VersionsPanel({ doc }: { doc: Y.Doc }) {
                 }}
                 type="button"
                 // 已選中的列再點一次＝離開預覽（toggle）；↑↓ 走 onRowKey，不受影響。
-                onClick={() => (preview?.id === version.id ? stopPreview() : startPreview({ seq: version.seq, id: version.id }))}
+                onClick={() => (preview?.id === version.id ? stopPreview() : startPreview({ seq: version.seq, id: version.id, name: version.name }))}
                 onKeyDown={onRowKey(index)}
                 className={cn("flex min-w-0 flex-1 rounded-md px-2 py-1.5 text-left hover:bg-accent/60", preview?.id === version.id && "bg-accent")}
               >
@@ -184,8 +183,8 @@ export function VersionsPanel({ doc }: { doc: Y.Doc }) {
         <Button type="button" variant="outline" size="sm" disabled={!current || !(current.dirty || current.baseSeq === null)} onClick={() => openSave()}>
           {t("versions.save")}
         </Button>
-        <Button type="button" variant="brandDeep" size="sm" disabled={selected === null} onClick={() => selected && apply(selected)}>
-          {selected ? t("versions.applySeq", { seq: selected.seq }) : t("versions.applyNone")}
+        <Button type="button" variant="brandDeep" size="sm" className="min-w-0" disabled={selected === null} onClick={() => selected && apply(selected)}>
+          <span className="truncate">{selected ? t("versions.applySeq", { label: versionLabel(selected) }) : t("versions.applyNone")}</span>
         </Button>
       </div>
     </aside>

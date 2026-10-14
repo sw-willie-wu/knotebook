@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { baseRef, vid, vlabel, vtarget } from "@/test/version-fixtures";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { VersionCurrentDto, VersionDto } from "@knotebook/shared";
@@ -10,8 +11,8 @@ import { useApplyFlow } from "./use-apply-flow";
 // useApplyFlow × controller 的 `onApplied`（Task 10 fix round 1）：只在套用成功、且 mutateAsync resolve 之後通知；
 // 通知本身出錯不得把成功變成錯誤 toast（它排在 closeDialog／stopPreview 之後）。
 const NOTE = "n1";
-const V1: VersionDto = { id: "v-1", seq: 1, kind: "manual", name: null, editors: [], baseSeq: null, base: null, createdAt: "2026-10-09T00:00:00.000Z" };
-const CURRENT: VersionCurrentDto = { baseSeq: 2, base: null, dirty: false, nextSeq: 3, autoEnabled: true };
+const V1: VersionDto = { id: vid(1), seq: 1, kind: "manual", name: null, editors: [], baseSeq: null, base: null, createdAt: "2026-10-09T00:00:00.000Z" };
+const CURRENT: VersionCurrentDto = { baseSeq: 2, base: baseRef(2), dirty: false, nextSeq: 3, autoEnabled: true };
 const APPLY1 = `/api/notes/${NOTE}/versions/1/apply`;
 
 function Harness() {
@@ -19,7 +20,7 @@ function Harness() {
   const { applyNow, requestApply } = useApplyFlow(NOTE);
   return (
     <div>
-      <button type="button" onClick={() => s.startPreview({ seq: 1, id: "v-1" })}>h-preview</button>
+      <button type="button" onClick={() => s.startPreview(vtarget(1))}>h-preview</button>
       <button type="button" onClick={() => s.openDialog({ kind: "apply", version: V1 })}>h-dialog</button>
       <button type="button" onClick={() => void applyNow(V1, true)}>h-apply-now</button>
       <button type="button" onClick={() => void requestApply(V1)}>h-request</button>
@@ -110,7 +111,7 @@ describe("useApplyFlow × onApplied（Task 10 fix round 1）", () => {
     });
     await waitFor(() => expect(onApplied).toHaveBeenCalledTimes(1));
     expect(order).toEqual(["apply-request", "apply-resolved", "onApplied"]);
-    expect(await screen.findByText("Applied v1")).toBeInTheDocument();
+    expect(await screen.findByText("Applied agile-beaver (0001aaa)")).toBeInTheDocument();
   });
 
   it("onApplied 丟錯 → 仍是成功路徑：對話框關、預覽離開、成功 toast，沒有錯誤 toast", async () => {
@@ -129,9 +130,9 @@ describe("useApplyFlow × onApplied（Task 10 fix round 1）", () => {
     renderFlow(onApplied);
     fireEvent.click(screen.getByText("h-preview"));
     fireEvent.click(screen.getByText("h-dialog"));
-    expect(hState()).toEqual({ preview: { seq: 1, id: "v-1" }, dialog: "apply" });
+    expect(hState()).toEqual({ preview: vtarget(1), dialog: "apply" });
     fireEvent.click(screen.getByText("h-apply-now"));
-    expect(await screen.findByText("Applied v1")).toBeInTheDocument();
+    expect(await screen.findByText(`Applied ${vlabel(1)}`)).toBeInTheDocument();
     expect(onApplied).toHaveBeenCalledTimes(1);
     expect(hState()).toEqual({ preview: null, dialog: null });
     expect(screen.queryByText(i18n.t("errors.fallback"))).not.toBeInTheDocument();
@@ -164,7 +165,7 @@ describe("useApplyFlow × onApplied（Task 10 fix round 1）", () => {
     await act(async () => {
       pending[0](jsonResponse(200, { current: CURRENT }));
     });
-    expect(await screen.findByText("Applied v1")).toBeInTheDocument();
+    expect(await screen.findByText(`Applied ${vlabel(1)}`)).toBeInTheDocument();
     // 進行中旗標在結束後放開：再點一次照常走完整流程。
     fireEvent.click(screen.getByText("h-request"));
     await waitFor(() => expect(count(APPLY1)).toBe(2));

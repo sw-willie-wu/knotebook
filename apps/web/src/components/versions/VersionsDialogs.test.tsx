@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { baseRefOrNull, vid, vlabel } from "@/test/version-fixtures";
 import { useRef, useState } from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -12,8 +13,8 @@ import { VersionsDialogs } from "./VersionsDialogs";
 import { useApplyFlow } from "./use-apply-flow";
 
 const NOTE = "n1";
-const v = (seq: number, over: Partial<VersionDto> = {}): VersionDto => ({ id: `v-${seq}`, seq, kind: "auto", name: null, editors: [], baseSeq: null, base: null, createdAt: "2026-10-09T00:00:00.000Z", ...over });
-const cur = (over: Partial<VersionCurrentDto> = {}): VersionCurrentDto => ({ baseSeq: 2, base: null, dirty: false, nextSeq: 3, autoEnabled: true, ...over });
+const v = (seq: number, over: Partial<VersionDto> = {}): VersionDto => ({ id: vid(seq), seq, kind: "auto", name: null, editors: [], baseSeq: null, base: baseRefOrNull(over.baseSeq), createdAt: "2026-10-09T00:00:00.000Z", ...over });
+const cur = (over: Partial<VersionCurrentDto> = {}): VersionCurrentDto => ({ baseSeq: 2, base: baseRefOrNull(over.baseSeq === undefined ? 2 : over.baseSeq), dirty: false, nextSeq: 3, autoEnabled: true, ...over });
 const listBody = (current: VersionCurrentDto): VersionListDto => ({ versions: [v(2), v(1)], current, nextBefore: null });
 
 type Handler = (url: string, init?: RequestInit) => { status: number; body?: unknown } | undefined;
@@ -38,7 +39,7 @@ function Harness({ target }: { target: VersionDto }) {
   const flow = useApplyFlow(NOTE);
   return (
     <div>
-      <button type="button" onClick={() => s.startPreview({ seq: target.seq, id: target.id })}>h-preview</button>
+      <button type="button" onClick={() => s.startPreview({ seq: target.seq, id: target.id, name: target.name })}>h-preview</button>
       <button type="button" onClick={() => void flow.requestApply(target)}>h-apply</button>
       <button type="button" onClick={() => s.openSave()}>h-save</button>
       <button type="button" onClick={() => s.openDialog({ kind: "rename", version: target })}>h-rename</button>
@@ -100,7 +101,7 @@ describe("VersionsDialogs＋useApplyFlow（spec §8.5）", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("儲存：描述帶 v{nextSeq}；名稱去頭尾空白送出；toast「Saved as v3」；關閉", async () => {
+  it("儲存：描述是固定句、不預告版號（#272 D5）；名稱去頭尾空白送出；toast「Saved as 里程碑 (0003aaa)」；關閉", async () => {
     const calls = stub((url, init) => {
       if (url === LIST) return { status: 200, body: listBody(cur({ dirty: true })) };
       if (url === `/api/notes/${NOTE}/versions` && init?.method === "POST") return { status: 201, body: { ...v(3, { kind: "manual", name: "里程碑" }), upgraded: false } };
@@ -109,10 +110,11 @@ describe("VersionsDialogs＋useApplyFlow（spec §8.5）", () => {
     renderDialogs();
     fireEvent.click(screen.getByText("h-save"));
     const dialog = await screen.findByRole("dialog", { name: "Save current version" });
-    expect(await within(dialog).findByText("Creates version v3 from the current content.")).toBeInTheDocument();
+    expect(await within(dialog).findByText("Creates a new version from the current content.")).toBeInTheDocument();
+    expect(dialog).not.toHaveTextContent(/\bv\d+\b|0003aaa/);
     fireEvent.change(within(dialog).getByLabelText("Version name (optional)"), { target: { value: "  里程碑 " } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
-    expect(await screen.findByText("Saved as v3")).toBeInTheDocument();
+    expect(await screen.findByText("Saved as 里程碑 (0003aaa)")).toBeInTheDocument();
     expect(calls.find((c) => c.method === "POST")?.body).toEqual({ name: "里程碑" });
     await waitFor(() => expect(hState().dialog).toBeNull());
   });
@@ -128,7 +130,7 @@ describe("VersionsDialogs＋useApplyFlow（spec §8.5）", () => {
     expect(within(screen.getByRole("dialog")).getByLabelText("Version name (optional)")).toHaveValue("草稿");
   });
 
-  it("儲存遇到內容與基底相同（upgraded:true）→ toast 依回應的 seq，不用快取的 baseSeq（r7 N-3）", async () => {
+  it("儲存遇到內容與基底相同（upgraded:true）→ toast 依回應的那一版，不用快取的基底（r7 N-3）", async () => {
     stub((url, init) => {
       if (url === LIST) return { status: 200, body: listBody(cur({ baseSeq: 9 })) };
       if (url === `/api/notes/${NOTE}/versions` && init?.method === "POST") return { status: 201, body: { ...v(2, { kind: "manual" }), upgraded: true } };
@@ -137,7 +139,7 @@ describe("VersionsDialogs＋useApplyFlow（spec §8.5）", () => {
     renderDialogs();
     fireEvent.click(screen.getByText("h-save"));
     fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Save" }));
-    expect(await screen.findByText("Same content as v2 — v2 is now a manual version")).toBeInTheDocument();
+    expect(await screen.findByText(`Same content as ${vlabel(2)} — it is now a manual version`)).toBeInTheDocument();
   });
 
   it("套用：重抓 current 不 dirty → 直接 POST apply（discardUnsaved:false、帶 versionId）、不跳對話框、toast、離開預覽", async () => {
@@ -150,8 +152,8 @@ describe("VersionsDialogs＋useApplyFlow（spec §8.5）", () => {
     renderDialogs();
     fireEvent.click(screen.getByText("h-preview"));
     fireEvent.click(screen.getByText("h-apply"));
-    expect(await screen.findByText("Applied v1")).toBeInTheDocument();
-    expect(calls.find((c) => c.url === APPLY1)?.body).toEqual({ versionId: "v-1", discardUnsaved: false });
+    expect(await screen.findByText(`Applied ${vlabel(1)}`)).toBeInTheDocument();
+    expect(calls.find((c) => c.url === APPLY1)?.body).toEqual({ versionId: vid(1), discardUnsaved: false });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(hState().preview).toBeNull();
   });
@@ -166,7 +168,7 @@ describe("VersionsDialogs＋useApplyFlow（spec §8.5）", () => {
     // 種子要真的落在面板讀的鍵上（#258：鍵變長後曾種到沒人讀的鍵，這案的前提就空了）。
     expect(queryClient.getQueryData(versionListKey(NOTE, "all"))).toBeDefined();
     fireEvent.click(screen.getByText("h-apply"));
-    const dialog = await screen.findByRole("dialog", { name: "Apply v1" });
+    const dialog = await screen.findByRole("dialog", { name: `Apply ${vlabel(1)}` });
     expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Apply without saving" })).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Save current version" })).toBeInTheDocument();
@@ -186,8 +188,8 @@ describe("VersionsDialogs＋useApplyFlow（spec §8.5）", () => {
     expect(calls.some((c) => c.url === APPLY1)).toBe(false);
     fireEvent.click(screen.getByText("h-apply"));
     fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Apply without saving" }));
-    expect(await screen.findByText("Applied v1")).toBeInTheDocument();
-    expect(calls.find((c) => c.url === APPLY1)?.body).toEqual({ versionId: "v-1", discardUnsaved: true });
+    expect(await screen.findByText(`Applied ${vlabel(1)}`)).toBeInTheDocument();
+    expect(calls.find((c) => c.url === APPLY1)?.body).toEqual({ versionId: vid(1), discardUnsaved: true });
   });
 
   it("三選一：儲存當前版本 → 開儲存對話框；存完自動接著套用（discardUnsaved:false），POST 順序是先存後套用", async () => {
@@ -200,12 +202,12 @@ describe("VersionsDialogs＋useApplyFlow（spec §8.5）", () => {
     });
     renderDialogs();
     fireEvent.click(screen.getByText("h-apply"));
-    fireEvent.click(within(await screen.findByRole("dialog", { name: "Apply v1" })).getByRole("button", { name: "Save current version" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: `Apply ${vlabel(1)}` })).getByRole("button", { name: "Save current version" }));
     fireEvent.click(within(await screen.findByRole("dialog", { name: "Save current version" })).getByRole("button", { name: "Save" }));
-    expect(await screen.findByText("Applied v1")).toBeInTheDocument();
+    expect(await screen.findByText(`Applied ${vlabel(1)}`)).toBeInTheDocument();
     const posts = calls.filter((c) => c.method === "POST").map((c) => c.url);
     expect(posts).toEqual([`/api/notes/${NOTE}/versions`, APPLY1]);
-    expect(calls.find((c) => c.url === APPLY1)?.body).toEqual({ versionId: "v-1", discardUnsaved: false });
+    expect(calls.find((c) => c.url === APPLY1)?.body).toEqual({ versionId: vid(1), discardUnsaved: false });
   });
 
   it("直接套用收到 409 version_unsaved_changes → 改跳三選一", async () => {
@@ -216,7 +218,7 @@ describe("VersionsDialogs＋useApplyFlow（spec §8.5）", () => {
     });
     renderDialogs();
     fireEvent.click(screen.getByText("h-apply"));
-    expect(await screen.findByRole("dialog", { name: "Apply v1" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: `Apply ${vlabel(1)}` })).toBeInTheDocument();
   });
 
   it("409 version_mismatch → toast errors.version_mismatch、invalidate 清單、離開預覽、沒有對話框", async () => {
@@ -243,7 +245,7 @@ describe("VersionsDialogs＋useApplyFlow（spec §8.5）", () => {
     });
     renderDialogs(v(1, { kind: "auto", name: "舊名" }));
     fireEvent.click(screen.getByText("h-rename"));
-    const dialog = await screen.findByRole("dialog", { name: "Edit name of v1" });
+    const dialog = await screen.findByRole("dialog", { name: `Edit name of ${vlabel(1, "舊名")}` });
     expect(within(dialog).getByText("Naming an automatic version makes it a manual version, which is kept until you delete it.")).toBeInTheDocument();
     const input = within(dialog).getByLabelText("Version name (optional)");
     expect(input).toHaveValue("舊名");
@@ -261,9 +263,9 @@ describe("VersionsDialogs＋useApplyFlow（spec §8.5）", () => {
     renderDialogs();
     fireEvent.click(screen.getByText("h-preview"));
     fireEvent.click(screen.getByText("h-delete"));
-    const dialog = await screen.findByRole("dialog", { name: "Delete v1?" });
+    const dialog = await screen.findByRole("dialog", { name: `Delete ${vlabel(1)}?` });
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
-    expect(await screen.findByText("Deleted v1")).toBeInTheDocument();
+    expect(await screen.findByText(`Deleted ${vlabel(1)}`)).toBeInTheDocument();
     expect(hState().preview).toBeNull();
   });
 
@@ -288,7 +290,7 @@ describe("VersionsDialogs＋useApplyFlow（spec §8.5）", () => {
     dialog = await screen.findByRole("dialog", { name: "Save current version" });
     await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
     fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
-    expect(await screen.findByText("Saved as v3")).toBeInTheDocument();
+    expect(await screen.findByText(`Saved as ${vlabel(3)}`)).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     await waitFor(() => expect(document.activeElement).toBe(editor));
   });
@@ -333,14 +335,14 @@ describe("VersionsDialogs＋useApplyFlow（spec §8.5）", () => {
     const editor = screen.getByTestId("h-editor");
     editor.focus();
     fireEvent.click(screen.getByText("h-apply"));
-    fireEvent.click(within(await screen.findByRole("dialog", { name: "Apply v1" })).getByRole("button", { name: "Save current version" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: `Apply ${vlabel(1)}` })).getByRole("button", { name: "Save current version" }));
     const save = await screen.findByRole("dialog", { name: "Save current version" });
     await waitFor(() => expect(save.contains(document.activeElement)).toBe(true));
     // 舊對話框卸載時 FocusScope 的還原事件在 setTimeout 0 送出——等過那一拍，焦點仍要在新對話框裡。
     await new Promise((r) => setTimeout(r, 50));
     expect(save.contains(document.activeElement)).toBe(true);
     fireEvent.click(within(save).getByRole("button", { name: "Save" }));
-    expect(await screen.findByText("Applied v1")).toBeInTheDocument();
+    expect(await screen.findByText(`Applied ${vlabel(1)}`)).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     await waitFor(() => expect(document.activeElement).toBe(editor));
   });
@@ -363,12 +365,12 @@ describe("VersionsDialogs＋useApplyFlow（spec §8.5）", () => {
     );
     renderDialogs();
     fireEvent.click(screen.getByText("h-apply"));
-    fireEvent.click(within(await screen.findByRole("dialog", { name: "Apply v1" })).getByRole("button", { name: "Save current version" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: `Apply ${vlabel(1)}` })).getByRole("button", { name: "Save current version" }));
     const save = await screen.findByRole("dialog", { name: "Save current version" });
     const submit = within(save).getByRole("button", { name: "Save" });
     fireEvent.click(submit);
     // 存檔已成功（toast 出現）、套用 POST 還沒回來。
-    expect(await screen.findByText("Saved as v3")).toBeInTheDocument();
+    expect(await screen.findByText(`Saved as ${vlabel(3)}`)).toBeInTheDocument();
     await waitFor(() => expect(calls.some((c) => c.url === APPLY1)).toBe(true));
     expect(submit).toBeDisabled();
     fireEvent.click(submit);
@@ -377,7 +379,7 @@ describe("VersionsDialogs＋useApplyFlow（spec §8.5）", () => {
     expect(calls.filter((c) => c.method === "POST" && c.url === `/api/notes/${NOTE}/versions`)).toHaveLength(1);
     expect(calls.filter((c) => c.url === APPLY1)).toHaveLength(1);
     releaseApply();
-    expect(await screen.findByText("Applied v1")).toBeInTheDocument();
+    expect(await screen.findByText(`Applied ${vlabel(1)}`)).toBeInTheDocument();
   });
 
   it("刪除遇到 409 version_is_base → 對話框內行內錯誤、對話框留著", async () => {
@@ -387,9 +389,9 @@ describe("VersionsDialogs＋useApplyFlow（spec §8.5）", () => {
     });
     renderDialogs();
     fireEvent.click(screen.getByText("h-delete"));
-    const dialog = await screen.findByRole("dialog", { name: "Delete v1?" });
+    const dialog = await screen.findByRole("dialog", { name: `Delete ${vlabel(1)}?` });
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(i18n.t("errors.version_is_base"));
-    expect(screen.getByRole("dialog", { name: "Delete v1?" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: `Delete ${vlabel(1)}?` })).toBeInTheDocument();
   });
 });

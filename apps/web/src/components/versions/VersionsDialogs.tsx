@@ -2,13 +2,14 @@ import { useLayoutEffect, useRef, useState, type FormEvent, type RefObject } fro
 import { useTranslation } from "react-i18next";
 import type { VersionDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
-import { useDeleteVersion, useRenameVersion, useSaveVersion, useVersionCurrent, useVersionList } from "@/api/versions";
+import { useDeleteVersion, useRenameVersion, useSaveVersion } from "@/api/versions";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
 import { useVersions } from "@/lib/versions-context";
 import { useApplyFlow } from "./use-apply-flow";
+import { versionLabel } from "./version-labels";
 
 // spec §6.3：上限 120 字（server 為最終裁決）。PR1 在 shared 匯出 `VERSION_NAME_MAX`（gate r1 N-4）——直接 import，不另寫一份常數；
 // Task 0 Step 2 一併核對它存在（不存在 → 交回、暫以字面 120 並註明）。
@@ -24,8 +25,7 @@ type CloseAutoFocus = (event: Event) => void;
 
 function SaveDialog({ noteId, then, onCloseAutoFocus }: { noteId: string; then?: VersionDto; onCloseAutoFocus: CloseAutoFocus }) {
   const { t } = useTranslation();
-  const { closeDialog, kindFilter } = useVersions();
-  const list = useVersionList(noteId, true, kindFilter);
+  const { closeDialog } = useVersions();
   const save = useSaveVersion(noteId);
   const { applyNow } = useApplyFlow(noteId);
   const [name, setName] = useState("");
@@ -34,7 +34,6 @@ function SaveDialog({ noteId, then, onCloseAutoFocus }: { noteId: string; then?:
   // 但還要等套用完成——這段期間不得再送出（否則多存一次、多送一次 apply）。ref 擋重入、state 讓鈕 disabled。
   const busyRef = useRef(false);
   const [busy, setBusy] = useState(false);
-  const nextSeq = useVersionCurrent(noteId, list, kindFilter)?.nextSeq;
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -44,7 +43,7 @@ function SaveDialog({ noteId, then, onCloseAutoFocus }: { noteId: string; then?:
     setError(null);
     try {
       const row = await save.mutateAsync(name);
-      toast({ title: row.upgraded ? t("versions.toast.upgraded", { seq: row.seq }) : t("versions.toast.saved", { seq: row.seq }) });
+      toast({ title: row.upgraded ? t("versions.toast.upgraded", { label: versionLabel(row) }) : t("versions.toast.saved", { label: versionLabel(row) }) });
       if (then) await applyNow(then, false);
       else closeDialog();
     } catch (err) {
@@ -62,7 +61,8 @@ function SaveDialog({ noteId, then, onCloseAutoFocus }: { noteId: string; then?:
         <form onSubmit={(e) => void submit(e)}>
           <DialogHeader>
             <DialogTitle>{t("versions.dialog.saveTitle")}</DialogTitle>
-            {nextSeq !== undefined && <DialogDescription>{t("versions.dialog.saveDescription", { seq: nextSeq })}</DialogDescription>}
+            {/* #272 D5：不預告會建立第幾版 */}
+            <DialogDescription>{t("versions.dialog.saveDescription")}</DialogDescription>
           </DialogHeader>
           <label className="mt-4 block text-sm" htmlFor="version-save-name">
             {t("versions.dialog.nameLabel")}
@@ -106,8 +106,8 @@ function ApplyDialog({ noteId, version, onCloseAutoFocus }: { noteId: string; ve
     <Dialog open onOpenChange={(open) => !open && closeDialog()}>
       <DialogContent onCloseAutoFocus={onCloseAutoFocus}>
         <DialogHeader>
-          <DialogTitle>{t("versions.dialog.applyTitle", { seq: version.seq })}</DialogTitle>
-          <DialogDescription>{t("versions.dialog.applyDescription", { seq: version.seq })}</DialogDescription>
+          <DialogTitle>{t("versions.dialog.applyTitle", { label: versionLabel(version) })}</DialogTitle>
+          <DialogDescription>{t("versions.dialog.applyDescription", { label: versionLabel(version) })}</DialogDescription>
         </DialogHeader>
         <DialogFooter className="mt-4">
           <Button type="button" variant="outline" disabled={busy} onClick={closeDialog}>
@@ -149,7 +149,7 @@ function RenameDialog({ noteId, version, onCloseAutoFocus }: { noteId: string; v
       <DialogContent dismissOnOutside={false} onCloseAutoFocus={onCloseAutoFocus}>
         <form onSubmit={(e) => void submit(e)}>
           <DialogHeader>
-            <DialogTitle>{t("versions.dialog.renameTitle", { seq: version.seq })}</DialogTitle>
+            <DialogTitle>{t("versions.dialog.renameTitle", { label: versionLabel(version) })}</DialogTitle>
             {version.kind === "auto" && <DialogDescription>{t("versions.dialog.renameAutoHint")}</DialogDescription>}
           </DialogHeader>
           <label className="mt-4 block text-sm" htmlFor="version-rename-name">
@@ -185,7 +185,7 @@ function DeleteDialog({ noteId, version, onCloseAutoFocus }: { noteId: string; v
     setError(null);
     try {
       await del.mutateAsync(version.seq);
-      toast({ title: t("versions.toast.deleted", { seq: version.seq }) });
+      toast({ title: t("versions.toast.deleted", { label: versionLabel(version) }) });
       if (preview?.seq === version.seq) stopPreview();
       closeDialog();
     } catch (err) {
@@ -197,7 +197,7 @@ function DeleteDialog({ noteId, version, onCloseAutoFocus }: { noteId: string; v
     <Dialog open onOpenChange={(open) => !open && closeDialog()}>
       <DialogContent onCloseAutoFocus={onCloseAutoFocus}>
         <DialogHeader>
-          <DialogTitle>{t("versions.dialog.deleteTitle", { seq: version.seq })}</DialogTitle>
+          <DialogTitle>{t("versions.dialog.deleteTitle", { label: versionLabel(version) })}</DialogTitle>
           <DialogDescription>{t("versions.dialog.deleteDescription")}</DialogDescription>
         </DialogHeader>
         {error !== null && (

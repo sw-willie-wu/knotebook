@@ -978,8 +978,8 @@
     "currentLabel": "目前狀態",
     "current": {
       "noBase": "沒有基底版本",
-      "clean": "沿自 v{{seq}} · 無修改",
-      "dirty": "沿自 v{{seq}} · 有未儲存的修改"
+      "clean": "沿自 {{label}} · 無修改",
+      "dirty": "沿自 {{label}} · 有未儲存的修改"
     },
     "autoOff": "此空間已關閉自動儲存",
     "siteOff": "站台已關閉自動儲存",
@@ -991,16 +991,18 @@
       "manual": "僅手動",
       "emptyManual": "沒有手動儲存的版本"
     },
-    "from": "沿自 v{{seq}}",
+    "from": "沿自 {{label}}",
     "deletedUser": "已刪除的使用者",
-    "rowMenu": "v{{seq}} 的動作",
+    "deletedSuffix": "{{label}}（已刪除）",
+    "deletedVersion": "已刪除的版本",
+    "rowMenu": "{{label}} 的動作",
     "menu": {
       "apply": "套用",
       "rename": "編輯版本名稱",
       "delete": "刪除",
       "baseNotDeletable": "目前內容的基底版本不能刪除"
     },
-    "applySeq": "套用 v{{seq}}",
+    "applySeq": "套用 {{label}}",
     "applyNone": "套用",
     "save": "儲存當前版本",
     "loadMore": "載入更早的版本",
@@ -1012,7 +1014,7 @@
       "next": "較新的版本"
     },
     "preview": {
-      "banner": "正在預覽 v{{seq}}",
+      "banner": "正在預覽 {{label}}",
       "leftPicker": "左側版本",
       "rightPicker": "右側版本",
       "currentOption": "目前狀態",
@@ -1029,26 +1031,26 @@
     },
     "dialog": {
       "saveTitle": "儲存當前版本",
-      "saveDescription": "以目前內容建立版本 v{{seq}}",
+      "saveDescription": "以目前內容建立一個新版本。",
       "nameLabel": "版本名稱（選填）",
       "cancel": "取消",
       "save": "儲存",
-      "applyTitle": "套用 v{{seq}}",
-      "applyDescription": "目前有未儲存的修改，套用 v{{seq}} 會覆蓋它們（也包括其他人尚未存成版本的修改）。",
+      "applyTitle": "套用 {{label}}",
+      "applyDescription": "目前有未儲存的修改，套用 {{label}} 會覆蓋它們（也包括其他人尚未存成版本的修改）。",
       "applyDiscard": "不儲存，直接套用",
       "applySaveFirst": "儲存當前版本",
-      "renameTitle": "編輯 v{{seq}} 的名稱",
+      "renameTitle": "編輯 {{label}} 的名稱",
       "renameAutoHint": "編輯名稱後，這一版會轉為手動版本並永久保留。",
-      "deleteTitle": "刪除 v{{seq}}？",
+      "deleteTitle": "刪除 {{label}}？",
       "deleteDescription": "這一版會從版本歷史移除，筆記目前的內容不會改變。",
       "delete": "刪除"
     },
     "toast": {
-      "saved": "已存為 v{{seq}}",
-      "upgraded": "內容與 v{{seq}} 相同，已將 v{{seq}} 設為手動版本",
-      "applied": "已套用 v{{seq}}",
+      "saved": "已存為 {{label}}",
+      "upgraded": "內容與 {{label}} 相同，已將它設為手動版本",
+      "applied": "已套用 {{label}}",
       "renamed": "已更新版本名稱",
-      "deleted": "已刪除 v{{seq}}"
+      "deleted": "已刪除 {{label}}"
     }
   },
   "storage": {

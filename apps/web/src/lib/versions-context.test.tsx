@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { vid, vtarget } from "@/test/version-fixtures";
 import { act, render, renderHook, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import type { VersionDto } from "@knotebook/shared";
@@ -32,7 +33,7 @@ function installMatchMedia(initialNarrow: boolean) {
   };
 }
 
-const V: VersionDto = { id: "v-1", seq: 1, kind: "manual", name: null, editors: [], baseSeq: null, base: null, createdAt: "2026-10-09T00:00:00.000Z" };
+const V: VersionDto = { id: vid(1), seq: 1, kind: "manual", name: null, editors: [], baseSeq: null, base: null, createdAt: "2026-10-09T00:00:00.000Z" };
 
 describe("versions-context", () => {
   let mm: ReturnType<typeof installMatchMedia>;
@@ -49,7 +50,7 @@ describe("versions-context", () => {
     expect(() => {
       result.current.open();
       result.current.openSave();
-      result.current.startPreview({ seq: 1, id: "x" });
+      result.current.startPreview({ seq: 1, id: "x", name: null });
     }).not.toThrow();
     expect(result.current.preview).toBeNull();
   });
@@ -71,7 +72,7 @@ describe("versions-context", () => {
     act(() => {
       result.current.open();
       result.current.openSave();
-      result.current.startPreview({ seq: 1, id: "x" });
+      result.current.startPreview({ seq: 1, id: "x", name: null });
     });
     expect(result.current.mode).toBeNull();
     expect(result.current.dialog).toBeNull();
@@ -82,7 +83,7 @@ describe("versions-context", () => {
     const { result } = renderHook(() => useVersionsController({ noteId: "n1", enabled: true }));
     act(() => {
       result.current.open();
-      result.current.startPreview({ seq: 3, id: "v-3" });
+      result.current.startPreview(vtarget(3));
     });
     expect(result.current.previewSeq).toBe(3);
     act(() => result.current.stopPreview());
@@ -94,10 +95,10 @@ describe("versions-context", () => {
     const { result } = renderHook(() => useVersionsController({ noteId: "n1", enabled: true }));
     act(() => {
       result.current.open();
-      result.current.startPreview({ seq: 3, id: "v-3" });
-      result.current.setCompareRight({ seq: 1, id: "v-1" });
+      result.current.startPreview(vtarget(3));
+      result.current.setCompareRight(vtarget(1));
     });
-    expect(result.current.preview).toEqual({ seq: 3, id: "v-3" });
+    expect(result.current.preview).toEqual(vtarget(3));
     act(() => result.current.close());
     expect(result.current.mode).toBeNull();
     expect(result.current.preview).toBeNull();
@@ -117,7 +118,7 @@ describe("versions-context", () => {
     const { result } = renderHook(() => useVersionsController({ noteId: "n1", enabled: true }));
     act(() => {
       result.current.open();
-      result.current.startPreview({ seq: 2, id: "v-2" });
+      result.current.startPreview(vtarget(2));
     });
     mm.set(true);
     expect(result.current.mode).toBeNull();
@@ -137,8 +138,8 @@ describe("versions-context", () => {
     const { result, rerender } = renderHook(({ id }: { id: string }) => useVersionsController({ noteId: id, enabled: true }), { initialProps: { id: "n1" } });
     act(() => {
       result.current.open();
-      result.current.startPreview({ seq: 2, id: "v-2" });
-      result.current.setCompareRight({ seq: 1, id: "v-1" });
+      result.current.startPreview(vtarget(2));
+      result.current.setCompareRight(vtarget(1));
       result.current.setSplitMode("split");
       result.current.setOnlyChanges(true);
       result.current.openSave();
@@ -161,7 +162,7 @@ describe("versions-context", () => {
     const { result, rerender } = renderHook(({ id }: { id: string }) => useVersionsController({ noteId: id, enabled: true }), { initialProps: { id: "n1" } });
     act(() => {
       result.current.open();
-      result.current.startPreview({ seq: 2, id: "v-2" });
+      result.current.startPreview(vtarget(2));
     });
     expect(result.current.mode).toBe("sheet");
     rerender({ id: "n2" });
@@ -202,7 +203,7 @@ describe("versions-context", () => {
     });
     act(() => {
       result.current.open();
-      result.current.startPreview({ seq: 2, id: "v-2" });
+      result.current.startPreview(vtarget(2));
     });
     rerender({ id: null, enabled: false });
     // 轉場中對外仍是 disabled（不渲染面板），但預覽已清、mode 還記著。
@@ -284,11 +285,11 @@ describe("versions-context", () => {
     });
     act(() => {
       result.current.open();
-      result.current.startPreview({ seq: 2, id: "v-2" });
+      result.current.startPreview(vtarget(2));
       result.current.openSave();
     });
     expect(result.current.mode).toBe("panel");
-    expect(result.current.preview).toEqual({ seq: 2, id: "v-2" });
+    expect(result.current.preview).toEqual(vtarget(2));
     expect(result.current.dialog).toEqual({ kind: "save" });
     rerender({ enabled: false });
     rerender({ enabled: true });
@@ -302,11 +303,11 @@ describe("versions-context", () => {
     const { result, rerender } = renderHook(({ id }: { id: string }) => useVersionsController({ noteId: id, enabled: true }), { initialProps: { id: "n1" } });
     act(() => {
       result.current.setSplitMode("split");
-      result.current.setCompareRight({ seq: 1, id: "v-1" });
+      result.current.setCompareRight(vtarget(1));
       result.current.setOnlyChanges(true);
     });
     expect(result.current.splitMode).toBe("split");
-    expect(result.current.compareRight).toEqual({ seq: 1, id: "v-1" });
+    expect(result.current.compareRight).toEqual(vtarget(1));
     expect(result.current.onlyChanges).toBe(true);
     rerender({ id: "n2" });
     expect(result.current.splitMode).toBe("auto");
@@ -324,25 +325,25 @@ describe("versions-context", () => {
 
   it("rev 10：startPreview 只換左邊，右邊選過的版保持（「面板選版本的時候如果右側有選成其他版的話不用跳回目前」）", () => {
     const { result } = renderHook(() => useVersionsController({ noteId: "n1", enabled: true }));
-    act(() => result.current.startPreview({ seq: 3, id: "v-3" }));
-    act(() => result.current.setCompareRight({ seq: 1, id: "v-1" }));
-    act(() => result.current.startPreview({ seq: 2, id: "v-2" }));
-    expect(result.current.preview).toEqual({ seq: 2, id: "v-2" });
-    expect(result.current.compareRight).toEqual({ seq: 1, id: "v-1" });
+    act(() => result.current.startPreview(vtarget(3)));
+    act(() => result.current.setCompareRight(vtarget(1)));
+    act(() => result.current.startPreview(vtarget(2)));
+    expect(result.current.preview).toEqual(vtarget(2));
+    expect(result.current.compareRight).toEqual(vtarget(1));
   });
 
   it("rev 10：stopPreview → 右邊重設 current", () => {
     const { result } = renderHook(() => useVersionsController({ noteId: "n1", enabled: true }));
-    act(() => result.current.startPreview({ seq: 3, id: "v-3" }));
-    act(() => result.current.setCompareRight({ seq: 1, id: "v-1" }));
+    act(() => result.current.startPreview(vtarget(3)));
+    act(() => result.current.setCompareRight(vtarget(1)));
     act(() => result.current.stopPreview());
     expect(result.current.compareRight).toBe("current");
   });
 
   it("rev 10：enabled 翻 false → 右邊重設 current（翻回 true 也不重現）", () => {
     const { result, rerender } = renderHook(({ enabled }: { enabled: boolean }) => useVersionsController({ noteId: "n1", enabled }), { initialProps: { enabled: true } });
-    act(() => result.current.startPreview({ seq: 3, id: "v-3" }));
-    act(() => result.current.setCompareRight({ seq: 1, id: "v-1" }));
+    act(() => result.current.startPreview(vtarget(3)));
+    act(() => result.current.setCompareRight(vtarget(1)));
     rerender({ enabled: false });
     rerender({ enabled: true });
     expect(result.current.compareRight).toBe("current");
@@ -350,15 +351,15 @@ describe("versions-context", () => {
 
   it("rev 10 N-2：enabled=false 時 setCompareRight 不生效（翻回 true 仍是 current）", () => {
     const { result, rerender } = renderHook(({ enabled }: { enabled: boolean }) => useVersionsController({ noteId: "n1", enabled }), { initialProps: { enabled: false } });
-    act(() => result.current.setCompareRight({ seq: 1, id: "v-1" }));
+    act(() => result.current.setCompareRight(vtarget(1)));
     rerender({ enabled: true });
     expect(result.current.compareRight).toBe("current");
   });
 
   it("rev 10：跨斷點（預覽一併離開）→ 右邊重設 current", () => {
     const { result } = renderHook(() => useVersionsController({ noteId: "n1", enabled: true }));
-    act(() => result.current.startPreview({ seq: 3, id: "v-3" }));
-    act(() => result.current.setCompareRight({ seq: 1, id: "v-1" }));
+    act(() => result.current.startPreview(vtarget(3)));
+    act(() => result.current.setCompareRight(vtarget(1)));
     mm.set(true);
     expect(result.current.preview).toBeNull();
     expect(result.current.compareRight).toBe("current");
