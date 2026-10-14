@@ -132,6 +132,15 @@ export function resolveFromList<T extends SiteLinkCandidate>(path: SiteNotePath,
   }
 }
 
+/**
+ * `resolveFromList` 命中 → 只取 `{ id, title }`（`convertSiteLinks` 的 resolve 回呼要的形）；未命中回 `undefined`。
+ * server 寫入（`parseMarkdownForNote`）用這支；web 快取解析與站內 AI 的同形閉包也一律改呼叫它，不各寫一份（PF-C13）。
+ */
+export function targetFromList(path: SiteNotePath, list: readonly SiteLinkCandidate[]): SiteLinkTarget | undefined {
+  const hit = resolveFromList(path, list);
+  return hit ? { id: hit.id, title: hit.title } : undefined;
+}
+
 /** link 內所有 text 片段串接（樣式丟棄，§6.3、§17-1）。 */
 export function linkText(content: unknown): string {
   if (typeof content === "string") return content;

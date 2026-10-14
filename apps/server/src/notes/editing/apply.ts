@@ -1,7 +1,7 @@
 import { and, desc, eq, notInArray } from "drizzle-orm";
 import type { Block, PartialBlock } from "@blocknote/core";
 import * as Y from "yjs";
-import { YDOC_FRAGMENT, topLevelContainers, type EditOp, type NoteOutlineEntry, type WikilinkTarget } from "@knotebook/shared";
+import { YDOC_FRAGMENT, topLevelContainers, type EditOp, type NoteOutlineEntry } from "@knotebook/shared";
 import type { CollabServer } from "../../collab/server.js";
 import type { VersionService } from "../../collab/versions.js";
 import { docClock } from "../../collab/store.js";
@@ -9,8 +9,9 @@ import type { Db } from "../../db/index.js";
 import { noteAiEdits } from "../../db/schema.js";
 import { syncLinksFromDoc } from "../links.js";
 import { versionFingerprint } from "../version-fingerprint.js";
+import type { VisibleNoteTarget } from "./candidates.js";
 import { fingerprintForIds, outlineOf, type OutlineEntry } from "./fingerprint.js";
-import { parseMarkdownForNote, type ParseError } from "./markdown.js";
+import { parseMarkdownForNote, siteOriginOf, type ParseError } from "./markdown.js";
 import { loadNoteDoc } from "./read.js";
 import type { EditingRuntime } from "./runtime.js";
 import { EditorSession, withDirectConnection, type DirectCtx } from "./session.js";
@@ -57,7 +58,7 @@ type Anchor = { block_id: string; position: "before" | "after" };
 // **解析出的 block JSON** 套到真 fork）；`/edits` 一律不傳，行為完全不變。
 export interface ApplyInput {
   noteId: string; userId: string; tokenId: string | null; agentLabel: string | null; op: EditOp;
-  sectionId?: string; markdown?: string; ifMatch?: string; candidates: WikilinkTarget[];
+  sectionId?: string; markdown?: string; ifMatch?: string; candidates: readonly VisibleNoteTarget[];
   blocks?: AnyPartialBlock[]; unbound?: number;
 }
 // ⚠ `ApplyResult` 是**內部**型別：`afterBlockIds` 只餵 presence，`NoteEditResultDto` 與 201
@@ -232,7 +233,7 @@ export async function prepareEdit(
         // **沒有測試會因為改回重新解析而變紅**，只能靠審查看程式碼，這裡誠實記下。
         blocks = input.blocks; unbound = input.unbound ?? 0;
       } else {
-        const parsed = parseMarkdownForNote(ed, input.markdown ?? "", input.candidates);
+        const parsed = parseMarkdownForNote(ed, input.markdown ?? "", input.candidates, siteOriginOf(deps.editing.baseUrl));
         if ("error" in parsed) return { error: parsed.error }; // `finally` 仍會 close()
         blocks = parsed.blocks; unbound = parsed.unbound;
       }

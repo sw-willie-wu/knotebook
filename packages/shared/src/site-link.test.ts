@@ -7,6 +7,7 @@ import {
   normalizeAnchor,
   parseSiteNoteHref,
   resolveFromList,
+  targetFromList,
   wikilinkDisplayText,
   wikilinkHref,
   wikilinkPropsFromLink,
@@ -168,6 +169,18 @@ describe("resolveFromList（server 預取清單與 web 快取共用）", () => {
   it("RF2：剖析後的編碼 CJK slug 命中 NFC slug 的那篇", () => {
     const parsed = parseSiteNoteHref("/n/alice/%E4%B8%AD%E6%96%87", ORIGIN)!;
     expect(resolveFromList(parsed.path, CANDIDATES)?.title).toBe("中文");
+  });
+});
+
+describe("targetFromList（PF-C13：server 寫入、web 快取、站內 AI 共用的「命中 → { id, title }」）", () => {
+  it("命中只回 { id, title }（不帶 slug／groupId／ownerHandle）；未命中回 undefined", () => {
+    expect(targetFromList({ kind: "g", groupId: GID.toLowerCase(), slug: "plan" }, CANDIDATES)).toEqual({
+      id: "aaaaaaaa-0000-4000-8000-000000000002", title: "Group Note",
+    });
+    expect(targetFromList({ kind: "ref", ref: "AAAAAAAA-0000-4000-8000-000000000001" }, CANDIDATES)).toEqual({
+      id: "aaaaaaaa-0000-4000-8000-000000000001", title: "Mine",
+    });
+    expect(targetFromList({ kind: "n", handle: "alice", slug: "plan" }, CANDIDATES)).toBeUndefined();
   });
 });
 

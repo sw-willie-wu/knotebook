@@ -10,7 +10,8 @@ import { PALETTE_COLORS, blocksToMarkdownWithColors, findDisallowedColor } from 
 import { readNoteContentFromDoc } from "../../src/notes/editing/read.js";
 
 const rt = new EditingRuntime({ baseUrl: "http://localhost/" }); rt.installGlobals();
-const notes = [{ id: "11111111-1111-4111-8111-111111111111", title: "A" }];
+const ORIGIN = "http://localhost";
+const notes = [{ id: "11111111-1111-4111-8111-111111111111", title: "A", slug: "a", groupId: null, ownerHandle: "alice" }];
 type Ed = EditorSession["editor"];
 
 // ⚠ 同 editing-markdown.test.ts：每一處 open 都 `try/finally close()`（lease 不變量）。
@@ -42,7 +43,7 @@ const readMd = async (doc: Y.Doc): Promise<string> => {
 /** 去掉 id 的 block JSON（比結構與顏色用）。 */
 const shape = (blocks: unknown): string => JSON.stringify(blocks, (k, v) => (k === "id" ? undefined : v));
 const parse = (ed: Ed, md: string) => {
-  const r = parseMarkdownForNote(ed, md, notes);
+  const r = parseMarkdownForNote(ed, md, notes, ORIGIN);
   if ("error" in r) throw new Error(r.error);
   return r.blocks;
 };
@@ -112,7 +113,7 @@ describe("寫入：parseMarkdownForNote 只收內建色名", () => {
     ["巢狀清單深處", `- a\n  - b\n    - <span style="color:#abcdef">c</span>`],
   ])("%s → unsupported_color（整筆拒絕）", async (_name, md) => {
     await withSession(ed => {
-      expect(parseMarkdownForNote(ed, md, notes)).toEqual({ error: "unsupported_color" });
+      expect(parseMarkdownForNote(ed, md, notes, ORIGIN)).toEqual({ error: "unsupported_color" });
     });
   });
 
@@ -129,7 +130,7 @@ describe("寫入：parseMarkdownForNote 只收內建色名", () => {
   it("一筆裡只要有一個壞色值就整筆拒絕（其餘合法也一樣）", async () => {
     await withSession(ed => {
       const md = `ok <span style="color:red">r</span>\n\n<p data-text-color="blue">b</p>\n\nbad <span style="color:#000">x</span>`;
-      expect(parseMarkdownForNote(ed, md, notes)).toEqual({ error: "unsupported_color" });
+      expect(parseMarkdownForNote(ed, md, notes, ORIGIN)).toEqual({ error: "unsupported_color" });
     });
   });
 });
@@ -250,7 +251,7 @@ describe("讀取：blocksToMarkdownWithColors", () => {
     ]);
     const md = await readMd(doc);
     expect(md).toBe(`x\n\n<p data-text-color="red"><span style="background-color:blue">y</span></p>\n`);
-    await withSession(ed => expect(parseMarkdownForNote(ed, md, notes)).not.toHaveProperty("error"));
+    await withSession(ed => expect(parseMarkdownForNote(ed, md, notes, ORIGIN)).not.toHaveProperty("error"));
   });
 
   it("檔案 block 的底色不帶出（它本來就被匯出成連結，HTML 也還原不回檔案 block）", async () => {
@@ -295,7 +296,7 @@ describe("讀取：blocksToMarkdownWithColors", () => {
   it("M1：字面文字裡的顏色標記讀出不跳脫——#hex 寫回被拒 unsupported_color，色盤名寫回變真顏色", async () => {
     const hexMd = await readMd(await docWith([{ type: "paragraph", content: `quote <span style="color:#ff0000">x</span>` }]));
     expect(hexMd).toBe(`quote <span style="color:#ff0000">x</span>\n`);
-    await withSession(ed => expect(parseMarkdownForNote(ed, hexMd, notes)).toEqual({ error: "unsupported_color" }));
+    await withSession(ed => expect(parseMarkdownForNote(ed, hexMd, notes, ORIGIN)).toEqual({ error: "unsupported_color" }));
     const namedMd = await readMd(await docWith([{ type: "paragraph", content: `quote <span style="color:red">x</span>` }]));
     expect(shape(await withSession(ed => parse(ed, namedMd)))).toContain(`"textColor":"red"`);
   });

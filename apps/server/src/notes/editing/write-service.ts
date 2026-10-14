@@ -43,8 +43,8 @@ import type { SlugScope } from "../slug.js";
 import type { NoteVersionRow } from "../tx/versions.js";
 import { applyEdit, type ApplyDeps, type ApplyResult, type EditingTestHooks } from "./apply.js";
 import { applyVersionEdit, type ApplyVersionFailureCode, type ApplyVersionInput } from "./apply-version.js";
-import { visibleNoteTitles } from "./candidates.js";
-import { parseMarkdownForNote, type ParseError } from "./markdown.js";
+import { visibleNoteTargets } from "./candidates.js";
+import { parseMarkdownForNote, siteOriginOf, type ParseError } from "./markdown.js";
 import { presenceIdentity, presenceTargetForWrite, type PresenceRegistry, type PresenceTarget } from "./presence.js";
 import { NoteWriteQueue, QueueBusyError } from "./queue.js";
 import { revertEdit, type RevertResult } from "./revert.js";
@@ -147,7 +147,8 @@ export class NoteWriteService {
       ifMatch?: string;
     }
   ): Promise<WriteOutcome<ApplyOk, ApplyFailureCode>> {
-    const candidates = await visibleNoteTitles(this.deps.db, input.userId);
+    // #269 §8.5（A9）：lease **之前**預取寫入者可見清單（含 slug／群組／handle）；之後的解析在記憶體內完成、lease 期間零 DB。
+    const candidates = await visibleNoteTargets(this.deps.db, input.userId);
     const agentLabel = input.tokenId ? await currentAgentLabel(this.deps.db, input.tokenId) : null;
     const applyDeps = this.applyDeps(log);
     let result: ApplyResult;
@@ -266,7 +267,8 @@ export class NoteWriteService {
     log: FastifyBaseLogger,
     input: { userId: string; userHandle: string; tokenId: string | null; title: string | undefined; content: string; scope: SlugScope }
   ): Promise<CreateWithContentResult> {
-    const candidates = await visibleNoteTitles(this.deps.db, input.userId);
+    // #269 §8.5（A9）：lease **之前**預取寫入者可見清單（含 slug／群組／handle）；之後的解析在記憶體內完成、lease 期間零 DB。
+    const candidates = await visibleNoteTargets(this.deps.db, input.userId);
     const agentLabel = input.tokenId ? await currentAgentLabel(this.deps.db, input.tokenId) : null;
     const applyDeps = this.applyDeps(log);
     // ⚠ `try { … } finally { s.close() }`（lease 不變量）；且**離開這個區塊之前不得再取得
@@ -274,7 +276,7 @@ export class NoteWriteService {
     const scratch = await EditorSession.open(applyDeps.editing, new Y.Doc());
     let prepared: ReturnType<typeof parseMarkdownForNote>;
     try {
-      prepared = parseMarkdownForNote(scratch.editor, input.content, candidates);
+      prepared = parseMarkdownForNote(scratch.editor, input.content, candidates, siteOriginOf(applyDeps.editing.baseUrl));
     } finally {
       scratch.close();
     }

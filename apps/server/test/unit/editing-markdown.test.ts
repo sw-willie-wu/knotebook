@@ -5,7 +5,13 @@ import { EditorSession } from "../../src/notes/editing/session.js";
 import { MAX_BLOCKS, parseMarkdownForNote } from "../../src/notes/editing/markdown.js";
 
 const rt = new EditingRuntime({ baseUrl: "http://localhost/" }); rt.installGlobals();
-const notes = [{ id: "11111111-1111-4111-8111-111111111111", title: "A" }];
+const ORIGIN = "http://localhost";
+const GID = "99999999-9999-4999-8999-999999999999";
+/** 寫入者的可見清單（#269：帶 slug／groupId／ownerHandle，站內網址比對用）。 */
+const notes = [
+  { id: "11111111-1111-4111-8111-111111111111", title: "A", slug: "a", groupId: null, ownerHandle: "alice" },
+  { id: "22222222-2222-4222-8222-222222222222", title: "Group Doc", slug: "plan", groupId: GID, ownerHandle: null },
+];
 
 // ⚠ 每一處 `EditorSession.open` 都要 `try { … } finally { s.close() }`：`close()` 是唯一釋放 runtime
 // lease 的路徑，這裡的 `rt` 又是模組層共用的，回呼一 throw 就永久佔掉一個 in-flight 名額
@@ -22,7 +28,7 @@ const withSession = async (fn: (ed: EditorSession["editor"]) => void) => {
 describe("parseMarkdownForNote", () => {
   it("wikilink 重綁、mermaid 還原、unbound 計數", async () => {
     await withSession(ed => {
-      const r = parseMarkdownForNote(ed, "x [[A]] [[B]]\n\n```mermaid\ngraph TD\n```", notes);
+      const r = parseMarkdownForNote(ed, "x [[A]] [[B]]\n\n```mermaid\ngraph TD\n```", notes, ORIGIN);
       if ("error" in r) throw new Error(r.error);
       expect(r.unbound).toBe(1);
       expect(r.blocks.map(b => b.type)).toEqual(["paragraph", "mermaid"]);
@@ -30,19 +36,19 @@ describe("parseMarkdownForNote", () => {
   });
   it("空／純空白 → empty_content；> MAX_BLOCKS → too_many_blocks", async () => {
     await withSession(ed => {
-      expect(parseMarkdownForNote(ed, "   \n  \n", notes)).toEqual({ error: "empty_content" });
-      expect(parseMarkdownForNote(ed, Array.from({ length: MAX_BLOCKS + 1 }, (_, i) => `p${i}`).join("\n\n"), notes)).toEqual({ error: "too_many_blocks" });
+      expect(parseMarkdownForNote(ed, "   \n  \n", notes, ORIGIN)).toEqual({ error: "empty_content" });
+      expect(parseMarkdownForNote(ed, Array.from({ length: MAX_BLOCKS + 1 }, (_, i) => `p${i}`).join("\n\n"), notes, ORIGIN)).toEqual({ error: "too_many_blocks" });
     });
   });
   it("未知型別整筆拒絕（不靜默剝除）", async () => {
     await withSession(ed => {
-      const r = parseMarkdownForNote(ed, "<custom-widget>x</custom-widget>", notes);
+      const r = parseMarkdownForNote(ed, "<custom-widget>x</custom-widget>", notes, ORIGIN);
       // BlockNote 對未知 HTML 元素通常降級為 paragraph；本案釘住「若 parse 產出的 type 不在 schema
       // 白名單 → unsupported_block」，用收窄白名單的假 editor 來驗。真 schema ＝ defaultBlockSpecs
       // 全集＋mermaid／codeBlock（見 shared 的 createHeadlessNoteSchema），markdown/HTML parser 產得
       // 出來的 type 一定在裡面——所以**整合層造不出這個碼**，那邊的清單要誠實寫明不驗，別硬塞。
       const narrowed = { ...ed, schema: { blockSchema: { paragraph: ed.schema.blockSchema.paragraph } }, tryParseMarkdownToBlocks: ed.tryParseMarkdownToBlocks.bind(ed) } as unknown as typeof ed;
-      expect(parseMarkdownForNote(narrowed, "# heading", notes)).toEqual({ error: "unsupported_block" });
+      expect(parseMarkdownForNote(narrowed, "# heading", notes, ORIGIN)).toEqual({ error: "unsupported_block" });
       expect("error" in r ? r.error : "ok").not.toBe("unsupported_block"); // 真 schema 下純 HTML 不會炸成 500
     });
   });
@@ -72,7 +78,7 @@ describe("parseMarkdownForNote", () => {
     // 處中止。排在前面純粹是給讀的人的順序，不是它有鑑別力的條件。
     it("正向對照：合法的 https 連結真的變成 link，href 一字不差", async () => {
       await withSession(ed => {
-        const r = parseMarkdownForNote(ed, "[x](https://example.com)", notes);
+        const r = parseMarkdownForNote(ed, "[x](https://example.com)", notes, ORIGIN);
         if ("error" in r) throw new Error(r.error);
         const links = inlines(r.blocks).filter(c => c.type === "link");
         expect(links).toHaveLength(1);
@@ -85,7 +91,7 @@ describe("parseMarkdownForNote", () => {
       ["data:", "[x](data:text/html,evil)"],
     ])("%s 的 href 不會產出任何 link inline content（退化成純文字）", async (_scheme, markdown) => {
       await withSession(ed => {
-        const r = parseMarkdownForNote(ed, markdown, notes);
+        const r = parseMarkdownForNote(ed, markdown, notes, ORIGIN);
         if ("error" in r) throw new Error(r.error);
         const content = inlines(r.blocks);
         expect(content.filter(c => c.type === "link")).toEqual([]);
@@ -106,7 +112,7 @@ describe("parseMarkdownForNote", () => {
   // 這一案之前**不會有任何測試變紅**。
   it("http(s) 連結匯出的 HTML 帶 target=\"_blank\"——圖示語意的唯一依據", async () => {
     await withSession(ed => {
-      const r = parseMarkdownForNote(ed, "[abs](https://example.com/p)", notes);
+      const r = parseMarkdownForNote(ed, "[abs](https://example.com/p)", notes, ORIGIN);
       if ("error" in r) throw new Error(r.error);
       const html = ed.blocksToHTMLLossy(r.blocks);
       // 先確認這一輪真的產出了 anchor——否則下面那句會在「根本沒有連結」時恆假／
@@ -115,6 +121,68 @@ describe("parseMarkdownForNote", () => {
       expect(html, `連結沒有 target="_blank"，「開新分頁」圖示的標示就不成立：${html}`).toContain(
         'target="_blank"',
       );
+    });
+  });
+
+  describe("#269 站內連結 → wikilink（§8.5、§9.2）", () => {
+    const wl = (r: ReturnType<typeof parseMarkdownForNote>) => {
+      if ("error" in r) throw new Error(r.error);
+      return r.blocks;
+    };
+    it("三形（/notes/<id>、/n/、/g/）相對與同 origin 絕對、帶 #b- 錨點 → wikilink；label 規則；unbound 不計站內連結", async () => {
+      await withSession(ed => {
+        const r = parseMarkdownForNote(
+          ed,
+          `[A](/notes/11111111-1111-4111-8111-111111111111) [自訂](${ORIGIN}/n/alice/a#b-h1) [x](/g/${GID}/plan) [[A]]`,
+          notes,
+          ORIGIN,
+        );
+        if ("error" in r) throw new Error(r.error);
+        expect(r.unbound).toBe(0);
+        const content = (r.blocks[0] as { content: Array<{ type: string; props?: Record<string, string> }> }).content.filter(n => n.type === "wikilink");
+        expect(content.map(n => n.props)).toEqual([
+          { targetNoteId: "11111111-1111-4111-8111-111111111111", snapshotTitle: "A", label: "", anchorBlockId: "" },
+          { targetNoteId: "11111111-1111-4111-8111-111111111111", snapshotTitle: "自訂", label: "自訂", anchorBlockId: "h1" },
+          { targetNoteId: "22222222-2222-4222-8222-222222222222", snapshotTitle: "x", label: "x", anchorBlockId: "" },
+          { targetNoteId: "11111111-1111-4111-8111-111111111111", snapshotTitle: "A" },
+        ]);
+      });
+    });
+
+    it("寫入者看不到的目標、看不到的群組、舊 slug、帶 query、#/ fragment、/p/ → 維持一般連結（不計 unbound）", async () => {
+      await withSession(ed => {
+        const r = parseMarkdownForNote(
+          ed,
+          [
+            "[n](/notes/33333333-3333-4333-8333-333333333333)",
+            `[g](/g/88888888-8888-4888-8888-888888888888/plan)`,
+            "[old](/n/alice/old-slug)",
+            "[q](/n/alice/a?present)",
+            "[s](/n/alice/a#/slide)",
+            "[p](/p/alice/a)",
+          ].join(" "),
+          notes,
+          ORIGIN,
+        );
+        if ("error" in r) throw new Error(r.error);
+        expect(r.unbound).toBe(0);
+        const types = (r.blocks[0] as { content: Array<{ type: string }> }).content.filter(n => n.type !== "text").map(n => n.type);
+        expect(types).toEqual(["link", "link", "link", "link", "link", "link"]);
+      });
+    });
+
+    it("表格裡的站內連結與 [[…]] 都綁；表格裡找不到的 [[…]] 計入 unbound", async () => {
+      await withSession(ed => {
+        const blocks = wl(parseMarkdownForNote(ed, "| a | b |\n| --- | --- |\n| [x](/n/alice/a) | [[A]] [[Nope]] |", notes, ORIGIN));
+        const table = blocks[0] as { type: string; content: { rows: Array<{ cells: unknown[] }> } };
+        expect(table.type).toBe("table");
+        const body = JSON.stringify(table.content.rows);
+        expect(body).toContain('"type":"wikilink"');
+        expect(body.match(/"type":"wikilink"/g)).toHaveLength(2);
+        const r = parseMarkdownForNote(ed, "| a |\n| --- |\n| [[Nope]] |", notes, ORIGIN);
+        if ("error" in r) throw new Error(r.error);
+        expect(r.unbound).toBe(1);
+      });
     });
   });
 });
