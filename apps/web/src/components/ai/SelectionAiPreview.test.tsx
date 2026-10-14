@@ -1,7 +1,10 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router";
 import type { AiPreview } from "@/ai/preview";
+import "@/i18n";
 import type { DiffBlock } from "@/lib/version-diff";
 import { ThemeProvider } from "@/theme";
 import { SelectionAiPreview } from "./SelectionAiPreview";
@@ -46,6 +49,53 @@ describe("SelectionAiPreview（#263 §5.4）", () => {
     expect(onReady.mock.calls).toEqual([[first], [null], [second]]);
     unmount();
     expect(onReady.mock.calls.at(-1)).toEqual([null]);
+  });
+
+  it("#269：只改快照的 wikilink 區塊（AI 往返後 snapshotTitle≠label）不標記；快取沒有筆記清單（titleOf 為空）也照常渲染", async () => {
+    const wl = (snap: string) => ({ type: "wikilink", props: { targetNoteId: "11111111-1111-4111-8111-111111111111", snapshotTitle: snap, label: "L", anchorBlockId: "" } });
+    const preview: AiPreview = { before: [{ id: "a", type: "paragraph", content: [wl("Target")], children: [] }], after: [{ id: "a", type: "paragraph", content: [wl("L")], children: [] }], noChange: false };
+    // 未變更區塊的 wikilink 由 MemberWikilink 渲染（要 QueryClient 與 Router）；queries 預設停用 ⇒ 不發 /api/notes、快取保持空。
+    const queryClient = new QueryClient({ defaultOptions: { queries: { enabled: false } } });
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>
+          <ThemeProvider>
+            <SelectionAiPreview preview={preview} onReady={() => {}} />
+          </ThemeProvider>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+    const box = await screen.findByTestId("selection-ai-preview");
+    expect(box.querySelector("[data-diff]")?.getAttribute("data-diff") ?? "context").toBe("context");
+  });
+
+  it("#269：變動區塊內的 wikilink（無 label）以快取的現行標題呈現——titleOf 有傳到 renderDiff，不顯示兩側快照", async () => {
+    const ID = "11111111-1111-4111-8111-111111111111";
+    const wl = (snap: string) => ({ type: "wikilink", props: { targetNoteId: ID, snapshotTitle: snap, label: "", anchorBlockId: "" } });
+    const text = (t: string) => ({ type: "text", text: t, styles: {} });
+    const preview: AiPreview = {
+      before: [{ id: "a", type: "paragraph", content: [wl("Target"), text(" x")], children: [] }],
+      after: [{ id: "a", type: "paragraph", content: [wl("Other"), text(" y")], children: [] }],
+      noChange: false,
+    };
+    // queries 停用 ⇒ 不發 /api/notes；清單只從預先放進快取的資料來（hook 被動訂閱）。
+    const queryClient = new QueryClient({ defaultOptions: { queries: { enabled: false } } });
+    queryClient.setQueryData(["notes"], [{ id: ID, title: "Live", ownerHandle: "ann", groupId: null, slug: "live" }]);
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={queryClient}>
+          <ThemeProvider>
+            <SelectionAiPreview preview={preview} onReady={() => {}} />
+          </ThemeProvider>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+    const box = await screen.findByTestId("selection-ai-preview");
+    const block = box.querySelector('[data-id="a"]');
+    expect(block?.getAttribute("data-diff")).toBe("changed");
+    expect(block).toHaveTextContent("Live");
+    expect(block).not.toHaveTextContent("Target");
+    expect(block).not.toHaveTextContent("Other");
   });
 });
 

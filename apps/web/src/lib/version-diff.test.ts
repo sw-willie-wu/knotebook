@@ -88,7 +88,7 @@ describe("diffBlocks（spec §8.4）", () => {
     ]);
   });
 
-  it("inline 重組：連結與非文字 inline（wikilink）保留原形", () => {
+  it("inline 重組：連結保留原形；wikilink 以文字＋link 外觀呈現（#269）", () => {
     const wl = { type: "wikilink", props: { targetNoteId: "n2", snapshotTitle: "T" } };
     const a: DiffBlock[] = [{ id: "A", type: "paragraph", props: {}, content: [wl, { type: "text", text: " 看", styles: {} }], children: [] }];
     const b: DiffBlock[] = [
@@ -96,7 +96,8 @@ describe("diffBlocks（spec §8.4）", () => {
     ];
     const { blocks } = renderDiff(diffBlocks(a, b));
     const content = blocks[0].content as Array<Record<string, unknown>>;
-    expect(content[0]).toEqual(wl);
+    // #269 §13.2：變動區塊內的 wikilink 以文字（label || 標題 || snapshotTitle || href）呈現，重組成 link 外觀。
+    expect(content[0]).toEqual({ type: "link", href: "/notes/n2", content: [{ type: "text", text: "T", styles: {} }] });
     expect(content).toContainEqual({ type: "link", href: "https://x.test", content: [{ type: "text", text: "這", styles: { backgroundColor: "green" } }] });
   });
 
@@ -566,5 +567,101 @@ describe("splitRows（spec rev 12 §8.4 並排逐區塊對齊）", () => {
       if (rnd() < 0.3 && b.length > 1) b = [...b.slice(1), b[0]];
       checkInvariants(a, b, splitRows(a, b, diffBlocks(a, b)));
     }
+  });
+});
+
+describe("#269 W9 wikilink 的 diff（§13.2）", () => {
+  const ID1 = "11111111-1111-4111-8111-111111111111";
+  const ID2 = "22222222-2222-4222-8222-222222222222";
+  const wl = (props: Record<string, string>) => ({ type: "wikilink", props: { targetNoteId: ID1, snapshotTitle: "", label: "", anchorBlockId: "", ...props } });
+  const lnk = (href: string, text: string) => ({ type: "link", href, content: [{ type: "text", text, styles: {} }] });
+  const para = (id: string, ...content: unknown[]): DiffBlock => ({ id, type: "paragraph", props: {}, content, children: [] });
+  const DEL = { strike: true, backgroundColor: "red" };
+  const ADD = { backgroundColor: "green" };
+  const contentOf = (a: DiffBlock[], b: DiffBlock[], titleOf?: (id: string) => string | undefined) =>
+    renderDiff(diffBlocks(a, b), { titleOf }).blocks[0]!.content as unknown[];
+
+  it("label 變：刪舊 label＋增新 label（各一個 link 節點）", () => {
+    expect(contentOf([para("A", wl({ label: "A" }))], [para("A", wl({ label: "B" }))])).toEqual([
+      { type: "link", href: `/notes/${ID1}`, content: [{ type: "text", text: "A", styles: DEL }] },
+      { type: "link", href: `/notes/${ID1}`, content: [{ type: "text", text: "B", styles: ADD }] },
+    ]);
+  });
+
+  it("目標變（文字相同）：恰兩個節點——刪除的 Foo、新增的 Foo", () => {
+    const c = contentOf([para("A", wl({ snapshotTitle: "Foo" }))], [para("A", wl({ targetNoteId: ID2, snapshotTitle: "Foo" }))]);
+    expect(c).toEqual([
+      { type: "link", href: `/notes/${ID1}`, content: [{ type: "text", text: "Foo", styles: DEL }] },
+      { type: "link", href: `/notes/${ID2}`, content: [{ type: "text", text: "Foo", styles: ADD }] },
+    ]);
+  });
+
+  it("錨點變：href 不同 ⇒ 刪＋增", () => {
+    const c = contentOf([para("A", wl({ label: "X", anchorBlockId: "a1" }))], [para("A", wl({ label: "X", anchorBlockId: "a2" }))]);
+    expect(c.map((n) => (n as { href: string }).href)).toEqual([`/notes/${ID1}#b-a1`, `/notes/${ID1}#b-a2`]);
+  });
+
+  it("一般連結 → wikilink（文字等於標題的轉換）：恰兩個節點；反方向 wikilink → 一般連結 /notes/B 也不合併", () => {
+    const titleOf = (id: string) => (id === ID1 ? "Foo" : undefined);
+    expect(contentOf([para("A", lnk(`/notes/${ID1}`, "Foo"))], [para("A", wl({ snapshotTitle: "Foo" }))], titleOf)).toEqual([
+      { type: "link", href: `/notes/${ID1}`, content: [{ type: "text", text: "Foo", styles: DEL }] },
+      { type: "link", href: `/notes/${ID1}`, content: [{ type: "text", text: "Foo", styles: ADD }] },
+    ]);
+    expect(contentOf([para("A", wl({ snapshotTitle: "Foo" }))], [para("A", lnk(`/notes/${ID1}`, "Foo"))], titleOf)).toHaveLength(2);
+  });
+
+  it("部分重疊的 label 編輯：共同前綴之後恰一個刪除節點＋一個新增節點（Chapter 3→4、第3章→第4章）", () => {
+    for (const [from, to] of [["Chapter 3", "Chapter 4"], ["第3章", "第4章"]]) {
+      const c = contentOf([para("A", { type: "text", text: "see ", styles: {} }, wl({ label: from }))], [para("A", { type: "text", text: "see ", styles: {} }, wl({ label: to }))]);
+      expect(c).toEqual([
+        { type: "text", text: "see ", styles: {} },
+        { type: "link", href: `/notes/${ID1}`, content: [{ type: "text", text: from, styles: DEL }] },
+        { type: "link", href: `/notes/${ID1}`, content: [{ type: "text", text: to, styles: ADD }] },
+      ]);
+    }
+  });
+
+  it("空顯示文字（label、標題、快照皆空）：以 wikilinkHref 出現；換目標看得見；只含它的段落不判為空白", () => {
+    const c = contentOf([para("A", wl({}))], [para("A", wl({ targetNoteId: ID2 }))]);
+    expect(c).toEqual([
+      { type: "link", href: `/notes/${ID1}`, content: [{ type: "text", text: `/notes/${ID1}`, styles: DEL }] },
+      { type: "link", href: `/notes/${ID2}`, content: [{ type: "text", text: `/notes/${ID2}`, styles: ADD }] },
+    ]);
+    expect(diffBlocks([para("A", wl({}))], [para("A", wl({ targetNoteId: ID2 }))])[0]!.status).toBe("changed");
+  });
+
+  it("變動區塊內、只有 snapshotTitle 不同的 wikilink（titleOf 給同一個現行標題）：照常一個不帶 diff 樣式的節點（逐字鍵不含 snapshotTitle）", () => {
+    const titleOf = () => "Live";
+    const c = contentOf(
+      [para("A", wl({ snapshotTitle: "Old" }), { type: "text", text: " x", styles: {} })],
+      [para("A", wl({ snapshotTitle: "New" }), { type: "text", text: " y", styles: {} })],
+      titleOf,
+    );
+    expect(c[0]).toEqual({ type: "link", href: `/notes/${ID1}`, content: [{ type: "text", text: "Live", styles: {} }] });
+  });
+
+  it("區塊層：只有 snapshotTitle 變 ⇒ unchanged、marks 與並排 marks 都沒有它（無 label 快照過期；有 label 往返後快照≠label）", () => {
+    for (const [before, after] of [
+      [wl({ snapshotTitle: "Old" }), wl({ snapshotTitle: "New" })],
+      [wl({ label: "L", snapshotTitle: "Target" }), wl({ label: "L", snapshotTitle: "L" })],
+    ]) {
+      const a = [para("A", before)];
+      const b = [para("A", after)];
+      const entries = diffBlocks(a, b);
+      expect(entries[0]!.status).toBe("unchanged");
+      expect(renderDiff(entries).marks.has("A")).toBe(false);
+      const sides = sideBySideMarks(entries);
+      expect(sides.left.has("A") || sides.right.has("A")).toBe(false);
+    }
+  });
+
+  it("diffBlocks／renderDiff 不改寫輸入（深相等）；含 wikilink 的文件 splitRows 保有錨點列", () => {
+    const a = [para("A", wl({ label: "A" })), para("B", { type: "text", text: "keep", styles: {} })];
+    const b = [para("A", wl({ label: "B" })), para("B", { type: "text", text: "keep", styles: {} })];
+    const before = JSON.parse(JSON.stringify([a, b]));
+    const entries = diffBlocks(a, b);
+    renderDiff(entries, { titleOf: () => "T" });
+    expect([a, b]).toEqual(before);
+    expect(splitRows(a, b, entries)).toEqual([{ left: 0, right: 0 }, { left: 1, right: 1 }]);
   });
 });

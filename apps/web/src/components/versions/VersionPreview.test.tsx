@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Profiler } from "react";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router";
 import * as Y from "yjs";
 import { BlockNoteEditor } from "@blocknote/core";
 import { blocksToYXmlFragment } from "@blocknote/core/yjs";
@@ -759,5 +760,57 @@ describe("VersionPreview（spec §8.4）", () => {
     await waitFor(() => expect(screen.getByTestId("preview-state")).toHaveTextContent('"seq":3'));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(await screen.findByRole("button", { name: "Changed · see before and after" })).toBeInTheDocument();
+  });
+
+  it("#269：變動區塊內的 wikilink 以快取的現行標題呈現（renderDiff 收到 titleOf）；只改快照的區塊不標記；清單重抓、相關標題沒變不重建唯讀編輯器", async () => {
+    const ID = "11111111-1111-4111-8111-111111111111";
+    const W1 = [
+      { id: "A", type: "paragraph", content: [{ type: "wikilink", props: { targetNoteId: ID, snapshotTitle: "Old", label: "", anchorBlockId: "" } }, " a"] },
+      { id: "B", type: "paragraph", content: [{ type: "wikilink", props: { targetNoteId: ID, snapshotTitle: "Old", label: "", anchorBlockId: "" } }] },
+    ];
+    const W2 = [
+      { id: "A", type: "paragraph", content: [{ type: "wikilink", props: { targetNoteId: ID, snapshotTitle: "New", label: "", anchorBlockId: "" } }, " b"] },
+      { id: "B", type: "paragraph", content: [{ type: "wikilink", props: { targetNoteId: ID, snapshotTitle: "New", label: "", anchorBlockId: "" } }] },
+    ];
+    // ownerHandle／groupId／slug：未變更區塊 B 由 MemberWikilink 渲染，命中時組 canonicalNotePath（兩者皆缺會 throw）。
+    const notes = [{ id: ID, title: "Live Title", ownerHandle: "ann", groupId: null, slug: "live-title" }];
+    stub({
+      "/api/notes": notes,
+      [`/api/notes/${NOTE}/versions?limit=50`]: list([ver(2), ver(1)]),
+      [`/api/notes/${NOTE}/versions/2`]: { id: "v-2", seq: 2, ydoc: b64(W2) },
+      [`/api/notes/${NOTE}/versions/1`]: { id: "v-1", seq: 1, ydoc: b64(W1) },
+    });
+    const create = vi.spyOn(BlockNoteEditor, "create");
+    try {
+      // 不用 renderPreview：未變更區塊 B 的 wikilink 由 MemberWikilink 渲染，它要 Router（useNavigate）——本案自帶 MemoryRouter。
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const commits = vi.fn();
+      render(
+        <MemoryRouter>
+          <QueryClientProvider client={queryClient}>
+            <ThemeProvider>
+              <Host doc={new Y.Doc()} seq={1} right={2} profile={commits} />
+            </ThemeProvider>
+          </QueryClientProvider>
+        </MemoryRouter>,
+      );
+      fireEvent.click(screen.getByText("go"));
+      fireEvent.click(screen.getByText("r"));
+      queryClient.setQueryData(["notes"], notes);
+      const view = await screen.findByTestId("diff-single");
+      // 變動區塊 A 的 wikilink 走 renderDiff 的逐字層：顯示 titleOf 給的現行標題，不是快照 Old／New。
+      await waitFor(() => expect(view.querySelector('[data-id="A"]')).toHaveTextContent("Live Title"));
+      expect(within(view).queryByText("Old")).not.toBeInTheDocument();
+      expect(view.querySelector('[data-id="B"]')?.closest("[data-diff]")?.getAttribute("data-diff") ?? "context").toBe("context");
+      const before = create.mock.calls.length;
+      const commitsBefore = commits.mock.calls.length;
+      // 清單重抓、多了一篇無關筆記：先等 VersionPreview 子樹確實 commit（hook 訂閱 ["notes"]），再數 create——
+      // 相關標題沒變 ⇒ titleOf 同一個函式 ⇒ 不重建唯讀編輯器。
+      act(() => queryClient.setQueryData(["notes"], [...notes, { id: "unrelated", title: "U", ownerHandle: "ann", groupId: null, slug: "u" }]));
+      await waitFor(() => expect(commits.mock.calls.length).toBeGreaterThan(commitsBefore));
+      expect(create.mock.calls.length).toBe(before);
+    } finally {
+      create.mockRestore();
+    }
   });
 });

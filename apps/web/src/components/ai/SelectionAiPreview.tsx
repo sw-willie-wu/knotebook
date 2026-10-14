@@ -2,6 +2,7 @@ import { useEffect, useMemo } from "react";
 import type { AiPreview } from "@/ai/preview";
 import { DiffEditor } from "@/components/versions/VersionPreview";
 import { diffBlocks, renderDiff } from "@/lib/version-diff";
+import { useWikilinkTitleOf } from "@/lib/use-wikilink-titles";
 
 /**
  * 框選 AI 框的預覽區（#263 spec §5.4）：`DiffEditor` 單欄渲染 `renderDiff(diffBlocks(before, after))`（只含被改的區塊）。
@@ -15,7 +16,8 @@ import { diffBlocks, renderDiff } from "@/lib/version-diff";
  */
 export function SelectionAiPreview({ preview, onReady }: { preview: AiPreview; onReady: (ready: AiPreview | null) => void }) {
   // `DiffEditor` 以 `blocks` 身分決定要不要重建編輯器——一律記憶化。
-  const rendered = useMemo(() => renderDiff(diffBlocks(preview.before, preview.after)), [preview]);
+  const titleOf = useWikilinkTitleOf(preview.before, preview.after);
+  const rendered = useMemo(() => renderDiff(diffBlocks(preview.before, preview.after), { titleOf }), [preview, titleOf]);
   useEffect(() => {
     onReady(preview);
     return () => onReady(null);

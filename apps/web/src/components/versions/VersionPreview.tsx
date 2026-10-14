@@ -13,6 +13,7 @@ import { diffBlocks, renderDiff, sideBySideMarks, splitRows, type DiffBlock, typ
 import { forkLiveBlocks, ydocBytesToBlocks } from "@/lib/version-snapshot";
 import { safeMediaUrl } from "@/lib/media-url";
 import { useContainerWidth } from "@/lib/use-container-width";
+import { useWikilinkTitleOf } from "@/lib/use-wikilink-titles";
 import { useVersions } from "@/lib/versions-context";
 import { useTheme } from "@/theme";
 import { cn } from "@/lib/utils";
@@ -285,8 +286,10 @@ export function VersionPreview({ doc, forceSingle = false }: { doc: Y.Doc; force
     return [leftBlocks, rightBlocks];
   }, [rightIsCurrent, leftBlocks, rightBlocks, preview, doc]);
   const entries = useMemo(() => (a && b ? diffBlocks(a, b) : null), [a, b]);
+  const titleOf = useWikilinkTitleOf(a, b);
   const collapsedText = useCallback((n: number) => t("versions.preview.collapsed", { count: n }), [t]);
-  const single = useMemo(() => (entries ? renderDiff(entries, { onlyChanges, collapsedText }) : null), [entries, onlyChanges, collapsedText]);
+  // #269 §13.2：titleOf 以「相關標題」為值相等的鍵記憶化——清單重抓但相關標題沒變時同一個函式，這裡不重算、DiffEditor 不重建。
+  const single = useMemo(() => (entries ? renderDiff(entries, { onlyChanges, collapsedText, titleOf }) : null), [entries, onlyChanges, collapsedText, titleOf]);
   const sides = useMemo(() => (entries ? sideBySideMarks(entries) : null), [entries]);
   const nonText = useMemo(() => (entries && single ? collectNonText(entries, single.marks) : []), [entries, single]);
 

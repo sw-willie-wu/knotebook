@@ -1,4 +1,5 @@
 import { diffWordsWithSpace } from "diff";
+import { normalizeAnchor, wikilinkHref, wikilinkVisibleText } from "@knotebook/shared";
 
 /**
  * 版本預覽的 diff（spec §8.4，A7：在 client 算）。純函式、不碰 DOM、不碰 Y.Doc。
@@ -55,7 +56,21 @@ interface Ctx {
   anon: number;
 }
 
-const shallow = (b: DiffBlock) => JSON.stringify({ type: b.type, props: b.props ?? {}, content: b.content ?? null });
+/**
+ * #269 §13.2：區塊層比較略過 wikilink 的 `snapshotTitle`——MCP／站內 AI 往返時它常變（帶 label 的連結往返後一律變），不得讓區塊
+ * 被標成 changed。只影響序列化（replacer 回傳新物件），**輸入不改寫**。
+ */
+function ignoreWikilinkSnapshot(_key: string, value: unknown): unknown {
+  if (value !== null && typeof value === "object" && (value as { type?: unknown }).type === "wikilink") {
+    const { props, ...rest } = value as { props?: Record<string, unknown> };
+    if (props && "snapshotTitle" in props) {
+      const { snapshotTitle: _ignored, ...keep } = props;
+      return { ...rest, props: keep };
+    }
+  }
+  return value;
+}
+const shallow = (b: DiffBlock) => JSON.stringify({ type: b.type, props: b.props ?? {}, content: b.content ?? null }, ignoreWikilinkSnapshot);
 
 /** 每個值在序列中的位置；回最長遞增子序列所佔的位置集合（O(n log n)）。 */
 function lisPositions(seq: number[]): Set<number> {
@@ -397,15 +412,22 @@ export function markOf(e: DiffEntry): DiffMark {
 // ── inline 重組 ────────────────────────────────────────────────────────────────
 
 type Styles = Record<string, unknown>;
+type Side = "eq" | "del" | "add";
 interface Unit {
   ch: string;
   styles: Styles;
   href?: string;
+  /** #269：wikilink 單位的比對鍵 [targetNoteId, anchorBlockId, label]——刻意不含 snapshotTitle。 */
+  wl?: string;
   node?: unknown;
+  side?: Side;
 }
 const OBJ = "\uFFFC";
 
-function flatten(content: unknown): Unit[] {
+/** wikilink 的顯示文字（renderDiff 的逐字層才給；textOf 不給 ⇒ wikilink 維持一個 U+FFFC，配對行為不變）。 */
+type WikilinkText = (props: Record<string, unknown>) => string;
+
+function flatten(content: unknown, wikilinkText?: WikilinkText): Unit[] {
   const units: Unit[] = [];
   if (!Array.isArray(content)) return units;
   for (const item of content as Array<Record<string, unknown>>) {
@@ -415,6 +437,13 @@ function flatten(content: unknown): Unit[] {
       for (const inner of (item.content as Array<Record<string, unknown>>) ?? []) {
         for (const ch of Array.from(String(inner.text ?? ""))) units.push({ ch, styles: (inner.styles as Styles) ?? {}, href: String(item.href) });
       }
+    } else if (item.type === "wikilink" && wikilinkText) {
+      const props = (item.props ?? {}) as Record<string, unknown>;
+      const id = String(props.targetNoteId ?? "");
+      const anchor = normalizeAnchor(props.anchorBlockId);
+      const href = wikilinkHref(id, anchor);
+      const wl = JSON.stringify([id, anchor, typeof props.label === "string" ? props.label : ""]);
+      for (const ch of Array.from(wikilinkText(props))) units.push({ ch, styles: {}, href, wl });
     } else {
       units.push({ ch: OBJ, styles: {}, node: item });
     }
@@ -422,54 +451,94 @@ function flatten(content: unknown): Unit[] {
   return units;
 }
 
+const unitKey = (u: Unit) => `${u.href ?? ""}\u0000${u.wl ?? ""}`;
+
+/** `(href, wl, 側)` 任一改變就開新節點——刪除的 wikilink 與緊接著插入、href 相同的一般連結永不合併。 */
 function regroup(units: Unit[]): unknown[] {
   const out: Array<Record<string, unknown>> = [];
+  let lastLinkKey: string | null = null;
   for (const u of units) {
     if (u.node !== undefined) {
       out.push(u.node as Record<string, unknown>);
+      lastLinkKey = null;
       continue;
     }
     const text = { type: "text", text: u.ch, styles: u.styles };
     const last = out[out.length - 1];
     if (u.href !== undefined) {
-      if (last?.type === "link" && last.href === u.href) {
+      const key = `${unitKey(u)}\u0000${u.side ?? "eq"}`;
+      if (last?.type === "link" && lastLinkKey === key) {
         const inner = last.content as Array<Record<string, unknown>>;
-        const tail = inner[inner.length - 1];
+        const tail = inner[inner.length - 1]!;
         if (JSON.stringify(tail.styles) === JSON.stringify(u.styles)) tail.text = String(tail.text) + u.ch;
         else inner.push(text);
       } else {
         out.push({ type: "link", href: u.href, content: [text] });
       }
+      lastLinkKey = key;
     } else if (last?.type === "text" && JSON.stringify(last.styles) === JSON.stringify(u.styles)) {
       last.text = String(last.text) + u.ch;
+      lastLinkKey = null;
     } else {
       out.push(text);
+      lastLinkKey = null;
     }
   }
   return out;
 }
 
-function inlineDiff(aContent: unknown, bContent: unknown): unknown[] {
-  const ua = flatten(aContent);
-  const ub = flatten(bContent);
+const asDeleted = (u: Unit): Unit => (u.node !== undefined ? { ...u, side: "del" } : { ...u, side: "del", styles: { ...u.styles, strike: true, backgroundColor: "red" } });
+const asAdded = (u: Unit): Unit => (u.node !== undefined ? { ...u, side: "add" } : { ...u, side: "add", styles: { ...u.styles, backgroundColor: "green" } });
+
+/**
+ * #269 §13.2：equal 段逐對比較兩側單位的 `(href, wl)`，不同就當成不一致；整個輸出序列中每個極大的連續非 equal 區域一律發成
+ * 「該區域全部舊側單位（刪）＋全部新側單位（增）」——不逐單位交錯，regroup 才會各重組成一個節點。
+ */
+function inlineDiff(aContent: unknown, bContent: unknown, wikilinkText?: WikilinkText): unknown[] {
+  const ua = flatten(aContent, wikilinkText);
+  const ub = flatten(bContent, wikilinkText);
   const parts = diffWordsWithSpace(ua.map((u) => u.ch).join(""), ub.map((u) => u.ch).join(""));
-  const out: Unit[] = [];
+  const ops: Array<{ side: Side; unit: Unit }> = [];
   let ia = 0;
   let ib = 0;
   for (const part of parts) {
     const n = Array.from(part.value).length;
     if (part.added) {
-      for (const u of ub.slice(ib, ib + n)) out.push(u.node !== undefined ? u : { ...u, styles: { ...u.styles, backgroundColor: "green" } });
+      for (const u of ub.slice(ib, ib + n)) ops.push({ side: "add", unit: u });
       ib += n;
     } else if (part.removed) {
-      for (const u of ua.slice(ia, ia + n)) out.push(u.node !== undefined ? u : { ...u, styles: { ...u.styles, strike: true, backgroundColor: "red" } });
+      for (const u of ua.slice(ia, ia + n)) ops.push({ side: "del", unit: u });
       ia += n;
     } else {
-      out.push(...ub.slice(ib, ib + n));
+      for (let k = 0; k < n; k += 1) {
+        const x = ua[ia + k]!;
+        const y = ub[ib + k]!;
+        if (unitKey(x) === unitKey(y)) ops.push({ side: "eq", unit: y });
+        else {
+          ops.push({ side: "del", unit: x });
+          ops.push({ side: "add", unit: y });
+        }
+      }
       ia += n;
       ib += n;
     }
   }
+  const out: Unit[] = [];
+  let dels: Unit[] = [];
+  let adds: Unit[] = [];
+  const flush = () => {
+    out.push(...dels.map(asDeleted), ...adds.map(asAdded));
+    dels = [];
+    adds = [];
+  };
+  for (const op of ops) {
+    if (op.side === "eq") {
+      flush();
+      out.push(op.unit);
+    } else if (op.side === "del") dels.push(op.unit);
+    else adds.push(op.unit);
+  }
+  flush();
   return regroup(out);
 }
 
@@ -479,7 +548,12 @@ function hasChange(e: DiffEntry): boolean {
   return markOf(e) !== "context" || e.children.some(hasChange);
 }
 
-function renderLevel(entries: DiffEntry[], marks: Map<string, DiffMarkInfo>, opts: { onlyChanges: boolean; collapsedText: (n: number) => string }, ctx: { collapsed: number }): DiffBlock[] {
+function renderLevel(
+  entries: DiffEntry[],
+  marks: Map<string, DiffMarkInfo>,
+  opts: { onlyChanges: boolean; collapsedText: (n: number) => string; wikilinkText: WikilinkText },
+  ctx: { collapsed: number },
+): DiffBlock[] {
   const out: DiffBlock[] = [];
   let run = 0;
   const flush = () => {
@@ -499,7 +573,7 @@ function renderLevel(entries: DiffEntry[], marks: Map<string, DiffMarkInfo>, opt
     const src = (e.status === "deleted" ? e.before : e.after)!;
     const mark = markOf(e);
     const nonText = e.status === "changed" && !INLINE_DIFF_TYPES.has(src.type);
-    const content = e.status === "changed" && !nonText ? inlineDiff(e.before!.content, e.after!.content) : src.content;
+    const content = e.status === "changed" && !nonText ? inlineDiff(e.before!.content, e.after!.content, opts.wikilinkText) : src.content;
     out.push({ ...src, id: e.key, content, children: renderLevel(e.children, marks, opts, ctx) });
     if (mark !== "context") marks.set(e.key, { mark, moved: e.moved, nonText });
   }
@@ -507,9 +581,20 @@ function renderLevel(entries: DiffEntry[], marks: Map<string, DiffMarkInfo>, opt
   return out;
 }
 
-export function renderDiff(entries: DiffEntry[], opts: { onlyChanges?: boolean; collapsedText?: (n: number) => string } = {}): DiffRender {
+export function renderDiff(
+  entries: DiffEntry[],
+  opts: { onlyChanges?: boolean; collapsedText?: (n: number) => string; titleOf?: (id: string) => string | undefined } = {},
+): DiffRender {
   const marks = new Map<string, DiffMarkInfo>();
-  const blocks = renderLevel(entries, marks, { onlyChanges: opts.onlyChanges ?? false, collapsedText: opts.collapsedText ?? ((n) => `… ${n} …`) }, { collapsed: 0 });
+  const titleOf = opts.titleOf;
+  // #269 §13.2：逐字層的 wikilink 顯示文字＝label || titleOf(id) || snapshotTitle || wikilinkHref（同 §7.3 匯出的後備鏈，永遠 ≥1 單位）。
+  const wikilinkText: WikilinkText = (props) => wikilinkVisibleText(props, titleOf?.(String(props.targetNoteId ?? "")));
+  const blocks = renderLevel(
+    entries,
+    marks,
+    { onlyChanges: opts.onlyChanges ?? false, collapsedText: opts.collapsedText ?? ((n) => `… ${n} …`), wikilinkText },
+    { collapsed: 0 },
+  );
   if (blocks.length === 0) return { blocks: [{ id: "diff-empty", type: "paragraph" }], marks };
   return { blocks, marks };
 }
