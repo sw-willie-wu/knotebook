@@ -5,6 +5,7 @@
 import "@blocknote/mantine/style.css";
 import { lazy, useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { useQueryClient } from "@tanstack/react-query";
 import type * as Y from "yjs";
 import type { HocuspocusProvider } from "@hocuspocus/provider";
 import { BlockNoteEditor, filterSuggestionItems, SuggestionMenu } from "@blocknote/core";
@@ -16,11 +17,13 @@ import {
   type DefaultReactSuggestionItem,
 } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/mantine";
+import type { NoteDto } from "@knotebook/shared";
 import { useCreateNote, useNotes } from "@/api/notes";
 import { classifyMediaTransfer, type BlockedTransferReason } from "@/collab/schema";
 import { buildCollabEditorBase } from "@/collab/editor-options";
 import { createMarkdownLinkExtension } from "@/collab/markdown-link";
 import { createMarkdownPasteHandler } from "@/collab/paste";
+import { createSiteLinkConvertExtension, createSiteLinkEnv, type SiteLinkEnvRef } from "@/collab/site-link-convert";
 import { useCollabUndoLifeline } from "@/collab/undo";
 import { buildSlashMenuItems } from "@/components/slash-menu";
 import { LinkDialog } from "@/components/LinkDialog";
@@ -115,6 +118,8 @@ export interface NoteEditorOptionsInput {
   /** 目前這篇筆記的 id（Task 13）：`createUploadFile` 組 `POST
    * /api/notes/:noteId/uploads` 的路徑要用。 */
   noteId: string;
+  /** #269 §8.4：站內連結轉換的 env（late-bound ref：快取與編輯器都在建立之後才有）。 */
+  siteLinks: SiteLinkEnvRef;
 }
 
 /**
@@ -124,7 +129,7 @@ export interface NoteEditorOptionsInput {
  * data URL 仍攔截）、共編 fragment 名稱、字典選擇這幾條契約的所在，而且純粹是
  * 資料——測試可以直接呼叫並斷言，不必掛編輯器。
  */
-export function buildNoteEditorOptions({ doc, provider, user, language, translate, editorRef, noteId }: NoteEditorOptionsInput) {
+export function buildNoteEditorOptions({ doc, provider, user, language, translate, editorRef, noteId, siteLinks }: NoteEditorOptionsInput) {
   return withCollaboration({
     // schema／字典／collaboration（fragment 名、provider 形狀）抽在共用底層——公開
     // 唯讀頁（#72 `buildReadonlyNoteEditorOptions`）用同一份，兩邊不各寫一份。
@@ -153,9 +158,9 @@ export function buildNoteEditorOptions({ doc, provider, user, language, translat
     // 區塊）——判斷與理由都在 `@/collab/paste`，這裡只負責接線。
     pasteHandler: createMarkdownPasteHandler(),
     _tiptapOptions: {
-      // issue #99：手打 markdown 連結語法（`[文字](網址)`）自動轉成真連結。裁決函式與
-      // 判準理由都在 `@/collab/markdown-link`——這裡只負責接線。
-      extensions: [createMarkdownLinkExtension({ editorRef })],
+      // issue #99：手打 markdown 連結語法（`[文字](網址)`）自動轉成真連結；#269 §8.4：站內連結 → wikilink（link AddMarkStep
+      // 外掛）。裁決與判準理由分別在 `@/collab/markdown-link`、`@/collab/site-link-convert`——這裡只負責接線。
+      extensions: [createMarkdownLinkExtension({ editorRef }), createSiteLinkConvertExtension({ envRef: siteLinks })],
       editorProps: {
         handleDOMEvents: createMediaBlockingDOMEvents(translate),
         // `[[` 觸發偵測（Task 3 §12.2 recipe）。這裡刻意**不**倚賴 `SuggestionMenu`
@@ -364,6 +369,15 @@ export function NoteEditor({
   // `@/components/wikilink/menu` 的 `EditorRef`）。
   const editorRef = useRef<EditorRef["current"]>(null);
 
+  // #269：站內連結轉換的 env——每次 render 換新（讀最新的快取），外掛與後備都在使用者動作當下才讀 ref。
+  const queryClient = useQueryClient();
+  const siteLinksRef = useRef<SiteLinkEnvRef["current"]>(null);
+  siteLinksRef.current = createSiteLinkEnv({
+    origin: window.location.origin,
+    getNotes: () => queryClient.getQueryData<NoteDto[]>(["notes"]),
+    editorRef,
+  });
+
   const editor = useCreateBlockNote(
     buildNoteEditorOptions({
       doc,
@@ -373,6 +387,7 @@ export function NoteEditor({
       translate: lateBoundTranslate(translateRef),
       editorRef,
       noteId,
+      siteLinks: siteLinksRef,
     }),
     // 語言不進 deps：字典只在建立時讀一次，換語言要重開頁面才生效（換成
     // 「重建 editor」的代價是共編綁定重掛，不值得）。noteId 同理不進 deps——`useCollab`
