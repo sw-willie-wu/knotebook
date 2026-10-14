@@ -4,18 +4,22 @@
  * `notes/editing/apply-version.ts`（Task 8）。⚠ 狀態只在這個 process 的記憶體（同 `NoteWriteQueue`）。
  *
  * 狀態來源（`resolve`）：Map 有條目 → 用它（必須 `initialized`）；Map 沒有但文件已載入（§9 空窗期）→ uninitialized；
- * 文件沒載入 → 呼叫端給的 `transient` doc 建暫時狀態（`loadFingerprint` 就是它自己的指紋），用完即丟、不進 Map。
+ * 文件沒載入 → 呼叫端給的 `transient` doc 建暫時狀態（`loadFingerprint` 就是它自己的指紋；無基底且待切中＝待切段的參考指紋，
+ * #272 §6.1），用完即丟、不進 Map。
  */
-import { and, asc, eq, gt, inArray, lt, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, lt, lte, notInArray, sql } from "drizzle-orm";
 import * as Y from "yjs";
 import {
-  VERSION_DAILY_UNTIL_DAYS_DEFAULT, VERSION_IDLE_MS, VERSION_KEEP_ALL_DAYS_DEFAULT, YDOC_FRAGMENT, type VersionCurrentDto,
+  VERSION_AUTO_WAIT_MINUTES_DEFAULT, VERSION_DAILY_UNTIL_DAYS_DEFAULT, VERSION_IDLE_MS, VERSION_KEEP_ALL_DAYS_DEFAULT, YDOC_FRAGMENT, type VersionCurrentDto,
 } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
 import { groups, noteStates, noteVersions, notes, siteSettings, users } from "../db/schema.js";
 import type { DirectCtx } from "../notes/editing/session.js";
 import { UUID_RE } from "../notes/service.js";
-import { VersionCutAbort, cutVersionInTx, notBaseVersionSql, spaceKeyOf, type CutVersionInput, type NoteVersionRow, type VersionEditorJson } from "../notes/tx/versions.js";
+import {
+  PENDING_CLEARED, VersionCutAbort, cutVersionInTx, dedupeEditors, notBaseVersionSql, spaceKeyOf,
+  type CutVersionInput, type NoteVersionRow, type VersionEditorJson,
+} from "../notes/tx/versions.js";
 import { VACUUM_VERSION_FINGERPRINT, versionFingerprint } from "../notes/version-fingerprint.js";
 import { selectVersionsToDelete } from "./version-policy.js";
 
@@ -23,6 +27,10 @@ const DAY_MS = 86_400_000;
 export const VERSION_SWEEP_BATCH = 100;
 export const VERSION_SWEEP_INTERVAL_MS = 60 * 60_000;
 export const VERSION_SWEEP_FIRST_DELAY_MS = 5 * 60_000;
+/** #272 §7.1：自動切版掃描每 30 s 一輪、每輪至多 100 篇（先舊後新）；單篇丟錯後 10 分鐘內不重試、不佔批次名額。 */
+export const VERSION_AUTO_SCAN_INTERVAL_MS = 30_000;
+export const VERSION_AUTO_SCAN_BATCH = 100;
+export const VERSION_AUTO_SCAN_BACKOFF_MS = 10 * 60_000;
 const PRUNE_DELETE_CHUNK = 1000;
 /** 從 onLoadDocument 進來的 noteLoaded 比對失敗時重來的上限（只有 §9 的 forget 會造成失敗，r7 實跑）。 */
 const NOTE_LOADED_MAX_ATTEMPTS = 5;
@@ -40,6 +48,13 @@ export interface CutOptions {
   /** 文件沒載入時呼叫端自己讀出的 doc（§5.4 的 fork、§6.1／§6.3 讀 note_states 的 doc）。 */
   transient?: Y.Doc;
 }
+/** #272 §7.3：切版的完整結果。公開的 `cutIfDirty` 把 clean／stale／not-due 收成 `null`（契約不變）。 */
+export type CutOutcome =
+  | { kind: "cut"; row: NoteVersionRow; upgraded: boolean }
+  | { kind: "clean" }
+  | { kind: "stale" }
+  | { kind: "not-due" }
+  | { kind: "skipped"; reason: CutSkip };
 /** Hocuspocus 實例結構上符合（`documents` 是 `Map<string, Document>`）；測試注入假 host。 */
 export interface VersionDocsHost {
   documents: { get(name: string): Y.Doc | undefined; has(name: string): boolean };
@@ -56,16 +71,20 @@ export interface VersionServiceDeps {
   idleMs?: number;
   /** 測試注入手動觸發的計時器；預設 setTimeout（unref）。 */
   timers?: VersionTimers;
+  /** #272 §7.1：測試用——覆寫站台設定的等待 X（毫秒）；未傳＝每輪現讀 `site_settings.version_auto_wait_minutes`。 */
+  autoWaitMs?: number;
   /**
    * 測試注入縫（生產不注入＝每個縫點一次可選鏈判斷）。
    * `afterMetaRead`：`resolve()` 的「文件沒載入」路徑讀完 `readVersionMeta`、回傳暫時狀態之前
    * （即 `cutIfDirty` 進 `cutVersionInTx` 之前；帶 `transient` 的 `isDirty` 也經 `resolve()` 走到這裡）——
    * `versions-matrix.test.ts` 在這裡設 barrier，讓並發切版全部帶同一份舊基底進交易。
    * `afterPruneRead`：`pruneNote` 讀完、算出要刪的 seq 之後、DELETE 之前（驗 DELETE 自帶述詞的並發保險，起草裁定 14）。
+   * `beforeCutDue`：掃描器處理單篇的第一步（`docFor` 之前，#272 §7.3）。丟錯＝模擬單篇失敗（`versions-scan.test.ts` 案 18）。
    */
   testHooks?: {
     afterMetaRead?: (noteId: string) => Promise<void>;
     afterPruneRead?: (noteId: string, doomed: number[]) => Promise<void>;
+    beforeCutDue?: (noteId: string) => Promise<void>;
   };
 }
 export interface VersionMeta {
@@ -74,6 +93,10 @@ export interface VersionMeta {
   counter: number;
   spaceKey: string;
   autoEnabled: boolean;
+  /** #272 §6.1：待切段最後一次內容變動的落盤時刻（NULL＝沒有待切）。 */
+  pendingAt: Date | null;
+  /** #272 §5.1：只在待切段開始時沒有基底才有值——段開始前的內容指紋。 */
+  pendingRefFingerprint: string | null;
 }
 export interface VersionStateSnapshot {
   initialized: boolean;
@@ -119,6 +142,12 @@ export interface VersionService {
   beforeUnload(noteId: string, doc: Y.Doc): Promise<void>;
   /** 關機：清掉所有計時器。 */
   close(): void;
+  /** #272 §7.2：切 `version_pending_at ≤ at − X` 的筆記（每輪至多 100 篇、先舊後新）。同時只跑一輪；`stopScan` 之後恆回 0。回「選到幾篇」。 */
+  scanDue(at?: Date): Promise<number>;
+  /** #272 §7.4：之後不再開新的一輪；進行中那一輪做完手上那一篇就停。resolve＝那一輪結束（沒有進行中就立刻）。 */
+  stopScan(): Promise<void>;
+  /** #272 §7.5：e2e 測試縫——覆寫 X（毫秒；null＝取消覆寫）。優先於 `deps.autoWaitMs` 與站台設定。 */
+  overrideAutoWaitMs(ms: number | null): void;
 }
 
 const realTimers: VersionTimers = {
@@ -140,6 +169,8 @@ export async function readVersionMeta(db: Db, noteId: string): Promise<VersionMe
       counter: notes.versionCounter,
       ownerId: notes.ownerId,
       groupId: notes.groupId,
+      pendingAt: notes.versionPendingAt,
+      pendingRefFingerprint: notes.versionPendingRefFingerprint,
       userAuto: users.autoVersions,
       groupAuto: groups.autoVersions,
       siteAuto: siteSettings.autoVersionsEnabled,
@@ -152,7 +183,18 @@ export async function readVersionMeta(db: Db, noteId: string): Promise<VersionMe
     .limit(1);
   if (!r) return null;
   const spaceAuto = r.ownerId !== null ? r.userAuto : r.groupAuto;
-  return { baseSeq: r.baseSeq, baseFingerprint: r.baseFingerprint, counter: r.counter, spaceKey: spaceKeyOf(r), autoEnabled: r.siteAuto !== false && spaceAuto === true };
+  return {
+    baseSeq: r.baseSeq, baseFingerprint: r.baseFingerprint, counter: r.counter, spaceKey: spaceKeyOf(r), autoEnabled: r.siteAuto !== false && spaceAuto === true,
+    pendingAt: r.pendingAt, pendingRefFingerprint: r.pendingRefFingerprint,
+  };
+}
+
+/**
+ * #272 §6.1：沒有基底時的比對對象。沒有基底且待切中＝待切段的參考指紋（段開始前的內容）；否則＝`actual`（呼叫端算的當下內容指紋）。
+ * 載入（`noteLoaded`）與暫時狀態（`resolve`）同式。
+ */
+function loadFingerprintOf(meta: Pick<VersionMeta, "baseFingerprint" | "pendingAt" | "pendingRefFingerprint">, actual: string | null): string | null {
+  return meta.baseFingerprint === null && meta.pendingAt !== null ? meta.pendingRefFingerprint : actual;
 }
 
 /** §7-2d：套用成功後把基底指向該版——只在那一版還在時（`EXISTS`）。回 true＝1 列。#272：同時寫基底 uuid（D12）。 */
@@ -170,19 +212,52 @@ export async function clearVersionBase(db: Db, noteId: string): Promise<void> {
   await db.update(notes).set({ versionBaseSeq: null, versionBaseFingerprint: null, versionBaseVersionId: null }).where(eq(notes.id, noteId));
 }
 
+/**
+ * #272 §6.3：一次內容變動——設待切時刻、併入編輯者；段開始（之前沒有待切）且沒有基底時記下參考指紋。單句、不開交易；
+ * `SET` 右側讀的是舊值，所以 `CASE` 判的是「這次之前是否已待切」。編輯者兩鍵恆在，`@>` 即完全相等（先在 JS 去重）。
+ * 帶空間述詞：`spaceKey` 對不上（搬家／轉移後才落地的舊落盤）→ 0 列，視為完成。回寫入列數。
+ */
+export async function markPending(
+  db: Db,
+  input: { noteId: string; at: Date; add: VersionEditorJson[]; ref: string | null; spaceKey: string },
+): Promise<number> {
+  const sep = input.spaceKey.indexOf(":");
+  const kind = sep < 0 ? "" : input.spaceKey.slice(0, sep);
+  const id = sep < 0 ? "" : input.spaceKey.slice(sep + 1);
+  if ((kind !== "u" && kind !== "g") || id === "") return 0;
+  const space = kind === "u" ? sql`notes.owner_id = ${id}` : sql`notes.group_id = ${id}`;
+  const add = JSON.stringify(dedupeEditors(input.add));
+  const res = await db.execute(sql`
+    update notes set
+      version_pending_at = ${input.at},
+      version_pending_ref_fingerprint = case when notes.version_pending_at is null and notes.version_base_seq is null
+                                             then ${input.ref}::text else notes.version_pending_ref_fingerprint end,
+      version_pending_editors = notes.version_pending_editors || coalesce((
+        select jsonb_agg(n.e order by n.ord) from jsonb_array_elements(${add}::jsonb) with ordinality as n(e, ord)
+        where not notes.version_pending_editors @> jsonb_build_array(n.e)), '[]'::jsonb)
+    where notes.id = ${input.noteId} and ${space}`);
+  return res.rowCount ?? 0;
+}
+
+/** #272 §6.2：套用的落盤一律清待切（成功、reset、基底寫回失敗三條路都經過它）。 */
+export async function clearPending(db: Db, noteId: string): Promise<void> {
+  await db.update(notes).set(PENDING_CLEARED).where(eq(notes.id, noteId));
+}
+
+/** #272 §7.3：掃描器的 clean／auto-disabled／fingerprint-failed——只清「仍到期」的那一段（較新的一段留著）。回清掉的列數。 */
+export async function clearPendingIfDue(db: Db, noteId: string, dueBy: Date): Promise<number> {
+  const cleared = await db
+    .update(notes)
+    .set(PENDING_CLEARED)
+    .where(and(eq(notes.id, noteId), lte(notes.versionPendingAt, dueBy)))
+    .returning({ id: notes.id });
+  return cleared.length;
+}
+
 const editorKey = (e: VersionEditor): string => JSON.stringify([e.userId, e.agentLabel]);
 
-function toEditorsJson(list: VersionEditor[]): VersionEditorJson[] {
-  const seen = new Set<string>();
-  const out: VersionEditorJson[] = [];
-  for (const e of list) {
-    const k = editorKey(e);
-    if (seen.has(k)) continue;
-    seen.add(k);
-    out.push({ user_id: e.userId, agent_label: e.agentLabel });
-  }
-  return out;
-}
+const toEditorsJson = (list: VersionEditor[]): VersionEditorJson[] =>
+  dedupeEditors(list.map(e => ({ user_id: e.userId, agent_label: e.agentLabel })));
 
 function safeFingerprint(doc: Y.Doc): string | null {
   try {
@@ -209,6 +284,11 @@ export function createVersionService(deps: VersionServiceDeps): VersionService {
   let host: VersionDocsHost | null = null;
   let sweepCursor: string | null = null;
   let sweeping = false;
+  // #272 §7.2：掃描器狀態。backoff：noteId → 這個時刻（ms，掃描 `at` 的時鐘）之前不重試、不佔批次名額。
+  let scanInflight: Promise<number> | null = null;
+  let stopping = false;
+  let overrideWaitMs: number | null = null;
+  const backoff = new Map<string, number>();
 
   const blankState = (noteId: string): NoteVersionState => ({
     initialized: false, autoEnabled: false, spaceKey: "", editors: new Map(), idleTimer: null, timerCut: null,
@@ -247,7 +327,7 @@ export function createVersionService(deps: VersionServiceDeps): VersionService {
         return;
       }
       Object.assign(e, {
-        initialized: true, autoEnabled: meta.autoEnabled, spaceKey: meta.spaceKey, loadFingerprint,
+        initialized: true, autoEnabled: meta.autoEnabled, spaceKey: meta.spaceKey, loadFingerprint: loadFingerprintOf(meta, loadFingerprint),
         baseFingerprint: meta.baseFingerprint, applying: applyingSet.has(noteId),
       });
       return;
@@ -292,7 +372,7 @@ export function createVersionService(deps: VersionServiceDeps): VersionService {
       live: false,
       state: {
         initialized: true, autoEnabled: meta.autoEnabled, spaceKey: meta.spaceKey, editors: new Map(), idleTimer: null, timerCut: null,
-        loadFingerprint: safeFingerprint(transient), baseFingerprint: meta.baseFingerprint, applying: applyingSet.has(noteId),
+        loadFingerprint: loadFingerprintOf(meta, safeFingerprint(transient)), baseFingerprint: meta.baseFingerprint, applying: applyingSet.has(noteId),
       },
     };
   }
@@ -304,27 +384,28 @@ export function createVersionService(deps: VersionServiceDeps): VersionService {
     return fp === null ? true : dirtyOf(r.state, fp);
   }
 
-  async function cutIfDirty(noteId: string, doc: Y.Doc, opts: CutOptions): Promise<CutResult> {
+  /** §5.3 的本體（`cutIfDirty` 與掃描器共用，#272 §7.3）。`dueBy`：掃描器的到期界線，交易內再比一次（not-due）。 */
+  async function cutCore(noteId: string, doc: Y.Doc, opts: CutOptions & { dueBy?: Date }): Promise<CutOutcome> {
     const r = await resolve(noteId, opts.transient);
-    if (r === "note-deleted") return { skipped: "note-deleted" };
+    if (r === "note-deleted") return { kind: "skipped", reason: "note-deleted" };
     if (r === "uninitialized") {
       if (!warnedUninitialized.has(noteId)) {
         warnedUninitialized.add(noteId);
         deps.log.warn({ noteId }, "版本狀態尚未初始化，略過切版");
       }
-      return { skipped: "uninitialized" };
+      return { kind: "skipped", reason: "uninitialized" };
     }
     const { state, live } = r;
     if (opts.kind === "auto") {
-      if (state.applying) return { skipped: "applying" };
-      if (!state.autoEnabled) return { skipped: "auto-disabled" };
+      if (state.applying) return { kind: "skipped", reason: "applying" };
+      if (!state.autoEnabled) return { kind: "skipped", reason: "auto-disabled" };
     }
     const fp = safeFingerprint(doc);
     if (fp === null) {
       deps.log.warn({ noteId }, "版本指紋算不出來，略過切版");
-      return { skipped: "fingerprint-failed" };
+      return { kind: "skipped", reason: "fingerprint-failed" };
     }
-    if (opts.kind === "auto" && !dirtyOf(state, fp)) return null;
+    if (opts.kind === "auto" && !dirtyOf(state, fp)) return { kind: "clean" };
     // 第 5 步只刪寫進這一版的那些鍵（起草裁定 5）。
     const written = [...state.editors.entries()];
     const input: CutVersionInput = {
@@ -337,6 +418,7 @@ export function createVersionService(deps: VersionServiceDeps): VersionService {
       loadFingerprint: state.loadFingerprint,
       vacuumFingerprint: VACUUM_VERSION_FINGERPRINT,
       capture: () => ({ fp: versionFingerprint(doc.getXmlFragment(YDOC_FRAGMENT)), ydoc: Y.encodeStateAsUpdate(doc) }),
+      ...(opts.dueBy !== undefined ? { dueBy: opts.dueBy } : {}),
     };
     let out: Awaited<ReturnType<typeof cutVersionInTx>>;
     try {
@@ -344,16 +426,19 @@ export function createVersionService(deps: VersionServiceDeps): VersionService {
     } catch (err) {
       if (!(err instanceof VersionCutAbort)) throw err;
       const reason = err.reason;
-      if (reason.kind === "note-deleted") return { skipped: "note-deleted" };
+      if (reason.kind === "note-deleted") return { kind: "skipped", reason: "note-deleted" };
       if (reason.kind === "fingerprint-failed") {
         deps.log.warn({ noteId, err: reason.cause }, "版本指紋算不出來，略過切版");
-        return { skipped: "fingerprint-failed" };
+        return { kind: "skipped", reason: "fingerprint-failed" };
       }
-      if (reason.kind === "stale" && live && states.get(noteId) === state) {
-        state.baseFingerprint = reason.baseFingerprint;
-        state.spaceKey = reason.spaceKey;
+      if (reason.kind === "stale") {
+        if (live && states.get(noteId) === state) {
+          state.baseFingerprint = reason.baseFingerprint;
+          state.spaceKey = reason.spaceKey;
+        }
+        return { kind: "stale" };
       }
-      return null;
+      return reason.kind === "not-due" ? { kind: "not-due" } : { kind: "clean" };
     }
     if (live && states.get(noteId) === state) {
       state.baseFingerprint = out.fp;
@@ -367,7 +452,14 @@ export function createVersionService(deps: VersionServiceDeps): VersionService {
         deps.log.warn({ err, noteId }, "切版後清除舊版本失敗");
       }
     }
-    return { row: out.row, upgraded: out.upgraded };
+    return { kind: "cut", row: out.row, upgraded: out.upgraded };
+  }
+
+  async function cutIfDirty(noteId: string, doc: Y.Doc, opts: CutOptions): Promise<CutResult> {
+    const out = await cutCore(noteId, doc, opts);
+    if (out.kind === "cut") return { row: out.row, upgraded: out.upgraded };
+    if (out.kind === "skipped") return { skipped: out.reason };
+    return null;
   }
 
   function beginApply(noteId: string): void {
@@ -478,6 +570,70 @@ export function createVersionService(deps: VersionServiceDeps): VersionService {
     }
   }
 
+  /** #272 §7.2：這一輪的等待 X（毫秒）：測試縫覆寫 → 注入 → 站台設定現值（讀不到列＝預設 5 分鐘）。讀 DB 失敗＝整輪丟錯（呼叫端 warn）。 */
+  async function waitMsNow(): Promise<number> {
+    if (overrideWaitMs !== null) return overrideWaitMs;
+    if (deps.autoWaitMs !== undefined) return deps.autoWaitMs;
+    const [r] = await db
+      .select({ minutes: siteSettings.versionAutoWaitMinutes })
+      .from(siteSettings)
+      .where(eq(siteSettings.singleton, true))
+      .limit(1);
+    return (r?.minutes ?? VERSION_AUTO_WAIT_MINUTES_DEFAULT) * 60_000;
+  }
+
+  /**
+   * #272 §7.3：單篇。`docFor`（載入中用活文件，否則 note_states）→ `cutCore`（交易內再比「仍到期」）。
+   * cut → 交易內已清待切；clean／auto-disabled／fingerprint-failed → 只清「仍到期」的待切；stale／not-due／applying／uninitialized → 下一輪再試；
+   * note-deleted → 不動。丟錯往上拋（`scanRound` 記 backoff）。
+   */
+  async function cutDue(noteId: string, dueBy: Date): Promise<void> {
+    if (deps.testHooks?.beforeCutDue) await deps.testHooks.beforeCutDue(noteId);
+    const { doc, transient } = await docFor(noteId);
+    const out = await cutCore(noteId, doc, { kind: "auto", transient, dueBy });
+    const settled = out.kind === "clean" || (out.kind === "skipped" && (out.reason === "auto-disabled" || out.reason === "fingerprint-failed"));
+    if (settled) await clearPendingIfDue(db, noteId, dueBy);
+  }
+
+  async function scanRound(at: Date): Promise<number> {
+    const dueBy = new Date(at.getTime() - (await waitMsNow()));
+    for (const [id, until] of backoff) if (until <= at.getTime()) backoff.delete(id);
+    const held = [...backoff.keys()];
+    const due = await db
+      .select({ id: notes.id })
+      .from(notes)
+      .where(and(lte(notes.versionPendingAt, dueBy), held.length > 0 ? notInArray(notes.id, held) : undefined))
+      .orderBy(asc(notes.versionPendingAt), asc(notes.id))
+      .limit(VERSION_AUTO_SCAN_BATCH);
+    // 「每篇 10 分鐘至多 warn 一次」在現行順序下實際由「每輪先刪到期條目＋notInArray 排除未到期的」保證：被處理的那篇不會在
+    // backoff 裡。下面的 `!backoff.has(id)` 與成功後的 `backoff.delete(id)` 是 spec §7.2 偽碼的字面、雙保險（突變 X21／X24 等價）。
+    for (const { id } of due) {
+      if (stopping) break;
+      try {
+        await cutDue(id, dueBy);
+        backoff.delete(id);
+      } catch (err) {
+        if (!backoff.has(id)) deps.log.warn({ err, noteId: id }, "自動切版：單篇失敗，10 分鐘後再試");
+        backoff.set(id, at.getTime() + VERSION_AUTO_SCAN_BACKOFF_MS);
+      }
+    }
+    return due.length;
+  }
+
+  function scanDue(at: Date = now()): Promise<number> {
+    if (scanInflight !== null || stopping) return Promise.resolve(0);
+    const round = scanRound(at).finally(() => {
+      scanInflight = null;
+    });
+    scanInflight = round;
+    return round;
+  }
+
+  function stopScan(): Promise<void> {
+    stopping = true;
+    return scanInflight === null ? Promise.resolve() : scanInflight.then(() => undefined, () => undefined);
+  }
+
   async function noteStored(noteId: string, doc: Y.Doc, ctx: unknown): Promise<void> {
     const c = ctx as Partial<DirectCtx> | undefined;
     const s = states.get(noteId);
@@ -539,6 +695,9 @@ export function createVersionService(deps: VersionServiceDeps): VersionService {
       host = h;
     },
     noteLoaded, noteChanged, forget, relocated, isDirty, cutIfDirty, beginApply, endApply, docFor, currentOf, pruneNote, sweep, debugState,
-    noteStored, beforeUnload, close,
+    noteStored, beforeUnload, close, scanDue, stopScan,
+    overrideAutoWaitMs: ms => {
+      overrideWaitMs = ms;
+    },
   };
 }
