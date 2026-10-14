@@ -200,9 +200,22 @@ describe("#269 W4 AddMarkStep 外掛", () => {
     editor.setTextCursorPosition(editor.document[0]!.id, "end");
     const at = view.state.selection.from;
     view.dispatch(view.state.tr.insertText(`${ORIGIN}/n/alice/alpha ${ORIGIN}/n/bob/secret`, at).setMeta("uiEvent", "drop"));
-    // 前置：tiptap 的 paste rule 對外部 drop 也跑，兩個網址真的都成了 link（命中與未命中各一）。
-    expect(inline(editor).filter((n) => n.type === "link").map((n) => n.href)).toEqual([`${ORIGIN}/n/alice/alpha`, `${ORIGIN}/n/bob/secret`]);
-    expect(inline(editor).some((n) => n.type === "wikilink")).toBe(false);
+    // tiptap 的 paste rule 對外部 drop 也跑，兩個網址真的都成了 link（命中與未命中各一），而且都沒轉成 wikilink——
+    // 一次斷言整列 `[type, href]`：轉錯時紅燈訊息直接看得到 wikilink，不會與「paste rule 沒加 link」混淆。
+    expect(inline(editor).map((n) => [n.type, n.href])).toEqual([
+      ["link", `${ORIGIN}/n/alice/alpha`],
+      ["text", undefined],
+      ["link", `${ORIGIN}/n/bob/secret`],
+    ]);
+    return Promise.resolve().then(() => expect(e.requests).toEqual([]));
+  });
+
+  it("貼上（uiEvent=paste）歸貼上 hook：外掛單獨掛著時，空選取 pasteText 裸網址——paste rule 加了 link，但外掛不轉、不排後備", () => {
+    const e = env();
+    ({ editor, container } = mount(e));
+    editor.setTextCursorPosition(editor.document[0]!.id, "end");
+    editor.pasteText(`${ORIGIN}/n/alice/alpha`);
+    expect(inline(editor).map((n) => [n.type, n.href])).toEqual([["link", `${ORIGIN}/n/alice/alpha`]]);
     return Promise.resolve().then(() => expect(e.requests).toEqual([]));
   });
 
@@ -222,6 +235,28 @@ describe("#269 W4 AddMarkStep 外掛", () => {
     Y.applyUpdate(doc!, Y.encodeStateAsUpdate(remote, Y.encodeStateVector(doc!)), "remote");
     expect(inline(editor).some((n) => n.type === "link")).toBe(true);
     expect(inline(editor).some((n) => n.type === "wikilink")).toBe(false);
+  });
+
+  it("遠端更新寫進「站內網址＋空白」純文字：收端真的 autolink 加了 link（它不跳過 y-sync$），但根 tr 是遠端更新 ⇒ 不轉、不排後備", async () => {
+    const e = env();
+    const { editor: e1, doc, container: c1 } = mount(e, true);
+    editor = e1;
+    container = c1;
+    editor.replaceBlocks(editor.document, [{ type: "paragraph" }]);
+    const remote = new Y.Doc();
+    Y.applyUpdate(remote, Y.encodeStateAsUpdate(doc!));
+    const content = ((remote.getXmlFragment(YDOC_FRAGMENT).get(0) as Y.XmlElement).get(0) as Y.XmlElement).get(0) as Y.XmlElement;
+    const text = new Y.XmlText();
+    content.insert(0, [text]);
+    text.insert(0, `see ${ORIGIN}/n/alice/alpha `); // 不帶 link 屬性：link 只能是收端 autolink 加的
+    Y.applyUpdate(doc!, Y.encodeStateAsUpdate(remote, Y.encodeStateVector(doc!)), "remote");
+    expect(inline(editor).map((n) => [n.type, n.href])).toEqual([
+      ["text", undefined],
+      ["link", `${ORIGIN}/n/alice/alpha`],
+      ["text", undefined],
+    ]);
+    await Promise.resolve();
+    expect(e.requests).toEqual([]);
   });
 });
 

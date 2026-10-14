@@ -8,7 +8,11 @@
  */
 import { Extension, InputRule } from "@tiptap/core";
 import { SuggestionMenu } from "@blocknote/core";
+import { parseSiteNoteHref, wikilinkPropsFromLink } from "@knotebook/shared";
 import type { EditorRef } from "@/components/wikilink/menu";
+import { resolveFromCache } from "@/lib/site-link-resolve";
+import type { SiteLinkEnvRef } from "./site-link-convert";
+import { blockIdAt } from "./site-link-pm";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 泛型三元組，走 repo 慣例（同 NoteEditor.tsx、wikilink/menu.ts）
 type AnyEditor = any;
@@ -65,7 +69,7 @@ export function resolveTrailingMarkdownLink(editor: AnyEditor, textBefore: strin
  * （實測 817 字元段落回 817 字元）。不截的話剖析成本隨段落長度線性成長。 */
 export const MAX_LINK_SCAN = 500;
 
-export function createMarkdownLinkExtension({ editorRef }: { editorRef: EditorRef }): Extension {
+export function createMarkdownLinkExtension({ editorRef, siteLinks }: { editorRef: EditorRef; siteLinks?: SiteLinkEnvRef }): Extension {
   return Extension.create({
     name: "knotebookMarkdownLink",
     addInputRules() {
@@ -131,7 +135,25 @@ export function createMarkdownLinkExtension({ editorRef }: { editorRef: EditorRe
             });
             if (hasMark) return null;
 
+            // #269 §8.2（守衛之後才進來）：站內網址且快取命中 ⇒ 直接插 wikilink；否則照舊插一般連結，是站內網址就排後備。
+            const env = siteLinks?.current ?? null;
+            const parsed = env ? parseSiteNoteHref(href, env.origin) : null;
+            if (env && parsed) {
+              const hit = resolveFromCache(env.notes(), parsed);
+              if (hit.kind === "hit") {
+                chain()
+                  .deleteRange(range)
+                  .insertContent({ type: "wikilink", attrs: wikilinkPropsFromLink({ text: label, href, target: hit.target, anchorBlockId: parsed.anchorBlockId }) })
+                  .run();
+                return undefined;
+              }
+            }
             chain().deleteRange(range).insertContent({ type: "text", text: label, marks: [{ type: "link", attrs: { href } }] }).run();
+            if (env && parsed) {
+              const blockId = blockIdAt(state.doc, range.from);
+              const request = { blockIds: blockId ? [blockId] : [], href, text: label, parsed };
+              queueMicrotask(() => env.schedule([request]));
+            }
             return undefined;
           },
         }),

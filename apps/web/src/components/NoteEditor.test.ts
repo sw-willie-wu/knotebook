@@ -798,7 +798,8 @@ describe("lateBoundTranslate（RF1：late-bound 包裝必須轉傳插值參數�
 });
 
 describe("#269 接線：站內連結外掛真的掛在 buildNoteEditorOptions 的編輯器上（拔接線要紅）", () => {
-  it("createLink 一個快取命中的站內網址 → wikilink", () => {
+  /** buildNoteEditorOptions → 真編輯器 → mount（快取裡有 Alpha）；回傳收尾函式。 */
+  function mountBuilt() {
     const doc = new Y.Doc();
     const editorRef: { current: unknown } = { current: null };
     const siteLinks = {
@@ -826,14 +827,55 @@ describe("#269 接線：站內連結外掛真的掛在 buildNoteEditorOptions �
     document.body.appendChild(container);
     editor.mount(container);
     attachTestElementRenderer(editor); // 沒有 <BlockNoteView>：wikilink 的 toDOM 要它（見 helper 檔頭）
+    const cleanup = () => {
+      editor.unmount();
+      container.remove();
+      doc.destroy();
+    };
+    return { editor, cleanup };
+  }
+
+  it("createLink 一個快取命中的站內網址 → wikilink", () => {
+    const { editor, cleanup } = mountBuilt();
     try {
       editor.setTextCursorPosition(editor.document[0]!.id, "end");
       editor.createLink("/n/alice/alpha", "go");
       expect((editor.document[0]!.content as Array<{ type: string }>).map((n) => n.type)).toContain("wikilink");
     } finally {
-      editor.unmount();
-      container.remove();
-      doc.destroy();
+      cleanup();
+    }
+  });
+
+  it("input rule 接線（createMarkdownLinkExtension 收到 siteLinks）：逐字打 `see [x](/n/alice/alpha)` → wikilink", () => {
+    const { editor, cleanup } = mountBuilt();
+    try {
+      const view = editor._tiptapEditor.view;
+      editor.setTextCursorPosition(editor.document[0]!.id, "end");
+      // 走 plugin 鏈的 handleTextInput（input rule 掛在那裡；不可用直接呼叫 editorProps 的 typeInput——那條繞過 input rule）。
+      for (const ch of "see [x](/n/alice/alpha)") {
+        const { from, to } = view.state.selection;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- PM view 型別在 apps/web 值層級拿不到
+        const handled = view.someProp("handleTextInput", (f: any) => f(view, from, to, ch));
+        if (!handled) view.dispatch(view.state.tr.insertText(ch, from, to));
+      }
+      expect((editor.document[0]!.content as Array<{ type: string }>).map((n) => n.type)).toEqual(["text", "wikilink"]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("貼上接線（pasteHandler 帶 createSiteLinkPasteHook）：段落中貼 HTML <a> → wikilink", () => {
+    const { editor, cleanup } = mountBuilt();
+    try {
+      editor.replaceBlocks(editor.document, [{ type: "paragraph", content: "hello " }]);
+      editor.setTextCursorPosition(editor.document[0]!.id, "end");
+      const data: Record<string, string> = { "text/html": '<a href="/n/alice/alpha">go</a>', "text/plain": "go" };
+      const event = new Event("paste", { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "clipboardData", { value: { types: Object.keys(data), items: [], files: [], getData: (t: string) => data[t] ?? "" } });
+      editor._tiptapEditor.view.dom.dispatchEvent(event);
+      expect((editor.document[0]!.content as Array<{ type: string }>).map((n) => n.type)).toEqual(["text", "wikilink"]);
+    } finally {
+      cleanup();
     }
   });
 });

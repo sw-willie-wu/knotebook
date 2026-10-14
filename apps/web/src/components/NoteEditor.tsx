@@ -23,7 +23,7 @@ import { classifyMediaTransfer, type BlockedTransferReason } from "@/collab/sche
 import { buildCollabEditorBase } from "@/collab/editor-options";
 import { createMarkdownLinkExtension } from "@/collab/markdown-link";
 import { createMarkdownPasteHandler } from "@/collab/paste";
-import { createSiteLinkConvertExtension, createSiteLinkEnv, type SiteLinkEnvRef } from "@/collab/site-link-convert";
+import { createSiteLinkConvertExtension, createSiteLinkEnv, createSiteLinkPasteHook, type SiteLinkEnvRef } from "@/collab/site-link-convert";
 import { useCollabUndoLifeline } from "@/collab/undo";
 import { buildSlashMenuItems } from "@/components/slash-menu";
 import { LinkDialog } from "@/components/LinkDialog";
@@ -156,11 +156,11 @@ export function buildNoteEditorOptions({ doc, provider, user, language, translat
     resolveFileUrl: (url: string) => Promise.resolve(safeMediaUrl(url)),
     // 貼上 markdown 的兩個 Windows 破口（CRLF 不被解析、從 VS Code 貼會變成程式碼
     // 區塊）——判斷與理由都在 `@/collab/paste`，這裡只負責接線。
-    pasteHandler: createMarkdownPasteHandler(),
+    pasteHandler: createMarkdownPasteHandler(createSiteLinkPasteHook(siteLinks)),
     _tiptapOptions: {
       // issue #99：手打 markdown 連結語法（`[文字](網址)`）自動轉成真連結；#269 §8.4：站內連結 → wikilink（link AddMarkStep
       // 外掛）。裁決與判準理由分別在 `@/collab/markdown-link`、`@/collab/site-link-convert`——這裡只負責接線。
-      extensions: [createMarkdownLinkExtension({ editorRef }), createSiteLinkConvertExtension({ envRef: siteLinks })],
+      extensions: [createMarkdownLinkExtension({ editorRef, siteLinks }), createSiteLinkConvertExtension({ envRef: siteLinks })],
       editorProps: {
         handleDOMEvents: createMediaBlockingDOMEvents(translate),
         // `[[` 觸發偵測（Task 3 §12.2 recipe）。這裡刻意**不**倚賴 `SuggestionMenu`

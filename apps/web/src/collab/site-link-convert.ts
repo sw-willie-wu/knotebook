@@ -1,8 +1,9 @@
 /**
  * #269 §8.4／§6.5：client 寫入路徑的站內連結轉換。
  * - `createSiteLinkConvertExtension`：tiptap extension，`appendTransaction` 收本地 transaction 的 link `AddMarkStep`（autolink、
- *   連結對話框的 `createLink`、選取上貼網址、link toolbar 改網址）——掛在 `NoteEditor` 的 `_tiptapOptions.extensions`。
- * - `convertSiteLinksInRange`：貼上（Task 12）在出口返回後對 diff 範圍呼叫。
+ *   連結對話框的 `createLink`、link toolbar 改網址）——掛在 `NoteEditor` 的 `_tiptapOptions.extensions`。貼上（含選取上貼網址、
+ *   裸網址的 paste rule）不歸它：一次貼上只由貼上 hook 處理（見 `isForeign`、`pastingRefs`）。
+ * - `createSiteLinkPasteHook`：`createMarkdownPasteHandler` 的掛點——貼上的出口返回後，對前後文件的 diff 範圍呼叫 `convertSiteLinksInRange`。
  * - 非同步後備：快取解析不到的站內網址問 server（A6：每次動作 ≤20 個相異 href、單發 5 s），成功後一筆 transaction 套用。
  * 所有轉換 transaction 帶 meta `knotebook:siteLinkConvert`；外掛看到它或 `y-sync$`（遠端、撤銷／重做）一律跳過。
  */
@@ -10,6 +11,7 @@ import { Extension } from "@tiptap/core";
 import type { BlockNoteEditor } from "@blocknote/core";
 import type { SiteLinkCandidate, SiteLinkTarget, SiteNoteHref } from "@knotebook/shared";
 import { FALLBACK_MAX_HREFS, resolveFromCache, resolveViaServer } from "@/lib/site-link-resolve";
+import type { PasteConversionHook } from "./paste";
 import { createPmPlugin } from "./pm-plugin";
 import { addedLinkRanges, blockRanges, collectSiteLinks, replaceSiteLinks, SITE_LINK_CONVERT_META, Y_SYNC_META, type SiteLinkRange } from "./site-link-pm";
 
@@ -58,14 +60,19 @@ function convertLinks(tr: Any, links: readonly SiteLinkRange[], env: SiteLinkEnv
  * - `y-sync$`（遠端更新、y-undo 撤銷／重做）、`knotebook:siteLinkConvert`（轉換本身）；
  * - 拖放（drop）：prosemirror-view 的 drop handler 對那筆 tr 設 `uiEvent: "drop"`；外部拖進的純文字網址由 tiptap 的 paste rule
  *   （`pasteRulesPlugin` 對 drop 也跑）在**另一筆附加的** tr 加 link mark。
+ * - 貼上（`uiEvent: "paste"`，prosemirror-view 的 `doPaste`）：一次貼上只歸一個擁有者——由 `createSiteLinkPasteHook` 對前後 diff
+ *   範圍轉換；外掛若也收 paste rule 附加的 link，快取未命中時同一個連結會排兩次後備（A6 上限翻倍、§7.6 撤銷後可能被晚到的第二發轉回）。
  */
 function isForeign(tr: Any): boolean {
-  return tr.getMeta(Y_SYNC_META) !== undefined || tr.getMeta(SITE_LINK_CONVERT_META) !== undefined || tr.getMeta("uiEvent") === "drop";
+  const ui = tr.getMeta("uiEvent");
+  return tr.getMeta(Y_SYNC_META) !== undefined || tr.getMeta(SITE_LINK_CONVERT_META) !== undefined || ui === "drop" || ui === "paste";
 }
 
 /**
- * 別的外掛 `appendTransaction` 附加的 tr，其根 tr 掛在 PM 的 `appendedTransaction` meta 上。外掛順序不定（附加 tr 可能在下一輪才
- * 單獨送到本外掛），所以根 tr 也要看：根是遠端更新／轉換本身／拖放時，附加上的 link mark 一樣不轉。
+ * 別的外掛 `appendTransaction` 附加的 tr，其根 tr 掛在 PM 的 `appendedTransaction` meta 上（每一筆附加 tr 都指向同一個根）。
+ * 外掛順序是確定的：BlockNote 把 `_tiptapOptions.extensions` 放在 extension 清單最後，tiptap 先反轉再依 priority 穩定排序，
+ * 所以本外掛排在 BlockNote Link 的 paste rule／autolink **之前**——它們附加的 link tr 會在下一輪**單獨**送到本外掛。
+ * 因此根 tr 也要看：根是遠端更新（y-sync$，autolink 不跳過它）／轉換本身／拖放／貼上時，附加上的 link mark 一樣不轉。
  */
 function excluded(tr: Any): boolean {
   const root = tr.getMeta("appendedTransaction");
@@ -82,11 +89,22 @@ export function appendSiteLinkConversion(trs: readonly Any[], state: Any, env: S
   return convertLinks(state.tr, links, env);
 }
 
+/**
+ * 貼上進行中（`createSiteLinkPasteHook` 的 `before` → `after`）的 envRef：這段期間外掛不收任何 tr，該次貼上一律由 hook 處理。
+ * `uiEvent: "paste"` 擋不到「選取上貼網址」：Link 的 `handlePaste` 用 `commands.setMark` 自己 dispatch，那筆 tr 不帶 uiEvent。
+ * `after` 沒被呼叫（出口拋錯）時由 microtask 收回——貼上整段是同步的，microtask 一定在它之後。
+ */
+const pastingRefs = new WeakSet<SiteLinkEnvRef>();
+
 export function createSiteLinkConvertExtension({ envRef }: { envRef: SiteLinkEnvRef }): Extension {
   return Extension.create({
     name: "knotebookSiteLinkConvert",
     addProseMirrorPlugins() {
-      return [createPmPlugin({ appendTransaction: (trs, _old, state) => appendSiteLinkConversion(trs, state, envRef.current) }) as never];
+      return [
+        createPmPlugin({
+          appendTransaction: (trs, _old, state) => (pastingRefs.has(envRef) ? null : appendSiteLinkConversion(trs, state, envRef.current)),
+        }) as never,
+      ];
     },
   });
 }
@@ -133,6 +151,50 @@ export async function runFallbackConversion(
   replaceSiteLinks(tr, links, (l) => resolved.get(l.href) ?? null);
   view.dispatch(tr);
   return links.length;
+}
+
+/**
+ * §8.3：貼上前後的文件 diff 範圍（不依 block id——行內貼上不換 block id 也抓得到，補 mermaid 快照法的盲點）。
+ * - 重複內容時 `findDiffEnd` 會往前多吃（貼上的內容與相鄰的既有內容相同 ⇒ 結尾的 a 或 b 側退到起點之前），照 ProseMirror
+ *   慣例（prosemirror-view 的 `findDiff`）以貼上前的游標 `pref` 消歧：落在重疊區內就把起點退到 `pref`，範圍長度＝新舊大小差。
+ *   不消歧的話，在既有同內容的**前方**貼上會轉到既有那份、貼上那份留一般連結。
+ * - 正規化成 `from ≤ to`；只剩刪除（`from === to`）就不轉：新文件裡沒有新內容，而 `collectSiteLinks` 的點範圍含端點，
+ *   交進去會把緊鄰的既有站內連結收進來。
+ */
+export function createSiteLinkPasteHook(envRef: SiteLinkEnvRef): PasteConversionHook {
+  return {
+    before: (editor) => {
+      const state = (editor as AnyEditor)._tiptapEditor.view.state;
+      pastingRefs.add(envRef);
+      queueMicrotask(() => pastingRefs.delete(envRef));
+      return { doc: state.doc, pref: state.selection.from as number };
+    },
+    after: (editor, snapshot) => {
+      pastingRefs.delete(envRef);
+      const env = envRef.current;
+      if (!env) return;
+      const ed = editor as AnyEditor;
+      const { doc: before, pref } = snapshot as { doc: Any; pref: number };
+      const after = ed._tiptapEditor.view.state.doc;
+      let start: number | null = before.content.findDiffStart(after.content);
+      if (start === null || start === undefined) return;
+      const end: { a: number; b: number } | null = before.content.findDiffEnd(after.content);
+      let endB = end ? end.b : after.content.size;
+      const endA = end ? end.a : before.content.size;
+      // 同 prosemirror-view `findDiff` 的兩個分支（只取本處用得到的 endB；`endA` 之後不再用）
+      if (endA < start && before.content.size < after.content.size) {
+        start -= pref <= start && pref >= endA ? start - pref : 0;
+        endB = start + (endB - endA);
+      } else if (endB < start) {
+        start -= pref <= start && pref >= endB ? start - pref : 0;
+        endB = start;
+      }
+      const from = Math.min(start, endB);
+      const to = Math.max(start, endB);
+      if (from === to) return;
+      convertSiteLinksInRange(ed, from, to, env);
+    },
+  };
 }
 
 export function createSiteLinkEnv(opts: { origin: string; getNotes(): readonly SiteLinkCandidate[] | undefined; editorRef: { current: AnyEditor | null } }): SiteLinkEnv {

@@ -224,13 +224,22 @@ function isCursorInCodeBlock(editor: PasteTargetEditor): boolean {
 }
 
 /**
+ * #269 §8.3：貼上之後的轉換掛點。`before` 在任何出口之前取快照；`after` 在出口返回、`convertMermaid()` 之後呼叫。
+ * 兩者丟錯都只放棄轉換（呼叫端包 try/catch），不影響貼上本身。
+ */
+export interface PasteConversionHook {
+  before(editor: unknown): unknown;
+  after(editor: unknown, snapshot: unknown): void;
+}
+
+/**
  * 交給 BlockNote 的 `pasteHandler` 選項。回傳 `true` ＝已處理。
  *
  * ⚠ BlockNote 的外掛在呼叫本 handler **之前**就 `event.preventDefault()` 了，所以這裡
  * 任何未捕捉的例外都會讓使用者的貼上「按了完全沒反應」。整段包 try/catch，出任何
  * 意外一律退回預設流程。
  */
-export function createMarkdownPasteHandler() {
+export function createMarkdownPasteHandler(hook?: PasteConversionHook) {
   return ({
     event,
     editor,
@@ -262,6 +271,22 @@ export function createMarkdownPasteHandler() {
       if (idsBeforePaste !== null) convertPastedMermaidBlocks(editor, idsBeforePaste);
     };
 
+    // #269 §8.3：站內連結轉換的快照（任何出口之前取）。取不到就這次不轉換——絕不影響貼上本身。
+    let siteLinkSnapshot: unknown;
+    try {
+      siteLinkSnapshot = hook?.before(editor);
+    } catch {
+      siteLinkSnapshot = undefined;
+    }
+    const convertSiteLinks = (): void => {
+      if (hook === undefined || siteLinkSnapshot === undefined) return;
+      try {
+        hook.after(editor, siteLinkSnapshot);
+      } catch {
+        // 轉換失敗只放棄轉換（同 convertMermaid 的紀律）
+      }
+    };
+
     // ⚠ `defaultPasteHandler()` 一定要在 try **外面**、而且只呼叫一次：它自己也可能拋
     // （BlockNote 對 `vscode-editor-data` 是無防護的 `JSON.parse`），包在 try 裡就會被
     // catch 再叫一次、同樣再拋一次，使用者得到「貼上完全沒反應」。
@@ -272,6 +297,7 @@ export function createMarkdownPasteHandler() {
       const options = shouldForceHtmlPaste(event.clipboardData) ? { prioritizeMarkdownOverHTML: false } : undefined;
       const handled = defaultPasteHandler(options);
       convertMermaid(); // 預設流程也可能插入 ```mermaid（純文字被它自己當 markdown 解析）
+      convertSiteLinks();
       return handled;
     }
 
@@ -282,6 +308,7 @@ export function createMarkdownPasteHandler() {
       // 一次變成重複內容。回報已處理，讓它停在這裡。
     }
     convertMermaid();
+    convertSiteLinks();
     return true;
   };
 }

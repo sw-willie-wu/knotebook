@@ -7,6 +7,9 @@ import { collabUndoManager } from "./undo";
 import { noteSchema } from "./schema";
 import { createMarkdownLinkExtension, MAX_LINK_SCAN } from "./markdown-link";
 import type { EditorRef } from "@/components/wikilink/menu";
+import type { SiteLinkEnv, SiteLinkEnvRef } from "./site-link-convert";
+import type { SiteLinkCandidate } from "@knotebook/shared";
+import { attachTestElementRenderer } from "@/test/element-renderer";
 
 /**
  * ProseMirror EditorView：Task 1 已驗證 `@tiptap/pm`/`prosemirror-view` 這些路徑從
@@ -53,23 +56,24 @@ type AnyEditor = BlockNoteEditor<any, any, any>;
  * 內部用來註冊 `addInputRules` 的那套機制而言就是「不認識的異物」——規則會靜默不觸發、
  * 零型別錯誤，只有下面這些「掛真編輯器、真的打字、斷言真的轉換」的測試會紅。
  */
-function mountedEditor(): { editor: AnyEditor; editorRef: EditorRef; container: HTMLElement } {
+function mountedEditor(siteLinks?: SiteLinkEnvRef): { editor: AnyEditor; editorRef: EditorRef; container: HTMLElement } {
   const editorRef: EditorRef = { current: null };
   const editor = BlockNoteEditor.create({
     schema: noteSchema,
-    _tiptapOptions: { extensions: [createMarkdownLinkExtension({ editorRef })] },
+    _tiptapOptions: { extensions: [createMarkdownLinkExtension({ editorRef, siteLinks })] },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNoteEditorOptions 的完整型別要求完整 schema 三元組
   } as any) as AnyEditor;
   editorRef.current = editor;
   const container = document.createElement("div");
   document.body.appendChild(container);
   editor.mount(container);
+  attachTestElementRenderer(editor); // #269：wikilink 的 toDOM 要它（見 helper 檔頭）
   return { editor, editorRef, container };
 }
 
 /** 掛載一顆**共編**的真編輯器（withCollaboration + 自己的 Y.Doc），Step 9d-4 撤銷語意
  * 測量要用真的 Yjs `UndoManager`——非共編沒有它（`history` extension 不存在，見 spec §2.6）。 */
-function mountedCollabEditor(): { doc: Y.Doc; editor: AnyEditor; container: HTMLElement } {
+function mountedCollabEditor(siteLinks?: SiteLinkEnvRef): { doc: Y.Doc; editor: AnyEditor; container: HTMLElement } {
   const doc = new Y.Doc();
   const editorRef: EditorRef = { current: null };
   const editor = BlockNoteEditor.create(
@@ -80,7 +84,7 @@ function mountedCollabEditor(): { doc: Y.Doc; editor: AnyEditor; container: HTML
         fragment: doc.getXmlFragment(YDOC_FRAGMENT),
         user: { id: "u1", name: "User 1", color: "hsl(0 65% 45%)" },
       },
-      _tiptapOptions: { extensions: [createMarkdownLinkExtension({ editorRef })] },
+      _tiptapOptions: { extensions: [createMarkdownLinkExtension({ editorRef, siteLinks })] },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- withCollaboration 的選項型別要求完整 schema 三元組
     } as any),
   ) as AnyEditor;
@@ -88,6 +92,7 @@ function mountedCollabEditor(): { doc: Y.Doc; editor: AnyEditor; container: HTML
   const container = document.createElement("div");
   document.body.appendChild(container);
   editor.mount(container);
+  attachTestElementRenderer(editor); // #269：wikilink 的 toDOM 要它（見 helper 檔頭）
   return { doc, editor, container };
 }
 
@@ -362,6 +367,98 @@ describe("Step 9d-4：我方規則的撤銷語意測量（觸發 → Backspace �
 
       manager.undo();
       expect((editor.document[0]!.content as Array<{ type: string }>).some((n) => n.type === "link")).toBe(true);
+    } finally {
+      editor.unmount();
+      container.remove();
+      doc.destroy();
+    }
+  });
+});
+
+const ALPHA: SiteLinkCandidate = { id: "11111111-1111-4111-8111-111111111111", title: "Alpha", slug: "alpha", groupId: null, ownerHandle: "alice" };
+function siteEnv(notes: SiteLinkCandidate[]): SiteLinkEnvRef & { requests: unknown[][] } {
+  const requests: unknown[][] = [];
+  const env: SiteLinkEnv = { origin: window.location.origin, notes: () => notes, schedule: (r) => void requests.push(r) };
+  return { current: env, requests };
+}
+
+describe("#269 W3 input rule：站內連結 → wikilink（§8.2）", () => {
+  let editor: AnyEditor;
+  let container: HTMLElement;
+  afterEach(() => {
+    editor.unmount();
+    container.remove();
+  });
+
+  it("快取命中：直接插 wikilink（label 規則：文字＝標題 ⇒ 空；錨點進 prop）；整份文件精確斷言", () => {
+    ({ editor, container } = mountedEditor(siteEnv([ALPHA])));
+    typeString(editor._tiptapEditor.view, "see [Alpha](/n/alice/alpha#b-h1)");
+    expect(editor.document[0]!.content).toEqual([
+      { type: "text", text: "see ", styles: {} },
+      { type: "wikilink", props: { targetNoteId: ALPHA.id, snapshotTitle: "Alpha", label: "", anchorBlockId: "h1" } },
+    ]);
+  });
+
+  it("未命中：插一般連結並排後備（一筆、帶所在 block id）", async () => {
+    const env = siteEnv([]);
+    ({ editor, container } = mountedEditor(env));
+    typeString(editor._tiptapEditor.view, "see [x](/n/bob/secret)");
+    expect((editor.document[0]!.content as Array<{ type: string; href?: string }>).find((n) => n.type === "link")?.href).toBe("/n/bob/secret");
+    await Promise.resolve();
+    expect(env.requests).toEqual([[{ blockIds: [editor.document[0]!.id], href: "/n/bob/secret", text: "x", parsed: { path: { kind: "n", handle: "bob", slug: "secret" }, anchorBlockId: "" } }]]);
+  });
+
+  it("外站連結：照舊插一般連結、不排後備", async () => {
+    const env = siteEnv([ALPHA]);
+    ({ editor, container } = mountedEditor(env));
+    typeString(editor._tiptapEditor.view, "see [x](https://example.com/n/alice/alpha)");
+    expect((editor.document[0]!.content as Array<{ type: string }>).some((n) => n.type === "link")).toBe(true);
+    await Promise.resolve();
+    expect(env.requests).toEqual([]);
+  });
+
+  it("mark 守衛照舊：孤兒 [ ＋既有 link 再打 ](站內網址) → 不轉換、不插 wikilink", () => {
+    ({ editor, container } = mountedEditor(siteEnv([ALPHA])));
+    const view = editor._tiptapEditor.view;
+    typeString(view, "[[c](https://x.com)");
+    typeString(view, "](/n/alice/alpha)");
+    expect((editor.document[0]!.content as Array<{ type: string }>).some((n) => n.type === "wikilink")).toBe(false);
+  });
+});
+
+/**
+ * W11（§7.6 input rule 那一列；共編組態、不用 fake timers）：立即 Backspace（undoInputRule）是否回到 `[文字](網址)` 純文字；
+ * 停頓與否下第一下 Ctrl+Z 的結果。MEASURED 是【推】假說（與 Step 9d-4 的一般連結對照組同形）；實測不同就照實改並回報。
+ */
+const MEASURED_RULE = { backspaceRestoresText: true, continuousUndoClears: true, pausedUndoRestoresWikilink: true } as const;
+
+describe("#269 W11 input rule 轉 wikilink 的撤銷（量到的結果即斷言）", () => {
+  it(`連續打字：Backspace 回到純文字＝${String(MEASURED_RULE.backspaceRestoresText)}；第一下 Ctrl+Z 整段清空＝${String(MEASURED_RULE.continuousUndoClears)}`, () => {
+    const { doc, editor, container } = mountedCollabEditor(siteEnv([ALPHA]));
+    const manager = collabUndoManager(editor)!;
+    try {
+      typeString(editor._tiptapEditor.view, "hello [Alpha](/n/alice/alpha)");
+      expect((editor.document[0]!.content as Array<{ type: string }>).some((n) => n.type === "wikilink")).toBe(true);
+      editor._tiptapEditor.commands.undoInputRule();
+      expect(JSON.stringify(editor.document[0]!.content) === JSON.stringify([{ type: "text", text: "hello [Alpha](/n/alice/alpha)", styles: {} }])).toBe(MEASURED_RULE.backspaceRestoresText);
+      manager.undo();
+      expect((editor.document[0]!.content as unknown[]).length === 0).toBe(MEASURED_RULE.continuousUndoClears);
+    } finally {
+      editor.unmount();
+      container.remove();
+      doc.destroy();
+    }
+  });
+
+  it(`打完停頓再 Backspace：第一下 Ctrl+Z 讓 wikilink 重新出現＝${String(MEASURED_RULE.pausedUndoRestoresWikilink)}`, () => {
+    const { doc, editor, container } = mountedCollabEditor(siteEnv([ALPHA]));
+    const manager = collabUndoManager(editor)!;
+    try {
+      typeString(editor._tiptapEditor.view, "hello [Alpha](/n/alice/alpha)");
+      manager.stopCapturing();
+      editor._tiptapEditor.commands.undoInputRule();
+      manager.undo();
+      expect((editor.document[0]!.content as Array<{ type: string }>).some((n) => n.type === "wikilink")).toBe(MEASURED_RULE.pausedUndoRestoresWikilink);
     } finally {
       editor.unmount();
       container.remove();
