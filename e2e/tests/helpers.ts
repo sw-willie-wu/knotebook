@@ -65,6 +65,9 @@ export async function createNote(page: Page, title: string): Promise<void> {
   await page.waitForURL(/\/n\/[^/]+\/untitled-[0-9a-f]{8}$/, { timeout: 15_000 });
 
   const titleInput = page.getByLabel("Note title");
+  // 網址先換、畫面約 180 ms 後才換成新筆記（react-router startTransition）：只等網址就填，會填進上一篇的標題框
+  // （CI 2026-10-14 run 38586250119 的 27-site-links 四支）。等新筆記的標題框（值為 Untitled）掛上再填。
+  await expect(titleInput).toHaveValue("Untitled", { timeout: 15_000 });
   await titleInput.fill(title);
   await titleInput.blur();
 
