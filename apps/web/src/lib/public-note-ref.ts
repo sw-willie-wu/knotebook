@@ -36,3 +36,11 @@ export function publicNoteQueryKey(ref: PublicNoteRef): readonly string[] {
   }
   return ["public-note-by-path", ref.handle, ref.slug];
 }
+
+/**
+ * 公開 ref 的逐值識別字串（兩形前綴不同）：`PublicNoteEditor` 的編輯器重建 deps 與段落錨點（#269 §10.2）的 `noteKey`
+ * 共用這一支——不放 ref 物件本身（物件識別不穩定），也不各寫一份字面。
+ */
+export function publicRefIdentity(ref: PublicNoteRef): string {
+  return ref.kind === "token" ? `token:${ref.token}` : `path:${ref.handle}/${ref.slug}`;
+}

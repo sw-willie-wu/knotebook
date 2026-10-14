@@ -94,6 +94,12 @@ function SyncProbe({ noteId = NOTE_ID }: { noteId?: string }) {
 }
 const syncedText = () => screen.getByTestId("synced").textContent;
 
+function SyncedForProbe({ noteId }: { noteId: string | undefined }) {
+  const { syncedFor } = useCollab({ noteId, onUnauthorized: () => {} });
+  return <div data-testid="synced-for">{syncedFor ?? "null"}</div>;
+}
+const syncedForText = () => screen.getByTestId("synced-for").textContent;
+
 /** #138：文件更新通知那一案的探針——把 `useCollab` 回的 `doc` 露出來給測試操作。 */
 const docRef: { current: Y.Doc | null } = { current: null };
 function DocUpdateProbe({ onDocUpdate }: { onDocUpdate: () => void }) {
@@ -1033,6 +1039,22 @@ describe("useCollab", () => {
     });
     expect(p.connect).not.toHaveBeenCalled();
     expect(phase()).toBe("outdated");
+  });
+
+  it("#269 syncedFor：synced 後＝該篇 id；換筆記（含經過 undefined）歸 null；遲到的舊 provider synced 不得設回舊 id", () => {
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
+    const { rerender } = render(<SyncedForProbe noteId={NOTE_ID} />);
+    expect(syncedForText()).toBe("null");
+    act(() => provider(0).emit("synced", { state: true }));
+    expect(syncedForText()).toBe(NOTE_ID);
+    rerender(<SyncedForProbe noteId={undefined} />);
+    expect(syncedForText()).toBe("null");
+    rerender(<SyncedForProbe noteId={OTHER_NOTE_ID} />);
+    expect(syncedForText()).toBe("null");
+    act(() => provider(0).emit("synced", { state: true })); // 舊 provider 遲到（假 provider 的 destroy 不清監聽器）
+    expect(syncedForText()).toBe("null");
+    act(() => provider(1).emit("synced", { state: true }));
+    expect(syncedForText()).toBe(OTHER_NOTE_ID);
   });
 });
 

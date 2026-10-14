@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { publicNoteApiPath, publicNoteQueryKey } from "./public-note-ref";
+import { publicNoteApiPath, publicNoteQueryKey, publicRefIdentity } from "./public-note-ref";
 
 const TOKEN = "abcDEF123_-".repeat(4).slice(0, 43);
 
@@ -26,5 +26,12 @@ describe("publicNoteQueryKey（兩形不得共 key——共了會拿到彼此的
       "alice",
       "my-doc",
     ]);
+  });
+});
+
+describe("publicRefIdentity（#269：PublicNoteEditor 的重建 deps 與段落錨點的 noteKey 共用）", () => {
+  it("token 形 → token:<token>；別名形 → path:<handle>/<slug>（兩形前綴不同）", () => {
+    expect(publicRefIdentity({ kind: "token", token: TOKEN })).toBe(`token:${TOKEN}`);
+    expect(publicRefIdentity({ kind: "path", handle: "alice", slug: "my-doc" })).toBe("path:alice/my-doc");
   });
 });

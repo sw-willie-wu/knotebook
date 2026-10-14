@@ -185,6 +185,12 @@ export interface UseCollabResult {
    * 擋掉「在空白筆記上打字、重整就沒了」這個最糟形狀。
    */
   synced: boolean;
+  /**
+   * #269 §10.2：**這一篇**同步過的 note id（provider 的 `"synced"` 設成該 effect 捕獲的 noteId；effect 開頭與 cleanup 清成 null）。
+   * 段落錨點的消耗條件看它而不是 `synced`：`synced` 只在新筆記的連線 effect 開頭重設（noteId 變 undefined 時早退），A → B 的第一個
+   * commit 會帶著 A 的 `synced === true`。
+   */
+  syncedFor: string | null;
 }
 
 /**
@@ -255,6 +261,7 @@ export function useCollab({ noteId, onUnauthorized, onDocUpdate }: UseCollabOpti
   const [state, setState] = useState<CollabState>(INITIAL_COLLAB_STATE);
   const [session, setSession] = useState<{ doc: Y.Doc; provider: HocuspocusProvider } | null>(null);
   const [synced, setSynced] = useState(false);
+  const [syncedFor, setSyncedFor] = useState<string | null>(null);
 
   // provider 建立時就同步寫進 ref：狀態副作用 effect（disconnect/connect）不能等
   // `setSession` 的 re-render 才拿得到 provider。
@@ -282,6 +289,7 @@ export function useCollab({ noteId, onUnauthorized, onDocUpdate }: UseCollabOpti
     // 換筆記＝全新的一場連線；狀態機不得沿用上一篇的（含終態）。
     setState(INITIAL_COLLAB_STATE);
     setSynced(false);
+    setSyncedFor(null);
     roleRef.current = "none";
     pendingReconnectRef.current = false;
 
@@ -423,6 +431,7 @@ export function useCollab({ noteId, onUnauthorized, onDocUpdate }: UseCollabOpti
     let disposeDocUpdate: (() => void) | undefined;
     provider.on("synced", () => {
       setSynced(true);
+      if (!disposed) setSyncedFor(noteId);
       disposeDocUpdate ??= createDocUpdateDebouncer(doc, () => onDocUpdateRef.current?.(), DOC_UPDATE_DEBOUNCE_MS);
     });
 
@@ -518,6 +527,7 @@ export function useCollab({ noteId, onUnauthorized, onDocUpdate }: UseCollabOpti
       provider.destroy();
       doc.destroy();
       setSession(null);
+      setSyncedFor(null);
     };
   }, [noteId, dispatch]);
 
@@ -542,5 +552,5 @@ export function useCollab({ noteId, onUnauthorized, onDocUpdate }: UseCollabOpti
     }
   }, [state]);
 
-  return { state, doc: session?.doc ?? null, provider: session?.provider ?? null, synced };
+  return { state, doc: session?.doc ?? null, provider: session?.provider ?? null, synced, syncedFor };
 }

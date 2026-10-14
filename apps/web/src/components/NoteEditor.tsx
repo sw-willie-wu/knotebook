@@ -323,6 +323,8 @@ export interface NoteEditorProps {
    * 頁首（含預覽橫幅）、頁尾照常。⚠ 活編輯器**不 unmount**：`NoteEditorView` 的重掛會殺掉 y-prosemirror 的
    * UndoManager 訂閱（[[knotebook-collab-undo]]）；放在 `hidden` 容器裡的活編輯器仍收得到遠端更新（r1 實跑）。 */
   previewSlot?: ReactNode;
+  /** #269 §10.2：捲動容器（段落錨點的 root）。 */
+  onScrollRoot?: (el: HTMLElement | null) => void;
 }
 
 /**
@@ -352,6 +354,7 @@ export function NoteEditor({
   headerSlot,
   footerSlot,
   previewSlot,
+  onScrollRoot,
 }: NoteEditorProps) {
   const { t, i18n } = useTranslation();
   const { resolvedTheme } = useTheme();
@@ -461,7 +464,7 @@ export function NoteEditor({
       <div className="flex h-full min-h-0 min-w-0 flex-1 gap-3">
         <div className={cn(cardSurface, "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden")}>
           {headerSlot}
-          <div className={cn("min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-clip", hasPreview && "hidden")}>
+          <div ref={onScrollRoot} className={cn("min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-clip", hasPreview && "hidden")}>
             {/* issue #160：`relative` 承重——BlockNote 表格 hover 浮層走 FloatingPortal 到
                 `editor.portalElement`，沒有 positioned 祖先時 containing block 落到
                 `<html>`，撐出全頁滾軸；wrapper／捲動容器／`.bn-container` 三處等效，選

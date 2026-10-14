@@ -19,6 +19,8 @@ import { NotePageControlsContext, type NotePageControls, type OpenEditsState } f
 import { isOverlayOpen, useVersionsController, VersionsProvider } from "@/lib/versions-context";
 import { createLinkSync, type LinkSync } from "@/collab/link-sync";
 import { useCollab } from "@/collab/useCollab";
+import { BlockAnchorContext } from "@/hooks/block-anchor-context";
+import { useMemberBlockAnchor } from "@/hooks/useBlockAnchor";
 import { AiEditsDialog } from "@/components/AiEditsDialog";
 import { AppShell, SidebarDrawerButton } from "@/components/AppShell";
 import { NarrowTopBar } from "@/components/NarrowTopBar";
@@ -328,11 +330,15 @@ export default function NotePage() {
     invalidateNoteQueries(queryClient, note, params.ref ?? note.id);
   }, [note, params.ref, queryClient]);
 
-  const { state, doc, provider, synced } = useCollab({
+  const { state, doc, provider, synced, syncedFor } = useCollab({
     noteId,
     onUnauthorized: handleUnauthorized,
     onDocUpdate,
   });
+
+  // #269 §10.2：段落錨點。root＝NoteEditor 的捲動容器（NoteEditor 以 ref 回報）；組合（ready＝這一篇同步過了）在 useMemberBlockAnchor。
+  const [anchorRoot, setAnchorRoot] = useState<HTMLElement | null>(null);
+  const blockAnchor = useMemberBlockAnchor({ noteId, collab: { synced, syncedFor }, root: anchorRoot, presenting });
 
   // wikilink 連結索引提交器（Task 7，spec §12.3 client 段）。掛載定案在這裡（不是
   // NoteEditor）：`noteId`／`useCollab` 的 `doc`／`provider` 都在這一層。
@@ -664,6 +670,7 @@ export default function NotePage() {
             editable={editable}
             user={{ id: user.id, name: user.displayName }}
             noteId={noteId!}
+            onScrollRoot={setAnchorRoot}
             headerSlot={
               // #115：頁首滿卡寬（置左置右）——單層 header 自己就是內容列，標題貼左、
               // 控制項貼右；`px-5`（20px）與 `<md` 的內文左緣共線。#88 的文章欄對齊
@@ -738,28 +745,30 @@ export default function NotePage() {
 
   return (
     <NotePageControlsContext.Provider value={controls}>
-      <AppShell inert={presenting}>{body}</AppShell>
-      {shellMounted && (
-        <PresentationShell
-          title={note?.title ?? ""}
-          status={presentStatus}
-          errorMessage={presentFailure !== null ? errorText(presentFailure) : undefined}
-          toolbarExtra={
-            note && (state.phase !== "connected" || !synced) ? (
-              <ConnectionBadge state={state} synced={synced} canEdit={presentRoleCanEdit} />
-            ) : null
-          }
-        >
-          {overlayReady && doc !== null && note !== undefined && (
-            <LazyRouteErrorBoundary resetKey={paramsKey} chunk="present" frame="inline">
-              <Suspense fallback={<LazyRouteLoading frame="inline" />}>
-                <LazyPresentation variant="member" doc={doc} title={note.title} />
-                <ChunkLoadBeacon chunk="present" />
-              </Suspense>
-            </LazyRouteErrorBoundary>
-          )}
-        </PresentationShell>
-      )}
+      <BlockAnchorContext.Provider value={blockAnchor}>
+        <AppShell inert={presenting}>{body}</AppShell>
+        {shellMounted && (
+          <PresentationShell
+            title={note?.title ?? ""}
+            status={presentStatus}
+            errorMessage={presentFailure !== null ? errorText(presentFailure) : undefined}
+            toolbarExtra={
+              note && (state.phase !== "connected" || !synced) ? (
+                <ConnectionBadge state={state} synced={synced} canEdit={presentRoleCanEdit} />
+              ) : null
+            }
+          >
+            {overlayReady && doc !== null && note !== undefined && (
+              <LazyRouteErrorBoundary resetKey={paramsKey} chunk="present" frame="inline">
+                <Suspense fallback={<LazyRouteLoading frame="inline" />}>
+                  <LazyPresentation variant="member" doc={doc} title={note.title} />
+                  <ChunkLoadBeacon chunk="present" />
+                </Suspense>
+              </LazyRouteErrorBoundary>
+            )}
+          </PresentationShell>
+        )}
+      </BlockAnchorContext.Provider>
     </NotePageControlsContext.Provider>
   );
 }

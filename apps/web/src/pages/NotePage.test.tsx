@@ -145,7 +145,13 @@ vi.mock("@/collab/useCollab", () => ({
     // issue #48：NotePage 用 `synced` 閘住 editable。真實 useCollab 的 `synced` 是 sticky
     // 追蹤 `provider.synced`，測試裡直接反映 stub 的 `provider.synced`——設一處就同時餵
     // editable 與 link-sync 掛載 effect。
-    return { state: collab.state, doc: collab.doc, provider: collab.provider, synced: collab.provider.synced };
+    return {
+      state: collab.state,
+      doc: collab.doc,
+      provider: collab.provider,
+      synced: collab.provider.synced,
+      syncedFor: collab.provider.synced ? (noteId ?? null) : null,
+    };
   },
 }));
 
