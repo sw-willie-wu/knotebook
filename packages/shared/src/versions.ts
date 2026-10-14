@@ -24,7 +24,17 @@ export interface VersionEditorDto {
   agentLabel: string | null;
 }
 
-/** §6.1 清單的一列。`baseSeq`＝「從 vX 接著改」（只在基底不是當時最新版時有值）。 */
+/**
+ * #272 §9（D7、D12）：基底參照。`id`＝基底那一版的 uuid（升級前就已刪除的舊資料為 null）；`deleted`＝該列已不存在；
+ * `name` 只在未刪時有（已刪不保留，D12）。
+ */
+export interface VersionBaseRefDto {
+  id: string | null;
+  name: string | null;
+  deleted: boolean;
+}
+
+/** §6.1 清單的一列。`baseSeq`＝「沿自」的那一版（只在基底不是當時最新版時有值）；`base`＝它的參照（`baseSeq` 為 null 時為 null，#272）。 */
 export interface VersionDto {
   id: string;
   seq: number;
@@ -32,12 +42,14 @@ export interface VersionDto {
   name: string | null;
   editors: VersionEditorDto[];
   baseSeq: number | null;
+  base: VersionBaseRefDto | null;
   createdAt: string;
 }
 
-/** §6.1／§6.4：目前內容與版本的關係。`autoEnabled`＝A13 生效值（站台且空間）。 */
+/** §6.1／§6.4：目前內容與版本的關係。`autoEnabled`＝A13 生效值（站台且空間）。`base`＝`baseSeq` 那一版的參照（#272）；`nextSeq` 保留，web 不再顯示（D5）。 */
 export interface VersionCurrentDto {
   baseSeq: number | null;
+  base: VersionBaseRefDto | null;
   dirty: boolean;
   nextSeq: number;
   autoEnabled: boolean;

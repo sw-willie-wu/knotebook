@@ -38,6 +38,7 @@ const VERSION_1 = vi.hoisted(() => ({
   name: null,
   editors: [],
   baseSeq: null,
+  base: null,
   createdAt: "2026-01-01T00:00:00.000Z",
 }));
 vi.mock("@/components/NoteEditor", async () => {
@@ -223,7 +224,7 @@ function mockFetch(
     // 版本歷史（Task 10）：清單（面板 `limit=50`、套用前重抓 `limit=1`）、快照、套用。同樣要在
     // `GET /api/notes/` catch-all 之前。快照的 `AAA=` 是 `Y.encodeStateAsUpdate(new Y.Doc())`（空 doc，node 實跑取得）。
     const versionsBase = `/api/notes/${encodeURIComponent(NOTE.id)}/versions`;
-    const versionCurrent = { baseSeq: 1, dirty: false, nextSeq: 2, autoEnabled: true };
+    const versionCurrent = { baseSeq: 1, base: null, dirty: false, nextSeq: 2, autoEnabled: true };
     if ((url === `${versionsBase}?limit=50` || url === `${versionsBase}?limit=1`) && method === "GET") {
       return Promise.resolve(
         fakeResponse({

@@ -32,7 +32,7 @@ function installMatchMedia(initialNarrow: boolean) {
   };
 }
 
-const V: VersionDto = { id: "v-1", seq: 1, kind: "manual", name: null, editors: [], baseSeq: null, createdAt: "2026-10-09T00:00:00.000Z" };
+const V: VersionDto = { id: "v-1", seq: 1, kind: "manual", name: null, editors: [], baseSeq: null, base: null, createdAt: "2026-10-09T00:00:00.000Z" };
 
 describe("versions-context", () => {
   let mm: ReturnType<typeof installMatchMedia>;

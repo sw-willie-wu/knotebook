@@ -9,11 +9,12 @@ import { z } from "zod";
 import { and, desc, eq, inArray, lt, sql } from "drizzle-orm";
 import {
   VERSION_LIST_LIMIT_DEFAULT, VERSION_LIST_LIMIT_MAX, normalizeVersionName,
-  type ApplyVersionBody, type ApplyVersionResultDto, type VersionDto, type VersionKind, type VersionListDto, type SavedVersionDto, type VersionSnapshotDto,
+  type ApplyVersionBody, type ApplyVersionResultDto, type VersionBaseRefDto, type VersionCurrentDto, type VersionDto, type VersionKind, type VersionListDto,
+  type SavedVersionDto, type VersionSnapshotDto,
 } from "@knotebook/shared";
-import type { VersionService } from "../collab/versions.js";
+import type { VersionCurrentCore, VersionService } from "../collab/versions.js";
 import type { Db } from "../db/index.js";
-import { noteVersions, users } from "../db/schema.js";
+import { noteVersions, notes, users } from "../db/schema.js";
 import { sendError } from "../http/errors.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
 import type { NoteWriteService } from "../notes/editing/write-service.js";
@@ -48,7 +49,26 @@ const renameBodySchema = z.object({ name: z.string().nullable() }).strict();
 // 形＝shared 的 `ApplyVersionBody`（`satisfies` 讓兩邊漂移在編譯期紅）。
 const applyBodySchema = z.object({ versionId: z.string().regex(UUID_RE), discardUnsaved: z.boolean() }).strict() satisfies z.ZodType<ApplyVersionBody>;
 
-function toVersionDto(r: NoteVersionRow, handles: Map<string, string>): VersionDto {
+/** #272 §9：基底參照。`baseSeq` 為 null → null；id 為 null（升級前就已刪的舊資料）或查不到 → 已刪除；否則帶名稱。 */
+function baseRefOf(baseSeq: number | null, id: string | null, names: Map<string, string | null>): VersionBaseRefDto | null {
+  if (baseSeq === null) return null;
+  if (id === null || !names.has(id)) return { id, name: null, deleted: true };
+  return { id, name: names.get(id) ?? null, deleted: false };
+}
+
+/** 一句查這篇筆記裡這些 id 還在不在、叫什麼（不選 ydoc）。 */
+async function versionNames(db: Db, noteId: string, ids: string[]): Promise<Map<string, string | null>> {
+  const out = new Map<string, string | null>();
+  if (ids.length === 0) return out;
+  const found = await db
+    .select({ id: noteVersions.id, name: noteVersions.name })
+    .from(noteVersions)
+    .where(and(eq(noteVersions.noteId, noteId), inArray(noteVersions.id, ids)));
+  for (const v of found) out.set(v.id, v.name);
+  return out;
+}
+
+function toVersionDto(r: NoteVersionRow, handles: Map<string, string>, names: Map<string, string | null>): VersionDto {
   return {
     id: r.id,
     seq: r.seq,
@@ -56,18 +76,34 @@ function toVersionDto(r: NoteVersionRow, handles: Map<string, string>): VersionD
     name: r.name,
     editors: r.editors.map(e => ({ handle: handles.get(e.user_id) ?? "", agentLabel: e.agent_label })),
     baseSeq: r.baseSeq,
+    base: baseRefOf(r.baseSeq, r.baseVersionId, names),
     createdAt: r.createdAt.toISOString(),
   };
 }
 
-/** editors 的 handle 一次查（`inArray`，筆數＝這一頁出現的不同使用者數）；刪除的使用者 → ""。 */
-export async function toVersionDtos(db: Db, rows: NoteVersionRow[]): Promise<VersionDto[]> {
+/**
+ * editors 的 handle 一次查（`inArray`，筆數＝這一頁出現的不同使用者數）；刪除的使用者 → ""。
+ * #272 §9：基底在這一頁的直接用頁內名稱，其餘（不在本頁、被 kind 篩掉）一句查；查不到＝已刪除。
+ */
+export async function toVersionDtos(db: Db, noteId: string, rows: NoteVersionRow[]): Promise<VersionDto[]> {
   const ids = [...new Set(rows.flatMap(r => r.editors.map(e => e.user_id)))].filter(id => UUID_RE.test(id));
   const handles = new Map<string, string>();
   if (ids.length > 0) {
     for (const u of await db.select({ id: users.id, handle: users.handle }).from(users).where(inArray(users.id, ids))) handles.set(u.id, u.handle);
   }
-  return rows.map(r => toVersionDto(r, handles));
+  const names = new Map<string, string | null>(rows.map(r => [r.id, r.name]));
+  const missing = [...new Set(rows.flatMap(r => (r.baseSeq !== null && r.baseVersionId !== null && !names.has(r.baseVersionId) ? [r.baseVersionId] : [])))];
+  for (const [id, name] of await versionNames(db, noteId, missing)) names.set(id, name);
+  return rows.map(r => toVersionDto(r, handles, names));
+}
+
+/** #272 §9：`currentOf` 的結果補上 `base`（讀 `notes.version_base_version_id`）。清單與套用回應共用。 */
+export async function withCurrentBase(db: Db, noteId: string, current: VersionCurrentCore): Promise<VersionCurrentDto> {
+  if (current.baseSeq === null) return { ...current, base: null };
+  const [n] = await db.select({ id: notes.versionBaseVersionId }).from(notes).where(eq(notes.id, noteId)).limit(1);
+  const id = n?.id ?? null;
+  const names = await versionNames(db, noteId, id === null ? [] : [id]);
+  return { ...current, base: baseRefOf(current.baseSeq, id, names) };
 }
 
 export function noteVersionsRoutes(deps: NoteVersionsRouteDeps) {
@@ -111,7 +147,7 @@ export function noteVersionsRoutes(deps: NoteVersionsRouteDeps) {
       const page = rows.slice(0, limit);
       const current = await deps.versions.currentOf(id);
       if (current === null) return sendError(reply, 404, "not_found", NOTE_NOT_FOUND);
-      const body: VersionListDto = { versions: await toVersionDtos(deps.db, page), current, nextBefore: rows.length > limit ? page[page.length - 1]!.seq : null };
+      const body: VersionListDto = { versions: await toVersionDtos(deps.db, id, page), current: await withCurrentBase(deps.db, id, current), nextBefore: rows.length > limit ? page[page.length - 1]!.seq : null };
       return reply.send(body);
     });
 
@@ -149,7 +185,7 @@ export function noteVersionsRoutes(deps: NoteVersionsRouteDeps) {
           ? sendError(reply, 404, "not_found", NOTE_NOT_FOUND)
           : sendError(reply, 503, "server_busy", "筆記正在被寫入，請稍後再試");
       }
-      const [dto] = await toVersionDtos(deps.db, [out.row]);
+      const [dto] = await toVersionDtos(deps.db, id, [out.row]);
       return reply.code(201).send({ ...dto!, upgraded: out.upgraded } satisfies SavedVersionDto);
     });
 
@@ -177,7 +213,7 @@ export function noteVersionsRoutes(deps: NoteVersionsRouteDeps) {
         // 起草裁定 12：回「套用全部完成後的實際 current」——沒有 WS 連線時 disconnect 內已卸載（#272 起卸載不切版）。
         const current = await deps.versions.currentOf(id);
         if (current === null) return sendError(reply, 404, "not_found", NOTE_NOT_FOUND);
-        return reply.send({ current } satisfies ApplyVersionResultDto);
+        return reply.send({ current: await withCurrentBase(deps.db, id, current) } satisfies ApplyVersionResultDto);
       });
     }
 
@@ -201,7 +237,7 @@ export function noteVersionsRoutes(deps: NoteVersionsRouteDeps) {
         .where(and(eq(noteVersions.noteId, id), eq(noteVersions.seq, seq)))
         .returning();
       if (!row) return sendError(reply, 404, "not_found", VERSION_NOT_FOUND);
-      const [dto] = await toVersionDtos(deps.db, [row]);
+      const [dto] = await toVersionDtos(deps.db, id, [row]);
       return reply.send(dto! satisfies VersionDto);
     });
 

@@ -16,10 +16,11 @@ const v = (seq: number, over: Partial<VersionDto> = {}): VersionDto => ({
   name: null,
   editors: [{ handle: "ann", agentLabel: null }],
   baseSeq: null,
+  base: null,
   createdAt: "2026-10-09T01:00:00.000Z",
   ...over,
 });
-const cur = (over: Partial<VersionCurrentDto> = {}): VersionCurrentDto => ({ baseSeq: null, dirty: false, nextSeq: 1, autoEnabled: true, ...over });
+const cur = (over: Partial<VersionCurrentDto> = {}): VersionCurrentDto => ({ baseSeq: null, base: null, dirty: false, nextSeq: 1, autoEnabled: true, ...over });
 
 function stub(pages: Record<string, VersionListDto>) {
   const calls: string[] = [];

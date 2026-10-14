@@ -27,7 +27,7 @@ function b64(blocks: unknown[]): string {
   blocksToYXmlFragment(BlockNoteEditor.create({ schema: noteSchema }), blocks as any, doc.getXmlFragment(YDOC_FRAGMENT));
   return btoa(String.fromCharCode(...Y.encodeStateAsUpdate(doc)));
 }
-const ver = (seq: number, over: Partial<VersionDto> = {}): VersionDto => ({ id: `v-${seq}`, seq, kind: "auto", name: null, editors: [{ handle: "ann", agentLabel: null }], baseSeq: null, createdAt: "2026-10-09T00:00:00.000Z", ...over });
+const ver = (seq: number, over: Partial<VersionDto> = {}): VersionDto => ({ id: `v-${seq}`, seq, kind: "auto", name: null, editors: [{ handle: "ann", agentLabel: null }], baseSeq: null, base: null, createdAt: "2026-10-09T00:00:00.000Z", ...over });
 const V1 = [{ id: "A", type: "paragraph", content: "甲" }, { id: "B", type: "paragraph", content: "乙" }];
 const V2 = [{ id: "A", type: "paragraph", content: "甲改" }, { id: "C", type: "paragraph", content: "丙" }];
 
@@ -46,7 +46,7 @@ function stub(routes: Record<string, unknown>) {
 }
 const list = (versions: VersionDto[], nextBefore: number | null = null): VersionListDto => ({
   versions,
-  current: { baseSeq: versions[0]?.seq ?? null, dirty: false, nextSeq: (versions[0]?.seq ?? 0) + 1, autoEnabled: true },
+  current: { baseSeq: versions[0]?.seq ?? null, base: null, dirty: false, nextSeq: (versions[0]?.seq ?? 0) + 1, autoEnabled: true },
   nextBefore,
 });
 
@@ -340,7 +340,7 @@ describe("VersionsSheet（spec §8.3）", () => {
       [LIST]: list([ver(1)]),
       [SNAP(1)]: { id: "v-1", seq: 1, ydoc: b64(V1) },
       [`/api/notes/${NOTE}/versions?limit=1`]: list([ver(1)]),
-      [`/api/notes/${NOTE}/versions/1/apply`]: { current: { baseSeq: 1, dirty: false, nextSeq: 2, autoEnabled: true } },
+      [`/api/notes/${NOTE}/versions/1/apply`]: { current: { baseSeq: 1, base: null, dirty: false, nextSeq: 2, autoEnabled: true } },
     });
     renderSheet();
     const sheet = await screen.findByRole("dialog", { name: "Version history" });
@@ -375,7 +375,7 @@ describe("VersionsSheet（spec §8.3）", () => {
 
   it("篩選（#258）：僅手動且沒有符合 → 空狀態一行灰字；「目前狀態」仍在", async () => {
     window.localStorage.setItem(KIND_FILTER_STORAGE_KEY, "manual");
-    stub({ [LIST_MANUAL]: { ...list([]), current: { baseSeq: 2, dirty: true, nextSeq: 3, autoEnabled: true } } });
+    stub({ [LIST_MANUAL]: { ...list([]), current: { baseSeq: 2, base: null, dirty: true, nextSeq: 3, autoEnabled: true } } });
     renderSheet();
     const sheet = await screen.findByRole("dialog", { name: "Version history" });
     expect(await within(sheet).findByTestId("versions-filter-empty")).toHaveTextContent("No manually saved versions");

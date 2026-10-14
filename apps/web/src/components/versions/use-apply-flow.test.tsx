@@ -10,8 +10,8 @@ import { useApplyFlow } from "./use-apply-flow";
 // useApplyFlow × controller 的 `onApplied`（Task 10 fix round 1）：只在套用成功、且 mutateAsync resolve 之後通知；
 // 通知本身出錯不得把成功變成錯誤 toast（它排在 closeDialog／stopPreview 之後）。
 const NOTE = "n1";
-const V1: VersionDto = { id: "v-1", seq: 1, kind: "manual", name: null, editors: [], baseSeq: null, createdAt: "2026-10-09T00:00:00.000Z" };
-const CURRENT: VersionCurrentDto = { baseSeq: 2, dirty: false, nextSeq: 3, autoEnabled: true };
+const V1: VersionDto = { id: "v-1", seq: 1, kind: "manual", name: null, editors: [], baseSeq: null, base: null, createdAt: "2026-10-09T00:00:00.000Z" };
+const CURRENT: VersionCurrentDto = { baseSeq: 2, base: null, dirty: false, nextSeq: 3, autoEnabled: true };
 const APPLY1 = `/api/notes/${NOTE}/versions/1/apply`;
 
 function Harness() {

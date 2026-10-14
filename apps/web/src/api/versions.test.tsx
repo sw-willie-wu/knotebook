@@ -33,7 +33,7 @@ function fakeResponse(status: number, json?: unknown): Response {
 function listBody(over: Partial<VersionListDto> = {}): VersionListDto {
   return {
     versions: [],
-    current: { baseSeq: null, dirty: false, nextSeq: 1, autoEnabled: true },
+    current: { baseSeq: null, base: null, dirty: false, nextSeq: 1, autoEnabled: true },
     nextBefore: null,
     ...over,
   };
@@ -147,7 +147,7 @@ describe("api/versions", () => {
     let dirty = false;
     const { calls, queryClient } = setup((url) => {
       if (url === `/api/notes/${NOTE}/versions?limit=1`)
-        return fakeResponse(200, listBody({ current: { baseSeq: 3, dirty, nextSeq: 4, autoEnabled: true } }));
+        return fakeResponse(200, listBody({ current: { baseSeq: 3, base: null, dirty, nextSeq: 4, autoEnabled: true } }));
       throw new Error(`unexpected fetch: ${url}`);
     });
     expect((await fetchCurrent(queryClient, NOTE)).dirty).toBe(false);
@@ -161,7 +161,7 @@ describe("api/versions", () => {
     setup((url, init) => {
       if (url === `/api/notes/${NOTE}/versions` && init?.method === "POST") {
         bodies.push(JSON.parse(String(init.body)));
-        return fakeResponse(201, { id: V1, seq: 1, kind: "manual", name: null, editors: [], baseSeq: null, createdAt: "x", upgraded: false });
+        return fakeResponse(201, { id: V1, seq: 1, kind: "manual", name: null, editors: [], baseSeq: null, base: null, createdAt: "x", upgraded: false });
       }
       throw new Error(`unexpected fetch: ${url}`);
     });
@@ -175,7 +175,7 @@ describe("api/versions", () => {
     const seen: Array<{ url: string; body: unknown }> = [];
     setup((url, init) => {
       seen.push({ url, body: JSON.parse(String(init?.body)) });
-      return fakeResponse(200, { current: { baseSeq: 2, dirty: false, nextSeq: 5, autoEnabled: true } });
+      return fakeResponse(200, { current: { baseSeq: 2, base: null, dirty: false, nextSeq: 5, autoEnabled: true } });
     });
     const out = await applyVersion(NOTE, 2, { versionId: V1, discardUnsaved: true });
     expect(seen).toEqual([{ url: `/api/notes/${NOTE}/versions/2/apply`, body: { versionId: V1, discardUnsaved: true } }]);
@@ -247,7 +247,7 @@ describe("api/versions", () => {
 
   it("#258 自動版本改名（PATCH）成功 → 帶 kind 的清單立刻重抓，轉成手動的那一版會出現在「僅手動」", async () => {
     let renamed = false;
-    const row = (kind: "auto" | "manual") => ({ id: V1, seq: 1, kind, name: null, editors: [], baseSeq: null, createdAt: "x" });
+    const row = (kind: "auto" | "manual") => ({ id: V1, seq: 1, kind, name: null, editors: [], baseSeq: null, base: null, createdAt: "x" });
     const { calls, wrapper } = setup((url, init) => {
       if (init?.method === "PATCH") {
         renamed = true;

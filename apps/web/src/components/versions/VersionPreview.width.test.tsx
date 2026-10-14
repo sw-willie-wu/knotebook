@@ -27,7 +27,7 @@ function b64(blocks: unknown[]): string {
   blocksToYXmlFragment(BlockNoteEditor.create({ schema: noteSchema }), blocks as any, doc.getXmlFragment(YDOC_FRAGMENT));
   return btoa(String.fromCharCode(...Y.encodeStateAsUpdate(doc)));
 }
-const ver = (seq: number): VersionDto => ({ id: `v-${seq}`, seq, kind: "auto", name: null, editors: [], baseSeq: null, createdAt: "2026-10-09T00:00:00.000Z" });
+const ver = (seq: number): VersionDto => ({ id: `v-${seq}`, seq, kind: "auto", name: null, editors: [], baseSeq: null, base: null, createdAt: "2026-10-09T00:00:00.000Z" });
 
 function Host() {
   const value = useVersionsController({ noteId: NOTE, enabled: true });
@@ -60,7 +60,7 @@ describe("VersionPreview 寬度量尺（gate r2 M-1：loading 也畫在 ref wrap
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
         if (url === `/api/notes/${NOTE}/versions?limit=50`)
-          return body({ versions: [ver(2), ver(1)], current: { baseSeq: 2, dirty: false, nextSeq: 3, autoEnabled: true }, nextBefore: null });
+          return body({ versions: [ver(2), ver(1)], current: { baseSeq: 2, base: null, dirty: false, nextSeq: 3, autoEnabled: true }, nextBefore: null });
         if (url === `/api/notes/${NOTE}/versions/2`) {
           await held;
           return body({ id: "v-2", seq: 2, ydoc: b64([{ id: "A", type: "paragraph", content: "新" }]) });

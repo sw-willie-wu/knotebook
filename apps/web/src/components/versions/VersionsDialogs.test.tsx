@@ -12,8 +12,8 @@ import { VersionsDialogs } from "./VersionsDialogs";
 import { useApplyFlow } from "./use-apply-flow";
 
 const NOTE = "n1";
-const v = (seq: number, over: Partial<VersionDto> = {}): VersionDto => ({ id: `v-${seq}`, seq, kind: "auto", name: null, editors: [], baseSeq: null, createdAt: "2026-10-09T00:00:00.000Z", ...over });
-const cur = (over: Partial<VersionCurrentDto> = {}): VersionCurrentDto => ({ baseSeq: 2, dirty: false, nextSeq: 3, autoEnabled: true, ...over });
+const v = (seq: number, over: Partial<VersionDto> = {}): VersionDto => ({ id: `v-${seq}`, seq, kind: "auto", name: null, editors: [], baseSeq: null, base: null, createdAt: "2026-10-09T00:00:00.000Z", ...over });
+const cur = (over: Partial<VersionCurrentDto> = {}): VersionCurrentDto => ({ baseSeq: 2, base: null, dirty: false, nextSeq: 3, autoEnabled: true, ...over });
 const listBody = (current: VersionCurrentDto): VersionListDto => ({ versions: [v(2), v(1)], current, nextBefore: null });
 
 type Handler = (url: string, init?: RequestInit) => { status: number; body?: unknown } | undefined;

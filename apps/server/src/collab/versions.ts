@@ -101,6 +101,8 @@ export interface VersionMeta {
   /** #272 §5.1：只在待切段開始時沒有基底才有值——段開始前的內容指紋。 */
   pendingRefFingerprint: string | null;
 }
+/** `currentOf` 的結果：`VersionCurrentDto` 減去由路由層 `withCurrentBase` 補上的 `base`（#272 §9）。 */
+export type VersionCurrentCore = Omit<VersionCurrentDto, "base">;
 export interface VersionStateSnapshot {
   initialized: boolean;
   autoEnabled: boolean;
@@ -140,7 +142,7 @@ export interface VersionService {
    */
   endApply(noteId: string, r?: { seq: number; fingerprint: string } | { reset: true }): void;
   docFor(noteId: string): Promise<{ doc: Y.Doc; transient?: Y.Doc }>;
-  currentOf(noteId: string): Promise<VersionCurrentDto | null>;
+  currentOf(noteId: string): Promise<VersionCurrentCore | null>;
   pruneNote(noteId: string, now?: Date): Promise<number>;
   sweep(now: Date): Promise<number>;
   debugState(noteId: string): VersionStateSnapshot | undefined;
@@ -481,7 +483,7 @@ export function createVersionService(deps: VersionServiceDeps): VersionService {
     return { doc, transient: doc };
   }
 
-  async function currentOf(noteId: string): Promise<VersionCurrentDto | null> {
+  async function currentOf(noteId: string): Promise<VersionCurrentCore | null> {
     const meta = await readVersionMeta(db, noteId);
     if (meta === null) return null;
     const { doc, transient } = await docFor(noteId);

@@ -11,10 +11,10 @@ import { ComparePicker } from "./ComparePicker";
 const NOTE = "n1";
 const FIRST = `/api/notes/${NOTE}/versions?limit=50`;
 const FIRST_MANUAL = `/api/notes/${NOTE}/versions?kind=manual&limit=50`;
-const ver = (seq: number, name: string | null = null, kind: VersionDto["kind"] = "manual"): VersionDto => ({ id: `v-${seq}`, seq, kind, name, editors: [], baseSeq: null, createdAt: "2026-10-09T00:00:00.000Z" });
+const ver = (seq: number, name: string | null = null, kind: VersionDto["kind"] = "manual"): VersionDto => ({ id: `v-${seq}`, seq, kind, name, editors: [], baseSeq: null, base: null, createdAt: "2026-10-09T00:00:00.000Z" });
 const list = (versions: VersionDto[], nextBefore: number | null = null): VersionListDto => ({
   versions,
-  current: { baseSeq: versions[0]?.seq ?? null, dirty: false, nextSeq: (versions[0]?.seq ?? 0) + 1, autoEnabled: true },
+  current: { baseSeq: versions[0]?.seq ?? null, base: null, dirty: false, nextSeq: (versions[0]?.seq ?? 0) + 1, autoEnabled: true },
   nextBefore,
 });
 
