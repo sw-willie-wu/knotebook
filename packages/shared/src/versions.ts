@@ -76,6 +76,8 @@ export interface VersionSettingsDto {
   keepAllDays: number;
   dailyUntilDays: number;
   autoVersionsEnabled: boolean;
+  /** #272 §8（D4）：自動存版等待 X（整數分鐘 1–60）——最後一次內容變動後這麼久沒有新的變動，就自動存一版。 */
+  autoWaitMinutes: number;
 }
 
 const UNSTORABLE = /\u0000|\p{Surrogate}/u;

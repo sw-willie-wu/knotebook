@@ -487,6 +487,9 @@
       "keepAllLabel": "全部保留（天）",
       "dailyUntilLabel": "每天一版直到（天）",
       "daysInvalid": "請填整數，且 1 ≤ 前者 ≤ 後者 ≤ 3650。",
+      "waitLabel": "自動存版等待（分鐘）",
+      "waitHelp": "編輯後若 {{minutes}} 分鐘沒有新的修改，就自動存一個版本。",
+      "waitInvalid": "等待時間請填 1 到 60 的整數。",
       "save": "儲存",
       "saved": "已儲存版本設定"
     },

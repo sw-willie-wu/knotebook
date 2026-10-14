@@ -68,7 +68,7 @@ const PANEL3_GETS: Record<string, unknown> = {
   ],
   "/api/admin/storage-plans": { plans: [PLAN], defaults: { userPlanId: PLAN.id, groupPlanId: PLAN.id } },
   "/api/admin/groups": [{ id: GROUP_ID, name: "Team Alpha", createdAt: T, memberCount: 2, storage: PLAN_STORAGE }],
-  "/api/admin/versions/settings": { keepAllDays: 7, dailyUntilDays: 30, autoVersionsEnabled: true },
+  "/api/admin/versions/settings": { keepAllDays: 7, dailyUntilDays: 30, autoVersionsEnabled: true, autoWaitMinutes: 5 },
   "/api/admin/auth/providers": {
     providers: [{
       id: PROVIDER_ID, template: "oidc", displayName: "SSO", issuerUrl: "https://idp.example", clientId: "kb", hasSecret: true,

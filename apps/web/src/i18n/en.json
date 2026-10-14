@@ -487,6 +487,9 @@
       "keepAllLabel": "Keep all for (days)",
       "dailyUntilLabel": "One a day until (days)",
       "daysInvalid": "Use whole numbers with 1 ≤ first ≤ second ≤ 3650.",
+      "waitLabel": "Wait before saving automatically (minutes)",
+      "waitHelp": "After editing, if there is no new change for {{minutes}} minutes, a version is saved automatically.",
+      "waitInvalid": "Use a whole number of minutes from 1 to 60.",
       "save": "Save",
       "saved": "Version settings saved"
     },
