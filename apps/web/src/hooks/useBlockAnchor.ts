@@ -6,6 +6,8 @@ import type { BlockAnchorApi } from "./block-anchor-context";
 /** §10.2：找不到區塊時 MutationObserver 等的上限；高亮的時間。 */
 export const ANCHOR_WAIT_MS = 2_000;
 export const ANCHOR_FLASH_MS = 2_000;
+/** 高亮浮層的 class（動畫在 index.css）與屬性（值＝區塊 id，e2e 以它定位）。 */
+export const ANCHOR_FLASH_CLASS = "kn-anchor-flash";
 export const ANCHOR_FLASH_ATTR = "data-anchor-flash";
 
 /** 只認 `#b-<id>`（`<id>` 合 BLOCK_ANCHOR_RE）；簡報的 `#/…` 與其他 fragment 一律 null。 */
@@ -16,31 +18,73 @@ export function blockIdFromHash(hash: string): string | null {
 }
 
 /**
+ * 高亮浮層掛在哪：從編輯器根（`.ProseMirror`）往外、root 之內第一個 positioned 祖先（NoteEditor／公開頁的文章欄 wrapper 是
+ * `relative`）；沒有就 root。浮層必須在 ProseMirror 管的 DOM **之外**：可編輯的編輯器裡，`.bn-block-outer` 上任何外來的屬性變動都會讓
+ * ProseMirror 重繪該節點、換掉元素（e2e 實測：設上後約 70 ms 元素就脫離 DOM；唯讀時不換），掛在區塊上的高亮因此看不到。
+ * 在捲動容器之內，浮層才會跟著內容一起捲。
+ */
+function overlayHost(root: HTMLElement, el: HTMLElement): HTMLElement {
+  let node = (el.closest(".ProseMirror") ?? el).parentElement;
+  while (node && node !== root && root.contains(node)) {
+    if (getComputedStyle(node).position !== "static") return node;
+    node = node.parentElement;
+  }
+  return root;
+}
+
+/**
+ * 在 host 裡疊一層蓋住 el 的高亮浮層。座標以浮層自己在 (0,0) 時量到的原點換算——不依賴 host 是不是 containing block、捲到哪。
+ * 位置只在掛上時量一次：2 s 高亮期間若版面重排（圖片載入、視窗縮放、協作者在上方插入內容），浮層可能短暫對不準——接受的取捨
+ * （高亮只是提示，不值得為它掛 ResizeObserver／MutationObserver）。
+ */
+function mountFlashOverlay(root: HTMLElement, el: HTMLElement, blockId: string): HTMLElement {
+  const overlay = document.createElement("div");
+  overlay.className = ANCHOR_FLASH_CLASS;
+  overlay.setAttribute(ANCHOR_FLASH_ATTR, blockId);
+  overlay.setAttribute("aria-hidden", "true");
+  overlay.style.position = "absolute";
+  overlay.style.top = "0px";
+  overlay.style.left = "0px";
+  overlayHost(root, el).appendChild(overlay);
+  const origin = overlay.getBoundingClientRect();
+  const rect = el.getBoundingClientRect();
+  overlay.style.top = `${rect.top - origin.top}px`;
+  overlay.style.left = `${rect.left - origin.left}px`;
+  overlay.style.width = `${rect.width}px`;
+  overlay.style.height = `${rect.height}px`;
+  return overlay;
+}
+
+/**
  * 在 root 內（任何深度——RF4）找 `.bn-block-outer[data-id="<id>"]`（重複 id 取第一個）；找到就 `scrollIntoView({ block: "start" })`
- * ＋高亮 2 s；找不到用 MutationObserver 等最多 2 s，仍無 ⇒ 不捲、不報錯（停頂端）。id 已過 BLOCK_ANCHOR_RE，不需要 CSS.escape。
- * 回傳取消（清 observer 與計時器、拿掉高亮）。
+ * ＋高亮 2 s（ProseMirror 管轄外的浮層，見 `overlayHost`；動畫結束或 2 s 後移除——`prefers-reduced-motion` 沒有動畫，靠計時器）；
+ * 找不到用 MutationObserver 等最多 2 s，仍無 ⇒ 不捲、不報錯（停頂端）。id 已過 BLOCK_ANCHOR_RE，不需要 CSS.escape。
+ * 回傳取消（清 observer 與計時器、移除浮層）；同一篇再要求錨點時呼叫端先取消上一個，所以畫面上最多一個浮層。
  */
 export function scrollToBlock(root: HTMLElement, blockId: string): () => void {
   const selector = `.bn-block-outer[data-id="${blockId}"]`;
   let observer: MutationObserver | null = null;
   let waitTimer: ReturnType<typeof setTimeout> | undefined;
   let flashTimer: ReturnType<typeof setTimeout> | undefined;
-  let flashed: HTMLElement | null = null;
+  let overlay: HTMLElement | null = null;
   const stopWaiting = () => {
     observer?.disconnect();
     observer = null;
     if (waitTimer !== undefined) clearTimeout(waitTimer);
     waitTimer = undefined;
   };
+  const removeOverlay = () => {
+    if (flashTimer !== undefined) clearTimeout(flashTimer);
+    flashTimer = undefined;
+    overlay?.remove();
+    overlay = null;
+  };
   const hit = (el: HTMLElement) => {
     stopWaiting();
     el.scrollIntoView({ block: "start" });
-    el.setAttribute(ANCHOR_FLASH_ATTR, "");
-    flashed = el;
-    flashTimer = setTimeout(() => {
-      el.removeAttribute(ANCHOR_FLASH_ATTR);
-      flashed = null;
-    }, ANCHOR_FLASH_MS);
+    overlay = mountFlashOverlay(root, el, blockId);
+    overlay.addEventListener("animationend", removeOverlay, { once: true });
+    flashTimer = setTimeout(removeOverlay, ANCHOR_FLASH_MS);
   };
   const found = root.querySelector<HTMLElement>(selector);
   if (found) hit(found);
@@ -54,8 +98,7 @@ export function scrollToBlock(root: HTMLElement, blockId: string): () => void {
   }
   return () => {
     stopWaiting();
-    if (flashTimer !== undefined) clearTimeout(flashTimer);
-    flashed?.removeAttribute(ANCHOR_FLASH_ATTR);
+    removeOverlay();
   };
 }
 

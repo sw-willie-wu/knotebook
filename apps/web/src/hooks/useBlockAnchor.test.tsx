@@ -37,7 +37,8 @@ vi.mock("@hocuspocus/provider", () => ({
 }));
 
 const { useCollab } = await import("@/collab/useCollab");
-const { blockIdFromHash, scrollToBlock, useBlockAnchor, useMemberBlockAnchor, ANCHOR_FLASH_ATTR, ANCHOR_WAIT_MS } = await import("./useBlockAnchor");
+const { blockIdFromHash, scrollToBlock, useBlockAnchor, useMemberBlockAnchor, ANCHOR_FLASH_ATTR, ANCHOR_FLASH_CLASS, ANCHOR_FLASH_MS, ANCHOR_WAIT_MS } =
+  await import("./useBlockAnchor");
 
 const A = "aaaaaaaa-0000-4000-8000-000000000001";
 const B = "bbbbbbbb-0000-4000-8000-000000000002";
@@ -103,6 +104,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks(); // pageLikeRoot 的 getBoundingClientRect spy
   vi.useRealTimers();
 });
 
@@ -114,16 +116,71 @@ describe("#269 blockIdFromHash／scrollToBlock", () => {
     expect(blockIdFromHash("#b-壞")).toBeNull();
   });
 
-  it("找得到：捲＋高亮 2 s 後拿掉；RF4 巢狀區塊也找得到", () => {
-    vi.useFakeTimers();
+  /**
+   * 頁面的形：捲動容器（root）＞文章欄 wrapper（`relative`）＞編輯器根（`.ProseMirror`）＞區塊。getBoundingClientRect 以 stub 給：
+   * 浮層在 (0,0) 時量到的原點 (40, 10)、目標區塊 (300, 30, 500×24) ⇒ 浮層該放在 top 260、left 20、500×24。
+   */
+  function pageLikeRoot(): { root: HTMLElement; column: HTMLElement; target: HTMLElement } {
     const root = document.createElement("div");
-    root.innerHTML = '<div class="bn-block-outer" data-id="p"><div class="bn-block-group"><div class="bn-block-outer" data-id="deep" data-note="n"></div></div></div>';
+    root.innerHTML =
+      '<div data-testid="column" style="position: relative"><div class="ProseMirror" style="position: relative">' +
+      '<div class="bn-block-outer" data-id="p"><div class="bn-block-group"><div class="bn-block-outer" data-id="deep" data-note="n"></div></div></div>' +
+      "</div></div>";
+    document.body.appendChild(root);
+    const rect = (top: number, left: number, width: number, height: number) =>
+      ({ top, left, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => ({}) }) as DOMRect;
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      if (this.classList.contains(ANCHOR_FLASH_CLASS)) return rect(40, 10, 0, 0);
+      if (this.getAttribute("data-id") === "deep") return rect(300, 30, 500, 24);
+      return rect(0, 0, 0, 0);
+    });
+    return { root, column: root.querySelector<HTMLElement>('[data-testid="column"]')!, target: root.querySelector<HTMLElement>('[data-id="deep"]')! };
+  }
+  const overlaysIn = (root: HTMLElement) => root.querySelectorAll(`.${ANCHOR_FLASH_CLASS}`);
+
+  it("找得到：捲＋高亮浮層蓋住該區塊（座標由 rect 換算）、掛在 ProseMirror 管轄外的文章欄、區塊本身不改屬性；RF4 巢狀區塊也找得到", () => {
+    const { root, column, target } = pageLikeRoot();
     scrollToBlock(root, "deep");
     expect(scrolls).toEqual(["n:deep"]);
-    const el = root.querySelector('[data-id="deep"]')!;
-    expect(el.hasAttribute(ANCHOR_FLASH_ATTR)).toBe(true);
-    vi.advanceTimersByTime(2_000);
-    expect(el.hasAttribute(ANCHOR_FLASH_ATTR)).toBe(false);
+    const overlays = overlaysIn(root);
+    expect(overlays).toHaveLength(1);
+    const overlay = overlays[0] as HTMLElement;
+    expect(overlay.parentElement).toBe(column); // 不是 root、也不在 .ProseMirror 裡（編輯器根本身 positioned 也要跳過）
+    expect(overlay.closest(".ProseMirror")).toBeNull();
+    expect(overlay.getAttribute(ANCHOR_FLASH_ATTR)).toBe("deep");
+    expect(overlay.getAttribute("aria-hidden")).toBe("true");
+    expect({ position: overlay.style.position, top: overlay.style.top, left: overlay.style.left, width: overlay.style.width, height: overlay.style.height }).toEqual({
+      position: "absolute",
+      top: "260px",
+      left: "20px",
+      width: "500px",
+      height: "24px",
+    });
+    expect(target.attributes).toHaveLength(3); // class、data-id、data-note——ProseMirror 管的節點不被改
+    root.remove();
+  });
+
+  it("浮層：動畫結束（animationend）就移除", () => {
+    const { root } = pageLikeRoot();
+    scrollToBlock(root, "deep");
+    overlaysIn(root)[0]!.dispatchEvent(new Event("animationend"));
+    expect(overlaysIn(root)).toHaveLength(0);
+    root.remove();
+  });
+
+  it("浮層：沒有 animationend（prefers-reduced-motion 不動畫）時 2 s 後移除；取消（卸載／下一個請求）立即移除", () => {
+    vi.useFakeTimers();
+    const { root } = pageLikeRoot();
+    scrollToBlock(root, "deep");
+    vi.advanceTimersByTime(ANCHOR_FLASH_MS - 1);
+    expect(overlaysIn(root)).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(overlaysIn(root)).toHaveLength(0);
+    const cancel = scrollToBlock(root, "deep");
+    expect(overlaysIn(root)).toHaveLength(1);
+    cancel();
+    expect(overlaysIn(root)).toHaveLength(0);
+    root.remove();
   });
 
   it("一開始找不到：MutationObserver 等到出現才捲；2 s 內都沒出現 → 不捲、不丟錯", async () => {
@@ -219,8 +276,8 @@ describe("#269 W8 useBlockAnchor（member：真的 useCollab）", () => {
     expect(scrolls).toEqual([`${B}:x`]);
   });
 
-  it("同一錨點捲走後再點（requestAnchor）會再捲；requestAnchor 的區塊在本篇", () => {
-    render(
+  it("同一錨點捲走後再點（requestAnchor）會再捲；requestAnchor 的區塊在本篇；2 s 內連續要求只留最後一個高亮浮層", () => {
+    const { getByTestId } = render(
       <MemoryRouter initialEntries={["/notes/B#b-x"]}>
         <MemberHost noteId={B} />
       </MemoryRouter>,
@@ -229,6 +286,8 @@ describe("#269 W8 useBlockAnchor（member：真的 useCollab）", () => {
     act(() => api.requestAnchor("x"));
     act(() => api.requestAnchor("nested"));
     expect(scrolls).toEqual([`${B}:x`, `${B}:x`, `${B}:nested`]);
+    const overlays = getByTestId("root").querySelectorAll(`.${ANCHOR_FLASH_CLASS}`);
+    expect(Array.from(overlays, (o) => o.getAttribute(ANCHOR_FLASH_ATTR))).toEqual(["nested"]);
   });
 
   it("noteId 為 undefined 時 requestAnchor 不設定（不消耗、不拋錯）", () => {

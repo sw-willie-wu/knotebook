@@ -890,8 +890,9 @@ input[name="share-access"] {
   background: repeating-linear-gradient(45deg, transparent 0 6px, oklch(0.6 0.02 260 / 0.12) 6px 12px);
 }
 
-/* #269 §10.2：段落錨點的短暫高亮（useBlockAnchor 設 data-anchor-flash 2 s）。主題色用 --color-brand（理由見 wikilink/spec.tsx 與
-   theme.link-guard.test.ts）；prefers-reduced-motion 時不動畫、靜態底色。 */
+/* #269 §10.2：段落錨點的短暫高亮（useBlockAnchor 在 ProseMirror 管轄外疊一層 .kn-anchor-flash 浮層蓋住該區塊，2 s 後移除——不掛在
+   .bn-block-outer 上：可編輯時 ProseMirror 會重繪被改屬性的節點、高亮跟著消失）。主題色用 --color-brand（理由見 wikilink/spec.tsx 與
+   theme.link-guard.test.ts）；prefers-reduced-motion 時不動畫、靜態底色。浮層不吃指標事件。 */
 @keyframes kn-anchor-flash {
   from {
     background-color: color-mix(in oklch, var(--color-brand) 22%, transparent);
@@ -900,11 +901,12 @@ input[name="share-access"] {
     background-color: transparent;
   }
 }
-.bn-block-outer[data-anchor-flash] {
+.kn-anchor-flash {
+  pointer-events: none;
   animation: kn-anchor-flash 2s ease-out;
 }
 @media (prefers-reduced-motion: reduce) {
-  .bn-block-outer[data-anchor-flash] {
+  .kn-anchor-flash {
     animation: none;
     background-color: color-mix(in oklch, var(--color-brand) 15%, transparent);
   }
