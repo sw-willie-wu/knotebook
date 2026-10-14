@@ -434,7 +434,7 @@ export interface VersionEditorJson {
 }
 
 /**
- * #269 §12.2：一次性站內連結轉換的狀態表。**候選集在 migration 當下凍結**（0025 的 seed `INSERT … SELECT id, 'pending' FROM notes`）：
+ * #269 §12.2：一次性站內連結轉換的狀態表。**候選集在 migration 當下凍結**（0026 的 seed `INSERT … SELECT id, 'pending' FROM notes`）：
  * 之後建立的筆記沒有列 ⇒ 轉換工作永遠不碰（它們的連結都經寫入路徑、以寫入者權限處理過）。沒有 converter_version：日後要重掃須另一支
  * migration 重新 seed。不動 `notes` 表（#272 會改它）。標記一律 UPDATE（列由 migration seed；處理途中筆記被刪 ⇒ 列已 cascade 消失）。
  */

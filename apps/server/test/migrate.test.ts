@@ -12,7 +12,7 @@ import { apiTokens, authProviders, groupMembers, groupRoles, groups, noteRedirec
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
 /** drizzle 對 `schema.ts` 的序列化；宣告漂移守衛拿最新一支當比對基準（Task 14 rebase 後改成實際檔名）。 */
-const SNAPSHOT_FILE = "meta/0025_snapshot.json";
+const SNAPSHOT_FILE = "meta/0026_snapshot.json";
 const snapshotLatest = JSON.parse(readFileSync(path.join(drizzleDirForTest, SNAPSHOT_FILE), "utf8")) as {
   tables: Record<string, { checkConstraints?: Record<string, { name: string; value: string }> }>;
 };
@@ -243,9 +243,9 @@ describe("runMigrations", () => {
     expect(await rows()).toEqual(expected);
   });
 
-  it("#269 0025 note_link_conversion：migration 當下已存在的筆記各 seed 一列 pending；之後建立的筆記沒有列（候選集凍結）", async () => {
+  it("#269 0026 note_link_conversion：migration 當下已存在的筆記各 seed 一列 pending；之後建立的筆記沒有列（候選集凍結）", async () => {
     const { pool, db } = await freshEmptyDb();
-    await applyMigrationsThrough(pool, idxOfTag("0025_note-link-conversion") - 1);
+    await applyMigrationsThrough(pool, idxOfTag("0026_note-link-conversion") - 1);
     const u = (await pool.query(`insert into users (email, display_name) values ('lc@x.example', 'L') returning id`)).rows[0].id as string;
     const before = (await pool.query(`insert into notes (owner_id) values ($1) returning id`, [u])).rows[0].id as string;
     await runMigrations(db);
