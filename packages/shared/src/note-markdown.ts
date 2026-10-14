@@ -1,5 +1,6 @@
 import * as Y from "yjs";
 import { YDOC_FRAGMENT } from "./ydoc.js";
+import { mapInlineArrays } from "./site-link.js";
 
 // markdown 往返有損：wikilink 丟 targetNoteId（只剩 [[標題]] 文字）、mermaid 降級成
 // codeBlock(language=mermaid)。這兩支還原；規則同 web 的 ai/apply.ts 與 mermaid-paste.ts：
@@ -62,20 +63,22 @@ function rebindInline(content: AnyInline[], notes: WikilinkTarget[]): [AnyInline
   return [out, unbound];
 }
 
+/**
+ * #269 §6.2：走訪改用 `mapInlineArrays`——**表格格子裡的 `[[…]]` 也綁、也計入 unbound**（舊版只走 `content === "inline"`
+ * 的 block，表格整個漏掉）。`isInlineType` 仍只管一般 block；表格格子一律走。
+ */
 export function rebindWikilinks<B>(blocks: B[], notes: WikilinkTarget[], isInlineType: (type: string) => boolean): [B[], number] {
   let unbound = 0;
-  const walk = (bs: AnyBlock[]): AnyBlock[] =>
-    bs.map(b => {
-      const next: AnyBlock = { ...b };
-      if (isInlineType(b.type) && Array.isArray(b.content)) {
-        const [content, n] = rebindInline(b.content as AnyInline[], notes);
-        unbound += n;
-        next.content = content;
-      }
-      if (Array.isArray(b.children) && b.children.length > 0) next.children = walk(b.children);
-      return next;
-    });
-  return [walk(blocks as AnyBlock[]) as unknown as B[], unbound];
+  const out = mapInlineArrays(
+    blocks,
+    (inline) => {
+      const [content, n] = rebindInline(inline as AnyInline[], notes);
+      unbound += n;
+      return content;
+    },
+    isInlineType,
+  );
+  return [out, unbound];
 }
 
 /**

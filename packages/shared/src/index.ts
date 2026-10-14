@@ -1130,6 +1130,7 @@ export function safeNextPath(input: string | null | undefined): string | null {
 export * from "./note-schema-config.js";
 export * from "./note-sections.js";
 export * from "./note-markdown.js";
+export * from "./site-link.js";
 export * from "./group-roles.js";
 export * from "./provider-icon.js";
 export * from "./agent-label.js";

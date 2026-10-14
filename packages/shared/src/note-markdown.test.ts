@@ -28,6 +28,21 @@ describe("restoreMermaidBlocks", () => {
 });
 
 describe("rebindWikilinks（唯一命中才綁）", () => {
+  it("#269：表格格子裡的 [[…]] 也綁（兩種 cell 形），未命中也計入 unbound", () => {
+    const notes = [{ id: "n1", title: "A" }];
+    const [out, unbound] = rebindWikilinks(
+      [{ type: "table", content: { type: "tableContent", rows: [{ cells: [
+        [{ type: "text", text: "[[A]]", styles: {} }],
+        { type: "tableCell", props: {}, content: [{ type: "text", text: "[[Nope]]", styles: {} }] },
+      ] }] } }],
+      notes,
+      isInline,
+    );
+    expect(unbound).toBe(1);
+    const cells = (out[0] as { content: { rows: Array<{ cells: unknown[] }> } }).content.rows[0]!.cells;
+    expect((cells[0] as Array<{ type: string; props?: unknown }>)[0]).toEqual({ type: "wikilink", props: { targetNoteId: "n1", snapshotTitle: "A" } });
+    expect((cells[1] as { content: Array<{ text: string }> }).content[0]!.text).toBe("[[Nope]]");
+  });
   const notes = [{ id: "11111111-1111-4111-8111-111111111111", title: "A" }, { id: "2", title: "Dup" }, { id: "3", title: "Dup" }];
   it("唯一命中 → wikilink inline；重名／找不到 → 純文字且計數", () => {
     const [blocks, unbound] = rebindWikilinks(
