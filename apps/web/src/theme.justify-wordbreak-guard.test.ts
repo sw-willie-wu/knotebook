@@ -32,19 +32,27 @@ describe("內文左右對齊 ＋ 長識別字 word-break（同進同出）", () 
     ).toBe(true);
   });
 
-  it("word-break: break-all 的選擇器只用 link mark 的 data 屬性，不得再补一個沒有引號的裸重複選擇器（N5）", () => {
+  it("word-break: break-all 只命中 link mark 的 <a> 與行內 code，不命中 wikilink 的 <a>（#269：wikilink 不在字中間切）", () => {
     const css = readIndexCssWithoutComments();
-    // N5：`[data-inline-content-type=link]`（沒引號）曾經是多餘的第二個選擇器——
-    // link mark 的 DOM 本來就是帶該屬性的 `<a>`，`a` 選擇器已經涵蓋；而且一旦有人
-    // 幫它補上引號，就會讓 `theme.link-guard.test.ts` 的「不得含裸 a」變紅
-    // （那條測試專門掃 link inline content 的規則，這裡不該再長出第二份）。
-    const wordBreakBlock = /\.bn-editor \.bn-inline-content a,[\s\S]*?\{[\s\S]*?word-break:\s*break-all;[\s\S]*?\}/.exec(
-      css,
-    );
-    expect(wordBreakBlock, "找不到 word-break: break-all 規則本體").not.toBeNull();
-    expect(
-      wordBreakBlock![0],
-      "word-break 規則不該再帶 [data-inline-content-type=link] 選擇器——a 已經涵蓋",
-    ).not.toMatch(/data-inline-content-type/);
+    // #269 起 wikilink 也渲染成 `<a>`（外層 span 帶 data-inline-content-type="wikilink"），舊的裸 `a` 選擇器會連它一起
+    // 套上 break-all。現在 link 那支寫成**沒引號**的 `[data-inline-content-type=link]`（與本檔 `[data-content-type=…]` 同慣例）：
+    // 加上引號會被 `theme.link-guard.test.ts` 的 linkRules() 收進去，「恰好兩條規則」案就紅。
+    const rules = [...css.matchAll(/([^{}]*)\{([^}]*)\}/g)].filter((m) => /word-break:\s*break-all/.test(m[2]!));
+    expect(rules, "word-break: break-all 應恰好一條規則").toHaveLength(1);
+    // ⚠ 逗號清單逐一拆開判（repo 慣例）。
+    const selectors = rules[0]![1]!
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+    document.body.innerHTML =
+      '<div class="bn-editor"><div class="bn-inline-content">' +
+      '<a data-inline-content-type="link" href="https://x.example/a">l</a>' +
+      '<span data-inline-content-type="wikilink"><a href="/notes/x">w</a></span>' +
+      "<code>c</code></div></div>";
+    const hit = (el: Element) => selectors.some((s) => el.matches(s));
+    expect(hit(document.querySelector('a[data-inline-content-type="link"]')!), "link mark 的 <a> 要命中").toBe(true);
+    expect(hit(document.querySelector("code")!), "行內 code 要命中").toBe(true);
+    expect(hit(document.querySelector('[data-inline-content-type="wikilink"] a')!), "wikilink 的 <a> 不得命中（#269）").toBe(false);
+    document.body.innerHTML = "";
   });
 });

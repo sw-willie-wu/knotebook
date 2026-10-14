@@ -1,156 +1,134 @@
-import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router";
+import { useContext } from "react";
 import type { BlockNoteEditor, DefaultStyleSchema } from "@blocknote/core";
 import { createReactInlineContentSpec, type ReactCustomInlineContentRenderProps } from "@blocknote/react";
-import { canonicalNotePath, wikilinkConfig } from "@knotebook/shared";
+import { canonicalNotePath, normalizeAnchor, wikilinkConfig, wikilinkHref, wikilinkVisibleText, type PublicLinkDto } from "@knotebook/shared";
 import { useNotes } from "@/api/notes";
-import { toast } from "@/components/ui/toast";
+import { WikilinkContext } from "./context";
+import { useWikilinkClick } from "./useWikilinkClick";
 
-// ⚠ 防循環 import（Task 2 brief 明寫）：`collab/schema.ts` 會 import 本檔案來組
-// `inlineContentSpecs`，所以本檔案絕不能反過來 import `@/collab/schema`——需要編輯器
-// 型別時一律用 `BlockNoteEditor<any,any,any>`（見下方 `insertWikilink`），不能借道
-// `NoteSchema` 那個具體型別。
-
-// wikilink 的 propSchema（`targetNoteId` 指向目標筆記的 id，`snapshotTitle` 是插入
-// 當下的標題快照——目標筆記之後改名／被刪，這個字串仍留在文件裡，供斷鏈態顯示用；
-// `content: "none"` ⇒ atom + 不可選取）住 `@knotebook/shared` 的 `note-schema-config.ts`，
-// 供 server 端 headless schema 共用。
+// ⚠ 防循環 import：`collab/schema.ts` 會 import 本檔來組 `inlineContentSpecs`，所以本檔絕不能反過來 import `@/collab/schema`
+// ——需要編輯器型別時一律 `BlockNoteEditor<any,any,any>`。
+// propSchema（`targetNoteId`、`snapshotTitle`、#269 的 `label`／`anchorBlockId`）住 `@knotebook/shared` 的 `note-schema-config.ts`。
+// ⚠ 編輯器的 renderHTML（站內複製的 `blocknote/html`、拖曳）用的也是 `toExternalHTML` 那個元件，所以它**不得**接 `contentRef`
+// （wikilink 是 atom，接了會帶出 contentDOM，見 `WikilinkExternalHTML` 內的說明）；`render` 用的元件不在此限。
 
 type WikilinkRenderProps = ReactCustomInlineContentRenderProps<typeof wikilinkConfig, DefaultStyleSchema>;
 
 /**
- * `toExternalHTML`——headless 匯出（`blocksToHTMLLossy`／markdown，`toClipboard` 複製）
- * 唯一會呼叫的那支。**必須是無副作用的純 FC，只讀 `inlineContent.props`**：headless
- * 匯出下 `renderToDOMSpec` 完全沒有 React context（`elementRenderer` 未設定時直接
- * `createRoot(div)` 零 provider），任何 hook（`useTranslation`／`useNotes`／
- * `useNavigate`……）呼叫都會直接炸掉（`No QueryClient set` 之類）。
- *
- * 輸出純文字 `[[<snapshotTitle>]]`、絕不渲染 `<a>`——匯出的 HTML 可能落在別處
- * （複製貼上、未來的靜態匯出），這裡沒有能力確認目標筆記是否還存在，渲染成可點擊
- * 連結只會誤導。外層的 `data-inline-content-type`／`data-target-note-id`／
- * `data-snapshot-title` 屬性由 `createReactInlineContentSpec` 內建的
- * `InlineContentWrapper` 自動加上，這裡不必手動重複。
+ * 樣式（issue #153、#269）：活連結＝主題色＋實線底線（與外部連結同一套），**刻意不帶外連圖示**（同分頁導航）；
+ * 斷鏈＝muted＋虛線底線、不套主題色。⚠ 顏色寫 `text-(--color-brand)` 而**不是** `text-brand`（理由見 memory knotebook-link-styling：
+ * `.bn-root.dark` 會把巢狀的 `--brand` 重設回 indigo；`--color-brand` 只宣告在 `@theme inline`，`theme.link-guard.test.ts` 守）。
+ */
+const LIVE_LINK_CLASS = "cursor-pointer text-(--color-brand) underline";
+const BROKEN_CLASS = "cursor-pointer border-b border-dashed border-muted-foreground text-muted-foreground";
+
+/**
+ * `toExternalHTML`——headless 匯出（`blocksToHTMLLossy`／markdown、`toClipboard`）。**必須是無副作用的純 FC，只讀 props**：headless
+ * 匯出下沒有 React context（任何 hook 都會炸）。#269 §7.3：輸出 `<a href="/notes/<id>[#b-…]">label || snapshotTitle || href</a>`
+ * （包在一層 `<span>` 裡，理由見函式內；與 shared headless spec 同形；`collab/schema.test.ts` 的 parity 案守）。現行標題由呼叫端在匯出副本上換入（`wikilinksToLinks`）。
  */
 function WikilinkExternalHTML({ inlineContent }: WikilinkRenderProps) {
   // 不可接 contentRef：wikilink 是 atom（content:"none"），接了會讓 renderHTML 回 contentDOM，
   // 站內複製的 serializeForClipboard 就拋 RangeError「Content hole not allowed in a leaf node spec」、剪貼簿被清空（#269 Task 2）。
-  return <span>{`[[${inlineContent.props.snapshotTitle}]]`}</span>;
-}
-
-/**
- * mounted 編輯器內的互動渲染。標題來源＝既有 `GET /api/notes` React Query cache
- * （`useNotes`，同側欄 queryKey，不新增 API）。三態：
- * 1. loading／未知（`notesQuery.isPending || !notesQuery.data`）：顯示 snapshotTitle，
- *    點擊以 `/notes/<targetNoteId>` 導航（此時還不知道 canonical slug，只能先用 id）。
- *    **刻意把「列表查詢失敗（重試耗盡，`isPending` 已是 false 但 `data` 仍是
- *    `undefined`）」也併進這一態**，不當成斷鏈：我們沒有足夠資訊斷言目標筆記真的
- *    不存在，寧可放行導到 `/notes/<id>`、讓筆記頁自己處理 404，也不要對使用者謊稱
- *    「這篇筆記不存在」而把導航整條路堵死。
- * 2. resolved 命中：顯示目標筆記**現行**標題（可能已改名），點擊用 `canonicalNotePath`
- *    導航。
- * 3. resolved 未命中（`notesQuery.data` 確實拿到手、清單裡卻沒有這個 id——目標筆記
- *    已被刪除）：斷鏈樣式（灰色＋虛線底線），顯示 snapshotTitle，點擊只跳 toast、
- *    不導航。
- *
- * 樣式（issue #153）：兩個「活連結」態（1、2）是**主題色 ＋ 實線底線**，與外部連結
- * （`index.css` 的 `.bn-editor [data-inline-content-type="link"]`）同一套——同一篇
- * 筆記裡「可以點的東西」該長一樣。**刻意不帶那條 `::after` 的開新分頁圖示**：
- * wikilink 是 `<button>` ＋ react-router 的**同分頁**導航，掛那個圖示就是說謊。
- * 態 3（斷鏈）維持 muted 前景 ＋ 虛線底線、**不套主題色**：它與可點的連結分得出來
- * 是那個樣式存在的全部理由，活連結改色之後這個對比只會更重要。
- *
- * ⚠ 顏色寫 `text-(--color-brand)` 而**不是** `text-brand`（headed 實測踩到）：
- * `index.css` 用 `@theme inline` 宣告 `--color-brand: var(--brand)`，所謂 inline 就是
- * 「把 utility 展開成被引用的那個變數」——`.text-brand` 編出來是 `color: var(--brand)`，
- * 在**元素所在位置**解析 `--brand`。而 `BlockNoteView` 會把 light/dark 當 **class** 寫到
- * `.bn-root` 上，於是深色模式下編輯器內部有一個 `.bn-root.dark`，它命中 `index.css` 的
- * `.dark { --brand: …indigo… }` 基底塊（那塊是 `[data-accent]` 不存在時的 fallback），
- * 把使用者選的主題色**在編輯器內部重設回 indigo**。實測（深色＋金）：`:root` 的
- * `--brand` 是 `oklch(74.7% .089 82.4)`，`.bn-root` 上卻是 `oklch(68.1% .058 275.7)`，
- * 於是 wikilink 出現靛色、旁邊的外部連結是金色。`--color-brand` 只宣告在
- * `@theme inline` 裡（Tailwind 把它編譯成 `:root,:host` 一處），在那裡就算完值再往下
- * 繼承，不受那個巢狀重設影響——外部連結那條 CSS 用的就是它，兩邊走同一個 token 才會
- * 同色；`theme.link-guard.test.ts` 釘住「`--color-brand:` 不得宣告在 `@theme inline`
- * 之外」，那是這個繞法成立的前提。（上面描述的是 #154 修掉之前的根因：當時深色基底塊
- * 是裸 `.dark`，會命中巢狀的 `.bn-root.dark`；#154 把它錨到 `:root.dark`，守衛是
- * `theme.accent-vars.test.ts` 的 (h)。這裡仍走 `--color-brand`——與外部連結同一個
- * token，兩道防線各自成立。）
- *
- * `content:"none"` + `selectable:false`（見 `createReactInlineContentSpec`）⇒ 這個
- * inline node 沒有 NodeSelection 可用，導航／斷鏈 toast 都得靠這裡自己的 `onClick`，
- * 不能倚賴 BlockNote 內建「選取後跳轉」那套機制。用 `<button type="button">` 而非
- * `<a>`／`<span role="...">`：原生鍵盤可操作（Enter/Space），不必自己補
- * `onKeyDown`，且不會因為 href 觸發瀏覽器的整頁導航。
- */
-export function WikilinkInline({ inlineContent, contentRef }: WikilinkRenderProps) {
-  const { t } = useTranslation();
-  const navigate = useNavigate();
-  const notesQuery = useNotes();
-  const { targetNoteId, snapshotTitle } = inlineContent.props;
-
-  if (notesQuery.isPending || !notesQuery.data) {
-    return (
-      <button
-        ref={contentRef}
-        type="button"
-        className="cursor-pointer border-0 bg-transparent p-0 text-(--color-brand) underline"
-        // #122 A8：清單 pending 時只有 id 可用（/n/ 形需要 handle/slug）——**保留舊形**
-        // `/notes/<uuid>`：uuid 尾碼解析永久可解，這條路徑不隨新形改。
-        onClick={() => void navigate(`/notes/${targetNoteId}`)}
-      >
-        {snapshotTitle}
-      </button>
-    );
-  }
-
-  const resolvedNote = notesQuery.data?.find((note) => note.id === targetNoteId);
-
-  if (resolvedNote) {
-    return (
-      <button
-        ref={contentRef}
-        type="button"
-        className="cursor-pointer border-0 bg-transparent p-0 text-(--color-brand) underline"
-        onClick={() => void navigate(canonicalNotePath(resolvedNote))}
-      >
-        {resolvedNote.title}
-      </button>
-    );
-  }
-
+  // 外層 `<span>` 不可省：renderHTML 把 `data-inline-content-type` 等屬性寫在根元素上；根若是 `<a href>`，站內貼上（PM raw parse）
+  // 時 link mark 的 `a[href]` 規則先於 wikilink 規則命中，貼出來變成一般連結（`wikilink-props.facts.test.tsx` 的站內複製貼上案守）。
+  const { targetNoteId, anchorBlockId } = inlineContent.props;
   return (
-    <button
-      ref={contentRef}
-      type="button"
-      className="cursor-pointer border-0 border-b border-dashed border-muted-foreground bg-transparent p-0 text-muted-foreground"
-      onClick={() => toast({ title: t("note.wikilinkBroken") })}
-    >
-      {snapshotTitle}
-    </button>
+    <span>
+      <a href={wikilinkHref(targetNoteId, normalizeAnchor(anchorBlockId))}>
+        {wikilinkVisibleText(inlineContent.props)}
+      </a>
+    </span>
   );
 }
 
-/** wikilink 的 inline content spec——掛進 `collab/schema.ts` 的 `inlineContentSpecs`
- * （**整組覆寫**，掛載端要記得 `{ ...defaultInlineContentSpecs, wikilink: wikilinkSpec }`，
- * 漏 spread 會靜默毀掉 `text`/`link` 兩個預設 inline spec——見該檔說明）。 */
+/** §7.1：依情境分派。hook 不能條件式呼叫，所以 member／public 是兩個元件——public **不呼叫** `useNotes()`。 */
+export function WikilinkInline(props: WikilinkRenderProps) {
+  const mode = useContext(WikilinkContext);
+  return mode.mode === "public" ? <PublicWikilink {...props} links={mode.links} /> : <MemberWikilink {...props} />;
+}
+
+/**
+ * §7.2 member（編輯頁、viewer、版本預覽）。三態：
+ * 1. 清單未到／失敗（`isPending || !data`）：`<a href=/notes/<id>[#b-…]>`、文字 `label || snapshotTitle`。**列表查詢失敗也併進這一態**——
+ *    沒有足夠資訊斷言目標不存在，放行導航、讓筆記頁自己處理 404。
+ * 2. 命中：`<a href=canonical[#b-…]>`、文字 `label || 現行標題`。
+ * 3. 清單到了卻沒有這個 id（已刪或無權）：`<span>` 斷鏈樣式、文字 `label || snapshotTitle`；點擊 toast。
+ */
+function MemberWikilink({ inlineContent, contentRef, editor }: WikilinkRenderProps) {
+  const notesQuery = useNotes();
+  const click = useWikilinkClick();
+  const { targetNoteId } = inlineContent.props;
+  const anchor = normalizeAnchor(inlineContent.props.anchorBlockId);
+  const list = notesQuery.isPending || !notesQuery.data ? undefined : notesQuery.data;
+  const note = list?.find((candidate) => candidate.id === targetNoteId);
+
+  if (list && !note) {
+    return (
+      <span
+        ref={contentRef}
+        className={BROKEN_CLASS}
+        onClick={(e) => click(e, { href: "", targetNoteId, anchorBlockId: anchor, broken: true }, { editable: editor.isEditable })}
+      >
+        {wikilinkVisibleText(inlineContent.props)}
+      </span>
+    );
+  }
+  const href = note ? `${canonicalNotePath(note)}${anchor ? `#b-${anchor}` : ""}` : wikilinkHref(targetNoteId, anchor);
+  return (
+    <a
+      ref={contentRef}
+      href={href}
+      className={LIVE_LINK_CLASS}
+      onClick={(e) => click(e, { href, targetNoteId, anchorBlockId: anchor, broken: false }, { editable: editor.isEditable })}
+    >
+      {wikilinkVisibleText(inlineContent.props, note?.title)}
+    </a>
+  );
+}
+
+/**
+ * §11.2 公開頁：`links`（公開 payload，只含有自訂公開網址的目標）有此 id ⇒ `<a href=/p/…[#b-…]>`、文字 `label || 公開標題`；
+ * 沒有、但有錨點且本頁有該 id 的區塊 ⇒ 同篇錨點 `<a href=#b-…>`（不論本頁是 token 形或自訂網址）；其餘 ⇒ 純文字。
+ */
+function PublicWikilink({ inlineContent, contentRef, editor, links }: WikilinkRenderProps & { links: ReadonlyMap<string, PublicLinkDto> }) {
+  const click = useWikilinkClick();
+  const { targetNoteId } = inlineContent.props;
+  const anchor = normalizeAnchor(inlineContent.props.anchorBlockId);
+  const target = links.get(targetNoteId.toLowerCase());
+  if (target) {
+    const href = `${target.path}${anchor ? `#b-${anchor}` : ""}`;
+    return (
+      <a ref={contentRef} href={href} className={LIVE_LINK_CLASS} onClick={(e) => click(e, { href, targetNoteId, anchorBlockId: anchor, broken: false })}>
+        {wikilinkVisibleText(inlineContent.props, target.title)}
+      </a>
+    );
+  }
+  if (anchor !== "" && editor.getBlock(anchor) !== undefined) {
+    const href = `#b-${anchor}`;
+    return (
+      <a ref={contentRef} href={href} className={LIVE_LINK_CLASS} onClick={(e) => click(e, { href, targetNoteId: null, anchorBlockId: anchor, broken: false })}>
+        {wikilinkVisibleText(inlineContent.props)}
+      </a>
+    );
+  }
+  return <span ref={contentRef}>{wikilinkVisibleText(inlineContent.props)}</span>;
+}
+
+/** wikilink 的 inline content spec——掛進 `collab/schema.ts` 的 `inlineContentSpecs`（**整組覆寫**，記得 spread 預設的 text／link）。 */
 export const wikilinkSpec = createReactInlineContentSpec(wikilinkConfig, {
   render: WikilinkInline,
   toExternalHTML: WikilinkExternalHTML,
 });
 
 /**
- * 插入一個 wikilink + 補一個 trailing space（插入後游標緊接在 atom node 後面，沒有
- * 空格的話使用者會直接接著打字、字元黏在 node 上，體感像是「打不出東西」）。
- *
- * `editor` 型別故意寫 `BlockNoteEditor<any,any,any>`：呼叫端（`NoteEditor.tsx` 的
- * slash-menu／`/` 選單，或 `[[` 觸發的 suggestion menu）拿到的是掛好 `noteSchema` 的
- * 具體編輯器，但本檔案不能 import `@/collab/schema`（防循環），無法在這裡把型別
- * 具體化，只能吃 BlockNote 泛型三元組的最寬型別（repo 慣例）。
+ * 插入一個 wikilink + 補一個 trailing space（不補的話使用者接著打的字會黏在 atom node 上）。#269 §8.7：`label`／`anchorBlockId`
+ * 選配、預設空字串。`editor` 型別故意寫 `BlockNoteEditor<any,any,any>`（防循環 import，見檔頭）。
  */
 export function insertWikilink(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 編輯器泛型三元組在本檔案無法具體化（防循環 import，見上方檔案頂端說明），走 repo 慣例用 any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 編輯器泛型三元組在本檔案無法具體化（防循環 import），走 repo 慣例用 any
   editor: BlockNoteEditor<any, any, any>,
-  wikilink: { targetNoteId: string; snapshotTitle: string },
+  wikilink: { targetNoteId: string; snapshotTitle: string; label?: string; anchorBlockId?: string },
 ): void {
-  editor.insertInlineContent([{ type: "wikilink", props: wikilink }, " "]);
+  editor.insertInlineContent([{ type: "wikilink", props: { label: "", anchorBlockId: "", ...wikilink } }, " "]);
 }

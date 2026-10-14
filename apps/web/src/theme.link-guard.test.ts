@@ -171,7 +171,7 @@ describe("筆記內連結的樣式（issue #153）", () => {
     const wikilinkAfter = [...css.matchAll(/([^{}]*data-inline-content-type\s*=\s*"wikilink"[^{}]*)\{/g)]
       .map((m) => m[1]!.trim())
       .filter((s) => s.includes("::after"));
-    expect(wikilinkAfter, "wikilink 是 <button> ＋ 同分頁導航，掛開新分頁圖示就是說謊").toEqual([]);
+    expect(wikilinkAfter, "wikilink 是同分頁導航的 <a>（#269），掛開新分頁圖示就是說謊").toEqual([]);
     // 反面：::after 那條的**每個**選擇器都要同時帶 link 型別與 href 前綴限定。少了型別
     // 限定會命中 wikilink；少了前綴限定會命中 `mailto:`／`tel:`／`sms:`（那些是 link mark
     // 但不開在分頁裡），「開新分頁」就成了錯標。前綴只准是下面這份白名單（#156 的判準）。
@@ -198,6 +198,16 @@ describe("筆記內連結的樣式（issue #153）", () => {
         `沒有任何 ::after 選擇器蓋到 ${prefix}`,
       ).toBe(true);
     }
+  });
+
+  it("#269：wikilink 的 <a href>（即使是同站絕對網址）不命中任何 ::after 圖示選擇器", () => {
+    document.body.innerHTML =
+      '<div class="bn-editor"><span data-inline-content-type="wikilink"><a href="https://kb.example.com/notes/x">t</a></span></div>';
+    const a = document.querySelector("a")!;
+    for (const selector of afterRule()[0]!.selectors) {
+      expect(a.matches(selector.replace(/::after\s*$/, "")), selector).toBe(false);
+    }
+    document.body.innerHTML = "";
   });
 
   describe("#156：圖示判準要與瀏覽器的 URL 剖析一致（選擇器拿去真的比對 href）", () => {

@@ -547,7 +547,7 @@ describe("#106 parity：headless schema 與 noteSchema 匯出逐位元組相同"
     expect(strip(headless.document)).toEqual(strip(web.document));
     const [a, b] = await Promise.all([web.blocksToMarkdownLossy(web.document), headless.blocksToMarkdownLossy(headless.document)]);
     expect(b).toBe(a);
-    expect(a).toContain("[[目標筆記]]");
+    expect(a).toContain("[目標筆記](/notes/11111111-1111-4111-8111-111111111111)");
     expect(a).toContain("```mermaid");
   });
 

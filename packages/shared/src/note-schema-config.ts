@@ -17,6 +17,7 @@ import {
   BlockNoteSchema, createBlockSpec, createCodeBlockSpec, createInlineContentSpec, defaultBlockSpecs, defaultInlineContentSpecs,
   type CodeBlockOptions,
 } from "@blocknote/core";
+import { normalizeAnchor, wikilinkHref, wikilinkVisibleText } from "./site-link.js";
 
 export const MERMAID_LANGUAGE = "mermaid";
 export const mermaidBlockConfig = { type: MERMAID_LANGUAGE, content: "none", propSchema: { code: { default: "" } } } as const;
@@ -105,9 +106,14 @@ export function createHeadlessNoteSchema(base: string) {
   })(); // createBlockSpec 回 factory；createInlineContentSpec 直接回 spec（0.52.1 d.ts 核實）
   const wikilinkSpec = createInlineContentSpec(wikilinkConfig, {
     render: () => ({ dom: document.createElement("span") }),
+    // #269 §7.3：與 web spec 同形——`<span><a href="/notes/<id>[#b-…]">label || snapshotTitle || href</a></span>`
+    // （外層 span 的理由見 web `components/wikilink/spec.tsx` 的 `WikilinkExternalHTML`）。
     toExternalHTML: ic => {
       const span = document.createElement("span");
-      span.textContent = `[[${ic.props.snapshotTitle}]]`;
+      const a = document.createElement("a");
+      a.setAttribute("href", wikilinkHref(ic.props.targetNoteId, normalizeAnchor(ic.props.anchorBlockId)));
+      a.textContent = wikilinkVisibleText(ic.props);
+      span.append(a);
       return { dom: span };
     },
   });

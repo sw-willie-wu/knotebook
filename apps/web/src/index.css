@@ -476,7 +476,7 @@ input[name="share-access"] {
    語意查證過而非推測：
    `http(s)` 連結帶 `target="_blank"`（守衛見 server 的 `editing-markdown.test.ts`），
    上游 link toolbar 那顆按鈕的 tooltip 逐字也是 "Open in new tab"。站內 wikilink
-   刻意沒有它——那是 `<button>` ＋ react-router 的同分頁導航。
+   刻意沒有它——那是 `<a>`（#269 起；點擊由 `useWikilinkClick` 接走）＋ react-router 的同分頁導航。
 
    ⚠ **圖示的 path 資料只存在本檔這一處**（`::after` 的 `content` 放不進 SVG 標記，只能
    走 `mask-image` ＋ data URI，而 CSS 用不了 React 組件；也刻意不引入 icon 套件，見
@@ -563,8 +563,12 @@ input[name="share-access"] {
    `getTextAlignmentAttribute`：值等於 default 就回 `{}`），所以使用者自己在工具列
    挑過對齊的 block 一定帶屬性、上面那組就不匹配。內建那幾條
    （`[data-text-alignment=left]{text-align:left!important}` 等）另外帶 `!important`，
-   即使匹配也壓得過——兩道防線同一個結論：使用者挑過的對齊永遠贏。 */
-.bn-editor .bn-inline-content a,
+   即使匹配也壓得過——兩道防線同一個結論：使用者挑過的對齊永遠贏。
+
+   下面的 word-break 只給 link mark（`<a data-inline-content-type="link">`）與行內 code：#269 起 wikilink 也是 `<a>`，
+   但它顯示的是筆記標題，不該在字中間被切開（裸 `a` 會連它一起命中）。屬性**不加引號**——加了會被
+   `theme.link-guard.test.ts` 當成連結樣式規則收進去；守衛見 `theme.justify-wordbreak-guard.test.ts`。 */
+.bn-editor .bn-inline-content [data-inline-content-type=link],
 .bn-editor .bn-inline-content code {
   word-break: break-all;
 }

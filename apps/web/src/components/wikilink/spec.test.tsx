@@ -1,65 +1,43 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter, Route, Routes } from "react-router";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import { BlockNoteEditor } from "@blocknote/core";
-import { canonicalNotePath, type NoteDto } from "@knotebook/shared";
+import { canonicalNotePath, type NoteDto, type PublicLinkDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { noteSchema } from "@/collab/schema";
-import { insertWikilink, WikilinkInline } from "./spec";
+import { BlockAnchorContext, type BlockAnchorApi } from "@/hooks/block-anchor-context";
 import { OWNER_PERMS } from "@/test/fixtures";
+import { WikilinkContext, type WikilinkMode } from "./context";
+import { insertWikilink, WikilinkInline } from "./spec";
 
-// ── headless 匯出（external HTML / markdown）──────────────────────────────────
-//
-// `BlockNoteEditor.create({ schema })` 不掛載即 headless：`toExternalHTML` 是
-// `blocksToHTMLLossy`/`blocksToMarkdownLossy` 唯一會走到的實作（`blocksToFullHTML`
-// 是 internal serializer，一律呼叫互動用的 `render`，headless 下零 React context，
-// `useNotes`/`useTranslation`/`useNavigate` 任一個都會直接炸掉——brief 明講過，
-// 這裡刻意不測 `blocksToFullHTML`）。
+// spec 2026-10-13 site-links §7、§11.2、§15.1 W1／W5（元件半）。
 
-function headlessBlocks() {
-  return [
-    {
-      type: "paragraph" as const,
-      content: [
-        "See ",
-        { type: "wikilink" as const, props: { targetNoteId: "note-1", snapshotTitle: "Meeting Notes", label: "", anchorBlockId: "" } },
-        " for details.",
-      ],
-    },
+describe("匯出（headless BlockNoteEditor，§7.3）", () => {
+  const blocks = (props: Record<string, string>) => [
+    { type: "paragraph" as const, content: ["See ", { type: "wikilink" as const, props: { targetNoteId: "note-1", snapshotTitle: "Meeting Notes", label: "", anchorBlockId: "", ...props } }, " now."] },
   ];
-}
-
-describe("wikilink 匯出（headless BlockNoteEditor，noteSchema 已含 wikilink spec）", () => {
-  it("blocksToHTMLLossy：data-* 屬性、純文字 [[title]]、絕不是 <a>", () => {
+  it("blocksToHTMLLossy：<a href=/notes/<id>>，文字 label 優先、否則 snapshotTitle；錨點進 href；外層 data-* 照帶", () => {
     const editor = BlockNoteEditor.create({ schema: noteSchema });
-    const html = editor.blocksToHTMLLossy(headlessBlocks());
-
-    expect(html).toContain('data-inline-content-type="wikilink"');
-    expect(html).toContain('data-target-note-id="note-1"');
-    expect(html).toContain('data-snapshot-title="Meeting Notes"');
-    expect(html).toContain("[[Meeting Notes]]");
-    expect(html).not.toContain("<a");
+    const plain = editor.blocksToHTMLLossy(blocks({}));
+    expect(plain).toContain('data-inline-content-type="wikilink"');
+    expect(plain).toContain('<a href="/notes/note-1">Meeting Notes</a>');
+    expect(plain).not.toContain("[[");
+    const labelled = editor.blocksToHTMLLossy(blocks({ label: "L", anchorBlockId: "b1" }));
+    expect(labelled).toContain('<a href="/notes/note-1#b-b1">L</a>');
   });
-
-  it("blocksToMarkdownLossy：[[title]] 原樣輸出，方括號不跳脫", () => {
+  it("blocksToMarkdownLossy：[文字](/notes/<id>)；顯示文字全空時退到 href（永不從匯出消失）", () => {
     const editor = BlockNoteEditor.create({ schema: noteSchema });
-    const markdown = editor.blocksToMarkdownLossy(headlessBlocks());
-
-    expect(markdown).toContain("[[Meeting Notes]]");
-    expect(markdown).not.toContain("\\[");
-    expect(markdown).not.toContain("\\]");
-  });
-
-  it("noteSchema 的 inline content：預設 text/link 都保留，另外多了 wikilink", () => {
-    expect(Object.keys(noteSchema.inlineContentSpecs)).toEqual(expect.arrayContaining(["text", "link", "wikilink"]));
+    expect(editor.blocksToMarkdownLossy(blocks({}))).toContain("[Meeting Notes](/notes/note-1)");
+    // 全空時連結文字＝href：HTML 照樣是 <a>；markdown 由 BlockNote 0.52.1 的 htmlToMarkdown `formatLink`（文字等於網址時輸出裸網址）
+    // 收成 `/notes/note-1`——實測如此（計畫原期望 `[/notes/note-1](/notes/note-1)`），文字仍在匯出裡。
+    expect(editor.blocksToHTMLLossy(blocks({ snapshotTitle: "" }))).toContain('<a href="/notes/note-1">/notes/note-1</a>');
+    expect(editor.blocksToMarkdownLossy(blocks({ snapshotTitle: "" }))).toContain("See /notes/note-1 now.");
   });
 });
 
-// ── WikilinkInline（互動 render，三態）──────────────────────────────────────
-
-const TARGET_NOTE: NoteDto = {
+const TARGET: NoteDto = {
   id: "22222222-2222-2222-2222-222222222222",
   title: "Renamed In The Meantime",
   ownerId: "u1",
@@ -76,177 +54,212 @@ const TARGET_NOTE: NoteDto = {
   permissions: OWNER_PERMS,
 };
 
-/** `editor`/`updateInlineContent` prop 是 `WikilinkInline` 簽章要求，但元件本身不用
- * 到——一個 headless 的 stub editor 加一個 no-op 就夠，不必是掛好共編的真編輯器。 */
-function renderWikilink(options: {
-  queryClient: QueryClient;
-  targetNoteId?: string;
-  snapshotTitle?: string;
-  destinationPath: string;
-}) {
-  const { queryClient, targetNoteId = "22222222-2222-2222-2222-222222222222", snapshotTitle = "Meeting Notes" } =
-    options;
-  // `WikilinkInline` 不讀 `editor` prop（三態全靠 `useNotes()` 的 React Query cache），
-  // 只需要滿足型別簽章——真的去 `BlockNoteEditor.create({ schema: noteSchema })` 會撞上
-  // `noteSchema` 的 ISchema（含全部預設 inline spec）跟 `WikilinkRenderProps["editor"]`
-  // 要求的窄 ISchema（僅 `{ wikilink: ... }`）在不變位置（`insertInlineContent` 這類
-  // 方法的參數＋回傳都用到 ISchema）互不相容，一個空物件打通型別更直接。
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同上，測試替身走 repo 慣例的 BlockNoteEditor<any,any,any>
-  const editor = {} as BlockNoteEditor<any, any, any>;
+function LocationProbe() {
+  const l = useLocation();
+  return <p data-testid="loc">{`${l.pathname}${l.search}${l.hash}`}</p>;
+}
+const loc = () => screen.getByTestId("loc").textContent;
 
-  render(
-    <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={["/start"]}>
-        <Routes>
-          <Route
-            path="/start"
-            element={
-              <WikilinkInline
-                inlineContent={{ type: "wikilink", props: { targetNoteId, snapshotTitle, label: "", anchorBlockId: "" }, content: undefined }}
-                updateInlineContent={() => {}}
-                editor={editor}
-                contentRef={() => {}}
-              />
-            }
-          />
-          <Route path={options.destinationPath} element={<p>navigated here</p>} />
-        </Routes>
-      </MemoryRouter>
-      <Toaster />
-    </QueryClientProvider>,
-  );
+interface RenderOpts {
+  props: { targetNoteId: string; snapshotTitle?: string; label?: string; anchorBlockId?: string };
+  queryClient?: QueryClient;
+  editor?: Record<string, unknown>;
+  mode?: WikilinkMode;
+  anchors?: Partial<BlockAnchorApi>;
 }
 
-describe("WikilinkInline（三態）", () => {
+function renderWikilink(opts: RenderOpts) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 測試替身：元件只讀 isEditable／getBlock，走 repo 慣例的 BlockNoteEditor<any,any,any>
+  const editor = (opts.editor ?? { isEditable: false }) as unknown as BlockNoteEditor<any, any, any>;
+  const anchors: BlockAnchorApi = { currentNoteId: null, requestAnchor: vi.fn(), scrollToTop: vi.fn(), ...opts.anchors };
+  const tree = (
+    <MemoryRouter initialEntries={["/start?x=1"]}>
+      <BlockAnchorContext.Provider value={anchors}>
+        <WikilinkContext.Provider value={opts.mode ?? { mode: "member" }}>
+          <WikilinkInline
+            inlineContent={{ type: "wikilink", props: { snapshotTitle: "", label: "", anchorBlockId: "", ...opts.props }, content: undefined }}
+            updateInlineContent={() => {}}
+            editor={editor}
+            contentRef={() => {}}
+          />
+        </WikilinkContext.Provider>
+      </BlockAnchorContext.Provider>
+      <Routes>
+        <Route path="*" element={<LocationProbe />} />
+      </Routes>
+      <Toaster />
+    </MemoryRouter>
+  );
+  render(opts.queryClient ? <QueryClientProvider client={opts.queryClient}>{tree}</QueryClientProvider> : tree);
+  return { anchors };
+}
+
+const pendingClient = () => new QueryClient({ defaultOptions: { queries: { retry: false } } });
+const loadedClient = (notes: NoteDto[]) => {
+  const qc = pendingClient();
+  qc.setQueryData(["notes"], notes);
+  return qc;
+};
+
+describe("MemberWikilink（W1）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
-    // 三態測試都不需要 `/api/notes` 真的解析——標題來源全靠 `queryClient.setQueryData`
-    // 塞好的假 cache（brief 指定的作法）；stub 一個永不 resolve 的 fetch，讓背景
-    // refetch 不會意外把假資料換掉，也不會噴未攔截的 network 錯誤。
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() => new Promise(() => {})),
-    );
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
   });
-
   afterEach(() => {
     vi.unstubAllGlobals();
     dismissAllToasts();
   });
 
-  it("loading（notes 查詢尚未解析）：顯示 snapshotTitle，點擊以 /notes/<targetNoteId> 導航", () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    // 刻意不 setQueryData——維持 isPending。
-
-    renderWikilink({
-      queryClient,
-      targetNoteId: "33333333-3333-3333-3333-333333333333",
-      snapshotTitle: "Meeting Notes",
-      destinationPath: "/notes/33333333-3333-3333-3333-333333333333",
-    });
-
-    const button = screen.getByRole("button", { name: "Meeting Notes" });
-    // Important #2（審查）：mutation 測試證實過，若 loading 分支誤套斷鏈的
-    // className，先前的測試組合仍然全綠——這句補上直接鎖死「loading 不是斷鏈」。
-    expect(button).not.toHaveClass("border-dashed");
-    // issue #153：活連結＝主題色＋底線（與外部連結同一套）。與上一句一起看才完整：
-    // 「不是斷鏈」＋「確實是活連結的那一套」——只留前者的話，把 loading 改成完全
-    // 無樣式（`text-inherit`，也就是 #153 之前的形）仍會全綠。
-    expect(button).toHaveClass("text-(--color-brand)", "underline");
-    fireEvent.click(button);
-
-    expect(screen.getByText("navigated here")).toBeInTheDocument();
+  it("清單未到：<a href=/notes/<id>[#b-…]>，文字 label 優先否則 snapshotTitle；活連結樣式；一般點擊同分頁導航", () => {
+    renderWikilink({ queryClient: pendingClient(), props: { targetNoteId: TARGET.id, snapshotTitle: "Snap", anchorBlockId: "b1" } });
+    const link = screen.getByRole("link", { name: "Snap" });
+    expect(link).toHaveAttribute("href", `/notes/${TARGET.id}#b-b1`);
+    expect(link).toHaveClass("text-(--color-brand)", "underline");
+    expect(link).not.toHaveClass("border-dashed");
+    fireEvent.click(link);
+    expect(loc()).toBe(`/notes/${TARGET.id}#b-b1`);
   });
 
-  it("列表查詢失敗（重試耗盡，isPending=false 但 data 仍是 undefined）：跟 loading 同一態，不是斷鏈，不編造「筆記不存在」", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    // 蓋掉 beforeEach 那個永不 resolve 的 stub：這裡要真的落到 error 終態
-    // （isPending 變 false、但 data 從未拿到過，維持 undefined）。
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() => Promise.reject(new Error("network down"))),
-    );
-
-    renderWikilink({
-      queryClient,
-      targetNoteId: "55555555-5555-5555-5555-555555555555",
-      snapshotTitle: "Meeting Notes",
-      destinationPath: "/notes/55555555-5555-5555-5555-555555555555",
-    });
-
+  it("列表查詢失敗（重試耗盡，isPending=false 但 data 仍是 undefined）：跟清單未到同一態，不是斷鏈，不編造「筆記不存在」", async () => {
+    // 蓋掉 beforeEach 那個永不 resolve 的 stub：這裡要真的落到 error 終態（isPending 變 false、data 從未拿到過）。
+    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("network down"))));
+    const queryClient = pendingClient();
+    renderWikilink({ queryClient, props: { targetNoteId: TARGET.id, snapshotTitle: "Snap" } });
     await waitFor(() => expect(queryClient.getQueryState(["notes"])?.status).toBe("error"));
-
-    const button = screen.getByRole("button", { name: "Meeting Notes" });
-    expect(button).not.toHaveClass("border-dashed");
-    expect(button).toHaveClass("text-(--color-brand)", "underline"); // issue #153，同上一案
-    fireEvent.click(button);
-
-    expect(screen.getByText("navigated here")).toBeInTheDocument();
+    const link = screen.getByRole("link", { name: "Snap" });
+    expect(link).toHaveAttribute("href", `/notes/${TARGET.id}`);
+    expect(link).toHaveClass("text-(--color-brand)", "underline");
+    expect(link).not.toHaveClass("border-dashed");
+    fireEvent.click(link);
+    expect(loc()).toBe(`/notes/${TARGET.id}`);
     expect(screen.queryByText("This linked note no longer exists.")).not.toBeInTheDocument();
   });
 
-  it("resolved 命中：顯示目標筆記現行標題（非 snapshotTitle），點擊用 canonicalNotePath 導航", () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    queryClient.setQueryData(["notes"], [TARGET_NOTE]);
-
-    renderWikilink({
-      queryClient,
-      targetNoteId: TARGET_NOTE.id,
-      snapshotTitle: "Old Snapshot Title",
-      destinationPath: canonicalNotePath(TARGET_NOTE),
-    });
-
-    // 現行標題取代了插入當下的 snapshotTitle。
-    expect(screen.queryByText("Old Snapshot Title")).not.toBeInTheDocument();
-    const button = screen.getByRole("button", { name: TARGET_NOTE.title });
-    expect(button).not.toHaveClass("border-dashed");
-    expect(button).toHaveClass("text-(--color-brand)", "underline"); // issue #153，同上一案
-    fireEvent.click(button);
-
-    expect(screen.getByText("navigated here")).toBeInTheDocument();
+  it("命中：文字＝label（有）或現行標題；href＝canonical＋錨點；點擊導航到 canonical", () => {
+    renderWikilink({ queryClient: loadedClient([TARGET]), props: { targetNoteId: TARGET.id, snapshotTitle: "Old", anchorBlockId: "h2" } });
+    const link = screen.getByRole("link", { name: TARGET.title });
+    expect(link).toHaveAttribute("href", `${canonicalNotePath(TARGET)}#b-h2`);
+    fireEvent.click(link);
+    expect(loc()).toBe(`${canonicalNotePath(TARGET)}#b-h2`);
   });
 
-  it("resolved 未命中（目標筆記已刪除）：斷鏈樣式＋snapshotTitle，點擊只 toast、不導航", () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    queryClient.setQueryData(["notes"], []); // 已解析，但找不到 targetNoteId。
+  it("命中且有 label：顯示 label，不顯示現行標題", () => {
+    renderWikilink({ queryClient: loadedClient([TARGET]), props: { targetNoteId: TARGET.id, snapshotTitle: "Old", label: "Custom" } });
+    expect(screen.getByRole("link", { name: "Custom" })).toHaveAttribute("href", canonicalNotePath(TARGET));
+    expect(screen.queryByText(TARGET.title)).not.toBeInTheDocument();
+  });
 
-    renderWikilink({
-      queryClient,
-      targetNoteId: "44444444-4444-4444-4444-444444444444",
-      snapshotTitle: "Deleted Note",
-      destinationPath: "/notes/44444444-4444-4444-4444-444444444444",
-    });
-
-    const button = screen.getByRole("button", { name: "Deleted Note" });
-    expect(button).toHaveClass("border-dashed", "text-muted-foreground");
-    // issue #153 活連結改套主題色之後，斷鏈態**不得**跟著改：它與可點的連結分得出來
-    // 是那個樣式存在的全部理由。
-    // ⚠ 這句擋的**不是**「整段換成活連結那串 className」——那種突變會先讓上一句紅
-    // （muted/dashed 不見），這句根本跑不到。它真正擋的是**加法**突變：muted 與
-    // dashed 都留著、只多掛一個主題色（審查用那個突變驗過，紅在這一句）。
-    expect(button).not.toHaveClass("text-(--color-brand)");
-    fireEvent.click(button);
-
+  it("斷鏈（清單到了卻沒有這個 id）：<span> 斷鏈樣式（不是連結）、label 或 snapshotTitle；點擊只 toast", () => {
+    renderWikilink({ queryClient: loadedClient([]), props: { targetNoteId: "44444444-4444-4444-4444-444444444444", snapshotTitle: "Deleted Note" } });
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+    const span = screen.getByText("Deleted Note");
+    expect(span).toHaveClass("border-dashed", "text-muted-foreground");
+    expect(span).not.toHaveClass("text-(--color-brand)");
+    fireEvent.click(span);
     expect(screen.getByText("This linked note no longer exists.")).toBeInTheDocument();
-    expect(screen.queryByText("navigated here")).not.toBeInTheDocument();
+    expect(loc()).toBe("/start?x=1");
+  });
+
+  it("修飾鍵（Ctrl／Meta／Shift／Alt）與非左鍵點擊：不 preventDefault、不導航（交給瀏覽器開新分頁）", () => {
+    renderWikilink({ queryClient: loadedClient([TARGET]), props: { targetNoteId: TARGET.id } });
+    const link = screen.getByRole("link", { name: TARGET.title });
+    for (const init of [{ ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { altKey: true }, { button: 1 }]) {
+      expect(fireEvent.click(link, init), JSON.stringify(init)).toBe(true);
+      expect(loc()).toBe("/start?x=1");
+    }
+  });
+
+  it("可編輯時一般點擊：preventDefault、不導航（工具列由 Task 10 接上）", () => {
+    renderWikilink({ queryClient: loadedClient([TARGET]), props: { targetNoteId: TARGET.id }, editor: { isEditable: true } });
+    const link = screen.getByRole("link", { name: TARGET.title });
+    expect(fireEvent.click(link)).toBe(false);
+    expect(loc()).toBe("/start?x=1");
+  });
+
+  it("同篇＋錨點：requestAnchor(id)、只改 hash（pathname／search 不變），不換頁", () => {
+    const { anchors } = renderWikilink({
+      queryClient: loadedClient([TARGET]),
+      props: { targetNoteId: TARGET.id, anchorBlockId: "b9" },
+      anchors: { currentNoteId: TARGET.id },
+    });
+    fireEvent.click(screen.getByRole("link"));
+    expect(anchors.requestAnchor).toHaveBeenCalledWith("b9");
+    expect(loc()).toBe("/start?x=1#b-b9");
+  });
+
+  it("同篇無錨點：scrollToTop、網址不變", () => {
+    const { anchors } = renderWikilink({ queryClient: loadedClient([TARGET]), props: { targetNoteId: TARGET.id }, anchors: { currentNoteId: TARGET.id } });
+    fireEvent.click(screen.getByRole("link"));
+    expect(anchors.scrollToTop).toHaveBeenCalledTimes(1);
+    expect(loc()).toBe("/start?x=1");
   });
 });
 
-// ── insertWikilink ───────────────────────────────────────────────────────────
+describe("PublicWikilink（W5 元件半：不呼叫 useNotes）", () => {
+  const links = (list: PublicLinkDto[]): WikilinkMode => ({ mode: "public", links: new Map(list.map((l) => [l.id, l])) });
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+  });
+  afterEach(() => vi.unstubAllGlobals());
 
-describe("insertWikilink", () => {
-  it("插入 wikilink 節點，並補一個 trailing space 讓游標不黏在 atom node 上", () => {
+  it("沒有 QueryClientProvider 也能渲染（不呼叫 useNotes）、零 fetch；有自訂公開網址的目標成 <a href=/p/…[#b-…]>、label 優先", () => {
+    const fetchSpy = vi.fn(() => new Promise(() => {}));
+    vi.stubGlobal("fetch", fetchSpy);
+    renderWikilink({ mode: links([{ id: TARGET.id, title: "Public Title", path: "/p/tester/pub" }]), props: { targetNoteId: TARGET.id, anchorBlockId: "x1" } });
+    const link = screen.getByRole("link", { name: "Public Title" });
+    expect(link).toHaveAttribute("href", "/p/tester/pub#b-x1");
+    fireEvent.click(link);
+    expect(loc()).toBe("/p/tester/pub#b-x1");
+    expect(fetchSpy).not.toHaveBeenCalled();
+    // label 優先：同一個公開目標帶 label 時顯示 label、不顯示公開標題。
+    cleanup();
+    renderWikilink({ mode: links([{ id: TARGET.id, title: "Public Title", path: "/p/tester/pub" }]), props: { targetNoteId: TARGET.id, label: "L" } });
+    expect(screen.getByRole("link", { name: "L" })).toHaveAttribute("href", "/p/tester/pub");
+    expect(screen.queryByText("Public Title")).not.toBeInTheDocument();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("不在 links 裡（非公開、只有 token 形、已刪）：純文字 <span>（不可點、無連結樣式）", () => {
+    renderWikilink({ mode: links([]), props: { targetNoteId: TARGET.id, snapshotTitle: "Snap", label: "Lab" } });
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+    expect(screen.getByText("Lab")).not.toHaveClass("underline");
+  });
+
+  it("同篇錨點：links 沒有、但本頁有該區塊 ⇒ <a href=#b-…>，點擊 requestAnchor＋只改 hash；本頁沒有該區塊 ⇒ 純文字", () => {
+    const { anchors } = renderWikilink({
+      mode: links([]),
+      props: { targetNoteId: TARGET.id, snapshotTitle: "Here", anchorBlockId: "b1" },
+      editor: { isEditable: false, getBlock: (id: string) => (id === "b1" ? { id } : undefined) },
+    });
+    const link = screen.getByRole("link", { name: "Here" });
+    expect(link).toHaveAttribute("href", "#b-b1");
+    fireEvent.click(link);
+    expect(anchors.requestAnchor).toHaveBeenCalledWith("b1");
+    expect(loc()).toBe("/start?x=1#b-b1");
+    // 反面：錨點指向本頁沒有的區塊（stub 的 getBlock 對 "zz" 回 undefined）⇒ 純文字，不是捲不到的 <a href="#b-zz">。
+    cleanup();
+    renderWikilink({
+      mode: links([]),
+      props: { targetNoteId: TARGET.id, snapshotTitle: "Elsewhere", anchorBlockId: "zz" },
+      editor: { isEditable: false, getBlock: (id: string) => (id === "b1" ? { id } : undefined) },
+    });
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+    expect(screen.getByText("Elsewhere")).not.toHaveClass("underline");
+  });
+});
+
+describe("insertWikilink（§8.7）", () => {
+  it("新 props 預設空字串；呼叫端可帶 label／anchorBlockId；補一個 trailing space", () => {
     const insertInlineContent = vi.fn();
-    const editorStub = {
-      insertInlineContent,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 測試替身只需要 insertInlineContent 這一個方法，其餘用 repo 慣例的 any 打通型別
-    } as any;
-
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 測試替身只需要 insertInlineContent
+    const editorStub = { insertInlineContent } as any;
     insertWikilink(editorStub, { targetNoteId: "n1", snapshotTitle: "Meeting Notes" });
-
-    expect(insertInlineContent).toHaveBeenCalledWith([
-      { type: "wikilink", props: { targetNoteId: "n1", snapshotTitle: "Meeting Notes" } },
+    expect(insertInlineContent).toHaveBeenLastCalledWith([
+      { type: "wikilink", props: { targetNoteId: "n1", snapshotTitle: "Meeting Notes", label: "", anchorBlockId: "" } },
       " ",
     ]);
+    insertWikilink(editorStub, { targetNoteId: "n1", snapshotTitle: "M", label: "L", anchorBlockId: "b" });
+    expect(insertInlineContent).toHaveBeenLastCalledWith([{ type: "wikilink", props: { targetNoteId: "n1", snapshotTitle: "M", label: "L", anchorBlockId: "b" } }, " "]);
   });
 });
