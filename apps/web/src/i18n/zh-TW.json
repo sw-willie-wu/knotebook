@@ -157,7 +157,17 @@
     "wikilinkBroken": "已連結的筆記不存在。",
     "wikilink": {
       "createAndLink": "建立「{{query}}」並連結",
-      "createFailed": "建立筆記失敗，請再試一次。"
+      "createFailed": "建立筆記失敗，請再試一次。",
+      "toolbar": {
+        "label": "筆記連結",
+        "open": "開啟",
+        "editText": "編輯文字",
+        "changeTarget": "更換目標",
+        "remove": "移除連結",
+        "textLabel": "連結文字",
+        "save": "儲存",
+        "search": "搜尋筆記"
+      }
     },
     "accessRevoked": "已失去存取權",
     "deleted": "此筆記已被刪除",

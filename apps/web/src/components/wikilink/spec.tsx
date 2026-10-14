@@ -1,10 +1,11 @@
-import { useContext } from "react";
+import { useContext, useRef, useState, type MouseEvent } from "react";
 import type { BlockNoteEditor, DefaultStyleSchema } from "@blocknote/core";
 import { createReactInlineContentSpec, type ReactCustomInlineContentRenderProps } from "@blocknote/react";
 import { canonicalNotePath, normalizeAnchor, wikilinkConfig, wikilinkHref, wikilinkVisibleText, type PublicLinkDto } from "@knotebook/shared";
 import { useNotes } from "@/api/notes";
 import { WikilinkContext } from "./context";
-import { useWikilinkClick } from "./useWikilinkClick";
+import { useWikilinkActivate, useWikilinkClick } from "./useWikilinkClick";
+import { removeWikilinkNode, WikilinkToolbar } from "./WikilinkToolbar";
 
 // ⚠ 防循環 import：`collab/schema.ts` 會 import 本檔來組 `inlineContentSpecs`，所以本檔絕不能反過來 import `@/collab/schema`
 // ——需要編輯器型別時一律 `BlockNoteEditor<any,any,any>`。
@@ -55,35 +56,58 @@ export function WikilinkInline(props: WikilinkRenderProps) {
  * 2. 命中：`<a href=canonical[#b-…]>`、文字 `label || 現行標題`。
  * 3. 清單到了卻沒有這個 id（已刪或無權）：`<span>` 斷鏈樣式、文字 `label || snapshotTitle`；點擊 toast。
  */
-function MemberWikilink({ inlineContent, contentRef, editor }: WikilinkRenderProps) {
+function MemberWikilink({ inlineContent, contentRef, editor, updateInlineContent }: WikilinkRenderProps) {
   const notesQuery = useNotes();
   const click = useWikilinkClick();
+  const activate = useWikilinkActivate();
+  const [toolbarOpen, setToolbarOpen] = useState(false);
+  const elRef = useRef<HTMLElement | null>(null);
   const { targetNoteId } = inlineContent.props;
+  const label = inlineContent.props.label ?? "";
   const anchor = normalizeAnchor(inlineContent.props.anchorBlockId);
   const list = notesQuery.isPending || !notesQuery.data ? undefined : notesQuery.data;
   const note = list?.find((candidate) => candidate.id === targetNoteId);
-
-  if (list && !note) {
-    return (
-      <span
-        ref={contentRef}
-        className={BROKEN_CLASS}
-        onClick={(e) => click(e, { href: "", targetNoteId, anchorBlockId: anchor, broken: true }, { editable: editor.isEditable })}
-      >
-        {wikilinkVisibleText(inlineContent.props)}
-      </span>
-    );
-  }
+  const broken = list !== undefined && note === undefined;
   const href = note ? `${canonicalNotePath(note)}${anchor ? `#b-${anchor}` : ""}` : wikilinkHref(targetNoteId, anchor);
-  return (
-    <a
-      ref={contentRef}
-      href={href}
-      className={LIVE_LINK_CLASS}
-      onClick={(e) => click(e, { href, targetNoteId, anchorBlockId: anchor, broken: false }, { editable: editor.isEditable })}
-    >
-      {wikilinkVisibleText(inlineContent.props, note?.title)}
+  const text = broken ? wikilinkVisibleText(inlineContent.props) : wikilinkVisibleText(inlineContent.props, note?.title);
+  const target = { href: broken ? "" : href, targetNoteId, anchorBlockId: anchor, broken };
+  const setRefs = (el: HTMLElement | null) => {
+    elRef.current = el;
+    contentRef(el);
+  };
+  const onClick = (e: MouseEvent<HTMLElement>) => click(e, target, { editable: editor.isEditable, onEditableClick: () => setToolbarOpen(true) });
+  // 可編輯時 `draggable={false}`：tiptap 的 NodeView.stopEvent 把不可選取節點的 dragstart 留給瀏覽器，原生 `<a>` 會被拖成
+  // text/html 連結，放回編輯器就多出一個一般連結（拖放進來的不轉換）。唯讀不設，讀者照常可把連結拖到分頁列／書籤。
+  const anchorEl = broken ? (
+    <span ref={setRefs} className={BROKEN_CLASS} onClick={onClick}>
+      {text}
+    </span>
+  ) : (
+    <a ref={setRefs} href={href} className={LIVE_LINK_CLASS} draggable={editor.isEditable ? false : undefined} onClick={onClick}>
+      {text}
     </a>
+  );
+  if (!editor.isEditable) return anchorEl;
+  return (
+    <WikilinkToolbar
+      open={toolbarOpen}
+      onOpenChange={setToolbarOpen}
+      broken={broken}
+      label={label}
+      displayText={text}
+      notes={list}
+      onOpenTarget={() => activate(target)}
+      onSaveLabel={(next) => updateInlineContent({ type: "wikilink", props: { ...inlineContent.props, label: next } })}
+      onChangeTarget={(picked) =>
+        updateInlineContent({ type: "wikilink", props: { ...inlineContent.props, targetNoteId: picked.id, snapshotTitle: picked.title, anchorBlockId: "" } })
+      }
+      onRemove={() => {
+        if (elRef.current) removeWikilinkNode(editor, elRef.current, text);
+      }}
+      onRestoreFocus={() => editor.focus()}
+    >
+      {anchorEl}
+    </WikilinkToolbar>
   );
 }
 

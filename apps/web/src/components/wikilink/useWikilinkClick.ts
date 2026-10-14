@@ -24,25 +24,14 @@ export function isPlainLeftClick(e: { button: number; metaKey: boolean; ctrlKey:
   return e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
 }
 
-/**
- * #269 §7.2：wikilink 點擊的**唯一**實作（member、public、公開頁同篇 `#b-` 形都用它）。
- * - **不用 `<Link>`**：同路徑同 hash 時它預設 REPLACE，上一頁回不到點擊前。
- * - **不留給原生 `<a href>` 預設行為**：fragment 導航不經 react-router，而且區塊只有 `data-id` 沒有 `id`，瀏覽器捲不到。
- * - 同篇錨點先 `requestAnchor` 再 `navigate({ search, hash }, { replace: false })`：捲動由待處理錨點驅動，不依賴 router 是否產生新 key。
- */
-export function useWikilinkClick() {
+/** 非可編輯的一般點擊語意（工具列的「開啟」也用它）：斷鏈 toast、同篇只捲動、其他 navigate(push)。 */
+export function useWikilinkActivate() {
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useTranslation();
   const anchors = useContext(BlockAnchorContext);
   return useCallback(
-    (event: MouseEvent<HTMLElement>, target: WikilinkClickTarget, opts: WikilinkClickOptions = {}) => {
-      if (!isPlainLeftClick(event)) return;
-      event.preventDefault();
-      if (opts.editable) {
-        opts.onEditableClick?.();
-        return;
-      }
+    (target: WikilinkClickTarget) => {
       if (target.broken) {
         toast({ title: t("note.wikilinkBroken") });
         return;
@@ -62,5 +51,27 @@ export function useWikilinkClick() {
       void navigate(target.href);
     },
     [anchors, location.search, navigate, t],
+  );
+}
+
+/**
+ * #269 §7.2：wikilink 點擊的**唯一**實作（member、public、公開頁同篇 `#b-` 形都用它）。
+ * - **不用 `<Link>`**：同路徑同 hash 時它預設 REPLACE，上一頁回不到點擊前。
+ * - **不留給原生 `<a href>` 預設行為**：fragment 導航不經 react-router，而且區塊只有 `data-id` 沒有 `id`，瀏覽器捲不到。
+ * - 同篇錨點先 `requestAnchor` 再 `navigate({ search, hash }, { replace: false })`：捲動由待處理錨點驅動，不依賴 router 是否產生新 key。
+ */
+export function useWikilinkClick() {
+  const activate = useWikilinkActivate();
+  return useCallback(
+    (event: MouseEvent<HTMLElement>, target: WikilinkClickTarget, opts: WikilinkClickOptions = {}) => {
+      if (!isPlainLeftClick(event)) return;
+      event.preventDefault();
+      if (opts.editable) {
+        opts.onEditableClick?.();
+        return;
+      }
+      activate(target);
+    },
+    [activate],
   );
 }

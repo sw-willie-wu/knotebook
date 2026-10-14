@@ -157,7 +157,17 @@
     "wikilinkBroken": "This linked note no longer exists.",
     "wikilink": {
       "createAndLink": "Create \"{{query}}\" and link",
-      "createFailed": "Couldn't create the note. Please try again."
+      "createFailed": "Couldn't create the note. Please try again.",
+      "toolbar": {
+        "label": "Note link",
+        "open": "Open",
+        "editText": "Edit text",
+        "changeTarget": "Change target",
+        "remove": "Remove link",
+        "textLabel": "Link text",
+        "save": "Save",
+        "search": "Find a note"
+      }
     },
     "accessRevoked": "You no longer have access to this note.",
     "deleted": "This note has been deleted.",
