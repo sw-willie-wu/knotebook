@@ -31,8 +31,10 @@ type WikilinkRenderProps = ReactCustomInlineContentRenderProps<typeof wikilinkCo
  * `data-snapshot-title` 屬性由 `createReactInlineContentSpec` 內建的
  * `InlineContentWrapper` 自動加上，這裡不必手動重複。
  */
-function WikilinkExternalHTML({ inlineContent, contentRef }: WikilinkRenderProps) {
-  return <span ref={contentRef}>{`[[${inlineContent.props.snapshotTitle}]]`}</span>;
+function WikilinkExternalHTML({ inlineContent }: WikilinkRenderProps) {
+  // 不可接 contentRef：wikilink 是 atom（content:"none"），接了會讓 renderHTML 回 contentDOM，
+  // 站內複製的 serializeForClipboard 就拋 RangeError「Content hole not allowed in a leaf node spec」、剪貼簿被清空（#269 Task 2）。
+  return <span>{`[[${inlineContent.props.snapshotTitle}]]`}</span>;
 }
 
 /**

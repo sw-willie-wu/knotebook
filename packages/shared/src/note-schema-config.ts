@@ -20,7 +20,13 @@ import {
 
 export const MERMAID_LANGUAGE = "mermaid";
 export const mermaidBlockConfig = { type: MERMAID_LANGUAGE, content: "none", propSchema: { code: { default: "" } } } as const;
-export const wikilinkConfig = { type: "wikilink", content: "none", propSchema: { targetNoteId: { default: "" }, snapshotTitle: { default: "" } } } as const;
+// #269 §4.1：`label` 空 ⇒ 顯示目標現行標題（跟著改名）；`anchorBlockId` 空 ⇒ 整篇，否則目標筆記內區塊 id（BLOCK_ANCHOR_RE，
+// 不合格的值讀端一律當空）。改這裡＝改 note schema：同步升 `note-schema-version.ts` 的 NOTE_SCHEMA_VERSION（digest 守衛會紅）。
+export const wikilinkConfig = {
+  type: "wikilink",
+  content: "none",
+  propSchema: { targetNoteId: { default: "" }, snapshotTitle: { default: "" }, label: { default: "" }, anchorBlockId: { default: "" } },
+} as const;
 
 // 原 code-highlight.ts 的 SUPPORTED_LANGUAGES 整份搬來（值逐字不變、型別同）；web 再疊 createHighlighter。
 export const SUPPORTED_LANGUAGES: NonNullable<CodeBlockOptions["supportedLanguages"]> = {

@@ -94,6 +94,8 @@ const translate = (key: string) => `t:${key}`;
 interface WikilinkProps {
   targetNoteId: string;
   snapshotTitle: string;
+  label: string;
+  anchorBlockId: string;
 }
 
 /** 在第一個 block 的 inline content 裡找 wikilink 節點——沒有就回傳 undefined。 */
@@ -177,7 +179,7 @@ describe("buildWikilinkMenuItems", () => {
 
     items[0]!.onItemClick();
 
-    expect(wikilinkIn(editor)).toEqual({ targetNoteId: "n1", snapshotTitle: "Meeting Notes" });
+    expect(wikilinkIn(editor)).toEqual({ targetNoteId: "n1", snapshotTitle: "Meeting Notes", label: "", anchorBlockId: "" });
   });
 
   it("建立並連結成功：createNote 解析後，在追蹤位置插入新筆記的 wikilink", async () => {
@@ -190,7 +192,7 @@ describe("buildWikilinkMenuItems", () => {
 
     expect(createNote).toHaveBeenCalledWith("brand new");
     await vi.waitFor(() => {
-      expect(wikilinkIn(editor)).toEqual({ targetNoteId: "new-1", snapshotTitle: "Brand New" });
+      expect(wikilinkIn(editor)).toEqual({ targetNoteId: "new-1", snapshotTitle: "Brand New", label: "", anchorBlockId: "" });
     });
     expect(toast).not.toHaveBeenCalled();
   });
@@ -234,7 +236,7 @@ describe("buildWikilinkMenuItems", () => {
 
     resolveCreateNote(created);
     await vi.waitFor(() => {
-      expect(wikilinkIn(editor)).toEqual({ targetNoteId: "new-1", snapshotTitle: "Brand New" });
+      expect(wikilinkIn(editor)).toEqual({ targetNoteId: "new-1", snapshotTitle: "Brand New", label: "", anchorBlockId: "" });
     });
 
     // 精確位置驗證：「Keep this」必須完整保留、緊接在 "PREFIX-" 後面，wikilink（＋
@@ -283,6 +285,6 @@ describe("buildWikilinkMenuItems", () => {
     const text = editor.transact((tr) => tr.doc.textContent);
     expect(text).not.toContain("[[");
     expect(text).not.toContain("meet");
-    expect(wikilinkIn(editor)).toEqual({ targetNoteId: "n1", snapshotTitle: "Meeting Notes" });
+    expect(wikilinkIn(editor)).toEqual({ targetNoteId: "n1", snapshotTitle: "Meeting Notes", label: "", anchorBlockId: "" });
   });
 });

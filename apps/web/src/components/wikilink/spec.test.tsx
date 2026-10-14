@@ -24,7 +24,7 @@ function headlessBlocks() {
       type: "paragraph" as const,
       content: [
         "See ",
-        { type: "wikilink" as const, props: { targetNoteId: "note-1", snapshotTitle: "Meeting Notes" } },
+        { type: "wikilink" as const, props: { targetNoteId: "note-1", snapshotTitle: "Meeting Notes", label: "", anchorBlockId: "" } },
         " for details.",
       ],
     },
@@ -102,7 +102,7 @@ function renderWikilink(options: {
             path="/start"
             element={
               <WikilinkInline
-                inlineContent={{ type: "wikilink", props: { targetNoteId, snapshotTitle }, content: undefined }}
+                inlineContent={{ type: "wikilink", props: { targetNoteId, snapshotTitle, label: "", anchorBlockId: "" }, content: undefined }}
                 updateInlineContent={() => {}}
                 editor={editor}
                 contentRef={() => {}}

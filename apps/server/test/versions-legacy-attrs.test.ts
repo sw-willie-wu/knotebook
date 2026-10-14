@@ -70,6 +70,36 @@ async function rewriteParagraphAttrs(s: Awaited<ReturnType<typeof legacySetup>>,
   return { c, dirty };
 }
 
+// #269 §4.4：wikilink 新 props 預設 ""——版本指紋規則 (4)（值 === schema 預設視同缺席，預設表由 schema 動態推出）自動忽略，
+// 新分頁補寫 `label=""`／`anchorBlockId=""` 不會多切版本；非預設值照常進指紋。
+function wikilinkDoc(attrs: Record<string, string>): Y.Doc {
+  const doc = new Y.Doc();
+  const g = new Y.XmlElement("blockGroup");
+  doc.getXmlFragment(YDOC_FRAGMENT).insert(0, [g]);
+  const c = new Y.XmlElement("blockContainer");
+  c.setAttribute("id", "w1");
+  const p = new Y.XmlElement("paragraph");
+  const w = new Y.XmlElement("wikilink");
+  w.setAttribute("targetNoteId", "33333333-3333-4333-8333-333333333333");
+  w.setAttribute("snapshotTitle", "T");
+  for (const [k, v] of Object.entries(attrs)) w.setAttribute(k, v);
+  p.insert(0, [w]);
+  c.insert(0, [p]);
+  g.insert(0, [c]);
+  return doc;
+}
+
+describe("#269 §4.4：wikilink 新 props 與版本指紋", () => {
+  it("補寫 label=\"\"、anchorBlockId=\"\" 前後版本指紋相等", () => {
+    const fp = (attrs: Record<string, string>) => versionFingerprint(wikilinkDoc(attrs).getXmlFragment(YDOC_FRAGMENT));
+    expect(fp({ label: "", anchorBlockId: "" })).toBe(fp({}));
+  });
+  it("label=\"x\" 時與沒有屬性的不等", () => {
+    const fp = (attrs: Record<string, string>) => versionFingerprint(wikilinkDoc(attrs).getXmlFragment(YDOC_FRAGMENT));
+    expect(fp({ label: "x" })).not.toBe(fp({}));
+  });
+});
+
 describe("§13-9：舊 schema 筆記被回寫預設屬性（方案二）", () => {
   it("paragraph 補上三個預設值、文字不變 → isDirty false；斷線 unload → 總數 0", async () => {
     const s = await legacySetup();

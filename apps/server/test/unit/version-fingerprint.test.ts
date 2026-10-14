@@ -307,7 +307,7 @@ describe("屬性值等於 schema 預設視同缺席（spec §13-9 方案二，V2
     expect(DEFAULT_PROPS_BY_TYPE.checkListItem!.checked).toBe(false);
     expect(DEFAULT_PROPS_BY_TYPE.codeBlock).toEqual({ language: "text" });
     expect(DEFAULT_PROPS_BY_TYPE.mermaid).toEqual({ code: "" });
-    expect(DEFAULT_PROPS_BY_TYPE.wikilink).toEqual({ targetNoteId: "", snapshotTitle: "" });
+    expect(DEFAULT_PROPS_BY_TYPE.wikilink).toEqual({ targetNoteId: "", snapshotTitle: "", label: "", anchorBlockId: "" });
   });
 
   it("schema 載入失敗：退回空表、warn(obj, msg) 恰一次，不丟例外", () => {

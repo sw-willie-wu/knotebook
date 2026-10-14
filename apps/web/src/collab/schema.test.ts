@@ -504,6 +504,41 @@ const FIXTURE: PartialBlock<any, any, any>[] = [
   { type: "image", props: { url: "/api/uploads/abc123", name: "pic" } },
 ];
 
+describe("#269：wikilink 新 props", () => {
+  it("web noteSchema 與 headless schema 的 wikilink propSchema 都含 label、anchorBlockId（預設空字串）", () => {
+    const headless = createHeadlessNoteSchema("http://localhost/");
+    for (const schema of [noteSchema, headless]) {
+      const keys = Object.keys(schema.inlineContentSchema.wikilink.propSchema).sort();
+      expect(keys).toEqual(["anchorBlockId", "label", "snapshotTitle", "targetNoteId"]);
+      expect(schema.inlineContentSchema.wikilink.propSchema).toMatchObject({ label: { default: "" }, anchorBlockId: { default: "" } });
+    }
+  });
+
+  it("事實（spec §4.1【推】→【驗】）：非預設值輸出成 data-label／data-anchor-block-id；預設值不輸出；同屬性從 HTML 讀回", () => {
+    const editor = BlockNoteEditor.create({ schema: noteSchema });
+    const id = "11111111-1111-4111-8111-111111111111";
+    const html = editor.blocksToHTMLLossy([
+      {
+        type: "paragraph",
+        content: [
+          { type: "wikilink", props: { targetNoteId: id, snapshotTitle: "S", label: "L", anchorBlockId: "b1" } },
+          { type: "wikilink", props: { targetNoteId: id, snapshotTitle: "S2", label: "", anchorBlockId: "" } },
+        ],
+      },
+    ]);
+    expect(html).toContain('data-label="L"');
+    expect(html).toContain('data-anchor-block-id="b1"');
+    expect(html.match(/data-label=/g)).toHaveLength(1);
+    expect(html.match(/data-anchor-block-id=/g)).toHaveLength(1);
+    const parsed = editor.tryParseHTMLToBlocks(
+      `<p><span data-inline-content-type="wikilink" data-target-note-id="${id}" data-snapshot-title="S" data-label="L" data-anchor-block-id="b1"></span></p>`,
+    );
+    const node = (parsed[0]!.content as Array<{ type: string; props: Record<string, string> }>)[0]!;
+    expect(node.type).toBe("wikilink");
+    expect(node.props).toEqual({ targetNoteId: id, snapshotTitle: "S", label: "L", anchorBlockId: "b1" });
+  });
+});
+
 describe("#106 parity：headless schema 與 noteSchema 匯出逐位元組相同", () => {
   it("同 fixture → blocks 逐欄位相同（去 id）、blocksToMarkdownLossy 逐字相同", async () => {
     const web = BlockNoteEditor.create({ schema: noteSchema, initialContent: FIXTURE });
