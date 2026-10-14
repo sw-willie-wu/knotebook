@@ -67,6 +67,7 @@ Turning on **Public link** generates an unguessable token (`base64url(randomByte
 - is **read-only** — there is no anonymous editing, and the page ships none of the editing machinery;
 - shows the note's title and content, including images uploaded to that note (served through a public image endpoint that the token authorizes — see the `/api/public/...` rows in the [API contract summary](./api.md));
 - shows **no** backlinks, no AI actions, and no timestamp (the note record's timestamp only tracks title/slug changes, not content edits, so showing it would mislead);
+- follows a link to another note, opening that note's public page, only when that note has a public link with **Anonymous link** turned off. Links to notes that are private, members-only or public only through an anonymous link show as plain text, except a link to a place that this page also has, which scrolls there (see [Known limitations](./known-limitations.md));
 - is sent with `X-Robots-Tag: noindex`, so well-behaved search engines won't index it. The link itself is still a capability: anyone it's forwarded to can read the note;
 - has a **Present** button that plays the note as a slide show. Like the page itself, the presentation is a snapshot: it picks up new content when the page fetches the note again (for example when the tab regains focus), and keeps your current slide when it can — it is not live.
 

@@ -40,12 +40,17 @@ describe("#93 S13：index.ts 的回填接線", () => {
     const destroyAt = handler.indexOf("collab.destroy()");
     expect(destroyAt, "關機要呼叫 collab.destroy()").toBeGreaterThan(-1);
     expect(destroyAt, "race 要在 collab.destroy() 之前").toBeGreaterThan(race!.index + race![0].length - 1);
-    // 寬限常數：#272 併線後只留一份——index.ts 從 collab/versions.ts 引入 SCAN_STOP_GRACE_MS（值 2 s）；未併線時是本檔自己的常數。
-    const importsShared = src.includes('import { SCAN_STOP_GRACE_MS } from "./collab/versions.js";');
-    const graceSrc = importsShared
-      ? readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../src/collab/versions.ts"), "utf8")
+    // 寬限常數（#272 併線後只留一份，現住 collab/versions.ts）：先從 stopGrace 的定義取出它**實際**用的常數名，再到**定義**該常數
+    // 的檔（index.ts 自己，或 index.ts 從 ./… import 它的那支）剔掉 `//` 註解行後找 `const <名> = 2_000;`——stopGrace 改用另一個
+    // 本地常數、或 2_000 只剩註解裡有，都會紅（merge review m1）。
+    const grace = /const stopGrace = \(\): Promise<void> => new Promise\(resolve => setTimeout\(resolve, ([A-Z_]+)\)\.unref\(\)\);/.exec(src);
+    expect(grace, "stopGrace 要寫成 new Promise(resolve => setTimeout(resolve, <常數>).unref())").not.toBeNull();
+    const graceName = grace![1]!;
+    const importedFrom = new RegExp(`^import \\{[^}]*\\b${graceName}\\b[^}]*\\} from "\\./([^"]+)\\.js";`, "m").exec(src);
+    const definingSrc = importedFrom
+      ? readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), `../../src/${importedFrom[1]}.ts`), "utf8")
       : src;
-    expect(graceSrc).toMatch(/_STOP_GRACE_MS = 2_000;/);
-    expect(src).toMatch(/const stopGrace = \(\): Promise<void> => new Promise\(resolve => setTimeout\(resolve, [A-Z_]+_STOP_GRACE_MS\)\.unref\(\)\);/);
+    const definingCode = definingSrc.replace(/^\s*\/\/.*$/gm, "");
+    expect(definingCode, `${graceName} 的定義（剔掉 // 註解行）要是 2_000`).toMatch(new RegExp(`^\\s*(?:export )?const ${graceName} = 2_000;`, "m"));
   });
 });

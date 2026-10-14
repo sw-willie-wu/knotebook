@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
+import pino from "pino";
 import * as Y from "yjs";
 import { YDOC_FRAGMENT, topLevelContainers } from "@knotebook/shared";
 import { noteAiEdits, noteLinkConversion, noteLinks, notes, users } from "../src/db/schema.js";
@@ -312,5 +313,34 @@ describe("#269 I3 一次性站內連結轉換", () => {
     expect(wikilinks((await loadDoc(ctx.db, self.id))!).map(w => w.targetNoteId)).toEqual([self.id, self.id]);
     expect(await linksOf(ctx, self.id)).toEqual([]);
     expect(await statusOf(ctx, self.id)).toMatchObject({ status: "done", converted: 2 });
+  });
+
+  it("§12.5：切版階段 DB 出錯——真 pino 輸出的「單篇失敗」只有 noteId／stage／錯誤類別與 SQLSTATE，不含筆記文字與查詢參數", async () => {
+    const ctx = await buildCollabTestApp();
+    const alice = await ctx.createUser({ email: "lc-l@example.com", password: PASSWORD });
+    const a = await seedNote(ctx.db, { ownerId: alice.id }, { title: "A" });
+    const host = await seedNote(ctx.db, { ownerId: alice.id }, { title: "Host" });
+    const MARK = "ZQXLEAKMARK7731";
+    await seedOldNote(ctx.db, host.id, `${MARK} [x](/notes/${a.id})`);
+    await pending(ctx, host.id);
+    // 真 pino（預設 err serializer 會把 message／params 等可列舉欄位全寫出去）：量的是自架者 log 裡實際會出現的字。
+    const lines: string[] = [];
+    const log = pino({ level: "info" }, { write: (s: string) => void lines.push(s) });
+    // 讓「連結轉換前」的 note_versions INSERT 炸：drizzle 把它包成 DrizzleQueryError，params 含整份 ydoc（MARK 是明文）。
+    await ctx.db.execute(sql`create or replace function knb_lc_boom() returns trigger as $$ begin raise exception 'boom'; end $$ language plpgsql`);
+    await ctx.db.execute(sql`create trigger knb_lc_boom_trg before insert on note_versions for each row execute function knb_lc_boom()`);
+    try {
+      await run(ctx, { ...depsOf(ctx), log });
+    } finally {
+      await ctx.db.execute(sql`drop trigger if exists knb_lc_boom_trg on note_versions`);
+    }
+    const out = lines.join("\n");
+    expect(out).not.toContain(MARK);
+    expect(out).not.toMatch(/Failed query|params/);
+    const failed = lines.map(l => JSON.parse(l) as Record<string, unknown>).filter(o => o.msg === "站內連結轉換：單篇失敗");
+    expect(failed).toHaveLength(1);
+    expect(failed[0]).toMatchObject({ noteId: host.id, stage: "version", err: { name: "DrizzleQueryError", code: "P0001" } });
+    expect(Object.keys(failed[0]!.err as object).sort()).toEqual(["code", "name"]);
+    expect(await statusOf(ctx, host.id)).toMatchObject({ status: "retry", attempts: 1 });
   });
 });

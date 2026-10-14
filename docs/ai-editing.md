@@ -152,7 +152,7 @@ Neither shape is recoverable by retrying; both are consequences of merging befor
 | Token calls | 300 reads/min and 60 writes/10 min per user | every request made with a token or App credential, on top of the two rows above | `429 too_many_requests` |
 | Concurrent writes to one note | serialised, 10 s wait | `POST …/edits`, `POST …/revert` | `503 server_busy` |
 | Recorded edits kept | at most 100 per note | `GET …/edits` | oldest rows are deleted |
-| Wikilink targets indexed | 1000 per note | every write | extra targets are dropped from the index, the write still succeeds |
+| Linked notes indexed | 1000 per note | every write | extra targets are dropped from the index, the write still succeeds |
 
 A `POST /api/mcp` counts as **one** read call against the "Token calls" row no matter how many tools it invokes, and **each** `edit_note`, `create_note`, `move_note_to_group`, `copy_note` or `create_transfer_token` with `upload` call inside it counts as one write call — including a `create_note` without `content` (#108). `read_note_outline`, `read_note_section`, `read_note_image` and `create_transfer_token` with `download` each count as one content read against the content-read budget above, and `edit_note` (except `rename`), `create_note` (when it carries `content`) and `copy_note` draw on the write one — even though those rows list only the REST endpoints: what a tool answers is never an HTTP status, so MCP's own limits are tabulated separately. `copy_note` also draws on the upload limit, one per image it copies. `list_notes` and `search_notes` draw on neither; `search_notes` draws on a separate search budget of 60 searches per minute per user. For that table see [MCP](./mcp.md#limits); for how MCP answers once one of these budgets runs out, see [API tokens](./api-tokens.md#errors-and-rate-limits).
 
@@ -164,7 +164,7 @@ Note that `server_busy` is a `503` on these endpoints. The same code is a `409` 
 
 Content crosses the API as Markdown, and the round-trip is deliberately lossy in two places that the server repairs on the way in:
 
-- **Wikilinks.** A `[[Title]]` in the Markdown you send is bound to a note when **exactly one** note you can see has that title. Zero matches or several, and it stays literal text; `unboundWikilinks` in the `POST …/edits` response's `201` counts how many stayed literal in that write. Reading gives back `[[Title]]` — the target's id is not in the Markdown — so a read-modify-write can re-bind a link to a *different* note if titles changed or a second note with the same title appeared in between. Check `unboundWikilinks` if that matters to you.
+- **Links to notes.** A link whose URL is a note on this site you can see — `/notes/<id>`, or its address from `list_notes`, optionally ending in `#b-<block id>` — is saved as a link to that note; any other link to this site stays an ordinary link (see [MCP](./mcp.md#links-to-notes)). Reading gives it back as `[text](/notes/<id>)`, with the target's id in the URL, so a read-modify-write keeps each link on the same note even if titles change, as long as you can see that note. A `[[Title]]` you send is still bound to a note when **exactly one** note you can see has that title — now also inside tables; zero matches or several, and it stays literal text, and `unboundWikilinks` in the `POST …/edits` response's `201` counts how many stayed literal in that write.
 - **Diagrams.** A ```` ```mermaid ```` fenced block is restored to a real [diagram](./diagrams.md) block, with its source preserved exactly. Reading a diagram gives the fence back.
 
 Three more properties of the Markdown:
@@ -256,6 +256,6 @@ Two things worth knowing:
 - **`400 empty_section`.** `delete_section` was pointed at a section with no blocks — usually `_top` on a note that starts with a heading, or a note with no content at all.
 - **`400 empty_content`.** The Markdown parsed to nothing (it was blank or only whitespace). To empty a section, delete it; to empty a note, `replace_all` still needs something to write.
 - **`429 too_many_requests`.** See [Limits](#limits). A token pays both its own bucket and the per-user one for these endpoints, so the tighter of the two is what you actually get.
-- **The write succeeded but a wikilink is missing from the target note's backlinks.** The link index can lag briefly; it catches up the next time that note's link set changes or a browser reconnects to it. See [Known limitations](./known-limitations.md).
+- **The write succeeded but a link to a note is missing from the target note's backlinks.** The link index can lag briefly; it catches up the next time that note's link set changes or a browser reconnects to it. See [Known limitations](./known-limitations.md).
 
 See also: [API tokens](./api-tokens.md) · [API contract summary](./api.md) · [Known limitations](./known-limitations.md).

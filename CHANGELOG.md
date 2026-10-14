@@ -14,12 +14,20 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 - If you roll back to 0.10, the Instruct action stays in the database and 0.10 lists it as an ordinary quick action that only fills in `{{text}}`: the literal `{{instruction}}` and `{{focus}}` would reach the model, without the guard. Disable the action before rolling back.
 - Migration 0024 adds the time each account was last active and fills it in from the last sign-in time, so after the upgrade **Last active** shows when someone last signed in until they next use the site. Accounts with no recorded sign-in show **Not recorded** until then. Rolling back to 0.10 is harmless for the database: 0.10 doesn't read or write the new column.
 - Automatic versions are now saved only after a note has had no new changes for a while — 5 minutes by default, set in **Site admin → Storage plans → Keeping automatic versions** (1–60 minutes); the version appears within about half a minute after that. Leaving a note, and AI or API writes, no longer save a version straight away: an AI write and the edits around it go into the same version once the note goes quiet. Save a version by hand (Ctrl+S) if you want a cut at a particular point. Migration 0025 adds the pending-change columns, the wait setting and the id of each version's base (filled in for bases that still exist). Changes the previous version had not saved as a version when it stopped are saved after the next edit. Rolling back to 0.10 is harmless for the database: 0.10 doesn't read the new columns; in rare cases a note moved while on 0.10 can get one extra automatic version after upgrading again. After upgrading again, a note whose base changed while on 0.10 can show the wrong base under **Current state** (the one it had at the rollback, or **a deleted version**) until a new version is saved or a version is applied, and versions saved on 0.10 on top of an older version keep showing as based on **a deleted version**.
+- **Reload every open tab after upgrading.** Tabs opened before the upgrade can't connect to the new server: they keep retrying in the background ("Connecting…", then an offline warning), and edits made in them that hadn't synced are lost when you reload. From now on, when an upgrade changes how the editor stores notes, a tab opened before it shows a notice asking you to reload instead (#269).
+- Migration 0026 records every note that exists at that moment, and about 30 seconds after the first start the server turns ordinary links to notes on this site in those notes into links to the notes, in the background — with the owner's permissions, and in a group note only links to notes in the same group. Notes created after the upgrade are not processed. Before changing a note it saves a version named `連結轉換前` (or, if the content is already the note's base version, turns that version into a manual one, keeping its name if it has one — see [Versions](docs/versions.md)); to undo the conversion for one note, apply that version — its links come back as ordinary links and the conversion doesn't convert them again. Progress is in the `app` log; see [Self-hosting](docs/self-hosting.md#upgrading-and-rolling-back) (#269).
+- Moving a paragraph that holds a link to a note made before the upgrade, or a block next to it, can change that section's MCP fingerprint once, even though its text didn't change; an AI client's next `if_match` on that section then gets a fingerprint mismatch and has to read the section again (#269).
+- `[[Title]]` written over MCP or the API is now also bound inside tables (#269).
 
 ### Added
 
 - Site setting for how long to wait after the last change before saving a version automatically (#272).
 - AI on a selection: the **AI** button on the formatting toolbar now opens a box in place of the toolbar, where you can type your own instruction for the selected text or pick a quick action. When the response finishes, the result appears over the selected blocks — covering the text below them until the box closes — as an inline diff of only those blocks. Instructions and preview actions wait for you to apply, discard or retry, while direct actions apply as before and can be reverted (#263).
 - A fifth built-in AI action, **Instruct**, carries those free-form instructions. It always shows a preview first, and the server wraps it in fixed tags and a fixed guard that admins can't change (#263).
+- Links to notes: a link to a note on this site that you can see — pasted, typed as Markdown, typed as an address, inserted with the link dialog, or written by an AI client — is saved as a link to that note: it follows renames, shows up in backlinks, opens in the same tab, and can have its own text. Clicking one while editing opens a small toolbar to open it, edit its text, change its target or remove the link, leaving its text (#269).
+- Links to a paragraph: an address ending in `#b-<block id>` opens the note scrolled to that block and highlights it briefly. **Copy link to block** in the drag-handle menu and a "#" button beside headings copy such a link (#269).
+- MCP and the API read links to notes as `[text](/notes/<id>)` (ending in `#b-<block id>` when they point to a place), and save a Markdown link to a note you can see as a link to that note (#269).
+- Public pages link to other notes that are public under a custom URL; `GET /api/public/notes/…` returns them in `links` (#269).
 
 ### Changed
 
@@ -37,10 +45,17 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 - **Settings → Sign-in → Sign-in methods:** when each sign-in service was linked and last used are now in **Linked** and **Last used** columns instead of lines under its name. When one can't be unlinked because it is the only way to sign in, its **Unlink** button can now be reached with Tab and shows the reason when you point at it, besides the reason written under the name.
 - **Settings → Authorization → API tokens:** a token's creation date now comes before an app's "Name is self-reported…" note, and long names wrap instead of staying on one line. While one token is being edited, the other tokens' pencil buttons can be reached with Tab and show "Finish editing the other token first." when you point at them, instead of being skipped. While editing, **Save** and **Cancel** are check-mark and cross icon buttons at the right end of the row, and the row's **Last used** and **Expires** are hidden until you're done.
 - In a group's **Roles** page, **Save** and **Cancel** for renaming a role are check-mark and cross icon buttons. The **Actions** heading over the buttons in **Site admin → Storage plans** and a group's **Members** page is now read only by screen readers, like the other lists. The **By type** rows in **Settings → Storage** and a group's **Storage** page, and its **By member** rows, now have the same spacing and dividers as the tables.
+- Searching finds a link to a note by its own text, or by the text it was made with; notes are indexed again in the background after the upgrade (#269).
+- Version comparisons and the AI box's preview show links to notes by their text, and mark a link whose target, the place it points to, or its own text changed (#269).
+- Public pages no longer request the signed-in note list (#269).
 
 ### Removed
 
 - The AI panel and the round AI button at the bottom-right of the note page, together with running an action over the whole note from them. Select everything with Ctrl+A and use the toolbar instead (#263).
+
+### Fixed
+
+- Copying a selection that contains a link to a note (one made with `[[`) no longer leaves the clipboard empty (#269).
 
 ## [0.10.0] - 2026-10-11
 

@@ -16,7 +16,9 @@ A version is saved automatically only when the content has actually changed: ope
 
 **By hand**: press **Ctrl+S** (**Cmd+S** on a Mac), or use **Save current version** at the bottom of the version list. A dialog asks for an optional **Version name** (up to 120 characters). Ctrl+S is left to the browser while another dialog or a drop-down menu (such as a `⋮` menu) is open — the full-screen version history on a narrow window counts as a dialog, the sidebar on a narrow window doesn't — and during a presentation; on a note you can only view, it is always left to the browser. If the note's content is the same as the version it is based on, no new version is created: that version is turned into a manual one (and given the name, if you entered one), and the notice says so.
 
-**Nothing else creates a version.** A note that existed before version history was added has no versions until its content changes, and the content it had before that first change is not kept as a version. A copied or moved note has no versions until its content changes (or a version is saved by hand) in its new place.
+**Nothing else creates a version**, apart from the one-time link conversion below. A note that existed before version history was added has no versions until its content changes, and the content it had before that first change is not kept as a version. A copied or moved note has no versions until its content changes (or a version is saved by hand) in its new place.
+
+**The one-time link conversion.** The first start of 0.11 turns ordinary links to notes on this site, in the notes that existed then, into links to those notes, in the background (see [Self-hosting](./self-hosting.md#upgrading-and-rolling-back)). Before changing a note, it saves the note's content as a manual version named `連結轉換前` — or, if that content is already the note's base version, turns that version into a manual one, keeping its name if it has one. The conversion doesn't save a version by itself; the converted content is saved by automatic versions like any other edit.
 
 ## The version list
 
@@ -63,6 +65,8 @@ Choose **Apply** (followed by the version's name and code) at the bottom of the 
 - **Save current version** — opens the save dialog, and once the version is saved, applies.
 
 Applying never saves those changes on its own. Ctrl+Z can't undo an apply; apply another version instead.
+
+Applying a version saved before the upgrade to 0.11 — including `連結轉換前` — brings back the ordinary links it had, and the one-time conversion doesn't convert them again; that is how to undo the link conversion for one note (see [Known limitations](./known-limitations.md#version-history)).
 
 ## Renaming and deleting
 

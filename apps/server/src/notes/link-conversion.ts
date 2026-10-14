@@ -230,6 +230,19 @@ async function record(deps: LinkConversionDeps, row: { noteId: string; attempts:
   // deleted：列已隨筆記 cascade 消失（UPDATE 0 列也無妨），不寫；aborted 由呼叫端擋在這之前。
 }
 
+/**
+ * spec §12.5（日誌不記 href、標題、文字）：例外只記**類別名＋錯誤碼**。不可整個 `err` 交給 logger——drizzle 把任何查詢錯誤包成
+ * `DrizzleQueryError`，message 內嵌 `params`（解析階段是連結剖出的 handle／slug，切版階段是整份 Yjs 更新＝筆記明文），pg 錯誤的
+ * `detail` 也可能帶值。錯誤碼取 `err.code`，沒有再取 `err.cause.code`（pg 的 SQLSTATE、node 的 `ECONNREFUSED` 這類）。
+ */
+export function errorSummary(err: unknown): { name: string; code?: string } {
+  const codeOf = (e: unknown): string | undefined =>
+    typeof e === "object" && e !== null && typeof (e as { code?: unknown }).code === "string" ? (e as { code: string }).code : undefined;
+  const name = err instanceof Error ? err.constructor.name || "Error" : typeof err;
+  const code = codeOf(err) ?? codeOf((err as { cause?: unknown } | null)?.cause);
+  return code === undefined ? { name } : { name, code };
+}
+
 type OneResult = "busy" | "aborted" | "recorded";
 
 async function convertOne(deps: LinkConversionDeps, row: { noteId: string; attempts: number }, signal: AbortSignal, summary: LinkConversionSummary): Promise<OneResult> {
@@ -242,7 +255,7 @@ async function convertOne(deps: LinkConversionDeps, row: { noteId: string; attem
   } catch (err) {
     if (signal.aborted) return "aborted";
     if (err instanceof QueueBusyError) return "busy";
-    deps.log.warn({ noteId: row.noteId, stage: stage.name, err }, "站內連結轉換：單篇失敗");
+    deps.log.warn({ noteId: row.noteId, stage: stage.name, err: errorSummary(err) }, "站內連結轉換：單篇失敗");
     outcome = { kind: "retry" };
   }
   if (signal.aborted || outcome.kind === "aborted") return "aborted";
@@ -311,7 +324,7 @@ export function createLinkConversion(deps: LinkConversionDeps, opts: { startDela
         timer = undefined;
         running = runLinkConversion(deps, { signal: controller.signal }).then(
           () => undefined,
-          err => deps.log.error({ err }, "站內連結轉換中止"),
+          err => deps.log.error({ err: errorSummary(err) }, "站內連結轉換中止"),
         );
       }, opts.startDelayMs ?? LINK_CONVERSION_START_DELAY_MS);
       timer.unref?.();
