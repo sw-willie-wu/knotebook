@@ -41,6 +41,7 @@ import { AiSessionProvider } from "@/components/ai/AiSession";
 import { CornerStack } from "@/components/CornerStack";
 import { useVersions } from "@/lib/versions-context";
 import { VERSIONS_ERROR_FRAME, VersionsLazyBoundary } from "@/components/versions/VersionsLazyBoundary";
+import { useVersionsPanelWidth } from "@/components/versions/versions-panel-width";
 import { SelectionAiController } from "@/components/ai/SelectionAiController";
 import { KnotebookSideMenu, NotePathContext } from "@/components/editor/KnotebookSideMenu";
 import { HeadingAnchorButtons } from "@/components/editor/HeadingAnchorButtons";
@@ -366,6 +367,8 @@ export function NoteEditor({
   const [columnEl, setColumnEl] = useState<HTMLElement | null>(null);
   const { resolvedTheme } = useTheme();
   const { panelOpen } = useVersions();
+  // #274：版本面板寬度。state 放在面板與錯誤外框的最近共同祖先（下方列容器），以 CSS 變數往下傳。
+  const panelWidth = useVersionsPanelWidth();
   const hasPreview = previewSlot !== undefined && previewSlot !== null;
 
   // handler 是在 editor 建立時就固定下來的閉包；用 ref 取用最新的 t，語言切換時
@@ -468,7 +471,7 @@ export function NoteEditor({
   // `NoteEditor.layout.test.tsx` 的節點鏈都吊在這裡。
   return (
     <AiSessionProvider editor={editor} noteId={noteId} editable={editable}>
-      <div className="flex h-full min-h-0 min-w-0 flex-1 gap-3">
+      <div className="flex h-full min-h-0 min-w-0 flex-1 gap-3" style={panelWidth.style}>
         <div className={cn(cardSurface, "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden")}>
           {headerSlot}
           <div ref={onScrollRoot} className={cn("min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-clip", hasPreview && "hidden")}>
@@ -517,7 +520,7 @@ export function NoteEditor({
         </div>
         {panelOpen && (
           <VersionsLazyBoundary noteId={noteId} errorClassName={VERSIONS_ERROR_FRAME.panel}>
-            <VersionsPanel doc={doc} />
+            <VersionsPanel doc={doc} width={panelWidth.width} onWidthChange={panelWidth.onChange} />
           </VersionsLazyBoundary>
         )}
         <CornerStack />

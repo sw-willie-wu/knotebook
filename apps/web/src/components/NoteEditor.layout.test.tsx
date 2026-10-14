@@ -116,6 +116,8 @@ describe("NoteEditor 佈局（PR2 slot 化：節點鏈 + 雙層 class smoke）",
     expect(root).not.toBeNull();
 
     expect(root).toHaveClass("flex", "h-full", "min-h-0", "min-w-0", "flex-1", "gap-3");
+    // #274：版本面板與其錯誤外框共用的寬度來源——列容器設 CSS 變數（預設 320）。拿掉 style 則兩者寬度失效。
+    expect(root!.style.getPropertyValue("--versions-panel-width")).toBe("320px");
     expect(contentCard).toHaveClass(
       "flex",
       "min-h-0",

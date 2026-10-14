@@ -998,6 +998,7 @@
     "bubble": "Version history",
     "title": "Version history",
     "close": "Close version history",
+    "resize": "Resize versions panel",
     "currentLabel": "Current state",
     "current": {
       "noBase": "No base version",

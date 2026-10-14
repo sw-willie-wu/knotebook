@@ -28,6 +28,7 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 - Links to a paragraph: an address ending in `#b-<block id>` opens the note scrolled to that block and highlights it briefly. **Copy link to block** in the drag-handle menu and a "#" button beside headings copy such a link (#269).
 - MCP and the API read links to notes as `[text](/notes/<id>)` (ending in `#b-<block id>` when they point to a place), and save a Markdown link to a note you can see as a link to that note (#269).
 - Public pages link to other notes that are public under a custom URL; `GET /api/public/notes/…` returns them in `links` (#269).
+- The version history panel on wide screens can be resized by dragging its left edge (240–560 px; double-click the edge to reset to 320 px, or use the arrow keys when it has focus). The width is remembered in this browser (#274).
 
 ### Changed
 

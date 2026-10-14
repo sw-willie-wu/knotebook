@@ -54,7 +54,7 @@ function Host({ doc }: { doc: Y.Doc }) {
     <VersionsProvider value={value}>
       <button type="button" onClick={value.open}>host-open</button>
       <Probe />
-      {value.panelOpen && <VersionsPanel doc={doc} />}
+      {value.panelOpen && <VersionsPanel doc={doc} width={320} onWidthChange={() => {}} />}
     </VersionsProvider>
   );
 }
@@ -80,12 +80,12 @@ describe("VersionsPanel（spec §8.2）", () => {
     vi.useRealTimers();
   });
 
-  it("卡片 class：md:static md:w-80（w-80 不帶前綴即錯）＋ cardSurface", async () => {
+  it("卡片 class：md:relative md:w-[var(--versions-panel-width)]（寬度不帶前綴即錯）＋ cardSurface", async () => {
     stub({ [FIRST]: { versions: [], current: cur(), nextBefore: null } });
     renderPanel();
     const panel = await screen.findByTestId("versions-panel");
-    expect(panel).toHaveClass("md:static", "md:w-80", "rounded-xl", "border", "bg-card");
-    expect(panel).not.toHaveClass("w-80");
+    expect(panel).toHaveClass("md:relative", "md:w-[var(--versions-panel-width)]", "rounded-xl", "border", "bg-card");
+    expect(panel).not.toHaveClass("w-[var(--versions-panel-width)]");
   });
 
   // #258：副標只看 current.baseSeq／dirty，與清單內容無關（清單可能被篩過、或根本是空的）。
@@ -458,7 +458,7 @@ describe("VersionsPanel（spec §8.2）", () => {
         <VersionsProvider value={value}>
           <button type="button" onClick={value.open}>host-open</button>
           <Probe />
-          {value.panelOpen && <VersionsPanel doc={doc} />}
+          {value.panelOpen && <VersionsPanel doc={doc} width={320} onWidthChange={() => {}} />}
         </VersionsProvider>
       );
     }

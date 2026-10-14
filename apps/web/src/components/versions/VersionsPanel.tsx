@@ -6,6 +6,7 @@ import type { VersionDto } from "@knotebook/shared";
 import { useVersionCurrent, useVersionList, versionsKey } from "@/api/versions";
 import { Button } from "@/components/ui/button";
 import { cardSurface } from "@/components/ui/card";
+import { PaneResizeHandle } from "@/components/PaneResizeHandle";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { EllipsisVertical, X } from "@/components/ui/icons";
 import { useVersions } from "@/lib/versions-context";
@@ -13,6 +14,12 @@ import { cn } from "@/lib/utils";
 import { KindFilter, KindFilterEmpty } from "./KindFilter";
 import { baseLabelOrDeleted, currentSubtitle, editorsText, formatVersionTime, versionLabel } from "./version-labels";
 import { useApplyFlow } from "./use-apply-flow";
+import {
+  VERSIONS_PANEL_WIDTH_DEFAULT,
+  VERSIONS_PANEL_WIDTH_MAX,
+  VERSIONS_PANEL_WIDTH_MIN,
+  VERSIONS_PANEL_WIDTH_STEP,
+} from "./versions-panel-width";
 
 /**
  * 列的兩行內容（面板與窄視窗整頁共用）。第一行「名稱 (短 id)」（#272 D5；未命名的用 uuid 推出的英文名），**只有自動版本**再加一顆
@@ -69,7 +76,16 @@ export function VersionRowMenu({ version, isBase, onApply }: { version: VersionD
  * 離開預覽（spec §8.4 rev 10 追記，Task 19；橫幅沒有 ✕）：點清單空白處（`<ul>` 本身，點到列或 ⋯ 不算）、
  * 再點已選中的那一列（toggle）、✕ 關面板（`close()` 一併離開預覽）；另有 NotePage 的 Esc。
  */
-export function VersionsPanel({ doc }: { doc: Y.Doc }) {
+export function VersionsPanel({
+  doc,
+  width,
+  onWidthChange,
+}: {
+  doc: Y.Doc;
+  /** #274：md+ 的面板寬度（狀態在 NoteEditor，與錯誤外框共用；實際寬度走 `--versions-panel-width` CSS 變數，這裡只供把手的 aria-valuenow 與拖曳起點）。 */
+  width: number;
+  onWidthChange: (px: number, commit: boolean) => void;
+}) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { noteId, preview, kindFilter, startPreview, stopPreview, close, openSave } = useVersions();
@@ -122,7 +138,7 @@ export function VersionsPanel({ doc }: { doc: Y.Doc }) {
         cardSurface,
         "z-30 flex shrink-0 flex-col overflow-hidden",
         "fixed inset-x-3 bottom-5 h-[80dvh] max-h-[calc(100dvh-5rem)]",
-        "md:static md:inset-auto md:bottom-auto md:h-auto md:max-h-none md:w-80",
+        "md:relative md:inset-auto md:bottom-auto md:h-auto md:max-h-none md:w-[var(--versions-panel-width)]",
       )}
     >
       <div className="flex items-center justify-between px-3 pt-3">
@@ -138,9 +154,10 @@ export function VersionsPanel({ doc }: { doc: Y.Doc }) {
       </div>
       <KindFilter className="px-3 pt-2" />
       {/* 只認按下與放開都在 <ul> 本身（內距、列間空隙、清單下方空白）；列與 ⋯ 的點擊冒泡上來時 target 不是 <ul>，不算。
+          左內距 `pl-3` ＝把手寬（12px）：讓列與「點空白離開預覽」的區域不被左緣把手蓋住。
           滑鼠專用的捷徑，不給鍵盤焦點（鍵盤離開預覽用 Esc 或再按一次選中列）。 */}
       <ul
-        className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-2"
+        className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-2 pl-3"
         onPointerDown={(event) => {
           pressedOnListRef.current = event.target === event.currentTarget;
         }}
@@ -187,6 +204,19 @@ export function VersionsPanel({ doc }: { doc: Y.Doc }) {
           <span className="truncate">{selected ? t("versions.applySeq", { label: versionLabel(selected) }) : t("versions.applyNone")}</span>
         </Button>
       </div>
+      {/* #274：把手在面板左緣、面板內（`overflow-hidden` 會裁掉伸到面板外的把手）；窄螢幕的底部卡片不顯示。
+          放在最後一個子元素：它是 absolute，畫面位置與命中不變，但 Tab 順序不會以它為面板第一個停點。 */}
+      <PaneResizeHandle
+        width={width}
+        onChange={onWidthChange}
+        min={VERSIONS_PANEL_WIDTH_MIN}
+        max={VERSIONS_PANEL_WIDTH_MAX}
+        defaultWidth={VERSIONS_PANEL_WIDTH_DEFAULT}
+        step={VERSIONS_PANEL_WIDTH_STEP}
+        edge="left"
+        label={t("versions.resize")}
+        placementClassName="left-0 max-md:hidden"
+      />
     </aside>
   );
 }

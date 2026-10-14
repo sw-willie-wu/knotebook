@@ -44,9 +44,9 @@ export function VersionsLazyBoundary({
   );
 }
 
-/** 各掛載點的錯誤外框（gate r2 M-5）。面板：與 VersionsPanel 同位置同寬的卡；對話框與整頁：浮在右下的小卡（不落在版面末端）。 */
+/** 各掛載點的錯誤外框（gate r2 M-5）。面板：與 VersionsPanel 同位置同寬的卡（寬度吃 NoteEditor 列容器設的 `--versions-panel-width`，與面板同一個來源，#274）；對話框與整頁：浮在右下的小卡（不落在版面末端）。 */
 export const VERSIONS_ERROR_FRAME = {
-  panel: cn(cardSurface, "shrink-0 p-3 md:w-80"),
+  panel: cn(cardSurface, "shrink-0 p-3 md:w-[var(--versions-panel-width)]"),
   inline: "px-5 py-2",
   floating: cn(cardSurface, "fixed inset-x-3 bottom-5 z-50 p-3 shadow-lg md:inset-x-auto md:right-6 md:w-80"),
 };

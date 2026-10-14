@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 /**
  * 來源層守衛（側欄 UX Task 5）：hover 浮出（`ui/reveal.ts` 的 `BASE`／`SCOPE`）與側欄拖曳把手的線
- * （`AppShell.tsx` 的 `SidebarResizeHandle`）的 class 必須是**完整字面**。
+ * （`PaneResizeHandle.tsx`，側欄與版本面板共用）的 class 必須是**完整字面**。
  *
  * 守的是：完整字面被改成樣板拼接（`` `group-hover/${scope}:…` ``）——Tailwind v4 靜態掃描原始碼
  * 產生 CSS，拼出來的 class 撈不到、靜默不產生；jsdom 測試只斷言 class 字串，照綠；而 build 產物
@@ -15,8 +15,8 @@ import { describe, expect, it } from "vitest";
  * 的形（本檔只找 `${` 與反引號）；`BASE`／`SCOPE`／把手線以外的地方。
  *
  * 掃描語意：對 raw 原始碼切出片段——`reveal.ts` 從 `const BASE =` 到 `SCOPE` 物件字面的結尾
- * `};`；`AppShell.tsx` 取含 `w-0.5 rounded-full` 錨點的那一行。錨點失效會先紅（reveal.ts：錨點索引
- * 斷言；AppShell：含錨點的行恰好 1 行——錨點消失或被抄進註解多出一行都紅），不會因為改了寫法就默默變成
+ * `};`；`PaneResizeHandle.tsx` 取含 `w-0.5 rounded-full` 錨點的那一行。錨點失效會先紅（reveal.ts：錨點索引
+ * 斷言；PaneResizeHandle：含錨點的行恰好 1 行——錨點消失或被抄進註解多出一行都紅），不會因為改了寫法就默默變成
  * 掃空字串。
  */
 
@@ -43,8 +43,8 @@ describe("hover 浮出與拖曳把手的 class 來源層守衛", () => {
     expect(segment).not.toContain("`");
   });
 
-  it("AppShell.tsx 把手線的 class 是完整字面（沒有樣板拼接）", () => {
-    const source = readFileSync(`${root}/components/AppShell.tsx`, "utf8").replace(/\r\n/g, "\n");
+  it("PaneResizeHandle.tsx 把手線的 class 是完整字面（沒有樣板拼接）", () => {
+    const source = readFileSync(`${root}/components/PaneResizeHandle.tsx`, "utf8").replace(/\r\n/g, "\n");
     const lines = source.split("\n").filter((line) => line.includes("w-0.5 rounded-full"));
     expect(lines).toHaveLength(1);
     const line = lines[0]!;

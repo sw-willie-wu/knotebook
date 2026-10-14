@@ -998,6 +998,7 @@
     "bubble": "版本歷史",
     "title": "版本歷史",
     "close": "關閉版本歷史",
+    "resize": "調整版本面板寬度",
     "currentLabel": "目前狀態",
     "current": {
       "noBase": "沒有基底版本",
