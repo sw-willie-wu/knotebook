@@ -1,5 +1,5 @@
 {
-  "id": "90e1252c-d084-411a-9598-7690c72527f2",
+  "id": "a1949a3c-542e-4295-aed9-70a81a0bc014",
   "prevId": "c556ac5b-b586-41b9-b739-b4396fcdb8a1",
   "version": "7",
   "dialect": "postgresql",
@@ -1356,78 +1356,6 @@
       },
       "isRLSEnabled": false
     },
-    "public.note_link_conversion": {
-      "name": "note_link_conversion",
-      "schema": "",
-      "columns": {
-        "note_id": {
-          "name": "note_id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "attempts": {
-          "name": "attempts",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "converted": {
-          "name": "converted",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "unresolved": {
-          "name": "unresolved",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "note_link_conversion_note_id_notes_id_fk": {
-          "name": "note_link_conversion_note_id_notes_id_fk",
-          "tableFrom": "note_link_conversion",
-          "tableTo": "notes",
-          "columnsFrom": [
-            "note_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "note_link_conversion_status_chk": {
-          "name": "note_link_conversion_status_chk",
-          "value": "\"note_link_conversion\".\"status\" in ('pending','done','retry','failed')"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.note_links": {
       "name": "note_links",
       "schema": "",
@@ -2062,6 +1990,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "base_version_id": {
+          "name": "base_version_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -2283,6 +2217,31 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "version_pending_at": {
+          "name": "version_pending_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "version_pending_editors": {
+          "name": "version_pending_editors",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "version_pending_ref_fingerprint": {
+          "name": "version_pending_ref_fingerprint",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "version_base_version_id": {
+          "name": "version_base_version_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -2440,6 +2399,22 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "notes_version_pending_idx": {
+          "name": "notes_version_pending_idx",
+          "columns": [
+            {
+              "expression": "version_pending_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"notes\".\"version_pending_at\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -2511,6 +2486,10 @@
         "notes_version_base_pair_chk": {
           "name": "notes_version_base_pair_chk",
           "value": "(\"notes\".\"version_base_seq\" is null) = (\"notes\".\"version_base_fingerprint\" is null)"
+        },
+        "notes_version_pending_chk": {
+          "name": "notes_version_pending_chk",
+          "value": "\"notes\".\"version_pending_at\" is not null or (\"notes\".\"version_pending_editors\" = '[]'::jsonb and \"notes\".\"version_pending_ref_fingerprint\" is null)"
         }
       },
       "isRLSEnabled": false
@@ -2845,6 +2824,13 @@
           "notNull": true,
           "default": true
         },
+        "version_auto_wait_minutes": {
+          "name": "version_auto_wait_minutes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 5
+        },
         "updated_at": {
           "name": "updated_at",
           "type": "timestamp with time zone",
@@ -2889,6 +2875,10 @@
         "site_settings_singleton_chk": {
           "name": "site_settings_singleton_chk",
           "value": "\"site_settings\".\"singleton\""
+        },
+        "site_settings_version_auto_wait_chk": {
+          "name": "site_settings_version_auto_wait_chk",
+          "value": "1 <= \"site_settings\".\"version_auto_wait_minutes\" and \"site_settings\".\"version_auto_wait_minutes\" <= 60"
         },
         "site_settings_version_days_chk": {
           "name": "site_settings_version_days_chk",

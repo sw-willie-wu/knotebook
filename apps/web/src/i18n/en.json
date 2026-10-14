@@ -508,6 +508,9 @@
       "keepAllLabel": "Keep all for (days)",
       "dailyUntilLabel": "One a day until (days)",
       "daysInvalid": "Use whole numbers with 1 ≤ first ≤ second ≤ 3650.",
+      "waitLabel": "Wait before saving automatically (minutes)",
+      "waitHelp": "After editing, if there is no new change for {{minutes}} minutes, a version is saved automatically.",
+      "waitInvalid": "Use a whole number of minutes from 1 to 60.",
       "save": "Save",
       "saved": "Version settings saved"
     },
@@ -949,7 +952,9 @@
     "empty": "No AI edits yet.",
     "revert": "Revert",
     "reverted": "Already reverted",
-    "stale": "Not revertable",
+    "stale": "Can't revert: this content has changed since, or the note was switched to another version",
+    "revertRecord": "A revert can't itself be reverted",
+    "retentionNote": "Each note keeps up to its {{count}} most recent AI edits",
     "revertOk": "Edit reverted."
   },
   "public": {
@@ -996,8 +1001,8 @@
     "currentLabel": "Current state",
     "current": {
       "noBase": "No base version",
-      "clean": "Based on v{{seq}} · no changes",
-      "dirty": "Based on v{{seq}} · unsaved changes"
+      "clean": "Based on {{label}} · no changes",
+      "dirty": "Based on {{label}} · unsaved changes"
     },
     "autoOff": "Automatic saving is off for this space",
     "siteOff": "Automatic saving is turned off for the whole site",
@@ -1009,16 +1014,18 @@
       "manual": "Manual only",
       "emptyManual": "No manually saved versions"
     },
-    "from": "based on v{{seq}}",
+    "from": "based on {{label}}",
     "deletedUser": "Deleted user",
-    "rowMenu": "Actions for v{{seq}}",
+    "deletedSuffix": "{{label}} (deleted)",
+    "deletedVersion": "a deleted version",
+    "rowMenu": "Actions for {{label}}",
     "menu": {
       "apply": "Apply",
       "rename": "Edit version name",
       "delete": "Delete",
       "baseNotDeletable": "The base of the current content can't be deleted"
     },
-    "applySeq": "Apply v{{seq}}",
+    "applySeq": "Apply {{label}}",
     "applyNone": "Apply",
     "save": "Save current version",
     "loadMore": "Load older versions",
@@ -1030,7 +1037,7 @@
       "next": "Newer version"
     },
     "preview": {
-      "banner": "Previewing v{{seq}}",
+      "banner": "Previewing {{label}}",
       "leftPicker": "Left side",
       "rightPicker": "Right side",
       "currentOption": "Current state",
@@ -1047,26 +1054,26 @@
     },
     "dialog": {
       "saveTitle": "Save current version",
-      "saveDescription": "Creates version v{{seq}} from the current content.",
+      "saveDescription": "Creates a new version from the current content.",
       "nameLabel": "Version name (optional)",
       "cancel": "Cancel",
       "save": "Save",
-      "applyTitle": "Apply v{{seq}}",
-      "applyDescription": "There are unsaved changes. Applying v{{seq}} will overwrite them (including changes by others that haven't been saved as a version yet).",
+      "applyTitle": "Apply {{label}}",
+      "applyDescription": "There are unsaved changes. Applying {{label}} will overwrite them (including changes by others that haven't been saved as a version yet).",
       "applyDiscard": "Apply without saving",
       "applySaveFirst": "Save current version",
-      "renameTitle": "Edit name of v{{seq}}",
+      "renameTitle": "Edit name of {{label}}",
       "renameAutoHint": "Naming an automatic version makes it a manual version, which is kept until you delete it.",
-      "deleteTitle": "Delete v{{seq}}?",
+      "deleteTitle": "Delete {{label}}?",
       "deleteDescription": "This version will be removed from the history. The note's current content doesn't change.",
       "delete": "Delete"
     },
     "toast": {
-      "saved": "Saved as v{{seq}}",
-      "upgraded": "Same content as v{{seq}} — v{{seq}} is now a manual version",
-      "applied": "Applied v{{seq}}",
+      "saved": "Saved as {{label}}",
+      "upgraded": "Same content as {{label}} — it is now a manual version",
+      "applied": "Applied {{label}}",
       "renamed": "Version name updated",
-      "deleted": "Deleted v{{seq}}"
+      "deleted": "Deleted {{label}}"
     }
   },
   "storage": {

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { baseRef, vid, vtarget } from "@/test/version-fixtures";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as Y from "yjs";
@@ -27,13 +28,13 @@ function b64(blocks: unknown[]): string {
   blocksToYXmlFragment(BlockNoteEditor.create({ schema: noteSchema }), blocks as any, doc.getXmlFragment(YDOC_FRAGMENT));
   return btoa(String.fromCharCode(...Y.encodeStateAsUpdate(doc)));
 }
-const ver = (seq: number): VersionDto => ({ id: `v-${seq}`, seq, kind: "auto", name: null, editors: [], baseSeq: null, createdAt: "2026-10-09T00:00:00.000Z" });
+const ver = (seq: number): VersionDto => ({ id: vid(seq), seq, kind: "auto", name: null, editors: [], baseSeq: null, base: null, createdAt: "2026-10-09T00:00:00.000Z" });
 
 function Host() {
   const value = useVersionsController({ noteId: NOTE, enabled: true });
   return (
     <VersionsProvider value={value}>
-      <button type="button" onClick={() => value.startPreview({ seq: 2, id: "v-2" })}>go</button>
+      <button type="button" onClick={() => value.startPreview(vtarget(2))}>go</button>
       <VersionPreview doc={new Y.Doc()} />
     </VersionsProvider>
   );
@@ -60,12 +61,12 @@ describe("VersionPreview 寬度量尺（gate r2 M-1：loading 也畫在 ref wrap
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
         if (url === `/api/notes/${NOTE}/versions?limit=50`)
-          return body({ versions: [ver(2), ver(1)], current: { baseSeq: 2, dirty: false, nextSeq: 3, autoEnabled: true }, nextBefore: null });
+          return body({ versions: [ver(2), ver(1)], current: { baseSeq: 2, base: baseRef(2), dirty: false, nextSeq: 3, autoEnabled: true }, nextBefore: null });
         if (url === `/api/notes/${NOTE}/versions/2`) {
           await held;
-          return body({ id: "v-2", seq: 2, ydoc: b64([{ id: "A", type: "paragraph", content: "新" }]) });
+          return body({ id: vid(2), seq: 2, ydoc: b64([{ id: "A", type: "paragraph", content: "新" }]) });
         }
-        if (url === `/api/notes/${NOTE}/versions/1`) return body({ id: "v-1", seq: 1, ydoc: b64([{ id: "A", type: "paragraph", content: "舊" }]) });
+        if (url === `/api/notes/${NOTE}/versions/1`) return body({ id: vid(1), seq: 1, ydoc: b64([{ id: "A", type: "paragraph", content: "舊" }]) });
         throw new Error(`unexpected fetch: ${url}`);
       }),
     );

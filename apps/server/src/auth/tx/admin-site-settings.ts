@@ -65,35 +65,51 @@ export async function updateSiteSettingsInTx(tx: Tx, input: UpdateSiteSettingsIn
 }
 
 export const VERSION_DAYS_RANGE_MESSAGE = "保留天數須符合 1 ≤ 全部保留天數 ≤ 每日一版天數 ≤ 3650";
+/** #272 §8：PATCH 的 `autoWaitMinutes` 超出 1–60（路由 schema 的 refine 用；DB CHECK `site_settings_version_auto_wait_chk` 是最後防線）。 */
+export const VERSION_AUTO_WAIT_RANGE_MESSAGE = "自動存版等待須為 1 到 60 的整數（分鐘）";
 
 export interface UpdateVersionSettingsInput {
   keepAllDays?: number;
   dailyUntilDays?: number;
   autoVersionsEnabled?: boolean;
+  /** #272 §8：自動存版等待（分鐘）；範圍由路由驗。 */
+  autoWaitMinutes?: number;
 }
 
 /**
- * 版本歷史 §6.7：照 `updateSiteSettingsInTx` 的形。①B27 鎖（`lockSiteSettingsInTx` 只回兩個登入欄位，三個版本欄在鎖後另讀）
+ * 版本歷史 §6.7：照 `updateSiteSettingsInTx` 的形。①B27 鎖（`lockSiteSettingsInTx` 只回兩個登入欄位，四個版本欄在鎖後另讀）
  * ②合併 ③驗 `1 ≤ F ≤ D ≤ 3650`（違反 → 400 `invalid_body`，DB CHECK `site_settings_version_days_chk` 是同值的最後防線）④UPDATE。
- * 改了只影響之後的清除（§10.2）。
+ * 天數改了只影響之後的清除（§10.2）；等待 X 改了下一輪掃描就作用在已待切的筆記（#272 §4.1）。
  */
 export async function updateVersionSettingsInTx(tx: Tx, input: UpdateVersionSettingsInput): Promise<VersionSettingsDto> {
   await lockSiteSettingsInTx(tx);
   const [cur] = await tx
-    .select({ keepAllDays: siteSettings.versionKeepAllDays, dailyUntilDays: siteSettings.versionDailyUntilDays, autoVersionsEnabled: siteSettings.autoVersionsEnabled })
+    .select({
+      keepAllDays: siteSettings.versionKeepAllDays,
+      dailyUntilDays: siteSettings.versionDailyUntilDays,
+      autoVersionsEnabled: siteSettings.autoVersionsEnabled,
+      autoWaitMinutes: siteSettings.versionAutoWaitMinutes,
+    })
     .from(siteSettings)
     .where(eq(siteSettings.singleton, true));
   const next: VersionSettingsDto = {
     keepAllDays: input.keepAllDays ?? cur!.keepAllDays,
     dailyUntilDays: input.dailyUntilDays ?? cur!.dailyUntilDays,
     autoVersionsEnabled: input.autoVersionsEnabled ?? cur!.autoVersionsEnabled,
+    autoWaitMinutes: input.autoWaitMinutes ?? cur!.autoWaitMinutes,
   };
   if (!(1 <= next.keepAllDays && next.keepAllDays <= next.dailyUntilDays && next.dailyUntilDays <= VERSION_DAYS_MAX)) {
     throw new TxAbort(400, "invalid_body", VERSION_DAYS_RANGE_MESSAGE);
   }
   await tx
     .update(siteSettings)
-    .set({ versionKeepAllDays: next.keepAllDays, versionDailyUntilDays: next.dailyUntilDays, autoVersionsEnabled: next.autoVersionsEnabled, updatedAt: sql`now()` })
+    .set({
+      versionKeepAllDays: next.keepAllDays,
+      versionDailyUntilDays: next.dailyUntilDays,
+      autoVersionsEnabled: next.autoVersionsEnabled,
+      versionAutoWaitMinutes: next.autoWaitMinutes,
+      updatedAt: sql`now()`,
+    })
     .where(eq(siteSettings.singleton, true));
   return next;
 }

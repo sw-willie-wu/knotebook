@@ -4,19 +4,15 @@ How Knotebook keeps earlier states of a note, when it saves them, and what you c
 
 ## What a version is
 
-A version is a copy of the whole note as it was at one moment. Versions are numbered v1, v2, … in the order they are saved. Deleting a version doesn't free its number: the next version still gets the next number. The numbering starts again at v1 only when a note's whole history is cleared (see [Moving, copying and transferring](#moving-copying-and-transferring)).
+A version is a copy of the whole note as it was at one moment. Each version is shown by its name and a short code — the first 7 characters of its id — as **name (code)**, for example **Release notes (3f2a9c1)**. A version nobody has named gets a two-word English name made up from its id, such as **plucky-finch (3f2a9c1)**; the made-up name is the same in every language and stays until someone names the version. Two versions of a note can get the same made-up name: the code is what tells them apart.
 
 Each version lists the people who changed the note since the version before it — an AI agent's changes show as the person's name followed by the agent's name in parentheses — and, for a new version saved by hand, the person who saved it. A version records who took part, not who wrote which word.
 
 ## When versions are saved
 
-**Automatically**, as long as automatic versions are on for the note (see [Turning automatic versions off](#turning-automatic-versions-off)):
+**Automatically**, as long as automatic versions are on for the note (see [Turning automatic versions off](#turning-automatic-versions-off)): after the note is edited, if there is no new change for **X minutes**, a version is saved automatically. X is set by a site admin in **Site admin → Storage plans** (**Wait before saving automatically (minutes)**, from 1 to 60) and is 5 minutes by default. The rule is the same whoever makes the changes — someone typing, the AI box in the editor, or an AI assistant or another program writing through the API or MCP — so changes that several people and assistants make within the same quiet stretch end up in one version. The version appears within about half a minute after the X minutes are up. To keep a version from a particular moment, save it by hand.
 
-- once a note whose content has changed goes 5 minutes without further changes;
-- when everyone has left a note that has changes not yet in a version, without waiting for the 5 minutes;
-- around a write by an AI assistant (through the API or MCP), including reverting one: if there are human changes that aren't in a version yet, they are saved as a version first, and the assistant's write is then saved as a version of its own.
-
-A version is saved automatically only when the content has actually changed: opening a note and closing it again doesn't save a version, nor does typing something and deleting it again, and block attributes that merely restate the editor's defaults (for example a paragraph aligned left) don't count as a change.
+A version is saved automatically only when the content has actually changed: opening a note and closing it again doesn't save a version, nor does typing something and deleting it again, and block attributes that merely restate the editor's defaults (for example a paragraph aligned left) don't count as a change. Leaving a note doesn't save a version straight away, and neither does a write by an AI assistant: those changes are saved with the rest once the note has gone X minutes without a change.
 
 **By hand**: press **Ctrl+S** (**Cmd+S** on a Mac), or use **Save current version** at the bottom of the version list. A dialog asks for an optional **Version name** (up to 120 characters). Ctrl+S is left to the browser while another dialog or a drop-down menu (such as a `⋮` menu) is open — the full-screen version history on a narrow window counts as a dialog, the sidebar on a narrow window doesn't — and during a presentation; on a note you can only view, it is always left to the browser. If the note's content is the same as the version it is based on, no new version is created: that version is turned into a manual one (and given the name, if you entered one), and the notice says so.
 
@@ -24,7 +20,7 @@ A version is saved automatically only when the content has actually changed: ope
 
 ## The version list
 
-Each row shows the version number, its name if it has one, who took part, when it was saved and — for a version saved while its base was not the newest version (after an older version was applied, with a newer one still there) — **based on vN**. A version saved automatically also carries a grey **Auto-saved** tag next to its number and name; versions saved by hand have no tag. Renaming an automatic version turns it into a manual one, and the tag goes away.
+Each row shows the version's name and code, who took part, when it was saved and — for a version saved while its base was not the newest version (after an older version was applied, with a newer one still there) — **based on** that version's name and code; if that version has been deleted since, it shows its made-up name and code followed by **(deleted)**, even if it had a name of its own. In a few cases it shows just **a deleted version** instead (see [Known limitations](./known-limitations.md#version-history)). A version saved automatically also carries a grey **Auto-saved** tag next to its name; versions saved by hand have no tag. Renaming an automatic version turns it into a manual one, and the tag goes away.
 
 Between **Current state** and the list, **All** and **Manual only** switch which versions the list shows. **Manual only** hides the automatic versions, so the versions saved by hand, and automatic ones whose name was edited (even cleared), are easy to find among many automatic ones. The choice applies to the version list on a wide window, to the full-screen list on a narrow one and to the two menus used to pick the versions to compare; it is the same for every note, stays when you open another note, and is remembered in this browser. If no version is left after filtering, the list says so. Filtering changes only what is listed: a version you are previewing or comparing stays that way even if the filter hides it, and **Current state** doesn't change.
 
@@ -33,8 +29,8 @@ Between **Current state** and the list, **All** and **Manual only** switch which
 At the top of the list, **Current state** describes how the note's content relates to its versions. The version the current content is based on — the one last saved, or the one last applied — is the **base**. The line under **Current state** is one of:
 
 - **No base version** — the current content isn't based on any version: the note has none yet, or the version being applied was deleted at that same moment (see [Known limitations](./known-limitations.md#version-history)).
-- **Based on vN · no changes**
-- **Based on vN · unsaved changes**
+- **Based on** *name (code)* **· no changes**
+- **Based on** *name (code)* **· unsaved changes**
 
 The line looks only at the note's base, never at which versions the list shows, so it reads the same under either filter.
 
@@ -46,7 +42,7 @@ On a wide window, open the history with the round **Version history** button at 
 
 Click a row to preview that version; its content isn't loaded until you do. The ↑ and ↓ keys move between rows and preview each one. While you preview, a bar under the page header shows the version and lets you choose:
 
-- What to compare, as a pair: on the left the version you clicked, on the right **Current state** by default — the note's content when you picked the pair; it doesn't follow edits made while you look. Both sides are menus listing the versions (the right one also lists **Current state**), so you can compare any two versions; the changes always read from the left side to the right side, whichever of the two is newer. Clicking another row changes only the left side; the right side stays as you set it until you close the preview. While the versions are shown side by side, the two menus head the two columns; otherwise they sit in the bar, left → right. **Apply vN** always applies the left side.
+- What to compare, as a pair: on the left the version you clicked, on the right **Current state** by default — the note's content when you picked the pair; it doesn't follow edits made while you look. Both sides are menus listing the versions (the right one also lists **Current state**), so you can compare any two versions; the changes always read from the left side to the right side, whichever of the two is newer. Clicking another row changes only the left side; the right side stays as you set it until you close the preview. While the versions are shown side by side, the two menus head the two columns; otherwise they sit in the bar, left → right. **Apply** followed by the left side's name and code always applies the left side.
 - **Side by side** or **Single column**. These and **Only changes** are icon buttons at the right end of the bar; hover over one to see its name. When the preview area is at least 720 pixels wide, the two versions are shown side by side unless you pick **Single column**. When it is narrower, there is only a single column and these two buttons aren't shown; if you had picked **Side by side**, it comes back once the area is wide enough again. Side by side, the two columns are lined up block by block, like a side-by-side code diff: blocks matched between the two versions that kept their order generally sit in the same row, blocks removed and added at the same spot sit next to each other, and where one side has a block and the other has nothing at that spot, the other column leaves a striped gap. Blocks marked as moved aren't lined up with each other; each stays in its own place in its column, and the same can happen to an empty paragraph matched with one elsewhere (see [Known limitations](./known-limitations.md#version-history)).
 - **Only changes**, which folds runs of unchanged blocks into one line. It works only in a single column: while the versions are shown side by side, it is greyed out and can't be switched.
 
@@ -54,13 +50,13 @@ Added, deleted, changed and moved blocks are marked with a colored bar at their 
 
 Previewing doesn't change the note, and the editor stays open underneath: other people's edits keep arriving. To close the preview, press Esc, click an empty part of the version list, click the selected version again, or close the version history.
 
-On a narrow window (narrower than 768 pixels) there is no **Version history** button: choose **Version history** from the `⋮` menu. It opens full screen: tap a version to see its changes in a single column, with the same pair of menus at the top and **Older version**, **Apply vN** and **Newer version** at the bottom (these two change the left side only). Esc goes back from a version to the list, and from the list closes the history. Opening another note closes the full-screen history, whereas the list beside the note on a wide window stays open and shows the other note's versions (it closes if you can't edit that note).
+On a narrow window (narrower than 768 pixels) there is no **Version history** button: choose **Version history** from the `⋮` menu. It opens full screen: tap a version to see its changes in a single column, with the same pair of menus at the top and **Older version**, **Apply** (with the version's name and code) and **Newer version** at the bottom (these two change the left side only). Esc goes back from a version to the list, and from the list closes the history. Opening another note closes the full-screen history, whereas the list beside the note on a wide window stays open and shows the other note's versions (it closes if you can't edit that note).
 
 ## Applying a version
 
-Applying a version makes its content the note's current content, for everyone who has the note open. It is not a rollback: the versions after it stay in the list, applying doesn't create a version, and the applied version becomes the base. If the applied version isn't the newest one, the next version saved after it is marked **based on vN** — unless every newer version has been deleted by then. To get back, apply another version.
+Applying a version makes its content the note's current content, for everyone who has the note open. It is not a rollback: the versions after it stay in the list, applying doesn't create a version, and the applied version becomes the base. If the applied version isn't the newest one, the next version saved after it is marked **based on** the applied version — unless every newer version has been deleted by then. To get back, apply another version.
 
-Choose **Apply vN** at the bottom of the list, or **Apply** from a row's `⋯` menu. If the note has changes that aren't in a version yet — yours or anyone else's — a dialog offers three choices:
+Choose **Apply** (followed by the version's name and code) at the bottom of the list, or **Apply** from a row's `⋯` menu. If the note has changes that aren't in a version yet — yours or anyone else's — a dialog offers three choices:
 
 - **Cancel**
 - **Apply without saving** — those changes are overwritten.
@@ -81,7 +77,7 @@ Anyone who can edit a note can see its history and save, preview, apply, rename 
 ## Moving, copying and transferring
 
 - **Copying** a note doesn't copy its versions; the copy starts with none.
-- **Moving** a personal note into a group, and **transferring** a group's notes to a person when the group is deleted, deletes the note's versions: the history of a note's earlier life isn't shown to its new owners. The next version is v1.
+- **Moving** a personal note into a group, and **transferring** a group's notes to a person when the group is deleted, deletes the note's versions: the history of a note's earlier life isn't shown to its new owners.
 - **Deleting** a note deletes its versions.
 
 ## Retention

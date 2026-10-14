@@ -32,12 +32,13 @@ import { invalidateNoteQueries } from "@/api/notes";
 // 進入預覽（`startPreview`）與開套用三選一（`openDialog({ kind: "apply" })`）；真的 NoteEditor 裡這兩條路徑由面板觸發，
 // 面板掛在 NoteEditor 的第三欄，替身不渲染它。
 const VERSION_1 = vi.hoisted(() => ({
-  id: "v-1",
+  id: "0001aaaa-0000-4000-8000-000100010000", // ＝vid(1)；vi.hoisted 先於 import 執行，不能呼叫 vid
   seq: 1,
   kind: "manual" as const,
   name: null,
   editors: [],
   baseSeq: null,
+  base: null,
   createdAt: "2026-01-01T00:00:00.000Z",
 }));
 vi.mock("@/components/NoteEditor", async () => {
@@ -57,7 +58,7 @@ vi.mock("@/components/NoteEditor", async () => {
     return (
       <div data-testid="note-editor" data-editable={String(editable)}>
         {headerSlot}
-        <button type="button" onClick={() => versions.startPreview({ seq: 1, id: "v-1" })}>
+        <button type="button" onClick={() => versions.startPreview({ seq: 1, id: VERSION_1.id, name: null })}>
           mock-start-preview
         </button>
         <button type="button" onClick={() => versions.openDialog({ kind: "apply", version: VERSION_1 })}>
@@ -229,7 +230,7 @@ function mockFetch(
     // 版本歷史（Task 10）：清單（面板 `limit=50`、套用前重抓 `limit=1`）、快照、套用。同樣要在
     // `GET /api/notes/` catch-all 之前。快照的 `AAA=` 是 `Y.encodeStateAsUpdate(new Y.Doc())`（空 doc，node 實跑取得）。
     const versionsBase = `/api/notes/${encodeURIComponent(NOTE.id)}/versions`;
-    const versionCurrent = { baseSeq: 1, dirty: false, nextSeq: 2, autoEnabled: true };
+    const versionCurrent = { baseSeq: 1, base: { id: VERSION_1.id, name: null, deleted: false }, dirty: false, nextSeq: 2, autoEnabled: true };
     if ((url === `${versionsBase}?limit=50` || url === `${versionsBase}?limit=1`) && method === "GET") {
       return Promise.resolve(
         fakeResponse({
@@ -241,7 +242,7 @@ function mockFetch(
     }
     if (url === `${versionsBase}/1` && method === "GET") {
       return Promise.resolve(
-        fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ id: "v-1", seq: 1, ydoc: "AAA=" }) }),
+        fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ id: VERSION_1.id, seq: 1, ydoc: "AAA=" }) }),
       );
     }
     if (url === `${versionsBase}/1/apply` && method === "POST") {
@@ -254,7 +255,7 @@ function mockFetch(
         fakeResponse({
           ok: true,
           status: 201,
-          json: () => Promise.resolve({ ...VERSION_1, id: "v-2", seq: 2, upgraded: false }),
+          json: () => Promise.resolve({ ...VERSION_1, id: "0002aaaa-0000-4000-8000-000200020000", seq: 2, upgraded: false }),
         }),
       );
     }
@@ -2077,7 +2078,7 @@ describe("NotePage × 版本歷史（spec §8.1、§8.4、§8.5、A9）", () => 
     collab.state = { phase: "connected", role: "owner" };
     renderNotePage(NOTE.id);
     fireEvent.click(await screen.findByText("mock-open-apply"));
-    const applyDialog = await screen.findByRole("dialog", { name: "Apply v1" });
+    const applyDialog = await screen.findByRole("dialog", { name: "Apply agile-beaver (0001aaa)" });
     fireEvent.click(within(applyDialog).getByRole("button", { name: "Save current version" }));
     const saveDialog = await screen.findByRole("dialog", { name: "Save current version" });
     const ev = new KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true, cancelable: true });
@@ -2222,7 +2223,7 @@ describe("NotePage × 版本歷史（spec §8.1、§8.4、§8.5、A9）", () => 
     collab.state = { phase: "connected", role: "owner" };
     const { queryClient } = renderNotePage(NOTE.id);
     fireEvent.click(await screen.findByText("mock-open-apply"));
-    const dialog = await screen.findByRole("dialog", { name: "Apply v1" });
+    const dialog = await screen.findByRole("dialog", { name: "Apply agile-beaver (0001aaa)" });
     const spy = vi.spyOn(queryClient, "invalidateQueries");
     fireEvent.click(within(dialog).getByRole("button", { name: "Apply without saving" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());

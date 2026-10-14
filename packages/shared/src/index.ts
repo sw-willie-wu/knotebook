@@ -170,6 +170,9 @@ export interface NoteEditResultDto {
   unboundWikilinks: number;
 }
 
+/** #272 D11：每篇筆記保留的 AI 修改紀錄上限（實為「最多」，見 `notes/editing/revert.ts` 檔頭）。server 的裁切與 web 的說明句共用。 */
+export const AI_EDITS_RETENTION = 100;
+
 /** #106 修改紀錄清單（`GET /api/notes/:id/edits`，#137）的一列。新到舊排序，最多 `RETENTION`（100）筆。
  * `op` 比 `EditOp` 多一個 `revert`＝撤回列（由 `POST …/:editId/revert` 產生，本身永不可撤回）。
  * `heading`＝這次修改落點所在段落的標題，查不到就是空字串（段落已被刪掉／改名）。
@@ -1159,4 +1162,5 @@ export * from "./provider-icon.js";
 export * from "./agent-label.js";
 export * from "./storage.js";
 export * from "./versions.js";
+export * from "./version-names.js";
 export * from "./ai.js";

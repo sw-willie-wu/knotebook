@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import pino from "pino";
-import { loadConfig, publicUrlIssuer, publicUrlPathWarning } from "./config.js";
+import { loadConfig, publicUrlIssuer, publicUrlPathWarning, testHooksStartupWarning } from "./config.js";
 import { createDb } from "./db/index.js";
 import { createPool } from "./db/pool.js";
 import { runMigrations } from "./db/migrate.js";
@@ -13,6 +13,7 @@ import { UserGate } from "./auth/session.js";
 import { LoginThrottle } from "./auth/rate-limit.js";
 import { createCollabHooks } from "./collab/hooks-impl.js";
 import { createCollabServer } from "./collab/server.js";
+import { SCAN_STOP_GRACE_MS } from "./collab/versions.js";
 import { buildApp } from "./app.js";
 import { createAiRuntime, selfCheckAiKeys } from "./ai/runtime.js";
 import { backfillSearchIndex } from "./notes/search-index.js";
@@ -25,9 +26,11 @@ import { backfillSearchIndex } from "./notes/search-index.js";
 // `docker compose logs app` 能同時看到兩邊的輸出，不需要共用同一個 instance。
 const logger = pino();
 
-/** #269 §12.1：關機時等背景工作停下的共用上限（2 s）。timer unref：不撐住行程（與 #272 的 stopGrace 同形，合併後只留一份）。 */
-const SHUTDOWN_STOP_GRACE_MS = 2_000;
-const stopGrace = (): Promise<void> => new Promise(resolve => setTimeout(resolve, SHUTDOWN_STOP_GRACE_MS).unref());
+/**
+ * 關機時等背景工作停下的共用上限（`SCAN_STOP_GRACE_MS`＝2 s，與 app.ts 的兩個 onClose 共用）：#272 §7.4 自動切版掃描、
+ * #269 §12.1 站內連結轉換——兩者並行、共用這一份寬限。timer unref：不撐住行程。
+ */
+const stopGrace = (): Promise<void> => new Promise(resolve => setTimeout(resolve, SCAN_STOP_GRACE_MS).unref());
 
 async function main(): Promise<void> {
   const config = loadConfig(process.env);
@@ -69,6 +72,10 @@ async function main(): Promise<void> {
       "SECURITY WARNING: PUBLIC_URL uses plain http on a non-localhost host — credentials and session cookies travel in cleartext"
     );
   }
+
+  // #272 §7.5：e2e 測試縫開著（或被忽略）時印一次警告。
+  const testHooksWarning = testHooksStartupWarning(config);
+  if (testHooksWarning !== null) logger.warn({ publicUrl: config.publicUrl.href }, testHooksWarning);
 
   // D12（#107）：帶 path 的 PUBLIC_URL 只警告不擋——API token 的 WWW-Authenticate
   // 與 OAuth 端點一律用 origin 組字，見 config.ts 的 publicUrlPathWarning。
@@ -178,6 +185,8 @@ async function main(): Promise<void> {
       uploadsDir,
       ai,
       startVersionSweep: true,
+      // #272 §7.5：e2e 測試縫開著時每秒掃一次（X 也會被壓成秒，見 routes/test-hooks.ts）。
+      ...(config.testHooks ? { versionAutoScanIntervalMs: 1000 } : {}),
     },
     { webDist }
   );
@@ -218,8 +227,10 @@ async function main(): Promise<void> {
   for (const sig of ["SIGTERM", "SIGINT"] as const) {
     process.once(sig, () => {
       backfillAbort.abort();
-      // #269 §12.1：有上限地等轉換工作停（共用 2 s 寬限；它在拆掉 Hocuspocus 之前停止開新直連並等在途合併），再落盤關閉。
-      void Promise.race([app.linkConversion.stop(), stopGrace()])
+      // 兩個背景工作並行停、共用一份 2 s 寬限，再落盤關閉——卡在列鎖或 DB 的那一篇不得吃掉 docker stop 的寬限期（留給 collab 落盤）：
+      // #272 §7.4 自動切版掃描（進行中那一輪做完手上那一篇就停；collab 關閉時的 flushPendingStores 讓未落盤的變動照常寫進待切，
+      // 重啟後掃描器接手）；#269 §12.1 站內連結轉換（在拆掉 Hocuspocus 之前停止開新直連並等在途合併）。
+      void Promise.race([Promise.all([collab.versions.stopScan(), app.linkConversion.stop()]), stopGrace()])
         .then(() => collab.destroy())
         .then(() => app.close())
         .then(() => pool.end())

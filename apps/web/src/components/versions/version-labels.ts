@@ -1,5 +1,5 @@
 import type { TFunction } from "i18next";
-import type { VersionCurrentDto, VersionEditorDto } from "@knotebook/shared";
+import { derivedVersionName, type VersionBaseRefDto, type VersionCurrentDto, type VersionEditorDto } from "@knotebook/shared";
 
 /**
  * 切換鈕的按下態（橫幅、整頁共用）。rev 10：橫幅底色是品牌色 tint `bg-brand-soft`（14%），按下態要在它上面看得出，
@@ -16,18 +16,50 @@ import type { VersionCurrentDto, VersionEditorDto } from "@knotebook/shared";
 export const TINT_HOVER_CLASS = "hover:bg-brand/15";
 export const PRESSED_CLASS = "bg-brand/25 hover:bg-brand/35";
 
-/** 版本的短標籤：`vN`，有名稱時 `vN 名稱`（同 `VersionRowContent` 第一行；比較對象下拉的觸發鈕與選項用）。 */
-export function versionLabel(version: { seq: number; name: string | null }): string {
-  return version.name !== null ? `v${version.seq} ${version.name}` : `v${version.seq}`;
+/** #272 §10.1（D5）：短 id＝uuid 前 7 碼（小寫）。 */
+export function shortVersionId(id: string): string {
+  return id.slice(0, 7).toLowerCase();
+}
+
+/** 顯示名：使用者取的名稱；沒有就由 uuid 推出的英文名（D6'：不存 DB、不分語系，`name` 仍是 null）。 */
+export function versionName(v: { id: string; name: string | null }): string {
+  return v.name ?? derivedVersionName(v.id);
 }
 
 /**
- * 「目前狀態」副標三種（#258，Willie 2026-10-11）：只看 `baseSeq`／`dirty`，**不看清單**——清單可能被「僅手動」篩過，
- * 第一筆不一定是最新一版，所以不再有「尚無版本」「v{{seq}} 之後」「從 v{{seq}} 接著改」的區分。
+ * 版本的標籤「名稱 (短 id)」（#272 D5，取代 `vN`）：列第一行、比較下拉的觸發鈕與選項、套用鈕、對話框標題與 toast 一律用它。
+ * 未命名版本的推名會撞名（4096 種）——短 id 才是辨識依據。
+ */
+export function versionLabel(v: { id: string; name: string | null }): string {
+  return `${versionName(v)} (${shortVersionId(v.id)})`;
+}
+
+/**
+ * 「沿自 …」的對象（#272 §10.1、D12）：未刪 → 標籤；已刪且有 id → 推名＋短 id＋「(deleted)」（使用者取的名稱不保留）；
+ * 升級前就已刪除、沒有 id 的舊資料 →「a deleted version」。
+ */
+export function baseLabel(t: TFunction, base: VersionBaseRefDto): string {
+  if (base.id === null) return t("versions.deletedVersion");
+  if (base.deleted) return t("versions.deletedSuffix", { label: `${derivedVersionName(base.id)} (${shortVersionId(base.id)})` });
+  return versionLabel({ id: base.id, name: base.name });
+}
+
+/**
+ * `baseSeq` 有值時的「沿自 …」對象（目前狀態副標與列第二行共用）：`base` 依 §9 跟著 `baseSeq` 有值；萬一是 null，
+ * 當成已刪除的版本顯示，不留空白。
+ */
+export function baseLabelOrDeleted(t: TFunction, base: VersionBaseRefDto | null): string {
+  return base === null ? t("versions.deletedVersion") : baseLabel(t, base);
+}
+
+/**
+ * 「目前狀態」副標三種（#258，Willie 2026-10-11）：只看 `baseSeq`／`dirty`，**不看清單**——清單可能被「僅手動」篩過。
+ * #272：基底以 `current.base` 顯示（基底不在這一頁也有名稱；已刪除時標「(deleted)」）。
  */
 export function currentSubtitle(t: TFunction, current: VersionCurrentDto): string {
   if (current.baseSeq === null) return t("versions.current.noBase");
-  return t(current.dirty ? "versions.current.dirty" : "versions.current.clean", { seq: current.baseSeq });
+  const label = baseLabelOrDeleted(t, current.base);
+  return t(current.dirty ? "versions.current.dirty" : "versions.current.clean", { label });
 }
 
 /** 「handle (agent)」逗號相接；刪除的使用者（handle ""）換成替代字。 */

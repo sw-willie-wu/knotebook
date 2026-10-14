@@ -52,7 +52,7 @@ export function blocksFromSnapshot(baseUrl: string, ydoc: Uint8Array): AnyPartia
 async function writeBaseAfterApply(deps: ApplyVersionDeps, input: ApplyVersionInput, out: MergeOutput): Promise<void> {
   if (deps.testHooks?.beforeVersionBase) await deps.testHooks.beforeVersionBase();
   const fp = out.versionFingerprint;
-  if (fp !== null && (await setVersionBase(deps.db, input.noteId, input.seq, fp))) {
+  if (fp !== null && (await setVersionBase(deps.db, input.noteId, input.seq, fp, input.versionId))) {
     deps.versions.endApply(input.noteId, { seq: input.seq, fingerprint: fp });
     return;
   }
@@ -100,7 +100,7 @@ export async function applyVersionEdit(deps: ApplyVersionDeps, input: ApplyVersi
       if (err instanceof FingerprintMismatch) continue;
       throw err;
     } finally {
-      deps.versions.endApply(input.noteId); // 任何一步失敗都清 applying（§7-2e）；成功路徑這是 no-op
+      deps.versions.endApply(input.noteId); // 清 applying：失敗路徑（§7-2e）與成功路徑都靠這裡——#272 §4.3 起 endApply(r) 不清 applying，只在 disconnect（＝落盤）之後的這一行清
     }
   }
   return { ok: false, code: "version_unsaved_changes" };

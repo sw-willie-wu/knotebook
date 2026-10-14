@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { expect, type Locator, type Page } from "@playwright/test";
+import { expect, type APIRequestContext, type Locator, type Page } from "@playwright/test";
+import { derivedVersionName } from "../../packages/shared/src/version-names.js";
 
 /**
  * 疊內建的 env bootstrap admin（見 `docker-compose.e2e.yml` 的 `ADMIN_EMAIL`/
@@ -217,4 +218,50 @@ export async function openSelectionAiBox(page: Page, paragraphText: string): Pro
   const box = selectionAiBox(page);
   await expect(box).toBeVisible();
   return box;
+}
+
+/** e2e 疊的 origin（`playwright.config.ts` 的 baseURL）；cookie 寫入請求帶 Origin（同 22-presentation／23）。 */
+const E2E_ORIGIN = "http://localhost:3100";
+
+/**
+ * #272 §7.5：e2e 測試縫——把自動存版等待 X 設成 `seconds` 秒（null＝回站台設定）。只有 e2e 疊有這條路由
+ * （`KNOTEBOOK_E2E_TEST_HOOKS=1`、PUBLIC_URL 是 localhost）；`page` 須以站台管理員登入。設定是整座疊共用的（單 worker 序列），
+ * 用到的測試開頭設、`finally`（或 afterEach）設回 null。
+ */
+export async function setAutoWait(page: Page, seconds: number | null): Promise<void> {
+  const res = await page.request.put("/api/admin/test/version-auto-wait", { headers: { Origin: E2E_ORIGIN }, data: { seconds } });
+  expect(res.status(), await res.text()).toBe(204);
+}
+
+/** 目前網址（`/n/<handle>/<slug>`）那篇筆記的 id（by-path API）。 */
+export async function noteIdFromUrl(page: Page): Promise<string> {
+  const [, , handle, slug] = new URL(page.url()).pathname.split("/");
+  const res = await page.request.get(`/api/notes/by-path/${handle}/${slug}`);
+  expect(res.status()).toBe(200);
+  return ((await res.json()) as { id: string }).id;
+}
+
+/**
+ * #272：從版本清單 API 組出某一版的完整標籤「名稱 (短 id)」（未命名＝uuid 推名，與 web 的 `versionLabel` 用同一個函式）。
+ * 格式須與 web 的 `versionLabel`（`apps/web/src/components/versions/version-labels.ts`）同步（e2e 不能依賴 web 套件，只能自組）。
+ */
+export async function versionLabelOf(
+  request: APIRequestContext,
+  noteId: string,
+  pick: (v: { id: string; seq: number; kind: string; name: string | null }) => boolean,
+): Promise<string> {
+  const res = await request.get(`/api/notes/${noteId}/versions?limit=100`);
+  expect(res.ok()).toBe(true);
+  const { versions } = (await res.json()) as { versions: Array<{ id: string; seq: number; kind: string; name: string | null }> };
+  const v = versions.find(pick);
+  if (!v) throw new Error(`versionLabelOf：清單裡沒有符合條件的版本（共 ${versions.length} 筆）`);
+  return `${v.name ?? derivedVersionName(v.id)} (${v.id.slice(0, 7).toLowerCase()})`;
+}
+
+/**
+ * 把字串放進 RegExp 時跳脫特殊字元（版本標籤含括號）。
+ * web 另有一份同樣的 `reEscape`（`apps/web/src/test/version-fixtures.ts`；e2e 不能依賴 web 套件），兩處須同步。
+ */
+export function reEscape(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

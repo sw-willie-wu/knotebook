@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadConfig, parsePasswordLoginForceEnable, parseTrustProxy, publicUrlIssuer, publicUrlPathWarning } from "../../src/config.js";
+import { loadConfig, parsePasswordLoginForceEnable, parseTrustProxy, publicUrlIssuer, publicUrlPathWarning, testHooksStartupWarning, type AppConfig } from "../../src/config.js";
 import { oidcRedirectUri } from "../../src/auth/oidc-client.js";
 const valid = { DATABASE_URL: "postgres://u:p@localhost:5432/db", APP_SECRET: "a".repeat(64), PUBLIC_URL: "https://notes.example.com" };
 describe("loadConfig", () => {
@@ -23,6 +23,8 @@ describe("loadConfig", () => {
       passwordLoginForceEnable: false,
       databasePoolMax: 10,
       databasePoolConnectionTimeoutMs: 10000,
+      testHooks: false,
+      testHooksIgnored: false,
     });
   });
   it("#175 pool 保險絲：兩個 env 覆寫；空字串視同未設；非正整數 → throw", () => {
@@ -355,11 +357,63 @@ describe("PASSWORD_LOGIN_FORCE_ENABLE（#187 B18、§14.1-27）", () => {
 });
 
 describe("#269 結構守衛：app.ts 的轉換工作 onClose", () => {
-  it("onClose 以 2 s 寬限 race 等 linkConversion.stop()（在途那一篇不得把 app.close()／pool.end() 拖到 SIGKILL）", () => {
+  it("onClose 以 2 s 寬限（SCAN_STOP_GRACE_MS，與 #272 的掃描 onClose、index.ts 的關機上限共用）race 等 linkConversion.stop()（在途那一篇不得把 app.close()／pool.end() 拖到 SIGKILL）", () => {
     // 剔掉註解行再找：註解裡的字面不得成為唯一的命中來源。
     const src = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../src/app.ts"), "utf8").replace(/^\s*\/\/.*$/gm, "");
     expect(src).toMatch(
-      /app\.addHook\("onClose", async \(\) => \{\s*await Promise\.race\(\[linkConversion\.stop\(\), new Promise<void>\(resolve => setTimeout\(resolve, 2_000\)\.unref\(\)\)\]\);\s*\}\);/,
+      /app\.addHook\("onClose", async \(\) => \{\s*await Promise\.race\(\[linkConversion\.stop\(\), new Promise<void>\(resolve => setTimeout\(resolve, SCAN_STOP_GRACE_MS\)\.unref\(\)\)\]\);\s*\}\);/,
     );
+  });
+});
+
+describe("KNOTEBOOK_E2E_TEST_HOOKS（#272 §7.5，案 27）", () => {
+  const pick = (c: AppConfig) => ({ testHooks: c.testHooks, testHooksIgnored: c.testHooksIgnored });
+  const local = { ...valid, PUBLIC_URL: "http://localhost:3100" };
+
+  it("只認字面 \"1\"，且只在 PUBLIC_URL 是 localhost／127.0.0.1／[::1] 時成立；其他主機 → 忽略（testHooksIgnored）", () => {
+    expect(pick(loadConfig(local))).toEqual({ testHooks: false, testHooksIgnored: false });
+    for (const url of ["http://localhost:3100", "http://127.0.0.1:3000", "http://[::1]:3000"]) {
+      expect(pick(loadConfig({ ...valid, PUBLIC_URL: url, KNOTEBOOK_E2E_TEST_HOOKS: "1" })), url).toEqual({ testHooks: true, testHooksIgnored: false });
+    }
+    for (const v of ["0", "true", "", " 1"]) {
+      expect(pick(loadConfig({ ...local, KNOTEBOOK_E2E_TEST_HOOKS: v })), JSON.stringify(v)).toEqual({ testHooks: false, testHooksIgnored: false });
+    }
+    for (const url of ["https://notes.example.com", "http://192.168.1.5:3000", "http://localhost.example.com"]) {
+      expect(pick(loadConfig({ ...valid, PUBLIC_URL: url, KNOTEBOOK_E2E_TEST_HOOKS: "1" })), url).toEqual({ testHooks: false, testHooksIgnored: true });
+    }
+  });
+
+  it("testHooksStartupWarning：開著 → 提醒這是 e2e 測試疊；被忽略 → 提醒沒有生效；都沒有 → null", () => {
+    expect(testHooksStartupWarning({ testHooks: false, testHooksIgnored: false })).toBeNull();
+    expect(testHooksStartupWarning({ testHooks: true, testHooksIgnored: false })).toContain("e2e 測試縫已開啟");
+    expect(testHooksStartupWarning({ testHooks: false, testHooksIgnored: true })).toContain("已忽略");
+  });
+
+  it("結構守衛：index.ts 在 listen 之前印 testHooksStartupWarning；測試縫開著才把掃描間隔壓成 1 秒；關機先 stopScan（至多 2 s）再 collab.destroy()", () => {
+    // 守的是原始碼字面與先後（同上方 publicUrlPathWarning 的結構守衛，限制相同：守不到「真的印出來」）。
+    const src = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../src/index.ts"), "utf8");
+    const warnAt = src.indexOf("testHooksStartupWarning(config)");
+    const listenAt = src.indexOf(".listen(");
+    expect(warnAt, "index.ts 必須呼叫 testHooksStartupWarning(config)").toBeGreaterThan(-1);
+    expect(warnAt, "警告要在 listen 之前").toBeLessThan(listenAt);
+    expect(src).toContain("...(config.testHooks ? { versionAutoScanIntervalMs: 1000 } : {})");
+    // 只在 SIGTERM handler（`process.once(` 之後）裡找：上方的關機註解本身就寫著 `collab.destroy()`（比照 search-backfill-wiring.test.ts）。
+    const onceAt = src.indexOf("process.once(");
+    expect(onceAt, "index.ts 要有 process.once( 關機 handler").toBeGreaterThan(-1);
+    const handler = src.slice(onceAt).replace(/^\s*\/\/.*$/gm, ""); // 剔掉註解行：只看程式碼
+    const stopAt = handler.indexOf("collab.versions.stopScan()");
+    const destroyAt = handler.indexOf("collab.destroy()");
+    expect(stopAt, "關機要呼叫 collab.versions.stopScan()").toBeGreaterThan(-1);
+    expect(destroyAt, "關機要呼叫 collab.destroy()").toBeGreaterThan(-1);
+    expect(stopAt, "stopScan 要在 collab.destroy() 之前").toBeLessThan(destroyAt);
+    // plan gate r1 M5：等掃描停下有 2 s 上限（卡住的那一篇不得吃掉 docker stop 的寬限期，留給 collab 落盤）。
+    // #269 併線（plan Task 8 Step 5）：與站內連結轉換的 stop 並行、共用同一份 2 s 寬限。
+    expect(handler).toMatch(/Promise\.race\(\[Promise\.all\(\[collab\.versions\.stopScan\(\), app\.linkConversion\.stop\(\)\]\), stopGrace\(\)\]\)/);
+  });
+
+  it("結構守衛：app.ts 的 onClose 等掃描停下也有 SCAN_STOP_GRACE_MS 上限（與 index.ts 的關機上限共用）", () => {
+    // 守的是原始碼字面（行為面要造一個卡住的掃描並量 close 時間，成本不值得；同上方 index.ts 的 race 守衛）。剔掉註解行：只看程式碼。
+    const src = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../src/app.ts"), "utf8").replace(/^\s*\/\/.*$/gm, "");
+    expect(src).toMatch(/await Promise\.race\(\[versions\.stopScan\(\), new Promise<void>\(resolve => setTimeout\(resolve, SCAN_STOP_GRACE_MS\)\.unref\(\)\)\]\);/);
   });
 });

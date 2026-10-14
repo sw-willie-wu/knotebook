@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { eq, sql } from "drizzle-orm";
 import * as Y from "yjs";
 import { YDOC_FRAGMENT, topLevelContainers } from "@knotebook/shared";
+import { markPending } from "../src/collab/versions.js";
 import { noteAiEdits, noteLinks, noteStates, noteVersions, notes } from "../src/db/schema.js";
 import type { EditingTestHooks } from "../src/notes/editing/apply.js";
 import { EditorSession } from "../src/notes/editing/session.js";
@@ -11,7 +12,7 @@ import { NoteWriteService } from "../src/notes/editing/write-service.js";
 import { seedDoc } from "./copy-helpers.js";
 import { docText, seedContent, waitFor } from "./editing-helpers.js";
 import { buildCollabTestApp, testEditingRuntime, type TestClient } from "./helpers.js";
-import { noteBase, seedOldNote, versionsOf } from "./version-helpers.js";
+import { NO_PENDING, baseVersionIdOf, noteBase, pendingOf, seedOldNote, versionsOf } from "./version-helpers.js";
 
 const PASSWORD = "correct-horse-battery";
 
@@ -108,7 +109,7 @@ describe("套用（§7、§11.2）", () => {
     client.disconnect();
     second.disconnect();
     await s.unloaded();
-    expect(await versionsOf(s.ctx.db, s.note.id)).toHaveLength(2); // unload 不多切（fp === 基底）
+    expect(await versionsOf(s.ctx.db, s.note.id)).toHaveLength(2); // 卸載不切（#272）
   });
 
   it("套用再改再切 → 新版 base_seq＝被套用的版號（「從 v1 接著改」）", async () => {
@@ -188,15 +189,18 @@ describe("套用（§7、§11.2）", () => {
     client.disconnect();
   });
 
-  it("beforeDisconnect 失敗 → 內容已套、基底未更新、該次 unload 不切版、applying 已清", async () => {
+  it("beforeDisconnect 失敗 → 內容已套、基底未更新、待切照清（#272 案 5）、不切版、applying 已清", async () => {
     const s = await setup();
     const { client, v1 } = await twoVersions(s);
     client.disconnect();
     await s.unloaded(); // 沒有 WS：套用的直連會在 disconnect 時 unload
+    await markPending(s.ctx.db, { noteId: s.note.id, at: new Date(Date.now() - 1000), add: [{ user_id: s.u.id, agent_label: null }], ref: null, spaceKey: `u:${s.u.id}` });
     s.setHooks({ base: async () => { throw new Error("基底寫回失敗（測試）"); } });
     expect(await s.apply(1, v1.id)).toMatchObject({ ok: true });
     await s.unloaded();
     expect((await noteBase(s.ctx.db, s.note.id)).baseSeq).toBe(2);
+    expect(await pendingOf(s.ctx.db, s.note.id)).toEqual(NO_PENDING);
+    await s.ctx.collab.versions.scanDue(new Date(Date.now() + 3_600_000));
     expect(await versionsOf(s.ctx.db, s.note.id)).toHaveLength(2);
     const again = await s.session.connect(s.note.id);
     expect(docText(again.doc)).toContain("第一版");
@@ -216,7 +220,7 @@ describe("套用（§7、§11.2）", () => {
     client.disconnect();
   });
 
-  it("沒有人開著的筆記（舊筆記、從未有 WS）套用 → version_base_seq＝套用的版號、版本數不變、unload 不多切、內容落盤", async () => {
+  it("沒有人開著的筆記（舊筆記、從未有 WS）套用 → version_base_seq＝套用的版號、版本數不變、卸載不切、內容落盤", async () => {
     const s = await setup();
     await seedOldNote(s.ctx.db, s.note.id, "舊筆記第一版");
     const r1 = await s.save("一");
@@ -234,27 +238,27 @@ describe("套用（§7、§11.2）", () => {
     expect(text).not.toContain("舊筆記第二版");
   });
 
-  it("沒有人開著的筆記、排隊期間該版被刪 → reset 發生在 disconnect 之前，該次 unload 依「沒有基底」規則切出新版並成為基底", async () => {
-    // 守「基底寫回在 disconnect 之前」：卸載跑在 disconnect 裡，若寫回（含 reset）搬到 disconnect 之後，卸載時 applying 仍為 true
-    // → 自動切版略過，最後只剩 seq 2 一版（Task 8 突變 M8 實跑）。上一案（1 列分支）對同一突變是等價的（M7 實跑全綠）。
+  it("沒有人開著的筆記、排隊期間該版被刪 → 基底清空（含 uuid）、待切清空、卸載不切（#272：原本守的「基底寫回先於 disconnect」順序對版本已無影響）", async () => {
     const s = await setup();
     await seedOldNote(s.ctx.db, s.note.id, "舊筆記第一版");
     const r1 = await s.save("一");
     await overwriteState(s, "舊筆記第二版");
     const r2 = await s.save("二");
     if (!r1.ok || !r2.ok) throw new Error("前置 save 失敗");
+    await markPending(s.ctx.db, { noteId: s.note.id, at: new Date(Date.now() - 1000), add: [{ user_id: s.u.id, agent_label: null }], ref: null, spaceKey: `u:${s.u.id}` });
     s.setHooks({ merge: async () => {
       await s.ctx.db.delete(noteVersions).where(sql`note_versions.note_id = ${s.note.id} and note_versions.seq = 1`);
     } });
     expect(s.ctx.collab.hocuspocus.documents.size).toBe(0);
     expect(await s.apply(1, r1.row.id)).toMatchObject({ ok: true });
     await s.unloaded();
-    const rows = await versionsOf(s.ctx.db, s.note.id);
-    expect(rows.map(r => [r.seq, r.kind])).toEqual([[2, "manual"], [3, "auto"]]);
-    expect((await noteBase(s.ctx.db, s.note.id)).baseSeq).toBe(3);
-    const v3 = new Y.Doc();
-    Y.applyUpdate(v3, rows[1]!.ydoc);
-    expect(docText(v3)).toContain("舊筆記第一版");
+    expect((await versionsOf(s.ctx.db, s.note.id)).map(r => [r.seq, r.kind])).toEqual([[2, "manual"]]);
+    expect(await noteBase(s.ctx.db, s.note.id)).toMatchObject({ baseSeq: null, baseFingerprint: null });
+    expect(await baseVersionIdOf(s.ctx.db, s.note.id)).toBeNull();
+    expect(await pendingOf(s.ctx.db, s.note.id)).toEqual(NO_PENDING);
+    await s.ctx.collab.versions.scanDue(new Date(Date.now() + 3_600_000));
+    expect((await versionsOf(s.ctx.db, s.note.id)).map(r => [r.seq, r.kind])).toEqual([[2, "manual"]]);
+    expect(await storedText(s)).toContain("舊筆記第一版");
   });
 
   it("空版本套用後 dirty=false（§7-4：留一顆空段落，fpAfter＝真空指紋）", async () => {

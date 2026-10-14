@@ -20,8 +20,8 @@ describe("站台設定 /api/admin/versions/settings（§6.7）", () => {
     const url = "/api/admin/versions/settings";
     expect((await call(app, "GET", url, null)).statusCode).toBe(401);
     expect((await call(app, "GET", url, user.id)).statusCode).toBe(403);
-    expect((await call(app, "GET", url, admin.id)).json()).toEqual({ keepAllDays: 7, dailyUntilDays: 30, autoVersionsEnabled: true });
-    expect((await call(app, "PATCH", url, admin.id, { keepAllDays: 3 })).json()).toEqual({ keepAllDays: 3, dailyUntilDays: 30, autoVersionsEnabled: true });
+    expect((await call(app, "GET", url, admin.id)).json()).toEqual({ keepAllDays: 7, dailyUntilDays: 30, autoVersionsEnabled: true, autoWaitMinutes: 5 });
+    expect((await call(app, "PATCH", url, admin.id, { keepAllDays: 3 })).json()).toEqual({ keepAllDays: 3, dailyUntilDays: 30, autoVersionsEnabled: true, autoWaitMinutes: 5 });
     for (const body of [{ dailyUntilDays: 2 }, { keepAllDays: 0 }, { dailyUntilDays: 3651 }, { keepAllDays: 31 }]) {
       const r = await call(app, "PATCH", url, admin.id, body);
       expect(r.statusCode, JSON.stringify(body)).toBe(400);
@@ -29,8 +29,8 @@ describe("站台設定 /api/admin/versions/settings（§6.7）", () => {
       expect(r.json().error.message).toMatch(/3650/);
     }
     for (const body of [{}, { keepAllDays: 1.5 }, { keepAllDays: "3" }, { foo: 1 }]) expect((await call(app, "PATCH", url, admin.id, body)).statusCode).toBe(400);
-    expect((await call(app, "GET", url, admin.id)).json()).toEqual({ keepAllDays: 3, dailyUntilDays: 30, autoVersionsEnabled: true });
-    expect((await call(app, "PATCH", url, admin.id, { autoVersionsEnabled: false, keepAllDays: 1, dailyUntilDays: 1 })).json()).toEqual({ keepAllDays: 1, dailyUntilDays: 1, autoVersionsEnabled: false });
+    expect((await call(app, "GET", url, admin.id)).json()).toEqual({ keepAllDays: 3, dailyUntilDays: 30, autoVersionsEnabled: true, autoWaitMinutes: 5 });
+    expect((await call(app, "PATCH", url, admin.id, { autoVersionsEnabled: false, keepAllDays: 1, dailyUntilDays: 1 })).json()).toEqual({ keepAllDays: 1, dailyUntilDays: 1, autoVersionsEnabled: false, autoWaitMinutes: 5 });
     expect((await call(app, "PATCH", url, user.id, { keepAllDays: 2 })).statusCode).toBe(403);
   });
 
@@ -50,6 +50,31 @@ describe("站台設定 /api/admin/versions/settings（§6.7）", () => {
     expect((await app.inject({ method: "GET", url: "/api/auth/config" })).json().autoVersionsEnabled).toBe(true);
     await call(app, "PATCH", "/api/admin/versions/settings", admin.id, { autoVersionsEnabled: false });
     expect((await app.inject({ method: "GET", url: "/api/auth/config" })).json().autoVersionsEnabled).toBe(false);
+  });
+
+  it("#272 案 25：autoWaitMinutes——GET 預設 5；PATCH 1、60 成功；0、61 → 400 範圍句；1.5、\"5\" → 400 請求格式錯誤；都不存；DB 直寫 0 → 23514", async () => {
+    const { app, db } = await buildTestApp();
+    const admin = await seedUser(db, { isAdmin: true });
+    const url = "/api/admin/versions/settings";
+    expect((await call(app, "GET", url, admin.id)).json()).toEqual({ keepAllDays: 7, dailyUntilDays: 30, autoVersionsEnabled: true, autoWaitMinutes: 5 });
+    for (const m of [1, 60]) {
+      const r = await call(app, "PATCH", url, admin.id, { autoWaitMinutes: m });
+      expect(r.statusCode).toBe(200);
+      expect(r.json()).toEqual({ keepAllDays: 7, dailyUntilDays: 30, autoVersionsEnabled: true, autoWaitMinutes: m });
+    }
+    const RANGE = "自動存版等待須為 1 到 60 的整數（分鐘）";
+    for (const [body, message] of [
+      [{ autoWaitMinutes: 0 }, RANGE],
+      [{ autoWaitMinutes: 61 }, RANGE],
+      [{ autoWaitMinutes: 1.5 }, "請求格式錯誤"],
+      [{ autoWaitMinutes: "5" }, "請求格式錯誤"],
+    ] as const) {
+      const r = await call(app, "PATCH", url, admin.id, body);
+      expect(r.statusCode, JSON.stringify(body)).toBe(400);
+      expect(r.json().error).toEqual({ code: "invalid_body", message });
+    }
+    expect((await call(app, "GET", url, admin.id)).json().autoWaitMinutes).toBe(60);
+    await expect(db.$client.query(`update site_settings set version_auto_wait_minutes = 0`)).rejects.toMatchObject({ code: "23514", constraint: "site_settings_version_auto_wait_chk" });
   });
 });
 

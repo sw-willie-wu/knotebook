@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { I18nextProvider } from "react-i18next";
-import type { NoteDto, NoteEditDto } from "@knotebook/shared";
+import { AI_EDITS_RETENTION, type NoteDto, type NoteEditDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { NOTE_EDITS_QUERY_KEY } from "@/api/noteEdits";
@@ -39,6 +39,7 @@ const revertUrl = (editId: string) => `${EDITS_URL}/${editId}/revert`;
 const E1 = "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa";
 const E2 = "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb";
 const E3 = "cccccccc-3333-4333-8333-cccccccccccc";
+const E4 = "dddddddd-4444-4444-8444-dddddddddddd";
 
 /** `byHandle` 用 `NOTE.ownerHandle`——這篇筆記的編輯者就是它的 owner，不另外寫死別的名字。
  * （#175 起 `ownerHandle` 型別是 `string | null`——群組筆記為 null；這篇是個人筆記，`?? ""` 只是收窄型別。） */
@@ -103,11 +104,12 @@ describe("AiEditsDialog", () => {
     vi.unstubAllGlobals();
   });
 
-  it("三態：可撤回列有撤回鈕、已撤回列標記 reverted、其餘不可撤回列標記 stale", async () => {
+  it("四態（#272 D11）：可撤回列有撤回鈕；已撤回列標 reverted；撤回紀錄本身標 revertRecord；其餘不可撤回列寫出原因；清單下方一行保留筆數", async () => {
     const edits = [
       edit({ id: E1, revertable: true }),
       edit({ id: E2, revertable: false, revertedAt: "2026-02-04T00:00:00.000Z", agentLabel: null }),
       edit({ id: E3, revertable: false }),
+      edit({ id: E4, op: "revert", revertable: false, revertOf: E2 }),
     ];
     stubFetch((url) => {
       if (url === EDITS_URL) return listBody(edits);
@@ -116,7 +118,21 @@ describe("AiEditsDialog", () => {
 
     renderWithQuery(<AiEditsDialog note={NOTE} open onOpenChange={vi.fn()} />);
 
-    const first = await screen.findByTestId(`ai-edit-${E1}`);
+    const third = await screen.findByTestId(`ai-edit-${E3}`);
+    const reason = within(third).getByText("Can't revert: this content has changed since, or the note was switched to another version");
+    expect(reason).toHaveClass("max-w-[14rem]", "text-right");
+    expect(reason).not.toHaveClass("shrink-0");
+    expect(within(third).queryByRole("button", { name: i18n.t("aiEdits.revert") })).toBeNull();
+
+    const fourth = screen.getByTestId(`ai-edit-${E4}`);
+    expect(within(fourth).getByText(i18n.t("aiEdits.revertRecord"))).toBeInTheDocument();
+    expect(within(fourth).queryByText(i18n.t("aiEdits.stale"))).toBeNull();
+    expect(within(fourth).queryByRole("button", { name: i18n.t("aiEdits.revert") })).toBeNull();
+
+    expect(screen.getByText("Each note keeps up to its 100 most recent AI edits")).toBeInTheDocument();
+    expect(AI_EDITS_RETENTION).toBe(100);
+
+    const first = screen.getByTestId(`ai-edit-${E1}`);
     expect(within(first).getByRole("button", { name: i18n.t("aiEdits.revert") })).toBeInTheDocument();
     // AI 形：handle (label)。這一列的 agentLabel 是 "claude"。
     expect(within(first).getByTestId("ai-edit-who").textContent).toBe(`${NOTE.ownerHandle} (claude)`);
@@ -124,14 +140,20 @@ describe("AiEditsDialog", () => {
 
     const second = screen.getByTestId(`ai-edit-${E2}`);
     expect(within(second).getByText(i18n.t("aiEdits.reverted"))).toBeInTheDocument();
+    expect(within(second).queryByText(i18n.t("aiEdits.revertRecord"))).toBeNull();
     expect(within(second).queryByRole("button", { name: i18n.t("aiEdits.revert") })).toBeNull();
     // agentLabel 為 null＝那次是真人經 cookie 寫的，只顯示 handle。
     expect(within(second).getByTestId("ai-edit-who").textContent).toBe(NOTE.ownerHandle);
+  });
 
-    const third = screen.getByTestId(`ai-edit-${E3}`);
-    expect(within(third).getByText(i18n.t("aiEdits.stale"))).toBeInTheDocument();
-    expect(within(third).queryByText(i18n.t("aiEdits.reverted"))).toBeNull();
-    expect(within(third).queryByRole("button", { name: i18n.t("aiEdits.revert") })).toBeNull();
+  it("#272 D11：清單是空的 → 只顯示「尚無」那一句，沒有保留筆數那行", async () => {
+    stubFetch((url) => {
+      if (url === EDITS_URL) return listBody([]);
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    renderWithQuery(<AiEditsDialog note={NOTE} open onOpenChange={vi.fn()} />);
+    expect(await screen.findByText(i18n.t("aiEdits.empty"))).toBeInTheDocument();
+    expect(screen.queryByText(/most recent AI edits/)).toBeNull();
   });
 
   it("撤回：409 stale → errors.stale toast 且列表不重抓；成功 → 列表重抓、三把 note query 失效、revertOk toast", async () => {

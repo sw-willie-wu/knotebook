@@ -6,6 +6,7 @@ import { ApiFail } from "@/api/client";
 import { fetchCurrent, useApplyVersion, versionsKey } from "@/api/versions";
 import { toast } from "@/components/ui/toast";
 import { useVersions } from "@/lib/versions-context";
+import { versionLabel } from "./version-labels";
 
 function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
   if (err instanceof ApiFail) return t(`errors.${err.code}`, { defaultValue: t("errors.fallback") });
@@ -40,7 +41,7 @@ export function useApplyFlow(noteId: string) {
         } catch {
           // 失效只是讓頁首資料早點對齊；失敗時等下一次 refetch，不影響套用結果。
         }
-        toast({ title: t("versions.toast.applied", { seq: version.seq }) });
+        toast({ title: t("versions.toast.applied", { label: versionLabel(version) }) });
       } catch (err) {
         if (err instanceof ApiFail && err.status === 409 && err.code === "version_unsaved_changes") {
           openDialog({ kind: "apply", version });

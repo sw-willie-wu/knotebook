@@ -32,6 +32,8 @@ const schema = z.object({
   // #175 §6.10：pool 保險絲（Willie 2026-09-30 Q24）。值的語法（正整數）在 loadConfig 手動驗證，錯誤訊息要點名。
   DATABASE_POOL_MAX: z.string().min(1).optional().or(z.literal("").transform(() => undefined)),
   DATABASE_POOL_CONNECTION_TIMEOUT_MS: z.string().min(1).optional().or(z.literal("").transform(() => undefined)),
+  // #272 §7.5：e2e 測試縫。只認字面 "1"；只在 loopback 部署生效（見 loadConfig）。刻意不寫進 .env.example 與 self-hosting 文件。
+  KNOTEBOOK_E2E_TEST_HOOKS: z.string().optional(),
 });
 
 /** `parseTrustProxy` 認得的具名網段（proxy-addr 的內建關鍵字，fastify 直接轉交）。 */
@@ -146,6 +148,13 @@ export interface AppConfig {
   legacyOidcEnvProblem?: "partial" | "invalid";
   /** #187 B18：env 強制開啟帳密登入（救援）。有效值＝DB 值 OR 這個（`auth/password-login.ts` 的 `effectivePasswordLogin`）。 */
   passwordLoginForceEnable: boolean;
+  /**
+   * #272 §7.5：e2e 測試縫——`KNOTEBOOK_E2E_TEST_HOOKS=1` **且** `PUBLIC_URL` 的 hostname 是 localhost／127.0.0.1／[::1]。
+   * 成立時 `app.ts` 註冊 `PUT /api/admin/test/version-auto-wait`、`index.ts` 把自動切版掃描間隔壓成 1 秒。
+   */
+  testHooks: boolean;
+  /** 設了 `KNOTEBOOK_E2E_TEST_HOOKS=1` 但 `PUBLIC_URL` 不是 loopback → 忽略（`index.ts` 印 `testHooksStartupWarning`）。 */
+  testHooksIgnored: boolean;
 }
 export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
   const r = schema.safeParse(env);
@@ -220,12 +229,18 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
   const databasePoolMax = positiveInt("DATABASE_POOL_MAX", r.data.DATABASE_POOL_MAX, 10);
   const databasePoolConnectionTimeoutMs = positiveInt("DATABASE_POOL_CONNECTION_TIMEOUT_MS", r.data.DATABASE_POOL_CONNECTION_TIMEOUT_MS, 10_000, 2_147_483_647);
 
+  // #272 §7.5：與上方 isLocalHttp 同一張 loopback 名單（hostname 層，不看 scheme）。
+  const testHooksRequested = r.data.KNOTEBOOK_E2E_TEST_HOOKS === "1";
+  const testHooksLoopback = ["localhost", "127.0.0.1", "[::1]"].includes(publicUrl.hostname);
+  const testHooks = testHooksRequested && testHooksLoopback;
+  const testHooksIgnored = testHooksRequested && !testHooksLoopback;
+
   return { databaseUrl: r.data.DATABASE_URL, appSecret: r.data.APP_SECRET, publicUrl,
            cookieSecure: publicUrl.protocol === "https:", insecureHttpWarning,
            trustProxy: parseTrustProxy(r.data.TRUST_PROXY),
            passwordLoginForceEnable: parsePasswordLoginForceEnable(r.data.PASSWORD_LOGIN_FORCE_ENABLE),
            databasePoolMax, databasePoolConnectionTimeoutMs,
-           adminEmail, adminPassword, legacyOidcEnv, legacyOidcEnvProblem };
+           adminEmail, adminPassword, legacyOidcEnv, legacyOidcEnvProblem, testHooks, testHooksIgnored };
 }
 
 /**
@@ -279,4 +294,14 @@ export function publicUrlPathWarning(publicUrl: URL): string | null {
     publicUrl.password === "";
   if (isBareOrigin) return null;
   return "PUBLIC_URL should be a bare origin (scheme://host:port). Anything past the origin is dropped when deriving the OAuth issuer, and a sub-path is dropped from the OIDC redirect URIs too — so if PUBLIC_URL has one, the redirect URIs this server sends will not match a <PUBLIC_URL>/api/auth/oidc/callback… URI registered with the identity provider";
+}
+
+/**
+ * #272 §7.5：e2e 測試縫的啟動警告。開著＝提醒這是測試疊（測試專用路由已註冊、掃描每秒一次）；被忽略＝提醒設了卻沒生效。
+ * 回 null＝不必警告。訊息維持編譯期常數（理由同 `publicUrlPathWarning`）。
+ */
+export function testHooksStartupWarning(config: Pick<AppConfig, "testHooks" | "testHooksIgnored">): string | null {
+  if (config.testHooks) return "e2e 測試縫已開啟（KNOTEBOOK_E2E_TEST_HOOKS=1）：已註冊測試專用路由、自動切版每秒掃描一次——只能用在 e2e 測試疊";
+  if (config.testHooksIgnored) return "KNOTEBOOK_E2E_TEST_HOOKS=1 已忽略：PUBLIC_URL 不是 localhost／127.0.0.1／[::1]，測試專用路由不註冊";
+  return null;
 }

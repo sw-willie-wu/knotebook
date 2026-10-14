@@ -1,7 +1,7 @@
 import { and, desc, eq, notInArray } from "drizzle-orm";
 import type { Block, PartialBlock } from "@blocknote/core";
 import * as Y from "yjs";
-import { YDOC_FRAGMENT, topLevelContainers, type EditOp, type NoteOutlineEntry } from "@knotebook/shared";
+import { AI_EDITS_RETENTION, YDOC_FRAGMENT, topLevelContainers, type EditOp, type NoteOutlineEntry } from "@knotebook/shared";
 import type { CollabServer } from "../../collab/server.js";
 import type { VersionService } from "../../collab/versions.js";
 import { docClock } from "../../collab/store.js";
@@ -16,7 +16,7 @@ import { loadNoteDoc } from "./read.js";
 import type { EditingRuntime } from "./runtime.js";
 import { EditorSession, withDirectConnection, type DirectConnectionCtx, type DirectCtx } from "./session.js";
 
-// 順序（spec §6.1）：讀路徑 fork → 指紋比對 → 寫前切版（版本歷史 §5.4） → parse/驗證 → 單一編輯器呼叫 → diff → **關掉編輯器**
+// 順序（spec §6.1）：讀路徑 fork → 指紋比對 → parse/驗證 → 單一編輯器呼叫 → diff → **關掉編輯器**
 // → mergeDiff＝withDirectConnection 內一個同步 transact（live doc 重算目標段指紋／anchor → docClock（applyUpdate
 // 前，links CAS 用）→ applyUpdate → ctx.applied → 同 transact 算 after_fingerprint／回覆指紋大綱）→ finally disconnect（落盤）
 // → note_ai_edits 交易（含裁切 100）→ note_links（writeNoteLinks 自己的交易，CAS 對更晚的瀏覽器寫入 no-op）。
@@ -44,7 +44,7 @@ export interface ApplyDeps {
   editing: EditingRuntime;
   log: { warn(o: object, m: string): void; error(o: object, m: string): void };
   testHooks?: EditingTestHooks;
-  /** 版本歷史：寫前切版（`preWriteCut`）與套用（`apply-version.ts`）。測試不注入＝no-op。 */
+  /** 版本歷史：套用（`apply-version.ts`）用。#272 D2：AI／直寫前後不再切版。測試不注入＝no-op。 */
   versions?: VersionService;
 }
 
@@ -83,7 +83,7 @@ export type ApplyResult =
     }
   | { ok: false; code: "section_not_found" | "fingerprint_mismatch" | ParseError | "empty_section" };
 
-export const RETENTION = 100;
+export const RETENTION = AI_EDITS_RETENTION; // #272 D11：數字搬到 shared（web 的說明句用同一個），行為不變
 export class FingerprintMismatch extends Error {}
 
 export interface MergeInput { targetIds: string[] | null; expectFingerprint: string | null; anchorId: string | null; diff: Uint8Array; afterIds: string[] }
@@ -190,19 +190,6 @@ export async function forkAndCheck(deps: ApplyDeps, noteId: string): Promise<For
 }
 
 /**
- * 版本歷史 §5.4：AI／MCP 寫入**前**若有未存的人工修改，先存一版（A2）。文件載入中用版本服務的 Map 狀態，沒載入用這份 fork 當暫時狀態。
- * 回 `{ skipped }` 或 `null` 時寫入照常；切版失敗只 warn（寫入不因版本子系統失敗）。**不取 lease**（在 prepare 之前，Global Constraints 1）。
- */
-export async function preWriteCut(deps: ApplyDeps, noteId: string, fork: Y.Doc): Promise<void> {
-  if (!deps.versions) return;
-  try {
-    await deps.versions.cutIfDirty(noteId, fork, { kind: "auto", transient: fork });
-  } catch (err) {
-    deps.log.warn({ err, noteId }, "AI 寫入前切版失敗（寫入照常）");
-  }
-}
-
-/**
  * 編輯器的生命只到「取出 diff」為止：mount → 單一編輯器呼叫 → `diffSince` → `close()`，
  * 全部關在這個函式內。**不變量：持有 lease 期間絕不再取得 lease**（`runtime.acquire()` 的
  * 等待迴圈只在 in-flight 歸零時才放行；外層抱著 lease 等內層＝死鎖，見 Global Constraints）。
@@ -293,7 +280,6 @@ export async function applyEdit(deps: ApplyDeps, input: ApplyInput): Promise<App
   if (expect !== null && (targetIds === null ? whole : section!.fingerprint) !== expect) return { ok: false, code: "fingerprint_mismatch" };
   if (input.op === "delete_section" && (isEmptyDoc || section!.blockIds.length === 0)) return { ok: false, code: "empty_section" };
 
-  await preWriteCut(deps, input.noteId, fork);
   // 真空文件：三 op 等同 replace_all（正規化殘留 paragraph 被 replace 掉）
   const op: EditOp = isEmptyDoc ? "replace_all" : input.op;
   const prepared = await prepareEdit(deps, input, fork, sv, { op, isEmptyDoc, section });

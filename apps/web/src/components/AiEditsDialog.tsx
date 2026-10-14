@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
-import type { NoteDto, NoteEditDto } from "@knotebook/shared";
+import { AI_EDITS_RETENTION, type NoteDto, type NoteEditDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
 import { useNoteEdits, useRevertEdit } from "@/api/noteEdits";
 import { invalidateNoteQueries } from "@/api/notes";
@@ -12,6 +12,13 @@ import { toast } from "@/components/ui/toast";
 function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
   if (err instanceof ApiFail) return t(`errors.${err.code}`, { defaultValue: t("errors.fallback") });
   return t("errors.fallback");
+}
+
+/** #272 D11：不可撤回列顯示哪一句原因。可撤回性仍由 server 判（`revertable`，`notes/editing/revert.ts` 的 `editRevertable`）；這裡只決定措辭。 */
+function notRevertableReason(t: (key: string) => string, edit: NoteEditDto): string {
+  if (edit.revertedAt !== null) return t("aiEdits.reverted");
+  if (edit.op === "revert") return t("aiEdits.revertRecord");
+  return t("aiEdits.stale");
 }
 
 function EditRow({ note, edit }: { note: NoteDto; edit: NoteEditDto }) {
@@ -58,9 +65,7 @@ function EditRow({ note, edit }: { note: NoteDto; edit: NoteEditDto }) {
           {t("aiEdits.revert")}
         </Button>
       ) : (
-        <span className="shrink-0 text-xs text-muted-foreground">
-          {edit.revertedAt !== null ? t("aiEdits.reverted") : t("aiEdits.stale")}
-        </span>
+        <span className="max-w-[14rem] text-right text-xs text-muted-foreground">{notRevertableReason(t, edit)}</span>
       )}
     </li>
   );
@@ -104,11 +109,14 @@ export function AiEditsDialog({
         ) : edits.data.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t("aiEdits.empty")}</p>
         ) : (
-          <ul className="max-h-80 space-y-2 overflow-y-auto">
-            {edits.data.map(edit => (
-              <EditRow key={edit.id} note={note} edit={edit} />
-            ))}
-          </ul>
+          <>
+            <ul className="max-h-80 space-y-2 overflow-y-auto">
+              {edits.data.map(edit => (
+                <EditRow key={edit.id} note={note} edit={edit} />
+              ))}
+            </ul>
+            <p className="text-xs text-muted-foreground">{t("aiEdits.retentionNote", { count: AI_EDITS_RETENTION })}</p>
+          </>
         )}
       </DialogContent>
     </Dialog>

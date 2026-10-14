@@ -2,8 +2,6 @@
  * 筆記版本歷史（spec 2026-10-09-note-versions-design.md §4、§6）。server 與 web 共用的常數、DTO 與名稱正規化。
  * 「基底」＝目前內容是從哪一版接著改（`notes.version_base_seq`）；null＝沒有基底（還沒存過、或套用後基底寫不回去）。
  */
-/** A12：自動切版的安靜時間（有改動後 5 分鐘沒有新的落盤就切）。server 以 `idleMs` 注入覆寫。 */
-export const VERSION_IDLE_MS = 5 * 60_000;
 /** §6.3：版本名稱上限（code point）。 */
 export const VERSION_NAME_MAX = 120;
 /** §6.1：清單分頁。 */
@@ -13,6 +11,10 @@ export const VERSION_LIST_LIMIT_MAX = 100;
 export const VERSION_DAYS_MAX = 3650;
 export const VERSION_KEEP_ALL_DAYS_DEFAULT = 7;
 export const VERSION_DAILY_UNTIL_DAYS_DEFAULT = 30;
+/** #272 §7.1（D4）：自動存版等待 X——最後一次內容變動後這麼多分鐘沒有新的變動才自動存一版。站台設定（DB CHECK `site_settings_version_auto_wait_chk` 同範圍）。 */
+export const VERSION_AUTO_WAIT_MINUTES_DEFAULT = 5;
+export const VERSION_AUTO_WAIT_MINUTES_MIN = 1;
+export const VERSION_AUTO_WAIT_MINUTES_MAX = 60;
 
 export type VersionKind = "auto" | "manual";
 
@@ -22,7 +24,17 @@ export interface VersionEditorDto {
   agentLabel: string | null;
 }
 
-/** §6.1 清單的一列。`baseSeq`＝「從 vX 接著改」（只在基底不是當時最新版時有值）。 */
+/**
+ * #272 §9（D7、D12）：基底參照。`id`＝基底那一版的 uuid（升級前就已刪除的舊資料為 null）；`deleted`＝該列已不存在；
+ * `name` 只在未刪時有（已刪不保留，D12）。
+ */
+export interface VersionBaseRefDto {
+  id: string | null;
+  name: string | null;
+  deleted: boolean;
+}
+
+/** §6.1 清單的一列。`baseSeq`＝「沿自」的那一版（只在基底不是當時最新版時有值）；`base`＝它的參照（`baseSeq` 為 null 時為 null，#272）。 */
 export interface VersionDto {
   id: string;
   seq: number;
@@ -30,12 +42,14 @@ export interface VersionDto {
   name: string | null;
   editors: VersionEditorDto[];
   baseSeq: number | null;
+  base: VersionBaseRefDto | null;
   createdAt: string;
 }
 
-/** §6.1／§6.4：目前內容與版本的關係。`autoEnabled`＝A13 生效值（站台且空間）。 */
+/** §6.1／§6.4：目前內容與版本的關係。`autoEnabled`＝A13 生效值（站台且空間）。`base`＝`baseSeq` 那一版的參照（#272）；`nextSeq` 保留，web 不再顯示（D5）。 */
 export interface VersionCurrentDto {
   baseSeq: number | null;
+  base: VersionBaseRefDto | null;
   dirty: boolean;
   nextSeq: number;
   autoEnabled: boolean;
@@ -74,6 +88,8 @@ export interface VersionSettingsDto {
   keepAllDays: number;
   dailyUntilDays: number;
   autoVersionsEnabled: boolean;
+  /** #272 §8（D4）：自動存版等待 X（整數分鐘 1–60）——最後一次內容變動後這麼久沒有新的變動，就自動存一版。 */
+  autoWaitMinutes: number;
 }
 
 const UNSTORABLE = /\u0000|\p{Surrogate}/u;

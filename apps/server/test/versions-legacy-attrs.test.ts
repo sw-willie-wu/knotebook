@@ -42,7 +42,7 @@ function legacyDoc(): Y.Doc {
 }
 
 async function legacySetup() {
-  const ctx = await buildCollabTestApp();
+  const ctx = await buildCollabTestApp({ versionAutoWaitMs: 0 });
   const u = await ctx.createUser({ email: "a@example.com", password: PASSWORD });
   const note = await ctx.createNote(u.id);
   await seedDoc(ctx.db, note.id, legacyDoc());
@@ -101,22 +101,24 @@ describe("#269 §4.4：wikilink 新 props 與版本指紋", () => {
 });
 
 describe("§13-9：舊 schema 筆記被回寫預設屬性（方案二）", () => {
-  it("paragraph 補上三個預設值、文字不變 → isDirty false；斷線 unload → 總數 0", async () => {
+  it("paragraph 補上三個預設值、文字不變 → isDirty false；斷線、掃描 → 總數 0", async () => {
     const s = await legacySetup();
     const { c, dirty } = await rewriteParagraphAttrs(s, { ...PARA_DEFAULTS });
     expect(dirty).toBe(false);
     c.disconnect();
     await s.unloaded();
+    await s.ctx.collab.versions.scanDue();
     expect(await versionsOf(s.ctx.db, s.note.id)).toEqual([]);
   });
 
-  it("對照：同一流程但 textAlignment 是 center（非預設）→ isDirty true；斷線 unload → 總數 1、內容是回寫後", async () => {
+  it("對照：同一流程但 textAlignment 是 center（非預設）→ isDirty true；斷線、掃描 → 總數 1、內容是回寫後", async () => {
     const s = await legacySetup();
     const { c, dirty } = await rewriteParagraphAttrs(s, { ...PARA_DEFAULTS, textAlignment: "center" });
     expect(dirty).toBe(true);
     const after = versionFingerprint(s.ctx.collab.hocuspocus.documents.get(s.note.id)!.getXmlFragment(YDOC_FRAGMENT));
     c.disconnect();
     await s.unloaded();
+    await s.ctx.collab.versions.scanDue();
     const rows = await versionsOf(s.ctx.db, s.note.id);
     expect(rows.map(r => [r.seq, r.kind])).toEqual([[1, "auto"]]);
     const v1 = new Y.Doc();

@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { VERSION_DAYS_MAX, type VersionSettingsDto } from "@knotebook/shared";
+import { VERSION_AUTO_WAIT_MINUTES_MAX, VERSION_AUTO_WAIT_MINUTES_MIN, VERSION_DAYS_MAX, type VersionSettingsDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
 import { useUpdateVersionSettings, useVersionSettings } from "@/api/versionSettings";
 import { Button } from "@/components/ui/button";
@@ -42,18 +42,29 @@ function SiteSwitchGroup({ data }: { data: VersionSettingsDto }) {
   );
 }
 
-/** 自動版本的保留天數：兩個整數欄＋「儲存」。輸入框 `null`＝顯示 server 值（同 `HandleSection`）。 */
+/**
+ * 自動存版等待＋保留天數（#272 §8）：三個整數欄共用一顆「儲存」。輸入框 `null`＝顯示 server 值（同 `HandleSection`）。
+ * 驗證先等待、再天數，只顯示第一個不合格者。等待的說明句帶 server 值，放在表單下方（放在單一欄下會讓三欄輸入框對不齊）。
+ */
 function RetentionGroup({ data }: { data: VersionSettingsDto }) {
   const { t } = useTranslation();
   const update = useUpdateVersionSettings();
+  const [wait, setWait] = useState<string | null>(null);
   const [keepAll, setKeepAll] = useState<string | null>(null);
   const [dailyUntil, setDailyUntil] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const waitShown = wait ?? String(data.autoWaitMinutes);
   const keepAllShown = keepAll ?? String(data.keepAllDays);
   const dailyUntilShown = dailyUntil ?? String(data.dailyUntilDays);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
+    const waitText = waitShown.trim();
+    const minutes = Number(waitText);
+    if (!/^\d+$/.test(waitText) || minutes < VERSION_AUTO_WAIT_MINUTES_MIN || minutes > VERSION_AUTO_WAIT_MINUTES_MAX) {
+      setError(t("admin.versions.waitInvalid"));
+      return;
+    }
     const keepAllText = keepAllShown.trim();
     const dailyUntilText = dailyUntilShown.trim();
     const first = Number(keepAllText);
@@ -64,7 +75,8 @@ function RetentionGroup({ data }: { data: VersionSettingsDto }) {
     }
     setError(null);
     try {
-      await update.mutateAsync({ keepAllDays: first, dailyUntilDays: second });
+      await update.mutateAsync({ autoWaitMinutes: minutes, keepAllDays: first, dailyUntilDays: second });
+      setWait(null);
       setKeepAll(null);
       setDailyUntil(null);
       toast({ title: t("admin.versions.saved") });
@@ -79,6 +91,22 @@ function RetentionGroup({ data }: { data: VersionSettingsDto }) {
       description={t("admin.versions.retentionDescription", { keepAll: data.keepAllDays, dailyUntil: data.dailyUntilDays })}
     >
       <form onSubmit={(event) => void handleSubmit(event)} className="flex flex-wrap items-end gap-3">
+        <div className="space-y-1">
+          <label htmlFor="versions-auto-wait" className="text-sm font-medium">
+            {t("admin.versions.waitLabel")}
+          </label>
+          <Input
+            id="versions-auto-wait"
+            inputMode="numeric"
+            aria-describedby="versions-auto-wait-help"
+            value={waitShown}
+            onChange={(event) => {
+              setWait(event.target.value);
+              setError(null);
+            }}
+            className="w-32"
+          />
+        </div>
         <div className="space-y-1">
           <label htmlFor="versions-keep-all" className="text-sm font-medium">
             {t("admin.versions.keepAllLabel")}
@@ -113,6 +141,9 @@ function RetentionGroup({ data }: { data: VersionSettingsDto }) {
           {t("admin.versions.save")}
         </Button>
       </form>
+      <p id="versions-auto-wait-help" className="mt-2 text-xs text-muted-foreground">
+        {t("admin.versions.waitHelp", { minutes: data.autoWaitMinutes })}
+      </p>
       {error && (
         <p role="alert" className="mt-2 text-sm text-destructive">
           {error}

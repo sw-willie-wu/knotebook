@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { vid, vlabel, vtarget } from "@/test/version-fixtures";
 import { Profiler } from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -28,7 +29,7 @@ function b64(blocks: unknown[]): string {
   blocksToYXmlFragment(BlockNoteEditor.create({ schema: noteSchema }), blocks as any, doc.getXmlFragment(YDOC_FRAGMENT));
   return btoa(String.fromCharCode(...Y.encodeStateAsUpdate(doc)));
 }
-const ver = (seq: number): VersionDto => ({ id: `v-${seq}`, seq, kind: "auto", name: null, editors: [{ handle: "ann", agentLabel: null }], baseSeq: null, createdAt: "2026-10-09T00:00:00.000Z" });
+const ver = (seq: number): VersionDto => ({ id: vid(seq), seq, kind: "auto", name: null, editors: [{ handle: "ann", agentLabel: null }], baseSeq: null, base: null, createdAt: "2026-10-09T00:00:00.000Z" });
 const V1 = [{ id: "A", type: "paragraph", content: "甲" }, { id: "B", type: "paragraph", content: "乙" }];
 const V2 = [{ id: "A", type: "paragraph", content: "甲改" }, { id: "C", type: "paragraph", content: "丙" }];
 
@@ -47,7 +48,7 @@ function stub(routes: Record<string, unknown>) {
 }
 const list = (versions: VersionDto[], nextBefore: number | null = null): VersionListDto => ({
   versions,
-  current: { baseSeq: versions[0]?.seq ?? null, dirty: false, nextSeq: (versions[0]?.seq ?? 0) + 1, autoEnabled: true },
+  current: { baseSeq: versions[0]?.seq ?? null, base: versions[0] ? { id: versions[0].id, name: versions[0].name, deleted: false } : null, dirty: false, nextSeq: (versions[0]?.seq ?? 0) + 1, autoEnabled: true },
   nextBefore,
 });
 
@@ -66,14 +67,14 @@ function Host({ doc, seq, seq2, right, forceSingle, profile }: { doc: Y.Doc; seq
   const value = useVersionsController({ noteId: NOTE, enabled: true });
   return (
     <VersionsProvider value={value}>
-      <button type="button" onClick={() => value.startPreview({ seq, id: `v-${seq}` })}>go</button>
+      <button type="button" onClick={() => value.startPreview(vtarget(seq))}>go</button>
       {seq2 !== undefined && (
-        <button type="button" onClick={() => value.startPreview({ seq: seq2, id: `v-${seq2}` })}>
+        <button type="button" onClick={() => value.startPreview(vtarget(seq2))}>
           go2
         </button>
       )}
       {right !== undefined && (
-        <button type="button" onClick={() => value.setCompareRight({ seq: right, id: `v-${right}` })}>
+        <button type="button" onClick={() => value.setCompareRight(vtarget(right))}>
           r
         </button>
       )}
@@ -116,11 +117,11 @@ function renderPreview(opts: { seq: number; seq2?: number; right?: number; right
   if (opts.right !== undefined && !opts.rightLater) fireEvent.click(screen.getByText("r"));
   return { live, queryClient };
 }
-/** 左 v1（V1）vs 活文件（V2）——rev 10 的預設比較：A changed、B deleted、C added。 */
+/** 左 seq 1（V1）vs 活文件（V2）——rev 10 的預設比較：A changed、B deleted、C added。 */
 const routesV1 = () => ({
   [`/api/notes/${NOTE}/versions?limit=50`]: list([ver(2), ver(1)]),
-  [`/api/notes/${NOTE}/versions/2`]: { id: "v-2", seq: 2, ydoc: b64(V2) },
-  [`/api/notes/${NOTE}/versions/1`]: { id: "v-1", seq: 1, ydoc: b64(V1) },
+  [`/api/notes/${NOTE}/versions/2`]: { id: vid(2), seq: 2, ydoc: b64(V2) },
+  [`/api/notes/${NOTE}/versions/1`]: { id: vid(1), seq: 1, ydoc: b64(V1) },
 });
 
 describe("VersionPreview（spec §8.4）", () => {
@@ -150,7 +151,7 @@ describe("VersionPreview（spec §8.4）", () => {
   it("Task 2 carry：未變更的區塊不在 marks 裡，由 DiffEditor 回貼 context（vs 目前狀態）", async () => {
     stub({
       [`/api/notes/${NOTE}/versions?limit=50`]: list([ver(1)]),
-      [`/api/notes/${NOTE}/versions/1`]: { id: "v-1", seq: 1, ydoc: b64(V1) },
+      [`/api/notes/${NOTE}/versions/1`]: { id: vid(1), seq: 1, ydoc: b64(V1) },
     });
     renderPreview({ seq: 1, live: [{ id: "A", type: "paragraph", content: "甲" }, { id: "D", type: "paragraph", content: "丁" }] });
     const view = await screen.findByTestId("diff-single");
@@ -163,7 +164,7 @@ describe("VersionPreview（spec §8.4）", () => {
     // VersionPreview 根本不 re-render（reviewer 實跑：body 不變 0 次、dirty 翻面 1 次），守衛有無 useMemo 都綠。
     // gate r3 I-1：不能用「.bn-editor 同一節點」判斷——BlockNote 重建唯讀 editor 時 .bn-editor 根節點沿用，有無 useMemo 都綠。
     // 唯一斷言是 BlockNoteEditor.create 在重抓之後的呼叫數（reviewer 實跑：原碼 0；拿掉 entries 或左快照的 useMemo 各 1）。
-    // rev 10：右邊是兩個快照（右選 v2），讓兩條快照 useMemo 都在路徑上。
+    // rev 10：右邊是兩個快照（右選 seq 2），讓兩條快照 useMemo 都在路徑上。
     // rev 10：VersionPreview 不再讀清單的 data（`usePreviousTarget` 刪了；React Query 只在讀過的欄位變動時 re-render），
     // 清單重抓本身已不會讓它 re-render——所以另用一次與 diff 無關的 context 變動（窄寬下 setSplitMode("single")，版面不變）
     // 保證「確實 re-render」，再斷言沒重建。
@@ -213,7 +214,7 @@ describe("VersionPreview（spec §8.4）", () => {
     }
   });
 
-  it("rev 10：右選某版 → 兩個快照比較，方向左→右（左 v2、右 v1：B added、C 刪除、A changed）；不讀活文件", async () => {
+  it("rev 10：右選某版 → 兩個快照比較，方向左→右（左 seq 2、右 seq 1：B added、C 刪除、A changed）；不讀活文件", async () => {
     stub(routesV1());
     renderPreview({ seq: 2, right: 1, live: [{ id: "Z", type: "paragraph", content: "活" }] });
     const view = await screen.findByTestId("diff-single");
@@ -226,15 +227,15 @@ describe("VersionPreview（spec §8.4）", () => {
     expect(view.querySelector('[data-diff="deleted"]')).toHaveTextContent("丙");
   });
 
-  it("rev 10：右選到比左新的版（左 v1、右 v2）照樣算、不換邊：C added、B 刪除；觸發鈕仍是左 v1、右 v2", async () => {
+  it("rev 10：右選到比左新的版（左 seq 1、右 seq 2）照樣算、不換邊：C added、B 刪除；觸發鈕仍是左 seq 1、右 seq 2", async () => {
     stub(routesV1());
     renderPreview({ seq: 1, right: 2 });
     const view = await screen.findByTestId("diff-single");
     await waitFor(() => expect(view.querySelector('[data-id="C"][data-diff="added"]')).not.toBeNull());
     expect(view.querySelector('[data-diff="deleted"]')).toHaveTextContent("乙");
     const banner = within(screen.getByTestId("preview-banner"));
-    expect(banner.getByRole("button", { name: "Left side" })).toHaveTextContent("v1");
-    expect(banner.getByRole("button", { name: "Right side" })).toHaveTextContent("v2");
+    expect(banner.getByRole("button", { name: "Left side" })).toHaveTextContent(vlabel(1));
+    expect(banner.getByRole("button", { name: "Right side" })).toHaveTextContent(vlabel(2));
     expect(screen.getByTestId("preview-state")).toHaveTextContent('"seq":1');
     expect(screen.getByTestId("right-state")).toHaveTextContent('"seq":2');
   });
@@ -244,7 +245,7 @@ describe("VersionPreview（spec §8.4）", () => {
     const many2 = [{ id: "A", type: "paragraph", content: "甲" }, { id: "B", type: "paragraph", content: "乙" }, { id: "E", type: "paragraph", content: "戊改" }];
     stub({
       [`/api/notes/${NOTE}/versions?limit=50`]: list([ver(1)]),
-      [`/api/notes/${NOTE}/versions/1`]: { id: "v-1", seq: 1, ydoc: b64(many) },
+      [`/api/notes/${NOTE}/versions/1`]: { id: vid(1), seq: 1, ydoc: b64(many) },
     });
     renderPreview({ seq: 1, live: many2 });
     fireEvent.click(await screen.findByRole("button", { name: "Only changes" }));
@@ -273,12 +274,12 @@ describe("VersionPreview（spec §8.4）", () => {
     expect(single).not.toHaveClass("flex-1");
   });
 
-  describe("rev 12 並排逐區塊對齊（左 v1＝[A 甲, B 乙]、右目前狀態＝[A 甲改, N 新, B 乙]：列 {0,0}{null,1}{1,2}）", () => {
+  describe("rev 12 並排逐區塊對齊（左 seq 1＝[A 甲, B 乙]、右目前狀態＝[A 甲改, N 新, B 乙]：列 {0,0}{null,1}{1,2}）", () => {
     const INS_V1 = [{ id: "A", type: "paragraph", content: "甲" }, { id: "B", type: "paragraph", content: "乙" }];
     const INS_LIVE = [{ id: "A", type: "paragraph", content: "甲改" }, { id: "N", type: "paragraph", content: "新" }, { id: "B", type: "paragraph", content: "乙" }];
     const routesIns = () => ({
       [`/api/notes/${NOTE}/versions?limit=50`]: list([ver(1)]),
-      [`/api/notes/${NOTE}/versions/1`]: { id: "v-1", seq: 1, ydoc: b64(INS_V1) },
+      [`/api/notes/${NOTE}/versions/1`]: { id: vid(1), seq: 1, ydoc: b64(INS_V1) },
     });
     const rowOf = (pane: Element) => Array.from(pane.querySelectorAll<HTMLElement>(".bn-block-outer")).map((el) => [el.dataset.id, el.dataset.diffRow]);
 
@@ -326,7 +327,7 @@ describe("VersionPreview（spec §8.4）", () => {
         expect(spacers[0].style.width).toBe("100px");
         expect(rightSec.querySelector(".kb-diff-spacer")).toBeNull();
         expect((leftSec as HTMLElement).style.paddingBottom).toBe("");
-        // 右邊換成 v1（與左相同）：左欄編輯器不重建（a 身分不變），上一輪寫的 margin 必須被清掉、spacer 消失。
+        // 右邊換成 seq 1（與左相同）：左欄編輯器不重建（a 身分不變），上一輪寫的 margin 必須被清掉、spacer 消失。
         const leftB = left.querySelector<HTMLElement>('.bn-block-outer[data-id="B"]')!;
         fireEvent.click(screen.getByText("r"));
         await waitFor(() => expect(rowOf(within(screen.getByTestId("diff-split")).getAllByTestId("diff-pane")[1])).toEqual([["A", "0"], ["B", "1"]]));
@@ -349,7 +350,7 @@ describe("VersionPreview（spec §8.4）", () => {
     });
   });
 
-  it("rev 10：並排時兩欄標頭是兩個下拉（左側 v1／右側 Current state），不是純文字 h3；橫幅沒有下拉", async () => {
+  it("rev 10：並排時兩欄標頭是兩個下拉（左側 seq 1／右側 Current state），不是純文字 h3；橫幅沒有下拉", async () => {
     stub(routesV1());
     widthRef.current = 900;
     renderPreview({ seq: 1, live: V2 });
@@ -359,7 +360,7 @@ describe("VersionPreview（spec §8.4）", () => {
     expect(head).toHaveClass("grid", "grid-cols-2", "gap-4");
     expect(head.compareDocumentPosition(split) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const [leftCell, rightCell] = Array.from(head.children) as HTMLElement[];
-    expect(within(leftCell).getByRole("button", { name: "Left side" })).toHaveTextContent("v1");
+    expect(within(leftCell).getByRole("button", { name: "Left side" })).toHaveTextContent(vlabel(1));
     expect(within(rightCell).getByRole("button", { name: "Right side" })).toHaveTextContent("Current state");
     expect(document.querySelector('[data-testid="diff-split-head"] h3, [data-testid="diff-split"] h3')).toBeNull();
     // 兩欄中間一條 1px border-border 垂直線：右欄（標頭右格＋內容右 section）帶 border-l，左欄不帶；標頭用 pb 而非 mb，線才連續。
@@ -374,14 +375,14 @@ describe("VersionPreview（spec §8.4）", () => {
     expect(banner.queryByRole("button", { name: "Right side" })).not.toBeInTheDocument();
   });
 
-  it("review I-1：並排、右選 v1 的快照讀取失敗（500）→ 欄標頭的下拉仍在；右選回「Current state」→ 錯誤消失、仍在預覽", async () => {
+  it("review I-1：並排、右選 seq 1 的快照讀取失敗（500）→ 欄標頭的下拉仍在；右選回「Current state」→ 錯誤消失、仍在預覽", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((input: RequestInfo | URL) => {
         const url = String(input);
         const ok = (json: unknown) => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(json) } as Response);
         if (url === `/api/notes/${NOTE}/versions?limit=50`) return ok(list([ver(2), ver(1)]));
-        if (url === `/api/notes/${NOTE}/versions/2`) return ok({ id: "v-2", seq: 2, ydoc: b64(V2) });
+        if (url === `/api/notes/${NOTE}/versions/2`) return ok({ id: vid(2), seq: 2, ydoc: b64(V2) });
         if (url === `/api/notes/${NOTE}/versions/1`) return Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({ error: { code: "internal", message: "boom" } }) } as Response);
         throw new Error(`unexpected fetch: ${url}`);
       }),
@@ -390,7 +391,7 @@ describe("VersionPreview（spec §8.4）", () => {
     renderPreview({ seq: 2, right: 1, live: V1 });
     expect(await screen.findByText("An unexpected error occurred.")).toBeInTheDocument();
     const right = within(screen.getByTestId("diff-split-head")).getByRole("button", { name: "Right side" });
-    expect(right).toHaveTextContent("v1");
+    expect(right).toHaveTextContent(vlabel(1));
     fireEvent.pointerDown(right, { button: 0, ctrlKey: false });
     fireEvent.click(within(await screen.findByRole("menu")).getByRole("menuitemradio", { name: "Current state" }));
     await waitFor(() => expect(screen.queryByText("An unexpected error occurred.")).not.toBeInTheDocument());
@@ -407,9 +408,9 @@ describe("VersionPreview（spec §8.4）", () => {
         const url = String(input);
         const ok = (json: unknown) => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(json) } as Response);
         if (url === `/api/notes/${NOTE}/versions?limit=50`) return ok(list([ver(2), ver(1)]));
-        if (url === `/api/notes/${NOTE}/versions/1`) return ok({ id: "v-1", seq: 1, ydoc: b64(V1) });
+        if (url === `/api/notes/${NOTE}/versions/1`) return ok({ id: vid(1), seq: 1, ydoc: b64(V1) });
         if (url === `/api/notes/${NOTE}/versions/2`)
-          return new Promise<Response>((r) => (release = () => r({ ok: true, status: 200, json: () => Promise.resolve({ id: "v-2", seq: 2, ydoc: b64(V2) }) } as Response)));
+          return new Promise<Response>((r) => (release = () => r({ ok: true, status: 200, json: () => Promise.resolve({ id: vid(2), seq: 2, ydoc: b64(V2) }) } as Response)));
         throw new Error(`unexpected fetch: ${url}`);
       }),
     );
@@ -418,11 +419,11 @@ describe("VersionPreview（spec §8.4）", () => {
     await screen.findByTestId("diff-split");
     const right = within(screen.getByTestId("diff-split-head")).getByRole("button", { name: "Right side" });
     fireEvent.pointerDown(right, { button: 0, ctrlKey: false });
-    fireEvent.click(within(await screen.findByRole("menu")).getByRole("menuitemradio", { name: "v2" }));
+    fireEvent.click(within(await screen.findByRole("menu")).getByRole("menuitemradio", { name: vlabel(2) }));
     expect(await screen.findByText("Loading version…")).toBeInTheDocument();
     expect(screen.getByTestId("diff-split-head")).toBeInTheDocument();
     expect(right.isConnected).toBe(true);
-    expect(right).toHaveTextContent("v2");
+    expect(right).toHaveTextContent(vlabel(2));
     release();
     expect(await screen.findByTestId("diff-split")).toBeInTheDocument();
   });
@@ -472,7 +473,7 @@ describe("VersionPreview（spec §8.4）", () => {
     stub(routesV1());
     widthRef.current = 900;
     renderPreview({ seq: 1, right: 2, live: V2 });
-    // 起點右邊是 v2；下面靠「rc」（右回目前狀態）／「r」（右回 v2）兩種 context 變動觸發重新 render。
+    // 起點右邊是 seq 2；下面靠「rc」（右回目前狀態）／「r」（右回 seq 2）兩種 context 變動觸發重新 render。
     await screen.findByTestId("diff-split");
     const banner = () => within(screen.getByTestId("preview-banner"));
     const split = () => banner().getByRole("button", { name: "Side by side" });
@@ -565,7 +566,7 @@ describe("VersionPreview（spec §8.4）", () => {
           if (failList) return Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({ error: { code: "internal", message: "boom" } }) } as Response);
           return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(list([ver(1)])) } as Response);
         }
-        if (url === `/api/notes/${NOTE}/versions/1`) return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ id: "v-1", seq: 1, ydoc: b64(V1) }) } as Response);
+        if (url === `/api/notes/${NOTE}/versions/1`) return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ id: vid(1), seq: 1, ydoc: b64(V1) }) } as Response);
         throw new Error(`unexpected fetch: ${url}`);
       }),
     );
@@ -590,7 +591,7 @@ describe("VersionPreview（spec §8.4）", () => {
         const url = String(input);
         calls.push(url);
         if (url === `/api/notes/${NOTE}/versions?kind=manual&limit=50`) return Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({ error: { code: "internal", message: "boom" } }) } as Response);
-        if (url === `/api/notes/${NOTE}/versions/1`) return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ id: "v-1", seq: 1, ydoc: b64(V1) }) } as Response);
+        if (url === `/api/notes/${NOTE}/versions/1`) return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ id: vid(1), seq: 1, ydoc: b64(V1) }) } as Response);
         throw new Error(`unexpected fetch: ${url}`);
       }),
     );
@@ -617,7 +618,7 @@ describe("VersionPreview（spec §8.4）", () => {
     const i2 = [{ id: "I", type: "image", props: { url: "/api/uploads/2" } }];
     stub({
       [`/api/notes/${NOTE}/versions?limit=50`]: list([ver(1)]),
-      [`/api/notes/${NOTE}/versions/1`]: { id: "v-1", seq: 1, ydoc: b64(i1) },
+      [`/api/notes/${NOTE}/versions/1`]: { id: vid(1), seq: 1, ydoc: b64(i1) },
     });
     renderPreview({ seq: 1, live: i2 });
     fireEvent.click(await screen.findByRole("button", { name: "Changed · see before and after" }));
@@ -631,7 +632,7 @@ describe("VersionPreview（spec §8.4）", () => {
     const bad = [{ id: "I", type: "image", props: { url: "javascript:alert(1)" } }];
     stub({
       [`/api/notes/${NOTE}/versions?limit=50`]: list([ver(1)]),
-      [`/api/notes/${NOTE}/versions/1`]: { id: "v-1", seq: 1, ydoc: b64(bad) },
+      [`/api/notes/${NOTE}/versions/1`]: { id: vid(1), seq: 1, ydoc: b64(bad) },
     });
     renderPreview({ seq: 1 });
     await screen.findByTestId("diff-single");
@@ -653,14 +654,14 @@ describe("VersionPreview（spec §8.4）", () => {
   it("rev 10：右邊快照 id 不符 → 右邊回到目前狀態、toast 同一句、不離開預覽", async () => {
     stub({
       [`/api/notes/${NOTE}/versions?limit=50`]: list([ver(2), ver(1)]),
-      [`/api/notes/${NOTE}/versions/2`]: { id: "v-2", seq: 2, ydoc: b64(V2) },
+      [`/api/notes/${NOTE}/versions/2`]: { id: vid(2), seq: 2, ydoc: b64(V2) },
       [`/api/notes/${NOTE}/versions/1`]: { id: "v-OTHER", seq: 1, ydoc: b64(V1) },
     });
     renderPreview({ seq: 2, right: 1, live: V1 });
     expect(await screen.findByText("This version no longer exists. The list has been refreshed.")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId("right-state")).toHaveTextContent('"current"'));
     expect(screen.getByTestId("preview-state")).toHaveTextContent('"seq":2');
-    // 改比活文件（V1）：左 v2 → 右 V1：B added
+    // 改比活文件（V1）：左 seq 2 → 右 V1：B added
     const view = await screen.findByTestId("diff-single");
     await waitFor(() => expect(view.querySelector('[data-id="B"][data-diff="added"]')).not.toBeNull());
     expect(screen.queryByText("An unexpected error occurred.")).not.toBeInTheDocument();
@@ -676,7 +677,7 @@ describe("VersionPreview（spec §8.4）", () => {
         const url = String(input);
         const ok = (json: unknown) => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(json) } as Response);
         if (url === `/api/notes/${NOTE}/versions?limit=50`) return ok(list([ver(2), ver(1)]));
-        if (url === `/api/notes/${NOTE}/versions/2`) return ok({ id: "v-2", seq: 2, ydoc: b64(V2) });
+        if (url === `/api/notes/${NOTE}/versions/2`) return ok({ id: vid(2), seq: 2, ydoc: b64(V2) });
         if (url === `/api/notes/${NOTE}/versions/1`) return Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({ error: { code: "internal", message: "boom" } }) } as Response);
         throw new Error(`unexpected fetch: ${url}`);
       }),
@@ -717,10 +718,10 @@ describe("VersionPreview（spec §8.4）", () => {
     expect(within(banner).queryByRole("button", { name: /close/i })).not.toBeInTheDocument();
   });
 
-  it("rev 10 橫幅：bg-brand-soft（不是 bg-accent、不是 bg-primary）、「Previewing v1」、沒有時間／editors／Compare with；單欄時有左右兩個下拉（中間 →）", async () => {
+  it("rev 10 橫幅：bg-brand-soft（不是 bg-accent、不是 bg-primary）、「Previewing 名稱 (短 id)」、沒有時間／editors／Compare with；單欄時有左右兩個下拉（中間 →）", async () => {
     stub({
       [`/api/notes/${NOTE}/versions?limit=50`]: list([ver(1)]),
-      [`/api/notes/${NOTE}/versions/1`]: { id: "v-1", seq: 1, ydoc: b64(V1) },
+      [`/api/notes/${NOTE}/versions/1`]: { id: vid(1), seq: 1, ydoc: b64(V1) },
     });
     renderPreview({ seq: 1 });
     const banner = await screen.findByTestId("preview-banner");
@@ -728,14 +729,14 @@ describe("VersionPreview（spec §8.4）", () => {
     expect(banner).not.toHaveClass("bg-accent");
     expect(banner).not.toHaveClass("flex-wrap");
     expect(banner).toHaveClass("flex-nowrap");
-    await waitFor(() => expect(within(banner).getByRole("button", { name: "Left side" })).toHaveTextContent("v1"));
+    await waitFor(() => expect(within(banner).getByRole("button", { name: "Left side" })).toHaveTextContent(vlabel(1)));
     expect(within(banner).getByRole("button", { name: "Right side" })).toHaveTextContent("Current state");
     // 收尾 M-A：單欄時欄標頭列不存在，整頁上的下拉只有橫幅那一對。
     await screen.findByTestId("diff-single");
     expect(screen.queryByTestId("diff-split-head")).toBeNull();
     expect(screen.getAllByRole("button", { name: "Left side" })).toHaveLength(1);
     expect(screen.getAllByRole("button", { name: "Right side" })).toHaveLength(1);
-    expect(within(banner).getByText("Previewing v1")).toBeInTheDocument();
+    expect(within(banner).getByText("Previewing agile-beaver (0001aaa)")).toBeInTheDocument();
     expect(within(banner).getByText("→")).toHaveAttribute("aria-hidden", "true");
     expect(banner).not.toHaveTextContent("ann");
     expect(banner).not.toHaveTextContent("Compare with");
@@ -749,9 +750,9 @@ describe("VersionPreview（spec §8.4）", () => {
     const img = (n: number) => [{ id: "I", type: "image", props: { url: `/api/uploads/${n}` } }];
     stub({
       [`/api/notes/${NOTE}/versions?limit=50`]: list([ver(3), ver(2), ver(1)]),
-      [`/api/notes/${NOTE}/versions/3`]: { id: "v-3", seq: 3, ydoc: b64(img(3)) },
-      [`/api/notes/${NOTE}/versions/2`]: { id: "v-2", seq: 2, ydoc: b64(img(2)) },
-      [`/api/notes/${NOTE}/versions/1`]: { id: "v-1", seq: 1, ydoc: b64(img(1)) },
+      [`/api/notes/${NOTE}/versions/3`]: { id: vid(3), seq: 3, ydoc: b64(img(3)) },
+      [`/api/notes/${NOTE}/versions/2`]: { id: vid(2), seq: 2, ydoc: b64(img(2)) },
+      [`/api/notes/${NOTE}/versions/1`]: { id: vid(1), seq: 1, ydoc: b64(img(1)) },
     });
     renderPreview({ seq: 2, seq2: 3, live: img(9) });
     fireEvent.click(await screen.findByRole("button", { name: "Changed · see before and after" }));
@@ -777,8 +778,8 @@ describe("VersionPreview（spec §8.4）", () => {
     stub({
       "/api/notes": notes,
       [`/api/notes/${NOTE}/versions?limit=50`]: list([ver(2), ver(1)]),
-      [`/api/notes/${NOTE}/versions/2`]: { id: "v-2", seq: 2, ydoc: b64(W2) },
-      [`/api/notes/${NOTE}/versions/1`]: { id: "v-1", seq: 1, ydoc: b64(W1) },
+      [`/api/notes/${NOTE}/versions/2`]: { id: vid(2), seq: 2, ydoc: b64(W2) },
+      [`/api/notes/${NOTE}/versions/1`]: { id: vid(1), seq: 1, ydoc: b64(W1) },
     });
     const create = vi.spyOn(BlockNoteEditor, "create");
     try {
@@ -812,5 +813,22 @@ describe("VersionPreview（spec §8.4）", () => {
     } finally {
       create.mockRestore();
     }
+  });
+
+  it("RF1：預覽中的那一版被改名 → 橫幅與左邊觸發鈕立刻換成新名稱（清單那一列優先，不停在選取時記下的名稱）", async () => {
+    stub(routesV1());
+    const { queryClient } = renderPreview({ seq: 1, live: V2 });
+    const banner = await screen.findByTestId("preview-banner");
+    await waitFor(() => expect(within(banner).getByRole("button", { name: "Left side" })).toHaveTextContent(vlabel(1)));
+    expect(banner).toHaveTextContent(`Previewing ${vlabel(1)}`);
+    expect(within(banner).getByText(`Previewing ${vlabel(1)}`)).toHaveAttribute("title", vlabel(1)); // m4：截斷的標籤整句靠 title 看全名
+    act(() => {
+      queryClient.setQueryData(versionListKey(NOTE, "all"), {
+        pages: [list([ver(2), { ...ver(1), kind: "manual" as const, name: "改好的名字" }])],
+        pageParams: [undefined],
+      });
+    });
+    await waitFor(() => expect(banner).toHaveTextContent(`Previewing ${vlabel(1, "改好的名字")}`));
+    expect(within(banner).getByRole("button", { name: "Left side" })).toHaveTextContent(vlabel(1, "改好的名字"));
   });
 });

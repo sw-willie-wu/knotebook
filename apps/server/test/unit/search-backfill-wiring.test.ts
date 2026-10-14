@@ -40,7 +40,12 @@ describe("#93 S13：index.ts 的回填接線", () => {
     const destroyAt = handler.indexOf("collab.destroy()");
     expect(destroyAt, "關機要呼叫 collab.destroy()").toBeGreaterThan(-1);
     expect(destroyAt, "race 要在 collab.destroy() 之前").toBeGreaterThan(race!.index + race![0].length - 1);
-    expect(src).toMatch(/_STOP_GRACE_MS = 2_000;/);
+    // 寬限常數：#272 併線後只留一份——index.ts 從 collab/versions.ts 引入 SCAN_STOP_GRACE_MS（值 2 s）；未併線時是本檔自己的常數。
+    const importsShared = src.includes('import { SCAN_STOP_GRACE_MS } from "./collab/versions.js";');
+    const graceSrc = importsShared
+      ? readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../src/collab/versions.ts"), "utf8")
+      : src;
+    expect(graceSrc).toMatch(/_STOP_GRACE_MS = 2_000;/);
     expect(src).toMatch(/const stopGrace = \(\): Promise<void> => new Promise\(resolve => setTimeout\(resolve, [A-Z_]+_STOP_GRACE_MS\)\.unref\(\)\);/);
   });
 });

@@ -14,6 +14,7 @@ import {
 import { Check, ChevronDown } from "@/components/ui/icons";
 import { useVersions } from "@/lib/versions-context";
 import { TINT_HOVER_CLASS, versionLabel } from "./version-labels";
+import { useTargetLabel } from "./use-target-label";
 
 const CURRENT = "current";
 
@@ -27,13 +28,14 @@ const CURRENT = "current";
 export function ComparePicker({ side }: { side: "left" | "right" }) {
   const { t } = useTranslation();
   const { noteId, preview, compareRight, kindFilter, startPreview, setCompareRight } = useVersions();
-  // 選項跟著清單篩選（#258）；觸發鈕的標籤來自 `target`（preview／compareRight 本身），不從清單查——被篩掉的那一版照樣顯示 vN。
+  // 選項跟著清單篩選（#258）。觸發鈕（#272 D5）顯示「名稱 (短 id)」：清單裡有這一版就用清單那一列（改名立刻反映，RF1），
+  // 被篩掉時用選取時記下的 `target.name`（`useTargetLabel`）。長名稱截斷、完整標籤放 title（原 C1：不把橫幅撐出單排）。
   const list = useVersionList(noteId ?? "", preview !== null, kindFilter);
   const rows = list.data?.pages.flatMap((p) => p.versions) ?? [];
   const target = side === "left" ? preview : compareRight;
   const value = target === CURRENT ? CURRENT : (target?.id ?? "");
-  // 觸發鈕只顯示 `vN`／「目前狀態」（總管裁定 C1：名稱只在下拉項裡，免得長名稱把橫幅撐出單排）。
-  const label = target === CURRENT ? t("versions.preview.currentOption") : target ? `v${target.seq}` : "";
+  const targetLabel = useTargetLabel(target === CURRENT ? null : target);
+  const label = target === CURRENT ? t("versions.preview.currentOption") : targetLabel;
 
   const choose = (next: string) => {
     // 重選已勾的那一項＝什麼都不做（不重新取樣「目前狀態」、不重建預覽；review N-3）。
@@ -44,7 +46,7 @@ export function ComparePicker({ side }: { side: "left" | "right" }) {
     }
     const row = rows.find((r) => r.id === next);
     if (!row) return;
-    const picked = { seq: row.seq, id: row.id };
+    const picked = { seq: row.seq, id: row.id, name: row.name };
     if (side === "left") startPreview(picked);
     else setCompareRight(picked);
   };
@@ -62,7 +64,7 @@ export function ComparePicker({ side }: { side: "left" | "right" }) {
           className={`h-7 min-w-0 shrink-0 gap-1 ${TINT_HOVER_CLASS}`}
           aria-label={t(side === "left" ? "versions.preview.leftPicker" : "versions.preview.rightPicker")}
         >
-          <span>{label}</span>
+          <span className="max-w-48 truncate" title={label}>{label}</span>
           <ChevronDown aria-hidden="true" className="h-3.5 w-3.5 shrink-0 opacity-70" />
         </Button>
       </DropdownMenuTrigger>

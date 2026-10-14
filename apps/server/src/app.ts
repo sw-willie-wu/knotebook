@@ -17,7 +17,7 @@ import { createAuthenticateAny } from "./auth/bearer.js";
 import type { LoginThrottle } from "./auth/rate-limit.js";
 import type { CollabHooks } from "./collab/hooks.js";
 import type { CollabServer } from "./collab/server.js";
-import { VERSION_SWEEP_FIRST_DELAY_MS, VERSION_SWEEP_INTERVAL_MS, createVersionService } from "./collab/versions.js";
+import { SCAN_STOP_GRACE_MS, VERSION_AUTO_SCAN_INTERVAL_MS, VERSION_SWEEP_FIRST_DELAY_MS, VERSION_SWEEP_INTERVAL_MS, createVersionService } from "./collab/versions.js";
 import { authRoutes } from "./routes/auth.js";
 import { notesRoutes } from "./routes/notes.js";
 import { noteVersionsRoutes } from "./routes/note-versions.js";
@@ -30,6 +30,7 @@ import { storageRoutes } from "./routes/storage.js";
 import { adminAiRoutes } from "./routes/admin-ai.js";
 import { adminAuthRoutes } from "./routes/admin-auth.js";
 import { adminVersionsRoutes } from "./routes/admin-versions.js";
+import { testHookRoutes } from "./routes/test-hooks.js";
 import { accountRoutes } from "./routes/account.js";
 import { aiRoutes } from "./routes/ai.js";
 import { uploadsRoutes } from "./routes/uploads.js";
@@ -227,8 +228,13 @@ export interface AppDeps {
    * `DEFAULT_STORAGE_LOCK_TIMEOUT_MS`（5000）。race 測試注入 60000、S15 注入 200。
    */
   storageLockTimeoutMs?: number;
-  /** 版本歷史 §10.2：每小時背景清除（啟動後 5 分鐘首跑）。`index.ts` 傳 true；測試 app 不傳＝不啟動、直接呼叫 `sweep`。 */
+  /**
+   * 版本歷史 §10.2：每小時背景清除（啟動後 5 分鐘首跑）；#272 §7.4：同一個旗標也開自動切版掃描（每 `versionAutoScanIntervalMs`）。
+   * `index.ts` 傳 true；測試 app 不傳＝都不啟動、直接呼叫 `sweep`／`scanDue`。
+   */
   startVersionSweep?: boolean;
+  /** #272 §7.4／§7.5：自動切版掃描間隔（毫秒）。未設＝`VERSION_AUTO_SCAN_INTERVAL_MS`（30 s）；e2e 測試縫開著時 `index.ts` 傳 1000。 */
+  versionAutoScanIntervalMs?: number;
   /**
    * Task 9：圖片上傳存放目錄的絕對路徑。**必填**——`buildApp` 啟動時會對它做一次
    * 可寫性探測（`assertUploadsDirWritable`，見該函式說明為何不用 `accessSync`），
@@ -649,9 +655,18 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     first.unref();
     const every = setInterval(runSweep, VERSION_SWEEP_INTERVAL_MS);
     every.unref();
+    // #272 §7.4：自動切版掃描。不另設首發 setTimeout（第一輪在一個間隔之後）；同時只跑一輪由 `scanDue` 自己擋。
+    const runScan = (): void => {
+      void versions.scanDue().catch(err => app.log.warn({ err }, "自動切版背景掃描失敗"));
+    };
+    const scanEvery = setInterval(runScan, deps.versionAutoScanIntervalMs ?? VERSION_AUTO_SCAN_INTERVAL_MS);
+    scanEvery.unref();
     app.addHook("onClose", async () => {
       clearTimeout(first);
       clearInterval(every);
+      clearInterval(scanEvery);
+      // 等進行中那一輪做完手上那一篇，但至多 SCAN_STOP_GRACE_MS（2 s，與 index.ts 的關機上限共用；timer unref，不撐住行程）。
+      await Promise.race([versions.stopScan(), new Promise<void>(resolve => setTimeout(resolve, SCAN_STOP_GRACE_MS).unref())]);
     });
   }
 
@@ -735,8 +750,8 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     : NOOP_LINK_CONVERSION;
   app.decorate("linkConversion", linkConversion);
   app.addHook("onClose", async () => {
-    // plan gate r1 M1：與 SIGTERM 鏈同一個 2 s 上限（比照 #272 的 onClose）——在途那一篇不得把 app.close()／pool.end() 拖到 SIGKILL。
-    await Promise.race([linkConversion.stop(), new Promise<void>(resolve => setTimeout(resolve, 2_000).unref())]);
+    // plan gate r1 M1：與 SIGTERM 鏈同一個 2 s 上限（SCAN_STOP_GRACE_MS，與 #272 的掃描 onClose 共用）——在途那一篇不得把 app.close()／pool.end() 拖到 SIGKILL。
+    await Promise.race([linkConversion.stop(), new Promise<void>(resolve => setTimeout(resolve, SCAN_STOP_GRACE_MS).unref())]);
   });
 
   void app.register(
@@ -773,6 +788,8 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   void app.register(adminAuthRoutes({ db: deps.db, config: deps.config, registry: oidcRegistry }));
   // 版本歷史 §6.7：站台清除天數與自動儲存總開關。
   void app.register(adminVersionsRoutes({ db: deps.db }));
+  // #272 §7.5：e2e 測試縫（只在 KNOTEBOOK_E2E_TEST_HOOKS=1 且 PUBLIC_URL 是 loopback 時；見 config.ts 的 `testHooks`）。
+  if (deps.config.testHooks) void app.register(testHookRoutes({ versions }));
   // #187 PR3：註冊、個人設定的登入方式與加上密碼（spec §8、§9.1）。
   void app.register(
     accountRoutes({ db: deps.db, config: deps.config, gate: deps.gate, collabHooks: deps.collabHooks, limiters: { register: limiters.register } }),

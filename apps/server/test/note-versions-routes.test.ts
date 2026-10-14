@@ -4,6 +4,7 @@ import { eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import * as Y from "yjs";
 import { YDOC_FRAGMENT } from "@knotebook/shared";
+import type { VersionDto } from "@knotebook/shared";
 import { noteStates, noteVersions, notes } from "../src/db/schema.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 import { versionFingerprint } from "../src/notes/version-fingerprint.js";
@@ -111,19 +112,22 @@ describe("GET 清單與快照（§6.1、§6.2）", () => {
     const s = await restSetup();
     const fp = versionFingerprint(paraDoc(["版本一的內容"]).getXmlFragment(YDOC_FRAGMENT));
     const ghost = "00000000-0000-4000-8000-0000000000ff";
+    const ids: string[] = [];
     for (let seq = 1; seq <= 5; seq += 1) {
-      await s.db.insert(noteVersions).values({
+      const [row] = await s.db.insert(noteVersions).values({
         noteId: s.note.id, seq, ydoc: Buffer.from([0]), kind: seq === 3 ? "manual" : "auto", name: seq === 3 ? "里程碑" : null,
         editors: [{ user_id: s.owner.id, agent_label: null }, { user_id: ghost, agent_label: "Claude" }], baseSeq: seq === 4 ? 2 : null,
-      });
+        baseVersionId: seq === 4 ? ids[1]! : null,
+      }).returning({ id: noteVersions.id });
+      ids.push(row!.id);
     }
-    await s.db.update(notes).set({ versionCounter: 5, versionBaseSeq: 5, versionBaseFingerprint: fp }).where(eq(notes.id, s.note.id));
+    await s.db.update(notes).set({ versionCounter: 5, versionBaseSeq: 5, versionBaseFingerprint: fp, versionBaseVersionId: ids[4]! }).where(eq(notes.id, s.note.id));
     const p1 = (await call(s.app, "GET", `${s.base}?limit=2`, s.owner.id)).json();
     expect(p1.versions.map((v: { seq: number }) => v.seq)).toEqual([5, 4]);
     expect(p1.nextBefore).toBe(4);
-    expect(p1.current).toEqual({ baseSeq: 5, dirty: false, nextSeq: 6, autoEnabled: true });
-    expect(p1.versions[1]).toMatchObject({ kind: "auto", name: null, baseSeq: 2, editors: [{ handle: s.owner.handle, agentLabel: null }, { handle: "", agentLabel: "Claude" }] });
-    expect(Object.keys(p1.versions[0]).sort()).toEqual(["baseSeq", "createdAt", "editors", "id", "kind", "name", "seq"]);
+    expect(p1.current).toEqual({ baseSeq: 5, base: { id: ids[4], name: null, deleted: false }, dirty: false, nextSeq: 6, autoEnabled: true });
+    expect(p1.versions[1]).toMatchObject({ kind: "auto", name: null, baseSeq: 2, base: { id: ids[1], name: null, deleted: false }, editors: [{ handle: s.owner.handle, agentLabel: null }, { handle: "", agentLabel: "Claude" }] });
+    expect(Object.keys(p1.versions[0]).sort()).toEqual(["base", "baseSeq", "createdAt", "editors", "id", "kind", "name", "seq"]);
     const p2 = (await call(s.app, "GET", `${s.base}?limit=2&before=4`, s.owner.id)).json();
     expect(p2.versions.map((v: { seq: number }) => v.seq)).toEqual([3, 2]);
     expect(p2.versions[0]).toMatchObject({ kind: "manual", name: "里程碑" });
@@ -190,6 +194,34 @@ describe("GET 清單與快照（§6.1、§6.2）", () => {
     expect((await call(s.app, "PATCH", `${s.base}/1`, s.owner.id, { name: "命名" })).statusCode).toBe(200);
     expect((await call(s.app, "GET", `${s.base}?kind=manual`, s.owner.id)).json().versions.map((v: { seq: number }) => v.seq)).toEqual([1]);
     expect((await call(s.app, "GET", `${s.base}?kind=auto`, s.owner.id)).json().versions).toEqual([]);
+  });
+
+  it("#272 案 24：base——基底不在本頁或被 kind 篩掉仍帶名稱；基底列刪除後 { id, name: null, deleted: true }；升級前就已刪的舊資料 { id: null, deleted: true }；current.base；POST／PATCH 回應帶 base", async () => {
+    const s = await restSetup();
+    const ins = async (seq: number, kind: "auto" | "manual", name: string | null, baseSeq: number | null, baseVersionId: string | null) =>
+      (await s.db.insert(noteVersions).values({ noteId: s.note.id, seq, ydoc: Buffer.from([0]), kind, name, editors: [], baseSeq, baseVersionId }).returning())[0]!;
+    const v1 = await ins(1, "manual", "起點", null, null);
+    await ins(2, "auto", null, 9, null); // 舊資料：沿自 9，沒有基底 uuid
+    const v3 = await ins(3, "manual", "第三", 1, v1.id);
+    const v4 = await ins(4, "auto", null, 3, v3.id);
+    const fp = versionFingerprint(paraDoc(["版本一的內容"]).getXmlFragment(YDOC_FRAGMENT));
+    await s.db.update(notes).set({ versionCounter: 4, versionBaseSeq: 4, versionBaseFingerprint: fp, versionBaseVersionId: v4.id }).where(eq(notes.id, s.note.id));
+    const get = async (q: string) => (await call(s.app, "GET", `${s.base}${q}`, s.owner.id)).json();
+    expect((await get("?limit=1&before=4")).versions[0]).toMatchObject({ seq: 3, baseSeq: 1, base: { id: v1.id, name: "起點", deleted: false } }); // 基底不在本頁
+    const autos = await get("?kind=auto");
+    expect(autos.versions.map((v: VersionDto) => [v.seq, v.base])).toEqual([
+      [4, { id: v3.id, name: "第三", deleted: false }], // 基底被 kind=auto 篩掉
+      [2, { id: null, name: null, deleted: true }], // 舊資料
+    ]);
+    expect(autos.current.base).toEqual({ id: v4.id, name: null, deleted: false });
+    await s.db.delete(noteVersions).where(eq(noteVersions.id, v1.id));
+    expect((await get("?limit=1&before=4")).versions[0].base).toEqual({ id: v1.id, name: null, deleted: true });
+    await s.setContent("第五版的內容");
+    const saved = await call(s.app, "POST", s.base, s.owner.id, {});
+    expect(saved.statusCode).toBe(201);
+    expect(saved.json()).toMatchObject({ seq: 5, baseSeq: null, base: null });
+    const renamed = await call(s.app, "PATCH", `${s.base}/3`, s.owner.id, { name: "改名" });
+    expect(renamed.json()).toMatchObject({ seq: 3, base: { id: v1.id, name: null, deleted: true } });
   });
 
   it("快照：{ id, seq, ydoc(base64) }、Cache-Control private, no-store；不存在 → 404", async () => {
@@ -306,7 +338,7 @@ describe("POST apply（§6.4）× 真 collab", () => {
     const s = await collabSetup();
     const ok = await s.post(`${s.base}/1/apply`, { versionId: s.v1.id.toUpperCase(), discardUnsaved: false });
     expect(ok.status).toBe(200);
-    expect(await ok.json()).toEqual({ current: { baseSeq: 1, dirty: false, nextSeq: 3, autoEnabled: true } });
+    expect(await ok.json()).toEqual({ current: { baseSeq: 1, base: { id: s.v1.id, name: null, deleted: false }, dirty: false, nextSeq: 3, autoEnabled: true } });
     const mm = await s.post(`${s.base}/2/apply`, { versionId: s.v1.id, discardUnsaved: false });
     expect(mm.status).toBe(409);
     expect((await mm.json()).error).toEqual({ code: "version_mismatch", message: "這一版已經不存在或已被取代，請重新整理" });
@@ -325,7 +357,7 @@ describe("POST apply（§6.4）× 真 collab", () => {
     expect((await s.post(`${s.base}/1/apply`, { versionId: s.v1.id, discardUnsaved: true })).status).toBe(200);
   });
 
-  it("排隊期間被刪的版本、有 WS 連線（文件不卸載）→ 回應 baseSeq null、dirty true；之後全部離開 → unload 依 reset 切一版", async () => {
+  it("排隊期間被刪的版本、有 WS 連線（文件不卸載）→ 回應 baseSeq null、dirty true；之後全部離開 → 不切（#272）、baseSeq null、nextSeq 3", async () => {
     let deleteV1: (() => Promise<void>) | null = null;
     const s = await collabSetup({ editingTestHooks: { beforeMerge: async () => { if (deleteV1) await deleteV1(); } } });
     const client = await s.session.connect(s.note.id);
@@ -335,20 +367,24 @@ describe("POST apply（§6.4）× 真 collab", () => {
     deleteV1 = null;
     client.disconnect();
     await s.unloaded();
-    expect((await versionsOf(s.ctx.db, s.note.id)).map(v => v.seq)).toEqual([2, 3]);
+    await s.ctx.collab.versions.scanDue(new Date(Date.now() + 3_600_000));
+    expect((await versionsOf(s.ctx.db, s.note.id)).map(v => v.seq)).toEqual([2]);
+    expect((await (await s.session.fetch(s.base)).json()).current).toMatchObject({ baseSeq: null, nextSeq: 3 });
   });
 
-  it("排隊期間被刪的版本、沒有 WS 連線 → disconnect 內就卸載並切出 v3，回應 baseSeq＝3（需回寫 spec §6.4／§11.2）；之後手動儲存 → 201、總數 2、GET dirty=false", async () => {
+  it("排隊期間被刪的版本、沒有 WS 連線 → 卸載不再切版（#272），回應 baseSeq null、dirty false、nextSeq 3；之後手動儲存 → 201 新版 v3、總數 2、GET dirty=false、基底 3", async () => {
     let deleteV1: (() => Promise<void>) | null = null;
     const s = await collabSetup({ editingTestHooks: { beforeMerge: async () => { if (deleteV1) await deleteV1(); } } });
     deleteV1 = async () => { await s.ctx.db.delete(noteVersions).where(sql`note_versions.note_id = ${s.note.id} and note_versions.seq = 1`); };
     const r = await s.post(`${s.base}/1/apply`, { versionId: s.v1.id, discardUnsaved: false });
-    expect((await r.json()).current).toMatchObject({ baseSeq: 3, dirty: false, nextSeq: 4 }); // v3＝unload 依「沒有基底、loadFingerprint=null」切的
+    expect((await r.json()).current).toMatchObject({ baseSeq: null, dirty: false, nextSeq: 3 });
     deleteV1 = null;
     await s.unloaded();
+    expect((await versionsOf(s.ctx.db, s.note.id)).map(v => v.seq)).toEqual([2]);
+    const saved = await s.post(s.base, {});
+    expect(saved.status).toBe(201);
+    expect((await saved.json()).upgraded).toBe(false);
     expect((await versionsOf(s.ctx.db, s.note.id)).map(v => v.seq)).toEqual([2, 3]);
-    expect((await s.post(s.base, {})).status).toBe(201);
-    expect(await versionsOf(s.ctx.db, s.note.id)).toHaveLength(2); // 內容＝v3 → upgraded，總數不變
     expect((await (await s.session.fetch(s.base)).json()).current.dirty).toBe(false);
     expect((await noteBase(s.ctx.db, s.note.id)).baseSeq).toBe(3);
   });

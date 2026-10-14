@@ -50,7 +50,8 @@ export function versionSnapshotKey(noteId: string, id: string) {
   return ["note-versions", noteId, id] as const;
 }
 
-export type VersionTarget = { seq: number; id: string };
+/** 預覽／比較對象。`seq` 拿快照、`id` 防搬移後同號不同版；`name` 是選取當下的名稱（清單裡沒有它時顯示用，#272 §10.3）。 */
+export type VersionTarget = { seq: number; id: string; name: string | null };
 
 /** 快照回應的 `id` 與清單列不同（中途被 §9 清空重編）——丟棄、不進快取。 */
 export class VersionSnapshotMismatch extends Error {
