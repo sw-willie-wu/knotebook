@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
-import { ADMIN, editorLocator, loginAs } from "./helpers.js";
+import { ADMIN, editorLocator, loginAs, setAutoWait } from "./helpers.js";
 
 /**
  * 量測（不是功能斷言）：spec §13-9【推】舊筆記第一下按鍵／開了就關是否多切一版；§13-5【推】2000 區塊在真瀏覽器的預覽耗時。
@@ -24,7 +24,10 @@ async function versionCount(request: APIRequestContext, id: string): Promise<num
   return ((await res.json()) as { versions: unknown[] }).versions.length;
 }
 
-/** 等 server 把那篇 unload（所有連線斷開 → store → beforeUnload 切版）：版本數連續 3 秒不變才算穩定。 */
+/**
+ * #272：等那篇的版本數穩定——離開後落盤（debounce 2 s）寫待切、停手 X（測試縫 2 s）後掃描器（e2e 疊每秒一輪）切；
+ * 連續 6 秒不變才算穩定（X 2＋掃描 1＋落盤 2＋餘裕）。
+ */
 async function settledCount(request: APIRequestContext, id: string): Promise<number> {
   let last = -1;
   let stableSince = Date.now();
@@ -34,11 +37,16 @@ async function settledCount(request: APIRequestContext, id: string): Promise<num
     if (n !== last) {
       last = n;
       stableSince = Date.now();
-    } else if (Date.now() - stableSince >= 3_000) return n;
+    } else if (Date.now() - stableSince >= 6_000) return n;
     await new Promise((r) => setTimeout(r, 500));
   }
   throw new Error(`settledCount: 版本數 30 秒內沒有穩定（最後一次 ${last}）`);
 }
+
+// #272：23a 用測試縫把等待 X 壓成 2 秒；每一案結束一律設回站台設定（失敗中途也一樣——設定是整座疊共用的）。
+test.afterEach(async ({ page }) => {
+  await setAutoWait(page, null).catch(() => undefined);
+});
 
 async function openAndWait(page: Page, path: string) {
   await page.goto(path);
@@ -47,9 +55,10 @@ async function openAndWait(page: Page, path: string) {
 }
 
 test("23a §13-9：舊 schema 形的筆記——開了就關、在 heading／paragraph／清單項各打一字再刪、圖片 caption 改了再清空，各多切幾版", async ({ page }) => {
-  // 四輪 roundTrip（加開了就關一輪）各含載入／離開與 settle 等待，實跑約 47 s（整檔），留餘裕。
+  // 四輪 roundTrip（加開了就關一輪）各含載入／離開與 settle 等待（#272 起穩定窗 6 s），留餘裕。
   test.setTimeout(240_000);
   await loginAs(page, ADMIN.email, ADMIN.password);
+  await setAutoWait(page, 2);
   const created = await page.request.post("/api/notes", { data: { title: `E2E legacy ${Date.now()}` } });
   expect(created.ok()).toBe(true);
   const note = (await created.json()) as { id: string; ownerHandle: string; slug: string };
@@ -127,6 +136,9 @@ test("23b §13-5：2000 區塊筆記，點版本列到 diff 標記出現的耗�
   const created = await page.request.post("/api/notes", { data: { title: `E2E 2000 ${Date.now()}`, content } });
   expect(created.ok()).toBe(true);
   const note = (await created.json()) as { id: string; ownerHandle: string; slug: string };
+  // #272：帶 content 建立不再立刻切出 v1——先手動存一版「created」，作為「建立時的內容」那一版。
+  const saved = await page.request.post(`/api/notes/${note.id}/versions`, { headers: { Origin: ORIGIN }, data: { name: "created" } });
+  expect(saved.status()).toBe(201);
   await openAndWait(page, `/n/${note.ownerHandle}/${note.slug}`);
   await editorLocator(page).getByText("第 0 段 measure", { exact: false }).click();
   await page.keyboard.type(" edited");
@@ -136,9 +148,9 @@ test("23b §13-5：2000 區塊筆記，點版本列到 diff 標記出現的耗�
   await expect(dialog).not.toBeVisible();
   await page.getByTestId("versions-bubble").click();
   const panel = page.getByTestId("versions-panel");
-  // 點 v1 而不是 v2：rev 10 起比較是左右一對，點列只換左邊、右邊預設是目前狀態（Current state）。v2 是上面剛存的，
-  // 內容與目前狀態相同，兩邊沒有差異、不會出現任何非 context 標記；v1（建立時的內容）與目前狀態差在第 0 段。
-  const row = panel.getByRole("button", { name: /^v1/ });
+  // 點 created 而不是剛存的那一版：rev 10 起比較是左右一對，點列只換左邊、右邊預設是目前狀態（Current state）。剛存的那一版
+  // 內容與目前狀態相同，兩邊沒有差異；created（建立時的內容）與目前狀態差在第 0 段。
+  const row = panel.getByRole("button", { name: /^created \(/ });
   await expect(row).toBeVisible({ timeout: 15_000 });
   const t0 = Date.now();
   await row.click();
@@ -148,6 +160,6 @@ test("23b §13-5：2000 區塊筆記，點版本列到 diff 標記出現的耗�
     timeout: 60_000,
   });
   const previewMs = Date.now() - t0;
-  console.log(`MEASURE-13-5 blocks=2000 previewMs=${previewMs} mode=split left=v1 right=current`);
+  console.log(`MEASURE-13-5 blocks=2000 previewMs=${previewMs} mode=split left=created right=current`);
   expect(previewMs).toBeGreaterThan(0);
 });
