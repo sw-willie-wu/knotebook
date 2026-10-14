@@ -39,6 +39,8 @@ export interface CutOptions {
   extraEditors?: VersionEditor[];
   /** 文件沒載入時呼叫端自己讀出的 doc（§5.4 的 fork、§6.1／§6.3 讀 note_states 的 doc）。 */
   transient?: Y.Doc;
+  /** #269：見 `CutVersionInput.keepExistingName`。 */
+  keepExistingName?: boolean;
 }
 /** Hocuspocus 實例結構上符合（`documents` 是 `Map<string, Document>`）；測試注入假 host。 */
 export interface VersionDocsHost {
@@ -337,6 +339,7 @@ export function createVersionService(deps: VersionServiceDeps): VersionService {
       loadFingerprint: state.loadFingerprint,
       vacuumFingerprint: VACUUM_VERSION_FINGERPRINT,
       capture: () => ({ fp: versionFingerprint(doc.getXmlFragment(YDOC_FRAGMENT)), ydoc: Y.encodeStateAsUpdate(doc) }),
+      keepExistingName: opts.keepExistingName ?? false,
     };
     let out: Awaited<ReturnType<typeof cutVersionInTx>>;
     try {

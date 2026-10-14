@@ -353,3 +353,13 @@ describe("PASSWORD_LOGIN_FORCE_ENABLE（#187 B18、§14.1-27）", () => {
     expect(checkAt, "開機檢查要在 listen 之前").toBeLessThan(listenAt);
   });
 });
+
+describe("#269 結構守衛：app.ts 的轉換工作 onClose", () => {
+  it("onClose 以 2 s 寬限 race 等 linkConversion.stop()（在途那一篇不得把 app.close()／pool.end() 拖到 SIGKILL）", () => {
+    // 剔掉註解行再找：註解裡的字面不得成為唯一的命中來源。
+    const src = readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../src/app.ts"), "utf8").replace(/^\s*\/\/.*$/gm, "");
+    expect(src).toMatch(
+      /app\.addHook\("onClose", async \(\) => \{\s*await Promise\.race\(\[linkConversion\.stop\(\), new Promise<void>\(resolve => setTimeout\(resolve, 2_000\)\.unref\(\)\)\]\);\s*\}\);/,
+    );
+  });
+});

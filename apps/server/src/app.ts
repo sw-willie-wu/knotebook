@@ -61,6 +61,7 @@ import { createEditingRuntime, type EditingRuntime } from "./notes/editing/runti
 import type { EditingTestHooks } from "./notes/editing/apply.js";
 import { PresenceRegistry, type PresenceOptions } from "./notes/editing/presence.js";
 import { NoteWriteService } from "./notes/editing/write-service.js";
+import { createLinkConversion, NOOP_LINK_CONVERSION, type LinkConversion } from "./notes/link-conversion.js";
 import type { NoteCreateHooks } from "./notes/create.js";
 import type { GroupTestHook } from "./groups/test-hook.js";
 import type { SearchIndexHooks } from "./notes/tx/search-index.js";
@@ -70,6 +71,8 @@ declare module "fastify" {
   interface FastifyInstance {
     authenticate(request: FastifyRequest, reply: FastifyReply): Promise<void>;
     requireAdmin(request: FastifyRequest, reply: FastifyReply): Promise<void>;
+    /** #269 §12：一次性站內連結轉換（沒有 collab 的部署是 no-op）。 */
+    linkConversion: LinkConversion;
     /** #107：opt-in 的 Bearer／session 雙路徑認證，語意見 `auth/bearer.ts`。 */
     authenticateAny(
       required: RequiredScope,
@@ -723,6 +726,17 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     queueWaitMs: deps.editingQueueWaitMs,
     testHooks: deps.editingTestHooks,
     versions,
+  });
+
+  // #269 §12.1：必用同一個 `writes`（共用佇列，與 MCP 寫入、套用版本、手動存版串行）。只建、不啟動——`index.ts` listen 之後才 start()，
+  // 測試的 app 不 start（整合測試直接呼叫 `runLinkConversion(app.linkConversion.deps!, …)`）。
+  const linkConversion = writes.available
+    ? createLinkConversion({ db: deps.db, writes, versions, log: app.log, siteOrigin: deps.config.publicUrl.origin })
+    : NOOP_LINK_CONVERSION;
+  app.decorate("linkConversion", linkConversion);
+  app.addHook("onClose", async () => {
+    // plan gate r1 M1：與 SIGTERM 鏈同一個 2 s 上限（比照 #272 的 onClose）——在途那一篇不得把 app.close()／pool.end() 拖到 SIGKILL。
+    await Promise.race([linkConversion.stop(), new Promise<void>(resolve => setTimeout(resolve, 2_000).unref())]);
   });
 
   void app.register(

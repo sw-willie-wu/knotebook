@@ -73,6 +73,19 @@ export interface DirectCtx extends CollabContext {
   applied: boolean;
 }
 
+/**
+ * #269 §12.3-6：轉換工作的直連 ctx——**不帶 `userId`**：`collab/server.ts` 的落款（`stampLastEdited`）與編輯者累積（`onChange`）
+ * 都以「ctx 有沒有 string `userId`」為閘，因此不落款、不累積編輯者、不算最後活動；`collab/versions.ts` 的 `noteStored` 把它歸
+ * 「其他（人）」分支（轉換後的狀態交給當時生效的自動切版規則）。
+ */
+export interface LinkConvertCtx {
+  source: "link-convert";
+  applied: boolean;
+}
+
+/** `withDirectConnection`／`mergeDiff` 吃的 ctx：AI／版本套用（帶 userId）或轉換工作（不帶）。以 `source` 判別。 */
+export type DirectConnectionCtx = DirectCtx | LinkConvertCtx;
+
 /** 唯一開直連的地方，只為合併開；fn 在單一同步 transact 內；一定 disconnect（＝落盤點）。
  * `fn` 的原始錯誤優先於 disconnect 的錯誤（m4）：disconnect 失敗只 log，不取代 fn 丟出的錯誤，
  * 否則 Task 4 的錯誤分類會拿到錯的 error（例如把「AI 內容不合法」誤判成「落盤失敗」）。
@@ -81,11 +94,12 @@ export interface DirectCtx extends CollabContext {
 export async function withDirectConnection<T>(
   hocuspocus: Hocuspocus<CollabContext>,
   noteId: string,
-  ctx: DirectCtx,
+  ctx: DirectConnectionCtx,
   fn: (doc: Document) => T,
   opts?: { beforeDisconnect?: (result: T) => Promise<void> }
 ): Promise<T> {
-  const direct = await hocuspocus.openDirectConnection(noteId, ctx);
+  // Hocuspocus 的 context 型別是 CollabContext（`{ userId }`）；`LinkConvertCtx` 刻意沒有 userId（見上）。context 對 Hocuspocus 是不透明的。
+  const direct = await hocuspocus.openDirectConnection(noteId, ctx as unknown as CollabContext);
   let result!: T;
   let fnFailed = false;
   let fnError: unknown;

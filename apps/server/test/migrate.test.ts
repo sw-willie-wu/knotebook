@@ -7,24 +7,24 @@ import { MAX_PROVIDER_ICON_BYTES, autoSlugFromTitle, validateHandle, validateSlu
 import { applyMigrationsThrough, freshDb, freshEmptyDb, idxOfTag, journalEntries } from "./helpers.js";
 import { runMigrations } from "../src/db/migrate.js";
 import { PgDialect, getTableConfig } from "drizzle-orm/pg-core";
-import { apiTokens, authProviders, groupMembers, groupRoles, groups, noteRedirects, notes, oauthClients, oauthCodes, noteSearchSections, noteSearchState, noteVersions, oauthRequests, siteSettings, storagePlans, transferTokens, userIdentities, users } from "../src/db/schema.js";
+import { apiTokens, authProviders, groupMembers, groupRoles, groups, noteRedirects, notes, oauthClients, oauthCodes, noteSearchSections, noteSearchState, noteLinkConversion, noteVersions, oauthRequests, siteSettings, storagePlans, transferTokens, userIdentities, users } from "../src/db/schema.js";
 
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
 /** drizzle 對 `schema.ts` 的序列化；宣告漂移守衛拿最新一支當比對基準（Task 14 rebase 後改成實際檔名）。 */
-const SNAPSHOT_FILE = "meta/0024_snapshot.json";
+const SNAPSHOT_FILE = "meta/0025_snapshot.json";
 const snapshotLatest = JSON.parse(readFileSync(path.join(drizzleDirForTest, SNAPSHOT_FILE), "utf8")) as {
   tables: Record<string, { checkConstraints?: Record<string, { name: string; value: string }> }>;
 };
 const pgDialect = new PgDialect();
 
 describe("runMigrations", () => {
-  it("migrate 兩次 idempotent 且 29 張表存在", async () => {
+  it("migrate 兩次 idempotent 且 30 張表存在", async () => {
     const { db, pool } = await freshDb();
     await runMigrations(db); // freshDb 已跑過一次——此為第二次
     const r = await pool.query(`select table_name from information_schema.tables where table_schema='public'`);
     const tableNames = r.rows.map(x => x.table_name);
-    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes", "note_ai_edits", "groups", "group_members", "group_roles", "note_redirects", "auth_providers", "user_identities", "site_settings", "note_search_sections", "note_search_state", "transfer_tokens", "storage_plans", "note_versions"])
+    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes", "note_ai_edits", "groups", "group_members", "group_roles", "note_redirects", "auth_providers", "user_identities", "site_settings", "note_search_sections", "note_search_state", "transfer_tokens", "storage_plans", "note_versions", "note_link_conversion"])
       expect(tableNames).toContain(t);
   });
 
@@ -241,6 +241,21 @@ describe("runMigrations", () => {
     expect(col).toEqual([{ data_type: "timestamp with time zone", is_nullable: "YES", column_default: null }]);
     await runMigrations(db);
     expect(await rows()).toEqual(expected);
+  });
+
+  it("#269 0025 note_link_conversion：migration 當下已存在的筆記各 seed 一列 pending；之後建立的筆記沒有列（候選集凍結）", async () => {
+    const { pool, db } = await freshEmptyDb();
+    await applyMigrationsThrough(pool, idxOfTag("0025_note-link-conversion") - 1);
+    const u = (await pool.query(`insert into users (email, display_name) values ('lc@x.example', 'L') returning id`)).rows[0].id as string;
+    const before = (await pool.query(`insert into notes (owner_id) values ($1) returning id`, [u])).rows[0].id as string;
+    await runMigrations(db);
+    const after = (await pool.query(`insert into notes (owner_id) values ($1) returning id`, [u])).rows[0].id as string;
+    const rows = (await pool.query(`select note_id, status, attempts, converted, unresolved from note_link_conversion order by note_id`)).rows;
+    expect(rows).toEqual([{ note_id: before, status: "pending", attempts: 0, converted: 0, unresolved: 0 }]);
+    expect(rows.some((r: { note_id: string }) => r.note_id === after)).toBe(false);
+    await expect(pool.query(`update note_link_conversion set status = 'bogus' where note_id = $1`, [before])).rejects.toMatchObject({ code: "23514" });
+    await pool.query(`delete from notes where id = $1`, [before]);
+    expect((await pool.query(`select count(*)::int as n from note_link_conversion`)).rows[0].n).toBe(0);
   });
 });
 
@@ -1199,7 +1214,7 @@ describe("0009_api-tokens", () => {
       expect(names, i).toContain(i);
   });
 
-  it("schema.ts 的十八個宣告沒有靜默漂移（四個 OAuth／token 宣告零 import；#103／#175 的四張表的 CHECK 也在這裡逐字比對、#187 的三張表、#93 的兩張表、#200 的一張表、容量上限的 users／storage_plans、版本歷史的 note_versions）", async () => {
+  it("schema.ts 的十九個宣告沒有靜默漂移（四個 OAuth／token 宣告零 import；#103／#175 的四張表的 CHECK 也在這裡逐字比對、#187 的三張表、#93 的兩張表、#200 的一張表、容量上限的 users／storage_plans、版本歷史的 note_versions、#269 的 note_link_conversion）", async () => {
     // 比照 0008 的同族守衛：把 schema.ts 的宣告與 migration 造出來的 DB 對起來。
     // 沒有這一案的話，把 schema.ts 的四段 pgTable 整個刪掉，全套測試照樣綠——
     // 只有下一次 db:generate 會產出 DROP TABLE。
@@ -1263,6 +1278,7 @@ describe("0009_api-tokens", () => {
       ],
       storage_plans: ["id", "name", "quota_bytes", "created_at", "updated_at"],
       note_versions: ["id", "note_id", "seq", "ydoc", "kind", "name", "editors", "base_seq", "created_at"],
+      note_link_conversion: ["note_id", "status", "attempts", "converted", "unresolved", "updated_at"],
     };
 
     for (const [table, decl] of [
@@ -1284,6 +1300,7 @@ describe("0009_api-tokens", () => {
       ["users", users],
       ["storage_plans", storagePlans],
       ["note_versions", noteVersions],
+      ["note_link_conversion", noteLinkConversion],
     ] as const) {
       const cfg = getTableConfig(decl);
       // 宣告的欄名 = DB 的欄名 = 這裡寫死的期望（三方對齊，任一邊漂移就紅）

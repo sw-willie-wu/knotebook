@@ -14,7 +14,7 @@ import { fingerprintForIds, outlineOf, type OutlineEntry } from "./fingerprint.j
 import { parseMarkdownForNote, siteOriginOf, type ParseError } from "./markdown.js";
 import { loadNoteDoc } from "./read.js";
 import type { EditingRuntime } from "./runtime.js";
-import { EditorSession, withDirectConnection, type DirectCtx } from "./session.js";
+import { EditorSession, withDirectConnection, type DirectConnectionCtx, type DirectCtx } from "./session.js";
 
 // 順序（spec §6.1）：讀路徑 fork → 指紋比對 → 寫前切版（版本歷史 §5.4） → parse/驗證 → 單一編輯器呼叫 → diff → **關掉編輯器**
 // → mergeDiff＝withDirectConnection 內一個同步 transact（live doc 重算目標段指紋／anchor → docClock（applyUpdate
@@ -96,7 +96,7 @@ const stripIds = (o: { outline: Array<NoteOutlineEntry & { blockIds: string[] }>
 export async function mergeDiff(
   deps: ApplyDeps,
   noteId: string,
-  ctx: DirectCtx,
+  ctx: DirectConnectionCtx,
   input: MergeInput,
   opts?: { beforeDisconnect?: (out: MergeOutput) => Promise<void> }
 ): Promise<MergeOutput> {

@@ -417,6 +417,24 @@ export interface VersionEditorJson {
 }
 
 /**
+ * #269 §12.2：一次性站內連結轉換的狀態表。**候選集在 migration 當下凍結**（0025 的 seed `INSERT … SELECT id, 'pending' FROM notes`）：
+ * 之後建立的筆記沒有列 ⇒ 轉換工作永遠不碰（它們的連結都經寫入路徑、以寫入者權限處理過）。沒有 converter_version：日後要重掃須另一支
+ * migration 重新 seed。不動 `notes` 表（#272 會改它）。標記一律 UPDATE（列由 migration seed；處理途中筆記被刪 ⇒ 列已 cascade 消失）。
+ */
+export const noteLinkConversion = pgTable(
+  "note_link_conversion",
+  {
+    noteId: uuid("note_id").primaryKey().references(() => notes.id, { onDelete: "cascade" }),
+    status: text().notNull(),
+    attempts: integer().notNull().default(0),
+    converted: integer().notNull().default(0),
+    unresolved: integer().notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  t => [check("note_link_conversion_status_chk", sql`${t.status} in ('pending','done','retry','failed')`)],
+);
+
+/**
  * 筆記版本歷史（spec 2026-10-09 §4.1）：每版一份完整 Y.Doc 快照（方案 A）。`seq`＝vN（同篇唯一，配號在 `notes.version_counter`）；
  * `kind='manual'` 永久保留、`auto` 依站台天數分層清除（§10）；`base_seq` 只在「基底 ≠ 這篇當時最新版」時填（顯示「從 vX 接著改」）。
  * 寫入者：`notes/tx/versions.ts`（切版）、`routes/note-versions.ts`（改名、刪除）、`collab/versions.ts`（清除）。刪筆記 CASCADE。

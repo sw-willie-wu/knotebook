@@ -26,4 +26,21 @@ describe("#93 S13：index.ts 的回填接線", () => {
     expect(destroyAt).toBeGreaterThan(-1);
     expect(abortAt).toBeLessThan(destroyAt);
   });
+  it("#269：轉換工作在 listen 之後 start；SIGTERM 鏈先以 2 s 共用寬限等 app.linkConversion.stop()，再 collab.destroy()（#272 先或後 merge 都成立）", () => {
+    const listenAt = src.indexOf(".listen(");
+    const startAt = src.indexOf("app.linkConversion.start()");
+    expect(startAt).toBeGreaterThan(listenAt);
+    const onceAt = src.indexOf("process.once(");
+    expect(onceAt, "index.ts 要有 process.once( 關機 handler").toBeGreaterThan(-1);
+    // 剔掉註解行再找（#272 plan gate 抓到的雷：handler 上方／裡面的註解字面會先命中）。
+    const handler = src.slice(onceAt).replace(/^\s*\/\/.*$/gm, "");
+    // 單獨形（#272 未 merge）或併入 Promise.all 的形（#272 已 merge）都接受；stop 必須在「collab.destroy() 之前的那個 race」裡。
+    const race = /Promise\.race\(\[(?:Promise\.all\(\[[^\]]*\bapp\.linkConversion\.stop\(\)[^\]]*\]\)|app\.linkConversion\.stop\(\)), stopGrace\(\)\]\)/.exec(handler);
+    expect(race, "關機要以 Promise.race([… app.linkConversion.stop() …, stopGrace()]) 有上限地等轉換工作").not.toBeNull();
+    const destroyAt = handler.indexOf("collab.destroy()");
+    expect(destroyAt, "關機要呼叫 collab.destroy()").toBeGreaterThan(-1);
+    expect(destroyAt, "race 要在 collab.destroy() 之前").toBeGreaterThan(race!.index + race![0].length - 1);
+    expect(src).toMatch(/_STOP_GRACE_MS = 2_000;/);
+    expect(src).toMatch(/const stopGrace = \(\): Promise<void> => new Promise\(resolve => setTimeout\(resolve, [A-Z_]+_STOP_GRACE_MS\)\.unref\(\)\);/);
+  });
 });

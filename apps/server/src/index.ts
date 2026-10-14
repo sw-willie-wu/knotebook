@@ -25,6 +25,10 @@ import { backfillSearchIndex } from "./notes/search-index.js";
 // `docker compose logs app` 能同時看到兩邊的輸出，不需要共用同一個 instance。
 const logger = pino();
 
+/** #269 §12.1：關機時等背景工作停下的共用上限（2 s）。timer unref：不撐住行程（與 #272 的 stopGrace 同形，合併後只留一份）。 */
+const SHUTDOWN_STOP_GRACE_MS = 2_000;
+const stopGrace = (): Promise<void> => new Promise(resolve => setTimeout(resolve, SHUTDOWN_STOP_GRACE_MS).unref());
+
 async function main(): Promise<void> {
   const config = loadConfig(process.env);
 
@@ -193,6 +197,9 @@ async function main(): Promise<void> {
     logger.error({ err }, "全文索引回填中止"),
   );
 
+  // #269 §12.1：一次性站內連結轉換——與回填並列、listen 之後，再延遲 30 s（unref timer）。結構守衛：test/unit/search-backfill-wiring.test.ts。
+  app.linkConversion.start();
+
   // Graceful shutdown：`docker compose stop`/`down`（以及手動 Ctrl-C）送的都是
   // SIGTERM/SIGINT——不接住的話 Fastify 會被硬殺，進行中的請求與尚未 flush 的
   // pg 連線可能被粗暴中斷。
@@ -211,8 +218,9 @@ async function main(): Promise<void> {
   for (const sig of ["SIGTERM", "SIGINT"] as const) {
     process.once(sig, () => {
       backfillAbort.abort();
-      void collab
-        .destroy()
+      // #269 §12.1：有上限地等轉換工作停（共用 2 s 寬限；它在拆掉 Hocuspocus 之前停止開新直連並等在途合併），再落盤關閉。
+      void Promise.race([app.linkConversion.stop(), stopGrace()])
+        .then(() => collab.destroy())
         .then(() => app.close())
         .then(() => pool.end())
         .finally(() => process.exit(0));
