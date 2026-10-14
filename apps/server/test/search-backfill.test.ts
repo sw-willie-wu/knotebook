@@ -8,6 +8,7 @@ import { freshDb } from "./helpers.js";
 import { seedNote, seedUser, waitForBlockedOrSettled } from "./group-helpers.js";
 import { notes, noteStates } from "../src/db/schema.js";
 import { backfillSearchIndex, writeSearchIndex } from "../src/notes/search-index.js";
+import { SEARCH_EXTRACTOR_VERSION } from "../src/notes/search-text.js";
 import { searchDoc } from "./search-doc.js";
 import { captureLog, extractOf, indexRows, noteStateVersion, seedNoteState, setNoteState, stateRow } from "./search-helpers.js";
 
@@ -42,7 +43,7 @@ describe("S11 回填", () => {
     expect(await bodies(db, oldVer)).toEqual(["old extractor"]);
     expect(await bodies(db, behind)).toEqual(["behind v2"]);
     for (const id of [...fresh, oldVer, behind]) {
-      expect(await stateRow(db, id)).toMatchObject({ extractorVersion: 1, sourceVersion: await noteStateVersion(db, id) });
+      expect(await stateRow(db, id)).toMatchObject({ extractorVersion: SEARCH_EXTRACTOR_VERSION, sourceVersion: await noteStateVersion(db, id) });
     }
     expect(infos.map(i => i.msg)).toEqual(["全文索引回填開始", "全文索引回填完成"]);
     expect(warns).toEqual([]);

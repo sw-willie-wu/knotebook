@@ -7,7 +7,7 @@
  *   這種文件 `outlineOf` 直接 throw（`notes/editing/fingerprint.ts:20`），兩支讀取工具本來就讀不了，搜尋不得交出讀不到的 sectionId。
  * - **段落入索引的條件**：`sectionId` 原值是字串且符合 `SECTION_ID_RE`、在本篇段落 id 序列中**第一次出現**（＝`read.ts:75`
  *   的 `outline.find`——所以不論該段有沒有入索引，id 一律記為「出現過」）、body 非空。
- * - **走訪是迭代的**（顯式 stack）：深度是 client 可控的（`collab/store.ts:74-79`）。wikilink 輸出 `[[snapshotTitle]]`、
+ * - **走訪是迭代的**（顯式 stack）：深度是 client 可控的（`collab/store.ts:74-79`）。wikilink 輸出 `label`（非空時）否則 `snapshotTitle`（#269）、
  *   mermaid 輸出 `code` 屬性；媒體的 caption／name／url 一律不收（§1.3）。
  * - **分隔延遲輸出**（plan 裁定 R-sep）：進入非 inline 元素只標記「下一段文字前要分隔」，有字要輸出時才補 `\n`——
  *   所以 body 沒有開頭／結尾／連續的結構分隔，「body 非空」才有意義。文字本身的空白不壓縮（摘錄輸出時才壓，§8.3）。
@@ -23,7 +23,7 @@ import * as Y from "yjs";
 import { SECTION_ID_RE, sectionize, topLevelContainers } from "@knotebook/shared";
 import { truncateCodeUnits } from "../mcp/limits.js";
 
-export const SEARCH_EXTRACTOR_VERSION = 1;
+export const SEARCH_EXTRACTOR_VERSION = 2; // #269：wikilink 改抽 label 或 snapshotTitle（無方括號）
 export const SEARCH_INDEX_NOTE_MAX = 1_048_576;
 export const SEARCH_INDEX_SECTIONS_MAX = 2000;
 export const SEARCH_HEADING_MAX = 1000;
@@ -73,8 +73,10 @@ function containerSearchText(container: Y.XmlElement): string {
     }
     if (!(node instanceof Y.XmlElement)) continue; // Y.XmlHook 等：不深入（同 collab/store.ts 的已知範疇）
     if (node.nodeName === "wikilink") {
+      // #269 §13.1：以文字呈現——label 非空用 label，否則 snapshotTitle。維持純函式（不查現行標題）。
+      const label: unknown = node.getAttribute("label");
       const title: unknown = node.getAttribute("snapshotTitle");
-      emit(`[[${typeof title === "string" ? title : ""}]]`);
+      emit(typeof label === "string" && label !== "" ? label : typeof title === "string" ? title : "");
       continue;
     }
     pendingSep = true;

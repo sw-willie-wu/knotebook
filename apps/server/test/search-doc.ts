@@ -6,7 +6,7 @@
 import * as Y from "yjs";
 import { YDOC_FRAGMENT } from "@knotebook/shared";
 
-export type Inline = string | { wikilink: unknown };
+export type Inline = string | { wikilink: unknown; label?: unknown };
 export interface Blk {
   id?: unknown;
   type?: string;
@@ -39,6 +39,7 @@ export function searchDoc(blocks: Blk[]): Y.Doc {
         const w = new Y.XmlElement("wikilink");
         content.insert(content.length, [w]);
         w.setAttribute("snapshotTitle", part.wikilink as string);
+        if (part.label !== undefined) w.setAttribute("label", part.label as string);
         w.setAttribute("targetNoteId", "00000000-0000-4000-8000-000000000000");
       }
     }

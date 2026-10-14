@@ -456,7 +456,7 @@ describe("公開內容端（GET /api/public/notes/:token，無需登入）", () 
     expect(res.statusCode).toBe(200);
     expect(res.headers["cache-control"]).toBe("no-store");
     const bodyJson = res.json();
-    expect(bodyJson).toEqual({ title: "公開的筆記", ydoc: ydocBytes.toString("base64") });
+    expect(bodyJson).toEqual({ title: "公開的筆記", ydoc: ydocBytes.toString("base64"), links: [] });
     expect(Object.keys(bodyJson)).not.toContain("updatedAt");
   });
 
@@ -713,7 +713,7 @@ describe("公開別名端（GET /api/public/notes/:handle/:slug，無需登入�
     return { ...built, owner, cookie, noteId, token };
   }
 
-  it("命中 → 200 與 token 端點**同形**（恰 {title, ydoc} 兩鍵、不回 token）＋ cache-control: no-store", async () => {
+  it("命中 → 200 與 token 端點**同形**（恰 {title, ydoc, links} 三鍵、不回 token）＋ cache-control: no-store", async () => {
     const { app, db, cookie, noteId, token } = await aliasSetup("alice", "my-doc");
     await app.inject({ method: "PATCH", url: `/api/notes/${noteId}`, cookies: { [SESSION_COOKIE]: cookie }, payload: { title: "Alias Note" } });
     const ydocBytes = randomBytes(24);
@@ -722,8 +722,8 @@ describe("公開別名端（GET /api/public/notes/:handle/:slug，無需登入�
     const res = await byPath(app, "alice", "my-doc");
     expect(res.statusCode).toBe(200);
     expect(res.headers["cache-control"]).toBe("no-store");
-    // 形狀斷言（plan gate m9）：恰兩鍵——token/noteId/updatedAt 任何一個混進來都紅
-    expect(res.json()).toEqual({ title: "Alias Note", ydoc: ydocBytes.toString("base64") });
+    // 形狀斷言（plan gate m9）：恰三鍵（#269 加 links）——token/noteId/updatedAt 任何一個混進來都紅
+    expect(res.json()).toEqual({ title: "Alias Note", ydoc: ydocBytes.toString("base64"), links: [] });
 
     // 與 token 端點逐鍵同值（共用 200 回應器的行為面證明）
     const viaToken = await byToken(app, token);

@@ -7,6 +7,7 @@ import { sendError } from "../http/errors.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
 import type { Db } from "../db/index.js";
 import { noteStates, notes, uploads, users } from "../db/schema.js";
+import { publicLinksFor } from "../notes/public-links.js";
 import { UUID_RE } from "../notes/service.js";
 import { uploadFilePath } from "../uploads/service.js";
 
@@ -34,7 +35,7 @@ import { uploadFilePath } from "../uploads/service.js";
  *      因此各自計（乘二）＝明示接受，記 docs/known-limitations.md。
  *
  * 404 一律**同形**（不存在／未公開／token 錯／無別名／格式不符不可區分——防列舉，
- * 比照 collab 拒連與 shares 的慣例）。回應恰 `{title, ydoc}` 兩鍵——**不回 token**
+ * 比照 collab 拒連與 shares 的慣例）。回應恰 `{title, ydoc, links}` 三鍵（#269：`links` 只含有自訂公開網址的目標）——**不回 token**
  * （別名頁洩 token＝把可猜的網址升級成不可撤的把手）、不含 noteId 與 updatedAt。
  *
  * token 出現在 token 形 URL 裡——**不進 log** 由 `app.ts` 的 req serializer
@@ -195,9 +196,11 @@ export function publicRoutes(deps: PublicRoutesDeps) {
         .where(eq(noteStates.noteId, note.id))
         .limit(1);
 
+      // #269 §11.1：指向有自訂公開網址的筆記的連結帶出該網址與標題（token 形目標永不出現）。
+      const links = await publicLinksFor(deps.db, note.id, state ? state.ydoc : null);
       // no-store：撤銷/重生要即時生效，公開內容不進任何快取。
       reply.header("cache-control", "no-store");
-      return { title: note.title, ydoc: state ? state.ydoc.toString("base64") : EMPTY_YDOC_UPDATE_B64 };
+      return { title: note.title, ydoc: state ? state.ydoc.toString("base64") : EMPTY_YDOC_UPDATE_B64, links };
     }
 
     async function sendPublicUpload(request: FastifyRequest, reply: FastifyReply, note: { id: string }, uploadId: string) {

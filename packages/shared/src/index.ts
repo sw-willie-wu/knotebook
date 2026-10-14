@@ -876,6 +876,20 @@ export function publicAliasPath(ref: { handle: string; slug: string }): string {
  */
 export const EMPTY_YDOC_UPDATE_B64 = "AAA=";
 
+/** #269 §11.1：公開頁裡指向「有自訂公開網址」的筆記的連結。`path` 只有 `/p/<ownerHandle>/<publicSlug>` 一種形；token 形永不出現。 */
+export interface PublicLinkDto {
+  id: string;
+  title: string;
+  path: string;
+}
+
+/** 公開內容端點（token 形與別名形同形）的回應。刻意不含本篇的 id／token／updatedAt。 */
+export interface PublicNoteDto {
+  title: string;
+  ydoc: string;
+  links: PublicLinkDto[];
+}
+
 /**
  * #107／#239：API token 的 scope。**是集合不是單值**——OAuth 的 scope 參數是空白分隔的
  * 集合，且「write 涵蓋 read」，所以落庫形是一條鏈、共三種：只讀、讀寫、讀寫加搬移

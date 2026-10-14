@@ -78,11 +78,16 @@ describe("T3 段落對應", () => {
 });
 
 describe("T4 走訪規則", () => {
-  it("wikilink → [[標題]]（不展開子節點、非字串標題 → [[]]）；inline 不加分隔", () => {
-    expect(bodyOf([{ id: "p", inline: ["see ", { wikilink: "Roadmap" }, " now"] }], "_top")).toBe("see [[Roadmap]] now");
-    expect(bodyOf([{ id: "p", inline: ["x", { wikilink: 42 }] }], "_top")).toBe("x[[]]");
+  it("#269 §13.1：wikilink → label 或 snapshotTitle（無方括號；不展開子節點；非字串 → 空）；inline 不加分隔", () => {
+    expect(bodyOf([{ id: "p", inline: ["see ", { wikilink: "Roadmap" }, " now"] }], "_top")).toBe("see Roadmap now");
+    expect(bodyOf([{ id: "p", inline: ["see ", { wikilink: "Roadmap", label: "the plan" }, " now"] }], "_top")).toBe("see the plan now");
+    expect(bodyOf([{ id: "p", inline: ["see ", { wikilink: "Roadmap", label: "" }, " now"] }], "_top")).toBe("see Roadmap now");
+    expect(bodyOf([{ id: "p", inline: ["x", { wikilink: 42 }] }], "_top")).toBe("x");
   });
-  it("wikilink 的子節點（XmlText）不展開：只輸出 [[snapshotTitle]]", () => {
+  it("#269：SEARCH_EXTRACTOR_VERSION 升到 2（抽取形變了 ⇒ 啟動回填重建既有索引）", () => {
+    expect(SEARCH_EXTRACTOR_VERSION).toBe(2);
+  });
+  it("wikilink 的子節點（XmlText）不展開：只輸出 snapshotTitle", () => {
     const doc = searchDoc([{ id: "p", inline: ["a", { wikilink: "T" }, "b"] }]);
     const para = ((frag(doc).get(0) as Y.XmlElement).get(0) as Y.XmlElement).get(0) as Y.XmlElement;
     const w = para.get(1) as Y.XmlElement;
@@ -92,7 +97,7 @@ describe("T4 走訪規則", () => {
     hidden.insert(0, "HIDDEN");
     const body = extractSearchSections(frag(doc)).rows[0]!.body;
     expect(body).not.toContain("HIDDEN");
-    expect(body).toBe("a[[T]]b");
+    expect(body).toBe("aTb");
   });
   it("mermaid 的 code 屬性入 body；codeBlock 文字入；image 的 caption／url 不入", () => {
     const b: Blk[] = [
@@ -168,7 +173,7 @@ describe("T6 清洗", () => {
       { id: "p", inline: ["a\u0000b \uD800 \uDC00 😀 ", { wikilink: "w\u0000t" }] },
       { id: "h", type: "heading", text: "H\u0000\uDFFF" },
     ])));
-    expect(ex.rows[0]!.body).toBe("a�b � � 😀 [[w�t]]");
+    expect(ex.rows[0]!.body).toBe("a�b � � 😀 w�t");
     expect(ex.rows[1]!.heading).toBe("H��");
     expect(ex.rows[1]!.body).toBe("H��");
   });
