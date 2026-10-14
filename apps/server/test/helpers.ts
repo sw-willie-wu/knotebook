@@ -9,7 +9,7 @@ import type { FastifyInstance } from "fastify";
 import { HocuspocusProvider, HocuspocusProviderWebsocket } from "@hocuspocus/provider";
 import { WebSocket as WsWebSocket } from "ws";
 import * as Y from "yjs";
-import { SESSION_COOKIE, type Role } from "@knotebook/shared";
+import { NOTE_SCHEMA_VERSION, SESSION_COOKIE, type Role } from "@knotebook/shared";
 import { createDb, type Db } from "../src/db/index.js";
 import { runMigrations } from "../src/db/migrate.js";
 import { loadConfig, type AppConfig } from "../src/config.js";
@@ -400,6 +400,12 @@ export interface CollabLogLine {
   msg: string;
 }
 
+/**
+ * #269 §5／§15.5：取 collab token 的 RequestInit——帶 `noteSchemaVersion`。閘門上線後沒帶 body 的 token 一律 sv=0、
+ * 握手以 client-outdated 拒（經這支 helper 的整合套件會全紅）。直接 POST collab-token 的測試一律用它。
+ */
+export const COLLAB_TOKEN_INIT = { method: "POST", body: JSON.stringify({ noteSchemaVersion: NOTE_SCHEMA_VERSION }) } as const;
+
 export interface CollabTestCtx {
   /** `http://127.0.0.1:<ephemeral port>` */
   baseUrl: string;
@@ -605,7 +611,7 @@ export async function buildCollabTestApp(
           (connectOpts.tokenOverride !== undefined
             ? connectOpts.tokenOverride
             : async (): Promise<string> => {
-                const tokenRes = await session.fetch(`/api/notes/${noteId}/collab-token`, { method: "POST" });
+                const tokenRes = await session.fetch(`/api/notes/${noteId}/collab-token`, COLLAB_TOKEN_INIT);
                 if (!tokenRes.ok) {
                   throw new Error(`取得 collab token 失敗（${tokenRes.status}）：${await tokenRes.text()}`);
                 }

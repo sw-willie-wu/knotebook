@@ -27,7 +27,7 @@ function collabKey(secret: string): Uint8Array {
  */
 export async function signCollabToken(appSecret: string, claims: CollabTokenClaims): Promise<string> {
   const key = collabKey(appSecret);
-  return new SignJWT({ noteId: claims.noteId, role: claims.role, tv: claims.tv })
+  return new SignJWT({ noteId: claims.noteId, role: claims.role, tv: claims.tv, sv: claims.sv })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(claims.userId)
     .setIssuedAt()
@@ -44,8 +44,20 @@ export async function verifyCollabToken(appSecret: string, token: string): Promi
     if (typeof payload.noteId !== "string") return null;
     if (typeof payload.tv !== "number") return null;
     if (!isRole(payload.role)) return null;
-    return { userId: payload.sub, noteId: payload.noteId, role: payload.role, tv: payload.tv };
+    // #269：`sv` 缺席（閘門前簽的 token）或不是整數 ⇒ 0，**不視為壞 token**——由 onAuthenticate 的閘門以 client-outdated 拒。
+    const sv = typeof payload.sv === "number" && Number.isInteger(payload.sv) ? payload.sv : 0;
+    return { userId: payload.sub, noteId: payload.noteId, role: payload.role, tv: payload.tv, sv };
   } catch {
     return null;
   }
+}
+
+/**
+ * #269 §5.1-2：`POST /api/notes/:id/collab-token` 的 body 選配；`noteSchemaVersion` 缺席或不是整數 ⇒ 0。
+ * 端點仍對所有人回 200（不洩漏契約不變），版本不符由 onAuthenticate 拒。
+ */
+export function schemaVersionFromBody(body: unknown): number {
+  if (typeof body !== "object" || body === null) return 0;
+  const value = (body as { noteSchemaVersion?: unknown }).noteSchemaVersion;
+  return typeof value === "number" && Number.isInteger(value) ? value : 0;
 }

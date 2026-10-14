@@ -5,12 +5,14 @@ import { ApiFail } from "@/api/client";
 import {
   COLLAB_CLOSE_NOTE_DELETED,
   COLLAB_CLOSE_REVOKED,
+  COLLAB_REJECT_CLIENT_OUTDATED,
   COLLAB_REJECT_FORBIDDEN,
   COLLAB_REJECT_INVALID_TOKEN,
   COLLAB_REJECT_NOTE_DELETING,
   COLLAB_REJECT_SERVER_ERROR,
   COLLAB_REVERIFY_DEADLINE_MS,
   COLLAB_TOKEN_RETRY_DELAYS_MS,
+  NOTE_SCHEMA_VERSION,
 } from "@knotebook/shared";
 
 // HocuspocusProvider 會開真的 WebSocket，jsdom 裡沒有對端。換成一個假的：把
@@ -180,6 +182,8 @@ describe("useCollab", () => {
     const [url, init] = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
     expect(url).toBe(`/api/notes/${NOTE_ID}/collab-token`);
     expect(init.method).toBe("POST");
+    // #269 §5.1-1：token 請求帶 note schema 版本（閘門）。
+    expect(JSON.parse(String(init.body))).toEqual({ noteSchemaVersion: NOTE_SCHEMA_VERSION });
 
     // 取到 token 還不算連上；onAuthenticated 才是 open。
     expect(phase()).toBe("connecting");
@@ -1011,6 +1015,24 @@ describe("useCollab", () => {
     const p = provider();
     unmount();
     expect(p.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("#269：authenticationFailed(client-outdated) → outdated、disconnect()、不排重啟（60 秒後仍沒有 connect）", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(tokenOk("editor"))));
+    render(<Probe />);
+    const p = provider();
+    await act(async () => {
+      await p.configuration.token();
+    });
+    act(() => p.emit("authenticationFailed", { reason: COLLAB_REJECT_CLIENT_OUTDATED }));
+    expect(phase()).toBe("outdated");
+    expect(p.disconnect).toHaveBeenCalled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(120_000);
+    });
+    expect(p.connect).not.toHaveBeenCalled();
+    expect(phase()).toBe("outdated");
   });
 });
 

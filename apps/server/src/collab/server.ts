@@ -78,6 +78,8 @@ import {
   COLLAB_REJECT_INVALID_TOKEN,
   COLLAB_REJECT_NOTE_DELETING,
   COLLAB_REJECT_SERVER_ERROR,
+  COLLAB_REJECT_CLIENT_OUTDATED,
+  NOTE_SCHEMA_VERSION,
 } from "@knotebook/shared";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
@@ -137,6 +139,7 @@ export {
   COLLAB_REJECT_INVALID_TOKEN,
   COLLAB_REJECT_NOTE_DELETING,
   COLLAB_REJECT_SERVER_ERROR,
+  COLLAB_REJECT_CLIENT_OUTDATED,
 };
 
 /**
@@ -145,8 +148,8 @@ export {
  * 兩層是刻意的：client 只需要知道「這是不是一則授權裁決」（見 `@knotebook/shared` 那組
  * 常數的註解），把 `bad-token` 與 `session-revoked` 分開對它毫無意義、反而是多一組要維護
  * 的相容面；但維護者在事後查「這個人為什麼連不上」時，這兩者要的處置天差地遠（前者是
- * token 本身的問題，後者是這個 session 已被撤銷）。細分留在日誌裡，wire 維持四個值：
- * `note-deleting`／`invalid-token`／`forbidden`／`server-error`。
+ * token 本身的問題，後者是這個 session 已被撤銷）。細分留在日誌裡，wire 維持五個值：
+ * `note-deleting`／`invalid-token`／`forbidden`／`server-error`／`client-outdated`（#269）。
  *
  * 每個 cause 的日誌級別不同（見 `logReject`），但**握手階段的出口只有 `rejectAuth` 一個**：
  * 別處裸 `throw new CollabAuthError(...)` 的話，那次拒連就不會出現在 `cause` 這個欄位上，
@@ -164,6 +167,8 @@ const REJECT_WIRE_REASON = {
   "no-role": COLLAB_REJECT_FORBIDDEN,
   /** onAuthenticate 撞到未預期例外（DB 抖動…）。不是裁決，client 會自己退避重試。 */
   "server-error": COLLAB_REJECT_SERVER_ERROR,
+  /** #269 §5：token 的 note schema 版本（`sv`）與這個 server 的 `NOTE_SCHEMA_VERSION` 不同——舊分頁或回滾後的新分頁。info 級。 */
+  "client-outdated": COLLAB_REJECT_CLIENT_OUTDATED,
 } as const;
 
 export type CollabRejectCause = keyof typeof REJECT_WIRE_REASON;
@@ -674,6 +679,14 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
           rejectAuth("bad-token", { noteId: documentName });
         }
         userId = claims.userId;
+
+        // #269 §5.1-3：舊分頁閘門。放在驗完 token 之後、刪除閘門之前：不需要 DB、與筆記存不存在無關（不形成存在性
+        // oracle）。`!==` 不用 `<`：server 回滾時比較新的 client 一樣要重整。
+        // ⚠ `onTokenSync` 刻意**不**重驗 `sv`：`sv` 隨 bundle 固定、`NOTE_SCHEMA_VERSION` 隨程序固定，schema 升版必然換程序
+        // ⇒ 所有 socket 斷線重握手。日後若改成熱更新，這個前提就不成立，要回頭在重驗補上（`collab-gate.test.ts` G3 釘現狀）。
+        if (claims.sv !== NOTE_SCHEMA_VERSION) {
+          rejectAuth("client-outdated", { noteId: documentName, userId: claims.userId });
+        }
 
         // ⚠ 刪除閘門刻意排在**驗完 token 之後**（審查指出）：它是這個 server 唯一會透露
         // 「某個 noteId 存在（且剛被刪掉）」的地方，擺在最前面等於讓一個連 session 都不需要

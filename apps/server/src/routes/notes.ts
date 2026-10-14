@@ -66,7 +66,7 @@ import {
   type SlugScope,
 } from "../notes/slug.js";
 import { fetchBacklinks, normalizeLinkTargets, writeNoteLinks, type WriteNoteLinksHooks } from "../notes/links.js";
-import { signCollabToken } from "../collab/token.js";
+import { schemaVersionFromBody, signCollabToken } from "../collab/token.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
 import { isForeignKeyViolation, uniqueViolationConstraint } from "../db/pg-errors.js";
 import { deleteUploadFiles } from "../uploads/service.js";
@@ -1169,6 +1169,8 @@ export function notesRoutes(deps: NotesRouteDeps) {
         userId,
         role,
         tv: request.sessionTv!,
+        // #269 §5.1：client 送的 note schema 版本簽進 `sv`；缺席＝0（閘門前的舊分頁），由 onAuthenticate 拒。
+        sv: schemaVersionFromBody(request.body),
       });
 
       return { token, role };

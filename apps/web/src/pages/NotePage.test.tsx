@@ -581,6 +581,24 @@ describe("NotePage", () => {
     expect(screen.getByText("This note has been deleted.")).toBeInTheDocument();
   });
 
+  it("#269 outdated：不導頁、不 toast；banner 出現；編輯器與標題唯讀", async () => {
+    vi.stubGlobal("fetch", mockFetch());
+    collab.provider.synced = true;
+    collab.state = { phase: "outdated" };
+
+    renderNotePage("my-note");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Knotebook has been updated");
+    expect(screen.getByTestId("note-editor")).toHaveAttribute("data-editable", "false");
+    // 標題唯讀＝變純文字（同「connected 且角色是 viewer」那一案的斷言形：範圍化到 header，heading 在、textbox 不在）。
+    const header = document.querySelector("header");
+    expect(header).not.toBeNull();
+    expect(within(header!).getByRole("heading", { name: "My Note" })).toBeInTheDocument();
+    expect(within(header!).queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.queryByText("home landing")).not.toBeInTheDocument();
+    expect(screen.queryByText("This note has been deleted.")).not.toBeInTheDocument();
+  });
+
   it("首次解析 404 → **linkInvalid** 文案（A10：不得沿用「筆記已刪」）並導回 /", async () => {
     vi.stubGlobal("fetch", mockFetch({ status: 404, code: "not_found" }));
 

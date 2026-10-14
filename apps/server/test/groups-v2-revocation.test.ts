@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { COLLAB_CLOSE_NOTE_DELETED, COLLAB_CLOSE_REVOKED, YDOC_FRAGMENT, type GroupRoleDto } from "@knotebook/shared";
+import { COLLAB_CLOSE_NOTE_DELETED, COLLAB_CLOSE_REVOKED, NOTE_SCHEMA_VERSION, YDOC_FRAGMENT, type GroupRoleDto } from "@knotebook/shared";
 import { createCollabHooks, REVERIFY_DEADLINE_MS } from "../src/collab/hooks-impl.js";
 import { buildCollabTestApp, type CollabTestCtx, type HttpSession } from "./helpers.js";
 import { seedRole } from "./group-helpers.js";
@@ -219,7 +219,7 @@ describe("#175 PR2 移動的踢線（spec §7）", () => {
     expect(moved.status).toBe(200);
     expect(moved.json).toMatchObject({ role: "viewer", permissions: { edit: false } });
     await waitFor("owner 那條連線完成重驗（setReadOnly 之後）", 10_000, synced);
-    const token = await api(owner.session, "POST", `/api/notes/${noteId}/collab-token`);
+    const token = await api(owner.session, "POST", `/api/notes/${noteId}/collab-token`, { noteSchemaVersion: NOTE_SCHEMA_VERSION });
     expect(token.status).toBe(200);
     expect((token.json as { role: string }).role).toBe("viewer");
 
@@ -278,7 +278,7 @@ describe("#175 PR4 刪群組的踢線（spec §7）", () => {
     await sleep(REVERIFY_DEADLINE_MS + 1_000);
     expect(adminClient.closes).toEqual([]);
 
-    const token = await api(admin.session, "POST", `/api/notes/${noteId}/collab-token`);
+    const token = await api(admin.session, "POST", `/api/notes/${noteId}/collab-token`, { noteSchemaVersion: NOTE_SCHEMA_VERSION });
     expect(token.status).toBe(200);
     expect((token.json as { role: string }).role).toBe("owner");
 

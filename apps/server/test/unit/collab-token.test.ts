@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { decodeJwt } from "jose";
-import { signCollabToken, verifyCollabToken } from "../../src/collab/token.js";
+import { createHash } from "node:crypto";
+import { decodeJwt, SignJWT } from "jose";
+import { schemaVersionFromBody, signCollabToken, verifyCollabToken } from "../../src/collab/token.js";
 import { FixedWindowLimiter } from "../../src/http/rate-limit.js";
 
 const secret = "a".repeat(64);
@@ -11,19 +12,19 @@ describe("collab token jwt", () => {
   });
 
   it("簽驗往返：noteId/role/tv 正確", async () => {
-    const token = await signCollabToken(secret, { noteId: "note-1", userId: "user-1", role: "editor", tv: 3 });
+    const token = await signCollabToken(secret, { noteId: "note-1", userId: "user-1", role: "editor", tv: 3, sv: 0 });
     const result = await verifyCollabToken(secret, token);
-    expect(result).toEqual({ noteId: "note-1", userId: "user-1", role: "editor", tv: 3 });
+    expect(result).toEqual({ noteId: "note-1", userId: "user-1", role: "editor", tv: 3, sv: 0 });
   });
 
   it("role:'none' 可簽可驗（§11.5-1：無權限使用者也拿得到合法 token）", async () => {
-    const token = await signCollabToken(secret, { noteId: "note-1", userId: "user-1", role: "none", tv: 0 });
+    const token = await signCollabToken(secret, { noteId: "note-1", userId: "user-1", role: "none", tv: 0, sv: 0 });
     const result = await verifyCollabToken(secret, token);
-    expect(result).toEqual({ noteId: "note-1", userId: "user-1", role: "none", tv: 0 });
+    expect(result).toEqual({ noteId: "note-1", userId: "user-1", role: "none", tv: 0, sv: 0 });
   });
 
   it("claims 含 tv（JWT payload 層級可驗到）", async () => {
-    const token = await signCollabToken(secret, { noteId: "note-1", userId: "user-1", role: "viewer", tv: 7 });
+    const token = await signCollabToken(secret, { noteId: "note-1", userId: "user-1", role: "viewer", tv: 7, sv: 0 });
     const payload = decodeJwt(token);
     expect(payload.tv).toBe(7);
   });
@@ -31,7 +32,7 @@ describe("collab token jwt", () => {
   it("篡改 token → null", async () => {
     // 改 payload 首字元（而非簽章末字元——base64url 末字元只有部分位元有效，flip
     // 有極小機率不改變解碼後的位元組，造成假綠）。
-    const token = await signCollabToken(secret, { noteId: "note-1", userId: "user-1", role: "owner", tv: 1 });
+    const token = await signCollabToken(secret, { noteId: "note-1", userId: "user-1", role: "owner", tv: 1, sv: 0 });
     const [header, payload, signature] = token.split(".");
     const flippedFirstChar = payload[0] === "a" ? "b" : "a";
     const tampered = `${header}.${flippedFirstChar + payload.slice(1)}.${signature}`;
@@ -46,7 +47,7 @@ describe("collab token jwt", () => {
   it("過期 token → null", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
-    const token = await signCollabToken(secret, { noteId: "note-1", userId: "user-1", role: "editor", tv: 1 });
+    const token = await signCollabToken(secret, { noteId: "note-1", userId: "user-1", role: "editor", tv: 1, sv: 0 });
     // 120s TTL（COLLAB_TOKEN_TTL_SECONDS），推進 121s
     vi.setSystemTime(new Date("2026-01-01T00:02:01Z"));
     expect(await verifyCollabToken(secret, token)).toBeNull();
@@ -55,8 +56,6 @@ describe("collab token jwt", () => {
   it(":session 鍵簽的用 :collab 驗必 null（兩把鍵不得互驗，見 auth/session.ts 的 sessionKey）", async () => {
     // 直接重現 sessionKey 的衍生方式（sha256(secret + ":session")）簽一個 token，
     // 確認用 collab 這邊的 verifyCollabToken（sha256(secret + ":collab")）驗不過。
-    const { SignJWT } = await import("jose");
-    const { createHash } = await import("node:crypto");
     const sessionKey = createHash("sha256").update(`${secret}:session`).digest();
     const token = await new SignJWT({ noteId: "note-1", role: "editor", tv: 1 })
       .setProtectedHeader({ alg: "HS256" })
@@ -65,6 +64,23 @@ describe("collab token jwt", () => {
       .setExpirationTime("120s")
       .sign(sessionKey);
     expect(await verifyCollabToken(secret, token)).toBeNull();
+  });
+  it("#269：sv claim 往返；舊形 token（沒有 sv）驗成 sv=0、不視為壞 token", async () => {
+    const withSv = await signCollabToken(secret, { noteId: "note-1", userId: "user-1", role: "owner", tv: 1, sv: 7 });
+    expect((await verifyCollabToken(secret, withSv))?.sv).toBe(7);
+    const key = createHash("sha256").update(`${secret}:collab`).digest();
+    const legacy = await new SignJWT({ noteId: "note-1", role: "owner", tv: 1 }).setProtectedHeader({ alg: "HS256" }).setSubject("user-1").setIssuedAt().setExpirationTime("120s").sign(key);
+    expect(await verifyCollabToken(secret, legacy)).toEqual({ userId: "user-1", noteId: "note-1", role: "owner", tv: 1, sv: 0 });
+  });
+
+  it("#269：schemaVersionFromBody——缺席、非物件、非整數一律 0；整數照收", () => {
+    expect(schemaVersionFromBody(undefined)).toBe(0);
+    expect(schemaVersionFromBody(null)).toBe(0);
+    expect(schemaVersionFromBody("1")).toBe(0);
+    expect(schemaVersionFromBody({})).toBe(0);
+    expect(schemaVersionFromBody({ noteSchemaVersion: "1" })).toBe(0);
+    expect(schemaVersionFromBody({ noteSchemaVersion: 1.5 })).toBe(0);
+    expect(schemaVersionFromBody({ noteSchemaVersion: 3 })).toBe(3);
   });
 });
 

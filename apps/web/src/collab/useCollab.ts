@@ -4,15 +4,17 @@ import { HocuspocusProvider } from "@hocuspocus/provider";
 import {
   COLLAB_CLOSE_NOTE_DELETED,
   COLLAB_CLOSE_REVOKED,
+  COLLAB_REJECT_CLIENT_OUTDATED,
   COLLAB_REJECT_FORBIDDEN,
   COLLAB_REJECT_NOTE_DELETING,
   COLLAB_RESTART_DELAYS_MS,
   COLLAB_RESTART_JITTER,
   COLLAB_TOKEN_RETRY_DELAYS_MS,
+  NOTE_SCHEMA_VERSION,
   type Role,
 } from "@knotebook/shared";
 import { api, ApiFail } from "@/api/client";
-import { collabReducer, INITIAL_COLLAB_STATE, isTerminal, type CollabEvent, type CollabState } from "./connection";
+import { COLLAB_CLOSE_CLIENT_OUTDATED, collabReducer, INITIAL_COLLAB_STATE, stopsReconnect, type CollabEvent, type CollabState } from "./connection";
 
 /** `POST /api/notes/:id/collab-token` 的回應形狀（Task 4）。 */
 export interface CollabTokenResponse {
@@ -312,8 +314,10 @@ export function useCollab({ noteId, onUnauthorized, onDocUpdate }: UseCollabOpti
     const fetchTokenWithRetries = async (): Promise<string> => {
       for (let attempt = 0; ; attempt += 1) {
         try {
+          // #269 §5.1-1：帶 note schema 版本（build 時由 shared 常數編進 bundle）；server 簽進 token 的 `sv`，握手時比對。
           const body = await api<CollabTokenResponse>(`/api/notes/${encodeURIComponent(noteId)}/collab-token`, {
             method: "POST",
+            body: JSON.stringify({ noteSchemaVersion: NOTE_SCHEMA_VERSION }),
           });
           // ⚠ 成功出口也要 `disposed` 守衛（issue #36）：`roleRef` 與 `dispatch` 都是 hook 層
           // 的（不隨 effect 重建），換筆記後這一發遲到的回應會打進**新筆記**的狀態機。最糟的
@@ -459,6 +463,12 @@ export function useCollab({ noteId, onUnauthorized, onDocUpdate }: UseCollabOpti
 
       // issue #35：拒連理由分兩桶，處置完全不同（見 `@knotebook/shared` 那組常數的註解）。
       // A 桶＝授權裁決，照舊翻成 close 事件走既有的終態／二擊語意。
+      // #269 §5.2：舊分頁閘門。不是授權裁決、也不是「暫時性」——重試永遠拿到同樣的結論，所以不進 B 桶的重啟，
+      // 翻成 close 事件進 `outdated`（停重啟＋disconnect 由下方 stopsReconnect 那支 effect 做）。
+      if (wire === COLLAB_REJECT_CLIENT_OUTDATED) {
+        dispatch({ type: "close", reason: COLLAB_CLOSE_CLIENT_OUTDATED });
+        return;
+      }
       if (wire === COLLAB_REJECT_NOTE_DELETING) {
         dispatch({ type: "close", reason: COLLAB_CLOSE_NOTE_DELETED });
         return;
@@ -523,8 +533,8 @@ export function useCollab({ noteId, onUnauthorized, onDocUpdate }: UseCollabOpti
       return restartConnection(provider, pendingReconnectRef);
     }
 
-    if (isTerminal(state)) {
-      // 終態不再重連：`disconnect()` 會把 shouldConnect 設為 false，停掉內建退避。
+    if (stopsReconnect(state)) {
+      // 終態與 outdated 都不再重連：`disconnect()` 會把 shouldConnect 設為 false，停掉內建退避。
       // issue #39 的重啟排程也要一起掐掉，否則它會把終態的連線重新拉起來。
       stopRestartsRef.current?.();
       pendingReconnectRef.current = false;

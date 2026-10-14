@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import * as Y from "yjs";
-import { LAST_ACTIVE_WRITE_INTERVAL_MS, YDOC_FRAGMENT } from "@knotebook/shared";
+import { LAST_ACTIVE_WRITE_INTERVAL_MS, NOTE_SCHEMA_VERSION, YDOC_FRAGMENT } from "@knotebook/shared";
 import type { Db } from "../src/db/index.js";
 import { UserGate } from "../src/auth/session.js";
 import { signCollabToken } from "../src/collab/token.js";
@@ -125,7 +125,7 @@ describe("users.last_active_at × 共編（#267）", () => {
     await ctx.db.execute(sql`update users set last_active_at = null where id = ${alice.id}`);
     now += LAST_ACTIVE_WRITE_INTERVAL_MS;
     // 不經 REST 取 token（那是一次 session 請求，會自己寫）：直接簽一張共編 token。
-    const token = await signCollabToken(testConfig.appSecret, { noteId: note.id, userId: alice.id, role: "owner", tv: 0 });
+    const token = await signCollabToken(testConfig.appSecret, { noteId: note.id, userId: alice.id, role: "owner", tv: 0, sv: NOTE_SCHEMA_VERSION });
     const client = await session.connect(note.id, { tokenOverride: token });
     await waitUntil("連線建立後 last_active_at 有值", 3_000, async () => (await lastActiveText(ctx.db, alice.id)) !== null);
 

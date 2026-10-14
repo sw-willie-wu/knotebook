@@ -177,7 +177,12 @@
       "offlineUnsynced": "尚未載入——離線",
       "offline": "離線",
       "kicked": "已失去存取權",
-      "deleted": "筆記已刪除"
+      "deleted": "筆記已刪除",
+      "outdated": "需要重新整理"
+    },
+    "outdated": {
+      "message": "Knotebook 已更新，請重新整理頁面後繼續編輯。這個分頁尚未同步的變更在重新整理後不會保留。",
+      "reload": "重新整理"
     },
     "filePanel": {
       "upload": {

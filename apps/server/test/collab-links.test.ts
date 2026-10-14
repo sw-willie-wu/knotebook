@@ -7,7 +7,7 @@ import { createCollabHooks } from "../src/collab/hooks-impl.js";
 import { docClock } from "../src/collab/store.js";
 import { notes, noteLinks } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
-import { buildCollabTestApp, type CollabTestCtx, type HttpSession, type TestClient } from "./helpers.js";
+import { buildCollabTestApp, COLLAB_TOKEN_INIT, type CollabTestCtx, type HttpSession, type TestClient } from "./helpers.js";
 
 const PASSWORD = "correct-horse-battery";
 
@@ -66,7 +66,7 @@ function extractWikilinkTargets(doc: Y.Doc): string[] {
 
 /** 走真的 `POST /api/notes/:id/collab-token`（會計入 per-user limiter）取一份 token。 */
 async function fetchToken(session: HttpSession, noteId: string): Promise<string> {
-  const res = await session.fetch(`/api/notes/${noteId}/collab-token`, { method: "POST" });
+  const res = await session.fetch(`/api/notes/${noteId}/collab-token`, COLLAB_TOKEN_INIT);
   if (!res.ok) throw new Error(`取得 collab token 失敗（${res.status}）：${await res.text()}`);
   const body = (await res.json()) as { token: string; role: Role };
   return body.token;

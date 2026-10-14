@@ -1,6 +1,11 @@
 import { COLLAB_CLOSE_NOTE_DELETED, COLLAB_CLOSE_REVOKED, type Role } from "@knotebook/shared";
 
 /**
+ * #269 §5.2：client 內部的 close reason（server 不送）——`useCollab` 收到 wire `client-outdated` 時翻成這個 close 事件。
+ */
+export const COLLAB_CLOSE_CLIENT_OUTDATED = "knotebook:client-outdated";
+
+/**
  * 共編連線狀態（spec §5 client 端 + N4/N7，逐字）。
  *
  * - `connecting`：尚未（或暫時未）連上。provider 內建退避重連中，非終態。
@@ -14,7 +19,9 @@ export type CollabState =
   | { phase: "connected"; role: Role }
   | { phase: "reconnecting-once" }
   | { phase: "kicked" }
-  | { phase: "deleted" };
+  | { phase: "deleted" }
+  /** #269 §5.2：這個分頁的 bundle 與 server 的 note schema 版本不同——唯讀、提示重整。**不是終態**（不 toast、不導頁）。 */
+  | { phase: "outdated" };
 
 /**
  * 驅動狀態機的三種事件。
@@ -36,6 +43,14 @@ export function isTerminal(state: CollabState): boolean {
   return state.phase === "kicked" || state.phase === "deleted";
 }
 
+/**
+ * #269 §5.2：不再重連、內容唯讀的狀態——終態加上 `outdated`。⚠ `outdated` **不得**加進 `isTerminal`：那會觸發 NotePage 的
+ * toast＋導回 `/`。停重啟、`disconnect()`、編輯器／標題／版本／簡報編輯入口唯讀一律看這裡。
+ */
+export function stopsReconnect(state: CollabState): boolean {
+  return isTerminal(state) || state.phase === "outdated";
+}
+
 /** 這個角色能不能編輯內容（`editor.isEditable` / `BlockNoteView editable` 的唯一判準）。 */
 export function canEdit(role: Role): boolean {
   return role === "owner" || role === "editor";
@@ -48,6 +63,8 @@ export function canEdit(role: Role): boolean {
  *
  * 1. **終態凍結**：`kicked`/`deleted` 收任何事件一律回傳原物件。放在最前面，
  *    所以連 `close(NOTE_DELETED)` 也不會把 `kicked` 蓋成 `deleted`（先到先定）。
+ *    #269：`outdated` 同樣凍結（看的是 `stopsReconnect`，不是 `isTerminal`）；任何非凍結狀態收到
+ *    `close(COLLAB_CLOSE_CLIENT_OUTDATED)` → `outdated`。
  * 2. `close(NOTE_DELETED)` → `deleted`（任何非終態皆然）。
  * 3. `close(REVOKED)`：`reconnecting-once` → `kicked`（第二擊）；其餘非終態 →
  *    `reconnecting-once`（第一擊，呼叫端據此 `disconnect()` 後重取 token 連一次）。
@@ -73,9 +90,10 @@ export function canEdit(role: Role): boolean {
  * 不會為了無意義的事件觸發 re-render。
  */
 export function collabReducer(state: CollabState, event: CollabEvent): CollabState {
-  if (isTerminal(state)) return state;
+  if (stopsReconnect(state)) return state;
 
   if (event.type === "close") {
+    if (event.reason === COLLAB_CLOSE_CLIENT_OUTDATED) return { phase: "outdated" };
     if (event.reason === COLLAB_CLOSE_NOTE_DELETED) return { phase: "deleted" };
     if (event.reason === COLLAB_CLOSE_REVOKED) {
       return state.phase === "reconnecting-once" ? { phase: "kicked" } : { phase: "reconnecting-once" };

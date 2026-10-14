@@ -133,4 +133,15 @@ describe("ConnectionBadge（issue #48：離線可見性）", () => {
       expect(screen.getByText(text).className).not.toContain("max-md:hidden");
     }
   });
+
+  it("#269 outdated：中性「Reload required」、超過門檻也不升級成離線警示", () => {
+    vi.useFakeTimers();
+    renderBadge({ phase: "outdated" }, true);
+    act(() => {
+      vi.advanceTimersByTime(OFFLINE_WARN_MS + 1_000);
+    });
+    expect(screen.getByRole("status")).toHaveTextContent("Reload required");
+    expect(screen.getByRole("status")).not.toHaveTextContent("Editing offline");
+    vi.useRealTimers();
+  });
 });

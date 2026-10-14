@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { COLLAB_CLOSE_NOTE_DELETED, COLLAB_CLOSE_REVOKED, type Role } from "@knotebook/shared";
-import { collabReducer, INITIAL_COLLAB_STATE, isTerminal, type CollabEvent, type CollabState } from "./connection";
+import { COLLAB_CLOSE_CLIENT_OUTDATED, collabReducer, INITIAL_COLLAB_STATE, isTerminal, stopsReconnect, type CollabEvent, type CollabState } from "./connection";
 
 // 事件建構捷徑——測試裡大量重複，抽出來讓每條斷言只剩「狀態 + 事件 → 狀態」這一件事。
 const open = (role: Role): CollabEvent => ({ type: "open", role });
@@ -171,5 +171,23 @@ describe("isTerminal", () => {
     expect(isTerminal(CONNECTING)).toBe(false);
     expect(isTerminal(RECONNECTING_ONCE)).toBe(false);
     expect(isTerminal(connected("editor"))).toBe(false);
+  });
+});
+
+describe("#269 outdated（舊分頁閘門）", () => {
+  it("任何非終態 + close(client-outdated) → outdated；之後任何事件都留在 outdated", () => {
+    for (const from of [INITIAL_COLLAB_STATE, { phase: "connected", role: "owner" } as const, { phase: "reconnecting-once" } as const]) {
+      const s = collabReducer(from, { type: "close", reason: COLLAB_CLOSE_CLIENT_OUTDATED });
+      expect(s).toEqual({ phase: "outdated" });
+      expect(collabReducer(s, { type: "open", role: "owner" })).toBe(s);
+      expect(collabReducer(s, { type: "close", reason: COLLAB_CLOSE_REVOKED })).toBe(s);
+      expect(collabReducer(s, { type: "token-role", role: "none" })).toBe(s);
+    }
+  });
+  it("outdated 不是終態（不觸發 NotePage 的 toast＋導頁），但 stopsReconnect 為真", () => {
+    expect(isTerminal({ phase: "outdated" })).toBe(false);
+    expect(stopsReconnect({ phase: "outdated" })).toBe(true);
+    expect(stopsReconnect({ phase: "kicked" })).toBe(true);
+    expect(stopsReconnect({ phase: "connected", role: "owner" })).toBe(false);
   });
 });

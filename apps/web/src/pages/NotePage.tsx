@@ -7,7 +7,7 @@ import { api, ApiFail } from "@/api/client";
 import { GROUPS_QUERY_KEY } from "@/api/groups";
 import { invalidateNoteQueries, useNote, useNoteByGroupPath, useNoteByPath } from "@/api/notes";
 import { SESSION_QUERY_KEY, useSession } from "@/auth/useSession";
-import { canEdit, isTerminal, type CollabState } from "@/collab/connection";
+import { canEdit, isTerminal, stopsReconnect, type CollabState } from "@/collab/connection";
 import { useActiveNote } from "@/lib/active-note";
 import {
   useHistoryLocationKey,
@@ -28,6 +28,7 @@ import { ChunkLoadBeacon, LazyRouteErrorBoundary, LazyRouteLoading } from "@/com
 import { LastEditedLabel } from "@/components/LastEditedLabel";
 import { NoteEditor } from "@/components/NoteEditor";
 import { NoteMenu } from "@/components/NoteMenu";
+import { OutdatedClientBanner } from "@/components/OutdatedClientBanner";
 import { ShareDialog } from "@/components/ShareDialog";
 import { TitleInput } from "@/components/TitleInput";
 import { VERSIONS_ERROR_FRAME, VersionsLazyBoundary } from "@/components/versions/VersionsLazyBoundary";
@@ -349,7 +350,7 @@ export default function NotePage() {
   const linkSyncRef = useRef<LinkSync | null>(null);
 
   // 版本歷史（spec §8.1、§9）：canEdit 判準與標題／分享同一條（REST 角色、非終態；不看 synced——版本 API 走 REST）。
-  const versionsEnabled = note !== undefined && !isTerminal(state) && canEdit(effectiveRole(state, note));
+  const versionsEnabled = note !== undefined && !stopsReconnect(state) && canEdit(effectiveRole(state, note));
   const versions = useVersionsController({
     noteId: noteId ?? null,
     enabled: versionsEnabled,
@@ -644,7 +645,8 @@ export default function NotePage() {
   } else {
     const role = effectiveRole(state, note);
     // 角色允不允許編輯（不看連線）：標題、分享這類**走 REST 的操作**用這個判準。
-    const roleCanEdit = !isTerminal(state) && canEdit(role);
+    // #269 §5.2：outdated（舊分頁閘門）與終態同樣唯讀——編輯器、標題、版本、簡報編輯入口。
+    const roleCanEdit = !stopsReconnect(state) && canEdit(role);
     // issue #48：**Y.Doc 的內容編輯**還要求同步過。第一次 sync 之前本機 Y.Doc 是空的——
     // 這時的「可編輯」是一篇空白但看似正常的筆記，打的字只進本機、重整就沒了（沒有
     // y-indexeddb）。同步過一次之後 `synced` 就 sticky true，斷線仍可編輯（那些離線編輯
@@ -667,6 +669,7 @@ export default function NotePage() {
               // 控制項貼右；`px-5`（20px）與 `<md` 的內文左緣共線。#88 的文章欄對齊
               // 已刻意拆除（見 ui/article-column.ts 檔頭）。
               <>
+                {state.phase === "outdated" && <OutdatedClientBanner />}
                 <header className="flex items-center gap-3 border-b border-border px-5 py-3">
                   {/* #115：窄視窗的抽屜入口（md:hidden）——筆記載入成功態不掛
                       NarrowTopBar（頁首自己有這顆）；載入中/錯誤的佔位卡沒有頁首，
@@ -730,7 +733,7 @@ export default function NotePage() {
       : null;
   const overlayReady = !needsResolve && note !== undefined && doc !== null && provider !== null && synced;
   const presentStatus: PresentationShellStatus = presentFailure !== null ? "error" : overlayReady ? "ready" : "loading";
-  const presentRoleCanEdit = note ? !isTerminal(state) && canEdit(effectiveRole(state, note)) : false;
+  const presentRoleCanEdit = note ? !stopsReconnect(state) && canEdit(effectiveRole(state, note)) : false;
   const shellMounted = presenting && !leavingRef.current;
 
   return (

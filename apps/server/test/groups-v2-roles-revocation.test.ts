@@ -15,7 +15,7 @@
  */
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
-import { COLLAB_CLOSE_REVOKED, YDOC_FRAGMENT, type GroupMemberDto, type GroupRoleDto, type GroupRoleFlags } from "@knotebook/shared";
+import { COLLAB_CLOSE_REVOKED, NOTE_SCHEMA_VERSION, YDOC_FRAGMENT, type GroupMemberDto, type GroupRoleDto, type GroupRoleFlags } from "@knotebook/shared";
 import { createCollabHooks, REVERIFY_DEADLINE_MS } from "../src/collab/hooks-impl.js";
 import { buildCollabTestApp, type CollabTestCtx, type HttpSession } from "./helpers.js";
 
@@ -206,7 +206,7 @@ describe("#175 PR3 角色變更的踢線（spec §7，真連線）", () => {
     expect(created.status).toBe(201);
     expect(created.json).toMatchObject({ role: "viewer", groupId, ownerId: null, permissions: { read: true, edit: false } });
     const noteId = (created.json as { id: string }).id;
-    const token = await api(member.session, "POST", `/api/notes/${noteId}/collab-token`);
+    const token = await api(member.session, "POST", `/api/notes/${noteId}/collab-token`, { noteSchemaVersion: NOTE_SCHEMA_VERSION });
     expect((token.json as { role: string }).role).toBe("viewer");
 
     // 內容在 server 端：A 新連上、首次 sync 完成就看得到

@@ -3,7 +3,7 @@ import * as Y from "yjs";
 import { COLLAB_CLOSE_NOTE_DELETED, COLLAB_CLOSE_REVOKED, YDOC_FRAGMENT, type Role } from "@knotebook/shared";
 import { COLLAB_REJECT_FORBIDDEN, COLLAB_REJECT_NOTE_DELETING } from "../src/collab/server.js";
 import { createCollabHooks, REVERIFY_DEADLINE_MS } from "../src/collab/hooks-impl.js";
-import { buildCollabTestApp, type CollabTestCtx, type HttpSession } from "./helpers.js";
+import { buildCollabTestApp, COLLAB_TOKEN_INIT, type CollabTestCtx, type HttpSession } from "./helpers.js";
 
 const PASSWORD = "correct-horse-battery";
 
@@ -46,7 +46,7 @@ function insertParagraph(doc: Y.Doc, text: string): void {
 
 /** 走真的 `POST /api/notes/:id/collab-token`（會計入 per-user limiter）取一份 token。 */
 async function fetchToken(session: HttpSession, noteId: string): Promise<string> {
-  const res = await session.fetch(`/api/notes/${noteId}/collab-token`, { method: "POST" });
+  const res = await session.fetch(`/api/notes/${noteId}/collab-token`, COLLAB_TOKEN_INIT);
   if (!res.ok) throw new Error(`取得 collab token 失敗（${res.status}）：${await res.text()}`);
   const body = (await res.json()) as { token: string; role: Role };
   return body.token;
@@ -269,7 +269,7 @@ describe("撤權 SLA：CollabHooks（Task 6）", () => {
 
     // 再手動耗掉 58 次 → 累計 59/60，重驗那一次剛好是第 60 次（仍在限額內）。
     for (let i = 0; i < 58; i += 1) {
-      const res = await victimSession.fetch(`/api/notes/${note.id}/collab-token`, { method: "POST" });
+      const res = await victimSession.fetch(`/api/notes/${note.id}/collab-token`, COLLAB_TOKEN_INIT);
       expect(res.status).toBe(200);
     }
 
@@ -287,7 +287,7 @@ describe("撤權 SLA：CollabHooks（Task 6）", () => {
     expect(Date.now() - started).toBeLessThan(REVERIFY_DEADLINE_MS - 500);
 
     // 佐證配額真的被用到第 60 次（重驗那次也走了同一個 endpoint）：下一次即超限。
-    const overRes = await victimSession.fetch(`/api/notes/${note.id}/collab-token`, { method: "POST" });
+    const overRes = await victimSession.fetch(`/api/notes/${note.id}/collab-token`, COLLAB_TOKEN_INIT);
     expect(overRes.status).toBe(429);
   });
 
@@ -333,7 +333,7 @@ describe("撤權 SLA：CollabHooks（Task 6）", () => {
 
     // §5 契約：token endpoint 對「有 session、但對該 note 無權限（含已刪除）」一律
     // 200 + role:'none'，絕不回錯誤狀態（不當權限探測 oracle）。
-    const tokenRes = await editorSession.fetch(`/api/notes/${note.id}/collab-token`, { method: "POST" });
+    const tokenRes = await editorSession.fetch(`/api/notes/${note.id}/collab-token`, COLLAB_TOKEN_INIT);
     expect(tokenRes.status).toBe(200);
     const tokenBody = (await tokenRes.json()) as { token: string; role: Role };
     expect(tokenBody.role).toBe("none");

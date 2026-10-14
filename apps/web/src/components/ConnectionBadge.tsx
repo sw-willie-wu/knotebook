@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
-import { canEdit, isTerminal, type CollabState } from "@/collab/connection";
+import { canEdit, stopsReconnect, type CollabState } from "@/collab/connection";
 import { cn } from "@/lib/utils";
 
 /**
@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 export const OFFLINE_WARN_MS = 3_000;
 
 /**
- * 5 個 phase → i18n key ＋ 點色（PR2 D.2：離開 pill 徽章，改成「狀態點＋文字」的
+ * 6 個 phase（#269 加 `outdated`：中性灰點、不升級成離線警示）→ i18n key ＋ 點色（PR2 D.2：離開 pill 徽章，改成「狀態點＋文字」的
  * 精簡形，色彩訊號集中在點上——`PHASE_STYLES` 因此由原本「2 類 className」（預設灰／
  * 警示紅）擴為「點色映射」，5 個 phase 文案分支與 #48 的計時邏輯完全零改動）。
  * `connected` 用字面值 `oklch(0.8 0.17 152)`（≈ #4ade80）而不是 Tailwind class：
@@ -25,6 +25,7 @@ const PHASE_STYLES: Record<CollabState["phase"], { key: string; dotClassName: st
   "reconnecting-once": { key: "note.connection.reconnecting", dotClassName: "bg-muted-foreground" },
   kicked: { key: "note.connection.kicked", dotClassName: "bg-destructive" },
   deleted: { key: "note.connection.deleted", dotClassName: "bg-destructive" },
+  outdated: { key: "note.connection.outdated", dotClassName: "bg-muted-foreground" },
 };
 
 /**
@@ -77,7 +78,7 @@ export function ConnectionBadge({
   // 併進同一顆 timer 就不會誤傷正常開頁：connecting→connected→synced 走完通常 <1s，
   // 跨不過門檻、不閃。
   const [offlineSustained, setOfflineSustained] = useState(false);
-  const offlinePhase = !isTerminal(state) && (state.phase !== "connected" || !synced);
+  const offlinePhase = !stopsReconnect(state) && (state.phase !== "connected" || !synced);
   // 用 ref 讀最新值，讓 effect 的 deps 只有 offlinePhase——避免 setOfflineSustained 造成的
   // re-render 把 effect 重跑、timer 一直被清掉重設而永遠觸發不了。
   const sustainedRef = useRef(offlineSustained);

@@ -177,7 +177,12 @@
       "offlineUnsynced": "Not loaded — offline",
       "offline": "Offline",
       "kicked": "Access revoked",
-      "deleted": "Note deleted"
+      "deleted": "Note deleted",
+      "outdated": "Reload required"
+    },
+    "outdated": {
+      "message": "Knotebook has been updated. Reload the page to keep editing. Changes in this tab that haven't synced won't be kept after reloading.",
+      "reload": "Reload"
     },
     "filePanel": {
       "upload": {

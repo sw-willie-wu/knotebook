@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { eq } from "drizzle-orm";
 import type { Role } from "@knotebook/shared";
-import { SESSION_COOKIE } from "@knotebook/shared";
+import { NOTE_SCHEMA_VERSION, SESSION_COOKIE } from "@knotebook/shared";
 import { buildTestApp, testConfig } from "./helpers.js";
 import { noteShares, notes, users } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
@@ -57,7 +57,7 @@ describe("POST /api/notes/:id/collab-token", () => {
       expect(typeof body.token).toBe("string");
 
       const claims = await verifyCollabToken(testConfig.appSecret, body.token);
-      expect(claims).toEqual({ noteId: note.id, userId: user.id, role, tv: 0 });
+      expect(claims).toEqual({ noteId: note.id, userId: user.id, role, tv: 0, sv: 0 });
     }
   });
 
@@ -170,5 +170,18 @@ describe("POST /api/notes/:id/collab-token", () => {
     const claims = await verifyCollabToken(testConfig.appSecret, res.json().token);
     expect(claims?.noteId).toBe(note.id);
     expect(res.statusCode).toBe(200);
+  });
+
+  it("#269：body 的 noteSchemaVersion 簽進 sv；沒帶 body ⇒ sv=0（兩者都 200，不洩漏契約不變）", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, { email: "owner-sv@example.com" });
+    const cookie = await cookieFor(owner.id);
+    const note = (await app.inject({ method: "POST", url: "/api/notes", cookies: { [SESSION_COOKIE]: cookie }, payload: {} })).json();
+    const withBody = await app.inject({ method: "POST", url: `/api/notes/${note.id}/collab-token`, cookies: { [SESSION_COOKIE]: cookie }, payload: { noteSchemaVersion: NOTE_SCHEMA_VERSION } });
+    expect(withBody.statusCode).toBe(200);
+    expect((await verifyCollabToken(testConfig.appSecret, withBody.json().token))?.sv).toBe(NOTE_SCHEMA_VERSION);
+    const bare = await app.inject({ method: "POST", url: `/api/notes/${note.id}/collab-token`, cookies: { [SESSION_COOKIE]: cookie } });
+    expect(bare.statusCode).toBe(200);
+    expect((await verifyCollabToken(testConfig.appSecret, bare.json().token))?.sv).toBe(0);
   });
 });
