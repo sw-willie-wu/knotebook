@@ -122,6 +122,8 @@ If you meant to keep the section, restate its heading as the first line of the M
 - `byHandle` is the username of whoever made the request. `agentLabel` is set only when the write came through a token or an authorized App; a write made with a session cookie leaves it `null`. It follows the credential's current name while the credential exists — unless you have renamed it in Settings, in which case the name you picked wins (see [Agent display name](#agent-display-name)) — and falls back to the label recorded at the time once it has been revoked.
 - `revertable` says whether `POST …/:editId/revert` would be accepted right now. Reverting is a normal write: it needs `notes:write`, it produces its own row (which can never itself be reverted), and it appears live in open tabs like any other change.
 
+In the **AI edit history** dialog (in the note's `⋮` menu), a row that can't be reverted shows why instead of a **Revert** button: **Already reverted**, that a revert can't itself be reverted, or — for any other row — that the content has changed since or the note was switched to another version. Below the list, the dialog notes that each note keeps up to its 100 most recent AI edits.
+
 A revert is refused with `409 already_reverted` (already undone, or the row is itself a revert), `409 stale` (the note has moved on — the body carries the current content in `current`), or `404 not_found` (no such row, or it belongs to another note).
 
 **How "stale" is decided** differs by operation, and this is the part worth knowing:

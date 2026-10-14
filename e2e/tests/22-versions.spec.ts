@@ -74,7 +74,7 @@ async function typeAtEnd(page: Page, text: string) {
   await page.keyboard.type(text);
 }
 
-test("22 版本歷史：存、改、預覽 diff、套用、從 vX 接著改、遠端改字、窄視窗整頁", async ({ browser }) => {
+test("22 版本歷史：存、改、預覽 diff、套用、沿自「名稱 (短 id)」接著改、遠端改字、窄視窗整頁", async ({ browser }) => {
   test.setTimeout(180_000);
   const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 } });
   const page = await ctx.newPage();
