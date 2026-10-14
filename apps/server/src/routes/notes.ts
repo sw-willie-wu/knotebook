@@ -55,7 +55,8 @@ import { moveNoteToGroup } from "../notes/move-note.js";
 import { copyNote } from "../notes/copy-note.js";
 import type { SearchIndexHooks } from "../notes/tx/search-index.js";
 import { patchSlugInTx, type SlugPatchTestHook, type SlugWriteScope } from "../notes/tx/patch-slug.js";
-import { groupNotePath, lookupRedirect, userNotePath } from "../notes/redirects.js";
+import { groupNotePath, userNotePath } from "../notes/redirects.js";
+import { resolveNotePath, type PathRowSource } from "../notes/resolve-path.js";
 import {
   deriveUniqueAutoSlug,
   fallbackAutoSlug,
@@ -453,14 +454,13 @@ export function notesRoutes(deps: NotesRouteDeps) {
         .where(cond);
     }
 
-    /** §6.4 查找序：① 現行 slug → ② 轉址表（過期 → 刪列、當 miss）→ ③ prev_slug（limit 2；0 或 >1 → miss）。 */
+    /** §6.4 查找序（#269：本體抽到 `notes/resolve-path.ts`，轉換工作共用；這裡只給「完整列」的取列法）。 */
+    const pathRows: PathRowSource<NoteFields> = {
+      where: (cond, limit) => selectNotesWhere(cond).limit(limit),
+      byId: loadNoteWithOwner,
+    };
     async function resolvePath(scopeCond: SQL, slug: string, redirectKey: string): Promise<NoteFields | undefined> {
-      const [hit] = await selectNotesWhere(and(scopeCond, eq(notes.slug, slug))!).limit(1);
-      if (hit) return hit;
-      const redirected = await lookupRedirect(deps.db, redirectKey);
-      if (redirected !== null) return loadNoteWithOwner(redirected);
-      const prevHits = await selectNotesWhere(and(scopeCond, eq(notes.prevSlug, slug))!).limit(2);
-      return prevHits.length === 1 ? prevHits[0] : undefined;
+      return resolveNotePath(deps.db, pathRows, scopeCond, slug, redirectKey);
     }
 
     /**
