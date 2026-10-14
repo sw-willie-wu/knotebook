@@ -1,5 +1,5 @@
 import type { Block, BlockNoteEditor } from "@blocknote/core";
-import { isBlankParseResult, rebindWikilinks, type WikilinkTarget } from "@knotebook/shared";
+import { convertSiteLinks, isBlankParseResult, rebindWikilinks, targetFromList, type SiteLinkCandidate, type WikilinkTarget } from "@knotebook/shared";
 import { verifyAnchor, type AiAnchor } from "./anchor"; // 只 import 有呼叫點的符號——no-unused-vars 是 error 且 root lint --max-warnings=0
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 編輯器泛型三元組，走 repo 慣例用 any（同 NoteEditor.tsx/wikilink/menu.ts）
@@ -7,7 +7,10 @@ type AnyEditor = BlockNoteEditor<any, any, any>;
 
 export type { WikilinkTarget };
 export interface ApplyDeps {
-  notes: WikilinkTarget[];
+  /** `["notes"]` 快取（使用者可見清單）——`[[…]]` 重綁與 #269 站內連結比對共用。 */
+  notes: readonly SiteLinkCandidate[];
+  /** 站內網址判準的 origin；不給＝`window.location.origin`。 */
+  siteOrigin?: string;
 }
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote Block 的泛型三元組，走 repo 慣例用 any（同 ApplyOutcome 的 M-2 說明）
 type AnyBlock = Block<any, any, any>;
@@ -26,11 +29,13 @@ export interface PreparedResult {
 export function prepareAiResult(editor: AnyEditor, markdown: string, deps: ApplyDeps): PreparedResult | { empty: true } {
   const parsed = editor.tryParseMarkdownToBlocks(markdown);
   if (isBlankParseResult(parsed)) return { empty: true };
-  const [blocks, unboundCount] = rebindWikilinks(
+  const [rebound, unboundCount] = rebindWikilinks(
     parsed,
-    deps.notes,
+    [...deps.notes],
     (type) => editor.schema.blockSchema[type]?.content === "inline",
   );
+  // #269 §8.6：站內連結 → wikilink，只以已載入的快取解析（沒有後備，§17-14）。預覽與寫入仍是同一份 blocks。
+  const [blocks] = convertSiteLinks(rebound, (_href, p) => targetFromList(p.path, deps.notes) ?? null, deps.siteOrigin ?? window.location.origin);
   return { blocks, unboundCount };
 }
 

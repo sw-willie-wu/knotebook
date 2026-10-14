@@ -13,7 +13,15 @@ import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import type { Block, BlockNoteEditor } from "@blocknote/core";
 import { ShowSelectionExtension } from "@blocknote/core/extensions";
-import { INSTRUCTION_MAX_CODE_POINTS, truncateCodePoints, type AiActionDto, type AiActionKind } from "@knotebook/shared";
+import {
+  escapeLinkText,
+  INSTRUCTION_MAX_CODE_POINTS,
+  mapInlineArrays,
+  truncateCodePoints,
+  wikilinksToLinks,
+  type AiActionDto,
+  type AiActionKind,
+} from "@knotebook/shared";
 import { fetchAiActions, streamAiAction } from "@/api/ai";
 import { ApiFail } from "@/api/client";
 import { useNotes } from "@/api/notes";
@@ -27,6 +35,25 @@ import { toast } from "@/components/ui/toast";
 type AnyEditor = BlockNoteEditor<any, any, any>;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同上，Block 的實際泛型三元組
 type AnyBlock = Block<any, any, any>;
+
+/**
+ * #269 §9.4：送出用 markdown 的匯出副本（不動文件）——wikilink 換成 `[顯示文字](/notes/<id>)` 的 link（`titleOf`＝現行標題查找），
+ * 再把 `/notes/` 連結的文字做 markdown 跳脫（RF1，同 server `colors.ts` 的 `escapeNoteLinkText`：`blocksToMarkdownLossy` 不跳脫連結文字，
+ * `[Draft]`、`a]b\` 之類的文字送出去會讓 AI 回寫的連結斷掉或 label 變形）。
+ */
+function blocksForAiMarkdown(blocks: AnyBlock[], titleOf: (id: string) => string | undefined): AnyBlock[] {
+  return mapInlineArrays(wikilinksToLinks(blocks, titleOf), (inline) => {
+    let changed = false;
+    const out = inline.map((node) => {
+      const n = node as { type?: unknown; href?: unknown; content?: unknown };
+      if (n?.type !== "link" || typeof n.href !== "string" || !n.href.startsWith("/notes/") || !Array.isArray(n.content)) return node;
+      changed = true;
+      const content = n.content.map((c: { text?: unknown }) => (typeof c?.text === "string" ? { ...c, text: escapeLinkText(c.text) } : c));
+      return { ...n, content };
+    });
+    return changed ? out : inline;
+  });
+}
 
 /** 框作用的範圍（#263 §5.2）：`open()` 當下的錨點與框選子字串（整塊選取為 `""`）。 */
 export interface AiTarget {
@@ -150,6 +177,8 @@ export function AiSessionProvider(props: {
   actionsRef.current = actions;
   const notesRef = useRef(notesQuery.data ?? []);
   notesRef.current = notesQuery.data ?? [];
+  // #269 §9.4：送出前的現行標題查找（讀 ref——串流續體與選取回呼要讀到「此刻」的清單）。
+  const titleOf = useCallback((id: string) => notesRef.current.find((n) => n.id === id)?.title, []);
   const noteIdRef = useRef(noteId);
   noteIdRef.current = noteId;
   const editorRef = useRef(editor);
@@ -249,9 +278,9 @@ export function AiSessionProvider(props: {
     if (!blocks || blocks.length === 0) return; // 空選取與 NodeSelection 都回 undefined
     const blockIds = blocks.map((block: AnyBlock) => block.id);
     const anchor = captureAnchor(ed, noteIdRef.current, blockIds);
-    const focus = ed.transact((tr) => selectionFocus(tr, blockIds));
+    const focus = ed.transact((tr) => selectionFocus(tr, blockIds, titleOf));
     setState({ phase: "input", target: { anchor, focus } });
-  }, [closeInternal]);
+  }, [closeInternal, titleOf]);
 
   const start = useCallback(
     (actionId: string, instruction?: string): boolean => {
@@ -274,13 +303,13 @@ export function AiSessionProvider(props: {
         actionName: action.name,
         kind: action.kind,
         applyMode: action.applyMode,
-        text: ed.blocksToMarkdownLossy(blocks),
+        text: ed.blocksToMarkdownLossy(blocksForAiMarkdown(blocks, titleOf)),
         ...(trimmed !== undefined ? { instruction: trimmed } : {}),
       };
       run(current.target, request);
       return true;
     },
-    [run],
+    [run, titleOf],
   );
 
   const retry = useCallback((): boolean => {

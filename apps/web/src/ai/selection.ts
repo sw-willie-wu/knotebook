@@ -1,6 +1,6 @@
 import { getNodeById, type BlockNoteEditor } from "@blocknote/core";
 import { isTextSelection } from "@tiptap/core";
-import { FOCUS_MAX_CODE_POINTS, truncateCodePoints } from "@knotebook/shared";
+import { escapeLinkText, FOCUS_MAX_CODE_POINTS, normalizeAnchor, truncateCodePoints, wikilinkHref, wikilinkVisibleText } from "@knotebook/shared";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 編輯器泛型三元組，走 repo 慣例用 any
 type AnyEditor = BlockNoteEditor<any, any, any>;
@@ -59,9 +59,16 @@ export function selectionInsideAnchor({ doc, selection }: PMLike, blockIds: read
   return from >= range.from && to <= range.to;
 }
 
-/** `textBetween` 的 leaf 文字：wikilink 寫成 `[[標題]]`（與送出的 markdown 一致）、硬換行寫成 `\n`，其餘取 textContent。 */
-export function leafText(node: PMNode): string {
-  if (node.type.name === "wikilink") return `[[${String(node.attrs.snapshotTitle ?? "")}]]`;
+/**
+ * `textBetween` 的 leaf 文字：wikilink 寫成 `[顯示文字](/notes/<id>[#b-…])`（#269 §9.4，與送出的 markdown 一致；`titleOf` 給現行標題，
+ * 缺席時 `label || snapshotTitle`，再空退到 href；顯示文字經 `escapeLinkText` 跳脫，同送出的 markdown——RF1）、硬換行寫成 `\n`，其餘取 textContent。
+ */
+export function leafText(node: PMNode, titleOf?: (id: string) => string | undefined): string {
+  if (node.type.name === "wikilink") {
+    const id = String(node.attrs.targetNoteId ?? "");
+    const href = wikilinkHref(id, normalizeAnchor(node.attrs.anchorBlockId));
+    return `[${escapeLinkText(wikilinkVisibleText(node.attrs, titleOf?.(id)))}](${href})`;
+  }
   if (node.type.name === "hardBreak") return "\n";
   return node.textContent;
 }
@@ -70,9 +77,10 @@ export function leafText(node: PMNode): string {
  * `open()` 的 focus（#263 §5.2、D8）：選取恰好涵蓋錨點區塊的全部文字 → `""`；否則取選取文字（區塊間以 `\n` 分隔、leaf 輸出其文字），
  * 以 code point 截到 2000。「恰好涵蓋」以「選取文字＝錨點全文」判——三擊整段、跨區塊整段拖選、Ctrl+A 都成立（探針實測三形相等）。
  */
-export function selectionFocus({ doc, selection }: PMLike, blockIds: readonly string[]): string {
-  const selected = doc.textBetween(selection.from, selection.to, "\n", leafText);
+export function selectionFocus({ doc, selection }: PMLike, blockIds: readonly string[], titleOf?: (id: string) => string | undefined): string {
+  const leaf = (node: PMNode) => leafText(node, titleOf);
+  const selected = doc.textBetween(selection.from, selection.to, "\n", leaf);
   const range = anchorRange(doc, blockIds);
-  if (range && selected === doc.textBetween(range.from, range.to, "\n", leafText)) return "";
+  if (range && selected === doc.textBetween(range.from, range.to, "\n", leaf)) return "";
   return truncateCodePoints(selected, FOCUS_MAX_CODE_POINTS);
 }

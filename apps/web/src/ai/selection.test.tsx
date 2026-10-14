@@ -6,7 +6,7 @@ import { BlockNoteEditor, getNodeById } from "@blocknote/core";
 import { FormattingToolbarExtension } from "@blocknote/core/extensions";
 import { BlockNoteView } from "@blocknote/mantine";
 import { noteSchema } from "@/collab/schema";
-import { anchorRange, blockRange, selectionFocus, selectionInsideAnchor, toolbarWouldShow } from "./selection";
+import { anchorRange, blockRange, leafText, selectionFocus, selectionInsideAnchor, toolbarWouldShow } from "./selection";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 泛型三元組，repo 慣例
 type AnyEditor = BlockNoteEditor<any, any, any>;
@@ -115,14 +115,29 @@ describe("selectionFocus（#263 §5.2 open()、D8）", () => {
     expect(read(editor, (tr) => selectionFocus(tr, ["p1", "p2"]))).toBe("beta gamma\nsec");
   });
 
-  it("wikilink（leaf 節點）輸出 [[標題]]，與送出的 markdown 寫法一致", () => {
+  it("#269 wikilink（leaf 節點）輸出 [顯示文字](/notes/<id>)，與送出的 markdown 寫法一致；有 titleOf 時 label 空取現行標題", () => {
     const editor = bareMounted([
       { id: "w", type: "paragraph", content: ["see ", { type: "wikilink", props: { targetNoteId: "x", snapshotTitle: "Plan" } }, " end"] },
       { id: "z", type: "paragraph", content: "zz" },
     ]);
     // wikilink 是 atom，在 PM 裡只佔 1 個位置："see "（4）＋wikilink（1）＝5（起草時 jsdom 實跑校正）
     select(editor, start(editor, "w"), start(editor, "w") + 5);
-    expect(read(editor, (tr) => selectionFocus(tr, ["w"]))).toBe("see [[Plan]]");
+    expect(read(editor, (tr) => selectionFocus(tr, ["w"]))).toBe("see [Plan](/notes/x)");
+    expect(read(editor, (tr) => selectionFocus(tr, ["w"], (id) => (id === "x" ? "Live" : undefined)))).toBe("see [Live](/notes/x)");
+  });
+
+  it("#269：leafText——label 優先、錨點進 href、全空退到 href", () => {
+    const node = (attrs: Record<string, string>) => ({ type: { name: "wikilink" }, attrs: { targetNoteId: "x", snapshotTitle: "", label: "", anchorBlockId: "", ...attrs }, textContent: "" }) as never;
+    expect(leafText(node({ label: "L", anchorBlockId: "b1" }))).toBe("[L](/notes/x#b-b1)");
+    expect(leafText(node({ snapshotTitle: "S" }), () => "Live")).toBe("[Live](/notes/x)");
+    expect(leafText(node({}))).toBe("[/notes/x](/notes/x)");
+  });
+
+  it("#269 RF1：leafText 的連結文字做 markdown 跳脫（與送出的 markdown 同形，AI 回寫才解得回原字串）", () => {
+    const node = (attrs: Record<string, string>) => ({ type: { name: "wikilink" }, attrs: { targetNoteId: "x", snapshotTitle: "", label: "", anchorBlockId: "", ...attrs }, textContent: "" }) as never;
+    expect(leafText(node({ label: "[Draft] Plan *v2*" }))).toBe("[\\[Draft\\] Plan \\*v2\\*](/notes/x)");
+    expect(leafText(node({ label: "a]b\\" }))).toBe("[a\\]b\\\\](/notes/x)");
+    expect(leafText(node({}), () => "`c`_~")).toBe("[\\`c\\`\\_\\~](/notes/x)");
   });
 
   it("RF2：超過 2000 code point 截到 2000，不切半個 emoji", () => {

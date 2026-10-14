@@ -85,7 +85,8 @@ describe("#269 W4 AddMarkStep 外掛", () => {
     expect(inline(editor).find((n) => n.type === "wikilink")?.props).toEqual({ targetNoteId: A_ID, snapshotTitle: "see this", label: "see this", anchorBlockId: "h1" });
   });
 
-  it("選取上貼網址（tiptap Link 的 handlePaste → setMark）：換成 wikilink、label＝被選的字", () => {
+  it("選取上貼網址（tiptap Link 的 handlePaste → setMark）：外掛單獨掛著時換成 wikilink、label＝被選的字（產品組態下這條路徑歸貼上 hook）", () => {
+    // 本檔的組態只掛外掛、沒有貼上 hook；產品組態（NoteEditor）裡選取上貼網址由貼上 hook 轉換（Task 12），這裡量的是外掛自己的行為。
     ({ editor, container } = mount(env()));
     editor.replaceBlocks(editor.document, [{ type: "paragraph", content: "go Alpha now" }]);
     const view = editor._tiptapEditor.view;

@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { BlockNoteEditor } from "@blocknote/core";
+import type { SiteLinkCandidate } from "@knotebook/shared";
 import { noteSchema } from "@/collab/schema";
+import { createTestEditor } from "@/test/ai-host";
 import { blockSnapshot, captureAnchor, verifyAnchor } from "./anchor";
 import { applyAiResult, hasNonTextBlock, prepareAiResult, revertAiResult, type PreparedResult } from "./apply";
 
@@ -38,7 +40,7 @@ function mountedEditor(initial?: any[]) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同上
-function prep(editor: any, markdown: string, notes: { id: string; title: string }[] = []): PreparedResult {
+function prep(editor: any, markdown: string, notes: SiteLinkCandidate[] = []): PreparedResult {
   const prepared = prepareAiResult(editor, markdown, { notes });
   if ("empty" in prepared) throw new Error("預期非空結果");
   return prepared;
@@ -104,10 +106,10 @@ describe("AI 套用鏈（spec §13.3）", () => {
   it("wikilink 重綁三態：唯一命中→wikilink 節點；零/多重命中→純文字保留＋unboundCount", () => {
     const editor = mountedEditor([{ type: "paragraph", content: "上下文" }]);
     const anchor = captureAnchor(editor, "note-1", [editor.document[0].id]);
-    const notes = [
-      { id: "aaaaaaaa-0000-0000-0000-000000000001", title: "產品規劃" },
-      { id: "aaaaaaaa-0000-0000-0000-000000000002", title: "重複標題" },
-      { id: "aaaaaaaa-0000-0000-0000-000000000003", title: "重複標題" },
+    const notes: SiteLinkCandidate[] = [
+      { id: "aaaaaaaa-0000-0000-0000-000000000001", title: "產品規劃", slug: "plan", groupId: null, ownerHandle: "alice" },
+      { id: "aaaaaaaa-0000-0000-0000-000000000002", title: "重複標題", slug: "dup-1", groupId: null, ownerHandle: "alice" },
+      { id: "aaaaaaaa-0000-0000-0000-000000000003", title: "重複標題", slug: "dup-2", groupId: null, ownerHandle: "alice" },
     ];
     const p = prep(editor, "見 [[產品規劃]] 與 [[重複標題]] 及 [[不存在]]", notes);
     const out = applyAiResult(editor, anchor, p);
@@ -127,7 +129,7 @@ describe("AI 套用鏈（spec §13.3）", () => {
   it("重綁跳過 plain-content block：code block 內的 [[X]]（唯一命中）保持純文字、不計入 unboundCount", () => {
     const editor = mountedEditor([{ type: "paragraph", content: "上下文" }]);
     const anchor = captureAnchor(editor, "note-1", [editor.document[0].id]);
-    const notes = [{ id: "aaaaaaaa-0000-0000-0000-000000000001", title: "產品規劃" }];
+    const notes: SiteLinkCandidate[] = [{ id: "aaaaaaaa-0000-0000-0000-000000000001", title: "產品規劃", slug: "plan", groupId: null, ownerHandle: "alice" }];
     const p = prep(editor, "```\n見 [[產品規劃]]\n```", notes);
     const out = applyAiResult(editor, anchor, p);
     if (!out.ok) throw new Error("apply 應成功");
@@ -185,5 +187,36 @@ describe("AI 套用鏈（spec §13.3）", () => {
     expect(verifyAnchor(editor, anchor)).toBe("changed");
     editor.removeBlocks([ids[0]]);
     expect(verifyAnchor(editor, anchor)).toBe("missing");
+  });
+});
+
+describe("#269 W10：站內連結 → wikilink（快取命中才轉，沒有後備）", () => {
+  const notes2: SiteLinkCandidate[] = [
+    { id: "11111111-1111-4111-8111-111111111111", title: "Alpha", slug: "alpha", groupId: null, ownerHandle: "alice" },
+  ];
+  it("[文字](/notes/<id>)、/n/ 現行網址、表格內 → wikilink；快取裡沒有的維持一般連結；預覽與寫入同一份 blocks", () => {
+    const editor = createTestEditor([{ id: "p", type: "paragraph", content: "x" }]);
+    const p = prepareAiResult(
+      editor,
+      `see [Alpha](/notes/${notes2[0]!.id}#b-h1) and [mine](/n/alice/alpha) and [gone](/n/alice/missing)\n\n| a |\n| --- |\n| [t](/n/alice/alpha) |`,
+      { notes: notes2, siteOrigin: window.location.origin },
+    );
+    if ("empty" in p) throw new Error("empty");
+    const json = JSON.stringify(p.blocks);
+    expect(json.match(/"type":"wikilink"/g)).toHaveLength(3);
+    expect(json).toContain('"anchorBlockId":"h1"');
+    expect(json).toContain('"label":"mine"');
+    expect(json).toContain('"href":"/n/alice/missing"');
+  });
+
+  it("RF1：AI 回寫的跳脫連結文字（我們送出的形）解回原字串——label 逐字保留、文字等於現行標題時 label 為空", () => {
+    const editor = createTestEditor([{ id: "p", type: "paragraph", content: "x" }]);
+    const id = notes2[0]!.id;
+    const titled: SiteLinkCandidate[] = [{ ...notes2[0]!, title: "[Draft] Plan *v2*" }];
+    const p = prepareAiResult(editor, `a [\\[Draft\\] Plan \\*v2\\*](/notes/${id}) b [a\\]b\\\\](/notes/${id}) c`, { notes: titled, siteOrigin: window.location.origin });
+    if ("empty" in p) throw new Error("empty");
+    const links = (p.blocks[0]!.content as Array<{ type: string; props?: Record<string, string> }>).filter((n) => n.type === "wikilink");
+    expect(links.map((n) => n.props!.label)).toEqual(["", "a]b\\"]);
+    expect(links.map((n) => n.props!.snapshotTitle)).toEqual(["[Draft] Plan *v2*", "a]b\\"]);
   });
 });

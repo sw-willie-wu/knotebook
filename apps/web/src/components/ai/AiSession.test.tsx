@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, screen, waitFor } from "@testing-library/react";
 import { ShowSelectionExtension } from "@blocknote/core/extensions";
-import { INSTRUCT_ACTION_ID, REWRITE_ACTION_ID, SUMMARIZE_ACTION_ID, type AiActionDto } from "@knotebook/shared";
+import { INSTRUCT_ACTION_ID, REWRITE_ACTION_ID, SUMMARIZE_ACTION_ID, type AiActionDto, type NoteDto } from "@knotebook/shared";
 import i18n from "@/i18n";
+import { OWNER_PERMS } from "@/test/fixtures";
 import { dismissAllToasts } from "@/components/ui/toast";
 import {
   contentStart,
@@ -461,5 +462,63 @@ describe("AiSession 狀態機（#263 spec §5.2）", () => {
     expect(await screen.findByText("This change can no longer be reverted — the text may have changed since.")).toBeInTheDocument();
     expect(session.state.phase === "done" && session.state.applied).toBeNull();
     expect(docText()).toContain("edited after apply");
+  });
+
+  it("#269 §9.4：送出的 markdown 把 wikilink 寫成 [現行標題 或 label](/notes/<id>)（匯出副本，不動文件）", async () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    editor = createTestEditor([
+      { id: "w1", type: "paragraph", content: ["see ", { type: "wikilink", props: { targetNoteId: id, snapshotTitle: "Old", label: "", anchorBlockId: "h1" } }, " end"] },
+    ]);
+    const ai = stubAiFetch({ actions: ACTIONS, notes: [{ id, title: "Live Title", slug: "live", ownerId: "u1", role: "owner", createdAt: "x", updatedAt: "x", slugIsCustom: false, prevSlug: null, ownerHandle: "alice", lastEdited: null, group: null, groupId: null, permissions: OWNER_PERMS }] });
+    const host = renderAiHost({ editor, children: <Probe /> });
+    await waitFor(() => expect(session.actions).toHaveLength(ACTIONS.length));
+    await waitFor(() => expect(host.queryClient.getQueryData(["notes"])).toBeDefined()); // AiSessionProvider 的 useNotes 把快取填好
+    const before = JSON.stringify(editor.document);
+    selectWholeBlocks(editor, "w1", "w1");
+    act(() => session.open());
+    startAction(REWRITE.id);
+    expect(ai.calls[0]!.body.text).toContain(`[Live Title](/notes/${id}#b-h1)`);
+    expect(JSON.stringify(editor.document)).toBe(before);
+  });
+
+  it("#269 §9.4：open() 的 focus（部分選取）也把 wikilink 寫成 [現行標題](/notes/<id>)", async () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    editor = createTestEditor([
+      { id: "w1", type: "paragraph", content: ["see ", { type: "wikilink", props: { targetNoteId: id, snapshotTitle: "Old", label: "", anchorBlockId: "h1" } }, " end"] },
+    ]);
+    stubAiFetch({ actions: ACTIONS, notes: [{ id, title: "Live Title", slug: "live", ownerId: "u1", role: "owner", createdAt: "x", updatedAt: "x", slugIsCustom: false, prevSlug: null, ownerHandle: "alice", lastEdited: null, group: null, groupId: null, permissions: OWNER_PERMS }] });
+    const host = renderAiHost({ editor, children: <Probe /> });
+    await waitFor(() => expect(session.actions).toHaveLength(ACTIONS.length));
+    await waitFor(() => expect(host.queryClient.getQueryData(["notes"])).toBeDefined());
+    // wikilink 是 atom，佔 1 個位置："see "（4）＋wikilink（1）＝5，選到 " end" 之前（部分選取 ⇒ focus 非空）
+    openOn("w1", 0, 5);
+    expect(session.state.phase === "input" && session.state.target.focus).toBe(`see [Live Title](/notes/${id}#b-h1)`);
+  });
+
+  it("#269 RF1：送出的 /notes/ 連結文字經 markdown 跳脫；AI 原樣回寫後 label 逐字保留（文字＝現行標題者 label 仍空）", async () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    const note: NoteDto = { id, title: "[Draft] Plan *v2*", slug: "draft", ownerId: "u1", role: "owner", createdAt: "x", updatedAt: "x", slugIsCustom: false, prevSlug: null, ownerHandle: "alice", lastEdited: null, group: null, groupId: null, permissions: OWNER_PERMS };
+    const wl = (label: string) => ({ type: "wikilink", props: { targetNoteId: id, snapshotTitle: "Old", label, anchorBlockId: "" } });
+    const external = { type: "link", href: "https://example.com/x", content: "k*z" };
+    editor = createTestEditor([{ id: "w1", type: "paragraph", content: ["a ", wl(""), " b ", wl("a]b\\"), " end"] }, { id: "w2", type: "paragraph", content: [external] }]);
+    const ai = stubAiFetch({ actions: ACTIONS, notes: [note] });
+    const host = renderAiHost({ editor, children: <Probe /> });
+    await waitFor(() => expect(session.actions).toHaveLength(ACTIONS.length));
+    await waitFor(() => expect(host.queryClient.getQueryData(["notes"])).toBeDefined());
+    selectWholeBlocks(editor, "w1", "w2");
+    act(() => session.open());
+    startAction(REWRITE.id);
+    const sent = ai.calls[0]!.body.text;
+    expect(sent).toContain(`a [\\[Draft\\] Plan \\*v2\\*](/notes/${id}) b [a\\]b\\\\](/notes/${id}) end`);
+    // 只跳脫 `/notes/` 連結（同 server `colors.ts`）：一般外部連結的文字照 `blocksToMarkdownLossy` 原樣送出。
+    expect(sent).toContain("[k*z](https://example.com/x)");
+    await finishStream(ai.calls[0]!, sent.replace(" end", " END"));
+    const s = session.state;
+    if (s.phase !== "done" || !s.applied) throw new Error("預期已自動套用");
+    const links = (editor.document[0]!.content as Array<{ type: string; props?: Record<string, string> }>).filter((n) => n.type === "wikilink");
+    expect(links.map((n) => [n.props!.targetNoteId, n.props!.label])).toEqual([
+      [id, ""],
+      [id, "a]b\\"],
+    ]);
   });
 });
