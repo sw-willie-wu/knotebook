@@ -69,7 +69,7 @@ export function PreviewBanner({ narrow = false }: { narrow?: boolean }) {
   const toggle = (on: boolean) => cn(MODE_BUTTON, on && PRESSED_CLASS);
   return (
     <div data-testid="preview-banner" className="flex flex-nowrap items-center gap-2 border-b border-border bg-brand-soft px-5 py-2 text-xs">
-      <span className="min-w-0 truncate font-medium">{t("versions.preview.banner", { label })}</span>
+      <span className="min-w-0 truncate font-medium" title={label}>{t("versions.preview.banner", { label })}</span>
       {/* 比較對象（rev 10）：並排時兩個下拉是兩欄的標頭，橫幅只在單欄時放「左 → 右」。 */}
       {!splitActive && (
         <>

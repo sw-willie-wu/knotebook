@@ -239,6 +239,24 @@ describe("cutIfDirty／isDirty（§5.3）", () => {
     expect(await baseVersionIdOf(s.db, s.note.id)).toBeNull();
   });
 
+  it("m2：setVersionBase 的 EXISTS 同時比對 id——seq 被重用（同 seq 換了一列）後，過期的 (seq, 舊 versionId) 不設基底", async () => {
+    const s = await setup();
+    const doc = paraDoc(["a"]);
+    await s.load(doc);
+    for (const ch of ["1", "2"]) {
+      editPara(doc, 0, t => t.insert(0, ch));
+      await s.svc.cutIfDirty(s.note.id, doc, { kind: "auto" });
+    }
+    const [v1, v2] = await versionsOf(s.db, s.note.id);
+    const before = await baseVersionIdOf(s.db, s.note.id);
+    expect(before).toBe(v2!.id);
+    // 模擬重置後 seq=1 被重用：同 seq 的列換了新 id
+    await s.db.update(noteVersions).set({ id: "00000000-0000-4000-8000-000000000001" }).where(eq(noteVersions.id, v1!.id));
+    expect(await setVersionBase(s.db, s.note.id, 1, "fp", v1!.id)).toBe(false);
+    expect(await baseVersionIdOf(s.db, s.note.id)).toBe(before);
+    expect(await setVersionBase(s.db, s.note.id, 1, "fp", "00000000-0000-4000-8000-000000000001")).toBe(true);
+  });
+
   it("RF5：刪掉最新的非基底版後再切——依剩下的最新判斷，配號不重用", async () => {
     const s = await setup();
     const doc = paraDoc(["a"]);

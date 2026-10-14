@@ -199,7 +199,7 @@ export async function setVersionBase(db: Db, noteId: string, seq: number, finger
   const updated = await db
     .update(notes)
     .set({ versionBaseSeq: seq, versionBaseFingerprint: fingerprint, versionBaseVersionId: versionId })
-    .where(and(eq(notes.id, noteId), sql`exists (select 1 from note_versions v where v.note_id = ${noteId} and v.seq = ${seq})`))
+    .where(and(eq(notes.id, noteId), sql`exists (select 1 from note_versions v where v.note_id = ${noteId} and v.seq = ${seq} and v.id = ${versionId})`))
     .returning({ id: notes.id });
   return updated.length === 1;
 }

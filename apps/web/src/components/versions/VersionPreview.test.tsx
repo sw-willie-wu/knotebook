@@ -768,6 +768,7 @@ describe("VersionPreview（spec §8.4）", () => {
     const banner = await screen.findByTestId("preview-banner");
     await waitFor(() => expect(within(banner).getByRole("button", { name: "Left side" })).toHaveTextContent(vlabel(1)));
     expect(banner).toHaveTextContent(`Previewing ${vlabel(1)}`);
+    expect(within(banner).getByText(`Previewing ${vlabel(1)}`)).toHaveAttribute("title", vlabel(1)); // m4：截斷的標籤整句靠 title 看全名
     act(() => {
       queryClient.setQueryData(versionListKey(NOTE, "all"), {
         pages: [list([ver(2), { ...ver(1), kind: "manual" as const, name: "改好的名字" }])],
