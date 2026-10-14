@@ -12,7 +12,7 @@ import { apiTokens, authProviders, groupMembers, groupRoles, groups, noteRedirec
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
 /** drizzle 對 `schema.ts` 的序列化；宣告漂移守衛拿最新一支當比對基準（Task 14 rebase 後改成實際檔名）。 */
-const SNAPSHOT_FILE = "meta/0024_snapshot.json";
+const SNAPSHOT_FILE = "meta/0025_snapshot.json";
 const snapshotLatest = JSON.parse(readFileSync(path.join(drizzleDirForTest, SNAPSHOT_FILE), "utf8")) as {
   tables: Record<string, { checkConstraints?: Record<string, { name: string; value: string }> }>;
 };
@@ -1245,7 +1245,7 @@ describe("0009_api-tokens", () => {
       site_settings: [
         "singleton", "registration_enabled", "password_login_enabled", "legacy_oidc_env_handled_at", "updated_at",
         "default_user_storage_plan_id", "default_group_storage_plan_id",
-        "version_keep_all_days", "version_daily_until_days", "auto_versions_enabled",
+        "version_keep_all_days", "version_daily_until_days", "auto_versions_enabled", "version_auto_wait_minutes",
       ],
       note_search_sections: ["id", "note_id", "source_kind", "source_id", "section_id", "ord", "heading", "body"],
       note_search_state: ["note_id", "extractor_version", "source_version", "content_hash", "indexed_units", "capped", "indexed_at"],
@@ -1254,7 +1254,7 @@ describe("0009_api-tokens", () => {
         "id", "owner_id", "title", "slug", "slug_is_custom", "prev_slug", "legacy_slug", "public_token", "public_slug",
         "links_clock", "created_at", "updated_at", "last_edited_at", "last_edited_by", "last_edited_token_id",
         "last_edited_agent_label", "deleted_at", "group_id",
-        "version_counter", "version_base_seq", "version_base_fingerprint",
+        "version_counter", "version_base_seq", "version_base_fingerprint", "version_pending_at", "version_pending_editors", "version_pending_ref_fingerprint", "version_base_version_id",
       ],
       users: [
         "id", "email", "handle", "password_hash", "oidc_issuer", "oidc_sub", "display_name", "avatar_url", "is_admin",
@@ -1262,7 +1262,7 @@ describe("0009_api-tokens", () => {
         "last_login_at", "last_active_at",
       ],
       storage_plans: ["id", "name", "quota_bytes", "created_at", "updated_at"],
-      note_versions: ["id", "note_id", "seq", "ydoc", "kind", "name", "editors", "base_seq", "created_at"],
+      note_versions: ["id", "note_id", "seq", "ydoc", "kind", "name", "editors", "base_seq", "base_version_id", "created_at"],
     };
 
     for (const [table, decl] of [
@@ -2212,5 +2212,75 @@ describe("0021_notes-move-scope（#239）", () => {
         )
       ).rejects.toMatchObject({ code: "23514", constraint: "oauth_codes_scope_chk" });
     }
+  });
+});
+
+describe("0025_version-pending-and-base-id（#272 spec §5.1，案 26）", () => {
+  // 改號時只改這一個字串：前一支用 journal 的相對位置取。
+  const TAG = "0025_version-pending-and-base-id";
+
+  it("回填：基底列還在 → 填 uuid、不在 → NULL（notes 與 note_versions 兩邊）；待切三欄與 X 取預設；再跑 runMigrations 不變", async () => {
+    const { pool, db } = await freshEmptyDb();
+    await applyMigrationsThrough(pool, idxOfTag(TAG) - 1);
+    const u = (await pool.query<{ id: string }>(`insert into users (email, handle, display_name) values ('p25@x.test', 'p25', 'P') returning id`)).rows[0]!.id;
+    const note = async (slug: string, baseSeq: number) =>
+      (await pool.query<{ id: string }>(
+        `insert into notes (owner_id, slug, version_counter, version_base_seq, version_base_fingerprint) values ($1, $2, 9, $3, 'fp') returning id`,
+        [u, slug, baseSeq],
+      )).rows[0]!.id;
+    const a = await note("a", 2); // 基底 v2 還在
+    const b = await note("b", 5); // 基底 v5 已不在
+    const ver = async (noteId: string, seq: number, baseSeq: number | null) =>
+      (await pool.query<{ id: string }>(
+        `insert into note_versions (note_id, seq, ydoc, kind, base_seq) values ($1, $2, $3, 'auto', $4) returning id`,
+        [noteId, seq, Buffer.from([0]), baseSeq],
+      )).rows[0]!.id;
+    const a1 = await ver(a, 1, null);
+    const a2 = await ver(a, 2, null);
+    const a3 = await ver(a, 3, 1); // 沿自 a1（還在）
+    const a4 = await ver(a, 4, 7); // 沿自 7（不在）
+    const b1 = await ver(b, 1, null);
+    await runMigrations(db);
+    const notesRows = async () =>
+      (await pool.query(
+        `select id, version_base_version_id as base_id, version_pending_at as at, version_pending_editors as editors, version_pending_ref_fingerprint as ref from notes order by slug`,
+      )).rows;
+    const versionRows = async () => (await pool.query(`select id, base_version_id as base_id from note_versions order by note_id = $1 desc, seq`, [a])).rows;
+    const expectedNotes = [
+      { id: a, base_id: a2, at: null, editors: [], ref: null },
+      { id: b, base_id: null, at: null, editors: [], ref: null },
+    ];
+    const expectedVersions = [
+      { id: a1, base_id: null }, { id: a2, base_id: null }, { id: a3, base_id: a1 }, { id: a4, base_id: null }, { id: b1, base_id: null },
+    ];
+    expect(await notesRows()).toEqual(expectedNotes);
+    expect(await versionRows()).toEqual(expectedVersions);
+    expect((await pool.query(`select version_auto_wait_minutes from site_settings`)).rows).toEqual([{ version_auto_wait_minutes: 5 }]);
+    await runMigrations(db);
+    expect(await notesRows()).toEqual(expectedNotes);
+    expect(await versionRows()).toEqual(expectedVersions);
+  });
+
+  it("CHECK：沒有待切時編輯者必須是 []、參考指紋必須是 NULL；等待 1–60；部分索引只收待切中的列", async () => {
+    const { pool } = await freshDb();
+    const u = (await pool.query<{ id: string }>(`insert into users (email, display_name) values ('c25@x.test', 'C') returning id`)).rows[0]!.id;
+    const n = (await pool.query<{ id: string }>(`insert into notes (owner_id) values ($1) returning id`, [u])).rows[0]!.id;
+    await expect(pool.query(`update notes set version_pending_editors = '[{"user_id":"x","agent_label":null}]'::jsonb where id = $1`, [n]))
+      .rejects.toMatchObject({ code: "23514", constraint: "notes_version_pending_chk" });
+    await expect(pool.query(`update notes set version_pending_ref_fingerprint = 'r' where id = $1`, [n]))
+      .rejects.toMatchObject({ code: "23514", constraint: "notes_version_pending_chk" });
+    await pool.query(
+      `update notes set version_pending_at = now(), version_pending_editors = '[{"user_id":"x","agent_label":null}]'::jsonb, version_pending_ref_fingerprint = 'r' where id = $1`,
+      [n],
+    );
+    for (const m of [0, 61]) {
+      await expect(pool.query(`update site_settings set version_auto_wait_minutes = $1`, [m]))
+        .rejects.toMatchObject({ code: "23514", constraint: "site_settings_version_auto_wait_chk" });
+    }
+    await pool.query(`update site_settings set version_auto_wait_minutes = 1`);
+    await pool.query(`update site_settings set version_auto_wait_minutes = 60`);
+    const idx = (await pool.query(`select indexdef from pg_indexes where indexname = 'notes_version_pending_idx'`)).rows;
+    expect(idx).toHaveLength(1);
+    expect(idx[0].indexdef).toMatch(/\(version_pending_at\) WHERE \(version_pending_at IS NOT NULL\)/);
   });
 });

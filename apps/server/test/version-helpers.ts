@@ -7,7 +7,7 @@ import { YDOC_FRAGMENT, topLevelContainers } from "@knotebook/shared";
 import type { Db } from "../src/db/index.js";
 import { noteVersions, notes } from "../src/db/schema.js";
 import type { VersionDocsHost, VersionTimers } from "../src/collab/versions.js";
-import type { NoteVersionRow } from "../src/notes/tx/versions.js";
+import type { NoteVersionRow, VersionEditorJson } from "../src/notes/tx/versions.js";
 import { EditorSession } from "../src/notes/editing/session.js";
 import { seedDoc } from "./copy-helpers.js";
 import { testEditingRuntime } from "./helpers.js";
@@ -75,6 +75,28 @@ export async function noteBase(db: Db, noteId: string): Promise<{ counter: numbe
     .from(notes)
     .where(eq(notes.id, noteId));
   return r!;
+}
+
+/** #272：`notes` 的待切三欄（`version_pending_at`／`_editors`／`_ref_fingerprint`）。 */
+export interface Pending {
+  at: Date | null;
+  editors: VersionEditorJson[];
+  ref: string | null;
+}
+export const NO_PENDING: Pending = { at: null, editors: [], ref: null };
+
+export async function pendingOf(db: Db, noteId: string): Promise<Pending> {
+  const [r] = await db
+    .select({ at: notes.versionPendingAt, editors: notes.versionPendingEditors, ref: notes.versionPendingRefFingerprint })
+    .from(notes)
+    .where(eq(notes.id, noteId));
+  return r!;
+}
+
+/** #272：`notes.version_base_version_id`（目前基底那一版的 uuid；D12）。 */
+export async function baseVersionIdOf(db: Db, noteId: string): Promise<string | null> {
+  const [r] = await db.select({ id: notes.versionBaseVersionId }).from(notes).where(eq(notes.id, noteId));
+  return r!.id;
 }
 
 /** 「舊筆記」：功能上線前就存在、`note_states` 有內容、沒有任何版本（以 server 端 EditorSession 寫 markdown 再直接插 `note_states`）。 */

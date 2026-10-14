@@ -52,7 +52,7 @@ export function blocksFromSnapshot(baseUrl: string, ydoc: Uint8Array): AnyPartia
 async function writeBaseAfterApply(deps: ApplyVersionDeps, input: ApplyVersionInput, out: MergeOutput): Promise<void> {
   if (deps.testHooks?.beforeVersionBase) await deps.testHooks.beforeVersionBase();
   const fp = out.versionFingerprint;
-  if (fp !== null && (await setVersionBase(deps.db, input.noteId, input.seq, fp))) {
+  if (fp !== null && (await setVersionBase(deps.db, input.noteId, input.seq, fp, input.versionId))) {
     deps.versions.endApply(input.noteId, { seq: input.seq, fingerprint: fp });
     return;
   }

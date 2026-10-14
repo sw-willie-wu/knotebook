@@ -3,13 +3,13 @@ import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { YDOC_FRAGMENT, topLevelContainers } from "@knotebook/shared";
-import { groups, noteVersions, users } from "../src/db/schema.js";
+import { groups, noteVersions, notes, users } from "../src/db/schema.js";
 import type { GroupRacePoint } from "../src/groups/test-hook.js";
 import { seedDoc } from "./copy-helpers.js";
 import { docText, seedContent, waitFor } from "./editing-helpers.js";
 import { cookieOf, seedGroup, seedNote, seedUser, waitForBlockedOrSettled } from "./group-helpers.js";
 import { buildCollabTestApp, buildTestApp } from "./helpers.js";
-import { noteBase, paraDoc, versionsOf } from "./version-helpers.js";
+import { NO_PENDING, baseVersionIdOf, noteBase, paraDoc, pendingOf, versionsOf } from "./version-helpers.js";
 
 const PASSWORD = "correct-horse-battery";
 async function save(app: FastifyInstance, noteId: string, userId: string) {
@@ -71,6 +71,41 @@ describe("REST 形（沒有載入）", () => {
     expect(await db.select().from(noteVersions).where(eq(noteVersions.noteId, n2.id))).toHaveLength(1);
     expect((await app.inject({ method: "DELETE", url: `/api/groups/${g2.id}`, cookies: await cookieOf(u.id), payload: { mode: "delete" } })).statusCode).toBe(204);
     expect(await db.select().from(noteVersions).where(eq(noteVersions.noteId, n2.id))).toEqual([]);
+  });
+
+  it("#272 案 22（DB 面）：搬到群組與刪群組轉移同一句清待切三欄與基底 uuid；複製出的副本沒有待切、來源的待切不動", async () => {
+    const { app, db } = await buildTestApp();
+    const u = await seedUser(db);
+    const g = await seedGroup(db, "G", [{ userId: u.id, role: "admin" }]);
+    const pending = { versionPendingAt: new Date("2026-10-14T00:00:00.000Z"), versionPendingEditors: [{ user_id: u.id, agent_label: null }], versionPendingRefFingerprint: "ref" };
+    // 複製
+    const src = await seedNote(db, { ownerId: u.id });
+    await seedDoc(db, src.id, paraDoc(["來源"]));
+    await db.update(notes).set(pending).where(eq(notes.id, src.id));
+    const copied = await app.inject({ method: "POST", url: `/api/notes/${src.id}/copy`, cookies: await cookieOf(u.id), payload: {} });
+    expect(copied.statusCode).toBe(201);
+    expect(await pendingOf(db, copied.json().id as string)).toEqual(NO_PENDING);
+    expect(await pendingOf(db, src.id)).toEqual({ at: pending.versionPendingAt, editors: pending.versionPendingEditors, ref: "ref" });
+    // 搬到群組（noteId 述詞）
+    const n = await seedNote(db, { ownerId: u.id });
+    await seedDoc(db, n.id, paraDoc(["個人時期"]));
+    expect((await save(app, n.id, u.id)).statusCode).toBe(201);
+    expect(await baseVersionIdOf(db, n.id)).not.toBeNull();
+    await db.update(notes).set(pending).where(eq(notes.id, n.id));
+    expect((await app.inject({ method: "POST", url: `/api/notes/${n.id}/move`, cookies: await cookieOf(u.id), payload: { groupId: g.id } })).statusCode).toBe(200);
+    expect(await pendingOf(db, n.id)).toEqual(NO_PENDING);
+    expect(await baseVersionIdOf(db, n.id)).toBeNull();
+    // 刪群組・轉移（groupId 述詞）：n 已在 g 裡，另加一篇群組筆記
+    const gn = await seedNote(db, { groupId: g.id });
+    await seedDoc(db, gn.id, paraDoc(["群組時期"]));
+    expect((await save(app, gn.id, u.id)).statusCode).toBe(201);
+    for (const id of [n.id, gn.id]) await db.update(notes).set(pending).where(eq(notes.id, id));
+    const r = await app.inject({ method: "DELETE", url: `/api/groups/${g.id}`, cookies: await cookieOf(u.id), payload: { mode: "transfer", transferTo: u.id } });
+    expect(r.statusCode).toBe(204);
+    for (const id of [n.id, gn.id]) {
+      expect(await pendingOf(db, id)).toEqual(NO_PENDING);
+      expect(await baseVersionIdOf(db, id)).toBeNull();
+    }
   });
 });
 

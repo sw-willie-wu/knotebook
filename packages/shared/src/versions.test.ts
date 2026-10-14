@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ERROR_CODES } from "./index.js";
 import {
+  VERSION_AUTO_WAIT_MINUTES_DEFAULT, VERSION_AUTO_WAIT_MINUTES_MAX, VERSION_AUTO_WAIT_MINUTES_MIN,
   VERSION_DAILY_UNTIL_DAYS_DEFAULT, VERSION_DAYS_MAX, VERSION_IDLE_MS, VERSION_KEEP_ALL_DAYS_DEFAULT,
   VERSION_LIST_LIMIT_DEFAULT, VERSION_LIST_LIMIT_MAX, VERSION_NAME_MAX, normalizeVersionName,
 } from "./versions.js";
@@ -11,6 +12,10 @@ describe("versions 常數（spec A11、A12、§6.1、§6.3）", () => {
     expect(VERSION_NAME_MAX).toBe(120);
     expect([VERSION_LIST_LIMIT_DEFAULT, VERSION_LIST_LIMIT_MAX]).toEqual([50, 100]);
     expect([VERSION_KEEP_ALL_DAYS_DEFAULT, VERSION_DAILY_UNTIL_DAYS_DEFAULT, VERSION_DAYS_MAX]).toEqual([7, 30, 3650]);
+  });
+
+  it("#272 §7.1：自動存版等待 X 預設 5、範圍 1–60（分鐘）", () => {
+    expect([VERSION_AUTO_WAIT_MINUTES_DEFAULT, VERSION_AUTO_WAIT_MINUTES_MIN, VERSION_AUTO_WAIT_MINUTES_MAX]).toEqual([5, 1, 60]);
   });
 
   it("三個新錯誤碼都在 ERROR_CODES（§6）", () => {

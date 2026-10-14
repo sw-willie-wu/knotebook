@@ -13,6 +13,10 @@ export const VERSION_LIST_LIMIT_MAX = 100;
 export const VERSION_DAYS_MAX = 3650;
 export const VERSION_KEEP_ALL_DAYS_DEFAULT = 7;
 export const VERSION_DAILY_UNTIL_DAYS_DEFAULT = 30;
+/** #272 §7.1（D4）：自動存版等待 X——最後一次內容變動後這麼多分鐘沒有新的變動才自動存一版。站台設定（DB CHECK `site_settings_version_auto_wait_chk` 同範圍）。 */
+export const VERSION_AUTO_WAIT_MINUTES_DEFAULT = 5;
+export const VERSION_AUTO_WAIT_MINUTES_MIN = 1;
+export const VERSION_AUTO_WAIT_MINUTES_MAX = 60;
 
 export type VersionKind = "auto" | "manual";
 

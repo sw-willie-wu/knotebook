@@ -155,19 +155,19 @@ export async function readVersionMeta(db: Db, noteId: string): Promise<VersionMe
   return { baseSeq: r.baseSeq, baseFingerprint: r.baseFingerprint, counter: r.counter, spaceKey: spaceKeyOf(r), autoEnabled: r.siteAuto !== false && spaceAuto === true };
 }
 
-/** §7-2d：套用成功後把基底指向該版——只在那一版還在時（`EXISTS`）。回 true＝1 列。 */
-export async function setVersionBase(db: Db, noteId: string, seq: number, fingerprint: string): Promise<boolean> {
+/** §7-2d：套用成功後把基底指向該版——只在那一版還在時（`EXISTS`）。回 true＝1 列。#272：同時寫基底 uuid（D12）。 */
+export async function setVersionBase(db: Db, noteId: string, seq: number, fingerprint: string, versionId: string): Promise<boolean> {
   const updated = await db
     .update(notes)
-    .set({ versionBaseSeq: seq, versionBaseFingerprint: fingerprint })
+    .set({ versionBaseSeq: seq, versionBaseFingerprint: fingerprint, versionBaseVersionId: versionId })
     .where(and(eq(notes.id, noteId), sql`exists (select 1 from note_versions v where v.note_id = ${noteId} and v.seq = ${seq})`))
     .returning({ id: notes.id });
   return updated.length === 1;
 }
 
-/** §7-2d 的 0 列／指紋算不出來分支：基底清空。 */
+/** §7-2d 的 0 列／指紋算不出來分支：基底清空（含 uuid）。 */
 export async function clearVersionBase(db: Db, noteId: string): Promise<void> {
-  await db.update(notes).set({ versionBaseSeq: null, versionBaseFingerprint: null }).where(eq(notes.id, noteId));
+  await db.update(notes).set({ versionBaseSeq: null, versionBaseFingerprint: null, versionBaseVersionId: null }).where(eq(notes.id, noteId));
 }
 
 const editorKey = (e: VersionEditor): string => JSON.stringify([e.userId, e.agentLabel]);

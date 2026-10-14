@@ -12,6 +12,13 @@ export type NoteVersionRow = typeof noteVersions.$inferSelect;
 export const spaceKeyOf = (r: { ownerId: string | null; groupId: string | null }): string =>
   r.ownerId !== null ? `u:${r.ownerId}` : `g:${r.groupId}`;
 
+/** #272 §5.1：待切三欄的「清空」值（CHECK `notes_version_pending_chk`：沒有待切時編輯者必須是 `[]`、參考指紋必須是 NULL）。 */
+export const PENDING_CLEARED: { versionPendingAt: null; versionPendingEditors: VersionEditorJson[]; versionPendingRefFingerprint: null } = {
+  versionPendingAt: null,
+  versionPendingEditors: [],
+  versionPendingRefFingerprint: null,
+};
+
 /**
  * 「這列不是該篇現在的基底」述詞（A6）：在**同一條** DELETE 裡現讀 `notes.version_base_seq`，只在該語句讀取當下排除基底。
  * 已知限制：`setVersionBase` 若在 DELETE 語句執行期間才 commit，子查詢用的是語句快照，那一列仍會被刪（Task 9 已裁定接受，見 docs §13）。
@@ -105,26 +112,29 @@ export async function cutVersionInTx(tx: Tx, input: CutVersionInput): Promise<{ 
   const seq = counted!.seq;
   const maxSeq = maxRow?.maxSeq ?? null;
   let baseSeq = note.baseSeq !== null && note.baseSeq !== maxSeq ? note.baseSeq : null;
+  let baseVersionId: string | null = null;
   if (baseSeq !== null) {
-    // 基底列已被刪（內容乾淨走上面 UPDATE 0 列、或內容有改）：「continued from」不得指向不存在的版本 → null（Task 14b）。
+    // 基底列已被刪（內容乾淨走上面 UPDATE 0 列、或內容有改）：「continued from」不得指向不存在的版本 → 兩欄都 null（Task 14b）。
+    // #272 §5.1：base_version_id 取這一步查到的那一列（與 notes.version_base_version_id 在不變量下相同；舊資料那欄為 NULL 也填得到）。
     const [baseRow] = await tx
-      .select({ seq: noteVersions.seq })
+      .select({ id: noteVersions.id })
       .from(noteVersions)
       .where(and(eq(noteVersions.noteId, input.noteId), eq(noteVersions.seq, baseSeq)))
       .limit(1);
-    if (!baseRow) baseSeq = null;
+    if (baseRow) baseVersionId = baseRow.id;
+    else baseSeq = null;
   }
   const [row] = await tx
     .insert(noteVersions)
-    .values({ noteId: input.noteId, seq, ydoc: Buffer.from(ydoc), kind: input.kind, name: input.name, editors: input.editors, baseSeq })
+    .values({ noteId: input.noteId, seq, ydoc: Buffer.from(ydoc), kind: input.kind, name: input.name, editors: input.editors, baseSeq, baseVersionId })
     .returning();
-  await tx.update(notes).set({ versionBaseSeq: seq, versionBaseFingerprint: fp }).where(eq(notes.id, input.noteId));
+  await tx.update(notes).set({ versionBaseSeq: seq, versionBaseFingerprint: fp, versionBaseVersionId: row!.id }).where(eq(notes.id, input.noteId));
   return { row: row!, upgraded: false, fp };
 }
 
 /**
  * §9：搬到群組（`{ noteId }`）與刪群組轉移（`{ groupId }`——**在改 `group_id` 之前**呼叫，以群組述詞一次處理）在交易內清空版本、
- * 配號歸零、基底清空。不建任何版本（D9）。呼叫端已持該（些）筆記列的 `FOR UPDATE`。
+ * 配號歸零、基底（含 uuid）與待切清空。不建任何版本（D9）。呼叫端已持該（些）筆記列的 `FOR UPDATE`。
  */
 export async function resetNoteVersionsInTx(tx: Tx, target: { noteId: string } | { groupId: string }): Promise<void> {
   const noteWhere = "noteId" in target ? eq(notes.id, target.noteId) : eq(notes.groupId, target.groupId);
@@ -133,5 +143,6 @@ export async function resetNoteVersionsInTx(tx: Tx, target: { noteId: string } |
       ? eq(noteVersions.noteId, target.noteId)
       : sql`note_versions.note_id in (select notes.id from notes where notes.group_id = ${target.groupId})`;
   await tx.delete(noteVersions).where(versionWhere);
-  await tx.update(notes).set({ versionCounter: 0, versionBaseSeq: null, versionBaseFingerprint: null }).where(noteWhere);
+  // #272 §4.3：同一句清基底 uuid 與待切三欄（搬家後的新空間從零開始；搬家前的待切不帶過去）。
+  await tx.update(notes).set({ versionCounter: 0, versionBaseSeq: null, versionBaseFingerprint: null, versionBaseVersionId: null, ...PENDING_CLEARED }).where(noteWhere);
 }

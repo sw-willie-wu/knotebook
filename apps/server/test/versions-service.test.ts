@@ -2,13 +2,14 @@ import { describe, expect, it } from "vitest";
 import { eq, sql } from "drizzle-orm";
 import * as Y from "yjs";
 import { YDOC_FRAGMENT } from "@knotebook/shared";
-import { createVersionService, type VersionService } from "../src/collab/versions.js";
+import { clearVersionBase, createVersionService, setVersionBase, type VersionService } from "../src/collab/versions.js";
+import { resetNoteVersionsInTx } from "../src/notes/tx/versions.js";
 import { groups, noteVersions, notes, siteSettings, users } from "../src/db/schema.js";
 import { VACUUM_VERSION_FINGERPRINT, versionFingerprint } from "../src/notes/version-fingerprint.js";
 import { seedDoc } from "./copy-helpers.js";
 import { seedGroup, seedNote, seedUser } from "./group-helpers.js";
 import { freshDb } from "./helpers.js";
-import { editPara, fakeHost, manualTimers, noteBase, paraDoc, versionsOf } from "./version-helpers.js";
+import { baseVersionIdOf, editPara, fakeHost, manualTimers, noteBase, paraDoc, versionsOf } from "./version-helpers.js";
 
 const vfp = (d: Y.Doc) => versionFingerprint(d.getXmlFragment(YDOC_FRAGMENT));
 
@@ -190,6 +191,42 @@ describe("cutIfDirty／isDirty（§5.3）", () => {
     s.svc.endApply(s.note.id, { seq: 1, fingerprint: vfp(v1doc) }); // 模擬套用 v1 後（內容細節由 Task 8 驗）
     expect(await cut("3")).toMatchObject({ row: { seq: 3, baseSeq: 1 } });
     expect(await cut("4")).toMatchObject({ row: { seq: 4, baseSeq: null } });
+  });
+
+  it("#272 案 23：新列 base_version_id 與 base_seq 同填／同 NULL；notes.version_base_version_id 跟著切版、setVersionBase、clearVersionBase、reset", async () => {
+    const s = await setup();
+    const doc = paraDoc(["a"]);
+    await s.load(doc);
+    const cut = async (text: string) => {
+      editPara(doc, 0, t => t.insert(0, text));
+      return s.svc.cutIfDirty(s.note.id, doc, { kind: "auto" });
+    };
+    await cut("1");
+    await cut("2");
+    const [v1, v2] = await versionsOf(s.db, s.note.id);
+    expect([v1!.baseVersionId, v2!.baseVersionId]).toEqual([null, null]);
+    expect(await baseVersionIdOf(s.db, s.note.id)).toBe(v2!.id);
+    const v1doc = new Y.Doc();
+    Y.applyUpdate(v1doc, v1!.ydoc);
+    expect(await setVersionBase(s.db, s.note.id, 1, vfp(v1doc), v1!.id)).toBe(true);
+    expect(await baseVersionIdOf(s.db, s.note.id)).toBe(v1!.id);
+    s.svc.endApply(s.note.id, { seq: 1, fingerprint: vfp(v1doc) }); // 模擬套用 v1 後
+    await cut("3");
+    const v3 = (await versionsOf(s.db, s.note.id))[2]!;
+    expect([v3.baseSeq, v3.baseVersionId]).toEqual([1, v1!.id]);
+    expect(await baseVersionIdOf(s.db, s.note.id)).toBe(v3.id);
+    // 切版當下基底列已不存在 → base_seq 與 base_version_id 都不填（Task 14b 規則，spec §15-2）
+    await s.db.update(notes).set({ versionBaseSeq: 1, versionBaseFingerprint: vfp(v1doc), versionBaseVersionId: v1!.id }).where(eq(notes.id, s.note.id));
+    s.svc.endApply(s.note.id, { seq: 1, fingerprint: vfp(v1doc) });
+    await s.db.delete(noteVersions).where(sql`note_versions.note_id = ${s.note.id} and note_versions.seq = 1`);
+    await cut("4");
+    const v4 = (await versionsOf(s.db, s.note.id)).at(-1)!;
+    expect([v4.seq, v4.baseSeq, v4.baseVersionId]).toEqual([4, null, null]);
+    await clearVersionBase(s.db, s.note.id);
+    expect(await baseVersionIdOf(s.db, s.note.id)).toBeNull();
+    await s.db.update(notes).set({ versionBaseSeq: 4, versionBaseFingerprint: "x", versionBaseVersionId: v4.id }).where(eq(notes.id, s.note.id));
+    await s.db.transaction(tx => resetNoteVersionsInTx(tx, { noteId: s.note.id }));
+    expect(await baseVersionIdOf(s.db, s.note.id)).toBeNull();
   });
 
   it("RF5：刪掉最新的非基底版後再切——依剩下的最新判斷，配號不重用", async () => {

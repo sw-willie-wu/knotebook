@@ -209,10 +209,13 @@ export const siteSettings = pgTable(
     versionKeepAllDays: integer("version_keep_all_days").notNull().default(7),
     versionDailyUntilDays: integer("version_daily_until_days").notNull().default(30),
     autoVersionsEnabled: boolean("auto_versions_enabled").notNull().default(true),
+    // #272 §8（D4）：自動存版等待 X（整數分鐘 1–60，預設 5）；掃描器每輪現讀（`collab/versions.ts` 的 `scanDue`）。
+    versionAutoWaitMinutes: integer("version_auto_wait_minutes").notNull().default(5),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   t => [
     check("site_settings_singleton_chk", sql`${t.singleton}`),
+    check("site_settings_version_auto_wait_chk", sql`1 <= ${t.versionAutoWaitMinutes} and ${t.versionAutoWaitMinutes} <= 60`),
     check(
       "site_settings_version_days_chk",
       sql`1 <= ${t.versionKeepAllDays} and ${t.versionKeepAllDays} <= ${t.versionDailyUntilDays} and ${t.versionDailyUntilDays} <= 3650`,
@@ -355,6 +358,14 @@ export const notes = pgTable("notes", {
   versionCounter: integer("version_counter").notNull().default(0),
   versionBaseSeq: integer("version_base_seq"),
   versionBaseFingerprint: text("version_base_fingerprint"),
+  // #272 §5.1（D3）：待切段——最後一次內容變動的落盤時刻（app 時鐘；NULL＝沒有待切）、該段編輯者（形同 note_versions.editors，
+  // 依 [user_id, agent_label] 去重、先到先排）、段開始時沒有基底才有的參考指紋。寫入者只有 `collab/versions.ts` 的 markPending／clearPending／
+  // clearPendingIfDue 與 `notes/tx/versions.ts` 的切版交易、reset；三欄同清由 notes_version_pending_chk 守。
+  versionPendingAt: timestamp("version_pending_at", { withTimezone: true }),
+  versionPendingEditors: jsonb("version_pending_editors").$type<VersionEditorJson[]>().notNull().default([]),
+  versionPendingRefFingerprint: text("version_pending_ref_fingerprint"),
+  // #272 §5.1（D12）：目前基底那一版的 uuid。**無 FK**（基底被刪仍保留身分以顯示「(deleted)」）；與 version_base_seq 同寫同清。
+  versionBaseVersionId: uuid("version_base_version_id"),
 }, t => [
   index("notes_owner_idx").on(t.ownerId),   // GET /api/notes 自有分支（owner_id = $u）用
   // per-user 唯一（#122）：同 owner 不重複、跨 owner 可同名。PATCH 的 slug 寫入
@@ -380,6 +391,12 @@ export const notes = pgTable("notes", {
   // S11：群組筆記沒有公開別名（W7）。
   check("notes_group_no_public_slug_chk", sql`${t.groupId} is null or ${t.publicSlug} is null`),
   check("notes_version_base_pair_chk", sql`(${t.versionBaseSeq} is null) = (${t.versionBaseFingerprint} is null)`),
+  // #272 §5.1：掃描器只看待切中的列（`version_pending_at <= dueBy`）。
+  index("notes_version_pending_idx").on(t.versionPendingAt).where(sql`${t.versionPendingAt} is not null`),
+  check(
+    "notes_version_pending_chk",
+    sql`${t.versionPendingAt} is not null or (${t.versionPendingEditors} = '[]'::jsonb and ${t.versionPendingRefFingerprint} is null)`,
+  ),
 ]);
 
 /**
@@ -432,6 +449,8 @@ export const noteVersions = pgTable(
     name: text(),
     editors: jsonb().$type<VersionEditorJson[]>().notNull().default([]),
     baseSeq: integer("base_seq"),
+    // #272 §5.1（D12）：「沿自」那一版的 uuid；無 FK；`base_seq` 非 NULL 時同寫（升級前基底列已刪的舊資料為 NULL）。
+    baseVersionId: uuid("base_version_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   t => [
