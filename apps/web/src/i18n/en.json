@@ -931,7 +931,9 @@
     "empty": "No AI edits yet.",
     "revert": "Revert",
     "reverted": "Already reverted",
-    "stale": "Not revertable",
+    "stale": "Can't revert: this content has changed since, or the note was switched to another version",
+    "revertRecord": "A revert can't itself be reverted",
+    "retentionNote": "Each note keeps up to its {{count}} most recent AI edits",
     "revertOk": "Edit reverted."
   },
   "public": {

@@ -1,7 +1,7 @@
 import { and, desc, eq, notInArray } from "drizzle-orm";
 import type { Block, PartialBlock } from "@blocknote/core";
 import * as Y from "yjs";
-import { YDOC_FRAGMENT, topLevelContainers, type EditOp, type NoteOutlineEntry, type WikilinkTarget } from "@knotebook/shared";
+import { AI_EDITS_RETENTION, YDOC_FRAGMENT, topLevelContainers, type EditOp, type NoteOutlineEntry, type WikilinkTarget } from "@knotebook/shared";
 import type { CollabServer } from "../../collab/server.js";
 import type { VersionService } from "../../collab/versions.js";
 import { docClock } from "../../collab/store.js";
@@ -82,7 +82,7 @@ export type ApplyResult =
     }
   | { ok: false; code: "section_not_found" | "fingerprint_mismatch" | ParseError | "empty_section" };
 
-export const RETENTION = 100;
+export const RETENTION = AI_EDITS_RETENTION; // #272 D11：數字搬到 shared（web 的說明句用同一個），行為不變
 export class FingerprintMismatch extends Error {}
 
 export interface MergeInput { targetIds: string[] | null; expectFingerprint: string | null; anchorId: string | null; diff: Uint8Array; afterIds: string[] }

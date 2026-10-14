@@ -931,7 +931,9 @@
     "empty": "尚無 AI 修改紀錄。",
     "revert": "撤回",
     "reverted": "已撤回過",
-    "stale": "無法撤回",
+    "stale": "無法撤回：這段內容已被修改，或已切到其他版本",
+    "revertRecord": "撤回紀錄本身無法撤回",
+    "retentionNote": "每篇保留最近 {{count}} 筆",
     "revertOk": "撤回完成。"
   },
   "public": {
