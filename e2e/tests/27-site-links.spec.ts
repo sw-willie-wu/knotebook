@@ -1,0 +1,728 @@
+import { expect, test, type Browser, type BrowserContext, type Locator, type Page } from "@playwright/test";
+import { ADMIN, createNote, editorLocator, loginAs, noteIdFromUrl, openSiteAdmin, randomEmail, reEscape, waitForEditorSelection } from "./helpers.js";
+
+/**
+ * #269 站內連結（spec §15.3）：E1 點擊語意（讀者同分頁／修飾鍵新分頁／編輯者工具列）、E2 段落錨點、E3 複製入口、
+ * E4 三條寫入路徑轉 wikilink＋反向連結、E5 公開頁。E6 在 22-presentation.spec.ts。
+ * C1–C3 是前面 task 留給真瀏覽器確認的項目（選取含 wikilink 的複製／拖曳、A 工具列開著點 B、過期分頁）。
+ *
+ * - wikilink 一律以 `[data-inline-content-type="wikilink"]` 定位（BlockNote 對 inline content 外層加的屬性）。
+ * - e2e package 不 import `@knotebook/shared`（rsync 不帶 dist；同 11-public-share 檔頭的裁決），網址自組。
+ * - 唯讀的編輯器（viewer、公開頁）沒有 `contenteditable="true"`，`editorLocator` 找不到——那些情境以頁面容器為範圍。
+ */
+
+const ORIGIN = "http://localhost:3100";
+const WIKILINK = '[data-inline-content-type="wikilink"]';
+
+async function grantClipboard(page: Page): Promise<void> {
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: ORIGIN });
+}
+
+/** 把文字放進剪貼簿後在目前游標處 Ctrl+V（呼叫端負責游標）。 */
+async function pasteAtCaret(page: Page, text: string): Promise<void> {
+  await grantClipboard(page);
+  await page.evaluate((t) => navigator.clipboard.writeText(t), text);
+  await page.keyboard.press("ControlOrMeta+v");
+}
+
+/** 在筆記最後貼上 markdown（22-presentation 的 pasteMarkdown 同形）。 */
+async function appendMarkdown(page: Page, markdown: string): Promise<void> {
+  await editorLocator(page).click();
+  await page.keyboard.press("ControlOrMeta+End");
+  await pasteAtCaret(page, markdown);
+}
+
+async function readClipboard(page: Page): Promise<string> {
+  return page.evaluate(() => navigator.clipboard.readText());
+}
+
+/** 文字恰為 `text` 的區塊外層（`.bn-block-outer`）。巢狀時取最內層（DOM 序上祖先在前，取 last）。 */
+function blockOuterIn(root: Locator, text: string): Locator {
+  return root
+    .locator(".bn-block-outer")
+    .filter({ has: root.page().locator(".bn-inline-content", { hasText: new RegExp(`^${reEscape(text)}$`) }) })
+    .last();
+}
+
+function blockOuter(page: Page, text: string): Locator {
+  return blockOuterIn(editorLocator(page), text);
+}
+
+async function blockIdOf(page: Page, text: string): Promise<string> {
+  const id = await blockOuter(page, text).getAttribute("data-id");
+  expect(id).toMatch(/^[A-Za-z0-9_-]+$/);
+  return id!;
+}
+
+type WikilinkAttrs = { targetNoteId: string; label: string; anchorBlockId: string };
+
+/** 主編輯器 ProseMirror 文件裡所有 wikilink 節點的 props（文件序）。讀 Tiptap 掛在 contenteditable 上的 editor（同 `waitForEditorSelection`）。 */
+async function wikilinkAttrs(page: Page): Promise<WikilinkAttrs[]> {
+  return editorLocator(page).evaluate((el) => {
+    type PmNode = { type: { name: string }; attrs: Record<string, string>; descendants(f: (n: PmNode) => boolean | void): void };
+    const view = (el as Element & { editor?: { view?: { state: { doc: PmNode } } } }).editor?.view;
+    if (!view) throw new Error("no-editor");
+    const out: WikilinkAttrs[] = [];
+    view.state.doc.descendants((n) => {
+      if (n.type.name === "wikilink") out.push({ targetNoteId: n.attrs.targetNoteId!, label: n.attrs.label!, anchorBlockId: n.attrs.anchorBlockId! });
+    });
+    return out;
+  });
+}
+
+/** 站台管理建一個帳號 → 新 context 首登強改密碼（03-share-revoke 的流程）。回傳已登入、停在 `/` 的 page。 */
+async function createViewer(browser: Browser, adminPage: Page): Promise<{ context: BrowserContext; page: Page; email: string }> {
+  const email = randomEmail();
+  const tempPassword = "e2e-sitelinks-temp-pw";
+  await openSiteAdmin(adminPage);
+  await adminPage.getByRole("button", { name: "Create user" }).click();
+  const dialog = adminPage.getByRole("dialog", { name: "Create user" });
+  await dialog.locator("#admin-create-email").fill(email);
+  await dialog.locator("#admin-create-password").fill(tempPassword);
+  await dialog.locator("#admin-create-display-name").fill("E2E Site Links Viewer");
+  await dialog.getByRole("button", { name: "Create", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await adminPage.keyboard.press("Escape");
+  await expect(adminPage).toHaveURL(/\/$/);
+
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await loginAs(page, email, tempPassword);
+  await expect(page).toHaveURL(/\/change-password$/);
+  const newPassword = "e2e-sitelinks-pw-2";
+  await page.locator("#change-password-current").fill(tempPassword);
+  await page.locator("#change-password-new").fill(newPassword);
+  await page.locator("#change-password-confirm").fill(newPassword);
+  await page.getByRole("button", { name: "Change password" }).click();
+  await expect(page).toHaveURL(/\/$/);
+  return { context, page, email };
+}
+
+/** 目前筆記分享給 email（預設角色 viewer）。 */
+async function shareWith(page: Page, email: string): Promise<void> {
+  await page.getByRole("button", { name: "Share", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Share note" });
+  await dialog.getByRole("radio", { name: /Members only/ }).click();
+  await dialog.getByLabel("Email address").fill(email);
+  await dialog.getByRole("button", { name: "Add", exact: true }).click();
+  await expect(dialog.getByText(email)).toBeVisible();
+  await page.keyboard.press("Escape");
+}
+
+/** 目前筆記開公開連結（匿名 token 形），回傳 token。 */
+async function makePublicToken(page: Page): Promise<string> {
+  await page.getByRole("button", { name: "Share", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Share note" });
+  await dialog.getByRole("radio", { name: /^Public link/ }).check();
+  const input = dialog.getByLabel("Public link URL");
+  await expect(input).toHaveValue(/^[A-Za-z0-9_-]{43}$/, { timeout: 10_000 });
+  const token = await input.inputValue();
+  await page.keyboard.press("Escape");
+  return token;
+}
+
+/** 目前筆記開公開連結並關掉 Anonymous link（自訂網址形），回傳 `/p/<handle>/<name>`（11-public-share 的 readAliasPath 同形）。 */
+async function makePublicCustom(page: Page): Promise<string> {
+  await page.getByRole("button", { name: "Share", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Share note" });
+  await dialog.getByRole("radio", { name: /^Public link/ }).check();
+  const toggle = dialog.getByRole("switch", { name: "Anonymous link" });
+  await expect(toggle).toBeChecked({ timeout: 10_000 });
+  await toggle.click();
+  const aliasInput = dialog.getByLabel("Custom public link", { exact: true });
+  await expect(aliasInput).toBeVisible({ timeout: 10_000 });
+  await expect.poll(async () => aliasInput.inputValue()).not.toBe("");
+  const prefix = await dialog.locator("#share-public-slug-prefix").innerText();
+  expect(prefix).toMatch(/^\/p\/[a-z0-9-]+\/$/);
+  const path = `${prefix}${await aliasInput.inputValue()}`;
+  await page.keyboard.press("Escape");
+  return path;
+}
+
+async function backlinkIds(page: Page, noteId: string): Promise<string[]> {
+  const res = await page.request.get(`/api/notes/${noteId}/backlinks`);
+  expect(res.status()).toBe(200);
+  return ((await res.json()) as { backlinks: Array<{ id: string }> }).backlinks.map((b) => b.id);
+}
+
+/**
+ * 段落錨點的高亮（#269 §10.2）：useBlockAnchor 在 ProseMirror 管轄外疊一層 `.kn-anchor-flash[data-anchor-flash="<id>"]` 浮層。
+ * 斷言：浮層出現、蓋在該區塊上（±1px）、在可編輯 DOM 之外、有動畫；300 ms 後仍在（舊作法把屬性掛在 `.bn-block-outer` 上，可編輯時
+ * ProseMirror 約 70 ms 內就把那個元素換掉、高亮跟著消失——Task 19 探針實測）。
+ */
+async function expectAnchorFlash(page: Page, blockId: string): Promise<void> {
+  const overlay = page.locator(`.kn-anchor-flash[data-anchor-flash="${blockId}"]`);
+  await expect(overlay).toBeAttached({ timeout: 15_000 });
+  const geo = await overlay.evaluate((el, id) => {
+    const block = document.querySelector(`.bn-block-outer[data-id="${id}"]`)!.getBoundingClientRect();
+    const o = el.getBoundingClientRect();
+    return {
+      dTop: Math.abs(o.top - block.top),
+      dLeft: Math.abs(o.left - block.left),
+      dWidth: Math.abs(o.width - block.width),
+      dHeight: Math.abs(o.height - block.height),
+      inEditable: el.closest('[contenteditable="true"], .ProseMirror') !== null,
+      animation: getComputedStyle(el).animationName,
+    };
+  }, blockId);
+  expect(geo).toEqual({ dTop: expect.any(Number), dLeft: expect.any(Number), dWidth: expect.any(Number), dHeight: expect.any(Number), inEditable: false, animation: "kn-anchor-flash" });
+  for (const d of [geo.dTop, geo.dLeft, geo.dWidth, geo.dHeight]) expect(d).toBeLessThanOrEqual(1);
+  await page.waitForTimeout(300);
+  await expect(overlay).toBeAttached();
+}
+
+/** 標題「#」鈕與標題文字首行的幾何（相對視窗）。 */
+async function headingButtonGeometry(outer: Locator): Promise<{ lineMid: number; lineRight: number; buttonMid: number; buttonLeft: number }> {
+  return outer.evaluate((el) => {
+    const inline = el.querySelector(":scope > .bn-block > .bn-block-content > .bn-inline-content")!;
+    const range = document.createRange();
+    range.selectNodeContents(inline);
+    const line = range.getClientRects()[0]!;
+    const button = document.querySelector('button[aria-label="Copy link to this section"]')!.getBoundingClientRect();
+    return { lineMid: line.top + line.height / 2, lineRight: line.right, buttonMid: button.top + button.height / 2, buttonLeft: button.left };
+  });
+}
+
+test("E1：讀者一般點擊同分頁導航；Ctrl+Click 與中鍵開新分頁；編輯者點擊出工具列", async ({ browser }) => {
+  test.setTimeout(180_000);
+  const adminContext = await browser.newContext();
+  let viewer: { context: BrowserContext; page: Page; email: string } | undefined;
+  try {
+    const admin = await adminContext.newPage();
+    await loginAs(admin, ADMIN.email, ADMIN.password);
+    viewer = await createViewer(browser, admin);
+    const stamp = String(Date.now());
+
+    const targetTitle = `E2E sl target ${stamp}`;
+    await createNote(admin, targetTitle);
+    const targetPath = new URL(admin.url()).pathname;
+    const targetId = await noteIdFromUrl(admin);
+    await shareWith(admin, viewer.email);
+
+    await createNote(admin, `E2E sl source ${stamp}`);
+    const sourceUrl = admin.url();
+    await shareWith(admin, viewer.email);
+    await appendMarkdown(admin, `see [${targetTitle}](/notes/${targetId})\n`);
+    const adminLink = editorLocator(admin).locator(WIKILINK);
+    await expect(adminLink).toHaveCount(1, { timeout: 10_000 });
+
+    // 編輯者：一般點擊出工具列、不導航
+    await adminLink.click();
+    await expect(admin.getByRole("dialog", { name: "Note link" })).toBeVisible();
+    expect(admin.url()).toBe(sourceUrl);
+    await admin.keyboard.press("Escape");
+    await expect(admin.getByRole("dialog", { name: "Note link" })).not.toBeVisible();
+
+    // 編輯者：Ctrl/Cmd+Click（contenteditable 內的 contentEditable=false 島——spec §7.2【推】的量測點）⇒ 新分頁、不開工具列
+    const editorCtrlPromise = adminContext.waitForEvent("page", { timeout: 10_000 });
+    await adminLink.locator("a").click({ modifiers: ["ControlOrMeta"] });
+    const editorCtrlPage = await editorCtrlPromise;
+    await editorCtrlPage.waitForURL((u) => u.pathname === targetPath, { timeout: 15_000 });
+    expect(admin.url()).toBe(sourceUrl);
+    await expect(admin.getByRole("dialog", { name: "Note link" })).not.toBeVisible();
+    await editorCtrlPage.close();
+
+    // 讀者：清單到了 ⇒ <a href=canonical>
+    const vp = viewer.page;
+    await vp.goto(sourceUrl);
+    await expect(vp.getByRole("status").filter({ hasText: /^Connected/ })).toBeVisible({ timeout: 15_000 });
+    const link = vp.locator(`[data-testid="note-editor"] ${WIKILINK} a`, { hasText: targetTitle });
+    await expect(link).toHaveAttribute("href", targetPath, { timeout: 10_000 });
+
+    // Ctrl/Cmd+Click：新分頁、原分頁不動（修飾鍵實測——見 Step 5）
+    const ctrlPagePromise = viewer.context.waitForEvent("page", { timeout: 10_000 });
+    await link.click({ modifiers: ["ControlOrMeta"] });
+    const ctrlPage = await ctrlPagePromise;
+    await ctrlPage.waitForURL((u) => u.pathname === targetPath, { timeout: 15_000 });
+    expect(vp.url()).toBe(sourceUrl);
+    await ctrlPage.close();
+
+    // 中鍵：新分頁、原分頁不動
+    const middlePagePromise = viewer.context.waitForEvent("page", { timeout: 10_000 });
+    await link.click({ button: "middle" });
+    const middlePage = await middlePagePromise;
+    await middlePage.waitForURL((u) => u.pathname === targetPath, { timeout: 15_000 });
+    expect(vp.url()).toBe(sourceUrl);
+    await middlePage.close();
+
+    // 一般點擊：同分頁導航（不開新分頁）
+    const pagesBefore = viewer.context.pages().length;
+    await link.click();
+    await vp.waitForURL((u) => u.pathname === targetPath, { timeout: 15_000 });
+    await expect(vp.getByRole("heading", { name: targetTitle, level: 1 })).toBeVisible({ timeout: 15_000 });
+    expect(viewer.context.pages().length).toBe(pagesBefore);
+  } finally {
+    await viewer?.context.close();
+    await adminContext.close();
+  }
+});
+
+test("E2：開 #b-<id> 捲到並高亮；不存在的 id 停頂端無錯；?present#b- 不捲；同篇錨點不重載、上一頁回到點擊前", async ({ browser }) => {
+  test.setTimeout(150_000);
+  const context = await browser.newContext();
+  try {
+    const page = await context.newPage();
+    await loginAs(page, ADMIN.email, ADMIN.password);
+    const stamp = String(Date.now());
+    await createNote(page, `E2E sl anchor ${stamp}`);
+    const noteUrl = page.url();
+    const notePath = new URL(noteUrl).pathname;
+    const noteId = await noteIdFromUrl(page);
+    const paras = Array.from({ length: 40 }, (_, i) => `para ${i + 1}`);
+    await appendMarkdown(page, paras.join("\n\n") + "\n");
+    await expect(editorLocator(page).getByText("para 40", { exact: true })).toBeVisible({ timeout: 15_000 });
+    const targetId = await blockIdOf(page, "para 35");
+
+    // 冷開：新分頁直接開 #b-<id>
+    const cold = await context.newPage();
+    const coldErrors: string[] = [];
+    cold.on("pageerror", (e) => coldErrors.push(e.message));
+    await cold.goto(`${noteUrl}#b-${targetId}`);
+    const coldTarget = cold.locator(`.bn-block-outer[data-id="${targetId}"]`);
+    await expectAnchorFlash(cold, targetId); // 擁有者＝可編輯編輯器：高亮浮層要撐過 ProseMirror 的重繪
+    await expect(coldTarget).toBeInViewport();
+    expect(coldErrors).toEqual([]);
+
+    // 不存在的 id：停頂端、無錯（等過 2 s 放棄窗口）
+    const missing = await context.newPage();
+    const missingErrors: string[] = [];
+    missing.on("pageerror", (e) => missingErrors.push(e.message));
+    await missing.goto(`${noteUrl}#b-doesnotexist`);
+    await expect(missing.locator(`.bn-block-outer[data-id="${targetId}"]`)).toBeAttached({ timeout: 15_000 });
+    await missing.waitForTimeout(2_500);
+    await expect(missing.getByText("para 1", { exact: true })).toBeInViewport();
+    expect(missingErrors).toEqual([]);
+    await missing.close();
+    await cold.close();
+
+    // 簡報播放中（?present）忽略 #b-（spec §10.1）：底下的筆記不捲。守衛是 not.toBeInViewport（para 35 在 40 段裡，不捲就在視窗外）；
+    // 不斷高亮浮層——等了 1.5 s，就算錨點被消耗、浮層也可能已到期移除，0 個證明不了什麼。
+    const present = await context.newPage();
+    await present.goto(`${noteUrl}?present#b-${targetId}`);
+    await expect(present.locator(".reveal.ready")).toBeVisible({ timeout: 15_000 });
+    const presentTarget = present.locator(`.bn-block-outer[data-id="${targetId}"]`);
+    await expect(presentTarget).toBeAttached();
+    await present.waitForTimeout(1_500); // 簡報 ready 要求 synced；錨點若被消耗，會在 sync 當下捲動——多等一拍
+    await expect(presentTarget).not.toBeInViewport();
+    await present.close();
+
+    // 同篇錨點：文首加一個指向本篇 para 35 的連結（自連結轉換，RF5 的 client 半），工具列 Open
+    await editorLocator(page).getByText("para 1", { exact: true }).click();
+    await page.keyboard.press("Home");
+    await waitForEditorSelection(page);
+    await pasteAtCaret(page, `[jump](/notes/${noteId}#b-${targetId}) `);
+    const jump = editorLocator(page).locator(WIKILINK, { hasText: "jump" });
+    await expect(jump).toHaveCount(1, { timeout: 10_000 });
+    await page.evaluate(() => {
+      (window as unknown as { __kbMarker?: number }).__kbMarker = 1;
+    });
+    await jump.click();
+    const toolbar = page.getByRole("dialog", { name: "Note link" });
+    await toolbar.getByRole("button", { name: "Open" }).click();
+    await page.waitForURL((u) => u.pathname === notePath && u.hash === `#b-${targetId}`, { timeout: 10_000 });
+    await expect(page.locator(`.bn-block-outer[data-id="${targetId}"]`)).toBeInViewport({ timeout: 5_000 });
+    await expectAnchorFlash(page, targetId);
+    expect(await page.evaluate(() => (window as unknown as { __kbMarker?: number }).__kbMarker)).toBe(1);
+
+    // 上一頁回到點擊前（PUSH，不是 REPLACE——T9-M4 的觀察點）且仍不重載
+    await page.goBack();
+    await page.waitForURL((u) => u.pathname === notePath && u.hash === "", { timeout: 10_000 });
+    expect(await page.evaluate(() => (window as unknown as { __kbMarker?: number }).__kbMarker)).toBe(1);
+  } finally {
+    await context.close();
+  }
+});
+
+test("E3：拖曳把手「Copy link to block」與標題「#」寫入剪貼簿的網址正確；「#」在首行垂直置中；viewer 也有「#」、沒有把手選單", async ({ browser }) => {
+  test.setTimeout(180_000);
+  const adminContext = await browser.newContext();
+  let viewer: { context: BrowserContext; page: Page; email: string } | undefined;
+  try {
+    const admin = await adminContext.newPage();
+    await loginAs(admin, ADMIN.email, ADMIN.password);
+    viewer = await createViewer(browser, admin);
+    await createNote(admin, `E2E sl copy ${Date.now()}`);
+    const noteUrl = admin.url();
+    const notePath = new URL(noteUrl).pathname;
+    await shareWith(admin, viewer.email);
+    await appendMarkdown(admin, "## Copy heading\n\ncopy para\n");
+    await expect(editorLocator(admin).getByText("copy para", { exact: true })).toBeVisible({ timeout: 15_000 });
+    const paraId = await blockIdOf(admin, "copy para");
+    const headingId = await blockIdOf(admin, "Copy heading");
+    await grantClipboard(admin);
+
+    // 拖曳把手選單
+    await blockOuter(admin, "copy para").hover();
+    await admin.getByRole("button", { name: "Open block menu" }).click();
+    await admin.getByRole("menuitem", { name: "Copy link to block" }).click();
+    await expect(admin.getByText("Block link copied", { exact: true }).first()).toBeVisible();
+    expect(await readClipboard(admin)).toBe(`${ORIGIN}${notePath}#b-${paraId}`);
+
+    // 標題「#」（編輯者；Task 15 I1 把它搬到文字右側，避開側邊選單）
+    await blockOuter(admin, "Copy heading").hover();
+    const hash = admin.getByRole("button", { name: "Copy link to this section" });
+    await expect(hash).toBeVisible();
+    // 幾何（Task 15 m2）：「#」在標題文字首行垂直置中、在文字右側
+    const geo = await headingButtonGeometry(blockOuter(admin, "Copy heading"));
+    expect(Math.abs(geo.buttonMid - geo.lineMid)).toBeLessThanOrEqual(1);
+    expect(geo.buttonLeft).toBeGreaterThanOrEqual(geo.lineRight);
+    await hash.click();
+    expect(await readClipboard(admin)).toBe(`${ORIGIN}${notePath}#b-${headingId}`);
+
+    // viewer：有「#」、沒有把手選單（唯讀編輯器沒有 contenteditable="true"，以 note-editor 容器為範圍）
+    const vp = viewer.page;
+    await grantClipboard(vp);
+    await vp.goto(noteUrl);
+    await expect(vp.getByRole("status").filter({ hasText: /^Connected/ })).toBeVisible({ timeout: 15_000 });
+    const viewerEditor = vp.getByTestId("note-editor");
+    await blockOuterIn(viewerEditor, "Copy heading").hover();
+    await vp.getByRole("button", { name: "Copy link to this section" }).click();
+    expect(await readClipboard(vp)).toBe(`${ORIGIN}${notePath}#b-${headingId}`);
+    await blockOuterIn(viewerEditor, "copy para").hover();
+    await expect(vp.getByRole("button", { name: "Open block menu" })).toHaveCount(0);
+
+    // 編輯者：「#」顯示中、標題被刪掉（游標不動）⇒「#」收起（Task 15 m3）
+    await blockOuter(admin, "Copy heading").hover();
+    await expect(hash).toBeVisible();
+    await editorLocator(admin).evaluate((el, text) => {
+      type PmNode = { type: { name: string }; nodeSize: number; textContent: string; firstChild: PmNode | null; descendants(f: (n: PmNode, pos: number) => boolean | void): void };
+      type View = { state: { doc: PmNode; tr: { delete(from: number, to: number): unknown } }; dispatch(tr: unknown): void };
+      const view = (el as Element & { editor?: { view?: View } }).editor!.view!;
+      let range: [number, number] | null = null;
+      view.state.doc.descendants((n, pos) => {
+        if (range) return false;
+        if (n.type.name === "blockContainer" && n.firstChild?.type.name === "heading" && n.firstChild.textContent === text) range = [pos, pos + n.nodeSize];
+        return true;
+      });
+      if (!range) throw new Error("heading not found");
+      view.dispatch(view.state.tr.delete(range[0], range[1]));
+    }, "Copy heading");
+    await expect(blockOuter(admin, "Copy heading")).toHaveCount(0);
+    await expect(hash).toHaveCount(0);
+  } finally {
+    await viewer?.context.close();
+    await adminContext.close();
+  }
+});
+
+test("E4：段落中間貼 [x](/n/…)、連結對話框輸入 /g/…、打 http://…/notes/<id> 加空白 → 皆成 wikilink，且出現在目標的反向連結", async ({ browser }) => {
+  test.setTimeout(180_000);
+  const context = await browser.newContext();
+  try {
+    const page = await context.newPage();
+    await loginAs(page, ADMIN.email, ADMIN.password);
+    const stamp = String(Date.now());
+
+    await createNote(page, `E2E sl t1 ${stamp}`);
+    const t1Path = new URL(page.url()).pathname; // /n/<handle>/<slug>
+    const t1Id = await noteIdFromUrl(page);
+    await createNote(page, `E2E sl t3 ${stamp}`);
+    const t3Id = await noteIdFromUrl(page);
+
+    // 群組筆記（/g/…）：API 建群組與群組筆記
+    const groupRes = await page.request.post("/api/groups", { headers: { Origin: ORIGIN }, data: { name: `E2E sl group ${stamp}` } });
+    expect(groupRes.status()).toBe(201);
+    const groupId = ((await groupRes.json()) as { id: string }).id;
+    const t2Res = await page.request.post("/api/notes", { headers: { Origin: ORIGIN }, data: { title: `E2E sl t2 ${stamp}`, groupId } });
+    expect(t2Res.status()).toBe(201);
+    const t2 = (await t2Res.json()) as { id: string; slug: string };
+    const t2Path = `/g/${groupId}/${t2.slug}`;
+
+    await createNote(page, `E2E sl writer ${stamp}`);
+    const sourceId = await noteIdFromUrl(page);
+    const wikilinks = editorLocator(page).locator(WIKILINK);
+
+    // (a) 段落中間行內貼 markdown 連結
+    await editorLocator(page).click();
+    await page.keyboard.type("alpha omega");
+    await page.keyboard.press("Home");
+    for (let i = 0; i < "alpha ".length; i += 1) await page.keyboard.press("ArrowRight");
+    await waitForEditorSelection(page);
+    await pasteAtCaret(page, `[x](${t1Path})`);
+    await expect(wikilinks.filter({ hasText: "x" })).toHaveCount(1, { timeout: 10_000 });
+
+    // (b) 連結對話框（`/` 選單的 Link）輸入 /g/…
+    await page.keyboard.press("ControlOrMeta+End");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("/Link");
+    await expect(page.locator(".bn-suggestion-menu")).toBeVisible({ timeout: 10_000 });
+    await page.keyboard.press("Enter");
+    const linkDialog = page.getByRole("dialog", { name: "Insert link" });
+    await linkDialog.getByLabel("Display text").fill("group target");
+    await linkDialog.getByLabel("URL").fill(t2Path);
+    await linkDialog.getByRole("button", { name: "Insert" }).click();
+    await expect(wikilinks.filter({ hasText: "group target" })).toHaveCount(1, { timeout: 10_000 });
+
+    // (c) 打完整網址加空白（autolink）
+    await page.keyboard.press("ControlOrMeta+End");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type(`${ORIGIN}/notes/${t3Id} `);
+    await expect(wikilinks).toHaveCount(3, { timeout: 10_000 });
+
+    // 反向連結（client 送出連結集合有 debounce——輪詢）
+    for (const target of [t1Id, t2.id, t3Id]) {
+      await expect(async () => {
+        expect(await backlinkIds(page, target)).toContain(sourceId);
+      }).toPass({ timeout: 20_000 });
+    }
+  } finally {
+    await context.close();
+  }
+});
+
+test("E5：公開頁——自訂網址目標可點且導到 /p/…；非公開與只有 token 形的目標為純文字；冷開 #b- 捲到並高亮；「#」複製公開網址；同篇錨點不重載；不打 /api/notes", async ({ browser }) => {
+  test.setTimeout(180_000);
+  const ownerContext = await browser.newContext();
+  const anonContext = await browser.newContext();
+  try {
+    const owner = await ownerContext.newPage();
+    await loginAs(owner, ADMIN.email, ADMIN.password);
+    const stamp = String(Date.now());
+
+    const pubTitle = `E2E sl pub ${stamp}`;
+    await createNote(owner, pubTitle);
+    const pubId = await noteIdFromUrl(owner);
+    const pubPath = await makePublicCustom(owner);
+
+    await createNote(owner, `E2E sl priv ${stamp}`);
+    const privId = await noteIdFromUrl(owner);
+
+    await createNote(owner, `E2E sl tok ${stamp}`);
+    const tokId = await noteIdFromUrl(owner);
+    await makePublicToken(owner);
+
+    await createNote(owner, `E2E sl public source ${stamp}`);
+    const sourceId = await noteIdFromUrl(owner);
+    const fillers = Array.from({ length: 30 }, (_, i) => `filler ${i + 1}`);
+    await appendMarkdown(owner, [`links [pub](/notes/${pubId}) [priv](/notes/${privId}) [tok](/notes/${tokId})`, "## Pub heading", ...fillers].join("\n\n") + "\n");
+    await expect(editorLocator(owner).getByText("filler 30", { exact: true })).toBeVisible({ timeout: 15_000 });
+    const anchorId = await blockIdOf(owner, "filler 28");
+    const headingId = await blockIdOf(owner, "Pub heading");
+    await appendMarkdown(owner, `[jump](/notes/${sourceId}#b-${anchorId})\n`);
+    await expect(editorLocator(owner).locator(WIKILINK)).toHaveCount(4, { timeout: 10_000 });
+    const token = await makePublicToken(owner);
+
+    // 公開快照（persist debounce）追上：四個 wikilink 都在 ydoc 裡
+    await expect(async () => {
+      const res = await owner.request.get(`/api/public/notes/${token}`);
+      expect(res.status()).toBe(200);
+      const body = (await res.json()) as { ydoc: string; links: Array<{ id: string; path: string }> };
+      expect(Buffer.from(body.ydoc, "base64").toString("utf8")).toContain(anchorId);
+      expect(body.links.map((l) => l.id)).toEqual([pubId]);
+    }).toPass({ timeout: 20_000 });
+
+    const anon = await anonContext.newPage();
+    const apiNotesHits: string[] = [];
+    anon.on("request", (r) => {
+      if (new URL(r.url()).pathname === "/api/notes") apiNotesHits.push(r.url());
+    });
+
+    // 冷開公開頁的 #b-<id>：捲到並高亮（Task 14 的公開頁接線）
+    await anon.goto(`/p/${token}#b-${anchorId}`);
+    const coldTarget = anon.locator(`.bn-block-outer[data-id="${anchorId}"]`);
+    await expectAnchorFlash(anon, anchorId);
+    await expect(coldTarget).toBeInViewport();
+
+    await anon.goto(`/p/${token}`);
+    // 「jump」是貼在最後一段（filler 30）段尾的行內連結，那段的文字不再恰為「filler 30」——以 filler 29 判斷內文載入
+    await expect(anon.getByText("filler 29", { exact: true })).toBeAttached({ timeout: 15_000 });
+    const scope = anon.locator(WIKILINK);
+    await expect(scope.filter({ hasText: "pub" }).locator("a")).toHaveAttribute("href", pubPath);
+    for (const text of ["priv", "tok"]) {
+      await expect(scope.filter({ hasText: text })).toBeVisible();
+      await expect(scope.filter({ hasText: text }).locator("a")).toHaveCount(0);
+    }
+
+    // 公開頁的標題「#」：複製公開網址＋錨點（Task 15）
+    await grantClipboard(anon);
+    await blockOuterIn(anon.locator("body"), "Pub heading").hover();
+    await anon.getByRole("button", { name: "Copy link to this section" }).click();
+    expect(await readClipboard(anon)).toBe(`${ORIGIN}/p/${token}#b-${headingId}`);
+
+    // 同篇錨點：只改 hash、不重載
+    await anon.evaluate(() => {
+      (window as unknown as { __kbMarker?: number }).__kbMarker = 1;
+    });
+    await scope.filter({ hasText: "jump" }).locator("a").click();
+    await anon.waitForURL((u) => u.hash === `#b-${anchorId}`, { timeout: 10_000 });
+    await expect(anon.locator(`.bn-block-outer[data-id="${anchorId}"]`)).toBeInViewport({ timeout: 5_000 });
+    expect(await anon.evaluate(() => (window as unknown as { __kbMarker?: number }).__kbMarker)).toBe(1);
+
+    // 公開目標：一般點擊導到 /p/…（同分頁）
+    await scope.filter({ hasText: "pub" }).locator("a").click();
+    await anon.waitForURL((u) => u.pathname === pubPath, { timeout: 15_000 });
+    await expect(anon.getByText(pubTitle).first()).toBeVisible({ timeout: 15_000 });
+
+    expect(apiNotesHits).toEqual([]);
+  } finally {
+    await anonContext.close();
+    await ownerContext.close();
+  }
+});
+
+test("C1：選取含 wikilink 的文字——複製貼回保留 wikilink（label／錨點）、剪貼簿不空；拖曳搬移保留 wikilink；可編輯的 wikilink 本身拖不出一般連結", async ({ browser }) => {
+  test.setTimeout(180_000);
+  const context = await browser.newContext();
+  try {
+    const page = await context.newPage();
+    await loginAs(page, ADMIN.email, ADMIN.password);
+    const stamp = String(Date.now());
+    await createNote(page, `E2E sl c1 target ${stamp}`);
+    const targetId = await noteIdFromUrl(page);
+    await createNote(page, `E2E sl c1 source ${stamp}`);
+    await appendMarkdown(page, ["copy src [lbl](/notes/" + targetId + "#b-anc1) tail", "drop here", "paste here"].join("\n\n") + "\n");
+    const editor = editorLocator(page);
+    const wikilinks = editor.locator(WIKILINK);
+    await expect(wikilinks).toHaveCount(1, { timeout: 10_000 });
+    const expected: WikilinkAttrs = { targetNoteId: targetId, label: "lbl", anchorBlockId: "anc1" };
+    expect(await wikilinkAttrs(page)).toEqual([expected]);
+    // 段落以開頭文字定位（`^`）：貼上／拖放後別段也會含「copy src」
+    const srcInline = editor.locator(".bn-inline-content", { hasText: /^copy src/ });
+    const pasted = editor.locator(".bn-inline-content", { hasText: /^paste here/ });
+    const dropInline = editor.locator(".bn-inline-content", { hasText: /^drop here/ });
+
+    // 選取整段（含 wikilink）→ Ctrl+C：剪貼簿的純文字與 HTML 都不空（PF-COPY：修前 serializeForClipboard 拋錯、剪貼簿是空的）
+    await grantClipboard(page);
+    await page.evaluate(() => navigator.clipboard.writeText(""));
+    await srcInline.click({ position: { x: 4, y: 4 } });
+    await page.keyboard.press("Home");
+    await waitForEditorSelection(page);
+    await page.keyboard.press("Shift+End");
+    await page.keyboard.press("ControlOrMeta+c");
+    const copied = await page.evaluate(async () => {
+      const items = await navigator.clipboard.read();
+      const html = items[0]?.types.includes("text/html") ? await (await items[0]!.getType("text/html")).text() : "";
+      return { text: await navigator.clipboard.readText(), html };
+    });
+    expect(copied.text).toContain("lbl");
+    expect(copied.html).toContain("lbl");
+
+    // 貼回站內（另一段的段尾）：多一個 wikilink，props 原樣
+    await pasted.click();
+    await page.keyboard.press("End");
+    await waitForEditorSelection(page);
+    await page.keyboard.press("ControlOrMeta+v");
+    await expect(wikilinks).toHaveCount(2, { timeout: 10_000 });
+    await expect(pasted.locator(WIKILINK)).toHaveCount(1);
+    expect(await wikilinkAttrs(page)).toEqual([expected, expected]);
+    await expect(editor.locator("a[href]")).toHaveCount(2); // 沒有多出一般連結
+
+    // 拖曳搬移：選取來源段 → 從選取範圍內拖到「drop here」段尾 ⇒ wikilink 搬過去、props 原樣
+    await srcInline.click({ position: { x: 4, y: 4 } });
+    await page.keyboard.press("Home");
+    await waitForEditorSelection(page);
+    await page.keyboard.press("Shift+End");
+    // 放在目標列的右段（區塊外層寬的 80%）：拖曳中 BlockNote 側邊選單的按鈕疊在段首文字上（實測 dragover 落在 mantine Button、
+    // 沒被 preventDefault ⇒ 不觸發 drop），放在文字上量不到。右段 posAtCoords 落在該段段尾。
+    const from = (await srcInline.boundingBox())!;
+    const dropOuter = editor.locator(".bn-block-outer").filter({ has: page.locator(".bn-inline-content", { hasText: /^drop here/ }) }).last();
+    const to = (await dropOuter.boundingBox())!;
+    await page.mouse.move(from.x + 8, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(from.x + 40, from.y + from.height / 2, { steps: 5 });
+    await page.mouse.move(to.x + to.width * 0.8, to.y + to.height / 2, { steps: 10 });
+    await page.mouse.move(to.x + to.width * 0.8 + 2, to.y + to.height / 2);
+    await page.mouse.up();
+    await expect(dropInline.locator(WIKILINK)).toHaveCount(1, { timeout: 10_000 });
+    await expect(dropInline).toContainText("copy src");
+    await expect(srcInline).toHaveCount(0); // 原段的內容整段搬走了（不是複製）
+    expect(await wikilinkAttrs(page)).toEqual([expected, expected]);
+    await expect(editor.locator("a[href]")).toHaveCount(2);
+
+    // 可編輯的 wikilink 本身（draggable=false）：按住它拖到別段放開 ⇒ 不多出一般連結、wikilink 不搬家
+    // 放開點同上（目標列右段——上一步證明那裡收得到 drop）：<a> 若能原生拖，這裡就會多出一般連結
+    const linkBox = (await pasted.locator(WIKILINK).boundingBox())!;
+    const target = (await dropOuter.boundingBox())!;
+    await page.mouse.move(linkBox.x + linkBox.width / 2, linkBox.y + linkBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(linkBox.x + linkBox.width / 2 + 20, linkBox.y + linkBox.height / 2, { steps: 5 });
+    await page.mouse.move(target.x + target.width * 0.8, target.y + target.height / 2, { steps: 10 });
+    await page.mouse.move(target.x + target.width * 0.8 + 2, target.y + target.height / 2);
+    await page.mouse.up();
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(500);
+    await expect(pasted.locator(WIKILINK)).toHaveCount(1);
+    await expect(dropInline.locator(WIKILINK)).toHaveCount(1);
+    await expect(editor.locator("a[href]")).toHaveCount(2);
+    expect(await wikilinkAttrs(page)).toEqual([expected, expected]);
+  } finally {
+    await context.close();
+  }
+});
+
+test("C2：A 的工具列開著時用真滑鼠點 B → B 的工具列開著、焦點在 B 的工具列裡", async ({ browser }) => {
+  test.setTimeout(150_000);
+  const context = await browser.newContext();
+  try {
+    const page = await context.newPage();
+    await loginAs(page, ADMIN.email, ADMIN.password);
+    const stamp = String(Date.now());
+    await createNote(page, `E2E sl c2 a ${stamp}`);
+    const aId = await noteIdFromUrl(page);
+    await createNote(page, `E2E sl c2 b ${stamp}`);
+    const bId = await noteIdFromUrl(page);
+    await createNote(page, `E2E sl c2 source ${stamp}`);
+    await appendMarkdown(page, `first [link A](/notes/${aId}) then [link B](/notes/${bId}) end\n`);
+    const editor = editorLocator(page);
+    await expect(editor.locator(WIKILINK)).toHaveCount(2, { timeout: 10_000 });
+    const toolbars = page.getByRole("dialog", { name: "Note link" });
+
+    await editor.locator(WIKILINK, { hasText: "link A" }).click();
+    await expect(toolbars).toHaveCount(1);
+    await expect(toolbars).toBeVisible();
+
+    const b = (await editor.locator(WIKILINK, { hasText: "link B" }).boundingBox())!;
+    await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
+    await page.waitForTimeout(500); // 讓 A 的關閉轉場與延後的焦點還原跑完
+    await expect(toolbars).toHaveCount(1);
+    await expect(toolbars).toBeVisible();
+    // 關閉中的 Popover 內容 toBeVisible 照樣過：再斷 Radix 的開合狀態（關閉時 data-state 是 "closed"）
+    await expect(toolbars).toHaveAttribute("data-state", "open");
+    expect(await page.evaluate(() => document.activeElement?.closest('[role="dialog"]')?.getAttribute("aria-label") ?? null)).toBe("Note link");
+    // 開著的是 B 的工具列：編輯文字預填 B 的 label
+    await toolbars.getByRole("button", { name: "Edit text" }).click();
+    await expect(toolbars.getByRole("textbox", { name: "Link text" })).toHaveValue("link B");
+  } finally {
+    await context.close();
+  }
+});
+
+test("C3：過期分頁（collab-token 帶舊 schema 版本）——筆記頁顯示重新整理 banner 且唯讀；簡報模式看不到 banner、工具列顯示需要重新整理", async ({ browser }) => {
+  test.setTimeout(120_000);
+  const context = await browser.newContext();
+  try {
+    const page = await context.newPage();
+    await loginAs(page, ADMIN.email, ADMIN.password);
+    const title = `E2E sl outdated ${Date.now()}`;
+    await createNote(page, title);
+    await appendMarkdown(page, "## Outdated slide\n\noutdated text\n");
+    await expect(editorLocator(page).getByText("outdated text", { exact: true })).toBeVisible({ timeout: 15_000 });
+    const noteUrl = page.url();
+
+    // 模擬閘門前的分頁：token 請求不帶新版本（server 簽 sv=0，握手被拒為 client-outdated）
+    const stale = await context.newPage();
+    await stale.route("**/api/notes/*/collab-token", (route) => route.continue({ postData: JSON.stringify({ noteSchemaVersion: 0 }) }));
+    await stale.goto(noteUrl);
+    const message = "Knotebook has been updated. Reload the page to keep editing. Changes in this tab that haven't synced won't be kept after reloading.";
+    await expect(stale.getByRole("alert").filter({ hasText: message })).toBeVisible({ timeout: 15_000 });
+    await expect(stale.getByRole("status").filter({ hasText: /^Reload required/ })).toBeVisible();
+    await expect(stale.locator('[data-testid="note-editor"] [contenteditable="true"]')).toHaveCount(0);
+    await expect(stale.getByRole("heading", { name: title, level: 1 })).toBeVisible(); // 標題唯讀（TitleInput readOnly ⇒ h1）
+
+    // 簡報模式：簡報層蓋住頁首 banner；簡報工具列顯示需要重新整理
+    await stale.goto(`${noteUrl}?present`);
+    const shell = stale.getByRole("dialog", { name: `${title} — presentation` });
+    await expect(shell).toBeVisible({ timeout: 15_000 });
+    await expect(shell.getByText("Reload required")).toBeVisible({ timeout: 15_000 });
+    const banner = stale.getByText(message);
+    await expect(banner).toBeAttached();
+    const covered = await banner.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return hit === null || !el.contains(hit);
+    });
+    expect(covered).toBe(true);
+  } finally {
+    await context.close();
+  }
+});

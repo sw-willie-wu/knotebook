@@ -247,6 +247,16 @@ test("E3：匿名開公開連結簡報——wikilink 純文字、圖片載得出
     // 先等 target 出現在選單裡：['notes'] 快取還沒收到它時，第一項會是「建立並連結」（r2-p3 MINOR 5）
     await expect(owner.locator(".bn-suggestion-menu").getByText(targetTitle, { exact: true })).toBeVisible({ timeout: 10_000 });
     await owner.keyboard.press("Enter");
+    // #269 E6：給這個 wikilink 一段自己的文字（label），公開簡報要顯示 label、且仍是純文字
+    const labelText = `E2E label ${stamp}`;
+    const wikilink = editorLocator(owner).locator('[data-inline-content-type="wikilink"]');
+    await expect(wikilink).toHaveCount(1, { timeout: 10_000 });
+    await wikilink.click();
+    const toolbar = owner.getByRole("dialog", { name: "Note link" });
+    await toolbar.getByRole("button", { name: "Edit text" }).click();
+    await toolbar.getByRole("textbox", { name: "Link text" }).fill(labelText);
+    await toolbar.getByRole("button", { name: "Save" }).click();
+    await expect(wikilink).toHaveText(labelText, { timeout: 10_000 });
 
     // 公開連結（同 11-public-share 的 ShareDialog 操作）
     await owner.getByRole("button", { name: "Share", exact: true }).click();
@@ -260,7 +270,7 @@ test("E3：匿名開公開連結簡報——wikilink 純文字、圖片載得出
     await expect(async () => {
       const res = await owner.request.get(`/api/public/notes/${token}`);
       expect(res.status()).toBe(200);
-      expect(Buffer.from(((await res.json()) as { ydoc: string }).ydoc, "base64").toString("utf8")).toContain(stamp);
+      expect(Buffer.from(((await res.json()) as { ydoc: string }).ydoc, "base64").toString("utf8")).toContain(labelText);
     }).toPass({ timeout: 20_000 });
 
     const anon = await anonContext.newPage();
@@ -269,9 +279,10 @@ test("E3：匿名開公開連結簡報——wikilink 純文字、圖片載得出
     await expect(anon.locator(".reveal.ready")).toBeVisible({ timeout: 15_000 });
     expect(new URL(anon.url()).search).toBe("?present");
     const twoId = await slideIdContaining(anon, "Slide Two");
-    // wikilink 純文字：簡報裡找得到標題文字，但不在任何 <a> 裡
-    await expect(anon.locator(".reveal .slides").getByText(targetTitle, { exact: false })).toBeAttached();
-    expect(await anon.locator(".reveal .slides a", { hasText: targetTitle }).count()).toBe(0);
+    // wikilink 純文字、label 優先（#269 E6）：簡報顯示 label、不顯示目標標題，且不在任何 <a> 裡
+    await expect(anon.locator(".reveal .slides").getByText(labelText, { exact: false })).toBeAttached();
+    expect(await anon.locator(".reveal .slides a", { hasText: labelText }).count()).toBe(0);
+    expect(await anon.locator(".reveal .slides").getByText(targetTitle, { exact: false }).count()).toBe(0);
     // 圖：公開端點、真的解得出像素
     const img = anon.locator(`.reveal .slides img[src*="/api/public/notes/${token}/uploads/"]`);
     await expect(img).toBeAttached();
