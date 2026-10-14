@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   BLOCK_ANCHOR_RE,
   convertSiteLinks,
+  escapeLinkText,
   linkText,
   mapInlineArrays,
   normalizeAnchor,
@@ -185,10 +186,7 @@ describe("targetFromList（PF-C13：server 寫入、web 快取、站內 AI 共�
 });
 
 /** 只認候選清單的同步解析（同 server 寫入路徑的用法）。 */
-const resolveByList = (_href: string, parsed: { path: Parameters<typeof resolveFromList>[0] }) => {
-  const hit = resolveFromList(parsed.path, CANDIDATES);
-  return hit ? { id: hit.id, title: hit.title } : null;
-};
+const resolveByList = (_href: string, parsed: { path: Parameters<typeof resolveFromList>[0] }) => targetFromList(parsed.path, CANDIDATES) ?? null;
 
 describe("S2 convertSiteLinks（inline、巢狀、表格兩種 cell、樣式丟棄、未解析計數、不改寫輸入）", () => {
   const link = (href: string, ...content: unknown[]) => ({ type: "link", href, content });
@@ -293,5 +291,26 @@ describe("wikilinksToLinks（MCP 讀與站內 AI 的匯出副本改寫）", () =
     expect(p[3]).toEqual({ type: "link", href: `/notes/${NOTE_ID}#b-b9`, content: [{ type: "text", text: "Live", styles: {} }] });
     const cell = (out[1] as { content: { rows: Array<{ cells: unknown[][] }> } }).content.rows[0]!.cells[0]!;
     expect(cell[0]).toMatchObject({ type: "link", href: `/notes/${NOTE_ID}` });
+  });
+
+  // RF1（#269 Task 6）：BlockNote 的 markdown 匯出不跳脫文字，跳脫由 `escapeLinkText` 做——但只在真正變成 markdown 的那一步
+  // （server：colors.ts 的 markdown 分支）。`wikilinksToLinks` 本身**不跳脫**：它的輸出在讀路徑上也會走上色區塊的原始 HTML
+  // 輸出，那裡跳脫會讓反斜線每往返一次多一層（審查 r0 I1）。`<`、`&` 刻意不收（見 escapeLinkText）。
+  it("RF1：escapeLinkText 跳脫 \\ ` * _ [ ] ~、< 與 & 不動；wikilinksToLinks 段落與表格 cell 都輸出原文（不跳脫）", () => {
+    expect(escapeLinkText("[Draft] Plan *v2*")).toBe("\\[Draft\\] Plan \\*v2\\*");
+    expect(escapeLinkText("a]b\\")).toBe("a\\]b\\\\");
+    expect(escapeLinkText("a_b_ `c` ~~s~~ x|y")).toBe("a\\_b\\_ \\`c\\` \\~\\~s\\~\\~ x|y");
+    expect(escapeLinkText("C:\\path\\")).toBe("C:\\\\path\\\\");
+    expect(escapeLinkText("![img] #h")).toBe("!\\[img\\] #h");
+    expect(escapeLinkText("foo]bar")).toBe("foo\\]bar");
+    expect(escapeLinkText("a <d> &amp; b")).toBe("a <d> &amp; b");
+    const blocks = [
+      { type: "paragraph", content: [wl({ label: "a]b\\" })] },
+      { type: "table", content: { type: "tableContent", rows: [{ cells: [[wl({})]] }] } },
+    ];
+    const out = wikilinksToLinks(blocks, () => "[Draft] Plan *v2*");
+    expect((out[0] as { content: unknown[] }).content[0]).toEqual({ type: "link", href: `/notes/${NOTE_ID}`, content: [{ type: "text", text: "a]b\\", styles: {} }] });
+    const cell = (out[1] as { content: { rows: Array<{ cells: unknown[][] }> } }).content.rows[0]!.cells[0]!;
+    expect(cell[0]).toEqual({ type: "link", href: `/notes/${NOTE_ID}`, content: [{ type: "text", text: "[Draft] Plan *v2*", styles: {} }] });
   });
 });

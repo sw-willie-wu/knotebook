@@ -1,7 +1,7 @@
 // #108：`GET /api/notes` 與 MCP 的 `list_notes`／`search_notes` 共用的「呼叫者看得見的筆記」查詢形狀。
 // 可見性語意（owned ∪ shared ∪ grouped）**只能有一份**——抄第二份的漂移沒有任何測試抓得到。
 // ⚠ 其餘四份可見性查詢刻意不吃這支工廠（欄位集不同）：`notes/editing/candidates.ts` 的
-// `visibleNoteTitles()`、`notes/service.ts` 的 `loadNoteAudience()`、`notes/links.ts` 的 `fetchBacklinks()`、
+// `visibleNoteTargets()`、`notes/service.ts` 的 `loadNoteAudience()`、`notes/links.ts` 的 `fetchBacklinks()`、
 // `notes/tx/write-links.ts` 的 `writeLinksInTx()`——各自手寫群組分支（#175 §5.3；連同本檔共五份，
 // 不統一列在 spec §15 第 6 條）。
 import { and, eq, isNull, sql, type SQL } from "drizzle-orm";

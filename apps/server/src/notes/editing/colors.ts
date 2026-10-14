@@ -13,12 +13,14 @@
  * - 只有行內顏色（文字色／文字底色）→ 節點維持 markdown，有色那一段寫成 `<span style="color:NAME">…</span>`
  *   夾在 markdown 裡（#222 Willie 要求：讓弱模型讀寫的 HTML 越少越好；見 {@link tokenizeInlineColors}）。
  * - 其餘相鄰節點照舊交給同一支 HTML → markdown。
- * 整份沒有任何顏色時直接回 `cleanHTMLToMarkdown(html)`——與 `blocksToMarkdownLossy` 位元組相同。
+ * 整份沒有任何顏色、也沒有需要跳脫的站內連結文字（#269 RF1，見 {@link escapeNoteLinkText}）時直接回
+ * `cleanHTMLToMarkdown(html)`——與 `blocksToMarkdownLossy` 位元組相同。
  * 以「頂層節點」為單位的理由：外部 HTML 已經做完 BlockNote 的攤平（非清單的子 block 被拉到頂層），
  * 用同一份切，攤平行為與純 markdown 路徑一致，讀 → 寫回 → 再讀才會穩定。
  */
 import { cleanHTMLToMarkdown } from "@blocknote/core";
 import type { BlockNoteEditor } from "@blocknote/core";
+import { escapeLinkText } from "@knotebook/shared";
 
 export const PALETTE_COLORS = ["default", "gray", "brown", "red", "orange", "yellow", "green", "blue", "purple", "pink"] as const;
 const PALETTE: ReadonlySet<string> = new Set(PALETTE_COLORS);
@@ -191,7 +193,33 @@ function tokenizeInlineColors(root: Element, tokens: Map<string, string>): void 
   }
 }
 
-/** 讀路徑的 markdown 匯出：沒有顏色時與 `blocksToMarkdownLossy` 位元組相同（見檔頭）。 */
+/**
+ * #269 RF1：要交給 `cleanHTMLToMarkdown` 的節點裡，站內連結（`a[href^="/notes/"]`，`wikilinksToLinks` 的產物與未轉換的
+ * `/notes/…` 一般連結）的文字做 markdown 跳脫（shared `escapeLinkText`）——BlockNote 的 HTML → markdown 完全不跳脫文字，
+ * `[\[Draft\] …]` 這種連結文字不跳脫就寫不回來。**只在 markdown 分支呼叫**：`toBlockHTML`（上色區塊 → 原始 HTML）
+ * 寫回時不做 markdown 反跳脫，跳脫了反而每往返一次多一層反斜線（Task 6 審查 r0 I1）。回傳是否改了任何文字。
+ * 必須排在 `tokenizeInlineColors` 之後（有色 span 已拆成佔位符；佔位符字元不在跳脫集合內）。
+ */
+function escapeNoteLinkText(root: Node): boolean {
+  let changed = false;
+  const visit = (n: Node, inLink: boolean): void => {
+    if (n.nodeType === 3) {
+      if (!inLink) return;
+      const next = escapeLinkText(n.nodeValue ?? "");
+      if (next !== n.nodeValue) {
+        n.nodeValue = next;
+        changed = true;
+      }
+      return;
+    }
+    const here = inLink || (n.nodeType === 1 && (n as Element).tagName === "A" && ((n as Element).getAttribute("href") ?? "").startsWith("/notes/"));
+    for (const c of Array.from(n.childNodes)) visit(c, here);
+  };
+  visit(root, false);
+  return changed;
+}
+
+/** 讀路徑的 markdown 匯出：沒有顏色、也沒有要跳脫的站內連結文字時，與 `blocksToMarkdownLossy` 位元組相同（見檔頭）。 */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 泛型三元組，走 repo 慣例（同 session.ts）
 type AnyEditor = BlockNoteEditor<any, any, any>;
 export function blocksToMarkdownWithColors(editor: AnyEditor, blocks: Parameters<AnyEditor["blocksToHTMLLossy"]>[0]): string {
@@ -200,7 +228,7 @@ export function blocksToMarkdownWithColors(editor: AnyEditor, blocks: Parameters
   tpl.innerHTML = html;
   const nodes = Array.from(tpl.content.childNodes);
   const kinds = nodes.map(n => (n.nodeType !== 1 ? "none" : hasBlockColor(n as Element) ? "block" : colorSpans(n as Element).length > 0 ? "inline" : "none"));
-  if (kinds.every(k => k === "none")) return cleanHTMLToMarkdown(html);
+  if (kinds.every(k => k === "none")) return cleanHTMLToMarkdown(escapeNoteLinkText(tpl.content) ? tpl.innerHTML : html);
   // 文件文字裡已經有佔位符字元（極少見）：行內顏色也退回整段 HTML，不冒換錯的險。
   const inlineOk = !(tpl.content.textContent ?? "").includes(TOKEN_OPEN) && !(tpl.content.textContent ?? "").includes(TOKEN_CLOSE);
   const tokens = new Map<string, string>();
@@ -220,6 +248,7 @@ export function blocksToMarkdownWithColors(editor: AnyEditor, blocks: Parameters
       return;
     }
     if (kinds[i] === "inline") tokenizeInlineColors(n as Element, tokens);
+    escapeNoteLinkText(n); // 只有 markdown 分支（上面 return 掉的 HTML 分支不跳脫）
     run.push(n);
   });
   flush();

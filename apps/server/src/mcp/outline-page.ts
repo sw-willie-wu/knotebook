@@ -28,6 +28,7 @@
  */
 import { z } from "zod";
 import { MCP_PAGE_MAX, MCP_TEXT_MAX, truncateText } from "./limits.js";
+import { OUTLINE_SECTION_ID_DESCRIPTION } from "./note-link-strings.js";
 
 /**
  * 這一支**真正讀到的**欄位——`OutlineEntry`（`notes/editing/fingerprint.ts`，多一個
@@ -66,7 +67,7 @@ export interface OutlineEntryForModel {
 
 /** `outputSchema` 用的 zod 形；欄位順序與 {@link OutlineEntryForModel} 一致。 */
 export const outlineEntrySchema = z.object({
-  sectionId: z.string().describe("Pass this to read_note_section. `_top` is the text before the first heading."),
+  sectionId: z.string().describe(OUTLINE_SECTION_ID_DESCRIPTION),
   level: z.number().describe("Heading depth; `0` for the `_top` section."),
   heading: z.string().max(MCP_TEXT_MAX).describe("The section's heading text, cut at 200 characters as written in JSON."),
   headingTruncated: z.literal(true).optional().describe("Present only when `heading` was cut."),

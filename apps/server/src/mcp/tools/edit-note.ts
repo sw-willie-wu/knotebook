@@ -40,6 +40,7 @@ import { renameNoteTitle } from "../../notes/rename-note.js";
 import { editBodySchema, FP, MD, NOTE_ID, SEC, TITLE } from "../../notes/schemas.js";
 import { resolveNoteAccess, resolveRole } from "../../notes/service.js";
 import { MCP_PAGE_MAX, MCP_TEXT_MAX, truncateText } from "../limits.js";
+import { WRITE_NOTE_LINK_SENTENCE } from "../note-link-strings.js";
 import { NOTE_NOT_FOUND_MESSAGE, SECTION_NOT_FOUND_MESSAGE } from "../note-read.js";
 import { buildOutlinePage, outlineEntryWithFingerprintSchema } from "../outline-page.js";
 import { toolError, toolResult } from "../tool-result.js";
@@ -82,7 +83,8 @@ export const editNoteInput = {
   markdown: MD.optional().describe(
     "The new markdown. Required for every operation except delete_section and rename. Colors are HTML, as read_note_section " +
       `returns them: colored text is <span style="color:red">…</span> inside the markdown; a block's own color is ` +
-      `e.g. <p data-background-color="yellow">…</p>. Only these names are accepted: ${PALETTE_COLORS.join(", ")}.`
+      `e.g. <p data-background-color="yellow">…</p>. Only these names are accepted: ${PALETTE_COLORS.join(", ")}. ` +
+      WRITE_NOTE_LINK_SENTENCE
   ),
   if_match: FP.optional()
     .describe("The fingerprint of what you are replacing. Required for every operation except append and rename; the write fails if the note changed since you read it."),
@@ -135,7 +137,7 @@ export const editNoteOutput = {
         "back with read_note_outline."
     ),
   // ⚠ #146：判準是 `note-markdown.ts` 的 `hits.length === 1`（`hits` ＝ 候選集裡標題 `===`
-  //   相同的筆記），候選集是 `visibleNoteTitles()`＝自有 ∪ 被分享 ∪ 所屬群組的筆記。所以「找不到」只是其中一種
+  //   相同的筆記），候選集是 `visibleNoteTargets()`＝自有 ∪ 被分享 ∪ 所屬群組的筆記。所以「找不到」只是其中一種
   //   落空：同名兩篇、大小寫不同、指向你看不見的筆記，同樣算 unbound。措辭與 `docs/mcp.md` 同。
   unboundWikilinks: z
     .number()

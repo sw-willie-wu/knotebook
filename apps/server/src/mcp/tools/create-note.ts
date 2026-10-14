@@ -29,6 +29,7 @@ import { roleFromGroupFlags } from "../../notes/service.js";
 import type { SlugScope } from "../../notes/slug.js";
 import { GROUP_ID, MD, TITLE } from "../../notes/schemas.js";
 import { noteSummarySchema, toNoteSummary } from "../dto.js";
+import { WRITE_NOTE_LINK_SENTENCE } from "../note-link-strings.js";
 import { insertedRow, rereadVisibleNote } from "../note-rows.js";
 import { toolError, toolResult } from "../tool-result.js";
 import { WRITE_RATE_LIMITED_MESSAGE, writeFailureMessage } from "../write-messages.js";
@@ -94,7 +95,10 @@ export const createNoteInput = {
       "the note is read-only for you: the reply's `role` is `viewer`.",
   ),
   content: MD.optional()
-    .describe("Markdown for the new note. Leave it out to create an empty note. Some deployments cannot store content this way and answer `invalid_body`; create the note without it and the note still exists. Colors work as in edit_note."),
+    .describe(
+      "Markdown for the new note. Leave it out to create an empty note. Some deployments cannot store content this way and answer `invalid_body`; create the note without it and the note still exists. Colors work as in edit_note. " +
+        WRITE_NOTE_LINK_SENTENCE,
+    ),
 };
 
 export const createNoteOutput = {

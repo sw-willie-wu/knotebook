@@ -164,6 +164,7 @@ There is **no next page**: when `truncated` is true the answer is a narrower que
 - `note` here is an **object**: `{id, title, titleTruncated?, owner, role}`.
 - `totalChars` is the whole note, not this page.
 - `sections` holds at most 100 entries in document order, each `{sectionId, level, heading, headingTruncated?, chars}`. The first section of every note is `_top` — whatever comes before the first heading — and its `level` is `0`.
+- Any `sectionId` other than `_top` is also the id of that heading's block, so `/notes/<note id>#b-<sectionId>` links to that heading: opening it in the web app scrolls to the heading. Use it as the URL of a link you write (see [Links to notes](#links-to-notes)).
 - **There are no fingerprints here**, neither per section nor for the note. An outline tells you what a note contains and what to read next; the fingerprint a write needs comes from `read_note_section` (on the page that finishes a section) or from a previous `edit_note` reply.
 
 **Errors** `not_found`, `too_many_requests`.
@@ -178,6 +179,7 @@ There is **no next page**: when `truncated` is true the answer is a narrower que
 - **`fingerprint` arrives only with the page that finishes the section** — a page with `truncated: true` carries no `fingerprint` field at all. Read to the end before you rewrite a section, or you will replace text you never saw.
 - **`chars` and `offset` are different units.** `chars` is the section's plain text; `offset` and `nextOffset` count markdown characters, which include heading marks, list bullets, link syntax and fence lines. A section reporting `chars: 5403` can still hand back `nextOffset: 8000`. Decide whether you have read it all from `truncated` and `nextOffset` — never by comparing `offset` to `chars`.
 - **Colors come back as HTML** in the markdown: colored text as a `<span style="color:red">` inside the ordinary markdown; a paragraph, heading, list or quote with a color of its own, or a table with a colored cell, as a block of HTML with `data-text-color` / `data-background-color`. Send it back unchanged and the colors are kept. The forms, the ten color names and what is not carried are in [AI editing](./ai-editing.md#colors).
+- **A link saved as a link to a note comes back as `[text](/notes/<id>)`** (inside a block that comes back as HTML, as `<a href="/notes/<id>">`), ending in `#b-<block id>` when it points at a place in that note. `text` is the link's own text when it has one; otherwise it is the note's current title — or, if you can't see that note (or it was deleted), the text the link was made with (the note's title then, if the link had no text of its own): the reply never shows you the current title of a note you can't see. Write it back unchanged and it stays the same link, as long as you can see that note (see [Links to notes](#links-to-notes)).
 - **`note` here is a plain string**, present only while `truncated` is true: it is the sentence telling you how to finish reading. `read_note_outline`'s `note` is an object describing the note. Same field name, two tools, two types — if you handle both replies with one piece of code, check the type.
 
 **Errors** `not_found`, `section_not_found` (an edit can change a section's id — call `read_note_outline` again rather than retrying the old one), `too_many_requests`.
@@ -206,6 +208,12 @@ Fields that do not belong to the operation you asked for are rejected rather tha
 
 `fingerprint_mismatch` carries one extra field: `outline`, the note's sections **as they are now** — deliberately with no fingerprints on them. Your view is stale; read what you want to change again and retry with a fresh `if_match` rather than guessing.
 
+#### Links to notes
+
+A Markdown link whose URL is a note on this site — `/notes/<id>` or the `url` list_notes gives, relative or this site's full URL, optionally ending in `#b-<block id>` — is saved as a link to that note if you can see it; any other link to this site is kept as an ordinary link. A note link follows the note when it is renamed, shows up in the note's backlinks, and is what `read_note_section` gives back as `[text](/notes/<id>)`. If the link's text is the note's current title (or the URL itself), the link shows whatever the note is called later; any other text is kept as the link's own text, without its formatting (bold, italic and so on are dropped).
+
+These stay ordinary links: a note you can't see, a URL that only reaches the note through an older address (a renamed note's previous URL, or a `/notes/<old slug>` link from before 0.3.3), a URL with a query (`?…`) or with a fragment other than `#b-<block id>`, and a public `/p/…` page. `[[Title]]` keeps working as before, now also inside tables; `unboundWikilinks` still counts only `[[…]]` that weren't bound.
+
 #### `rename`
 
 `rename` changes a note's title and takes `title` and nothing else — no `if_match`, because a title has no fingerprint: the last title written wins, the same as renaming the note in the browser. It needs the same access as changing the title in the web app — a `role` of `owner` or `editor` on the note; otherwise `forbidden`.
@@ -219,6 +227,8 @@ Fields that do not belong to the operation you asked for are rejected rather tha
 ### `create_note`
 
 **Takes** `title`, `content` and `group_id`, all optional. `create_note` creates a new note — yours, or in one of your groups when you pass `group_id`.
+
+Links in `content` are saved the same way as in `edit_note` (see [Links to notes](#links-to-notes)).
 
 **Answers** `note` — the same entry shape `list_notes` returns. Its `id` is what you pass to `read_note_outline`, or to `edit_note` when its `role` allows writing; its `url` is the same site-relative path described under `list_notes`, not a link you can hand over as it stands. A personal note comes back with `role: "owner"`. A note created with `group_id` belongs to the group: its `owner` is `{kind: "group", id, name, nameTruncated?}`, its `url` is `/g/<group id>/<slug>`, and its `role` is what your role in that group gives you on the group's notes — `"editor"`, or `"viewer"` if your role can create notes but not edit them, in which case your role doesn't let you change the note's content: `edit_note` answers `forbidden`.
 

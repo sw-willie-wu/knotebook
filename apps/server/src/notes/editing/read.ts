@@ -8,10 +8,11 @@
 import { eq } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import * as Y from "yjs";
-import { YDOC_FRAGMENT, type LastEditedDto, type NoteContentDto, type NoteSectionDto } from "@knotebook/shared";
+import { MAX_LINK_TARGETS, YDOC_FRAGMENT, extractLinkTargets, wikilinksToLinks, type LastEditedDto, type NoteContentDto, type NoteSectionDto } from "@knotebook/shared";
 import type { CollabServer } from "../../collab/server.js";
 import type { Db } from "../../db/index.js";
 import { noteStates, notes, users } from "../../db/schema.js";
+import { visibleTitlesByIds } from "./candidates.js";
 import { blocksToMarkdownWithColors } from "./colors.js";
 import { outlineOf } from "./fingerprint.js";
 import type { EditingRuntime } from "./runtime.js";
@@ -51,12 +52,26 @@ export async function loadLastEdited(db: Db, noteId: string): Promise<LastEdited
   return r?.at ? { at: r.at.toISOString(), byHandle: r.handle ?? "", agentLabel: r.label } : null;
 }
 
-/** mount 只為匯出 markdown；`ids` 為 undefined＝整篇。呼叫端已保證至少有一個 block（見下）。 */
-async function exportMarkdown(runtime: EditingRuntime, doc: Y.Doc, ids?: Set<string>): Promise<string> {
+/**
+ * #269 §9.1：讀者看得到的 wikilink 目標的現行標題。**mount 之前**呼叫（不持 lease）：`extractLinkTargets` 只走 Yjs 結構，
+ * 一次 `visibleTitlesByIds`（≤3 句、空集合不查）。看不到的目標（含已刪）不在 map 裡——讀出退到 `snapshotTitle`、不露現行標題。
+ */
+export async function linkTitlesFor(db: Db, viewerId: string, doc: Y.Doc): Promise<Map<string, string>> {
+  const ids = extractLinkTargets(doc).slice(0, MAX_LINK_TARGETS);
+  if (ids.length === 0) return new Map();
+  return new Map((await visibleTitlesByIds(db, viewerId, ids)).map(t => [t.id, t.title]));
+}
+
+/** mount 只為匯出 markdown；`ids` 為 undefined＝整篇。呼叫端已保證至少有一個 block（見下）。
+ * #269 §9.1：持 lease 期間**零 DB**——wikilink 在匯出用的 JSON 副本上改寫成 `[文字](/notes/<id>[#b-…])` 的 link 節點
+ * （`wikilinksToLinks`：label 優先，否則 `titles` 裡的現行標題，否則 snapshotTitle）。 */
+async function exportMarkdown(runtime: EditingRuntime, doc: Y.Doc, ids: Set<string> | undefined, titles: ReadonlyMap<string, string>): Promise<string> {
   const s = await EditorSession.open(runtime, doc);
   try {
-    // #222：有顏色的頂層節點輸出成寫入端認得的 HTML；沒有顏色時與 blocksToMarkdownLossy 位元組相同（colors.ts）。
-    return blocksToMarkdownWithColors(s.editor, ids ? s.editor.document.filter(b => ids.has(b.id)) : s.editor.document);
+    const blocks = ids ? s.editor.document.filter(b => ids.has(b.id)) : s.editor.document;
+    // #222：有顏色的頂層節點輸出成寫入端認得的 HTML；沒有顏色、也沒有需要跳脫的站內連結文字（#269 RF1）時
+    // 與 blocksToMarkdownLossy 位元組相同（colors.ts）。
+    return blocksToMarkdownWithColors(s.editor, wikilinksToLinks(blocks, id => titles.get(id)));
   } finally {
     s.close();
   }
@@ -70,7 +85,8 @@ async function exportMarkdown(runtime: EditingRuntime, doc: Y.Doc, ids?: Set<str
 export async function readNoteContentFromDoc(
   runtime: EditingRuntime,
   doc: Y.Doc,
-  section?: string
+  section?: string,
+  titles: ReadonlyMap<string, string> = new Map()
 ): Promise<Omit<NoteContentDto, "lastEdited"> | Omit<NoteSectionDto, "lastEdited"> | "section_not_found"> {
   const { outline, whole } = outlineOf(doc.getXmlFragment(YDOC_FRAGMENT)); // 先算（未 mount）
   const target = section === undefined ? undefined : outline.find(o => o.sectionId === section);
@@ -79,7 +95,7 @@ export async function readNoteContentFromDoc(
   // 這一支**不 mount**——mount 會把真空文件正規化出一個空 paragraph，匯出就成了 "\n"；順帶讓
   // 最常見的冷讀路徑完全不碰 jsdom。零 block 的 `_top` 段（文件以 heading 開頭）同理。
   const blockIds = target ? target.blockIds : outline.flatMap(o => o.blockIds);
-  const markdown = blockIds.length === 0 ? "" : await exportMarkdown(runtime, doc, target && new Set(blockIds));
+  const markdown = blockIds.length === 0 ? "" : await exportMarkdown(runtime, doc, target && new Set(blockIds), titles);
   if (target) {
     const { blockIds: _ignored, sectionId, ...entry } = target;
     return { section: { id: sectionId, ...entry, markdown } }; // spec §5：段落形的鍵是 id
@@ -88,7 +104,9 @@ export async function readNoteContentFromDoc(
   return { markdown, fingerprint: whole, outline: outline.map(({ blockIds: _b, ...e }) => e) };
 }
 
-export async function readNoteContent(deps: ReadDeps, runtime: EditingRuntime, noteId: string, section?: string) {
+/** `viewerId`（#269 §9.1）＝讀者——現行標題只對他看得到的目標露出。 */
+export async function readNoteContent(deps: ReadDeps, runtime: EditingRuntime, noteId: string, viewerId: string, section?: string) {
   const { doc } = await loadNoteDoc(deps, noteId);
-  return readNoteContentFromDoc(runtime, doc, section);
+  const titles = await linkTitlesFor(deps.db, viewerId, doc);
+  return readNoteContentFromDoc(runtime, doc, section, titles);
 }

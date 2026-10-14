@@ -255,6 +255,34 @@ describe("#108 tools/list", () => {
     }
   });
 
+  // #269 §9.3：站內連結的模型面字串逐字在 wire 上（逐字 toBe，不是前綴比對），並各多釘一句。
+  it("#269：sectionId／read_note_section markdown／edit_note markdown／create_note content 逐字在 wire 上", async () => {
+    const ctx = await buildCollabTestApp();
+    const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
+    const { token } = await seedTokenForUser(ctx.db, owner.id, "notes:read notes:write");
+    const res = await mcpPost(ctx.app, rpc("tools/list"), { token });
+    type Tool = { name: string; inputSchema: { properties: Record<string, { description?: string }> }; outputSchema?: { properties: Record<string, unknown> } };
+    const tools = res.json().result.tools as Tool[];
+    const byName = (n: string) => tools.find(t => t.name === n)!;
+    const SECTION_ID =
+      "Pass this to read_note_section. `_top` is the text before the first heading. Any other sectionId is also the id of that heading's block, so `/notes/<note id>#b-<sectionId>` links to that heading.";
+    const READ_LINK =
+      'A link saved as a link to a note comes back as `[text](/notes/<id>)` (inside a block that comes back as HTML, as `<a href="/notes/<id>">`), ending in `#b-<block id>` when it points at a place in that note.';
+    const WRITE_LINK =
+      "A Markdown link whose URL is a note on this site — `/notes/<id>` or the `url` list_notes gives, relative or this site's full URL, optionally ending in `#b-<block id>` — is saved as a link to that note if you can see it; any other link to this site is kept as an ordinary link.";
+    const outline = byName("read_note_outline").outputSchema as { properties: { sections: { items: { properties: { sectionId: { description: string } } } } } };
+    expect(outline.properties.sections.items.properties.sectionId.description).toBe(SECTION_ID);
+    const section = byName("read_note_section").outputSchema as { properties: { section: { properties: { markdown: { description: string } } } } };
+    expect(section.properties.section.properties.markdown.description.endsWith(` ${READ_LINK}`)).toBe(true);
+    expect(byName("edit_note").inputSchema.properties.markdown!.description!.endsWith(` ${WRITE_LINK}`)).toBe(true);
+    expect(byName("create_note").inputSchema.properties.content!.description!.endsWith(` ${WRITE_LINK}`)).toBe(true);
+    for (const s of [SECTION_ID, READ_LINK, WRITE_LINK]) expect(res.body).toContain(JSON.stringify(s).slice(1, -1));
+    // 多釘的兩句：錨點形與「保留為一般連結」——有人把句子改短或改回草稿形會紅。
+    expect(res.body).toContain("#b-<block id>");
+    expect(res.body).toContain("kept as an ordinary link");
+    expect(res.body).not.toContain("A link to another note comes back as");
+  });
+
   // #177：截斷改按 JSON 逃脫後的長度計。outputSchema 上模型讀得到的兩件事要跟著改：heading 的說明（兩個方向——
   // 新句在、舊句不在），以及群組 `owner` 的 `name` 有上限、有 `nameTruncated`（凡是回 `owner` 的工具都要有）。
   it("#177：heading 說明是逃脫後的 200；群組 owner 帶 name 上限與 nameTruncated", async () => {

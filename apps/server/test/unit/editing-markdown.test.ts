@@ -3,6 +3,7 @@ import * as Y from "yjs";
 import { EditingRuntime } from "../../src/notes/editing/runtime.js";
 import { EditorSession } from "../../src/notes/editing/session.js";
 import { MAX_BLOCKS, parseMarkdownForNote } from "../../src/notes/editing/markdown.js";
+import { readNoteContentFromDoc } from "../../src/notes/editing/read.js";
 
 const rt = new EditingRuntime({ baseUrl: "http://localhost/" }); rt.installGlobals();
 const ORIGIN = "http://localhost";
@@ -184,5 +185,86 @@ describe("parseMarkdownForNote", () => {
         expect(r.unbound).toBe(1);
       });
     });
+  });
+});
+
+// #269 Task 6 RF1：讀出（readNoteContentFromDoc → wikilinksToLinks〔不跳脫〕→ colors.ts 的 markdown 分支以 `escapeLinkText`
+// 跳脫站內連結文字、上色區塊的原始 HTML 分支不跳脫 → BlockNote markdown）再寫回（parseMarkdownForNote）的往返——BlockNote 的
+// 匯出本身不跳脫文字；這裡用真編輯器量往返結果。
+describe("#269 RF1：wikilink 讀出→寫回，label 逐字相同（段落與表格 cell）", () => {
+  const ID = notes[0]!.id;
+  const wlNode = (label: string) => ({ type: "wikilink", props: { targetNoteId: ID, snapshotTitle: "snap", label, anchorBlockId: "" } });
+  const docWith = async (blocks: unknown[]) => {
+    const doc = new Y.Doc();
+    const s = await EditorSession.open(rt, doc);
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 泛型三元組
+      s.editor.replaceBlocks(s.editor.document, blocks as any);
+    } finally {
+      s.close();
+    }
+    return doc;
+  };
+  const readMd = async (doc: Y.Doc) => {
+    const r = await readNoteContentFromDoc(rt, doc);
+    if (r === "section_not_found" || !("markdown" in r)) throw new Error("unexpected shape");
+    return r.markdown;
+  };
+  const labelsOf = (blocks: unknown) => [...JSON.stringify(blocks).matchAll(/"label":("(?:[^"\\]|\\.)*")/g)].map(m => JSON.parse(m[1]!) as string);
+
+  /** 讀出 → 寫回 → 再讀出 → 再寫回：兩輪的 label 都要等於原值，第二輪的 markdown 與第一輪位元組相同（反斜線不累積）。 */
+  const roundTripTwice = async (blocks: unknown[]) => {
+    const md1 = await readMd(await docWith(blocks));
+    let back1: unknown[] = [];
+    await withSession(ed => {
+      const r = parseMarkdownForNote(ed, md1, notes, ORIGIN);
+      if ("error" in r) throw new Error(r.error);
+      back1 = r.blocks;
+    });
+    const md2 = await readMd(await docWith(back1));
+    let back2: unknown[] = [];
+    await withSession(ed => {
+      const r = parseMarkdownForNote(ed, md2, notes, ORIGIN);
+      if ("error" in r) throw new Error(r.error);
+      back2 = r.blocks;
+    });
+    return { md1, md2, labels1: labelsOf(back1), labels2: labelsOf(back2) };
+  };
+  const SIX = ["[Draft] Plan *v2*", "a]b\\", "a_b_ `c` ~~s~~ x|y", "C:\\path\\", "![img] #h", "foo]bar"];
+  const headerRow = { cells: [[{ type: "text", text: "h", styles: {} }]] };
+
+  it.each(SIX)("markdown 形（無色段落＋無色表格 cell）：%s", async text => {
+    const r = await roundTripTwice([
+      { type: "paragraph", content: [wlNode(text)] },
+      { type: "table", content: { type: "tableContent", rows: [headerRow, { cells: [[wlNode(text)]] }] } },
+    ]);
+    expect(r.labels1).toEqual([text, text]);
+    expect(r.labels2).toEqual([text, text]);
+    expect(r.md2).toBe(r.md1);
+  });
+
+  // 審查 r0 I1：上色區塊整塊以原始 HTML 讀出，裡面的連結文字**不得**跳脫（HTML 寫回不反跳脫，會一輪多一層反斜線）。
+  // 中間夾一個無色段落：文件有顏色時無色節點走 `flush()` 的 markdown 分支——那條分支的跳脫也在這一案觀測。
+  it.each(SIX)("HTML 形（底色段落、文字色段落、有上色 cell 的表格）＋夾在中間的無色段落：%s", async text => {
+    const r = await roundTripTwice([
+      { type: "paragraph", props: { backgroundColor: "yellow" }, content: [wlNode(text)] },
+      { type: "paragraph", content: [wlNode(text)] },
+      { type: "paragraph", props: { textColor: "red" }, content: [wlNode(text)] },
+      { type: "table", content: { type: "tableContent", rows: [headerRow, { cells: [{ type: "tableCell", props: { backgroundColor: "red" }, content: [wlNode(text)] }] }] } },
+    ]);
+    expect(r.md1).toContain(`<a href="/notes/${ID}"`); // 確實走了 HTML 分支
+    expect(r.md1).toContain(`](/notes/${ID})`); // 無色段落確實走 markdown 分支
+    expect(r.labels1).toEqual([text, text, text, text]);
+    expect(r.labels2).toEqual([text, text, text, text]);
+    expect(r.md2).toBe(r.md1);
+  });
+
+  // 上色的區塊整塊以 HTML 讀出（colors.ts `toBlockHTML`）——裡面的連結是 `<a href="/notes/<id>">`，不是 `[text](…)`；
+  // READ_NOTE_LINK_SENTENCE 的括號子句依此寫成。
+  it("上色段落裡的 wikilink 讀出為 <a href=\"/notes/<id>\">", async () => {
+    const doc = await docWith([{ type: "paragraph", props: { backgroundColor: "yellow" }, content: [wlNode("L")] }]);
+    const md = await readMd(doc);
+    expect(md).toContain(`<a href="/notes/${ID}"`);
+    expect(md).not.toContain(`](/notes/${ID})`);
   });
 });

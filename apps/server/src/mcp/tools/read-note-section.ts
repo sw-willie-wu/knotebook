@@ -22,6 +22,7 @@ import { loadLastEdited, readNoteContent } from "../../notes/editing/read.js";
 import { NOTE_ID, SEC } from "../../notes/schemas.js";
 import { noteSummarySchema } from "../dto.js";
 import { MCP_SECTION_CHARS, truncateCodeUnits } from "../limits.js";
+import { READ_NOTE_LINK_SENTENCE } from "../note-link-strings.js";
 import { authorizeNoteRead, SECTION_NOT_FOUND_MESSAGE } from "../note-read.js";
 import { toolError, toolResult } from "../tool-result.js";
 import type { McpToolCtx } from "../context.js";
@@ -72,7 +73,8 @@ export const readNoteSectionOutput = {
       .describe(
         "This page of the section, as markdown. The first page starts with the section's heading line — except " +
           "`_top`, which has no heading; a later page resumes where the last one stopped. Colored text and blocks come back as " +
-          "HTML; write it back unchanged to keep the colors."
+          "HTML; write it back unchanged to keep the colors. " +
+          READ_NOTE_LINK_SENTENCE
       ),
     fingerprint: z
       .string()
@@ -99,7 +101,7 @@ export async function readNoteSection(args: ReadNoteSectionArgs, ctx: McpToolCtx
   // ⚠ 誠實記下：**本棒沒造這個場景**（工具刻意設計成可單獨呼叫，單元探針測得到），不是測不到。
   if (ctx.editing === undefined) throw new Error("read_note_section：editing runtime 缺席（不該被註冊）");
 
-  const result = await readNoteContent({ db: ctx.db, collab: ctx.collab }, ctx.editing, args.note_id, args.section_id);
+  const result = await readNoteContent({ db: ctx.db, collab: ctx.collab }, ctx.editing, args.note_id, ctx.userId, args.section_id);
   if (result === "section_not_found") return toolError("section_not_found", SECTION_NOT_FOUND_MESSAGE);
   // 帶了 section 就不可能拿到整篇形；不收窄的話 spread 一個字串會靜默送出 {0:"…"}。
   if (!("section" in result)) throw new Error("readNoteContent 帶了 section 卻回整篇形");

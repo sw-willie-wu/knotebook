@@ -21,7 +21,7 @@ describe("POST /api/notes 帶 content", () => {
     expect(res.json().fingerprint).toBeUndefined();
     const id = res.json().id;
     const c = (await getContent(ctx.app, id, token)).json();
-    expect(c.markdown).toContain("看 [[目標]]");
+    expect(c.markdown).toContain(`看 [目標](/notes/${target.id})`);
     expect(c.outline).toHaveLength(2); // _top(0) + H：初始空 paragraph 沒留下
     const rows = await ctx.db.select().from(noteAiEdits).where(eq(noteAiEdits.noteId, id));
     expect(rows).toHaveLength(1);
