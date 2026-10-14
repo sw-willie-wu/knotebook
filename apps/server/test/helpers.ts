@@ -462,6 +462,8 @@ export async function buildCollabTestApp(
     storeSearchHooks?: CollabDeps["storeSearchHooks"];
     /** #272：自動切版等待 X 的測試覆寫（毫秒），語意見 `CollabDeps.versionAutoWaitMs`。整合測試多半給 0，再直接呼叫 `collab.versions.scanDue()`。 */
     versionAutoWaitMs?: number;
+    /** #272 §7.5：換掉 `testConfig`（例：開 e2e 測試縫）。 */
+    config?: AppConfig;
     /** #267：「最後活動」節流表的測試縫（時鐘），語意見 `CollabDeps.lastActiveOptions`。 */
     lastActiveOptions?: CollabDeps["lastActiveOptions"];
   } = {}
@@ -486,11 +488,11 @@ export async function buildCollabTestApp(
     warn: (obj: object, msg: string) => collabLogs.push({ level: "warn", obj: { ...obj }, msg }),
     error: (obj: object, msg: string) => collabLogs.push({ level: "error", obj: { ...obj }, msg }),
   };
-  const collab = createCollabServer({ db, config: testConfig, gate, log: collabLog, storeSearchHooks: opts.storeSearchHooks, versionAutoWaitMs: opts.versionAutoWaitMs, lastActiveOptions: opts.lastActiveOptions });
+  const collab = createCollabServer({ db, config: opts.config ?? testConfig, gate, log: collabLog, storeSearchHooks: opts.storeSearchHooks, versionAutoWaitMs: opts.versionAutoWaitMs, lastActiveOptions: opts.lastActiveOptions });
 
   const uploadsDir = freshUploadsDir();
   const deps: AppDeps = {
-    config: testConfig,
+    config: opts.config ?? testConfig,
     db,
     gate,
     throttle: new LoginThrottle(),

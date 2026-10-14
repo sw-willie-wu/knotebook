@@ -10,6 +10,7 @@ services:
       OIDC_ISSUER_URL: http://fake-idp:9400
       OIDC_CLIENT_ID: knotebook-e2e
       OIDC_CLIENT_SECRET: e2e-oidc-secret
+      KNOTEBOOK_E2E_TEST_HOOKS: "1" # #272：自動存版等待可壓成秒（PUBLIC_URL 是 localhost 才生效；只給 e2e 疊）
     ports: !override
       - "127.0.0.1:3100:3000"
   db:

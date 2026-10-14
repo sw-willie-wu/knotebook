@@ -36,6 +36,11 @@ export const VERSION_SWEEP_FIRST_DELAY_MS = 5 * 60_000;
 export const VERSION_AUTO_SCAN_INTERVAL_MS = 30_000;
 export const VERSION_AUTO_SCAN_BATCH = 100;
 export const VERSION_AUTO_SCAN_BACKOFF_MS = 10 * 60_000;
+/**
+ * #272 §7.4：關機時等自動切版掃描停下（`stopScan`）的上限——卡在列鎖或 DB 的那一篇不得吃掉 docker stop 的寬限期（比照 #269 的有界停止）。
+ * `app.ts` 的 onClose 與 `index.ts` 的 `stopGrace()` 共用這一個常數。
+ */
+export const SCAN_STOP_GRACE_MS = 2_000;
 const PRUNE_DELETE_CHUNK = 1000;
 /** 從 onLoadDocument 進來的 noteLoaded 比對失敗時重來的上限（只有 §9 的 forget 會造成失敗，r7 實跑）。 */
 const NOTE_LOADED_MAX_ATTEMPTS = 5;

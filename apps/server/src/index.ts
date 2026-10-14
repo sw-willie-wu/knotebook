@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import pino from "pino";
-import { loadConfig, publicUrlIssuer, publicUrlPathWarning } from "./config.js";
+import { loadConfig, publicUrlIssuer, publicUrlPathWarning, testHooksStartupWarning } from "./config.js";
 import { createDb } from "./db/index.js";
 import { createPool } from "./db/pool.js";
 import { runMigrations } from "./db/migrate.js";
@@ -13,6 +13,7 @@ import { UserGate } from "./auth/session.js";
 import { LoginThrottle } from "./auth/rate-limit.js";
 import { createCollabHooks } from "./collab/hooks-impl.js";
 import { createCollabServer } from "./collab/server.js";
+import { SCAN_STOP_GRACE_MS } from "./collab/versions.js";
 import { buildApp } from "./app.js";
 import { createAiRuntime, selfCheckAiKeys } from "./ai/runtime.js";
 import { backfillSearchIndex } from "./notes/search-index.js";
@@ -24,6 +25,9 @@ import { backfillSearchIndex } from "./notes/search-index.js";
 // fastify logger（`options.logger` 預設 true）——兩個 pino instance 都直寫 stdout，
 // `docker compose logs app` 能同時看到兩邊的輸出，不需要共用同一個 instance。
 const logger = pino();
+
+/** #272 §7.4：關機時等自動切版掃描停下的上限（`SCAN_STOP_GRACE_MS`，與 app.ts onClose 共用；比照 #269 的有界停止）。timer unref：不撐住行程。 */
+const stopGrace = (): Promise<void> => new Promise(resolve => setTimeout(resolve, SCAN_STOP_GRACE_MS).unref());
 
 async function main(): Promise<void> {
   const config = loadConfig(process.env);
@@ -65,6 +69,10 @@ async function main(): Promise<void> {
       "SECURITY WARNING: PUBLIC_URL uses plain http on a non-localhost host — credentials and session cookies travel in cleartext"
     );
   }
+
+  // #272 §7.5：e2e 測試縫開著（或被忽略）時印一次警告。
+  const testHooksWarning = testHooksStartupWarning(config);
+  if (testHooksWarning !== null) logger.warn({ publicUrl: config.publicUrl.href }, testHooksWarning);
 
   // D12（#107）：帶 path 的 PUBLIC_URL 只警告不擋——API token 的 WWW-Authenticate
   // 與 OAuth 端點一律用 origin 組字，見 config.ts 的 publicUrlPathWarning。
@@ -174,6 +182,8 @@ async function main(): Promise<void> {
       uploadsDir,
       ai,
       startVersionSweep: true,
+      // #272 §7.5：e2e 測試縫開著時每秒掃一次（X 也會被壓成秒，見 routes/test-hooks.ts）。
+      ...(config.testHooks ? { versionAutoScanIntervalMs: 1000 } : {}),
     },
     { webDist }
   );
@@ -211,8 +221,10 @@ async function main(): Promise<void> {
   for (const sig of ["SIGTERM", "SIGINT"] as const) {
     process.once(sig, () => {
       backfillAbort.abort();
-      void collab
-        .destroy()
+      // #272 §7.4：先停自動切版掃描（進行中那一輪做完手上那一篇就停），但至多等 2 s——卡在列鎖或 DB 的那一篇不得吃掉
+      // docker stop 的寬限期（留給 collab 落盤）。collab 關閉時的 flushPendingStores 讓未落盤的變動照常寫進待切，重啟後掃描器接手。
+      void Promise.race([collab.versions.stopScan(), stopGrace()])
+        .then(() => collab.destroy())
         .then(() => app.close())
         .then(() => pool.end())
         .finally(() => process.exit(0));
