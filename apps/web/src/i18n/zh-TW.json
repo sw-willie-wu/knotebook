@@ -155,6 +155,12 @@
     "transferSaveFirst": "無法直接插入此項目，請先另存為檔案再拖曳進來。",
     "transferNonImage": "這裡目前只能插入圖片檔案。",
     "wikilinkBroken": "已連結的筆記不存在。",
+    "blockLink": {
+      "copy": "複製段落連結",
+      "copyHeading": "複製此段落的連結",
+      "copied": "已複製段落連結",
+      "copyFailed": "無法複製連結。"
+    },
     "wikilink": {
       "createAndLink": "建立「{{query}}」並連結",
       "createFailed": "建立筆記失敗，請再試一次。",

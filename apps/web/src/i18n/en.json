@@ -155,6 +155,12 @@
     "transferSaveFirst": "This item can't be inserted directly here. Save it as a file first, then drag it in.",
     "transferNonImage": "Only image files can be inserted here.",
     "wikilinkBroken": "This linked note no longer exists.",
+    "blockLink": {
+      "copy": "Copy link to block",
+      "copyHeading": "Copy link to this section",
+      "copied": "Block link copied",
+      "copyFailed": "Couldn't copy the link."
+    },
     "wikilink": {
       "createAndLink": "Create \"{{query}}\" and link",
       "createFailed": "Couldn't create the note. Please try again.",

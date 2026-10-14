@@ -671,6 +671,7 @@ export default function NotePage() {
             user={{ id: user.id, name: user.displayName }}
             noteId={noteId!}
             onScrollRoot={setAnchorRoot}
+            notePath={canonicalNotePath(note)}
             headerSlot={
               // #115：頁首滿卡寬（置左置右）——單層 header 自己就是內容列，標題貼左、
               // 控制項貼右；`px-5`（20px）與 `<md` 的內文左緣共線。#88 的文章欄對齊

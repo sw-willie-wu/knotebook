@@ -12,6 +12,7 @@ import { BlockNoteEditor, filterSuggestionItems, SuggestionMenu } from "@blockno
 import { withCollaboration } from "@blocknote/core/yjs";
 import {
   FilePanelController,
+  SideMenuController,
   SuggestionMenuController,
   useCreateBlockNote,
   type DefaultReactSuggestionItem,
@@ -41,6 +42,8 @@ import { CornerStack } from "@/components/CornerStack";
 import { useVersions } from "@/lib/versions-context";
 import { VERSIONS_ERROR_FRAME, VersionsLazyBoundary } from "@/components/versions/VersionsLazyBoundary";
 import { SelectionAiController } from "@/components/ai/SelectionAiController";
+import { KnotebookSideMenu, NotePathContext } from "@/components/editor/KnotebookSideMenu";
+import { HeadingAnchorButtons } from "@/components/editor/HeadingAnchorButtons";
 
 const VersionsPanel = lazy(() =>
   import("@/components/versions/VersionsLazy").then(m => ({ default: m.VersionsPanel })),
@@ -325,6 +328,8 @@ export interface NoteEditorProps {
   previewSlot?: ReactNode;
   /** #269 §10.2：捲動容器（段落錨點的 root）。 */
   onScrollRoot?: (el: HTMLElement | null) => void;
+  /** #269 §10.3(a)：canonical 路徑（`canonicalNotePath(note)`），複製段落連結用。 */
+  notePath?: string;
 }
 
 /**
@@ -355,8 +360,10 @@ export function NoteEditor({
   footerSlot,
   previewSlot,
   onScrollRoot,
+  notePath,
 }: NoteEditorProps) {
   const { t, i18n } = useTranslation();
+  const [columnEl, setColumnEl] = useState<HTMLElement | null>(null);
   const { resolvedTheme } = useTheme();
   const { panelOpen } = useVersions();
   const hasPreview = previewSlot !== undefined && previewSlot !== null;
@@ -485,7 +492,7 @@ export function NoteEditor({
                 `scrollIntoView` 在我們自己的碼零呼叫，已查到的程式化捲動
                 （prosemirror-view caret-follow）先被 `.tableWrapper` 吃掉。細節見
                 `14-table-hover.spec.ts`。 */}
-            <div className={cn(ARTICLE_COLUMN, ARTICLE_COLUMN_PADDING, "relative flex min-h-full flex-col py-6")}>
+            <div ref={setColumnEl} className={cn(ARTICLE_COLUMN, ARTICLE_COLUMN_PADDING, "relative flex min-h-full flex-col py-6")}>
               <NoteEditorView
                 editor={editor}
                 editable={editable}
@@ -493,10 +500,12 @@ export function NoteEditor({
                 noteId={noteId}
                 getItems={getItems}
                 getSlashItems={getSlashItems}
+                notePath={notePath}
               >
                 {/* #263 §5.3：formatting toolbar controller 與框選 AI 框的唯一擁有者；NoteEditorView 不碰 AI context。 */}
                 <SelectionAiController />
               </NoteEditorView>
+              <HeadingAnchorButtons container={columnEl} />
             </div>
           </div>
           {hasPreview && (
@@ -537,6 +546,7 @@ export interface NoteEditorViewProps {
   getSlashItems: (query: string) => Promise<DefaultReactSuggestionItem[]>;
   /** #263：轉進 `<BlockNoteView>` 內（`NoteEditor` 傳 `SelectionAiController`，Task 8）。BlockNoteView 的 children 加在預設 UI 之外。 */
   children?: ReactNode;
+  notePath?: string;
 }
 
 /**
@@ -551,7 +561,7 @@ export interface NoteEditorViewProps {
  * mantine 內部會摸到的全域已經補進 `test/setup.ts`）。
  * #263 起 formatting toolbar 不在這裡掛：它與框選 AI 框由 children（`SelectionAiController`）擁有。
  */
-export function NoteEditorView({ editor, editable, theme, noteId, getItems, getSlashItems, children }: NoteEditorViewProps) {
+export function NoteEditorView({ editor, editable, theme, noteId, getItems, getSlashItems, children, notePath }: NoteEditorViewProps) {
   // Task 14：`createFilePanel(noteId)` 回傳一個新的元件型別——`FilePanelController`
   // 拿它跟前一輪比對身分，身分一變就會整個卸載重掛（見 `createFilePanel` 檔頭的完整
   // 說明），所以這裡必須 `useMemo` 釘住，只在 `noteId` 真的換手時才重建。`noteId`
@@ -569,30 +579,35 @@ export function NoteEditorView({ editor, editable, theme, noteId, getItems, getS
   useCollabUndoLifeline(editor);
 
   return (
-    <BlockNoteView
-      editor={editor}
-      editable={editable}
-      theme={theme}
-      data-testid="note-editor"
-      className="min-h-full flex-1"
-      // 關掉 BlockNote 內建的 FilePanelController：下面接管的是我們自家的
-      // `filePanel`（自家 Upload tab 呼叫 `postUpload`，不用 `editor.uploadFile`，
-      // 理由見 `components/FilePanel.tsx` 檔頭）。不明確設 `false` 這裡會同時掛兩個
-      // file panel controller，使用者點開檔案 block 會看到兩份面板疊在一起。
-      filePanel={false}
-      // 同理關掉內建的 FormattingToolbarController：接管的是 children 裡的 `SelectionAiController`（#263 §5.3：它獨自擁有
-      // formatting toolbar controller 與框選 AI 框，含「框開著時壓住工具列」）。**這個 false 不可拿掉**：拿掉會多出一份預設工具列，
-      // 壓制只壓得到 controller 那一份（起草時 jsdom 實測）。
-      formattingToolbar={false}
-      // 同理關掉內建的 slash menu controller（issue #94）：下面接管的是我們自己的
-      // `getSlashItems`（內建項全數保留＋mermaid 圖表＋連結，見 `components/slash-menu.tsx`）。
-      // 不明確設 `false` 會同時掛兩個 `/` 選單 controller，按 `/` 會看到兩份選單疊在一起。
-      slashMenu={false}
-    >
-      <SuggestionMenuController triggerCharacter="[[" getItems={getItems} />
-      <SuggestionMenuController triggerCharacter="/" getItems={getSlashItems} />
-      <FilePanelController filePanel={filePanel} />
-      {children}
-    </BlockNoteView>
+    <NotePathContext.Provider value={notePath ?? null}>
+      <BlockNoteView
+        editor={editor}
+        editable={editable}
+        theme={theme}
+        data-testid="note-editor"
+        className="min-h-full flex-1"
+        // 關掉 BlockNote 內建的 FilePanelController：下面接管的是我們自家的
+        // `filePanel`（自家 Upload tab 呼叫 `postUpload`，不用 `editor.uploadFile`，
+        // 理由見 `components/FilePanel.tsx` 檔頭）。不明確設 `false` 這裡會同時掛兩個
+        // file panel controller，使用者點開檔案 block 會看到兩份面板疊在一起。
+        filePanel={false}
+        // 同理關掉內建的 FormattingToolbarController：接管的是 children 裡的 `SelectionAiController`（#263 §5.3：它獨自擁有
+        // formatting toolbar controller 與框選 AI 框，含「框開著時壓住工具列」）。**這個 false 不可拿掉**：拿掉會多出一份預設工具列，
+        // 壓制只壓得到 controller 那一份（起草時 jsdom 實測）。
+        formattingToolbar={false}
+        // 同理關掉內建的 slash menu controller（issue #94）：下面接管的是我們自己的
+        // `getSlashItems`（內建項全數保留＋mermaid 圖表＋連結，見 `components/slash-menu.tsx`）。
+        // 不明確設 `false` 會同時掛兩個 `/` 選單 controller，按 `/` 會看到兩份選單疊在一起。
+        slashMenu={false}
+        // #269 §10.3(a)：關掉內建側邊選單，自掛一份（拖曳把手選單多一項「複製段落連結」）。不明確設 false 會疊兩份。
+        sideMenu={false}
+      >
+        <SuggestionMenuController triggerCharacter="[[" getItems={getItems} />
+        <SuggestionMenuController triggerCharacter="/" getItems={getSlashItems} />
+        <SideMenuController sideMenu={KnotebookSideMenu} />
+        <FilePanelController filePanel={filePanel} />
+        {children}
+      </BlockNoteView>
+    </NotePathContext.Provider>
   );
 }
