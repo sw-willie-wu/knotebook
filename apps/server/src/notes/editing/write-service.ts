@@ -90,7 +90,7 @@ export interface NoteWriteServiceDeps {
   queueWaitMs?: number;
   /** 寫入路徑的測試注入縫（生產不注入＝零成本）。 */
   testHooks?: EditingTestHooks;
-  /** 版本歷史：寫前切版、套用、手動儲存（`app.ts` 傳 collab 那份或未綁定的那份）。選配＝寫前切版 no-op（既有測試直接 new 本 service）。 */
+  /** 版本歷史：套用、手動儲存（`app.ts` 傳 collab 那份或未綁定的那份）。選配（既有測試直接 new 本 service；沒有它時套用與手動儲存會丟錯）。#272 起 AI／直寫不再切版。 */
   versions?: VersionService;
 }
 

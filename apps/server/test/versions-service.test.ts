@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { eq, sql } from "drizzle-orm";
 import * as Y from "yjs";
 import { YDOC_FRAGMENT } from "@knotebook/shared";
@@ -9,26 +9,36 @@ import { VACUUM_VERSION_FINGERPRINT, versionFingerprint } from "../src/notes/ver
 import { seedDoc } from "./copy-helpers.js";
 import { seedGroup, seedNote, seedUser } from "./group-helpers.js";
 import { freshDb } from "./helpers.js";
-import { baseVersionIdOf, editPara, fakeHost, manualTimers, noteBase, paraDoc, versionsOf } from "./version-helpers.js";
+import { NO_PENDING, baseVersionIdOf, editPara, fakeHost, noteBase, paraDoc, pendingOf, versionsOf } from "./version-helpers.js";
 
 const vfp = (d: Y.Doc) => versionFingerprint(d.getXmlFragment(YDOC_FRAGMENT));
 
-async function setup(opts: { group?: boolean } = {}) {
+const T0 = Date.parse("2026-10-14T00:00:00.000Z");
+
+async function setup(opts: { group?: boolean; autoWaitMs?: number } = {}) {
   const { db } = await freshDb();
   const u = await seedUser(db);
   const owner = opts.group ? { groupId: (await seedGroup(db, "G", [{ userId: u.id, role: "admin" }])).id } : { ownerId: u.id };
   const note = await seedNote(db, owner);
   const host = fakeHost();
-  const clock = manualTimers();
   const warns: Array<{ obj: object; msg: string }> = [];
-  const svc: VersionService = createVersionService({ db, log: { warn: (obj, msg) => warns.push({ obj, msg }) }, timers: clock.timers, idleMs: 50 });
+  let nowMs = T0;
+  const svc: VersionService = createVersionService({
+    db,
+    log: { warn: (obj, msg) => warns.push({ obj, msg }) },
+    now: () => new Date(nowMs),
+    ...(opts.autoWaitMs !== undefined ? { autoWaitMs: opts.autoWaitMs } : {}),
+  });
   svc.bind(host);
   /** 把 doc 當成「載入中」：放進 host 並跑 noteLoaded。 */
   const load = async (doc: Y.Doc) => {
     host.docs.set(note.id, doc);
     await svc.noteLoaded(note.id, doc);
   };
-  return { db, u, note, host, clock, warns, svc, load };
+  const setNow = (ms: number) => {
+    nowMs = ms;
+  };
+  return { db, u, note, host, warns, svc, load, setNow };
 }
 
 describe("noteLoaded（§4.5）", () => {
@@ -405,93 +415,155 @@ describe("pruneNote／sweep（§10.2）", () => {
   });
 });
 
-describe("idle 計時器與 hook 分派（§5.2）", () => {
-  const humanCtx = (userId: string) => ({ userId });
-  it("人的落盤 → 掛計時器；到期切版；期間再落盤則重設（只剩一顆）", async () => {
+describe("#272 待切寫入（noteStored，spec §6）", () => {
+  const human = (userId: string) => ({ userId });
+  const asJson = (userId: string, agentLabel: string | null = null) => ({ user_id: userId, agent_label: agentLabel });
+  const direct = (source: "ai-edit" | "version-apply", userId: string, agentLabel: string | null, applied: boolean) =>
+    ({ source, userId, tokenId: null, agentLabel, applied });
+
+  it("案 1：人落盤、指紋改變 → version_pending_at＝注入的 now、editors＝[人]、ref＝載入時指紋、緩衝清空、不出版", async () => {
+    const s = await setup();
+    const doc = paraDoc(["a"]);
+    await s.load(doc);
+    const loaded = vfp(doc);
+    editPara(doc, 0, t => t.insert(0, "x"));
+    s.svc.noteChanged(s.note.id, { userId: s.u.id, agentLabel: null });
+    await s.svc.noteStored(s.note.id, doc, human(s.u.id));
+    expect(await pendingOf(s.db, s.note.id)).toEqual({ at: new Date(T0), editors: [asJson(s.u.id)], ref: loaded });
+    expect(s.svc.debugState(s.note.id)).toMatchObject({ editors: [], lastStoredFingerprint: vfp(doc) });
+    expect(await versionsOf(s.db, s.note.id)).toEqual([]);
+  });
+
+  it("案 2：同指紋再落盤 → version_pending_at 不變（零 DB）", async () => {
     const s = await setup();
     const doc = paraDoc(["a"]);
     await s.load(doc);
     editPara(doc, 0, t => t.insert(0, "x"));
-    await s.svc.noteStored(s.note.id, doc, humanCtx(s.u.id));
-    await s.svc.noteStored(s.note.id, doc, humanCtx(s.u.id));
-    expect(s.clock.size()).toBe(1);
-    s.clock.fire();
-    await expect.poll(async () => (await versionsOf(s.db, s.note.id)).length).toBe(1);
+    await s.svc.noteStored(s.note.id, doc, human(s.u.id));
+    s.setNow(T0 + 60_000);
+    await s.svc.noteStored(s.note.id, doc, human(s.u.id));
+    expect((await pendingOf(s.db, s.note.id)).at).toEqual(new Date(T0));
   });
 
-  it("autoEnabled=false → 不掛計時器", async () => {
+  it("案 3：兩次落盤不同編輯者 → 先到先排、去重；跨 forget＋noteLoaded 同一人不重複", async () => {
+    const s = await setup();
+    const u2 = await seedUser(s.db);
+    const doc = paraDoc(["a"]);
+    await s.load(doc);
+    editPara(doc, 0, t => t.insert(0, "1"));
+    s.svc.noteChanged(s.note.id, { userId: s.u.id, agentLabel: null });
+    await s.svc.noteStored(s.note.id, doc, human(s.u.id));
+    editPara(doc, 0, t => t.insert(0, "2"));
+    s.svc.noteChanged(s.note.id, { userId: u2.id, agentLabel: null });
+    s.svc.noteChanged(s.note.id, { userId: s.u.id, agentLabel: null });
+    s.setNow(T0 + 1000);
+    await s.svc.noteStored(s.note.id, doc, human(u2.id));
+    expect((await pendingOf(s.db, s.note.id)).editors).toEqual([asJson(s.u.id), asJson(u2.id)]);
+    s.svc.forget(s.note.id);
+    await s.load(doc);
+    editPara(doc, 0, t => t.insert(0, "3"));
+    s.svc.noteChanged(s.note.id, { userId: s.u.id, agentLabel: null });
+    s.setNow(T0 + 2000);
+    await s.svc.noteStored(s.note.id, doc, human(s.u.id));
+    expect(await pendingOf(s.db, s.note.id)).toMatchObject({ at: new Date(T0 + 2000), editors: [asJson(s.u.id), asJson(u2.id)] });
+  });
+
+  it("案 4：ai-edit applied → 待切 editors 含 {userId, agentLabel}、不出版；applied=false 同人的落盤（寫入者不進名單，起草裁定 22）", async () => {
+    const s = await setup();
+    const u2 = await seedUser(s.db);
+    const doc = paraDoc(["a"]);
+    await s.load(doc);
+    editPara(doc, 0, t => t.insert(0, "AI"));
+    await s.svc.noteStored(s.note.id, doc, direct("ai-edit", s.u.id, "Claude", true));
+    expect((await pendingOf(s.db, s.note.id)).editors).toEqual([asJson(s.u.id, "Claude")]);
+    expect(await versionsOf(s.db, s.note.id)).toEqual([]);
+    editPara(doc, 0, t => t.insert(0, "人"));
+    s.svc.noteChanged(s.note.id, { userId: u2.id, agentLabel: null });
+    await s.svc.noteStored(s.note.id, doc, direct("ai-edit", s.u.id, "被拒的", false));
+    expect((await pendingOf(s.db, s.note.id)).editors).toEqual([asJson(s.u.id, "Claude"), asJson(u2.id)]);
+  });
+
+  it("案 5：version-apply applied → 清待切、套用後的內容不算一次變動；被拒（applied=false）同人的落盤", async () => {
+    const s = await setup();
+    const doc = paraDoc(["a"]);
+    await s.load(doc);
+    editPara(doc, 0, t => t.insert(0, "x"));
+    await s.svc.noteStored(s.note.id, doc, human(s.u.id));
+    expect((await pendingOf(s.db, s.note.id)).at).toEqual(new Date(T0));
+    editPara(doc, 0, t => t.insert(0, "套"));
+    await s.svc.noteStored(s.note.id, doc, direct("version-apply", s.u.id, null, true));
+    expect(await pendingOf(s.db, s.note.id)).toEqual(NO_PENDING);
+    expect(s.svc.debugState(s.note.id)!.lastStoredFingerprint).toBe(vfp(doc));
+    await s.svc.noteStored(s.note.id, doc, human(s.u.id));
+    expect(await pendingOf(s.db, s.note.id)).toEqual(NO_PENDING);
+    editPara(doc, 0, t => t.insert(0, "y"));
+    await s.svc.noteStored(s.note.id, doc, direct("version-apply", s.u.id, null, false));
+    expect((await pendingOf(s.db, s.note.id)).at).toEqual(new Date(T0));
+  });
+
+  it("案 5（reset 子案）：beginApply → endApply(id, {reset}) 之後、外層 endApply(id) 之前，到期的待切 → skipped: applying、0 版；外層 endApply(id) 之後才切", async () => {
+    const s = await setup({ autoWaitMs: 0 });
+    const doc = paraDoc(["a"]);
+    await s.load(doc);
+    editPara(doc, 0, t => t.insert(0, "x"));
+    await s.svc.noteStored(s.note.id, doc, human(s.u.id));
+    s.svc.beginApply(s.note.id);
+    s.svc.endApply(s.note.id, { reset: true });
+    expect(s.svc.debugState(s.note.id)!.applying).toBe(true);
+    expect(await s.svc.scanDue(new Date(T0 + 1))).toBe(1);
+    expect(await versionsOf(s.db, s.note.id)).toEqual([]);
+    expect((await pendingOf(s.db, s.note.id)).at).toEqual(new Date(T0));
+    s.svc.endApply(s.note.id);
+    expect(s.svc.debugState(s.note.id)!.applying).toBe(false);
+    expect(await s.svc.scanDue(new Date(T0 + 2))).toBe(1);
+    expect(await versionsOf(s.db, s.note.id)).toHaveLength(1);
+  });
+
+  it("案 6：自動關閉 → 不待切、緩衝保留（留給手動儲存）；未初始化 → 不待切", async () => {
     const s = await setup();
     await s.db.update(users).set({ autoVersions: false }).where(eq(users.id, s.u.id));
     const doc = paraDoc(["a"]);
     await s.load(doc);
-    await s.svc.noteStored(s.note.id, doc, humanCtx(s.u.id));
-    expect(s.clock.size()).toBe(0);
-  });
-
-  it("到期時文件已不在 host → 不切", async () => {
-    const s = await setup();
-    const doc = paraDoc(["a"]);
-    await s.load(doc);
     editPara(doc, 0, t => t.insert(0, "x"));
-    await s.svc.noteStored(s.note.id, doc, humanCtx(s.u.id));
-    s.host.docs.delete(s.note.id);
-    s.clock.fire();
-    await new Promise(r => setTimeout(r, 50));
-    expect(await versionsOf(s.db, s.note.id)).toEqual([]);
+    s.svc.noteChanged(s.note.id, { userId: s.u.id, agentLabel: null });
+    await s.svc.noteStored(s.note.id, doc, human(s.u.id));
+    expect(await pendingOf(s.db, s.note.id)).toEqual(NO_PENDING);
+    expect(s.svc.debugState(s.note.id)!.editors).toEqual([{ userId: s.u.id, agentLabel: null }]);
+
+    const t = await setup();
+    const d2 = paraDoc(["b"]);
+    t.host.docs.set(t.note.id, d2);
+    t.svc.noteChanged(t.note.id, { userId: t.u.id, agentLabel: null }); // 建出 initialized:false 條目
+    editPara(d2, 0, x => x.insert(0, "y"));
+    await t.svc.noteStored(t.note.id, d2, human(t.u.id));
+    expect(await pendingOf(t.db, t.note.id)).toEqual(NO_PENDING);
   });
 
-  it("ai-edit 且 applied → 立即切（editors 含 agentLabel）並清計時器；applied=false 不切、照人的規則掛計時器（起草裁定 22）", async () => {
+  it("案 8：markPending 丟錯 → noteStored 往上拋（server.ts 吞掉只 warn）、lastStoredFingerprint 不前進 → 下一次落盤補寫", async () => {
     const s = await setup();
     const doc = paraDoc(["a"]);
     await s.load(doc);
+    const loaded = vfp(doc);
     editPara(doc, 0, t => t.insert(0, "x"));
-    expect(s.clock.size()).toBe(0);
-    await s.svc.noteStored(s.note.id, doc, { source: "ai-edit", userId: s.u.id, tokenId: null, agentLabel: "Claude", applied: false });
-    expect(await versionsOf(s.db, s.note.id)).toEqual([]);
-    expect(s.clock.size()).toBe(1); // 被拒的 AI 落盤取代了人那批 store：人的修改要靠這顆計時器切
-    await s.svc.noteStored(s.note.id, doc, { source: "ai-edit", userId: s.u.id, tokenId: null, agentLabel: "Claude", applied: true });
-    expect(s.clock.size()).toBe(0);
-    expect((await versionsOf(s.db, s.note.id)).map(v => v.editors)).toEqual([[{ user_id: s.u.id, agent_label: "Claude" }]]);
+    const spy = vi.spyOn(s.db, "execute").mockRejectedValueOnce(new Error("pg 斷線（測試）"));
+    await expect(s.svc.noteStored(s.note.id, doc, human(s.u.id))).rejects.toThrow("pg 斷線（測試）");
+    spy.mockRestore();
+    expect(await pendingOf(s.db, s.note.id)).toEqual(NO_PENDING);
+    expect(s.svc.debugState(s.note.id)!.lastStoredFingerprint).toBe(loaded);
+    await s.svc.noteStored(s.note.id, doc, human(s.u.id));
+    expect((await pendingOf(s.db, s.note.id)).at).toEqual(new Date(T0));
   });
 
-  it("version-apply：不切；applied 時清計時器；被拒的照人的規則掛計時器（起草裁定 22）", async () => {
+  it("案 9：relocated 重跑的空窗內落盤 → 下一次落盤算成變動（lastStoredFingerprint 取自 await 之前）", async () => {
     const s = await setup();
     const doc = paraDoc(["a"]);
     await s.load(doc);
-    editPara(doc, 0, t => t.insert(0, "x"));
-    expect(s.clock.size()).toBe(0);
-    await s.svc.noteStored(s.note.id, doc, { source: "version-apply", userId: s.u.id, tokenId: null, agentLabel: null, applied: false });
-    expect(s.clock.size()).toBe(1);
-    await s.svc.noteStored(s.note.id, doc, { source: "version-apply", userId: s.u.id, tokenId: null, agentLabel: null, applied: true });
-    expect(s.clock.size()).toBe(0);
-    expect(await versionsOf(s.db, s.note.id)).toEqual([]);
-  });
-
-  it("beforeUnload：清計時器、有改就切；applying 中不切", async () => {
-    const s = await setup();
-    const doc = paraDoc(["a"]);
-    await s.load(doc);
-    editPara(doc, 0, t => t.insert(0, "x"));
-    await s.svc.noteStored(s.note.id, doc, humanCtx(s.u.id));
-    s.svc.beginApply(s.note.id);
-    await s.svc.beforeUnload(s.note.id, doc);
-    expect(s.clock.size()).toBe(0);
-    expect(await versionsOf(s.db, s.note.id)).toEqual([]);
-    s.svc.endApply(s.note.id);
-    await s.svc.beforeUnload(s.note.id, doc);
-    expect(await versionsOf(s.db, s.note.id)).toHaveLength(1);
-  });
-
-  it("forget 清計時器；close 清全部", async () => {
-    const s = await setup();
-    const doc = paraDoc(["a"]);
-    await s.load(doc);
-    await s.svc.noteStored(s.note.id, doc, humanCtx(s.u.id));
-    s.svc.forget(s.note.id);
-    expect(s.clock.size()).toBe(0);
-    await s.load(doc);
-    await s.svc.noteStored(s.note.id, doc, humanCtx(s.u.id));
-    s.svc.close();
-    expect(s.clock.size()).toBe(0);
+    s.svc.relocated([s.note.id]); // 同步：forget＋空白條目＋重跑 noteLoaded（同步段已取好 actual）
+    editPara(doc, 0, t => t.insert(0, "x")); // 空窗內的修改
+    await s.svc.noteStored(s.note.id, doc, human(s.u.id)); // 條目未初始化 → 不寫
+    expect(await pendingOf(s.db, s.note.id)).toEqual(NO_PENDING);
+    await expect.poll(() => s.svc.debugState(s.note.id)?.initialized).toBe(true);
+    await s.svc.noteStored(s.note.id, doc, human(s.u.id)); // 沒有新修改，但空窗那次沒被記到
+    expect((await pendingOf(s.db, s.note.id)).at).toEqual(new Date(T0));
   });
 });

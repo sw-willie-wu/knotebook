@@ -325,7 +325,7 @@ describe("POST apply（§6.4）× 真 collab", () => {
     expect((await s.post(`${s.base}/1/apply`, { versionId: s.v1.id, discardUnsaved: true })).status).toBe(200);
   });
 
-  it("排隊期間被刪的版本、有 WS 連線（文件不卸載）→ 回應 baseSeq null、dirty true；之後全部離開 → unload 依 reset 切一版", async () => {
+  it("排隊期間被刪的版本、有 WS 連線（文件不卸載）→ 回應 baseSeq null、dirty true；之後全部離開 → 不切（#272）、baseSeq null、nextSeq 3", async () => {
     let deleteV1: (() => Promise<void>) | null = null;
     const s = await collabSetup({ editingTestHooks: { beforeMerge: async () => { if (deleteV1) await deleteV1(); } } });
     const client = await s.session.connect(s.note.id);
@@ -335,20 +335,24 @@ describe("POST apply（§6.4）× 真 collab", () => {
     deleteV1 = null;
     client.disconnect();
     await s.unloaded();
-    expect((await versionsOf(s.ctx.db, s.note.id)).map(v => v.seq)).toEqual([2, 3]);
+    await s.ctx.collab.versions.scanDue(new Date(Date.now() + 3_600_000));
+    expect((await versionsOf(s.ctx.db, s.note.id)).map(v => v.seq)).toEqual([2]);
+    expect((await (await s.session.fetch(s.base)).json()).current).toMatchObject({ baseSeq: null, nextSeq: 3 });
   });
 
-  it("排隊期間被刪的版本、沒有 WS 連線 → disconnect 內就卸載並切出 v3，回應 baseSeq＝3（需回寫 spec §6.4／§11.2）；之後手動儲存 → 201、總數 2、GET dirty=false", async () => {
+  it("排隊期間被刪的版本、沒有 WS 連線 → 卸載不再切版（#272），回應 baseSeq null、dirty false、nextSeq 3；之後手動儲存 → 201 新版 v3、總數 2、GET dirty=false、基底 3", async () => {
     let deleteV1: (() => Promise<void>) | null = null;
     const s = await collabSetup({ editingTestHooks: { beforeMerge: async () => { if (deleteV1) await deleteV1(); } } });
     deleteV1 = async () => { await s.ctx.db.delete(noteVersions).where(sql`note_versions.note_id = ${s.note.id} and note_versions.seq = 1`); };
     const r = await s.post(`${s.base}/1/apply`, { versionId: s.v1.id, discardUnsaved: false });
-    expect((await r.json()).current).toMatchObject({ baseSeq: 3, dirty: false, nextSeq: 4 }); // v3＝unload 依「沒有基底、loadFingerprint=null」切的
+    expect((await r.json()).current).toMatchObject({ baseSeq: null, dirty: false, nextSeq: 3 });
     deleteV1 = null;
     await s.unloaded();
+    expect((await versionsOf(s.ctx.db, s.note.id)).map(v => v.seq)).toEqual([2]);
+    const saved = await s.post(s.base, {});
+    expect(saved.status).toBe(201);
+    expect((await saved.json()).upgraded).toBe(false);
     expect((await versionsOf(s.ctx.db, s.note.id)).map(v => v.seq)).toEqual([2, 3]);
-    expect((await s.post(s.base, {})).status).toBe(201);
-    expect(await versionsOf(s.ctx.db, s.note.id)).toHaveLength(2); // 內容＝v3 → upgraded，總數不變
     expect((await (await s.session.fetch(s.base)).json()).current.dirty).toBe(false);
     expect((await noteBase(s.ctx.db, s.note.id)).baseSeq).toBe(3);
   });

@@ -174,7 +174,7 @@ export function noteVersionsRoutes(deps: NoteVersionsRouteDeps) {
           if (out.code === "version_mismatch") return sendError(reply, 409, "version_mismatch", "這一版已經不存在或已被取代，請重新整理");
           return sendError(reply, 409, "version_unsaved_changes", "目前有未儲存的修改");
         }
-        // 起草裁定 12：回「套用全部完成後的實際 current」——沒有 WS 連線時 disconnect 內已卸載、可能已切出新的一版（需回寫 spec §6.4）。
+        // 起草裁定 12：回「套用全部完成後的實際 current」——沒有 WS 連線時 disconnect 內已卸載（#272 起卸載不切版）。
         const current = await deps.versions.currentOf(id);
         if (current === null) return sendError(reply, 404, "not_found", NOTE_NOT_FOUND);
         return reply.send({ current } satisfies ApplyVersionResultDto);

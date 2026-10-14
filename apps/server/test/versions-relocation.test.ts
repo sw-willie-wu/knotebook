@@ -1,4 +1,4 @@
-// §9：複製不帶版本、搬到群組與刪群組轉移清空版本（零版本、基底 NULL、計數 0），載入中的筆記重建狀態；搬移 × 計時器切版交錯（r5 I-2）。
+// §9：複製不帶版本、搬到群組與刪群組轉移清空版本（零版本、基底 NULL、計數 0），載入中的筆記重建狀態；搬移 × 切版交錯（r5 I-2）。
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -111,7 +111,7 @@ describe("REST 形（沒有載入）", () => {
 
 describe("載入中的筆記（真 collab）", () => {
   async function setup(opts: Parameters<typeof buildCollabTestApp>[0] = {}) {
-    const ctx = await buildCollabTestApp(opts);
+    const ctx = await buildCollabTestApp({ versionAutoWaitMs: 0, ...opts });
     const u = await ctx.createUser({ email: "a@example.com", password: PASSWORD });
     const note = await ctx.createNote(u.id);
     const session = await ctx.loginAs("a@example.com", PASSWORD);
@@ -121,7 +121,7 @@ describe("載入中的筆記（真 collab）", () => {
     return { ctx, u, note, session, g, move, unloaded };
   }
 
-  it("搬移後狀態重建（spaceKey 換成群組）；再改一次、離開 → 新的 v1；GET /versions/1 回的是新 v1", async () => {
+  it("搬移後狀態重建（spaceKey 換成群組）；再改一次、離開、掃描 → 新的 v1；GET /versions/1 回的是新 v1", async () => {
     const s = await setup();
     const client = await seedContent(s.ctx, s.session, s.note.id, "個人時期的內容");
     const live = s.ctx.collab.hocuspocus.documents.get(s.note.id)!;
@@ -135,6 +135,7 @@ describe("載入中的筆記（真 collab）", () => {
     await waitFor("server 收到", 5_000, () => docText(live).includes("群組時期"));
     client.disconnect();
     await s.unloaded();
+    await s.ctx.collab.versions.scanDue();
     const rows = await versionsOf(s.ctx.db, s.note.id);
     expect(rows.map(r => r.seq)).toEqual([1]);
     expect(rows[0]!.id).not.toBe(oldV1.id);
@@ -143,7 +144,7 @@ describe("載入中的筆記（真 collab）", () => {
     expect((await snap.json()).id).toBe(rows[0]!.id);
   });
 
-  it("沒有基底的筆記：搬移持列鎖時計時器切版卡在等鎖 → 搬移 commit 後它因 spaceKey 對不上 rollback → 零版本（r5 I-2）", async () => {
+  it("沒有基底的筆記：搬移持列鎖時自動切版卡在等鎖 → 搬移 commit 後它因 spaceKey 對不上 rollback → 零版本（r5 I-2）", async () => {
     let release: () => void = () => {};
     const gate = new Promise<void>(r => { release = r; });
     let paused: () => void = () => {};
@@ -166,10 +167,11 @@ describe("載入中的筆記（真 collab）", () => {
     expect(await cut).toBeNull();
     client.disconnect();
     await s.unloaded();
-    expect(await versionsOf(s.ctx.db, s.note.id)).toEqual([]); // 重建時 loadFingerprint＝當下內容，unload 也不切
+    await s.ctx.collab.versions.scanDue();
+    expect(await versionsOf(s.ctx.db, s.note.id)).toEqual([]); // 重建時 loadFingerprint＝當下內容、搬移清了待切，掃描也不切
   });
 
-  it("移進自動儲存關閉的群組 → autoEnabled=false、unload 後零版本", async () => {
+  it("移進自動儲存關閉的群組 → autoEnabled=false、離開並掃描後零版本", async () => {
     const s = await setup();
     await s.ctx.db.update(groups).set({ autoVersions: false }).where(eq(groups.id, s.g.id));
     const client = await seedContent(s.ctx, s.session, s.note.id, "個人時期");
@@ -178,10 +180,11 @@ describe("載入中的筆記（真 collab）", () => {
     expect(s.ctx.collab.versions.debugState(s.note.id)!.autoEnabled).toBe(false);
     client.disconnect();
     await s.unloaded();
+    await s.ctx.collab.versions.scanDue();
     expect(await versionsOf(s.ctx.db, s.note.id)).toEqual([]);
   });
 
-  it("刪群組・轉移時群組筆記載入中 → 狀態重建（spaceKey 換成 u:<transferTo>、autoEnabled 依接收者個人開關＝false）；unload 後零版本", async () => {
+  it("刪群組・轉移時群組筆記載入中 → 狀態重建（spaceKey 換成 u:<transferTo>、autoEnabled 依接收者個人開關＝false）；離開並掃描後零版本", async () => {
     const s = await setup();
     await s.ctx.db.update(users).set({ autoVersions: false }).where(eq(users.id, s.u.id));
     const gn = await seedNote(s.ctx.db, { groupId: s.g.id });
@@ -194,6 +197,7 @@ describe("載入中的筆記（真 collab）", () => {
     expect(s.ctx.collab.versions.debugState(gn.id)).toMatchObject({ initialized: true, spaceKey: `u:${s.u.id}`, autoEnabled: false });
     client.disconnect();
     await s.unloaded();
+    await s.ctx.collab.versions.scanDue();
     expect(await versionsOf(s.ctx.db, gn.id)).toEqual([]);
   });
 });

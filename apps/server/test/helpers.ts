@@ -460,8 +460,8 @@ export async function buildCollabTestApp(
     presence?: AppDeps["presenceOptions"];
     /** #93：全文索引測試縫，語意見 `CollabDeps.storeSearchHooks`。 */
     storeSearchHooks?: CollabDeps["storeSearchHooks"];
-    /** 版本歷史：idle 切版的安靜時間（毫秒），語意見 `CollabDeps.versionIdleMs`。 */
-    versionIdleMs?: number;
+    /** #272：自動切版等待 X 的測試覆寫（毫秒），語意見 `CollabDeps.versionAutoWaitMs`。整合測試多半給 0，再直接呼叫 `collab.versions.scanDue()`。 */
+    versionAutoWaitMs?: number;
     /** #267：「最後活動」節流表的測試縫（時鐘），語意見 `CollabDeps.lastActiveOptions`。 */
     lastActiveOptions?: CollabDeps["lastActiveOptions"];
   } = {}
@@ -486,7 +486,7 @@ export async function buildCollabTestApp(
     warn: (obj: object, msg: string) => collabLogs.push({ level: "warn", obj: { ...obj }, msg }),
     error: (obj: object, msg: string) => collabLogs.push({ level: "error", obj: { ...obj }, msg }),
   };
-  const collab = createCollabServer({ db, config: testConfig, gate, log: collabLog, storeSearchHooks: opts.storeSearchHooks, versionIdleMs: opts.versionIdleMs, lastActiveOptions: opts.lastActiveOptions });
+  const collab = createCollabServer({ db, config: testConfig, gate, log: collabLog, storeSearchHooks: opts.storeSearchHooks, versionAutoWaitMs: opts.versionAutoWaitMs, lastActiveOptions: opts.lastActiveOptions });
 
   const uploadsDir = freshUploadsDir();
   const deps: AppDeps = {

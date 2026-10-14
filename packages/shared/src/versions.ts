@@ -2,8 +2,6 @@
  * 筆記版本歷史（spec 2026-10-09-note-versions-design.md §4、§6）。server 與 web 共用的常數、DTO 與名稱正規化。
  * 「基底」＝目前內容是從哪一版接著改（`notes.version_base_seq`）；null＝沒有基底（還沒存過、或套用後基底寫不回去）。
  */
-/** A12：自動切版的安靜時間（有改動後 5 分鐘沒有新的落盤就切）。server 以 `idleMs` 注入覆寫。 */
-export const VERSION_IDLE_MS = 5 * 60_000;
 /** §6.3：版本名稱上限（code point）。 */
 export const VERSION_NAME_MAX = 120;
 /** §6.1：清單分頁。 */

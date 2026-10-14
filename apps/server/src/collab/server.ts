@@ -313,8 +313,8 @@ export interface CollabDeps {
   log?: CollabLogger;
   /** #93：全文索引的測試縫（`NoteStoreSearchHooks`，生產不注入）——透傳給 `createNoteStore`。 */
   storeSearchHooks?: NoteStoreSearchHooks;
-  /** 版本歷史（spec 2026-10-09 A12）：idle 切版的安靜時間；未傳＝5 分鐘。整合測試壓到 50 ms。 */
-  versionIdleMs?: number;
+  /** #272 §7.1：自動切版等待 X 的測試覆寫（毫秒，透傳成 `VersionServiceDeps.autoWaitMs`）；未傳＝每輪讀站台設定。生產不注入。 */
+  versionAutoWaitMs?: number;
   /** #267：`LastActiveTracker` 的測試縫（節流表時鐘／上限），生產不注入。 */
   lastActiveOptions?: LastActiveTrackerOptions;
 }
@@ -494,7 +494,7 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
     return audience !== undefined && audience !== null && audience.has(userId);
   }
   const noteStore = createNoteStore({ ...deps.storeSearchHooks, db: deps.db, log });
-  const versions = createVersionService({ db: deps.db, log, idleMs: deps.versionIdleMs });
+  const versions = createVersionService({ db: deps.db, log, ...(deps.versionAutoWaitMs !== undefined ? { autoWaitMs: deps.versionAutoWaitMs } : {}) });
   const lastActive = new LastActiveTracker(deps.db, log, deps.lastActiveOptions);
 
   /**
@@ -631,25 +631,17 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
     onStoreDocument: async ({ documentName, document, lastContext }) => {
       await noteStore.onStoreDocument(documentName, document);
       await stampLastEdited(documentName, lastContext);
-      // 版本歷史 §5.2：await 才受 saveMutex 保護（unload 會等它）；③ 不得讓 store 失敗——只 warn。
+      // #272 §6.2：內容有變就寫待切（await 才受 saveMutex 保護，unload 會等它）；③ 不得讓 store 失敗——只 warn。
       try {
         await versions.noteStored(documentName, document, lastContext);
       } catch (err) {
-        log.warn({ err, noteId: documentName }, "版本歷史：落盤後切版／計時器失敗（不影響落盤）");
-      }
-    },
-    // 版本歷史 §5.2：所有人離開時有改就切。⚠ 這個 hook 拋錯會讓 Hocuspocus 重試一次後放棄 unload（§2.2）——一律吞掉只 warn。
-    beforeUnloadDocument: async ({ documentName, document }) => {
-      try {
-        await versions.beforeUnload(documentName, document);
-      } catch (err) {
-        log.warn({ err, noteId: documentName }, "版本歷史：卸載前切版失敗");
+        log.warn({ err, noteId: documentName }, "版本歷史：落盤後寫待切失敗（不影響落盤）");
       }
     },
     // fix round 1 IMPORTANT 2：文件從記憶體卸載時清掉 noteStore 的 sv／lastBackupAt
     // 快取、warnedUnsafeUrl 旗標與 indexedHash（#93 全文索引雜湊），否則每篇曾經打開過的
     // 筆記都會在 process 存活期間永久占 Map／Set entry（慢性洩漏）。安全性見
-    // `NoteStore.afterUnloadDocument` 的註解。版本狀態同理（`forget` 連計時器一起清）。
+    // `NoteStore.afterUnloadDocument` 的註解。版本狀態同理（`forget`）。
     afterUnloadDocument: async ({ documentName }) => {
       noteStore.afterUnloadDocument(documentName);
       versions.forget(documentName);
@@ -949,7 +941,6 @@ export function createCollabServer(deps: CollabDeps): CollabServer {
     byNote.clear();
     tokenSyncCallbacks.clear();
     deleting.clear();
-    versions.close();
   }
 
   return {

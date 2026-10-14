@@ -1,4 +1,4 @@
-// spec 2026-10-09 §11.2：D8 開關矩陣（三切點都不切、手動照常；站台開＋個人關；改設定要重新載入才生效）、
+// spec 2026-10-09 §11.2：D8 開關矩陣（#272 起只有「停手 X 後掃描切」一個自動切點：關掉就不切、手動照常；站台開＋個人關；改設定要重新載入才生效）、
 // 指紋情境（r1 I-2）、版號併發、撤回前有人工未存修改。
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
@@ -9,18 +9,17 @@ import { groups, siteSettings, users } from "../src/db/schema.js";
 import { bearer, docText, seedContent, seedTokenForUser, waitFor } from "./editing-helpers.js";
 import { seedGroup, seedNote } from "./group-helpers.js";
 import { buildCollabTestApp, type CollabTestCtx, type TestClient } from "./helpers.js";
-import { noteBase, paraDoc, versionsOf } from "./version-helpers.js";
+import { noteBase, paraDoc, pendingOf, versionsOf, waitForPending } from "./version-helpers.js";
 
 const PASSWORD = "correct-horse-battery";
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 async function setup() {
-  const ctx = await buildCollabTestApp({ versionIdleMs: 50 });
+  const ctx = await buildCollabTestApp({ versionAutoWaitMs: 0 });
   const u = await ctx.createUser({ email: "a@example.com", password: PASSWORD });
   const session = await ctx.loginAs("a@example.com", PASSWORD);
   const { token } = await seedTokenForUser(ctx.db, u.id, "notes:read notes:write", "Claude Code (knotebook)");
   const unloaded = () => waitFor("卸載", 10_000, () => ctx.collab.hocuspocus.documents.size === 0);
-  return { ctx, u, session, token, unloaded };
+  return { ctx, u, session, token, unloaded, scan: () => ctx.collab.versions.scanDue() };
 }
 type S = Awaited<ReturnType<typeof setup>>;
 
@@ -30,14 +29,14 @@ async function typeFirst(ctx: CollabTestCtx, noteId: string, client: TestClient,
   await waitFor("server 收到", 5_000, () => until(docText(ctx.collab.hocuspocus.documents.get(noteId)!)));
 }
 
-/** 三切點都試一遍（idle 3 秒內、AI 寫入前後、全部離開），最後手動儲存。回 [三切點之後的列數, 手動之後的列數]。 */
+/** #272：人打字、AI 寫入、全部離開，掃描一輪；最後手動儲存。回 [掃描之後的列數, 手動之後的列數]。 */
 async function cutPoints(s: S, noteId: string): Promise<[number, number]> {
   const client = await seedContent(s.ctx, s.session, noteId, "矩陣測試的人工內容");
-  await sleep(3_000); // 落盤 debounce 2 s ＋ idle 50 ms
   const ai = await s.ctx.app.inject({ method: "POST", url: `/api/notes/${noteId}/edits`, headers: bearer(s.token), payload: { op: "append", markdown: "AI 加的" } });
   expect(ai.statusCode).toBe(201);
   client.disconnect();
   await s.unloaded();
+  await s.scan();
   const afterCuts = (await versionsOf(s.ctx.db, noteId)).length;
   const save = await s.session.fetch(`/api/notes/${noteId}/versions`, { method: "POST", body: JSON.stringify({}) });
   expect(save.status).toBe(201);
@@ -45,14 +44,14 @@ async function cutPoints(s: S, noteId: string): Promise<[number, number]> {
 }
 
 describe("D8 開關矩陣", () => {
-  it("站台總開關關 → 三切點都不切、手動照建", async () => {
+  it("站台總開關關 → 掃描不切、手動照建", async () => {
     const s = await setup();
     await s.ctx.db.update(siteSettings).set({ autoVersionsEnabled: false });
     const n = await s.ctx.createNote(s.u.id);
     expect(await cutPoints(s, n.id)).toEqual([0, 1]);
   });
 
-  it("個人開關關 → 個人筆記三切點都不切；群組筆記照切（站台開＋個人關）", async () => {
+  it("個人開關關 → 個人筆記不切；群組筆記照切（站台開＋個人關）", async () => {
     const s = await setup();
     await s.ctx.db.update(users).set({ autoVersions: false }).where(eq(users.id, s.u.id));
     const personal = await s.ctx.createNote(s.u.id);
@@ -60,10 +59,10 @@ describe("D8 開關矩陣", () => {
     const g = await seedGroup(s.ctx.db, "G", [{ userId: s.u.id, role: "admin" }]);
     const gnote = await seedNote(s.ctx.db, { groupId: g.id });
     const [cuts] = await cutPoints(s, gnote.id);
-    expect(cuts).toBe(2); // 「idle 或 AI 寫前」恰一刀（兩種時序都是）＋AI 寫後一刀；unload 時已乾淨、不再切
+    expect(cuts).toBe(1); // #272：人與 AI 在同一段安靜期 → 同一版
   });
 
-  it("群組開關關 → 群組筆記三切點都不切、手動照建", async () => {
+  it("群組開關關 → 群組筆記不切、手動照建", async () => {
     const s = await setup();
     const g = await seedGroup(s.ctx.db, "G", [{ userId: s.u.id, role: "admin" }]);
     await s.ctx.db.update(groups).set({ autoVersions: false }).where(eq(groups.id, g.id));
@@ -71,25 +70,29 @@ describe("D8 開關矩陣", () => {
     expect(await cutPoints(s, gnote.id)).toEqual([0, 1]);
   });
 
-  it("開關改了之後要重新載入才生效（A13、§13-11）", async () => {
+  it("開關改了之後要重新載入才生效（A13、§13-11）：載入中照載入時的值待切與切；重新載入後關了就不再待切", async () => {
     const s = await setup();
     const n = await s.ctx.createNote(s.u.id);
     const client = await seedContent(s.ctx, s.session, n.id, "載入時開著");
+    await waitForPending(s.ctx.db, n.id);
     const r = await s.session.fetch("/api/auth/profile", { method: "PATCH", body: JSON.stringify({ autoVersions: false }) });
     expect(r.status).toBe(200);
+    await s.scan(); // 文件仍載入中：這個載入週期仍是開（⚠ 已卸載的筆記，掃描讀的是 DB 現值）
+    expect(await versionsOf(s.ctx.db, n.id)).toHaveLength(1);
     client.disconnect();
     await s.unloaded();
-    expect(await versionsOf(s.ctx.db, n.id)).toHaveLength(1); // 這個載入週期仍是開
     const again = await s.session.connect(n.id);
     await typeFirst(s.ctx, n.id, again, t => t.insert(0, "再載入後改"), x => x.includes("再載入後改"));
     again.disconnect();
     await s.unloaded();
-    expect(await versionsOf(s.ctx.db, n.id)).toHaveLength(1); // 重新載入後關了：不切
+    expect((await pendingOf(s.ctx.db, n.id)).at).toBeNull(); // 重新載入後關了：不待切
+    await s.scan();
+    expect(await versionsOf(s.ctx.db, n.id)).toHaveLength(1);
   });
 });
 
 describe("指紋情境（r1 I-2）", () => {
-  it("套用後打一字再刪 → 不 dirty；套用基底那一版本身（同內容）→ dirty=false 且 unload 不多切", async () => {
+  it("套用後打一字再刪 → 不 dirty；套用基底那一版本身（同內容）→ dirty=false 且掃描不多切", async () => {
     const s = await setup();
     const n = await s.ctx.createNote(s.u.id);
     const client = await seedContent(s.ctx, s.session, n.id, "第一版的文字");
@@ -102,6 +105,7 @@ describe("指紋情境（r1 I-2）", () => {
     expect((await (await s.session.fetch(`/api/notes/${n.id}/versions`)).json()).current.dirty).toBe(false);
     client.disconnect();
     await s.unloaded();
+    await s.scan();
     expect(await versionsOf(s.ctx.db, n.id)).toHaveLength(1);
   });
 });
@@ -142,7 +146,7 @@ describe("版號併發（§11.2）", () => {
     expect((await noteBase(s.ctx.db, n.id)).counter).toBe(10);
   });
 
-  it("載入中、同內容同時 10 次自動切版 → 恰一版；手動與計時器同內容撞版 → 總數恰 +1", async () => {
+  it("載入中、同內容同時 10 次自動切版 → 恰一版；手動與掃描同內容撞版 → 總數恰 +1（#272 案 21）", async () => {
     const s = await setup();
     const n = await s.ctx.createNote(s.u.id);
     const client = await seedContent(s.ctx, s.session, n.id, "同一份內容");
@@ -150,17 +154,15 @@ describe("版號併發（§11.2）", () => {
     await Promise.all(Array.from({ length: 10 }, () => s.ctx.collab.versions.cutIfDirty(n.id, live, { kind: "auto" })));
     expect(await versionsOf(s.ctx.db, n.id)).toHaveLength(1);
     await typeFirst(s.ctx, n.id, client, t => t.insert(0, "再改"), x => x.includes("再改"));
-    await Promise.all([
-      s.ctx.collab.versions.cutIfDirty(n.id, live, { kind: "auto" }),
-      s.ctx.collab.versions.cutIfDirty(n.id, live, { kind: "manual", name: "手動" }),
-    ]);
+    await waitForPending(s.ctx.db, n.id);
+    await Promise.all([s.scan(), s.ctx.collab.versions.cutIfDirty(n.id, live, { kind: "manual", name: "手動" })]);
     expect(await versionsOf(s.ctx.db, n.id)).toHaveLength(2);
     client.disconnect();
   });
 });
 
-describe("撤回也切版（§5.4）", () => {
-  it("撤回前有人工未存修改 → 增 2 版（撤回前的人工、撤回後的 AI）", async () => {
+describe("撤回不立刻切版（#272 D2）", () => {
+  it("撤回前有人工未存修改 → 撤回當下不增版；離開後掃描 +1（人、AI、撤回在同一版）", async () => {
     const s = await setup();
     const n = await s.ctx.createNote(s.u.id);
     const client = await seedContent(s.ctx, s.session, n.id, "撤回測試原文");
@@ -170,7 +172,10 @@ describe("撤回也切版（§5.4）", () => {
     const before = (await versionsOf(s.ctx.db, n.id)).length;
     const rv = await s.ctx.app.inject({ method: "POST", url: `/api/notes/${n.id}/edits/${editId}/revert`, headers: bearer(s.token) });
     expect(rv.statusCode).toBe(201);
-    expect((await versionsOf(s.ctx.db, n.id)).length - before).toBe(2);
+    expect((await versionsOf(s.ctx.db, n.id)).length - before).toBe(0);
     client.disconnect();
+    await s.unloaded();
+    await s.scan();
+    expect((await versionsOf(s.ctx.db, n.id)).length - before).toBe(1);
   });
 });

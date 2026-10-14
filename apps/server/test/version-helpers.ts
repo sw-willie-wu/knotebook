@@ -6,7 +6,7 @@ import * as Y from "yjs";
 import { YDOC_FRAGMENT, topLevelContainers } from "@knotebook/shared";
 import type { Db } from "../src/db/index.js";
 import { noteVersions, notes } from "../src/db/schema.js";
-import type { VersionDocsHost, VersionTimers } from "../src/collab/versions.js";
+import type { VersionDocsHost } from "../src/collab/versions.js";
 import type { NoteVersionRow, VersionEditorJson } from "../src/notes/tx/versions.js";
 import { EditorSession } from "../src/notes/editing/session.js";
 import { seedDoc } from "./copy-helpers.js";
@@ -99,6 +99,18 @@ export async function baseVersionIdOf(db: Db, noteId: string): Promise<string | 
   return r!.id;
 }
 
+/** #272：等這篇的待切滿足 `pred`（預設＝有待切）。落盤 debounce 2 s 之後 `noteStored` 才寫，所以 WS 編輯後要等它。 */
+export async function waitForPending(db: Db, noteId: string, pred: (p: Pending) => boolean = p => p.at !== null, ms = 10_000): Promise<Pending> {
+  const deadline = Date.now() + ms;
+  let last: Pending | null = null;
+  while (Date.now() < deadline) {
+    last = await pendingOf(db, noteId);
+    if (pred(last)) return last;
+    await new Promise(r => setTimeout(r, 25));
+  }
+  throw new Error(`等待逾時（${ms}ms）：待切 ${JSON.stringify(last)}`);
+}
+
 /** 「舊筆記」：功能上線前就存在、`note_states` 有內容、沒有任何版本（以 server 端 EditorSession 寫 markdown 再直接插 `note_states`）。 */
 export async function seedOldNote(db: Db, noteId: string, markdown: string): Promise<void> {
   const doc = new Y.Doc();
@@ -114,28 +126,4 @@ export async function seedOldNote(db: Db, noteId: string, markdown: string): Pro
 export function fakeHost(): VersionDocsHost & { docs: Map<string, Y.Doc> } {
   const docs = new Map<string, Y.Doc>();
   return { docs, documents: { get: name => docs.get(name), has: name => docs.has(name) } };
-}
-
-/** 手動觸發的計時器：`set` 只登記，`fire()` 一次跑完目前登記的全部回呼（測試不睡）。 */
-export function manualTimers(): { timers: VersionTimers; fire(): void; size(): number } {
-  const pending = new Map<number, () => void>();
-  let n = 0;
-  return {
-    timers: {
-      set: fn => {
-        n += 1;
-        pending.set(n, fn);
-        return n;
-      },
-      clear: h => {
-        pending.delete(h as number);
-      },
-    },
-    fire: () => {
-      const fns = [...pending.values()];
-      pending.clear();
-      for (const f of fns) f();
-    },
-    size: () => pending.size,
-  };
 }
