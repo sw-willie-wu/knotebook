@@ -6,7 +6,7 @@ import { YDOC_FRAGMENT } from "@knotebook/shared";
 import { notes } from "../src/db/schema.js";
 import { buildCollabTestApp, testConfig } from "./helpers.js";
 import { bearer, getContent, seedTokenForUser } from "./editing-helpers.js";
-import { loadDoc } from "./copy-helpers.js";
+import { loadDoc, seedDoc } from "./copy-helpers.js";
 import { seedGroup, seedNote } from "./group-helpers.js";
 import { mcpPost, rpc } from "./mcp-helpers.js";
 import type { FastifyInstance } from "fastify";
@@ -124,6 +124,36 @@ describe("#269 I1：MCP 站內連結往返", () => {
     const after = wikilinkAttrs((await loadDoc(ctx.db, dst.id))!);
     expect(after.map(a => a.label ?? "")).toEqual(["", "a]b\\"]);
     expect(after.map(a => a.targetNoteId)).toEqual([tricky.id, tricky.id]);
+  });
+
+  // 終審 m1：舊文件可能存大寫 targetNoteId，DB 回的 id 是小寫——現行標題查找要不分大小寫，否則退到 snapshotTitle。
+  it("文件存大寫 targetNoteId：MCP 讀出仍是現行標題（不是 snapshotTitle）", async () => {
+    const ctx = await buildCollabTestApp();
+    const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
+    const { token } = await seedTokenForUser(ctx.db, owner.id, "notes:read notes:write");
+    const target = await ctx.createNote(owner.id, "Live Title");
+    const host = await ctx.createNote(owner.id, "Host");
+    const upper = target.id.toUpperCase();
+    expect(upper).not.toBe(target.id); // fixture 自檢：id 真的有 a–f 字母會被轉大寫
+    const doc = new Y.Doc();
+    const g = new Y.XmlElement("blockGroup");
+    doc.getXmlFragment(YDOC_FRAGMENT).insert(0, [g]);
+    const c = new Y.XmlElement("blockContainer");
+    c.setAttribute("id", "m1");
+    const p = new Y.XmlElement("paragraph");
+    const w = new Y.XmlElement("wikilink");
+    w.setAttribute("targetNoteId", upper);
+    w.setAttribute("snapshotTitle", "Old Snapshot");
+    const t = new Y.XmlText();
+    p.insert(0, [t, w]);
+    c.insert(0, [p]);
+    g.insert(0, [c]);
+    t.insert(0, "see ");
+    await seedDoc(ctx.db, host.id, doc);
+
+    const md = await topMarkdown(ctx.app, token, host.id);
+    expect(md).toContain(`[Live Title](/notes/${upper})`);
+    expect(md).not.toContain("Old Snapshot");
   });
 
   // Task 5 審查 m1：`createWithContent` 的寫入轉換（可見清單＋siteOrigin）原本沒有整合層觀測。

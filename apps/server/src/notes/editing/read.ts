@@ -59,7 +59,8 @@ export async function loadLastEdited(db: Db, noteId: string): Promise<LastEdited
 export async function linkTitlesFor(db: Db, viewerId: string, doc: Y.Doc): Promise<Map<string, string>> {
   const ids = extractLinkTargets(doc).slice(0, MAX_LINK_TARGETS);
   if (ids.length === 0) return new Map();
-  return new Map((await visibleTitlesByIds(db, viewerId, ids)).map(t => [t.id, t.title]));
+  // 鍵一律小寫、查找端同（`exportMarkdown`）：舊文件的 `targetNoteId` 可能存大寫，比對不分大小寫（同 web `sameNoteId`）。
+  return new Map((await visibleTitlesByIds(db, viewerId, ids)).map(t => [t.id.toLowerCase(), t.title]));
 }
 
 /** mount 只為匯出 markdown；`ids` 為 undefined＝整篇。呼叫端已保證至少有一個 block（見下）。
@@ -71,7 +72,7 @@ async function exportMarkdown(runtime: EditingRuntime, doc: Y.Doc, ids: Set<stri
     const blocks = ids ? s.editor.document.filter(b => ids.has(b.id)) : s.editor.document;
     // #222：有顏色的頂層節點輸出成寫入端認得的 HTML；沒有顏色、也沒有需要跳脫的站內連結文字（#269 RF1）時
     // 與 blocksToMarkdownLossy 位元組相同（colors.ts）。
-    return blocksToMarkdownWithColors(s.editor, wikilinksToLinks(blocks, id => titles.get(id)));
+    return blocksToMarkdownWithColors(s.editor, wikilinksToLinks(blocks, id => titles.get(id.toLowerCase())));
   } finally {
     s.close();
   }

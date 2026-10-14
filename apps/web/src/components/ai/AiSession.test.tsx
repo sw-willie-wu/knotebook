@@ -495,6 +495,24 @@ describe("AiSession 狀態機（#263 spec §5.2）", () => {
     expect(session.state.phase === "input" && session.state.target.focus).toBe(`see [Live Title](/notes/${id}#b-h1)`);
   });
 
+  it("#269 終審 m1：文件存大寫 targetNoteId 時，送出的仍是現行標題（id 比對不分大小寫）", async () => {
+    const id = "abcdef12-3456-4abc-8def-0123456789ab"; // 清單（server）回的小寫 id
+    const upper = id.toUpperCase();
+    expect(upper).not.toBe(id); // fixture 自檢：真的有 a–f 字母會被轉大寫
+    editor = createTestEditor([
+      { id: "w1", type: "paragraph", content: ["see ", { type: "wikilink", props: { targetNoteId: upper, snapshotTitle: "Old", label: "", anchorBlockId: "h1" } }, " end"] },
+    ]);
+    const ai = stubAiFetch({ actions: ACTIONS, notes: [{ id, title: "Live Title", slug: "live", ownerId: "u1", role: "owner", createdAt: "x", updatedAt: "x", slugIsCustom: false, prevSlug: null, ownerHandle: "alice", lastEdited: null, group: null, groupId: null, permissions: OWNER_PERMS }] });
+    const host = renderAiHost({ editor, children: <Probe /> });
+    await waitFor(() => expect(session.actions).toHaveLength(ACTIONS.length));
+    await waitFor(() => expect(host.queryClient.getQueryData(["notes"])).toBeDefined());
+    selectWholeBlocks(editor, "w1", "w1");
+    act(() => session.open());
+    startAction(REWRITE.id);
+    expect(ai.calls[0]!.body.text).toContain(`[Live Title](/notes/${upper}#b-h1)`);
+    expect(ai.calls[0]!.body.text).not.toContain("[Old]");
+  });
+
   it("#269 RF1：送出的 /notes/ 連結文字經 markdown 跳脫；AI 原樣回寫後 label 逐字保留（文字＝現行標題者 label 仍空）", async () => {
     const id = "11111111-1111-4111-8111-111111111111";
     const note: NoteDto = { id, title: "[Draft] Plan *v2*", slug: "draft", ownerId: "u1", role: "owner", createdAt: "x", updatedAt: "x", slugIsCustom: false, prevSlug: null, ownerHandle: "alice", lastEdited: null, group: null, groupId: null, permissions: OWNER_PERMS };

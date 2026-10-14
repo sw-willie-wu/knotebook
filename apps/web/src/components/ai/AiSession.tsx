@@ -25,6 +25,7 @@ import {
 import { fetchAiActions, streamAiAction } from "@/api/ai";
 import { ApiFail } from "@/api/client";
 import { useNotes } from "@/api/notes";
+import { sameNoteId } from "@/lib/note-id";
 import { applyAiResult, hasNonTextBlock, prepareAiResult, revertAiResult, type PreparedResult } from "@/ai/apply";
 import { captureAnchor, verifyAnchor, type AiAnchor } from "@/ai/anchor";
 import { buildPreview, isNoChange, stripTextWrapper, type AiPreview } from "@/ai/preview";
@@ -178,7 +179,8 @@ export function AiSessionProvider(props: {
   const notesRef = useRef(notesQuery.data ?? []);
   notesRef.current = notesQuery.data ?? [];
   // #269 §9.4：送出前的現行標題查找（讀 ref——串流續體與選取回呼要讀到「此刻」的清單）。
-  const titleOf = useCallback((id: string) => notesRef.current.find((n) => n.id === id)?.title, []);
+  // id 比對不分大小寫（`sameNoteId`）：舊文件的 `targetNoteId` 可能存大寫，清單是小寫。
+  const titleOf = useCallback((id: string) => notesRef.current.find((n) => sameNoteId(n.id, id))?.title, []);
   const noteIdRef = useRef(noteId);
   noteIdRef.current = noteId;
   const editorRef = useRef(editor);
