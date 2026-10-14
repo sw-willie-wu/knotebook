@@ -3,6 +3,7 @@ import type { BlockNoteEditor, DefaultStyleSchema } from "@blocknote/core";
 import { createReactInlineContentSpec, type ReactCustomInlineContentRenderProps } from "@blocknote/react";
 import { canonicalNotePath, normalizeAnchor, wikilinkConfig, wikilinkHref, wikilinkVisibleText, type PublicLinkDto } from "@knotebook/shared";
 import { useNotes } from "@/api/notes";
+import { sameNoteId } from "@/lib/note-id";
 import { WikilinkContext } from "./context";
 import { useWikilinkActivate, useWikilinkClick } from "./useWikilinkClick";
 import { removeWikilinkNode, WikilinkToolbar } from "./WikilinkToolbar";
@@ -66,7 +67,7 @@ function MemberWikilink({ inlineContent, contentRef, editor, updateInlineContent
   const label = inlineContent.props.label ?? "";
   const anchor = normalizeAnchor(inlineContent.props.anchorBlockId);
   const list = notesQuery.isPending || !notesQuery.data ? undefined : notesQuery.data;
-  const note = list?.find((candidate) => candidate.id === targetNoteId);
+  const note = list?.find((candidate) => sameNoteId(candidate.id, targetNoteId));
   const broken = list !== undefined && note === undefined;
   const href = note ? `${canonicalNotePath(note)}${anchor ? `#b-${anchor}` : ""}` : wikilinkHref(targetNoteId, anchor);
   const text = broken ? wikilinkVisibleText(inlineContent.props) : wikilinkVisibleText(inlineContent.props, note?.title);

@@ -116,6 +116,24 @@ describe("postprocessSlide（spec §5.3）", () => {
     expect(host.querySelectorAll("[data-kn-mermaid]")).toHaveLength(1);
     expect(mermaidJobsIn(host)).toEqual(jobs);
   });
+
+  const WL = (attrs: string) => `<p><span data-inline-content-type="wikilink" data-target-note-id="n1" data-snapshot-title="Snap"${attrs}><a href="/notes/n1">x</a></span></p>`;
+  it("#269 §11.4 member：命中 → 文字 label 優先、href＝canonical＋#b-錨點；未就緒 → /notes/<id>＋錨點、label 優先；斷鏈 → label 優先的純文字", () => {
+    const found = member(() => ({ kind: "found", href: "/n/h/x", title: "Live" }));
+    let a = run(WL(' data-label="L" data-anchor-block-id="b1"'), found).host.querySelector("a")!;
+    expect([a.getAttribute("href"), a.textContent]).toEqual(["/n/h/x#b-b1", "L"]);
+    a = run(WL(""), found).host.querySelector("a")!;
+    expect([a.getAttribute("href"), a.textContent]).toEqual(["/n/h/x", "Live"]);
+    a = run(WL(' data-label="L" data-anchor-block-id="b1"'), member()).host.querySelector("a")!;
+    expect([a.getAttribute("href"), a.textContent]).toEqual(["/notes/n1#b-b1", "L"]);
+    const span = run(WL(' data-label="L"'), member(() => ({ kind: "broken" }))).host.querySelector(".kn-present-wikilink-broken")!;
+    expect(span.textContent).toBe("L");
+  });
+  it("#269 §11.4 public：純文字 label || snapshotTitle（O6：不連公開目標）", () => {
+    expect(run(WL(' data-label="L"'), publicCtx).host.textContent).toBe("L");
+    expect(run(WL(""), publicCtx).host.textContent).toBe("Snap");
+    expect(run(WL(' data-label="L"'), publicCtx).host.querySelector("a")).toBeNull();
+  });
 });
 
 describe("runMermaidJob", () => {

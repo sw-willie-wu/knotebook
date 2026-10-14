@@ -13,11 +13,12 @@ import PublicNotePage from "./PublicNotePage";
 // （fragment 名、resolveFileUrl 映射…）守在 collab/editor-options.test.ts。
 // data-ref 序列化成 kind:值——別只吐 kind（那樣「傳錯篇的 ref」測不出來）。
 vi.mock("@/components/PublicNoteEditor", () => ({
-  PublicNoteEditor: ({ doc, publicRef }: { doc: Y.Doc; publicRef: import("@/lib/public-note-ref").PublicNoteRef }) => (
+  PublicNoteEditor: ({ doc, publicRef, links }: { doc: Y.Doc; publicRef: import("@/lib/public-note-ref").PublicNoteRef; links: unknown[] }) => (
     <div
       data-testid="public-note-editor"
       data-ref={publicRef.kind === "token" ? `token:${publicRef.token}` : `path:${publicRef.handle}/${publicRef.slug}`}
       data-fragment-length={String(doc.getXmlFragment(YDOC_FRAGMENT).length)}
+      data-links={JSON.stringify(links)}
     />
   ),
 }));
@@ -36,6 +37,7 @@ function ydocBase64(build: (fragment: Y.XmlFragment) => void): string {
 interface PublicNoteBody {
   title: string;
   ydoc: string;
+  links?: Array<{ id: string; title: string; path: string }>;
 }
 
 /** 只回應公開端點；**任何**其他請求（尤其 /api/auth/me）都直接炸——匿名頁不得打到需要登入的東西。 */
@@ -105,6 +107,7 @@ describe("PublicNotePage（#72 /p/:token＋#122 PR3 /p/:handle/:slug 免登入�
     const editor = await screen.findByTestId("public-note-editor");
     expect(editor.dataset.ref).toBe(`token:${TOKEN}`);
     expect(editor.dataset.fragmentLength).toBe("1");
+    expect(screen.getByTestId("public-note-editor")).toHaveAttribute("data-links", "[]");
     expect(screen.getByRole("heading", { name: "公開的筆記" })).toBeInTheDocument();
     expect(screen.getByText("Read-only")).toBeInTheDocument();
     // Knotebook 字樣連回首頁（匿名者點了會被 RequireAuth 導去 /login，那是預期行為）
@@ -250,5 +253,13 @@ describe("PublicNotePage（#72 /p/:token＋#122 PR3 /p/:handle/:slug 免登入�
       expect(screen.getByText("This link doesn't exist or is no longer active.")).toBeInTheDocument(),
     );
     expect(screen.queryByTestId("public-note-editor")).not.toBeInTheDocument();
+  });
+
+  it("#269：payload 的 links 交給唯讀編輯器；舊 server（沒有 links）當成 []", async () => {
+    const links = [{ id: "11111111-1111-4111-8111-111111111111", title: "T", path: "/p/a/b" }];
+    const { fn } = mockFetch((url) => (url === `/api/public/notes/${TOKEN}` ? { status: 200, body: { title: "N", ydoc: EMPTY_YDOC_UPDATE_B64, links } } : null));
+    vi.stubGlobal("fetch", fn);
+    renderPage();
+    expect(await screen.findByTestId("public-note-editor")).toHaveAttribute("data-links", JSON.stringify(links));
   });
 });

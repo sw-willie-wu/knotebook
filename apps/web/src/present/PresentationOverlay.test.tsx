@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 import * as Y from "yjs";
 import { blocksToYDoc } from "@blocknote/core/yjs";
-import { YDOC_FRAGMENT, type NoteDto } from "@knotebook/shared";
+import { canonicalNotePath, YDOC_FRAGMENT, type NoteDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ThemeProvider, useTheme } from "@/theme";
 import { FakeReveal } from "@/test/fake-reveal";
@@ -320,6 +320,23 @@ describe("PresentationOverlay（fake reveal）", () => {
     });
     await ready();
     expect(slideEl("_title").querySelector("a")!.textContent).toBe("Renamed meeting");
+  });
+
+  it("#269 Task 16 m1：文件存大寫 targetNoteId、['notes'] 快取是小寫 id ⇒ 命中（可點的連結＋現行標題），不是斷鏈", async () => {
+    // 必須含 a–f：全數字 id 的 toUpperCase() 不變，測不出大小寫（Task 16 M6 的教訓）。
+    const hex = "abcdef12-3456-4789-8abc-def123456789";
+    expect(hex.toUpperCase()).not.toBe(hex);
+    const note: NoteDto = { id: hex, title: "Renamed meeting", ownerId: "u1", role: "owner", createdAt: "", updatedAt: "", slug: "renamed", slugIsCustom: false, prevSlug: null, ownerHandle: "tester", lastEdited: null, group: null, groupId: null, permissions: OWNER_PERMS };
+    const doc = blocksToYDoc(
+      createExportEditor(),
+      [{ id: "p0", type: "paragraph", content: [{ type: "wikilink", props: { targetNoteId: hex.toUpperCase(), snapshotTitle: "Meeting Notes" } }] }] as never,
+      YDOC_FRAGMENT,
+    );
+    setup({ props: { variant: "member", doc, title: "My Note" }, notes: [note] });
+    await ready();
+    const a = slideEl("_title").querySelector("a")!;
+    expect([a.textContent, a.getAttribute("href")]).toEqual(["Renamed meeting", canonicalNotePath(note)]);
+    expect(slideEl("_title").querySelector(".kn-present-wikilink-broken")).toBeNull();
   });
 
   it("test 6：100 ms 內 5 次更新 → 一次重切；持續更新 > 2 s → 至少套用一次", async () => {

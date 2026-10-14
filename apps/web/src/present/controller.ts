@@ -4,6 +4,7 @@ import Reveal from "reveal.js";
 import type { RevealApi } from "reveal.js";
 import { canonicalNotePath, YDOC_FRAGMENT, type NoteDto } from "@knotebook/shared";
 import { safeMediaUrl } from "@/lib/media-url";
+import { sameNoteId } from "@/lib/note-id";
 import { publicMediaUrl } from "@/lib/public-media-url";
 import type { PublicNoteRef } from "@/lib/public-note-ref";
 import type { PresentationShellContextValue } from "./PresentationShell";
@@ -113,7 +114,7 @@ export function startDeck(host: HTMLElement, env: () => DeckEnv, hashWriter: Has
         resolve: (targetNoteId) => {
           const notes = queryClient.getQueryData<NoteDto[]>(["notes"]);
           if (!notes) return { kind: "pending" };
-          const note = notes.find((candidate) => candidate.id === targetNoteId);
+          const note = notes.find((candidate) => sameNoteId(candidate.id, targetNoteId));
           return note ? { kind: "found", href: canonicalNotePath(note), title: note.title } : { kind: "broken" };
         },
       },

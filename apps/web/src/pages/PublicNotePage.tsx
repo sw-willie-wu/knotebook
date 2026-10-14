@@ -2,6 +2,7 @@ import { Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useLocation, useParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
+import type { PublicLinkDto, PublicNoteDto } from "@knotebook/shared";
 import { api, ApiFail } from "@/api/client";
 import { decodePublicYdoc } from "@/collab/public-doc";
 import { PublicNoteEditor } from "@/components/PublicNoteEditor";
@@ -20,11 +21,8 @@ import { PresentationErrorBoundary, PresentationShell, type PresentationShellSta
 import { exitFullscreenIfLeftPresentation, isPresentingSearch } from "@/present/present-url";
 import { usePresentEntry } from "@/present/usePresentEntry";
 
-/** 公開內容端點的回應形（server 端 routes/public.ts，兩形同形；刻意不含 noteId／updatedAt）。 */
-interface PublicNoteDto {
-  title: string;
-  ydoc: string;
-}
+/** #269：舊 server 沒帶 `links` 時的後備——模組層常數，identity 穩定，PublicNoteEditor 的 links Map 不會每次 render 重建。 */
+const NO_LINKS: readonly PublicLinkDto[] = [];
 
 /**
  * 公開唯讀頁（#72 Task 3；#122 PR3 起雙形）：`/p/:token` 與 `/p/:handle/:slug`
@@ -137,7 +135,7 @@ export default function PublicNotePage() {
           {/* 內文沿 NoteEditor 的文章欄常數（#115：`<md` 內距 70→20 的斷點機制在
               article-column.ts／index.css，這裡照吃不另寫）。 */}
           <div ref={setColumnEl} className={cn(ARTICLE_COLUMN, ARTICLE_COLUMN_PADDING, "relative flex min-h-full flex-col py-6")}>
-            <PublicNoteEditor doc={doc!} publicRef={publicRef} />
+            <PublicNoteEditor doc={doc!} publicRef={publicRef} links={data.links ?? NO_LINKS} />
             <HeadingAnchorButtons container={columnEl} />
           </div>
         </div>

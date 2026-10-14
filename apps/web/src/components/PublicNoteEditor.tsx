@@ -8,7 +8,9 @@ import type * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
 import { useCreateBlockNote } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/mantine";
+import type { PublicLinkDto } from "@knotebook/shared";
 import { buildReadonlyNoteEditorOptions } from "@/collab/editor-options";
+import { WikilinkContext, type WikilinkMode } from "@/components/wikilink/context";
 import { publicRefIdentity, type PublicNoteRef } from "@/lib/public-note-ref";
 import { useTheme } from "@/theme";
 
@@ -17,6 +19,8 @@ export interface PublicNoteEditorProps {
   doc: Y.Doc;
   /** 公開頁把手（#122 PR3 起兩形）：`resolveFileUrl` 依形組公開圖端點路徑要用。 */
   publicRef: PublicNoteRef;
+  /** #269 §11.1：公開 payload 的 links（只含有自訂公開網址的目標）。wikilink 經 WikilinkContext 的 public 模式渲染——不呼叫 useNotes。 */
+  links: readonly PublicLinkDto[];
 }
 
 /**
@@ -28,7 +32,7 @@ export interface PublicNoteEditorProps {
  * 在無 provider 下正常渲染（含 code/mermaid lazy 鏈）；**不掛 useCollab、不打
  * collab-token**（也沒有 noteId 可打）。
  */
-export function PublicNoteEditor({ doc, publicRef }: PublicNoteEditorProps) {
+export function PublicNoteEditor({ doc, publicRef, links }: PublicNoteEditorProps) {
   const { i18n } = useTranslation();
   const { resolvedTheme } = useTheme();
 
@@ -50,8 +54,13 @@ export function PublicNoteEditor({ doc, publicRef }: PublicNoteEditorProps) {
     // 語言刻意不進 deps（與 NoteEditor 同一條理由：字典只在建立時讀一次）。
     [doc, awareness, refIdentity],
   );
+  const mode = useMemo<WikilinkMode>(() => ({ mode: "public", links: new Map(links.map((l) => [l.id.toLowerCase(), l])) }), [links]);
 
   // editable={false}：BlockNote 不會渲染任何輸入介面（formatting toolbar／slash／
   // file panel 都只在可編輯時觸發），不必逐一關閉 controller。
-  return <BlockNoteView editor={editor} editable={false} theme={resolvedTheme} data-testid="public-note-editor" />;
+  return (
+    <WikilinkContext.Provider value={mode}>
+      <BlockNoteView editor={editor} editable={false} theme={resolvedTheme} data-testid="public-note-editor" />
+    </WikilinkContext.Provider>
+  );
 }

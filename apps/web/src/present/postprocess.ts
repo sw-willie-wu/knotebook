@@ -1,3 +1,4 @@
+import { normalizeAnchor } from "@knotebook/shared";
 import { renderMermaid, type MermaidTheme } from "@/lib/mermaid";
 
 /**
@@ -44,18 +45,22 @@ function openInNewTab(a: HTMLAnchorElement): void {
 function wikilinkNode(el: Element, ctx: PostprocessContext): Node {
   const targetId = el.getAttribute("data-target-note-id") ?? "";
   const snapshot = el.getAttribute("data-snapshot-title") ?? "";
-  if (ctx.wikilinks.kind === "public") return document.createTextNode(snapshot);
+  // #269 §11.4：label 優先；預設值（空）時 BlockNote 不輸出這兩個屬性。
+  const label = el.getAttribute("data-label") ?? "";
+  const anchor = normalizeAnchor(el.getAttribute("data-anchor-block-id") ?? "");
+  const hash = anchor ? `#b-${anchor}` : "";
+  if (ctx.wikilinks.kind === "public") return document.createTextNode(label || snapshot);
   const resolution = ctx.wikilinks.resolve(targetId);
   if (resolution.kind === "broken") {
     const span = document.createElement("span");
     span.className = "kn-present-wikilink-broken";
     span.title = ctx.wikilinks.brokenLabel;
-    span.textContent = snapshot;
+    span.textContent = label || snapshot;
     return span;
   }
   const a = document.createElement("a");
-  a.setAttribute("href", resolution.kind === "found" ? resolution.href : `/notes/${encodeURIComponent(targetId)}`);
-  a.textContent = resolution.kind === "found" ? resolution.title : snapshot;
+  a.setAttribute("href", `${resolution.kind === "found" ? resolution.href : `/notes/${encodeURIComponent(targetId)}`}${hash}`);
+  a.textContent = label || (resolution.kind === "found" ? resolution.title : snapshot);
   openInNewTab(a);
   return a;
 }

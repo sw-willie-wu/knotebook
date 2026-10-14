@@ -90,6 +90,12 @@ describe("sanitizeSlideFragment：要留下的（spec §13.1）", () => {
     expect(span.getAttribute("data-inline-content-type")).toBe("wikilink");
   });
 
+  it("#269：wikilink 的 data-label／data-anchor-block-id 白名單放行、值原樣（含冒號）", () => {
+    const span = clean('<span data-inline-content-type="wikilink" data-target-note-id="n1" data-label="Re: plan" data-anchor-block-id="b1">x</span>').querySelector("span")!;
+    expect(span.getAttribute("data-label")).toBe("Re: plan");
+    expect(span.getAttribute("data-anchor-block-id")).toBe("b1");
+  });
+
   it("data-kn-media、data-kn-mermaid、顏色與對齊屬性保留", () => {
     const host = clean(
       '<a href="/api/uploads/a" data-kn-media="">f</a><div data-kn-mermaid="">graph TD</div>' +

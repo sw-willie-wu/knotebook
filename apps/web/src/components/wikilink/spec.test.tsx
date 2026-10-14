@@ -150,6 +150,15 @@ describe("MemberWikilink（W1）", () => {
     expect(screen.queryByText(TARGET.title)).not.toBeInTheDocument();
   });
 
+  it("#269 Task 16 m1：文件存大寫 targetNoteId、清單是小寫 id ⇒ 命中（活連結、現行標題），不是斷鏈", () => {
+    // 必須含 a–f：TARGET.id 全是數字，toUpperCase() 不變，測不出大小寫（Task 16 M6 的教訓）。
+    const hex: NoteDto = { ...TARGET, id: "abcdef12-3456-4789-8abc-def123456789" };
+    expect(hex.id.toUpperCase()).not.toBe(hex.id);
+    renderWikilink({ queryClient: loadedClient([hex]), props: { targetNoteId: hex.id.toUpperCase(), snapshotTitle: "Old" } });
+    expect(screen.getByRole("link", { name: hex.title })).toHaveAttribute("href", canonicalNotePath(hex));
+    expect(screen.queryByText("Old")).not.toBeInTheDocument();
+  });
+
   it("斷鏈（清單到了卻沒有這個 id）：<span> 斷鏈樣式（不是連結）、label 或 snapshotTitle；點擊只 toast", () => {
     renderWikilink({ queryClient: loadedClient([]), props: { targetNoteId: "44444444-4444-4444-4444-444444444444", snapshotTitle: "Deleted Note" } });
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
