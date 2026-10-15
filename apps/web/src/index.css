@@ -597,28 +597,32 @@ input[name="share-access"] {
   border: 1px solid var(--color-border);
 }
 
-/* 語言下拉的閉合態（issue #96 的顏色 → issue #111 的位置與樣式）。
-   目標是**與 mermaid 的控制鈕同一套邏輯**（`MermaidView.tsx`）：保留一列高度在方塊
-   **外面的上方**、控制項靠右、平常隱形，hover 到整個 block（或鍵盤聚焦）才現身。
+/* 語言下拉的閉合態（issue #96 的顏色 → issue #111 的樣式 → 2026-10-15 搬進方塊內）。
+   目標是**與 mermaid 的控制鈕同一套邏輯**（`MermaidView.tsx`）：疊在方塊**內的右上角**、
+   平常隱形，hover 到整個 block、游標在這塊程式碼裡、或鍵盤聚焦下拉本身才現身。
 
    內建是：`color:#fff`（配深底，淺色底上等於看不見）、絕對定位在方塊**左上角內部**
    （`top:8px;left:18px`）、`opacity:0` → hover 浮到 .5。
 
-   1. **移到方塊外面的上方、靠右**：block content 加 `margin-top` 讓出一條 1.75rem
-      的保留列（＝mermaid 那條 `h-7`，高度固定所以顯隱不會讓版面跳動），下拉用
-      `bottom: 100%` 貼在那條列上（不是算好的負 `top`，理由見下面規則本體的註解）。
-      左上角是最糟的落點——疊在第一行程式碼的**開頭**，正是最常點去放游標的地方；
-      搬到方塊外面之後就完全不再攔截**程式碼區域**的點擊（mermaid #94 為此把工具列
-      拉成獨立一列，同一個理由）。
-      ⚠ 殘留的同形風險：那顆控制項雖然 `opacity:0`，仍實際佔著保留列上約 96×26px。
-      滑鼠沒問題（要碰到它必先 hover 到 block，它會先淡入），但**觸控沒有 hover**：
-      兩個 code block 之間那條帶上，一點就是打開語言下拉而不是把游標放到上一個
-      block。與 mermaid 現況同形，暫時接受（jsdom 沒有 hit testing、e2e 也沒覆蓋）。
-   2. **hover 才現**：與 mermaid 一致。用 `opacity` 而不是 `display/hidden` 隱藏——
-      後者會讓它退出 Tab 順序，鍵盤使用者就永遠構不到（`:focus` 那條負責讓它現身）。
-   3. **長相**：與 mermaid 那顆鈕同語彙（`rounded-sm border border-border bg-background
-      px-2 py-1 text-xs text-muted-foreground`）。現身時直接給全對比的 muted 前景色，
-      不再用半透明疊色（#96 算過：α 混色的有效對比會隨底色浮動，內建的 .5 只有 3.1:1）。
+   1. **右上角、方塊內**：位置寫在下面共用的 `.block-control`（與 mermaid 那顆鈕同一條
+      規則，`top`／`right` 同值）。左上角是最糟的落點——疊在第一行程式碼的**開頭**，正是
+      最常點去放游標的地方；右上角落在 `<pre>` 的 24px 上內距裡，只壓到第一行行框頂端約 3px
+      （headless Chromium 151、900px 寬實量：控制項下緣距方塊上緣 31px、程式碼內容從 28px
+      開始；截圖上與第一行字形不重疊）。
+      #111 曾把它搬到方塊**外面**的上方、為此在 block content 上留一條 1.75rem 的保留列
+      （＝mermaid 那條 `h-7`）；2026-10-15 定案拿掉保留列：沒 hover 時隱形、不擋內容，
+      不必替它多佔一段高度。
+   2. **何時現身**：hover 整個 block（滑鼠）、`[data-caret-inside]`（游標在這塊程式碼裡，由
+      `collab/code-block-caret.ts` 的 decoration 掛上——觸控沒有 hover，點進程式碼就靠這條
+      叫出下拉；**不能**用 `:focus-within`，焦點在編輯器根、不在 block，理由見該檔）、
+      `select:focus`（鍵盤）、`select:open`（清單展開中，見 `@supports` 那段）。用 `opacity` 而不是 `display/hidden` 隱藏——後者會讓它退出
+      Tab 順序，鍵盤使用者就永遠構不到。
+      隱形時 `pointer-events:none`：它現在疊在程式碼上，觸控點到那一角若被一顆看不見的
+      下拉吃掉，就是「想放游標卻打開語言選單」。滑鼠不受影響（要點到它必先 hover 到
+      block，它就先現身、`pointer-events` 也一起回來）；Tab 順序也不受影響（pointer-events
+      不管焦點）。mermaid 那顆鈕刻意不跟，理由在 `MermaidView.tsx`。
+   3. **長相**：與 mermaid 那顆鈕同一條規則（下面的 `.block-control`）。現身時直接給全對比，
+      不用半透明疊色（#96 算過：α 混色的有效對比會隨底色浮動，內建的 .5 只有 3.1:1）。
 
    展開後的清單見檔案後段的 `@supports (appearance: base-select)`：支援的瀏覽器
    （Chromium 135+／Safari 27）會把清單換成真正的 DOM，我們照 app 的 ⋮ 選單樣式畫，
@@ -629,30 +633,14 @@ input[name="share-access"] {
    且 BlockNote 的 CSS 在 NotePage lazy chunk、載入必晚於本檔——`.bn-editor` 錨墊到
    (0,3,2) 才蓋得掉，掉了錨整組靜默回到左上角的隱形下拉。守衛見
    `theme.code-highlight-vars.test.ts`。 */
-.bn-editor .bn-block-content[data-content-type=codeBlock] {
-  /* 保留列：控制項落在方塊外面的上方，所以要先把那段高度讓出來。1.75rem ＝ mermaid
-     那條工具列的 `h-7`（`MermaidView.tsx`）——兩種 block 的控制列同高才算「統一」，
-     守衛直接讀 MermaidView 對值。 */
-  margin-top: 1.75rem;
-}
-
 .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select {
-  /* **貼齊方塊上緣**：`bottom:100%` 讓它的下緣正好落在 containing block 的 padding
-     box 上緣；那個 box 因為我們的 1px 邊框已內縮 1px，`margin-bottom:1px` 把它抵銷
-     回來，結果是**貼齊**（不是額外留白）。用 bottom 而不是算好的負 top，是因為負 top
-     要自己扣掉控制項高度，字級或內距一改就又浮起來（上一版就是這樣浮了 6px）。
-     ⚠ **`top:auto` 與 `left:auto` 都不可省**。少了它們，內建的 `top:8px`／`left:18px`
-     還在，控制項就靜默回到方塊內部的左上角（＝這條 issue 的原狀）。實測（Chrome 152，
-     真實元素上逐一拿掉，其餘照舊）：
-       只拿掉 `top:auto`  → 落在 block 上緣 ＋8px、高 24px（在方塊**內**）
-       只拿掉 `left:auto` → 落在 block 左緣 ＋18px
-     兩者都是靜默失敗（沒有錯誤、只是位置錯），守衛各釘一條。 */
-  top: auto;
-  bottom: 100%;
+  /* ⚠ **`left:auto` 不可省**。`top`／`right` 由 `.block-control` 給，但內建還有一條
+     `left:18px`；少了這行，left 與 right 同時生效、寬度跟著撐開——控制項從方塊左緣 ＋18px
+     一路橫到右上角，整條蓋在第一行程式碼上（2026-10-15 headless Chromium 151 實測：在
+     真實元素的規則上拿掉 `left`，下拉寬 556px、左距 19px）。靜默失敗，守衛釘一條。 */
   left: auto;
-  right: 0;
-  margin-bottom: 1px;
   opacity: 0;
+  pointer-events: none;
   transition: opacity 0.15s;
 
   /* **寬度下限**：原生 select 的寬度跟著「目前選到的那個標籤」走，於是同一顆控制項
@@ -662,52 +650,70 @@ input[name="share-access"] {
      ⚠ 刻意用 `min-width` 而不是 `width`：這個值是**量出來的**（字寬由字型決定，字數
      不是好指標——`TypeScript` 10 字反而比 `Markdown` 8 字窄），換字型／縮放／未來加更長
      的語言名都可能超出。寫死 `width` ＋ `overflow:hidden` 的失敗形是**靜默截斷**；
-     `min-width` 的失敗形只是「那一顆變寬一點」，而它是右錨定（`right:0`）的，右緣不動。 */
+     `min-width` 的失敗形只是「那一顆變寬一點」，而它是右錨定（`right`）的，右緣不動。 */
   min-width: 6rem;
   white-space: nowrap;
-  /* 長相不在這裡：與 mermaid 那顆鈕共用下面的 `.block-control`（一份真相）。 */
+  /* 長相與位置不在這裡：與 mermaid 那顆鈕共用下面的 `.block-control`（一份真相）。 */
 }
 
-/* ── Block 控制項的共用視覺（issue #111）──────────────────────────────
+/* ── Block 控制項的共用視覺與位置（issue #111 → 2026-10-15 搬進方塊內）──────────
    兩個消費端，一條規則：
      - mermaid 的「編輯／顯示原始碼」鈕（`MermaidView.tsx`，掛 class）
      - codeBlock 的語言下拉（BlockNote 內建 render 出來的原生 `<select>`，我們拿不到
        className，只能用選擇器把它接進同一條規則）
 
-   為什麼不是「兩邊各寫一份、靠測試對值」：那是上一版的做法，結果就是把 `rounded-sm`
+   為什麼不是「兩邊各寫一份、靠測試對值」：那是更早的做法，結果就是把 `rounded-sm`
    手抄成 `0.125rem`——那是 **Tailwind v3** 的值，v4 的 `rounded-sm` 是 `0.25rem`，
    於是圓角差一半（實測回報）。用 `@apply` 直接吃同一組 utility，就不會再有人工換算，
-   改一次兩邊一起變。
+   改一次兩邊一起變。**位置也在這條**：兩顆都疊在自己方塊內的右上角，containing block
+   分別是 block content（BlockNote 內建 `position:relative`）與 MermaidView 的外層
+   （`relative`）。
+
+   **實底＋邊框**：控制項疊在程式碼／圖上，要自己帶底才讀得到。WCAG 對比（以變數色值換算
+   sRGB 計算；淺色 → 深色）：
+     - 字 `--muted-foreground` 對底 `--popover`：4.73 → 5.90（文字 ≥ 4.5）
+     - 邊框 `--muted-foreground` 對 codeBlock 底 `--code-background`：4.45 → 6.83（非文字 UI ≥ 3）
+     - 同一條邊框對 mermaid 所在的卡面 `--card`：4.73 → 6.49
+   底色本身與方塊底幾乎同色（`--popover` 對 `--code-background` 只有 1.06 → 1.16），
+   分界全靠那條邊框——所以邊框不能用 `--border`（淺色 #e5e5e5 對 #f6f8fa 只有約 1.2）。
+   更早用的是 `bg-background`：淺色頁底 #f3f4f6 上 muted 字只有 4.30，不到 AA。
 
    ⚠ **不得放進 `@layer components`**：BlockNote 的 CSS 沒有 layer，而**未分層的樣式
    贏過任何 layer**（與 specificity 無關）——放進去 select 那半會整條失效。
    ⚠ select 那個選擇器是 (0,3,2)，靠 `.bn-editor` 錨才壓得過內建的 (0,2,2)（內建的
    CSS 在 NotePage lazy chunk，載入必晚於本檔；兩邊都未分層，才輪到 specificity 決勝）。
+   內建的 `top:8px` 也是靠這個錨才被這裡的 `top` 蓋掉。
    ⚠ 同一個未分層特性的**代價**：Tailwind 的 utility 在 `@layer utilities` 裡，所以
    這條規則會**贏過** class 上的 utility。掛了 `.block-control` 的元素若要改上面這些
-   屬性（字級、內距、圓角…），加一個 utility class 是**沒有用**的——要嘛改這條規則
+   屬性（字級、內距、圓角、位置…），加一個 utility class 是**沒有用**的——要嘛改這條規則
    （兩邊一起變，通常正是我們要的），要嘛那個元素就不該用 .block-control。 */
 .block-control,
 .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select {
-  @apply rounded-sm border border-border bg-background px-2 py-1 text-xs text-muted-foreground;
+  @apply absolute top-1 right-1 rounded-sm border border-muted-foreground bg-popover px-2 py-1 text-xs text-muted-foreground;
 
   /* 原生 select 才需要的一條：不寫的話它用作業系統的 UI 字型，跟旁邊那顆鈕明顯不是
      同一套字。對 `<button>` 無害（本來就繼承）。 */
   font-family: inherit;
 }
 
-/* hover 整個 block（或聚焦下拉本身）才現身——與 mermaid 的 `group-hover` 同語意。 */
+/* 現身：hover 整個 block、游標在這塊程式碼裡（`data-caret-inside`）、或焦點在下拉上——
+   與 mermaid 的 `group-hover`／`group-focus-within`／`focus-visible` 同語意。
+   清單展開的那段（焦點已移進 option）另由 `@supports (appearance: base-select)` 裡的
+   `select:open` 撐著，理由見那條。 */
 .bn-editor .bn-block-content[data-content-type=codeBlock]:hover > div > select,
+.bn-editor .bn-block-content[data-content-type=codeBlock][data-caret-inside] > div > select,
 .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select:focus {
   opacity: 1;
+  pointer-events: auto;
 }
 
 /* 唯讀（viewer／未同步）：BlockNote 仍會渲染這個 select，只是設 `disabled`（見
    `createCodeBlockSpec` 的 render）。留著它是 viewer 唯一看得到語言的地方，但要去掉
-   「可以點」的暗示——退成純文字標籤。 */
+   「可以點」的暗示——拿掉邊框，退成純文字標籤。**底色刻意留著**：它疊在程式碼上，
+   muted 字直接壓在淺色 `--code-background` 上只有 4.45（不到 4.5），壓在自己的
+   `--popover` 底上是 4.73；那塊底與程式碼底幾乎同色（1.06 → 1.16），看起來仍是一行字。 */
 .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select:disabled {
   border-color: transparent;
-  background-color: transparent;
   cursor: default;
 }
 
@@ -764,8 +770,8 @@ input[name="share-access"] {
     transition: transform 0.15s;
   }
 
-  /* 唯讀（disabled）時箭頭一併退場：邊框/底色已由上方的 `:disabled` 規則拆掉，
-     箭頭留著的話 hover 出現的仍是「一顆不能按的下拉」——#111 定案唯讀是純文字
+  /* 唯讀（disabled）時箭頭一併退場：邊框已由上方的 `:disabled` 規則拆掉（底色刻意留著，
+     理由見該規則），箭頭留著的話 hover 出現的仍是「一顆不能按的下拉」——#111 定案唯讀是純文字
      語言標籤（公開唯讀頁實看回報的形）。`display:none` 不違反上方「用 opacity
      別用 display」的規矩：那條管的是控制項的 Tab 可及性，這裡藏的是**偽元素**、
      且 disabled 的 select 本就不進 Tab 順序。⚠ 蓋不到 Firefox：它無 base-select、
@@ -785,6 +791,20 @@ input[name="share-access"] {
      根本沒有箭頭可用。 */
   .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select:open::picker-icon {
     transform: rotate(180deg);
+  }
+
+  /* 清單展開中，下拉本體保持現身、點得到。base-select 一展開就把焦點移進被選中的 `<option>`，
+     select 本身不再 `:focus`，而 `:focus-within` 在它身上也不成立（2026-10-15 headless Chromium 151
+     觸控模擬實測：tap 下拉後 activeElement 是 OPTION、select 的 :focus／:focus-within 都是 false、
+     :open 是 true）。點下拉那一刻編輯器 blur、caret 屬性拿掉，手指／滑鼠一離開 block，少了這條
+     下拉就淡出並變回 pointer-events:none，清單卻還開著。滑鼠 click 與鍵盤 Enter／Space 展開也一樣
+     （同版本在最小頁面上實測：焦點進 option、只有 :open 成立），所以這條同時修了鍵盤路徑——
+     以前只有 `:focus` 時，鍵盤展開清單後下拉本體同樣會淡出（由此推得，未在 app 裡單獨實測）。e2e `30-code-block-touch` 守觸控那段交接。
+     放在 @supports 裡：不支援 base-select 的瀏覽器清單是 OS widget、焦點留在 select 上（`:focus`
+     那條就夠），且 `:open` 不認得的話會讓整條選擇器清單作廢——所以也不能併進上面的現身規則。 */
+  .bn-editor .bn-block-content[data-content-type=codeBlock] > div > select:open {
+    opacity: 1;
+    pointer-events: auto;
   }
 
   /* 清單容器：比照 DropdownMenuContent。 */

@@ -16,7 +16,7 @@ import { noteSchema } from "./schema";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 編輯器泛型三元組，走 repo 慣例
 type AnyEditor = BlockNoteEditor<any, any, any>;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- ProseMirror EditorView 型別在 apps/web 值層級拿不到（memory knotebook-markdown-link-rule）
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同一個別名也拿來標 PM 的 Node（prosemirror-model 不是 apps/web 的依賴）與 prop callback，沿用 any
 type AnyView = any;
 
 const TARGET = "22222222-2222-4222-8222-222222222222";

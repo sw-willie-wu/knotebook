@@ -198,7 +198,40 @@ describe("MermaidView — 樣式載重", () => {
     expect(button.className).toContain("opacity-0");
     expect(button.className).toContain("group-hover:opacity-100");
     expect(button.className).toContain("focus-visible:opacity-100");
+    // 方塊內有焦點（Tab 到「點圖進編輯」那顆）時也現身——與 codeBlock「游標在程式碼裡就現身」同語意。
+    expect(button.className).toContain("group-focus-within:opacity-100");
     expect(button.className).not.toMatch(/(^|\s)hidden(\s|$)/);
+  });
+
+  it("控制鈕疊在方塊內右上角：直接掛在 relative 外層底下，沒有 #111 那條 h-7 保留列", async () => {
+    const { container } = render(<MermaidView code="graph TD; A-->B;" editable theme="light" onChange={vi.fn()} />);
+    await waitFor(() => expect(screen.getByTestId("diagram")).toBeInTheDocument());
+
+    const root = container.firstElementChild as HTMLElement;
+    const button = screen.getByRole("button", { name: "Edit" });
+    // 位置由 `.block-control`（index.css）給——它是 absolute，containing block 就是這個外層。
+    expect(button.className).toContain("block-control");
+    // 位置只在 `.block-control`（與語言下拉同一條規則）：鈕自己不得再帶任何定位 utility——那是兩份位置真相。
+    // 看渲染後的 token（不看順序、不受原始碼註解干擾）：`top-1`、`right-[4px]`、`inset-0`、`absolute`… 都算。
+    const positional = button.className
+      .split(/\s+/)
+      .filter((t) => /^-?(?:absolute|relative|fixed|sticky|inset|top|right|bottom|left)(?:-|$)/.test(t.replace(/^.*:/, "")));
+    expect(positional, `控制鈕不得自帶定位 class：${positional.join(" ")}`).toEqual([]);
+    expect(root.className.split(/\s+/), "外層要 relative，控制鈕才疊得在方塊內").toContain("relative");
+    expect(button.parentElement, "控制鈕外面不得再包一層工具列（那就是保留列）").toBe(root);
+    expect(root.querySelector('[class*="h-7"]'), "不得再有 h-7 的保留列").toBeNull();
+  });
+
+  it("編輯中：控制鈕不渲染，提示放在 textarea 下方（不疊在原始碼上）", async () => {
+    render(<MermaidView code="graph TD; A-->B;" editable theme="light" onChange={vi.fn()} />);
+    await waitFor(() => expect(screen.getByTestId("diagram")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const textarea = screen.getByRole("textbox");
+    const hint = screen.getByText("Press Esc or click elsewhere to finish");
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+    expect(textarea.compareDocumentPosition(hint) & Node.DOCUMENT_POSITION_FOLLOWING, "提示要在 textarea 之後").toBeTruthy();
+    expect(hint.className, "提示不得疊上去（absolute）").not.toMatch(/\babsolute\b/);
   });
 
   it("外層帶 w-full（bn-block-content 是 flex 容器，沒宣告寬度整個 block 會被 shrink-wrap 成約 140px）", () => {

@@ -5,6 +5,8 @@ type Any = any;
 
 export interface PmPluginSpec {
   appendTransaction?(trs: readonly Any[], oldState: Any, newState: Any): Any;
+  /** PM 的 `props`（例：`decorations(state)`，`collab/code-block-caret.ts` 用）。 */
+  props?: { decorations?(state: Any): Any };
 }
 
 /**

@@ -13,9 +13,9 @@ import { attachTestElementRenderer } from "@/test/element-renderer";
 
 // spec 2026-10-13 site-links §8.4、§6.5、§15.1 W4、§7.6（AddMarkStep 外掛、非同步後備兩列）。
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 泛型三元組／PM view 在 apps/web 值層級拿不到，走 repo 慣例
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 泛型三元組，走 repo 慣例
 type AnyEditor = BlockNoteEditor<any, any, any>;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同上
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- 測試只碰 view 的 state／dispatch／someProp 幾個欄位，沿用 any（同 AnyEditor 的慣例）
 type AnyView = any;
 
 const ORIGIN = window.location.origin;

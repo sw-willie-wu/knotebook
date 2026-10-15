@@ -283,6 +283,13 @@ describe("buildNoteEditorOptions", () => {
     expect(extensions.map((ext: { name: string }) => ext.name)).toContain("knotebookMarkdownLink");
   });
 
+  // 同一個接線釘的理由：`code-block-caret.test.ts` 掛的是自己建的編輯器，拔掉這裡那一行它照樣綠，
+  // 真實 app 裡觸控卻叫不出語言下拉。
+  it("_tiptapOptions.extensions 掛了 code block 的 caret 訊號 extension（觸控叫出語言下拉）", () => {
+    const extensions = build()._tiptapOptions.extensions;
+    expect(extensions.map((ext: { name: string }) => ext.name)).toContain("knotebookCodeBlockCaret");
+  });
+
   it("攔截掛在 editorProps.handleDOMEvents，**不是** handlePaste/handleDrop", () => {
     const editorProps = build()._tiptapOptions.editorProps;
 
@@ -345,7 +352,7 @@ describe("buildNoteEditorOptions 的 [[ 觸發偵測（handleTextInput）", () =
   let editor: BlockNoteEditor<any, any, any>;
   let container: HTMLElement;
   // `view` 型別刻意寫 `unknown`（同 `createMediaBlockingDOMEvents` 的 house style）：
-  // 測試不必為了型別把 prosemirror-view 拉成直接依賴。
+  // 測試只把真 view 原樣轉交、不讀它的欄位。
   let handleTextInput: (view: unknown, from: number, to: number, text: string) => boolean | void;
 
   beforeEach(() => {
@@ -854,7 +861,7 @@ describe("#269 接線：站內連結外掛真的掛在 buildNoteEditorOptions �
       // 走 plugin 鏈的 handleTextInput（input rule 掛在那裡；不可用直接呼叫 editorProps 的 typeInput——那條繞過 input rule）。
       for (const ch of "see [x](/n/alice/alpha)") {
         const { from, to } = view.state.selection;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- PM view 型別在 apps/web 值層級拿不到
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- callback 只是原樣轉呼 handleTextInput prop，不值得為它拼出 PM 的 prop 型別
         const handled = view.someProp("handleTextInput", (f: any) => f(view, from, to, ch));
         if (!handled) view.dispatch(view.state.tr.insertText(ch, from, to));
       }

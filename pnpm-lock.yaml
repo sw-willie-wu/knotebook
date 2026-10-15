@@ -168,6 +168,9 @@ importers:
       mermaid:
         specifier: ^11.17.2
         version: 11.17.2
+      prosemirror-view:
+        specifier: ^1.41.4
+        version: 1.42.2
       radix-ui:
         specifier: ^1.6.7
         version: 1.6.7(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)

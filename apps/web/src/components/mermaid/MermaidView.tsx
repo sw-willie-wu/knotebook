@@ -93,57 +93,65 @@ export function MermaidView({ code, editable, theme, onChange }: MermaidViewProp
   // viewer（`editable=false`）保留這顆鈕（標籤是「顯示原始碼」）：那是他們**唯一**看得到
   // 原始碼的入口（唯讀 textarea），拿掉就只剩語法錯誤時才看得到。
   //
-  // ⚠ 這顆鈕與「點圖進編輯」那顆**既不能巢狀、也不能重疊**，兩點都是實測換來的：
+  // ⚠ 這顆鈕與「點圖進編輯」那顆**不能巢狀**：巢狀 `<button>` 是不合法 HTML，且一次點擊
+  // 會同時觸發兩者——單元測試釘住。
   //
-  // 1. 巢狀 `<button>` 是不合法 HTML，且一次點擊會同時觸發兩者——單元測試釘住。
-  // 2. 重疊（`absolute right-1 top-1` 疊在編輯鈕右上角）會**攔截點擊**：block 很矮時
-  //    （剛插入的空 block 只有一行提示），編輯鈕的中心點正好落在它底下，使用者點圖
-  //    想編輯卻打到那顆鈕。加 `pointer-events-none` 也救不了——滑鼠移上來就觸發
-  //    `group-hover`，`pointer-events` 隨即被打開，而點擊本來就必然先經過 hover。
-  //    這個 bug **jsdom 測不到**（沒有 layout／hit-testing），是 e2e 抓到的。
-  //
-  // 所以工具列自己一行（高度固定，避免顯隱時版面跳動），內容在下面。按鈕只用 `opacity`
-  // 隱藏而非 `hidden`——後者會讓它退出 Tab 順序，鍵盤使用者就永遠構不到。
+  // 位置：**疊在方塊內的右上角**（`index.css` 的 `.block-control` 負責絕對定位，與 codeBlock
+  // 的語言下拉同一條規則；外層要 `relative` 當它的 containing block）。#111 曾在方塊外面上方
+  // 留一條 `h-7` 保留列放它，2026-10-15 定案拿掉（沒 hover 就是隱形、不擋內容，不必留距離）。
+  // 疊上去之後與編輯鈕的**重疊**是刻意的，重疊區的點擊歸這顆鈕：
+  //   - 可編輯：兩顆做的是同一件事（`startEditing`），點到哪顆結果都一樣。
+  //   - 唯讀：底下是不可點的 `<div>`，沒有東西被攔。
+  //   - 早期版本這顆鈕也疊在右上角（`absolute right-1 top-1`），e2e 抓到：block 很矮時（剛插入、
+  //     只有一行提示）編輯鈕的**中心點**正好落在它底下——Playwright 的 click 打的就是中心點。
+  //     現在空 block 的中心點命中的是編輯鈕（2026-10-15 headless Chromium 151、900px 寬實測），
+  //     而且就算打到也同樣是進編輯。
+  //   殘留：圖裡 `click X href` 的連結若正好畫在右上角，被這顆鈕蓋住的那一小塊點不到連結
+  //   （滑鼠會先 hover 出鈕、看得見）。
+  // 顯隱：平常 `opacity-0`，hover 整個方塊、方塊內有焦點（Tab 到編輯鈕）、或鈕自己被聚焦才現身。
+  // 只用 `opacity` 隱藏而非 `hidden`——後者會讓它退出 Tab 順序，鍵盤使用者就永遠構不到。
+  // 刻意**不**像語言下拉那樣在隱形時 `pointer-events:none`：觸控沒有 hover，唯讀者要看原始碼
+  // 只剩點這個角落這條路（可編輯者點圖本身就進編輯，不需要它）。
+  // 編輯中這顆鈕不渲染，改在 textarea **下方**放一行提示——提示文字長，疊在右上角會蓋住原始碼。
   // ⚠ 哪天若又要在**編輯中**放按鈕，記得補 `onMouseDown` 的 `preventDefault`：不擋的話
   // 點下去會先讓 textarea 失焦、`onBlur` 的 `commit()` 搶先翻狀態，按鈕看起來沒反應。
   // ⚠ `w-full` 不可省：BlockNote 的 `bn-block-content` 是 flex 容器，沒宣告寬度的子項
   // 會被 shrink-wrap 成內容寬度——實測（e2e 截圖）整個 block 縮成約 140px 的一小條。
   return (
-    <div className="group w-full">
-      <div className="flex h-7 items-center justify-end">
-        {editing ? (
-          <span className="text-xs text-muted-foreground">{t("note.mermaid.escHint")}</span>
-        ) : (
-          <button
-            type="button"
-            onClick={startEditing}
-            className={cn(
-              // 視覺走 `index.css` 的 `.block-control`——那條規則同時餵這顆鈕與 codeBlock
-              // 的語言下拉（原生 select 拿不到 className，只能用選擇器接進同一條規則），
-              // 兩種 block 的控制項因此只有**一份**長相真相（issue #111）。這裡只留
-              // 這顆鈕自己的顯隱行為。
-              "block-control",
-              "opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100",
-            )}
-          >
-            {editable ? t("note.mermaid.edit") : t("note.mermaid.showSource")}
-          </button>
-        )}
-      </div>
+    <div className="group relative w-full">
+      {editing ? null : (
+        <button
+          type="button"
+          onClick={startEditing}
+          className={cn(
+            // 長相與位置走 `index.css` 的 `.block-control`——那條規則同時餵這顆鈕與 codeBlock
+            // 的語言下拉（原生 select 拿不到 className，只能用選擇器接進同一條規則），
+            // 兩種 block 的控制項因此只有**一份**長相真相（issue #111）。這裡只留
+            // 這顆鈕自己的顯隱行為。
+            "block-control",
+            "opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100",
+          )}
+        >
+          {editable ? t("note.mermaid.edit") : t("note.mermaid.showSource")}
+        </button>
+      )}
 
       {editing ? (
-        <textarea
-          aria-label={t("note.mermaid.sourceLabel")}
-          value={draft}
-          autoFocus
-          readOnly={!editable}
-          spellCheck={false}
-          rows={Math.max(3, draft.split("\n").length + 1)}
-          onChange={(event) => setDraft(event.target.value)}
-          onBlur={commit}
-          onKeyDown={handleKeyDown}
-          className="w-full resize-y rounded-md border border-input bg-muted/40 p-3 font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        />
+        <>
+          <textarea
+            aria-label={t("note.mermaid.sourceLabel")}
+            value={draft}
+            autoFocus
+            readOnly={!editable}
+            spellCheck={false}
+            rows={Math.max(3, draft.split("\n").length + 1)}
+            onChange={(event) => setDraft(event.target.value)}
+            onBlur={commit}
+            onKeyDown={handleKeyDown}
+            className="w-full resize-y rounded-md border border-input bg-muted/40 p-3 font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
+          <p className="mt-1 text-right text-xs text-muted-foreground">{t("note.mermaid.escHint")}</p>
+        </>
       ) : editable ? (
         <button
           type="button"

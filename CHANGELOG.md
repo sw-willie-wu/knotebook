@@ -11,9 +11,13 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 - Prebuilt Docker images on the GitHub Container Registry: each release is published as `ghcr.io/sw-willie-wu/knotebook` for linux/amd64 and linux/arm64, tagged with its version (`0.11.1`), while `0.11` points at the highest patch release of that line and `latest` at the highest release; v0.11.1 is the first. `docker-compose.yml` now runs that image — the tag set by the new `KNOTEBOOK_VERSION` in `.env`, `latest` if unset — so installing and upgrading pull it instead of building it (`docker compose pull`, then `docker compose up -d`); `docker compose up -d --build` still builds from source. Each GitHub Release also carries a `docker-compose.yml` that runs that release's image and an `env.example`, so installing and upgrading need only those two files, not a clone of the repository; with your own PostgreSQL, the image also runs on its own with `docker run`. See [The app image](docs/self-hosting.md#the-app-image) (#284).
 
+### Changed
+
+- Code blocks and diagrams: the code block's language menu and the diagram's **Edit** (or **Show source**) button now sit inside the block's top-right corner instead of above it, so the blocks no longer leave an empty strip above themselves. They still stay hidden until you point at the block or move to them with the keyboard; the language menu also appears while the cursor is in the code, which makes it reachable on a touch screen — tap into the code first. When they appear, they have a solid background and a border, so they stay readable over code and diagrams in both light and dark mode; on a note you can only read, the code block's language is still shown as plain text, without the border. While you edit a diagram's source, the hint for finishing now sits below the source box.
+
 ### Fixed
 
-- Site admin → Users and a group's Members: the name column no longer takes most of the width, leaving the email column too narrow on wide screens,. The sign-in services and AI providers tables likewise give their long columns (issuer, base URL) more room.
+- Site admin → Users and a group's Members: the name column no longer takes most of the width, leaving the email column too narrow on wide screens. The sign-in services and AI providers tables likewise give their long columns (issuer, base URL) more room.
 - Settings and admin tables: the divider after the name column now only shows when the table actually scrolls sideways.
 
 ## [0.11.1] - 2026-10-15

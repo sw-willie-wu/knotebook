@@ -12,10 +12,10 @@ import type { SiteLinkCandidate } from "@knotebook/shared";
 import { attachTestElementRenderer } from "@/test/element-renderer";
 
 /**
- * ProseMirror EditorView：Task 1 已驗證 `@tiptap/pm`/`prosemirror-view` 這些路徑從
- * apps/web 直接 import 會 MODULE_NOT_FOUND，且 Vite/vitest 在 transform 階段就炸
- * （不是執行期）。型別只能經 `@tiptap/core` 傳遞取得，這裡直接用 `any` 走 repo 既有的
- * 互通慣例（同 `AnyEditor`）。
+ * ProseMirror EditorView：Task 1 已驗證 `@tiptap/pm` 這些路徑從 apps/web 直接 import
+ * 會 MODULE_NOT_FOUND，且 Vite/vitest 在 transform 階段就炸（不是執行期）。
+ * （`prosemirror-view` 自 `collab/code-block-caret.ts` 起是 apps/web 的直接依賴，已不在此列；
+ * 這裡沒有改用它的型別，維持原樣。）這裡直接用 `any` 走 repo 既有的互通慣例（同 `AnyEditor`）。
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 理由見上方註解
 type AnyView = any;

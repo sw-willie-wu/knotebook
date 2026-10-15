@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { CARET_INSIDE_ATTR } from "@/collab/code-block-caret";
 
 /**
  * 程式碼上色變數（issue #96）的結構守門（比照 `theme.block-selection-guard.test.ts`）。
@@ -56,6 +57,46 @@ function themeBlocks(): { light: string; dark: string } {
   expect(light, "index.css 應有頂層 :root 區塊").toBeDefined();
   expect(dark, "index.css 應有頂層 :root.dark 區塊").toBeDefined();
   return { light: light!, dark: dark! };
+}
+
+/** 主題區塊裡某個變數的值（去掉行尾註解已在 readIndexCss 做掉）。 */
+function varValue(block: string, name: string): string {
+  const value = block.match(new RegExp(`(?:^|[;{\\s])--${name}:\\s*([^;]+);`))?.[1]?.trim();
+  expect(value, `主題區塊缺 --${name}`).toBeDefined();
+  return value!;
+}
+
+/** `#rrggbb` 或 `oklch(L C H)` → 線性 sRGB（0–1）。半透明值不收：對比要看實際疊出來的色，算不準就該紅。 */
+function parseColor(value: string, label: string): [number, number, number] {
+  const hex = value.match(/^#([0-9a-f]{6})$/i);
+  if (hex) {
+    return [0, 2, 4].map((i) => {
+      const c = parseInt(hex[1]!.slice(i, i + 2), 16) / 255;
+      return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    }) as [number, number, number];
+  }
+  const ok = value.match(/^oklch\(\s*([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)\s*\)$/);
+  expect(ok, `${label} 不是可計算的不透明色（${value}）`).not.toBeNull();
+  const [L, C, H] = [Number(ok![1]), Number(ok![2]), (Number(ok![3]) * Math.PI) / 180];
+  const a = C * Math.cos(H);
+  const b = C * Math.sin(H);
+  // OKLab → LMS → 線性 sRGB（Björn Ottosson 的係數）。
+  const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+  const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+  const s = (L - 0.0894841775 * a - 1.291485548 * b) ** 3;
+  const clamp = (x: number) => Math.min(1, Math.max(0, x));
+  return [
+    clamp(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s),
+    clamp(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s),
+    clamp(-0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s),
+  ];
+}
+
+/** WCAG 2.x 對比值。 */
+function contrast(x: [number, number, number], y: [number, number, number]): number {
+  const lum = ([r, g, b]: [number, number, number]) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  const [hi, lo] = [lum(x), lum(y)].sort((p, q) => q - p) as [number, number];
+  return (hi + 0.05) / (lo + 0.05);
 }
 
 describe("程式碼上色變數（--code-*）", () => {
@@ -121,6 +162,20 @@ describe("codeBlock 底色覆寫", () => {
     }));
   }
 
+  /** 語言下拉的**基底態**規則：選擇器就是 select 本身（無狀態、非 option／picker），且帶 `opacity`。 */
+  function baseSelectRule(): { selector: string; body: string } | undefined {
+    return selectRules().find(
+      (r) =>
+        /\[data-content-type=codeBlock\]\s*>\s*div\s*>\s*select$/.test(r.selector) && /(?:^|[;{])\s*opacity:/.test(r.body),
+    );
+  }
+
+  /** 規則 body 裡 `@apply` 的 utility 清單。 */
+  function applyTokens(body: string): string[] {
+    return (body.match(/@apply\s+([^;]*);/)?.[1] ?? "").trim().split(/\s+/);
+  }
+
+
   it("語言下拉的文字色也要跟著換——內建寫死 color:#fff，淺色底上等於看不見", () => {
     // #96 時這是 select 自己的一條 `color:` 覆寫；#111 之後顏色與 mermaid 那顆鈕
     // 共用同一條規則（`.block-control` 的 `@apply … text-muted-foreground`）。
@@ -155,37 +210,37 @@ describe("codeBlock 底色覆寫", () => {
     ).toBe(true);
   });
 
-  it("issue #111：語言下拉貼在方塊**外面的上緣、靠右**（bottom:100%，不是算好的負 top）", () => {
-    const idle = selectRules().find((r) => /bottom:/.test(r.body) && /opacity:/.test(r.body));
-    expect(idle, "缺語言下拉的定位覆寫（bottom ＋ opacity 那條）").toBeDefined();
+  it("語言下拉疊在方塊**內**的右上角：位置由共用的 .block-control 給（top/right），不是外上緣的 bottom:100%", () => {
+    const idle = baseSelectRule();
+    expect(idle, "缺語言下拉的基底覆寫（opacity:0 那條）").toBeDefined();
     expect(idle!.selector, `少了 .bn-editor 錨：${idle!.selector}`).toMatch(/^\.bn-editor\s/);
 
-    // 四個宣告缺一不可，缺哪個都是**靜默**回到內建位置：實測（真實元素上逐一拿掉）
-    // 少了 `top:auto` 會落回 block 上緣 ＋8px（方塊內），少了 `left:auto` 會落到
-    // block 左緣 ＋18px。
-    //
-    // ⚠ 四條都要 `(?:^|[;{])\s*` 邊界。裸 regex 會被同名的長屬性餵飽：`margin-top:auto`
-    // 讓「缺 top:auto」通過、`border-right:0` 讓「缺 right」通過（第四輪 gate 突變
-    // 實測三條全綠）——而那時真正的 `top`/`right` 已經被刪掉了。
-    expect(idle!.body, "缺 bottom:100%——那是「貼齊方塊上緣」的定位方式").toMatch(/(?:^|[;{])\s*bottom:\s*100%/);
-    expect(idle!.body, "缺 top:auto——內建的 top:8px 會贏過 bottom，下拉回到方塊內部").toMatch(
-      /(?:^|[;{])\s*top:\s*auto/,
-    );
-    expect(idle!.body, "缺 right（要與 mermaid 控制鈕同側）").toMatch(/(?:^|[;{])\s*right:\s*\d/);
-    expect(idle!.body, "缺 left:auto——內建的 left:18px 會贏過 right，下拉仍在左上角").toMatch(
-      /(?:^|[;{])\s*left:\s*auto/,
-    );
-    // 用**負 top** 定位是上一版的錯法：那要自己扣掉控制項高度，字級或內距一改就浮起來
-    // （實測浮了 6px，Willie 回報「沒貼在 block 上」）。
-    // `(?:^|[;{])\s*top:` 的邊界同上；不加的話 `margin-top: -…` 也會被當成負 top（假紅）。
-    expect(idle!.body, "不要退回用負 top 定位——高度一變就浮起來").not.toMatch(/(?:^|[;{])\s*top:\s*-/);
+    // 位置只寫在共用規則：兩種 block 的控制項疊在同一個角（「統一」的位置那半）。
+    const shared = allRules().find((r) => /\.block-control\b/.test(r.selector));
+    expect(shared, "index.css 缺 `.block-control` 共用規則").toBeDefined();
+    const apply = applyTokens(shared!.body);
+    expect(apply, "共用規則要絕對定位（疊在方塊內容上）").toContain("absolute");
+    // 內縮的 top/right（正值、走 utility 不手抄）＝方塊**內**的右上角。
+    expect(apply.some((t) => /^top-\d+(?:\.\d+)?$/.test(t)), `缺 top-N：${apply.join(" ")}`).toBe(true);
+    expect(apply.some((t) => /^right-\d+(?:\.\d+)?$/.test(t)), `缺 right-N：${apply.join(" ")}`).toBe(true);
+    // 退回外上緣（#111 的 bottom:100%／bottom-full）或負 top 都是回到方塊外面。
+    expect(apply.some((t) => /^(?:bottom-|-top-|-right-)/.test(t)), `不得把控制項推出方塊：${apply.join(" ")}`).toBe(false);
+    for (const rule of selectRules()) {
+      // ⚠ 邊界 `(?:^|[;{])\s*`：裸 regex 會被 `margin-bottom`／`margin-top` 之類餵飽（#111 第四輪 gate 突變實測）。
+      expect(rule.body, `select 規則不得再用 bottom 定位：${rule.selector}`).not.toMatch(/(?:^|[;{])\s*bottom:/);
+      expect(rule.body, `select 規則不得用負 top 把它推到方塊外：${rule.selector}`).not.toMatch(/(?:^|[;{])\s*top:\s*-/);
+    }
+
+    // `left:auto` 不可省：內建的 `left:18px` 還在，少了它下拉會從左緣 ＋18px 撐到右上角，
+    // 整條蓋在第一行程式碼上（2026-10-15 headless Chromium 151 實測，見 index.css 註解）。
+    expect(idle!.body, "缺 left:auto——內建的 left:18px 會把下拉撐成一整條").toMatch(/(?:^|[;{])\s*left:\s*auto/);
 
     // 寬度下限：原生 select 的寬度跟著目前選到的標籤走（`C` 36px ↔ `Markdown` 86px），
     // 沒有下限就會每換一個語言跳一次。
     expect(idle!.body, "缺寬度下限——控制項寬度會隨選到的語言縮放").toMatch(/min-width:\s*[0-9.]+rem/);
     // ⚠ 刻意**不是** `width`：那個值是量出來的（字寬看字型），寫死 width 配上
     // `overflow:hidden` 的失敗形是「標籤被靜默截斷」；min-width 的失敗形只是變寬一點，
-    // 而它右錨定（`right:0`），右緣不動。
+    // 而它右錨定，右緣不動。
     // ⚠ 邊界要寫成 `[;{])\s*`（不是 `[;{]\s*)`）：body 的第一條宣告前面是換行＋縮排，
     // 前者才吃得到。同形的錯在 `carriesColor` 那條也犯過（寫死 width 當第一條宣告時
     // 這條原本全綠通過，第三輪 gate 突變實測抓到）。
@@ -195,28 +250,23 @@ describe("codeBlock 底色覆寫", () => {
     expect(idle!.body, "有了 min-width 就不該再用 overflow:hidden 去藏溢出").not.toMatch(/overflow:\s*hidden/);
   });
 
-  it("issue #111：保留列高度與控制項樣式都跟著 mermaid 的那顆走（『統一』的實質內容）", () => {
-    // 這條直接讀 `MermaidView.tsx` 對值：兩邊各改各的就是 #111 的原狀（一左一右、
+  it("沒有保留列（2026-10-15 拿掉 #111 的 1.75rem）：codeBlock 不再 margin-top、mermaid 不再有 h-7 那列", () => {
+    // 控制項疊在方塊內、平常隱形，不必替它多佔一段高度。兩側都要拿掉——只拿一邊就是兩種 block 間距不一。
+    for (const rule of codeBlockRules()) {
+      expect(rule.body, `codeBlock 不得再讓出保留列：${rule.selector}`).not.toMatch(/(?:^|[;{])\s*margin-top:/);
+    }
+    const mermaidSource = readFileSync(`${process.cwd()}/src/components/mermaid/MermaidView.tsx`, "utf8");
+    expect(mermaidSource, "MermaidView 不得再有固定高度的工具列（h-7 那列）").not.toMatch(/className="[^"]*\bh-\d+\b[^"]*justify-end/);
+  });
+
+  it("控制項的長相只有一份真相：一條規則兩個選擇器（mermaid 鈕＋語言下拉）", () => {
+    // 這條直接讀 `MermaidView.tsx` 對消費端：兩邊各改各的就是 #111 的原狀（一左一右、
     // 一藏一露、兩套長相），只釘 CSS 這一側等於沒釘住「統一」。
     const mermaidSource = readFileSync(`${process.cwd()}/src/components/mermaid/MermaidView.tsx`, "utf8");
 
-    // (1) 工具列高度：mermaid 是 `h-7`（Tailwind：7 × 4px ＝ 28px ＝ 1.75rem），
-    //     codeBlock 這側是 block content 讓出的 margin-top。
-    const rowHeightClass = mermaidSource.match(/className="flex (h-\d+) items-center justify-end"/)?.[1];
-    expect(rowHeightClass, "在 MermaidView.tsx 找不到工具列的高度 class（版面改了就要一起看這條）").toBeDefined();
-    const rowRem = (Number(rowHeightClass!.replace("h-", "")) * 4) / 16;
-    const reserved = codeBlockRules().find((r) => /margin-top:/.test(r.body));
-    expect(reserved, "缺保留列（block content 的 margin-top）").toBeDefined();
-    expect(reserved!.selector, `少了 .bn-editor 錨：${reserved!.selector}`).toMatch(/^\.bn-editor\s/);
-    expect(
-      Number(reserved!.body.match(/margin-top:\s*([0-9.]+)rem/)?.[1]),
-      `保留列要與 mermaid 的 ${rowHeightClass} 同高`,
-    ).toBe(rowRem);
-
-    // (2) 控制項本身的長相：**一條規則兩個選擇器**，不是兩邊各抄一份。
-    //     前一版是「各寫一份、測試逐項對值」，結果把 `rounded-sm` 抄成 `0.125rem`
-    //     ——那是 Tailwind **v3** 的值，v4 的 `rounded-sm` 是 `0.25rem`，圓角就差一半
-    //     （Willie 實測看出來的）。人工換算沒了，這一族的漂移才真的沒了。
+    // **一條規則兩個選擇器**，不是兩邊各抄一份。前一版是「各寫一份、測試逐項對值」，結果把
+    // `rounded-sm` 抄成 `0.125rem`——那是 Tailwind **v3** 的值，v4 的 `rounded-sm` 是
+    // `0.25rem`，圓角就差一半（Willie 實測看出來的）。人工換算沒了，這一族的漂移才真的沒了。
     const shared = allRules().find((r) => /\.block-control\b/.test(r.selector));
     expect(shared, "index.css 缺 `.block-control` 共用規則").toBeDefined();
     expect(
@@ -229,29 +279,87 @@ describe("codeBlock 底色覆寫", () => {
     // 跟旁邊那顆 <button> 明顯不同一套字。
     expect(shared!.body, "缺 font-family: inherit").toMatch(/font-family:\s*inherit/);
 
-    // 消費端：mermaid 那顆鈕要掛這個 class，且不得自己再列一份長相 utility。
+    // 消費端：mermaid 那顆鈕要掛這個 class，且不得自己再列一份長相或位置 utility。
     expect(mermaidSource, "MermaidView 的控制鈕要掛 block-control").toContain('"block-control"');
     expect(
       mermaidSource,
-      "MermaidView 不得再自己寫一份長相 class（rounded-*＋border-border）——那就是回到兩份真相",
+      "MermaidView 不得再自己寫一份長相 class（rounded-*＋border-*）——那就是回到兩份真相",
     ).not.toMatch(/rounded-(?:xs|sm|md|lg)[^"]*border-border/);
+    // 「不得自己寫位置」改在 `MermaidView.test.tsx` 對渲染後的 className token 斷言（不看順序、不受註解干擾）。
   });
 
-  it("issue #111：平常隱形、hover 到 block 或聚焦才現身（與 mermaid 同邏輯）", () => {
-    const idle = selectRules().find((r) => /bottom:/.test(r.body) && /opacity:/.test(r.body));
-    expect(Number(idle!.body.match(/opacity:\s*([0-9.]+)/)?.[1]), "閒置態要 opacity:0").toBe(0);
+  it("現身時有實底＋邊框，淺色與深色的 WCAG 對比都過（文字 ≥ 4.5、邊框對方塊底 ≥ 3）", () => {
+    // 控制項疊在程式碼／圖上：沒有自己的底就讀不到，沒有夠深的邊就跟方塊底糊在一起。
+    // 這裡從 `.block-control` 的 @apply 取出它**實際用的** token，再拿 index.css 兩套主題的
+    // 變數色值算對比——換 token 或改色值讓對比掉下去都會紅，不必回頭重量。
+    const shared = allRules().find((r) => /\.block-control\b/.test(r.selector));
+    const apply = applyTokens(shared!.body);
+    expect(apply, "缺邊框寬度（`border`）——沒有邊框就沒有分界").toContain("border");
+    const token = (prefix: string): string => {
+      const names = apply
+        .filter((t) => t.startsWith(prefix))
+        .map((t) => t.slice(prefix.length))
+        .filter((n) => !/^(?:\d+|x|y|t|r|b|l|s|e|solid|dashed|none|xs|sm|base|lg|xl|\dxl)$/.test(n));
+      expect(names, `@apply 裡 ${prefix}<顏色> 要恰好一個：${apply.join(" ")}`).toHaveLength(1);
+      return names[0]!;
+    };
+    const fg = token("text-");
+    const bg = token("bg-");
+    const border = token("border-");
+    // 透明的底／邊等於沒有（`bg-transparent`、`border-transparent`、半透明 `/NN` 都不算實底）。
+    for (const name of [bg, border]) expect(name, `不得用透明或半透明：${name}`).not.toMatch(/transparent|\//);
 
-    const raised = selectRules().find((r) => /:hover|:focus/.test(stateOf(r.selector)));
-    expect(raised, "缺 hover/focus 的現身規則").toBeDefined();
-    expect(raised!.selector, `少了 .bn-editor 錨：${raised!.selector}`).toMatch(/^\.bn-editor\s/);
+    // utility 名 → 主題變數：`@theme inline` 的 `--color-X: var(--X)`（確認這個對應真的存在，
+    // 否則下面算的是錯的變數）。
+    const css = readIndexCss();
+    // codeBlock 的底直接用 var(--code-background)（上面的底色覆寫測試釘住），不經 utility。
+    for (const name of [fg, bg, border, "card"]) {
+      expect(css, `@theme inline 缺 --color-${name}: var(--${name})`).toMatch(new RegExp(`--color-${name}:\\s*var\\(--${name}\\)`));
+    }
+
+    const { light, dark } = themeBlocks();
+    for (const [theme, block] of [["light", light], ["dark", dark]] as const) {
+      const color = (name: string) => parseColor(varValue(block, name), `${theme} --${name}`);
+      const text = contrast(color(fg), color(bg));
+      // 方塊底：codeBlock 是 `--code-background`；mermaid 坐在編輯器表面 `--card` 上
+      // （`--bn-colors-editor-background: var(--color-card)`）。
+      const onCode = contrast(color(border), color("code-background"));
+      const onCard = contrast(color(border), color("card"));
+      expect(text, `${theme}：--${fg} 對 --${bg} 只有 ${text.toFixed(2)}:1（文字要 ≥ 4.5）`).toBeGreaterThanOrEqual(4.5);
+      expect(onCode, `${theme}：邊框 --${border} 對 --code-background 只有 ${onCode.toFixed(2)}:1（要 ≥ 3）`).toBeGreaterThanOrEqual(3);
+      expect(onCard, `${theme}：邊框 --${border} 對 --card 只有 ${onCard.toFixed(2)}:1（要 ≥ 3）`).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it("平常隱形且不吃點擊；hover 整個 block、游標在程式碼裡（data-caret-inside）或聚焦才現身", () => {
+    const idle = baseSelectRule();
+    expect(Number(idle!.body.match(/(?:^|[;{])\s*opacity:\s*([0-9.]+)/)?.[1]), "閒置態要 opacity:0").toBe(0);
+    // 隱形時它疊在程式碼上：觸控點到那一角不得被一顆看不見的下拉吃掉（想放游標卻打開語言選單）。
+    expect(idle!.body, "閒置態要 pointer-events:none").toMatch(/(?:^|[;{])\s*pointer-events:\s*none/);
+
+    const raised = selectRules().find((r) => /:hover|:focus|data-caret-inside/.test(stateOf(r.selector)));
+    expect(raised, "缺現身規則").toBeDefined();
+    // ⚠ 選擇器清單**拆逗號逐一**比對（scrollbar-guard 立過的規矩）：整串 test 的話，三個條件
+    // 少了哪一個只要別處字串碰巧含有它就騙得過。
+    const parts = raised!.selector.split(",").map((s) => s.trim());
+    for (const part of parts) expect(part, `少了 .bn-editor 錨：${part}`).toMatch(/^\.bn-editor\s/);
     // hover 要掛在**整個 block** 上（不是 select 自己 hover）——否則要先摸到那個
     // 隱形的小方塊才會出現，等於摸不到。
-    expect(raised!.selector, "hover 要吃整個 block").toMatch(/\[data-content-type=codeBlock\]:hover/);
-    // `:focus` 那半是鍵盤唯一的入口（用 opacity 而不是 display 隱藏就是為了留住
-    // Tab 順序）。
-    expect(raised!.selector, "缺 :focus——鍵盤使用者會構不到").toMatch(/select:focus/);
+    expect(
+      parts.some((p) => /\[data-content-type=codeBlock\]:hover\s*>\s*div\s*>\s*select$/.test(p)),
+      `hover 要吃整個 block：${parts.join(" | ")}`,
+    ).toBe(true);
+    // 觸控沒有 hover：游標點進程式碼就要現身。屬性由 `collab/code-block-caret.ts` 的 decoration 掛上——
+    // 名字對不上就是兩邊都綠、功能卻是死的，所以直接拿那支檔案匯出的常數比對。
+    expect(
+      parts.some((p) => new RegExp(`\\[data-content-type=codeBlock\\]\\[${CARET_INSIDE_ATTR}\\]\\s*>\\s*div\\s*>\\s*select$`).test(p)),
+      `缺 [${CARET_INSIDE_ATTR}]——觸控裝置叫不出語言下拉：${parts.join(" | ")}`,
+    ).toBe(true);
+    // `:focus` 那半是鍵盤唯一的入口（用 opacity 而不是 display 隱藏就是為了留住 Tab 順序）。
+    expect(parts.some((p) => /select:focus$/.test(p)), `缺 :focus——鍵盤使用者會構不到：${parts.join(" | ")}`).toBe(true);
     // 現身時要全對比：內建 hover 只墊到 .5（light 有效對比 3.1:1 < AA 4.5）。
-    expect(Number(raised!.body.match(/opacity:\s*([0-9.]+)/)?.[1]), "現身時不得半透明").toBe(1);
+    expect(Number(raised!.body.match(/(?:^|[;{])\s*opacity:\s*([0-9.]+)/)?.[1]), "現身時不得半透明").toBe(1);
+    expect(raised!.body, "現身時要把 pointer-events 還回來，否則點不到").toMatch(/(?:^|[;{])\s*pointer-events:\s*auto/);
   });
 
   it("issue #111：展開清單（OS widget）的 option 顏色與 color-scheme 跟著主題——內建寫死 color:#000，深色模式看不見", () => {
@@ -319,6 +427,19 @@ describe("codeBlock 底色覆寫", () => {
     expect(outside, "color-scheme 退路被搬進 @supports 了").toMatch(/color-scheme:\s*dark/);
   });
 
+  it("清單展開中（select:open）下拉本體保持現身——焦點已移進 option，:focus 撐不住", () => {
+    // base-select 展開時焦點移進 `<option>`，select 的 :focus／:focus-within 都不成立（Chromium 151 觸控模擬實測）；
+    // 編輯器同時 blur、caret 屬性拿掉。少了這條，手指／滑鼠一離開 block 下拉就淡出、清單卻還開著。真瀏覽器那半由 e2e 30 守。
+    const rules = [...baseSelectBlock().matchAll(/([^{}]*)\{([^}]*)\}/g)].map((m) => ({ selector: m[1]!.trim(), body: m[2]! }));
+    const open = rules.find((r) => r.selector.split(",").some((s) => /\[data-content-type=codeBlock\]\s*>\s*div\s*>\s*select:open$/.test(s.trim())));
+    expect(open, "@supports (appearance: base-select) 裡缺 select:open 的現身規則").toBeDefined();
+    expect(open!.body).toMatch(/(?:^|[;{])\s*opacity:\s*1\b/);
+    expect(open!.body).toMatch(/(?:^|[;{])\s*pointer-events:\s*auto/);
+    // `:open` 不認得的瀏覽器會讓整條選擇器清單作廢——不得併進 @supports 外的現身規則。
+    const outside = readIndexCss().replace(baseSelectBlock(), "");
+    expect(outside, ":open 不得出現在 @supports 外（會讓不支援的瀏覽器整條現身規則作廢）").not.toMatch(/select:open\b/);
+  });
+
   it("唯讀（disabled）時 base-select 的箭頭退場、可編輯態保留（公開頁回報：hover 出現不能按的下拉）", () => {
     // 掏掉這條規則不會讓任何渲染測試紅（jsdom 畫不了 ::picker-icon）——失敗形＝
     // user 回報的 bug 靜默復活，所以在源碼層釘（本 describe 的既有慣例）。
@@ -375,6 +496,8 @@ describe("codeBlock 底色覆寫", () => {
     expect(disabled, "缺 select:disabled 的覆寫——唯讀時會是個點不動的按鈕外框").toBeDefined();
     expect(disabled!.selector, `少了 .bn-editor 錨：${disabled!.selector}`).toMatch(/^\.bn-editor\s/);
     expect(disabled!.body).toMatch(/border-color:\s*transparent/);
-    expect(disabled!.body).toMatch(/background-color:\s*transparent/);
+    // 底色**不得**拆掉（2026-10-15 起）：標籤疊在程式碼上，muted 字直接壓在淺色
+    // `--code-background` 上只有 4.45:1（< 4.5），留著 `.block-control` 的實底才過。
+    expect(disabled!.body, "唯讀標籤疊在程式碼上，不得拆掉實底").not.toMatch(/background(?:-color)?:/);
   });
 });

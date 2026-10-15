@@ -21,6 +21,7 @@ import { BlockNoteView } from "@blocknote/mantine";
 import type { NoteDto } from "@knotebook/shared";
 import { useCreateNote, useNotes } from "@/api/notes";
 import { classifyMediaTransfer, type BlockedTransferReason } from "@/collab/schema";
+import { createCodeBlockCaretExtension } from "@/collab/code-block-caret";
 import { buildCollabEditorBase } from "@/collab/editor-options";
 import { createMarkdownLinkExtension } from "@/collab/markdown-link";
 import { createMarkdownPasteHandler } from "@/collab/paste";
@@ -88,8 +89,7 @@ const BLOCKED_TRANSFER_TOAST_KEYS: Record<BlockedTransferReason, string> = {
  * 回傳 `false` ＝正常落回 BlockNote，一般文字貼上不受影響。
  *
  * `view` 參數刻意型別為 `unknown`：這裡完全用不到它，而 `unknown` 參數的函式對
- * 「吃 `EditorView` 的位置」是可指派的，於是不必為了型別把 prosemirror-view 拉成
- * apps/web 的直接依賴，測試也能直接傳 `null` 呼叫。
+ * 「吃 `EditorView` 的位置」是可指派的，測試也能直接傳 `null` 呼叫。
  */
 export function createMediaBlockingDOMEvents(translate: Translate): {
   paste: (view: unknown, event: ClipboardEvent) => boolean;
@@ -165,7 +165,12 @@ export function buildNoteEditorOptions({ doc, provider, user, language, translat
     _tiptapOptions: {
       // issue #99：手打 markdown 連結語法（`[文字](網址)`）自動轉成真連結；#269 §8.4：站內連結 → wikilink（link AddMarkStep
       // 外掛）。裁決與判準理由分別在 `@/collab/markdown-link`、`@/collab/site-link-convert`——這裡只負責接線。
-      extensions: [createMarkdownLinkExtension({ editorRef, siteLinks }), createSiteLinkConvertExtension({ envRef: siteLinks })],
+      // 第三支：游標在 code block 裡 ⇒ 那塊掛 `data-caret-inside`，語言下拉現身（觸控沒有 hover 的入口；理由見 `@/collab/code-block-caret`）。
+      extensions: [
+        createMarkdownLinkExtension({ editorRef, siteLinks }),
+        createSiteLinkConvertExtension({ envRef: siteLinks }),
+        createCodeBlockCaretExtension(),
+      ],
       editorProps: {
         handleDOMEvents: createMediaBlockingDOMEvents(translate),
         // `[[` 觸發偵測（Task 3 §12.2 recipe）。這裡刻意**不**倚賴 `SuggestionMenu`
