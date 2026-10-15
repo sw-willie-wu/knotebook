@@ -7,9 +7,20 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.12.0] - 2026-10-15
+
+### Upgrade notes
+
+The full checklist is under **Upgrading to v0.12** in [Upgrading and rolling back](docs/self-hosting.md#upgrading-and-rolling-back).
+
+- There is no database migration.
+- In a clone of the repository, `docker compose up -d` now runs the prebuilt image `ghcr.io/sw-willie-wu/knotebook` (the tag in `KNOTEBOOK_VERSION`, `latest` if unset) instead of building one: after updating the clone, run `docker compose pull`, then `docker compose up -d`; `docker compose up -d --build` keeps building from source. A `docker-compose.override.yml` that doesn't set `image:` runs the prebuilt image too; `image: !reset null` in it keeps the setup of earlier versions, where the image is built in your clone (#284).
+
 ### Added
 
-- Prebuilt Docker images on the GitHub Container Registry: each release is published as `ghcr.io/sw-willie-wu/knotebook` for linux/amd64 and linux/arm64, tagged with its version (`0.11.1`), while `0.11` points at the highest patch release of that line and `latest` at the highest release; v0.11.1 is the first. `docker-compose.yml` now runs that image — the tag set by the new `KNOTEBOOK_VERSION` in `.env`, `latest` if unset — so installing and upgrading pull it instead of building it (`docker compose pull`, then `docker compose up -d`); `docker compose up -d --build` still builds from source. Each GitHub Release also carries a `docker-compose.yml` that runs that release's image and an `env.example`, so installing and upgrading need only those two files, not a clone of the repository; with your own PostgreSQL, the image also runs on its own with `docker run`. See [The app image](docs/self-hosting.md#the-app-image) (#284).
+- Prebuilt Docker images on the GitHub Container Registry: each release is published as `ghcr.io/sw-willie-wu/knotebook` for linux/amd64 and linux/arm64, tagged with its version (`0.11.1`), while `0.11` points at the highest patch release of that line and `latest` at the highest release; v0.11.1 is the first. `docker-compose.yml` now runs that image — the tag set by the new `KNOTEBOOK_VERSION` in `.env`, `latest` if unset — so installing and upgrading pull it instead of building it (`docker compose pull`, then `docker compose up -d`); `docker compose up -d --build` still builds from source. Each GitHub Release from this one on also carries a `docker-compose.yml` that runs that release's image and an `env.example`, so installing and upgrading need only those two files, not a clone of the repository; with your own PostgreSQL, the image also runs on its own with `docker run`. See [The app image](docs/self-hosting.md#the-app-image) (#284).
 
 ### Changed
 

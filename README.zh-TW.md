@@ -12,7 +12,7 @@ Knotebook 是一套開源、可自行架設的 Notion/HackMD 風格協作筆記�
 - **即時 CRDT 協作**——以 Yjs 為基礎的多人同步編輯，不是付費附加功能。
 - **自備 AI 端點**——把 Knotebook 指向你自己的 OpenAI 相容或 Anthropic 端點（包含本機／機房內的 Ollama），不綁定任何供應商。
 
-**狀態**：最新版本為 v0.11.1（2026-10-15）。目前具備的功能：
+**狀態**：最新版本為 v0.12.0（2026-10-15）。目前具備的功能：
 
 - **一起寫作**——區塊編輯器，支援即時多人編輯（Yjs/Hocuspocus）、筆記之間的連結（打 `[[`，或直接貼上筆記網址；改名不斷、附反向連結，也能連到單一段落）、圖片上傳，以及 Mermaid 圖表（見 [圖表](docs/diagrams.md)）。
 - **版本歷史**——每篇筆記都保留版本，可自動儲存（編輯後停手數分鐘自動存，預設 5 分鐘，由站台管理員設定）或手動儲存；每個版本以名稱加上 id 的前 7 個字元顯示；任兩個版本可左右並排比較，也可套用某個版本還原舊狀態；有保留規則，並有三層開關（全站、自己的筆記、群組）可關閉自動儲存；版本清單可以只顯示手動版本，在寬螢幕上版本面板可以拖曳左邊緣調整寬度（見 [版本歷史](docs/versions.md)）。
@@ -24,15 +24,15 @@ Knotebook 是一套開源、可自行架設的 Notion/HackMD 風格協作筆記�
 - **AI 快速動作**——改寫、翻譯、摘要、續寫，以及你自己輸入的自由格式指示（**Instruct** 動作），在選取的文字上從格式工具列的 **AI** 按鈕執行，結果以行內差異顯示；由管理員設定的 OpenAI 相容或 Anthropic 端點以串流方式回傳（見 [AI 快速動作](docs/ai.md)）。
 - **讓你自己的 AI 讀寫筆記**——個人 API token，或透過 OAuth 授權的應用程式，都可以讀寫筆記內容；改動筆記內容的寫入會即時顯示在已開啟的分頁中，並記錄在該筆記的 AI 修改紀錄裡，可以還原（見 [API token](docs/api-tokens.md) 與 [AI 編輯](docs/ai-editing.md)）。位於 `/api/mcp` 的 MCP 端點提供十項工具，讓 Claude Code、Claude Desktop 與其他 MCP 用戶端可以搜尋、讀取、編輯、建立、改名與複製筆記（包含群組筆記）、把筆記移入群組，以及傳入、傳出圖片（見 [MCP](docs/mcp.md)）。把筆記移入或複製到群組需要獨立的 `notes:move` 權限，可依 token 或應用程式逐項勾選；所有 MCP 工具遇到不認得的參數都會拒絕。
 
-以上全部都建立在一套你也可以直接操作的 REST API 之上（見 [API 規格摘要](docs/api.md)），並且有 Playwright 測試套件做端對端測試。升級到 0.11.0 會執行資料庫 migration 0024–0026（最後活動時間、停手後才自動存版、站內連結）——請先備份。升級後請重新整理所有已開啟的分頁：升級前開啟的分頁無法連上新的伺服器。第一次啟動約 30 秒後，伺服器會在背景把本站筆記之間的一般連結轉換成指向那些筆記的連結；自動版本現在改為筆記一段時間沒有新的修改才儲存（預設 5 分鐘）。第一次啟動也會新增**指示（Instruct）**AI 動作並預設啟用，所以在 AI 動作本來就能用的站台上，每位編輯者都可以直接送出自由格式的指示——請閱讀 [0.11.0 升級說明](CHANGELOG.md#0110---2026-10-15) 與 [升級到 v0.11](docs/self-hosting.md#upgrading-and-rolling-back)。（從 0.9.x 跳升？0.10.0 的 [升級說明](CHANGELOG.md#0100---2026-10-11) 也適用：資料庫 migration 0020–0023（自我連結清理、`notes:move` 權限範圍、最近登入時間、群組空間佔用者），並且 MCP 工具與 OAuth 有變動：既有的 token 與應用程式在你重新允許之前，不能再把筆記移入或複製到群組；所有 MCP 工具遇到不認得的參數都會拒絕；第一次授權的應用程式預設只有唯讀——請先備份。內建資料庫現在是可選的：在 `.env` 設 `BUNDLED_DB=0` 並填 `DATABASE_URL` 即可改用你自己的 PostgreSQL。從 0.8.x 跳升？0.9.0 的 [升級說明](CHANGELOG.md#090---2026-10-10) 也適用：不會執行資料庫 migration，但呼叫 `create_note` 並帶 `groupId` 的腳本要改成 `group_id`，MCP 用戶端需要重新啟動才看得到新工具。從 0.7.x 跳升？0.8.0 的 [升級說明](CHANGELOG.md#080---2026-10-10) 也適用：會執行資料庫 migration（筆記版本），並為整個站台開啟自動筆記版本——請先備份。從 0.6.x 跳升？0.7.0 的 [升級說明](CHANGELOG.md#070---2026-10-09) 也適用：所有既有使用者與群組會被放進預設 2 GiB 的儲存方案。從 0.5.x 跳升？0.6.0 的 [升級說明](CHANGELOG.md#060---2026-10-08) 也適用：SSO 設定會從 `.env` 移到**站台管理 → 登入**，並且預設開放自行註冊。）
+以上全部都建立在一套你也可以直接操作的 REST API 之上（見 [API 規格摘要](docs/api.md)），並且有 Playwright 測試套件做端對端測試。升級到 0.12.0 不會執行資料庫 migration，但在 repo 的 clone 裡，`docker compose up -d` 現在會改跑預先建好的映像，而不是自己 build：更新 clone 後執行 `docker compose pull` 與 `docker compose up -d`，要繼續從原始碼 build 則用 `docker compose up -d --build`。請先讀 [0.12.0 升級說明](CHANGELOG.md#0120---2026-10-15)；若你有自己的 `docker-compose.override.yml`，也請先讀 [升級到 v0.12](docs/self-hosting.md#upgrading-and-rolling-back)。（從 0.10.x 跳升？0.11.0 的 [升級說明](CHANGELOG.md#0110---2026-10-15) 也適用：資料庫 migration 0024–0026（最後活動時間、停手後才自動存版、站內連結）——請先備份。升級後請重新整理所有已開啟的分頁：升級前開啟的分頁無法連上新的伺服器。第一次啟動約 30 秒後，伺服器會在背景把本站筆記之間的一般連結轉換成指向那些筆記的連結；自動版本現在改為筆記一段時間沒有新的修改才儲存（預設 5 分鐘）。第一次啟動也會新增**指示（Instruct）**AI 動作並預設啟用，所以在 AI 動作本來就能用的站台上，每位編輯者都可以直接送出自由格式的指示——另見 [升級到 v0.11](docs/self-hosting.md#upgrading-and-rolling-back)。從 0.9.x 跳升？0.10.0 的 [升級說明](CHANGELOG.md#0100---2026-10-11) 也適用：資料庫 migration 0020–0023（自我連結清理、`notes:move` 權限範圍、最近登入時間、群組空間佔用者），並且 MCP 工具與 OAuth 有變動：既有的 token 與應用程式在你重新允許之前，不能再把筆記移入或複製到群組；所有 MCP 工具遇到不認得的參數都會拒絕；第一次授權的應用程式預設只有唯讀——請先備份。內建資料庫現在是可選的：在 `.env` 設 `BUNDLED_DB=0` 並填 `DATABASE_URL` 即可改用你自己的 PostgreSQL。從 0.8.x 跳升？0.9.0 的 [升級說明](CHANGELOG.md#090---2026-10-10) 也適用：不會執行資料庫 migration，但呼叫 `create_note` 並帶 `groupId` 的腳本要改成 `group_id`，MCP 用戶端需要重新啟動才看得到新工具。從 0.7.x 跳升？0.8.0 的 [升級說明](CHANGELOG.md#080---2026-10-10) 也適用：會執行資料庫 migration（筆記版本），並為整個站台開啟自動筆記版本——請先備份。從 0.6.x 跳升？0.7.0 的 [升級說明](CHANGELOG.md#070---2026-10-09) 也適用：所有既有使用者與群組會被放進預設 2 GiB 的儲存方案。從 0.5.x 跳升？0.6.0 的 [升級說明](CHANGELOG.md#060---2026-10-08) 也適用：SSO 設定會從 `.env` 移到**站台管理 → 登入**，並且預設開放自行註冊。）
 
 ## 快速上手（約 10 分鐘）
 
 這會用 `docker compose` 啟動伺服器與 Postgres 資料庫；第一個（管理員）帳號會在啟動時由環境變數建立——沒有瀏覽器內的初始設定步驟。伺服器跑的是預先建好的映像：GitHub Container Registry 上的 `ghcr.io/sw-willie-wu/knotebook`（linux/amd64 與 linux/arm64，自 v0.11.1 起提供），不必在你的機器上 build。
 
 1. 取得 `docker-compose.yml` 與 `.env.example`，再複製範例環境檔：
-   - **clone 本 repo**——現在就能用，要從原始碼 build 或跑 `main` 上的版本也是這條：`git clone https://github.com/sw-willie-wu/knotebook.git && cd knotebook`。
-   - **或不 clone**：在一個空目錄下載最新 Release 附帶的這兩個檔。只有 v0.11.1 之後的 Release 才有附：在第一個這樣的 Release 出來之前，這兩個連結會失敗，請改用 clone。
+   - **clone 本 repo**——要從原始碼 build 或跑 `main` 上的版本就用這條：`git clone https://github.com/sw-willie-wu/knotebook.git && cd knotebook`。
+   - **或不 clone**：在一個空目錄下載最新 Release 附帶的這兩個檔（v0.12.0 起的 Release 都有附）。
 
      ```sh
      curl -fLO https://github.com/sw-willie-wu/knotebook/releases/latest/download/docker-compose.yml
@@ -100,7 +100,7 @@ Knotebook 是一套開源、可自行架設的 Notion/HackMD 風格協作筆記�
 
 ## 路線圖
 
-v0.1 的五個里程碑——API 基礎、具備即時協作的網頁介面、wikilinks 與圖片上傳、AI 快速動作，以及 OIDC 登入——都已推出，接著是一次強化版本（0.2）、介面大改版、Mermaid 圖表、易讀的筆記網址與公開分享連結（0.3.x）、讓你接上自己 AI 的 API token、OAuth 與 MCP（0.4.x）、群組（0.5），多個登入服務與自行註冊（0.6），容量上限與簡報模式（0.7），筆記版本歷史（0.8），可改標題、移入群組與複製筆記的 MCP 工具（0.9），設定、群組與站台管理各自獨立的面板和 `notes:move` 權限（0.10），以及帶有自己文字並可指向段落的筆記連結、框選文字上的 AI 框與自由格式指示、編輯停手後才自動存的版本（0.11）；歷程見 [CHANGELOG](CHANGELOG.md)。
+v0.1 的五個里程碑——API 基礎、具備即時協作的網頁介面、wikilinks 與圖片上傳、AI 快速動作，以及 OIDC 登入——都已推出，接著是一次強化版本（0.2）、介面大改版、Mermaid 圖表、易讀的筆記網址與公開分享連結（0.3.x）、讓你接上自己 AI 的 API token、OAuth 與 MCP（0.4.x）、群組（0.5），多個登入服務與自行註冊（0.6），容量上限與簡報模式（0.7），筆記版本歷史（0.8），可改標題、移入群組與複製筆記的 MCP 工具（0.9），設定、群組與站台管理各自獨立的面板和 `notes:move` 權限（0.10），帶有自己文字並可指向段落的筆記連結、框選文字上的 AI 框與自由格式指示、編輯停手後才自動存的版本（0.11），以及 `docker compose` 預設改跑預先建好的映像，加上不必 clone 就能安裝的 Release 附檔（0.12）；歷程見 [CHANGELOG](CHANGELOG.md)。
 
 規劃記錄在 [GitHub Milestones](https://github.com/sw-willie-wu/knotebook/milestones) 與 issue tracker 中，工作排定時就會隨之更新。
 
