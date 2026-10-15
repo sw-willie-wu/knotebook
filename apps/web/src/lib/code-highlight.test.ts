@@ -34,6 +34,8 @@ describe("createHighlighter（css-variables theme）", () => {
     const { fg, bg, tokens } = hl.codeToTokens('const x = "hi"; // note', {
       lang: "typescript",
       theme: hl.getLoadedThemes()[0]!,
+      // 慢機器超過預設 500 ms 會讓 tokenize 半途停、整行同色——這是測試環境的時間限制，不是產品行為。
+      tokenizeTimeLimit: 0,
     });
     expect(fg).toBe("var(--code-foreground)");
     expect(bg).toBe("var(--code-background)");
