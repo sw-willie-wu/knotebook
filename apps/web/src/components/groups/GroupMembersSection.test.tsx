@@ -31,6 +31,14 @@ describe("GroupMembersSection（/groups/:id，#247 §6.2）", () => {
     vi.unstubAllGlobals();
   });
 
+  it("欄寬：名稱欄與 email 欄按 1 : 1.5 分配（真實掛載）", async () => {
+    const members = [member(ME.id, ME.email, "Me", ADMIN_ROLE)];
+    renderGroupRoute(`/groups/${GROUP_ADMIN.id}`, groupFetch(() => [GROUP_ADMIN], () => members));
+    const dialog = await screen.findByRole("dialog", { name: GROUP_ADMIN.name });
+    const table = await within(dialog).findByRole("table", { name: "Members" });
+    expect(table.style.getPropertyValue("--kb-table-cols")).toBe("minmax(14ch,1fr) minmax(14ch,1.5fr) max-content 2.75rem");
+  });
+
   it("canManageMembers：成員表有 email（A8）、角色下拉（選項來自 GET …/roles）、移除鈕；加人表單", async () => {
     const group = { ...GROUP_ADMIN };
     const members = [member(ME.id, ME.email, "Me", ADMIN_ROLE), member("u-bob", "bob@example.com", "Bob", MEMBER_ROLE)];

@@ -489,6 +489,12 @@ describe("登入服務表格（spec 2026-10-13 settings-table §3 #4）", () => 
     expect(within(legacyRow).getByRole("switch", { name: "Enabled SSO" })).toBeInTheDocument();
   });
 
+  it("欄寬：服務欄與 Issuer 欄按 1 : 1.5 分配（真實掛載）", async () => {
+    renderSection(fakeServer([LEGACY, CUSTOM]).fetchMock);
+    const table = await screen.findByRole("table", { name: "Sign-in services" });
+    expect(table.style.getPropertyValue("--kb-table-cols")).toBe("minmax(14ch,1fr) minmax(14ch,1.5fr) max-content 8.75rem 3.5rem");
+  });
+
   it("L3 啟用中的 Delete：aria-disabled＋title 是「Turn it off before deleting it.」，點了不開刪除對話框", async () => {
     renderSection(fakeServer([LEGACY]).fetchMock);
     const del = within(await screen.findByRole("row", { name: "SSO" })).getByRole("button", { name: "Delete" });

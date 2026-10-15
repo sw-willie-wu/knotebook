@@ -797,6 +797,12 @@ describe("AI 代理表格（spec 2026-10-13 settings-table §3 #1–#3）", () =
     expect(within(row).getByRole("switch", { name: `Enabled ${PROVIDER_A.name}` })).toBeInTheDocument();
   });
 
+  it("欄寬：供應商表名稱欄 1、Base URL 1.5、Models 1（真實掛載）", async () => {
+    renderSection(stubDefault());
+    const table = await screen.findByRole("table", { name: "Providers" });
+    expect(table.style.getPropertyValue("--kb-table-cols")).toBe("minmax(14ch,1fr) max-content minmax(14ch,1.5fr) minmax(14ch,1fr) 6.5rem 3.5rem");
+  });
+
   it("AI2 供應商明細列：緊接資料列、名為「＜名稱＞ details」，含金鑰說明與模型子表「Models – ＜名稱＞」（nested：沒有自己的捲動框；標題 Models＋Add model；子表列名＝模型名、副標 modelId、Edit／Delete、開關「Enabled ＜模型名＞」）", async () => {
     renderSection(stubDefault());
     const dataRow = await screen.findByRole("row", { name: PROVIDER_B.name });

@@ -338,7 +338,7 @@ export function SettingsAuthSection() {
   }
 
   const columns: SettingsTableColumn[] = [
-    { id: "service", header: t("admin.auth.tableService"), kind: "primary" },
+    { id: "service", header: t("admin.auth.tableService"), kind: "primary", grow: 1 },
     { id: "issuer", header: t("admin.auth.tableIssuer"), kind: "url" },
     { id: "linked", header: t("admin.auth.tableLinked"), kind: "fixed" },
     { id: "actions", header: t("admin.auth.tableActions"), kind: "actions", buttons: 4 },

@@ -380,6 +380,14 @@ describe("W5 使用者表的儲存空間與方案（spec §9.3）", () => {
     expect(screen.getByText("0 B of 2 GB")).not.toHaveClass("text-destructive");
   });
 
+  it("欄寬：主欄與 email 欄按 1 : 1.5 分配（主欄不再獨佔 2/3，擠壓 email）", async () => {
+    renderUsersRoute(stub([ACTIVE_OTHER]));
+    expect(await screen.findByText("alice@example.com")).toBeInTheDocument();
+    expect(screen.getAllByRole("table")[0].style.getPropertyValue("--kb-table-cols")).toBe(
+      "minmax(14ch,1fr) minmax(14ch,1.5fr) max-content max-content max-content max-content 3.5rem",
+    );
+  });
+
   it("改方案：PATCH {planId}；成功後該列下拉顯示新方案", async () => {
     const updated = { ...ACTIVE_OTHER, storage: { planId: BIG_ID, planName: "Big", usedBytes: 0, quotaBytes: null } };
     const fetchMock = stub([ACTIVE_OTHER], (url, method) =>

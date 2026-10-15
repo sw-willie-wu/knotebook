@@ -102,6 +102,23 @@ describe("SettingsTable（spec §2、§5.1）", () => {
     expect(tableNamed().style.getPropertyValue("--kb-table-cols")).toBe("minmax(14ch,2fr) max-content minmax(14ch,1fr) max-content 6.5rem 3.5rem");
   });
 
+  it.each([
+    ["未設 grow → 與預設逐字相同", [NAME, EMAIL, LINK], "minmax(14ch,2fr) minmax(14ch,1fr) minmax(14ch,1.5fr)"],
+    ["設 grow → 取代該 kind 的預設 fr", [{ ...NAME, grow: 1 }, { ...EMAIL, grow: 1.5 }, { ...LINK, grow: 3 }], "minmax(14ch,1fr) minmax(14ch,1.5fr) minmax(14ch,3fr)"],
+    ["grow 對 fixed／control 無效", [NAME, { ...SIZE, grow: 4 }, { ...ROLE, grow: 4 }], "minmax(14ch,2fr) max-content max-content"],
+  ] as const)("--kb-table-cols：grow %s", (_case, columns, expected) => {
+    render(<SettingsTable label="Things" columns={[...columns]} rows={[row("a", "Alpha")]} />);
+    expect(tableNamed().style.getPropertyValue("--kb-table-cols")).toBe(expected);
+    expect(settingsTableTracks(orderSettingsTableColumns([...columns]))).toBe(expected);
+  });
+
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])("grow=%s 不是有限正數 → 用預設 fr，開發模式 console.error", (grow) => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const columns = [{ ...NAME, grow }, { ...EMAIL, grow }, { ...LINK, grow }];
+    expect(settingsTableTracks(orderSettingsTableColumns(columns))).toBe("minmax(14ch,2fr) minmax(14ch,1fr) minmax(14ch,1.5fr)");
+    expect(spy.mock.calls.filter(([message]) => String(message).includes("grow"))).toHaveLength(3);
+  });
+
   it("§2.2 照規則宣告 → 不 console.error；orderSettingsTableColumns 原樣回傳", () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     render(<SettingsTable label="Things" columns={ALL} rows={[row("a", "Alpha")]} />);
@@ -268,6 +285,30 @@ describe("SettingsTable（spec §2、§5.1）", () => {
     expect(box).not.toHaveAttribute("tabindex");
   });
 
+  it("§2.4 主欄右緣分隔線只在捲動框溢出時畫：捲動框 data-overflowing 隨溢出切換，sticky 格（表頭與資料列）只在它底下才有 border-r", () => {
+    vi.stubGlobal("ResizeObserver", FakeResizeObserver);
+    FakeResizeObserver.instances = [];
+    render(<SettingsTable label="Things" columns={ALL} rows={[row("a", "Alpha")]} />);
+    const box = screen.getByRole("region", { name: "Things" });
+    const observer = FakeResizeObserver.instances.at(-1)!;
+    const stickyHeader = headersOf(tableNamed())[0]!;
+    const stickyRowCell = within(screen.getByRole("row", { name: "Alpha" })).getAllByRole("cell")[0]!;
+    expect(box).toHaveClass("group/box");
+    for (const cell of [stickyHeader, stickyRowCell]) {
+      expect(cell).toHaveClass("sticky", "group-data-[overflowing]/box:border-r");
+      expect(cell).not.toHaveClass("border-r");
+    }
+    expect(box).not.toHaveAttribute("data-overflowing");
+
+    setOverflow(box, 900, 400);
+    act(() => observer.fire([{ target: box }]));
+    expect(box).toHaveAttribute("data-overflowing");
+
+    setOverflow(box, 400, 400);
+    act(() => observer.fire([{ target: box }]));
+    expect(box).not.toHaveAttribute("data-overflowing");
+  });
+
   it("§2.4 --kb-sticky-w 只取 sticky 格那筆 entry 的 borderBoxSize：掛載時與只有捲動框／表頭列變動的回呼，都不以 getBoundingClientRect（受 transform 縮放）寫入或覆蓋", () => {
     vi.stubGlobal("ResizeObserver", FakeResizeObserver);
     FakeResizeObserver.instances = [];
@@ -378,7 +419,7 @@ describe("SettingsTable（spec §2、§5.1）", () => {
     expect(box.contains(dialogField)).toBe(false);
   });
 
-  it("§2.4／§2.5 主欄 sticky（表頭格與資料列主欄格：left-0、z-[1]、不透明 bg-card、右緣框線）；nested 子表不 sticky、沒有捲動框、表頭列 sr-only、主欄內容 pl-4、標題列 pl-7", () => {
+  it("§2.4／§2.5 主欄 sticky（表頭格與資料列主欄格：left-0、z-[1]、不透明 bg-card、右緣框線只在溢出時，見下一案）；nested 子表不 sticky、沒有捲動框、表頭列 sr-only、主欄內容 pl-4、標題列 pl-7", () => {
     render(
       <>
         <SettingsTable label="Top" columns={ALL} rows={[row("a", "Alpha")]} />
@@ -387,7 +428,7 @@ describe("SettingsTable（spec §2、§5.1）", () => {
     );
     const topHeader = headersOf(screen.getByRole("table", { name: "Top" }))[0]!;
     const topCell = within(screen.getByRole("row", { name: "Alpha" })).getAllByRole("cell")[0]!;
-    for (const el of [topHeader, topCell]) expect(el).toHaveClass("sticky", "left-0", "z-[1]", "bg-card", "border-r", "border-border");
+    for (const el of [topHeader, topCell]) expect(el).toHaveClass("sticky", "left-0", "z-[1]", "bg-card", "border-border");
     const sub = screen.getByRole("table", { name: "Sub" });
     expect(screen.queryByRole("region", { name: "Sub" })).toBeNull();
     const subHeader = headersOf(sub)[0]!;

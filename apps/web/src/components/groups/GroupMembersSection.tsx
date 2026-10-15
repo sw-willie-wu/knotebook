@@ -90,8 +90,8 @@ function MembersSection({ group, canManageMembers }: { group: GroupDto; canManag
   }
 
   const columns: SettingsTableColumn[] = [
-    { id: "name", header: t("groups.detail.tableName"), kind: "primary" },
-    { id: "email", header: t("groups.detail.tableEmail"), kind: "text" },
+    { id: "name", header: t("groups.detail.tableName"), kind: "primary", grow: 1 },
+    { id: "email", header: t("groups.detail.tableEmail"), kind: "text", grow: 1.5 },
     { id: "role", header: t("groups.detail.tableRole"), kind: canManageMembers ? "control" : "fixed" },
   ];
   if (canManageMembers) columns.push({ id: "actions", header: t("groups.detail.tableActions"), kind: "actions", buttons: 1 });

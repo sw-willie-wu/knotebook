@@ -1268,7 +1268,7 @@ export function SettingsAiSection() {
   }
 
   const providerColumns: SettingsTableColumn[] = [
-    { id: "name", header: t("settings.ai.tableName"), kind: "primary" },
+    { id: "name", header: t("settings.ai.tableName"), kind: "primary", grow: 1 },
     { id: "type", header: t("settings.ai.tableType"), kind: "fixed" },
     { id: "baseUrl", header: t("settings.ai.tableBaseUrl"), kind: "url" },
     { id: "models", header: t("settings.ai.tableModels"), kind: "text" },

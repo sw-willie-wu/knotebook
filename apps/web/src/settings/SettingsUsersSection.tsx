@@ -343,8 +343,8 @@ export function SettingsUsersSection() {
   }
 
   const columns: SettingsTableColumn[] = [
-    { id: "user", header: t("admin.users.user"), kind: "primary" },
-    { id: "email", header: t("admin.tableEmail"), kind: "text" },
+    { id: "user", header: t("admin.users.user"), kind: "primary", grow: 1 },
+    { id: "email", header: t("admin.tableEmail"), kind: "text", grow: 1.5 },
     { id: "storage", header: t("admin.tableStorage"), kind: "fixed" },
     // #267 的表頭 key，逐字沿用
     { id: "lastActive", header: t("admin.users.lastActive"), kind: "fixed" },

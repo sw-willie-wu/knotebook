@@ -31,6 +31,8 @@ export interface SettingsTableColumn {
   kind: SettingsTableColumnKind;
   /** 只給 `actions`：該表一列最多幾顆鈕（spec §2.1，決定固定軌寬）。 */
   buttons?: number;
+  /** 只對 `primary`／`text`／`url` 有效（其餘 kind 忽略）：取代該 kind 預設的 fr 比例；未設＝預設。 */
+  grow?: number;
 }
 
 export type SettingsTableTone = "default" | "muted" | "danger";
@@ -111,12 +113,24 @@ export function orderSettingsTableColumns(columns: SettingsTableColumn[]): Setti
     if (count("actions") > 1) console.error(`SettingsTable：一張表至多一個 actions 欄（spec §2.2），實際 ${count("actions")} 個`);
     if (count("enabled") > 1) console.error(`SettingsTable：一張表至多一個 enabled 欄（spec §2.2），實際 ${count("enabled")} 個`);
     for (const column of columns) {
+      if (column.grow !== undefined && !validGrow(column.grow)) {
+        console.error(`SettingsTable：欄「${column.id}」的 grow 必須是有限正數，實際 ${column.grow}，已改用預設`);
+      }
       if (column.kind === "actions" && (column.buttons === undefined || column.buttons < 1)) {
         console.error(`SettingsTable：actions 欄「${column.id}」要給 buttons（該表一列最多的按鈕數，spec §2.1）`);
       }
     }
   }
   return ordered;
+}
+
+/** `grow` 非有限正數（0、負數、NaN、Infinity）會讓整串 grid-template 失效，一律當沒設。 */
+function validGrow(grow: number): boolean {
+  return Number.isFinite(grow) && grow > 0;
+}
+
+function fr(column: SettingsTableColumn, fallback: number): number {
+  return column.grow !== undefined && validGrow(column.grow) ? column.grow : fallback;
 }
 
 /** 啟用欄固定 56px（spec §2.1）：子表與父表都是這個寬、都在最右，開關中心才會上下對齊。 */
@@ -126,11 +140,11 @@ const ENABLED_TRACK = "3.5rem";
 function settingsTableTrack(column: SettingsTableColumn, isLast: boolean): string {
   switch (column.kind) {
     case "primary":
-      return "minmax(14ch,2fr)";
+      return `minmax(14ch,${fr(column, 2)}fr)`;
     case "text":
-      return "minmax(14ch,1fr)";
+      return `minmax(14ch,${fr(column, 1)}fr)`;
     case "url":
-      return "minmax(14ch,1.5fr)";
+      return `minmax(14ch,${fr(column, 1.5)}fr)`;
     case "fixed":
     case "control":
       return "max-content";
@@ -155,12 +169,12 @@ const ROW_GRID = "col-span-full grid grid-cols-subgrid";
 const ROW_BORDER = "border-b border-border";
 /** 儲存格：撐滿列的內容高、內容垂直置中。 */
 const CELL = "flex items-center";
-/** 頂層表主欄（表頭格與每列主欄格）：sticky、z-index 1、不透明底、右緣分隔線（spec §2.4）。 */
-const STICKY_CELL = "sticky left-0 z-[1] border-r border-border bg-card";
+/** 頂層表主欄（表頭格與每列主欄格）：sticky、z-index 1、不透明底；右緣分隔線只在捲動框溢出時畫（捲動框帶 `data-overflowing`，spec §2.4）。 */
+const STICKY_CELL = "sticky left-0 z-[1] border-border bg-card group-data-[overflowing]/box:border-r";
 /** 編輯中列的 sticky 主欄：淡色疊在卡片色上（`--brand-soft` 是半透明；用 inline style，不用 `bg-[…]` arbitrary 值，spec §2.4）。 */
 const EDITING_STICKY_BACKGROUND = "linear-gradient(var(--brand-soft), var(--brand-soft)), var(--card)";
 /** 頂層表的橫向捲動框（spec §2.4）。 */
-const SCROLL_BOX = "overflow-x-auto scroll-ps-(--kb-sticky-w) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+const SCROLL_BOX = "group/box overflow-x-auto scroll-ps-(--kb-sticky-w) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 /** 明細 cell：不加水平內距（子表要與父表同寬；非表格內容自己帶 px-3，spec §2.5）。 */
 const DETAIL_CELL = "pb-3";
 /** cell 內容子元素依欄種的文字行為與水平對齊（spec §2.1、§2.3）。 */
@@ -270,7 +284,7 @@ function useScrollBox(active: boolean, stickyKey: string | undefined) {
   }
 
   // 只在溢出時可聚焦；捲動框正有焦點時不移除 tabIndex，等它失焦後再依溢出狀態更新。
-  return { boxRef, headerRowRef, stickyHeaderRef, tabbable: overflowing || focused, setFocused, revealPastSticky };
+  return { boxRef, headerRowRef, stickyHeaderRef, overflowing, tabbable: overflowing || focused, setFocused, revealPastSticky };
 }
 
 export function SettingsTable({ label, columns, rows, nameColumn, empty, title, titleAction, nested = false }: SettingsTableProps) {
@@ -458,6 +472,7 @@ export function SettingsTable({ label, columns, rows, nameColumn, empty, title, 
         onBlur={(event) => {
           if (event.target === event.currentTarget) box.setFocused(false);
         }}
+        data-overflowing={box.overflowing ? "" : undefined}
         className={SCROLL_BOX}
       >
         {table}
