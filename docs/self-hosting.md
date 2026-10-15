@@ -27,10 +27,45 @@ In-memory state (login rate limiting, the collab-token/slug-change rate limiters
 
 `docker-compose.yml` (repo root) defines two services:
 
-- **`app`** — built from `docker/Dockerfile`, reads its configuration from `.env` (`env_file: .env`), and by default publishes only on `127.0.0.1:3000` (see topology (a) above to expose it on the LAN instead). It waits for `db` to be healthy before starting — unless the bundled database is turned off (see [Using your own PostgreSQL](#using-your-own-postgresql)) — and has its own `/healthz`-based healthcheck. Inside it, the name `host.docker.internal` points at the machine running Docker. Uploaded images are persisted to the `uploads` named volume, mounted at `/app/uploads` — if you customize the compose file and drop that mount, uploaded images vanish on the next container rebuild.
+- **`app`** — runs the prebuilt Docker image `ghcr.io/sw-willie-wu/knotebook`, or one built from `docker/Dockerfile` (see [The app image](#the-app-image)), reads its configuration from `.env` (`env_file: .env`), and by default publishes only on `127.0.0.1:3000` (see topology (a) above to expose it on the LAN instead). It waits for `db` to be healthy before starting — unless the bundled database is turned off (see [Using your own PostgreSQL](#using-your-own-postgresql)) — and has its own `/healthz`-based healthcheck. Inside it, the name `host.docker.internal` points at the machine running Docker. Uploaded images are persisted to the `uploads` named volume, mounted at `/app/uploads` — if you customize the compose file and drop that mount, uploaded images vanish on the next container rebuild.
 - **`db`** — the bundled PostgreSQL, `pgvector/pgvector:pg17`, with data persisted to the `db_data` named volume. It is started by default; to use a PostgreSQL server of your own instead, see [Using your own PostgreSQL](#using-your-own-postgresql). `POSTGRES_PASSWORD` can be overridden via `.env`, but Postgres only applies it while initializing a brand-new (empty) data directory — see the env var reference below.
 
 `docker compose down -v` discards *all* named volumes, not just `db` — it takes the `uploads` volume with it too, so every uploaded image is gone — and, with the bundled database, every note as well.
+
+## The app image
+
+Each release from v0.11.1 on is published to the GitHub Container Registry as `ghcr.io/sw-willie-wu/knotebook`, for linux/amd64 and linux/arm64, tagged with its version (`0.11.1`). Two more tags move along: the minor line (`0.11`) always points at the highest patch release of that line, and `latest` at the highest release of all.
+
+There are two ways to get `docker-compose.yml` and `.env.example`:
+
+- **From a release (no clone needed).** Releases after v0.11.1 carry both files as attachments — until the first of them is out, use a clone (next item). The attachments are `docker-compose.yml`, which runs that release's image and can't build one, and `env.example`, the example environment file (GitHub doesn't keep a leading `.` in attachment names). In an empty directory:
+
+  ```sh
+  curl -fLO https://github.com/sw-willie-wu/knotebook/releases/latest/download/docker-compose.yml
+  curl -fL -o .env.example https://github.com/sw-willie-wu/knotebook/releases/latest/download/env.example
+  cp .env.example .env
+  ```
+
+  For a given release, replace `latest/download` with `download/vX.Y.Z`. Nothing else from the repository is needed: the compose file mounts no files from it, only the `uploads` and `db_data` named volumes.
+
+  **Keep your own changes out of `docker-compose.yml`**: upgrading replaces that file. Put them in a `docker-compose.override.yml` next to it instead — Compose reads that file automatically on every command when it is in the same directory, and a newer release's `docker-compose.yml` doesn't touch it. For example, the trusted-LAN mode of [Deployment prerequisites](#deployment-prerequisites) — read its trade-offs first:
+
+  ```yaml
+  # docker-compose.override.yml
+  services:
+    app:
+      ports: !override
+        - "3000:3000"
+  ```
+
+  `!override` replaces the `127.0.0.1:3000:3000` mapping instead of adding a second one next to it (it needs Docker Compose v2.24.4 or newer); `docker compose config` shows the merged result.
+- **From a clone of the repository** — needed to build the image from source, or to run what is on `main`. Its `docker-compose.yml` runs `latest` by default and can also build the image (see below).
+
+Either file runs the tag named by `KNOTEBOOK_VERSION` in `.env` (written without a leading `v`) when it is set; unset, a release's `docker-compose.yml` runs that release, and the repository's runs `latest`. With the repository's file, pinning a version is recommended, so the version you run only changes when you change it.
+
+- `docker compose up -d` downloads the Docker image only if the machine doesn't have that tag yet. If the download fails, a release's `docker-compose.yml` stops with the registry's error (while the image isn't public, an authorization error such as `denied` or `failed to fetch anonymous token … 403 Forbidden`); the repository's builds the Docker image from source instead, which needs the whole repository.
+- `docker compose pull` downloads the tag again even if the machine already has it — that is how `latest` (or `0.11`) moves to a newer release.
+- **Building from source** (a clone only): `docker compose up -d --build` builds the Docker image from `docker/Dockerfile` in your checkout instead of downloading the published one (the build itself still downloads its Node.js base image and packages). The result is stored under the same name and tag, so a later `docker compose pull` replaces it with the published one.
 
 ## Using your own PostgreSQL
 
@@ -78,6 +113,44 @@ A host firewall between the bridge and PostgreSQL has to let the connection thro
 
 **Versions.** From an empty database, every migration runs and the server starts and signs in on the stock `postgres:16` (16.15) and `postgres:17` (17.11) images, without pgvector; the bundled database and the test suites use PostgreSQL 17 (`pgvector/pgvector:pg17`). Older versions haven't been tried.
 
+## Using `docker run` with your own PostgreSQL
+
+If you already run PostgreSQL and don't want Compose, the image runs on its own with `docker run`. To run the bundled database alongside it, use Compose instead (see [Compose services and volumes](#compose-services-and-volumes)) — it also gives you the healthcheck, the log size limit and the volumes below without writing them out yourself.
+
+The database needs what [Using your own PostgreSQL](#using-your-own-postgresql) describes: a database owned by the account in `DATABASE_URL`, no extensions, PostgreSQL 16 or 17 (see **Versions** there). In `.env` (start from `.env.example`), set at least the variables marked required in [Environment variables](#environment-variables): `DATABASE_URL`, `APP_SECRET`, `PUBLIC_URL`, and, for the first start on an empty database, `ADMIN_EMAIL` and `ADMIN_PASSWORD`. `docker run --env-file` takes each line literally, so don't put quotes around values. `BUNDLED_DB` and `KNOTEBOOK_VERSION` don't matter here.
+
+```sh
+docker run -d --name knotebook \
+  -p 127.0.0.1:3000:3000 \
+  --env-file .env \
+  -v knotebook_uploads:/app/uploads \
+  --log-opt max-size=50m --log-opt max-file=5 \
+  --restart unless-stopped \
+  ghcr.io/sw-willie-wu/knotebook:<version>
+```
+
+- `<version>` is a release such as `0.11.1` (or `latest`).
+- `-p 127.0.0.1:3000:3000` publishes the app on this machine only, for a reverse proxy in front of it. To reach it directly from your network, use `-p 3000:3000` — read the trade-offs in [Deployment prerequisites](#deployment-prerequisites) first.
+- `knotebook_uploads` keeps uploaded images; without it they are lost when the container is removed.
+- `--log-opt` limits the log files, as `docker-compose.yml` does; Docker's default `json-file` log driver has no size limit.
+- **PostgreSQL on the same machine:** add `--add-host host.docker.internal:host-gateway` and use `host.docker.internal` as the host in `DATABASE_URL`. The `listen_addresses` and `pg_hba.conf` changes in [Using your own PostgreSQL](#using-your-own-postgresql) apply, except that the connection comes from Docker's default `bridge` network (`docker network inspect bridge` shows its subnet, usually `172.17.0.0/16`) rather than from a Compose network.
+- **Healthcheck:** the image doesn't define one; `docker-compose.yml` adds it. To have `docker ps` show the container's health, add the same check:
+
+  ```sh
+    --health-cmd "node -e \"fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))\"" \
+    --health-interval 5s --health-timeout 3s --health-retries 5 --health-start-period 10s \
+  ```
+
+`docker logs knotebook` shows the server's log, including database connection errors; with `--restart unless-stopped`, a server that can't reach the database keeps restarting.
+
+**Upgrading.** Read the release's upgrade notes and back up the database when they say so. Then download the new version, remove the old container, and run the same `docker run` command with the new version; the `knotebook_uploads` volume is kept:
+
+```sh
+docker pull ghcr.io/sw-willie-wu/knotebook:<new version>
+docker stop knotebook && docker rm knotebook
+docker run -d --name knotebook ... ghcr.io/sw-willie-wu/knotebook:<new version>
+```
+
 ## Environment variables
 
 Reference: `.env.example` (repo root) is the canonical source — copy it to `.env` and fill in the values below.
@@ -93,6 +166,7 @@ Reference: `.env.example` (repo root) is the canonical source — copy it to `.e
 | `TRUST_PROXY` | no (**set it when you run behind a reverse proxy**) | Whether to believe `X-Forwarded-For`. Unset means the header is ignored and the socket address is used — the safe default when clients can reach the app directly. Behind a proxy, leaving it unset makes every visitor look like the proxy, so they all share one rate-limit and lockout bucket (this includes the per-IP limits on invalid API-token attempts and on the three OAuth endpoints — registration, authorization and token exchange — see [Known limitations](./known-limitations.md)). Accepts a list of trusted proxy addresses (IPs, CIDRs, or `loopback`/`linklocal`/`uniquelocal`), a hop count, or `true`. See [Deployment prerequisites](#deployment-prerequisites). |
 | `PASSWORD_LOGIN_FORCE_ENABLE` | no | Recovery switch, read when the server starts: `true` makes password sign-in work again while **Allow password sign-in** is off in Site admin, without changing that setting — see [SSO-only sign-in](#sso-only-sign-in). Only `true` or `false` (any letter case); empty counts as not set, and any other value stops the server from starting. Remove it once you're done. |
 | `BUNDLED_DB` (docker-compose.yml, not read by the server) | no | `1` (the default) starts the bundled `db` service; `0` leaves it out, for when `DATABASE_URL` points at your own PostgreSQL. Only `0` or `1`. See [Using your own PostgreSQL](#using-your-own-postgresql). |
+| `KNOTEBOOK_VERSION` (docker-compose.yml, not read by the server) | no | Which tag of `ghcr.io/sw-willie-wu/knotebook` the `app` service runs, written without a leading `v` (`0.11.1`, `0.11` or `latest`). Unset, a release's `docker-compose.yml` runs that release and the repository's runs `latest`. See [The app image](#the-app-image). |
 | `POSTGRES_PASSWORD` (docker-compose.yml, not `.env.example`) | no | Overrides the `db` service's Postgres password (default `knotebook`). Only applied by Postgres while initializing a brand-new (empty) data directory — see [Known limitations](./known-limitations.md) for how to change it after the `db` volume already exists. |
 
 ## Sign-in providers
@@ -207,7 +281,14 @@ If one of the restrictions above blocks something you need, the escape hatch is 
 
 ## Upgrading and rolling back
 
-Database migrations run automatically at startup and are idempotent — upgrading is "pull the new version, then `docker compose up -d --build`", no manual steps (for this release, back up the database first — see the groups migration below). Rolling back to an older image after a migration has run is **schema-safe but not behavior-safe** (with one exception for the groups migration, below): newer migrations add columns with database-side defaults precisely so an older server still boots and works, but features introduced alongside the migration degrade in documented ways during the rollback window. Known degradations while running a rolled-back (pre-URL-revamp) server:
+Database migrations run automatically at startup and are idempotent — upgrading needs no manual steps beyond these (for this release, back up the database first — see the groups migration below):
+
+1. Get the new release's `docker-compose.yml`:
+   - **with a release's files** — download the new release's `docker-compose.yml` over the old one (`curl -fLO` with the URL from [The app image](#the-app-image)). Any change you made in the old file itself is lost — move it to `docker-compose.override.yml` first (see [The app image](#the-app-image)). Keep your `.env`; download the new `env.example` too, and compare it with your `.env` for new settings. If your `.env` sets `KNOTEBOOK_VERSION`, change it to the new version or remove it.
+   - **with a clone** — update it to the new release (for example `git pull`), and in `.env` set `KNOTEBOOK_VERSION` to the new version (for example `0.11.1`), or leave it unset to follow `latest`.
+2. Run `docker compose pull`, then `docker compose up -d`.
+
+If you build from source (see [The app image](#the-app-image)), run `docker compose up -d --build` after updating your clone instead. Images are published from v0.11.1 on; the version sections below that say "`docker compose up -d --build`" predate them. To roll back to an earlier release that has an image, set `KNOTEBOOK_VERSION` to it and run the same two commands; for one before v0.11.1, check out its tag and run `docker compose up -d --build`. Rolling back to an older image after a migration has run is **schema-safe but not behavior-safe** (with one exception for the groups migration, below): newer migrations add columns with database-side defaults precisely so an older server still boots and works, but features introduced alongside the migration degrade in documented ways during the rollback window. Known degradations while running a rolled-back (pre-URL-revamp) server:
 
 - **Usernames**: accounts created during the window fall outside the rename-tombstone registry until the upgraded server's next startup backfills them — see the rolled-back-server username entry in [known limitations](./known-limitations.md).
 - **Note URLs**: the old server looks slugs up globally, so two users' notes sharing a slug (allowed after the upgrade) resolve unpredictably — an owner can 404 on their own note's URL.

@@ -26,9 +26,16 @@ All of it sits on a REST API you can also drive directly (see [API contract summ
 
 ## Quickstart (~10 minutes)
 
-This brings up the server and a Postgres database with `docker compose`; the first (admin) account is created from environment variables at startup — there's no in-browser setup step.
+This brings up the server and a Postgres database with `docker compose`; the first (admin) account is created from environment variables at startup — there's no in-browser setup step. The server runs from a prebuilt image, `ghcr.io/sw-willie-wu/knotebook` on the GitHub Container Registry (linux/amd64 and linux/arm64, published from v0.11.1 on), so it doesn't have to be built on your machine.
 
-1. Copy the example environment file:
+1. Get `docker-compose.yml` and `.env.example`, then copy the example environment file:
+   - **Clone the repository** — this works today, and is what you need to build from source or run what is on `main`: `git clone https://github.com/sw-willie-wu/knotebook.git && cd knotebook`.
+   - **Or, without cloning**, download the two files attached to the latest release into an empty directory. Only releases after v0.11.1 carry them: until the first of those is out, these links fail, so clone instead.
+
+     ```sh
+     curl -fLO https://github.com/sw-willie-wu/knotebook/releases/latest/download/docker-compose.yml
+     curl -fL -o .env.example https://github.com/sw-willie-wu/knotebook/releases/latest/download/env.example
+     ```
 
    ```sh
    cp .env.example .env
@@ -56,11 +63,15 @@ This brings up the server and a Postgres database with `docker compose`; the fir
    docker compose up -d
    ```
 
+   The first run downloads the image: the release's own version with a release's `docker-compose.yml`, `latest` with the repository's — unless you set `KNOTEBOOK_VERSION` in `.env` to a release (for example `KNOTEBOOK_VERSION=0.11.1`), which is recommended with a clone. In a clone, `docker compose up -d --build` builds from source instead (see [The app image](docs/self-hosting.md#the-app-image)).
+
 6. Open `http://localhost:3000` in a browser and log in with `ADMIN_EMAIL`/`ADMIN_PASSWORD`. You're signed in straight away — there is no forced password change for this account. You can change the password later under **Settings → Sign-in**.
 
 7. Create a note and open it in the block editor. To try live co-editing, open **Site admin → Users** (`/admin/users`; **Site admin** is in the user menu — you're an admin) to create a second account, then log that account in from a second browser or an incognito window, share the note with it, and watch edits sync live. While registration is on (the default; turn it off in **Site admin → Sign-in**), people can also create their own account at `/register`, or get one the first time they sign in through a sign-in service — see [Accounts](docs/self-hosting.md#accounts).
 
 If you'd rather drive the API directly than click through the browser — e.g. to script the whole flow or build another client — the same login endpoints are available over `curl`; see [API contract summary](docs/api.md) for the full endpoint list. The loop is: `ADMIN_EMAIL`/`ADMIN_PASSWORD` from `.env` → `POST /api/auth/login` → authenticated API calls, session cookie carried the same way the browser carries it.
+
+**Upgrading:** with a release's files, download the new release's `docker-compose.yml` over the old one — keep your own changes, such as the LAN-mode port, in `docker-compose.override.yml`, which the download doesn't touch (see [The app image](docs/self-hosting.md#the-app-image)) — keep your `.env`, and if it sets `KNOTEBOOK_VERSION`, change it to the new version or remove it; with a clone, update it to the new release (for example `git pull`) and set `KNOTEBOOK_VERSION` in `.env` to the new version (or leave it unset to follow `latest`). Then run `docker compose pull` and `docker compose up -d`. Read the release's upgrade notes first, and back up when they say so — see [Upgrading and rolling back](docs/self-hosting.md#upgrading-and-rolling-back).
 
 ## Before you deploy beyond localhost
 
@@ -71,7 +82,7 @@ Read the full [self-hosting guide](docs/self-hosting.md) before running anywhere
 
 ## Documentation
 
-- [Self-hosting guide](docs/self-hosting.md) — deployment prerequisites, compose services/volumes, reverse proxy & TLS, LAN plain-http mode, environment variable reference, sign-in services (OIDC/SSO) and their setup on GitLab and Google, accounts and registration, SSO-only sign-in and its recovery switch, content security policy, upgrading/rollback, and troubleshooting.
+- [Self-hosting guide](docs/self-hosting.md) — deployment prerequisites, compose services/volumes, reverse proxy & TLS, LAN plain-http mode, environment variable reference, sign-in services (OIDC/SSO) and their setup on GitLab and Google, accounts and registration, SSO-only sign-in and its recovery switch, content security policy, the prebuilt image (installing from a release's files or a clone, building from source, `docker run` with your own PostgreSQL), upgrading/rollback, and troubleshooting.
 - [API contract summary](docs/api.md) — full endpoint table with auth requirements and error codes.
 - [API tokens](docs/api-tokens.md) — Personal API tokens for scripts and AI assistants, which can read and write note content today: creating, using (`Authorization: Bearer`), which endpoints accept them, rate limits, revoking, and why changing your password doesn't revoke them; plus how an MCP client authorizes itself over OAuth instead of using a pasted token.
 - [AI editing](docs/ai-editing.md) — the note-content read/write API a token or authorized app uses: the five write operations, fingerprints and conflict handling, reverting a write, the presence cursor and agent display names, and rate limits and error codes.
@@ -82,6 +93,7 @@ Read the full [self-hosting guide](docs/self-hosting.md) before running anywhere
 - [Diagrams (Mermaid)](docs/diagrams.md) — inserting, editing and pasting Mermaid diagrams, what copying one out produces, and the on-demand loading and rendering lockdown behind them.
 - [Known limitations](docs/known-limitations.md) — the full list of known rough edges and deliberate trade-offs.
 - [Restoring note content from a backup](docs/backup-restore.md) — runbook for restoring `note_states` from a snapshot or `pg_dump`.
+- [Releasing](docs/releasing.md) — for maintainers: preparing a release pull request with `pnpm release:prepare`, and what the Release workflow does after it is merged (the tag, the GitHub Release and the Docker images).
 - [CHANGELOG](CHANGELOG.md).
 
 ## Roadmap

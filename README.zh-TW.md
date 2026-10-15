@@ -28,9 +28,16 @@ Knotebook 是一套開源、可自行架設的 Notion/HackMD 風格協作筆記�
 
 ## 快速上手（約 10 分鐘）
 
-這會用 `docker compose` 啟動伺服器與 Postgres 資料庫；第一個（管理員）帳號會在啟動時由環境變數建立——沒有瀏覽器內的初始設定步驟。
+這會用 `docker compose` 啟動伺服器與 Postgres 資料庫；第一個（管理員）帳號會在啟動時由環境變數建立——沒有瀏覽器內的初始設定步驟。伺服器跑的是預先建好的映像：GitHub Container Registry 上的 `ghcr.io/sw-willie-wu/knotebook`（linux/amd64 與 linux/arm64，自 v0.11.1 起提供），不必在你的機器上 build。
 
-1. 複製範例環境檔：
+1. 取得 `docker-compose.yml` 與 `.env.example`，再複製範例環境檔：
+   - **clone 本 repo**——現在就能用，要從原始碼 build 或跑 `main` 上的版本也是這條：`git clone https://github.com/sw-willie-wu/knotebook.git && cd knotebook`。
+   - **或不 clone**：在一個空目錄下載最新 Release 附帶的這兩個檔。只有 v0.11.1 之後的 Release 才有附：在第一個這樣的 Release 出來之前，這兩個連結會失敗，請改用 clone。
+
+     ```sh
+     curl -fLO https://github.com/sw-willie-wu/knotebook/releases/latest/download/docker-compose.yml
+     curl -fL -o .env.example https://github.com/sw-willie-wu/knotebook/releases/latest/download/env.example
+     ```
 
    ```sh
    cp .env.example .env
@@ -58,11 +65,15 @@ Knotebook 是一套開源、可自行架設的 Notion/HackMD 風格協作筆記�
    docker compose up -d
    ```
 
+   第一次執行會下載映像：用 Release 附帶的 `docker-compose.yml` 時是該版本身，用 repo 裡的則是 `latest`——除非你在 `.env` 把 `KNOTEBOOK_VERSION` 設成某個版本（例如 `KNOTEBOOK_VERSION=0.11.1`），用 clone 時建議這樣鎖版本。在 clone 裡執行 `docker compose up -d --build` 則改從原始碼 build（見 [App 映像](docs/self-hosting.md#the-app-image)）。
+
 6. 在瀏覽器開啟 `http://localhost:3000`，以 `ADMIN_EMAIL`/`ADMIN_PASSWORD` 登入。你會直接登入成功——這個帳號不會被強制更改密碼。之後可以在**設定 → 登入**變更密碼。
 
 7. 建立一篇筆記，並在區塊編輯器中開啟。想試試即時共同編輯，請開啟**站台管理 → 使用者**（`/admin/users`；**站台管理**在使用者選單中——你是管理員）建立第二個帳號，再用另一個瀏覽器或無痕視窗登入該帳號，把筆記分享給這個帳號，然後觀察編輯內容即時同步。註冊開啟時（預設為開啟；可在**站台管理 → 登入**關閉），使用者也可以在 `/register` 自行建立帳號，或第一次透過登入服務登入時取得帳號——見 [帳號](docs/self-hosting.md#accounts)。
 
 如果你想直接操作 API，而不是在瀏覽器裡點選——例如要用腳本跑完整個流程，或打造另一個用戶端——同樣的登入端點也能用 `curl` 呼叫；完整的端點清單見 [API 規格摘要](docs/api.md)。流程是：`.env` 中的 `ADMIN_EMAIL`/`ADMIN_PASSWORD` → `POST /api/auth/login` → 帶著登入狀態的 API 呼叫，session cookie 的帶法與瀏覽器相同。
+
+**升級：**用 Release 附檔的，下載新版的 `docker-compose.yml` 覆蓋舊檔——自己的修改（例如區網模式的 port）請放在 `docker-compose.override.yml`，下載不會動到它（見 [App 映像](docs/self-hosting.md#the-app-image)）——保留你的 `.env`，若其中設了 `KNOTEBOOK_VERSION`，改成新版本或拿掉；用 clone 的，把它更新到新版本（例如 `git pull`），並在 `.env` 把 `KNOTEBOOK_VERSION` 設成新版本（或不設，跟著 `latest`）。然後執行 `docker compose pull` 與 `docker compose up -d`。請先讀該版的升級說明，說要備份時就先備份——見 [升級與回滾](docs/self-hosting.md#upgrading-and-rolling-back)。
 
 ## 部署到 localhost 以外之前
 
@@ -73,7 +84,7 @@ Knotebook 是一套開源、可自行架設的 Notion/HackMD 風格協作筆記�
 
 ## 文件
 
-- [自行架設指南](docs/self-hosting.md)——部署前提、compose 服務／volume、反向代理與 TLS、區域網路純 http 模式、環境變數參考、登入服務（OIDC/SSO）及其在 GitLab 與 Google 上的設定、帳號與註冊、僅限 SSO 登入及其復原開關、內容安全政策（CSP）、升級／回滾，以及疑難排解。
+- [自行架設指南](docs/self-hosting.md)——部署前提、compose 服務／volume、反向代理與 TLS、區域網路純 http 模式、環境變數參考、登入服務（OIDC/SSO）及其在 GitLab 與 Google 上的設定、帳號與註冊、僅限 SSO 登入及其復原開關、內容安全政策（CSP）、預先建好的映像（從 Release 附檔或 clone 安裝、從原始碼 build、搭配自己的 PostgreSQL 用 `docker run`）、升級／回滾，以及疑難排解。
 - [API 規格摘要](docs/api.md)——完整的端點表，含驗證需求與錯誤碼。
 - [API token](docs/api-tokens.md)——供腳本與 AI 助理使用的個人 API token，目前可以讀寫筆記內容：建立、使用（`Authorization: Bearer`）、哪些端點接受它們、速率限制、撤銷，以及為什麼變更密碼不會撤銷它們；另外還有 MCP 用戶端如何透過 OAuth 自行取得授權，而不是使用貼上的 token。
 - [AI 編輯](docs/ai-editing.md)——token 或已授權的應用程式所使用的筆記內容讀寫 API：五種寫入操作、指紋與衝突處理、還原某次寫入、協作游標（presence）與 AI agent 的顯示名稱，以及速率限制與錯誤碼。
@@ -84,6 +95,7 @@ Knotebook 是一套開源、可自行架設的 Notion/HackMD 風格協作筆記�
 - [圖表（Mermaid）](docs/diagrams.md)——插入、編輯與貼上 Mermaid 圖表、把圖表複製出去會得到什麼，以及其背後的隨需載入與渲染安全鎖定機制。
 - [已知限制](docs/known-limitations.md)——已知的粗糙之處與刻意取捨的完整清單。
 - [從備份還原筆記內容](docs/backup-restore.md)——從快照或 `pg_dump` 還原 `note_states` 的操作手冊。
+- [發版流程](docs/releasing.md)——給維護者：用 `pnpm release:prepare` 準備發版 PR，以及 merge 後 Release workflow 自動做的事（tag、GitHub Release 與 Docker 映像）。
 - [CHANGELOG](CHANGELOG.md)。
 
 ## 路線圖

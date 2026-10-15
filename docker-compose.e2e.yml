@@ -1,5 +1,8 @@
 services:
   app:
+    # 拿掉基底的 GHCR 映像名：e2e 一律從原始碼 build，且產物維持叫 knotebook-e2e-app，不覆寫本機
+    # ghcr.io/sw-willie-wu/knotebook:latest（同一台機器上的 demo 疊用的是那個標籤）。
+    image: !reset null
     env_file: !override []
     environment:
       DATABASE_URL: postgres://knotebook:knotebook@db:5432/knotebook

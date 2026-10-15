@@ -7,7 +7,9 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+
+- Prebuilt Docker images on the GitHub Container Registry: each release is published as `ghcr.io/sw-willie-wu/knotebook` for linux/amd64 and linux/arm64, tagged with its version (`0.11.1`), while `0.11` points at the highest patch release of that line and `latest` at the highest release; v0.11.1 is the first. `docker-compose.yml` now runs that image — the tag set by the new `KNOTEBOOK_VERSION` in `.env`, `latest` if unset — so installing and upgrading pull it instead of building it (`docker compose pull`, then `docker compose up -d`); `docker compose up -d --build` still builds from source. Each GitHub Release also carries a `docker-compose.yml` that runs that release's image and an `env.example`, so installing and upgrading need only those two files, not a clone of the repository; with your own PostgreSQL, the image also runs on its own with `docker run`. See [The app image](docs/self-hosting.md#the-app-image) (#284).
 
 ## [0.11.1] - 2026-10-15
 

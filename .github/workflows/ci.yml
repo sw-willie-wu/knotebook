@@ -9,9 +9,12 @@ on:
 permissions:
   contents: read
 
+# 只有 PR 會取消同一分支較舊的 run。其他（push 到 main 等）每次 run 自成一組：
+# 若共用一組，就算不 cancel-in-progress，排隊中的舊 run 仍會被新的取代。main 的每個 push 都要有
+# 完整的 CI 結論，release.yml 靠它決定要不要發版。
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   ci:

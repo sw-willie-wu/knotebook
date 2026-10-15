@@ -1,5 +1,13 @@
 services:
   app:
+    # 發版時 release.yml 推的映像（linux/amd64、linux/arm64），標籤取自 .env 的 KNOTEBOOK_VERSION。
+    # Release 附件版的這個檔由 release.yml 產生：預設標籤換成該版版號、拿掉 build:（只能 pull）。
+    # 刻意不設 pull_policy——compose 的預設行為正是要的：
+    # - `docker compose up -d`：本機沒有這個映像才 pull；有 build: 時 pull 失敗會改從原始碼 build。
+    # - `docker compose pull`：一律重拉。明設 pull_policy: missing 的話，本機已有的標籤（例如 latest）
+    #   會被跳過，升級拉不到新版（Compose v2.27 實測）。
+    # - `docker compose up -d --build`（repo 裡）：一律從原始碼 build（不 pull），產物標成這個映像名。
+    image: ghcr.io/sw-willie-wu/knotebook:${KNOTEBOOK_VERSION:-latest}
     build:
       context: .
       dockerfile: docker/Dockerfile

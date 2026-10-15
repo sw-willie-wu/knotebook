@@ -1,73 +1,482 @@
 name: Release
 
-# 發 GitHub Release：推 vX.Y.Z tag 就自動發，notes 取自 CHANGELOG.md 的同版段落。
-# 品質保證不在這裡——靠 push main 時已經跑過的 ci + e2e（見 ci.yml）；這個 workflow
-# 的唯一職責是「把 CHANGELOG 該版段落變成 Release」。
+# 發版的唯一入口：發版 PR（`pnpm release:prepare X.Y.Z` 改好的版號與 CHANGELOG，見 docs/releasing.md）
+# merge 進 main，main 上「那個 commit」的 CI workflow（ci 與 e2e 兩個 job）全綠後，由 workflow_run 觸發：
+#   resolve：只有該 commit 本身改了 apps/server/package.json 的版號（相對第一個父 commit）、且
+#            tag vX.Y.Z 還不存在才發；確認 CHANGELOG 有該版段落（fail-closed），並先產生、驗證 Release
+#            附件（docker-compose.yml、env.example）。任何一項不過，什麼都不推。
+#   image-build → image-merge：build docker/Dockerfile，推 multi-arch（amd64＋arm64）映像到
+#            ghcr.io/sw-willie-wu/knotebook:X.Y.Z（build 用 resolve 定下的 sha，不依賴 tag）。
+#   release：映像推好之後才在該 commit 打 annotated tag 並推上去 → 建 GitHub Release（先 draft、
+#            上傳附件後才公開）→ 公開成功後才把 X.Y／latest 指到 X.Y.Z。映像失敗就不打 tag、不建
+#            Release；Release 失敗時 X.Y／latest 也不會動（用 repo 版 compose 跟 latest 的人不會先升級）。
+# 發版 PR 一律 squash merge（rebase 多個 commit 時 HEAD 不是改版號的那個，會被跳過）。
+# 發版 commit 的 CI 偶發紅：重跑那次 CI，綠了會再觸發這裡，head_sha 仍是發版 commit。真的紅、要另外
+# 修的話：修正 merge 後手動在 main 的 commit 打 tag 再用 dispatch 發（docs/releasing.md）。
+# 之後的一般 commit 不改版號，不會自動補發。
+# GITHUB_TOKEN 推的 tag 不會觸發其他 workflow，所以 tag、Release、映像都在這個 workflow 裡做完。
 #
-# workflow_dispatch 是給「tag 已經推上去、但當時還沒有這個 workflow」或「notes 要重發」
-# 的情境用的；建 release 的那一步是冪等的（已存在就 edit，不存在才 create）。
+# workflow_dispatch(tag)：補發／重發「已經存在」的 tag（不打新 tag），例如補推 v0.11.1 的映像。
+# 只認 refs/tags/<tag>：同名 branch 不會被誤用。
+# Release 與映像都冪等（Release 已存在就 edit、附件 --clobber；映像標籤重推會指到新 build 的 manifest）。
+#
+# 安全：workflow_run 以本 repo 的權限執行（release job 可寫）。這裡只接受「push 到本 repo main」
+# 跑出來的成功 CI，只 checkout 那次 CI 的 head_sha（已經在 main 上的 commit）——不會執行 PR
+# 來源分支或 fork 的程式碼。`branches: [main]` 只是減少雜訊（它比對 head_branch，fork 的分支也可以
+# 叫 main），真正的把關是 resolve 的 if（含 head_repository 檢查）。
 on:
-  push:
-    tags:
-      - "v[0-9]+.[0-9]+.[0-9]+"
+  workflow_run:
+    workflows: [CI] # 對應 ci.yml 的 `name: CI`
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       tag:
-        description: "要發布的 tag（例：v0.1.0）——必須已經存在於 repo"
+        description: "要補發／重發的 tag（例：v0.11.1）——必須已經存在於 repo"
         required: true
 
-# ci.yml 維持 contents: read；只有這個 workflow 需要寫入權限（建 release）。
+# 頂層最小權限；要寫入的 job 自己宣告（release：contents＋packages write；映像：packages: write）。
 permissions:
-  contents: write
+  contents: read
 
-# 同一個 tag 不併發；且刻意不 cancel-in-progress——release 建到一半被砍比排隊更糟。
+# 同一個 commit／tag 不併發，且刻意不 cancel-in-progress——發版做到一半被砍比排隊更糟。
+# 萬一兩次 run 都要打同一個 tag，tag push 不會覆寫既有 tag：後到的那次在推 tag 時失敗。
 concurrency:
-  group: release-${{ inputs.tag || github.ref_name }}
+  group: release-${{ inputs.tag || github.event.workflow_run.head_sha }}
   cancel-in-progress: false
 
+env:
+  IMAGE: ghcr.io/sw-willie-wu/knotebook
+
 jobs:
-  release:
+  resolve:
+    if: >-
+      github.event_name == 'workflow_dispatch' || (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.head_repository.full_name == github.repository
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      publish: ${{ steps.decide.outputs.publish }}
+      create_tag: ${{ steps.decide.outputs.create_tag }}
+      tag: ${{ steps.decide.outputs.tag }}
+      version: ${{ steps.decide.outputs.version }}
+      sha: ${{ steps.decide.outputs.sha }}
+      latest: ${{ steps.decide.outputs.latest }}
+      minor_latest: ${{ steps.decide.outputs.minor_latest }}
+      attachments: ${{ steps.attach.outputs.ready }}
     steps:
-      # tag 名稱一律經 env 傳進 shell（不直接把 ${{ inputs.* }} 內插進指令，避免 script injection）。
-      - name: Resolve tag and version
-        id: resolve
+      # 輸入一律經 env 傳進 shell（不直接把 ${{ inputs.* }} 內插進指令，避免 script injection）。
+      - name: Pick the commit
+        id: target
         env:
+          EVENT: ${{ github.event_name }}
           TAG_INPUT: ${{ inputs.tag }}
-          REF_NAME: ${{ github.ref_name }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
-          TAG="${TAG_INPUT:-$REF_NAME}"
-          case "$TAG" in
-            v[0-9]*.[0-9]*.[0-9]*) ;;
-            *) echo "::error::tag 形式不符 vX.Y.Z：$TAG"; exit 1 ;;
-          esac
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT" = workflow_dispatch ]; then
+            if [[ ! "$TAG_INPUT" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::tag 形式不符 vX.Y.Z：$TAG_INPUT"; exit 1
+            fi
+            echo "ref=refs/tags/$TAG_INPUT" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          fi
 
-      - name: Checkout the tagged commit
-        uses: actions/checkout@v4
+      # dispatch 指定的 tag 不存在時，checkout refs/tags/<tag> 在這裡就失敗（同名 branch 不算）。
+      # fetch-depth 2：要拿父 commit 比版號。
+      - name: Checkout
+        uses: actions/checkout@v7
         with:
-          ref: ${{ steps.resolve.outputs.tag }}
+          ref: ${{ steps.target.outputs.ref }}
+          fetch-depth: 2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Decide what to publish
+        id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          TAG_INPUT: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          version_at() {
+            git show "$1:apps/server/package.json" 2>/dev/null \
+              | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version" 2>/dev/null
+          }
+          if [ "$EVENT" = workflow_dispatch ]; then
+            TAG="$TAG_INPUT"
+            CREATE_TAG=false
+          else
+            VERSION=$(version_at HEAD) || VERSION=""
+            if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::apps/server/package.json 的版號形式不符 X.Y.Z：$VERSION"; exit 1
+            fi
+            # 只認「這個 commit 本身改了版號」：和第一個父 commit（squash merge 下就是 main 的上一個
+            # commit；merge commit 則是被併入前的 main）比。沒有父 commit（repo 的第一個 commit）算有改。
+            if git rev-parse --verify -q 'HEAD^1' > /dev/null; then
+              PREV=$(version_at 'HEAD^1') || PREV=""
+            else
+              PREV=""
+            fi
+            TAG="v$VERSION"
+            # exit 2＝查無此 tag；其他非 0（網路、認證）一律讓 job 失敗，不當成 tag 不存在。
+            rc=0
+            git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null || rc=$?
+            case "$rc" in
+              0) TAG_EXISTS=true ;;
+              2) TAG_EXISTS=false ;;
+              *) echo "::error::git ls-remote 失敗（exit $rc），無法確認 $TAG 是否存在"; exit 1 ;;
+            esac
+            if [ "$PREV" = "$VERSION" ]; then
+              if [ "$TAG_EXISTS" = false ]; then
+                echo "::warning::版號 $VERSION 還沒有 tag $TAG，但這個 commit 沒改版號，不發版。若這是發版 PR，請確認是 squash merge；要補發見 docs/releasing.md"
+              else
+                echo "::notice::這個 commit 沒改版號（$VERSION），不發版"
+              fi
+              echo "publish=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if [ "$TAG_EXISTS" = true ]; then
+              echo "::notice::$TAG 已存在，不發版（要補發或重發用 workflow_dispatch）"
+              echo "publish=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            CREATE_TAG=true
+          fi
+          VERSION="${TAG#v}"
+
+          # fail-closed：CHANGELOG 沒有該版段落（或段落是空的）就整條紅掉，不打 tag、不發任何東西。
+          node scripts/changelog-section.mjs "$VERSION" > /dev/null
+
+          # latest 只給所有 vX.Y.Z 中 semver 最大的版本，X.Y 只給該 minor 線最大的 patch——
+          # dispatch 補發舊版時不會把它們指回去。
+          ALL=$( { git ls-remote --tags --refs origin 'v*' | awk '{print $2}' | sed 's#^refs/tags/v##'; echo "$VERSION"; } \
+            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -uV)
+          MAX=$(tail -n 1 <<< "$ALL")
+          MAX_MINOR=$(awk -v p="${VERSION%.*}." 'index($0, p) == 1' <<< "$ALL" | tail -n 1)
+
+          {
+            echo "publish=true"
+            echo "create_tag=$CREATE_TAG"
+            echo "tag=$TAG"
+            echo "version=$VERSION"
+            echo "sha=$(git rev-parse HEAD)"
+            echo "latest=$([ "$MAX" = "$VERSION" ] && echo true || echo false)"
+            echo "minor_latest=$([ "$MAX_MINOR" = "$VERSION" ] && echo true || echo false)"
+          } >> "$GITHUB_OUTPUT"
+          echo "$TAG（$(git rev-parse --short HEAD)）：新 tag=$CREATE_TAG，最大版本 $MAX，該 minor 線最大 $MAX_MINOR"
+
+      # Release 附件：自架者只下載 docker-compose.yml 與 env.example 就能安裝／升級，不必 clone。
+      # 內容取自發版 commit（這次 checkout）。compose 附件拿掉 build:（沒有 repo 就無從 build——留著的話
+      # pull 失敗會改 build，只報一個看不懂的 lstat 錯誤）、預設標籤改成本版、app 的實作註解換成給使用者的
+      # 說明；env.example 的 KNOTEBOOK_VERSION 範例改成本版。.env.example 以 env.example 上傳：GitHub 會
+      # 改寫開頭是 "." 的附件檔名。這版的 compose 還沒有 image:（早於映像）就不附。
+      # 在這裡（推任何東西之前）產生並驗證，不過就整條停下。
+      - name: Prepare the release attachments
+        id: attach
+        if: steps.decide.outputs.publish == 'true'
+        env:
+          TAG: ${{ steps.decide.outputs.tag }}
+          VERSION: ${{ steps.decide.outputs.version }}
+        run: |
+          set -euo pipefail
+          if ! yq -e '.services.app.image' docker-compose.yml > /dev/null; then
+            echo "::notice::$TAG 的 docker-compose.yml 沒有 image:，不附 compose／env 附件"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          out="$RUNNER_TEMP/attach"
+          check="$RUNNER_TEMP/attach-check"
+          mkdir -p "$out" "$check"
+          {
+            echo "# Knotebook $TAG: docker-compose.yml attached to https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"
+            echo "# It runs the published image only (no build:). Put your own changes (ports, for example) in"
+            echo "# docker-compose.override.yml next to this file: Compose reads it automatically, and downloading a"
+            echo "# newer release's docker-compose.yml doesn't touch it. See docs/self-hosting.md in the repository."
+            echo
+            # shellcheck disable=SC2016 # ${KNOTEBOOK_VERSION:-…} 要原樣寫進 compose 檔
+            V="$VERSION" yq '
+              del(.services.app.build)
+              | .services.app.image = "ghcr.io/sw-willie-wu/knotebook:${KNOTEBOOK_VERSION:-" + strenv(V) + "}"
+              | (.services.app.image | key) head_comment = "The published image of this release (linux/amd64, linux/arm64). Set KNOTEBOOK_VERSION in .env to run another release."
+              | (.services.app.ports | key) head_comment = "Published on this machine only. To change it (LAN mode, for example), use docker-compose.override.yml; see docs/self-hosting.md."
+              | .services.app.ports[] line_comment = "" | .services.app.ports[] foot_comment = "" | .services.app.ports foot_comment = ""
+            ' docker-compose.yml
+          } > "$out/docker-compose.yml"
+          grep -q '^# KNOTEBOOK_VERSION=' .env.example
+          sed -E "s/^# KNOTEBOOK_VERSION=.*/# KNOTEBOOK_VERSION=$VERSION/" .env.example > "$out/env.example"
+          # 在沒有 repo 的目錄裡解析一次：app 只有 image（預設標籤＝本版）、沒有 build。
+          cp "$out/docker-compose.yml" "$check/docker-compose.yml"
+          cp "$out/env.example" "$check/.env"
+          docker compose --project-directory "$check" -f "$check/docker-compose.yml" config --format json \
+            | jq -e --arg img "$IMAGE:$VERSION" '.services.app.image == $img and .services.app.build == null'
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Keep the attachments for the release job
+        if: steps.attach.outputs.ready == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-attachments
+          path: ${{ runner.temp }}/attach/
+          if-no-files-found: error
+          retention-days: 7
+
+  # 每個平台在原生 runner 上 build（不用 QEMU），只按 digest 推；標籤由 image-merge 一次打上。
+  # 做法同 Docker 文件「Distribute build across multiple runners」的 matrix＋merge 版。
+  image-build:
+    needs: resolve
+    if: needs.resolve.outputs.publish == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Prepare
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: echo "PLATFORM_PAIR=${PLATFORM//\//-}" >> "$GITHUB_ENV"
+
+      - name: Checkout the release commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+          persist-credentials: false
+
+      # 只取 labels（標籤由 image-merge 打）；tags 設定與 image-merge 那份一致（只有 X.Y.Z；
+      # X.Y／latest 由 release job 在 Release 公開後才加）。
+      # revision 明寫：workflow_run／dispatch 時 github.sha 是 main 或分支頭，不一定是發版 commit。
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}},value=${{ needs.resolve.outputs.tag }}
+          labels: org.opencontainers.image.revision=${{ needs.resolve.outputs.sha }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      # context 必須明寫 "."：預設是 github.ref 的 Git context，會 build 到 main／分支頭而不是發版 commit。
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ env.PLATFORM_PAIR }}
+          cache-to: type=gha,mode=max,scope=${{ env.PLATFORM_PAIR }}
+
+      - name: Export digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v7
+        with:
+          name: digests-${{ env.PLATFORM_PAIR }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 7
+
+  image-merge:
+    needs: [resolve, image-build]
+    if: needs.resolve.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v8
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      # annotations 打在 index 上：multi-arch 映像的 org.opencontainers.image.source 等資訊要在這層。
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v6
+        env:
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: index
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}},value=${{ needs.resolve.outputs.tag }}
+          annotations: org.opencontainers.image.revision=${{ needs.resolve.outputs.sha }}
+
+      # 參數用陣列組：annotation 值（例如 repo 描述）可能含空白。
+      - name: Create the multi-arch manifest and push the tags
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          set -euo pipefail
+          digests=(*)
+          if [ "${#digests[@]}" -ne 2 ]; then
+            echo "::error::預期 2 個平台 digest，實際 ${#digests[@]} 個：${digests[*]}"; exit 1
+          fi
+          args=()
+          while IFS= read -r t; do args+=(--tag "$t"); done < <(jq -r '.tags[]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          while IFS= read -r a; do args+=(--annotation "$a"); done < <(jq -r '.annotations[]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          for d in "${digests[@]}"; do args+=("$IMAGE@sha256:$d"); done
+          docker buildx imagetools create "${args[@]}"
+
+      - name: Verify every tag carries linux/amd64 and linux/arm64
+        run: |
+          set -euo pipefail
+          jq -r '.tags[]' <<< "$DOCKER_METADATA_OUTPUT_JSON" | while IFS= read -r t; do
+            platforms=$(docker buildx imagetools inspect --raw "$t" \
+              | jq -r '[.manifests[] | select(.platform != null) | .platform | select(.os != "unknown") | .os + "/" + .architecture] | unique | join(",")')
+            echo "$t → $platforms"
+            if [ "$platforms" != "linux/amd64,linux/arm64" ]; then
+              echo "::error::$t 的平台不是 linux/amd64＋linux/arm64：$platforms"; exit 1
+            fi
+          done
+
+  # 映像推好、驗過之後才打 tag、建 Release；映像失敗時這個 job 不會跑。
+  # Release 公開成功後才移動 X.Y／latest。
+  release:
+    needs: [resolve, image-merge]
+    if: needs.resolve.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: Checkout the release commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
 
       # 抽 notes 的 script 是純 node，不需要 pnpm install。
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
+          package-manager-cache: false
 
       - name: Extract release notes from CHANGELOG
         env:
-          VERSION: ${{ steps.resolve.outputs.version }}
+          VERSION: ${{ needs.resolve.outputs.version }}
         run: node scripts/changelog-section.mjs "$VERSION" > notes.md
 
+      - name: Download the release attachments
+        if: needs.resolve.outputs.attachments == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: release-attachments
+          path: ${{ runner.temp }}/attach
+
+      # git config 只寫進這次 checkout 的 .git/config。tag 已存在時 push 會被拒（不覆寫）。
+      - name: Create and push the tag
+        if: needs.resolve.outputs.create_tag == 'true'
+        env:
+          TAG: ${{ needs.resolve.outputs.tag }}
+          SHA: ${{ needs.resolve.outputs.sha }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release $TAG" "$SHA"
+          git push origin "refs/tags/$TAG"
+
+      # 新的 Release 先建成 draft、附件上傳完才公開；既有的就地 edit、附件 --clobber（冪等）。
+      # 最後一步也把上次中途失敗留下的 draft 公開。gh 以 tag 名稱也找得到 draft。
       - name: Create or update the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.resolve.outputs.tag }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+          LATEST: ${{ needs.resolve.outputs.latest }}
+          ATTACHMENTS: ${{ needs.resolve.outputs.attachments }}
         run: |
+          set -euo pipefail
           if gh release view "$TAG" > /dev/null 2>&1; then
-            gh release edit "$TAG" --title "$TAG" --notes-file notes.md --latest
+            gh release edit "$TAG" --title "$TAG" --notes-file notes.md
           else
-            gh release create "$TAG" --title "$TAG" --notes-file notes.md --latest --verify-tag
+            gh release create "$TAG" --draft --title "$TAG" --notes-file notes.md --verify-tag
           fi
+          if [ "$ATTACHMENTS" = true ]; then
+            gh release upload "$TAG" "$RUNNER_TEMP/attach/docker-compose.yml" "$RUNNER_TEMP/attach/env.example" --clobber
+          fi
+          gh release edit "$TAG" --draft=false --latest="$LATEST"
+
+      - name: Log in to GHCR
+        if: needs.resolve.outputs.latest == 'true' || needs.resolve.outputs.minor_latest == 'true'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        if: needs.resolve.outputs.latest == 'true' || needs.resolve.outputs.minor_latest == 'true'
+        uses: docker/setup-buildx-action@v4
+
+      # 從已推好的 X.Y.Z 加上 X.Y（該 minor 線最大 patch）與 latest（所有版本中最大）；重跑時重設同樣
+      # 的標籤，無害。之後逐個驗兩個平台都在。
+      - name: Point X.Y and latest at X.Y.Z
+        if: needs.resolve.outputs.latest == 'true' || needs.resolve.outputs.minor_latest == 'true'
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+          LATEST: ${{ needs.resolve.outputs.latest }}
+          MINOR_LATEST: ${{ needs.resolve.outputs.minor_latest }}
+        run: |
+          set -euo pipefail
+          tags=()
+          if [ "$MINOR_LATEST" = true ]; then tags+=("$IMAGE:${VERSION%.*}"); fi
+          if [ "$LATEST" = true ]; then tags+=("$IMAGE:latest"); fi
+          args=()
+          for t in "${tags[@]}"; do args+=(--tag "$t"); done
+          # 單一來源時 --prefer-index=false 會盡量照搬來源（X.Y.Z 的 index）而不是另包一層，只是加標籤。
+          docker buildx imagetools create --prefer-index=false "${args[@]}" "$IMAGE:$VERSION"
+          for t in "${tags[@]}"; do
+            platforms=$(docker buildx imagetools inspect --raw "$t" \
+              | jq -r '[.manifests[] | select(.platform != null) | .platform | select(.os != "unknown") | .os + "/" + .architecture] | unique | join(",")')
+            echo "$t → $platforms"
+            if [ "$platforms" != "linux/amd64,linux/arm64" ]; then
+              echo "::error::$t 的平台不是 linux/amd64＋linux/arm64：$platforms"; exit 1
+            fi
+          done
