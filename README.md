@@ -10,7 +10,7 @@ Three non-negotiables:
 - **Real-time CRDT collaboration** — Yjs-based multiplayer editing, not a commercial add-on.
 - **Bring your own AI endpoint** — point Knotebook at your own OpenAI-compatible or Anthropic endpoint (including a local/on-prem Ollama); no bundled vendor lock-in.
 
-**Status:** the latest release is v0.11.0 (2026-10-15). What it does today:
+**Status:** the latest release is v0.11.1 (2026-10-15). What it does today:
 
 - **Writing together** — a block editor with live multiplayer editing (Yjs/Hocuspocus), links between notes (`[[`, or just paste a note's address) that follow renames, with backlinks and links to a single paragraph, image uploads, and Mermaid diagrams (see [Diagrams](docs/diagrams.md)).
 - **Version history** — every note keeps versions, saved automatically (after a few minutes without new edits — 5 by default, set by a site admin) or by hand; each version is shown by its name and the first 7 characters of its id; compare any two side by side, apply one to bring an older state back, and rely on retention rules and three switches (site, your own notes, a group) that turn automatic saving off; the version list can be narrowed to manual versions only, and on a wide screen the version panel can be resized by dragging its left edge (see [Version history](docs/versions.md)).
