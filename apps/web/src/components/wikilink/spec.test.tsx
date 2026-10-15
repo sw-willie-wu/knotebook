@@ -94,6 +94,9 @@ function renderWikilink(opts: RenderOpts) {
   return { anchors };
 }
 
+/** 可編輯的編輯器替身：`focus`（工具列關閉時拉回焦點）。 */
+const EDITABLE_STUB = { isEditable: true, focus: () => {} };
+
 const pendingClient = () => new QueryClient({ defaultOptions: { queries: { retry: false } } });
 const loadedClient = (notes: NoteDto[]) => {
   const qc = pendingClient();
@@ -179,16 +182,26 @@ describe("MemberWikilink（W1）", () => {
     }
   });
 
-  it("可編輯時一般點擊：preventDefault、不導航（開工具列，見 WikilinkToolbar.test.tsx）", () => {
-    // focus：測試結束卸載時工具列關閉，onCloseAutoFocus 會呼叫 editor.focus()。
-    renderWikilink({ queryClient: loadedClient([TARGET]), props: { targetNoteId: TARGET.id }, editor: { isEditable: true, focus: () => {} } });
+  it("可編輯時一般點擊（rev 7）：與唯讀相同——preventDefault、同分頁導航（工具列改由 hover／長按開，見 WikilinkToolbar.test.tsx）", () => {
+    renderWikilink({ queryClient: loadedClient([TARGET]), props: { targetNoteId: TARGET.id }, editor: EDITABLE_STUB });
     const link = screen.getByRole("link", { name: TARGET.title });
     expect(fireEvent.click(link)).toBe(false);
-    expect(loc()).toBe("/start?x=1");
+    expect(loc()).toBe(canonicalNotePath(TARGET));
+  });
+
+  it("唯讀：觸控按壓中的 contextmenu 不攔（保留系統長按選單）、長按也不攔後續 click", async () => {
+    renderWikilink({ queryClient: loadedClient([TARGET]), props: { targetNoteId: TARGET.id } });
+    const link = screen.getByRole("link", { name: TARGET.title });
+    fireEvent.pointerDown(link, { pointerType: "touch", clientX: 1, clientY: 1 });
+    expect(fireEvent.contextMenu(link)).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    fireEvent.pointerUp(link, { pointerType: "touch" });
+    fireEvent.click(link);
+    expect(loc()).toBe(canonicalNotePath(TARGET));
   });
 
   it("可編輯時 <a> 不可原生拖曳（draggable=false：拖出的 text/html 放回編輯器會變一般連結）；唯讀不設 draggable", () => {
-    renderWikilink({ queryClient: loadedClient([TARGET]), props: { targetNoteId: TARGET.id }, editor: { isEditable: true, focus: () => {} } });
+    renderWikilink({ queryClient: loadedClient([TARGET]), props: { targetNoteId: TARGET.id }, editor: EDITABLE_STUB });
     expect(screen.getByRole("link", { name: TARGET.title })).toHaveAttribute("draggable", "false");
     cleanup();
     renderWikilink({ queryClient: loadedClient([TARGET]), props: { targetNoteId: TARGET.id } });

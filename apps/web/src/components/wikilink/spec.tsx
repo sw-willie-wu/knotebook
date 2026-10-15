@@ -1,12 +1,13 @@
-import { useContext, useRef, useState, type MouseEvent } from "react";
+import { useContext, useRef, type MouseEvent } from "react";
 import type { BlockNoteEditor, DefaultStyleSchema } from "@blocknote/core";
 import { createReactInlineContentSpec, type ReactCustomInlineContentRenderProps } from "@blocknote/react";
 import { canonicalNotePath, normalizeAnchor, wikilinkConfig, wikilinkHref, wikilinkVisibleText, type PublicLinkDto } from "@knotebook/shared";
 import { useNotes } from "@/api/notes";
 import { sameNoteId } from "@/lib/note-id";
 import { WikilinkContext } from "./context";
-import { useWikilinkActivate, useWikilinkClick } from "./useWikilinkClick";
-import { removeWikilinkNode, WikilinkToolbar } from "./WikilinkToolbar";
+import { useToolbarTriggers } from "./useToolbarTriggers";
+import { useWikilinkClick } from "./useWikilinkClick";
+import { findWikilinkPos, removeWikilinkNode, WikilinkToolbar } from "./WikilinkToolbar";
 
 // ⚠ 防循環 import：`collab/schema.ts` 會 import 本檔來組 `inlineContentSpecs`，所以本檔絕不能反過來 import `@/collab/schema`
 // ——需要編輯器型別時一律 `BlockNoteEditor<any,any,any>`。
@@ -56,13 +57,13 @@ export function WikilinkInline(props: WikilinkRenderProps) {
  *    沒有足夠資訊斷言目標不存在，放行導航、讓筆記頁自己處理 404。
  * 2. 命中：`<a href=canonical[#b-…]>`、文字 `label || 現行標題`。
  * 3. 清單到了卻沒有這個 id（已刪或無權）：`<span>` 斷鏈樣式、文字 `label || snapshotTitle`；點擊 toast。
+ * 點擊一律跳轉（可編輯也是）；可編輯時工具列由 hover／觸控長按開（rev 7，`useToolbarTriggers`；鍵盤開不到，已知限制）。
  */
 function MemberWikilink({ inlineContent, contentRef, editor, updateInlineContent }: WikilinkRenderProps) {
   const notesQuery = useNotes();
   const click = useWikilinkClick();
-  const activate = useWikilinkActivate();
-  const [toolbarOpen, setToolbarOpen] = useState(false);
   const elRef = useRef<HTMLElement | null>(null);
+  const toolbar = useToolbarTriggers(editor, editor.isEditable);
   const { targetNoteId } = inlineContent.props;
   const label = inlineContent.props.label ?? "";
   const anchor = normalizeAnchor(inlineContent.props.anchorBlockId);
@@ -76,36 +77,45 @@ function MemberWikilink({ inlineContent, contentRef, editor, updateInlineContent
     elRef.current = el;
     contentRef(el);
   };
-  const onClick = (e: MouseEvent<HTMLElement>) => click(e, target, { editable: editor.isEditable, onEditableClick: () => setToolbarOpen(true) });
+  const onClick = (e: MouseEvent<HTMLElement>) => {
+    if (!toolbar.consumeClick(e)) click(e, target);
+  };
   // 可編輯時 `draggable={false}`：tiptap 的 NodeView.stopEvent 把不可選取節點的 dragstart 留給瀏覽器，原生 `<a>` 會被拖成
   // text/html 連結，放回編輯器就多出一個一般連結（拖放進來的不轉換）。唯讀不設，讀者照常可把連結拖到分頁列／書籤。
   const anchorEl = broken ? (
-    <span ref={setRefs} className={BROKEN_CLASS} onClick={onClick}>
+    <span ref={setRefs} className={BROKEN_CLASS} onClick={onClick} {...toolbar.anchorHandlers}>
       {text}
     </span>
   ) : (
-    <a ref={setRefs} href={href} className={LIVE_LINK_CLASS} draggable={editor.isEditable ? false : undefined} onClick={onClick}>
+    <a ref={setRefs} href={href} className={LIVE_LINK_CLASS} draggable={editor.isEditable ? false : undefined} onClick={onClick} {...toolbar.anchorHandlers}>
       {text}
     </a>
   );
   if (!editor.isEditable) return anchorEl;
+  // 工具列開啟時編輯器沒有焦點：動作後拉回焦點時，游標放在連結後面（不是編輯器的舊選取）。BlockNote 的 updateInlineContent
+  // 原地替換這個 atom（大小仍是 1），所以緊接一筆只動選取的 transaction 放到 pos + 1。
+  const updateKeepingCaret = (props: typeof inlineContent.props) => {
+    const hit = !toolbar.editorHadFocus() && elRef.current ? findWikilinkPos(editor, elRef.current) : null;
+    updateInlineContent({ type: "wikilink", props });
+    if (hit) editor._tiptapEditor.commands.setTextSelection(hit.pos + 1);
+  };
   return (
     <WikilinkToolbar
-      open={toolbarOpen}
-      onOpenChange={setToolbarOpen}
-      broken={broken}
+      open={toolbar.open}
+      onOpenChange={toolbar.onOpenChange}
+      contentRef={toolbar.contentRef}
+      contentHandlers={toolbar.contentHandlers}
       label={label}
       displayText={text}
       notes={list}
-      onOpenTarget={() => activate(target)}
-      onSaveLabel={(next) => updateInlineContent({ type: "wikilink", props: { ...inlineContent.props, label: next } })}
-      onChangeTarget={(picked) =>
-        updateInlineContent({ type: "wikilink", props: { ...inlineContent.props, targetNoteId: picked.id, snapshotTitle: picked.title, anchorBlockId: "" } })
-      }
+      onSaveLabel={(next) => updateKeepingCaret({ ...inlineContent.props, label: next })}
+      onChangeTarget={(picked) => updateKeepingCaret({ ...inlineContent.props, targetNoteId: picked.id, snapshotTitle: picked.title, anchorBlockId: "" })}
       onRemove={() => {
-        if (elRef.current) removeWikilinkNode(editor, elRef.current, text);
+        if (elRef.current) removeWikilinkNode(editor, elRef.current, text, !toolbar.editorHadFocus());
       }}
-      onRestoreFocus={() => editor.focus()}
+      onRestoreFocus={() => {
+        if (toolbar.shouldRestoreFocus()) editor.focus();
+      }}
     >
       {anchorEl}
     </WikilinkToolbar>

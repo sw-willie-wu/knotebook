@@ -251,7 +251,7 @@ test("E3：匿名開公開連結簡報——wikilink 純文字、圖片載得出
     const labelText = `E2E label ${stamp}`;
     const wikilink = editorLocator(owner).locator('[data-inline-content-type="wikilink"]');
     await expect(wikilink).toHaveCount(1, { timeout: 10_000 });
-    await wikilink.click();
+    await wikilink.hover(); // 編輯模式 hover 出工具列（點擊會直接跳轉）
     const toolbar = owner.getByRole("dialog", { name: "Note link" });
     await toolbar.getByRole("button", { name: "Edit text" }).click();
     await toolbar.getByRole("textbox", { name: "Link text" }).fill(labelText);

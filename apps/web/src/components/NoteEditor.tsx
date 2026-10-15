@@ -45,6 +45,7 @@ import { useVersionsPanelWidth } from "@/components/versions/versions-panel-widt
 import { SelectionAiController } from "@/components/ai/SelectionAiController";
 import { KnotebookSideMenu, NotePathContext } from "@/components/editor/KnotebookSideMenu";
 import { HeadingAnchorButtons } from "@/components/editor/HeadingAnchorButtons";
+import { LinkLongPress } from "@/components/LinkLongPress";
 
 const VersionsPanel = lazy(() =>
   import("@/components/versions/VersionsLazy").then(m => ({ default: m.VersionsPanel })),
@@ -609,6 +610,8 @@ export function NoteEditorView({ editor, editable, theme, noteId, getItems, getS
         <SuggestionMenuController triggerCharacter="/" getItems={getSlashItems} />
         <SideMenuController sideMenu={KnotebookSideMenu} />
         <FilePanelController filePanel={filePanel} />
+        {/* rev 7：觸控長按一般連結 ⇒ BlockNote 原生連結工具列（wikilink 的長按在它自己的元件裡）。 */}
+        <LinkLongPress />
         {children}
       </BlockNoteView>
     </NotePathContext.Provider>

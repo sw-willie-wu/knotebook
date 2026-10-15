@@ -166,7 +166,6 @@
       "createFailed": "建立筆記失敗，請再試一次。",
       "toolbar": {
         "label": "筆記連結",
-        "open": "開啟",
         "editText": "編輯文字",
         "changeTarget": "更換目標",
         "remove": "移除連結",

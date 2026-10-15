@@ -451,6 +451,13 @@ input[name="share-access"] {
   text-decoration-line: underline;
 }
 
+/* rev 7（site-links §7.4）：可編輯時觸控長按連結＝開工具列，關掉 iOS 的長按連結選單；唯讀（contenteditable="false"）保留系統選單。
+   套到可編輯編輯器裡所有 `<a>`（一般連結、wikilink，也含 mermaid 圖裡的連結）；Android 的 contextmenu 由 JS 攔（`lib/long-press.ts`）。
+   不改成 link 屬性選擇器：`theme.link-guard.test.ts` 規定那種規則恰好兩條。 */
+.bn-editor[contenteditable="true"] a {
+  -webkit-touch-callout: none;
+}
+
 /* 「開新分頁」圖示，**只掛在解析後是 `http(s)` 網址的連結上**（同為 link mark 的
    `mailto:`／`tel:`／`sms:` 不開在分頁裡，交給協定處理程式）。
 

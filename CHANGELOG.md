@@ -7,6 +7,10 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
+### Changed
+
+- Links in the editor now behave like links elsewhere. Clicking a link to a note while editing opens it, the same as when reading (it used to open a small toolbar with an **Open** button); its toolbar — **Edit text**, **Change target**, **Remove link** — now opens when you hover over the link, and the **Open** button is gone. On a touch screen, a tap opens a link; while editing, pressing and holding a link for about half a second opens its toolbar instead of the system's link menu, for ordinary links as well as links to notes (read-only and public pages keep the system menu).
+
 ### Fixed
 
 - The version history panel's resize handle now sits in the gap between the note and the panel, like the sidebar's, instead of inside the panel card (#274).

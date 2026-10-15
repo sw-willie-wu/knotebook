@@ -166,7 +166,6 @@
       "createFailed": "Couldn't create the note. Please try again.",
       "toolbar": {
         "label": "Note link",
-        "open": "Open",
         "editText": "Edit text",
         "changeTarget": "Change target",
         "remove": "Remove link",

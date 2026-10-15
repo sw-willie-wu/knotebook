@@ -2,9 +2,10 @@ import { expect, test, type Browser, type BrowserContext, type Locator, type Pag
 import { ADMIN, createNote, editorLocator, loginAs, noteIdFromUrl, openSiteAdmin, randomEmail, reEscape, waitForEditorSelection } from "./helpers.js";
 
 /**
- * #269 站內連結（spec §15.3）：E1 點擊語意（讀者同分頁／修飾鍵新分頁／編輯者工具列）、E2 段落錨點、E3 複製入口、
+ * #269 站內連結（spec §15.3）：E1 點擊語意（讀者／編輯者都同分頁跳轉、修飾鍵新分頁、編輯者 hover 出工具列）、E2 段落錨點、E3 複製入口、
  * E4 三條寫入路徑轉 wikilink＋反向連結、E5 公開頁。E6 在 22-presentation.spec.ts。
- * C1–C3 是前面 task 留給真瀏覽器確認的項目（選取含 wikilink 的複製／拖曳、A 工具列開著點 B、過期分頁）。
+ * C1–C3 是前面 task 留給真瀏覽器確認的項目（選取含 wikilink 的複製／拖曳、A 工具列開著時 hover 到 B、過期分頁）；
+ * C4 是 rev 7 的觸控（wikilink 與一般連結：長按出工具列、短按跳轉）。
  *
  * - wikilink 一律以 `[data-inline-content-type="wikilink"]` 定位（BlockNote 對 inline content 外層加的屬性）。
  * - e2e package 不 import `@knotebook/shared`（rsync 不帶 dist；同 11-public-share 檔頭的裁決），網址自組。
@@ -183,7 +184,7 @@ async function headingButtonGeometry(outer: Locator): Promise<{ lineMid: number;
   });
 }
 
-test("E1：讀者一般點擊同分頁導航；Ctrl+Click 與中鍵開新分頁；編輯者點擊出工具列", async ({ browser }) => {
+test("E1：讀者一般點擊同分頁導航；Ctrl+Click 與中鍵開新分頁；編輯者 hover 出工具列（沒有「開啟」）、一般點擊同分頁跳轉", async ({ browser }) => {
   test.setTimeout(180_000);
   const adminContext = await browser.newContext();
   let viewer: { context: BrowserContext; page: Page; email: string } | undefined;
@@ -206,21 +207,29 @@ test("E1：讀者一般點擊同分頁導航；Ctrl+Click 與中鍵開新分頁�
     const adminLink = editorLocator(admin).locator(WIKILINK);
     await expect(adminLink).toHaveCount(1, { timeout: 10_000 });
 
-    // 編輯者：一般點擊出工具列、不導航
-    await adminLink.click();
-    await expect(admin.getByRole("dialog", { name: "Note link" })).toBeVisible();
+    // 編輯者：hover 出工具列（三鈕、沒有「開啟」）、不導航；Esc 關
+    await adminLink.hover();
+    const adminToolbar = admin.getByRole("dialog", { name: "Note link" });
+    await expect(adminToolbar).toHaveAttribute("data-state", "open");
+    await expect(adminToolbar.getByRole("button")).toHaveText(["Edit text", "Change target", "Remove link"]);
     expect(admin.url()).toBe(sourceUrl);
     await admin.keyboard.press("Escape");
-    await expect(admin.getByRole("dialog", { name: "Note link" })).not.toBeVisible();
+    await expect(adminToolbar).not.toBeVisible();
 
-    // 編輯者：Ctrl/Cmd+Click（contenteditable 內的 contentEditable=false 島——spec §7.2【推】的量測點）⇒ 新分頁、不開工具列
+    // 編輯者：Ctrl/Cmd+Click（contenteditable 內的 contentEditable=false 島——spec §7.2【推】的量測點）⇒ 新分頁、原分頁不動
+    // （滑鼠停在連結上，hover 工具列可能出現——那是 hover 的行為，不在這裡斷言）
     const editorCtrlPromise = adminContext.waitForEvent("page", { timeout: 10_000 });
     await adminLink.locator("a").click({ modifiers: ["ControlOrMeta"] });
     const editorCtrlPage = await editorCtrlPromise;
     await editorCtrlPage.waitForURL((u) => u.pathname === targetPath, { timeout: 15_000 });
     expect(admin.url()).toBe(sourceUrl);
-    await expect(admin.getByRole("dialog", { name: "Note link" })).not.toBeVisible();
     await editorCtrlPage.close();
+
+    // 編輯者：一般點擊同分頁跳轉（rev 7：不再是「點擊開工具列」）
+    const adminPagesBefore = adminContext.pages().length;
+    await adminLink.locator("a").click();
+    await admin.waitForURL((u) => u.pathname === targetPath, { timeout: 15_000 });
+    expect(adminContext.pages().length).toBe(adminPagesBefore);
 
     // 讀者：清單到了 ⇒ <a href=canonical>
     const vp = viewer.page;
@@ -306,7 +315,7 @@ test("E2：開 #b-<id> 捲到並高亮；不存在的 id 停頂端無錯；?pres
     await expect(presentTarget).not.toBeInViewport();
     await present.close();
 
-    // 同篇錨點：文首加一個指向本篇 para 35 的連結（自連結轉換，RF5 的 client 半），工具列 Open
+    // 同篇錨點：文首加一個指向本篇 para 35 的連結（自連結轉換，RF5 的 client 半），編輯模式直接點（rev 7）
     await editorLocator(page).getByText("para 1", { exact: true }).click();
     await page.keyboard.press("Home");
     await waitForEditorSelection(page);
@@ -316,9 +325,7 @@ test("E2：開 #b-<id> 捲到並高亮；不存在的 id 停頂端無錯；?pres
     await page.evaluate(() => {
       (window as unknown as { __kbMarker?: number }).__kbMarker = 1;
     });
-    await jump.click();
-    const toolbar = page.getByRole("dialog", { name: "Note link" });
-    await toolbar.getByRole("button", { name: "Open" }).click();
+    await jump.locator("a").click();
     await page.waitForURL((u) => u.pathname === notePath && u.hash === `#b-${targetId}`, { timeout: 10_000 });
     await expect(page.locator(`.bn-block-outer[data-id="${targetId}"]`)).toBeInViewport({ timeout: 5_000 });
     await expectAnchorFlash(page, targetId);
@@ -650,7 +657,7 @@ test("C1：選取含 wikilink 的文字——複製貼回保留 wikilink（label
   }
 });
 
-test("C2：A 的工具列開著時用真滑鼠點 B → B 的工具列開著、焦點在 B 的工具列裡", async ({ browser }) => {
+test("C2：hover A 出工具列 → 移進工具列不關 → 真滑鼠移到 B → 只剩 B 的工具列；移開 → 關閉且焦點不被拉進編輯器", async ({ browser }) => {
   test.setTimeout(150_000);
   const context = await browser.newContext();
   try {
@@ -667,21 +674,128 @@ test("C2：A 的工具列開著時用真滑鼠點 B → B 的工具列開著、�
     await expect(editor.locator(WIKILINK)).toHaveCount(2, { timeout: 10_000 });
     const toolbars = page.getByRole("dialog", { name: "Note link" });
 
-    await editor.locator(WIKILINK, { hasText: "link A" }).click();
-    await expect(toolbars).toHaveCount(1);
-    await expect(toolbars).toBeVisible();
-
-    const b = (await editor.locator(WIKILINK, { hasText: "link B" }).boundingBox())!;
-    await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
-    await page.waitForTimeout(500); // 讓 A 的關閉轉場與延後的焦點還原跑完
-    await expect(toolbars).toHaveCount(1);
-    await expect(toolbars).toBeVisible();
-    // 關閉中的 Popover 內容 toBeVisible 照樣過：再斷 Radix 的開合狀態（關閉時 data-state 是 "closed"）
+    const center = async (l: Locator) => {
+      const box = (await l.boundingBox())!;
+      return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    };
+    const a = await center(editor.locator(WIKILINK, { hasText: "link A" }));
+    await page.mouse.move(a.x, a.y, { steps: 5 });
+    // 關閉中的 Popover 內容 toBeVisible 照樣過：一律斷 Radix 的開合狀態（關閉時 data-state 是 "closed"）
     await expect(toolbars).toHaveAttribute("data-state", "open");
-    expect(await page.evaluate(() => document.activeElement?.closest('[role="dialog"]')?.getAttribute("aria-label") ?? null)).toBe("Note link");
+    // hover 開的工具列不搶焦點
+    expect(await page.evaluate(() => document.activeElement?.closest('[role="dialog"]') ?? null)).toBeNull();
+
+    // 慢慢移進工具列：途中離開連結、經過 4px 間隙，工具列不關
+    const t = await center(toolbars);
+    await page.mouse.move(t.x, t.y, { steps: 10 });
+    await page.waitForTimeout(600);
+    await expect(toolbars).toHaveCount(1);
+    await expect(toolbars).toHaveAttribute("data-state", "open");
+
+    const b = await center(editor.locator(WIKILINK, { hasText: "link B" }));
+    await page.mouse.move(b.x, b.y, { steps: 10 });
+    await page.waitForTimeout(800); // A 的延遲關閉＋關閉轉場、B 的延遲開啟
+    await expect(toolbars).toHaveCount(1);
+    await expect(toolbars).toHaveAttribute("data-state", "open");
     // 開著的是 B 的工具列：編輯文字預填 B 的 label
     await toolbars.getByRole("button", { name: "Edit text" }).click();
     await expect(toolbars.getByRole("textbox", { name: "Link text" })).toHaveValue("link B");
+    // 焦點在工具列裡（正在編輯文字）：滑鼠移開不關
+    await page.mouse.move(b.x, b.y + 200, { steps: 5 });
+    await page.waitForTimeout(600);
+    await expect(toolbars).toHaveAttribute("data-state", "open");
+    await page.keyboard.press("Escape");
+    await expect(toolbars).toHaveCount(0);
+
+    // 純 hover 開、純移開：關閉，焦點不被拉進編輯器（先讓焦點落在 body——Esc 等關法在這種情況會把焦點還給編輯器）
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.mouse.move(a.x, a.y, { steps: 5 });
+    await expect(toolbars).toHaveAttribute("data-state", "open");
+    await page.mouse.move(a.x, a.y + 200, { steps: 5 });
+    await expect(toolbars).toHaveCount(0);
+    await page.waitForTimeout(200);
+    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+  } finally {
+    await context.close();
+  }
+});
+
+/**
+ * 觸控長按：CDP `Input.dispatchTouchEvent` touchStart → 停 `ms` → touchEnd（`page.touchscreen.tap` 走同一條 CDP 路徑、只是不停）。
+ * Chromium 的手勢辨識把它當真觸控：pointer 事件帶 `pointerType: "touch"`、長按可能發 contextmenu、短按補發 click。
+ */
+async function touchHold(page: Page, at: { x: number; y: number }, ms: number): Promise<void> {
+  const cdp = await page.context().newCDPSession(page);
+  try {
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: at.x, y: at.y }] });
+    await page.waitForTimeout(ms);
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  } finally {
+    await cdp.detach();
+  }
+}
+
+test("C4：觸控（hasTouch）——一般連結與 wikilink：長按約 0.5 s 出工具列、不跳轉；短按跳轉（一般連結開新分頁、wikilink 同分頁）", async ({ browser }) => {
+  test.setTimeout(150_000);
+  const context = await browser.newContext({ hasTouch: true });
+  try {
+    const page = await context.newPage();
+    await loginAs(page, ADMIN.email, ADMIN.password);
+    const stamp = String(Date.now());
+    const targetTitle = `E2E sl c4 target ${stamp}`;
+    await createNote(page, targetTitle);
+    const targetPath = new URL(page.url()).pathname;
+    const targetId = await noteIdFromUrl(page);
+    await createNote(page, `E2E sl c4 source ${stamp}`);
+    const sourceUrl = page.url();
+    await appendMarkdown(page, `wiki [link W](/notes/${targetId}) and ext [link E](https://example.com/kn-e2e-${stamp}) end\n`);
+    const editor = editorLocator(page);
+    const wiki = editor.locator(WIKILINK, { hasText: "link W" });
+    const ext = editor.locator('a[data-inline-content-type="link"]', { hasText: "link E" });
+    await expect(wiki).toHaveCount(1, { timeout: 10_000 });
+    await expect(ext).toHaveCount(1);
+    const center = async (l: Locator) => {
+      const box = (await l.boundingBox())!;
+      return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    };
+    // 外部網址不走網路：攔下來回一頁空白，新分頁的網址照樣看得到
+    await context.route("https://example.com/**", (route) => route.fulfill({ status: 200, contentType: "text/html", body: "<p>ok</p>" }));
+    const popups: Page[] = [];
+    context.on("page", (p) => popups.push(p));
+
+    // 一般連結長按 ⇒ BlockNote 原生連結工具列；不開新分頁、不跳轉
+    await touchHold(page, await center(ext), 800);
+    const linkToolbar = page.locator(".bn-link-toolbar");
+    await expect(linkToolbar).toBeVisible();
+    await expect(linkToolbar.getByRole("button", { name: "Open in new tab" })).toBeVisible();
+    await page.waitForTimeout(800);
+    expect(popups).toHaveLength(0);
+    expect(page.url()).toBe(sourceUrl);
+    await expect(linkToolbar).toBeVisible(); // 補發的事件（若有）沒把剛開的工具列關掉
+
+    // 一般連結短按 ⇒ BlockNote 原行為：開新分頁
+    const popupPromise = context.waitForEvent("page", { timeout: 10_000 });
+    await page.touchscreen.tap((await center(ext)).x, (await center(ext)).y);
+    const popup = await popupPromise;
+    await popup.waitForURL((u) => u.pathname === `/kn-e2e-${stamp}`, { timeout: 10_000 });
+    await popup.close();
+    expect(page.url()).toBe(sourceUrl);
+
+    // wikilink 長按 ⇒ 筆記連結工具列（三鈕）；放開後不跳轉
+    await touchHold(page, await center(wiki), 800);
+    const toolbar = page.getByRole("dialog", { name: "Note link" });
+    await expect(toolbar).toHaveAttribute("data-state", "open");
+    await expect(toolbar.getByRole("button")).toHaveText(["Edit text", "Change target", "Remove link"]);
+    await page.waitForTimeout(800);
+    expect(page.url()).toBe(sourceUrl);
+    await expect(toolbar).toHaveAttribute("data-state", "open");
+
+    // 短按但在門檻前放開 ⇒ 不出工具列，當一般點擊：同分頁跳轉
+    await page.keyboard.press("Escape");
+    await expect(toolbar).toHaveCount(0);
+    await touchHold(page, await center(wiki), 100);
+    await page.waitForURL((u) => u.pathname === targetPath, { timeout: 15_000 });
+    expect(context.pages()).toHaveLength(1);
   } finally {
     await context.close();
   }
