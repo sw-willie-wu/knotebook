@@ -13,7 +13,8 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ### Fixed
 
-- Site admin → Users and a group's Members: the name column no longer takes most of the width, leaving the email column too narrow on wide screens, and the divider after the name column now only shows when a table actually scrolls sideways. The sign-in services and AI providers tables likewise give their long columns (issuer, base URL) more room.
+- Site admin → Users and a group's Members: the name column no longer takes most of the width, leaving the email column too narrow on wide screens,. The sign-in services and AI providers tables likewise give their long columns (issuer, base URL) more room.
+- Settings and admin tables: the divider after the name column now only shows when the table actually scrolls sideways.
 
 ## [0.11.1] - 2026-10-15
 
