@@ -7,7 +7,9 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- The version history panel's resize handle now sits in the gap between the note and the panel, like the sidebar's, instead of inside the panel card (#274).
 
 ## [0.11.0] - 2026-10-15
 

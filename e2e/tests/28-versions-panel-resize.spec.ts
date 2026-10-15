@@ -75,6 +75,18 @@ test("28 版本面板調寬：預設 320、拖曳、重整保留、上下限、�
     });
     expect(hitEnds).toEqual([true, true]);
 
+    // 6b. 把手在內文卡與版本面板之間的間隙：中心 x 落在兩卡之間（不壓在任何一張卡上），且與兩卡貼著面板左框
+    const noteCard = panel.locator("xpath=preceding-sibling::*[1]");
+    const [noteBox, panelBox, handleBox] = [await noteCard.boundingBox(), await panel.boundingBox(), await handle.boundingBox()];
+    const noteRight = noteBox!.x + noteBox!.width;
+    const handleCenter = handleBox!.x + handleBox!.width / 2;
+    const geom = JSON.stringify({ noteRight, panelLeft: panelBox!.x, handleCenter });
+    expect(handleCenter, geom).toBeGreaterThan(noteRight);
+    expect(handleCenter, geom).toBeLessThan(panelBox!.x);
+    // 結構關係：把手 `right-full` 以面板 padding box 定位，右緣＝面板左緣＋1 個框寬（border 1px，與側欄對稱）。
+    expect(Math.abs(handleBox!.x + handleBox!.width - (panelBox!.x + 1)), geom).toBeLessThanOrEqual(0.5);
+    console.log(`GEOM ${geom}`);
+
     // 2. 往左拖 100 → 420；重整後仍 420
     await dragBy(page, handle, -100);
     await expectWidth(panel, 420);

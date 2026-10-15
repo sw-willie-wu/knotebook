@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
  *
  * - `edge`：把手在窗格的哪一緣。`"right"`（側欄）＝往右拖變寬；`"left"`（版本面板）＝往左拖變寬。
  *   鍵盤隨方向：往「外」的方向鍵變寬（right 緣 → ArrowRight 變寬；left 緣 → ArrowLeft 變寬），Home／End 到下／上限。
- * - `placementClassName`：把手相對窗格的定位 class（側欄 `left-full`、版本面板 `left-0 max-md:hidden`）——
+ * - `placementClassName`：把手相對窗格的定位 class（側欄 `left-full`、版本面板 `right-full max-md:hidden`）——
  *   由呼叫端以**完整字面**給（Tailwind 靜態掃描）。把手自身只帶 `absolute inset-y-0 w-3` 等共用部分。
  * - 拖曳（pointer capture）、雙擊回預設；只在「提交」（放開、鍵盤、雙擊）時 `onChange(px, true)`，拖曳途中 `onChange(px, false)`。
  */

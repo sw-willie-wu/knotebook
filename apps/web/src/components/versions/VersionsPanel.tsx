@@ -136,76 +136,78 @@ export function VersionsPanel({
       aria-label={t("versions.title")}
       className={cn(
         cardSurface,
-        "z-30 flex shrink-0 flex-col overflow-hidden",
+        "z-30 flex shrink-0 flex-col",
         "fixed inset-x-3 bottom-5 h-[80dvh] max-h-[calc(100dvh-5rem)]",
         "md:relative md:inset-auto md:bottom-auto md:h-auto md:max-h-none md:w-[var(--versions-panel-width)]",
       )}
     >
-      <div className="flex items-center justify-between px-3 pt-3">
-        <h2 className="text-sm font-semibold">{t("versions.title")}</h2>
-        <button type="button" aria-label={t("versions.close")} onClick={close} className="rounded-sm p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground">
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-      <div data-testid="versions-current" className="mx-3 mt-3 border-b border-dashed border-border pb-2">
-        <p className="text-sm font-medium">{t("versions.currentLabel")}</p>
-        {current && <p className="text-xs text-muted-foreground">{currentSubtitle(t, current)}</p>}
-        {current && !current.autoEnabled && <p className="text-xs text-muted-foreground">{t("versions.autoOff")}</p>}
-      </div>
-      <KindFilter className="px-3 pt-2" />
-      {/* 只認按下與放開都在 <ul> 本身（內距、列間空隙、清單下方空白）；列與 ⋯ 的點擊冒泡上來時 target 不是 <ul>，不算。
-          左內距 `pl-3` ＝把手寬（12px）：讓列與「點空白離開預覽」的區域不被左緣把手蓋住。
-          滑鼠專用的捷徑，不給鍵盤焦點（鍵盤離開預覽用 Esc 或再按一次選中列）。 */}
-      <ul
-        className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-2 pl-3"
-        onPointerDown={(event) => {
-          pressedOnListRef.current = event.target === event.currentTarget;
-        }}
-        onClick={(event) => {
-          const pressedOnList = pressedOnListRef.current;
-          pressedOnListRef.current = false;
-          if (pressedOnList && event.target === event.currentTarget) stopPreview();
-        }}
-      >
-        {versions.map((version, index) => {
-          const isBase = current?.baseSeq === version.seq;
-          return (
-            <li key={version.id} className="flex items-start gap-1">
-              <button
-                ref={(el) => {
-                  rowsRef.current[index] = el;
-                }}
-                type="button"
-                // 已選中的列再點一次＝離開預覽（toggle）；↑↓ 走 onRowKey，不受影響。
-                onClick={() => (preview?.id === version.id ? stopPreview() : startPreview({ seq: version.seq, id: version.id, name: version.name }))}
-                onKeyDown={onRowKey(index)}
-                className={cn("flex min-w-0 flex-1 rounded-md px-2 py-1.5 text-left hover:bg-accent/60", preview?.id === version.id && "bg-accent")}
-              >
-                <VersionRowContent version={version} />
-              </button>
-              <VersionRowMenu version={version} isBase={isBase} onApply={apply} />
+      {/* 裁切（圓角、內部捲動）在這一層：aside 本身不能 overflow-hidden，否則伸到面板外的把手會被裁掉。 */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[inherit]">
+        <div className="flex items-center justify-between px-3 pt-3">
+          <h2 className="text-sm font-semibold">{t("versions.title")}</h2>
+          <button type="button" aria-label={t("versions.close")} onClick={close} className="rounded-sm p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div data-testid="versions-current" className="mx-3 mt-3 border-b border-dashed border-border pb-2">
+          <p className="text-sm font-medium">{t("versions.currentLabel")}</p>
+          {current && <p className="text-xs text-muted-foreground">{currentSubtitle(t, current)}</p>}
+          {current && !current.autoEnabled && <p className="text-xs text-muted-foreground">{t("versions.autoOff")}</p>}
+        </div>
+        <KindFilter className="px-3 pt-2" />
+        {/* 只認按下與放開都在 <ul> 本身（內距、列間空隙、清單下方空白）；列與 ⋯ 的點擊冒泡上來時 target 不是 <ul>，不算。
+            滑鼠專用的捷徑，不給鍵盤焦點（鍵盤離開預覽用 Esc 或再按一次選中列）。 */}
+        <ul
+          className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-2"
+          onPointerDown={(event) => {
+            pressedOnListRef.current = event.target === event.currentTarget;
+          }}
+          onClick={(event) => {
+            const pressedOnList = pressedOnListRef.current;
+            pressedOnListRef.current = false;
+            if (pressedOnList && event.target === event.currentTarget) stopPreview();
+          }}
+        >
+          {versions.map((version, index) => {
+            const isBase = current?.baseSeq === version.seq;
+            return (
+              <li key={version.id} className="flex items-start gap-1">
+                <button
+                  ref={(el) => {
+                    rowsRef.current[index] = el;
+                  }}
+                  type="button"
+                  // 已選中的列再點一次＝離開預覽（toggle）；↑↓ 走 onRowKey，不受影響。
+                  onClick={() => (preview?.id === version.id ? stopPreview() : startPreview({ seq: version.seq, id: version.id, name: version.name }))}
+                  onKeyDown={onRowKey(index)}
+                  className={cn("flex min-w-0 flex-1 rounded-md px-2 py-1.5 text-left hover:bg-accent/60", preview?.id === version.id && "bg-accent")}
+                >
+                  <VersionRowContent version={version} />
+                </button>
+                <VersionRowMenu version={version} isBase={isBase} onApply={apply} />
+              </li>
+            );
+          })}
+          {kindFilter === "manual" && list.isSuccess && versions.length === 0 && <KindFilterEmpty />}
+          {list.hasNextPage && (
+            <li>
+              <Button type="button" variant="ghost" size="sm" className="w-full" disabled={list.isFetchingNextPage} onClick={() => void list.fetchNextPage()}>
+                {t("versions.loadMore")}
+              </Button>
             </li>
-          );
-        })}
-        {kindFilter === "manual" && list.isSuccess && versions.length === 0 && <KindFilterEmpty />}
-        {list.hasNextPage && (
-          <li>
-            <Button type="button" variant="ghost" size="sm" className="w-full" disabled={list.isFetchingNextPage} onClick={() => void list.fetchNextPage()}>
-              {t("versions.loadMore")}
-            </Button>
-          </li>
-        )}
-      </ul>
-      <div data-testid="versions-footer" className="flex justify-end gap-2 border-t border-border p-3">
-        <Button type="button" variant="outline" size="sm" disabled={!current || !(current.dirty || current.baseSeq === null)} onClick={() => openSave()}>
-          {t("versions.save")}
-        </Button>
-        <Button type="button" variant="brandDeep" size="sm" className="min-w-0" disabled={selected === null} onClick={() => selected && apply(selected)}>
-          <span className="truncate">{selected ? t("versions.applySeq", { label: versionLabel(selected) }) : t("versions.applyNone")}</span>
-        </Button>
+          )}
+        </ul>
+        <div data-testid="versions-footer" className="flex justify-end gap-2 border-t border-border p-3">
+          <Button type="button" variant="outline" size="sm" disabled={!current || !(current.dirty || current.baseSeq === null)} onClick={() => openSave()}>
+            {t("versions.save")}
+          </Button>
+          <Button type="button" variant="brandDeep" size="sm" className="min-w-0" disabled={selected === null} onClick={() => selected && apply(selected)}>
+            <span className="truncate">{selected ? t("versions.applySeq", { label: versionLabel(selected) }) : t("versions.applyNone")}</span>
+          </Button>
+        </div>
       </div>
-      {/* #274：把手在面板左緣、面板內（`overflow-hidden` 會裁掉伸到面板外的把手）；窄螢幕的底部卡片不顯示。
-          放在最後一個子元素：它是 absolute，畫面位置與命中不變，但 Tab 順序不會以它為面板第一個停點。 */}
+      {/* #274：把手與側欄同形，`absolute right-full w-3` 伸進內文卡與面板之間的 `gap-3`（約略蓋在間隙上，以 padding box 定位、壓住面板左框一個框寬，與側欄對稱）；窄螢幕的底部卡片不顯示。
+          放在最後一個子元素：Tab 順序不會以它為面板第一個停點。 */}
       <PaneResizeHandle
         width={width}
         onChange={onWidthChange}
@@ -215,7 +217,7 @@ export function VersionsPanel({
         step={VERSIONS_PANEL_WIDTH_STEP}
         edge="left"
         label={t("versions.resize")}
-        placementClassName="left-0 max-md:hidden"
+        placementClassName="right-full max-md:hidden"
       />
     </aside>
   );

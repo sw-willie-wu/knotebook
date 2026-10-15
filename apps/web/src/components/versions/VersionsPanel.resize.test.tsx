@@ -72,7 +72,7 @@ describe("版本面板寬度把手（#274）", () => {
     document.body.style.userSelect = "";
   });
 
-  it("預設：320px、aria-valuenow/min/max、可聚焦、把手在面板內左緣、寬度走 CSS 變數", async () => {
+  it("預設：320px、aria-valuenow/min/max、可聚焦、把手伸進內文卡與面板之間的間隙（right-full）、寬度走 CSS 變數", async () => {
     const { panel, handle, row } = await renderPanel();
     expect(widthVar(row)).toBe("320px");
     expect(handle).toHaveAttribute("aria-valuenow", "320");
@@ -83,8 +83,11 @@ describe("版本面板寬度把手（#274）", () => {
     expect(panel.contains(handle)).toBe(true);
     // Tab 順序：把手是面板最後一個子元素（不是第一個停點）。
     expect(panel.lastElementChild).toBe(handle);
-    expect(handle).toHaveClass("absolute", "left-0", "w-3", "cursor-col-resize");
-    expect(handle).not.toHaveClass("left-full");
+    expect(handle).toHaveClass("absolute", "right-full", "w-3", "cursor-col-resize");
+    expect(handle).not.toHaveClass("left-0");
+    // 面板根不得裁切（overflow-hidden 在內層），否則 right-full 的把手會被裁掉。
+    expect(panel).not.toHaveClass("overflow-hidden");
+    expect(panel.querySelector(":scope > .overflow-hidden")).not.toBeNull();
   });
 
   it("窄螢幕（底部卡片）沒有把手：把手只在 md+ 顯示（class 契約）；面板在 md+ 為 relative 以承載把手", async () => {
@@ -94,11 +97,12 @@ describe("版本面板寬度把手（#274）", () => {
     expect(panel).not.toHaveClass("md:w-80");
   });
 
-  it("清單左內距 pl-3 ＝把手寬：列與「點空白離開」區域不被左緣把手蓋住", async () => {
+  it("把手在面板外：清單內距還原為 p-2，不再留 pl-3", async () => {
     const { panel } = await renderPanel();
     const list = panel.querySelector("ul");
     expect(list).not.toBeNull();
-    expect(list).toHaveClass("p-2", "pl-3");
+    expect(list).toHaveClass("p-2");
+    expect(list).not.toHaveClass("pl-3");
   });
 
   it("錯誤外框與面板同一個寬度來源（同吃 CSS 變數），不再寫死 md:w-80", async () => {
