@@ -10,6 +10,7 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 ### Added
 
 - Notes can be shown at three content widths — Standard, Wide and Full width. A button in the note header (hidden when the note area is narrow) picks one; the choice is saved per note in this browser rather than in your account, so it doesn't carry over to other devices or change what collaborators see in their own browsers. A shared note's public page has its own width, set in the Share dialog by whoever manages the public link, and every reader sees that width. Includes a database migration (0028) that adds the public page width to notes (#297).
+- An admin can reset someone's password with a one-time link. In **Site admin → Users**, press the key button in a person's row (**Actions** column), pick 1 to 24 hours, and send them the link. It works once; creating a new one replaces it, and an unused one can be cancelled. Finishing the reset signs the person in and signs out their other browser sessions, but not their API tokens or connected apps. Links can't be created or used while password sign-in is off, and disabling an account revokes its unused link. Includes a database migration (0030) that adds the `one_time_links` table (#286).
 
 ### Changed
 

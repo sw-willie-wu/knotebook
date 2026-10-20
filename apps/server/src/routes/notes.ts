@@ -1154,9 +1154,8 @@ export function notesRoutes(deps: NotesRouteDeps) {
      * 十幾個分頁時，這個額度是會被同一個人自己吃掉的——重啟間隔的上限與抖動就是為了
      * 壓住這件事（見 `useCollab.ts` 的 `TOKEN_RESTART_DELAYS_MS`）。
      *
-     * 它**不**負責擋「攻擊者換帳號就換一份額度」：這個專案的帳號不是自助註冊的（admin
-     * 代建或 OIDC 自動佈建），「能不能拿到一個帳號」那道門檔在帳號佈建那一層，不在
-     * 這裡。
+     * 它**不**負責擋「攻擊者換帳號就換一份額度」：帳號可自助註冊（#187）或由管理員建立；
+     * 換帳號換額度的防線在帳號佈建那一層，不在這裡。
      */
     app.post("/api/notes/:id/collab-token", { preHandler: app.authenticate }, async (request, reply) => {
       const { id } = request.params as { id: string };

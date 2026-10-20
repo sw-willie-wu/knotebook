@@ -227,7 +227,7 @@ function PublicNoteRoute() {
  * `/change-password`（spec rev 5.7）巢狀在 <RequireAuth> 底下、但刻意掛在
  * <ChangePasswordGate> **外面**（與它平行，不是它的 <Outlet/> 子路由）——這條路由本身
  * 就是 `mustChangePassword` 使用者被導去的目的地，若巢狀在 gate 裡面會造成「導向自己」
- * 的迴圈。<ChangePasswordGate> 包住其餘（除 /login、/change-password 外）的
+ * 的迴圈。<ChangePasswordGate> 包住 <RequireAuth> 底下除 /change-password 外的
  * 路由：`user.mustChangePassword === true` 時全部導向 `/change-password`——比照
  * <RequireAdmin> 的模式。
  */
