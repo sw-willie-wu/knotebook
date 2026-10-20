@@ -126,7 +126,7 @@ function ProbeResult({ probe }: { probe: ProbeState }) {
   );
 }
 
-/** 建立後的設定步驟（§9.4）：貼回呼網址、scope、confidential＋client_secret_post、填 secret、測試、啟用。 */
+/** 建立後的設定步驟（§9.4）：貼回呼網址、scope、confidential＋client_secret_post、填 client ID（缺才有）、填 secret、測試、啟用。 */
 function SetupSteps({ provider, onDone }: { provider: AdminAuthProviderDto; onDone: () => void }) {
   const { t } = useTranslation();
   const titleRef = useRef<HTMLHeadingElement>(null);
