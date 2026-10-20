@@ -40,18 +40,18 @@ export type OidcDecision =
   | { kind: "reject"; code: OidcRejectCode };
 
 /**
- * 1. 身分命中 → 停用 ? account_disabled : login（已連結的身分不看註冊開關，W21）。
+ * 1. 身分命中 → 停用 ? account_disabled : login（已連結的身分不看自動建帳開關，W21）。
  * 2. email 為 null → oidc_email_missing（建帳與比對都需要 email）。
  * 3. lower(email) 多列（大小寫重複的舊列）→ oidc_conflict（不猜）。
  * 4. 恰一列 → methods（password＝有密碼；providers＝已連結且啟用中、且 effective issuer 不等於 claims.issuer）；兩者皆空 → oidc_link_no_proof_method；否則 confirm_link
- *    （不看註冊開關：沒有建新帳號）。**不判停用、不判 B2**（B14）。
- * 5. 無列 → 註冊關閉 ? registration_disabled : create。
+ *    （不看自動建帳開關：沒有建新帳號）。**不判停用、不判 B2**（B14）。
+ * 5. 無列 → 該服務沒開自動建帳 ? registration_disabled : create（錯誤碼沿用，PR-C S3）。
  */
 export function decideOidcLogin(
   claims: OidcClaims,
   byIdentityUser: OidcCandidateRow | null,
   byEmailUsers: OidcCandidateRow[],
-  registrationEnabled: boolean,
+  autoCreateEnabled: boolean,
 ): OidcDecision {
   if (byIdentityUser !== null) {
     return byIdentityUser.disabledAt !== null ? { kind: "reject", code: "account_disabled" } : { kind: "login", userId: byIdentityUser.id };
@@ -69,7 +69,7 @@ export function decideOidcLogin(
     if (!methods.password && methods.providers.length === 0) return { kind: "reject", code: "oidc_link_no_proof_method" };
     return { kind: "confirm_link", userId: existing.id, methods };
   }
-  if (!registrationEnabled) return { kind: "reject", code: "registration_disabled" };
+  if (!autoCreateEnabled) return { kind: "reject", code: "registration_disabled" };
   // `||`：IdP 可能回 `name: ""`（沿用 Plan 5 的理由——空字串顯示名沒有補救路徑）。
   const displayName = claims.name || claims.email.split("@")[0] || claims.email;
   return { kind: "create", email: claims.email, displayName, preferredUsername: claims.preferredUsername };

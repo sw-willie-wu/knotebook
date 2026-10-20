@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
+import type { CustomFetch } from "openid-client";
 import { OIDC_STATE_COOKIE, SESSION_COOKIE } from "@knotebook/shared";
 import { buildTestApp, testConfig } from "./helpers.js";
+import { captureLogs } from "./helpers/admin-auth.js";
 import { buildOidcApp, identitiesOf, seedAuthProvider, ssoRoundTrip } from "./helpers/oidc-provider.js";
 import { createFakeIdp } from "./helpers/fake-idp.js";
 import { createOidcRuntimeRegistry } from "../src/auth/oidc-client.js";
@@ -15,6 +17,31 @@ const A = "https://idp-a.example";
 const B = "https://idp-b.example";
 const now = () => Math.floor(Date.now() / 1000);
 const silent = pino({ level: "silent" });
+const STALE_MSG = "登入進行期間服務設定已變或已刪：SSO 首登視同關閉";
+
+/**
+ * R1：在 code 交換（fake IdP `/token`）之前插一段一次性動作——callback 已載入服務並驗過版本、登入交易還沒開。
+ * `beforeToken` 消費即清。
+ */
+async function appWithTokenHook(seed: { autoCreateEnabled?: boolean } = {}) {
+  const idp = createFakeIdp(A);
+  let beforeToken: (() => Promise<void>) | null = null;
+  const wrapped: CustomFetch = async (url, options) => {
+    if (new URL(String(url)).pathname.endsWith("/token") && beforeToken !== null) {
+      const fn = beforeToken;
+      beforeToken = null;
+      await fn();
+    }
+    return idp.fetch(url, options);
+  };
+  const logs = captureLogs();
+  const { app, db } = await buildTestApp({ oidcRegistry: createOidcRuntimeRegistry({ fetch: wrapped }) }, logs.options);
+  const provider = await seedAuthProvider(db, { issuerUrl: A, ...seed });
+  const setBeforeToken = (fn: () => Promise<void>) => {
+    beforeToken = fn;
+  };
+  return { app, db, idp, logs, provider, setBeforeToken };
+}
 
 describe("多 provider 的 login／callback（#187 §7.1–§7.4）", () => {
   it("§14.1-13 redirect_uri 字面：一般 provider＝<PUBLIC_URL>/api/auth/oidc/callback/<id>、legacy＝舊路徑；兩者都能走完並建帳", async () => {
@@ -92,15 +119,73 @@ describe("多 provider 的 login／callback（#187 §7.1–§7.4）", () => {
     expect(await identitiesOf(t.db, u!.id)).toEqual([{ issuer: A, sub: "sa" }]);
   });
 
-  it("W21：註冊關閉時新 email → /login?error=registration_disabled、不建帳；已連結身分照常登入", async () => {
-    const t = await buildOidcApp({ providers: [{ key: "a", issuerUrl: A }] });
+  it("W21：服務沒開自動建帳時新 email → /login?error=registration_disabled、不建帳；已連結身分照常登入", async () => {
+    const t = await buildOidcApp({ providers: [{ key: "a", issuerUrl: A, autoCreateEnabled: true }] });
     const id = t.provider("a").id;
     await ssoRoundTrip(t.app, t.idp("a"), { loginUrl: `/api/auth/oidc/login/${id}`, claims: { sub: "old", email: "old@x.example" } });
-    await t.db.update(siteSettings).set({ registrationEnabled: false });
+    await t.db.update(authProviders).set({ autoCreateEnabled: false });
     const r = await ssoRoundTrip(t.app, t.idp("a"), { loginUrl: `/api/auth/oidc/login/${id}`, claims: { sub: "new", email: "new@x.example" } });
     expect(r.callbackRes.headers.location).toBe("/login?error=registration_disabled");
     expect(await t.db.select().from(users)).toHaveLength(1);
     expect((await ssoRoundTrip(t.app, t.idp("a"), { loginUrl: `/api/auth/oidc/login/${id}`, claims: { sub: "old", email: "old@x.example" } })).callbackRes.headers.location).toBe("/");
+  });
+
+  it("W22（C-3）同一站台 A 開 B 關：新 email 經 A → 建帳；經 B → registration_disabled；站台 registration_enabled=false 不影響 A", async () => {
+    const t = await buildOidcApp({ providers: [{ key: "a", issuerUrl: A }, { key: "b", issuerUrl: B, autoCreateEnabled: false }] });
+    await t.db.update(siteSettings).set({ registrationEnabled: false });
+    const ra = await ssoRoundTrip(t.app, t.idp("a"), { loginUrl: `/api/auth/oidc/login/${t.provider("a").id}`, claims: { sub: "na", email: "na@x.example" } });
+    expect(ra.callbackRes.headers.location).toBe("/");
+    expect(await t.db.select().from(users)).toHaveLength(1);
+    const rb = await ssoRoundTrip(t.app, t.idp("b"), { loginUrl: `/api/auth/oidc/login/${t.provider("b").id}`, claims: { sub: "nb", email: "nb@x.example" } });
+    expect(rb.callbackRes.headers.location).toBe("/login?error=registration_disabled");
+    expect(await t.db.select().from(users)).toHaveLength(1);
+  });
+
+  it("R1 (a)（C-5）callback 驗過版本後、交易前服務 config_version 變了 → /login?error=oidc_unavailable、不建帳、記 warn", async () => {
+    const t = await appWithTokenHook();
+    const providerId = t.provider.id;
+    t.setBeforeToken(async () => {
+      await t.db.update(authProviders).set({ configVersion: t.provider.configVersion + 1 }).where(eq(authProviders.id, providerId));
+    });
+    const r = await ssoRoundTrip(t.app, t.idp, { loginUrl: `/api/auth/oidc/login/${providerId}`, claims: { sub: "n", email: "n@x.example" } });
+    expect(r.callbackRes.headers.location).toBe("/login?error=oidc_unavailable");
+    expect(await t.db.select().from(users)).toHaveLength(0);
+    expect(t.logs.lines.filter(l => l.msg === STALE_MSG)).toEqual([{ msg: STALE_MSG, level: "warn", obj: { providerId } }]);
+  });
+
+  it("R1 (b)（C-5）callback 驗過版本後、交易前服務列被刪 → /login?error=oidc_unavailable、不建帳、記 warn", async () => {
+    const t = await appWithTokenHook();
+    const providerId = t.provider.id;
+    t.setBeforeToken(async () => {
+      await t.db.delete(authProviders).where(eq(authProviders.id, providerId));
+    });
+    const r = await ssoRoundTrip(t.app, t.idp, { loginUrl: `/api/auth/oidc/login/${providerId}`, claims: { sub: "n", email: "n@x.example" } });
+    expect(r.callbackRes.headers.location).toBe("/login?error=oidc_unavailable");
+    expect(await t.db.select().from(users)).toHaveLength(0);
+    expect(t.logs.lines.filter(l => l.msg === STALE_MSG)).toEqual([{ msg: STALE_MSG, level: "warn", obj: { providerId } }]);
+  });
+
+  it("R1 (c) 對照：交易前只把自動建帳從關切成開（版本不變）→ 照常建帳、沒有 stale warn", async () => {
+    const t = await appWithTokenHook({ autoCreateEnabled: false });
+    const providerId = t.provider.id;
+    t.setBeforeToken(async () => {
+      await t.db.update(authProviders).set({ autoCreateEnabled: true }).where(eq(authProviders.id, providerId));
+    });
+    const r = await ssoRoundTrip(t.app, t.idp, { loginUrl: `/api/auth/oidc/login/${providerId}`, claims: { sub: "n", email: "n@x.example" } });
+    expect(r.callbackRes.headers.location).toBe("/");
+    expect(await t.db.select().from(users)).toHaveLength(1);
+    expect(t.logs.lines.filter(l => l.msg === STALE_MSG)).toEqual([]);
+  });
+
+  it("R1 (d) 帶 next：交易前版本變了 → /login?error=oidc_unavailable&next=…", async () => {
+    const t = await appWithTokenHook();
+    const providerId = t.provider.id;
+    t.setBeforeToken(async () => {
+      await t.db.update(authProviders).set({ configVersion: t.provider.configVersion + 1 }).where(eq(authProviders.id, providerId));
+    });
+    const r = await ssoRoundTrip(t.app, t.idp, { loginUrl: `/api/auth/oidc/login/${providerId}?next=%2Fn%2Falice%2Fx`, claims: { sub: "n", email: "n@x.example" } });
+    expect(r.callbackRes.headers.location).toBe("/login?error=oidc_unavailable&next=%2Fn%2Falice%2Fx");
+    expect(await t.db.select().from(users)).toHaveLength(0);
   });
 
   it("r3-M3 claim 上限：email 255 字或 sub 256 字 → oidc_claim_too_long、不封 pending、不建帳；剛好 254／255 → 照常", async () => {

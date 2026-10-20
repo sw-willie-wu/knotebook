@@ -13,7 +13,7 @@ const PDto = { id: "p1", displayName: "GitLab", icon: null };
 const SELF = (effectiveIssuer = "https://idp.example") => ({ id: "self", displayName: "IdP", icon: null, effectiveIssuer });
 
 describe("decideOidcLogin（#187 §7.4）", () => {
-  it("1. 身分命中 → login（不看註冊開關，W21；不看 email 列）", () => {
+  it("1. 身分命中 → login（不看自動建帳開關，W21；不看 email 列）", () => {
     expect(decideOidcLogin(claims(), row(), [row({ id: "x" }), row({ id: "y" })], false)).toEqual({ kind: "login", userId: "u1" });
   });
   it("1. 身分命中但停用 → account_disabled", () => {
@@ -53,13 +53,13 @@ describe("decideOidcLogin（#187 §7.4）", () => {
   it("4. B14：停用帳號在證明前仍回 confirm_link（不洩漏停用）", () => {
     expect(decideOidcLogin(claims(), null, [row({ disabledAt: new Date() })], true).kind).toBe("confirm_link");
   });
-  it("4.2 confirm_link 不看註冊開關（W21：沒有建新帳號）", () => {
+  it("4.2 confirm_link 不看自動建帳開關（W21：沒有建新帳號）", () => {
     expect(decideOidcLogin(claims(), null, [row()], false).kind).toBe("confirm_link");
   });
-  it("5. 無列、註冊關閉 → registration_disabled", () => {
+  it("5. 無列、該服務沒開自動建帳 → registration_disabled", () => {
     expect(decideOidcLogin(claims(), null, [], false)).toEqual({ kind: "reject", code: "registration_disabled" });
   });
-  it("5. 無列、註冊開啟 → create；displayName 取 name、空字串退 email local-part", () => {
+  it("5. 無列、該服務開了自動建帳 → create；displayName 取 name、空字串退 email local-part", () => {
     expect(decideOidcLogin(claims({ preferredUsername: "Cool" }), null, [], true)).toEqual({
       kind: "create", email: "u@example.com", displayName: "U Name", preferredUsername: "Cool",
     });

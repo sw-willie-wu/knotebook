@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { normalizeEmail } from "@knotebook/shared";
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { Tx } from "../../db/tx.js";
-import { handles, siteSettings, userIdentities, users } from "../../db/schema.js";
+import { authProviders, handles, siteSettings, userIdentities, users } from "../../db/schema.js";
 import { deriveHandle } from "../handle.js";
 import { linkedEnabledProvidersWithIssuer } from "../oidc-providers.js";
 import type { OidcTestHook } from "../oidc-test-hook.js";
@@ -12,31 +12,52 @@ export type OidcLoginOutcome =
   | { kind: "login"; userId: string; tokenVersion: number }
   | { kind: "created"; userId: string; tokenVersion: number }
   | { kind: "confirm_link"; userId: string; email: string }
-  | { kind: "reject"; code: OidcRejectCode };
+  | { kind: "reject"; code: OidcRejectCode | "oidc_unavailable" };
 
 export interface ResolveOidcLoginResult {
   outcome: OidcLoginOutcome;
-  /** site_settings 讀不到列（INV-6 被破壞）：視同註冊關閉；呼叫端 log.error（§4.3）。 */
+  /** site_settings 讀不到列（INV-6 被破壞）：SSO 首登自動建帳視同關閉；呼叫端 log.error（§4.3）。 */
   settingsMissing: boolean;
+  /**
+   * `site_settings` 有列，但這個服務的列已刪或 `config_version` 已變（callback 驗過版本之後才開這個交易）。
+   * 只影響沒有帳號那一步，該步改回 `oidc_unavailable`；呼叫端 log.warn。
+   */
+  providerStale: boolean;
 }
 
 /**
- * #187 交易表 A1（§7.4 執行層）。讀開關用 `FOR SHARE`（與關閉開關的 UPDATE、PR3 的註冊序列化，C9／C17）。
+ * #187 交易表 A1（§7.4 執行層）。PR-C S3：SSO 首登、email 沒有帳號時只看該服務的 `auto_create_enabled`。
+ * - 讀開關的序列化點仍是 `site_settings FOR SHARE`。改服務的 PATCH／DELETE 第一句取 B27（`FOR NO KEY UPDATE`），兩者互斥，
+ *   所以 `FOR SHARE` 之後讀到的服務列是一致的（C-6）。
+ * - 服務列綁 callback 驗過的 `config_version`：callback 驗完版本到開這個交易之間隔著 code 交換，issuer 在這段期間被改掉時，
+ *   不得以舊 issuer 的 claims 建帳（spec §3.2）。
+ * - 交易內不再看服務的 `enabled`（spec §3.2 末）。
  * login 分支只 `UPDATE user_identities.last_login_at`、**不碰 users**（B15；因此與 A2 的「先 users 後 identity」無循環等待，C24）；
  * 並發解除連結讓它影響 0 列時照樣算 login（r3-N10）。create 分支 registry-first（handles → users → user_identities），
  * **不寫 users.oidc_***（舊欄只剩 §10.3 補登讀）。撞唯一鍵的錯誤原樣拋出，整 tx 重投由路由負責（C1）。
  */
-export async function resolveOidcLoginInTx(tx: Tx, input: { claims: OidcClaims }, hook?: OidcTestHook): Promise<ResolveOidcLoginResult> {
+export async function resolveOidcLoginInTx(
+  tx: Tx,
+  input: { claims: OidcClaims; providerId: string; configVersion: number },
+  hook?: OidcTestHook,
+): Promise<ResolveOidcLoginResult> {
   // 縱深防禦（fix round 1 Minor 1）：callback 進門已正規化，這裡再做一次——`users_email_unique` 大小寫敏感，
   // 漏正規化的 email 會讓第 3 步的 lower() 比對落空、走去建一個只差大小寫的重複帳號。
   const claims: OidcClaims = { ...input.claims, email: input.claims.email === null ? null : normalizeEmail(input.claims.email) };
   const settings = await tx
-    .select({ registrationEnabled: siteSettings.registrationEnabled })
+    .select({ singleton: siteSettings.singleton })
     .from(siteSettings)
     .where(eq(siteSettings.singleton, true))
     .for("share");
   const settingsMissing = settings.length !== 1;
-  const registrationEnabled = settings[0]?.registrationEnabled ?? false;
+  // 必須在 FOR SHARE 之後（C-6）；一般讀、不加鎖。
+  const [providerRow] = await tx
+    .select({ autoCreateEnabled: authProviders.autoCreateEnabled })
+    .from(authProviders)
+    .where(and(eq(authProviders.id, input.providerId), eq(authProviders.configVersion, input.configVersion)))
+    .limit(1);
+  const providerStale = !settingsMissing && providerRow === undefined;
+  const autoCreateEnabled = !settingsMissing && providerRow?.autoCreateEnabled === true;
 
   // drizzle select builder 單次使用：每次呼叫現造。
   const identityQuery = async () =>
@@ -78,19 +99,24 @@ export async function resolveOidcLoginInTx(tx: Tx, input: { claims: OidcClaims }
     });
   }
 
-  const decision = decideOidcLogin(claims, byIdentityUser, byEmailUsers, registrationEnabled);
+  const decision = decideOidcLogin(claims, byIdentityUser, byEmailUsers, autoCreateEnabled);
   switch (decision.kind) {
     case "reject":
-      return { outcome: { kind: "reject", code: decision.code }, settingsMissing };
+      // M1：設定在登入途中變了，與 callback 的版本檢查同義（使用者重試即可）；只換「沒有帳號」那一步的碼。
+      return {
+        outcome: { kind: "reject", code: decision.code === "registration_disabled" && providerStale ? "oidc_unavailable" : decision.code },
+        settingsMissing,
+        providerStale,
+      };
     case "confirm_link":
       // email 恰等於 lower(users.email)（第 3 步的比對條件）；封進 pending cookie，§7.5 鎖內再比一次。
-      return { outcome: { kind: "confirm_link", userId: decision.userId, email: claims.email! }, settingsMissing };
+      return { outcome: { kind: "confirm_link", userId: decision.userId, email: claims.email! }, settingsMissing, providerStale };
     case "login":
       await tx
         .update(userIdentities)
         .set({ lastLoginAt: sql`now()` })
         .where(and(eq(userIdentities.issuer, claims.issuer), eq(userIdentities.sub, claims.sub)));
-      return { outcome: { kind: "login", userId: decision.userId, tokenVersion: hit!.tokenVersion }, settingsMissing };
+      return { outcome: { kind: "login", userId: decision.userId, tokenVersion: hit!.tokenVersion }, settingsMissing, providerStale };
     case "create": {
       const userId = randomUUID();
       const handle = await deriveHandle(tx, [decision.preferredUsername, decision.email.split("@")[0]], userId);
@@ -100,7 +126,7 @@ export async function resolveOidcLoginInTx(tx: Tx, input: { claims: OidcClaims }
         .values({ id: userId, email: decision.email, displayName: decision.displayName, passwordHash: null, mustChangePassword: false, handle })
         .returning({ tokenVersion: users.tokenVersion });
       await tx.insert(userIdentities).values({ userId, issuer: claims.issuer, sub: claims.sub, lastLoginAt: sql`now()` });
-      return { outcome: { kind: "created", userId, tokenVersion: created!.tokenVersion }, settingsMissing };
+      return { outcome: { kind: "created", userId, tokenVersion: created!.tokenVersion }, settingsMissing, providerStale };
     }
   }
 }

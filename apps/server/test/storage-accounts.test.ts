@@ -10,6 +10,7 @@ import { resolveOidcLoginInTx } from "../src/auth/tx/oidc-login.js";
 import { siteSettings, users } from "../src/db/schema.js";
 import { buildTestApp, freshDb } from "./helpers.js";
 import { adminApp, captureLogs, expectAdminOnly } from "./helpers/admin-auth.js";
+import { seedAuthProvider } from "./helpers/oidc-provider.js";
 import { cookieOf, seedNote, seedUser } from "./group-helpers.js";
 import { basicPlanId, seedAttachment, seedPlan } from "./storage-helpers.js";
 
@@ -74,7 +75,14 @@ describe("四條建帳路徑都吃到「當下的」使用者預設；既有不�
     const viaAdmin = (await createUser(b, "a1@example.com")).json().id as string;
     const reg = await b.app.inject({ method: "POST", url: "/api/auth/register", payload: { email: "r1@example.com", password: PW, displayName: "R" } });
     expect(reg.statusCode).toBe(201);
-    await b.db.transaction(tx => resolveOidcLoginInTx(tx, { claims: { issuer: "https://idp.example", sub: "s-1", email: "o1@example.com", name: "O", preferredUsername: null } }));
+    const op = await seedAuthProvider(b.db, { issuerUrl: "https://idp.example" });
+    await b.db.transaction(tx =>
+      resolveOidcLoginInTx(tx, {
+        claims: { issuer: "https://idp.example", sub: "s-1", email: "o1@example.com", name: "O", preferredUsername: null },
+        providerId: op.id,
+        configVersion: op.configVersion,
+      }),
+    );
     const [oidcUser] = await b.db.select({ id: users.id }).from(users).where(eq(users.email, "o1@example.com"));
     expect(oidcUser, "OIDC 自動建帳應建出帳號（註冊預設開）").toBeDefined();
     for (const id of [viaAdmin, reg.json().id as string, oidcUser!.id]) expect(await planOfUser(b.db, id)).toBe(p);

@@ -24,6 +24,8 @@ export interface SeedProviderOpts {
   sortOrder?: number;
   resolvedIssuer?: string | null;
   configVersion?: number;
+  /** 預設 true，讓既有的首登建帳測試維持原意；DB 預設 false 由 migrate／admin 測試守（spec §7.1）。 */
+  autoCreateEnabled?: boolean;
 }
 
 /** 直接寫 `auth_providers`（PR2 才有管理 API）。secret 以 `testConfig.appSecret` 封——`buildTestApp` 預設 config 同一把。 */
@@ -45,6 +47,7 @@ export async function seedAuthProvider(db: Db, opts: SeedProviderOpts): Promise<
       legacyCallback: opts.legacyCallback ?? false,
       sortOrder: opts.sortOrder ?? 0,
       configVersion: opts.configVersion ?? 1,
+      autoCreateEnabled: opts.autoCreateEnabled ?? true,
     })
     .returning();
   return {

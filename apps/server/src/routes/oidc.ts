@@ -228,7 +228,7 @@ export function oidcRoutes(deps: OidcRouteDeps) {
       }
 
       // §7.4 執行層。撞唯一鍵 → 整 tx 重投恰一次（C1：對方已 commit，重查會命中）。
-      const loginInput = { claims };
+      const loginInput = { claims, providerId: provider.id, configVersion: provider.configVersion };
       const runLogin = () => deps.db.transaction(tx => resolveOidcLoginInTx(tx, loginInput, deps.oidcTestHook));
       let resolved: ResolveOidcLoginResult;
       try {
@@ -242,7 +242,8 @@ export function oidcRoutes(deps: OidcRouteDeps) {
           return reply.redirect(failLocation("oidc_exchange_failed"));
         }
       }
-      if (resolved.settingsMissing) request.log.error("site_settings 讀不到列：註冊視同關閉（#187 §4.3）");
+      if (resolved.settingsMissing) request.log.error("site_settings 讀不到列：SSO 首登自動建帳視同關閉（#187 §4.3）");
+      if (resolved.providerStale) request.log.warn({ providerId: provider.id }, "登入進行期間服務設定已變或已刪：SSO 首登視同關閉");
 
       const outcome = resolved.outcome;
       if (outcome.kind === "reject") {

@@ -7,6 +7,7 @@ import type { Db } from "../src/db/index.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 import { buildTestApp, freshLimiters, insertPasswordUser, testConfig, type TestApp } from "./helpers.js";
 import { waitForBlockedOrSettled } from "./group-helpers.js";
+import { seedAuthProvider } from "./helpers/oidc-provider.js";
 
 vi.mock("../src/auth/password.js", async () => {
   const actual = await vi.importActual<typeof import("../src/auth/password.js")>("../src/auth/password.js");
@@ -104,7 +105,7 @@ describe("POST /api/auth/register（#187 §9.1、B9）", () => {
     expect((await register(app, { email: "a@example.com", password: PW, isAdmin: true })).statusCode).toBe(400);
   });
 
-  it("「允許註冊」關 → 403 registration_disabled（快速路徑，不 hash）", async () => {
+  it("帳密自助註冊關 → 403 registration_disabled（快速路徑，不 hash）", async () => {
     const { app, db } = await buildTestApp();
     await db.update(siteSettings).set({ registrationEnabled: false });
     const res = await register(app, { email: "x@example.com", password: PW });
@@ -128,6 +129,20 @@ describe("POST /api/auth/register（#187 §9.1、B9）", () => {
     const { app, db } = await buildTestApp();
     await db.delete(siteSettings);
     expect((await register(app, { email: "x@example.com", password: PW })).json().error.code).toBe("registration_disabled");
+  });
+
+  it("RG-C7（C-7）帳密自助註冊只看 registration_enabled＋帳密有效值，與服務的自動建帳無關", async () => {
+    const { app, db } = await buildTestApp();
+    await seedAuthProvider(db, { issuerUrl: "https://idp.example", autoCreateEnabled: true });
+    await db.update(siteSettings).set({ registrationEnabled: false });
+    const res = await register(app, { email: "x@example.com", password: PW });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error.code).toBe("registration_disabled");
+    expect(await db.select().from(users)).toHaveLength(0);
+    // 全部服務都沒開自動建帳＋站台開（預設）→ 照常註冊。
+    const b = await buildTestApp();
+    await seedAuthProvider(b.db, { issuerUrl: "https://idp.example", autoCreateEnabled: false });
+    expect((await register(b.app, { email: "y@example.com", password: PW })).statusCode).toBe(201);
   });
 
   it("HashBusyError → 429 server_busy、不建帳", async () => {
