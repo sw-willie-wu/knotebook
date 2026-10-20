@@ -886,15 +886,33 @@ describe("公開別名端（GET /api/public/notes/:handle/:slug，無需登入�
     expect((await byPath(app, "ivan", "not-set")).statusCode).toBe(404);
   });
 
-  it("改名互動（spec §5.8 唯一可觀測點）：真實改名後 /p/<舊>/<slug> 404、/p/<新>/<slug> 活", async () => {
+  it("改名互動（spec §5.8＋#291）：真實改名後 /p/<舊>/<slug> 404（取走前）、/p/<新>/<slug> 活；舊名被別人取走後依新主人解析", async () => {
     const { app, db, cookie } = await aliasSetup("judy", "moving-doc");
-    // 走真實端點（PATCH /api/auth/profile 需要 registry 列——backfill 補登）
+    // 走真實端點（PATCH /api/auth/profile 需要 registry 列——backfill 補登）。Y 先建好，
+    // 讓同一次補登涵蓋兩人（改名之後再補登會順手清掉 released 列，掩蓋釋放形狀）
+    const y = await insertUser(db, "yara@example.com", "yara");
     await backfillHandleRegistry(db, { warn: () => {}, info: () => {} } as unknown as pino.Logger);
     const renamed = await app.inject({ method: "PATCH", url: "/api/auth/profile", payload: { handle: "judy-new" }, cookies: { [SESSION_COOKIE]: cookie } });
     expect(renamed.statusCode).toBe(200);
 
-    expect((await byPath(app, "judy", "moving-doc")).statusCode).toBe(404); // 舊 handle 死（tombstone 不轉發）
+    expect((await byPath(app, "judy", "moving-doc")).statusCode).toBe(404); // 舊名未被取走前不轉址（D2）
     expect((await byPath(app, "judy-new", "moving-doc")).statusCode).toBe(200); // 新 handle 活
+
+    // #291：Y 取走 judy。Y 還沒有該別名 → 404；Y 設了同名別名 → 解析到 Y 的筆記
+    const yCookie = await cookieFor(y.id);
+    const taken = await app.inject({ method: "PATCH", url: "/api/auth/profile", payload: { handle: "judy" }, cookies: { [SESSION_COOKIE]: yCookie } });
+    expect(taken.statusCode).toBe(200);
+    expect((await byPath(app, "judy", "moving-doc")).statusCode).toBe(404);
+    const yNote = await createNote(app, yCookie);
+    const titled = await app.inject({ method: "PATCH", url: `/api/notes/${yNote}`, cookies: { [SESSION_COOKIE]: yCookie }, payload: { title: "Yara Doc" } });
+    expect(titled.statusCode).toBe(200);
+    await openPublicLink(app, yCookie, yNote);
+    const setSlug = await app.inject({ method: "PUT", url: `/api/notes/${yNote}/public-link/slug`, cookies: { [SESSION_COOKIE]: yCookie }, payload: { slug: "moving-doc" } });
+    expect(setSlug.statusCode).toBe(200);
+    const viaOld = await byPath(app, "judy", "moving-doc");
+    expect(viaOld.statusCode).toBe(200);
+    expect(viaOld.json().title).toBe("Yara Doc");
+    expect((await byPath(app, "judy-new", "moving-doc")).statusCode).toBe(200); // 原主人的新名不受影響
   });
 });
 

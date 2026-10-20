@@ -78,16 +78,21 @@ export async function deriveHandle(
 /**
  * boot 冪等補登（spec §2a）：把回滾窗期由舊碼建立、無 registry 列的 users.handle
  * 補進 registry。**必須在 `app.listen` 之前呼叫**（否則補登與首個改名請求可交錯
- * ——index.ts 的呼叫順序由 handle.test.ts 的結構守衛釘住）。
+ * ——index.ts 的呼叫順序由 handle.test.ts 的結構守衛釘住）。先清 released 列
+ * （rollback 窗期舊 server 寫的），恢復 registry 只有 live 列。
  *
  * 補登後 warn 的判準（對 spec 字面的明示偏離）：spec §2a 寫「衝突（被吞列）數 >0 時
  * log warn」——但 `DO NOTHING` 對「已補登過的列」也吞（第二次 boot 起每列都吞），照
  * 字面每次重啟都會誤報全員。改為**事後 re-query**：仍缺 live 對應列（`h.handle=u.handle
- * AND h.user_id=u.id AND h.state='live'`）的使用者才 warn——涵蓋「名字被別人占」「列
- * 非 live」兩形；這些使用者的 handle 未進 registry、未受墓碑機制保護（live 名仍由
- * `users_handle_unique` 擋重複，但改名釋放語意對它們不完整）。
+ * AND h.user_id=u.id AND h.state='live'`）的使用者才 warn——只剩「名字被他人的 live
+ * 列占住」一形（released 列已先清）；這些使用者的 handle 未進 registry（live 名仍由
+ * `users_handle_unique` 擋重複）。
  */
 export async function backfillHandleRegistry(db: Db, logger: pino.Logger): Promise<void> {
+  const purged = await db.execute(sql`DELETE FROM handles WHERE state = 'released'`);
+  if ((purged.rowCount ?? 0) > 0) {
+    logger.info({ purged: purged.rowCount }, "handle registry 補登前清掉 released 列（rollback 到舊版 server 的窗期內改名留下的）");
+  }
   await db.execute(
     sql`INSERT INTO handles (handle, user_id, state) SELECT handle, id, 'live' FROM users ON CONFLICT (handle) DO NOTHING`,
   );
@@ -98,7 +103,7 @@ export async function backfillHandleRegistry(db: Db, logger: pino.Logger): Promi
   if (missing.rows.length > 0) {
     logger.warn(
       { users: missing.rows },
-      "handle registry 補登後仍有使用者缺 live 對應列（名字被他人占住或列非 live）——這些使用者的 handle 未進 registry、未受墓碑機制保護",
+      "handle registry 補登後仍有使用者缺 live 對應列（名字被他人的 live 列占住）——這些使用者的 handle 未進 registry",
     );
   }
 }

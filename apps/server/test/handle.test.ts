@@ -80,15 +80,19 @@ describe("deriveHandle（候選序＋探測；spec §2b）", () => {
     expect(await deriveHandle(db, ["日本語", "!!!"], "33333333-aaaa-4bbb-8ccc-000000000003")).toBe("user-33333333");
   });
 
-  it("撞名探測：占用 → -2 遞增（含墓碑占位）", async () => {
+  it("撞名探測：live 占用 → -2 遞增", async () => {
     const { db } = await freshDb();
     const uuid = "44444444-aaaa-4bbb-8ccc-000000000004";
-    await db.insert(users).values({ id: uuid, email: "seed@x.example", displayName: "S", handle: "seed-holder" });
+    const uuid2 = "44444444-aaaa-4bbb-8ccc-000000000044";
+    await db.insert(users).values([
+      { id: uuid, email: "seed@x.example", displayName: "S", handle: "seed-holder" },
+      { id: uuid2, email: "seed-b@x.example", displayName: "S2", handle: "seed-holder-b" },
+    ]);
     await db.insert(handles).values([
       { handle: "willie", userId: uuid, state: "live" },
-      { handle: "willie-2", userId: uuid, state: "released", releasedAt: new Date() },
+      { handle: "willie-2", userId: uuid2, state: "live" },
     ]);
-    // live 與 released 都占位（永不回收）——探測必須跳過兩者落到 -3
+    // 兩列 live 都占位——探測必須跳過兩者落到 -3
     expect(await deriveHandle(db, ["willie"], uuid)).toBe("willie-3");
   });
 
@@ -150,13 +154,13 @@ describe("bootstrap 路徑（registry-first；spec §2a）", () => {
     expect(allUsers[0].handle).toBe(allHandles[0]);
   });
 
-  it("派生名被墓碑占住 → 探測避讓到 -2（墓碑永不回收；「探測後仍撞 PK 的 fail-closed」是真競態、單執行緒無 mock 造不出——已記錄為缺口）", async () => {
+  it("派生名被 live 占住 → 探測避讓到 -2（「探測後仍撞 PK 的 fail-closed」是真競態、單執行緒無 mock 造不出——已記錄為缺口）", async () => {
     const { db } = await freshDb();
     await db.insert(users).values({ id: "77777777-aaaa-4bbb-8ccc-000000000007", email: "x@x.example", displayName: "X", handle: "x-holder" });
-    await db.insert(handles).values({ handle: "boss", userId: "77777777-aaaa-4bbb-8ccc-000000000007", state: "released", releasedAt: new Date() });
+    await db.insert(handles).values({ handle: "boss", userId: "77777777-aaaa-4bbb-8ccc-000000000007", state: "live" });
     await initializeInstance(db, { email: "boss@corp.example", password: "a-very-long-pw" });
     const { handle } = await expectLiveRegistry(db, "boss@corp.example");
-    expect(handle).toBe("boss-2"); // 墓碑永不回收——即使 released 也不重發
+    expect(handle).toBe("boss-2"); // live 占用 → 避讓
   });
 });
 
@@ -216,15 +220,19 @@ describe("admin 建帳路徑（spec §2b；constraint 判別 M4-2）", () => {
     expect(res.json().error.code).toBe("invalid_body");
   });
 
-  it("指定已占用（live 或墓碑）→ 409 **handle_taken**（不得誤報 email_taken——判別契約）", async () => {
+  it("指定 live 占用名 → 409 **handle_taken**（不得誤報 email_taken——判別契約）；指定別人改掉的舊名 → 201（#291）", async () => {
     const { app, db, cookies } = await adminApp();
     await db.insert(handles).values({ handle: "taken-live", userId: "88888888-aaaa-4bbb-8ccc-000000000008", state: "live" });
-    await db.insert(handles).values({ handle: "taken-tomb", userId: "88888888-aaaa-4bbb-8ccc-000000000008", state: "released", releasedAt: new Date() });
-    for (const handle of ["taken-live", "taken-tomb"]) {
-      const res = await app.inject({ method: "POST", url: "/api/admin/users", payload: { ...CREATE, handle }, cookies });
-      expect(res.statusCode, handle).toBe(409);
-      expect(res.json().error.code, handle).toBe("handle_taken");
-    }
+    const res = await app.inject({ method: "POST", url: "/api/admin/users", payload: { ...CREATE, handle: "taken-live" }, cookies });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("handle_taken");
+
+    // admin 改名後 'admin' 釋出，別人（這裡是管理員建帳）可取用
+    const renamed = await app.inject({ method: "PATCH", url: "/api/auth/profile", payload: { handle: "admin-renamed" }, cookies });
+    expect(renamed.statusCode).toBe(200);
+    const created = await app.inject({ method: "POST", url: "/api/admin/users", payload: { ...CREATE, handle: "admin" }, cookies });
+    expect(created.statusCode).toBe(201);
+    expect((await expectLiveRegistry(db, "new.user@x.example")).handle).toBe("admin");
   });
 
   it("email 撞名仍回 email_taken（判別契約另一方向不受影響）；失敗的建帳不得燒掉 handle（tx 原子性——突變審查 MAJOR-3）", async () => {
@@ -246,8 +254,8 @@ describe("admin 建帳路徑（spec §2b；constraint 判別 M4-2）", () => {
 
   it("派生撞名 → 探測自動避讓（-2），不 409；registry 一致", async () => {
     const { app, db, cookies } = await adminApp();
-    // 'new-user' 先被墓碑占住
-    await db.insert(handles).values({ handle: "new-user", userId: "99999999-aaaa-4bbb-8ccc-000000000009", state: "released", releasedAt: new Date() });
+    // 'new-user' 先被 live 列占住
+    await db.insert(handles).values({ handle: "new-user", userId: "99999999-aaaa-4bbb-8ccc-000000000009", state: "live" });
     const res = await app.inject({ method: "POST", url: "/api/admin/users", payload: CREATE, cookies });
     expect(res.statusCode).toBe(201);
     expect(res.json().handle).toBe("new-user-2");
@@ -374,6 +382,41 @@ describe("OIDC 建帳路徑（preferred_username；spec §2b M3-8）", () => {
     expect(handle).toBe("from-userinfo");
     expect(fakeIdp.counts.userinfo).toBe(1);
   });
+
+  describe("#291 派生名取得別人改掉的名字", () => {
+    const rename = (app: Awaited<ReturnType<typeof buildTestApp>>["app"], sessionValue: string, handle: string) =>
+      app.inject({ method: "PATCH", url: "/api/auth/profile", payload: { handle }, cookies: { [SESSION_COOKIE]: sessionValue } });
+
+    it("OIDC 首登：shared-name 被改掉後，另一位同 preferred_username 的首登派生到 shared-name", async () => {
+      const { app, db, fakeIdp } = await oidcApp();
+      const res = await loginAs(app, fakeIdp, { sub: "o1", email: "first@corp.example", email_verified: true, preferred_username: "Shared.Name" });
+      expect((await expectLiveRegistry(db, "first@corp.example")).handle).toBe("shared-name");
+      const session = res.cookies.find((c) => c.name === SESSION_COOKIE)!.value;
+      expect((await rename(app, session, "shared-renamed")).statusCode).toBe(200);
+
+      await loginAs(app, fakeIdp, { sub: "o2", email: "second@corp.example", email_verified: true, preferred_username: "Shared.Name" });
+      expect((await expectLiveRegistry(db, "second@corp.example")).handle).toBe("shared-name");
+    });
+  });
+});
+
+describe("#291 註冊派生名取得別人改掉的名字（register 路徑）", () => {
+  const rename = (app: Awaited<ReturnType<typeof buildTestApp>>["app"], sessionValue: string, handle: string) =>
+    app.inject({ method: "PATCH", url: "/api/auth/profile", payload: { handle }, cookies: { [SESSION_COOKIE]: sessionValue } });
+
+    it("註冊：pat 改名成 pat-renamed 後，下一位 pat@y 註冊派生到 pat（不再避讓成 pat-2）", async () => {
+      const { app, db } = await buildTestApp();
+      const password = "correct-horse-battery-staple";
+      const first = await app.inject({ method: "POST", url: "/api/auth/register", payload: { email: "pat@x.example", password, displayName: "Pat" } });
+      expect(first.statusCode).toBe(201);
+      expect(first.json().handle).toBe("pat");
+      const session = first.cookies.find((c) => c.name === SESSION_COOKIE)!.value;
+      expect((await rename(app, session, "pat-renamed")).statusCode).toBe(200);
+
+      const second = await app.inject({ method: "POST", url: "/api/auth/register", payload: { email: "pat@y.example", password, displayName: "Pat Y" } });
+      expect(second.statusCode).toBe(201);
+      expect((await expectLiveRegistry(db, "pat@y.example")).handle).toBe("pat");
+    });
 });
 
 describe("boot 補登＋DTO（spec §2a/§2b）", () => {
@@ -398,6 +441,37 @@ describe("boot 補登＋DTO（spec §2a/§2b）", () => {
     await db.insert(handles).values({ handle: "charlie", userId: "aaaaaaaa-aaaa-4bbb-8ccc-00000000000a", state: "live" });
     await backfillHandleRegistry(db, logger);
     expect(warns.length).toBeGreaterThan(0);
+  });
+
+  it("#291 補登先清 released 列：rollback 窗期的 released 列清光、每人有 live 列、無 warn、info 記清除數；再跑不再 info", async () => {
+    const { db } = await freshDb();
+    const A = "aaaaaaaa-aaaa-4bbb-8ccc-00000000001a";
+    const B = "bbbbbbbb-aaaa-4bbb-8ccc-00000000001b";
+    const C = "cccccccc-aaaa-4bbb-8ccc-00000000001c";
+    await db.insert(users).values([
+      { id: A, email: "alpha@x.example", displayName: "A", handle: "alpha" },
+      { id: B, email: "beta@x.example", displayName: "B", handle: "beta" },
+      { id: C, email: "gamma@x.example", displayName: "C", handle: "gamma" },
+    ]);
+    const now = new Date();
+    await db.insert(handles).values([
+      { handle: "alpha", userId: A, state: "live" },
+      { handle: "alpha-old", userId: A, state: "released", releasedAt: now }, // 一般窗期墓碑
+      { handle: "beta", userId: B, state: "released", releasedAt: now }, // B 現行名只有本人的 released 列
+      { handle: "gamma", userId: A, state: "released", releasedAt: now }, // C 現行名被他人的 released 列占住
+    ]);
+    const warns: unknown[][] = [];
+    const infos: unknown[][] = [];
+    const logger = { warn: (...a: unknown[]) => warns.push(a), info: (...a: unknown[]) => infos.push(a) } as unknown as pino.Logger;
+    await backfillHandleRegistry(db, logger);
+    expect(await db.select().from(handles).where(eq(handles.state, "released"))).toHaveLength(0);
+    for (const email of ["alpha@x.example", "beta@x.example", "gamma@x.example"]) await expectLiveRegistry(db, email);
+    expect(warns).toHaveLength(0);
+    expect(infos).toHaveLength(1);
+    expect(infos[0]![0]).toEqual({ purged: 3 });
+    await backfillHandleRegistry(db, logger);
+    expect(infos).toHaveLength(1);
+    expect(warns).toHaveLength(0);
   });
 
   it("結構守衛：index.ts 的補登呼叫在 app.listen 之前（listen 前時序——plan 注意事項 1）", () => {

@@ -5,6 +5,8 @@
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
+import type pino from "pino";
+import { backfillHandleRegistry } from "../src/auth/handle.js";
 import { noteRedirects, notes } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
 import { recordRedirectsInTx } from "../src/notes/tx/redirects.js";
@@ -99,6 +101,32 @@ describe("#175 by-path 兩形（§6.4）", () => {
     const denied = await get(app, `/api/notes/by-path/${owner.handle}/went-to-group`, owner.id);
     expect(denied.statusCode).toBe(404);
     expect(denied.json()).toEqual(NOT_FOUND);
+  });
+
+  it("#291：舊名被別人取走後的 /n/<舊名>/<slug>——對方沒有該 slug 時舊轉址仍到原筆記；對方有同 slug 時精確命中對方的筆記", async () => {
+    const { app, db } = await buildTestApp();
+    const s = await scene(db);
+    const x = await seedUser(db);
+    const y = await seedUser(db);
+    await backfillHandleRegistry(db, { warn: () => {}, info: () => {} } as unknown as pino.Logger);
+    const gn = await seedNote(db, { groupId: s.g.id }, { slug: "gn" });
+    await seedRedirect(db, `/n/${x.handle}/moved`, gn.id);
+    const old = x.handle;
+    const patch = async (userId: string, handle: string) =>
+      app.inject({ method: "PATCH", url: "/api/auth/profile", payload: { handle }, cookies: await cookieOf(userId) });
+    expect((await patch(x.id, `${old}-new`)).statusCode).toBe(200);
+    // X 改名後、Y 取走前：舊路徑仍解到已搬進群組的筆記（spec §6）
+    expect((await get(app, `/api/notes/by-path/${old}/moved`, s.member.id)).json().id).toBe(gn.id);
+    expect((await patch(y.id, old)).statusCode).toBe(200);
+    // Y 沒有 moved：舊轉址仍到原筆記
+    expect((await get(app, `/api/notes/by-path/${old}/moved`, s.member.id)).json().id).toBe(gn.id);
+    // Y 有同 slug：精確命中 Y 的筆記（遮蔽舊轉址）
+    const yn = await seedNote(db, { ownerId: y.id }, { slug: "moved" });
+    expect((await get(app, `/api/notes/by-path/${old}/moved`, y.id)).json().id).toBe(yn.id);
+    // 群組成員讀不到 Y 的筆記：404，不洩漏舊轉址
+    const masked = await get(app, `/api/notes/by-path/${old}/moved`, s.member.id);
+    expect(masked.statusCode).toBe(404);
+    expect(masked.json()).toEqual(NOT_FOUND);
   });
 
   it("四種 404 逐位元組相同：/g/<非 UUID>、群組不存在、非成員、成員但角色無閱讀旗標", async () => {
