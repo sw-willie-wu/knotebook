@@ -316,7 +316,7 @@
       "ai": "AI 代理",
       "auth": "登入"
     },
-    "users": { "user": "使用者", "lastActive": "最後活動", "online": "上線中", "lastActiveNone": "尚無紀錄", "enabled": "啟用", "roleFor": "{{email}} 的角色" },
+    "users": { "user": "使用者", "lastActive": "最後活動", "online": "上線中", "lastActiveNone": "尚無紀錄", "enabled": "啟用", "roleFor": "{{email}} 的角色", "tableActions": "操作" },
     "auth": {
       "title": "登入",
       "description": "可以用來登入的身分提供者（OpenID Connect）。每個登入服務都有自己的回呼網址，要登記在身分提供者那一側。",
@@ -360,7 +360,7 @@
         "registration": "允許註冊",
         "registrationHelp": "關閉後不能註冊新帳號——包括帳密註冊與第一次用登入服務登入時自動建帳；已連結的帳號照常登入。",
         "passwordLogin": "允許帳號密碼登入",
-        "passwordLoginHelp": "關閉後所有人（包括管理員）只能用登入服務登入；尚未連結登入服務的帳號，要用同一個 email 的登入服務首次登入、並輸入原密碼來連結。關閉不會登出已登入的人。",
+        "passwordLoginHelp": "關閉後所有人（包括管理員）只能用登入服務登入；尚未連結登入服務的帳號，要用同一個 email 的登入服務首次登入、並輸入原密碼來連結。關閉不會登出已登入的人。關閉期間不能產生或使用重設密碼連結；尚未使用的連結在到期前重新開啟即恢復可用。",
         "needProvider": "先啟用至少一個登入服務。",
         "needAdminLink": "請先在個人設定連結一個登入服務。",
         "forced": "帳號密碼登入已被環境變數 PASSWORD_LOGIN_FORCE_ENABLE 強制開啟；下面的設定在移除該變數並重啟後才會生效。",
@@ -452,7 +452,30 @@
       }
     },
     "title": "使用者管理",
-    "description": "建立帳號、指派管理員，或停用已離開的成員。",
+    "description": "建立帳號、指派管理員、重設密碼，或停用已離開的成員。",
+    "passwordReset": {
+      "actionLabel": "重設 {{email}} 的密碼",
+      "title": "重設密碼",
+      "description": "為 {{email}} 產生一次性連結，讓對方自己設定新密碼。連結使用之前，目前的密碼照常可用；設定完成後，對方其他已登入的瀏覽器都會被登出。個人存取權杖與已連線的應用程式不受影響。",
+      "pending": "目前有一個尚未使用的連結，{{when}} 到期。產生新連結會讓它失效。",
+      "pendingSuspended": "目前有一個尚未使用的連結，{{when}} 到期；關閉帳號密碼登入期間不能使用。",
+      "passwordLoginOff": "本站目前關閉帳號密碼登入，無法產生或使用重設密碼連結。",
+      "cancelPending": "取消連結",
+      "expiresField": "連結有效期限",
+      "hours_one": "{{count}} 小時",
+      "hours_other": "{{count}} 小時",
+      "submit": "產生連結",
+      "submitting": "產生中…",
+      "createdTitle": "重設密碼連結"
+    },
+    "oneTimeLink": {
+      "onceWarning": "請立即複製這個連結——關閉後不會再顯示。連結只能使用一次，{{when}} 到期。",
+      "linkLabel": "連結",
+      "copy": "複製連結",
+      "copied": "已複製連結。",
+      "copyFailed": "無法自動複製——請選取上方的連結手動複製。",
+      "done": "完成"
+    },
     "createUser": "建立使用者",
     "createUserDescription": "新增一個使用者帳號。",
     "mustChangePasswordNotice": "新帳號首次登入需修改密碼。",

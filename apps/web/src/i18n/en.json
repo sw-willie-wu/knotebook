@@ -316,7 +316,7 @@
       "ai": "AI agents",
       "auth": "Sign-in"
     },
-    "users": { "user": "User", "lastActive": "Last active", "online": "Online", "lastActiveNone": "Not recorded", "enabled": "Enabled", "roleFor": "Role for {{email}}" },
+    "users": { "user": "User", "lastActive": "Last active", "online": "Online", "lastActiveNone": "Not recorded", "enabled": "Enabled", "roleFor": "Role for {{email}}", "tableActions": "Actions" },
     "auth": {
       "title": "Sign-in",
       "description": "Identity providers (OpenID Connect) that people can sign in with. Each sign-in service has its own callback URL to register on the identity provider.",
@@ -360,7 +360,7 @@
         "registration": "Allow registration",
         "registrationHelp": "When off, nobody can create a new account — neither by registering with a password nor by signing in through a sign-in service for the first time. Accounts that are already linked keep signing in as usual.",
         "passwordLogin": "Allow password sign-in",
-        "passwordLoginHelp": "When off, everyone — including admins — can only sign in through a sign-in service. Accounts not yet linked to one can link themselves by signing in for the first time through a sign-in service with the same email and entering their old password. Turning it off doesn't sign anyone out.",
+        "passwordLoginHelp": "When off, everyone — including admins — can only sign in through a sign-in service. Accounts not yet linked to one can link themselves by signing in for the first time through a sign-in service with the same email and entering their old password. Turning it off doesn't sign anyone out. While it's off, password reset links can't be created or used; unused ones work again if you turn it back on before they expire.",
         "needProvider": "Turn on at least one sign-in service first.",
         "needAdminLink": "Link a sign-in service in your own settings first.",
         "forced": "Password sign-in is forced on by the environment variable PASSWORD_LOGIN_FORCE_ENABLE. The setting below takes effect only after you remove that variable and restart.",
@@ -452,7 +452,30 @@
       }
     },
     "title": "User management",
-    "description": "Create accounts, grant admin rights, and disable people who have left.",
+    "description": "Create accounts, grant admin rights, reset passwords, and disable people who have left.",
+    "passwordReset": {
+      "actionLabel": "Reset password for {{email}}",
+      "title": "Reset password",
+      "description": "Creates a one-time link for {{email}} to set a new password. Their current password keeps working until the link is used; then their other browsers are signed out. API tokens and connected apps keep working.",
+      "pending": "An unused link expires {{when}}. Creating a new one cancels it.",
+      "pendingSuspended": "An unused link expires {{when}}. It can't be used while password sign-in is off.",
+      "passwordLoginOff": "Password sign-in is off on this site, so password reset links can't be created or used.",
+      "cancelPending": "Cancel link",
+      "expiresField": "Link expires after",
+      "hours_one": "{{count}} hour",
+      "hours_other": "{{count}} hours",
+      "submit": "Create link",
+      "submitting": "Creating…",
+      "createdTitle": "Password reset link"
+    },
+    "oneTimeLink": {
+      "onceWarning": "Copy this link now — it won't be shown again. It works once and expires {{when}}.",
+      "linkLabel": "Link",
+      "copy": "Copy link",
+      "copied": "Link copied.",
+      "copyFailed": "Couldn't copy automatically — select the link above and copy it by hand.",
+      "done": "Done"
+    },
     "createUser": "Create user",
     "createUserDescription": "Add a new user account.",
     "mustChangePasswordNotice": "The new account will be required to change its password on first login.",

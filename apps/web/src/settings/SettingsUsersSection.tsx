@@ -31,6 +31,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { SettingsGroup, SettingsPage } from "./SettingsLayout";
+import { PasswordResetAction } from "./PasswordResetDialog";
 import { PlanSelect, StorageCell } from "./StorageAdminCells";
 
 /** ApiFail → errors.<code>；其餘 → errors.fallback。與 NoteList/ShareDialog 同一套對映
@@ -319,7 +320,7 @@ function UserEnabledSwitch({
  * 2026-09-30 獨立頁 `/admin/*` → #247 起是站台管理 modal 的第一項（`AdminSections` 聚合 chunk）。
  * 頁首的「建立使用者」是面板層級動作，`outline`（§4.8）；它開出的對話框內送出鈕照舊 `brandDeep`。
  *
- * 使用者表（spec 2026-10-13 settings-table §3 #5）：使用者（名稱、@handle 副標）｜Email｜儲存｜最後活動（#267 的渲染原樣沿用）｜角色｜方案｜啟用；
+ * 使用者表（spec 2026-10-13 settings-table §3 #5）：使用者（名稱、@handle 副標）｜Email｜儲存｜最後活動（#267 的渲染原樣沿用）｜角色｜方案｜操作（重設密碼鈕，#286）｜啟用；
  * 列名與開關名稱都用 email（`nameColumn`）。角色變更與啟用切換的錯誤走錯誤列，狀態以使用者 id 為鍵存在這裡。
  * - 方案下拉即存、失敗 toast（spec §9.3，`PlanSelect`）；停權者照樣可改（S13）。
  * - 標題列的建立鈕走 `SettingsPage` 的 `action` 插槽（見 `SettingsLayout.tsx`）。
@@ -350,6 +351,7 @@ export function SettingsUsersSection() {
     { id: "lastActive", header: t("admin.users.lastActive"), kind: "fixed" },
     { id: "role", header: t("admin.tableRole"), kind: "control" },
     { id: "plan", header: t("admin.tablePlan"), kind: "control" },
+    { id: "actions", header: t("admin.users.tableActions"), kind: "actions", buttons: 1 },
     { id: "enabled", header: t("admin.users.enabled"), kind: "enabled" },
   ];
   const rows: SettingsTableRow[] = (usersQuery.data ?? []).map((row) => {
@@ -373,6 +375,8 @@ export function SettingsUsersSection() {
           />
         ),
       },
+      // hasPassword 為假時元件回 null（R4），cell 照樣渲染
+      actions: <PasswordResetAction row={row} onError={(message) => setRowError(row.id, message)} />,
       enabled: (labelledBy) => (
         <UserEnabledSwitch row={row} isSelf={isSelf} labelledBy={labelledBy} onError={(message) => setRowError(row.id, message)} />
       ),

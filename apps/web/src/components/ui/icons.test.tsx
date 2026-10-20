@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { render } from "@testing-library/react";
 import { NOTE_WIDTHS } from "@knotebook/shared";
-import { ArrowDown, ArrowUp, Columns2, History, ImageIcon, ListFilter, NoteWidthIcon, Pencil, Plug, Rows3, Users } from "./icons";
+import { ArrowDown, ArrowUp, Columns2, History, ImageIcon, KeyRound, ListFilter, NoteWidthIcon, Pencil, Plug, Rows3, Users } from "./icons";
 
 describe("icons", () => {
   it("Users 帶 data-icon=\"users\"（ShareDialog 測試靠它斷觸發鈕圖示）且吃 className", () => {
@@ -22,6 +22,7 @@ describe("icons", () => {
     ["list-filter", ListFilter],
     ["plug", Plug],
     ["image", ImageIcon],
+    ["key-round", KeyRound],
     ["arrow-up", ArrowUp],
     ["arrow-down", ArrowDown],
   ] as const)("圖示 %s：帶 data-icon、預設 aria-hidden、吃 className", (name, Icon) => {
