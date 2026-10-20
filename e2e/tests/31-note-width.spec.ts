@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page } from "@playwright/test";
-import { ADMIN, createNote, editorLocator, loginAs } from "./helpers.js";
+import { ADMIN, createNote, editorLocator, loginAs, randomEmail } from "./helpers.js";
 
 /**
  * #297 內文欄三段寬度（真瀏覽器量測）：
@@ -39,8 +39,8 @@ async function setViewport(page: Page, width: number, height: number): Promise<v
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => resolve(null))));
 }
 
-async function loginAndCreateNote(page: Page, title: string): Promise<void> {
-  await loginAs(page, ADMIN.email, ADMIN.password);
+async function loginAndCreateNote(page: Page, title: string, email: string = ADMIN.email, password: string = ADMIN.password): Promise<void> {
+  await loginAs(page, email, password);
   await expect(page).toHaveURL(/\/$/);
   await createNote(page, title);
   const editor = editorLocator(page);
@@ -172,20 +172,27 @@ test("E2 頁首不裁切：768 × 兩種側欄 × 中英文；寬度鈕恰在 co
   }
 });
 
-test("E3 公開頁：分享對話框設全寬 → 匿名讀者看到 W 寬的欄，站內寬度不受影響", async ({ browser }) => {
+test("E3 公開頁：分享對話框設全寬 → 匿名讀者看到 W 寬的欄，站內寬度不受影響", async ({ browser, request }) => {
   test.setTimeout(120_000);
   const ownerContext = await browser.newContext();
   const anonContext = await browser.newContext({ viewport: { width: 1600, height: 900 } });
   try {
     const owner = await ownerContext.newPage();
-    await loginAndCreateNote(owner, `E2E note width E3 ${RUN_ID}`);
+    // 用新註冊的帳號當 owner：public-link 的 PUT/DELETE 每人 10 次/10 分鐘（PUBLIC_LINK_LIMIT），
+    // 整套序跑到這裡時 admin 已被 11／16／18／22／27 用滿，再開公開連結會吃 429。
+    const email = randomEmail();
+    const password = "e2e-note-width-pw";
+    expect((await request.post("/api/auth/register", { data: { email, password } })).status()).toBe(201);
+    await loginAndCreateNote(owner, `E2E note width E3 ${RUN_ID}`, email, password);
 
     await owner.getByRole("button", { name: "Share", exact: true }).click();
     const dialog = owner.getByRole("dialog", { name: "Share note" });
     await expect(dialog).toBeVisible();
     const publicRadio = dialog.getByRole("radio", { name: /^Public link/ });
     await expect(publicRadio).toBeEnabled();
+    const publish = owner.waitForResponse((res) => res.url().endsWith("/public-link") && res.request().method() === "PUT");
     await publicRadio.check();
+    expect((await publish).status()).toBe(200);
     const tokenInput = dialog.getByLabel("Public link URL");
     await expect(tokenInput).toBeVisible();
     const token = await tokenInput.inputValue();
