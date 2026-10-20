@@ -25,15 +25,48 @@ The server announces itself as `knotebook`, and most clients use that name to na
 
 ## How to connect
 
-**The quickest way in is the app itself:** **Settings → Authorization → Connect Claude with MCP** shows this deployment's endpoint and ready-to-paste snippets for Claude Code and Claude Desktop that use a Personal API token.
+**The quickest way in is the app itself:** **Settings → Authorization → Connect Claude with MCP** shows this deployment's endpoint and ready-to-paste snippets for two ways of connecting: authorizing over OAuth, which needs no token and is shown only on `https://` deployments, and using a Personal API token. Both are described below. Every `claude mcp add` command on this page carries `-s user`, so the server is available in any directory; without it, the server would only exist in the directory you ran the command in (local scope).
+
+### Authorizing over OAuth (https:// deployments)
+
+MCP requires the server and its authorization endpoints to be `https://` (see [Self-hosting](./self-hosting.md#deployment-prerequisites)). On an `https://` deployment, a client that supports OAuth can obtain a credential of its own, so there is no token to create.
+
+- **Claude Code:**
+
+  ```sh
+  claude mcp add -s user -t http knotebook https://<your-host>/api/mcp
+  ```
+
+  `-t http` is required: without a transport, `claude mcp add` always treats the argument as a stdio command, and the URL would be taken for a program to run. Then, in Claude Code, type `/mcp`, pick **knotebook**, choose **Authenticate**, and authorize in the browser that opens.
+
+- **Claude Desktop (Windows):** add this under `mcpServers` in `claude_desktop_config.json`:
+
+  ```json
+  "knotebook": {
+    "command": "cmd",
+    "args": ["/c", "npx", "-y", "mcp-remote", "https://<your-host>/api/mcp"]
+  }
+  ```
+
+  Quit Claude Desktop completely and start it again; `mcp-remote` opens the browser for you to authorize. The consent page shows the app as **"MCP CLI Proxy"**. This needs Node.js, and `mcp-remote` caches its registration and tokens under `~/.mcp-auth/mcp-remote-v1/` on the machine running the client.
+
+On the consent page, tick *Create and edit notes* if the assistant should write: the first time you authorize a client, the boxes start unticked, and pressing **Allow** straight away gives it read-only access. Tick *Move or copy notes into groups* as well, if the page offers it, for `move_note_to_group` and for copying into a group. A client that only connects through OAuth and got less than you want can be authorized again, ticking the boxes this time — the consent page then starts from the access it already has (see [Authorizing an app instead](./api-tokens.md#authorizing-an-app-instead-oauth)); or connect it with a token instead, as below (see [With a personal API token](#with-a-personal-api-token)).
+
+After you press Allow, the client has its credential — once it reconnects it will list Knotebook's tools; how many it sees depends on the credential's scope and on the deployment, see [The ten tools](#the-ten-tools). A `401` at this point would mean the credential never arrived. The access token lasts 24 hours, and the client renews it by itself with its refresh token; an app that has not been used for 30 days is removed (see [Revoking](./api-tokens.md#revoking)).
+
+**Plain `http://` deployments.** OAuth does not work there: Claude Code and current versions of `mcp-remote` both refuse to send the token exchange to a server that is not `https://` (loopback excepted), and `--allow-http` only lets the connection through, not the token exchange. Use a personal API token instead (#159).
+
+### With a personal API token
+
+A personal token suits scripts and clients that don't support OAuth, and it is the only way to connect to a plain `http://` deployment.
 
 `/api/mcp` takes an ordinary Knotebook credential as a Bearer token, so a client that lets you set an `Authorization` header yourself can point at it with a Personal API token — [Creating one](./api-tokens.md#creating-one) covers issuing it. Tick *Create and edit notes* when you create it if the assistant should write, and *Move or copy notes into groups* as well if it should be able to move notes into your groups or copy them there. With Claude Code, for example:
 
 ```sh
-claude mcp add knotebook https://<your-host>/api/mcp -t http -H "Authorization: Bearer knb_…"
+claude mcp add -s user knotebook https://<your-host>/api/mcp -t http -H "Authorization: Bearer knb_…"
 ```
 
-A static header involves no OAuth token exchange, so this also works on a plain `http://` deployment. `claude mcp add` only writes the client's configuration, with the token in it as you typed it; a Claude Code session that is already running doesn't pick it up, so start a new one. To change what the assistant can do later, turn **Edit** or **Move** on or off for the token with the pencil button on its row in **Settings → Authorization → API tokens**; the header stays the same, and the client picks up the new tool list once it is restarted (see [Changing a token's access](./api-tokens.md#changing-a-tokens-access)).
+A static header involves no OAuth token exchange, so this also works on a plain `http://` deployment. The `claude mcp add` command only writes the client's configuration, with the token in it as you typed it; a Claude Code session that is already running doesn't pick it up, so start a new one. To change what the assistant can do later, turn **Edit** or **Move** on or off for the token with the pencil button on its row in **Settings → Authorization → API tokens**; the header stays the same, and the client picks up the new tool list once it is restarted (see [Changing a token's access](./api-tokens.md#changing-a-tokens-access)).
 
 **Claude Desktop with a personal access token.** Claude Desktop reaches `/api/mcp` through `mcp-remote`, which can send the same header. Put the header's value in `env` rather than in `args`: mcp-remote's README notes that Cursor, Codex CLI and Claude Desktop on Windows don't escape spaces inside `args` when they invoke `npx`, so `Authorization: Bearer knb_…` written as one argument would be split apart. Add this under `mcpServers` in `claude_desktop_config.json`:
 
@@ -54,45 +87,6 @@ On a plain `http://` deployment, add `"--allow-http"` at the end of `args`. On W
   "env": { "AUTH_HEADER": "Bearer knb_…" }
 }
 ```
-
-The commands below are the other route: letting the client obtain a credential of its own over OAuth, which is what Claude Code and `mcp-remote` do.
-
-MCP requires the server and its authorization endpoints to be `https://`, and clients enforce that differently — which command you run depends on whether your deployment is `https://` or plain `http://` (see [Self-hosting](./self-hosting.md#deployment-prerequisites)).
-
-- **`https://` deployment — connect directly:**
-
-  ```sh
-  claude mcp add --transport http knotebook https://<your-host>/api/mcp
-  claude mcp login knotebook
-  ```
-
-  The consent page shows the app as **"Claude Code (knotebook)"** — the part in brackets is the name you gave the server.
-
-- **Plain `http://` deployment (the self-hosting guide's trusted-LAN topology) — go through `mcp-remote`, which lets you opt out of the TLS check explicitly with `--allow-http`:**
-
-  ```sh
-  claude mcp add knotebook -- npx -y mcp-remote http://<your-host>/api/mcp --allow-http
-  ```
-
-  Claude Desktop, or any client that only speaks stdio, uses the same command inside its `mcpServers` config:
-
-  ```json
-  { "command": "npx", "args": ["-y", "mcp-remote", "http://<your-host>/api/mcp", "--allow-http"] }
-  ```
-
-  On Windows, Claude Desktop usually needs the command wrapped:
-
-  ```json
-  { "command": "cmd", "args": ["/c", "npx", "-y", "mcp-remote", "http://<your-host>/api/mcp", "--allow-http"] }
-  ```
-
-  Drop `--allow-http` once the host is `https://`. The consent page shows the app as **"MCP CLI Proxy"**, and mcp-remote caches its registration and tokens under `~/.mcp-auth/mcp-remote-v1/` on the machine running the client.
-
-Every `claude mcp add` command on this page defaults to *local* scope — the server only exists in the directory you ran the command in. Add `-s user` to any of them to use it from anywhere.
-
-On the consent page, tick *Create and edit notes* if the assistant should write: the first time you authorize a client, the boxes start unticked, and pressing **Allow** straight away gives it read-only access. Tick *Move or copy notes into groups* as well, if the page offers it, for `move_note_to_group` and for copying into a group. A client that only connects through OAuth and got less than you want can be authorized again, ticking the boxes this time — the consent page then starts from the access it already has (see [Authorizing an app instead](./api-tokens.md#authorizing-an-app-instead-oauth)); or connect it with a token instead, as above.
-
-After you press Allow, the client has its credential — once it reconnects it will list Knotebook's tools; how many it sees depends on the credential's scope and on the deployment, see [The ten tools](#the-ten-tools). A `401` at this point would mean the credential never arrived.
 
 ## The ten tools
 

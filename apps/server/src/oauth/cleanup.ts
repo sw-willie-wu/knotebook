@@ -1,4 +1,5 @@
 import { and, eq, sql } from "drizzle-orm";
+import { OAUTH_APP_IDLE_DAYS } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
 import { apiTokens, oauthClients, oauthCodes, oauthRequests } from "../db/schema.js";
 
@@ -15,9 +16,9 @@ import { apiTokens, oauthClients, oauthCodes, oauthRequests } from "../db/schema
  * 五條的**目標表**述詞都沒有索引支撐，刻意不建：表恆小，觸發點都被限流壓著。
  */
 export async function runOauthCleanup(db: Db): Promise<void> {
-  // ① 30 天未使用的 client（CASCADE 帶走它的 grant／request／code）。判準是
+  // ① OAUTH_APP_IDLE_DAYS 天未使用的 client（CASCADE 帶走它的 grant／request／code）。判準是
   //    last_used_at——Bearer 驗證成功會連帶更新它，天天在用的 client 才不會被清掉。
-  await db.delete(oauthClients).where(sql`${oauthClients.lastUsedAt} < now() - interval '30 days'`);
+  await db.delete(oauthClients).where(sql`${oauthClients.lastUsedAt} < now() - make_interval(days => ${OAUTH_APP_IDLE_DAYS})`);
 
   // ② 建立超過 24h 卻從沒換出過任何 grant 或 code 的殭屍 client（灌表的形；正常 client
   //    在幾十秒內就會產生 code）。

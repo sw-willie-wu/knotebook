@@ -7,6 +7,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
+import { OAUTH_APP_IDLE_DAYS } from "@knotebook/shared";
 import { apiTokens, oauthClients, oauthCodes, oauthRequests } from "../src/db/schema.js";
 import { runOauthCleanup } from "../src/oauth/cleanup.js";
 import type { Db } from "../src/db/index.js";
@@ -99,6 +100,48 @@ describe("I5 機會性清理（§3 I5）", () => {
       await runOauthCleanup(db);
 
       expect(await db.select().from(oauthClients)).toHaveLength(1);
+    } finally {
+      await close();
+    }
+  });
+
+  it("OAUTH_APP_IDLE_DAYS 是 30（docs 與 CHANGELOG 都寫 30 天）", () => {
+    expect(OAUTH_APP_IDLE_DAYS).toBe(30);
+  });
+
+  it("① 的界線是 OAUTH_APP_IDLE_DAYS（±1 小時）", async () => {
+    const { db, close } = await freshDb();
+    try {
+      const userId = await createUser(db);
+      const edges = [
+        { clientId: "edge-fresh", lastUsedAt: sql`now() - make_interval(days => ${OAUTH_APP_IDLE_DAYS}) + interval '1 hour'` },
+        { clientId: "edge-stale", lastUsedAt: sql`now() - make_interval(days => ${OAUTH_APP_IDLE_DAYS}) - interval '1 hour'` },
+      ];
+      for (const { clientId, lastUsedAt } of edges) {
+        await db.insert(oauthClients).values({
+          clientId,
+          clientName: clientId,
+          redirectUris: ["http://127.0.0.1/cb"],
+          lastUsedAt,
+        });
+        await db.insert(apiTokens).values({
+          userId,
+          kind: "oauth",
+          name: clientId,
+          scope: "notes:read",
+          accessTokenHash: `${clientId}-h`,
+          refreshTokenHash: `${clientId}-r`,
+          clientId,
+          accessExpiresAt: sql`now() + interval '1 day'`,
+        });
+      }
+
+      await runOauthCleanup(db);
+
+      const clients = await db.select({ id: oauthClients.clientId }).from(oauthClients);
+      expect(clients.map(r => r.id)).toEqual(["edge-fresh"]);
+      const grants = await db.select({ id: apiTokens.clientId }).from(apiTokens);
+      expect(grants.map(r => r.id)).toEqual(["edge-fresh"]);
     } finally {
       await close();
     }

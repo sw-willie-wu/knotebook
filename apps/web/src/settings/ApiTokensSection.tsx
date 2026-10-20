@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { AGENT_LABEL_RE, deriveAgentLabel, type ApiTokenDto, type TokenScope } from "@knotebook/shared";
+import { AGENT_LABEL_RE, deriveAgentLabel, OAUTH_APP_IDLE_DAYS, type ApiTokenDto, type TokenScope } from "@knotebook/shared";
 import {
   useApiTokens,
   useCreateApiToken,
@@ -28,6 +28,7 @@ import { Input } from "@/components/ui/input";
 import { RowIconButton } from "@/components/ui/row-icon-button";
 import { toast } from "@/components/ui/toast";
 import { copyText } from "@/lib/clipboard";
+import { displayExpiry } from "@/lib/token-expiry";
 import { checksFromScope, scopeFromChecks, type ScopeChecks } from "@/lib/token-scope";
 import { cn } from "@/lib/utils";
 import { ScopeTogglesField } from "./ScopeTogglesField";
@@ -266,14 +267,15 @@ function TokenScopePills({ scope }: { scope: TokenScope }) {
 /** 一列的日期文字（純函式：列在 `ApiTokensSection` 的 map 裡建，不能呼叫 hook）。 */
 function tokenDates(token: ApiTokenDto, t: (key: string, opts?: Record<string, unknown>) => string, language: string) {
   const formatDate = (iso: string): string => new Date(iso).toLocaleDateString(language);
-  const expired = token.expiresAt !== null && new Date(token.expiresAt).getTime() <= Date.now();
+  const expiresAt = displayExpiry(token, OAUTH_APP_IDLE_DAYS);
+  const expired = expiresAt !== null && new Date(expiresAt).getTime() <= Date.now();
   const lastUsed = token.lastUsedAt === null ? t("settings.account.apiTokensNeverUsed") : formatDate(token.lastUsedAt);
   const expires =
-    token.expiresAt === null
+    expiresAt === null
       ? t("settings.account.apiTokensNoExpiry")
       : expired
         ? t("settings.account.apiTokensExpired")
-        : formatDate(token.expiresAt);
+        : formatDate(expiresAt);
   return { lastUsed, expires, expired, created: t("settings.account.apiTokensCreated", { when: formatDate(token.createdAt) }) };
 }
 
@@ -367,7 +369,7 @@ function TokenEditForm({ token, onDone }: { token: ApiTokenDto; onDone: () => vo
  * **位置**：與 `HandleSection` 同層、在 `hasPassword` 三元式**之外**——SSO-only
  * 帳號也要能建 PAT（他們沒有密碼可用，更需要 token 這條路）。
  * 「一次只編一列」：`editingId` 持有正在編的那列；其餘列的鉛筆 softDisabled＋原因（可聚焦，spec §2.7）。
- * 欄：名稱（kind 標籤；副標＝建立日、oauth 的「未驗證名稱」）｜Label（派生值灰字）｜權限｜最後使用｜到期（過期紅）｜操作（編輯、撤銷）。
+ * 欄：名稱（kind 標籤；副標＝建立日、oauth 的「未驗證名稱」）｜Label（派生值灰字）｜權限｜最後使用｜到期（過期紅；oauth 列以 `displayExpiry` 計算，#298）｜操作（編輯、撤銷）。
  */
 export function ApiTokensSection() {
   const { t, i18n } = useTranslation();
@@ -447,6 +449,7 @@ export function ApiTokensSection() {
         )}
         {/* 名稱與 label 的分野、清理提示都是看完自己有哪些 token 之後才用得上的附註，放在表格後面當註腳。 */}
         <p className="pt-1 text-xs text-muted-foreground">{t("settings.authorization.tokens.footnote")}</p>
+        <p className="text-xs text-muted-foreground">{t("settings.authorization.tokens.oauthExpiryNote", { days: OAUTH_APP_IDLE_DAYS })}</p>
         <p className="text-xs text-muted-foreground">{t("settings.account.apiTokensCleanupHint")}</p>
       </div>
     </SettingsGroup>

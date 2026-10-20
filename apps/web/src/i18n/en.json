@@ -759,7 +759,16 @@
       "description": "Let outside tools, such as Claude, read and write your notes as you.",
       "mcp": {
         "title": "Connect Claude with MCP",
-        "description": "Hook this site up to Claude Code or Claude Desktop. Replace <YOUR_TOKEN> in the snippets with a token created above.",
+        "description": "Hook this site up to Claude Code or Claude Desktop, in one of two ways: authorize over OAuth (no token to keep safe), or use a personal token.",
+        "oauthTitle": "Option 1: Authorize over OAuth (recommended)",
+        "oauthDescription": "Nothing to create or keep safe: the client opens your browser to ask for authorization, then renews its access on its own; it lapses after {{days}} days without use. Once authorized, it shows up in the list above as an App.",
+        "oauthClaudeCode": "Claude Code: run this in a terminal, then type /mcp in Claude Code, pick knotebook → Authenticate, and finish in your browser",
+        "oauthClaudeDesktop": "Claude Desktop (Windows): add under mcpServers in claude_desktop_config.json",
+        "oauthDesktopNote": "Needs Node.js. After saving, quit Claude Desktop completely and start it again; it opens your browser to ask for authorization (the consent page calls it “MCP CLI Proxy”).",
+        "oauthConsentNote": "The first time you authorize, the permission boxes on the consent page start unticked, so pressing “{{allow}}” straight away gives read-only access; tick “{{edit}}” first if Claude should create or edit notes.",
+        "oauthHttpsOnly": "Authorizing over OAuth needs an https site; this site is http, so use a personal token below.",
+        "patTitle": "Option 2: Personal token",
+        "patDescription": "For scripts, or clients that don't support OAuth. Replace <YOUR_TOKEN> in the snippets with a token created above.",
         "endpoint": "This site's MCP endpoint",
         "claudeCode": "Claude Code: run in a terminal",
         "claudeDesktop": "Claude Desktop: add under mcpServers in claude_desktop_config.json",
@@ -785,7 +794,8 @@
         "labelInvalid": "A label can only use 1–32 letters, digits, . _ or -.",
         "actions": "Actions",
         "editLocked": "Finish editing the other token first.",
-        "footnote": "The name is where the token came from when it was created (yours for a token you made, self-reported by the client for an OAuth app) and can't be changed. The label is the short name shown on the AI's name tag and in the edit history; you can change it, and several tokens can share one."
+        "footnote": "The name is where the token came from when it was created (yours for a token you made, self-reported by the client for an OAuth app) and can't be changed. The label is the short name shown on the AI's name tag and in the edit history; you can change it, and several tokens can share one.",
+        "oauthExpiryNote": "An App's expiry date is {{days}} days after it was last used (or after it was authorized, if it hasn't been used yet): it renews automatically while in use, and lapses after {{days}} days without use."
       }
     },
     "storage": {
@@ -870,7 +880,7 @@
       },
       "apiTokensTitle": "API tokens",
       "apiTokensDescription": "Give a script or an AI assistant access to your notes on your behalf. A token can always list and read the notes you can read; creating and writing notes needs \"Create and edit notes\", and moving or copying notes into groups also needs \"Move or copy notes into groups\". Treat it like a password. Tokens are not affected when you change your password; revoke them here instead.",
-      "apiTokensCleanupHint": "OAuth applications unused for 30 days, and tokens that expired more than 30 days ago, are removed automatically the next time anyone creates a token or authorizes an application.",
+      "apiTokensCleanupHint": "Apps past their expiry date, and tokens that expired more than 30 days ago, are usually removed automatically the next time anyone creates a token or authorizes an application; you can revoke any that are still listed yourself.",
       "apiTokensEmpty": "No tokens yet.",
       "apiTokensCreate": "Create API token",
       "apiTokensNameLabel": "Name",

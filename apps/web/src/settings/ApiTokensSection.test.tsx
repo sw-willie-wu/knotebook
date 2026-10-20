@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
-import type { ApiTokenDto, UserDto } from "@knotebook/shared";
+import { OAUTH_APP_IDLE_DAYS, type ApiTokenDto, type UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { clickOutside } from "@/test/outside-click";
 import { ThemeProvider } from "@/theme";
@@ -197,6 +197,56 @@ describe("ApiTokensSection", () => {
     renderSettings(PASSWORD_USER, [PAT_ROW, expiredRow]);
     expect(await screen.findByText(i18n.t("settings.account.apiTokensExpired"))).toHaveClass("text-destructive");
     expect(screen.getByText(i18n.t("settings.account.apiTokensNoExpiry"))).not.toHaveClass("text-destructive");
+  });
+
+  describe("到期欄（#298）", () => {
+    const DAY = 86_400_000;
+    const ago = (ms: number): string => new Date(Date.now() - ms).toISOString();
+    const ahead = (ms: number): string => new Date(Date.now() + ms).toISOString();
+    const idle = (iso: string): string => new Date(Date.parse(iso) + OAUTH_APP_IDLE_DAYS * DAY).toLocaleDateString("en");
+    const oauth = (over: Partial<ApiTokenDto>): ApiTokenDto => ({ ...OAUTH_ROW, name: "App", ...over });
+
+    it("S1：oauth 列的 access token 已過期、但最後使用＋N 天未到 → 顯示日期，不標已過期、不是 danger", async () => {
+      const lastUsedAt = ago(1 * DAY);
+      renderSettings(PASSWORD_USER, [oauth({ createdAt: ago(10 * DAY), lastUsedAt, expiresAt: ago(12 * 3_600_000) })]);
+      const row = within(await screen.findByRole("row", { name: "App" }));
+      const cell = row.getByText(idle(lastUsedAt));
+      expect(cell).not.toHaveClass("text-destructive");
+      expect(row.queryByText(i18n.t("settings.account.apiTokensExpired"))).toBeNull();
+    });
+
+    it("S2：oauth 列閒置超過 N 天 → 已過期（danger），即使 expiresAt 還沒到", async () => {
+      renderSettings(PASSWORD_USER, [
+        oauth({ createdAt: ago((OAUTH_APP_IDLE_DAYS + 5) * DAY), lastUsedAt: ago((OAUTH_APP_IDLE_DAYS + 1) * DAY), expiresAt: ahead(12 * 3_600_000) }),
+      ]);
+      const row = within(await screen.findByRole("row", { name: "App" }));
+      expect(row.getByText(i18n.t("settings.account.apiTokensExpired"))).toHaveClass("text-destructive");
+    });
+
+    it("S3：oauth 列沒用過 → 從建立時起算 N 天", async () => {
+      const createdAt = ago(2 * DAY);
+      renderSettings(PASSWORD_USER, [oauth({ createdAt, lastUsedAt: null, expiresAt: ahead(12 * 3_600_000) })]);
+      const row = within(await screen.findByRole("row", { name: "App" }));
+      expect(row.getByText(idle(createdAt))).toBeInTheDocument();
+      expect(row.getByText(i18n.t("settings.account.apiTokensNeverUsed"))).toBeInTheDocument();
+    });
+
+    it("S4：pat 列仍顯示自己的 expiresAt，不套閒置公式", async () => {
+      const expiresAt = ahead(10 * DAY);
+      const lastUsedAt = ago(1 * DAY);
+      renderSettings(PASSWORD_USER, [{ ...PAT_ROW, name: "Pat", createdAt: ago(3 * DAY), lastUsedAt, expiresAt }]);
+      const row = within(await screen.findByRole("row", { name: "Pat" }));
+      expect(row.getByText(new Date(expiresAt).toLocaleDateString("en"))).toBeInTheDocument();
+      expect(row.queryByText(idle(lastUsedAt))).toBeNull();
+    });
+
+    it("S5：表格後三行註腳依序為 footnote、oauthExpiryNote、cleanup hint", async () => {
+      renderSettings(PASSWORD_USER, []);
+      const foot = await screen.findByText(i18n.t("settings.authorization.tokens.footnote"));
+      const note = foot.nextElementSibling;
+      expect(note?.textContent).toBe(i18n.t("settings.authorization.tokens.oauthExpiryNote", { days: OAUTH_APP_IDLE_DAYS }));
+      expect(note?.nextElementSibling?.textContent).toBe(i18n.t("settings.account.apiTokensCleanupHint"));
+    });
   });
 
   it("表名 API tokens；欄名 Name／Label／Permissions／Last used／Expires／Actions（spec §3 #9）；列名＝token 名", async () => {
