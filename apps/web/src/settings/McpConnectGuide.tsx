@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { OAUTH_APP_IDLE_DAYS } from "@knotebook/shared";
 import { Button } from "@/components/ui/button";
@@ -23,7 +23,7 @@ const HEADING_CLASS = "text-sm font-semibold";
 
 /**
  * 「用 MCP 連接 Claude」（#247 §5.3、W10；#298 分兩段）：本站端點，然後「方式一：OAuth 授權」與「方式二：個人 token」
- * 兩段，各有 Claude Code／Claude Desktop 片段（組裝在 `mcp-snippets.ts`；token 位置一律 `<YOUR_TOKEN>` 佔位，
+ * 兩段，各有 Claude Code／Claude Desktop 片段（組裝在 `mcp-snippets.ts`；PAT 片段的 token 位置一律 `<YOUR_TOKEN>` 佔位，
  * **不自動帶入任何 token 值**），最後一句權限對照（與 docs/mcp.md 工具表同步）。
  * OAuth 只在 https 站台顯示（#159）：http 時那一段只剩標題與一行說明。`origin` 選填，預設 `window.location.origin`
  * （jsdom 固定是 http，要測 https 分支需要這個縫）。
@@ -122,17 +122,19 @@ function SnippetRow({
   onCopy: () => void;
   children?: ReactNode;
 }) {
+  const preId = useId();
   return (
     <div className="space-y-1">
       <p>{label}</p>
       <div className="flex items-start gap-2">
         <pre
+          id={preId}
           data-testid={testId}
           className="min-w-0 flex-1 overflow-x-auto whitespace-pre rounded-md border border-border bg-muted/40 px-3 py-2 font-mono text-xs"
         >
           {text}
         </pre>
-        <Button type="button" variant="outline" size="sm" onClick={onCopy}>
+        <Button type="button" variant="outline" size="sm" aria-describedby={preId} onClick={onCopy}>
           {copyLabel}
         </Button>
       </div>

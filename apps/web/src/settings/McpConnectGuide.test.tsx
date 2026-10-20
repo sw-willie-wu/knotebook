@@ -135,7 +135,7 @@ describe("McpConnectGuide（#247 §5.3）", () => {
     expect(screen.queryByTestId("mcp-oauth-claude-code")).toBeNull();
     expect(screen.queryByTestId("mcp-oauth-claude-desktop")).toBeNull();
     expect(screen.queryByTestId("mcp-oauth-consent-note")).toBeNull();
-    expect(screen.getByTestId("mcp-oauth-https-only")).toHaveTextContent(i18n.t("settings.authorization.mcp.oauthHttpsOnly"));
+    expect(screen.getByTestId("mcp-oauth-https-only").textContent).toBe(i18n.t("settings.authorization.mcp.oauthHttpsOnly"));
     expect(screen.getByRole("heading", { level: 3, name: i18n.t("settings.authorization.mcp.oauthTitle") })).toBeInTheDocument();
     expect(screen.queryByText(DESC())).toBeNull();
     expect(screen.getByText(i18n.t("settings.authorization.mcp.description"))).toBeInTheDocument();
@@ -151,7 +151,7 @@ describe("McpConnectGuide（#247 §5.3）", () => {
     expect(desktop.textContent).toBe(buildDesktopOauthSnippet(HTTPS));
     expect(within(code.closest("li")!).getByText(i18n.t("settings.authorization.mcp.oauthClaudeCode"))).toBeInTheDocument();
     expect(within(desktop.closest("li")!).getByText(i18n.t("settings.authorization.mcp.oauthClaudeDesktop"))).toBeInTheDocument();
-    expect(screen.getByTestId("mcp-oauth-desktop-note")).toHaveTextContent(i18n.t("settings.authorization.mcp.oauthDesktopNote"));
+    expect(screen.getByTestId("mcp-oauth-desktop-note").textContent).toBe(i18n.t("settings.authorization.mcp.oauthDesktopNote"));
     const consent = screen.getByTestId("mcp-oauth-consent-note");
     expect(consent.textContent).toBe(
       i18n.t("settings.authorization.mcp.oauthConsentNote", {
@@ -178,6 +178,17 @@ describe("McpConnectGuide（#247 §5.3）", () => {
     await waitFor(() => expect(copyText).toHaveBeenCalledWith(buildDesktopOauthSnippet(HTTPS)));
   });
 
+  it("https：每顆 Copy 鈕用 aria-describedby 指向自己那段片段（報讀器分得出是哪段）", () => {
+    render(<McpConnectGuide origin={HTTPS} />);
+    const ids = ["mcp-endpoint", "mcp-oauth-claude-code", "mcp-oauth-claude-desktop", "mcp-snippet-claude-code", "mcp-snippet-claude-desktop"];
+    const buttons = screen.getAllByRole("button", { name: "Copy" });
+    expect(buttons).toHaveLength(ids.length);
+    buttons.forEach((b, i) => {
+      const target = document.getElementById(b.getAttribute("aria-describedby") ?? "");
+      expect(target, `button ${i} 的 aria-describedby`).toBe(screen.getByTestId(ids[i]!));
+    });
+  });
+
   it("兩個 h3 依序為 OAuth、PAT；不再有編號；清單不縮排（W24）：https 2 個、http 1 個", () => {
     const { container, unmount } = render(<McpConnectGuide origin={HTTPS} />);
     expect(screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual([
@@ -185,6 +196,17 @@ describe("McpConnectGuide（#247 §5.3）", () => {
       i18n.t("settings.authorization.mcp.patTitle"),
     ]);
     expect(container.textContent).not.toContain("1. ");
+    // 片段在各自標題底下：OAuth 片段在 OAuth 標題之後、PAT 標題之前；PAT 片段在 PAT 標題之後
+    const [oauthH3, patH3] = screen.getAllByRole("heading", { level: 3 });
+    const FOLLOWING = Node.DOCUMENT_POSITION_FOLLOWING;
+    for (const id of ["mcp-oauth-claude-code", "mcp-oauth-claude-desktop", "mcp-oauth-consent-note"]) {
+      const el = screen.getByTestId(id);
+      expect(oauthH3!.compareDocumentPosition(el) & FOLLOWING, `${id} 在 OAuth 標題之後`).toBeTruthy();
+      expect(patH3!.compareDocumentPosition(el) & FOLLOWING, `${id} 在 PAT 標題之前`).toBeFalsy();
+    }
+    for (const id of ["mcp-snippet-claude-code", "mcp-snippet-claude-desktop"]) {
+      expect(patH3!.compareDocumentPosition(screen.getByTestId(id)) & FOLLOWING, `${id} 在 PAT 標題之後`).toBeTruthy();
+    }
     const lists = screen.getAllByRole("list");
     expect(lists).toHaveLength(2);
     for (const l of lists) expect(l).toHaveClass("list-none", "pl-0");
