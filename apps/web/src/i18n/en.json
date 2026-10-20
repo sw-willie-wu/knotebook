@@ -67,6 +67,9 @@
       "hint": "This address includes your username and can be guessed.",
       "randomSlugFailed": "Couldn't generate a random address. Please try again."
     },
+    "publicWidth": {
+      "label": "Public page width"
+    },
     "slugError": {
       "length": "Must be 1–100 characters long.",
       "charset": "Only letters, numbers, and hyphens are allowed.",

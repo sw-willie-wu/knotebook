@@ -67,6 +67,9 @@
       "hint": "此網址包含你的使用者名、且可能被猜到。",
       "randomSlugFailed": "無法產生隨機網址，請再試一次。"
     },
+    "publicWidth": {
+      "label": "公開頁寬度"
+    },
     "slugError": {
       "length": "長度需為 1–100 字元。",
       "charset": "只能包含文字、數字與連字號（-）。",

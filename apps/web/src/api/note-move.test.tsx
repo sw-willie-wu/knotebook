@@ -99,7 +99,7 @@ function wrapperFor(client: QueryClient) {
 
 const baseHandlers = {
   [`GET ${SHARES_URL}`]: () => fakeResponse(200, [SHARE]),
-  [`GET ${PUBLIC_URL}`]: () => fakeResponse(200, { token: "T", slug: null }),
+  [`GET ${PUBLIC_URL}`]: () => fakeResponse(200, { token: "T", slug: null, width: "full" }),
 };
 
 async function waitObserversReady(client: QueryClient) {
@@ -147,12 +147,21 @@ describe("useMoveNoteToGroup", () => {
     const sets = setSpy.mock.calls.slice(0, 3);
     expect(sets.map(c => c[0])).toEqual([["shares", ID], ["public-link", ID], ["note", ID]]);
     expect(sets[0]![1]).toEqual([]);
-    expect(sets[1]![1]).toEqual({ token: null, slug: null });
+    expect(client.getQueryData(["public-link", ID])).toEqual({ token: null, slug: null, width: "full" });
     expect(sets[2]![1]).toEqual(moved);
     const inv = keysOf(invSpy as never);
     for (const k of ["notes", "note-by-path", "note-by-group-path", "backlinks"]) {
       expect(inv).toContainEqual([k]);
     }
+  });
+
+  it("移動成功時 public-link 快取是空的 → 不憑空寫出快取項", async () => {
+    const moved = noteDto({ groupId: GID, ownerId: "u9", role: "viewer", permissions: { moveToGroup: false, edit: false } as never });
+    setupFetch({ [`POST ${NOTE_URL}/move`]: () => fakeResponse(200, moved) });
+    const client = makeClient();
+    const { result } = renderHook(() => useMoveNoteToGroup(ID), { wrapper: wrapperFor(client) });
+    await result.current.mutateAsync(GID);
+    expect(client.getQueryData(["public-link", ID])).toBeUndefined();
   });
 
   it.each<[GateName, GateName]>([

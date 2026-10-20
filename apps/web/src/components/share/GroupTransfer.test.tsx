@@ -92,7 +92,7 @@ function stub(init: Partial<Server> = {}) {
       }
       if (method === "GET" && url === URLS.groups) return Promise.resolve(okJson(server.groups));
       if (method === "GET" && url === URLS.shares) return Promise.resolve(okJson([...server.shares]));
-      if (method === "GET" && url === URLS.link) return Promise.resolve(okJson({ token: server.token, slug: null }));
+      if (method === "GET" && url === URLS.link) return Promise.resolve(okJson({ token: server.token, slug: null, width: "full" }));
       if (method === "GET" && url === URLS.note) return Promise.resolve(okJson(server.latest));
       if (method === "POST" && url === URLS.move) return Promise.resolve(server.move ? server.move() : okJson(MOVED));
       if (method === "POST" && url === URLS.copy) return Promise.resolve(server.copy ? server.copy() : okJson(COPY, 201));
@@ -356,7 +356,7 @@ describe("⋮ 選單：移動／複製到群組（#216）", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(await screen.findByText('Moved into "Workshop C"')).toBeInTheDocument();
     expect(qc.getQueryData(["shares", NOTE.id])).toEqual([]);
-    expect(qc.getQueryData(["public-link", NOTE.id])).toEqual({ token: null, slug: null });
+    expect(qc.getQueryData(["public-link", NOTE.id])).toEqual({ token: null, slug: null, width: "full" });
     expect(qc.getQueryData(["note", NOTE.id])).toEqual(MOVED);
   });
 

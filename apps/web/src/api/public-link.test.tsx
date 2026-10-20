@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useCreatePublicLink, useDeletePublicLink, type PublicLinkDto } from "./public-link";
+import { useCreatePublicLink, useDeletePublicLink, useSetPublicWidth, type PublicLinkDto } from "./public-link";
 
 /**
  * #122 PR3 Task 2：public-link 快取的兩個 mutation 寫入點（plan gate M4／r5-m1 的
@@ -27,30 +27,30 @@ function fakeResponse(status: number, json?: unknown): Response {
 function Harness() {
   const create = useCreatePublicLink(NOTE_ID);
   const del = useDeletePublicLink(NOTE_ID);
+  const width = useSetPublicWidth(NOTE_ID);
   return (
     <div>
       <button onClick={() => create.mutate()}>put</button>
       <button onClick={() => del.mutate()}>del</button>
+      <button onClick={() => width.mutate("wide")}>width</button>
     </div>
   );
 }
 
-function setup(fetchImpl: (method: string) => Response) {
+function setup(fetchImpl: (method: string, url: string) => Response | Promise<Response>, seed = true) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   // 種既有狀態：token＋別名都在（分享面板已開過的形）
-  queryClient.setQueryData(KEY, { token: "T".repeat(43), slug: "my-alias" } satisfies PublicLinkDto);
-  vi.stubGlobal(
-    "fetch",
-    vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
-      Promise.resolve(fetchImpl((init?.method ?? "GET").toUpperCase())),
-    ),
+  if (seed) queryClient.setQueryData(KEY, { token: "T".repeat(43), slug: "my-alias", width: "full" } satisfies PublicLinkDto);
+  const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) =>
+    Promise.resolve(fetchImpl((init?.method ?? "GET").toUpperCase(), String(input))),
   );
+  vi.stubGlobal("fetch", fetchMock);
   const utils = render(
     <QueryClientProvider client={queryClient}>
       <Harness />
     </QueryClientProvider>,
   );
-  return { queryClient, ...utils };
+  return { queryClient, fetchMock, ...utils };
 }
 
 afterEach(() => {
@@ -62,18 +62,53 @@ describe("public-link 快取寫入點（#122 PR3）", () => {
     const { queryClient, getByText } = setup(() => fakeResponse(204));
     fireEvent.click(getByText("del"));
     await waitFor(() => {
-      expect(queryClient.getQueryData(KEY)).toEqual({ token: null, slug: null });
+      expect(queryClient.getQueryData(KEY)).toEqual({ token: null, slug: null, width: "full" });
     });
+  });
+
+  it("撤公開時快取是空的 → 不憑空寫出快取項", async () => {
+    const { queryClient, getByText, fetchMock } = setup(() => fakeResponse(204), false);
+    fireEvent.click(getByText("del"));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(queryClient.getQueryData(KEY)).toBeUndefined();
   });
 
   it("重生（PUT 回全形）→ 快取直寫回應，slug 保留原別名、token 換新", async () => {
     const NEW_TOKEN = "U".repeat(43);
     const { queryClient, getByText } = setup((method) =>
-      method === "PUT" ? fakeResponse(200, { token: NEW_TOKEN, slug: "my-alias" }) : fakeResponse(500),
+      method === "PUT" ? fakeResponse(200, { token: NEW_TOKEN, slug: "my-alias", width: "full" }) : fakeResponse(500),
     );
     fireEvent.click(getByText("put"));
     await waitFor(() => {
-      expect(queryClient.getQueryData(KEY)).toEqual({ token: NEW_TOKEN, slug: "my-alias" });
+      expect(queryClient.getQueryData(KEY)).toEqual({ token: NEW_TOKEN, slug: "my-alias", width: "full" });
     });
+  });
+
+  it("寬度 mutation 成功 → 只合併 width：期間重生的新 token 不被舊值蓋回", async () => {
+    let resolveWidth!: (r: Response) => void;
+    const { queryClient, getByText, fetchMock } = setup(
+      () => new Promise<Response>((resolve) => (resolveWidth = resolve)),
+    );
+    fireEvent.click(getByText("width"));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toBe(`/api/notes/${NOTE_ID}/public-width`);
+    expect((init as RequestInit).method).toBe("PUT");
+    expect((init as RequestInit).body).toBe('{"width":"wide"}');
+    // 模擬等待期間別處重生了 token
+    queryClient.setQueryData(KEY, { token: "U".repeat(43), slug: "my-alias", width: "full" });
+    resolveWidth(fakeResponse(200, { width: "wide" }));
+    await waitFor(() => {
+      expect(queryClient.getQueryData(KEY)).toEqual({ token: "U".repeat(43), slug: "my-alias", width: "wide" });
+    });
+  });
+
+  it("寬度 mutation 成功但快取是空的 → 不寫", async () => {
+    const { queryClient, getByText, fetchMock } = setup(() => fakeResponse(200, { width: "wide" }), false);
+    fireEvent.click(getByText("width"));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(queryClient.getQueryData(KEY)).toBeUndefined();
   });
 });

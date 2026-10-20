@@ -5,7 +5,7 @@ import type { PublicLinkDto } from "./public-link";
 
 /**
  * #175 PR2：移動（個人→群組）與複製（spec §6.3、§6.5、§8.3、§8.4）。沿用 v1 `api/note-group.ts`（ab8f824）的兩條順序契約：
- * - **成功的快取寫入序**：先 `['shares', id]`＝`[]`、`['public-link', id]`＝`{token:null, slug:null}`，**再** `['note', id]`——
+ * - **成功的快取寫入序**：先 `['shares', id]`＝`[]`、`['public-link', id]`＝token／slug 清空（函式型：保留 width、快取空不寫），**再** `['note', id]`——
  *   三次同步、中間無 await。note 一換成群組形，`ShareDialog` 的觸發鈕就改讀 public-link；若 public-link 還是舊 token，
  *   會閃一下「公開」（PR1 交接不變量⑥）。
  * - **失敗的對帳序**（`refetchAfterFailure`）：先 await shares／public-link 失效重抓、之後才失效 note 與 groups；
@@ -35,7 +35,9 @@ export function useMoveNoteToGroup(noteId: string) {
       api<NoteDto>(`/api/notes/${encodeURIComponent(noteId)}/move`, { method: "POST", body: JSON.stringify({ groupId }) }),
     onSuccess: note => {
       queryClient.setQueryData<ShareDto[]>(["shares", noteId], []);
-      queryClient.setQueryData<PublicLinkDto>(["public-link", noteId], { token: null, slug: null });
+      queryClient.setQueryData<PublicLinkDto>(["public-link", noteId], prev =>
+        prev ? { ...prev, token: null, slug: null } : prev,
+      );
       writeMovedNote(queryClient, note);
     },
     onError: () => {

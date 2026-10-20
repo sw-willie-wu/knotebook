@@ -1,15 +1,17 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
+import type { NoteWidth } from "@knotebook/shared";
 import { api } from "./client";
 
 /**
  * `GET/PUT /api/notes/:id/public-link` 的回應形（server 端 routes/notes.ts）。
  * #122 PR3 起帶 `slug`（公開別名）——GET/PUT 都回**全形**：mutation 的 onSuccess
  * 直寫回應進快取，server 少回任一鍵＝快取該鍵被抹成 undefined（公開連結列或
- * 別名列憑空消失），server 測試有釘全形。
+ * 別名列憑空消失），server 測試有釘全形。`width`（公開頁寬度，#297）同屬全形三鍵。
  */
 export interface PublicLinkDto {
   token: string | null;
   slug: string | null;
+  width: NoteWidth;
 }
 
 /**
@@ -84,13 +86,35 @@ export function useClearPublicSlug(noteId: string) {
 
 /** `DELETE /api/notes/:id/public-link`——撤銷（既有連結立即失效）。server 端同一支
  * UPDATE 連帶清掉公開別名（spec §4「DELETE 清兩者」），快取鏡像必須跟上——
- * 只寫 `{token: null}` 會讓別名殘留在畫面上。 */
+ * 只寫 `{token: null}` 會讓別名殘留在畫面上。函式型更新：保留 `width`（server 不重設），
+ * 快取空就不寫（之後 GET 會補）。 */
 export function useDeletePublicLink(noteId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () => api<void>(`/api/notes/${encodeURIComponent(noteId)}/public-link`, { method: "DELETE" }),
     onSuccess: () => {
-      queryClient.setQueryData(["public-link", noteId], { token: null, slug: null } satisfies PublicLinkDto);
+      queryClient.setQueryData<PublicLinkDto>(["public-link", noteId], (prev) =>
+        prev ? { ...prev, token: null, slug: null } : prev,
+      );
+    },
+  });
+}
+
+/**
+ * `PUT /api/notes/:id/public-width`——設定公開頁寬度（#297），回 `{ width }`。
+ * onSuccess **只合併 `width`**：寬度回應晚到時，若整筆覆寫會把期間重生或撤銷之前的
+ * 舊 token 寫回快取。快取空就不寫。
+ */
+export function useSetPublicWidth(noteId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (width: NoteWidth) =>
+      api<{ width: NoteWidth }>(`/api/notes/${encodeURIComponent(noteId)}/public-width`, {
+        method: "PUT",
+        body: JSON.stringify({ width }),
+      }),
+    onSuccess: ({ width }) => {
+      queryClient.setQueryData<PublicLinkDto>(["public-link", noteId], (prev) => (prev ? { ...prev, width } : prev));
     },
   });
 }

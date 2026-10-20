@@ -2,16 +2,25 @@ import { Fragment, useEffect, useState, type FormEvent, type ReactNode } from "r
 import { useTranslation } from "react-i18next";
 import { Link, useLocation } from "react-router";
 import {
+  NOTE_WIDTHS,
   normalizeSlug,
   publicAliasPath,
   validateSlug,
   type NoteDto,
+  type NoteWidth,
   type ShareDto,
   type ShareRole,
 } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
 import { useDeleteShare, usePutShare, useShares } from "@/api/shares";
-import { useClearPublicSlug, useCreatePublicLink, useDeletePublicLink, usePublicLink, useSetPublicSlug } from "@/api/public-link";
+import {
+  useClearPublicSlug,
+  useCreatePublicLink,
+  useDeletePublicLink,
+  usePublicLink,
+  useSetPublicSlug,
+  useSetPublicWidth,
+} from "@/api/public-link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -22,6 +31,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { toNoteWidth } from "@/components/note-width";
 import { Globe, Lock, Share, Trash, Users } from "@/components/ui/icons";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/components/ui/toast";
@@ -435,6 +445,7 @@ function AccessSection({ note }: { note: NoteDto }) {
           ownerHandle={note.ownerHandle}
           token={token}
           slug={linkQuery.data?.slug ?? null}
+          width={linkQuery.data?.width ?? "standard"}
           allowAlias
           onRegenerateToken={mintLink}
           regenerateTokenPending={createLink.isPending}
@@ -522,6 +533,7 @@ function GroupNoteShareSection({ note, onClose }: { note: NoteDto; onClose: () =
               ownerHandle={null}
               token={token}
               slug={null}
+              width={linkQuery.data?.width ?? "standard"}
               allowAlias={false}
               onRegenerateToken={regenerate}
               regenerateTokenPending={createLink.isPending}
@@ -592,7 +604,7 @@ function generateValidatedRandomSlug(): string | null {
  *   `onRegenerateToken` 回傳是否成功（`Promise<boolean>`），失敗時呼叫端（`mintLink`／`regenerate`）
  *   已經自己 toast（個人筆記另加復原）過一次，這裡不重複顯示、只中止，不得拿舊 token 換出
  *   一個新 slug。
- * - **一律 `mutateAsync` ＋ catch → `setError`**：toggle／regenerate／save 三個
+ * - **一律 `mutateAsync` ＋ catch → `setError`**：toggle／regenerate／save／width 四個
  *   動作共用同一顆 `error` state（同時只會有一個在跑，`busy` 互斥），裸 `mutate()`
  *   的靜默失敗＝安全性誤述（見 `突變驗證`：把 catch 拿掉會讓失敗復原測試翻紅）。
  * - OFF 態沿用 #122 PR3 的別名輸入慣例：`normalizeSlug`→`validateSlug` 本地先擋、
@@ -609,6 +621,7 @@ function PublicLinkPanel({
   ownerHandle,
   token,
   slug,
+  width,
   allowAlias,
   onRegenerateToken,
   regenerateTokenPending,
@@ -618,6 +631,8 @@ function PublicLinkPanel({
   ownerHandle: string | null;
   token: string;
   slug: string | null;
+  /** 公開頁寬度（#297），取自 `['public-link', id]` 快取。 */
+  width: NoteWidth;
   /** #175 W7：群組筆記沒有公開別名——false 時固定匿名形，不渲染 Anonymous 開關、儲存鈕與可猜警語。 */
   allowAlias: boolean;
   onRegenerateToken: () => Promise<boolean>;
@@ -626,6 +641,8 @@ function PublicLinkPanel({
   const { t } = useTranslation();
   const setSlug = useSetPublicSlug(noteId);
   const clearSlug = useClearPublicSlug(noteId);
+  const setWidth = useSetPublicWidth(noteId);
+  const [pendingWidth, setPendingWidth] = useState<NoteWidth | null>(null);
 
   const anonymous = !allowAlias || slug === null;
   const [value, setValue] = useState(slug ?? "");
@@ -636,7 +653,7 @@ function PublicLinkPanel({
   const localReason = trimmed.length > 0 ? validateSlug(normalized) : null;
   const localError = localReason ? t(`share.slugError.${localReason}`) : null;
   const dirty = trimmed !== (slug ?? "");
-  const busy = setSlug.isPending || clearSlug.isPending || regenerateTokenPending;
+  const busy = setSlug.isPending || clearSlug.isPending || setWidth.isPending || regenerateTokenPending;
 
   const linkUrl = anonymous
     ? `${window.location.origin}${ANONYMOUS_LINK_PREFIX}${token}`
@@ -689,6 +706,20 @@ function PublicLinkPanel({
     const tokenRegenerated = await onRegenerateToken();
     if (!tokenRegenerated) return;
     await applyRandomSlug();
+  }
+
+  /** 失敗時快取沒動，`pendingWidth` 清掉後下拉自然回原值。 */
+  async function handleWidth(next: NoteWidth): Promise<void> {
+    if (busy) return;
+    setError(null);
+    setPendingWidth(next);
+    try {
+      await setWidth.mutateAsync(next);
+    } catch (err) {
+      setError(errorMessage(t, err));
+    } finally {
+      setPendingWidth(null);
+    }
   }
 
   async function handleSave(): Promise<void> {
@@ -768,6 +799,25 @@ function PublicLinkPanel({
             {t("share.publicSlug.save")}
           </Button>
         )}
+      </div>
+
+      <div className="flex items-center gap-2">
+        <label htmlFor="share-public-width" className="text-sm font-medium">
+          {t("share.publicWidth.label")}
+        </label>
+        <select
+          id="share-public-width"
+          className={SELECT_CLASS}
+          value={pendingWidth ?? width}
+          disabled={busy}
+          onChange={(event) => void handleWidth(toNoteWidth(event.target.value))}
+        >
+          {NOTE_WIDTHS.map((w) => (
+            <option key={w} value={w}>
+              {t(`note.width.${w}`)}
+            </option>
+          ))}
+        </select>
       </div>
 
       {!anonymous && (

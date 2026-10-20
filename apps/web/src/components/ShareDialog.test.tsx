@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
-import type { NoteDto, ShareDto } from "@knotebook/shared";
+import type { NoteDto, NoteWidth, ShareDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { clickOutside } from "@/test/outside-click";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
@@ -287,6 +287,7 @@ describe("ShareDialog", () => {
 
 const PUBLIC_LINK_URL = `/api/notes/${NOTE.id}/public-link`;
 const TOKEN = "T".repeat(43);
+const PUBLIC_WIDTH_URL = `/api/notes/${NOTE.id}/public-width`;
 
 /** 可路由、可逐 URL 延遲的 fetch stub。`pending` 內的 URL 回傳懸置 promise，
  * 由測試手動 resolve——latch 案要它來釘「query 齊備前不選任何 radio」。
@@ -298,6 +299,10 @@ function stubRoutedFetch(opts: {
   token?: string | null;
   /** 公開別名（#122 PR3）：與 token 同屬可變狀態（PUT/DELETE …/slug 會改它）。 */
   slug?: string | null;
+  /** 公開頁寬度（可變狀態：PUT …/public-width 會改它）。 */
+  width?: NoteWidth;
+  /** true＝PUT …/public-width 回 500。 */
+  widthFail?: boolean;
   pending?: string[];
   onCall?: (method: string, url: string) => Response | undefined;
 }) {
@@ -316,12 +321,12 @@ function stubRoutedFetch(opts: {
       return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([...(opts.shares ?? [])]) }));
     }
     if (url === PUBLIC_LINK_URL && method === "GET") {
-      return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ token: opts.token ?? null, slug: opts.slug ?? null }) }));
+      return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ token: opts.token ?? null, slug: opts.slug ?? null, width: opts.width ?? "standard" }) }));
     }
     if (url === PUBLIC_LINK_URL && method === "PUT") {
       opts.token = TOKEN;
       // 重生不動別名＋回全形（server 契約，public-share.test 釘住）
-      return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ token: TOKEN, slug: opts.slug ?? null }) }));
+      return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ token: TOKEN, slug: opts.slug ?? null, width: opts.width ?? "standard" }) }));
     }
     if (url === PUBLIC_LINK_URL && method === "DELETE") {
       opts.token = null;
@@ -331,7 +336,16 @@ function stubRoutedFetch(opts: {
     if (url === `${PUBLIC_LINK_URL}/slug` && method === "PUT") {
       const slug = (JSON.parse(String(init?.body)) as { slug: string }).slug;
       opts.slug = slug;
-      return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ token: opts.token ?? null, slug }) }));
+      return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ token: opts.token ?? null, slug, width: opts.width ?? "standard" }) }));
+    }
+    if (url === PUBLIC_WIDTH_URL && method === "PUT") {
+      if (opts.widthFail) {
+        return Promise.resolve(
+          fakeResponse({ ok: false, status: 500, json: () => Promise.resolve({ error: { code: "internal", message: "x" } }) }),
+        );
+      }
+      opts.width = (JSON.parse(String(init?.body)) as { width: NoteWidth }).width;
+      return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ width: opts.width }) }));
     }
     if (url === `${PUBLIC_LINK_URL}/slug` && method === "DELETE") {
       opts.slug = null;
@@ -702,7 +716,7 @@ describe("ShareDialog 公開連結面板：匿名 toggle", () => {
       ([input, init]) => String(input) === `${PUBLIC_LINK_URL}/slug` && (init as RequestInit)?.method === "PUT",
     );
     expect(JSON.parse(String((putCall as [unknown, RequestInit])[1].body))).toEqual({ slug: "my-custom" });
-    expect(queryClient.getQueryData(["public-link", NOTE.id])).toEqual({ token: TOKEN, slug: "my-custom" });
+    expect(queryClient.getQueryData(["public-link", NOTE.id])).toEqual({ token: TOKEN, slug: "my-custom", width: "standard" });
   });
 
   it("4. OFF 態按「重新產生」→ 送出新的隨機 slug（與前一個不同）", async () => {
@@ -986,10 +1000,11 @@ const GROUP_NOTE_ADMIN: NoteDto = {
  * 群組版不得發 shares，發了就是 unexpected fetch（calls 清單也記下來給斷言用）。
  * `onCall` 回傳非 undefined 就用它（懸置 promise＝載入中、500＝失敗形）。 */
 function stubGroupNoteFetch(
-  opts: { token?: string | null; onCall?: (method: string, url: string) => Promise<Response> | undefined } = {},
+  opts: { token?: string | null; width?: NoteWidth; onCall?: (method: string, url: string) => Promise<Response> | undefined } = {},
 ) {
   const calls: Array<{ method: string; url: string }> = [];
   let token = opts.token ?? null;
+  let width: NoteWidth = opts.width ?? "standard";
   vi.stubGlobal(
     "fetch",
     vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -999,15 +1014,19 @@ function stubGroupNoteFetch(
       const overridden = opts.onCall?.(method, url);
       if (overridden) return overridden;
       if (url === PUBLIC_LINK_URL && method === "GET") {
-        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ token, slug: null }) }));
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ token, slug: null, width }) }));
       }
       if (url === PUBLIC_LINK_URL && method === "PUT") {
         token = TOKEN;
-        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ token, slug: null }) }));
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ token, slug: null, width }) }));
       }
       if (url === PUBLIC_LINK_URL && method === "DELETE") {
         token = null;
         return Promise.resolve(fakeResponse({ ok: true, status: 204 }));
+      }
+      if (url === PUBLIC_WIDTH_URL && method === "PUT") {
+        width = (JSON.parse(String(init?.body)) as { width: NoteWidth }).width;
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ width }) }));
       }
       return Promise.reject(new Error(`unexpected fetch: ${method} ${url}`));
     }),
@@ -1342,5 +1361,83 @@ describe("#175 PR2", () => {
 
     stub.resolve(PUBLIC_LINK_URL, okResponse({ token: null, slug: null }));
     await waitFor(() => expect(screen.getByRole("radio", { name: /Private/ })).toBeChecked());
+  });
+});
+
+describe("公開頁寬度（#297）", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const widthCalls = (calls: Array<{ method: string; url: string }>) =>
+    calls.filter((c) => c.method === "PUT" && c.url === PUBLIC_WIDTH_URL);
+
+  it("S1 已公開 → 有寬度下拉，值取自快取，三個選項", async () => {
+    stubRoutedFetch({ shares: [], token: TOKEN, width: "wide" });
+    renderDialog();
+    await openDialog();
+    const select = await screen.findByLabelText("Public page width");
+    await waitFor(() => expect(select).toHaveValue("wide"));
+    expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual(["Standard", "Wide", "Full width"]);
+  });
+
+  it("S2 未公開 → 沒有寬度下拉", async () => {
+    stubRoutedFetch({ shares: [], token: null });
+    renderDialog();
+    await openDialog();
+    await waitFor(() => expect(screen.getByRole("radio", { name: /Private/ })).toBeChecked());
+    expect(screen.queryByLabelText("Public page width")).not.toBeInTheDocument();
+  });
+
+  it("S3 改成全寬 → 恰一次 PUT、body 正確、快取只合併 width", async () => {
+    const stub = stubRoutedFetch({ shares: [], token: TOKEN });
+    const queryClient = renderDialog();
+    await openDialog();
+    const select = await screen.findByLabelText("Public page width");
+    fireEvent.change(select, { target: { value: "full" } });
+    // 請求還在飛：下拉先顯示選的值，不彈回舊值
+    expect(select).toHaveValue("full");
+    expect(select).toBeDisabled();
+    await waitFor(() => expect(widthCalls(stub.calls)).toHaveLength(1));
+    const putCall = stub.fetchMock.mock.calls.find(
+      ([input, init]) => String(input) === PUBLIC_WIDTH_URL && (init as RequestInit)?.method === "PUT",
+    );
+    expect(JSON.parse(String((putCall as [unknown, RequestInit])[1].body))).toEqual({ width: "full" });
+    await waitFor(() =>
+      expect(queryClient.getQueryData(["public-link", NOTE.id])).toEqual({ token: TOKEN, slug: null, width: "full" }),
+    );
+    expect(screen.getByLabelText("Public page width")).toHaveValue("full");
+  });
+
+  it("S4 PUT 失敗 → 顯示錯誤、下拉回原值、快取不動", async () => {
+    stubRoutedFetch({ shares: [], token: TOKEN, widthFail: true });
+    const queryClient = renderDialog();
+    await openDialog();
+    fireEvent.change(await screen.findByLabelText("Public page width"), { target: { value: "full" } });
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.getByLabelText("Public page width")).toHaveValue("standard");
+    expect(queryClient.getQueryData(["public-link", NOTE.id])).toEqual({ token: TOKEN, slug: null, width: "standard" });
+  });
+
+  it("S5 群組筆記：管理員有寬度下拉並能改；一般成員沒有", async () => {
+    const calls = stubGroupNoteFetch({ token: TOKEN });
+    renderDialog(GROUP_NOTE_ADMIN);
+    await openGroupDialog();
+    const select = await screen.findByLabelText("Public page width");
+    fireEvent.change(select, { target: { value: "wide" } });
+    await waitFor(() => expect(widthCalls(calls)).toHaveLength(1));
+    await waitFor(() => expect(screen.getByLabelText("Public page width")).toHaveValue("wide"));
+    cleanup();
+    vi.unstubAllGlobals();
+
+    stubGroupNoteFetch({ token: TOKEN });
+    renderDialog(GROUP_NOTE);
+    await openGroupDialog();
+    expect(screen.queryByLabelText("Public page width")).not.toBeInTheDocument();
   });
 });
