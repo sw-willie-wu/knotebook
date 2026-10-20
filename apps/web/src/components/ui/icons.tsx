@@ -1,4 +1,5 @@
 import type { SVGProps } from "react";
+import type { NoteWidth } from "@knotebook/shared";
 
 // 極簡內聯 SVG icon——刻意不引入 icon 套件（lucide-react 等）。這些組件用到的
 // 圖示是一組固定、數量有限的集合（PR2 起隨版面改版擴充），換一個新依賴仍然不划算。
@@ -407,6 +408,19 @@ export function ArrowDown(props: SVGProps<SVGSVGElement>) {
     <svg data-icon="arrow-down" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
       <path d="M12 5v14" />
       <path d="m19 12-7 7-7-7" />
+    </svg>
+  );
+}
+
+const NOTE_WIDTH_BAR: Record<NoteWidth, number> = { standard: 6, wide: 10, full: 14 };
+
+/** #297 頁首寬度 icon：圓角外框＋實心橫條，橫條寬度依現值三段遞增。 */
+export function NoteWidthIcon({ width, ...props }: { width: NoteWidth } & SVGProps<SVGSVGElement>) {
+  const bar = NOTE_WIDTH_BAR[width];
+  return (
+    <svg data-icon={`note-width-${width}`} aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <rect data-bar x={12 - bar / 2} y="10.5" width={bar} height="3" rx="1" fill="currentColor" stroke="none" />
     </svg>
   );
 }

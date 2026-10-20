@@ -96,6 +96,15 @@ describe("NoteMenu（⋮ 選單，spec D.4）", () => {
     expect(screen.getByRole("menuitem", { name: /Delete note/ })).toBeInTheDocument();
   });
 
+  it("#297 D10：⋮ 選單沒有寬度（寬度只在頁首 icon）", () => {
+    renderMenu(OWNER_NOTE, CONNECTED, { current: false });
+    openMenu();
+
+    expect(screen.getByRole("menuitem", { name: /Copy link/ })).toBeInTheDocument();
+    expect(screen.queryAllByRole("menuitemradio")).toHaveLength(0);
+    expect(screen.queryByRole("menuitem", { name: /Width/ })).toBeNull();
+  });
+
   // #138：AI 修改紀錄項。狀態住在 `NotePage`（兩個觸發點共用），選單只負責關自己再
   // 通知父層——`onSelect` 的三步形與刪除項逐字同形，見 `NoteMenu.tsx` 檔頭的 focus trap 說明。
   // ⚠ 開選單一律用 `openMenu()`（pointerDown）：Radix 的 trigger 只掛 onPointerDown，

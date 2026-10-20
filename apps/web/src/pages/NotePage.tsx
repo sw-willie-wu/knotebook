@@ -32,6 +32,7 @@ import { ChunkLoadBeacon, LazyRouteErrorBoundary, LazyRouteLoading } from "@/com
 import { LastEditedLabel } from "@/components/LastEditedLabel";
 import { NoteEditor } from "@/components/NoteEditor";
 import { NoteMenu } from "@/components/NoteMenu";
+import { NoteWidthMenu } from "@/components/NoteWidthMenu";
 import { OutdatedClientBanner } from "@/components/OutdatedClientBanner";
 import { ShareDialog } from "@/components/ShareDialog";
 import { TitleInput } from "@/components/TitleInput";
@@ -691,7 +692,7 @@ export default function NotePage() {
               // 已刻意拆除（見 ui/article-column.ts 檔頭）。
               <>
                 {state.phase === "outdated" && <OutdatedClientBanner />}
-                <header className="flex items-center gap-3 border-b border-border px-5 py-3">
+                <header className="@container flex items-center gap-3 border-b border-border px-5 py-3">
                   {/* #115：窄視窗的抽屜入口（md:hidden）——筆記載入成功態不掛
                       NarrowTopBar（頁首自己有這顆）；載入中/錯誤的佔位卡沒有頁首，
                       由 placeholderCard 裡的 NarrowTopBar 補位。 */}
@@ -700,6 +701,8 @@ export default function NotePage() {
                   <ConnectionBadge state={state} synced={synced} canEdit={roleCanEdit} />
                   <LastEditedLabel note={note} onOpenEdits={openEdits} />
                   <ShareDialog note={note} />
+                  {/* #297：寬度 icon 只在頁首夠寬時顯示（@container，見 NoteWidthMenu）。 */}
+                  <NoteWidthMenu noteId={noteId!} />
                   <NoteMenu note={note} state={state} leavingRef={leavingRef} onOpenEdits={openEdits} triggerRef={noteMenuTriggerRef} />
                 </header>
                 {/* 版本預覽橫幅（spec §8.4）：寬版預覽時在頁首下方；整頁（sheet）模式由整頁自己畫。 */}

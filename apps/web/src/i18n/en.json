@@ -147,6 +147,13 @@
       "personalSpace": "Personal space",
       "delete": "Delete note"
     },
+    "width": {
+      "label": "Width",
+      "current": "Width: {{name}}",
+      "standard": "Standard",
+      "wide": "Wide",
+      "full": "Full width"
+    },
     "lastEdited": "Last edited by {{who}} · {{when}}",
     "lastEditedAt": "Last edited by {{who}} on {{when}}",
     "lastEditedTitle": "Last edited by {{who}} on {{when}} — click to see what changed",

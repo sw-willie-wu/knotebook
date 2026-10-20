@@ -53,23 +53,29 @@ const VERSION_1 = vi.hoisted(() => ({
   base: null,
   createdAt: "2026-01-01T00:00:00.000Z",
 }));
+// #297：`mock-column` 用真的 `useNoteWidth(noteId)`，P3 靠它驗 NotePage 交給頁首選單與編輯器的是同一個 id。
 vi.mock("@/components/NoteEditor", async () => {
   const { useVersions } = await import("@/lib/versions-context");
+  const { useNoteWidth } = await import("@/components/note-width");
   function NoteEditorMock({
     editable,
+    noteId,
     headerSlot,
     footerSlot,
     previewSlot,
   }: {
     editable: boolean;
+    noteId: string;
     headerSlot?: ReactNode;
     footerSlot?: ReactNode;
     previewSlot?: ReactNode;
   }) {
     const versions = useVersions();
+    const [width] = useNoteWidth(noteId);
     return (
       <div data-testid="note-editor" data-editable={String(editable)}>
         {headerSlot}
+        <div data-testid="mock-column" data-width={width} />
         <button type="button" onClick={() => versions.startPreview({ seq: 1, id: VERSION_1.id, name: null })}>
           mock-start-preview
         </button>
@@ -532,6 +538,31 @@ describe("NotePage", () => {
     expect(screen.getByRole("button", { name: "More" })).toHaveClass("shrink-0");
   });
 
+  it("#297 P1 owner：頁首是 @container；寬度鈕在 Share 之後、⋮ 之前", async () => {
+    vi.stubGlobal("fetch", mockFetch());
+
+    renderNotePage("my-note");
+    await screen.findByTestId("note-editor");
+
+    const header = document.querySelector("header")!;
+    expect(header).toHaveClass("@container");
+    const width = within(header).getByRole("button", { name: /^Width/ });
+    const share = within(header).getByRole("button", { name: "Share" });
+    const more = within(header).getByRole("button", { name: "More" });
+    expect(share.compareDocumentPosition(width) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(width.compareDocumentPosition(more) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("#297 P2 viewer：頁首也有寬度鈕（個人閱讀偏好）", async () => {
+    vi.stubGlobal("fetch", mockFetch({ ...NOTE, role: "viewer" }));
+    collab.state = { phase: "connected", role: "viewer" };
+
+    renderNotePage("my-note");
+    await waitFor(() => expect(screen.getByTestId("note-editor")).toHaveAttribute("data-editable", "false"));
+
+    expect(within(document.querySelector("header")!).getByRole("button", { name: /^Width/ })).toBeInTheDocument();
+  });
+
   it("N4 降級：connected(owner) → connected(viewer) 時 toast 並切成唯讀", async () => {
     vi.stubGlobal("fetch", mockFetch());
     collab.state = { phase: "connected", role: "owner" };
@@ -923,6 +954,40 @@ describe("NotePage", () => {
     // 高亮延件（Task 4 gate m17）：只斷最終態「active 跟到新筆記」——條件清除的
     // 鑑別力在 NotePage.test 的「真接線卸載清除」案，這行不重複宣稱那個。
     expect(screen.getByTestId("active-probe")).toHaveTextContent(NOTE_B.id);
+  });
+
+  it("#297 P3 每篇各自記：A 經頁首選全寬 → 換到 B 是標準 → 回 A 仍全寬；內文欄（mock-column）跟著頁首走", async () => {
+    const widthKeys = () => Object.keys(localStorage).filter((k) => k.startsWith("note.width."));
+    for (const key of widthKeys()) localStorage.removeItem(key);
+    try {
+      stubTwoNotes();
+      collab.provider.synced = true;
+
+      renderTwoNoteTree();
+      await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
+      expect(screen.getByTestId("mock-column")).toHaveAttribute("data-width", "standard");
+
+      fireEvent.pointerDown(screen.getByRole("button", { name: /^Width/ }), { button: 0 });
+      fireEvent.click(await screen.findByRole("menuitemradio", { name: "Full width" }));
+      await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+      expect(screen.getByRole("button", { name: /^Width/ })).toHaveAccessibleName("Width: Full width");
+      expect(screen.getByTestId("mock-column")).toHaveAttribute("data-width", "full");
+
+      fireEvent.click(screen.getByRole("button", { name: "go-b-new" }));
+      await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("Note B"));
+      expect(screen.getByRole("button", { name: /^Width/ })).toHaveAccessibleName("Width: Standard");
+      expect(screen.getByTestId("mock-column")).toHaveAttribute("data-width", "standard");
+
+      fireEvent.click(screen.getByRole("button", { name: "go-my-note" }));
+      await waitFor(() => expect(screen.getByLabelText("Note title")).toHaveValue("My Note"));
+      expect(screen.getByRole("button", { name: /^Width/ })).toHaveAccessibleName("Width: Full width");
+      expect(screen.getByTestId("mock-column")).toHaveAttribute("data-width", "full");
+
+      expect(widthKeys()).toEqual([`note.width.${NOTE.id}`]);
+      expect(localStorage.getItem(`note.width.${NOTE.id}`)).toBe("full");
+    } finally {
+      for (const key of widthKeys()) localStorage.removeItem(key);
+    }
   });
 
   it("A4：**新形之間**換頁（/n/→/n/ 同 pattern）→ 內容與網址都切到新筆記", async () => {

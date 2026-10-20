@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { render } from "@testing-library/react";
-import { ArrowDown, ArrowUp, Columns2, History, ImageIcon, ListFilter, Pencil, Plug, Rows3, Users } from "./icons";
+import { NOTE_WIDTHS } from "@knotebook/shared";
+import { ArrowDown, ArrowUp, Columns2, History, ImageIcon, ListFilter, NoteWidthIcon, Pencil, Plug, Rows3, Users } from "./icons";
 
 describe("icons", () => {
   it("Users 帶 data-icon=\"users\"（ShareDialog 測試靠它斷觸發鈕圖示）且吃 className", () => {
@@ -36,5 +37,20 @@ describe("icons", () => {
     expect(svg).toHaveAttribute("data-icon", "pencil");
     expect(svg).toHaveAttribute("aria-hidden", "true");
     expect(svg).toHaveClass("h-4", "w-4");
+  });
+  it.each(NOTE_WIDTHS)("NoteWidthIcon %s：data-icon=note-width-<w>、預設 aria-hidden、吃 className（#297）", (width) => {
+    const { container } = render(<NoteWidthIcon width={width} className="h-4 w-4" />);
+    const svg = container.querySelector("svg");
+    expect(svg).toHaveAttribute("data-icon", `note-width-${width}`);
+    expect(svg).toHaveAttribute("aria-hidden", "true");
+    expect(svg).toHaveClass("h-4", "w-4");
+  });
+  it("NoteWidthIcon：內部橫條寬度依標準 → 寬 → 全寬嚴格遞增（#297 D8）", () => {
+    const bars = NOTE_WIDTHS.map((width) => {
+      const { container } = render(<NoteWidthIcon width={width} />);
+      return Number(container.querySelector("rect[data-bar]")!.getAttribute("width"));
+    });
+    expect(bars[0]).toBeLessThan(bars[1]!);
+    expect(bars[1]).toBeLessThan(bars[2]!);
   });
 });

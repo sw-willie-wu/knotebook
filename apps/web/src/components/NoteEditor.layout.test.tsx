@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as Y from "yjs";
 import { BlockNoteEditor } from "@blocknote/core";
@@ -10,6 +10,7 @@ import { ARTICLE_COLUMN, ARTICLE_COLUMN_PADDING, articleColumn } from "@/compone
 import { setNoteWidth } from "@/components/note-width";
 import { ThemeProvider } from "@/theme";
 import { NoteEditor } from "./NoteEditor";
+import { NoteWidthMenu } from "./NoteWidthMenu";
 
 interface FakeResponseInit {
   ok: boolean;
@@ -245,12 +246,19 @@ describe("NoteEditor 內文寬度（#297）", () => {
     localStorage.clear();
   });
 
-  function renderEditor(noteId: string, doc: Y.Doc) {
+  function renderEditor(noteId: string, doc: Y.Doc, headerSlot?: ReactNode) {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const tree = (id: string, d: Y.Doc) => (
       <QueryClientProvider client={queryClient}>
         <ThemeProvider>
-          <NoteEditor doc={d} provider={{ awareness: null } as never} editable user={{ id: "u1", name: "Ann" }} noteId={id} />
+          <NoteEditor
+            doc={d}
+            provider={{ awareness: null } as never}
+            editable
+            user={{ id: "u1", name: "Ann" }}
+            noteId={id}
+            headerSlot={headerSlot}
+          />
         </ThemeProvider>
       </QueryClientProvider>
     );
@@ -318,5 +326,23 @@ describe("NoteEditor 內文寬度（#297）", () => {
     expect(screen.getByTestId("article-column")).toHaveClass("max-w-none");
     doc1.destroy();
     doc2.destroy();
+  });
+
+  it("L6 頁首寬度選單（headerSlot，與 NotePage 同組合）選 Wide → 欄變寬；再選 Full width → 全寬", async () => {
+    const doc = new Y.Doc();
+    renderEditor("note-1", doc, <NoteWidthMenu noteId="note-1" />);
+    await screen.findByTestId("note-editor");
+    const pick = async (name: string) => {
+      fireEvent.pointerDown(screen.getByRole("button", { name: /^Width/ }), { button: 0 });
+      fireEvent.click(await screen.findByRole("menuitemradio", { name }));
+      await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    };
+    await pick("Wide");
+    const column = screen.getByTestId("article-column");
+    expect(column).toHaveClass(...articleColumn("wide").split(" "));
+    expect(column).not.toHaveClass(STANDARD_MAX);
+    await pick("Full width");
+    expect(screen.getByTestId("article-column")).toHaveClass("max-w-none");
+    doc.destroy();
   });
 });

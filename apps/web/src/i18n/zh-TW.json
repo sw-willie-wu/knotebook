@@ -147,6 +147,13 @@
       "personalSpace": "個人空間",
       "delete": "刪除筆記"
     },
+    "width": {
+      "label": "寬度",
+      "current": "寬度：{{name}}",
+      "standard": "標準",
+      "wide": "寬",
+      "full": "全寬"
+    },
     "lastEdited": "最後編輯：{{who}} · {{when}}",
     "lastEditedAt": "最後編輯：{{who}}，{{when}}",
     "lastEditedTitle": "最後編輯：{{who}}，{{when}}——點一下看改了什麼",
