@@ -744,7 +744,8 @@
         "labelInvalid": "A label can only use 1–32 letters, digits, . _ or -.",
         "actions": "Actions",
         "editLocked": "Finish editing the other token first.",
-        "footnote": "The name is where the token came from when it was created (yours for a token you made, self-reported by the client for an OAuth app) and can't be changed. The label is the short name shown on the AI's name tag and in the edit history; you can change it, and several tokens can share one."
+        "footnote": "The name is where the token came from when it was created (yours for a token you made, self-reported by the client for an OAuth app) and can't be changed. The label is the short name shown on the AI's name tag and in the edit history; you can change it, and several tokens can share one.",
+        "oauthExpiryNote": "An App's expiry date is {{days}} days after it was last used (or after it was authorized, if it hasn't been used yet): it renews automatically while in use, and lapses after {{days}} days without use."
       }
     },
     "storage": {
@@ -829,7 +830,7 @@
       },
       "apiTokensTitle": "API tokens",
       "apiTokensDescription": "Give a script or an AI assistant access to your notes on your behalf. A token can always list and read the notes you can read; creating and writing notes needs \"Create and edit notes\", and moving or copying notes into groups also needs \"Move or copy notes into groups\". Treat it like a password. Tokens are not affected when you change your password; revoke them here instead.",
-      "apiTokensCleanupHint": "OAuth applications unused for 30 days, and tokens that expired more than 30 days ago, are removed automatically the next time anyone creates a token or authorizes an application.",
+      "apiTokensCleanupHint": "Apps past their expiry date, and tokens that expired more than 30 days ago, are usually removed automatically the next time anyone creates a token or authorizes an application; you can revoke any that are still listed yourself.",
       "apiTokensEmpty": "No tokens yet.",
       "apiTokensCreate": "Create API token",
       "apiTokensNameLabel": "Name",
