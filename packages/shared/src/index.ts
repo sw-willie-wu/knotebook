@@ -976,6 +976,9 @@ export function hasScope(stored: TokenScope, required: ScopeName): boolean {
   return stored.split(" ").includes(required);
 }
 
+/** OAuth 應用程式閒置多少天後被清理（server cleanup ①）；web 顯示 oauth 列到期日也用它（#298）。 */
+export const OAUTH_APP_IDLE_DAYS = 30;
+
 /** `GET /api/auth/tokens` 的列元素（#107）。`kind='oauth'` 的列在 #132 才會出現。 */
 export interface ApiTokenDto {
   id: string;
@@ -988,7 +991,7 @@ export interface ApiTokenDto {
   scope: TokenScope;
   createdAt: string;
   lastUsedAt: string | null;
-  /** null＝不到期（PAT 的預設）。 */
+  /** null＝不到期（PAT 的預設）。oauth 列是 access token 到期（約 24 小時），不是授權失效時間；web 不顯示它（#298）。 */
   expiresAt: string | null;
   clientId: string | null;
 }
