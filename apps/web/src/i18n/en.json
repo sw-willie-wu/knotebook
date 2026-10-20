@@ -1183,6 +1183,9 @@
     "version_unsaved_changes": "There are unsaved changes",
     "version_mismatch": "This version no longer exists or has been replaced. Refresh and try again.",
     "instruct_preview_only": "The Instruct action always shows a preview before it's applied; it can't be set to apply directly.",
+    "reset_link_invalid": "This password reset link is invalid, already used, or expired. Ask the site administrator for a new one.",
+    "password_not_set": "This account signs in only through a sign-in service and has no password to reset.",
+    "user_disabled": "This account is disabled. Enable it before resetting its password.",
     "empty_result": "The AI returned an empty result.",
     "fallback": "An unexpected error occurred."
   }

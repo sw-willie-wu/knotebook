@@ -7,24 +7,24 @@ import { MAX_PROVIDER_ICON_BYTES, autoSlugFromTitle, validateHandle, validateSlu
 import { applyMigrationsThrough, freshDb, freshEmptyDb, idxOfTag, journalEntries } from "./helpers.js";
 import { runMigrations } from "../src/db/migrate.js";
 import { PgDialect, getTableConfig } from "drizzle-orm/pg-core";
-import { apiTokens, authProviders, groupMembers, groupRoles, groups, noteRedirects, notes, oauthClients, oauthCodes, noteSearchSections, noteSearchState, noteLinkConversion, noteVersions, handleRenames, oauthRequests, siteSettings, storagePlans, transferTokens, userIdentities, users } from "../src/db/schema.js";
+import { apiTokens, authProviders, groupMembers, groupRoles, groups, noteRedirects, notes, oauthClients, oauthCodes, noteSearchSections, noteSearchState, noteLinkConversion, noteVersions, handleRenames, oauthRequests, oneTimeLinks, siteSettings, storagePlans, transferTokens, userIdentities, users } from "../src/db/schema.js";
 
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
 /** drizzle 對 `schema.ts` 的序列化；宣告漂移守衛拿最新一支當比對基準（Task 14 rebase 後改成實際檔名）。 */
-const SNAPSHOT_FILE = "meta/0028_snapshot.json";
+const SNAPSHOT_FILE = "meta/0029_snapshot.json";
 const snapshotLatest = JSON.parse(readFileSync(path.join(drizzleDirForTest, SNAPSHOT_FILE), "utf8")) as {
   tables: Record<string, { checkConstraints?: Record<string, { name: string; value: string }> }>;
 };
 const pgDialect = new PgDialect();
 
 describe("runMigrations", () => {
-  it("migrate 兩次 idempotent 且 31 張表存在", async () => {
+  it("migrate 兩次 idempotent 且 32 張表存在", async () => {
     const { db, pool } = await freshDb();
     await runMigrations(db); // freshDb 已跑過一次——此為第二次
     const r = await pool.query(`select table_name from information_schema.tables where table_schema='public'`);
     const tableNames = r.rows.map(x => x.table_name);
-    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes", "note_ai_edits", "groups", "group_members", "group_roles", "note_redirects", "auth_providers", "user_identities", "site_settings", "note_search_sections", "note_search_state", "transfer_tokens", "storage_plans", "note_versions", "note_link_conversion", "handle_renames"])
+    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes", "note_ai_edits", "groups", "group_members", "group_roles", "note_redirects", "auth_providers", "user_identities", "site_settings", "note_search_sections", "note_search_state", "transfer_tokens", "storage_plans", "note_versions", "note_link_conversion", "handle_renames", "one_time_links"])
       expect(tableNames).toContain(t);
   });
 
@@ -1301,7 +1301,7 @@ describe("0009_api-tokens", () => {
       expect(names, i).toContain(i);
   });
 
-  it("schema.ts 的二十個宣告沒有靜默漂移（四個 OAuth／token 宣告零 import；#103／#175 的四張表的 CHECK 也在這裡逐字比對、#187 的三張表、#93 的兩張表、#200 的一張表、容量上限的 users／storage_plans、版本歷史的 note_versions、#269 的 note_link_conversion、#291 的 handle_renames）", async () => {
+  it("schema.ts 的二十一個宣告沒有靜默漂移（四個 OAuth／token 宣告零 import；#103／#175 的四張表的 CHECK 也在這裡逐字比對、#187 的三張表、#93 的兩張表、#200 的一張表、容量上限的 users／storage_plans、版本歷史的 note_versions、#269 的 note_link_conversion、#291 的 handle_renames、#286 的 one_time_links）", async () => {
     // 比照 0008 的同族守衛：把 schema.ts 的宣告與 migration 造出來的 DB 對起來。
     // 沒有這一案的話，把 schema.ts 的四段 pgTable 整個刪掉，全套測試照樣綠——
     // 只有下一次 db:generate 會產出 DROP TABLE。
@@ -1367,6 +1367,7 @@ describe("0009_api-tokens", () => {
       note_versions: ["id", "note_id", "seq", "ydoc", "kind", "name", "editors", "base_seq", "base_version_id", "created_at"],
       note_link_conversion: ["note_id", "status", "attempts", "converted", "unresolved", "updated_at"],
       handle_renames: ["id", "user_id", "renamed_at"],
+      one_time_links: ["id", "kind", "token_hash", "target_user_id", "created_by_id", "expires_at", "used_at", "revoked_at", "created_at"],
     };
 
     for (const [table, decl] of [
@@ -1390,6 +1391,7 @@ describe("0009_api-tokens", () => {
       ["note_versions", noteVersions],
       ["note_link_conversion", noteLinkConversion],
       ["handle_renames", handleRenames],
+      ["one_time_links", oneTimeLinks],
     ] as const) {
       const cfg = getTableConfig(decl);
       // 宣告的欄名 = DB 的欄名 = 這裡寫死的期望（三方對齊，任一邊漂移就紅）
@@ -2075,6 +2077,151 @@ describe("transfer_tokens（#200 spec §3）", () => {
     // 以 tag 後綴找檔：合併前會在 main 上重產成下一號（spec 檔頭 I6 規則），編號不寫死。
     const entries = journalEntries().filter(e => e.tag.endsWith("_transfer-tokens"));
     expect(entries, "journal 裡要恰有一支 *_transfer-tokens").toHaveLength(1);
+    const sqlText = readFileSync(path.join(drizzleDirForTest, `${entries[0]!.tag}.sql`), "utf8");
+    expect(sqlText).not.toMatch(/CONCURRENTLY/i);
+    expect(sqlText).not.toMatch(/^\s*COMMIT/im);
+  });
+});
+
+describe("one_time_links（#286 spec §3.3）", () => {
+  async function seedUser(pool: import("pg").Pool): Promise<string> {
+    const u = await pool.query(`insert into users (email, display_name) values ($1, 'O') returning id`, [`otl-${randomUUID()}@example.com`]);
+    return u.rows[0].id as string;
+  }
+  interface LinkRow {
+    kind?: string;
+    tokenHash?: string;
+    target?: string | null;
+    createdBy?: string | null;
+    createdAt?: string | null;
+    expiresAt?: string | null;
+    usedAt?: Date | null;
+    revokedAt?: Date | null;
+  }
+  /** 預設：未用、未撤銷、一小時後到期的重設列。 */
+  function insertLink(pool: import("pg").Pool, r: LinkRow) {
+    return pool.query(
+      `insert into one_time_links (kind, token_hash, target_user_id, created_by_id, created_at, expires_at, used_at, revoked_at)
+       values ($1, $2, $3, $4, coalesce($5::timestamptz, now()), coalesce($6::timestamptz, now() + interval '1 hour'), $7, $8)
+       returning id`,
+      [
+        r.kind ?? "password_reset", r.tokenHash ?? `h-${randomUUID()}`, r.target ?? null, r.createdBy ?? null,
+        r.createdAt ?? null, r.expiresAt ?? null, r.usedAt ?? null, r.revokedAt ?? null,
+      ],
+    );
+  }
+
+  it("M1 形狀：九欄（型別／NOT NULL／default）、target FK cascade、created_by FK set null、I3 partial unique index、(kind, created_at) 索引", async () => {
+    const { pool } = await freshDb();
+    const cols = (await pool.query(
+      `select column_name, data_type, is_nullable, column_default from information_schema.columns where table_name = 'one_time_links' order by column_name`,
+    )).rows;
+    const tz = "timestamp with time zone";
+    expect(cols).toEqual([
+      { column_name: "created_at", data_type: tz, is_nullable: "NO", column_default: "now()" },
+      { column_name: "created_by_id", data_type: "uuid", is_nullable: "YES", column_default: null },
+      { column_name: "expires_at", data_type: tz, is_nullable: "NO", column_default: null },
+      { column_name: "id", data_type: "uuid", is_nullable: "NO", column_default: "gen_random_uuid()" },
+      { column_name: "kind", data_type: "text", is_nullable: "NO", column_default: null },
+      { column_name: "revoked_at", data_type: tz, is_nullable: "YES", column_default: null },
+      { column_name: "target_user_id", data_type: "uuid", is_nullable: "YES", column_default: null },
+      { column_name: "token_hash", data_type: "text", is_nullable: "NO", column_default: null },
+      { column_name: "used_at", data_type: tz, is_nullable: "YES", column_default: null },
+    ]);
+    const fks = (await pool.query(
+      `select a.attname as col, c.confdeltype, c.confrelid::regclass::text as ref
+         from pg_constraint c join pg_attribute a on a.attrelid = c.conrelid and a.attnum = c.conkey[1]
+        where c.conrelid = 'one_time_links'::regclass and c.contype = 'f' order by a.attname`,
+    )).rows;
+    expect(fks).toEqual([
+      { col: "created_by_id", confdeltype: "n", ref: "users" },
+      { col: "target_user_id", confdeltype: "c", ref: "users" },
+    ]);
+    const uidx = (await pool.query(`select indexdef from pg_indexes where indexname = 'one_time_links_reset_active_uidx'`)).rows;
+    expect(uidx).toHaveLength(1);
+    const def = uidx[0].indexdef as string;
+    expect(def).toMatch(/^CREATE UNIQUE INDEX .* \(target_user_id\) WHERE /);
+    expect(def).toContain("'password_reset'");
+    expect(def).toContain("used_at IS NULL");
+    expect(def).toContain("revoked_at IS NULL");
+    const kidx = (await pool.query(`select indexdef from pg_indexes where indexname = 'one_time_links_kind_created_idx'`)).rows;
+    expect(kidx).toHaveLength(1);
+    expect(kidx[0].indexdef).toMatch(/\(kind, created_at\)/);
+  });
+
+  it("M2 四條 CHECK：每一形恰違反一條，constraint 名逐一斷言；未用／已用／已撤銷三種合法形放行", async () => {
+    const { pool } = await freshDb();
+    const t = "2026-01-01T00:00:00Z";
+    const cases: Array<[LinkRow, string]> = [
+      [{ kind: "invite", target: await seedUser(pool) }, "one_time_links_kind_chk"],
+      [{ target: null }, "one_time_links_reset_target_chk"],
+      [{ target: await seedUser(pool), createdAt: t, expiresAt: t }, "one_time_links_expiry_chk"],
+      [{ target: await seedUser(pool), usedAt: new Date(), revokedAt: new Date() }, "one_time_links_end_chk"],
+    ];
+    for (const [row, constraint] of cases) {
+      await expect(insertLink(pool, row), constraint).rejects.toMatchObject({ code: "23514", constraint });
+    }
+    expect((await pool.query(`select count(*)::int as n from one_time_links`)).rows[0].n).toBe(0);
+    await insertLink(pool, { target: await seedUser(pool) });
+    await insertLink(pool, { target: await seedUser(pool), usedAt: new Date() });
+    await insertLink(pool, { target: await seedUser(pool), revokedAt: new Date() });
+    expect((await pool.query(`select count(*)::int as n from one_time_links`)).rows[0].n).toBe(3);
+  });
+
+  it("M3 I3：同一人第二支未用未撤銷的重設列撞 one_time_links_reset_active_uidx（第一支已過期也撞）；第一支標 revoked／used 後可插；不同人互不影響", async () => {
+    const { pool } = await freshDb();
+    const i3 = { code: "23505", constraint: "one_time_links_reset_active_uidx" };
+
+    // 第一支有效 → 撞；標 revoked 後可插
+    const a = await seedUser(pool);
+    const a1 = (await insertLink(pool, { target: a })).rows[0].id as string;
+    await expect(insertLink(pool, { target: a }), "a：第二支").rejects.toMatchObject(i3);
+    // 不同人互不影響（a 仍有一支有效列）
+    const d = await seedUser(pool);
+    await insertLink(pool, { target: d });
+    await pool.query(`update one_time_links set revoked_at = now() where id = $1`, [a1]);
+    await insertLink(pool, { target: a });
+
+    // 第一支已過期但未用未撤銷 → 仍撞（過期的列仍佔 I3 位置）
+    const c = await seedUser(pool);
+    await insertLink(pool, { target: c, createdAt: "2026-01-01T00:00:00Z", expiresAt: "2026-01-01T01:00:00Z" });
+    await expect(insertLink(pool, { target: c }), "c：第一支已過期").rejects.toMatchObject(i3);
+
+    // 第一支標 used 後可插
+    const b = await seedUser(pool);
+    const b1 = (await insertLink(pool, { target: b })).rows[0].id as string;
+    await expect(insertLink(pool, { target: b }), "b：第二支").rejects.toMatchObject(i3);
+    await pool.query(`update one_time_links set used_at = now() where id = $1`, [b1]);
+    await insertLink(pool, { target: b });
+  });
+
+  it("M4 token_hash 唯一（one_time_links_token_hash_unique）", async () => {
+    const { pool } = await freshDb();
+    await insertLink(pool, { target: await seedUser(pool), tokenHash: "dup" });
+    await expect(insertLink(pool, { target: await seedUser(pool), tokenHash: "dup" })).rejects.toMatchObject({
+      code: "23505",
+      constraint: "one_time_links_token_hash_unique",
+    });
+  });
+
+  it("M5 FK：刪目標使用者 → 該列消失；刪建立者 → created_by_id 變 NULL、列仍在", async () => {
+    const { pool } = await freshDb();
+    const admin = await seedUser(pool);
+    const target = await seedUser(pool);
+    const other = await seedUser(pool);
+    const gone = (await insertLink(pool, { target, createdBy: admin })).rows[0].id as string;
+    const kept = (await insertLink(pool, { target: other, createdBy: admin })).rows[0].id as string;
+    await pool.query(`delete from users where id = $1`, [target]);
+    expect((await pool.query(`select id from one_time_links where id = $1`, [gone])).rows).toHaveLength(0);
+    await pool.query(`delete from users where id = $1`, [admin]);
+    const rows = (await pool.query(`select id, created_by_id, target_user_id from one_time_links`)).rows;
+    expect(rows).toEqual([{ id: kept, created_by_id: null, target_user_id: other }]);
+  });
+
+  it("M6 one-time-links 的 SQL 檔無 CONCURRENTLY／行首 COMMIT（單一 tx 前提的輔助 grep，比照 transfer-tokens）", () => {
+    // 以 tag 後綴找檔：合併前可能在 main 上重產成下一號，編號不寫死。
+    const entries = journalEntries().filter(e => e.tag.endsWith("_one-time-links"));
+    expect(entries, "journal 裡要恰有一支 *_one-time-links").toHaveLength(1);
     const sqlText = readFileSync(path.join(drizzleDirForTest, `${entries[0]!.tag}.sql`), "utf8");
     expect(sqlText).not.toMatch(/CONCURRENTLY/i);
     expect(sqlText).not.toMatch(/^\s*COMMIT/im);

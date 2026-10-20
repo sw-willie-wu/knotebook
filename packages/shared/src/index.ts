@@ -460,6 +460,11 @@ export const ERROR_CODES = [
   "version_mismatch",
   // #263（spec 2026-10-12 §4.4）：`instruct_preview_only`＝400，把內建 Instruct 動作的套用模式改成 direct——自由指令的結果一律先預覽（D4）。
   "instruct_preview_only",
+  // #286（spec 2026-10-20 §4.2、§4.3）：`user_disabled`＝409，替停用帳號產生重設連結；`password_not_set`＝409，替沒有密碼
+  // （只用 SSO）的帳號產生；`reset_link_invalid`＝410，重設連結形狀不合、查無、已用、已撤銷或已過期（不區分原因）。
+  "user_disabled",
+  "password_not_set",
+  "reset_link_invalid",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 

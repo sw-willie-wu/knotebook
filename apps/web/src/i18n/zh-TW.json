@@ -1183,6 +1183,9 @@
     "version_unsaved_changes": "目前有未儲存的修改",
     "version_mismatch": "這一版已經不存在或已被取代，請重新整理",
     "instruct_preview_only": "Instruct 動作一律先預覽再套用，不能設成直接套用。",
+    "reset_link_invalid": "這個重設密碼連結無效、已使用過或已過期，請向站長索取新的連結。",
+    "password_not_set": "這個帳號只透過登入服務登入，沒有可重設的密碼。",
+    "user_disabled": "這個帳號已停用，請先啟用再重設密碼。",
     "empty_result": "AI 回傳了空結果。",
     "fallback": "發生未預期的錯誤。"
   }
