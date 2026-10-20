@@ -36,6 +36,7 @@ function PasswordResetDialogBody({
   hours,
   setHours,
   created,
+  generation,
   onCreated,
   onFail,
   onError,
@@ -44,8 +45,10 @@ function PasswordResetDialogBody({
   hours: number;
   setHours: (hours: number) => void;
   created: Created | null;
-  onCreated: (created: Created) => void;
-  onFail: () => void;
+  /** 送出當下的開啟代數；回呼帶回去，讓外層丟掉上一次開啟送出的結果。 */
+  generation: () => number;
+  onCreated: (generation: number, created: Created) => void;
+  onFail: (generation: number, message: string) => void;
   onError: (message: string | null) => void;
 }) {
   const { t, i18n } = useTranslation();
@@ -72,21 +75,21 @@ function PasswordResetDialogBody({
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     onError(null);
+    const gen = generation();
     try {
-      onCreated(await create.mutateAsync({ userId: row.id, expiresInHours: hours }));
+      onCreated(gen, await create.mutateAsync({ userId: row.id, expiresInHours: hours }));
     } catch (err) {
-      onFail();
-      onError(errorMessage(t, err));
+      onFail(gen, errorMessage(t, err));
     }
   }
 
   async function handleCancel(): Promise<void> {
     onError(null);
+    const gen = generation();
     try {
       await cancel.mutateAsync(row.id);
     } catch (err) {
-      onFail();
-      onError(errorMessage(t, err));
+      onFail(gen, errorMessage(t, err));
     }
   }
 
@@ -145,8 +148,10 @@ export function PasswordResetAction({ row, onError }: { row: AdminUserDto; onErr
   const [open, setOpen] = useState(false);
   const [hours, setHours] = useState(1);
   const [created, setCreated] = useState<Created | null>(null);
-  // 產生請求進行中關掉對話框：回應回來時已關著就丟棄，不寫進 state（關閉後明文不留在記憶體）。
-  const openRef = useRef(false);
+  // 每次開啟遞增的代數；關著時為 null。產生請求進行中關掉對話框：回應回來時已關著就丟棄，不寫進 state
+  // （關閉後明文不留在記憶體）；關掉又重開：上一次開啟送出的結果（成功或失敗）都不碰這次的對話框。
+  const generationRef = useRef(0);
+  const openGenerationRef = useRef<number | null>(null);
 
   if (!row.hasPassword) return null;
 
@@ -159,7 +164,8 @@ export function PasswordResetAction({ row, onError }: { row: AdminUserDto; onErr
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        openRef.current = next;
+        if (next) generationRef.current += 1;
+        openGenerationRef.current = next ? generationRef.current : null;
         setOpen(next);
         if (!next) reset();
       }}
@@ -178,13 +184,16 @@ export function PasswordResetAction({ row, onError }: { row: AdminUserDto; onErr
           hours={hours}
           setHours={setHours}
           created={created}
-          onCreated={(next) => {
-            if (openRef.current) setCreated(next);
+          generation={() => generationRef.current}
+          onCreated={(gen, next) => {
+            if (openGenerationRef.current === gen) setCreated(next);
           }}
-          onFail={() => {
-            openRef.current = false;
+          onFail={(gen, message) => {
+            if (openGenerationRef.current !== null && openGenerationRef.current !== gen) return;
+            openGenerationRef.current = null;
             setOpen(false);
             reset();
+            onError(message);
           }}
           onError={onError}
         />

@@ -924,6 +924,35 @@ describe("重設密碼（#286 A-15）", () => {
     expect(screen.queryByDisplayValue(/knbp_/)).toBeNull();
   });
 
+  it.each([
+    ["成功", () => fakeResponse({ ok: true, status: 201, json: () => Promise.resolve({ token: "knbp_LATE", expiresAt: PENDING_AT }) })],
+    ["失敗", () => fakeResponse({ ok: false, status: 409, json: () => Promise.resolve({ error: { code: "user_disabled", message: "x" } }) })],
+  ] as const)("N1 產生進行中關閉、回應前又重開：上一次開啟的請求%s晚到，不影響新開的對話框", async (_label, late) => {
+    let release: () => void = () => {};
+    const fetchMock = stub(() => [SELF_ROW, ACTIVE_OTHER], {
+      extra: (url, method) =>
+        url === resetUrl(ACTIVE_OTHER.id) && method === "POST"
+          ? (new Promise<Response>((resolve) => {
+              release = () => resolve(late());
+            }) as unknown as Response)
+          : null,
+    });
+    renderUsersRoute(fetchMock);
+    const dialog = await openFor(ACTIVE_OTHER.email);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create link" }));
+    await waitFor(() => expect(calls(fetchMock, resetUrl(ACTIVE_OTHER.id), "POST")).toHaveLength(1));
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Reset password" })).toBeNull());
+    fireEvent.click(within(rowOf(ACTIVE_OTHER.email)).getByRole("button", { name: actionName(ACTIVE_OTHER.email) }));
+    const reopened = await screen.findByRole("dialog", { name: "Reset password" });
+    release();
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+    expect(screen.getByRole("dialog", { name: "Reset password" })).toBe(reopened);
+    expect(screen.queryByRole("dialog", { name: "Password reset link" })).toBeNull();
+    expect(screen.queryByDisplayValue(/knbp_/)).toBeNull();
+    expect(screen.queryByRole("row", { name: `${ACTIVE_OTHER.email} error` })).toBeNull();
+  });
+
   it("M2 取消失敗（DELETE 404 user_not_found）：對話框關閉、列錯誤顯示 errors.user_not_found", async () => {
     const fetchMock = stub(() => [SELF_ROW, { ...ACTIVE_OTHER, passwordResetExpiresAt: PENDING_AT }], {
       extra: (url, method) =>

@@ -298,6 +298,20 @@
     "successMessage": "Password updated.",
     "ssoOnlyNote": "This site only allows signing in through a sign-in service right now. This password won't be used to sign in for now, but you still need to replace the temporary password the site administrator set."
   },
+  "resetPassword": {
+    "title": "Set a new password",
+    "checking": "Checking the link…",
+    "forAccount": "For {{email}}. This link works once and expires {{when}}.",
+    "notice": "Setting it signs you out of every other browser. API tokens and connected apps keep working.",
+    "newPassword": "New password",
+    "confirmPassword": "Confirm new password",
+    "submit": "Set password",
+    "submitting": "Saving…",
+    "signedIn": "You're signed in as {{email}}. Sign out to use this link.",
+    "signOut": "Sign out",
+    "passwordLoginOff": "Password sign-in is turned off on this site right now, so this link can't be used. Ask the site administrator.",
+    "backToLogin": "Back to sign in"
+  },
   "userMenu": {
     "language": "Language",
     "languageEn": "English",

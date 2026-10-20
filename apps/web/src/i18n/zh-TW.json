@@ -298,6 +298,20 @@
     "successMessage": "密碼已更新。",
     "ssoOnlyNote": "本站目前只允許 SSO 登入；這個密碼暫時不會用來登入，但仍須換掉站長代設的臨時密碼。"
   },
+  "resetPassword": {
+    "title": "設定新密碼",
+    "checking": "正在確認連結…",
+    "forAccount": "帳號：{{email}}。這個連結只能使用一次，{{when}} 到期。",
+    "notice": "設定完成後，其他瀏覽器的登入都會被登出；個人存取權杖與已連線的應用程式不受影響。",
+    "newPassword": "新密碼",
+    "confirmPassword": "確認新密碼",
+    "submit": "設定密碼",
+    "submitting": "儲存中…",
+    "signedIn": "你目前以 {{email}} 登入。要使用這個連結，請先登出。",
+    "signOut": "登出",
+    "passwordLoginOff": "本站目前關閉帳號密碼登入，這個連結暫時不能使用，請聯絡站長。",
+    "backToLogin": "回登入頁"
+  },
   "userMenu": {
     "language": "語言",
     "languageEn": "English",

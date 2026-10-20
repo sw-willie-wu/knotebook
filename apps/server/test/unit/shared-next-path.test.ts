@@ -201,3 +201,12 @@ describe("#187 PR3：/register 也排除（「存在前提是尚未登入」）"
     expect(safeNextPath("/n/alice/register")).toBe("/n/alice/register");
   });
 });
+
+describe("#286：/reset-password 也排除（已登入者只會看到「請先登出」）", () => {
+  it.each(["/reset-password", "/reset-password/", "/RESET-PASSWORD"])("%s → null", (input) => {
+    expect(safeNextPath(input)).toBeNull();
+  });
+  it("前綴相似但不是同一頁 → 照收", () => {
+    expect(safeNextPath("/reset-passwords")).toBe("/reset-passwords");
+  });
+});
