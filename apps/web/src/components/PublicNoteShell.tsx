@@ -19,8 +19,8 @@ import { Button } from "./ui/button";
 /**
  * 滿版外框（user 定案，2026-09-02）：公開唯讀頁直接鋪滿視窗——**無卡面、無圓角、
  * 無 70rem 上限、無 p-3 外距**（原本的「置中一張卡」是 #72 時期的單卡版面，#115
- * 之後與主 app 的滿版卡語彙不一致）。內文行寬仍由 PublicNotePage 內的文章欄常數
- * （ARTICLE_COLUMN）管，這裡只負責把底鋪滿。`flex flex-col`＋`overflow-hidden`
+ * 之後與主 app 的滿版卡語彙不一致）。內文行寬仍由 PublicNotePage 內的文章欄
+ * （`articleColumn(width)`，#297 起寬度取公開端點的 `width`）管，這裡只負責把底鋪滿。`flex flex-col`＋`overflow-hidden`
  * 是承重的（別當裝飾拿掉）：內文容器的 `min-h-0 flex-1 overflow-y-auto` 依賴前者，
  * 「頁面本身不得整體捲動」依賴後者——與 AppShell 的高度鏈同款。
  *

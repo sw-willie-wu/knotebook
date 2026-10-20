@@ -7,6 +7,10 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
+### Added
+
+- Notes can be shown at three content widths — Standard, Wide and Full width. A button in the note header (hidden when the note area is narrow) picks one; the choice is saved per note in this browser rather than in your account, so it doesn't carry over to other devices or change what collaborators see in their own browsers. A shared note's public page has its own width, set in the Share dialog by whoever manages the public link, and every reader sees that width. Includes a database migration (0028) that adds the public page width to notes (#297).
+
 ### Changed
 
 - Renaming your username now frees the old name: anyone, including you, can take it — going back to an earlier name counts as a rename against the limit of 5 per rolling 24 hours. Old links are still not forwarded to your new name; once someone else takes the name, old `/n/` and `/p/` links under it lead to their notes where the address matches (for `/n/`, only for people who can read the note). Includes a database migration that clears the names held by past renames (#291).

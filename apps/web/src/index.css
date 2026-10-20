@@ -547,6 +547,8 @@ input[name="share-access"] {
    舊註解寫的「600px、255px→4.1px」是量錯欄寬（600px 在這個版面到不了，
    `ARTICLE_COLUMN` 最窄是 680px）且用 headless 量的（違反本專案「量版面幾何一律
    用 headed」的既有紀律），數字與量法都已作廢，上面是重量後的結果。
+   #297 起欄寬分三段（`ui/article-column.ts`）：寬／全寬不會比標準窄（上限
+   1408px／不設上限），下限 680px 不變——寬欄未另量，依 1056px 的結果推論只會更不明顯。
 
    ⚠ 一定要用 `word-break: break-all`，不能用 `overflow-wrap: anywhere`：後者只在
    「整行沒有其他合法斷點」時才切字，而那一行有（就是那個空白），所以它在 680px

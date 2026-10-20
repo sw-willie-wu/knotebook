@@ -71,6 +71,8 @@ Turning on **Public link** generates an unguessable token (`base64url(randomByte
 - is sent with `X-Robots-Tag: noindex`, so well-behaved search engines won't index it. The link itself is still a capability: anyone it's forwarded to can read the note;
 - has a **Present** button that plays the note as a slide show. Like the page itself, the presentation is a snapshot: it picks up new content when the page fetches the note again (for example when the tab regains focus), and keeps your current slide when it can — it is not live.
 
+Whoever manages the public link can set the width of the public page — Standard, Wide or Full width — in the Share dialog while the link is on, and every reader sees the page at that width. Turning the link off, moving the note into a group, or a group handing its notes to an admin keeps that choice: when the link is turned on again, the page uses the same width.
+
 **The content is a snapshot, not a live view.** Anonymous readers get the state the collaboration server last persisted — during active editing that lags the editors by roughly the persistence debounce (about 2 seconds, up to 10 seconds under continuous typing, flushed when the last editor disconnects). Reloading the page fetches a fresh snapshot. Live sync for anonymous readers is deliberately out of scope.
 
 ## Anonymous link and the custom public URL

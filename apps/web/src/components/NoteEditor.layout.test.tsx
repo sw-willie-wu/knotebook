@@ -57,9 +57,10 @@ function stubFetch() {
  *                 `overflow-x-clip`＝#162，見 `NoteEditor.tsx` :423 附近的註解：裁掉
  *                 寬表格 hover 時「新增列」按鈕超出右緣的部分，不讓它變成這層的橫向
  *                 可捲溢出）
- *         置中 wrapper（ARTICLE_COLUMN ＋ ARTICLE_COLUMN_PADDING ＋ relative flex
- *                        min-h-full flex-col py-6——文章欄寬＝捲動容器 85%，下限 680px
- *                        （改版前的固定值，中等視窗承重）、上限 1056px。#115 起
+ *         置中 wrapper（articleColumn(width) ＋ ARTICLE_COLUMN_PADDING ＋ relative flex
+ *                        min-h-full flex-col py-6——標準欄寬＝捲動容器 85%，下限 680px
+ *                        （改版前的固定值，中等視窗承重）、上限 1056px；#297 的寬／全寬
+ *                        不會比標準窄（92.5%、上限 1408px／不設上限），下限不變。#115 起
  *                        欄寬／內距是 `ui/article-column.ts` 的常數且內文是唯一
  *                        消費端（頁首/頁尾滿卡寬）；理由見該檔。`relative`＝#160：
  *                        BlockNote 表格 hover 浮層的 containing block，收在這層
