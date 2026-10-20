@@ -22,13 +22,14 @@ export type LegacyImportOutcome =
  * 不論有沒有匯入都設 `legacy_oidc_env_handled_at`——「首次」＝新版第一次啟動，之後補設 env 或刪光 provider 都不會再匯入。
  * 不跑 discovery；`resolved_issuer` 由既有 identity 推定：與 env issuer「URL 正規化相等」的 distinct issuer **恰一個**才填。
  * `providerId` 由外殼先產（client secret 的 AAD 綁它）。
+ * 匯入的服務 `auto_create_enabled` 承接匯入當下的 `registration_enabled`（PR-C U1，U3「新服務一律 false」的唯一例外）。
  */
 export async function importLegacyOidcEnvInTx(
   tx: Tx,
   input: { env: LegacyOidcEnv | undefined; appSecret: string; providerId: string },
 ): Promise<LegacyImportOutcome> {
   const locked = await tx
-    .select({ handledAt: siteSettings.legacyOidcEnvHandledAt })
+    .select({ handledAt: siteSettings.legacyOidcEnvHandledAt, registrationEnabled: siteSettings.registrationEnabled })
     .from(siteSettings)
     .where(eq(siteSettings.singleton, true))
     .for("update");
@@ -54,6 +55,8 @@ export async function importLegacyOidcEnvInTx(
         clientId: env.clientId,
         clientSecretEncrypted: sealClientSecret(input.appSecret, input.providerId, env.clientSecret),
         enabled: true,
+        // U1：匯入在 migration 之後才建列，不帶的話拿到 DB 預設 false，SSO 首登會突然不建帳；這是 U3 唯一的例外。
+        autoCreateEnabled: locked[0]!.registrationEnabled,
         legacyCallback: true,
       });
       outcome = { kind: "imported", providerId: input.providerId, resolvedIssuer, insecure: /^http:\/\//.test(env.issuerUrl) };

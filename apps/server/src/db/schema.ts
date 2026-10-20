@@ -152,6 +152,9 @@ export const authProviders = pgTable(
     sortOrder: integer("sort_order").notNull().default(0),
     legacyCallback: boolean("legacy_callback").notNull().default(false),
     configVersion: integer("config_version").notNull().default(1),
+    // S1「首次登入時自動建立帳號」：SSO 首登、email 沒有帳號時只看這欄（`auth/tx/oidc-login.ts`）。U3 新服務一律 false（DB 預設＋建立 API 不收此欄）；
+    // 例外：`OIDC_*` 匯入承接匯入當下的 `registration_enabled`（`auth/tx/legacy-oidc-env.ts`）；升級時由 migration 承接舊的 `registration_enabled`。
+    autoCreateEnabled: boolean("auto_create_enabled").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     // 登入服務圖示（spec 2026-10-07-provider-icon §3）：kind ∈ template|gitlab|google|upload|none；upload ⇔ data 與 mime 皆非 NULL。
@@ -205,7 +208,7 @@ export const userIdentities = pgTable(
 );
 
 /**
- * #187 §4.3：站台設定（singleton，INV-6）。`registration_enabled` 一律預設開（W23）。
+ * #187 §4.3：站台設定（singleton，INV-6）。`registration_enabled` 一律預設開（W23），只管帳密自助註冊（PR-C 起；SSO 首登看各服務的 `auto_create_enabled`）。
  * `password_login_enabled`（rev 10，W24）一律預設開；只存 DB 值（env 強制不寫回，B18），讀法見 `auth/password-login.ts`（PR3，spec §9.5）。
  */
 export const siteSettings = pgTable(

@@ -12,7 +12,7 @@ import { apiTokens, authProviders, groupMembers, groupRoles, groups, noteRedirec
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
 /** drizzle 對 `schema.ts` 的序列化；宣告漂移守衛拿最新一支當比對基準（Task 14 rebase 後改成實際檔名）。 */
-const SNAPSHOT_FILE = "meta/0029_snapshot.json";
+const SNAPSHOT_FILE = "meta/0030_snapshot.json";
 const snapshotLatest = JSON.parse(readFileSync(path.join(drizzleDirForTest, SNAPSHOT_FILE), "utf8")) as {
   tables: Record<string, { checkConstraints?: Record<string, { name: string; value: string }> }>;
 };
@@ -404,6 +404,52 @@ describe("0029_auth-provider-optional-client-id", () => {
     expect(await rows()).toEqual([{ client_id: "old-client", enabled: false }]);
     await runMigrations(db);
     expect(await rows()).toEqual([{ client_id: "old-client", enabled: false }]);
+  });
+});
+
+describe("0030_auth-provider-auto-create（PR-C S1、U1）", () => {
+  const SECRET = `'{"v":2,"keyId":"k","iv":"i","tag":"t","ct":"c"}'::jsonb`;
+  const base = `id, template, display_name, issuer_url, client_id`;
+  const TAG = "0030_auth-provider-auto-create";
+
+  it("M1 形狀：auth_providers.auto_create_enabled 為 boolean NOT NULL default false；不帶此欄插入 → false", async () => {
+    const { pool } = await freshDb();
+    const cols = (await pool.query(
+      `select data_type, is_nullable, column_default from information_schema.columns where table_name = 'auth_providers' and column_name = 'auto_create_enabled'`,
+    )).rows;
+    expect(cols).toEqual([{ data_type: "boolean", is_nullable: "NO", column_default: "false" }]);
+    const id = randomUUID();
+    await pool.query(`insert into auth_providers (${base}) values ($1, 'gitlab', 'GitLab', 'https://gitlab.example', 'c')`, [id]);
+    expect((await pool.query(`select auto_create_enabled from auth_providers where id = $1`, [id])).rows).toEqual([{ auto_create_enabled: false }]);
+  });
+
+  it.each([[true, true], [false, false]])("M2 升級前 registration_enabled=%s → 既有服務全為 %s；再跑 runMigrations 不變；之後新增的列為 false", async (reg, expected) => {
+    const { pool, db } = await freshEmptyDb();
+    await applyMigrationsThrough(pool, idxOfTag(TAG) - 1);
+    await pool.query(`update site_settings set registration_enabled = $1`, [reg]);
+    await pool.query(`insert into auth_providers (${base}) values ($1, 'gitlab', 'GitLab', 'https://gitlab.example', 'off-client')`, [randomUUID()]);
+    await pool.query(
+      `insert into auth_providers (${base}, enabled, client_secret_encrypted) values ($1, 'oidc', 'SSO', 'https://idp.example', 'on-client', true, ${SECRET})`,
+      [randomUUID()],
+    );
+    const values = async () => (await pool.query(`select auto_create_enabled from auth_providers order by client_id`)).rows;
+    await runMigrations(db);
+    expect(await values()).toEqual([{ auto_create_enabled: expected }, { auto_create_enabled: expected }]);
+    await pool.query(`update site_settings set registration_enabled = $1`, [!reg]);
+    await runMigrations(db);
+    expect(await values()).toEqual([{ auto_create_enabled: expected }, { auto_create_enabled: expected }]);
+    const third = randomUUID();
+    await pool.query(`insert into auth_providers (${base}) values ($1, 'google', 'Google', 'https://accounts.example', 'third-client')`, [third]);
+    expect((await pool.query(`select auto_create_enabled from auth_providers where id = $1`, [third])).rows).toEqual([{ auto_create_enabled: false }]);
+  });
+
+  it("M3 site_settings 無列時套本號 → 既有服務為 false", async () => {
+    const { pool, db } = await freshEmptyDb();
+    await applyMigrationsThrough(pool, idxOfTag(TAG) - 1);
+    await pool.query(`delete from site_settings`);
+    await pool.query(`insert into auth_providers (${base}) values ($1, 'gitlab', 'GitLab', 'https://gitlab.example', 'c')`, [randomUUID()]);
+    await runMigrations(db);
+    expect((await pool.query(`select auto_create_enabled from auth_providers`)).rows).toEqual([{ auto_create_enabled: false }]);
   });
 });
 
@@ -1397,7 +1443,7 @@ describe("0009_api-tokens", () => {
       note_redirects: ["old_path", "note_id", "expires_at", "created_at"],
       auth_providers: [
         "id", "template", "display_name", "issuer_url", "resolved_issuer", "client_id", "client_secret_encrypted",
-        "enabled", "sort_order", "legacy_callback", "config_version", "created_at", "updated_at",
+        "enabled", "sort_order", "legacy_callback", "config_version", "auto_create_enabled", "created_at", "updated_at",
         "icon_kind", "icon_data", "icon_mime", "icon_version",
       ],
       user_identities: ["id", "user_id", "issuer", "sub", "created_at", "last_login_at"],

@@ -211,6 +211,13 @@
       "when": 1792505847420,
       "tag": "0029_auth-provider-optional-client-id",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1792518060426,
+      "tag": "0030_auth-provider-auto-create",
+      "breakpoints": true
     }
   ]
 }

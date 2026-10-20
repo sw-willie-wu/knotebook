@@ -27,11 +27,21 @@ describe("importLegacyOidcEnv（#187 §10.2）", () => {
     expect(out.kind).toBe("imported");
     const rows = await db.select().from(authProviders);
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ template: "oidc", displayName: "SSO", issuerUrl: ENV.issuerUrl, clientId: "knotebook", enabled: true, legacyCallback: true, configVersion: 1, resolvedIssuer: null });
+    expect(rows[0]).toMatchObject({ template: "oidc", displayName: "SSO", issuerUrl: ENV.issuerUrl, clientId: "knotebook", enabled: true, legacyCallback: true, configVersion: 1, resolvedIssuer: null, autoCreateEnabled: true });
     expect(openClientSecret(testConfig.appSecret, rows[0]!)).toBe("env-secret");
     const [s] = await db.select().from(siteSettings);
     expect(s!.legacyOidcEnvHandledAt).not.toBeNull();
     expect(lines().some(l => l.level === 40 && /plain http/i.test(l.msg))).toBe(true);
+  });
+
+  it("E1：registration_enabled=false 時匯入的服務 autoCreateEnabled=false", async () => {
+    const { db } = await buildTestApp();
+    await db.update(siteSettings).set({ registrationEnabled: false });
+    const { logger } = captureLogger();
+    expect((await importLegacyOidcEnv(db, cfg({ legacyOidcEnv: ENV }), logger)).kind).toBe("imported");
+    const rows = await db.select().from(authProviders);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ autoCreateEnabled: false, enabled: true });
   });
 
   it("標記已設 → 不匯入（之後補設 env 也一樣），並 warn「OIDC_* are ignored」", async () => {
