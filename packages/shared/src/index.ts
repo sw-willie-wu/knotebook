@@ -426,9 +426,11 @@ export const ERROR_CODES = [
   "provider_not_found",
   // #187 PR2：站台管理 `/api/admin/auth/*`。`provider_enabled`＝409，刪除仍在啟用中的登入服務（要先停用，W11）；
   // `provider_secret_missing`＝409，要啟用一個沒有 client secret 的登入服務（DB CHECK `auth_providers_enabled_secret_chk`，INV-1）；
+  // `provider_client_id_missing`＝409，要啟用一個沒有 client ID 的登入服務（DB CHECK `auth_providers_enabled_client_id_chk`，#299）；
   // `oidc_discovery_failed`＝502，「測試連線」／「先試探」讀不到可用的 OIDC 設定（discovery 失敗、缺 jwks_uri、無非對稱簽章、issuer 不符或過長）。
   "provider_enabled",
   "provider_secret_missing",
+  "provider_client_id_missing",
   "oidc_discovery_failed",
   // #187 PR3：註冊、個人設定、帳密登入開關（W24）。`password_login_disabled`＝403，帳密登入的有效值為關時的帳密登入／帳密註冊／
   // 加上密碼（B20–B22）；`sso_provider_required`＝409，關閉帳密登入（或在關閉狀態下停用 provider）後沒有任何啟用中的登入服務（B19 P1）；
@@ -530,7 +532,8 @@ export interface AdminAuthProviderDto {
   template: AuthProviderTemplate;
   displayName: string;
   issuerUrl: string;
-  clientId: string;
+  /** null＝尚未填入（#299：新增時可留空，之後用「編輯」補上；沒有 client ID 不能啟用）。 */
+  clientId: string | null;
   hasSecret: boolean;
   enabled: boolean;
   sortOrder: number;
@@ -562,7 +565,7 @@ export interface AdminAuthProviderImpactDto {
 }
 
 /** #187 §9.2：測試連線／先試探的非致命提醒。 */
-export type AdminAuthProbeWarning = "insecure_issuer" | "client_secret_post_not_advertised" | "secret_undecryptable";
+export type AdminAuthProbeWarning = "insecure_issuer" | "client_secret_post_not_advertised" | "client_id_missing" | "secret_undecryptable";
 
 /** #187 §9.2：`POST /api/admin/auth/providers/:id/test`、`POST /api/admin/auth/discover` 成功。`issuer`＝IdP discovery 回報的 issuer。 */
 export interface AdminAuthProbeResultDto {

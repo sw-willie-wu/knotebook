@@ -1,5 +1,5 @@
 {
-  "id": "5c437b27-5bf2-456f-9d28-94b279041bcf",
+  "id": "6db15a7a-50b6-4dfa-a1ad-aa16e6454172",
   "prevId": "c635bef2-a2fd-44de-ae39-ac83ab681495",
   "version": "7",
   "dialect": "postgresql",
@@ -507,7 +507,7 @@
           "name": "client_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "client_secret_encrypted": {
           "name": "client_secret_encrypted",
@@ -630,6 +630,10 @@
         "auth_providers_enabled_secret_chk": {
           "name": "auth_providers_enabled_secret_chk",
           "value": "not \"auth_providers\".\"enabled\" or \"auth_providers\".\"client_secret_encrypted\" is not null"
+        },
+        "auth_providers_enabled_client_id_chk": {
+          "name": "auth_providers_enabled_client_id_chk",
+          "value": "not \"auth_providers\".\"enabled\" or \"auth_providers\".\"client_id\" is not null"
         },
         "auth_providers_icon_kind_chk": {
           "name": "auth_providers_icon_kind_chk",
@@ -2908,165 +2912,6 @@
         "oauth_requests_state_chk": {
           "name": "oauth_requests_state_chk",
           "value": "\"oauth_requests\".\"state\" is null or length(\"oauth_requests\".\"state\") <= 2048"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.one_time_links": {
-      "name": "one_time_links",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "token_hash": {
-          "name": "token_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "target_user_id": {
-          "name": "target_user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_by_id": {
-          "name": "created_by_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "used_at": {
-          "name": "used_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "revoked_at": {
-          "name": "revoked_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "one_time_links_reset_active_uidx": {
-          "name": "one_time_links_reset_active_uidx",
-          "columns": [
-            {
-              "expression": "target_user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"one_time_links\".\"kind\" = 'password_reset' and \"one_time_links\".\"used_at\" is null and \"one_time_links\".\"revoked_at\" is null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "one_time_links_kind_created_idx": {
-          "name": "one_time_links_kind_created_idx",
-          "columns": [
-            {
-              "expression": "kind",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "one_time_links_target_user_id_users_id_fk": {
-          "name": "one_time_links_target_user_id_users_id_fk",
-          "tableFrom": "one_time_links",
-          "tableTo": "users",
-          "columnsFrom": [
-            "target_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "one_time_links_created_by_id_users_id_fk": {
-          "name": "one_time_links_created_by_id_users_id_fk",
-          "tableFrom": "one_time_links",
-          "tableTo": "users",
-          "columnsFrom": [
-            "created_by_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "one_time_links_token_hash_unique": {
-          "name": "one_time_links_token_hash_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "token_hash"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "one_time_links_kind_chk": {
-          "name": "one_time_links_kind_chk",
-          "value": "\"one_time_links\".\"kind\" in ('password_reset')"
-        },
-        "one_time_links_reset_target_chk": {
-          "name": "one_time_links_reset_target_chk",
-          "value": "\"one_time_links\".\"kind\" <> 'password_reset' or \"one_time_links\".\"target_user_id\" is not null"
-        },
-        "one_time_links_expiry_chk": {
-          "name": "one_time_links_expiry_chk",
-          "value": "\"one_time_links\".\"expires_at\" > \"one_time_links\".\"created_at\""
-        },
-        "one_time_links_end_chk": {
-          "name": "one_time_links_end_chk",
-          "value": "\"one_time_links\".\"used_at\" is null or \"one_time_links\".\"revoked_at\" is null"
         }
       },
       "isRLSEnabled": false

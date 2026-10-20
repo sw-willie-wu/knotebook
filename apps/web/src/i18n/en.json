@@ -336,6 +336,7 @@
       "callbackCopyFailed": "Couldn't copy. Select the URL and copy it yourself.",
       "secretSaved": "Client secret saved.",
       "secretMissing": "No client secret yet. It can't be turned on until one is saved.",
+      "clientIdMissing": "Not set yet. The service can't be turned on until a client ID is saved.",
       "notConnected": "Hasn't connected successfully yet, so the number of affected accounts may be off. Press Test connection.",
       "insecureIssuer": "This issuer uses plain http: tokens and claims travel unencrypted between Knotebook and the identity provider.",
       "test": "Test connection",
@@ -345,7 +346,8 @@
       "warnings": {
         "insecure_issuer": "The issuer uses plain http.",
         "client_secret_post_not_advertised": "The identity provider doesn't list client_secret_post, which Knotebook uses to send the client secret. Sign-in may fail at the last step.",
-        "secret_undecryptable": "The saved client secret can't be decrypted (APP_SECRET may have changed). Enter it again."
+        "secret_undecryptable": "The saved client secret can't be decrypted (APP_SECRET may have changed). Enter it again.",
+        "client_id_missing": "No client ID yet. Add it with Edit before turning the service on."
       },
       "disableTitle": "Turn this sign-in service off?",
       "disableDescription": "Accounts and their linked sign-ins are kept, but nobody can sign in with this service until it's turned back on. People who are already signed in stay signed in.",
@@ -382,6 +384,7 @@
         "displayName": "Display name",
         "issuerUrl": "Issuer URL",
         "clientId": "Client ID",
+        "clientIdHint": "Optional for now. Some identity providers, such as GitLab, give you a client ID only after you register a callback URL — you'll see this service's callback URL once it's added.",
         "clientSecret": "Client secret",
         "check": "Check issuer",
         "checking": "Checking…",
@@ -396,6 +399,7 @@
         "callback": "Register this callback URL:",
         "scopes": "Allow the scopes openid, email and profile.",
         "client": "Make it a confidential client that sends its secret with client_secret_post.",
+        "clientId": "Copy its client ID (GitLab calls it Application ID), then enter it here with Edit.",
         "secret": "Copy its client secret, then paste it here with Edit.",
         "finish": "Back here, press Test connection, then turn the service on.",
         "done": "Done"
@@ -1167,6 +1171,7 @@
     "provider_not_found": "That sign-in service isn't available.",
     "provider_enabled": "Turn this sign-in service off before deleting it.",
     "provider_secret_missing": "Enter a client secret before turning this sign-in service on.",
+    "provider_client_id_missing": "Enter a client ID before turning this sign-in service on.",
     "oidc_discovery_failed": "Couldn't read a usable OpenID Connect configuration from that issuer URL.",
     "password_login_disabled": "This site only allows signing in through a sign-in service.",
     "sso_provider_required": "Turn on at least one sign-in service before turning off password sign-in.",

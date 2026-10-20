@@ -42,6 +42,17 @@ describe("GET／POST /api/admin/auth/providers（#187 §9.2）", () => {
     expect((await providerRow(db, res.json().id))!.clientSecretEncrypted).toBeNull();
   });
 
+  it("P1（#299 驗收 1）POST 不帶 clientId → 201、clientId null、一律停用、callbackUrl 帶回應的 id；DB client_id NULL", async () => {
+    const { app, db, cookies } = await adminApp();
+    const { clientId: _omit, ...noClientId } = base;
+    const res = await app.inject({ method: "POST", url: "/api/admin/auth/providers", cookies, payload: noClientId });
+    expect(res.statusCode).toBe(201);
+    const body = res.json();
+    expect(body).toMatchObject({ clientId: null, enabled: false });
+    expect(body.callbackUrl.endsWith(`/api/auth/oidc/callback/${body.id}`)).toBe(true);
+    expect((await providerRow(db, body.id))!.clientId).toBeNull();
+  });
+
   it("POST 的 sortOrder 接在現有最大值之後（新服務排最後）", async () => {
     const { app, db, cookies } = await adminApp();
     await seedAuthProvider(db, { issuerUrl: "https://a.example", sortOrder: 7 });
@@ -94,6 +105,10 @@ describe("GET／POST /api/admin/auth/providers（#187 §9.2）", () => {
     ["顯示名只有空白", { displayName: "   " }, "顯示名稱須為 1 到 40 個字"],
     ["顯示名含 NUL", { displayName: `a${NUL}b` }, "含有無法儲存的字元"],
     ["client id 513 字", { clientId: "c".repeat(513) }, "client ID 須為 1 到 512 個字"],
+    // #299 驗收 2：clientId 可不帶，但帶了空字串／全空白仍是 400（不當成「沒填」），null 不收。
+    ["client id 空字串", { clientId: "" }, "client ID 須為 1 到 512 個字"],
+    ["client id 只有空白", { clientId: "   " }, "client ID 須為 1 到 512 個字"],
+    ["client id 為 null", { clientId: null }, "請求格式錯誤"],
     ["clientSecret 空字串", { clientSecret: "" }, "client secret 不得為空"],
     ["clientSecret 只有空白", { clientSecret: "   " }, "client secret 不得為空"],
     // Task 3 審查 minor（Task 4 補）：secret 上限、三個字串欄的 NUL／落單代理。

@@ -135,7 +135,7 @@ export const instanceSetup = pgTable("instance_setup", {
 /**
  * #187 §4.1：登入服務（OIDC provider）。`id` 由應用端先產（client secret 的 AAD 綁 id，§5.1）。
  * `resolved_issuer`＝最近一次 discovery 成功時的 `metadata.issuer`；所有 identity ↔ provider 比對一律用
- * `coalesce(resolved_issuer, issuer_url)`（effective issuer，`auth/oidc-providers.ts`）。CHECK 守 INV-1（啟用⇒有 secret）、
+ * `coalesce(resolved_issuer, issuer_url)`（effective issuer，`auth/oidc-providers.ts`）。CHECK 守 INV-1（啟用⇒有 secret 與啟用⇒有 client ID）、
  * 長度上限（r3-M3：pending cookie 的大小上界靠它）；partial unique 守 INV-3（至多一個 legacy）。
  */
 export const authProviders = pgTable(
@@ -146,7 +146,7 @@ export const authProviders = pgTable(
     displayName: text("display_name").notNull(),
     issuerUrl: text("issuer_url").notNull(),
     resolvedIssuer: text("resolved_issuer"),
-    clientId: text("client_id").notNull(),
+    clientId: text("client_id"),
     clientSecretEncrypted: jsonb("client_secret_encrypted").$type<EncryptedSecret>(),
     enabled: boolean().notNull().default(false),
     sortOrder: integer("sort_order").notNull().default(0),
@@ -166,8 +166,10 @@ export const authProviders = pgTable(
     check("auth_providers_display_name_chk", sql`char_length(${t.displayName}) between 1 and 40`),
     check("auth_providers_issuer_url_chk", sql`${t.issuerUrl} ~ '^https?://' and char_length(${t.issuerUrl}) <= 512`),
     check("auth_providers_resolved_issuer_chk", sql`${t.resolvedIssuer} is null or char_length(${t.resolvedIssuer}) <= 512`),
+    // client_id 為 NULL 時 char_length 求值為 NULL，CHECK 視為通過；「啟用⇒有 client ID」由下面的 enabled_client_id_chk 守。
     check("auth_providers_client_id_chk", sql`char_length(${t.clientId}) between 1 and 512`),
     check("auth_providers_enabled_secret_chk", sql`not ${t.enabled} or ${t.clientSecretEncrypted} is not null`),
+    check("auth_providers_enabled_client_id_chk", sql`not ${t.enabled} or ${t.clientId} is not null`),
     check("auth_providers_icon_kind_chk", sql`${t.iconKind} in ('template', 'gitlab', 'google', 'upload', 'none')`),
     check(
       "auth_providers_icon_upload_chk",

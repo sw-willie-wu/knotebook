@@ -14,6 +14,7 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 ### Changed
 
 - Renaming your username now frees the old name: anyone, including you, can take it — going back to an earlier name counts as a rename against the limit of 5 per rolling 24 hours. Old links are still not forwarded to your new name; once someone else takes the name, old `/n/` and `/p/` links under it lead to their notes where the address matches (for `/n/`, only for people who can read the note). Includes a database migration that clears the names held by past renames (#291).
+- Adding a sign-in service no longer requires a client ID. Add the service first to get its callback URL, register that URL on the identity provider (GitLab, for example, gives you a client ID only after that), then enter the client ID and secret with **Edit**. A service without a client ID can't be turned on, and **Test connection** points it out. Includes a database migration (0029) that lets a sign-in service have no client ID yet (#299).
 
 ## [0.12.0] - 2026-10-15
 

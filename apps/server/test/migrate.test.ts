@@ -12,7 +12,7 @@ import { apiTokens, authProviders, groupMembers, groupRoles, groups, noteRedirec
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
 /** drizzle 對 `schema.ts` 的序列化；宣告漂移守衛拿最新一支當比對基準（Task 14 rebase 後改成實際檔名）。 */
-const SNAPSHOT_FILE = "meta/0029_snapshot.json";
+const SNAPSHOT_FILE = "meta/0030_snapshot.json";
 const snapshotLatest = JSON.parse(readFileSync(path.join(drizzleDirForTest, SNAPSHOT_FILE), "utf8")) as {
   tables: Record<string, { checkConstraints?: Record<string, { name: string; value: string }> }>;
 };
@@ -347,6 +347,63 @@ describe("note-width 0028_note-public-width", () => {
     expect(await widths()).toEqual([{ public_width: "standard" }]);
     await runMigrations(db);
     expect(await widths()).toEqual([{ public_width: "standard" }]);
+  });
+});
+
+describe("0029_auth-provider-optional-client-id", () => {
+  const SECRET = `'{"v":2,"keyId":"k","iv":"i","tag":"t","ct":"c"}'::jsonb`;
+  const base = `id, template, display_name, issuer_url, client_id`;
+
+  it("M1 形狀：auth_providers.client_id 為 text、可為 NULL；新 CHECK 的字面", async () => {
+    const { pool } = await freshDb();
+    const cols = (await pool.query(
+      `select data_type, is_nullable from information_schema.columns where table_name = 'auth_providers' and column_name = 'client_id'`,
+    )).rows;
+    expect(cols).toEqual([{ data_type: "text", is_nullable: "YES" }]);
+    const chk = (await pool.query(
+      `select pg_get_constraintdef(oid) as def from pg_constraint where conname = 'auth_providers_enabled_client_id_chk' and conrelid = 'auth_providers'::regclass`,
+    )).rows;
+    expect(chk).toEqual([{ def: "CHECK (((NOT enabled) OR (client_id IS NOT NULL)))" }]);
+  });
+
+  it("M2 驗收 6：停用列 client_id NULL 可存；啟用＋NULL 被新 CHECK 拒；空字串仍被長度 CHECK 拒", async () => {
+    const { pool } = await freshDb();
+    const ins = (cols: string, vals: string) => pool.query(`insert into auth_providers (${cols}) values (${vals})`);
+    const off = randomUUID();
+    await ins(base, `'${off}', 'gitlab', 'GitLab', 'https://gitlab.example', null`);
+    expect((await pool.query(`select client_id, enabled from auth_providers where id = $1`, [off])).rows).toEqual([
+      { client_id: null, enabled: false },
+    ]);
+    await expect(
+      ins(`${base}, enabled, client_secret_encrypted`, `'${randomUUID()}', 'oidc', 'SSO', 'https://idp.example', null, true, ${SECRET}`),
+    ).rejects.toMatchObject({ code: "23514", constraint: "auth_providers_enabled_client_id_chk" });
+    await expect(ins(base, `'${randomUUID()}', 'oidc', 'SSO', 'https://idp.example', ''`)).rejects.toMatchObject({
+      code: "23514",
+      constraint: "auth_providers_client_id_chk",
+    });
+  });
+
+  it("M3 驗收 8（DB 半）：client ID 與 secret 都缺的停用列改成啟用 → 撞 auth_providers_enabled_client_id_chk（同列多條 CHECK 依名稱字母序）", async () => {
+    const { pool } = await freshDb();
+    const id = randomUUID();
+    await pool.query(`insert into auth_providers (${base}) values ($1, 'gitlab', 'GitLab', 'https://gitlab.example', null)`, [id]);
+    await expect(pool.query(`update auth_providers set enabled = true where id = $1`, [id])).rejects.toMatchObject({
+      code: "23514",
+      constraint: "auth_providers_enabled_client_id_chk",
+    });
+    expect((await pool.query(`select enabled from auth_providers where id = $1`, [id])).rows).toEqual([{ enabled: false }]);
+  });
+
+  it("M4 套到既有資料：既有停用列的 client_id 不變；再跑 runMigrations 不變", async () => {
+    const { pool, db } = await freshEmptyDb();
+    await applyMigrationsThrough(pool, idxOfTag("0029_auth-provider-optional-client-id") - 1);
+    const id = randomUUID();
+    await pool.query(`insert into auth_providers (${base}) values ($1, 'gitlab', 'GitLab', 'https://gitlab.example', 'old-client')`, [id]);
+    const rows = async () => (await pool.query(`select client_id, enabled from auth_providers`)).rows;
+    await runMigrations(db);
+    expect(await rows()).toEqual([{ client_id: "old-client", enabled: false }]);
+    await runMigrations(db);
+    expect(await rows()).toEqual([{ client_id: "old-client", enabled: false }]);
   });
 });
 

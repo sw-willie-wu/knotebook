@@ -23,6 +23,19 @@ async function probeApp(idpIssuer: string, options: BuildAppOptions = {}) {
   return { ...built, idp, requests };
 }
 
+/** #299：沒有 client ID 的服務經 POST 建（`seedAuthProvider` 種不出 NULL，spec §9）。 */
+async function createWithoutClientId(
+  app: Awaited<ReturnType<typeof adminApp>>["app"],
+  cookies: Record<string, string>,
+  issuerUrl: string,
+  clientSecret?: string,
+): Promise<string> {
+  const payload = { template: "oidc", displayName: "SSO", issuerUrl, ...(clientSecret !== undefined ? { clientSecret } : {}) };
+  const res = await app.inject({ method: "POST", url: "/api/admin/auth/providers", cookies, payload });
+  expect(res.statusCode).toBe(201);
+  return res.json().id as string;
+}
+
 describe("POST /api/admin/auth/providers/:id/test（#187 §9.2）", () => {
   it("只給站台管理員", async () => {
     const { app, db } = await probeApp(ISS);
@@ -64,6 +77,33 @@ describe("POST /api/admin/auth/providers/:id/test（#187 §9.2）", () => {
     const res = await app.inject({ method: "POST", url: `/api/admin/auth/providers/${p.id}/test`, cookies });
     expect(res.statusCode).toBe(200);
     expect(res.json().warnings).toEqual(["insecure_issuer", "client_secret_post_not_advertised", "secret_undecryptable"]);
+  });
+
+  it("P7（#299 驗收 7）沒有 client ID → 仍 200，warnings 只有 client_id_missing；仍寫 resolved_issuer", async () => {
+    const { app, db, cookies } = await probeApp(ISS);
+    const id = await createWithoutClientId(app, cookies, ISS);
+    const res = await app.inject({ method: "POST", url: `/api/admin/auth/providers/${id}/test`, cookies });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().warnings).toEqual(["client_id_missing"]);
+    expect((await providerRow(db, id))!.resolvedIssuer).toBe(ISS);
+  });
+
+  it("P7 http issuer、沒有 client ID → client_id_missing 排在 probeWarnings 之後", async () => {
+    const { app, cookies } = await probeApp("http://idp.lan");
+    const id = await createWithoutClientId(app, cookies, "http://idp.lan");
+    const res = await app.inject({ method: "POST", url: `/api/admin/auth/providers/${id}/test`, cookies });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().warnings).toEqual(["insecure_issuer", "client_id_missing"]);
+  });
+
+  it("P7 四種提醒同時出現的次序：insecure_issuer → client_secret_post_not_advertised → client_id_missing → secret_undecryptable", async () => {
+    const { app, db, cookies, idp } = await probeApp("http://idp.lan");
+    idp.omitFromMetadata(["token_endpoint_auth_methods_supported"]);
+    const id = await createWithoutClientId(app, cookies, "http://idp.lan", "s3cret");
+    await db.update(authProviders).set({ clientSecretEncrypted: sealClientSecret(testConfig.appSecret, "00000000-0000-4000-8000-000000000000", "x") });
+    const res = await app.inject({ method: "POST", url: `/api/admin/auth/providers/${id}/test`, cookies });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().warnings).toEqual(["insecure_issuer", "client_secret_post_not_advertised", "client_id_missing", "secret_undecryptable"]);
   });
 
   it("沒有 secret → 沒有 secret_undecryptable（沒有東西可解）", async () => {

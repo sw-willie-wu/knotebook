@@ -22,6 +22,14 @@ function patch(app: Awaited<ReturnType<typeof adminApp>>["app"], cookies: Record
   return app.inject({ method: "PATCH", url: `/api/admin/auth/providers/${id}`, cookies, payload });
 }
 
+/** #299：沒有 client ID 的服務經 POST 建（`seedAuthProvider` 種不出 NULL，spec §9）。 */
+async function createWithoutClientId(app: Awaited<ReturnType<typeof adminApp>>["app"], cookies: Record<string, string>, withSecret: boolean): Promise<string> {
+  const payload = { template: "oidc", displayName: "SSO", issuerUrl: ISS, ...(withSecret ? { clientSecret: "secret-a" } : {}) };
+  const res = await app.inject({ method: "POST", url: "/api/admin/auth/providers", cookies, payload });
+  expect(res.statusCode).toBe(201);
+  return res.json().id as string;
+}
+
 describe("PATCH /api/admin/auth/providers/:id（#187 §5.2）", () => {
   it("只給站台管理員", async () => {
     const { app, db } = await adminApp();
@@ -97,6 +105,42 @@ describe("PATCH /api/admin/auth/providers/:id（#187 §5.2）", () => {
     expect(res.statusCode).toBe(409);
     expect(res.json().error.code).toBe("provider_secret_missing");
     expect((await providerRow(db, p.id))!.enabled).toBe(false);
+  });
+
+  it("P3（#299 驗收 3）啟用有 secret、沒有 client ID 的 provider → 409 provider_client_id_missing，列不變", async () => {
+    const { app, db, cookies } = await adminApp();
+    const id = await createWithoutClientId(app, cookies, true);
+    const res = await patch(app, cookies, id, { enabled: true });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("provider_client_id_missing");
+    expect(await providerRow(db, id)).toMatchObject({ enabled: false, clientId: null, configVersion: 1 });
+  });
+
+  it("P4（#299 驗收 8）client ID 與 secret 都缺 → 409 provider_client_id_missing（同列 CHECK 依名稱字母序），列不變", async () => {
+    const { app, db, cookies } = await adminApp();
+    const id = await createWithoutClientId(app, cookies, false);
+    const res = await patch(app, cookies, id, { enabled: true });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("provider_client_id_missing");
+    expect(await providerRow(db, id)).toMatchObject({ enabled: false, clientId: null, clientSecretEncrypted: null });
+  });
+
+  it("P5（#299 驗收 4）同一請求填 client ID 並啟用 → 200、enabled true", async () => {
+    const { app, db, cookies } = await adminApp();
+    const id = await createWithoutClientId(app, cookies, true);
+    const res = await patch(app, cookies, id, { clientId: "x", enabled: true });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ enabled: true, clientId: "x" });
+    expect(await providerRow(db, id)).toMatchObject({ enabled: true, clientId: "x" });
+  });
+
+  it("P6（#299 驗收 5）clientId: null → 400 invalid_body，已存的 client ID 清不掉", async () => {
+    const { app, db, cookies } = await adminApp();
+    const p = await seedLive(db);
+    const res = await patch(app, cookies, p.id, { clientId: null });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("invalid_body");
+    expect(await providerRow(db, p.id)).toMatchObject({ clientId: "client-a", configVersion: 3 });
   });
 
   it("clientSecret 空字串 → 400；空 body → 400；不存在的 uuid／非 uuid → 404 not_found", async () => {

@@ -160,7 +160,7 @@ interface ProviderTest {
 }
 
 function configKeyOf(provider: AdminAuthProviderDto): string {
-  return `${provider.issuerUrl}|${provider.clientId}|${provider.hasSecret}`;
+  return `${provider.issuerUrl}|${provider.clientId ?? ""}|${provider.hasSecret}`;
 }
 
 /** 「已連結」欄（Q2 裁定：每列一支唯讀的 impact 查詢，不改 server）；`DisableProviderDialog` 共用同一把 key，開框時照舊重抓。 */
@@ -271,7 +271,9 @@ function ProviderDetail({
       )}
       <dl className="grid grid-cols-[max-content_minmax(0,1fr)] items-center gap-x-3 gap-y-1">
         <dt className="text-muted-foreground">{t("admin.auth.clientIdLabel")}</dt>
-        <dd className="break-all">{provider.clientId}</dd>
+        <dd className={provider.clientId === null ? "text-muted-foreground" : "break-all"}>
+          {provider.clientId === null ? t("admin.auth.clientIdMissing") : provider.clientId}
+        </dd>
         <dt className="text-muted-foreground">{t("admin.auth.callbackLabel")}</dt>
         <dd className="flex min-w-0 items-center gap-1">
           <code className="min-w-0 break-all">{provider.callbackUrl}</code>
