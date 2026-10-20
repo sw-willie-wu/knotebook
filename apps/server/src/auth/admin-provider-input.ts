@@ -75,7 +75,7 @@ export const createProviderSchema = z
     template: z.enum(["gitlab", "google", "oidc"]),
     displayName,
     issuerUrl: issuerUrlSchema,
-    clientId,
+    clientId: clientId.optional(),
     clientSecret: clientSecret.optional(),
   })
   .strict();

@@ -15,7 +15,7 @@ export interface AdminProviderRow {
   template: string;
   displayName: string;
   issuerUrl: string;
-  clientId: string;
+  clientId: string | null;
   enabled: boolean;
   sortOrder: number;
   legacyCallback: boolean;

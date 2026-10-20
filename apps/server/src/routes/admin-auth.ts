@@ -148,7 +148,7 @@ export function adminAuthRoutes(deps: AdminAuthRouteDeps) {
           template,
           displayName,
           issuerUrl,
-          clientId,
+          clientId: clientId ?? null,
           clientSecretEncrypted,
           enabled: false,
           // 新服務排最後（併發建立時可能同值——再以 createdAt、id 排，無害）。上限 100000＝PATCH 的 `sortOrder` 上限（gate r1-t1-7 M1：
@@ -185,6 +185,9 @@ export function adminAuthRoutes(deps: AdminAuthRouteDeps) {
         }
         if (checkViolationConstraint(err) === "auth_providers_enabled_secret_chk") {
           return sendError(reply, 409, "provider_secret_missing", "這個登入服務沒有 client secret，不能啟用");
+        }
+        if (checkViolationConstraint(err) === "auth_providers_enabled_client_id_chk") {
+          return sendError(reply, 409, "provider_client_id_missing", "這個登入服務沒有 client ID，不能啟用");
         }
         // 非預期錯誤不得原樣進 log：這一句可能寫密文欄（DrizzleQueryError 的 message 帶 params）。
         throw redactDbError(request.log, err, "修改登入服務");
@@ -301,7 +304,13 @@ export function adminAuthRoutes(deps: AdminAuthRouteDeps) {
       if (id === null) return sendError(reply, 404, "not_found", NOT_FOUND_MESSAGE);
       // 這裡刻意 SELECT 密文本體——只為了判斷「解得開嗎」（warning），內容不進任何回應、不送任何地方（§5.2）。
       const [row] = await deps.db
-        .select({ id: authProviders.id, issuerUrl: authProviders.issuerUrl, configVersion: authProviders.configVersion, clientSecretEncrypted: authProviders.clientSecretEncrypted })
+        .select({
+          id: authProviders.id,
+          issuerUrl: authProviders.issuerUrl,
+          clientId: authProviders.clientId,
+          configVersion: authProviders.configVersion,
+          clientSecretEncrypted: authProviders.clientSecretEncrypted,
+        })
         .from(authProviders)
         .where(eq(authProviders.id, id))
         .limit(1);
@@ -318,6 +327,7 @@ export function adminAuthRoutes(deps: AdminAuthRouteDeps) {
         return sendError(reply, 502, "oidc_discovery_failed", DISCOVERY_FAILED_MESSAGE);
       }
       const warnings = probeWarnings(row.issuerUrl, metadata);
+      if (row.clientId === null) warnings.push("client_id_missing");
       if (row.clientSecretEncrypted !== null) {
         try {
           openClientSecret(deps.config.appSecret, row);

@@ -373,7 +373,7 @@ interface EditBaseline {
 const baselineOf = (provider: AdminAuthProviderDto): EditBaseline => ({
   displayName: provider.displayName,
   issuerUrl: provider.issuerUrl,
-  clientId: provider.clientId,
+  clientId: provider.clientId ?? "",
   sortOrder: provider.sortOrder,
 });
 
@@ -391,7 +391,7 @@ export function EditProviderDialog({ provider }: { provider: AdminAuthProviderDt
   const [baseline, setBaseline] = useState<EditBaseline>(() => baselineOf(provider));
   const [displayName, setDisplayName] = useState(provider.displayName);
   const [issuerUrl, setIssuerUrl] = useState(provider.issuerUrl);
-  const [clientId, setClientId] = useState(provider.clientId);
+  const [clientId, setClientId] = useState(provider.clientId ?? "");
   const [clientSecret, setClientSecret] = useState("");
   const [sortOrder, setSortOrder] = useState(String(provider.sortOrder));
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
@@ -405,7 +405,7 @@ export function EditProviderDialog({ provider }: { provider: AdminAuthProviderDt
       setBaseline(baselineOf(provider));
       setDisplayName(provider.displayName);
       setIssuerUrl(provider.issuerUrl);
-      setClientId(provider.clientId);
+      setClientId(provider.clientId ?? "");
       setSortOrder(String(provider.sortOrder));
       setFieldErrors({});
       setError(null);

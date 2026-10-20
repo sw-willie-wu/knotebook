@@ -166,6 +166,21 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
     expect(custom.getByRole("switch", { name: "Enabled <b>Corp</b> & Co" })).toHaveAttribute("aria-checked", "false");
   });
 
+  it("W8（#299 驗收 12）沒有 client ID 的服務打開開關 → 409 provider_client_id_missing → toast、開關仍是關", async () => {
+    const server = fakeServer([{ ...CUSTOM, clientId: null, hasSecret: true }]);
+    server.on((method, url) =>
+      method === "PATCH" && url === `/api/admin/auth/providers/${CUSTOM.id}`
+        ? fakeResponse(409, { error: { code: "provider_client_id_missing", message: "x" } })
+        : null,
+    );
+    renderSection(server.fetchMock);
+    const custom = within(await screen.findByRole("row", { name: "<b>Corp</b> & Co" }));
+    fireEvent.click(custom.getByRole("switch", { name: "Enabled <b>Corp</b> & Co" }));
+    await waitFor(() => expect(screen.getByText("Enter a client ID before turning this sign-in service on.")).toBeInTheDocument());
+    expect(server.calls.find(c => c.method === "PATCH")!.body).toEqual({ enabled: true });
+    expect(custom.getByRole("switch", { name: "Enabled <b>Corp</b> & Co" })).toHaveAttribute("aria-checked", "false");
+  });
+
   it("關掉開關 → 先開 dialog（不送 PATCH）、顯示人數與未連線提醒；確認 → PATCH {enabled:false}、重抓後開關變關", async () => {
     const enabledUnresolved = { ...CUSTOM, hasSecret: true, enabled: true };
     const server = fakeServer([enabledUnresolved]);

@@ -1167,6 +1167,7 @@
     "provider_not_found": "That sign-in service isn't available.",
     "provider_enabled": "Turn this sign-in service off before deleting it.",
     "provider_secret_missing": "Enter a client secret before turning this sign-in service on.",
+    "provider_client_id_missing": "Enter a client ID before turning this sign-in service on.",
     "oidc_discovery_failed": "Couldn't read a usable OpenID Connect configuration from that issuer URL.",
     "password_login_disabled": "This site only allows signing in through a sign-in service.",
     "sso_provider_required": "Turn on at least one sign-in service before turning off password sign-in.",
