@@ -1,8 +1,11 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { Tx } from "../../db/tx.js";
 import { oneTimeLinks, users } from "../../db/schema.js";
 import { TxAbort } from "../../http/tx-abort.js";
-import { pendingPasswordResetsOf } from "../one-time-link.js";
+import { activeOneTimeLink, pendingPasswordResetsOf } from "../one-time-link.js";
+
+/** 410 `reset_link_invalid` 的訊息：無登入端點與完成交易共用，不區分原因（spec §4.3）。 */
+export const RESET_LINK_INVALID_MESSAGE = "重設密碼連結無效、已使用或已過期";
 
 /**
  * #286 重設密碼連結的交易本體（spec §4.2）。
@@ -58,4 +61,44 @@ export async function issuePasswordResetInTx(
 export async function cancelPasswordResetsInTx(tx: Tx, input: { targetUserId: string }): Promise<{ revoked: number }> {
   await lockTargetUser(tx, input.targetUserId);
   return { revoked: await revokePendingPasswordResetsInTx(tx, input.targetUserId) };
+}
+
+/**
+ * 完成（spec §4.3 第 6 步）：鎖 `users` → 連結列 `FOR UPDATE` 重判有效且屬於此人 → 防禦性看停用 → 寫新密碼、
+ * `token_version + 1`、清 `must_change_password` → 標 `used_at`。三種拒絕都是 410（都只在並發下可達）。
+ * 只動 `users` 與 `one_time_links`（I4）：PAT、OAuth、transfer token 一律不碰（spec §4.4）。
+ */
+export async function completePasswordResetInTx(
+  tx: Tx,
+  input: { linkId: string; targetUserId: string; passwordHash: string },
+) {
+  const [target] = await tx
+    .select({ disabledAt: users.disabledAt })
+    .from(users)
+    .where(eq(users.id, input.targetUserId))
+    .for("no key update");
+  if (!target) throw new TxAbort(410, "reset_link_invalid", RESET_LINK_INVALID_MESSAGE);
+  const [link] = await tx
+    .select({ targetUserId: oneTimeLinks.targetUserId })
+    .from(oneTimeLinks)
+    .where(and(eq(oneTimeLinks.id, input.linkId), activeOneTimeLink("password_reset")))
+    .for("update");
+  if (!link || link.targetUserId !== input.targetUserId) throw new TxAbort(410, "reset_link_invalid", RESET_LINK_INVALID_MESSAGE);
+  if (target.disabledAt !== null) throw new TxAbort(410, "reset_link_invalid", RESET_LINK_INVALID_MESSAGE);
+  const [updated] = await tx
+    .update(users)
+    .set({ passwordHash: input.passwordHash, tokenVersion: sql`${users.tokenVersion} + 1`, mustChangePassword: false })
+    .where(eq(users.id, input.targetUserId))
+    .returning({
+      id: users.id,
+      email: users.email,
+      handle: users.handle,
+      displayName: users.displayName,
+      isAdmin: users.isAdmin,
+      mustChangePassword: users.mustChangePassword,
+      autoVersions: users.autoVersions,
+      tokenVersion: users.tokenVersion,
+    });
+  await tx.update(oneTimeLinks).set({ usedAt: sql`now()` }).where(eq(oneTimeLinks.id, input.linkId));
+  return updated!;
 }

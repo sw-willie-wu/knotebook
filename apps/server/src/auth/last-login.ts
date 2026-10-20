@@ -4,7 +4,7 @@ import type { Db } from "../db/index.js";
 
 /**
  * #247 §9.5：記一次登入（`users.last_login_at = now()`）。在每個「新簽一張登入 session」的地方、`signSession` 之前呼叫：
- * 帳密登入、OIDC 登入與首登建帳、SSO 證明連結、密碼證明連結、註冊。改密碼／加上密碼後的重簽是同一次登入換 token，不呼叫；
+ * 帳密登入、OIDC 登入與首登建帳、SSO 證明連結、密碼證明連結、註冊、以重設連結設定新密碼（#286）。改密碼／加上密碼後的重簽是同一次登入換 token，不呼叫；
  * 已登入時連結第二個身分不簽 session，也不呼叫。
  * 交易外的獨立單句（OIDC 登入交易刻意不寫 users，C24）。**永不等鎖的 best-effort**：子查詢 `FOR NO KEY UPDATE SKIP LOCKED`
  * 取列，別的交易正持有該 users 列的 NO KEY UPDATE 以上的鎖（例如解除身分 P2、SSO 證明 A2）時整句 0 列、只記 warn——

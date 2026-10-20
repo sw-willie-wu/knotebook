@@ -33,6 +33,7 @@ import { adminAuthRoutes } from "./routes/admin-auth.js";
 import { adminVersionsRoutes } from "./routes/admin-versions.js";
 import { testHookRoutes } from "./routes/test-hooks.js";
 import { accountRoutes } from "./routes/account.js";
+import { passwordResetRoutes } from "./routes/password-reset.js";
 import { aiRoutes } from "./routes/ai.js";
 import { uploadsRoutes } from "./routes/uploads.js";
 import { publicRoutes, redactPublicTokens } from "./routes/public.js";
@@ -800,6 +801,8 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   void app.register(
     accountRoutes({ db: deps.db, config: deps.config, gate: deps.gate, collabHooks: deps.collabHooks, limiters: { register: limiters.register } }),
   );
+  // #286：無登入的重設密碼端點——inspect 與以一次性連結設定新密碼（spec §4.3）。
+  void app.register(passwordResetRoutes({ db: deps.db, config: deps.config, gate: deps.gate, collabHooks: deps.collabHooks }));
   void app.register(
     aiRoutes({ db: deps.db, config: deps.config, runtime: deps.ai, limiters: { ai: limiters.ai }, idleTimeoutMs: options.aiIdleTimeoutMs })
   );

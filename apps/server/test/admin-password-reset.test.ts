@@ -8,7 +8,7 @@ import type { FastifyInstance } from "fastify";
 import { asc, eq, sql } from "drizzle-orm";
 import { SESSION_COOKIE } from "@knotebook/shared";
 import { buildTestApp, testConfig } from "./helpers.js";
-import { cookieOf, seedUser, waitForBlockedOrSettled } from "./group-helpers.js";
+import { cookieOf, seedUser, waitForBlockedOrSettled, waitForLockWaiters } from "./group-helpers.js";
 import { oneTimeLinks, siteSettings, users } from "../src/db/schema.js";
 import type { AppDeps } from "../src/app.js";
 import type { Db } from "../src/db/index.js";
@@ -295,6 +295,31 @@ describe("POST /api/admin/users/:id/password-reset", () => {
     expect(res.statusCode).toBe(409);
     expect(res.json()).toMatchObject({ error: { code: "user_disabled" } });
     expect(await allLinks(db)).toHaveLength(0);
+  });
+
+  // 同一人並發產生兩支：users 列鎖讓兩發排隊，後一發把前一支標為取代，不撞 I3 的 partial unique index。
+  // 交錯：raw client 以 SHARE MODE 鎖住 one_time_links，兩發都卡在撤銷那句之前——鎖是 NO KEY UPDATE 時第二發卡在 users 列；
+  // 鎖若弱成 FOR SHARE，兩發都會拿到列鎖、各自 INSERT，後到的撞 23505 → 500。
+  it("G13：同一人並發產生兩支 → 兩發都 201、最後恰一支有效", async () => {
+    const { app, db, cookies } = await setup();
+    const target = await userWithPassword(db);
+    const client = await db.$client.connect();
+    let first: ReturnType<typeof issue> | undefined;
+    let second: ReturnType<typeof issue> | undefined;
+    try {
+      await client.query("begin");
+      await client.query("lock table one_time_links in share mode");
+      first = issue(app, cookies, target.id);
+      second = issue(app, cookies, target.id);
+      await waitForLockWaiters(db.$client, 2);
+    } finally {
+      await client.query("commit");
+      client.release();
+    }
+    const results = await Promise.all([first!, second!]);
+    expect(results.map(r => r.statusCode)).toEqual([201, 201]);
+    const active = (await allLinks(db)).filter(l => l.usedAt === null && l.revokedAt === null);
+    expect(active).toHaveLength(1);
   });
 });
 
