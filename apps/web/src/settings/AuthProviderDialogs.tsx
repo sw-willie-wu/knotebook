@@ -61,8 +61,10 @@ function checkIssuerUrl(raw: string): string | null {
   return null;
 }
 
-function checkClientId(raw: string): string | null {
+/** `allowEmpty`：新增、或編輯一個還沒有 client ID 的服務時，空白＝「沒填」，不算錯。 */
+function checkClientId(raw: string, allowEmpty: boolean): string | null {
   const s = raw.trim();
+  if (allowEmpty && s === "") return null;
   if (UNSTORABLE.test(s)) return "unstorable";
   if (codePoints(s) === 0) return "clientIdRequired";
   if (codePoints(s) > MAX_CLIENT_ID_LENGTH) return "clientIdTooLong";
@@ -157,6 +159,7 @@ function SetupSteps({ provider, onDone }: { provider: AdminAuthProviderDto; onDo
         </li>
         <li>{t("admin.auth.steps.scopes")}</li>
         <li>{t("admin.auth.steps.client")}</li>
+        {provider.clientId === null && <li>{t("admin.auth.steps.clientId")}</li>}
         {!provider.hasSecret && <li>{t("admin.auth.steps.secret")}</li>}
         <li>{t("admin.auth.steps.finish")}</li>
       </ol>
@@ -227,7 +230,7 @@ export function CreateProviderDialog() {
     const errors = collectErrors([
       ["displayName", checkDisplayName(displayName)],
       ["issuerUrl", checkIssuerUrl(issuerUrl)],
-      ["clientId", checkClientId(clientId)],
+      ["clientId", checkClientId(clientId, true)],
       ["clientSecret", checkClientSecret(clientSecret)],
     ]);
     setFieldErrors(errors);
@@ -240,7 +243,7 @@ export function CreateProviderDialog() {
           template,
           displayName: displayName.trim(),
           issuerUrl: issuerUrl.trim(),
-          clientId: clientId.trim(),
+          ...(clientId.trim() !== "" ? { clientId: clientId.trim() } : {}),
           ...(clientSecret !== "" ? { clientSecret } : {}),
         }),
       );
@@ -323,11 +326,18 @@ export function CreateProviderDialog() {
                 </label>
                 <Input
                   id="auth-provider-client-id"
-                  aria-required
                   value={clientId}
                   onChange={event => setClientId(event.target.value)}
                   {...invalidProps("auth-provider-client-id-error", fieldErrors.clientId)}
+                  aria-describedby={
+                    fieldErrors.clientId === undefined
+                      ? "auth-provider-client-id-hint"
+                      : "auth-provider-client-id-hint auth-provider-client-id-error"
+                  }
                 />
+                <p id="auth-provider-client-id-hint" className="text-xs text-muted-foreground">
+                  {t("admin.auth.create.clientIdHint")}
+                </p>
                 <FieldError id="auth-provider-client-id-error" errorKey={fieldErrors.clientId} />
               </div>
               <div className="space-y-1">
@@ -436,7 +446,7 @@ export function EditProviderDialog({ provider }: { provider: AdminAuthProviderDt
       ["displayName", checkDisplayName(displayName)],
       // issuer 沒改就不驗：新規則上線前存在的舊資料可能帶帳密，不該擋住只改其他欄位（server 也只驗送出的欄位）。
       ["issuerUrl", issuerChanged ? checkIssuerUrl(issuerUrl) : null],
-      ["clientId", checkClientId(clientId)],
+      ["clientId", checkClientId(clientId, baseline.clientId === "")],
       ["clientSecret", checkClientSecret(clientSecret)],
       ["sortOrder", /^\d+$/.test(orderText) && order <= MAX_SORT_ORDER ? null : "sortOrderInvalid"],
     ]);
@@ -446,7 +456,8 @@ export function EditProviderDialog({ provider }: { provider: AdminAuthProviderDt
     const body: PatchAuthProviderBody = {};
     if (displayName !== baseline.displayName) body.displayName = displayName.trim();
     if (issuerChanged) body.issuerUrl = issuerUrl.trim();
-    if (clientId !== baseline.clientId) body.clientId = clientId.trim();
+    // baseline 為空（尚無 client ID）：只打空白＝沒填，不送鍵（送 "" 會吃 400）。
+    if (baseline.clientId === "" ? clientId.trim() !== "" : clientId !== baseline.clientId) body.clientId = clientId.trim();
     if (order !== baseline.sortOrder) body.sortOrder = order;
     if (secretEntered) body.clientSecret = clientSecret;
     if (Object.keys(body).length === 0) {
@@ -509,7 +520,7 @@ export function EditProviderDialog({ provider }: { provider: AdminAuthProviderDt
             </label>
             <Input
               id={fieldId("client-id")}
-              aria-required
+              aria-required={baseline.clientId !== "" ? true : undefined}
               value={clientId}
               onChange={event => setClientId(event.target.value)}
               {...invalidProps(fieldId("client-id-error"), fieldErrors.clientId)}
