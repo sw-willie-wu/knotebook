@@ -15,7 +15,7 @@ import { touchLastLogin } from "../auth/last-login.js";
 import type { LoginThrottle } from "../auth/rate-limit.js";
 import type { CollabHooks } from "../collab/hooks.js";
 import { MIN_PASSWORD_LENGTH } from "../auth/constants.js";
-import { listEnabledProvidersPublic } from "../auth/oidc-providers.js";
+import { listEnabledProvidersForConfig } from "../auth/oidc-providers.js";
 import { readRegistrationEnabled } from "../auth/site-settings.js";
 import { isPasswordLoginAccepted, PASSWORD_LOGIN_DISABLED_MESSAGE } from "../auth/password-login.js";
 import { isStorableText } from "../auth/admin-provider-input.js";
@@ -59,15 +59,18 @@ export function authRoutes(deps: AuthRouteDeps) {
     // 免認證（#187）：登入頁在使用者輸入帳密之前就要知道有哪些登入服務。只曝光 id、顯示名與圖示（AuthProviderPublicDto）。
     // GET 不受 app.ts 的 JSON CSRF hook 影響。
     app.get("/api/auth/config", async (request): Promise<AuthConfigDto> => {
-      const providers = await listEnabledProvidersPublic(deps.db);
+      const { providers, autoCreateProviderIds } = await listEnabledProvidersForConfig(deps.db);
       const registrationEnabled = await readRegistrationEnabled(deps.db);
-      if (registrationEnabled === null) request.log.error("site_settings 讀不到列：註冊視同關閉（#187 §4.3）");
+      if (registrationEnabled === null) request.log.error("site_settings 讀不到列：帳密自助註冊與 SSO 首登自動建帳都視同關閉（#187 §4.3）");
       // §9.5：有效值（DB OR env）；不揭露是否 env 強制。讀不到列 → 開＋log.error（B17）。
       const passwordLoginEnabled = await isPasswordLoginAccepted(deps.db, deps.config, request.log);
       // 版本歷史 §6.8：總開關讓非 admin 也讀得到（個人／群組開關的 disabled 顯示）。讀不到列 → true（DB 預設；起草裁定 16）。
       const [versionsRow] = await deps.db.select({ v: siteSettings.autoVersionsEnabled }).from(siteSettings).where(eq(siteSettings.singleton, true)).limit(1);
       return {
-        providers, registration: { enabled: registrationEnabled ?? false }, passwordLogin: { enabled: passwordLoginEnabled },
+        providers,
+        // 列缺失時一律 []，與登入交易的「視同關」一致（M2）。
+        registration: { enabled: registrationEnabled ?? false, providerIds: registrationEnabled === null ? [] : autoCreateProviderIds },
+        passwordLogin: { enabled: passwordLoginEnabled },
         autoVersionsEnabled: versionsRow?.v ?? true,
       };
     });

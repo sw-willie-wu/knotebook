@@ -41,12 +41,17 @@ export const MIN_PASSWORD_LENGTH = 12;
 export const MAX_REGISTER_EMAIL_LENGTH = 254;
 export const MAX_REGISTER_DISPLAY_NAME_LENGTH = 100;
 
-/** `GET /api/auth/config`（免認證）：登入頁用 `providers` 畫「Sign in with X」、`registration.enabled` 決定註冊鈕、
+/** `GET /api/auth/config`（免認證）：登入頁用 `providers` 畫「Sign in with X」、`registration` 決定註冊入口（帳密自助註冊＋各服務是否自動建帳）、
  * `passwordLogin.enabled`（帳密登入的**有效值**＝DB 值 OR env 強制；不揭露是否 env 強制，#187 §9.5）決定帳密表單。
  * 只曝光 id、顯示名與圖示——issuer／client id 等設定細節不出線（#187 §14.1 第 18 條）。 */
 export interface AuthConfigDto {
   providers: AuthProviderPublicDto[];
-  registration: { enabled: boolean };
+  registration: {
+    /** `site_settings.registration_enabled`（DB 值；列不在 → false）——只管帳密自助註冊；是否實際可用還要看 passwordLogin.enabled。 */
+    enabled: boolean;
+    /** 啟用中且開了自動建帳的服務 id，照顯示順序；是 `providers` 的子集。`site_settings` 列不在時一律 []（與登入交易的「視同關」一致，M2）。 */
+    providerIds: string[];
+  };
   passwordLogin: { enabled: boolean };
   /** 版本歷史 §6.8：站台自動儲存總開關（`site_settings.auto_versions_enabled`）——個人與群組開關在它關閉時顯示 disabled。 */
   autoVersionsEnabled: boolean;
@@ -410,8 +415,8 @@ export const ERROR_CODES = [
   "role_name_taken",
   // #175 PR4：`not_admin`＝409，刪群組的轉移對象（`transferTo`）不是這個群組持內建管理員角色的成員（含非 UUID、非成員、自訂角色——只認 `builtin = 'admin'`，S1 同一個定義）。
   "not_admin",
-  // #187 PR1：多 provider 登入與「詢問是否連結」。`registration_disabled`＝403／302，「允許註冊」關閉時的建帳（PR1 只有
-  // SSO 首登這條發出點，W21）；`oidc_link_expired`＝409／302，pending cookie 失效、被另一分頁覆蓋（pendingId 不符）、或目標
+  // #187 PR1：多 provider 登入與「詢問是否連結」。`registration_disabled`＝403／302：帳密自助註冊關閉（`POST /api/auth/register`），
+  // 或 SSO 首登時該服務沒開自動建帳（PR-C）；`oidc_link_expired`＝409／302，pending cookie 失效、被另一分頁覆蓋（pendingId 不符）、或目標
   // 帳號已不在／email 已改；`oidc_link_proof_mismatch`＝SSO 證明回來的身分不屬於目標帳號；`oidc_link_no_proof_method`＝
   // 目標帳號沒有密碼，也沒有可用來證明的已連結 provider（全停用，或只剩與待連結身分同 issuer 者）；`oidc_claim_too_long`＝IdP 的 email > 254 或 sub > 255（spec r3-M3）；
   // `identity_taken`＝要連的 (issuer, sub) 已屬別人；`identity_already_linked`＝帳號已有同 issuer 的另一個 sub（B2）；
@@ -531,6 +536,8 @@ export interface AdminAuthProviderDto {
   clientId: string | null;
   hasSecret: boolean;
   enabled: boolean;
+  /** 首次登入時自動建立帳號（PR-C S1）；新服務一律 false，建立 API 不收；PATCH 改 issuer 不會改它。 */
+  autoCreateEnabled: boolean;
   sortOrder: number;
   /** env 匯入的那一個（沿用舊回呼網址 `/api/auth/oidc/callback`，B13）。 */
   legacyCallback: boolean;

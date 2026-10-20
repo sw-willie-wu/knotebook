@@ -64,11 +64,11 @@ function loginPayload(email: string, password: string) {
 }
 
 describe("GET /api/auth/config", () => {
-  it("免認證可打；沒有 provider → { providers: [], registration: { enabled: true } }（W23 預設開）", async () => {
+  it("免認證可打；沒有 provider → { providers: [], registration: { enabled: true, providerIds: [] } }（W23 預設開）", async () => {
     const { app } = await buildTestApp();
     const res = await app.inject({ method: "GET", url: "/api/auth/config" });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ providers: [], registration: { enabled: true }, passwordLogin: { enabled: true }, autoVersionsEnabled: true });
+    expect(res.json()).toEqual({ providers: [], registration: { enabled: true, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true });
   });
 
   it("只列啟用中的 provider、依 sort_order 排；不含 issuer／client id／secret（§14.1 第 18 條）", async () => {
@@ -77,7 +77,7 @@ describe("GET /api/auth/config", () => {
     const a = await seedAuthProvider(db, { issuerUrl: "https://a.example", displayName: "A", sortOrder: 1 });
     await seedAuthProvider(db, { issuerUrl: "https://off.example", displayName: "Off", enabled: false });
     const res = await app.inject({ method: "GET", url: "/api/auth/config" });
-    expect(res.json()).toEqual({ providers: [{ id: a.id, displayName: "A", icon: GENERIC }, { id: b.id, displayName: "B", icon: GENERIC }], registration: { enabled: true }, passwordLogin: { enabled: true }, autoVersionsEnabled: true });
+    expect(res.json()).toEqual({ providers: [{ id: a.id, displayName: "A", icon: GENERIC }, { id: b.id, displayName: "B", icon: GENERIC }], registration: { enabled: true, providerIds: [a.id, b.id] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true });
     expect(res.body).not.toMatch(/a\.example|test-client|"ct"/);
   });
 
@@ -85,7 +85,7 @@ describe("GET /api/auth/config", () => {
     const { app, db } = await buildTestApp();
     await db.update(siteSettings).set({ registrationEnabled: false });
     const res = await app.inject({ method: "GET", url: "/api/auth/config" });
-    expect(res.json()).toEqual({ providers: [], registration: { enabled: false }, passwordLogin: { enabled: true }, autoVersionsEnabled: true });
+    expect(res.json()).toEqual({ providers: [], registration: { enabled: false, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true });
   });
 
   it("site_settings 讀不到列 → registration.enabled false＋error log（§4.3 r1-M5）", async () => {
@@ -106,9 +106,39 @@ describe("GET /api/auth/config", () => {
     );
     await db.delete(siteSettings);
     const res = await app.inject({ method: "GET", url: "/api/auth/config" });
-    expect(res.json()).toEqual({ providers: [], registration: { enabled: false }, passwordLogin: { enabled: true }, autoVersionsEnabled: true });
+    expect(res.json()).toEqual({ providers: [], registration: { enabled: false, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true });
     expect(logged.some((a) => a.some((x) => typeof x === "string" && x.includes("site_settings")))).toBe(true);
     expect(logged.some((a) => a.some((x) => typeof x === "string" && x.includes("帳密登入視同開啟")))).toBe(true);
+  });
+
+  /** C1／C2 共用：a（sort 2，開）、b（sort 1，開）、c（sort 3，關）、d（停用、開）。 */
+  async function seedAutoCreateMix(db: Db) {
+    const a = await seedAuthProvider(db, { issuerUrl: "https://a.example", displayName: "A", sortOrder: 2, autoCreateEnabled: true });
+    const b = await seedAuthProvider(db, { issuerUrl: "https://b.example", displayName: "B", sortOrder: 1, autoCreateEnabled: true });
+    const c = await seedAuthProvider(db, { issuerUrl: "https://c.example", displayName: "C", sortOrder: 3, autoCreateEnabled: false });
+    const d = await seedAuthProvider(db, { issuerUrl: "https://d.example", displayName: "D", sortOrder: 0, enabled: false, clientSecret: null, autoCreateEnabled: true });
+    return { a, b, c, d };
+  }
+
+  it("C1（C-8）providerIds＝啟用中且開了自動建帳的服務、依顯示順序；停用但開關開的不列；與 registration.enabled 無關", async () => {
+    const { app, db } = await buildTestApp();
+    const { a, b, c } = await seedAutoCreateMix(db);
+    await db.update(siteSettings).set({ registrationEnabled: false });
+    const res = await app.inject({ method: "GET", url: "/api/auth/config" });
+    const body = res.json() as { providers: Array<Record<string, unknown>>; registration: unknown };
+    expect(body.registration).toEqual({ enabled: false, providerIds: [b.id, a.id] });
+    expect(body.providers.map(p => p.id)).toEqual([b.id, a.id, c.id]);
+    for (const p of body.providers) expect(Object.keys(p).sort()).toEqual(["displayName", "icon", "id"]);
+  });
+
+  it("C2（C-8）site_settings 讀不到列 → providerIds []；providers 照列", async () => {
+    const { app, db } = await buildTestApp();
+    const { a, b, c } = await seedAutoCreateMix(db);
+    await db.delete(siteSettings);
+    const res = await app.inject({ method: "GET", url: "/api/auth/config" });
+    const body = res.json() as { providers: Array<{ id: string }>; registration: unknown };
+    expect(body.registration).toEqual({ enabled: false, providerIds: [] });
+    expect(body.providers.map(p => p.id)).toEqual([b.id, a.id, c.id]);
   });
 });
 

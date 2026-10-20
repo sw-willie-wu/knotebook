@@ -17,6 +17,7 @@ const BASE: AdminAuthProviderDto = {
   clientId: "corp",
   hasSecret: true,
   enabled: true,
+  autoCreateEnabled: false,
   sortOrder: 0,
   legacyCallback: false,
   callbackUrl: `https://notes.example.com/api/auth/oidc/callback/${ID}`,

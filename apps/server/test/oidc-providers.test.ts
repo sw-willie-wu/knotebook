@@ -6,7 +6,7 @@ import { GENERIC } from "./helpers/provider-icon.js";
 import { createFakeIdp } from "./helpers/fake-idp.js";
 import { authProviders, userIdentities, users } from "../src/db/schema.js";
 import { createOidcRuntimeRegistry } from "../src/auth/oidc-client.js";
-import { linkedEnabledProvidersWithIssuer, listEnabledProvidersPublic, loadEnabledProvider, loadLegacyProvider, openClientSecret, providerConfiguration, recordResolvedIssuer } from "../src/auth/oidc-providers.js";
+import { linkedEnabledProvidersWithIssuer, listEnabledProvidersForConfig, loadEnabledProvider, loadLegacyProvider, openClientSecret, providerConfiguration, recordResolvedIssuer } from "../src/auth/oidc-providers.js";
 import { SecretDecryptError } from "../src/lib/sealed-secret.js";
 
 describe("auth/oidc-providers（#187 §4.1、§6）", () => {
@@ -43,7 +43,7 @@ describe("auth/oidc-providers（#187 §4.1、§6）", () => {
     expect(() => openClientSecret(testConfig.appSecret, b)).toThrow(SecretDecryptError);
   });
 
-  it("查詢：loadEnabledProvider 不回停用的；loadLegacyProvider 只回啟用中的 legacy；listEnabledProvidersPublic 只列啟用、依 sort_order 排、只有 id、displayName 與 icon", async () => {
+  it("查詢：loadEnabledProvider 不回停用的；loadLegacyProvider 只回啟用中的 legacy；listEnabledProvidersForConfig 只列啟用、依 sort_order 排、只有 id、displayName 與 icon", async () => {
     const { db } = await buildTestApp();
     const legacy = await seedAuthProvider(db, { issuerUrl: "https://l.example", legacyCallback: true, displayName: "Legacy", sortOrder: 5 });
     const g = await seedAuthProvider(db, { issuerUrl: "https://g.example", displayName: "G", sortOrder: 1 });
@@ -51,7 +51,10 @@ describe("auth/oidc-providers（#187 §4.1、§6）", () => {
     expect((await loadEnabledProvider(db, g.id))?.id).toBe(g.id);
     expect(await loadEnabledProvider(db, off.id)).toBeNull();
     expect((await loadLegacyProvider(db))?.id).toBe(legacy.id);
-    expect(await listEnabledProvidersPublic(db)).toEqual([{ id: g.id, displayName: "G", icon: GENERIC }, { id: legacy.id, displayName: "Legacy", icon: GENERIC }]);
+    expect(await listEnabledProvidersForConfig(db)).toEqual({
+      providers: [{ id: g.id, displayName: "G", icon: GENERIC }, { id: legacy.id, displayName: "Legacy", icon: GENERIC }],
+      autoCreateProviderIds: [g.id, legacy.id],
+    });
     await db.update(authProviders).set({ enabled: false }).where(eq(authProviders.id, legacy.id));
     expect(await loadLegacyProvider(db)).toBeNull();
   });

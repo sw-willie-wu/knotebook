@@ -17,6 +17,7 @@ export interface AdminProviderRow {
   issuerUrl: string;
   clientId: string | null;
   enabled: boolean;
+  autoCreateEnabled: boolean;
   sortOrder: number;
   legacyCallback: boolean;
   configVersion: number;
@@ -36,6 +37,7 @@ export function adminProviderColumns() {
     issuerUrl: authProviders.issuerUrl,
     clientId: authProviders.clientId,
     enabled: authProviders.enabled,
+    autoCreateEnabled: authProviders.autoCreateEnabled,
     sortOrder: authProviders.sortOrder,
     legacyCallback: authProviders.legacyCallback,
     configVersion: authProviders.configVersion,
@@ -55,6 +57,7 @@ export interface UpdateAuthProviderInput {
   clientId?: string;
   sortOrder?: number;
   enabled?: boolean;
+  autoCreateEnabled?: boolean;
   /** 圖示種類（不含 upload）。帶了就在同一句 UPDATE 清掉上傳圖（data／mime 設 NULL）；icon_version 不動、config_version 不看它。 */
   iconKind?: "template" | "gitlab" | "google" | "none";
   /** B19 P2 的「操作者」。 */
@@ -67,6 +70,8 @@ export interface UpdateAuthProviderResult {
   row: AdminProviderRow;
   /** 只供稽核 log 的 `from`：B27 站台設定鎖之後的一般讀——改 `issuer_url` 的寫入（provider PATCH）都排在那把鎖後，讀到的是當下的 issuer（PR3 起；`recordResolvedIssuer` 不取這把鎖，但它只寫 `resolved_issuer`）。 */
   previousIssuerUrl: string;
+  /** 只供開關稽核 log 判斷「有沒有變」：同 `previousIssuerUrl`，B27 站台設定鎖之後的一般讀。 */
+  previousAutoCreateEnabled: boolean;
 }
 
 /**
@@ -76,6 +81,7 @@ export interface UpdateAuthProviderResult {
  *
  * (a) 沒帶 secret：issuer 變了 → 清 secret、清 resolved_issuer、停用；版本只在 issuer 或 client id 實際變更時 +1。
  * (b) 帶了 secret：secret 直接覆寫、版本 +1；issuer 變了 → 清 resolved_issuer、**強制停用**（INV-2 的加嚴形）。
+ * autoCreateEnabled：coalesce 代入；不影響版本、不觸發 B19（PR-C）。
  *
  * #187 PR3：B27 第一句、B19 在 UPDATE 之後（spec §9.2 rev 10）。
  */
@@ -83,7 +89,7 @@ export async function updateAuthProviderInTx(tx: Tx, input: UpdateAuthProviderIn
   // B27：第一句取站台設定列鎖（序列化所有站台設定寫入，C25）。之後的 `before` 讀因此可信（其他 provider PATCH 都排在鎖後）。
   const settings = await lockSiteSettingsInTx(tx);
   const [before] = await tx
-    .select({ issuerUrl: authProviders.issuerUrl, enabled: authProviders.enabled })
+    .select({ issuerUrl: authProviders.issuerUrl, enabled: authProviders.enabled, autoCreateEnabled: authProviders.autoCreateEnabled })
     .from(authProviders)
     .where(eq(authProviders.id, input.id))
     .limit(1);
@@ -101,6 +107,8 @@ export async function updateAuthProviderInTx(tx: Tx, input: UpdateAuthProviderIn
     sortOrder: sql`coalesce(${input.sortOrder ?? null}::integer, ${authProviders.sortOrder})`,
     resolvedIssuer: sql`case when ${issuerChanged()} then null else ${authProviders.resolvedIssuer} end`,
     enabled: sql`case when ${issuerChanged()} then false else coalesce(${input.enabled ?? null}::boolean, ${authProviders.enabled}) end`,
+    // S6／U4：改 issuer 時**不**強制改值（要不要關由 UI 確認框決定並照選擇帶值）；不進 configVersion 的判斷。
+    autoCreateEnabled: sql`coalesce(${input.autoCreateEnabled ?? null}::boolean, ${authProviders.autoCreateEnabled})`,
     // 圖示（spec 2026-10-07-provider-icon §4.3）：沒帶 iconKind → 三欄原值；帶了 → 換 kind 並清圖（CHECK auth_providers_icon_upload_chk 要求非 upload ⇔ 兩欄皆 NULL）。
     iconKind: sql`coalesce(${input.iconKind ?? null}::text, ${authProviders.iconKind})`,
     iconData: sql`case when ${input.iconKind ?? null}::text is null then ${authProviders.iconData} else null::bytea end`,
@@ -125,7 +133,7 @@ export async function updateAuthProviderInTx(tx: Tx, input: UpdateAuthProviderIn
   if (!row) throw new TxAbort(404, "not_found", "找不到此登入服務");
   // B19：DB 值為關時，任何使 enabled 由 true 變 false 的形（含 §5.2 改 issuer 的隱含停用）都在寫入後狀態上驗 P1／P2；違反 → throw、整筆回滾。
   if (!settings.passwordLoginEnabled && before.enabled && !row.enabled) await assertSsoOnlyGuardInTx(tx, input.actorUserId);
-  return { row, previousIssuerUrl: before.issuerUrl };
+  return { row, previousIssuerUrl: before.issuerUrl, previousAutoCreateEnabled: before.autoCreateEnabled };
 }
 
 /**

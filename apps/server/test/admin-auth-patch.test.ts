@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { Client } from "pg";
 import { DrizzleQueryError, eq, sql } from "drizzle-orm";
 import { OIDC_STATE_COOKIE } from "@knotebook/shared";
-import { authProviders } from "../src/db/schema.js";
+import { authProviders, siteSettings } from "../src/db/schema.js";
 import { createOidcRuntimeRegistry, type OidcRuntimeRegistry } from "../src/auth/oidc-client.js";
 import { openClientSecret, sealClientSecret } from "../src/auth/oidc-providers.js";
 import { testConfig } from "./helpers.js";
@@ -269,6 +269,90 @@ describe("PATCH /api/admin/auth/providers/:id（#187 §5.2）", () => {
       expect(callback.headers.location).toBe(expectedLocation);
       const [row] = await db.select({ v: authProviders.configVersion }).from(authProviders).where(eq(authProviders.id, p.id));
       expect(row!.v).toBe("clientId" in change ? 2 : 1);
+    }
+  });
+});
+
+const AUTO_CREATE_LOG = "登入服務的自動建帳開關被變更";
+const ISSUER_LOG = "登入服務的 issuer 被寫入";
+const OTHER_ISS = "https://other.example.com";
+
+describe("PATCH autoCreateEnabled（PR-C C-9、C-10）", () => {
+  it("A1（C-9）PATCH {autoCreateEnabled} 可切換；不動 configVersion；只有值變了才記開關 log", async () => {
+    const logs = captureLogs();
+    const { app, db, cookies, admin } = await adminApp({}, logs.options);
+    const p = await seedLive(db);
+    const autoLines = () => logs.lines.filter(l => l.msg === AUTO_CREATE_LOG);
+    const res = await patch(app, cookies, p.id, { autoCreateEnabled: false });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().autoCreateEnabled).toBe(false);
+    expect(await providerRow(db, p.id)).toMatchObject({ autoCreateEnabled: false, configVersion: 3, enabled: true });
+    expect(autoLines()).toHaveLength(1);
+    expect(autoLines()[0]!.obj).toEqual({ providerId: p.id, userId: admin.id, autoCreateEnabled: false });
+    // 同值 → 不再記。
+    expect((await patch(app, cookies, p.id, { autoCreateEnabled: false })).statusCode).toBe(200);
+    expect(autoLines()).toHaveLength(1);
+    // 沒帶此欄 → 值不變（coalesce）。
+    expect((await patch(app, cookies, p.id, { displayName: "x" })).statusCode).toBe(200);
+    expect((await providerRow(db, p.id))!.autoCreateEnabled).toBe(false);
+    // 關 → 開也記（spec §4.1：打開自動建帳是最要留紀錄的事件）。
+    expect((await patch(app, cookies, p.id, { autoCreateEnabled: true })).statusCode).toBe(200);
+    expect(autoLines()).toHaveLength(2);
+    expect(autoLines()[1]!.obj).toEqual({ providerId: p.id, userId: admin.id, autoCreateEnabled: true });
+  });
+
+  it("A2（C-9）帳密 DB 值關、操作者沒有 SSO 身分時，切換自動建帳照樣 200（不觸發 B19）；對照：同條件停用 → 409", async () => {
+    const { app, db, cookies } = await adminApp();
+    const p = await seedLive(db);
+    await db.update(siteSettings).set({ passwordLoginEnabled: false });
+    const res = await patch(app, cookies, p.id, { autoCreateEnabled: false });
+    expect(res.statusCode).toBe(200);
+    expect((await providerRow(db, p.id))!.autoCreateEnabled).toBe(false);
+    expect((await patch(app, cookies, p.id, { enabled: false })).statusCode).toBe(409);
+  });
+
+  it("A3 只給站台管理員", async () => {
+    const { app, db } = await adminApp();
+    const p = await seedLive(db);
+    await expectAdminOnly(app, db, "PATCH", `/api/admin/auth/providers/${p.id}`, { autoCreateEnabled: true });
+  });
+
+  it("A4 (a)（C-10）現值 true、只改 issuer → 仍 true；issuer log 帶 autoCreateEnabledAfter: true；沒有開關 log", async () => {
+    const logs = captureLogs();
+    const { app, db, cookies } = await adminApp({}, logs.options);
+    const p = await seedLive(db);
+    const res = await patch(app, cookies, p.id, { issuerUrl: OTHER_ISS });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().autoCreateEnabled).toBe(true);
+    expect((await providerRow(db, p.id))!.autoCreateEnabled).toBe(true);
+    const issuerLine = logs.lines.find(l => l.msg === ISSUER_LOG);
+    expect(issuerLine!.obj).toMatchObject({ providerId: p.id, autoCreateEnabledAfter: true });
+    expect(logs.lines.filter(l => l.msg === AUTO_CREATE_LOG)).toHaveLength(0);
+  });
+
+  it("A4 (b)（C-10）現值 true、改 issuer＋autoCreateEnabled: false → false；兩行 log 都有，開關 log 在前", async () => {
+    const logs = captureLogs();
+    const { app, db, cookies } = await adminApp({}, logs.options);
+    const p = await seedLive(db);
+    const res = await patch(app, cookies, p.id, { issuerUrl: OTHER_ISS, autoCreateEnabled: false });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().autoCreateEnabled).toBe(false);
+    const autoIdx = logs.lines.findIndex(l => l.msg === AUTO_CREATE_LOG);
+    const issuerIdx = logs.lines.findIndex(l => l.msg === ISSUER_LOG);
+    expect(autoIdx).toBeGreaterThanOrEqual(0);
+    expect(issuerIdx).toBeGreaterThan(autoIdx);
+    expect(logs.lines[autoIdx]!.obj).toMatchObject({ autoCreateEnabled: false });
+    expect(logs.lines[issuerIdx]!.obj).toMatchObject({ autoCreateEnabledAfter: false });
+  });
+
+  it("A4 (c)（C-10）現值 false、改 issuer＋autoCreateEnabled: true → true（有無帶 secret 皆然）", async () => {
+    for (const extra of [{}, { clientSecret: "new-secret" }]) {
+      const { app, db, cookies } = await adminApp();
+      const p = await seedAuthProvider(db, { issuerUrl: ISS, resolvedIssuer: ISS, clientId: "client-a", clientSecret: "secret-a", enabled: true, configVersion: 3, autoCreateEnabled: false });
+      const res = await patch(app, cookies, p.id, { issuerUrl: OTHER_ISS, autoCreateEnabled: true, ...extra });
+      expect(res.statusCode, JSON.stringify(extra)).toBe(200);
+      expect(res.json().autoCreateEnabled, JSON.stringify(extra)).toBe(true);
+      expect((await providerRow(db, p.id))!.autoCreateEnabled, JSON.stringify(extra)).toBe(true);
     }
   });
 });

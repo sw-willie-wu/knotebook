@@ -84,7 +84,7 @@ describe("四條建帳路徑都吃到「當下的」使用者預設；既有不�
       }),
     );
     const [oidcUser] = await b.db.select({ id: users.id }).from(users).where(eq(users.email, "o1@example.com"));
-    expect(oidcUser, "OIDC 自動建帳應建出帳號（註冊預設開）").toBeDefined();
+    expect(oidcUser, "OIDC 自動建帳應建出帳號（helper 預設開自動建帳）").toBeDefined();
     for (const id of [viaAdmin, reg.json().id as string, oidcUser!.id]) expect(await planOfUser(b.db, id)).toBe(p);
     expect(await planOfUser(b.db, b.admin.id)).toBe(basic);
 

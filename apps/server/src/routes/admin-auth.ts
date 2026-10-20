@@ -59,6 +59,7 @@ function toAdminProviderDto(row: AdminProviderRow, config: AppConfig): AdminAuth
     clientId: row.clientId,
     hasSecret: row.hasSecret,
     enabled: row.enabled,
+    autoCreateEnabled: row.autoCreateEnabled,
     sortOrder: row.sortOrder,
     legacyCallback: row.legacyCallback,
     callbackUrl: oidcRedirectUri(config, row),
@@ -151,6 +152,8 @@ export function adminAuthRoutes(deps: AdminAuthRouteDeps) {
           clientId: clientId ?? null,
           clientSecretEncrypted,
           enabled: false,
+          // U3：新服務一律不自動建帳（明寫，不靠 DB 預設）。
+          autoCreateEnabled: false,
           // 新服務排最後（併發建立時可能同值——再以 createdAt、id 排，無害）。上限 100000＝PATCH 的 `sortOrder` 上限（gate r1-t1-7 M1：
           // 否則最大值已是 100000 時新列得 100001，之後編輯表單每次帶 sortOrder 都被 400）。
           sortOrder: sql`(select least(coalesce(max(${authProviders.sortOrder}), -1) + 1, 100000) from ${authProviders})`,
@@ -195,12 +198,20 @@ export function adminAuthRoutes(deps: AdminAuthRouteDeps) {
       // 提交之後才失效快取（失敗不動）。版本有變時 registry 本來就會自癒（§6），這一行讓「只改 secret 以外」的情形也不留舊 runtime。
       deps.registry.invalidate(id);
 
-      const { row, previousIssuerUrl } = result;
+      const { row, previousIssuerUrl, previousAutoCreateEnabled } = result;
+      // PR-C：有變才記（前值是 B27 鎖下讀的，並發不會讓它沉默）。
+      if (row.autoCreateEnabled !== previousAutoCreateEnabled) {
+        request.log.info({ providerId: id, userId: request.user!.id, autoCreateEnabled: row.autoCreateEnabled }, "登入服務的自動建帳開關被變更");
+      }
       if (fields.issuerUrl !== undefined) {
         // §5.2：帶了 issuerUrl 就記一行（值相同也記——條件式記錄在並發下會整個沉默，見 [[ai-provider-key-exfil]] 第 3 條）。
         // `hasSecretAfter`／`enabledAfter` 取 DB 回傳值；`from` 是 B27 鎖之後的讀——改 issuer 的寫入（provider PATCH）都排在那把鎖後，是當下的值。
+        // U4：`autoCreateEnabledAfter` 讓「改了 issuer 但保留自動建帳」一定留紀錄。
         request.log.info(
-          { providerId: id, userId: request.user!.id, from: safeTarget(previousIssuerUrl), to: safeTarget(row.issuerUrl), hasSecretAfter: row.hasSecret, enabledAfter: row.enabled },
+          {
+            providerId: id, userId: request.user!.id, from: safeTarget(previousIssuerUrl), to: safeTarget(row.issuerUrl), hasSecretAfter: row.hasSecret, enabledAfter: row.enabled,
+            autoCreateEnabledAfter: row.autoCreateEnabled,
+          },
           ISSUER_AUDIT_LOG,
         );
         if (row.issuerUrl.startsWith("http://")) request.log.warn({ providerId: id }, INSECURE_ISSUER_LOG);

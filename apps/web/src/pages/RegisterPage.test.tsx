@@ -15,7 +15,7 @@ const SOLID_BG = /(^|\s)bg-(primary|destructive|brand|brand-deep)(\s|$)/;
 const USER: UserDto = { id: "u1", email: "new@example.com", handle: "new", displayName: "New", isAdmin: false, mustChangePassword: false, hasPassword: true, autoVersions: true };
 const OPEN: AuthConfigDto = {
   providers: [{ id: "11111111-1111-4111-8111-111111111111", displayName: '<b>Corp</b> & "Co"', icon: null }],
-  registration: { enabled: true },
+  registration: { enabled: true, providerIds: ["11111111-1111-4111-8111-111111111111"] },
   passwordLogin: { enabled: true },
   autoVersionsEnabled: true,
 };
@@ -129,7 +129,7 @@ describe("RegisterPage（#187 §9.4、S2）", () => {
   });
 
   it("「允許註冊」關 → 「目前不開放註冊」＋回登入；沒有表單、沒有 SSO 註冊鈕（W21）", async () => {
-    const { queryClient } = setup("/register", { ...OPEN, registration: { enabled: false } });
+    const { queryClient } = setup("/register", { ...OPEN, registration: { enabled: false, providerIds: [] } });
     // 等 config 確實落地再斷言「不存在」：載入中就會出現的元素不能當等待點（Task 10 教訓）。
     await waitFor(() => expect(queryClient.getQueryData(AUTH_CONFIG_QUERY_KEY)).toBeDefined());
     expect(await screen.findByText("This site isn't accepting new accounts right now.")).toBeInTheDocument();
@@ -172,6 +172,7 @@ describe("RegisterPage（#187 §9.4、S2）", () => {
         { id: "11111111-1111-4111-8111-111111111111", displayName: "GitLab", icon: { type: "builtin", name: "gitlab" } },
         { id: "22222222-2222-4222-8222-222222222222", displayName: "Plain", icon: null },
       ],
+      registration: { enabled: true, providerIds: ["11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"] },
     });
     const gitlab = await screen.findByRole("link", { name: "Sign up with GitLab" });
     expect(gitlab.firstChild).toBe(gitlab.querySelector('[data-provider-icon="gitlab"]'));

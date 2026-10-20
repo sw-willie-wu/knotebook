@@ -23,7 +23,7 @@ describe("GET／POST /api/admin/auth/providers（#187 §9.2）", () => {
     const res = await app.inject({ method: "POST", url: "/api/admin/auth/providers", cookies, payload: { ...base, clientSecret: "s3cret-value", template: "gitlab" } });
     expect(res.statusCode).toBe(201);
     const body = res.json();
-    expect(body).toMatchObject({ template: "gitlab", displayName: "Corp SSO", issuerUrl: "https://idp.example.com", clientId: "knotebook", hasSecret: true, enabled: false, legacyCallback: false, insecureIssuer: false, issuerResolved: false });
+    expect(body).toMatchObject({ template: "gitlab", displayName: "Corp SSO", issuerUrl: "https://idp.example.com", clientId: "knotebook", hasSecret: true, enabled: false, autoCreateEnabled: false, legacyCallback: false, insecureIssuer: false, issuerResolved: false });
     expect(body.callbackUrl).toBe(`http://localhost:3000/api/auth/oidc/callback/${body.id}`);
     expect(body.id).toMatch(/^[0-9a-f-]{36}$/);
     for (const forbidden of ["s3cret-value", "clientSecretEncrypted", "client_secret", "\"ct\"", "\"iv\"", "\"tag\"", "keyId"]) {
@@ -31,7 +31,25 @@ describe("GET／POST /api/admin/auth/providers（#187 §9.2）", () => {
     }
     const row = await providerRow(db, body.id);
     expect(row!.enabled).toBe(false);
+    expect(row!.autoCreateEnabled).toBe(false);
     expect(openClientSecret(testConfig.appSecret, row!)).toBe("s3cret-value");
+  });
+
+  it("P1（C-9）POST 帶 autoCreateEnabled → 400 invalid_body、不建列（U3：建立 API 不收此欄）", async () => {
+    const { app, db, cookies } = await adminApp();
+    const res = await app.inject({ method: "POST", url: "/api/admin/auth/providers", cookies, payload: { ...base, autoCreateEnabled: true } });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("invalid_body");
+    expect(await db.select().from(authProviders)).toHaveLength(0);
+  });
+
+  it("P2（C-9）GET 列表帶 autoCreateEnabled", async () => {
+    const { app, db, cookies } = await adminApp();
+    const x = await seedAuthProvider(db, { issuerUrl: "https://x.example", sortOrder: 0, autoCreateEnabled: true });
+    const y = await seedAuthProvider(db, { issuerUrl: "https://y.example", sortOrder: 1, autoCreateEnabled: false });
+    const res = await app.inject({ method: "GET", url: "/api/admin/auth/providers", cookies });
+    const list = res.json().providers as Array<{ id: string; autoCreateEnabled: boolean }>;
+    expect(list.map(p => [p.id, p.autoCreateEnabled])).toEqual([[x.id, true], [y.id, false]]);
   });
 
   it("POST 不帶 clientSecret → hasSecret false、DB 密文 NULL", async () => {

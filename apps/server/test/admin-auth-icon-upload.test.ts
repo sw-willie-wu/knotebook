@@ -39,7 +39,7 @@ describe("PUT /api/admin/auth/providers/:id/icon（spec §4.2、§8.1 S1–S4）
     const exact = pngBytes(262144);
     const ok = await putIcon(app, p.id, one(exact), { cookies });
     expect(ok.statusCode).toBe(200);
-    expect(ok.json()).toMatchObject({ id: p.id, iconKind: "upload", icon: { type: "upload", url: `/api/auth/providers/${p.id}/icon?v=1` } });
+    expect(ok.json()).toMatchObject({ id: p.id, iconKind: "upload", icon: { type: "upload", url: `/api/auth/providers/${p.id}/icon?v=1` }, autoCreateEnabled: true });
     expectNoIconBytes(ok.body);
     const row = await providerRow(db, p.id);
     expect(row).toMatchObject({ iconKind: "upload", iconMime: "image/png", iconVersion: 1, configVersion: before!.configVersion, enabled: before!.enabled });

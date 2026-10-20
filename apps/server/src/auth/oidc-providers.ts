@@ -76,13 +76,16 @@ export async function loadLegacyProvider(db: DbOrTx): Promise<OidcProviderRow | 
   return withClientId(row);
 }
 
-export async function listEnabledProvidersPublic(db: DbOrTx): Promise<AuthProviderPublicDto[]> {
+/** `/api/auth/config` 用：啟用中的服務（公開形）＋其中開了自動建帳的 id（PR-C §3.4），兩者同一個排序。 */
+export async function listEnabledProvidersForConfig(
+  db: DbOrTx,
+): Promise<{ providers: AuthProviderPublicDto[]; autoCreateProviderIds: string[] }> {
   const rows = await db
-    .select({ id: authProviders.id, displayName: authProviders.displayName, ...providerIconColumns() })
+    .select({ id: authProviders.id, displayName: authProviders.displayName, ...providerIconColumns(), autoCreateEnabled: authProviders.autoCreateEnabled })
     .from(authProviders)
     .where(eq(authProviders.enabled, true))
     .orderBy(asc(authProviders.sortOrder), asc(authProviders.createdAt), asc(authProviders.id));
-  return rows.map(toPublicProvider);
+  return { providers: rows.map(toPublicProvider), autoCreateProviderIds: rows.filter(r => r.autoCreateEnabled).map(r => r.id) };
 }
 
 /**

@@ -70,6 +70,7 @@ const clientSecret = z
   .refine(s => s.trim().length > 0, "client secret 不得為空（不提供清除 secret 的 API）")
   .refine(s => s.length <= MAX_CLIENT_SECRET_LENGTH, `client secret 不得超過 ${MAX_CLIENT_SECRET_LENGTH} 個字元`);
 
+// U3：不收 autoCreateEnabled（strict → 帶了就 400；新服務一律 false）。
 export const createProviderSchema = z
   .object({
     template: z.enum(["gitlab", "google", "oidc"]),
@@ -88,6 +89,7 @@ export const patchProviderSchema = z
     clientId: clientId.optional(),
     clientSecret: clientSecret.optional(),
     enabled: z.boolean().optional(),
+    autoCreateEnabled: z.boolean().optional(),
     sortOrder: z.number().int().min(0).max(100_000).optional(),
     // 圖示（spec 2026-10-07-provider-icon §4.3）：upload 只能經 PUT …/icon，這裡不收。值域與 CHECK auth_providers_icon_kind_chk 去掉 upload 一致。
     iconKind: z.enum(["template", "gitlab", "google", "none"]).optional(),
