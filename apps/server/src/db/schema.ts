@@ -89,14 +89,14 @@ export const users = pgTable("users", {
 /**
  * #122：handle 配置的**唯一裁決者**（單一 registry，PK 裁決恰好一次——比照
  * [[ai-provider-key-exfil]] 的「判斷必須在 DB 端做」紀律）。取名＝`INSERT INTO handles`
- * （含墓碑：`released` 列**永久**占住 PK，改名釋放的舊名任何人（含本人）不得再取）。
+ * （改名時刪舊列，舊名即釋出、任何人可再取；現行只有 live 列，#291）。
  * 三條建帳路徑一律 registry-first（同 tx 內先 INSERT handles 再 INSERT users）。
  *
  * `user_id` **刻意無 `.references()`**（repo 慣例是 uuid 都掛 FK——這裡是明示例外，
  * spec §2a）：①registry-first 順序下 handles 列先於 users 列插入，掛 FK 三條建帳
- * 路徑全死；②產品無刪使用者功能，且墓碑列本就必須活得比使用者久。
+ * 路徑全死；②產品無刪使用者功能。
  * CHECK 三條都是結構層不變量：charset/長度、state 枚舉、released_at↔state 一致
- * （第三條漏了會讓改名額度的 `state='released'` 計數漏算）。
+ * （`state='released'`／`released_at` 只在 rollback 窗期由舊版 server 寫入，新碼只寫 live，#291）。
  */
 export const handles = pgTable(
   "handles",
@@ -110,8 +110,7 @@ export const handles = pgTable(
     check("handles_handle_chk", sql`${t.handle} ~ '^[a-z0-9-]{1,32}$'`),
     check("handles_state_chk", sql`${t.state} in ('live','released')`),
     check("handles_released_at_chk", sql`(${t.state} = 'released') = (${t.releasedAt} is not null)`),
-    // 改名額度查詢（Task 4：WHERE user_id=$me AND state='released' AND released_at>…）
-    // 的反向索引——比照 note_shares_user_idx 的慣例（讀碼審查 minor 7）。
+    // 依 user_id 查列的反向索引——比照 note_shares_user_idx 的慣例（讀碼審查 minor 7）。
     index("handles_user_idx").on(t.userId),
   ],
 );

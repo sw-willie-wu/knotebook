@@ -20,7 +20,7 @@ import { legacyOidcApp } from "./helpers/oidc-provider.js";
  *
  * 配置不變量（每條路徑都斷言）：建帳後 `handles` 有一列 `state='live'`、其
  * `handle`＝`users.handle` 且 `user_id`＝該使用者——這是抓 round 4 兩個 Critical
- * （admin 繞過墓碑、釋放退化）回歸的網子（spec §2c「runtime 一致性」）。
+ * （admin 繞過 registry、改名後 registry 與 users 不一致）回歸的網子（spec §2c「runtime 一致性」）。
  */
 
 async function registryOf(db: Db, email: string) {
@@ -456,7 +456,7 @@ describe("boot 補登＋DTO（spec §2a/§2b）", () => {
     const now = new Date();
     await db.insert(handles).values([
       { handle: "alpha", userId: A, state: "live" },
-      { handle: "alpha-old", userId: A, state: "released", releasedAt: now }, // 一般窗期墓碑
+      { handle: "alpha-old", userId: A, state: "released", releasedAt: now }, // 一般窗期 released 列
       { handle: "beta", userId: B, state: "released", releasedAt: now }, // B 現行名只有本人的 released 列
       { handle: "gamma", userId: A, state: "released", releasedAt: now }, // C 現行名被他人的 released 列占住
     ]);

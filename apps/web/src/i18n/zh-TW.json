@@ -795,7 +795,7 @@
         "ssoOnlyNotice": "本站目前只允許 SSO 登入。"
       },
       "handleTitle": "網址名稱",
-      "handleDescription": "公開網址用的名字（/p/<handle>/…）。它會出現在你分享的所有 /n/ 與 /p/ 網址中（token 連結不含）。改名後這些網址立即失效，舊名永不可再用——包括你自己改回去。",
+      "handleDescription": "公開網址用的名字（/p/<handle>/…）。它會出現在你分享的所有 /n/ 與 /p/ 網址中（token 連結不含）。改名後這些網址立即失效，舊名也會釋出，任何人（包括你自己）都可以再取用；被別人取用後，舊網址若對得上對方的筆記，就會指向對方的筆記。",
       "handleLabel": "網址名稱",
       "handleSave": "儲存網址名稱",
       "handleSaved": "網址名稱已更新。",

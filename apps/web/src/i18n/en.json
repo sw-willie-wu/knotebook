@@ -795,7 +795,7 @@
         "ssoOnlyNotice": "This site only allows signing in through a sign-in service right now."
       },
       "handleTitle": "URL name",
-      "handleDescription": "The name used in your public links (/p/<handle>/…). It appears in every /n/ and /p/ link you share (token links don't include it). After a rename those links stop working immediately, and the old name can never be used again — not even by you.",
+      "handleDescription": "The name used in your public links (/p/<handle>/…). It appears in every /n/ and /p/ link you share (token links don't include it). After a rename those links stop working immediately, and the old name is freed: anyone, including you, can take it. If someone else takes it, an old link that matches one of their notes leads to their note.",
       "handleLabel": "URL name",
       "handleSave": "Save URL name",
       "handleSaved": "URL name saved.",

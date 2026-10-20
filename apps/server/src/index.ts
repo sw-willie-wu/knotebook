@@ -134,7 +134,7 @@ async function main(): Promise<void> {
   // #187 §10.4：帳密登入開關的開機提醒（env 救援仍開著、或「關閉＋零個啟用 provider」）。只寫 log、不擋啟動；在 listen 之前。
   await warnPasswordLoginAtBoot(db, config, logger);
 
-  // #122：handle registry 冪等補登（回滾窗期由舊碼建立、無 registry 列的帳號）。
+  // #122：handle registry 冪等補登（回滾窗期由舊碼建立、無 registry 列的帳號；先清掉退回舊版（#291 之前）期間留下的 released 列）。
   // **必須在 `app.listen` 之前**——否則補登與首個改名請求可交錯（spec §2a；
   // handle.test.ts 的結構守衛釘住這個順序）。
   await backfillHandleRegistry(db, logger);

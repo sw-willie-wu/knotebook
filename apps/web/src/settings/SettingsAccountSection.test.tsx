@@ -156,7 +156,7 @@ describe("SettingsLoginSection（hasPassword／帳密登入有效值 三形）",
  */
 describe("SettingsAccountSection——使用者名欄（#122 Task 5）", () => {
   const HANDLE_WARNING =
-    "The name used in your public links (/p/<handle>/…). It appears in every /n/ and /p/ link you share (token links don't include it). After a rename those links stop working immediately, and the old name can never be used again — not even by you.";
+    "The name used in your public links (/p/<handle>/…). It appears in every /n/ and /p/ link you share (token links don't include it). After a rename those links stop working immediately, and the old name is freed: anyone, including you, can take it. If someone else takes it, an old link that matches one of their notes leads to their note.";
 
   beforeEach(async () => {
     await i18n.changeLanguage("en");

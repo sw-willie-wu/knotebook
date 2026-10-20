@@ -44,7 +44,7 @@ export async function initializeInstance(db: Db, envAdmin?: EnvAdminBootstrap): 
     if (!setupRow) return; // 已有人完成——不重複建立
     // #122 registry-first（spec §2a）：**必須在上面的 setupRow 早退之後**——早退是正常
     // COMMIT，若 registry INSERT 先於守衛，並發敗方會 commit 一列指向不存在使用者的
-    // live 墓碑、永久燒掉該名字並讓下次 boot 撞 PK。tx 內**不做裸重試**（aborted
+    // live 列、燒掉該名字並讓下次 boot 撞 PK。tx 內**不做裸重試**（aborted
     // transaction）：探測後仍撞 PK＝真競態→整個啟動 fail-closed（重啟重試）。
     const handle = await deriveHandle(tx, [email.split("@")[0]], id);
     await tx.insert(handles).values({ handle, userId: id, state: "live" });

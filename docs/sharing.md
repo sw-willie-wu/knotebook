@@ -85,7 +85,7 @@ Turning the toggle off doesn't add a second URL alongside the token one — it r
 - **Readable and memorable** — you can put it on a slide or say it out loud.
 - **Guessable, and it reveals your username.** Anyone who can guess `/p/alice/roadmap` can read the note, and the URL itself tells them the note belongs to `alice`. For anonymous sharing, keep **Anonymous link** turned on.
 - The custom-URL page carries the same `X-Robots-Tag: noindex` as the token page.
-- Renaming your account (changing your username) kills the old custom URL immediately — old usernames are never forwarded — while the underlying token is unaffected.
+- Renaming your account (changing your username) kills the old custom URL immediately — old usernames are never forwarded — while the underlying token is unaffected. Once someone else takes your old username, the old custom URL leads to their note if they have one with the same custom name and a public link.
 - Turning **Anonymous link** back on returns the URL to the token form; the custom name is unique per account: two of your notes can't share one, but another user's `roadmap` doesn't collide with yours.
 
 ## Revoking and regenerating

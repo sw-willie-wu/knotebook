@@ -7,7 +7,9 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
-_Nothing yet._
+### Changed
+
+- Renaming your username now frees the old name: anyone, including you, can take it — going back to an earlier name counts as a rename against the limit of 5 per rolling 24 hours. Old links are still not forwarded to your new name; once someone else takes the name, old `/n/` and `/p/` links under it lead to their notes where the address matches (for `/n/`, only for people who can read the note). Includes a database migration that clears the names held by past renames (#291).
 
 ## [0.12.0] - 2026-10-15
 

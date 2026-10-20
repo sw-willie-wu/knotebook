@@ -47,7 +47,7 @@ async function isTaken(q: HandleQueryer, handle: string): Promise<boolean> {
 /**
  * 候選序（前者敗退後者；spec §2b：OIDC `preferred_username` → email local-part）＋
  * 探測選尾碼。全候選皆敗（空/非 ASCII 轉完全空/uuid 形）→ `user-<uuid8>`。
- * 探測含墓碑（released 列占 PK＝永不回收），`-2` 遞增、重截基底使總長 ≤32。
+ * 探測 registry（只有 live 列），`-2` 遞增、重截基底使總長 ≤32。
  */
 export async function deriveHandle(
   q: HandleQueryer,

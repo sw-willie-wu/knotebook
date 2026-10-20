@@ -19,7 +19,7 @@ export interface UserDto {
   id: string;
   email: string;
   /** #122：URL 用的使用者名（/n/<handle>/…）。建帳時派生（OIDC preferred_username →
-   * email local-part）或 admin 指定；settings 可改（改名＝舊網址即死、舊名永不回收）。 */
+   * email local-part）或 admin 指定；settings 可改（改名＝舊網址即死；舊名釋出、任何人可再取用）。 */
   handle: string;
   displayName: string;
   isAdmin: boolean;

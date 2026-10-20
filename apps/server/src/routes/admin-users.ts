@@ -163,8 +163,7 @@ export function adminUsersRoutes(deps: AdminUsersRouteDeps) {
 
       /**
        * #122 registry-first（spec §2a/§2b）：每次嘗試＝一個全新 tx（先 INSERT handles
-       * 由 PK 裁決、再 INSERT users）——**改掉原本的獨立語句形**（users 先寫會繞過墓碑：
-       * released 名字不在 users.handle 裡，users_handle_unique 擋不住）。
+       * 由 PK 裁決、再 INSERT users）——**改掉原本的獨立語句形**（users 先寫則 registry 不再是唯一裁決者）。
        * 重試契約：派生撞名（探測後的真競態）→ 整 tx 重跑、重新探測，≤3 次後第 4 次
        * 直接用 `user-<uuid8>`；顯式指定者不重試、409 `handle_taken`。
        * 判別依 constraint 名（M4-2）：舊的「任何 unique violation → email_taken」會把
