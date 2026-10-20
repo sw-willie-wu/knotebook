@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { normalizeEmail, normalizeHandle, validateHandle, type SpaceStorageDto } from "@knotebook/shared";
 import { sendError } from "../http/errors.js";
 import type { Db } from "../db/index.js";
-import { handles, storagePlans, users } from "../db/schema.js";
+import { handles, oneTimeLinks, storagePlans, users } from "../db/schema.js";
+import { activeOneTimeLink } from "../auth/one-time-link.js";
+import { disableUserInTx } from "../auth/tx/disable-user.js";
 import { deriveHandle } from "../auth/handle.js";
 import { hashPassword, HashBusyError } from "../auth/password.js";
 import type { UserGate } from "../auth/session.js";
@@ -53,6 +55,10 @@ interface AdminUserDto {
   /** #267：最後一次帶 session cookie 的請求、共編連線或編輯、或登入的時間（`users.last_active_at`，同一使用者至多每分鐘更新一次）；null＝從無紀錄。 */
   lastActiveAt: string | null;
   storage: SpaceStorageDto;
+  /** #286：`password_hash IS NOT NULL`（只回布林）。 */
+  hasPassword: boolean;
+  /** #286：有效（未用、未撤銷、未過期）的重設連結的到期時間；I3 保證至多一支。不受帳密開關影響（D2）。 */
+  passwordResetExpiresAt: string | null;
 }
 
 interface AdminUserRow {
@@ -65,10 +71,13 @@ interface AdminUserRow {
   createdAt: Date;
   lastLoginAt: Date | null;
   lastActiveAt: Date | null;
+  hasPassword: boolean;
+  passwordResetExpiresAt: Date | null;
 }
 
-// 只選這九欄＋方案（storage 另組）（形狀鎖，#122 起含 handle、#247 起含 lastLoginAt、#267 起含 lastActiveAt）：不可帶 passwordHash/tokenVersion——即使只是內部查詢，也不要
-// select 出這兩欄再靠序列化階段刻意漏掉，直接在 SQL 端就不撈，斷絕任何洩漏路徑。
+// 只選這九欄＋兩個 SQL 表達式＋方案（storage 另組）（形狀鎖，#122 起含 handle、#247 起含 lastLoginAt、#267 起含 lastActiveAt、#286 起含
+// hasPassword／passwordResetExpiresAt）：不可帶 passwordHash/tokenVersion——`hasPassword` 只回布林，仍不 select `password_hash` 本體。即使只是
+// 內部查詢，也不要 select 出這兩欄再靠序列化階段刻意漏掉，直接在 SQL 端就不撈，斷絕任何洩漏路徑。
 function toAdminUserDto(row: AdminUserRow, storage: SpaceStorageDto): AdminUserDto {
   return {
     id: row.id,
@@ -81,6 +90,8 @@ function toAdminUserDto(row: AdminUserRow, storage: SpaceStorageDto): AdminUserD
     lastLoginAt: row.lastLoginAt ? row.lastLoginAt.toISOString() : null,
     lastActiveAt: row.lastActiveAt ? row.lastActiveAt.toISOString() : null,
     storage,
+    hasPassword: row.hasPassword,
+    passwordResetExpiresAt: row.passwordResetExpiresAt ? row.passwordResetExpiresAt.toISOString() : null,
   };
 }
 
@@ -94,6 +105,11 @@ const adminUserColumns = {
   createdAt: users.createdAt,
   lastLoginAt: users.lastLoginAt,
   lastActiveAt: users.lastActiveAt,
+  hasPassword: sql<boolean>`${users.passwordHash} is not null`,
+  // ⚠ 外層參照 `users.id` 必須留在巢狀的 `and(…)` 裡：drizzle 0.44 在單表 RETURNING（POST 代建、PATCH storage-plan）會把
+  // SQL 表達式**頂層**的欄位參照去掉表名，頂層的 `${users.id}` 變成 `"id"`、在子查詢內被解析成 one_time_links.id，靜默變 null（spec §4.2）。
+  // `.mapWith` 不可省：不加會拿到 pg 原始字串。
+  passwordResetExpiresAt: sql`(select ${oneTimeLinks.expiresAt} from ${oneTimeLinks} where ${and(eq(oneTimeLinks.targetUserId, users.id), activeOneTimeLink("password_reset"))})`.mapWith(oneTimeLinks.expiresAt),
 };
 
 /** 單一使用者的 storage 欄（POST／PATCH 回應用；GET 列表走 GROUP BY 一次）。 */
@@ -239,17 +255,17 @@ export function adminUsersRoutes(deps: AdminUsersRouteDeps) {
         return sendError(reply, 400, "cannot_disable_self", "無法停用自己的帳號");
       }
 
-      // tokenVersion 遞增交給 SQL 端做原子操作（同 auth.ts 改密碼路徑的理由），且以
-      // `disabledAt IS NULL` 作為條件更新：已停用者重複呼叫時 affected 0 列，藉此
-      // 分辨「冪等（已停用）」與「真的第一次停用」，不再重複 bump tv。只 returning id
-      // ——呼叫方不需要 passwordHash/tokenVersion 這些欄位進記憶體。
-      const [updated] = await deps.db
-        .update(users)
-        .set({ disabledAt: sql`now()`, tokenVersion: sql`${users.tokenVersion} + 1` })
-        .where(and(eq(users.id, id), isNull(users.disabledAt)))
-        .returning({ id: users.id });
+      // 條件式停用＋ #286 同交易撤銷重設連結（auth/tx/disable-user.ts）。
+      const input = { id };
+      let result: Awaited<ReturnType<typeof disableUserInTx>>;
+      try {
+        result = await deps.db.transaction(tx => disableUserInTx(tx, input));
+      } catch (err) {
+        // 交易動到含雜湊欄的連結列：非預期的 DB 錯誤一律遮蔽後再丟（同 admin-auth.ts 刪除登入服務）。
+        throw redactDbError(request.log, err, "停用帳號");
+      }
 
-      if (!updated) {
+      if (!result.disabled) {
         const [existing] = await deps.db.select({ id: users.id }).from(users).where(eq(users.id, id)).limit(1);
         if (!existing) {
           return sendError(reply, 404, "user_not_found", "找不到此使用者");
@@ -261,6 +277,9 @@ export function adminUsersRoutes(deps: AdminUsersRouteDeps) {
 
       deps.gate.invalidate(id);
       deps.collabHooks.onUserRevoked(id);
+      if (result.revokedResetLinks > 0) {
+        request.log.info({ userId: request.user!.id, targetUserId: id, revoked: result.revokedResetLinks }, "停用帳號時撤銷重設密碼連結");
+      }
 
       return reply.code(204).send();
     });

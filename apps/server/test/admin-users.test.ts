@@ -4,7 +4,8 @@ import { and, eq, inArray, isNull } from "drizzle-orm";
 import { SESSION_COOKIE } from "@knotebook/shared";
 import { buildTestApp, testConfig } from "./helpers.js";
 import { cookieOf, seedUser, waitForBlockedOrSettled } from "./group-helpers.js";
-import { users } from "../src/db/schema.js";
+import { oneTimeLinks, users } from "../src/db/schema.js";
+import { captureLogs } from "./helpers/admin-auth.js";
 import type { Db } from "../src/db/index.js";
 import { signSession } from "../src/auth/session.js";
 import type { CollabHooks } from "../src/collab/hooks.js";
@@ -66,16 +67,18 @@ function spyCollabHooks(): CollabHooks {
   };
 }
 
-const EXPECTED_KEYS = ["id", "email", "handle", "displayName", "isAdmin", "disabledAt", "createdAt", "lastLoginAt", "lastActiveAt", "storage"].sort();
+const EXPECTED_KEYS = ["id", "email", "handle", "displayName", "isAdmin", "disabledAt", "createdAt", "lastLoginAt", "lastActiveAt", "storage", "hasPassword", "passwordResetExpiresAt"].sort();
 
 describe("requireAdmin 保護：全部端點非 admin 403、未登入 401", () => {
-  const endpoints: Array<{ name: string; url: (id: string) => string; method: "GET" | "POST" }> = [
+  const endpoints: Array<{ name: string; url: (id: string) => string; method: "GET" | "POST" | "DELETE" }> = [
     { name: "GET /api/admin/users", method: "GET", url: () => "/api/admin/users" },
     { name: "POST /api/admin/users", method: "POST", url: () => "/api/admin/users" },
     { name: "POST /api/admin/users/:id/disable", method: "POST", url: id => `/api/admin/users/${id}/disable` },
     { name: "POST /api/admin/users/:id/enable", method: "POST", url: id => `/api/admin/users/${id}/enable` },
     { name: "POST /api/admin/users/:id/promote", method: "POST", url: id => `/api/admin/users/${id}/promote` },
     { name: "POST /api/admin/users/:id/demote", method: "POST", url: id => `/api/admin/users/${id}/demote` },
+    { name: "POST /api/admin/users/:id/password-reset", method: "POST", url: id => `/api/admin/users/${id}/password-reset` },
+    { name: "DELETE /api/admin/users/:id/password-reset", method: "DELETE", url: id => `/api/admin/users/${id}/password-reset` },
   ];
 
   for (const ep of endpoints) {
@@ -114,7 +117,7 @@ describe("GET /api/admin/users", () => {
       expect(Object.keys(row).sort()).toEqual(EXPECTED_KEYS);
     }
     const otherRow = body.find((u: { id: string }) => u.id === other.id);
-    expect(otherRow).toMatchObject({ id: other.id, email: "other-shape@example.com", displayName: "Other", isAdmin: false, disabledAt: null });
+    expect(otherRow).toMatchObject({ id: other.id, email: "other-shape@example.com", displayName: "Other", isAdmin: false, disabledAt: null, hasPassword: true, passwordResetExpiresAt: null });
   });
 
   it("依 createdAt asc 排序", async () => {
@@ -146,7 +149,7 @@ describe("POST /api/admin/users", () => {
     expect(res.statusCode).toBe(201);
     const body = res.json();
     expect(Object.keys(body).sort()).toEqual(EXPECTED_KEYS);
-    expect(body).toMatchObject({ email: "newuser-c1@example.com", handle: "newuser-c1", displayName: "New User", isAdmin: false, disabledAt: null });
+    expect(body).toMatchObject({ email: "newuser-c1@example.com", handle: "newuser-c1", displayName: "New User", isAdmin: false, disabledAt: null, hasPassword: true, passwordResetExpiresAt: null });
 
     const loginRes = await app.inject({
       method: "POST",
@@ -395,6 +398,54 @@ describe("POST /api/admin/users/:id/disable", () => {
     // 狀態未變（早已停用）不重複呼叫 hook——第二次 disable 不應該讓 onUserRevoked
     // 再多觸發一次（維持第一次成功停用時那一次呼叫）。
     expect(collabHooks.onUserRevoked).toHaveBeenCalledTimes(1);
+  });
+
+  // #286 spec §4.6：停用與撤銷重設連結同一交易；revoked > 0 才記 log。
+  const REVOKE_LOG = "停用帳號時撤銷重設密碼連結";
+
+  async function disableSetup() {
+    const cap = captureLogs();
+    const { app, db } = await buildTestApp({ collabHooks: spyCollabHooks() }, cap.options);
+    const admin = await insertUser(db, { isAdmin: true });
+    const target = await insertUser(db);
+    const adminCookies = { [SESSION_COOKIE]: await cookieFor(admin.id) };
+    return { app, db, admin, target, adminCookies, lines: cap.lines };
+  }
+
+  it("D-R1：有效連結 → 停用 204 並撤銷、記 log；重新啟用後連結仍撤銷、列表為 null", async () => {
+    const { app, db, admin, target, adminCookies, lines } = await disableSetup();
+    const issued = await app.inject({ method: "POST", url: `/api/admin/users/${target.id}/password-reset`, cookies: adminCookies, payload: { expiresInHours: 1 } });
+    expect(issued.statusCode).toBe(201);
+
+    const res = await app.inject({ method: "POST", url: `/api/admin/users/${target.id}/disable`, cookies: adminCookies });
+    expect(res.statusCode).toBe(204);
+    const [link] = await db.select().from(oneTimeLinks).where(eq(oneTimeLinks.targetUserId, target.id));
+    expect(link!.revokedAt).not.toBeNull();
+    expect(link!.usedAt).toBeNull();
+    expect(lines.filter(l => l.msg === REVOKE_LOG).map(l => l.obj)).toEqual([{ userId: admin.id, targetUserId: target.id, revoked: 1 }]);
+
+    expect((await app.inject({ method: "POST", url: `/api/admin/users/${target.id}/enable`, cookies: adminCookies })).statusCode).toBe(204);
+    const [after] = await db.select().from(oneTimeLinks).where(eq(oneTimeLinks.id, link!.id));
+    expect(after!.revokedAt).not.toBeNull();
+    const list = await app.inject({ method: "GET", url: "/api/admin/users", cookies: adminCookies });
+    expect(list.json().find((u: { id: string }) => u.id === target.id)).toMatchObject({ disabledAt: null, passwordResetExpiresAt: null });
+  });
+
+  it("D-R2：沒有連結 → 停用 204、不記撤銷 log", async () => {
+    const { app, target, adminCookies, lines } = await disableSetup();
+    const res = await app.inject({ method: "POST", url: `/api/admin/users/${target.id}/disable`, cookies: adminCookies });
+    expect(res.statusCode).toBe(204);
+    expect(lines.filter(l => l.msg === REVOKE_LOG)).toEqual([]);
+  });
+
+  it("D-R3：已停用再停用（冪等 204）→ 不再記撤銷 log", async () => {
+    const { app, target, adminCookies, lines } = await disableSetup();
+    const issued = await app.inject({ method: "POST", url: `/api/admin/users/${target.id}/password-reset`, cookies: adminCookies, payload: { expiresInHours: 1 } });
+    expect(issued.statusCode).toBe(201);
+    expect((await app.inject({ method: "POST", url: `/api/admin/users/${target.id}/disable`, cookies: adminCookies })).statusCode).toBe(204);
+    expect(lines.filter(l => l.msg === REVOKE_LOG)).toHaveLength(1);
+    expect((await app.inject({ method: "POST", url: `/api/admin/users/${target.id}/disable`, cookies: adminCookies })).statusCode).toBe(204);
+    expect(lines.filter(l => l.msg === REVOKE_LOG)).toHaveLength(1);
   });
 });
 
