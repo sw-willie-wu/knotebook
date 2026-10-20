@@ -116,6 +116,17 @@ export const handles = pgTable(
   ],
 );
 
+/** #291：改名額度的計數來源（每次成功改名一列；改名交易內寫入）。 */
+export const handleRenames = pgTable(
+  "handle_renames",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    renamedAt: timestamp("renamed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  t => [index("handle_renames_user_time_idx").on(t.userId, t.renamedAt)],
+);
+
 export const instanceSetup = pgTable("instance_setup", {
   singleton: boolean().primaryKey().default(true),
   completedAt: timestamp("completed_at", { withTimezone: true }).notNull().defaultNow(),

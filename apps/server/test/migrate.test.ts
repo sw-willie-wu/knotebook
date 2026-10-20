@@ -7,24 +7,24 @@ import { MAX_PROVIDER_ICON_BYTES, autoSlugFromTitle, validateHandle, validateSlu
 import { applyMigrationsThrough, freshDb, freshEmptyDb, idxOfTag, journalEntries } from "./helpers.js";
 import { runMigrations } from "../src/db/migrate.js";
 import { PgDialect, getTableConfig } from "drizzle-orm/pg-core";
-import { apiTokens, authProviders, groupMembers, groupRoles, groups, noteRedirects, notes, oauthClients, oauthCodes, noteSearchSections, noteSearchState, noteLinkConversion, noteVersions, oauthRequests, siteSettings, storagePlans, transferTokens, userIdentities, users } from "../src/db/schema.js";
+import { apiTokens, authProviders, groupMembers, groupRoles, groups, noteRedirects, notes, oauthClients, oauthCodes, noteSearchSections, noteSearchState, noteLinkConversion, noteVersions, handleRenames, oauthRequests, siteSettings, storagePlans, transferTokens, userIdentities, users } from "../src/db/schema.js";
 
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
 /** drizzle 對 `schema.ts` 的序列化；宣告漂移守衛拿最新一支當比對基準（Task 14 rebase 後改成實際檔名）。 */
-const SNAPSHOT_FILE = "meta/0026_snapshot.json";
+const SNAPSHOT_FILE = "meta/0027_snapshot.json";
 const snapshotLatest = JSON.parse(readFileSync(path.join(drizzleDirForTest, SNAPSHOT_FILE), "utf8")) as {
   tables: Record<string, { checkConstraints?: Record<string, { name: string; value: string }> }>;
 };
 const pgDialect = new PgDialect();
 
 describe("runMigrations", () => {
-  it("migrate 兩次 idempotent 且 30 張表存在", async () => {
+  it("migrate 兩次 idempotent 且 31 張表存在", async () => {
     const { db, pool } = await freshDb();
     await runMigrations(db); // freshDb 已跑過一次——此為第二次
     const r = await pool.query(`select table_name from information_schema.tables where table_schema='public'`);
     const tableNames = r.rows.map(x => x.table_name);
-    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes", "note_ai_edits", "groups", "group_members", "group_roles", "note_redirects", "auth_providers", "user_identities", "site_settings", "note_search_sections", "note_search_state", "transfer_tokens", "storage_plans", "note_versions", "note_link_conversion"])
+    for (const t of ["users", "instance_setup", "notes", "note_states", "note_state_backups", "note_shares", "note_links", "uploads", "ai_providers", "ai_models", "ai_actions", "handles", "api_tokens", "oauth_clients", "oauth_requests", "oauth_codes", "note_ai_edits", "groups", "group_members", "group_roles", "note_redirects", "auth_providers", "user_identities", "site_settings", "note_search_sections", "note_search_state", "transfer_tokens", "storage_plans", "note_versions", "note_link_conversion", "handle_renames"])
       expect(tableNames).toContain(t);
   });
 
@@ -259,6 +259,59 @@ describe("runMigrations", () => {
   });
 });
 
+describe("#291 0027_handle-renames", () => {
+  it("handle_renames 形狀：三欄（型別／NOT NULL／default）、FK → users ON DELETE CASCADE、(user_id, renamed_at) 索引；刪使用者連帶刪列", async () => {
+    const { pool } = await freshDb();
+    const cols = (await pool.query(
+      `select column_name, data_type, is_nullable, column_default from information_schema.columns where table_name = 'handle_renames' order by column_name`,
+    )).rows;
+    expect(cols).toEqual([
+      { column_name: "id", data_type: "uuid", is_nullable: "NO", column_default: "gen_random_uuid()" },
+      { column_name: "renamed_at", data_type: "timestamp with time zone", is_nullable: "NO", column_default: "now()" },
+      { column_name: "user_id", data_type: "uuid", is_nullable: "NO", column_default: null },
+    ]);
+    const fks = (await pool.query(
+      `select confdeltype, confrelid::regclass::text as ref from pg_constraint where conrelid = 'handle_renames'::regclass and contype = 'f'`,
+    )).rows;
+    expect(fks).toEqual([{ confdeltype: "c", ref: "users" }]);
+    const idx = (await pool.query(
+      `select indexdef from pg_indexes where indexname = 'handle_renames_user_time_idx'`,
+    )).rows;
+    expect(idx).toHaveLength(1);
+    expect(idx[0].indexdef).toMatch(/\(user_id, renamed_at\)/);
+    const u = (await pool.query(`insert into users (email, display_name) values ('hr@x.example', 'H') returning id`)).rows[0].id as string;
+    await pool.query(`insert into handle_renames (user_id) values ($1), ($1)`, [u]);
+    expect((await pool.query(`select count(*)::int as n from handle_renames`)).rows[0].n).toBe(2);
+    await pool.query(`delete from users where id = $1`, [u]);
+    expect((await pool.query(`select count(*)::int as n from handle_renames`)).rows[0].n).toBe(0);
+  });
+
+  it("0027 資料：24 h 內的 released 列補種（renamed_at＝released_at）、較舊的不補、孤兒 released 列跳過、跑完 handles 無 released 列、live 列不動；再跑 runMigrations 不變", async () => {
+    const { pool, db } = await freshEmptyDb();
+    await applyMigrationsThrough(pool, idxOfTag("0027_handle-renames") - 1);
+    const a = (await pool.query(`insert into users (email, display_name, handle) values ('mig-a@x.example', 'A', 'mig-a') returning id`)).rows[0].id as string;
+    const b = (await pool.query(`insert into users (email, display_name, handle) values ('mig-b@x.example', 'B', 'mig-b') returning id`)).rows[0].id as string;
+    await pool.query(
+      `insert into handles (handle, user_id, state, released_at) values
+        ('mig-a', $1, 'live', null),
+        ('mig-a-old1', $1, 'released', now() - interval '1 hour'),
+        ('mig-a-old2', $1, 'released', now() - interval '2 days'),
+        ('ghost-old', $3, 'released', now() - interval '1 hour'),
+        ('mig-b', $2, 'live', null)`,
+      [a, b, randomUUID()],
+    );
+    const expected = (await pool.query(`select released_at::text as t from handles where handle = 'mig-a-old1'`)).rows[0].t as string;
+    await runMigrations(db);
+    const renames = async () => (await pool.query(`select user_id, renamed_at::text as renamed_at from handle_renames`)).rows;
+    const handleRows = async () => (await pool.query(`select handle, state from handles order by handle`)).rows;
+    expect(await renames()).toEqual([{ user_id: a, renamed_at: expected }]);
+    expect(await handleRows()).toEqual([{ handle: "mig-a", state: "live" }, { handle: "mig-b", state: "live" }]);
+    await runMigrations(db);
+    expect(await renames()).toEqual([{ user_id: a, renamed_at: expected }]);
+    expect(await handleRows()).toEqual([{ handle: "mig-a", state: "live" }, { handle: "mig-b", state: "live" }]);
+  });
+});
+
 /**
  * 0006_user-handle（#122 PR1 Task 2）。形狀案跑在 freshDb（全 migration）上；backfill
  * 資料案例跑在 §7-H harness 上（freshEmptyDb → applyThrough(0005) → 塞 0005 形 fixture
@@ -296,20 +349,16 @@ describe("0006_user-handle", () => {
         [userId],
       ),
     ).rejects.toMatchObject({ code: "23514", constraint: "handles_released_at_chk" });
-    // PK＝配置裁決（含墓碑——released 列也占住名字）
-    await pool.query(
-      `insert into handles (handle, user_id, state, released_at) values ('tomb-ok', $1, 'released', now())`,
-      [userId],
-    );
+    // PK＝配置裁決：擋 live 撞名
     await expect(
-      pool.query(`insert into handles (handle, user_id, state) values ('tomb-ok', $1, 'live')`, [userId]),
+      pool.query(`insert into handles (handle, user_id, state) values ('ok-name', $1, 'live')`, [randomUUID()]),
     ).rejects.toMatchObject({ code: "23505", constraint: "handles_pkey" });
     // user_id **刻意零 FK**（registry-first 順序的結構前提，schema.ts 註解承重——讀碼審查 minor 3）
     const { rows: fks } = await pool.query(
       `select count(*)::int as n from pg_constraint where conrelid = 'handles'::regclass and contype = 'f'`,
     );
     expect(fks[0].n).toBe(0);
-    // Task 4 額度查詢的反向索引（minor 7）
+    // 依 user_id 查列的索引
     const { rows: idx } = await pool.query(
       `select indexname from pg_indexes where tablename = 'handles' and indexname = 'handles_user_idx'`,
     );
@@ -1214,7 +1263,7 @@ describe("0009_api-tokens", () => {
       expect(names, i).toContain(i);
   });
 
-  it("schema.ts 的十九個宣告沒有靜默漂移（四個 OAuth／token 宣告零 import；#103／#175 的四張表的 CHECK 也在這裡逐字比對、#187 的三張表、#93 的兩張表、#200 的一張表、容量上限的 users／storage_plans、版本歷史的 note_versions、#269 的 note_link_conversion）", async () => {
+  it("schema.ts 的二十個宣告沒有靜默漂移（四個 OAuth／token 宣告零 import；#103／#175 的四張表的 CHECK 也在這裡逐字比對、#187 的三張表、#93 的兩張表、#200 的一張表、容量上限的 users／storage_plans、版本歷史的 note_versions、#269 的 note_link_conversion、#291 的 handle_renames）", async () => {
     // 比照 0008 的同族守衛：把 schema.ts 的宣告與 migration 造出來的 DB 對起來。
     // 沒有這一案的話，把 schema.ts 的四段 pgTable 整個刪掉，全套測試照樣綠——
     // 只有下一次 db:generate 會產出 DROP TABLE。
@@ -1279,6 +1328,7 @@ describe("0009_api-tokens", () => {
       storage_plans: ["id", "name", "quota_bytes", "created_at", "updated_at"],
       note_versions: ["id", "note_id", "seq", "ydoc", "kind", "name", "editors", "base_seq", "base_version_id", "created_at"],
       note_link_conversion: ["note_id", "status", "attempts", "converted", "unresolved", "updated_at"],
+      handle_renames: ["id", "user_id", "renamed_at"],
     };
 
     for (const [table, decl] of [
@@ -1301,6 +1351,7 @@ describe("0009_api-tokens", () => {
       ["storage_plans", storagePlans],
       ["note_versions", noteVersions],
       ["note_link_conversion", noteLinkConversion],
+      ["handle_renames", handleRenames],
     ] as const) {
       const cfg = getTableConfig(decl);
       // 宣告的欄名 = DB 的欄名 = 這裡寫死的期望（三方對齊，任一邊漂移就紅）
