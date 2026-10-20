@@ -2,14 +2,15 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type pino from "pino";
 import { OIDC_STATE_COOKIE, SESSION_COOKIE } from "@knotebook/shared";
 import { initializeInstance } from "../src/auth/bootstrap.js";
 import { backfillHandleRegistry, deriveHandle } from "../src/auth/handle.js";
 import { hashPassword } from "../src/auth/password.js";
-import { handles, users } from "../src/db/schema.js";
+import { handleRenames, handles, users } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
+import { cookieOf, waitForBlockedOrSettled } from "./group-helpers.js";
 import { buildTestApp, freshDb } from "./helpers.js";
 import { createFakeIdp, type FakeIdp, type FakeIdpClaims } from "./helpers/fake-idp.js";
 import { legacyOidcApp } from "./helpers/oidc-provider.js";
@@ -35,6 +36,23 @@ async function expectLiveRegistry(db: Db, email: string): Promise<{ handle: stri
   expect(reg!.state).toBe("live");
   expect(reg!.userId).toBe(user.id);
   return { handle: user.handle };
+}
+
+/** 已在 registry 的使用者（users＋handles live 列）與其 session cookie。 */
+async function addRegisteredUser(db: Db, email: string, handle: string): Promise<{ id: string; cookies: Record<string, string> }> {
+  const [u] = await db.insert(users).values({ email, displayName: handle, handle }).returning({ id: users.id });
+  await db.insert(handles).values({ handle, userId: u!.id, state: "live" });
+  return { id: u!.id, cookies: await cookieOf(u!.id) };
+}
+
+/** 直接插 n 列改名紀錄（額度 fixture）。 */
+async function spend(db: Db, userId: string, n: number, at = new Date()): Promise<void> {
+  await db.insert(handleRenames).values(Array.from({ length: n }, () => ({ userId, renamedAt: at })));
+}
+
+async function renamesOf(db: Db, userId: string): Promise<number> {
+  const [row] = await db.select({ n: sql<number>`count(*)::int` }).from(handleRenames).where(eq(handleRenames.userId, userId));
+  return row!.n;
 }
 
 describe("deriveHandle（候選序＋探測；spec §2b）", () => {
@@ -418,25 +436,37 @@ describe("boot 補登＋DTO（spec §2a/§2b）", () => {
 describe("改名 PATCH /api/auth/profile（spec §2a；Task 4）", () => {
   async function userApp(handle = "renamer") {
     const { app, db } = await buildTestApp();
-    await db.insert(users).values({
-      email: "renamer@x.example",
-      displayName: "R",
-      passwordHash: await hashPassword("a-very-long-pw"),
-      handle,
-    });
+    const [me] = await db
+      .insert(users)
+      .values({
+        email: "renamer@x.example",
+        displayName: "R",
+        passwordHash: await hashPassword("a-very-long-pw"),
+        handle,
+      })
+      .returning({ id: users.id });
     await backfillHandleRegistry(db, { warn: () => {}, info: () => {} } as unknown as pino.Logger);
     const login = await app.inject({ method: "POST", url: "/api/auth/login", payload: { email: "renamer@x.example", password: "a-very-long-pw" } });
     expect(login.statusCode).toBe(200);
     const cookie = login.cookies.find((c) => c.name === SESSION_COOKIE)!;
-    return { app, db, cookies: { [cookie.name]: cookie.value } };
+    return { app, db, me: me!, cookies: { [cookie.name]: cookie.value } };
+  }
+
+  async function userRow(db: Db, id: string) {
+    const [u] = await db.select().from(users).where(eq(users.id, id));
+    return u!;
+  }
+
+  async function handleRow(db: Db, handle: string) {
+    return (await db.select().from(handles).where(eq(handles.handle, handle)))[0];
   }
 
   function rename(app: Awaited<ReturnType<typeof buildTestApp>>["app"], cookies: Record<string, string>, handle: string) {
     return app.inject({ method: "PATCH", url: "/api/auth/profile", payload: { handle }, cookies });
   }
 
-  it("成功改名：users/registry 雙寫、舊列 state='released'＋released_at 非空、/me 立即回新值（gate.invalidate）", async () => {
-    const { app, db, cookies } = await userApp();
+  it("成功改名：users/registry 雙寫、舊名列刪除、記一筆改名紀錄、/me 立即回新值（gate.invalidate）", async () => {
+    const { app, db, me, cookies } = await userApp();
     const res = await rename(app, cookies, "New-Name");
     expect(res.statusCode).toBe(200);
     // 形狀鎖（讀碼審查 n1）：PATCH 回應＝完整 UserDto，無多無少；版本歷史 §6.8 加 autoVersions
@@ -448,13 +478,12 @@ describe("改名 PATCH /api/auth/profile（spec §2a；Task 4）", () => {
 
     const { handle } = await expectLiveRegistry(db, "renamer@x.example");
     expect(handle).toBe("new-name");
-    const [old] = await db.select().from(handles).where(eq(handles.handle, "renamer"));
-    expect(old.state).toBe("released");
-    expect(old.releasedAt).not.toBeNull();
+    expect(await db.select().from(handles).where(eq(handles.handle, "renamer"))).toHaveLength(0);
+    expect(await renamesOf(db, me.id)).toBe(1);
 
     // gate.invalidate：60s 快取不等 TTL、/me 立刻反映
-    const me = await app.inject({ method: "GET", url: "/api/auth/me", cookies });
-    expect(me.json().handle).toBe("new-name");
+    const meRes = await app.inject({ method: "GET", url: "/api/auth/me", cookies });
+    expect(meRes.json().handle).toBe("new-name");
   });
 
   it("非法格式 → 400 invalid_body（先 validate，不落 DB CHECK 500）；未登入 → 401", async () => {
@@ -474,36 +503,162 @@ describe("改名 PATCH /api/auth/profile（spec §2a；Task 4）", () => {
     expect(anon.statusCode).toBe(401);
   });
 
-  it("改成他人現用名／墓碑名／自己現行名 → 409 handle_taken（永不回收；自我改名不得走 DELETE 短路）", async () => {
+  it("改成他人現用名／自己現行名（含大寫）→ 409 handle_taken（自我改名不得走 DELETE 短路）", async () => {
     const { app, db, cookies } = await userApp();
-    await db.insert(handles).values([
-      { handle: "occupied", userId: "14141414-aaaa-4bbb-8ccc-000000000014", state: "live" },
-      { handle: "tombed", userId: "14141414-aaaa-4bbb-8ccc-000000000014", state: "released", releasedAt: new Date() },
-    ]);
-    for (const taken of ["occupied", "tombed", "renamer"]) {
+    await db.insert(handles).values({ handle: "occupied", userId: "14141414-aaaa-4bbb-8ccc-000000000014", state: "live" });
+    for (const taken of ["occupied", "renamer", "RENAMER"]) {
       const res = await rename(app, cookies, taken);
       expect(res.statusCode, taken).toBe(409);
       expect(res.json().error.code, taken).toBe("handle_taken");
     }
   });
 
-  it("改回舊名 → 409（tombstone 永不回收——含自己）", async () => {
-    const { app, cookies } = await userApp();
-    expect((await rename(app, cookies, "second-name")).statusCode).toBe(200);
-    const back = await rename(app, cookies, "renamer");
-    expect(back.statusCode).toBe(409);
-    expect(back.json().error.code).toBe("handle_taken");
+  it("窗期形（本人現行名無 registry 列）改成自己現行名 → 409 handle_taken；不記改名紀錄、users.handle 不變", async () => {
+    const { app, db, me, cookies } = await userApp();
+    await db.delete(handles).where(eq(handles.handle, "renamer"));
+    const res = await rename(app, cookies, "renamer");
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe("handle_taken");
+    expect(await renamesOf(db, me.id)).toBe(0);
+    expect((await userRow(db, me.id)).handle).toBe("renamer");
   });
 
-  it("額度 5/日（DB registry 計數，非 in-memory）：第 6 次 429", async () => {
-    const { app, db, cookies } = await userApp();
-    // fixture 直接塞 5 筆本人今日 released 列（比連改五次快，且驗的是計數來源）
-    const [me] = await db.select().from(users).where(eq(users.email, "renamer@x.example"));
-    const rows = [];
-    for (let i = 1; i <= 5; i += 1) {
-      rows.push({ handle: `spent-${i}`, userId: me.id, state: "released" as const, releasedAt: new Date() });
+  it("改回自己的舊名（含大寫）→ 200；舊名列回到本人、live；剛改掉的名字列刪除", async () => {
+    const { app, db, me, cookies } = await userApp();
+    expect((await rename(app, cookies, "second-name")).statusCode).toBe(200);
+    const back = await rename(app, cookies, "renamer");
+    expect(back.statusCode).toBe(200);
+    const row = await handleRow(db, "renamer");
+    expect(row?.userId).toBe(me.id);
+    expect(row?.state).toBe("live");
+    expect(await handleRow(db, "second-name")).toBeUndefined();
+    expect(await renamesOf(db, me.id)).toBe(2);
+
+    expect((await rename(app, cookies, "third-name")).statusCode).toBe(200);
+    expect((await rename(app, cookies, "SECOND-NAME")).statusCode).toBe(200);
+    expect((await userRow(db, me.id)).handle).toBe("second-name");
+  });
+
+  it("他人取用我的舊名 → 200；名字歸取用者、各自記一筆改名紀錄", async () => {
+    const { app, db, me, cookies } = await userApp();
+    expect((await rename(app, cookies, "renamer-new")).statusCode).toBe(200);
+    const y = await addRegisteredUser(db, "y@x.example", "yuser");
+    expect((await rename(app, y.cookies, "renamer")).statusCode).toBe(200);
+    expect((await userRow(db, y.id)).handle).toBe("renamer");
+    const row = await handleRow(db, "renamer");
+    expect(row?.userId).toBe(y.id);
+    expect(row?.state).toBe("live");
+    expect(await renamesOf(db, me.id)).toBe(1);
+    expect(await renamesOf(db, y.id)).toBe(1);
+  });
+
+  it("額度不可繞過（I3）：A→B 來回五次皆 200、第六次 429", async () => {
+    const { app, db, me, cookies } = await userApp();
+    for (const target of ["b5", "renamer", "b5", "renamer", "b5"]) {
+      expect((await rename(app, cookies, target)).statusCode, target).toBe(200);
     }
-    await db.insert(handles).values(rows);
+    const sixth = await rename(app, cookies, "renamer");
+    expect(sixth.statusCode).toBe(429);
+    expect(sixth.json().error.code).toBe("too_many_requests");
+    expect((await userRow(db, me.id)).handle).toBe("b5");
+    expect(await renamesOf(db, me.id)).toBe(5);
+  });
+
+  it("額度 I3 同人併發：額度在本人列鎖之後數——排隊的改名讀得到前者已 commit 的紀錄 → 429", async () => {
+    const { app, db, me, cookies } = await userApp();
+    const pool = db.$client;
+    const c = await pool.connect();
+    let req: ReturnType<typeof rename> | undefined;
+    let interleave: string | undefined;
+    try {
+      await c.query("begin");
+      await c.query("select id from users where id = $1 for update", [me.id]);
+      await c.query("insert into handle_renames (user_id) select $1 from generate_series(1, 5)", [me.id]);
+      req = rename(app, cookies, "racer");
+      interleave = await waitForBlockedOrSettled(pool, req);
+    } finally {
+      try {
+        await c.query("commit");
+      } finally {
+        c.release();
+      }
+    }
+    const res = await req!;
+    expect(interleave).toBe("blocked");
+    expect(res.statusCode).toBe(429);
+    expect((await userRow(db, me.id)).handle).toBe("renamer");
+    expect(await renamesOf(db, me.id)).toBe(5);
+    expect(await handleRow(db, "racer")).toBeUndefined();
+  });
+
+  describe("取名等待他人釋放（確定性交錯）", () => {
+    /** X 的改名停在 commit 前（照真實釋放形），送出我改名成 X 的舊名，回傳交錯結果與請求。 */
+    async function pendingRelease(commit: boolean) {
+      const ctx = await userApp();
+      const x = await addRegisteredUser(ctx.db, "x@x.example", "taken-x");
+      const pool = ctx.db.$client;
+      const c = await pool.connect();
+      let req: ReturnType<typeof rename> | undefined;
+      let interleave: string | undefined;
+      try {
+        await c.query("begin");
+        await c.query("insert into handles (handle, user_id, state) values ('x-next', $1, 'live')", [x.id]);
+        await c.query("delete from handles where handle = 'taken-x' and user_id = $1", [x.id]);
+        await c.query("update users set handle = 'x-next' where id = $1", [x.id]);
+        req = rename(ctx.app, ctx.cookies, "taken-x");
+        interleave = await waitForBlockedOrSettled(pool, req);
+      } finally {
+        try {
+          await c.query(commit ? "commit" : "rollback");
+        } finally {
+          c.release();
+        }
+      }
+      return { ...ctx, x, interleave, res: await req! };
+    }
+
+    it("X commit → 我取得該名 200", async () => {
+      const { db, me, interleave, res } = await pendingRelease(true);
+      expect(interleave).toBe("blocked");
+      expect(res.statusCode).toBe(200);
+      const row = await handleRow(db, "taken-x");
+      expect(row?.userId).toBe(me.id);
+      expect(row?.state).toBe("live");
+      expect((await userRow(db, me.id)).handle).toBe("taken-x");
+    });
+
+    it("X rollback → 409 handle_taken、我的名字與額度不變", async () => {
+      const { db, me, x, interleave, res } = await pendingRelease(false);
+      expect(interleave).toBe("blocked");
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error.code).toBe("handle_taken");
+      expect((await userRow(db, me.id)).handle).toBe("renamer");
+      expect(await renamesOf(db, me.id)).toBe(0);
+      const xRow = await handleRow(db, "taken-x");
+      expect(xRow?.userId).toBe(x.id);
+      expect(xRow?.state).toBe("live");
+    });
+  });
+
+  it("失敗不耗額度、同送欄位一起不寫：409 與 429 後改名紀錄不增、displayName 不變", async () => {
+    const { app, db, me, cookies } = await userApp();
+    await db.insert(handles).values({ handle: "occupied", userId: "14141414-aaaa-4bbb-8ccc-000000000014", state: "live" });
+    const taken = await app.inject({ method: "PATCH", url: "/api/auth/profile", payload: { handle: "occupied", displayName: "Changed" }, cookies });
+    expect(taken.statusCode).toBe(409);
+    expect(await renamesOf(db, me.id)).toBe(0);
+    expect((await userRow(db, me.id)).displayName).toBe("R");
+
+    await spend(db, me.id, 5);
+    const quota = await app.inject({ method: "PATCH", url: "/api/auth/profile", payload: { handle: "nope", displayName: "Changed" }, cookies });
+    expect(quota.statusCode).toBe(429);
+    expect(await renamesOf(db, me.id)).toBe(5);
+    expect((await userRow(db, me.id)).displayName).toBe("R");
+  });
+
+  it("額度 5/日（改名紀錄計數，非 in-memory）：第 6 次 429", async () => {
+    const { app, db, me, cookies } = await userApp();
+    // fixture 直接塞 5 筆本人今日改名紀錄（比連改五次快，且驗的是計數來源）
+    await spend(db, me.id, 5);
     const res = await rename(app, cookies, "one-more");
     expect(res.statusCode).toBe(429);
     expect(res.json().error.code).toBe("too_many_requests");
@@ -515,44 +670,37 @@ describe("改名 PATCH /api/auth/profile（spec §2a；Task 4）", () => {
   });
 
   it("計數邊界與 per-user 過濾（讀碼審查 M1/m2）：本人 4 筆今日＋**他人 5 筆今日** → 仍 200（他人額度不得計到我頭上；>=4 提前一次的突變也在此紅）", async () => {
-    const { app, db, cookies } = await userApp();
-    const [me] = await db.select().from(users).where(eq(users.email, "renamer@x.example"));
-    const rows = [];
-    for (let i = 1; i <= 4; i += 1) {
-      rows.push({ handle: `own-spent-${i}`, userId: me.id, state: "released" as const, releasedAt: new Date() });
-    }
-    for (let i = 1; i <= 5; i += 1) {
-      rows.push({ handle: `their-spent-${i}`, userId: "17171717-aaaa-4bbb-8ccc-000000000017", state: "released" as const, releasedAt: new Date() });
-    }
-    await db.insert(handles).values(rows);
+    const { app, db, me, cookies } = await userApp();
+    const other = "17171717-aaaa-4bbb-8ccc-000000000017";
+    await db.insert(users).values({ id: other, email: "their@x.example", displayName: "T", handle: "their" });
+    await spend(db, me.id, 4);
+    await spend(db, other, 5);
     const res = await rename(app, cookies, "fifth-today");
     expect(res.statusCode).toBe(200); // 本人第 5 次（計入前 4）——第 6 次才 429
   });
 
-  it("釋放 fail-closed：窗期形（users.handle 有值、無 registry 列）改名成功且舊名補成 released", async () => {
-    const { app, db, cookies } = await userApp();
+  it("本人現行名不在 registry（窗期形）→ 改名 200、不 500", async () => {
+    const { app, db, me, cookies } = await userApp();
     // 造窗期形：把本人的 registry 列刪掉（模擬回滾窗期建立的帳號）
     await db.delete(handles).where(eq(handles.handle, "renamer"));
     const res = await rename(app, cookies, "post-window");
     expect(res.statusCode).toBe(200);
-    const [old] = await db.select().from(handles).where(eq(handles.handle, "renamer"));
-    expect(old, "窗期舊名必須被補成 released（否則任何人可搶）").toBeDefined();
-    expect(old.state).toBe("released");
-    await expectLiveRegistry(db, "renamer@x.example");
+    expect(await handleRow(db, "renamer")).toBeUndefined();
+    const { handle } = await expectLiveRegistry(db, "renamer@x.example");
+    expect(handle).toBe("post-window");
+    expect(await renamesOf(db, me.id)).toBe(1);
   });
 
-  it("釋放 upsert 不得翻他人列：舊名的 registry 列屬他人 → 整 tx 500、自己的 users.handle 不變", async () => {
-    const { app, db, cookies } = await userApp();
-    // 異常態 fixture：'renamer' 的 registry 列改掛他人（資料不一致形）——upsert 的
-    // WHERE user_id=$me 落空 → rowcount 0 → fail-closed
+  it("舊名的 registry 列屬他人 → 改名 200、他人列不被刪", async () => {
+    const { app, db, me, cookies } = await userApp();
+    // 異常態 fixture：'renamer' 的 registry 列改掛他人（資料不一致形）——DELETE 帶 user_id，刪 0 列
     await db.update(handles).set({ userId: "15151515-aaaa-4bbb-8ccc-000000000015" }).where(eq(handles.handle, "renamer"));
-    const res = await rename(app, cookies, "should-fail");
-    expect(res.statusCode).toBe(500);
-    const [me] = await db.select().from(users).where(eq(users.email, "renamer@x.example"));
-    expect(me.handle).toBe("renamer"); // 整 tx 回滾
-    const [other] = await db.select().from(handles).where(eq(handles.handle, "renamer"));
-    expect(other.userId).toBe("15151515-aaaa-4bbb-8ccc-000000000015");
-    expect(other.state).toBe("live"); // 他人列一根毛都不能動
+    const res = await rename(app, cookies, "should-pass");
+    expect(res.statusCode).toBe(200);
+    const other = await handleRow(db, "renamer");
+    expect(other?.userId).toBe("15151515-aaaa-4bbb-8ccc-000000000015");
+    expect(other?.state).toBe("live");
+    expect((await userRow(db, me.id)).handle).toBe("should-pass");
   });
 });
 
@@ -582,34 +730,28 @@ describe("改名——突變審查 round 1 補強（F1/F2/F3）", () => {
     expect(res.json().error.code).toBe("handle_taken");
   });
 
-  it("F2：額度只計 24h 內——5 筆過期（2 天前）released → 改名 200（時間窗雙向釘）", async () => {
+  it("F2：額度只計 24h 內——5 筆過期（2 天前）改名紀錄 → 改名 200（時間窗雙向釘）", async () => {
     const { app, db, cookies } = await userApp2();
     const [me] = await db.select().from(users).where(eq(users.email, "renamer2@x.example"));
-    const stale = new Date(Date.now() - 2 * 86_400_000);
-    const rows = [];
-    for (let i = 1; i <= 5; i += 1) {
-      rows.push({ handle: `old-spent-${i}`, userId: me.id, state: "released" as const, releasedAt: stale });
-    }
-    await db.insert(handles).values(rows);
+    await spend(db, me!.id, 5, new Date(Date.now() - 2 * 86_400_000));
     const res = await app.inject({ method: "PATCH", url: "/api/auth/profile", payload: { handle: "fresh-name" }, cookies });
     expect(res.statusCode).toBe(200);
   });
 
-  it("F3：舊名以 tx 內 SELECT 為準、非 gate 60s 快取（多實例落後形：快取舊名已被他處 released，用它釋放會把現行名留成 live 孤兒）", async () => {
+  it("F3：舊名以 tx 內 SELECT 為準、非 gate 60s 快取（多實例落後形：快取舊名已被他處改掉，用它釋放會把現行名留成 live 孤兒）", async () => {
     const { app, db, cookies } = await userApp2();
     await app.inject({ method: "GET", url: "/api/auth/me", cookies }); // 確保 gate 快取已暖（handle='renamer2'）
     // 模擬另一實例已完成一次改名：直接寫 DB、不經本實例端點、不 invalidate 本實例快取
     const [me] = await db.select().from(users).where(eq(users.email, "renamer2@x.example"));
-    await db.insert(handles).values({ handle: "external-name", userId: me.id, state: "live" });
-    await db.update(handles).set({ state: "released", releasedAt: new Date() }).where(eq(handles.handle, "renamer2"));
-    await db.update(users).set({ handle: "external-name" }).where(eq(users.id, me.id));
+    await db.insert(handles).values({ handle: "external-name", userId: me!.id, state: "live" });
+    await db.delete(handles).where(eq(handles.handle, "renamer2"));
+    await db.update(users).set({ handle: "external-name" }).where(eq(users.id, me!.id));
 
     const res = await app.inject({ method: "PATCH", url: "/api/auth/profile", payload: { handle: "final-name" }, cookies });
     expect(res.statusCode).toBe(200);
-    // 真實碼釋放 DB 現行名 'external-name'；用快取舊名的突變體會釋放已 released 的
-    // 'renamer2'（rowcount 仍 1、fail-closed 過關）而把 'external-name' 留成 live 孤兒
-    const [ext] = await db.select().from(handles).where(eq(handles.handle, "external-name"));
-    expect(ext.state).toBe("released");
-    await expectLiveRegistry(db, "renamer2@x.example");
+    // 真實碼刪掉 DB 現行名 'external-name'；用快取舊名的突變體會刪 0 列，'external-name' 留成 live 孤兒
+    expect(await db.select().from(handles).where(eq(handles.handle, "external-name"))).toHaveLength(0);
+    const { handle } = await expectLiveRegistry(db, "renamer2@x.example");
+    expect(handle).toBe("final-name");
   });
 });

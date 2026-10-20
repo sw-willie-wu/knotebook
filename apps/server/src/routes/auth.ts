@@ -5,7 +5,7 @@ import { MAX_REGISTER_DISPLAY_NAME_LENGTH, SESSION_COOKIE, normalizeEmail, norma
 import { sendError, sendLoginThrottled } from "../http/errors.js";
 import type { AppConfig } from "../config.js";
 import type { Db } from "../db/index.js";
-import { authProviders, handles, siteSettings, users } from "../db/schema.js";
+import { authProviders, handleRenames, handles, siteSettings, users } from "../db/schema.js";
 import { UUID_RE } from "../notes/service.js";
 import { uniqueViolationConstraint } from "../db/pg-errors.js";
 import { verifyPassword, hashPassword, HashBusyError, DUMMY_HASH } from "../auth/password.js";
@@ -207,17 +207,16 @@ export function authRoutes(deps: AuthRouteDeps) {
     });
 
     /**
-     * #122 改名（spec §2a Task 4）。單一 tx 四步：①額度（**DB registry 計數**，5/日
-     * ——`state='released' AND released_at > now()-1day`；不用 in-memory limiter：24h
-     * 窗口重啟歸零的相對傷害太大，registry 天然跨重啟/實例）→ ②`INSERT handles`
-     * 取新名（PK 裁決，含墓碑；**改成自己現行名也走這裡撞自己的 live 列回 409**——
-     * 刻意，不得加 DELETE 短路破壞永不回收）→ ③釋放舊名（fail-closed upsert：正常態
-     * live→released；窗期態（無列）補一筆 released；`WHERE user_id=$me` 防翻他人列，
-     * **rowcount≠1 整 tx 回滾 500**）→ ④`UPDATE users`。
+     * #122／#291 改名。單一 tx 六步：
+     * ①`SELECT users.handle … FOR UPDATE`（本人列；同人併發改名排隊）
+     * ②額度：數 `handle_renames` 24 h 內列數，≥5 → 429（DB 計數跨重啟／實例；在鎖之後數，同人併發也過不了額度）
+     * ③`INSERT handles` 取新名（PK 裁決；改成他人現用名回 409；改成自己現行名在 ① 後即 409，不論 registry 有無自己的列）——必須先於 ④，倒過來兩人互換名字會死鎖
+     * ④`DELETE` 舊名列（帶 `user_id`；刪 0 列照常繼續），commit 後舊名任何人可取用
+     * ⑤`UPDATE users`
+     * ⑥`INSERT handle_renames`
      *
      * 舊名以 tx 內 SELECT 為準（request.user 是 gate 的 60s 快取，可能落後）。
      * 成功後 `gate.invalidate`（比照改密碼），/api/auth/me 立即反映。
-     * 同使用者併發改名可雙過額度計數——非安全邊界，明示接受（spec m4-5）。
      * 版本歷史 §6.8、#247 §9.3：只帶 `autoVersions`／`displayName`（任一或兩者）→ 純 UPDATE、不進改名交易、不扣額度；與 `handle` 一起帶 →
      * 在改名交易的 `UPDATE users` 同一句寫（撞名回滾時一起不寫）。回應取寫入後的值（RETURNING），不沿用 `request.user` 快取；
      * 所有分支都經過下方同一個 `gate.invalidate` 出口——不得為 displayName 加提前 return。
@@ -249,46 +248,43 @@ export function authRoutes(deps: AuthRouteDeps) {
         // 具名常數反而消除 JSDoc/判斷/錯誤訊息三處數字漂移面）
         const RENAME_QUOTA_PER_DAY = 5;
         const QUOTA_EXCEEDED = Symbol("rename-quota");
+        const HANDLE_TAKEN = Symbol("rename-handle-taken");
         try {
           dto = await deps.db.transaction(async tx => {
-            const [spent] = await tx
-              .select({ n: sql<number>`count(*)::int` })
-              .from(handles)
-              .where(and(eq(handles.userId, userId), eq(handles.state, "released"), gt(handles.releasedAt, sql`now() - interval '1 day'`)));
-            if (spent!.n >= RENAME_QUOTA_PER_DAY) throw QUOTA_EXCEEDED;
-
-            // FOR UPDATE（讀碼審查 m1）：同人兩個併發 PATCH 若都讀到同一個舊名，晚者的
-            // 釋放 upsert 會在先者 commit 後對新版本重評 WHERE（仍是本人）而過關——終態
-            // 留下先者新名的 live 孤兒列（永不釋放、破壞「每人恰一列 live」不變量）。
-            // 鎖住本人 users 列讓第二個 tx 在這裡排隊、解鎖後讀到最新名，孤兒形不可達。
+            // ① 鎖本人列：同人併發改名在此排隊、解鎖後讀到最新名（否則晚者刪 0 列、先者新名留成 live 孤兒）。
             const [row] = await tx.select({ handle: users.handle }).from(users).where(eq(users.id, userId)).limit(1).for("update");
             const oldHandle = row!.handle;
+            if (newHandle === oldHandle) throw HANDLE_TAKEN; // 改成自己現行名：窗期形（無 registry 列）也不得 200／耗額度
 
+            // ② 額度：鎖之後才數，排隊者看得到前者已 commit 的紀錄（I3）。
+            const [spent] = await tx
+              .select({ n: sql<number>`count(*)::int` })
+              .from(handleRenames)
+              .where(and(eq(handleRenames.userId, userId), gt(handleRenames.renamedAt, sql`now() - interval '1 day'`)));
+            if (spent!.n >= RENAME_QUOTA_PER_DAY) throw QUOTA_EXCEEDED;
+
+            // ③ 取新名（PK 裁決）。必須先於 ④：倒過來兩人互換名字會死鎖（40P01 → 500），改成自己現行名也會回 200。
             await tx.insert(handles).values({ handle: newHandle, userId, state: "live" });
 
-            const released = await tx.execute(
-              sql`INSERT INTO handles (handle, user_id, state, released_at)
-                  VALUES (${oldHandle}, ${userId}, 'released', now())
-                  ON CONFLICT (handle) DO UPDATE SET state = 'released', released_at = now()
-                  WHERE handles.user_id = ${userId}`,
-            );
-            if (released.rowCount !== 1) {
-              // 舊名的 registry 列屬他人（資料不一致形）——絕不靜默吞：整 tx 回滾。
-              throw new Error(`改名釋放失敗：舊名 ${oldHandle} 的 registry 列不屬於本人（rowcount=${released.rowCount}）`);
-            }
+            // ④ 釋放舊名。刪 0 列＝本人現行名不在 registry（窗期形），照常繼續；帶 user_id 不會刪到他人的列。
+            await tx.delete(handles).where(and(eq(handles.handle, oldHandle), eq(handles.userId, userId)));
 
-            // ④ 改名；同一句帶上 autoVersions／displayName（兩者都帶 → 同一交易，§6.8、#247 §9.3）。
+            // ⑤ 改名；同一句帶上 autoVersions／displayName（兩者都帶 → 同一交易，§6.8、#247 §9.3）。
             const [updated] = await tx
               .update(users)
               .set({ handle: newHandle, ...extra })
               .where(eq(users.id, userId))
               .returning(profileReturning());
+
+            // ⑥ 改名紀錄（額度來源）。
+            await tx.insert(handleRenames).values({ userId });
             return updated!;
           });
         } catch (err) {
           if (err === QUOTA_EXCEEDED) {
-            return sendError(reply, 429, "too_many_requests", "改名太頻繁（每日限額已用完——舊名永不回收，改名是消耗性動作）");
+            return sendError(reply, 429, "too_many_requests", "改名太頻繁（24 小時內最多改名 5 次）");
           }
+          if (err === HANDLE_TAKEN) return sendError(reply, 409, "handle_taken", "此使用者名已被使用");
           const constraint = uniqueViolationConstraint(err);
           if (constraint === "handles_pkey" || constraint === "users_handle_unique") {
             return sendError(reply, 409, "handle_taken", "此使用者名已被使用");
