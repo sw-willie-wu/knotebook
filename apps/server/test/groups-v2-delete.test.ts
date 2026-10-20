@@ -234,7 +234,7 @@ describe("#175 PR4 DELETE /api/groups/:id：轉移（T6）", () => {
     const [a, b] = await Promise.all([seedUser(db), seedUser(db)]);
     const g = await seedGroup(db, "G", [{ userId: a.id, role: "admin" }, { userId: b.id, role: "admin" }]);
     const token = "k".repeat(43);
-    const n = await seedNote(db, { groupId: g.id }, { publicToken: token });
+    const n = await seedNote(db, { groupId: g.id }, { publicToken: token, publicWidth: "full" });
     const up = await seedUpload(db, uploadsDir, n.id, a.id);
     const anon = (url: string) => app.inject({ method: "GET", url });
     expect((await anon(`/api/public/notes/${token}`)).statusCode).toBe(200);
@@ -250,6 +250,8 @@ describe("#175 PR4 DELETE /api/groups/:id：轉移（T6）", () => {
     expect(file.statusCode).toBe(404);
     expect(file.body).toBe((await anon(`/api/public/notes/${never}/uploads/${up}`)).body);
     expect(await noteState(db.$client, n.id)).toMatchObject({ owner_id: b.id, public_token: null, public_slug: null });
+    // #297：轉移清公開連結，但公開頁寬度保留。
+    expect((await db.$client.query("select public_width from notes where id = $1", [n.id])).rows).toEqual([{ public_width: "full" }]);
   });
 
   it("Q15：轉移給自己（呼叫者是內建管理員）→ 204、呼叫者成為 owner", async () => {

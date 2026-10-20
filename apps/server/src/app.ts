@@ -46,7 +46,7 @@ import { sendError } from "./http/errors.js";
 // #108：`stripDefaultPort` 搬到 `http/origin.ts`（與 `mcpOriginAllowed` 同一個葉節點模組，
 // 兩種比較語意的差別寫在該檔檔頭）。
 import { stripDefaultPort } from "./http/origin.js";
-import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, REGISTER_LIMIT, SEARCH_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_RENAME_LIMIT, TOKEN_WRITE_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
+import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, PUBLIC_WIDTH_LIMIT, REGISTER_LIMIT, SEARCH_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_RENAME_LIMIT, TOKEN_WRITE_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
 import { FORM_EXEMPT_ROUTES, isOauthScopedPath, sendOauthError } from "./http/oauth-errors.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { oauthMetadataRoutes } from "./routes/oauth-metadata.js";
@@ -139,6 +139,8 @@ export interface AppDeps {
     oidcCallback: FixedWindowLimiter;
     /** #72：public-link 管理端 PUT/DELETE（key=userId；GET 不吃桶，見 PUBLIC_LINK_LIMIT）。 */
     publicLink: FixedWindowLimiter;
+    /** #297：`PUT …/public-width`（key=userId；解析 body 與授權之後才扣，與 publicLink 分開，見 PUBLIC_WIDTH_LIMIT）。 */
+    publicWidth: FixedWindowLimiter;
     /** #72 公開端點雙桶（miss=ip／hit=ip:token，語意見 PUBLIC_MISS_LIMIT 註解）。 */
     publicMiss: FixedWindowLimiter;
     publicNote: FixedWindowLimiter;
@@ -628,6 +630,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       oidcLogin: new FixedWindowLimiter(OIDC_LIMIT),
       oidcCallback: new FixedWindowLimiter(OIDC_LIMIT),
       publicLink: new FixedWindowLimiter(PUBLIC_LINK_LIMIT),
+      publicWidth: new FixedWindowLimiter(PUBLIC_WIDTH_LIMIT),
       publicMiss: new FixedWindowLimiter(PUBLIC_MISS_LIMIT),
       publicNote: new FixedWindowLimiter(PUBLIC_NOTE_LIMIT),
       publicUpload: new FixedWindowLimiter(PUBLIC_UPLOAD_LIMIT),
@@ -797,8 +800,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   void app.register(
     aiRoutes({ db: deps.db, config: deps.config, runtime: deps.ai, limiters: { ai: limiters.ai }, idleTimeoutMs: options.aiIdleTimeoutMs })
   );
-  // `NotesRouteDeps.limiters` 的型別只列它實際用到的鍵（`collabToken`/`slugPatch`，
-  // #72 起含 `publicLink`，#175 起含 `upload`——複製與上傳端點共用同一個實例；見該 interface 說明）——這裡傳整包
+  // `NotesRouteDeps.limiters` 的型別只列它實際用到的鍵（清單見該 interface；`upload` 與上傳端點共用同一個實例）——這裡傳整包
   // `limiters` 給它，屬於變數（非物件
   // 字面值）賦值給較窄的結構型別，TS 不做 excess property check，不需要另外
   // pick／窄化。`uploadsRoutes` 自己的 deps 逐鍵挑它用到的三個節流器。

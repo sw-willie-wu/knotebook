@@ -53,7 +53,7 @@ describe("公開連結管理端（GET/PUT/DELETE /api/notes/:id/public-link）",
 
     const g0 = await app.inject({ method: "GET", url: `/api/notes/${noteId}/public-link`, cookies: { [SESSION_COOKIE]: cookie } });
     expect(g0.statusCode).toBe(200);
-    expect(g0.json()).toEqual({ token: null, slug: null });
+    expect(g0.json()).toEqual({ token: null, slug: null, width: "standard" });
 
     const p1 = await app.inject({ method: "PUT", url: `/api/notes/${noteId}/public-link`, cookies: { [SESSION_COOKIE]: cookie } });
     expect(p1.statusCode).toBe(200);
@@ -61,7 +61,7 @@ describe("公開連結管理端（GET/PUT/DELETE /api/notes/:id/public-link）",
     expect(token1).toMatch(TOKEN_RE);
 
     const g1 = await app.inject({ method: "GET", url: `/api/notes/${noteId}/public-link`, cookies: { [SESSION_COOKIE]: cookie } });
-    expect(g1.json()).toEqual({ token: token1, slug: null });
+    expect(g1.json()).toEqual({ token: token1, slug: null, width: "standard" });
 
     // 重生：token 必換（PUT 語意＝每次都重生）
     const p2 = await app.inject({ method: "PUT", url: `/api/notes/${noteId}/public-link`, cookies: { [SESSION_COOKIE]: cookie } });
@@ -72,7 +72,7 @@ describe("公開連結管理端（GET/PUT/DELETE /api/notes/:id/public-link）",
     const d = await app.inject({ method: "DELETE", url: `/api/notes/${noteId}/public-link`, cookies: { [SESSION_COOKIE]: cookie } });
     expect(d.statusCode).toBe(204);
     const g2 = await app.inject({ method: "GET", url: `/api/notes/${noteId}/public-link`, cookies: { [SESSION_COOKIE]: cookie } });
-    expect(g2.json()).toEqual({ token: null, slug: null });
+    expect(g2.json()).toEqual({ token: null, slug: null, width: "standard" });
 
     // DELETE 對 token 狀態冪等：已是 null 再 DELETE 照樣 204（404 只留給 note 本身
     // 不見了的 I2 情境）。
@@ -117,13 +117,13 @@ describe("公開連結管理端（GET/PUT/DELETE /api/notes/:id/public-link）",
     // 再由 owner 開一顆後重跑（結束仍是同一顆）。
     await runMatrix();
     const gNull = await app.inject({ method: "GET", url: `/api/notes/${noteId}/public-link`, cookies: { [SESSION_COOKIE]: ownerCookie } });
-    expect(gNull.json()).toEqual({ token: null, slug: null });
+    expect(gNull.json()).toEqual({ token: null, slug: null, width: "standard" });
 
     const put = await app.inject({ method: "PUT", url: `/api/notes/${noteId}/public-link`, cookies: { [SESSION_COOKIE]: ownerCookie } });
     const ownerToken = put.json().token as string;
     await runMatrix();
     const gAfter = await app.inject({ method: "GET", url: `/api/notes/${noteId}/public-link`, cookies: { [SESSION_COOKIE]: ownerCookie } });
-    expect(gAfter.json()).toEqual({ token: ownerToken, slug: null });
+    expect(gAfter.json()).toEqual({ token: ownerToken, slug: null, width: "standard" });
   });
 
   it("節流只掛 PUT/DELETE（10/10min，key=userId）：GET 開 11 次全 200；PUT+DELETE 合計超過 10 次 → 429", async () => {
@@ -197,7 +197,7 @@ describe("公開別名管理端（PUT/DELETE /api/notes/:id/public-link/slug）"
   const getLink = (app: Awaited<ReturnType<typeof buildTestApp>>["app"], cookie: string, noteId: string) =>
     app.inject({ method: "GET", url: `/api/notes/${noteId}/public-link`, cookies: { [SESSION_COOKIE]: cookie } });
 
-  it("owner 全流程：設別名回 {token, slug} 全形 → GET 同形 → DELETE slug 204（token 留）→ 冪等 204", async () => {
+  it("owner 全流程：設別名回 {token, slug, width} 全形 → GET 同形 → DELETE slug 204（token 留）→ 冪等 204", async () => {
     const { app, db } = await buildTestApp();
     const owner = await insertUser(db, "owner-ps1@example.com");
     const cookie = await cookieFor(owner.id);
@@ -207,15 +207,15 @@ describe("公開別名管理端（PUT/DELETE /api/notes/:id/public-link/slug）"
     expect(p.statusCode).toBe(200);
     // 全形釘住（gate r4-M1）：web mutation 直寫回應進快取，token 缺席＝快取 token 被
     // 抹成 undefined→公開連結列消失。
-    expect(p.json()).toEqual({ token, slug: "my-alias" });
+    expect(p.json()).toEqual({ token, slug: "my-alias", width: "standard" });
 
     const g = await getLink(app, cookie, noteId);
-    expect(g.json()).toEqual({ token, slug: "my-alias" });
+    expect(g.json()).toEqual({ token, slug: "my-alias", width: "standard" });
 
     const d = await delSlug(app, cookie, noteId);
     expect(d.statusCode).toBe(204);
     const g2 = await getLink(app, cookie, noteId);
-    expect(g2.json()).toEqual({ token, slug: null }); // token 不動，只清別名
+    expect(g2.json()).toEqual({ token, slug: null, width: "standard" }); // token 不動，只清別名
 
     // 冪等：本無別名再 DELETE 照樣 204
     expect((await delSlug(app, cookie, noteId)).statusCode).toBe(204);
@@ -265,7 +265,7 @@ describe("公開別名管理端（PUT/DELETE /api/notes/:id/public-link/slug）"
     }
     // 無副作用鑑別（比照 public-link 矩陣）：403/404 的 PUT/DELETE 不得動到別名
     const g = await getLink(app, ownerCookie, noteId);
-    expect(g.json()).toEqual({ token, slug: "kept-alias" });
+    expect(g.json()).toEqual({ token, slug: "kept-alias", width: "standard" });
   });
 
   it("409 public_slug_taken：同 owner 兩篇撞別名；跨 owner 同名共存；且與私人 slug 不互佔", async () => {
@@ -371,30 +371,59 @@ describe("公開別名管理端（PUT/DELETE /api/notes/:id/public-link/slug）"
     expect((await delSlug(app, sc, own)).statusCode).toBe(204);
   });
 
-  it("重生 token 不動別名（回 {token, slug} 全形）；DELETE public-link 清兩者且別名不復活", async () => {
+  it("重生 token 不動別名（回 {token, slug, width} 全形）；DELETE public-link 清兩者且別名不復活", async () => {
     const { app, db } = await buildTestApp();
     const owner = await insertUser(db, "owner-ps8@example.com");
     const cookie = await cookieFor(owner.id);
     const [noteId, token1] = await publicNote(app, cookie);
     expect((await putSlug(app, cookie, noteId, "stable-alias")).statusCode).toBe(200);
 
-    // 重生：token 換、別名留；回應是 {token, slug} 全形（web onSuccess 直寫快取）
+    // 重生：token 換、別名留；回應是 {token, slug, width} 全形（web onSuccess 直寫快取）
     const regen = await app.inject({ method: "PUT", url: `/api/notes/${noteId}/public-link`, cookies: { [SESSION_COOKIE]: cookie } });
     expect(regen.statusCode).toBe(200);
     const token2 = regen.json().token as string;
     expect(token2).toMatch(TOKEN_RE);
     expect(token2).not.toBe(token1);
-    expect(regen.json()).toEqual({ token: token2, slug: "stable-alias" });
+    expect(regen.json()).toEqual({ token: token2, slug: "stable-alias", width: "standard" });
 
     // 撤公開：同一支 UPDATE 清 token＋public_slug 兩者
     expect((await app.inject({ method: "DELETE", url: `/api/notes/${noteId}/public-link`, cookies: { [SESSION_COOKIE]: cookie } })).statusCode).toBe(204);
-    expect((await getLink(app, cookie, noteId)).json()).toEqual({ token: null, slug: null });
+    expect((await getLink(app, cookie, noteId)).json()).toEqual({ token: null, slug: null, width: "standard" });
     const [row] = await db.select({ publicSlug: notes.publicSlug, publicToken: notes.publicToken }).from(notes).where(eq(notes.id, noteId)).limit(1);
     expect(row).toEqual({ publicSlug: null, publicToken: null });
 
     // 再開公開：別名不復活（「以為刪掉的別名自己回來」是 plan gate M-2 點名的故障形）
     const reopened = await app.inject({ method: "PUT", url: `/api/notes/${noteId}/public-link`, cookies: { [SESSION_COOKIE]: cookie } });
     expect(reopened.json().slug).toBeNull();
+  });
+
+  it("note-width：GET／PUT／slug PUT 都回 width；DELETE 不重設；再開公開沿用上次寬度", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await insertUser(db, "owner-ps10@example.com");
+    const cookie = await cookieFor(owner.id);
+    const [noteId, token] = await publicNote(app, cookie);
+
+    const w = await app.inject({ method: "PUT", url: `/api/notes/${noteId}/public-width`, cookies: { [SESSION_COOKIE]: cookie }, payload: { width: "full" } });
+    expect(w.statusCode).toBe(200);
+    expect(w.json()).toEqual({ width: "full" });
+    expect((await getLink(app, cookie, noteId)).json()).toEqual({ token, slug: null, width: "full" });
+
+    const s = await putSlug(app, cookie, noteId, "w-alias");
+    expect(s.statusCode).toBe(200);
+    expect(s.json()).toEqual({ token, slug: "w-alias", width: "full" });
+
+    const regen = await app.inject({ method: "PUT", url: `/api/notes/${noteId}/public-link`, cookies: { [SESSION_COOKIE]: cookie } });
+    expect(regen.statusCode).toBe(200);
+    expect(regen.json().width).toBe("full");
+
+    expect((await app.inject({ method: "DELETE", url: `/api/notes/${noteId}/public-link`, cookies: { [SESSION_COOKIE]: cookie } })).statusCode).toBe(204);
+    const [row] = await db.select({ publicWidth: notes.publicWidth }).from(notes).where(eq(notes.id, noteId)).limit(1);
+    expect(row).toEqual({ publicWidth: "full" });
+    expect((await getLink(app, cookie, noteId)).json()).toEqual({ token: null, slug: null, width: "full" });
+
+    const reopened = await app.inject({ method: "PUT", url: `/api/notes/${noteId}/public-link`, cookies: { [SESSION_COOKIE]: cookie } });
+    expect(reopened.statusCode).toBe(200);
+    expect(reopened.json().width).toBe("full");
   });
 
   it("語句形狀守衛（雙保險）：別名 PUT 無 token pre-read、恰一條 UPDATE 且述詞含 public_token is not null", async () => {
@@ -456,7 +485,7 @@ describe("公開內容端（GET /api/public/notes/:token，無需登入）", () 
     expect(res.statusCode).toBe(200);
     expect(res.headers["cache-control"]).toBe("no-store");
     const bodyJson = res.json();
-    expect(bodyJson).toEqual({ title: "公開的筆記", ydoc: ydocBytes.toString("base64"), links: [] });
+    expect(bodyJson).toEqual({ title: "公開的筆記", ydoc: ydocBytes.toString("base64"), links: [], width: "standard" });
     expect(Object.keys(bodyJson)).not.toContain("updatedAt");
   });
 
@@ -713,7 +742,7 @@ describe("公開別名端（GET /api/public/notes/:handle/:slug，無需登入�
     return { ...built, owner, cookie, noteId, token };
   }
 
-  it("命中 → 200 與 token 端點**同形**（恰 {title, ydoc, links} 三鍵、不回 token）＋ cache-control: no-store", async () => {
+  it("命中 → 200 與 token 端點**同形**（恰 {title, ydoc, links, width} 四鍵、不回 token）＋ cache-control: no-store", async () => {
     const { app, db, cookie, noteId, token } = await aliasSetup("alice", "my-doc");
     await app.inject({ method: "PATCH", url: `/api/notes/${noteId}`, cookies: { [SESSION_COOKIE]: cookie }, payload: { title: "Alias Note" } });
     const ydocBytes = randomBytes(24);
@@ -722,8 +751,8 @@ describe("公開別名端（GET /api/public/notes/:handle/:slug，無需登入�
     const res = await byPath(app, "alice", "my-doc");
     expect(res.statusCode).toBe(200);
     expect(res.headers["cache-control"]).toBe("no-store");
-    // 形狀斷言（plan gate m9）：恰三鍵（#269 加 links）——token/noteId/updatedAt 任何一個混進來都紅
-    expect(res.json()).toEqual({ title: "Alias Note", ydoc: ydocBytes.toString("base64"), links: [] });
+    // 形狀斷言（plan gate m9）：恰四鍵（#269 加 links、#297 加 width）——token/noteId/updatedAt 任何一個混進來都紅
+    expect(res.json()).toEqual({ title: "Alias Note", ydoc: ydocBytes.toString("base64"), links: [], width: "standard" });
 
     // 與 token 端點逐鍵同值（共用 200 回應器的行為面證明）
     const viaToken = await byToken(app, token);

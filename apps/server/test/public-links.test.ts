@@ -31,7 +31,7 @@ describe("#269 公開 payload 的 links", () => {
     expect(res.json().links).toEqual([{ id: aliased.id, title: "Aliased", path: `/p/${other.handle}/pub-a` }]);
     expect(res.body).not.toContain(tokenOnlyTok);
     expect(res.body).not.toContain(aliasTok);
-    expect(Object.keys(res.json()).sort()).toEqual(["links", "title", "ydoc"]);
+    expect(Object.keys(res.json()).sort()).toEqual(["links", "title", "width", "ydoc"]);
   });
 
   it("links 不含本篇自己（本篇有自訂公開網址、文中有同篇連結時亦然）；別名形端點同樣帶 links", async () => {

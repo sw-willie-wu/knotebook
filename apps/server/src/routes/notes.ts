@@ -8,6 +8,7 @@ import {
   normalizeEmail,
   normalizeHandle,
   normalizeSlug,
+  NOTE_WIDTHS,
   type BacklinkDto,
   type NoteContentDto,
   type NoteDto,
@@ -81,6 +82,8 @@ const putShareBodySchema = z.object({ email: z.string().email(), role: z.enum(["
 const moveBodySchema = z.object({ groupId: z.string() }).strict();
 // #175 §6.5 複製的 body：省略 `groupId`＝複製到個人；非 UUID 同移動，由路由回 404 `group_not_found`。
 const copyBodySchema = z.object({ groupId: z.string().optional() }).strict();
+// #297 公開頁寬度的 body：未知鍵 400（strict）。
+const publicWidthBodySchema = z.object({ width: z.enum(NOTE_WIDTHS) }).strict();
 
 // POST /api/notes/:id/links body（spec §12.3）：`.max(MAX_LINK_TARGETS * 2)` 是提交前的
 // 效能粗閘（避免病態大陣列在正規化之前就先跑完整 uuid 格式驗證），**不是**語意上限本身
@@ -120,8 +123,8 @@ export interface NotesRouteDeps {
    */
   collab?: CollabServer;
   editing?: EditingRuntime;
-  /** `collabToken` 供 collab-token endpoint；`slugPatch` 供 PATCH 帶 slug 鍵（含 null——進 slug 分支即計，見四格註解）**與公開別名兩支（#122 PR3）**節流；`publicLink` 供 public-link 的 PUT/DELETE（#72，見各路由）；`contentRead` 供 #106 的內容端點；`edit` 供 #106 的寫入端（`POST /:id/edits`、`POST /api/notes` 帶 `content`）與 #175 的複製；`upload` 供複製依附件數扣（#175 T4 M-1，與 `POST /api/notes/:id/uploads` 同一個桶）。 */
-  limiters: { collabToken: FixedWindowLimiter; slugPatch: FixedWindowLimiter; publicLink: FixedWindowLimiter; contentRead: FixedWindowLimiter; edit: FixedWindowLimiter; upload: FixedWindowLimiter };
+  /** `collabToken` 供 collab-token endpoint；`slugPatch` 供 PATCH 帶 slug 鍵（含 null——進 slug 分支即計，見四格註解）**與公開別名兩支（#122 PR3）**節流；`publicLink` 供 public-link 的 PUT/DELETE（#72，見各路由）；`publicWidth` 供 #297 的 `PUT …/public-width`；`contentRead` 供 #106 的內容端點；`edit` 供 #106 的寫入端（`POST /:id/edits`、`POST /api/notes` 帶 `content`）與 #175 的複製；`upload` 供複製依附件數扣（#175 T4 M-1，與 `POST /api/notes/:id/uploads` 同一個桶）。 */
+  limiters: { collabToken: FixedWindowLimiter; slugPatch: FixedWindowLimiter; publicLink: FixedWindowLimiter; publicWidth: FixedWindowLimiter; contentRead: FixedWindowLimiter; edit: FixedWindowLimiter; upload: FixedWindowLimiter };
   /**
    * #108 §10.1（D22／M5）：三條寫入路徑的外圍順序與**唯一**的 `NoteWriteQueue`。
    * 由 `buildApp` 建一次，`mcpRoutes` 拿到的是同一個物件——MCP 寫入與 REST 寫入因此串行。
@@ -418,7 +421,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
 
     /**
      * C13 的 rowcount-0 分流（gate r2 N-1）：列不在 → 404（I2 慣例）；列在 → 歸屬在授權之後變了 → 409 conflict。
-     * 兩處共用：public-link PUT（§6.6）與 PATCH 的 T1（§4.3，scope 條件命中 0 列）。
+     * 三處共用：public-link PUT（§6.6）、public-width PUT（#297）與 PATCH 的 T1（§4.3，scope 條件命中 0 列）。
      */
     const ownershipChanged = async (reply: FastifyReply, noteId: string): Promise<FastifyReply> => {
       const [row] = await deps.db.select({ id: notes.id }).from(notes).where(eq(notes.id, noteId)).limit(1);
@@ -1305,15 +1308,16 @@ export function notesRoutes(deps: NotesRouteDeps) {
 
     /**
      * #72 公開分享連結管理端（token 三支）＋ #122 PR3 公開別名兩支（PUT/DELETE
-     * /public-link/slug，見下）——合計五支，授權看 `permissions.managePublicLink`（個人＝owner、群組＝角色旗標，
+     * /public-link/slug，見下）＋ #297 公開頁寬度（PUT /public-width）——合計六支，授權看 `permissions.managePublicLink`（個人＝owner、群組＝角色旗標，
      * #175）且共用 `resolvePublicLinkAccess`，錯誤慣例照 shares：none → 404（不可分辨存在性）、
      * 可讀但沒有該權限 → 403。
-     * PUT 語意＝**每次都重生**（client 慣例：開面板先 GET、null 才 PUT，
+     * token PUT 語意＝**每次都重生**（client 慣例：開面板先 GET、null 才 PUT，
      * 避免誤重生）；token 存原文的理由與代價見 db/schema.ts 的欄位註解。
-     * GET/PUT 回應形＝`{token, slug}` 全形（web 的 mutation onSuccess 直寫回應進
-     * 快取——缺任一鍵＝快取該鍵被抹成 undefined，公開連結列或別名列會憑空消失）。
+     * GET/PUT 與別名 PUT 的回應形＝`{token, slug, width}` 全形（web 的 mutation onSuccess
+     * 直寫回應進快取——缺任一鍵＝快取該鍵被抹成 undefined，公開連結列、別名列或寬度列會
+     * 憑空消失）。寬度 PUT 只回 `{ width }`，web 只合併 `width`。
      *
-     * 節流是**兩顆桶、相反紀律**的並存（刻意，勿統一）：
+     * 節流是**三顆桶**的並存（刻意，勿統一）：
      * - token 的 PUT/DELETE＝`publicLink` 桶，**consume 早於授權判定**——與
      *   collab-token 同形：key=userId 讓陌生人猜 noteId 的洪水只吃**他自己**的桶
      *   （不可跨人 DoS），並擋在 resolveRole 的 DB 查詢之前；代價是 403/404 的
@@ -1324,7 +1328,10 @@ export function notesRoutes(deps: NotesRouteDeps) {
      *   body；別名這側無 zod schema、刻意把畸形 body 也計入桶）——非 owner 的
      *   403/404 不耗桶。兩支與 public-link 同樣**不動 `updated_at`**（分享狀態非
      *   內容變更，動了會讓純分享動作把筆記推到清單頂端）。
-     * PUT 的重生語意**非冪等**（RFC 9110 下 PUT 允許自動重試）——目前靠 client
+     * - 寬度 PUT＝自己的 `publicWidth` 桶，**先解析 body、再授權、後扣**（壞 body／
+     *   404／403 都不耗桶）。不併 `publicLink`：共用時連點寬度會把撤銷公開擠成 429。
+     *   同樣不動 `updated_at`；不要求已公開；撤公開／移動／轉移都不重設寬度。
+     * token PUT 的重生語意**非冪等**（RFC 9110 下 PUT 允許自動重試）——目前靠 client
      * 慣例（先 GET、null 才 PUT）承擔，若未來出現自動重試的中介層要改成
      * create-if-absent＋獨立 rotate。
      */
@@ -1346,9 +1353,13 @@ export function notesRoutes(deps: NotesRouteDeps) {
       if (!(await resolvePublicLinkAccess(reply, request.user!.id, id))) return reply;
       // I2 慣例（比照 PATCH）：resolveRole 判定完到這裡之間筆記可能被刪——落空回
       // 404，不拿「resolveRole 說有」賭它還在。
-      const [row] = await deps.db.select({ publicToken: notes.publicToken, publicSlug: notes.publicSlug }).from(notes).where(eq(notes.id, id)).limit(1);
+      const [row] = await deps.db
+        .select({ publicToken: notes.publicToken, publicSlug: notes.publicSlug, publicWidth: notes.publicWidth })
+        .from(notes)
+        .where(eq(notes.id, id))
+        .limit(1);
       if (!row) return sendError(reply, 404, "not_found", "找不到此筆記");
-      return { token: row.publicToken, slug: row.publicSlug };
+      return { token: row.publicToken, slug: row.publicSlug, width: row.publicWidth };
     });
 
     app.put("/api/notes/:id/public-link", { preHandler: app.authenticate }, async (request, reply) => {
@@ -1361,8 +1372,8 @@ export function notesRoutes(deps: NotesRouteDeps) {
       if (!access) return reply;
       const token = randomBytes(32).toString("base64url");
       // I2 慣例：UPDATE 落空＝筆記在判定後被刪，回 404——否則回 200＋一顆從未落地
-      // 的 token（owner 複製到必死連結）。重生**不動別名**（spec §4 並存語意）——
-      // returning 帶回現行 publicSlug 湊全形回應。
+      // 的 token（owner 複製到必死連結）。重生**不動別名與寬度**（spec §4 並存語意）——
+      // returning 帶回現行 publicSlug／publicWidth 湊全形回應。
       // #175 C13（§6.6 gate r1 M2）：述詞帶授權時讀到的歸屬（`group_id IS NOT DISTINCT FROM $授權時`）——授權之後
       // 被移進／移出群組（PR2）時 UPDATE 落空，不把 token 寫到授權時沒看過的那一種筆記上。
       await deps.groupTestHook?.("public-link-authorized", { noteId: id });
@@ -1370,9 +1381,9 @@ export function notesRoutes(deps: NotesRouteDeps) {
         .update(notes)
         .set({ publicToken: token })
         .where(and(eq(notes.id, id), sql`${notes.groupId} is not distinct from ${access.groupId}`))
-        .returning({ id: notes.id, publicSlug: notes.publicSlug });
+        .returning({ id: notes.id, publicSlug: notes.publicSlug, publicWidth: notes.publicWidth });
       if (updated.length === 0) return ownershipChanged(reply, id);
-      return { token, slug: updated[0].publicSlug };
+      return { token, slug: updated[0].publicSlug, width: updated[0].publicWidth };
     });
 
     app.delete("/api/notes/:id/public-link", { preHandler: app.authenticate }, async (request, reply) => {
@@ -1391,9 +1402,30 @@ export function notesRoutes(deps: NotesRouteDeps) {
       return reply.code(204).send();
     });
 
+    // #297 公開頁寬度：桶紀律見上方六支總註解。順序固定：解析 → 授權 → 扣桶 → UPDATE（C13 述詞，同 token PUT）。
+    app.put("/api/notes/:id/public-width", { preHandler: app.authenticate }, async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const userId = request.user!.id;
+      const parsed = publicWidthBodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", "請求格式錯誤：只接受 width（standard、wide 或 full）");
+      const access = await resolvePublicLinkAccess(reply, userId, id);
+      if (!access) return reply;
+      if (!deps.limiters.publicWidth.consume(userId)) {
+        return sendError(reply, 429, "too_many_requests", "請求過於頻繁，請稍後再試");
+      }
+      await deps.groupTestHook?.("public-link-authorized", { noteId: id });
+      const updated = await deps.db
+        .update(notes)
+        .set({ publicWidth: parsed.data.width })
+        .where(and(eq(notes.id, id), sql`${notes.groupId} is not distinct from ${access.groupId}`))
+        .returning({ publicWidth: notes.publicWidth });
+      if (updated.length === 0) return ownershipChanged(reply, id);
+      return { width: updated[0].publicWidth };
+    });
+
     /**
      * #122 PR3：公開別名 CRUD（`/p/<handle>/<slug>` 的 slug 半邊）。桶紀律與回應
-     * 形見上方五支總註解。設別名的前置條件「筆記已公開」**不做 pre-read**：判定
+     * 形見上方六支總註解。設別名的前置條件「筆記已公開」**不做 pre-read**：判定
      * 完全交給條件式 UPDATE 的 `public_token IS NOT NULL` 述詞＋rowcount——把
      * 「A 設別名 / B 撤公開」的 TOCTOU 窗整個關掉（pre-read 版在讀與寫之間會產出
      * token NULL＋別名非 NULL 的殘留列）。rowcount 0 一律 400 invalid_body：涵蓋
@@ -1432,7 +1464,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
           .update(notes)
           .set({ publicSlug: result.value })
           .where(and(eq(notes.id, id), sql`${notes.publicToken} is not null`, eq(notes.ownerId, userId)))
-          .returning({ publicToken: notes.publicToken, publicSlug: notes.publicSlug });
+          .returning({ publicToken: notes.publicToken, publicSlug: notes.publicSlug, publicWidth: notes.publicWidth });
       } catch (err) {
         // constraint 名分流（比照 slug_taken）：只認 per-user 別名唯一索引，其他 23505 rethrow。
         if (uniqueViolationConstraint(err) === "notes_owner_public_slug_idx") {
@@ -1443,7 +1475,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
       if (updated.length === 0) {
         return sendError(reply, 400, "invalid_body", "筆記尚未開啟公開分享、它是群組筆記，或在你送出後換了歸屬，無法設定公開網址");
       }
-      return { token: updated[0].publicToken, slug: updated[0].publicSlug };
+      return { token: updated[0].publicToken, slug: updated[0].publicSlug, width: updated[0].publicWidth };
     });
 
     app.delete("/api/notes/:id/public-link/slug", { preHandler: app.authenticate }, async (request, reply) => {

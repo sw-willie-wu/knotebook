@@ -319,6 +319,11 @@ describe("note-width 0028_note-public-width", () => {
       `select data_type, is_nullable, column_default from information_schema.columns where table_name = 'notes' and column_name = 'public_width'`,
     )).rows;
     expect(cols).toEqual([{ data_type: "text", is_nullable: "NO", column_default: "'standard'::text" }]);
+    // live DB 的 CHECK 字面：SQL 被手改成多收一個值（非 'huge'）時，下面的拒絕／三值迴圈量不到，只有這條會紅。
+    const chk = (await pool.query(
+      `select pg_get_constraintdef(oid) as def from pg_constraint where conname = 'notes_public_width_chk' and conrelid = 'notes'::regclass`,
+    )).rows;
+    expect(chk).toEqual([{ def: "CHECK ((public_width = ANY (ARRAY['standard'::text, 'wide'::text, 'full'::text])))" }]);
     const u = (await pool.query(`insert into users (email, handle, display_name) values ('w@x.example', 'w-user', 'W') returning id`)).rows[0].id as string;
     const n = (await pool.query(`insert into notes (owner_id) values ($1) returning id`, [u])).rows[0].id as string;
     expect((await pool.query(`select public_width from notes where id = $1`, [n])).rows[0].public_width).toBe("standard");

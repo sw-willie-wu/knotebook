@@ -2,7 +2,7 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { and, eq, sql } from "drizzle-orm";
-import { EMPTY_YDOC_UPDATE_B64, normalizeHandle, normalizeSlug, validateHandle, validateSlug } from "@knotebook/shared";
+import { EMPTY_YDOC_UPDATE_B64, normalizeHandle, normalizeSlug, validateHandle, validateSlug, type NoteWidth } from "@knotebook/shared";
 import { sendError } from "../http/errors.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
 import type { Db } from "../db/index.js";
@@ -35,7 +35,7 @@ import { uploadFilePath } from "../uploads/service.js";
  *      因此各自計（乘二）＝明示接受，記 docs/known-limitations.md。
  *
  * 404 一律**同形**（不存在／未公開／token 錯／無別名／格式不符不可區分——防列舉，
- * 比照 collab 拒連與 shares 的慣例）。回應恰 `{title, ydoc, links}` 三鍵（#269：`links` 只含有自訂公開網址的目標）——**不回 token**
+ * 比照 collab 拒連與 shares 的慣例）。回應恰 `{title, ydoc, links, width}` 四鍵（#269：`links` 只含有自訂公開網址的目標；#297：`width`＝公開頁寬度）——**不回 token**
  * （別名頁洩 token＝把可猜的網址升級成不可撤的把手）、不含 noteId 與 updatedAt。
  *
  * token 出現在 token 形 URL 裡——**不進 log** 由 `app.ts` 的 req serializer
@@ -93,6 +93,9 @@ function sendLinkNotFound(reply: FastifyReply): FastifyReply {
   return sendError(reply, 404, "not_found", "連結不存在或已失效");
 }
 
+/** 反查命中的列（lookup 與 resolvePublicNote 共用）。 */
+type PublicNoteRow = { id: string; title: string; publicWidth: NoteWidth };
+
 /**
  * 一種公開網址形＝三個注入點（檔頭四步序的可變部分；固定步序寫死在
  * `resolvePublicNote` 本體，**不得**把 guard 折進 lookup——那會讓「格式 guard
@@ -102,7 +105,7 @@ interface PublicRefSpec<Q> {
   /** ① 正規化＋格式 guard（pure）：非法形回 null（404 同形、不進桶、不打 DB）。 */
   guard: () => Q | null;
   /** ③ DB 反查（單一查詢）：miss 回 undefined。 */
-  lookup: (q: Q) => Promise<{ id: string; title: string } | undefined>;
+  lookup: (q: Q) => Promise<PublicNoteRow | undefined>;
   /** ④ hit 桶 key（兩形不同、同一 limiter——見檔頭）。 */
   hitKey: (q: Q, ip: string, noteId: string) => string;
 }
@@ -117,7 +120,7 @@ export function publicRoutes(deps: PublicRoutesDeps) {
     reply: FastifyReply,
     hitBucket: FixedWindowLimiter,
     spec: PublicRefSpec<Q>,
-  ): Promise<{ id: string; title: string } | null> {
+  ): Promise<PublicNoteRow | null> {
     // ① 格式 guard：不進桶、不打 DB。
     const q = spec.guard();
     if (q === null) {
@@ -151,7 +154,7 @@ export function publicRoutes(deps: PublicRoutesDeps) {
       guard: () => (isValidPublicToken(token) ? token : null),
       lookup: (t) =>
         deps.db
-          .select({ id: notes.id, title: notes.title })
+          .select({ id: notes.id, title: notes.title, publicWidth: notes.publicWidth })
           .from(notes)
           .where(eq(notes.publicToken, t))
           .limit(1)
@@ -174,7 +177,7 @@ export function publicRoutes(deps: PublicRoutesDeps) {
       // 公開面（測試以三條負向釘住）。
       lookup: (q) =>
         deps.db
-          .select({ id: notes.id, title: notes.title })
+          .select({ id: notes.id, title: notes.title, publicWidth: notes.publicWidth })
           .from(notes)
           .innerJoin(users, eq(users.id, notes.ownerId))
           .where(and(eq(users.handle, q.handle), eq(notes.publicSlug, q.slug), sql`${notes.publicToken} is not null`))
@@ -186,7 +189,7 @@ export function publicRoutes(deps: PublicRoutesDeps) {
 
   return function register(app: FastifyInstance) {
     /** 兩形共用的 200 回應器（標頭與 body 形只存在一份——同形保證）。 */
-    async function sendPublicNote(reply: FastifyReply, note: { id: string; title: string }) {
+    async function sendPublicNote(reply: FastifyReply, note: PublicNoteRow) {
       // LEFT JOIN 語意：從沒開過編輯器的筆記查無 note_states——那是**合法空文件**，
       // 回 EMPTY_YDOC_UPDATE_B64（零長度會讓 client 的 Y.applyUpdate throw，見
       // shared 的常數註解），不是 404。
@@ -200,7 +203,7 @@ export function publicRoutes(deps: PublicRoutesDeps) {
       const links = await publicLinksFor(deps.db, note.id, state ? state.ydoc : null);
       // no-store：撤銷/重生要即時生效，公開內容不進任何快取。
       reply.header("cache-control", "no-store");
-      return { title: note.title, ydoc: state ? state.ydoc.toString("base64") : EMPTY_YDOC_UPDATE_B64, links };
+      return { title: note.title, ydoc: state ? state.ydoc.toString("base64") : EMPTY_YDOC_UPDATE_B64, links, width: note.publicWidth };
     }
 
     async function sendPublicUpload(request: FastifyRequest, reply: FastifyReply, note: { id: string }, uploadId: string) {

@@ -30,11 +30,17 @@ export const REGISTER_LIMIT = { limit: 10, windowMs: 3_600_000 } as const;
 /**
  * #72：`PUT/DELETE /api/notes/:id/public-link` 節流（key=userId）。**GET 不吃這桶**
  * ——分享面板開啟即 GET，10 分鐘開 11 次面板是正常操作；掛上去就是 OIDC issue #16
- * 那族「共桶讓額度砍半」的變形。⚠ #122 PR3 的 `PUT/DELETE …/public-link/slug`
- * 兩支**不在此桶**——別名是另一種 slug 寫入，併 `slugPatch` 桶（先授權後扣，與
- * 這桶的「先扣後授權」相反；兩紀律並存的理由見 routes/notes.ts 五支總註解）。
+ * 那族「共桶讓額度砍半」的變形。⚠ 這桶只管 token 兩支：#122 PR3 的別名
+ * `PUT/DELETE …/public-link/slug` 併 `slugPatch` 桶、#297 的 `PUT …/public-width`
+ * 用 `PUBLIC_WIDTH_LIMIT`——三顆桶的紀律與理由見 routes/notes.ts 六支總註解。
  */
 export const PUBLIC_LINK_LIMIT = { limit: 10, windowMs: 600_000 } as const;
+/**
+ * #297：`PUT /api/notes/:id/public-width` 節流（key=userId）。**先解析 body、再授權、後扣**
+ * ——壞 body 的 400、陌生人的 404、無權者的 403 都不耗桶。不與 `publicLink` 共用：
+ * 共用時連點幾次寬度就會把撤銷公開擠成 429，違反 docs/sharing.md「撤銷立即生效」。
+ */
+export const PUBLIC_WIDTH_LIMIT = { limit: 60, windowMs: 600_000 } as const;
 /**
  * #72／#122 PR3 公開端點的雙桶（皆無登入態；token 形與別名形 `/:handle/:slug`
  * **共用同兩顆桶**）。四步序寫死在 routes/public.ts 的 `resolvePublicNote`：

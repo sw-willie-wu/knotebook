@@ -27,7 +27,7 @@ describe("#175 PR2 POST /api/notes/:id/move（T3）", () => {
     const { app, db } = await buildTestApp({ collabHooks: spy });
     const [owner, c, admin] = await Promise.all([seedUser(db), seedUser(db), seedUser(db)]);
     const g = await seedGroup(db, "G", [{ userId: admin.id, role: "admin" }, { userId: owner.id, role: "member" }]);
-    const n = await seedNote(db, { ownerId: owner.id }, { slug: "plan", slugIsCustom: true, prevSlug: "old", publicToken: "t".repeat(43), publicSlug: "alias" });
+    const n = await seedNote(db, { ownerId: owner.id }, { slug: "plan", slugIsCustom: true, prevSlug: "old", publicToken: "t".repeat(43), publicSlug: "alias", publicWidth: "full" });
     const other = await seedNote(db, { ownerId: owner.id });
     await seedShare(db, n.id, c.id, "editor");
     await db.insert(noteAiEdits).values({ noteId: n.id, userId: owner.id, op: "append" });
@@ -60,6 +60,8 @@ describe("#175 PR2 POST /api/notes/:id/move（T3）", () => {
     const [noteIds, userIds] = spy.onGroupAccessChanged.mock.calls[0]!;
     expect(noteIds).toEqual([n.id]);
     expect([...userIds].sort()).toEqual([c.id, owner.id].sort());
+    // #297：移動清 token／別名，但公開頁寬度保留（再公開時沿用）。
+    expect((await db.$client.query("select public_width from notes where id = $1", [n.id])).rows).toEqual([{ public_width: "full" }]);
   });
 
   it("RF1：100 字元自訂 slug 在群組撞名 → ≤60、-2 結尾、slug_is_custom 仍 true、updated_at 不動、舊 /n/ 網址轉到它", async () => {

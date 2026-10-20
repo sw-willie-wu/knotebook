@@ -8,7 +8,7 @@ import type { FastifyInstance } from "fastify";
 import type { Pool } from "pg";
 import { and, eq, sql } from "drizzle-orm";
 import { expect, vi } from "vitest";
-import { SESSION_COOKIE } from "@knotebook/shared";
+import { SESSION_COOKIE, type NoteWidth } from "@knotebook/shared";
 import { signSession } from "../src/auth/session.js";
 import type { CollabHooks } from "../src/collab/hooks.js";
 import type { Db } from "../src/db/index.js";
@@ -88,7 +88,7 @@ export async function setMemberRole(db: Db, groupId: string, userId: string, rol
 export async function seedNote(
   db: Db,
   owner: { ownerId: string } | { groupId: string },
-  opts: { title?: string; slug?: string; slugIsCustom?: boolean; prevSlug?: string; legacySlug?: string; publicToken?: string; publicSlug?: string } = {},
+  opts: { title?: string; slug?: string; slugIsCustom?: boolean; prevSlug?: string; legacySlug?: string; publicToken?: string; publicSlug?: string; publicWidth?: NoteWidth } = {},
 ): Promise<{ id: string; slug: string }> {
   const slug = opts.slug ?? `n-${randomUUID().slice(0, 12)}`;
   const [n] = await db
@@ -102,6 +102,7 @@ export async function seedNote(
       ...(opts.legacySlug !== undefined ? { legacySlug: opts.legacySlug } : {}),
       ...(opts.publicToken !== undefined ? { publicToken: opts.publicToken } : {}),
       ...(opts.publicSlug !== undefined ? { publicSlug: opts.publicSlug } : {}),
+      ...(opts.publicWidth !== undefined ? { publicWidth: opts.publicWidth } : {}),
     })
     .returning({ id: notes.id });
   return { id: n!.id, slug };
