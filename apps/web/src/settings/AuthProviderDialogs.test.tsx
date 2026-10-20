@@ -439,3 +439,135 @@ describe("編輯登入服務 dialog（#187 §9.4、§5.2）", () => {
     expect(document.querySelector("b")).toBeNull();
   });
 });
+
+const HINT_EN =
+  "Optional for now. Some identity providers, such as GitLab, give you a client ID only after you register a callback URL — you'll see this service's callback URL once it's added.";
+const CLIENT_ID_STEP_EN = "Copy its client ID (GitLab calls it Application ID), then enter it here with Edit.";
+
+describe("client ID 選填（#299）", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function serverCreating(dto: AdminAuthProviderDto) {
+    const server = fakeServer([]);
+    server.on((method, url) => {
+      if (method !== "POST" || url !== "/api/admin/auth/providers") return null;
+      server.state.providers = [dto];
+      return fakeResponse(201, dto);
+    });
+    return server;
+  }
+  const NEW_DTO: AdminAuthProviderDto = { ...LIVE, id: "55555555-5555-4555-8555-555555555555", enabled: false, issuerResolved: false };
+
+  it("W1 client ID 留空送出 → POST body 沒有 clientId 鍵；設定步驟依序 callback、scopes、client、clientId、secret、finish，callback URL 與複製鈕照舊", async () => {
+    const created = { ...NEW_DTO, clientId: null, hasSecret: false };
+    const server = serverCreating(created);
+    renderSection(server.fetchMock);
+    const dialog = await openCreate();
+    fireEvent.click(dialog.getByRole("button", { name: "Add" }));
+    const steps = within(await screen.findByRole("dialog", { name: "Finish setting it up" }));
+    const post = server.calls.find(c => c.method === "POST" && c.url === "/api/admin/auth/providers")!;
+    expect(post.body).not.toHaveProperty("clientId");
+    const items = steps.getAllByRole("listitem").map(li => li.textContent ?? "");
+    expect(items).toHaveLength(6);
+    expect(items[0]).toContain("Register this callback URL:");
+    expect(items[0]).toContain(created.callbackUrl);
+    expect(items[1]).toContain("Allow the scopes openid, email and profile.");
+    expect(items[2]).toContain("confidential client");
+    expect(items[3]).toBe(CLIENT_ID_STEP_EN);
+    expect(items[4]).toContain("paste it here with Edit");
+    expect(items[5]).toContain("press Test connection");
+    fireEvent.click(steps.getByRole("button", { name: "Copy" }));
+    await waitFor(() => expect(vi.mocked(copyText)).toHaveBeenCalledWith(created.callbackUrl));
+  });
+
+  it("W2 client ID 填 \"  abc  \" → body clientId 為 \"abc\"；server 回有 client ID 的 DTO → 沒有 clientId 那一步", async () => {
+    const server = serverCreating({ ...NEW_DTO, clientId: "abc", hasSecret: false });
+    renderSection(server.fetchMock);
+    const dialog = await openCreate();
+    fireEvent.change(dialog.getByLabelText("Client ID"), { target: { value: "  abc  " } });
+    fireEvent.click(dialog.getByRole("button", { name: "Add" }));
+    const steps = within(await screen.findByRole("dialog", { name: "Finish setting it up" }));
+    expect(server.calls.find(c => c.method === "POST" && c.url === "/api/admin/auth/providers")!.body).toMatchObject({ clientId: "abc" });
+    const items = steps.getAllByRole("listitem").map(li => li.textContent ?? "");
+    expect(items).toHaveLength(5);
+    expect(items.some(text => text === CLIENT_ID_STEP_EN)).toBe(false);
+  });
+
+  it("W3 (a) 新增的 client ID 輸入框：說明文字接在 aria-describedby、沒有 aria-required", async () => {
+    renderSection(fakeServer([]).fetchMock);
+    const dialog = await openCreate();
+    const input = dialog.getByLabelText("Client ID");
+    expect(input).toHaveAccessibleDescription(HINT_EN);
+    expect(input).not.toHaveAttribute("aria-required");
+  });
+
+  it("W3 (b) client ID 超過 512 字 → 欄位錯誤、不送出；輸入框的描述同時含錯誤與說明", async () => {
+    const server = fakeServer([]);
+    renderSection(server.fetchMock);
+    const dialog = await openCreate();
+    const input = dialog.getByLabelText("Client ID");
+    fireEvent.change(input, { target: { value: "x".repeat(513) } });
+    fireEvent.click(dialog.getByRole("button", { name: "Add" }));
+    expect(await dialog.findByText("Client ID can be at most 512 characters.")).toBeInTheDocument();
+    expect(input).toHaveAttribute("aria-invalid", "true");
+    expect(input).toHaveAccessibleDescription(expect.stringContaining("Client ID can be at most 512 characters."));
+    expect(input).toHaveAccessibleDescription(expect.stringContaining(HINT_EN));
+    expect(server.calls.some(c => c.method === "POST")).toBe(false);
+  });
+
+  async function openEditOf(provider: AdminAuthProviderDto) {
+    const server = fakeServer([provider]);
+    server.on((method, url, body) => {
+      if (method !== "PATCH" || url !== `/api/admin/auth/providers/${provider.id}`) return null;
+      server.state.providers = [{ ...provider, ...(body as object) }];
+      return fakeResponse(200, server.state.providers[0]);
+    });
+    renderSection(server.fetchMock);
+    const row = within(await screen.findByRole("row", { name: provider.displayName }));
+    fireEvent.click(row.getByRole("button", { name: "Edit" }));
+    return { server, dialog: within(await screen.findByRole("dialog", { name: "Edit sign-in service" })) };
+  }
+  const NO_ID: AdminAuthProviderDto = { ...LIVE, clientId: null, enabled: false, hasSecret: false };
+
+  it("W4 沒有 client ID 的服務：什麼都不改按儲存 → 不發請求；沒有 aria-required", async () => {
+    const { server, dialog } = await openEditOf(NO_ID);
+    expect(dialog.getByLabelText("Client ID")).toHaveValue("");
+    expect(dialog.getByLabelText("Client ID")).not.toHaveAttribute("aria-required");
+    fireEvent.click(dialog.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(server.calls.some(c => c.method === "PATCH")).toBe(false);
+  });
+
+  it("W4 沒有 client ID 的服務：欄位只打空白並改顯示名 → PATCH body 只有 displayName", async () => {
+    const { server, dialog } = await openEditOf(NO_ID);
+    fireEvent.change(dialog.getByLabelText("Client ID"), { target: { value: "   " } });
+    fireEvent.change(dialog.getByLabelText("Display name"), { target: { value: "Corp SSO 2" } });
+    fireEvent.click(dialog.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(server.calls.find(c => c.method === "PATCH")!.body).toEqual({ displayName: "Corp SSO 2" });
+  });
+
+  it("W4 沒有 client ID 的服務：填 \"x\" → PATCH body 為 {clientId:\"x\"}", async () => {
+    const { server, dialog } = await openEditOf(NO_ID);
+    fireEvent.change(dialog.getByLabelText("Client ID"), { target: { value: "x" } });
+    fireEvent.click(dialog.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(server.calls.find(c => c.method === "PATCH")!.body).toEqual({ clientId: "x" });
+  });
+
+  it("W5 有 client ID 的服務把欄位清空 → 欄位錯誤「Enter a client ID.」、不發請求；輸入框有 aria-required", async () => {
+    const { server, dialog } = await openEditOf(LIVE);
+    const input = dialog.getByLabelText("Client ID");
+    expect(input).toHaveAttribute("aria-required", "true");
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.click(dialog.getByRole("button", { name: "Save" }));
+    expect(await dialog.findByText("Enter a client ID.")).toBeInTheDocument();
+    expect(server.calls.some(c => c.method === "PATCH")).toBe(false);
+  });
+});

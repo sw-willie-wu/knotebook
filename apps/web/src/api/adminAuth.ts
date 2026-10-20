@@ -41,7 +41,7 @@ export interface CreateAuthProviderBody {
   template: AuthProviderTemplate;
   displayName: string;
   issuerUrl: string;
-  clientId: string;
+  clientId?: string;
   clientSecret?: string;
 }
 

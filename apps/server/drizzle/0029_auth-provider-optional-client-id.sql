@@ -1,0 +1,2 @@
+ALTER TABLE "auth_providers" ALTER COLUMN "client_id" DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE "auth_providers" ADD CONSTRAINT "auth_providers_enabled_client_id_chk" CHECK (not "auth_providers"."enabled" or "auth_providers"."client_id" is not null);

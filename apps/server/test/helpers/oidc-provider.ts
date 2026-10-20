@@ -30,6 +30,7 @@ export interface SeedProviderOpts {
 export async function seedAuthProvider(db: Db, opts: SeedProviderOpts): Promise<OidcProviderRow> {
   const id = opts.id ?? randomUUID();
   const secret = opts.clientSecret === undefined ? "test-secret" : opts.clientSecret;
+  const clientId = opts.clientId ?? "test-client";
   const [row] = await db
     .insert(authProviders)
     .values({
@@ -38,7 +39,7 @@ export async function seedAuthProvider(db: Db, opts: SeedProviderOpts): Promise<
       displayName: opts.displayName ?? "SSO",
       issuerUrl: opts.issuerUrl,
       resolvedIssuer: opts.resolvedIssuer ?? null,
-      clientId: opts.clientId ?? "test-client",
+      clientId,
       clientSecretEncrypted: secret === null ? null : sealClientSecret(testConfig.appSecret, id, secret),
       enabled: opts.enabled ?? true,
       legacyCallback: opts.legacyCallback ?? false,
@@ -51,7 +52,7 @@ export async function seedAuthProvider(db: Db, opts: SeedProviderOpts): Promise<
     displayName: row!.displayName,
     issuerUrl: row!.issuerUrl,
     resolvedIssuer: row!.resolvedIssuer,
-    clientId: row!.clientId,
+    clientId,
     clientSecretEncrypted: row!.clientSecretEncrypted,
     enabled: row!.enabled,
     legacyCallback: row!.legacyCallback,

@@ -52,10 +52,18 @@ function providerColumns() {
   };
 }
 
+/** client_id 為 NULL 的列視同沒有可用的服務（CHECK auth_providers_enabled_client_id_chk 下不可達：兩個讀路徑都只讀啟用列）。 */
+function withClientId(row: (Omit<OidcProviderRow, "clientId"> & { clientId: string | null }) | undefined): OidcProviderRow | null {
+  if (row === undefined) return null;
+  const { clientId } = row;
+  if (clientId === null) return null;
+  return { ...row, clientId };
+}
+
 /** `id` 必須已過 UUID_RE 並轉小寫（呼叫端負責）。 */
 export async function loadEnabledProvider(db: DbOrTx, id: string): Promise<OidcProviderRow | null> {
   const [row] = await db.select(providerColumns()).from(authProviders).where(and(eq(authProviders.id, id), eq(authProviders.enabled, true))).limit(1);
-  return row ?? null;
+  return withClientId(row);
 }
 
 /** 舊路由（`/api/auth/oidc/login`、`/callback`，B13）對應的那一個 provider。 */
@@ -65,7 +73,7 @@ export async function loadLegacyProvider(db: DbOrTx): Promise<OidcProviderRow | 
     .from(authProviders)
     .where(and(eq(authProviders.legacyCallback, true), eq(authProviders.enabled, true)))
     .limit(1);
-  return row ?? null;
+  return withClientId(row);
 }
 
 export async function listEnabledProvidersPublic(db: DbOrTx): Promise<AuthProviderPublicDto[]> {

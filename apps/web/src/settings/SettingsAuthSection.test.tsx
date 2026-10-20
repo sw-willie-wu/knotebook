@@ -166,6 +166,21 @@ describe("SettingsAuthSection（#187 §9.4 /admin/auth）", () => {
     expect(custom.getByRole("switch", { name: "Enabled <b>Corp</b> & Co" })).toHaveAttribute("aria-checked", "false");
   });
 
+  it("W8（#299 驗收 12）沒有 client ID 的服務打開開關 → 409 provider_client_id_missing → toast、開關仍是關", async () => {
+    const server = fakeServer([{ ...CUSTOM, clientId: null, hasSecret: true }]);
+    server.on((method, url) =>
+      method === "PATCH" && url === `/api/admin/auth/providers/${CUSTOM.id}`
+        ? fakeResponse(409, { error: { code: "provider_client_id_missing", message: "x" } })
+        : null,
+    );
+    renderSection(server.fetchMock);
+    const custom = within(await screen.findByRole("row", { name: "<b>Corp</b> & Co" }));
+    fireEvent.click(custom.getByRole("switch", { name: "Enabled <b>Corp</b> & Co" }));
+    await waitFor(() => expect(screen.getByText("Enter a client ID before turning this sign-in service on.")).toBeInTheDocument());
+    expect(server.calls.find(c => c.method === "PATCH")!.body).toEqual({ enabled: true });
+    expect(custom.getByRole("switch", { name: "Enabled <b>Corp</b> & Co" })).toHaveAttribute("aria-checked", "false");
+  });
+
   it("關掉開關 → 先開 dialog（不送 PATCH）、顯示人數與未連線提醒；確認 → PATCH {enabled:false}、重抓後開關變關", async () => {
     const enabledUnresolved = { ...CUSTOM, hasSecret: true, enabled: true };
     const server = fakeServer([enabledUnresolved]);
@@ -528,5 +543,50 @@ describe("登入服務表格（spec 2026-10-13 settings-table §3 #4）", () => 
     renderSection(fakeServer([]).fetchMock);
     const add = await screen.findByRole("button", { name: "Add sign-in service" });
     expect(add.className).not.toMatch(/(^|\s)bg-(primary|brand|brand-deep)(\s|$)/);
+  });
+});
+
+describe("client ID 尚未填入（#299）", () => {
+  const NO_ID: AdminAuthProviderDto = { ...CUSTOM, id: "66666666-6666-4666-8666-666666666666", displayName: "No ID SSO", clientId: null, hasSecret: true };
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("W6 clientId 為 null 的列：明細顯示「尚未填入」全文、有 client ID 的列照舊顯示 client ID", async () => {
+    renderSection(fakeServer([NO_ID, LEGACY]).fetchMock);
+    await screen.findByRole("row", { name: "No ID SSO" });
+    expect(details("No ID SSO").getByText("Not set yet. The service can't be turned on until a client ID is saved.")).toBeInTheDocument();
+    expect(details("SSO").getByText("knotebook")).toBeInTheDocument();
+  });
+
+  it("W7 測試連線回 client_id_missing → 明細顯示提醒；補上 client ID 後列表重抓 → 測試結果消失", async () => {
+    const server = fakeServer([NO_ID]);
+    server.on((method, url) =>
+      method === "POST" && url === `/api/admin/auth/providers/${NO_ID.id}/test`
+        ? fakeResponse(200, { issuer: "https://gitlab.example.com", warnings: ["client_id_missing"] })
+        : null,
+    );
+    server.on((method, url, body) => {
+      if (method !== "PATCH" || url !== `/api/admin/auth/providers/${NO_ID.id}`) return null;
+      // 只把 clientId 填上；issuerUrl 與 hasSecret 不變
+      server.state.providers = [{ ...NO_ID, clientId: (body as { clientId: string }).clientId }];
+      return fakeResponse(200, server.state.providers[0]);
+    });
+    renderSection(server.fetchMock);
+    const noId = within(await screen.findByRole("row", { name: "No ID SSO" }));
+    fireEvent.click(noId.getByRole("button", { name: "Test connection" }));
+    await waitFor(() => expect(details("No ID SSO").getByText("No client ID yet. Add it with Edit before turning the service on.")).toBeInTheDocument());
+
+    fireEvent.click(noId.getByRole("button", { name: "Edit" }));
+    const dialog = within(await screen.findByRole("dialog", { name: "Edit sign-in service" }));
+    fireEvent.change(dialog.getByLabelText("Client ID"), { target: { value: "x" } });
+    fireEvent.click(dialog.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(details("No ID SSO").getByText("x")).toBeInTheDocument());
+    expect(details("No ID SSO").queryByText(/No client ID yet/)).toBeNull();
+    expect(details("No ID SSO").queryByText(/Connection OK/)).toBeNull();
   });
 });
