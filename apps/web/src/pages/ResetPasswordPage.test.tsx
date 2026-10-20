@@ -254,7 +254,8 @@ describe("ResetPasswordPage（#286 §5.2、A-16）", () => {
     expect(await screen.findByRole("heading", { name: "Set a new password" }, { timeout: 3_000 })).toBeInTheDocument();
     // 標題在每個狀態都有：再等到表單，確定走完 inspect、沒有被導去 /login。
     expect(await screen.findByLabelText("New password")).toBeInTheDocument();
-    expect(screen.getByTestId("location")).toHaveTextContent(/^\/reset-password$/);
+    // 清 fragment 的 navigate(replace) effect 在表單渲染之後才生效（CI 慢機器可見），故等待而非立即斷言。
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/reset-password$/));
   });
 
   it("P12 表單畫面恰一顆實心鈕（Set password）", async () => {
