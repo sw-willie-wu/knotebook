@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { AdminAuthProbeResultDto, AdminAuthProviderDto, AuthProviderTemplate } from "@knotebook/shared";
 import { useCreateAuthProvider, useDiscoverAuthProvider, usePatchAuthProvider, type PatchAuthProviderBody } from "@/api/adminAuth";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Pencil } from "@/components/ui/icons";
 import { Input } from "@/components/ui/input";
 import { RowIconButton } from "@/components/ui/row-icon-button";
@@ -393,6 +393,8 @@ const baselineOf = (provider: AdminAuthProviderDto): EditBaseline => ({
  * PATCH **只送改過的欄位**（與開 dialog 當下的值比）：沒碰 issuer 就不帶 issuer——否則另一位管理員剛改過 issuer 時，這邊帶著
  * 舊 issuer 送出會被 §5.2 的 CASE 當成「改 issuer」，把對方的 issuer 改回去、清掉對方剛存的 secret 並停用；也不留 from==to 的稽核行。
  * 什麼都沒改就不發請求、直接關閉。任何關閉都清掉 secret 欄。
+ * 改 issuer 時依畫面上的開關值決定自動建帳（PR-C）：開著就先問，三鈕：關掉並儲存／保持開啟並儲存／取消；本來關就明帶 false（fail-closed）。
+ * issuer 沒變不帶此欄。server 不強制改值（S6、U4）。
  */
 export function EditProviderDialog({ provider }: { provider: AdminAuthProviderDto }) {
   const { t } = useTranslation();
@@ -406,11 +408,16 @@ export function EditProviderDialog({ provider }: { provider: AdminAuthProviderDt
   const [sortOrder, setSortOrder] = useState(String(provider.sortOrder));
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<string | null>(null);
+  // 改 issuer 且自動建帳為開時，暫存待送的 body 並開確認框；開著＝非 null。
+  const [confirmBody, setConfirmBody] = useState<PatchAuthProviderBody | null>(null);
 
   function handleOpenChange(next: boolean): void {
     setOpen(next);
     // 關閉（取消、Esc、點外面、成功送出）就清 secret——不留在 state 裡等下次打開；初值也是空，所以重開必為空。
-    if (!next) setClientSecret("");
+    if (!next) {
+      setClientSecret("");
+      setConfirmBody(null);
+    }
     if (next) {
       setBaseline(baselineOf(provider));
       setDisplayName(provider.displayName);
@@ -464,6 +471,17 @@ export function EditProviderDialog({ provider }: { provider: AdminAuthProviderDt
       handleOpenChange(false);
       return;
     }
+    if (issuerChanged) {
+      if (provider.autoCreateEnabled) {
+        setConfirmBody(body); // 先不送（S6）
+        return;
+      }
+      body.autoCreateEnabled = false; // M2：沒問過就關（fail-closed）
+    }
+    await send(body);
+  }
+
+  async function send(body: PatchAuthProviderBody): Promise<void> {
     try {
       const wasEnabled = provider.enabled;
       const updated = await patch.mutateAsync({ id: provider.id, body });
@@ -472,6 +490,14 @@ export function EditProviderDialog({ provider }: { provider: AdminAuthProviderDt
     } catch (err) {
       setError(authErrorMessage(t, err));
     }
+  }
+
+  // M3：按任一儲存鈕先關確認框再送；錯誤顯示在編輯對話框，送出中由儲存鈕的 disabled 擋重送。
+  function confirmAndSend(autoCreateEnabled: boolean): void {
+    const body = confirmBody;
+    if (body === null) return;
+    setConfirmBody(null);
+    void send({ ...body, autoCreateEnabled });
   }
 
   const fieldId = (field: string): string => `auth-provider-edit-${field}-${provider.id}`;
@@ -566,6 +592,36 @@ export function EditProviderDialog({ provider }: { provider: AdminAuthProviderDt
             </Button>
           </DialogFooter>
         </form>
+        <Dialog
+          open={confirmBody !== null}
+          onOpenChange={next => {
+            if (!next) setConfirmBody(null);
+          }}
+        >
+          <DialogContent
+            onCloseAutoFocus={event => {
+              // 確認框沒有觸發鈕可還原，焦點改回編輯對話框的 Issuer URL 欄。
+              event.preventDefault();
+              document.getElementById(fieldId("issuer"))?.focus();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>{t("admin.auth.edit.autoCreateConfirmTitle")}</DialogTitle>
+              <DialogDescription>{t("admin.auth.edit.autoCreateConfirmDescription", { name: provider.displayName })}</DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <DialogClose asChild>
+                <Button type="button" variant="outline">{t("admin.auth.cancel")}</Button>
+              </DialogClose>
+              <Button type="button" variant="outline" onClick={() => confirmAndSend(true)}>
+                {t("admin.auth.edit.autoCreateConfirmKeep")}
+              </Button>
+              <Button type="button" variant="brandDeep" onClick={() => confirmAndSend(false)}>
+                {t("admin.auth.edit.autoCreateConfirmTurnOff")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </DialogContent>
     </Dialog>
   );

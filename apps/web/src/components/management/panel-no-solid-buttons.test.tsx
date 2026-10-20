@@ -72,7 +72,7 @@ const PANEL3_GETS: Record<string, unknown> = {
   "/api/admin/auth/providers": {
     providers: [{
       id: PROVIDER_ID, template: "oidc", displayName: "SSO", issuerUrl: "https://idp.example", clientId: "kb", hasSecret: true,
-      enabled: false, sortOrder: 0, legacyCallback: false, callbackUrl: "https://notes.example/api/auth/oidc/callback/x",
+      enabled: false, autoCreateEnabled: false, sortOrder: 0, legacyCallback: false, callbackUrl: "https://notes.example/api/auth/oidc/callback/x",
       insecureIssuer: false, issuerResolved: true, createdAt: T, iconKind: "template", icon: { type: "builtin", name: "generic" },
     }],
   },
@@ -138,7 +138,7 @@ async function loginReady(passwordButton: string): Promise<unknown> {
  * 只等其中一支會在其他還在載入時就掃。以登入服務的資料列定位、等「已連結」格從「—」變成 1。
  */
 async function adminLoginReady(): Promise<unknown> {
-  await screen.findByRole("switch", { name: "Allow registration" });
+  await screen.findByRole("switch", { name: "Allow self-registration with a password" });
   return within(await screen.findByRole("row", { name: "SSO" })).findByText("1");
 }
 
@@ -164,7 +164,7 @@ export const PANEL_PAGES: PanelPageCase[] = [
   { name: "群組：關於", path: `/groups/${GROUP_ID}/about`, ready: async () => { await screen.findByRole("button", { name: "Delete group" }); return screen.findByRole("button", { name: "Leave group" }); }, minButtons: 3 }, // 實測 3：Save name、Leave group、Delete group（Leave 等成員清單到、且非唯一管理員才出現）
   { name: "站台：使用者", path: "/admin/users", ready: () => screen.findByText("b@example.com"), minButtons: 3 }, // 實測 3：Create user＋兩列啟用 switch
   { name: "站台：群組", path: "/admin/groups", ready: () => screen.findByRole("combobox", { name: "Storage plan for Team Alpha" }), minButtons: 0 }, // 實測 0：只有方案下拉（spec §7.0 不改、沒有刪除鈕），0 是真值
-  { name: "站台：登入", path: "/admin/login", ready: adminLoginReady, minButtons: 9 }, // 實測 9：兩個存取 switch、Add sign-in service、列內插頭／鉛筆／圖示／紅垃圾桶、啟用 switch、明細區 Copy
+  { name: "站台：登入", path: "/admin/login", ready: adminLoginReady, minButtons: 10 }, // 實測 10：兩個存取 switch、Add sign-in service、列內自動建帳 switch、插頭／鉛筆／圖示／紅垃圾桶、啟用 switch、明細區 Copy
   { name: "站台：儲存方案", path: "/admin/storage", ready: async () => { await screen.findByRole("button", { name: "Edit Basic" }); return screen.findByLabelText("Keep all for (days)"); }, minButtons: 6 }, // 實測 6：New plan、Edit／Delete Basic、Save defaults、自動版本 switch、版本設定 Save
   { name: "站台：AI 代理", path: "/admin/ai", ready: adminAiReady, minButtons: 15 }, // 實測 15：供應商（Add provider＋插頭／鉛筆／垃圾桶＋switch）、模型（Add model＋switch＋鉛筆／垃圾桶）、動作（Add action＋上移／下移＋switch＋鉛筆／垃圾桶）
 ];

@@ -490,10 +490,10 @@ describe("登入服務表格（spec 2026-10-13 settings-table §3 #4）", () => 
     vi.unstubAllGlobals();
   });
 
-  it("L1 表名 Sign-in services；欄名 Service／Issuer／Linked／Actions／Enabled；列內：Issuer、已連結人數、Test connection／Icon／Edit／Delete（依序，spec §2.7、§3 #4）、「Enabled ＜名稱＞」開關", async () => {
+  it("L1 表名 Sign-in services；欄名 Service／Issuer／Linked／Creates accounts／Actions／Enabled；列內：Issuer、已連結人數、Test connection／Icon／Edit／Delete（依序，spec §2.7、§3 #4）、「Enabled ＜名稱＞」開關", async () => {
     renderSection(fakeServer([LEGACY, CUSTOM]).fetchMock);
     const table = await screen.findByRole("table", { name: "Sign-in services" });
-    expect(within(table).getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual(["Service", "Issuer", "Linked", "Actions", "Enabled"]);
+    expect(within(table).getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual(["Service", "Issuer", "Linked", "Creates accounts", "Actions", "Enabled"]);
     const legacyRow = within(table).getByRole("row", { name: "SSO" });
     expect(within(legacyRow).getByRole("cell", { name: "http://idp.lan" })).toBeInTheDocument();
     await waitFor(() => expect(within(legacyRow).getByRole("cell", { name: "11" })).toBeInTheDocument());
@@ -509,7 +509,7 @@ describe("登入服務表格（spec 2026-10-13 settings-table §3 #4）", () => 
   it("欄寬：服務欄與 Issuer 欄按 1 : 1.5 分配（真實掛載）", async () => {
     renderSection(fakeServer([LEGACY, CUSTOM]).fetchMock);
     const table = await screen.findByRole("table", { name: "Sign-in services" });
-    expect(table.style.getPropertyValue("--kb-table-cols")).toBe("minmax(14ch,1fr) minmax(14ch,1.5fr) max-content 8.75rem 3.5rem");
+    expect(table.style.getPropertyValue("--kb-table-cols")).toBe("minmax(14ch,1fr) minmax(14ch,1.5fr) max-content max-content 8.75rem 3.5rem");
   });
 
   it("L3 啟用中的 Delete：aria-disabled＋title 是「Turn it off before deleting it.」，點了不開刪除對話框", async () => {
@@ -590,5 +590,75 @@ describe("client ID 尚未填入（#299）", () => {
     await waitFor(() => expect(details("No ID SSO").getByText("x")).toBeInTheDocument());
     expect(details("No ID SSO").queryByText(/No client ID yet/)).toBeNull();
     expect(details("No ID SSO").queryByText(/Connection OK/)).toBeNull();
+  });
+});
+
+describe("服務表的自動建帳開關（PR-C C-13）", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const CUSTOM_PATH = `/api/admin/auth/providers/${CUSTOM.id}`;
+
+  it("AC1 每列有「Create accounts on first sign-in with ＜名稱＞」開關，aria-checked 反映 autoCreateEnabled（名稱字面不當 HTML）", async () => {
+    renderSection(fakeServer([LEGACY, CUSTOM]).fetchMock);
+    await screen.findByRole("row", { name: "SSO" });
+    expect(row("SSO").getByRole("switch", { name: "Create accounts on first sign-in with SSO" })).toHaveAttribute("aria-checked", "true");
+    expect(row("<b>Corp</b> & Co").getByRole("switch", { name: "Create accounts on first sign-in with <b>Corp</b> & Co" })).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("AC2 點停用中服務的開關 → PATCH 恰 {autoCreateEnabled:true}；送出期間 disabled；成功重抓後 aria-checked=true；沒有任何 dialog", async () => {
+    const server = fakeServer([CUSTOM]);
+    let release: () => void = () => {};
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    server.on((method, url) => {
+      if (method !== "PATCH" || url !== CUSTOM_PATH) return null;
+      return gate.then(() => {
+        server.state.providers = [{ ...CUSTOM, autoCreateEnabled: true }];
+        return fakeResponse(200, server.state.providers[0]);
+      });
+    });
+    renderSection(server.fetchMock);
+    const custom = within(await screen.findByRole("row", { name: "<b>Corp</b> & Co" }));
+    const sw = custom.getByRole("switch", { name: "Create accounts on first sign-in with <b>Corp</b> & Co" });
+    expect(CUSTOM.enabled).toBe(false);
+    expect(sw).not.toBeDisabled();
+    fireEvent.click(sw);
+    await waitFor(() => expect(sw).toBeDisabled());
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    release();
+    await waitFor(() => expect(sw).toHaveAttribute("aria-checked", "true"));
+    expect(sw).not.toBeDisabled();
+    const patches = server.calls.filter(c => c.method === "PATCH");
+    expect(patches).toHaveLength(1);
+    expect(patches[0]!.url).toBe(CUSTOM_PATH);
+    expect(patches[0]!.body).toEqual({ autoCreateEnabled: true });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("AC3 PATCH 回 500 → toast 顯示錯誤文案、開關仍 aria-checked=false", async () => {
+    const server = fakeServer([CUSTOM]);
+    server.on((method, url) =>
+      method === "PATCH" && url === CUSTOM_PATH ? fakeResponse(500, { error: { code: "internal", message: "x" } }) : null,
+    );
+    renderSection(server.fetchMock);
+    const custom = within(await screen.findByRole("row", { name: "<b>Corp</b> & Co" }));
+    const sw = custom.getByRole("switch", { name: "Create accounts on first sign-in with <b>Corp</b> & Co" });
+    fireEvent.click(sw);
+    expect(await screen.findByText("Something went wrong. Please try again.")).toBeInTheDocument();
+    expect(sw).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("AC4 服務群組說明（en 全文）可見", async () => {
+    renderSection(fakeServer([LEGACY]).fetchMock);
+    expect(
+      await screen.findByText(
+        "When Creates accounts is on, anyone who can sign in to that identity provider and whose email has no account here yet gets one the first time they sign in. Keep it off for providers anyone can sign up at, such as Google or gitlab.com.",
+      ),
+    ).toBeInTheDocument();
   });
 });

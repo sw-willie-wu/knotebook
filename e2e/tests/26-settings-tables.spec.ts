@@ -56,7 +56,7 @@ interface TableSpec {
 const T = {
   providers: { label: "Providers", headers: ["Name", "Type", "Base URL", "Models", "Actions", "Enabled"], buttons: 3, enabled: true, minRows: 2 },
   actions: { label: "Actions", headers: ["Name", "Apply mode", "Model", "Actions", "Enabled"], buttons: 4, enabled: true, minRows: 2 },
-  authProviders: { label: "Sign-in services", headers: ["Service", "Issuer", "Linked", "Actions", "Enabled"], buttons: 4, enabled: true, minRows: 2 },
+  authProviders: { label: "Sign-in services", headers: ["Service", "Issuer", "Linked", "Creates accounts", "Actions", "Enabled"], buttons: 4, enabled: true, minRows: 2 },
   users: { label: "Users", headers: ["User", "Email", "Storage", LAST_ACTIVE_HEADER, "Role", "Plan", "Enabled"], buttons: 0, enabled: true, minRows: 2 },
   adminGroups: { label: "Groups", headers: ["Name", "Members", "Created", "Storage", "Plan"], buttons: 0, enabled: false, minRows: 2 },
   plans: { label: "Storage plans", headers: ["Name", "Limit", "Users", "Groups", "Spaces over limit", "Actions"], buttons: 2, enabled: false, minRows: 2 },
@@ -116,7 +116,7 @@ async function call<R>(page: Page, method: "post" | "patch" | "put", url: string
   return (text === "" ? undefined : JSON.parse(text)) as R;
 }
 
-/** SSO 首登（同 05-oidc 情境一）：設定 fake-idp 下一次登入的 claims → 登入頁按「Sign in with SSO」→ 自動建帳進站。 */
+/** SSO 首登（同 05-oidc 情境一）：設定 fake-idp 下一次登入的 claims → 登入頁按「Sign in with SSO」→ 自動建帳進站（e2e 疊的 SSO 由 `OIDC_*` 匯入，承接 registration_enabled 預設開）。 */
 async function signInSsoUser(page: Page): Promise<void> {
   const control = await page.request.put(ROOT_CONTROL_URL, {
     data: { sub: `e2e-t26-${randomUUID()}`, email: SSO_EMAIL, email_verified: true, name: N.ssoUser },
@@ -124,7 +124,7 @@ async function signInSsoUser(page: Page): Promise<void> {
   expect(control.ok(), `fake-idp control → HTTP ${control.status()}`).toBe(true);
   await page.goto("/login");
   await page.getByRole("link", { name: "Sign in with SSO", exact: true }).click();
-  await expect(page, "SSO 首登要自動建帳並進站（站台要允許註冊）").toHaveURL(/\/$/, { timeout: 20_000 });
+  await expect(page, "SSO 首登要自動建帳並進站（SSO 服務要開自動建帳）").toHaveURL(/\/$/, { timeout: 20_000 });
 }
 
 /** 自建所有表的資料；回傳群組 A 的 id（成員表的頁面）。 */

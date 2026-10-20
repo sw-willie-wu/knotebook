@@ -200,6 +200,32 @@ function ProviderEnabledSwitch({ provider, labelledBy }: { provider: AdminAuthPr
   );
 }
 
+/**
+ * 自動建帳開關（PR-C）。control 欄第一次放 switch：可及名稱用 `aria-label`，不是啟用欄的 `aria-labelledby`（spec §3.7 N3）。
+ * 切換即送單獨一欄的 PATCH，不跳確認框；服務停用中也可切（先設好再啟用）。
+ */
+function ProviderAutoCreateSwitch({ provider }: { provider: AdminAuthProviderDto }) {
+  const { t } = useTranslation();
+  const patch = usePatchAuthProvider();
+
+  async function toggle(next: boolean): Promise<void> {
+    try {
+      await patch.mutateAsync({ id: provider.id, body: { autoCreateEnabled: next } });
+    } catch (err) {
+      toast({ title: authErrorMessage(t, err), variant: "destructive" });
+    }
+  }
+
+  return (
+    <Switch
+      aria-label={t("admin.auth.autoCreateFor", { name: provider.displayName })}
+      checked={provider.autoCreateEnabled}
+      disabled={patch.isPending}
+      onCheckedChange={(checked) => void toggle(checked)}
+    />
+  );
+}
+
 /** 列尾操作鈕（spec §2.7 的順序：測試／次要 → 編輯 → 危險，即測試 → 圖示 → 編輯 → 刪除；spec §3 #4 同序）。測試的進行中與結果交給上層保存、在明細列顯示。 */
 function ProviderActions({
   provider,
@@ -313,8 +339,8 @@ function ProviderDetail({
 }
 
 /**
- * #187 §9.4：站台管理 → 登入（站台 modal 的 `/admin/login`；舊網址 `/admin/auth` 轉過來，#247 §7.0）。頂部是「允許註冊」與「允許帳密登入」（`SiteAccessSettings`），下面是登入服務管理。
- * 新增與編輯 dialog 在 `AuthProviderDialogs.tsx`。登入服務表（spec 2026-10-13 settings-table §3 #4）：服務（圖示、名稱；副標＝範本名＋legacy 標記）｜Issuer｜已連結｜操作｜啟用，
+ * #187 §9.4：站台管理 → 登入（站台 modal 的 `/admin/login`；舊網址 `/admin/auth` 轉過來，#247 §7.0）。頂部是「允許帳號密碼登入」與「允許用帳號密碼自行註冊」（`SiteAccessSettings`），下面是登入服務管理。
+ * 新增與編輯 dialog 在 `AuthProviderDialogs.tsx`。登入服務表（spec 2026-10-13 settings-table §3 #4）：服務（圖示、名稱；副標＝範本名＋legacy 標記）｜Issuer｜已連結｜自動建帳（control 欄的 switch，PR-C）｜操作｜啟用，
  * 其餘資訊在明細列。
  */
 export function SettingsAuthSection() {
@@ -343,6 +369,7 @@ export function SettingsAuthSection() {
     { id: "service", header: t("admin.auth.tableService"), kind: "primary", grow: 1 },
     { id: "issuer", header: t("admin.auth.tableIssuer"), kind: "url" },
     { id: "linked", header: t("admin.auth.tableLinked"), kind: "fixed" },
+    { id: "autoCreate", header: t("admin.auth.tableAutoCreate"), kind: "control" },
     { id: "actions", header: t("admin.auth.tableActions"), kind: "actions", buttons: 4 },
     { id: "enabled", header: t("admin.auth.tableEnabled"), kind: "enabled" },
   ];
@@ -361,6 +388,7 @@ export function SettingsAuthSection() {
       cells: {
         issuer: provider.issuerUrl,
         linked: <LinkedCount providerId={provider.id} />,
+        autoCreate: <ProviderAutoCreateSwitch provider={provider} />,
       },
       actions: (
         <ProviderActions
@@ -378,7 +406,11 @@ export function SettingsAuthSection() {
   return (
     <SettingsPage title={t("admin.auth.title")} description={t("admin.auth.description")}>
       <SiteAccessSettings />
-      <SettingsGroup title={t("admin.auth.providersHeading")} action={<CreateProviderDialog />}>
+      <SettingsGroup
+        title={t("admin.auth.providersHeading")}
+        description={t("admin.auth.providersDescription")}
+        action={<CreateProviderDialog />}
+      >
         {providersQuery.isPending ? (
           <p className="text-sm text-muted-foreground">{t("app.loading")}</p>
         ) : providersQuery.isError ? (

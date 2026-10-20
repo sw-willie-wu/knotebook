@@ -37,7 +37,7 @@ const LIVE: AdminAuthProviderDto = {
   icon: { type: "builtin", name: "generic" },
 };
 
-type Handler = (method: string, url: string, body: unknown) => Response | null;
+type Handler = (method: string, url: string, body: unknown) => Response | Promise<Response> | null;
 function fakeServer(initial: AdminAuthProviderDto[]) {
   const state = { providers: [...initial] };
   const calls: Array<{ method: string; url: string; body: unknown }> = [];
@@ -70,6 +70,8 @@ function renderSection(fetchMock: ReturnType<typeof vi.fn>) {
   );
 }
 
+const AUTO: AdminAuthProviderDto = { ...LIVE, autoCreateEnabled: true };
+
 async function openCreate() {
   fireEvent.click(await screen.findByRole("button", { name: "Add sign-in service" }));
   return within(await screen.findByRole("dialog", { name: "Add sign-in service" }));
@@ -89,6 +91,7 @@ describe("新增登入服務 dialog（#187 §9.4）", () => {
     const server = fakeServer([]);
     renderSection(server.fetchMock);
     const dialog = await openCreate();
+    expect(dialog.getByText("New sign-in services start turned off, and don't create accounts on first sign-in. Test the connection, then turn it on.")).toBeInTheDocument();
     fireEvent.change(dialog.getByLabelText("Display name"), { target: { value: "Keep me" } });
     await clickOutside();
     expect(screen.getByRole("dialog", { name: "Add sign-in service" })).toBeInTheDocument();
@@ -570,5 +573,159 @@ describe("client ID 選填（#299）", () => {
     fireEvent.click(dialog.getByRole("button", { name: "Save" }));
     expect(await dialog.findByText("Enter a client ID.")).toBeInTheDocument();
     expect(server.calls.some(c => c.method === "PATCH")).toBe(false);
+  });
+});
+
+describe("改 issuer 的自動建帳確認框（PR-C C-14）", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const PATH = `/api/admin/auth/providers/${LIVE.id}`;
+  const NEW_ISSUER = "https://other.example.com";
+  const CONFIRM_TITLE = "Keep creating accounts after changing the issuer?";
+
+  /** PATCH 成功：把 body 合進服務並回 DTO。 */
+  function patchOk(server: ReturnType<typeof fakeServer>, base: AdminAuthProviderDto): void {
+    server.on((method, url, body) => {
+      if (method !== "PATCH" || url !== PATH) return null;
+      server.state.providers = [{ ...base, ...(body as Partial<AdminAuthProviderDto>) }];
+      return fakeResponse(200, server.state.providers[0]);
+    });
+  }
+
+  async function openEditChangeIssuer(opts: { rename?: boolean } = {}) {
+    const row = within(await screen.findByRole("row", { name: "Corp SSO" }));
+    fireEvent.click(row.getByRole("button", { name: "Edit" }));
+    const dialog = within(await screen.findByRole("dialog", { name: "Edit sign-in service" }));
+    if (opts.rename === true) fireEvent.change(dialog.getByLabelText("Display name"), { target: { value: "Renamed" } });
+    fireEvent.change(dialog.getByLabelText("Issuer URL"), { target: { value: NEW_ISSUER } });
+    return { row, dialog };
+  }
+  const patches = (server: ReturnType<typeof fakeServer>) => server.calls.filter(c => c.method === "PATCH");
+  const confirmDialog = async () => within(await screen.findByRole("dialog", { name: CONFIRM_TITLE }));
+
+  it("K1 開關開著、改 issuer 並同時改顯示名 → Save 跳確認框（說明用改前的名稱），尚未送 PATCH", async () => {
+    const server = fakeServer([AUTO]);
+    renderSection(server.fetchMock);
+    const { dialog } = await openEditChangeIssuer({ rename: true });
+    fireEvent.click(dialog.getByRole("button", { name: "Save" }));
+    const confirm = await confirmDialog();
+    expect(confirm.getByText(/Corp SSO creates accounts on first sign-in\./)).toBeInTheDocument();
+    expect(confirm.getByText(/Turn it off unless only your people can sign in there\./)).toBeInTheDocument();
+    expect(patches(server)).toHaveLength(0);
+  });
+
+  // 「確認框消失」由 K7 守（失敗路徑只剩編輯對話框）；這裡成功後整組 dialog 都關，斷言不到確認框單獨消失。
+  it("K2 「Turn off and save」→ 恰一個 PATCH 帶 autoCreateEnabled:false；成功後編輯對話框關閉", async () => {
+    const server = fakeServer([AUTO]);
+    patchOk(server, AUTO);
+    renderSection(server.fetchMock);
+    const { dialog } = await openEditChangeIssuer({ rename: true });
+    fireEvent.click(dialog.getByRole("button", { name: "Save" }));
+    fireEvent.click((await confirmDialog()).getByRole("button", { name: "Turn off and save" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(patches(server)).toHaveLength(1);
+    expect(patches(server)[0]!.body).toEqual({ displayName: "Renamed", issuerUrl: NEW_ISSUER, autoCreateEnabled: false });
+  });
+
+  it("K3 「Keep on and save」→ PATCH 的 autoCreateEnabled 為 true", async () => {
+    const server = fakeServer([AUTO]);
+    patchOk(server, AUTO);
+    renderSection(server.fetchMock);
+    const { dialog } = await openEditChangeIssuer({ rename: true });
+    fireEvent.click(dialog.getByRole("button", { name: "Save" }));
+    fireEvent.click((await confirmDialog()).getByRole("button", { name: "Keep on and save" }));
+    await waitFor(() => expect(patches(server)).toHaveLength(1));
+    expect(patches(server)[0]!.body).toEqual({ displayName: "Renamed", issuerUrl: NEW_ISSUER, autoCreateEnabled: true });
+  });
+
+  it("K4 「Cancel」→ 零個 PATCH；確認框消失；編輯對話框仍開著、Issuer URL 欄的值保留", async () => {
+    const server = fakeServer([AUTO]);
+    renderSection(server.fetchMock);
+    const { dialog } = await openEditChangeIssuer();
+    fireEvent.click(dialog.getByRole("button", { name: "Save" }));
+    fireEvent.click((await confirmDialog()).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: CONFIRM_TITLE })).not.toBeInTheDocument());
+    const edit = within(await screen.findByRole("dialog", { name: "Edit sign-in service" }));
+    expect(edit.getByLabelText("Issuer URL")).toHaveValue(NEW_ISSUER);
+    expect(patches(server)).toHaveLength(0);
+  });
+
+  it("K4b 「Cancel」關閉確認框後，焦點在編輯對話框的 Issuer URL 欄", async () => {
+    const server = fakeServer([AUTO]);
+    renderSection(server.fetchMock);
+    const { dialog } = await openEditChangeIssuer();
+    fireEvent.click(dialog.getByRole("button", { name: "Save" }));
+    fireEvent.click((await confirmDialog()).getByRole("button", { name: "Cancel" }));
+    const edit = within(await screen.findByRole("dialog", { name: "Edit sign-in service" }));
+    await waitFor(() => expect(edit.getByLabelText("Issuer URL")).toHaveFocus());
+  });
+
+  it("K5 開關開著、只改顯示名 → 不跳確認框；body 沒有 autoCreateEnabled 鍵", async () => {
+    const server = fakeServer([AUTO]);
+    patchOk(server, AUTO);
+    renderSection(server.fetchMock);
+    const row = within(await screen.findByRole("row", { name: "Corp SSO" }));
+    fireEvent.click(row.getByRole("button", { name: "Edit" }));
+    const dialog = within(await screen.findByRole("dialog", { name: "Edit sign-in service" }));
+    fireEvent.change(dialog.getByLabelText("Display name"), { target: { value: "Renamed" } });
+    fireEvent.click(dialog.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(patches(server)).toHaveLength(1));
+    expect(screen.queryByRole("dialog", { name: CONFIRM_TITLE })).not.toBeInTheDocument();
+    expect(patches(server)[0]!.body).toEqual({ displayName: "Renamed" });
+  });
+
+  it("K6 開關本來關、改 issuer → 不跳確認框；body 明帶 autoCreateEnabled:false", async () => {
+    const server = fakeServer([LIVE]);
+    patchOk(server, LIVE);
+    renderSection(server.fetchMock);
+    const { dialog } = await openEditChangeIssuer();
+    fireEvent.click(dialog.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(patches(server)).toHaveLength(1));
+    expect(screen.queryByRole("dialog", { name: CONFIRM_TITLE })).not.toBeInTheDocument();
+    expect(patches(server)[0]!.body).toEqual({ issuerUrl: NEW_ISSUER, autoCreateEnabled: false });
+  });
+
+  it("K7 儲存失敗（409）→ 確認框已消失；錯誤顯示在編輯對話框的 alert；Issuer URL 欄的值仍在", async () => {
+    const server = fakeServer([AUTO]);
+    server.on((method, url) =>
+      method === "PATCH" && url === PATH ? fakeResponse(409, { error: { code: "provider_secret_missing", message: "x" } }) : null,
+    );
+    renderSection(server.fetchMock);
+    const { dialog } = await openEditChangeIssuer();
+    fireEvent.click(dialog.getByRole("button", { name: "Save" }));
+    fireEvent.click((await confirmDialog()).getByRole("button", { name: "Turn off and save" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: CONFIRM_TITLE })).not.toBeInTheDocument());
+    const edit = within(await screen.findByRole("dialog", { name: "Edit sign-in service" }));
+    await waitFor(() => expect(edit.getByRole("alert")).toHaveTextContent("Enter a client secret before turning this sign-in service on."));
+    expect(edit.getByLabelText("Issuer URL")).toHaveValue(NEW_ISSUER);
+  });
+
+  it("K8 送出中：編輯對話框的儲存鈕顯示「Saving…」並 disabled，再點不會多送；resolve 後 PATCH 恰一個", async () => {
+    const server = fakeServer([AUTO]);
+    let release: () => void = () => {};
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    server.on((method, url, body) => {
+      if (method !== "PATCH" || url !== PATH) return null;
+      return gate.then(() => {
+        server.state.providers = [{ ...AUTO, ...(body as Partial<AdminAuthProviderDto>) }];
+        return fakeResponse(200, server.state.providers[0]);
+      });
+    });
+    renderSection(server.fetchMock);
+    const { dialog } = await openEditChangeIssuer();
+    fireEvent.click(dialog.getByRole("button", { name: "Save" }));
+    fireEvent.click((await confirmDialog()).getByRole("button", { name: "Keep on and save" }));
+    const saving = await screen.findByRole("button", { name: "Saving…" });
+    expect(saving).toBeDisabled();
+    fireEvent.click(saving);
+    release();
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(patches(server)).toHaveLength(1);
   });
 });

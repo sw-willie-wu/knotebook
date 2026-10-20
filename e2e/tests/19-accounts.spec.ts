@@ -31,7 +31,7 @@ async function adminOnSignInPage(browser: Browser) {
 }
 
 test.describe.serial("19 帳號與登入服務（#187）", () => {
-  test("19-1：admin 在 /admin/login 建第二個登入服務 → 回呼網址 → 填 secret → 測試 → 啟用；登入頁出現按鈕、首登建帳", async ({ browser, request }) => {
+  test("19-1：admin 在 /admin/login 建第二個登入服務 → 回呼網址 → 填 secret → 測試 → 啟用 → 打開自動建帳；登入頁出現按鈕、首登建帳", async ({ browser, request }) => {
     const { context, page } = await adminOnSignInPage(browser);
     try {
       await page.getByRole("button", { name: "Add sign-in service" }).click();
@@ -66,6 +66,10 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
       // #247：啟用 switch 的可及名稱＝「Enabled」欄頭＋服務顯示名（aria-labelledby）。
       await card.getByRole("switch", { name: `Enabled ${SECOND_NAME}`, exact: true }).click();
       await expect(card.getByRole("switch", { name: `Enabled ${SECOND_NAME}`, exact: true })).toHaveAttribute("aria-checked", "true");
+      const autoCreate = card.getByRole("switch", { name: `Create accounts on first sign-in with ${SECOND_NAME}`, exact: true });
+      await expect(autoCreate).toHaveAttribute("aria-checked", "false"); // 新服務預設關
+      await autoCreate.click();
+      await expect(autoCreate).toHaveAttribute("aria-checked", "true");
     } finally {
       await context.close();
     }
@@ -151,6 +155,7 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
     }
   });
 
+  // 依賴 19-1：第二服務已打開自動建帳（/register 才列出它）
   test("19-4＋19-5：「Sign up with X」建純 SSO 帳號 → 唯一登入方式的解除鈕 disabled → 加上密碼 → 另一個瀏覽器以密碼登入", async ({ browser, request }) => {
     const email = randomEmail();
     const ctx = await browser.newContext();

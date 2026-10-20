@@ -12,6 +12,7 @@ import { SettingsGroup } from "./SettingsLayout";
  * #187 §9.4／§9.5：`/admin/auth` 頂部的兩個立即生效開關。Switch 一律受控於 server 值——409（B19 的兩碼）時 server 值沒變，
  * Switch 自然維持原狀，只 toast。關閉帳密先過確認 dialog（顯示 usersWithoutSso）；開啟永遠直接送（server 永遠允許）。
  * 「關不了」的兩種原因（零個啟用服務、自己沒有可用 SSO）預先 disable 並以可見文字＋aria-describedby 說明；權威判斷在 PATCH。
+ * 自行註冊開關只管帳密自助註冊（PR-C），帳密有效值關時照常可切，並以可見文字＋aria-describedby 說明不生效（S2，讓管理員能在暫開帳密前先關掉它）。
  */
 export function SiteAccessSettings() {
   const { t } = useTranslation();
@@ -19,6 +20,7 @@ export function SiteAccessSettings() {
   const patch = usePatchAdminAuthSettings();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const reasonId = useId();
+  const noEffectId = useId();
 
   async function save(body: PatchAdminAuthSettingsBody): Promise<boolean> {
     try {
@@ -52,6 +54,7 @@ export function SiteAccessSettings() {
     );
   }
   const s = settings.data;
+  const passwordEffectiveOff = !(s.passwordLoginEnabled || s.passwordLoginForced);
   const turnOffBlockedReason = !s.passwordLoginEnabled
     ? null
     : s.passwordLoginImpact.enabledProviders === 0
@@ -69,18 +72,6 @@ export function SiteAccessSettings() {
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <Switch
-              id="site-registration"
-              checked={s.registrationEnabled}
-              onCheckedChange={checked => void save({ registrationEnabled: checked })}
-              disabled={patch.isPending}
-            />
-            <label htmlFor="site-registration" className="text-sm font-medium">{t("admin.auth.access.registration")}</label>
-          </div>
-          <p className="text-xs text-muted-foreground">{t("admin.auth.access.registrationHelp")}</p>
-        </div>
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <Switch
               id="site-password-login"
               checked={s.passwordLoginEnabled}
               onCheckedChange={checked => (checked ? void save({ passwordLoginEnabled: true }) : openConfirm())}
@@ -92,6 +83,22 @@ export function SiteAccessSettings() {
           <p className="text-xs text-muted-foreground">{t("admin.auth.access.passwordLoginHelp")}</p>
           {turnOffBlockedReason !== null && (
             <p id={reasonId} className="text-xs text-muted-foreground">{turnOffBlockedReason}</p>
+          )}
+        </div>
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <Switch
+              id="site-registration"
+              checked={s.registrationEnabled}
+              onCheckedChange={checked => void save({ registrationEnabled: checked })}
+              disabled={patch.isPending}
+              aria-describedby={passwordEffectiveOff ? noEffectId : undefined}
+            />
+            <label htmlFor="site-registration" className="text-sm font-medium">{t("admin.auth.access.registration")}</label>
+          </div>
+          <p className="text-xs text-muted-foreground">{t("admin.auth.access.registrationHelp")}</p>
+          {passwordEffectiveOff && (
+            <p id={noEffectId} className="text-xs text-muted-foreground">{t("admin.auth.access.registrationNoEffect")}</p>
           )}
         </div>
       </div>

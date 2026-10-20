@@ -53,18 +53,48 @@ describe("SiteAccessSettings（#187 §9.4、§9.5）", () => {
   beforeEach(async () => { await i18n.changeLanguage("en"); dismissAllToasts(); });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("註冊 Switch：切換即 PATCH {registrationEnabled}（W21 說明在旁）", async () => {
+  it("註冊 Switch：切換即 PATCH {registrationEnabled}（說明在旁）", async () => {
     const { patches } = setup(BASE, body => ({ ...BASE, ...body }));
-    const sw = await screen.findByRole("switch", { name: "Allow registration" });
-    expect(screen.getByText(/neither by registering with a password nor by signing in through a sign-in service for the first time/)).toBeInTheDocument();
+    const sw = await screen.findByRole("switch", { name: "Allow self-registration with a password" });
+    expect(screen.getByText("Anyone can create an account on the registration page with an email and a password. Whether a sign-in service creates accounts is set for each service below.")).toBeInTheDocument();
     fireEvent.click(sw);
     await waitFor(() => expect(sw).toHaveAttribute("aria-checked", "false"));
     expect(patches).toEqual([{ registrationEnabled: false }]);
   });
 
+  it("S1：群組標題、兩個開關的順序（先帳密登入、再自行註冊）與說明", async () => {
+    setup(BASE, () => BASE);
+    await screen.findByRole("switch", { name: "Allow password sign-in" });
+    expect(screen.getByText("Password sign-in and registration")).toBeInTheDocument();
+    const password = screen.getByRole("switch", { name: "Allow password sign-in" });
+    const registration = screen.getByRole("switch", { name: "Allow self-registration with a password" });
+    expect(screen.getAllByRole("switch")).toEqual([password, registration]);
+    expect(screen.getByText("Anyone can create an account on the registration page with an email and a password. Whether a sign-in service creates accounts is set for each service below.")).toBeInTheDocument();
+  });
+
+  it("S2：帳密有效值關 → 自行註冊 Switch 照常可操作，可見說明以 aria-describedby 連到開關，點擊 PATCH {registrationEnabled:false}", async () => {
+    const { patches } = setup({ ...BASE, passwordLoginEnabled: false, passwordLoginForced: false }, body => ({ ...BASE, passwordLoginEnabled: false, ...body }));
+    const sw = await screen.findByRole("switch", { name: "Allow self-registration with a password" });
+    expect(sw).not.toBeDisabled();
+    expect(sw).toHaveAccessibleDescription("Has no effect while password sign-in is off.");
+    expect(screen.getByText("Has no effect while password sign-in is off.")).toBeVisible();
+    fireEvent.click(sw);
+    await waitFor(() => expect(patches).toEqual([{ registrationEnabled: false }]));
+  });
+
+  it.each([
+    ["帳密開", { passwordLoginEnabled: true, passwordLoginForced: false }],
+    ["帳密 DB 關但 env 強制開", { passwordLoginEnabled: false, passwordLoginForced: true }],
+  ])("S3：%s → 沒有不生效說明、Switch 沒有 accessible description", async (_label, patch) => {
+    setup({ ...BASE, ...patch }, () => BASE);
+    const sw = await screen.findByRole("switch", { name: "Allow self-registration with a password" });
+    expect(screen.queryByText("Has no effect while password sign-in is off.")).not.toBeInTheDocument();
+    expect(sw).not.toHaveAccessibleDescription();
+  });
+
   it("成功 PATCH 後重抓 settings（invalidate）", async () => {
     const { gets } = setup(BASE, body => ({ ...BASE, ...body }));
-    const sw = await screen.findByRole("switch", { name: "Allow registration" });
+    const sw = await screen.findByRole("switch", { name: "Allow self-registration with a password" });
     expect(gets).toHaveLength(1);
     fireEvent.click(sw);
     await waitFor(() => expect(gets).toHaveLength(2));
@@ -117,6 +147,7 @@ describe("SiteAccessSettings（#187 §9.4、§9.5）", () => {
   it("passwordLoginForced → 頂部警告；Switch 仍可操作", async () => {
     setup({ ...BASE, passwordLoginForced: true, passwordLoginEnabled: false }, body => ({ ...BASE, ...body }));
     expect(await screen.findByText(/forced on by the environment variable PASSWORD_LOGIN_FORCE_ENABLE/)).toBeInTheDocument();
+    expect(screen.getByText("Password sign-in is forced on by the environment variable PASSWORD_LOGIN_FORCE_ENABLE. The Allow password sign-in setting below takes effect only after you remove that variable and restart.")).toBeInTheDocument();
     expect(pwSwitch()).not.toBeDisabled();
   });
 

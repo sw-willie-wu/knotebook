@@ -54,6 +54,8 @@ export interface PatchAuthProviderBody {
   sortOrder?: number;
   /** 圖示種類（spec 2026-10-07-provider-icon §4.3）；upload 只能經 `useUploadAuthProviderIcon`。 */
   iconKind?: Exclude<ProviderIconKind, "upload">;
+  /** 首次登入時自動建立帳號（PR-C）。服務表的開關送單獨這一欄；編輯對話框只在改 issuer 時帶（確認框的選擇，或本來關時明帶 false）。 */
+  autoCreateEnabled?: boolean;
 }
 
 export function useCreateAuthProvider() {
@@ -112,7 +114,7 @@ export function useDiscoverAuthProvider() {
   });
 }
 
-/** #187 §9.5：站台設定（「允許註冊」「允許帳密登入」）。`passwordLoginEnabled` 是 DB 值、`passwordLoginForced` 是 env。 */
+/** #187 §9.5：站台設定（「允許帳號密碼登入」「允許用帳號密碼自行註冊」）。`passwordLoginEnabled` 是 DB 值、`passwordLoginForced` 是 env。 */
 export const ADMIN_AUTH_SETTINGS_QUERY_KEY = ["admin-auth", "settings"] as const;
 
 export function useAdminAuthSettings(): UseQueryResult<AdminAuthSettingsDto> {
