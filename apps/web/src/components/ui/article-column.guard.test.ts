@@ -1,20 +1,21 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-import { ARTICLE_COLUMN, ARTICLE_COLUMN_PADDING, BN_EDITOR_INLINE_PADDING_PX } from "./article-column";
+import { ARTICLE_COLUMN, ARTICLE_COLUMN_MAX, ARTICLE_COLUMN_PADDING, BN_EDITOR_INLINE_PADDING_PX, articleColumn } from "./article-column";
 
 /**
  * 文章欄的**共用守衛**（#115 改版後；體例比照 `rows.equal-height.test.ts`）。
  *
- * #115 起頁首／頁尾回到滿卡寬（置左置右），文章欄常數只剩內文（BlockNote 置中
- * wrapper）一個消費端。jsdom 不套 CSS、算不出左緣座標，單元層能守的三件事：
+ * #115 起頁首／頁尾回到滿卡寬（置左置右）；文章欄的消費端是內文欄本身——站內編輯器、
+ * 公開頁、版本預覽單欄（#297 起三段寬度經 `articleColumn(width)` 取得）。jsdom 不套 CSS、
+ * 算不出左緣座標，單元層能守的三件事：
  *
  *   (a) 常數字面固定（消費端的斷言是從常數推導的同義反覆，鑑別力全靠這一條）
  *   (c) BlockNote 那 54px 是升版哨兵——54 已無生產端消費者，但 `<md` 的
  *       `.bn-editor.bn-editor{padding-inline:1.25rem}` 覆寫（index.css）是以
  *       「原值 54」為前提做的設計，升版改掉要紅給人重新評估，不是靜默錯開
- *   (d) 內文是唯一消費端；頁首（NotePage）／頁尾（BacklinksSection）**不得**把
- *       欄加回去，也沒有人自己寫一份 clamp 欄寬
+ *   (d) 三個消費端都經 `articleColumn()` 取欄寬、三段 class 只寫在 article-column.ts；
+ *       頁首（NotePage）／頁尾（BacklinksSection）**不得**把欄加回去
  *
  *   (e) `<md` 的對齊耦合：index.css 覆寫的 `1.25rem`（20px）＝頁首/頁尾的 `px-5`
  *       （20px）。#88 時代這種推導由案 (b) 釘住（70 = 16 + 54），拆掉 (b) 之後
@@ -27,8 +28,12 @@ import { ARTICLE_COLUMN, ARTICLE_COLUMN_PADDING, BN_EDITOR_INLINE_PADDING_PX } f
  *     index.css 註解）。
  */
 
-/** 唯一消費端（內文置中 wrapper）。 */
-const CONSUMER = { label: "內文（置中 wrapper）", path: "src/components/NoteEditor.tsx" } as const;
+/** 消費端：內文欄的三處（#297 起都經 `articleColumn(width)`）。 */
+const CONSUMERS = [
+  { label: "內文（NoteEditor 置中 wrapper）", path: "src/components/NoteEditor.tsx" },
+  { label: "公開頁（PublicNotePage）", path: "src/pages/PublicNotePage.tsx" },
+  { label: "版本預覽單欄（VersionPreview）", path: "src/components/versions/VersionPreview.tsx" },
+] as const;
 
 /** 不得把欄加回去的兩個舊消費端（#115 前是頁首／頁尾）。 */
 const NON_CONSUMERS = [
@@ -45,10 +50,26 @@ function stripComments(source: string): string {
   return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
 }
 
-describe("文章欄守衛（#115：內文單一消費端）", () => {
+/** `src/` 下所有 .ts／.tsx（相對 web 根、`/` 分隔）。 */
+function listSources(): string[] {
+  return readdirSync(`${process.cwd()}/src`, { recursive: true, encoding: "utf8" })
+    .map((p) => `src/${p.replace(/\\/g, "/")}`)
+    .filter((p) => /\.tsx?$/.test(p));
+}
+
+describe("文章欄守衛（#115 頁首/頁尾滿卡寬；#297 三段寬度經 articleColumn）", () => {
   it("(a) 常數字面固定", () => {
     expect(ARTICLE_COLUMN).toBe("mx-auto w-full max-w-[clamp(42.5rem,85%,66rem)]");
     expect(ARTICLE_COLUMN_PADDING).toBe("px-4 max-md:px-0");
+    // #297：三段寬度；標準＝上面那條舊字串（D6）。
+    expect(ARTICLE_COLUMN_MAX).toEqual({
+      standard: "max-w-[clamp(42.5rem,85%,66rem)]",
+      wide: "max-w-[clamp(42.5rem,92.5%,88rem)]",
+      full: "max-w-none",
+    });
+    expect(articleColumn()).toBe(ARTICLE_COLUMN);
+    expect(articleColumn("wide")).toBe("mx-auto w-full max-w-[clamp(42.5rem,92.5%,88rem)]");
+    expect(articleColumn("full")).toBe("mx-auto w-full max-w-none");
   });
 
   it("(c) BlockNote `.bn-editor` 的 padding-inline 仍是常數宣告的 54px（升版哨兵）", () => {
@@ -73,17 +94,24 @@ describe("文章欄守衛（#115：內文單一消費端）", () => {
     expect(paddings).toEqual([`padding-inline:${BN_EDITOR_INLINE_PADDING_PX}px`]);
   });
 
-  it("(d) 內文套共用常數；頁首/頁尾不得把欄加回去，也沒有人自己寫 clamp 欄寬", () => {
-    // ⚠ 邊界必要：`_` 是 word char，`\bARTICLE_COLUMN\b` 不會誤配 `ARTICLE_COLUMN_PADDING`
-    // 這種帶後綴的名字（`N` 與 `_` 之間沒有邊界）——歷史教訓見 #88 的審查紀錄：
-    // 子字串比對曾讓「只套 inset、沒套欄」全綠放行。
-    const usesColumn = /\bARTICLE_COLUMN\b/;
+  it("(d) 三個消費端經 articleColumn() 取欄寬；三段 class 只在 article-column.ts；頁首/頁尾不得把欄加回去", () => {
+    for (const { label, path } of CONSUMERS) {
+      const source = readSource(path);
+      const importLine = /import \{([^}]*)\} from "@\/components\/ui\/article-column";/.exec(source);
+      expect(importLine, `${label}（${path}）應從 ui/article-column import`).not.toBeNull();
+      expect(/\barticleColumn\b/.test(importLine![1]), `${label} 的 import 應含 articleColumn`).toBe(true);
+      const code = stripComments(source);
+      expect(/\barticleColumn\(/.test(code), `${label} 應實際呼叫 articleColumn(…)`).toBe(true);
+      // 欄寬的單一真相在 article-column.ts：消費端不得繞過函式自寫任何一段的 max-w。
+      expect(code, `${label} 不得自寫 clamp 欄寬`).not.toMatch(/max-w-\[clamp\(/);
+      expect(code, `${label} 不得自寫全寬 class`).not.toMatch(/max-w-none/);
+    }
 
-    const consumerSource = readSource(CONSUMER.path);
-    const importLine = /import \{([^}]*)\} from "@\/components\/ui\/article-column";/.exec(consumerSource);
-    expect(importLine, `${CONSUMER.label}（${CONSUMER.path}）應從 ui/article-column import`).not.toBeNull();
-    expect(usesColumn.test(importLine![1]), `${CONSUMER.label} 的 import 應含 ARTICLE_COLUMN 本身`).toBe(true);
-    expect(usesColumn.test(stripComments(consumerSource)), `${CONSUMER.label} 應實際套用 ARTICLE_COLUMN`).toBe(true);
+    // 全 src 掃一次：article-column.ts 之外沒有人寫文章欄的 clamp（下限 42.5rem 是它的指紋）。
+    const offenders = listSources()
+      .filter((p) => !/\.test\./.test(p) && p !== "src/components/ui/article-column.ts")
+      .filter((p) => /max-w-\[clamp\(42\.5rem/.test(stripComments(readSource(p))));
+    expect(offenders).toEqual([]);
 
     for (const { label, path } of NON_CONSUMERS) {
       const code = stripComments(readSource(path));
@@ -92,8 +120,6 @@ describe("文章欄守衛（#115：內文單一消費端）", () => {
       expect(code, `${label}（${path}）不得 import/使用文章欄常數`).not.toMatch(/article-column/);
       expect(code, `${label} 不得自己寫死欄寬`).not.toMatch(/max-w-\[clamp\(/);
     }
-    // 唯一消費端自己也不得繞過常數再寫一份 clamp（欄寬的單一真相在 article-column.ts）。
-    expect(stripComments(consumerSource), `${CONSUMER.label} 不得在常數之外自寫欄寬`).not.toMatch(/max-w-\[clamp\(/);
   });
 
   it("(e) `<md` 對齊耦合：index.css 覆寫的 20px ＝ 頁首/頁尾的 px-5", () => {

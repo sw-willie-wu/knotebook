@@ -11,7 +11,8 @@ import { PublicPageFrame } from "@/components/PublicNoteShell";
 import { publicNoteApiPath, publicNoteQueryKey, publicRefIdentity, type PublicNoteRef } from "@/lib/public-note-ref";
 import { BlockAnchorContext } from "@/hooks/block-anchor-context";
 import { useBlockAnchor } from "@/hooks/useBlockAnchor";
-import { ARTICLE_COLUMN, ARTICLE_COLUMN_PADDING } from "@/components/ui/article-column";
+import { ARTICLE_COLUMN_PADDING, articleColumn } from "@/components/ui/article-column";
+import { toNoteWidth } from "@/components/note-width";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Presentation } from "@/components/ui/icons";
@@ -132,9 +133,14 @@ export default function PublicNotePage() {
           </Link>
         </header>
         <div ref={setAnchorRoot} className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-          {/* 內文沿 NoteEditor 的文章欄常數（#115：`<md` 內距 70→20 的斷點機制在
-              article-column.ts／index.css，這裡照吃不另寫）。 */}
-          <div ref={setColumnEl} className={cn(ARTICLE_COLUMN, ARTICLE_COLUMN_PADDING, "relative flex min-h-full flex-col py-6")}>
+          {/* 內文沿 NoteEditor 的文章欄（#115：`<md` 內距 70→20 的斷點機制在
+              article-column.ts／index.css，這裡照吃不另寫）。#297：寬度取公開端點的
+              `width`（管理公開連結的人設定）；缺值或不認得 → 標準（舊 server）。 */}
+          <div
+            ref={setColumnEl}
+            data-testid="article-column"
+            className={cn(articleColumn(toNoteWidth(data.width)), ARTICLE_COLUMN_PADDING, "relative flex min-h-full flex-col py-6")}
+          >
             <PublicNoteEditor doc={doc!} publicRef={publicRef} links={data.links ?? NO_LINKS} />
             <HeadingAnchorButtons container={columnEl} />
           </div>

@@ -5,7 +5,8 @@ import { useCreateBlockNote } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/mantine";
 import { noteSchema } from "@/collab/schema";
 import { useVersionSnapshot, VersionSnapshotMismatch } from "@/api/versions";
-import { ARTICLE_COLUMN, ARTICLE_COLUMN_PADDING } from "@/components/ui/article-column";
+import { ARTICLE_COLUMN_PADDING, articleColumn } from "@/components/ui/article-column";
+import { useNoteWidth } from "@/components/note-width";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
@@ -250,6 +251,8 @@ export function VersionPreview({ doc, forceSingle = false }: { doc: Y.Doc; force
   const { noteId, preview, compareRight, splitMode, onlyChanges, stopPreview, setCompareRight, reportPreviewWide } = useVersions();
   const ref = useRef<HTMLDivElement>(null);
   const width = useContainerWidth(ref);
+  // #297：單欄 diff 跟這篇的站內寬度（與編輯中的欄同寬，比對時不跳動）；noteId 為 null → 標準。
+  const [noteWidth] = useNoteWidth(noteId);
 
   // 比較對象＝左右一對（spec §8.4【rev 10】）：左＝預覽的那一版、右＝compareRight（"current" 時不抓快照、讀活文件的 fork）。
   const rightTarget = compareRight === "current" ? null : compareRight;
@@ -405,7 +408,7 @@ export function VersionPreview({ doc, forceSingle = false }: { doc: Y.Doc; force
       );
     } else {
       body = (
-        <div data-testid="diff-single" className={cn(ARTICLE_COLUMN, ARTICLE_COLUMN_PADDING)}>
+        <div data-testid="diff-single" className={cn(articleColumn(noteWidth), ARTICLE_COLUMN_PADDING)}>
           <DiffEditor blocks={single.blocks} marks={single.marks} testId="diff-single-editor" rootRef={singleRoot} />
         </div>
       );

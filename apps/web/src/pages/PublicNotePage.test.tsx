@@ -38,6 +38,8 @@ interface PublicNoteBody {
   title: string;
   ydoc: string;
   links?: Array<{ id: string; title: string; path: string }>;
+  /** #297：故意放寬成 string——P3 要送 server 不認得的值。 */
+  width?: string;
 }
 
 /** 只回應公開端點；**任何**其他請求（尤其 /api/auth/me）都直接炸——匿名頁不得打到需要登入的東西。 */
@@ -261,5 +263,32 @@ describe("PublicNotePage（#72 /p/:token＋#122 PR3 /p/:handle/:slug 免登入�
     vi.stubGlobal("fetch", fn);
     renderPage();
     expect(await screen.findByTestId("public-note-editor")).toHaveAttribute("data-links", JSON.stringify(links));
+  });
+
+  describe("#297 公開頁寬度（payload 的 width）", () => {
+    const STANDARD_MAX = "max-w-[clamp(42.5rem,85%,66rem)]";
+    async function columnFor(body: PublicNoteBody): Promise<HTMLElement> {
+      const { fn } = mockFetch((url) => (url === `/api/public/notes/${TOKEN}` ? { status: 200, body } : null));
+      vi.stubGlobal("fetch", fn);
+      renderPage();
+      await screen.findByTestId("public-note-editor");
+      return screen.getByTestId("article-column");
+    }
+
+    it("P1 width: full → 全寬，沒有標準的 max-w", async () => {
+      const column = await columnFor({ title: "N", ydoc: EMPTY_YDOC_UPDATE_B64, width: "full" });
+      expect(column).toHaveClass("mx-auto", "w-full", "max-w-none");
+      expect(column).not.toHaveClass(STANDARD_MAX);
+    });
+
+    it("P2 缺 width（舊 server）→ 標準", async () => {
+      const column = await columnFor({ title: "N", ydoc: EMPTY_YDOC_UPDATE_B64 });
+      expect(column).toHaveClass("mx-auto", "w-full", STANDARD_MAX);
+    });
+
+    it("P3 不認得的 width → 標準", async () => {
+      const column = await columnFor({ title: "N", ydoc: EMPTY_YDOC_UPDATE_B64, width: "bogus" });
+      expect(column).toHaveClass("mx-auto", "w-full", STANDARD_MAX);
+    });
   });
 });

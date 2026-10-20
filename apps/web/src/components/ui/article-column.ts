@@ -1,6 +1,13 @@
+import type { NoteWidth } from "@knotebook/shared";
+
 /**
  * 內文卡的**文章欄**：BlockNote 置中 wrapper 的寬度鏈與內距（消費端
- * `NoteEditor.tsx` 與 `PublicNotePage.tsx`——#72 起公開唯讀頁沿用同一條欄）。
+ * `NoteEditor.tsx`、`PublicNotePage.tsx`（#72 起公開唯讀頁沿用同一條欄）與
+ * `VersionPreview.tsx` 的單欄 diff）。
+ *
+ * #297 起欄寬分三段（標準／寬／全寬），消費端一律經 `articleColumn(width)` 取 class；
+ * 三段 class 的單一真相在這個檔（Tailwind 掃這裡的字面字串）。站內寬度見
+ * `components/note-width.ts`，公開頁寬度來自公開端點的 `width`。
  *
  * 歷史：#88 曾讓頁首（標題列）／頁尾（backlinks strip）也套這條欄做三線對齊；
  * #115 版面改版定案「頁首/頁尾回滿卡寬（置左置右）」，對齊機制連同
@@ -8,15 +15,34 @@
  * `article-column.guard.test.ts` (d) 有反向守衛。
  */
 
+/** 置中與撐滿：三段共用。 */
+export const ARTICLE_COLUMN_BASE = "mx-auto w-full";
+
 /**
- * 文章欄的置中寬度鏈。
+ * 三段的 max-width。
  *
- * 欄寬＝容器的 85%，下限 42.5rem（680px＝改版前寫死的欄寬）、上限 66rem（1056px）。
- * **下限承重、不得改成 `min()`**：中等視窗（捲動容器約 730px）的 85% 只有 620px，
- * 比舊版還窄——clamp 的下限把這一段拉回舊行為。視窗更窄時 `w-full` 讓它縮到滿版
- * （max-width 不會撐出橫向捲動）。百分比對 max-width 以父層寬度解析。
+ * - 標準：容器的 85%，下限 42.5rem（680px＝改版前寫死的欄寬）、上限 66rem（1056px）。
+ *   **下限承重、不得改成 `min()`**：中等視窗（捲動容器約 730px）的 85% 只有 620px，
+ *   比舊版還窄——clamp 的下限把這一段拉回舊行為。
+ * - 寬：同一個下限、92.5%、上限 88rem（1408px）；父層寬約 735px 以下時兩者都落在下限、與標準相同。
+ * - 全寬：不設上限。
+ *
+ * 視窗更窄時 `w-full` 讓欄縮到滿版（max-width 不會撐出橫向捲動）。百分比對
+ * max-width 以父層寬度解析。
  */
-export const ARTICLE_COLUMN = "mx-auto w-full max-w-[clamp(42.5rem,85%,66rem)]";
+export const ARTICLE_COLUMN_MAX: Record<NoteWidth, string> = {
+  standard: "max-w-[clamp(42.5rem,85%,66rem)]",
+  wide: "max-w-[clamp(42.5rem,92.5%,88rem)]",
+  full: "max-w-none",
+};
+
+/** 文章欄的置中寬度鏈（指定寬度）。 */
+export function articleColumn(width: NoteWidth = "standard"): string {
+  return `${ARTICLE_COLUMN_BASE} ${ARTICLE_COLUMN_MAX[width]}`;
+}
+
+/** 舊名保留＝標準。 */
+export const ARTICLE_COLUMN = articleColumn("standard");
 
 /**
  * 置中 wrapper 自己那層左右內距。

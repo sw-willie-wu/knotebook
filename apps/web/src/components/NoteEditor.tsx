@@ -31,7 +31,8 @@ import { buildSlashMenuItems } from "@/components/slash-menu";
 import { LinkDialog } from "@/components/LinkDialog";
 import { toast } from "@/components/ui/toast";
 import { cardSurface } from "@/components/ui/card";
-import { ARTICLE_COLUMN, ARTICLE_COLUMN_PADDING } from "@/components/ui/article-column";
+import { ARTICLE_COLUMN_PADDING, articleColumn } from "@/components/ui/article-column";
+import { useNoteWidth } from "@/components/note-width";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/theme";
 import { buildWikilinkMenuItems, type EditorRef } from "@/components/wikilink/menu";
@@ -375,6 +376,8 @@ export function NoteEditor({
   const { panelOpen } = useVersions();
   // #274：版本面板寬度。state 放在面板與錯誤外框的最近共同祖先（下方列容器），以 CSS 變數往下傳。
   const panelWidth = useVersionsPanelWidth();
+  // #297：這篇的站內內文寬度（訂閱模組層 Map；換寬度只換欄 class，不重建 editor）。
+  const [width] = useNoteWidth(noteId);
   const hasPreview = previewSlot !== undefined && previewSlot !== null;
 
   // handler 是在 editor 建立時就固定下來的閉包；用 ref 取用最新的 t，語言切換時
@@ -459,12 +462,12 @@ export function NoteEditor({
   //       {headerSlot}                              ← NotePage 組裝
   //       捲動容器（min-w-0 flex-1 overflow-y-auto min-h-0 overflow-x-clip——
   //         `overflow-x-clip`＝#162，見下方 JSX 註解）
-  //         置中 wrapper（ARTICLE_COLUMN ＋ ARTICLE_COLUMN_PADDING ＋ `relative` flex
+  //         置中 wrapper（articleColumn(width) ＋ ARTICLE_COLUMN_PADDING ＋ `relative` flex
   //           min-h-full flex-col py-6，`relative`＝#160，見下方 JSX 註解）
-  //           ← 欄寬／內距一律取自 `ui/article-column.ts`（#115 起唯一消費端）：
-  //             headerSlot／footerSlot 是滿卡寬（置左置右），不再套欄。欄寬下限
-  //             承重的理由與 `<md` 內距 70→20 的斷點機制全寫在該檔；改欄寬請改
-  //             常數，別在這裡另寫一份。
+  //           ← 欄寬／內距一律取自 `ui/article-column.ts`：#297 起三段寬度（標準／寬／
+  //             全寬），單一真相在該檔；headerSlot／footerSlot 是滿卡寬（置左置右），
+  //             不套欄。欄寬下限承重的理由與 `<md` 內距 70→20 的斷點機制全寫在該檔；
+  //             改欄寬請改該檔，別在這裡另寫一份。
   //           NoteEditorView                         ← className 加 flex-1（B-1 定案：
   //             wrapper 的 min-h-full 無法把百分比高度傳給孫層，唯一有效解是讓
   //             BlockNoteView 自己成為 flex-col wrapper 的成長項；除 className 外零改動）
@@ -501,7 +504,11 @@ export function NoteEditor({
                 `scrollIntoView` 在我們自己的碼零呼叫，已查到的程式化捲動
                 （prosemirror-view caret-follow）先被 `.tableWrapper` 吃掉。細節見
                 `14-table-hover.spec.ts`。 */}
-            <div ref={setColumnEl} className={cn(ARTICLE_COLUMN, ARTICLE_COLUMN_PADDING, "relative flex min-h-full flex-col py-6")}>
+            <div
+              ref={setColumnEl}
+              data-testid="article-column"
+              className={cn(articleColumn(width), ARTICLE_COLUMN_PADDING, "relative flex min-h-full flex-col py-6")}
+            >
               <NoteEditorView
                 editor={editor}
                 editable={editable}

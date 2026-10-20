@@ -11,7 +11,8 @@ import { YDOC_FRAGMENT, type VersionDto, type VersionListDto } from "@knotebook/
 import i18n from "@/i18n";
 import { noteSchema } from "@/collab/schema";
 import { Toaster, dismissAllToasts } from "@/components/ui/toast";
-import { ARTICLE_COLUMN, ARTICLE_COLUMN_PADDING } from "@/components/ui/article-column";
+import { ARTICLE_COLUMN, ARTICLE_COLUMN_PADDING, articleColumn } from "@/components/ui/article-column";
+import { setNoteWidth } from "@/components/note-width";
 import { ThemeProvider } from "@/theme";
 import { versionListKey } from "@/api/versions";
 import { KIND_FILTER_STORAGE_KEY } from "@/lib/versions-context";
@@ -186,6 +187,32 @@ describe("VersionPreview（spec §8.4）", () => {
       fireEvent.click(screen.getByText("ss"));
       await waitFor(() => expect(commits.mock.calls.length).toBeGreaterThan(commitsBefore));
       expect(screen.getByTestId("diff-single")).toBeInTheDocument();
+      expect(create).toHaveBeenCalledTimes(0);
+    } finally {
+      create.mockRestore();
+    }
+  });
+
+  it("#297 V1：這篇的站內寬度是寬 → 單欄 diff 套寬欄，沒有標準的 max-w", async () => {
+    stub(routesV1());
+    setNoteWidth(NOTE, "wide");
+    renderPreview({ seq: 1, live: V2 });
+    const view = await screen.findByTestId("diff-single");
+    expect(view).toHaveClass(...articleColumn("wide").split(" "), ARTICLE_COLUMN_PADDING);
+    expect(view).not.toHaveClass("max-w-[clamp(42.5rem,85%,66rem)]");
+  });
+
+  it("#297 V2：預覽開著時改寬度 → 單欄跟著變全寬，不重建唯讀編輯器", async () => {
+    stub(routesV1());
+    renderPreview({ seq: 1, live: V2 });
+    const view = await screen.findByTestId("diff-single");
+    await waitFor(() => expect(view.querySelector('[data-id="C"][data-diff="added"]')).not.toBeNull());
+    const create = vi.spyOn(BlockNoteEditor, "create");
+    try {
+      act(() => setNoteWidth(NOTE, "full"));
+      const after = screen.getByTestId("diff-single");
+      expect(after).toHaveClass("max-w-none");
+      expect(after).not.toHaveClass("max-w-[clamp(42.5rem,85%,66rem)]");
       expect(create).toHaveBeenCalledTimes(0);
     } finally {
       create.mockRestore();

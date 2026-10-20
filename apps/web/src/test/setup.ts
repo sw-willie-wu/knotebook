@@ -1,6 +1,7 @@
 import { afterEach } from "vitest";
 import { cleanup, configure } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
+import { resetNoteWidthsForTest } from "@/components/note-width";
 
 // lazy chunk（設定各區塊／站台管理／登入流程頁）在測試裡第一次 render 會做真實的動態
 // import；CI 高負載時可能超過 1 秒，而 Testing Library 的 waitFor／findBy 預設上限就是
@@ -68,4 +69,6 @@ if (typeof globalThis.ClipboardEvent === "undefined") {
 
 afterEach(() => {
   cleanup();
+  // #297：站內寬度的模組 Map 跨案存活，不重置會依測試順序互相汙染。
+  resetNoteWidthsForTest();
 });

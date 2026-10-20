@@ -1,11 +1,13 @@
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as Y from "yjs";
+import { BlockNoteEditor } from "@blocknote/core";
 import type { AiActionDto } from "@knotebook/shared";
 import i18n from "@/i18n";
-import { ARTICLE_COLUMN, ARTICLE_COLUMN_PADDING } from "@/components/ui/article-column";
+import { ARTICLE_COLUMN, ARTICLE_COLUMN_PADDING, articleColumn } from "@/components/ui/article-column";
+import { setNoteWidth } from "@/components/note-width";
 import { ThemeProvider } from "@/theme";
 import { NoteEditor } from "./NoteEditor";
 
@@ -224,5 +226,97 @@ describe("NoteEditor 佈局（PR2 slot 化：節點鏈 + 雙層 class smoke）",
     rerender(tree());
     expect(screen.getByTestId("note-editor")).toBe(before);
     doc.destroy();
+  });
+});
+
+/** #297 §4.2：內文欄跟著這篇的站內寬度（`useNoteWidth(noteId)`），換寬度不重建編輯器。 */
+describe("NoteEditor 內文寬度（#297）", () => {
+  const STANDARD_MAX = "max-w-[clamp(42.5rem,85%,66rem)]";
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    localStorage.clear();
+    stubFetch();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    // L3／L5 會留下 note.width.note-1，不帶到後面的檔案。
+    localStorage.clear();
+  });
+
+  function renderEditor(noteId: string, doc: Y.Doc) {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const tree = (id: string, d: Y.Doc) => (
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <NoteEditor doc={d} provider={{ awareness: null } as never} editable user={{ id: "u1", name: "Ann" }} noteId={id} />
+        </ThemeProvider>
+      </QueryClientProvider>
+    );
+    const { rerender } = render(tree(noteId, doc));
+    return { rerender: (id: string, d: Y.Doc) => rerender(tree(id, d)) };
+  }
+
+  it("L1 預設：欄是標準寬", async () => {
+    const doc = new Y.Doc();
+    renderEditor("note-1", doc);
+    await screen.findByTestId("note-editor");
+    expect(screen.getByTestId("article-column")).toHaveClass(...articleColumn("standard").split(" "));
+    doc.destroy();
+  });
+
+  it("L2 localStorage 已存 wide → 掛載就是寬，沒有標準的 max-w", async () => {
+    localStorage.setItem("note.width.note-1", "wide");
+    const doc = new Y.Doc();
+    renderEditor("note-1", doc);
+    await screen.findByTestId("note-editor");
+    const column = screen.getByTestId("article-column");
+    expect(column).toHaveClass(...articleColumn("wide").split(" "));
+    expect(column).not.toHaveClass(STANDARD_MAX);
+    doc.destroy();
+  });
+
+  it("L3 掛載後改成全寬 → 欄跟著變，BlockNoteEditor.create 不再被呼叫", async () => {
+    const doc = new Y.Doc();
+    renderEditor("note-1", doc);
+    await screen.findByTestId("note-editor");
+    const create = vi.spyOn(BlockNoteEditor, "create");
+    try {
+      act(() => setNoteWidth("note-1", "full"));
+      const column = screen.getByTestId("article-column");
+      expect(column).toHaveClass("max-w-none");
+      expect(column).not.toHaveClass(STANDARD_MAX);
+      expect(create).toHaveBeenCalledTimes(0);
+    } finally {
+      create.mockRestore();
+    }
+    doc.destroy();
+  });
+
+  it("L4 另一個分頁改了這篇（storage 事件）→ 開著的欄即時跟上", async () => {
+    const doc = new Y.Doc();
+    renderEditor("note-1", doc);
+    await screen.findByTestId("note-editor");
+    act(() => {
+      window.dispatchEvent(new StorageEvent("storage", { key: "note.width.note-1", newValue: "wide" }));
+    });
+    expect(screen.getByTestId("article-column")).toHaveClass(...articleColumn("wide").split(" "));
+    doc.destroy();
+  });
+
+  it("L5 換篇：note-2 是標準；note-1 設全寬後換回 note-1 → 全寬", async () => {
+    const doc1 = new Y.Doc();
+    const doc2 = new Y.Doc();
+    const { rerender } = renderEditor("note-1", doc1);
+    await screen.findByTestId("note-editor");
+    rerender("note-2", doc2);
+    expect(screen.getByTestId("article-column")).toHaveClass(...articleColumn("standard").split(" "));
+    act(() => setNoteWidth("note-1", "full"));
+    expect(screen.getByTestId("article-column")).toHaveClass(...articleColumn("standard").split(" "));
+    rerender("note-1", doc1);
+    expect(screen.getByTestId("article-column")).toHaveClass("max-w-none");
+    doc1.destroy();
+    doc2.destroy();
   });
 });
