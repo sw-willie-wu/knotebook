@@ -28,7 +28,7 @@ function mockFetch(getUser: () => UserDto | null) {
       return Promise.resolve(user ? fakeResponse(200, user) : fakeResponse(401, { error: { code: "unauthorized", message: "no" } }));
     }
     if (url === "/api/auth/config" && method === "GET") {
-      return Promise.resolve(fakeResponse(200, { providers: [], registration: { enabled: true }, passwordLogin: { enabled: true }, autoVersionsEnabled: true }));
+      return Promise.resolve(fakeResponse(200, { providers: [], registration: { enabled: true, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true }));
     }
     if ((url === "/api/groups" || url === "/api/notes" || url === "/api/admin/users" || url === "/api/admin/groups") && method === "GET") {
       return Promise.resolve(fakeResponse(200, []));

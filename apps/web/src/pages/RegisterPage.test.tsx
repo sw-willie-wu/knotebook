@@ -128,7 +128,7 @@ describe("RegisterPage（#187 §9.4、S2）", () => {
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("That email is already in use."));
   });
 
-  it("「允許註冊」關 → 「目前不開放註冊」＋回登入；沒有表單、沒有 SSO 註冊鈕（W21）", async () => {
+  it("RG4：帳密自助註冊關、沒有會建帳的服務 → 「目前不開放註冊」＋回登入；沒有表單、沒有 SSO 註冊鈕", async () => {
     const { queryClient } = setup("/register", { ...OPEN, registration: { enabled: false, providerIds: [] } });
     // 等 config 確實落地再斷言「不存在」：載入中就會出現的元素不能當等待點（Task 10 教訓）。
     await waitFor(() => expect(queryClient.getQueryData(AUTH_CONFIG_QUERY_KEY)).toBeDefined());
@@ -138,11 +138,13 @@ describe("RegisterPage（#187 §9.4、S2）", () => {
     expect(screen.getByRole("link", { name: "Back to sign in" }).getAttribute("href")).toBe("/login");
   });
 
-  it("帳密登入有效值關 → 沒有帳密表單、SSO 註冊鈕照常（B21）", async () => {
+  it("RG2：帳密登入有效值關、服務會建帳 → 沒有帳密表單、SSO 註冊鈕照常（B21）", async () => {
     setup("/register", { ...OPEN, passwordLogin: { enabled: false } });
     await screen.findByRole("link", { name: /^Sign up with/ });
     expect(screen.queryByLabelText("Email")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Create account" })).not.toBeInTheDocument();
+    expect(document.querySelector('[aria-hidden="true"].border-t')).toBeNull();
+    expect(screen.queryByText("This site isn't accepting new accounts right now.")).not.toBeInTheDocument();
   });
 
   it("不合法 next（/login）→ 註冊成功後落 /（web 層 safeNextPath）", async () => {
@@ -165,6 +167,67 @@ describe("RegisterPage（#187 §9.4、S2）", () => {
     setup("/register", OPEN, { me: USER });
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/$/));
   });
+  describe("註冊入口（PR-C §3.8、C-15）", () => {
+    const A = "11111111-1111-4111-8111-111111111111";
+    const B = "22222222-2222-4222-8222-222222222222";
+    const TWO_P: AuthConfigDto["providers"] = [
+      { id: A, displayName: "A", icon: null },
+      { id: B, displayName: "B", icon: null },
+    ];
+    const cfg = (enabled: boolean, passwordEnabled: boolean, providerIds: string[]): AuthConfigDto => ({
+      providers: TWO_P,
+      registration: { enabled, providerIds },
+      passwordLogin: { enabled: passwordEnabled },
+      autoVersionsEnabled: true,
+    });
+    const divider = () => document.querySelector('[aria-hidden="true"].border-t');
+
+    it("RG1：帳密自助可用、providerIds [A] → 有表單；只有 Sign up with A；有分隔線", async () => {
+      setup("/register", cfg(true, true, [A]));
+      await screen.findByRole("link", { name: "Sign up with A" });
+      expect(screen.getByLabelText("Email")).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Sign up with B" })).not.toBeInTheDocument();
+      expect(divider()).not.toBeNull();
+    });
+    it("RG3：帳密自助關、帳密開、providerIds [A] → 沒有表單；有 Sign up with A；沒有分隔線、沒有 closed", async () => {
+      setup("/register", cfg(false, true, [A]));
+      await screen.findByRole("link", { name: "Sign up with A" });
+      expect(screen.queryByLabelText("Email")).not.toBeInTheDocument();
+      expect(divider()).toBeNull();
+      expect(screen.queryByText("This site isn't accepting new accounts right now.")).not.toBeInTheDocument();
+    });
+    it("RG5：帳密自助可用、providerIds [] → 有表單；沒有 Sign up with；沒有分隔線", async () => {
+      const { queryClient } = setup("/register", cfg(true, true, []));
+      await waitFor(() => expect(queryClient.getQueryData(AUTH_CONFIG_QUERY_KEY)).toBeDefined());
+      expect(await screen.findByLabelText("Email")).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /^Sign up with/ })).not.toBeInTheDocument();
+      expect(divider()).toBeNull();
+    });
+    it("RG6（未載入）：config 永不回應 → 表單在；沒有 closed、沒有 Sign up with", async () => {
+      vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+        if (String(input) === "/api/auth/me") return Promise.resolve(fakeResponse(401, { error: { code: "unauthorized", message: "x" } }));
+        return new Promise<Response>(() => {});
+      }));
+      render(
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+          <MemoryRouter initialEntries={["/register"]}>
+            <Routes><Route path="/register" element={<RegisterPage />} /></Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+      expect(await screen.findByLabelText("Email")).toBeInTheDocument();
+      expect(screen.queryByText("This site isn't accepting new accounts right now.")).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /^Sign up with/ })).not.toBeInTheDocument();
+    });
+    it("RG7（N6）：沒有 providerIds 鍵 → 視同 []：有表單、沒有 Sign up with、不拋錯", async () => {
+      const noKey = { providers: TWO_P, registration: { enabled: true }, passwordLogin: { enabled: true }, autoVersionsEnabled: true } as unknown as AuthConfigDto;
+      const { queryClient } = setup("/register", noKey);
+      await waitFor(() => expect(queryClient.getQueryData(AUTH_CONFIG_QUERY_KEY)).toEqual(noKey));
+      expect(await screen.findByLabelText("Email")).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /^Sign up with/ })).not.toBeInTheDocument();
+    });
+  });
+
   it("provider-icon V2：「Sign up with X」鈕文字前有圖示；icon null 不渲染", async () => {
     setup("/register", {
       ...OPEN,

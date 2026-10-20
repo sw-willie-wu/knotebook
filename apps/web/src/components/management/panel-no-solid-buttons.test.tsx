@@ -103,7 +103,7 @@ export function panelFetch(user: UserDto) {
     if (method !== "GET") return reject();
     if (url === "/api/auth/me") return Promise.resolve(json(user));
     if (url === "/api/auth/config")
-      return Promise.resolve(json({ providers: [], registration: { enabled: false }, passwordLogin: { enabled: true }, autoVersionsEnabled: true }));
+      return Promise.resolve(json({ providers: [], registration: { enabled: false, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true }));
     if (url === "/api/auth/identities") return Promise.resolve(json({ ...IDENTITIES, hasPassword: user.hasPassword }));
     if (url === "/api/auth/tokens") return Promise.resolve(json({ tokens: [TOKEN] }));
     if (url === "/api/storage") return Promise.resolve(json(STORAGE));

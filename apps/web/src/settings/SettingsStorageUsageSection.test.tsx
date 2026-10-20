@@ -24,7 +24,7 @@ function renderPage(usage: StorageUsageDto) {
       if (url === "/api/storage") return Promise.resolve(fakeResponse(usage));
       if (url === "/api/auth/me") return Promise.resolve(fakeResponse(USER));
       if (url === "/api/auth/config")
-        return Promise.resolve(fakeResponse({ providers: [], registration: { enabled: false }, passwordLogin: { enabled: true }, autoVersionsEnabled: true }));
+        return Promise.resolve(fakeResponse({ providers: [], registration: { enabled: false, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true }));
       throw new Error(`unexpected fetch: ${url}`);
     }),
   );

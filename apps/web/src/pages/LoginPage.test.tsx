@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router";
 import type { AuthConfigDto, AuthProviderPublicDto } from "@knotebook/shared";
@@ -458,7 +458,7 @@ describe("LoginPage——#187 PR3：帳密開關、註冊鈕、零方法", () =>
     expect(screen.queryByText(NO_METHODS_TEXT)).not.toBeInTheDocument();
   });
 
-  it("允許註冊 → outline 按鈕形的「Create an account」（<a>，可及角色 link）連到 /register；帶合法 next 時轉交；不是實心鈕", async () => {
+  it("帳密自助註冊可用 → outline 按鈕形的「Create an account」（<a>，可及角色 link）連到 /register；帶合法 next 時轉交；不是實心鈕", async () => {
     renderAt("/login?next=%2Fn%2Falice%2Fx", fetchMockWithAuthConfig({ providers: [], registration: { enabled: true, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true }));
     const link = await screen.findByRole("link", { name: "Create an account" });
     expect(link.getAttribute("href")).toBe("/register?next=%2Fn%2Falice%2Fx");
@@ -508,10 +508,69 @@ describe("LoginPage——#187 PR3：帳密開關、註冊鈕、零方法", () =>
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("This site only allows signing in through a sign-in service."));
   });
 
-  it("帳密關時 ?error= 仍顯示（例如 SSO 首登被註冊關閉擋下）", async () => {
+  it("帳密關時 ?error= 仍顯示（例如 SSO 首登被服務的自動建帳關閉擋下）", async () => {
     renderAt("/login?error=registration_disabled", fetchMockWithAuthConfig({ providers: PROVIDERS, registration: { enabled: false, providerIds: [] }, passwordLogin: { enabled: false }, autoVersionsEnabled: true }));
-    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("This site isn't accepting new accounts right now."));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("New accounts can't be created this way right now."));
   });
+  describe("註冊入口（PR-C §3.8、C-15）", () => {
+    const [A] = TWO.providers;
+    const cfg = (registrationEnabled: boolean, passwordEnabled: boolean, providerIds: string[]): AuthConfigDto => ({
+      providers: TWO.providers,
+      registration: { enabled: registrationEnabled, providerIds },
+      passwordLogin: { enabled: passwordEnabled },
+      autoVersionsEnabled: true,
+    });
+    async function settled(config: AuthConfigDto): Promise<void> {
+      const queryClient = renderAt("/login", fetchMockWithAuthConfig(config));
+      await waitFor(() => expect(queryClient.getQueryData(["auth-config"])).toEqual(config));
+    }
+    const REGISTER = { name: "Create an account" };
+
+    it("LG1：帳密自助可用、沒有會建帳的服務 → 有註冊鈕", async () => {
+      await settled(cfg(true, true, []));
+      expect(await screen.findByRole("link", REGISTER)).toBeInTheDocument();
+    });
+    it("LG2：帳密自助關、有服務會建帳 → 有註冊鈕", async () => {
+      await settled(cfg(false, true, [A!.id]));
+      expect(await screen.findByRole("link", REGISTER)).toBeInTheDocument();
+    });
+    it("LG3：帳密登入關、沒有會建帳的服務 → 沒有註冊鈕", async () => {
+      await settled(cfg(true, false, []));
+      await screen.findByRole("link", { name: "Sign in with GitLab" });
+      expect(screen.queryByRole("link", REGISTER)).not.toBeInTheDocument();
+    });
+    it("LG4：帳密自助關、沒有會建帳的服務 → 沒有註冊鈕", async () => {
+      await settled(cfg(false, true, []));
+      await screen.findByRole("link", { name: "Sign in with GitLab" });
+      expect(screen.queryByRole("link", REGISTER)).not.toBeInTheDocument();
+    });
+    it("LG5：providerIds 指向不在 providers 裡的 id（停用的服務） → 沒有註冊鈕", async () => {
+      await settled(cfg(false, true, ["99999999-9999-9999-9999-999999999999"]));
+      await screen.findByRole("link", { name: "Sign in with GitLab" });
+      expect(screen.queryByRole("link", REGISTER)).not.toBeInTheDocument();
+    });
+    it("LG6（N6）：沒有 providerIds 鍵 → 視同 []：帳密自助可用有註冊鈕、不拋錯；自助關沒有", async () => {
+      const noKey = (enabled: boolean) => ({ providers: TWO.providers, registration: { enabled }, passwordLogin: { enabled: true }, autoVersionsEnabled: true }) as unknown as AuthConfigDto;
+      await settled(noKey(true));
+      expect(await screen.findByRole("link", REGISTER)).toBeInTheDocument();
+      cleanup();
+      await settled(noKey(false));
+      expect(screen.queryByRole("link", REGISTER)).not.toBeInTheDocument();
+    });
+    it("LG7（未載入）：config 請求回 500 → 沒有註冊鈕", async () => {
+      const fetchMock = vi.fn((input: RequestInfo | URL) => {
+        if (String(input) === AUTH_CONFIG_URL) {
+          return Promise.resolve(fakeResponse({ ok: false, status: 500, json: () => Promise.resolve({ error: { code: "internal", message: "x" } }) }));
+        }
+        throw new Error(`unexpected fetch: ${String(input)}`);
+      });
+      const queryClient = renderAt("/login", fetchMock);
+      // 不用 Sign in 鈕當等待點：它在載入中就出現（RF5 案）。
+      await waitFor(() => expect(queryClient.getQueryState(["auth-config"])?.status).toBe("error"));
+      expect(screen.queryByRole("link", REGISTER)).not.toBeInTheDocument();
+    });
+  });
+
   it("provider-icon V1：每顆 SSO 鈕在文字前有圖示（內建／上傳）、icon null 不渲染；可及名稱與文字不變", async () => {
     const corpUrl = "/api/auth/providers/22222222-2222-2222-2222-222222222222/icon?v=4";
     renderAt(

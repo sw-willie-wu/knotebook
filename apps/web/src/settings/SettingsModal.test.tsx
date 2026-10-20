@@ -536,7 +536,7 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       if (String(input) === "/api/auth/config") {
         // /login 的 LoginPage 會打這支（useAuthConfig）
-        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ providers: [], registration: { enabled: false }, passwordLogin: { enabled: true }, autoVersionsEnabled: true }) }));
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ providers: [], registration: { enabled: false, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true }) }));
       }
       const res = baseFetchHandlers(() => null)(String(input), (init?.method ?? "GET").toUpperCase());
       if (res) return Promise.resolve(res);

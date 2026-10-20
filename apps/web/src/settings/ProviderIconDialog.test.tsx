@@ -84,7 +84,7 @@ function setup(
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   // 兩個 key 先進 cache（無 observer）：成功後 invalidate 會把它們標成 isInvalidated——拿掉 onSuccess 的 invalidate 就紅。
   queryClient.setQueryData(ADMIN_AUTH_PROVIDERS_QUERY_KEY, [provider]);
-  queryClient.setQueryData(AUTH_CONFIG_QUERY_KEY, { providers: [], registration: { enabled: true }, passwordLogin: { enabled: true } });
+  queryClient.setQueryData(AUTH_CONFIG_QUERY_KEY, { providers: [], registration: { enabled: true, providerIds: [] }, passwordLogin: { enabled: true } });
   render(
     <QueryClientProvider client={queryClient}>{live ? <LiveDialog fallback={provider} /> : <ProviderIconDialog provider={provider} />}</QueryClientProvider>,
   );

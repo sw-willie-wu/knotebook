@@ -15,8 +15,10 @@ const OIDC_LOGIN_PREFIX = "/api/auth/oidc/login/";
 
 /**
  * #187 §9.4 `/register`（S2）。與 `/login` 同層、在 `RequireAuth` 之外；已登入者導 `next`（經 safeNextPath）或 `/`（r2-N7）。
- * - 「允許註冊」關 → 只顯示「目前不開放註冊」＋回登入（SSO 註冊鈕也隱藏：W21，關閉時 SSO 首登也不能建帳）；
- * - 帳密登入有效值關 → 隱藏帳密表單、只留 SSO 註冊鈕（B21）；
+ * 入口照 PR-C §3.8：
+ * - 帳密自助註冊不可用、也沒有會建帳的服務 → 只顯示「目前不開放註冊」＋回登入；
+ * - 帳密表單只在帳密自助註冊可用（`registration.enabled` 且帳密有效值開）時顯示（B21）；
+ * - 「透過 X 註冊」只列 `registration.providerIds` 裡的服務；
  * - 設定讀不到（載入中或失敗）→ 照常顯示表單（server 是最終裁決）。
  * 成功（201，B9 成功即登入）→ 寫 session 快取、導向 `safeNextPath(?next=)` 或 `/`。provider 顯示名只進文字節點（r1-M6）。
  */
@@ -45,9 +47,13 @@ export default function RegisterPage() {
     return nextPath === null ? base : `${base}?next=${encodeURIComponent(nextPath)}`;
   };
   const loginHref = nextPath === null ? "/login" : `/login?next=${encodeURIComponent(nextPath)}`;
-  const registrationClosed = config.data?.registration.enabled === false;
-  const passwordLoginEnabled = config.data?.passwordLogin.enabled !== false;
-  const providers = config.data?.providers ?? [];
+  // PR-C §3.8：`?? []` 防回滾窗期新版分頁打到舊 server（N6）。
+  const data = config.data;
+  const loaded = data !== undefined;
+  const passwordSignup = loaded && data.registration.enabled && data.passwordLogin.enabled;
+  const signupProviders = loaded ? data.providers.filter((p) => (data.registration.providerIds ?? []).includes(p.id)) : [];
+  const registrationClosed = loaded && !passwordSignup && signupProviders.length === 0;
+  const showPasswordForm = !loaded || passwordSignup; // 未載入時顯示（server 最終裁決，同現行）
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -105,7 +111,7 @@ export default function RegisterPage() {
                 {errorMessage}
               </p>
             )}
-            {passwordLoginEnabled && (
+            {showPasswordForm && (
               <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
                 <div className="space-y-1">
                   <label htmlFor="register-email" className="text-sm font-medium">{t("register.email")}</label>
@@ -129,10 +135,10 @@ export default function RegisterPage() {
                 </Button>
               </form>
             )}
-            {providers.length > 0 && (
+            {signupProviders.length > 0 && (
               <>
-                {passwordLoginEnabled && <div className="border-t" aria-hidden="true" />}
-                {providers.map((provider) => (
+                {showPasswordForm && <div className="border-t" aria-hidden="true" />}
+                {signupProviders.map((provider) => (
                   <Button key={provider.id} asChild variant="outline" className="w-full">
                     <a href={ssoHref(provider.id)}>
                       <ProviderIcon icon={provider.icon} />

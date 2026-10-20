@@ -213,7 +213,7 @@ describe("App route tree — #131：modal-over-background 未登入時，next �
         }
         if (url === "/api/auth/config") {
           return Promise.resolve(
-            fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ providers: [], registration: { enabled: true }, passwordLogin: { enabled: true } }) }),
+            fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ providers: [], registration: { enabled: true, providerIds: [] }, passwordLogin: { enabled: true } }) }),
           );
         }
         throw new Error(`unexpected fetch: ${url}`);

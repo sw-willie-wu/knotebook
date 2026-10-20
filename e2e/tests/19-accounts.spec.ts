@@ -191,39 +191,97 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
     }
   });
 
-  test("19-6：關閉註冊 → 註冊鈕與 SSO 註冊鈕消失、/register 顯示關閉、API 403；新 email 走「Sign in with X」→ registration_disabled 文案", async ({ browser, request }) => {
+  test("19-6：關閉自行註冊 → /register 沒有帳密表單、仍有 SSO 註冊鈕、API 403；再關所有服務的自動建帳 → 註冊入口消失、新 email SSO 首登被拒；最後逐一還原", async ({ browser, request }) => {
     const { context, page } = await adminOnSignInPage(browser);
+    type ProviderRow = { id: string; displayName: string; legacyCallback: boolean; autoCreateEnabled: boolean };
+    const listProviders = async (): Promise<ProviderRow[]> => {
+      const res = await page.request.get("/api/admin/auth/providers");
+      expect(res.ok()).toBe(true);
+      return ((await res.json()) as { providers: ProviderRow[] }).providers;
+    };
+    // 原值在 try 內抓：抓取本身失敗時 original 維持 null，finally 退回固定值。
+    let original: { registrationEnabled: boolean; providers: Array<{ id: string; autoCreateEnabled: boolean }> } | null = null;
     try {
-      const sw = page.getByRole("switch", { name: "Allow registration" });
-      await sw.click();
+      const settingsRes = await page.request.get("/api/admin/auth/settings");
+      expect(settingsRes.ok()).toBe(true);
+      const registrationEnabled = ((await settingsRes.json()) as { registrationEnabled: boolean }).registrationEnabled;
+      const before = await listProviders();
+      original = { registrationEnabled, providers: before.map(({ id, autoCreateEnabled }) => ({ id, autoCreateEnabled })) };
+
+      // 第一段：只關帳密自助註冊——第二服務仍會建帳，所以註冊入口還在，只是 /register 沒有帳密表單。
+      const sw = page.getByRole("switch", { name: "Allow self-registration with a password" });
+      if ((await sw.getAttribute("aria-checked")) === "true") await sw.click();
       await expect(sw).toHaveAttribute("aria-checked", "false");
 
       const anon = await browser.newContext();
       try {
         const p = await anon.newPage();
-        await p.goto("/login");
-        // 「不存在」斷言的等待點：SSO 鈕看得到＝`/api/auth/config` 已落地（註冊鈕與它同一份資料）。
-        await expect(p.getByRole("link", { name: `Sign in with ${SECOND_NAME}` })).toBeVisible();
-        await expect(p.getByRole("link", { name: "Create an account" })).toHaveCount(0);
         await p.goto("/register");
-        // 同上：「關閉」文案只在 config 落地且 registration.enabled === false 時出現。
-        await expect(p.getByText("This site isn't accepting new accounts right now.")).toBeVisible();
-        await expect(p.getByRole("link", { name: /^Sign up with/ })).toHaveCount(0);
+        // 等待點＝config 已落地：第二服務的自動建帳由 19-1 打開，「Sign up with」只在 config 落地後才出現。
+        await expect(p.getByRole("link", { name: `Sign up with ${SECOND_NAME}` })).toBeVisible();
+        await expect(p.locator("#register-email")).toHaveCount(0);
+        await expect(p.getByText("This site isn't accepting new accounts right now.")).toHaveCount(0);
+        await p.goto("/login");
+        await expect(p.getByRole("link", { name: `Sign in with ${SECOND_NAME}` })).toBeVisible();
+        await expect(p.getByRole("link", { name: "Create an account" })).toBeVisible(); // 還有服務會建帳
         const api = await p.request.post("/api/auth/register", { data: { email: randomEmail(), password: NEW_PASSWORD } });
         expect(api.status()).toBe(403);
         expect((await api.json()).error.code).toBe("registration_disabled");
-        await nextLogin(request, SECOND_CONTROL_URL, { sub: `e2e-19-6-${randomUUID()}`, email: randomEmail() });
-        await p.goto("/login");
-        await p.getByRole("link", { name: `Sign in with ${SECOND_NAME}` }).click();
-        await expect(p.getByRole("alert")).toHaveText("This site isn't accepting new accounts right now. Please contact the site administrator.", { timeout: 20_000 });
       } finally {
         await anon.close();
       }
+
+      // 第二段：關掉所有服務的自動建帳。本輪的兩列走 UI，其餘（前輪殘留）走 API。
+      for (const name of [SECOND_NAME, "SSO"]) {
+        const autoCreate = page.getByRole("switch", { name: `Create accounts on first sign-in with ${name}`, exact: true });
+        if ((await autoCreate.count()) === 0) continue;
+        if ((await autoCreate.getAttribute("aria-checked")) === "true") await autoCreate.click();
+        await expect(autoCreate).toHaveAttribute("aria-checked", "false");
+      }
+      for (const row of await listProviders()) {
+        if (!row.autoCreateEnabled) continue;
+        const res = await page.request.patch(`/api/admin/auth/providers/${row.id}`, { data: { autoCreateEnabled: false } });
+        expect(res.ok()).toBe(true);
+      }
+
+      const anon2 = await browser.newContext();
+      try {
+        const p = await anon2.newPage();
+        await p.goto("/login");
+        await expect(p.getByRole("link", { name: `Sign in with ${SECOND_NAME}` })).toBeVisible();
+        await expect(p.getByRole("link", { name: "Create an account" })).toHaveCount(0);
+        await p.goto("/register");
+        await expect(p.getByText("This site isn't accepting new accounts right now.")).toBeVisible();
+        await expect(p.getByRole("link", { name: /^Sign up with/ })).toHaveCount(0);
+        await nextLogin(request, SECOND_CONTROL_URL, { sub: `e2e-19-6-${randomUUID()}`, email: randomEmail() });
+        await p.goto("/login");
+        await p.getByRole("link", { name: `Sign in with ${SECOND_NAME}` }).click();
+        await expect(p.getByRole("alert")).toHaveText("New accounts can't be created this way right now. Please contact the site administrator.", { timeout: 20_000 });
+      } finally {
+        await anon2.close();
+      }
     } finally {
-      // 髒疊重跑時 05 情境一與 19-4 會吃 registration_disabled（r2-M10）——一律開回。
-      const res = await page.request.patch("/api/admin/auth/settings", { data: { registrationEnabled: true } });
-      expect(res.ok()).toBe(true);
-      await context.close();
+      try {
+        if (original !== null) {
+          const results = [];
+          for (const row of original.providers) {
+            results.push(await page.request.patch(`/api/admin/auth/providers/${row.id}`, { data: { autoCreateEnabled: row.autoCreateEnabled } }));
+          }
+          results.push(await page.request.patch("/api/admin/auth/settings", { data: { registrationEnabled: original.registrationEnabled } }));
+          expect(results.map((r) => r.ok())).not.toContain(false);
+        } else {
+          // 原值沒抓到（開頭就掛）：退回「自助註冊開、第二服務與 SSO 會建帳」——05、19-4、19-6a、26 依賴它們。
+          const results = [];
+          for (const row of await listProviders()) {
+            if (row.displayName !== SECOND_NAME && !row.legacyCallback) continue;
+            results.push(await page.request.patch(`/api/admin/auth/providers/${row.id}`, { data: { autoCreateEnabled: true } }));
+          }
+          results.push(await page.request.patch("/api/admin/auth/settings", { data: { registrationEnabled: true } }));
+          expect(results.map((r) => r.ok())).not.toContain(false);
+        }
+      } finally {
+        await context.close();
+      }
     }
   });
 

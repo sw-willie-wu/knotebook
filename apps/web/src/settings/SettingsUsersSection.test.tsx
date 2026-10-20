@@ -327,7 +327,7 @@ describe("SettingsUsersSection——#187 §9.5：帳密登入關閉時代建的�
             status: 200,
             json: () => {
               configServed = true;
-              return Promise.resolve({ providers: [], registration: { enabled: true }, passwordLogin: { enabled: passwordLoginEnabled } });
+              return Promise.resolve({ providers: [], registration: { enabled: true, providerIds: [] }, passwordLogin: { enabled: passwordLoginEnabled } });
             },
           }),
         );

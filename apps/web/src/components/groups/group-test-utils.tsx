@@ -77,7 +77,7 @@ export function groupFetch(
     if (url === "/api/auth/me" && method === "GET") return Promise.resolve(ok(ME));
     if (url === "/api/notes" && method === "GET") return Promise.resolve(ok([]));
     if (url === "/api/auth/config" && method === "GET") {
-      return Promise.resolve(ok({ providers: [], registration: { enabled: false }, passwordLogin: { enabled: true }, autoVersionsEnabled: true }));
+      return Promise.resolve(ok({ providers: [], registration: { enabled: false, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true }));
     }
     if (url === "/api/groups" && method === "GET") return Promise.resolve(ok(getGroups()));
     for (const group of getGroups()) {

@@ -16,7 +16,7 @@ function res(status: number, body?: unknown): Response {
 }
 
 const ADMIN: UserDto = { id: "u-admin", email: "admin@example.com", handle: "admin", displayName: "Admin", isAdmin: true, mustChangePassword: false, hasPassword: true, autoVersions: true };
-const AUTH_CONFIG = { providers: [], registration: { enabled: false }, passwordLogin: { enabled: true }, autoVersionsEnabled: true };
+const AUTH_CONFIG = { providers: [], registration: { enabled: false, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true };
 
 interface Call {
   method: string;

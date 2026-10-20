@@ -119,7 +119,7 @@ describe("GroupStorageSection（/groups/:id/storage，#247 §6.4）", () => {
   it("S6 站台總開關關閉 → 管理者也 disabled＋站台已關閉（自 main 版 :672 搬來）", async () => {
     await openStorage(GROUP_ADMIN, USAGE, (url, method) =>
       url === "/api/auth/config" && method === "GET"
-        ? ok({ providers: [], registration: { enabled: false }, passwordLogin: { enabled: true }, autoVersionsEnabled: false })
+        ? ok({ providers: [], registration: { enabled: false, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: false })
         : null,
     );
     const sw = screen.getByRole("switch", { name: "Automatic versions" });

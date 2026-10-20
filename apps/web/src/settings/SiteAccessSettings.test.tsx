@@ -36,7 +36,7 @@ function setup(initial: AdminAuthSettingsDto, onPatch: (body: Record<string, boo
       state.settings = r as AdminAuthSettingsDto;
       return fakeResponse(200, state.settings);
     }
-    if (url === "/api/auth/config") return fakeResponse(200, { providers: [], registration: { enabled: true }, passwordLogin: { enabled: true } });
+    if (url === "/api/auth/config") return fakeResponse(200, { providers: [], registration: { enabled: true, providerIds: [] }, passwordLogin: { enabled: true } });
     throw new Error(`unexpected fetch: ${method} ${url}`);
   }));
   render(

@@ -53,7 +53,7 @@ function baseFetchHandlers(user: UserDto, passwordLoginEnabled = true, siteOn = 
       return fakeResponse({
         ok: true,
         status: 200,
-        json: () => Promise.resolve({ providers: [], registration: { enabled: false }, passwordLogin: { enabled: true }, autoVersionsEnabled: siteOn }),
+        json: () => Promise.resolve({ providers: [], registration: { enabled: false, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: siteOn }),
       });
     }
     if (url === "/api/groups" && method === "GET") {
@@ -264,7 +264,7 @@ describe("SettingsAccountSection——使用者名欄（#122 Task 5）", () => {
       }
       if (url === "/api/auth/config" && method === "GET") {
         return Promise.resolve(
-          fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ providers: [], registration: { enabled: false }, passwordLogin: { enabled: true }, autoVersionsEnabled: true }) }),
+          fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ providers: [], registration: { enabled: false, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true }) }),
         );
       }
       if (url === "/api/auth/profile" && method === "PATCH") {
