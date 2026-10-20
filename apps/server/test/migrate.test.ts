@@ -12,7 +12,7 @@ import { apiTokens, authProviders, groupMembers, groupRoles, groups, noteRedirec
 const drizzleDirForTest = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../drizzle");
 
 /** drizzle 對 `schema.ts` 的序列化；宣告漂移守衛拿最新一支當比對基準（Task 14 rebase 後改成實際檔名）。 */
-const SNAPSHOT_FILE = "meta/0027_snapshot.json";
+const SNAPSHOT_FILE = "meta/0028_snapshot.json";
 const snapshotLatest = JSON.parse(readFileSync(path.join(drizzleDirForTest, SNAPSHOT_FILE), "utf8")) as {
   tables: Record<string, { checkConstraints?: Record<string, { name: string; value: string }> }>;
 };
@@ -309,6 +309,39 @@ describe("#291 0027_handle-renames", () => {
     await runMigrations(db);
     expect(await renames()).toEqual([{ user_id: a, renamed_at: expected }]);
     expect(await handleRows()).toEqual([{ handle: "mig-a", state: "live" }, { handle: "mig-b", state: "live" }]);
+  });
+});
+
+describe("note-width 0028_note-public-width", () => {
+  it("notes.public_width 形狀：text NOT NULL default 'standard'；CHECK 只收三值（constraint 名 notes_public_width_chk）", async () => {
+    const { pool } = await freshDb();
+    const cols = (await pool.query(
+      `select data_type, is_nullable, column_default from information_schema.columns where table_name = 'notes' and column_name = 'public_width'`,
+    )).rows;
+    expect(cols).toEqual([{ data_type: "text", is_nullable: "NO", column_default: "'standard'::text" }]);
+    const u = (await pool.query(`insert into users (email, handle, display_name) values ('w@x.example', 'w-user', 'W') returning id`)).rows[0].id as string;
+    const n = (await pool.query(`insert into notes (owner_id) values ($1) returning id`, [u])).rows[0].id as string;
+    expect((await pool.query(`select public_width from notes where id = $1`, [n])).rows[0].public_width).toBe("standard");
+    await expect(pool.query(`update notes set public_width = 'huge' where id = $1`, [n])).rejects.toMatchObject({
+      code: "23514",
+      constraint: "notes_public_width_chk",
+    });
+    for (const w of ["standard", "wide", "full"]) {
+      await pool.query(`update notes set public_width = $2 where id = $1`, [n, w]);
+      expect((await pool.query(`select public_width from notes where id = $1`, [n])).rows[0].public_width).toBe(w);
+    }
+  });
+
+  it("0028 套到既有資料：舊筆記一律 'standard'；再跑 runMigrations 不變", async () => {
+    const { pool, db } = await freshEmptyDb();
+    await applyMigrationsThrough(pool, idxOfTag("0028_note-public-width") - 1);
+    const u = (await pool.query(`insert into users (email, display_name, handle) values ('old@x.example', 'O', 'old-user') returning id`)).rows[0].id as string;
+    await pool.query(`insert into notes (owner_id, slug) values ($1, 'old-note')`, [u]);
+    await runMigrations(db);
+    const widths = async () => (await pool.query(`select public_width from notes`)).rows;
+    expect(await widths()).toEqual([{ public_width: "standard" }]);
+    await runMigrations(db);
+    expect(await widths()).toEqual([{ public_width: "standard" }]);
   });
 });
 
@@ -1315,7 +1348,7 @@ describe("0009_api-tokens", () => {
       note_search_state: ["note_id", "extractor_version", "source_version", "content_hash", "indexed_units", "capped", "indexed_at"],
       transfer_tokens: ["id", "token_hash", "parent_token_id", "note_id", "purpose", "expires_at", "consumed_at", "created_at"],
       notes: [
-        "id", "owner_id", "title", "slug", "slug_is_custom", "prev_slug", "legacy_slug", "public_token", "public_slug",
+        "id", "owner_id", "title", "slug", "slug_is_custom", "prev_slug", "legacy_slug", "public_token", "public_slug", "public_width",
         "links_clock", "created_at", "updated_at", "last_edited_at", "last_edited_by", "last_edited_token_id",
         "last_edited_agent_label", "deleted_at", "group_id",
         "version_counter", "version_base_seq", "version_base_fingerprint", "version_pending_at", "version_pending_editors", "version_pending_ref_fingerprint", "version_base_version_id",

@@ -1,6 +1,7 @@
 import { pgTable, uuid, text, timestamp, boolean, integer, bigint, smallint, jsonb, customType, primaryKey, uniqueIndex, index, check, foreignKey } from "drizzle-orm/pg-core";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import type { NoteWidth } from "@knotebook/shared";
 import type { EncryptedApiKey } from "../ai/crypto.js";
 import type { EncryptedSecret } from "../lib/sealed-secret.js";
 const bytea = customType<{ data: Buffer }>({ dataType: () => "bytea" });
@@ -346,6 +347,9 @@ export const notes = pgTable("notes", {
   // UPDATE（WHERE ... AND public_token IS NOT NULL）＋DELETE public-link 的同一支
   // UPDATE 連帶清空；公開讀取端另以 JOIN 述詞含 token 非空兜底（Task 3）。
   publicSlug: text("public_slug"),
+  // #note-width：公開頁內文欄寬度，值與 NOTE_WIDTHS 同（note-width-check-sync.test.ts 守）。DB default 讓舊 server
+  // rollback 與既有 db.insert(notes) 不受影響；撤公開／移群組／轉移都不重設。
+  publicWidth: text("public_width").$type<NoteWidth>().notNull().default("standard"),
   linksClock: bigint("links_clock", { mode: "number" }).notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -400,6 +404,7 @@ export const notes = pgTable("notes", {
   check("notes_owner_xor_group_chk", sql`(${t.ownerId} is null) <> (${t.groupId} is null)`),
   // S11：群組筆記沒有公開別名（W7）。
   check("notes_group_no_public_slug_chk", sql`${t.groupId} is null or ${t.publicSlug} is null`),
+  check("notes_public_width_chk", sql`${t.publicWidth} in ('standard','wide','full')`),
   check("notes_version_base_pair_chk", sql`(${t.versionBaseSeq} is null) = (${t.versionBaseFingerprint} is null)`),
   // #272 §5.1：掃描器只看待切中的列（`version_pending_at <= dueBy`）。
   index("notes_version_pending_idx").on(t.versionPendingAt).where(sql`${t.versionPendingAt} is not null`),

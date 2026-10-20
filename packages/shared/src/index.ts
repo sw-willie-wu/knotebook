@@ -886,11 +886,17 @@ export interface PublicLinkDto {
   path: string;
 }
 
+/** #note-width：內文欄三段寬度；順序＝由窄到寬。`notes_public_width_chk` 與此同值（note-width-check-sync.test.ts 守）。 */
+export const NOTE_WIDTHS = ["standard", "wide", "full"] as const;
+export type NoteWidth = (typeof NOTE_WIDTHS)[number];
+
 /** 公開內容端點（token 形與別名形同形）的回應。刻意不含本篇的 id／token／updatedAt。 */
 export interface PublicNoteDto {
   title: string;
   ydoc: string;
   links: PublicLinkDto[];
+  /** optional＝舊 server 相容，web 缺值當 standard。 */
+  width?: NoteWidth;
 }
 
 /**

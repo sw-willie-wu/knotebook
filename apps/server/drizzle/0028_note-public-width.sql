@@ -1,0 +1,2 @@
+ALTER TABLE "notes" ADD COLUMN "public_width" text DEFAULT 'standard' NOT NULL;--> statement-breakpoint
+ALTER TABLE "notes" ADD CONSTRAINT "notes_public_width_chk" CHECK ("notes"."public_width" in ('standard','wide','full'));
