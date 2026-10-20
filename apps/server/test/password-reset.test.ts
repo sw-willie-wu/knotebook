@@ -1,13 +1,13 @@
 /**
  * #286 無登入端點：inspect 與以重設連結設定新密碼（spec §4.3）、登出手段與「不動 PAT／OAuth」（§4.4、A-7）、
- * 並發（A-9、A-10）、帳密開關（A-11）、argon2 前判斷（A-13 前半）、kind 隔離（A-14）、錯誤遮蔽（§3.8）。
- * 每案各建一個 app（fresh DB），限流桶不跨案累積。共編連線的關閉在 `collab-revocation.test.ts`。
+ * 並發（A-9、A-10）、帳密開關（A-11）、miss 桶（A-12）、argon2 前判斷與嘗試桶（A-13）、kind 隔離（A-14）、錯誤遮蔽（§3.8）。
+ * 每案各建一個 app（fresh DB），限流桶不跨案累積；未注入的案跑生產額度的桶。共編連線的關閉在 `collab-revocation.test.ts`。
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { count, eq, sql } from "drizzle-orm";
 import { SESSION_COOKIE } from "@knotebook/shared";
-import { buildTestApp, insertPasswordUser, testConfig } from "./helpers.js";
+import { buildTestApp, freshLimiters, insertPasswordUser, testConfig } from "./helpers.js";
 import { seedNote, seedUser, cookieOf, waitForLockWaiters } from "./group-helpers.js";
 import { codeGrant, exchange, obtainCode } from "./helpers/oauth-flow.js";
 import { fileBody, issueDirect, PNG_BYTES, upload } from "./transfer-helpers.js";
@@ -18,6 +18,7 @@ import type { CollabHooks } from "../src/collab/hooks.js";
 import { generateAccessToken, hashToken } from "../src/auth/api-token.js";
 import { generateOneTimeToken } from "../src/auth/one-time-link.js";
 import { RESET_LINK_INVALID_MESSAGE } from "../src/auth/tx/password-reset.js";
+import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 
 // hashPassword 包成 vi.fn(actual)：預設行為與真實實作一致（比照 admin-users.test.ts）。
 vi.mock("../src/auth/password.js", async () => {
@@ -91,12 +92,27 @@ async function issue(ctx: Ctx, targetId: string): Promise<{ token: string; expir
   return res.json() as { token: string; expiresAt: string };
 }
 
-function inspect(app: FastifyInstance, token: string) {
-  return app.inject({ method: "POST", url: "/api/auth/password-reset/inspect", payload: { token } });
+/** 只覆寫重設連結的兩顆桶（其餘照生產額度）。 */
+function resetLimiters(over: { miss?: number; attempt?: number }): Pick<AppDeps, "limiters"> {
+  return {
+    limiters: freshLimiters({
+      ...(over.miss !== undefined ? { oneTimeLinkMiss: new FixedWindowLimiter({ limit: over.miss, windowMs: 60_000 }) } : {}),
+      ...(over.attempt !== undefined ? { oneTimeLinkAttempt: new FixedWindowLimiter({ limit: over.attempt, windowMs: 3_600_000 }) } : {}),
+    }),
+  };
+}
+
+function inspect(app: FastifyInstance, token: string, remoteAddress?: string) {
+  return app.inject({ method: "POST", url: "/api/auth/password-reset/inspect", payload: { token }, ...(remoteAddress ? { remoteAddress } : {}) });
 }
 
 function complete(app: FastifyInstance, token: string, newPassword = NEW_PASSWORD) {
   return app.inject({ method: "POST", url: "/api/auth/password-reset", payload: { token, newPassword } });
+}
+
+function expectTooMany(res: { statusCode: number; json(): unknown }) {
+  expect(res.statusCode).toBe(429);
+  expect(res.json()).toMatchObject({ error: { code: "too_many_requests" } });
 }
 
 function login(app: FastifyInstance, email: string, password: string) {
@@ -369,8 +385,9 @@ describe("停用與重設（A-10、§4.6）", () => {
 });
 
 describe("POST /api/auth/password-reset/inspect", () => {
-  it("C2：200 只回 email／expiresAt；連打 3 次不消耗連結；用過之後 410", async () => {
-    const ctx = await setup();
+  // 嘗試桶上限 1：inspect 若也扣嘗試桶，最後的完成會變 429（spec §4.3：inspect 不扣嘗試桶）。
+  it("C2：200 只回 email／expiresAt；連打 3 次不消耗連結也不扣嘗試桶；用過之後 410", async () => {
+    const ctx = await setup(resetLimiters({ attempt: 1 }));
     const { app, db } = ctx;
     const target = await insertPasswordUser(db);
     const { token, expiresAt } = await issue(ctx, target.id);
@@ -389,15 +406,18 @@ describe("POST /api/auth/password-reset/inspect", () => {
 });
 
 describe("帳密登入開關（A-11、D2）", () => {
-  it("C7：DB 關閉 → inspect 403、完成 403，連結列不動；重新開啟 → 同一 token 完成 200", async () => {
-    const ctx = await setup();
+  // 嘗試桶上限 2（spec N-1）：關閉期間連送 3 發完成都是 403、不扣桶，所以重新開啟後第一發就能完成。
+  it("C7：DB 關閉 → inspect 403、完成連送 3 發都 403（不是 429），連結列不動；重新開啟 → 同一 token 完成 200", async () => {
+    const ctx = await setup(resetLimiters({ attempt: 2 }));
     const { app, db } = ctx;
     const target = await insertPasswordUser(db);
     const { token } = await issue(ctx, target.id);
     const before = await linkOf(db, token);
     await setPasswordLogin(db, false);
 
-    for (const res of [await inspect(app, token), await complete(app, token)]) {
+    const closed = [await inspect(app, token)];
+    for (let i = 0; i < 3; i++) closed.push(await complete(app, token));
+    for (const res of closed) {
       expect(res.statusCode).toBe(403);
       expect(res.json()).toMatchObject({ error: { code: "password_login_disabled" } });
     }
@@ -448,6 +468,28 @@ describe("argon2 之前的判斷與 hash 忙碌", () => {
     expect(hashPassword).toHaveBeenCalledTimes(1);
   });
 
+  // A-13 後半（安全關鍵）：嘗試桶在長度檢查之前扣，太短的密碼也算；超限那一發不跑 argon2。
+  it("C9b：嘗試桶上限 2 → 太短兩發 400、第三發（長度足夠）429 且不呼叫 hashPassword；連結未用；別人的連結照常 200", async () => {
+    const ctx = await setup(resetLimiters({ attempt: 2 }));
+    const { app, db } = ctx;
+    const target = await insertPasswordUser(db);
+    const other = await insertPasswordUser(db);
+    const { token } = await issue(ctx, target.id);
+    const { token: otherToken } = await issue(ctx, other.id);
+    vi.mocked(hashPassword).mockClear();
+
+    for (let i = 0; i < 2; i++) {
+      const short = await complete(app, token, "short");
+      expect(short.statusCode).toBe(400);
+      expect(short.json()).toMatchObject({ error: { code: "password_too_short" } });
+    }
+    expectTooMany(await complete(app, token));
+    expect(hashPassword).not.toHaveBeenCalled();
+    expect((await linkOf(db, token)).usedAt).toBeNull();
+
+    expect((await complete(app, otherToken)).statusCode).toBe(200);
+  });
+
   it("C10：HashBusyError → 429 server_busy、連結未用；重送 → 200", async () => {
     const ctx = await setup();
     const { app, db } = ctx;
@@ -459,6 +501,43 @@ describe("argon2 之前的判斷與 hash 忙碌", () => {
     expect(busy.json()).toMatchObject({ error: { code: "server_busy" } });
     expect((await linkOf(db, token)).usedAt).toBeNull();
     expect((await complete(app, token)).statusCode).toBe(200);
+  });
+});
+
+describe("miss 桶（A-12、§3.6）", () => {
+  // 安全關鍵：失敗才扣、有效 token 不預檢——同 IP 的無效 token 灌滿桶後，有效 token 仍 200。
+  it("C8：上限 3 → 同 IP 三發無效 410、第四發 429；緊接著同 IP 的有效 token inspect 與完成都 200；另一個 IP 的無效 token 410", async () => {
+    const ctx = await setup(resetLimiters({ miss: 3 }));
+    const { app, db } = ctx;
+    const target = await insertPasswordUser(db);
+    const { token } = await issue(ctx, target.id);
+    // 每發一支新的、形狀合法但查無的 token：桶的 key 若混進 token，第四發就不會 429。
+    const miss = () => generateOneTimeToken("password_reset");
+
+    expectInvalid(await inspect(app, miss()));
+    expectInvalid(await complete(app, miss()));
+    expectInvalid(await inspect(app, miss()));
+    expectTooMany(await complete(app, miss()));
+    // 桶已滿：inspect 的無效出口也經同一個 miss 桶（不是直接回 410）。
+    expectTooMany(await inspect(app, miss()));
+
+    const inspected = await inspect(app, token);
+    expect(inspected.statusCode, inspected.body).toBe(200);
+    const done = await complete(app, token);
+    expect(done.statusCode, done.body).toBe(200);
+
+    expectInvalid(await inspect(app, miss(), "10.0.0.2"));
+  });
+
+  // N-4：交易內（並發造成）的 410 已以有效 token 通過查詢，不扣 miss 桶。
+  it("C13：上限 1 → 交易內的 410（DB 直接停用）之後，一發無效 token 仍是 410（不是 429）", async () => {
+    const ctx = await setup(resetLimiters({ miss: 1 }));
+    const { app, db } = ctx;
+    const target = await insertPasswordUser(db);
+    const { token } = await issue(ctx, target.id);
+    await db.update(users).set({ disabledAt: new Date() }).where(eq(users.id, target.id));
+    expectInvalid(await complete(app, token));
+    expectInvalid(await complete(app, generateOneTimeToken("password_reset")));
   });
 });
 

@@ -5,7 +5,9 @@
  *   log 與回應絕不含 token 明文或 `token_hash`。
  * - 無效 token 一律 410 `reset_link_invalid`，不區分原因；交易外的「連結無效」出口都經 `sendInvalidLink`，
  *   交易內（並發造成）的 410 刻意不經過它。
- * - 帳密開關（有效值）只在交易外判斷，交易內不重讀（spec §4.3 末【推】）：關閉時 403，連結不動。
+ * - 帳密開關（有效值）只在交易外判斷，交易內不重讀（spec §4.3 末【推】）：關閉時 403，連結不動、不扣任何桶。
+ * - 兩顆桶（spec §3.6）：miss 桶（key=ip）只在交易外查無時扣，有效 token 不做預檢、不被擋；
+ *   嘗試桶（key=`link:${id}`）只在完成端點、帳密有效值為開之後扣，inspect 不扣。
  * - 登出手段與改密碼相同（`token_version + 1`＋`gate.invalidate`＋`onUserRevoked`），PAT／OAuth 不受影響（spec §4.4）。
  */
 import type { FastifyBaseLogger, FastifyInstance, FastifyReply } from "fastify";
@@ -26,6 +28,7 @@ import { signSession, type UserGate } from "../auth/session.js";
 import { completePasswordResetInTx, RESET_LINK_INVALID_MESSAGE } from "../auth/tx/password-reset.js";
 import type { CollabHooks } from "../collab/hooks.js";
 import { sendError } from "../http/errors.js";
+import type { FixedWindowLimiter } from "../http/rate-limit.js";
 import { TxAbort } from "../http/tx-abort.js";
 import { redactDbError } from "../lib/redact-db-error.js";
 
@@ -37,6 +40,7 @@ export interface PasswordResetRouteDeps {
   config: AppConfig;
   gate: UserGate;
   collabHooks: CollabHooks;
+  limiters: { oneTimeLinkMiss: FixedWindowLimiter; oneTimeLinkAttempt: FixedWindowLimiter };
 }
 
 /**
@@ -64,32 +68,40 @@ async function findActiveResetLink(
   return { id: row.id, targetUserId: row.targetUserId, email: row.email, expiresAt: row.expiresAt };
 }
 
-function sendInvalidLink(reply: FastifyReply): FastifyReply {
-  return sendError(reply, 410, "reset_link_invalid", RESET_LINK_INVALID_MESSAGE);
-}
+const TOO_MANY_REQUESTS_MESSAGE = "請求太頻繁，請稍後再試";
 
 export function passwordResetRoutes(deps: PasswordResetRouteDeps) {
+  /** 交易外查無有效連結：扣 miss 桶（key=ip），超限 429，否則 410。 */
+  function sendInvalidLink(reply: FastifyReply, ip: string): FastifyReply {
+    if (!deps.limiters.oneTimeLinkMiss.consume(ip)) return sendError(reply, 429, "too_many_requests", TOO_MANY_REQUESTS_MESSAGE);
+    return sendError(reply, 410, "reset_link_invalid", RESET_LINK_INVALID_MESSAGE);
+  }
+
   return async function register(app: FastifyInstance): Promise<void> {
     app.post("/api/auth/password-reset/inspect", async (request, reply) => {
       const parsed = inspectBodySchema.safeParse(request.body);
       if (!parsed.success) return sendError(reply, 400, "invalid_body", "請求格式錯誤");
       const link = await findActiveResetLink(deps.db, parsed.data.token, request.log);
-      if (!link) return sendInvalidLink(reply);
+      if (!link) return sendInvalidLink(reply, request.ip);
       if (!(await isPasswordLoginAccepted(deps.db, deps.config, request.log))) {
         return sendError(reply, 403, "password_login_disabled", PASSWORD_LOGIN_DISABLED_MESSAGE);
       }
       return reply.send({ email: link.email, expiresAt: link.expiresAt.toISOString() });
     });
 
-    // 順序（spec §4.3）：body → 連結 → 帳密有效值 → 長度 → argon2 → 交易。argon2 之前能判的都先判（A-13）。
+    // 順序（spec §4.3）：body → 連結 → 帳密有效值 → 嘗試桶 → 長度 → argon2 → 交易。argon2 之前能判的都先判（A-13）。
     app.post("/api/auth/password-reset", async (request, reply) => {
       const parsed = completeBodySchema.safeParse(request.body);
       if (!parsed.success) return sendError(reply, 400, "invalid_body", "請求格式錯誤");
       const { token, newPassword } = parsed.data;
       const link = await findActiveResetLink(deps.db, token, request.log);
-      if (!link) return sendInvalidLink(reply);
+      if (!link) return sendInvalidLink(reply, request.ip);
       if (!(await isPasswordLoginAccepted(deps.db, deps.config, request.log))) {
         return sendError(reply, 403, "password_login_disabled", PASSWORD_LOGIN_DISABLED_MESSAGE);
+      }
+      // 帳密關閉的 403 在上面先回，不扣這個桶（spec N-1）。
+      if (!deps.limiters.oneTimeLinkAttempt.consume(`link:${link.id}`)) {
+        return sendError(reply, 429, "too_many_requests", TOO_MANY_REQUESTS_MESSAGE);
       }
       if (newPassword.length < MIN_PASSWORD_LENGTH) {
         return sendError(reply, 400, "password_too_short", `密碼至少需要 ${MIN_PASSWORD_LENGTH} 字元`);
@@ -106,7 +118,7 @@ export function passwordResetRoutes(deps: PasswordResetRouteDeps) {
       try {
         updated = await deps.db.transaction(tx => completePasswordResetInTx(tx, input));
       } catch (err) {
-        // 交易內的 410 都是並發造成（這發已以有效 token 通過上面的查詢），不經 sendInvalidLink。
+        // 交易內的 410 都是並發造成（這發已以有效 token 通過上面的查詢），不經 sendInvalidLink、不扣 miss 桶（spec N-4）。
         if (err instanceof TxAbort) return sendError(reply, err.status, err.errCode, err.message);
         // UPDATE 的參數帶 password hash：drizzle 的錯誤會把參數串進 message。
         throw redactDbError(request.log, err, "重設密碼");

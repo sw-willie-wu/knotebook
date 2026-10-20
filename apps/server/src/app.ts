@@ -48,7 +48,7 @@ import { sendError } from "./http/errors.js";
 // #108：`stripDefaultPort` 搬到 `http/origin.ts`（與 `mcpOriginAllowed` 同一個葉節點模組，
 // 兩種比較語意的差別寫在該檔檔頭）。
 import { stripDefaultPort } from "./http/origin.js";
-import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FixedWindowLimiter, OIDC_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, PUBLIC_WIDTH_LIMIT, REGISTER_LIMIT, SEARCH_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_RENAME_LIMIT, TOKEN_WRITE_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
+import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FixedWindowLimiter, OIDC_LIMIT, ONE_TIME_LINK_ATTEMPT_LIMIT, ONE_TIME_LINK_MISS_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, PUBLIC_WIDTH_LIMIT, REGISTER_LIMIT, SEARCH_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_RENAME_LIMIT, TOKEN_WRITE_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
 import { FORM_EXEMPT_ROUTES, isOauthScopedPath, sendOauthError } from "./http/oauth-errors.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { oauthMetadataRoutes } from "./routes/oauth-metadata.js";
@@ -168,6 +168,10 @@ export interface AppDeps {
     edit: FixedWindowLimiter;
     /** #187 §9.1：帳密註冊（key=ip）。 */
     register: FixedWindowLimiter;
+    /** #286：重設連結 inspect／完成的無效 token（key=ip；失敗才扣，見 `ONE_TIME_LINK_MISS_LIMIT`）。 */
+    oneTimeLinkMiss: FixedWindowLimiter;
+    /** #286：每支重設連結的完成嘗試（key=`link:${id}`；帳密開才扣、inspect 不扣，見 `ONE_TIME_LINK_ATTEMPT_LIMIT`）。 */
+    oneTimeLinkAttempt: FixedWindowLimiter;
   };
   /**
    * #106（#137）：寫入路徑的測試注入縫（比照 `linkSyncTestHooks`）——`beforeMerge`／
@@ -648,6 +652,8 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       search: new FixedWindowLimiter(SEARCH_LIMIT),
       edit: new FixedWindowLimiter(EDIT_LIMIT),
       register: new FixedWindowLimiter(REGISTER_LIMIT),
+      oneTimeLinkMiss: new FixedWindowLimiter(ONE_TIME_LINK_MISS_LIMIT),
+      oneTimeLinkAttempt: new FixedWindowLimiter(ONE_TIME_LINK_ATTEMPT_LIMIT),
     } satisfies NonNullable<AppDeps["limiters"]>);
   const storageLockTimeoutMs = deps.storageLockTimeoutMs ?? DEFAULT_STORAGE_LOCK_TIMEOUT_MS;
   // 版本歷史：有 collab 就用它那份（已 bind hocuspocus）；沒有 collab（buildTestApp）另建一份未綁定的——REST 讀 note_states 當暫時狀態。
@@ -802,7 +808,15 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
     accountRoutes({ db: deps.db, config: deps.config, gate: deps.gate, collabHooks: deps.collabHooks, limiters: { register: limiters.register } }),
   );
   // #286：無登入的重設密碼端點——inspect 與以一次性連結設定新密碼（spec §4.3）。
-  void app.register(passwordResetRoutes({ db: deps.db, config: deps.config, gate: deps.gate, collabHooks: deps.collabHooks }));
+  void app.register(
+    passwordResetRoutes({
+      db: deps.db,
+      config: deps.config,
+      gate: deps.gate,
+      collabHooks: deps.collabHooks,
+      limiters: { oneTimeLinkMiss: limiters.oneTimeLinkMiss, oneTimeLinkAttempt: limiters.oneTimeLinkAttempt },
+    }),
+  );
   void app.register(
     aiRoutes({ db: deps.db, config: deps.config, runtime: deps.ai, limiters: { ai: limiters.ai }, idleTimeoutMs: options.aiIdleTimeoutMs })
   );
