@@ -7,6 +7,12 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
+### Upgrade notes
+
+- Migration 0030 sets each existing sign-in service's **Creates accounts** to the value **Allow registration** had before the upgrade, so sign-in behaves as before after the upgrade. Services added afterwards start with it off (a service imported from `OIDC_*` takes over **Allow self-registration with a password** instead).
+- **Rolling back:** the old version doesn't read the new setting, and there a first sign-in through a sign-in service creates accounts according to **Allow registration** (「允許註冊」; called **Allow self-registration with a password** in this version) for every enabled service at once, which can be more permissive than after the upgrade. If **Allow self-registration with a password** is on and **Creates accounts** is off for some open identity provider, turn **Allow registration** (「允許註冊」) off on the old version first after rolling back.
+- **Upgrading again after a rollback:** check **Creates accounts** on each sign-in service — especially any whose issuer was changed during the rollback, since that change didn't go through the confirmation prompt — remember that services added during the rollback start with it off, and check whether **Allow self-registration with a password** needs to be turned back on.
+
 ### Added
 
 - Notes can be shown at three content widths — Standard, Wide and Full width. A button in the note header (hidden when the note area is narrow) picks one; the choice is saved per note in this browser rather than in your account, so it doesn't carry over to other devices or change what collaborators see in their own browsers. A shared note's public page has its own width, set in the Share dialog by whoever manages the public link, and every reader sees that width. Includes a database migration (0028) that adds the public page width to notes (#297).
@@ -17,6 +23,7 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 - Settings → Authorization → API tokens: an app's (OAuth) **Expires** date is now 30 days after the app was last used — or after you authorized it, if it hasn't been used yet — instead of when its current access token runs out, which is never more than a day away and made an app unused for a day show as *Expired*. The date moves forward on its own while the app is in use; an app unused for 30 days is removed (#298).
 - Settings → Authorization → **Connect Claude with MCP** now shows two ways to connect: authorizing Claude Code or Claude Desktop (Windows) over OAuth, with no token to create — offered on `https://` sites only — and the personal-token snippets as before (#298).
 - Adding a sign-in service no longer requires a client ID. Add the service first to get its callback URL, register that URL on the identity provider (GitLab, for example, gives you a client ID only after that), then enter the client ID and secret with **Edit**. A service without a client ID can't be turned on, and **Test connection** points it out. Includes a database migration (0029) that lets a sign-in service have no client ID yet (#299).
+- **Allow registration** is split in two. It is renamed **Allow self-registration with a password** and only governs registering with an email and a password (it has no effect while password sign-in is off, but can still be switched then). Each sign-in service now has its own **Creates accounts** setting, a column in the service table: it decides whether someone with no account gets one on their first sign-in through that service. New services start with it off, changing a service's issuer asks whether to turn it off too, and the login and registration pages' sign-up entries follow the two settings. Includes a database migration (0030) that adds **Creates accounts** to sign-in services and carries over the current **Allow registration**; sign-in behaves as before after the upgrade.
 
 ### Fixed
 
