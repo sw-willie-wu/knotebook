@@ -224,7 +224,7 @@ See [Known limitations](./known-limitations.md) for the full list of sign-in rou
 
 **Creates accounts** is a setting of each sign-in service, a column in the service table in **Site admin → Sign-in**. It decides whether someone whose email has no account yet gets one when they sign in through that service for the first time; when it is off, that first sign-in is refused (`registration_disabled`). A new service starts with it off — except a service imported from `OIDC_*`, which takes over the value of **Allow self-registration with a password** at the moment of the import — and when upgrading, each existing service took over the old **Allow registration** setting.
 
-Neither setting affects accounts that already exist or the account-linking page below, and admins can still create accounts in **Site admin → Users**.
+Neither setting affects accounts that already exist, the account-linking page below, or invitations, and admins can still invite people while password sign-in is on.
 
 **When an email already has an account.** A first sign-in through a sign-in service whose email (compared case-insensitively) belongs to an existing account doesn't create a second account and isn't merged automatically. The person is shown **Link your sign-in** and proves the account is theirs with its password, or by signing in with another sign-in service already linked to it (see [How SSO sign-in finds the account](#sign-in-providers) for when neither is possible). Registering with a password doesn't open a separate account for that email either (`409 email_taken`).
 
@@ -244,6 +244,16 @@ There is no email and no "forgot password" page: an admin makes a reset link and
 - An account with no password (SSO-only) and a disabled account can't get a link, and disabling an account revokes its unused link.
 - While **Allow password sign-in** is off, a link can't be created or used (`403 password_login_disabled`); a link that hasn't expired works again once it is turned back on. `PASSWORD_LOGIN_FORCE_ENABLE=true` counts as on.
 - The reset page asks anyone who is already signed in to sign out first, so an admin testing a link in their own browser doesn't become the other person.
+
+### Inviting people
+
+There is no email: an admin makes an invitation link and sends it to the person themselves. In **Site admin → Users**, press **Create invitation**, pick how long the link lasts (1 to 7 days; 3 is preselected), optionally add a note (up to 100 characters; only admins see it), and press **Create link**. Copy the link — it is shown once and cannot be read back.
+
+- The link works once. The person opens it, enters their email and a password (and, if they want, a display name), and their account is created and signed in. The account is always a regular user — an invitation can't make an admin. The email isn't filled in or checked beforehand: anyone who has the link can use it with any email, so send it only to the person you are inviting.
+- Invitations don't depend on **Allow self-registration with a password**: they work whether it is on or off.
+- The **Invitations** table in **Site admin → Users** shows each one as Unused, Used (and by whom), Revoked or Expired. An unused invitation can be revoked there; a used one can't. Ones that ended (used, revoked or expired) are removed from the table 30 days after they ended; the cleanup runs when someone creates a reset link or an invitation, so it isn't exact.
+- While **Allow password sign-in** is off, an invitation can't be created or used (`403 password_login_disabled`), but one can still be revoked; unused invitations that haven't expired work again once it is turned back on. `PASSWORD_LOGIN_FORCE_ENABLE=true` counts as on.
+- Opened from an invitation link, the registration page asks anyone who is already signed in to sign out first.
 
 ### SSO-only sign-in
 
@@ -271,8 +281,8 @@ Turning it off is refused unless at least one sign-in service is turned on and y
 
 When **Allow password sign-in** is off and no sign-in service creates accounts, nobody can create an account on their own and password sign-in is refused. Two ways to add someone:
 
-1. In **Site admin → Users**, create an account with the email they use on the identity provider and a temporary password, and give them the password. They sign in with **Sign in with …**, enter the temporary password on the **Link your sign-in** page, and are then asked to choose a new password before they get in (it isn't used to sign in while password sign-in is off, but the temporary one has to be replaced).
-2. Turn **Creates accounts** on, for a while, for the sign-in service they use; have them sign in with **Sign in with …** for the first time — that creates their account — and turn it off again. While it is on, anyone who can sign in to that identity provider with an email that has no account yet can create an account; for an identity provider only your people can sign in to, you can simply leave it on — but see [Someone can take a colleague's email](./known-limitations.md) if that identity provider lets people choose their own email.
+1. Turn **Creates accounts** on, for a while, for the sign-in service they use; have them sign in with **Sign in with …** for the first time — that creates their account — and turn it off again. While it is on, anyone who can sign in to that identity provider with an email that has no account yet can create an account; for an identity provider only your people can sign in to, you can simply leave it on — but see [Someone can take a colleague's email](./known-limitations.md) if that identity provider lets people choose their own email.
+2. First make sure **Allow self-registration with a password** is off (you can switch it while password sign-in is off) — otherwise the next step also lets anyone register with a password. Then turn **Allow password sign-in** on for a while and invite them from **Site admin → Users**. They create their account with their email and a password and link their sign-in service in **Settings → Sign-in**. Turn password sign-in off again; invitations still unused then stop working until it is back on. While it is on, everyone with a password can sign in with it.
 
 ## Storage quotas
 
