@@ -13,7 +13,7 @@ test("sidebar tabs: roles, persistence, keyboard, search view, narrow drawer", a
   await loginAs(page, ADMIN.email, ADMIN.password);
   await expect(page).toHaveURL(/\/$/);
   // 無空白長標題（不含 RUN，免得搜尋 RUN 時多一筆）：390 寬抽屜的清單不得橫向溢出。
-  const longTitle = `E2E${"x".repeat(120)}`;
+  const longTitle = `E2E${Math.random().toString(36).replace(/[0-9]/g, "").slice(0, 6)}${"x".repeat(120)}`;
   await createNote(page, longTitle);
   await createNote(page, title);
   const noteUrl = page.url();
@@ -31,6 +31,8 @@ test("sidebar tabs: roles, persistence, keyboard, search view, narrow drawer", a
   // ── A1-1：選擇重整後仍在 ──────────────────────────────────────────────────
   await showSidebarTab(page, "Workspace");
   await page.reload();
+  // 等 lazy NotePage 掛上：fallback 自帶的 AppShell 會被換掉（drawerOpen／搜尋字串跟著重設）。
+  await expect(page.getByRole("textbox", { name: "Note title" })).toBeVisible();
   await expect(tablist.getByRole("tab", { name: "Workspace", exact: true })).toHaveAttribute("aria-selected", "true");
 
   // ── A1-5：方向鍵（循環、同時切換並移焦點）與 Home ─────────────────────────
@@ -84,6 +86,8 @@ test("sidebar tabs: roles, persistence, keyboard, search view, narrow drawer", a
   // ── A1-6：390 寬抽屜 ─────────────────────────────────────────────────────
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(noteUrl);
+  // 等 lazy NotePage 掛上：fallback 自帶的 AppShell 會被換掉（drawerOpen／搜尋字串跟著重設）。
+  await expect(page.getByRole("textbox", { name: "Note title" })).toBeVisible();
   await page.getByRole("button", { name: "Open navigation" }).click();
   const drawer = page.getByRole("dialog", { name: "Navigation" });
   await expect(drawer).toBeVisible();
