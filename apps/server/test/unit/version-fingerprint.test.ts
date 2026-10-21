@@ -216,7 +216,8 @@ describe("不丟例外（A14 (3)）", () => {
     const deep = deepDoc(5000);
     expect(() => outlineOf(F(deep))).toThrow(RangeError);
     expect(versionFingerprint(F(deep))).toMatch(/^[0-9a-f]{16}$/);
-  });
+    // 建 5000 層文件本身是平方成本（實測空閒約 2 s、機器忙時逾 5 s）；舊指紋丟 RangeError 的層數門檻隨堆疊與執行情境而變，5000 層是留餘裕的取值，所以放寬 timeout 而不降層數。
+  }, 60_000);
 
   it("缺 id 的兩顆不撞鍵：[A,B] ≠ [B,B]（舊指紋直接丟例外）", () => {
     const ab = rawDoc([{ id: null, text: "AAA" }, { id: null, text: "BBB" }]);

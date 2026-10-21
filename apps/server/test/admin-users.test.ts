@@ -3,7 +3,7 @@ import type { LightMyRequestResponse } from "fastify";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { SESSION_COOKIE } from "@knotebook/shared";
 import { buildTestApp, testConfig } from "./helpers.js";
-import { cookieOf, seedUser, waitForBlockedOrSettled } from "./group-helpers.js";
+import { cookieOf, seedUser, waitForBlockedOrSettled, waitForLockWaiters } from "./group-helpers.js";
 import { oneTimeLinks, users } from "../src/db/schema.js";
 import { captureLogs } from "./helpers/admin-auth.js";
 import type { Db } from "../src/db/index.js";
@@ -583,4 +583,141 @@ describe("POST /api/admin/users/:id/demote（#247 §9.4）", () => {
     expect([first.statusCode, other.statusCode].sort()).toEqual([204, 409]);
     expect(await enabledAdminsAmong(built.db, [a.id, b.id, c.id])).toBe(1);
   });
+});
+
+/** 照 #286 產生連結交易的形：連結列帶 created_by_id（FK 檢查對建立者的 users 列取 KEY SHARE）。 */
+const RESET_LINK_SQL =
+  "insert into one_time_links (kind, token_hash, target_user_id, created_by_id, expires_at) values ('password_reset', 'h-' || gen_random_uuid(), $1, $2, now() + interval '1 hour')";
+async function insertResetLink(db: Db, targetId: string, createdById: string): Promise<void> {
+  await db.$client.query(RESET_LINK_SQL, [targetId, createdById]);
+}
+
+const disableUser = (app: Awaited<ReturnType<typeof buildTestApp>>["app"], targetId: string, cookies: Record<string, string>) =>
+  app.inject({ method: "POST", url: `/api/admin/users/${targetId}/disable`, cookies });
+
+describe("POST /api/admin/users/:id/disable：最後一位啟用中的 admin（#250）", () => {
+  it("序列：目標是唯一啟用中的 admin（呼叫者已被停用但快取仍有效）→ 409 last_site_admin；資料不變、重設連結沒被撤銷", async () => {
+    const { app, db } = await buildTestApp();
+    const a = await seedUser(db, { isAdmin: true });
+    const b = await seedUser(db, { isAdmin: true });
+    await insertResetLink(db, b.id, a.id);
+    const aCookies = await cookieOf(a.id);
+    expect((await app.inject({ method: "GET", url: "/api/admin/users", cookies: aCookies })).statusCode).toBe(200); // 灌 a 的快取
+    await db.update(users).set({ disabledAt: new Date() }).where(eq(users.id, a.id)); // 繞過端點、不 invalidate
+    const r = await disableUser(app, b.id, aCookies);
+    expect(r.statusCode).toBe(409);
+    expect(r.json().error).toEqual({ code: "last_site_admin", message: "站台至少要保留一位啟用中的管理員" });
+    const [row] = await db.select({ disabledAt: users.disabledAt, tokenVersion: users.tokenVersion }).from(users).where(eq(users.id, b.id));
+    expect(row).toEqual({ disabledAt: null, tokenVersion: 0 });
+    const [link] = await db.select().from(oneTimeLinks).where(eq(oneTimeLinks.targetUserId, b.id));
+    expect(link!.revokedAt).toBeNull();
+  });
+
+  it("正常：兩位啟用中的 admin，停用其一 → 204；停用非 admin 不受影響；重複停用已停用的 admin 冪等 204", async () => {
+    const { app, db } = await buildTestApp();
+    const a = await seedUser(db, { isAdmin: true });
+    const b = await seedUser(db, { isAdmin: true });
+    const plain = await seedUser(db);
+    const aCookies = await cookieOf(a.id);
+    expect((await disableUser(app, b.id, aCookies)).statusCode).toBe(204);
+    expect(await enabledAdminsAmong(db, [a.id, b.id])).toBe(1);
+    expect((await disableUser(app, plain.id, aCookies)).statusCode).toBe(204);
+    expect((await disableUser(app, b.id, aCookies)).statusCode).toBe(204);
+  });
+
+  it("併發互停（raw client 先持鎖）：A 停 B、B 停 A 都卡在鎖上；放鎖後恰一個 204、另一個 409；剩一位啟用中的 admin", async () => {
+    const { app, db } = await buildTestApp();
+    const a = await seedUser(db, { isAdmin: true });
+    const b = await seedUser(db, { isAdmin: true });
+    const aCookies = await cookieOf(a.id);
+    const bCookies = await cookieOf(b.id);
+    const raw = await db.$client.connect();
+    let released = false;
+    try {
+      await raw.query("begin");
+      await raw.query("select id from users where is_admin = true and disabled_at is null for update");
+      const p1 = disableUser(app, b.id, aCookies);
+      await waitForLockWaiters(db.$client, 1);
+      const p2 = disableUser(app, a.id, bCookies);
+      await waitForLockWaiters(db.$client, 2);
+      await raw.query("commit");
+      released = true;
+      const [r1, r2] = await Promise.all([p1, p2]);
+      expect([r1.statusCode, r2.statusCode].sort()).toEqual([204, 409]);
+      expect([r1, r2].find(r => r.statusCode === 409)!.json().error.code).toBe("last_site_admin");
+      expect(await enabledAdminsAmong(db, [a.id, b.id])).toBe(1);
+    } finally {
+      if (!released) await raw.query("rollback").catch(() => {});
+      raw.release();
+    }
+  });
+
+  it("與產生重設連結並發不死鎖：連結交易先鎖目標列、停用卡在目標列、連結 INSERT 對建立者取 KEY SHARE → 兩邊都成功（不得 500／40P01）", async () => {
+    const { app, db } = await buildTestApp();
+    const a = await seedUser(db, { isAdmin: true });
+    const b = await seedUser(db, { isAdmin: true });
+    const p = await seedUser(db);
+    const raw = await db.$client.connect();
+    try {
+      await raw.query("begin");
+      await raw.query("select id from users where id = $1 for no key update", [p.id]);
+      const pending = disableUser(app, p.id, await cookieOf(b.id));
+      await waitForLockWaiters(db.$client, 1);
+      await raw.query(RESET_LINK_SQL, [p.id, a.id]);
+      await raw.query("commit");
+      expect((await pending).statusCode).toBe(204);
+    } finally {
+      await raw.query("rollback").catch(() => {});
+      raw.release();
+    }
+  });
+
+  it("與產生重設連結並發不死鎖（降級形）：連結對象 X 是 id 比建立者大的 admin，同時降級 X → 兩邊都成功", async () => {
+    const { app, db } = await buildTestApp();
+    const [lo, mid, hi] = [await seedUser(db, { isAdmin: true }), await seedUser(db, { isAdmin: true }), await seedUser(db, { isAdmin: true })].sort((x, y) => (x.id < y.id ? -1 : 1));
+    const raw = await db.$client.connect();
+    try {
+      await raw.query("begin");
+      await raw.query("select id from users where id = $1 for no key update", [hi!.id]);
+      const pending = demote(app, hi!.id, await cookieOf(mid!.id));
+      await waitForLockWaiters(db.$client, 1);
+      await raw.query(RESET_LINK_SQL, [hi!.id, lo!.id]);
+      await raw.query("commit");
+      expect((await pending).statusCode).toBe(204);
+    } finally {
+      await raw.query("rollback").catch(() => {});
+      raw.release();
+    }
+  });
+
+  for (const order of ["demote-first", "disable-first"] as const) {
+    it(`停用 × 降級併發互斥（${order}）：raw client 先持鎖，兩種排隊順序都恰一個 204、另一個 409；剩一位啟用中的 admin`, async () => {
+      const { app, db } = await buildTestApp();
+      const a = await seedUser(db, { isAdmin: true });
+      const b = await seedUser(db, { isAdmin: true });
+      const aCookies = await cookieOf(a.id);
+      const bCookies = await cookieOf(b.id);
+      const raw = await db.$client.connect();
+      let released = false;
+      try {
+        await raw.query("begin");
+        await raw.query("select id from users where is_admin = true for update");
+        const fireDemote = () => demote(app, b.id, aCookies);
+        const fireDisable = () => disableUser(app, a.id, bCookies);
+        const first = order === "demote-first" ? fireDemote() : fireDisable();
+        await waitForLockWaiters(db.$client, 1);
+        const second = order === "demote-first" ? fireDisable() : fireDemote();
+        await waitForLockWaiters(db.$client, 2);
+        await raw.query("commit");
+        released = true;
+        const results = await Promise.all([first, second]);
+        expect(results.map(r => r.statusCode).sort()).toEqual([204, 409]);
+        expect(results.find(r => r.statusCode === 409)!.json().error.code).toBe("last_site_admin");
+        expect(await enabledAdminsAmong(db, [a.id, b.id])).toBe(1);
+      } finally {
+        if (!released) await raw.query("rollback").catch(() => {});
+        raw.release();
+      }
+    });
+  }
 });

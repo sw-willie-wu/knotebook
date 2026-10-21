@@ -34,6 +34,7 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ### Fixed
 
+- Disabling an account now refuses with an error when it is the site's last enabled admin, the same protection removing admin rights already had; two admins disabling each other at the same moment can no longer leave the site with no enabled admin (#250).
 - The docs no longer say a plain `http://` deployment can authorize MCP clients over OAuth with `mcp-remote --allow-http`: current clients refuse to send the token exchange to a server that isn't `https://`, so on plain http, connect with a personal token (#159).
 
 ## [0.12.0] - 2026-10-15
