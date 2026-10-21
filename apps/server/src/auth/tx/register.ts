@@ -6,15 +6,18 @@ import { deriveHandle } from "../handle.js";
 import { effectivePasswordLogin, PASSWORD_LOGIN_DISABLED_MESSAGE } from "../password-login.js";
 import { REGISTRATION_DISABLED_MESSAGE } from "../site-settings.js";
 
-export interface RegisterUserInput {
+export interface PasswordUserInput {
   id: string;
   /** 已 `normalizeEmail`。 */
   email: string;
   displayName: string;
   /** 交易外 hash 好的（S14）。 */
   passwordHash: string;
-  /** 第 4 次嘗試：不再探測，直接用 `user-<uuid8>`（同 admin 代建的重試契約）。 */
+  /** 第 4 次嘗試：不再探測，直接用 `user-<uuid8>`（重試契約見 `routes/account.ts`，註冊與兌換共用）。 */
   useFallbackHandle: boolean;
+}
+
+export interface RegisterUserInput extends PasswordUserInput {
   /** env `PASSWORD_LOGIN_FORCE_ENABLE`（純資料，交易外取自 config）。 */
   passwordLoginForced: boolean;
 }
@@ -29,9 +32,8 @@ export interface RegisteredUser {
 
 /**
  * #187 交易表 P1（spec §9.1 第 5 步）。`site_settings` 以 `FOR SHARE` 再讀**兩個**開關（C9、C27：與關閉的 `FOR NO KEY UPDATE`
- * 互斥——快速路徑讀到開、這裡讀到關的那一次會被擋下）；讀不到列＝註冊關（§4.3）。`lower(email)` 先查（r2-M8：`users_email_unique`
- * 大小寫敏感，擋不住 pre-v0.1 的大小寫混合舊列）；並發形的最後防線是唯一鍵（呼叫端在交易外判 constraint）。registry-first 建帳，
- * `must_change_password=false`（本人自己選的密碼，B9）。
+ * 互斥——快速路徑讀到開、這裡讀到關的那一次會被擋下）；讀不到列＝註冊關（§4.3）。
+ * 建帳本體在 `insertPasswordUserInTx`（與接受邀請共用）。
  */
 export async function registerUserInTx(tx: Tx, input: RegisterUserInput): Promise<RegisteredUser> {
   const [settings] = await tx
@@ -43,7 +45,15 @@ export async function registerUserInTx(tx: Tx, input: RegisterUserInput): Promis
   if (!effectivePasswordLogin(settings.passwordLoginEnabled, input.passwordLoginForced)) {
     throw new TxAbort(403, "password_login_disabled", PASSWORD_LOGIN_DISABLED_MESSAGE);
   }
+  return insertPasswordUserInTx(tx, input);
+}
 
+/**
+ * registry-first 建帳（註冊與接受邀請共用）：`lower(email)` 先查（r2-M8：`users_email_unique` 大小寫敏感，擋不住 pre-v0.1
+ * 的大小寫混合舊列）；並發形的最後防線是唯一鍵（呼叫端在交易外判 constraint）。本人自己選的密碼，故
+ * `must_change_password=false`（B9）；`isAdmin` 不寫、取 DB 預設 false。開關由呼叫端判斷：註冊在交易內以 FOR SHARE 重判（registerUserInTx）；接受邀請在交易外判斷，交易內不讀 site_settings（#285 spec §5.4）。
+ */
+export async function insertPasswordUserInTx(tx: Tx, input: PasswordUserInput): Promise<RegisteredUser> {
   const [taken] = await tx.select({ id: users.id }).from(users).where(sql`lower(${users.email}) = ${input.email}`).limit(1);
   if (taken !== undefined) throw new TxAbort(409, "email_taken", "此 email 已被使用");
 

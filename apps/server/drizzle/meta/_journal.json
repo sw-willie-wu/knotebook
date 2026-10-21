@@ -225,6 +225,13 @@
       "when": 1792548539324,
       "tag": "0031_auth-provider-auto-create",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1792552913027,
+      "tag": "0032_invites",
+      "breakpoints": true
     }
   ]
 }

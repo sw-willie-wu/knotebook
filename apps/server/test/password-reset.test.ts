@@ -542,14 +542,15 @@ describe("miss 桶（A-12、§3.6）", () => {
 });
 
 describe("kind 隔離與錯誤遮蔽", () => {
-  it("C11：別的 kind 的列（雜湊相符、未過期）→ inspect 與完成 410", async () => {
+  it("C11：別的 kind 的列（雜湊相符、未過期）→ inspect 與完成 410（#285 起 'invite' 是合法 kind，改用假 kind；邀請 token 打重設端點見 invite-accept B-14）", async () => {
     const ctx = await setup();
     const { app, db } = ctx;
     const target = await insertPasswordUser(db);
     await db.execute(sql.raw("ALTER TABLE one_time_links DROP CONSTRAINT one_time_links_kind_chk"));
     const token = generateOneTimeToken("password_reset");
+    // 不能改成「不帶 target 的邀請列」：findActiveResetLink 以 target 的 inner join 查，會因 join 而不是 kind 述詞而綠。
     await db.execute(
-      sql`insert into one_time_links (kind, token_hash, target_user_id, expires_at) values ('invite', ${hashToken(token)}, ${target.id}, now() + interval '1 hour')`,
+      sql`insert into one_time_links (kind, token_hash, target_user_id, expires_at) values ('t285_other', ${hashToken(token)}, ${target.id}, now() + interval '1 hour')`,
     );
     expectInvalid(await inspect(app, token));
     expectInvalid(await complete(app, token));

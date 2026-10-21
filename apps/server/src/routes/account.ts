@@ -16,6 +16,7 @@ import type { Db } from "../db/index.js";
 import { userIdentities, users } from "../db/schema.js";
 import { UUID_RE } from "../notes/service.js";
 import { uniqueViolationConstraint } from "../db/pg-errors.js";
+import { redactDbError } from "../lib/redact-db-error.js";
 import { sendError } from "../http/errors.js";
 import { TxAbort } from "../http/tx-abort.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
@@ -101,7 +102,7 @@ export function accountRoutes(deps: AccountRouteDeps) {
         throw err;
       }
 
-      // 第 5 步：registry-first，重試契約同 admin 代建（routes/admin-users.ts）：派生撞名 → 整 tx 重跑，第 4 次退 user-<uuid8>。
+      // 第 5 步：registry-first，重試契約（註冊與接受邀請共用，`insertPasswordUserInTx`）：派生撞名 → 整 tx 重跑，第 4 次退 user-<uuid8>。
       let created: RegisteredUser | undefined;
       for (let attempt = 1; created === undefined && attempt <= MAX_DERIVE_ATTEMPTS + 1; attempt += 1) {
         const input = {
@@ -120,7 +121,8 @@ export function accountRoutes(deps: AccountRouteDeps) {
           // 第 6 步：並發形的最後防線。
           if (constraint === "users_email_unique") return sendError(reply, 409, "email_taken", "此 email 已被使用");
           if ((constraint === "handles_pkey" || constraint === "users_handle_unique") && attempt <= MAX_DERIVE_ATTEMPTS) continue;
-          throw err;
+          // INSERT 帶 password hash，非預期 DB 錯誤不得讓 params 進 log（spec §5.6）。
+          throw redactDbError(request.log, err, "註冊");
         }
       }
       if (created === undefined) throw new Error("註冊：handle 配置重試耗盡");

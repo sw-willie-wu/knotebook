@@ -11,10 +11,12 @@ import { oneTimeLinks } from "../db/schema.js";
  */
 export const RESET_TOKEN_PREFIX = "knbp_";
 
-/** 邀請 PR 擴充成 `| "invite"`（連同 migration 的 `one_time_links_kind_chk`）。 */
-export type OneTimeLinkKind = "password_reset";
+/** #285 邀請 token 前綴，同理：第 4 個字元是 `i`，`isAccessTokenShape("knbi_…")` 為假。 */
+export const INVITE_TOKEN_PREFIX = "knbi_";
 
-const PREFIX: Record<OneTimeLinkKind, string> = { password_reset: RESET_TOKEN_PREFIX };
+export type OneTimeLinkKind = "password_reset" | "invite";
+
+const PREFIX: Record<OneTimeLinkKind, string> = { password_reset: RESET_TOKEN_PREFIX, invite: INVITE_TOKEN_PREFIX };
 
 /** 32 bytes＝256 bit 熵，base64url 43 字元，加前綴共 48。 */
 export function generateOneTimeToken(kind: OneTimeLinkKind): string {

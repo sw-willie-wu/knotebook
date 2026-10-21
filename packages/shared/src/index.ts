@@ -40,6 +40,8 @@ export const MIN_PASSWORD_LENGTH = 12;
  * 以 JS `.length` 計；顯示名 100 個 code point。web 先驗（RegisterPage）、server 為準（routes/account.ts）。 */
 export const MAX_REGISTER_EMAIL_LENGTH = 254;
 export const MAX_REGISTER_DISPLAY_NAME_LENGTH = 100;
+/** #285 邀請備註上限，以 code point 計，與 DB `one_time_links_label_chk` 同值（server 與 web 共用）。 */
+export const MAX_INVITE_LABEL_LENGTH = 100;
 
 /** `GET /api/auth/config`（免認證）：登入頁用 `providers` 畫「Sign in with X」、`registration` 決定註冊入口（帳密自助註冊＋各服務是否自動建帳）、
  * `passwordLogin.enabled`（帳密登入的**有效值**＝DB 值 OR env 強制；不揭露是否 env 強制，#187 §9.5）決定帳密表單。
@@ -472,6 +474,11 @@ export const ERROR_CODES = [
   "user_disabled",
   "password_not_set",
   "reset_link_invalid",
+  // #285（spec 2026-10-20）：`invite_invalid`＝410，邀請形狀不合、查無、已用、已撤銷或已過期（不區分原因）；
+  // `invite_used`＝409，撤銷已用的邀請；`invite_not_found`＝404，撤銷不存在或非邀請的 id。
+  "invite_invalid",
+  "invite_used",
+  "invite_not_found",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 

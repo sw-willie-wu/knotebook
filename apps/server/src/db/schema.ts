@@ -889,9 +889,10 @@ export const transferTokens = pgTable(
 /**
  * #286 spec §3.3：一次性連結（管理員產生、只顯示一次的重設密碼連結；之後的邀請沿用同一張表）。
  *
- * - 表名與欄位刻意通用，**不預建**邀請專屬欄位：邀請 PR 的 migration 自己擴充 `kind_chk`、加欄位與邀請的 CHECK。
+ * - #285 擴充：`kind` 加 `'invite'`，加 `label`（管理員備註，只給管理員看）與 `used_by_id`（兌換建出的帳號），
+ *   以及四條邀請 CHECK；邀請列的 `target_user_id` 必為 NULL，`label`／`used_by_id` 只有邀請列能有值。
  * - 明文不落庫，`token_hash` 是 `hashToken()`（同 `api_tokens`）；有效述詞只在 `auth/one-time-link.ts` 組（§3.4）。
- * - `target_user_id` 允許 NULL 是留給邀請；重設列由 `reset_target_chk` 強制非 NULL。
+ * - `target_user_id` 允許 NULL 是給邀請；重設列由 `reset_target_chk` 強制非 NULL。
  * - I3（每人至多一支未用、未撤銷的重設連結）由 partial unique index `one_time_links_reset_active_uidx` 結構性保證。
  *   過期但沒用的列**仍佔**這個位置；再產生／取消／停用會先把它標成 revoked，所以不會撞。
  */
@@ -907,12 +908,18 @@ export const oneTimeLinks = pgTable(
     usedAt: timestamp("used_at", { withTimezone: true }),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    label: text(),
+    usedById: uuid("used_by_id").references(() => users.id, { onDelete: "set null" }),
   },
   t => [
-    check("one_time_links_kind_chk", sql`${t.kind} in ('password_reset')`),
+    check("one_time_links_kind_chk", sql`${t.kind} in ('password_reset', 'invite')`),
     check("one_time_links_reset_target_chk", sql`${t.kind} <> 'password_reset' or ${t.targetUserId} is not null`),
     check("one_time_links_expiry_chk", sql`${t.expiresAt} > ${t.createdAt}`),
     check("one_time_links_end_chk", sql`${t.usedAt} is null or ${t.revokedAt} is null`),
+    check("one_time_links_invite_target_chk", sql`${t.kind} <> 'invite' or ${t.targetUserId} is null`),
+    check("one_time_links_invite_fields_chk", sql`${t.kind} = 'invite' or (${t.label} is null and ${t.usedById} is null)`),
+    check("one_time_links_label_chk", sql`${t.label} is null or char_length(${t.label}) between 1 and 100`),
+    check("one_time_links_used_by_chk", sql`${t.usedById} is null or ${t.usedAt} is not null`),
     uniqueIndex("one_time_links_reset_active_uidx")
       .on(t.targetUserId)
       .where(sql`${t.kind} = 'password_reset' and ${t.usedAt} is null and ${t.revokedAt} is null`),

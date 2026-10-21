@@ -220,4 +220,36 @@ describe("POST /api/auth/register（#187 §9.1、B9）", () => {
       await holder.end();
     }
   });
+
+  it("RG-R（spec §5.6）：交易的非預期 DB 錯誤 → 500，log 遮蔽（context「註冊」、無 password hash、無 params）；users／handles 無新列", async () => {
+    const out: string[] = [];
+    const lines: Array<{ msg?: string; obj: Record<string, unknown> }> = [];
+    const { app, db } = await buildTestApp({}, {
+      logger: {
+        level: "info",
+        stream: { write: (chunk: string) => void out.push(chunk) },
+        hooks: {
+          logMethod(this: unknown, args: unknown[], method: (...a: unknown[]) => void) {
+            const [obj, msg] = args as [Record<string, unknown>, string | undefined];
+            if (typeof obj === "object" && obj !== null) lines.push({ msg, obj });
+            method.apply(this, args as never[]);
+          },
+        },
+      },
+    });
+    const usersBefore = (await db.select({ id: users.id }).from(users)).length;
+    const handlesBefore = (await db.select({ handle: handles.handle }).from(handles)).length;
+    await db.execute(sql.raw("ALTER TABLE users ADD CONSTRAINT t285_block CHECK (false) NOT VALID"));
+    const res = await register(app, { email: "rgr@example.com", password: PW });
+    expect(res.statusCode).toBe(500);
+    const hit = lines.filter(l => l.obj.context === "註冊");
+    expect(hit).toHaveLength(1);
+    expect(hit[0]!.msg).toBe("註冊時發生非預期的資料庫錯誤（錯誤本體已遮蔽）");
+    const all = out.join("");
+    expect(all).not.toContain("$argon2");
+    expect(all).not.toMatch(/params: |"params"\s*:/);
+    await db.execute(sql.raw("ALTER TABLE users DROP CONSTRAINT t285_block"));
+    expect((await db.select({ id: users.id }).from(users)).length).toBe(usersBefore);
+    expect((await db.select({ handle: handles.handle }).from(handles)).length).toBe(handlesBefore);
+  });
 });
