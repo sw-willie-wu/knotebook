@@ -19,6 +19,14 @@ describe("createPool（#175 §6.10 保險絲）", () => {
       const arrive = () => {
         if (++arrived === 2) release();
       };
+      // 第二道屏障：兩個違規者的第三條請求都「已有結果」之後才釋放各自持有的連線。
+      // 否則先逾時的那個一釋放連線，後逾時（計時器被忙碌的事件迴圈延後）的請求就拿到它而得到 "ok"（#256）。
+      let settled = 0;
+      let releaseSettled!: () => void;
+      const allSettled = new Promise<void>(r => (releaseSettled = r));
+      const settle = () => {
+        if (++settled === 2) releaseSettled();
+      };
       const violator = async () => {
         const c = await pool.connect();
         try {
@@ -26,9 +34,18 @@ describe("createPool（#175 §6.10 保險絲）", () => {
           await c.query("select 1");
           arrive();
           await allArrived; // 兩條連線都已被持有、pool 已滿
-          await pool.query("select 2"); // 第三條連線：pool 已滿 → 等到逾時
-          await c.query("commit");
-          return "ok";
+          let outcome: string;
+          try {
+            await pool.query("select 2"); // 第三條連線：pool 已滿 → 等到逾時
+            outcome = "ok";
+          } catch (err) {
+            outcome = (err as Error).message;
+          }
+          settle();
+          await allSettled; // 對方也有結果了才還連線
+          if (outcome === "ok") await c.query("commit");
+          else await c.query("rollback").catch(() => {});
+          return outcome;
         } catch (err) {
           await c.query("rollback").catch(() => {});
           return (err as Error).message;
