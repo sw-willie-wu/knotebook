@@ -372,6 +372,9 @@ function renderNotePage(ref: string, options: { seedActiveId?: string } = {}) {
   return { ...result, queryClient };
 }
 
+// `sidebar.tab` 會往外流到同檔後面的案（寫入它的案在 T5 加），檔案頂層清（plan I3）。
+afterEach(() => localStorage.removeItem("sidebar.tab"));
+
 describe("NotePage", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
@@ -2019,8 +2022,8 @@ function renderWithProbe(initialEntry: string | { pathname: string; state: unkno
 }
 
 async function openSidebarRowMenu(title: string): Promise<HTMLElement> {
-  // 靜態側欄的「我的筆記」段（「最近」段也有同名的一顆；抽屜沒開不在 DOM）。
-  const section = await screen.findByTestId("notegroup-myNotes");
+  // 靜態側欄目前的 tab 面板（預設「我的筆記」；抽屜沒開不在 DOM）。
+  const section = await screen.findByRole("tabpanel");
   const trigger = await within(section).findByRole("button", { name: `Note actions for ${title}` });
   fireEvent.pointerDown(trigger, { button: 0 });
   return screen.findByRole("menu");

@@ -1,7 +1,7 @@
 import { useRef, useState, type ReactNode, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
-import { canonicalNotePath, type GroupDto, type NoteDto } from "@knotebook/shared";
+import { canonicalNotePath, type NoteDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
 import { useGroups } from "@/api/groups";
 import { GroupMenu } from "@/components/groups/GroupMenu";
@@ -9,12 +9,14 @@ import { GroupNameDialog } from "@/components/groups/GroupNameDialog";
 import { SidebarNoteMenu } from "@/components/NoteMenu";
 import { useNotes } from "@/api/notes";
 import { useActiveNote } from "@/lib/active-note";
+import { useSidebarTabState } from "@/lib/sidebar-tab";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { hoverReveal } from "@/components/ui/reveal";
 import { ChevronRight, Plus, Users } from "@/components/ui/icons";
 import { EmptyState } from "@/components/EmptyState";
-import { partitionNotes } from "@/components/sidebar/tree";
+import { tabSpec, type HeaderActionId } from "@/components/sidebar/tab-specs";
+import { buildTabNodes, noteLocationLabel, type SidebarNode } from "@/components/sidebar/tree";
 
 /** ApiFail → errors.<code>；其餘（網路失敗等）→ errors.fallback。與 LoginPage
  * 逐字同一套對映規則（見 client.ts 的說明）。 */
@@ -37,23 +39,20 @@ function RoleBadge({ role, group }: { role: NoteDto["role"]; group: NoteDto["gro
   return <span className="shrink-0 text-[11px] text-muted-foreground">{t(`roles.${role}`)}</span>;
 }
 
+/** `plain`：頂層清單（我的筆記／與我共享），`pl-2`；`group`：群組導引線內，文字離線 12px；
+ * `recent`：最近 tab 的兩行列（標題＋位置），角色在位置行、不放 `RoleBadge`。 */
+type RowVariant = "plain" | "group" | "recent";
+
 interface NoteRowProps {
   note: NoteDto;
-  /** 只有主清單（我的筆記／與我共享／各群組段）給 `aria-current`；「最近」是同一批筆記的
-   * 複製顯示，active 只呈現視覺樣式，不重複宣告 `aria-current`（解 B3——否則
-   * 一個頁面上會有兩個 `aria-current="page"`）。 */
-  primary: boolean;
-  /** `section`：左內距 24px，列文字對齊段名（段標 px-2 8＋chevron 12＋gap 4）；
-   * `group`：群組導引線內，文字離線 12px。 */
-  indent: RowIndent;
+  variant: RowVariant;
+  groupIds: ReadonlySet<string>;
 }
 
-type RowIndent = "section" | "group";
-
 /** 一列筆記：標題、徽章、⋮（`SidebarNoteMenu`，hover 浮出靠 `<li>` 的 `group/noterow`）。
- * ⋮ 在「最近」段也有（同一篇可能兩列各一顆）；靜態卡與抽屜各一份 NoteList，所以一篇筆記的
- * ⋮ 最多四份 DOM——測試一律 `within(...)` 鎖定段落容器。 */
-function NoteRow({ note, primary, indent }: NoteRowProps) {
+ * 靜態卡與抽屜各一份 NoteList，所以一篇筆記的 ⋮ 最多兩份 DOM——測試一律 `within(...)` 鎖定面板。 */
+function NoteRow({ note, variant, groupIds }: NoteRowProps) {
+  const { t } = useTranslation();
   const { activeNoteId, setActiveNoteId } = useActiveNote();
   // #122：active 判準改吃 context 的 note.id（單一真相，理由見 lib/active-note.tsx
   // 檔頭）——不再比對路由參數（slug 隨標題重算、網址在存檔回來後才換，URL 判斷會
@@ -61,9 +60,13 @@ function NoteRow({ note, primary, indent }: NoteRowProps) {
   const active = activeNoteId === note.id;
   return (
     <li
+      data-node-kind="note"
+      data-node-id={note.id}
       className={cn(
-        "group/noterow flex h-11 items-center gap-1 rounded-md pr-2 text-[13px] hover:bg-brand-soft hover:text-brand-on-soft active:bg-brand-soft-strong md:h-7",
-        indent === "section" ? "pl-6" : "pl-3",
+        "group/noterow flex items-center gap-1 rounded-md pr-2 text-[13px] hover:bg-brand-soft hover:text-brand-on-soft active:bg-brand-soft-strong",
+        variant === "recent" ? "pl-2" : "h-11 md:h-7",
+        variant === "plain" && "pl-2",
+        variant === "group" && "pl-3",
         // #247 §4.10（Willie W18）：非 active 的列走主題色四態（與管理面板左卡項次同）：平常無底、hover
         // `bg-brand-soft`、按下 `active:bg-brand-soft-strong`、selected `bg-brand-soft`。
         // active 時 hover 要再深一階：twMerge 對同一個 variant 群組（`hover:bg-*`）互斥，後面這個 class
@@ -85,22 +88,33 @@ function NoteRow({ note, primary, indent }: NoteRowProps) {
             setActiveNoteId(note.id);
           }
         }}
-        aria-current={primary && active ? "page" : undefined}
-        className="flex min-w-0 flex-1 items-center self-stretch truncate"
+        aria-current={active ? "page" : undefined}
+        className={cn(
+          "flex min-w-0 flex-1 self-stretch",
+          variant === "recent" ? "flex-col justify-center py-1.5" : "items-center truncate",
+        )}
       >
-        {note.title}
+        {variant === "recent" ? (
+          // 兩行一律 <div>：可及名稱靠 UA 預設 block 之間補空白（jsdom 不載 Tailwind，span 會黏成「標題位置」）。
+          <>
+            <div className="truncate text-[13px]">{note.title}</div>
+            <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{noteLocationLabel(note, groupIds, t)}</div>
+          </>
+        ) : (
+          note.title
+        )}
       </Link>
-      <RoleBadge role={note.role} group={note.group} />
+      {variant !== "recent" && <RoleBadge role={note.role} group={note.group} />}
       <SidebarNoteMenu note={note} />
     </li>
   );
 }
 
-/** 折疊狀態的 localStorage 鍵前綴（spec A6）：`sidebar.collapsed.<recent|myNotes|shared|workspace|group:<id>>`，
- * 值 `"1"`＝收合、缺鍵＝展開（預設）。 */
+/** 折疊狀態的 localStorage 鍵前綴（spec A6）：`sidebar.collapsed.group:<id>`，
+ * 值 `"1"`＝收合、缺鍵＝展開（預設）。頂層四鍵隨 tab 化拿掉（舊值留在 storage 裡無害）。 */
 export const COLLAPSE_STORAGE_PREFIX = "sidebar.collapsed.";
 
-export type SidebarSectionKey = "recent" | "myNotes" | "shared" | "workspace" | `group:${string}`;
+export type SidebarSectionKey = `group:${string}`;
 
 function readCollapsed(key: SidebarSectionKey): boolean {
   try {
@@ -120,7 +134,7 @@ function writeCollapsed(key: SidebarSectionKey, collapsed: boolean): void {
   }
 }
 
-/** 每段一把折疊狀態：初值讀 localStorage 一次，之後 state 為準、寫入盡力而為。 */
+/** 每個群組一把折疊狀態：初值讀 localStorage 一次，之後 state 為準、寫入盡力而為。 */
 function useCollapsed(key: SidebarSectionKey): [expanded: boolean, toggle: () => void] {
   const [collapsed, setCollapsed] = useState(() => readCollapsed(key));
   const toggle = () => {
@@ -131,24 +145,22 @@ function useCollapsed(key: SidebarSectionKey): [expanded: boolean, toggle: () =>
   return [!collapsed, toggle];
 }
 
-/** 段標的「＋」（我的筆記／各群組段；工作坊段標的「＋」開的是新增群組對話框，見
- * `WorkspaceSection`）。24px ghost 圖示鈕，預設透明、列 hover／列內有 `:focus-visible`
- * 或自身 focus-visible 才顯示——鍵盤 tab 到它時一定看得見（P19）；滑鼠點過留下的
- * 焦點不算（不是 focus-within）。 */
-function HeaderAddButton({
+/** 標題列／群組列右側的 24px「＋」圖示鈕。tab 標題列的常駐；群組列的帶 `reveal="grouprow"`
+ * （列 hover 或列內有 `:focus-visible` 才顯示——鍵盤 tab 到它時一定看得見（P19）；滑鼠點過留下的
+ * 焦點不算（不是 focus-within））。 */
+function HeaderActionButton({
   label,
   onClick,
   disabled = false,
   buttonRef,
-  scope = "section",
+  reveal,
 }: {
   label: string;
   onClick: () => void;
   disabled?: boolean;
-  /** 工作坊「＋」用：讓新增群組對話框關閉時把焦點還回來（P17）。 */
+  /** 工作坊標題列「＋」用：讓新增群組對話框關閉時把焦點還回來（P17）。 */
   buttonRef?: RefObject<HTMLButtonElement | null>;
-  /** 跟哪一列的 hover／鍵盤焦點走：頂層段標（`group/section`）或群組列（`group/grouprow`）。 */
-  scope?: "section" | "grouprow";
+  reveal?: "grouprow";
 }) {
   return (
     <Button
@@ -157,62 +169,36 @@ function HeaderAddButton({
       variant="ghost"
       size="icon"
       aria-label={label}
+      title={label}
       onClick={onClick}
       disabled={disabled}
       // 24px（spec §8.1；P21）。hover 浮出與觸控（`hover: none`）常駐見 `ui/reveal.ts`。
-      className={cn("h-6 w-6 shrink-0", hoverReveal(scope))}
+      className={cn("h-6 w-6 shrink-0", reveal && hoverReveal(reveal))}
     >
       <Plus aria-hidden="true" className="h-3.5 w-3.5" />
     </Button>
   );
 }
 
-interface CollapsibleSectionProps {
-  sectionKey: SidebarSectionKey;
-  label: string;
-  /** 測試範圍化握把（既有三個名字不動；新增 `notegroup-workspace`、`notegroup-group-<id>`）。 */
-  testId: string;
-  /** 「＋」與 ⋮——放在段標 button 的**兄弟**位置（button 不可巢狀）。 */
-  actions?: ReactNode;
-  children: ReactNode;
+interface NodeContext {
+  tab: ReturnType<typeof useSidebarTabState>["tab"];
+  groupIds: ReadonlySet<string>;
+  onCreateNote?: (groupId?: string) => void;
+  createNotePending: boolean;
 }
 
 /**
- * 頂層段標＝chevron＋名稱一顆 `<button aria-expanded>`，右側兄弟元素放「＋」。
- * `group/section` 讓「＋」在整列 hover／列內鍵盤焦點時浮現。chevron 展開時轉 90°
- * （指下），收合時指右——等價於 spec 的「收合時 −90°」。
- */
-function CollapsibleSection({ sectionKey, label, testId, actions, children }: CollapsibleSectionProps) {
-  const [open, toggle] = useCollapsed(sectionKey);
-  return (
-    <div data-testid={testId}>
-      <div className="group/section flex items-center gap-0.5 pt-3 pb-1">
-        <button
-          type="button"
-          aria-expanded={open}
-          onClick={toggle}
-          className="flex h-6 min-w-0 flex-1 items-center gap-1 rounded-md px-2 text-left text-[11px] font-semibold tracking-wide text-muted-foreground hover:text-foreground"
-        >
-          <ChevronRight aria-hidden="true" className={cn("h-3 w-3 shrink-0 transition-transform", open && "rotate-90")} />
-          <span className="truncate">{label}</span>
-        </button>
-        {actions}
-      </div>
-      {open && children}
-    </div>
-  );
-}
-
-/**
- * 工作坊底下的群組：像檔案樹的一個資料夾列。前導圖示槽平常是 `Users`，列 hover／
+ * 工作坊 tab 的群組節點：像檔案樹的一個資料夾列。前導圖示槽平常是 `Users`，列 hover／
  * 列內有 `:focus-visible`（鍵盤焦點；滑鼠點完留下的焦點不算）時換成 chevron；觸控裝置（`hover: none`）一律 chevron。兩個圖示都
  * `aria-hidden`，button 的名稱只有群組名。筆記掛在導引線下，線對齊圖示槽中心
  * （px-2 8＋槽寬 14 / 2 ＝ 15px）。折疊共用 `useCollapsed`。
  */
-function GroupSection({ sectionKey, label, testId, actions, children }: CollapsibleSectionProps) {
-  const [open, toggle] = useCollapsed(sectionKey);
+function GroupNode({ node, ctx }: { node: Extract<SidebarNode, { kind: "group" }>; ctx: NodeContext }) {
+  const { t } = useTranslation();
+  const { group } = node;
+  const [open, toggle] = useCollapsed(`group:${group.id}`);
   return (
-    <div data-testid={testId} className="flex flex-col gap-0.5">
+    <li data-node-kind="group" data-node-id={group.id} className="flex flex-col gap-0.5">
       <div className="group/grouprow flex h-7 items-center gap-0.5 rounded-md hover:bg-brand-soft active:bg-brand-soft-strong">
         <button
           type="button"
@@ -233,174 +219,171 @@ function GroupSection({ sectionKey, label, testId, actions, children }: Collapsi
               )}
             />
           </span>
-          <span className="truncate">{label}</span>
+          <span className="truncate">{group.name}</span>
         </button>
-        {actions}
+        {/* #175 §8.2＋PR3：「＋」只在我的角色能在這個群組建立**且能編輯**筆記時渲染——能建不能改的人建出來的是
+            自己也改不了的空白筆記（spec 疑點 11；他仍可經移入／複製把筆記放進群組，PR2）；`myRole` null＝防禦，不渲染。 */}
+        {group.myRole?.permissions.create && group.myRole.permissions.edit && (
+          <HeaderActionButton
+            reveal="grouprow"
+            label={t("sidebar.newNoteIn", { name: group.name })}
+            onClick={() => ctx.onCreateNote?.(group.id)}
+            disabled={ctx.createNotePending}
+          />
+        )}
+        <GroupMenu group={group} size="sidebar" />
       </div>
-      {open && <div className="ml-[15px] border-l border-muted-foreground/35 pl-2">{children}</div>}
-    </div>
+      {open && (
+        <div className="ml-[15px] border-l border-muted-foreground/35 pl-2">
+          <SidebarNodeList nodes={node.children} ctx={ctx} inGroup />
+        </div>
+      )}
+    </li>
   );
 }
 
-function NoteRows({ notes, primary, indent = "section" }: { notes: NoteDto[]; primary: boolean; indent?: RowIndent }) {
-  if (notes.length === 0) return null;
+function SidebarNodeList({ nodes, ctx, inGroup = false }: { nodes: SidebarNode[]; ctx: NodeContext; inGroup?: boolean }) {
+  if (nodes.length === 0) return null;
   return (
     <ul className="space-y-0.5">
-      {notes.map((note) => (
-        <NoteRow key={note.id} note={note} primary={primary} indent={indent} />
-      ))}
+      {nodes.map((node) =>
+        node.kind === "group" ? (
+          <GroupNode key={node.id} node={node} ctx={ctx} />
+        ) : (
+          <NoteRow
+            key={node.id}
+            note={node.note}
+            variant={inGroup ? "group" : ctx.tab === "recent" ? "recent" : "plain"}
+            groupIds={ctx.groupIds}
+          />
+        ),
+      )}
     </ul>
   );
 }
 
 export interface NoteListProps {
-  /** 段標「＋」：`groupId` 給群組段、不給＝個人筆記。state 與導向都在 `AppShell.handleNewNote`。 */
+  /** 標題列／群組列的「＋」：`groupId` 給群組列、不給＝個人筆記。state 與導向都在 `AppShell.handleNewNote`。 */
   onCreateNote?: (groupId?: string) => void;
   createNotePending?: boolean;
 }
 
+const MESSAGE_CLASS = "p-2 text-sm text-muted-foreground";
+
 /**
- * 側欄筆記清單（#103 起四段皆可折疊）：最近／我的筆記／與我共享／工作坊（每群組一段）。
- * `GET /api/notes` 三態顯式處理（loading／error／全空）；搜尋由 `sidebar/SearchResults` 負責；`GET /api/groups`
- * 的 pending／error **只影響工作坊段**（段標下顯示載入中或 `role="alert"`），不擋整個側欄，
- * 群組筆記在那期間依兜底列落段、資料到了再歸位。
- *
- * 空段規則（spec §8.1 表）：最近、與我共享為空 → 整段不渲染；我的筆記、工作坊、各群組段
- * 為空 → 段標仍渲染（D10–D12，空群組無引導文案）。`EmptyState` 只在筆記與群組**都**為空時
- * 取代整個清單。
+ * 側欄「目前 tab 的面板」：標題列（名稱＋該 tab 宣告的動作）＋清單（遞迴節點樹）。tabpanel 外框由
+ * `AppShell` 提供（本元件假設自己在它裡面，是 flex-col 的子層）。
+ * `GET /api/notes` 的 pending／error 在清單內顯示；`GET /api/groups` 的 pending／error 只影響
+ * 工作坊 tab（與「零筆記時要等群組才知道是不是全空」），群組筆記在那期間依兜底列落與我共享、
+ * 資料到了再歸位。搜尋由 `sidebar/SearchResults` 負責。
+ * tabpanel 的 `tabIndex={0}` 在 `AppShell`（WAI-ARIA APG：面板第一個有內容的元素不可聚焦時，Tab 要能停在面板上）。
  */
 export function NoteList({ onCreateNote, createNotePending = false }: NoteListProps) {
   const { t } = useTranslation();
+  const { tab } = useSidebarTabState();
   const notesQuery = useNotes();
   const groupsQuery = useGroups();
+  const [createOpen, setCreateOpen] = useState(false);
+  const addGroupRef = useRef<HTMLButtonElement>(null);
 
-  if (notesQuery.isPending) {
-    return <p className="p-2 text-sm text-muted-foreground">{t("app.loading")}</p>;
-  }
+  const spec = tabSpec(tab);
+  const groups = groupsQuery.data ?? [];
+  const groupIds: ReadonlySet<string> = new Set(groups.map((group) => group.id));
+  const ctx: NodeContext = { tab, groupIds, onCreateNote, createNotePending };
+  const groupsAlert = groupsQuery.isError ? (
+    <p role="alert" className="p-2 text-sm text-destructive">
+      {errorMessage(t, groupsQuery.error)}
+    </p>
+  ) : null;
 
-  if (notesQuery.isError) {
+  function renderBody(): ReactNode {
+    if (notesQuery.isPending) return <p className={MESSAGE_CLASS}>{t("app.loading")}</p>;
+    if (notesQuery.isError) {
+      return (
+        <p role="alert" className="p-2 text-sm text-destructive">
+          {errorMessage(t, notesQuery.error)}
+        </p>
+      );
+    }
+    const notes = notesQuery.data;
+    const emptyState = <EmptyState title={t("home.empty")} description={t("home.emptyDescription")} />;
+
+    if (tab === "workspace") {
+      if (groupsQuery.isPending) return <p className={MESSAGE_CLASS}>{t("app.loading")}</p>;
+      // 背景 refetch 失敗時 data 仍是上一次成功的群組：錯誤句與快取清單並列，不把群組藏掉。
+      if (groupsQuery.isError && groupsQuery.data === undefined) return groupsAlert;
+      // 零群組：只放說明文字、不放「新增群組」鈕——新增一律走標題列「＋」（總管裁定 2026-10-21，避免兩顆同名鈕）。
+      if (groups.length === 0) {
+        return (
+          <>
+            {groupsAlert}
+            <p className={MESSAGE_CLASS}>{t("sidebar.emptyWorkspace")}</p>
+          </>
+        );
+      }
+    }
+
+    const nodes = buildTabNodes(tab, notes, groups);
+    if (nodes.length === 0) {
+      if (tab === "recent") return emptyState;
+      if (tab === "shared") return <p className={MESSAGE_CLASS}>{t("sidebar.emptyShared")}</p>;
+      if (tab === "myNotes") {
+        // 零筆記時要等群組清單才知道是 EmptyState 還是「有群組、只是沒個人筆記」——不然會閃一幀。
+        if (notes.length === 0 && groupsQuery.isPending) return <p className={MESSAGE_CLASS}>{t("app.loading")}</p>;
+        if (notes.length === 0 && groupsQuery.isSuccess && groups.length === 0) return emptyState;
+        return <p className={MESSAGE_CLASS}>{t("sidebar.emptyMyNotes")}</p>;
+      }
+    }
     return (
-      <p role="alert" className="p-2 text-sm text-destructive">
-        {errorMessage(t, notesQuery.error)}
-      </p>
+      <>
+        {tab === "workspace" && groupsAlert}
+        <SidebarNodeList nodes={nodes} ctx={ctx} />
+      </>
     );
   }
 
-  const notes = notesQuery.data;
-  const groups = groupsQuery.data ?? [];
-  // 零筆記時要等群組清單才知道是 EmptyState 還是「有群組段標」——不然段標會閃一幀。
-  if (notes.length === 0 && groupsQuery.isPending) {
-    return <p className="p-2 text-sm text-muted-foreground">{t("app.loading")}</p>;
-  }
-  if (notes.length === 0 && groupsQuery.isSuccess && groups.length === 0) {
-    return <EmptyState title={t("home.empty")} description={t("home.emptyDescription")} />;
-  }
-
-  const parts = partitionNotes(notes, groups);
-  // 「最近」＝原始清單前 2 篇（server 已按 `updated_at DESC`），可與主清單重複（T4 整段拿掉）。
-  const recent = notes.slice(0, 2);
-  const myNotes = parts.myNotes;
-  const shared = parts.shared;
-  const groupSections = groups.map((group) => ({ group, notes: parts.byGroup.get(group.id) ?? [] }));
-
-  return (
-    <>
-      {recent.length > 0 && (
-        <CollapsibleSection sectionKey="recent" testId="notegroup-recent" label={t("sidebar.recent")}>
-          <NoteRows notes={recent} primary={false} />
-        </CollapsibleSection>
-      )}
-
-      <CollapsibleSection
-        sectionKey="myNotes"
-        testId="notegroup-myNotes"
-        label={t("sidebar.myNotes")}
-        actions={
-          <HeaderAddButton
+  function renderAction(action: HeaderActionId): ReactNode {
+    switch (action) {
+      case "newPersonalNote":
+        return (
+          <HeaderActionButton
+            key={action}
             label={t("sidebar.newPersonalNote")}
             onClick={() => onCreateNote?.(undefined)}
             disabled={createNotePending}
           />
-        }
-      >
-        <NoteRows notes={myNotes} primary />
-      </CollapsibleSection>
+        );
+      case "newGroup":
+        return (
+          <HeaderActionButton
+            key={action}
+            buttonRef={addGroupRef}
+            label={t("sidebar.newGroup")}
+            onClick={() => setCreateOpen(true)}
+          />
+        );
+      default: {
+        // 加新動作 id 時這裡編譯不過，不會默默渲染成別顆鈕。
+        const exhaustive: never = action;
+        return exhaustive;
+      }
+    }
+  }
 
-      {shared.length > 0 && (
-        <CollapsibleSection sectionKey="shared" testId="notegroup-shared" label={t("sidebar.shared")}>
-          <NoteRows notes={shared} primary />
-        </CollapsibleSection>
-      )}
-
-      <WorkspaceSection
-        groupsQuery={groupsQuery}
-        groupSections={groupSections}
-        onCreateNote={onCreateNote}
-        createNotePending={createNotePending}
-      />
-    </>
-  );
-}
-
-interface WorkspaceSectionProps {
-  groupsQuery: ReturnType<typeof useGroups>;
-  groupSections: Array<{ group: GroupDto; notes: NoteDto[] }>;
-  onCreateNote?: (groupId?: string) => void;
-  createNotePending: boolean;
-}
-
-/**
- * 工作坊段（spec §8.1）：段標「＋」開新增群組對話框（§8.2），底下每個群組一段、段標右側
- * 「＋」（新筆記進該群組）與 ⋮（`GroupMenu`；與「＋」一起 hover 浮出）。對話框只在開啟時掛載，關閉時焦點還給
- * 「＋」（`returnFocusRef`）。側欄渲染兩份（靜態＋抽屜），各份的 state 互不相干。
- */
-function WorkspaceSection({ groupsQuery, groupSections, onCreateNote, createNotePending }: WorkspaceSectionProps) {
-  const { t } = useTranslation();
-  const [createOpen, setCreateOpen] = useState(false);
-  const addButtonRef = useRef<HTMLButtonElement>(null);
   return (
     <>
-      <CollapsibleSection
-        sectionKey="workspace"
-        testId="notegroup-workspace"
-        label={t("sidebar.workspace")}
-        actions={<HeaderAddButton buttonRef={addButtonRef} label={t("sidebar.newGroup")} onClick={() => setCreateOpen(true)} />}
-      >
-        {groupsQuery.isPending && <p className="px-2 py-1 text-sm text-muted-foreground">{t("app.loading")}</p>}
-        {groupsQuery.isError && (
-          <p role="alert" className="px-2 py-1 text-sm text-destructive">
-            {errorMessage(t, groupsQuery.error)}
-          </p>
-        )}
-        <div className="flex flex-col gap-1 pl-4">
-          {groupSections.map(({ group, notes: groupNotes }) => (
-            <GroupSection
-              key={group.id}
-              sectionKey={`group:${group.id}`}
-              testId={`notegroup-group-${group.id}`}
-              label={group.name}
-              actions={
-                <>
-                  {/* #175 §8.2＋PR3：「＋」只在我的角色能在這個群組建立**且能編輯**筆記時渲染——能建不能改的人建出來的是
-                      自己也改不了的空白筆記（spec 疑點 11；他仍可經移入／複製把筆記放進群組，PR2）；`myRole` null＝防禦，不渲染。 */}
-                  {group.myRole?.permissions.create && group.myRole.permissions.edit && (
-                    <HeaderAddButton
-                      scope="grouprow"
-                      label={t("sidebar.newNoteIn", { name: group.name })}
-                      onClick={() => onCreateNote?.(group.id)}
-                      disabled={createNotePending}
-                    />
-                  )}
-                  <GroupMenu group={group} size="sidebar" />
-                </>
-              }
-            >
-              <NoteRows notes={groupNotes} primary indent="group" />
-            </GroupSection>
-          ))}
-        </div>
-      </CollapsibleSection>
-      {createOpen && <GroupNameDialog mode="create" open onOpenChange={setCreateOpen} returnFocusRef={addButtonRef} />}
+      <div data-sidebar-header="" className="flex items-center gap-0.5 px-2 pt-3 pb-1">
+        <span className="flex h-6 min-w-0 flex-1 items-center px-2 text-[11px] font-semibold tracking-wide text-muted-foreground">
+          <span className="truncate">{t(spec.labelKey)}</span>
+        </span>
+        {spec.actions.map(renderAction)}
+      </div>
+      {/* `key={tab}`：切 tab 換新元素，捲動位置回頂端（spec §5.3）。 */}
+      <div key={tab} data-sidebar-list="" className="min-h-0 flex-1 overflow-y-auto px-2">
+        {renderBody()}
+      </div>
+      {/* 對話框只在開啟時掛載，關閉時焦點還給標題列「＋」（`returnFocusRef`）。 */}
+      {createOpen && <GroupNameDialog mode="create" open onOpenChange={setCreateOpen} returnFocusRef={addGroupRef} />}
     </>
   );
 }

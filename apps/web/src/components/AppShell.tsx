@@ -149,11 +149,11 @@ function SidebarContent({
             role="tabpanel"
             id={sidebarPanelId(idBase)}
             aria-labelledby={sidebarTabId(idBase, tab)}
-            className="flex min-h-0 flex-1 flex-col"
+            // WAI-ARIA APG：面板第一個有內容的元素不可聚焦時 Tab 要能停在面板上（空狀態、錯誤句、標題列只有文字的 tab）。
+            tabIndex={0}
+            className="flex min-h-0 flex-1 flex-col focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
           >
-            <div className="min-h-0 flex-1 overflow-y-auto px-2">
-              <NoteList onCreateNote={onCreateNote} createNotePending={newNotePending} />
-            </div>
+            <NoteList onCreateNote={onCreateNote} createNotePending={newNotePending} />
           </div>
         </>
       )}

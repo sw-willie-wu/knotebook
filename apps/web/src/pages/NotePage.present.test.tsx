@@ -182,6 +182,9 @@ function renderPresent(entries: InitialEntry[], { strict = false, browser = fals
 const loc = () => screen.getByTestId("loc").textContent;
 const dialog = () => screen.getByRole("dialog", { name: "My Note — presentation" });
 
+// `sidebar.tab` 會往外流到同檔後面的案（寫入它的案在 T5 加），檔案頂層清（plan I3）。
+afterEach(() => localStorage.removeItem("sidebar.tab"));
+
 describe("NotePage × 簡報（spec §6.1、§6.5、§13.2）", () => {
   let fake: FakeFullscreen | null = null;
 
@@ -553,7 +556,7 @@ describe("NotePage × ⋮ 進入簡報", () => {
     window.history.replaceState(null, "", "/n/tester/my-note");
     renderPresent(["/n/tester/my-note"]);
     await screen.findByTestId("note-editor");
-    const section = await screen.findByTestId("notegroup-myNotes");
+    const section = await screen.findByRole("tabpanel");
     fireEvent.pointerDown(await within(section).findByRole("button", { name: "Note actions for Other" }), { button: 0 });
     fireEvent.click(await screen.findByRole("menuitem", { name: "Present" }));
     expect(fake!.requestFullscreen).toHaveBeenCalledTimes(1);

@@ -183,6 +183,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  localStorage.removeItem("sidebar.tab");
 });
 
 describe("resetKey 選型守門——錯誤畫面上開/關設定 modal 不觸發 reload（issue #68）", () => {
@@ -253,9 +254,8 @@ describe("resetKey 選型守門——錯誤畫面上開/關設定 modal 不觸�
     expect(reload).not.toHaveBeenCalled();
 
     // 側欄清單載入後點另一篇（react-router Link，MemoryRouter 內正常導航）。
-    // PR2 側欄改三分組後，只有兩篇 owner 筆記時「Other Note」會同時落在
-    // 「最近」與「我的筆記」兩組（重複顯示是設計定案，見 NoteList 檔頭）——
-    // 單數查詢在此會因命中 2 個節點而 throw，改用 `getAllByRole` 取第一個。
+    // 側欄是 tab 化的單一面板（預設「我的筆記」），「Other Note」只列一次；
+    // 這裡沿用 `getAllByRole` 取第一個，單數也成立。
     await waitFor(() => expect(screen.getAllByRole("link", { name: /Other Note/ }).length).toBeGreaterThan(0), {
       timeout: 3_000,
     });
@@ -294,6 +294,8 @@ describe("resetKey 選型守門——錯誤畫面上開/關設定 modal 不觸�
     sessionStorage.setItem(FLAG_KEY, "1");
     const reload = stubLocationReload();
     stubFetch([GROUP_NOTE, OTHER_GROUP_NOTE]);
+    // 兜底落「與我共享」（`/api/groups` 回 []）→ 先選 Shared with me tab，預設的「我的筆記」看不到這兩篇。
+    localStorage.setItem("sidebar.tab", "shared");
 
     // 以 /g/ 形開頁：出現 NotePage 子樹的錯誤畫面＝route 承接證明（被 `/*` 吃掉會渲染 HomePage）。
     renderNoteRoute(`/g/${GROUP_ID}/group-note`);

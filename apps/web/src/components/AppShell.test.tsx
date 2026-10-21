@@ -179,6 +179,8 @@ describe("AppShell — new note", () => {
       </QueryClientProvider>,
     );
 
+    // 群組列在「工作坊」tab（預設 tab 是「我的筆記」）。
+    fireEvent.click(await screen.findByRole("tab", { name: "Workspace" }));
     fireEvent.click(await screen.findByRole("button", { name: "New note in Workshop A" }));
 
     await waitFor(() => expect(postBody).toEqual({ groupId: group.id }));
@@ -659,8 +661,8 @@ describe("AppShell — #115 側欄抽屜", () => {
     expect(drawer).toHaveFocus();
 
     expect(within(drawer).getByRole("textbox", { name: "Search notes" })).toBeInTheDocument();
-    // 同一篇筆記會同時落在「最近」與「我的筆記」兩組（NoteList 既有行為）——用複數查詢。
-    expect(within(drawer).getAllByRole("link", { name: "Drawer Note" }).length).toBeGreaterThan(0);
+    // 預設 tab 是「我的筆記」，個人筆記只列在那一個面板（單數查詢）。
+    expect(await within(drawer).findByRole("link", { name: "Drawer Note" })).toBeInTheDocument();
   });
 
   it("點抽屜裡的筆記（route change）→ 抽屜關閉", async () => {
@@ -670,7 +672,7 @@ describe("AppShell — #115 側欄抽屜", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Open navigation" }));
     const drawer = await screen.findByRole("dialog", { name: "Navigation" });
 
-    fireEvent.click(within(drawer).getAllByRole("link", { name: "Drawer Note" })[0]);
+    fireEvent.click(await within(drawer).findByRole("link", { name: "Drawer Note" }));
 
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Navigation" })).not.toBeInTheDocument());
   });
@@ -732,8 +734,8 @@ describe("AppShell — #115 側欄抽屜", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Open navigation" }));
     const drawer = await screen.findByRole("dialog", { name: "Navigation" });
-    const section = await within(drawer).findByTestId("notegroup-myNotes");
-    fireEvent.pointerDown(within(section).getByRole("button", { name: "Note actions for Drawer Note" }), { button: 0 });
+    const section = await within(drawer).findByRole("tabpanel");
+    fireEvent.pointerDown(await within(section).findByRole("button", { name: "Note actions for Drawer Note" }), { button: 0 });
     const menu = await screen.findByRole("menu");
     fireEvent.click(within(menu).getByRole("menuitem", { name: "AI edit history" }));
 

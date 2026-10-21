@@ -10,13 +10,12 @@
  *   樣板字串拼出來的 class 不會被產生（靜默失效，jsdom 測試照綠）。
  * ⚠ 測試只能斷言 class 字串（jsdom 沒有 CSS、沒有 hover）；真的滑過會浮出要在瀏覽器看。
  */
-export type RevealScope = "section" | "grouprow" | "noterow";
+export type RevealScope = "grouprow" | "noterow";
 
 const BASE =
   "opacity-0 transition-opacity focus-visible:opacity-100 [@media(hover:none)]:opacity-100 data-[state=open]:opacity-100";
 
 const SCOPE: Record<RevealScope, string> = {
-  section: "group-hover/section:opacity-100 group-has-[:focus-visible]/section:opacity-100",
   grouprow: "group-hover/grouprow:opacity-100 group-has-[:focus-visible]/grouprow:opacity-100",
   noterow: "group-hover/noterow:opacity-100 group-has-[:focus-visible]/noterow:opacity-100",
 };

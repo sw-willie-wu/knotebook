@@ -254,4 +254,32 @@ describe("AppShell — 側欄 tab 接線", () => {
     await act(async () => {});
     expect(localStorage.getItem("sidebar.tab")).toBe("recent");
   });
+
+  it("AS8 零筆記零群組：tablist 照常在、我的筆記選中、面板內是 EmptyState 兩句", async () => {
+    stubFetchWithNotes([]);
+    renderShell();
+    const tablist = await within(aside()).findByRole("tablist");
+    expect(tablist).toBeInTheDocument();
+    expect(within(aside()).getByRole("tab", { name: "My notes" })).toHaveAttribute("aria-selected", "true");
+    const panel = within(aside()).getByRole("tabpanel");
+    expect(await within(panel).findByText("No notes yet.")).toBeInTheDocument();
+    expect(within(panel).getByText("Create your first note to get started.")).toBeInTheDocument();
+  });
+
+  it("AS9 tabpanel 可聚焦（tabindex=0＋focus-visible ring）：沒有可聚焦內容的面板（最近空）Tab 也能停在面板上", async () => {
+    stubFetchWithNotes([]);
+    renderShell();
+    fireEvent.click(await within(aside()).findByRole("tab", { name: "Recent" }));
+    const panel = within(aside()).getByRole("tabpanel");
+    expect(await within(panel).findByText("No notes yet.")).toBeInTheDocument();
+    expect(panel.querySelector("a, button, input, [tabindex]")).toBeNull(); // 面板內沒有任何可聚焦元素
+    expect(panel).toHaveAttribute("tabindex", "0");
+    expect(panel).toHaveClass("focus-visible:ring-2", "focus-visible:ring-ring");
+    panel.focus();
+    expect(panel).toHaveFocus();
+
+    // 切 tab 後換成新的 tabpanel 屬性仍在（同一個元素跟著 tab 更新）。
+    fireEvent.click(within(aside()).getByRole("tab", { name: "My notes" }));
+    expect(within(aside()).getByRole("tabpanel")).toHaveAttribute("tabindex", "0");
+  });
 });
