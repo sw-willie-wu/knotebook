@@ -265,8 +265,6 @@
     "mismatch": "The passwords don't match.",
     "submit": "Create account",
     "submitting": "Creating account…",
-    "signUpWith": "Sign up with {{name}}",
-    "closed": "This site isn't accepting new accounts right now.",
     "backToLogin": "Back to sign in",
     "haveAccount": "Already have an account? Sign in",
     "emailTooLong": "Email can be at most {{max}} characters.",

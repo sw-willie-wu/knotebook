@@ -155,15 +155,15 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
     }
   });
 
-  // 依賴 19-1：第二服務已打開自動建帳（/register 才列出它）
-  test("19-4＋19-5：「Sign up with X」建純 SSO 帳號 → 唯一登入方式的解除鈕 disabled → 加上密碼 → 另一個瀏覽器以密碼登入", async ({ browser, request }) => {
+  // 依賴 19-1：第二服務已打開自動建帳（登入頁的 SSO 鈕首登建帳）
+  test("19-4＋19-5：登入頁 SSO 鈕首登建純 SSO 帳號 → 唯一登入方式的解除鈕 disabled → 加上密碼 → 另一個瀏覽器以密碼登入", async ({ browser, request }) => {
     const email = randomEmail();
     const ctx = await browser.newContext();
     try {
       const page = await ctx.newPage();
       await nextLogin(request, SECOND_CONTROL_URL, { sub: `e2e-19-4-${randomUUID()}`, email, name: "E2E SSO Only" });
-      await page.goto("/register");
-      await page.getByRole("link", { name: `Sign up with ${SECOND_NAME}` }).click();
+      await page.goto("/login");
+      await page.getByRole("link", { name: `Sign in with ${SECOND_NAME}` }).click();
       await expect(page).toHaveURL(/\/$/, { timeout: 20_000 });
       await page.goto("/settings/login");
       const row = page.getByRole("table", { name: "Sign-in methods", exact: true }).getByRole("row", { name: new RegExp(SECOND_NAME) });
@@ -191,7 +191,7 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
     }
   });
 
-  test("19-6：關閉自行註冊 → /register 沒有帳密表單、仍有 SSO 註冊鈕、API 403；再關所有服務的自動建帳 → 註冊入口消失、新 email SSO 首登被拒；最後逐一還原", async ({ browser, request }) => {
+  test("19-6：關閉自行註冊 → 登入頁沒有註冊鈕、/register 導回登入頁、API 403；再關所有服務的自動建帳 → 新 email SSO 首登被拒；最後逐一還原", async ({ browser, request }) => {
     const { context, page } = await adminOnSignInPage(browser);
     type ProviderRow = { id: string; displayName: string; legacyCallback: boolean; autoCreateEnabled: boolean };
     const listProviders = async (): Promise<ProviderRow[]> => {
@@ -208,7 +208,7 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
       const before = await listProviders();
       original = { registrationEnabled, providers: before.map(({ id, autoCreateEnabled }) => ({ id, autoCreateEnabled })) };
 
-      // 第一段：只關帳密自助註冊——第二服務仍會建帳，所以註冊入口還在，只是 /register 沒有帳密表單。
+      // 第一段：只關帳密自助註冊——註冊鈕消失、/register 導回登入頁（第二服務仍會建帳，但只經登入頁的 SSO 鈕）。
       const sw = page.getByRole("switch", { name: "Allow self-registration with a password" });
       if ((await sw.getAttribute("aria-checked")) === "true") await sw.click();
       await expect(sw).toHaveAttribute("aria-checked", "false");
@@ -217,13 +217,10 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
       try {
         const p = await anon.newPage();
         await p.goto("/register");
-        // 等待點＝config 已落地：第二服務的自動建帳由 19-1 打開，「Sign up with」只在 config 落地後才出現。
-        await expect(p.getByRole("link", { name: `Sign up with ${SECOND_NAME}` })).toBeVisible();
-        await expect(p.locator("#register-email")).toHaveCount(0);
-        await expect(p.getByText("This site isn't accepting new accounts right now.")).toHaveCount(0);
-        await p.goto("/login");
+        // 等待點＝URL 落在 /login：只在 config 落地後才導走（載入中會先顯示表單）。
+        await expect(p).toHaveURL(/\/login$/);
         await expect(p.getByRole("link", { name: `Sign in with ${SECOND_NAME}` })).toBeVisible();
-        await expect(p.getByRole("link", { name: "Create an account" })).toBeVisible(); // 還有服務會建帳
+        await expect(p.getByRole("link", { name: "Create an account" })).toHaveCount(0); // 即使還有服務會建帳
         const api = await p.request.post("/api/auth/register", { data: { email: randomEmail(), password: NEW_PASSWORD } });
         expect(api.status()).toBe(403);
         expect((await api.json()).error.code).toBe("registration_disabled");
@@ -251,8 +248,7 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
         await expect(p.getByRole("link", { name: `Sign in with ${SECOND_NAME}` })).toBeVisible();
         await expect(p.getByRole("link", { name: "Create an account" })).toHaveCount(0);
         await p.goto("/register");
-        await expect(p.getByText("This site isn't accepting new accounts right now.")).toBeVisible();
-        await expect(p.getByRole("link", { name: /^Sign up with/ })).toHaveCount(0);
+        await expect(p).toHaveURL(/\/login$/);
         await nextLogin(request, SECOND_CONTROL_URL, { sub: `e2e-19-6-${randomUUID()}`, email: randomEmail() });
         await p.goto("/login");
         await p.getByRole("link", { name: `Sign in with ${SECOND_NAME}` }).click();
@@ -292,8 +288,8 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
     try {
       const page = await reg.newPage();
       await nextLogin(request, ROOT_CONTROL_URL, { sub: firstSub, email, name: "E2E Prover" });
-      await page.goto("/register");
-      await page.getByRole("link", { name: "Sign up with SSO" }).click();
+      await page.goto("/login");
+      await page.getByRole("link", { name: "Sign in with SSO" }).click();
       await expect(page).toHaveURL(/\/$/, { timeout: 20_000 });
     } finally {
       await reg.close();

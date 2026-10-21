@@ -265,8 +265,6 @@
     "mismatch": "兩次輸入的密碼不一致。",
     "submit": "建立帳號",
     "submitting": "建立中…",
-    "signUpWith": "透過 {{name}} 註冊",
-    "closed": "目前不開放註冊。",
     "backToLogin": "回登入頁",
     "haveAccount": "已經有帳號？登入",
     "emailTooLong": "Email 最多 {{max}} 個字元。",

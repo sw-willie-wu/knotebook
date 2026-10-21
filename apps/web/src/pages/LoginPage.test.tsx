@@ -530,11 +530,16 @@ describe("LoginPage——#187 PR3：帳密開關、註冊鈕、零方法", () =>
       await settled(cfg(true, true, []));
       expect(await screen.findByRole("link", REGISTER)).toBeInTheDocument();
     });
-    it("LG2：帳密自助關、有服務會建帳 → 有註冊鈕", async () => {
-      await settled(cfg(false, true, [A!.id]));
+    it("LG1b：帳密自助可用、有服務會建帳 → 有註冊鈕", async () => {
+      await settled(cfg(true, true, [A!.id]));
       expect(await screen.findByRole("link", REGISTER)).toBeInTheDocument();
     });
-    it("LG3：帳密登入關、沒有會建帳的服務 → 沒有註冊鈕", async () => {
+    it("LG2：帳密自助關、有服務會建帳 → 沒有註冊鈕（SSO 首登建帳只經 SSO 鈕）", async () => {
+      await settled(cfg(false, true, [A!.id]));
+      await screen.findByRole("link", { name: "Sign in with GitLab" });
+      expect(screen.queryByRole("link", REGISTER)).not.toBeInTheDocument();
+    });
+    it("LG3：帳密登入關、自助註冊開、沒有會建帳的服務 → 沒有註冊鈕", async () => {
       await settled(cfg(true, false, []));
       await screen.findByRole("link", { name: "Sign in with GitLab" });
       expect(screen.queryByRole("link", REGISTER)).not.toBeInTheDocument();
@@ -544,8 +549,8 @@ describe("LoginPage——#187 PR3：帳密開關、註冊鈕、零方法", () =>
       await screen.findByRole("link", { name: "Sign in with GitLab" });
       expect(screen.queryByRole("link", REGISTER)).not.toBeInTheDocument();
     });
-    it("LG5：providerIds 指向不在 providers 裡的 id（停用的服務） → 沒有註冊鈕", async () => {
-      await settled(cfg(false, true, ["99999999-9999-9999-9999-999999999999"]));
+    it("LG5：帳密登入關、自助註冊開、有服務會建帳 → 沒有註冊鈕", async () => {
+      await settled(cfg(true, false, [A!.id]));
       await screen.findByRole("link", { name: "Sign in with GitLab" });
       expect(screen.queryByRole("link", REGISTER)).not.toBeInTheDocument();
     });

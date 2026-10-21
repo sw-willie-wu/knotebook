@@ -33,8 +33,8 @@ const OIDC_LOGIN_PREFIX = "/api/auth/oidc/login/";
  * 承載（`fetch` 的 redirect 語意與 cookie 寫入時機都不對，見 client.ts 的
  * `credentials:'include'`/manual redirect 說明），因此刻意繞過既有的 `api()` 入口。
  *
- * #187 PR3：帳密表單隨 `passwordLogin.enabled`（有效值）顯示；帳密自助註冊可用（`registration.enabled` 且帳密有效值開）或至少一個登入服務會在首登時建帳（`registration.providerIds`）時，
- * 有 outline 的「註冊新帳號」鈕（帶 next；PR-C §3.8）。
+ * #187 PR3：帳密表單隨 `passwordLogin.enabled`（有效值）顯示；帳密自助註冊可用（`registration.enabled` 且帳密有效值開）時，
+ * 才有 outline 的「註冊新帳號」鈕（帶 next）；SSO 首登建帳只經上面的 SSO 鈕，不經註冊頁。
  *
  * `?error=<code>`（OIDC 失敗時 callback route 會把使用者導回 `/login?error=<code>`）
  * 走既有的同一套 `errors.<code>` 對映機制，**直接餵進 `errorMessage` 這顆 state 的
@@ -89,10 +89,9 @@ export default function LoginPage() {
   // fail-open）；server 若真的關閉，送出會回 403 並顯示 errors.password_login_disabled。
   const passwordLoginEnabled = authConfigQuery.data?.passwordLogin.enabled !== false;
   const providers = authConfigQuery.data?.providers ?? [];
-  // PR-C §3.8：帳密自助註冊可用，或至少一個服務會在首登時建帳，才有「註冊」入口。`?? []`：回滾窗期新版分頁打到舊 server（N6）。
+  // 「註冊」入口只給帳密自助註冊；config 未載入或失敗時不顯示。
   const config = authConfigQuery.data;
   const passwordSignup = config !== undefined && config.registration.enabled && config.passwordLogin.enabled;
-  const signupProviderCount = config === undefined ? 0 : config.providers.filter((p) => (config.registration.providerIds ?? []).includes(p.id)).length;
   const registerHref = nextPath === null ? "/register" : `/register?next=${encodeURIComponent(nextPath)}`;
 
   useEffect(() => {
@@ -213,7 +212,7 @@ export default function LoginPage() {
           </p>
         )}
 
-        {(passwordSignup || signupProviderCount > 0) && (
+        {passwordSignup && (
           // #187 spec §3.1 S1（Willie 原話「註冊」鈕）→ outline 按鈕（總管裁定疑點 12）；不得是實心鈕——頁面的唯一實心鈕是「Sign in」。
           <Button asChild variant="outline" className="w-full">
             <Link to={registerHref}>{t("login.register")}</Link>
