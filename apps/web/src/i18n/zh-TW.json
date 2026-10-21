@@ -35,7 +35,16 @@
     "workspace": "工作坊",
     "newGroup": "新增群組",
     "newNoteIn": "在 {{name}} 建立筆記",
-    "newPersonalNote": "新增個人筆記"
+    "newPersonalNote": "新增個人筆記",
+    "tabsLabel": "側欄分類",
+    "searchResults_one": "搜尋結果 · {{count}} 篇",
+    "searchResults_other": "搜尋結果 · {{count}} 篇",
+    "clearSearch": "清除搜尋",
+    "emptyMyNotes": "還沒有個人筆記。",
+    "emptyWorkspace": "還沒有加入任何群組。",
+    "emptyShared": "還沒有人與你共享筆記。",
+    "locationGroup": "工作坊 › {{group}}",
+    "locationShared": "與我共享 · {{role}}"
   },
   "roles": {
     "owner": "擁有者",

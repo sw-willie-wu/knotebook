@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { hoverReveal } from "@/components/ui/reveal";
 import { ChevronRight, Plus, Users } from "@/components/ui/icons";
 import { EmptyState } from "@/components/EmptyState";
+import { partitionNotes } from "@/components/sidebar/tree";
 
 /** ApiFail → errors.<code>；其餘（網路失敗等）→ errors.fallback。與 LoginPage
  * 逐字同一套對映規則（見 client.ts 的說明）。 */
@@ -259,37 +260,6 @@ function NoteRows({ notes, primary, indent = "section" }: { notes: NoteDto[]; pr
   );
 }
 
-export interface SidebarPartition {
-  recent: NoteDto[];
-  myNotes: NoteDto[];
-  shared: NoteDto[];
-  /** 依 `groups` 的順序，每個群組一個桶（空桶也在，段標要渲染）。 */
-  byGroup: Map<string, NoteDto[]>;
-}
-
-/**
- * #175 spec §8.2 的分段表（`query` 為空時的主清單；搜尋只是在結果上再過濾）：
- * - `group` 非 null 且那個群組在 `groups`（＝我是成員）→ 該群組段（不標角色，#182）；
- * - `group` 非 null 但群組不在 `groups`（剛被移出、清單未 refetch）→ 與我共享（兜底）；
- * - `role === "owner"` → 我的筆記；
- * - 其餘（逐人分享給我的個人筆記）→ 與我共享。
- * 群組筆記的 `role` 從不是 `owner`（群組持有、沒有個人 owner），所以第 2 列不必另寫分支——
- * 程式碼只要「在 `groups` 裡就進群組段，否則看 role」。四列互斥且完整，所以 `aria-current`
- * 至多命中一列。「最近」＝原始清單前 2 篇（server 已按 `updated_at DESC`），可與主清單重複。
- */
-export function partitionNotes(notes: NoteDto[], groups: GroupDto[]): SidebarPartition {
-  const byGroup = new Map<string, NoteDto[]>(groups.map((group) => [group.id, []]));
-  const myNotes: NoteDto[] = [];
-  const shared: NoteDto[] = [];
-  for (const note of notes) {
-    const bucket = note.group ? byGroup.get(note.group.id) : undefined;
-    if (bucket) bucket.push(note);
-    else if (note.role === "owner") myNotes.push(note);
-    else shared.push(note);
-  }
-  return { recent: notes.slice(0, 2), myNotes, shared, byGroup };
-}
-
 export interface NoteListProps {
   /** 搜尋字串，state 放在 `AppShell`（Ctrl/Cmd+K 要跨元件聚焦搜尋框）。空＝無過濾。 */
   query?: string;
@@ -340,7 +310,8 @@ export function NoteList({ query, onCreateNote, createNotePending = false }: Not
   const matchesQuery = (note: NoteDto) => note.title.toLowerCase().includes(lowerQuery);
 
   const parts = partitionNotes(notes, groups);
-  const recent = parts.recent.filter(matchesQuery);
+  // 「最近」＝原始清單前 2 篇（server 已按 `updated_at DESC`），可與主清單重複（T4 整段拿掉）。
+  const recent = notes.slice(0, 2).filter(matchesQuery);
   const myNotes = parts.myNotes.filter(matchesQuery);
   const shared = parts.shared.filter(matchesQuery);
   const groupSections = groups.map((group) => ({ group, notes: (parts.byGroup.get(group.id) ?? []).filter(matchesQuery) }));

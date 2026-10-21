@@ -122,7 +122,7 @@ export function useTransferOptions(note: NoteDto): { move: TransferOption[]; cop
 /**
  * 群組清單的展開形（Willie 2026-10-08）：**窄視窗或觸控** -> 就地向下展開（手風琴，項目縮排在觸發項下方，同一個選單內，
  * 不會被抽屜／視窗邊緣裁切）；**寬且可 hover** -> 右側 flyout（Radix Sub）。
- * 判準沿用 repo 既有的兩個界線：窄＝`(width < 48rem)`（`AppShell.NARROW_QUERY`、`max-md:`）；觸控＝`(hover: none)`
+ * 判準沿用 repo 既有的兩個界線：窄＝`(width < 48rem)`（`lib/sidebar-drawer.ts` 的 `NARROW_QUERY`、`max-md:`）；觸控＝`(hover: none)`
  * （`ui/reveal.ts`、`NoteList` 的觸控常駐判準）。兩者任一成立即就地展開。jsdom 預設 matchMedia 恆 false -> flyout 形。
  */
 export const INLINE_GROUP_LIST_QUERY = "(width < 48rem), (hover: none)";

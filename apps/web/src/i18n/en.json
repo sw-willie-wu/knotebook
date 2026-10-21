@@ -35,7 +35,16 @@
     "workspace": "Workspace",
     "newGroup": "New group",
     "newNoteIn": "New note in {{name}}",
-    "newPersonalNote": "New personal note"
+    "newPersonalNote": "New personal note",
+    "tabsLabel": "Sidebar sections",
+    "searchResults_one": "{{count}} result",
+    "searchResults_other": "{{count}} results",
+    "clearSearch": "Clear search",
+    "emptyMyNotes": "No personal notes yet.",
+    "emptyWorkspace": "You're not in any group yet.",
+    "emptyShared": "Nothing has been shared with you yet.",
+    "locationGroup": "Workspace › {{group}}",
+    "locationShared": "Shared with me · {{role}}"
   },
   "roles": {
     "owner": "Owner",

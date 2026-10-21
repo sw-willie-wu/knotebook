@@ -8,7 +8,7 @@ import i18n from "@/i18n";
 import { ActiveNoteProvider, useActiveNote } from "@/lib/active-note";
 import { NotePageControlsContext, type NotePageControls } from "@/lib/note-page-controls";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
-import { NoteList, partitionNotes, type NoteListProps } from "./NoteList";
+import { NoteList, type NoteListProps } from "./NoteList";
 import { adminRole, EDITOR_PERMS, groupDto, memberRole, OWNER_PERMS, VIEWER_PERMS } from "@/test/fixtures";
 
 /** 模擬 NotePage 的「解析成功後 set」——測試用的最小 setter（#122 ActiveNoteContext）。 */
@@ -1181,34 +1181,5 @@ describe("筆記列 ⋮", () => {
     const menu = await openRowMenu(within(section).getByRole("button", { name: "Note actions for Group Kept" }));
     expect(within(menu).getByRole("menuitem", { name: "AI edit history" })).toBeInTheDocument();
     expect(within(menu).queryByRole("menuitem", { name: "Delete note" })).toBeNull();
-  });
-});
-
-// ── partitionNotes（#175 spec §8.2 四列）──純函式，每列一案。
-describe("partitionNotes（#175 §8.2）", () => {
-  it("第 1 列：群組筆記且群組在 groups → 該群組段（不進我的筆記／與我共享）", () => {
-    const parts = partitionNotes([MY_GROUP_NOTE], [GROUP_A]);
-    expect(parts.byGroup.get(GROUP_A.id)?.map((n) => n.id)).toEqual([MY_GROUP_NOTE.id]);
-    expect(parts.myNotes).toEqual([]);
-    expect(parts.shared).toEqual([]);
-  });
-
-  it("第 2 列：群組筆記但群組不在 groups → 與我共享（兜底）", () => {
-    const parts = partitionNotes([ORPHAN_GROUP_NOTE], [GROUP_A]);
-    expect(parts.shared.map((n) => n.id)).toEqual([ORPHAN_GROUP_NOTE.id]);
-    expect(parts.myNotes).toEqual([]);
-    expect(parts.byGroup.get(GROUP_A.id)).toEqual([]);
-  });
-
-  it("第 3 列：role === owner（個人筆記）→ 我的筆記", () => {
-    const parts = partitionNotes([OWNER_NOTE], [GROUP_A]);
-    expect(parts.myNotes.map((n) => n.id)).toEqual([OWNER_NOTE.id]);
-    expect(parts.shared).toEqual([]);
-  });
-
-  it("第 4 列：其餘（逐人分享給我的個人筆記）→ 與我共享", () => {
-    const parts = partitionNotes([SHARED_NOTE], [GROUP_A]);
-    expect(parts.shared.map((n) => n.id)).toEqual([SHARED_NOTE.id]);
-    expect(parts.myNotes).toEqual([]);
   });
 });

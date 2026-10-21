@@ -11,7 +11,7 @@ import { Menu, Plus, Search } from "@/components/ui/icons";
 import { toast } from "@/components/ui/toast";
 import { cardSurface } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { SidebarDrawerContext, useSidebarDrawer } from "@/lib/sidebar-drawer";
+import { NARROW_QUERY, SidebarDrawerContext, useSidebarDrawer } from "@/lib/sidebar-drawer";
 import { canonicalizedFrom } from "@/lib/real-location";
 import { NoteList } from "@/components/NoteList";
 import { UserMenu } from "@/components/UserMenu";
@@ -25,10 +25,7 @@ import {
 } from "@/components/sidebar-width";
 import { PaneResizeHandle } from "@/components/PaneResizeHandle";
 
-/** `<md`（Tailwind `md` 斷點以下）的判準——與 index.css 的 `.bn-editor.bn-editor`
- * 覆寫、`max-md:` variant 同界。range 語法需 Chrome 104+；更舊的瀏覽器
- * `matches:false` 落寬分支（Ctrl+K 在窄視窗靜默無效），可接受的漸進劣化。 */
-const NARROW_QUERY = "(width < 48rem)";
+// `<md` 的判準 `NARROW_QUERY` 住在 `lib/sidebar-drawer.ts`（`SidebarTabProvider` 也要用）。
 
 // 抽屜開關的 context（`SidebarDrawerContext`／`useSidebarDrawer`）住在 `lib/sidebar-drawer.ts`。
 
