@@ -50,7 +50,7 @@ function Elsewhere() {
 interface Handlers {
   me?: () => Response;
   inspect?: () => Response;
-  complete?: () => Response;
+  complete?: () => Response | Promise<Response>;
 }
 
 function stubFetch(handlers: Handlers) {
@@ -283,5 +283,48 @@ describe("ResetPasswordPage（#286 §5.2、A-16）", () => {
     expect(screen.queryByLabelText("New password")).toBeNull();
     expect(screen.queryByText(INVALID_TEXT)).toBeNull();
     expect(sessionStorage.getItem(KEY)).toBe(TOKEN);
+  });
+
+  it("P15 同一頁換新 token（A 回 410 → 貼 #token=B）：B 被 inspect、出現表單、鍵為 B、hash 清掉", async () => {
+    let n = 0;
+    const { calls } = setup(`/reset-password#token=${TOKEN}`, {
+      inspect: () => (++n === 1 ? fail(410, "reset_link_invalid") : fakeResponse(200, { email: RESET_USER.email, expiresAt: EXPIRES_AT })),
+    });
+    expect(await screen.findByText(INVALID_TEXT)).toBeInTheDocument();
+    expect(sessionStorage.getItem(KEY)).toBeNull();
+    act(() => navigateFn!("/reset-password#token=knbp_B"));
+    expect(await screen.findByLabelText("New password")).toBeInTheDocument();
+    expect(inspectCalls(calls).map((c) => c.body)).toEqual([{ token: TOKEN }, { token: "knbp_B" }]);
+    expect(screen.queryByText(INVALID_TEXT)).toBeNull();
+    expect(sessionStorage.getItem(KEY)).toBe("knbp_B");
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(/^\/reset-password$/));
+  });
+
+  it("P16 A 的表單有錯誤與輸入 → 同頁換成 B：沒有舊錯誤、欄位清空", async () => {
+    setup(`/reset-password#token=${TOKEN}`);
+    await submit("short", "short");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Password is too short.");
+    act(() => navigateFn!("/reset-password#token=knbp_B"));
+    await waitFor(() => expect((screen.getByLabelText("New password") as HTMLInputElement).value).toBe(""));
+    expect((screen.getByLabelText("Confirm new password") as HTMLInputElement).value).toBe("");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("P17 A 送出中 → 換成 B → A 晚回 410：B 的表單仍在、不卡在 checking、鍵仍是 B", async () => {
+    let resolveComplete: (r: Response) => void = () => {};
+    setup(`/reset-password#token=${TOKEN}`, { complete: () => new Promise<Response>((resolve) => (resolveComplete = resolve)) });
+    await submit(NEW_PASSWORD, NEW_PASSWORD);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Saving…" })).toBeInTheDocument());
+    act(() => navigateFn!("/reset-password#token=knbp_B"));
+    await waitFor(() => expect(sessionStorage.getItem(KEY)).toBe("knbp_B"));
+    expect(await screen.findByRole("button", { name: "Set password" })).toBeInTheDocument();
+    await act(async () => {
+      resolveComplete(fail(410, "reset_link_invalid"));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(screen.getByLabelText("New password")).toBeInTheDocument();
+    expect(screen.queryByText(INVALID_TEXT)).toBeNull();
+    expect(screen.queryByText("Checking the link…")).toBeNull();
+    expect(sessionStorage.getItem(KEY)).toBe("knbp_B");
   });
 });

@@ -270,7 +270,14 @@
     "backToLogin": "Back to sign in",
     "haveAccount": "Already have an account? Sign in",
     "emailTooLong": "Email can be at most {{max}} characters.",
-    "displayNameTooLong": "Display name can be at most {{max}} characters."
+    "displayNameTooLong": "Display name can be at most {{max}} characters.",
+    "invite": {
+      "checking": "Checking the invitation…",
+      "notice": "This invitation works once and expires {{when}}.",
+      "signedIn": "You're signed in as {{email}}. Sign out to use this invitation.",
+      "signOut": "Sign out",
+      "passwordLoginOff": "Password sign-in is turned off on this site right now, so this invitation can't be used. Ask the site administrator."
+    }
   },
   "linkAccount": {
     "title": "Link your sign-in",

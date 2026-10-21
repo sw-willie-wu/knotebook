@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearStaleOneTimeTokens, ONE_TIME_TOKEN_PAGES, readSessionToken, RESET_TOKEN_KEY, writeSessionToken } from "./resetTokenStorage";
+import { clearStaleOneTimeTokens, INVITE_TOKEN_KEY, ONE_TIME_TOKEN_PAGES, readSessionToken, RESET_TOKEN_KEY, writeSessionToken } from "./resetTokenStorage";
 
 describe("clearStaleOneTimeTokens（#286；main.tsx 在 render 前呼叫）", () => {
   beforeEach(() => {
@@ -36,6 +36,39 @@ describe("clearStaleOneTimeTokens（#286；main.tsx 在 render 前呼叫）", ()
       throw new Error("SecurityError");
     });
     expect(() => clearStaleOneTimeTokens("/")).not.toThrow();
+  });
+});
+
+describe("clearStaleOneTimeTokens：邀請列（#285）", () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+    sessionStorage.setItem(INVITE_TOKEN_KEY, "knbi_X");
+  });
+  afterEach(() => sessionStorage.clear());
+
+  it("表裡有 /register → knotebook:invite-token 這一列", () => {
+    expect(ONE_TIME_TOKEN_PAGES).toContainEqual({ path: "/register", key: "knotebook:invite-token" });
+  });
+
+  it.each(["/", "/login", "/registerx"])("初始路徑 %s → 刪邀請鍵", (pathname) => {
+    clearStaleOneTimeTokens(pathname);
+    expect(sessionStorage.getItem(INVITE_TOKEN_KEY)).toBeNull();
+  });
+
+  it.each(["/register", "/register/", "/REGISTER"])("初始路徑 %s → 保留邀請鍵", (pathname) => {
+    clearStaleOneTimeTokens(pathname);
+    expect(sessionStorage.getItem(INVITE_TOKEN_KEY)).toBe("knbi_X");
+  });
+
+  it("兩鍵互不影響：/reset-password 刪邀請鍵留重設鍵；/register 刪重設鍵留邀請鍵", () => {
+    sessionStorage.setItem(RESET_TOKEN_KEY, "knbp_X");
+    clearStaleOneTimeTokens("/reset-password");
+    expect(sessionStorage.getItem(INVITE_TOKEN_KEY)).toBeNull();
+    expect(sessionStorage.getItem(RESET_TOKEN_KEY)).toBe("knbp_X");
+    sessionStorage.setItem(INVITE_TOKEN_KEY, "knbi_X");
+    clearStaleOneTimeTokens("/register");
+    expect(sessionStorage.getItem(RESET_TOKEN_KEY)).toBeNull();
+    expect(sessionStorage.getItem(INVITE_TOKEN_KEY)).toBe("knbi_X");
   });
 });
 

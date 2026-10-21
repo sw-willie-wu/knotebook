@@ -270,7 +270,14 @@
     "backToLogin": "回登入頁",
     "haveAccount": "已經有帳號？登入",
     "emailTooLong": "Email 最多 {{max}} 個字元。",
-    "displayNameTooLong": "顯示名稱最多 {{max}} 個字。"
+    "displayNameTooLong": "顯示名稱最多 {{max}} 個字。",
+    "invite": {
+      "checking": "正在確認邀請…",
+      "notice": "這個邀請只能使用一次，{{when}} 到期。",
+      "signedIn": "你目前以 {{email}} 登入。要使用這個邀請，請先登出。",
+      "signOut": "登出",
+      "passwordLoginOff": "本站目前關閉帳號密碼登入，這個邀請暫時不能使用，請聯絡站長。"
+    }
   },
   "linkAccount": {
     "title": "連結登入方式",
