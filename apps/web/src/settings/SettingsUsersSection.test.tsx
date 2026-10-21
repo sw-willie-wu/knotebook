@@ -9,6 +9,9 @@ import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppRoutes } from "@/App";
 import type { AdminUserDto } from "@/api/admin";
+import { copyText } from "@/lib/clipboard";
+
+vi.mock("@/lib/clipboard", () => ({ copyText: vi.fn(async () => true) }));
 
 // 歷程：Task 15 的獨立頁 `/admin/users` → Plan 4 併進設定 modal（`/settings/users`，
 // Task 8 逐案有意識重寫，spec §13.5-5）→ 2026-09-30 搬回獨立頁 `/admin/users`
@@ -59,6 +62,8 @@ const ACTIVE_OTHER: AdminUserDto = {
   createdAt: "2026-01-01T00:00:00.000Z",
   lastLoginAt: null,
   lastActiveAt: null,
+  hasPassword: true,
+  passwordResetExpiresAt: null,
   storage: { planId: BASIC_ID, planName: "Basic", usedBytes: 0, quotaBytes: 2147483648 },
 };
 
@@ -72,6 +77,8 @@ const DISABLED_OTHER: AdminUserDto = {
   createdAt: "2026-01-01T00:00:00.000Z",
   lastLoginAt: null,
   lastActiveAt: null,
+  hasPassword: true,
+  passwordResetExpiresAt: null,
   storage: { planId: BASIC_ID, planName: "Basic", usedBytes: 0, quotaBytes: 2147483648 },
 };
 
@@ -87,6 +94,8 @@ const OTHER_ADMIN: AdminUserDto = {
   createdAt: "2026-01-01T00:00:00.000Z",
   lastLoginAt: null,
   lastActiveAt: null,
+  hasPassword: true,
+  passwordResetExpiresAt: null,
   storage: { planId: BASIC_ID, planName: "Basic", usedBytes: 0, quotaBytes: 2147483648 },
 };
 
@@ -384,7 +393,7 @@ describe("W5 使用者表的儲存空間與方案（spec §9.3）", () => {
     renderUsersRoute(stub([ACTIVE_OTHER]));
     expect(await screen.findByText("alice@example.com")).toBeInTheDocument();
     expect(screen.getAllByRole("table")[0].style.getPropertyValue("--kb-table-cols")).toBe(
-      "minmax(14ch,1fr) minmax(14ch,1.5fr) max-content max-content max-content max-content 3.5rem",
+      "minmax(14ch,1fr) minmax(14ch,1.5fr) max-content max-content max-content max-content 2rem 3.5rem",
     );
   });
 
@@ -475,10 +484,10 @@ describe("使用者表（#247 §7.0，W27）", () => {
   /** 使用者表的列名＝email（spec 2026-10-13 settings-table §3 #5：`nameColumn` 是 Email 欄）。 */
   const rowOf = (email: string) => screen.getByRole("row", { name: email });
 
-  it("U1 欄位：User（顯示名稱＋灰字 @handle）、Email、Storage、Last active、Role、Plan、Enabled；沒有 Status 欄、沒有列尾文字鈕", async () => {
+  it("U1 欄位：User（顯示名稱＋灰字 @handle）、Email、Storage、Last active、Role、Plan、Actions、Enabled；沒有 Status 欄、沒有列尾文字鈕", async () => {
     renderUsersRoute(stubUsers(() => [SELF_ROW, ACTIVE_OTHER]));
     await screen.findByText(ACTIVE_OTHER.email);
-    // spec 2026-10-13 settings-table §3 #5 的欄序：主欄 → 資訊欄（Email、Storage、最後活動）→ 可編輯欄（Role、Plan）→ 啟用。
+    // spec 2026-10-13 settings-table §3 #5 的欄序：主欄 → 資訊欄（Email、Storage、最後活動）→ 可編輯欄（Role、Plan）→ 操作（#286）→ 啟用。
     expect(within(screen.getByRole("table", { name: "Users" })).getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
       "User",
       "Email",
@@ -486,6 +495,7 @@ describe("使用者表（#247 §7.0，W27）", () => {
       "Last active",
       "Role",
       "Plan",
+      "Actions",
       "Enabled",
     ]);
     // 啟用 switch 的可及名稱＝表頭「Enabled」＋該列 email（aria-labelledby 兩個 id）
@@ -730,5 +740,259 @@ describe("使用者表（#247 §7.0，W27）", () => {
     expect(errorRowOf(DISABLED_OTHER.email)).not.toBeNull();
     expect(errorRowOf(SELF_ROW.email)).toBeNull();
     expect(screen.getAllByRole("alert")).toHaveLength(3);
+  });
+});
+
+describe("重設密碼（#286 A-15）", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+    vi.mocked(copyText).mockClear();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const SELF_ROW: AdminUserDto = { ...OTHER_ADMIN, id: ADMIN_USER.id, email: ADMIN_USER.email, handle: ADMIN_USER.handle, displayName: ADMIN_USER.displayName };
+  const NO_PASSWORD: AdminUserDto = { ...ACTIVE_OTHER, id: "u-sso", email: "sso@example.com", handle: "u-sso-h", hasPassword: false };
+  const PENDING_AT = "2030-05-06T07:08:00.000Z";
+  const whenOf = (iso: string) => new Date(iso).toLocaleString("en", { dateStyle: "short", timeStyle: "short" });
+  const resetUrl = (id: string) => `${ADMIN_USERS_URL}/${id}/password-reset`;
+  const rowOf = (email: string) => screen.getByRole("row", { name: email });
+  const calls = (fetchMock: ReturnType<typeof vi.fn>, url: string, method: string) =>
+    fetchMock.mock.calls.filter(([u, i]) => String(u) === url && ((i as RequestInit | undefined)?.method ?? "GET") === method);
+  const actionName = (email: string) => `Reset password for ${email}`;
+  const openFor = async (email: string) => {
+    fireEvent.click(await within(await screen.findByRole("row", { name: email })).findByRole("button", { name: actionName(email) }));
+    return screen.findByRole("dialog", { name: "Reset password" });
+  };
+
+  function stub(
+    getRows: () => AdminUserDto[],
+    opts: { passwordLoginEnabled?: boolean; extra?: (url: string, method: string, init?: RequestInit) => Response | null } = {},
+  ) {
+    return vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      const custom = opts.extra?.(url, method, init) ?? baseFetchHandlers()(url, method);
+      if (custom) return Promise.resolve(custom);
+      if (url === ADMIN_USERS_URL && method === "GET") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(getRows()) }));
+      if (url === "/api/auth/config" && method === "GET") {
+        return Promise.resolve(
+          fakeResponse({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve({ providers: [], registration: { enabled: true }, passwordLogin: { enabled: opts.passwordLoginEnabled ?? true } }),
+          }),
+        );
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+  }
+
+  it("R1 hasPassword:false 的列沒有重設鈕；有密碼的列（含自己那列）有", async () => {
+    renderUsersRoute(stub(() => [SELF_ROW, ACTIVE_OTHER, NO_PASSWORD]));
+    await screen.findByText(NO_PASSWORD.email);
+    expect(within(rowOf(NO_PASSWORD.email)).queryByRole("button", { name: actionName(NO_PASSWORD.email) })).toBeNull();
+    expect(within(rowOf(ACTIVE_OTHER.email)).getByRole("button", { name: actionName(ACTIVE_OTHER.email) })).toBeInTheDocument();
+    expect(within(rowOf(SELF_ROW.email)).getByRole("button", { name: actionName(SELF_ROW.email) })).toBeInTheDocument();
+  });
+
+  it("R2 停用列的鈕 aria-disabled＋title 說明原因；點了不開對話框", async () => {
+    renderUsersRoute(stub(() => [SELF_ROW, DISABLED_OTHER]));
+    const button = await within(await screen.findByRole("row", { name: DISABLED_OTHER.email })).findByRole("button", { name: actionName(DISABLED_OTHER.email) });
+    expect(button).toHaveAttribute("aria-disabled", "true");
+    expect(button).toHaveAttribute("title", "This account is disabled. Enable it before resetting its password.");
+    fireEvent.click(button);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(screen.queryByRole("dialog", { name: "Reset password" })).toBeNull();
+  });
+
+  it("R3 主流程：選時數 → POST 確切 body → 結果畫面（連結、到期時間）→ 複製（成功／失敗 toast）→ 完成 → 再開回到表單、明文已消失", async () => {
+    const expiresAt = "2030-01-02T03:04:00.000Z";
+    const fetchMock = stub(() => [SELF_ROW, ACTIVE_OTHER], {
+      extra: (url, method) =>
+        url === resetUrl(ACTIVE_OTHER.id) && method === "POST"
+          ? fakeResponse({ ok: true, status: 201, json: () => Promise.resolve({ token: "knbp_TEST", expiresAt }) })
+          : null,
+    });
+    renderUsersRoute(fetchMock);
+    const dialog = await openFor(ACTIVE_OTHER.email);
+    expect(dialog).toHaveTextContent(ACTIVE_OTHER.email);
+    const select = within(dialog).getByLabelText("Link expires after") as HTMLSelectElement;
+    expect(select).toHaveValue("1");
+    expect(within(select).getAllByRole("option")).toHaveLength(24);
+    expect(within(select).getAllByRole("option")[0]).toHaveTextContent("1 hour");
+    expect(within(select).getAllByRole("option")[1]).toHaveTextContent("2 hours");
+    fireEvent.change(select, { target: { value: "3" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create link" }));
+
+    const result = await screen.findByRole("dialog", { name: "Password reset link" });
+    const post = calls(fetchMock, resetUrl(ACTIVE_OTHER.id), "POST");
+    expect(post).toHaveLength(1);
+    expect(JSON.parse(String((post[0][1] as RequestInit).body))).toEqual({ expiresInHours: 3 });
+    const url = `${window.location.origin}/reset-password#token=knbp_TEST`;
+    expect((within(result).getByLabelText("Link") as HTMLInputElement).value).toBe(url);
+    expect(result).toHaveTextContent(`It works once and expires ${whenOf(expiresAt)}.`);
+
+    fireEvent.click(within(result).getByRole("button", { name: "Copy link" }));
+    await waitFor(() => expect(vi.mocked(copyText)).toHaveBeenCalledWith(url));
+    expect(await screen.findByText("Link copied.")).toBeInTheDocument();
+    vi.mocked(copyText).mockResolvedValueOnce(false);
+    fireEvent.click(within(result).getByRole("button", { name: "Copy link" }));
+    expect(await screen.findByText("Couldn't copy automatically — select the link above and copy it by hand.")).toBeInTheDocument();
+
+    fireEvent.click(within(result).getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Password reset link" })).toBeNull());
+    fireEvent.click(within(rowOf(ACTIVE_OTHER.email)).getByRole("button", { name: actionName(ACTIVE_OTHER.email) }));
+    expect(await screen.findByRole("dialog", { name: "Reset password" })).toBeInTheDocument();
+    expect(screen.queryByDisplayValue(/knbp_/)).toBeNull();
+    expect((screen.getByLabelText("Link expires after") as HTMLSelectElement).value).toBe("1");
+  });
+
+  it("R4 待用連結：顯示到期句；Cancel link 送 DELETE，重抓後那一行消失、對話框仍開著", async () => {
+    let rows = [SELF_ROW, { ...ACTIVE_OTHER, passwordResetExpiresAt: PENDING_AT }];
+    const fetchMock = stub(() => rows, {
+      extra: (url, method) => {
+        if (url === resetUrl(ACTIVE_OTHER.id) && method === "DELETE") {
+          rows = [SELF_ROW, ACTIVE_OTHER];
+          return fakeResponse({ ok: true, status: 204 });
+        }
+        return null;
+      },
+    });
+    renderUsersRoute(fetchMock);
+    const dialog = await openFor(ACTIVE_OTHER.email);
+    const pending = `An unused link expires ${whenOf(PENDING_AT)}. Creating a new one cancels it.`;
+    expect(within(dialog).getByText(pending)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel link" }));
+    await waitFor(() => expect(calls(fetchMock, resetUrl(ACTIVE_OTHER.id), "DELETE")).toHaveLength(1));
+    await waitFor(() => expect(within(dialog).queryByText(pending)).toBeNull());
+    expect(screen.getByRole("dialog", { name: "Reset password" })).toBeInTheDocument();
+  });
+
+  it("R5 帳密登入關閉：說明段、Create link disabled、待用連結改 pendingSuspended、Cancel link 仍可送", async () => {
+    const fetchMock = stub(() => [SELF_ROW, { ...ACTIVE_OTHER, passwordResetExpiresAt: PENDING_AT }], {
+      passwordLoginEnabled: false,
+      extra: (url, method) => (url === resetUrl(ACTIVE_OTHER.id) && method === "DELETE" ? fakeResponse({ ok: true, status: 204 }) : null),
+    });
+    renderUsersRoute(fetchMock);
+    const dialog = await openFor(ACTIVE_OTHER.email);
+    expect(await within(dialog).findByText("Password sign-in is off on this site, so password reset links can't be created or used.")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Create link" })).toBeDisabled();
+    expect(within(dialog).getByText(`An unused link expires ${whenOf(PENDING_AT)}. It can't be used while password sign-in is off.`)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel link" }));
+    await waitFor(() => expect(calls(fetchMock, resetUrl(ACTIVE_OTHER.id), "DELETE")).toHaveLength(1));
+  });
+
+  it("R6 產生失敗（409 user_disabled）：對話框關閉、列錯誤顯示 errors.user_disabled", async () => {
+    const fetchMock = stub(() => [SELF_ROW, ACTIVE_OTHER], {
+      extra: (url, method) =>
+        url === resetUrl(ACTIVE_OTHER.id) && method === "POST"
+          ? fakeResponse({ ok: false, status: 409, json: () => Promise.resolve({ error: { code: "user_disabled", message: "x" } }) })
+          : null,
+    });
+    renderUsersRoute(fetchMock);
+    const dialog = await openFor(ACTIVE_OTHER.email);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create link" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Reset password" })).toBeNull());
+    const errorRow = await screen.findByRole("row", { name: `${ACTIVE_OTHER.email} error` });
+    expect(within(errorRow).getByRole("alert")).toHaveTextContent("This account is disabled. Enable it before resetting its password.");
+  });
+
+  it("M1 產生請求進行中按 Esc 關閉：回應回來後結果被丟棄，再開是表單、沒有明文", async () => {
+    let release: () => void = () => {};
+    const fetchMock = stub(() => [SELF_ROW, ACTIVE_OTHER], {
+      extra: (url, method) =>
+        url === resetUrl(ACTIVE_OTHER.id) && method === "POST"
+          ? (new Promise<Response>((resolve) => {
+              release = () => resolve(fakeResponse({ ok: true, status: 201, json: () => Promise.resolve({ token: "knbp_LATE", expiresAt: PENDING_AT }) }));
+            }) as unknown as Response)
+          : null,
+    });
+    renderUsersRoute(fetchMock);
+    const dialog = await openFor(ACTIVE_OTHER.email);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create link" }));
+    await waitFor(() => expect(calls(fetchMock, resetUrl(ACTIVE_OTHER.id), "POST")).toHaveLength(1));
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Reset password" })).toBeNull());
+    release();
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+    fireEvent.click(within(rowOf(ACTIVE_OTHER.email)).getByRole("button", { name: actionName(ACTIVE_OTHER.email) }));
+    expect(await screen.findByRole("dialog", { name: "Reset password" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Password reset link" })).toBeNull();
+    expect(screen.queryByDisplayValue(/knbp_/)).toBeNull();
+  });
+
+  it.each([
+    ["成功", () => fakeResponse({ ok: true, status: 201, json: () => Promise.resolve({ token: "knbp_LATE", expiresAt: PENDING_AT }) })],
+    ["失敗", () => fakeResponse({ ok: false, status: 409, json: () => Promise.resolve({ error: { code: "user_disabled", message: "x" } }) })],
+  ] as const)("N1 產生進行中關閉、回應前又重開：上一次開啟的請求%s晚到，不影響新開的對話框", async (_label, late) => {
+    let release: () => void = () => {};
+    const fetchMock = stub(() => [SELF_ROW, ACTIVE_OTHER], {
+      extra: (url, method) =>
+        url === resetUrl(ACTIVE_OTHER.id) && method === "POST"
+          ? (new Promise<Response>((resolve) => {
+              release = () => resolve(late());
+            }) as unknown as Response)
+          : null,
+    });
+    renderUsersRoute(fetchMock);
+    const dialog = await openFor(ACTIVE_OTHER.email);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create link" }));
+    await waitFor(() => expect(calls(fetchMock, resetUrl(ACTIVE_OTHER.id), "POST")).toHaveLength(1));
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Reset password" })).toBeNull());
+    fireEvent.click(within(rowOf(ACTIVE_OTHER.email)).getByRole("button", { name: actionName(ACTIVE_OTHER.email) }));
+    const reopened = await screen.findByRole("dialog", { name: "Reset password" });
+    release();
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+    expect(screen.getByRole("dialog", { name: "Reset password" })).toBe(reopened);
+    expect(screen.queryByRole("dialog", { name: "Password reset link" })).toBeNull();
+    expect(screen.queryByDisplayValue(/knbp_/)).toBeNull();
+    expect(screen.queryByRole("row", { name: `${ACTIVE_OTHER.email} error` })).toBeNull();
+  });
+
+  it("M2 取消失敗（DELETE 404 user_not_found）：對話框關閉、列錯誤顯示 errors.user_not_found", async () => {
+    const fetchMock = stub(() => [SELF_ROW, { ...ACTIVE_OTHER, passwordResetExpiresAt: PENDING_AT }], {
+      extra: (url, method) =>
+        url === resetUrl(ACTIVE_OTHER.id) && method === "DELETE"
+          ? fakeResponse({ ok: false, status: 404, json: () => Promise.resolve({ error: { code: "user_not_found", message: "x" } }) })
+          : null,
+    });
+    renderUsersRoute(fetchMock);
+    const dialog = await openFor(ACTIVE_OTHER.email);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel link" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Reset password" })).toBeNull());
+    const errorRow = await screen.findByRole("row", { name: `${ACTIVE_OTHER.email} error` });
+    expect(within(errorRow).getByRole("alert")).toHaveTextContent("We couldn't find that user.");
+  });
+
+  it("N2a 產生進行中：取消連結鈕也停用", async () => {
+    const hang = () => new Promise<Response>(() => {}) as unknown as Response;
+    const fetchMock = stub(() => [SELF_ROW, { ...ACTIVE_OTHER, passwordResetExpiresAt: PENDING_AT }], {
+      extra: (url, method) => (url === resetUrl(ACTIVE_OTHER.id) && (method === "POST" || method === "DELETE") ? hang() : null),
+    });
+    renderUsersRoute(fetchMock);
+    const dialog = await openFor(ACTIVE_OTHER.email);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create link" }));
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Cancel link" })).toBeDisabled());
+  });
+
+  it("N2b 取消進行中：產生連結鈕也停用", async () => {
+    const fetchMock = stub(() => [SELF_ROW, { ...ACTIVE_OTHER, passwordResetExpiresAt: PENDING_AT }], {
+      extra: (url, method) => (url === resetUrl(ACTIVE_OTHER.id) && method === "DELETE" ? (new Promise<Response>(() => {}) as unknown as Response) : null),
+    });
+    renderUsersRoute(fetchMock);
+    const dialog = await openFor(ACTIVE_OTHER.email);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel link" }));
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Create link" })).toBeDisabled());
+  });
+
+  it("R7 點對話框外面不關閉", async () => {
+    renderUsersRoute(stub(() => [SELF_ROW, ACTIVE_OTHER]));
+    await openFor(ACTIVE_OTHER.email);
+    await clickOutside();
+    expect(screen.getByRole("dialog", { name: "Reset password" })).toBeInTheDocument();
   });
 });

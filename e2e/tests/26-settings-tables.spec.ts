@@ -57,7 +57,7 @@ const T = {
   providers: { label: "Providers", headers: ["Name", "Type", "Base URL", "Models", "Actions", "Enabled"], buttons: 3, enabled: true, minRows: 2 },
   actions: { label: "Actions", headers: ["Name", "Apply mode", "Model", "Actions", "Enabled"], buttons: 4, enabled: true, minRows: 2 },
   authProviders: { label: "Sign-in services", headers: ["Service", "Issuer", "Linked", "Creates accounts", "Actions", "Enabled"], buttons: 4, enabled: true, minRows: 2 },
-  users: { label: "Users", headers: ["User", "Email", "Storage", LAST_ACTIVE_HEADER, "Role", "Plan", "Enabled"], buttons: 0, enabled: true, minRows: 2 },
+  users: { label: "Users", headers: ["User", "Email", "Storage", LAST_ACTIVE_HEADER, "Role", "Plan", "Actions", "Enabled"], buttons: 1, enabled: true, minRows: 2 },
   adminGroups: { label: "Groups", headers: ["Name", "Members", "Created", "Storage", "Plan"], buttons: 0, enabled: false, minRows: 2 },
   plans: { label: "Storage plans", headers: ["Name", "Limit", "Users", "Groups", "Spaces over limit", "Actions"], buttons: 2, enabled: false, minRows: 2 },
   members: { label: "Members", headers: ["Name", "Email", "Role", "Actions"], buttons: 1, enabled: false, minRows: 2 },

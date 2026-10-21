@@ -271,6 +271,22 @@ export async function waitForBlockedOrSettled(pool: Pool, other: Promise<unknown
   throw new Error(`waitForBlockedOrSettled 逾時（${timeoutMs}ms）`);
 }
 
+/**
+ * 輪詢到「這個測試 DB 上至少 n 條連線在等鎖」（同上的查詢）。多發請求要依序排進同一把鎖的佇列時用：
+ * 送第一發 → 等 1 → 送第二發 → 等 2，佇列順序就是送出順序（#286 的並發案）。
+ */
+export async function waitForLockWaiters(pool: Pool, n: number, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const { rows } = await pool.query<{ n: number }>(
+      `select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`,
+    );
+    if (rows[0]!.n >= n) return;
+    await sleep(20);
+  }
+  throw new Error(`waitForLockWaiters(${n}) 逾時（${timeoutMs}ms）`);
+}
+
 /** 筆記的歸屬與公開連結狀態；`updated_at` 取文字形（微秒精度，比 JS Date 準）。 */
 export async function noteState(pool: Pool, noteId: string): Promise<{
   owner_id: string | null; group_id: string | null; slug: string; prev_slug: string | null; slug_is_custom: boolean;

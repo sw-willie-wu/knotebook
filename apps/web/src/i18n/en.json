@@ -298,6 +298,20 @@
     "successMessage": "Password updated.",
     "ssoOnlyNote": "This site only allows signing in through a sign-in service right now. This password won't be used to sign in for now, but you still need to replace the temporary password the site administrator set."
   },
+  "resetPassword": {
+    "title": "Set a new password",
+    "checking": "Checking the link…",
+    "forAccount": "For {{email}}. This link works once and expires {{when}}.",
+    "notice": "Setting it signs you out of every other browser. API tokens and connected apps keep working.",
+    "newPassword": "New password",
+    "confirmPassword": "Confirm new password",
+    "submit": "Set password",
+    "submitting": "Saving…",
+    "signedIn": "You're signed in as {{email}}. Sign out to use this link.",
+    "signOut": "Sign out",
+    "passwordLoginOff": "Password sign-in is turned off on this site right now, so this link can't be used. Ask the site administrator.",
+    "backToLogin": "Back to sign in"
+  },
   "userMenu": {
     "language": "Language",
     "languageEn": "English",
@@ -316,7 +330,7 @@
       "ai": "AI agents",
       "auth": "Sign-in"
     },
-    "users": { "user": "User", "lastActive": "Last active", "online": "Online", "lastActiveNone": "Not recorded", "enabled": "Enabled", "roleFor": "Role for {{email}}" },
+    "users": { "user": "User", "lastActive": "Last active", "online": "Online", "lastActiveNone": "Not recorded", "enabled": "Enabled", "roleFor": "Role for {{email}}", "tableActions": "Actions" },
     "auth": {
       "title": "Sign-in",
       "description": "Identity providers (OpenID Connect) that people can sign in with. Each sign-in service has its own callback URL to register on the identity provider.",
@@ -364,7 +378,7 @@
         "registrationHelp": "Anyone can create an account on the registration page with an email and a password. Whether a sign-in service creates accounts is set for each service below.",
         "registrationNoEffect": "Has no effect while password sign-in is off.",
         "passwordLogin": "Allow password sign-in",
-        "passwordLoginHelp": "When off, everyone — including admins — can only sign in through a sign-in service. Accounts not yet linked to one can link themselves by signing in for the first time through a sign-in service with the same email and entering their old password. Turning it off doesn't sign anyone out.",
+        "passwordLoginHelp": "When off, everyone — including admins — can only sign in through a sign-in service. Accounts not yet linked to one can link themselves by signing in for the first time through a sign-in service with the same email and entering their old password. Turning it off doesn't sign anyone out. While it's off, password reset links can't be created or used; unused ones work again if you turn it back on before they expire.",
         "needProvider": "Turn on at least one sign-in service first.",
         "needAdminLink": "Link a sign-in service in your own settings first.",
         "forced": "Password sign-in is forced on by the environment variable PASSWORD_LOGIN_FORCE_ENABLE. The Allow password sign-in setting below takes effect only after you remove that variable and restart.",
@@ -460,7 +474,30 @@
       }
     },
     "title": "User management",
-    "description": "Create accounts, grant admin rights, and disable people who have left.",
+    "description": "Create accounts, grant admin rights, reset passwords, and disable people who have left.",
+    "passwordReset": {
+      "actionLabel": "Reset password for {{email}}",
+      "title": "Reset password",
+      "description": "Creates a one-time link for {{email}} to set a new password. Their current password keeps working until the link is used; then their other browsers are signed out. API tokens and connected apps keep working.",
+      "pending": "An unused link expires {{when}}. Creating a new one cancels it.",
+      "pendingSuspended": "An unused link expires {{when}}. It can't be used while password sign-in is off.",
+      "passwordLoginOff": "Password sign-in is off on this site, so password reset links can't be created or used.",
+      "cancelPending": "Cancel link",
+      "expiresField": "Link expires after",
+      "hours_one": "{{count}} hour",
+      "hours_other": "{{count}} hours",
+      "submit": "Create link",
+      "submitting": "Creating…",
+      "createdTitle": "Password reset link"
+    },
+    "oneTimeLink": {
+      "onceWarning": "Copy this link now — it won't be shown again. It works once and expires {{when}}.",
+      "linkLabel": "Link",
+      "copy": "Copy link",
+      "copied": "Link copied.",
+      "copyFailed": "Couldn't copy automatically — select the link above and copy it by hand.",
+      "done": "Done"
+    },
     "createUser": "Create user",
     "createUserDescription": "Add a new user account.",
     "mustChangePasswordNotice": "The new account will be required to change its password on first login.",
@@ -1206,6 +1243,9 @@
     "version_unsaved_changes": "There are unsaved changes",
     "version_mismatch": "This version no longer exists or has been replaced. Refresh and try again.",
     "instruct_preview_only": "The Instruct action always shows a preview before it's applied; it can't be set to apply directly.",
+    "reset_link_invalid": "This password reset link is invalid, already used, or expired. Ask the site administrator for a new one.",
+    "password_not_set": "This account signs in only through a sign-in service and has no password to reset.",
+    "user_disabled": "This account is disabled. Enable it before resetting its password.",
     "empty_result": "The AI returned an empty result.",
     "fallback": "An unexpected error occurred."
   }

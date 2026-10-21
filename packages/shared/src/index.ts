@@ -467,6 +467,11 @@ export const ERROR_CODES = [
   "version_mismatch",
   // #263（spec 2026-10-12 §4.4）：`instruct_preview_only`＝400，把內建 Instruct 動作的套用模式改成 direct——自由指令的結果一律先預覽（D4）。
   "instruct_preview_only",
+  // #286（spec 2026-10-20 §4.2、§4.3）：`user_disabled`＝409，替停用帳號產生重設連結；`password_not_set`＝409，替沒有密碼
+  // （只用 SSO）的帳號產生；`reset_link_invalid`＝410，重設連結形狀不合、查無、已用、已撤銷或已過期（不區分原因）。
+  "user_disabled",
+  "password_not_set",
+  "reset_link_invalid",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
@@ -1146,7 +1151,7 @@ const NEXT_PATH_CHARSET_RE = /^[\u0021-\u007e]+$/;
  *    加的。收斂是必要的：react-router 的路徑比對忽略尾斜線、預設大小寫不敏感，所以
  *    `/login/` 與 `/LOGIN` 一樣會渲染登入頁。
  *    判準是「**這個頁的存在前提是尚未登入**」——只有這種頁才該排除。`/change-password`
- *    不算：它對已登入者是一個功能正常的頁。#187 起 `/link-account` 同理（它的存在前提是「正在連結、session 無關」；登入完導回那裡只會被 pending 失效踢回 `/login`）。#187 PR3 起 `/register` 同理（已登入者開它會被導向 `next`（經 safeNextPath）或 `/`，§9.4 r2-N7）。
+ *    不算：它對已登入者是一個功能正常的頁。#187 起 `/link-account` 同理（它的存在前提是「正在連結、session 無關」；登入完導回那裡只會被 pending 失效踢回 `/login`）。#187 PR3 起 `/register` 同理（已登入者開它會被導向 `next`（經 safeNextPath）或 `/`，§9.4 r2-N7）。#286 起 `/reset-password` 同理（已登入者只會看到「請先登出」）。
  */
 export function safeNextPath(input: string | null | undefined): string | null {
   if (typeof input !== "string") return null;
@@ -1166,7 +1171,7 @@ export function safeNextPath(input: string | null | undefined): string | null {
   if (url.origin !== NEXT_PATH_BASE) return null;
   if (isExcludedPath(url.pathname)) return null;
   const collapsed = url.pathname.replace(/\/+$/, "").toLowerCase();
-  if (collapsed === "/login" || collapsed === "/link-account" || collapsed === "/register") return null;
+  if (collapsed === "/login" || collapsed === "/link-account" || collapsed === "/register" || collapsed === "/reset-password") return null;
 
   return input;
 }

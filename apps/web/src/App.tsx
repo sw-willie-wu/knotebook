@@ -37,7 +37,7 @@ const NotePage = lazy(() => import("./pages/NotePage"));
  * - 站台管理 modal 的五個區塊（聚合模組 `components/admin/AdminSections`，一個 chunk；外殼 `AdminModal` 在首包，#247）；
  * - 設定 modal 的六個頁面與群組 modal 的區塊（#247；後者共用一個 chunk，見 `GroupMembersSection` 那段）（外殼 `SettingsModal`／`GroupModal` 留在首包：modal-over-background 機制與
  *   開 modal 時外框立刻出現都靠它，只有內容區等 chunk）；
- * - 登入流程的四頁：註冊、帳號連結、強制改密碼、OAuth 同意頁。
+ * - 登入流程的五頁：註冊、帳號連結、重設密碼（#286）、強制改密碼、OAuth 同意頁。
  *
  * **登入頁（`LoginPage`）與登入服務圖示刻意留在首包**（Willie 裁示：登入頁的圖示要立即
  * 出現）。首頁也留：登入後第一個畫面。
@@ -49,6 +49,7 @@ const NotePage = lazy(() => import("./pages/NotePage"));
  */
 const RegisterPage = lazy(() => import("./pages/RegisterPage"));
 const LinkAccountPage = lazy(() => import("./pages/LinkAccountPage"));
+const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
 const ChangePasswordPage = lazy(() => import("./pages/ChangePasswordPage"));
 const AuthorizePage = lazy(() => import("./pages/AuthorizePage"));
 const SettingsAccountSection = lazy(() =>
@@ -217,7 +218,7 @@ function PublicNoteRoute() {
  * 舊網址 `/settings/users`、`/settings/ai` 仍在第二棵樹 `<Navigate replace>` 到 `/admin/users`／`/admin/ai`——
  * 掛在 `SettingsModal` 外、`RequireAuth` 內，admin 與否交給 `/admin` 那邊的 `RequireAdmin`。
  *
- * 現行守衛集合（主樹）：<RequireAuth> 包住除 /login、/register、/link-account（#187）、/p/* 外的其餘路由（未登入導
+ * 現行守衛集合（主樹）：<RequireAuth> 包住除 /login、/register、/link-account（#187）、/reset-password（#286）、/p/* 外的其餘路由（未登入導
  * `/login?next=<目前路徑>`，#131——「目前路徑」的兩棵樹細節見上）；
  * 第二棵樹的 `/admin/*` 再多包一層 <RequireAdmin>（非 admin 導 `/`）——巢狀在 <RequireAuth>
  * 與 <ChangePasswordGate> 底下，即使 <RequireAdmin> 自己也有未登入判斷（見
@@ -226,7 +227,7 @@ function PublicNoteRoute() {
  * `/change-password`（spec rev 5.7）巢狀在 <RequireAuth> 底下、但刻意掛在
  * <ChangePasswordGate> **外面**（與它平行，不是它的 <Outlet/> 子路由）——這條路由本身
  * 就是 `mustChangePassword` 使用者被導去的目的地，若巢狀在 gate 裡面會造成「導向自己」
- * 的迴圈。<ChangePasswordGate> 包住其餘（除 /login、/change-password 外）的
+ * 的迴圈。<ChangePasswordGate> 包住 <RequireAuth> 底下除 /change-password 外的
  * 路由：`user.mustChangePassword === true` 時全部導向 `/change-password`——比照
  * <RequireAdmin> 的模式。
  */
@@ -257,6 +258,15 @@ export function AppRoutes() {
           element={
             <LazyPageRoute chunk="link-account" frame="page">
               <LinkAccountPage />
+            </LazyPageRoute>
+          }
+        />
+        {/* #286：與 /register 同層、在 RequireAuth 之外；已登入者由頁面自己要求先登出。 */}
+        <Route
+          path="/reset-password"
+          element={
+            <LazyPageRoute chunk="reset-password" frame="page">
+              <ResetPasswordPage />
             </LazyPageRoute>
           }
         />

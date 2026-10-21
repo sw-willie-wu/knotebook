@@ -5,10 +5,10 @@ import { ADMIN_STORAGE_PLANS_QUERY_KEY, STORAGE_USAGE_QUERY_KEY } from "./storag
 
 /**
  * `GET /api/admin/users` 回應形狀（鏡射 `apps/server/src/routes/admin-users.ts` 的
- * `AdminUserDto`——那九欄（外加 `storage`）的 select 形狀鎖，見該檔說明）。刻意不放進
+ * `AdminUserDto`——那九欄＋兩個 SQL 表達式（外加 `storage`）的 select 形狀鎖，見該檔說明）。刻意不放進
  * `@knotebook/shared`：與 `NoteDto`/`ShareDto` 不同，這個形狀只有 admin 頁面讀得到，
- * 沒有跨 owner/editor/viewer 角色共用的理由。與 server 端 adminUserColumns 的九欄
- * select 形狀鎖同步（#122 起含 handle、#247 起含 lastLoginAt、#267 起含 lastActiveAt）。
+ * 沒有跨 owner/editor/viewer 角色共用的理由。與 server 端 adminUserColumns 的
+ * select 形狀鎖同步（#122 起含 handle、#247 起含 lastLoginAt、#267 起含 lastActiveAt、#286 起含 hasPassword／passwordResetExpiresAt）。
  */
 export interface AdminUserDto {
   id: string;
@@ -23,6 +23,10 @@ export interface AdminUserDto {
   lastLoginAt: string | null;
   /** #267：最後一次帶 session 的請求、共編連線或編輯、或登入（ISO）；null＝從無紀錄。使用者表「最後活動」欄讀它。 */
   lastActiveAt: string | null;
+  /** #286：帳號有密碼（`password_hash` 非空）。SSO-only 帳號為 false，使用者表不顯示重設密碼鈕。 */
+  hasPassword: boolean;
+  /** #286：未用、未撤銷、未過期那一支重設連結的到期時間（ISO）；null＝沒有。帳密登入關閉期間照樣顯示。 */
+  passwordResetExpiresAt: string | null;
   /** 儲存配額 §7.2、§7.4：個人空間的方案與用量（GET／POST／PATCH storage-plan 都帶）。 */
   storage: SpaceStorageDto;
 }
@@ -53,6 +57,35 @@ export function useCreateAdminUser() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ADMIN_USERS_QUERY_KEY });
     },
+  });
+}
+
+/**
+ * #286：`POST /api/admin/users/:id/password-reset`（201 `{ token, expiresAt }`，明文只此一次）。不等名單重抓，結果畫面立即出現。
+ * `gcTime: 0`：201 body 不在 mutation cache 多留 5 分鐘（比照 `useCreateApiToken` 的說明；同一個 JS heap，不是安全邊界）。
+ */
+export function useCreatePasswordReset() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    gcTime: 0,
+    mutationFn: ({ userId, expiresInHours }: { userId: string; expiresInHours: number }) =>
+      api<{ token: string; expiresAt: string }>(`/api/admin/users/${encodeURIComponent(userId)}/password-reset`, {
+        method: "POST",
+        body: JSON.stringify({ expiresInHours }),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ADMIN_USERS_QUERY_KEY });
+    },
+  });
+}
+
+/** #286：`DELETE /api/admin/users/:id/password-reset`（204）。回傳失效的 promise，讓 pending 涵蓋重抓。 */
+export function useCancelPasswordReset() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: string) =>
+      api<void>(`/api/admin/users/${encodeURIComponent(userId)}/password-reset`, { method: "DELETE" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ADMIN_USERS_QUERY_KEY }),
   });
 }
 

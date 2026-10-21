@@ -311,6 +311,16 @@ export function Plug(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+/** 使用者表列內「重設密碼」（#286）。路徑取自 lucide `key-round`（ISC）。 */
+export function KeyRound(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="key-round" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z" />
+      <circle cx="16.5" cy="7.5" r=".5" fill="currentColor" />
+    </svg>
+  );
+}
+
 /** 登入服務列的「圖示」對話框觸發鈕（#247 §7.0）。名稱避開 DOM 的 `Image` 全域。 */
 export function ImageIcon(props: SVGProps<SVGSVGElement>) {
   return (

@@ -207,6 +207,40 @@ describe("撤權 SLA：CollabHooks（Task 6）", () => {
     await waitFor("兩條連線都已從索引移除", 10_000, () => ctx.collab.connectionsOf(target.id).size === 0);
   });
 
+  it("C14（#286 A-8）：以重設連結設定新密碼 → 該使用者既有的共編連線在 10 秒內被 close(knotebook:revoked)", async () => {
+    const ctx = await buildApp();
+    await ctx.createUser({ email: "admin-rev14@example.com", password: PASSWORD, isAdmin: true });
+    const target = await ctx.createUser({ email: "target-rev14@example.com", password: PASSWORD });
+    const note = await ctx.createNote(target.id);
+
+    const adminSession = await ctx.loginAs("admin-rev14@example.com", PASSWORD);
+    const targetSession = await ctx.loginAs("target-rev14@example.com", PASSWORD);
+    const client = await targetSession.connect(note.id);
+    expect(ctx.collab.connectionsOf(target.id).size).toBe(1);
+
+    const issued = await adminSession.fetch(`/api/admin/users/${target.id}/password-reset`, {
+      method: "POST",
+      body: JSON.stringify({ expiresInHours: 1 }),
+    });
+    expect(issued.status).toBe(201);
+    const { token } = (await issued.json()) as { token: string };
+
+    const started = Date.now();
+    // 無登入端點：不帶任何 cookie。
+    const done = await fetch(`${ctx.baseUrl}/api/auth/password-reset`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token, newPassword: "brand-new-password-286" }),
+    });
+    expect(done.status).toBe(200);
+
+    await waitFor("重設後既有連線被 close(knotebook:revoked)", 10_000, () =>
+      client.closes.some(one => one.reason === COLLAB_CLOSE_REVOKED)
+    );
+    expect(Date.now() - started).toBeLessThan(10_000);
+    await waitFor("連線已從索引移除", 10_000, () => ctx.collab.connectionsOf(target.id).size === 0);
+  });
+
   it("token endpoint 暫時 5xx：client 重試期間 server 未收到重驗結果也不誤殺（deadline 內回來即撤銷 timer）", async () => {
     const ctx = await buildApp();
     const owner = await ctx.createUser({ email: "owner-rev4@example.com", password: PASSWORD });

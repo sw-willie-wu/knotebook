@@ -235,6 +235,16 @@ Neither setting affects accounts that already exist or the account-linking page 
 
 While password sign-in is allowed, an account with no password also gets **Add a password** in **Settings → Sign-in**. Adding one doesn't ask them to sign in again; it signs out their other sessions, and their API tokens keep working.
 
+### Resetting a password
+
+There is no email and no "forgot password" page: an admin makes a reset link and sends it to the person themselves. In **Site admin → Users**, press the key button in the person's row (**Actions** column; its name is **Reset password for …**), pick how long the link lasts (1 to 24 hours), and press **Create link**. Copy the link — it is shown once and cannot be read back.
+
+- The link works once. Creating another one for the same person replaces the previous one, and an unused link can be cancelled (**Cancel link**) from the same dialog; the dialog shows when the unused link expires. The person's current password keeps working until the link is used.
+- The person opens the link, sees the account's email, and chooses a new password. That signs them in and signs out their other browser sessions; their API tokens and connected apps keep working (revoke those in **Settings → Authorization** if they may have leaked).
+- An account with no password (SSO-only) and a disabled account can't get a link, and disabling an account revokes its unused link.
+- While **Allow password sign-in** is off, a link can't be created or used (`403 password_login_disabled`); a link that hasn't expired works again once it is turned back on. `PASSWORD_LOGIN_FORCE_ENABLE=true` counts as on.
+- The reset page asks anyone who is already signed in to sign out first, so an admin testing a link in their own browser doesn't become the other person.
+
 ### SSO-only sign-in
 
 **Allow password sign-in** (**Site admin → Sign-in**) is on by default, including on upgraded instances. Turn it off to have everyone, admins included, sign in through a sign-in service:

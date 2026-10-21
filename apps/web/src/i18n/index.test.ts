@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { BUILTIN_ROLE_DISPLAY_NAMES, ERROR_CODES } from "@knotebook/shared";
 import en from "./en.json";
 import zhTW from "./zh-TW.json";
+import enRaw from "./en.json?raw";
+import zhTWRaw from "./zh-TW.json?raw";
 
 /** 攤平成 `a.b.c` 形式的 key 清單，供兩個語系做全量對照。 */
 function flattenKeys(value: unknown, prefix = ""): string[] {
@@ -14,6 +16,44 @@ function flattenKeys(value: unknown, prefix = ""): string[] {
 describe("i18n key parity", () => {
   it("en 與 zh-TW 的 key 集合完全相同", () => {
     expect(flattenKeys(zhTW).sort()).toEqual(flattenKeys(en).sort());
+  });
+});
+
+/**
+ * `JSON.parse` 遇到同一物件內的重複 key 只留最後一份，parity 與 lint 都抓不到；前一份變成死字串、
+ * PR diff 還會出現看似新增的行。這裡直接掃原始文字，同一物件層出現第二次的 key 就回報。
+ */
+function duplicateKeys(raw: string): string[] {
+  const dups: string[] = [];
+  const stack: { keys: Set<string> | null; expectKey: boolean }[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i]!;
+    const top = stack[stack.length - 1];
+    if (ch === "{") stack.push({ keys: new Set(), expectKey: true });
+    else if (ch === "[") stack.push({ keys: null, expectKey: false });
+    else if (ch === "}" || ch === "]") stack.pop();
+    else if (ch === ":" && top) top.expectKey = false;
+    else if (ch === "," && top?.keys) top.expectKey = true;
+    else if (ch === '"') {
+      let j = i + 1;
+      while (raw[j] !== '"') j += raw[j] === "\\" ? 2 : 1;
+      if (top?.keys && top.expectKey) {
+        const key = raw.slice(i + 1, j);
+        if (top.keys.has(key)) dups.push(key);
+        top.keys.add(key);
+      }
+      i = j;
+    }
+  }
+  return dups;
+}
+
+describe("i18n 無重複 key", () => {
+  it.each([
+    ["en", enRaw],
+    ["zh-TW", zhTWRaw],
+  ] as const)("%s：同一物件內沒有重複的 key", (_name, raw) => {
+    expect(duplicateKeys(raw)).toEqual([]);
   });
 });
 

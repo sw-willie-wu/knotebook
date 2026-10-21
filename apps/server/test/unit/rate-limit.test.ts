@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { LoginThrottle } from "../../src/auth/rate-limit.js";
-import { AI_LIMIT, FixedWindowLimiter } from "../../src/http/rate-limit.js";
+import { AI_LIMIT, FixedWindowLimiter, ONE_TIME_LINK_ATTEMPT_LIMIT, ONE_TIME_LINK_MISS_LIMIT } from "../../src/http/rate-limit.js";
 
 describe("LoginThrottle key 上限（issue #15）", () => {
   /** 每次用不同帳號，讓斷言只反映 IP 那一軌。 */
@@ -510,6 +510,17 @@ describe("AI_LIMIT", () => {
     for (let i = 0; i < 30; i++) limiter.consume("user1");
     expect(limiter.consume("user1")).toBe(false);
     expect(limiter.consume("user2")).toBe(true);
+  });
+});
+
+// #286 spec §3.6：重設連結的兩顆桶，鎖住具體數字。
+describe("ONE_TIME_LINK_MISS_LIMIT／ONE_TIME_LINK_ATTEMPT_LIMIT", () => {
+  it("miss 桶：每分鐘 30 次（key=ip）", () => {
+    expect(ONE_TIME_LINK_MISS_LIMIT).toEqual({ limit: 30, windowMs: 60_000 });
+  });
+
+  it("嘗試桶：每小時 10 次（key=link:id）", () => {
+    expect(ONE_TIME_LINK_ATTEMPT_LIMIT).toEqual({ limit: 10, windowMs: 3_600_000 });
   });
 });
 
