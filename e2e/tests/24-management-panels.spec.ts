@@ -1,6 +1,6 @@
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
-import { ADMIN, createNote, loginAs, openGroupPanel, openSiteAdmin } from "./helpers.js";
+import { ADMIN, createNote, loginAs, openGroupPanel, openSiteAdmin, showSidebarTab } from "./helpers.js";
 
 /**
  * #247 §11.3：三個管理面板（個人設定、群組、站台管理）的外殼在真瀏覽器裡的行為——
@@ -15,17 +15,8 @@ async function shot(page: Page, name: string): Promise<void> {
 }
 
 async function createGroup(page: Page, name: string): Promise<void> {
-  const sidebar = page.getByRole("complementary");
-  const newGroup = sidebar.getByRole("button", { name: "New group", exact: true });
-  // 全新的疊（單獨跑本檔）上 admin 一篇筆記都沒有：側欄只有「No notes yet.」空狀態、沒有 Workspace 區段與「New group」鈕。
-  // 先建一篇再回 `/`，讓本檔不依賴前面 spec 留下的資料。
-  const empty = sidebar.getByText("No notes yet.", { exact: true });
-  await expect(newGroup.or(empty)).toBeVisible();
-  if (await empty.isVisible()) {
-    await createNote(page, `E2E Panels seed ${Date.now()}`);
-    await page.goto("/");
-  }
-  await newGroup.click();
+  await showSidebarTab(page, "Workspace");
+  await page.getByRole("complementary").getByRole("button", { name: "New group", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "New group" });
   await dialog.getByLabel("Group name").fill(name);
   await dialog.getByRole("button", { name: "Create", exact: true }).click();

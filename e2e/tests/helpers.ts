@@ -219,8 +219,24 @@ export async function adminNav(page: Page, item: "Users" | "Groups" | "Sign-in" 
   await expect(page).toHaveURL(urls[item]);
 }
 
+export type SidebarTabName = "Recent" | "My notes" | "Workspace" | "Shared with me";
+
+/**
+ * 點側欄某個 tab、等它 aria-selected，回傳同一範圍內的 tabpanel。`scope` 預設靜態側欄（complementary）；窄螢幕傳抽屜。
+ * 側欄一次只渲染目前 tab 的內容：負向斷言（`toHaveCount(0)`）在看不到該類筆記的 tab 會空轉成綠，
+ * 所以每個負向斷言前都要重新呼叫一次。
+ */
+export async function showSidebarTab(page: Page, name: SidebarTabName, scope?: Locator): Promise<Locator> {
+  const root = scope ?? page.getByRole("complementary");
+  const tab = root.getByRole("tablist", { name: "Sidebar sections" }).getByRole("tab", { name, exact: true });
+  await tab.click();
+  await expect(tab).toHaveAttribute("aria-selected", "true");
+  return root.getByRole("tabpanel");
+}
+
 /** #247：群組 modal。側欄群組列 ⋮ →「Members & settings」→ `/groups/<id>`；回傳 group id。 */
 export async function openGroupPanel(page: Page, groupName: string): Promise<string> {
+  await showSidebarTab(page, "Workspace");
   await page.getByRole("complementary").getByRole("button", { name: `Group actions for ${groupName}` }).click();
   await page.getByRole("menuitem", { name: "Members & settings" }).click();
   await expect(page).toHaveURL(/\/groups\/[0-9a-f-]{36}$/);

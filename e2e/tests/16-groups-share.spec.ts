@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type BrowserContext, type Locator, type Page } from "@playwright/test";
-import { ADMIN, createNote, createUserViaInvite, editorLocator, loginAs, openGroupPanel, randomEmail } from "./helpers.js";
+import { ADMIN, createNote, createUserViaInvite, editorLocator, loginAs, openGroupPanel, randomEmail, showSidebarTab } from "./helpers.js";
 
 /**
  * #175 PR2（spec §12.3 第 16 條，改寫自 #103 PR3 版）：移入群組與複製到個人。
@@ -105,6 +105,7 @@ test("移入群組（踢逐人分享、關公開連結、舊網址轉址）→ �
 
     // ── A：建群組（側欄工作坊「＋」）→ 群組面板 → 以 email 加 B（同 15）────────────────
     const sidebar = adminPage.getByRole("complementary");
+    await showSidebarTab(adminPage, "Workspace");
     await sidebar.getByRole("button", { name: "New group", exact: true }).click();
     const groupDialog = adminPage.getByRole("dialog", { name: "New group" });
     await groupDialog.getByLabel("Group name").fill(groupName);

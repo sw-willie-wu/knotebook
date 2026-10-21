@@ -370,7 +370,7 @@ test("22c 版本清單篩選（#258）＋停手 X 才自動存（#272）：自�
     await expect(page.getByTestId("versions-panel").getByTestId("versions-filter").getByRole("button", { name: "Manual only", exact: true })).toHaveAttribute("aria-pressed", "true");
 
     // 切筆記不關面板、篩選不重設：點側欄的 B（沒有任何版本）→ 面板還在、仍是「僅手動」、顯示篩選空狀態。
-    // 側欄同一篇會出現在「最近」與「我的筆記」兩區，取第一個。
+    // `.first()` 保險用；改版後側欄只渲染目前 tab。
     await page.getByRole("link", { name: titleB }).first().click();
     await expect(page.getByTestId("versions-panel")).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId("versions-panel").getByTestId("versions-filter").getByRole("button", { name: "Manual only", exact: true })).toHaveAttribute("aria-pressed", "true");

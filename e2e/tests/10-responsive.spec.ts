@@ -82,8 +82,7 @@ test("窄視窗：靜態側欄隱藏、抽屜導覽、框選 AI 框不超出視�
     const drawer = page.getByRole("dialog", { name: "Navigation" });
     await expect(drawer).toBeVisible();
     await expect(drawer.getByRole("button", { name: "New note", exact: true })).toBeVisible();
-    // `.first()`：NoteList 的「Recent」與主清單刻意重複顯示同一篇（該檔檔頭明訂），
-    // 單數查詢會 strict-mode violation。
+    // `.first()` 保險用；改版後側欄只渲染目前 tab。
     await drawer.getByRole("link", { name: title }).first().click();
     await page.waitForURL(/\/n\//, { timeout: 15_000 }); // #122：側欄連結是 /n/<handle>/<slug> 新形
     await expect(drawer).not.toBeVisible();

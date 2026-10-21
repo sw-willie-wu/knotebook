@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { ADMIN, createUserViaInvite, editorLocator, loginAs, openGroupPanel, randomEmail } from "./helpers.js";
+import { ADMIN, createUserViaInvite, editorLocator, loginAs, openGroupPanel, randomEmail, showSidebarTab } from "./helpers.js";
 
 /**
  * #175 群組 v2 PR4（spec §12.3 第 18 條）：刪群組的兩個模式。
@@ -22,6 +22,7 @@ const PASSWORD = "e2e-delete-user-pw";
 
 /** A 用側欄工作坊「＋」建群組（同 15）。 */
 async function createGroup(adminPage: Page, name: string): Promise<void> {
+  await showSidebarTab(adminPage, "Workspace");
   const sidebar = adminPage.getByRole("complementary");
   await sidebar.getByRole("button", { name: "New group", exact: true }).click();
   const groupDialog = adminPage.getByRole("dialog", { name: "New group" });
@@ -60,6 +61,7 @@ async function addMember(adminPage: Page, groupName: string, email: string): Pro
 
 /** A：側欄群組 ⋮ → Delete group，回傳對話框。 */
 async function openDeleteGroupDialog(adminPage: Page, groupName: string) {
+  await showSidebarTab(adminPage, "Workspace");
   const sidebar = adminPage.getByRole("complementary");
   await sidebar.getByRole("button", { name: `Group actions for ${groupName}` }).click();
   await adminPage.getByRole("menuitem", { name: "Delete group" }).click();
@@ -118,7 +120,7 @@ test("刪群組：轉移給管理員（成員被踢、舊網址轉址、公開�
     await expect(userPage).toHaveURL(/\/$/);
 
     const userSidebar = userPage.getByRole("complementary");
-    const userWorkspace = userSidebar.getByTestId("notegroup-workspace");
+    const userWorkspace = await showSidebarTab(userPage, "Workspace", userSidebar);
     await expect(userWorkspace.getByRole("button", { name: g1, exact: true })).toBeVisible({ timeout: 15_000 });
     await userWorkspace.getByRole("link", { name: titleX }).click();
     await expect(userPage).toHaveURL(groupUrlX);
@@ -138,12 +140,15 @@ test("刪群組：轉移給管理員（成員被踢、舊網址轉址、公開�
     // ── 5. B：10 秒內被踢回 "/"、側欄沒有 X、沒有 G1（形同 15 的 B 段）───────────────
     await expect(userPage.getByText("You no longer have access to this note.", { exact: true })).toBeVisible({ timeout: 10_000 });
     await expect(userPage).toHaveURL(/\/$/, { timeout: 10_000 });
+    await showSidebarTab(userPage, "Recent", userSidebar);
     await expect(userSidebar.getByRole("link", { name: titleX })).toHaveCount(0, { timeout: 10_000 });
+    await showSidebarTab(userPage, "Workspace", userSidebar);
     await expect(userSidebar.getByRole("button", { name: g1, exact: true })).toHaveCount(0, { timeout: 10_000 });
 
     // ── 6. A：「My notes」出現 X；開舊 /g/ 網址 → 收斂成 /n/<A>/<slug>、內容還在 ─────────
+    await showSidebarTab(adminPage, "Workspace");
     await expect(sidebar.getByRole("button", { name: g1, exact: true })).toHaveCount(0, { timeout: 10_000 });
-    await expect(sidebar.getByTestId("notegroup-myNotes").getByRole("link", { name: titleX })).toBeVisible({ timeout: 10_000 });
+    await expect((await showSidebarTab(adminPage, "My notes")).getByRole("link", { name: titleX })).toBeVisible({ timeout: 10_000 });
     await adminPage.goto(groupUrlX);
     await expect(adminPage).toHaveURL(new RegExp(`/n/[^/]+/${slugX}$`), { timeout: 15_000 });
     await expect(adminPage.getByRole("status").filter({ hasText: /^Connected/ })).toBeVisible({ timeout: 15_000 });
@@ -189,6 +194,7 @@ test("刪群組：轉移給管理員（成員被踢、舊網址轉址、公開�
     await expect(userPage.getByText("This note has been deleted.", { exact: true })).toBeVisible({ timeout: 10_000 });
 
     // ── 11. A：側欄沒有 G2；開 Y 的 /g/ 網址 → 無效連結文案 ──────────────────────
+    await showSidebarTab(adminPage, "Workspace");
     await expect(sidebar.getByRole("button", { name: g2, exact: true })).toHaveCount(0, { timeout: 10_000 });
     await adminPage.goto(groupUrlY);
     await expect(adminPage.getByText("This link is invalid or the note doesn't exist.", { exact: true })).toBeVisible({

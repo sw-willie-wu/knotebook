@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN, createUserViaInvite, editorLocator, loginAs, openGroupPanel, randomEmail } from "./helpers.js";
+import { ADMIN, createUserViaInvite, editorLocator, loginAs, openGroupPanel, randomEmail, showSidebarTab } from "./helpers.js";
 
 /**
  * #175 群組 v2（spec §12.3 第 15 條，PR1 改寫自 #103 版）：A 建群組 → A 在群組建筆記（群組持有、
@@ -26,6 +26,7 @@ test("群組：建立 → 群組建筆記（/g/ 網址）→ 設定加人 → �
     // ── A：側欄工作坊「＋」建群組 ─────────────────────────────────────
     const groupName = `E2E Group ${Date.now()}`;
     const sidebar = adminPage.getByRole("complementary");
+    await showSidebarTab(adminPage, "Workspace");
     await sidebar.getByRole("button", { name: "New group", exact: true }).click();
     const groupDialog = adminPage.getByRole("dialog", { name: "New group" });
     await groupDialog.getByLabel("Group name").fill(groupName);
@@ -50,7 +51,7 @@ test("群組：建立 → 群組建筆記（/g/ 網址）→ 設定加人 → �
     await expect(adminPage.getByRole("status").filter({ hasText: /^Connected/ })).toBeVisible({ timeout: 15_000 });
     await editorLocator(adminPage).waitFor({ timeout: 15_000 });
     // 該篇落在群組段（不是「我的筆記」）
-    const groupSection = sidebar.locator(`[data-testid^="notegroup-group-"]`).filter({ has: adminPage.getByRole("button", { name: groupName, exact: true }) });
+    const groupSection = sidebar.locator(`[data-node-kind="group"]`).filter({ has: adminPage.getByRole("button", { name: groupName, exact: true }) });
     await expect(groupSection.getByRole("link", { name: title })).toBeVisible();
 
     // ── A：分享面板是群組版（§8.4）：沒有 radio、沒有加人表單，只說明存取由角色決定 ──────
@@ -78,7 +79,7 @@ test("群組：建立 → 群組建筆記（/g/ 網址）→ 設定加人 → �
     await expect(userPage).toHaveURL(/\/$/);
 
     const userSidebar = userPage.getByRole("complementary");
-    const userWorkspace = userSidebar.getByTestId("notegroup-workspace");
+    const userWorkspace = await showSidebarTab(userPage, "Workspace", userSidebar);
     await expect(userWorkspace.getByRole("button", { name: groupName, exact: true })).toBeVisible({ timeout: 15_000 });
     await userWorkspace.getByRole("link", { name: title }).click();
     await expect(userPage).toHaveURL(noteUrl);
@@ -103,13 +104,16 @@ test("群組：建立 → 群組建筆記（/g/ 網址）→ 設定加人 → �
     // ── B：≤10 秒被踢、回 "/"、該篇從側欄消失、群組段也消失 ─────────────────
     await expect(userPage.getByText("You no longer have access to this note.", { exact: true })).toBeVisible({ timeout: 10_000 });
     await expect(userPage).toHaveURL(/\/$/, { timeout: 10_000 });
+    await showSidebarTab(userPage, "Recent", userSidebar);
     await expect(userSidebar.getByRole("link", { name: title })).toHaveCount(0, { timeout: 10_000 });
+    await showSidebarTab(userPage, "Workspace", userSidebar);
     await expect(userSidebar.getByRole("button", { name: groupName, exact: true })).toHaveCount(0, { timeout: 10_000 });
 
     // ── A：關群組面板 → 側欄群組 ⋮ → 刪除群組 → 對話框預設「轉移給管理員」→ Cancel → 群組與該篇仍在 ──
     await adminPage.keyboard.press("Escape");
     // #179：backgroundLocation 就是 canonical（改名換網址走 router navigate），關群組面板直接回到它。
     await expect(adminPage).toHaveURL(noteUrl);
+    await showSidebarTab(adminPage, "Workspace");
     await sidebar.getByRole("button", { name: `Group actions for ${groupName}` }).click();
     await adminPage.getByRole("menuitem", { name: "Delete group" }).click();
     const deleteDialog = adminPage.getByRole("dialog", { name: "Delete group?" });

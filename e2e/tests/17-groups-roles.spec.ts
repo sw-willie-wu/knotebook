@@ -1,6 +1,6 @@
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
-import { ADMIN, createUserViaInvite, editorLocator, loginAs, openGroupPanel, randomEmail } from "./helpers.js";
+import { ADMIN, createUserViaInvite, editorLocator, loginAs, openGroupPanel, randomEmail, showSidebarTab } from "./helpers.js";
 
 /**
  * #175 群組 v2 PR3（spec §12.3 第 17 條）：自訂角色即時生效。
@@ -32,6 +32,7 @@ test("群組角色：新增自訂角色 → 改成員角色即時變唯讀 → �
     // ── 2. A 建群組、在群組建筆記、改標題（同 15）──────────────────────────
     const groupName = `E2E Roles ${Date.now()}`;
     const sidebar = adminPage.getByRole("complementary");
+    await showSidebarTab(adminPage, "Workspace");
     await sidebar.getByRole("button", { name: "New group", exact: true }).click();
     const groupDialog = adminPage.getByRole("dialog", { name: "New group" });
     await groupDialog.getByLabel("Group name").fill(groupName);
@@ -66,7 +67,7 @@ test("群組角色：新增自訂角色 → 改成員角色即時變唯讀 → �
     await expect(userPage).toHaveURL(/\/$/);
 
     const userSidebar = userPage.getByRole("complementary");
-    const userWorkspace = userSidebar.getByTestId("notegroup-workspace");
+    const userWorkspace = await showSidebarTab(userPage, "Workspace", userSidebar);
     await expect(userWorkspace.getByRole("button", { name: groupName, exact: true })).toBeVisible({ timeout: 15_000 });
     await userWorkspace.getByRole("link", { name: title }).click();
     await expect(userPage).toHaveURL(noteUrl);
