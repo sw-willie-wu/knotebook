@@ -38,7 +38,7 @@ export function NoteWidthMenu({ noteId }: { noteId: string }) {
           size="icon"
           aria-label={name}
           title={name}
-          className="hidden shrink-0 @min-[43.5rem]:inline-flex"
+          className="hidden shrink-0 text-brand hover:text-brand @min-[43.5rem]:inline-flex"
         >
           <NoteWidthIcon width={width} className="h-4 w-4" />
         </Button>
