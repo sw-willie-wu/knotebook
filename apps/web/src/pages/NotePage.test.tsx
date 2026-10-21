@@ -156,11 +156,22 @@ const collab = vi.hoisted(() => ({
   provider: undefined as unknown as ReturnType<typeof createStubProvider>,
   /** #179：每次 render 傳進 useCollab 的 noteId（真實 useCollab 依它拆線／重連）。測試自行清空。 */
   noteIds: [] as (string | undefined)[],
+  /** 最近 tab 時效案（spec §5.2）：NotePage 傳給 useCollab 的 onDocUpdate，測試自己觸發。 */
+  onDocUpdate: undefined as (() => void) | undefined,
 }));
 vi.mock("@/collab/useCollab", () => ({
-  useCollab: ({ noteId, onUnauthorized }: { noteId: string | undefined; onUnauthorized: () => void }) => {
+  useCollab: ({
+    noteId,
+    onUnauthorized,
+    onDocUpdate,
+  }: {
+    noteId: string | undefined;
+    onUnauthorized: () => void;
+    onDocUpdate?: () => void;
+  }) => {
     collab.noteIds.push(noteId);
     collab.onUnauthorized = onUnauthorized;
+    collab.onDocUpdate = onDocUpdate;
     // issue #48：NotePage 用 `synced` 閘住 editable。真實 useCollab 的 `synced` 是 sticky
     // 追蹤 `provider.synced`，測試裡直接反映 stub 的 `provider.synced`——設一處就同時餵
     // editable 與 link-sync 掛載 effect。
@@ -2530,5 +2541,134 @@ describe("NotePage × 版本歷史（spec §8.1、§8.4、§8.5、A9）", () => 
     const keys = spy.mock.calls.map(([filters]) => JSON.stringify(filters?.queryKey));
     expect(keys).toContain(JSON.stringify(["note-by-path", "tester", "my-note"]));
     expect(keys).toContain(JSON.stringify(["note", NOTE.id]));
+  });
+});
+
+describe("NotePage × 最近 tab 跟上開著那篇（spec §5.2）", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    collab.state = { phase: "connecting" };
+    collab.doc = new Y.Doc();
+    collab.provider = createStubProvider();
+    collab.onDocUpdate = undefined;
+    window.history.replaceState(null, "", "/");
+    dismissAllToasts();
+  });
+
+  afterEach(() => {
+    collab.doc.destroy();
+    vi.unstubAllGlobals();
+    navSpy.current = undefined;
+  });
+
+  it("NP-R1 開著的那篇被編輯後，最近 tab 立刻把它排到最前；GET /api/notes 只打一次", async () => {
+    localStorage.setItem("sidebar.tab", "recent");
+    const edited = (at: string) => ({ at, byHandle: "tester", agentLabel: null });
+    const noteA: NoteDto = { ...NOTE, lastEdited: edited("2026-10-01T00:00:00.000Z") };
+    const noteB: NoteDto = {
+      ...NOTE,
+      id: "22222222-2222-2222-2222-222222222222",
+      title: "Other Note",
+      slug: "other-note",
+      lastEdited: edited("2026-10-02T00:00:00.000Z"),
+    };
+    let currentA = noteA;
+    const inner = mockFetch(noteA);
+    let listCalls = 0;
+    const fn = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (url === "/api/notes" && method === "GET") {
+        listCalls += 1;
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([noteB, noteA]) }));
+      }
+      if (
+        method === "GET" &&
+        url.startsWith("/api/notes/") &&
+        !/\/(backlinks|versions|edits|links)/.test(url)
+      ) {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(currentA) }));
+      }
+      return inner(input, init);
+    });
+    vi.stubGlobal("fetch", fn);
+
+    renderNotePage("my-note");
+    const order = () =>
+      Array.from(screen.getByRole("tabpanel").querySelectorAll('[data-node-kind="note"]')).map((el) =>
+        el.getAttribute("data-node-id"),
+      );
+    await waitFor(() => expect(order()).toEqual([noteB.id, noteA.id]));
+    await screen.findByLabelText("Note title", { selector: "input" });
+    await waitFor(() => expect(collab.onDocUpdate).toBeDefined());
+
+    currentA = { ...noteA, lastEdited: edited("2026-10-03T00:00:00.000Z") };
+    act(() => collab.onDocUpdate!());
+
+    await waitFor(() => expect(order()).toEqual([noteA.id, noteB.id]));
+    expect(listCalls).toBe(1);
+  });
+
+  it("NP-R2 回到快取過的 A：note 快取裡較舊的 lastEdited 不蓋掉清單裡較新的值（清單不寫、不重排）", async () => {
+    localStorage.setItem("sidebar.tab", "recent");
+    const edited = (at: string) => ({ at, byHandle: "tester", agentLabel: null });
+    const aOld: NoteDto = { ...NOTE, lastEdited: edited("2026-10-01T00:00:00.000Z") };
+    const aNew: NoteDto = { ...NOTE, lastEdited: edited("2026-10-03T00:00:00.000Z") };
+    const noteB: NoteDto = {
+      ...NOTE,
+      id: "22222222-2222-2222-2222-222222222222",
+      title: "Other Note",
+      slug: "other-note",
+      lastEdited: edited("2026-10-02T00:00:00.000Z"),
+    };
+    const inner = mockFetch(noteB);
+    const fn = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (url === "/api/notes" && method === "GET") {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([aNew, noteB]) }));
+      }
+      if (method === "GET" && url.startsWith("/api/notes/") && !/\/(backlinks|versions|edits|links)/.test(url)) {
+        const isB = url.includes("other-note") || url.includes(noteB.id);
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(isB ? noteB : aNew) }));
+      }
+      return inner(input, init);
+    });
+    vi.stubGlobal("fetch", fn);
+
+    const { queryClient } = renderNotePage("other-note");
+    const order = () =>
+      Array.from(screen.getByRole("tabpanel").querySelectorAll('[data-node-kind="note"]')).map((el) =>
+        el.getAttribute("data-node-id"),
+      );
+    await waitFor(() => expect(order()).toEqual([NOTE.id, noteB.id]));
+    await waitFor(() => expect(screen.getByLabelText("Note title", { selector: "input" })).toHaveValue("Other Note"));
+    // 「5 分鐘內開過 A」留下的舊快取（解析層＋常駐層）；清單則已是較新的 A。
+    queryClient.setQueryData(["note-by-path", "tester", "my-note"], aOld);
+    queryClient.setQueryData(["note", NOTE.id], aOld);
+
+    const listWrites: string[] = [];
+    const orders: string[] = [];
+    const realSet = queryClient.setQueryData.bind(queryClient);
+    vi.spyOn(queryClient, "setQueryData").mockImplementation(((key: readonly unknown[], updater: unknown) => {
+      const result = (realSet as (k: unknown, u: unknown) => unknown)(key, updater);
+      if (key[0] === "notes") {
+        const row = queryClient.getQueryData<NoteDto[]>(["notes"])?.find((n) => n.id === NOTE.id);
+        listWrites.push(row?.lastEdited?.at ?? "null");
+      }
+      return result;
+    }) as typeof queryClient.setQueryData);
+    const observer = new MutationObserver(() => orders.push(order().join(",")));
+    observer.observe(screen.getByRole("tabpanel"), { childList: true, subtree: true });
+
+    fireEvent.click(screen.getByRole("tabpanel").querySelector(`[data-node-id="${NOTE.id}"] a`) as HTMLElement, { button: 0 });
+    await waitFor(() => expect(screen.getByLabelText("Note title", { selector: "input" })).toHaveValue("My Note"));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    });
+    observer.disconnect();
+
+    expect(listWrites).toEqual([]);
+    expect(orders.filter((o) => o !== [NOTE.id, noteB.id].join(","))).toEqual([]);
   });
 });

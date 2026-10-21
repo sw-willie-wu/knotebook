@@ -5,7 +5,7 @@ import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { canonicalNotePath, type NoteDto, type Role } from "@knotebook/shared";
 import { api, ApiFail } from "@/api/client";
 import { GROUPS_QUERY_KEY } from "@/api/groups";
-import { invalidateNoteQueries, useNote, useNoteByGroupPath, useNoteByPath } from "@/api/notes";
+import { invalidateNoteQueries, patchNotesListLastEdited, useNote, useNoteByGroupPath, useNoteByPath } from "@/api/notes";
 import { SESSION_QUERY_KEY, useSession } from "@/auth/useSession";
 import { canEdit, isTerminal, stopsReconnect, type CollabState } from "@/collab/connection";
 import { useActiveNote } from "@/lib/active-note";
@@ -332,6 +332,20 @@ export default function NotePage() {
     if (!note) return;
     invalidateNoteQueries(queryClient, note, params.ref ?? note.id);
   }, [note, params.ref, queryClient]);
+
+  // spec §5.2：note query 拿到新的 lastEdited（與頁首「最後編輯」同一刻）就補進清單快取，最近 tab 才跟得上。
+  const listNoteId = note?.id;
+  const leAt = note?.lastEdited?.at;
+  const leBy = note?.lastEdited?.byHandle;
+  const leAgent = note?.lastEdited?.agentLabel;
+  useEffect(() => {
+    if (listNoteId === undefined) return;
+    patchNotesListLastEdited(
+      queryClient,
+      listNoteId,
+      leAt === undefined ? null : { at: leAt, byHandle: leBy ?? "", agentLabel: leAgent ?? null },
+    );
+  }, [queryClient, listNoteId, leAt, leBy, leAgent]);
 
   const { state, doc, provider, synced, syncedFor } = useCollab({
     noteId,

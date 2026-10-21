@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient, type UseQueryResult } from "@tanstack/react-query";
-import type { BacklinkDto, NoteDto } from "@knotebook/shared";
+import type { BacklinkDto, LastEditedDto, NoteDto } from "@knotebook/shared";
 import { api } from "./client";
 
 /**
@@ -23,6 +23,33 @@ export function invalidateNoteQueries(
   } else {
     void queryClient.invalidateQueries({ queryKey: ["note-by-path", note.ownerHandle, note.slug] });
   }
+}
+
+/**
+ * spec §5.2：最近 tab 跟上開著那篇的編輯——把 `["notes"]` 快取裡那一列的 `lastEdited` 換成新值。
+ * 只有開著的那篇有觸發點，其他筆記等清單下次重抓。沒有快取、沒有這一列、值相同、較舊（或 null）都不寫。
+ */
+export function patchNotesListLastEdited(
+  queryClient: QueryClient,
+  id: string,
+  lastEdited: LastEditedDto | null,
+): void {
+  const list = queryClient.getQueryData<NoteDto[]>(["notes"]);
+  if (list === undefined) return;
+  const row = list.find((n) => n.id === id);
+  if (row === undefined) return;
+  const prev = row.lastEdited;
+  const same =
+    prev === null || lastEdited === null
+      ? prev === lastEdited
+      : prev.at === lastEdited.at && prev.byHandle === lastEdited.byHandle && prev.agentLabel === lastEdited.agentLabel;
+  if (same) return;
+  // 只往前走：清單已有較新的值（例如切回視窗時清單先重抓過），快取裡的舊 note 不得蓋回去。
+  if (prev !== null && (lastEdited === null || Date.parse(lastEdited.at) < Date.parse(prev.at))) return;
+  queryClient.setQueryData<NoteDto[]>(
+    ["notes"],
+    list.map((n) => (n.id === id ? { ...n, lastEdited } : n)),
+  );
 }
 
 export function useNotes(): UseQueryResult<NoteDto[]> {
