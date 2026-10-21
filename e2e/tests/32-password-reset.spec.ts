@@ -1,10 +1,10 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN, loginAs, randomEmail } from "./helpers.js";
+import { ADMIN, createUserViaInvite, loginAs, randomEmail } from "./helpers.js";
 
 /**
  * #286 管理員重設密碼（spec §10.2 新 spec 五步）：
- * 1. admin 代建一位帳密使用者；
- * 2. 該使用者的 context B 先登入並改掉代設密碼（代建帳號帶 `must_change_password`，這個狀態下 Bearer 會被擋），再建一支 PAT，
+ * 1. admin 以邀請建一位帳密使用者（`createUserViaInvite`，帳號不帶 `must_change_password`）；
+ * 2. 該使用者的 context B 登入、直接建一支 PAT，
  *    以無 cookie 的 context 帶 Bearer 打 `GET /api/notes` → 200；
  * 3. admin 在使用者表產生重設連結，讀出只顯示一次的連結；
  * 4. 第三個 context C 開連結：網址列沒有 `#`、看得到帳號 email；設定新密碼、進站；
@@ -13,7 +13,6 @@ import { ADMIN, loginAs, randomEmail } from "./helpers.js";
  */
 
 const FIRST_PASSWORD = "e2e-t32-first-password";
-const CHANGED_PASSWORD = "e2e-t32-changed-password";
 const RESET_PASSWORD = "e2e-t32-reset-password";
 
 test("32：admin 產生重設連結 → 本人設定新密碼進站 → 其他瀏覽器被登出、PAT 照常可用", async ({ browser, baseURL }) => {
@@ -23,21 +22,16 @@ test("32：admin 產生重設連結 → 本人設定新密碼進站 → 其他�
   const resetContext = await browser.newContext();
   const anonymous = await browser.newContext();
   try {
-    // 1. admin 代建
+    // 1. admin 以邀請建帳號
     const adminPage = await adminContext.newPage();
     await loginAs(adminPage, ADMIN.email, ADMIN.password);
     await expect(adminPage).toHaveURL(/\/$/);
-    const created = await adminPage.request.post("/api/admin/users", {
-      data: { email, password: FIRST_PASSWORD, displayName: "E2E Reset User", isAdmin: false },
-    });
-    expect(created.status()).toBe(201);
+    await createUserViaInvite(adminPage, { email, password: FIRST_PASSWORD, displayName: "E2E Reset User" });
 
-    // 2. 使用者 B：首登被導去改密碼 → 以 API 改掉 → 建 PAT → Bearer 可用
+    // 2. 使用者 B：登入（邀請建的帳號不會被導去改密碼）→ 建 PAT → Bearer 可用
     const userPage = await userContext.newPage();
     await loginAs(userPage, email, FIRST_PASSWORD);
-    await expect(userPage).toHaveURL(/\/change-password$/);
-    const changed = await userPage.request.post("/api/auth/password", { data: { currentPassword: FIRST_PASSWORD, newPassword: CHANGED_PASSWORD } });
-    expect(changed.status()).toBe(204);
+    await expect(userPage).toHaveURL(/\/$/);
     const tokenRes = await userPage.request.post("/api/auth/tokens", { data: { name: `E2E t32 ${Date.now()}`, scope: "notes:read", expiresInDays: null } });
     expect(tokenRes.status()).toBe(201);
     const { token: pat } = (await tokenRes.json()) as { token: string };

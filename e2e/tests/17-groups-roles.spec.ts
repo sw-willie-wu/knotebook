@@ -1,13 +1,13 @@
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
-import { ADMIN, editorLocator, loginAs, openGroupPanel, openSiteAdmin, randomEmail } from "./helpers.js";
+import { ADMIN, createUserViaInvite, editorLocator, loginAs, openGroupPanel, randomEmail } from "./helpers.js";
 
 /**
  * #175 群組 v2 PR3（spec §12.3 第 17 條）：自訂角色即時生效。
- * A 建第二使用者 B → A 建群組、在群組建筆記 → A 從群組面板加 B（內建一般成員）→ B 開那篇：徽章 Editor、可編輯 →
+ * A 以邀請建第二使用者 B → A 建群組、在群組建筆記 → A 從群組面板加 B（內建一般成員）→ B 開那篇：徽章 Editor、可編輯 →
  * A 到「Roles」項次新增角色 Reader（對話框沒有 Read 開關、六個旗標預設全關＝只能閱讀）→ A 在「Members」項次把 B 改成
  * Reader → B 10 秒內徽章 Viewer、編輯器不可編輯 → A 改回 Member → B 10 秒內徽章 Editor、打字 A 看得到。
- * 斷言形沿用 15-groups（兩個 context、UI 建第二使用者、首登改密、`editorLocator`、10 秒 SLA）。
+ * 斷言形沿用 15-groups（兩個 context、邀請建第二使用者、`editorLocator`、10 秒 SLA）。
  * 群組與筆記留著不清：e2e 疊每次 `stack:down -v` 重置。
  *
  * 目視用截圖：設了 `PR3_SCREENSHOT_DIR` 才截圖，未設就略過；本檔不寫任何絕對路徑。
@@ -24,19 +24,10 @@ test("群組角色：新增自訂角色 → 改成員角色即時變唯讀 → �
     await loginAs(adminPage, ADMIN.email, ADMIN.password);
     await expect(adminPage).toHaveURL(/\/$/);
 
-    // ── 1. A 建第二使用者 B（同 15）────────────────────────────────────
-    await openSiteAdmin(adminPage);
+    // ── 1. A 以邀請建第二使用者 B（同 15）────────────────────────────────────
     const secondEmail = randomEmail();
-    const tempPassword = "e2e-role-user-temp-pw";
-    await adminPage.getByRole("button", { name: "Create user" }).click();
-    const createUserDialog = adminPage.getByRole("dialog", { name: "Create user" });
-    await createUserDialog.locator("#admin-create-email").fill(secondEmail);
-    await createUserDialog.locator("#admin-create-password").fill(tempPassword);
-    await createUserDialog.locator("#admin-create-display-name").fill("E2E Role Member");
-    await createUserDialog.getByRole("button", { name: "Create", exact: true }).click();
-    await expect(createUserDialog).not.toBeVisible();
-    await adminPage.keyboard.press("Escape");
-    await expect(adminPage).toHaveURL(/\/$/);
+    const password = "e2e-role-user-pw";
+    await createUserViaInvite(adminPage, { email: secondEmail, password, displayName: "E2E Role Member" });
 
     // ── 2. A 建群組、在群組建筆記、改標題（同 15）──────────────────────────
     const groupName = `E2E Roles ${Date.now()}`;
@@ -69,15 +60,9 @@ test("群組角色：新增自訂角色 → 改成員角色即時變唯讀 → �
     await adminPage.getByRole("button", { name: "Add", exact: true }).click();
     await expect(adminPage.getByRole("button", { name: `Remove ${secondEmail}` })).toBeVisible();
 
-    // ── 4. B：首登改密 → 側欄 Workspace 開那篇 → 徽章 Editor、可編輯 ──────────
+    // ── 4. B：登入 → 側欄 Workspace 開那篇 → 徽章 Editor、可編輯 ──────────
     const userPage = await userContext.newPage();
-    await loginAs(userPage, secondEmail, tempPassword);
-    await expect(userPage).toHaveURL(/\/change-password$/);
-    const newPassword = "e2e-role-user-pw-2";
-    await userPage.locator("#change-password-current").fill(tempPassword);
-    await userPage.locator("#change-password-new").fill(newPassword);
-    await userPage.locator("#change-password-confirm").fill(newPassword);
-    await userPage.getByRole("button", { name: "Change password" }).click();
+    await loginAs(userPage, secondEmail, password);
     await expect(userPage).toHaveURL(/\/$/);
 
     const userSidebar = userPage.getByRole("complementary");

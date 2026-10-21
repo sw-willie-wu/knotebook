@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type BrowserContext, type Locator, type Page } from "@playwright/test";
-import { ADMIN, createNote, editorLocator, loginAs, openGroupPanel, openSiteAdmin, randomEmail } from "./helpers.js";
+import { ADMIN, createNote, createUserViaInvite, editorLocator, loginAs, openGroupPanel, randomEmail } from "./helpers.js";
 
 /**
  * #175 PR2（spec §12.3 第 16 條，改寫自 #103 PR3 版）：移入群組與複製到個人。
@@ -16,8 +16,7 @@ import { ADMIN, createNote, editorLocator, loginAs, openGroupPanel, openSiteAdmi
  * 清理的錯誤被吞（不蓋掉原始失敗）；主體通過時清理失敗照常讓測試紅。
  */
 
-const TEMP_PASSWORD = "e2e-second-user-temp-pw";
-const NEW_PASSWORD = "e2e-second-user-pw-2";
+const PASSWORD = "e2e-second-user-pw";
 
 /** 1×1 紅色 PNG（同 11）。 */
 const PNG_1X1 = Buffer.from(
@@ -46,18 +45,9 @@ async function pickFromSubmenu(page: Page, triggerName: string, itemName: string
   await target.click();
 }
 
-/** admin 在站台管理 modal → 使用者建一個帳號（同 03／15）。呼叫前後都停在 "/"。 */
+/** admin 以邀請建一個帳號（API 建邀請＋另開 context 兌換，不動 admin 的頁面）。 */
 async function createUser(adminPage: Page, email: string, displayName: string): Promise<void> {
-  await openSiteAdmin(adminPage);
-  await adminPage.getByRole("button", { name: "Create user" }).click();
-  const dialog = adminPage.getByRole("dialog", { name: "Create user" });
-  await dialog.locator("#admin-create-email").fill(email);
-  await dialog.locator("#admin-create-password").fill(TEMP_PASSWORD);
-  await dialog.locator("#admin-create-display-name").fill(displayName);
-  await dialog.getByRole("button", { name: "Create", exact: true }).click();
-  await expect(dialog).not.toBeVisible();
-  await adminPage.keyboard.press("Escape");
-  await expect(adminPage).toHaveURL(/\/$/);
+  await createUserViaInvite(adminPage, { email, password: PASSWORD, displayName });
 }
 
 /** 依名字找群組 id（`context.request` 帶該 context 的 session cookie）；找不到回 null。 */
@@ -80,16 +70,11 @@ async function deleteGroupNamed(context: BrowserContext, name: string): Promise<
   return true;
 }
 
-/** 新 context 首登強改密，停在 "/"（同 03／15）。 */
+/** 新 context 登入，停在 "/"。 */
 async function firstLogin(browser: Browser, email: string): Promise<{ page: Page; close: () => Promise<void> }> {
   const context = await browser.newContext();
   const page = await context.newPage();
-  await loginAs(page, email, TEMP_PASSWORD);
-  await expect(page).toHaveURL(/\/change-password$/);
-  await page.locator("#change-password-current").fill(TEMP_PASSWORD);
-  await page.locator("#change-password-new").fill(NEW_PASSWORD);
-  await page.locator("#change-password-confirm").fill(NEW_PASSWORD);
-  await page.getByRole("button", { name: "Change password" }).click();
+  await loginAs(page, email, PASSWORD);
   await expect(page).toHaveURL(/\/$/);
   return { page, close: () => context.close() };
 }

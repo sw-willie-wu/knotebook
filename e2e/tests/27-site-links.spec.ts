@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type BrowserContext, type Locator, type Page } from "@playwright/test";
-import { ADMIN, createNote, editorLocator, loginAs, noteIdFromUrl, openSiteAdmin, randomEmail, reEscape, waitForEditorSelection } from "./helpers.js";
+import { ADMIN, createNote, createUserViaInvite, editorLocator, loginAs, noteIdFromUrl, randomEmail, reEscape, waitForEditorSelection } from "./helpers.js";
 
 /**
  * #269 站內連結（spec §15.3）：E1 點擊語意（讀者／編輯者都同分頁跳轉、修飾鍵新分頁、編輯者 hover 出工具列）、E2 段落錨點、E3 複製入口、
@@ -71,30 +71,15 @@ async function wikilinkAttrs(page: Page): Promise<WikilinkAttrs[]> {
   });
 }
 
-/** 站台管理建一個帳號 → 新 context 首登強改密碼（03-share-revoke 的流程）。回傳已登入、停在 `/` 的 page。 */
+/** admin 以邀請建一個帳號 → 新 context 登入。回傳已登入、停在 `/` 的 page。 */
 async function createViewer(browser: Browser, adminPage: Page): Promise<{ context: BrowserContext; page: Page; email: string }> {
   const email = randomEmail();
-  const tempPassword = "e2e-sitelinks-temp-pw";
-  await openSiteAdmin(adminPage);
-  await adminPage.getByRole("button", { name: "Create user" }).click();
-  const dialog = adminPage.getByRole("dialog", { name: "Create user" });
-  await dialog.locator("#admin-create-email").fill(email);
-  await dialog.locator("#admin-create-password").fill(tempPassword);
-  await dialog.locator("#admin-create-display-name").fill("E2E Site Links Viewer");
-  await dialog.getByRole("button", { name: "Create", exact: true }).click();
-  await expect(dialog).not.toBeVisible();
-  await adminPage.keyboard.press("Escape");
-  await expect(adminPage).toHaveURL(/\/$/);
+  const password = "e2e-sitelinks-user-pw";
+  await createUserViaInvite(adminPage, { email, password, displayName: "E2E Site Links Viewer" });
 
   const context = await browser.newContext();
   const page = await context.newPage();
-  await loginAs(page, email, tempPassword);
-  await expect(page).toHaveURL(/\/change-password$/);
-  const newPassword = "e2e-sitelinks-pw-2";
-  await page.locator("#change-password-current").fill(tempPassword);
-  await page.locator("#change-password-new").fill(newPassword);
-  await page.locator("#change-password-confirm").fill(newPassword);
-  await page.getByRole("button", { name: "Change password" }).click();
+  await loginAs(page, email, password);
   await expect(page).toHaveURL(/\/$/);
   return { context, page, email };
 }

@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN, editorLocator, loginAs, openGroupPanel, openSiteAdmin, randomEmail } from "./helpers.js";
+import { ADMIN, createUserViaInvite, editorLocator, loginAs, openGroupPanel, randomEmail } from "./helpers.js";
 
 /**
  * #175 群組 v2（spec §12.3 第 15 條，PR1 改寫自 #103 版）：A 建群組 → A 在群組建筆記（群組持有、
@@ -7,7 +7,7 @@ import { ADMIN, editorLocator, loginAs, openGroupPanel, openSiteAdmin, randomEma
  *『成員與設定』（群組面板）以 email 加 B（內建一般成員）→ B 側欄看得到、能編輯（共編互見）、也有分享鈕 → A 移除 B → B 連線
  * 被踢、該篇從 B 的側欄消失 → A 開刪除群組對話框：兩模式、預設「轉移給管理員」→ Cancel → 群組與該篇仍在
  * （PR4 起非空群組也刪得掉，真的刪除由 18-groups-delete 測）。
- * 斷言形沿用 03-share-revoke（兩個 context、UI 建第二使用者、10 秒 SLA、exact toast）。
+ * 斷言形沿用 03-share-revoke（兩個 context、邀請建第二使用者、10 秒 SLA、exact toast）。
  * 群組與筆記留著不清：e2e 疊每次 `stack:down -v` 重置。
  */
 test("群組：建立 → 群組建筆記（/g/ 網址）→ 設定加人 → 成員共編 → 移除即踢 → 刪除對話框預設轉移、取消後群組仍在", async ({ browser }) => {
@@ -18,19 +18,10 @@ test("群組：建立 → 群組建筆記（/g/ 網址）→ 設定加人 → �
     await loginAs(adminPage, ADMIN.email, ADMIN.password);
     await expect(adminPage).toHaveURL(/\/$/);
 
-    // ── admin 建第二使用者（同 03）──────────────────────────────────────
-    await openSiteAdmin(adminPage);
+    // ── admin 以邀請建第二使用者（API 建邀請＋另開 context 兌換）──────────────────────────────────────
     const secondEmail = randomEmail();
-    const tempPassword = "e2e-second-user-temp-pw";
-    await adminPage.getByRole("button", { name: "Create user" }).click();
-    const createUserDialog = adminPage.getByRole("dialog", { name: "Create user" });
-    await createUserDialog.locator("#admin-create-email").fill(secondEmail);
-    await createUserDialog.locator("#admin-create-password").fill(tempPassword);
-    await createUserDialog.locator("#admin-create-display-name").fill("E2E Group Member");
-    await createUserDialog.getByRole("button", { name: "Create", exact: true }).click();
-    await expect(createUserDialog).not.toBeVisible();
-    await adminPage.keyboard.press("Escape");
-    await expect(adminPage).toHaveURL(/\/$/);
+    const password = "e2e-second-user-pw";
+    await createUserViaInvite(adminPage, { email: secondEmail, password, displayName: "E2E Group Member" });
 
     // ── A：側欄工作坊「＋」建群組 ─────────────────────────────────────
     const groupName = `E2E Group ${Date.now()}`;
@@ -81,15 +72,9 @@ test("群組：建立 → 群組建筆記（/g/ 網址）→ 設定加人 → �
     await expect(adminPage).toHaveURL(noteUrl);
     await expect(adminPage.getByRole("button", { name: `Remove ${secondEmail}` })).toHaveCount(0);
 
-    // ── B：首登改密 → 側欄工作坊看得到那篇 → 開啟、可編輯、共編互見 ──────────
+    // ── B：登入 → 側欄工作坊看得到那篇 → 開啟、可編輯、共編互見 ──────────
     const userPage = await userContext.newPage();
-    await loginAs(userPage, secondEmail, tempPassword);
-    await expect(userPage).toHaveURL(/\/change-password$/);
-    const newPassword = "e2e-second-user-pw-2";
-    await userPage.locator("#change-password-current").fill(tempPassword);
-    await userPage.locator("#change-password-new").fill(newPassword);
-    await userPage.locator("#change-password-confirm").fill(newPassword);
-    await userPage.getByRole("button", { name: "Change password" }).click();
+    await loginAs(userPage, secondEmail, password);
     await expect(userPage).toHaveURL(/\/$/);
 
     const userSidebar = userPage.getByRole("complementary");

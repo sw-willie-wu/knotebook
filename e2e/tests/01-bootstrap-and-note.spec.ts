@@ -5,8 +5,7 @@ import { ADMIN, createNote, editorLocator, loginAs } from "./helpers.js";
  * §14.5 流程 1：env bootstrap admin 首登 → **不被強制改密碼**（#187 PR4，spec §10.1／W6）
  * → 直接進站，建筆記、打字、重整後內容還在。
  *
- * 強制改密碼（`ChangePasswordGate` → `/change-password`）的 E2E 覆蓋由 admin 代建帳號的
- * 第二使用者首登承擔：`03-share-revoke.spec.ts:61`（以及 15／16／17／18）。
+ * 強制改密碼不再有 e2e 覆蓋（代建已移除），由 `auth/guards.test.tsx`、`pages/ChangePasswordPage.test.tsx` 與 server 測試守。
  * `ADMIN.password` 是全疊唯一的 admin 密碼，後續 spec 直接用它登入。
  */
 test("env admin 首登不強改密 → 直接進站、建筆記 → 重整後內容還在", async ({ page }) => {

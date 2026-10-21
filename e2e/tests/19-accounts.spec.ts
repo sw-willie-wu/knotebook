@@ -323,11 +323,27 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
     }
   });
 
-  test("19-8：admin 連結第二服務 → 代建帳號 → 關閉帳密 → 新人以 SSO 首登、輸臨時密碼連結 → 被導去改密碼（B23 說明句）→ 進站；admin 的 session 仍有效", async ({ browser, request }) => {
+  test("19-8：admin 連結第二服務 → 關帳密、關自行註冊、關第二服務的自動建帳 → 建立邀請對話框顯示帳密已關、送出 disabled → 新人以 SSO 首登被拒 → 暫開第二服務的自動建帳 → 新人 SSO 首登建帳進站 → 關回；admin 的 session 仍有效", async ({ browser, request }) => {
     const { context, page } = await adminOnSignInPage(browser);
     const memberEmail = randomEmail();
-    const tempPassword = "e2e-19-8-temp-password";
+    const memberSub = `e2e-19-8-member-${randomUUID()}`;
+    type ProviderRow = { id: string; displayName: string; autoCreateEnabled: boolean };
+    const listProviders = async (): Promise<ProviderRow[]> => {
+      const res = await page.request.get("/api/admin/auth/providers");
+      expect(res.ok()).toBe(true);
+      return ((await res.json()) as { providers: ProviderRow[] }).providers;
+    };
+    // 原值在 try 內抓（比照 19-6）：抓取本身失敗時 original 維持 null，finally 退回固定值。
+    let original: { registrationEnabled: boolean; secondProvider: { id: string; autoCreateEnabled: boolean } } | null = null;
     try {
+      const settingsRes = await page.request.get("/api/admin/auth/settings");
+      expect(settingsRes.ok()).toBe(true);
+      const registrationEnabled = ((await settingsRes.json()) as { registrationEnabled: boolean }).registrationEnabled;
+      const second = (await listProviders()).find((row) => row.displayName === SECOND_NAME);
+      expect(second, `provider ${SECOND_NAME} not found`).toBeDefined();
+      original = { registrationEnabled, secondProvider: { id: second!.id, autoCreateEnabled: second!.autoCreateEnabled } };
+      const secondId = original.secondProvider.id;
+
       // 前輪殘留：admin 若已有 /b 的身分，「Link」鈕不會出現——先清（此時帳密登入開著、admin 有密碼，解除一定被允許）。
       const ids = await (await page.request.get("/api/auth/identities")).json();
       for (const identity of ids.identities as Array<{ id: string; issuer: string }>) {
@@ -338,21 +354,27 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
       await page.getByRole("button", { name: `Link ${SECOND_NAME}` }).click();
       await expect(page.getByText("Sign-in service linked.", { exact: true })).toBeVisible({ timeout: 20_000 });
 
-      await page.goto("/admin/users");
-      await page.getByRole("button", { name: "Create user" }).click();
-      const create = page.getByRole("dialog", { name: "Create user" });
-      await create.locator("#admin-create-email").fill(memberEmail);
-      await create.locator("#admin-create-password").fill(tempPassword);
-      await create.locator("#admin-create-display-name").fill("E2E Closed Member");
-      await create.getByRole("button", { name: "Create", exact: true }).click();
-      await expect(create).not.toBeVisible();
-
       await page.goto("/admin/login");
       await page.getByRole("switch", { name: "Allow password sign-in" }).click();
       const confirm = page.getByRole("dialog", { name: "Turn off password sign-in?" });
       await expect(confirm.getByText(/^Accounts with no usable sign-in service: \d+$/)).toBeVisible();
       await confirm.getByRole("button", { name: "Turn off" }).click();
       await expect(page.getByRole("switch", { name: "Allow password sign-in" })).toHaveAttribute("aria-checked", "false");
+
+      // 關自行註冊與第二服務的自動建帳（API）：新人 SSO 首登只剩「暫開自動建帳」這條路。
+      const closeReg = await page.request.patch("/api/admin/auth/settings", { data: { registrationEnabled: false } });
+      expect(closeReg.ok()).toBe(true);
+      const closeAuto = await page.request.patch(`/api/admin/auth/providers/${secondId}`, { data: { autoCreateEnabled: false } });
+      expect(closeAuto.ok()).toBe(true);
+
+      // 帳密關閉時，建立邀請對話框說明並禁止送出。
+      await page.goto("/admin/users");
+      await page.getByRole("button", { name: "Create invitation" }).click();
+      const inviteDialog = page.getByRole("dialog", { name: "Create an invitation" });
+      await expect(inviteDialog.getByText("Password sign-in is off on this site, so invitations can't be created or used.")).toBeVisible();
+      await expect(inviteDialog.getByRole("button", { name: "Create link" })).toBeDisabled();
+      await page.keyboard.press("Escape");
+      await expect(inviteDialog).not.toBeVisible();
 
       const member = await browser.newContext();
       try {
@@ -365,21 +387,21 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
         expect(api.status()).toBe(403);
         expect((await api.json()).error.code).toBe("password_login_disabled");
 
-        await nextLogin(request, SECOND_CONTROL_URL, { sub: `e2e-19-8-member-${randomUUID()}`, email: memberEmail });
+        // 新人 SSO 首登：自行註冊關、第二服務不建帳 → 被拒。
+        await nextLogin(request, SECOND_CONTROL_URL, { sub: memberSub, email: memberEmail, name: "E2E Closed Member" });
         await p.getByRole("link", { name: `Sign in with ${SECOND_NAME}` }).click();
-        await expect(p).toHaveURL(/\/link-account$/, { timeout: 20_000 });
-        await p.getByLabel("Password for this account").fill(tempPassword);
-        await p.getByRole("button", { name: "Confirm with password and link" }).click();
-        await expect(p).toHaveURL(/\/change-password$/);
-        await expect(
-          p.getByText("This site only allows signing in through a sign-in service right now. This password won't be used to sign in for now, but you still need to replace the temporary password the site administrator set."),
-        ).toBeVisible();
-        await p.locator("#change-password-current").fill(tempPassword);
-        await p.locator("#change-password-new").fill(NEW_PASSWORD);
-        await p.locator("#change-password-confirm").fill(NEW_PASSWORD);
-        await p.getByRole("button", { name: "Change password" }).click();
-        await expect(p).toHaveURL(/\/$/);
+        await expect(p.getByRole("alert")).toHaveText("New accounts can't be created this way right now. Please contact the site administrator.", { timeout: 20_000 });
+
+        // 暫開第二服務的自動建帳 → 同一個人再 SSO 首登 → 建帳進站。
+        const openAuto = await page.request.patch(`/api/admin/auth/providers/${secondId}`, { data: { autoCreateEnabled: true } });
+        expect(openAuto.ok()).toBe(true);
+        await nextLogin(request, SECOND_CONTROL_URL, { sub: memberSub, email: memberEmail, name: "E2E Closed Member" });
+        await p.goto("/login");
+        await p.getByRole("link", { name: `Sign in with ${SECOND_NAME}` }).click();
+        await expect(p).toHaveURL(/\/$/, { timeout: 20_000 });
         await expect(p.getByRole("button", { name: "E2E Closed Member", exact: true })).toBeVisible();
+        const closeAutoAgain = await page.request.patch(`/api/admin/auth/providers/${secondId}`, { data: { autoCreateEnabled: false } });
+        expect(closeAutoAgain.ok()).toBe(true);
       } finally {
         await member.close();
       }
@@ -387,10 +409,26 @@ test.describe.serial("19 帳號與登入服務（#187）", () => {
       // B25：admin 用密碼登入的 session 在關閉後仍有效。
       expect((await page.request.get("/api/auth/me")).status()).toBe(200);
     } finally {
-      // 一律開回（否則髒疊重跑時 01／05 等帳密登入全掛；救不回就 stack:down，[[knotebook-local-workflow]]）。
-      const res = await page.request.patch("/api/admin/auth/settings", { data: { passwordLoginEnabled: true } });
-      expect(res.ok()).toBe(true);
-      await context.close();
+      try {
+        // 先收集、後斷言：不逐發斷言，免得前一發失敗就跳過後面的還原（比照 19-6）。
+        const results = [];
+        // 一律開回（否則髒疊重跑時 01／05 等帳密登入全掛；救不回就 stack:down，[[knotebook-local-workflow]]）。
+        results.push(await page.request.patch("/api/admin/auth/settings", { data: { passwordLoginEnabled: true } }));
+        if (original !== null) {
+          results.push(await page.request.patch(`/api/admin/auth/providers/${original.secondProvider.id}`, { data: { autoCreateEnabled: original.secondProvider.autoCreateEnabled } }));
+          results.push(await page.request.patch("/api/admin/auth/settings", { data: { registrationEnabled: original.registrationEnabled } }));
+        } else {
+          // 原值沒抓到（開頭就掛）：退回固定值——第二服務會建帳（19-1 打開的值、19-4 依賴）、自行註冊開（預設）。
+          for (const row of await listProviders()) {
+            if (row.displayName !== SECOND_NAME) continue;
+            results.push(await page.request.patch(`/api/admin/auth/providers/${row.id}`, { data: { autoCreateEnabled: true } }));
+          }
+          results.push(await page.request.patch("/api/admin/auth/settings", { data: { registrationEnabled: true } }));
+        }
+        expect(results.map((r) => r.ok())).not.toContain(false);
+      } finally {
+        await context.close();
+      }
     }
   });
 
