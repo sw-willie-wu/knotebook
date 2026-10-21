@@ -228,7 +228,7 @@ describe("S14 結構性守衛（#175 §4.4）", () => {
       "notes/editing/revert.ts": 1,
       "notes/tx/write-slug.ts": 1, // writeSlugInTx 的 savepoint（巢狀 tx.transaction）
       "routes/admin-ai.ts": 2,
-      "routes/admin-users.ts": 3, // 代建使用者（inline）＋ #247 降級（demoteSiteAdminInTx）＋ #286 停用（disableUserInTx）
+      "routes/admin-users.ts": 2, // #247 降級（demoteSiteAdminInTx）＋ #286 停用（disableUserInTx）
       "routes/auth.ts": 1,
       "routes/oauth.ts": 1,
     });

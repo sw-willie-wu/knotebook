@@ -1,35 +1,21 @@
-import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { and, asc, eq, sql } from "drizzle-orm";
-import { normalizeEmail, normalizeHandle, validateHandle, type SpaceStorageDto } from "@knotebook/shared";
+import type { SpaceStorageDto } from "@knotebook/shared";
 import { sendError } from "../http/errors.js";
 import type { Db } from "../db/index.js";
-import { handles, oneTimeLinks, storagePlans, users } from "../db/schema.js";
+import { oneTimeLinks, storagePlans, users } from "../db/schema.js";
 import { activeOneTimeLink } from "../auth/one-time-link.js";
 import { disableUserInTx } from "../auth/tx/disable-user.js";
-import { deriveHandle } from "../auth/handle.js";
-import { hashPassword, HashBusyError } from "../auth/password.js";
 import type { UserGate } from "../auth/session.js";
 import type { CollabHooks } from "../collab/hooks.js";
 import { UUID_RE } from "../notes/service.js";
-import { MIN_PASSWORD_LENGTH } from "../auth/constants.js";
-import { foreignKeyViolationConstraint, notNullViolationColumn, uniqueViolationConstraint } from "../db/pg-errors.js";
-import { SITE_SETTINGS_MISSING_MESSAGE } from "../auth/tx/admin-site-settings.js";
+import { foreignKeyViolationConstraint } from "../db/pg-errors.js";
 import { listSpaceUsage, readSpaceUsage } from "../storage/usage.js";
 import { redactDbError } from "../lib/redact-db-error.js";
 import { TxAbort } from "../http/tx-abort.js";
 import type { AdminTestHook } from "../auth/admin-test-hook.js";
 import { demoteSiteAdminInTx } from "../auth/tx/admin-demote.js";
-
-const createBodySchema = z.object({
-  email: z.string().email(),
-  password: z.string(),
-  displayName: z.string().min(1),
-  isAdmin: z.boolean().optional(),
-  /** #122：選填使用者名——空＝從 email local-part 派生（spec §2b）。 */
-  handle: z.string().optional(),
-});
 
 /** 儲存配額 §7.2：指派方案的 body（strict——多餘欄 400）。 */
 const assignPlanSchema = z.object({ planId: z.string() }).strict();
@@ -106,13 +92,13 @@ const adminUserColumns = {
   lastLoginAt: users.lastLoginAt,
   lastActiveAt: users.lastActiveAt,
   hasPassword: sql<boolean>`${users.passwordHash} is not null`,
-  // ⚠ 外層參照 `users.id` 必須留在巢狀的 `and(…)` 裡：drizzle 0.44 在單表 RETURNING（POST 代建、PATCH storage-plan）會把
+  // ⚠ 外層參照 `users.id` 必須留在巢狀的 `and(…)` 裡：drizzle 0.44 在單表 RETURNING（PATCH storage-plan）會把
   // SQL 表達式**頂層**的欄位參照去掉表名，頂層的 `${users.id}` 變成 `"id"`、在子查詢內被解析成 one_time_links.id，靜默變 null（spec §4.2）。
   // `.mapWith` 不可省：不加會拿到 pg 原始字串。
   passwordResetExpiresAt: sql`(select ${oneTimeLinks.expiresAt} from ${oneTimeLinks} where ${and(eq(oneTimeLinks.targetUserId, users.id), activeOneTimeLink("password_reset"))})`.mapWith(oneTimeLinks.expiresAt),
 };
 
-/** 單一使用者的 storage 欄（POST／PATCH 回應用；GET 列表走 GROUP BY 一次）。 */
+/** 單一使用者的 storage 欄（PATCH 回應用；GET 列表走 GROUP BY 一次）。 */
 async function storageOfUser(db: Db, userId: string): Promise<SpaceStorageDto> {
   const usage = await readSpaceUsage(db, { kind: "user", id: userId });
   if (!usage) throw new Error(`storageOfUser: 找不到使用者 ${userId}`);
@@ -140,104 +126,6 @@ export function adminUsersRoutes(deps: AdminUsersRouteDeps) {
         .innerJoin(storagePlans, eq(storagePlans.id, users.storagePlanId))
         .orderBy(asc(users.createdAt), asc(users.id));
       return rows.map(r => toAdminUserDto(r, { planId: r.planId, planName: r.planName, usedBytes: usage.get(r.id) ?? 0, quotaBytes: r.quotaBytes }));
-    });
-
-    app.post("/api/admin/users", { preHandler: app.requireAdmin }, async (request, reply) => {
-      const parsed = createBodySchema.safeParse(request.body);
-      if (!parsed.success) {
-        return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
-      }
-      // 寫入端正規化（spec §14.3 單一漏斗）：重複判定仍照舊由 unique 約束的 409
-      // email_taken 承擔，這裡不新增預查（§14.3 ④）。
-      const email = normalizeEmail(parsed.data.email);
-      const { password, displayName, isAdmin } = parsed.data;
-
-      if (password.length < MIN_PASSWORD_LENGTH) {
-        return sendError(reply, 400, "password_too_short", `密碼至少需要 ${MIN_PASSWORD_LENGTH} 字元`);
-      }
-
-      // #122：選填 handle——填了先驗證（400，不落 DB CHECK 500；空字串也是顯式非法值，
-      // 不當成「空＝派生」）。放在 hashPassword 之前：非法 handle 不值得燒一次 argon2。
-      let explicitHandle: string | undefined;
-      if (parsed.data.handle !== undefined) {
-        const normalized = normalizeHandle(parsed.data.handle);
-        if (validateHandle(normalized) !== null) {
-          return sendError(reply, 400, "invalid_body", "使用者名格式不合法（1–32 字元、小寫英數與連字號，不可頭尾/連續連字號）");
-        }
-        explicitHandle = normalized;
-      }
-
-      let passwordHash: string;
-      try {
-        passwordHash = await hashPassword(password);
-      } catch (err) {
-        if (err instanceof HashBusyError) {
-          return sendError(reply, 429, "server_busy", "伺服器忙碌，請稍後再試");
-        }
-        throw err;
-      }
-
-      /**
-       * #122 registry-first（spec §2a/§2b）：每次嘗試＝一個全新 tx（先 INSERT handles
-       * 由 PK 裁決、再 INSERT users）——**改掉原本的獨立語句形**（users 先寫則 registry 不再是唯一裁決者）。
-       * 重試契約：派生撞名（探測後的真競態）→ 整 tx 重跑、重新探測，≤3 次後第 4 次
-       * 直接用 `user-<uuid8>`；顯式指定者不重試、409 `handle_taken`。
-       * 判別依 constraint 名（M4-2）：舊的「任何 unique violation → email_taken」會把
-       * handle 撞名誤報成 email 已被使用。
-       */
-      const MAX_DERIVE_ATTEMPTS = 3;
-      let created: AdminUserRow | undefined;
-      // 迴圈以 attempt 上界收束（讀碼審查 m5）：`created === undefined` 當唯一條件時，
-      // 若 tx 意外 resolve undefined 會無界自旋、每圈真的建出一個 uuid8 使用者。
-      for (let attempt = 1; created === undefined && attempt <= MAX_DERIVE_ATTEMPTS + 1; attempt += 1) {
-        const id = randomUUID();
-        try {
-          created = await deps.db.transaction(async tx => {
-            const handle =
-              explicitHandle ??
-              (attempt <= MAX_DERIVE_ATTEMPTS ? await deriveHandle(tx, [email.split("@")[0]], id) : `user-${id.slice(0, 8)}`);
-            await tx.insert(handles).values({ handle, userId: id, state: "live" });
-            // spec rev 5.7 / §14.2：admin UI 代建的帳號一律掛 mustChangePassword=true（密碼是
-            // admin 代選，非本人自訂）——與 OIDC 自動建帳刻意不同，那邊維持 DB 預設 false。
-            const [row] = await tx
-              .insert(users)
-              .values({ id, email, passwordHash, displayName, isAdmin: isAdmin ?? false, mustChangePassword: true, handle })
-              .returning(adminUserColumns);
-            return row;
-          });
-        } catch (err) {
-          const constraint = uniqueViolationConstraint(err);
-          if (constraint === "users_email_unique") {
-            return sendError(reply, 409, "email_taken", "此 email 已被使用");
-          }
-          if (constraint === "handles_pkey" || constraint === "users_handle_unique") {
-            if (explicitHandle !== undefined) {
-              return sendError(reply, 409, "handle_taken", "此使用者名已被使用");
-            }
-            if (attempt <= MAX_DERIVE_ATTEMPTS) continue; // 整 tx 重跑（重新探測；第 4 次退 uuid8）
-          }
-          // 儲存配額 §10（m9）：改預設 P→Q 後立刻刪 P，與本 INSERT（DEFAULT 已讀到 P）交錯 → 23503。重試會讀到 Q。
-          if (foreignKeyViolationConstraint(err) === "users_storage_plan_fk") {
-            return sendError(reply, 409, "server_busy", "伺服器忙碌，請稍後再試");
-          }
-          // §4.2 契約變更：site_settings 沒有列 → DEFAULT 函式回 NULL → 23502。比照 B27（routes/admin-auth.ts:114）：先記錯（物件
-          // 開頭——captureLogs 只收這形）再直接回 500，不把原錯誤丟給全域 handler。
-          if (notNullViolationColumn(err) === "storage_plan_id") {
-            request.log.error({ table: "site_settings" }, SITE_SETTINGS_MISSING_MESSAGE);
-            return sendError(reply, 500, "internal", "伺服器內部錯誤");
-          }
-          // 其餘非預期錯誤一律遮蔽：drizzle 的 DrizzleQueryError 把 INSERT 的 params（含 password_hash）串進 message／params，
-          // pg 的 detail 也帶整列——原樣丟給全域 handler 會把密碼雜湊寫進 log（storage-accounts 測試實測）。
-          throw redactDbError(request.log, err, "建立使用者");
-        }
-      }
-
-      if (created === undefined) {
-        // 不應到達（第 4 次的 uuid8 也撞名＝~2^-32 級；或 tx 意外 resolve undefined）——
-        // fail loud 進全域 500，不靜默重試下去。
-        throw new Error("admin 建帳：handle 配置重試耗盡");
-      }
-      return reply.code(201).send(toAdminUserDto(created, await storageOfUser(deps.db, created.id)));
     });
 
     app.post("/api/admin/users/:id/disable", { preHandler: app.requireAdmin }, async (request, reply) => {

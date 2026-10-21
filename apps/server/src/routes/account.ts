@@ -246,7 +246,7 @@ export function accountRoutes(deps: AccountRouteDeps) {
           if ((constraint === "handles_pkey" || constraint === "users_handle_unique") && attempt <= MAX_DERIVE_ATTEMPTS) continue;
           // 儲存配額 §10（m9）：預設方案被刪的競態 → 23503。
           if (foreignKeyViolationConstraint(err) === "users_storage_plan_fk") return sendError(reply, 409, "server_busy", "伺服器忙碌，請稍後再試");
-          // site_settings 沒有列 → DEFAULT 函式回 NULL → 23502（同 admin 建帳：先記錯再回 500）。
+          // site_settings 沒有列 → DEFAULT 函式回 NULL → 23502。
           if (notNullViolationColumn(err) === "storage_plan_id") {
             request.log.error({ table: "site_settings" }, SITE_SETTINGS_MISSING_MESSAGE);
             return sendError(reply, 500, "internal", "伺服器內部錯誤");

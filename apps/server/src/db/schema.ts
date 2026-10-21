@@ -53,7 +53,8 @@ export const users = pgTable("users", {
   disabledAt: timestamp("disabled_at", { withTimezone: true }),
   tokenVersion: integer("token_version").notNull().default(0),
   // 首登強制改密碼（spec rev 5.7 / §14.2；#187 PR4 起 env bootstrap 管理員不再掛）：
-  // 寫入端：只有 admin UI 代建時寫 true；OIDC 自動建帳與 env bootstrap 為 false。
+  // 已沒有寫入端（#285 拿掉代建）；只剩舊版代建、尚未改密碼的帳號帶著它。
+  // OIDC 自動建帳、env bootstrap、註冊、接受邀請皆為 false。
   mustChangePassword: boolean("must_change_password").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   // 儲存配額（spec §4.2）：使用者個人空間的方案。DEFAULT 呼叫手寫 SQL 函式 `public.knotebook_default_storage_plan('user')`

@@ -392,7 +392,7 @@ describe("AdminUserDto 的 hasPassword／passwordResetExpiresAt（G8）", () => 
     return new Map((res.json() as Dto[]).map(u => [u.id, u]));
   }
 
-  it("GET／PATCH storage-plan／POST 代建三種回應；過期與撤銷 → null；回應不含 token 或雜湊", async () => {
+  it("GET／PATCH storage-plan 兩種回應；過期與撤銷 → null；回應不含 token 或雜湊", async () => {
     const { app, db, cookies } = await setup();
     const a = await userWithPassword(db);
     const b = await userWithPassword(db);
@@ -427,16 +427,6 @@ describe("AdminUserDto 的 hasPassword／passwordResetExpiresAt（G8）", () => 
     expect((await listed(app, cookies)).get(a.id)!.passwordResetExpiresAt).not.toBeNull();
     await db.execute(sql`update one_time_links set revoked_at = now() where target_user_id = ${a.id} and revoked_at is null`);
     expect((await listed(app, cookies)).get(a.id)!.passwordResetExpiresAt).toBeNull();
-
-    const created = await app.inject({
-      method: "POST",
-      url: "/api/admin/users",
-      cookies,
-      payload: { email: `g8-${randomUUID().slice(0, 8)}@example.com`, password: "a-strong-password", displayName: "G8" },
-    });
-    expect(created.statusCode).toBe(201);
-    bodies.push(created.body);
-    expect(created.json()).toMatchObject({ hasPassword: true, passwordResetExpiresAt: null });
 
     for (const body of bodies) {
       for (const token of tokens) {

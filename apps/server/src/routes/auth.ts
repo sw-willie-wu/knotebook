@@ -122,7 +122,7 @@ export function authRoutes(deps: AuthRouteDeps) {
         return sendLoginThrottled(reply, throttleCheck.retryAfterMs!);
       }
 
-      // lower() 讀取端比對，與寫入端（admin-users.ts／bootstrap.ts 皆存正規化小寫）
+      // lower() 讀取端比對，與寫入端（auth/tx/register.ts／bootstrap.ts 皆存正規化小寫）
       // 對稱；多列命中防護：createdAt/id 排序取第一列（正常情況下 email 有 unique
       // 約束不會有多列，這裡是防禦縱深）。
       const [user] = await deps.db

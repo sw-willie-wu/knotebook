@@ -21,7 +21,7 @@ function matchesCode(err: unknown, target: string): boolean {
  * 最外層變成未預期的 500。
  *
  * 共用處：`routes/oidc.ts`（整-tx-重投的觸發判定）、`routes/admin-ai.ts`（model 唯一鍵）。
- * `routes/notes.ts`、`routes/admin-users.ts` 與 `routes/auth.ts` 自 #122 起改用下面的
+ * `routes/notes.ts`、`routes/account.ts` 與 `routes/auth.ts` 改用下面的
  * `uniqueViolationConstraint`（各自的表有多把唯一鍵，需要 constraint 名分流）。
  */
 export function isUniqueViolation(err: unknown): boolean {
@@ -63,7 +63,7 @@ export function isForeignKeyViolation(err: unknown): boolean {
 /**
  * pg 的 serialization_failure（40001）／deadlock_detected（40P01）——`notes/links.ts` 的
  * `writeNoteLinks` 用它辨識「交易本身沒有邏輯錯誤，純粹是併發衝突」的情況，映射成 409
- * `server_busy`（既有 code，setup/auth/admin-users 的 `HashBusyError` 已在用；此處是第二個
+ * `server_busy`（既有 code，setup/auth/邀請兌換的 `HashBusyError` 已在用；此處是第二個
  * 發送點，語意皆為「請稍後重試」，code 與 HTTP status 本非一對一）。與 `isForeignKeyViolation`
  * 分開判定：FK violation 代表某個 target 筆記在授權查詢之後、寫入之前被刪除（可恢復——剔除
  * 該 target 重試一次），這兩個 40001/40P01 代表 DB 層級的交易衝突（不可恢復，直接回應

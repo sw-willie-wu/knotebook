@@ -19,12 +19,12 @@ export interface UserDto {
   id: string;
   email: string;
   /** #122：URL 用的使用者名（/n/<handle>/…）。建帳時派生（OIDC preferred_username →
-   * email local-part）或 admin 指定；settings 可改（改名＝舊網址即死；舊名釋出、任何人可再取用）。 */
+   * email local-part）；settings 可改（改名＝舊網址即死；舊名釋出、任何人可再取用）。 */
   handle: string;
   displayName: string;
   isAdmin: boolean;
-  /** 首登強制改密碼旗標（spec rev 5.7 / §14.2）：admin UI 代建時寫 true；#187 PR4 起新建的
-   * env bootstrap 管理員與 OIDC 自動建帳為 false。web 端的 `ChangePasswordGate` 依此
+  /** 首登強制改密碼旗標（spec rev 5.7 / §14.2）：已沒有寫入端（#285 拿掉代建），只剩舊版代建、尚未改密碼的帳號帶著它；
+   * env bootstrap 管理員、OIDC 自動建帳、註冊、接受邀請皆為 false。web 端的 `ChangePasswordGate` 依此
    * 導向 `/change-password`——見 apps/web/src/auth/guards.tsx。 */
   mustChangePassword: boolean;
   /** OIDC-only 帳號為 false；設定 modal 據此隱藏改密表單——spec §14.4。 */
@@ -322,7 +322,7 @@ export const ONLINE_WINDOW_MS = 5 * 60 * 1000;
 // `slug_taken`（Task 8 slug unique violation）——這兩碼尚未落地於 grep 結果，屬預先保留。
 // Plan 3：`not_loaded` 已落地（Task 5）——`POST /api/notes/:id/links` 409：該筆記尚未載入
 // 進 collab server 記憶體，或提交者無該筆記開啟中的連線，`linkSyncGate` 回 `{ok:false}`，
-// 不落地任何寫入。`server_busy` 除 auth/admin-users 的 429（`HashBusyError`，argon2 併發
+// 不落地任何寫入。`server_busy` 除需要雜湊密碼的端點的 429（`HashBusyError`，argon2 併發
 // 超限）外，Task 5 新增第二個發送點——同一個 `POST /api/notes/:id/links` 的 409：
 // `writeNoteLinks` 交易撞上 pg `serialization_failure`/`deadlock_detected`
 // （40001/40P01，剔除消失 target 重試一次後仍失敗才會落到這裡）；純 DB 層級的併發衝突，
@@ -331,7 +331,7 @@ export const ONLINE_WINDOW_MS = 5 * 60 * 1000;
 // （Plan 3 已落地）。spec §14.2：setup token 流程退役，`invalid_setup_token`/
 // `already_setup`/`invalid_email`/`invalid_display_name`/`bootstrap_email_mismatch`
 // 五碼隨之刪除（唯一消費者已隨 setup token 路由一併移除；`password_too_short` 仍由
-// `routes/auth.ts`／`routes/admin-users.ts` 消費，留用）。
+// `routes/auth.ts`／`routes/account.ts` 消費，留用）。
 export const ERROR_CODES = [
   "unauthorized",
   "forbidden",

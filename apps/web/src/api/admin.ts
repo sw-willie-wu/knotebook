@@ -27,7 +27,7 @@ export interface AdminUserDto {
   hasPassword: boolean;
   /** #286：未用、未撤銷、未過期那一支重設連結的到期時間（ISO）；null＝沒有。帳密登入關閉期間照樣顯示。 */
   passwordResetExpiresAt: string | null;
-  /** 儲存配額 §7.2、§7.4：個人空間的方案與用量（GET／POST／PATCH storage-plan 都帶）。 */
+  /** 儲存配額 §7.2、§7.4：個人空間的方案與用量（GET／PATCH storage-plan 都帶）。 */
   storage: SpaceStorageDto;
 }
 
