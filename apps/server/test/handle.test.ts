@@ -294,6 +294,91 @@ describe("admin 建帳路徑（spec §2b；constraint 判別 M4-2）", () => {
   });
 });
 
+describe("接受邀請建帳路徑（#285；registry-first 與重試契約同註冊）", () => {
+  async function inviteApp() {
+    const { app, db } = await buildTestApp();
+    await db.insert(users).values({
+      email: "admin@x.example",
+      displayName: "Admin",
+      isAdmin: true,
+      passwordHash: await hashPassword("a-very-long-pw"),
+      handle: "admin",
+    });
+    await backfillHandleRegistry(db, { warn: () => {}, info: () => {} } as unknown as pino.Logger);
+    const login = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { email: "admin@x.example", password: "a-very-long-pw" },
+    });
+    expect(login.statusCode).toBe(200);
+    const cookie = login.cookies.find((c) => c.name === SESSION_COOKIE)!;
+    return { app, db, cookies: { [cookie.name]: cookie.value } };
+  }
+
+  /** admin 建邀請 → 不帶 cookie 接受邀請。 */
+  async function acceptVia(app: Awaited<ReturnType<typeof inviteApp>>["app"], cookies: Record<string, string>, body: object) {
+    const issued = await app.inject({ method: "POST", url: "/api/admin/invites", cookies, payload: { expiresInDays: 1 } });
+    expect(issued.statusCode, issued.body).toBe(201);
+    return app.inject({ method: "POST", url: "/api/auth/invite/accept", payload: { token: issued.json().token, ...body } });
+  }
+
+  const ACCEPT = { email: "new.user@x.example", password: "another-long-pw", displayName: "New" };
+
+  it("派生自 email local-part；201 body 帶 handle；registry 一致", async () => {
+    const { app, db, cookies } = await inviteApp();
+    const res = await acceptVia(app, cookies, ACCEPT);
+    expect(res.statusCode, res.body).toBe(201);
+    expect(res.json().handle).toBe("new-user");
+    await expectLiveRegistry(db, "new.user@x.example");
+  });
+
+  it("交易內才撞 email（另一連線持有同 email 的未提交列）→ 409 email_taken；失敗的建帳不燒掉 handle（tx 原子性）", async () => {
+    // 交易外的 email 預查會先擋已提交的同 email，所以以未提交的列讓撞名發生在交易內的 users_email_unique。
+    const { app, db, cookies } = await inviteApp();
+    const before = (await db.select().from(handles)).map((row) => row.handle).sort();
+    const holder = await db.$client.connect();
+    let pending: ReturnType<typeof acceptVia> | undefined;
+    try {
+      await holder.query("begin");
+      await holder.query("insert into users (email, display_name, handle) values ('new.user@x.example', 'H', 'holder-285')");
+      pending = acceptVia(app, cookies, ACCEPT);
+      expect(await waitForBlockedOrSettled(db.$client, pending)).toBe("blocked");
+    } finally {
+      await holder.query("commit");
+      holder.release();
+    }
+    const res = await pending!;
+    expect(res.statusCode, res.body).toBe(409);
+    expect(res.json().error.code).toBe("email_taken");
+    const after = (await db.select().from(handles)).map((row) => row.handle).sort();
+    expect(after).toEqual(before);
+  });
+
+  it("派生撞名 → 探測自動避讓（-2），不 409；registry 一致", async () => {
+    const { app, db, cookies } = await inviteApp();
+    await db.insert(handles).values({ handle: "new-user", userId: "99999999-aaaa-4bbb-8ccc-000000000019", state: "live" });
+    const res = await acceptVia(app, cookies, ACCEPT);
+    expect(res.statusCode, res.body).toBe(201);
+    expect(res.json().handle).toBe("new-user-2");
+    await expectLiveRegistry(db, "new.user@x.example");
+  });
+
+  it("派生撞 users_handle_unique（窗期形）→ 重試耗盡 → 第 4 次退 user-<uuid8>", async () => {
+    const { app, db, cookies } = await inviteApp();
+    // 'new-user' 只在 users.handle（無 registry 列）：deriveHandle 探測看不見，INSERT users 才撞；重試 1–3 次同樣撞，第 4 次退 uuid8。
+    await db.insert(users).values({
+      id: "12121212-aaaa-4bbb-8ccc-000000000112",
+      email: "window@x.example",
+      displayName: "W",
+      handle: "new-user",
+    });
+    const res = await acceptVia(app, cookies, ACCEPT);
+    expect(res.statusCode, res.body).toBe(201);
+    expect(res.json().handle).toMatch(/^user-[0-9a-f]{8}$/);
+    await expectLiveRegistry(db, "new.user@x.example");
+  });
+});
+
 describe("OIDC 建帳路徑（preferred_username；spec §2b M3-8）", () => {
   // 工具形比照 oidc-callback.test.ts 的檔內私有慣例，這裡自帶一份。
   const ISSUER_URL = "https://idp.example.com";
