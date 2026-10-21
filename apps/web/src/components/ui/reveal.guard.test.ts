@@ -34,7 +34,7 @@ describe("hover 浮出與拖曳把手的 class 來源層守衛", () => {
   it("reveal.ts 的 BASE 與 SCOPE 是完整字面（沒有樣板拼接）", () => {
     const source = readFileSync(`${root}/components/ui/reveal.ts`, "utf8").replace(/\r\n/g, "\n");
     const segment = between(source, "const BASE =", "\n};");
-    // 片段真的涵蓋三個 scope（錨點沒漂走）。
+    // 片段真的涵蓋兩個 scope（錨點沒漂走）。
     for (const scope of ["grouprow", "noterow"]) {
       expect(segment).toContain(`group-hover/${scope}:opacity-100`);
     }
