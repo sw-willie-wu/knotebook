@@ -56,7 +56,7 @@ describe("SiteAccessSettings（#187 §9.4、§9.5）", () => {
   it("註冊 Switch：切換即 PATCH {registrationEnabled}（說明在旁）", async () => {
     const { patches } = setup(BASE, body => ({ ...BASE, ...body }));
     const sw = await screen.findByRole("switch", { name: "Allow self-registration with a password" });
-    expect(screen.getByText("Anyone can create an account on the registration page with an email and a password. Whether a sign-in service creates accounts is set for each service below.")).toBeInTheDocument();
+    expect(screen.getByText("Anyone can create an account on the registration page with an email and a password. Whether a sign-in service creates accounts is set for each service below. Invitations created by an admin work either way.")).toBeInTheDocument();
     fireEvent.click(sw);
     await waitFor(() => expect(sw).toHaveAttribute("aria-checked", "false"));
     expect(patches).toEqual([{ registrationEnabled: false }]);
@@ -69,7 +69,7 @@ describe("SiteAccessSettings（#187 §9.4、§9.5）", () => {
     const password = screen.getByRole("switch", { name: "Allow password sign-in" });
     const registration = screen.getByRole("switch", { name: "Allow self-registration with a password" });
     expect(screen.getAllByRole("switch")).toEqual([password, registration]);
-    expect(screen.getByText("Anyone can create an account on the registration page with an email and a password. Whether a sign-in service creates accounts is set for each service below.")).toBeInTheDocument();
+    expect(screen.getByText("Anyone can create an account on the registration page with an email and a password. Whether a sign-in service creates accounts is set for each service below. Invitations created by an admin work either way.")).toBeInTheDocument();
   });
 
   it("S2：帳密有效值關 → 自行註冊 Switch 照常可操作，可見說明以 aria-describedby 連到開關，點擊 PATCH {registrationEnabled:false}", async () => {

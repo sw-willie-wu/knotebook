@@ -66,6 +66,10 @@ const PANEL3_GETS: Record<string, unknown> = {
     { id: "u-admin", email: "admin@example.com", handle: "admin", displayName: "Admin", isAdmin: true, disabledAt: null, createdAt: T, lastLoginAt: T, lastActiveAt: T, hasPassword: true, passwordResetExpiresAt: null, storage: PLAN_STORAGE },
     { id: "u-b", email: "b@example.com", handle: "b", displayName: "B", isAdmin: false, disabledAt: null, createdAt: T, lastLoginAt: null, lastActiveAt: null, hasPassword: true, passwordResetExpiresAt: null, storage: PLAN_STORAGE },
   ],
+  "/api/admin/invites": [
+    { id: "i-1", label: "Alice", status: "pending", createdAt: T, expiresAt: T, usedAt: null, revokedAt: null, createdBy: { id: "u-admin", email: "admin@example.com" }, usedBy: null },
+    { id: "i-2", label: null, status: "pending", createdAt: T, expiresAt: T, usedAt: null, revokedAt: null, createdBy: null, usedBy: null },
+  ],
   "/api/admin/storage-plans": { plans: [PLAN], defaults: { userPlanId: PLAN.id, groupPlanId: PLAN.id } },
   "/api/admin/groups": [{ id: GROUP_ID, name: "Team Alpha", createdAt: T, memberCount: 2, storage: PLAN_STORAGE }],
   "/api/admin/versions/settings": { keepAllDays: 7, dailyUntilDays: 30, autoVersionsEnabled: true, autoWaitMinutes: 5 },
@@ -162,7 +166,7 @@ export const PANEL_PAGES: PanelPageCase[] = [
   { name: "群組：角色", path: `/groups/${GROUP_ID}/roles`, ready: () => screen.findByRole("region", { name: "Reader" }), minButtons: 21 }, // 實測 21：New role＋三張角色卡各 6 個權限 switch＋自訂角色的鉛筆、紅垃圾桶
   { name: "群組：儲存空間", path: `/groups/${GROUP_ID}/storage`, ready: () => screen.findByText("@admin"), minButtons: 1 }, // 實測 1：自動版本 switch
   { name: "群組：關於", path: `/groups/${GROUP_ID}/about`, ready: async () => { await screen.findByRole("button", { name: "Delete group" }); return screen.findByRole("button", { name: "Leave group" }); }, minButtons: 3 }, // 實測 3：Save name、Leave group、Delete group（Leave 等成員清單到、且非唯一管理員才出現）
-  { name: "站台：使用者", path: "/admin/users", ready: () => screen.findByText("b@example.com"), minButtons: 5 }, // 實測 5：Create user＋兩列重設鈕＋兩列啟用 switch
+  { name: "站台：使用者", path: "/admin/users", ready: async () => { await screen.findByText("b@example.com"); return screen.findByText("Alice"); }, minButtons: 7 }, // 實測 7：Create invitation＋兩列重設鈕＋兩列啟用 switch＋兩列撤銷垃圾桶（邀請表兩列 pending）
   { name: "站台：群組", path: "/admin/groups", ready: () => screen.findByRole("combobox", { name: "Storage plan for Team Alpha" }), minButtons: 0 }, // 實測 0：只有方案下拉（spec §7.0 不改、沒有刪除鈕），0 是真值
   { name: "站台：登入", path: "/admin/login", ready: adminLoginReady, minButtons: 10 }, // 實測 10：兩個存取 switch、Add sign-in service、列內自動建帳 switch、插頭／鉛筆／圖示／紅垃圾桶、啟用 switch、明細區 Copy
   { name: "站台：儲存方案", path: "/admin/storage", ready: async () => { await screen.findByRole("button", { name: "Edit Basic" }); return screen.findByLabelText("Keep all for (days)"); }, minButtons: 6 }, // 實測 6：New plan、Edit／Delete Basic、Save defaults、自動版本 switch、版本設定 Save

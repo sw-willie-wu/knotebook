@@ -243,3 +243,10 @@ describe("RegisterPage（#187 §9.4、S2）", () => {
     expect(screen.getByRole("link", { name: "Sign up with Plain" }).querySelector("[data-provider-icon]")).toBeNull();
   });
 });
+
+describe("密碼長度提示的字數來自 shared 常數", () => {
+  // 註冊頁與改密碼表單共用這條文案；數字寫死會在常數改動後說謊。拿掉代建對話框後，這是它僅剩的守衛。
+  it.each(["en", "zh-TW"])("%s：changePassword.passwordHint 以 {{min}} 插值", (language) => {
+    expect(i18n.getResource(language, "translation", "changePassword.passwordHint")).toContain("{{min}}");
+  });
+});

@@ -55,7 +55,7 @@ import { cn } from "@/lib/utils";
  *   全頁錯誤的主要出路）；`brandDeep`（`--brand-deep`，深一階）給 **modal 與 panel
  *   內部**的唯一主動作（對話框底部的送出鈕、設定頁首的建立鈕、框選 AI 框的套用）。
  *   兩階不會同時出現在同一個畫面，所以畫面上永遠只有一種主色實心塊。
- *   ⚠ **例外：設定管理類面板（個人設定、群組、站台管理三個 modal，#247 §4.8）的右卡不放實心鈕**——面板層級動作一律 `outline`。由面板開出的對話框（建立 token、建立使用者、刪除群組…）內的送出鈕不受影響，照本規則用 `brandDeep`。守衛：`components/management/panel-no-solid-buttons.test.tsx`（渲染期掃描）。
+ *   ⚠ **例外：設定管理類面板（個人設定、群組、站台管理三個 modal，#247 §4.8）的右卡不放實心鈕**——面板層級動作一律 `outline`。由面板開出的對話框（建立 token、建立邀請、刪除群組…）內的送出鈕不受影響，照本規則用 `brandDeep`。守衛：`components/management/panel-no-solid-buttons.test.tsx`（渲染期掃描）。
  *   對比（六個色票、明暗兩模式全部量過）：`brandSolid` 淺色
  *   白字 4.53–4.77、深色近黑字 5.75–7.78；`brandDeep` 淺色 6.36–6.71、深色
  *   6.69–8.96。⚠ 調整任何色票明度後要重量——`brandSolid` 淺色最低只有 4.53，

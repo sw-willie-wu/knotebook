@@ -30,7 +30,7 @@ function mockFetch(getUser: () => UserDto | null) {
     if (url === "/api/auth/config" && method === "GET") {
       return Promise.resolve(fakeResponse(200, { providers: [], registration: { enabled: true, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true }));
     }
-    if ((url === "/api/groups" || url === "/api/notes" || url === "/api/admin/users" || url === "/api/admin/groups") && method === "GET") {
+    if ((url === "/api/groups" || url === "/api/notes" || url === "/api/admin/users" || url === "/api/admin/invites" || url === "/api/admin/groups") && method === "GET") {
       return Promise.resolve(fakeResponse(200, []));
     }
     if (url === "/api/admin/storage-plans" && method === "GET") return Promise.resolve(fakeResponse(200, { plans: [], defaults: { userPlanId: "", groupPlanId: "" } }));

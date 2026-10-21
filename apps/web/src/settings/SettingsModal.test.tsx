@@ -209,6 +209,12 @@ function baseFetchHandlers(getLoggedInAs: () => UserDto | null) {
     if (url === "/api/admin/users" && method === "GET") {
       return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) });
     }
+    if (url === "/api/admin/invites" && method === "GET") {
+      return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) });
+    }
+    if (url === "/api/auth/config" && method === "GET") {
+      return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ providers: [], registration: { enabled: true, providerIds: [] }, passwordLogin: { enabled: true } }) });
+    }
     if (url === "/api/admin/storage-plans" && method === "GET") {
       return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ plans: [], defaults: { userPlanId: "", groupPlanId: "" } }) });
     }
@@ -437,6 +443,7 @@ describe("SettingsModal（spec §13.4：兩棵 Routes 樹、modal-over-backgroun
       watcher.stop();
     }
     expect(fetchMock).not.toHaveBeenCalledWith("/api/admin/users", expect.anything());
+    expect(fetchMock).not.toHaveBeenCalledWith("/api/admin/invites", expect.anything());
   });
 
   it("admin 深連結 /settings/account → 導覽恰為六項、順序固定，**看不到**使用者／AI（站台管理不在設定裡）", async () => {
