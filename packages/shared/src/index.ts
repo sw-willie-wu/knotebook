@@ -33,6 +33,23 @@ export interface UserDto {
   autoVersions: boolean;
 }
 
+/** #285：管理員邀請的狀態（`GET /api/admin/invites`，由 SQL 以 now() 算）。 */
+export type AdminInviteStatus = "pending" | "used" | "revoked" | "expired";
+
+/** #285 spec §5.2：管理員邀請列表的一列（不含 token 與雜湊；token 只在建立回應出現一次）。 */
+export interface AdminInviteDto {
+  id: string;
+  label: string | null;
+  /** SQL 以 now() 算：used_at → used；revoked_at → revoked；expires_at <= now() → expired；其餘 pending。不看帳密開關（D2 由頁面提示）。 */
+  status: AdminInviteStatus;
+  createdAt: string;
+  expiresAt: string;
+  usedAt: string | null;
+  revokedAt: string | null;
+  createdBy: { id: string; email: string } | null;
+  usedBy: { id: string; email: string } | null;
+}
+
 /** 密碼長度下限，鏡射 apps/server/src/auth/constants.ts 的同名常數——這裡是給
  * web 端表單前端先驗用的唯一真相，兩邊刻意保持同一個數字（12）。 */
 export const MIN_PASSWORD_LENGTH = 12;

@@ -79,6 +79,9 @@ describe("requireAdmin 保護：全部端點非 admin 403、未登入 401", () =
     { name: "POST /api/admin/users/:id/demote", method: "POST", url: id => `/api/admin/users/${id}/demote` },
     { name: "POST /api/admin/users/:id/password-reset", method: "POST", url: id => `/api/admin/users/${id}/password-reset` },
     { name: "DELETE /api/admin/users/:id/password-reset", method: "DELETE", url: id => `/api/admin/users/${id}/password-reset` },
+    { name: "POST /api/admin/invites", method: "POST", url: () => "/api/admin/invites" },
+    { name: "GET /api/admin/invites", method: "GET", url: () => "/api/admin/invites" },
+    { name: "DELETE /api/admin/invites/:id", method: "DELETE", url: id => `/api/admin/invites/${id}` },
   ];
 
   for (const ep of endpoints) {

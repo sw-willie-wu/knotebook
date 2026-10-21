@@ -25,6 +25,7 @@ import { groupsRoutes } from "./routes/groups.js";
 import type { WriteNoteLinksHooks } from "./notes/links.js";
 import type { SlugPatchTestHook } from "./notes/tx/patch-slug.js";
 import { adminUsersRoutes } from "./routes/admin-users.js";
+import { adminInvitesRoutes } from "./routes/admin-invites.js";
 import { adminPasswordResetRoutes } from "./routes/admin-password-reset.js";
 import { adminStorageRoutes } from "./routes/admin-storage.js";
 import { storageRoutes } from "./routes/storage.js";
@@ -793,6 +794,8 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   void app.register(adminUsersRoutes({ db: deps.db, gate: deps.gate, collabHooks: deps.collabHooks, adminTestHook: deps.adminTestHook }));
   // #286：管理員替使用者產生／取消一次性重設密碼連結（spec §4.2）。
   void app.register(adminPasswordResetRoutes({ db: deps.db, config: deps.config }));
+  // #285：管理員產生／列出／撤銷邀請連結（spec §5.2）。
+  void app.register(adminInvitesRoutes({ db: deps.db, config: deps.config }));
   // 儲存配額（spec 2026-10-08 §7）：方案管理、預設、站台群組列表與指派（admin）；個人與群組用量檢視。
   void app.register(adminStorageRoutes({ db: deps.db }));
   void app.register(storageRoutes({ db: deps.db }));
