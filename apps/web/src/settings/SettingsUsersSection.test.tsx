@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen, waitFor, fireEvent, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
-import { MIN_PASSWORD_LENGTH, ONLINE_WINDOW_MS, type StoragePlanDto, type UserDto } from "@knotebook/shared";
+import { ONLINE_WINDOW_MS, type AdminInviteDto, type StoragePlanDto, type UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { clickOutside } from "@/test/outside-click";
 import { ThemeProvider } from "@/theme";
@@ -122,8 +122,24 @@ function baseFetchHandlers(): (url: string, method: string) => Response | null {
         json: () => Promise.resolve({ plans: [BASIC_PLAN, BIG_PLAN], defaults: { userPlanId: BASIC_ID, groupPlanId: BASIC_ID } }),
       });
     }
+    if (url === "/api/admin/invites" && method === "GET") {
+      return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) });
+    }
     return null;
   };
+}
+
+/**
+ * `/api/auth/config` 的預設回應，只在各 stub 丟 `unexpected fetch` 之前當 fallback 用：`InvitesGroup` 在群組頂層讀它（D2 提示），
+ * 每個渲染使用者頁的案都會打。不放進 `baseFetchHandlers`——各 stub 先問 base、後判自己的 config，放進去會遮蔽各案自己的設定。
+ */
+function defaultAuthConfig(url: string, method: string): Response | null {
+  if (url !== "/api/auth/config" || method !== "GET") return null;
+  return fakeResponse({
+    ok: true,
+    status: 200,
+    json: () => Promise.resolve({ providers: [], registration: { enabled: true, providerIds: [] }, passwordLogin: { enabled: true } }),
+  });
 }
 
 function renderUsersRoute(fetchMock: ReturnType<typeof vi.fn>) {
@@ -159,6 +175,8 @@ describe("SettingsUsersSection（/admin/users：站台管理頁的使用者區�
       if (url === ADMIN_USERS_URL && method === "GET") {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
       }
+      const config = defaultAuthConfig(url, method);
+      if (config) return Promise.resolve(config);
       throw new Error(`unexpected fetch: ${method} ${url}`);
     });
 
@@ -172,192 +190,7 @@ describe("SettingsUsersSection（/admin/users：站台管理頁的使用者區�
       "aria-current",
       "page",
     );
-    expect(within(dialog).getByRole("button", { name: "Create user" }).className).not.toMatch(/(^|\s)bg-(primary|brand|brand-deep)(\s|$)/);
-  });
-
-  it("建立使用者 dialog：點對話框外面不關閉、已填內容仍在（表單型守衛）", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      const method = (init?.method ?? "GET").toUpperCase();
-      const base = baseFetchHandlers()(url, method);
-      if (base) return Promise.resolve(base);
-      if (url === ADMIN_USERS_URL && method === "GET") {
-        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
-      }
-      throw new Error(`unexpected fetch: ${method} ${url}`);
-    });
-    renderUsersRoute(fetchMock);
-    await waitFor(() => expect(screen.getByRole("heading", { name: "User management" })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Create user" }));
-    await waitFor(() => expect(screen.getByLabelText("Email")).toBeInTheDocument());
-    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "keep@example.com" } });
-    await clickOutside();
-    expect(screen.getByRole("dialog", { name: "Create user" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Email")).toHaveValue("keep@example.com");
-  });
-
-  it("建立使用者送出 POST /api/admin/users 的確切 body", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      const method = (init?.method ?? "GET").toUpperCase();
-      const base = baseFetchHandlers()(url, method);
-      if (base) return Promise.resolve(base);
-      if (url === ADMIN_USERS_URL && method === "GET") {
-        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
-      }
-      if (url === ADMIN_USERS_URL && method === "POST") {
-        return Promise.resolve(
-          fakeResponse({
-            ok: true,
-            status: 201,
-            json: () =>
-              Promise.resolve({
-                id: "new-user",
-                email: "new@example.com",
-                displayName: "New Person",
-                isAdmin: true,
-                disabledAt: null,
-                createdAt: "2026-01-01T00:00:00.000Z",
-              }),
-          }),
-        );
-      }
-      throw new Error(`unexpected fetch: ${method} ${url}`);
-    });
-
-    renderUsersRoute(fetchMock);
-
-    await waitFor(() => expect(screen.getByRole("heading", { name: "User management" })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Create user" }));
-
-    await waitFor(() => expect(screen.getByLabelText("Email")).toBeInTheDocument());
-    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "new@example.com" } });
-    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "correcthorsebatterystaple" } });
-    fireEvent.change(screen.getByLabelText("Display name"), { target: { value: "New Person" } });
-    fireEvent.click(screen.getByLabelText("Administrator"));
-
-    fireEvent.click(screen.getByRole("button", { name: "Create" }));
-
-    await waitFor(() => {
-      const call = fetchMock.mock.calls.find(
-        ([reqUrl, reqInit]) => String(reqUrl) === ADMIN_USERS_URL && (reqInit as RequestInit | undefined)?.method === "POST",
-      );
-      expect(call).toBeDefined();
-      const [, init] = call as [RequestInfo, RequestInit];
-      expect(JSON.parse(String(init.body))).toEqual({
-        email: "new@example.com",
-        password: "correcthorsebatterystaple",
-        displayName: "New Person",
-        isAdmin: true,
-      });
-    });
-  });
-
-  /**
-   * 提示文案的數字必須來自 shared 的 `MIN_PASSWORD_LENGTH`，不能各自寫死——server 端
-   * 常數一改，畫面上的提示就會說謊。這條把文案與常數釘在一起。
-   */
-  it("密碼提示的字數來自 shared 常數（改常數，文案跟著動）", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      const method = (init?.method ?? "GET").toUpperCase();
-      const base = baseFetchHandlers()(url, method);
-      if (base) return Promise.resolve(base);
-      if (url === ADMIN_USERS_URL && method === "GET") {
-        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
-      }
-      throw new Error(`unexpected fetch: ${method} ${url}`);
-    });
-
-    renderUsersRoute(fetchMock);
-
-    await waitFor(() => expect(screen.getByRole("heading", { name: "User management" })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Create user" }));
-
-    await waitFor(() => expect(screen.getByLabelText("Email")).toBeInTheDocument());
-    expect(screen.getByText(`At least ${MIN_PASSWORD_LENGTH} characters.`)).toBeInTheDocument();
-    // 上面那條單獨看不出鑑別力（常數目前就是 12，硬編也會過）——這條釘的是「文案用
-    // 插值而不是寫死數字」，把數字寫回去就會紅。
-    for (const language of ["en", "zh-TW"]) {
-      expect(i18n.getResource(language, "translation", "admin.passwordHint")).toContain("{{min}}");
-      expect(i18n.getResource(language, "translation", "changePassword.passwordHint")).toContain("{{min}}");
-    }
-  });
-
-  it("建立使用者密碼 <12 字元 → client 端擋下，不打 API", async () => {
-    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      const method = (init?.method ?? "GET").toUpperCase();
-      const base = baseFetchHandlers()(url, method);
-      if (base) return Promise.resolve(base);
-      if (url === ADMIN_USERS_URL && method === "GET") {
-        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
-      }
-      throw new Error(`unexpected fetch: ${method} ${url}`);
-    });
-
-    renderUsersRoute(fetchMock);
-
-    await waitFor(() => expect(screen.getByRole("heading", { name: "User management" })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Create user" }));
-
-    await waitFor(() => expect(screen.getByLabelText("Email")).toBeInTheDocument());
-    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "short@example.com" } });
-    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "short" } });
-    fireEvent.change(screen.getByLabelText("Display name"), { target: { value: "Short" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create" }));
-
-    await waitFor(() => expect(screen.getByText("Password is too short.")).toBeInTheDocument());
-    const postCalls = fetchMock.mock.calls.filter(
-      ([reqUrl, reqInit]) => String(reqUrl) === ADMIN_USERS_URL && (reqInit as RequestInit | undefined)?.method === "POST",
-    );
-    expect(postCalls).toHaveLength(0);
-  });
-});
-
-describe("SettingsUsersSection——#187 §9.5：帳密登入關閉時代建的說明", () => {
-  beforeEach(async () => { await i18n.changeLanguage("en"); dismissAllToasts(); configServed = false; });
-  afterEach(() => vi.unstubAllGlobals());
-
-  const NOTICE = "Password sign-in is turned off on this site: the temporary password is only used when the new person links their account the first time they sign in through a sign-in service.";
-  // configServed：/api/auth/config 的回應已交給 react-query。純保險——實測（reviewer R3）拿掉這兩行等待案仍紅，因為 dialog 文字出現時 config 早已落地。
-  let configServed = false;
-  const fetchWith = (passwordLoginEnabled: boolean) =>
-    vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      const method = (init?.method ?? "GET").toUpperCase();
-      const base = baseFetchHandlers()(url, method);
-      if (base) return Promise.resolve(base);
-      if (url === ADMIN_USERS_URL && method === "GET") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
-      if (url === "/api/auth/config" && method === "GET") {
-        return Promise.resolve(
-          fakeResponse({
-            ok: true,
-            status: 200,
-            json: () => {
-              configServed = true;
-              return Promise.resolve({ providers: [], registration: { enabled: true, providerIds: [] }, passwordLogin: { enabled: passwordLoginEnabled } });
-            },
-          }),
-        );
-      }
-      throw new Error(`unexpected fetch: ${method} ${url}`);
-    });
-
-  it("有效值關 → 建帳 dialog 內有說明", async () => {
-    renderUsersRoute(fetchWith(false));
-    fireEvent.click(await screen.findByRole("button", { name: "Create user" }));
-    expect(await within(await screen.findByRole("dialog", { name: "Create user" })).findByText(NOTICE)).toBeInTheDocument();
-  });
-
-  it("有效值開 → 沒有說明", async () => {
-    renderUsersRoute(fetchWith(true));
-    fireEvent.click(await screen.findByRole("button", { name: "Create user" }));
-    const dialog = within(await screen.findByRole("dialog", { name: "Create user" }));
-    await dialog.findByText("The new account will be required to change its password on first login.");
-    await waitFor(() => expect(configServed).toBe(true));
-    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
-    expect(dialog.queryByText(NOTICE)).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Create invitation" }).className).not.toMatch(/(^|\s)bg-(primary|brand|brand-deep)(\s|$)/);
   });
 });
 
@@ -375,6 +208,8 @@ describe("W5 使用者表的儲存空間與方案（spec §9.3）", () => {
       const custom = extra(url, method, init) ?? baseFetchHandlers()(url, method);
       if (custom) return Promise.resolve(custom);
       if (url === ADMIN_USERS_URL && method === "GET") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(rows) }));
+      const config = defaultAuthConfig(url, method);
+      if (config) return Promise.resolve(config);
       throw new Error(`unexpected fetch: ${method} ${url}`);
     });
   }
@@ -476,6 +311,8 @@ describe("使用者表（#247 §7.0，W27）", () => {
       const custom = extra(url, method, init) ?? baseFetchHandlers()(url, method);
       if (custom) return Promise.resolve(custom);
       if (url === ADMIN_USERS_URL && method === "GET") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(getRows()) }));
+      const config = defaultAuthConfig(url, method);
+      if (config) return Promise.resolve(config);
       throw new Error(`unexpected fetch: ${method} ${url}`);
     });
   }
@@ -782,7 +619,7 @@ describe("重設密碼（#286 A-15）", () => {
           fakeResponse({
             ok: true,
             status: 200,
-            json: () => Promise.resolve({ providers: [], registration: { enabled: true }, passwordLogin: { enabled: opts.passwordLoginEnabled ?? true } }),
+            json: () => Promise.resolve({ providers: [], registration: { enabled: true, providerIds: [] }, passwordLogin: { enabled: opts.passwordLoginEnabled ?? true } }),
           }),
         );
       }
@@ -994,5 +831,367 @@ describe("重設密碼（#286 A-15）", () => {
     await openFor(ACTIVE_OTHER.email);
     await clickOutside();
     expect(screen.getByRole("dialog", { name: "Reset password" })).toBeInTheDocument();
+  });
+});
+
+describe("邀請（#285 B-17）", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+    vi.mocked(copyText).mockClear();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const INVITES_URL = "/api/admin/invites";
+  const CREATE_DESCRIPTION =
+    "Creates a one-time link someone can use to create their own account with an email and a password. Accounts created this way are regular users. Anyone who has the link can use it, with any email — send it only to the person you're inviting.";
+  const EXPIRES_AT = "2030-01-02T03:04:00.000Z";
+  const inv = (over: Partial<AdminInviteDto> & Pick<AdminInviteDto, "id">): AdminInviteDto => ({
+    label: null,
+    status: "pending",
+    createdAt: "2026-10-20T08:00:00.000Z",
+    expiresAt: EXPIRES_AT,
+    usedAt: null,
+    revokedAt: null,
+    createdBy: { id: "u-admin", email: "admin@example.com" },
+    usedBy: null,
+    ...over,
+  });
+  const calls = (fetchMock: ReturnType<typeof vi.fn>, url: string, method: string) =>
+    fetchMock.mock.calls.filter(([u, i]) => String(u) === url && ((i as RequestInit | undefined)?.method ?? "GET") === method);
+  const bodyOf = (call: unknown[]) => JSON.parse(String((call[1] as RequestInit).body)) as unknown;
+
+  function stub(opts: { passwordLoginEnabled?: boolean; getInvites?: () => AdminInviteDto[]; extra?: (url: string, method: string) => Response | null } = {}) {
+    return vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      // 邀請列表先於 base（base 的空陣列只給別組用）
+      if (url === INVITES_URL && method === "GET") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve((opts.getInvites ?? (() => []))()) }));
+      const custom = opts.extra?.(url, method) ?? baseFetchHandlers()(url, method);
+      if (custom) return Promise.resolve(custom);
+      if (url === ADMIN_USERS_URL && method === "GET") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+      if (url === "/api/auth/config" && method === "GET") {
+        return Promise.resolve(
+          fakeResponse({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve({ providers: [], registration: { enabled: true, providerIds: [] }, passwordLogin: { enabled: opts.passwordLoginEnabled ?? true } }),
+          }),
+        );
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+  }
+  const createdResponse = (extra: (url: string, method: string) => Response | null = () => null) => (url: string, method: string) =>
+    url === INVITES_URL && method === "POST"
+      ? fakeResponse({ ok: true, status: 201, json: () => Promise.resolve({ invite: inv({ id: "i-new" }), token: "knbi_TEST" }) })
+      : extra(url, method);
+  const openCreate = async () => {
+    fireEvent.click(await screen.findByRole("button", { name: "Create invitation" }));
+    return screen.findByRole("dialog", { name: "Create an invitation" });
+  };
+
+  it("I1 頁首有「Create invitation」鈕，沒有「Create user」", async () => {
+    renderUsersRoute(stub());
+    expect(await screen.findByRole("button", { name: "Create invitation" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Create user" })).toBeNull();
+  });
+
+  it("I2 主流程：預設 3 天、七個選項 → POST 確切 body → 結果畫面（連結）→ 邀請表重抓 → 完成 → 再開回到表單、明文已消失", async () => {
+    const fetchMock = stub({ extra: createdResponse() });
+    renderUsersRoute(fetchMock);
+    const dialog = await openCreate();
+    expect(within(dialog).getByText(CREATE_DESCRIPTION)).toBeInTheDocument();
+    const select = within(dialog).getByLabelText("Link expires after") as HTMLSelectElement;
+    expect(select).toHaveValue("3");
+    expect(within(select).getAllByRole("option")).toHaveLength(7);
+    expect(within(select).getAllByRole("option")[0]).toHaveTextContent("1 day");
+    expect(within(select).getAllByRole("option")[1]).toHaveTextContent("2 days");
+    fireEvent.change(select, { target: { value: "5" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create link" }));
+
+    const result = await screen.findByRole("dialog", { name: "Invitation link" });
+    const post = calls(fetchMock, INVITES_URL, "POST");
+    expect(post).toHaveLength(1);
+    expect(bodyOf(post[0])).toEqual({ expiresInDays: 5 });
+    expect((within(result).getByLabelText("Link") as HTMLInputElement).value).toBe(`${window.location.origin}/register#invite=knbi_TEST`);
+    await waitFor(() => expect(calls(fetchMock, INVITES_URL, "GET")).toHaveLength(2));
+
+    fireEvent.click(within(result).getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Invitation link" })).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Create invitation" }));
+    expect(await screen.findByRole("dialog", { name: "Create an invitation" })).toBeInTheDocument();
+    expect(screen.queryByDisplayValue(/knbi_/)).toBeNull();
+    expect((screen.getByLabelText("Link expires after") as HTMLSelectElement).value).toBe("3");
+  });
+
+  it("I3a 備註：原樣送出（trim 由 server 做）", async () => {
+    const fetchMock = stub({ extra: createdResponse() });
+    renderUsersRoute(fetchMock);
+    const dialog = await openCreate();
+    fireEvent.change(within(dialog).getByLabelText("Note (optional)"), { target: { value: "  Alice  " } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create link" }));
+    await screen.findByRole("dialog", { name: "Invitation link" });
+    expect(bodyOf(calls(fetchMock, INVITES_URL, "POST")[0])).toEqual({ expiresInDays: 3, label: "  Alice  " });
+  });
+
+  it("I3a' 備註只有空白：body 不帶 label", async () => {
+    const fetchMock = stub({ extra: createdResponse() });
+    renderUsersRoute(fetchMock);
+    const dialog = await openCreate();
+    fireEvent.change(within(dialog).getByLabelText("Note (optional)"), { target: { value: "   " } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create link" }));
+    await screen.findByRole("dialog", { name: "Invitation link" });
+    expect(bodyOf(calls(fetchMock, INVITES_URL, "POST")[0])).toEqual({ expiresInDays: 3 });
+  });
+
+  it("I3b 備註以 code point 計：100 個 emoji（JS length 200）照常送出", async () => {
+    const fetchMock = stub({ extra: createdResponse() });
+    renderUsersRoute(fetchMock);
+    const dialog = await openCreate();
+    fireEvent.change(within(dialog).getByLabelText("Note (optional)"), { target: { value: "😀".repeat(100) } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create link" }));
+    await screen.findByRole("dialog", { name: "Invitation link" });
+    expect(calls(fetchMock, INVITES_URL, "POST")).toHaveLength(1);
+  });
+
+  it("I3c 備註 101 字：顯示 labelTooLong、沒有 POST", async () => {
+    const fetchMock = stub({ extra: createdResponse() });
+    renderUsersRoute(fetchMock);
+    const dialog = await openCreate();
+    fireEvent.change(within(dialog).getByLabelText("Note (optional)"), { target: { value: "字".repeat(101) } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create link" }));
+    expect(await within(dialog).findByText("A note can be at most 100 characters.")).toBeInTheDocument();
+    expect(calls(fetchMock, INVITES_URL, "POST")).toHaveLength(0);
+  });
+
+  it("I4（D1）帳密關閉：對話框有說明、Create link disabled", async () => {
+    renderUsersRoute(stub({ passwordLoginEnabled: false }));
+    const dialog = await openCreate();
+    expect(await within(dialog).findByText("Password sign-in is off on this site, so invitations can't be created or used.")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Create link" })).toBeDisabled();
+  });
+
+  it("I5 點對話框外面不關閉、已填內容仍在", async () => {
+    renderUsersRoute(stub());
+    const dialog = await openCreate();
+    fireEvent.change(within(dialog).getByLabelText("Note (optional)"), { target: { value: "keep me" } });
+    await clickOutside();
+    expect(screen.getByRole("dialog", { name: "Create an invitation" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Note (optional)")).toHaveValue("keep me");
+    // N-5：提示文字以 aria-describedby 連到輸入框
+    expect(screen.getByLabelText("Note (optional)")).toHaveAccessibleDescription("Only admins see it, in the invitations list. Up to 100 characters.");
+  });
+
+  const TABLE_ROWS: AdminInviteDto[] = [
+    inv({ id: "i-p1", label: "Alice", createdAt: "2026-10-20T08:00:00.000Z" }),
+    inv({ id: "i-p2", label: null, createdAt: "2026-10-20T08:15:07.000Z", createdBy: null }),
+    inv({ id: "i-p3", label: null, createdAt: "2026-10-20T08:15:42.000Z" }),
+    inv({ id: "i-used", label: "Bob", status: "used", usedAt: "2026-10-20T09:00:00.000Z", usedBy: { id: "u-bob", email: "bob@example.com" } }),
+    inv({ id: "i-revoked", label: "Carol", status: "revoked", revokedAt: "2026-10-20T09:00:00.000Z", createdBy: null }),
+    inv({ id: "i-expired", label: "Dave", status: "expired" }),
+  ];
+
+  it("I6 邀請表：表頭、狀態文字、使用的帳號、副標、只有 pending 有撤銷鈕（無備註鈕名到秒、彼此不同）", async () => {
+    renderUsersRoute(stub({ getInvites: () => TABLE_ROWS }));
+    const table = await screen.findByRole("table", { name: "Invitations" });
+    expect(within(table).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Invitation", "Status", "Expires", "Used by", "Actions"]);
+    const row = (name: string | RegExp) => within(table).getByRole("row", { name });
+    expect(within(row(/Alice/)).getByText("Unused")).toBeInTheDocument();
+    expect(within(row(/Bob/)).getByText("Used")).toBeInTheDocument();
+    // spec §6.1：非 pending 的狀態與「—」用 muted（前例 ApiTokensSection.test）
+    expect(within(row(/Alice/)).getByText("Unused")).not.toHaveClass("text-muted-foreground");
+    expect(within(row(/Bob/)).getByText("Used")).toHaveClass("text-muted-foreground");
+    expect(within(row(/Dave/)).getByText("—")).toHaveClass("text-muted-foreground");
+    expect(within(row(/Bob/)).getByText("bob@example.com")).not.toHaveClass("text-muted-foreground");
+    // 到期欄的內容
+    expect(within(row(/Alice/)).getByText(new Date(EXPIRES_AT).toLocaleString("en", { dateStyle: "short", timeStyle: "short" }))).toBeInTheDocument();
+    expect(within(row(/Carol/)).getByText("Revoked")).toBeInTheDocument();
+    expect(within(row(/Dave/)).getByText("Expired")).toBeInTheDocument();
+    expect(within(row(/Bob/)).getByText("bob@example.com")).toBeInTheDocument();
+    expect(within(row(/Alice/)).getByText("—")).toBeInTheDocument();
+    expect(within(row(/Dave/)).getByText("—")).toBeInTheDocument();
+    // createdBy 為 null 的列，副標以 "Created " 開頭（不是 "Created by"）
+    expect(within(row(/Carol/)).getByText(/^Created (?!by)/)).toBeInTheDocument();
+    expect(within(row(/Alice/)).getByText(/^Created by admin@example\.com, /)).toBeInTheDocument();
+
+    const revokes = within(table).getAllByRole("button", { name: /^Revoke invitation/ });
+    expect(revokes).toHaveLength(3);
+    const secs = (iso: string) => new Date(iso).toLocaleString("en", { dateStyle: "short", timeStyle: "medium" });
+    const names = revokes.map((b) => b.getAttribute("aria-label") ?? b.textContent);
+    expect(names).toContain("Revoke invitation Alice");
+    expect(names).toContain(`Revoke invitation created ${secs("2026-10-20T08:15:07.000Z")}`);
+    expect(names).toContain(`Revoke invitation created ${secs("2026-10-20T08:15:42.000Z")}`);
+    expect(secs("2026-10-20T08:15:07.000Z")).not.toBe(secs("2026-10-20T08:15:42.000Z"));
+    expect(within(row(/Bob/)).queryByRole("button", { name: /^Revoke invitation/ })).toBeNull();
+    expect(within(row(/Carol/)).queryByRole("button", { name: /^Revoke invitation/ })).toBeNull();
+    expect(within(row(/Dave/)).queryByRole("button", { name: /^Revoke invitation/ })).toBeNull();
+  });
+
+  it("I7 撤銷：確認框 → DELETE → 重抓", async () => {
+    let rows = [inv({ id: "i-p1", label: "Alice" })];
+    const fetchMock = stub({
+      getInvites: () => rows,
+      extra: (url, method) => {
+        if (url === `${INVITES_URL}/i-p1` && method === "DELETE") {
+          rows = [];
+          return fakeResponse({ ok: true, status: 204 });
+        }
+        return null;
+      },
+    });
+    renderUsersRoute(fetchMock);
+    fireEvent.click(await screen.findByRole("button", { name: "Revoke invitation Alice" }));
+    const confirm = await screen.findByRole("dialog", { name: "Revoke this invitation?" });
+    expect(within(confirm).getByText("The link stops working right away. This can't be undone; create a new invitation if you need one.")).toBeInTheDocument();
+    fireEvent.click(within(confirm).getByRole("button", { name: "Revoke" }));
+    await waitFor(() => expect(calls(fetchMock, `${INVITES_URL}/i-p1`, "DELETE")).toHaveLength(1));
+    await waitFor(() => expect(calls(fetchMock, INVITES_URL, "GET")).toHaveLength(2));
+    expect(await screen.findByText("No invitations yet.")).toBeInTheDocument();
+  });
+
+  it("I7b 撤銷失敗（409 invite_used）：toast 為 errors.invite_used", async () => {
+    const fetchMock = stub({
+      getInvites: () => [inv({ id: "i-p1", label: "Alice" })],
+      extra: (url, method) =>
+        url === `${INVITES_URL}/i-p1` && method === "DELETE"
+          ? fakeResponse({ ok: false, status: 409, json: () => Promise.resolve({ error: { code: "invite_used", message: "used" } }) })
+          : null,
+    });
+    renderUsersRoute(fetchMock);
+    fireEvent.click(await screen.findByRole("button", { name: "Revoke invitation Alice" }));
+    const confirm = await screen.findByRole("dialog", { name: "Revoke this invitation?" });
+    fireEvent.click(within(confirm).getByRole("button", { name: "Revoke" }));
+    expect(await screen.findByText("This invitation has already been used and can't be revoked.")).toBeInTheDocument();
+  });
+
+  const hangingPost = () => {
+    let release: (res: Response) => void = () => {};
+    const extra = (url: string, method: string) =>
+      url === INVITES_URL && method === "POST" ? (new Promise<Response>((resolve) => { release = resolve; }) as unknown as Response) : null;
+    return { extra, release: (res: Response) => release(res) };
+  };
+  const settle = () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+  const okCreated = () => fakeResponse({ ok: true, status: 201, json: () => Promise.resolve({ invite: inv({ id: "i-late" }), token: "knbi_LATE" }) });
+
+  it("I10 建立請求進行中按 Esc 關閉：回應回來後結果被丟棄，再開是表單、沒有明文", async () => {
+    const hang = hangingPost();
+    const fetchMock = stub({ extra: hang.extra });
+    renderUsersRoute(fetchMock);
+    const dialog = await openCreate();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create link" }));
+    await waitFor(() => expect(calls(fetchMock, INVITES_URL, "POST")).toHaveLength(1));
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Create an invitation" })).toBeNull());
+    hang.release(okCreated());
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Create invitation" }));
+    expect(await screen.findByRole("dialog", { name: "Create an invitation" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Invitation link" })).toBeNull();
+    expect(screen.queryByDisplayValue(/knbi_/)).toBeNull();
+  });
+
+  it.each([
+    ["成功", okCreated],
+    ["失敗", () => fakeResponse({ ok: false, status: 403, json: () => Promise.resolve({ error: { code: "password_login_disabled", message: "x" } }) })],
+  ] as const)("I11 送出後關閉、回應前又重開：上一次開啟的請求%s晚到，不影響新開的對話框", async (_label, late) => {
+    const hang = hangingPost();
+    const fetchMock = stub({ extra: hang.extra });
+    renderUsersRoute(fetchMock);
+    const dialog = await openCreate();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create link" }));
+    await waitFor(() => expect(calls(fetchMock, INVITES_URL, "POST")).toHaveLength(1));
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Create an invitation" })).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Create invitation" }));
+    const reopened = await screen.findByRole("dialog", { name: "Create an invitation" });
+    hang.release(late());
+    await settle();
+    expect(screen.getByRole("dialog", { name: "Create an invitation" })).toBe(reopened);
+    expect(screen.queryByRole("dialog", { name: "Invitation link" })).toBeNull();
+    expect(screen.queryByDisplayValue(/knbi_/)).toBeNull();
+    expect(within(reopened).queryByRole("alert")).toBeNull();
+  });
+
+  it("I12 送出後關閉再重開（舊請求還沒回）：送出鈕是 Create link 且可按，不是 Creating…／disabled", async () => {
+    const hang = hangingPost();
+    const fetchMock = stub({ extra: hang.extra });
+    renderUsersRoute(fetchMock);
+    const dialog = await openCreate();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create link" }));
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Creating…" })).toBeDisabled());
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Create an invitation" })).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Create invitation" }));
+    const reopened = await screen.findByRole("dialog", { name: "Create an invitation" });
+    expect(within(reopened).getByRole("button", { name: "Create link" })).toBeEnabled();
+    expect(within(reopened).queryByRole("button", { name: "Creating…" })).toBeNull();
+  });
+
+  it("I13 建立失敗（403 password_login_disabled）：對話框內 role=alert 顯示該錯誤，表單仍在", async () => {
+    const fetchMock = stub({
+      extra: (url, method) =>
+        url === INVITES_URL && method === "POST"
+          ? fakeResponse({ ok: false, status: 403, json: () => Promise.resolve({ error: { code: "password_login_disabled", message: "x" } }) })
+          : null,
+    });
+    renderUsersRoute(fetchMock);
+    const dialog = await openCreate();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create link" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("This site only allows signing in through a sign-in service.");
+    expect(screen.getByRole("dialog", { name: "Create an invitation" })).toBe(dialog);
+    expect(within(dialog).getByRole("button", { name: "Create link" })).toBeEnabled();
+  });
+
+  it("I14 長度檢查先 trim：前後空白不算字數（100 字加空白照常送出）", async () => {
+    const fetchMock = stub({ extra: createdResponse() });
+    renderUsersRoute(fetchMock);
+    const dialog = await openCreate();
+    fireEvent.change(within(dialog).getByLabelText("Note (optional)"), { target: { value: `  ${"a".repeat(100)}  ` } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create link" }));
+    await screen.findByRole("dialog", { name: "Invitation link" });
+    expect(calls(fetchMock, INVITES_URL, "POST")).toHaveLength(1);
+  });
+
+  it("I7c 撤銷遇到 409 invite_used：toast 之後列表重抓", async () => {
+    const fetchMock = stub({
+      getInvites: () => [inv({ id: "i-p1", label: "Alice" })],
+      extra: (url, method) =>
+        url === `${INVITES_URL}/i-p1` && method === "DELETE"
+          ? fakeResponse({ ok: false, status: 409, json: () => Promise.resolve({ error: { code: "invite_used", message: "used" } }) })
+          : null,
+    });
+    renderUsersRoute(fetchMock);
+    fireEvent.click(await screen.findByRole("button", { name: "Revoke invitation Alice" }));
+    const confirm = await screen.findByRole("dialog", { name: "Revoke this invitation?" });
+    fireEvent.click(within(confirm).getByRole("button", { name: "Revoke" }));
+    expect(await screen.findByText("This invitation has already been used and can't be revoked.")).toBeInTheDocument();
+    await waitFor(() => expect(calls(fetchMock, INVITES_URL, "GET")).toHaveLength(2));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Revoke this invitation?" })).toBeNull());
+  });
+
+  const SUSPENDED = "Password sign-in is off, so unused invitations can't be used right now. Turn it back on and the ones that haven't expired work again.";
+
+  it("I8（D2）帳密關閉 → 表上方 role=status 提示", async () => {
+    renderUsersRoute(stub({ passwordLoginEnabled: false, getInvites: () => [inv({ id: "i-p1", label: "Alice" })] }));
+    expect(await screen.findByRole("status")).toHaveTextContent(SUSPENDED);
+  });
+
+  it("I8b 帳密開啟 → 沒有提示（等 config 與邀請列都到了才判）", async () => {
+    const fetchMock = stub({ getInvites: () => [inv({ id: "i-p1", label: "Alice" })] });
+    renderUsersRoute(fetchMock);
+    await screen.findByRole("button", { name: "Revoke invitation Alice" });
+    await waitFor(() => expect(calls(fetchMock, "/api/auth/config", "GET").length).toBeGreaterThanOrEqual(1));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(screen.queryByText(SUSPENDED)).toBeNull();
+  });
+
+  it("I9 沒有邀請 → No invitations yet.", async () => {
+    renderUsersRoute(stub());
+    expect(await screen.findByText("No invitations yet.")).toBeInTheDocument();
   });
 });

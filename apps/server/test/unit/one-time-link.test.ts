@@ -10,6 +10,7 @@ import { PgDialect } from "drizzle-orm/pg-core";
 import { ACCESS_TOKEN_PREFIX, generateAccessToken, generateRefreshToken, isAccessTokenShape } from "../../src/auth/api-token.js";
 import { generateTransferToken } from "../../src/auth/transfer-token.js";
 import {
+  INVITE_TOKEN_PREFIX,
   RESET_TOKEN_PREFIX,
   activeOneTimeLink,
   generateOneTimeToken,
@@ -50,6 +51,27 @@ describe("一次性連結 token 明文格式（spec §3.1）", () => {
     ];
     for (const [label, token] of bad) expect(isOneTimeTokenShape("password_reset", token), label).toBe(false);
   });
+
+  it("U6：邀請 token 是 knbi_ + 43 字元 base64url（共 48）、每次不同，且不是 access token 形狀", () => {
+    const a = generateOneTimeToken("invite");
+    const b = generateOneTimeToken("invite");
+    expect(a).toMatch(/^knbi_[A-Za-z0-9_-]{43}$/);
+    expect(a).toHaveLength(48);
+    expect(a).not.toBe(b);
+    expect(INVITE_TOKEN_PREFIX.startsWith(ACCESS_TOKEN_PREFIX)).toBe(false);
+    expect(isAccessTokenShape(a)).toBe(false);
+  });
+
+  it("U7：kind 隔離——isOneTimeTokenShape 依 kind 只認自己的前綴", () => {
+    const invite = generateOneTimeToken("invite");
+    const reset = generateOneTimeToken("password_reset");
+    expect(isOneTimeTokenShape("invite", invite)).toBe(true);
+    expect(isOneTimeTokenShape("password_reset", invite)).toBe(false);
+    expect(isOneTimeTokenShape("invite", reset)).toBe(false);
+    expect(isOneTimeTokenShape("invite", "knbi_" + "a".repeat(42))).toBe(false);
+    expect(isOneTimeTokenShape("invite", "knbi_" + "a".repeat(44))).toBe(false);
+    expect(isOneTimeTokenShape("invite", "KNBI_" + "a".repeat(43))).toBe(false);
+  });
 });
 
 describe("一次性連結的 SQL 述詞（spec §3.4、§4.2 N-3）", () => {
@@ -59,6 +81,14 @@ describe("一次性連結的 SQL 述詞（spec §3.4、§4.2 N-3）", () => {
       `("one_time_links"."kind" = $1 and "one_time_links"."used_at" is null and "one_time_links"."revoked_at" is null and "one_time_links"."expires_at" > now())`,
     );
     expect(q.params).toEqual(["password_reset"]);
+  });
+
+  it("U8：activeOneTimeLink(\"invite\")——kind 走參數，其餘條件相同", () => {
+    const q = dialect.sqlToQuery(activeOneTimeLink("invite"));
+    expect(q.params).toEqual(["invite"]);
+    expect(q.sql).toContain(`"one_time_links"."used_at" is null`);
+    expect(q.sql).toContain(`"one_time_links"."revoked_at" is null`);
+    expect(q.sql).toContain(`"one_time_links"."expires_at" > now()`);
   });
 
   it("U5：pendingPasswordResetsOf＝kind、target、未用、未撤銷，**不含**到期條件", () => {

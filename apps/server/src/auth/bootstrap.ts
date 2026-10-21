@@ -32,7 +32,7 @@ export async function initializeInstance(db: Db, envAdmin?: EnvAdminBootstrap): 
     );
   }
 
-  // 寫入端正規化（spec §14.3 單一漏斗）：與 admin-users.ts 建帳、routes/auth.ts 讀取
+  // 寫入端正規化（spec §14.3 單一漏斗）：與 routes/account.ts（註冊、接受邀請）、routes/auth.ts 讀取
   // 比對共用同一套正規化規則，displayName 亦從正規化後的值切，避免大寫 env
   // 造成同一帳號在「查詢比對用小寫、顯示用原始大小寫殘留」兩套來源不一致。
   const email = normalizeEmail(envAdmin.email);

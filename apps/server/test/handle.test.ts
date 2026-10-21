@@ -164,8 +164,8 @@ describe("bootstrap 路徑（registry-first；spec §2a）", () => {
   });
 });
 
-describe("admin 建帳路徑（spec §2b；constraint 判別 M4-2）", () => {
-  async function adminApp() {
+describe("接受邀請建帳路徑（#285；registry-first 與重試契約同註冊）", () => {
+  async function inviteApp() {
     const { app, db } = await buildTestApp();
     await db.insert(users).values({
       email: "admin@x.example",
@@ -185,109 +185,70 @@ describe("admin 建帳路徑（spec §2b；constraint 判別 M4-2）", () => {
     return { app, db, cookies: { [cookie.name]: cookie.value } };
   }
 
-  const CREATE = { email: "new.user@x.example", password: "another-long-pw", displayName: "New" };
+  /** admin 建邀請 → 不帶 cookie 接受邀請。 */
+  async function acceptVia(app: Awaited<ReturnType<typeof inviteApp>>["app"], cookies: Record<string, string>, body: object) {
+    const issued = await app.inject({ method: "POST", url: "/api/admin/invites", cookies, payload: { expiresInDays: 1 } });
+    expect(issued.statusCode, issued.body).toBe(201);
+    return app.inject({ method: "POST", url: "/api/auth/invite/accept", payload: { token: issued.json().token, ...body } });
+  }
 
-  it("未指定 handle → 派生自 email local-part；201 body 帶 handle；registry 一致", async () => {
-    const { app, db, cookies } = await adminApp();
-    const res = await app.inject({ method: "POST", url: "/api/admin/users", payload: CREATE, cookies });
-    expect(res.statusCode).toBe(201);
+  const ACCEPT = { email: "new.user@x.example", password: "another-long-pw", displayName: "New" };
+
+  it("派生自 email local-part；201 body 帶 handle；registry 一致", async () => {
+    const { app, db, cookies } = await inviteApp();
+    const res = await acceptVia(app, cookies, ACCEPT);
+    expect(res.statusCode, res.body).toBe(201);
     expect(res.json().handle).toBe("new-user");
     await expectLiveRegistry(db, "new.user@x.example");
   });
 
-  it("指定合法 handle → 原樣使用（經正規化）；registry 一致", async () => {
-    const { app, db, cookies } = await adminApp();
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/admin/users",
-      payload: { ...CREATE, handle: "Chosen-Name" },
-      cookies,
-    });
-    expect(res.statusCode).toBe(201);
-    expect(res.json().handle).toBe("chosen-name");
-    await expectLiveRegistry(db, "new.user@x.example");
-  });
-
-  it("指定非法 handle → 400 invalid_body（不落 DB CHECK 500）", async () => {
-    const { app, cookies } = await adminApp();
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/admin/users",
-      payload: { ...CREATE, handle: "bad name!" },
-      cookies,
-    });
-    expect(res.statusCode).toBe(400);
-    expect(res.json().error.code).toBe("invalid_body");
-  });
-
-  it("指定 live 占用名 → 409 **handle_taken**（不得誤報 email_taken——判別契約）；指定別人改掉的舊名 → 201（#291）", async () => {
-    const { app, db, cookies } = await adminApp();
-    await db.insert(handles).values({ handle: "taken-live", userId: "88888888-aaaa-4bbb-8ccc-000000000008", state: "live" });
-    const res = await app.inject({ method: "POST", url: "/api/admin/users", payload: { ...CREATE, handle: "taken-live" }, cookies });
-    expect(res.statusCode).toBe(409);
-    expect(res.json().error.code).toBe("handle_taken");
-
-    // admin 改名後 'admin' 釋出，別人（這裡是管理員建帳）可取用
-    const renamed = await app.inject({ method: "PATCH", url: "/api/auth/profile", payload: { handle: "admin-renamed" }, cookies });
-    expect(renamed.statusCode).toBe(200);
-    const created = await app.inject({ method: "POST", url: "/api/admin/users", payload: { ...CREATE, handle: "admin" }, cookies });
-    expect(created.statusCode).toBe(201);
-    expect((await expectLiveRegistry(db, "new.user@x.example")).handle).toBe("admin");
-  });
-
-  it("email 撞名仍回 email_taken（判別契約另一方向不受影響）；失敗的建帳不得燒掉 handle（tx 原子性——突變審查 MAJOR-3）", async () => {
-    const { app, db, cookies } = await adminApp();
+  it("交易內才撞 email（另一連線持有同 email 的未提交列）→ 409 email_taken；失敗的建帳不燒掉 handle（tx 原子性）", async () => {
+    // 交易外的 email 預查會先擋已提交的同 email，所以以未提交的列讓撞名發生在交易內的 users_email_unique。
+    const { app, db, cookies } = await inviteApp();
     const before = (await db.select().from(handles)).map((row) => row.handle).sort();
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/admin/users",
-      payload: { ...CREATE, email: "admin@x.example" },
-      cookies,
-    });
-    expect(res.statusCode).toBe(409);
+    const holder = await db.$client.connect();
+    let pending: ReturnType<typeof acceptVia> | undefined;
+    try {
+      await holder.query("begin");
+      await holder.query("insert into users (email, display_name, handle) values ('new.user@x.example', 'H', 'holder-285')");
+      pending = acceptVia(app, cookies, ACCEPT);
+      expect(await waitForBlockedOrSettled(db.$client, pending)).toBe("blocked");
+    } finally {
+      await holder.query("commit");
+      holder.release();
+    }
+    const res = await pending!;
+    expect(res.statusCode, res.body).toBe(409);
     expect(res.json().error.code).toBe("email_taken");
-    // registry 與 users 拆成獨立 insert 的退化形：registry 先成功、users 撞 email 失敗
-    // → 每次失敗建帳永久燒掉一個名字。tx 原子性由此斷言守。
     const after = (await db.select().from(handles)).map((row) => row.handle).sort();
     expect(after).toEqual(before);
   });
 
   it("派生撞名 → 探測自動避讓（-2），不 409；registry 一致", async () => {
-    const { app, db, cookies } = await adminApp();
-    // 'new-user' 先被 live 列占住
-    await db.insert(handles).values({ handle: "new-user", userId: "99999999-aaaa-4bbb-8ccc-000000000009", state: "live" });
-    const res = await app.inject({ method: "POST", url: "/api/admin/users", payload: CREATE, cookies });
-    expect(res.statusCode).toBe(201);
+    const { app, db, cookies } = await inviteApp();
+    await db.insert(handles).values({ handle: "new-user", userId: "99999999-aaaa-4bbb-8ccc-000000000019", state: "live" });
+    const res = await acceptVia(app, cookies, ACCEPT);
+    expect(res.statusCode, res.body).toBe(201);
     expect(res.json().handle).toBe("new-user-2");
     await expectLiveRegistry(db, "new.user@x.example");
   });
 
-  it("派生撞 users_handle_unique（窗期形：users.handle 占名但無 registry 列，探測看不見）→ 重試耗盡 → 第 4 次退 user-<uuid8>（讀碼審查 m2：整條重試梯的真路徑覆蓋，無 mock）", async () => {
-    const { app, db, cookies } = await adminApp();
-    // 窗期形：'new-user' 只在 users.handle（無 registry 列）——deriveHandle 只探測
-    // handles 表、判定可用；INSERT users 才撞 users_handle_unique。重試 1–3 次每次
-    // 重新探測仍得同名、同樣撞（確定性），第 4 次退 uuid8 成功。
+  it("派生撞 users_handle_unique（窗期形）→ 重試耗盡 → 第 4 次退 user-<uuid8>", async () => {
+    const { app, db, cookies } = await inviteApp();
+    // 'new-user' 只在 users.handle（無 registry 列）：deriveHandle 探測看不見，INSERT users 才撞；重試 1–3 次同樣撞，第 4 次退 uuid8。
     await db.insert(users).values({
-      id: "12121212-aaaa-4bbb-8ccc-000000000012",
+      id: "12121212-aaaa-4bbb-8ccc-000000000112",
       email: "window@x.example",
       displayName: "W",
       handle: "new-user",
     });
-    const res = await app.inject({ method: "POST", url: "/api/admin/users", payload: CREATE, cookies });
-    expect(res.statusCode).toBe(201);
+    const res = await acceptVia(app, cookies, ACCEPT);
+    expect(res.statusCode, res.body).toBe(201);
     expect(res.json().handle).toMatch(/^user-[0-9a-f]{8}$/);
     await expectLiveRegistry(db, "new.user@x.example");
   });
-
-  it("指定空字串 handle → 400（顯式給了非法值就報錯，不當成「空＝派生」）", async () => {
-    const { app, cookies } = await adminApp();
-    const res = await app.inject({ method: "POST", url: "/api/admin/users", payload: { ...CREATE, handle: "" }, cookies });
-    expect(res.statusCode).toBe(400);
-    expect(res.json().error.code).toBe("invalid_body");
-  });
-
   it("GET /api/admin/users 清單帶 handle", async () => {
-    const { app, cookies } = await adminApp();
+    const { app, cookies } = await inviteApp();
     const res = await app.inject({ method: "GET", url: "/api/admin/users", cookies });
     expect(res.statusCode).toBe(200);
     expect(res.json()[0].handle).toBe("admin");

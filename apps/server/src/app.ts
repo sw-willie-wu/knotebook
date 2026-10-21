@@ -25,6 +25,7 @@ import { groupsRoutes } from "./routes/groups.js";
 import type { WriteNoteLinksHooks } from "./notes/links.js";
 import type { SlugPatchTestHook } from "./notes/tx/patch-slug.js";
 import { adminUsersRoutes } from "./routes/admin-users.js";
+import { adminInvitesRoutes } from "./routes/admin-invites.js";
 import { adminPasswordResetRoutes } from "./routes/admin-password-reset.js";
 import { adminStorageRoutes } from "./routes/admin-storage.js";
 import { storageRoutes } from "./routes/storage.js";
@@ -168,9 +169,9 @@ export interface AppDeps {
     edit: FixedWindowLimiter;
     /** #187 §9.1：帳密註冊（key=ip）。 */
     register: FixedWindowLimiter;
-    /** #286：重設連結 inspect／完成的無效 token（key=ip；失敗才扣，見 `ONE_TIME_LINK_MISS_LIMIT`）。 */
+    /** #286／#285：重設連結與邀請的 inspect／完成（四個無登入端點、跨 kind 共用）的無效 token（key=ip；失敗才扣，見 `ONE_TIME_LINK_MISS_LIMIT`）。 */
     oneTimeLinkMiss: FixedWindowLimiter;
-    /** #286：每支重設連結的完成嘗試（key=`link:${id}`；帳密開才扣、inspect 不扣，見 `ONE_TIME_LINK_ATTEMPT_LIMIT`）。 */
+    /** #286／#285：每支一次性連結（重設、邀請）的完成／接受嘗試（key=`link:${id}`；帳密開才扣、inspect 不扣，見 `ONE_TIME_LINK_ATTEMPT_LIMIT`）。 */
     oneTimeLinkAttempt: FixedWindowLimiter;
   };
   /**
@@ -793,6 +794,8 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   void app.register(adminUsersRoutes({ db: deps.db, gate: deps.gate, collabHooks: deps.collabHooks, adminTestHook: deps.adminTestHook }));
   // #286：管理員替使用者產生／取消一次性重設密碼連結（spec §4.2）。
   void app.register(adminPasswordResetRoutes({ db: deps.db, config: deps.config }));
+  // #285：管理員產生／列出／撤銷邀請連結（spec §5.2）。
+  void app.register(adminInvitesRoutes({ db: deps.db, config: deps.config }));
   // 儲存配額（spec 2026-10-08 §7）：方案管理、預設、站台群組列表與指派（admin）；個人與群組用量檢視。
   void app.register(adminStorageRoutes({ db: deps.db }));
   void app.register(storageRoutes({ db: deps.db }));
@@ -804,8 +807,15 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   // #272 §7.5：e2e 測試縫（只在 KNOTEBOOK_E2E_TEST_HOOKS=1 且 PUBLIC_URL 是 loopback 時；見 config.ts 的 `testHooks`）。
   if (deps.config.testHooks) void app.register(testHookRoutes({ versions }));
   // #187 PR3：註冊、個人設定的登入方式與加上密碼（spec §8、§9.1）。
+  // #285：邀請端點的 miss／嘗試桶與下面的重設密碼路由拿同一組實例（跨 kind 共用）。
   void app.register(
-    accountRoutes({ db: deps.db, config: deps.config, gate: deps.gate, collabHooks: deps.collabHooks, limiters: { register: limiters.register } }),
+    accountRoutes({
+      db: deps.db,
+      config: deps.config,
+      gate: deps.gate,
+      collabHooks: deps.collabHooks,
+      limiters: { register: limiters.register, oneTimeLinkMiss: limiters.oneTimeLinkMiss, oneTimeLinkAttempt: limiters.oneTimeLinkAttempt },
+    }),
   );
   // #286：無登入的重設密碼端點——inspect 與以一次性連結設定新密碼（spec §4.3）。
   void app.register(

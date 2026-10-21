@@ -2,12 +2,12 @@ import { test, expect } from "@playwright/test";
 import { ADMIN, createNote, loginAs, openSiteAdmin, randomEmail } from "./helpers.js";
 
 /**
- * §14.5 流程 3：admin 於站台管理頁建第二使用者（admin 代建帳號 `mustChangePassword:
- * true`）→ 第二使用者（獨立 browser context）首登被強制改密 → admin 分享筆記給他
+ * §14.5 流程 3：admin 於站台管理頁建邀請連結（UI 全程，#285）→ 第二使用者（獨立 browser
+ * context）開連結、自己填 email 與密碼建帳並登入（不強制改密碼）→ admin 建筆記並分享給他
  * → 他開啟可見 → admin 撤銷 → **≤10 秒**他的頁面出現 `note.accessRevoked` toast
  * 文案＋被導回 `/`（§10 SLA 的機器斷言）。
  *
- * 建第二使用者走站台管理 modal（`/admin/users`），從 `UserMenu` 的「Site admin」入口進去
+ * 建邀請走站台管理 modal（`/admin/users`），從 `UserMenu` 的「Site admin」入口進去
  * （走真實入口，不 `page.goto` 深連結），完成後按 Esc 關掉回 `/`。
  */
 test("admin 建第二使用者 → 分享筆記 → 撤銷 → SLA 內失去存取", async ({ browser }) => {
@@ -22,24 +22,38 @@ test("admin 建第二使用者 → 分享筆記 → 撤銷 → SLA 內失去存�
     await openSiteAdmin(adminPage);
 
     const secondEmail = randomEmail();
-    const tempPassword = "e2e-second-user-temp-pw";
+    const secondPassword = "e2e-second-user-pw";
 
-    await adminPage.getByRole("button", { name: "Create user" }).click();
-    const createUserDialog = adminPage.getByRole("dialog", { name: "Create user" });
-    await createUserDialog.locator("#admin-create-email").fill(secondEmail);
-    await createUserDialog.locator("#admin-create-password").fill(tempPassword);
-    await createUserDialog.locator("#admin-create-display-name").fill("E2E Second User");
-    await createUserDialog.getByRole("button", { name: "Create", exact: true }).click();
+    await adminPage.getByRole("button", { name: "Create invitation" }).click();
+    const createDialog = adminPage.getByRole("dialog", { name: "Create an invitation" });
+    await createDialog.getByRole("button", { name: "Create link" }).click();
 
-    // 成功訊號：dialog 關閉＋新使用者出現在表格。
-    await expect(createUserDialog).not.toBeVisible();
-    await expect(adminPage.getByText(secondEmail)).toBeVisible();
+    // 結果對話框：唯讀欄（可及名稱 `Link`）的值就是邀請連結，token 只在這裡出現一次。
+    const resultDialog = adminPage.getByRole("dialog", { name: "Invitation link" });
+    const inviteUrl = await resultDialog.getByRole("textbox", { name: "Link", exact: true }).inputValue();
+    expect(inviteUrl.startsWith(`${new URL(adminPage.url()).origin}/register#invite=`)).toBe(true);
+    expect(new URL(inviteUrl).hash).toMatch(/^#invite=knbi_[A-Za-z0-9_-]{43}$/);
+    await resultDialog.getByRole("button", { name: "Done", exact: true }).click();
+    await expect(resultDialog).not.toBeVisible();
 
     // ── Esc 關站台管理 modal、回 "/" ──────────────────────────────────
     await adminPage.keyboard.press("Escape");
     await expect(adminPage).toHaveURL(/\/$/);
 
-    // ── 建筆記＋分享給第二使用者 ─────────────────────────────────────
+    // ── 第二使用者：獨立 context 開邀請連結 → 自己填表建帳（成功即登入、不強制改密碼）──
+    const userPage = await userContext.newPage();
+    await userPage.goto(inviteUrl);
+    // 讀完 fragment 就從網址列清掉，所以網址上沒有 `#`。
+    await expect(userPage).toHaveURL(/\/register$/);
+    await expect(userPage.getByText(/^This invitation works once/)).toBeVisible();
+    await userPage.getByLabel("Email", { exact: true }).fill(secondEmail);
+    await userPage.getByLabel("Display name (optional)").fill("E2E Second User");
+    await userPage.getByLabel("Password", { exact: true }).fill(secondPassword);
+    await userPage.getByLabel("Confirm password").fill(secondPassword);
+    await userPage.getByRole("button", { name: "Create account", exact: true }).click();
+    await expect(userPage).toHaveURL(/\/$/);
+
+    // ── 建筆記＋分享給第二使用者（對方已建帳，加人才找得到 email） ─────────────────────────────────────
     const title = `E2E share ${Date.now()}`;
     await createNote(adminPage, title);
     const noteUrl = adminPage.url();
@@ -53,20 +67,7 @@ test("admin 建第二使用者 → 分享筆記 → 撤銷 → SLA 內失去存�
     await shareDialog.getByRole("button", { name: "Add", exact: true }).click();
     await expect(shareDialog.getByText(secondEmail)).toBeVisible();
 
-    // ── 第二使用者：獨立 context 首登強改密（admin 代建帳號的既定流程；#187 PR4 起 env 管理員不強改，這裡是強制改密碼的主要 E2E 覆蓋）──
-    const userPage = await userContext.newPage();
-    await loginAs(userPage, secondEmail, tempPassword);
-    await expect(userPage).toHaveURL(/\/change-password$/);
-
-    const newPassword = "e2e-second-user-pw-2";
-    await userPage.locator("#change-password-current").fill(tempPassword);
-    await userPage.locator("#change-password-new").fill(newPassword);
-    await userPage.locator("#change-password-confirm").fill(newPassword);
-    await userPage.getByRole("button", { name: "Change password" }).click();
-    await expect(userPage).toHaveURL(/\/$/);
-    await expect(userPage.getByText("Password updated.", { exact: true })).toBeVisible();
-
-    // ── 開啟被分享的筆記，確認可見 ───────────────────────────────────
+    // ── 第二使用者開啟被分享的筆記（已登入，同上面建帳後的 context），確認可見 ───────────────────────────────────
     // 分享表單預設角色＝viewer（未改動下拉選單）：`TitleInput` 對 `readOnly`
     // 改渲染成 `<h1>`（不是可編輯的 `Note title` labeled input，見
     // `TitleInput.tsx` 的 `if (readOnly)` 分支）——「可見」斷言改認這顆標題。

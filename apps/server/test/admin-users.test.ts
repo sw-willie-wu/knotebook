@@ -1,28 +1,16 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import type { LightMyRequestResponse } from "fastify";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { SESSION_COOKIE } from "@knotebook/shared";
 import { buildTestApp, testConfig } from "./helpers.js";
-import { cookieOf, seedUser, waitForBlockedOrSettled } from "./group-helpers.js";
+import { cookieOf, seedUser, waitForBlockedOrSettled, waitForLockWaiters } from "./group-helpers.js";
 import { oneTimeLinks, users } from "../src/db/schema.js";
 import { captureLogs } from "./helpers/admin-auth.js";
 import type { Db } from "../src/db/index.js";
 import { signSession } from "../src/auth/session.js";
 import type { CollabHooks } from "../src/collab/hooks.js";
 import type { AdminTestHook } from "../src/auth/admin-test-hook.js";
-
-// hashPassword 包成 vi.fn(actual)：預設行為與真實實作一致，只有 HashBusyError 那條
-// 測試用 mockRejectedValueOnce 覆寫下一次呼叫——同 auth.test.ts 的手法。
-vi.mock("../src/auth/password.js", async () => {
-  const actual = await vi.importActual<typeof import("../src/auth/password.js")>("../src/auth/password.js");
-  return { ...actual, hashPassword: vi.fn(actual.hashPassword) };
-});
-
-import { hashPassword, HashBusyError } from "../src/auth/password.js";
-
-afterEach(() => {
-  vi.mocked(hashPassword).mockClear();
-});
+import { hashPassword } from "../src/auth/password.js";
 
 const VALID_PASSWORD = "correct-horse-battery";
 
@@ -72,13 +60,15 @@ const EXPECTED_KEYS = ["id", "email", "handle", "displayName", "isAdmin", "disab
 describe("requireAdmin 保護：全部端點非 admin 403、未登入 401", () => {
   const endpoints: Array<{ name: string; url: (id: string) => string; method: "GET" | "POST" | "DELETE" }> = [
     { name: "GET /api/admin/users", method: "GET", url: () => "/api/admin/users" },
-    { name: "POST /api/admin/users", method: "POST", url: () => "/api/admin/users" },
     { name: "POST /api/admin/users/:id/disable", method: "POST", url: id => `/api/admin/users/${id}/disable` },
     { name: "POST /api/admin/users/:id/enable", method: "POST", url: id => `/api/admin/users/${id}/enable` },
     { name: "POST /api/admin/users/:id/promote", method: "POST", url: id => `/api/admin/users/${id}/promote` },
     { name: "POST /api/admin/users/:id/demote", method: "POST", url: id => `/api/admin/users/${id}/demote` },
     { name: "POST /api/admin/users/:id/password-reset", method: "POST", url: id => `/api/admin/users/${id}/password-reset` },
     { name: "DELETE /api/admin/users/:id/password-reset", method: "DELETE", url: id => `/api/admin/users/${id}/password-reset` },
+    { name: "POST /api/admin/invites", method: "POST", url: () => "/api/admin/invites" },
+    { name: "GET /api/admin/invites", method: "GET", url: () => "/api/admin/invites" },
+    { name: "DELETE /api/admin/invites/:id", method: "DELETE", url: id => `/api/admin/invites/${id}` },
   ];
 
   for (const ep of endpoints) {
@@ -134,134 +124,20 @@ describe("GET /api/admin/users", () => {
   });
 });
 
-describe("POST /api/admin/users", () => {
-  it("201 建立成功、形狀正確；該帳號可登入", async () => {
+describe("POST /api/admin/users（#285 已拿掉代建端點）", () => {
+  it("RM-1：admin 帶任意 body POST /api/admin/users → 404（路由不存在，不是 400／405）", async () => {
     const { app, db } = await buildTestApp();
-    const admin = await insertUser(db, { isAdmin: true, email: "admin-c1@example.com" });
+    const admin = await insertUser(db, { isAdmin: true, email: "admin-rm1@example.com" });
     const cookie = await cookieFor(admin.id);
 
     const res = await app.inject({
       method: "POST",
       url: "/api/admin/users",
       cookies: { [SESSION_COOKIE]: cookie },
-      payload: { email: "newuser-c1@example.com", password: "a-strong-password", displayName: "New User" },
+      payload: { email: "newuser-rm1@example.com", password: "a-strong-password", displayName: "New User" },
     });
-    expect(res.statusCode).toBe(201);
-    const body = res.json();
-    expect(Object.keys(body).sort()).toEqual(EXPECTED_KEYS);
-    expect(body).toMatchObject({ email: "newuser-c1@example.com", handle: "newuser-c1", displayName: "New User", isAdmin: false, disabledAt: null, hasPassword: true, passwordResetExpiresAt: null });
-
-    const loginRes = await app.inject({
-      method: "POST",
-      url: "/api/auth/login",
-      payload: { email: "newuser-c1@example.com", password: "a-strong-password" },
-    });
-    expect(loginRes.statusCode).toBe(200);
-  });
-
-  it("代建的帳號 mustChangePassword=true（spec rev 5.7；DB 斷言，AdminUserDto 形狀本身不含此欄位）", async () => {
-    const { app, db } = await buildTestApp();
-    const admin = await insertUser(db, { isAdmin: true, email: "admin-c6@example.com" });
-    const cookie = await cookieFor(admin.id);
-
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/admin/users",
-      cookies: { [SESSION_COOKIE]: cookie },
-      payload: { email: "newuser-c6@example.com", password: "a-strong-password", displayName: "New User" },
-    });
-    expect(res.statusCode).toBe(201);
-
-    const [row] = await db.select().from(users).where(eq(users.email, "newuser-c6@example.com"));
-    expect(row.mustChangePassword).toBe(true);
-  });
-
-  it("Mixed-Case email 建帳 → DB 存小寫（spec §14.3 單一漏斗）", async () => {
-    const { app, db } = await buildTestApp();
-    const admin = await insertUser(db, { isAdmin: true, email: "admin-c7@example.com" });
-    const cookie = await cookieFor(admin.id);
-
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/admin/users",
-      cookies: { [SESSION_COOKIE]: cookie },
-      payload: { email: "MiXed-Case-C7@Example.COM", password: "a-strong-password", displayName: "Mixed Case" },
-    });
-    expect(res.statusCode).toBe(201);
-
-    const [row] = await db.select().from(users).where(eq(users.email, "mixed-case-c7@example.com"));
-    expect(row).toBeDefined();
-    expect(row.email).toBe("mixed-case-c7@example.com");
-  });
-
-  it("isAdmin: true → 建立管理員帳號", async () => {
-    const { app, db } = await buildTestApp();
-    const admin = await insertUser(db, { isAdmin: true, email: "admin-c2@example.com" });
-    const cookie = await cookieFor(admin.id);
-
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/admin/users",
-      cookies: { [SESSION_COOKIE]: cookie },
-      payload: { email: "newadmin-c2@example.com", password: "a-strong-password", displayName: "New Admin", isAdmin: true },
-    });
-    expect(res.statusCode).toBe(201);
-    expect(res.json()).toMatchObject({ isAdmin: true });
-  });
-
-  it("email 撞 → 409 email_taken", async () => {
-    const { app, db } = await buildTestApp();
-    const admin = await insertUser(db, { isAdmin: true, email: "admin-c3@example.com" });
-    await insertUser(db, { email: "dup-c3@example.com" });
-    const cookie = await cookieFor(admin.id);
-
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/admin/users",
-      cookies: { [SESSION_COOKIE]: cookie },
-      payload: { email: "dup-c3@example.com", password: "a-strong-password", displayName: "Dup" },
-    });
-    expect(res.statusCode).toBe(409);
-    expect(res.json()).toMatchObject({ error: { code: "email_taken" } });
-  });
-
-  it("密碼 <12 字元 → 400 password_too_short", async () => {
-    const { app, db } = await buildTestApp();
-    const admin = await insertUser(db, { isAdmin: true, email: "admin-c4@example.com" });
-    const cookie = await cookieFor(admin.id);
-
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/admin/users",
-      cookies: { [SESSION_COOKIE]: cookie },
-      payload: { email: "shortpw-c4@example.com", password: "short", displayName: "Short" },
-    });
-    expect(res.statusCode).toBe(400);
-    expect(res.json()).toMatchObject({ error: { code: "password_too_short" } });
-
-    const [row] = await db.select().from(users).where(eq(users.email, "shortpw-c4@example.com"));
-    expect(row).toBeUndefined();
-  });
-
-  it("hashPassword 拋出 HashBusyError（併發超限）→ 429 server_busy，不落地 DB", async () => {
-    const { app, db } = await buildTestApp();
-    const admin = await insertUser(db, { isAdmin: true, email: "admin-c5@example.com" });
-    const cookie = await cookieFor(admin.id);
-
-    // insertUser(admin) 已經真的呼叫過一次 hashPassword（消耗掉的是「當下」那次呼叫），
-    // 在這裡才排入 mockRejectedValueOnce，確保吃到 rejection 的是路由 handler 那次呼叫。
-    vi.mocked(hashPassword).mockRejectedValueOnce(new HashBusyError());
-
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/admin/users",
-      cookies: { [SESSION_COOKIE]: cookie },
-      payload: { email: "busy-c5@example.com", password: "a-strong-password", displayName: "Busy" },
-    });
-    expect(res.statusCode).toBe(429);
-    expect(res.json()).toMatchObject({ error: { code: "server_busy" } });
-
-    const [row] = await db.select().from(users).where(eq(users.email, "busy-c5@example.com"));
+    expect(res.statusCode).toBe(404);
+    const [row] = await db.select().from(users).where(eq(users.email, "newuser-rm1@example.com"));
     expect(row).toBeUndefined();
   });
 });
@@ -707,4 +583,141 @@ describe("POST /api/admin/users/:id/demote（#247 §9.4）", () => {
     expect([first.statusCode, other.statusCode].sort()).toEqual([204, 409]);
     expect(await enabledAdminsAmong(built.db, [a.id, b.id, c.id])).toBe(1);
   });
+});
+
+/** 照 #286 產生連結交易的形：連結列帶 created_by_id（FK 檢查對建立者的 users 列取 KEY SHARE）。 */
+const RESET_LINK_SQL =
+  "insert into one_time_links (kind, token_hash, target_user_id, created_by_id, expires_at) values ('password_reset', 'h-' || gen_random_uuid(), $1, $2, now() + interval '1 hour')";
+async function insertResetLink(db: Db, targetId: string, createdById: string): Promise<void> {
+  await db.$client.query(RESET_LINK_SQL, [targetId, createdById]);
+}
+
+const disableUser = (app: Awaited<ReturnType<typeof buildTestApp>>["app"], targetId: string, cookies: Record<string, string>) =>
+  app.inject({ method: "POST", url: `/api/admin/users/${targetId}/disable`, cookies });
+
+describe("POST /api/admin/users/:id/disable：最後一位啟用中的 admin（#250）", () => {
+  it("序列：目標是唯一啟用中的 admin（呼叫者已被停用但快取仍有效）→ 409 last_site_admin；資料不變、重設連結沒被撤銷", async () => {
+    const { app, db } = await buildTestApp();
+    const a = await seedUser(db, { isAdmin: true });
+    const b = await seedUser(db, { isAdmin: true });
+    await insertResetLink(db, b.id, a.id);
+    const aCookies = await cookieOf(a.id);
+    expect((await app.inject({ method: "GET", url: "/api/admin/users", cookies: aCookies })).statusCode).toBe(200); // 灌 a 的快取
+    await db.update(users).set({ disabledAt: new Date() }).where(eq(users.id, a.id)); // 繞過端點、不 invalidate
+    const r = await disableUser(app, b.id, aCookies);
+    expect(r.statusCode).toBe(409);
+    expect(r.json().error).toEqual({ code: "last_site_admin", message: "站台至少要保留一位啟用中的管理員" });
+    const [row] = await db.select({ disabledAt: users.disabledAt, tokenVersion: users.tokenVersion }).from(users).where(eq(users.id, b.id));
+    expect(row).toEqual({ disabledAt: null, tokenVersion: 0 });
+    const [link] = await db.select().from(oneTimeLinks).where(eq(oneTimeLinks.targetUserId, b.id));
+    expect(link!.revokedAt).toBeNull();
+  });
+
+  it("正常：兩位啟用中的 admin，停用其一 → 204；停用非 admin 不受影響；重複停用已停用的 admin 冪等 204", async () => {
+    const { app, db } = await buildTestApp();
+    const a = await seedUser(db, { isAdmin: true });
+    const b = await seedUser(db, { isAdmin: true });
+    const plain = await seedUser(db);
+    const aCookies = await cookieOf(a.id);
+    expect((await disableUser(app, b.id, aCookies)).statusCode).toBe(204);
+    expect(await enabledAdminsAmong(db, [a.id, b.id])).toBe(1);
+    expect((await disableUser(app, plain.id, aCookies)).statusCode).toBe(204);
+    expect((await disableUser(app, b.id, aCookies)).statusCode).toBe(204);
+  });
+
+  it("併發互停（raw client 先持鎖）：A 停 B、B 停 A 都卡在鎖上；放鎖後恰一個 204、另一個 409；剩一位啟用中的 admin", async () => {
+    const { app, db } = await buildTestApp();
+    const a = await seedUser(db, { isAdmin: true });
+    const b = await seedUser(db, { isAdmin: true });
+    const aCookies = await cookieOf(a.id);
+    const bCookies = await cookieOf(b.id);
+    const raw = await db.$client.connect();
+    let released = false;
+    try {
+      await raw.query("begin");
+      await raw.query("select id from users where is_admin = true and disabled_at is null for update");
+      const p1 = disableUser(app, b.id, aCookies);
+      await waitForLockWaiters(db.$client, 1);
+      const p2 = disableUser(app, a.id, bCookies);
+      await waitForLockWaiters(db.$client, 2);
+      await raw.query("commit");
+      released = true;
+      const [r1, r2] = await Promise.all([p1, p2]);
+      expect([r1.statusCode, r2.statusCode].sort()).toEqual([204, 409]);
+      expect([r1, r2].find(r => r.statusCode === 409)!.json().error.code).toBe("last_site_admin");
+      expect(await enabledAdminsAmong(db, [a.id, b.id])).toBe(1);
+    } finally {
+      if (!released) await raw.query("rollback").catch(() => {});
+      raw.release();
+    }
+  });
+
+  it("與產生重設連結並發不死鎖：連結交易先鎖目標列、停用卡在目標列、連結 INSERT 對建立者取 KEY SHARE → 兩邊都成功（不得 500／40P01）", async () => {
+    const { app, db } = await buildTestApp();
+    const a = await seedUser(db, { isAdmin: true });
+    const b = await seedUser(db, { isAdmin: true });
+    const p = await seedUser(db);
+    const raw = await db.$client.connect();
+    try {
+      await raw.query("begin");
+      await raw.query("select id from users where id = $1 for no key update", [p.id]);
+      const pending = disableUser(app, p.id, await cookieOf(b.id));
+      await waitForLockWaiters(db.$client, 1);
+      await raw.query(RESET_LINK_SQL, [p.id, a.id]);
+      await raw.query("commit");
+      expect((await pending).statusCode).toBe(204);
+    } finally {
+      await raw.query("rollback").catch(() => {});
+      raw.release();
+    }
+  });
+
+  it("與產生重設連結並發不死鎖（降級形）：連結對象 X 是 id 比建立者大的 admin，同時降級 X → 兩邊都成功", async () => {
+    const { app, db } = await buildTestApp();
+    const [lo, mid, hi] = [await seedUser(db, { isAdmin: true }), await seedUser(db, { isAdmin: true }), await seedUser(db, { isAdmin: true })].sort((x, y) => (x.id < y.id ? -1 : 1));
+    const raw = await db.$client.connect();
+    try {
+      await raw.query("begin");
+      await raw.query("select id from users where id = $1 for no key update", [hi!.id]);
+      const pending = demote(app, hi!.id, await cookieOf(mid!.id));
+      await waitForLockWaiters(db.$client, 1);
+      await raw.query(RESET_LINK_SQL, [hi!.id, lo!.id]);
+      await raw.query("commit");
+      expect((await pending).statusCode).toBe(204);
+    } finally {
+      await raw.query("rollback").catch(() => {});
+      raw.release();
+    }
+  });
+
+  for (const order of ["demote-first", "disable-first"] as const) {
+    it(`停用 × 降級併發互斥（${order}）：raw client 先持鎖，兩種排隊順序都恰一個 204、另一個 409；剩一位啟用中的 admin`, async () => {
+      const { app, db } = await buildTestApp();
+      const a = await seedUser(db, { isAdmin: true });
+      const b = await seedUser(db, { isAdmin: true });
+      const aCookies = await cookieOf(a.id);
+      const bCookies = await cookieOf(b.id);
+      const raw = await db.$client.connect();
+      let released = false;
+      try {
+        await raw.query("begin");
+        await raw.query("select id from users where is_admin = true for update");
+        const fireDemote = () => demote(app, b.id, aCookies);
+        const fireDisable = () => disableUser(app, a.id, bCookies);
+        const first = order === "demote-first" ? fireDemote() : fireDisable();
+        await waitForLockWaiters(db.$client, 1);
+        const second = order === "demote-first" ? fireDisable() : fireDemote();
+        await waitForLockWaiters(db.$client, 2);
+        await raw.query("commit");
+        released = true;
+        const results = await Promise.all([first, second]);
+        expect(results.map(r => r.statusCode).sort()).toEqual([204, 409]);
+        expect(results.find(r => r.statusCode === 409)!.json().error.code).toBe("last_site_admin");
+        expect(await enabledAdminsAmong(db, [a.id, b.id])).toBe(1);
+      } finally {
+        if (!released) await raw.query("rollback").catch(() => {});
+        raw.release();
+      }
+    });
+  }
 });

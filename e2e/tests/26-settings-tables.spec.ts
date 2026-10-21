@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { ADMIN, loginAs, randomEmail } from "./helpers.js";
+import { ADMIN, createUserViaInvite, loginAs, randomEmail } from "./helpers.js";
 
 /**
  * 設定表格幾何守衛（spec docs/superpowers/specs/2026-10-13-settings-table-design.md §5.3）。
@@ -11,7 +11,7 @@ import { ADMIN, loginAs, randomEmail } from "./helpers.js";
  * 沒有啟用欄時操作欄是最後一欄。
  * 個人設定的三張表以一個 SSO 首登建立的新使用者量：e2e 疊只有一個讓新帳號首登的 OIDC 服務（「SSO」），所以「登入方式」只有 1 列
  * （spec §5.3 允許，報告註明）；PAT 建立額度是每人計，新使用者不吃 admin 的額度。
- * 清理：結尾以 API 刪掉自建的 token、群組、方案、登入服務、AI 動作與供應商；使用者沒有刪除 API，留著（名稱帶隨機碼）。
+ * 清理：結尾以 API 刪掉自建的 token、群組、方案、登入服務、AI 動作與供應商、撤銷自建的邀請；使用者沒有刪除 API，留著（名稱帶隨機碼）。
  */
 
 const RUN = randomUUID().slice(0, 8);
@@ -36,6 +36,8 @@ const N = {
   tokenPlain: `T26 token plain ${RUN}`,
   tokenLabeled: `T26 token labeled ${RUN}`,
   ssoUser: `T26 SSO ${RUN}`,
+  inviteShort: `T26 invitation ${RUN}`,
+  inviteLong: `T26-long-invitation-note-without-spaces-${RUN}`,
 } as const;
 const SHORT_EMAIL = `s${RUN}@e2e.local`;
 const LONG_EMAIL = `e2e-settings-table-long-address-${randomUUID()}@e2e.local`;
@@ -62,6 +64,7 @@ const T = {
   plans: { label: "Storage plans", headers: ["Name", "Limit", "Users", "Groups", "Spaces over limit", "Actions"], buttons: 2, enabled: false, minRows: 2 },
   members: { label: "Members", headers: ["Name", "Email", "Role", "Actions"], buttons: 1, enabled: false, minRows: 2 },
   tokens: { label: "API tokens", headers: ["Name", "Label", "Permissions", "Last used", "Expires", "Actions"], buttons: 2, enabled: false, minRows: 2 },
+  invites: { label: "Invitations", headers: ["Invitation", "Status", "Expires", "Used by", "Actions"], buttons: 1, enabled: false, minRows: 2 },
   signInMethods: { label: "Sign-in methods", headers: ["Service", "Linked", "Last used", "Actions"], buttons: 1, enabled: false, minRows: 1 },
   myGroups: { label: "Groups", headers: ["Group", "My role", "Permissions"], buttons: 0, enabled: false, minRows: 2 },
 } satisfies Record<string, TableSpec>;
@@ -78,6 +81,7 @@ interface Created {
   plans: string[];
   groups: string[];
   tokens: string[];
+  invites: string[];
 }
 
 interface CellGeometry {
@@ -173,13 +177,18 @@ async function seed(admin: Page, sso: Page, created: Created): Promise<string> {
   );
 
   // 使用者：email 長短差很多；長的那位顯示名也是一長串無空白。
-  await call(admin, "post", "/api/admin/users", { email: SHORT_EMAIL, password: USER_PASSWORD, displayName: "T26 Short", isAdmin: false });
-  await call(admin, "post", "/api/admin/users", {
+  await createUserViaInvite(admin, { email: SHORT_EMAIL, password: USER_PASSWORD, displayName: "T26 Short" });
+  await createUserViaInvite(admin, {
     email: LONG_EMAIL,
     password: USER_PASSWORD,
     displayName: `T26-long-display-name-without-any-spaces-${RUN}`,
-    isAdmin: false,
   });
+
+  // 邀請：兩張未使用的，備註帶 RUN，其中一張是無空白的長備註（上限 100 code point 內）。
+  for (const label of [N.inviteShort, N.inviteLong]) {
+    const invite = await call<{ invite: { id: string } }>(admin, "post", "/api/admin/invites", { expiresInDays: 1, label });
+    created.invites.push(invite.invite.id);
+  }
 
   // 儲存方案
   created.plans.push((await call<{ id: string }>(admin, "post", "/api/admin/storage-plans", { name: N.planA, quotaBytes: 1048576 })).id);
@@ -212,6 +221,7 @@ async function cleanup(admin: Page, sso: Page, created: Created): Promise<void> 
     }
   };
   for (const id of created.tokens) await attempt(`token ${id}`, () => sso.request.delete(`/api/auth/tokens/${id}`));
+  for (const id of created.invites) await attempt(`invite ${id}`, () => admin.request.delete(`/api/admin/invites/${id}`));
   for (const id of created.groups) await attempt(`group ${id}`, () => admin.request.delete(`/api/groups/${id}`, { data: { mode: "delete" } }));
   for (const id of created.plans) await attempt(`plan ${id}`, () => admin.request.delete(`/api/admin/storage-plans/${id}`));
   for (const id of created.authProviders) await attempt(`auth provider ${id}`, () => admin.request.delete(`/api/admin/auth/providers/${id}`));
@@ -532,7 +542,7 @@ async function expectActionsTabUncovered(page: Page): Promise<void> {
 
 test("26 設定表格幾何守衛（spec 2026-10-13 settings-table §5.3）", async ({ browser }) => {
   test.setTimeout(300_000);
-  const created: Created = { providers: [], actions: [], authProviders: [], plans: [], groups: [], tokens: [] };
+  const created: Created = { providers: [], actions: [], authProviders: [], plans: [], groups: [], tokens: [], invites: [] };
   const adminContext = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   const ssoContext = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   const adminPage = await adminContext.newPage();
@@ -555,7 +565,13 @@ test("26 設定表格幾何守衛（spec 2026-10-13 settings-table §5.3）", as
         ],
       },
       { path: "/admin/login", tables: [{ spec: T.authProviders, own: [N.idpA, N.idpB] }] },
-      { path: "/admin/users", tables: [{ spec: T.users, own: [SHORT_EMAIL, LONG_EMAIL, SSO_EMAIL] }] },
+      {
+        path: "/admin/users",
+        tables: [
+          { spec: T.users, own: [SHORT_EMAIL, LONG_EMAIL, SSO_EMAIL] },
+          { spec: T.invites, own: [N.inviteShort, N.inviteLong] },
+        ],
+      },
       { path: "/admin/groups", tables: [{ spec: T.adminGroups, own: [N.groupA, N.groupB] }] },
       { path: "/admin/storage", tables: [{ spec: T.plans, own: [N.planA, N.planB] }] },
       { path: `/groups/${groupAId}`, tables: [{ spec: T.members, own: [ADMIN.email, SHORT_EMAIL, LONG_EMAIL, SSO_EMAIL] }] },

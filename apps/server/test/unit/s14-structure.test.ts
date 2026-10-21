@@ -139,6 +139,7 @@ describe("S14 結構性守衛（#175 §4.4）", () => {
         "auth/tx/admin-demote.ts",
         "auth/tx/password-reset.ts",
         "auth/tx/disable-user.ts",
+        "auth/tx/accept-invite.ts",
         "uploads/tx/insert-upload.ts",
         "storage/tx/quota.ts",
       ]),
@@ -182,7 +183,7 @@ describe("S14 結構性守衛（#175 §4.4）", () => {
       { f: "routes/oidc.ts", all: 3, inTx: 3 }, // A1 登入、A2 SSO 證明、P3 手動連結（#187；A1 重投是同一個 runLogin 閉包呼叫兩次，字面只有一處）
       { f: "routes/oidc-pending.ts", all: 1, inTx: 1 }, // A2 密碼證明（#187 §7.5.4；SSO 證明那一處在 routes/oidc.ts）
       { f: "routes/admin-auth.ts", all: 3, inTx: 3 }, // B1 改、B2 刪登入服務（PR2）、P4 站台設定（PR3）
-      { f: "routes/account.ts", all: 2, inTx: 2 }, // P1 註冊（#187 PR3 §9.1）、P2 解除連結（§8.2）
+      { f: "routes/account.ts", all: 3, inTx: 3 }, // P1 註冊（#187 PR3 §9.1）、P2 解除連結（§8.2）、P5 接受邀請（#285，acceptInviteInTx）
       { f: "notes/search-index.ts", all: 1, inTx: 1 }, // 全文索引寫入（#93 §5.2）
       { f: "notes/search-query.ts", all: 1, inTx: 1 }, // 搜尋快照讀取（#93 §7.3）
       { f: "mcp/tools/create-transfer-token.ts", all: 1, inTx: 1 }, // #200 簽發（spec §4.2）
@@ -227,7 +228,7 @@ describe("S14 結構性守衛（#175 §4.4）", () => {
       "notes/editing/revert.ts": 1,
       "notes/tx/write-slug.ts": 1, // writeSlugInTx 的 savepoint（巢狀 tx.transaction）
       "routes/admin-ai.ts": 2,
-      "routes/admin-users.ts": 3, // 代建使用者（inline）＋ #247 降級（demoteSiteAdminInTx）＋ #286 停用（disableUserInTx）
+      "routes/admin-users.ts": 2, // #247 降級（demoteSiteAdminInTx）＋ #286 停用（disableUserInTx）
       "routes/auth.ts": 1,
       "routes/oauth.ts": 1,
     });

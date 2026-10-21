@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { expect, type APIRequestContext, type Locator, type Page } from "@playwright/test";
+import { expect, request as pwRequest, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 import { derivedVersionName } from "../../packages/shared/src/version-names.js";
 
 /**
  * 疊內建的 env bootstrap admin（見 `docker-compose.e2e.yml` 的 `ADMIN_EMAIL`/
  * `ADMIN_PASSWORD`）。#187 PR4 起 env 管理員首登**不強制改密碼**，所以全疊唯一密碼就是
  * `password`，所有 spec 直接用它登入（沒有「01 先改密碼、其餘 spec 用新密碼」的檔序耦合了）。
- * 強制改密碼的流程改由 admin 代建帳號的 spec 覆蓋（03／15／16／17／18 的第二使用者首登）。
+ * 強制改密碼不再有 e2e 覆蓋（代建已移除），由 `auth/guards.test.tsx`、`pages/ChangePasswordPage.test.tsx` 與 server 測試守。
  */
 export const ADMIN = {
   email: "admin@e2e.local",
@@ -21,7 +21,7 @@ export function randomEmail(): string {
 
 /**
  * `/login` → 送出表單 → 等離開 `/login`。**不在這裡斷言最終落在哪個 URL**——
- * 被旗標的帳號（例如 admin 代建、尚未改密碼）會被 `ChangePasswordGate` client-side 導向
+ * 被旗標的帳號（例如舊版代建、尚未改密碼的帳號）會被 `ChangePasswordGate` client-side 導向
  * `/change-password`，一般帳號（含 env bootstrap 管理員）則落在 `/`；呼叫端才知道自己期待哪一種，用
  * `expect(page).toHaveURL(...)`（本身有重試）斷言即可，這裡只保證「表單已送出且
  * 導航已經開始」。
@@ -32,6 +32,27 @@ export async function loginAs(page: Page, email: string, password: string): Prom
   await page.locator("#login-password").fill(password);
   await page.getByRole("button", { name: "Sign in" }).click();
   await page.waitForURL((url) => url.pathname !== "/login", { timeout: 15_000 });
+}
+
+/**
+ * admin 以 API 建邀請，另開一個不帶 cookie 的 APIRequestContext 兌換——**不得用 admin 的 context**：
+ * 兌換成功會 Set-Cookie 登入新帳號，蓋掉 admin 的 session。`adminPage` 須已登入且導覽過（要取 origin）。
+ * 建出的帳號沒有強制改密碼，之後直接 `loginAs`。CSRF 只需 JSON content-type（`data` 自動帶，同 26 的 `call`）。
+ */
+export async function createUserViaInvite(
+  adminPage: Page,
+  user: { email: string; password: string; displayName?: string },
+): Promise<void> {
+  const created = await adminPage.request.post("/api/admin/invites", { data: { expiresInDays: 1 } });
+  expect(created.status(), `POST /api/admin/invites → HTTP ${created.status()} ${await created.text()}`).toBe(201);
+  const { token } = (await created.json()) as { token: string };
+  const api = await pwRequest.newContext({ baseURL: new URL(adminPage.url()).origin });
+  try {
+    const accepted = await api.post("/api/auth/invite/accept", { data: { token, ...user } });
+    expect(accepted.status(), `POST /api/auth/invite/accept → HTTP ${accepted.status()} ${await accepted.text()}`).toBe(201);
+  } finally {
+    await api.dispose();
+  }
 }
 
 /**

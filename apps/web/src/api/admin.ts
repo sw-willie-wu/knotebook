@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
-import type { SpaceStorageDto } from "@knotebook/shared";
+import type { AdminInviteDto, SpaceStorageDto } from "@knotebook/shared";
 import { api } from "./client";
 import { ADMIN_STORAGE_PLANS_QUERY_KEY, STORAGE_USAGE_QUERY_KEY } from "./storage";
 
@@ -27,7 +27,7 @@ export interface AdminUserDto {
   hasPassword: boolean;
   /** #286：未用、未撤銷、未過期那一支重設連結的到期時間（ISO）；null＝沒有。帳密登入關閉期間照樣顯示。 */
   passwordResetExpiresAt: string | null;
-  /** 儲存配額 §7.2、§7.4：個人空間的方案與用量（GET／POST／PATCH storage-plan 都帶）。 */
+  /** 儲存配額 §7.2、§7.4：個人空間的方案與用量（GET／PATCH storage-plan 都帶）。 */
   storage: SpaceStorageDto;
 }
 
@@ -40,23 +40,41 @@ export function useAdminUsers(): UseQueryResult<AdminUserDto[]> {
   });
 }
 
-export interface CreateAdminUserBody {
-  email: string;
-  password: string;
-  displayName: string;
-  isAdmin: boolean;
+/** #285：`GET /api/admin/invites`（管理員邀請列表，不含 token 與雜湊）。 */
+export const ADMIN_INVITES_QUERY_KEY = ["admin", "invites"] as const;
+
+export function useAdminInvites(): UseQueryResult<AdminInviteDto[]> {
+  return useQuery({
+    queryKey: ADMIN_INVITES_QUERY_KEY,
+    queryFn: () => api<AdminInviteDto[]>("/api/admin/invites"),
+  });
 }
 
-/** `POST /api/admin/users`——成功回 201 `AdminUserDto`（body 未在這裡使用，僅
- * invalidate 名單重新查詢即可）。 */
-export function useCreateAdminUser() {
+/**
+ * #285：`POST /api/admin/invites`（201 `{ invite, token }`，明文只此一次）。`label` 只在非空時帶進 body。
+ * 不等名單重抓，結果畫面立即出現；`gcTime: 0` 同 `useCreatePasswordReset`。
+ */
+export function useCreateInvite() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (body: CreateAdminUserBody) =>
-      api<AdminUserDto>("/api/admin/users", { method: "POST", body: JSON.stringify(body) }),
+    gcTime: 0,
+    mutationFn: ({ expiresInDays, label }: { expiresInDays: number; label: string }) =>
+      api<{ invite: AdminInviteDto; token: string }>("/api/admin/invites", {
+        method: "POST",
+        body: JSON.stringify(label === "" ? { expiresInDays } : { expiresInDays, label }),
+      }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ADMIN_USERS_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: ADMIN_INVITES_QUERY_KEY });
     },
+  });
+}
+
+/** #285：`DELETE /api/admin/invites/:id`（204；409 `invite_used`）。回傳失效的 promise，讓 pending 涵蓋重抓。 */
+export function useRevokeInvite() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api<void>(`/api/admin/invites/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ADMIN_INVITES_QUERY_KEY }),
   });
 }
 

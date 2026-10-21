@@ -1,7 +1,8 @@
 import { createCipheriv, createHash, randomBytes, randomUUID } from "node:crypto";
 import http from "node:http";
+import net from "node:net";
 import pino from "pino";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { DrizzleQueryError, sql } from "drizzle-orm";
 import { aiActions, aiModels, aiProviders, notes } from "../src/db/schema.js";
 import { createAiRuntime, selfCheckAiKeys } from "../src/ai/runtime.js";
@@ -26,6 +27,50 @@ const REDACTED_SUFFIX = "時發生非預期的資料庫錯誤（錯誤本體已�
 /** DrizzleQueryError 的 params 落進 JSON log 的兩種形：message 裡的 `params: …`（drizzle 以「換行＋`params: ${params}`」接在 SQL 後）
  * 與可列舉屬性序列化成的 `"params":`。只比對這兩形，不比對裸字 params（避免別處合法出現的字樣假紅）。 */
 const PARAMS_LEAK = /params: |"params"\s*:/; // 不加 \b：JSON 裡換行被跳脫成 `\n`，`params` 前一個字元是 n，\b 會漏抓
+
+/** 一個「被我們佔住、但沒人在聽」的本機埠：連過去必定 ECONNREFUSED，且測完前不會被以 listen(0) 取埠的 server 拿到（#255）。
+ * 以前是「先 listen(0) 再 close 才去連它」——放掉的埠會被別的測試檔分走，連過去就回 404 而不是被拒。
+ * 做法：挑一個剛釋放的埠 P，用 localPort=P 對一個自己的 server 建立連線佔住 P（沒有任何 listener 在 P 上），
+ * 再實際連一次 P 確認真的被拒才採用（不同環境的 loopback 行為不同，不假設）。 */
+const portReleases: Array<() => Promise<void>> = [];
+afterEach(async () => {
+  for (const release of portReleases.splice(0)) await release();
+});
+async function holdRefusedPort(): Promise<number> {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const holder = net.createServer(sock => sock.on("error", () => {}));
+    await new Promise<void>(resolve => holder.listen(0, "127.0.0.1", resolve));
+    const probeSrv = net.createServer();
+    await new Promise<void>(resolve => probeSrv.listen(0, "127.0.0.1", resolve));
+    const port = (probeSrv.address() as { port: number }).port;
+    await new Promise<void>(resolve => probeSrv.close(() => resolve()));
+    const holderPort = (holder.address() as { port: number }).port;
+    const client = net.connect({ host: "127.0.0.1", port: holderPort, localPort: port });
+    client.on("error", () => {});
+    const release = async () => {
+      client.destroy();
+      await new Promise<void>(resolve => holder.close(() => resolve()));
+    };
+    const held = await new Promise<boolean>(resolve => {
+      client.once("connect", () => resolve(true));
+      client.once("error", () => resolve(false));
+    });
+    if (held) {
+      const refused = await new Promise<boolean>(resolve => {
+        const probe = net.connect({ host: "127.0.0.1", port });
+        const timer = setTimeout(() => { probe.destroy(); resolve(false); }, 2_000);
+        probe.once("connect", () => { clearTimeout(timer); probe.destroy(); resolve(false); });
+        probe.once("error", err => { clearTimeout(timer); resolve((err as NodeJS.ErrnoException).code === "ECONNREFUSED"); });
+      });
+      if (refused) {
+        portReleases.push(release);
+        return port;
+      }
+    }
+    await release();
+  }
+  throw new Error("找不到會被拒絕的本機埠");
+}
 
 function logged(): { out: string[]; options: { logger: { level: string; stream: { write(chunk: string): void } } } } {
   const out: string[] = [];
@@ -202,11 +247,7 @@ describe("POST /providers/:id/test 連線失敗的 log 不含 base_url 裡的憑
   });
 
   it("無憑證的連線拒絕 → log 仍保留可除錯資訊（causeCode ECONNREFUSED）", async () => {
-    // 先起後關一個本機 server，拿一個確定沒人聽的埠（不用 :9 之類被 fetch 列為 bad port 的埠）。
-    const server = http.createServer();
-    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
-    const port = (server.address() as { port: number }).port;
-    await new Promise<void>(resolve => server.close(() => resolve()));
+    const port = await holdRefusedPort(); // 不用 :9 之類被 fetch 列為 bad port 的埠
 
     const { out, options } = logged();
     const { app, db, cookies } = await adminApp({}, options);
@@ -329,10 +370,7 @@ describe("開機 v1→v2 密文升級寫入失敗：log 不含新密文", () => 
 
 describe("anthropic 連不上（無憑證）：log 的摘要分得出錯誤種類與底層 code", () => {
   it("關掉的本機埠 → errName APIConnectionError、causeCode ECONNREFUSED（在 cause.cause）", async () => {
-    const server = http.createServer();
-    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
-    const port = (server.address() as { port: number }).port;
-    await new Promise<void>(resolve => server.close(() => resolve()));
+    const port = await holdRefusedPort();
 
     const { out, options } = logged();
     const { app, db, admin, cookies } = await adminApp({}, options);

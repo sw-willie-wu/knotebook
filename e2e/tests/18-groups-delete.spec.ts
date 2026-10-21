@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { ADMIN, editorLocator, loginAs, openGroupPanel, openSiteAdmin, randomEmail } from "./helpers.js";
+import { ADMIN, createUserViaInvite, editorLocator, loginAs, openGroupPanel, randomEmail } from "./helpers.js";
 
 /**
  * #175 群組 v2 PR4（spec §12.3 第 18 條）：刪群組的兩個模式。
@@ -14,12 +14,11 @@ import { ADMIN, editorLocator, loginAs, openGroupPanel, openSiteAdmin, randomEma
  * 確認鈕在勾「I understand…」之前不能按 → 勾、按 → B 10 秒內「This note has been deleted.」→ A 側欄沒有 G2、
  * 開 Y 的 `/g/` 網址顯示無效連結文案。
  *
- * 斷言形沿用 15-groups／17-groups-roles（兩個 context、UI 建第二使用者、首登改密、`editorLocator`、10 秒 SLA）。
+ * 斷言形沿用 15-groups／17-groups-roles（兩個 context、邀請建第二使用者、`editorLocator`、10 秒 SLA）。
  * 群組與筆記留著不清：e2e 疊每次 `stack:down -v` 重置。
  */
 
-const TEMP_PASSWORD = "e2e-delete-user-temp-pw";
-const NEW_PASSWORD = "e2e-delete-user-pw-2";
+const PASSWORD = "e2e-delete-user-pw";
 
 /** A 用側欄工作坊「＋」建群組（同 15）。 */
 async function createGroup(adminPage: Page, name: string): Promise<void> {
@@ -80,18 +79,9 @@ test("刪群組：轉移給管理員（成員被踢、舊網址轉址、公開�
     await expect(adminPage).toHaveURL(/\/$/);
     const sidebar = adminPage.getByRole("complementary");
 
-    // ── 1. A 建第二使用者 B（同 15／17）──────────────────────────────────
-    await openSiteAdmin(adminPage);
+    // ── 1. A 以邀請建第二使用者 B（同 15／17）──────────────────────────────────
     const secondEmail = randomEmail();
-    await adminPage.getByRole("button", { name: "Create user" }).click();
-    const createUserDialog = adminPage.getByRole("dialog", { name: "Create user" });
-    await createUserDialog.locator("#admin-create-email").fill(secondEmail);
-    await createUserDialog.locator("#admin-create-password").fill(TEMP_PASSWORD);
-    await createUserDialog.locator("#admin-create-display-name").fill("E2E Delete Member");
-    await createUserDialog.getByRole("button", { name: "Create", exact: true }).click();
-    await expect(createUserDialog).not.toBeVisible();
-    await adminPage.keyboard.press("Escape");
-    await expect(adminPage).toHaveURL(/\/$/);
+    await createUserViaInvite(adminPage, { email: secondEmail, password: PASSWORD, displayName: "E2E Delete Member" });
 
     // ── 2. 轉移段：A 建 G1、在 G1 建 X、打一句字、記下 /g/ 網址 ──────────────────
     const g1 = `E2E Transfer ${Date.now()}`;
@@ -121,15 +111,10 @@ test("刪群組：轉移給管理員（成員被踢、舊網址轉址、公開�
     await anonPage.goto(publicPath);
     await expect(anonPage.getByRole("heading", { name: titleX })).toBeVisible({ timeout: 15_000 });
 
-    // ── 3. A 加 B；B 首登改密 → 側欄開 X → 徽章 Editor ────────────────────────
+    // ── 3. A 加 B；B 登入 → 側欄開 X → 徽章 Editor ────────────────────────
     await addMember(adminPage, g1, secondEmail);
     const userPage = await userContext.newPage();
-    await loginAs(userPage, secondEmail, TEMP_PASSWORD);
-    await expect(userPage).toHaveURL(/\/change-password$/);
-    await userPage.locator("#change-password-current").fill(TEMP_PASSWORD);
-    await userPage.locator("#change-password-new").fill(NEW_PASSWORD);
-    await userPage.locator("#change-password-confirm").fill(NEW_PASSWORD);
-    await userPage.getByRole("button", { name: "Change password" }).click();
+    await loginAs(userPage, secondEmail, PASSWORD);
     await expect(userPage).toHaveURL(/\/$/);
 
     const userSidebar = userPage.getByRole("complementary");

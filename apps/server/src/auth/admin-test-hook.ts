@@ -3,7 +3,7 @@
  * 整合測試在「鎖已取得、計數完成、寫入之前」讓另一條降級請求插進來，把併發互降變成決定性的測試。
  */
 export type AdminRacePoint =
-  /** `demoteSiteAdminInTx`：全部 admin 列 `FOR UPDATE` 取得、啟用中的其他 admin 計數完成之後，寫入之前。 */
+  /** `demoteSiteAdminInTx`：全部 admin 列 `FOR NO KEY UPDATE` 取得、啟用中的其他 admin 計數完成之後，寫入之前。 */
   "demote-locked";
 
 export type AdminTestHook = (point: AdminRacePoint, ctx: { targetId: string }) => Promise<void>;

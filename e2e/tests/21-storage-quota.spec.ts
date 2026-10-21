@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { test, expect, type Page } from "@playwright/test";
-import { ADMIN, adminNav, createNote, editorLocator, loginAs, openSiteAdmin, randomEmail } from "./helpers.js";
+import { ADMIN, adminNav, createNote, createUserViaInvite, editorLocator, loginAs, openSiteAdmin, randomEmail } from "./helpers.js";
 
 /**
  * 儲存配額 E1（spec §11.6）：管理員在 Site admin → Storage plans 建一個 1 MB 方案、在 Site admin → Users 指派給新建的
@@ -37,19 +37,13 @@ test("21 儲存配額 E1：1 MB 方案指派給使用者 → 貼 > 1 MB 圖 → 
   const userContext = await browser.newContext();
   const adminPage = await adminContext.newPage();
   const userEmail = randomEmail();
-  const tempPassword = "e2e-quota-temp-pw";
+  const password = "e2e-quota-user-pw";
   try {
-    // ── admin：建使用者（同 15-groups）──────────────────────────────
+    // ── admin：以邀請建使用者（先建、之後才開站台管理，使用者表第一次載入就有他）──────
     await loginAs(adminPage, ADMIN.email, ADMIN.password);
     await expect(adminPage).toHaveURL(/\/$/);
+    await createUserViaInvite(adminPage, { email: userEmail, password, displayName: "E2E Quota User" });
     await openSiteAdmin(adminPage);
-    await adminPage.getByRole("button", { name: "Create user" }).click();
-    const createUser = adminPage.getByRole("dialog", { name: "Create user" });
-    await createUser.locator("#admin-create-email").fill(userEmail);
-    await createUser.locator("#admin-create-password").fill(tempPassword);
-    await createUser.locator("#admin-create-display-name").fill("E2E Quota User");
-    await createUser.getByRole("button", { name: "Create", exact: true }).click();
-    await expect(createUser).not.toBeVisible();
 
     // ── admin：建 1 MB 方案 ────────────────────────────────────────
     await adminNav(adminPage, "Storage plans");
@@ -70,15 +64,9 @@ test("21 儲存配額 E1：1 MB 方案指派給使用者 → 貼 > 1 MB 圖 → 
     expect((await assigned).status()).toBe(200);
     await expect(planSelect.locator("option:checked")).toHaveText(PLAN_NAME);
 
-    // ── 使用者：首登改密 → 自己的筆記 → 貼 > 1 MB 圖 ─────────────────
+    // ── 使用者：登入 → 自己的筆記 → 貼 > 1 MB 圖 ─────────────────
     const userPage = await userContext.newPage();
-    await loginAs(userPage, userEmail, tempPassword);
-    await expect(userPage).toHaveURL(/\/change-password$/);
-    const newPassword = "e2e-quota-user-pw-2";
-    await userPage.locator("#change-password-current").fill(tempPassword);
-    await userPage.locator("#change-password-new").fill(newPassword);
-    await userPage.locator("#change-password-confirm").fill(newPassword);
-    await userPage.getByRole("button", { name: "Change password" }).click();
+    await loginAs(userPage, userEmail, password);
     await expect(userPage).toHaveURL(/\/$/);
     await createNote(userPage, `E2E quota ${Date.now()}`);
 

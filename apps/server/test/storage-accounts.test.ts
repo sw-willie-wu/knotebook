@@ -7,7 +7,7 @@ import { eq } from "drizzle-orm";
 import { SITE_SETTINGS_MISSING_MESSAGE } from "../src/auth/tx/admin-site-settings.js";
 import { initializeInstance } from "../src/auth/bootstrap.js";
 import { resolveOidcLoginInTx } from "../src/auth/tx/oidc-login.js";
-import { siteSettings, users } from "../src/db/schema.js";
+import { oneTimeLinks, siteSettings, users } from "../src/db/schema.js";
 import { buildTestApp, freshDb } from "./helpers.js";
 import { adminApp, captureLogs, expectAdminOnly } from "./helpers/admin-auth.js";
 import { seedAuthProvider } from "./helpers/oidc-provider.js";
@@ -16,8 +16,18 @@ import { basicPlanId, seedAttachment, seedPlan } from "./storage-helpers.js";
 
 const PW = "correct-horse-battery-staple";
 type B = Awaited<ReturnType<typeof adminApp>>;
-const createUser = (b: B, email: string) =>
-  b.app.inject({ method: "POST", url: "/api/admin/users", cookies: b.cookies, payload: { email, password: PW, displayName: "N" } });
+/** admin 建一張邀請（#285），回明文 token 與列 id。 */
+const inviteOf = async (b: B): Promise<{ token: string; id: string }> => {
+  const res = await b.app.inject({ method: "POST", url: "/api/admin/invites", cookies: b.cookies, payload: { expiresInDays: 1 } });
+  expect(res.statusCode, res.body).toBe(201);
+  const body = res.json() as { token: string; invite: { id: string } };
+  return { token: body.token, id: body.invite.id };
+};
+/** 接受邀請（不帶 cookie）。 */
+const acceptInvite = (b: B, token: string, email: string) =>
+  b.app.inject({ method: "POST", url: "/api/auth/invite/accept", payload: { token, email, password: PW, displayName: "N" } });
+/** 建帳一律走「admin 建邀請 → 無登入接受邀請」（#285 起管理員代建已移除），回接受邀請的回應。 */
+const createUser = async (b: B, email: string) => acceptInvite(b, (await inviteOf(b)).token, email);
 const planOfUser = async (db: B["db"], id: string) => (await db.select({ p: users.storagePlanId }).from(users).where(eq(users.id, id)))[0]!.p;
 /** 收到的 log 整串序列化（Error 的 message／stack／cause 不可列舉，手動攤開——drizzle 把 params 串進 message）。 */
 const logText = (lines: Array<{ msg?: string; obj: Record<string, unknown> }>) =>
@@ -36,13 +46,15 @@ describe("AdminUserDto.storage 與指派（S12、S13）", () => {
     expect(row.disabledAt).not.toBeNull();
   });
 
-  it("POST /api/admin/users 201 帶 storage（新預設、用量 0）", async () => {
+  it("接受邀請 201 → 新帳號掛當下預設、用量 0", async () => {
     const b = await adminApp();
     const p = await seedPlan(b.db, "NewDefault", 77);
     await b.db.update(siteSettings).set({ defaultUserStoragePlanId: p });
     const res = await createUser(b, "fresh@example.com");
     expect(res.statusCode).toBe(201);
-    expect(res.json().storage).toEqual({ planId: p, planName: "NewDefault", usedBytes: 0, quotaBytes: 77 });
+    const list = await b.app.inject({ method: "GET", url: "/api/admin/users", cookies: b.cookies });
+    const row = list.json().find((r: { id: string }) => r.id === res.json().id);
+    expect(row.storage).toEqual({ planId: p, planName: "NewDefault", usedBytes: 0, quotaBytes: 77 });
   });
 
   it("PATCH /api/admin/users/:id/storage-plan：200 AdminUserDto；停權者可改（S13）；使用者不存在／非 UUID → 404 user_not_found；方案不存在／非 UUID → 404 storage_plan_not_found；大寫 UUID 可；只限站台 admin", async () => {
@@ -66,13 +78,13 @@ describe("AdminUserDto.storage 與指派（S12、S13）", () => {
 });
 
 describe("四條建帳路徑都吃到「當下的」使用者預設；既有不變（S11）", () => {
-  it("admin POST、register、OIDC 自動建帳、bootstrap", async () => {
+  it("接受邀請、register、OIDC 自動建帳、bootstrap", async () => {
     const b = await adminApp();
     const basic = await basicPlanId(b.db);
     const p = await seedPlan(b.db, "P", 5);
     await b.db.update(siteSettings).set({ defaultUserStoragePlanId: p });
 
-    const viaAdmin = (await createUser(b, "a1@example.com")).json().id as string;
+    const viaInvite = (await createUser(b, "a1@example.com")).json().id as string;
     const reg = await b.app.inject({ method: "POST", url: "/api/auth/register", payload: { email: "r1@example.com", password: PW, displayName: "R" } });
     expect(reg.statusCode).toBe(201);
     const op = await seedAuthProvider(b.db, { issuerUrl: "https://idp.example" });
@@ -85,7 +97,7 @@ describe("四條建帳路徑都吃到「當下的」使用者預設；既有不�
     );
     const [oidcUser] = await b.db.select({ id: users.id }).from(users).where(eq(users.email, "o1@example.com"));
     expect(oidcUser, "OIDC 自動建帳應建出帳號（helper 預設開自動建帳）").toBeDefined();
-    for (const id of [viaAdmin, reg.json().id as string, oidcUser!.id]) expect(await planOfUser(b.db, id)).toBe(p);
+    for (const id of [viaInvite, reg.json().id as string, oidcUser!.id]) expect(await planOfUser(b.db, id)).toBe(p);
     expect(await planOfUser(b.db, b.admin.id)).toBe(basic);
 
     const fresh = await freshDb();
@@ -98,13 +110,15 @@ describe("四條建帳路徑都吃到「當下的」使用者預設；既有不�
 });
 
 describe("site_settings 沒有列（§4.2 契約變更）", () => {
-  it("admin POST 建帳 → 500 且 log.error 含 SITE_SETTINGS_MISSING_MESSAGE、log 不帶密碼雜湊、不留帳號與 handle 列；POST /api/groups → 500＋同一句 log、不留群組", async () => {
+  it("接受邀請 → 500 且 log.error 含 SITE_SETTINGS_MISSING_MESSAGE、log 不帶密碼雜湊、不留帳號與 handle 列、邀請未用；POST /api/groups → 500＋同一句 log、不留群組", async () => {
     const logs = captureLogs();
     const b = await adminApp({}, logs.options);
+    // 邀請在刪列之前建（刪列之後建也可：帳密開關讀不到列視同開）。
+    const invite = await inviteOf(b);
     await b.db.delete(siteSettings);
     const before = (await b.db.$client.query("select (select count(*)::int from users) u, (select count(*)::int from handles) h, (select count(*)::int from groups) g")).rows[0];
     const missing = () => logs.lines.filter(l => l.level === "error" && l.msg === SITE_SETTINGS_MISSING_MESSAGE).length;
-    const r = await createUser(b, "x@example.com");
+    const r = await acceptInvite(b, invite.token, "x@example.com");
     expect(r.statusCode).toBe(500);
     expect(r.json()).toEqual({ error: { code: "internal", message: "伺服器內部錯誤" } });
     expect(missing()).toBe(1);
@@ -113,6 +127,8 @@ describe("site_settings 沒有列（§4.2 契約變更）", () => {
     expect(missing()).toBe(2);
     const after = (await b.db.$client.query("select (select count(*)::int from users) u, (select count(*)::int from handles) h, (select count(*)::int from groups) g")).rows[0];
     expect(after).toEqual(before);
+    const [link] = await b.db.select({ usedAt: oneTimeLinks.usedAt }).from(oneTimeLinks).where(eq(oneTimeLinks.id, invite.id));
+    expect(link!.usedAt).toBeNull();
   });
 
   it("bootstrap 首次啟動 → 拋出 23502（column storage_plan_id）、不留帳號列", async () => {
@@ -126,7 +142,7 @@ describe("site_settings 沒有列（§4.2 契約變更）", () => {
 });
 
 describe("建帳／建群組撞已刪的預設方案 → 409 server_busy（§10 m9；以 trigger 構造的 23503）", () => {
-  it("admin POST：users_storage_plan_fk → 409 server_busy；其他名字的 23503 照舊 500、log 只記遮蔽後的摘要（不帶密碼雜湊）", async () => {
+  it("接受邀請：users_storage_plan_fk → 409 server_busy；其他名字的 23503 照舊 500、log 只記遮蔽後的摘要（不帶密碼雜湊）", async () => {
     const logs = captureLogs();
     const b = await adminApp({}, logs.options);
     await b.db.$client.query(`
@@ -140,8 +156,9 @@ describe("建帳／建群組撞已刪的預設方案 → 409 server_busy（§10 
       create or replace function pg_temp_raise_users_fk() returns trigger language plpgsql as $$
       begin raise exception using errcode = '23503', constraint = 'something_else_fk', message = 'constructed'; end $$;`);
     expect((await createUser(b, "z@example.com")).statusCode).toBe(500);
-    expect(logs.lines.some(l => l.level === "error" && l.obj.code === "23503" && l.obj.constraint === "something_else_fk" && l.obj.context === "建立使用者")).toBe(true);
+    // 不洩漏先斷：遮蔽被拿掉時要紅在這條，不被下面的 context 結構斷言遮住。
     expect(logText(logs.lines).includes("$argon2"), "log 帶了密碼雜湊").toBe(false);
+    expect(logs.lines.some(l => l.level === "error" && l.obj.code === "23503" && l.obj.constraint === "something_else_fk" && l.obj.context === "接受邀請")).toBe(true);
   });
 
   it("POST /api/groups：groups_storage_plan_fk → 409 server_busy、不留群組", async () => {

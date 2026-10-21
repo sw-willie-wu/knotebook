@@ -10,10 +10,10 @@ import { handles } from "../db/schema.js";
  * 配置紀律（spec §2a）：handle 的**唯一裁決者是 `handles` registry 的 PK**——這裡的
  * `deriveHandle` 內含 DB 探測（`WHILE EXISTS` 形），但那是**可用性探測、不是唯一性
  * 裁決**（明文特赦）：探測後真正寫入時仍可能撞唯一鍵，由各建帳路徑的重試契約處理
- * （bootstrap 不重試 fail-closed／OIDC 整 tx 重投一次／admin 整 tx 重跑 ≤3 後第 4 次
+ * （bootstrap 不重試 fail-closed／OIDC 整 tx 重投一次／註冊、接受邀請整 tx 重跑 ≤3 後第 4 次
  * 退 user-<uuid8>）。重試時重新探測——這救得了 `handles_pkey` 的真競態；
  * `users_handle_unique` 的窗期形（探測看不見）是確定性再撞，各路徑的出口與收斂
- * 見呼叫點註解（oidc.ts／admin-users.ts）。
+ * 見呼叫點註解（oidc.ts／auth/tx/register.ts〔註冊、接受邀請〕）。
  */
 
 const UUID_FORM_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;

@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { Link, useLocation, useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
 import { MIN_PASSWORD_LENGTH } from "@knotebook/shared";
@@ -7,14 +7,9 @@ import { ApiFail } from "@/api/client";
 import { completePasswordReset, inspectPasswordReset } from "@/api/passwordReset";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { SESSION_QUERY_KEY, useSession } from "@/auth/useSession";
-import { readSessionToken, removeSessionToken, RESET_TOKEN_KEY, writeSessionToken } from "@/auth/resetTokenStorage";
-
-/** `#token=<值>`；沒有或是空字串都當作沒有。 */
-function parseFragmentToken(hash: string): string | null {
-  const token = new URLSearchParams(hash.replace(/^#/, "")).get("token");
-  return token === null || token === "" ? null : token;
-}
+import { SESSION_QUERY_KEY, useSession, type UseSessionResult } from "@/auth/useSession";
+import { RESET_TOKEN_KEY } from "@/auth/resetTokenStorage";
+import { useOneTimeLinkToken } from "@/auth/useOneTimeLinkToken";
 
 type InspectState =
   | { kind: "ok"; email: string; expiresAt: string }
@@ -29,36 +24,29 @@ type InspectState =
  *    location 不會跟著更新，傳 `null` 還會清掉 router 放在 `history.state` 的 key／idx；
  * 3. 確定未登入時才寫進 sessionStorage（重新整理後還找得回來）；已登入時只放 state，鍵若存在就刪掉；
  * 4. 成功、410、頁面卸載都刪鍵（重新整理不跑 cleanup，所以不影響第 3 點）。整頁離開時由 `main.tsx` 清。
+ * 1–4 的實作在共用 hook `useOneTimeLinkToken`（與 #285 邀請註冊同一份，兩頁行為不分岔）。
  *
  * 已登入（任何帳號）只顯示「請先登出」：避免管理員在自己的瀏覽器測連結時，把自己換成對方（spec §5.2-2）。
  * token 不進 TanStack Query 的 queryKey：快取在卸載後仍會保留到 gcTime。
  */
 export default function ResetPasswordPage() {
+  const session = useSession();
+  const { token, forget } = useOneTimeLinkToken({ param: "token", storageKey: RESET_TOKEN_KEY, user: session.user });
+  // 同一頁換成新 token（貼新連結）時以 key 重掛：舊的錯誤、輸入與晚到的回應不會帶進新連結。
+  return <ResetPasswordContent key={token ?? ""} token={token} forget={forget} session={session} />;
+}
+
+function ResetPasswordContent({ token, forget, session }: { token: string | null; forget: () => void; session: UseSessionResult }) {
   const { t, i18n } = useTranslation();
-  const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { user, query, logout } = useSession();
+  const { user, query, logout } = session;
 
-  const [token] = useState(() => parseFragmentToken(location.hash) ?? readSessionToken(RESET_TOKEN_KEY));
   const [inspected, setInspected] = useState<{ token: string; state: InspectState } | null>(null);
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-
-  // `#token=` 空值也清：網址列不留 token 參數。
-  const hasFragmentToken = new URLSearchParams(location.hash.replace(/^#/, "")).has("token");
-  useEffect(() => {
-    if (hasFragmentToken) navigate({ pathname: location.pathname, search: location.search }, { replace: true });
-  }, [hasFragmentToken, location.pathname, location.search, navigate]);
-
-  useEffect(() => {
-    if (user === null && token !== null) writeSessionToken(RESET_TOKEN_KEY, token);
-    else if (user) removeSessionToken(RESET_TOKEN_KEY);
-  }, [user, token]);
-
-  useEffect(() => () => removeSessionToken(RESET_TOKEN_KEY), []);
 
   useEffect(() => {
     if (user !== null || token === null) return;
@@ -70,7 +58,7 @@ export default function ResetPasswordPage() {
       (err: unknown) => {
         if (cancelled) return;
         if (err instanceof ApiFail && err.status === 410) {
-          removeSessionToken(RESET_TOKEN_KEY);
+          forget();
           setInspected({ token, state: { kind: "invalid" } });
         } else if (err instanceof ApiFail && err.code === "password_login_disabled") {
           setInspected({ token, state: { kind: "loginOff" } });
@@ -82,7 +70,7 @@ export default function ResetPasswordPage() {
     return () => {
       cancelled = true;
     };
-  }, [user, token]);
+  }, [user, token, forget]);
 
   const backToLogin = (
     <p className="text-center text-sm">
@@ -168,12 +156,12 @@ export default function ResetPasswordPage() {
     setSubmitting(true);
     try {
       const signedIn = await completePasswordReset(validToken, password);
-      removeSessionToken(RESET_TOKEN_KEY);
+      forget();
       queryClient.setQueryData(SESSION_QUERY_KEY, signedIn);
       navigate("/", { replace: true });
     } catch (err) {
       if (err instanceof ApiFail && err.status === 410) {
-        removeSessionToken(RESET_TOKEN_KEY);
+        forget();
         setInspected({ token: validToken, state: { kind: "invalid" } });
       } else {
         setFormError(errorText(err instanceof ApiFail ? err.code : null));
