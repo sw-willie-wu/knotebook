@@ -182,7 +182,7 @@ export const TOKEN_WRITE_LIMIT = { limit: 60, windowMs: 600_000 } as const;
 export const BEARER_MISS_LIMIT = { limit: 30, windowMs: 60_000 } as const;
 
 /**
- * #286 §3.6：一次性連結「無效」桶（key=`request.ip`），inspect 與完成兩個無登入端點共用。
+ * #286 §3.6／#285 §5.5：一次性連結「無效」桶（key=`request.ip`），重設密碼與邀請的 inspect／完成共四個無登入端點、跨 kind 共用。
  * 比照 `BEARER_MISS_LIMIT`：**失敗才扣、有效 token 不做 `isBlocked` 預檢**。觸發集合＝token 形狀不合（body 400 不扣）、查無、
  * kind 不符、已用、已撤銷、已過期（交易外的查詢落空）；交易內並發造成的 410 不扣（那發已以有效 token 通過查詢）。
  * 代價同 Bearer：超限後無效 token 仍做一次 `token_hash` 的 UNIQUE 索引查找。
@@ -190,7 +190,7 @@ export const BEARER_MISS_LIMIT = { limit: 30, windowMs: 60_000 } as const;
  */
 export const ONE_TIME_LINK_MISS_LIMIT = { limit: 30, windowMs: 60_000 } as const;
 /**
- * #286 §3.6：每支連結的兌換嘗試桶（key=`link:${id}`）。完成端點查到有效連結、且帳密有效值為開之後才扣
+ * #286 §3.6／#285 §5.5：每支連結（重設、邀請）的兌換嘗試桶（key=`link:${id}`）。完成端點（重設完成、邀請接受）查到有效連結、且帳密有效值為開之後才扣
  * （帳密關閉的 403 不扣，否則重新開啟後可能還要再等一小時）；inspect 不扣。擋的是持有有效連結者
  * 不斷送失敗請求（太短的密碼、hash 忙）讓 server 一直跑 argon2。
  */

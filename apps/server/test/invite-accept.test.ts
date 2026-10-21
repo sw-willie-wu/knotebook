@@ -1,14 +1,14 @@
 /**
  * #285 無登入的邀請端點：inspect 與接受邀請（spec §5.3–§5.6）。成功建帳（B-7）、不看「允許用帳號密碼自行註冊」（B-8）、
  * strict body（V3）、無效一律 410 不洩漏原因、kind 隔離（B-14）、單次與撤銷並發（B-9）、argon2 前判斷（B-10、§5.5）、
- * 帳密開關（B-11）、hash 忙碌、顯示名、錯誤遮蔽（B-15）。速率桶在 T3b 補。
+ * 帳密開關（B-11）、hash 忙碌、顯示名、錯誤遮蔽（B-15）、速率桶（B-11 桶半、B-12、B-13、E5）。
  * 每案各建一個 app（fresh DB）。並發一律以 raw client 持邀請列（或 users 唯一鍵）的鎖、`waitForLockWaiters` 排隊後放行，不靠 sleep。
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { eq, sql } from "drizzle-orm";
 import { SESSION_COOKIE } from "@knotebook/shared";
-import { buildTestApp, insertPasswordUser, testConfig } from "./helpers.js";
+import { buildTestApp, freshLimiters, insertPasswordUser, testConfig } from "./helpers.js";
 import { cookieOf, seedUser, waitForLockWaiters } from "./group-helpers.js";
 import { handles, oneTimeLinks, siteSettings, users } from "../src/db/schema.js";
 import type { AppDeps } from "../src/app.js";
@@ -16,6 +16,7 @@ import type { Db } from "../src/db/index.js";
 import { generateAccessToken, hashToken } from "../src/auth/api-token.js";
 import { generateOneTimeToken } from "../src/auth/one-time-link.js";
 import { INVITE_INVALID_MESSAGE } from "../src/auth/tx/accept-invite.js";
+import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 
 // hashPassword 包成 vi.fn(actual)：預設行為與真實實作一致（比照 password-reset.test.ts）。
 vi.mock("../src/auth/password.js", async () => {
@@ -82,12 +83,12 @@ async function createInvite(ctx: Ctx, over: { expiresInDays?: number; label?: st
   return { token: body.token, id: body.invite.id, expiresAt: body.invite.expiresAt };
 }
 
-function accept(app: FastifyInstance, body: object) {
-  return app.inject({ method: "POST", url: "/api/auth/invite/accept", payload: body });
+function accept(app: FastifyInstance, body: object, remoteAddress?: string) {
+  return app.inject({ method: "POST", url: "/api/auth/invite/accept", payload: body, ...(remoteAddress ? { remoteAddress } : {}) });
 }
 
-function inspect(app: FastifyInstance, token: string) {
-  return app.inject({ method: "POST", url: "/api/auth/invite/inspect", payload: { token } });
+function inspect(app: FastifyInstance, token: string, remoteAddress?: string) {
+  return app.inject({ method: "POST", url: "/api/auth/invite/inspect", payload: { token }, ...(remoteAddress ? { remoteAddress } : {}) });
 }
 
 function revoke(ctx: Ctx, id: string) {
@@ -558,5 +559,136 @@ describe("錯誤遮蔽（B-15、spec §5.6）", () => {
     expect(inspected.statusCode).toBe(500);
     expect(accepted.statusCode).toBe(500);
     expect(out.split(LOOKUP_REDACTED).length - 1).toBe(2);
+  });
+});
+
+/** 只覆寫邀請（與重設共用）的兩顆桶，其餘照生產額度。 */
+function inviteLimiters(over: { miss?: number; attempt?: number }): Pick<AppDeps, "limiters"> {
+  return {
+    limiters: freshLimiters({
+      ...(over.miss !== undefined ? { oneTimeLinkMiss: new FixedWindowLimiter({ limit: over.miss, windowMs: 60_000 }) } : {}),
+      ...(over.attempt !== undefined ? { oneTimeLinkAttempt: new FixedWindowLimiter({ limit: over.attempt, windowMs: 3_600_000 }) } : {}),
+    }),
+  };
+}
+
+function expectTooMany(res: { statusCode: number; json(): unknown }) {
+  expect(res.statusCode).toBe(429);
+  expect(res.json()).toMatchObject({ error: { code: "too_many_requests", message: "請求太頻繁，請稍後再試" } });
+}
+
+describe("速率桶：miss 桶（key=ip，只在查無有效邀請時扣）", () => {
+  it("IB1（B-11 補，安全關鍵：帳密 403 不消耗任何桶）：miss 上限 1、嘗試上限 2；帳密關閉時同一張有效邀請連送 12 發 accept 全 403；重新開啟 → 201；之後一發無效 token → 410（不是 429）", async () => {
+    const ctx = await setup(inviteLimiters({ miss: 1, attempt: 2 }));
+    const { app, db } = ctx;
+    const invite = await createInvite(ctx);
+    await setPasswordLogin(db, false);
+    const closed: number[] = [];
+    for (let i = 0; i < 12; i += 1) closed.push((await accept(app, { token: invite.token, email: "ib1@example.com", password: PW })).statusCode);
+    expect(closed).toEqual(Array.from({ length: 12 }, () => 403));
+    const inspected: number[] = [];
+    for (let i = 0; i < 3; i += 1) inspected.push((await inspect(app, invite.token)).statusCode);
+    expect(inspected).toEqual([403, 403, 403]);
+    await setPasswordLogin(db, true);
+    const opened = await accept(app, { token: invite.token, email: "ib1@example.com", password: PW });
+    expect(opened.statusCode, opened.body).toBe(201);
+    expectInvalid(await accept(app, { token: generateOneTimeToken("invite"), email: "ib1b@example.com", password: PW }));
+  });
+
+  it("IB2（B-12，安全關鍵：限流不擋有效 token）：miss 上限 3；同 IP 三發無效（inspect 兩、accept 一，每發新 token）→ 410，第四發 → 429；同 IP 的有效邀請 inspect 200、accept 201；另一 IP 的無效 → 410", async () => {
+    const ctx = await setup(inviteLimiters({ miss: 3 }));
+    const { app } = ctx;
+    const valid = await createInvite(ctx);
+    expectInvalid(await inspect(app, generateOneTimeToken("invite")));
+    expectInvalid(await inspect(app, generateOneTimeToken("invite")));
+    expectInvalid(await accept(app, { token: generateOneTimeToken("invite"), email: "ib2@example.com", password: PW }));
+    expectTooMany(await inspect(app, generateOneTimeToken("invite")));
+    const ok = await inspect(app, valid.token);
+    expect(ok.statusCode, ok.body).toBe(200);
+    const created = await accept(app, { token: valid.token, email: "ib2@example.com", password: PW });
+    expect(created.statusCode, created.body).toBe(201);
+    expectInvalid(await inspect(app, generateOneTimeToken("invite"), "10.0.0.2"));
+  });
+
+  it("IB3（B-12，跨 kind 共用同一顆桶）：miss 上限 2；同 IP 兩發無效重設 token → 410；第三發無效邀請 inspect → 429", async () => {
+    const ctx = await setup(inviteLimiters({ miss: 2 }));
+    const { app } = ctx;
+    for (let i = 0; i < 2; i += 1) {
+      const res = await app.inject({ method: "POST", url: "/api/auth/password-reset/inspect", payload: { token: generateOneTimeToken("password_reset") } });
+      expect(res.statusCode).toBe(410);
+    }
+    expectTooMany(await inspect(app, generateOneTimeToken("invite")));
+  });
+
+  it("IB7（B-13，交易內 410 不扣 miss 桶）：miss 上限 1；accept 在邀請列鎖上排隊、撤銷提交後交易內 410；接著一發無效 token → 410（不是 429）", async () => {
+    const ctx = await setup(inviteLimiters({ miss: 1 }));
+    const { app, db } = ctx;
+    const invite = await createInvite(ctx);
+    const client = await db.$client.connect();
+    let pending: ReturnType<typeof accept> | undefined;
+    try {
+      await client.query("begin");
+      await client.query("select id from one_time_links where id = $1 for update", [invite.id]);
+      await client.query("update one_time_links set revoked_at = now() where id = $1", [invite.id]);
+      pending = accept(app, { token: invite.token, email: "ib7@example.com", password: PW });
+      await waitForLockWaiters(db.$client, 1);
+    } finally {
+      await client.query("commit");
+      client.release();
+    }
+    expectInvalid(await pending!);
+    expectInvalid(await inspect(app, generateOneTimeToken("invite")));
+  });
+});
+
+describe("速率桶：每支連結的嘗試桶（key=link:id，帳密有效值為開之後才扣）", () => {
+  it("IB4（B-13）：嘗試上限 2；同一張邀請兩發 email 已存在 → 409，第三發 → 429 且不呼叫 hashPassword、邀請未用；另一張邀請 → 201", async () => {
+    const ctx = await setup(inviteLimiters({ attempt: 2 }));
+    const { app, db } = ctx;
+    await db.insert(users).values({ email: "taken@ib4.example", displayName: "Old" });
+    const a = await createInvite(ctx);
+    const b = await createInvite(ctx);
+    for (let i = 0; i < 2; i += 1) {
+      const res = await accept(app, { token: a.token, email: "taken@ib4.example", password: PW });
+      expect(res.statusCode).toBe(409);
+    }
+    const third = await accept(app, { token: a.token, email: "fresh@ib4.example", password: PW });
+    expectTooMany(third);
+    expect(vi.mocked(hashPassword)).not.toHaveBeenCalled();
+    await expectUnused(db, a.id);
+    const other = await accept(app, { token: b.token, email: "fresh@ib4.example", password: PW });
+    expect(other.statusCode, other.body).toBe(201);
+  });
+
+  it("IB5（B-13）：嘗試上限 1；同 token inspect 3 次不扣桶 → accept 201", async () => {
+    const ctx = await setup(inviteLimiters({ attempt: 1 }));
+    const { app } = ctx;
+    const invite = await createInvite(ctx);
+    for (let i = 0; i < 3; i += 1) expect((await inspect(app, invite.token)).statusCode).toBe(200);
+    const res = await accept(app, { token: invite.token, email: "ib5@example.com", password: PW });
+    expect(res.statusCode, res.body).toBe(201);
+  });
+
+  it("IB6（B-13，生產上限 10）：同一張邀請連送 10 發 email 已存在 → 409；第 11 發 → 429", async () => {
+    const ctx = await setup();
+    const { app, db } = ctx;
+    await db.insert(users).values({ email: "taken@ib6.example", displayName: "Old" });
+    const invite = await createInvite(ctx);
+    const statuses: number[] = [];
+    for (let i = 0; i < 11; i += 1) statuses.push((await accept(app, { token: invite.token, email: "taken@ib6.example", password: PW })).statusCode);
+    expect(statuses).toEqual([...Array.from({ length: 10 }, () => 409), 429]);
+  });
+});
+
+describe("不扣 REGISTER_LIMIT（E5）", () => {
+  it("IB8：生產桶；同 IP 以 11 張不同邀請各 accept 一次 → 全部 201", async () => {
+    const ctx = await setup();
+    const { app } = ctx;
+    const statuses: number[] = [];
+    for (let i = 0; i < 11; i += 1) {
+      const invite = await createInvite(ctx);
+      statuses.push((await accept(app, { token: invite.token, email: `ib8-${i}@example.com`, password: PW })).statusCode);
+    }
+    expect(statuses).toEqual(Array.from({ length: 11 }, () => 201));
   });
 });

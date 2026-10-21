@@ -48,8 +48,10 @@ export interface AccountRouteDeps {
   config: AppConfig;
   gate: UserGate;
   collabHooks: CollabHooks;
-  limiters: { register: FixedWindowLimiter };
+  limiters: { register: FixedWindowLimiter; oneTimeLinkMiss: FixedWindowLimiter; oneTimeLinkAttempt: FixedWindowLimiter };
 }
+
+const TOO_MANY_REQUESTS_MESSAGE = "請求太頻繁，請稍後再試";
 
 const MAX_DERIVE_ATTEMPTS = 3;
 
@@ -99,12 +101,15 @@ async function findActiveInvite(db: Db, token: string, log: FastifyBaseLogger): 
 /**
  * #187 PR3：自己帳號的路由——帳密註冊（§9.1）、登入方式（§8.2／§8.3，Task 5）、加上密碼（§8.4，Task 6）。
  * #285：無登入的邀請 inspect 與接受邀請（spec §5.3）——無效一律 410 `invite_invalid`、不區分原因；不看「允許用帳號密碼自行註冊」、
- * 不扣 `REGISTER_LIMIT`（E2、E5）；帳密開關只在交易外判；log 與回應絕不含 token 明文或 `token_hash`。
- * HTTP 層訊息中文。
+ * 不扣 `REGISTER_LIMIT`（E2、E5——邀請本身就是授權，有效 token 的接受不該被同 IP 的註冊額度擋住）；帳密開關只在交易外判；
+ * log 與回應絕不含 token 明文或 `token_hash`。HTTP 層訊息中文。
+ * 兩顆桶與 `routes/password-reset.ts` 共用同一組實例：miss 桶（key=ip）只在交易外查無有效邀請時扣、有效 token 不預檢（不擋有效 token），
+ * 帳密 403 與交易內 410 都不扣；嘗試桶（key=`link:${id}`）只在 accept、帳密有效值為開之後才扣，inspect 不扣。
  */
 export function accountRoutes(deps: AccountRouteDeps) {
-  /** 交易外「邀請無效」的唯一出口（交易內並發造成的 410 刻意不經過它，N-4）。 */
-  function sendInvalidInvite(reply: FastifyReply): FastifyReply {
+  /** 交易外「邀請無效」的唯一出口（交易內並發造成的 410 刻意不經過它，N-4）：先扣 miss 桶（key=ip），超限 429，否則 410。 */
+  function sendInvalidInvite(reply: FastifyReply, ip: string): FastifyReply {
+    if (!deps.limiters.oneTimeLinkMiss.consume(ip)) return sendError(reply, 429, "too_many_requests", TOO_MANY_REQUESTS_MESSAGE);
     return sendError(reply, 410, "invite_invalid", INVITE_INVALID_MESSAGE);
   }
 
@@ -178,27 +183,31 @@ export function accountRoutes(deps: AccountRouteDeps) {
       return reply.code(201).send(dto);
     });
 
-    // #285 spec §5.3：檢查邀請（不消耗）。順序：body → 邀請 → 帳密有效值。
+    // #285 spec §5.3：檢查邀請（不消耗）。順序：body → 邀請（無效扣 miss 桶）→ 帳密有效值（403 不扣桶）。
     app.post("/api/auth/invite/inspect", async (request, reply) => {
       const parsed = inspectInviteBodySchema.safeParse(request.body);
       if (!parsed.success) return sendError(reply, 400, "invalid_body", "請求格式錯誤");
       const invite = await findActiveInvite(deps.db, parsed.data.token, request.log);
-      if (!invite) return sendInvalidInvite(reply);
+      if (!invite) return sendInvalidInvite(reply, request.ip);
       if (!(await isPasswordLoginAccepted(deps.db, deps.config, request.log))) {
         return sendError(reply, 403, "password_login_disabled", PASSWORD_LOGIN_DISABLED_MESSAGE);
       }
       return reply.send({ expiresAt: invite.expiresAt.toISOString() });
     });
 
-    // #285 spec §5.3：接受邀請。順序：body → 邀請 → 帳密有效值（403 不動列，D2）→ 長度 → email 預查 → argon2 → 交易。
+    // #285 spec §5.3：接受邀請。順序：body → 邀請（無效扣 miss 桶）→ 帳密有效值（403 不動列、不扣桶，D2）→ 嘗試桶 → 長度 → email 預查 → argon2 → 交易。
     // argon2 之前能判的都先判（§5.5）。
     app.post("/api/auth/invite/accept", async (request, reply) => {
       const parsed = acceptInviteBodySchema.safeParse(request.body);
       if (!parsed.success) return sendInvalidBody(reply, parsed.error);
       const invite = await findActiveInvite(deps.db, parsed.data.token, request.log);
-      if (!invite) return sendInvalidInvite(reply);
+      if (!invite) return sendInvalidInvite(reply, request.ip);
       if (!(await isPasswordLoginAccepted(deps.db, deps.config, request.log))) {
         return sendError(reply, 403, "password_login_disabled", PASSWORD_LOGIN_DISABLED_MESSAGE);
+      }
+      // 帳密關閉的 403 在上面先回，不扣這個桶（同重設密碼 N-1）。
+      if (!deps.limiters.oneTimeLinkAttempt.consume(`link:${invite.id}`)) {
+        return sendError(reply, 429, "too_many_requests", TOO_MANY_REQUESTS_MESSAGE);
       }
       if (parsed.data.password.length < MIN_PASSWORD_LENGTH) {
         return sendError(reply, 400, "password_too_short", `密碼至少需要 ${MIN_PASSWORD_LENGTH} 字元`);

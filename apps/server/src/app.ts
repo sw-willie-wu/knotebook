@@ -169,9 +169,9 @@ export interface AppDeps {
     edit: FixedWindowLimiter;
     /** #187 §9.1：帳密註冊（key=ip）。 */
     register: FixedWindowLimiter;
-    /** #286：重設連結 inspect／完成的無效 token（key=ip；失敗才扣，見 `ONE_TIME_LINK_MISS_LIMIT`）。 */
+    /** #286／#285：重設連結與邀請的 inspect／完成（四個無登入端點、跨 kind 共用）的無效 token（key=ip；失敗才扣，見 `ONE_TIME_LINK_MISS_LIMIT`）。 */
     oneTimeLinkMiss: FixedWindowLimiter;
-    /** #286：每支重設連結的完成嘗試（key=`link:${id}`；帳密開才扣、inspect 不扣，見 `ONE_TIME_LINK_ATTEMPT_LIMIT`）。 */
+    /** #286／#285：每支一次性連結（重設、邀請）的完成／接受嘗試（key=`link:${id}`；帳密開才扣、inspect 不扣，見 `ONE_TIME_LINK_ATTEMPT_LIMIT`）。 */
     oneTimeLinkAttempt: FixedWindowLimiter;
   };
   /**
@@ -807,8 +807,15 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   // #272 §7.5：e2e 測試縫（只在 KNOTEBOOK_E2E_TEST_HOOKS=1 且 PUBLIC_URL 是 loopback 時；見 config.ts 的 `testHooks`）。
   if (deps.config.testHooks) void app.register(testHookRoutes({ versions }));
   // #187 PR3：註冊、個人設定的登入方式與加上密碼（spec §8、§9.1）。
+  // #285：邀請端點的 miss／嘗試桶與下面的重設密碼路由拿同一組實例（跨 kind 共用）。
   void app.register(
-    accountRoutes({ db: deps.db, config: deps.config, gate: deps.gate, collabHooks: deps.collabHooks, limiters: { register: limiters.register } }),
+    accountRoutes({
+      db: deps.db,
+      config: deps.config,
+      gate: deps.gate,
+      collabHooks: deps.collabHooks,
+      limiters: { register: limiters.register, oneTimeLinkMiss: limiters.oneTimeLinkMiss, oneTimeLinkAttempt: limiters.oneTimeLinkAttempt },
+    }),
   );
   // #286：無登入的重設密碼端點——inspect 與以一次性連結設定新密碼（spec §4.3）。
   void app.register(
