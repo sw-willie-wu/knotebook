@@ -42,6 +42,10 @@
   --brand-deep: oklch(0.470 0.064 275.7); /* ≈#51587f */
   --brand-fg: oklch(0.985 0 0); /* 主色實心鈕的字色：淺色模式一律白字 */
 
+  /* 搜尋結果的命中高亮底色（不隨 accent 變）。對比（WCAG 2，`mark` 沿用列文字色）：前景字 15.9:1，
+     六色 `--brand-on-soft`（active 列）最低 5.8:1；深色見 :root.dark。 */
+  --search-highlight: oklch(0.924 0.12 95.746); /* ≈#fde68a（稿色） */
+
   /* 六個 swatch 變數：色點 UI 唯一取色來源。:root 放各色 light `--brand` 值。 */
   --brand-swatch-indigo: oklch(0.550 0.064 275.7); /* ≈#676f97 */
   --brand-swatch-blue: oklch(0.550 0.052 244.4); /* ≈#58758e */
@@ -112,6 +116,9 @@
   --brand-on-soft: oklch(0.840 0.038 275.7); /* ≈#c3c9e4 */
   --brand-deep: oklch(0.721 0.058 275.7); /* ≈#9aa2ca */
   --brand-fg: oklch(0.213 0.008 264.4); /* 深色模式一律近黑字（主色在深色是亮色） */
+
+  /* 搜尋高亮 dark 套：前景字 8.1:1，六色 `--brand-on-soft` 最低 5.2:1。 */
+  --search-highlight: oklch(0.420 0.080 85); /* ≈#61490c */
 
   /* 六個 swatch 變數：:root.dark 放各色 dark 基色。 */
   --brand-swatch-indigo: oklch(0.681 0.058 275.7); /* ≈#8e96bd */
@@ -276,6 +283,7 @@
   --color-brand-on-soft: var(--brand-on-soft);
   --color-brand-deep: var(--brand-deep);
   --color-brand-fg: var(--brand-fg);
+  --color-search-highlight: var(--search-highlight);
 }
 
 body {

@@ -12,6 +12,9 @@ import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppShell, SidebarDrawerButton } from "./AppShell";
 import { adminRole, groupDto, OWNER_PERMS } from "@/test/fixtures";
 
+// `sidebar.tab` 的 localStorage 往外洩：一個案切了 tab，同檔後面找個人筆記的案會在錯的 tab 找不到。
+afterEach(() => localStorage.removeItem("sidebar.tab"));
+
 // 「新增筆記 → 導向新筆記頁」的接線案——#122 起導向的是 /n/<handle>/<slug> 新形，
 // probe 掛在 /n/:handle/:slug 底下（新形 route 的承接由 App.resetKey.test control 3 守；
 // 舊形由同檔主案/control 2 與 App.errorBoundary.test 案 11 守）。
@@ -234,9 +237,8 @@ describe("AppShell — new note", () => {
 });
 
 // AppShell 的搜尋框與 Ctrl/Cmd+K：聚焦搜尋框、Esc 清空+blur、以及
-// AppShell → NoteList 的 query 接線是否真的讓側欄清單縮減。兩篇 owner 筆記時
-// 「最近」跟「我的筆記」會重複顯示同一篇（見 `NoteList` 檔頭），所以下面一律
-// 用 `getAllByRole`/`queryAllByRole` 而不是單數版本，避免因重複命中而 throw。
+// AppShell → SearchResults 的 query 接線（搜尋中換成扁平結果視圖）。結果列的可及名稱是
+// 「標題 位置」，所以以 `^標題` regex 取列，不用全字比對（全字比對的負向斷言會空轉）。
 describe("AppShell — search box & Ctrl/Cmd+K", () => {
   const ALPHA_NOTE: NoteDto = {
     id: "44444444-4444-4444-4444-444444444444",
@@ -427,17 +429,101 @@ describe("AppShell — search box & Ctrl/Cmd+K", () => {
     expect(input).not.toHaveFocus();
   });
 
-  it("real path: typing in the search box actually shrinks the sidebar note list (AppShell → NoteList query wiring)", async () => {
+  it("real path: typing in the search box actually shrinks the sidebar note list (AppShell → SearchResults query wiring)", async () => {
     stubFetchWithNotes([ALPHA_NOTE, BETA_NOTE]);
     renderShell();
 
     const input = await screen.findByRole("textbox", { name: "Search notes" });
-    await waitFor(() => expect(screen.getAllByRole("link", { name: "Beta Note" }).length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getAllByRole("link", { name: /^Beta Note/ }).length).toBeGreaterThan(0));
 
     fireEvent.change(input, { target: { value: "Alpha" } });
 
-    await waitFor(() => expect(screen.queryAllByRole("link", { name: "Beta Note" })).toHaveLength(0));
-    expect(screen.getAllByRole("link", { name: "Alpha Note" }).length).toBeGreaterThan(0);
+    const results = await screen.findByTestId("sidebar-search");
+    await within(results).findByRole("link", { name: /^Alpha Note/ });
+    expect(screen.queryAllByRole("link", { name: /^Beta Note/ })).toHaveLength(0);
+  });
+
+  it("AS-S1：搜尋中 tab 列與 tabpanel 都不渲染；Esc 後 tablist 回來、原 tab 仍選中", async () => {
+    stubFetchWithNotes([ALPHA_NOTE, BETA_NOTE]);
+    renderShell();
+    const input = await screen.findByRole("textbox", { name: "Search notes" });
+    fireEvent.click(await screen.findByRole("tab", { name: "Workspace" }));
+    expect(screen.getByRole("tab", { name: "Workspace" })).toHaveAttribute("aria-selected", "true");
+
+    fireEvent.change(input, { target: { value: "Alpha" } });
+    await screen.findByTestId("sidebar-search");
+    expect(screen.queryByRole("tablist")).toBeNull();
+    expect(screen.queryByRole("tabpanel")).toBeNull();
+
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(await screen.findByRole("tablist")).toBeInTheDocument();
+    expect(screen.queryByTestId("sidebar-search")).toBeNull();
+    expect(screen.getByRole("tab", { name: "Workspace" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("AS-S2：清除鈕——空字串時沒有、有 Ctrl K 徽章；有字時換成清除鈕；點了清空、焦點留在輸入框、tablist 回來", async () => {
+    stubFetchWithNotes([ALPHA_NOTE, BETA_NOTE]);
+    renderShell();
+    const input = await screen.findByRole("textbox", { name: "Search notes" });
+    expect(screen.queryByRole("button", { name: "Clear search" })).toBeNull();
+    expect(screen.getByText("Ctrl K")).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("tab", { name: "Workspace" }));
+
+    fireEvent.change(input, { target: { value: "Alpha" } });
+    const clear = await screen.findByRole("button", { name: "Clear search" });
+    expect(screen.queryByText("Ctrl K")).toBeNull();
+
+    fireEvent.click(clear);
+    expect(input).toHaveValue("");
+    expect(input).toHaveFocus();
+    expect(await screen.findByRole("tablist")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Clear search" })).toBeNull();
+    expect(screen.getByRole("tab", { name: "Workspace" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("只有空白也算搜尋中（現行行為）：換成搜尋視圖、出現清除鈕", async () => {
+    stubFetchWithNotes([ALPHA_NOTE, BETA_NOTE]);
+    renderShell();
+    const input = await screen.findByRole("textbox", { name: "Search notes" });
+    fireEvent.change(input, { target: { value: " " } });
+    await screen.findByTestId("sidebar-search");
+    expect(screen.queryByRole("tablist")).toBeNull();
+    expect(screen.getByRole("button", { name: "Clear search" })).toBeInTheDocument();
+  });
+
+  it("AS-S3：點結果換頁後搜尋字串保留、搜尋視圖仍在（可連開好幾個結果）", async () => {
+    const one: NoteDto = { ...ALPHA_NOTE, id: "77777777-7777-7777-7777-777777777771", title: "Alpha One", slug: "a" };
+    const two: NoteDto = { ...ALPHA_NOTE, id: "77777777-7777-7777-7777-777777777772", title: "Alpha Two", slug: "b" };
+    stubFetchWithNotes([one, two]);
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <ThemeProvider>
+          <MemoryRouter initialEntries={["/n/tester/a"]}>
+            <ActiveNoteProvider>
+              <Routes>
+                <Route
+                  path="/n/:handle/:slug"
+                  element={
+                    <AppShell>
+                      <NoteRouteProbe />
+                    </AppShell>
+                  }
+                />
+              </Routes>
+            </ActiveNoteProvider>
+          </MemoryRouter>
+        </ThemeProvider>
+      </QueryClientProvider>,
+    );
+    const input = await screen.findByRole("textbox", { name: "Search notes" });
+    expect(screen.getByTestId("note-route")).toHaveTextContent("tester/a");
+    fireEvent.change(input, { target: { value: "alpha" } });
+    const results = await screen.findByTestId("sidebar-search");
+    fireEvent.click(await within(results).findByRole("link", { name: /^Alpha Two/ }));
+
+    await waitFor(() => expect(screen.getByTestId("note-route")).toHaveTextContent("tester/b"));
+    expect(input).toHaveValue("alpha");
+    expect(screen.getByTestId("sidebar-search")).toBeInTheDocument();
   });
 
   it("#229：inert 傳 true → AppShell 根 div 帶 inert 屬性；不傳 → 沒有", async () => {

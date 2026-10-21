@@ -7,7 +7,7 @@ import { ApiFail } from "@/api/client";
 import { useCreateNote } from "@/api/notes";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Menu, Plus, Search } from "@/components/ui/icons";
+import { Menu, Plus, Search, X } from "@/components/ui/icons";
 import { toast } from "@/components/ui/toast";
 import { cardSurface } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -15,6 +15,7 @@ import { NARROW_QUERY, SidebarDrawerContext, useSidebarDrawer } from "@/lib/side
 import { canonicalizedFrom } from "@/lib/real-location";
 import { SidebarTabProvider, useSidebarTabState } from "@/lib/sidebar-tab";
 import { NoteList } from "@/components/NoteList";
+import { SearchResults } from "@/components/sidebar/SearchResults";
 import { SidebarTabList, sidebarPanelId, sidebarTabId } from "@/components/sidebar/SidebarTabList";
 import { UserMenu } from "@/components/UserMenu";
 import {
@@ -61,8 +62,9 @@ interface SidebarContentProps {
   shortcutBadge: string;
 }
 
-/** 側欄的內層堆疊（logo 列／搜尋／tab 列／tabpanel（NoteList）／新增鈕／UserMenu）。目前 tab 住在
- * `SidebarTabProvider`（靜態卡與抽屜兩份實例共用一份）。wrapper（靜態
+/** 側欄的內層堆疊（logo 列／搜尋／tab 列＋tabpanel（NoteList）或搜尋結果／新增鈕／UserMenu）。
+ * 搜尋字串非空時 tab 列與 tabpanel 都不渲染、改顯示 `SearchResults`（tab state 不變，清空後回原 tab）。
+ * 目前 tab 住在 `SidebarTabProvider`（靜態卡與抽屜兩份實例共用一份）。wrapper（靜態
  * `<aside>` 卡或抽屜 Content）由呼叫端提供——兩個 wrapper 都必須給
  * `flex flex-col` 脈絡，否則清單容器的 `min-h-0 flex-1 overflow-y-auto` 失去
  * 約束（spec §3a 邊界定案）。 */
@@ -78,6 +80,8 @@ function SidebarContent({
   // 靜態卡與抽屜各自一份 `useId`，tab／tabpanel 的 id 才不會撞（spec §5.5）。
   const idBase = useId();
   const { tab } = useSidebarTabState();
+  // 空白也算搜尋中（同改版前的判準）。
+  const searching = query.length > 0;
   return (
     <>
       <div className="flex items-center gap-2 px-3 pt-3">
@@ -110,26 +114,49 @@ function SidebarContent({
           placeholder={t("sidebar.searchPlaceholder")}
           className="h-8 pl-7 pr-11 text-[13px]"
         />
-        <kbd
-          aria-hidden="true"
-          className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 rounded border border-border px-1 text-[10px] text-muted-foreground"
-        >
-          {shortcutBadge}
-        </kbd>
+        {searching ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label={t("sidebar.clearSearch")}
+            title={t("sidebar.clearSearch")}
+            className="absolute right-1 top-1/2 h-6 w-6 -translate-y-1/2"
+            onClick={() => {
+              onQueryChange("");
+              searchRef.current?.focus();
+            }}
+          >
+            <X aria-hidden="true" className="h-3.5 w-3.5" />
+          </Button>
+        ) : (
+          <kbd
+            aria-hidden="true"
+            className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 rounded border border-border px-1 text-[10px] text-muted-foreground"
+          >
+            {shortcutBadge}
+          </kbd>
+        )}
       </div>
 
-      <SidebarTabList idBase={idBase} />
+      {searching ? (
+        <SearchResults query={query} />
+      ) : (
+        <>
+          <SidebarTabList idBase={idBase} />
 
-      <div
-        role="tabpanel"
-        id={sidebarPanelId(idBase)}
-        aria-labelledby={sidebarTabId(idBase, tab)}
-        className="flex min-h-0 flex-1 flex-col"
-      >
-        <div className="min-h-0 flex-1 overflow-y-auto px-2">
-          <NoteList query={query} onCreateNote={onCreateNote} createNotePending={newNotePending} />
-        </div>
-      </div>
+          <div
+            role="tabpanel"
+            id={sidebarPanelId(idBase)}
+            aria-labelledby={sidebarTabId(idBase, tab)}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <div className="min-h-0 flex-1 overflow-y-auto px-2">
+              <NoteList onCreateNote={onCreateNote} createNotePending={newNotePending} />
+            </div>
+          </div>
+        </>
+      )}
 
       <div className="m-2">
         <Button variant="brand" className="w-full" onClick={() => onCreateNote()} disabled={newNotePending}>
@@ -163,7 +190,7 @@ interface AppShellProps {
  * 沒有 CSS，所以測試端一律 `within(drawer)` 圈定查詢）。
  *
  * 搜尋字串 state 放在這裡（不是 `NoteList`）：Ctrl/Cmd+K 要跨元件把焦點打進
- * 輸入框，搜尋字串又要往下傳給 `NoteList` 做「先分組、後過濾」，且靜態與抽屜兩份
+ * 輸入框，搜尋字串又要往下傳給 `SearchResults` 做扁平過濾，且靜態與抽屜兩份
  * 搜尋框要顯示同一個值——state 提升到共同祖先最單純。
  *
  * Ctrl/Cmd+K 語意（#115 改版後）：蓋掉瀏覽器網址列搜尋的預設行為

@@ -438,41 +438,6 @@ describe("NoteList", () => {
     expect(groupOrder).toEqual(["notegroup-recent", "notegroup-myNotes", "notegroup-shared", "notegroup-workspace"]);
   });
 
-  it("filters within each already-formed group by title (先分組、後過濾) — 最近 shrinks accordingly", async () => {
-    stubNotesFetch([OWNER_NOTE, SHARED_NOTE, THIRD_OWNER_NOTE]);
-
-    renderNoteList({ query: "third" });
-
-    const myNotes = await screen.findByTestId("notegroup-myNotes");
-    expect(within(myNotes).getByRole("link", { name: "Third Owner Note" })).toBeInTheDocument();
-    expect(within(myNotes).queryByRole("link", { name: "Has A Slug" })).not.toBeInTheDocument();
-
-    // 「最近」的固定集合是前 2 篇（Has A Slug / No Slug Note），過濾成 "third"
-    // 之後兩篇都不合 → 最近整組不渲染（不是空的 group，是整個 testid 都不存在）。
-    expect(screen.queryByTestId("notegroup-recent")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("notegroup-shared")).not.toBeInTheDocument();
-  });
-
-  it("shows sidebar.noMatch when there are notes but none match the filter", async () => {
-    stubNotesFetch([OWNER_NOTE, SHARED_NOTE, THIRD_OWNER_NOTE]);
-
-    renderNoteList({ query: "nonexistent-xyz" });
-
-    await waitFor(() => expect(screen.getByText("No notes match your search.")).toBeInTheDocument());
-    expect(screen.queryByTestId("notegroup-recent")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("notegroup-myNotes")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("notegroup-shared")).not.toBeInTheDocument();
-  });
-
-  it("still shows the fully-empty EmptyState (not sidebar.noMatch) when there are zero notes at all, regardless of query", async () => {
-    stubNotesFetch([]);
-
-    renderNoteList({ query: "anything" });
-
-    await waitFor(() => expect(screen.getByText("No notes yet.")).toBeInTheDocument());
-    expect(screen.queryByText("No notes match your search.")).not.toBeInTheDocument();
-  });
-
   describe("側欄分段與折疊（#103）", () => {
     beforeEach(() => {
       window.localStorage.clear();
@@ -586,22 +551,6 @@ describe("NoteList", () => {
         getItem.mockRestore();
         setItem.mockRestore();
       }
-    });
-
-    it("搜尋強制展開（A5）：收合中的段有命中 → 展開顯示；四段全無命中 → noMatch", async () => {
-      window.localStorage.setItem("sidebar.collapsed.myNotes", "1");
-      window.localStorage.setItem(`sidebar.collapsed.group:${GROUP_A.id}`, "1");
-      stubNotesFetch([OWNER_NOTE, MY_GROUP_NOTE], [GROUP_A]);
-      const { view } = renderNoteListWithActive(undefined, { query: "in a" });
-      const groupA = await screen.findByTestId(`notegroup-group-${GROUP_A.id}`);
-      expect(within(groupA).getByRole("link", { name: "Mine In A" })).toBeInTheDocument(); // 「最近」也有一份，必須圈定
-      expect(screen.getByRole("button", { name: "Workshop A" })).toHaveAttribute("aria-expanded", "true");
-      // 沒命中的段（我的筆記：Has A Slug 不含 "in a"）在搜尋時不渲染
-      expect(screen.queryByTestId("notegroup-myNotes")).not.toBeInTheDocument();
-
-      view.unmount();
-      renderNoteList({ query: "zzz-nothing" });
-      expect(await screen.findByText("No notes match your search.")).toBeInTheDocument();
     });
 
     it("aria-current=page 在整個側欄恰一個（active 是群組筆記時給群組段那列，不給「最近」）", async () => {
@@ -775,18 +724,6 @@ describe("NoteList", () => {
       await waitFor(() => expect(within(workspace).getByRole("alert")).toHaveTextContent("Something went wrong. Please try again."));
       expect(screen.getByRole("button", { name: "My notes" })).toBeInTheDocument();
       expect(screen.queryByText("No notes yet.")).not.toBeInTheDocument();
-    });
-
-    it("搜尋中（forceExpanded）點段標是 no-op：收合狀態不被翻動、仍展開", async () => {
-      window.localStorage.setItem("sidebar.collapsed.myNotes", "1");
-      stubNotesFetch([OWNER_NOTE], []);
-      renderNoteList({ query: "has" });
-      const header = await screen.findByRole("button", { name: "My notes" });
-      expect(header).toHaveAttribute("aria-expanded", "true");
-      fireEvent.click(header);
-      expect(window.localStorage.getItem("sidebar.collapsed.myNotes")).toBe("1");
-      expect(screen.getByRole("button", { name: "My notes" })).toHaveAttribute("aria-expanded", "true");
-      expect(within(screen.getByTestId("notegroup-myNotes")).getByRole("link", { name: "Has A Slug" })).toBeInTheDocument();
     });
 
     it("工作坊段標「＋」→ 新增群組對話框；建立成功後新群組段出現且展開、焦點回「＋」", async () => {
