@@ -46,12 +46,15 @@ describe("icons", () => {
     expect(svg).toHaveAttribute("aria-hidden", "true");
     expect(svg).toHaveClass("h-4", "w-4");
   });
-  it("NoteWidthIcon：內部橫條寬度依標準 → 寬 → 全寬嚴格遞增（#297 D8）", () => {
-    const bars = NOTE_WIDTHS.map((width) => {
-      const { container } = render(<NoteWidthIcon width={width} />);
-      return Number(container.querySelector("rect[data-bar]")!.getAttribute("width"));
-    });
-    expect(bars[0]).toBeLessThan(bars[1]!);
-    expect(bars[1]).toBeLessThan(bars[2]!);
+  it.each([
+    ["standard", true, false],
+    ["wide", true, true],
+    ["full", false, true],
+  ] as const)("NoteWidthIcon %s：兩端垂直線＝%s、朝外箭頭＝%s、無外框（#297）", (w, bars, arrows) => {
+    const { container } = render(<NoteWidthIcon width={w} />);
+    expect(container.querySelector("rect")).toBeNull();
+    const d = container.querySelector("path")!.getAttribute("d")!;
+    expect(/v8/.test(d)).toBe(bars);
+    expect(/l-4 4 4 4/.test(d)).toBe(arrows);
   });
 });

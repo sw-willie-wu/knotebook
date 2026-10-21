@@ -92,7 +92,7 @@ describe("POST /api/auth/login 在帳密登入關閉時（#187 B20、§14.1-21�
 describe("帳密關閉時照常的路徑（#187 §14.1-22／23、B21、B23、B26；gate r1-t1-9 I3）", () => {
   const A = "https://idp-a.example";
 
-  it("B21：「透過 X 註冊」（SSO 首登建帳）在帳密關閉時照常建帳", async () => {
+  it("B21：透過 X 首次登入（服務開自動建帳）在帳密關閉時照常建帳", async () => {
     const t = await buildOidcApp({ providers: [{ key: "a", issuerUrl: A }] });
     await turnOff(t.db);
     const email = `sso-${randomUUID()}@example.com`;

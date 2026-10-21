@@ -37,6 +37,11 @@ describe("NoteWidthMenu（頁首寬度 icon，#297）", () => {
     expect(iconOf(button)).toBe(`note-width-${width}`);
   });
 
+  it("M0 寬度鈕用主題色：className 含 text-brand／hover:text-brand（比照分享鈕）", () => {
+    render(<NoteWidthMenu noteId={ID} />);
+    expect(widthButton()).toHaveClass("text-brand", "hover:text-brand");
+  });
+
   it("M2 選單以 label 命名群組；選 Wide → 寫入 localStorage、選單關閉、按鈕與 icon 更新；再開 Wide 為勾選", async () => {
     render(<NoteWidthMenu noteId={ID} />);
     openMenu();

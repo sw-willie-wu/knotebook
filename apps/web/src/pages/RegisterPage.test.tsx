@@ -63,12 +63,13 @@ describe("RegisterPage（#187 §9.4、S2）", () => {
   beforeEach(async () => { await i18n.changeLanguage("en"); });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("帳密表單＋每個 provider 一顆「Sign up with X」（同一端點，B10；HTML 形名稱渲染為字面）；恰一顆實心鈕", async () => {
-    setup("/register", OPEN);
-    const link = await screen.findByRole("link", { name: 'Sign up with <b>Corp</b> & "Co"' });
-    expect(link.getAttribute("href")).toBe("/api/auth/oidc/login/11111111-1111-4111-8111-111111111111");
-    expect(document.querySelector("b")).toBeNull();
-    expect(screen.getByRole("button", { name: "Create account" })).toBeInTheDocument();
+  it("帳密表單；即使有會建帳的服務也沒有任何 SSO 註冊鈕或分隔線；恰一顆實心鈕", async () => {
+    const { queryClient } = setup("/register", OPEN);
+    // 表單在載入中就顯示，不能當等待點；等 config 落地再斷言「沒有 SSO 鈕」。
+    await waitFor(() => expect(queryClient.getQueryData(AUTH_CONFIG_QUERY_KEY)).toBeDefined());
+    expect(await screen.findByRole("button", { name: "Create account" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /^Sign up with/ })).not.toBeInTheDocument();
+    expect(document.querySelector('[aria-hidden="true"].border-t')).toBeNull();
     expect(screen.getByRole("link", { name: "Already have an account? Sign in" }).getAttribute("href")).toBe("/login");
     const solid = [...screen.getAllByRole("button"), ...screen.getAllByRole("link")].filter(el => SOLID_BG.test(el.className));
     expect(solid.map(el => el.textContent)).toEqual(["Create account"]);
@@ -88,10 +89,10 @@ describe("RegisterPage（#187 §9.4、S2）", () => {
     expect(calls.find(c => c.url === "/api/auth/register")!.body).toEqual({ email: "new@example.com", password: "correct-horse-battery" });
   });
 
-  it("帶合法 next → 成功後導過去、SSO 鈕轉交 next；不合法 next（/login）→ 落 /", async () => {
+  it("帶合法 next → 成功後導過去、「Sign in」連結轉交 next", async () => {
     setup("/register?next=%2Fn%2Falice%2Fx", OPEN);
-    const link = await screen.findByRole("link", { name: /^Sign up with/ });
-    expect(link.getAttribute("href")).toBe("/api/auth/oidc/login/11111111-1111-4111-8111-111111111111?next=%2Fn%2Falice%2Fx");
+    const link = await screen.findByRole("link", { name: "Already have an account? Sign in" });
+    expect(link.getAttribute("href")).toBe("/login?next=%2Fn%2Falice%2Fx");
     await fillAndSubmit({ email: "new@example.com", password: "correct-horse-battery", confirm: "correct-horse-battery" });
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/n/alice/x"));
   });
@@ -129,23 +130,78 @@ describe("RegisterPage（#187 §9.4、S2）", () => {
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("That email is already in use."));
   });
 
-  it("RG4：帳密自助註冊關、沒有會建帳的服務 → 「目前不開放註冊」＋回登入；沒有表單、沒有 SSO 註冊鈕", async () => {
-    const { queryClient } = setup("/register", { ...OPEN, registration: { enabled: false, providerIds: [] } });
-    // 等 config 確實落地再斷言「不存在」：載入中就會出現的元素不能當等待點（Task 10 教訓）。
-    await waitFor(() => expect(queryClient.getQueryData(AUTH_CONFIG_QUERY_KEY)).toBeDefined());
-    expect(await screen.findByText("This site isn't accepting new accounts right now.")).toBeInTheDocument();
+  it("RG4：帳密自助註冊關 → 導回 /login；不顯示表單", async () => {
+    setup("/register", { ...OPEN, registration: { enabled: false, providerIds: [] } });
+    // 等待點＝導向後的 LocationProbe（載入中先顯示表單，不能當等待點）。
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/login"));
     expect(screen.queryByLabelText("Email")).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /^Sign up with/ })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Back to sign in" }).getAttribute("href")).toBe("/login");
   });
 
-  it("RG2：帳密登入有效值關、服務會建帳 → 沒有帳密表單、SSO 註冊鈕照常（B21）", async () => {
+  it("RG4b：帶合法 next 的 /register 在帳密自助註冊不可用時 → 導回 /login?next=…", async () => {
+    setup("/register?next=%2Fn%2Falice%2Fx", { ...OPEN, registration: { enabled: false, providerIds: [] } });
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/login?next=%2Fn%2Falice%2Fx"));
+  });
+
+  it("RG4d：帳密自助註冊不可用＋不合法 next → 導到不帶 next 的 /login", async () => {
+    setup("/register?next=%2F%2Fevil.example", { ...OPEN, registration: { enabled: false, providerIds: [] } });
+    await waitFor(() => expect(screen.getByTestId("location").textContent).toBe("/login"));
+  });
+
+  it("RG4e：帳密自助註冊不可用、config 先回、session 晚回且已登入 → 不導 /login，落在 /", async () => {
+    let resolveMe: (r: Response) => void = () => {};
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/auth/me") return new Promise<Response>((resolve) => (resolveMe = resolve));
+      if (url === "/api/auth/config") return fakeResponse(200, { ...OPEN, registration: { enabled: false, providerIds: [] } });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/register"]}>
+          <Routes>
+            <Route path="/register" element={<RegisterPage />} />
+            <Route path="*" element={<LocationProbe />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(queryClient.getQueryData(AUTH_CONFIG_QUERY_KEY)).toBeDefined());
+    // session 未知時不導走（照常顯示表單）。
+    expect(screen.queryByTestId("location")).not.toBeInTheDocument();
+    await act(async () => resolveMe(fakeResponse(200, USER)));
+    await waitFor(() => expect(screen.getByTestId("location").textContent).toBe("/"));
+  });
+
+  it("RG4c：config 讀取失敗（500）→ 不導走，照常顯示表單（server 是最終裁決）", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/auth/me") return fakeResponse(401, { error: { code: "unauthorized", message: "x" } });
+      if (url === "/api/auth/config") return fakeResponse(500, { error: { code: "internal", message: "x" } });
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/register"]}>
+          <Routes>
+            <Route path="/register" element={<RegisterPage />} />
+            <Route path="*" element={<LocationProbe />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(queryClient.getQueryState(AUTH_CONFIG_QUERY_KEY)?.status).toBe("error"));
+    expect(screen.getByLabelText("Email")).toBeInTheDocument();
+    expect(screen.queryByTestId("location")).not.toBeInTheDocument();
+  });
+
+  it("RG2：帳密登入有效值關、服務會建帳 → 導回 /login；沒有帳密表單、沒有 SSO 註冊鈕（B21）", async () => {
     setup("/register", { ...OPEN, passwordLogin: { enabled: false } });
-    await screen.findByRole("link", { name: /^Sign up with/ });
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/login"));
     expect(screen.queryByLabelText("Email")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Create account" })).not.toBeInTheDocument();
-    expect(document.querySelector('[aria-hidden="true"].border-t')).toBeNull();
-    expect(screen.queryByText("This site isn't accepting new accounts right now.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /^Sign up with/ })).not.toBeInTheDocument();
   });
 
   it("不合法 next（/login）→ 註冊成功後落 /（web 層 safeNextPath）", async () => {
@@ -183,19 +239,19 @@ describe("RegisterPage（#187 §9.4、S2）", () => {
     });
     const divider = () => document.querySelector('[aria-hidden="true"].border-t');
 
-    it("RG1：帳密自助可用、providerIds [A] → 有表單；只有 Sign up with A；有分隔線", async () => {
-      setup("/register", cfg(true, true, [A]));
-      await screen.findByRole("link", { name: "Sign up with A" });
-      expect(screen.getByLabelText("Email")).toBeInTheDocument();
-      expect(screen.queryByRole("link", { name: "Sign up with B" })).not.toBeInTheDocument();
-      expect(divider()).not.toBeNull();
-    });
-    it("RG3：帳密自助關、帳密開、providerIds [A] → 沒有表單；有 Sign up with A；沒有分隔線、沒有 closed", async () => {
-      setup("/register", cfg(false, true, [A]));
-      await screen.findByRole("link", { name: "Sign up with A" });
-      expect(screen.queryByLabelText("Email")).not.toBeInTheDocument();
+    it("RG1：帳密自助可用、providerIds [A] → 有表單；沒有任何 Sign up with；沒有分隔線", async () => {
+      const { queryClient } = setup("/register", cfg(true, true, [A]));
+      await waitFor(() => expect(queryClient.getQueryData(AUTH_CONFIG_QUERY_KEY)).toBeDefined());
+      expect(await screen.findByLabelText("Email")).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /^Sign up with/ })).not.toBeInTheDocument();
       expect(divider()).toBeNull();
-      expect(screen.queryByText("This site isn't accepting new accounts right now.")).not.toBeInTheDocument();
+    });
+    it("RG3：帳密自助關、帳密開、providerIds [A] → 導回 /login；沒有表單、沒有 Sign up with、沒有分隔線", async () => {
+      setup("/register", cfg(false, true, [A]));
+      await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/login"));
+      expect(screen.queryByLabelText("Email")).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /^Sign up with/ })).not.toBeInTheDocument();
+      expect(divider()).toBeNull();
     });
     it("RG5：帳密自助可用、providerIds [] → 有表單；沒有 Sign up with；沒有分隔線", async () => {
       const { queryClient } = setup("/register", cfg(true, true, []));
@@ -204,7 +260,7 @@ describe("RegisterPage（#187 §9.4、S2）", () => {
       expect(screen.queryByRole("link", { name: /^Sign up with/ })).not.toBeInTheDocument();
       expect(divider()).toBeNull();
     });
-    it("RG6（未載入）：config 永不回應 → 表單在；沒有 closed、沒有 Sign up with", async () => {
+    it("RG6（未載入）：config 永不回應 → 表單在（沒有導走）；沒有 Sign up with", async () => {
       vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
         if (String(input) === "/api/auth/me") return Promise.resolve(fakeResponse(401, { error: { code: "unauthorized", message: "x" } }));
         return new Promise<Response>(() => {});
@@ -217,7 +273,6 @@ describe("RegisterPage（#187 §9.4、S2）", () => {
         </QueryClientProvider>,
       );
       expect(await screen.findByLabelText("Email")).toBeInTheDocument();
-      expect(screen.queryByText("This site isn't accepting new accounts right now.")).not.toBeInTheDocument();
       expect(screen.queryByRole("link", { name: /^Sign up with/ })).not.toBeInTheDocument();
     });
     it("RG7（N6）：沒有 providerIds 鍵 → 視同 []：有表單、沒有 Sign up with、不拋錯", async () => {
@@ -227,21 +282,6 @@ describe("RegisterPage（#187 §9.4、S2）", () => {
       expect(await screen.findByLabelText("Email")).toBeInTheDocument();
       expect(screen.queryByRole("link", { name: /^Sign up with/ })).not.toBeInTheDocument();
     });
-  });
-
-  it("provider-icon V2：「Sign up with X」鈕文字前有圖示；icon null 不渲染", async () => {
-    setup("/register", {
-      ...OPEN,
-      providers: [
-        { id: "11111111-1111-4111-8111-111111111111", displayName: "GitLab", icon: { type: "builtin", name: "gitlab" } },
-        { id: "22222222-2222-4222-8222-222222222222", displayName: "Plain", icon: null },
-      ],
-      registration: { enabled: true, providerIds: ["11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"] },
-    });
-    const gitlab = await screen.findByRole("link", { name: "Sign up with GitLab" });
-    expect(gitlab.firstChild).toBe(gitlab.querySelector('[data-provider-icon="gitlab"]'));
-    expect(gitlab.textContent).toBe("Sign up with GitLab");
-    expect(screen.getByRole("link", { name: "Sign up with Plain" }).querySelector("[data-provider-icon]")).toBeNull();
   });
 });
 
@@ -324,7 +364,7 @@ describe("邀請模式（#285 B-18）", () => {
     ["RG4 形", RG4],
     ["OPEN", OPEN],
     ["RG3 形", RG3],
-  ])("V1 掛載（config＝%s）：fragment 被清、鍵寫入、inspect body、邀請表單；沒有 closed 文字與 SSO 鈕", async (_name, cfg) => {
+  ])("V1 掛載（config＝%s）：fragment 被清、鍵寫入、inspect body、邀請表單；沒有 SSO 鈕", async (_name, cfg) => {
     const { calls } = setupInvite(`/register#invite=${TOKEN}`, {}, { cfg });
     expect(await screen.findByRole("heading", { name: "Create an account" })).toBeInTheDocument();
     expect(await screen.findByLabelText("Email")).toBeInTheDocument();
@@ -335,7 +375,6 @@ describe("邀請模式（#285 B-18）", () => {
     expect(screen.getByLabelText("Display name (optional)")).toBeInTheDocument();
     expect(screen.getByLabelText("Password")).toBeInTheDocument();
     expect(screen.getByLabelText("Confirm password")).toBeInTheDocument();
-    expect(screen.queryByText("This site isn't accepting new accounts right now.")).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /^Sign up with/ })).not.toBeInTheDocument();
   });
 
@@ -376,7 +415,7 @@ describe("邀請模式（#285 B-18）", () => {
     sessionStorage.setItem(KEY, TOKEN);
     setupInvite("/register");
     expect(await screen.findByLabelText("Email")).toBeInTheDocument();
-    expect(screen.queryByText("This site isn't accepting new accounts right now.")).not.toBeInTheDocument();
+    expect(screen.getByText(/^This invitation works once and expires .+\.$/)).toBeInTheDocument();
   });
 
   it("V5 SPA 離開：表單出現後導到 /login → 鍵被刪", async () => {
@@ -476,15 +515,39 @@ describe("邀請模式（#285 B-18）", () => {
     heading();
   });
 
-  it("I-1 一般註冊頁 → 同頁改成 #invite=（貼新連結）：進邀請模式、inspect 帶新 token、鍵為新 token、hash 清掉", async () => {
-    const { calls } = setupInvite("/register");
-    expect(await screen.findByText("This site isn't accepting new accounts right now.")).toBeInTheDocument();
+  it("I-1 一般註冊頁（自助註冊開）→ 同頁改成 #invite=（貼新連結）：進邀請模式、inspect 帶新 token、鍵為新 token、hash 清掉", async () => {
+    const { calls } = setupInvite("/register", {}, { cfg: OPEN });
+    // 一般模式才有「Already have an account?」連結，邀請表單沒有。
+    expect(await screen.findByRole("link", { name: "Already have an account? Sign in" })).toBeInTheDocument();
+    expect(inspectCalls(calls)).toHaveLength(0);
     act(() => navigateFn!(`/register#invite=${TOKEN}`));
-    expect(await screen.findByLabelText("Email")).toBeInTheDocument();
+    expect(await screen.findByText(/^This invitation works once and expires .+\.$/)).toBeInTheDocument();
     expect(inspectCalls(calls).map((c) => c.body)).toEqual([{ token: TOKEN }]);
     expect(sessionStorage.getItem(KEY)).toBe(TOKEN);
     await waitFor(() => expect(fullPath()).toBe("/register"));
-    expect(screen.queryByText("This site isn't accepting new accounts right now.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Already have an account? Sign in" })).not.toBeInTheDocument();
+  });
+
+  it("I-1 自助註冊關：一般註冊頁導到 /login → 再打開 #invite= 連結：進邀請模式、不被導走", async () => {
+    const { calls } = setupInvite("/register");
+    await waitFor(() => expect(fullPath()).toBe("/login"));
+    act(() => navigateFn!(`/register#invite=${TOKEN}`));
+    expect(await screen.findByText(/^This invitation works once and expires .+\.$/)).toBeInTheDocument();
+    expect(inspectCalls(calls).map((c) => c.body)).toEqual([{ token: TOKEN }]);
+    await waitFor(() => expect(fullPath()).toBe("/register"));
+  });
+
+  // 合流 #309：「自助註冊不可用 → 導回 /login」只屬於一般模式（OpenRegistration）。放到外層 RegisterPage 的話，
+  // 邀請連結會在 config 已載入時被導走（e2e 03-share-revoke 走的就是自助註冊關閉時的邀請連結）。
+  it.each([
+    ["自助註冊關（RG4 形）", RG4, () => fakeResponse(200, { expiresAt: EXPIRES_AT }), /^This invitation works once and expires .+\.$/],
+    ["帳密登入關", { ...OPEN, passwordLogin: { enabled: false } }, () => fail(403, "password_login_disabled"), /^Password sign-in is turned off on this site right now/],
+  ] as const)("邀請模式不受一般模式的導向影響（%s）：停在 /register、顯示邀請畫面", async (_name, cfg, inspect, expected) => {
+    const { calls } = setupInvite(`/register#invite=${TOKEN}`, { inspect }, { cfg });
+    expect(await screen.findByText(expected)).toBeInTheDocument();
+    await waitFor(() => expect(fullPath()).toBe("/register"));
+    expect(inspectCalls(calls)).toHaveLength(1);
+    expect(screen.queryByTestId("location")).not.toBeInTheDocument();
   });
 
   it("I-1 邀請 A 回 410 → 同頁換成 #invite=B：B 被 inspect、出現表單、不再顯示 A 的失效、鍵為 B", async () => {
@@ -601,9 +664,9 @@ describe("邀請模式（#285 B-18）", () => {
     expect(fullPath()).toBe("/register");
   });
 
-  it("V12 無 token（RG4 形）：一般註冊頁顯示 closed、沒有 inspect 請求", async () => {
+  it("V12 無 token（RG4 形）：一般模式導到 /login、沒有 inspect 請求", async () => {
     const { calls } = setupInvite("/register");
-    expect(await screen.findByText("This site isn't accepting new accounts right now.")).toBeInTheDocument();
+    await waitFor(() => expect(fullPath()).toBe("/login"));
     expect(inspectCalls(calls)).toHaveLength(0);
   });
 

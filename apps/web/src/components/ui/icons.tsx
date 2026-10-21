@@ -440,15 +440,18 @@ export function ArrowDown(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-const NOTE_WIDTH_BAR: Record<NoteWidth, number> = { standard: 6, wide: 10, full: 14 };
+/** 寬度 icon 的路徑：標準＝兩端垂直線、無箭頭（|--|）；寬＝朝外箭頭，外側再有兩端垂直線（|<->|）；全寬＝只有朝外箭頭（<->）。 */
+const NOTE_WIDTH_PATH: Record<NoteWidth, string> = {
+  standard: "M6 8v8M18 8v8M6 12h12",
+  wide: "M3 8v8M21 8v8M10 8l-4 4 4 4M6 12h12M14 8l4 4-4 4",
+  full: "M7 8l-4 4 4 4M3 12h18M17 8l4 4-4 4",
+};
 
-/** #297 頁首寬度 icon：圓角外框＋實心橫條，橫條寬度依現值三段遞增。 */
+/** #297 頁首寬度 icon：依現值畫三種線形，無外框（見 NOTE_WIDTH_PATH）。 */
 export function NoteWidthIcon({ width, ...props }: { width: NoteWidth } & SVGProps<SVGSVGElement>) {
-  const bar = NOTE_WIDTH_BAR[width];
   return (
     <svg data-icon={`note-width-${width}`} aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
-      <rect x="3" y="4" width="18" height="16" rx="2" />
-      <rect data-bar x={12 - bar / 2} y="10.5" width={bar} height="3" rx="1" fill="currentColor" stroke="none" />
+      <path d={NOTE_WIDTH_PATH[width]} />
     </svg>
   );
 }

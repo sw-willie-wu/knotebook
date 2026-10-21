@@ -12,22 +12,16 @@ import { Input } from "@/components/ui/input";
 import { SESSION_QUERY_KEY, useSession } from "@/auth/useSession";
 import { INVITE_TOKEN_KEY } from "@/auth/resetTokenStorage";
 import { useOneTimeLinkToken } from "@/auth/useOneTimeLinkToken";
-import { ProviderIcon } from "@/components/ProviderIcon";
-
-/** SSO 入口前綴——與 LoginPage 同一個端點（B10：「透過 X 註冊」與「透過 X 登入」打同一處、同一結果）。 */
-const OIDC_LOGIN_PREFIX = "/api/auth/oidc/login/";
 
 /**
  * #187 §9.4 `/register`（S2）。與 `/login` 同層、在 `RequireAuth` 之外；已登入者導 `next`（經 safeNextPath）或 `/`（r2-N7）。
- * 入口照 PR-C §3.8：
- * - 帳密自助註冊不可用、也沒有會建帳的服務 → 只顯示「目前不開放註冊」＋回登入；
- * - 帳密表單只在帳密自助註冊可用（`registration.enabled` 且帳密有效值開）時顯示（B21）；
- * - 「透過 X 註冊」只列 `registration.providerIds` 裡的服務；
- * - 設定讀不到（載入中或失敗）→ 照常顯示表單（server 是最終裁決）。
- * 成功（201，B9 成功即登入）→ 寫 session 快取、導向 `safeNextPath(?next=)` 或 `/`。provider 顯示名只進文字節點（r1-M6）。
+ * 一般模式（`OpenRegistration`）只做帳密自助註冊（SSO 首登建帳走登入頁的 SSO 鈕，這裡不列）：
+ * - 帳密自助註冊不可用（`registration.enabled` 且帳密有效值開才可用）→ 導回 `/login`（保留 next）；
+ * - 設定或 session 讀不到（載入中或失敗）→ 照常顯示表單，不導走（server 是最終裁決）。
+ * 成功（201，B9 成功即登入）→ 寫 session 快取、導向 `safeNextPath(?next=)` 或 `/`。
  *
  * #285 邀請模式：網址帶 `#invite=…`（或同分頁重新整理後 sessionStorage 還有）時進 `InviteRegistration`，在
- * `OpenRegistration` 的 `if (user) return <Navigate …>` 之前分流，不看上面的 PR-C §3.8 入口條件、不受影響。
+ * `OpenRegistration` 之前分流，不看上面的一般模式條件（自助註冊關閉也不導走）。導向因此只能放在 `OpenRegistration` 內。
  * 邀請模式的 token 處理（同步取得、fragment 由 router 清、只在未登入時寫 storage、成功／無效／卸載刪鍵、
  * 啟動清理在 `auth/resetTokenStorage.ts` 的表）全在共用 hook `useOneTimeLinkToken`。
  * 已登入要先登出（spec §8-6）：避免管理員在自己的瀏覽器測連結時，被換成新帳號。
@@ -68,18 +62,12 @@ function OpenRegistration() {
   // navigate 一致，否則這行會以 `/` 蓋掉成功後要去的 next（實測：寫入快取後 user 立即為真）。
   if (user) return <Navigate to={nextPath ?? "/"} replace />;
 
-  const ssoHref = (providerId: string): string => {
-    const base = `${OIDC_LOGIN_PREFIX}${encodeURIComponent(providerId)}`;
-    return nextPath === null ? base : `${base}?next=${encodeURIComponent(nextPath)}`;
-  };
   const loginHref = nextPath === null ? "/login" : `/login?next=${encodeURIComponent(nextPath)}`;
-  // PR-C §3.8：`?? []` 防回滾窗期新版分頁打到舊 server（N6）。
   const data = config.data;
   const loaded = data !== undefined;
   const passwordSignup = loaded && data.registration.enabled && data.passwordLogin.enabled;
-  const signupProviders = loaded ? data.providers.filter((p) => (data.registration.providerIds ?? []).includes(p.id)) : [];
-  const registrationClosed = loaded && !passwordSignup && signupProviders.length === 0;
-  const showPasswordForm = !loaded || passwordSignup; // 未載入時顯示（server 最終裁決，同現行）
+  // 只有 config 確實載入且不可用、且確定未登入才導走；config 或 session 載入中／失敗時顯示表單（已登入由上面那行處理）。
+  if (loaded && !passwordSignup && user === null) return <Navigate to={loginHref} replace />;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -107,68 +95,38 @@ function OpenRegistration() {
       <div className="w-full max-w-sm space-y-4">
         <h1 className="text-2xl font-semibold">{t("register.title")}</h1>
 
-        {registrationClosed ? (
-          <>
-            <p role="status" className="text-sm text-muted-foreground">
-              {t("register.closed")}
-            </p>
-            <p className="text-center text-sm">
-              <Link to="/login" className="underline underline-offset-4">
-                {t("register.backToLogin")}
-              </Link>
-            </p>
-          </>
-        ) : (
-          <>
-            {errorMessage && (
-              <p role="alert" className="text-sm text-destructive">
-                {errorMessage}
-              </p>
-            )}
-            {showPasswordForm && (
-              <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
-                <div className="space-y-1">
-                  <label htmlFor="register-email" className="text-sm font-medium">{t("register.email")}</label>
-                  <Input id="register-email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
-                </div>
-                <div className="space-y-1">
-                  <label htmlFor="register-display-name" className="text-sm font-medium">{t("register.displayName")}</label>
-                  <Input id="register-display-name" autoComplete="name" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
-                </div>
-                <div className="space-y-1">
-                  <label htmlFor="register-password" className="text-sm font-medium">{t("register.password")}</label>
-                  <Input id="register-password" type="password" autoComplete="new-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
-                  <p className="text-xs text-muted-foreground">{t("changePassword.passwordHint", { min: MIN_PASSWORD_LENGTH })}</p>
-                </div>
-                <div className="space-y-1">
-                  <label htmlFor="register-confirm" className="text-sm font-medium">{t("register.confirmPassword")}</label>
-                  <Input id="register-confirm" type="password" autoComplete="new-password" required value={confirm} onChange={(e) => setConfirm(e.target.value)} />
-                </div>
-                <Button type="submit" variant="brandSolid" className="w-full" disabled={submitting}>
-                  {submitting ? t("register.submitting") : t("register.submit")}
-                </Button>
-              </form>
-            )}
-            {signupProviders.length > 0 && (
-              <>
-                {showPasswordForm && <div className="border-t" aria-hidden="true" />}
-                {signupProviders.map((provider) => (
-                  <Button key={provider.id} asChild variant="outline" className="w-full">
-                    <a href={ssoHref(provider.id)}>
-                      <ProviderIcon icon={provider.icon} />
-                      {t("register.signUpWith", { name: provider.displayName })}
-                    </a>
-                  </Button>
-                ))}
-              </>
-            )}
-            <p className="text-center text-sm">
-              <Link to={loginHref} className="underline underline-offset-4">
-                {t("register.haveAccount")}
-              </Link>
-            </p>
-          </>
+        {errorMessage && (
+          <p role="alert" className="text-sm text-destructive">
+            {errorMessage}
+          </p>
         )}
+        <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
+          <div className="space-y-1">
+            <label htmlFor="register-email" className="text-sm font-medium">{t("register.email")}</label>
+            <Input id="register-email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+          </div>
+          <div className="space-y-1">
+            <label htmlFor="register-display-name" className="text-sm font-medium">{t("register.displayName")}</label>
+            <Input id="register-display-name" autoComplete="name" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
+          </div>
+          <div className="space-y-1">
+            <label htmlFor="register-password" className="text-sm font-medium">{t("register.password")}</label>
+            <Input id="register-password" type="password" autoComplete="new-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+            <p className="text-xs text-muted-foreground">{t("changePassword.passwordHint", { min: MIN_PASSWORD_LENGTH })}</p>
+          </div>
+          <div className="space-y-1">
+            <label htmlFor="register-confirm" className="text-sm font-medium">{t("register.confirmPassword")}</label>
+            <Input id="register-confirm" type="password" autoComplete="new-password" required value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+          </div>
+          <Button type="submit" variant="brandSolid" className="w-full" disabled={submitting}>
+            {submitting ? t("register.submitting") : t("register.submit")}
+          </Button>
+        </form>
+        <p className="text-center text-sm">
+          <Link to={loginHref} className="underline underline-offset-4">
+            {t("register.haveAccount")}
+          </Link>
+        </p>
       </div>
     </main>
   );
