@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router";
 import { Dialog as DialogPrimitive } from "radix-ui";
@@ -13,7 +13,9 @@ import { cardSurface } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { NARROW_QUERY, SidebarDrawerContext, useSidebarDrawer } from "@/lib/sidebar-drawer";
 import { canonicalizedFrom } from "@/lib/real-location";
+import { SidebarTabProvider, useSidebarTabState } from "@/lib/sidebar-tab";
 import { NoteList } from "@/components/NoteList";
+import { SidebarTabList, sidebarPanelId, sidebarTabId } from "@/components/sidebar/SidebarTabList";
 import { UserMenu } from "@/components/UserMenu";
 import {
   SIDEBAR_WIDTH_DEFAULT,
@@ -59,7 +61,8 @@ interface SidebarContentProps {
   shortcutBadge: string;
 }
 
-/** 側欄的內層堆疊（logo 列／搜尋／NoteList／新增鈕／UserMenu）。wrapper（靜態
+/** 側欄的內層堆疊（logo 列／搜尋／tab 列／tabpanel（NoteList）／新增鈕／UserMenu）。目前 tab 住在
+ * `SidebarTabProvider`（靜態卡與抽屜兩份實例共用一份）。wrapper（靜態
  * `<aside>` 卡或抽屜 Content）由呼叫端提供——兩個 wrapper 都必須給
  * `flex flex-col` 脈絡，否則清單容器的 `min-h-0 flex-1 overflow-y-auto` 失去
  * 約束（spec §3a 邊界定案）。 */
@@ -72,6 +75,9 @@ function SidebarContent({
   shortcutBadge,
 }: SidebarContentProps) {
   const { t } = useTranslation();
+  // 靜態卡與抽屜各自一份 `useId`，tab／tabpanel 的 id 才不會撞（spec §5.5）。
+  const idBase = useId();
+  const { tab } = useSidebarTabState();
   return (
     <>
       <div className="flex items-center gap-2 px-3 pt-3">
@@ -112,8 +118,17 @@ function SidebarContent({
         </kbd>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-2">
-        <NoteList query={query} onCreateNote={onCreateNote} createNotePending={newNotePending} />
+      <SidebarTabList idBase={idBase} />
+
+      <div
+        role="tabpanel"
+        id={sidebarPanelId(idBase)}
+        aria-labelledby={sidebarTabId(idBase, tab)}
+        className="flex min-h-0 flex-1 flex-col"
+      >
+        <div className="min-h-0 flex-1 overflow-y-auto px-2">
+          <NoteList query={query} onCreateNote={onCreateNote} createNotePending={newNotePending} />
+        </div>
       </div>
 
       <div className="m-2">
@@ -178,6 +193,9 @@ interface AppShellProps {
  * 的刪除項同一套錯誤處理慣例：ApiFail → `errors.<code>`、否則 `errors.fallback`，
  * 用 toast 顯示（不像 LoginPage 用行內 `errorMessage` state——這裡沒有表單可以
  * 掛錯誤文案）。
+ *
+ * 側欄 tab：state 由 `SidebarTabProvider`（包住整個版面、在抽屜 context 之內）持有；`AppShell` 隨
+ * 首頁↔筆記頁重掛（各自渲染一份），tab 靠 localStorage 在重掛間帶回，切 tab 不重繪 `AppShell` 本身。
  *
  * 側欄寬度（Task 4）：靜態卡寬度是 `<aside style={{ width }}>` 的 React state，範圍
  * 200–480、預設 256（＝改版前的 `w-64`），存在 localStorage（`sidebar-width.ts`）。下限讓
@@ -311,60 +329,62 @@ export function AppShell({ children, inert }: AppShellProps) {
     // `min-h-0 min-w-0 flex-1 flex flex-col` 撐開版面（`min-w-0` 顯式宣告——
     // `main` 沒有 overflow、少了隱含的自我裁切途徑，寬度鏈全靠它）。
     <SidebarDrawerContext.Provider value={{ setOpen: setDrawerOpen }}>
-      <div inert={inert} className="flex h-screen gap-3 overflow-hidden bg-background p-3">
-        <aside className={cn(cardSurface, "relative hidden shrink-0 md:flex md:flex-col")} style={{ width: sidebarWidth }}>
-          <SidebarContent {...sidebarProps} searchRef={searchInputRef} />
-          <PaneResizeHandle
-            width={sidebarWidth}
-            onChange={handleSidebarWidth}
-            min={SIDEBAR_WIDTH_MIN}
-            max={SIDEBAR_WIDTH_MAX}
-            defaultWidth={SIDEBAR_WIDTH_DEFAULT}
-            step={SIDEBAR_WIDTH_STEP}
-            edge="right"
-            label={t("sidebar.resize")}
-            placementClassName="left-full"
-          />
-        </aside>
+      <SidebarTabProvider>
+        <div inert={inert} className="flex h-screen gap-3 overflow-hidden bg-background p-3">
+          <aside className={cn(cardSurface, "relative hidden shrink-0 md:flex md:flex-col")} style={{ width: sidebarWidth }}>
+            <SidebarContent {...sidebarProps} searchRef={searchInputRef} />
+            <PaneResizeHandle
+              width={sidebarWidth}
+              onChange={handleSidebarWidth}
+              min={SIDEBAR_WIDTH_MIN}
+              max={SIDEBAR_WIDTH_MAX}
+              defaultWidth={SIDEBAR_WIDTH_DEFAULT}
+              step={SIDEBAR_WIDTH_STEP}
+              edge="right"
+              label={t("sidebar.resize")}
+              placementClassName="left-full"
+            />
+          </aside>
 
-        <DialogPrimitive.Root open={drawerOpen} onOpenChange={setDrawerOpen}>
-          <DialogPrimitive.Portal>
-            <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50" />
-            <DialogPrimitive.Content
-              ref={drawerContentRef}
-              data-sidebar-drawer=""
-              // 底色與 flex 脈絡缺一不可：沒底色透出 overlay 的黑、沒 flex-col 則
-              // SidebarContent 的 min-h-0 flex-1 清單失去約束（spec §3a）。貼齊
-              // 左緣故意不用 cardSurface 的圓角——抽屜不是卡片。
-              className="fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-border bg-card"
-              onOpenAutoFocus={(event) => {
-                event.preventDefault();
-                if (openedByShortcutRef.current && drawerSearchRef.current) {
-                  drawerSearchRef.current.focus();
-                  openedByShortcutRef.current = false;
-                } else {
-                  openedByShortcutRef.current = false;
-                  // 漢堡開：不聚焦搜尋框（觸控裝置會彈鍵盤；Radix 預設聚焦第一個
-                  // 可聚焦元素恰好就是它，必須 preventDefault 擋掉），但焦點必須
-                  // 落進抽屜本身——Radix 的 focus trap 要焦點先進容器才武裝
-                  // （lastFocusedElement 為 null 時 handleFocusIn 拉不回焦點、Tab
-                  // 攔截掛在容器 onKeyDown 也不會觸發），只 preventDefault 不補
-                  // 聚焦＝trap 沒建立、Tab 逃進 aria-hidden 的背景。
-                  drawerContentRef.current?.focus();
-                }
-              }}
-            >
-              {/* Radix 的 aria-labelledby 只在 Title 存在時輸出——不放＝一個無
-                  可及名稱的 dialog（釘住的 radix-ui 1.6.7 已不再 console 警告，
-                  沒有訊號提醒你）。 */}
-              <DialogPrimitive.Title className="sr-only">{t("sidebar.drawerTitle")}</DialogPrimitive.Title>
-              <SidebarContent {...sidebarProps} searchRef={drawerSearchRef} />
-            </DialogPrimitive.Content>
-          </DialogPrimitive.Portal>
-        </DialogPrimitive.Root>
+          <DialogPrimitive.Root open={drawerOpen} onOpenChange={setDrawerOpen}>
+            <DialogPrimitive.Portal>
+              <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50" />
+              <DialogPrimitive.Content
+                ref={drawerContentRef}
+                data-sidebar-drawer=""
+                // 底色與 flex 脈絡缺一不可：沒底色透出 overlay 的黑、沒 flex-col 則
+                // SidebarContent 的 min-h-0 flex-1 清單失去約束（spec §3a）。貼齊
+                // 左緣故意不用 cardSurface 的圓角——抽屜不是卡片。
+                className="fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-border bg-card"
+                onOpenAutoFocus={(event) => {
+                  event.preventDefault();
+                  if (openedByShortcutRef.current && drawerSearchRef.current) {
+                    drawerSearchRef.current.focus();
+                    openedByShortcutRef.current = false;
+                  } else {
+                    openedByShortcutRef.current = false;
+                    // 漢堡開：不聚焦搜尋框（觸控裝置會彈鍵盤；Radix 預設聚焦第一個
+                    // 可聚焦元素恰好就是它，必須 preventDefault 擋掉），但焦點必須
+                    // 落進抽屜本身——Radix 的 focus trap 要焦點先進容器才武裝
+                    // （lastFocusedElement 為 null 時 handleFocusIn 拉不回焦點、Tab
+                    // 攔截掛在容器 onKeyDown 也不會觸發），只 preventDefault 不補
+                    // 聚焦＝trap 沒建立、Tab 逃進 aria-hidden 的背景。
+                    drawerContentRef.current?.focus();
+                  }
+                }}
+              >
+                {/* Radix 的 aria-labelledby 只在 Title 存在時輸出——不放＝一個無
+                    可及名稱的 dialog（釘住的 radix-ui 1.6.7 已不再 console 警告，
+                    沒有訊號提醒你）。 */}
+                <DialogPrimitive.Title className="sr-only">{t("sidebar.drawerTitle")}</DialogPrimitive.Title>
+                <SidebarContent {...sidebarProps} searchRef={drawerSearchRef} />
+              </DialogPrimitive.Content>
+            </DialogPrimitive.Portal>
+          </DialogPrimitive.Root>
 
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</main>
-      </div>
+          <main className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</main>
+        </div>
+      </SidebarTabProvider>
     </SidebarDrawerContext.Provider>
   );
 }
