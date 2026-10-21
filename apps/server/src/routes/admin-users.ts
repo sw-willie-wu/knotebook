@@ -261,6 +261,7 @@ export function adminUsersRoutes(deps: AdminUsersRouteDeps) {
       try {
         result = await deps.db.transaction(tx => disableUserInTx(tx, input));
       } catch (err) {
+        if (err instanceof TxAbort) return sendError(reply, err.status, err.errCode, err.message);
         // 交易動到含雜湊欄的連結列：非預期的 DB 錯誤一律遮蔽後再丟（同 admin-auth.ts 刪除登入服務）。
         throw redactDbError(request.log, err, "停用帳號");
       }
