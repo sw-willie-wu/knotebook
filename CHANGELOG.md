@@ -7,6 +7,10 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.13.0] - 2026-10-26
+
 ### Upgrade notes
 
 - Migration 0031 sets each existing sign-in service's **Creates accounts** to the value **Allow registration** had before the upgrade, so sign-in behaves as before after the upgrade. Services added afterwards start with it off (a service imported from `OIDC_*` takes over **Allow self-registration with a password** instead).
