@@ -148,7 +148,7 @@ export function folderDepth(index: FolderIndex, folderId: string): number {
   return depth;
 }
 
-/** 葉＝1；遇環不重算。 */
+/** 葉＝1；遇環不重算；不在索引＝1（當成葉）。 */
 export function subtreeHeight(index: FolderIndex, folderId: string): number {
   const visited = new Set<string>();
   const height = (id: string): number => {

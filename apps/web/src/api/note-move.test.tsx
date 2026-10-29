@@ -403,27 +403,18 @@ describe("T1 移動／複製帶資料夾", () => {
     expect(JSON.parse(f.calls[1]!.body!)).toEqual({ folderId: "A" });
   });
 
-  it("NMv3 移動與複製成功與失敗後都失效 ['folders']", async () => {
-    const f = setupFetch({
-      ...baseHandlers,
-      [`POST ${NOTE_URL}/move`]: () => fakeResponse(200, noteDto({ groupId: GID })),
-      [`POST ${NOTE_URL}/copy`]: () => fakeResponse(201, noteDto({ id: "44444444-4444-4444-4444-444444444444" })),
-    });
-    for (const kind of ["move-ok", "move-bad", "copy-ok", "copy-bad"] as const) {
-      const bad = kind.endsWith("bad");
-      if (bad) {
-        f.calls.length = 0;
-        setupFetch({
-          ...baseHandlers,
-          [`POST ${NOTE_URL}/move`]: () => fakeResponse(409, { error: { code: "x", message: "x" } }),
-          [`POST ${NOTE_URL}/copy`]: () => fakeResponse(409, { error: { code: "x", message: "x" } }),
-        });
-      }
-      const client = makeClient();
-      const invSpy = vi.spyOn(client, "invalidateQueries");
-      const { result } = renderHook(() => (kind.startsWith("move") ? useMoveNoteToGroup(ID) : useCopyNote(ID)), { wrapper: wrapperFor(client) });
-      await (result.current.mutateAsync({ groupId: GID } as never) as Promise<unknown>).catch(() => undefined);
-      await waitFor(() => expect(keysOf(invSpy as never), kind).toContainEqual(["folders"]));
-    }
+  it.each([
+    ["move 成功", "move", 200],
+    ["move 失敗", "move", 409],
+    ["copy 成功", "copy", 201],
+    ["copy 失敗", "copy", 409],
+  ] as const)("NMv3 %s 後失效 ['folders']", async (_name, kind, status) => {
+    const body = status < 400 ? noteDto({ id: "44444444-4444-4444-4444-444444444444", groupId: GID }) : { error: { code: "x", message: "x" } };
+    setupFetch({ ...baseHandlers, [`POST ${NOTE_URL}/${kind}`]: () => fakeResponse(status, body) });
+    const client = makeClient();
+    const invSpy = vi.spyOn(client, "invalidateQueries");
+    const { result } = renderHook(() => ({ move: useMoveNoteToGroup(ID), copy: useCopyNote(ID) }), { wrapper: wrapperFor(client) });
+    await (kind === "move" ? result.current.move.mutateAsync({ groupId: GID }) : result.current.copy.mutateAsync({ groupId: GID })).catch(() => undefined);
+    await waitFor(() => expect(keysOf(invSpy)).toContainEqual(["folders"]));
   });
 });

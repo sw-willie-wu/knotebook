@@ -193,6 +193,10 @@ describe("深度與子樹", () => {
     expect(subtreeHeight(index, "A1")).toBe(3);
   });
 
+  it("FI-D2b subtreeHeight：id 不在索引＝1（當成葉）", () => {
+    expect(subtreeHeight(indexFolders(folderChain("A", 2)), "nope")).toBe(1);
+  });
+
   it("FI-D3 isInSubtree：自己與孫 true；兄弟與祖先 false", () => {
     const index = indexFolders([...folderChain("A", 3), folderDto({ id: "S", name: "S", parentId: "A1" })]);
     expect(isInSubtree(index, "A2", "A2")).toBe(true);

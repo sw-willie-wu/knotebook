@@ -5,9 +5,9 @@ import { canonicalNotePath, type GroupDto, type NoteDto } from "@knotebook/share
 import { ApiFail } from "@/api/client";
 import { useGroups } from "@/api/groups";
 import { useConfirmNoteStillPersonal, useCopyNote, useMoveNoteToGroup } from "@/api/note-move";
-import { canCreateAndEdit } from "@/lib/group-role";
 import { usePublicLink } from "@/api/public-link";
 import { useShares } from "@/api/shares";
+import { canCreateAndEdit } from "@/lib/group-role";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
