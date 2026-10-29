@@ -396,6 +396,13 @@
       "remove": "移除資料夾",
       "depthLimit": "已達最多 {{max}} 層",
       "deleteBlocked": "資料夾裡有你不能刪除的筆記"
+    },
+    "dest": {
+      "topLevel": "根目錄",
+      "back": "返回",
+      "moveHere": "移動到這裡",
+      "copyHere": "複製到這裡",
+      "openLevel": "{{name}}，開啟下一層"
     }
   },
   "groups": {

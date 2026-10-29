@@ -396,6 +396,13 @@
       "remove": "Remove folder",
       "depthLimit": "Folders can be nested up to {{max}} levels",
       "deleteBlocked": "This folder has notes you can't delete"
+    },
+    "dest": {
+      "topLevel": "Top level",
+      "back": "Back",
+      "moveHere": "Move here",
+      "copyHere": "Copy here",
+      "openLevel": "{{name}}, open"
     }
   },
   "groups": {
