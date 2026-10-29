@@ -18,3 +18,26 @@ test("/login 渲染登入表單", async ({ page }) => {
   await expect(page.locator("#login-password")).toBeVisible();
   await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
 });
+
+// #336：server 的單元測試用手寫的假 dist，證明不了「真映像裡真的有這些檔、且以正確 MIME 送出」。
+test("GET /manifest.webmanifest 回 application/manifest+json，且 manifest 列的每張圖示與 apple-touch-icon 都 200 image/png", async ({
+  request,
+}) => {
+  const response = await request.get("/manifest.webmanifest");
+  expect(response.status()).toBe(200);
+  expect(response.headers()["content-type"]).toContain("application/manifest+json");
+
+  const manifest = (await response.json()) as { icons: { src: string }[] };
+  // 先斷言非空：空陣列會讓下面的迴圈空轉而假綠。
+  expect(manifest.icons.length).toBeGreaterThan(0);
+  for (const icon of manifest.icons) {
+    const iconResponse = await request.get(icon.src);
+    expect(iconResponse.status(), icon.src).toBe(200);
+    expect(iconResponse.headers()["content-type"], icon.src).toContain("image/png");
+  }
+
+  // iOS 的主畫面圖示用 index.html 的 <link rel="apple-touch-icon">，不在 manifest 裡。
+  const touchIcon = await request.get("/apple-touch-icon.png");
+  expect(touchIcon.status()).toBe(200);
+  expect(touchIcon.headers()["content-type"]).toContain("image/png");
+});

@@ -7,6 +7,19 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <!--
+      #336 PWA：可加到主畫面、以 standalone 開啟（無 service worker、無離線）。
+      theme-color 取 index.css 的頁底色 --background（淺 #f3f4f6／深 #0e1013），standalone 時是狀態列的顏色；
+      淺色值與 manifest.webmanifest 的 theme_color 必須一致（pwa-manifest.test.ts 守著）。
+      ⚠ 三個階段：首屏（HTML 解析後、React 掛載前）用這裡 media 版的值，只跟**裝置**的深淺設定；
+      React 掛載後，theme.tsx 的 applyResolvedTheme 會把這兩個 meta 的 content 都改成 app 實際主題的頁底色（THEME_COLOR），
+      之後跟著 app 內選的主題——見 known-limitations。
+      ⚠ 這裡不要再加 inline script：theme.test.tsx 只抓 head 裡第一段 script 驗防閃邏輯，
+      security-headers.ts 的 hash 擷取也有「屬性含 >」的已知限制（見該檔檔頭）。
+    -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f3f4f6" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0e1013" />
+    <!--
       深色模式首屏防閃白：React 掛載前就把 .dark 打在 <html> 上。必須是同步的內嵌
       script（外部檔或 defer 都會晚於首次繪製）。這裡的 storage key 與 class 名是
       src/theme.tsx 的複製——那邊的 `theme.test.tsx` 有一條測試釘住兩邊一致。

@@ -21,6 +21,20 @@ describe("SPA fallback（spec §11.5）", () => {
     writeFileSync(path.join(webDist, "assets", "app.js"), "console.log('app');");
     // 根目錄的靜態檔（apps/web/public → dist 根）：瀏覽器分頁圖示。
     writeFileSync(path.join(webDist, "favicon.svg"), '<svg xmlns="http://www.w3.org/2000/svg"/>');
+    // #336：PWA manifest 同樣放在 dist 根目錄。
+    writeFileSync(path.join(webDist, "manifest.webmanifest"), '{"name":"Knotebook","display":"standalone"}');
+  });
+
+  it("GET /manifest.webmanifest → 200 application/manifest+json（#336；static 送，不被 SPA fallback 吞成 index.html）", async () => {
+    const { app } = await buildTestApp({}, { webDist });
+    // 瀏覽器抓 manifest 的 Accept 是 */*；再用 text/html 證明即使如此也不會落進 fallback。
+    for (const accept of ["*/*", "text/html"]) {
+      const res = await app.inject({ method: "GET", url: "/manifest.webmanifest", headers: { accept } });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers["content-type"]).toContain("application/manifest+json");
+      expect(res.json()).toMatchObject({ name: "Knotebook", display: "standalone" });
+      expect(res.body).not.toContain("knotebook spa");
+    }
   });
 
   afterAll(() => {

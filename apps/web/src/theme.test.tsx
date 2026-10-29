@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { render, screen, act } from "@testing-library/react";
-import { ThemeProvider, useTheme } from "./theme";
+import { THEME_COLOR, ThemeProvider, useTheme } from "./theme";
 
 const STORAGE_KEY = "knotebook:theme";
 const ACCENT_STORAGE_KEY = "knotebook:accent";
@@ -183,6 +183,14 @@ describe("ThemeProvider / useTheme", () => {
     };
     const originalMatchMedia = window.matchMedia;
     window.matchMedia = (() => fakeMql) as unknown as typeof window.matchMedia;
+    const metas = ["light", "dark"].map((scheme) => {
+      const meta = document.createElement("meta");
+      meta.name = "theme-color";
+      meta.setAttribute("media", `(prefers-color-scheme: ${scheme})`);
+      meta.content = "#sentinel";
+      document.head.append(meta);
+      return meta;
+    });
 
     try {
       render(
@@ -195,6 +203,7 @@ describe("ThemeProvider / useTheme", () => {
       expect(screen.getByTestId("theme")).toHaveTextContent("system");
       expect(screen.getByTestId("resolved")).toHaveTextContent("light");
       expect(document.documentElement.classList.contains("dark")).toBe(false);
+      for (const meta of metas) expect(meta.getAttribute("content")).toBe(THEME_COLOR.light);
 
       // 模擬 OS 切到深色：flip matches 後觸發 change listener（theme 本身沒變）。
       act(() => {
@@ -205,7 +214,16 @@ describe("ThemeProvider / useTheme", () => {
       expect(screen.getByTestId("theme")).toHaveTextContent("system");
       expect(screen.getByTestId("resolved")).toHaveTextContent("dark");
       expect(document.documentElement.classList.contains("dark")).toBe(true);
+      // theme 沒變、只有 OS 翻轉：theme-color meta 也得跟著（不能只在 theme 改變時才同步）。
+      for (const meta of metas) expect(meta.getAttribute("content")).toBe(THEME_COLOR.dark);
+
+      act(() => {
+        fakeMql.matches = false;
+        changeListener?.();
+      });
+      for (const meta of metas) expect(meta.getAttribute("content")).toBe(THEME_COLOR.light);
     } finally {
+      for (const meta of metas) meta.remove();
       window.matchMedia = originalMatchMedia;
     }
   });
@@ -259,7 +277,10 @@ describe("ThemeProvider / useTheme", () => {
     // vitest 下的 `import.meta.url` 是 vite 的 http URL，不能餵給 fs——用 cwd
     // （跑 test 時一律是 apps/web）組路徑。
     const html = readFileSync(`${process.cwd()}/index.html`, "utf8");
-    const inlineScript = html.slice(html.indexOf("<head>"), html.indexOf("</head>"));
+    const head = html.slice(html.indexOf("<head>"), html.indexOf("</head>"));
+    // 只取 script 本體：head 裡另有 `<meta name="theme-color" media="(prefers-color-scheme: dark)">`（#336），
+    // 對整段 head 比對會讓下面的 "prefers-color-scheme: dark" 斷言在 script 失去它時照樣綠。
+    const inlineScript = head.slice(head.indexOf("<script>"), head.indexOf("</script>"));
 
     expect(inlineScript).toContain(STORAGE_KEY);
     expect(inlineScript).toContain("prefers-color-scheme: dark");
@@ -319,5 +340,130 @@ describe("ThemeProvider / useTheme", () => {
     expect(window.localStorage.getItem(ACCENT_STORAGE_KEY)).toBe("teal");
     expect(document.documentElement.getAttribute("data-accent")).toBe("teal");
     expect(screen.getByTestId("accent")).toHaveTextContent("teal");
+  });
+});
+
+/**
+ * #336 審查要求：<meta name="theme-color"> 要跟 app 內選的主題，而不是只跟裝置設定
+ * （index.html 的兩個 meta 靠 media 查詢，只認 OS）。測試自己在 head 建兩個 meta，測完清掉。
+ */
+describe("ThemeProvider 同步 <meta name=\"theme-color\">", () => {
+  let lightMeta: HTMLMetaElement;
+  let darkMeta: HTMLMetaElement;
+  const originalMatchMedia = window.matchMedia;
+
+  function fakeSystem(prefersDark: boolean) {
+    window.matchMedia = ((query: string) => ({
+      matches: prefersDark && query.includes("dark"),
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    })) as unknown as typeof window.matchMedia;
+  }
+
+  function renderProvider() {
+    return render(
+      <ThemeProvider>
+        <Probe />
+      </ThemeProvider>,
+    );
+  }
+
+  function expectBoth(color: string) {
+    expect(lightMeta.getAttribute("content")).toBe(color);
+    expect(darkMeta.getAttribute("content")).toBe(color);
+  }
+
+  beforeEach(() => {
+    window.localStorage.clear();
+    lightMeta = document.createElement("meta");
+    lightMeta.name = "theme-color";
+    lightMeta.setAttribute("media", "(prefers-color-scheme: light)");
+    lightMeta.content = "#sentinel-light";
+    darkMeta = document.createElement("meta");
+    darkMeta.name = "theme-color";
+    darkMeta.setAttribute("media", "(prefers-color-scheme: dark)");
+    darkMeta.content = "#sentinel-dark";
+    document.head.append(lightMeta, darkMeta);
+  });
+
+  afterEach(() => {
+    lightMeta.remove();
+    darkMeta.remove();
+    window.matchMedia = originalMatchMedia;
+    window.localStorage.clear();
+    document.documentElement.classList.remove("dark");
+    document.documentElement.removeAttribute("data-accent");
+  });
+
+  it("THEME_COLOR 是淺 #f3f4f6／深 #0e1013", () => {
+    expect(THEME_COLOR).toEqual({ light: "#f3f4f6", dark: "#0e1013" });
+  });
+
+  it("系統淺色、app 選深色：兩個 meta 都是深色頁底色", () => {
+    fakeSystem(false);
+    window.localStorage.setItem(STORAGE_KEY, "dark");
+    renderProvider();
+    expectBoth(THEME_COLOR.dark);
+  });
+
+  it("系統深色、app 選淺色：兩個 meta 都是淺色頁底色", () => {
+    fakeSystem(true);
+    window.localStorage.setItem(STORAGE_KEY, "light");
+    renderProvider();
+    expectBoth(THEME_COLOR.light);
+  });
+
+  it("app 選 system：跟著系統（深色系統→深色，淺色系統→淺色）", () => {
+    fakeSystem(true);
+    window.localStorage.setItem(STORAGE_KEY, "system");
+    const dark = renderProvider();
+    expectBoth(THEME_COLOR.dark);
+    dark.unmount();
+
+    fakeSystem(false);
+    renderProvider();
+    expectBoth(THEME_COLOR.light);
+  });
+
+  it("主題切換後兩個 meta 都跟著更新（淺→深→淺）", () => {
+    fakeSystem(false);
+    renderProvider();
+    expectBoth(THEME_COLOR.light);
+
+    act(() => {
+      screen.getByText("dark").click();
+    });
+    expectBoth(THEME_COLOR.dark);
+
+    act(() => {
+      screen.getByText("light").click();
+    });
+    expectBoth(THEME_COLOR.light);
+  });
+
+  it("head 裡沒有 theme-color meta 時不拋錯", () => {
+    lightMeta.remove();
+    darkMeta.remove();
+    fakeSystem(false);
+    window.localStorage.setItem(STORAGE_KEY, "dark");
+    expect(() => renderProvider()).not.toThrow();
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
+    // 放回去，讓 afterEach 的 remove 對已卸下的節點也是安全的
+    document.head.append(lightMeta, darkMeta);
+  });
+
+  it("只動 theme-color：同在 head 的其他 meta 不受影響", () => {
+    const other = document.createElement("meta");
+    other.name = "description";
+    other.content = "keep-me";
+    document.head.append(other);
+    try {
+      fakeSystem(false);
+      window.localStorage.setItem(STORAGE_KEY, "dark");
+      renderProvider();
+      expect(other.getAttribute("content")).toBe("keep-me");
+    } finally {
+      other.remove();
+    }
   });
 });
