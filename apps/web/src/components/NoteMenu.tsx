@@ -7,6 +7,7 @@ import { ApiFail } from "@/api/client";
 import { useDeleteNote } from "@/api/notes";
 import { isTerminal, type CollabState } from "@/collab/connection";
 import { copyText } from "@/lib/clipboard";
+import { placeNoteWithUndo } from "@/lib/note-place";
 import { useNotePageControls, type OpenEditsState } from "@/lib/note-page-controls";
 import { useCloseSidebarDrawer } from "@/lib/sidebar-drawer";
 import { showTrashedToast } from "@/lib/trash-undo";
@@ -19,11 +20,16 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { EllipsisVertical, History, Link as LinkIcon, MessageCircle, Presentation, Trash } from "@/components/ui/icons";
 import { ManualCopyField } from "@/components/ManualCopyField";
 import {
+  EMPTY_DEST_PATHS,
   GroupTransferDialog,
   GroupTransferMenuItems,
+  transferTargetOf,
+  type DestinationPick,
+  type DestPaths,
   type GroupTransferKind,
   type GroupTransferPick,
 } from "@/components/share/GroupTransfer";
+import { destinationShortLabel } from "@/components/sidebar/destination-level";
 import { toast } from "@/components/ui/toast";
 import { usePresentEntry } from "@/present/usePresentEntry";
 
@@ -53,7 +59,7 @@ export interface NoteMenuProps {
 }
 
 /**
- * 內文卡頁頭的 ⋮ 選單（spec D.4）：複製連結（任何角色）＋簡報模式（#229，任何角色）＋AI 修改紀錄＋移動到…／複製到…（#216；選項規則見 `share/GroupTransfer.tsx` 的 `buildTransferOptions`，「複製到我的筆記」已併入「複製到… → 我的筆記」）
+ * 內文卡頁頭的 ⋮ 選單（spec D.4）：複製連結（任何角色）＋簡報模式（#229，任何角色）＋AI 修改紀錄＋移動到…／複製到…（#216；資料夾 spec §6.11 起是逐層子選單，規則見 `sidebar/destination-level.ts`、兩種形態見 `share/GroupTransfer.tsx`，「複製到我的筆記」已併入「複製到… → 我的筆記」）
  * ＋移到垃圾桶（`permissions.delete`，#175 §8.3；#181 起刪除＝移入垃圾桶）。
  *
  * **移到垃圾桶不確認（spec §6.10.4 D-W7）**：點下選單項即送 DELETE；成功 toast「已移到垃圾桶」，
@@ -195,7 +201,35 @@ function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef:
   const [transfer, setTransfer] = useState<GroupTransferPick | null>(null);
   /** 窄／觸控的就地展開形展開的是哪一組（flyout 形不用）；Esc 先收合再關選單，見 `onEscapeKeyDown`。 */
   const [groupExpanded, setGroupExpanded] = useState<GroupTransferKind | null>(null);
+  /** 移動、複製各自的子選單所在層（資料夾 spec §6.11.4）；選單關閉、就地展開形收合時回第一層。 */
+  const [paths, setPaths] = useState<DestPaths>(EMPTY_DEST_PATHS);
   const [manualCopyUrl, setManualCopyUrl] = useState<string | null>(null);
+
+  /**
+   * 子選單選定非 `>` 項（spec §6.11.2）：先收合、回第一層、關選單（確認框的 FocusScope 不與選單互搶）。
+   * 同空間移動（`transferTargetOf` 回 null）→ 直接 PUT＋「已移到「X」」與復原，不確認、不離場（開著的那篇網址不變）；
+   * 其餘 → 現行確認框。
+   */
+  function handlePick(pick: DestinationPick): void {
+    setGroupExpanded(null);
+    setPaths(EMPTY_DEST_PATHS);
+    setMenuOpen(false);
+    const target = transferTargetOf(note, pick, t);
+    if (target !== null) {
+      setTransfer({ kind: pick.kind, target });
+      return;
+    }
+    if (pick.kind !== "move" || pick.target.kind !== "place") return;
+    const { folder } = pick.target;
+    void placeNoteWithUndo({
+      noteId: note.id,
+      from: note.folderId,
+      to: { folderId: folder?.id ?? null, name: destinationShortLabel(folder, t) },
+      index: pick.index,
+      queryClient,
+      t,
+    });
+  }
 
   async function handleCopyLink(): Promise<void> {
     const url = `${window.location.origin}${canonicalNotePath(note)}`;
@@ -249,7 +283,11 @@ function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef:
         open={menuOpen}
         onOpenChange={(open) => {
           setMenuOpen(open);
-          if (!open) setGroupExpanded(null); // 下次開啟是收合態
+          if (!open) {
+            // 下次開啟是收合態、子選單回第一層
+            setGroupExpanded(null);
+            setPaths(EMPTY_DEST_PATHS);
+          }
         }}
       >
         <DropdownMenuTrigger asChild>
@@ -276,8 +314,10 @@ function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef:
           className="max-h-[var(--radix-dropdown-menu-content-available-height)] max-w-[min(20rem,calc(100vw-1rem))] overflow-y-auto"
           onEscapeKeyDown={(event) => {
             if (groupExpanded !== null) {
+              // 就地展開形：Esc 先收合（回第一層）、不關整個選單（spec §6.11.4）
               event.preventDefault();
               setGroupExpanded(null);
+              setPaths(EMPTY_DEST_PATHS);
             }
           }}
           onCloseAutoFocus={(event) => {
@@ -334,17 +374,15 @@ function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef:
             <MessageCircle className="mr-2 h-4 w-4" />
             {t("note.menu.aiEdits")}
           </DropdownMenuItem>
-          {/* #216：移動／複製到群組（原分享面板「搬入群組」列）。寬螢幕第二層是 Radix Sub（hover／點擊／方向鍵進出；Esc 由 GroupSub 自接，只關第二層），窄／觸控是就地展開；
-              選定群組 → 先關選單再開確認框（確認框的 FocusScope 不與選單互搶）。沒有可選群組整組不渲染。 */}
+          {/* #216＋資料夾 spec §6.11：移動到…／複製到…的逐層子選單。寬螢幕是 Radix Sub（hover／點擊／方向鍵進出；Esc 由 GroupSub 自接，只關子選單），
+              窄／觸控是就地展開；點 `>` 項換層、選單不關。選定目的地 → handlePick。第一層為空的那一組整項不渲染。 */}
           <GroupTransferMenuItems
             note={note}
             expanded={groupExpanded}
             onExpandedChange={setGroupExpanded}
-            onPick={(pick) => {
-              setGroupExpanded(null);
-              setMenuOpen(false);
-              setTransfer(pick);
-            }}
+            paths={paths}
+            onPathChange={(kind, path) => setPaths((prev) => (prev[kind] === path ? prev : { ...prev, [kind]: path }))}
+            onPick={handlePick}
           />
           {/* #175 §8.3：刪除看 `permissions.delete`（群組筆記的 role 從不是 owner，但角色有
               `can_delete` 的成員要能刪；個人筆記只有 owner 為真）。#181：點下即移到垃圾桶、不確認；刪除中 disabled 不重送。 */}
