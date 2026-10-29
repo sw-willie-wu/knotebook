@@ -11,6 +11,7 @@ import { SettingsGroup, SettingsPage } from "@/settings/SettingsLayout";
 import { StorageByKindGroup } from "@/settings/SettingsStorageUsageSection";
 import { StorageUsageGroup } from "@/settings/StorageUsageGroup";
 import { useGroupOutlet } from "./group-outlet";
+import "@/i18n/management-strings";
 
 function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
   if (err instanceof ApiFail) return t(`errors.${err.code}`, { defaultValue: t("errors.fallback") });

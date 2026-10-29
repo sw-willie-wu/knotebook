@@ -4,6 +4,7 @@ import { useAdminGroups, useAdminStoragePlans, useAssignGroupPlan } from "@/api/
 import { SettingsTable, type SettingsTableColumn, type SettingsTableRow } from "@/components/management/SettingsTable";
 import { PlanSelect, StorageCell } from "./StorageAdminCells";
 import { SettingsGroup, SettingsPage } from "./SettingsLayout";
+import "@/i18n/management-strings";
 
 function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
   if (err instanceof ApiFail) return t(`errors.${err.code}`, { defaultValue: t("errors.fallback") });

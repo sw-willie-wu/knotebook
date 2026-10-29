@@ -12,6 +12,7 @@ import { Trash } from "@/components/ui/icons";
 import { RowIconButton } from "@/components/ui/row-icon-button";
 import { toast } from "@/components/ui/toast";
 import { SettingsGroup } from "./SettingsLayout";
+import "@/i18n/management-strings";
 
 /** 逐檔複製的既有慣例（同 SettingsUsersSection）。 */
 function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {

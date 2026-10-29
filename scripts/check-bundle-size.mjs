@@ -12,6 +12,7 @@
 //   3. 其餘 lazy chunk 存在：mermaid（#94）、shiki（#96）、AdminSections（#201／#247）、簡報層（#229）、版本歷史（筆記版本 spec）、垃圾桶 tab（#181）——理由各見常數註解。
 //      一般 tab 選取模式（#181 PR-2c）也是：SelectLazy chunk 必須存在，且 entry 不得含選取字串包的鍵名（SELECT_I18N_MARKER）。
 //      資料夾對話框（資料夾 PR-3b）同理：FolderLazy chunk 必須存在，且 entry 不得含資料夾字串包的鍵名（FOLDER_I18N_MARKER）。
+//      站台管理／設定的字串包（management-strings，首包瘦身）同理：entry 不得含 MANAGEMENT_I18N_MARKERS，且 management-strings chunk 必須存在並帶著它們。
 //
 // 全程 fail-closed：dist 不存在、找不到 entry、找到多個 entry，一律 throw 而非放行
 // ——「沒東西可檢查」不等於「檢查通過」（比照 check-licenses.mjs 的紀律）。
@@ -80,6 +81,12 @@ export const SELECT_I18N_MARKER = 'deleteSelected_one';
 export const FOLDERLAZY_RE = /^FolderLazy-[A-Za-z0-9_-]+\.js$/;
 // folders.*.json 只能進 FolderLazy 鏈：這把鍵名出現在 entry＝字串包（或 import 它的模組）被首包靜態 import。
 export const FOLDER_I18N_MARKER = 'restoreRebuilds';
+// 站台管理（admin.*）與設定（settings.*）的字串包（management.*.json，經 `@/i18n/management-strings` 註冊）也只能進 lazy 鏈：
+// 首包只留 AdminModal／SettingsModal／UserMenu 用到的 15 個鍵。兩個 marker 各取一個只在被搬走子樹裡的鍵名
+// （admin.auth.edit.autoCreateConfirmKeep、settings.ai.actionBuiltinBadge），entry 含任一個＝字串包被首包靜態 import（含「某個首包檔 import 了它」）。
+// 反向也要查：management-strings chunk 必須存在且同時帶著兩個 marker（包沒被弄丟、沒被拆壞）。check-bundle-size.test.mjs 的 BS5 驗兩個都是 management.en.json 的鍵。
+export const MANAGEMENT_I18N_MARKERS = ['autoCreateConfirmKeep', 'actionBuiltinBadge'];
+export const MANAGEMENT_STRINGS_RE = /^management-strings-[A-Za-z0-9_-]+\.js$/;
 // 首包 CSS：reveal.css 的 `.reveal-viewport` 規則（寫死黑字白底）若出現在這裡＝reveal.css 被靜態 import 進首包。
 export const ENTRY_CSS_RE = /^index-[A-Za-z0-9_-]+\.css$/;
 // reveal.js 的 JS 會寫 `reveal-viewport` 這個 class 名；入口側的外殼與其他程式碼都不用它。這個字串只准出現在
@@ -232,6 +239,27 @@ export function checkBundleSize(assetsDir, { maxEntryBytes = MAX_ENTRY_BYTES } =
         `被首包靜態 import；選取 UI 只能經 SelectLazy 載入（#181 PR-2c）`
     );
   }
+  const entrySource = readFileSync(join(assetsDir, entryName), 'utf8');
+  const managementHit = MANAGEMENT_I18N_MARKERS.find(marker => entrySource.includes(marker));
+  if (managementHit) {
+    throw new Error(
+      `entry chunk ${entryName} 含站台管理／設定字串包的鍵名 ${managementHit}——\`@/i18n/management-strings\`（或 import 它的設定／管理模組）` +
+        `被首包靜態 import；這些 UI 只能經 lazy chunk 載入（首包瘦身）`
+    );
+  }
+  const managementChunks = names.filter(name => MANAGEMENT_STRINGS_RE.test(name));
+  if (managementChunks.length === 0) {
+    throw new Error(
+      `找不到站台管理／設定字串包的 lazy chunk（management-strings-<hash>.js）——最可能的原因是字串包被併進別的 chunk，` +
+        `或 \`@/i18n/management-strings\` 沒人 import；若是 rollup 改了 chunk 命名慣例，請更新本檢查的 pattern，不要刪檢查`
+    );
+  }
+  const managementMissing = MANAGEMENT_I18N_MARKERS.filter(
+    marker => !managementChunks.some(name => readFileSync(join(assetsDir, name), 'utf8').includes(marker))
+  );
+  if (managementMissing.length > 0) {
+    throw new Error(`字串包 chunk [${managementChunks.join(', ')}] 不含鍵名 [${managementMissing.join(', ')}]——management.*.json 的內容沒進包（或鍵改名了，請同步更新 MANAGEMENT_I18N_MARKERS）`);
+  }
 
   const folderChunks = names.filter(name => FOLDERLAZY_RE.test(name));
   if (folderChunks.length === 0) {
@@ -285,7 +313,7 @@ export function checkBundleSize(assetsDir, { maxEntryBytes = MAX_ENTRY_BYTES } =
     }
   }
 
-  return { entryName, entryBytes, notePageChunks, mermaidChunks, shikiChunks, adminSectionsChunks, versionsChunks, presentationChunks, trashChunks, selectChunks, folderChunks };
+  return { entryName, entryBytes, notePageChunks, mermaidChunks, shikiChunks, adminSectionsChunks, versionsChunks, presentationChunks, trashChunks, selectChunks, folderChunks, managementChunks };
 }
 
 // 直接執行（非被 import）時跑真的 dist。
@@ -298,7 +326,8 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
         `lazy chunk：${result.notePageChunks.join(', ')}、${result.mermaidChunks.join(', ')}、${result.shikiChunks.join(', ')}、` +
         `${result.adminSectionsChunks.join(', ')}、${result.versionsChunks.join(', ')}、${result.presentationChunks.join(', ')}、${result.trashChunks.join(', ')}、` +
         `${result.selectChunks.join(', ')}（entry 不含 ${SELECT_I18N_MARKER}）、` +
-        `${result.folderChunks.join(', ')}（entry 不含 ${FOLDER_I18N_MARKER}）`
+        `${result.folderChunks.join(', ')}（entry 不含 ${FOLDER_I18N_MARKER}）、` +
+        `${result.managementChunks.join(', ')}（entry 不含 ${MANAGEMENT_I18N_MARKERS.join('、')}）`
     );
   } catch (err) {
     console.error(String(err instanceof Error ? err.message : err));

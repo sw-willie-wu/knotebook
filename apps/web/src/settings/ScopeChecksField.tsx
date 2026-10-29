@@ -2,6 +2,7 @@ import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import { Checkbox } from "@/components/ui/checkbox";
 import type { ScopeChecks } from "@/lib/token-scope";
+import "@/i18n/management-strings";
 
 /**
  * #239／#181：「編輯」「移動或複製到群組」「移到垃圾桶與還原」三框（spec §9.1、§6.8.2）。現在只剩 OAuth 同意頁用

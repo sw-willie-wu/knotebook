@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import i18n from "@/i18n";
 import zhTW from "./zh-TW.json";
 import en from "./en.json";
+import managementZhTW from "./management.zh-TW.json";
 
 /**
  * #181 垃圾桶文案＝spec 2026-10-21 §6.12／§6.9／§6.5 的字面（zh-TW）。改這些字串＝改產品決定，先問 Willie。
@@ -34,7 +35,8 @@ function get(obj: unknown, path: string): unknown {
 
 describe("TC1 垃圾桶文案＝spec 字面（zh-TW）", () => {
   for (const [key, text] of Object.entries(SPEC_COPY)) {
-    it(key, () => expect(get(zhTW, key)).toBe(text));
+    // admin.*／settings.* 的字串在 lazy 包（management.*.json），其餘在主檔。
+    it(key, () => expect(get(key.startsWith("admin.") ? managementZhTW : zhTW, key)).toBe(text));
   }
 
   it("trash.daysLeft（count=3）→「剩 3 天」", () => {

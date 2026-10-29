@@ -33,6 +33,7 @@ import { checksFromScope, scopeFromChecks, type ScopeChecks } from "@/lib/token-
 import { cn } from "@/lib/utils";
 import { ScopeTogglesField } from "./ScopeTogglesField";
 import { SettingsGroup } from "./SettingsLayout";
+import "@/i18n/management-strings";
 
 /** 逐檔複製的既有慣例（無共用 helper——比照 ShareDialog／SettingsAccountSection）。 */
 function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {

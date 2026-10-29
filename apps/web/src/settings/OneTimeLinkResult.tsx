@@ -4,6 +4,7 @@ import { DialogClose, DialogDescription, DialogFooter, DialogHeader, DialogTitle
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
 import { copyText } from "@/lib/clipboard";
+import "@/i18n/management-strings";
 
 /**
  * 一次性連結的「只顯示這一次」畫面（#286；之後的邀請連結共用）。放在呼叫端的 `DialogContent` 內。

@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { DOCS_URL, LICENSE_URL, REPO_URL } from "./about-links";
 import { SettingsGroup, SettingsPage } from "./SettingsLayout";
+import "@/i18n/management-strings";
 
 const LINK_CLASS = "text-brand-on-soft underline-offset-4 hover:underline";
 

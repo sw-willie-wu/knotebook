@@ -7,6 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "@/components/ui/toast";
 import { authErrorMessage } from "./auth-error-message";
 import { SettingsGroup } from "./SettingsLayout";
+import "@/i18n/management-strings";
 
 /**
  * #187 §9.4／§9.5：`/admin/auth` 頂部的兩個立即生效開關。Switch 一律受控於 server 值——409（B19 的兩碼）時 server 值沒變，

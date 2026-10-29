@@ -36,6 +36,7 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "@/components/ui/toast";
 import { SettingsTable, type SettingsTableColumn, type SettingsTableRow } from "@/components/management/SettingsTable";
 import { SettingsGroup, SettingsPage } from "./SettingsLayout";
+import "@/i18n/management-strings";
 
 /** ApiFail → errors.<code>；其餘 → errors.fallback。與 SettingsUsersSection/ShareDialog
  * 同一套對映（各檔各自一份，是既有慣例）。 */

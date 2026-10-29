@@ -2,6 +2,8 @@ import { afterEach } from "vitest";
 import { cleanup, configure } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { resetNoteWidthsForTest } from "@/components/note-width";
+// 站台管理／設定的字串包是 lazy 註冊（各消費檔自己 import）；元件測試一律先註冊，才不會因為只 render 一個子元件就看到 raw key。
+import "@/i18n/management-strings";
 
 // lazy chunk（設定各區塊／站台管理／登入流程頁）在測試裡第一次 render 會做真實的動態
 // import；CI 高負載時可能超過 1 秒，而 Testing Library 的 waitFor／findBy 預設上限就是

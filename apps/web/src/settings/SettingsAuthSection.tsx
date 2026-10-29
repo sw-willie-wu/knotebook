@@ -31,6 +31,7 @@ import { CreateProviderDialog, EditProviderDialog } from "./AuthProviderDialogs"
 import { ProviderIconDialog } from "./ProviderIconDialog";
 import { SettingsGroup, SettingsPage } from "./SettingsLayout";
 import { SiteAccessSettings } from "./SiteAccessSettings";
+import "@/i18n/management-strings";
 
 /** 停用前確認（W11：停用前提示受影響人數）。人數是開 dialog 當下的快照（§9.3）。 */
 function DisableProviderDialog({

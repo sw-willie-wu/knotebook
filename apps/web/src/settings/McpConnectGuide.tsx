@@ -14,6 +14,7 @@ import {
   oauthAvailable,
 } from "./mcp-snippets";
 import { SettingsGroup } from "./SettingsLayout";
+import "@/i18n/management-strings";
 
 /** 與關於頁同形：由 REPO_URL 組出，指向 docs/mcp.md 的 How to connect（Windows 上 Desktop 包 `cmd /c` 的寫法在那裡）。 */
 const MCP_DOCS_URL = `${REPO_URL}/blob/main/docs/mcp.md#how-to-connect`;

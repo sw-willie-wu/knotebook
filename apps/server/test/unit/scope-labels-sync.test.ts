@@ -1,4 +1,4 @@
-/** #239 W3：模型面字串引號內的 UI 名稱 ≡ en.json 的標籤（W10）；說明文字引用的名稱 ≡ 標籤。#181 起 zh-TW 的標籤與引用也在這裡釘。 */
+/** #239 W3：模型面字串引號內的 UI 名稱 ≡ 標籤（web 的 management.en.json）（W10）；說明文字引用的名稱 ≡ 標籤。#181 起 zh-TW 的標籤與引用也在這裡釘。 */
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,12 +9,13 @@ import { DELETE_SCOPE_MESSAGE, INSUFFICIENT_SCOPE_MESSAGE } from "../../src/mcp/
 import { mcpInstructions } from "../../src/mcp/server-info.js";
 
 type Messages = { settings: { account: Record<string, string>; authorization: { mcp: Record<string, string> } } };
+// settings.account.* 與 settings.authorization.* 在 web 的 lazy 字串包（management.*.json），不在主檔。
 const load = (file: string) =>
   JSON.parse(
     readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), `../../../web/src/i18n/${file}`), "utf8")
   ) as Messages;
-const en = load("en.json");
-const zh = load("zh-TW.json");
+const en = load("management.en.json");
+const zh = load("management.zh-TW.json");
 const EDIT = en.settings.account.apiTokensScopeEdit!;
 const MOVE = en.settings.account.apiTokensScopeMove!;
 const DELETE = en.settings.account.apiTokensScopeDelete!;
