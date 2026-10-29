@@ -8,6 +8,7 @@ import i18n from "@/i18n";
 import { ActiveNoteProvider, useActiveNote } from "@/lib/active-note";
 import { adminRole, EDITOR_PERMS, groupDto, OWNER_PERMS } from "@/test/fixtures";
 import { SearchResults, highlightTitle } from "./SearchResults";
+import { FOLDER_LIST_EMPTY, folderDto } from "@/test/folder-fixtures";
 
 afterEach(() => {
   localStorage.clear();
@@ -69,6 +70,7 @@ function stubFetch(notes: NoteDto[] | "pending" | "error", groups: GroupDto[] = 
     vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method ?? "GET").toUpperCase();
+      if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
       if (url === "/api/notes" && method === "GET") {
         if (notes === "pending") return new Promise(() => {});
         if (notes === "error") return Promise.resolve(fakeResponse(false, 500, { error: "internal" }));
@@ -230,6 +232,33 @@ describe("SearchResults", () => {
     expect(lines).toHaveLength(2);
     for (const line of lines) expect(line).toHaveClass("truncate");
     expect(within(link).getByText("My notes")).toHaveClass("truncate");
+  });
+});
+
+describe("SearchResults × 資料夾路徑", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("SR-F1 搜到 p2 → 第二行「My notes › A › A1」，title 同字", async () => {
+    const p2 = note("p2", "Deep note", { folderId: "A1" });
+    const folders = [folderDto({ id: "A", name: "A" }), folderDto({ id: "A1", name: "A1", parentId: "A" })];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify({ folders }), { status: 200, headers: { "Content-Type": "application/json" } }));
+        if (url === "/api/notes") return Promise.resolve(fakeResponse(true, 200, [p2]));
+        if (url === "/api/groups") return Promise.resolve(fakeResponse(true, 200, []));
+        throw new Error(`unexpected fetch: ${url}`);
+      }),
+    );
+    renderResults("deep");
+    await waitFor(() => expect(screen.getByTitle("My notes › A › A1")).toHaveTextContent("My notes › A › A1"));
   });
 });
 

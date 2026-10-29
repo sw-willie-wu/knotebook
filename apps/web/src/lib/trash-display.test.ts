@@ -88,6 +88,22 @@ describe("trashDetailLine", () => {
   });
 });
 
+describe("trashDetailLine × 資料夾路徑（資料夾 spec §6.9）", () => {
+  const line = (i: TrashItemDto, locale = "en") => trashDetailLine(i, { now: NOW, t, locale });
+  const RD = { id: "g2", name: "研發組" };
+
+  it("TD-F1 個人 [A, B]、剩 3 天 → A › B · 3 days left（無「我的筆記」前綴）", () => {
+    expect(line(item({ id: "p", folderPath: ["A", "B"] }))).toBe("A › B · 3 days left");
+  });
+
+  it("TD-F2 群組 [團隊週報]：en 由既有鍵組；zh 研發組 › 團隊週報 · Amy 刪除 · 剩 3 天", async () => {
+    const w = item({ id: "w", group: RD, deletedBy: AMY, folderPath: ["團隊週報"] });
+    expect(line(w)).toBe("研發組 › 團隊週報 · Deleted by Amy · 3 days left");
+    await i18n.changeLanguage("zh-TW");
+    expect(line(w, "zh-TW")).toBe("研發組 › 團隊週報 · Amy 刪除 · 剩 3 天");
+  });
+});
+
 describe("trashItemTitle", () => {
   it("TD3 有 purgeAt：兩個時間；NULL：只有移入時間", () => {
     const i = item({ id: "a" });

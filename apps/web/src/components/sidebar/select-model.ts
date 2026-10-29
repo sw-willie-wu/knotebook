@@ -2,6 +2,7 @@ import "@/i18n/select-strings";
 import type { GroupDto, NoteDto } from "@knotebook/shared";
 import { canCreateAndEdit } from "@/components/share/GroupTransfer";
 import { selectionKey } from "@/lib/sidebar-selection";
+import type { SidebarSectionKey } from "./collapse";
 import type { SidebarNode } from "./tree";
 
 /**
@@ -27,11 +28,12 @@ export function tabNotes(nodes: readonly SidebarNode[]): NoteDto[] {
   return nodes.flatMap((node) => (node.kind === "note" ? [node.note] : tabNotes(node.children)));
 }
 
-/** 畫面上可見的筆記列的選取鍵（樹序）：「全選」與 Shift 範圍用；收合群組的子樹跳過。 */
-export function visibleNoteKeys(nodes: readonly SidebarNode[], isCollapsed: (key: `group:${string}`) => boolean): string[] {
+/** 畫面上可見的筆記列的選取鍵（樹序）：「全選」與 Shift 範圍用；收合群組／資料夾的子樹跳過（群組查 `group:<id>`、資料夾查 `folder:<id>`）。 */
+export function visibleNoteKeys(nodes: readonly SidebarNode[], isCollapsed: (key: SidebarSectionKey) => boolean): string[] {
   return nodes.flatMap((node) => {
     if (node.kind === "note") return [selectionKey({ kind: "note", id: node.id })];
-    return isCollapsed(`group:${node.id}`) ? [] : visibleNoteKeys(node.children, isCollapsed);
+    const sectionKey: SidebarSectionKey = node.kind === "folder" ? `folder:${node.id}` : `group:${node.id}`;
+    return isCollapsed(sectionKey) ? [] : visibleNoteKeys(node.children, isCollapsed);
   });
 }
 

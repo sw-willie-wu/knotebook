@@ -7,6 +7,7 @@ import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppRoutes } from "@/App";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 // 站台版本設定（spec §6.7、§8.5；#247 §7.0 起嵌在 `/admin/storage` 方案頁、方案表之後）：走真的 AppRoutes（站台管理 modal＋AdminSections lazy chunk），
 // 形比照 SettingsStorageSection.test.tsx。
@@ -36,6 +37,7 @@ function stubAdmin({ settings, patchStatus }: { settings: VersionSettingsDto; pa
       if (url === "/api/auth/me" && method === "GET") return Promise.resolve(res(200, ADMIN));
       if (url === "/api/auth/config" && method === "GET") return Promise.resolve(res(200, AUTH_CONFIG));
       if (url === "/api/groups" && method === "GET") return Promise.resolve(res(200, []));
+      if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
       if (url === "/api/notes" && method === "GET") return Promise.resolve(res(200, []));
       if (url === "/api/admin/storage-plans" && method === "GET") return Promise.resolve(res(200, { plans: [], defaults: { userPlanId: "", groupPlanId: "" } }));
       if (url === "/api/admin/versions/settings" && method === "GET") return Promise.resolve(res(200, settings));

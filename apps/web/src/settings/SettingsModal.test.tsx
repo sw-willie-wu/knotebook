@@ -13,6 +13,7 @@ import { AppRoutes } from "@/App";
 import type { CollabState } from "@/collab/connection";
 import { adminRole, groupDto, OWNER_PERMS } from "@/test/fixtures";
 import { clickOutside } from "@/test/outside-click";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 // 設定總 modal（spec §13.4）：兩棵 Routes 樹＋modal-over-background 機制，一律用真正的
 // `AppRoutes`（App.tsx 的唯一真相樹）跑，不拆開各自重建等價樹——驗證的是「有沒有接對」
@@ -188,6 +189,7 @@ function baseFetchHandlers(getLoggedInAs: () => UserDto | null) {
         json: () => Promise.resolve({ error: { code: "unauthorized", message: "nope" } }),
       });
     }
+    if (url === "/api/folders") return new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } });
     if (url === "/api/notes" && method === "GET") {
       return fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) });
     }

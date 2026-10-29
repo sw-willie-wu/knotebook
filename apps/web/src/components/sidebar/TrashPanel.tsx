@@ -328,6 +328,7 @@ export function TrashPanel() {
       // 一般 tab 的動作由 NoteList 渲染，垃圾桶 tab 不宣告。
       case "newPersonalNote":
       case "newGroup":
+      case "newFolder":
         return null;
       default: {
         const exhaustive: never = action;

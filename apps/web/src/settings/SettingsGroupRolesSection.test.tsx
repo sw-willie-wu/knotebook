@@ -9,6 +9,7 @@ import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppRoutes } from "@/App";
 import { adminRole, customRole, groupDto, memberRole } from "@/test/fixtures";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 // 群組 modal「角色」（`/groups/:id/roles`，#247 §6.3）：真 `AppRoutes`、`MemoryRouter`、fetch 分派。
 // W28：switch 按下即送 PATCH（六鍵）；一張卡同時只有一發，pending 涵蓋 `onSettled` 的 refetch；沒有「套用」。
@@ -46,6 +47,7 @@ function fetchFor(getGroups: () => GroupDto[], getRoles: () => GroupRoleDto[], e
     const custom = extra(url, method, init);
     if (custom) return Promise.resolve(custom);
     if (url === "/api/auth/me" && method === "GET") return Promise.resolve(ok(ME));
+    if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
     if (url === "/api/notes" && method === "GET") return Promise.resolve(ok([]));
     if (url === "/api/groups" && method === "GET") return Promise.resolve(ok(getGroups()));
     for (const group of getGroups()) {

@@ -252,6 +252,38 @@ describe("showTrashedToast／undoTrash", () => {
     expect(toastRoot("Moved to the trash")).toHaveClass("bg-destructive");
   });
 
+  it("TU-F1（plan TU13）undoIds 併進復原 body、去重；notes: []＋undoIds → 帶 Undo", async () => {
+    const { queryClient, navigate, t } = setup();
+    const bodies = stubRestore({ status: 200, body: { restored: [PERSONAL], skipped: [] } });
+    act(() => showTrashedToast({ notes: [PERSONAL], undoIds: [PERSONAL.id, "x2"], queryClient, navigate, t, reopen: false }));
+    fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(bodies).toEqual([{ ids: [PERSONAL.id, "x2"] }]));
+    act(() => dismissAllToasts());
+
+    act(() => showTrashedToast({ notes: [], undoIds: ["y1"], queryClient, navigate, t, reopen: false, title: "Folder gone" }));
+    expect(await screen.findByText("Folder gone", { exact: true })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument();
+  });
+
+  it("TU-F2（plan TU14）分批中途失敗、partial 已還原 200 篇 → 錯誤 toast 的描述「Restored 200 notes」", async () => {
+    const { queryClient, navigate, t } = setup();
+    const ids = Array.from({ length: 250 }, (_, i) => `n${i}`);
+    let call = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const batch = (JSON.parse(String(init?.body)) as { ids: string[] }).ids;
+        call += 1;
+        if (String(input) !== "/api/trash/restore") throw new Error(`unexpected fetch: ${String(input)}`);
+        if (call === 1) return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ restored: batch.map((id) => ({ ...PERSONAL, id })), skipped: [] }) }));
+        return Promise.resolve(fakeResponse({ ok: false, status: 429, json: () => Promise.resolve({ error: { code: "rate_limited", message: "x" } }) }));
+      }),
+    );
+    act(() => showTrashedToast({ notes: [], undoIds: ids, queryClient, navigate, t, reopen: false }));
+    fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    expect(await screen.findByText("Restored 200 notes", { exact: true })).toBeInTheDocument();
+  });
+
   it("TU14 可復原＋description：描述照原字顯示（不接 hint）、仍有 Undo", async () => {
     const { queryClient, navigate, t } = setup();
     act(() => showTrashedToast({ notes: [PERSONAL], queryClient, navigate, t, reopen: false, description: "X" }));

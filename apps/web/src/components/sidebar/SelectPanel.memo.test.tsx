@@ -10,6 +10,7 @@ import { NoteList } from "@/components/NoteList";
 import { __resetCollapseForTests } from "@/components/sidebar/collapse";
 import { noteLocationLabel } from "@/components/sidebar/tree";
 import { personalNote } from "@/test/select-fixtures";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 // 只包一層計數（NS14：勾一列時哪些列重算了位置行），行為照原本（照 TrashPanel.test.tsx SM16）。
 vi.mock("@/components/sidebar/tree", async (importOriginal) => {
@@ -57,6 +58,7 @@ describe("一般 tab 選取列的 memo", () => {
       vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
         const method = (init?.method ?? "GET").toUpperCase();
+        if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
         if (url === "/api/notes" && method === "GET") return Promise.resolve(fakeResponse(NOTES));
         if (url === "/api/groups" && method === "GET") return Promise.resolve(fakeResponse([]));
         if (url === "/api/auth/me" && method === "GET") return Promise.resolve(fakeResponse(ME));

@@ -8,6 +8,7 @@ import { Toaster } from "@/components/ui/toast";
 import { AppRoutes } from "@/App";
 import { ActiveNoteProvider } from "@/lib/active-note";
 import { adminRole, groupDto, memberRole } from "@/test/fixtures";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 /**
  * 群組 modal（`/groups/:id/*`，#247 §6）測試共用：真 `AppRoutes`＋`MemoryRouter`＋fetch 分派（慣例：未列的請求 throw）。
@@ -75,6 +76,7 @@ export function groupFetch(
     const custom = extra(url, method, init);
     if (custom) return Promise.resolve(custom);
     if (url === "/api/auth/me" && method === "GET") return Promise.resolve(ok(ME));
+    if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
     if (url === "/api/notes" && method === "GET") return Promise.resolve(ok([]));
     if (url === "/api/auth/config" && method === "GET") {
       return Promise.resolve(ok({ providers: [], registration: { enabled: false, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true }));

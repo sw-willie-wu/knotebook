@@ -96,6 +96,8 @@ export function trashErrorCause(err: unknown): unknown {
 export function invalidateTrashRelated(queryClient: QueryClient, ids: readonly string[]): void {
   void queryClient.invalidateQueries({ queryKey: TRASH_QUERY_KEY });
   void queryClient.invalidateQueries({ queryKey: ["notes"] });
+  // 資料夾 spec §6.12：還原會照原路徑重建資料夾
+  void queryClient.invalidateQueries({ queryKey: ["folders"] });
   void queryClient.invalidateQueries({ queryKey: ["backlinks"] });
   for (const id of ids) void queryClient.invalidateQueries({ queryKey: ["note", id] });
   void queryClient.invalidateQueries({ queryKey: ["note-by-path"] });

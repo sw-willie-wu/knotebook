@@ -108,8 +108,9 @@ test("sidebar tabs: roles, persistence, keyboard, search view, narrow drawer", a
   await expect(drawer.getByRole("tab", { name: "My notes", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(drawerPanel.getByRole("link", { name: new RegExp("^" + reEscape(title)) })).toBeVisible();
   await expect(drawerPanel.getByRole("link", { name: new RegExp("^" + reEscape(longTitle)) })).toBeVisible();
-  // fixed 的抽屜溢出量不到 documentElement.scrollWidth，直接量清單容器。
-  const list = drawerPanel.locator("[data-sidebar-list]");
+  // fixed 的抽屜溢出量不到 documentElement.scrollWidth，直接量清單內容。資料夾 PR-3b 起清單內層包層是 `overflow-x-clip`（安全網），
+  // 清單本身恆不溢出；改量包層（`[data-sidebar-list] > div`）的內容寬度。
+  const list = drawerPanel.locator("[data-sidebar-list] > div");
   expect(await list.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
   await page.keyboard.press("Escape");
   await expect(drawer).not.toBeVisible();

@@ -15,6 +15,7 @@ import { personalNote } from "@/test/select-fixtures";
 import { SidebarTabList } from "./SidebarTabList";
 import { SidebarFooter } from "./SidebarFooter";
 import { TrashPanel } from "./TrashPanel";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 // 側欄底部（plan T4）：新增筆記／垃圾桶保留天數說明；`useTrash()` 只在垃圾桶 tab 才掛（讀碼發現 28）。
 // 垃圾桶選取模式的動作列（plan T5 SM8–SM10、SM15、SM17）。
@@ -175,6 +176,7 @@ describe("SidebarFooter — 一般 tab 選取模式", () => {
       "fetch",
       vi.fn((input: RequestInfo | URL) => {
         const url = String(input);
+        if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
         if (url === "/api/notes") return Promise.resolve(fakeResponse([personalNote({ id: "p1", title: "p1" })]));
         if (url === "/api/groups") return Promise.resolve(fakeResponse([]));
         throw new Error(`unexpected fetch: ${url}`);

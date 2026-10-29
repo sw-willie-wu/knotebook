@@ -7,6 +7,7 @@ import i18n from "@/i18n";
 import { ActiveNoteProvider } from "@/lib/active-note";
 import { ThemeProvider } from "@/theme";
 import { AppRoutes } from "@/App";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 // 站台管理 modal（`/admin/*`，#247 §7）：真 `AppRoutes`（驗的是 guard 串接、兩棵樹與 layout route 有沒有接對）。
 // 前身 `pages/AdminPage.test.tsx`（#174、#201）——本檔取代它。
@@ -30,6 +31,7 @@ function mockFetch(getUser: () => UserDto | null) {
     if (url === "/api/auth/config" && method === "GET") {
       return Promise.resolve(fakeResponse(200, { providers: [], registration: { enabled: true, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true }));
     }
+    if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
     if ((url === "/api/groups" || url === "/api/notes" || url === "/api/admin/users" || url === "/api/admin/invites" || url === "/api/admin/groups") && method === "GET") {
       return Promise.resolve(fakeResponse(200, []));
     }

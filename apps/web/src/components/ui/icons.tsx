@@ -252,6 +252,46 @@ export function FolderInput(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+/** 資料夾（資料夾列、選單項）。路徑照稿 `FolderMenu`（lucide `folder` 同形，ISC）。 */
+export function Folder(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="folder" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z" />
+    </svg>
+  );
+}
+
+/** 新增資料夾／新增子資料夾。路徑照稿 `FolderMenu`（lucide `folder-plus` 同形，ISC）。 */
+export function FolderPlus(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="folder-plus" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z" />
+      <path d="M12 10v6M9 13h6" />
+    </svg>
+  );
+}
+
+/** 新增筆記（資料夾 ⋮）。路徑照稿 `FolderMenu`（lucide `file-plus` 同形，ISC）。 */
+export function FilePlus(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="file-plus" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
+      <path d="M14 3v6h6M12 12v6M9 15h6" />
+    </svg>
+  );
+}
+
+/** 退出群組（GroupMenu）。路徑取自 lucide `log-out`（ISC），手刻同風格。 */
+export function LogOut(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg data-icon="log-out" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <path d="m16 17 5-5-5-5" />
+      <path d="M21 12H9" />
+    </svg>
+  );
+}
+
 /** 複製到…（⋮ 選單項）。路徑取自 lucide `copy`（ISC），手刻同風格。 */
 export function Copy(props: SVGProps<SVGSVGElement>) {
   return (

@@ -175,12 +175,19 @@ describe("purgeTrashIds", () => {
 });
 
 describe("invalidateTrashRelated", () => {
-  it("AT5 失效的 key 恰為 trash／notes／backlinks／每篇 note／兩支解析層前綴", () => {
+  it("AT5 失效的 key 恰為 trash／notes／folders／backlinks／每篇 note／兩支解析層前綴", () => {
     const qc = client();
     const spy = vi.spyOn(qc, "invalidateQueries");
     invalidateTrashRelated(qc, ["a", "b"]);
     const keys = spy.mock.calls.filter(([arg]) => arg?.queryKey !== undefined).map(([arg]) => JSON.stringify(arg?.queryKey));
-    expect([...keys].sort()).toEqual(['["backlinks"]', '["note","a"]', '["note","b"]', '["note-by-group-path"]', '["note-by-path"]', '["notes"]', '["trash"]']);
+    expect([...keys].sort()).toEqual(['["backlinks"]', '["folders"]', '["note","a"]', '["note","b"]', '["note-by-group-path"]', '["note-by-path"]', '["notes"]', '["trash"]']);
+  });
+
+  it("AT-F 失效 ['folders']（資料夾 spec §6.12：還原會照原路徑重建資料夾）", () => {
+    const qc = client();
+    const spy = vi.spyOn(qc, "invalidateQueries");
+    invalidateTrashRelated(qc, ["a"]);
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["folders"] });
   });
 
   it("AT5b 舊形 /notes/:ref 的解析層（['note', slug] 停在 404 in_trash、noteId 在這批）也被失效；別篇的不動", async () => {

@@ -42,6 +42,10 @@
     "emptyShared": "還沒有人與你共享筆記。",
     "locationGroup": "工作坊 › {{group}}",
     "locationShared": "與我共享 · {{role}}",
+    "locationSharedIn": "與我共享 › {{path}} · {{role}}",
+    "folderEmpty": "沒有筆記",
+    "newFolder": "新增資料夾",
+    "newFolderIn": "{{group}} 新增資料夾",
     "trash": "垃圾桶"
   },
   "roles": {
@@ -660,6 +664,22 @@
     "sage": "鼠尾草",
     "rose": "玫瑰",
     "gold": "金"
+  },
+  "folders": {
+    "menu": {
+      "label": "{{name}} 的資料夾選單",
+      "newNote": "新增筆記",
+      "newSubfolder": "新增子資料夾",
+      "rename": "重新命名",
+      "sortBy": "排序",
+      "sortName": "名稱",
+      "sortRecent": "最近修改",
+      "sortSize": "文件大小",
+      "delete": "刪除資料夾",
+      "remove": "移除資料夾",
+      "depthLimit": "已達最多 {{max}} 層",
+      "deleteBlocked": "資料夾裡有你不能刪除的筆記"
+    }
   },
   "groups": {
     "autoVersions": {

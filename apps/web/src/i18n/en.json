@@ -42,6 +42,10 @@
     "emptyShared": "Nothing has been shared with you yet.",
     "locationGroup": "Workspace › {{group}}",
     "locationShared": "Shared with me · {{role}}",
+    "locationSharedIn": "Shared with me › {{path}} · {{role}}",
+    "folderEmpty": "No notes",
+    "newFolder": "New folder",
+    "newFolderIn": "New folder in {{group}}",
     "trash": "Trash"
   },
   "roles": {
@@ -660,6 +664,22 @@
     "sage": "Sage",
     "rose": "Rose",
     "gold": "Gold"
+  },
+  "folders": {
+    "menu": {
+      "label": "Folder menu for {{name}}",
+      "newNote": "New note",
+      "newSubfolder": "New subfolder",
+      "rename": "Rename",
+      "sortBy": "Sort by",
+      "sortName": "Name",
+      "sortRecent": "Last modified",
+      "sortSize": "Size",
+      "delete": "Delete folder",
+      "remove": "Remove folder",
+      "depthLimit": "Folders can be nested up to {{max}} levels",
+      "deleteBlocked": "This folder has notes you can't delete"
+    }
   },
   "groups": {
     "autoVersions": {

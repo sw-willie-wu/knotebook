@@ -15,6 +15,7 @@ import { trashItem, trashList } from "@/test/trash-fixtures";
 import { personalNote } from "@/test/select-fixtures";
 import { __resetCollapseForTests } from "@/components/sidebar/collapse";
 import { clickOutside } from "@/test/outside-click";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 // 側欄 tab 與 AppShell 的接線（plan T2）。骨架抄 AppShell.test.tsx 的「#115 側欄抽屜」describe。
 
@@ -72,6 +73,7 @@ function stubFetchWithNotes(notes: NoteDto[], trash: TrashItemDto[] = []) {
       if (url === "/api/groups" && method === "GET") return Promise.resolve(fakeResponse([]));
       if (url === "/api/auth/me") return Promise.resolve(fakeResponse(USER));
       if (url === "/api/notes" && method === "POST") return Promise.resolve(fakeResponse(CREATED, 201));
+      if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
       if (url === "/api/notes" && method === "GET") return Promise.resolve(fakeResponse(notes));
       if (url === "/api/trash" && method === "GET") return Promise.resolve(fakeResponse(trashList(trash)));
       throw new Error(`unexpected fetch: ${method} ${url}`);
@@ -547,6 +549,7 @@ describe("AppShell — 批次進行中關掉抽屜（PR-2c T5）", () => {
         const method = (init?.method ?? "GET").toUpperCase();
         if (url === "/api/groups" && method === "GET") return Promise.resolve(fakeResponse([]));
         if (url === "/api/auth/me") return Promise.resolve(fakeResponse(USER));
+        if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
         if (url === "/api/notes" && method === "GET") return Promise.resolve(fakeResponse(list));
         if (method === "DELETE") {
           const id = url.split("/").pop() as string;

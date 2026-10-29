@@ -13,6 +13,8 @@ import { dismissAllToasts, toast, Toaster } from "@/components/ui/toast";
 import { __resetCollapseForTests } from "@/components/sidebar/collapse";
 import { adminRole, groupDto } from "@/test/fixtures";
 import { groupNote, personalNote, sharedNote } from "@/test/select-fixtures";
+import { FOLDER_LIST_EMPTY, folderDto } from "@/test/folder-fixtures";
+import { __resetFolderSortForTests } from "@/components/sidebar/folder-sort";
 
 // 一般 tab 的選取模式：標題列「選取」、選取模式標題列（含 Esc）與勾選樹（#181 PR-2c T4，NS1–NS13）。
 
@@ -54,6 +56,7 @@ function stubFetch(box: { notes: NoteDto[]; groups?: GroupDto[]; pending?: boole
     vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method ?? "GET").toUpperCase();
+      if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
       if (url === "/api/notes" && method === "GET") {
         if (box.pending) return new Promise<Response>(() => {});
         return Promise.resolve(fakeResponse(box.notes));
@@ -165,7 +168,7 @@ describe("一般 tab 的選取模式（PR-2c T4）", () => {
       stubFetch({ notes: ALL_NOTES });
       renderPanel();
       await within(panel()).findByRole("link", { name: "p1" });
-      expect(headerButtonNames()).toEqual(["Select", "New personal note"]);
+      expect(headerButtonNames()).toEqual(["Select", "New folder", "New personal note"]);
       const select = selectButton();
       expect(select).toHaveAttribute("title", "Select");
       expect(select).toHaveAttribute("data-sidebar-select", "");
@@ -639,5 +642,65 @@ describe("一般 tab 的選取模式（PR-2c T4）", () => {
     } finally {
       await i18n.changeLanguage("en");
     }
+  });
+});
+
+// ── 選取模式遇上資料夾（資料夾 PR-3b-1 T2）
+describe("選取模式 × 資料夾", () => {
+  const FA = personalNote({ id: "fa1", title: "fa1", folderId: "A" });
+  const FA2 = personalNote({ id: "fa2", title: "fa2", folderId: "A1" });
+  const ROOT = personalNote({ id: "root3", title: "root3" });
+  const FOLDERS = [folderDto({ id: "A", name: "A" }), folderDto({ id: "A1", name: "A1", parentId: "A" })];
+
+  function stubFolders() {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify({ folders: FOLDERS }), { status: 200, headers: { "Content-Type": "application/json" } }));
+        if (url === "/api/notes" && method === "GET") return Promise.resolve(fakeResponse([FA, FA2, ROOT]));
+        if (url === "/api/groups" && method === "GET") return Promise.resolve(fakeResponse([]));
+        if (url === "/api/auth/me" && method === "GET") return Promise.resolve(fakeResponse(ME));
+        throw new Error(`unexpected fetch: ${method} ${url}`);
+      }),
+    );
+  }
+
+  const folderRow = (id: string) => panel().querySelector(`[data-node-kind="folder"][data-node-id="${id}"]`) as HTMLElement | null;
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    __resetFolderSortForTests();
+  });
+
+  it("NS-F1 我的筆記：資料夾 A 是 button[aria-expanded]、列內沒有勾選框；A 底下 fa1 有；收合 A → 全選只勾可見的 root3", async () => {
+    stubFolders();
+    renderPanel();
+    await enterSelect();
+    await waitFor(() => expect(checkbox("fa1")).not.toBeNull());
+    const row = folderRow("A")!;
+    const toggle = row.querySelector(":scope > div > button[aria-expanded]") as HTMLElement;
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(row.firstElementChild!.querySelector('input[type="checkbox"]')).toBeNull();
+    fireEvent.click(toggle);
+    expect(localStorage.getItem("sidebar.collapsed.folder:A")).toBe("1");
+    expect(checkbox("fa1")).toBeNull();
+    fireEvent.click(within(header()).getByRole("button", { name: "Select all" }));
+    expect(checkedIds()).toEqual(["root3"]);
+    expect(within(header()).getByText("1 selected")).toBeInTheDocument();
+  });
+
+  it("NS-F2 選取模式最近 tab：fa2 第二行 title「My notes › A › A1」", async () => {
+    stubFolders();
+    renderPanel({ tab: "recent" });
+    await enterSelect();
+    await waitFor(() => expect(checkbox("fa2")).not.toBeNull());
+    const line = checkbox("fa2").closest("label")!.querySelector('[title="My notes › A › A1"]');
+    expect(line).toHaveTextContent("My notes › A › A1");
   });
 });

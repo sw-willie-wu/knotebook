@@ -7,6 +7,7 @@ import i18n from "@/i18n";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { adminRole, groupDto, memberRole } from "@/test/fixtures";
 import { GroupMenu } from "./GroupMenu";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 const ME: UserDto = { id: "u-me", email: "me@example.com", handle: "me", displayName: "Me", isAdmin: false, mustChangePassword: false, hasPassword: true, autoVersions: true };
 /** 唯一的管理員（`adminRole()` 的 `memberCount` 預設 1＝掛內建管理員角色的人數）。 */
@@ -37,6 +38,7 @@ function renderMenu(group: GroupDto, handler: (method: string, url: string) => R
       calls.push({ method, url, body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined });
       if (url === "/api/auth/me" && method === "GET") return Promise.resolve(fakeResponse(200, ME));
       if (url.endsWith("/members") && method === "GET") return Promise.resolve(fakeResponse(200, [ME_AS_ADMIN]));
+      if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
       if (url === "/api/notes" && method === "GET") return Promise.resolve(fakeResponse(200, []));
       return Promise.resolve(handler(method, url));
     }),
@@ -82,6 +84,14 @@ describe("GroupMenu", () => {
     const menu = await openMenu("Workshop C");
     const items = within(menu).getAllByRole("menuitem").map((item) => item.textContent);
     expect(items).toEqual(["Members & settings", "Rename", "Delete group", "Leave group"]);
+  });
+
+  it("GM-I1 四項各有圖示（users、pencil、trash、log-out），class 含 mr-2 h-4 w-4", async () => {
+    renderMenu(CO_ADMIN_GROUP, () => fakeResponse(500));
+    const menu = await openMenu("Workshop C");
+    const icons = within(menu).getAllByRole("menuitem").map((item) => item.querySelector("svg"));
+    expect(icons.map((svg) => svg?.getAttribute("data-icon"))).toEqual(["users", "pencil", "trash", "log-out"]);
+    for (const svg of icons) expect(svg).toHaveClass("mr-2", "h-4", "w-4");
   });
 
   it("member 形：查看成員／退出群組；沒有改名與刪除", async () => {

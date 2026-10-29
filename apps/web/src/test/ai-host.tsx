@@ -10,6 +10,7 @@ import { AiSessionProvider } from "@/components/ai/AiSession";
 import { NoteEditorView } from "@/components/NoteEditor";
 import { Toaster } from "@/components/ui/toast";
 import { ThemeProvider } from "@/theme";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 /**
  * #263 AI 框測試的共用 Host（spec §7；memory knotebook-review-probe-fidelity-lessons）：照 `NoteEditor.tsx` 的真實掛載鏈——
@@ -56,6 +57,7 @@ export function stubAiFetch(opts: { actions: AiActionDto[]; notes?: NoteDto[] })
       const url = String(input);
       const method = (init?.method ?? "GET").toUpperCase();
       if (url === "/api/ai/actions" && method === "GET") return Promise.resolve(jsonResponse(200, { actions: opts.actions }));
+      if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
       if (url === "/api/notes" && method === "GET") return Promise.resolve(jsonResponse(200, opts.notes ?? []));
       if (url === "/api/ai" && method === "POST") {
         let controller!: ReadableStreamDefaultController<Uint8Array>;

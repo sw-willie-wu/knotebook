@@ -35,12 +35,16 @@ function formatDate(iso: string, kind: keyof typeof DATE_FORMATS, locale: string
   return Number.isNaN(date.getTime()) ? String(date) : formatter.format(date);
 }
 
-/** 列的第二行：個人「剩 N 天」；工作坊「群組名 · X 刪除 · 剩 N 天」。保留天數 NULL 時時間段改成刪除日期（用到才格式化）。 */
+/**
+ * 列的第二行：個人「剩 N 天」（在資料夾裡「A › B · 剩 N 天」，無「我的筆記」前綴）；工作坊「群組名 › A · X 刪除 · 剩 N 天」（資料夾 spec §6.9）。
+ * 位置段是一段（以「 › 」串），之後才以「 · 」接。保留天數 NULL 時時間段改成刪除日期（用到才格式化）。
+ */
 export function trashDetailLine(item: TrashItemDto, ctx: { now: number; t: Translate; locale: string }): string {
   const { now, t, locale } = ctx;
   const remaining = remainingLabel(item.purgeAt, now, t);
   const date = () => formatDate(item.deletedAt, "date", locale);
-  const segments = noteLocationSegments(item);
+  const location = noteLocationSegments(item, item.folderPath);
+  const segments = location.length > 0 ? [location.join(" › ")] : [];
   if (item.group === null) return [...segments, remaining ?? t("trash.deletedOn", { date: date() })].join(" · ");
   const deletedBy = t("trash.deletedByName", { name: item.deletedBy?.displayName ?? t("trash.unknownUser") });
   // 前面已有「X 刪除」，NULL 保留天數時只放日期、不重複「刪除」

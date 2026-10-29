@@ -11,6 +11,7 @@
 //      屆時把 pattern 跟著改，別直接刪檢查）。
 //   3. 其餘 lazy chunk 存在：mermaid（#94）、shiki（#96）、AdminSections（#201／#247）、簡報層（#229）、版本歷史（筆記版本 spec）、垃圾桶 tab（#181）——理由各見常數註解。
 //      一般 tab 選取模式（#181 PR-2c）也是：SelectLazy chunk 必須存在，且 entry 不得含選取字串包的鍵名（SELECT_I18N_MARKER）。
+//      資料夾對話框（資料夾 PR-3b）同理：FolderLazy chunk 必須存在，且 entry 不得含資料夾字串包的鍵名（FOLDER_I18N_MARKER）。
 //
 // 全程 fail-closed：dist 不存在、找不到 entry、找到多個 entry，一律 throw 而非放行
 // ——「沒東西可檢查」不等於「檢查通過」（比照 check-licenses.mjs 的紀律）。
@@ -73,6 +74,12 @@ export const SELECTLAZY_RE = /^SelectLazy-[A-Za-z0-9_-]+\.js$/;
 // select.*.json 只能進 SelectLazy 鏈：這把鍵名出現在 entry＝字串包（或 import 它的模組）被首包靜態 import。
 // ⚠ 涵蓋 import `@/i18n/select-strings` 的模組與以值 import 它們的模組（含 `lib/select-batch.ts`）；只做型別 import 的不在範圍（gate r2 n-C）。
 export const SELECT_I18N_MARKER = 'deleteSelected_one';
+// 資料夾 PR-3b：資料夾對話框（新增／改名、刪除確認）必須是自己的 lazy chunk；`components/sidebar/FolderLazy.tsx` 是唯一入口
+// （NoteList 的 `lazy(() => import("@/components/sidebar/FolderLazy"))`）。⚠ 同 SELECTLAZY_RE：存在性只擋「整組被併回 entry」或 chunk 改名；
+// 只把其中一個對話框模組靜態 import 進首包時 chunk 仍在，那一形由下面的 FOLDER_I18N_MARKER 擋。
+export const FOLDERLAZY_RE = /^FolderLazy-[A-Za-z0-9_-]+\.js$/;
+// folders.*.json 只能進 FolderLazy 鏈：這把鍵名出現在 entry＝字串包（或 import 它的模組）被首包靜態 import。
+export const FOLDER_I18N_MARKER = 'restoreRebuilds';
 // 首包 CSS：reveal.css 的 `.reveal-viewport` 規則（寫死黑字白底）若出現在這裡＝reveal.css 被靜態 import 進首包。
 export const ENTRY_CSS_RE = /^index-[A-Za-z0-9_-]+\.css$/;
 // reveal.js 的 JS 會寫 `reveal-viewport` 這個 class 名；入口側的外殼與其他程式碼都不用它。這個字串只准出現在
@@ -226,6 +233,22 @@ export function checkBundleSize(assetsDir, { maxEntryBytes = MAX_ENTRY_BYTES } =
     );
   }
 
+  const folderChunks = names.filter(name => FOLDERLAZY_RE.test(name));
+  if (folderChunks.length === 0) {
+    throw new Error(
+      `找不到資料夾對話框的 lazy chunk（FolderLazy-<hash>.js）——最可能的原因是對話框被 ` +
+        `\`lazy(() => import("@/components/sidebar/FolderLazy"))\` 以外的地方靜態 import、整組併回 entry（資料夾 PR-3b）；` +
+        `若是 rollup 改了 chunk 命名慣例，請更新本檢查的 pattern，不要刪檢查`
+    );
+  }
+  // 只掃 entry：FolderLazy 以外的 lazy chunk 帶這把鍵名不影響首包。
+  if (readFileSync(join(assetsDir, entryName), 'utf8').includes(FOLDER_I18N_MARKER)) {
+    throw new Error(
+      `entry chunk ${entryName} 含資料夾字串包的鍵名 ${FOLDER_I18N_MARKER}——\`@/i18n/folder-strings\`（或 import 它的資料夾對話框模組）` +
+        `被首包靜態 import；資料夾對話框只能經 FolderLazy 載入（資料夾 PR-3b）`
+    );
+  }
+
   for (const name of names.filter(n => n.endsWith('.js') && !PRESENTATION_RE.test(n))) {
     if (readFileSync(join(assetsDir, name), 'utf8').includes(REVEAL_MARKER)) {
       throw new Error(
@@ -262,7 +285,7 @@ export function checkBundleSize(assetsDir, { maxEntryBytes = MAX_ENTRY_BYTES } =
     }
   }
 
-  return { entryName, entryBytes, notePageChunks, mermaidChunks, shikiChunks, adminSectionsChunks, versionsChunks, presentationChunks, trashChunks, selectChunks };
+  return { entryName, entryBytes, notePageChunks, mermaidChunks, shikiChunks, adminSectionsChunks, versionsChunks, presentationChunks, trashChunks, selectChunks, folderChunks };
 }
 
 // 直接執行（非被 import）時跑真的 dist。
@@ -274,7 +297,8 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
       `bundle OK：entry ${result.entryName} = ${result.entryBytes} bytes（上限 ${MAX_ENTRY_BYTES}）；` +
         `lazy chunk：${result.notePageChunks.join(', ')}、${result.mermaidChunks.join(', ')}、${result.shikiChunks.join(', ')}、` +
         `${result.adminSectionsChunks.join(', ')}、${result.versionsChunks.join(', ')}、${result.presentationChunks.join(', ')}、${result.trashChunks.join(', ')}、` +
-        `${result.selectChunks.join(', ')}（entry 不含 ${SELECT_I18N_MARKER}）`
+        `${result.selectChunks.join(', ')}（entry 不含 ${SELECT_I18N_MARKER}）、` +
+        `${result.folderChunks.join(', ')}（entry 不含 ${FOLDER_I18N_MARKER}）`
     );
   } catch (err) {
     console.error(String(err instanceof Error ? err.message : err));
