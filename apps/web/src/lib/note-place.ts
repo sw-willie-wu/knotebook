@@ -1,6 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query";
-import { ApiFail } from "@/api/client";
-import { applyPlacedNote, folderErrorMessage, invalidateFolderRelated, placeNoteRequest } from "@/api/folders";
+import { applyPlacedNote, folderErrorMessage, invalidateFolderRelated, isFolderNotFound, placeNoteRequest } from "@/api/folders";
 import { expandFolderChain, type FolderIndex } from "@/components/sidebar/folder-index";
 import { toast } from "@/components/ui/toast";
 
@@ -13,7 +12,7 @@ type Translate = (key: string, options?: Record<string, unknown>) => string;
 
 /** 404 `folder_not_found`＝快取裡的資料夾已不在：失效 folders／notes 讓樹重抓（spec §6.15）。 */
 function invalidateIfFolderGone(queryClient: QueryClient, err: unknown): void {
-  if (err instanceof ApiFail && err.code === "folder_not_found") invalidateFolderRelated(queryClient);
+  if (isFolderNotFound(err)) invalidateFolderRelated(queryClient);
 }
 
 /**

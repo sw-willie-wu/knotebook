@@ -3,8 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { canonicalNotePath, type GroupDto, type NoteDto } from "@knotebook/shared";
-import { ApiFail } from "@/api/client";
-import { folderErrorMessage, invalidateFolderRelated } from "@/api/folders";
+import { folderErrorMessage, invalidateFolderRelated, isFolderNotFound } from "@/api/folders";
 import { useGroups } from "@/api/groups";
 import { useConfirmNoteStillPersonal, useCopyNote, useMoveNoteToGroup } from "@/api/note-move";
 import { usePublicLink } from "@/api/public-link";
@@ -28,11 +27,6 @@ import {
   DropdownMenuSubTrigger,
 } from "@/components/ui/dropdown-menu";
 import { toast } from "@/components/ui/toast";
-
-/** 404 `folder_not_found`：快取裡（或使用者剛選）的資料夾已不在（資料夾 spec §5.7.6 n6）。 */
-function isFolderGone(err: unknown): boolean {
-  return err instanceof ApiFail && err.code === "folder_not_found";
-}
 
 export type GroupTransferKind = "move" | "copy";
 
@@ -511,7 +505,7 @@ function CopyDialog({ note, target, onClose, returnFocusRef }: TransferDialogPro
         created = await copy.mutateAsync(request.input);
       } catch (err) {
         // n6：只有「建立副本」帶的快取 folderId 失效才自動退回根層重送一次；明選的資料夾不重試（往外丟）。
-        if (request.fallback === null || !isFolderGone(err)) throw err;
+        if (request.fallback === null || !isFolderNotFound(err)) throw err;
         invalidateFolderRelated(queryClient);
         created = await copy.mutateAsync(request.fallback);
         atTopLevel = true;
@@ -525,7 +519,7 @@ function CopyDialog({ note, target, onClose, returnFocusRef }: TransferDialogPro
         },
       });
     } catch (err) {
-      if (isFolderGone(err)) invalidateFolderRelated(queryClient);
+      if (isFolderNotFound(err)) invalidateFolderRelated(queryClient);
       toast({ title: folderErrorMessage(t, err), variant: "destructive" });
     } finally {
       setSubmitting(false);

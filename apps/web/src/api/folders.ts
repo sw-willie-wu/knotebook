@@ -94,6 +94,11 @@ export function useDeleteFolder(): UseMutationResult<FolderDeleteResultDto, unkn
   });
 }
 
+/** 404 `folder_not_found`：快取裡（或使用者剛選）的資料夾已不在（資料夾 spec §5.7.6 n6）。 */
+export function isFolderNotFound(err: unknown): boolean {
+  return err instanceof ApiFail && err.code === "folder_not_found";
+}
+
 /** errors.<code>（帶 `max: FOLDER_DEPTH_MAX`，讀碼發現 1-③）；非 ApiFail → errors.fallback。 */
 export function folderErrorMessage(t: Translate, err: unknown): string {
   if (err instanceof ApiFail) return t(`errors.${err.code}`, { max: FOLDER_DEPTH_MAX, defaultValue: t("errors.fallback") });

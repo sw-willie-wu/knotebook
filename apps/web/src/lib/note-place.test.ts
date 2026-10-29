@@ -68,6 +68,12 @@ function toastRoot(title: string): HTMLElement {
   return screen.getByText(title, { exact: true }).closest("li") as HTMLElement;
 }
 
+afterEach(() => {
+  localStorage.clear();
+  __resetCollapseForTests();
+  __resetFolderSortForTests();
+});
+
 describe("placeNoteWithUndo", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
@@ -77,9 +83,6 @@ describe("placeNoteWithUndo", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     act(() => dismissAllToasts());
-    localStorage.clear();
-    __resetCollapseForTests();
-    __resetFolderSortForTests();
   });
 
   it("NP1 放進 A1：PUT {folderId:A1} → toast「Moved to “A1”」有 Undo；A、A1 展開；['note','n1'] 是回應 dto", async () => {
@@ -154,6 +157,17 @@ describe("placeNoteWithUndo", () => {
     expect(toastRoot("Folder not found.")).toHaveClass("bg-destructive");
     await act(async () => {});
     expect(bodies).toEqual([{ folderId: "A1" }, { folderId: "B" }]);
+  });
+
+  it("NP7 zh：name＝資料夾短名「A」→ 畫面出現「已移到「A」」與「復原」", async () => {
+    await i18n.changeLanguage("zh-TW");
+    stubPut([{ status: 200, body: { ...PLACED_A1, folderId: "A" } }]);
+    const { queryClient, t } = setup();
+
+    await act(() => placeNoteWithUndo({ noteId: "n1", from: null, to: { folderId: "A", name: "A" }, index: INDEX, queryClient, t }));
+
+    expect(await screen.findByText("已移到「A」", { exact: true })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "復原" })).toBeInTheDocument();
   });
 
   it("NP6 409 folder_too_deep 的錯誤字帶入上限、不含 {{max}}", async () => {
