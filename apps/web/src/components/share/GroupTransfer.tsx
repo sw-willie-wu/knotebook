@@ -5,6 +5,7 @@ import { canonicalNotePath, type GroupDto, type NoteDto } from "@knotebook/share
 import { ApiFail } from "@/api/client";
 import { useGroups } from "@/api/groups";
 import { useConfirmNoteStillPersonal, useCopyNote, useMoveNoteToGroup } from "@/api/note-move";
+import { canCreateAndEdit } from "@/lib/group-role";
 import { usePublicLink } from "@/api/public-link";
 import { useShares } from "@/api/shares";
 import { Button } from "@/components/ui/button";
@@ -55,10 +56,7 @@ export interface TransferOption {
 
 type Translate = (key: string) => string;
 
-/** 與側欄群組「＋」同一條規則（`NoteList`）：角色同時有新建與編輯。PR-2c 批次目的地框共用。 */
-export function canCreateAndEdit(group: GroupDto): boolean {
-  return group.myRole?.permissions.create === true && group.myRole.permissions.edit === true;
-}
+export { canCreateAndEdit };
 
 /**
  * #216（Willie 2026-10-08 定案）：⋮ 選單的「移動到…」「複製到…」第二層清單。**純函式**，目標清單＝我的筆記＋群組，
@@ -407,7 +405,7 @@ function MoveDialog({ note, target, onClose, returnFocusRef }: TransferDialogPro
         return;
       }
       if (group === null) return;
-      await move.mutateAsync(group.id);
+      await move.mutateAsync({ groupId: group.id });
       toast({ title: t("share.move.movedToGroup", { group: group.name }) });
     } catch (err) {
       toast({ title: errorMessage(t, err), variant: "destructive" });
@@ -469,7 +467,7 @@ function CopyDialog({ note, target, onClose, returnFocusRef }: TransferDialogPro
   async function submit(): Promise<void> {
     setSubmitting(true);
     try {
-      const created = await copy.mutateAsync(target.type === "personal" ? undefined : target.group.id);
+      const created = await copy.mutateAsync(target.type === "personal" ? {} : { groupId: target.group.id });
       toast({
         title: target.type === "personal" ? t("share.move.copiedToPersonal") : t("share.move.copiedToGroup", { group: target.group.name }),
         action: {

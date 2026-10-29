@@ -82,3 +82,12 @@ describe("reduceSelection", () => {
     expect(SIDEBAR_SELECT_BUTTON).toBe("[data-sidebar-header] button[data-sidebar-select]");
   });
 });
+
+describe("資料夾鍵", () => {
+  it("SS-F1 folder:a 與 note:a 是兩個鍵、toggle 互不影響", () => {
+    expect(selectionKey({ kind: "folder", id: "a" })).toBe("folder:a");
+    const state = run([{ type: "start" }, { type: "toggle", key: selectionKey({ kind: "folder", id: "a" }) }, { type: "toggle", key: selectionKey({ kind: "note", id: "a" }) }]);
+    expect(keysOf(state)).toEqual(["folder:a", "note:a"]);
+    expect(keysOf(run([{ type: "toggle", key: "folder:a" }], state))).toEqual(["note:a"]);
+  });
+});

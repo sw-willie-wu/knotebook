@@ -2,14 +2,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import type { FolderDeleteResultDto } from "@knotebook/shared";
+import type { FolderDeleteResultDto, NoteDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { folderDto, groupFolder } from "@/test/folder-fixtures";
 import { ApiFail } from "./client";
 import {
   createFolderRequest,
+  applyPlacedNote,
   FOLDERS_QUERY_KEY,
   folderErrorMessage,
+  moveFolderRequest,
+  placeNoteRequest,
   renameFolderRequest,
   useCreateFolder,
   useDeleteFolder,
@@ -156,5 +159,41 @@ describe("api/folders", () => {
     expect(folderErrorMessage(t, new ApiFail(500, "weird_unknown_code", ""))).toBe("An unexpected error occurred.");
     await i18n.changeLanguage("zh-TW");
     expect(folderErrorMessage(t, new ApiFail(409, "folder_too_deep", ""))).toBe("資料夾最多 5 層。");
+  });
+});
+
+describe("api/folders 放置與搬資料夾", () => {
+  it("FA-P1 placeNoteRequest：PUT /api/notes/:id/folder；null 的鍵存在、值 null", async () => {
+    const calls = stubFetch({ "PUT /api/notes/n1/folder": () => fakeResponse(200, { id: "n1" }) });
+    await placeNoteRequest("n1", "f1");
+    await placeNoteRequest("n1", null);
+    expect(calls.map((call) => call.method)).toEqual(["PUT", "PUT"]);
+    expect(calls[0]!.url).toBe("/api/notes/n1/folder");
+    expect(JSON.parse(calls[0]!.body!)).toEqual({ folderId: "f1" });
+    const nullBody = JSON.parse(calls[1]!.body!) as Record<string, unknown>;
+    expect("folderId" in nullBody).toBe(true);
+    expect(nullBody.folderId).toBeNull();
+  });
+
+  it("FA-P2 moveFolderRequest(\"f1\", null) → PATCH /api/folders/f1 body { parentId: null }", async () => {
+    const calls = stubFetch({ "PATCH /api/folders/f1": () => fakeResponse(200, folderDto({ id: "f1", name: "A" })) });
+    await moveFolderRequest("f1", null);
+    expect(calls[0]!.method).toBe("PATCH");
+    expect(calls[0]!.url).toBe("/api/folders/f1");
+    const body = JSON.parse(calls[0]!.body!) as Record<string, unknown>;
+    expect("parentId" in body).toBe(true);
+    expect(body.parentId).toBeNull();
+  });
+
+  it("FA-P3 applyPlacedNote：寫 ['note', id]，失效 ['folders']、['notes']，不失效 ['trash']", () => {
+    const queryClient = client();
+    const spy = vi.spyOn(queryClient, "invalidateQueries");
+    const dto = { id: "n1", title: "N" } as unknown as NoteDto;
+    applyPlacedNote(queryClient, dto);
+    expect(queryClient.getQueryData(["note", "n1"])).toBe(dto);
+    const keys = keysOf(spy);
+    expect(keys).toContain('["folders"]');
+    expect(keys).toContain('["notes"]');
+    expect(keys).not.toContain('["trash"]');
   });
 });

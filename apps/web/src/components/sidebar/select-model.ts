@@ -1,6 +1,6 @@
 import "@/i18n/select-strings";
 import type { GroupDto, NoteDto } from "@knotebook/shared";
-import { canCreateAndEdit } from "@/components/share/GroupTransfer";
+import { canCreateAndEdit } from "@/lib/group-role";
 import { selectionKey } from "@/lib/sidebar-selection";
 import type { SidebarSectionKey } from "./collapse";
 import type { SidebarNode } from "./tree";

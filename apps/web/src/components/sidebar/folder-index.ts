@@ -133,3 +133,45 @@ export function expandFolderChain(index: FolderIndex, folderId: string): void {
     id = index.parentOf(id);
   }
 }
+
+/** 根層資料夾＝1；id 不在索引＝0；遇環停（防禦）。 */
+export function folderDepth(index: FolderIndex, folderId: string): number {
+  if (!index.byId.has(folderId)) return 0;
+  const visited = new Set<string>();
+  let depth = 0;
+  let id: string | null = folderId;
+  while (id !== null && !visited.has(id)) {
+    visited.add(id);
+    depth += 1;
+    id = index.parentOf(id);
+  }
+  return depth;
+}
+
+/** 葉＝1；遇環不重算。 */
+export function subtreeHeight(index: FolderIndex, folderId: string): number {
+  const visited = new Set<string>();
+  const height = (id: string): number => {
+    visited.add(id);
+    const folder = index.byId.get(id);
+    if (folder === undefined) return 1;
+    let deepest = 0;
+    for (const child of index.children(spaceKeyOf(folder.space), id)) {
+      if (!visited.has(child.id)) deepest = Math.max(deepest, height(child.id));
+    }
+    return deepest + 1;
+  };
+  return height(folderId);
+}
+
+/** candidateId 是 ancestorId 自己或其子孫。 */
+export function isInSubtree(index: FolderIndex, ancestorId: string, candidateId: string): boolean {
+  const visited = new Set<string>();
+  let id: string | null = candidateId;
+  while (id !== null && !visited.has(id)) {
+    if (id === ancestorId) return true;
+    visited.add(id);
+    id = index.parentOf(id);
+  }
+  return false;
+}

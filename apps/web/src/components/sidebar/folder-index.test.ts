@@ -7,10 +7,13 @@ import type { NoteDto } from "@knotebook/shared";
 import {
   EMPTY_FOLDER_INDEX,
   expandFolderChain,
+  folderDepth,
   folderPath,
   indexFolders,
+  isInSubtree,
   liveNotesUnder,
   subtreeFolderIds,
+  subtreeHeight,
   type FolderSpaceKey,
 } from "./folder-index";
 
@@ -172,5 +175,29 @@ describe("expandFolderChain", () => {
     expect(() => expandFolderChain(index, "ghost")).not.toThrow();
     expect(isCollapsed("folder:ghost")).toBe(false);
     expect(isCollapsed("folder:sib")).toBe(true);
+  });
+});
+
+describe("深度與子樹", () => {
+  it("FI-D1 folderDepth：根層 1、第 3 層 3、不存在 0", () => {
+    const index = indexFolders(folderChain("A", 3));
+    expect(folderDepth(index, "A1")).toBe(1);
+    expect(folderDepth(index, "A3")).toBe(3);
+    expect(folderDepth(index, "nope")).toBe(0);
+  });
+
+  it("FI-D2 subtreeHeight：葉 1、3 層鏈的根 3、較淺的兄弟不影響", () => {
+    const index = indexFolders([...folderChain("A", 3), folderDto({ id: "S", name: "S", parentId: "A1" })]);
+    expect(subtreeHeight(index, "A3")).toBe(1);
+    expect(subtreeHeight(index, "S")).toBe(1);
+    expect(subtreeHeight(index, "A1")).toBe(3);
+  });
+
+  it("FI-D3 isInSubtree：自己與孫 true；兄弟與祖先 false", () => {
+    const index = indexFolders([...folderChain("A", 3), folderDto({ id: "S", name: "S", parentId: "A1" })]);
+    expect(isInSubtree(index, "A2", "A2")).toBe(true);
+    expect(isInSubtree(index, "A1", "A3")).toBe(true);
+    expect(isInSubtree(index, "A2", "S")).toBe(false);
+    expect(isInSubtree(index, "A2", "A1")).toBe(false);
   });
 });
