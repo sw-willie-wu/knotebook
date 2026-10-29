@@ -133,6 +133,7 @@
       "movedToGroup": "Moved into \"{{group}}\"",
       "copiedToGroup": "Copied into \"{{group}}\"",
       "copiedToPersonal": "Copied to your notes",
+      "copiedAtTopLevel": "Copy created at the top level (the original folder is gone)",
       "openCopy": "Open copy",
       "openCopyAlt": "You can also open the copy from the sidebar.",
       "changedElsewhere": "This note was changed elsewhere, so nothing was moved."
@@ -403,7 +404,8 @@
       "moveHere": "Move here",
       "copyHere": "Copy here",
       "openLevel": "{{name}}, open"
-    }
+    },
+    "movedTo": "Moved to “{{name}}”"
   },
   "groups": {
     "autoVersions": {

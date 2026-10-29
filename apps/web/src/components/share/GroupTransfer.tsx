@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { canonicalNotePath, type GroupDto, type NoteDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
+import { folderErrorMessage, invalidateFolderRelated } from "@/api/folders";
 import { useGroups } from "@/api/groups";
 import { useConfirmNoteStillPersonal, useCopyNote, useMoveNoteToGroup } from "@/api/note-move";
 import { usePublicLink } from "@/api/public-link";
@@ -27,21 +29,28 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { toast } from "@/components/ui/toast";
 
-/** ApiFail → errors.<code>；其餘 → errors.fallback（逐檔各寫一份是 repo 慣例，見 ShareDialog.tsx）。 */
-function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {
-  if (err instanceof ApiFail) {
-    return t(`errors.${err.code}`, { defaultValue: t("errors.fallback") });
-  }
-  return t("errors.fallback");
+/** 404 `folder_not_found`：快取裡（或使用者剛選）的資料夾已不在（資料夾 spec §5.7.6 n6）。 */
+function isFolderGone(err: unknown): boolean {
+  return err instanceof ApiFail && err.code === "folder_not_found";
 }
 
 export type GroupTransferKind = "move" | "copy";
 
-/** 目標：某個群組（移動／複製進去）、我的筆記（複製成自己的個人筆記）、或就地建立副本（群組筆記複製進它自己的群組）。 */
+/** 使用者在逐層清單選的資料夾：`path`＝`destinationPathLabel` 的完整路徑（「我的筆記 › A」「研發組 › A › B」），確認框用。 */
+export type FolderRef = { id: string; path: string };
+
+/**
+ * 目標（資料夾 spec §6.11.2、§6.11.3）：
+ * - `group`：移入群組／複製到群組，`folder` 不給＝群組根層；
+ * - `inPlace`：群組筆記「建立副本」（落在來源同一資料夾）；
+ * - `duplicate`：自己的個人筆記「建立副本」（落在來源同一資料夾）；
+ * - `personal`：複製到我的筆記，`folder` 不給＝根層（共享筆記自己的共享放置不跟著）。
+ */
 export type TransferTarget =
-  | { type: "group"; group: GroupDto }
+  | { type: "group"; group: GroupDto; folder?: FolderRef }
   | { type: "inPlace"; group: GroupDto }
-  | { type: "personal" };
+  | { type: "duplicate" }
+  | { type: "personal"; folder?: FolderRef };
 
 export interface GroupTransferPick {
   kind: GroupTransferKind;
@@ -61,7 +70,7 @@ export { canCreateAndEdit };
 /**
  * #216（Willie 2026-10-08 定案）：⋮ 選單的「移動到…」「複製到…」第二層清單。**純函式**，目標清單＝我的筆記＋群組，
  * 之後要加目標只改這裡。群組候選一律要 create 且 edit（與側欄「＋」同規則）：
- * - 自己的個人筆記：移動＝候選群組；複製＝「建立副本」（我的筆記）＋候選群組。
+ * - 自己的個人筆記：移動＝候選群組；複製＝「建立副本」（`duplicate`）＋候選群組。
  * - 群組筆記：不能移動；複製＝「建立副本」（原群組，我在該群組需 create＋edit）、「我的筆記」、其餘候選群組。
  *   只讀成員（無 create／edit）看不到「建立副本」，仍有「我的筆記」。
  * - 別人分享給我的個人筆記（viewer 或 editor，「看得到就能複製」）：複製到「我的筆記」＋候選群組；不能移動。
@@ -85,7 +94,7 @@ export function buildTransferOptions(
   if (isOwnPersonal) {
     return {
       move: usable.map(asGroup),
-      copy: [{ key: "personal", label: t("note.menu.makeCopy"), target: { type: "personal" } }, ...usable.map(asGroup)],
+      copy: [{ key: "duplicate", label: t("note.menu.makeCopy"), target: { type: "duplicate" } }, ...usable.map(asGroup)],
     };
   }
   if (isGroupNote) {
@@ -337,8 +346,11 @@ export function GroupTransferMenuItems({
  * - 移動成功：hook 先寫 shares／public-link 再寫 `['note', id]`（順序契約在 `api/note-move.ts`），之後的頁面只讀回應的
  *   `role`／`permissions`，不假設搬完能編輯。
  * - **複製**（`CopyDialog`）確認「原筆記不變」，提交鈕 `outline`；成功 toast 附「前往副本」（altText 鍵 `share.move.openCopyAlt`）。
- * - 失敗一律 toast（`errors.<code>`）並關框——選單已關，沒有別處可放行內訊息。送出中（含送出前檢查）鈕停用、框不可關閉，
- *   避免重送出第二份副本。
+ * - 失敗一律 toast（`folderErrorMessage`，帶 `max`）並關框——選單已關，沒有別處可放行內訊息。送出中（含送出前檢查）鈕停用、
+ *   框不可關閉，避免重送出第二份副本。
+ * - 資料夾（資料夾 spec §5.7.6 n6）：「建立副本」（`duplicate`／`inPlace`）帶來源的 `folderId`（來自快取），收到 404
+ *   `folder_not_found` → 不帶 `folderId` 重送一次、落在根層並換成 `copiedAtTopLevel` toast；使用者明選的資料夾（`group`／
+ *   `personal` 的 `folder`）404 → 不重試、錯誤 toast。兩者都 `invalidateFolderRelated` 讓樹重抓。
  * - 關框後焦點回 `returnFocusRef`（呼叫端的 ⋮ 觸發鈕）：Radix 的還焦點靠 `DialogTrigger`，這裡沒有，會掉到 body。
  */
 interface DialogShellProps {
@@ -381,7 +393,10 @@ interface TransferDialogProps {
 }
 
 function MoveDialog({ note, target, onClose, returnFocusRef }: TransferDialogProps) {
-  const group = target.type === "personal" ? null : target.group;
+  const group = target.type === "group" ? target.group : null;
+  const folder = target.type === "group" ? target.folder : undefined;
+  // 目的地名稱：群組名；選了群組資料夾時換成完整路徑（spec §6.11.2）。
+  const destination = folder?.path ?? group?.name ?? "";
   const { t, i18n } = useTranslation();
   const sharesQuery = useShares(note.id);
   const linkQuery = usePublicLink(note.id);
@@ -405,10 +420,10 @@ function MoveDialog({ note, target, onClose, returnFocusRef }: TransferDialogPro
         return;
       }
       if (group === null) return;
-      await move.mutateAsync({ groupId: group.id });
-      toast({ title: t("share.move.movedToGroup", { group: group.name }) });
+      await move.mutateAsync(folder === undefined ? { groupId: group.id } : { groupId: group.id, folderId: folder.id });
+      toast({ title: t("share.move.movedToGroup", { group: destination }) });
     } catch (err) {
-      toast({ title: errorMessage(t, err), variant: "destructive" });
+      toast({ title: folderErrorMessage(t, err), variant: "destructive" });
     } finally {
       setSubmitting(false);
       onClose();
@@ -418,7 +433,7 @@ function MoveDialog({ note, target, onClose, returnFocusRef }: TransferDialogPro
   return (
     <DialogShell
       title={t("share.move.moveSubmit")}
-      description={t("share.move.moveLead", { group: group?.name ?? "" })}
+      description={t("share.move.moveLead", { group: destination })}
       busy={busy}
       onClose={onClose}
       returnFocusRef={returnFocusRef}
@@ -443,33 +458,66 @@ function MoveDialog({ note, target, onClose, returnFocusRef }: TransferDialogPro
   );
 }
 
+type CopyInput = { groupId?: string; folderId?: string };
+
+/**
+ * `POST /copy` 的 body（根層一律不帶 `folderId`，spec §6.11.3）＋ n6 退回用的 body（只有「建立副本」且來源在資料夾裡才有）。
+ * 「建立副本」落在來源同一資料夾；共享筆記複製到我的筆記不帶自己的共享放置（`note.folderId` 是呼叫者視角的放置）。
+ */
+function copyRequest(note: NoteDto, target: TransferTarget): { input: CopyInput; fallback: CopyInput | null } {
+  const groupPart: CopyInput = target.type === "group" || target.type === "inPlace" ? { groupId: target.group.id } : {};
+  if (target.type === "duplicate" || target.type === "inPlace") {
+    if (note.folderId === null) return { input: groupPart, fallback: null };
+    return { input: { ...groupPart, folderId: note.folderId }, fallback: groupPart };
+  }
+  return { input: target.folder === undefined ? groupPart : { ...groupPart, folderId: target.folder.id }, fallback: null };
+}
+
 function CopyDialog({ note, target, onClose, returnFocusRef }: TransferDialogProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const copy = useCopyNote(note.id);
   const [submitting, setSubmitting] = useState(false);
   const busy = submitting || copy.isPending;
-  // 自己的個人筆記複製到我的筆記＝選單上的「建立副本」，確認框標題／按鈕同字；其餘來源是「複製到我的筆記」。
-  const duplicate = note.groupId === null && note.permissions.moveToGroup;
+  // 「建立副本」（自己的個人筆記、群組筆記就地）確認框標題／按鈕同字；複製到我的筆記（含其中的資料夾）是「複製到我的筆記」。
   const submitLabel =
     target.type === "group"
       ? t("share.move.copySubmit")
-      : target.type === "inPlace" || duplicate
-        ? t("share.move.copyHereSubmit")
-        : t("share.move.copyPersonalSubmit");
+      : target.type === "personal"
+        ? t("share.move.copyPersonalSubmit")
+        : t("share.move.copyHereSubmit");
+  // 「會在「X」建立副本」：X＝群組名，選了資料夾時換成完整路徑（spec §6.11.3 n7）。
   const lead =
     target.type === "group"
-      ? t("share.move.copyLead", { group: target.group.name })
+      ? t("share.move.copyLead", { group: target.folder?.path ?? target.group.name })
       : target.type === "inPlace"
         ? t("share.move.copyLeadInPlace", { group: target.group.name })
-        : t("share.move.copyLeadPersonal");
+        : target.type === "personal" && target.folder !== undefined
+          ? t("share.move.copyLead", { group: target.folder.path })
+          : t("share.move.copyLeadPersonal");
+  const copiedTitle =
+    target.type === "group" || target.type === "inPlace"
+      ? t("share.move.copiedToGroup", { group: target.group.name })
+      : t("share.move.copiedToPersonal");
 
   async function submit(): Promise<void> {
     setSubmitting(true);
+    const request = copyRequest(note, target);
     try {
-      const created = await copy.mutateAsync(target.type === "personal" ? {} : { groupId: target.group.id });
+      let created: NoteDto;
+      let atTopLevel = false;
+      try {
+        created = await copy.mutateAsync(request.input);
+      } catch (err) {
+        // n6：只有「建立副本」帶的快取 folderId 失效才自動退回根層重送一次；明選的資料夾不重試（往外丟）。
+        if (request.fallback === null || !isFolderGone(err)) throw err;
+        invalidateFolderRelated(queryClient);
+        created = await copy.mutateAsync(request.fallback);
+        atTopLevel = true;
+      }
       toast({
-        title: target.type === "personal" ? t("share.move.copiedToPersonal") : t("share.move.copiedToGroup", { group: target.group.name }),
+        title: atTopLevel ? t("share.move.copiedAtTopLevel") : copiedTitle,
         action: {
           label: t("share.move.openCopy"),
           altText: t("share.move.openCopyAlt"),
@@ -477,7 +525,8 @@ function CopyDialog({ note, target, onClose, returnFocusRef }: TransferDialogPro
         },
       });
     } catch (err) {
-      toast({ title: errorMessage(t, err), variant: "destructive" });
+      if (isFolderGone(err)) invalidateFolderRelated(queryClient);
+      toast({ title: folderErrorMessage(t, err), variant: "destructive" });
     } finally {
       setSubmitting(false);
       onClose();

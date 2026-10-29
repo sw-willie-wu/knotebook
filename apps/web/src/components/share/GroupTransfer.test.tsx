@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -7,7 +8,7 @@ import i18n from "@/i18n";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { groupDto, memberRole, OWNER_PERMS, EDITOR_PERMS, VIEWER_PERMS } from "@/test/fixtures";
 import { NoteMenu } from "@/components/NoteMenu";
-import { INLINE_GROUP_LIST_QUERY } from "./GroupTransfer";
+import { GroupTransferDialog, INLINE_GROUP_LIST_QUERY, type GroupTransferPick, type TransferTarget } from "./GroupTransfer";
 
 // #216：⋮ 選單的「移動到群組」「複製到群組」（原 MoveToGroupSection 的測試搬來）。
 // 寬螢幕＝右側 flyout（Radix Sub）；窄／觸控（matchMedia 命中 INLINE_GROUP_LIST_QUERY）＝就地向下展開。
@@ -629,5 +630,204 @@ describe("⋮ 選單：移動／複製到群組（#216）", () => {
       openMenu();
       expect(await screen.findByTestId("note-menu-copy-to")).toHaveAttribute("aria-expanded", "false");
     });
+  });
+});
+
+// PR-3b-2 T3：確認框帶資料夾、「建立副本」落點與 n6 退回（資料夾 spec §6.11.2、§6.11.3、§5.7.6）。直接渲染 GroupTransferDialog。
+describe("GroupTransferDialog：資料夾目的地（PR-3b-2 T3）", () => {
+  const GG = "dddddddd-dddd-dddd-dddd-dddddddddddd";
+  const GROUP_G = groupDto({ id: GG, name: "G" }, memberRole());
+  const IN_A: NoteDto = { ...NOTE, folderId: "A" };
+  const GROUP_NOTE_IN_GF: NoteDto = { ...MOVED, id: NOTE.id, groupId: GG, group: { id: GG, name: "G" }, folderId: "GF" };
+  /** 別人分享給我、我自己把它放在共享私人資料夾 S1（放置 id 不得跟著複製）。 */
+  const SHARED_IN_S1: NoteDto = {
+    ...NOTE,
+    role: "editor",
+    ownerId: "someone",
+    ownerHandle: "someone",
+    permissions: { ...EDITOR_PERMS, moveToGroup: false },
+    folderId: "S1",
+  };
+
+  /** 照 NoteMenu 的掛法：onClose 卸載確認框（不卸載的話 modal 會把 toast 藏在 aria-hidden 後面）。 */
+  function DialogHost({ note, pick }: { note: NoteDto; pick: GroupTransferPick }) {
+    const [open, setOpen] = useState(true);
+    return open ? <GroupTransferDialog note={note} pick={pick} onClose={() => setOpen(false)} /> : null;
+  }
+
+  function renderDialog(note: NoteDto, pick: GroupTransferPick) {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["folders"], []);
+    queryClient.setQueryData(["notes"], []);
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/here"]}>
+          <Routes>
+            <Route path="/here" element={<DialogHost note={note} pick={pick} />} />
+          </Routes>
+          <Toaster />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    return { queryClient };
+  }
+
+  const copyBodies = (s: ReturnType<typeof stub>) => s.calls.filter((c) => c.url === URLS.copy).map((c) => c.body);
+  const moveBodies = (s: ReturnType<typeof stub>) => s.calls.filter((c) => c.url === URLS.move).map((c) => c.body);
+
+  /** 依序回 replies 的 /copy。 */
+  function copySequence(...replies: Array<() => Response>) {
+    return () => {
+      const next = replies.shift();
+      if (next === undefined) throw new Error("no more /copy replies");
+      return next();
+    };
+  }
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+    stubInlineMode(false);
+  });
+  afterEach(() => {
+    cleanup();
+    act(() => dismissAllToasts());
+    vi.unstubAllGlobals();
+  });
+
+  it("GT-F1 duplicate：筆記在 A → POST /copy {folderId:A}；筆記在根 → {}", async () => {
+    let s = stub();
+    renderDialog(IN_A, { kind: "copy", target: { type: "duplicate" } });
+    let dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("heading", { name: "Make a copy" })).toBeInTheDocument();
+    expect(dialog).toHaveTextContent("This creates a copy in your own notes; the original stays as it is.");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Make a copy" }));
+    await waitFor(() => expect(copyBodies(s)).toEqual([{ folderId: "A" }]));
+    cleanup();
+    vi.unstubAllGlobals();
+    act(() => dismissAllToasts());
+
+    s = stub();
+    renderDialog(NOTE, { kind: "copy", target: { type: "duplicate" } });
+    dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Make a copy" }));
+    await waitFor(() => expect(copyBodies(s)).toEqual([{}]));
+    expect(await screen.findByText("Copied to your notes")).toBeInTheDocument();
+  });
+
+  it("GT-F2 inPlace：群組筆記在 GF → POST /copy {groupId:G, folderId:GF}", async () => {
+    const s = stub();
+    renderDialog(GROUP_NOTE_IN_GF, { kind: "copy", target: { type: "inPlace", group: GROUP_G } });
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent('next to the original in "G"');
+    fireEvent.click(within(dialog).getByRole("button", { name: "Make a copy" }));
+    await waitFor(() => expect(copyBodies(s)).toEqual([{ groupId: GG, folderId: "GF" }]));
+  });
+
+  it('GT-F3 personal 帶 folder（共享筆記）→ {folderId:A}、說明含 "My notes › A"、鈕 Copy to my notes；不帶 → {}、說明照現行', async () => {
+    let s = stub();
+    renderDialog(SHARED_IN_S1, { kind: "copy", target: { type: "personal", folder: { id: "A", path: "My notes › A" } } });
+    let dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent('This creates a copy in "My notes › A"; the original stays as it is.');
+    fireEvent.click(within(dialog).getByRole("button", { name: "Copy to my notes" }));
+    await waitFor(() => expect(copyBodies(s)).toEqual([{ folderId: "A" }]));
+    expect(await screen.findByText("Copied to your notes")).toBeInTheDocument();
+    cleanup();
+    vi.unstubAllGlobals();
+    act(() => dismissAllToasts());
+
+    s = stub();
+    renderDialog(SHARED_IN_S1, { kind: "copy", target: { type: "personal" } });
+    dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("This creates a copy in your own notes; the original stays as it is.");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Copy to my notes" }));
+    await waitFor(() => expect(copyBodies(s)).toEqual([{}]));
+  });
+
+  it('GT-F4 group 帶 folder → {groupId:G, folderId:GF}、說明含 "G › GF"；成功 toast 照現行（群組名）', async () => {
+    const s = stub();
+    renderDialog(NOTE, { kind: "copy", target: { type: "group", group: GROUP_G, folder: { id: "GF", path: "G › GF" } } });
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent('This creates a copy in "G › GF"; the original stays as it is.');
+    fireEvent.click(within(dialog).getByRole("button", { name: "Copy into group" }));
+    await waitFor(() => expect(copyBodies(s)).toEqual([{ groupId: GG, folderId: "GF" }]));
+    expect(await screen.findByText('Copied into "G"')).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open copy" })).toBeInTheDocument();
+  });
+
+  it('GT-F5 MoveDialog 帶 folder → 說明 Move this note into "G › GF"?、body {groupId, folderId}、toast Moved into "G › GF"；不帶 → body 鍵恰 [groupId]', async () => {
+    let s = stub();
+    renderDialog(NOTE, { kind: "move", target: { type: "group", group: GROUP_G, folder: { id: "GF", path: "G › GF" } } });
+    let dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent('Move this note into "G › GF"?');
+    let submit = within(dialog).getByRole("button", { name: "Move into group" });
+    await waitFor(() => expect(submit).not.toBeDisabled());
+    fireEvent.click(submit);
+    await waitFor(() => expect(moveBodies(s)).toEqual([{ groupId: GG, folderId: "GF" }]));
+    expect(await screen.findByText('Moved into "G › GF"')).toBeInTheDocument();
+    cleanup();
+    vi.unstubAllGlobals();
+    act(() => dismissAllToasts());
+
+    s = stub();
+    renderDialog(NOTE, { kind: "move", target: { type: "group", group: GROUP_G } });
+    dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent('Move this note into "G"?');
+    submit = within(dialog).getByRole("button", { name: "Move into group" });
+    await waitFor(() => expect(submit).not.toBeDisabled());
+    fireEvent.click(submit);
+    await waitFor(() => expect(moveBodies(s)).toHaveLength(1));
+    expect(Object.keys(moveBodies(s)[0] as object)).toEqual(["groupId"]);
+    expect(await screen.findByText('Moved into "G"')).toBeInTheDocument();
+  });
+
+  it.each([
+    ["duplicate", IN_A, { type: "duplicate" } as TransferTarget, { folderId: "A" }, {}],
+    ["inPlace", GROUP_NOTE_IN_GF, { type: "inPlace", group: GROUP_G } as TransferTarget, { groupId: GG, folderId: "GF" }, { groupId: GG }],
+  ])(
+    "GT-F6 建立副本（%s）第一次 404 folder_not_found → 不帶 folderId 重送一次、toast 退回根層且有 Open copy、['folders'] 被失效",
+    async (_name, note, target, first, second) => {
+      const s = stub({ copy: copySequence(() => failJson(404, "folder_not_found"), () => okJson(COPY, 201)) });
+      const { queryClient } = renderDialog(note, { kind: "copy", target });
+      fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Make a copy" }));
+      expect(await screen.findByText("Copy created at the top level (the original folder is gone)")).toBeInTheDocument();
+      expect(copyBodies(s)).toEqual([first, second]);
+      expect(screen.getByRole("button", { name: "Open copy" })).toBeInTheDocument();
+      expect(queryClient.getQueryState(["folders"])?.isInvalidated).toBe(true);
+    },
+  );
+
+  it("GT-F6 退回重送也失敗 → 照現行錯誤 toast、共送兩次", async () => {
+    const s = stub({ copy: copySequence(() => failJson(404, "folder_not_found"), () => failJson(404, "group_not_found")) });
+    renderDialog(IN_A, { kind: "copy", target: { type: "duplicate" } });
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Make a copy" }));
+    expect(await screen.findByText("We couldn't find that group.")).toBeInTheDocument();
+    expect(copyBodies(s)).toEqual([{ folderId: "A" }, {}]);
+  });
+
+  it.each([
+    ["personal", SHARED_IN_S1, { type: "personal", folder: { id: "A", path: "My notes › A" } } as TransferTarget, "Copy to my notes"],
+    ["group", NOTE, { type: "group", group: GROUP_G, folder: { id: "GF", path: "G › GF" } } as TransferTarget, "Copy into group"],
+  ])("GT-F7 明選資料夾（%s）404 folder_not_found → 不重試、toast Folder not found.、['folders']／['notes'] 被失效", async (_name, note, target, button) => {
+    const s = stub({ copy: copySequence(() => failJson(404, "folder_not_found"), () => okJson(COPY, 201)) });
+    const { queryClient } = renderDialog(note, { kind: "copy", target });
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: button }));
+    expect(await screen.findByText("Folder not found.")).toBeInTheDocument();
+    await act(async () => {});
+    expect(copyBodies(s)).toHaveLength(1);
+    expect(queryClient.getQueryState(["folders"])?.isInvalidated).toBe(true);
+    // ['folders'] 失敗時 useCopyNote 的 onSettled 也會失效；['notes'] 失敗時只有 invalidateFolderRelated 會失效。
+    expect(queryClient.getQueryState(["notes"])?.isInvalidated).toBe(true);
+  });
+
+  it("GT-F8 zh：已建立副本（原資料夾已不在，放在最上層）；已移到「我的筆記 › A」", async () => {
+    await i18n.changeLanguage("zh-TW");
+    stub({ copy: copySequence(() => failJson(404, "folder_not_found"), () => okJson(COPY, 201)) });
+    renderDialog(IN_A, { kind: "copy", target: { type: "duplicate" } });
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "建立副本" }));
+    expect(await screen.findByText("已建立副本（原資料夾已不在，放在最上層）")).toBeInTheDocument();
+    expect(i18n.t("folders.movedTo", { name: "我的筆記 › A" })).toBe("已移到「我的筆記 › A」");
+    await i18n.changeLanguage("en");
+    expect(i18n.t("folders.movedTo", { name: "A" })).toBe("Moved to “A”");
   });
 });

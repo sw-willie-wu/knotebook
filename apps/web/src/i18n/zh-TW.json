@@ -133,6 +133,7 @@
       "movedToGroup": "已移到「{{group}}」",
       "copiedToGroup": "已複製到「{{group}}」",
       "copiedToPersonal": "已複製到我的筆記",
+      "copiedAtTopLevel": "已建立副本（原資料夾已不在，放在最上層）",
       "openCopy": "前往副本",
       "openCopyAlt": "也可以從側欄開啟副本。",
       "changedElsewhere": "這篇筆記已在別處變更，所以沒有移動。"
@@ -403,7 +404,8 @@
       "moveHere": "移動到這裡",
       "copyHere": "複製到這裡",
       "openLevel": "{{name}}，開啟下一層"
-    }
+    },
+    "movedTo": "已移到「{{name}}」"
   },
   "groups": {
     "autoVersions": {
