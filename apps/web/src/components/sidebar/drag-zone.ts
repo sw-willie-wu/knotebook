@@ -1,5 +1,6 @@
 import { FOLDER_DEPTH_MAX, type NoteDto } from "@knotebook/shared";
 import type { SidebarTab } from "@/lib/sidebar-tab";
+import type { Translate } from "./destination-level";
 import type { FolderSpaceKey } from "./folder-index";
 import type { SidebarNode } from "./tree";
 
@@ -15,8 +16,6 @@ export const DRAG_HOVER_DELAY_MS = 500;
 export const DRAG_POINTER_QUERY = "(hover: hover) and (pointer: fine)";
 
 export type DragTab = "myNotes" | "workspace" | "shared";
-
-type Translate = (key: string, options?: Record<string, unknown>) => string;
 
 export interface DragSource {
   noteId: string;
@@ -73,7 +72,10 @@ export type DragTarget =
   | { kind: "blank" }
   | { kind: "outside" };
 
-/** target 不在 container 內（或 null）→ outside；closest("[data-node-kind]") 為 preview／note／folder／group；在 container 內但沒有節點 → blank。 */
+/**
+ * target 不在 container 內（或 null）→ outside；closest("[data-node-kind]") 為 preview／note／folder／group；在 container 內但沒有節點 → blank；
+ * 節點的 kind 認不得或缺 data-node-id → outside（不是落點）。
+ */
 export function readDragTarget(target: EventTarget | null, container: Element): DragTarget {
   if (!(target instanceof Node)) return { kind: "outside" };
   const el = target instanceof Element ? target : target.parentElement;
@@ -86,7 +88,7 @@ export function readDragTarget(target: EventTarget | null, container: Element): 
   const kind = node.getAttribute("data-node-kind");
   const id = node.getAttribute("data-node-id");
   if (id !== null && (kind === "note" || kind === "folder" || kind === "group")) return { kind, id };
-  return { kind: "blank" };
+  return { kind: "outside" };
 }
 
 export type DropScope = { kind: "list" } | { kind: "group"; groupId: string } | { kind: "folder"; folderId: string } | { kind: "preview" };
@@ -171,13 +173,18 @@ export function evaluateDragOver(input: {
   return NONE;
 }
 
-/** spec §6.13 第 4 步：existing（同層既有資料夾名）與 skip 都不分大小寫（toLowerCase）比對；回第一個沒被用的「新資料夾」「新資料夾 2」…。 */
+/**
+ * spec §6.13 第 4 步：existing（同層既有資料夾名）與 skip 都不分大小寫（toLowerCase）比對；回第一個沒被用的「新資料夾」「新資料夾 2」…。
+ * 鴿籠上限：最多試 taken.size + 1 個；字串壞掉（每次同字）時回最後一個候選，交給 server 的 409 重送路徑。
+ */
 export function stackFolderName(existing: readonly string[], t: Translate, skip: ReadonlySet<string> = new Set()): string {
   const taken = new Set([...existing, ...skip].map((name) => name.toLowerCase()));
-  for (let n = 1; ; n += 1) {
-    const name = n === 1 ? t("folders.stackName") : t("folders.stackNameN", { n });
+  let name = "";
+  for (let n = 1; n <= taken.size + 1; n += 1) {
+    name = n === 1 ? t("folders.stackName") : t("folders.stackNameN", { n });
     if (!taken.has(name.toLowerCase())) return name;
   }
+  return name;
 }
 
 const DRAG_TABS: readonly SidebarTab[] = ["myNotes", "workspace", "shared"];

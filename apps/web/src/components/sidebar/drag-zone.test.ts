@@ -63,6 +63,7 @@ const NOTES: NoteDto[] = [
   groupNote({ id: "gr", title: "gr", group: G, edit: false }),
   groupNote({ id: "h1", title: "h1", group: H }),
   sharedNote({ id: "s1", title: "s1", role: "viewer" }),
+  sharedNote({ id: "s2", title: "s2", folderId: "SF" }),
   groupNote({ id: "sg", title: "sg", group: K }),
 ];
 
@@ -195,6 +196,10 @@ describe("evaluateDragOver：與我共享", () => {
     expect(over("shared", "s1", note("sg"))).toEqual([null, undefined, null, "note:sg", null]);
     expect(over("shared", "s1", folder("SF"))).toEqual(["place", "SF", "folder:SF", "folder:SF", null]);
   });
+
+  it("DZ4 共享資料夾 SF 裡的 s2 拖到空白處 → 根目錄（整份清單）", () => {
+    expect(over("shared", "s2", BLANK)).toEqual(["place", null, "list", null, null]);
+  });
 });
 
 describe("canDragNote", () => {
@@ -235,6 +240,14 @@ describe("readDragTarget", () => {
     expect(readDragTarget(container.querySelector('[data-node-kind="preview"] > div > span'), container)).toEqual({ kind: "preview" });
     expect(readDragTarget(container.querySelector('[data-node-id="N2"] span'), container)).toEqual({ kind: "preview" });
   });
+
+  it("DZ14 認不得的 data-node-kind、缺 data-node-id → outside（不是落點）", () => {
+    const container = document.createElement("div");
+    container.innerHTML = '<ul><li data-node-kind="weird" data-node-id="W"><span>w</span></li><li data-node-kind="note"><span>no id</span></li></ul>';
+    const [weird, noId] = Array.from(container.querySelectorAll("span"));
+    expect(readDragTarget(weird ?? null, container)).toEqual({ kind: "outside" });
+    expect(readDragTarget(noId ?? null, container)).toEqual({ kind: "outside" });
+  });
 });
 
 describe("stackFolderName", () => {
@@ -244,6 +257,17 @@ describe("stackFolderName", () => {
     expect(stackFolderName(["new folder", "New Folder 2"], t)).toBe("New folder 3");
     expect(stackFolderName(["new folder", "New Folder 2"], t, new Set(["New folder 3"]))).toBe("New folder 4");
     expect(stackFolderName(["new folder", "New Folder 2"], t, new Set(["NEW FOLDER 3"]))).toBe("New folder 4");
+  });
+
+  it("DZ15 字串壞掉（每次回同一個字）→ 最多試 taken.size + 1 次就停，回最後一個候選", () => {
+    let calls = 0;
+    const stuck = (): string => {
+      calls += 1;
+      if (calls > 50) throw new Error("runaway loop");
+      return "Same";
+    };
+    expect(stackFolderName(["same"], stuck)).toBe("Same");
+    expect(calls).toBe(2);
   });
 
   it("DZ15 zh-TW", async () => {
