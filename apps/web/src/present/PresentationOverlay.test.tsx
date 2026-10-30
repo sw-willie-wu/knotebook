@@ -370,22 +370,40 @@ describe("PresentationOverlay（fake reveal）", () => {
     expect(vi.mocked(renderDeck).mock.calls.length).toBe(initialCalls + 1);
 
     // 持續每 100 ms 打一字，直到重切發生（上限 6 s）。不用「打滿 2.3 s 就驗」的固定窗：maxWait 2 s
-    // 只留 300 ms 餘裕，平行負載下計時器晚到就假紅。改量「相鄰兩次輸入（含最後一次輸入到偵測到
-    // 重切）的最大間隔」並要求 < UPDATE_DEBOUNCE_MS：trailing 計時器從未有機會到期，
-    // 所以這次重切只可能是 maxWait 觸發的。maxWait 的精確時刻由 debounce.test.ts 以 fake timers 守。
-    const before = vi.mocked(renderDeck).mock.calls.length;
-    const started = Date.now();
-    let lastKey = Date.now();
-    let maxGap = 0;
-    while (vi.mocked(renderDeck).mock.calls.length === before && Date.now() - started < 6_000) {
-      maxGap = Math.max(maxGap, Date.now() - lastKey);
-      typeChar();
-      lastKey = Date.now();
-      await new Promise((r) => setTimeout(r, 100));
+    // 只留 300 ms 餘裕，平行負載下計時器晚到就假紅。改證「trailing 計時器從未有機會到期」：
+    // debouncer.schedule() 在 insert 的交易內同步呼叫，所以第 i 次 schedule 落在 [打字前, 打字後] 之間；
+    // 重切時刻取 renderDeck 被呼叫的當下（≥ 計時器實際到期）。於是
+    //   相鄰兩次 schedule 的間隔 ≤ 後一次的「打字後」− 前一次的「打字前」，
+    //   最後一次 schedule 到重切 ≤ 重切時刻 − 最後一次的「打字前」，
+    // 這些上界全都 < UPDATE_DEBOUNCE_MS ⇒ 這次重切只可能是 maxWait 觸發的。只量打字與重切本身，
+    // 不把 sleep／輪詢的延遲算進去，CPU 卡頓造成的假紅只剩「真的卡在兩次 schedule 之間」一種。
+    // maxWait 的精確時刻由 debounce.test.ts 以 fake timers 守。
+    const fireTimes: number[] = [];
+    const realRenderDeck = vi.mocked(renderDeck).getMockImplementation()!;
+    vi.mocked(renderDeck).mockImplementation((input) => {
+      fireTimes.push(Date.now());
+      return realRenderDeck(input);
+    });
+    try {
+      const keys: { before: number; after: number }[] = [];
+      const started = Date.now();
+      while (fireTimes.length === 0 && Date.now() - started < 6_000) {
+        const t = Date.now();
+        typeChar();
+        keys.push({ before: t, after: Date.now() });
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      expect(fireTimes.length).toBeGreaterThan(0);
+      const fire = fireTimes[0];
+      // 計時器回呼不會插進同步的 typeChar 中間：重切前完成的輸入＝「打字後」不晚於重切的那些。
+      const sent = keys.filter((k) => k.after <= fire);
+      expect(sent.length).toBeGreaterThan(0);
+      const gapBounds = sent.slice(1).map((k, i) => k.after - sent[i].before);
+      gapBounds.push(fire - sent[sent.length - 1].before);
+      expect(Math.max(...gapBounds)).toBeLessThan(UPDATE_DEBOUNCE_MS);
+    } finally {
+      vi.mocked(renderDeck).mockImplementation(realRenderDeck);
     }
-    maxGap = Math.max(maxGap, Date.now() - lastKey);
-    expect(vi.mocked(renderDeck).mock.calls.length).toBeGreaterThan(before);
-    expect(maxGap).toBeLessThan(UPDATE_DEBOUNCE_MS);
   });
 
   it("test 7：目前那張被刪 → slide() 到前一張、hash replace；目前那張內容變 → 捲頂；別張變 → 不捲、不重建目前那張", async () => {

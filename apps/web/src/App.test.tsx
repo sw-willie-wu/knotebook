@@ -139,7 +139,8 @@ vi.mock("./pages/NotePage", async () => {
  * ⚠ 不可用「doMock + await import("./App")」的寫法（第一版就是，假守衛）：檔頭的靜態
  * import 已經把 ./App 連同真 NotePage 快取住，測試內的動態 import 拿到同一份快取，
  * mock 根本沒生效——突變驗證（把 fallback 改回裸 <p>、甚至把 lazy 整個拿掉）照樣綠。
- * 現行寫法兩種突變都會紅（已實測）。
+ * 現行寫法兩種突變都會紅（已實測；改成閘門版後於 2026-10-30 重測：靜態 import、fallback 改裸 <p>
+ * 兩者都在「New note」等待處紅）。
  */
 describe("App route tree — NotePage lazy fallback 保留 AppShell（issue #19）", () => {
   afterEach(() => {
