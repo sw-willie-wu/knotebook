@@ -547,8 +547,8 @@ describe("POST /api/ai — 正常串流", () => {
     releaseUpstream?.();
   });
 
-  // 不另設 per-test 逾時、沿用全域 testTimeout（vitest.config.ts 120 s）：idle 只等 400 ms，但以前寫死的 15 s 也罩住
-  // buildTestApp（建庫）與種資料，機器忙時那段一慢就逾時假紅；真的卡住（SSE 沒關）仍會被全域上限擋下。
+  // 不另設 per-test 逾時、沿用全域 testTimeout（vitest.config.ts 120 s）：以前寫死的 15 s 也罩住 buildTestApp（建庫）與
+  // 種資料，機器忙時那段一慢就逾時假紅。「注入的 400 ms 有接上」改由下面只量 idle 那一段的牆鐘界線守（20 s 對生產預設 60 s）。
   it(
     "idle timeout：fake upstream 停止吐 delta 後短逾時 → SSE error（round 2：真實時間，見 aiIdleTimeoutMs 測試 seam）",
     async () => {
@@ -606,10 +606,14 @@ describe("POST /api/ai — 正常串流", () => {
       // handler 的 for-await 迴圈每次迭代都 resetIdleTimer，收到第一個 delta 代表 idle timer
       // 必然已 arm，語意與 round 1 相同，這部分仍有價值、原樣保留。
       await firstDelta;
+      const idleStart = Date.now();
 
       // 不推假時鐘——單純等真實時間過去（400ms idle timeout + 些許排程餘裕），idle timer
       // 觸發後的 error 事件＋raw.end() 會自然送達，`stream` 的 'end' 事件即代表連線已關閉。
       await streamEnded;
+      // 只量「收到 delta → 連線關閉」這一段：注入的 400 ms 有一路接到路由的話遠小於界線；沒接上（落回 routes/ai.ts 的
+      // IDLE_TIMEOUT_MS 60 s）就要等滿 60 s → 紅。界線 20 s 離兩邊都遠（與 ./lock-timeout-bound.ts 同一種設計）。
+      expect(Date.now() - idleStart).toBeLessThan(20_000);
       expect(eventSequence(body)).toEqual(["delta", "error"]);
       expect(body).toContain("upstream request failed");
     }

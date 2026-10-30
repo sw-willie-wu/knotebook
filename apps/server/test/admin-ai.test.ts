@@ -694,6 +694,7 @@ describe("POST /api/admin/ai/providers/:id/test", () => {
 
   // 不另設 per-test 逾時、沿用全域 testTimeout（vitest.config.ts 120 s）：本案一定要等滿產品端的 AbortSignal.timeout(10_000)，
   // 再加上 buildTestApp（建庫）與種資料；以前寫死 15 s 只剩約 5 s 餘裕，機器忙時建庫一慢就逾時假紅。
+  // 「上游逾時是 10 s 級」改由只量 app.inject 那一句的界線守（< 30 s）：產品端若被改成 60 s 級 → 紅，建庫快慢不影響。
   it("上游逾時（>10s 不回應）→ upstream_error，body 不含上游內容", async () => {
     const upstream = await startFakeUpstream(() => {
       // 刻意不呼叫 res.end()：讓連線掛著，逼 AbortSignal.timeout(10_000) 生效。
@@ -703,7 +704,9 @@ describe("POST /api/admin/ai/providers/:id/test", () => {
     const cookie = await cookieFor(admin.id);
     const provider = await insertProvider(db, { baseUrl: upstream.baseUrl });
 
+    const t0 = Date.now();
     const res = await app.inject({ method: "POST", url: `/api/admin/ai/providers/${provider.id}/test`, cookies: { [SESSION_COOKIE]: cookie } });
+    expect(Date.now() - t0).toBeLessThan(30_000);
     expect(res.statusCode).toBe(502);
     expect(res.json()).toMatchObject({ error: { code: "upstream_error" } });
   });
