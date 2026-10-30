@@ -114,7 +114,7 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
   // #239：移入／複製進群組要 `notes:move`（session 恆真；token 要 write 且 move）。只管 move_note_to_group 的註冊與
   // copy_note 的說明二選一；create_note／edit_note 不看它（W9）。
   const canMove = canMoveNotes(ctx);
-  // #181 D-W1：移到垃圾桶／還原要 `notes:delete`（session 恆真；token 要 write 且 delete，與 move 互相獨立）。只管兩支垃圾桶寫入工具的註冊。
+  // #181 D-W1：移到垃圾桶／還原要 `notes:delete`（session 恆真；token 要 write 且 delete，與 move 互相獨立）。只管 delete_note／restore_note／delete_folder（資料夾 PR-3d T8）三支的註冊。
   const canDelete = canDeleteNotes(ctx);
   // #93：讀 live doc 的工具在不在，決定 search_notes 的 description 與 sectionId 說明的變體（spec §8.2 I5）。
   // 與下面讀取工具的閘門是**同一個判準、同一個時間點**（註冊時）。

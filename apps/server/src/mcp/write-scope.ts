@@ -26,9 +26,9 @@
  * ⚠ **誠實缺口**：write 分支（`INSUFFICIENT_SCOPE_MESSAGE`）的 `insufficient_scope` 模型永遠看不到
  * （copy 帶 `group_id` 的 `COPY_NEEDS_MOVE_MESSAGE` 是看得到的）——D7 的
  * 意圖改由 per-request 的 `instructions` 承接（唯讀憑證那一版逐字寫了同樣的處置，D-Q）。
- * #181：`requireDeleteScope` 的 write 與 delete 兩個 scope 分支在 HTTP 上都是死碼（`delete_note`／`restore_note`
- * 只在 `canDeleteNotes` 時註冊；唯一的守衛＝本檔單元測試的 #181 D 案）；**tokenWrite 扣點是活的**（RWD／RWMD 憑證
- * 每次呼叫都扣；守衛＝`test/mcp-trash-tools.test.ts` 的 DN8／RN6）。
+ * #181：`requireDeleteScope` 的 write 與 delete 兩個 scope 分支在 HTTP 上都是死碼（`delete_note`／`restore_note`，
+ * 與資料夾 PR-3d T8 的 `delete_folder`，都只在 `canDeleteNotes` 時註冊；唯一的守衛＝本檔單元測試的 #181 D 案）；**tokenWrite 扣點是活的**
+ * （RWD／RWMD 憑證每次呼叫都扣；守衛＝`test/mcp-trash-tools.test.ts` 的 DN8／RN6、`test/mcp-folders.test.ts` 的 DF7）。
  * ⚠ **M13 是紀律不是繞不過的事實**：第七支寫入工具漏呼叫它不會有任何測試變紅（今天全部的
  * 守衛是「兩支工具各跑一次」那一族）。要變成繞不過就得走註冊器形，規格 §10.2 已延後。
  */

@@ -147,7 +147,8 @@ export async function loadTrashedMeta(db: Db, noteId: string): Promise<{ title: 
 
 /**
  * `delete_folder` commit 後一讀（交易外單句 SELECT）：ids（≤ 100）中任一篇仍在垃圾桶者的 purgeAt——同一交易移入、`deleted_at` 相同；
- * 與清單同一個 `purgeAtExpr`，join site_settings 取這一刻的設定。ids 為空（不發查詢）、全部已不在垃圾桶、或保留天數 NULL → null。
+ * 與清單同一個 `purgeAtExpr`，join site_settings 取這一刻的設定。回 null 的情形例如：ids 為空（不發查詢）、全部已不在垃圾桶、
+ * 保留天數 NULL、site_settings 列不在（INNER JOIN 為空）。
  */
 export async function loadTrashedPurgeAt(db: Db, noteIds: readonly string[]): Promise<Date | null> {
   if (noteIds.length === 0) return null;
