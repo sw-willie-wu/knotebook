@@ -170,11 +170,27 @@ describe("#177 回給模型的 DTO 欄位走同一套截斷", () => {
         lastEditedAt: null,
         lastEditedAgentLabel: null,
         editorHandle: null,
+        viewerFolderId: null,
       },
-      "owner"
+      "owner",
+      undefined
     );
     expect(summary.title).toBe('"'.repeat(100));
     expect(summary.titleTruncated).toBe(true);
     expect(noteSummarySchema.safeParse(summary).success).toBe(true);
+  });
+
+  // 資料夾 PR-3d：viewerFolderId 有值但名稱查不到（兩句之間被刪）→ folder: null，仍過 outputSchema；查得到 → { id, name }。
+  it("folder：名稱查不到 → null 仍過 outputSchema；查得到 → { id, name }", () => {
+    const row = {
+      id: "n-1", title: "t", ownerHandle: "alice", groupId: null, groupName: null, slug: "s", updatedAt: new Date(0),
+      lastEditedAt: null, lastEditedAgentLabel: null, editorHandle: null, viewerFolderId: "f-1",
+    };
+    const missing = toNoteSummary(row, "owner", undefined);
+    expect(missing.folder).toBeNull();
+    expect(noteSummarySchema.safeParse(missing).success).toBe(true);
+    const found = toNoteSummary(row, "owner", "F");
+    expect(found.folder).toEqual({ id: "f-1", name: "F" });
+    expect(noteSummarySchema.safeParse(found).success).toBe(true);
   });
 });

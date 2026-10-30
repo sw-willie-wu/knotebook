@@ -20,6 +20,7 @@ import type { Db } from "../db/index.js";
 import { foreignKeyViolationConstraint, isForeignKeyViolation, isNoteFolderSpaceViolation, isRetryableTxError } from "../db/pg-errors.js";
 import { FOLDER_NOT_FOUND_MESSAGE, NOTE_FOLDER_CROSS_SPACE_MESSAGE, NOTE_FOLDER_ROLE_FORBIDDEN_MESSAGE } from "../folders/messages.js";
 import { resolveFolderAccess } from "../folders/queries.js";
+import { newNoteFolderConsistent } from "../folders/space.js";
 import { notes, uploads } from "../db/schema.js";
 import type { GroupTestHook } from "../groups/test-hook.js";
 import type { FixedWindowLimiter } from "../http/rate-limit.js";
@@ -82,9 +83,7 @@ export async function copyNote(
     const folder = await resolveFolderAccess(deps.db, userId, input.folderId);
     if (folder === null) return { kind: "aborted", err: new TxAbort(404, "folder_not_found", FOLDER_NOT_FOUND_MESSAGE) };
     const space = folder.space;
-    const consistent = space.kind === "group"
-      ? input.groupId !== undefined && input.groupId.toLowerCase() === space.groupId
-      : space.kind === "personal" && input.groupId === undefined;
+    const consistent = newNoteFolderConsistent(space, input.groupId);
     if (!consistent) return { kind: "aborted", err: new TxAbort(400, "folder_cross_space", NOTE_FOLDER_CROSS_SPACE_MESSAGE) };
     folderId = folder.folder.id;
     groupFolder = space.kind === "group";

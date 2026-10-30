@@ -69,7 +69,7 @@ The items are handled one at a time. Items you can't act on are skipped, and the
 
 A single note can't be taken out of a group — to get a personal version, copy it. Deleting the whole group is the exception: it can give all of the group's notes to one of its admins (see [Notes in a group](#notes-in-a-group)).
 
-Over MCP, `move_note_to_group` and `copy_note` do the same; the only group condition they check is Create.
+Over MCP, `move_note_to_group` and `copy_note` move and copy into a group the same way, but at the group's top level the only group condition they check is Create; putting the note in one of the group's folders (`folder_id`) also needs Edit. Moving a note within the space it is in is MCP's `move_note_to_folder` (see [MCP](./mcp.md)).
 
 ## Folders
 
@@ -84,7 +84,7 @@ The sidebar's **My notes**, **Workspace** and **Shared with me** tabs show folde
 
 Deleting a note moves it to the trash (the sidebar's **Trash** tab) instead of deleting it for good. It stays there for the site's retention period — 7 days unless a site admin changed it — and is then permanently deleted automatically, unless a site admin turned automatic deletion off (see [Trash](./self-hosting.md#trash) for the schedule). Until then it can be restored, or deleted permanently, from the Trash tab.
 
-Over MCP, `delete_note` and `restore_note` move a note to the trash and bring it back, with the same role rules as the web app; they need the `notes:delete` scope, and no MCP tool deletes a note permanently.
+Over MCP, `delete_note` and `restore_note` move a note to the trash and bring it back, and `delete_folder` deletes a folder and the folders in it, moving the notes in your own or a group's folders to the trash, all with the same role rules as the web app; the three need the `notes:delete` scope, and no MCP tool deletes a note permanently.
 
 - **Who sees it.** A personal note is in the trash only for its owner. A group note is in the trash only for members whose role can **both** edit and delete notes; they can restore it or delete it permanently. Someone whose role can delete notes but not edit them can't get back a note they deleted, because after the deletion they can't see it — give the **Delete** permission together with **Edit**.
 - **While it is in the trash,** people it was shared with one by one lose access to it, and its public link (including a custom public URL) answers like a link that doesn't exist. Restoring the note brings both back as they were.
