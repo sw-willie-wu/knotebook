@@ -4,7 +4,8 @@ import { useTranslation } from "react-i18next";
 import { ApiFail } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ChevronRight, Folder, Share, User, Users } from "@/components/ui/icons";
+import { ChevronRight } from "@/components/ui/icons";
+import { destinationItemIcon } from "./destination-icon";
 import type { DestItem, DestMode, DestPathStep, DestTarget } from "./destination-level";
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
@@ -92,15 +93,6 @@ export function DestinationPickerDialog({
   );
 }
 
-/** 項目前導圖示：空間項依空間（個人 `User`、群組 `Users`、共享 `Share`）、資料夾項 `Folder`；返回、根目錄、放進這裡、建立副本不放。 */
-function itemIcon(item: DestItem): typeof Folder | null {
-  if (item.kind === "folder") return Folder;
-  if (item.kind !== "space" || item.target.kind !== "place") return null;
-  const { space } = item.target;
-  if (space.kind === "personal") return User;
-  return space.kind === "group" ? Users : Share;
-}
-
 /**
  * 一層的清單。掛在對話框內容裡（關框即卸載），掛上那次不搬焦點（交給 Radix 開框的自動聚焦）；之後 `levelKey` 每變一次，
  * 清單捲回頂端、焦點給第一個未停用的項目（第二層起即「‹ 返回」）；整層都反灰時給 `fallbackRef`（footer 的 Cancel），
@@ -139,7 +131,7 @@ function DestinationLevelList({
         if (item.kind === "separator") return <li key={item.key} role="separator" className="my-1 h-px bg-border" />;
         const drill = item.kind === "folder" || item.kind === "space" ? item.drill : null;
         const disabled = item.kind === "back" ? null : item.disabled;
-        const Icon = itemIcon(item);
+        const Icon = destinationItemIcon(item);
         return (
           <li key={item.key}>
             <Button
