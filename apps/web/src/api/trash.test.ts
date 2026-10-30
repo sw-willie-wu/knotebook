@@ -5,7 +5,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { NoteDto, TrashPurgeResultDto, TrashRestoreResultDto } from "@knotebook/shared";
 import { OWNER_PERMS } from "@/test/fixtures";
 import { trashItem, trashList } from "@/test/trash-fixtures";
+import { folderChain, folderDto } from "@/test/folder-fixtures";
+import { __resetCollapseForTests, isCollapsed, setCollapsed } from "@/components/sidebar/collapse";
+import { __resetFolderSortForTests } from "@/components/sidebar/folder-sort";
 import { ApiFail } from "./client";
+import { useFolders } from "./folders";
 import {
   chunkIds,
   invalidateTrashRelated,
@@ -84,6 +88,12 @@ const BUSY = () => fakeResponse(409, { error: { code: "server_busy", message: "b
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+afterEach(() => {
+  localStorage.clear();
+  __resetCollapseForTests();
+  __resetFolderSortForTests();
 });
 
 describe("chunkIds", () => {
@@ -275,6 +285,71 @@ describe("useRestoreTrash／usePurgeTrash", () => {
     await expect(result.current.mutateAsync(["n1", ...ids(200)])).rejects.toBeInstanceOf(TrashBatchError);
     expect(qc.getQueryState(["note", "n1"])?.status).toBe("success");
     expect(qc.getQueryData(["note", "n1"])).toEqual(restored);
+  });
+});
+
+// 資料夾 PR-3b-2 T7（spec §6.8 還原後展開；總管裁定 I4、I-A）：還原照原路徑重建的資料夾與祖先要展開。
+describe("useRestoreTrash × 還原後展開", () => {
+  const CHAIN = folderChain("R", 3); // R1 ⊃ R2 ⊃ R3
+  const inFolder = (id: string, folderId: string): NoteDto => ({ ...note(id), folderId });
+  const foldersReply = (folders: unknown[]) => () => fakeResponse(200, { folders });
+  const folderGets = (calls: Array<{ method: string; url: string }>) => calls.filter((c) => c.method === "GET" && c.url === "/api/folders").length;
+  const collapseAll = (ids: readonly string[]) => {
+    for (const id of ids) setCollapsed(`folder:${id}`, true);
+  };
+
+  it("TR-F1 還原成功（['folders'] 沒有 observer）→ 先收合的 folder:A 被展開", async () => {
+    stubFetch({
+      "POST /api/trash/restore": [() => fakeResponse(200, { restored: [inFolder("n1", "A")], skipped: [] })],
+      "GET /api/folders": [foldersReply([folderDto({ id: "A", name: "A" })])],
+    });
+    const qc = client();
+    collapseAll(["A"]);
+    const { result } = renderHook(() => useRestoreTrash(), { wrapper: wrapper(qc) });
+    await result.current.mutateAsync(["n1"]);
+    await waitFor(() => expect(isCollapsed("folder:A")).toBe(false));
+  });
+
+  it("FI-R2 掛著 useFolders observer（我的筆記 tab 的形）→ 還原成功後新資料夾與祖先展開、GET /api/folders 恰好 1 次、沒有 unhandled rejection", async () => {
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    try {
+      const calls = stubFetch({
+        "POST /api/trash/restore": [() => fakeResponse(200, { restored: [inFolder("n1", "R3")], skipped: [] })],
+        // 第一次是 observer 掛載時（舊的、還沒有重建的資料夾）；之後是還原後
+        "GET /api/folders": [foldersReply([]), foldersReply(CHAIN)],
+      });
+      const qc = client();
+      const { result } = renderHook(() => ({ folders: useFolders(), restore: useRestoreTrash() }), { wrapper: wrapper(qc) });
+      await waitFor(() => expect(result.current.folders.isSuccess).toBe(true));
+      const before = folderGets(calls);
+      expect(before).toBe(1);
+      collapseAll(["R1", "R2", "R3"]);
+
+      await result.current.restore.mutateAsync(["n1"]);
+      await waitFor(() => expect(isCollapsed("folder:R1")).toBe(false));
+      expect(isCollapsed("folder:R2")).toBe(false);
+      expect(isCollapsed("folder:R3")).toBe(false);
+      await waitFor(() => expect(result.current.folders.data).toEqual(CHAIN));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(folderGets(calls) - before).toBe(1);
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off("unhandledRejection", unhandled);
+    }
+  });
+
+  it("TR-F2 分批中途失敗（TrashBatchError）→ 已還原那幾篇的資料夾展開", async () => {
+    stubFetch({
+      "POST /api/trash/restore": [() => fakeResponse(200, { restored: [inFolder("n1", "A")], skipped: [] }), BUSY],
+      "GET /api/folders": [foldersReply([folderDto({ id: "A", name: "A" }), folderDto({ id: "B", name: "B" })])],
+    });
+    const qc = client();
+    collapseAll(["A", "B"]);
+    const { result } = renderHook(() => useRestoreTrash(), { wrapper: wrapper(qc) });
+    await expect(result.current.mutateAsync(["n1", ...ids(200)])).rejects.toBeInstanceOf(TrashBatchError);
+    await waitFor(() => expect(isCollapsed("folder:A")).toBe(false));
+    expect(isCollapsed("folder:B")).toBe(true);
   });
 });
 

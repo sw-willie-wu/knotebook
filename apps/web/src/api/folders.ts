@@ -11,12 +11,13 @@ export const FOLDERS_QUERY_KEY = ["folders"] as const;
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
 
-/** GET /api/folders → `.folders`（不是樹序，見 folder-index）。 */
+/** GET /api/folders → `.folders`（不是樹序，見 folder-index）。`useFolders` 與還原後展開（`expandAfterRestore`）共用。 */
+export async function fetchFolders(): Promise<FolderDto[]> {
+  return (await api<FolderListDto>("/api/folders")).folders;
+}
+
 export function useFolders(): UseQueryResult<FolderDto[]> {
-  return useQuery({
-    queryKey: FOLDERS_QUERY_KEY,
-    queryFn: async () => (await api<FolderListDto>("/api/folders")).folders,
-  });
+  return useQuery({ queryKey: FOLDERS_QUERY_KEY, queryFn: fetchFolders });
 }
 
 /** spec §6.15：資料夾 CRUD 之後；`trash: true` 給改名、刪資料夾（M14：垃圾桶項目的 folderPath 會變）。 */

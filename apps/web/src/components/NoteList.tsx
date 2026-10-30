@@ -456,13 +456,15 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
           />
         );
       case "newFolder":
-        // 本 PR 只有我的筆記宣告這個動作（PR-3b-2 加與我共享時依 tab 給 shared）。
+        // 我的筆記與與我共享宣告這個動作（資料夾 spec §6.1）：建在該 tab 的空間根層。
         return (
           <HeaderActionButton
             key={action}
             icon={FolderPlus}
             label={t("sidebar.newFolder")}
-            onClick={(event) => openFolderDialog({ kind: "create", parent: { space: { kind: "personal" } } }, event.currentTarget)}
+            onClick={(event) =>
+              openFolderDialog({ kind: "create", parent: { space: { kind: tab === "shared" ? "shared" : "personal" } } }, event.currentTarget)
+            }
           />
         );
       case "newGroup":

@@ -458,6 +458,7 @@
       "transferDescription_other": "{{count}} 篇筆記會變成 {{name}} 的個人筆記，網址改為 /n/…，舊網址一個月內自動轉址；其他成員會失去存取，若有公開連結也會關閉。",
       "transferDescriptionNoCount": "群組裡的筆記會變成 {{name}} 的個人筆記，網址改為 /n/…，舊網址一個月內自動轉址；其他成員會失去存取，若有公開連結也會關閉。",
       "transferTrashNote": "垃圾桶裡的群組筆記會進 {{name}} 的個人垃圾桶，保留期照原刪除時間計算；它們的公開連結同樣會關閉。",
+      "transferFoldersNote": "群組的資料夾會放進 {{name}} 的「我的筆記」，在一個以群組名命名的資料夾底下。",
       "deleteLabel": "全部刪除",
       "deleteDescription_one": "{{count}} 篇筆記連同附件與修改紀錄會永久刪除，不會進垃圾桶，無法復原。",
       "deleteDescription_other": "{{count}} 篇筆記連同附件與修改紀錄會永久刪除，不會進垃圾桶，無法復原。",

@@ -439,7 +439,8 @@ describe("NoteList", () => {
       expect(within(header()).getAllByRole("button")[0]).toHaveAccessibleName("Select");
     });
 
-    it("最近、與我共享：標題列只有「Select」", async () => {
+    // FR-S1（資料夾 PR-3b-2 T7；spec §6.1）：與我共享多一顆「New folder」，排在 Select 之後。
+    it("最近：標題列只有「Select」；與我共享：「Select」＋「New folder」", async () => {
       stubNotesFetch([OWNER_NOTE, SHARED_NOTE]);
       renderNoteList({}, { tab: "recent" });
       await within(panel()).findByRole("link", { name: startsWith("Has A Slug") });
@@ -450,8 +451,10 @@ describe("NoteList", () => {
       selectTab("Shared with me");
       await within(panel()).findByRole("link", { name: "No Slug Note" });
       expect(within(header()).getByText("Shared with me")).toBeInTheDocument();
-      expect(within(header()).queryAllByRole("button")).toHaveLength(1);
-      expect(within(header()).getByRole("button")).toHaveAccessibleName("Select");
+      const buttons = within(header()).queryAllByRole("button");
+      expect(buttons).toHaveLength(2);
+      expect(buttons[0]).toHaveAccessibleName("Select");
+      expect(buttons[1]).toHaveAccessibleName("New folder");
     });
 
     it("標題列「＋」：個人筆記 → onCreateNote(undefined)；disabled 跟 createNotePending", async () => {
@@ -1628,7 +1631,7 @@ describe("NoteList × 新增資料夾", () => {
     vi.unstubAllGlobals();
   });
 
-  it("FR12 我的筆記標題列依序 Select、New folder、New personal note；New folder 帶 folder-plus 圖示、24px；與我共享只有 Select；工作坊 Select、New group", async () => {
+  it("FR12 我的筆記標題列依序 Select、New folder、New personal note；New folder 帶 folder-plus 圖示、24px；與我共享 Select、New folder（PR-3b-2 T7）；工作坊 Select、New group", async () => {
     stubCreate();
     renderNoteList();
     await within(panel()).findByRole("link", { name: OWNER_NOTE.title });
@@ -1637,7 +1640,7 @@ describe("NoteList × 新增資料夾", () => {
     expect(newFolder.querySelector('svg[data-icon="folder-plus"]')).not.toBeNull();
     expect(newFolder).toHaveClass("h-6", "w-6");
     selectTab("Shared with me");
-    expect(headerNames()).toEqual(["Select"]);
+    expect(headerNames()).toEqual(["Select", "New folder"]);
     selectTab("Workspace");
     expect(headerNames()).toEqual(["Select", "New group"]);
   });
@@ -1651,6 +1654,18 @@ describe("NoteList × 新增資料夾", () => {
     fireEvent.change(input, { target: { value: "Plans" } });
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
     await waitFor(() => expect(posts).toEqual([{ name: "Plans", space: { kind: "personal" } }]));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("FR-S2 與我共享按 New folder → 對話框（lazy）→ 送出 body space: shared", async () => {
+    const posts = stubCreate();
+    renderNoteList({}, { tab: "shared" });
+    await waitFor(() => expect(within(header()).getByText("Shared with me")).toBeInTheDocument());
+    fireEvent.click(within(header()).getByRole("button", { name: "New folder" }));
+    const input = await screen.findByRole("textbox", { name: "Folder name" });
+    fireEvent.change(input, { target: { value: "Inbox" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    await waitFor(() => expect(posts).toEqual([{ name: "Inbox", space: { kind: "shared" } }]));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 

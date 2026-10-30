@@ -188,11 +188,11 @@ describe("一般 tab 的選取模式（PR-2c T4）", () => {
       expect(selectButton()).toBeEnabled();
     });
 
-    it("與我共享只有 Select", async () => {
+    it("與我共享 Select、New folder", async () => {
       stubFetch({ notes: ALL_NOTES });
       renderPanel({ tab: "shared" });
       await within(panel()).findByRole("link", { name: /^s1/ });
-      expect(headerButtonNames()).toEqual(["Select"]);
+      expect(headerButtonNames()).toEqual(["Select", "New folder"]);
       expect(selectButton()).toBeEnabled();
     });
 

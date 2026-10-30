@@ -10,6 +10,7 @@ import {
   createFolderRequest,
   applyPlacedNote,
   FOLDERS_QUERY_KEY,
+  fetchFolders,
   folderErrorMessage,
   moveFolderRequest,
   placeNoteRequest,
@@ -77,6 +78,13 @@ describe("api/folders", () => {
     await waitFor(() => expect(result.current.data).toEqual(folders));
     expect(calls).toEqual([{ method: "GET", url: "/api/folders", body: undefined }]);
     expect(queryClient.getQueryData(FOLDERS_QUERY_KEY)).toEqual(folders);
+  });
+
+  it("FA1b fetchFolders：GET /api/folders → .folders（useFolders 與還原後展開共用）", async () => {
+    const folders = [folderDto({ id: "f1", name: "A" }), groupFolder({ id: "g1", name: "G", groupId: "g" })];
+    const calls = stubFetch({ "GET /api/folders": () => fakeResponse(200, { folders }) });
+    await expect(fetchFolders()).resolves.toEqual(folders);
+    expect(calls).toEqual([{ method: "GET", url: "/api/folders", body: undefined }]);
   });
 
   it("FA2 createFolderRequest：根層帶 space、子資料夾帶 parentId，body 逐字", async () => {
