@@ -21,6 +21,7 @@ import {
   type DestTarget,
   type Translate,
 } from "@/components/sidebar/destination-level";
+import { destinationItemIcon } from "@/components/sidebar/destination-icon";
 import { indexFolders, type FolderIndex } from "@/components/sidebar/folder-index";
 import { Button } from "@/components/ui/button";
 import {
@@ -174,6 +175,7 @@ function DestinationLevelItems({
       {items.map((item, position) => {
         if (item.kind === "separator") return <DropdownMenuSeparator key={item.key} />;
         const drill = item.kind === "folder" || item.kind === "space" ? item.drill : null;
+        const Icon = destinationItemIcon(item);
         return (
           <DropdownMenuItem
             key={item.key}
@@ -203,6 +205,7 @@ function DestinationLevelItems({
               }
             }}
           >
+            {Icon !== null && <Icon aria-hidden="true" className="mr-2 h-4 w-4 shrink-0" />}
             <span className="truncate">
               {item.kind === "back" && <span aria-hidden="true">‹ </span>}
               {item.label}
