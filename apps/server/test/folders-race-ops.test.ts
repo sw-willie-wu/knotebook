@@ -125,10 +125,25 @@ async function scene(): Promise<Scene> {
   };
 }
 
-/** first 卡在 point；second 送出；斷言 second 真的在等鎖、兩者都不是 server_busy／5xx。回 [first, second] 的回應。 */
-async function race(s: Scene, point: GroupRacePoint, first: () => Promise<Res>, second: () => Promise<Res>): Promise<[Res, Res]> {
+/**
+ * first 卡在 point；second 送出；斷言 second 真的在等鎖、兩者都不是 server_busy／5xx。回 [first, second] 的回應。
+ * `holdSecondUntilFirstReplies`：second 拿到鎖、走到這個縫之後，等 first 回完應答才繼續——first commit 之後在鎖外重讀組回應，
+ * 不讓 second 搶在重讀前 commit（那會讓 first 偶爾回成 404）。同 `trash-race-ops.test.ts` 的 `opFirst`。
+ */
+async function race(
+  s: Scene,
+  point: GroupRacePoint,
+  first: () => Promise<Res>,
+  second: () => Promise<Res>,
+  holdSecondUntilFirstReplies?: GroupRacePoint,
+): Promise<[Res, Res]> {
+  // Seams 以點名為鍵：同一點後登記的會蓋掉 first 的 hold。
+  if (holdSecondUntilFirstReplies === point) throw new Error(`holdSecondUntilFirstReplies 不能與 point 同為 ${point}`);
   const h = s.seams.hold(point);
-  const p1 = first();
+  let replied!: () => void;
+  const firstReplied = new Promise<void>(r => { replied = r; });
+  if (holdSecondUntilFirstReplies !== undefined) s.seams.on(holdSecondUntilFirstReplies, () => firstReplied);
+  const p1 = first().finally(() => replied());
   await entered(h.entered, p1);
   const p2 = second();
   const waited = await sawLockWaiters(s.pool, 1);
@@ -769,7 +784,8 @@ describe("RN-TR 放置與移入垃圾桶（同篇）", () => {
   it("放置先（停在 note-folder-locked，持筆記 FU）：移入在筆記鎖上等 → 放置 200；移入 204、快照是新位置", async () => {
     const s = await scene();
     const t = await setup(s);
-    const [pr, tr] = await race(s, "note-folder-locked", () => place(s.app, t.u, t.n, t.F2), () => trashNote(s.app, t.u, t.n));
+    // 移入在放置 commit 時拿到筆記鎖；停在 note-trash-locked 等放置回完應答，不和放置 commit 後的重讀競速。
+    const [pr, tr] = await race(s, "note-folder-locked", () => place(s.app, t.u, t.n, t.F2), () => trashNote(s.app, t.u, t.n), "note-trash-locked");
     expect(okJson<NoteDto>(pr, 200).folderId).toBe(t.F2);
     expect(tr.statusCode, tr.body).toBe(204);
     expect((await trashCols(s.pool, t.n))?.deleted_at).not.toBeNull();

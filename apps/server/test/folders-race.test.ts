@@ -123,10 +123,25 @@ async function scene(): Promise<Scene> {
   };
 }
 
-/** first 卡在 point；second 送出並確認在等鎖；放行。回 [first, second] 的回應，並斷言都不是 server_busy／5xx。 */
-async function race(s: Scene, point: GroupRacePoint, first: () => Promise<Res>, second: () => Promise<Res>): Promise<[Res, Res]> {
+/**
+ * first 卡在 point；second 送出並確認在等鎖；放行。回 [first, second] 的回應，並斷言都不是 server_busy／5xx。
+ * `holdSecondUntilFirstReplies`：second 拿到鎖、走到這個縫之後，等 first 回完應答才繼續——first commit 之後在鎖外重讀組回應，
+ * 不讓 second 搶在重讀前 commit（那會讓 first 偶爾回成 404）。同 `trash-race-ops.test.ts` 的 `opFirst`。
+ */
+async function race(
+  s: Scene,
+  point: GroupRacePoint,
+  first: () => Promise<Res>,
+  second: () => Promise<Res>,
+  holdSecondUntilFirstReplies?: GroupRacePoint,
+): Promise<[Res, Res]> {
+  // Seams 以點名為鍵：同一點後登記的會蓋掉 first 的 hold。
+  if (holdSecondUntilFirstReplies === point) throw new Error(`holdSecondUntilFirstReplies 不能與 point 同為 ${point}`);
   const h = s.seams.hold(point);
-  const p1 = first();
+  let replied!: () => void;
+  const firstReplied = new Promise<void>(r => { replied = r; });
+  if (holdSecondUntilFirstReplies !== undefined) s.seams.on(holdSecondUntilFirstReplies, () => firstReplied);
+  const p1 = first().finally(() => replied());
   await entered(h.entered, p1);
   const p2 = second();
   await blockedOrBail(s.pool, 1, h.open, [p1, p2]);
@@ -270,7 +285,9 @@ describe("RF-PI 刪資料夾與子樹內放置", () => {
     const t = await personalTree(s);
     const H = (await seedFolder(s.db, { personal: t.u }, { parentId: t.F, name: "H" })).id;
     const n = await noteIn(s, { ownerId: t.u }, t.G);
-    const [pr, dr] = await race(s, "note-folder-locked", () => place(s.app, t.u, n, H), () => delFolder(s.app, t.u, t.F));
+    // 刪資料夾鎖完子樹筆記後停在 folder-delete-notes-locked 等放置回完應答，不和放置 commit 後的重讀競速
+    // （刪資料夾呼叫 `trashNotesInTx` 不帶 hook，note-trash-locked 不會觸發）。
+    const [pr, dr] = await race(s, "note-folder-locked", () => place(s.app, t.u, n, H), () => delFolder(s.app, t.u, t.F), "folder-delete-notes-locked");
     expect(okJson<NoteDto>(pr, 200).folderId).toBe(H);
     expect(okJson<FolderDeleteResultDto>(dr, 200)).toEqual({ trashedNoteIds: sorted([t.a, n]), deletedFolderIds: sorted([t.F, t.G, H]) });
     await expectTrashedWith(s.pool, n, ["F", "H"]);
