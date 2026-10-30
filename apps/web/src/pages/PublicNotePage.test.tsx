@@ -62,8 +62,9 @@ function mockFetch(handler: (url: string) => { status: number; body: unknown } |
 
 function renderPage(entry = `/p/${TOKEN}`) {
   // 刻意**不**在測試端關 retry（突變審查抓到的遮蔽形）：頁面自己的 `retry: false`
-  // 必須承重——它一被拿掉，404/429 案就會重試三次，下面的呼叫次數斷言與
-  // waitFor 時限（預設 1 秒 < 首次重試退避後的總時長）都會紅。
+  // 必須承重——它一被拿掉，404/429 案就會重試三次，錯誤畫面要等第四次失敗才出現。
+  // 守法是**計次**：404、429 兩案都在錯誤畫面出現後斷言公開端點恰被打一次（重試的話已是 4 次）。
+  // 不靠 waitFor 時限：react-query 預設退避 1+2+4≈7 秒，塞得進全域 asyncUtilTimeout（test/setup.ts）。
   // 路由樹帶兩形（與 App.tsx 同構）：形的判別在頁內 useParams。
   const queryClient = new QueryClient();
   render(
@@ -189,7 +190,7 @@ describe("PublicNotePage（#72 /p/:token＋#122 PR3 /p/:handle/:slug 免登入�
   });
 
   it("非 404 的失敗（429 節流）→ 顯示 errors.<code> 文案而非失效卡（連結可能還活著，不能誤告使用者「已失效」）", async () => {
-    const { fn } = mockFetch((url) =>
+    const { fn, calls } = mockFetch((url) =>
       url === `/api/public/notes/${TOKEN}`
         ? { status: 429, body: { error: { code: "too_many_requests", message: "請求過於頻繁" } } }
         : null,
@@ -201,6 +202,8 @@ describe("PublicNotePage（#72 /p/:token＋#122 PR3 /p/:handle/:slug 免登入�
     // 逐字斷 errors.too_many_requests 的文案（不是 errors.fallback）——非 404 分支
     // 塌縮成一律 fallback 的突變要在這裡紅。
     await waitFor(() => expect(screen.getByText("Too many requests. Please slow down.")).toBeInTheDocument());
+    // 頁面的 `retry: false` 守門（見 renderPage 註解）：節流後還重試三次只會更糟。
+    expect(calls).toEqual([`GET /api/public/notes/${TOKEN}`]);
     expect(screen.getByRole("alert")).toBeInTheDocument();
     expect(screen.queryByText("This link doesn't exist or is no longer active.")).not.toBeInTheDocument();
     expect(screen.queryByTestId("public-note-editor")).not.toBeInTheDocument();

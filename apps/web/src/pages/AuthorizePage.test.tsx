@@ -38,8 +38,10 @@ function LocationProbe() {
   return <div data-testid="app-location">{`${location.pathname}${location.search}`}</div>;
 }
 
-// ⚠ 刻意**不**在 harness 設 `retry: false`：410／404 案的即時性要靠 hook 自己的
-// `retry: false`——在這裡蓋掉，hook 那行拿掉也全綠（正式站會多重試三次才顯示錯誤）。
+// ⚠ 刻意**不**在 harness 設 `retry: false`：410／404 案守的是 hook 自己的 `retry: false`
+// ——在這裡蓋掉，hook 那行拿掉也全綠（正式站會多重試三次才顯示錯誤）。守法是**計次**：錯誤畫面
+// 出現時 `/api/oauth/request` 恰被打一次（重試三次的話錯誤要等第四次失敗才出現，此時已是 4 次）。
+// 不靠等待上限：react-query 預設退避 1+2+4≈7 秒，塞得進全域 asyncUtilTimeout，只看「多久出現」守不住。
 function renderAt(path: string, me: () => Response = () => okMe()) {
   const client = new QueryClient();
   meHandler = me;
@@ -92,6 +94,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   meHandler = okMe;
+  // toast 跨案清空由 test/setup.ts 的全域 afterEach 負責（「decision 回 410」的 toast 與「410 → 錯誤頁」
+  // 的頁內文案同字，沒清的話後者會撈到上一案的 toast 而假綠）。
 });
 
 describe("AuthorizePage", () => {
@@ -263,18 +267,25 @@ describe("AuthorizePage", () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith("/api/oauth/request"))).toBe(false);
   });
 
-  it("410 → 顯示「請從應用程式重新發起」且沒有按鈕", async () => {
-    vi.stubGlobal("fetch", mockFetch(() => errorResponse(410, "oauth_request_invalid")));
+  it("410 → 顯示「請從應用程式重新發起」且沒有按鈕；不重試（恰打一次）", async () => {
+    const fetchMock = mockFetch(() => errorResponse(410, "oauth_request_invalid"));
+    vi.stubGlobal("fetch", fetchMock);
+    const requestCalls = () => fetchMock.mock.calls.filter(([url]) => String(url).startsWith("/api/oauth/request")).length;
     renderAt("/authorize?req=abc");
     expect(await screen.findByText(/already been used or has expired/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Allow" })).not.toBeInTheDocument();
+    // hook 的 `retry: false` 守門（見 renderAt 上方註解）：重試的話錯誤出現時已打 4 次。
+    expect(requestCalls()).toBe(1);
   });
 
-  it("404 → 通用錯誤且沒有按鈕", async () => {
-    vi.stubGlobal("fetch", mockFetch(() => errorResponse(404, "not_found")));
+  it("404 → 通用錯誤且沒有按鈕；不重試（恰打一次）", async () => {
+    const fetchMock = mockFetch(() => errorResponse(404, "not_found"));
+    vi.stubGlobal("fetch", fetchMock);
+    const requestCalls = () => fetchMock.mock.calls.filter(([url]) => String(url).startsWith("/api/oauth/request")).length;
     renderAt("/authorize?req=abc");
     expect(await screen.findByText(/Couldn't load this authorization request/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Allow" })).not.toBeInTheDocument();
+    expect(requestCalls()).toBe(1);
   });
 });
 

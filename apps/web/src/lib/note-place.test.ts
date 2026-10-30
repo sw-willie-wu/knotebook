@@ -181,3 +181,160 @@ describe("placeNoteWithUndo", () => {
     expect(message.textContent).toMatch(/at most \d+ levels/);
   });
 });
+
+// 拖曳的放置（spec §6.13）：optimistic 時 PUT 前先改 ["notes"]，失敗回滾；⋮ 不帶 optimistic，行為不變。
+describe("placeNoteWithUndo optimistic", () => {
+  const CACHED: NoteDto[] = [personalNote({ id: "n1", title: "Note", folderId: null }), personalNote({ id: "n2", title: "Other", folderId: "B" })];
+
+  /** PUT 先掛著，respond(reply) 才回。 */
+  function stubDeferredPut() {
+    const bodies: unknown[] = [];
+    let respond: (reply: Reply) => void = () => {
+      throw new Error("PUT not sent yet");
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (method === "PUT" && url === PUT_URL) {
+          bodies.push(JSON.parse(String(init?.body)));
+          return new Promise<Response>((resolve) => {
+            respond = (reply) => resolve(fakeResponse(reply.status, reply.body));
+          });
+        }
+        throw new Error(`unexpected fetch: ${method} ${url}`);
+      }),
+    );
+    return { bodies, respond: (reply: Reply) => respond(reply) };
+  }
+
+  const folderOf = (queryClient: QueryClient, id: string) => queryClient.getQueryData<NoteDto[]>(["notes"])?.find((note) => note.id === id)?.folderId;
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    act(() => dismissAllToasts());
+  });
+
+  it("NP-O1 optimistic：PUT 回應前 ['notes'] 裡 n1 的 folderId 已是 A1、其他篇不變；回應後照常 toast", async () => {
+    const { bodies, respond } = stubDeferredPut();
+    const { queryClient, t } = setup();
+    queryClient.setQueryData(["notes"], CACHED);
+
+    const done = placeNoteWithUndo({ noteId: "n1", from: null, to: { folderId: "A1", name: "A1" }, index: INDEX, queryClient, t, optimistic: true });
+    await waitFor(() => expect(bodies).toEqual([{ folderId: "A1" }]));
+
+    expect(folderOf(queryClient, "n1")).toBe("A1");
+    expect(folderOf(queryClient, "n2")).toBe("B");
+    respond({ status: 200, body: PLACED_A1 });
+    await act(() => done);
+    expect(await screen.findByText("Moved to “A1”", { exact: true })).toBeInTheDocument();
+  });
+
+  it("NP-O2 optimistic＋PUT 404 → ['notes'] 回到快照、錯誤 toast「Folder not found.」", async () => {
+    const { bodies, respond } = stubDeferredPut();
+    const { queryClient, t } = setup();
+    queryClient.setQueryData(["notes"], CACHED);
+
+    const done = placeNoteWithUndo({ noteId: "n1", from: null, to: { folderId: "A1", name: "A1" }, index: INDEX, queryClient, t, optimistic: true });
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(folderOf(queryClient, "n1")).toBe("A1");
+    respond(fail(404, "folder_not_found"));
+    await act(() => done);
+
+    expect(queryClient.getQueryData(["notes"])).toEqual(CACHED);
+    expect(await screen.findByText("Folder not found.", { exact: true })).toBeInTheDocument();
+    expect(toastRoot("Folder not found.")).toHaveClass("bg-destructive");
+  });
+
+  it("NP-O3 不帶 optimistic（⋮）→ PUT 回應前 ['notes'] 不變", async () => {
+    const { bodies, respond } = stubDeferredPut();
+    const { queryClient, t } = setup();
+    queryClient.setQueryData(["notes"], CACHED);
+
+    const done = placeNoteWithUndo({ noteId: "n1", from: null, to: { folderId: "A1", name: "A1" }, index: INDEX, queryClient, t });
+    await waitFor(() => expect(bodies).toHaveLength(1));
+
+    expect(queryClient.getQueryData(["notes"])).toEqual(CACHED);
+    respond({ status: 200, body: PLACED_A1 });
+    await act(() => done);
+  });
+
+  it("NP-O4 optimistic 但 ['notes'] 沒有快取 → 照常送 PUT、失敗也不寫入 ['notes']", async () => {
+    const { bodies, respond } = stubDeferredPut();
+    const { queryClient, t } = setup();
+
+    const done = placeNoteWithUndo({ noteId: "n1", from: null, to: { folderId: "A1", name: "A1" }, index: INDEX, queryClient, t, optimistic: true });
+    await waitFor(() => expect(bodies).toEqual([{ folderId: "A1" }]));
+    respond(fail(403, "forbidden"));
+    await act(() => done);
+
+    expect(queryClient.getQueryData(["notes"])).toBeUndefined();
+    expect(await screen.findByText("You don't have permission to do that.", { exact: true })).toBeInTheDocument();
+  });
+
+  it("NP-O5 optimistic＋PUT 期間別處改了 n2 → PUT 失敗只還原 n1，n2 的新值留著", async () => {
+    const { bodies, respond } = stubDeferredPut();
+    const { queryClient, t } = setup();
+    queryClient.setQueryData(["notes"], CACHED);
+
+    const done = placeNoteWithUndo({ noteId: "n1", from: null, to: { folderId: "A1", name: "A1" }, index: INDEX, queryClient, t, optimistic: true });
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    queryClient.setQueryData<NoteDto[]>(["notes"], (list) => list?.map((note) => (note.id === "n2" ? { ...note, folderId: "A" } : note)));
+    respond(fail(403, "forbidden"));
+    await act(() => done);
+
+    expect(folderOf(queryClient, "n1")).toBeNull();
+    expect(folderOf(queryClient, "n2")).toBe("A");
+  });
+
+  it("NP-O8 optimistic＋PUT 403 → ['notes'] 被失效（被取消的重抓要補回來）", async () => {
+    const { bodies, respond } = stubDeferredPut();
+    const { queryClient, t } = setup();
+    queryClient.setQueryData(["notes"], CACHED);
+    expect(queryClient.getQueryState(["notes"])?.isInvalidated).toBe(false);
+
+    const done = placeNoteWithUndo({ noteId: "n1", from: null, to: { folderId: "A1", name: "A1" }, index: INDEX, queryClient, t, optimistic: true });
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    respond(fail(403, "forbidden"));
+    await act(() => done);
+
+    expect(queryClient.getQueryState(["notes"])?.isInvalidated).toBe(true);
+  });
+
+  it("NP-O6 optimistic 只取消 ['notes'] 本身：進行中的 ['notes','n1','versions'] 照常 fetching", async () => {
+    const { bodies, respond } = stubDeferredPut();
+    const { queryClient, t } = setup();
+    queryClient.setQueryData(["notes"], CACHED);
+    queryClient.fetchQuery({ queryKey: ["notes", "n1", "versions"], queryFn: () => new Promise<never>(() => {}) }).catch(() => {});
+    await waitFor(() => expect(queryClient.getQueryState(["notes", "n1", "versions"])?.fetchStatus).toBe("fetching"));
+
+    const done = placeNoteWithUndo({ noteId: "n1", from: null, to: { folderId: "A1", name: "A1" }, index: INDEX, queryClient, t, optimistic: true });
+    await waitFor(() => expect(bodies).toHaveLength(1));
+
+    expect(queryClient.getQueryState(["notes", "n1", "versions"])?.fetchStatus).toBe("fetching");
+    respond({ status: 200, body: PLACED_A1 });
+    await act(() => done);
+  });
+
+  it("NP-O7 optimistic：PUT 回應前目標 A1 與祖先 A 已寫成展開", async () => {
+    const { bodies, respond } = stubDeferredPut();
+    const { queryClient, t } = setup();
+    queryClient.setQueryData(["notes"], CACHED);
+    setCollapsed("folder:A", true);
+    setCollapsed("folder:A1", true);
+
+    const done = placeNoteWithUndo({ noteId: "n1", from: null, to: { folderId: "A1", name: "A1" }, index: INDEX, queryClient, t, optimistic: true });
+    await waitFor(() => expect(bodies).toHaveLength(1));
+
+    expect(isCollapsed("folder:A")).toBe(false);
+    expect(isCollapsed("folder:A1")).toBe(false);
+    respond({ status: 200, body: PLACED_A1 });
+    await act(() => done);
+  });
+});

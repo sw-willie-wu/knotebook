@@ -13,6 +13,7 @@ import { installFakeFullscreen, type FakeFullscreen } from "@/test/fake-fullscre
 import { PresentationShell } from "./PresentationShell";
 import PresentationOverlay, { type PresentationOverlayProps } from "./PresentationOverlay";
 import { createExportEditor, renderDeck } from "./render";
+import { UPDATE_DEBOUNCE_MS } from "./debounce";
 import { OWNER_PERMS } from "@/test/fixtures";
 
 vi.mock("reveal.js", async () => ({ default: (await import("@/test/fake-reveal")).FakeReveal }));
@@ -364,17 +365,45 @@ describe("PresentationOverlay（fake reveal）", () => {
       typeChar();
       await new Promise((r) => setTimeout(r, 20));
     }
-    await waitFor(() => expect(vi.mocked(renderDeck).mock.calls.length).toBe(initialCalls + 1), { timeout: 2000 });
+    await waitFor(() => expect(vi.mocked(renderDeck).mock.calls.length).toBe(initialCalls + 1));
     await new Promise((r) => setTimeout(r, 700));
     expect(vi.mocked(renderDeck).mock.calls.length).toBe(initialCalls + 1);
 
-    const before = vi.mocked(renderDeck).mock.calls.length;
-    const started = Date.now();
-    while (Date.now() - started < 2300) {
-      typeChar();
-      await new Promise((r) => setTimeout(r, 100));
+    // 持續每 100 ms 打一字，直到重切發生（上限 6 s）。不用「打滿 2.3 s 就驗」的固定窗：maxWait 2 s
+    // 只留 300 ms 餘裕，平行負載下計時器晚到就假紅。改證「trailing 計時器從未有機會到期」：
+    // debouncer.schedule() 在 insert 的交易內同步呼叫，所以第 i 次 schedule 落在 [打字前, 打字後] 之間；
+    // 重切時刻取 renderDeck 被呼叫的當下（≥ 計時器實際到期）。於是
+    //   相鄰兩次 schedule 的間隔 ≤ 後一次的「打字後」− 前一次的「打字前」，
+    //   最後一次 schedule 到重切 ≤ 重切時刻 − 最後一次的「打字前」，
+    // 這些上界全都 < UPDATE_DEBOUNCE_MS ⇒ 這次重切只可能是 maxWait 觸發的。只量打字與重切本身，
+    // 不把 sleep／輪詢的延遲算進去，CPU 卡頓造成的假紅只剩「真的卡在兩次 schedule 之間」一種。
+    // maxWait 的精確時刻由 debounce.test.ts 以 fake timers 守。
+    const fireTimes: number[] = [];
+    const realRenderDeck = vi.mocked(renderDeck).getMockImplementation()!;
+    vi.mocked(renderDeck).mockImplementation((input) => {
+      fireTimes.push(Date.now());
+      return realRenderDeck(input);
+    });
+    try {
+      const keys: { before: number; after: number }[] = [];
+      const started = Date.now();
+      while (fireTimes.length === 0 && Date.now() - started < 6_000) {
+        const t = Date.now();
+        typeChar();
+        keys.push({ before: t, after: Date.now() });
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      expect(fireTimes.length).toBeGreaterThan(0);
+      const fire = fireTimes[0];
+      // 計時器回呼不會插進同步的 typeChar 中間：重切前完成的輸入＝「打字後」不晚於重切的那些。
+      const sent = keys.filter((k) => k.after <= fire);
+      expect(sent.length).toBeGreaterThan(0);
+      const gapBounds = sent.slice(1).map((k, i) => k.after - sent[i].before);
+      gapBounds.push(fire - sent[sent.length - 1].before);
+      expect(Math.max(...gapBounds)).toBeLessThan(UPDATE_DEBOUNCE_MS);
+    } finally {
+      vi.mocked(renderDeck).mockImplementation(realRenderDeck);
     }
-    expect(vi.mocked(renderDeck).mock.calls.length).toBeGreaterThan(before);
   });
 
   it("test 7：目前那張被刪 → slide() 到前一張、hash replace；目前那張內容變 → 捲頂；別張變 → 不捲、不重建目前那張", async () => {
@@ -397,7 +426,7 @@ describe("PresentationOverlay（fake reveal）", () => {
       { id: "b", type: "heading", props: { level: 2 }, content: "B changed" },
     ] as never, YDOC_FRAGMENT);
     rerenderWith({ variant: "public", doc: v2, title: "My Note", publicRef: { kind: "token", token: "t" } });
-    await waitFor(() => expect(slideEl("b").textContent).toContain("B changed"), { timeout: 2000 });
+    await waitFor(() => expect(slideEl("b").textContent).toContain("B changed"));
     expect(slideEl("a2").querySelector(".kn-slide-body")!.firstChild).toBe(a2Body);
     expect(scrollSet).not.toHaveBeenCalled();
     // §7.1-4：結構沒變 → 只 syncSlide 有變的那張、不 sync（r1-p2 MINOR 7）
@@ -413,7 +442,7 @@ describe("PresentationOverlay（fake reveal）", () => {
       { id: "b", type: "heading", props: { level: 2 }, content: "B changed" },
     ] as never, YDOC_FRAGMENT);
     rerenderWith({ variant: "public", doc: v3, title: "My Note", publicRef: { kind: "token", token: "t" } });
-    await waitFor(() => expect(scrollSet).toHaveBeenCalledWith(0), { timeout: 2000 });
+    await waitFor(() => expect(scrollSet).toHaveBeenCalledWith(0));
 
     // 目前那張被刪（a2 的標題沒了）→ 前一張 a
     const v4 = blocksToYDoc(editor, [
@@ -423,7 +452,7 @@ describe("PresentationOverlay（fake reveal）", () => {
       { id: "b", type: "heading", props: { level: 2 }, content: "B changed" },
     ] as never, YDOC_FRAGMENT);
     rerenderWith({ variant: "public", doc: v4, title: "My Note", publicRef: { kind: "token", token: "t" } });
-    await waitFor(() => expect(loc()).toBe(`${BASE}?present#/a`), { timeout: 2000 });
+    await waitFor(() => expect(loc()).toBe(`${BASE}?present#/a`));
     expect(nav.fn).toHaveBeenLastCalledWith({ pathname: BASE, search: "?present", hash: "#/a" }, { replace: true, state: null });
     expect(deck.slide).toHaveBeenLastCalledWith(1, 0);
     expect(deck.sync).toHaveBeenCalled();

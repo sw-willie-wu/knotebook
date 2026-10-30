@@ -2,7 +2,7 @@
  * 資料夾 PR-3a T6：`PATCH /api/folders/:id`（spec §5.7.2 改名、§5.7.3 搬移〔只限同空間〕、§5.5 入口順序、A3-10 ①、A3-11）。
  * 控制字元與組合字元一律以 `String.fromCharCode` 組字（原始碼不放跳脫序列）。
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import type { Pool } from "pg";
 import { FOLDER_DEPTH_MAX, type FolderDto } from "@knotebook/shared";
@@ -13,6 +13,13 @@ import { folderRow, noteFolderCols, placementOf, seedFolder, seedFolderChain, se
 import { noteState, seedNote, seedShare, seedUser } from "./group-helpers.js";
 import { buildTestApp, freshLimiters } from "./helpers.js";
 import { inject, markTrashed, sixRoleScene, trashCols } from "./trash-helpers.js";
+import { INJECTED_LOCK_TIMEOUT_BOUND_MS } from "./lock-timeout-bound.js";
+
+// 預設空間鎖上限在本檔換成 60 s（產品值 5000），「注入的短上限有生效」的牆鐘界線才能離兩邊都遠——見 ./lock-timeout-bound.ts。
+vi.mock("../src/storage/tx/quota.js", async () => ({
+  ...(await vi.importActual<typeof import("../src/storage/tx/quota.js")>("../src/storage/tx/quota.js")),
+  DEFAULT_STORAGE_LOCK_TIMEOUT_MS: (await import("./lock-timeout-bound.js")).SLOW_DEFAULT_LOCK_TIMEOUT_MS,
+}));
 
 const NUL = String.fromCharCode(0);
 const COMBINING_ACUTE = String.fromCharCode(0x301);
@@ -447,7 +454,7 @@ describe("PATCH /api/folders/:id", () => {
     expect(await nameOf(pool, gs.id)).toBe("GS");
   });
 
-  it("FU-12 結構鎖等太久（另一條連線持住同空間的鎖、lock_timeout 300 ms）：409 server_busy（< 3000 ms）、沒有寫；鎖放掉後照常 200", async () => {
+  it("FU-12 結構鎖等太久（另一條連線持住同空間的鎖、lock_timeout 300 ms）：409 server_busy（< 20 s：注入值有生效，不是本檔預設 60 s）、沒有寫；鎖放掉後照常 200", async () => {
     const { app, db } = await buildTestApp({ storageLockTimeoutMs: 300 });
     const pool = db.$client;
     const u = await seedUser(db);
@@ -461,7 +468,7 @@ describe("PATCH /api/folders/:id", () => {
       const ms = Date.now() - t0;
       failed(res, 409, "server_busy");
       expect(messageOf(res)).toBe("伺服器忙碌，請稍後再試");
-      expect(ms).toBeLessThan(3000);
+      expect(ms).toBeLessThan(INJECTED_LOCK_TIMEOUT_BOUND_MS);
     } finally {
       try {
         await holder.query("rollback");

@@ -7,6 +7,11 @@ import { derivedVersionName } from "../../packages/shared/src/version-names.js";
  * `ADMIN_PASSWORD`）。#187 PR4 起 env 管理員首登**不強制改密碼**，所以全疊唯一密碼就是
  * `password`，所有 spec 直接用它登入（沒有「01 先改密碼、其餘 spec 用新密碼」的檔序耦合了）。
  * 強制改密碼不再有 e2e 覆蓋（代建已移除），由 `auth/guards.test.tsx`、`pages/ChangePasswordPage.test.tsx` 與 server 測試守。
+ *
+ * ⚠ 慣例：**新寫的案例要開／關公開連結（`PUT`／`DELETE …/public-link`），owner 一律用新帳號**（`randomEmail()` 註冊或
+ * `createUserViaInvite`），不要用 admin。那顆桶是 `PUBLIC_LINK_LIMIT`：key=userId、每人 10 次／10 分鐘固定窗；整套序跑時 admin
+ * 的額度已被 11／16／18／22／27 用掉，再加就會吃 429、而且紅在後面不相干的 spec。31 E3、34 C9a、36 A2-11 已照這樣做。
+ * （上列五支既有的維持用 admin，不要再往裡面加 admin 的公開連結操作。）
  */
 export const ADMIN = {
   email: "admin@e2e.local",
@@ -392,6 +397,48 @@ export async function pickDestination(dialog: Locator, steps: readonly string[])
       await expect(dialog.getByRole("button", { name: "Back", exact: true })).toBeVisible();
     }
   }
+}
+
+/** 原生拖曳的落點：`position` 是相對 target 左上角的座標（同 `Locator.dragTo` 的 `targetPosition`）；省略＝中心。 */
+async function dragPoint(target: Locator, position?: { x: number; y: number }): Promise<{ x: number; y: number }> {
+  const box = await target.boundingBox();
+  expect(box, "拖曳目標量不到位置（不可見？）").not.toBeNull();
+  return position ? { x: box!.x + position.x, y: box!.y + position.y } : { x: box!.x + box!.width / 2, y: box!.y + box!.height / 2 };
+}
+
+/**
+ * 資料夾 PR-3c：拖曳進行中（滑鼠已按下）把指標分段移到 `target` → 等 `waitFor`（若有）→ 再移 1 步（spec M-8：讓可放狀態更新）。
+ * 不放開；呼叫端接著再移或 `page.mouse.up()`。target 在移動當下才量（拖曳中清單可能變形，例如彈簧資料夾展開）。
+ * `waitFor` 是斷言回呼（例如預覽可見），不寫 waitForTimeout。
+ */
+export async function dragMoveTo(
+  page: Page,
+  target: Locator,
+  opts: { position?: { x: number; y: number }; waitFor?: () => Promise<void> } = {},
+): Promise<void> {
+  const to = await dragPoint(target, opts.position);
+  await page.mouse.move(to.x, to.y, { steps: 10 });
+  if (opts.waitFor) await opts.waitFor();
+  await page.mouse.move(to.x + 1, to.y);
+}
+
+/**
+ * 資料夾 PR-3c：以 page.mouse 做原生拖曳（Chromium；Playwright 攔下瀏覽器產生的拖曳資料、逐發送 dragenter／dragover／drop）。
+ * 在 source 中心 down → 在 source 內橫移一小段讓拖曳開始（dragstart）→ `dragMoveTo` 分段移到 target（預設中心，`position` 同上）、
+ * 等 `waitFor`、再移 1 步 → up。`drop: false`＝停在最後一步不放開，呼叫端自行接著移動並 `page.mouse.up()`。
+ */
+export async function dragTo(
+  page: Page,
+  source: Locator,
+  target: Locator,
+  opts: { waitFor?: () => Promise<void>; drop?: boolean; position?: { x: number; y: number } } = {},
+): Promise<void> {
+  const from = await dragPoint(source);
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(from.x + 8, from.y, { steps: 4 });
+  await dragMoveTo(page, target, { position: opts.position, waitFor: opts.waitFor });
+  if (opts.drop !== false) await page.mouse.up();
 }
 
 /** #263：框選 AI 框（`role="region"`、`data-testid="selection-ai-box"`）。 */

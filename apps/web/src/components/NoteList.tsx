@@ -23,7 +23,10 @@ import { useFolderSortOf } from "@/components/sidebar/folder-sort";
 import { FolderRowButton } from "@/components/sidebar/FolderRowButton";
 import { GroupRowButton } from "@/components/sidebar/GroupRowButton";
 import { SidebarLazyBoundary } from "@/components/sidebar/SidebarLazyBoundary";
+import type { StackPreviewState } from "@/components/sidebar/drag-session";
+import { StackPreview } from "@/components/sidebar/StackPreview";
 import { tabSpec, type HeaderActionId } from "@/components/sidebar/tab-specs";
+import { DROP_SCOPE_CLASS, useSidebarDrag } from "@/components/sidebar/useSidebarDrag";
 import { buildTabNodes, hasSelectableNodes, noteLocationLabel, noteSpaceKey, type LocationContext, type SidebarNode } from "@/components/sidebar/tree";
 
 // 一般 tab 選取模式（PR-2c）：只准經 SelectLazy 這個 lazy 入口（首包上限）。兩個掛點共用同一個 chunk。
@@ -32,10 +35,19 @@ const SelectableTree = lazy(() => import("@/components/sidebar/SelectLazy").then
 // 資料夾對話框（新增／改名／刪除）：只准經 FolderLazy 這個 lazy 入口（首包上限）。
 const FolderDialogs = lazy(() => import("@/components/sidebar/FolderLazy").then((m) => ({ default: m.FolderDialogs })));
 
+/**
+ * 疊資料夾建好後的改名框（資料夾 spec §6.6、§6.13 第 6 步）：`onClosed` 在關閉時以最後的名字呼叫恰一次（送出＝送出的名字、取消＝原名）；
+ * `focusTarget` 在關閉當下才解析（新資料夾列是重抓後才出現的）。
+ */
+export interface StackRenameHooks {
+  onClosed: (finalName: string) => void;
+  focusTarget: () => HTMLElement | null;
+}
+
 /** 資料夾對話框的請求（host 在每份 NoteList 實例各一份；T4 的資料夾 ⋮ 也經 `NodeContext.openFolderDialog` 開框）。 */
 export type FolderDialogRequest =
   | { kind: "create"; parent: { folderId: string } | { space: FolderSpaceDto } }
-  | { kind: "rename"; folder: FolderDto }
+  | { kind: "rename"; folder: FolderDto; stack?: StackRenameHooks }
   | { kind: "delete"; folder: FolderDto };
 
 const EMPTY_GROUPS: GroupDto[] = [];
@@ -192,6 +204,10 @@ interface NodeContext {
   openFolderDialog: (request: FolderDialogRequest, opener: HTMLElement | null) => void;
   /** 快取裡的筆記：資料夾 ⋮ 開啟時判斷子樹有沒有活筆記（刪除擋下）。 */
   notes: readonly NoteDto[];
+  /** 拖曳的落點範圍提示鍵（`dropScopeKey`："list"｜"group:<id>"｜"folder:<id>"）；null＝不標示。 */
+  dropScope: string | null;
+  /** 疊資料夾預覽或「建立中」：取代 `anchorNoteId` 那一列（`creating` 優先）。 */
+  stack: { state: StackPreviewState; creating: boolean } | null;
 }
 
 /**
@@ -202,8 +218,14 @@ function GroupNode({ node, ctx }: { node: Extract<SidebarNode, { kind: "group" }
   const { t } = useTranslation();
   const { group } = node;
   const [open, toggle] = useCollapsed(`group:${group.id}`);
+  const dropScoped = ctx.dropScope === `group:${group.id}`;
   return (
-    <li data-node-kind="group" data-node-id={group.id} className="flex flex-col gap-0.5">
+    <li
+      data-node-kind="group"
+      data-node-id={group.id}
+      data-drop-scope={dropScoped ? "" : undefined}
+      className={cn("flex flex-col gap-0.5", dropScoped && DROP_SCOPE_CLASS)}
+    >
       <div className="group/grouprow flex h-7 items-center gap-0.5 rounded-md hover:bg-brand-soft active:bg-brand-soft-strong">
         <GroupRowButton name={group.name} open={open} onToggle={toggle} />
         {/* 資料夾 spec §6.3、N7：能編輯群組筆記才能建資料夾；排在「＋」之前（稿 `Workshop`，讀碼發現 19）。 */}
@@ -249,8 +271,14 @@ function FolderNode({ node, ctx }: { node: Extract<SidebarNode, { kind: "folder"
   const { t } = useTranslation();
   const { folder } = node;
   const [open, toggle] = useCollapsed(`folder:${folder.id}`);
+  const dropScoped = ctx.dropScope === `folder:${folder.id}`;
   return (
-    <li data-node-kind="folder" data-node-id={folder.id} className="flex flex-col gap-0.5">
+    <li
+      data-node-kind="folder"
+      data-node-id={folder.id}
+      data-drop-scope={dropScoped ? "" : undefined}
+      className={cn("flex flex-col gap-0.5", dropScoped && DROP_SCOPE_CLASS)}
+    >
       <div className="group/folderrow flex h-11 items-center gap-0.5 rounded-md hover:bg-brand-soft active:bg-brand-soft-strong md:h-7">
         <FolderRowButton name={folder.name} open={open} onToggle={toggle} />
         {folder.permissions.createNote && (
@@ -292,6 +320,15 @@ function SidebarNodeList({ nodes, ctx, inGroup = false }: { nodes: SidebarNode[]
           <GroupNode key={node.id} node={node} ctx={ctx} />
         ) : node.kind === "folder" ? (
           <FolderNode key={node.id} node={node} ctx={ctx} />
+        ) : ctx.stack !== null && ctx.stack.state.anchorNoteId === node.id ? (
+          <StackPreview
+            key={node.id}
+            name={ctx.stack.state.name}
+            anchorTitle={node.note.title}
+            sourceTitle={ctx.stack.state.sourceTitle}
+            creating={ctx.stack.creating}
+            variant={inGroup ? "group" : "plain"}
+          />
         ) : (
           <NoteRow
             key={node.id}
@@ -363,7 +400,20 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
     folderOpenerRef.current = opener;
     setFolderRequest(request);
   };
-  const ctx: NodeContext = { tab, location, onCreateNote, createNotePending, openFolderDialog, notes: notesQuery.data ?? EMPTY_NOTES };
+  // 拖曳（資料夾 spec §6.13）：容器事件委派；兩份實例共用 drag-session 的狀態，只有發起的那一份驅動。
+  const drag = useSidebarDrag({ tab, nodes, groupIds, folderIndex, openFolderDialog });
+  const listDropScoped = drag.view.scope === "list";
+  const stackState = drag.view.creating ?? drag.view.preview;
+  const ctx: NodeContext = {
+    tab,
+    location,
+    onCreateNote,
+    createNotePending,
+    openFolderDialog,
+    notes: notesQuery.data ?? EMPTY_NOTES,
+    dropScope: drag.view.scope,
+    stack: stackState === null ? null : { state: stackState, creating: drag.view.creating !== null },
+  };
 
   useEffect(() => {
     if (selection.active) return;
@@ -546,8 +596,12 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
       </div>
       {/* `key={tab}`：切 tab 換新元素，捲動位置回頂端（spec §5.3）。進出選取模式不換（捲動位置不跳）。 */}
       {/* 安全網（讀碼發現 10）：橫向裁切放在內層包層——放在清單本身會因另一軸是 `overflow-y-auto` 算成 `hidden`，仍可被捲動橫移。 */}
-      <div key={tab} data-sidebar-list="" className="min-h-0 flex-1 overflow-y-auto">
-        <div className="overflow-x-clip px-2">
+      {/* 拖曳的 dragstart／dragover／drop／dragend 都委派在這個容器（spec §6.13）；包層 `min-h-full`：清單下方空白也算根目錄的標示範圍。 */}
+      <div key={tab} data-sidebar-list="" className="min-h-0 flex-1 overflow-y-auto" {...drag.containerProps}>
+        <div
+          data-drop-scope={listDropScoped ? "" : undefined}
+          className={cn("min-h-full overflow-x-clip px-2", listDropScoped && DROP_SCOPE_CLASS)}
+        >
           {selection.active && nodes !== null && nodes.length > 0 && tab !== "trash" ? (
             // chunk 還沒到：照常顯示平常的列，到了才換勾選框。選取中清單重抓後變得沒有可勾的篇（只剩空群組）也留在勾選樹：
             // 群組列不帶「＋」與 ⋮，與選取標題列一致；完全沒有節點時是平常的空狀態句（沒有動作鈕）。
