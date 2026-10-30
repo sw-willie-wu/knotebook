@@ -938,6 +938,7 @@
     "folder_limit": "資料夾數量已達上限。",
     "folder_cross_space": "資料夾不能移到其他空間。",
     "folder_delete_blocked": "資料夾裡有你不能刪除的筆記。",
+    "folder_not_empty": "資料夾裡還有其他內容，沒有刪除。",
     "password_not_set": "這個帳號只透過登入服務登入，沒有可重設的密碼。",
     "user_disabled": "這個帳號已停用，請先啟用再重設密碼。",
     "empty_result": "AI 回傳了空結果。",

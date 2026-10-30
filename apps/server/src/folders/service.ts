@@ -22,6 +22,7 @@ import {
   FOLDER_DELETE_BLOCKED_MESSAGE,
   FOLDER_FORBIDDEN_MESSAGE,
   FOLDER_GROUP_ROOT_FORBIDDEN_MESSAGE,
+  FOLDER_NOT_EMPTY_MESSAGE,
   FOLDER_NOT_FOUND_MESSAGE,
   NOTE_FOLDER_CROSS_SPACE_MESSAGE,
   NOTE_NOT_FOUND_MESSAGE,
@@ -180,15 +181,18 @@ export async function updateFolder(
  * → 扣 `edit` 桶 → `folder-authorized` 縫 → 對預讀到的每篇開共編閘門 → `folder-delete-gated` 縫 → 交易 →
  * **不論成功或失敗**全部 `release()`（M1：預讀後才搬出子樹的不收門會擋新連線到 TTL；`releaseDeletingGate` 只收活筆記）。
  * 共享私人：筆記不動（放置 CASCADE），不預讀、不開閘門（F7）。
+ * `onlyIfEmpty`（§5.7.4「只刪空資料夾」）：預讀到活筆記 → 409 `folder_not_empty`（排在 `folder_delete_blocked` 之前，不扣桶、
+ * 不開閘門）；過了這裡預讀必為空，所以一律不開閘門。子資料夾與放置只由交易內判（權威）。
  */
 export async function deleteFolder(
   deps: FolderServiceDeps,
-  input: { by: string; folderId: string },
+  input: { by: string; folderId: string; onlyIfEmpty?: boolean },
 ): Promise<{ kind: "ok"; result: FolderDeleteResultDto } | FolderFailure> {
   const access = await resolveFolderAccess(deps.db, input.by, input.folderId);
   if (access === null) return fail(404, "folder_not_found", FOLDER_NOT_FOUND_MESSAGE);
   if (!access.permissions.manage) return fail(403, "forbidden", FOLDER_FORBIDDEN_MESSAGE);
   const folderId = access.folder.id;
+  const onlyIfEmpty = input.onlyIfEmpty === true;
 
   let liveIds: string[] = [];
   if (access.space.kind !== "shared") {
@@ -198,6 +202,7 @@ export async function deleteFolder(
       .where(and(sql`${notes.folderId} in (${subtreeFolderIdsSql(folderId)})`, isNull(notes.deletedAt)))
       .orderBy(asc(notes.id));
     liveIds = rows.map(r => r.id);
+    if (onlyIfEmpty && liveIds.length > 0) return fail(409, "folder_not_empty", FOLDER_NOT_EMPTY_MESSAGE);
     if (liveIds.length > 0 && !access.permissions.deleteNotes) return fail(403, "folder_delete_blocked", FOLDER_DELETE_BLOCKED_MESSAGE);
   }
 
@@ -217,7 +222,9 @@ export async function deleteFolder(
     throw rejected.reason;
   }
 
-  const txInput: DeleteFolderInput = { by: input.by, folderId, space: access.space, gatedNoteIds: liveIds, lockTimeoutMs: deps.storageLockTimeoutMs };
+  const txInput: DeleteFolderInput = {
+    by: input.by, folderId, space: access.space, gatedNoteIds: liveIds, lockTimeoutMs: deps.storageLockTimeoutMs, onlyIfEmpty,
+  };
   let result: FolderDeleteResultDto;
   try {
     // 縫在 try 內：縫丟錯（測試）也走 finally 的 releaseAll。

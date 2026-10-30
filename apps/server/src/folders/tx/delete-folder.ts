@@ -7,12 +7,14 @@
  *   `DELETE_FOLDER_TRASH_CHUNK` 篇一批 `trashNotesInTx`（`forbidden` → 403、`notFound` → 409，M2；全有全無）→
  *   刷新子樹垃圾桶筆記的路徑快照 → `DELETE` root（子資料夾 CASCADE、筆記 `folder_id` SET NULL）。
  * 子樹一律以述詞（`subtreeFolderIdsSql`）選，不把 id 陣列塞進 `IN`（M15）。失敗一律 throw `TxAbort`。
+ * `onlyIfEmpty`（§5.7.4「只刪空資料夾」，鎖序不變、不另取鎖）：重判之後子樹不只 root → 409 `folder_not_empty`；共享私人
+ * root 有放置 → 409；個人／群組鎖到的筆記有活的 → 409（排在「活筆記 ⊄ 已開閘門」之前）。垃圾桶筆記不算內容。
  * 呼叫端一律 READ COMMITTED（`lock.ts` 檔頭）。
  */
 import { and, asc, eq, isNotNull, sql } from "drizzle-orm";
 import type { FolderDeleteResultDto } from "@knotebook/shared";
 import type { Tx } from "../../db/tx.js";
-import { folders, notes } from "../../db/schema.js";
+import { folders, notePlacements, notes } from "../../db/schema.js";
 import type { GroupHookCtx, GroupTestHook } from "../../groups/test-hook.js";
 import { TxAbort } from "../../http/tx-abort.js";
 import { trashNotesInTx } from "../../notes/tx/trash.js";
@@ -20,6 +22,7 @@ import {
   FOLDER_CONTENT_CHANGED_MESSAGE,
   FOLDER_DELETE_BLOCKED_MESSAGE,
   FOLDER_FORBIDDEN_MESSAGE,
+  FOLDER_NOT_EMPTY_MESSAGE,
   FOLDER_NOT_FOUND_MESSAGE,
 } from "../messages.js";
 import { folderSpaceOfRow, sameFolderSpace, type FolderSpace } from "../space.js";
@@ -34,6 +37,8 @@ export interface DeleteFolderInput {
   /** 交易外預讀並已開閘門的活筆記 id（升冪）。 */
   gatedNoteIds: readonly string[];
   lockTimeoutMs: number;
+  /** 只刪空資料夾（§5.7.4）；省略＝false。 */
+  onlyIfEmpty?: boolean;
 }
 
 /** trashNotesInTx 每批的 id 數（M15：避開協定參數上限）。 */
@@ -43,6 +48,8 @@ export async function deleteFolderInTx(tx: Tx, input: DeleteFolderInput, hook?: 
   const { space } = input;
   const notFound = (): TxAbort => new TxAbort(404, "folder_not_found", FOLDER_NOT_FOUND_MESSAGE);
   const changed = (): TxAbort => new TxAbort(409, "conflict", FOLDER_CONTENT_CHANGED_MESSAGE);
+  const notEmpty = (): TxAbort => new TxAbort(409, "folder_not_empty", FOLDER_NOT_EMPTY_MESSAGE);
+  const onlyIfEmpty = input.onlyIfEmpty === true;
   const hookCtx: GroupHookCtx = { folderId: input.folderId, ...(space.kind === "group" ? { groupId: space.groupId } : {}) };
 
   if (space.kind === "group") {
@@ -63,8 +70,14 @@ export async function deleteFolderInTx(tx: Tx, input: DeleteFolderInput, hook?: 
   if (access === null) throw notFound();
   if (!access.permissions.manage) throw new TxAbort(403, "forbidden", FOLDER_FORBIDDEN_MESSAGE);
   const deletedFolderIds = subtree.map(f => f.id);
+  // 放進來的寫入（放置、建／複製進資料夾、照路徑重建）都要先取這些資料夾的 KS 或結構鎖，判空到 DELETE 之間不會變。
+  if (onlyIfEmpty && subtree.length > 1) throw notEmpty();
 
   if (space.kind === "shared") {
+    if (onlyIfEmpty) {
+      const placed = await tx.select({ one: sql`1` }).from(notePlacements).where(eq(notePlacements.folderId, root.id)).limit(1);
+      if (placed.length > 0) throw notEmpty();
+    }
     await tx.delete(folders).where(eq(folders.id, root.id));
     return { trashedNoteIds: [], deletedFolderIds };
   }
@@ -80,6 +93,7 @@ export async function deleteFolderInTx(tx: Tx, input: DeleteFolderInput, hook?: 
 
   const gated = new Set(input.gatedNoteIds);
   const live = locked.filter(n => n.live).map(n => n.id);
+  if (onlyIfEmpty && live.length > 0) throw notEmpty();
   // 沒開閘門的活筆記（預讀之後才進子樹）：移入會讓連線中的人繼續寫，整筆擋下。
   if (live.some(id => !gated.has(id))) throw changed();
 

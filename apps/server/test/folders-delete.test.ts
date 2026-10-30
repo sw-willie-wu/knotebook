@@ -567,3 +567,225 @@ describe("DELETE /api/folders/:id", () => {
     expect(ok(await del(app, u.id, R)).trashedNoteIds).toEqual([a]);
   });
 });
+
+/** 資料夾 PR-3c T1：只刪空資料夾（spec §5.7.4「只刪空資料夾」、§5.11、§6.18）。 */
+describe("DELETE /api/folders/:id { onlyIfEmpty }", () => {
+  const NOT_EMPTY = "資料夾裡還有其他內容，沒有刪除";
+  const ONLY = { onlyIfEmpty: true } as const;
+  const delE = (app: FastifyInstance, userId: string | null, id: string, body?: unknown) =>
+    inject(app, "DELETE", `/api/folders/${id}`, userId, body);
+  const expectNotEmpty = (res: LightMyRequestResponse): void => {
+    failed(res, 409, "folder_not_empty");
+    expect(messageOf(res)).toBe(NOT_EMPTY);
+  };
+
+  it("FE-1 空資料夾（個人、群組 admin、共享）→ 200、只刪那一個、沒有筆記進垃圾桶", async () => {
+    const { app, db } = await buildTestApp();
+    const pool = db.$client;
+    const u = await seedUser(db);
+    const s = await sixRoleScene(db);
+    const P = (await seedFolder(db, { personal: u.id })).id;
+    const G = (await seedFolder(db, { group: s.groupId })).id;
+    const S = (await seedFolder(db, { shared: u.id })).id;
+    for (const [actor, id] of [[u.id, P], [s.admin.id, G], [u.id, S]] as const) {
+      expect(ok(await delE(app, actor, id, ONLY))).toEqual({ trashedNoteIds: [], deletedFolderIds: [id] });
+      expect(await folderRow(pool, id), id).toBeUndefined();
+    }
+  });
+
+  it("FE-2 有子資料夾（個人、共享；子資料夾裡沒有筆記）→ 409 folder_not_empty、父與子都在", async () => {
+    const { app, db } = await buildTestApp();
+    const pool = db.$client;
+    const u = await seedUser(db);
+    for (const space of [{ personal: u.id }, { shared: u.id }]) {
+      const [R, C] = await seedFolderChain(db, space, [rootName(), "C"]);
+      expectNotEmpty(await delE(app, u.id, R!, ONLY));
+      expect(await folderRow(pool, R!)).toBeDefined();
+      expect(await folderRow(pool, C!)).toBeDefined();
+    }
+  });
+
+  it("FE-3 有活筆記（個人、群組）→ 409、筆記不動、不開閘門、不扣桶（limit 1：之後刪空資料夾仍 200）", async () => {
+    const spies = gateSpies();
+    const { app, db } = await buildTestApp({
+      collabHooks: spies.hooks,
+      limiters: freshLimiters({ edit: new FixedWindowLimiter({ limit: 1, windowMs: 60_000 }) }),
+    });
+    const pool = db.$client;
+    const u = await seedUser(db);
+    const s = await sixRoleScene(db);
+    const P = (await seedFolder(db, { personal: u.id })).id;
+    const pn = await noteIn(db, pool, { ownerId: u.id }, P);
+    const G = (await seedFolder(db, { group: s.groupId })).id;
+    const gn = await noteIn(db, pool, { groupId: s.groupId }, G);
+
+    for (const [actor, id, n] of [[u.id, P, pn], [s.admin.id, G, gn]] as const) {
+      expectNotEmpty(await delE(app, actor, id, ONLY));
+      await expectUntouched(pool, [[n, id]], [id]);
+    }
+    expect(spies.beforeNoteDeleted).not.toHaveBeenCalled();
+
+    const PE = (await seedFolder(db, { personal: u.id })).id;
+    const GE = (await seedFolder(db, { group: s.groupId })).id;
+    expect(ok(await delE(app, u.id, PE, ONLY))).toEqual({ trashedNoteIds: [], deletedFolderIds: [PE] });
+    expect(ok(await delE(app, s.admin.id, GE, ONLY))).toEqual({ trashedNoteIds: [], deletedFolderIds: [GE] });
+  });
+
+  it("FE-4 只有垃圾桶筆記 → 200；那篇的快照是刪除當下的路徑、folder_id 變 null", async () => {
+    const spies = gateSpies();
+    const { app, db } = await buildTestApp({ collabHooks: spies.hooks });
+    const pool = db.$client;
+    const u = await seedUser(db);
+    const R = (await seedFolder(db, { personal: u.id }, { name: "R" })).id;
+    const t = await noteIn(db, pool, { ownerId: u.id }, R);
+    await markTrashed(pool, t, u.id);
+    await setSnapshot(pool, t, ["Old"]);
+
+    expect(ok(await delE(app, u.id, R, ONLY))).toEqual({ trashedNoteIds: [], deletedFolderIds: [R] });
+    expect(await noteFolderCols(pool, t)).toEqual({ folder_id: null, trash_folder_path: ["R"] });
+    expect(await folderRow(pool, R)).toBeUndefined();
+    expect(spies.beforeNoteDeleted).not.toHaveBeenCalled();
+  });
+
+  it("FE-5 共享私人有一筆放置 → 409、放置還在；拿掉放置後同一請求 → 200", async () => {
+    const { app, db } = await buildTestApp();
+    const pool = db.$client;
+    const owner = await seedUser(db);
+    const sharee = await seedUser(db);
+    const n = (await seedNote(db, { ownerId: owner.id })).id;
+    await seedShare(db, n, sharee.id, "viewer");
+    const S = (await seedFolder(db, { shared: sharee.id })).id;
+    await seedPlacement(pool, sharee.id, n, S);
+
+    expectNotEmpty(await delE(app, sharee.id, S, ONLY));
+    expect(await placementOf(pool, sharee.id, n)).toBe(S);
+    expect(await folderRow(pool, S)).toBeDefined();
+
+    await pool.query("delete from note_placements where user_id = $1 and note_id = $2", [sharee.id, n]);
+    expect(ok(await delE(app, sharee.id, S, ONLY))).toEqual({ trashedNoteIds: [], deletedFolderIds: [S] });
+  });
+
+  it("FE-6 無 body、{}、{ onlyIfEmpty: false } ＝現行行為：各自那一篇進垃圾桶、各自那個資料夾被刪", async () => {
+    const { app, db } = await buildTestApp();
+    const pool = db.$client;
+    const u = await seedUser(db);
+    for (const body of [undefined, {}, { onlyIfEmpty: false }]) {
+      const R = (await seedFolder(db, { personal: u.id })).id;
+      const n = await noteIn(db, pool, { ownerId: u.id }, R);
+      const res = await delE(app, u.id, R, body);
+      expect(res.statusCode, `${JSON.stringify(body)} ${res.body}`).toBe(200);
+      expect(res.json()).toEqual({ trashedNoteIds: [n], deletedFolderIds: [R] });
+      expect((await trashCols(pool, n))?.deleted_at, n).not.toBeNull();
+      expect(await folderRow(pool, R)).toBeUndefined();
+    }
+  });
+
+  it("FE-7 多餘欄位、型別不對 → 400 invalid_body；資料夾還在", async () => {
+    const { app, db } = await buildTestApp();
+    const pool = db.$client;
+    const u = await seedUser(db);
+    const R = (await seedFolder(db, { personal: u.id })).id;
+    for (const body of [{ onlyIfEmpty: true, x: 1 }, { onlyIfEmpty: "yes" }]) {
+      failed(await delE(app, u.id, R, body), 400, "invalid_body");
+    }
+    expect(await folderRow(pool, R)).toBeDefined();
+  });
+
+  it("FE-8 判斷順序：outsider 404（與不存在同形）→ readOnly 403 forbidden → editOnly 409 folder_not_empty（不是 folder_delete_blocked）；editOnly 刪空的群組資料夾 200", async () => {
+    const spies = gateSpies();
+    const { app, db } = await buildTestApp({ collabHooks: spies.hooks });
+    const pool = db.$client;
+    const s = await sixRoleScene(db);
+    const G = (await seedFolder(db, { group: s.groupId })).id;
+    const n = await noteIn(db, pool, { groupId: s.groupId }, G);
+
+    const outsider = failed(await delE(app, s.outsider.id, G, ONLY), 404, "folder_not_found");
+    expect(failed(await delE(app, s.outsider.id, RANDOM_UUID, ONLY), 404, "folder_not_found")).toBe(outsider);
+    const ro = await delE(app, s.readOnly.id, G, ONLY);
+    failed(ro, 403, "forbidden");
+    expect(messageOf(ro)).toBe(NOT_MANAGER);
+    expectNotEmpty(await delE(app, s.editOnly.id, G, ONLY));
+    await expectUntouched(pool, [[n, G]], [G]);
+    expect(spies.beforeNoteDeleted).not.toHaveBeenCalled();
+
+    const E = (await seedFolder(db, { group: s.groupId })).id;
+    expect(ok(await delE(app, s.editOnly.id, E, ONLY))).toEqual({ trashedNoteIds: [], deletedFolderIds: [E] });
+  });
+
+  it("FE-9 併發（預讀時空；folder-delete-gated 縫裡動手）：① 放進一篇活筆記 → 409 folder_not_empty（不是 conflict）、那篇不動；② 建子資料夾 → 409、兩個都在", async () => {
+    const spies = gateSpies();
+    const seam = armedHook();
+    const { app, db } = await buildTestApp({ collabHooks: spies.hooks, groupTestHook: seam.hook });
+    const pool = db.$client;
+    const u = await seedUser(db);
+
+    const R1 = (await seedFolder(db, { personal: u.id })).id;
+    const n = await noteIn(db, pool, { ownerId: u.id }, null);
+    seam.arm("folder-delete-gated", async () => {
+      await setNoteFolder(pool, n, R1);
+    });
+    expectNotEmpty(await delE(app, u.id, R1, ONLY));
+    expect(seam.pending).toBe(false);
+    await expectUntouched(pool, [[n, R1]], [R1]);
+
+    const R2 = (await seedFolder(db, { personal: u.id })).id;
+    let child = "";
+    seam.arm("folder-delete-gated", async () => {
+      child = (await seedFolder(db, { personal: u.id }, { parentId: R2 })).id;
+    });
+    expectNotEmpty(await delE(app, u.id, R2, ONLY));
+    expect(seam.pending).toBe(false);
+    expect(await folderRow(pool, R2)).toBeDefined();
+    expect(await folderRow(pool, child)).toBeDefined();
+    expect(spies.beforeNoteDeleted).not.toHaveBeenCalled();
+  });
+
+  it("FE-10 共享：folder-delete-gated 縫裡放進一筆放置 → 409、放置還在", async () => {
+    const seam = armedHook();
+    const { app, db } = await buildTestApp({ groupTestHook: seam.hook });
+    const pool = db.$client;
+    const owner = await seedUser(db);
+    const sharee = await seedUser(db);
+    const n = (await seedNote(db, { ownerId: owner.id })).id;
+    await seedShare(db, n, sharee.id, "editor");
+    const S = (await seedFolder(db, { shared: sharee.id })).id;
+    seam.arm("folder-delete-gated", async () => {
+      await seedPlacement(pool, sharee.id, n, S);
+    });
+
+    expectNotEmpty(await delE(app, sharee.id, S, ONLY));
+    expect(seam.pending).toBe(false);
+    expect(await placementOf(pool, sharee.id, n)).toBe(S);
+    expect(await folderRow(pool, S)).toBeDefined();
+  });
+
+  it("FE-11 鎖序字面：個人與共享的空資料夾，不帶 body 與帶 onlyIfEmpty 各刪一次，鎖語句序列逐句相同", async () => {
+    const { db, pool } = await freshDb();
+    const queries: string[] = [];
+    const logged = drizzle(pool, { schema, logger: { logQuery: (q: string) => queries.push(q) } }) as unknown as Db;
+    const { app } = await buildTestApp({ db: logged, gate: new UserGate(db) });
+    const u = await seedUser(db);
+    const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+    const lockSeq = async (space: { personal: string } | { shared: string }, body: unknown): Promise<string[]> => {
+      const F = (await seedFolder(db, space)).id;
+      queries.length = 0;
+      expect(ok(await delE(app, u.id, F, body))).toEqual({ trashedNoteIds: [], deletedFolderIds: [F] });
+      // 只看交易內（第一個請求另有驗證層節流的 `last_active_at` 更新，不屬刪資料夾的鎖序）。
+      const begin = queries.findIndex(q => /^begin\b/i.test(q.trim()));
+      expect(begin).toBeGreaterThanOrEqual(0);
+      return queries
+        .slice(begin)
+        .filter(q => /for update|for no key update|for share|for key share|pg_advisory_xact_lock/i.test(q))
+        .map(q => q.replace(UUID, "<id>"));
+    };
+
+    for (const space of [{ personal: u.id }, { shared: u.id }]) {
+      const label = Object.keys(space)[0];
+      const plain = await lockSeq(space, undefined);
+      const only = await lockSeq(space, ONLY);
+      expect(plain.some(q => q.includes("pg_advisory_xact_lock")), label).toBe(true);
+      expect(plain.some(q => /from "folders" [\s\S]*for update$/.test(q.trim())), label).toBe(true);
+      expect(only, label).toEqual(plain);
+    }
+  });
+});

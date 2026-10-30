@@ -18,6 +18,8 @@ export const FOLDER_CYCLE_MESSAGE = "不能把資料夾移到它自己裡面";
 export const FOLDER_DELETE_BLOCKED_MESSAGE = "資料夾裡有你不能刪除的筆記";
 /** 刪資料夾：子樹有沒開閘門的活筆記、或交易內重判 notFound（§5.7.4 M2）。 */
 export const FOLDER_CONTENT_CHANGED_MESSAGE = "資料夾內容剛變動，請再試一次";
+/** 只刪空資料夾（§5.7.4 `onlyIfEmpty`）：有子資料夾、活筆記或放置（交易外快速路徑與交易內同一句）。 */
+export const FOLDER_NOT_EMPTY_MESSAGE = "資料夾裡還有其他內容，沒有刪除";
 /** 放置（§5.7.5）：筆記不在、看不到、在垃圾桶、放置時被撤分享（23503）——與既有筆記路由的 404 同一句。 */
 export const NOTE_NOT_FOUND_MESSAGE = "找不到此筆記";
 /** 放置：群組筆記沒有編輯權（§5.6）。 */

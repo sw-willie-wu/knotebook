@@ -938,6 +938,7 @@
     "folder_limit": "You've reached the maximum number of folders.",
     "folder_cross_space": "Folders can't be moved to another space.",
     "folder_delete_blocked": "This folder has notes you can't delete.",
+    "folder_not_empty": "The folder still has other items, so it wasn't deleted.",
     "password_not_set": "This account signs in only through a sign-in service and has no password to reset.",
     "user_disabled": "This account is disabled. Enable it before resetting its password.",
     "empty_result": "The AI returned an empty result.",

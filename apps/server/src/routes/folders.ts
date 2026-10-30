@@ -27,6 +27,8 @@ const updateBodySchema = z
   .refine(b => b.name !== undefined || b.parentId !== undefined, "請求格式錯誤：至少需要一個欄位");
 /** `folderId: null`＝根層（必填；非 UUID 與不存在同形，由服務層判）。 */
 const placeBodySchema = z.object({ folderId: z.string().nullable() }).strict();
+/** 可省（沒有 body＝現行行為）；`onlyIfEmpty: true`＝只刪空資料夾（§5.7.4）。 */
+const deleteBodySchema = z.object({ onlyIfEmpty: z.boolean().optional() }).strict();
 
 export function foldersRoutes(deps: FolderServiceDeps) {
   return async function register(app: FastifyInstance): Promise<void> {
@@ -64,7 +66,9 @@ export function foldersRoutes(deps: FolderServiceDeps) {
 
     app.delete("/api/folders/:id", { preHandler: app.authenticate }, async (request, reply) => {
       const { id } = request.params as { id: string };
-      const out = await deleteFolder(deps, { by: request.user!.id, folderId: id });
+      const parsed = deleteBodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) return sendError(reply, 400, "invalid_body", parsed.error.issues[0]?.message ?? "請求格式錯誤");
+      const out = await deleteFolder(deps, { by: request.user!.id, folderId: id, onlyIfEmpty: parsed.data.onlyIfEmpty === true });
       if (out.kind === "error") return sendError(reply, out.status, out.code, out.message);
       return out.result satisfies FolderDeleteResultDto;
     });
