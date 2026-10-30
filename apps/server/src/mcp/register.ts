@@ -294,8 +294,10 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
     async args => runTool("list_folders", ctx, () => listFolders(args, ctx))
   );
 
-  // 資料夾 PR-3d：三支資料夾寫入工具只在 notes:write 時註冊（collab 閘門外：只碰 DB）；`.strict()`；第一個動作是 requireWriteScope。
-  // annotations（spec n8）：create_folder `{ destructiveHint: false }`；rename／move 另加 `idempotentHint: true`（同一參數再呼叫一次結果相同）。
+  // 資料夾 PR-3d：四支資料夾寫入工具（create／rename／move_folder，T7 起加 move_note_to_folder）只在 notes:write 時註冊（collab 閘門外：
+  // 只碰 DB）；`.strict()`；第一個動作是 requireWriteScope。
+  // annotations（spec n8）：create_folder `{ destructiveHint: false }`；rename／move_folder／move_note_to_folder 另加 `idempotentHint: true`
+  // （同一參數再呼叫一次結果相同）。
   // 守衛：集合＝`mcp-tools-list`、`unit/mcp-register`（U-F1）；annotations＝`mcp-tools-list` V11；runTool＝P13。
   if (canWrite) {
     server.registerTool(

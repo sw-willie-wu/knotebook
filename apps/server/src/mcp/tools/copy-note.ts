@@ -123,7 +123,9 @@ export interface CopyNoteArgs {
 
 export async function copyNoteTool(args: CopyNoteArgs, ctx: McpToolCtx): Promise<CallToolResult> {
   // 資料夾 PR-3d（spec M11，plan 讀碼發現 7）：帶 folder_id 時，交易外先判資料夾可見性與空間一致性（純讀、不扣任何桶），
-  // 再做下面的 scope 檢查——看不到的群組資料夾對讀寫無搬移憑證回 not_found，不是 insufficient_scope。copyNote 內部照 PR-3a 順序重判一次。
+  // 排在下面的 scope 檢查**之前**，也在查筆記（copyNote 的 resolveNoteAccess）**之前**——看不到的群組資料夾對讀寫無搬移憑證回
+  // not_found＋FM1，不是 insufficient_scope；看不到的筆記＋看不到的資料夾回的是資料夾句。所以帶 folder_id 時的錯誤優先序與 REST
+  // `POST /api/notes/:id/copy` 不同（REST 先判筆記、再判資料夾，且沒有 scope 檢查）。copyNote 內部照 PR-3a 順序重判一次。
   if (args.folder_id !== undefined) {
     const folder = await resolveFolderAccess(ctx.db, ctx.userId, args.folder_id);
     if (folder === null) return toolError("not_found", FOLDER_NOT_FOUND_MESSAGE);
