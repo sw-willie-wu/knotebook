@@ -462,7 +462,8 @@ export function AppShell({ children, inert }: AppShellProps) {
                 <SidebarContent {...sidebarProps} searchRef={drawerSearchRef} />
                 {/* 抽屜開著時 toast viewport 搬進這裡（`toastViewportHostRef`）：抽屜外的東西此刻都被 Radix 標成 aria-hidden、
                     焦點也鎖在抽屜裡，toast 留在原處就讀不到、按不到。viewport 是 fixed 定位，所以抽屜內容不可加
-                    transform／filter（否則 toast 會改以抽屜為準定位）。 */}
+                    transform／filter（否則 toast 會改以抽屜為準定位）。搬進來後 toast 位在抽屜的 z-50 堆疊脈絡裡，
+                    從抽屜 portal 出去的 z-50 層（⋮ 選單、確認框與它的 overlay）可能蓋住 toast——modal 開著時這樣可接受。 */}
                 <div ref={toastViewportHostRef} />
               </DialogPrimitive.Content>
             </DialogPrimitive.Portal>

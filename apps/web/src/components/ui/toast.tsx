@@ -74,6 +74,8 @@ export function useToasts(): ToastItem[] {
 // 螢幕閱讀器讀不到、鍵盤也到不了。所以抽屜開著時由 AppShell 登記抽屜內容裡的一個空節點，Toaster 把 viewport
 // portal 進去；抽屜關了（節點卸載）就清掉、viewport 回原處。toast 本身的狀態與計時器在 Toaster 底下的 Radix
 // Toast 元件裡，viewport 換位置不會重設它們。
+// 但 viewport 換位置會讓每則 toast 重新登記成最上層的 DismissableLayer：開抽屜前就在的 toast 會吃掉抽屜裡的第一下
+// Esc（關 toast、抽屜不關），與抽屜開著時才跳的 toast 一樣（e2e 38 A2c-7）。
 
 let viewportHost: HTMLElement | null = null;
 const viewportHostListeners = new Set<() => void>();
