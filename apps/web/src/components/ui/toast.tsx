@@ -1,4 +1,5 @@
 import { forwardRef, useSyncExternalStore, type ComponentPropsWithoutRef, type ElementRef, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Toast as ToastPrimitive } from "radix-ui";
 import { X } from "./icons";
 import { cn } from "@/lib/utils";
@@ -65,6 +66,45 @@ export function toast(item: Omit<ToastItem, "id">): string {
 
 export function useToasts(): ToastItem[] {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+// ── viewport 的落腳處 ──────────────────────────────────────────────────────────
+// 平常 ToastViewport 就渲染在 Toaster 所在處（`#root` 裡）。窄螢幕的側欄抽屜是 modal Radix Dialog：開著時
+// `hideOthers` 把抽屜以外全標成 aria-hidden、FocusScope 把焦點鎖在抽屜裡，留在原處的 toast（與它的「Undo」）
+// 螢幕閱讀器讀不到、鍵盤也到不了。所以抽屜開著時由 AppShell 登記抽屜內容裡的一個空節點，Toaster 把 viewport
+// portal 進去；抽屜關了（節點卸載）就清掉、viewport 回原處。toast 本身的狀態與計時器在 Toaster 底下的 Radix
+// Toast 元件裡，viewport 換位置不會重設它們。
+
+let viewportHost: HTMLElement | null = null;
+const viewportHostListeners = new Set<() => void>();
+
+function subscribeViewportHost(listener: () => void): () => void {
+  viewportHostListeners.add(listener);
+  return () => viewportHostListeners.delete(listener);
+}
+
+function getViewportHost(): HTMLElement | null {
+  return viewportHost;
+}
+
+function setViewportHost(host: HTMLElement | null): void {
+  viewportHost = host;
+  for (const listener of viewportHostListeners) listener();
+}
+
+/**
+ * 給 modal 容器（目前只有側欄抽屜）用的 callback ref：掛上就把 toast viewport 搬進這個節點，卸載時搬回原處。
+ * 卸載時只清自己登記的那個：別的容器已接手的話不動它。
+ *
+ * ⚠ viewport 是 `position: fixed`：容器（與它的祖先）不可加 transform／filter／perspective，否則 fixed 會改以
+ * 容器為準、toast 跟著跑進抽屜的框裡。
+ */
+export function toastViewportHostRef(host: HTMLElement | null): (() => void) | undefined {
+  if (!host) return undefined;
+  setViewportHost(host);
+  return () => {
+    if (viewportHost === host) setViewportHost(null);
+  };
 }
 
 export const ToastProvider = ToastPrimitive.Provider;
@@ -149,6 +189,7 @@ ToastClose.displayName = ToastPrimitive.Close.displayName;
 /** 掛在 App 根部一次即可；監聽 toast() store，渲染目前所有存活的 toast。 */
 export function Toaster(): ReactNode {
   const items = useToasts();
+  const host = useSyncExternalStore(subscribeViewportHost, getViewportHost, getViewportHost);
   return (
     <ToastProvider>
       {items.map(({ id, title, description, variant, durationMs, action }) => (
@@ -174,7 +215,7 @@ export function Toaster(): ReactNode {
           <ToastClose />
         </ToastRoot>
       ))}
-      <ToastViewport />
+      {host ? createPortal(<ToastViewport />, host) : <ToastViewport />}
     </ToastProvider>
   );
 }
