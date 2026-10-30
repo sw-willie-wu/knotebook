@@ -491,7 +491,9 @@ describe("moveNotesInOrder（PR-3b 簽名）", () => {
     const keys = spyInvalidations(qc);
     await moveNotesInOrder([a], { groupId: "G", folderId: "GF" }, { queryClient: qc });
     await moveNotesInOrder([a], { groupId: "G" }, { queryClient: qc });
-    expect(calls.map((x) => JSON.stringify(x.body))).toEqual(['{"groupId":"G","folderId":"GF"}', '{"groupId":"G"}']);
+    // 鍵在、值 undefined（呼叫端常見的寫法）也不能送出 folderId 鍵。
+    await moveNotesInOrder([a], { groupId: "G", folderId: undefined }, { queryClient: qc });
+    expect(calls.map((x) => JSON.stringify(x.body))).toEqual(['{"groupId":"G","folderId":"GF"}', '{"groupId":"G"}', '{"groupId":"G"}']);
     expect(keys).toContain(k("folders"));
   });
 });

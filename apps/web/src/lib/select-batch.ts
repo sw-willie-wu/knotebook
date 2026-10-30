@@ -118,7 +118,8 @@ export async function moveNotesInOrder(
   deps: { queryClient: QueryClient } & BatchHooks,
 ): Promise<BatchOutcome<NoteDto>> {
   const { queryClient } = deps;
-  const payload = JSON.stringify(body.folderId === undefined ? { groupId: body.groupId } : { groupId: body.groupId, folderId: body.folderId });
+  // JSON.stringify 會丟掉值為 undefined 的鍵：根層的 body 就是 {"groupId":…}。
+  const payload = JSON.stringify(body);
   try {
     return await runSequential(
       notes,

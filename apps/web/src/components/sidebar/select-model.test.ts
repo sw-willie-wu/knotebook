@@ -439,6 +439,15 @@ describe("SMf7 batchDestSource", () => {
     expect(src).toEqual({ mode: "move", current: G1S, makeCopy: false, others: [], locations: [null, null], movingFolders: [gf] });
   });
 
+  it("workspace 單群組但 G 不在 groups（全是資料夾，沒有筆記可借名）→ 沒有上半部，不出空群組名", () => {
+    const orphan = groupFolder({ id: "OF", name: "OF", groupId: "g9" });
+    const ids = new Set([...IDS, "g9"]);
+    const move = asSource(batchDestSource({ tab: "workspace", mode: "move", eligible: [folderT(orphan)], groups: GROUPS, groupIds: ids }));
+    expect(move).toMatchObject({ current: null, makeCopy: false, others: [] });
+    const copy = asSource(batchDestSource({ tab: "workspace", mode: "copy", eligible: [folderT(orphan)], groups: GROUPS, groupIds: ids }));
+    expect(copy).toMatchObject({ current: null, makeCopy: false, others: [PERSONAL, G1S, G2S] });
+  });
+
   it("recent copy → current null", () => {
     const src = asSource(batchDestSource({ tab: "recent", mode: "copy", eligible: [noteT(A), noteT(G1A)], groups: GROUPS, groupIds: IDS }));
     expect(src).toMatchObject({ current: null, makeCopy: false, others: [PERSONAL, G1S, G2S] });

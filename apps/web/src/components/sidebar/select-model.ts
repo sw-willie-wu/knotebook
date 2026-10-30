@@ -211,7 +211,7 @@ function targetGroupId(target: SelectionTarget, groupIds: ReadonlySet<string>): 
 
 /**
  * spec §6.10「批次的目的地」＋D18 ①②：回 DestSource；workspace 的 move 跨兩個以上群組回 "mixedGroups"。不判空（I2）：呼叫端用 T2 的 isEmptyDestination。
- * current：myNotes→個人；shared→共享私人（copy 沒有上半部）；workspace→eligible 全在同一群組 G 時 G（copy 另要 G 是 `canCreateAndEdit`）；recent→無。
+ * current：myNotes→個人；shared→共享私人（copy 沒有上半部）；workspace→eligible 全在同一群組 G 時 G（G 要在 groups 裡；copy 另要 G 是 `canCreateAndEdit`）；recent→無。
  * makeCopy：只 copy、且有上半部時。others：move 只有 myNotes 列候選群組；copy＝myNotes→候選群組、workspace 單一群組→個人＋其他候選群組、其餘→個人＋候選群組。
  * locations＝eligible 各自位置（筆記 `folderId`、資料夾 `parentId`）；movingFolders＝eligible 中的資料夾（只 move）。
  */
@@ -240,10 +240,11 @@ export function batchDestSource(input: {
     const [groupId] = [...ids];
     if (groupId === undefined) return mode === "move" ? { ...noUpper, others: [] } : { ...noUpper, others: [PERSONAL_SPACE, ...candidates] };
     const group = groups.find((candidate) => candidate.id === groupId);
-    const firstNote = eligible.find((target): target is { kind: "note"; note: NoteDto } => target.kind === "note");
-    const space: DestSpace = { kind: "group", groupId, name: group?.name ?? firstNote?.note.group?.name ?? "" };
+    // G 不在 groups（清單未到或剛被移出）→ 沒有上半部：不出空群組名（同 requireName 的立場，T5 審查 m2）。
+    if (group === undefined) return mode === "move" ? { ...noUpper, others: [] } : { ...noUpper, others: [PERSONAL_SPACE, ...candidates] };
+    const space: DestSpace = { kind: "group", groupId, name: group.name };
     if (mode === "move") return { ...base, current: space, makeCopy: false, others: [] };
-    if (group !== undefined && canCreateAndEdit(group)) {
+    if (canCreateAndEdit(group)) {
       return { ...base, current: space, makeCopy: true, others: [PERSONAL_SPACE, ...candidates.filter((other) => spaceKey(other) !== spaceKey(space))] };
     }
     return { ...noUpper, others: [PERSONAL_SPACE, ...candidates] };
