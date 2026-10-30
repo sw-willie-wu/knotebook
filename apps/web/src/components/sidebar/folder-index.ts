@@ -1,4 +1,6 @@
+import type { QueryClient } from "@tanstack/react-query";
 import type { FolderDto, FolderSpaceDto, NoteDto } from "@knotebook/shared";
+import { fetchFolders, FOLDERS_QUERY_KEY } from "@/api/folders";
 import { setCollapsed } from "./collapse";
 
 /**
@@ -132,4 +134,65 @@ export function expandFolderChain(index: FolderIndex, folderId: string): void {
     setCollapsed(`folder:${id}`, false);
     id = index.parentOf(id);
   }
+}
+
+/**
+ * 還原後展開（資料夾 spec §6.8；總管裁定 2026-10-29 I4、I-A）：還原照原路徑重建資料夾，被還原那幾篇所在的資料夾與祖先寫成展開。
+ * - 沒有任何非 null 的 `folderId` → 不發請求。
+ * - 一律 `fetchQuery`（staleTime 0）拿新清單：垃圾桶 tab 時 `["folders"]` 沒有 observer，`invalidateQueries` 不會重抓、快取裡沒有
+ *   新重建的資料夾。呼叫端必須放在 `invalidateTrashRelated` **之後**：有 observer 時那邊已觸發 refetch，這一發併進同一個請求（只打一次）。
+ * - 整段吞掉所有錯誤（含取消）：展開是附帶效果，不丟出、不出 toast。
+ */
+export async function expandAfterRestore(queryClient: QueryClient, restored: readonly NoteDto[]): Promise<void> {
+  try {
+    const folderIds = restored.flatMap((note) => (note.folderId === null ? [] : [note.folderId]));
+    if (folderIds.length === 0) return;
+    const folders = await queryClient.fetchQuery({ queryKey: FOLDERS_QUERY_KEY, queryFn: fetchFolders, staleTime: 0 });
+    const index = indexFolders(folders);
+    for (const folderId of folderIds) expandFolderChain(index, folderId);
+  } catch {
+    // 展開失敗不影響還原本身；下次載入資料夾時照常顯示。
+  }
+}
+
+/** 根層資料夾＝1；id 不在索引＝0；遇環停（防禦）。 */
+export function folderDepth(index: FolderIndex, folderId: string): number {
+  if (!index.byId.has(folderId)) return 0;
+  const visited = new Set<string>();
+  let depth = 0;
+  let id: string | null = folderId;
+  while (id !== null && !visited.has(id)) {
+    visited.add(id);
+    depth += 1;
+    id = index.parentOf(id);
+  }
+  return depth;
+}
+
+/** 葉＝1；遇環不重算；不在索引＝1（當成葉）。 */
+export function subtreeHeight(index: FolderIndex, folderId: string): number {
+  const visited = new Set<string>();
+  const height = (id: string): number => {
+    visited.add(id);
+    const folder = index.byId.get(id);
+    if (folder === undefined) return 1;
+    let deepest = 0;
+    for (const child of index.children(spaceKeyOf(folder.space), id)) {
+      if (!visited.has(child.id)) deepest = Math.max(deepest, height(child.id));
+    }
+    return deepest + 1;
+  };
+  return height(folderId);
+}
+
+/** candidateId 是 ancestorId 自己或其子孫。 */
+export function isInSubtree(index: FolderIndex, ancestorId: string, candidateId: string): boolean {
+  const visited = new Set<string>();
+  let id: string | null = candidateId;
+  while (id !== null && !visited.has(id)) {
+    if (id === ancestorId) return true;
+    visited.add(id);
+    id = index.parentOf(id);
+  }
+  return false;
 }

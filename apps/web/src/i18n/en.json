@@ -136,6 +136,7 @@
       "movedToGroup": "Moved into \"{{group}}\"",
       "copiedToGroup": "Copied into \"{{group}}\"",
       "copiedToPersonal": "Copied to your notes",
+      "copiedAtTopLevel": "Copy created at the top level (the original folder is gone)",
       "openCopy": "Open copy",
       "openCopyAlt": "You can also open the copy from the sidebar.",
       "changedElsewhere": "This note was changed elsewhere, so nothing was moved."
@@ -399,7 +400,15 @@
       "remove": "Remove folder",
       "depthLimit": "Folders can be nested up to {{max}} levels",
       "deleteBlocked": "This folder has notes you can't delete"
-    }
+    },
+    "dest": {
+      "topLevel": "Top level",
+      "back": "Back",
+      "moveHere": "Move here",
+      "copyHere": "Copy here",
+      "openLevel": "{{name}}, open"
+    },
+    "movedTo": "Moved to “{{name}}”"
   },
   "groups": {
     "autoVersions": {
@@ -452,6 +461,7 @@
       "transferDescription_other": "{{count}} notes will become {{name}}'s personal notes. Their addresses change to /n/…, and the old addresses forward to them for a month. Everyone else in the group loses access, and any public links on them are turned off.",
       "transferDescriptionNoCount": "The group's notes will become {{name}}'s personal notes. Their addresses change to /n/…, and the old addresses forward to them for a month. Everyone else in the group loses access, and any public links on them are turned off.",
       "transferTrashNote": "Group notes in the trash go to {{name}}'s personal trash, and their retention period still counts from when they were deleted; their public links are turned off too.",
+      "transferFoldersNote": "The group's folders move into {{name}}'s notes, under a folder named after the group.",
       "deleteLabel": "Delete everything",
       "deleteDescription_one": "{{count}} note, its attachments and its edit history are permanently deleted — it doesn't go to the trash. This can't be undone.",
       "deleteDescription_other": "{{count}} notes, their attachments and their edit history are permanently deleted — they don't go to the trash. This can't be undone.",

@@ -5,8 +5,7 @@ import { useLocation, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { canonicalNotePath, type FolderDto } from "@knotebook/shared";
-import { ApiFail } from "@/api/client";
-import { FOLDERS_QUERY_KEY, folderErrorMessage, invalidateFolderRelated } from "@/api/folders";
+import { FOLDERS_QUERY_KEY, folderErrorMessage, invalidateFolderRelated, isFolderNotFound } from "@/api/folders";
 import { useCreateNote } from "@/api/notes";
 import { expandFolderChain, indexFolders } from "@/components/sidebar/folder-index";
 import { Button } from "@/components/ui/button";
@@ -372,7 +371,7 @@ export function AppShell({ children, inert }: AppShellProps) {
       if (folderId !== undefined) expandFolderChain(indexFolders(queryClient.getQueryData<FolderDto[]>(FOLDERS_QUERY_KEY) ?? []), folderId);
       navigate(canonicalNotePath(note));
     } catch (err) {
-      if (err instanceof ApiFail && err.code === "folder_not_found") invalidateFolderRelated(queryClient);
+      if (isFolderNotFound(err)) invalidateFolderRelated(queryClient);
       toast({ title: folderErrorMessage(t, err), variant: "destructive" });
     }
   }

@@ -43,12 +43,20 @@ export function trashDetailLine(item: TrashItemDto, ctx: { now: number; t: Trans
   const { now, t, locale } = ctx;
   const remaining = remainingLabel(item.purgeAt, now, t);
   const date = () => formatDate(item.deletedAt, "date", locale);
-  const location = noteLocationSegments(item, item.folderPath);
-  const segments = location.length > 0 ? [location.join(" › ")] : [];
+  const location = trashLocationLine(item);
+  const segments = location === "" ? [] : [location];
   if (item.group === null) return [...segments, remaining ?? t("trash.deletedOn", { date: date() })].join(" · ");
   const deletedBy = t("trash.deletedByName", { name: item.deletedBy?.displayName ?? t("trash.unknownUser") });
   // 前面已有「X 刪除」，NULL 保留天數時只放日期、不重複「刪除」
   return [...segments, deletedBy, remaining ?? date()].join(" · ");
+}
+
+/**
+ * 第二行的位置段（[群組名?, ...資料夾路徑] 以「 › 」串）：第二行元素的 `title` 用它給完整路徑（資料夾 spec §6.9「太長：title 給完整路徑」）。
+ * 個人根層＝空字串（呼叫端以 `|| undefined` 不帶 title）。
+ */
+export function trashLocationLine(item: TrashItemDto): string {
+  return noteLocationSegments(item, item.folderPath).join(" › ");
 }
 
 /** 列的 `title`：移入時間與預計永久刪除時間。 */

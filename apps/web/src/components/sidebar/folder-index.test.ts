@@ -1,4 +1,7 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { QueryClient } from "@tanstack/react-query";
+import { FOLDERS_QUERY_KEY } from "@/api/folders";
+import { toast } from "@/components/ui/toast";
 import { folderChain, folderDto, groupFolder, sharedFolder } from "@/test/folder-fixtures";
 import { baseNote } from "@/test/select-fixtures";
 import { __resetCollapseForTests, isCollapsed, setCollapsed } from "./collapse";
@@ -6,11 +9,15 @@ import { __resetFolderSortForTests } from "./folder-sort";
 import type { NoteDto } from "@knotebook/shared";
 import {
   EMPTY_FOLDER_INDEX,
+  expandAfterRestore,
   expandFolderChain,
+  folderDepth,
   folderPath,
   indexFolders,
+  isInSubtree,
   liveNotesUnder,
   subtreeFolderIds,
+  subtreeHeight,
   type FolderSpaceKey,
 } from "./folder-index";
 
@@ -172,5 +179,113 @@ describe("expandFolderChain", () => {
     expect(() => expandFolderChain(index, "ghost")).not.toThrow();
     expect(isCollapsed("folder:ghost")).toBe(false);
     expect(isCollapsed("folder:sib")).toBe(true);
+  });
+});
+
+// FI-R4「不出 toast」：expandAfterRestore 不該碰 toast；包一層計數、行為照原本。
+vi.mock("@/components/ui/toast", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/ui/toast")>();
+  return { ...actual, toast: vi.fn(actual.toast) };
+});
+
+describe("expandAfterRestore（資料夾 spec §6.8 還原後展開；總管裁定 I4、I-A）", () => {
+  function json(body: unknown, status = 200): Response {
+    return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+  }
+
+  /** 只接 `GET /api/folders`；記下次數。 */
+  function stubFolders(reply: () => Response) {
+    const gets: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (url === "/api/folders" && method === "GET") {
+          gets.push(url);
+          return Promise.resolve(reply());
+        }
+        throw new Error(`unexpected fetch: ${method} ${url}`);
+      }),
+    );
+    return gets;
+  }
+
+  const client = () => new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const note = (id: string, folderId: string | null) => baseNote({ id, title: id, folderId });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.mocked(toast).mockClear();
+  });
+
+  it("FI-R1 ['folders'] 沒有 observer、快取是舊的（不含新重建的資料夾與祖先）→ 發 GET /api/folders、新資料夾與祖先都展開", async () => {
+    const chain = folderChain("R", 3); // R1 ⊃ R2 ⊃ R3（還原時照原路徑重建）
+    const gets = stubFolders(() => json({ folders: [folderDto({ id: "old", name: "Old" }), ...chain] }));
+    const qc = client();
+    qc.setQueryData(FOLDERS_QUERY_KEY, [folderDto({ id: "old", name: "Old" })]);
+    for (const id of ["R1", "R2", "R3", "old"]) setCollapsed(`folder:${id}`, true);
+
+    await expandAfterRestore(qc, [note("n1", "R3"), note("n2", null)]);
+
+    expect(gets).toHaveLength(1);
+    expect(isCollapsed("folder:R1")).toBe(false);
+    expect(isCollapsed("folder:R2")).toBe(false);
+    expect(isCollapsed("folder:R3")).toBe(false);
+    expect(isCollapsed("folder:old")).toBe(true);
+  });
+
+  it("FI-R3 restored 全部 folderId: null（或空陣列）→ 不發 GET /api/folders", async () => {
+    const gets = stubFolders(() => json({ folders: [] }));
+    const qc = client();
+    await expandAfterRestore(qc, [note("n1", null), note("n2", null)]);
+    await expandAfterRestore(qc, []);
+    expect(gets).toHaveLength(0);
+  });
+
+  it("FI-R4 GET /api/folders 回 500 → promise 正常 resolve、沒有 unhandled rejection、不出 toast", async () => {
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    try {
+      const gets = stubFolders(() => json({ error: { code: "internal", message: "x" } }, 500));
+      const qc = client();
+      setCollapsed("folder:R1", true);
+      await expect(expandAfterRestore(qc, [note("n1", "R1")])).resolves.toBeUndefined();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(gets).toHaveLength(1);
+      expect(unhandled).not.toHaveBeenCalled();
+      expect(toast).not.toHaveBeenCalled();
+      expect(isCollapsed("folder:R1")).toBe(true);
+    } finally {
+      process.off("unhandledRejection", unhandled);
+    }
+  });
+});
+
+describe("深度與子樹", () => {
+  it("FI-D1 folderDepth：根層 1、第 3 層 3、不存在 0", () => {
+    const index = indexFolders(folderChain("A", 3));
+    expect(folderDepth(index, "A1")).toBe(1);
+    expect(folderDepth(index, "A3")).toBe(3);
+    expect(folderDepth(index, "nope")).toBe(0);
+  });
+
+  it("FI-D2 subtreeHeight：葉 1、3 層鏈的根 3、較淺的兄弟不影響", () => {
+    const index = indexFolders([...folderChain("A", 3), folderDto({ id: "S", name: "S", parentId: "A1" })]);
+    expect(subtreeHeight(index, "A3")).toBe(1);
+    expect(subtreeHeight(index, "S")).toBe(1);
+    expect(subtreeHeight(index, "A1")).toBe(3);
+  });
+
+  it("FI-D2b subtreeHeight：id 不在索引＝1（當成葉）", () => {
+    expect(subtreeHeight(indexFolders(folderChain("A", 2)), "nope")).toBe(1);
+  });
+
+  it("FI-D3 isInSubtree：自己與孫 true；兄弟與祖先 false", () => {
+    const index = indexFolders([...folderChain("A", 3), folderDto({ id: "S", name: "S", parentId: "A1" })]);
+    expect(isInSubtree(index, "A2", "A2")).toBe(true);
+    expect(isInSubtree(index, "A1", "A3")).toBe(true);
+    expect(isInSubtree(index, "A2", "S")).toBe(false);
+    expect(isInSubtree(index, "A2", "A1")).toBe(false);
   });
 });

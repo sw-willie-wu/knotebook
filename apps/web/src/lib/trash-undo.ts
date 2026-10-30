@@ -2,7 +2,8 @@ import type { QueryClient } from "@tanstack/react-query";
 import type { NavigateFunction } from "react-router";
 import { canonicalNotePath, type NoteDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
-import { invalidateTrashRelated, restoreTrashIds, seedRestoredNotes, TrashBatchError, trashErrorCause } from "@/api/trash";
+import { invalidateTrashRelated, partialRestored, restoreTrashIds, seedRestoredNotes, trashErrorCause } from "@/api/trash";
+import { expandAfterRestore } from "@/components/sidebar/folder-index";
 import { toast } from "@/components/ui/toast";
 import { canRestoreAfterTrash, trashResultMessage } from "@/lib/trash-display";
 
@@ -65,8 +66,11 @@ export async function undoTrash(args: {
   reopenId: string | null;
 }): Promise<void> {
   const { ids, queryClient, navigate, t, reopenId } = args;
+  // 已還原的那幾篇（成功＝全部、分批中途失敗＝已成功各批）：finally 失效之後拿去展開所在資料夾（資料夾 spec §6.8）。
+  let restored: NoteDto[] = [];
   try {
     const result = await restoreTrashIds(ids);
+    restored = result.restored;
     seedRestoredNotes(queryClient, result.restored);
     toast({
       title: trashResultMessage("restore", result.restored.length, result.skipped.length, t),
@@ -76,7 +80,7 @@ export async function undoTrash(args: {
     if (back) void navigate(canonicalNotePath(back));
   } catch (err) {
     // 分批中途失敗（多選刪除、刪資料夾一次復原整批才會走到）：已成功的那幾篇照樣蓋回常駐層，並回報已還原幾篇（資料夾 spec §6.6 M15）。
-    const restored = err instanceof TrashBatchError ? (err as TrashBatchError<{ restored: NoteDto[] }>).partial.restored : [];
+    restored = partialRestored(err);
     seedRestoredNotes(queryClient, restored);
     toast({
       title: errorMessage(t, trashErrorCause(err)),
@@ -86,4 +90,6 @@ export async function undoTrash(args: {
   } finally {
     invalidateTrashRelated(queryClient, ids);
   }
+  // 必須在失效之後（見 expandAfterRestore）。
+  void expandAfterRestore(queryClient, restored);
 }

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient, type UseMutationResult, type UseQueryResult } from "@tanstack/react-query";
-import { FOLDER_DEPTH_MAX, type FolderDeleteResultDto, type FolderDto, type FolderListDto, type FolderSpaceDto } from "@knotebook/shared";
+import { FOLDER_DEPTH_MAX, type FolderDeleteResultDto, type FolderDto, type FolderListDto, type FolderSpaceDto, type NoteDto } from "@knotebook/shared";
 import { api, ApiFail } from "./client";
 
 /**
@@ -11,12 +11,13 @@ export const FOLDERS_QUERY_KEY = ["folders"] as const;
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
 
-/** GET /api/folders → `.folders`（不是樹序，見 folder-index）。 */
+/** GET /api/folders → `.folders`（不是樹序，見 folder-index）。`useFolders` 與還原後展開（`expandAfterRestore`）共用。 */
+export async function fetchFolders(): Promise<FolderDto[]> {
+  return (await api<FolderListDto>("/api/folders")).folders;
+}
+
 export function useFolders(): UseQueryResult<FolderDto[]> {
-  return useQuery({
-    queryKey: FOLDERS_QUERY_KEY,
-    queryFn: async () => (await api<FolderListDto>("/api/folders")).folders,
-  });
+  return useQuery({ queryKey: FOLDERS_QUERY_KEY, queryFn: fetchFolders });
 }
 
 /** spec §6.15：資料夾 CRUD 之後；`trash: true` 給改名、刪資料夾（M14：垃圾桶項目的 folderPath 會變）。 */
@@ -36,6 +37,22 @@ export function createFolderRequest(input: CreateFolderInput): Promise<FolderDto
 /** PATCH /api/folders/:id { name }。 */
 export function renameFolderRequest(id: string, name: string): Promise<FolderDto> {
   return api<FolderDto>(`/api/folders/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ name }) });
+}
+
+/** PUT /api/notes/:id/folder { folderId }（null＝根層；只有這支收 null）。 */
+export function placeNoteRequest(noteId: string, folderId: string | null): Promise<NoteDto> {
+  return api<NoteDto>(`/api/notes/${encodeURIComponent(noteId)}/folder`, { method: "PUT", body: JSON.stringify({ folderId }) });
+}
+
+/** PATCH /api/folders/:id { parentId }（null＝根層）。 */
+export function moveFolderRequest(id: string, parentId: string | null): Promise<FolderDto> {
+  return api<FolderDto>(`/api/folders/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ parentId }) });
+}
+
+/** 放置成功：寫 `["note", id]`，並失效 folders、notes（spec §6.15）。 */
+export function applyPlacedNote(queryClient: QueryClient, note: NoteDto): void {
+  queryClient.setQueryData(["note", note.id], note);
+  invalidateFolderRelated(queryClient);
 }
 
 /** DELETE /api/folders/:id。 */
@@ -76,6 +93,11 @@ export function useDeleteFolder(): UseMutationResult<FolderDeleteResultDto, unkn
       void queryClient.invalidateQueries({ queryKey: ["backlinks"] });
     },
   });
+}
+
+/** 404 `folder_not_found`：快取裡（或使用者剛選）的資料夾已不在（資料夾 spec §5.7.6 n6）。 */
+export function isFolderNotFound(err: unknown): boolean {
+  return err instanceof ApiFail && err.code === "folder_not_found";
 }
 
 /** errors.<code>（帶 `max: FOLDER_DEPTH_MAX`，讀碼發現 1-③）；非 ApiFail → errors.fallback。 */

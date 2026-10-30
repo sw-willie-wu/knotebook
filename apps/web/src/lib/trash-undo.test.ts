@@ -7,7 +7,16 @@ import i18n from "@/i18n";
 import { ApiFail } from "@/api/client";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { EDITOR_PERMS, OWNER_PERMS } from "@/test/fixtures";
+import { folderDto } from "@/test/folder-fixtures";
+import { __resetCollapseForTests, isCollapsed, setCollapsed } from "@/components/sidebar/collapse";
+import { __resetFolderSortForTests } from "@/components/sidebar/folder-sort";
 import { showTrashedToast } from "./trash-undo";
+
+afterEach(() => {
+  localStorage.clear();
+  __resetCollapseForTests();
+  __resetFolderSortForTests();
+});
 
 // 「已移到垃圾桶」toast 與「復原」（spec §6.10.4／§6.10.7）。真的 QueryClient、navigate 用 vi.fn()。
 
@@ -282,6 +291,65 @@ describe("showTrashedToast／undoTrash", () => {
     act(() => showTrashedToast({ notes: [], undoIds: ids, queryClient, navigate, t, reopen: false }));
     fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
     expect(await screen.findByText("Restored 200 notes", { exact: true })).toBeInTheDocument();
+  });
+
+  // 資料夾 PR-3b-2 T7（spec §6.8 還原後展開）：本檔 TU-F1／TU-F2 已被 PR-3b-1 佔用，T7 brief 的 TU-F1 記成 TU-R1／TU-R2。
+  /** `POST /api/trash/restore` 依序取 `restoreReplies`（用完重複最後一個）；`GET /api/folders` 回 `folders`。 */
+  function stubRestoreAndFolders(restoreReplies: Array<(batch: string[]) => Response>, folders: unknown[]) {
+    const folderGets: string[] = [];
+    let call = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (url === "/api/folders" && method === "GET") {
+          folderGets.push(url);
+          return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ folders }) }));
+        }
+        if (url === "/api/trash/restore" && method === "POST") {
+          const batch = (JSON.parse(String(init?.body)) as { ids: string[] }).ids;
+          const reply = restoreReplies[Math.min(call, restoreReplies.length - 1)]!;
+          call += 1;
+          return Promise.resolve(reply(batch));
+        }
+        throw new Error(`unexpected fetch: ${method} ${url}`);
+      }),
+    );
+    return folderGets;
+  }
+  const ok = (body: unknown) => fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(body) });
+
+  it("TU-R1（brief TU-F1）復原成功 → 先收合的 folder:A 被展開", async () => {
+    const { queryClient, navigate, t } = setup();
+    const inA = { ...PERSONAL, folderId: "A" };
+    const folderGets = stubRestoreAndFolders([() => ok({ restored: [inA], skipped: [] })], [folderDto({ id: "A", name: "A" })]);
+    setCollapsed("folder:A", true);
+    act(() => showTrashedToast({ notes: [PERSONAL], queryClient, navigate, t, reopen: false }));
+    fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    expect(await screen.findByText("Restored 1 note", { exact: true })).toBeInTheDocument();
+    await waitFor(() => expect(isCollapsed("folder:A")).toBe(false));
+    expect(folderGets).toHaveLength(1);
+  });
+
+  it("TU-R2（brief TU-F1 後半）分批中途失敗 → 已還原那幾篇的資料夾展開、其餘不動", async () => {
+    const { queryClient, navigate, t } = setup();
+    const ids = Array.from({ length: 250 }, (_, i) => `n${i}`);
+    const folderGets = stubRestoreAndFolders(
+      [
+        (batch) => ok({ restored: batch.map((id, i) => ({ ...PERSONAL, id, folderId: i === 0 ? "A" : null })), skipped: [] }),
+        () => fakeResponse({ ok: false, status: 429, json: () => Promise.resolve({ error: { code: "rate_limited", message: "x" } }) }),
+      ],
+      [folderDto({ id: "A", name: "A" }), folderDto({ id: "B", name: "B" })],
+    );
+    setCollapsed("folder:A", true);
+    setCollapsed("folder:B", true);
+    act(() => showTrashedToast({ notes: [], undoIds: ids, queryClient, navigate, t, reopen: false }));
+    fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    expect(await screen.findByText("Restored 200 notes", { exact: true })).toBeInTheDocument();
+    await waitFor(() => expect(isCollapsed("folder:A")).toBe(false));
+    expect(isCollapsed("folder:B")).toBe(true);
+    expect(folderGets).toHaveLength(1);
   });
 
   it("TU14 可復原＋description：描述照原字顯示（不接 hint）、仍有 Undo", async () => {
