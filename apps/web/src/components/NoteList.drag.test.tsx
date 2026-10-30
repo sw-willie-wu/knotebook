@@ -608,11 +608,13 @@ describe("NoteList 疊資料夾（PR-3c T5）", () => {
     expect(previewOf(inst("static"))).toBeNull();
     expect(screen.queryByText(/Created/)).toBeNull();
 
+    // 沿用預設名按 Save：不送 PATCH（總管裁定），關框後照樣出成功 toast。
     fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
-    await server.respond();
 
     expect(await screen.findByText("Created “New folder” with 2 notes", { exact: true })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(server.writes.map((write) => write.method)).toEqual(["POST", "PUT", "PUT"]);
     await waitFor(() => expect(node("static", "folder", "NEW")!.querySelector("button[aria-expanded]")).toHaveFocus());
   });
 

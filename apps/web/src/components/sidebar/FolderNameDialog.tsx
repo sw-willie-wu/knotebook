@@ -90,6 +90,12 @@ export function FolderNameDialog(props: FolderNameDialogProps) {
     event.preventDefault();
     if (trimmed.length === 0 || invalid !== null || pending) return;
     setError(null);
+    // 疊資料夾改名沿用預設名（最常見：直接按 Enter）：不送 PATCH，直接關框並回報（總管裁定，省一次寫入）。
+    if (props.mode === "rename" && stack !== undefined && trimmed === props.folder.name) {
+      reportClosed(trimmed);
+      onOpenChange(false);
+      return;
+    }
     try {
       if (props.mode === "rename") {
         renamingRef.current = true;

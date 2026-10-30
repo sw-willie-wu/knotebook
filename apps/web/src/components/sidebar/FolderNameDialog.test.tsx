@@ -236,6 +236,23 @@ describe("FolderNameDialog 疊資料夾改名", () => {
     expect(hooks.onClosed).toHaveBeenCalledWith("Q3");
   });
 
+  it("FN-S9 名稱沒改（含只加了首尾空白）直接 Save → 不送 PATCH、關框、onClosed(\"New folder 2\") 恰一次；不帶 stack 的 rename 照舊送 PATCH", async () => {
+    const calls = stubFolders(() => json(NEW2));
+    const hooks = stackHooks();
+    const first = renderDialog({ mode: "rename", folder: NEW2, stack: hooks });
+    type("  New folder 2 ");
+    fireEvent.click(submit("Save"));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(posted(calls)).toEqual([]);
+    expect(hooks.onClosed).toHaveBeenCalledTimes(1);
+    expect(hooks.onClosed).toHaveBeenCalledWith("New folder 2");
+    first.view.unmount();
+
+    renderDialog({ mode: "rename", folder: NEW2 });
+    fireEvent.click(submit("Save"));
+    await waitFor(() => expect(posted(calls)).toEqual([{ method: "PATCH", url: "/api/folders/n2", body: { name: "New folder 2" } }]));
+  });
+
   it("FN-S3 按 Cancel → 沒有 PATCH、onClosed(\"New folder 2\") 恰一次", async () => {
     const calls = stubFolders();
     const hooks = stackHooks();
