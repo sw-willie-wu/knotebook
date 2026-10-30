@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
-import { ADMIN, editorLocator, loginAs, setAutoWait } from "./helpers.js";
+import { ADMIN, editorLocator, loginAs, setAutoWait, waitForEditorSelection } from "./helpers.js";
 
 /**
  * 量測（不是功能斷言）：spec §13-9【推】舊筆記第一下按鍵／開了就關是否多切一版；§13-5【推】2000 區塊在真瀏覽器的預覽耗時。
@@ -99,6 +99,7 @@ test("23a §13-9：舊 schema 形的筆記——開了就關、在 heading／par
   const typeAndDelete = (text: string) => async () => {
     await editorLocator(page).getByText(text).click();
     await page.keyboard.press("End");
+    await waitForEditorSelection(page); // click→End 後等 PM 讀回選取（helpers 註解）；三種 block 都是純文字段尾
     await page.keyboard.type("x");
     await page.keyboard.press("Backspace");
   };

@@ -1,5 +1,5 @@
 import { test, expect, type BrowserContext, type Locator, type Page } from "@playwright/test";
-import { ADMIN, createNote, createUserViaInvite, editorLocator, loginAs, noteIdFromUrl, randomEmail, reEscape } from "./helpers.js";
+import { ADMIN, createNote, createUserViaInvite, editorLocator, loginAs, noteIdFromUrl, randomEmail, reEscape, waitForEditorSelection } from "./helpers.js";
 
 /**
  * #293 PR-1（spec §14.1 A1–A6、A8）：頁首「也在這篇的人」頭像列。
@@ -91,6 +91,8 @@ test("頁首頭像列：A 看 B（無游標）、B 看 A（外框色、點了捲
     await editorLocator(pageA).getByText(`Last line ${RUN}`).click();
     // 游標落在行尾，B 端該段文字不被 A 的遠端游標 widget 切開。
     await pageA.keyboard.press("End");
+    // 後面不打字，但 A 送出的游標位置（awareness）讀的是 PM 的 state.selection：等它讀回 End，B 端的游標一開始就在行尾、不在斷言途中移位。
+    await waitForEditorSelection(pageA);
 
     const rowB = pageB.getByRole("group", { name: "Also viewing this note" });
     const aBtn = rowB.getByRole("button", {
