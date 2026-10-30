@@ -1,6 +1,6 @@
 /**
  * 資料夾 PR-3d（plan docs/superpowers/plans/2026-10-28-folders-pr3d.md）的資料夾 MCP 工具。
- * T5：LF＝`list_folders`、RO＝`read_note_outline` 的 `folder`。T6–T8 在本檔續寫。
+ * T5：LF＝`list_folders`、RO＝`read_note_outline` 的 `folder`。T6–T8 在本檔續寫（T7：MN／CN／CP／MG／KF／BZ-N／PX-N）。
  * 比對對象是同一人 cookie 的 REST（`GET /api/folders`，同一個可見性述詞）。
  */
 import { randomUUID } from "node:crypto";
@@ -10,21 +10,23 @@ import type { FolderListDto, TokenScope } from "@knotebook/shared";
 import type { Db } from "../src/db/index.js";
 import { groupMembers } from "../src/db/schema.js";
 import { listVisibleFoldersPage } from "../src/folders/queries.js";
+import type { GroupRacePoint } from "../src/groups/test-hook.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
 import { folderPathCost } from "../src/mcp/folder-fields.js";
 import { BAD_CURSOR_MESSAGE } from "../src/mcp/keyset-cursor.js";
 import { MCP_FOLDER_PAGE_MAX, MCP_LIST_WIRE_BUDGET, escapedLength } from "../src/mcp/limits.js";
 import type { McpToolCtx } from "../src/mcp/context.js";
+import { COPY_NEEDS_MOVE_MESSAGE } from "../src/mcp/tools/copy-note.js";
 import { folderReply } from "../src/mcp/tools/create-folder.js";
 import { outlineFolderFor } from "../src/mcp/tools/read-note-outline.js";
 import { wireCost } from "../src/mcp/wire-budget.js";
 import { seedTokenForUser } from "./editing-helpers.js";
-import { seedFolder, seedFolderChain, seedPlacement, setNoteFolder } from "./folder-helpers.js";
-import { seedGroup, seedNote, seedRole, seedShare, seedUser } from "./group-helpers.js";
+import { noteFolderCols, placementOf, seedFolder, seedFolderChain, seedPlacement, setNoteFolder, xminOf } from "./folder-helpers.js";
+import { noteState, seedGroup, seedNote, seedRole, seedShare, seedUser, sharesOf } from "./group-helpers.js";
 import { buildCollabTestApp } from "./helpers.js";
-import { callTool, restFolder, type McpAuth, type ToolCallResult } from "./mcp-folder-helpers.js";
+import { callTool, expectSameNotFound, restFolder, type McpAuth, type ToolCallResult } from "./mcp-folder-helpers.js";
 import { mcpPost, rpc } from "./mcp-helpers.js";
-import { sixRoleScene } from "./trash-helpers.js";
+import { inject, sixRoleScene } from "./trash-helpers.js";
 
 const R: TokenScope = "notes:read";
 const FM2 = "No group with that id among your groups where your role can read notes.";
@@ -438,8 +440,11 @@ describe("CF1 create_folder 的四種位置", () => {
     }
     // 名稱不合法也在 scope（tokenWrite 扣點）之後才判（T6 審查 M2）。
     err(await callTool(ctx.app, auth, "create_folder", { name: "   " }), "invalid_body", FM6);
+    // rename_folder 同樣是 scope → 名稱預判（T6 審查 N1）。
+    err(await callTool(ctx.app, auth, "rename_folder", { folder_id: f.id, name: "   " }), "invalid_body", FM6);
     expect(await folderCount(ctx.db)).toBe(before);
-    expect(remaining(tokenWrite, `token:${me.id}`)).toBe(46);
+    expect((await folderOf(ctx.db, f.id))!.name).toBe("P");
+    expect(remaining(tokenWrite, `token:${me.id}`)).toBe(45);
     expect(remaining(edit, me.id)).toBe(50);
   });
 });
@@ -630,16 +635,18 @@ describe("ED-W 桶", () => {
     expect((await folderOf(ctx.db, f.id))!.name).toBe("F");
   });
 
-  it("tokenWrite 桶 0（讀寫 token）→ create／rename／move 三支都 too_many_requests、DB 不變", async () => {
+  it("tokenWrite 桶 0（讀寫 token）→ create／rename／move 三支與 move_note_to_folder（T7）都 too_many_requests、DB 不變", async () => {
     const ctx = await buildCollabTestApp({ limiters: { tokenWrite: new FixedWindowLimiter({ limit: 0, windowMs: 600_000 }) } });
     const me = await seedUser(ctx.db);
     const [p, c] = await seedFolderChain(ctx.db, { personal: me.id }, ["P", "C"]);
+    const n = await seedNote(ctx.db, { ownerId: me.id });
     const auth = await tokenOf(ctx.db, me.id, RW);
     const before = await folderCount(ctx.db);
     const calls: Array<[string, Record<string, unknown>]> = [
       ["create_folder", { name: "new" }],
       ["rename_folder", { folder_id: c!, name: "renamed" }],
       ["move_folder", { folder_id: c!, parent_id: null }],
+      ["move_note_to_folder", { note_id: n.id, folder_id: c! }],
     ];
     for (const [name, args] of calls) {
       const r = await callTool(ctx.app, auth, name, args);
@@ -647,6 +654,7 @@ describe("ED-W 桶", () => {
     }
     expect(await folderCount(ctx.db)).toBe(before);
     expect(await folderOf(ctx.db, c!)).toEqual({ name: "C", parent_id: p });
+    expect((await noteFolderCols(ctx.db.$client, n.id))?.folder_id).toBeNull();
   });
 });
 
@@ -682,5 +690,515 @@ describe("PX-W REST／MCP 同一份 fixture（§5.6 第二張表：建／改名�
     expect(rest.member).toEqual(["ok", "ok", "ok", "ok"]);
     expect(rest.readOnly).toEqual(["forbidden", "forbidden", "forbidden", "forbidden"]);
     expect(rest.outsider).toEqual(["group_not_found", "not_found", "not_found", "not_found"]);
+  });
+});
+
+// ───────────────────────── 資料夾 PR-3d T7：move_note_to_folder 與三支既有工具的 folder_id ─────────────────────────
+
+const RWM: TokenScope = "notes:read notes:write notes:move";
+const NOTE_NF = "No note with that id. It may not exist, it may not be shared with you, or it may belong to a group you aren't in.";
+const FM12 =
+  "Your access to this note doesn't allow filing it, so nothing was changed. Filing a group's notes into folders needs a role in that group that can edit notes.";
+const FM13 =
+  "Your role in that group can create notes but not edit them, so it can't put a note in one of the group's folders. Leave out `folder_id` to put it at the group's top level.";
+const FM14 =
+  "That folder can't hold this note: a personal folder takes a note without `group_id`, a group's folder needs that group's id as `group_id`, and your folders for notes shared with you don't hold new notes.";
+const FM15 =
+  "That folder isn't one of the folders of the group you're moving the note into. Use one of that group's folders — list_folders with `group_id` shows them — or leave out `folder_id` for the group's top level.";
+const FM16 =
+  "That folder isn't in this note's space. A note can only be filed among your personal folders if it is yours, its group's folders if it is a group note, or your folders for notes shared with you if someone shared it with you. Moving a personal note into a group is what move_note_to_group does; it needs the notes:move scope.";
+const CREATE_BUSY = "The server was busy, so no note was created. Try again in a moment.";
+const CREATE_NO_ROLE = "Your role in that group can't create notes. Leave out `group_id` to create a personal note.";
+const CP_F =
+  "The id of a folder to put the copy in, from list_folders; leave it out for the top level. One of your personal folders for a copy of your own (leave out `group_id`), or one of the folders of the group you pass as `group_id`, where your role must also be able to edit notes.";
+const CP_F0 = "The id of one of your personal folders to put the copy in, from list_folders; leave it out for the top level of your personal notes.";
+
+type NoteOut = { id: string; role: string; folder: { id: string; name: string } | null; owner: Record<string, unknown> };
+const noteOut = (r: ToolCallResult): NoteOut => (ok(r) as { note: NoteOut }).note;
+const countTitled = async (db: Db, title: string): Promise<number> =>
+  (await db.$client.query<{ n: number }>(`select count(*)::int n from notes where title = $1`, [title])).rows[0]!.n;
+const folderIdOf = async (db: Db, id: string): Promise<string | null | undefined> => (await noteFolderCols(db.$client, id))?.folder_id;
+
+/** 測試縫：`arm(point, fn)` 之後第一次經過 point 時跑 fn（只跑一次）。 */
+function armedHook() {
+  let armed: { point: GroupRacePoint; fn: () => Promise<void> } | null = null;
+  return {
+    hook: async (point: GroupRacePoint) => {
+      if (armed && armed.point === point) {
+        const { fn } = armed;
+        armed = null;
+        await fn();
+      }
+    },
+    arm(point: GroupRacePoint, fn: () => Promise<void>) {
+      armed = { point, fn };
+    },
+    get pending() {
+      return armed !== null;
+    },
+  };
+}
+async function transferGroup(app: FastifyInstance, groupId: string, adminId: string): Promise<void> {
+  const del = await inject(app, "DELETE", `/api/groups/${groupId}`, adminId, { mode: "transfer", transferTo: adminId });
+  expect(del.statusCode, del.body).toBe(204);
+}
+/** 自訂角色「讀＋建、不能編輯」（D13）的成員。 */
+async function createOnlyMember(db: Db, groupId: string) {
+  const u = await seedUser(db);
+  const roleId = await seedRole(db, groupId, `co-${u.id.slice(0, 8)}`, { canRead: true, canCreate: true });
+  await db.insert(groupMembers).values({ groupId, userId: u.id, roleId });
+  return u;
+}
+
+describe("MN1 move_note_to_folder 三種筆記", () => {
+  it("個人 → 個人資料夾；群組（member）→ 群組資料夾；共享（viewer、editor）→ 自己的 shared 資料夾，擁有者的 folder_id 與 list_notes 不變、回應不帶擁有者的資料夾；folder_id null → 回根層", async () => {
+    const ctx = await buildCollabTestApp();
+    const pool = ctx.db.$client;
+    const s = await sixRoleScene(ctx.db);
+    const me = s.member;
+    const owner = await seedUser(ctx.db);
+    const viewer = await seedUser(ctx.db);
+    const auth = await tokenOf(ctx.db, me.id, RW);
+
+    const pf = await seedFolder(ctx.db, { personal: me.id }, { name: "Mine" });
+    const pn = await seedNote(ctx.db, { ownerId: me.id }, { title: "mn1 p" });
+    const a = noteOut(await callTool(ctx.app, auth, "move_note_to_folder", { note_id: pn.id, folder_id: pf.id.toUpperCase() }));
+    expect([a.id, a.role, a.folder]).toEqual([pn.id, "owner", { id: pf.id, name: "Mine" }]);
+    expect(await folderIdOf(ctx.db, pn.id)).toBe(pf.id);
+
+    const gf = await seedFolder(ctx.db, { group: s.groupId }, { name: "GF" });
+    const gn = await seedNote(ctx.db, { groupId: s.groupId }, { title: "mn1 g" });
+    const b = noteOut(await callTool(ctx.app, auth, "move_note_to_folder", { note_id: gn.id, folder_id: gf.id }));
+    expect([b.id, b.role, b.folder]).toEqual([gn.id, "editor", { id: gf.id, name: "GF" }]);
+    expect(await folderIdOf(ctx.db, gn.id)).toBe(gf.id);
+
+    // 共享：擁有者把筆記放在「機密專案」；被分享者各自放進自己的 shared 資料夾（AG-F1）。
+    const secret = await seedFolder(ctx.db, { personal: owner.id }, { name: "機密專案" });
+    const sn = await seedNote(ctx.db, { ownerId: owner.id }, { title: "mn1 s" });
+    await setNoteFolder(pool, sn.id, secret.id);
+    await seedShare(ctx.db, sn.id, viewer.id, "viewer");
+    await seedShare(ctx.db, sn.id, me.id, "editor");
+    const ownerAuth = await tokenOf(ctx.db, owner.id, R);
+    const ownerList = async () => ok(await callTool(ctx.app, ownerAuth, "list_notes", {}));
+    const ownerBefore = await ownerList();
+    for (const [u, role] of [[viewer, "viewer"], [me, "editor"]] as const) {
+      const sf = await seedFolder(ctx.db, { shared: u.id }, { name: `S-${role}` });
+      const res = await callTool(ctx.app, await tokenOf(ctx.db, u.id, RW), "move_note_to_folder", { note_id: sn.id, folder_id: sf.id });
+      const c = noteOut(res);
+      expect([role, c.id, c.role, c.folder]).toEqual([role, sn.id, role, { id: sf.id, name: `S-${role}` }]);
+      const wire = JSON.stringify(res);
+      expect(wire).not.toContain(secret.id);
+      expect(wire).not.toContain("機密專案");
+      expect(await placementOf(pool, u.id, sn.id)).toBe(sf.id);
+    }
+    expect(await folderIdOf(ctx.db, sn.id)).toBe(secret.id);
+    expect(await ownerList()).toEqual(ownerBefore);
+
+    const viewerAuth = await tokenOf(ctx.db, viewer.id, RW);
+    expect(noteOut(await callTool(ctx.app, viewerAuth, "move_note_to_folder", { note_id: sn.id, folder_id: null })).folder).toBeNull();
+    expect(await placementOf(pool, viewer.id, sn.id)).toBeNull();
+    expect(noteOut(await callTool(ctx.app, auth, "move_note_to_folder", { note_id: pn.id, folder_id: null })).folder).toBeNull();
+    expect(await folderIdOf(ctx.db, pn.id)).toBeNull();
+    expect(await ownerList()).toEqual(ownerBefore);
+  });
+});
+
+describe("MN2 放置不改可見性與其他欄（A3-11 的 MCP 半）", () => {
+  it("個人與群組筆記：放進去再回根層，slug、updated_at、公開欄、分享列逐欄相同", async () => {
+    const ctx = await buildCollabTestApp();
+    const pool = ctx.db.$client;
+    const s = await sixRoleScene(ctx.db);
+    const me = s.member;
+    const other = await seedUser(ctx.db);
+    const auth = await tokenOf(ctx.db, me.id, RW);
+    const n = await seedNote(ctx.db, { ownerId: me.id }, { title: "mn2", slugIsCustom: true, prevSlug: "old-mn2", publicToken: `tok-${me.id.slice(0, 8)}` });
+    await seedShare(ctx.db, n.id, other.id, "editor");
+    const gn = await seedNote(ctx.db, { groupId: s.groupId }, { title: "mn2 g" });
+    await pool.query(`update notes set updated_at = now() - interval '2 hours' where id = any($1::uuid[])`, [[n.id, gn.id]]);
+    const snap = async (id: string) => ({ note: await noteState(pool, id), shares: await sharesOf(ctx.db, id) });
+    const pf = await seedFolder(ctx.db, { personal: me.id });
+    const gf = await seedFolder(ctx.db, { group: s.groupId });
+    for (const [id, f] of [[n.id, pf.id], [gn.id, gf.id]] as const) {
+      const before = await snap(id);
+      noteOut(await callTool(ctx.app, auth, "move_note_to_folder", { note_id: id, folder_id: f }));
+      expect(await snap(id)).toEqual(before);
+      noteOut(await callTool(ctx.app, auth, "move_note_to_folder", { note_id: id, folder_id: null }));
+      expect(await snap(id)).toEqual(before);
+    }
+  });
+});
+
+describe("MN3 move_note_to_folder 的錯誤順序", () => {
+  it("看不到的筆記 → 筆記句；看不到的資料夾與隨機 uuid 逐欄相同（FM1）；看得到但跨空間 → FM16；readOnly 的群組筆記 → FM12；看不到的筆記＋看不到的資料夾 → 筆記句", async () => {
+    const ctx = await buildCollabTestApp();
+    const s = await sixRoleScene(ctx.db);
+    const me = s.member;
+    const other = await seedUser(ctx.db);
+    const auth = await tokenOf(ctx.db, me.id, RW);
+    const mine = await seedNote(ctx.db, { ownerId: me.id });
+    const theirs = await seedNote(ctx.db, { ownerId: other.id });
+    const sharedWithMe = await seedNote(ctx.db, { ownerId: other.id });
+    await seedShare(ctx.db, sharedWithMe.id, me.id, "editor");
+    const pf = await seedFolder(ctx.db, { personal: me.id });
+    const sf = await seedFolder(ctx.db, { shared: me.id });
+    const hiddenFolder = await seedFolder(ctx.db, { personal: other.id });
+
+    err(await callTool(ctx.app, auth, "move_note_to_folder", { note_id: theirs.id, folder_id: pf.id }), "not_found", NOTE_NF);
+    const hidden = await callTool(ctx.app, auth, "move_note_to_folder", { note_id: mine.id, folder_id: hiddenFolder.id });
+    err(hidden, "not_found", FM1);
+    expectSameNotFound(hidden, await callTool(ctx.app, auth, "move_note_to_folder", { note_id: mine.id, folder_id: randomUUID() }));
+    err(await callTool(ctx.app, auth, "move_note_to_folder", { note_id: mine.id, folder_id: sf.id }), "invalid_body", FM16);
+    err(await callTool(ctx.app, auth, "move_note_to_folder", { note_id: sharedWithMe.id, folder_id: pf.id }), "invalid_body", FM16);
+    const gn = await seedNote(ctx.db, { groupId: s.groupId });
+    const gf = await seedFolder(ctx.db, { group: s.groupId });
+    err(await callTool(ctx.app, await tokenOf(ctx.db, s.readOnly.id, RW), "move_note_to_folder", { note_id: gn.id, folder_id: gf.id }), "forbidden", FM12);
+    err(await callTool(ctx.app, auth, "move_note_to_folder", { note_id: theirs.id, folder_id: hiddenFolder.id }), "not_found", NOTE_NF);
+    expect(await folderIdOf(ctx.db, mine.id)).toBeNull();
+    expect(await folderIdOf(ctx.db, gn.id)).toBeNull();
+    expect(await placementOf(ctx.db.$client, me.id, sharedWithMe.id)).toBeNull();
+  });
+});
+
+describe("MN4 撤分享競態（r3 m-7）", () => {
+  it("交易內重判之後（note-folder-locked）刪掉分享列 → not_found＋筆記句，不是 internal；沒有放置列", async () => {
+    const seam = armedHook();
+    const ctx = await buildCollabTestApp({ groupTestHook: seam.hook });
+    const pool = ctx.db.$client;
+    const owner = await seedUser(ctx.db);
+    const ed = await seedUser(ctx.db);
+    const n = await seedNote(ctx.db, { ownerId: owner.id });
+    await seedShare(ctx.db, n.id, ed.id, "editor");
+    const se = await seedFolder(ctx.db, { shared: ed.id });
+    seam.arm("note-folder-locked", async () => {
+      await pool.query(`delete from note_shares where note_id = $1 and user_id = $2`, [n.id, ed.id]);
+    });
+    err(await callTool(ctx.app, await tokenOf(ctx.db, ed.id, RW), "move_note_to_folder", { note_id: n.id, folder_id: se.id }), "not_found", NOTE_NF);
+    expect(seam.pending).toBe(false);
+    expect(await placementOf(pool, ed.id, n.id)).toBeNull();
+  });
+});
+
+describe("MN5 冪等", () => {
+  it("放到已在的地方兩次 → 兩次都成功、第二次 notes 列沒被寫（xmin 不變）", async () => {
+    const ctx = await buildCollabTestApp();
+    const me = await seedUser(ctx.db);
+    const auth = await tokenOf(ctx.db, me.id, RW);
+    const f = await seedFolder(ctx.db, { personal: me.id }, { name: "F" });
+    const n = await seedNote(ctx.db, { ownerId: me.id });
+    expect(noteOut(await callTool(ctx.app, auth, "move_note_to_folder", { note_id: n.id, folder_id: f.id })).folder).toEqual({ id: f.id, name: "F" });
+    const x = await xminOf(ctx.db.$client, "notes", n.id);
+    expect(noteOut(await callTool(ctx.app, auth, "move_note_to_folder", { note_id: n.id, folder_id: f.id })).folder).toEqual({ id: f.id, name: "F" });
+    expect(await xminOf(ctx.db.$client, "notes", n.id)).toBe(x);
+  });
+});
+
+describe("MN6 describe 字串", () => {
+  it("tools/list 上 move_note_to_folder 的 description／note_id／folder_id／note 與三支既有工具的 folder_id 說明逐字", async () => {
+    const D_MNF =
+      "File a note in a folder, or at the top level of its space with `folder_id: null`. The folder must be in the note's own space: one of your personal folders for a note of yours; one of the group's folders for a group note, which needs a role that can edit notes; or one of your folders for notes shared with you, for a note someone shared with you — that filing is yours alone, and its owner and anyone else see nothing change. Filing never changes who can see the note, its URL, its content or its `updatedAt`. It never moves a personal note into a group; move_note_to_group does that, and needs the notes:move scope. The reply is the note, in the shape list_notes returns.";
+    const MNF = "The id of the folder to file the note in, from list_folders, or null for the top level of the note's space.";
+    const CN =
+      "The id of a folder to create the note in, from list_folders; leave it out for the top level. One of your personal folders makes a personal note, so leave out `group_id`; one of a group's folders needs that group's id as `group_id` and a role there that can both create and edit notes. Your folders for notes shared with you can't hold new notes.";
+    const MG =
+      "The id of one of that group's folders to put the note in, from list_folders with `group_id`; your role there must also be able to edit notes. Leave it out to put the note at the group's top level.";
+    const ctx = await buildCollabTestApp();
+    const me = await seedUser(ctx.db);
+    const res = await mcpPost(ctx.app, rpc("tools/list"), (await tokenOf(ctx.db, me.id, RWM)) as { token: string });
+    type Tool = { name: string; description: string; inputSchema: { properties: Record<string, { description?: string }> }; outputSchema: { properties: Record<string, { description?: string }> } };
+    const byName = (n: string) => (res.json().result.tools as Tool[]).find(t => t.name === n)!;
+    const mnf = byName("move_note_to_folder");
+    expect(mnf.description).toBe(D_MNF);
+    expect(mnf.inputSchema.properties.folder_id!.description).toBe(MNF);
+    expect(mnf.inputSchema.properties.note_id!.description).toBe("The note's id, as returned by list_notes or search_notes.");
+    expect(Object.keys(mnf.inputSchema.properties).sort()).toEqual(["folder_id", "note_id"]);
+    expect(mnf.outputSchema.properties.note!.description).toBe("The note after filing, in the same shape list_notes returns.");
+    expect(byName("create_note").inputSchema.properties.folder_id!.description).toBe(CN);
+    expect(byName("move_note_to_group").inputSchema.properties.folder_id!.description).toBe(MG);
+  });
+});
+
+describe("CN1 create_note 的 folder_id", () => {
+  it("個人資料夾、群組資料夾＋對的 group_id（含大寫）成功（帶與不帶 content）；四種不一致 → FM14；別群組的資料夾 → FM1 且與隨機 uuid 逐欄相同；editDelete → 既有句；建＋讀不能編 → FM13", async () => {
+    const ctx = await buildCollabTestApp();
+    const s = await sixRoleScene(ctx.db);
+    const me = s.member;
+    const G = s.groupId;
+    const auth = await tokenOf(ctx.db, me.id, RW);
+    const PF = (await seedFolder(ctx.db, { personal: me.id }, { name: "PF" })).id;
+    const GF = (await seedFolder(ctx.db, { group: G }, { name: "GF" })).id;
+    const H = (await seedGroup(ctx.db, "CN1 H", [{ userId: me.id, role: "member" }])).id;
+    const SF = (await seedFolder(ctx.db, { shared: me.id }, { name: "SF" })).id;
+    const xAdmin = await seedUser(ctx.db);
+    const X = (await seedGroup(ctx.db, "CN1 X", [{ userId: xAdmin.id, role: "admin" }])).id;
+    const XF = (await seedFolder(ctx.db, { group: X })).id;
+
+    const ok1 = noteOut(await callTool(ctx.app, auth, "create_note", { title: "cn1 p", folder_id: PF }));
+    expect([ok1.role, ok1.folder]).toEqual(["owner", { id: PF, name: "PF" }]);
+    expect(await folderIdOf(ctx.db, ok1.id)).toBe(PF);
+    const ok2 = noteOut(await callTool(ctx.app, auth, "create_note", { title: "cn1 pc", content: "# H\n\nbody", folder_id: PF }));
+    expect(ok2.folder).toEqual({ id: PF, name: "PF" });
+    expect(await folderIdOf(ctx.db, ok2.id)).toBe(PF);
+    const ok3 = noteOut(await callTool(ctx.app, auth, "create_note", { title: "cn1 g", group_id: G, folder_id: GF }));
+    expect([ok3.role, ok3.folder, ok3.owner.id]).toEqual(["editor", { id: GF, name: "GF" }, G]);
+    expect(await folderIdOf(ctx.db, ok3.id)).toBe(GF);
+    const ok4 = noteOut(await callTool(ctx.app, auth, "create_note", { title: "cn1 gc", content: "body", group_id: G.toUpperCase(), folder_id: GF }));
+    expect(ok4.folder).toEqual({ id: GF, name: "GF" });
+    expect(await folderIdOf(ctx.db, ok4.id)).toBe(GF);
+
+    const cross: Array<[string, Record<string, string>]> = [
+      ["群組資料夾、沒給 group_id", { folder_id: GF }],
+      ["group_id 是另一個我在的群組", { group_id: H, folder_id: GF }],
+      ["個人資料夾＋group_id", { group_id: G, folder_id: PF }],
+      ["shared 資料夾", { folder_id: SF }],
+      ["shared 資料夾＋group_id", { group_id: G, folder_id: SF }],
+    ];
+    for (const [label, args] of cross) {
+      const r = await callTool(ctx.app, auth, "create_note", { title: `cn1 x ${label}`, ...args });
+      expect([label, r.structuredContent]).toEqual([label, { code: "invalid_body", message: FM14 }]);
+      expect(await countTitled(ctx.db, `cn1 x ${label}`)).toBe(0);
+    }
+    const hidden = await callTool(ctx.app, auth, "create_note", { title: "cn1 hidden", group_id: G, folder_id: XF });
+    err(hidden, "not_found", FM1);
+    expectSameNotFound(hidden, await callTool(ctx.app, auth, "create_note", { title: "cn1 hidden", group_id: G, folder_id: randomUUID() }));
+    expect(await countTitled(ctx.db, "cn1 hidden")).toBe(0);
+
+    err(await callTool(ctx.app, await tokenOf(ctx.db, s.editDelete.id, RW), "create_note", { title: "cn1 ed", group_id: G, folder_id: GF }), "forbidden", CREATE_NO_ROLE);
+    const co = await createOnlyMember(ctx.db, G);
+    const coAuth = await tokenOf(ctx.db, co.id, RW);
+    err(await callTool(ctx.app, coAuth, "create_note", { title: "cn1 co", group_id: G, folder_id: GF }), "forbidden", FM13);
+    err(await callTool(ctx.app, coAuth, "create_note", { title: "cn1 co", content: "x", group_id: G, folder_id: GF }), "forbidden", FM13);
+    expect(await countTitled(ctx.db, "cn1 co")).toBe(0);
+    expect(noteOut(await callTool(ctx.app, coAuth, "create_note", { title: "cn1 co root", group_id: G })).folder).toBeNull();
+  });
+});
+
+describe("CP1 copy_note 的 folder_id（M11）", () => {
+  it("RW：看不到的群組資料夾＋group_id → FM1（不是 insufficient_scope）；看得到＋對的 group_id → insufficient_scope；沒給 group_id → FM14；個人資料夾成功且回應 folder 正確", async () => {
+    const ctx = await buildCollabTestApp();
+    const s = await sixRoleScene(ctx.db);
+    const me = s.member;
+    const rw = await tokenOf(ctx.db, me.id, RW);
+    const src = await seedNote(ctx.db, { ownerId: me.id }, { title: "cp1 src" });
+    const PF = (await seedFolder(ctx.db, { personal: me.id }, { name: "PF" })).id;
+    const GF = (await seedFolder(ctx.db, { group: s.groupId }, { name: "GF" })).id;
+    const xAdmin = await seedUser(ctx.db);
+    const X = (await seedGroup(ctx.db, "CP1 X", [{ userId: xAdmin.id, role: "admin" }])).id;
+    const XF = (await seedFolder(ctx.db, { group: X })).id;
+
+    const hidden = await callTool(ctx.app, rw, "copy_note", { note_id: src.id, group_id: X, folder_id: XF });
+    err(hidden, "not_found", FM1);
+    expectSameNotFound(hidden, await callTool(ctx.app, rw, "copy_note", { note_id: src.id, group_id: X, folder_id: randomUUID() }));
+    err(await callTool(ctx.app, rw, "copy_note", { note_id: src.id, group_id: s.groupId, folder_id: GF }), "insufficient_scope", COPY_NEEDS_MOVE_MESSAGE);
+    err(await callTool(ctx.app, rw, "copy_note", { note_id: src.id, folder_id: GF }), "invalid_body", FM14);
+    // 一致性也在 scope 之前：個人資料夾＋group_id → FM14（不是 insufficient_scope）。
+    err(await callTool(ctx.app, rw, "copy_note", { note_id: src.id, group_id: s.groupId, folder_id: PF }), "invalid_body", FM14);
+    expect(await countTitled(ctx.db, "cp1 src")).toBe(1);
+    const copy = noteOut(await callTool(ctx.app, rw, "copy_note", { note_id: src.id, folder_id: PF }));
+    expect([copy.role, copy.folder]).toEqual(["owner", { id: PF, name: "PF" }]);
+    expect(await folderIdOf(ctx.db, copy.id)).toBe(PF);
+  });
+
+  it("RWM：群組資料夾＋對的 group_id 成功；來源在資料夾、複製到同一資料夾成功；建＋讀不能編 → FM13", async () => {
+    const ctx = await buildCollabTestApp();
+    const s = await sixRoleScene(ctx.db);
+    const me = s.member;
+    const rwm = await tokenOf(ctx.db, me.id, RWM);
+    const PF = (await seedFolder(ctx.db, { personal: me.id }, { name: "PF" })).id;
+    const GF = (await seedFolder(ctx.db, { group: s.groupId }, { name: "GF" })).id;
+    const src = await seedNote(ctx.db, { ownerId: me.id }, { title: "cp1b src" });
+    const g = noteOut(await callTool(ctx.app, rwm, "copy_note", { note_id: src.id, group_id: s.groupId, folder_id: GF }));
+    expect([g.role, g.folder, g.owner.id]).toEqual(["editor", { id: GF, name: "GF" }, s.groupId]);
+    expect(await folderIdOf(ctx.db, g.id)).toBe(GF);
+
+    await setNoteFolder(ctx.db.$client, src.id, PF);
+    const dup = noteOut(await callTool(ctx.app, rwm, "copy_note", { note_id: src.id, folder_id: PF }));
+    expect(dup.folder).toEqual({ id: PF, name: "PF" });
+    expect(await folderIdOf(ctx.db, dup.id)).toBe(PF);
+
+    const co = await createOnlyMember(ctx.db, s.groupId);
+    const coSrc = await seedNote(ctx.db, { ownerId: co.id }, { title: "cp1b co" });
+    err(await callTool(ctx.app, await tokenOf(ctx.db, co.id, RWM), "copy_note", { note_id: coSrc.id, group_id: s.groupId, folder_id: GF }), "forbidden", FM13);
+    expect(await countTitled(ctx.db, "cp1b co")).toBe(1);
+  });
+
+  it("tools/list：RW 版 folder_id 說明逐字＝CP-F0 且不提 group；RWM 版＝CP-F", async () => {
+    const ctx = await buildCollabTestApp();
+    const me = await seedUser(ctx.db);
+    const describeOf = async (scope: TokenScope) => {
+      const res = await mcpPost(ctx.app, rpc("tools/list"), (await tokenOf(ctx.db, me.id, scope)) as { token: string });
+      const tool = (res.json().result.tools as Array<{ name: string; inputSchema: { properties: Record<string, { description?: string }> } }>).find(t => t.name === "copy_note")!;
+      return tool.inputSchema.properties.folder_id!.description!;
+    };
+    const rwText = await describeOf(RW);
+    expect(rwText).toBe(CP_F0);
+    expect(rwText).not.toContain("group");
+    expect(await describeOf(RWM)).toBe(CP_F);
+  });
+});
+
+describe("MG1 move_note_to_group 的 folder_id", () => {
+  it("帶群組資料夾成功（回應 folder）；別群組的資料夾 → FM15；看不到的資料夾與隨機 uuid 逐欄相同；建＋讀不能編 → FM13；被分享者原本的放置隨分享列消失", async () => {
+    const ctx = await buildCollabTestApp();
+    const s = await sixRoleScene(ctx.db);
+    const me = s.member;
+    const viewer = await seedUser(ctx.db);
+    const rwm = await tokenOf(ctx.db, me.id, RWM);
+    const GF = (await seedFolder(ctx.db, { group: s.groupId }, { name: "GF" })).id;
+    const H = (await seedGroup(ctx.db, "MG1 H", [{ userId: me.id, role: "member" }])).id;
+    const HF = (await seedFolder(ctx.db, { group: H })).id;
+    const xAdmin = await seedUser(ctx.db);
+    const XF = (await seedFolder(ctx.db, { group: (await seedGroup(ctx.db, "MG1 X", [{ userId: xAdmin.id, role: "admin" }])).id })).id;
+
+    const n = await seedNote(ctx.db, { ownerId: me.id }, { title: "mg1" });
+    await seedShare(ctx.db, n.id, viewer.id, "viewer");
+    const vs = await seedFolder(ctx.db, { shared: viewer.id });
+    await seedPlacement(ctx.db.$client, viewer.id, n.id, vs.id);
+
+    err(await callTool(ctx.app, rwm, "move_note_to_group", { note_id: n.id, group_id: s.groupId, folder_id: HF }), "invalid_body", FM15);
+    const hidden = await callTool(ctx.app, rwm, "move_note_to_group", { note_id: n.id, group_id: s.groupId, folder_id: XF });
+    err(hidden, "not_found", FM1);
+    expectSameNotFound(hidden, await callTool(ctx.app, rwm, "move_note_to_group", { note_id: n.id, group_id: s.groupId, folder_id: randomUUID() }));
+    expect(await noteState(ctx.db.$client, n.id)).toMatchObject({ owner_id: me.id, group_id: null });
+    expect(await placementOf(ctx.db.$client, viewer.id, n.id)).toBe(vs.id);
+
+    const moved = noteOut(await callTool(ctx.app, rwm, "move_note_to_group", { note_id: n.id, group_id: s.groupId, folder_id: GF }));
+    expect([moved.id, moved.role, moved.folder, moved.owner.id]).toEqual([n.id, "editor", { id: GF, name: "GF" }, s.groupId]);
+    expect(await folderIdOf(ctx.db, n.id)).toBe(GF);
+    expect(await placementOf(ctx.db.$client, viewer.id, n.id)).toBeNull();
+
+    const co = await createOnlyMember(ctx.db, s.groupId);
+    const cn = await seedNote(ctx.db, { ownerId: co.id });
+    err(await callTool(ctx.app, await tokenOf(ctx.db, co.id, RWM), "move_note_to_group", { note_id: cn.id, group_id: s.groupId, folder_id: GF }), "forbidden", FM13);
+    expect(await noteState(ctx.db.$client, cn.id)).toMatchObject({ owner_id: co.id, group_id: null });
+  });
+});
+
+describe("KF 每個入口的消失競態（§6.18 M5）", () => {
+  it("create_note：membership-checked 之後群組被轉移（KF001）或目標資料夾被刪（FK）→ not_found＋FM1，不是 internal／group_not_found；不建列", async () => {
+    const seam = armedHook();
+    const ctx = await buildCollabTestApp({ groupTestHook: seam.hook });
+    const s = await sixRoleScene(ctx.db);
+    const GF = (await seedFolder(ctx.db, { group: s.groupId })).id;
+    seam.arm("membership-checked", () => transferGroup(ctx.app, s.groupId, s.admin.id));
+    err(await callTool(ctx.app, await tokenOf(ctx.db, s.member.id, RW), "create_note", { title: "kf c1", group_id: s.groupId, folder_id: GF }), "not_found", FM1);
+    expect(seam.pending).toBe(false);
+
+    const s2 = await sixRoleScene(ctx.db);
+    const GF2 = (await seedFolder(ctx.db, { group: s2.groupId })).id;
+    seam.arm("membership-checked", async () => {
+      await ctx.db.$client.query(`delete from folders where id = $1`, [GF2]);
+    });
+    err(await callTool(ctx.app, await tokenOf(ctx.db, s2.member.id, RW), "create_note", { title: "kf c1", group_id: s2.groupId, folder_id: GF2 }), "not_found", FM1);
+    expect(seam.pending).toBe(false);
+    expect(await countTitled(ctx.db, "kf c1")).toBe(0);
+  });
+
+  it("copy_note（note-copy-authorized）、move_note_to_group（note-move-authorized）：縫裡轉移目標群組 → not_found＋FM1，不是 internal", async () => {
+    const seam = armedHook();
+    const ctx = await buildCollabTestApp({ groupTestHook: seam.hook });
+    const s = await sixRoleScene(ctx.db);
+    const GF = (await seedFolder(ctx.db, { group: s.groupId })).id;
+    const src = await seedNote(ctx.db, { ownerId: s.member.id }, { title: "kf cp" });
+    seam.arm("note-copy-authorized", () => transferGroup(ctx.app, s.groupId, s.admin.id));
+    err(await callTool(ctx.app, await tokenOf(ctx.db, s.member.id, RWM), "copy_note", { note_id: src.id, group_id: s.groupId, folder_id: GF }), "not_found", FM1);
+    expect(seam.pending).toBe(false);
+    expect(await countTitled(ctx.db, "kf cp")).toBe(1);
+
+    const s2 = await sixRoleScene(ctx.db);
+    const GF2 = (await seedFolder(ctx.db, { group: s2.groupId })).id;
+    const n = await seedNote(ctx.db, { ownerId: s2.member.id });
+    seam.arm("note-move-authorized", () => transferGroup(ctx.app, s2.groupId, s2.admin.id));
+    err(await callTool(ctx.app, await tokenOf(ctx.db, s2.member.id, RWM), "move_note_to_group", { note_id: n.id, group_id: s2.groupId, folder_id: GF2 }), "not_found", FM1);
+    expect(seam.pending).toBe(false);
+    expect(await noteState(ctx.db.$client, n.id)).toMatchObject({ owner_id: s2.member.id, group_id: null });
+  });
+
+  it("move_note_to_folder（note-folder-authorized）：轉移群組 → not_found＋筆記句（筆記先判）；刪掉目標資料夾 → not_found＋FM1", async () => {
+    const seam = armedHook();
+    const ctx = await buildCollabTestApp({ groupTestHook: seam.hook });
+    const s = await sixRoleScene(ctx.db);
+    const GF = (await seedFolder(ctx.db, { group: s.groupId })).id;
+    const gn = await seedNote(ctx.db, { groupId: s.groupId });
+    seam.arm("note-folder-authorized", () => transferGroup(ctx.app, s.groupId, s.admin.id));
+    err(await callTool(ctx.app, await tokenOf(ctx.db, s.member.id, RW), "move_note_to_folder", { note_id: gn.id, folder_id: GF }), "not_found", NOTE_NF);
+    expect(seam.pending).toBe(false);
+
+    const u = await seedUser(ctx.db);
+    const n = await seedNote(ctx.db, { ownerId: u.id });
+    const doomed = (await seedFolder(ctx.db, { personal: u.id })).id;
+    seam.arm("note-folder-authorized", async () => {
+      await ctx.db.$client.query(`delete from folders where id = $1`, [doomed]);
+    });
+    err(await callTool(ctx.app, await tokenOf(ctx.db, u.id, RW), "move_note_to_folder", { note_id: n.id, folder_id: doomed }), "not_found", FM1);
+    expect(seam.pending).toBe(false);
+    expect(await folderIdOf(ctx.db, n.id)).toBeNull();
+  });
+});
+
+describe("BZ-N create_note 建列遇到可重試錯誤", () => {
+  it("beforeInsert 丟 40P01（不帶 content、帶 title；不帶與帶資料夾）→ server_busy＋CREATE_BUSY、DB 無新列", async () => {
+    const ctx = await buildCollabTestApp({
+      noteCreateHooks: {
+        beforeInsert: () => {
+          throw Object.assign(new Error("x"), { code: "40P01" });
+        },
+      },
+    });
+    const me = await seedUser(ctx.db);
+    const auth = await tokenOf(ctx.db, me.id, RW);
+    const f = await seedFolder(ctx.db, { personal: me.id });
+    err(await callTool(ctx.app, auth, "create_note", { title: "bz-n" }), "server_busy", CREATE_BUSY);
+    err(await callTool(ctx.app, auth, "create_note", { title: "bz-n", folder_id: f.id }), "server_busy", CREATE_BUSY);
+    expect(await countTitled(ctx.db, "bz-n")).toBe(0);
+  });
+});
+
+describe("PX-N REST／MCP 同一份 fixture（§5.6 第一張表：放置、建立、複製、移入群組）", () => {
+  it("sixRoleScene＋noRead × {放置群組筆記進群組資料夾、在群組資料夾建立、複製進群組資料夾、移入群組帶資料夾}：REST 與 MCP 的結果對映表逐格相同", async () => {
+    const ctx = await buildCollabTestApp();
+    const s = await sixRoleScene(ctx.db);
+    const noRead = await seedUser(ctx.db);
+    await addNoReadMember(ctx.db, s.groupId, noRead.id);
+    const GF = (await seedFolder(ctx.db, { group: s.groupId })).id;
+    const gn = await seedNote(ctx.db, { groupId: s.groupId });
+    const users = { admin: s.admin, member: s.member, editDelete: s.editDelete, deleteOnly: s.deleteOnly, editOnly: s.editOnly, readOnly: s.readOnly, outsider: s.outsider, noRead };
+    const restCat = (status: number, body: { error?: { code?: string } }) =>
+      status === 200 || status === 201
+        ? "ok"
+        : status === 400
+          ? "invalid_body"
+          : status === 403
+            ? "forbidden"
+            : status === 404
+              ? (body.error?.code === "group_not_found" ? "group_not_found" : "not_found")
+              : `rest-${status}`;
+    const mcpCat = (r: ToolCallResult) => (r.isError ? String(r.structuredContent?.code) : "ok");
+    const rest: Record<string, string[]> = {};
+    const mcp: Record<string, string[]> = {};
+    for (const [label, u] of Object.entries(users)) {
+      const auth = await tokenOf(ctx.db, u.id, RWM);
+      const restSrc = await seedNote(ctx.db, { ownerId: u.id });
+      const mcpSrc = await seedNote(ctx.db, { ownerId: u.id });
+      const restMv = await seedNote(ctx.db, { ownerId: u.id });
+      const mcpMv = await seedNote(ctx.db, { ownerId: u.id });
+      const r = [
+        await inject(ctx.app, "PUT", `/api/notes/${gn.id}/folder`, u.id, { folderId: GF }),
+        await inject(ctx.app, "POST", "/api/notes", u.id, { title: `px-${label}-rest`, groupId: s.groupId, folderId: GF }),
+        await inject(ctx.app, "POST", `/api/notes/${restSrc.id}/copy`, u.id, { groupId: s.groupId, folderId: GF }),
+        await inject(ctx.app, "POST", `/api/notes/${restMv.id}/move`, u.id, { groupId: s.groupId, folderId: GF }),
+      ];
+      rest[label] = r.map(x => restCat(x.statusCode, x.json() as { error?: { code?: string } }));
+      mcp[label] = [
+        await callTool(ctx.app, auth, "move_note_to_folder", { note_id: gn.id, folder_id: GF }),
+        await callTool(ctx.app, auth, "create_note", { title: `px-${label}-mcp`, group_id: s.groupId, folder_id: GF }),
+        await callTool(ctx.app, auth, "copy_note", { note_id: mcpSrc.id, group_id: s.groupId, folder_id: GF }),
+        await callTool(ctx.app, auth, "move_note_to_group", { note_id: mcpMv.id, group_id: s.groupId, folder_id: GF }),
+      ].map(mcpCat);
+    }
+    expect(mcp).toEqual(rest);
+    // 前提：表真的分出了能做／不能做／看不到
+    expect(rest.member).toEqual(["ok", "ok", "ok", "ok"]);
+    expect(rest.outsider).toEqual(["not_found", "not_found", "not_found", "not_found"]);
+    expect(rest.readOnly![0]).toBe("forbidden");
   });
 });

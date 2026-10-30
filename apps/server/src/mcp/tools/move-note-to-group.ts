@@ -13,6 +13,8 @@ import { GROUP_ID, NOTE_ID } from "../../notes/schemas.js";
 import { StorageQuotaExceeded } from "../../storage/tx/quota.js";
 import { canViewSpaceUsage } from "../../storage/usage.js";
 import { noteSummariesForModel, noteSummarySchema } from "../dto.js";
+import { FOLDER_ID } from "../folder-fields.js";
+import { FOLDER_NEEDS_EDIT_MESSAGE, FOLDER_NOT_FOUND_MESSAGE, MOVE_TO_GROUP_FOLDER_CROSS_SPACE_MESSAGE } from "../folder-messages.js";
 import { NOTE_NOT_FOUND_MESSAGE } from "../note-read.js";
 import { rereadVisibleNote } from "../note-rows.js";
 import { toolError, toolResult } from "../tool-result.js";
@@ -30,9 +32,15 @@ const MOVE_GROUP_ID_DESCRIBE =
   "The id of one of your groups where your role lets you create notes. A group's id is the `id` in the `owner` of its notes in " +
   "list_notes or search_notes.";
 
+/** MG_FOLDER（資料夾 PR-3d，逐字照 plan「待確認字串」）。 */
+export const MOVE_TO_GROUP_FOLDER_ID_DESCRIBE =
+  "The id of one of that group's folders to put the note in, from list_folders with `group_id`; your role there must also be able to " +
+  "edit notes. Leave it out to put the note at the group's top level.";
+
 export const moveNoteToGroupInput = {
   note_id: NOTE_ID.describe("The note's id, as returned by list_notes or search_notes."),
   group_id: GROUP_ID.describe(MOVE_GROUP_ID_DESCRIBE),
+  folder_id: FOLDER_ID.optional().describe(MOVE_TO_GROUP_FOLDER_ID_DESCRIBE),
 };
 export const moveNoteToGroupOutput = { note: noteSummarySchema.describe("The note after the move, in the same shape list_notes returns.") };
 
@@ -59,6 +67,7 @@ function moveQuotaVisibleMessage(usedBytes: number, quotaBytes: number, incoming
 export interface MoveNoteToGroupArgs {
   note_id: string;
   group_id: string;
+  folder_id?: string;
 }
 
 export async function moveNoteToGroupTool(args: MoveNoteToGroupArgs, ctx: McpToolCtx): Promise<CallToolResult> {
@@ -66,7 +75,13 @@ export async function moveNoteToGroupTool(args: MoveNoteToGroupArgs, ctx: McpToo
   if (denied !== null) return denied;
   const out = await moveNoteToGroup(
     { db: ctx.db, collabHooks: ctx.collabHooks, versions: ctx.versions, storageLockTimeoutMs: ctx.storageLockTimeoutMs, groupTestHook: ctx.groupTestHook },
-    { noteId: args.note_id, userId: ctx.userId, userHandle: ctx.userHandle, groupId: args.group_id },
+    {
+      noteId: args.note_id,
+      userId: ctx.userId,
+      userHandle: ctx.userHandle,
+      groupId: args.group_id,
+      ...(args.folder_id === undefined ? {} : { folderId: args.folder_id }),
+    },
   );
   switch (out.kind) {
     case "not_found":
@@ -93,7 +108,11 @@ export async function moveNoteToGroupTool(args: MoveNoteToGroupArgs, ctx: McpToo
       if (err.errCode === "not_found") return toolError("not_found", NOTE_NOT_FOUND_MESSAGE);
       if (err.errCode === "conflict") return toolError("conflict", MOVE_CONFLICT_MESSAGE);
       if (err.errCode === "group_not_found") return toolError("group_not_found", GROUP_NO_CREATE_MESSAGE);
-      throw err; // `moveNoteToGroupInTx` 只 abort 這三種碼（`tx/move.ts` 的三個 abort）；其他是接線錯。
+      // 資料夾 PR-3a 起 moveNoteToGroup 另以 aborted 回三碼（交易外預判與 `tx/move.ts` 的重判；plan 讀碼發現 10）。
+      if (err.errCode === "folder_not_found") return toolError("not_found", FOLDER_NOT_FOUND_MESSAGE);
+      if (err.errCode === "folder_cross_space") return toolError("invalid_body", MOVE_TO_GROUP_FOLDER_CROSS_SPACE_MESSAGE);
+      if (err.errCode === "forbidden") return toolError("forbidden", FOLDER_NEEDS_EDIT_MESSAGE);
+      throw err; // 未列的碼是接線錯。
     }
     case "moved": {
       // 交易外重讀（grouped 分支，role 由群組旗標算）。落空＝commit 之後、重讀之前被移出群組或筆記被刪——與 REST 同窗回 404 對齊。

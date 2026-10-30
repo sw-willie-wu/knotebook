@@ -236,8 +236,8 @@ describe("#108 create_note", () => {
     expect(names).toContain("create_note");
     // 讀 live doc 的三支在這個部署形態上整條不宣告——`create_note` 是它們的反例，所以
     // 這一行順帶釘住「它真的在閘門外」。#200：create_transfer_token 也在閘門外（token 限定）；read_note_image 亦然（任何憑證）。#180：copy_note、move_note_to_group 也在閘門外。
-    // 資料夾 PR-3d：list_folders 只查 DB，也在閘門外（任何憑證）；三支資料夾寫入工具同樣在閘門外（notes:write）。
-    expect(names).toEqual(["copy_note", "create_folder", "create_note", "create_transfer_token", "list_folders", "list_notes", "list_trash", "move_folder", "move_note_to_group", "read_note_image", "rename_folder", "search_notes"]);
+    // 資料夾 PR-3d：list_folders 只查 DB，也在閘門外（任何憑證）；三支資料夾寫入工具與 move_note_to_folder（T7）同樣在閘門外（notes:write）。
+    expect(names).toEqual(["copy_note", "create_folder", "create_note", "create_transfer_token", "list_folders", "list_notes", "list_trash", "move_folder", "move_note_to_folder", "move_note_to_group", "read_note_image", "rename_folder", "search_notes"]);
 
     // P6：`inputSchema` **只能傳 raw shape 或裸 `ZodObject`（`.strict()` 亦可）**——傳 `ZodEffects`／union 時公告出去的 JSON Schema 會靜默變成
     // `{"type":"object","properties":{}}`（模型看不到任何欄位），而本檔另外五案（全部都自己
@@ -250,8 +250,8 @@ describe("#108 create_note", () => {
     //     [ 'content', 'title' ]`），`mcp-create-note` 另外五案 ＋ `mcp-edit-note` 12 案全綠。
     //   也就是本行守的是 `ZodEffects`／union 那一族，不是「所有非 raw shape 的寫法」。
     const entry = tools.find(t => t.name === "create_note")!;
-    // #180 W15：鍵名改 `group_id`（MCP 輸入一律 snake_case）；鍵數不變。
-    expect(Object.keys(entry.inputSchema.properties ?? {}).sort()).toEqual(["content", "group_id", "title"]);
+    // #180 W15：鍵名改 `group_id`（MCP 輸入一律 snake_case）；鍵數不變。資料夾 PR-3d T7：多 `folder_id`。
+    expect(Object.keys(entry.inputSchema.properties ?? {}).sort()).toEqual(["content", "folder_id", "group_id", "title"]);
 
     const { note } = payloadOf(await createNote(app, token));
     expect(note.title).toBe("Untitled");

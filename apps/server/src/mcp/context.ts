@@ -94,7 +94,7 @@ export interface McpToolCtx {
   versions: VersionService;
   /** #180 測試縫（生產不注入）：`edit_note` 的 rename 每輪候選、UPDATE 之前（語意同 `NotesRouteDeps.slugUpdateTestHook`）。 */
   slugUpdateTestHook?: (candidate: string) => void | Promise<void>;
-  /** #180 測試縫：`copy_note` 交易內建列的 slug 迴圈（語意同 `NotesRouteDeps.noteCreateHooks`）。 */
+  /** #180 測試縫：`copy_note` 交易內建列的 slug 迴圈（語意同 `NotesRouteDeps.noteCreateHooks`）；#folders PR-3d 起另有 `create_note` 不帶 content 的建列。 */
   noteCreateHooks?: NoteCreateHooks;
   /** #180 測試縫：`copy_note` 交易內全文索引（語意同 `NotesRouteDeps.searchIndexHooks`）。 */
   searchIndexHooks?: SearchIndexHooks;

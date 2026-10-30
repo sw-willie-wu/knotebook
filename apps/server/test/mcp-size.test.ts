@@ -326,28 +326,28 @@ describe("#108 tools/list 的脈絡成本（案 11b）", () => {
 
     const rwRes = await mcpPost(ctx.app, rpc("tools/list"), { token: rwToken });
     expect(rwRes.statusCode).toBe(200);
-    expect((rwRes.json().result.tools as unknown[]).length).toBe(14);
+    expect((rwRes.json().result.tools as unknown[]).length).toBe(15);
     const rwWire = rwRes.body.length;
 
     const rwmRes = await mcpPost(ctx.app, rpc("tools/list"), { token: rwmToken });
     expect(rwmRes.statusCode).toBe(200);
-    expect((rwmRes.json().result.tools as unknown[]).length).toBe(15);
+    expect((rwmRes.json().result.tools as unknown[]).length).toBe(16);
     const rwmWire = rwmRes.body.length;
 
     const rwdRes = await mcpPost(ctx.app, rpc("tools/list"), { token: rwdToken });
     expect(rwdRes.statusCode).toBe(200);
-    expect((rwdRes.json().result.tools as unknown[]).length).toBe(16);
+    expect((rwdRes.json().result.tools as unknown[]).length).toBe(17);
     const rwdWire = rwdRes.body.length;
 
     const rwmdRes = await mcpPost(ctx.app, rpc("tools/list"), { token: rwmdToken });
     expect(rwmdRes.statusCode).toBe(200);
-    expect((rwmdRes.json().result.tools as unknown[]).length).toBe(17);
+    expect((rwmdRes.json().result.tools as unknown[]).length).toBe(18);
     const rwmdWire = rwmdRes.body.length;
 
     console.log(
-      `[案 11b] tools/list  唯讀憑證（八支，對照）wire=${roWire}  讀寫憑證（十四支，對照）wire=${rwWire}  ` +
-        `讀寫搬移憑證（十五支，對照）wire=${rwmWire}  讀寫刪除憑證（十六支，對照）wire=${rwdWire}  ` +
-        `讀寫搬移刪除憑證（十七支，被測）wire=${rwmdWire}  門檻=${N_LIST_MAX}  用掉 ${((rwmdWire / N_LIST_MAX) * 100).toFixed(1)}%`
+      `[案 11b] tools/list  唯讀憑證（八支，對照）wire=${roWire}  讀寫憑證（十五支，對照）wire=${rwWire}  ` +
+        `讀寫搬移憑證（十六支，對照）wire=${rwmWire}  讀寫刪除憑證（十七支，對照）wire=${rwdWire}  ` +
+        `讀寫搬移刪除憑證（十八支，被測）wire=${rwmdWire}  門檻=${N_LIST_MAX}  用掉 ${((rwmdWire / N_LIST_MAX) * 100).toFixed(1)}%`
     );
     expect(rwmdWire).toBeLessThanOrEqual(N_LIST_MAX);
   });

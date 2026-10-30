@@ -13,7 +13,7 @@
  * `{list_notes, read_note_outline, read_note_section, search_notes}`）、PR2 起
  * `mcp-tools-list.test.ts`（P13：`{edit_note, create_note}`）；#200 起 P13 的集合是
  * `{create_note, create_transfer_token, edit_note}`；#180 起加 `copy_note`、`move_note_to_group`，#200 §9.3 M7 再加 `read_note_image`，集合是
- * `{copy_note, create_note, create_transfer_token, edit_note, move_note_to_group, read_note_image}`；#181 PR-2d 加 `list_trash`、`delete_note`、`restore_note`；資料夾 PR-3d 加 `list_folders`、`create_folder`、`rename_folder`、`move_folder`。
+ * `{copy_note, create_note, create_transfer_token, edit_note, move_note_to_group, read_note_image}`；#181 PR-2d 加 `list_trash`、`delete_note`、`restore_note`；資料夾 PR-3d 加 `list_folders`、`create_folder`、`rename_folder`、`move_folder`、`move_note_to_folder`。
  * **新增工具時要一併把它加進其中一個名字集合，否則等於沒有守衛。**
  *
  * ⚠ 新增工具一律 `z.object(<shape>).strict()` 註冊；`test/unit/mcp-register.test.ts`（U-F1，覆蓋 authKind × scope × 有無 collab 的十二種組合）的名字常數也要補——它會紅。
@@ -92,6 +92,12 @@ import { LIST_FOLDERS_DESCRIPTION, listFolders, listFoldersInput, listFoldersOut
 import { CREATE_FOLDER_DESCRIPTION, createFolderInput, createFolderTool, folderReplyOutput } from "./tools/create-folder.js";
 import { RENAME_FOLDER_DESCRIPTION, renameFolderInput, renameFolderTool } from "./tools/rename-folder.js";
 import { MOVE_FOLDER_DESCRIPTION, moveFolderInput, moveFolderTool } from "./tools/move-folder.js";
+import {
+  MOVE_NOTE_TO_FOLDER_DESCRIPTION,
+  moveNoteToFolderInput,
+  moveNoteToFolderOutput,
+  moveNoteToFolderTool,
+} from "./tools/move-note-to-folder.js";
 import { canDeleteNotes, canMoveNotes, canWriteNotes } from "./write-scope.js";
 
 export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
@@ -321,6 +327,17 @@ export function registerMcpTools(server: McpServer, ctx: McpToolCtx): void {
         annotations: { destructiveHint: false, idempotentHint: true },
       },
       async args => runTool("move_folder", ctx, () => moveFolderTool(args, ctx))
+    );
+    // T7：move_note_to_folder 同一個 canWrite 區塊（放置只要 notes:write；不移入群組，所以不看 canMove），annotations 同 rename／move。
+    server.registerTool(
+      "move_note_to_folder",
+      {
+        description: MOVE_NOTE_TO_FOLDER_DESCRIPTION,
+        inputSchema: z.object(moveNoteToFolderInput).strict(),
+        outputSchema: moveNoteToFolderOutput,
+        annotations: { destructiveHint: false, idempotentHint: true },
+      },
+      async args => runTool("move_note_to_folder", ctx, () => moveNoteToFolderTool(args, ctx))
     );
   }
 
