@@ -408,7 +408,9 @@
       "copyHere": "Copy here",
       "openLevel": "{{name}}, open"
     },
-    "movedTo": "Moved to “{{name}}”"
+    "movedTo": "Moved to “{{name}}”",
+    "stackName": "New folder",
+    "stackNameN": "New folder {{n}}"
   },
   "groups": {
     "autoVersions": {

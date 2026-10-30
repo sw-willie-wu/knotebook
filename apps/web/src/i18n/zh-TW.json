@@ -408,7 +408,9 @@
       "copyHere": "複製到這裡",
       "openLevel": "{{name}}，開啟下一層"
     },
-    "movedTo": "已移到「{{name}}」"
+    "movedTo": "已移到「{{name}}」",
+    "stackName": "新資料夾",
+    "stackNameN": "新資料夾 {{n}}"
   },
   "groups": {
     "autoVersions": {
