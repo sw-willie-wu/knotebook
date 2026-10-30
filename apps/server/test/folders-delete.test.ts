@@ -32,6 +32,13 @@ import {
 import { seedNote, seedShare, seedUser, sharesOf, spyCollabHooks } from "./group-helpers.js";
 import { buildCollabTestApp, buildTestApp, freshDb, freshLimiters } from "./helpers.js";
 import { inject, markTrashed, sixRoleScene, trashCols } from "./trash-helpers.js";
+import { INJECTED_LOCK_TIMEOUT_BOUND_MS } from "./lock-timeout-bound.js";
+
+// 預設空間鎖上限在本檔換成 60 s（產品值 5000），「注入的短上限有生效」的牆鐘界線才能離兩邊都遠——見 ./lock-timeout-bound.ts。
+vi.mock("../src/storage/tx/quota.js", async () => ({
+  ...(await vi.importActual<typeof import("../src/storage/tx/quota.js")>("../src/storage/tx/quota.js")),
+  DEFAULT_STORAGE_LOCK_TIMEOUT_MS: (await import("./lock-timeout-bound.js")).SLOW_DEFAULT_LOCK_TIMEOUT_MS,
+}));
 
 const RANDOM_UUID = "7d0c6a4e-1f2b-4c3d-9e8f-0a1b2c3d4e5f";
 const TXN_CONTROL = /^(begin|commit|rollback)\b/i;
@@ -538,7 +545,7 @@ describe("DELETE /api/folders/:id", () => {
     failed(await del(app, u.id, f1), 404, "folder_not_found");
   });
 
-  it("FD-7 結構鎖等太久（另一條連線持住同空間的鎖、lock_timeout 300 ms）：409 server_busy（< 3000 ms）、什麼都沒動、閘門已收；鎖放掉後照常 200", async () => {
+  it("FD-7 結構鎖等太久（另一條連線持住同空間的鎖、lock_timeout 300 ms）：409 server_busy（< 20 s：注入值有生效，不是本檔預設 60 s）、什麼都沒動、閘門已收；鎖放掉後照常 200", async () => {
     const spies = gateSpies();
     const { app, db } = await buildTestApp({ collabHooks: spies.hooks, storageLockTimeoutMs: 300 });
     const pool = db.$client;
@@ -554,7 +561,7 @@ describe("DELETE /api/folders/:id", () => {
       const ms = Date.now() - t0;
       failed(res, 409, "server_busy");
       expect(messageOf(res)).toBe("伺服器忙碌，請稍後再試");
-      expect(ms).toBeLessThan(3000);
+      expect(ms).toBeLessThan(INJECTED_LOCK_TIMEOUT_BOUND_MS);
     } finally {
       try {
         await holder.query("rollback");
