@@ -66,15 +66,16 @@ async function createWithRetry(input: {
 
 /**
  * 補償（第 7 步）：b 已放進新資料夾時先把 b 移回 → DELETE 新資料夾 {onlyIfEmpty}。
- * DELETE 回 409 folder_not_empty（別人剛放了東西進去）→ 保留、停；補償任一發失敗 → 停、重抓清單（不另出 toast，總管裁定 2026-10-30 Q2）。
+ * DELETE 回 409 folder_not_empty（別人剛放了東西進去）→ 保留、停；補償結束（成功、保留或任一發失敗）→ 一律重抓清單（不另出 toast，總管裁定 2026-10-30 Q2）。
  */
 async function compensate(args: { folderId: string; b: StackNote | null; queryClient: QueryClient }): Promise<void> {
   const { folderId, b, queryClient } = args;
   try {
     if (b !== null) await place(queryClient, b.noteId, b.from);
     await deleteFolderRequest(folderId, { onlyIfEmpty: true });
-  } catch (err) {
-    if (!isFolderNotEmpty(err)) invalidateFolderRelated(queryClient);
+  } catch {
+    // 不論哪種錯誤都重抓：409 folder_not_empty 時資料夾被保留，快取裡還沒有它，不重抓側欄要等重整才看得到。
+    invalidateFolderRelated(queryClient);
   }
 }
 

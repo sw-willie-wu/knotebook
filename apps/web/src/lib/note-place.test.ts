@@ -293,6 +293,20 @@ describe("placeNoteWithUndo optimistic", () => {
     expect(folderOf(queryClient, "n2")).toBe("A");
   });
 
+  it("NP-O8 optimistic＋PUT 403 → ['notes'] 被失效（被取消的重抓要補回來）", async () => {
+    const { bodies, respond } = stubDeferredPut();
+    const { queryClient, t } = setup();
+    queryClient.setQueryData(["notes"], CACHED);
+    expect(queryClient.getQueryState(["notes"])?.isInvalidated).toBe(false);
+
+    const done = placeNoteWithUndo({ noteId: "n1", from: null, to: { folderId: "A1", name: "A1" }, index: INDEX, queryClient, t, optimistic: true });
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    respond(fail(403, "forbidden"));
+    await act(() => done);
+
+    expect(queryClient.getQueryState(["notes"])?.isInvalidated).toBe(true);
+  });
+
   it("NP-O6 optimistic 只取消 ['notes'] 本身：進行中的 ['notes','n1','versions'] 照常 fetching", async () => {
     const { bodies, respond } = stubDeferredPut();
     const { queryClient, t } = setup();

@@ -58,6 +58,8 @@ export async function placeNoteWithUndo(args: {
   } catch (err) {
     if (previous !== undefined) setCachedFolderId(queryClient, noteId, previous.folderId);
     invalidateIfFolderGone(queryClient, err);
+    // optimistic 先取消了 ["notes"] 的進行中請求：非 404 的失敗也要重抓，否則被取消的那次帶的別人改動要等到下次 refetch。
+    if (optimistic && !isFolderNotFound(err)) void queryClient.invalidateQueries({ queryKey: ["notes"] });
     toast({ title: folderErrorMessage(t, err), variant: "destructive" });
     return;
   }

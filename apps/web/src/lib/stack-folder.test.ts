@@ -199,14 +199,16 @@ describe("runStackFolder", () => {
     expect(toastItems()).toHaveLength(1);
   });
 
-  it("ST7 補償的 DELETE 回 409 folder_not_empty → 之後沒有請求、仍只有一則 toast", async () => {
+  it("ST7 補償的 DELETE 回 409 folder_not_empty → 之後沒有請求、['folders'] 仍被失效（保留的新資料夾要進側欄）、仍只有一則 toast", async () => {
     const calls = stubSequence([created(), placed("B", "NEW"), fail(403, "forbidden"), placed("B", "F"), fail(409, "folder_not_empty")]);
     const { queryClient, t } = setup();
+    expect(queryClient.getQueryState(["folders"])?.isInvalidated).toBe(false);
 
     expect(await act(() => run(queryClient, t))).toBeNull();
     await settle();
 
     expect(calls).toEqual([POST({ name: "New folder", parentId: "F" }), PUT("B", "NEW"), PUT("A", "NEW"), PUT("B", "F"), DELETE_ONLY_IF_EMPTY]);
+    expect(queryClient.getQueryState(["folders"])?.isInvalidated).toBe(true);
     expect(await screen.findByText("You don't have permission to do that.", { exact: true })).toBeInTheDocument();
     expect(toastItems()).toHaveLength(1);
   });
