@@ -9,7 +9,16 @@ import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { groupDto, memberRole, OWNER_PERMS, EDITOR_PERMS, VIEWER_PERMS } from "@/test/fixtures";
 import { folderDto, groupFolder, sharedFolder } from "@/test/folder-fixtures";
 import { NoteMenu } from "@/components/NoteMenu";
-import { GroupTransferDialog, INLINE_GROUP_LIST_QUERY, type GroupTransferPick, type TransferTarget } from "./GroupTransfer";
+import type { DestSpace } from "@/components/sidebar/destination-level";
+import { indexFolders } from "@/components/sidebar/folder-index";
+import {
+  GroupTransferDialog,
+  INLINE_GROUP_LIST_QUERY,
+  isSameSpaceMove,
+  type DestinationPick,
+  type GroupTransferPick,
+  type TransferTarget,
+} from "./GroupTransfer";
 
 // #216：⋮ 選單的「移動到群組」「複製到群組」（原 MoveToGroupSection 的測試搬來）。
 // 寬螢幕＝右側 flyout（Radix Sub）；窄／觸控（matchMedia 命中 INLINE_GROUP_LIST_QUERY）＝就地向下展開。
@@ -1252,5 +1261,28 @@ describe("⋮ 逐層子選單（PR-3b-2 T4）", () => {
       fireEvent.click(await openMenuReady("note-menu-move-to"));
       expect(names(screen.getByRole("group", { name: "Move to…" }))).toEqual(["A, open", "B", "G, open", "H"]);
     });
+  });
+});
+
+describe("isSameSpaceMove（PR-3b-2 T4 fix）", () => {
+  const place = (space: DestSpace): DestinationPick["target"] => ({ kind: "place", space, folder: null });
+  const pick = (kind: "move" | "copy", target: DestinationPick["target"]): DestinationPick => ({ kind, target, groups: [], index: indexFolders([]) });
+  const groupNote: NoteDto = { ...NOTE, groupId: GA };
+
+  it("個人筆記移到我的筆記、共享 → true", () => {
+    expect(isSameSpaceMove(NOTE, pick("move", place({ kind: "personal" })))).toBe(true);
+    expect(isSameSpaceMove(NOTE, pick("move", place({ kind: "shared" })))).toBe(true);
+  });
+  it("群組筆記移到自己的群組 → true", () => {
+    expect(isSameSpaceMove(groupNote, pick("move", place({ kind: "group", groupId: GA, name: "A" })))).toBe(true);
+  });
+  it("個人筆記移到群組、群組筆記移到別的群組 → false", () => {
+    expect(isSameSpaceMove(NOTE, pick("move", place({ kind: "group", groupId: GA, name: "A" })))).toBe(false);
+    expect(isSameSpaceMove(groupNote, pick("move", place({ kind: "group", groupId: GC, name: "C" })))).toBe(false);
+  });
+  it("複製、建立副本 → false", () => {
+    expect(isSameSpaceMove(NOTE, pick("copy", place({ kind: "personal" })))).toBe(false);
+    expect(isSameSpaceMove(NOTE, pick("copy", { kind: "makeCopy" }))).toBe(false);
+    expect(isSameSpaceMove(NOTE, pick("move", { kind: "makeCopy" }))).toBe(false);
   });
 });

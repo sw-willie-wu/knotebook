@@ -91,9 +91,16 @@ function folderRef(target: Extract<DestTarget, { kind: "place" }>, index: Folder
   return target.folder === null ? undefined : { id: target.folder.id, path: destinationPathLabel(target.space, target.folder, index, t) };
 }
 
+/** 同空間移動（spec §6.11.3）：移動到我的筆記／共享，或移動到筆記自己所在的群組；呼叫端不跳確認、直接 PUT。 */
+export function isSameSpaceMove(note: NoteDto, pick: DestinationPick): boolean {
+  const { target } = pick;
+  return pick.kind === "move" && target.kind === "place" && (target.space.kind !== "group" || target.space.groupId === note.groupId);
+}
+
 /**
- * 子選單選定的 `DestTarget` → 確認框目標（spec §6.11.2、§6.11.3）。**同空間移動回 null**：呼叫端直接
- * `placeNoteWithUndo`、不跳確認（個人筆記放進我的筆記、群組筆記放進本群組、共享筆記放進自己的共享私人資料夾）。
+ * 子選單選定的 `DestTarget` → 確認框目標（spec §6.11.2、§6.11.3）。**null＝同空間移動，或到不了的分支（找不到群組）**：
+ * 呼叫端用 `isSameSpaceMove` 分辨——同空間移動直接 `placeNoteWithUndo`、不跳確認（個人筆記放進我的筆記、群組筆記放進本群組、
+ * 共享筆記放進自己的共享私人資料夾），其餘什麼都不做。
  * - 「建立副本」：個人筆記＝`duplicate`；群組筆記＝`inPlace`（本群組，落在來源同一資料夾，見 `copyRequest`）。
  * - 移動到其他群組（只有自己的個人筆記會有）＝`group`，選了資料夾帶完整路徑；複製到我的筆記＝`personal`、到群組＝`group`。
  * groups 與 `DestSpace` 都出自同一份 `pick.groups`（`noteDestSource`），找不到群組的分支到不了，保守回 null。
@@ -108,7 +115,7 @@ export function transferTargetOf(note: NoteDto, pick: DestinationPick, t: Transl
   }
   const folder = folderRef(target, index, t);
   const { space } = target;
-  if (pick.kind === "move" && (space.kind !== "group" || space.groupId === note.groupId)) return null;
+  if (isSameSpaceMove(note, pick)) return null;
   if (space.kind === "personal") return folder === undefined ? { type: "personal" } : { type: "personal", folder };
   if (space.kind !== "group") return null;
   const group = findGroup(space.groupId);

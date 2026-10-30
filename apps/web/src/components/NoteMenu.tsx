@@ -23,6 +23,7 @@ import {
   EMPTY_DEST_PATHS,
   GroupTransferDialog,
   GroupTransferMenuItems,
+  isSameSpaceMove,
   transferTargetOf,
   type DestinationPick,
   type DestPaths,
@@ -207,8 +208,8 @@ function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef:
 
   /**
    * 子選單選定非 `>` 項（spec §6.11.2）：先收合、回第一層、關選單（確認框的 FocusScope 不與選單互搶）。
-   * 同空間移動（`transferTargetOf` 回 null）→ 直接 PUT＋「已移到「X」」與復原，不確認、不離場（開著的那篇網址不變）；
-   * 其餘 → 現行確認框。
+   * 同空間移動（`isSameSpaceMove`）→ 直接 PUT＋「已移到「X」」與復原，不確認、不離場（開著的那篇網址不變）；
+   * 其餘 → 現行確認框；`transferTargetOf` 回 null 但不是同空間移動（到不了的分支）→ 什麼都不做。
    */
   function handlePick(pick: DestinationPick): void {
     setGroupExpanded(null);
@@ -219,7 +220,7 @@ function NoteMenuCore({ note, trigger, onOpenEdits, onPresent, page, triggerRef:
       setTransfer({ kind: pick.kind, target });
       return;
     }
-    if (pick.kind !== "move" || pick.target.kind !== "place") return;
+    if (!isSameSpaceMove(note, pick) || pick.target.kind !== "place") return;
     const { folder } = pick.target;
     void placeNoteWithUndo({
       noteId: note.id,
