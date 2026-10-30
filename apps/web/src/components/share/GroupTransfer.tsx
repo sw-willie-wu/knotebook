@@ -13,8 +13,8 @@ import {
   buildDestinationLevel,
   destinationPathLabel,
   isEmptyDestination,
+  livePath,
   noteDestSource,
-  spaceKey,
   type DestItem,
   type DestPathStep,
   type DestSource,
@@ -121,28 +121,6 @@ export function transferTargetOf(note: NoteDto, pick: DestinationPick, t: Transl
   const group = findGroup(space.groupId);
   if (group === undefined) return null;
   return folder === undefined ? { type: "group", group } : { type: "group", group, folder };
-}
-
-/**
- * path 裡仍有效的前綴。`buildDestinationLevel` 遇到失效的步（資料夾被刪、群組不見）會**靜默截斷**到最後一個有效的前綴，
- * 所以「目前在第幾層」不能看 `path.length`（T2 交接）：「返回」「點進」一律從這個前綴接，「返回」才恰好退一個看得到的層。
- * 判法：第 k 層建出來的「‹ 返回」下一項（空間層＝根目錄、資料夾層＝移動到這裡／複製到這裡）就是第 k 步本身。
- */
-function livePath(source: DestSource, path: readonly DestPathStep[], index: FolderIndex, t: Translate): readonly DestPathStep[] {
-  for (let k = 0; k < path.length; k += 1) {
-    const step = path[k];
-    const [first, anchor] = buildDestinationLevel({ source, path: path.slice(0, k + 1), index, t });
-    const at =
-      first?.kind === "back" &&
-      anchor !== undefined &&
-      (anchor.kind === "root" || anchor.kind === "here") &&
-      anchor.target.kind === "place" &&
-      (step.kind === "space"
-        ? anchor.kind === "root" && spaceKey(anchor.target.space) === spaceKey(step.space)
-        : anchor.kind === "here" && anchor.target.folder?.id === step.folderId);
-    if (!at) return path.slice(0, k);
-  }
-  return path;
 }
 
 /** 一個子選單（移動或複製）目前這一層與它的換層動作；兩種形態共用。 */
