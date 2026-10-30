@@ -616,6 +616,30 @@ describe("NoteList 疊資料夾（PR-3c T5）", () => {
     await waitFor(() => expect(node("static", "folder", "NEW")!.querySelector("button[aria-expanded]")).toHaveFocus());
   });
 
+  it("NS4 抽屜那一份發起疊資料夾、POST 還沒回時抽屜被關（卸載）→ 三發完成後沒有改名框，直接出「Created “New folder” with 2 notes」＋Undo", async () => {
+    const server = stubServer();
+    const { inst, node, hideDrawer } = renderTwoInstances();
+    await waitFor(() => expect(node("drawer", "folder", "F")).not.toBeNull());
+    const link = (id: string) => node("drawer", "note", id)!.querySelector("a") as HTMLElement;
+    const dt = createFakeDataTransfer(["text/uri-list", "text/plain"]);
+    fireEvent.dragStart(link("A"), { dataTransfer: dt });
+    holdOver(link("N2"), dt);
+    const preview = previewOf(inst("drawer"))!;
+    fireEvent.dragOver(preview, { dataTransfer: dt });
+    fireEvent.drop(preview, { dataTransfer: dt });
+    await waitFor(() => expect(server.writes).toEqual([{ method: "POST", url: "/api/folders", body: { name: "New folder", parentId: "F" } }]));
+
+    hideDrawer();
+    await server.respond();
+    await server.respond();
+    await server.respond();
+
+    expect(await screen.findByText("Created “New folder” with 2 notes", { exact: true })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(previewOf(inst("static"))).toBeNull();
+  });
+
   it("NS4 兩份實例：靜態卡發起拖曳時卸載抽屜那一份 → 拖曳照常進行", async () => {
     stubServer();
     const { node, hideDrawer } = renderTwoInstances();

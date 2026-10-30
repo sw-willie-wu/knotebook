@@ -60,6 +60,10 @@ export function FolderNameDialog(props: FolderNameDialogProps) {
     [selectOnOpen],
   );
   const closedReportedRef = useRef(false);
+  /** 改名 PATCH 進行中：此時關框（Esc 等）不回報，交給 handleSubmit 依結果回報（spec §6.13 第 6 步：名稱用最後的名字）。 */
+  const renamingRef = useRef(false);
+  /** 框已被要求關閉（Esc／取消）：改名在進行中失敗時以原名回報。 */
+  const closeRequestedRef = useRef(false);
 
   function reportClosed(finalName: string): void {
     if (stack === undefined || closedReportedRef.current) return;
@@ -68,7 +72,8 @@ export function FolderNameDialog(props: FolderNameDialogProps) {
   }
 
   function handleOpenChange(next: boolean): void {
-    if (!next && props.mode === "rename") reportClosed(props.folder.name);
+    if (!next) closeRequestedRef.current = true;
+    if (!next && props.mode === "rename" && !renamingRef.current) reportClosed(props.folder.name);
     onOpenChange(next);
   }
 
@@ -87,7 +92,12 @@ export function FolderNameDialog(props: FolderNameDialogProps) {
     setError(null);
     try {
       if (props.mode === "rename") {
-        await renameFolder.mutateAsync({ id: props.folder.id, name: trimmed });
+        renamingRef.current = true;
+        try {
+          await renameFolder.mutateAsync({ id: props.folder.id, name: trimmed });
+        } finally {
+          renamingRef.current = false;
+        }
         reportClosed(trimmed);
       } else {
         const { parent } = props;
@@ -100,6 +110,8 @@ export function FolderNameDialog(props: FolderNameDialogProps) {
       }
       onOpenChange(false);
     } catch (err) {
+      // 進行中已被關掉的改名失敗：名稱沒變，以原名回報（框開著時照常顯示錯誤、不回報）。
+      if (props.mode === "rename" && closeRequestedRef.current) reportClosed(props.folder.name);
       setError(folderErrorMessage(t, err));
     }
   }

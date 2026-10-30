@@ -158,13 +158,15 @@ describe("runStackFolder", () => {
     expect(toastItems()).toHaveLength(1);
   });
 
-  it("ST4 ① 409 folder_limit → 恰 1 發 POST、沒有 PUT 與 DELETE、一則錯誤 toast、回 null", async () => {
+  it("ST4 ① 409 folder_limit → 恰 1 發 POST、沒有 PUT 與 DELETE、一則錯誤 toast、回 null、['folders'] 被失效（重抓）", async () => {
     const calls = stubSequence([fail(409, "folder_limit")]);
     const { queryClient, t } = setup();
+    expect(queryClient.getQueryState(["folders"])?.isInvalidated).toBe(false);
 
     expect(await act(() => run(queryClient, t))).toBeNull();
 
     expect(calls).toEqual([POST({ name: "New folder", parentId: "F" })]);
+    expect(queryClient.getQueryState(["folders"])?.isInvalidated).toBe(true);
     expect(await screen.findByText("You've reached the maximum number of folders.", { exact: true })).toBeInTheDocument();
     expect(toastItems()).toHaveLength(1);
   });

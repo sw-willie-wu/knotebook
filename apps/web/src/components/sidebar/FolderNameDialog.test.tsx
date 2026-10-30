@@ -280,29 +280,48 @@ describe("FolderNameDialog 疊資料夾改名", () => {
     expect(hooks.onClosed).not.toHaveBeenCalled();
   });
 
-  it("FN-S7 送出後 PATCH 還沒回就按 Esc → onClosed(\"New folder 2\") 一次；PATCH 之後成功也不再呼叫", async () => {
+  /** 送出「Q3」、PATCH 掛著時按 Esc 關框；回傳放行 PATCH 的函式（reply 決定回應）。 */
+  async function escWhileRenaming(hooks: ReturnType<typeof stackHooks>, reply: () => Response) {
     let release: (() => void) | undefined;
     vi.stubGlobal(
       "fetch",
       vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
         if ((init?.method ?? "GET").toUpperCase() === "GET") return Promise.resolve(json({ folders: [] }));
         return new Promise<Response>((resolve) => {
-          release = () => resolve(json(folderDto({ id: "n2", name: "Q3" })));
+          release = () => resolve(reply());
         });
       }),
     );
-    const hooks = stackHooks();
     renderDialog({ mode: "rename", folder: NEW2, stack: hooks });
     type("Q3");
     fireEvent.click(submit("Save"));
     await waitFor(() => expect(release).toBeDefined());
     fireEvent.keyDown(input(), { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(hooks.onClosed).toHaveBeenCalledTimes(1);
+    return async () => {
+      await act(async () => {
+        release!();
+      });
+    };
+  }
 
-    await act(async () => {
-      release!();
-    });
+  it("FN-S7 送出後 PATCH 還沒回就按 Esc → 先不回報；PATCH 成功後 onClosed(\"Q3\")（最後的名字）恰一次", async () => {
+    const hooks = stackHooks();
+    const release = await escWhileRenaming(hooks, () => json(folderDto({ id: "n2", name: "Q3" })));
+    expect(hooks.onClosed).not.toHaveBeenCalled();
+
+    await release();
+
+    expect(hooks.onClosed).toHaveBeenCalledTimes(1);
+    expect(hooks.onClosed).toHaveBeenCalledWith("Q3");
+  });
+
+  it("FN-S8 送出後 PATCH 還沒回就按 Esc、PATCH 之後 409 → onClosed(\"New folder 2\")（名稱沒變）恰一次", async () => {
+    const hooks = stackHooks();
+    const release = await escWhileRenaming(hooks, () => json({ error: { code: "folder_name_taken", message: "x" } }, 409));
+    expect(hooks.onClosed).not.toHaveBeenCalled();
+
+    await release();
 
     expect(hooks.onClosed).toHaveBeenCalledTimes(1);
     expect(hooks.onClosed).toHaveBeenCalledWith("New folder 2");

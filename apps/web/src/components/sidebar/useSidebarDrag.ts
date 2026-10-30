@@ -111,8 +111,16 @@ export function useSidebarDrag(args: {
     latestRef.current = { lookup, folderIndex, t };
   });
 
+  /** 這一份是否還掛著：疊資料夾三發期間抽屜被關，就開不了它的改名框（stackInto）。 */
+  const mountedRef = useRef(true);
   // 發起拖曳的這一份在拖曳中卸載（例如抽屜被關）：dragend 送不到 React，卸載時收尾。
-  useEffect(() => () => endIfOwner(ownSourceRef), []);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      endIfOwner(ownSourceRef);
+    };
+  }, []);
 
   /**
    * 計時到點：彈簧＝展開（寫折疊鍵，§6.8；拖曳結束不收回）；疊資料夾＝出預覽（§6.13 第 2 步）。
@@ -168,6 +176,11 @@ export function useSidebarDrag(args: {
     const created = folder;
     if (preview.parentFolderId !== null) {
       expandFolderChain(indexFolders(queryClient.getQueryData<FolderDto[]>(FOLDERS_QUERY_KEY) ?? []), preview.parentFolderId);
+    }
+    // 發起的這一份已卸載（三發期間抽屜被 Esc／外點／跨斷點關掉）：開不了改名框，直接出成功 toast（名稱＝建立時的名字）與「復原」。
+    if (!mountedRef.current) {
+      flow.showStackCreatedToast({ folderId: created.id, name: created.name, a, b, queryClient, t });
+      return;
     }
     openFolderDialog(
       {

@@ -96,6 +96,8 @@ export async function runStackFolder(input: {
   try {
     folder = await createWithRetry(input);
   } catch (err) {
+    // server 端沒變，但快取可能已落後（父資料夾被刪、撞名發數用完）：重抓清單。
+    invalidateFolderRelated(queryClient);
     errorToast(t, err);
     return null;
   }
