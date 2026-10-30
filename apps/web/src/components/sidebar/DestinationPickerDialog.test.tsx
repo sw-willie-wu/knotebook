@@ -166,11 +166,11 @@ describe("DestinationPickerDialog", () => {
     expect(onDrill).toHaveBeenCalledTimes(1);
   });
 
-  it("DPf1 copy 第一層：「Make a copy」與 Top level 不放圖示；共享空間項 share 圖示", () => {
+  it("DPf1 copy 第一層：「Make a copy」copy 圖示、Top level 不放圖示；共享空間項 share 圖示", () => {
     const source: DestSource = { mode: "copy", current: PERSONAL, makeCopy: true, others: [{ kind: "shared" }], locations: ["A"], movingFolders: [] };
     renderPicker({ mode: "copy", level: level(source) });
     expect(rows()).toEqual(["Make a copy", "Top level", "A, open", "B", "---", "Shared with me"]);
-    expect(item("Make a copy").querySelector("svg")).toBeNull();
+    expect(item("Make a copy").querySelector('svg[data-icon="copy"]')).not.toBeNull();
     expect(item("Top level").querySelector("svg")).toBeNull();
     expect(item("Shared with me").querySelector('svg[data-icon="share"]')).not.toBeNull();
   });

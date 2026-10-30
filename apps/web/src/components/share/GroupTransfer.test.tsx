@@ -921,7 +921,7 @@ describe("⋮ 逐層子選單（PR-3b-2 T4）", () => {
     const chevron = a.querySelector('svg[data-icon="chevron-right"]');
     expect(chevron).not.toBeNull();
     expect(chevron).toHaveAttribute("aria-hidden", "true");
-    expect(within(sub).getByRole("menuitem", { name: "B" }).querySelector("svg")).toBeNull();
+    expect(within(sub).getByRole("menuitem", { name: "B" }).querySelector('svg[data-icon="folder"]')).not.toBeNull();
   });
 
   it("NM-D2 點「A, open」→ 選單與子選單仍開、換成 [Back, Move here, A1]、焦點在 Back（「‹ 」aria-hidden）、子選單捲回頂端", async () => {
@@ -1074,6 +1074,39 @@ describe("⋮ 逐層子選單（PR-3b-2 T4）", () => {
     await openMoveSub(["SF"]);
   });
 
+  /** 項目的第一個子元素若是 svg，回它的 data-icon；否則 null（返回項第一個子元素是 span）。 */
+  const leadIcons = (container: HTMLElement) =>
+    Object.fromEntries(
+      within(container)
+        .queryAllByRole("menuitem")
+        .map((el) => [accessibleName(el), el.firstElementChild instanceof SVGElement ? el.firstElementChild.getAttribute("data-icon") : null]),
+    );
+
+  it("NM-D19 flyout 目的地項目前導圖示：資料夾 folder、群組 users；返回、移到這裡沒有；圖示 aria-hidden、mr-2 h-4 w-4", async () => {
+    stub(BASE_SERVER);
+    renderMenu();
+    const sub = await openMoveSub(["A, open", "B", "G", "H"]);
+    expect(leadIcons(sub)).toEqual({ "A, open": "folder", B: "folder", G: "users", H: "users" });
+    for (const name of ["B", "G"]) {
+      const icon = within(sub).getByRole("menuitem", { name }).querySelector("svg");
+      expect(icon).toHaveAttribute("aria-hidden", "true");
+      expect(icon).toHaveClass("mr-2", "h-4", "w-4", "shrink-0");
+    }
+    fireEvent.click(within(sub).getByRole("menuitem", { name: "A, open" }));
+    await waitFor(() => expect(names(sub)).toEqual(["Back", "Move here", "A1"]));
+    expect(leadIcons(sub)).toEqual({ Back: null, "Move here": null, A1: "folder" });
+  });
+
+  it("NM-D20 flyout Copy to…：建立副本 copy、群組筆記的「我的筆記」user、群組 users；Top level 沒有", async () => {
+    const IN_G: NoteDto = { ...MOVED, groupId: GG, group: { id: GG, name: "G" }, folderId: "GF" };
+    stub({ groups: [G, H], folders: [A, GF, HF, SF] });
+    renderMenu(IN_G);
+    const sub = await openFlyout(await openMenuReady("note-menu-copy-to"));
+    await waitFor(() => expect(names(sub).length).toBeGreaterThan(1));
+    expect(names(sub)).toEqual(["Make a copy", "Top level", "GF", "My notes, open", "H, open"]);
+    expect(leadIcons(sub)).toEqual({ "Make a copy": "copy", "Top level": null, GF: "folder", "My notes, open": "user", "H, open": "users" });
+  });
+
   it("NM-D13 zh：「A，開啟下一層」→「返回」「移動到這裡」", async () => {
     await i18n.changeLanguage("zh-TW");
     stub(BASE_SERVER);
@@ -1185,6 +1218,16 @@ describe("⋮ 逐層子選單（PR-3b-2 T4）", () => {
       expect(back).toHaveClass("pl-6");
       expect(document.activeElement).toBe(back);
       expect(screen.getAllByRole("menu")).toHaveLength(1);
+    });
+
+    it("NM-I5 就地展開形目的地項目前導圖示：資料夾 folder、群組 users；Back、Move here 沒有", async () => {
+      stub(BASE_SERVER);
+      renderMenu();
+      const { group } = await expandMove(["A, open", "B", "G", "H"]);
+      expect(leadIcons(group)).toEqual({ "A, open": "folder", B: "folder", G: "users", H: "users" });
+      fireEvent.click(within(group).getByRole("menuitem", { name: "A, open" }));
+      await waitFor(() => expect(names(screen.getByRole("group", { name: "Move to…" }))).toEqual(["Back", "Move here", "A1"]));
+      expect(leadIcons(screen.getByRole("group", { name: "Move to…" }))).toEqual({ Back: null, "Move here": null, A1: "folder" });
     });
 
     it("NM-I2 第二層 ArrowLeft → 回第一層（仍展開）；第一層 ArrowLeft → 收合", async () => {
