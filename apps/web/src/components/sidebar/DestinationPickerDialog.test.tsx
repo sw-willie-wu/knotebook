@@ -216,6 +216,16 @@ describe("DestinationPickerDialog", () => {
     expect(item("B")).toHaveFocus();
   });
 
+  it("DPf2 換層後整層都反灰（選了 A、B：兩個 self、Team crossSpace）→ 焦點給 footer 的 Cancel（Fix round 1）", () => {
+    const path: DestPathStep[] = [{ kind: "folder", folderId: "A" }];
+    const view = renderPicker({ level: level(mine("move", [FA, FB]), path), levelKey: JSON.stringify(path), hasFolders: true });
+    expect(item("Back")).toBeEnabled();
+    view.rerender({ level: level(mine("move", [FA, FB])), levelKey: "[]" });
+    expect(rows()).toEqual(["A", "B", "---", "Team"]);
+    for (const name of ["A", "B", "Team"]) expect(item(name)).toBeDisabled();
+    expect(within(dialog()).getByRole("button", { name: "Cancel" })).toHaveFocus();
+  });
+
   it("DPf3 crossSpace 項 disabled＋title、描述下多一行同字；沒有 crossSpace 的層沒有那行", () => {
     const view = renderPicker({ level: level(mine("move", [FB])), hasFolders: true });
     const team = item("Team");
@@ -227,15 +237,19 @@ describe("DestinationPickerDialog", () => {
     const line = within(dialog()).getByText(CROSS_SPACE);
     expect(line.tagName).toBe("P");
     expect(list()).not.toContainElement(line);
+    // 說明行列進對話框的可及描述（Fix round 1）。
+    expect(dialog()).toHaveAccessibleDescription(`Choose where the 3 items go. ${CROSS_SPACE}`);
 
     view.rerender({ level: level(mine("move")), hasFolders: false });
     expect(within(dialog()).queryByText(CROSS_SPACE)).toBeNull();
+    expect(dialog()).toHaveAccessibleDescription("Choose where the 3 notes go.");
     expect(item("Team")).toBeEnabled();
     expect(item("Team")).not.toHaveAttribute("title");
   });
 
   it("DPf4 hasFolders → 描述「Choose where the 2 items go.」；沒有 → 「Choose where the 2 notes go.」", () => {
-    const view = renderPicker({ count: 2, hasFolders: true, level: level(mine("move", [FB])) });
+    // 只有上半部（工作坊／與我共享 tab）：沒有 crossSpace 項，描述只有這一句。
+    const view = renderPicker({ count: 2, hasFolders: true, level: level({ ...mine("move", [FB]), others: [] }) });
     expect(screen.getByRole("dialog", { name: "Move to" })).toHaveAccessibleDescription("Choose where the 2 items go.");
     view.rerender({ count: 2, hasFolders: false, level: level(mine("move")) });
     expect(screen.getByRole("dialog", { name: "Move to" })).toHaveAccessibleDescription("Choose where the 2 notes go.");
@@ -247,7 +261,7 @@ describe("DestinationPickerDialog", () => {
       const path: DestPathStep[] = [{ kind: "folder", folderId: "A" }];
       const view = renderPicker({ count: 2, hasFolders: true, level: level(mine("move", [FB])) });
       const zh = screen.getByRole("dialog", { name: "移動到" });
-      expect(zh).toHaveAccessibleDescription("選擇 2 項要放到哪裡。");
+      expect(zh).toHaveAccessibleDescription("選擇 2 項要放到哪裡。 資料夾只能在同一個空間內移動");
       expect(within(zh).getByText("資料夾只能在同一個空間內移動")).toBeInTheDocument();
       expect(within(zh).getByRole("button", { name: "Team" })).toHaveAttribute("title", "資料夾只能在同一個空間內移動");
       expect(within(zh).getByRole("button", { name: "A，開啟下一層" })).toBeEnabled();

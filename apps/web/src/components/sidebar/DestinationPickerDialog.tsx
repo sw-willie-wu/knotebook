@@ -1,5 +1,5 @@
 import "@/i18n/select-strings";
-import { useLayoutEffect, useRef } from "react";
+import { useId, useLayoutEffect, useRef, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { ApiFail } from "@/api/client";
 import { Button } from "@/components/ui/button";
@@ -20,7 +20,8 @@ function errorMessage(t: Translate, err: unknown): string {
  * 一次只顯示**一層**：項目由 `buildDestinationLevel`（§6.11.1，與筆記 ⋮ 的逐層子選單共用）產生，path 由呼叫端持有，
  * 傳進來的是這一層的 `level` 與它的識別 `levelKey`。每項一顆按鈕（不做 tree 方向鍵，鍵盤用 Tab 走）：
  * 帶 `>` 的項目＝`onDrill`（框內換成下一層）、「‹ 返回」＝`onBack`、其他＝`onPick`（選定目的地）。
- * 只有 `levelKey` 變了（換層）才把清單捲回頂端、焦點給新層第一個未停用的項目；同一層重繪（資料夾重抓）不搬（總管裁定 2026-10-29 M2、M3）。
+ * 只有 `levelKey` 變了（換層）才把清單捲回頂端、焦點給新層第一個未停用的項目（整層都反灰時給 footer 的 Cancel）；同一層重繪（資料夾重抓）不搬
+ *（總管裁定 2026-10-29 M2、M3）。
  * 選了就呼叫 `onPick`，關框與焦點交接由呼叫端決定（選了交給確認框、取消才還給開框鈕）。只准經 `SelectLazy` 引用。
  */
 export function DestinationPickerDialog({
@@ -54,15 +55,23 @@ export function DestinationPickerDialog({
   onCloseAutoFocus?: (event: Event) => void;
 }) {
   const { t } = useTranslation();
-  // 這一層有跨空間反灰的項目（選了資料夾、下半部的空間）：描述下方多一行同字，螢幕閱讀器看得到原因（disabled 鈕的 title 讀不到）。
+  const descriptionId = useId();
+  const crossSpaceId = useId();
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  // 這一層有跨空間反灰的項目（選了資料夾、下半部的空間）：描述下方多一行同字，並列進對話框的 aria-describedby
+  // （開框時跟描述一起唸；disabled 鈕的 title 螢幕閱讀器讀不到）。
   const crossSpace = level?.some((item) => item.kind !== "separator" && item.kind !== "back" && item.disabled === "crossSpace") ?? false;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent onCloseAutoFocus={onCloseAutoFocus}>
+      <DialogContent onCloseAutoFocus={onCloseAutoFocus} aria-describedby={crossSpace ? `${descriptionId} ${crossSpaceId}` : descriptionId}>
         <DialogHeader>
           <DialogTitle>{t(mode === "move" ? "select.moveTo" : "select.copyTo")}</DialogTitle>
-          <DialogDescription>{t(hasFolders ? "select.pickerDescriptionItems" : "select.pickerDescription", { count })}</DialogDescription>
-          {crossSpace && <p className="text-sm text-muted-foreground">{t("select.foldersOnlyWithinSpace")}</p>}
+          <DialogDescription id={descriptionId}>{t(hasFolders ? "select.pickerDescriptionItems" : "select.pickerDescription", { count })}</DialogDescription>
+          {crossSpace && (
+            <p id={crossSpaceId} className="text-sm text-muted-foreground">
+              {t("select.foldersOnlyWithinSpace")}
+            </p>
+          )}
         </DialogHeader>
         {error ? (
           <p role="alert" className="text-sm text-destructive">
@@ -71,10 +80,10 @@ export function DestinationPickerDialog({
         ) : level === null ? (
           <p className="text-sm text-muted-foreground">{t("app.loading")}</p>
         ) : (
-          <DestinationLevelList level={level} levelKey={levelKey} onDrill={onDrill} onBack={onBack} onPick={onPick} />
+          <DestinationLevelList level={level} levelKey={levelKey} fallbackRef={cancelRef} onDrill={onDrill} onBack={onBack} onPick={onPick} />
         )}
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+          <Button ref={cancelRef} type="button" variant="outline" onClick={() => onOpenChange(false)}>
             {t("share.move.cancel")}
           </Button>
         </DialogFooter>
@@ -94,17 +103,21 @@ function itemIcon(item: DestItem): typeof Folder | null {
 
 /**
  * 一層的清單。掛在對話框內容裡（關框即卸載），掛上那次不搬焦點（交給 Radix 開框的自動聚焦）；之後 `levelKey` 每變一次，
- * 清單捲回頂端、焦點給第一個未停用的項目（第二層起即「‹ 返回」）。「‹ 」是 `aria-hidden` 的字：畫面「‹ 返回」、可及名稱「返回」。
+ * 清單捲回頂端、焦點給第一個未停用的項目（第二層起即「‹ 返回」）；整層都反灰時給 `fallbackRef`（footer 的 Cancel），
+ * 不讓焦點跟著被換掉的按鈕掉到 body。「‹ 」是 `aria-hidden` 的字：畫面「‹ 返回」、可及名稱「返回」。
  */
 function DestinationLevelList({
   level,
   levelKey,
+  fallbackRef,
   onDrill,
   onBack,
   onPick,
 }: {
   level: readonly DestItem[];
   levelKey: string;
+  /** 這一層沒有可按的項目時，換層的焦點給它。 */
+  fallbackRef: RefObject<HTMLButtonElement | null>;
   onDrill: (step: DestPathStep) => void;
   onBack: () => void;
   onPick: (target: DestTarget) => void;
@@ -117,8 +130,8 @@ function DestinationLevelList({
     if (prevKey.current === levelKey) return;
     prevKey.current = levelKey;
     if (listRef.current) listRef.current.scrollTop = 0;
-    firstRef.current?.focus();
-  }, [levelKey]);
+    (firstRef.current ?? fallbackRef.current)?.focus();
+  }, [levelKey, fallbackRef]);
   const firstEnabled = level.findIndex((item) => item.kind === "back" || (item.kind !== "separator" && item.disabled === null));
   return (
     <ul ref={listRef} className="max-h-80 space-y-0.5 overflow-y-auto">
