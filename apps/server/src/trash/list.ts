@@ -5,8 +5,9 @@
  * 垃圾桶權的推導與單篇的 `trashRightFromRow` 同規則（`trash-routes.test.ts` TR-L3／TR-M1 逐角色比對）。
  * #181 PR-2d：MCP `list_trash` 共用 `readTrashRetentionDays`；`delete_note` 移入後以 `loadTrashedMeta` 重讀。
  * 資料夾 PR-3d：MCP `list_trash` 改走 `listTrashPage`（keyset 游標）；REST 的 `listTrash` 是它第一頁的包裝。兩者同用毫秒排序鍵（Q3）。
+ * 資料夾 PR-3d T8：MCP `delete_folder` 移入後以 `loadTrashedPurgeAt` 重讀到期時間。
  */
-import { and, desc, eq, isNotNull, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, sql, type SQL } from "drizzle-orm";
 import { alias, unionAll, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { TRASH_LIST_LIMIT, type TrashItemDto, type TrashListDto } from "@knotebook/shared";
 import type { Db } from "../db/index.js";
@@ -142,4 +143,19 @@ export async function loadTrashedMeta(db: Db, noteId: string): Promise<{ title: 
     .where(and(eq(notes.id, noteId), isNotNull(notes.deletedAt)))
     .limit(1);
   return row;
+}
+
+/**
+ * `delete_folder` commit 後一讀（交易外單句 SELECT）：ids（≤ 100）中任一篇仍在垃圾桶者的 purgeAt——同一交易移入、`deleted_at` 相同；
+ * 與清單同一個 `purgeAtExpr`，join site_settings 取這一刻的設定。ids 為空（不發查詢）、全部已不在垃圾桶、或保留天數 NULL → null。
+ */
+export async function loadTrashedPurgeAt(db: Db, noteIds: readonly string[]): Promise<Date | null> {
+  if (noteIds.length === 0) return null;
+  const [row] = await db
+    .select({ purgeAt: purgeAtExpr(siteSettings.trashRetentionDays) })
+    .from(notes)
+    .innerJoin(siteSettings, eq(siteSettings.singleton, true))
+    .where(and(inArray(notes.id, [...noteIds]), isNotNull(notes.deletedAt)))
+    .limit(1);
+  return row?.purgeAt ?? null;
 }

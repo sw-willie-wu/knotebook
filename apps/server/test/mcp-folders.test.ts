@@ -1,12 +1,13 @@
 /**
  * 資料夾 PR-3d（plan docs/superpowers/plans/2026-10-28-folders-pr3d.md）的資料夾 MCP 工具。
- * T5：LF＝`list_folders`、RO＝`read_note_outline` 的 `folder`。T6–T8 在本檔續寫（T7：MN／CN／CP／MG／KF／BZ-N／PX-N）。
+ * T5：LF＝`list_folders`、RO＝`read_note_outline` 的 `folder`。T6–T8 在本檔續寫（T7：MN／CN／CP／MG／KF／BZ-N／PX-N；T8：DF／PX-D／SC／DS-D）。
  * 比對對象是同一人 cookie 的 REST（`GET /api/folders`，同一個可見性述詞）。
  */
 import { randomUUID } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
-import type { FolderListDto, TokenScope } from "@knotebook/shared";
+import { SESSION_COOKIE, type FolderListDto, type TokenScope } from "@knotebook/shared";
+import { createCollabHooks } from "../src/collab/hooks-impl.js";
 import type { Db } from "../src/db/index.js";
 import { groupMembers } from "../src/db/schema.js";
 import { listVisibleFoldersPage } from "../src/folders/queries.js";
@@ -21,12 +22,22 @@ import { folderReply } from "../src/mcp/tools/create-folder.js";
 import { outlineFolderFor } from "../src/mcp/tools/read-note-outline.js";
 import { wireCost } from "../src/mcp/wire-budget.js";
 import { seedTokenForUser } from "./editing-helpers.js";
-import { noteFolderCols, placementOf, seedFolder, seedFolderChain, seedPlacement, setNoteFolder, xminOf } from "./folder-helpers.js";
-import { noteState, seedGroup, seedNote, seedRole, seedShare, seedUser, sharesOf } from "./group-helpers.js";
+import {
+  folderRow,
+  noteFolderCols,
+  placementOf,
+  seedFolder,
+  seedFolderChain,
+  seedManyNotesInFolder,
+  seedPlacement,
+  setNoteFolder,
+  xminOf,
+} from "./folder-helpers.js";
+import { cookieOf, noteState, seedGroup, seedNote, seedRole, seedShare, seedUser, sharesOf } from "./group-helpers.js";
 import { buildCollabTestApp } from "./helpers.js";
 import { callTool, expectSameNotFound, restFolder, type McpAuth, type ToolCallResult } from "./mcp-folder-helpers.js";
 import { mcpPost, rpc } from "./mcp-helpers.js";
-import { inject, sixRoleScene } from "./trash-helpers.js";
+import { inject, markTrashed, sixRoleScene, trashCols } from "./trash-helpers.js";
 
 const R: TokenScope = "notes:read";
 const FM2 = "No group with that id among your groups where your role can read notes.";
@@ -1200,5 +1211,470 @@ describe("PX-N REST／MCP 同一份 fixture（§5.6 第一張表：放置、建�
     expect(rest.member).toEqual(["ok", "ok", "ok", "ok"]);
     expect(rest.outsider).toEqual(["not_found", "not_found", "not_found", "not_found"]);
     expect(rest.readOnly![0]).toBe("forbidden");
+  });
+});
+
+// ───────────────────────── 資料夾 PR-3d T8：delete_folder ─────────────────────────
+
+const RWD: TokenScope = "notes:read notes:write notes:delete";
+const RWMD: TokenScope = "notes:read notes:write notes:move notes:delete";
+const FM18 = "That folder, or one inside it, holds notes your role can't move to the trash, so nothing was deleted.";
+const FM19 = "The folder's contents changed while it was being deleted, so nothing was deleted. Try again.";
+const D_DF =
+  "Delete a folder and every folder inside it. The notes in them all move to the trash, each just as delete_note would move it, and all at once: if any of them is a note your role can't move to the trash, nothing is deleted. For one of your folders for notes shared with you, only the folders go — the notes stay shared with you, at the top level, and nothing moves to the trash. In a group, deleting a folder needs a role that can edit notes, and one that can also delete notes when notes in it would move to the trash. Folders don't go to the trash: restore_note usually puts a note back into a folder at the path it had, re-creating folders on that path, but folders that held no notes don't come back. The reply counts the notes moved to the trash and the folders deleted, with the ids of up to 100 of those notes; list_trash shows them.";
+const DF_COUNT = "How many notes were moved to the trash.";
+const DF_IDS = "The ids of the notes moved to the trash, at most 100, in id order.";
+const DF_IDS_TRUNC = "Present when more notes were moved than `trashedNoteIds` lists; list_trash shows them.";
+const DF_FOLDERS = "How many folders were deleted, counting the one you named.";
+const DF_PURGE =
+  "When the notes moved to the trash become due to be deleted permanently under the site's current trash setting (an admin can change it; list_trash shows the current date for the notes you can restore); null when no note was moved to the trash, or when this site doesn't empty the trash on its own at the moment.";
+
+type DeleteOut = { trashedNoteCount: number; trashedNoteIds: string[]; trashedNoteIdsTruncated?: true; deletedFolderCount: number; purgeAt: string | null };
+const deleted = (r: ToolCallResult): DeleteOut => ok(r) as unknown as DeleteOut;
+const sortedIds = (ids: readonly string[]): string[] => [...ids].sort();
+const sessionAuth = async (userId: string): Promise<McpAuth> => ({ cookie: (await cookieOf(userId))[SESSION_COOKIE]! });
+async function noteInFolder(db: Db, owner: { ownerId: string } | { groupId: string }, folderId: string): Promise<string> {
+  const n = await seedNote(db, owner);
+  await setNoteFolder(db.$client, n.id, folderId);
+  return n.id;
+}
+const isTrashedNote = async (db: Db, id: string): Promise<boolean> => (await trashCols(db.$client, id))!.deleted_at !== null;
+const trashedCount = async (db: Db): Promise<number> =>
+  (await db.$client.query<{ n: number }>(`select count(*)::int n from notes where deleted_at is not null`)).rows[0]!.n;
+/** 失敗案「什麼都沒刪」：筆記都不在垃圾桶、還在原資料夾；資料夾都在。 */
+async function expectKept(db: Db, notesAt: ReadonlyArray<[string, string]>, folderIds: readonly string[]): Promise<void> {
+  for (const [id, folderId] of notesAt) {
+    expect((await trashCols(db.$client, id))?.deleted_at, id).toBeNull();
+    expect(await folderIdOf(db, id), id).toBe(folderId);
+  }
+  for (const id of folderIds) expect(await folderRow(db.$client, id), id).toBeDefined();
+}
+/** DB 照「deleted_at ＋ 現行保留天數」算出的到期時間（與清單同式；天數 NULL → null）。 */
+async function dbPurgeAt(db: Db, noteId: string): Promise<string | null> {
+  const { rows } = await db.$client.query<{ p: Date | null }>(
+    `select n.deleted_at + make_interval(days => s.trash_retention_days) p from notes n, site_settings s where n.id = $1 and s.singleton`,
+    [noteId],
+  );
+  return rows[0]!.p?.toISOString() ?? null;
+}
+
+describe("DF1 個人子樹", () => {
+  it("三層子樹（各層有活筆記、中層另有一篇垃圾桶筆記）→ 活筆記全進垃圾桶、count／ids／deletedFolderCount、資料夾消失、快照＝刪除當下路徑；purgeAt＝DB 的 deleted_at＋保留天數（11 天）；保留天數 NULL → null", async () => {
+    const ctx = await buildCollabTestApp();
+    const pool = ctx.db.$client;
+    await pool.query(`update site_settings set trash_retention_days = 11`);
+    const me = await seedUser(ctx.db);
+    const auth = await tokenOf(ctx.db, me.id, RWD);
+    const [R, X, Y] = await seedFolderChain(ctx.db, { personal: me.id }, ["R", "X", "Y"]);
+    const O = (await seedFolder(ctx.db, { personal: me.id }, { name: "O" })).id;
+    const a = await noteInFolder(ctx.db, { ownerId: me.id }, R!);
+    const b = await noteInFolder(ctx.db, { ownerId: me.id }, X!);
+    const c = await noteInFolder(ctx.db, { ownerId: me.id }, Y!);
+    const t = await noteInFolder(ctx.db, { ownerId: me.id }, X!);
+    await markTrashed(pool, t, me.id, "3 days");
+    const tBefore = await trashCols(pool, t);
+    const o = await noteInFolder(ctx.db, { ownerId: me.id }, O);
+
+    const out = deleted(await callTool(ctx.app, auth, "delete_folder", { folder_id: R!.toUpperCase() }));
+    expect(out).toEqual({ trashedNoteCount: 3, trashedNoteIds: sortedIds([a, b, c]), deletedFolderCount: 3, purgeAt: await dbPurgeAt(ctx.db, a) });
+    expect(out.purgeAt).not.toBeNull();
+    for (const id of [a, b, c]) expect(await trashCols(pool, id), id).toMatchObject({ deleted_at: expect.any(String), deleted_by: me.id });
+    expect(await noteFolderCols(pool, a)).toEqual({ folder_id: null, trash_folder_path: ["R"] });
+    expect(await noteFolderCols(pool, b)).toEqual({ folder_id: null, trash_folder_path: ["R", "X"] });
+    expect(await noteFolderCols(pool, c)).toEqual({ folder_id: null, trash_folder_path: ["R", "X", "Y"] });
+    expect(await noteFolderCols(pool, t)).toEqual({ folder_id: null, trash_folder_path: ["R", "X"] });
+    expect(await trashCols(pool, t)).toEqual(tBefore);
+    for (const id of [R!, X!, Y!]) expect(await folderRow(pool, id), id).toBeUndefined();
+    expect(await folderRow(pool, O)).toBeDefined();
+    expect(await isTrashedNote(ctx.db, o)).toBe(false);
+
+    // 保留天數 NULL（這個站目前不自動清空垃圾桶）→ purgeAt: null
+    await pool.query(`update site_settings set trash_retention_days = null`);
+    const P = (await seedFolder(ctx.db, { personal: me.id }, { name: "P" })).id;
+    const p = await noteInFolder(ctx.db, { ownerId: me.id }, P);
+    expect(deleted(await callTool(ctx.app, auth, "delete_folder", { folder_id: P }))).toEqual({
+      trashedNoteCount: 1,
+      trashedNoteIds: [p],
+      deletedFolderCount: 1,
+      purgeAt: null,
+    });
+    expect(await isTrashedNote(ctx.db, p)).toBe(true);
+  });
+});
+
+describe("DF2 空資料夾與 shared", () => {
+  it("空的個人資料夾 → 0／[]／purgeAt null、無旗標鍵；shared 子樹（含放置）→ 筆記不動、放置消失、count 0、purgeAt null（F7）", async () => {
+    const ctx = await buildCollabTestApp();
+    const pool = ctx.db.$client;
+    const me = await seedUser(ctx.db);
+    const auth = await tokenOf(ctx.db, me.id, RWD);
+    const E = (await seedFolder(ctx.db, { personal: me.id }, { name: "E" })).id;
+    expect(ok(await callTool(ctx.app, auth, "delete_folder", { folder_id: E }))).toEqual({
+      trashedNoteCount: 0,
+      trashedNoteIds: [],
+      deletedFolderCount: 1,
+      purgeAt: null,
+    });
+    expect(await folderRow(pool, E)).toBeUndefined();
+
+    const owner = await seedUser(ctx.db);
+    const OF = (await seedFolder(ctx.db, { personal: owner.id }, { name: "Owner's" })).id;
+    const n1 = await noteInFolder(ctx.db, { ownerId: owner.id }, OF);
+    const n2 = await noteInFolder(ctx.db, { ownerId: owner.id }, OF);
+    await seedShare(ctx.db, n1, me.id, "editor");
+    await seedShare(ctx.db, n2, me.id, "viewer");
+    const [SR, SC] = await seedFolderChain(ctx.db, { shared: me.id }, ["SR", "SC"]);
+    await seedPlacement(pool, me.id, n1, SR!);
+    await seedPlacement(pool, me.id, n2, SC!);
+    expect(ok(await callTool(ctx.app, auth, "delete_folder", { folder_id: SR! }))).toEqual({
+      trashedNoteCount: 0,
+      trashedNoteIds: [],
+      deletedFolderCount: 2,
+      purgeAt: null,
+    });
+    for (const id of [n1, n2]) {
+      expect(await placementOf(pool, me.id, id), id).toBeNull();
+      expect(await isTrashedNote(ctx.db, id), id).toBe(false);
+      expect(await folderIdOf(ctx.db, id), id).toBe(OF);
+      expect((await sharesOf(ctx.db, id)).map(x => x.userId), id).toEqual([me.id]);
+    }
+    expect(await folderRow(pool, SR!)).toBeUndefined();
+    expect(await folderRow(pool, SC!)).toBeUndefined();
+    expect(await trashedCount(ctx.db)).toBe(0);
+  });
+});
+
+describe("DF8 刪了再還原（D-DF 還原句的 MCP 端到端，同 REST FD-2）", () => {
+  it("delete_folder 之後 restore_note → 照刪除當下的路徑 R›X 重建、筆記回到 X；沒有筆記的空子資料夾不回來", async () => {
+    const ctx = await buildCollabTestApp();
+    const pool = ctx.db.$client;
+    const me = await seedUser(ctx.db);
+    const auth = await tokenOf(ctx.db, me.id, RWD);
+    const [R, X] = await seedFolderChain(ctx.db, { personal: me.id }, ["R", "X"]);
+    await seedFolder(ctx.db, { personal: me.id }, { name: "E", parentId: R! });
+    const n = await noteInFolder(ctx.db, { ownerId: me.id }, X!);
+    expect(deleted(await callTool(ctx.app, auth, "delete_folder", { folder_id: R! }))).toMatchObject({ trashedNoteIds: [n], deletedFolderCount: 3 });
+
+    const restored = noteOut(await callTool(ctx.app, auth, "restore_note", { note_id: n }));
+    expect(restored.folder?.name).toBe("X");
+    expect(await isTrashedNote(ctx.db, n)).toBe(false);
+    const leaf = (await noteFolderCols(pool, n))!.folder_id!;
+    const path: string[] = [];
+    for (let cur: string | null = leaf; cur !== null; cur = (await folderRow(pool, cur))!.parent_id) path.unshift((await folderRow(pool, cur))!.name);
+    expect(path).toEqual(["R", "X"]);
+    expect(restored.folder?.id).toBe(leaf);
+    const { rows } = await pool.query<{ name: string }>(`select name from folders where owner_id = $1 order by name`, [me.id]);
+    expect(rows.map(r => r.name)).toEqual(["R", "X"]);
+  });
+});
+
+describe("DF3 群組（F8 全有全無）", () => {
+  it("editOnly／member：含活筆記 → forbidden＋FM18、全部還在，空資料夾與只剩垃圾桶筆記的資料夾 → 成功；editDelete／admin 成功；readOnly／deleteOnly → FM3；outsider、noRead、隨機 uuid 逐欄相同（FM1）", async () => {
+    const ctx = await buildCollabTestApp();
+    const pool = ctx.db.$client;
+    const s = await sixRoleScene(ctx.db);
+    const noRead = await seedUser(ctx.db);
+    await addNoReadMember(ctx.db, s.groupId, noRead.id);
+    const g = { groupId: s.groupId };
+    let seq = 0;
+    const scene = async () => {
+      const name = `DF3-${++seq}`;
+      const [R, X] = await seedFolderChain(ctx.db, { group: s.groupId }, [name, "X"]);
+      const m = await noteInFolder(ctx.db, g, R!);
+      const n = await noteInFolder(ctx.db, g, X!);
+      return { name, R: R!, X: X!, m, n };
+    };
+    const del = async (userId: string, folderId: string) => callTool(ctx.app, await tokenOf(ctx.db, userId, RWD), "delete_folder", { folder_id: folderId });
+
+    for (const actor of [s.editOnly, s.member]) {
+      const sc = await scene();
+      err(await del(actor.id, sc.R), "forbidden", FM18);
+      await expectKept(ctx.db, [[sc.m, sc.R], [sc.n, sc.X]], [sc.R, sc.X]);
+      const E = (await seedFolder(ctx.db, { group: s.groupId })).id;
+      expect(ok(await del(actor.id, E))).toEqual({ trashedNoteCount: 0, trashedNoteIds: [], deletedFolderCount: 1, purgeAt: null });
+      // 只剩垃圾桶筆記：沒有筆記要移入，能管就刪得掉（D-DF「when notes in it would move to the trash」）
+      const tr = await scene();
+      await markTrashed(pool, tr.m, s.admin.id);
+      await markTrashed(pool, tr.n, s.admin.id);
+      expect(ok(await del(actor.id, tr.R))).toEqual({ trashedNoteCount: 0, trashedNoteIds: [], deletedFolderCount: 2, purgeAt: null });
+      expect(await noteFolderCols(pool, tr.n)).toEqual({ folder_id: null, trash_folder_path: [tr.name, "X"] });
+    }
+
+    for (const actor of [s.editDelete, s.admin]) {
+      const sc = await scene();
+      expect(deleted(await del(actor.id, sc.R))).toMatchObject({ trashedNoteCount: 2, trashedNoteIds: sortedIds([sc.m, sc.n]), deletedFolderCount: 2 });
+      expect((await trashCols(pool, sc.n))?.deleted_by).toBe(actor.id);
+      expect(await folderRow(pool, sc.R)).toBeUndefined();
+    }
+
+    for (const actor of [s.readOnly, s.deleteOnly]) {
+      const sc = await scene();
+      err(await del(actor.id, sc.R), "forbidden", FM3);
+      await expectKept(ctx.db, [[sc.m, sc.R], [sc.n, sc.X]], [sc.R, sc.X]);
+    }
+
+    const sc = await scene();
+    const hidden = await del(s.outsider.id, sc.R);
+    err(hidden, "not_found", FM1);
+    expectSameNotFound(hidden, await del(noRead.id, sc.R));
+    expectSameNotFound(hidden, await del(s.outsider.id, randomUUID()));
+    await expectKept(ctx.db, [[sc.m, sc.R], [sc.n, sc.X]], [sc.R, sc.X]);
+  });
+});
+
+describe("DF4 交易內重判", () => {
+  it("folder-delete-notes-locked 拿掉 editDelete 的 can_delete → forbidden＋FM18；folder-delete-gated 之後子樹多一篇（沒開閘門）→ conflict＋FM19；兩者都什麼都沒刪", async () => {
+    const seam = armedHook();
+    const ctx = await buildCollabTestApp({ groupTestHook: seam.hook });
+    const pool = ctx.db.$client;
+    const s = await sixRoleScene(ctx.db);
+    const g = { groupId: s.groupId };
+    const roleId = (await pool.query<{ role_id: string }>(`select role_id from group_members where group_id = $1 and user_id = $2`, [s.groupId, s.editDelete.id])).rows[0]!.role_id;
+    const auth = await tokenOf(ctx.db, s.editDelete.id, RWD);
+
+    const [R1, X1] = await seedFolderChain(ctx.db, { group: s.groupId }, ["DF4-a", "X"]);
+    const a = await noteInFolder(ctx.db, g, R1!);
+    const b = await noteInFolder(ctx.db, g, X1!);
+    seam.arm("folder-delete-notes-locked", async () => {
+      await pool.query(`update group_roles set can_delete = false where id = $1`, [roleId]);
+    });
+    err(await callTool(ctx.app, auth, "delete_folder", { folder_id: R1! }), "forbidden", FM18);
+    expect(seam.pending).toBe(false);
+    await expectKept(ctx.db, [[a, R1!], [b, X1!]], [R1!, X1!]);
+    await pool.query(`update group_roles set can_delete = true where id = $1`, [roleId]);
+
+    const [R2, X2] = await seedFolderChain(ctx.db, { group: s.groupId }, ["DF4-b", "X"]);
+    const c = await noteInFolder(ctx.db, g, R2!);
+    let late = "";
+    seam.arm("folder-delete-gated", async () => {
+      late = await noteInFolder(ctx.db, g, X2!);
+    });
+    err(await callTool(ctx.app, auth, "delete_folder", { folder_id: R2! }), "conflict", FM19);
+    expect(seam.pending).toBe(false);
+    await expectKept(ctx.db, [[c, R2!], [late, X2!]], [R2!, X2!]);
+  });
+});
+
+describe("DF5 大子樹（A3-17）", () => {
+  it("300 篇 → trashedNoteCount 300、恰好 100 個 id＝DB 那 300 個 id 排序後的前 100、trashedNoteIdsTruncated: true；整 100 篇 → 沒有旗標鍵", async () => {
+    const ctx = await buildCollabTestApp();
+    const pool = ctx.db.$client;
+    const me = await seedUser(ctx.db);
+    const auth = await tokenOf(ctx.db, me.id, RWD);
+    const [big, sub] = await seedFolderChain(ctx.db, { personal: me.id }, ["Big", "Sub"]);
+    const ids = sortedIds([
+      ...(await seedManyNotesInFolder(pool, { ownerId: me.id }, big!, 150)),
+      ...(await seedManyNotesInFolder(pool, { ownerId: me.id }, sub!, 150)),
+    ]);
+    const out = deleted(await callTool(ctx.app, auth, "delete_folder", { folder_id: big! }));
+    expect(out.trashedNoteIds).toHaveLength(100);
+    expect(out).toEqual({
+      trashedNoteCount: 300,
+      trashedNoteIds: ids.slice(0, 100),
+      trashedNoteIdsTruncated: true,
+      deletedFolderCount: 2,
+      purgeAt: await dbPurgeAt(ctx.db, ids[0]!),
+    });
+    expect(await trashedCount(ctx.db)).toBe(300);
+
+    const H = (await seedFolder(ctx.db, { personal: me.id }, { name: "Hundred" })).id;
+    const hundred = await seedManyNotesInFolder(pool, { ownerId: me.id }, H, 100);
+    const out100 = ok(await callTool(ctx.app, auth, "delete_folder", { folder_id: H }));
+    expect(Object.keys(out100).sort()).toEqual(["deletedFolderCount", "purgeAt", "trashedNoteCount", "trashedNoteIds"]);
+    expect(out100).toMatchObject({ trashedNoteCount: 100, trashedNoteIds: hundred, deletedFolderCount: 1 });
+  });
+});
+
+describe("DF6 共編閘門（真 hooks）", () => {
+  it("成功後子樹筆記的閘門關著；預讀後才搬出子樹的那篇不在回應裡、它的閘門已收（M1，比照 REST FD-M1）", async () => {
+    const seam = armedHook();
+    const ctx = await buildCollabTestApp({ collabHooks: (server, log) => createCollabHooks(server, log), groupTestHook: seam.hook });
+    const pool = ctx.db.$client;
+    const me = await seedUser(ctx.db);
+    const [R, X, Y] = await seedFolderChain(ctx.db, { personal: me.id }, ["R", "X", "Y"]);
+    const Z = (await seedFolder(ctx.db, { personal: me.id }, { name: "Z" })).id;
+    const a = await noteInFolder(ctx.db, { ownerId: me.id }, R!);
+    const b = await noteInFolder(ctx.db, { ownerId: me.id }, X!);
+    const c = await noteInFolder(ctx.db, { ownerId: me.id }, Y!);
+    const rel = vi.spyOn(ctx.collab, "releaseDeletingGate");
+    seam.arm("folder-delete-gated", async () => {
+      await setNoteFolder(pool, c, Z);
+    });
+
+    const out = deleted(await callTool(ctx.app, await tokenOf(ctx.db, me.id, RWD), "delete_folder", { folder_id: R! }));
+    expect(out).toMatchObject({ trashedNoteCount: 2, trashedNoteIds: sortedIds([a, b]), deletedFolderCount: 3 });
+    // release 是 fire-and-forget：等每一次 releaseDeletingGate 跑完再看閘門。
+    expect(rel).toHaveBeenCalledTimes(3);
+    await Promise.all(rel.mock.results.map(r => r.value));
+    expect(ctx.collab.isDeleting(c)).toBe(false);
+    expect(ctx.collab.isDeleting(a)).toBe(true);
+    expect(ctx.collab.isDeleting(b)).toBe(true);
+    expect(await noteFolderCols(pool, c)).toEqual({ folder_id: Z, trash_folder_path: null });
+    expect(await isTrashedNote(ctx.db, c)).toBe(false);
+  });
+});
+
+describe("DF7 桶與設定", () => {
+  it("edit 桶 0 → too_many_requests、什麼都沒刪；同設定下看不到的資料夾 → not_found（授權在扣桶之前）", async () => {
+    const ctx = await buildCollabTestApp({ limiters: { edit: new FixedWindowLimiter({ limit: 0, windowMs: 600_000 }) } });
+    const me = await seedUser(ctx.db);
+    const [R, X] = await seedFolderChain(ctx.db, { personal: me.id }, ["R", "X"]);
+    const n = await noteInFolder(ctx.db, { ownerId: me.id }, X!);
+    const auth = await tokenOf(ctx.db, me.id, RWD);
+    err(await callTool(ctx.app, auth, "delete_folder", { folder_id: R! }), "too_many_requests", RATE);
+    err(await callTool(ctx.app, auth, "delete_folder", { folder_id: randomUUID() }), "not_found", FM1);
+    await expectKept(ctx.db, [[n, X!]], [R!, X!]);
+  });
+
+  it("site_settings 列不在 → internal、什麼都沒刪、edit 桶沒被扣", async () => {
+    const edit = new FixedWindowLimiter({ limit: 5, windowMs: 600_000 });
+    const ctx = await buildCollabTestApp({ limiters: { edit } });
+    const me = await seedUser(ctx.db);
+    const [R, X] = await seedFolderChain(ctx.db, { personal: me.id }, ["R", "X"]);
+    const n = await noteInFolder(ctx.db, { ownerId: me.id }, X!);
+    await ctx.db.$client.query(`delete from site_settings`);
+    const r = await callTool(ctx.app, await tokenOf(ctx.db, me.id, RWD), "delete_folder", { folder_id: R! });
+    expect([r.isError, r.structuredContent?.code]).toEqual([true, "internal"]);
+    await expectKept(ctx.db, [[n, X!]], [R!, X!]);
+    expect(remaining(edit, me.id)).toBe(5);
+  });
+
+  it("tokenWrite 0（RWD 憑證）→ too_many_requests、什麼都沒刪；session 不吃 token 桶，照常成功", async () => {
+    const ctx = await buildCollabTestApp({ limiters: { tokenWrite: new FixedWindowLimiter({ limit: 0, windowMs: 600_000 }) } });
+    const me = await seedUser(ctx.db);
+    const [R, X] = await seedFolderChain(ctx.db, { personal: me.id }, ["R", "X"]);
+    const n = await noteInFolder(ctx.db, { ownerId: me.id }, X!);
+    const r = await callTool(ctx.app, await tokenOf(ctx.db, me.id, RWD), "delete_folder", { folder_id: R! });
+    expect([r.isError, r.structuredContent?.code]).toEqual([true, "too_many_requests"]);
+    await expectKept(ctx.db, [[n, X!]], [R!, X!]);
+    expect(deleted(await callTool(ctx.app, await sessionAuth(me.id), "delete_folder", { folder_id: R! }))).toMatchObject({ trashedNoteCount: 1, trashedNoteIds: [n] });
+  });
+});
+
+describe("PX-D REST／MCP 同一份 fixture（§5.6 第二張表：刪資料夾）", () => {
+  it("sixRoleScene＋noRead × {刪空資料夾、刪含筆記的資料夾}：REST（cookie）與 MCP（RWD）的結果對映表逐格相同（folder_delete_blocked ↔ forbidden＋FM18）", async () => {
+    const ctx = await buildCollabTestApp();
+    const s = await sixRoleScene(ctx.db);
+    const noRead = await seedUser(ctx.db);
+    await addNoReadMember(ctx.db, s.groupId, noRead.id);
+    const users = { admin: s.admin, member: s.member, editDelete: s.editDelete, deleteOnly: s.deleteOnly, editOnly: s.editOnly, readOnly: s.readOnly, outsider: s.outsider, noRead };
+    const empty = async () => (await seedFolder(ctx.db, { group: s.groupId })).id;
+    const full = async () => {
+      const f = await empty();
+      await noteInFolder(ctx.db, { groupId: s.groupId }, f);
+      return f;
+    };
+    const restCat = (status: number, body: { error?: { code?: string } }) =>
+      status === 200 ? "ok" : status === 403 ? (body.error?.code === "folder_delete_blocked" ? "blocked" : "forbidden") : status === 404 ? "not_found" : `rest-${status}`;
+    const mcpCat = (r: ToolCallResult) =>
+      !r.isError ? "ok" : r.structuredContent?.code === "forbidden" && r.structuredContent.message === FM18 ? "blocked" : String(r.structuredContent?.code);
+    const rest: Record<string, string[]> = {};
+    const mcp: Record<string, string[]> = {};
+    for (const [label, u] of Object.entries(users)) {
+      const auth = await tokenOf(ctx.db, u.id, RWD);
+      const r = [await restFolder(ctx.app, u.id, "DELETE", `/api/folders/${await empty()}`), await restFolder(ctx.app, u.id, "DELETE", `/api/folders/${await full()}`)];
+      rest[label] = r.map(x => restCat(x.statusCode, x.json() as { error?: { code?: string } }));
+      mcp[label] = [
+        await callTool(ctx.app, auth, "delete_folder", { folder_id: await empty() }),
+        await callTool(ctx.app, auth, "delete_folder", { folder_id: await full() }),
+      ].map(mcpCat);
+    }
+    expect(mcp).toEqual(rest);
+    // 前提：表真的分出了能刪／被擋／不能管／看不到
+    expect(rest).toEqual({
+      admin: ["ok", "ok"],
+      member: ["ok", "blocked"],
+      editDelete: ["ok", "ok"],
+      deleteOnly: ["forbidden", "forbidden"],
+      editOnly: ["ok", "blocked"],
+      readOnly: ["forbidden", "forbidden"],
+      outsider: ["not_found", "not_found"],
+      noRead: ["not_found", "not_found"],
+    });
+  });
+});
+
+describe("SC 註冊與 AG-F4", () => {
+  it("R／RW／RWM 沒有 delete_folder、RWD／RWMD／session 有；名字都不含 purge／empty／permanent；delete_folder 的輸入恰好只有 folder_id；RWM 直接呼叫 → SDK 的 Tool delete_folder not found、DB 不變", async () => {
+    const ctx = await buildCollabTestApp();
+    const me = await seedUser(ctx.db);
+    const [P, Q] = await seedFolderChain(ctx.db, { personal: me.id }, ["P", "Q"]);
+    const n = await noteInFolder(ctx.db, { ownerId: me.id }, Q!);
+    type Tool = { name: string; inputSchema: { properties?: Record<string, unknown> } };
+    const toolsOf = async (auth: McpAuth) => (await mcpPost(ctx.app, rpc("tools/list"), auth)).json().result.tools as Tool[];
+    const cases: Array<[string, McpAuth, boolean]> = [
+      ["R", await tokenOf(ctx.db, me.id, R), false],
+      ["RW", await tokenOf(ctx.db, me.id, RW), false],
+      ["RWM", await tokenOf(ctx.db, me.id, RWM), false],
+      ["RWD", await tokenOf(ctx.db, me.id, RWD), true],
+      ["RWMD", await tokenOf(ctx.db, me.id, RWMD), true],
+      ["session", await sessionAuth(me.id), true],
+    ];
+    for (const [label, auth, want] of cases) {
+      const tools = await toolsOf(auth);
+      const names = tools.map(t => t.name);
+      expect({ label, has: names.includes("delete_folder") }).toEqual({ label, has: want });
+      expect({ label, bad: names.filter(x => /purge|empty|permanent/i.test(x)) }).toEqual({ label, bad: [] });
+      // MCP 不提供「只刪空資料夾」之類的選項：公告的輸入只有 folder_id。
+      const df = tools.find(t => t.name === "delete_folder");
+      if (df) expect({ label, keys: Object.keys(df.inputSchema.properties ?? {}) }).toEqual({ label, keys: ["folder_id"] });
+    }
+    const direct = await callTool(ctx.app, cases[2]![1], "delete_folder", { folder_id: P! });
+    expect(direct.isError).toBe(true);
+    expect(direct.structuredContent).toBeUndefined();
+    expect(direct.content[0]!.text).toContain("Tool delete_folder not found");
+    await expectKept(ctx.db, [[n, Q!]], [P!, Q!]);
+  });
+
+  it("RWM 憑證依序呼叫 create_folder、rename_folder、move_folder、move_note_to_folder、create_note／copy_note／move_note_to_group 帶 folder_id → 全部成功，所有筆記 deleted_at IS NULL（AG-F4、A3-9 末句）", async () => {
+    const ctx = await buildCollabTestApp();
+    const me = await seedUser(ctx.db);
+    const g = await seedGroup(ctx.db, "SC-AGF4", [{ userId: me.id, role: "admin" }]);
+    const n = await seedNote(ctx.db, { ownerId: me.id }, { title: "sc n" });
+    const m = await seedNote(ctx.db, { ownerId: me.id }, { title: "sc m" });
+    const auth = await tokenOf(ctx.db, me.id, RWM);
+    const step = async (name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => {
+      const r = await callTool(ctx.app, auth, name, args);
+      expect(await trashedCount(ctx.db), `${name} 之後`).toBe(0); // 先於成功與否：回錯也不能已經移入
+      expect(r.isError, `${name} ${JSON.stringify(r.structuredContent)}`).toBeUndefined();
+      return r.structuredContent!;
+    };
+    const folderIdIn = (out: Record<string, unknown>) => (out as { folder: FolderOut }).folder.id;
+    const A = folderIdIn(await step("create_folder", { name: "sc A" }));
+    const B = folderIdIn(await step("create_folder", { name: "sc B" }));
+    const GF = folderIdIn(await step("create_folder", { name: "sc G", group_id: g.id }));
+    await step("rename_folder", { folder_id: A, name: "sc A2" });
+    await step("move_folder", { folder_id: B, parent_id: A });
+    await step("move_note_to_folder", { note_id: n.id, folder_id: B });
+    await step("create_note", { title: "sc new", folder_id: A });
+    await step("copy_note", { note_id: n.id, folder_id: A });
+    await step("move_note_to_group", { note_id: m.id, group_id: g.id, folder_id: GF });
+    const { rows } = await ctx.db.$client.query<{ n: number; trashed: number }>(`select count(*)::int n, count(deleted_at)::int trashed from notes`);
+    expect(rows[0]).toEqual({ n: 4, trashed: 0 });
+  });
+});
+
+describe("DS-D describe 字串", () => {
+  it("tools/list（RWD）上 delete_folder 的 description 逐字＝D-DF，folder_id 與輸出各欄說明逐字；含「restore_note usually puts a note back」「folders that held no notes don't come back」；purgeAt 說明含「an admin can change it」", async () => {
+    const ctx = await buildCollabTestApp();
+    const me = await seedUser(ctx.db);
+    const res = await mcpPost(ctx.app, rpc("tools/list"), (await tokenOf(ctx.db, me.id, RWD)) as { token: string });
+    type Prop = { description?: string; maxItems?: number };
+    type Tool = { name: string; description: string; inputSchema: { properties: Record<string, Prop> }; outputSchema: { properties: Record<string, Prop> } };
+    const df = (res.json().result.tools as Tool[]).find(t => t.name === "delete_folder")!;
+    expect(df.description).toBe(D_DF);
+    expect(df.description).toContain("restore_note usually puts a note back");
+    expect(df.description).toContain("folders that held no notes don't come back");
+    expect(df.inputSchema.properties.folder_id!.description).toBe("The id of the folder to delete, from list_folders.");
+    const outDescribe = Object.fromEntries(Object.entries(df.outputSchema.properties).map(([k, v]) => [k, v.description]));
+    expect(outDescribe).toEqual({
+      trashedNoteCount: DF_COUNT,
+      trashedNoteIds: DF_IDS,
+      trashedNoteIdsTruncated: DF_IDS_TRUNC,
+      deletedFolderCount: DF_FOLDERS,
+      purgeAt: DF_PURGE,
+    });
+    expect(outDescribe.purgeAt).toContain("an admin can change it");
+    expect(df.outputSchema.properties.trashedNoteIds!.maxItems).toBe(100);
   });
 });

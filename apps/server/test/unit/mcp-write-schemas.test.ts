@@ -26,6 +26,7 @@ import {
 } from "../../src/mcp/tools/copy-note.js";
 import { moveNoteToGroupInput } from "../../src/mcp/tools/move-note-to-group.js";
 import { moveNoteToFolderInput } from "../../src/mcp/tools/move-note-to-folder.js";
+import { deleteFolderInput } from "../../src/mcp/tools/delete-folder.js";
 import { FOLDER_ID } from "../../src/mcp/folder-fields.js";
 import { readNoteSectionOutput } from "../../src/mcp/tools/read-note-section.js";
 
@@ -205,5 +206,13 @@ describe("資料夾 PR-3d T7：四支工具的 folder_id 與 FOLDER_ID 同源", 
     expectSameSchema(moveNoteToFolderInput.note_id, NOTE_ID);
     expect(copyNoteInput.folder_id.description).toBe(COPY_FOLDER_ID_DESCRIBE);
     expect(copyNoteInputNoMove.folder_id.description).toBe(COPY_FOLDER_ID_DESCRIBE_NO_MOVE);
+  });
+});
+
+describe("資料夾 PR-3d T8：delete_folder 的輸入", () => {
+  it("輸入鍵恰好只有 folder_id（MCP 不提供「只刪空資料夾」之類的選項），且必填、與 FOLDER_ID 同源", () => {
+    expect(Object.keys(deleteFolderInput)).toEqual(["folder_id"]);
+    expect(deleteFolderInput.folder_id).not.toBeInstanceOf(z.ZodOptional);
+    expectSameSchema(deleteFolderInput.folder_id, FOLDER_ID);
   });
 });

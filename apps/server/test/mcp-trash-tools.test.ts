@@ -1018,19 +1018,19 @@ describe("PX REST／MCP 同一份 fixture（§6.14）", () => {
 });
 
 describe("SC1 註冊與 AG3", () => {
-  it("R／RW／RWM 沒有 delete_note／restore_note、有 list_trash；RWD／RWMD／session 三支都有；名字都不含 purge／empty／permanent；RWM 直接呼叫 delete_note → Tool not found", async () => {
+  it("R／RW／RWM 沒有 delete_note／restore_note／delete_folder（資料夾 PR-3d T8）、有 list_trash；RWD／RWMD／session 四支都有；名字都不含 purge／empty／permanent；RWM 直接呼叫 delete_note → Tool not found", async () => {
     const ctx = await buildCollabTestApp();
     const me = await seedUser(ctx.db);
     const n = await seedNote(ctx.db, { ownerId: me.id });
     const namesOf = async (auth: Auth) => ((await mcpPost(ctx.app, rpc("tools/list"), auth)).json().result.tools as Array<{ name: string }>).map(t => t.name);
-    const has = (names: string[]) => ["list_trash", "delete_note", "restore_note"].map(x => names.includes(x));
+    const has = (names: string[]) => ["list_trash", "delete_note", "restore_note", "delete_folder"].map(x => names.includes(x));
     const cases: Array<[string, Auth, boolean[]]> = [
-      ["R", await tokenOf(ctx, me.id, R), [true, false, false]],
-      ["RW", await tokenOf(ctx, me.id, RW), [true, false, false]],
-      ["RWM", await tokenOf(ctx, me.id, RWM), [true, false, false]],
-      ["RWD", await tokenOf(ctx, me.id, RWD), [true, true, true]],
-      ["RWMD", await tokenOf(ctx, me.id, RWMD), [true, true, true]],
-      ["session", await sessionOf(me.id), [true, true, true]],
+      ["R", await tokenOf(ctx, me.id, R), [true, false, false, false]],
+      ["RW", await tokenOf(ctx, me.id, RW), [true, false, false, false]],
+      ["RWM", await tokenOf(ctx, me.id, RWM), [true, false, false, false]],
+      ["RWD", await tokenOf(ctx, me.id, RWD), [true, true, true, true]],
+      ["RWMD", await tokenOf(ctx, me.id, RWMD), [true, true, true, true]],
+      ["session", await sessionOf(me.id), [true, true, true, true]],
     ];
     for (const [label, auth, want] of cases) {
       const names = await namesOf(auth);

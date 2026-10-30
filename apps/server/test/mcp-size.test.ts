@@ -336,18 +336,18 @@ describe("#108 tools/list 的脈絡成本（案 11b）", () => {
 
     const rwdRes = await mcpPost(ctx.app, rpc("tools/list"), { token: rwdToken });
     expect(rwdRes.statusCode).toBe(200);
-    expect((rwdRes.json().result.tools as unknown[]).length).toBe(17);
+    expect((rwdRes.json().result.tools as unknown[]).length).toBe(18);
     const rwdWire = rwdRes.body.length;
 
     const rwmdRes = await mcpPost(ctx.app, rpc("tools/list"), { token: rwmdToken });
     expect(rwmdRes.statusCode).toBe(200);
-    expect((rwmdRes.json().result.tools as unknown[]).length).toBe(18);
+    expect((rwmdRes.json().result.tools as unknown[]).length).toBe(19);
     const rwmdWire = rwmdRes.body.length;
 
     console.log(
       `[案 11b] tools/list  唯讀憑證（八支，對照）wire=${roWire}  讀寫憑證（十五支，對照）wire=${rwWire}  ` +
-        `讀寫搬移憑證（十六支，對照）wire=${rwmWire}  讀寫刪除憑證（十七支，對照）wire=${rwdWire}  ` +
-        `讀寫搬移刪除憑證（十八支，被測）wire=${rwmdWire}  門檻=${N_LIST_MAX}  用掉 ${((rwmdWire / N_LIST_MAX) * 100).toFixed(1)}%`
+        `讀寫搬移憑證（十六支，對照）wire=${rwmWire}  讀寫刪除憑證（十八支，對照）wire=${rwdWire}  ` +
+        `讀寫搬移刪除憑證（十九支，被測）wire=${rwmdWire}  門檻=${N_LIST_MAX}  用掉 ${((rwmdWire / N_LIST_MAX) * 100).toFixed(1)}%`
     );
     expect(rwmdWire).toBeLessThanOrEqual(N_LIST_MAX);
   });

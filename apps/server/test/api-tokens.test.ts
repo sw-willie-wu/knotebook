@@ -660,7 +660,7 @@ describe("#239 PATCH scope", () => {
     expect((await patch(app, cookie, row!.id, { scope: RWM })).statusCode).toBe(403);
     expect((await patch(app, cookie, row!.id, { agentLabel: "bot" })).statusCode).toBe(200);
   });
-  it("改完下一個請求生效：同一支 token 的 tools/list 12 ↔ 13，讀寫刪除 14（buildTestApp 無共編，spec §7.1；#181 起含 list_trash；資料夾 PR-3d 起含 list_folders 與四支資料夾寫入工具）", async () => {
+  it("改完下一個請求生效：同一支 token 的 tools/list 12 ↔ 13，讀寫刪除 15（buildTestApp 無共編，spec §7.1；#181 起含 list_trash；資料夾 PR-3d 起含 list_folders 與四支資料夾寫入工具，T8 起讀寫刪除另含 delete_folder）", async () => {
     const { app, cookie } = await signedInApp();
     const created = (await create(app, cookie, { name: "live", scope: "notes:read notes:write", expiresInDays: null })).json();
     const count = async () => ((await mcpPost(app, rpc("tools/list"), { token: created.token })).json().result.tools as unknown[]).length;
@@ -669,8 +669,8 @@ describe("#239 PATCH scope", () => {
     expect(await count()).toBe(13);
     await patch(app, cookie, created.id, { scope: "notes:read notes:write" });
     expect(await count()).toBe(12);
-    // #181：RW → RWD 同樣下一個請求生效（多 delete_note、restore_note）。
+    // #181：RW → RWD 同樣下一個請求生效（多 delete_note、restore_note；資料夾 PR-3d T8 起再多 delete_folder）。
     await patch(app, cookie, created.id, { scope: RWD });
-    expect(await count()).toBe(14);
+    expect(await count()).toBe(15);
   });
 });
