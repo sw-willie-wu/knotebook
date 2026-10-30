@@ -309,6 +309,60 @@ describe("#108 tools/list", () => {
     expect(res.body).not.toContain("A link to another note comes back as");
   });
 
+  // 並排 PR-2（spec 2026-10-21 columns-layout §11.5）：並排與尺寸的模型面字串逐字（整句 toBe）在 wire 上；舊句不在。
+  // 尺寸句不提表格格子裡的圖片（Q3：PR-4 才收）。
+  it("並排 PR-2：edit_note markdown／create_note content／read_note_section 的並排與尺寸句逐字在 wire 上，舊句不在", async () => {
+    const ctx = await buildCollabTestApp();
+    const owner = await ctx.createUser({ email: `o-${randomUUID()}@example.com`, password: PASSWORD });
+    const { token } = await seedTokenForUser(ctx.db, owner.id, "notes:read notes:write");
+    const res = await mcpPost(ctx.app, rpc("tools/list"), { token });
+    type Tool = { name: string; description: string; inputSchema: { properties: Record<string, { description?: string }> }; outputSchema?: unknown };
+    const tools = res.json().result.tools as Tool[];
+    const byName = (n: string) => tools.find(t => t.name === n)!;
+    const WRITE_LINK =
+      "A Markdown link whose URL is a note on this site — `/notes/<id>` or the `url` list_notes gives, relative or this site's full URL, optionally ending in `#b-<block id>` — is saved as a link to that note if you can see it; any other link to this site is kept as an ordinary link.";
+    const READ_LINK =
+      'A link saved as a link to a note comes back as `[text](/notes/<id>)` (inside a block that comes back as HTML, as `<a href="/notes/<id>">`), ending in `#b-<block id>` when it points at a place in that note.';
+    const COLUMNS =
+      'Side-by-side columns are HTML, exactly as read_note_section returns them: <div data-kb-columns style="display:flex;gap:16px"> holding ' +
+      '<div data-kb-column style="flex:N"> columns (N is the relative width, 0.1 to 10, at most two decimals), each of these tags and its </div> ' +
+      "on a line of its own, each column with markdown inside, a blank line after its opening tag and another before its </div>. " +
+      "Writes take 2 to 4 columns. Rewriting a section that holds columns means sending the whole <div> block back.";
+    const SIZES =
+      'Sizes are HTML too: an image shown at a set width reads as <figure><img … width="W">…</figure>, and a table with set column widths ' +
+      "reads as an HTML table with colwidth on its first row's cells. Widths are whole pixels from 32 to 4000; write them back the same way to keep them.";
+    const EDIT_MD =
+      "The new markdown. Required for every operation except delete_section and rename. Colors are HTML, as read_note_section returns them: " +
+      'colored text is <span style="color:red">…</span> inside the markdown; a block\'s own color is e.g. <p data-background-color="yellow">…</p>. ' +
+      `Only these names are accepted: default, gray, brown, red, orange, yellow, green, blue, purple, pink. ${COLUMNS} ${SIZES} ${WRITE_LINK}`;
+    const CREATE_CONTENT =
+      "Markdown for the new note. Leave it out to create an empty note. Some deployments cannot store content this way and answer `invalid_body`; " +
+      `create the note without it and the note still exists. Colors, side-by-side columns and sizes work as in edit_note. ${WRITE_LINK}`;
+    const SECTION_MD =
+      "This page of the section, as markdown. The first page starts with the section's heading line — except `_top`, which has no heading; " +
+      "a later page resumes where the last one stopped. Colored text and blocks come back as HTML, as do images shown at a set width, tables " +
+      "with set column widths, and the <div> tags around side-by-side columns; write it back unchanged to keep them (edit_note takes rows of 2 to 4 columns). " +
+      READ_LINK;
+    const SECTION_IMAGES =
+      'An uploaded image\'s address contains its upload id, for example `/api/uploads/<id>` in `![name](/api/uploads/<id>)` or, for an image with a caption or shown at a set width, in `<figure><img … src="/api/uploads/<id>" …>…</figure>`; see them with read_note_image.';
+
+    expect(byName("edit_note").inputSchema.properties.markdown!.description).toBe(EDIT_MD);
+    expect(byName("create_note").inputSchema.properties.content!.description).toBe(CREATE_CONTENT);
+    const section = byName("read_note_section");
+    expect((section.outputSchema as { properties: { section: { properties: { markdown: { description: string } } } } }).properties.section.properties.markdown.description).toBe(SECTION_MD);
+    expect(section.description.endsWith(` ${SECTION_IMAGES}`)).toBe(true);
+    for (const s of [COLUMNS, SIZES, EDIT_MD, CREATE_CONTENT, SECTION_MD, SECTION_IMAGES]) expect(res.body).toContain(JSON.stringify(s).slice(1, -1));
+    for (const gone of [
+      "Colors work as in edit_note.",
+      "write it back unchanged to keep the colors.",
+      "(in a table cell",
+      "Uploaded images appear as",
+      "An uploaded image's address is `/api/uploads/<id>`",
+    ]) {
+      expect(res.body, gone).not.toContain(JSON.stringify(gone).slice(1, -1));
+    }
+  });
+
   // #177：截斷改按 JSON 逃脫後的長度計。outputSchema 上模型讀得到的兩件事要跟著改：heading 的說明（兩個方向——
   // 新句在、舊句不在），以及群組 `owner` 的 `name` 有上限、有 `nameTruncated`（凡是回 `owner` 的工具都要有）。
   it("#177：heading 說明是逃脫後的 200；群組 owner 帶 name 上限與 nameTruncated", async () => {

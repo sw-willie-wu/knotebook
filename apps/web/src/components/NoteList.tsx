@@ -24,7 +24,7 @@ import { FolderRowButton } from "@/components/sidebar/FolderRowButton";
 import { GroupRowButton } from "@/components/sidebar/GroupRowButton";
 import { SidebarLazyBoundary } from "@/components/sidebar/SidebarLazyBoundary";
 import { tabSpec, type HeaderActionId } from "@/components/sidebar/tab-specs";
-import { buildTabNodes, hasNoteNodes, noteLocationLabel, noteSpaceKey, type LocationContext, type SidebarNode } from "@/components/sidebar/tree";
+import { buildTabNodes, hasSelectableNodes, noteLocationLabel, noteSpaceKey, type LocationContext, type SidebarNode } from "@/components/sidebar/tree";
 
 // 一般 tab 選取模式（PR-2c）：只准經 SelectLazy 這個 lazy 入口（首包上限）。兩個掛點共用同一個 chunk。
 const SelectHeader = lazy(() => import("@/components/sidebar/SelectLazy").then((m) => ({ default: m.SelectHeader })));
@@ -358,7 +358,7 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
         : null,
     [tab, notesQuery.isSuccess, notesQuery.data, groupsQuery.data, foldersPending, folderIndex, sortOf],
   );
-  const selectable = nodes !== null && hasNoteNodes(nodes);
+  const selectable = nodes !== null && hasSelectableNodes(nodes);
   const openFolderDialog = (request: FolderDialogRequest, opener: HTMLElement | null) => {
     folderOpenerRef.current = opener;
     setFolderRequest(request);
@@ -456,13 +456,15 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
           />
         );
       case "newFolder":
-        // 本 PR 只有我的筆記宣告這個動作（PR-3b-2 加與我共享時依 tab 給 shared）。
+        // 我的筆記與與我共享宣告這個動作（資料夾 spec §6.1）：建在該 tab 的空間根層。
         return (
           <HeaderActionButton
             key={action}
             icon={FolderPlus}
             label={t("sidebar.newFolder")}
-            onClick={(event) => openFolderDialog({ kind: "create", parent: { space: { kind: "personal" } } }, event.currentTarget)}
+            onClick={(event) =>
+              openFolderDialog({ kind: "create", parent: { space: { kind: tab === "shared" ? "shared" : "personal" } } }, event.currentTarget)
+            }
           />
         );
       case "newGroup":

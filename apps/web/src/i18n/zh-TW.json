@@ -53,6 +53,9 @@
     "editor": "可編輯",
     "viewer": "檢視者"
   },
+  "userSuggest": {
+    "listLabel": "你認識的人"
+  },
   "share": {
     "button": "分享",
     "title": "分享筆記",
@@ -133,6 +136,7 @@
       "movedToGroup": "已移到「{{group}}」",
       "copiedToGroup": "已複製到「{{group}}」",
       "copiedToPersonal": "已複製到我的筆記",
+      "copiedAtTopLevel": "已建立副本（原資料夾已不在，放在最上層）",
       "openCopy": "前往副本",
       "openCopyAlt": "也可以從側欄開啟副本。",
       "changedElsewhere": "這篇筆記已在別處變更，所以沒有移動。"
@@ -396,7 +400,15 @@
       "remove": "移除資料夾",
       "depthLimit": "已達最多 {{max}} 層",
       "deleteBlocked": "資料夾裡有你不能刪除的筆記"
-    }
+    },
+    "dest": {
+      "topLevel": "根目錄",
+      "back": "返回",
+      "moveHere": "移動到這裡",
+      "copyHere": "複製到這裡",
+      "openLevel": "{{name}}，開啟下一層"
+    },
+    "movedTo": "已移到「{{name}}」"
   },
   "groups": {
     "autoVersions": {
@@ -449,6 +461,7 @@
       "transferDescription_other": "{{count}} 篇筆記會變成 {{name}} 的個人筆記，網址改為 /n/…，舊網址一個月內自動轉址；其他成員會失去存取，若有公開連結也會關閉。",
       "transferDescriptionNoCount": "群組裡的筆記會變成 {{name}} 的個人筆記，網址改為 /n/…，舊網址一個月內自動轉址；其他成員會失去存取，若有公開連結也會關閉。",
       "transferTrashNote": "垃圾桶裡的群組筆記會進 {{name}} 的個人垃圾桶，保留期照原刪除時間計算；它們的公開連結同樣會關閉。",
+      "transferFoldersNote": "群組的資料夾會放進 {{name}} 的「我的筆記」，在一個以群組名命名的資料夾底下。",
       "deleteLabel": "全部刪除",
       "deleteDescription_one": "{{count}} 篇筆記連同附件與修改紀錄會永久刪除，不會進垃圾桶，無法復原。",
       "deleteDescription_other": "{{count}} 篇筆記連同附件與修改紀錄會永久刪除，不會進垃圾桶，無法復原。",
@@ -488,6 +501,49 @@
       "dangerTitle": "刪除群組",
       "dangerDescription": "刪除群組時，筆記可以轉移給其中一位管理員，或連同群組一起刪除。",
       "leaveTitle": "退出群組"
+    },
+    "bulk": {
+      "addEmailsPlaceholder": "電子郵件地址（多個請以逗號分隔）",
+      "addEmailsHint": "可以一次輸入多個地址，以逗號、分號、頓號、空白或換行分隔（全形、半形都可以）。",
+      "addTitle": "加入成員",
+      "addDescription": "這些地址會以「{{role}}」加入這個群組。",
+      "invalidSingle": "「{{value}}」看起來不是電子郵件地址。",
+      "progress": "已處理 {{done}}／共 {{total}}",
+      "stop": "停止",
+      "stopping": "正在停止…",
+      "stopped": "已停止：{{reason}}沒加成的地址已放回電子郵件欄。",
+      "stoppedRateLimit": "伺服器暫時限制請求，已停止。請稍候一分鐘再加入其餘的人——他們的地址已放回電子郵件欄。",
+      "cancelled": "已停止。沒加成的地址已放回電子郵件欄。",
+      "keptInBox": "沒加成的地址留在電子郵件欄，方便修正後再試。",
+      "outcome": {
+        "added": "已加入（{{count}}）：",
+        "alreadyMember": "已經是成員（{{count}}）：",
+        "notFound": "找不到這個帳號（{{count}}）：",
+        "invalid": "不是電子郵件地址（{{count}}）：",
+        "failed": "失敗（{{count}}）：",
+        "notProcessed": "未處理（{{count}}）："
+      },
+      "summary": {
+        "added": "已加入：{{count}}。",
+        "alreadyMember": "已經是成員：{{count}}。",
+        "notFound": "找不到這個帳號：{{count}}。",
+        "invalid": "不是電子郵件地址：{{count}}。",
+        "failed": "失敗：{{count}}。",
+        "notProcessed": "未處理：{{count}}。"
+      },
+      "done": "完成",
+      "importOpen": "從其他群組匯入成員…",
+      "importTitle": "從其他群組匯入成員",
+      "importDescription": "勾選的人會以「{{role}}」加入這個群組。這是一次性複製：之後另一個群組的成員異動不會同步過來。",
+      "importNoGroups": "你沒有加入其他群組。",
+      "importSourceLabel": "要匯入的群組",
+      "importSourcePlaceholder": "選擇群組…",
+      "importNobody": "那個群組的人都已經在這裡了。",
+      "importSelectAll": "全選（{{count}} 人）",
+      "importListLabel": "要加入的人",
+      "importExcludedHint": "已在這個群組的人與你自己不會列出。",
+      "importConfirm_one": "加入 {{count}} 人",
+      "importConfirm_other": "加入 {{count}} 人"
     },
     "roles": {
       "descriptionManage": "每位成員各有一個角色，角色決定他能做什麼。內建「管理員」角色不能修改；內建「一般成員」是新成員預設的角色，不能改名或刪除。",
@@ -822,8 +878,10 @@
     "oauth_request_invalid": "這個授權請求已使用或已過期，請從應用程式重新發起。",
     "section_not_found": "找不到該段落，請重新讀取筆記。",
     "fingerprint_mismatch": "筆記內容在這段期間被修改過，請重新讀取後再試。",
-    "unsupported_block": "內容含有這篇筆記無法儲存的區塊類型。",
+    "unsupported_block": "內容含有這篇筆記無法儲存的部分。",
     "unsupported_color": "內容用了編輯器沒有的顏色，請改用內建的色名。",
+    "unsupported_columns": "AI 改寫失敗，筆記沒有更新。",
+    "unsupported_size": "AI 改寫失敗，筆記沒有更新。",
     "empty_content": "內容是空的。",
     "empty_section": "該段落沒有可刪除的內容。",
     "too_many_blocks": "內容的區塊數量超過上限。",

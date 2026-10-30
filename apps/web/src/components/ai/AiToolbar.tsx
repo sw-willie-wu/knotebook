@@ -2,7 +2,6 @@ import { useTranslation } from "react-i18next";
 import { getFormattingToolbarItems, useBlockNoteEditor, useComponentsContext, useEditorState } from "@blocknote/react";
 import { Sparkles } from "@/components/ui/icons";
 import { KnotebookFileDeleteButton } from "@/components/editor/KnotebookFileDeleteButton";
-import { selectionTouchesColumns } from "@/ai/apply";
 import { useAiSession } from "./AiSession";
 
 /**
@@ -11,7 +10,7 @@ import { useAiSession } from "./AiSession";
  * `.bn-toolbar` 裡，而 mantine 的 `.bn-toolbar` 是 `overflow-x:auto`，展開就變成工具列的垂直溢出（spec §1）。
  *
  * 顯示條件：可編輯、有可用動作、且 `getSelection()` 不是 undefined——NodeSelection（選到圖片／檔案區塊）時它回 undefined，
- * 不渲染 AI 項，避免按了沒反應的死鈕；跨欄或含整列的選取同樣不渲染（`open()` 也不開）。串流中停用（S2）。`useAiSession()` 能直接用：toolbar 經 `editor.portalElement` 的 React portal
+ * 不渲染 AI 項，避免按了沒反應的死鈕；跨欄或含整列的選取照常渲染（`open()` 把錨點擴大成整列，spec §7.5）。串流中停用（S2）。`useAiSession()` 能直接用：toolbar 經 `editor.portalElement` 的 React portal
  * 渲染，context 穿透 portal。
  *
  * 預設按鈕中的檔案刪除鈕（key `fileDeleteButton`）換成自家版：原生的走 `editor.removeBlocks`，刪欄內的圖會收欄（D25）。
@@ -21,13 +20,9 @@ export function AiToolbar() {
   const { t } = useTranslation();
   const editor = useBlockNoteEditor();
   const { actions, editable, state, open } = useAiSession();
-  // PR-1 過渡碼：跨欄／含列的選取不出 AI 鈕（`selectionTouchesColumns`；PR-2 改成擴大成整列時移除）。
   const hasBlockSelection = useEditorState({
     editor,
-    selector: ({ editor: current }) => {
-      const selection = current?.getSelection();
-      return selection !== undefined && !selectionTouchesColumns(current, selection.blocks);
-    },
+    selector: ({ editor: current }) => current?.getSelection() !== undefined,
   });
 
   return (

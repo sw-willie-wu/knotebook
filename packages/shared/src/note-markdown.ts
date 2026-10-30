@@ -26,7 +26,7 @@ export function isBlankParseResult(blocks: unknown[]): boolean {
   );
 }
 
-type AnyBlock = { type: string; props?: Record<string, unknown>; content?: unknown; children?: AnyBlock[] };
+type AnyBlock = { id?: unknown; type: string; props?: Record<string, unknown>; content?: unknown; children?: AnyBlock[] };
 type AnyInline = { type: string; text?: string; props?: Record<string, unknown>; styles?: Record<string, unknown> };
 
 export function restoreMermaidBlocks<B>(blocks: B[]): B[] {
@@ -34,7 +34,8 @@ export function restoreMermaidBlocks<B>(blocks: B[]): B[] {
     const children = Array.isArray(b.children) && b.children.length > 0 ? restoreMermaidBlocks(b.children) : b.children;
     if (b.type === "codeBlock" && b.props?.language === "mermaid" && Array.isArray(b.content)) {
       const code = (b.content as Array<{ text?: string }>).map(c => c.text ?? "").join("");
-      return { type: "mermaid", props: { code } } as unknown as B;
+      // 保留 parse 給的 id：預覽 diff 只配對帶 id 的 block，沒有 id 的圖即使沒改也會顯示成「刪一張、加一張」
+      return { ...(typeof b.id === "string" ? { id: b.id } : {}), type: "mermaid", props: { code } } as unknown as B;
     }
     return (children === b.children ? b : { ...b, children }) as unknown as B;
   }) as B[];

@@ -9,8 +9,10 @@ import { SidebarTabProvider } from "@/lib/sidebar-tab";
 import { NoteList } from "@/components/NoteList";
 import { __resetCollapseForTests } from "@/components/sidebar/collapse";
 import { noteLocationLabel } from "@/components/sidebar/tree";
+import { __resetFolderSortForTests } from "@/components/sidebar/folder-sort";
+import { Folder } from "@/components/ui/icons";
 import { personalNote } from "@/test/select-fixtures";
-import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
+import { FOLDER_LIST_EMPTY, folderDto } from "@/test/folder-fixtures";
 
 // 只包一層計數（NS14：勾一列時哪些列重算了位置行），行為照原本（照 TrashPanel.test.tsx SM16）。
 vi.mock("@/components/sidebar/tree", async (importOriginal) => {
@@ -18,9 +20,16 @@ vi.mock("@/components/sidebar/tree", async (importOriginal) => {
   return { ...actual, noteLocationLabel: vi.fn(actual.noteLocationLabel) };
 });
 
+// NS14f：資料夾列勾選框（label 內的 `Folder` 圖示）每重繪一次就呼叫一次；只包計數、行為照原本。
+vi.mock("@/components/ui/icons", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/ui/icons")>();
+  return { ...actual, Folder: vi.fn(actual.Folder) };
+});
+
 afterEach(() => {
   localStorage.clear();
   __resetCollapseForTests();
+  __resetFolderSortForTests();
 });
 
 function fakeResponse(body: unknown, status = 200): Response {
@@ -95,5 +104,53 @@ describe("一般 tab 選取列的 memo", () => {
     fireEvent.click(checkbox("p2"));
     expect(checkbox("p2")).toBeChecked();
     expect(calls.mock.calls.map(([note]) => note.id)).toEqual(["p1", "p2"]);
+  });
+
+  it("NS14f 我的筆記：勾資料夾 A 只重繪 A 那列（三個資料夾列，Folder 圖示只多畫一次）", async () => {
+    const folders = ["A", "B", "C"].map((id) => folderDto({ id, name: id }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify({ folders }), { status: 200, headers: { "Content-Type": "application/json" } }));
+        if (url === "/api/notes" && method === "GET") return Promise.resolve(fakeResponse(NOTES));
+        if (url === "/api/groups" && method === "GET") return Promise.resolve(fakeResponse([]));
+        if (url === "/api/auth/me" && method === "GET") return Promise.resolve(fakeResponse(ME));
+        throw new Error(`unexpected fetch: ${method} ${url}`);
+      }),
+    );
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <MemoryRouter>
+          <ActiveNoteProvider>
+            <SidebarTabProvider>
+              <div data-sidebar-instance="">
+                <div role="tabpanel">
+                  <NoteList />
+                </div>
+              </div>
+            </SidebarTabProvider>
+          </ActiveNoteProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    const header = () => panel().querySelector("[data-sidebar-header]") as HTMLElement;
+    await within(panel()).findAllByRole("link");
+    fireEvent.click(within(header()).getByRole("button", { name: "Select" }));
+    // 3 篇＋3 個資料夾。
+    expect(await within(panel()).findAllByRole("checkbox")).toHaveLength(6);
+    const folderBox = (id: string) => panel().querySelector(`input[type="checkbox"][data-selection-key="folder:${id}"]`) as HTMLInputElement;
+
+    const draws = vi.mocked(Folder);
+    draws.mockClear();
+    fireEvent.click(folderBox("A"));
+    expect(folderBox("A")).toBeChecked();
+    expect(within(header()).getByText("1 selected")).toBeInTheDocument();
+    expect(draws).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(folderBox("C"));
+    expect(folderBox("C")).toBeChecked();
+    expect(draws).toHaveBeenCalledTimes(2);
   });
 });

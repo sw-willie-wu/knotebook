@@ -7,6 +7,7 @@ import {
   type TrashRestoreResultDto,
   type TrashSettingsDto,
 } from "@knotebook/shared";
+import { expandAfterRestore } from "@/components/sidebar/folder-index";
 import { api, ApiFail } from "./client";
 
 /**
@@ -87,6 +88,14 @@ export function seedRestoredNotes(queryClient: QueryClient, restored: readonly N
   for (const note of restored) queryClient.setQueryData(["note", note.id], note);
 }
 
+/**
+ * 還原失敗時已還原的那幾篇：分批中途失敗（`TrashBatchError`）取 `partial.restored`，其餘一律 `[]`。
+ * 只給本檔 `useRestoreTrash` 與 `lib/trash-undo.ts` 的 `undoTrash` 用（還原後展開、蓋回常駐層）。
+ */
+export function partialRestored(err: unknown): NoteDto[] {
+  return err instanceof TrashBatchError ? (err as TrashBatchError<TrashRestoreResultDto>).partial.restored : [];
+}
+
 /** 錯誤 → toast 標題；TrashBatchError 取 cause。 */
 export function trashErrorCause(err: unknown): unknown {
   return err instanceof TrashBatchError ? err.cause : err;
@@ -118,10 +127,12 @@ export function useRestoreTrash(): UseMutationResult<TrashRestoreResultDto, unkn
   return useMutation({
     mutationFn: (ids: readonly string[]) => restoreTrashIds(ids),
     onSuccess: (result) => seedRestoredNotes(queryClient, result.restored),
-    onError: (err) => {
-      if (err instanceof TrashBatchError) seedRestoredNotes(queryClient, (err as TrashBatchError<TrashRestoreResultDto>).partial.restored);
+    onError: (err) => seedRestoredNotes(queryClient, partialRestored(err)),
+    onSettled: (data, err, ids) => {
+      invalidateTrashRelated(queryClient, ids);
+      // 資料夾 spec §6.8：還原後展開。必須在失效之後（見 expandAfterRestore）；分批中途失敗也展開已還原的。
+      void expandAfterRestore(queryClient, data?.restored ?? partialRestored(err));
     },
-    onSettled: (_data, _err, ids) => invalidateTrashRelated(queryClient, ids),
   });
 }
 

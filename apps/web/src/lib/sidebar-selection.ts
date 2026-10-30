@@ -1,10 +1,10 @@
 /**
  * 側欄選取模式的狀態（spec §6.10.2、§9-4）。垃圾桶 tab 先用；PR-2c 一般 tab 共用同一份。
- * 鍵是 `{ kind, id }` 組成的字串，含 kind 是為步驟 3 的資料夾（`"folder"`）與筆記同列選取。
+ * 鍵是 `{ kind, id }` 組成的字串，含 kind 是為資料夾（`"folder"`）與筆記同列選取。
  */
 
-/** spec §9-4：選取以 { kind, id } 為鍵；步驟 3 加 "folder"。 */
-export type SelectionNodeKind = "note";
+/** spec §9-4：選取以 { kind, id } 為鍵；"folder" 已加。 */
+export type SelectionNodeKind = "note" | "folder";
 export interface SelectionNode {
   kind: SelectionNodeKind;
   id: string;

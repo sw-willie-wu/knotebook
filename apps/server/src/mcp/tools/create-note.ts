@@ -111,7 +111,7 @@ export const createNoteInput = {
   ),
   content: MD.optional()
     .describe(
-      "Markdown for the new note. Leave it out to create an empty note. Some deployments cannot store content this way and answer `invalid_body`; create the note without it and the note still exists. Colors work as in edit_note. " +
+      "Markdown for the new note. Leave it out to create an empty note. Some deployments cannot store content this way and answer `invalid_body`; create the note without it and the note still exists. Colors, side-by-side columns and sizes work as in edit_note. " +
         WRITE_NOTE_LINK_SENTENCE,
     ),
   folder_id: FOLDER_ID.optional().describe(CN_FOLDER),

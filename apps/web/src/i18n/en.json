@@ -53,6 +53,9 @@
     "editor": "Editor",
     "viewer": "Viewer"
   },
+  "userSuggest": {
+    "listLabel": "People you know"
+  },
   "share": {
     "button": "Share",
     "title": "Share note",
@@ -133,6 +136,7 @@
       "movedToGroup": "Moved into \"{{group}}\"",
       "copiedToGroup": "Copied into \"{{group}}\"",
       "copiedToPersonal": "Copied to your notes",
+      "copiedAtTopLevel": "Copy created at the top level (the original folder is gone)",
       "openCopy": "Open copy",
       "openCopyAlt": "You can also open the copy from the sidebar.",
       "changedElsewhere": "This note was changed elsewhere, so nothing was moved."
@@ -396,7 +400,15 @@
       "remove": "Remove folder",
       "depthLimit": "Folders can be nested up to {{max}} levels",
       "deleteBlocked": "This folder has notes you can't delete"
-    }
+    },
+    "dest": {
+      "topLevel": "Top level",
+      "back": "Back",
+      "moveHere": "Move here",
+      "copyHere": "Copy here",
+      "openLevel": "{{name}}, open"
+    },
+    "movedTo": "Moved to “{{name}}”"
   },
   "groups": {
     "autoVersions": {
@@ -449,6 +461,7 @@
       "transferDescription_other": "{{count}} notes will become {{name}}'s personal notes. Their addresses change to /n/…, and the old addresses forward to them for a month. Everyone else in the group loses access, and any public links on them are turned off.",
       "transferDescriptionNoCount": "The group's notes will become {{name}}'s personal notes. Their addresses change to /n/…, and the old addresses forward to them for a month. Everyone else in the group loses access, and any public links on them are turned off.",
       "transferTrashNote": "Group notes in the trash go to {{name}}'s personal trash, and their retention period still counts from when they were deleted; their public links are turned off too.",
+      "transferFoldersNote": "The group's folders move into {{name}}'s notes, under a folder named after the group.",
       "deleteLabel": "Delete everything",
       "deleteDescription_one": "{{count}} note, its attachments and its edit history are permanently deleted — it doesn't go to the trash. This can't be undone.",
       "deleteDescription_other": "{{count}} notes, their attachments and their edit history are permanently deleted — they don't go to the trash. This can't be undone.",
@@ -488,6 +501,49 @@
       "dangerTitle": "Delete group",
       "dangerDescription": "Deleting the group either gives its notes to one of its admins or deletes them with it.",
       "leaveTitle": "Leave group"
+    },
+    "bulk": {
+      "addEmailsPlaceholder": "Email addresses (separate several with commas)",
+      "addEmailsHint": "You can enter several addresses at once, separated by commas, semicolons, spaces or line breaks (full-width commas and semicolons and the enumeration comma “、” work too).",
+      "addTitle": "Add members",
+      "addDescription": "These addresses are added to this group as {{role}}.",
+      "invalidSingle": "“{{value}}” doesn't look like an email address.",
+      "progress": "Processed {{done}} of {{total}}",
+      "stop": "Stop",
+      "stopping": "Stopping…",
+      "stopped": "Stopped: {{reason}} The addresses that weren't added are back in the email box.",
+      "stoppedRateLimit": "Stopped because the server is limiting requests. Wait a minute, then add the rest — they're back in the email box.",
+      "cancelled": "Stopped. The addresses that weren't added are back in the email box.",
+      "keptInBox": "The addresses that weren't added are left in the email box so you can fix them and try again.",
+      "outcome": {
+        "added": "Added ({{count}}):",
+        "alreadyMember": "Already members ({{count}}):",
+        "notFound": "No account with this email ({{count}}):",
+        "invalid": "Not an email address ({{count}}):",
+        "failed": "Failed ({{count}}):",
+        "notProcessed": "Not processed ({{count}}):"
+      },
+      "summary": {
+        "added": "Added: {{count}}.",
+        "alreadyMember": "Already members: {{count}}.",
+        "notFound": "No account with this email: {{count}}.",
+        "invalid": "Not an email address: {{count}}.",
+        "failed": "Failed: {{count}}.",
+        "notProcessed": "Not processed: {{count}}."
+      },
+      "done": "Done",
+      "importOpen": "Import from another group…",
+      "importTitle": "Import members from another group",
+      "importDescription": "The people you pick are added to this group as {{role}}. This is a one-time copy: later changes to the other group won't carry over.",
+      "importNoGroups": "You're not in any other group.",
+      "importSourceLabel": "Group to import from",
+      "importSourcePlaceholder": "Choose a group…",
+      "importNobody": "Everyone in that group is already here.",
+      "importSelectAll": "Select all ({{count}})",
+      "importListLabel": "People to add",
+      "importExcludedHint": "People already in this group, and you, aren't listed.",
+      "importConfirm_one": "Add {{count}} person",
+      "importConfirm_other": "Add {{count}} people"
     },
     "roles": {
       "descriptionManage": "Each member has one role, and the role decides what they can do. The built-in Admin role can't be changed; the built-in Member role is what new members get, and it can't be renamed or deleted.",
@@ -822,8 +878,10 @@
     "oauth_request_invalid": "This authorization request has already been used or has expired. Start again from the application.",
     "section_not_found": "That section no longer exists — reload the note.",
     "fingerprint_mismatch": "The note changed while you were editing it. Reload and try again.",
-    "unsupported_block": "That content contains a block type this note can't store.",
+    "unsupported_block": "That content contains something this note can't store.",
     "unsupported_color": "That content uses a color the editor doesn't have. Use one of the built-in color names.",
+    "unsupported_columns": "The AI edit failed; the note was not changed.",
+    "unsupported_size": "The AI edit failed; the note was not changed.",
     "empty_content": "The content is empty.",
     "empty_section": "That section has no content to remove.",
     "too_many_blocks": "That content has too many blocks.",

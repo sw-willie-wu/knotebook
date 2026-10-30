@@ -44,6 +44,9 @@ const RD = { id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", name: "R&D" };
 const P1 = trashItem({ id: "p1", title: "p1" }, { deletedDaysAgo: 0 });
 const P2 = trashItem({ id: "p2", title: "p2" }, { deletedDaysAgo: 1 });
 const W1 = trashItem({ id: "w1", title: "w1", group: RD, deletedBy: AMY }, { deletedDaysAgo: 2 });
+/** 在資料夾裡的（TP-F*）：個人 A › B、群組 研發組 › 團隊週報。 */
+const PF = trashItem({ id: "pf", title: "pf", folderPath: ["A", "B"] });
+const WF = trashItem({ id: "wf", title: "wf", group: { id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", name: "研發組" }, deletedBy: AMY, folderPath: ["團隊週報"] });
 
 /** 還原成功回的 NoteDto（只要 id 對；`useRestoreTrash` 會拿去蓋常駐層）。 */
 function restoredNote(item: TrashItemDto): NoteDto {
@@ -312,6 +315,31 @@ describe("TrashPanel（平常）", () => {
       expect(row(id)).toHaveAttribute("data-node-kind", "note");
       expect(row(id)).toHaveAttribute("data-node-id", id);
     }
+  });
+
+  // 資料夾 PR-3b-2 T7（spec §6.9「太長：title 給完整路徑」）：第二行元素帶位置段的 title；根層（位置段空）不帶。
+  it("TP-F1 個人 [A, B]：第二行文字照舊、該元素 title「A › B」", async () => {
+    stubServer({ items: [PF, P1] });
+    renderPanel();
+    await waitFor(() => expect(row("pf")).not.toBeNull());
+    expect(detail("pf")).toHaveTextContent(/^A › B · 3 days left$/);
+    expect(detail("pf")).toHaveAttribute("title", "A › B");
+  });
+
+  it("TP-F2 群組 [團隊週報]：title「研發組 › 團隊週報」", async () => {
+    stubServer({ items: [WF] });
+    renderPanel();
+    await waitFor(() => expect(row("wf")).not.toBeNull());
+    expect(detail("wf")).toHaveTextContent(/^研發組 › 團隊週報 · Deleted by Amy · 3 days left$/);
+    expect(detail("wf")).toHaveAttribute("title", "研發組 › 團隊週報");
+  });
+
+  it("TP-F3 個人根層：第二行沒有 title 屬性", async () => {
+    stubServer({ items: [PF, P1] });
+    renderPanel();
+    await waitFor(() => expect(row("p1")).not.toBeNull());
+    expect(detail("p1")).toHaveTextContent(/^3 days left$/);
+    expect(detail("p1")).not.toHaveAttribute("title");
   });
 
   it("TP4 列動作：還原鈕 hover 浮出＋圖示；⋮ 選單兩項帶圖示、永久刪除紅字", async () => {
@@ -766,6 +794,19 @@ describe("TrashPanel（選取模式）", () => {
     expect(within(panel()).queryByRole("button", { name: "Restore p1" })).toBeNull();
     expect(within(panel()).queryByRole("button", { name: "Actions for p1" })).toBeNull();
     expect(done).toHaveFocus();
+  });
+
+  it("TP-F4 選取模式列的第二行：在資料夾裡帶完整路徑 title、根層不帶", async () => {
+    stubServer({ items: [PF, P1, WF] });
+    renderPanel();
+    await waitFor(() => expect(row("wf")).not.toBeNull());
+    fireEvent.click(within(header()).getByRole("button", { name: "Select" }));
+    await waitFor(() => expect(checkbox("pf")).not.toBeNull());
+    expect(detail("pf").tagName).toBe("SPAN");
+    expect(detail("pf")).toHaveTextContent(/^A › B · 3 days left$/);
+    expect(detail("pf")).toHaveAttribute("title", "A › B");
+    expect(detail("wf")).toHaveAttribute("title", "研發組 › 團隊週報");
+    expect(detail("p1")).not.toHaveAttribute("title");
   });
 
   it("SM2 點列（label 文字）切換：勾、標題 1 selected、列底色；再點取消", async () => {

@@ -10,6 +10,7 @@ import { createSiteLinkConvertExtension, runFallbackConversion, type FallbackReq
 import { SITE_LINK_CONVERT_META, Y_SYNC_META } from "./site-link-pm";
 import { createPmPlugin } from "./pm-plugin";
 import { attachTestElementRenderer } from "@/test/element-renderer";
+import { P, row, shape } from "@/test/columns-fixtures";
 
 // spec 2026-10-13 site-links §8.4、§6.5、§15.1 W4、§7.6（AddMarkStep 外掛、非同步後備兩列）。
 
@@ -98,6 +99,22 @@ describe("#269 W4 AddMarkStep 外掛", () => {
     editor._tiptapEditor.commands.setTextSelection({ from, to: from + 5 });
     editor.pasteText(`${ORIGIN}/notes/${A_ID}`);
     expect(inline(editor).find((n) => n.type === "wikilink")?.props).toEqual({ targetNoteId: A_ID, snapshotTitle: "Alpha", label: "", anchorBlockId: "" });
+  });
+
+  it("SLC-COL1 欄內（並排 PR-1 預留點 7）：第 2 欄段落選取上貼網址 → 換成 wikilink、列仍兩欄", () => {
+    ({ editor, container } = mount(env()));
+    editor.replaceBlocks(editor.document, [row([[P("left")], [P("go Alpha now", "c2p")]], "r1")]);
+    const view = editor._tiptapEditor.view;
+    let from = -1;
+    view.state.doc.descendants((n: AnyView, pos: number) => {
+      if (from === -1 && n.isText && String(n.text).includes("Alpha")) from = pos + String(n.text).indexOf("Alpha");
+      return from === -1;
+    });
+    editor._tiptapEditor.commands.setTextSelection({ from, to: from + 5 });
+    editor.pasteText(`${ORIGIN}/notes/${A_ID}`);
+    const para = editor.getBlock("c2p")!.content as Array<{ type: string; props?: Record<string, string> }>;
+    expect(para.find((n) => n.type === "wikilink")?.props).toEqual({ targetNoteId: A_ID, snapshotTitle: "Alpha", label: "", anchorBlockId: "" });
+    expect(shape(editor)).toBe("ROW[COL(paragraph:left) | COL(paragraph:go  now)]");
   });
 
   it("快取 miss／未載入的站內網址：維持一般連結並排後備（每次動作一批）；外站連結不排", () => {

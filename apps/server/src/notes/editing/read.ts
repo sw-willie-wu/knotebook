@@ -8,12 +8,11 @@
 import { eq } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import * as Y from "yjs";
-import { MAX_LINK_TARGETS, YDOC_FRAGMENT, extractLinkTargets, wikilinksToLinks, type LastEditedDto, type NoteContentDto, type NoteSectionDto } from "@knotebook/shared";
+import { MAX_LINK_TARGETS, YDOC_FRAGMENT, blocksToNoteMarkdown, extractLinkTargets, wikilinksToLinks, type LastEditedDto, type NoteContentDto, type NoteSectionDto } from "@knotebook/shared";
 import type { CollabServer } from "../../collab/server.js";
 import type { Db } from "../../db/index.js";
 import { noteStates, notes, users } from "../../db/schema.js";
 import { visibleTitlesByIds } from "./candidates.js";
-import { blocksToMarkdownWithColors } from "./colors.js";
 import { outlineOf } from "./fingerprint.js";
 import type { EditingRuntime } from "./runtime.js";
 import { EditorSession, forkFrom } from "./session.js";
@@ -71,8 +70,8 @@ async function exportMarkdown(runtime: EditingRuntime, doc: Y.Doc, ids: Set<stri
   try {
     const blocks = ids ? s.editor.document.filter(b => ids.has(b.id)) : s.editor.document;
     // #222：有顏色的頂層節點輸出成寫入端認得的 HTML；沒有顏色、也沒有需要跳脫的站內連結文字（#269 RF1）時
-    // 與 blocksToMarkdownLossy 位元組相同（colors.ts）。
-    return blocksToMarkdownWithColors(s.editor, wikilinksToLinks(blocks, id => titles.get(id.toLowerCase())));
+    // 與 blocksToMarkdownLossy 位元組相同（shared note-markdown-read.ts）。
+    return blocksToNoteMarkdown(s.editor, wikilinksToLinks(blocks, id => titles.get(id.toLowerCase())));
   } finally {
     s.close();
   }

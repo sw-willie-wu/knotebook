@@ -3,7 +3,7 @@ import { setTimeout as realDelay } from "node:timers/promises";
 import http from "node:http";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { eq } from "drizzle-orm";
-import { INSTRUCT_ACTION_ID, REWRITE_ACTION_ID, SESSION_COOKIE } from "@knotebook/shared";
+import { BUILTIN_ACTION_IDS, INSTRUCT_ACTION_ID, REWRITE_ACTION_ID, SESSION_COOKIE } from "@knotebook/shared";
 import { buildTestApp, freshLimiters, testConfig } from "./helpers.js";
 import { aiActions, aiModels, aiProviders, notes, noteShares, users } from "../src/db/schema.js";
 import type { Db } from "../src/db/index.js";
@@ -12,7 +12,7 @@ import { hashPassword } from "../src/auth/password.js";
 import { encryptApiKey } from "../src/ai/crypto.js";
 import { createAiRuntime } from "../src/ai/runtime.js";
 import { FixedWindowLimiter } from "../src/http/rate-limit.js";
-import { INSTRUCT_GUARD_PROMPT } from "../src/ai/instruct.js";
+import { INSTRUCT_GUARD_PROMPT, MARKUP_GUARD_PROMPT } from "../src/ai/instruct.js";
 
 const VALID_PASSWORD = "correct-horse-battery";
 
@@ -404,12 +404,12 @@ describe("POST /api/ai — 正常串流", () => {
     expect(res.body).toContain('"text":"Hello"');
     expect(res.body).not.toContain("event: error");
 
-    // 上游收到的 body：system/user 都正確套用（含 {{text}} 模板替換）。
+    // 上游收到的 body：system/user 都正確套用（含 {{text}} 模板替換；system 前面是並排 PR-2 的固定說明）。
     expect(fakeUpstream.requestBodies).toHaveLength(1);
     const sent = fakeUpstream.requestBodies[0]!;
     expect(sent.model).toBe(model.modelId);
     expect(sent.messages).toEqual([
-      { role: "system", content: "sys prompt" },
+      { role: "system", content: `${MARKUP_GUARD_PROMPT}\n\nsys prompt` },
       { role: "user", content: "prefix hi there suffix" },
     ]);
   });
@@ -500,8 +500,8 @@ describe("POST /api/ai — 正常串流", () => {
     expect(second.statusCode).toBe(200);
 
     expect(fakeUpstream.requestBodies).toHaveLength(2);
-    expect(fakeUpstream.requestBodies[0]!.messages?.[0]).toEqual({ role: "system", content: "v1 prompt" });
-    expect(fakeUpstream.requestBodies[1]!.messages?.[0]).toEqual({ role: "system", content: "v2 prompt — 改過了" });
+    expect(fakeUpstream.requestBodies[0]!.messages?.[0]).toEqual({ role: "system", content: `${MARKUP_GUARD_PROMPT}\n\nv1 prompt` });
+    expect(fakeUpstream.requestBodies[1]!.messages?.[0]).toEqual({ role: "system", content: `${MARKUP_GUARD_PROMPT}\n\nv2 prompt — 改過了` });
   });
 
   it("client 中途斷線 → fake upstream 收到 abort", async () => {
@@ -854,7 +854,7 @@ describe("POST /api/ai — #263 組裝（§4.2：固定標記與守門）", () =
     return { res, db, sent: fakeUpstream.requestBodies };
   }
 
-  it("Instruct：user＝預設 template 依序代入三個標記（instruction 用 trim 後的值）；system＝守門＋空行＋動作 prompt", async () => {
+  it("Instruct（AQ3）：user＝預設 template 依序代入三個標記（instruction 用 trim 後的值）；system＝固定說明＋空行＋守門＋空行＋動作 prompt", async () => {
     const { res, db, sent } = await instructRun({
       action_id: INSTRUCT_ACTION_ID,
       text: "第一段\n\n第二段",
@@ -864,7 +864,7 @@ describe("POST /api/ai — #263 組裝（§4.2：固定標記與守門）", () =
     const [instruct] = await db.select().from(aiActions).where(eq(aiActions.id, INSTRUCT_ACTION_ID));
     expect(sent).toHaveLength(1); // 前置條件：上游確實收到一發請求（否則下面讀 sent[0] 會是 TypeError）
     expect(sent[0]!.messages).toEqual([
-      { role: "system", content: `${INSTRUCT_GUARD_PROMPT}\n\n${instruct!.systemPrompt}` },
+      { role: "system", content: `${MARKUP_GUARD_PROMPT}\n\n${INSTRUCT_GUARD_PROMPT}\n\n${instruct!.systemPrompt}` },
       { role: "user", content: "<instruction>\n改成條列\n</instruction>\n<selected>\n第二段\n</selected>\n<text>\n第一段\n\n第二段\n</text>" },
     ]);
     expect(res.statusCode).toBe(200);
@@ -887,11 +887,11 @@ describe("POST /api/ai — #263 組裝（§4.2：固定標記與守門）", () =
   it("大寫的 Instruct id：同樣包標記、前置守門（小寫化後判 DB id）", async () => {
     const { sent } = await instructRun({ action_id: INSTRUCT_ACTION_ID.toUpperCase(), text: "body", instruction: "x" });
     expect(sent).toHaveLength(1); // 前置條件：上游確實收到一發請求（否則下面讀 sent[0] 會是 TypeError）
-    expect(sent[0]!.messages?.[0]?.content.startsWith(`${INSTRUCT_GUARD_PROMPT}\n\n`)).toBe(true);
+    expect(sent[0]!.messages?.[0]?.content.startsWith(`${MARKUP_GUARD_PROMPT}\n\n${INSTRUCT_GUARD_PROMPT}\n\n`)).toBe(true);
     expect(sent[0]!.messages?.[1]?.content).toContain("<text>\nbody\n</text>");
   });
 
-  it("quick 動作：不前置守門、text 裸代入、{{instruction}}／{{focus}} 代入空字串", async () => {
+  it("quick 動作（AQ1）：system＝固定說明＋空行＋動作 prompt（不前置 Instruct 守門）、text 裸代入、{{instruction}}／{{focus}} 代入空字串", async () => {
     const fakeUpstream = await startFakeUpstream((_req, res) => {
       res.writeHead(200, SSE_HEADERS);
       res.end(`${sseDelta("ok")}data: [DONE]\n\n`);
@@ -909,9 +909,104 @@ describe("POST /api/ai — #263 組裝（§4.2：固定標記與守門）", () =
       payload: { action_id: action.id, note_id: access.noteId, text: "hi" },
     });
     expect(fakeUpstream.requestBodies[0]!.messages).toEqual([
-      { role: "system", content: "quick sp" },
+      { role: "system", content: `${MARKUP_GUARD_PROMPT}\n\nquick sp` },
       { role: "user", content: "[||hi]" },
     ]);
     expect(res.statusCode).toBe(200);
+  });
+});
+
+// 並排 PR-2（spec 2026-10-21 columns-layout §11.6，Q4）：MARKUP_GUARD_PROMPT 由 server 前置在每一個動作的 system 最前面，
+// 管理員改 DB 裡的 systemPrompt（含改成空字串）都拿不掉它。
+describe("POST /api/ai — 並排與尺寸的固定說明（Q4）", () => {
+  async function upstreamApp() {
+    const fakeUpstream = await startFakeUpstream((_req, res) => {
+      res.writeHead(200, SSE_HEADERS);
+      res.end(`${sseDelta("ok")}data: [DONE]\n\n`);
+    });
+    const { app, db } = await buildTestApp();
+    const access = await setupNoteAccess(db);
+    const provider = await insertProvider(db, { baseUrl: fakeUpstream.baseUrl });
+    const model = await insertModel(db, provider.id);
+    const send = async (actionId: string) => {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/ai",
+        cookies: { [SESSION_COOKIE]: access.editorCookie },
+        payload: { action_id: actionId, note_id: access.noteId, text: "hi" },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(eventSequence(res.body)).toEqual(["delta", "done"]);
+    };
+    return { db, model, send, sent: fakeUpstream.requestBodies };
+  }
+
+  it("AQ2：管理員改 systemPrompt 前後與改成空字串，system 都以固定說明開頭；空字串時 system 就是固定說明", async () => {
+    const { db, model, send, sent } = await upstreamApp();
+    const action = await insertAction(db, { modelId: model.id, systemPrompt: "v1 prompt" });
+    await send(action.id);
+    await db.update(aiActions).set({ systemPrompt: "v2 只要翻譯" }).where(eq(aiActions.id, action.id));
+    await send(action.id);
+    // admin API 是 min(1)、送不出空字串；DB 欄位允許——防禦案
+    await db.update(aiActions).set({ systemPrompt: "" }).where(eq(aiActions.id, action.id));
+    await send(action.id);
+    expect(sent).toHaveLength(3);
+    expect(sent.map(b => b.messages?.[0])).toEqual([
+      { role: "system", content: `${MARKUP_GUARD_PROMPT}\n\nv1 prompt` },
+      { role: "system", content: `${MARKUP_GUARD_PROMPT}\n\nv2 只要翻譯` },
+      { role: "system", content: MARKUP_GUARD_PROMPT },
+    ]);
+  });
+
+  it("AQ4：四個內建 quick 動作（seed 的 id）各送一發，system 都是固定說明＋空行＋該動作在 DB 的 systemPrompt", async () => {
+    const { db, send, sent } = await upstreamApp();
+    const quickIds = BUILTIN_ACTION_IDS.filter(id => id !== INSTRUCT_ACTION_ID);
+    expect(quickIds).toHaveLength(4);
+    for (const id of quickIds) await send(id);
+    const rows = await db.select().from(aiActions);
+    const promptOf = (id: string) => rows.find(r => r.id === id)!.systemPrompt;
+    expect(sent).toHaveLength(4);
+    quickIds.forEach((id, i) => {
+      expect(promptOf(id)).not.toBe("");
+      expect(sent[i]!.messages?.[0]).toEqual({ role: "system", content: `${MARKUP_GUARD_PROMPT}\n\n${promptOf(id)}` });
+    });
+  });
+
+  // T9＋T10 審查 r1 N-3：anthropic 分支的 system 是請求 body 頂層的 `system`（`upstream.ts` streamAnthropic），不是 messages[0]；
+  // 兩個分支今天共用同一個 opts，有人拆開時這案會紅。
+  it("AQ5：anthropic provider 的請求 body `system` 也是固定說明＋空行＋動作 prompt", async () => {
+    const ev = (type: string, data: unknown) => `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`;
+    const fakeUpstream = await startFakeUpstream((_req, res) => {
+      res.writeHead(200, SSE_HEADERS);
+      res.end(
+        ev("message_start", { type: "message_start", message: { id: "msg_1", type: "message", role: "assistant", content: [], model: "model-a", stop_reason: null, stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 } } }) +
+          ev("content_block_start", { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }) +
+          ev("content_block_delta", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "ok" } }) +
+          ev("content_block_stop", { type: "content_block_stop", index: 0 }) +
+          ev("message_delta", { type: "message_delta", delta: { stop_reason: "end_turn", stop_sequence: null }, usage: { output_tokens: 1 } }) +
+          ev("message_stop", { type: "message_stop" }),
+      );
+    });
+    const { app, db } = await buildTestApp();
+    const access = await setupNoteAccess(db);
+    const providerId = randomUUID();
+    const provider = await insertProvider(db, {
+      id: providerId,
+      type: "anthropic",
+      baseUrl: fakeUpstream.baseUrl,
+      apiKeyEncrypted: encryptApiKey(testConfig.appSecret, "sk-ant-key", providerId),
+    });
+    const model = await insertModel(db, provider.id);
+    const action = await insertAction(db, { modelId: model.id, systemPrompt: "anthropic sp" });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/ai",
+      cookies: { [SESSION_COOKIE]: access.editorCookie },
+      payload: { action_id: action.id, note_id: access.noteId, text: "hi" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(fakeUpstream.requestBodies).toHaveLength(1);
+    expect((fakeUpstream.requestBodies[0] as { system?: unknown }).system).toBe(`${MARKUP_GUARD_PROMPT}\n\nanthropic sp`);
+    expect(eventSequence(res.body)).toEqual(["delta", "done"]);
   });
 });

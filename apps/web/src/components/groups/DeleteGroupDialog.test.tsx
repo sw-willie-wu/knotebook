@@ -8,7 +8,7 @@ import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { adminRole, customRole, groupDto, memberRole } from "@/test/fixtures";
 import { trashItem, trashList } from "@/test/trash-fixtures";
 import { DeleteGroupDialog } from "./DeleteGroupDialog";
-import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
+import { FOLDER_LIST_EMPTY, folderDto, groupFolder } from "@/test/folder-fixtures";
 
 const GROUP: GroupDto = groupDto({ id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", name: "Workshop A" }, adminRole({ memberCount: 2 }));
 const ADMIN = adminRole();
@@ -50,6 +50,8 @@ interface Setup {
   trash?: () => Response | Promise<Response>;
   del?: () => Response;
   group?: GroupDto;
+  /** `GET /api/folders`（預設空清單）。 */
+  folders?: () => Response | Promise<Response>;
 }
 
 function renderDialog(setup: Setup = {}, props: { onDeleted?: () => void; onOpenChange?: (open: boolean) => void } = {}) {
@@ -61,7 +63,10 @@ function renderDialog(setup: Setup = {}, props: { onDeleted?: () => void; onOpen
       const method = (init?.method ?? "GET").toUpperCase();
       calls.push({ method, url, body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined });
       if (method === "GET" && url === `/api/groups/${GROUP.id}/members`) return Promise.resolve((setup.members ?? (() => fakeResponse(200, MEMBERS)))());
-      if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
+      if (url === "/api/folders") {
+        if (setup.folders) return Promise.resolve(setup.folders());
+        return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
+      }
       if (method === "GET" && url === "/api/notes") return Promise.resolve((setup.notes ?? (() => fakeResponse(200, NOTES)))());
       if (method === "GET" && url === "/api/trash") return Promise.resolve((setup.trash ?? (() => fakeResponse(200, trashList([]))))());
       if (method === "DELETE" && url === `/api/groups/${GROUP.id}`) return Promise.resolve((setup.del ?? (() => fakeResponse(204)))());
@@ -444,5 +449,68 @@ describe("DeleteGroupDialog：垃圾桶篇數與轉移說明（#181 PR-2b T8，s
         screen.getByText(/^1 note \(including 1 in the trash\), its attachments and its edit history are permanently deleted — it doesn't go to the trash\. This can't be undone\.$/),
       ).toBeInTheDocument();
     });
+  });
+});
+
+// 資料夾 PR-3b-2 T7（spec §6.16 最後一列、§6.12 D5）：轉移模式、群組有資料夾時多一句去向說明。
+describe("DeleteGroupDialog：群組資料夾的轉移說明（資料夾 spec §6.16）", () => {
+  const OTHER_GROUP_ID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+  const FOLDERS_NOTE_EN = "The group's folders move into Me's notes, under a folder named after the group.";
+  const FOLDERS_NOTE_ZH = "群組的資料夾會放進 Me 的「我的筆記」，在一個以群組名命名的資料夾底下。";
+  const foldersReply = (folders: unknown[]) => () => fakeResponse(200, { folders });
+  const WITH_GROUP_FOLDER = foldersReply([groupFolder({ id: "gf1", name: "Reports", groupId: GROUP.id }), folderDto({ id: "pf1", name: "Mine" })]);
+  const queryFoldersNote = () => screen.queryByText(/^The group's folders move into /);
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+  });
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    await i18n.changeLanguage("en");
+  });
+
+  it("DG-F1 群組有資料夾、轉移模式 → 句子逐字（en）", async () => {
+    renderDialog({ folders: WITH_GROUP_FOLDER });
+    await adminsLoaded();
+    expect(await screen.findByText(FOLDERS_NOTE_EN, { exact: true })).toBeInTheDocument();
+    // 原有的轉移說明照常
+    expect(screen.getByText(/^2 notes will become Me's personal notes\./)).toBeInTheDocument();
+  });
+
+  it("DG-F1 群組有資料夾、轉移模式 → 句子逐字（zh-TW）", async () => {
+    await i18n.changeLanguage("zh-TW");
+    renderDialog({ folders: WITH_GROUP_FOLDER });
+    const select = await screen.findByRole("combobox");
+    await waitFor(() => expect(within(select).getAllByRole("option")).toHaveLength(2));
+    expect(await screen.findByText(FOLDERS_NOTE_ZH, { exact: true })).toBeInTheDocument();
+  });
+
+  it("DG-F2 只有別群組與個人的資料夾 → 沒有那句", async () => {
+    const { queryClient } = renderDialog({
+      folders: foldersReply([groupFolder({ id: "of1", name: "Other", groupId: OTHER_GROUP_ID }), folderDto({ id: "pf1", name: "Mine" })]),
+    });
+    await adminsLoaded();
+    await settled(queryClient, ["folders"]);
+    expect(queryFoldersNote()).not.toBeInTheDocument();
+  });
+
+  it("DG-F3 群組有資料夾、全刪模式 → 沒有那句", async () => {
+    const { queryClient } = renderDialog({ folders: WITH_GROUP_FOLDER });
+    await adminsLoaded();
+    await settled(queryClient, ["folders"]);
+    expect(screen.getByText(FOLDERS_NOTE_EN, { exact: true })).toBeInTheDocument();
+    toDeleteMode();
+    expect(queryFoldersNote()).not.toBeInTheDocument();
+  });
+
+  it("DG-F4 GET /api/folders 失敗（500）→ 沒有那句、其餘照常", async () => {
+    const { queryClient } = renderDialog({ folders: () => fakeResponse(500, { error: { code: "internal", message: "x" } }) });
+    await adminsLoaded();
+    await settled(queryClient, ["folders"]);
+    expect(queryClient.getQueryState(["folders"])?.status).toBe("error");
+    expect(queryFoldersNote()).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/^2 notes will become Me's personal notes\./)).toBeInTheDocument());
+    expect(confirmButton()).not.toBeDisabled();
   });
 });

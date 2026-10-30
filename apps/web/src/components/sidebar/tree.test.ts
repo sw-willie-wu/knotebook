@@ -8,7 +8,7 @@ import { EMPTY_FOLDER_INDEX, indexFolders } from "./folder-index";
 import { __resetFolderSortForTests, type FolderSort } from "./folder-sort";
 import {
   buildTabNodes,
-  hasNoteNodes,
+  hasSelectableNodes,
   noteBucket,
   noteLocationLabel,
   noteLocationSegments,
@@ -206,22 +206,30 @@ describe("noteLocationSegments", () => {
   });
 });
 
-// ── TR7：樹裡有沒有筆記（PR-2c 的「選取」鈕可不可按）
-describe("hasNoteNodes", () => {
+// ── TR7：樹裡有沒有可勾的節點（「選取」鈕可不可按；PR-3b-2 T6a 起資料夾也算）
+describe("hasSelectableNodes", () => {
   it("[] → false", () => {
-    expect(hasNoteNodes([])).toBe(false);
+    expect(hasSelectableNodes([])).toBe(false);
   });
 
   it("只有空群組 → false", () => {
-    expect(hasNoteNodes(buildTabNodes("workspace", [], [GROUP_A, GROUP_B], EMPTY_FOLDER_INDEX))).toBe(false);
+    expect(hasSelectableNodes(buildTabNodes("workspace", [], [GROUP_A, GROUP_B], EMPTY_FOLDER_INDEX))).toBe(false);
   });
 
   it("群組下一篇 → true", () => {
-    expect(hasNoteNodes(buildTabNodes("workspace", [MY_GROUP_NOTE], [GROUP_A, GROUP_B], EMPTY_FOLDER_INDEX))).toBe(true);
+    expect(hasSelectableNodes(buildTabNodes("workspace", [MY_GROUP_NOTE], [GROUP_A, GROUP_B], EMPTY_FOLDER_INDEX))).toBe(true);
   });
 
   it("平面一篇 → true", () => {
-    expect(hasNoteNodes(buildTabNodes("myNotes", [OWNER_NOTE], [], EMPTY_FOLDER_INDEX))).toBe(true);
+    expect(hasSelectableNodes(buildTabNodes("myNotes", [OWNER_NOTE], [], EMPTY_FOLDER_INDEX))).toBe(true);
+  });
+
+  it("FT-S1 只有空資料夾 → true；只有空群組 → false；空群組裡一個空資料夾 → true", () => {
+    const personal = indexFolders([folderDto({ id: "E", name: "Empty" })]);
+    expect(hasSelectableNodes(buildTabNodes("myNotes", [], [], personal))).toBe(true);
+    expect(hasSelectableNodes(buildTabNodes("workspace", [], [GROUP_A, GROUP_B], personal))).toBe(false);
+    const grouped = indexFolders([groupFolder({ id: "gE", name: "Group empty", groupId: GROUP_A.id })]);
+    expect(hasSelectableNodes(buildTabNodes("workspace", [], [GROUP_A, GROUP_B], grouped))).toBe(true);
   });
 });
 
@@ -296,12 +304,12 @@ describe("buildTabNodes × 資料夾（spec §6.2）", () => {
     expect(shape(buildTabNodes("shared", [missing, cross, orphan], [GROUP_A], folders))).toEqual(["orphan-in-folder"]);
   });
 
-  it("FT6 空資料夾也是節點（children []）；只有空資料夾的樹 hasNoteNodes → false", () => {
+  it("FT6 空資料夾也是節點（children []）；只有空資料夾的樹 hasSelectableNodes → true（PR-3b-2 T6a：資料夾可勾）", () => {
     const folders = indexFolders([folderDto({ id: "E", name: "Empty" })]);
     const nodes = buildTabNodes("myNotes", [], [], folders);
     expect(nodes).toEqual([{ kind: "folder", id: "E", folder: folders.byId.get("E"), depth: 1, children: [] }]);
-    expect(hasNoteNodes(nodes)).toBe(false);
-    expect(hasNoteNodes(buildTabNodes("myNotes", [note("x", { folderId: "E" })], [], folders))).toBe(true);
+    expect(hasSelectableNodes(nodes)).toBe(true);
+    expect(hasSelectableNodes(buildTabNodes("myNotes", [note("x", { folderId: "E" })], [], folders))).toBe(true);
   });
 
   it("FT11 環 A↔B 與自指：資料夾與裡面的筆記都在樹上，路徑行與樹一致", async () => {

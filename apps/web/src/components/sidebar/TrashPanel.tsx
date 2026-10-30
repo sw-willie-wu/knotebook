@@ -6,7 +6,7 @@ import { usePurgeTrash, useRestoreTrash, useTrash } from "@/api/trash";
 import { useSession } from "@/auth/useSession";
 import { selectionKey } from "@/lib/sidebar-selection";
 import { useSidebarTabActions, useSidebarTabState } from "@/lib/sidebar-tab";
-import { selectedTrashIds, splitTrashSections, trashDetailLine, trashItemTitle } from "@/lib/trash-display";
+import { selectedTrashIds, splitTrashSections, trashDetailLine, trashItemTitle, trashLocationLine } from "@/lib/trash-display";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { EllipsisVertical, RotateCcw, SquareCheck, Trash } from "@/components/ui/icons";
@@ -54,7 +54,10 @@ function TrashRow({ item, now, actions }: { item: TrashItemDto; now: number; act
       {/* 兩行一律 <div>（同 NoteList 最近 tab 的兩行列）。 */}
       <div className="min-w-0 flex-1">
         <div className="truncate">{item.title}</div>
-        <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{trashDetailLine(item, { now, t, locale })}</div>
+        {/* 位置段太長被截斷時，title 給完整路徑（資料夾 spec §6.9）；根層不帶。 */}
+        <div className="mt-0.5 truncate text-[11px] text-muted-foreground" title={trashLocationLine(item) || undefined}>
+          {trashDetailLine(item, { now, t, locale })}
+        </div>
       </div>
       {/* 側欄 24px 例外（button.tsx 檔頭）；與筆記列 ⋮ 共用 hoverReveal("noterow")。 */}
       <Button
@@ -152,7 +155,9 @@ const SelectableTrashRow = memo(function SelectableTrashRow({
         />
         <span className="min-w-0 flex-1">
           <span className="block truncate">{item.title}</span>
-          <span className="mt-0.5 block truncate text-[11px] font-normal text-muted-foreground">{trashDetailLine(item, { now, t, locale })}</span>
+          <span className="mt-0.5 block truncate text-[11px] font-normal text-muted-foreground" title={trashLocationLine(item) || undefined}>
+            {trashDetailLine(item, { now, t, locale })}
+          </span>
         </span>
       </label>
     </li>

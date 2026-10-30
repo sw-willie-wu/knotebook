@@ -1,4 +1,4 @@
-import type { GroupRoleDto } from "@knotebook/shared";
+import type { GroupDto, GroupRoleDto } from "@knotebook/shared";
 
 /**
  * #175 §2.11／Q19：角色的顯示名。內建兩個走 i18n（`groups.role.admin`／`groups.role.member`——DB 裡內建角色 `name` 恆 NULL）；
@@ -9,4 +9,9 @@ export function roleLabel(t: (key: string) => string, role: Pick<GroupRoleDto, "
   if (role.builtin === "admin") return t("groups.role.admin");
   if (role.builtin === "member") return t("groups.role.member");
   return role.name ?? "";
+}
+
+/** 與側欄群組「＋」同一條規則（`NoteList`）：角色同時有新建與編輯。PR-2c 批次目的地框共用。 */
+export function canCreateAndEdit(group: GroupDto): boolean {
+  return group.myRole?.permissions.create === true && group.myRole.permissions.edit === true;
 }

@@ -14,6 +14,7 @@ import { flip, offset, shift, size, type UseFloatingOptions } from "@floating-ui
 import { GenericPopover, useBlockNoteEditor, useEditorState, type GenericPopoverReference } from "@blocknote/react";
 import { posToDOMRect } from "@tiptap/core";
 import {
+  COLUMN_LIST_TYPE,
   CONTINUE_WRITING_ACTION_ID,
   INSTRUCTION_MAX_CODE_POINTS,
   REWRITE_ACTION_ID,
@@ -44,6 +45,15 @@ const NO_DISMISS = { enabled: false };
 const NO_FOCUS_MANAGER = { disabled: true };
 const ELEMENT_PROPS = { style: { zIndex: 40 } };
 
+/** 錨點 block 的元素：一般 block 是 `.bn-block-outer`；錨點擴大成整列時列沒有 outer，查列節點本身（spec §7.5）。 */
+function anchorBlockElement(root: Element | null | undefined, id: string): HTMLElement | null {
+  if (!root) return null;
+  return (
+    root.querySelector<HTMLElement>(`.bn-block-outer[data-id="${id}"]`) ??
+    root.querySelector<HTMLElement>(`[data-node-type="${COLUMN_LIST_TYPE}"][data-id="${id}"]`)
+  );
+}
+
 /** 最近一個會捲動的祖先（筆記卡 `overflow-y-auto`）；沒有就回 null。 */
 function scrollParentOf(el: Element | null | undefined): HTMLElement | null {
   for (let node = el?.parentElement ?? null; node; node = node.parentElement) {
@@ -63,7 +73,7 @@ function scrollParentOf(el: Element | null | undefined): HTMLElement | null {
  *   `bottom-start`、無 offset，框頂＝區塊頂、左緣＝區塊左緣，往下延伸暫時蓋住後面的段落。不 flip（翻上去會蓋到別段）；留 `shift()` 防左右出界；
  *   `size()` 同上（可用高度改是框頂以下）。區塊頂捲出捲動容器頂時，頂邊夾在容器頂（不越過、不蓋頁首）。找不到區塊元素時退回 posBefore 的座標。
  *   reference 的 `element` 同 `PositionPopover`（編輯器根 blockGroup），autoUpdate 才會掛捲動容器的 scroll 監聽、隨捲動跟著區塊走。
- * - 寬度：量活動錨點首區塊 `.bn-block-outer` 的寬度（ResizeObserver，目標換了就重新 observe）＋左右外框；上限可視寬減 16px。
+ * - 寬度：量活動錨點首區塊 `.bn-block-outer`（首區塊是列時量列節點，`anchorBlockElement`）的寬度（ResizeObserver，目標換了就重新 observe）＋左右外框；上限可視寬減 16px。
  *   窄視窗（<768）同一個框、寬度同樣取區塊寬，chips 可換行（§5.6）。
  * - `role="region"` 而不是 `dialog`：全站快捷鍵與版本預覽的 Esc 以「頁上有 dialog」為放棄條件。
  * - 焦點（§5.3）：開啟時進輸入框（沒有 Instruct 時進第一顆 chip）——唯一無條件的轉移。其餘轉場只在「動作當下焦點在框內」時轉移：
@@ -99,7 +109,7 @@ export function SelectionAiBox() {
   const [blockWidth, setBlockWidth] = useState(0);
   useEffect(() => {
     if (!firstBlockId) return;
-    const el = editor.domElement?.querySelector<HTMLElement>(`.bn-block-outer[data-id="${firstBlockId}"]`);
+    const el = anchorBlockElement(editor.domElement, firstBlockId);
     if (!el) return;
     const measure = () => setBlockWidth(el.getBoundingClientRect().width);
     measure();
@@ -126,7 +136,7 @@ export function SelectionAiBox() {
     let scroller: HTMLElement | null | undefined;
     const overlayRect = () => {
       const blockId = firstBlockIdRef.current;
-      const block = blockId ? editor.domElement?.querySelector(`.bn-block-outer[data-id="${blockId}"]`) : null;
+      const block = blockId ? anchorBlockElement(editor.domElement, blockId) : null;
       const rect = block ? block.getBoundingClientRect() : atAnchor();
       if (scroller === undefined || (scroller && !scroller.isConnected)) scroller = scrollParentOf(editor.domElement);
       const clipTop = scroller ? scroller.getBoundingClientRect().top : 0;

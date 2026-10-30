@@ -10,7 +10,7 @@ import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { NoteMenu, SidebarNoteMenu } from "./NoteMenu";
 import { EDITOR_PERMS, OWNER_PERMS } from "@/test/fixtures";
 import { NARROW_QUERY, useVersionsController, VersionsProvider } from "@/lib/versions-context";
-import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
+import { FOLDER_LIST_EMPTY, folderDto } from "@/test/folder-fixtures";
 
 // ⋮ 選單（spec D.4）：複製連結（任何角色）＋移到垃圾桶（#181：不確認、成功 toast＋復原；#175 起看 `permissions.delete`，含 M11 的
 // leavingRef 時序：刪除失敗且已進終態時，`NoteMenu` 必須自己補一套「同文案同
@@ -712,5 +712,75 @@ describe("NoteMenu × 版本歷史（spec §8.5）", () => {
     expect(within(menu).getByRole("menuitem", { name: "AI edit history" })).toBeInTheDocument();
     expect(within(menu).queryByRole("menuitem", { name: "Version history" })).not.toBeInTheDocument();
     expect(within(menu).queryByRole("menuitem", { name: "Save current version" })).not.toBeInTheDocument();
+  });
+});
+
+// PR-3b-2 T4：頁首與側欄 ⋮ 共用 NoteMenuCore 的逐層子選單（資料夾 spec §6.11.4）；同空間移動開著的那篇不離場。
+describe("NoteMenu × 逐層子選單（PR-3b-2 T4）", () => {
+  const A = folderDto({ id: "A", name: "A" });
+  const A1 = folderDto({ id: "A1", name: "A1", parentId: "A" });
+  const B = folderDto({ id: "B", name: "B" });
+
+  /** 群組空清單、資料夾 A ⊃ A1、B；`PUT /api/notes/:id/folder` 回放好的筆記。每筆記進 `calls`。 */
+  function folderFetch(note: NoteDto) {
+    const calls: Array<{ method: string; url: string; body?: unknown }> = [];
+    const fetchSpy = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      const body = init?.body === undefined ? undefined : (JSON.parse(String(init.body)) as { folderId: string | null });
+      calls.push({ method, url, body });
+      const json = (value: unknown) => Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(value) }));
+      if (method === "GET" && url === "/api/groups") return json([]);
+      if (method === "GET" && url === "/api/folders") return json({ folders: [A, A1, B] });
+      if (method === "PUT" && url === `/api/notes/${note.id}/folder`) return json({ ...note, folderId: body?.folderId ?? null });
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    return { fetchSpy, calls };
+  }
+
+  async function openMoveFlyout(): Promise<HTMLElement> {
+    const trigger = await screen.findByTestId("note-menu-move-to");
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: "ArrowRight" });
+    const sub = await screen.findByRole("menu", { name: "Move to…" });
+    await within(sub).findByRole("menuitem", { name: "A, open" });
+    return sub;
+  }
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+  });
+  afterEach(() => {
+    cleanup();
+    act(() => dismissAllToasts());
+    vi.unstubAllGlobals();
+  });
+
+  it.each(["header", "sidebar"] as const)("NM-H1 %s ⋮：Move to… 是逐層子選單，點「A, open」→ 換成 Back、Move here、A1", async (shell) => {
+    const { fetchSpy } = folderFetch(OWNER_NOTE);
+    renderCopyMenu(shell, OWNER_NOTE, fetchSpy as unknown as typeof fetch);
+    openAnyMenu(shell);
+    const sub = await openMoveFlyout();
+    fireEvent.click(within(sub).getByRole("menuitem", { name: "A, open" }));
+    expect(await within(sub).findByRole("menuitem", { name: "Back" })).toBeInTheDocument();
+    expect(within(sub).getByRole("menuitem", { name: "Move here" })).toBeInTheDocument();
+    expect(within(sub).getByRole("menuitem", { name: "A1" })).toBeInTheDocument();
+  });
+
+  it("NM-H2 同空間移動開著的那篇 → PUT 一次、toast，不設 leavingRef、不導頁", async () => {
+    const leavingRef = { current: false };
+    const { fetchSpy, calls } = folderFetch(OWNER_NOTE);
+    renderRoutedMenu(OWNER_NOTE, leavingRef, fetchSpy);
+    openMenu();
+    const sub = await openMoveFlyout();
+    fireEvent.click(within(sub).getByRole("menuitem", { name: "B" }));
+    expect(await screen.findByText("Moved to “B”")).toBeInTheDocument();
+    expect(calls.filter((c) => c.method === "PUT")).toEqual([
+      { method: "PUT", url: `/api/notes/${OWNER_NOTE.id}/folder`, body: { folderId: "B" } },
+    ]);
+    expect(leavingRef.current).toBe(false);
+    expect(screen.getByTestId("loc").textContent).toBe(canonicalNotePath(OWNER_NOTE));
+    expect(screen.queryByText("home landing")).toBeNull();
   });
 });

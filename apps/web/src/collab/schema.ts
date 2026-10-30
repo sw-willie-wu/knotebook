@@ -29,7 +29,8 @@ import { withColumnsLayout } from "./columns/layout-extension";
  *
  * #12 把 `safeMediaUrl` 掛在 `resolveFileUrl` 上，但那個鉤子只在 **render** 路徑；
  * `toExternalHTML`（BlockNote 內建的剪貼簿複製／dragstart 的 `text/html`，以及
- * `blocksToMarkdownLossy` 的 markdown 匯出——`AiSession.tsx` 用它把選取內容送給 AI）
+ * `blocksToMarkdownLossy` 的 markdown 匯出；送 AI 的選取內容改走 `ai/note-markdown.ts` 的 headless 編輯器，
+ * 那顆的 schema 是 shared `createHeadlessNoteSchema`，同一支 `withGuardedExternalHTML`）
  * 拿的是 raw `props.url`，`@blocknote/core` 0.52.1 的 audio／file／image／video 四個
  * `toExternalHTML` 都直接 `el.src = props.url` 或 `a.href = props.url`。複製一個被
  * 污染的 block 貼到別的應用程式，帶過去的就是 `<a href="javascript:…">`——不是本

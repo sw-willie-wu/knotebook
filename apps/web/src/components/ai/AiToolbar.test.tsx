@@ -73,13 +73,12 @@ describe("AiToolbar 檔案刪除鈕（D25）", () => {
   });
 });
 
-// PR-1 過渡碼（PR-2 改成擴大成整列時移除）：跨欄或含整列的選取不出 AI 鈕（final review I-1，探針 ai-cross）。
+// 並排 PR-2（spec §7.5、Q7）：跨欄或含整列的選取照常出 AI 鈕，`open()` 把錨點擴大成整列（AiSession.test AO*）。
 const TWO = () => [P("x", "x"), row([[P("a", "a1")], [P("b", "b1"), P("q", "q1")]], "r"), P("z", "z")];
 const THREE = () => [P("x", "x"), row([[P("a", "a1")], [P("b", "b1")], [P("c", "c1")]], "r"), P("z", "z")];
 const NESTED = () => [P("x", "x"), row([[P("a", "a1")], [withChildren(P("p", "p1"), [P("c", "c1")])]], "r"), P("z", "z")];
-const aiButton = () => screen.queryByRole("button", { name: "AI" });
 
-describe("AiToolbar AI 鈕與並排（PR-1 過渡）", () => {
+describe("AiToolbar AI 鈕與並排（擴大成整列）", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
   });
@@ -91,15 +90,15 @@ describe("AiToolbar AI 鈕與並排（PR-1 過渡）", () => {
     ["AX3 從列外 x 選進列內", TWO, "x", "b1", "x:paragraph, r:columnList"],
     ["AX4 從欄內選到列外 z（清單裡沒有欄節點）", TWO, "b1", "z", "b1:paragraph, q1:paragraph, z:paragraph"],
     ["AX6 從末欄的巢狀子 block 選到列外 z（欄是祖父節點）", NESTED, "c1", "z", "c1:paragraph, z:paragraph"],
-  ])("%s → 工具列在、沒有 AI 鈕", async (_name, doc, from, to, blocks) => {
+  ])("%s → AI 鈕出現、按下開框", async (_name, doc, from, to, blocks) => {
     const editor = await mount(doc());
     act(() => {
       editor.setSelection(from, to);
     });
     // 事實釘：core 的選取清單（core 升版時第一個紅）。
     expect(editor.getSelection()!.blocks.map((b) => `${b.id}:${b.type}`).join(", ")).toBe(blocks);
-    await waitFor(() => expect(toolbar()).not.toBeNull());
-    expect(aiButton()).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "AI" }));
+    expect(session.state.phase).toBe("input");
   });
 
   it("AX5 完全在單一欄內（b..q）→ AI 鈕照常出現、按下開框", async () => {

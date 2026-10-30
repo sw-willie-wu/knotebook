@@ -346,6 +346,54 @@ export async function folderMenuItem(page: Page, scope: Locator, folder: string,
   await menuItem.click();
 }
 
+/**
+ * 資料夾 PR-3b-2：選單開著時點一個選單項（子選單裡的也可）。寬螢幕的「Move to…／Copy to…」子選單是 Radix flyout：滑鼠要分段移過去
+ * 再點——一步瞬移離開觸發項時 Radix 判定「沒往子選單走」、把子選單關掉（理由詳見 16 的 `pickFromSubmenu`）。窄螢幕的就地展開形
+ * 分段移動也無害。子選單有 `max-h`（20rem）會捲動：先捲進視野再量位置。
+ */
+export async function clickMenuItemByPointer(page: Page, name: string): Promise<void> {
+  const target = page.getByRole("menuitem", { name, exact: true });
+  await expect(target).toBeVisible();
+  await target.scrollIntoViewIfNeeded();
+  const box = await target.boundingBox();
+  expect(box, `menuitem「${name}」量不到位置`).not.toBeNull();
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2, { steps: 10 });
+  await target.click();
+}
+
+/**
+ * 資料夾 PR-3b-2：⋮ 開著時點子選單觸發項（「Move to…」／「Copy to…」），再依序點 `steps`（可及名稱 exact）。名稱以「, open」結尾的是
+ * 換層項（`folders.dest.openLevel`）：點了等新的一層換上來才點下一步——錨點是「剛點的那項不見了」（舊層整層換掉；只看「Back」
+ * 從第二層起就是空等，舊層本來就有 Back），再確認新層有「Back」（第二層起恆第一項，可及名稱不含 aria-hidden 的「‹ 」）。
+ * 形態看觸發項：寬且可 hover 是 Radix `SubTrigger`（`aria-haspopup="menu"`）→ 分段滑鼠移動（`clickMenuItemByPointer`）；
+ * 窄或觸控是就地展開的一般項 → 直接點縮排項（同一個 menu）。`steps` 空＝只打開子選單（呼叫端要先斷言第一層）。
+ */
+export async function pickNoteMenuDestination(page: Page, trigger: "Move to…" | "Copy to…", steps: readonly string[]): Promise<void> {
+  const item = page.getByRole("menuitem", { name: trigger, exact: true });
+  await expect(item).toBeVisible();
+  const flyout = (await item.getAttribute("aria-haspopup")) === "menu";
+  await item.click();
+  for (const step of steps) {
+    if (flyout) await clickMenuItemByPointer(page, step);
+    else await page.getByRole("menuitem", { name: step, exact: true }).click();
+    if (step.endsWith(", open")) {
+      await expect(page.getByRole("menuitem", { name: step, exact: true })).toBeHidden();
+      await expect(page.getByRole("menuitem", { name: "Back", exact: true })).toBeVisible();
+    }
+  }
+}
+
+/** 資料夾 PR-3b-2：選取模式的目的地框（「Move to」／「Copy to」）依序點 `steps`（每項一顆按鈕，可及名稱 exact；換層的等待同上：剛點的那顆不見、再見到「Back」）。 */
+export async function pickDestination(dialog: Locator, steps: readonly string[]): Promise<void> {
+  for (const step of steps) {
+    await dialog.getByRole("button", { name: step, exact: true }).click();
+    if (step.endsWith(", open")) {
+      await expect(dialog.getByRole("button", { name: step, exact: true })).toBeHidden();
+      await expect(dialog.getByRole("button", { name: "Back", exact: true })).toBeVisible();
+    }
+  }
+}
+
 /** #263：框選 AI 框（`role="region"`、`data-testid="selection-ai-box"`）。 */
 export function selectionAiBox(page: Page): Locator {
   return page.getByTestId("selection-ai-box");

@@ -1,0 +1,541 @@
+{
+  "cases": [
+    {
+      "id": "G0-plain",
+      "roundTrip": "exact",
+      "blocks": [
+        { "id": "g0p-h1", "type": "heading", "props": { "level": 1 }, "content": "Title" },
+        {
+          "id": "g0p-p",
+          "type": "paragraph",
+          "content": [
+            { "type": "text", "text": "b", "styles": { "bold": true } },
+            { "type": "text", "text": " ", "styles": {} },
+            { "type": "text", "text": "i", "styles": { "italic": true } },
+            { "type": "text", "text": " ", "styles": {} },
+            { "type": "link", "href": "https://example.com", "content": "ext" }
+          ]
+        },
+        { "id": "g0p-a", "type": "bulletListItem", "content": "a", "children": [{ "id": "g0p-a1", "type": "bulletListItem", "content": "a1" }] },
+        { "id": "g0p-n1", "type": "numberedListItem", "content": "n1" },
+        { "id": "g0p-code", "type": "codeBlock", "props": { "language": "ts" }, "content": "const x = 1;" },
+        {
+          "id": "g0p-table",
+          "type": "table",
+          "content": { "type": "tableContent", "headerRows": 1, "rows": [{ "cells": ["h1", "h2"] }, { "cells": ["c1", "c2"] }] }
+        },
+        { "id": "g0p-q", "type": "quote", "content": "q" }
+      ],
+      "markdown": "# Title\n\n**b** *i* [ext](https://example.com)\n\n* a\n  * a1\n\n1. n1\n\n```ts\nconst x = 1;\n```\n\n| h1         | h2         |\n| ---------- | ---------- |\n| c1         | c2         |\n\n> q\n"
+    },
+    {
+      "id": "G0-media",
+      "roundTrip": "text",
+      "note": "file 與隱藏預覽的圖片讀成連結、寫回成「段落＋連結」，再讀字面相同、結構不同（現行行為，gate r2 q3）。",
+      "blocks": [
+        { "id": "g0m-img", "type": "image", "props": { "name": "pic", "url": "/api/uploads/u0" } },
+        { "id": "g0m-img2", "type": "image", "props": { "name": "pic2", "caption": "cap", "url": "/api/uploads/u0" } },
+        { "id": "g0m-file", "type": "file", "props": { "name": "doc.pdf", "url": "/api/uploads/f0" } },
+        { "id": "g0m-hidden", "type": "image", "props": { "name": "hidden", "url": "/api/uploads/u0", "showPreview": false } }
+      ],
+      "markdown": "![pic](/api/uploads/u0)\n\n<figure><img alt=\"pic2\" src=\"/api/uploads/u0\"><figcaption>cap</figcaption></figure>\n\n[doc.pdf](/api/uploads/f0)\n\n[hidden](/api/uploads/u0)\n"
+    },
+    {
+      "id": "G0-colors",
+      "roundTrip": "exact",
+      "blocks": [
+        {
+          "id": "g0c-p1",
+          "type": "paragraph",
+          "content": [
+            { "type": "text", "text": "red", "styles": { "textColor": "red" } },
+            { "type": "text", "text": "plain", "styles": {} }
+          ]
+        },
+        { "id": "g0c-p2", "type": "paragraph", "props": { "backgroundColor": "yellow" }, "content": "whole" },
+        {
+          "id": "g0c-table",
+          "type": "table",
+          "content": {
+            "type": "tableContent",
+            "rows": [{ "cells": [{ "type": "tableCell", "props": { "backgroundColor": "red" }, "content": "x" }, "y"] }]
+          }
+        },
+        { "id": "g0c-img", "type": "image", "props": { "name": "c", "url": "/api/uploads/u1", "backgroundColor": "blue" } }
+      ],
+      "markdown": "<span style=\"color:red\">red</span>plain\n\n<p data-background-color=\"yellow\">whole</p>\n\n<table><tr><td data-background-color=\"red\">x</td><td>y</td></tr></table>\n\n<img src=\"/api/uploads/u1\" alt=\"c\" data-background-color=\"blue\" data-name=\"c\">\n"
+    },
+    {
+      "id": "G0-links",
+      "roundTrip": "exact",
+      "blocks": [
+        {
+          "id": "g0l-p",
+          "type": "paragraph",
+          "content": [{ "type": "link", "href": "/notes/11111111-1111-4111-8111-111111111111", "content": "[Draft] a_b" }]
+        },
+        { "id": "g0l-mermaid", "type": "mermaid", "props": { "code": "graph TD; A-->B;" } }
+      ],
+      "markdown": "[\\[Draft\\] a\\_b](/notes/11111111-1111-4111-8111-111111111111)\n\n```mermaid\ngraph TD; A-->B;\n```\n"
+    },
+    {
+      "id": "G0-merged",
+      "roundTrip": "skip",
+      "note": "pipe table 表達不了合併格，寫回本來就丟合併（現行行為）。",
+      "blocks": [
+        {
+          "id": "g0g-table",
+          "type": "table",
+          "content": {
+            "type": "tableContent",
+            "headerRows": 1,
+            "rows": [
+              { "cells": [{ "type": "tableCell", "props": { "colspan": 2 }, "content": "h12" }, "h3"] },
+              { "cells": ["c1", "c2", "c3"] }
+            ]
+          }
+        }
+      ],
+      "markdown": "| h12        |            | h3         |\n| ---------- | ---------- | ---------- |\n| c1         | c2         | c3         |\n"
+    },
+    {
+      "id": "G0-control",
+      "roundTrip": "exact",
+      "note": "與 G0-plain 同一份文件，只有表格加了欄寬：只有那張表格變 HTML，其餘段落逐字同 G0-plain（測試另以 split 比對）。",
+      "blocks": [
+        { "id": "g0x-h1", "type": "heading", "props": { "level": 1 }, "content": "Title" },
+        {
+          "id": "g0x-p",
+          "type": "paragraph",
+          "content": [
+            { "type": "text", "text": "b", "styles": { "bold": true } },
+            { "type": "text", "text": " ", "styles": {} },
+            { "type": "text", "text": "i", "styles": { "italic": true } },
+            { "type": "text", "text": " ", "styles": {} },
+            { "type": "link", "href": "https://example.com", "content": "ext" }
+          ]
+        },
+        { "id": "g0x-a", "type": "bulletListItem", "content": "a", "children": [{ "id": "g0x-a1", "type": "bulletListItem", "content": "a1" }] },
+        { "id": "g0x-n1", "type": "numberedListItem", "content": "n1" },
+        { "id": "g0x-code", "type": "codeBlock", "props": { "language": "ts" }, "content": "const x = 1;" },
+        {
+          "id": "g0x-table",
+          "type": "table",
+          "content": { "type": "tableContent", "headerRows": 1, "columnWidths": [120, 240], "rows": [{ "cells": ["h1", "h2"] }, { "cells": ["c1", "c2"] }] }
+        },
+        { "id": "g0x-q", "type": "quote", "content": "q" }
+      ],
+      "markdown": "# Title\n\n**b** *i* [ext](https://example.com)\n\n* a\n  * a1\n\n1. n1\n\n```ts\nconst x = 1;\n```\n\n<table><tr><th colwidth=\"120\">h1</th><th colwidth=\"240\">h2</th></tr><tr><td>c1</td><td>c2</td></tr></table>\n\n> q\n"
+    },
+    {
+      "id": "G1-cols-spec",
+      "roundTrip": "exact",
+      "note": "spec §11.1 的範例，markdown 逐字照 plan Task 2。",
+      "blocks": [
+        {
+          "id": "g1s-r",
+          "type": "columnList",
+          "children": [
+            { "id": "g1s-c0", "type": "column", "props": { "width": 1 }, "children": [{ "id": "g1s-img", "type": "image", "props": { "name": "A 點", "url": "/api/uploads/u1", "previewWidth": 300 } }] },
+            {
+              "id": "g1s-c1",
+              "type": "column",
+              "props": { "width": 1.5 },
+              "children": [
+                { "id": "g1s-h", "type": "heading", "props": { "level": 2 }, "content": "設備規格" },
+                { "id": "g1s-p", "type": "paragraph", "content": "型號：x" }
+              ]
+            }
+          ]
+        }
+      ],
+      "markdown": "<div data-kb-columns style=\"display:flex;gap:16px\">\n<div data-kb-column style=\"flex:1\">\n\n<figure><img alt=\"A 點\" src=\"/api/uploads/u1\" width=\"300\"></figure>\n\n</div>\n<div data-kb-column style=\"flex:1.5\">\n\n## 設備規格\n\n型號：x\n\n</div>\n</div>\n"
+    },
+    {
+      "id": "G1-cols-3",
+      "roundTrip": "exact",
+      "blocks": [
+        {
+          "id": "g13-r",
+          "type": "columnList",
+          "children": [
+            { "id": "g13-c0", "type": "column", "props": { "width": 0.75 }, "children": [{ "id": "g13-p0", "type": "paragraph", "content": "c1" }] },
+            { "id": "g13-c1", "type": "column", "props": { "width": 1 }, "children": [{ "id": "g13-p1", "type": "paragraph", "content": "c2" }] },
+            { "id": "g13-c2", "type": "column", "props": { "width": 1.25 }, "children": [{ "id": "g13-p2", "type": "paragraph", "content": "c3" }] }
+          ]
+        }
+      ],
+      "markdown": "<div data-kb-columns style=\"display:flex;gap:16px\">\n<div data-kb-column style=\"flex:0.75\">\n\nc1\n\n</div>\n<div data-kb-column style=\"flex:1\">\n\nc2\n\n</div>\n<div data-kb-column style=\"flex:1.25\">\n\nc3\n\n</div>\n</div>\n"
+    },
+    {
+      "id": "G1-cols-4",
+      "roundTrip": "exact",
+      "blocks": [
+        {
+          "id": "g14-r",
+          "type": "columnList",
+          "children": [
+            { "id": "g14-c0", "type": "column", "props": { "width": 0.1 }, "children": [{ "id": "g14-p0", "type": "paragraph", "content": "d1" }] },
+            { "id": "g14-c1", "type": "column", "props": { "width": 10 }, "children": [{ "id": "g14-p1", "type": "paragraph", "content": "d2" }] },
+            { "id": "g14-c2", "type": "column", "props": { "width": 2.25 }, "children": [{ "id": "g14-p2", "type": "paragraph", "content": "d3" }] },
+            { "id": "g14-c3", "type": "column", "props": { "width": 1 }, "children": [{ "id": "g14-p3", "type": "paragraph", "content": "d4" }] }
+          ]
+        }
+      ],
+      "markdown": "<div data-kb-columns style=\"display:flex;gap:16px\">\n<div data-kb-column style=\"flex:0.1\">\n\nd1\n\n</div>\n<div data-kb-column style=\"flex:10\">\n\nd2\n\n</div>\n<div data-kb-column style=\"flex:2.25\">\n\nd3\n\n</div>\n<div data-kb-column style=\"flex:1\">\n\nd4\n\n</div>\n</div>\n"
+    },
+    {
+      "id": "G1-cols-empty",
+      "roundTrip": "exact",
+      "blocks": [
+        {
+          "id": "g1e-r",
+          "type": "columnList",
+          "children": [
+            { "id": "g1e-c0", "type": "column", "props": { "width": 1 }, "children": [{ "id": "g1e-p0", "type": "paragraph", "content": "a" }] },
+            { "id": "g1e-c1", "type": "column", "props": { "width": 1 }, "children": [{ "id": "g1e-p1", "type": "paragraph" }] }
+          ]
+        }
+      ],
+      "markdown": "<div data-kb-columns style=\"display:flex;gap:16px\">\n<div data-kb-column style=\"flex:1\">\n\na\n\n</div>\n<div data-kb-column style=\"flex:1\">\n\n</div>\n</div>\n"
+    },
+    {
+      "id": "G1-cols-mixed",
+      "roundTrip": "exact",
+      "blocks": [
+        {
+          "id": "g1m-r",
+          "type": "columnList",
+          "children": [
+            {
+              "id": "g1m-c0",
+              "type": "column",
+              "props": { "width": 1 },
+              "children": [
+                {
+                  "id": "g1m-p0",
+                  "type": "paragraph",
+                  "content": [
+                    { "type": "text", "text": "red", "styles": { "textColor": "red" } },
+                    { "type": "text", "text": " ", "styles": {} },
+                    { "type": "link", "href": "/notes/11111111-1111-4111-8111-111111111111", "content": "[Draft]" }
+                  ]
+                },
+                { "id": "g1m-p1", "type": "paragraph", "props": { "backgroundColor": "yellow" }, "content": "bg" }
+              ]
+            },
+            {
+              "id": "g1m-c1",
+              "type": "column",
+              "props": { "width": 1 },
+              "children": [
+                {
+                  "id": "g1m-t",
+                  "type": "table",
+                  "content": { "type": "tableContent", "headerRows": 1, "rows": [{ "cells": ["h1", "h2"] }, { "cells": ["c1", "c2"] }] }
+                },
+                { "id": "g1m-l1", "type": "bulletListItem", "content": "l1" }
+              ]
+            }
+          ]
+        }
+      ],
+      "markdown": "<div data-kb-columns style=\"display:flex;gap:16px\">\n<div data-kb-column style=\"flex:1\">\n\n<span style=\"color:red\">red</span> [\\[Draft\\]](/notes/11111111-1111-4111-8111-111111111111)\n\n<p data-background-color=\"yellow\">bg</p>\n\n</div>\n<div data-kb-column style=\"flex:1\">\n\n| h1         | h2         |\n| ---------- | ---------- |\n| c1         | c2         |\n\n* l1\n\n</div>\n</div>\n"
+    },
+    {
+      "id": "G1-cols-5",
+      "roundTrip": "reject:unsupported_columns",
+      "note": "5 欄照實輸出；寫回超過 4 欄被拒。",
+      "blocks": [
+        {
+          "id": "g15-r",
+          "type": "columnList",
+          "children": [
+            { "id": "g15-c0", "type": "column", "props": { "width": 1 }, "children": [{ "id": "g15-p0", "type": "paragraph", "content": "k1" }] },
+            { "id": "g15-c1", "type": "column", "props": { "width": 1 }, "children": [{ "id": "g15-p1", "type": "paragraph", "content": "k2" }] },
+            { "id": "g15-c2", "type": "column", "props": { "width": 1 }, "children": [{ "id": "g15-p2", "type": "paragraph", "content": "k3" }] },
+            { "id": "g15-c3", "type": "column", "props": { "width": 1 }, "children": [{ "id": "g15-p3", "type": "paragraph", "content": "k4" }] },
+            { "id": "g15-c4", "type": "column", "props": { "width": 1 }, "children": [{ "id": "g15-p4", "type": "paragraph", "content": "k5" }] }
+          ]
+        }
+      ],
+      "markdown": "<div data-kb-columns style=\"display:flex;gap:16px\">\n<div data-kb-column style=\"flex:1\">\n\nk1\n\n</div>\n<div data-kb-column style=\"flex:1\">\n\nk2\n\n</div>\n<div data-kb-column style=\"flex:1\">\n\nk3\n\n</div>\n<div data-kb-column style=\"flex:1\">\n\nk4\n\n</div>\n<div data-kb-column style=\"flex:1\">\n\nk5\n\n</div>\n</div>\n"
+    },
+    {
+      "id": "G1-row-in-column",
+      "roundTrip": "skip",
+      "note": "欄內的列不合法：內列攤平成 HTML 區塊、不帶 data-kb-*。不合法結構攤平（I5 例外）：第一次寫回後拆成兩個 block、第二次讀出才收斂。欄的 content 是 blockContainer+，內列掛在欄內段落 m 底下；列直接放在欄裡的原形已驗證輸出相同；經 Y.Doc 存不進去。",
+      "blocks": [
+        {
+          "id": "g1i-r",
+          "type": "columnList",
+          "children": [
+            { "id": "g1i-c0", "type": "column", "props": { "width": 1 }, "children": [{ "id": "g1i-o1", "type": "paragraph", "content": "o1" }] },
+            {
+              "id": "g1i-c1",
+              "type": "column",
+              "props": { "width": 1 },
+              "children": [
+                {
+                  "id": "g1i-m",
+                  "type": "paragraph",
+                  "content": "m",
+                  "children": [
+                    {
+                      "id": "g1i-ir",
+                      "type": "columnList",
+                      "children": [
+                        { "id": "g1i-ic0", "type": "column", "props": { "width": 1 }, "children": [{ "id": "g1i-y", "type": "paragraph", "props": { "backgroundColor": "yellow" }, "content": "y" }] },
+                        { "id": "g1i-ic1", "type": "column", "props": { "width": 1 }, "children": [{ "id": "g1i-z", "type": "paragraph", "content": "z" }] }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "markdown": "<div data-kb-columns style=\"display:flex;gap:16px\">\n<div data-kb-column style=\"flex:1\">\n\no1\n\n</div>\n<div data-kb-column style=\"flex:1\">\n\nm\n\n<p data-background-color=\"yellow\">y</p><p>z</p>\n\n</div>\n</div>\n"
+    },
+    {
+      "id": "G1-row-under-paragraph",
+      "roundTrip": "text",
+      "note": "段落底下縮排的列不合法：攤平成一般段落，寫回後結構不同。",
+      "blocks": [
+        {
+          "id": "g1u-p",
+          "type": "paragraph",
+          "content": "p",
+          "children": [
+            {
+              "id": "g1u-r",
+              "type": "columnList",
+              "children": [
+                { "id": "g1u-c0", "type": "column", "props": { "width": 1 }, "children": [{ "id": "g1u-a", "type": "paragraph", "content": "a" }] },
+                { "id": "g1u-c1", "type": "column", "props": { "width": 1 }, "children": [{ "id": "g1u-b", "type": "paragraph", "content": "b" }] }
+              ]
+            }
+          ]
+        }
+      ],
+      "markdown": "p\n\na\n\nb\n"
+    },
+    {
+      "id": "G2-img-width",
+      "roundTrip": "exact",
+      "blocks": [{ "id": "g2w-img", "type": "image", "props": { "name": "x", "url": "/api/uploads/u2", "previewWidth": 300 } }],
+      "markdown": "<figure><img alt=\"x\" src=\"/api/uploads/u2\" width=\"300\"></figure>\n"
+    },
+    {
+      "id": "G2-img-caption",
+      "roundTrip": "exact",
+      "blocks": [{ "id": "g2c-img", "type": "image", "props": { "name": "n", "caption": "c", "url": "/api/uploads/u3", "previewWidth": 300 } }],
+      "markdown": "<figure><img alt=\"n\" src=\"/api/uploads/u3\" width=\"300\"><figcaption>c</figcaption></figure>\n"
+    },
+    {
+      "id": "G2-img-caption-eq-name",
+      "roundTrip": "text",
+      "note": "名稱等於說明時讀出不帶 alt；BlockNote 自己的省略規則讓名稱丟失（現行行為）。",
+      "blocks": [{ "id": "g2e-img", "type": "image", "props": { "name": "c", "caption": "c", "url": "/api/uploads/u3", "previewWidth": 300 } }],
+      "markdown": "<figure><img src=\"/api/uploads/u3\" width=\"300\"><figcaption>c</figcaption></figure>\n"
+    },
+    {
+      "id": "G2-img-noname",
+      "roundTrip": "exact",
+      "blocks": [{ "id": "g2n-img", "type": "image", "props": { "name": "", "url": "/api/uploads/u6", "previewWidth": 300 } }],
+      "markdown": "<figure><img src=\"/api/uploads/u6\" width=\"300\"></figure>\n"
+    },
+    {
+      "id": "G2-img-colored",
+      "roundTrip": "exact",
+      "blocks": [{ "id": "g2k-img", "type": "image", "props": { "name": "x", "url": "/api/uploads/u4", "previewWidth": 300, "backgroundColor": "red" } }],
+      "markdown": "<figure data-background-color=\"red\"><img alt=\"x\" src=\"/api/uploads/u4\" width=\"300\"></figure>\n"
+    },
+    {
+      "id": "G2-img-colored-caption",
+      "roundTrip": "exact",
+      "blocks": [{ "id": "g2kc-img", "type": "image", "props": { "name": "x", "caption": "c", "url": "/api/uploads/u4", "previewWidth": 300, "backgroundColor": "red" } }],
+      "markdown": "<figure data-background-color=\"red\"><img alt=\"x\" src=\"/api/uploads/u4\" width=\"300\"><figcaption>c</figcaption></figure>\n"
+    },
+    {
+      "id": "G2-img-clamp",
+      "roundTrip": "text",
+      "note": "既存寬度超出範圍或帶小數：讀出夾回／四捨五入，寫回後 previewWidth 是夾過的值。",
+      "blocks": [
+        { "id": "g2m-a", "type": "image", "props": { "name": "a", "url": "/api/uploads/u7", "previewWidth": 20 } },
+        { "id": "g2m-b", "type": "image", "props": { "name": "b", "url": "/api/uploads/u8", "previewWidth": 5000 } },
+        { "id": "g2m-d", "type": "image", "props": { "name": "d", "caption": "c", "url": "/api/uploads/u9", "previewWidth": 312.6 } }
+      ],
+      "markdown": "<figure><img alt=\"a\" src=\"/api/uploads/u7\" width=\"32\"></figure>\n\n<figure><img alt=\"b\" src=\"/api/uploads/u8\" width=\"4000\"></figure>\n\n<figure><img alt=\"d\" src=\"/api/uploads/u9\" width=\"313\"><figcaption>c</figcaption></figure>\n"
+    },
+    {
+      "id": "G2-img-escape",
+      "roundTrip": "exact",
+      "blocks": [{ "id": "g2x-img", "type": "image", "props": { "name": "a \"b\" & <c>", "caption": "x & \"y\"", "url": "/api/uploads/u5?a=1&b=2", "previewWidth": 300 } }],
+      "markdown": "<figure><img alt=\"a &quot;b&quot; &amp; <c>\" src=\"/api/uploads/u5?a=1&amp;b=2\" width=\"300\"><figcaption>x &amp; \"y\"</figcaption></figure>\n"
+    },
+    {
+      "id": "G2-img-hidden",
+      "roundTrip": "text",
+      "note": "隱藏預覽的圖片讀成連結（與無寬度時相同），寫回成段落＋連結。",
+      "blocks": [{ "id": "g2h-img", "type": "image", "props": { "name": "x", "url": "/api/uploads/u4", "previewWidth": 300, "showPreview": false } }],
+      "markdown": "[x](/api/uploads/u4)\n"
+    },
+    {
+      "id": "G2-img-in-toggle-heading",
+      "roundTrip": "exact",
+      "note": "寫回時 core 把 <details> 內的圖片網址絕對化，靠 relativizeSiteUploads 還原（Task 3／4）。",
+      "blocks": [
+        {
+          "id": "g2t-h",
+          "type": "heading",
+          "props": { "level": 2, "isToggleable": true },
+          "content": "h",
+          "children": [{ "id": "g2t-img", "type": "image", "props": { "name": "n", "url": "/api/uploads/00000000-0000-4000-8000-000000000001", "previewWidth": 300 } }]
+        }
+      ],
+      "markdown": "<details open=\"\" data-is-toggleable=\"true\"><summary><h2>h</h2></summary><figure><img alt=\"n\" src=\"/api/uploads/00000000-0000-4000-8000-000000000001\" width=\"300\"></figure></details>\n"
+    },
+    {
+      "id": "G3-table-in-toggle",
+      "roundTrip": "exact",
+      "blocks": [
+        {
+          "id": "g3t-t",
+          "type": "toggleListItem",
+          "content": "t",
+          "children": [
+            {
+              "id": "g3t-table",
+              "type": "table",
+              "content": {
+                "type": "tableContent",
+                "headerRows": 1,
+                "columnWidths": [120, null, 240],
+                "rows": [{ "cells": ["a", "b", "c"] }, { "cells": ["d", "e", "f"] }]
+              }
+            }
+          ]
+        }
+      ],
+      "markdown": "<ul><li><details open=\"\"><summary><p>t</p></summary><table><tr><th colwidth=\"120\">a</th><th>b</th><th colwidth=\"240\">c</th></tr><tr><td>d</td><td>e</td><td>f</td></tr></table></details></li></ul>\n"
+    },
+    {
+      "id": "G3-table-colwidth",
+      "roundTrip": "exact",
+      "blocks": [
+        {
+          "id": "g3w-table",
+          "type": "table",
+          "content": {
+            "type": "tableContent",
+            "headerRows": 1,
+            "columnWidths": [120, null, 240],
+            "rows": [{ "cells": ["a", "b", "c"] }, { "cells": ["d", "e", "f"] }]
+          }
+        }
+      ],
+      "markdown": "<table><tr><th colwidth=\"120\">a</th><th>b</th><th colwidth=\"240\">c</th></tr><tr><td>d</td><td>e</td><td>f</td></tr></table>\n"
+    },
+    {
+      "id": "G3-table-colored-colwidth",
+      "roundTrip": "exact",
+      "blocks": [
+        {
+          "id": "g3k-table",
+          "type": "table",
+          "content": {
+            "type": "tableContent",
+            "headerRows": 1,
+            "columnWidths": [120, null, 240],
+            "rows": [
+              { "cells": ["a", "b", "c"] },
+              { "cells": ["d", { "type": "tableCell", "props": { "backgroundColor": "red" }, "content": "e" }, "f"] }
+            ]
+          }
+        }
+      ],
+      "markdown": "<table><tr><th colwidth=\"120\">a</th><th>b</th><th colwidth=\"240\">c</th></tr><tr><td>d</td><td data-background-color=\"red\">e</td><td>f</td></tr></table>\n"
+    },
+    {
+      "id": "G3-table-colspan",
+      "roundTrip": "exact",
+      "blocks": [
+        {
+          "id": "g3s-table",
+          "type": "table",
+          "content": {
+            "type": "tableContent",
+            "headerRows": 1,
+            "columnWidths": [120, 200, 80],
+            "rows": [
+              { "cells": [{ "type": "tableCell", "props": { "colspan": 2 }, "content": "ab" }, "c"] },
+              { "cells": ["d", "e", "f"] }
+            ]
+          }
+        }
+      ],
+      "markdown": "<table><tr><th colspan=\"2\" colwidth=\"120,200\">ab</th><th colwidth=\"80\">c</th></tr><tr><td>d</td><td>e</td><td>f</td></tr></table>\n"
+    },
+    {
+      "id": "G3-table-colspan-partial",
+      "roundTrip": "exact",
+      "note": "合併格只設一欄寬：讀出 colwidth=\"120,\"；寫回靠 normalizeTableWidths（Task 3）把空段存成未設。",
+      "blocks": [
+        {
+          "id": "g3p-table",
+          "type": "table",
+          "content": {
+            "type": "tableContent",
+            "headerRows": 1,
+            "columnWidths": [120, null, 80],
+            "rows": [
+              { "cells": [{ "type": "tableCell", "props": { "colspan": 2 }, "content": "ab" }, "c"] },
+              { "cells": ["d", "e", "f"] }
+            ]
+          }
+        }
+      ],
+      "markdown": "<table><tr><th colspan=\"2\" colwidth=\"120,\">ab</th><th colwidth=\"80\">c</th></tr><tr><td>d</td><td>e</td><td>f</td></tr></table>\n"
+    },
+    {
+      "id": "G3-table-colored-merged",
+      "roundTrip": "exact",
+      "note": "上色＋合併、沒設欄寬：整張 HTML，兩個合併格照 core 原樣帶 colwidth=\",\"（不是有欄寬的表格，第二列不剝）。",
+      "blocks": [
+        {
+          "id": "g3g-table",
+          "type": "table",
+          "content": {
+            "type": "tableContent",
+            "headerRows": 1,
+            "rows": [
+              { "cells": [{ "type": "tableCell", "props": { "colspan": 2 }, "content": "ab" }, "c"] },
+              { "cells": [{ "type": "tableCell", "props": { "backgroundColor": "red" }, "content": "d" }, { "type": "tableCell", "props": { "colspan": 2 }, "content": "ef" }] }
+            ]
+          }
+        }
+      ],
+      "markdown": "<table><tr><th colspan=\"2\" colwidth=\",\">ab</th><th>c</th></tr><tr><td data-background-color=\"red\">d</td><td colspan=\"2\" colwidth=\",\">ef</td></tr></table>\n"
+    },
+    {
+      "id": "G3-table-clamp",
+      "roundTrip": "text",
+      "note": "既存欄寬超出範圍：讀出夾回，寫回後 columnWidths 是夾過的值。",
+      "blocks": [
+        {
+          "id": "g3c-table",
+          "type": "table",
+          "content": {
+            "type": "tableContent",
+            "headerRows": 1,
+            "columnWidths": [20, 5000],
+            "rows": [{ "cells": ["a", "b"] }, { "cells": ["c", "d"] }]
+          }
+        }
+      ],
+      "markdown": "<table><tr><th colwidth=\"32\">a</th><th colwidth=\"4000\">b</th></tr><tr><td>c</td><td>d</td></tr></table>\n"
+    }
+  ]
+}

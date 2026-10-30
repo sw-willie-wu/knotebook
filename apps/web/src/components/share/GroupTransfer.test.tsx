@@ -1,16 +1,29 @@
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router";
-import type { GroupDto, NoteDto, ShareDto } from "@knotebook/shared";
+import type { FolderDto, GroupDto, NoteDto, ShareDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { groupDto, memberRole, OWNER_PERMS, EDITOR_PERMS, VIEWER_PERMS } from "@/test/fixtures";
+import { folderDto, groupFolder, sharedFolder } from "@/test/folder-fixtures";
 import { NoteMenu } from "@/components/NoteMenu";
-import { INLINE_GROUP_LIST_QUERY } from "./GroupTransfer";
+import type { DestSpace } from "@/components/sidebar/destination-level";
+import { indexFolders } from "@/components/sidebar/folder-index";
+import {
+  GroupTransferDialog,
+  INLINE_GROUP_LIST_QUERY,
+  isSameSpaceMove,
+  type DestinationPick,
+  type GroupTransferPick,
+  type TransferTarget,
+} from "./GroupTransfer";
 
 // #216：⋮ 選單的「移動到群組」「複製到群組」（原 MoveToGroupSection 的測試搬來）。
 // 寬螢幕＝右側 flyout（Radix Sub）；窄／觸控（matchMedia 命中 INLINE_GROUP_LIST_QUERY）＝就地向下展開。
+// PR-3b-2 T4 起子選單是逐層清單（destination-level）：這組案的群組都沒有資料夾、筆記在根層、`GET /api/folders` 回空，
+// 第一層與 #216 的平清單同項同序（上下半部之間的分隔線不是 menuitem），斷言照舊不放寬。資料夾層的案在檔尾「逐層子選單」。
 
 function fakeResponse({ ok, status, json }: { ok: boolean; status: number; json?: () => Promise<unknown> }): Response {
   return { ok, status, json: json ?? (() => Promise.reject(new Error("no body"))) } as unknown as Response;
@@ -53,7 +66,16 @@ const CAROL: ShareDto = { userId: "33333333-3333-3333-3333-333333333333", email:
 const TOKEN = "T".repeat(43);
 
 const BASE = `/api/notes/${NOTE.id}`;
-const URLS = { groups: "/api/groups", shares: `${BASE}/shares`, link: `${BASE}/public-link`, note: BASE, move: `${BASE}/move`, copy: `${BASE}/copy` };
+const URLS = {
+  groups: "/api/groups",
+  folders: "/api/folders",
+  shares: `${BASE}/shares`,
+  link: `${BASE}/public-link`,
+  note: BASE,
+  move: `${BASE}/move`,
+  copy: `${BASE}/copy`,
+  place: `${BASE}/folder`,
+};
 
 const MOVED: NoteDto = {
   ...NOTE,
@@ -69,6 +91,8 @@ const GROUP_NOTE: NoteDto = { ...MOVED, id: NOTE.id };
 
 interface Server {
   groups: GroupDto[];
+  /** `GET /api/folders`（PR-3b-2 T4：⋮ 子選單掛著時會讀；預設空）。 */
+  folders: FolderDto[];
   shares: ShareDto[];
   token: string | null;
   latest: NoteDto;
@@ -79,7 +103,7 @@ interface Server {
 }
 
 function stub(init: Partial<Server> = {}) {
-  const server: Server = { groups: [GROUP_A, GROUP_C], shares: [], token: null, latest: NOTE, ...init };
+  const server: Server = { groups: [GROUP_A, GROUP_C], folders: [], shares: [], token: null, latest: NOTE, ...init };
   const calls: Array<{ method: string; url: string; body?: unknown }> = [];
   const waiting = new Map<string, (r: Response) => void>();
   vi.stubGlobal(
@@ -92,6 +116,11 @@ function stub(init: Partial<Server> = {}) {
         return new Promise<Response>((resolve) => waiting.set(url, resolve));
       }
       if (method === "GET" && url === URLS.groups) return Promise.resolve(okJson(server.groups));
+      if (method === "GET" && url === URLS.folders) return Promise.resolve(okJson({ folders: server.folders }));
+      if (method === "PUT" && url === URLS.place) {
+        const body = JSON.parse(String(reqInit?.body)) as { folderId: string | null };
+        return Promise.resolve(okJson({ ...server.latest, folderId: body.folderId }));
+      }
       if (method === "GET" && url === URLS.shares) return Promise.resolve(okJson([...server.shares]));
       if (method === "GET" && url === URLS.link) return Promise.resolve(okJson({ token: server.token, slug: null, width: "full" }));
       if (method === "GET" && url === URLS.note) return Promise.resolve(okJson(server.latest));
@@ -629,5 +658,633 @@ describe("⋮ 選單：移動／複製到群組（#216）", () => {
       openMenu();
       expect(await screen.findByTestId("note-menu-copy-to")).toHaveAttribute("aria-expanded", "false");
     });
+  });
+});
+
+// PR-3b-2 T3：確認框帶資料夾、「建立副本」落點與 n6 退回（資料夾 spec §6.11.2、§6.11.3、§5.7.6）。直接渲染 GroupTransferDialog。
+describe("GroupTransferDialog：資料夾目的地（PR-3b-2 T3）", () => {
+  const GG = "dddddddd-dddd-dddd-dddd-dddddddddddd";
+  const GROUP_G = groupDto({ id: GG, name: "G" }, memberRole());
+  const IN_A: NoteDto = { ...NOTE, folderId: "A" };
+  const GROUP_NOTE_IN_GF: NoteDto = { ...MOVED, id: NOTE.id, groupId: GG, group: { id: GG, name: "G" }, folderId: "GF" };
+  /** 別人分享給我、我自己把它放在共享私人資料夾 S1（放置 id 不得跟著複製）。 */
+  const SHARED_IN_S1: NoteDto = {
+    ...NOTE,
+    role: "editor",
+    ownerId: "someone",
+    ownerHandle: "someone",
+    permissions: { ...EDITOR_PERMS, moveToGroup: false },
+    folderId: "S1",
+  };
+
+  /** 照 NoteMenu 的掛法：onClose 卸載確認框（不卸載的話 modal 會把 toast 藏在 aria-hidden 後面）。 */
+  function DialogHost({ note, pick }: { note: NoteDto; pick: GroupTransferPick }) {
+    const [open, setOpen] = useState(true);
+    return open ? <GroupTransferDialog note={note} pick={pick} onClose={() => setOpen(false)} /> : null;
+  }
+
+  function renderDialog(note: NoteDto, pick: GroupTransferPick) {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["folders"], []);
+    queryClient.setQueryData(["notes"], []);
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/here"]}>
+          <Routes>
+            <Route path="/here" element={<DialogHost note={note} pick={pick} />} />
+          </Routes>
+          <Toaster />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    return { queryClient };
+  }
+
+  const copyBodies = (s: ReturnType<typeof stub>) => s.calls.filter((c) => c.url === URLS.copy).map((c) => c.body);
+  const moveBodies = (s: ReturnType<typeof stub>) => s.calls.filter((c) => c.url === URLS.move).map((c) => c.body);
+
+  /** 依序回 replies 的 /copy。 */
+  function copySequence(...replies: Array<() => Response>) {
+    return () => {
+      const next = replies.shift();
+      if (next === undefined) throw new Error("no more /copy replies");
+      return next();
+    };
+  }
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+    stubInlineMode(false);
+  });
+  afterEach(() => {
+    cleanup();
+    act(() => dismissAllToasts());
+    vi.unstubAllGlobals();
+  });
+
+  it("GT-F1 duplicate：筆記在 A → POST /copy {folderId:A}；筆記在根 → {}", async () => {
+    let s = stub();
+    renderDialog(IN_A, { kind: "copy", target: { type: "duplicate" } });
+    let dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("heading", { name: "Make a copy" })).toBeInTheDocument();
+    expect(dialog).toHaveTextContent("This creates a copy in your own notes; the original stays as it is.");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Make a copy" }));
+    await waitFor(() => expect(copyBodies(s)).toEqual([{ folderId: "A" }]));
+    cleanup();
+    vi.unstubAllGlobals();
+    act(() => dismissAllToasts());
+
+    s = stub();
+    renderDialog(NOTE, { kind: "copy", target: { type: "duplicate" } });
+    dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Make a copy" }));
+    await waitFor(() => expect(copyBodies(s)).toEqual([{}]));
+    expect(await screen.findByText("Copied to your notes")).toBeInTheDocument();
+  });
+
+  it("GT-F2 inPlace：群組筆記在 GF → POST /copy {groupId:G, folderId:GF}", async () => {
+    const s = stub();
+    renderDialog(GROUP_NOTE_IN_GF, { kind: "copy", target: { type: "inPlace", group: GROUP_G } });
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent('next to the original in "G"');
+    fireEvent.click(within(dialog).getByRole("button", { name: "Make a copy" }));
+    await waitFor(() => expect(copyBodies(s)).toEqual([{ groupId: GG, folderId: "GF" }]));
+  });
+
+  it('GT-F3 personal 帶 folder（共享筆記）→ {folderId:A}、說明含 "My notes › A"、鈕 Copy to my notes；不帶 → {}、說明照現行', async () => {
+    let s = stub();
+    renderDialog(SHARED_IN_S1, { kind: "copy", target: { type: "personal", folder: { id: "A", path: "My notes › A" } } });
+    let dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent('This creates a copy in "My notes › A"; the original stays as it is.');
+    fireEvent.click(within(dialog).getByRole("button", { name: "Copy to my notes" }));
+    await waitFor(() => expect(copyBodies(s)).toEqual([{ folderId: "A" }]));
+    expect(await screen.findByText("Copied to your notes")).toBeInTheDocument();
+    cleanup();
+    vi.unstubAllGlobals();
+    act(() => dismissAllToasts());
+
+    s = stub();
+    renderDialog(SHARED_IN_S1, { kind: "copy", target: { type: "personal" } });
+    dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("This creates a copy in your own notes; the original stays as it is.");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Copy to my notes" }));
+    await waitFor(() => expect(copyBodies(s)).toEqual([{}]));
+  });
+
+  it('GT-F4 group 帶 folder → {groupId:G, folderId:GF}、說明含 "G › GF"；成功 toast 照現行（群組名）', async () => {
+    const s = stub();
+    renderDialog(NOTE, { kind: "copy", target: { type: "group", group: GROUP_G, folder: { id: "GF", path: "G › GF" } } });
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent('This creates a copy in "G › GF"; the original stays as it is.');
+    fireEvent.click(within(dialog).getByRole("button", { name: "Copy into group" }));
+    await waitFor(() => expect(copyBodies(s)).toEqual([{ groupId: GG, folderId: "GF" }]));
+    expect(await screen.findByText('Copied into "G"')).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open copy" })).toBeInTheDocument();
+  });
+
+  it('GT-F5 MoveDialog 帶 folder → 說明 Move this note into "G › GF"?、body {groupId, folderId}、toast Moved into "G › GF"；不帶 → body 鍵恰 [groupId]', async () => {
+    let s = stub();
+    renderDialog(NOTE, { kind: "move", target: { type: "group", group: GROUP_G, folder: { id: "GF", path: "G › GF" } } });
+    let dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent('Move this note into "G › GF"?');
+    let submit = within(dialog).getByRole("button", { name: "Move into group" });
+    await waitFor(() => expect(submit).not.toBeDisabled());
+    fireEvent.click(submit);
+    await waitFor(() => expect(moveBodies(s)).toEqual([{ groupId: GG, folderId: "GF" }]));
+    expect(await screen.findByText('Moved into "G › GF"')).toBeInTheDocument();
+    cleanup();
+    vi.unstubAllGlobals();
+    act(() => dismissAllToasts());
+
+    s = stub();
+    renderDialog(NOTE, { kind: "move", target: { type: "group", group: GROUP_G } });
+    dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent('Move this note into "G"?');
+    submit = within(dialog).getByRole("button", { name: "Move into group" });
+    await waitFor(() => expect(submit).not.toBeDisabled());
+    fireEvent.click(submit);
+    await waitFor(() => expect(moveBodies(s)).toHaveLength(1));
+    expect(Object.keys(moveBodies(s)[0] as object)).toEqual(["groupId"]);
+    expect(await screen.findByText('Moved into "G"')).toBeInTheDocument();
+  });
+
+  it.each([
+    ["duplicate", IN_A, { type: "duplicate" } as TransferTarget, { folderId: "A" }, {}],
+    ["inPlace", GROUP_NOTE_IN_GF, { type: "inPlace", group: GROUP_G } as TransferTarget, { groupId: GG, folderId: "GF" }, { groupId: GG }],
+  ])(
+    "GT-F6 建立副本（%s）第一次 404 folder_not_found → 不帶 folderId 重送一次、toast 退回根層且有 Open copy、['folders'] 被失效",
+    async (_name, note, target, first, second) => {
+      const s = stub({ copy: copySequence(() => failJson(404, "folder_not_found"), () => okJson(COPY, 201)) });
+      const { queryClient } = renderDialog(note, { kind: "copy", target });
+      fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Make a copy" }));
+      expect(await screen.findByText("Copy created at the top level (the original folder is gone)")).toBeInTheDocument();
+      expect(copyBodies(s)).toEqual([first, second]);
+      expect(screen.getByRole("button", { name: "Open copy" })).toBeInTheDocument();
+      expect(queryClient.getQueryState(["folders"])?.isInvalidated).toBe(true);
+    },
+  );
+
+  it("GT-F6 退回重送也失敗 → 照現行錯誤 toast、共送兩次", async () => {
+    const s = stub({ copy: copySequence(() => failJson(404, "folder_not_found"), () => failJson(404, "group_not_found")) });
+    renderDialog(IN_A, { kind: "copy", target: { type: "duplicate" } });
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Make a copy" }));
+    expect(await screen.findByText("We couldn't find that group.")).toBeInTheDocument();
+    expect(copyBodies(s)).toEqual([{ folderId: "A" }, {}]);
+  });
+
+  it.each([
+    ["personal", SHARED_IN_S1, { type: "personal", folder: { id: "A", path: "My notes › A" } } as TransferTarget, "Copy to my notes"],
+    ["group", NOTE, { type: "group", group: GROUP_G, folder: { id: "GF", path: "G › GF" } } as TransferTarget, "Copy into group"],
+  ])("GT-F7 明選資料夾（%s）404 folder_not_found → 不重試、toast Folder not found.、['folders']／['notes'] 被失效", async (_name, note, target, button) => {
+    const s = stub({ copy: copySequence(() => failJson(404, "folder_not_found"), () => okJson(COPY, 201)) });
+    const { queryClient } = renderDialog(note, { kind: "copy", target });
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: button }));
+    expect(await screen.findByText("Folder not found.")).toBeInTheDocument();
+    await act(async () => {});
+    expect(copyBodies(s)).toHaveLength(1);
+    expect(queryClient.getQueryState(["folders"])?.isInvalidated).toBe(true);
+    // ['folders'] 失敗時 useCopyNote 的 onSettled 也會失效；['notes'] 失敗時只有 invalidateFolderRelated 會失效。
+    expect(queryClient.getQueryState(["notes"])?.isInvalidated).toBe(true);
+  });
+
+  it("GT-F8 zh：已建立副本（原資料夾已不在，放在最上層）；已移到「我的筆記 › A」", async () => {
+    await i18n.changeLanguage("zh-TW");
+    stub({ copy: copySequence(() => failJson(404, "folder_not_found"), () => okJson(COPY, 201)) });
+    renderDialog(IN_A, { kind: "copy", target: { type: "duplicate" } });
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "建立副本" }));
+    expect(await screen.findByText("已建立副本（原資料夾已不在，放在最上層）")).toBeInTheDocument();
+    expect(i18n.t("folders.movedTo", { name: "我的筆記 › A" })).toBe("已移到「我的筆記 › A」");
+    await i18n.changeLanguage("en");
+    expect(i18n.t("folders.movedTo", { name: "A" })).toBe("Moved to “A”");
+  });
+});
+
+// PR-3b-2 T4：⋮ 的逐層子選單（資料夾 spec §6.11.1、§6.11.4、§6.14）。寬＝flyout（jsdom 預設）；窄／觸控＝就地展開。
+// 焦點與子選單換層在 jsdom 只守「程式有搬焦點／狀態有變」，真瀏覽器由 e2e 41 驗。
+describe("⋮ 逐層子選單（PR-3b-2 T4）", () => {
+  const GG = "dddddddd-dddd-dddd-dddd-dddddddddddd";
+  const GH = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
+  const G = groupDto({ id: GG, name: "G" }, memberRole());
+  const H = groupDto({ id: GH, name: "H" }, memberRole());
+  const A = folderDto({ id: "A", name: "A" });
+  const A1 = folderDto({ id: "A1", name: "A1", parentId: "A" });
+  const A2 = folderDto({ id: "A2", name: "A2", parentId: "A1" });
+  const B = folderDto({ id: "B", name: "B" });
+  const GF = groupFolder({ id: "GF", name: "GF", groupId: GG });
+  const HF = groupFolder({ id: "HF", name: "HF", groupId: GH });
+  const SF = sharedFolder({ id: "SF", name: "SF" });
+  /** 個人 A ⊃ A1、B；群組 G、H 沒有資料夾（NM-D1 的形）。 */
+  const BASE_SERVER = { groups: [G, H], folders: [A, A1, B] };
+
+  /** 可及名稱：aria-label 優先，否則去掉 aria-hidden 的字（「‹ 」）。 */
+  function accessibleName(el: Element): string {
+    const label = el.getAttribute("aria-label");
+    if (label !== null) return label;
+    const clone = el.cloneNode(true) as Element;
+    clone.querySelectorAll('[aria-hidden="true"]').forEach((hidden) => hidden.remove());
+    return (clone.textContent ?? "").trim();
+  }
+  const names = (container: HTMLElement) => within(container).queryAllByRole("menuitem").map(accessibleName);
+  /** 項目與分隔線依 DOM 序（分隔線記成 "—"）。 */
+  const entries = (container: HTMLElement) =>
+    Array.from(container.querySelectorAll('[role="menuitem"], [role="separator"]')).map((el) =>
+      el.getAttribute("role") === "separator" ? "—" : accessibleName(el),
+    );
+  const placeBodies = (s: ReturnType<typeof stub>) => s.calls.filter((c) => c.method === "PUT" && c.url === URLS.place).map((c) => c.body);
+  const subMenu = (name = "Move to…") => screen.queryByRole("menu", { name });
+
+  /** 開 ⋮ → 鍵盤開 Move to… 的 flyout，等第一層有 expected 這些項。 */
+  async function openMoveSub(expected: string[]): Promise<HTMLElement> {
+    const sub = await openFlyout(await openMenuReady("note-menu-move-to"));
+    await waitFor(() => expect(names(sub)).toEqual(expected));
+    return sub;
+  }
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+    dismissAllToasts();
+    stubInlineMode(false);
+  });
+  afterEach(() => {
+    cleanup();
+    act(() => dismissAllToasts());
+    vi.unstubAllGlobals();
+  });
+
+  it("NM-D1 個人筆記在根、A ⊃ A1：Move to… 第一層＝[A, open, B, G, H]，分隔線在 B 與 G 之間、A 尾端有 aria-hidden 的 >", async () => {
+    stub(BASE_SERVER);
+    renderMenu();
+    const sub = await openMoveSub(["A, open", "B", "G", "H"]);
+    expect(entries(sub)).toEqual(["A, open", "B", "—", "G", "H"]);
+    const a = within(sub).getByRole("menuitem", { name: "A, open" });
+    const chevron = a.querySelector('svg[data-icon="chevron-right"]');
+    expect(chevron).not.toBeNull();
+    expect(chevron).toHaveAttribute("aria-hidden", "true");
+    expect(within(sub).getByRole("menuitem", { name: "B" }).querySelector("svg")).toBeNull();
+  });
+
+  it("NM-D2 點「A, open」→ 選單與子選單仍開、換成 [Back, Move here, A1]、焦點在 Back（「‹ 」aria-hidden）、子選單捲回頂端", async () => {
+    stub(BASE_SERVER);
+    renderMenu();
+    const sub = await openMoveSub(["A, open", "B", "G", "H"]);
+    // jsdom 沒有版面：用可寫的 scrollTop 記下程式有沒有把子選單捲回頂端。
+    let scrollTop = 40;
+    Object.defineProperty(sub, "scrollTop", { configurable: true, get: () => scrollTop, set: (value: number) => (scrollTop = value) });
+    fireEvent.click(within(sub).getByRole("menuitem", { name: "A, open" }));
+    await waitFor(() => expect(scrollTop).toBe(0));
+    await waitFor(() => expect(names(sub)).toEqual(["Back", "Move here", "A1"]));
+    expect(subMenu()).toBe(sub);
+    expect(screen.getByTestId("note-menu-move-to")).toBeInTheDocument();
+    const back = within(sub).getByRole("menuitem", { name: "Back" });
+    expect(document.activeElement).toBe(back);
+    expect(back).toHaveTextContent("‹ Back");
+    expect(back.querySelector('[aria-hidden="true"]')).toHaveTextContent("‹");
+  });
+
+  it("NM-D3 第二層 ArrowLeft → 回第一層、子選單仍開；第一層 ArrowLeft → 子選單關（交 Radix）", async () => {
+    stub(BASE_SERVER);
+    renderMenu();
+    const sub = await openMoveSub(["A, open", "B", "G", "H"]);
+    fireEvent.click(within(sub).getByRole("menuitem", { name: "A, open" }));
+    await waitFor(() => expect(names(sub)).toEqual(["Back", "Move here", "A1"]));
+    fireEvent.keyDown(within(sub).getByRole("menuitem", { name: "A1" }), { key: "ArrowLeft" });
+    await waitFor(() => expect(names(sub)).toEqual(["A, open", "B", "G", "H"]));
+    expect(subMenu()).toBe(sub);
+    const first = within(sub).getByRole("menuitem", { name: "A, open" });
+    expect(document.activeElement).toBe(first);
+    fireEvent.keyDown(first, { key: "ArrowLeft" });
+    await waitFor(() => expect(subMenu()).toBeNull());
+    expect(screen.getByTestId("note-menu-move-to")).toBeInTheDocument();
+  });
+
+  it("NM-D4 在 A1（有子資料夾）上 ArrowRight → 進下一層 [Back, Move here, A2]、焦點在 Back", async () => {
+    stub({ ...BASE_SERVER, folders: [A, A1, A2, B] });
+    renderMenu();
+    const sub = await openMoveSub(["A, open", "B", "G", "H"]);
+    fireEvent.click(within(sub).getByRole("menuitem", { name: "A, open" }));
+    const a1 = await within(sub).findByRole("menuitem", { name: "A1, open" });
+    a1.focus();
+    fireEvent.keyDown(a1, { key: "ArrowRight" });
+    await waitFor(() => expect(names(sub)).toEqual(["Back", "Move here", "A2"]));
+    expect(document.activeElement).toBe(within(sub).getByRole("menuitem", { name: "Back" }));
+    expect(subMenu()).toBe(sub);
+  });
+
+  it("NM-D5 第二層按 Esc → 只關子選單、主選單仍開、焦點回 Move to…；再開子選單 → 第一層", async () => {
+    stub(BASE_SERVER);
+    renderMenu();
+    const sub = await openMoveSub(["A, open", "B", "G", "H"]);
+    fireEvent.click(within(sub).getByRole("menuitem", { name: "A, open" }));
+    const back = await within(sub).findByRole("menuitem", { name: "Back" });
+    fireEvent.keyDown(back, { key: "Escape" });
+    await waitFor(() => expect(subMenu()).toBeNull());
+    const trigger = screen.getByTestId("note-menu-move-to");
+    expect(trigger).toHaveFocus();
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    const again = await openFlyout(trigger);
+    expect(names(again)).toEqual(["A, open", "B", "G", "H"]);
+  });
+
+  it("NM-D6 第二層時關掉整個選單（點選單外）再開 → 子選單回第一層", async () => {
+    stub(BASE_SERVER);
+    renderMenu();
+    const sub = await openMoveSub(["A, open", "B", "G", "H"]);
+    fireEvent.click(within(sub).getByRole("menuitem", { name: "A, open" }));
+    await waitFor(() => expect(names(sub)).toEqual(["Back", "Move here", "A1"]));
+    fireEvent.pointerDown(document.body);
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    const again = await openFlyout(await openMenuReady("note-menu-move-to"));
+    expect(names(again)).toEqual(["A, open", "B", "G", "H"]);
+  });
+
+  it("NM-D7 GET /api/folders 還沒回 → 子選單只有群組項、沒有「, open」；回了才補上 A、B", async () => {
+    const s = stub({ ...BASE_SERVER, hold: new Set([URLS.folders]) });
+    renderMenu();
+    const sub = await openFlyout(await openMenuReady("note-menu-move-to"));
+    await waitFor(() => expect(names(sub)).toEqual(["G", "H"]));
+    expect(names(sub).some((name) => name.endsWith(", open"))).toBe(false);
+    await act(async () => s.release(URLS.folders, okJson({ folders: [A, A1, B] })));
+    await waitFor(() => expect(names(sub)).toEqual(["A, open", "B", "G", "H"]));
+  });
+
+  it("NM-D8 點「B」（沒有子資料夾）→ 選單關、不開確認框、PUT {folderId:B}、toast「Moved to “B”」", async () => {
+    const s = stub(BASE_SERVER);
+    renderMenu();
+    const sub = await openMoveSub(["A, open", "B", "G", "H"]);
+    fireEvent.click(within(sub).getByRole("menuitem", { name: "B" }));
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    expect(await screen.findByText("Moved to “B”")).toBeInTheDocument();
+    expect(placeBodies(s)).toEqual([{ folderId: "B" }]);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument();
+  });
+
+  it("NM-D9 點「G, open」→ [Back, Top level, GF]；選 GF → 選單關、移入確認框說明含 G › GF、不送 PUT", async () => {
+    const s = stub({ ...BASE_SERVER, folders: [A, A1, B, GF] });
+    renderMenu();
+    const sub = await openMoveSub(["A, open", "B", "G, open", "H"]);
+    fireEvent.click(within(sub).getByRole("menuitem", { name: "G, open" }));
+    await waitFor(() => expect(names(sub)).toEqual(["Back", "Top level", "GF"]));
+    fireEvent.click(within(sub).getByRole("menuitem", { name: "GF" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent('Move this note into "G › GF"?');
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(placeBodies(s)).toEqual([]);
+  });
+
+  it("NM-D10 Copy to… 第一層選「Make a copy」→ CopyDialog 標題 Make a copy", async () => {
+    stub(BASE_SERVER);
+    renderMenu();
+    const sub = await openFlyout(await openMenuReady("note-menu-copy-to"));
+    await waitFor(() => expect(names(sub)).toEqual(["Make a copy", "A, open", "B", "G", "H"]));
+    fireEvent.click(within(sub).getByRole("menuitem", { name: "Make a copy" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("heading", { name: "Make a copy" })).toBeInTheDocument();
+  });
+
+  it("NM-D11 筆記在 B（沒有子資料夾）→ 第一層有 Top level、B 那一項 aria-disabled", async () => {
+    stub(BASE_SERVER);
+    renderMenu({ ...NOTE, folderId: "B" });
+    const sub = await openMoveSub(["Top level", "A, open", "B", "G", "H"]);
+    expect(within(sub).getByRole("menuitem", { name: "B" })).toHaveAttribute("aria-disabled", "true");
+    expect(within(sub).getByRole("menuitem", { name: "Top level" })).not.toHaveAttribute("aria-disabled");
+  });
+
+  it("NM-D12 群組筆記（edit）→ Move to… 只列本群組資料夾；只讀 → 沒有 Move to…；共享筆記 → 只列共享資料夾", async () => {
+    const IN_G: NoteDto = { ...MOVED, groupId: GG, group: { id: GG, name: "G" } };
+    stub({ groups: [G, H], folders: [A, GF, HF, SF] });
+    renderMenu(IN_G);
+    await openMoveSub(["GF"]);
+    cleanup();
+    vi.unstubAllGlobals();
+    stubInlineMode(false);
+
+    stub({ groups: [G, H], folders: [A, GF, HF, SF] });
+    renderMenu({ ...IN_G, role: "viewer", permissions: { ...EDITOR_PERMS, edit: false } });
+    await openMenuReady("note-menu-copy-to");
+    await act(async () => {});
+    expect(screen.queryByTestId("note-menu-move-to")).toBeNull();
+    cleanup();
+    vi.unstubAllGlobals();
+    stubInlineMode(false);
+
+    stub({ groups: [G, H], folders: [A, GF, HF, SF] });
+    renderMenu({ ...NOTE, role: "editor", ownerId: "someone", ownerHandle: "someone", permissions: { ...EDITOR_PERMS, moveToGroup: false } });
+    await openMoveSub(["SF"]);
+  });
+
+  it("NM-D13 zh：「A，開啟下一層」→「返回」「移動到這裡」", async () => {
+    await i18n.changeLanguage("zh-TW");
+    stub(BASE_SERVER);
+    renderMenu();
+    fireEvent.pointerDown(screen.getByRole("button", { name: "更多" }), { button: 0 });
+    const sub = await openFlyout(await screen.findByTestId("note-menu-move-to"));
+    await waitFor(() => expect(names(sub)).toEqual(["A，開啟下一層", "B", "G", "H"]));
+    fireEvent.click(within(sub).getByRole("menuitem", { name: "A，開啟下一層" }));
+    await waitFor(() => expect(names(sub)).toEqual(["返回", "移動到這裡", "A1"]));
+  });
+
+  // 以下 NM-D14–D18、NM-I4 是 implementer 自補（brief 沒列）：所在層失效（T2 交接：不看 path.length）、選定後與收合時回第一層、復原送回原處。
+  it("NM-D14 在 A › A1 時 A1 被刪（folders 重抓）→ 顯示 A 那層；按「返回」恰退一層到第一層", async () => {
+    const s = stub({ ...BASE_SERVER, folders: [A, A1, A2, B] });
+    const qc = renderMenu();
+    const sub = await openMoveSub(["A, open", "B", "G", "H"]);
+    fireEvent.click(within(sub).getByRole("menuitem", { name: "A, open" }));
+    fireEvent.click(await within(sub).findByRole("menuitem", { name: "A1, open" }));
+    await waitFor(() => expect(names(sub)).toEqual(["Back", "Move here", "A2"]));
+    s.server.folders = [A, B];
+    await act(async () => {
+      await qc.invalidateQueries({ queryKey: ["folders"] });
+    });
+    await waitFor(() => expect(names(sub)).toEqual(["Back", "Move here"]));
+    fireEvent.click(within(sub).getByRole("menuitem", { name: "Back" }));
+    await waitFor(() => expect(names(sub)).toEqual(["A", "B", "G", "H"]));
+  });
+
+  it("NM-D15 在 A 那層時 A 被刪 → 顯示第一層；第一層 ArrowLeft 照 Radix 關子選單（不是回「上一層」）", async () => {
+    const s = stub(BASE_SERVER);
+    const qc = renderMenu();
+    const sub = await openMoveSub(["A, open", "B", "G", "H"]);
+    fireEvent.click(within(sub).getByRole("menuitem", { name: "A, open" }));
+    await waitFor(() => expect(names(sub)).toEqual(["Back", "Move here", "A1"]));
+    s.server.folders = [B];
+    await act(async () => {
+      await qc.invalidateQueries({ queryKey: ["folders"] });
+    });
+    await waitFor(() => expect(names(sub)).toEqual(["B", "G", "H"]));
+    fireEvent.keyDown(within(sub).getByRole("menuitem", { name: "B" }), { key: "ArrowLeft" });
+    await waitFor(() => expect(subMenu()).toBeNull());
+  });
+
+  it("NM-D16 在 A 那層時 A 被刪 → 第一層點「B, open」→ 進 B 那層（不接在失效的 A 後面）", async () => {
+    const B1 = folderDto({ id: "B1", name: "B1", parentId: "B" });
+    const s = stub({ ...BASE_SERVER, folders: [A, A1, B, B1] });
+    const qc = renderMenu();
+    const sub = await openMoveSub(["A, open", "B, open", "G", "H"]);
+    fireEvent.click(within(sub).getByRole("menuitem", { name: "A, open" }));
+    await waitFor(() => expect(names(sub)).toEqual(["Back", "Move here", "A1"]));
+    s.server.folders = [B, B1];
+    await act(async () => {
+      await qc.invalidateQueries({ queryKey: ["folders"] });
+    });
+    await waitFor(() => expect(names(sub)).toEqual(["B, open", "G", "H"]));
+    fireEvent.click(within(sub).getByRole("menuitem", { name: "B, open" }));
+    await waitFor(() => expect(names(sub)).toEqual(["Back", "Move here", "B1"]));
+  });
+
+  it("NM-D17 在第二層選定（開確認框、選單由程式關閉）→ 取消後再開 ⋮ → 子選單回第一層", async () => {
+    stub({ ...BASE_SERVER, folders: [A, A1, B, GF] });
+    renderMenu();
+    const sub = await openMoveSub(["A, open", "B", "G, open", "H"]);
+    fireEvent.click(within(sub).getByRole("menuitem", { name: "G, open" }));
+    fireEvent.click(await within(sub).findByRole("menuitem", { name: "GF" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    const again = await openFlyout(await openMenuReady("note-menu-move-to"));
+    expect(names(again)).toEqual(["A, open", "B", "G, open", "H"]);
+  });
+
+  it("NM-D18 筆記在 A1：移到 B → toast 用短名「B」；按 Undo → PUT 回 {folderId:A1}", async () => {
+    const s = stub(BASE_SERVER);
+    renderMenu({ ...NOTE, folderId: "A1" });
+    const sub = await openMoveSub(["Top level", "A, open", "B", "G", "H"]);
+    fireEvent.click(within(sub).getByRole("menuitem", { name: "B" }));
+    expect(await screen.findByText("Moved to “B”")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(placeBodies(s)).toEqual([{ folderId: "B" }, { folderId: "A1" }]));
+  });
+
+  describe("就地展開形（窄視窗／觸控）", () => {
+    beforeEach(() => {
+      stubInlineMode(true);
+    });
+
+    /** 開 ⋮、展開 Move to…，等縮排區有 expected 這些項。 */
+    async function expandMove(expected: string[]): Promise<{ trigger: HTMLElement; group: HTMLElement }> {
+      const trigger = await openMenuReady("note-menu-move-to");
+      fireEvent.click(trigger);
+      const group = screen.getByRole("group", { name: "Move to…" });
+      await waitFor(() => expect(names(group)).toEqual(expected));
+      return { trigger, group };
+    }
+
+    it("NM-I1 展開 → 縮排的 A（帶 >）…；點 A → 縮排區換成 [Back, Move here, A1]、觸發項仍在、焦點在 Back", async () => {
+      stub(BASE_SERVER);
+      renderMenu();
+      const { trigger, group } = await expandMove(["A, open", "B", "G", "H"]);
+      const a = within(group).getByRole("menuitem", { name: "A, open" });
+      expect(a).toHaveClass("pl-6");
+      expect(a.querySelector('svg[data-icon="chevron-right"]')).toHaveAttribute("aria-hidden", "true");
+      fireEvent.click(a);
+      await waitFor(() => expect(names(screen.getByRole("group", { name: "Move to…" }))).toEqual(["Back", "Move here", "A1"]));
+      expect(trigger).toBeInTheDocument();
+      expect(trigger).toHaveAttribute("aria-expanded", "true");
+      const back = screen.getByRole("menuitem", { name: "Back" });
+      expect(back).toHaveClass("pl-6");
+      expect(document.activeElement).toBe(back);
+      expect(screen.getAllByRole("menu")).toHaveLength(1);
+    });
+
+    it("NM-I2 第二層 ArrowLeft → 回第一層（仍展開）；第一層 ArrowLeft → 收合", async () => {
+      stub(BASE_SERVER);
+      renderMenu();
+      const { trigger, group } = await expandMove(["A, open", "B", "G", "H"]);
+      fireEvent.click(within(group).getByRole("menuitem", { name: "A, open" }));
+      const back = await screen.findByRole("menuitem", { name: "Back" });
+      fireEvent.keyDown(back, { key: "ArrowLeft" });
+      await waitFor(() => expect(names(screen.getByRole("group", { name: "Move to…" }))).toEqual(["A, open", "B", "G", "H"]));
+      expect(trigger).toHaveAttribute("aria-expanded", "true");
+      const first = screen.getByRole("menuitem", { name: "A, open" });
+      expect(document.activeElement).toBe(first);
+      fireEvent.keyDown(first, { key: "ArrowLeft" });
+      await waitFor(() => expect(trigger).toHaveAttribute("aria-expanded", "false"));
+      expect(screen.getByRole("menu")).toBeInTheDocument();
+    });
+
+    it("NM-I3 第二層按 Esc → 收合、選單仍開；再展開 → 第一層", async () => {
+      stub(BASE_SERVER);
+      renderMenu();
+      const { trigger, group } = await expandMove(["A, open", "B", "G", "H"]);
+      fireEvent.click(within(group).getByRole("menuitem", { name: "A, open" }));
+      const back = await screen.findByRole("menuitem", { name: "Back" });
+      fireEvent.keyDown(back, { key: "Escape" });
+      await waitFor(() => expect(trigger).toHaveAttribute("aria-expanded", "false"));
+      expect(screen.getByRole("menu")).toBeInTheDocument();
+      fireEvent.click(trigger);
+      expect(names(screen.getByRole("group", { name: "Move to…" }))).toEqual(["A, open", "B", "G", "H"]);
+    });
+
+    it("NM-I4（自補）第二層時再點觸發項收合 → 再展開回第一層；第二層時改展開 Copy to… → 回頭展開 Move to… 也是第一層", async () => {
+      stub(BASE_SERVER);
+      renderMenu();
+      const { trigger, group } = await expandMove(["A, open", "B", "G", "H"]);
+      fireEvent.click(within(group).getByRole("menuitem", { name: "A, open" }));
+      await screen.findByRole("menuitem", { name: "Back" });
+      fireEvent.click(trigger);
+      expect(trigger).toHaveAttribute("aria-expanded", "false");
+      fireEvent.click(trigger);
+      expect(names(screen.getByRole("group", { name: "Move to…" }))).toEqual(["A, open", "B", "G", "H"]);
+
+      fireEvent.click(screen.getByRole("menuitem", { name: "A, open" }));
+      await screen.findByRole("menuitem", { name: "Back" });
+      fireEvent.click(screen.getByTestId("note-menu-copy-to"));
+      expect(trigger).toHaveAttribute("aria-expanded", "false");
+      fireEvent.click(trigger);
+      expect(names(screen.getByRole("group", { name: "Move to…" }))).toEqual(["A, open", "B", "G", "H"]);
+    });
+
+    // flyout 形的 NM-D6／NM-D17 另有 Radix `MenuSub` 自己的保險（父選單關閉或卸載時呼叫 onOpenChange(false) → 子選單關閉重設 path），
+    // 主選單關閉與選定後的重設只有在就地展開形才是唯一一道：這兩案守它（自補）。
+    it("NM-I5（自補，NM-D6 的就地展開版）第二層時點選單外關掉整個選單 → 再開、展開 → 第一層", async () => {
+      stub(BASE_SERVER);
+      renderMenu();
+      const { group } = await expandMove(["A, open", "B", "G", "H"]);
+      fireEvent.click(within(group).getByRole("menuitem", { name: "A, open" }));
+      await screen.findByRole("menuitem", { name: "Back" });
+      fireEvent.pointerDown(document.body);
+      await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+      fireEvent.click(await openMenuReady("note-menu-move-to"));
+      expect(names(screen.getByRole("group", { name: "Move to…" }))).toEqual(["A, open", "B", "G", "H"]);
+    });
+
+    it("NM-I6（自補，NM-D17 的就地展開版）第二層選定（確認框）→ 取消後再開、展開 → 第一層", async () => {
+      stub({ ...BASE_SERVER, folders: [A, A1, B, GF] });
+      renderMenu();
+      const { group } = await expandMove(["A, open", "B", "G, open", "H"]);
+      fireEvent.click(within(group).getByRole("menuitem", { name: "G, open" }));
+      fireEvent.click(await screen.findByRole("menuitem", { name: "GF" }));
+      const dialog = await screen.findByRole("dialog");
+      fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      fireEvent.click(await openMenuReady("note-menu-move-to"));
+      expect(names(screen.getByRole("group", { name: "Move to…" }))).toEqual(["A, open", "B", "G, open", "H"]);
+    });
+  });
+});
+
+describe("isSameSpaceMove（PR-3b-2 T4 fix）", () => {
+  const place = (space: DestSpace): DestinationPick["target"] => ({ kind: "place", space, folder: null });
+  const pick = (kind: "move" | "copy", target: DestinationPick["target"]): DestinationPick => ({ kind, target, groups: [], index: indexFolders([]) });
+  const groupNote: NoteDto = { ...NOTE, groupId: GA };
+  /** 別人分享給我的筆記：移動來源的上半部是「與我共享」（`noteDestSource`）。 */
+  const sharedWithMe: NoteDto = { ...NOTE, ownerId: "u2", role: "editor", permissions: { ...EDITOR_PERMS } };
+
+  it("個人筆記移到我的筆記、共享筆記移到共享 → true", () => {
+    expect(isSameSpaceMove(NOTE, pick("move", place({ kind: "personal" })))).toBe(true);
+    expect(isSameSpaceMove(sharedWithMe, pick("move", place({ kind: "shared" })))).toBe(true);
+  });
+  it("群組筆記移到自己的群組 → true", () => {
+    expect(isSameSpaceMove(groupNote, pick("move", place({ kind: "group", groupId: GA, name: "A" })))).toBe(true);
+  });
+  it("個人筆記移到群組、群組筆記移到別的群組 → false", () => {
+    expect(isSameSpaceMove(NOTE, pick("move", place({ kind: "group", groupId: GA, name: "A" })))).toBe(false);
+    expect(isSameSpaceMove(groupNote, pick("move", place({ kind: "group", groupId: GC, name: "C" })))).toBe(false);
+  });
+  it("複製、建立副本 → false", () => {
+    expect(isSameSpaceMove(NOTE, pick("copy", place({ kind: "personal" })))).toBe(false);
+    expect(isSameSpaceMove(NOTE, pick("copy", { kind: "makeCopy" }))).toBe(false);
+    expect(isSameSpaceMove(NOTE, pick("move", { kind: "makeCopy" }))).toBe(false);
   });
 });

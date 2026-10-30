@@ -10,7 +10,7 @@ import { AiKeyDecryptError, decryptApiKey } from "../ai/crypto.js";
 import type { AiRuntime } from "../ai/runtime.js";
 import Anthropic from "@anthropic-ai/sdk";
 import { renderUserTemplate, streamAnthropic, streamOpenAiCompatible, truncateBody, UpstreamError, type UpstreamHandle } from "../ai/upstream.js";
-import { checkInstructFields, withInstructGuard, wrapInstructVars } from "../ai/instruct.js";
+import { checkInstructFields, withInstructGuard, withMarkupGuard, wrapInstructVars } from "../ai/instruct.js";
 import { sendError } from "../http/errors.js";
 import { safeTarget } from "../lib/safe-target.js";
 import { fetchErrorSummary, urlHasCredentials } from "../lib/fetch-error-summary.js";
@@ -229,7 +229,8 @@ export function aiRoutes(deps: AiRouteDeps) {
         const opts = {
           baseUrl: resolved.provider.baseUrl,
           model: resolved.model.modelId,
-          system: isInstruct ? withInstructGuard(action.systemPrompt) : action.systemPrompt,
+          // 並排 PR-2（Q4）：每個動作都前置並排與尺寸的固定說明，排在 Instruct 守門之前；兩個 provider 分支共用這個 opts。
+          system: withMarkupGuard(isInstruct ? withInstructGuard(action.systemPrompt) : action.systemPrompt),
           user: renderUserTemplate(
             action.userTemplate,
             isInstruct
