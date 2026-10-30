@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { NARROW_QUERY } from "@/lib/sidebar-drawer";
 import { useSidebarTabActions, useSidebarTabState } from "@/lib/sidebar-tab";
 import { isCollapsed, useCollapseVersion } from "./collapse";
-import { selectedTabNotes, visibleNoteKeys } from "./select-model";
+import { selectedTargets, visibleSelectionKeys } from "./select-model";
 import type { SidebarNode } from "./tree";
 
 /** 開著的 Radix Toast（`@radix-ui/react-toast` 的 root 是 `<li data-swipe-direction data-state>`）。 */
@@ -13,7 +13,8 @@ const OPEN_TOAST = 'li[data-swipe-direction][data-state="open"]';
 
 /**
  * 一般 tab 選取模式的標題列（#181 PR-2c，spec §6.11；class 同 `TrashPanel.renderHeader` 的選取支）：「已選 N 項」＋全選／取消全選＋完成。
- * 「全選」只勾畫面上看得見的列（收合群組的子樹不算，資料夾 spec §6.10）、不清掉先前在收合子樹裡勾的；「已選 N 項」不看收合。
+ * 「全選」只勾畫面上看得見的列（資料夾列與筆記列都算；收合的群組／資料夾的子樹不算，資料夾 spec §6.10）、不清掉先前在收合子樹裡勾的。
+ * 「已選 N 項」＝資料夾與筆記合計、不看收合、不去重（去重在送出前，§6.10）。
  * 「全選／取消全選／完成」沿用首包的 `trash.*` 字串（鍵名前綴不準，但改名要動首包兩語系與 PR-2b 測試）。
  * 只准經 `SelectLazy` 引用。
  */
@@ -76,8 +77,8 @@ export function SelectHeader({
     };
   }, []);
 
-  const count = selectedTabNotes(nodes, selection.keys).length;
-  const visible = visibleNoteKeys(nodes, isCollapsed);
+  const count = selectedTargets(nodes, selection.keys).length;
+  const visible = visibleSelectionKeys(nodes, isCollapsed);
   const allVisibleSelected = visible.length > 0 && visible.every((key) => selection.keys.has(key));
 
   return (

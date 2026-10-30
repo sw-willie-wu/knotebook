@@ -18,7 +18,7 @@ import { showTrashedToast } from "@/lib/trash-undo";
 import { Button } from "@/components/ui/button";
 import { Copy, FolderInput, Trash } from "@/components/ui/icons";
 import { toast } from "@/components/ui/toast";
-import type { DestSpace, DestTarget } from "./destination-level";
+import { buildDestinationLevel, type DestSpace, type DestTarget } from "./destination-level";
 import { DestinationPickerDialog } from "./DestinationPickerDialog";
 import { CopyConfirmDialog, MoveConfirmDialog } from "./select-dialogs";
 import {
@@ -33,7 +33,7 @@ import {
   type SelectActionId,
 } from "./select-model";
 import { beginSelectRun, endSelectRun, updateSelectRun, useSelectRun } from "./select-run";
-import { indexFolders } from "./folder-index";
+import { EMPTY_FOLDER_INDEX, indexFolders } from "./folder-index";
 import { useFolderSortOf } from "./folder-sort";
 import { buildTabNodes } from "./tree";
 
@@ -72,10 +72,22 @@ function errorMessage(t: Translate, err: unknown): string {
 const ACTION_TEXT_BUTTON = "min-w-0 flex-1 gap-1.5 px-1.5";
 const ACTION_ICON = "hidden h-4 w-4 shrink-0 @min-[14.5rem]:block";
 
+/** PR-2c 的根層目的地 → T2 的 DestSpace（T6b 換成逐層目的地後刪）。 */
+function destinationSpace(destination: Destination): DestSpace {
+  return destination.kind === "group" ? { kind: "group", groupId: destination.groupId, name: destination.name } : { kind: "personal" };
+}
+
 /** PR-2c 的根層目的地 → T5 的 DestTarget（我的筆記根層／群組根層；T6b 換成逐層目的地後刪）。 */
 function rootTarget(destination: Destination): DestTarget {
-  const space: DestSpace = destination.kind === "group" ? { kind: "group", groupId: destination.groupId, name: destination.name } : { kind: "personal" };
-  return { kind: "place", space, folder: null };
+  return { kind: "place", space: destinationSpace(destination), folder: null };
+}
+
+/** 過渡接法（T6a→T6b，T6b 刪）：目的地框回的根層 DestTarget → PR-2c 的 Destination；過渡層只有個人／群組根層，其餘回 null。 */
+function pickedDestination(target: DestTarget): Destination | null {
+  if (target.kind !== "place" || target.folder !== null) return null;
+  const { space } = target;
+  if (space.kind === "personal") return { kind: "personal" };
+  return space.kind === "group" ? { kind: "group", groupId: space.groupId, name: space.name } : null;
 }
 
 interface Snapshot {
@@ -136,6 +148,21 @@ export function SelectActionBar() {
   const deletable = partitionEligible("delete", selected);
   const groups = groupsQuery.data;
   const destinations = (mode: "move" | "copy") => (groups === undefined ? null : buildDestinationTree({ mode, groups, t }));
+  /**
+   * 過渡接法（T6a→T6b，T6b 刪）：PR-2c 的平清單轉成目的地框的第一層——沒有上半部、沒有資料夾，所以不會有分隔線與 drill，
+   * 項目與 PR-2c 同名同序（move＝候選群組；copy＝我的筆記＋候選群組）。
+   */
+  const pickerLevel = (mode: "move" | "copy") => {
+    const nodes = destinations(mode);
+    if (nodes === null) return null;
+    const others = nodes.map((node) => destinationSpace(node.destination));
+    return buildDestinationLevel({
+      source: { mode, current: null, makeCopy: false, others, locations: [], movingFolders: [] },
+      path: [],
+      index: EMPTY_FOLDER_INDEX,
+      t,
+    });
+  };
   const busy = run !== null;
   const available = SELECT_ACTIONS[tab];
 
@@ -328,11 +355,17 @@ export function SelectActionBar() {
       <DestinationPickerDialog
         mode={pickerMode ?? "copy"}
         count={pickerMode === "move" ? moveEligible.eligible.length : selected.length}
-        nodes={pickerMode === null ? null : destinations(pickerMode)}
+        hasFolders={false}
+        level={pickerMode === null ? null : pickerLevel(pickerMode)}
+        levelKey="[]"
         error={groupsQuery.isError && groups === undefined ? groupsQuery.error : null}
         open={pickerMode !== null}
-        onPick={(destination) => {
-          if (pickerMode === null) return;
+        // 過渡層沒有 drill 與「‹ 返回」：這兩支不會被呼叫（T6b 接上逐層 path）。
+        onDrill={() => {}}
+        onBack={() => {}}
+        onPick={(target) => {
+          const destination = pickedDestination(target);
+          if (pickerMode === null || destination === null) return;
           pickedRef.current = true;
           submittedRef.current = false;
           setSnapshot(

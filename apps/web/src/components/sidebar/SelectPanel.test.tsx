@@ -4,7 +4,7 @@ import { flushSync } from "react-dom";
 import { act, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
-import type { GroupDto, NoteDto, UserDto } from "@knotebook/shared";
+import type { FolderDto, GroupDto, NoteDto, UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ActiveNoteProvider } from "@/lib/active-note";
 import { SidebarTabProvider, type SidebarTab } from "@/lib/sidebar-tab";
@@ -13,7 +13,7 @@ import { dismissAllToasts, toast, Toaster } from "@/components/ui/toast";
 import { __resetCollapseForTests } from "@/components/sidebar/collapse";
 import { adminRole, groupDto } from "@/test/fixtures";
 import { groupNote, personalNote, sharedNote } from "@/test/select-fixtures";
-import { FOLDER_LIST_EMPTY, folderDto } from "@/test/folder-fixtures";
+import { FOLDER_LIST_EMPTY, folderDto, groupFolder } from "@/test/folder-fixtures";
 import { __resetFolderSortForTests } from "@/components/sidebar/folder-sort";
 
 // 一般 tab 的選取模式：標題列「選取」、選取模式標題列（含 Esc）與勾選樹（#181 PR-2c T4，NS1–NS13）。
@@ -50,13 +50,16 @@ const S1 = sharedNote({ id: "s1", title: "s1", role: "viewer" });
 const ALL_NOTES = [P1, P2, P3, G1A, G1B, G2A, S1];
 
 /** `notes` 是可變的盒子：改 `box.notes` 後 invalidate 就重抓到新清單（NS10）。`pending: true` 讓 `GET /api/notes` 永不回。 */
-function stubFetch(box: { notes: NoteDto[]; groups?: GroupDto[]; pending?: boolean }) {
+function stubFetch(box: { notes: NoteDto[]; groups?: GroupDto[]; folders?: FolderDto[]; pending?: boolean }) {
   vi.stubGlobal(
     "fetch",
     vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method ?? "GET").toUpperCase();
-      if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
+      if (url === "/api/folders") {
+        const body = box.folders === undefined ? FOLDER_LIST_EMPTY : { folders: box.folders };
+        return Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } }));
+      }
       if (url === "/api/notes" && method === "GET") {
         if (box.pending) return new Promise<Response>(() => {});
         return Promise.resolve(fakeResponse(box.notes));
@@ -142,8 +145,8 @@ async function enterSelect(): Promise<void> {
   await within(panel()).findAllByRole("checkbox");
 }
 
-async function renderSelecting(opts: RenderOpts & { notes?: NoteDto[]; groups?: GroupDto[] } = {}) {
-  const box = { notes: opts.notes ?? ALL_NOTES, groups: opts.groups };
+async function renderSelecting(opts: RenderOpts & { notes?: NoteDto[]; groups?: GroupDto[]; folders?: FolderDto[] } = {}) {
+  const box = { notes: opts.notes ?? ALL_NOTES, groups: opts.groups, folders: opts.folders };
   stubFetch(box);
   const view = renderPanel(opts);
   await enterSelect();
@@ -678,7 +681,8 @@ describe("選取模式 × 資料夾", () => {
     __resetFolderSortForTests();
   });
 
-  it("NS-F1 我的筆記：資料夾 A 是 button[aria-expanded]、列內沒有勾選框；A 底下 fa1 有；收合 A → 全選只勾可見的 root3", async () => {
+  // PR-3b-2 T6a 改寫：資料夾列換成可勾（原斷言「列內沒有勾選框」「全選只勾 root3」反轉成下列）。
+  it("NS-F1 我的筆記：資料夾 A 列有 button[aria-expanded] 與勾選框 folder:A；A 底下 fa1 有；收合 A → 全選勾可見的 A 與 root3", async () => {
     stubFolders();
     renderPanel();
     await enterSelect();
@@ -686,13 +690,13 @@ describe("選取模式 × 資料夾", () => {
     const row = folderRow("A")!;
     const toggle = row.querySelector(":scope > div > button[aria-expanded]") as HTMLElement;
     expect(toggle).toHaveAttribute("aria-expanded", "true");
-    expect(row.firstElementChild!.querySelector('input[type="checkbox"]')).toBeNull();
+    expect(row.firstElementChild!.querySelector('input[type="checkbox"][data-selection-key="folder:A"]')).not.toBeNull();
     fireEvent.click(toggle);
     expect(localStorage.getItem("sidebar.collapsed.folder:A")).toBe("1");
     expect(checkbox("fa1")).toBeNull();
     fireEvent.click(within(header()).getByRole("button", { name: "Select all" }));
-    expect(checkedIds()).toEqual(["root3"]);
-    expect(within(header()).getByText("1 selected")).toBeInTheDocument();
+    expect(checkedIds()).toEqual(["folder:A", "root3"]);
+    expect(within(header()).getByText("2 selected")).toBeInTheDocument();
   });
 
   it("NS-F2 選取模式最近 tab：fa2 第二行 title「My notes › A › A1」", async () => {
@@ -702,5 +706,111 @@ describe("選取模式 × 資料夾", () => {
     await waitFor(() => expect(checkbox("fa2")).not.toBeNull());
     const line = checkbox("fa2").closest("label")!.querySelector('[title="My notes › A › A1"]');
     expect(line).toHaveTextContent("My notes › A › A1");
+  });
+});
+
+// ── 資料夾可勾（資料夾 spec §6.10；PR-3b-2 T6a，NSf1–NSf6）
+describe("選取模式 × 資料夾可勾（PR-3b-2 T6a）", () => {
+  // 我的筆記：A ⊃ { q1, q2 }、B（空）、根層 q3。可見序＝folder:A、q1、q2、folder:B、q3。
+  const FA = folderDto({ id: "A", name: "A" });
+  const FB = folderDto({ id: "B", name: "B" });
+  const Q1 = personalNote({ id: "q1", title: "q1", folderId: "A" });
+  const Q2 = personalNote({ id: "q2", title: "q2", folderId: "A" });
+  const Q3 = personalNote({ id: "q3", title: "q3" });
+  const MINE = { notes: [Q1, Q2, Q3], groups: [] as GroupDto[], folders: [FA, FB] };
+
+  const folderRow = (id: string) => panel().querySelector(`[data-node-kind="folder"][data-node-id="${id}"]`) as HTMLElement;
+  const folderBox = (id: string) => panel().querySelector(`input[type="checkbox"][data-selection-key="folder:${id}"]`) as HTMLInputElement | null;
+  /** 資料夾列（列的第一個子元素）裡的折疊鈕；不綁它是不是列的直接子元素（NSf1 另斷言它不在 label 內）。 */
+  const chevron = (id: string) => folderRow(id).firstElementChild!.querySelector("button[aria-expanded]") as HTMLButtonElement;
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    __resetFolderSortForTests();
+  });
+
+  it("NSf1 資料夾列：勾選框 folder:A（可及名稱 A）與獨立的 button[aria-expanded]（可及名稱 A、不在 label 內）；點 chevron 只收合、點名稱才勾", async () => {
+    await renderSelecting(MINE);
+    const toggle = chevron("A");
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(toggle).toHaveAccessibleName("A");
+    expect(toggle.closest("label")).toBeNull();
+    const box = folderBox("A")!;
+    expect(within(folderRow("A")).getByRole("checkbox", { name: "A" })).toBe(box);
+    const label = box.closest("label") as HTMLElement;
+    expect(folderRow("A").firstElementChild).toContainElement(label);
+    expect(label.querySelector('svg[data-icon="folder"]')).not.toBeNull();
+
+    fireEvent.click(toggle);
+    expect(chevron("A")).toHaveAttribute("aria-expanded", "false");
+    expect(folderBox("A")).not.toBeChecked();
+    expect(within(header()).getByText("0 selected")).toBeInTheDocument();
+
+    fireEvent.click(within(label).getByText("A"));
+    expect(folderBox("A")).toBeChecked();
+    expect(within(header()).getByText("1 selected")).toBeInTheDocument();
+    expect(label).toHaveClass("bg-brand-soft");
+  });
+
+  it("NSf2 勾 A → 1 selected；再勾 A 裡的 q1 → 2 selected（標題列不去重）", async () => {
+    await renderSelecting(MINE);
+    fireEvent.click(folderBox("A")!);
+    expect(within(header()).getByText("1 selected")).toBeInTheDocument();
+    fireEvent.click(checkbox("q1"));
+    expect(within(header()).getByText("2 selected")).toBeInTheDocument();
+    expect(checkedIds()).toEqual(["folder:A", "q1"]);
+  });
+
+  it("NSf3 收合 A 後全選 → A、B、q3 勾到、A 的子項沒有（展開後 q1、q2 未勾）", async () => {
+    await renderSelecting(MINE);
+    fireEvent.click(chevron("A"));
+    fireEvent.click(within(header()).getByRole("button", { name: "Select all" }));
+    expect(checkedIds()).toEqual(["folder:A", "folder:B", "q3"]);
+    expect(within(header()).getByText("3 selected")).toBeInTheDocument();
+    expect(within(header()).getByRole("button", { name: "Deselect all" })).toBeInTheDocument();
+    fireEvent.click(chevron("A"));
+    expect(checkbox("q1")).not.toBeChecked();
+    expect(checkbox("q2")).not.toBeChecked();
+    expect(within(header()).getByText("3 selected")).toBeInTheDocument();
+    expect(within(header()).getByRole("button", { name: "Select all" })).toBeInTheDocument();
+  });
+
+  it("NSf4 Shift 範圍含資料夾列：q2 → Shift q3 ＝ q2、B、q3；Shift＋點資料夾名稱（label 自己切換）也走範圍", async () => {
+    await renderSelecting(MINE);
+    fireEvent.click(checkbox("q2"));
+    fireEvent.click(checkbox("q3"), { shiftKey: true });
+    expect(checkedIds()).toEqual(["q2", "folder:B", "q3"]);
+
+    // 清空（錨點一併清掉）：全選 → 取消全選。
+    fireEvent.click(within(header()).getByRole("button", { name: "Select all" }));
+    fireEvent.click(within(header()).getByRole("button", { name: "Deselect all" }));
+    expect(checkedIds()).toEqual([]);
+    fireEvent.click(checkbox("q1"));
+    fireEvent.click(within(folderBox("B")!.closest("label") as HTMLElement).getByText("B"), { shiftKey: true });
+    expect(checkedIds()).toEqual(["q1", "q2", "folder:B"]);
+  });
+
+  it("NSf5 工作坊：群組列不可勾；群組下的資料夾 GF 可勾", async () => {
+    const GF = groupFolder({ id: "GF", name: "GF", groupId: G1.id });
+    const inGF = groupNote({ id: "g1f", title: "g1f", group: G1, folderId: "GF" });
+    await renderSelecting({ tab: "workspace", notes: [inGF, G1B, G2A], folders: [GF] });
+    for (const name of ["G1", "G2"]) {
+      const row = within(panel()).getByRole("button", { name, expanded: true });
+      expect(row.parentElement?.querySelector("input")).toBeNull();
+    }
+    expect(panel().querySelector('[data-selection-key^="group:"]')).toBeNull();
+    expect(within(panel()).getAllByRole("checkbox")).toHaveLength(4);
+    fireEvent.click(folderBox("GF")!);
+    expect(within(header()).getByText("1 selected")).toBeInTheDocument();
+    expect(checkedIds()).toEqual(["folder:GF"]);
+  });
+
+  it("NSf6 我的筆記只有空資料夾（沒有個人筆記）→ Select 可按、進入後有資料夾勾選框", async () => {
+    await renderSelecting({ notes: [S1], groups: [], folders: [FB] });
+    expect(within(panel()).getAllByRole("checkbox")).toEqual([folderBox("B")]);
   });
 });

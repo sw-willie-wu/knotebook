@@ -147,9 +147,12 @@ export function buildTabNodes(
   }));
 }
 
-/** 樹裡有沒有筆記節點（含群組、資料夾下的；空群組、空資料夾不算）：一般 tab 標題列「選取」鈕可不可按（PR-2c）。 */
-export function hasNoteNodes(nodes: readonly SidebarNode[]): boolean {
-  return nodes.some((node) => node.kind === "note" || hasNoteNodes(node.children));
+/**
+ * 樹裡有沒有可勾的節點（資料夾或筆記，含群組下的；群組節點本身不算，所以空群組不算、空資料夾算）：
+ * 一般 tab 標題列「選取」鈕可不可按（PR-2c；資料夾 spec §6.10 起資料夾也可勾）。
+ */
+export function hasSelectableNodes(nodes: readonly SidebarNode[]): boolean {
+  return nodes.some((node) => node.kind !== "group" || hasSelectableNodes(node.children));
 }
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
