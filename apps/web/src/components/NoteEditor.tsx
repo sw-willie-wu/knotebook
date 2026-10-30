@@ -72,13 +72,14 @@ const BLOCKED_TRANSFER_TOAST_KEYS: Record<BlockedTransferReason, string> = {
  * 媒體 data URL／非圖片檔案阻擋（spec §12.4）的 tiptap `editorProps.handleDOMEvents`。
  *
  * ⚠ **必須是 `handleDOMEvents`，不能用 `handlePaste`/`handleDrop`**（瀏覽器實測踩過，
- * 用後者，貼上等於完全沒有防線，拖放檔案也一樣）：BlockNote 自己註冊了 `handleDOMEvents.paste` 的外掛，
+ * 用後者，貼上等於完全沒有防線，只帶檔案的拖放也一樣）：BlockNote 自己註冊了 `handleDOMEvents.paste` 的外掛，
  * 而且**進來就無條件 `event.preventDefault()` 並自行處理**（`pasteExtension.ts`）；
- * drop 則由 `fileDropExtension.ts` 在遇到 `Files` 或沒有已知型別時接走。ProseMirror 的 DOM 事件流程是
+ * drop 則由 `fileDropExtension.ts` 依 `acceptedMIMETypes` 的順序取第一個命中的型別，只在那是 `Files`（沒有 text/html、
+ * text/plain 等排在前面的型別）或沒有已知型別時接走，其餘交給 PM。ProseMirror 的 DOM 事件流程是
  * 「先 `someProp('handleDOMEvents')`，那一層沒人認領才輪到內建的 editHandlers」，
  * 而 `handlePaste`/`handleDrop` 是在**內建 editHandlers 裡面**才被查詢的——換句話說
- * 貼上時 `handlePaste` 一次都不會被呼叫；drop 帶 `Files` 時（非圖片檔案阻擋要攔的正是這種）
- * `handleDrop` 也不會被呼叫。
+ * 貼上時 `handlePaste` 一次都不會被呼叫；drop 只帶 `Files`（沒有 text/html、text/plain 等排在前面的型別）時
+ * （非圖片檔案阻擋要攔的正是這種）`handleDrop` 也不會被呼叫。
  * 反過來 `handleDOMEvents` 這一層，`someProp` 是**先看直接傳入的 editorProps、
  * 再看外掛**，所以我們的 handler 跑得比 BlockNote 的外掛早。
  *
