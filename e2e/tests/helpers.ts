@@ -7,6 +7,11 @@ import { derivedVersionName } from "../../packages/shared/src/version-names.js";
  * `ADMIN_PASSWORD`）。#187 PR4 起 env 管理員首登**不強制改密碼**，所以全疊唯一密碼就是
  * `password`，所有 spec 直接用它登入（沒有「01 先改密碼、其餘 spec 用新密碼」的檔序耦合了）。
  * 強制改密碼不再有 e2e 覆蓋（代建已移除），由 `auth/guards.test.tsx`、`pages/ChangePasswordPage.test.tsx` 與 server 測試守。
+ *
+ * ⚠ 慣例：**新寫的案例要開／關公開連結（`PUT`／`DELETE …/public-link`），owner 一律用新帳號**（`randomEmail()` 註冊或
+ * `createUserViaInvite`），不要用 admin。那顆桶是 `PUBLIC_LINK_LIMIT`：key=userId、每人 10 次／10 分鐘固定窗；整套序跑時 admin
+ * 的額度已被 11／16／18／22／27 用掉，再加就會吃 429、而且紅在後面不相干的 spec。31 E3、34 C9a、36 A2-11 已照這樣做。
+ * （上列五支既有的維持用 admin，不要再往裡面加 admin 的公開連結操作。）
  */
 export const ADMIN = {
   email: "admin@e2e.local",
