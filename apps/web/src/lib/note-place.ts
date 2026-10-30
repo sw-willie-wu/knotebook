@@ -16,12 +16,18 @@ function invalidateIfFolderGone(queryClient: QueryClient, err: unknown): void {
   if (isFolderNotFound(err)) invalidateFolderRelated(queryClient);
 }
 
+/** 只改 ["notes"] 裡那一篇的 folderId（其他篇照快取現況）。 */
+function setCachedFolderId(queryClient: QueryClient, noteId: string, folderId: string | null): void {
+  queryClient.setQueryData<NoteDto[]>(["notes"], (list) => list?.map((note) => (note.id === noteId ? { ...note, folderId } : note)));
+}
+
 /**
  * spec §6.11.2 同空間移動：PUT → applyPlacedNote → expandFolderChain(目標) → toast「已移到「name」」＋「復原」。
  * 復原：PUT 回 from；成功不另出 toast（清單即時歸位）、失敗出 folderErrorMessage 錯誤 toast、不重試。
  * 失敗：folderErrorMessage 錯誤 toast；404 folder_not_found 另 invalidateFolderRelated。
  * toast 的 handler 只用參數捕捉的值：按「復原」時選單常已卸載（同 `lib/trash-undo.ts`）。
- * optimistic（拖曳，§6.13；⋮ 不帶）：PUT 前取消 ["notes"] 的進行中請求、快照、把該篇的 folderId 換成目標；失敗先還原快照再走上述錯誤路徑。
+ * optimistic（拖曳，§6.13；⋮ 不帶）：PUT 前取消 ["notes"]（exact：不動版本面板的 ["notes", id, "versions"]）的進行中請求、記下該篇原本的
+ * folderId、換成目標並展開目標鏈（放到收合的資料夾上時筆記不會先消失）；失敗只把該篇的 folderId 還原（PUT 期間別的寫入不被蓋掉），再走上述錯誤路徑。
  */
 export async function placeNoteWithUndo(args: {
   noteId: string;
@@ -34,23 +40,23 @@ export async function placeNoteWithUndo(args: {
 }): Promise<void> {
   const { noteId, from, to, index, queryClient, t } = args;
   const optimistic = args.optimistic === true;
-  let snapshot: NoteDto[] | undefined;
+  /** 快取裡該篇原本的 folderId；undefined＝沒有快取或快取裡沒有這篇（不寫入）。 */
+  let previous: { folderId: string | null } | undefined;
   if (optimistic) {
-    await queryClient.cancelQueries({ queryKey: ["notes"] });
-    snapshot = queryClient.getQueryData<NoteDto[]>(["notes"]);
-    if (snapshot !== undefined) {
-      queryClient.setQueryData<NoteDto[]>(
-        ["notes"],
-        snapshot.map((note) => (note.id === noteId ? { ...note, folderId: to.folderId } : note)),
-      );
+    await queryClient.cancelQueries({ queryKey: ["notes"], exact: true });
+    const note = queryClient.getQueryData<NoteDto[]>(["notes"])?.find((item) => item.id === noteId);
+    if (note !== undefined) {
+      previous = { folderId: note.folderId };
+      setCachedFolderId(queryClient, noteId, to.folderId);
     }
+    if (to.folderId !== null) expandFolderChain(index, to.folderId);
   }
   try {
     const placed = await placeNoteRequest(noteId, to.folderId);
     applyPlacedNote(queryClient, placed);
     if (to.folderId !== null) expandFolderChain(index, to.folderId);
   } catch (err) {
-    if (snapshot !== undefined) queryClient.setQueryData<NoteDto[]>(["notes"], snapshot);
+    if (previous !== undefined) setCachedFolderId(queryClient, noteId, previous.folderId);
     invalidateIfFolderGone(queryClient, err);
     toast({ title: folderErrorMessage(t, err), variant: "destructive" });
     return;

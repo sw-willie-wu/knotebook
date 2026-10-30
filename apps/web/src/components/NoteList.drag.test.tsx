@@ -10,7 +10,7 @@ import { SidebarTabList } from "@/components/sidebar/SidebarTabList";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { __resetCollapseForTests, setCollapsed } from "@/components/sidebar/collapse";
 import { __resetFolderSortForTests } from "@/components/sidebar/folder-sort";
-import { __resetDragSessionForTests, useDragView } from "@/components/sidebar/drag-session";
+import { __resetDragSessionForTests, getDragSource, useDragView } from "@/components/sidebar/drag-session";
 import { DRAG_HOVER_DELAY_MS, DRAG_NOTE_MIME } from "@/components/sidebar/drag-zone";
 import { DROP_SCOPE_CLASS } from "@/components/sidebar/useSidebarDrag";
 import { groupDto, memberRole } from "@/test/fixtures";
@@ -116,7 +116,7 @@ function DragProbe() {
 function renderNoteList(opts: { tab?: SidebarTab } = {}) {
   if (opts.tab) localStorage.setItem("sidebar.tab", opts.tab);
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(
+  const view = render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
         <ActiveNoteProvider>
@@ -132,7 +132,7 @@ function renderNoteList(opts: { tab?: SidebarTab } = {}) {
       <Toaster />
     </QueryClientProvider>,
   );
-  return { queryClient };
+  return { queryClient, unmount: view.unmount };
 }
 
 const panel = () => screen.getByRole("tabpanel");
@@ -402,5 +402,36 @@ describe("NoteList 拖曳", () => {
 
     expect(fireEvent.dragOver(rowOf("folder", "F"), { dataTransfer: files })).toBe(true);
     expect(scoped()).toHaveLength(0);
+  });
+
+  it("ND15 F 收合、不停留直接 drop 到 F 列 → PUT 回應前 F 已展開、A 在 F 底下看得到", async () => {
+    setCollapsed("folder:F", true);
+    const server = stubServer();
+    renderNoteList();
+    await waitForTree();
+    const dt = startDrag("A");
+    fireEvent.dragOver(rowOf("folder", "F"), { dataTransfer: dt });
+
+    fireEvent.drop(rowOf("folder", "F"), { dataTransfer: dt });
+    await waitFor(() => expect(server.puts).toHaveLength(1));
+
+    await waitFor(() => expect(childIds("folder", "F")).toContain("A"));
+    expect(nodeOf("note", "A")).not.toBeNull();
+    await server.respond();
+  });
+
+  it("ND16 發起拖曳的 NoteList 在拖曳中卸載 → 拖曳狀態結束、document 的 dragover 監聽移除", async () => {
+    stubServer();
+    const { unmount } = renderNoteList();
+    await waitForTree();
+    startDrag("A");
+    expect(getDragSource()).not.toBeNull();
+    const removeSpy = vi.spyOn(document, "removeEventListener");
+
+    unmount();
+
+    expect(getDragSource()).toBeNull();
+    expect(removeSpy).toHaveBeenCalledWith("dragover", expect.any(Function), true);
+    removeSpy.mockRestore();
   });
 });

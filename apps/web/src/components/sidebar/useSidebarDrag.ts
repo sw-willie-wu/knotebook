@@ -53,6 +53,11 @@ function onHold(hold: HoldAction): void {
   if (hold.kind === "spring") setCollapsed(`folder:${hold.folderId}`, false);
 }
 
+/** 進行中的拖曳是這一份發起的才清（另一份實例卸載不影響）。 */
+function endIfOwner(ownSource: { readonly current: DragSource | null }): void {
+  if (ownSource.current !== null && ownSource.current === getDragSource()) endDrag();
+}
+
 export function useSidebarDrag(args: {
   tab: SidebarTab;
   nodes: readonly SidebarNode[] | null;
@@ -76,6 +81,9 @@ export function useSidebarDrag(args: {
   // groupIds 與建樹的 groups 同源（NoteList 的 groupsQuery.data）。
   const lookup = useMemo(() => (nodes === null || dragTab === null ? null : buildDropLookup(nodes, dragTab, groupIds)), [nodes, dragTab, groupIds]);
   const enabled = isDragEnabled({ finePointer, tab, selectionActive: selection.active, creating: view.creating !== null, nodesReady: nodes !== null });
+
+  // 發起拖曳的這一份在拖曳中卸載（例如抽屜被關）：dragend 送不到 React，卸載時收尾。
+  useEffect(() => () => endIfOwner(ownSourceRef), []);
 
   const onDragStart = (event: DragEvent<HTMLDivElement>) => {
     if (!enabled || lookup === null) return;
