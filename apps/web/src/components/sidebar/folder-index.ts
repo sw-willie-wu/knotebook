@@ -144,9 +144,9 @@ export function expandFolderChain(index: FolderIndex, folderId: string): void {
  * - 整段吞掉所有錯誤（含取消）：展開是附帶效果，不丟出、不出 toast。
  */
 export async function expandAfterRestore(queryClient: QueryClient, restored: readonly NoteDto[]): Promise<void> {
-  const folderIds = restored.flatMap((note) => (note.folderId === null ? [] : [note.folderId]));
-  if (folderIds.length === 0) return;
   try {
+    const folderIds = restored.flatMap((note) => (note.folderId === null ? [] : [note.folderId]));
+    if (folderIds.length === 0) return;
     const folders = await queryClient.fetchQuery({ queryKey: FOLDERS_QUERY_KEY, queryFn: fetchFolders, staleTime: 0 });
     const index = indexFolders(folders);
     for (const folderId of folderIds) expandFolderChain(index, folderId);
