@@ -21,7 +21,13 @@ import { randomUUID } from "node:crypto";
 import { eq, inArray } from "drizzle-orm";
 import * as Y from "yjs";
 import { groups, noteSearchSections, noteStates, notes, uploads, users } from "../src/db/schema.js";
-import { MCP_IMAGE_MAX_BYTES, MCP_LIST_WIRE_BUDGET, MCP_PAGE_MAX } from "../src/mcp/limits.js";
+import {
+  MCP_DELETE_FOLDER_IDS_MAX,
+  MCP_FOLDER_PAGE_MAX,
+  MCP_IMAGE_MAX_BYTES,
+  MCP_LIST_WIRE_BUDGET,
+  MCP_PAGE_MAX,
+} from "../src/mcp/limits.js";
 import { writeSearchIndex } from "../src/notes/search-index.js";
 import { SEARCH_EXTRACTOR_VERSION } from "../src/notes/search-text.js";
 import { buildCollabTestApp, type CollabTestCtx } from "./helpers.js";
@@ -29,7 +35,7 @@ import { getContent, seedContent, seedTokenForUser } from "./editing-helpers.js"
 import { mcpPost, rpc } from "./mcp-helpers.js";
 import { seedUpload } from "./copy-helpers.js";
 import { cookieOf, seedGroup } from "./group-helpers.js";
-import { seedFolderChain, setNoteFolder } from "./folder-helpers.js";
+import { seedFolder, seedFolderChain, seedManyNotesInFolder, setNoteFolder } from "./folder-helpers.js";
 import { wireCost } from "../src/mcp/wire-budget.js";
 import { markTrashed } from "./trash-helpers.js";
 import type { Db } from "../src/db/index.js";
@@ -100,7 +106,12 @@ export const MCP_MAX_WIRE = 262_144;
  * 依原配方重訂：52 043 向上取整到 1024 的倍數＝52 224 → ×1.3 ＝ 67 891.2 → 進位 **67 900**。T7（`move_note_to_folder` 與三支 `folder_id`）、
  * T8（`delete_folder`）還會再加；T9 做最後一次重訂與棚內突變。
  *
- * 最近一次依原配方重訂：2026-10-29（#folders PR-3d T6，見上；前一次 2026-10-26 是 #181 PR-2d）；下次逼近時同樣回頭重訂連同推導，不是逕自調大。
+ * **#folders PR-3d（2026-10-30，feat/folders-mcp，T8 之上；定稿）：讀寫搬移刪除憑證十九支 wire ＝ 58 728**（舊門檻 67 900 的 86.5%）；對照組：
+ * 讀寫刪除十八支 55 315、讀寫搬移十六支 51 638、讀寫十五支 48 225、唯讀八支 24 004。T6 之後的中間值：T7 後 RWMD 十八支 56 343、T8 後 58 728
+ * （都在 67 900 內，當時沒有重訂；T9 只改 `instructions`，它不在 `tools/list` 裡，W 不變）。依原配方定稿：58 728 向上取整到 1024 的倍數＝59 392
+ * → ×1.3 ＝ 77 209.6 → 進位 **77 300**。資料夾整條線（main 的 49 300 → 77 300）的增量來自六支新工具與既有工具新增的欄位（`folder`、`pageCutShort`、`list_trash` 的 `cursor`／`folderPath` 等，見 T6 段）。
+ *
+ * 最近一次依原配方重訂：2026-10-30（#folders PR-3d 定稿，見上；之前 2026-10-29 PR-3d T6、2026-10-26 #181 PR-2d）；下次逼近時同樣回頭重訂連同推導，不是逕自調大。
  *
  * **什麼樣的迴歸會撞牆**（**突變實跑，2026-09-09**）：把 `edit_note` 的 `if_match`
  * 欄位 `.describe()` 加長 6000 字元（`"x".repeat(6000)` 接在句尾）→ wire 變成 **21 362**，
@@ -115,8 +126,10 @@ export const MCP_MAX_WIRE = 262_144;
  * 兩發都已 revert（棚內突變，md5 還原確認）。
  * #181 PR-2d 追記（**突變實跑，2026-10-26**，門檻 49 300、基線 37 125）：把 `delete_note` 的 description 加長
  * `N_LIST_MAX − W + 100` ＝ 12 275 字元（`x`，接在句尾）→ **49 400**，紅（`expected 49400 to be less than or equal to 49300`）；已 revert（棚內突變，md5 還原確認）。
+ * #folders PR-3d 定稿追記（**突變實跑，2026-10-30**，門檻 77 300、基線 58 728）：把 `delete_folder` 的 description 加長
+ * `N_LIST_MAX − W + 100` ＝ 18 672 字元（`x`，接在句尾）→ **77 400**，紅（`expected 77400 to be less than or equal to 77300`）；已 revert（棚內突變，md5 還原確認）。
  */
-export const N_LIST_MAX = 67_900;
+export const N_LIST_MAX = 77_300;
 
 /**
  * 案 (vii) 第一發（#181 `list_trash` 最壞形）的下界哨兵。2026-10-26 實測 **236 598**（群組名 80 個 `"`；第二發 67＋13 形 247 498；
@@ -152,17 +165,31 @@ async function callWire(
   name: string,
   args: unknown
 ): Promise<number> {
+  return (await callWireResult(app, token, label, name, args)).wire;
+}
+
+/** 同 {@link callWire}，另回 `structuredContent`（資料夾 PR-3d (viii) 要對回應內容下斷言）。 */
+async function callWireResult<T = Record<string, unknown>>(
+  app: FastifyInstance,
+  token: string,
+  label: string,
+  name: string,
+  args: unknown
+): Promise<{ wire: number; sc: T }> {
   const res = await mcpPost(app, rpc("tools/call", { name, arguments: args }), { token });
   expect(res.statusCode).toBe(200);
-  const result = res.json().result as { isError?: true };
+  const result = res.json().result as { isError?: true; structuredContent: T };
   // 錯誤結果都很小，會讓門檻假綠——被測的必須是成功路徑。
   expect(result.isError).toBeUndefined();
   const wire = res.body.length;
   measured.push({ label, wire });
   console.log(`[案 11c] ${label.padEnd(46)} wire=${String(wire).padStart(7)}  餘裕 ×${(MCP_MAX_WIRE / wire).toFixed(1)}`);
   expect(wire).toBeLessThanOrEqual(MCP_MAX_WIRE);
-  return wire;
+  return { wire, sc: result.structuredContent };
 }
+
+/** 一項在清單裡的 wire 成本（鏡像兩份＋兩個逗號；plan 讀碼發現 3 的計法）。 */
+const itemWire = (v: unknown): number => wireCost(v) + 2;
 
 type ListNotesPage = { notes: Array<Record<string, unknown> & { id: string; updatedAt: string }>; nextCursor: string | null; pageCutShort?: true };
 
@@ -699,6 +726,14 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
       const items = pages.flatMap(p => p.items);
       expect(new Set(items.map(i => i.id)).size).toBe(total);
       expect(items[0]!.folderPathTruncated).toBe(true); // 前提：真的帶上最壞路徑
+      // 資料夾 PR-3d T9（(viii) ④ 指回這裡）：每項最壞與路徑增量印出來，給 `limits.ts` 的推導註解定稿。
+      const noPath: Record<string, unknown> = { ...items[0]! };
+      delete noPath.folderPath;
+      delete noPath.folderPathTruncated;
+      console.log(
+        `[案 11c 每項] ${label} list_trash 每項最壞 ${Math.max(...items.map(itemWire))}  ` +
+          `folderPath 增量 ${wireCost(items[0]!) - wireCost(noPath)}  第一頁 ${pages[0]!.items.length} 項`
+      );
       return { pages, sum: items.reduce((s, i) => s + wireCost(i), 0) };
     };
     const first = await shot("(vii) list_trash 101 篇（群組名 80 個 \"）", MCP_PAGE_MAX + 1);
@@ -718,6 +753,130 @@ describe("#108 單次回應大小（案 11c／M16）", () => {
     const { token: rwmdToken } = await seedTokenForUser(ctx.db, o.id, "notes:read notes:write notes:move notes:delete");
     await callWire(ctx.app, rwmdToken, "(vii) restore_note（最壞標題）", "restore_note", { note_id: ids[0] });
     await callWire(ctx.app, rwmdToken, "(vii) delete_note（最壞標題）", "delete_note", { note_id: ids[0] });
+  });
+
+  /**
+   * 測資 (viii)（資料夾 PR-3d T9，spec §5.12 n-3 六發；plan 讀碼發現 2、3、19）：一個 app 內造齊。
+   * - 群組名 67 個 `"`＋13 個 U+0001、owner handle 32；群組資料夾鏈五層 `[33, 40, 40, 40, 41]` 個 `"`（截後成本恰 400 的嚴格最壞路徑）；
+   *   最深那層另有 50 個兄弟資料夾，名稱 78 個 `"`＋兩位數序號（逃脫後 158 → 截成 40 個 `"`＋`nameTruncated`，路徑同樣恰 400）。
+   *   序號放在尾端：截後留下的前綴全是 `"`（wire 最貴的字），放前面會留下兩個便宜的數字。
+   * - 100 篇 (iv) 形群組筆記放在最深那層；另一位使用者有同形的個人資料夾鏈與 100 篇個人筆記（個人形，`owner` 是 handle）。
+   * 六發：① list_notes（兩形）② search_notes ③ list_folders ④ list_trash＝(vii)（同一最深路徑形，不重造；值見 (vii) 的 `[案 11c]` 行）
+   * ⑥ read_note_outline（(ii) 形放進最深層）⑤ delete_folder（300 篇子樹；會刪東西，排最後）。
+   * 這一案不是下列三條突變的守衛（預算截頁或 fixture 太小遮掉）：資料夾名不截 → `unit/mcp-folder-fields` FF1、`mcp-folder-fields` AF3；
+   * 路徑只截段不丟段 → FF2、`mcp-trash-tools` LT8 八層案、`mcp-folders` LF4；list_folders 每頁改 100 → `mcp-folders` LF3。
+   * 破哨兵＝`limits.ts` 的上限表漏一列，處置是補列，不得調大 `MCP_MAX_WIRE`。
+   */
+  it("(viii) 資料夾最壞形六發：list_notes／search_notes／list_folders／read_note_outline／delete_folder 都 ≤ N（list_trash 見 (vii)）", async () => {
+    const ctx = await buildCollabTestApp();
+    const pool = ctx.db.$client;
+    const q = (n: number): string => '"'.repeat(n);
+    const shape = [33, 40, 40, 40, 41].map(q);
+    const agentLabel = "g".repeat(32);
+
+    const o = await owner(ctx);
+    await ctx.db.update(users).set({ handle: `h${"a".repeat(31)}` }).where(eq(users.id, o.id));
+    const g = await seedGroup(ctx.db, `${q(67)}${"\u0001".repeat(13)}`, [{ userId: o.id, role: "admin" }]);
+    const chain = await seedFolderChain(ctx.db, { group: g.id }, shape);
+    const deepest = chain[4]!;
+    for (let i = 0; i < MCP_FOLDER_PAGE_MAX; i += 1) {
+      await seedFolder(ctx.db, { group: g.id }, { parentId: chain[3]!, name: `${q(78)}${String(i).padStart(2, "0")}` });
+    }
+    const groupNoteIds: string[] = [];
+    for (let i = 0; i < MCP_PAGE_MAX; i += 1) {
+      const n = String(i).padStart(4, "0");
+      const id = await seedMaxNote(ctx.db, { groupId: g.id }, o.id, { title: q(200), slug: `${n}-${"s".repeat(95)}`, agentLabel });
+      await setNoteFolder(pool, id, deepest);
+      groupNoteIds.push(id);
+    }
+
+    const p = await owner(ctx);
+    await ctx.db.update(users).set({ handle: `p${"b".repeat(31)}` }).where(eq(users.id, p.id));
+    const pChain = await seedFolderChain(ctx.db, { personal: p.id }, shape);
+    for (let i = 0; i < MCP_PAGE_MAX; i += 1) {
+      const n = String(i).padStart(4, "0");
+      const id = await seedMaxNote(ctx.db, { ownerId: p.id }, p.id, { title: q(200), slug: `${n}-${"s".repeat(95)}`, agentLabel });
+      await setNoteFolder(pool, id, pChain[4]!);
+    }
+
+    // ① list_notes：筆記在最深層、folder.name 截過（40 個 `"`＋nameTruncated）→ 依預算截頁、第一頁貼近預算、續翻合計 100。
+    const firstWire = (label: string): number => measured.find(m => m.label === `${label} 第 1 頁`)!.wire;
+    const gLabel = "(viii)① list_notes 群組形（最深層）";
+    const gPages = await pageAllNotes(ctx.app, o.token, gLabel, MCP_PAGE_MAX);
+    expect(gPages[0]!.pageCutShort).toBe(true);
+    expect(firstWire(gLabel)).toBeGreaterThan(MCP_LIST_WIRE_BUDGET - 4_000); // 截點貼近預算＝fixture 夠壞
+    const gAll = expectPagedSameAsRest(gPages, await restNoteIds(ctx.app, o.id), MCP_PAGE_MAX);
+    expect(gAll.every(n => (n.folder as { id: string } | null)?.id === deepest)).toBe(true);
+    expect(gAll[0]!.folder).toMatchObject({ name: q(40), nameTruncated: true });
+    const pLabel = "(viii)① list_notes 個人形（最深層）";
+    const pPages = await pageAllNotes(ctx.app, p.token, pLabel, MCP_PAGE_MAX);
+    const pAll = expectPagedSameAsRest(pPages, await restNoteIds(ctx.app, p.id), MCP_PAGE_MAX);
+    expect(pAll[0]!.folder).toMatchObject({ id: pChain[4], nameTruncated: true });
+    console.log(
+      `[案 11c 每項] (viii)① list_notes 每項最壞 群組形 ${Math.max(...gAll.map(itemWire))}  個人形 ${Math.max(...pAll.map(itemWire))}  ` +
+        `第一頁 群組形 ${gPages[0]!.notes.length} 篇  個人形 ${pPages[0]!.notes.length} 篇${pPages[0]!.pageCutShort ? "（pageCutShort）" : ""}`
+    );
+
+    // ② search_notes：(v) 形（每篇 5 段最壞 heading／內文），100 篇都建索引，筆記帶最壞 folder → ≤ N、matchesTruncated。
+    for (const [i, id] of groupNoteIds.entries()) {
+      await ctx.db.insert(noteStates).values({ noteId: id, ydoc: Buffer.from(Y.encodeStateAsUpdate(new Y.Doc())), version: 1 });
+      const rows = Array.from({ length: 5 }, (_, k) => ({
+        sectionId: `${"s".repeat(62)}${String(k).padStart(2, "0")}`,
+        ord: k + 1,
+        heading: q(200),
+        body: `${q(150)}""""${q(150)}`,
+      }));
+      await writeSearchIndex(ctx.db, id, 1, { rows, contentHash: `f9-${i}`, indexedUnits: rows.reduce((s, r) => s + r.body.length, 0), capped: false, extractorVersion: SEARCH_EXTRACTOR_VERSION });
+    }
+    const search = await callWireResult<{ notes: Array<{ folder: unknown }>; matchesTruncated?: true }>(
+      ctx.app, o.token, "(viii)② search_notes 50×5 最壞＋folder", "search_notes", { query: '""""', limit: 50 }
+    );
+    expect(search.sc.notes).toHaveLength(50);
+    expect(search.sc.matchesTruncated).toBe(true);
+    expect(search.sc.notes[0]!.folder).toMatchObject({ id: deepest, nameTruncated: true });
+
+    // ③ list_folders 一整頁：55 個群組資料夾取前 50；預算截不到（發現 19）→ pageCutShort 不在（日後紅＝某欄上限放寬了）。
+    const lf = await callWireResult<{ folders: Array<Record<string, unknown>>; nextCursor: string | null; pageCutShort?: true }>(
+      ctx.app, o.token, "(viii)③ list_folders 一整頁", "list_folders", {}
+    );
+    expect(lf.sc.pageCutShort).toBeUndefined();
+    expect(lf.sc.folders).toHaveLength(MCP_FOLDER_PAGE_MAX);
+    expect(lf.sc.nextCursor).not.toBeNull();
+    // 鏈的前四層不截，其餘（最深層與 50 個兄弟）名稱與路徑都截過：一頁 50 項至少 46 項帶 pathTruncated。
+    expect(lf.sc.folders.filter(f => f.pathTruncated === true && f.nameTruncated === true).length).toBeGreaterThanOrEqual(MCP_FOLDER_PAGE_MAX - 4);
+    console.log(`[案 11c 每項] (viii)③ list_folders 每項最壞 ${Math.max(...lf.sc.folders.map(itemWire))}`);
+
+    // ④ list_trash：見 (vii)（同一個五層最深路徑形，每項另帶 folderPath）。
+
+    // ⑥ read_note_outline：(ii) 形（500 段、標題 1000 字）先在頂層（folder null）量一次，放進最深層再量 → 多 > 1 000（folder 欄真的在）。
+    const outlineNote = await ctx.createNote(p.id, "five hundred sections");
+    const session = await ctx.loginAs(p.email, PASSWORD);
+    const client = await seedContent(ctx, session, outlineNote.id, Array.from({ length: 500 }, (_, i) => `# ${String(i).padStart(4, "0")}${"h".repeat(994)}`).join("\n\n"));
+    const top = await callWireResult<{ folder: unknown }>(ctx.app, p.token, "(viii)⑥ read_note_outline 第一頁（頂層）", "read_note_outline", { note_id: outlineNote.id });
+    expect(top.sc.folder).toBeNull();
+    await setNoteFolder(pool, outlineNote.id, pChain[4]!);
+    const deep = await callWireResult<{ folder: { id: string; path: string[]; pathTruncated?: true } }>(
+      ctx.app, p.token, "(viii)⑥ read_note_outline 第一頁（最深層）", "read_note_outline", { note_id: outlineNote.id }
+    );
+    expect(deep.sc.folder).toMatchObject({ id: pChain[4], pathTruncated: true });
+    expect(deep.sc.folder.path).toHaveLength(5);
+    expect(deep.wire - top.wire).toBeGreaterThan(1_000);
+    const noFolder: Record<string, unknown> = { ...deep.sc };
+    delete noFolder.folder;
+    console.log(
+      `[案 11c 每項] (viii)⑥ read_note_outline folder 增量 對 null ${deep.wire - top.wire}  對無此鍵 ${wireCost(deep.sc) - wireCost(noFolder)}`
+    );
+    client.disconnect();
+
+    // ⑤ delete_folder 大子樹：最深層再補 200 篇（共 300）→ 刪整條鏈；回應 ≤ N、恰好 100 個 id＋旗標。
+    await seedManyNotesInFolder(pool, { groupId: g.id }, deepest, 200);
+    const { token: rwmdToken } = await seedTokenForUser(ctx.db, o.id, "notes:read notes:write notes:move notes:delete");
+    const df = await callWireResult<{ trashedNoteCount: number; trashedNoteIds: string[]; trashedNoteIdsTruncated?: true; deletedFolderCount: number }>(
+      ctx.app, rwmdToken, "(viii)⑤ delete_folder 300 篇子樹", "delete_folder", { folder_id: chain[0] }
+    );
+    expect(df.sc).toMatchObject({ trashedNoteCount: 300, trashedNoteIdsTruncated: true, deletedFolderCount: 5 + MCP_FOLDER_PAGE_MAX });
+    expect(df.sc.trashedNoteIds).toHaveLength(MCP_DELETE_FOLDER_IDS_MAX);
+    console.log(`[案 11c 每項] (viii)⑤ delete_folder payload（鏡像兩份）${wireCost(df.sc)}`);
   });
 
   // 整張表印一次（PR 描述要貼）。**刻意是 hook 不是 `it`**：它只彙整前面幾案已經斷言過的
