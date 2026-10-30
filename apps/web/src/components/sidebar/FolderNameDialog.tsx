@@ -1,9 +1,10 @@
 import "@/i18n/folder-strings";
-import { useState, type FormEvent, type RefObject } from "react";
+import { useCallback, useRef, useState, type FormEvent, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
 import { FOLDER_NAME_MAX, type FolderDto, type FolderSpaceDto } from "@knotebook/shared";
 import { FOLDERS_QUERY_KEY, folderErrorMessage, useCreateFolder, useRenameFolder } from "@/api/folders";
+import type { StackRenameHooks } from "@/components/NoteList";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogClose, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -31,22 +32,45 @@ type FolderNameDialogProps = {
   onOpenChange: (open: boolean) => void;
   /** 關閉時把焦點還給誰（受控 Dialog 沒有 trigger，Radix 不會自己還）；已卸載就交給 Radix 預設。 */
   returnFocusRef?: RefObject<HTMLElement | null>;
-} & ({ mode: "create"; parent: FolderCreateParent } | { mode: "rename"; folder: FolderDto });
+} & ({ mode: "create"; parent: FolderCreateParent } | { mode: "rename"; folder: FolderDto; stack?: StackRenameHooks });
 
 /**
  * 新增／重新命名資料夾（資料夾 spec §6.6，比照 `GroupNameDialog`：只在開啟時掛載、關閉還焦點）。
  * 名稱檢查順序照 server：trim → 字元集 → 以 code point 計 1–80；送出 trim 後的字串。錯誤（含 409 撞名）留在框內 `role="alert"`。
  * create 成功：parent 是資料夾 → 它與祖先寫成展開；parent 是群組空間 → 展開該群組（spec §6.8；新資料夾本身沒有鍵＝展開）。
+ * rename 帶 `stack`（疊資料夾建好後，§6.13 第 6 步）：開啟時全選預設名；關閉時 `stack.onClosed` 恰一次（送出成功＝送出的名字，
+ * 取消／Esc＝原名）；關閉焦點先試 `stack.focusTarget()`。不帶 `stack` 的行為不變。
  * 只准被 FolderLazy 鏈與測試 import。
  */
 export function FolderNameDialog(props: FolderNameDialogProps) {
   const { t } = useTranslation();
   const { open, onOpenChange, returnFocusRef } = props;
+  const stack = props.mode === "rename" ? props.stack : undefined;
   const queryClient = useQueryClient();
   const createFolder = useCreateFolder();
   const renameFolder = useRenameFolder();
   const [name, setName] = useState(props.mode === "rename" ? props.folder.name : "");
   const [error, setError] = useState<string | null>(null);
+  const [selectOnOpen] = useState(stack !== undefined);
+  // 穩定的 callback ref：掛上時（autoFocus 之後）全選一次，之後的 render 不再重選。
+  const selectAllOnOpen = useCallback(
+    (el: HTMLInputElement | null) => {
+      if (el !== null && selectOnOpen) el.select();
+    },
+    [selectOnOpen],
+  );
+  const closedReportedRef = useRef(false);
+
+  function reportClosed(finalName: string): void {
+    if (stack === undefined || closedReportedRef.current) return;
+    closedReportedRef.current = true;
+    stack.onClosed(finalName);
+  }
+
+  function handleOpenChange(next: boolean): void {
+    if (!next && props.mode === "rename") reportClosed(props.folder.name);
+    onOpenChange(next);
+  }
 
   const trimmed = name.trim();
   const invalid = hasControlChar(trimmed)
@@ -64,6 +88,7 @@ export function FolderNameDialog(props: FolderNameDialogProps) {
     try {
       if (props.mode === "rename") {
         await renameFolder.mutateAsync({ id: props.folder.id, name: trimmed });
+        reportClosed(trimmed);
       } else {
         const { parent } = props;
         await createFolder.mutateAsync("folderId" in parent ? { name: trimmed, parentId: parent.folderId } : { name: trimmed, space: parent.space });
@@ -82,13 +107,15 @@ export function FolderNameDialog(props: FolderNameDialogProps) {
   const title = props.mode === "create" ? t("sidebar.newFolder") : t("folderDialogs.renameTitle");
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
         dismissOnOutside={false}
         // 只有標題與一個欄位，沒有另外的說明句；明示沒有描述（不放與標題相同的 sr-only 描述，避免讀屏唸兩次）。
         aria-describedby={undefined}
         onCloseAutoFocus={(event) => {
-          const target = returnFocusRef?.current;
+          // 疊資料夾：沒有觸發鈕可還，焦點回新資料夾列（關閉當下才解析，§6.6）。
+          const stackTarget = stack?.focusTarget();
+          const target = stackTarget?.isConnected ? stackTarget : returnFocusRef?.current;
           if (!target?.isConnected) return;
           event.preventDefault();
           target.focus();
@@ -104,6 +131,7 @@ export function FolderNameDialog(props: FolderNameDialogProps) {
             </label>
             <Input
               id="folder-name-input"
+              ref={selectAllOnOpen}
               autoFocus
               value={name}
               onChange={(event) => {

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import i18n from "@/i18n";
 import { folderDto } from "@/test/folder-fixtures";
@@ -37,7 +37,9 @@ function stubFolders(reply: () => Response = () => json(folderDto({ id: "new", n
 /** 框外的 opener 不歸 React 管，每案結束自己拆掉（不能清整個 body：Radix 的 portal 要留給 RTL cleanup 卸載）。 */
 const openers: HTMLElement[] = [];
 
-type HostProps = { mode: "create"; parent: FolderCreateParent } | { mode: "rename"; folder: ReturnType<typeof folderDto> };
+type HostProps =
+  | { mode: "create"; parent: FolderCreateParent }
+  | { mode: "rename"; folder: ReturnType<typeof folderDto>; stack?: { onClosed: (finalName: string) => void; focusTarget: () => HTMLElement | null } };
 
 /** 比照 NoteList host：關閉就卸載。opener 是框外的一顆鈕（還焦點的對象）。 */
 function renderDialog(props: HostProps, queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
@@ -188,5 +190,130 @@ describe("FolderNameDialog", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(posted(calls)[0]!.body).toEqual({ name: "Reports", space: { kind: "group", groupId: "G" } });
     expect(isCollapsed("group:G")).toBe(false);
+  });
+});
+
+/** 疊資料夾改名形（資料夾 spec §6.6、§6.13 第 6 步；PR-3c T5）。 */
+describe("FolderNameDialog 疊資料夾改名", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    for (const opener of openers.splice(0)) opener.remove();
+  });
+
+  const NEW2 = folderDto({ id: "n2", name: "New folder 2" });
+
+  /** 框外的新資料夾列鈕（focusTarget 回它）。 */
+  function stackHooks() {
+    const row = document.createElement("button");
+    row.textContent = "row";
+    document.body.appendChild(row);
+    openers.push(row);
+    return { row, onClosed: vi.fn<(finalName: string) => void>(), focusTarget: vi.fn(() => row as HTMLElement | null) };
+  }
+
+  it("FN-S1 帶 stack、名稱「New folder 2」→ 開啟時輸入框全選（0–12）", () => {
+    stubFolders();
+    const hooks = stackHooks();
+    renderDialog({ mode: "rename", folder: NEW2, stack: hooks });
+    expect(input()).toHaveValue("New folder 2");
+    expect((input() as HTMLInputElement).selectionStart).toBe(0);
+    expect((input() as HTMLInputElement).selectionEnd).toBe(12);
+  });
+
+  it("FN-S2 改成「 Q3 」送出 → PATCH {name: Q3}；關閉後 onClosed(\"Q3\") 恰一次", async () => {
+    const calls = stubFolders(() => json(folderDto({ id: "n2", name: "Q3" })));
+    const hooks = stackHooks();
+    renderDialog({ mode: "rename", folder: NEW2, stack: hooks });
+    type(" Q3 ");
+    fireEvent.click(submit("Save"));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(posted(calls)).toEqual([{ method: "PATCH", url: "/api/folders/n2", body: { name: "Q3" } }]);
+    expect(hooks.onClosed).toHaveBeenCalledTimes(1);
+    expect(hooks.onClosed).toHaveBeenCalledWith("Q3");
+  });
+
+  it("FN-S3 按 Cancel → 沒有 PATCH、onClosed(\"New folder 2\") 恰一次", async () => {
+    const calls = stubFolders();
+    const hooks = stackHooks();
+    renderDialog({ mode: "rename", folder: NEW2, stack: hooks });
+    type("Changed but cancelled");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(posted(calls)).toEqual([]);
+    expect(hooks.onClosed).toHaveBeenCalledTimes(1);
+    expect(hooks.onClosed).toHaveBeenCalledWith("New folder 2");
+  });
+
+  it("FN-S3 按 Esc → onClosed(\"New folder 2\") 恰一次", async () => {
+    stubFolders();
+    const hooks = stackHooks();
+    renderDialog({ mode: "rename", folder: NEW2, stack: hooks });
+    fireEvent.keyDown(input(), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(hooks.onClosed).toHaveBeenCalledTimes(1);
+    expect(hooks.onClosed).toHaveBeenCalledWith("New folder 2");
+  });
+
+  it("FN-S4 關閉後焦點到 focusTarget() 回的元素（不是 opener）", async () => {
+    stubFolders();
+    const hooks = stackHooks();
+    const { opener } = renderDialog({ mode: "rename", folder: NEW2, stack: hooks });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(hooks.row).toHaveFocus());
+    expect(opener).not.toHaveFocus();
+    expect(hooks.focusTarget).toHaveBeenCalled();
+  });
+
+  it("FN-S5 PATCH 409 → 框仍開、onClosed 未被呼叫", async () => {
+    stubFolders(() => json({ error: { code: "folder_name_taken", message: "x" } }, 409));
+    const hooks = stackHooks();
+    renderDialog({ mode: "rename", folder: NEW2, stack: hooks });
+    type("Taken");
+    fireEvent.click(submit("Save"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("There's already a folder with this name here.");
+    expect(screen.getByRole("dialog", { name: "Rename folder" })).toBeInTheDocument();
+    expect(hooks.onClosed).not.toHaveBeenCalled();
+  });
+
+  it("FN-S7 送出後 PATCH 還沒回就按 Esc → onClosed(\"New folder 2\") 一次；PATCH 之後成功也不再呼叫", async () => {
+    let release: (() => void) | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+        if ((init?.method ?? "GET").toUpperCase() === "GET") return Promise.resolve(json({ folders: [] }));
+        return new Promise<Response>((resolve) => {
+          release = () => resolve(json(folderDto({ id: "n2", name: "Q3" })));
+        });
+      }),
+    );
+    const hooks = stackHooks();
+    renderDialog({ mode: "rename", folder: NEW2, stack: hooks });
+    type("Q3");
+    fireEvent.click(submit("Save"));
+    await waitFor(() => expect(release).toBeDefined());
+    fireEvent.keyDown(input(), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(hooks.onClosed).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      release!();
+    });
+
+    expect(hooks.onClosed).toHaveBeenCalledTimes(1);
+    expect(hooks.onClosed).toHaveBeenCalledWith("New folder 2");
+  });
+
+  it("FN-S6 不帶 stack 的 rename：輸入框不全選（selectionStart === selectionEnd）；關閉焦點照舊回 opener", async () => {
+    stubFolders();
+    const { opener } = renderDialog({ mode: "rename", folder: NEW2 });
+    const el = input() as HTMLInputElement;
+    expect(el.selectionStart).toBe(el.selectionEnd);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(opener).toHaveFocus());
   });
 });

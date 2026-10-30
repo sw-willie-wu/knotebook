@@ -29,6 +29,8 @@
     "deletedEmpty": "已刪除資料夾",
     "removed_one": "已移除資料夾，{{count}} 篇共享筆記回到最上層",
     "removed_other": "已移除資料夾，{{count}} 篇共享筆記回到最上層",
-    "removedEmpty": "已移除資料夾"
+    "removedEmpty": "已移除資料夾",
+    "stackCreated": "已建立「{{name}}」並放入 2 篇筆記",
+    "stackKept": "資料夾裡還有其他內容，已保留資料夾"
   }
 }

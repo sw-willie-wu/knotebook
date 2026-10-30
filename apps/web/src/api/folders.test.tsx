@@ -9,9 +9,11 @@ import { ApiFail } from "./client";
 import {
   createFolderRequest,
   applyPlacedNote,
+  deleteFolderRequest,
   FOLDERS_QUERY_KEY,
   fetchFolders,
   folderErrorMessage,
+  isFolderNotEmpty,
   moveFolderRequest,
   placeNoteRequest,
   renameFolderRequest,
@@ -203,5 +205,32 @@ describe("api/folders 放置與搬資料夾", () => {
     expect(keys).toContain('["folders"]');
     expect(keys).toContain('["notes"]');
     expect(keys).not.toContain('["trash"]');
+  });
+});
+
+describe("api/folders 只刪空資料夾（PR-3c）", () => {
+  it("FA-D1 deleteFolderRequest(\"f\") 不帶 body 與 Content-Type；帶 { onlyIfEmpty: true } → body 恰為 {\"onlyIfEmpty\":true}", async () => {
+    const inits: RequestInit[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) !== "/api/folders/f" || init?.method !== "DELETE") throw new Error(`unexpected fetch: ${String(input)}`);
+        inits.push(init);
+        return Promise.resolve(fakeResponse(200, { trashedNoteIds: [], deletedFolderIds: ["f"] }));
+      }),
+    );
+    await deleteFolderRequest("f");
+    await deleteFolderRequest("f", { onlyIfEmpty: true });
+    expect(inits).toHaveLength(2);
+    expect(inits[0]!.body).toBeUndefined();
+    expect(new Headers(inits[0]!.headers).has("Content-Type")).toBe(false);
+    expect(inits[1]!.body).toBe('{"onlyIfEmpty":true}');
+    expect(new Headers(inits[1]!.headers).get("Content-Type")).toBe("application/json");
+  });
+
+  it("FA-D2 isFolderNotEmpty：409 folder_not_empty → true；folder_delete_blocked、非 ApiFail → false", () => {
+    expect(isFolderNotEmpty(new ApiFail(409, "folder_not_empty", ""))).toBe(true);
+    expect(isFolderNotEmpty(new ApiFail(403, "folder_delete_blocked", ""))).toBe(false);
+    expect(isFolderNotEmpty(new Error("folder_not_empty"))).toBe(false);
   });
 });

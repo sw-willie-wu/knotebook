@@ -23,6 +23,8 @@ import { useFolderSortOf } from "@/components/sidebar/folder-sort";
 import { FolderRowButton } from "@/components/sidebar/FolderRowButton";
 import { GroupRowButton } from "@/components/sidebar/GroupRowButton";
 import { SidebarLazyBoundary } from "@/components/sidebar/SidebarLazyBoundary";
+import type { StackPreviewState } from "@/components/sidebar/drag-session";
+import { StackPreview } from "@/components/sidebar/StackPreview";
 import { tabSpec, type HeaderActionId } from "@/components/sidebar/tab-specs";
 import { DROP_SCOPE_CLASS, useSidebarDrag } from "@/components/sidebar/useSidebarDrag";
 import { buildTabNodes, hasSelectableNodes, noteLocationLabel, noteSpaceKey, type LocationContext, type SidebarNode } from "@/components/sidebar/tree";
@@ -33,10 +35,19 @@ const SelectableTree = lazy(() => import("@/components/sidebar/SelectLazy").then
 // 資料夾對話框（新增／改名／刪除）：只准經 FolderLazy 這個 lazy 入口（首包上限）。
 const FolderDialogs = lazy(() => import("@/components/sidebar/FolderLazy").then((m) => ({ default: m.FolderDialogs })));
 
+/**
+ * 疊資料夾建好後的改名框（資料夾 spec §6.6、§6.13 第 6 步）：`onClosed` 在關閉時以最後的名字呼叫恰一次（送出＝送出的名字、取消＝原名）；
+ * `focusTarget` 在關閉當下才解析（新資料夾列是重抓後才出現的）。
+ */
+export interface StackRenameHooks {
+  onClosed: (finalName: string) => void;
+  focusTarget: () => HTMLElement | null;
+}
+
 /** 資料夾對話框的請求（host 在每份 NoteList 實例各一份；T4 的資料夾 ⋮ 也經 `NodeContext.openFolderDialog` 開框）。 */
 export type FolderDialogRequest =
   | { kind: "create"; parent: { folderId: string } | { space: FolderSpaceDto } }
-  | { kind: "rename"; folder: FolderDto }
+  | { kind: "rename"; folder: FolderDto; stack?: StackRenameHooks }
   | { kind: "delete"; folder: FolderDto };
 
 const EMPTY_GROUPS: GroupDto[] = [];
@@ -195,6 +206,8 @@ interface NodeContext {
   notes: readonly NoteDto[];
   /** 拖曳的落點範圍提示鍵（`dropScopeKey`："list"｜"group:<id>"｜"folder:<id>"）；null＝不標示。 */
   dropScope: string | null;
+  /** 疊資料夾預覽或「建立中」：取代 `anchorNoteId` 那一列（`creating` 優先）。 */
+  stack: { state: StackPreviewState; creating: boolean } | null;
 }
 
 /**
@@ -307,6 +320,15 @@ function SidebarNodeList({ nodes, ctx, inGroup = false }: { nodes: SidebarNode[]
           <GroupNode key={node.id} node={node} ctx={ctx} />
         ) : node.kind === "folder" ? (
           <FolderNode key={node.id} node={node} ctx={ctx} />
+        ) : ctx.stack !== null && ctx.stack.state.anchorNoteId === node.id ? (
+          <StackPreview
+            key={node.id}
+            name={ctx.stack.state.name}
+            anchorTitle={node.note.title}
+            sourceTitle={ctx.stack.state.sourceTitle}
+            creating={ctx.stack.creating}
+            variant={inGroup ? "group" : "plain"}
+          />
         ) : (
           <NoteRow
             key={node.id}
@@ -374,13 +396,14 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
     [tab, notesQuery.isSuccess, notesQuery.data, groupsQuery.data, foldersPending, folderIndex, sortOf],
   );
   const selectable = nodes !== null && hasSelectableNodes(nodes);
-  // 拖曳（資料夾 spec §6.13）：容器事件委派；兩份實例共用 drag-session 的狀態，只有發起的那一份驅動。
-  const drag = useSidebarDrag({ tab, nodes, groupIds, folderIndex });
-  const listDropScoped = drag.view.scope === "list";
   const openFolderDialog = (request: FolderDialogRequest, opener: HTMLElement | null) => {
     folderOpenerRef.current = opener;
     setFolderRequest(request);
   };
+  // 拖曳（資料夾 spec §6.13）：容器事件委派；兩份實例共用 drag-session 的狀態，只有發起的那一份驅動。
+  const drag = useSidebarDrag({ tab, nodes, groupIds, folderIndex, openFolderDialog });
+  const listDropScoped = drag.view.scope === "list";
+  const stackState = drag.view.creating ?? drag.view.preview;
   const ctx: NodeContext = {
     tab,
     location,
@@ -389,6 +412,7 @@ export function NoteList({ onCreateNote, createNotePending = false }: NoteListPr
     openFolderDialog,
     notes: notesQuery.data ?? EMPTY_NOTES,
     dropScope: drag.view.scope,
+    stack: stackState === null ? null : { state: stackState, creating: drag.view.creating !== null },
   };
 
   useEffect(() => {

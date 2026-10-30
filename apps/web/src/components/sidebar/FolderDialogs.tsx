@@ -21,7 +21,9 @@ export function FolderDialogs({
     return <FolderNameDialog mode="create" parent={request.parent} open onOpenChange={onOpenChange} returnFocusRef={returnFocusRef} />;
   }
   if (request.kind === "rename") {
-    return <FolderNameDialog mode="rename" folder={request.folder} open onOpenChange={onOpenChange} returnFocusRef={returnFocusRef} />;
+    return (
+      <FolderNameDialog mode="rename" folder={request.folder} stack={request.stack} open onOpenChange={onOpenChange} returnFocusRef={returnFocusRef} />
+    );
   }
   return <FolderDeleteDialog folder={request.folder} open onOpenChange={onOpenChange} returnFocusRef={returnFocusRef} />;
 }

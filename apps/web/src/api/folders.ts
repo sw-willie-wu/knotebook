@@ -55,9 +55,11 @@ export function applyPlacedNote(queryClient: QueryClient, note: NoteDto): void {
   invalidateFolderRelated(queryClient);
 }
 
-/** DELETE /api/folders/:id。 */
-export function deleteFolderRequest(id: string): Promise<FolderDeleteResultDto> {
-  return api<FolderDeleteResultDto>(`/api/folders/${encodeURIComponent(id)}`, { method: "DELETE" });
+/** DELETE /api/folders/:id。opts 有給才帶 body {"onlyIfEmpty":true}（只刪空資料夾，spec §5.7.4）；不給照現行不帶 body。 */
+export function deleteFolderRequest(id: string, opts?: { onlyIfEmpty: true }): Promise<FolderDeleteResultDto> {
+  const url = `/api/folders/${encodeURIComponent(id)}`;
+  if (opts === undefined) return api<FolderDeleteResultDto>(url, { method: "DELETE" });
+  return api<FolderDeleteResultDto>(url, { method: "DELETE", body: JSON.stringify({ onlyIfEmpty: true }) });
 }
 
 export function useCreateFolder(): UseMutationResult<FolderDto, unknown, CreateFolderInput> {
@@ -98,6 +100,11 @@ export function useDeleteFolder(): UseMutationResult<FolderDeleteResultDto, unkn
 /** 404 `folder_not_found`：快取裡（或使用者剛選）的資料夾已不在（資料夾 spec §5.7.6 n6）。 */
 export function isFolderNotFound(err: unknown): boolean {
   return err instanceof ApiFail && err.code === "folder_not_found";
+}
+
+/** 409 `folder_not_empty`：`onlyIfEmpty` 的刪除遇到資料夾裡還有東西（spec §5.7.4）。 */
+export function isFolderNotEmpty(err: unknown): boolean {
+  return err instanceof ApiFail && err.code === "folder_not_empty";
 }
 
 /** errors.<code>（帶 `max: FOLDER_DEPTH_MAX`，讀碼發現 1-③）；非 ApiFail → errors.fallback。 */

@@ -29,6 +29,8 @@
     "deletedEmpty": "Folder deleted",
     "removed_one": "Folder removed; 1 shared note moved back to the top level",
     "removed_other": "Folder removed; {{count}} shared notes moved back to the top level",
-    "removedEmpty": "Folder removed"
+    "removedEmpty": "Folder removed",
+    "stackCreated": "Created “{{name}}” with 2 notes",
+    "stackKept": "The folder has other items now, so it was kept"
   }
 }
