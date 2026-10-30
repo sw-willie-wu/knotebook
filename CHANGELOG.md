@@ -32,6 +32,7 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 - Writing over MCP, the REST API or with the in-app AI now saves an image, or another media block, whose address is a full address of one of this site's uploads (`https://<your site>/api/uploads/<id>`) with the relative address `/api/uploads/<id>`. An image inside a toggle heading or a toggle list item, written as HTML, used to be saved with the full address, and copying the note then didn't give the copy its own copy of that image. An image already saved that way keeps its full address until it is written again.
 - The in-app AI no longer turns a diagram in the blocks it rewrites into a code block: a ```` ```mermaid ```` fence in its result becomes a [diagram](docs/diagrams.md) again, as it does over MCP.
 - Markdown the editor fails to parse, such as `<div data-content-type="paragraph">`, is now refused with `400 unsupported_block` over the REST API (the tool error `unsupported_block` over MCP) instead of a server error; in the in-app AI, such a result shows an error instead of leaving the AI box in its streaming state.
+- On narrow windows, a message that pops up while the sidebar drawer is open (for example **Moved to the trash** with its **Undo** button, after you delete another note from the drawer) can now be reached with the keyboard and by screen readers. Before, it could be seen and clicked, and screen readers announced it, but they couldn't move to it or its buttons and the keyboard couldn't reach them.
 
 ## [0.13.0] - 2026-10-26
 
