@@ -11,6 +11,7 @@ import { adminRole, groupDto } from "@/test/fixtures";
 import { groupNote, personalNote } from "@/test/select-fixtures";
 import { AppErrorBoundary } from "./ErrorBoundary";
 import { AppShell } from "./AppShell";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 // 一般 tab 選取模式的 lazy chunk（SelectLazy）載入失敗（#181 PR-2c T6 AL2a／AL2b／AL3，拆法照 AppShell.trash-lazy-error.test.tsx）：
 // 只有選取那幾塊出錯，側欄其餘與頁面照常，不冒到 AppErrorBoundary。錯誤訊息照 Chromium 的裸動態 import 失敗措辭；
@@ -60,6 +61,7 @@ function stubFetch() {
       const method = (init?.method ?? "GET").toUpperCase();
       if (url === "/api/groups" && method === "GET") return Promise.resolve(fakeResponse([GROUP]));
       if (url === "/api/auth/me") return Promise.resolve(fakeResponse(USER));
+      if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
       if (url === "/api/notes" && method === "GET") return Promise.resolve(fakeResponse(NOTES));
       throw new Error(`unexpected fetch: ${method} ${url}`);
     }),

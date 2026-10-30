@@ -30,6 +30,7 @@ import { CreateInviteDialog } from "./CreateInviteDialog";
 import { InvitesGroup } from "./InvitesGroup";
 import { PasswordResetAction } from "./PasswordResetDialog";
 import { PlanSelect, StorageCell } from "./StorageAdminCells";
+import "@/i18n/management-strings";
 
 /** ApiFail → errors.<code>；其餘 → errors.fallback。與 NoteList/ShareDialog 同一套對映
  * （各檔各自一份，是既有慣例——見那兩處的說明）。 */

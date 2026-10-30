@@ -3,7 +3,10 @@ import type { GroupDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { customRole, groupDto, memberRole } from "@/test/fixtures";
 import { groupNote, personalNote, sharedNote } from "@/test/select-fixtures";
+import { folderDto } from "@/test/folder-fixtures";
 import { __resetCollapseForTests, setCollapsed } from "./collapse";
+import { EMPTY_FOLDER_INDEX, indexFolders } from "./folder-index";
+import { __resetFolderSortForTests } from "./folder-sort";
 import {
   buildDestinationTree,
   destinationBody,
@@ -24,11 +27,11 @@ const G1A = groupNote({ id: "g1a", title: "G1 A", group: G1 });
 const G1B = groupNote({ id: "g1b", title: "G1 B", group: G1 });
 const G2A = groupNote({ id: "g2a", title: "G2 A", group: G2 });
 const G2B = groupNote({ id: "g2b", title: "G2 B", group: G2 });
-const WORKSPACE = buildTabNodes("workspace", [G1A, G1B, G2A, G2B], [G1, G2]);
+const WORKSPACE = buildTabNodes("workspace", [G1A, G1B, G2A, G2B], [G1, G2], EMPTY_FOLDER_INDEX);
 
 const A = personalNote({ id: "a", title: "A" });
 const B = personalNote({ id: "b", title: "B" });
-const MY_NOTES = buildTabNodes("myNotes", [A, B], []);
+const MY_NOTES = buildTabNodes("myNotes", [A, B], [], EMPTY_FOLDER_INDEX);
 
 const ids = (notes: readonly { id: string }[]) => notes.map((n) => n.id);
 
@@ -39,6 +42,7 @@ beforeEach(async () => {
 afterEach(() => {
   localStorage.clear();
   __resetCollapseForTests();
+  __resetFolderSortForTests();
 });
 
 describe("SMd1 SELECT_ACTIONS＝spec §6.11 的表", () => {
@@ -69,6 +73,24 @@ describe("SMd3 visibleNoteKeys", () => {
 
   it("平面 tab → 全部", () => {
     expect(visibleNoteKeys(MY_NOTES, () => true)).toEqual(["note:a", "note:b"]);
+  });
+});
+
+describe("SMd-F visibleNoteKeys × 資料夾", () => {
+  const P1 = personalNote({ id: "p1", title: "P1", folderId: "A" });
+  const P3 = personalNote({ id: "p3", title: "P3" });
+  const nodes = buildTabNodes("myNotes", [P1, P3], [], indexFolders([folderDto({ id: "A", name: "A" })]));
+
+  it("folder:A 收合 → 只剩根層 p3", () => {
+    expect(visibleNoteKeys(nodes, (key) => key === "folder:A")).toEqual(["note:p3"]);
+  });
+
+  it("全不收合 → 樹序兩篇", () => {
+    expect(visibleNoteKeys(nodes, () => false)).toEqual(["note:p1", "note:p3"]);
+  });
+
+  it("只有 group:A 收合 → 兩篇都在（資料夾查的不是 group: 鍵）", () => {
+    expect(visibleNoteKeys(nodes, (key) => key === "group:A")).toEqual(["note:p1", "note:p3"]);
   });
 });
 

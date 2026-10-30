@@ -1,7 +1,26 @@
 import { describe, expect, it } from "vitest";
 import { render } from "@testing-library/react";
 import { NOTE_WIDTHS } from "@knotebook/shared";
-import { ArrowDown, ArrowUp, Columns2, History, ImageIcon, KeyRound, ListFilter, NoteWidthIcon, Pencil, Plug, RotateCcw, Rows3, SquareCheck, Users } from "./icons";
+import {
+  ArrowDown,
+  ArrowUp,
+  Columns2,
+  FilePlus,
+  Folder,
+  FolderPlus,
+  History,
+  ImageIcon,
+  KeyRound,
+  ListFilter,
+  LogOut,
+  NoteWidthIcon,
+  Pencil,
+  Plug,
+  RotateCcw,
+  Rows3,
+  SquareCheck,
+  Users,
+} from "./icons";
 
 describe("icons", () => {
   it("Users 帶 data-icon=\"users\"（ShareDialog 測試靠它斷觸發鈕圖示）且吃 className", () => {
@@ -28,6 +47,11 @@ describe("icons", () => {
     // IC1 垃圾桶的「還原」與「選取」（#181 PR-2b）
     ["restore", RotateCcw],
     ["select", SquareCheck],
+    // 資料夾列、資料夾 ⋮、GroupMenu（資料夾 PR-3b-1）
+    ["folder", Folder],
+    ["folder-plus", FolderPlus],
+    ["file-plus", FilePlus],
+    ["log-out", LogOut],
   ] as const)("圖示 %s：帶 data-icon、預設 aria-hidden、吃 className", (name, Icon) => {
     const { container } = render(<Icon className="h-4 w-4" />);
     const svg = container.querySelector("svg");

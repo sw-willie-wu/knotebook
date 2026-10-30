@@ -2,10 +2,13 @@ import { lazy, useEffect, useId, useRef, useState, type ReactNode, type RefObjec
 import { flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { Dialog as DialogPrimitive } from "radix-ui";
-import { canonicalNotePath } from "@knotebook/shared";
+import { canonicalNotePath, type FolderDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
+import { FOLDERS_QUERY_KEY, folderErrorMessage, invalidateFolderRelated } from "@/api/folders";
 import { useCreateNote } from "@/api/notes";
+import { expandFolderChain, indexFolders } from "@/components/sidebar/folder-index";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Menu, Search, X } from "@/components/ui/icons";
@@ -84,7 +87,7 @@ interface SidebarContentProps {
    * 共用同一個物件的話，抽屜 unmount 時 React 會把它清成 null，Ctrl+K 從此
    * 靜默失效（spec §3a）。 */
   searchRef: RefObject<HTMLInputElement | null>;
-  onCreateNote: (groupId?: string) => void;
+  onCreateNote: (groupId?: string, folderId?: string) => void;
   newNotePending: boolean;
   shortcutBadge: string;
 }
@@ -273,6 +276,7 @@ export function AppShell({ children, inert }: AppShellProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const createNote = useCreateNote();
+  const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth);
@@ -355,16 +359,21 @@ export function AppShell({ children, inert }: AppShellProps) {
     return () => mql.removeEventListener("change", handleChange);
   }, []);
 
-  /** 建立筆記並導向。`groupId` 給群組段的「＋」（#103，server 預設 editor）；失敗
-   * 一律 toast（含群組剛被刪的 404 `group_not_found`）。 */
-  async function handleNewNote(groupId?: string): Promise<void> {
+  /** 建立筆記並導向。`groupId` 給群組段的「＋」（#103，server 預設 editor）、群組資料夾要同時帶；`folderId` 給資料夾列的「＋」
+   * （資料夾 spec §6.4），成功後該資料夾與祖先寫成展開（§6.8）。body 只帶有給的鍵（都沒有＝不帶 body，同現行）。
+   * 失敗一律 toast（含群組剛被刪的 404 `group_not_found`）；資料夾錯誤帶 `max`，`folder_not_found` 另重抓資料夾清單。 */
+  async function handleNewNote(groupId?: string, folderId?: string): Promise<void> {
+    const body = {
+      ...(groupId === undefined ? {} : { groupId }),
+      ...(folderId === undefined ? {} : { folderId }),
+    };
     try {
-      const note = await createNote.mutateAsync(groupId === undefined ? undefined : { groupId });
+      const note = await createNote.mutateAsync(groupId === undefined && folderId === undefined ? undefined : body);
+      if (folderId !== undefined) expandFolderChain(indexFolders(queryClient.getQueryData<FolderDto[]>(FOLDERS_QUERY_KEY) ?? []), folderId);
       navigate(canonicalNotePath(note));
     } catch (err) {
-      const message =
-        err instanceof ApiFail ? t(`errors.${err.code}`, { defaultValue: t("errors.fallback") }) : t("errors.fallback");
-      toast({ title: message, variant: "destructive" });
+      if (err instanceof ApiFail && err.code === "folder_not_found") invalidateFolderRelated(queryClient);
+      toast({ title: folderErrorMessage(t, err), variant: "destructive" });
     }
   }
 
@@ -378,7 +387,7 @@ export function AppShell({ children, inert }: AppShellProps) {
   const sidebarProps = {
     query,
     onQueryChange: setQuery,
-    onCreateNote: (groupId?: string) => void handleNewNote(groupId),
+    onCreateNote: (groupId?: string, folderId?: string) => void handleNewNote(groupId, folderId),
     newNotePending: createNote.isPending,
     shortcutBadge,
   };

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { OneTimeLinkResult } from "./OneTimeLinkResult";
+import "@/i18n/management-strings";
 
 /** 逐檔複製的既有慣例（同 PasswordResetDialog）。 */
 function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {

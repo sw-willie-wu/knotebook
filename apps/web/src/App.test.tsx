@@ -6,6 +6,7 @@ import type { UserDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
 import { AppRoutes } from "./App";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 interface FakeResponseInit {
   ok: boolean;
@@ -45,6 +46,7 @@ describe("App route tree — /settings/users → /admin/users（站台管理 mod
       if (url === "/api/auth/me") {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(ADMIN_USER) }));
       }
+      if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
       if (url === "/api/notes" && method === "GET") {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
       }
@@ -152,6 +154,7 @@ describe("App route tree — NotePage lazy fallback 保留 AppShell（issue #19�
         if (url === "/api/auth/me") {
           return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(ADMIN_USER) }));
         }
+        if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
         if (url === "/api/notes") {
           return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
         }

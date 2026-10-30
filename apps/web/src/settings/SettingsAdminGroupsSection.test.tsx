@@ -10,6 +10,7 @@ import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppRoutes } from "@/App";
 import { useAssignGroupPlan } from "@/api/adminStorage";
 import { ADMIN_GROUPS_QUERY_KEY, ADMIN_STORAGE_PLANS_QUERY_KEY, STORAGE_USAGE_QUERY_KEY, groupStorageKey } from "@/api/storage";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 // W5／W6（spec §11.5）：/admin/groups。群組名一律純文字（Willie 2026-10-08：站台管理員管方案、不看群組成員與詳情）。
 
@@ -35,6 +36,7 @@ function renderGroups(rows: AdminGroupDto[], extra: Handler = () => null) {
     const custom = extra(url, method, init);
     if (custom) return Promise.resolve(custom);
     if (url === "/api/auth/me") return Promise.resolve(res(200, ADMIN));
+    if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
     if (url === "/api/notes") return Promise.resolve(res(200, []));
     if (url === "/api/groups" && method === "GET") return Promise.resolve(res(200, []));
     if (url === "/api/admin/groups" && method === "GET") return Promise.resolve(res(200, rows));

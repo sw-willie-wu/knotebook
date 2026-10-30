@@ -7,8 +7,15 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ## [Unreleased]
 
+### Added
+
+- **Folders** in the sidebar's **My notes** and **Workspace** tabs: create, rename and delete folders, nest them up to five levels, sort the notes in a folder by name, last modified or size, and create notes in a folder. Group folders are shared with the group. Deleting a folder asks first, moves its notes to the trash, and **Undo** brings them back into rebuilt folders.
+
 ### Changed
 
+- Items in the sidebar's **Trash** tab show the folder each note was in, after its group's name.
+- The location shown under notes in **Recent** and in search results includes the folder path.
+- The group menu's items have icons.
 - The sidebar's **Workspace** tab lists groups by your role in them: groups where you hold the built-in **Admin** role first, then those where you hold the built-in **Member** role, then those where you have a custom role, each by name. Before, all groups were listed by name, so groups you created could end up below ones others added you to. `GET /api/groups` returns them in the same order, and so do **Settings → Groups**, the group lists in **Move to…** and **Copy to…**, and **Move to** and **Copy to** in the sidebar's selection mode.
 - The main buttons and the email, password and other text fields on the sign-in, create-account, reset-password, link-account and app-authorization pages, and on the change-password page you're sent to when a password change is required, are taller (44 pixels instead of 32) and the button text is larger (16 px instead of 14 px), so they are easier to hit; this includes each **Sign in with …** button. Other pages, including the change-password form in Settings, keep the 32-pixel controls.
 

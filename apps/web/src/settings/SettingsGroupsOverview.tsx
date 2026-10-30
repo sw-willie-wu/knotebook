@@ -5,6 +5,7 @@ import { Pill } from "@/components/management/Pill";
 import { SettingsTable, type SettingsTableColumn, type SettingsTableRow } from "@/components/management/SettingsTable";
 import { roleLabel } from "@/lib/group-role";
 import { SettingsGroup, SettingsPage } from "./SettingsLayout";
+import "@/i18n/management-strings";
 
 /**
  * 個人設定「群組」（`/settings/groups`，#247 §5.5）：**唯讀總覽**——我有幾個群組、在每個群組的角色與權限。

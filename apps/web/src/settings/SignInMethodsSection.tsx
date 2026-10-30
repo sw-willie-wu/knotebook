@@ -13,6 +13,7 @@ import i18n from "@/i18n";
 import { authErrorMessage } from "./auth-error-message";
 import { SettingsGroup } from "./SettingsLayout";
 import { ProviderIcon } from "@/components/ProviderIcon";
+import "@/i18n/management-strings";
 
 /**
  * `?link_error=` 白名單（#187 §9.4）＋cookie 解開後 `failLocation` 會發的兩碼（`oidc_state_mismatch`、`oidc_claim_too_long`——

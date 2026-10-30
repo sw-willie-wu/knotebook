@@ -10,6 +10,7 @@ import { RowIconButton } from "@/components/ui/row-icon-button";
 import { toast } from "@/components/ui/toast";
 import { copyText } from "@/lib/clipboard";
 import { authErrorMessage } from "./auth-error-message";
+import "@/i18n/management-strings";
 
 const SELECT_CLASS =
   "h-8 w-full rounded-md border border-input bg-background px-3 text-sm shadow-sm focus-visible:outline-none " +

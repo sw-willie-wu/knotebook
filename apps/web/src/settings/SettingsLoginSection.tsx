@@ -6,6 +6,7 @@ import { toast } from "@/components/ui/toast";
 import { SetPasswordForm } from "./SetPasswordForm";
 import { SettingsGroup, SettingsPage } from "./SettingsLayout";
 import { SignInMethodsSection } from "./SignInMethodsSection";
+import "@/i18n/management-strings";
 
 /**
  * 個人設定「登入」（`/settings/login`，#247 §5.2）：已連結登入方式＋密碼三分支（邏輯自

@@ -15,6 +15,7 @@ import { clickOutside } from "@/test/outside-click";
 import { ThemeProvider } from "@/theme";
 import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { AppRoutes } from "@/App";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 const SSO_ONLY_USER: UserDto = {
   id: "u-sso",
@@ -75,6 +76,7 @@ function renderSettings(
     if (custom) return Promise.resolve(custom);
     if (url === "/api/groups") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
     if (url === "/api/auth/me") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(user) }));
+    if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
     if (url === "/api/notes") return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
     if (url === "/api/auth/tokens" && method === "GET")
       return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ tokens }) }));

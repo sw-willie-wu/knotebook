@@ -16,6 +16,9 @@ import { SidebarFooter } from "@/components/sidebar/SidebarFooter";
 import { adminRole, customRole, groupDto } from "@/test/fixtures";
 import { clickOutside } from "@/test/outside-click";
 import { groupNote, personalNote, sharedNote } from "@/test/select-fixtures";
+import { FOLDER_LIST_EMPTY, folderDto } from "@/test/folder-fixtures";
+import type { FolderDto } from "@knotebook/shared";
+import { __resetFolderSortForTests } from "@/components/sidebar/folder-sort";
 
 // 一般 tab 選取模式的動作列、目的地框、確認框與三種流程（#181 PR-2c T5，SA1–SA24b）。
 // 兩份外殼（同 AppShell 的靜態卡與抽屜）共用同一份選取；動作一律從第二份（shell 1）發起，找錯外殼焦點就會落到第一份。
@@ -63,7 +66,7 @@ interface Call {
  * 假 server：清單與群組照 `box`；DELETE／move／copy 預設成功並改 `box.notes`（下一次 GET 生效），restore 還回被刪的篇。
  * `fail(key, status, code)` 讓某支回錯誤；`hold(key)` 讓某支等放行才回（回傳放行函式）。
  */
-function stubServer(initial: { notes?: NoteDto[]; groups?: GroupDto[] } = {}) {
+function stubServer(initial: { notes?: NoteDto[]; groups?: GroupDto[]; folders?: FolderDto[] } = {}) {
   const box = { notes: [...(initial.notes ?? ALL)], groups: initial.groups ?? [GA] };
   const trashed = new Map<string, NoteDto>();
   const calls: Call[] = [];
@@ -115,6 +118,7 @@ function stubServer(initial: { notes?: NoteDto[]; groups?: GroupDto[] } = {}) {
       const method = (init?.method ?? "GET").toUpperCase();
       const body = init?.body ? JSON.parse(String(init.body)) : undefined;
       if (method === "GET") {
+        if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(initial.folders === undefined ? FOLDER_LIST_EMPTY : { folders: initial.folders }), { status: 200, headers: { "Content-Type": "application/json" } }));
         if (url === "/api/notes") return Promise.resolve(fakeResponse(box.notes));
         if (url === "/api/groups") return Promise.resolve(fakeResponse(box.groups));
         if (url === "/api/auth/me") return Promise.resolve(fakeResponse(ME));
@@ -451,6 +455,20 @@ describe("SelectActionBar（PR-2c T5）", () => {
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));
     expect(await screen.findByText("Restored 2 notes", { exact: true })).toBeInTheDocument();
     expect(server.bodies("POST /api/trash/restore")).toEqual([{ ids: ["p1", "p2"] }]);
+  });
+
+  it("SA-F1 刪除依樹序送出（資料夾在前）：server 序 [根層 fp3, 資料夾 A 裡的 fp1] → DELETE fp1、fp3", async () => {
+    const fp3 = personalNote({ id: "fp3", title: "fp3" });
+    const fp1 = personalNote({ id: "fp1", title: "fp1", folderId: "A" });
+    const server = stubServer({ notes: [fp3, fp1], folders: [folderDto({ id: "A", name: "A" })] });
+    renderShells();
+    await enterSelecting();
+    await waitFor(() => expect(box("fp1")).not.toBeNull());
+    tick("fp3", "fp1");
+    fireEvent.click(barButton("Delete 2 selected items"));
+    expect(await screen.findByText("Moved 2 notes to the trash", { exact: true })).toBeInTheDocument();
+    expect(server.keys()).toEqual(["DELETE /api/notes/fp1", "DELETE /api/notes/fp3"]);
+    __resetFolderSortForTests();
   });
 
   it("SA7 最近 tab 刪除混共享：只送 p1、toast 報 1 篇略過、有 Undo", async () => {

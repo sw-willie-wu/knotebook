@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import { ApiTokensSection } from "./ApiTokensSection";
 import { McpConnectGuide } from "./McpConnectGuide";
 import { SettingsPage } from "./SettingsLayout";
+import "@/i18n/management-strings";
 
 /**
  * 個人設定「授權」（`/settings/authorization`，#247 §5.3）：API token（含 OAuth 授權的 app，同一份清單）

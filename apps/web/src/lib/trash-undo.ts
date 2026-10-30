@@ -32,6 +32,8 @@ export function showTrashedToast(args: {
   variant?: "default" | "destructive";
   /** 給了就覆蓋由 `reopen` 推算的那篇（`reopen` 只在單篇時推出它）。 */
   reopenId?: string | null;
+  /** 沒有 DTO、只有 id 的那幾篇（刪資料夾回的 `trashedNoteIds`）：併進復原的 id（去重），不參與 §6.10.7 判準（plan 讀碼發現 12）。 */
+  undoIds?: readonly string[];
 }): void {
   const { notes, queryClient, navigate, t, reopen, description, variant } = args;
   const title = args.title ?? t("trash.moved");
@@ -41,7 +43,7 @@ export function showTrashedToast(args: {
     toast({ title, description: description === undefined ? hint : `${description} ${hint}`, variant });
     return;
   }
-  const ids = notes.map((note) => note.id);
+  const ids = [...new Set([...notes.map((note) => note.id), ...(args.undoIds ?? [])])];
   const reopenId = args.reopenId !== undefined ? args.reopenId : reopen && ids.length === 1 ? ids[0] : null;
   toast({
     title,
@@ -73,9 +75,14 @@ export async function undoTrash(args: {
     const back = reopenId !== null ? result.restored.find((note) => note.id === reopenId) : undefined;
     if (back) void navigate(canonicalNotePath(back));
   } catch (err) {
-    // 分批中途失敗（PR-2c 多選刪除一次復原整批才會走到）：已成功的那幾篇照樣蓋回常駐層。
-    if (err instanceof TrashBatchError) seedRestoredNotes(queryClient, (err as TrashBatchError<{ restored: NoteDto[] }>).partial.restored);
-    toast({ title: errorMessage(t, trashErrorCause(err)), variant: "destructive" });
+    // 分批中途失敗（多選刪除、刪資料夾一次復原整批才會走到）：已成功的那幾篇照樣蓋回常駐層，並回報已還原幾篇（資料夾 spec §6.6 M15）。
+    const restored = err instanceof TrashBatchError ? (err as TrashBatchError<{ restored: NoteDto[] }>).partial.restored : [];
+    seedRestoredNotes(queryClient, restored);
+    toast({
+      title: errorMessage(t, trashErrorCause(err)),
+      description: restored.length > 0 ? t("trash.restored", { count: restored.length }) : undefined,
+      variant: "destructive",
+    });
   } finally {
     invalidateTrashRelated(queryClient, ids);
   }

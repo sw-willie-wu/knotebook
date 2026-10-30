@@ -22,7 +22,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { EllipsisVertical } from "@/components/ui/icons";
+import { EllipsisVertical, LogOut, Pencil, Trash, Users } from "@/components/ui/icons";
 import { hoverReveal } from "@/components/ui/reveal";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
@@ -126,6 +126,7 @@ export function GroupMenu({ group, size = "default" }: { group: GroupDto; size?:
               goToSettings();
             }}
           >
+            <Users aria-hidden="true" className="mr-2 h-4 w-4" />
             {group.canManageMembers ? t("groups.menu.manage") : t("groups.menu.viewMembers")}
           </DropdownMenuItem>
           {group.canManageGroup && (
@@ -136,6 +137,7 @@ export function GroupMenu({ group, size = "default" }: { group: GroupDto; size?:
                 setRenameOpen(true);
               }}
             >
+              <Pencil aria-hidden="true" className="mr-2 h-4 w-4" />
               {t("groups.menu.rename")}
             </DropdownMenuItem>
           )}
@@ -149,6 +151,7 @@ export function GroupMenu({ group, size = "default" }: { group: GroupDto; size?:
                 setDeleteOpen(true);
               }}
             >
+              <Trash aria-hidden="true" className="mr-2 h-4 w-4" />
               {t("groups.menu.delete")}
             </DropdownMenuItem>
           )}
@@ -160,6 +163,7 @@ export function GroupMenu({ group, size = "default" }: { group: GroupDto; size?:
                 setLeaveOpen(true);
               }}
             >
+              <LogOut aria-hidden="true" className="mr-2 h-4 w-4" />
               {t("groups.menu.leave")}
             </DropdownMenuItem>
           )}

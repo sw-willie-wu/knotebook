@@ -9,6 +9,7 @@ import { useSession } from "@/auth/useSession";
 import { AutoVersionsSwitch } from "./AutoVersionsSwitch";
 import { SettingsGroup, SettingsPage } from "./SettingsLayout";
 import { StorageUsageGroup } from "./StorageUsageGroup";
+import "@/i18n/management-strings";
 
 /** 逐檔複製的既有慣例（無共用 helper）。 */
 function errorMessage(t: (key: string, opts?: Record<string, unknown>) => string, err: unknown): string {

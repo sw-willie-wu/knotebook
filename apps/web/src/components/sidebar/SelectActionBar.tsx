@@ -6,6 +6,7 @@ import { useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import type { NoteDto } from "@knotebook/shared";
 import { ApiFail } from "@/api/client";
+import { useFolders } from "@/api/folders";
 import { useGroups } from "@/api/groups";
 import { useNotes } from "@/api/notes";
 import { isTerminal } from "@/collab/connection";
@@ -30,6 +31,8 @@ import {
   type SelectActionId,
 } from "./select-model";
 import { beginSelectRun, endSelectRun, updateSelectRun, useSelectRun } from "./select-run";
+import { indexFolders } from "./folder-index";
+import { useFolderSortOf } from "./folder-sort";
 import { buildTabNodes } from "./tree";
 
 /**
@@ -81,6 +84,10 @@ export function SelectActionBar() {
   const { updateSelection, getSelectionSession } = actions;
   const notesQuery = useNotes();
   const groupsQuery = useGroups();
+  const foldersQuery = useFolders();
+  const sortOf = useFolderSortOf();
+  // 與畫面上的樹同序（讀碼發現 7：批次依樹序送出）。
+  const folderIndex = useMemo(() => indexFolders(foldersQuery.data ?? []), [foldersQuery.data]);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const controls = useNotePageControls();
@@ -112,9 +119,9 @@ export function SelectActionBar() {
   const nodes = useMemo(
     () =>
       notesQuery.isSuccess && (tab !== "workspace" || groupsQuery.data !== undefined)
-        ? buildTabNodes(tab, notesQuery.data, groupsQuery.data ?? [])
+        ? buildTabNodes(tab, notesQuery.data, groupsQuery.data ?? [], folderIndex, sortOf)
         : null,
-    [tab, notesQuery.isSuccess, notesQuery.data, groupsQuery.data],
+    [tab, notesQuery.isSuccess, notesQuery.data, groupsQuery.data, folderIndex, sortOf],
   );
   const selected = nodes === null ? [] : selectedTabNotes(nodes, selection.keys);
   const moveEligible = partitionEligible("move", selected);

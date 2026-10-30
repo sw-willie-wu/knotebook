@@ -10,6 +10,7 @@ import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { NoteMenu, SidebarNoteMenu } from "./NoteMenu";
 import { EDITOR_PERMS, OWNER_PERMS } from "@/test/fixtures";
 import { NARROW_QUERY, useVersionsController, VersionsProvider } from "@/lib/versions-context";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 // ⋮ 選單（spec D.4）：複製連結（任何角色）＋移到垃圾桶（#181：不確認、成功 toast＋復原；#175 起看 `permissions.delete`，含 M11 的
 // leavingRef 時序：刪除失敗且已進終態時，`NoteMenu` 必須自己補一套「同文案同
@@ -93,6 +94,7 @@ function trashFetch(note: NoteDto, opts: { onDelete?: () => void } = {}) {
     if (url === "/api/trash/restore" && method === "POST") {
       return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ restored: [note], skipped: [] }) }));
     }
+    if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
     if ((url === "/api/notes" || url === "/api/groups") && method === "GET") {
       return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
     }

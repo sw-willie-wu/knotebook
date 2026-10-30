@@ -10,6 +10,7 @@ import { ImageIcon } from "@/components/ui/icons";
 import { RowIconButton } from "@/components/ui/row-icon-button";
 import { authErrorMessage } from "./auth-error-message";
 import { PROVIDER_ICON_ACCEPT, ProviderIconResizeError, resizeProviderIcon } from "./provider-icon-resize";
+import "@/i18n/management-strings";
 
 const CHOICES: ProviderIconKind[] = ["template", "gitlab", "google", "upload", "none"];
 const GITLAB_ICON: ProviderIconDto = { type: "builtin", name: "gitlab" };

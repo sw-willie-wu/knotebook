@@ -2,6 +2,7 @@ import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import { Switch } from "@/components/ui/switch";
 import type { ScopeChecks } from "@/lib/token-scope";
+import "@/i18n/management-strings";
 
 /**
  * token 權限的三個細 toggle（#247 §5.3、W22；#181 加「刪除」）：行內編輯與建立對話框共用。「讀取」一律包含，不列。

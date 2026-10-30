@@ -8,9 +8,9 @@ import { useCallback, useSyncExternalStore } from "react";
  * 切換會被讀回的舊值吃掉、群組永遠收不起來。寫入失敗才記進覆蓋層（只活在本次 session），寫入成功就刪掉該鍵。
  */
 
-/** 折疊狀態的 localStorage 鍵前綴：`sidebar.collapsed.group:<id>`，值 "1"＝收合、缺鍵＝展開（spec §9-9；步驟 3 加 `folder:<id>`）。 */
+/** 折疊狀態的 localStorage 鍵前綴：`sidebar.collapsed.group:<id>`，值 "1"＝收合、缺鍵＝展開（spec §9-9）；資料夾是 `sidebar.collapsed.folder:<id>`（資料夾 spec §6.8）。 */
 export const COLLAPSE_STORAGE_PREFIX = "sidebar.collapsed.";
-export type SidebarSectionKey = `group:${string}`;
+export type SidebarSectionKey = `group:${string}` | `folder:${string}`;
 
 const overlay = new Map<SidebarSectionKey, boolean>();
 const listeners = new Set<() => void>();

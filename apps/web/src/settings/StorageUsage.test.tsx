@@ -7,6 +7,7 @@ import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
 import { AppRoutes } from "@/App";
 import { adminRole, groupDto, memberRole } from "@/test/fixtures";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 // W3（spec §11.5）：個人設定「儲存空間」頁與群組 modal「儲存空間」頁（`/groups/:id/storage`，#247 §6.4）的用量。
 // 群組頁的依成員／版本開關細節在 `components/groups/GroupStorageSection.test.tsx`。走真的 AppRoutes（同 SettingsAccountSection.test.tsx 慣例）。
@@ -26,6 +27,7 @@ function renderAt(path: string, handlers: (url: string, method: string) => Respo
     const custom = handlers(url, method);
     if (custom) return Promise.resolve(custom);
     if (url === "/api/auth/me") return Promise.resolve(fakeResponse(200, ME));
+    if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
     if (url === "/api/notes") return Promise.resolve(fakeResponse(200, []));
     if (url === "/api/auth/identities") return Promise.resolve(fakeResponse(200, { identities: [], linkable: [], hasPassword: true, passwordLoginEnabled: true }));
     if (url === "/api/auth/tokens") return Promise.resolve(fakeResponse(200, { tokens: [] }));

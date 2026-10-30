@@ -5,6 +5,7 @@ import { MemoryRouter } from "react-router";
 import i18n from "@/i18n";
 import { ThemeProvider } from "@/theme";
 import { AppShell } from "./AppShell";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 interface FakeResponseInit {
   ok: boolean;
@@ -25,6 +26,7 @@ function stubFetch() {
       if (url === "/api/groups" && method === "GET") {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
       }
+      if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
       if (url === "/api/notes" && method === "GET") {
         return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
       }

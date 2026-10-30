@@ -30,6 +30,7 @@ import { quotaBytesFromInput, quotaInputFromBytes, validPlanName, type QuotaUnit
 import { SettingsGroup, SettingsPage } from "./SettingsLayout";
 import { SiteTrashGroup } from "./SettingsTrashSection";
 import { SiteVersionsGroups } from "./SettingsVersionsSection";
+import "@/i18n/management-strings";
 
 /** 原生 select（repo 慣例：逐檔宣告，見 ApiTokensSection.tsx:35-41）。 */
 const SELECT_CLASS =

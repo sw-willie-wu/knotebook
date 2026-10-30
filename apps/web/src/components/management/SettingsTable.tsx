@@ -1,6 +1,7 @@
 import { Fragment, isValidElement, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
+import "@/i18n/management-strings";
 
 /**
  * 設定與管理面板的「項目清單」共用表格（spec：docs/superpowers/specs/2026-10-13-settings-table-design.md，下稱 spec）。

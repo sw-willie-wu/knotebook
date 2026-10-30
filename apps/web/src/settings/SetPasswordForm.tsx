@@ -5,6 +5,7 @@ import { useSetPassword } from "@/api/account";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { authErrorMessage } from "./auth-error-message";
+import "@/i18n/management-strings";
 
 /** #187 §8.4／§8.5：純 SSO 帳號「加上密碼」。設定 modal 內 → 送出鈕 `outline`（#247 §4.8：面板右卡不放實心鈕）。長度與兩次一致先在 client 擋（server 仍會再驗）。 */
 export function SetPasswordForm({ onSuccess }: { onSuccess: () => void }) {

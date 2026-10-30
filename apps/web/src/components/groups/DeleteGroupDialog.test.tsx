@@ -8,6 +8,7 @@ import { dismissAllToasts, Toaster } from "@/components/ui/toast";
 import { adminRole, customRole, groupDto, memberRole } from "@/test/fixtures";
 import { trashItem, trashList } from "@/test/trash-fixtures";
 import { DeleteGroupDialog } from "./DeleteGroupDialog";
+import { FOLDER_LIST_EMPTY } from "@/test/folder-fixtures";
 
 const GROUP: GroupDto = groupDto({ id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", name: "Workshop A" }, adminRole({ memberCount: 2 }));
 const ADMIN = adminRole();
@@ -60,6 +61,7 @@ function renderDialog(setup: Setup = {}, props: { onDeleted?: () => void; onOpen
       const method = (init?.method ?? "GET").toUpperCase();
       calls.push({ method, url, body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined });
       if (method === "GET" && url === `/api/groups/${GROUP.id}/members`) return Promise.resolve((setup.members ?? (() => fakeResponse(200, MEMBERS)))());
+      if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
       if (method === "GET" && url === "/api/notes") return Promise.resolve((setup.notes ?? (() => fakeResponse(200, NOTES)))());
       if (method === "GET" && url === "/api/trash") return Promise.resolve((setup.trash ?? (() => fakeResponse(200, trashList([]))))());
       if (method === "DELETE" && url === `/api/groups/${GROUP.id}`) return Promise.resolve((setup.del ?? (() => fakeResponse(204)))());

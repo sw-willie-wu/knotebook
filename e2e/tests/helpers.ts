@@ -302,6 +302,50 @@ export async function openGroupPanel(page: Page, groupName: string): Promise<str
   return new URL(page.url()).pathname.split("/")[2]!;
 }
 
+/**
+ * 資料夾 PR-3b：目前 tab 的資料夾列（`li[data-node-kind="folder"]`）。以主鈕名稱 exact 找，再取最近的資料夾 `<li>` 祖先——
+ * 不能用 `filter({ has })`：外層資料夾的 `<li>` 也「含」子資料夾的主鈕。
+ */
+export function folderRow(scope: Locator, name: string): Locator {
+  return scope.getByRole("button", { name, exact: true }).locator("xpath=ancestor::li[@data-node-kind='folder'][1]");
+}
+
+/**
+ * 資料夾 PR-3b：按 `opener`（標題列「New folder」、群組列「New folder in G」或 ⋮ 的「New subfolder」已開出的框都可）→ 等 lazy 的
+ * 新增對話框 → 輸入名稱 → Create → 等框關閉、資料夾主鈕出現（取看得見的那份：窄螢幕時靜態卡藏著）。
+ */
+export async function createFolder(page: Page, opener: Locator, name: string): Promise<void> {
+  await opener.hover();
+  await opener.click();
+  await submitFolderName(page, "New folder", name);
+}
+
+/** 新增／改名對話框：等輸入框得焦點 → 填名稱 → 送出 → 等框關閉、該名稱的資料夾主鈕可見。 */
+export async function submitFolderName(page: Page, title: "New folder" | "Rename folder", name: string): Promise<void> {
+  const dialog = page.getByRole("dialog", { name: title, exact: true });
+  const input = dialog.getByRole("textbox", { name: "Folder name", exact: true });
+  await expect(input).toBeFocused({ timeout: 15_000 });
+  await input.fill(name);
+  await dialog.getByRole("button", { name: title === "New folder" ? "Create" : "Save", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(page.getByRole("button", { name, exact: true }).locator("visible=true").first()).toBeVisible({ timeout: 15_000 });
+}
+
+/** 資料夾 PR-3b：資料夾 ⋮（hover 浮出，先 hover）。 */
+export function folderMenuButton(scope: Locator, folder: string): Locator {
+  return scope.getByRole("button", { name: `Folder menu for ${folder}`, exact: true });
+}
+
+/** 資料夾 PR-3b：資料夾 ⋮ → 選一項（Radix 選單，等 menuitem 可見再點）。 */
+export async function folderMenuItem(page: Page, scope: Locator, folder: string, item: string): Promise<void> {
+  const trigger = folderMenuButton(scope, folder);
+  await trigger.hover();
+  await trigger.click();
+  const menuItem = page.getByRole("menu").getByRole("menuitem", { name: item, exact: true });
+  await expect(menuItem).toBeVisible();
+  await menuItem.click();
+}
+
 /** #263：框選 AI 框（`role="region"`、`data-testid="selection-ai-box"`）。 */
 export function selectionAiBox(page: Page): Locator {
   return page.getByTestId("selection-ai-box");

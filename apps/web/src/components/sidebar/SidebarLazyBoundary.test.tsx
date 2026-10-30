@@ -10,6 +10,7 @@ function Boom(): never {
 
 const SELECT_FLAG = "knotebook:chunk-reload:select";
 const TRASH_FLAG = "knotebook:chunk-reload:trash";
+const FOLDER_FLAG = "knotebook:chunk-reload:folder";
 
 describe("SidebarLazyBoundary", () => {
   let reload: ReturnType<typeof vi.fn>;
@@ -51,6 +52,18 @@ describe("SidebarLazyBoundary", () => {
     expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
     expect(alert.parentElement?.className).toBe("kb-test-frame");
     expect(reload).not.toHaveBeenCalled();
+  });
+
+  it("LB4 chunk=\"folder\" 第一次失敗：用 folder 自己的額度重載一次，select／trash 的額度不動", async () => {
+    render(
+      <SidebarLazyBoundary chunk="folder" fallback={null}>
+        <Boom />
+      </SidebarLazyBoundary>,
+    );
+    await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
+    expect(sessionStorage.getItem(FOLDER_FLAG)).not.toBeNull();
+    expect(sessionStorage.getItem(SELECT_FLAG)).toBeNull();
+    expect(sessionStorage.getItem(TRASH_FLAG)).toBeNull();
   });
 
   it("LB3 chunk=\"select\" 載入成功：清掉 select 自己的額度，trash 的額度不動", async () => {

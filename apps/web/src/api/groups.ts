@@ -74,6 +74,8 @@ function useInvalidateGroupsAndNotes() {
     void queryClient.invalidateQueries({ queryKey: ["notes"] });
     // D-W9：角色旗標變了，誰看得到群組垃圾桶也跟著變
     void queryClient.invalidateQueries({ queryKey: ["trash"] });
+    // 資料夾 spec §6.15：刪群組轉移會建資料夾、移人／退出讓群組資料夾消失、角色變了 permissions 也變
+    void queryClient.invalidateQueries({ queryKey: ["folders"] });
   };
 }
 
@@ -212,6 +214,8 @@ export function useUpdateRole(groupId: string) {
       void queryClient.invalidateQueries({ queryKey: ["notes"] });
       // D-W9：不經 useInvalidateGroupsAndNotes，另外失效垃圾桶（edit／delete 旗標決定誰看得到群組垃圾桶）
       void queryClient.invalidateQueries({ queryKey: ["trash"] });
+      // 資料夾 spec §6.15：群組資料夾的 permissions 跟著角色旗標變
+      void queryClient.invalidateQueries({ queryKey: ["folders"] });
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: GROUPS_QUERY_KEY }),
   });

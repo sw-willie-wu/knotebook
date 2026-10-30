@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import zhTW from "./zh-TW.json";
 import en from "./en.json";
+import managementZhTW from "./management.zh-TW.json";
 
 /** spec rev 8 §3.1 D7、§8.2–§8.5 的字面（Willie 逐題定案）；#272 起 vN → 「名稱 (短 id)」（spec 2026-10-13 §10.4）。改這些字串＝改產品決定，先問 Willie。 */
 const SPEC_COPY: Record<string, string> = {
@@ -62,7 +63,8 @@ function get(obj: unknown, path: string): unknown {
 
 describe("版本歷史文案＝spec 字面（zh-TW）", () => {
   for (const [key, text] of Object.entries(SPEC_COPY)) {
-    it(key, () => expect(get(zhTW, key)).toBe(text));
+    // settings.*／admin.* 的字串在 lazy 包（management.*.json），其餘在主檔。
+    it(key, () => expect(get(key.startsWith("settings.") || key.startsWith("admin.") ? managementZhTW : zhTW, key)).toBe(text));
   }
 });
 
