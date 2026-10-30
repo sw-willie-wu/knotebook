@@ -97,7 +97,7 @@ test("PAT：設定頁建立 → 無 cookie 的 Bearer 請求可用 → PATCH 改
     expect(withMove).toContain("move_note_to_group");
     expect(withMove).not.toContain("delete_note");
     expect(withMove).not.toContain("delete_folder");
-    // #181：讀寫刪除——兩支垃圾桶寫入工具出現，搬移不在（move 與 delete 互相獨立）。
+    // #181：讀寫刪除——要 notes:delete 的三支（delete_note、restore_note，資料夾 PR-3d 起加 delete_folder）出現，搬移不在（move 與 delete 互相獨立）。
     await setScope("notes:read notes:write notes:delete");
     const withDelete = await toolNames();
     expect(withDelete).toContain("delete_note");
