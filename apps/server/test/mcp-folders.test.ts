@@ -18,7 +18,7 @@ import { BAD_CURSOR_MESSAGE } from "../src/mcp/keyset-cursor.js";
 import { MCP_FOLDER_PAGE_MAX, MCP_LIST_WIRE_BUDGET, escapedLength } from "../src/mcp/limits.js";
 import type { McpToolCtx } from "../src/mcp/context.js";
 import { COPY_NEEDS_MOVE_MESSAGE } from "../src/mcp/tools/copy-note.js";
-import { folderReply } from "../src/mcp/tools/create-folder.js";
+import { folderReply } from "../src/mcp/folder-service.js";
 import { outlineFolderFor } from "../src/mcp/tools/read-note-outline.js";
 import { wireCost } from "../src/mcp/wire-budget.js";
 import { seedTokenForUser } from "./editing-helpers.js";

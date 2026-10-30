@@ -1,12 +1,13 @@
 /**
- * 資料夾 PR-3d：`list_trash`（tag `t`）與 `list_folders`（tag `f`）的 keyset 游標。`list_notes` 的既有游標（`tools/list-notes.ts`）不搬、不改。
+ * 資料夾 PR-3d：`list_trash`（tag `t`）與 `list_folders`（tag `f`）的 keyset 游標。`list_notes` 的既有游標（`tools/list-notes.ts`）不搬（無 tag、格式不變），只共用 `BASE64URL_RE` 的字元集檢查。
  * 不變量 S：這裡只擋「不是本站發的」（字元集、NUL、tag、段數）；各段的格式（UUID_RE、Date、kind 列舉）由呼叫端驗，
  * 參數化交給 drizzle。
  */
 import { noNul } from "../notes/schemas.js";
 
 const SEP = "|";
-const BASE64URL_RE = /^[A-Za-z0-9_-]*$/;
+/** base64url 字元集（無 padding）。`list_notes` 的游標（`tools/list-notes.ts`）也用它先擋。 */
+export const BASE64URL_RE = /^[A-Za-z0-9_-]*$/;
 
 /** base64url(`${tag}|${parts.join("|")}`)。各段不得含 `|`（呼叫端只放 ISO 時間、UUID、kind）。 */
 export function encodeKeysetCursor(tag: "t" | "f", parts: readonly string[]): string {

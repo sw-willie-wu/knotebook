@@ -1,23 +1,18 @@
 /**
  * 資料夾 PR-3d（folders spec §5.12、§5.7.1）`create_folder`。服務層（`folders/service.ts` 的 `createFolder`）負責入口順序、
  * 扣 `edit` 桶、縫、交易與重判；這裡只做 scope、名稱的英文預判、位置參數、錯誤映射與回應組裝。
- * 本檔另 export 三支資料夾寫入工具共用的兩件事：服務層 deps 與「成功後以 list_folders 的形重讀」。
+ * 服務層 deps 與「成功後以 list_folders 的形重讀」在 `mcp/folder-service.ts`；本檔另 export 三支資料夾寫入工具共用的輸出 schema。
  */
 import { z } from "zod";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { FOLDER_DEPTH_MAX, FOLDER_NAME_MAX, FOLDERS_PER_SPACE_MAX, type FolderSpaceDto } from "@knotebook/shared";
-import { listVisibleFoldersPage } from "../../folders/queries.js";
 import { normalizeFolderName } from "../../folders/names.js";
-import { createFolder, type FolderServiceDeps } from "../../folders/service.js";
+import { createFolder } from "../../folders/service.js";
 import { GROUP_ID } from "../../notes/schemas.js";
-import { FOLDER_ID, folderForModel, folderForModelSchema } from "../folder-fields.js";
-import {
-  FOLDER_NOT_FOUND_MESSAGE,
-  FOLDER_POSITION_AMBIGUOUS_MESSAGE,
-  folderFailureToToolError,
-  folderNameErrorMessage,
-} from "../folder-messages.js";
-import { toolError, toolResult } from "../tool-result.js";
+import { FOLDER_ID, folderForModelSchema } from "../folder-fields.js";
+import { FOLDER_POSITION_AMBIGUOUS_MESSAGE, folderFailureToToolError, folderNameErrorMessage } from "../folder-messages.js";
+import { folderReply, folderServiceDeps } from "../folder-service.js";
+import { toolError } from "../tool-result.js";
 import { requireWriteScope } from "../write-scope.js";
 import type { McpToolCtx } from "../context.js";
 
@@ -54,28 +49,6 @@ export interface CreateFolderArgs {
   parent_id?: string;
   group_id?: string;
   shared?: boolean;
-}
-
-/** 三支資料夾寫入工具共用的服務層 deps（同 delete_note／restore_note 的組法）。 */
-export function folderServiceDeps(ctx: McpToolCtx): FolderServiceDeps {
-  return {
-    db: ctx.db,
-    collabHooks: ctx.collabHooks,
-    storageLockTimeoutMs: ctx.storageLockTimeoutMs,
-    groupTestHook: ctx.groupTestHook,
-    limiters: { edit: ctx.limiters.edit },
-  };
-}
-
-/**
- * 成功後以 list_folders 的形重讀那一個資料夾（帶路徑與群組名）。重讀落空＝commit 之後、重讀之前被刪的毫秒級競態
- * → `not_found`＋FM1（同 move_note_to_group 的重讀先例）。
- */
-export async function folderReply(ctx: McpToolCtx, folderId: string): Promise<CallToolResult> {
-  const page = await listVisibleFoldersPage(ctx.db, ctx.userId, { ids: [folderId], limit: 1, after: null });
-  const row = page.rows[0];
-  if (row === undefined) return toolError("not_found", FOLDER_NOT_FOUND_MESSAGE);
-  return toolResult({ folder: folderForModel(row) });
 }
 
 export async function createFolderTool(args: CreateFolderArgs, ctx: McpToolCtx): Promise<CallToolResult> {

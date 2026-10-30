@@ -7,8 +7,8 @@ import { FOLDER_DEPTH_MAX } from "@knotebook/shared";
 import { updateFolder } from "../../folders/service.js";
 import { FOLDER_ID } from "../folder-fields.js";
 import { folderFailureToToolError } from "../folder-messages.js";
+import { folderReply, folderServiceDeps } from "../folder-service.js";
 import { requireWriteScope } from "../write-scope.js";
-import { folderReply, folderServiceDeps } from "./create-folder.js";
 import type { McpToolCtx } from "../context.js";
 
 /** D-MF（逐字照 plan「待確認字串」）。 */

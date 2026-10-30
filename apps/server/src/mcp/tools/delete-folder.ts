@@ -12,10 +12,10 @@ import { deleteFolder } from "../../folders/service.js";
 import { loadTrashedPurgeAt, readTrashRetentionDays } from "../../trash/list.js";
 import { FOLDER_ID } from "../folder-fields.js";
 import { folderFailureToToolError } from "../folder-messages.js";
+import { folderServiceDeps } from "../folder-service.js";
 import { MCP_DELETE_FOLDER_IDS_MAX } from "../limits.js";
 import { toolResult } from "../tool-result.js";
 import { requireDeleteScope } from "../write-scope.js";
-import { folderServiceDeps } from "./create-folder.js";
 import type { McpToolCtx } from "../context.js";
 
 /** D-DF（逐字照 plan「待確認字串」）。 */

@@ -110,10 +110,10 @@ export async function listTrashPage(
 
 /**
  * REST 與舊呼叫端：＝ `listTrashPage(after: null)` 的第一頁，回應形不變（Q3：同一毫秒內的相對順序改依 id）。
- * 至多 `opts.limit`（預設 `TRASH_LIST_LIMIT`）筆。
+ * 至多 `TRASH_LIST_LIMIT` 筆。
  */
-export async function listTrash(db: Db, userId: string, retentionDays: number | null, opts: { limit?: number } = {}): Promise<TrashListDto> {
-  const page = await listTrashPage(db, userId, retentionDays, { limit: opts.limit ?? TRASH_LIST_LIMIT, after: null });
+export async function listTrash(db: Db, userId: string, retentionDays: number | null): Promise<TrashListDto> {
+  const page = await listTrashPage(db, userId, retentionDays, { limit: TRASH_LIST_LIMIT, after: null });
   return { retentionDays, items: page.items, truncated: page.hasMore };
 }
 

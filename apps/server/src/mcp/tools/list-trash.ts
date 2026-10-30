@@ -16,9 +16,9 @@ import { listTrashPage, readTrashRetentionDays, type TrashCursor } from "../../t
 import { truncateFolderPath } from "../folder-fields.js";
 import { BAD_CURSOR_MESSAGE, decodeKeysetCursor, encodeKeysetCursor, parseCursorTimestamp } from "../keyset-cursor.js";
 import { MCP_FOLDER_NAME_MAX, MCP_PAGE_MAX, MCP_TEXT_MAX, truncateText } from "../limits.js";
+import { NEXT_CURSOR_DESCRIBE, PAGE_CUT_SHORT_DESCRIBE } from "../paging-strings.js";
 import { toolError, toolResult } from "../tool-result.js";
 import { PAGE_CUT_RESERVE, countWithinWireBudget, wireCost } from "../wire-budget.js";
-import { PAGE_CUT_SHORT_DESCRIBE } from "./list-notes.js";
 import type { McpToolCtx } from "../context.js";
 
 export const LIST_TRASH_DESCRIPTION =
@@ -34,10 +34,9 @@ export const LIST_TRASH_DESCRIPTION =
   "`purgeAt` is when a note becomes due to be deleted permanently under the site's current trash setting " +
   "(an admin can change it, which moves every note's date), or null when this site doesn't empty the trash on its own at the moment.";
 
-/** 資料夾 PR-3d：`list_trash` 的三句 `.describe()`（逐字照 plan「待確認字串」）。 */
+/** 資料夾 PR-3d：`list_trash` 的 `.describe()`（逐字照 plan「待確認字串」；`nextCursor` 那句在 `paging-strings.ts`）。 */
 export const LT_CURSOR_DESCRIBE = "Opaque cursor from a previous call's `nextCursor`. Omit it to start with the newest.";
 export const LT_TRUNCATED_DESCRIBE = "True when more notes follow this page — the same as `nextCursor` not being null.";
-export const NEXT_CURSOR_DESCRIBE = "Pass this back as `cursor` for the next page; `null` means this was the last page.";
 
 /** 註冊為 `z.object(listTrashInput).strict()`。 */
 export const listTrashInput = {

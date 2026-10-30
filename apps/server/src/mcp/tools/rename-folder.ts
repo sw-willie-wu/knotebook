@@ -8,9 +8,9 @@ import { normalizeFolderName } from "../../folders/names.js";
 import { updateFolder } from "../../folders/service.js";
 import { FOLDER_ID } from "../folder-fields.js";
 import { folderFailureToToolError, folderNameErrorMessage } from "../folder-messages.js";
+import { folderReply, folderServiceDeps } from "../folder-service.js";
 import { toolError } from "../tool-result.js";
 import { requireWriteScope } from "../write-scope.js";
-import { folderReply, folderServiceDeps } from "./create-folder.js";
 import type { McpToolCtx } from "../context.js";
 
 /** D-RF（逐字照 plan「待確認字串」）。 */

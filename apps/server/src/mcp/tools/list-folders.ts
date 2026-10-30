@@ -14,10 +14,9 @@ import { folderForModel, folderForModelSchema } from "../folder-fields.js";
 import { FOLDER_GROUP_NOT_FOUND_MESSAGE } from "../folder-messages.js";
 import { BAD_CURSOR_MESSAGE, decodeKeysetCursor, encodeKeysetCursor } from "../keyset-cursor.js";
 import { MCP_FOLDER_PAGE_MAX } from "../limits.js";
+import { NEXT_CURSOR_DESCRIBE, PAGE_CUT_SHORT_DESCRIBE } from "../paging-strings.js";
 import { toolError, toolResult } from "../tool-result.js";
 import { PAGE_CUT_RESERVE, countWithinWireBudget, wireCost } from "../wire-budget.js";
-import { PAGE_CUT_SHORT_DESCRIBE } from "./list-notes.js";
-import { NEXT_CURSOR_DESCRIBE } from "./list-trash.js";
 import type { McpToolCtx } from "../context.js";
 
 /** D-LF（逐字照 plan「待確認字串」）。 */

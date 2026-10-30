@@ -32,8 +32,9 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { UUID_RE } from "../../notes/service.js";
 import { noNul } from "../../notes/schemas.js";
 import { noteSummariesForModel, noteSummarySchema } from "../dto.js";
-import { BAD_CURSOR_MESSAGE, parseCursorTimestamp } from "../keyset-cursor.js";
+import { BAD_CURSOR_MESSAGE, BASE64URL_RE, parseCursorTimestamp } from "../keyset-cursor.js";
 import { MCP_PAGE_MAX } from "../limits.js";
+import { NEXT_CURSOR_DESCRIBE, PAGE_CUT_SHORT_DESCRIBE } from "../paging-strings.js";
 import { buildNoteListQuery, type NoteListCursor } from "../queries.js";
 import { toolError, toolResult } from "../tool-result.js";
 import { PAGE_CUT_RESERVE, countWithinWireBudget, wireCost } from "../wire-budget.js";
@@ -51,10 +52,6 @@ export const LIST_NOTES_DESCRIPTION =
   "does not move it. While you page, a note shared with you, a note moved into one of your groups, or the notes of a " +
   "group you join appear at their own unchanged positions, which may already be above your cursor. " +
   "A page can hold fewer notes than `limit` when the notes are large — `pageCutShort` is then true — so keep paging until `nextCursor` is null.";
-
-/** 資料夾 PR-3d（spec §5.12）：依大小截短的頁的旗標說明（之後 list_trash／list_folders 共用同一句）。 */
-export const PAGE_CUT_SHORT_DESCRIBE =
-  "Present, and true, when this page was cut short to keep the reply small; more follow, so keep paging with `nextCursor`.";
 
 export const listNotesInput = {
   cursor: z
@@ -74,10 +71,7 @@ export const listNotesInput = {
 
 export const listNotesOutput = {
   notes: z.array(noteSummarySchema).describe("The page of notes, most recently updated first."),
-  nextCursor: z
-    .string()
-    .nullable()
-    .describe("Pass this back as `cursor` for the next page; `null` means this was the last page."),
+  nextCursor: z.string().nullable().describe(NEXT_CURSOR_DESCRIBE),
   pageCutShort: z.literal(true).optional().describe(PAGE_CUT_SHORT_DESCRIBE),
 };
 
@@ -111,8 +105,10 @@ export const LIST_BASE_COST = wireCost({ notes: [], nextCursor: CURSOR_PLACEHOLD
  * ⚠ `noNul` 那一關：NUL 接在時間戳後面（`…Z` + NUL）時，2026-09-07 的實測是三關裡只有 `noNul` 擋得住
  * （`new Date` 收它）。改走 `parseCursorTimestamp` 之後格式檢查也擋得住，`noNul` 對那個落點不再是唯一守衛；
  * 留著它是因為它同時擋 id 欄以外的任何落點，成本為零。守衛＝`mcp-notes.test.ts` 的「壞 cursor 四發」第四發。
+ * 字元集先擋（同 `decodeKeysetCursor`）：`Buffer.from(…, "base64url")` 會靜默略過字元集外的字元，真游標後面接 `!!` 也解得回來（守衛＝`mcp-notes.test.ts`「真游標後面接 !!」案）。
  */
 function decodeCursor(raw: string): NoteListCursor | null {
+  if (!BASE64URL_RE.test(raw)) return null;
   const decoded = Buffer.from(raw, "base64url").toString("utf8");
   if (!noNul(decoded)) return null;
   const parts = decoded.split(CURSOR_SEP);

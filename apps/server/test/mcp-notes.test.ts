@@ -242,6 +242,24 @@ describe("#108 list_notes", () => {
     }
   });
 
+  // 資料夾 PR-3d 整支審查：`Buffer.from(…, "base64url")` 靜默略過字元集外的字元，真游標接 `!!` 原本照樣翻頁；list_trash／list_folders 都拒。
+  it("真游標後面接 !! → invalid_body，與 list_trash 收到同一串的錯誤結果逐欄相同；真游標本身照常翻頁", async () => {
+    const ctx = await buildCollabTestApp();
+    const { ownerId, token } = await scenario(ctx);
+    await ctx.createNote(ownerId, "One");
+    await ctx.createNote(ownerId, "Two");
+    const first = payloadOf(await callTool(ctx.app, token, "list_notes", { limit: 1 }));
+    expect(typeof first.nextCursor).toBe("string"); // 前提：真的拿到一個游標
+    expect(payloadOf(await callTool(ctx.app, token, "list_notes", { limit: 1, cursor: first.nextCursor! })).notes).toHaveLength(1);
+    const cursor = `${first.nextCursor!}!!`;
+    const notesCall = await callTool(ctx.app, token, "list_notes", { limit: 1, cursor });
+    const trashCall = await callTool(ctx.app, token, "list_trash", { cursor });
+    expect(notesCall.status).toBe(200);
+    expect(notesCall.result).toEqual(trashCall.result);
+    expect(notesCall.result.isError).toBe(true);
+    expect(notesCall.result.structuredContent).toEqual({ code: "invalid_body", message: "The `cursor` value is not one this server issued. Omit it to start over." });
+  });
+
   it("title 截到逃脫後 200 並附 titleTruncated（M16）", async () => {
     const ctx = await buildCollabTestApp();
     const { ownerId, token } = await scenario(ctx);

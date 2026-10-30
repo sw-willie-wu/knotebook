@@ -9,11 +9,11 @@ import { NOTE_ID } from "../../notes/schemas.js";
 import { noteSummariesForModel, noteSummarySchema } from "../dto.js";
 import { FOLDER_ID } from "../folder-fields.js";
 import { folderFailureToToolError } from "../folder-messages.js";
+import { folderServiceDeps } from "../folder-service.js";
 import { NOTE_NOT_FOUND_MESSAGE } from "../note-read.js";
 import { rereadAnyVisibleNote } from "../note-rows.js";
 import { toolError, toolResult } from "../tool-result.js";
 import { requireWriteScope } from "../write-scope.js";
-import { folderServiceDeps } from "./create-folder.js";
 import type { McpToolCtx } from "../context.js";
 
 /** D-MNF（逐字照 plan「待確認字串」）。 */
