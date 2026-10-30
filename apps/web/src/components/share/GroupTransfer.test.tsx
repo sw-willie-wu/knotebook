@@ -1268,10 +1268,12 @@ describe("isSameSpaceMove（PR-3b-2 T4 fix）", () => {
   const place = (space: DestSpace): DestinationPick["target"] => ({ kind: "place", space, folder: null });
   const pick = (kind: "move" | "copy", target: DestinationPick["target"]): DestinationPick => ({ kind, target, groups: [], index: indexFolders([]) });
   const groupNote: NoteDto = { ...NOTE, groupId: GA };
+  /** 別人分享給我的筆記：移動來源的上半部是「與我共享」（`noteDestSource`）。 */
+  const sharedWithMe: NoteDto = { ...NOTE, ownerId: "u2", role: "editor", permissions: { ...EDITOR_PERMS } };
 
-  it("個人筆記移到我的筆記、共享 → true", () => {
+  it("個人筆記移到我的筆記、共享筆記移到共享 → true", () => {
     expect(isSameSpaceMove(NOTE, pick("move", place({ kind: "personal" })))).toBe(true);
-    expect(isSameSpaceMove(NOTE, pick("move", place({ kind: "shared" })))).toBe(true);
+    expect(isSameSpaceMove(sharedWithMe, pick("move", place({ kind: "shared" })))).toBe(true);
   });
   it("群組筆記移到自己的群組 → true", () => {
     expect(isSameSpaceMove(groupNote, pick("move", place({ kind: "group", groupId: GA, name: "A" })))).toBe(true);

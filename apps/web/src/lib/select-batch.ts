@@ -13,8 +13,9 @@ import type { SelectionNode } from "@/lib/sidebar-selection";
  * - 依序（await 完一篇才送下一篇）：不開批次端點（spec §6.11），沿用單篇端點的交易、權限與容量檢查；依序才停得住、才回報得出「已完成幾篇」。
  * - 分類（Willie 裁定）：403、404 `not_found` → 略過、繼續；其餘（429、404 `group_not_found`、409、400、5xx、網路錯誤、
  *   非 JSON 的 `internal`）→ 停下。move 的 409 `conflict`（授權之後、上鎖之前歸屬變了）是窄競態：停下安全、不掉資料。
+ *   404 `folder_not_found`：刪資料夾時略過（要刪的已不在）；其餘一律停下（例如明選的目的地資料夾已不在，spec §6.10），見 `classifyBatchError`。
  * - 複製扣寫入節流（`limiters.edit` 30 次／60 秒，有附件再扣 upload 桶）：一次複製約 30 篇以上會撞 429 而停下。
- * - 停下時的 `remaining` 是選取鍵形（`{ kind, id }`）：呼叫端直接 `setAll` 回選取；PR-3b 的資料夾項放 `{ kind: "folder", id }`。
+ * - 停下時的 `remaining` 是選取鍵形（`{ kind, id }`）：呼叫端直接 `setAll` 回選取；資料夾項是 `{ kind: "folder", id }`。
  * - 整批的快取失效一律在 `finally`：hook 丟例外時整批 reject，已送出的仍要對帳。
  */
 
@@ -35,7 +36,7 @@ export interface BatchOutcome<R> {
   skipped: number;
   /** 每一筆略過的項目與錯誤（依送出順序）：呼叫端分「沒有權限」與「已不存在」（資料夾 404 `folder_not_found`）。 */
   skippedDetail: Array<{ node: SelectionNode; err: unknown }>;
-  /** 停下那篇（含）之後全部未成功的項目，以選取鍵形回傳（gate r1 m13）：PR-3b 的資料夾項直接放 `{ kind: "folder", id }`。 */
+  /** 停下那篇（含）之後全部未成功的項目，以選取鍵形回傳（gate r1 m13）：資料夾項是 `{ kind: "folder", id }`。 */
   stopped: { cause: unknown; remaining: SelectionNode[] } | null;
 }
 
@@ -77,36 +78,6 @@ export async function runSequential<T, R>(
 
 const noteNode = (note: NoteDto): SelectionNode => ({ kind: "note", id: note.id });
 const notePath = (id: string): string => `/api/notes/${encodeURIComponent(id)}`;
-
-/** `DELETE /api/notes/:id`（移到垃圾桶）；`done` 收原 NoteDto。失效同單篇 `useDeleteNote`。 */
-export async function trashNotesInOrder(
-  notes: readonly NoteDto[],
-  deps: {
-    queryClient: QueryClient;
-    beforeEach?: (n: NoteDto) => void;
-    afterFailure?: (n: NoteDto, err: unknown, kind: "skip" | "stop") => void;
-  } & BatchHooks,
-): Promise<BatchOutcome<NoteDto>> {
-  const { queryClient } = deps;
-  const doneIds: string[] = [];
-  try {
-    return await runSequential(
-      notes,
-      noteNode,
-      async (note) => {
-        await api<void>(notePath(note.id), { method: "DELETE" });
-        doneIds.push(note.id);
-        return note;
-      },
-      { beforeEach: deps.beforeEach, afterFailure: deps.afterFailure, onProgress: deps.onProgress },
-    );
-  } finally {
-    void queryClient.invalidateQueries({ queryKey: ["notes"] });
-    void queryClient.invalidateQueries({ queryKey: ["backlinks"] });
-    void queryClient.invalidateQueries({ queryKey: ["trash"] });
-    for (const id of doneIds) void queryClient.invalidateQueries({ queryKey: ["note", id] });
-  }
-}
 
 /**
  * `POST /api/notes/:id/move { groupId, folderId? }`（根層不帶 folderId）；成功逐篇 `applyMovedNote`，失敗（略過或停下）逐篇

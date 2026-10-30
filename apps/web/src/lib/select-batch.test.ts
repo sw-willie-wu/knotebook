@@ -16,7 +16,6 @@ import {
   moveNotesInOrder,
   placeTargetsInOrder,
   runSequential,
-  trashNotesInOrder,
   undoPlacements,
   type PlacedItem,
 } from "./select-batch";
@@ -72,8 +71,14 @@ function spyInvalidations(qc: QueryClient): string[] {
 }
 
 const k = (...key: unknown[]): string => JSON.stringify(key);
+/** SB6 停下案（只刪成 a）與 SB11 的失效集合。 */
+const SB6_STOP_KEYS = [k("folders"), k("notes"), k("trash"), k("backlinks"), k("note", "a")];
 const sorted = (keys: readonly string[]): string[] => [...new Set(keys)].sort();
 const notes = (...ids: string[]): NoteDto[] => ids.map((id) => personalNote({ id, title: `T-${id}` }));
+const noteT = (note: NoteDto): SelectionTarget => ({ kind: "note", note });
+/** `deleteTargetsInOrder` 刪一篇筆記的 done 形。 */
+const trashed = (note: NoteDto) => ({ target: noteT(note), trashedNoteIds: [note.id] });
+const idOf = (target: SelectionTarget): string => (target.kind === "note" ? target.note.id : target.folder.id);
 const del = (id: string): string => `DELETE /api/notes/${id}`;
 const move = (id: string): string => `POST /api/notes/${id}/move`;
 const copy = (id: string): string => `POST /api/notes/${id}/copy`;
@@ -94,14 +99,14 @@ describe("runSequential（spec §6.11 執行、D-M4）", () => {
       [del("c")]: () => ok(),
     });
     const [a, b, c] = notes("a", "b", "c");
-    const pending = trashNotesInOrder([a, b, c], { queryClient: newClient() });
+    const pending = deleteTargetsInOrder([a, b, c].map(noteT), { queryClient: newClient() });
     await waitFor(() => expect(calls).toHaveLength(1));
     await new Promise((r) => setTimeout(r, 0));
     expect(calls).toHaveLength(1);
     release(ok());
     const out = await pending;
     expect(calls.map((x) => `${x.method} ${x.url}`)).toEqual([del("a"), del("b"), del("c")]);
-    expect(out).toEqual({ done: [a, b, c], skipped: 0, skippedDetail: [], stopped: null });
+    expect(out).toEqual({ done: [a, b, c].map(trashed), skipped: 0, skippedDetail: [], stopped: null });
   });
 
   it("SB2 classifyBatchError：403、404 not_found 略過；其餘一律停下", () => {
@@ -124,9 +129,9 @@ describe("runSequential（spec §6.11 執行、D-M4）", () => {
       [del("d")]: () => ok(),
     });
     const [a, b, c, d] = notes("a", "b", "c", "d");
-    const out = await trashNotesInOrder([a, b, c, d], { queryClient: newClient() });
+    const out = await deleteTargetsInOrder([a, b, c, d].map(noteT), { queryClient: newClient() });
     expect(calls).toHaveLength(4);
-    expect(out.done).toEqual([a, d]);
+    expect(out.done).toEqual([trashed(a), trashed(d)]);
     expect(out.skipped).toBe(2);
     expect(out.stopped).toBeNull();
   });
@@ -139,9 +144,9 @@ describe("runSequential（spec §6.11 執行、D-M4）", () => {
       [del("d")]: () => ok(),
     });
     const [a, b, c, d] = notes("a", "b", "c", "d");
-    const out = await trashNotesInOrder([a, b, c, d], { queryClient: newClient() });
+    const out = await deleteTargetsInOrder([a, b, c, d].map(noteT), { queryClient: newClient() });
     expect(calls.map((x) => x.url)).toEqual(["/api/notes/a", "/api/notes/b"]);
-    expect(out.done).toEqual([a]);
+    expect(out.done).toEqual([trashed(a)]);
     expect(out.skipped).toBe(0);
     expect(out.stopped?.remaining).toEqual([
       { kind: "note", id: "b" },
@@ -160,10 +165,10 @@ describe("runSequential（spec §6.11 執行、D-M4）", () => {
     });
     const sentBefore: Array<[string, number]> = [];
     const failures: Array<[string, number, string]> = [];
-    await trashNotesInOrder(notes("a", "b", "c"), {
+    await deleteTargetsInOrder(notes("a", "b", "c").map(noteT), {
       queryClient: newClient(),
-      beforeEach: (n) => sentBefore.push([n.id, calls.length]),
-      afterFailure: (n, err, kind) => failures.push([n.id, (err as ApiFail).status, kind]),
+      beforeEach: (target) => sentBefore.push([idOf(target), calls.length]),
+      afterFailure: (target, err, kind) => failures.push([idOf(target), (err as ApiFail).status, kind]),
     });
     expect(sentBefore).toEqual([["a", 0], ["b", 1], ["c", 2]]);
     expect(failures).toEqual([["b", 403, "skip"], ["c", 429, "stop"]]);
@@ -173,7 +178,7 @@ describe("runSequential（spec §6.11 執行、D-M4）", () => {
     const calls = stubFetch({});
     const qc = newClient();
     const empty = { done: [], skipped: 0, skippedDetail: [], stopped: null };
-    expect(await trashNotesInOrder([], { queryClient: qc })).toEqual(empty);
+    expect(await deleteTargetsInOrder([], { queryClient: qc })).toEqual(empty);
     expect(await moveNotesInOrder([], { groupId: "g1" }, { queryClient: qc })).toEqual(empty);
     expect(await copyNotesInOrder([], PERSONAL_ROOT, { queryClient: qc })).toEqual(empty);
     expect(await runSequential([], () => ({ kind: "note", id: "x" }), () => Promise.resolve(1))).toEqual(empty);
@@ -183,32 +188,14 @@ describe("runSequential（spec §6.11 執行、D-M4）", () => {
   it("SB10 進度：每篇成功或略過後回報；停下那篇不回報", async () => {
     stubFetch({ [del("a")]: () => ok(), [del("b")]: () => fail(403, "forbidden"), [del("c")]: () => ok() });
     const progress: Array<[number, number]> = [];
-    await trashNotesInOrder(notes("a", "b", "c"), { queryClient: newClient(), onProgress: (p, t) => progress.push([p, t]) });
+    await deleteTargetsInOrder(notes("a", "b", "c").map(noteT), { queryClient: newClient(), onProgress: (p, t) => progress.push([p, t]) });
     expect(progress).toEqual([[1, 3], [2, 3], [3, 3]]);
 
     vi.unstubAllGlobals();
     stubFetch({ [del("a")]: () => ok(), [del("b")]: () => fail(429, "too_many_requests"), [del("c")]: () => ok() });
     const stopped: Array<[number, number]> = [];
-    await trashNotesInOrder(notes("a", "b", "c"), { queryClient: newClient(), onProgress: (p, t) => stopped.push([p, t]) });
+    await deleteTargetsInOrder(notes("a", "b", "c").map(noteT), { queryClient: newClient(), onProgress: (p, t) => stopped.push([p, t]) });
     expect(stopped).toEqual([[1, 3]]);
-  });
-});
-
-describe("trashNotesInOrder 快取", () => {
-  it("SB6 整批後恰失效 notes／backlinks／trash 與每篇成功的 note；停下時也失效", async () => {
-    stubFetch({ [del("a")]: () => ok(), [del("b")]: () => ok() });
-    const qc = newClient();
-    const keys = spyInvalidations(qc);
-    await trashNotesInOrder(notes("a", "b"), { queryClient: qc });
-    expect(sorted(keys)).toEqual(sorted([k("notes"), k("backlinks"), k("trash"), k("note", "a"), k("note", "b")]));
-
-    vi.unstubAllGlobals();
-    stubFetch({ [del("a")]: () => ok(), [del("b")]: () => fail(429, "too_many_requests") });
-    const qc2 = newClient();
-    const keys2 = spyInvalidations(qc2);
-    const out = await trashNotesInOrder(notes("a", "b"), { queryClient: qc2 });
-    expect(out.stopped).not.toBeNull();
-    expect(sorted(keys2)).toEqual(sorted([k("notes"), k("backlinks"), k("trash"), k("note", "a")]));
   });
 });
 
@@ -296,8 +283,8 @@ describe("hook 丟例外（finally 的意義）", () => {
 
     const qc1 = newClient();
     const keys1 = spyInvalidations(qc1);
-    await expect(trashNotesInOrder([a], { queryClient: qc1, onProgress: boom })).rejects.toThrow("boom");
-    expect(sorted(keys1)).toEqual(sorted([k("notes"), k("backlinks"), k("trash"), k("note", "a")]));
+    await expect(deleteTargetsInOrder([noteT(a)], { queryClient: qc1, onProgress: boom })).rejects.toThrow("boom");
+    expect(sorted(keys1)).toEqual(sorted(SB6_STOP_KEYS));
 
     const qc2 = newClient();
     const keys2 = spyInvalidations(qc2);
@@ -313,7 +300,6 @@ describe("hook 丟例外（finally 的意義）", () => {
 
 // ── PR-3b-2 T5：資料夾與筆記的批次（資料夾 spec §6.10） ──
 
-const noteT = (note: NoteDto): SelectionTarget => ({ kind: "note", note });
 const folderT = (id: string, parentId: string | null = null): SelectionTarget => ({ kind: "folder", folder: folderDto({ id, name: id, parentId }) });
 const patchFolder = (id: string): string => `PATCH /api/folders/${id}`;
 const putFolder = (id: string): string => `PUT /api/notes/${id}/folder`;
@@ -436,6 +422,22 @@ describe("undoPlacements（D18 ③）", () => {
 });
 
 describe("deleteTargetsInOrder", () => {
+  it("SB6 整批後恰失效 folders／notes／trash／backlinks 與每篇成功的 note；停下時也失效", async () => {
+    stubFetch({ [del("a")]: () => ok(), [del("b")]: () => ok() });
+    const qc = newClient();
+    const keys = spyInvalidations(qc);
+    await deleteTargetsInOrder(notes("a", "b").map(noteT), { queryClient: qc });
+    expect(sorted(keys)).toEqual(sorted([k("folders"), k("notes"), k("trash"), k("backlinks"), k("note", "a"), k("note", "b")]));
+
+    vi.unstubAllGlobals();
+    stubFetch({ [del("a")]: () => ok(), [del("b")]: () => fail(429, "too_many_requests") });
+    const qc2 = newClient();
+    const keys2 = spyInvalidations(qc2);
+    const out = await deleteTargetsInOrder(notes("a", "b").map(noteT), { queryClient: qc2 });
+    expect(out.stopped).not.toBeNull();
+    expect(sorted(keys2)).toEqual(sorted(SB6_STOP_KEYS));
+  });
+
   it("SBf7 資料夾先、筆記後；資料夾 403 folder_delete_blocked 與 404 folder_not_found 都略過；收 trashedNoteIds", async () => {
     const [n1, n2] = notes("n1", "n2");
     const calls = stubFetch({

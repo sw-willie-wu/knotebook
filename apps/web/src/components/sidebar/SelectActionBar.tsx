@@ -31,6 +31,7 @@ import {
   destinationPathLabel,
   destinationShortLabel,
   isEmptyDestination,
+  isSameSpace,
   livePath,
   type DestMode,
   type DestPathStep,
@@ -42,7 +43,6 @@ import { CopyConfirmDialog, DeleteFoldersConfirmDialog, MoveConfirmDialog } from
 import {
   batchDestSource,
   dedupeByAncestor,
-  isSameSpace,
   partitionTargets,
   SELECT_ACTIONS,
   selectedTargets,

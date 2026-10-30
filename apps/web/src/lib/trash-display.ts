@@ -43,8 +43,8 @@ export function trashDetailLine(item: TrashItemDto, ctx: { now: number; t: Trans
   const { now, t, locale } = ctx;
   const remaining = remainingLabel(item.purgeAt, now, t);
   const date = () => formatDate(item.deletedAt, "date", locale);
-  const location = noteLocationSegments(item, item.folderPath);
-  const segments = location.length > 0 ? [location.join(" › ")] : [];
+  const location = trashLocationLine(item);
+  const segments = location === "" ? [] : [location];
   if (item.group === null) return [...segments, remaining ?? t("trash.deletedOn", { date: date() })].join(" · ");
   const deletedBy = t("trash.deletedByName", { name: item.deletedBy?.displayName ?? t("trash.unknownUser") });
   // 前面已有「X 刪除」，NULL 保留天數時只放日期、不重複「刪除」

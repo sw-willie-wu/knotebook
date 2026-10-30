@@ -187,11 +187,6 @@ export function batchDestSource(input: {
   return mode === "move" ? { ...noUpper, others: [] } : { ...noUpper, others: [PERSONAL_SPACE, ...candidates] };
 }
 
-/** 同空間＝target 是某空間的位置、且與 batch 的 current 同一空間（筆記 PUT、資料夾 PATCH，不確認）；否則跨空間（只會是 myNotes → 群組）。 */
-export function isSameSpace(target: DestTarget, source: DestSource): boolean {
-  return target.kind === "place" && source.current !== null && spaceKey(target.space) === spaceKey(source.current);
-}
-
 export interface ResultTally {
   action: SelectActionId;
   tab: SelectableTab;

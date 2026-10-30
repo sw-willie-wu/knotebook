@@ -5,13 +5,12 @@ import { customRole, groupDto, memberRole } from "@/test/fixtures";
 import { groupNote, personalNote, sharedNote } from "@/test/select-fixtures";
 import { folderDto, groupFolder, sharedFolder } from "@/test/folder-fixtures";
 import { __resetCollapseForTests, setCollapsed } from "./collapse";
-import { isEmptyDestination, type DestSource, type DestTarget } from "./destination-level";
+import { isEmptyDestination, isSameSpace, type DestSource, type DestTarget } from "./destination-level";
 import { EMPTY_FOLDER_INDEX, indexFolders } from "./folder-index";
 import { __resetFolderSortForTests } from "./folder-sort";
 import {
   batchDestSource,
   dedupeByAncestor,
-  isSameSpace,
   partitionTargets,
   SELECT_ACTIONS,
   selectedTargets,

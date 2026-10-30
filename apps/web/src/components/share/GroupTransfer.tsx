@@ -8,11 +8,11 @@ import { useGroups } from "@/api/groups";
 import { useConfirmNoteStillPersonal, useCopyNote, useMoveNoteToGroup } from "@/api/note-move";
 import { usePublicLink } from "@/api/public-link";
 import { useShares } from "@/api/shares";
-import { canCreateAndEdit } from "@/lib/group-role";
 import {
   buildDestinationLevel,
   destinationPathLabel,
   isEmptyDestination,
+  isSameSpace,
   livePath,
   noteDestSource,
   type DestItem,
@@ -82,8 +82,6 @@ export type DestPaths = Readonly<Record<GroupTransferKind, readonly DestPathStep
 const NO_STEPS: readonly DestPathStep[] = [];
 export const EMPTY_DEST_PATHS: DestPaths = { move: NO_STEPS, copy: NO_STEPS };
 
-export { canCreateAndEdit };
-
 const NO_GROUPS: readonly GroupDto[] = [];
 const NO_FOLDERS: readonly FolderDto[] = [];
 
@@ -91,10 +89,12 @@ function folderRef(target: Extract<DestTarget, { kind: "place" }>, index: Folder
   return target.folder === null ? undefined : { id: target.folder.id, path: destinationPathLabel(target.space, target.folder, index, t) };
 }
 
-/** 同空間移動（spec §6.11.3）：移動到我的筆記／共享，或移動到筆記自己所在的群組；呼叫端不跳確認、直接 PUT。 */
+/**
+ * 同空間移動（spec §6.11.3）：移動、且目的地與這篇的移動來源（`noteDestSource`）上半部同一空間——自己的個人筆記放進我的筆記、
+ * 群組筆記放進本群組、共享筆記放進自己的共享私人資料夾；判準與選取模式共用 `isSameSpace`。呼叫端不跳確認、直接 PUT。
+ */
 export function isSameSpaceMove(note: NoteDto, pick: DestinationPick): boolean {
-  const { target } = pick;
-  return pick.kind === "move" && target.kind === "place" && (target.space.kind !== "group" || target.space.groupId === note.groupId);
+  return pick.kind === "move" && pick.target.kind === "place" && isSameSpace(pick.target, noteDestSource(note, "move", pick.groups));
 }
 
 /**

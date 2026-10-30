@@ -82,6 +82,14 @@ export function noteDestSource(note: NoteDto, mode: DestMode, groups: readonly G
   return { ...base, current: null, makeCopy: false, others: [PERSONAL, ...candidates.map(groupSpace)] };
 }
 
+/**
+ * 同空間＝target 是某空間的位置、且與 source 的 current 同一空間（筆記 PUT、資料夾 PATCH，不確認）；否則跨空間。
+ * ⋮ 單篇（`GroupTransfer` 的 `isSameSpaceMove`，source＝`noteDestSource`）與選取模式批次（`SelectActionBar`，source＝`batchDestSource`）共用這一份判準。
+ */
+export function isSameSpace(target: DestTarget, source: DestSource): boolean {
+  return target.kind === "place" && source.current !== null && spaceKey(target.space) === spaceKey(source.current);
+}
+
 /** 「整項不渲染／disabled」的唯一判準（總管裁定 2026-10-29 I2）。 */
 export function isEmptyDestination(source: DestSource, index: FolderIndex, t: Translate): boolean {
   return buildDestinationLevel({ source, path: [], index, t }).length === 0;

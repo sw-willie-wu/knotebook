@@ -125,6 +125,8 @@ test("41-1 ⋮ 移動與復原（1280 寬）：第一層沒有 Top level → 換
   await clickMenuItemByPointer(page, F1);
   const moved = toastWithTitle(page, `Moved to “${F1}”`);
   await expect(moved).toBeVisible({ timeout: 15_000 });
+  // 指標停在 toast 上：Radix 的 5 秒計時暫停，側欄斷言與 Undo 之間 toast 不會自己收掉。
+  await moved.hover();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(noteLink(folderRow(panel, F1), N)).toBeVisible({ timeout: 15_000 });
   await moved.getByRole("button", { name: "Undo", exact: true }).click();
@@ -289,6 +291,8 @@ test("41-5 選取模式：勾兩篇 → Move to → F → Move here（不確認�
   await pickDestination(picker, [`${F}, open`, "Move here"]);
   const moved = toastWithTitle(page, `Moved 2 items to “${F}”`);
   await expect(moved).toBeVisible({ timeout: 15_000 });
+  // 指標停在 toast 上：Radix 的 5 秒計時暫停，側欄斷言與 Undo 之間 toast 不會自己收掉。
+  await moved.hover();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   for (const title of [a, b]) await expect(noteLink(folderRow(panel, F), title)).toBeVisible({ timeout: 15_000 });
 
@@ -350,7 +354,6 @@ test("41-6 390 抽屜：⋮ Move to… 就地展開、點「F, open」縮排區�
   await expect(drawer).toBeVisible();
   await expect(noteLink(folderRow(drawerPanel, F), M)).toBeVisible({ timeout: 15_000 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
-  await page.setViewportSize({ width: 1280, height: 800 });
 });
 
 test("41-7 與我共享：B 建共享資料夾 SF、把 A 分享的那篇移進去；A 那邊 folderId 仍是 null", async ({ browser }) => {
