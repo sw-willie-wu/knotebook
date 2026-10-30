@@ -41,7 +41,7 @@ function ConfirmShell({
   children,
 }: Omit<ConfirmProps, "count"> & {
   title: string;
-  description: string;
+  description: ReactNode;
   submitLabel: string;
   submitVariant: "destructive" | "outline";
   children?: ReactNode;
@@ -117,7 +117,7 @@ export function CopyConfirmDialog({ count, target, pathLabel, ...rest }: Confirm
 
 /**
  * 選了資料夾按「刪除」的彙總確認框（資料夾 spec §6.10 m7）：標題資料夾數、內文會進垃圾桶的篇數（各資料夾子樹活筆記的聯集）、
- * 另選了筆記時加一句；與我共享 tab 是「移除」（資料夾只是自己的分類，筆記回最上層）。數字由呼叫端在開框那一刻快照。
+ * 另選了筆記時加一句（也在可及描述裡）；與我共享 tab 是「移除」（資料夾只是自己的分類，筆記回最上層）。數字由呼叫端在開框那一刻快照。
  * 送出中規則同 `ConfirmShell`（框開到批次結束）。
  */
 export function DeleteFoldersConfirmDialog({
@@ -143,11 +143,20 @@ export function DeleteFoldersConfirmDialog({
     <ConfirmShell
       {...rest}
       title={t("select.deleteFoldersTitle", { count: folderCount })}
-      description={t("select.deleteFoldersBody", { count: noteCount })}
+      // 附加句也在 DialogDescription 裡（開框時跟內文一起唸）；兩句之間的空白讓可及描述不黏字，畫面上附加句另起一行。
+      description={
+        <>
+          <span>{t("select.deleteFoldersBody", { count: noteCount })}</span>
+          {alsoNotes > 0 && (
+            <>
+              {" "}
+              <span className="mt-2 block">{t("select.deleteFoldersAlsoNotes", { count: alsoNotes })}</span>
+            </>
+          )}
+        </>
+      }
       submitLabel={t("select.deleteConfirm")}
       submitVariant="destructive"
-    >
-      {alsoNotes > 0 && <p className="text-sm text-muted-foreground">{t("select.deleteFoldersAlsoNotes", { count: alsoNotes })}</p>}
-    </ConfirmShell>
+    />
   );
 }

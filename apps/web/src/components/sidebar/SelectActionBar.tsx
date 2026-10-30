@@ -112,10 +112,10 @@ function skippedCounts(pre: Eligibility, skippedDetail: BatchOutcome<unknown>["s
   return out;
 }
 
-/** 停下的 toast：標題＝錯誤句、描述＝已完成幾項（有資料夾時「項」，否則「篇」）。 */
-function stoppedCopy(t: Translate, stopped: Stopped, done: number, hasFolders: boolean): { title: string; description: string } | null {
+/** 停下的 toast：標題＝錯誤句、描述＝已完成幾項（`items`：同空間放置、或刪除含資料夾時「項」；否則「篇」）。 */
+function stoppedCopy(t: Translate, stopped: Stopped, done: number, items: boolean): { title: string; description: string } | null {
   if (stopped === null) return null;
-  return { title: folderErrorMessage(t, stopped.cause), description: t(hasFolders ? "select.stoppedAfterItems" : "select.stoppedAfter", { count: done }) };
+  return { title: folderErrorMessage(t, stopped.cause), description: t(items ? "select.stoppedAfterItems" : "select.stoppedAfter", { count: done }) };
 }
 
 /**
@@ -279,7 +279,8 @@ export function SelectActionBar() {
           },
           t,
         );
-        const halted = stoppedCopy(t, stopped, done.length, items.some(isFolder));
+        // 同空間的結果句一律以「項」計（movedItems）：停下的描述也用「項」，只有筆記也一樣。
+        const halted = stoppedCopy(t, stopped, done.length, true);
         toast({
           title: halted?.title ?? title,
           description: halted?.description,

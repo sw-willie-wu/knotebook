@@ -28,11 +28,6 @@ export const SELECT_ACTIONS: Readonly<Record<SelectableTab, readonly SelectActio
   shared: ["move", "copy", "delete"],
 };
 
-/** 樹序的全部筆記（含收合群組裡的）。 */
-export function tabNotes(nodes: readonly SidebarNode[]): NoteDto[] {
-  return nodes.flatMap((node) => (node.kind === "note" ? [node.note] : tabNotes(node.children)));
-}
-
 // ── PR-3b-2：資料夾與筆記同列選取（資料夾 spec §6.10） ──
 
 /** 選取的一項：筆記或資料夾（群組列不可勾）。 */

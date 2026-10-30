@@ -16,7 +16,6 @@ import {
   SELECT_ACTIONS,
   selectedTargets,
   selectionResultTitle,
-  tabNotes,
   visibleSelectionKeys,
   type ResultTally,
   type SelectionTarget,
@@ -34,8 +33,6 @@ const G2B = groupNote({ id: "g2b", title: "G2 B", group: G2 });
 const WORKSPACE = buildTabNodes("workspace", [G1A, G1B, G2A, G2B], [G1, G2], EMPTY_FOLDER_INDEX);
 
 const A = personalNote({ id: "a", title: "A" });
-
-const ids = (notes: readonly { id: string }[]) => notes.map((n) => n.id);
 
 beforeEach(async () => {
   await i18n.changeLanguage("en");
@@ -55,12 +52,6 @@ describe("SMf1 SELECT_ACTIONS（資料夾 spec §6.10：工作坊、與我共享
       workspace: ["move", "copy", "delete"],
       shared: ["move", "copy", "delete"],
     });
-  });
-});
-
-describe("SMd2 tabNotes", () => {
-  it("工作坊兩群組各兩篇 → 樹序四篇", () => {
-    expect(ids(tabNotes(WORKSPACE))).toEqual(["g1a", "g1b", "g2a", "g2b"]);
   });
 });
 
