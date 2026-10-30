@@ -9,10 +9,12 @@ Knotebook follows Keep a Changelog conventions: unreleased work accumulates unde
 
 ### Added
 
-- **Folders** in the sidebar's **My notes** and **Workspace** tabs: create, rename and delete folders, nest them up to five levels, sort the notes in a folder by name, last modified or size, and create notes in a folder. Group folders are shared with the group. Deleting a folder asks first, moves its notes to the trash, and **Undo** brings them back into rebuilt folders.
+- **Folders** in the sidebar's **My notes** and **Workspace** tabs: create, rename and delete folders, nest them up to five levels, sort the notes in a folder by name, last modified or size, and create notes in a folder. Group folders are shared with the group. Deleting a folder asks first, moves its notes to the trash, and **Undo** brings them back into rebuilt folders. **Shared with me** has folders too (**New folder**), seen only by you: filing a note someone shared with you there changes nothing for anyone else. Notes go into folders two ways: **Move to…** in a note's `⋮` menu, which now lists places one level at a time, and **Move to** in the sidebar's selection mode, where folders can be ticked, moved within their space and deleted along with notes. Moving within the same space doesn't ask, and its message offers **Undo**.
 
 ### Changed
 
+- **Make a copy** in a note's `⋮` menu puts the copy in the same folder as the original, instead of at the top level.
+- **Move to…** in a note's `⋮` menu also appears, when there's somewhere to move the note, on group notes your role can edit, to move them within the group, and on notes shared with you, to file them in your folders in **Shared with me**. Selection mode's **Move to** is now in **Workspace** and **Shared with me** too.
 - Items in the sidebar's **Trash** tab show the folder each note was in, after its group's name.
 - The location shown under notes in **Recent** and in search results includes the folder path.
 - The group menu's items have icons.
