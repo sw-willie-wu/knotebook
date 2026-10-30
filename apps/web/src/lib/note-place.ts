@@ -1,4 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query";
+import type { NoteDto } from "@knotebook/shared";
 import { applyPlacedNote, folderErrorMessage, invalidateFolderRelated, isFolderNotFound, placeNoteRequest } from "@/api/folders";
 import { expandFolderChain, type FolderIndex } from "@/components/sidebar/folder-index";
 import { toast } from "@/components/ui/toast";
@@ -20,6 +21,7 @@ function invalidateIfFolderGone(queryClient: QueryClient, err: unknown): void {
  * 復原：PUT 回 from；成功不另出 toast（清單即時歸位）、失敗出 folderErrorMessage 錯誤 toast、不重試。
  * 失敗：folderErrorMessage 錯誤 toast；404 folder_not_found 另 invalidateFolderRelated。
  * toast 的 handler 只用參數捕捉的值：按「復原」時選單常已卸載（同 `lib/trash-undo.ts`）。
+ * optimistic（拖曳，§6.13；⋮ 不帶）：PUT 前取消 ["notes"] 的進行中請求、快照、把該篇的 folderId 換成目標；失敗先還原快照再走上述錯誤路徑。
  */
 export async function placeNoteWithUndo(args: {
   noteId: string;
@@ -28,13 +30,27 @@ export async function placeNoteWithUndo(args: {
   index: FolderIndex;
   queryClient: QueryClient;
   t: Translate;
+  optimistic?: true;
 }): Promise<void> {
   const { noteId, from, to, index, queryClient, t } = args;
+  const optimistic = args.optimistic === true;
+  let snapshot: NoteDto[] | undefined;
+  if (optimistic) {
+    await queryClient.cancelQueries({ queryKey: ["notes"] });
+    snapshot = queryClient.getQueryData<NoteDto[]>(["notes"]);
+    if (snapshot !== undefined) {
+      queryClient.setQueryData<NoteDto[]>(
+        ["notes"],
+        snapshot.map((note) => (note.id === noteId ? { ...note, folderId: to.folderId } : note)),
+      );
+    }
+  }
   try {
     const placed = await placeNoteRequest(noteId, to.folderId);
     applyPlacedNote(queryClient, placed);
     if (to.folderId !== null) expandFolderChain(index, to.folderId);
   } catch (err) {
+    if (snapshot !== undefined) queryClient.setQueryData<NoteDto[]>(["notes"], snapshot);
     invalidateIfFolderGone(queryClient, err);
     toast({ title: folderErrorMessage(t, err), variant: "destructive" });
     return;
