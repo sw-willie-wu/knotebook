@@ -29,10 +29,16 @@ describe("assertSpaceRoomInTx（spec §5.3）", () => {
     try {
       await holder.query("begin");
       await holder.query("select pg_advisory_xact_lock(hashtextextended($1::text, 0))", [spaceLockKey({ kind: "user", id: u.id })]);
-      const t0 = Date.now();
-      await db.transaction(tx => assertSpaceRoomInTx(tx, { kind: "user", id: u.id }, 0, opts));
-      await db.transaction(tx => assertSpaceRoomInTx(tx, { kind: "user", id: u.id }, -5, opts));
-      expect(Date.now() - t0).toBeLessThan(1_000);
+      // 「沒取鎖」的確定性證明（不量牆鐘）：鎖被 holder 持住，這裡只要去取就一定等——函式自己的上限給 1 ms、交易本身也先
+      // `set local lock_timeout = '1ms'`（防「沒先 set_config 就取鎖」的寫法落回 session 的 0＝無限等），所以取鎖＝立刻 55P03 → 紅；
+      // 兩筆都順利 commit 才證明沒取鎖。與機器快慢無關。
+      const noLock = { lockTimeoutMs: 1 };
+      for (const incoming of [0, -5]) {
+        await db.transaction(async tx => {
+          await tx.execute(sql`set local lock_timeout = '1ms'`);
+          await assertSpaceRoomInTx(tx, { kind: "user", id: u.id }, incoming, noLock);
+        });
+      }
     } finally {
       await holder.query("rollback");
       holder.release();

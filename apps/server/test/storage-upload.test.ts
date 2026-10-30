@@ -3,7 +3,7 @@
  */
 import http from "node:http";
 import type { AddressInfo } from "node:net";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import { MAX_UPLOAD_BYTES, SESSION_COOKIE } from "@knotebook/shared";
@@ -13,6 +13,13 @@ import { purgeTrashedNotesInTx } from "../src/notes/tx/trash.js";
 import { buildTestApp, testConfig } from "./helpers.js";
 import { cookieOf, seedGroup, seedNote, seedShare, seedUser } from "./group-helpers.js";
 import { QUOTA_BOUNDARY, filesIn, giveGroupQuota, giveUserQuota, multipartFile, pngOf, quotaBody, seedAttachment, upload, usedOf } from "./storage-helpers.js";
+import { INJECTED_LOCK_TIMEOUT_BOUND_MS } from "./lock-timeout-bound.js";
+
+// 預設空間鎖上限在本檔換成 60 s（產品值 5000），「注入的短上限有生效」的牆鐘界線才能離兩邊都遠——見 ./lock-timeout-bound.ts。
+vi.mock("../src/storage/tx/quota.js", async () => ({
+  ...(await vi.importActual<typeof import("../src/storage/tx/quota.js")>("../src/storage/tx/quota.js")),
+  DEFAULT_STORAGE_LOCK_TIMEOUT_MS: (await import("./lock-timeout-bound.js")).SLOW_DEFAULT_LOCK_TIMEOUT_MS,
+}));
 
 const rowsOf = async (db: Awaited<ReturnType<typeof buildTestApp>>["db"], noteId: string) =>
   db.select({ size: uploads.size }).from(uploads).where(eq(uploads.noteId, noteId));
@@ -195,7 +202,7 @@ describe("上傳：busy 映射與真逾時（S14 上傳形、S15(a)）", () => {
     expect(await filesIn(uploadsDir)).toEqual(before);
   });
 
-  it("S15(a)：storageLockTimeoutMs=200；上傳 A 停在縫上，同空間上傳 B 真的拿到 55P03 → 409 server_busy（< 3000 ms：注入值有生效，不是預設 5000）、B 的檔已 unlink；A 之後 201", async () => {
+  it("S15(a)：storageLockTimeoutMs=200；上傳 A 停在縫上，同空間上傳 B 真的拿到 55P03 → 409 server_busy（< 20 s：注入值有生效，不是本檔預設 60 s）、B 的檔已 unlink；A 之後 201", async () => {
     const holder: { app?: FastifyInstance; noteId?: string; userId?: string; b?: LightMyRequestResponse; bMs?: number } = {};
     const { app, db, uploadsDir } = await buildTestApp({
       storageLockTimeoutMs: 200,
@@ -214,8 +221,8 @@ describe("上傳：busy 映射與真逾時（S14 上傳形、S15(a)）", () => {
     const a = await upload(app, n.id, u.id, 100);
     expect(holder.b!.statusCode).toBe(409);
     expect(holder.b!.json().error.code).toBe("server_busy");
-    // 200 與預設 5000 之間留寬裕：注入值若沒一路傳到 `assertSpaceRoomInTx`（落回預設），B 要等約 5 s 才逾時 → 紅
-    expect(holder.bMs!).toBeLessThan(3000);
+    // 200 ms 與本檔預設 60 s 之間的界線放 20 s：注入值若沒一路傳到 `assertSpaceRoomInTx`（落回預設），B 要等約 60 s 才逾時 → 紅
+    expect(holder.bMs!).toBeLessThan(INJECTED_LOCK_TIMEOUT_BOUND_MS);
     expect(a.statusCode).toBe(201);
     const after = await filesIn(uploadsDir);
     expect(after.length).toBe(before.length + 1);

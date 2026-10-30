@@ -547,6 +547,8 @@ describe("POST /api/ai — 正常串流", () => {
     releaseUpstream?.();
   });
 
+  // 不另設 per-test 逾時、沿用全域 testTimeout（vitest.config.ts 120 s）：idle 只等 400 ms，但以前寫死的 15 s 也罩住
+  // buildTestApp（建庫）與種資料，機器忙時那段一慢就逾時假紅；真的卡住（SSE 沒關）仍會被全域上限擋下。
   it(
     "idle timeout：fake upstream 停止吐 delta 後短逾時 → SSE error（round 2：真實時間，見 aiIdleTimeoutMs 測試 seam）",
     async () => {
@@ -610,8 +612,7 @@ describe("POST /api/ai — 正常串流", () => {
       await streamEnded;
       expect(eventSequence(body)).toEqual(["delta", "error"]);
       expect(body).toContain("upstream request failed");
-    },
-    15_000
+    }
   );
 });
 

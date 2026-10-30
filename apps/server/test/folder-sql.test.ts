@@ -22,6 +22,7 @@ import { freshDb } from "./helpers.js";
 import { seedGroup, seedNote, seedRole, seedUser, waitForBlockedOrSettled, waitForLockWaiters } from "./group-helpers.js";
 import { sixRoleScene } from "./trash-helpers.js";
 import { noteFolderCols, seedFolder, seedFolderChain, setNoteFolder } from "./folder-helpers.js";
+import { INJECTED_LOCK_TIMEOUT_BOUND_MS, SLOW_DEFAULT_LOCK_TIMEOUT_MS } from "./lock-timeout-bound.js";
 
 /** drizzle logger 會記交易控制語句（H7）——數 SQL 前先濾掉。 */
 const TXN_CONTROL = /^(begin|commit|rollback)\b/i;
@@ -306,15 +307,22 @@ describe("結構鎖與 groups KS（folders/tx/lock.ts）", () => {
     await pending;
   });
 
-  it("S-6b 逾時：A 不放、B 的上限 200 ms → 55P03，而且是 200 ms 級（不是別的上限）", async () => {
+  it("S-6b 逾時：A 不放、B 的上限 200 ms → 55P03，而且是 200 ms 級（不是交易原本的上限）", async () => {
     const { db } = await freshDb();
     const u = await seedUser(db);
     const mine: FolderSpace = { kind: "personal", ownerId: u.id };
     await whileHeld(db, holdSpaces([mine]), async () => {
       const t0 = Date.now();
-      const err = await db.transaction(tx => lockFolderSpacesInTx(tx, [mine], { lockTimeoutMs: 200 })).catch((e: unknown) => e);
+      // 交易原本的上限先設成 60 s（session 預設是 0＝無限等）：200 ms 沒套上的話要等滿 60 s 才 55P03，牆鐘界線 20 s 離兩邊都遠
+      // （見 ./lock-timeout-bound.ts；以前 200 ms 對 3 s 界線，對照組是無限等）。
+      const err = await db
+        .transaction(async tx => {
+          await tx.execute(sql.raw(`set local lock_timeout = '${SLOW_DEFAULT_LOCK_TIMEOUT_MS}ms'`));
+          await lockFolderSpacesInTx(tx, [mine], { lockTimeoutMs: 200 });
+        })
+        .catch((e: unknown) => e);
       expect((err as { cause?: { code?: string }; code?: string })?.cause?.code ?? (err as { code?: string })?.code).toBe("55P03");
-      expect(Date.now() - t0).toBeLessThan(3_000);
+      expect(Date.now() - t0).toBeLessThan(INJECTED_LOCK_TIMEOUT_BOUND_MS);
     });
   });
 
