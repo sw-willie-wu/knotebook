@@ -249,7 +249,7 @@ export function convertSiteLinks<B>(blocks: B[], resolve: SiteLinkResolve, siteO
 /**
  * RF1：連結文字的 markdown 跳脫（`\ ` ` * _ [ ] ~` 前加反斜線）。實測段落與表格 cell 都能逐字往返；`<`、`&` **刻意不收**——
  * BlockNote 的 markdown→HTML 剖析會把 `\<` 的反斜線留下來（`\<d\>` 讀回 `\<d>`），`&amp;` 不跳脫反而原樣往返。
- * **只用在要變成 markdown 的文字上**（server：`colors.ts` 的 markdown 分支；站內 AI 的 markdown 匯出）；原始 HTML 輸出不得跳脫。
+ * **只用在要變成 markdown 的文字上**（`note-markdown-read.ts` 的 markdown 分支；站內 AI 的 markdown 匯出）；原始 HTML 輸出不得跳脫。
  */
 export function escapeLinkText(text: string): string {
   return text.replace(/[\\`*_[\]~]/g, "\\$&");
@@ -259,9 +259,10 @@ export function escapeLinkText(text: string): string {
  * MCP 讀（§9.1）與站內 AI（§9.4）的匯出副本改寫：wikilink → `{ type:"link", href: wikilinkHref, content:[顯示文字] }`。
  * 顯示文字＝`wikilinkVisibleText(props, titleOf(id))`——`titleOf` 只給讀者看得到的目標，看不到的退到 `snapshotTitle`。
  * 輸入不改寫（copy-on-write）；不依賴 `toExternalHTML` 的形，所以 PR1／PR2 任一狀態下 MCP 讀出的形都相同。
- * ⚠ RF1：顯示文字**不在這裡跳脫**——同一份副本在 server 的讀路徑上，上色區塊會走原始 HTML 輸出（`colors.ts` 的
+ * ⚠ RF1：顯示文字**不在這裡跳脫**——同一份副本在 server 的讀路徑上，上色區塊會走原始 HTML 輸出（`note-markdown-read.ts` 的
  * `toBlockHTML`），HTML 不需要也不會反跳脫 markdown（Task 6 審查 r0 I1）。跳脫做在真正變成 markdown 的那一步：
- * server 在 `colors.ts` 的 markdown 分支呼叫 `escapeLinkText`；站內 AI（§9.4）的呼叫端要自己在 markdown 序列化前處理。
+ * `note-markdown-read.ts` 的 markdown 分支呼叫 `escapeLinkText`，只做這一次。server 讀路徑與站內 AI（§9.4，web 的 `ai/note-markdown.ts`）
+ * 都走同一支 `blocksToNoteMarkdown`，呼叫端**不得**另行跳脫，否則會跳脫兩次（spec 2026-10-21 columns-layout §11.6 M-4）。
  */
 export function wikilinksToLinks<B>(blocks: readonly B[], titleOf: (id: string) => string | undefined): B[] {
   const rewrite: InlineArrayMapper = (inline) => {

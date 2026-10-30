@@ -354,12 +354,14 @@ describe("if_match 與併發", () => {
 describe("拒絕案假綠守衛", () => {
   // spec §12.2 的清單是「每一個拒絕情境都要斷言：note_states.ydoc 位元組相同、note_ai_edits 零列」。
   // 這一案是那份清單的共用實作——新增任何拒絕碼都要加進 `cases`，不要另開一個沒有守衛的 it。
-  // ⚠ `unsupported_block` **整合層刻意不驗**，而且到不了：headless schema ＝ `defaultBlockSpecs`
+  // ⚠ `unsupported_block` 的**白名單分支**整合層到不了：headless schema ＝ `defaultBlockSpecs`
   // 全集＋mermaid／codeBlock（見 shared 的 `createHeadlessNoteSchema`），BlockNote 的 markdown/HTML
-  // parser 產得出來的 type 一定在白名單裡，所以無法從 markdown 造出這個碼（PR-1 過渡期並排被拒例外，見 mcp-write-guards GW1／GW2）。白名單那條分支由
+  // parser 產得出來的 type 一定在白名單裡。白名單那條分支由
   // `test/unit/editing-markdown.test.ts` 的「未知型別整筆拒絕」以收窄的假 schema 驗（刪掉
-  // `markdown.ts` 的 `walk` 檢查 → 那一案必須紅）。這裡誠實記下，而不是塞一個到不了的案子。
-  it("403 viewer、empty_content、empty_section、too_many_blocks、NUL、未知欄位、fork 側 409、413 content_too_large → note_states 位元組相同、記錄零列", async () => {
+  // `markdown.ts` 的 `walk` 檢查 → 那一案必須紅）。這個碼的另外兩條分支到得了、在下面的 `cases` 裡：
+  // core parse 丟例外（並排 PR-2，同 mcp-write-guards GW5）與帶事件處理屬性的 HTML（語法檢查）。
+  // 並排 PR-2 的兩碼 `unsupported_columns`／`unsupported_size` 也在 `cases` 裡（final review M3）。
+  it("403 viewer、empty_content、empty_section、too_many_blocks、unsupported_block／columns／size、NUL、未知欄位、fork 側 409、413 content_too_large → note_states 位元組相同、記錄零列", async () => {
     const s = await setup();
     const viewer = await s.ctx.createUser({ email: "v@example.com", password: PASSWORD });
     await s.ctx.share(s.note.id, viewer.id, "viewer");
@@ -367,7 +369,7 @@ describe("拒絕案假綠守衛", () => {
     // ⚠ **取基線之前必須先讓落盤成為確定事件**（Global Constraints 的基線條）——這一行不是多餘的
     // 收尾動作，是這一案唯一能成立的前提。不斷線就取基線的話：此刻 `note_states` 還沒有列
     //（`stateBytes()` 回空緩衝區），而 `seedContent` 那批人為編輯掛著一顆 2 秒 debounce 的 store；
-    // 底下 11 個 case ＋ 一次內容讀取 ＋ 413 跑超過兩秒，那顆 store 就會在中途落地、表裡出現種子
+    // 底下十幾個 case ＋ 一次內容讀取 ＋ 413 跑超過兩秒，那顆 store 就會在中途落地、表裡出現種子
     // 內容，結尾的位元組相等斷言變成時序假紅。斷線＋卸載之後**沒有任何在線 client 會再排 store**，
     // 而底下每一個請求都停在合併之前（拒絕案的定義）＝不會開直連、不會落盤，所以基線與結尾必然相等。
     // 之後的讀取走 DB 快照（`loadNoteDoc` 沒有 live doc 就解 `note_states`），內容與斷線前逐位元組相同。
@@ -386,6 +388,11 @@ describe("拒絕案假綠守衛", () => {
       [{ op: "append", markdown: "\n\n" }, 400, "empty_content"],
       [{ op: "delete_section", section_id: "_top", if_match: topFp }, 400, "empty_section"],
       [{ op: "append", markdown: Array.from({ length: 2001 }, (_, i) => `p${i}`).join("\n\n") }, 400, "too_many_blocks"],
+      [{ op: "append", markdown: '<div style="display:flex"><p>a</p></div>' }, 400, "unsupported_columns"],
+      [{ op: "append", markdown: '<div data-kb-columns style="display:flex;gap:16px">\n<div data-kb-column style="flex:1">\n\na\n\n</div>\n</div>' }, 400, "unsupported_columns"],
+      [{ op: "append", markdown: '<img src="/x" width="300">' }, 400, "unsupported_size"],
+      [{ op: "append", markdown: '<div data-content-type="paragraph">x</div>' }, 400, "unsupported_block"],
+      [{ op: "append", markdown: '<details><summary>s</summary><img src="x" onerror="alert(1)"></details>' }, 400, "unsupported_block"],
       [{ op: "append", markdown: "x" + NUL }, 400, "invalid_body"],
       [{ op: "append", markdown: "x", extra: 1 }, 400, "invalid_body"],
       [{ op: "replace_section", section_id: "a" + NUL, markdown: "x", if_match: "0000000000000000" }, 400, "invalid_body"],

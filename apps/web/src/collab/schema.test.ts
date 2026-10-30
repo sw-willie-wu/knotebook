@@ -369,7 +369,8 @@ describe("檔案類 block 的 toExternalHTML 走媒體 URL 守衛（issue #43）
 /**
  * issue #43 的匯出鏈釘（審查指出：上面那組只釘 spec 本體——若上游匯出器改讀別的
  * 註冊表而非編輯器 schema 的 blockSpecs，上面全綠而洞悄悄回來）。用真編輯器 + 真匯出
- * 鏈（`blocksToMarkdownLossy` 正是 `AiSession.tsx` 送 AI 的那條路）驗到底。
+ * 鏈（`blocksToMarkdownLossy`，複製到外部的 markdown 也走 external HTML）驗到底。送 AI 走 `ai/note-markdown.ts`
+ * 的 headless 序列化，那條的守衛由 `ai/note-markdown.test.ts` W5 釘。
  *
  * 這條釘的是「匯出器讀編輯器的 schema」這一半；另一半「`buildNoteEditorOptions`
  * 交付的就是 `noteSchema` 本尊」由 `NoteEditor.test.ts` 的接線釘負責（本測試自己

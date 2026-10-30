@@ -170,7 +170,7 @@ Content crosses the API as Markdown, and the round-trip is deliberately lossy in
 Three more properties of the Markdown:
 
 - **A link's title is dropped.** The optional title in `[text](url "title")` has nowhere to live — a link keeps only its text and its URL — so it is gone as soon as the Markdown is parsed, and reading the note back gives you `[text](url)`. Nothing reports the loss, and unlike the two cases above the server does not repair it; the link itself, text and URL, is preserved exactly.
-- Only block types this note can store are accepted. Anything else is rejected whole, with `400 unsupported_block` — nothing is silently stripped.
+- Only block types this note can store are accepted. Anything else is rejected whole, with `400 unsupported_block` — nothing is silently stripped. The same code answers Markdown the editor fails to parse, such as `<div data-content-type="paragraph">`, and HTML with an event-handler attribute such as `onerror` or `onclick` anywhere in it, including inside a `<details>` block or a `<figure>`; that last check comes before the column and size checks below. Side-by-side columns and sizes are checked as well: columns not written in the form under [Columns](#columns) are rejected whole with `400 unsupported_columns`, and image widths or table column widths not written in the form under [Sizes](#sizes) with `400 unsupported_size`.
 - Non-empty Markdown always ends with a trailing newline. A note that has never been opened or written to returns `markdown: ""`; one that has been reduced back to empty returns `"\n"`. Both report `chars: 0`, so test emptiness with `chars` or the fingerprint, not by comparing the string to `""`.
 
 ### Colors
@@ -182,17 +182,93 @@ Text and background colors travel as HTML inside the Markdown: a colored stretch
 | Colored text | `<span style="color:red">…</span>`, `<span style="background-color:yellow">…</span>`, or both in one `style`: `<span style="color:red;background-color:yellow">…</span>` — inside a Markdown paragraph, list item, heading or pipe-table cell. Markdown inside the span still works: `<span style="color:red">**late**</span>` is red bold text |
 | A colored paragraph | `<p data-text-color="red" data-background-color="yellow">…</p>`, as a block of its own with a blank line after it (either attribute can be left out) |
 | A colored heading, list item or quote | the same attributes on `<h1>`–`<h6>`, on an `<li>` inside `<ul>` or `<ol>`, or on `<blockquote>` |
-| A colored table cell | an HTML `<table>` with the same attributes on its `<td>` or `<th>` — a Markdown (pipe) table can't carry a cell's own color (colored text inside a cell is fine) |
+| A colored table cell | an HTML `<table>` with the same attributes on its `<td>` or `<th>` — a Markdown (pipe) table can't carry a cell's own color (colored text inside a cell is fine). A table with column widths is an HTML `<table>` too, with `colwidth` on its first row's cells only — see [Sizes](#sizes) |
 
 - **Any other color value rejects the whole write**: a `#hex` color, `rgb(…)`, a CSS color name that isn't one of the ten, or a `data-` attribute value that isn't written in lowercase. The answer is `400 unsupported_color` (over MCP, the tool error `unsupported_color`), its message lists the ten names, and nothing is stored. Inside `style`, CSS's own case-insensitivity applies, so `color:RED` is accepted as `red`.
 - **Other markup is not a color.** `<mark>`, or `data-text-color` / `data-background-color` on a `<span>`, is accepted, but the color is dropped without an error and only the text is kept.
 - **Inside a block written as HTML, Markdown is not interpreted.** Write bold as `<strong>`, a link as `<a href="…">`, and so on; `**` there is literal text.
 
-Reading gives colors back in the same forms. Content with no color in it reads back as Markdown, exactly as before. Colored text reads back as a `<span>` in the Markdown, with the span outside any bold, italics or link around that text (`<span style="color:red">**late**</span>`). A paragraph, heading, list item or quote with a color of its own reads back as one block of HTML — the whole list, nested items included, when any of its items has one — and so does a whole table when any of its cells has one. Writing back what you read keeps the colors: sending a section back unchanged with `replace_section` and reading it again gives the same text. That holds for the colors; text that merely looks like Markdown or HTML is another matter — see [Known limitations](./known-limitations.md). Three kinds of color are not carried:
+Reading gives colors back in the same forms. Content with no color in it reads back as Markdown, exactly as before. Colored text reads back as a `<span>` in the Markdown, with the span outside any bold, italics or link around that text (`<span style="color:red">**late**</span>`). A paragraph, heading, list item or quote with a color of its own reads back as one block of HTML — the whole list, nested items included, when any of its items has one — and so does a whole table when any of its cells has one, with `colwidth` only on its first row when it also has column widths. An image with a background color reads back as HTML with `data-background-color` on it; when its width has been set, that is the `<figure>` form under [Sizes](#sizes), with the color on the `<figure>`. Writing back what you read keeps the colors: sending a section back unchanged with `replace_section` and reading it again gives the same text. That holds for the colors; text that merely looks like Markdown or HTML is another matter — see [Known limitations](./known-limitations.md). Three kinds of color are not carried:
 
 - **A file attachment's background color.** A file attachment reads back as a link, as before, and the color is not in it.
 - **A color value that isn't one of the ten names**, stored before Knotebook checked colors. The editor doesn't show it either; it reads back as no color, so writing that block back removes it.
 - **The color of a block with no text in it**, such as an empty paragraph given a background. Written back, an empty colored block would be dropped, so it reads back as it did before colors were read at all.
+
+### Columns
+
+A row of [side-by-side columns](./columns.md) travels as HTML `<div>`s with ordinary Markdown inside each column. Reading a row gives exactly this form; write rows the same way:
+
+```markdown
+<div data-kb-columns style="display:flex;gap:16px">
+<div data-kb-column style="flex:1">
+
+<figure><img alt="Point A" src="/api/uploads/0f8c…" width="300"></figure>
+
+</div>
+<div data-kb-column style="flex:1.5">
+
+## Equipment specs
+
+* Model: …
+
+</div>
+</div>
+```
+
+- **The row's opening tag, and each column's, is a line of its own**, not indented and with nothing else on the line, written exactly as above: the same attributes in the same order, in double quotes and lowercase, with no other attributes and no extra spaces. Reading puts the first column's tag on the line right after the row's tag, each later column's tag on the line right after the previous column's `</div>`, and the row's own `</div>` on the line after the last column's.
+- **`N` in `flex:N` is the column's relative width**, from 0.1 to 10 with at most two decimal places (`1`, `1.5`, `0.75`, `2.25`; `0.5`, not `.5`) and no leading zero (`01` is refused). Reading writes it without trailing zeros.
+- **Put a blank line after each column's opening tag.** Without it, Markdown text that follows the tag is taken as raw HTML, and the write is refused. Reading puts a blank line there and another before each column's `</div>`; a write that leaves out the one before `</div>` is accepted.
+- **An empty column** reads as its opening tag, one blank line and `</div>`.
+- **Inside a column is ordinary Markdown**: colors, sizes, links to notes and diagrams work there as described on this page. A column can't hold another row.
+- **A write takes rows of 2 to 4 columns.** A note can have a row with more — a pasted row keeps all of its columns — and reading gives every column back, but sending such a row back is refused.
+- **A row is a top-level block.** It can't be inside a list item, a quote or a `<details>` block. It belongs to the section of the heading before it, and a heading inside a column doesn't open a section of its own, so it isn't in the outline either. Replacing a section replaces any row in it; to keep a row, send it back whole, from its `<div data-kb-columns …>` line to its last `</div>`.
+- **A row and each of its columns count as blocks** toward the 2000-block limit, along with the blocks inside them.
+
+These are refused with `400 unsupported_columns` (over MCP, the tool error `unsupported_columns`), and nothing is written:
+
+- a row's or a column's opening tag that isn't written exactly as above, on a line of its own;
+- a `flex` value outside 0.1 to 10, with more than two decimal places, or with a leading zero before its whole part, such as `01`;
+- Markdown text right after a column's opening tag, with no blank line between them;
+- a column tag outside a row, or text between a row's columns;
+- a row of fewer than 2 or more than 4 columns;
+- a row that isn't at the top level — inside a list item, a quote or a `<details>` block, for example — or a row inside a column;
+- `data-kb-columns` or `data-kb-column` on any element other than such a `<div>` line, for example `<span data-kb-column>`;
+- an element with a `data-node-type` attribute — that is the editor's internal form, not this one;
+- **any other `<div>` whose `style` contains `display:flex` or `display:grid`**, whatever its spacing or case. Before columns could be written, such a `<div>` was accepted and its contents flattened into ordinary blocks; it is now refused, because it is almost always an attempt at columns.
+
+A write that is wrong about both columns and sizes answers `unsupported_columns`.
+
+Knotebook's own [AI actions](./ai.md) send the selected blocks to the model in this same form, ask it to keep the column tags, and check its result the same way before it can be applied. When the blocks an action works on are inside a column, or indented under another block, a result that contains columns is refused.
+
+### Sizes
+
+An image's width and a table's column widths, as set in the editor, travel as HTML. An image or table without them reads as before, with one exception for stored column widths that aren't positive numbers (see the end of this section).
+
+| What | Reads, and is written, as |
+|---|---|
+| An image with a set width | `<figure><img alt="NAME" src="URL" width="W"></figure>`, as a block of its own |
+| The same, with a caption | `<figure><img alt="NAME" src="URL" width="W"><figcaption>CAPTION</figcaption></figure>` |
+| The same, with a background color | `data-background-color="…"` on the `<figure>`, not on the `<img>` |
+| An image without a set width | `![NAME](URL)` as before, or a `<figure>` without `width` when it has a caption |
+| A table with any column width set | the whole table as an HTML `<table>`, with `colwidth="W"` on the cells of its **first row** only. A cell that spans several columns (`colspan`) has one comma-separated value per column, left empty for a column without a width: `colwidth="120,"` |
+| A table without column widths | a Markdown (pipe) table as before, unless a cell has a color (see [Colors](#colors)) |
+
+- **`W` is a whole number of pixels from 32 to 4000**, with no leading zero: `300`, not `300.5`, `0300` or `31`.
+- **The `<img>` carries `alt`, `src` and `width`, in that order**, and nothing else; `alt` is left out when the image has no name, or when its name is the same as its caption. The `<figure>` carries nothing but an optional `data-background-color`, and holds the `<img>` and, optionally, a `<figcaption>` after it.
+- **A `colwidth` has one value per column its cell spans**, and an empty value means that column has no width. A `colwidth` with a value in it belongs on the first row only. One with only empty values (`colwidth=","`, a merged cell without a width) is accepted on any row; a table that is HTML because of a cell color can read back with one on a later row.
+- **Writing `![NAME](URL)`, a `<figure>` without `width`, or a pipe table** gives an image or a table without a set size.
+- **A toggle heading or toggle list item that holds such an image or table** reads back whole as one block of HTML, with the `<figure>` or `<table>` inside it.
+- **Inside a table written as HTML, Markdown is not interpreted**, as with colors.
+- **A stored width outside 32–4000, or with a fraction,** reads back rounded and brought into that range, so that it can be written back; a stored column width that isn't a positive number reads as an empty value.
+- **An image whose preview is turned off** reads back as a link, without its width.
+
+These are refused with `400 unsupported_size` (over MCP, the tool error `unsupported_size`), and nothing is written:
+
+- a `width` on an `<img>` that isn't the `<img>` of such a `<figure>` — an `<img … width>` on a line of its own, or inside a paragraph;
+- an `<img>` with a `width` inside a table cell, which this version doesn't store;
+- a width or `colwidth` that breaks the rules above.
+
+**Markdown read from an earlier version.** A note with a resized image or with table column widths now reads differently: the image as the `<figure>` above, with its `width`, and a table with column widths but no cell color as HTML instead of a pipe table. Two forms that were already HTML are now stricter, too: a colored table with column widths had `colwidth` on every row, and a colored image with a set width had more attributes than the `<figure>` form above allows. Sending such older text back unchanged is refused with `unsupported_size`. A row of side-by-side columns read as its columns' blocks one after another, without the column tags, or as one block of HTML when a block in it had a color (see [Columns](#columns)); sending the first form back turns the row into ordinary blocks, and the second is refused with `unsupported_columns`. A note with no columns, no set image width and no table column widths reads as before, except that a stored column width that isn't a positive number — `NaN` in a colored table with merged cells, for example — now reads as an empty value.
 
 ## Presence
 

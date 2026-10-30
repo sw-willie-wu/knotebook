@@ -53,6 +53,9 @@
     "editor": "Editor",
     "viewer": "Viewer"
   },
+  "userSuggest": {
+    "listLabel": "People you know"
+  },
   "share": {
     "button": "Share",
     "title": "Share note",
@@ -499,6 +502,49 @@
       "dangerDescription": "Deleting the group either gives its notes to one of its admins or deletes them with it.",
       "leaveTitle": "Leave group"
     },
+    "bulk": {
+      "addEmailsPlaceholder": "Email addresses (separate several with commas)",
+      "addEmailsHint": "You can enter several addresses at once, separated by commas, semicolons, spaces or line breaks (full-width commas and semicolons and the enumeration comma “、” work too).",
+      "addTitle": "Add members",
+      "addDescription": "These addresses are added to this group as {{role}}.",
+      "invalidSingle": "“{{value}}” doesn't look like an email address.",
+      "progress": "Processed {{done}} of {{total}}",
+      "stop": "Stop",
+      "stopping": "Stopping…",
+      "stopped": "Stopped: {{reason}} The addresses that weren't added are back in the email box.",
+      "stoppedRateLimit": "Stopped because the server is limiting requests. Wait a minute, then add the rest — they're back in the email box.",
+      "cancelled": "Stopped. The addresses that weren't added are back in the email box.",
+      "keptInBox": "The addresses that weren't added are left in the email box so you can fix them and try again.",
+      "outcome": {
+        "added": "Added ({{count}}):",
+        "alreadyMember": "Already members ({{count}}):",
+        "notFound": "No account with this email ({{count}}):",
+        "invalid": "Not an email address ({{count}}):",
+        "failed": "Failed ({{count}}):",
+        "notProcessed": "Not processed ({{count}}):"
+      },
+      "summary": {
+        "added": "Added: {{count}}.",
+        "alreadyMember": "Already members: {{count}}.",
+        "notFound": "No account with this email: {{count}}.",
+        "invalid": "Not an email address: {{count}}.",
+        "failed": "Failed: {{count}}.",
+        "notProcessed": "Not processed: {{count}}."
+      },
+      "done": "Done",
+      "importOpen": "Import from another group…",
+      "importTitle": "Import members from another group",
+      "importDescription": "The people you pick are added to this group as {{role}}. This is a one-time copy: later changes to the other group won't carry over.",
+      "importNoGroups": "You're not in any other group.",
+      "importSourceLabel": "Group to import from",
+      "importSourcePlaceholder": "Choose a group…",
+      "importNobody": "Everyone in that group is already here.",
+      "importSelectAll": "Select all ({{count}})",
+      "importListLabel": "People to add",
+      "importExcludedHint": "People already in this group, and you, aren't listed.",
+      "importConfirm_one": "Add {{count}} person",
+      "importConfirm_other": "Add {{count}} people"
+    },
     "roles": {
       "descriptionManage": "Each member has one role, and the role decides what they can do. The built-in Admin role can't be changed; the built-in Member role is what new members get, and it can't be renamed or deleted.",
       "descriptionView": "Each member has one role, and the role decides what they can do. Only people whose role can manage roles and the group can change these.",
@@ -832,8 +878,10 @@
     "oauth_request_invalid": "This authorization request has already been used or has expired. Start again from the application.",
     "section_not_found": "That section no longer exists — reload the note.",
     "fingerprint_mismatch": "The note changed while you were editing it. Reload and try again.",
-    "unsupported_block": "That content contains a block type this note can't store.",
+    "unsupported_block": "That content contains something this note can't store.",
     "unsupported_color": "That content uses a color the editor doesn't have. Use one of the built-in color names.",
+    "unsupported_columns": "The AI edit failed; the note was not changed.",
+    "unsupported_size": "The AI edit failed; the note was not changed.",
     "empty_content": "The content is empty.",
     "empty_section": "That section has no content to remove.",
     "too_many_blocks": "That content has too many blocks.",

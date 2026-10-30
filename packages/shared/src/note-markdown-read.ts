@@ -1,79 +1,30 @@
 /**
- * #222：MCP／REST 讀寫筆記的文字色／底色。
+ * #222：MCP／REST 讀出筆記、站內 AI 送出的 markdown（server 與 web 共用；寫入的色值檢查是 `findDisallowedColor`）。
  *
- * **寫入**（{@link findDisallowedColor}）：markdown 解析出來的 block 裡，`textColor`／`backgroundColor`
- * 只收編輯器內建的 10 種色名（{@link PALETTE_COLORS}）。其他值（`#hex`、`rgb()`、CSS 合法但不在色盤的
- * 名稱、大小寫不符的 data-*）BlockNote 照樣存進 JSON，但編輯器畫面上不顯示——所以整筆拒絕，不靜默剝除。
- * ⚠ 走訪是**迭代**的（顯式堆疊）：巢狀深度由呼叫端的 markdown 決定，不能遞迴。
- *
- * **讀取**（{@link blocksToMarkdownWithColors}）：`blocksToMarkdownLossy` ＝ 外部 HTML → markdown，
+ * **讀取**（{@link blocksToNoteMarkdown}）：`blocksToMarkdownLossy` ＝ 外部 HTML → markdown，
  * 顏色在 HTML → markdown 那一步全丟。這裡改成：先拿同一份外部 HTML，逐個**頂層節點**判斷——
  * - 有 markdown 表達不了的顏色（整段／清單項／標題／引言的 block 色、表格儲存格色）→ 整個節點輸出成
  *   寫入端認得的 HTML（`data-text-color`／`data-background-color`）；整張清單或整張表格一起。
  * - 只有行內顏色（文字色／文字底色）→ 節點維持 markdown，有色那一段寫成 `<span style="color:NAME">…</span>`
  *   夾在 markdown 裡（#222 Willie 要求：讓弱模型讀寫的 HTML 越少越好；見 {@link tokenizeInlineColors}）。
  * - 其餘相鄰節點照舊交給同一支 HTML → markdown。
+ * 並排 PR-2（spec 2026-10-21 columns-layout §11.1／§11.2）再加三類：頂層的列（`div[data-kb-columns]`、不帶
+ * `data-nesting-level`）輸出成 div 形、每一欄的內容以同一套分類序列化（{@link rowMarkdown}）；有寬度的圖片、
+ * 有欄寬的表格（節點本身或後代）整個節點輸出成 HTML，寬度夾回 [32, 4000]（{@link normalizeSizes}）。
  * 整份沒有任何顏色、也沒有需要跳脫的站內連結文字（#269 RF1，見 {@link escapeNoteLinkText}）時直接回
  * `cleanHTMLToMarkdown(html)`——與 `blocksToMarkdownLossy` 位元組相同。
  * 以「頂層節點」為單位的理由：外部 HTML 已經做完 BlockNote 的攤平（非清單的子 block 被拉到頂層），
  * 用同一份切，攤平行為與純 markdown 路徑一致，讀 → 寫回 → 再讀才會穩定。
+ *
+ * 函式體用全域 `document`／`Element`（server 由 `EditingRuntime.installGlobals()` 提供、web 是瀏覽器）；import 本檔不碰 DOM。
  */
 import { cleanHTMLToMarkdown } from "@blocknote/core";
 import type { BlockNoteEditor } from "@blocknote/core";
-import { escapeLinkText } from "@knotebook/shared";
-
-export const PALETTE_COLORS = ["default", "gray", "brown", "red", "orange", "yellow", "green", "blue", "purple", "pink"] as const;
-const PALETTE: ReadonlySet<string> = new Set(PALETTE_COLORS);
-const COLOR_KEYS = ["textColor", "backgroundColor"] as const;
-
-/** 讀寫兩端共用的判準：值是色盤裡的名稱（`default` 也算）。 */
-const isPaletteColor = (v: unknown): v is string => typeof v === "string" && PALETTE.has(v);
-
-function badColorIn(rec: unknown): string | null {
-  if (rec === null || typeof rec !== "object") return null;
-  for (const k of COLOR_KEYS) {
-    const v = (rec as Record<string, unknown>)[k];
-    if (v !== undefined && !isPaletteColor(v)) return String(v);
-  }
-  return null;
-}
-
-/**
- * 回傳 blocks 裡任一個不在色盤的色值（找不到回 `null`）。看三處：block 的 `props`、行內 text 的
- * `styles`（含連結內的 text）、表格儲存格的 `props` 與其行內內容。不保證回的是文件順序上的第一個。
- */
-export function findDisallowedColor(blocks: readonly unknown[]): string | null {
-  const stack: unknown[] = [];
-  const pushAll = (xs: readonly unknown[]) => {
-    for (const x of xs) stack.push(x); // 不用 push(...xs)：超大陣列展開成參數會爆堆疊
-  };
-  pushAll(blocks);
-  while (stack.length > 0) {
-    const n = stack.pop();
-    if (n === null || typeof n !== "object") continue;
-    if (Array.isArray(n)) {
-      pushAll(n); // 舊形表格儲存格：直接是 inline 陣列
-      continue;
-    }
-    const o = n as { props?: unknown; styles?: unknown; content?: unknown; children?: unknown };
-    const hit = badColorIn(o.props) ?? badColorIn(o.styles);
-    if (hit !== null) return hit;
-    if (Array.isArray(o.content)) pushAll(o.content);
-    else if (o.content !== null && typeof o.content === "object") {
-      const rows = (o.content as { rows?: unknown }).rows;
-      if (Array.isArray(rows)) {
-        for (const r of rows) {
-          const cells = r !== null && typeof r === "object" ? (r as { cells?: unknown }).cells : undefined;
-          if (Array.isArray(cells)) pushAll(cells);
-        }
-      }
-    }
-    if (Array.isArray(o.children)) pushAll(o.children);
-  }
-  return null;
-}
-
-// ── 讀取 ──────────────────────────────────────────────────────────────────
+import { COLUMNS_OPEN_TAG, columnOpenTag, parseColumnFlex } from "./columns.js";
+import { isPaletteColor } from "./note-colors.js";
+import { clampSizePx } from "./note-sizes.js";
+import { unescapeAttributeAngles } from "./serialized-html.js";
+import { escapeLinkText } from "./site-link.js";
 
 const STYLE_CSS = { textColor: "color", backgroundColor: "background-color" } as const;
 const BLOCK_COLOR_ATTRS = ["data-text-color", "data-background-color"] as const;
@@ -114,9 +65,77 @@ const elementsOf = (root: Element): Element[] => [root, ...Array.from(root.query
 const hasBlockColor = (root: Element): boolean => elementsOf(root).some(el => !colorStyleType(el) && BLOCK_COLOR_ATTRS.some(a => blockColorShown(el, a)));
 const colorSpans = (root: Element): Element[] => elementsOf(root).filter(el => colorStyleType(el) && shown(el.getAttribute("data-value")));
 
-/** 就地改寫成寫入端認得的形：顏色 span → `style="color:X"`（字色＋底色合成一個）、block 色留 data-*、剝雜訊。 */
-function rewrite(root: Element): void {
-  for (const el of elementsOf(root)) {
+/** 頂層的列；帶 `data-nesting-level` 的（段落底下縮排的列）不合法，照一般節點攤平（spec §11.2）。 */
+const isRow = (el: Element): boolean => el.matches("div[data-kb-columns]") && !el.hasAttribute("data-nesting-level");
+/**
+ * 有寬度的圖片的寬度（已夾回）；不是或取不到 → null。精確值在 `data-preview-width`——無說明時掛在 `img`、
+ * 有說明時掛在父 `figure`；`img` 的 `width` 是截斷過的整數，兩處都沒有才用它。
+ */
+function imageWidth(el: Element): number | null {
+  if (el.tagName !== "IMG" || el.closest("td,th")) return null;
+  const fig = el.parentElement?.tagName === "FIGURE" ? el.parentElement : null;
+  const src = el.getAttribute("data-preview-width") ?? fig?.getAttribute("data-preview-width") ?? el.getAttribute("width");
+  return src === null ? null : clampSizePx(Number(src));
+}
+/** colwidth 逐段夾回；取不到值的段（空、NaN、≤ 0）寫空字串，保留逗號與段數（合併格的 `120,`、`,`）。 */
+const clampColwidth = (v: string): string => v.split(",").map(s => String(clampSizePx(Number(s)) ?? "")).join(",");
+/** 有欄寬的表格：第一列至少一格的 colwidth 有一段有效值（合併格沒設寬時 core 也輸出 `colwidth=","`，只有屬性不算）。 */
+const isSizedTable = (el: Element): boolean =>
+  el.tagName === "TABLE" &&
+  Array.from((el as HTMLTableElement).rows[0]?.cells ?? []).some(c => (c.getAttribute("colwidth") ?? "").split(",").some(s => clampSizePx(Number(s)) !== null));
+const hasSizes = (root: Element): boolean => elementsOf(root).some(el => imageWidth(el) !== null || isSizedTable(el));
+
+/**
+ * 寬度改寫成 §11.1 的形：有寬度的圖片 → `<figure[ data-background-color]><img[ alt] src width>[<figcaption>]</figure>`
+ * （底色一律掛在 figure、其餘屬性全剝；alt 空或等於說明時不帶）；所有表格的 colwidth 逐段夾回，有欄寬的表格
+ * 第 2 列起不帶 colwidth（其他表格第 2 列起的全空段照留）。
+ */
+function normalizeSizes(box: Element): void {
+  for (const table of Array.from(box.querySelectorAll("table"))) {
+    const sized = isSizedTable(table);
+    Array.from(table.rows).forEach((tr, i) => {
+      for (const cell of Array.from(tr.cells)) {
+        const v = cell.getAttribute("colwidth");
+        if (v === null) continue;
+        if (sized && i > 0) cell.removeAttribute("colwidth");
+        else cell.setAttribute("colwidth", clampColwidth(v));
+      }
+    });
+  }
+  for (const img of Array.from(box.querySelectorAll("img"))) {
+    const w = imageWidth(img);
+    if (w === null) continue;
+    const fig = img.parentElement?.tagName === "FIGURE" ? img.parentElement : null;
+    const cap = fig ? Array.from(fig.children).find(c => c.tagName === "FIGCAPTION") : undefined;
+    const figure = document.createElement("figure");
+    const bg = [img, fig].map(e => e?.getAttribute("data-background-color") ?? null).find(shown);
+    if (bg) figure.setAttribute("data-background-color", bg);
+    const out = document.createElement("img");
+    const alt = img.getAttribute("alt") ?? "";
+    if (alt !== "" && alt !== cap?.textContent) out.setAttribute("alt", alt);
+    out.setAttribute("src", img.getAttribute("src") ?? "");
+    out.setAttribute("width", String(w));
+    figure.append(out);
+    if (cap) {
+      const fc = document.createElement("figcaption");
+      fc.append(...Array.from(cap.childNodes));
+      figure.append(fc);
+    }
+    (fig ?? img).replaceWith(figure);
+  }
+}
+
+/**
+ * 就地改寫 `box` 的後代成寫入端認得的形：顏色 span → `style="color:X"`（字色＋底色合成一個）、block 色留 data-*、
+ * 剝雜訊、寬度正規化、拆掉任何深度的 `data-kb-*` 外殼（HTML 輸出不帶並排標記，spec §11.2）。
+ */
+function rewrite(box: Element): void {
+  normalizeSizes(box);
+  for (const el of Array.from(box.querySelectorAll("*"))) {
+    if (el.matches("div[data-kb-columns],div[data-kb-column]")) {
+      el.replaceWith(...Array.from(el.childNodes));
+      continue;
+    }
     const st = colorStyleType(el);
     if (st) {
       const v = el.getAttribute("data-value");
@@ -137,7 +156,7 @@ function rewrite(root: Element): void {
     if (el.tagName === "P" && (el.parentElement?.tagName === "TD" || el.parentElement?.tagName === "TH") && el.parentElement.childNodes.length === 1) el.replaceWith(...Array.from(el.childNodes));
   }
   // 字色＋底色：外部 HTML 是兩層 span（字色在外），合成一個 `style="color:X;background-color:Y"`。
-  for (const outer of [root, ...Array.from(root.querySelectorAll("span"))].filter(e => e.tagName === "SPAN" && e.getAttribute("style")?.startsWith("color:"))) {
+  for (const outer of Array.from(box.querySelectorAll("span")).filter(e => e.getAttribute("style")?.startsWith("color:"))) {
     const inner = outer.firstChild;
     if (
       outer.childNodes.length === 1 &&
@@ -152,10 +171,15 @@ function rewrite(root: Element): void {
   }
 }
 
-/** 整個頂層節點 → HTML 區塊。markdown 的 HTML 區塊遇到空行就結束：換行（只會出現在 <pre> 內）寫成字元參照。 */
+/**
+ * 整個節點 → HTML 區塊。markdown 的 HTML 區塊遇到空行就結束：換行（只會出現在 <pre> 內）寫成字元參照。
+ * 節點先放進一個盒子再改寫：節點本身可能被換掉（圖片 → figure、`data-kb-*` 外殼被拆掉）。
+ */
 function toBlockHTML(root: Element): string {
-  rewrite(root);
-  return root.outerHTML.replace(/\n/g, "&#10;");
+  const box = document.createElement("div");
+  box.append(root);
+  rewrite(box);
+  return unescapeAttributeAngles(box.innerHTML).replace(/\n/g, "&#10;");
 }
 
 /**
@@ -219,19 +243,21 @@ function escapeNoteLinkText(root: Node): boolean {
   return changed;
 }
 
-/** 讀路徑的 markdown 匯出：沒有顏色、也沒有要跳脫的站內連結文字時，與 `blocksToMarkdownLossy` 位元組相同（見檔頭）。 */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 泛型三元組，走 repo 慣例（同 session.ts）
-type AnyEditor = BlockNoteEditor<any, any, any>;
-export function blocksToMarkdownWithColors(editor: AnyEditor, blocks: Parameters<AnyEditor["blocksToHTMLLossy"]>[0]): string {
-  const html = editor.blocksToHTMLLossy(blocks);
-  const tpl = document.createElement("template");
-  tpl.innerHTML = html;
-  const nodes = Array.from(tpl.content.childNodes);
-  const kinds = nodes.map(n => (n.nodeType !== 1 ? "none" : hasBlockColor(n as Element) ? "block" : colorSpans(n as Element).length > 0 ? "inline" : "none"));
-  if (kinds.every(k => k === "none")) return cleanHTMLToMarkdown(escapeNoteLinkText(tpl.content) ? tpl.innerHTML : html);
-  // 文件文字裡已經有佔位符字元（極少見）：行內顏色也退回整段 HTML，不冒換錯的險。
-  const inlineOk = !(tpl.content.textContent ?? "").includes(TOKEN_OPEN) && !(tpl.content.textContent ?? "").includes(TOKEN_CLOSE);
-  const tokens = new Map<string, string>();
+type Kind = "row" | "block" | "inline" | "none";
+/** 分類依序判定、先中先用：列 → 整個輸出成 HTML（block 色、有寬度的圖片、有欄寬的表格）→ 行內顏色 → 其餘。 */
+const kindOf = (n: Node): Kind => {
+  if (n.nodeType !== 1) return "none";
+  const el = n as Element;
+  if (isRow(el)) return "row";
+  if (hasBlockColor(el) || hasSizes(el)) return "block";
+  return colorSpans(el).length > 0 ? "inline" : "none";
+};
+/** 全篇共用：行內顏色的佔位符表與「文件文字裡沒有佔位符字元」。 */
+type Ctx = { tokens: Map<string, string>; inlineOk: boolean };
+
+/** 一串兄弟節點（頂層或一欄的內容）→ markdown，各段以空行相接、不帶結尾換行。 */
+function serializeNodes(nodes: Node[], ctx: Ctx): string {
+  const kinds = nodes.map(kindOf);
   const parts: string[] = [];
   let run: Node[] = [];
   const flush = () => {
@@ -242,16 +268,49 @@ export function blocksToMarkdownWithColors(editor: AnyEditor, blocks: Parameters
     run = [];
   };
   nodes.forEach((n, i) => {
-    if (kinds[i] === "block" || (kinds[i] === "inline" && !inlineOk)) {
+    if (kinds[i] === "row") {
+      flush();
+      parts.push(rowMarkdown(n as Element, ctx));
+      return;
+    }
+    if (kinds[i] === "block" || (kinds[i] === "inline" && !ctx.inlineOk)) {
       flush();
       parts.push(toBlockHTML(n as Element));
       return;
     }
-    if (kinds[i] === "inline") tokenizeInlineColors(n as Element, tokens);
+    if (kinds[i] === "inline") tokenizeInlineColors(n as Element, ctx.tokens);
     escapeNoteLinkText(n); // 只有 markdown 分支（上面 return 掉的 HTML 分支不跳脫）
     run.push(n);
   });
   flush();
-  const md = parts.map(p => p.replace(/\n+$/, "")).filter(p => p !== "").join("\n\n") + "\n";
-  return tokens.size === 0 ? md : md.replace(new RegExp(`${TOKEN_OPEN}\\d+${TOKEN_CLOSE}`, "g"), t => tokens.get(t) ?? t);
+  return parts.map(p => p.replace(/\n+$/, "")).filter(p => p !== "").join("\n\n");
+}
+
+/** spec §11.1 規則 1–7：外層行、每欄「開標籤、空行、欄內容、空行、`</div>`」（空欄沒有內容那兩行）、`</div>`。 */
+function rowMarkdown(row: Element, ctx: Ctx): string {
+  const lines = [COLUMNS_OPEN_TAG];
+  for (const col of Array.from(row.children).filter(c => c.matches("div[data-kb-column]"))) {
+    lines.push(columnOpenTag(parseColumnFlex(col.getAttribute("style"))), "");
+    const inner = serializeNodes(Array.from(col.childNodes), ctx);
+    if (inner !== "") lines.push(inner, "");
+    lines.push("</div>");
+  }
+  lines.push("</div>");
+  return lines.join("\n");
+}
+
+/** 讀路徑的 markdown 匯出：沒有顏色、並排、寬度、也沒有要跳脫的站內連結文字時，與 `blocksToMarkdownLossy` 位元組相同（見檔頭）。 */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote 泛型三元組，走 repo 慣例（同 session.ts）
+type AnyEditor = BlockNoteEditor<any, any, any>;
+export function blocksToNoteMarkdown(editor: AnyEditor, blocks: Parameters<AnyEditor["blocksToHTMLLossy"]>[0]): string {
+  const html = editor.blocksToHTMLLossy(blocks);
+  const tpl = document.createElement("template");
+  tpl.innerHTML = html;
+  const nodes = Array.from(tpl.content.childNodes);
+  if (nodes.every(n => kindOf(n) === "none")) return cleanHTMLToMarkdown(escapeNoteLinkText(tpl.content) ? tpl.innerHTML : html);
+  // 文件文字裡已經有佔位符字元（極少見）：行內顏色也退回整段 HTML，不冒換錯的險。
+  const inlineOk = !(tpl.content.textContent ?? "").includes(TOKEN_OPEN) && !(tpl.content.textContent ?? "").includes(TOKEN_CLOSE);
+  const ctx: Ctx = { tokens: new Map(), inlineOk };
+  const md = serializeNodes(nodes, ctx) + "\n";
+  return ctx.tokens.size === 0 ? md : md.replace(new RegExp(`${TOKEN_OPEN}\\d+${TOKEN_CLOSE}`, "g"), t => ctx.tokens.get(t) ?? t);
 }

@@ -329,6 +329,7 @@ export function groupsRoutes(deps: GroupsRouteDeps) {
       return reply.code(204).send();
     });
 
+    // A8：任何成員都看得到彼此的 email。routes/users.ts 建議的 ①（同群組成員）以此為前提——這裡收回 email，那支要一起拿掉。
     app.get("/api/groups/:id/members", { preHandler: app.authenticate }, async (request, reply) => {
       const { id } = request.params as { id: string };
       const access = await groupAccess(deps.db, id, request.user!);

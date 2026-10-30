@@ -246,3 +246,11 @@ export const SEARCH_LIMIT = { limit: 60, windowMs: 60_000 } as const;
  * BlockNote、開一次直連並落盤。
  */
 export const EDIT_LIMIT = { limit: 30, windowMs: 60_000 } as const;
+
+/**
+ * `GET /api/users/suggest`（成員／分享對話框的「認識的人」建議，key=userId）。數值比照 `SEARCH_LIMIT`：同樣是使用者
+ * 邊打字邊查（web 端 200 ms debounce、≥ 2 字才發），一般輸入一個 email 只會發十來次。**不與 `search` 共用**——共用會讓
+ * 側欄搜尋與加成員對話框互相餓死（同 `SEARCH_LIMIT` 不與 `CONTENT_READ_LIMIT` 共用的理由）。q 驗證失敗的 400 不扣。
+ * 這桶不是隱私邊界（查詢範圍本來就只限呼叫者已看得到 email 的人），只擋失控迴圈。
+ */
+export const USER_SUGGEST_LIMIT = { limit: 60, windowMs: 60_000 } as const;

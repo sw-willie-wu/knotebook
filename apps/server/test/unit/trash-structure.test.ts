@@ -134,6 +134,8 @@ const REGISTRY: Record<string, Disposition> = {
   // 後者由 spec §6.2-11 指定登記為 includes。
   "routes/notes.ts": { excludes: 3, includes: 1, write: 5, why: "格 4 pre-read 不加條件，後面的 CTE 會擋（spec §6.2-11）" },
   "routes/public.ts": { excludes: 2 },
+  // 「認識的人」建議：我擁有的活筆記的分享對象（帶 deleted_at IS NULL）。
+  "routes/users.ts": { excludes: 1 },
   "storage/tx/quota.ts": { includes: 1, why: "容量照算（D-W4）" },
   "storage/usage.ts": { includes: 4, why: "容量照算（D-W4）" },
   // trashOnly：清單兩支、loadTrashedMeta（delete_note 移入後的重讀）。

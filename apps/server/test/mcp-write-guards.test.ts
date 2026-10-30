@@ -18,10 +18,10 @@
  *   案 24／25／26／27／28(a)／32／32b——這些案要嘛目標筆記從沒被任何呼叫碰過，要嘛
  *   `before` snapshot 拍在任何成功呼叫之前。
  * - **before 時 awareness 已非空**（key 集合比較對「偷 touch」零鑑別力，必須走深比對）：
- *   案 30、並排 GW1（同樣先有一發成功的 append）——`before` 之前先有一發**成功**的 `append`（「先改一次」）讓這顆 token 的名牌現身，
+ *   案 30、並排 GW1／GW3／GW5（同樣先有一發成功的 append）——`before` 之前先有一發**成功**的 `append`（「先改一次」）讓這顆 token 的名牌現身，
  *   之後若 handler 偷跑一次 touch，只會「就地更新同一個 clientId 的 state」（`presence.ts:147`
  *   的 `emit(existing,"updated")`），key 集合一個字都不變——`mcp-edit-note.test.ts` D-N 案
- *   （`:258-268`）那個雷本檔只有案 30 與 GW1 會踩到，見案 30 內的深度比對與突變記述（GW1 走 expectNoSideEffects 的 key 集合比較，其 presence 面由案 30 的深比對涵蓋）。
+ *   （`:258-268`）那個雷本檔只有案 30 與 GW1／GW3／GW5 會踩到，見案 30 內的深度比對與突變記述（GW 各案走 expectNoSideEffects 的 key 集合比較，其 presence 面由案 30 的深比對涵蓋）。
  */
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
@@ -29,6 +29,7 @@ import { eq } from "drizzle-orm";
 import { noteAiEdits, noteStates, notes } from "../src/db/schema.js";
 import { EDIT_LIMIT, FixedWindowLimiter } from "../src/http/rate-limit.js";
 import { NOTE_NOT_FOUND_MESSAGE } from "../src/mcp/note-read.js";
+import { writeFailureMessage } from "../src/mcp/write-messages.js";
 import { presenceClientId } from "../src/notes/editing/presence.js";
 import { NUL } from "../src/notes/schemas.js";
 import { buildCollabTestApp, type CollabTestCtx, type HttpSession } from "./helpers.js";
@@ -519,42 +520,104 @@ describe("#108 案 14c 後半／14d（§8.4／§8.10）", () => {
   });
 });
 
-// 並排 PR-1 過渡守衛（T3b）：寫入面不收並排，MCP／REST 共用 parseMarkdownForNote。PR-2 換成 unsupported_columns 時整段改寫。
-const TWO_COLS = `<div data-kb-columns style="display:flex;gap:16px">\n<div data-kb-column style="flex:1">\n\nA\n\n</div>\n<div data-kb-column style="flex:1">\n\nB\n\n</div>\n</div>`;
+// 並排 PR-2（spec §11.3）：寫入面整筆拒絕不合格的並排與尺寸；MCP／REST 共用 parseMarkdownForNote。
+const ROW2 = `<div data-kb-columns style="display:flex;gap:16px">\n<div data-kb-column style="flex:1">\n\nA\n\n</div>\n<div data-kb-column style="flex:1">\n\nB\n\n</div>\n</div>`;
+const FIVE_COLS = `<div data-kb-columns style="display:flex;gap:16px">\n${[1, 2, 3, 4, 5].map(i => `<div data-kb-column style="flex:1">\n\nc${i}\n\n</div>`).join("\n")}\n</div>`;
+const FLEX_DIV = '<div style="display:flex"><div><p>L</p></div><div><p>R</p></div></div>';
+const FIGURE_IMG = '<figure><img alt="p" src="/api/uploads/u9" width="300"></figure>';
+const BARE_IMG = '<img alt="p" src="/api/uploads/u9" width="300">';
+/** REST 400 的訊息（spec §11.3 草稿；`unsupported_size` 依 Q3 不提格子；T10 改成每個觸發條件都成立的版本）——逐字。 */
+const REST_COLUMNS_MESSAGE =
+  "版面或編輯器內部用的 HTML 格式不符，沒有寫入任何內容。並排請照讀出的格式寫：外層 `<div data-kb-columns style=\"display:flex;gap:16px\">`、2–4 個 `<div data-kb-column style=\"flex:N\">`（N 為 0.1 到 10、最多兩位小數），每欄開標籤之後與 `</div>` 之前各空一行，放在最外層、不放在清單、引言或其他任何區塊裡；其他 `<div>` 不得用 `display:flex` 或 `display:grid`，任何元素都不得帶 `data-node-type`。";
+const REST_SIZE_MESSAGE =
+  "圖片寬度或表格欄寬的格式不符，沒有寫入任何內容。請照讀出的格式寫：寬度為 32 到 4000 的整數像素；圖片寫在表格之外的 `<figure>` 內的 `<img width>`，`<img>` 只帶 `alt`（可省）、`src`、`width` 且依此順序，表格欄寬寫在第一列格子的 `colwidth`，合併的格子每一欄一個值、以逗號分隔，沒設寬的欄留空。";
 
-describe("並排 PR-1 過渡守衛：寫入面拒絕並排（T3b）", () => {
-  it("GW1：MCP edit_note append 正規形兩欄 → unsupported_block，note_states 位元組相同、edit 記錄零列（拒絕案假綠守衛：同一條路徑的一般 append 成功）", async () => {
+describe("並排與尺寸：寫入面拒絕不合格的形", () => {
+  const stateOf = async (s: Scene) => {
+    const [r] = await s.ctx.db.select({ y: noteStates.ydoc }).from(noteStates).where(eq(noteStates.noteId, s.noteId));
+    return r ? Buffer.from(r.y).toString("base64") : null;
+  };
+  const editsOf = async (s: Scene) => (await s.ctx.db.select().from(noteAiEdits).where(eq(noteAiEdits.noteId, s.noteId))).length;
+  const restEdit = (s: Scene, payload: Record<string, unknown>) =>
+    s.ctx.app.inject({ method: "POST", url: `/api/notes/${s.noteId}/edits`, headers: bearer(s.token), payload });
+
+  it("GW1：MCP edit_note append 五欄 → unsupported_columns、訊息逐字，note_states 位元組相同、edit 記錄只多先前那一筆成功的（假綠守衛：同一路徑的合法兩欄成功）", async () => {
     const s = await scene();
-    const stateOf = async () => {
-      const [r] = await s.ctx.db.select({ y: noteStates.ydoc }).from(noteStates).where(eq(noteStates.noteId, s.noteId));
-      return r ? Buffer.from(r.y).toString("base64") : null;
-    };
-    // 對照：不含並排的 append 走同一路徑會成功，才證明下面的拒絕是並排造成的
-    const ok = payloadOf<EditPayload>(await editNote(s.ctx.app, s.token, { note_id: s.noteId, op: "append", markdown: "普通的一段" }));
+    const ok = payloadOf<EditPayload>(await editNote(s.ctx.app, s.token, { note_id: s.noteId, op: "append", markdown: ROW2 }));
     expect(ok.editId).toBeTruthy();
-    const editsBefore = (await s.ctx.db.select().from(noteAiEdits).where(eq(noteAiEdits.noteId, s.noteId))).length;
-    expect(editsBefore).toBeGreaterThan(0);
+    expect(await editsOf(s)).toBe(1);
     const before = await snapshot(s.ctx, s.noteId);
-    const stateBefore = await stateOf();
+    const stateBefore = await stateOf(s);
 
-    const err = errorOf(await editNote(s.ctx.app, s.token, { note_id: s.noteId, op: "append", markdown: TWO_COLS }));
-    expect(err.code).toBe("unsupported_block");
+    const err = errorOf(await editNote(s.ctx.app, s.token, { note_id: s.noteId, op: "append", markdown: FIVE_COLS }));
+    expect(err.code).toBe("unsupported_columns");
+    expect(err.message).toBe(writeFailureMessage("unsupported_columns"));
+    expect(err.message).toContain("side-by-side columns"); // 碼與句子沒有配錯（上一行兩邊同取自 writeFailureMessage；逐字由 write-messages.test.ts WM1 釘）
 
     await expectNoSideEffects(s.ctx, s.noteId, before);
-    expect(await stateOf()).toBe(stateBefore);
+    expect(await stateOf(s)).toBe(stateBefore);
+    expect(await editsOf(s)).toBe(1);
     s.disconnect();
   });
 
-  it("GW2：REST POST /api/notes 帶同一段 content → 400 unsupported_block，沒有建出筆記", async () => {
+  it("GW2：REST POST /api/notes 帶 display:flex 的 div → 400 unsupported_columns、訊息逐字，沒有建出筆記", async () => {
     const s = await scene();
-    const okRes = await s.ctx.app.inject({ method: "POST", url: "/api/notes", headers: bearer(s.token), payload: { title: "OK", content: "普通的一段" } });
+    const okRes = await s.ctx.app.inject({ method: "POST", url: "/api/notes", headers: bearer(s.token), payload: { title: "OK", content: ROW2 } });
     expect(okRes.statusCode).toBe(201);
     const before = await countNotes(s.ctx, s.ownerId);
 
-    const res = await s.ctx.app.inject({ method: "POST", url: "/api/notes", headers: bearer(s.token), payload: { title: "Cols", content: TWO_COLS } });
+    const res = await s.ctx.app.inject({ method: "POST", url: "/api/notes", headers: bearer(s.token), payload: { title: "Flex", content: FLEX_DIV } });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("unsupported_columns");
+    expect(res.json().error.message).toBe(REST_COLUMNS_MESSAGE);
+    expect(res.json().error.message).not.toContain("並排區塊的格式不符"); // 舊句：S10 的非並排元素也回這碼，主詞不能是並排
+    expect(await countNotes(s.ctx, s.ownerId)).toBe(before);
+    s.disconnect();
+  });
+
+  it("GW3：REST POST /api/notes/:id/edits append 裸的帶寬 img → 400 unsupported_size、訊息逐字（不提表格格子），note_states 不變", async () => {
+    const s = await scene();
+    expect((await restEdit(s, { op: "append", markdown: FIGURE_IMG })).statusCode).toBe(201);
+    const before = await snapshot(s.ctx, s.noteId);
+    const stateBefore = await stateOf(s);
+
+    const res = await restEdit(s, { op: "append", markdown: BARE_IMG });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("unsupported_size");
+    expect(res.json().error.message).toBe(REST_SIZE_MESSAGE);
+    expect(res.json().error.message).not.toContain("表格格子");
+    expect(res.json().error.message).not.toContain("圖片寫在 `<figure>` 內"); // 舊句：格子裡的 figure 照樣被拒，不能叫人照寫
+
+    await expectNoSideEffects(s.ctx, s.noteId, before);
+    expect(await stateOf(s)).toBe(stateBefore);
+    s.disconnect();
+  });
+
+  it("GW4：MCP create_note 帶裸的帶寬 img → unsupported_size、訊息逐字，沒有建出筆記（假綠守衛：<figure> 形成功）", async () => {
+    const s = await scene();
+    payloadOf(await createNote(s.ctx.app, s.token, { title: "Fig", content: FIGURE_IMG }));
+    const before = await countNotes(s.ctx, s.ownerId);
+
+    const err = errorOf(await createNote(s.ctx.app, s.token, { title: "Bare", content: BARE_IMG }));
+    expect(err.code).toBe("unsupported_size");
+    expect(err.message).toBe(writeFailureMessage("unsupported_size"));
+    expect(err.message).toContain("image width"); // 同上
+    expect(await countNotes(s.ctx, s.ownerId)).toBe(before);
+    s.disconnect();
+  });
+
+  it("GW5：core parse 丟例外的輸入（<div data-content-type=\"paragraph\">）→ REST 400 unsupported_block（不是 500），什麼都沒寫", async () => {
+    const s = await scene();
+    expect((await restEdit(s, { op: "append", markdown: "普通的一段" })).statusCode).toBe(201);
+    const before = await snapshot(s.ctx, s.noteId);
+    const stateBefore = await stateOf(s);
+
+    const res = await restEdit(s, { op: "append", markdown: '<div data-content-type="paragraph">x</div>' });
     expect(res.statusCode).toBe(400);
     expect(res.json().error.code).toBe("unsupported_block");
-    expect(await countNotes(s.ctx, s.ownerId)).toBe(before);
+
+    await expectNoSideEffects(s.ctx, s.noteId, before);
+    expect(await stateOf(s)).toBe(stateBefore);
     s.disconnect();
   });
 });

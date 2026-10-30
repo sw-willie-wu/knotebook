@@ -13,7 +13,7 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { noteAiEdits, notes, noteStates } from "../src/db/schema.js";
-import { PALETTE_COLORS } from "../src/notes/editing/colors.js";
+import { PALETTE_COLORS } from "@knotebook/shared";
 import { buildCollabTestApp, type CollabTestCtx } from "./helpers.js";
 import { bearer, getContent, seedTokenForUser } from "./editing-helpers.js";
 import { mcpPost, rpc } from "./mcp-helpers.js";

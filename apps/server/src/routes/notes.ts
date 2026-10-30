@@ -9,7 +9,9 @@ import {
   normalizeHandle,
   normalizeSlug,
   NOTE_WIDTHS,
+  PALETTE_COLORS,
   type BacklinkDto,
+  type ErrorCode,
   type NoteContentDto,
   type NoteDto,
   type NoteEditDto,
@@ -29,7 +31,6 @@ import type { CollabServer } from "../collab/server.js";
 import type { VersionService } from "../collab/versions.js";
 import type { EditingRuntime } from "../notes/editing/runtime.js";
 import { loadLastEdited, readNoteContent } from "../notes/editing/read.js";
-import { PALETTE_COLORS } from "../notes/editing/colors.js";
 import { listEdits } from "../notes/editing/revert.js";
 import { presenceIdentity, presenceTargetForRead, type PresenceRegistry } from "../notes/editing/presence.js";
 import { accessFromListRow, editor, visibleNoteBranches } from "../notes/list-query.js";
@@ -118,6 +119,21 @@ function sendCreateInsertFailure(reply: FastifyReply, err: unknown, withFolder: 
 
 /** #222：`unsupported_color` 的 400 訊息列出可用色名（`POST /api/notes` 帶 content 與 `POST …/edits` 共用）。 */
 const UNSUPPORTED_COLOR_MESSAGE = `顏色只接受編輯器內建的色名：${PALETTE_COLORS.join("、")}`;
+/**
+ * 並排 PR-2（spec §11.3）：`unsupported_columns`／`unsupported_size` 的 400 訊息（兩條寫入路徑共用）。與 MCP 的
+ * `writeFailureMessage` 同一套觸發條件：columns 也涵蓋 display:flex／grid 的 div 與 data-node-type；size 不邀請寫格子圖片（Q3）。
+ */
+const UNSUPPORTED_COLUMNS_MESSAGE =
+  "版面或編輯器內部用的 HTML 格式不符，沒有寫入任何內容。並排請照讀出的格式寫：外層 `<div data-kb-columns style=\"display:flex;gap:16px\">`、2–4 個 `<div data-kb-column style=\"flex:N\">`（N 為 0.1 到 10、最多兩位小數），每欄開標籤之後與 `</div>` 之前各空一行，放在最外層、不放在清單、引言或其他任何區塊裡；其他 `<div>` 不得用 `display:flex` 或 `display:grid`，任何元素都不得帶 `data-node-type`。";
+const UNSUPPORTED_SIZE_MESSAGE =
+  "圖片寬度或表格欄寬的格式不符，沒有寫入任何內容。請照讀出的格式寫：寬度為 32 到 4000 的整數像素；圖片寫在表格之外的 `<figure>` 內的 `<img width>`，`<img>` 只帶 `alt`（可省）、`src`、`width` 且依此順序，表格欄寬寫在第一列格子的 `colwidth`，合併的格子每一欄一個值、以逗號分隔，沒設寬的欄留空。";
+/** 解析／套用失敗的 400 訊息：有專屬說明的碼回專屬句，其餘回呼叫端的 `fallback`。 */
+function parseErrorMessage(code: ErrorCode, fallback: string): string {
+  if (code === "unsupported_color") return UNSUPPORTED_COLOR_MESSAGE;
+  if (code === "unsupported_columns") return UNSUPPORTED_COLUMNS_MESSAGE;
+  if (code === "unsupported_size") return UNSUPPORTED_SIZE_MESSAGE;
+  return fallback;
+}
 
 // `POST /api/notes` 的 body（`createBodySchema`）搬到 `notes/schemas.ts`（#175 PR5）：MCP 的 `create_note`
 // 與它共用同一個 `GROUP_ID`（D18）。
@@ -283,7 +299,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
           throw err;
         }
         if (!out.ok) {
-          if (out.kind === "parse") return sendError(reply, 400, out.code, out.code === "unsupported_color" ? UNSUPPORTED_COLOR_MESSAGE : "無法解析內容");
+          if (out.kind === "parse") return sendError(reply, 400, out.code, parseErrorMessage(out.code, "無法解析內容"));
           // 套用失敗（**含佇列逾時**）：service 已經 best-effort 刪掉剛建的列。這條路徑的
           // 逾時答案刻意是 500 而不是 503（`docs/ai-editing.md` 逐字）。
           return sendError(reply, 500, "internal", "建立筆記失敗");
@@ -597,7 +613,7 @@ export function notesRoutes(deps: NotesRouteDeps) {
             const body = { ...current, lastEdited: await loadLastEdited(deps.db, id) } satisfies NoteContentDto | NoteSectionDto;
             return reply.code(409).send({ error: { code: "fingerprint_mismatch", message: "內容已被修改" }, current: body });
           }
-          return sendError(reply, out.code === "section_not_found" ? 404 : 400, out.code, out.code === "unsupported_color" ? UNSUPPORTED_COLOR_MESSAGE : "無法套用修改");
+          return sendError(reply, out.code === "section_not_found" ? 404 : 400, out.code, parseErrorMessage(out.code, "無法套用修改"));
         }
         const result = out.result;
         return reply.code(201).send({ editId: result.editId, fingerprint: result.fingerprint, outline: result.outline, unboundWikilinks: result.unboundWikilinks } satisfies NoteEditResultDto);

@@ -22,7 +22,11 @@ const DESC_TOKEN =
   "Look at an image in a note. Pass the id from `/api/uploads/<id>` in read_note_section's markdown. Images up to 5242880 bytes come back as an image; larger ones are refused — download those with create_transfer_token instead.";
 const DESC_SESSION =
   "Look at an image in a note. Pass the id from `/api/uploads/<id>` in read_note_section's markdown. Images up to 5242880 bytes come back as an image; larger ones are refused.";
+/** 並排 PR-2（spec §11.5）：有寬度的圖片也讀成 `<figure>`；不提表格格子（Q3）；位址以舉例寫（舊的絕對網址也含 id）。 */
 const SECTION_SENTENCE =
+  "An uploaded image's address contains its upload id, for example `/api/uploads/<id>` in `![name](/api/uploads/<id>)` or, for an image with a caption or shown at a set width, in `<figure><img … src=\"/api/uploads/<id>\" …>…</figure>`; see them with read_note_image.";
+/** 並排 PR-2 之前的句子：只講到有說明的 figure，有寬度的圖片上線後就不完整。 */
+const OLD_SECTION_SENTENCE =
   "Uploaded images appear as `![name](/api/uploads/<id>)`, or inside `<figure><img src=\"/api/uploads/<id>\">…</figure>` when captioned; see them with read_note_image.";
 
 type Result = { isError?: true; content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>; structuredContent?: Record<string, unknown> & { code?: string; message?: string } };
@@ -157,17 +161,18 @@ describe("#200 read_note_image", () => {
     expect(r.structuredContent).toMatchObject({ noteId: n.id });
   });
 
-  it("M6 read_note_section 讀回兩種形：無 caption → ![name](/api/uploads/<id>)；有 caption → <figure><img …src=…><figcaption>；§7.6 句在 wire 上", async () => {
+  it("M6 read_note_section 讀回三種形：無 caption → ![name](/api/uploads/<id>)；有 caption → <figure><img …src=…><figcaption>；有寬度 → <figure><img … width>（並排 PR-2）；§7.6 句在 wire 上", async () => {
     const ctx = await buildCollabTestApp();
     const me = await seedUser(ctx.db);
     const n = await seedNote(ctx.db, { ownerId: me.id });
-    const [p, q] = [randomUUID(), randomUUID()];
+    const [p, q, r] = [randomUUID(), randomUUID(), randomUUID()];
     const doc = new Y.Doc();
     const s = await EditorSession.open(testEditingRuntime, doc);
     try {
       s.editor.replaceBlocks(s.editor.document, [
         { type: "image", props: { url: `/api/uploads/${p}`, name: "plain" } },
         { type: "image", props: { url: `/api/uploads/${q}`, name: "cap", caption: "A caption" } },
+        { type: "image", props: { url: `/api/uploads/${r}`, name: "sized", previewWidth: 300 } },
         { type: "paragraph", content: "tail" },
       ]);
     } finally {
@@ -183,9 +188,26 @@ describe("#200 read_note_image", () => {
     expect(md).toContain("<figure><img");
     expect(md).toContain(`src="/api/uploads/${q}"`);
     expect(md).toContain("<figcaption>");
+    expect(md).toContain(`<figure><img alt="sized" src="/api/uploads/${r}" width="300"></figure>`);
     const res = await mcpPost(ctx.app, rpc("tools/list"), { token });
     const desc = (res.json().result.tools as Array<{ name: string; description: string }>).find(t => t.name === "read_note_section")!.description;
-    expect(desc.endsWith(SECTION_SENTENCE)).toBe(true);
+    expect(desc.endsWith(` ${SECTION_SENTENCE}`)).toBe(true);
     expect(res.body).toContain(JSON.stringify(SECTION_SENTENCE).slice(1, -1));
+  });
+
+  it("M6b 並排 PR-2 之前的圖片句不在 wire 上（讀寫、唯讀 token 與 session 都查）", async () => {
+    const ctx = await buildCollabTestApp();
+    const me = await seedUser(ctx.db);
+    const auths = [
+      { token: (await seedTokenForUser(ctx.db, me.id, "notes:read")).token },
+      { token: (await seedTokenForUser(ctx.db, me.id, "notes:read notes:write")).token },
+      { cookie: Object.values(await cookieOf(me.id))[0]! },
+    ];
+    for (const auth of auths) {
+      const res = await mcpPost(ctx.app, rpc("tools/list"), auth);
+      expect(res.body).toContain(JSON.stringify(SECTION_SENTENCE).slice(1, -1)); // 假綠守衛：清單上有 read_note_section
+      expect(res.body).not.toContain(JSON.stringify(OLD_SECTION_SENTENCE).slice(1, -1));
+      expect(res.body).not.toContain("Uploaded images appear as");
+    }
   });
 });

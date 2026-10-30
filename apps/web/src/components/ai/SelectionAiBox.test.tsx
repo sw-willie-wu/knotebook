@@ -3,6 +3,7 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { INSTRUCT_ACTION_ID, REWRITE_ACTION_ID, SUMMARIZE_ACTION_ID, type AiActionDto } from "@knotebook/shared";
 import i18n from "@/i18n";
 import { createTestEditor, renderAiHost, selectInBlock, stubAiFetch, type AiCall, type AnyEditor } from "@/test/ai-host";
+import { P, row } from "@/test/columns-fixtures";
 import { useAiSession, type AiSessionValue } from "./AiSession";
 import { SelectionAiController } from "./SelectionAiController";
 
@@ -28,8 +29,8 @@ const box = () => screen.queryByTestId("selection-ai-box");
 const editorHasFocus = () => !!editor.domElement && editor.domElement.contains(document.activeElement);
 
 /** Host 照 NoteEditor 的真實掛法：`SelectionAiController`（它渲染工具列與框）是 `NoteEditorView` 的 children。 */
-async function mount(opts: { actions?: AiActionDto[]; editable?: boolean } = {}) {
-  editor = createTestEditor(DOC);
+async function mount(opts: { actions?: AiActionDto[]; editable?: boolean; doc?: unknown[] } = {}) {
+  editor = createTestEditor(opts.doc ?? DOC);
   const actions = opts.actions ?? [REWRITE, SUMMARIZE, INSTRUCT];
   const ai = stubAiFetch({ actions });
   const host = renderAiHost({
@@ -288,6 +289,20 @@ describe("SelectionAiBox（#263 §5.3、§5.4）", () => {
     await waitFor(() => expect(region.style.width).toContain("502px"));
     expect(region.style.width).toContain("calc(100vw - 16px)");
     expect(region).toHaveClass("max-w-[calc(100vw-16px)]");
+  });
+
+  it("BX1（spec §7.5）：錨點擴大成整列 → 寬度量列節點（[data-node-type=columnList][data-id]）＋左右外框", async () => {
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      return this.matches('[data-node-type="columnList"][data-id="r"]') ? new DOMRect(0, 0, 600, 24) : new DOMRect(0, 0, 0, 0);
+    });
+    await mount({ doc: [P("x", "x"), row([[P("a", "a1")], [P("b", "b1")]], "r"), P("z", "z")] });
+    act(() => {
+      editor.setSelection("a1", "b1");
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "AI" }));
+    const region = await screen.findByTestId("selection-ai-box");
+    expect(session.state.phase === "input" && session.state.target.anchor.blockIds).toEqual(["r"]);
+    await waitFor(() => expect(region.style.width).toContain("602px"));
   });
 
   it("editable 為 false（viewer）→ 框不渲染", async () => {
