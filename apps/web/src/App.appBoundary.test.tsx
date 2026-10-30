@@ -83,7 +83,7 @@ describe("App — app 級 ErrorBoundary 接線（issue #66 案 12）", () => {
       </QueryClientProvider>,
     );
 
-    // timeout 放寬：最終狀態等待，守門力在斷言內容；預設 1s 冷啟下餘裕太薄
-    await waitFor(() => expect(screen.getByText("Something went wrong")).toBeInTheDocument(), { timeout: 3_000 });
+    // 最終狀態等待，守門力在斷言內容；冷啟餘裕靠 test/setup.ts 的全域 asyncUtilTimeout，不另設單案上限
+    await waitFor(() => expect(screen.getByText("Something went wrong")).toBeInTheDocument());
   });
 });

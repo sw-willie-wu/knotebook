@@ -2805,8 +2805,9 @@ describe("NotePage × 版本歷史（spec §8.1、§8.4、§8.5、A9）", () => 
     const ev = new KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true, cancelable: true });
     window.dispatchEvent(ev);
     expect(ev.defaultPrevented).toBe(true);
-    // 單案放寬 timeout（不動全域 asyncUtilTimeout 3 s）：這是版本 describe 第一個開對話框的案，lazy chunk 冷啟動＋全套平行負載下實測到 3043 ms 逾時紅。
-    expect(await screen.findByRole("dialog", { name: "Save current version" }, { timeout: 10_000 })).toBeInTheDocument();
+    // 這是版本 describe 第一個開對話框的案，lazy chunk 冷啟動＋全套平行負載下曾實測到 3043 ms（舊全域 3 s 時逾時紅）；
+    // 原本單案放寬到 10 s，全域 asyncUtilTimeout 已是 10 s（test/setup.ts），不再另設。
+    expect(await screen.findByRole("dialog", { name: "Save current version" })).toBeInTheDocument();
   });
 
   it("儲存對話框已開著再按 Ctrl+S → 仍 preventDefault（不跳瀏覽器另存），不開第二個、已填的名稱還在", async () => {

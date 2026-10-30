@@ -7,8 +7,15 @@ import "@/i18n/management-strings";
 
 // lazy chunk（設定各區塊／站台管理／登入流程頁）在測試裡第一次 render 會做真實的動態
 // import；CI 高負載時可能超過 1 秒，而 Testing Library 的 waitFor／findBy 預設上限就是
-// 1000ms，本機尚可、CI 間歇紅。全域放寬到 3 秒——守門力在斷言內容，不在等待長度。
-configure({ asyncUtilTimeout: 3_000 });
+// 1000ms，本機尚可、CI 間歇紅。守門力在斷言內容，不在等待長度。
+// 2026-10-30 再從 3 秒放寬到 10 秒：每檔第一案付冷載入 lazy import／首次重 render，單跑約
+// 0.6–1 秒（flake 稽核的 vitest JSON 實測：App.test 第一案 945 ms、第二案 94 ms）；多個 agent
+// 同時跑全套（3 套 × 23 workers 擠 24 核）時會被拖過 3 秒——同一 commit 3 套並行實測 2 案
+// 「Unable to find」紅（ApiTokensSection、SettingsUsersSection 的第一個等待），單跑全綠。
+// 沒有任何測試拿 waitFor／findBy「逾時」當斷言（已 grep 確認），放寬只影響紅案多等幾秒。
+// 10 秒不是無上限的保證：超賣 CPU 時冷載入沒有上界（同日 3 套並行有一輪仍量到 >10 秒）。
+// 多套同時跑請加 `--maxWorkers=8`（3 套 × 8 實測冷載入第一案 ≤1.9 秒、總時間不變）。
+configure({ asyncUtilTimeout: 10_000 });
 
 // jsdom 沒有 `ResizeObserver`——`@blocknote/mantine` 的 `<BlockNoteView>` 掛載時，
 // mantine 內部元件（`MantineProvider`／popover／tabs 一路)摸得到它就直接

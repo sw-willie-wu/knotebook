@@ -114,14 +114,19 @@ describe("App route tree — /settings/users → /admin/users（站台管理 mod
   });
 });
 
-// issue #19 的回歸釘用：把 NotePage 模組換成「2 秒後才 resolve 的 stub（不含 AppShell）」。
+// issue #19 的回歸釘用：把 NotePage 模組換成「測試放行才 resolve 的 stub（不含 AppShell）」。
 // vi.mock 是 hoisted 的、對整個檔案的 NotePage import 生效——但 factory 是惰性的：
-// lazy 版的 App 只有在 /notes/:ref 真的 render 時才觸發 import()，於是 fallback 有整整
-// 2 秒可以斷言；若有人把 NotePage 改回靜態 import（迴歸），stub 立刻頂上、fallback 從未
-// 存在，下面對「New note」（AppShell 的招牌）的斷言在 stub 的空殼上永遠找不到 → 紅。
+// lazy 版的 App 只有在 /notes/:ref 真的 render 時才觸發 import()，那時閘門已由測試架好，
+// factory 停在閘門上、fallback 一直掛著，斷言不必跟任何計時賽跑；若有人把 NotePage 改回
+// 靜態 import（迴歸），factory 在檔頭 import ./App 時就被呼叫——閘門還沒架（null）、立刻
+// resolve，stub 一開始就頂上、fallback 從未存在，下面對「New note」（AppShell 的招牌）的
+// 斷言在 stub 的空殼上永遠找不到 → 紅。
+// （先前是「2 秒後 resolve」＋waitFor 上限 1.5 秒；全套平行負載下 1.5 秒內等不到 AppShell
+// 就會假紅，所以改成閘門。閘門只在測試內架起，所以靜態 import 的迴歸不會卡死在收集階段。）
 // 上面的 redirect 測試不 render NotePage，factory 不會被觸發，不受影響。
+const notePageGate = vi.hoisted(() => ({ pending: null as Promise<void> | null, release: () => {} }));
 vi.mock("./pages/NotePage", async () => {
-  await new Promise(resolve => setTimeout(resolve, 2_000));
+  if (notePageGate.pending) await notePageGate.pending;
   return { default: () => <p>notepage-stub-without-appshell</p> };
 });
 
@@ -138,10 +143,15 @@ vi.mock("./pages/NotePage", async () => {
  */
 describe("App route tree — NotePage lazy fallback 保留 AppShell（issue #19）", () => {
   afterEach(() => {
+    // 測試中途紅掉也要放行，別讓 factory 永遠懸著（後面 describe 若 render /notes/… 會卡住）。
+    notePageGate.release();
     vi.unstubAllGlobals();
   });
 
   it("chunk 載入中：fallback 有 AppShell（New note 按鈕在），不是空白頁", async () => {
+    notePageGate.pending = new Promise<void>(resolve => {
+      notePageGate.release = resolve;
+    });
     vi.stubGlobal(
       "fetch",
       vi.fn((input: RequestInfo | URL) => {
@@ -170,15 +180,19 @@ describe("App route tree — NotePage lazy fallback 保留 AppShell（issue #19�
       </QueryClientProvider>,
     );
 
-    // fallback 掛著（stub 2 秒後才 resolve）時，AppShell 的招牌元素必須在場——
-    // waitFor 上限 1.5 秒 < stub 的 2 秒，斷言必然落在 fallback 期間內。
-    await waitFor(() => expect(screen.getByText("New note")).toBeInTheDocument(), { timeout: 1_500 });
+    // fallback 掛著（閘門未放行，stub 不可能 resolve）時，AppShell 的招牌元素必須在場——
+    // 等待上限用全域 asyncUtilTimeout，多久都不會讓斷言跑出 fallback 期間。
+    await waitFor(() => expect(screen.getByText("New note")).toBeInTheDocument());
     // 「Loading…」可能同時出現在 fallback 本體與 NoteList 的載入態——至少一份
     //（AppShell 在場 + 載入文案在場＝fallback 的完整形狀）。
     expect(screen.getAllByText("Loading…").length).toBeGreaterThanOrEqual(1);
-    // 反向釘：此刻還在 fallback，stub 不得已經頂上（若這裡紅，代表時序假設壞了，
-    // 測試本身要修，不是放寬）。
+    // 反向釘：此刻還在 fallback，stub 不得已經頂上（閘門沒放行就頂上＝NotePage 不是 lazy）。
     expect(screen.queryByText("notepage-stub-without-appshell")).not.toBeInTheDocument();
+
+    // 放行後 stub 必須頂上：證明擋住 fallback 的正是這支 mock 的閘門（mock 沒生效、
+    // 真 NotePage 被載入的話，這裡等不到 stub → 紅）。
+    notePageGate.release();
+    expect(await screen.findByText("notepage-stub-without-appshell")).toBeInTheDocument();
   });
 });
 

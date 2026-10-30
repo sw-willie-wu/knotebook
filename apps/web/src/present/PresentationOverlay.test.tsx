@@ -13,6 +13,7 @@ import { installFakeFullscreen, type FakeFullscreen } from "@/test/fake-fullscre
 import { PresentationShell } from "./PresentationShell";
 import PresentationOverlay, { type PresentationOverlayProps } from "./PresentationOverlay";
 import { createExportEditor, renderDeck } from "./render";
+import { UPDATE_DEBOUNCE_MS } from "./debounce";
 import { OWNER_PERMS } from "@/test/fixtures";
 
 vi.mock("reveal.js", async () => ({ default: (await import("@/test/fake-reveal")).FakeReveal }));
@@ -364,17 +365,27 @@ describe("PresentationOverlay（fake reveal）", () => {
       typeChar();
       await new Promise((r) => setTimeout(r, 20));
     }
-    await waitFor(() => expect(vi.mocked(renderDeck).mock.calls.length).toBe(initialCalls + 1), { timeout: 2000 });
+    await waitFor(() => expect(vi.mocked(renderDeck).mock.calls.length).toBe(initialCalls + 1));
     await new Promise((r) => setTimeout(r, 700));
     expect(vi.mocked(renderDeck).mock.calls.length).toBe(initialCalls + 1);
 
+    // 持續每 100 ms 打一字，直到重切發生（上限 6 s）。不用「打滿 2.3 s 就驗」的固定窗：maxWait 2 s
+    // 只留 300 ms 餘裕，平行負載下計時器晚到就假紅。改量「相鄰兩次輸入（含最後一次輸入到偵測到
+    // 重切）的最大間隔」並要求 < UPDATE_DEBOUNCE_MS：trailing 計時器從未有機會到期，
+    // 所以這次重切只可能是 maxWait 觸發的。maxWait 的精確時刻由 debounce.test.ts 以 fake timers 守。
     const before = vi.mocked(renderDeck).mock.calls.length;
     const started = Date.now();
-    while (Date.now() - started < 2300) {
+    let lastKey = Date.now();
+    let maxGap = 0;
+    while (vi.mocked(renderDeck).mock.calls.length === before && Date.now() - started < 6_000) {
+      maxGap = Math.max(maxGap, Date.now() - lastKey);
       typeChar();
+      lastKey = Date.now();
       await new Promise((r) => setTimeout(r, 100));
     }
+    maxGap = Math.max(maxGap, Date.now() - lastKey);
     expect(vi.mocked(renderDeck).mock.calls.length).toBeGreaterThan(before);
+    expect(maxGap).toBeLessThan(UPDATE_DEBOUNCE_MS);
   });
 
   it("test 7：目前那張被刪 → slide() 到前一張、hash replace；目前那張內容變 → 捲頂；別張變 → 不捲、不重建目前那張", async () => {
@@ -397,7 +408,7 @@ describe("PresentationOverlay（fake reveal）", () => {
       { id: "b", type: "heading", props: { level: 2 }, content: "B changed" },
     ] as never, YDOC_FRAGMENT);
     rerenderWith({ variant: "public", doc: v2, title: "My Note", publicRef: { kind: "token", token: "t" } });
-    await waitFor(() => expect(slideEl("b").textContent).toContain("B changed"), { timeout: 2000 });
+    await waitFor(() => expect(slideEl("b").textContent).toContain("B changed"));
     expect(slideEl("a2").querySelector(".kn-slide-body")!.firstChild).toBe(a2Body);
     expect(scrollSet).not.toHaveBeenCalled();
     // §7.1-4：結構沒變 → 只 syncSlide 有變的那張、不 sync（r1-p2 MINOR 7）
@@ -413,7 +424,7 @@ describe("PresentationOverlay（fake reveal）", () => {
       { id: "b", type: "heading", props: { level: 2 }, content: "B changed" },
     ] as never, YDOC_FRAGMENT);
     rerenderWith({ variant: "public", doc: v3, title: "My Note", publicRef: { kind: "token", token: "t" } });
-    await waitFor(() => expect(scrollSet).toHaveBeenCalledWith(0), { timeout: 2000 });
+    await waitFor(() => expect(scrollSet).toHaveBeenCalledWith(0));
 
     // 目前那張被刪（a2 的標題沒了）→ 前一張 a
     const v4 = blocksToYDoc(editor, [
@@ -423,7 +434,7 @@ describe("PresentationOverlay（fake reveal）", () => {
       { id: "b", type: "heading", props: { level: 2 }, content: "B changed" },
     ] as never, YDOC_FRAGMENT);
     rerenderWith({ variant: "public", doc: v4, title: "My Note", publicRef: { kind: "token", token: "t" } });
-    await waitFor(() => expect(loc()).toBe(`${BASE}?present#/a`), { timeout: 2000 });
+    await waitFor(() => expect(loc()).toBe(`${BASE}?present#/a`));
     expect(nav.fn).toHaveBeenLastCalledWith({ pathname: BASE, search: "?present", hash: "#/a" }, { replace: true, state: null });
     expect(deck.slide).toHaveBeenLastCalledWith(1, 0);
     expect(deck.sync).toHaveBeenCalled();
