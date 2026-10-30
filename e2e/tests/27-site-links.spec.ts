@@ -219,17 +219,20 @@ test("E1：讀者一般點擊同分頁導航；Ctrl+Click 與中鍵開新分頁�
     adminContext.on("page", onContextPage);
     admin.on("popup", onPopup);
     admin.on("framenavigated", onNavigated);
-    await admin.evaluate(() => {
-      const log: string[] = [];
-      (window as unknown as { __e1Events: string[] }).__e1Events = log;
-      const describe = (t: EventTarget | null) => (t instanceof Element ? `${t.tagName}.${String(t.className).slice(0, 30)}` : String(t));
-      for (const type of ["pointerdown", "mousedown", "mouseup", "click", "auxclick"]) {
-        // capture＝事件有沒有到；bubble（window 最後一站）＝有沒有被攔（沒記到就是被 stopPropagation）、有沒有 preventDefault
-        window.addEventListener(type, (e) => log.push(`${type} capture target=${describe(e.target)} ctrl=${(e as MouseEvent).ctrlKey}`), { capture: true, passive: true });
-        window.addEventListener(type, (e) => log.push(`${type} bubble defaultPrevented=${e.defaultPrevented}`), { passive: true });
-      }
-      window.addEventListener("blur", () => log.push("window blur"));
-    });
+    // 裝監聽本身不得改變測試結果：頁面正在導航等原因讓 evaluate 拋錯時吞掉、記一行（那次的診斷就少了點擊事件那段，events 會是 null）
+    await admin
+      .evaluate(() => {
+        const log: string[] = [];
+        (window as unknown as { __e1Events: string[] }).__e1Events = log;
+        const describe = (t: EventTarget | null) => (t instanceof Element ? `${t.tagName}.${String(t.className).slice(0, 30)}` : String(t));
+        for (const type of ["pointerdown", "mousedown", "mouseup", "click", "auxclick"]) {
+          // capture＝事件有沒有到；bubble（window 最後一站）＝有沒有被攔（沒記到就是被 stopPropagation）、有沒有 preventDefault
+          window.addEventListener(type, (e) => log.push(`${type} capture target=${describe(e.target)} ctrl=${(e as MouseEvent).ctrlKey}`), { capture: true, passive: true });
+          window.addEventListener(type, (e) => log.push(`${type} bubble defaultPrevented=${e.defaultPrevented}`), { passive: true });
+        }
+        window.addEventListener("blur", () => log.push("window blur"));
+      })
+      .catch((e: unknown) => note(`listener install failed (no event log): ${String(e)}`));
     let editorCtrlPage: Page;
     try {
       const editorCtrlPromise = adminContext.waitForEvent("page", { timeout: 10_000 });
