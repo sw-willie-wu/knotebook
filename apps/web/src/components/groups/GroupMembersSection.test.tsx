@@ -165,6 +165,45 @@ describe("GroupMembersSection（/groups/:id，#247 §6.2）", () => {
     expect(JSON.parse(String(callsTo(fetchMock, "PUT", url)[1].body))).toEqual({ email: "dup@example.com", roleId: MEMBER_ROLE.id });
   });
 
+  it("加人：輸入幾個字 → 建議清單（已是成員者不列）→ 選取填入 email（多地址框：補上「, 」）→ 送出 PUT 帶選到的 email", async () => {
+    const members = [member(ME.id, ME.email, "Me", ADMIN_ROLE), member("u-bob", "bob@example.com", "Bob Example", MEMBER_ROLE)];
+    const fetchMock = groupFetch(() => [GROUP_ADMIN], () => members, (url, method) => {
+      if (url === "/api/users/suggest?q=ex" && method === "GET") {
+        return ok({
+          users: [
+            { userId: "u-bob", email: "bob@example.com", displayName: "Bob Example" },
+            { userId: "u-carol", email: "carol@example.com", displayName: "Carol Example" },
+          ],
+        });
+      }
+      if (url === `/api/groups/${GROUP_ADMIN.id}/members` && method === "PUT") return ok(member("u-carol", "carol@example.com", "Carol Example", MEMBER_ROLE), 201);
+      return null;
+    });
+
+    renderGroupRoute(`/groups/${GROUP_ADMIN.id}`, fetchMock);
+    const dialog = await screen.findByRole("dialog", { name: GROUP_ADMIN.name });
+    const roleSelect = await within(dialog).findByLabelText("Role for new member");
+    await waitFor(() => expect(roleSelect).toHaveValue(MEMBER_ROLE.id));
+    const box = within(dialog).getByRole("combobox", { name: "Email address" });
+    // #331 收多個地址：text＋inputMode email、#331 的 placeholder 與說明
+    expect(box).toHaveAttribute("type", "text");
+    expect(box).toHaveAttribute("inputmode", "email");
+    expect(box).toHaveAttribute("placeholder", "Email addresses (separate several with commas)");
+    expect(box).toHaveAccessibleDescription(/You can enter several addresses at once/);
+    fireEvent.change(box, { target: { value: "ex" } });
+    const list = await within(dialog).findByRole("listbox", { name: "People you know" });
+    expect(within(list).getAllByRole("option").map((o) => o.textContent)).toEqual(["Carol Examplecarol@example.com"]);
+    fireEvent.keyDown(box, { key: "ArrowDown" });
+    fireEvent.keyDown(box, { key: "Enter" });
+    expect(box).toHaveValue("carol@example.com, ");
+    expect(callsTo(fetchMock, "PUT", `/api/groups/${GROUP_ADMIN.id}/members`)).toHaveLength(0);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Add" }));
+    const url = `/api/groups/${GROUP_ADMIN.id}/members`;
+    await waitFor(() => expect(callsTo(fetchMock, "PUT", url)).toHaveLength(1));
+    expect(JSON.parse(String(callsTo(fetchMock, "PUT", url)[0].body))).toEqual({ email: "carol@example.com", roleId: MEMBER_ROLE.id });
+  });
+
   it("加人：roles 還沒到時不送 roleId（body 只有 {email}，server 預設內建一般成員）", async () => {
     const members = [member(ME.id, ME.email, "Me", ADMIN_ROLE)];
     const fetchMock = groupFetch(() => [GROUP_ADMIN], () => members, (url, method) => {

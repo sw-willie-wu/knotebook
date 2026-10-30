@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN, createUserViaInvite, editorLocator, loginAs, openGroupPanel, randomEmail, showSidebarTab } from "./helpers.js";
+import { ADMIN, createNote, createUserViaInvite, editorLocator, loginAs, openGroupPanel, randomEmail, showSidebarTab } from "./helpers.js";
 
 /**
  * #175 群組 v2（spec §12.3 第 15 條，PR1 改寫自 #103 版）：A 建群組 → A 在群組建筆記（群組持有、
@@ -139,5 +139,69 @@ test("群組：建立 → 群組建筆記（/g/ 網址）→ 設定加人 → �
   } finally {
     await adminContext.close();
     await userContext.close();
+  }
+});
+
+/**
+ * 「認識的人」建議（`GET /api/users/suggest`）：A 以完整 email 把 B 加進群組後，在個人筆記的分享面板只打 B email 的一小段，
+ * 就能從建議清單（↓＋Enter）選到 B 並分享；與 A 沒有任何關係的 C 打同樣長度的片段不會出現（不是全站名錄）。
+ */
+test("建議：同群組的人打幾個字就能選；陌生人不出現", async ({ browser }) => {
+  const adminContext = await browser.newContext();
+  try {
+    const adminPage = await adminContext.newPage();
+    await loginAs(adminPage, ADMIN.email, ADMIN.password);
+    await expect(adminPage).toHaveURL(/\/$/);
+
+    const memberEmail = randomEmail();
+    const strangerEmail = randomEmail();
+    await createUserViaInvite(adminPage, { email: memberEmail, password: "e2e-suggest-member-pw", displayName: "E2E Suggest Member" });
+    await createUserViaInvite(adminPage, { email: strangerEmail, password: "e2e-suggest-stranger-pw", displayName: "E2E Suggest Stranger" });
+    // randomEmail＝`e2e-<uuid>@e2e.local`：取 uuid 開頭一段，夠獨特、又不是完整 email。
+    const memberFragment = memberEmail.slice(4, 14);
+    const strangerFragment = strangerEmail.slice(4, 14);
+
+    // ── A 建群組、以完整 email 加 B ──
+    const groupName = `E2E Suggest ${Date.now()}`;
+    const sidebar = adminPage.getByRole("complementary");
+    await showSidebarTab(adminPage, "Workspace");
+    await sidebar.getByRole("button", { name: "New group", exact: true }).click();
+    const groupDialog = adminPage.getByRole("dialog", { name: "New group" });
+    await groupDialog.getByLabel("Group name").fill(groupName);
+    await groupDialog.getByRole("button", { name: "Create", exact: true }).click();
+    await expect(groupDialog).not.toBeVisible();
+    await openGroupPanel(adminPage, groupName);
+    await adminPage.getByLabel("Email address", { exact: true }).fill(memberEmail);
+    await adminPage.getByRole("button", { name: "Add", exact: true }).click();
+    await expect(adminPage.getByRole("button", { name: `Remove ${memberEmail}` })).toBeVisible();
+    await adminPage.keyboard.press("Escape");
+    await expect(adminPage.getByRole("button", { name: `Remove ${memberEmail}` })).toHaveCount(0);
+
+    // ── A 的個人筆記：分享面板 ──
+    await createNote(adminPage, `E2E suggest note ${Date.now()}`);
+    await adminPage.getByRole("button", { name: "Share", exact: true }).click();
+    const shareDialog = adminPage.getByRole("dialog", { name: "Share note" });
+    await shareDialog.getByRole("radio", { name: /Members only/ }).click();
+    const box = shareDialog.getByRole("combobox", { name: "Email address" });
+    const list = shareDialog.getByRole("listbox", { name: "People you know" });
+
+    // 陌生人：等過 debounce 與那一次往返，清單仍不出現。
+    const strangerLookup = adminPage.waitForResponse((res) => res.url().includes("/api/users/suggest?") && res.url().includes(strangerFragment));
+    await box.fill(strangerFragment);
+    expect((await strangerLookup).status()).toBe(200);
+    await expect(list).toHaveCount(0);
+
+    // B：打片段 → 建議清單 → ↓＋Enter 選取 → Add
+    await box.fill(memberFragment);
+    await expect(list.getByRole("option", { name: /E2E Suggest Member/ })).toBeVisible();
+    await expect(list.getByRole("option")).toHaveCount(1);
+    await box.press("ArrowDown");
+    await box.press("Enter");
+    await expect(box).toHaveValue(memberEmail);
+    await expect(list).toHaveCount(0);
+    await shareDialog.getByRole("button", { name: "Add", exact: true }).click();
+    await expect(shareDialog.getByRole("button", { name: `Remove ${memberEmail}` })).toBeVisible();
+  } finally {
+    await adminContext.close();
   }
 });

@@ -1,5 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { checkInstructFields, INSTRUCT_GUARD_PROMPT, withInstructGuard, wrapInstructVars } from "../../src/ai/instruct.js";
+import { checkInstructFields, INSTRUCT_GUARD_PROMPT, MARKUP_GUARD_PROMPT, withInstructGuard, withMarkupGuard, wrapInstructVars } from "../../src/ai/instruct.js";
+
+// 並排 PR-2（Q4）：每個站內 AI 動作的 system prompt 前面都放這段，管理員改不掉。
+describe("MARKUP_GUARD_PROMPT／withMarkupGuard", () => {
+  it("MG1：講到並排的外層與欄標籤、圖片的 width、表格的 colwidth", () => {
+    expect(MARKUP_GUARD_PROMPT).toContain("data-kb-columns");
+    expect(MARKUP_GUARD_PROMPT).toContain("<div data-kb-column ");
+    expect(MARKUP_GUARD_PROMPT).toContain("width");
+    expect(MARKUP_GUARD_PROMPT).toContain("colwidth");
+    // 整段逐字（T9＋T10 審查 r1 M-3：只釘片段時刪掉「</div> 收尾行」那半句照綠）；docs/ai.md 的轉述以此為準
+    expect(MARKUP_GUARD_PROMPT).toBe(
+      [
+        "The note content you are given is Markdown and may include HTML that the editor uses for side-by-side columns and for sizes. Wherever your reply keeps that content, keep its HTML as it is:",
+        "- Every <div data-kb-columns …> and <div data-kb-column …> line, and each </div> line that closes one, stays exactly as written, on a line of its own, with the blank lines around it unchanged. Inside a column, write Markdown as usual.",
+        "- An image's width attribute and a table cell's colwidth attribute keep their values.",
+      ].join("\n"),
+    );
+  });
+
+  it("MG2：固定說明在前、空行、再接動作的 system prompt；動作 prompt 為空字串時只有固定說明", () => {
+    expect(withMarkupGuard("sp")).toBe(`${MARKUP_GUARD_PROMPT}\n\nsp`);
+    expect(withMarkupGuard("")).toBe(MARKUP_GUARD_PROMPT);
+  });
+});
 
 describe("Instruct 守門（#263 §4.2）", () => {
   it("守門文字引用三個固定標記名", () => {

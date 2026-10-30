@@ -20,6 +20,7 @@ import {
  * 3. 選取模式：Shift 範圍選三篇還原；勾兩篇永久刪除（確認框）後原網址連結無效。
  * 4. 390 寬抽屜：選取中按 Esc 只結束選取、焦點回抽屜內的「選取」鈕；確認框 Esc 只關框（jsdom 對這條假綠過，只有真瀏覽器守得住）。
  * 5. 群組：「只能刪」成員移入 → toast 沒有「Undo」、看不到群組垃圾桶、原網址無效；「編輯＋刪除」成員看得到、從卡片還原。
+ * 6. 390 寬抽屜：在抽屜裡把別篇移入 → toast 以 role 找得到（抽屜開著時 toast 搬進抽屜，不在 aria-hidden 的背景裡）、按它的 Undo 抽屜不關、該篇回來。
  *
  * 共用疊：別的 spec（例如 16）會在 admin 的垃圾桶留下項目，所以不斷言總數、列一律以本檔的標題（帶 RUN）定位。
  * 群組與筆記留著不清（同 17）：e2e 疊每次 `stack:down -v` 重置。
@@ -280,6 +281,49 @@ test("390 寬抽屜：選取中按 Esc 只結束選取、焦點回抽屜內的�
   await page.keyboard.press("Escape");
   await expect(drawer).not.toBeVisible();
   await page.setViewportSize({ width: 1280, height: 800 });
+});
+
+test("390 寬抽屜開著時移入別篇：toast 與 Undo 以 role 找得到、按 Undo 抽屜不關、該篇回到清單", async ({ browser, page }) => {
+  test.setTimeout(120_000);
+  const keep = `E2E Trash Toast Keep ${RUN}`;
+  const title = `E2E Trash Toast ${RUN}`;
+  const user = { email: randomEmail(), password: PASSWORD };
+  const adminContext = await browser.newContext();
+  try {
+    const adminPage = await adminContext.newPage();
+    await loginAs(adminPage, ADMIN.email, ADMIN.password);
+    await expect(adminPage).toHaveURL(/\/$/);
+    await createUserViaInvite(adminPage, user);
+  } finally {
+    await adminContext.close();
+  }
+  await loginAs(page, user.email, user.password);
+  await expect(page).toHaveURL(/\/$/);
+  await createNote(page, title);
+  await createNote(page, keep);
+  const keepUrl = page.url();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  // 整頁載入後等 lazy NotePage 掛上再開抽屜：fallback 自帶的 AppShell 會被換掉（抽屜跟著關）。
+  await page.goto(keepUrl);
+  await expect(page.getByRole("textbox", NOTE_TITLE)).toBeVisible({ timeout: 15_000 });
+  await page.getByRole("button", { name: "Open navigation" }).click();
+  const drawer = page.getByRole("dialog", { name: "Navigation" });
+  await expect(drawer).toBeVisible();
+  await showSidebarTab(page, "My notes", drawer);
+
+  // 移的是別篇：不換頁、抽屜不關，toast 在抽屜開著時跳出（helper 以 role 找它——修正前它在 aria-hidden 的背景裡、找不到）。
+  const moved = await moveNoteToTrashFromSidebar(page, title, drawer);
+  await expect(drawer).toBeVisible();
+  // 鍵盤到得了：F8 把焦點交給 toast 區，抽屜的 focus trap 不把它拉回去（修正前 toast 區在抽屜外、焦點被拉回抽屜）。
+  await page.keyboard.press("F8");
+  await expect(page.getByRole("region", { name: /^Notifications/ }).getByRole("list")).toBeFocused();
+  await moved.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(toastWithTitle(page, "Restored 1 note")).toBeVisible({ timeout: 15_000 });
+  await expect(drawer).toBeVisible();
+  await expect(page).toHaveURL(keepUrl);
+  const myNotes = await showSidebarTab(page, "My notes", drawer);
+  await expect(noteLink(myNotes, title)).toBeVisible({ timeout: 15_000 });
 });
 
 /** 群組面板「Roles」項次上新增自訂角色，打開 `flags` 那幾個旗標（其餘預設關）。 */

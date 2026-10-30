@@ -156,10 +156,32 @@ describe("#222 顏色在工具說明裡", () => {
     expect(d).toContain("read_note_section");
   });
   it("create_note 的 content 說明指回 edit_note；read_note_section 的 markdown 說明講到顏色是 HTML、原樣寫回會保留", () => {
-    expect(createNoteInput.content.description).toContain("Colors work as in edit_note");
+    expect(createNoteInput.content.description).toContain("Colors, side-by-side columns and sizes work as in edit_note");
     const d = readNoteSectionOutput.section.shape.markdown.description ?? "";
     expect(d).toContain("Colored text and blocks come back as HTML");
     expect(d).toContain("unchanged");
+  });
+});
+
+// 並排 PR-2（spec 2026-10-21 columns-layout §11.5）：並排的正規標籤與欄數、尺寸的形與範圍要寫在工具說明裡；
+// 尺寸句不提表格格子裡的圖片（Q3）。wire 上的整句逐字在 mcp-tools-list.test.ts。
+describe("並排與尺寸在工具說明裡", () => {
+  it("edit_note 的 markdown 說明：外層與欄的正規標籤、2 到 4 欄、figure 內的 width、第一列的 colwidth、32 到 4000", () => {
+    const d = editNoteInput.markdown.description ?? "";
+    expect(d).toContain('<div data-kb-columns style="display:flex;gap:16px">');
+    expect(d).toContain('<div data-kb-column style="flex:N">');
+    expect(d).toContain("Writes take 2 to 4 columns.");
+    expect(d).toContain('<figure><img … width="W">…</figure>');
+    expect(d).toContain("colwidth on its first row's cells");
+    expect(d).toContain("whole pixels from 32 to 4000");
+    expect(d).not.toContain("table cell");
+  });
+  it("read_note_section 的 markdown 說明講到並排與尺寸也是 HTML；create_note 指回 edit_note", () => {
+    const d = readNoteSectionOutput.section.shape.markdown.description ?? "";
+    expect(d).toContain("side-by-side columns");
+    expect(d).toContain("images shown at a set width");
+    expect(d).toContain("tables with set column widths");
+    expect(createNoteInput.content.description).not.toContain("Colors work as in edit_note.");
   });
 });
 

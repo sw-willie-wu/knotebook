@@ -77,6 +77,18 @@ the first column's, then the second's, and so on — because rows can't be neste
 A layout copied from a web page — boxes side by side, without Knotebook's column markers — doesn't
 become columns; it is pasted as ordinary blocks.
 
+## Columns over MCP, the API and the in-app AI
+
+MCP, the REST API and the in-app AI read and write a row as HTML `<div>` lines with ordinary
+Markdown inside each column; the exact form, and what a write refuses, are in
+[AI editing](./ai-editing.md#columns). Sending a row back whole and unchanged keeps it, except a row
+of more than four columns, which reads back but can't be written.
+
+When a selection reaches across columns, or into or out of a row, the in-app [AI](./ai.md) works on
+the whole row: each selected block counts as the top-level block it belongs to, so the action gets
+the entire row, and its result replaces it. A selection inside one column works on just the blocks
+you selected there; a result for it that contains columns is refused, because rows can't be nested.
+
 ## Undo
 
 Creating a row, ungrouping one, and each Backspace or Delete above that moves a block or removes a

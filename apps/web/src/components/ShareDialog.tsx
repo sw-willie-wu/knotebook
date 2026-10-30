@@ -37,6 +37,7 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "@/components/ui/toast";
 import { copyText } from "@/lib/clipboard";
 import { ManualCopyField } from "@/components/ManualCopyField";
+import { UserEmailCombobox } from "@/components/UserEmailCombobox";
 
 /** ApiFail → errors.<code>；其餘 → errors.fallback。與 NoteList/TitleInput 同一套對映（各檔各自一份，
  * 是既有慣例——見那兩處的說明，這裡不再重複抽象）。 */
@@ -170,13 +171,11 @@ function SharesSection({ noteId, title }: { noteId: string; title: string }) {
       )}
 
       <form onSubmit={(event) => void handleAdd(event)} className="flex items-center gap-2">
-        <Input
-          type="email"
-          required
-          placeholder={t("share.emailPlaceholder")}
-          aria-label={t("share.emailPlaceholder")}
+        <UserEmailCombobox
+          label={t("share.emailPlaceholder")}
           value={email}
-          onChange={(event) => setEmail(event.target.value)}
+          onChange={setEmail}
+          excludeUserIds={sharesQuery.data?.map((share) => share.userId)}
           className="min-w-0 flex-1"
         />
         <select

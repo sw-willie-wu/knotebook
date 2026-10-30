@@ -32,7 +32,11 @@ export const READ_NOTE_SECTION_DESCRIPTION =
   `At most ${MCP_SECTION_CHARS} characters per call: while \`truncated\` is true, call again with \`offset\` ` +
   "set to `nextOffset`. The `fingerprint` you need to replace this section arrives with the page that " +
   "finishes it, so read to the end before you rewrite it. " +
-  "Uploaded images appear as `![name](/api/uploads/<id>)`, or inside `<figure><img src=\"/api/uploads/<id>\">…</figure>` when captioned; see them with read_note_image.";
+  // 並排 PR-2（spec §11.5）：有寬度的圖片也是 `<figure>`。「for example」是舉例不是窮舉（整塊輸出成 HTML 的節點裡，圖片照該節點的 HTML 形；
+  // 讀碼發現 15 之前寫入收合區塊的圖片是含站台位址的絕對網址，所以主句只說「位址裡有 upload id」），這句只負責讓模型找到 id；
+  // 不提表格格子（Q3，PR-2 沒有格子圖片）。
+  "An uploaded image's address contains its upload id, for example `/api/uploads/<id>` in `![name](/api/uploads/<id>)` or, for an image with " +
+  "a caption or shown at a set width, in `<figure><img … src=\"/api/uploads/<id>\" …>…</figure>`; see them with read_note_image.";
 
 /** 被截斷時附上的解釋文案（不是防線，見檔頭）。 */
 const TRUNCATED_NOTE =
@@ -73,7 +77,9 @@ export const readNoteSectionOutput = {
       .describe(
         "This page of the section, as markdown. The first page starts with the section's heading line — except " +
           "`_top`, which has no heading; a later page resumes where the last one stopped. Colored text and blocks come back as " +
-          "HTML; write it back unchanged to keep the colors. " +
+          // 並排 PR-2：5 欄以上的列讀得到、原樣寫回會被拒（spec §11.2 的 I5 例外），所以括號補寫入的欄數。
+          "HTML, as do images shown at a set width, tables with set column widths, and the <div> tags around side-by-side columns; " +
+          "write it back unchanged to keep them (edit_note takes rows of 2 to 4 columns). " +
           READ_NOTE_LINK_SENTENCE
       ),
     fingerprint: z

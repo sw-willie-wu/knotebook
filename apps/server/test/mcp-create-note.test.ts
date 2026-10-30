@@ -100,10 +100,11 @@ async function scene(opts: Parameters<typeof buildCollabTestApp>[0] = {}): Promi
 describe("#108 create_note", () => {
   // 案 21：「解析在建列**之前**」是逐字寫下的契約（`write-service.ts` 的 docstring），所以壞
   // content 一列都不會建。
-  // ⚠ **plan 寫的測資（「含不支援的 block」→ `unsupported_block`）在整合層造不出來**，理由與
-  //   `note-edits.test.ts:322-328` 逐字寫過的完全相同：headless schema ＝ `defaultBlockSpecs`
-  //   全集＋mermaid／codeBlock，**BlockNote 的 markdown parser 產得出來的 type 一定在白名單裡**，
-  //   所以 `unsupported_block` 這個碼從 markdown 到不了（PR-1 過渡期並排被拒例外，見 mcp-write-guards GW1／GW2）。白名單那條分支由
+  // ⚠ **plan 寫的測資（「含不支援的 block」→ `unsupported_block`）的白名單分支在整合層造不出來**，理由與
+  //   `note-edits.test.ts` 的「拒絕案假綠守衛」寫過的相同：headless schema ＝ `defaultBlockSpecs`
+  //   全集＋mermaid／codeBlock，**BlockNote 的 markdown parser 產得出來的 type 一定在白名單裡**。
+  //   `unsupported_block` 這個碼本身從 markdown 到得了，但走的是別條分支：core parse 丟例外（並排 PR-2，見 mcp-write-guards GW5）
+  //   與帶事件處理屬性的 HTML（語法檢查）。白名單那條分支由
   //   `test/unit/editing-markdown.test.ts` 以收窄的假 schema 驗。這裡改用**同一條管線上到得了**
   //   的 `empty_content`（與 REST 的 `note-create-content.test.ts` 第二案同一份測資），
   //   被測的契約（先解析、後建列）一個字都沒變。

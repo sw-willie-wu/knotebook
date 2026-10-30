@@ -25,6 +25,24 @@ describe("restoreMermaidBlocks", () => {
     expect(out[1]!.type).toBe("codeBlock");
     expect((out[2] as { children: Array<{ type: string }> }).children[0]!.type).toBe("mermaid");
   });
+  it("NM-COL1（並排 §11.11）：columnList → column → codeBlock(mermaid) 也還原成 mermaid", () => {
+    const out = restoreMermaidBlocks([
+      { type: "columnList", children: [
+        { type: "column", props: { width: 1 }, children: [{ type: "codeBlock", props: { language: "mermaid" }, content: [{ type: "text", text: "graph TD" }] }] },
+        { type: "column", props: { width: 1 }, children: [{ type: "paragraph", content: [] }] },
+      ] },
+    ]);
+    const col0 = (out[0] as { children: Array<{ children: unknown[] }> }).children[0]!;
+    expect(col0.children[0]).toEqual({ type: "mermaid", props: { code: "graph TD" } });
+  });
+  it("NM-ID：輸入帶字串 id → 還原後保留同一個 id（預覽 diff 才配得到）；非字串 id 不帶", () => {
+    const out = restoreMermaidBlocks([
+      { id: "m1", type: "codeBlock", props: { language: "mermaid" }, content: [{ type: "text", text: "graph TD" }] },
+      { id: 7, type: "codeBlock", props: { language: "mermaid" }, content: [{ type: "text", text: "graph LR" }] },
+    ]);
+    expect(out[0]).toEqual({ id: "m1", type: "mermaid", props: { code: "graph TD" } });
+    expect(out[1]).toEqual({ type: "mermaid", props: { code: "graph LR" } });
+  });
 });
 
 describe("rebindWikilinks（唯一命中才綁）", () => {
@@ -59,6 +77,19 @@ describe("rebindWikilinks（唯一命中才綁）", () => {
     const [blocks, unbound] = rebindWikilinks([{ type: "codeBlock", content: [{ type: "text", text: "[[A]]" }] }], notes, isInline);
     expect((blocks[0] as { content: Array<{ type: string }> }).content[0]!.type).toBe("text");
     expect(unbound).toBe(0);
+  });
+  it("NM-COL2（並排 §11.11）：欄內段落的 [[A]] 也綁、unbound 0", () => {
+    const [blocks, unbound] = rebindWikilinks(
+      [{ type: "columnList", children: [
+        { type: "column", props: { width: 1 }, children: [{ type: "paragraph", content: [{ type: "text", text: "[[A]]", styles: {} }], children: [] }] },
+        { type: "column", props: { width: 1 }, children: [{ type: "paragraph", content: [], children: [] }] },
+      ] }],
+      notes,
+      isInline,
+    );
+    expect(unbound).toBe(0);
+    const para = (blocks[0] as { children: Array<{ children: Array<{ content: unknown[] }> }> }).children[0]!.children[0]!;
+    expect(para.content).toEqual([{ type: "wikilink", props: { targetNoteId: notes[0]!.id, snapshotTitle: "A" } }]);
   });
 });
 

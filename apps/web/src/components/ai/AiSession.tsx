@@ -13,21 +13,14 @@ import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import type { Block, BlockNoteEditor } from "@blocknote/core";
 import { ShowSelectionExtension } from "@blocknote/core/extensions";
-import {
-  escapeLinkText,
-  INSTRUCTION_MAX_CODE_POINTS,
-  mapInlineArrays,
-  truncateCodePoints,
-  wikilinksToLinks,
-  type AiActionDto,
-  type AiActionKind,
-} from "@knotebook/shared";
+import { INSTRUCTION_MAX_CODE_POINTS, truncateCodePoints, type AiActionDto, type AiActionKind } from "@knotebook/shared";
 import { fetchAiActions, streamAiAction } from "@/api/ai";
 import { ApiFail } from "@/api/client";
 import { useNotes } from "@/api/notes";
 import { sameNoteId } from "@/lib/note-id";
-import { applyAiResult, hasNonTextBlock, prepareAiResult, revertAiResult, selectionTouchesColumns, type PreparedResult } from "@/ai/apply";
+import { anchorPlacement, applyAiResult, expandAnchorForColumns, hasNonTextBlock, prepareAiResult, revertAiResult, type PreparedResult } from "@/ai/apply";
 import { captureAnchor, verifyAnchor, type AiAnchor } from "@/ai/anchor";
+import { aiMarkdownOf } from "@/ai/note-markdown";
 import { buildPreview, isNoChange, stripTextWrapper, type AiPreview } from "@/ai/preview";
 import { selectionFocus, selectionInsideAnchor, toolbarWouldShow } from "@/ai/selection";
 import { toast } from "@/components/ui/toast";
@@ -36,25 +29,6 @@ import { toast } from "@/components/ui/toast";
 type AnyEditor = BlockNoteEditor<any, any, any>;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- 同上，Block 的實際泛型三元組
 type AnyBlock = Block<any, any, any>;
-
-/**
- * #269 §9.4：送出用 markdown 的匯出副本（不動文件）——wikilink 換成 `[顯示文字](/notes/<id>)` 的 link（`titleOf`＝現行標題查找），
- * 再把 `/notes/` 連結的文字做 markdown 跳脫（RF1，同 server `colors.ts` 的 `escapeNoteLinkText`：`blocksToMarkdownLossy` 不跳脫連結文字，
- * `[Draft]`、`a]b\` 之類的文字送出去會讓 AI 回寫的連結斷掉或 label 變形）。
- */
-function blocksForAiMarkdown(blocks: AnyBlock[], titleOf: (id: string) => string | undefined): AnyBlock[] {
-  return mapInlineArrays(wikilinksToLinks(blocks, titleOf), (inline) => {
-    let changed = false;
-    const out = inline.map((node) => {
-      const n = node as { type?: unknown; href?: unknown; content?: unknown };
-      if (n?.type !== "link" || typeof n.href !== "string" || !n.href.startsWith("/notes/") || !Array.isArray(n.content)) return node;
-      changed = true;
-      const content = n.content.map((c: { text?: unknown }) => (typeof c?.text === "string" ? { ...c, text: escapeLinkText(c.text) } : c));
-      return { ...n, content };
-    });
-    return changed ? out : inline;
-  });
-}
 
 /** 框作用的範圍（#263 §5.2）：`open()` 當下的錨點與框選子字串（整塊選取為 `""`）。 */
 export interface AiTarget {
@@ -68,7 +42,7 @@ export interface AiRequest {
   actionName: string;
   kind: AiActionKind;
   applyMode: "direct" | "preview";
-  /** 實際送出的 markdown（錨點區塊的 `blocksToMarkdownLossy`）。 */
+  /** 實際送出的 markdown（錨點區塊經 `aiMarkdownOf`：與 MCP 讀出同一套序列化，顏色、並排、寬度都帶上）。 */
   text: string;
   /** Instruct 才有：trim 後、以 code point 截到 500。 */
   instruction?: string;
@@ -205,21 +179,22 @@ export function AiSessionProvider(props: {
     setState(IDLE_STATE);
   }, []);
 
-  /** 串流完成（§5.2，順序固定）：0 剝外殼 → 1 prepare（空／含並排→error）→ 2 先凍結 Preview → 3 noChange → 4 決定自動套用 → 5 done。 */
+  /** 串流完成（§5.2，順序固定）：0 剝外殼 → 1 prepare（空／檢查不過→error）→ 2 先凍結 Preview → 3 noChange → 4 決定自動套用 → 5 done。 */
   const finish = useCallback((target: AiTarget, request: AiRequest, raw: string) => {
     const ed = editorRef.current;
     const markdown = stripTextWrapper(raw);
-    const prepared = prepareAiResult(ed, markdown, { notes: notesRef.current });
+    const prepared = prepareAiResult(ed, markdown, { notes: notesRef.current, placement: anchorPlacement(ed, target.anchor.blockIds) });
     if ("empty" in prepared) {
       setState({ phase: "error", target, request, code: "empty_result" });
       return;
     }
-    if ("unsupported" in prepared) {
-      setState({ phase: "error", target, request, code: "unsupported_block" }); // PR-1 過渡守衛：不套用、不留預覽（PR-2 換成正式驗證）
+    if ("invalid" in prepared) {
+      setState({ phase: "error", target, request, code: prepared.invalid }); // 並排 PR-2（spec §11.6）：與 MCP 同一套檢查不過 → 不建預覽、不套用
       return;
     }
     const preview = buildPreview(ed, target.anchor.blockIds, prepared.blocks, isNoChange(markdown, request.text));
     let applied: AiApplied | null = null;
+    let notice: "ai.box.rebindNotice" | "ai.box.applyGuardFailed" | null = null;
     const autoApply =
       request.kind === "quick" &&
       request.applyMode === "direct" &&
@@ -230,12 +205,14 @@ export function AiSessionProvider(props: {
       const outcome = withSelfWrite(selfWriteRef, () => runGuardedApply(ed, noteIdRef.current, target.anchor, prepared));
       if (outcome.ok) {
         applied = { insertedAnchor: outcome.insertedAnchor, replacedSnapshot: outcome.replacedSnapshot };
-        if (prepared.unboundCount > 0) toast({ title: tRef.current("ai.box.rebindNotice") });
+        if (prepared.unboundCount > 0) notice = "ai.box.rebindNotice";
       } else {
-        toast({ title: tRef.current("ai.box.applyGuardFailed") });
+        notice = "ai.box.applyGuardFailed";
       }
     }
+    // 先進 done 再 toast：已套用時還原入口在 done 裡，之後丟的例外不能把它換成 error（呼叫端的 catch 只收還停在串流中的框）
     setState({ phase: "done", target, request, prepared, preview, applied });
+    if (notice !== null) toast({ title: tRef.current(notice) });
   }, []);
 
   const run = useCallback(
@@ -262,7 +239,12 @@ export function AiSessionProvider(props: {
         () => {
           if (abortRef.current !== controller) return;
           abortRef.current = null;
-          finish(target, request, partialRef.current);
+          try {
+            finish(target, request, partialRef.current);
+          } catch {
+            // 下面的失敗回呼接不到這裡丟的例外：還停在串流中就收成 error 態；finish 已進 done（例：自動套用後的 toast 丟）則不覆蓋，還原入口留著
+            setState((prev) => (prev.phase === "streaming" ? { phase: "error", target, request, code: "internal" } : prev));
+          }
         },
         (err: unknown) => {
           if (abortRef.current !== controller) return;
@@ -282,8 +264,7 @@ export function AiSessionProvider(props: {
     const ed = editorRef.current;
     const blocks = ed.getSelection()?.blocks;
     if (!blocks || blocks.length === 0) return; // 空選取與 NodeSelection 都回 undefined
-    if (selectionTouchesColumns(ed, blocks)) return; // PR-1 過渡碼：跨欄／含列不開（AI 鈕已不出；PR-2 改成擴大成整列時移除）
-    const blockIds = blocks.map((block: AnyBlock) => block.id);
+    const blockIds = expandAnchorForColumns(ed, blocks); // 並排 PR-2（spec §7.5）：碰到並排時擴大成頂層整列，送出與套回都以整列為單位
     const anchor = captureAnchor(ed, noteIdRef.current, blockIds);
     const focus = ed.transact((tr) => selectionFocus(tr, blockIds, titleOf));
     setState({ phase: "input", target: { anchor, focus } });
@@ -310,7 +291,7 @@ export function AiSessionProvider(props: {
         actionName: action.name,
         kind: action.kind,
         applyMode: action.applyMode,
-        text: ed.blocksToMarkdownLossy(blocksForAiMarkdown(blocks, titleOf)),
+        text: aiMarkdownOf(blocks, titleOf),
         ...(trimmed !== undefined ? { instruction: trimmed } : {}),
       };
       run(current.target, request);

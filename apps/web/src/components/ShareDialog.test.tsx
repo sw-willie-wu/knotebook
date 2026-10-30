@@ -178,6 +178,51 @@ describe("ShareDialog", () => {
     });
   });
 
+  it("新增分享：輸入幾個字 → 從「認識的人」選取 → PUT 帶選到的 email", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (url === SHARES_URL && method === "GET") {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+      }
+      if (url === PUBLIC_LINK_URL && method === "GET") {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ token: null, slug: null }) }));
+      }
+      if (url === "/api/users/suggest?q=bo" && method === "GET") {
+        const users = [{ userId: SHARE.userId, email: SHARE.email, displayName: SHARE.displayName }];
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve({ users }) }));
+      }
+      if (url === SHARES_URL && method === "PUT") {
+        return Promise.resolve(fakeResponse({ ok: true, status: 200, json: () => Promise.resolve(SHARE) }));
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderDialog();
+    await openDialog();
+    await selectMembers();
+
+    const box = screen.getByRole("combobox", { name: "Email address" });
+    // 分享一次一個地址：仍是 type="email"（不是群組加成員那格的多地址 text）
+    expect(box).toHaveAttribute("type", "email");
+    expect(box).not.toHaveAttribute("inputmode");
+    fireEvent.change(box, { target: { value: "bo" } });
+    const option = await screen.findByRole("option", { name: /bob@example\.com/ });
+    fireEvent.mouseDown(option);
+    fireEvent.click(option);
+    expect(box).toHaveValue("bob@example.com");
+    // 對話框仍開著（點選項不算點外面）
+    expect(screen.getByRole("heading", { name: "Share note" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === "PUT");
+      expect(call).toBeDefined();
+      expect(JSON.parse(String((call as [RequestInfo, RequestInit])[1].body))).toEqual({ email: "bob@example.com", role: "viewer" });
+    });
+  });
+
   it("新增分享失敗（user_not_found）→ 顯示對應文案", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -1053,7 +1098,7 @@ function expectGroupPanelShape() {
   expect(within(dialog).queryAllByRole("radio")).toHaveLength(0);
   expect(within(dialog).queryByText("Group members")).not.toBeInTheDocument();
   expect(within(dialog).queryByRole("combobox")).not.toBeInTheDocument();
-  expect(within(dialog).queryByRole("textbox", { name: "Email address" })).not.toBeInTheDocument();
+  expect(within(dialog).queryByLabelText("Email address")).not.toBeInTheDocument();
   expect(within(dialog).getByText(/In "Workshop A", every member whose role can read has access\./)).toBeInTheDocument();
   const link = within(dialog).getByRole("link", { name: "Group settings" });
   expect(link).toHaveAttribute("href", `/groups/${GROUP_ID}`);

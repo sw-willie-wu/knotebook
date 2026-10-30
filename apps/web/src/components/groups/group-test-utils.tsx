@@ -63,7 +63,8 @@ export const EMPTY_GROUP_USAGE = {
 
 /**
  * `GET /api/groups` 回 `getGroups()`；`…/members` 回 `getMembers()`（或它回的 Promise）；`…/roles` 回 `ROLES`；
- * `…/storage` 回 `EMPTY_GROUP_USAGE`；`/api/auth/config` 站台自動版本開著。`extra` 先比對。
+ * `…/storage` 回 `EMPTY_GROUP_USAGE`；`/api/auth/config` 站台自動版本開著；加成員框的建議 `/api/users/suggest` 回空清單
+ * （不然每打一個字都走查詢失敗那條路）。`extra` 先比對。
  */
 export function groupFetch(
   getGroups: () => GroupDto[],
@@ -78,6 +79,7 @@ export function groupFetch(
     if (url === "/api/auth/me" && method === "GET") return Promise.resolve(ok(ME));
     if (url === "/api/folders") return Promise.resolve(new Response(JSON.stringify(FOLDER_LIST_EMPTY), { status: 200, headers: { "Content-Type": "application/json" } }));
     if (url === "/api/notes" && method === "GET") return Promise.resolve(ok([]));
+    if (url.startsWith("/api/users/suggest?") && method === "GET") return Promise.resolve(ok({ users: [] }));
     if (url === "/api/auth/config" && method === "GET") {
       return Promise.resolve(ok({ providers: [], registration: { enabled: false, providerIds: [] }, passwordLogin: { enabled: true }, autoVersionsEnabled: true }));
     }

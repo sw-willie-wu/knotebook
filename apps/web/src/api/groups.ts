@@ -67,7 +67,7 @@ export function useGroupRoles(groupId: string): UseQueryResult<GroupRoleDto[]> {
   });
 }
 
-function useInvalidateGroupsAndNotes() {
+export function useInvalidateGroupsAndNotes() {
   const queryClient = useQueryClient();
   return () => {
     void queryClient.invalidateQueries({ queryKey: GROUPS_QUERY_KEY });
@@ -135,12 +135,16 @@ export function useDeleteGroup() {
 export function useAddMember(groupId: string) {
   const invalidate = useInvalidateGroupsAndNotes();
   return useMutation({
-    mutationFn: ({ email, roleId }: { email: string; roleId?: string }) =>
-      api<GroupMemberDto>(`/api/groups/${encodeURIComponent(groupId)}/members`, {
-        method: "PUT",
-        body: JSON.stringify(roleId === undefined ? { email } : { email, roleId }),
-      }),
+    mutationFn: (body: { email: string; roleId?: string }) => addGroupMember(groupId, body),
     onSuccess: invalidate,
+  });
+}
+
+/** 單人加入的那一發請求本體（不失效快取）：批次加入逐一呼叫它、整批結束才失效一次（`GroupMembersSection`）。 */
+export function addGroupMember(groupId: string, { email, roleId }: { email: string; roleId?: string }): Promise<GroupMemberDto> {
+  return api<GroupMemberDto>(`/api/groups/${encodeURIComponent(groupId)}/members`, {
+    method: "PUT",
+    body: JSON.stringify(roleId === undefined ? { email } : { email, roleId }),
   });
 }
 

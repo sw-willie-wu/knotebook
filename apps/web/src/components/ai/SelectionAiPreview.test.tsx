@@ -97,6 +97,32 @@ describe("SelectionAiPreview（#263 §5.4）", () => {
     expect(block).not.toHaveTextContent("Target");
     expect(block).not.toHaveTextContent("Other");
   });
+
+  it("PV1（並排 PR-2 擴大成整列）：before／after 都是一列（右欄 b → B）→ 渲染不丟例外、看得到 B、onReady 被呼叫", async () => {
+    const twoCols = (id: string, left: DiffBlock, right: DiffBlock): DiffBlock => ({
+      id,
+      type: "columnList",
+      props: {},
+      children: [
+        { id: `${id}c0`, type: "column", props: { width: 1 }, children: [left] },
+        { id: `${id}c1`, type: "column", props: { width: 1 }, children: [right] },
+      ],
+    });
+    const preview: AiPreview = {
+      before: [twoCols("r", para("a1", "a"), para("b1", "b"))],
+      after: [twoCols("n", para("n1", "a"), para("n2", "B"))],
+      noChange: false,
+    };
+    const onReady = vi.fn();
+    render(
+      <ThemeProvider>
+        <SelectionAiPreview preview={preview} onReady={onReady} />
+      </ThemeProvider>,
+    );
+    const box = await screen.findByTestId("selection-ai-preview");
+    expect(box).toHaveTextContent("B");
+    expect(onReady).toHaveBeenCalledWith(preview);
+  });
 });
 
 describe("index.css：框選 AI 預覽的樣式規則（#263 §5.3、§5.4）", () => {

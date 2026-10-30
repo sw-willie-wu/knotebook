@@ -291,6 +291,25 @@ export interface ShareDto {
   role: ShareRole;
 }
 
+/**
+ * `GET /api/users/suggest?q=` 的一筆建議：只會是呼叫者「已經認識」的人——與他同在某個群組的成員，或他把自己的筆記
+ * 逐人分享過的對象（這兩群人的 email 呼叫者在介面上本來就看得到）。不是全站名錄；排除自己與停用帳號。
+ */
+export interface UserSuggestionDto {
+  userId: string;
+  email: string;
+  displayName: string;
+}
+
+export interface UserSuggestResponse {
+  users: UserSuggestionDto[];
+}
+
+/** `q` trim 後的長度下限／上限（含），與每次最多回幾筆。web 的輸入框也用同一組數字決定何時發請求。 */
+export const USER_SUGGEST_MIN_QUERY = 2;
+export const USER_SUGGEST_MAX_QUERY = 100;
+export const USER_SUGGEST_MAX_RESULTS = 8;
+
 /** 反向連結清單項目（Plan 3）：連到目前筆記的來源筆記摘要，供 backlinks 面板渲染。 */
 export interface BacklinkDto {
   id: string;
@@ -393,16 +412,19 @@ export const ERROR_CODES = [
   "section_not_found",
   // #106 寫入端（`POST /api/notes/:id/edits`，#137）：
   // `fingerprint_mismatch`＝409，`if_match` 與目前內容不符（回應另帶 `current`，呼叫端重讀後重試）；
-  // `unsupported_block`＝送來的 markdown 解析出不在 schema 白名單內的 block（整筆拒絕，不靜默剝除）；
+  // `unsupported_block`＝送來的 markdown 解析出不在 schema 白名單內的 block，或 core 剖析時丟例外（並排 PR-2；整筆拒絕，不靜默剝除）；
   // `empty_content`＝markdown 解析後是空的（純空白）；`empty_section`＝要刪的段落沒有任何 block；
   // `too_many_blocks`＝超過 `MAX_BLOCKS`；`content_too_large`＝413，body 超過 `bodyLimit`
   // （由 `app.ts` 的 `clientErrorCode` 映射，是唯一的 413 通用碼——上傳的 `file_too_large`
   // 由 uploads 路由自己回，不經那條分流）。
   // #222：`unsupported_color`＝400，送來的 markdown 帶了不在編輯器 10 種內建色名內的文字色／底色
   // （整筆拒絕，同 `unsupported_block`；`POST /api/notes` 帶 content 也會回）。
+  // 並排 PR-2（spec §11.3）：`unsupported_columns`／`unsupported_size`＝400，並排或圖片寬度／表格欄寬不是讀出的正規形（同樣整筆拒絕）。
   "fingerprint_mismatch",
   "unsupported_block",
   "unsupported_color",
+  "unsupported_columns",
+  "unsupported_size",
   "empty_content",
   "empty_section",
   "too_many_blocks",
@@ -1239,6 +1261,10 @@ export * from "./note-schema-config.js";
 export * from "./columns.js";
 export * from "./note-sections.js";
 export * from "./note-markdown.js";
+export * from "./note-colors.js";
+export * from "./note-markdown-read.js";
+export * from "./note-sizes.js";
+export * from "./note-markdown-write.js";
 export * from "./site-link.js";
 export * from "./note-schema-version.js";
 export * from "./group-roles.js";

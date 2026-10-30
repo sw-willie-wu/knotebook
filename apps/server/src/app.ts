@@ -24,6 +24,7 @@ import { noteVersionsRoutes } from "./routes/note-versions.js";
 import { trashRoutes } from "./routes/trash.js";
 import { foldersRoutes } from "./routes/folders.js";
 import { groupsRoutes } from "./routes/groups.js";
+import { usersRoutes } from "./routes/users.js";
 import type { WriteNoteLinksHooks } from "./notes/links.js";
 import type { SlugPatchTestHook } from "./notes/tx/patch-slug.js";
 import { adminUsersRoutes } from "./routes/admin-users.js";
@@ -52,7 +53,7 @@ import { sendError } from "./http/errors.js";
 // #108：`stripDefaultPort` 搬到 `http/origin.ts`（與 `mcpOriginAllowed` 同一個葉節點模組，
 // 兩種比較語意的差別寫在該檔檔頭）。
 import { stripDefaultPort } from "./http/origin.js";
-import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FixedWindowLimiter, OIDC_LIMIT, ONE_TIME_LINK_ATTEMPT_LIMIT, ONE_TIME_LINK_MISS_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, PUBLIC_WIDTH_LIMIT, REGISTER_LIMIT, SEARCH_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_RENAME_LIMIT, TOKEN_WRITE_LIMIT, UPLOAD_LIMIT } from "./http/rate-limit.js";
+import { AI_LIMIT, AUTHORIZE_LIMIT, BEARER_MISS_LIMIT, COLLAB_TOKEN_LIMIT, CONTENT_READ_LIMIT, DCR_LIMIT, EDIT_LIMIT, FixedWindowLimiter, OIDC_LIMIT, ONE_TIME_LINK_ATTEMPT_LIMIT, ONE_TIME_LINK_MISS_LIMIT, PAT_CREATE_LIMIT, PUBLIC_LINK_LIMIT, PUBLIC_MISS_LIMIT, PUBLIC_NOTE_LIMIT, PUBLIC_UPLOAD_LIMIT, PUBLIC_WIDTH_LIMIT, REGISTER_LIMIT, SEARCH_LIMIT, SLUG_PATCH_LIMIT, TOKEN_ENDPOINT_LIMIT, TOKEN_READ_LIMIT, TOKEN_RENAME_LIMIT, TOKEN_WRITE_LIMIT, UPLOAD_LIMIT, USER_SUGGEST_LIMIT } from "./http/rate-limit.js";
 import { FORM_EXEMPT_ROUTES, isOauthScopedPath, sendOauthError } from "./http/oauth-errors.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { oauthMetadataRoutes } from "./routes/oauth-metadata.js";
@@ -169,6 +170,8 @@ export interface AppDeps {
     contentRead: FixedWindowLimiter;
     /** #93：全文搜尋（key=userId，見 `SEARCH_LIMIT`）。 */
     search: FixedWindowLimiter;
+    /** `GET /api/users/suggest`（key=userId，見 `USER_SUGGEST_LIMIT`）。 */
+    userSuggest: FixedWindowLimiter;
     /** #106 寫入端：`POST /api/notes/:id/edits`、`POST /api/notes` 帶 `content`（key=userId，見 `EDIT_LIMIT`）。 */
     edit: FixedWindowLimiter;
     /** #187 §9.1：帳密註冊（key=ip）。 */
@@ -662,6 +665,7 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
       tokenEndpoint: new FixedWindowLimiter(TOKEN_ENDPOINT_LIMIT),
       contentRead: new FixedWindowLimiter(CONTENT_READ_LIMIT),
       search: new FixedWindowLimiter(SEARCH_LIMIT),
+      userSuggest: new FixedWindowLimiter(USER_SUGGEST_LIMIT),
       edit: new FixedWindowLimiter(EDIT_LIMIT),
       register: new FixedWindowLimiter(REGISTER_LIMIT),
       oneTimeLinkMiss: new FixedWindowLimiter(ONE_TIME_LINK_MISS_LIMIT),
@@ -822,6 +826,8 @@ export function buildApp(deps: AppDeps, options: BuildAppOptions = {}): FastifyI
   void app.register(foldersRoutes({ db: deps.db, collabHooks: deps.collabHooks, storageLockTimeoutMs, groupTestHook: deps.groupTestHook, limiters: { edit: limiters.edit } }));
   // #103：群組管理（session-only，見 routes/groups.ts 檔頭）。
   void app.register(groupsRoutes({ db: deps.db, collabHooks: deps.collabHooks, groupTestHook: deps.groupTestHook, uploadsDir: deps.uploadsDir, storageLockTimeoutMs, versions }));
+  // 加成員／分享對話框的「認識的人」建議（session-only，見 routes/users.ts 檔頭）。
+  void app.register(usersRoutes({ db: deps.db, limiters: { userSuggest: limiters.userSuggest } }));
   void app.register(adminUsersRoutes({ db: deps.db, gate: deps.gate, collabHooks: deps.collabHooks, adminTestHook: deps.adminTestHook }));
   // #286：管理員替使用者產生／取消一次性重設密碼連結（spec §4.2）。
   void app.register(adminPasswordResetRoutes({ db: deps.db, config: deps.config }));

@@ -6,7 +6,7 @@ import * as Y from "yjs";
 import { EditingRuntime } from "../../src/notes/editing/runtime.js";
 import { EditorSession } from "../../src/notes/editing/session.js";
 import { parseMarkdownForNote } from "../../src/notes/editing/markdown.js";
-import { PALETTE_COLORS, blocksToMarkdownWithColors, findDisallowedColor } from "../../src/notes/editing/colors.js";
+import { COLUMNS_OPEN_TAG, PALETTE_COLORS, blocksToNoteMarkdown, columnOpenTag, findDisallowedColor } from "@knotebook/shared";
 import { readNoteContentFromDoc } from "../../src/notes/editing/read.js";
 
 const rt = new EditingRuntime({ baseUrl: "http://localhost/" }); rt.installGlobals();
@@ -165,9 +165,18 @@ describe("findDisallowedColor：逐一走訪、不遞迴", () => {
     expect(findDisallowedColor(table([{ type: "text", text: "c", styles: { backgroundColor: "#2" } }]))).toBe("#2"); // 舊形：cell 直接是 inline 陣列
     expect(findDisallowedColor(table({ type: "tableCell", props: { backgroundColor: "red" }, content: [] }))).toBeNull();
   });
+
+  it("FC-COL1（並排 §11.11）：欄內段落的壞色值也找得到", () => {
+    const row = (styles: Record<string, unknown>) => [{ type: "columnList", props: {}, content: undefined, children: [
+      { type: "column", props: { width: 1 }, children: [{ type: "paragraph", props: {}, content: [{ type: "text", text: "a", styles: {} }], children: [] }] },
+      { type: "column", props: { width: 1 }, children: [{ type: "paragraph", props: {}, content: [{ type: "text", text: "b", styles }], children: [] }] },
+    ] }];
+    expect(findDisallowedColor(row({ textColor: "#ff0000" }))).toBe("#ff0000");
+    expect(findDisallowedColor(row({ textColor: "red" }))).toBeNull();
+  });
 });
 
-describe("讀取：blocksToMarkdownWithColors", () => {
+describe("讀取：blocksToNoteMarkdown", () => {
   it("沒有任何顏色 → 與 blocksToMarkdownLossy 位元組相同", async () => {
     const doc = await docWith([
       { type: "heading", props: { level: 2 }, content: "T" },
@@ -177,7 +186,7 @@ describe("讀取：blocksToMarkdownWithColors", () => {
       { type: "codeBlock", props: { language: "js" }, content: "a\n\nb" },
     ]);
     await withSession(ed => {
-      expect(blocksToMarkdownWithColors(ed, ed.document)).toBe(ed.blocksToMarkdownLossy(ed.document));
+      expect(blocksToNoteMarkdown(ed, ed.document)).toBe(ed.blocksToMarkdownLossy(ed.document));
     }, doc);
   });
 
@@ -256,7 +265,7 @@ describe("讀取：blocksToMarkdownWithColors", () => {
 
   it("檔案 block 的底色不帶出（它本來就被匯出成連結，HTML 也還原不回檔案 block）", async () => {
     const doc = await docWith([{ type: "file", props: { url: "http://localhost/api/uploads/x.pdf", backgroundColor: "red", name: "f" } }]);
-    await withSession(ed => expect(blocksToMarkdownWithColors(ed, ed.document)).toBe(ed.blocksToMarkdownLossy(ed.document)), doc);
+    await withSession(ed => expect(blocksToNoteMarkdown(ed, ed.document)).toBe(ed.blocksToMarkdownLossy(ed.document)), doc);
   });
 
   it("行內顏色在清單項、標題、無色表格的儲存格裡都留在 markdown 裡", async () => {
@@ -409,11 +418,11 @@ describe("讀 → 原樣寫回 → 再讀：一致且顏色不流失", () => {
   });
 });
 
-const md1Of = (ed: Ed) => blocksToMarkdownWithColors(ed, ed.document);
+const md1Of = (ed: Ed) => blocksToNoteMarkdown(ed, ed.document);
 
-describe("並排（PR-1 過渡）", () => {
-  // PR-2 改寫成 §11.1 的 div 形；PR-1 只要求不丟例外、兩欄文字都在輸出裡。
-  it("CL1：含列的 blocks 轉 markdown 不丟例外，輸出含左右欄文字", async () => {
+describe("並排（spec §11.1）", () => {
+  // 逐字形由 note-markdown-goldens 的 G1-* 釘住；這裡只看讀出是 div 形、兩欄文字各在一處。
+  it("CL1：含列的 blocks 讀成 §11.1 的 div 形", async () => {
     const md = await withSession(ed => {
       const blocks = [{
         id: "r", type: "columnList", children: [
@@ -422,9 +431,11 @@ describe("並排（PR-1 過渡）", () => {
         ],
       }];
       ed.replaceBlocks(ed.document, blocks as never);
-      return blocksToMarkdownWithColors(ed, ed.document);
+      return blocksToNoteMarkdown(ed, ed.document);
     });
-    expect(md).toContain("左");
-    expect(md).toContain("右");
+    expect(md.split("\n")[0]).toBe(COLUMNS_OPEN_TAG);
+    expect(md.split(columnOpenTag(1)).length - 1).toBe(2);
+    expect(md.split("左").length - 1).toBe(1);
+    expect(md.split("右").length - 1).toBe(1);
   });
 });
