@@ -12,7 +12,13 @@
  */
 import { z } from "zod";
 import { canonicalNotePath } from "@knotebook/shared";
+import type { DbOrTx } from "../db/tx.js";
+import { folderRefForModel, folderRefSchema, loadFolderNames, type FolderRefForModel } from "./folder-fields.js";
 import { MCP_TEXT_MAX, truncateText } from "./limits.js";
+
+/** NS-F（資料夾 PR-3d；不提 read_note_outline——它只在有共編元件時註冊，這份 schema 是所有部署共用的，plan 讀碼發現 16）。 */
+export const NS_FOLDER_DESCRIBE =
+  "Where this note is filed for you, or null at the top level; for a note shared with you, where you filed it, not where its owner did. Only the folder itself — list_folders gives its path.";
 
 /**
  * #175 §9.1：誰的筆記。個人筆記＝那個人的 handle；群組筆記＝那個群組（沒有個人 owner——nullable 的 `ownerHandle` 對模型
@@ -70,6 +76,8 @@ export interface NoteSummaryForModel {
   role: string;
   updatedAt: string;
   lastEdited: { at: string; byHandle: string; agentLabel: string | null } | null;
+  /** 資料夾 PR-3d（AG-F1）：呼叫者視角的所在資料夾——共享筆記是呼叫者自己的放置，不是擁有者的；根層 null。只帶這一層，不帶路徑。 */
+  folder: FolderRefForModel | null;
 }
 
 /** `outputSchema` 用的 zod 形；欄位順序與 {@link NoteSummaryForModel} 一致。 */
@@ -85,6 +93,7 @@ export const noteSummarySchema = z.object({
   lastEdited: z
     .object({ at: z.string(), byHandle: z.string(), agentLabel: z.string().nullable() })
     .nullable(),
+  folder: folderRefSchema.nullable().describe(NS_FOLDER_DESCRIBE),
 });
 
 /** `visibleNoteBranches` 的一列（多取的幾欄在這裡被丟掉）。 */
@@ -100,9 +109,12 @@ export interface NoteSummaryRow {
   lastEditedAt: Date | null;
   lastEditedAgentLabel: string | null;
   editorHandle: string | null;
+  /** 呼叫者視角（AG-F1）：owned／grouped＝notes.folder_id、shared＝自己的放置（`visibleNoteBranches` 的 `viewerFolderId`）。 */
+  viewerFolderId: string | null;
 }
 
-export function toNoteSummary(row: NoteSummaryRow, role: string): NoteSummaryForModel {
+/** folderName 是 viewerFolderId 查到的名稱；viewerFolderId 非 null 卻查不到（兩句之間資料夾被刪）→ folder: null（不編造名稱）。 */
+export function toNoteSummary(row: NoteSummaryRow, role: string, folderName: string | undefined): NoteSummaryForModel {
   const title = truncateText(row.title);
   return {
     id: row.id,
@@ -118,5 +130,19 @@ export function toNoteSummary(row: NoteSummaryRow, role: string): NoteSummaryFor
     lastEdited: row.lastEditedAt
       ? { at: row.lastEditedAt.toISOString(), byHandle: row.editorHandle ?? "", agentLabel: row.lastEditedAgentLabel }
       : null,
+    folder: row.viewerFolderId !== null && folderName !== undefined ? folderRefForModel(row.viewerFolderId, folderName) : null,
   };
+}
+
+/**
+ * 一次 `loadFolderNames` 後逐列 `toNoteSummary`。名稱另查而不改 `visibleNoteBranches`（REST 清單不必付 join）；`viewerFolderId`
+ * 對呼叫者本來就可見（個人筆記的資料夾在 owner 的空間、群組筆記的在該群組、放置只指向放置者自己的 shared 資料夾——0034 的
+ * trigger），所以這一句不另判可見性（plan 讀碼發現 5）。
+ */
+export async function noteSummariesForModel(
+  db: DbOrTx,
+  rows: ReadonlyArray<NoteSummaryRow & { role: string }>,
+): Promise<NoteSummaryForModel[]> {
+  const names = await loadFolderNames(db, rows.map(r => r.viewerFolderId));
+  return rows.map(r => toNoteSummary(r, r.role, r.viewerFolderId === null ? undefined : names.get(r.viewerFolderId)));
 }

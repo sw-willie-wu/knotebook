@@ -31,6 +31,8 @@ export function insertedRow(
     lastEditedAt: row.lastEditedAt,
     lastEditedAgentLabel: row.lastEditedAgentLabel,
     editorHandle: null,
+    // 建立／複製者必是 owner 或群組成員，呼叫者視角＝列本身的 folder_id（plan 讀碼發現 6）。
+    viewerFolderId: row.folderId,
   };
 }
 
@@ -65,6 +67,22 @@ export async function rereadOwnOrGroupNote(
 ): Promise<(NoteSummaryRow & { role: string }) | undefined> {
   const [owned] = await visibleNoteBranches(ctx.db, ctx.userId, { extraWhere: eq(notes.id, noteId) }).owned;
   if (owned) return owned;
+  const [grouped] = await visibleNoteBranches(ctx.db, ctx.userId, { extraWhere: eq(notes.id, noteId) }).grouped;
+  return grouped;
+}
+
+/**
+ * 資料夾 PR-3d：move_note_to_folder 對共享筆記要讀 shared 支：owned → shared → grouped 依序各自現造（三支結構互斥，至多一支有列）。
+ * 不新增查詢形，可見性與 list_notes 同一份。
+ */
+export async function rereadAnyVisibleNote(
+  ctx: Pick<McpToolCtx, "db" | "userId">,
+  noteId: string
+): Promise<(NoteSummaryRow & { role: string }) | undefined> {
+  const [owned] = await visibleNoteBranches(ctx.db, ctx.userId, { extraWhere: eq(notes.id, noteId) }).owned;
+  if (owned) return owned;
+  const [shared] = await visibleNoteBranches(ctx.db, ctx.userId, { extraWhere: eq(notes.id, noteId) }).shared;
+  if (shared) return shared;
   const [grouped] = await visibleNoteBranches(ctx.db, ctx.userId, { extraWhere: eq(notes.id, noteId) }).grouped;
   return grouped;
 }

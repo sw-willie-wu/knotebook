@@ -161,6 +161,7 @@ describe("MC2 AG6：既有工具不會把筆記移進垃圾桶", () => {
     expect(names).toEqual(expect.arrayContaining(["edit_note", "copy_note", "create_note", "move_note_to_group"]));
     expect(names).not.toContain("delete_note");
     expect(names).not.toContain("restore_note");
+    expect(names).not.toContain("delete_folder"); // 資料夾 PR-3d T8：同樣只在 notes:delete 時註冊
     expect(names).toContain("list_trash"); // #181 PR-2d：讀取類，任何憑證都有
     expect(await trashedIds()).toEqual([t.id]);
 

@@ -213,6 +213,8 @@ describe("#108 list_notes", () => {
       //     所以三關只剩 `noNul` 擋得住它。
       // 突變實測（2026-09-07）：拿掉 `if (!noNul(decoded))` → **只有這一發紅**
       // （`isError` 變 `undefined`、回了一整頁筆記——日期取未來值，keyset 述詞會放行全部）。
+      // ⚠ 資料夾 PR-3d T4 起時間段改走 `parseCursorTimestamp`（格式＋往返），這一發也會被它擋下：
+      // 拿掉 `noNul` 不再讓這一發變綠，`noNul` 對這個落點已不是唯一守衛（`list-notes.ts` 的 decodeCursor 註解同步）。
       encode(`2099-01-01T00:00:00.000Z${NUL}|${randomUUID()}`),
     ];
     for (const cursor of bad) {
@@ -224,6 +226,38 @@ describe("#108 list_notes", () => {
     // 對照面：合法 cursor 仍然成功——上面四發不是「任何 cursor 都被拒」。
     const first = payloadOf(await callTool(ctx.app, token, "list_notes", { limit: 1 }));
     expect(payloadOf(await callTool(ctx.app, token, "list_notes", { cursor: first.nextCursor! }))).toBeTruthy();
+  });
+
+  // 資料夾 PR-3d T4 審查 N1：JS `new Date` 收、pg `::timestamptz` 解析不了的時間段，原本落成 internal。
+  it("時間段不是本站發的形（+275760-…、-000001-…、0000-…、寬鬆的 2026）→ invalid_body，不是 internal", async () => {
+    const ctx = await buildCollabTestApp();
+    const { ownerId, token } = await scenario(ctx);
+    await ctx.createNote(ownerId, "One");
+    const encode = (s: string): string => Buffer.from(s, "utf8").toString("base64url");
+    for (const ts of ["+275760-09-13T00:00:00.000Z", "-000001-01-01T00:00:00.000Z", "0000-01-01T00:00:00.000Z", "2026"]) {
+      const call = await callTool(ctx.app, token, "list_notes", { cursor: encode(`${ts}|${randomUUID()}`) });
+      expect(call.status).toBe(200);
+      expect(call.result.isError, ts).toBe(true);
+      expect(call.result.structuredContent, ts).toEqual({ code: "invalid_body", message: "The `cursor` value is not one this server issued. Omit it to start over." });
+    }
+  });
+
+  // 資料夾 PR-3d 整支審查：`Buffer.from(…, "base64url")` 靜默略過字元集外的字元，真游標接 `!!` 原本照樣翻頁；list_trash／list_folders 都拒。
+  it("真游標後面接 !! → invalid_body，與 list_trash 收到同一串的錯誤結果逐欄相同；真游標本身照常翻頁", async () => {
+    const ctx = await buildCollabTestApp();
+    const { ownerId, token } = await scenario(ctx);
+    await ctx.createNote(ownerId, "One");
+    await ctx.createNote(ownerId, "Two");
+    const first = payloadOf(await callTool(ctx.app, token, "list_notes", { limit: 1 }));
+    expect(typeof first.nextCursor).toBe("string"); // 前提：真的拿到一個游標
+    expect(payloadOf(await callTool(ctx.app, token, "list_notes", { limit: 1, cursor: first.nextCursor! })).notes).toHaveLength(1);
+    const cursor = `${first.nextCursor!}!!`;
+    const notesCall = await callTool(ctx.app, token, "list_notes", { limit: 1, cursor });
+    const trashCall = await callTool(ctx.app, token, "list_trash", { cursor });
+    expect(notesCall.status).toBe(200);
+    expect(notesCall.result).toEqual(trashCall.result);
+    expect(notesCall.result.isError).toBe(true);
+    expect(notesCall.result.structuredContent).toEqual({ code: "invalid_body", message: "The `cursor` value is not one this server issued. Omit it to start over." });
   });
 
   it("title 截到逃脫後 200 並附 titleTruncated（M16）", async () => {
@@ -244,7 +278,7 @@ describe("#108 list_notes", () => {
     const out = payloadOf(await callTool(ctx.app, token, "list_notes"));
     expect(Object.keys(out).sort()).toEqual(["nextCursor", "notes"]);
     expect(Object.keys(out.notes[0]).sort()).toEqual(
-      ["id", "lastEdited", "owner", "role", "slug", "title", "updatedAt", "url"].sort()
+      ["folder", "id", "lastEdited", "owner", "role", "slug", "title", "updatedAt", "url"].sort()
     );
     // 未被截斷時**沒有** `titleTruncated` 這把 key（不是 `undefined`）。
     expect("titleTruncated" in out.notes[0]!).toBe(false);
@@ -540,5 +574,48 @@ describe("#108 兩支工具的共同接線", () => {
     const body = res.json();
     expect(body.result).toBeUndefined();
     expect(body.error.code).toBe(-32601);
+  });
+});
+
+describe("資料夾 PR-3d T3：list_notes 依大小截頁（pageCutShort）", () => {
+  const seedPlain = (db: Db, ownerId: string, n: number) =>
+    db.$client.query(
+      `insert into notes (owner_id, title, slug) select $1::uuid, 'ln ' || g, 'ln-' || g || '-' || substr(md5(random()::text), 1, 8) from generate_series(1, $2::int) g`,
+      [ownerId, n],
+    );
+
+  it("LN1 一般資料 100 篇、limit 100 → 一頁收完、沒有 pageCutShort 鍵（key 集合逐字）", async () => {
+    const ctx = await buildCollabTestApp();
+    const { ownerId, token } = await scenario(ctx);
+    await seedPlain(ctx.db, ownerId, 100);
+    const out = payloadOf(await callTool(ctx.app, token, "list_notes", { limit: 100 }));
+    expect(Object.keys(out)).toEqual(["notes", "nextCursor"]);
+    expect(out.notes).toHaveLength(100);
+    expect(out.nextCursor).toBeNull();
+  });
+
+  it("LN3 一般資料、limit 30 → 30 篇、沒有 pageCutShort 鍵、nextCursor 非 null", async () => {
+    const ctx = await buildCollabTestApp();
+    const { ownerId, token } = await scenario(ctx);
+    await seedPlain(ctx.db, ownerId, 40);
+    const out = payloadOf(await callTool(ctx.app, token, "list_notes", { limit: 30 }));
+    expect(Object.keys(out)).toEqual(["notes", "nextCursor"]);
+    expect(out.notes).toHaveLength(30);
+    expect(out.nextCursor).not.toBeNull();
+  });
+
+  it("LN2 tools/list：description 帶短頁句（LN+）；pageCutShort 的說明逐字", async () => {
+    const ctx = await buildCollabTestApp();
+    const { token } = await scenario(ctx);
+    const res = await mcpPost(ctx.app, rpc("tools/list"), { token });
+    expect(res.statusCode).toBe(200);
+    type Tool = { name: string; description: string; outputSchema: { properties: Record<string, { description?: string }> } };
+    const tool = (res.json().result.tools as Tool[]).find(t => t.name === "list_notes")!;
+    expect(tool.description).toContain(
+      "A page can hold fewer notes than `limit` when the notes are large — `pageCutShort` is then true — so keep paging until `nextCursor` is null.",
+    );
+    expect(tool.outputSchema.properties.pageCutShort!.description).toBe(
+      "Present, and true, when this page was cut short to keep the reply small; more follow, so keep paging with `nextCursor`.",
+    );
   });
 });

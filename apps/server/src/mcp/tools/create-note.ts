@@ -22,13 +22,22 @@
  * `url` 走 `canonicalNotePath`，與 `list_notes`／`search_notes` 是**同一個組字點**（`dto.ts`）。
  */
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { isForeignKeyViolation } from "../../db/pg-errors.js";
+import { isForeignKeyViolation, isNoteFolderSpaceViolation, isRetryableTxError } from "../../db/pg-errors.js";
+import { resolveFolderAccess } from "../../folders/queries.js";
+import { newNoteFolderConsistent } from "../../folders/space.js";
 import { insertNoteWithAutoSlug } from "../../notes/create.js";
 import { loadCreateTarget } from "../../notes/create-target.js";
 import { roleFromGroupFlags } from "../../notes/service.js";
 import type { SlugScope } from "../../notes/slug.js";
 import { GROUP_ID, MD, TITLE } from "../../notes/schemas.js";
-import { noteSummarySchema, toNoteSummary } from "../dto.js";
+import { noteSummariesForModel, noteSummarySchema } from "../dto.js";
+import { FOLDER_ID } from "../folder-fields.js";
+import {
+  CREATE_BUSY_MESSAGE,
+  FOLDER_NEEDS_EDIT_MESSAGE,
+  FOLDER_NOT_FOUND_MESSAGE,
+  NEW_NOTE_FOLDER_CROSS_SPACE_MESSAGE,
+} from "../folder-messages.js";
 import { WRITE_NOTE_LINK_SENTENCE } from "../note-link-strings.js";
 import { insertedRow, rereadVisibleNote } from "../note-rows.js";
 import { toolError, toolResult } from "../tool-result.js";
@@ -62,6 +71,12 @@ export const CREATE_NOTE_DESCRIPTION =
   "— and its `url`, the note's page as a site-relative path: put this site's own address in front " +
   "of it before handing it to anyone. Filling it in with `content` is recorded like any other write " +
   "that changes a note's content, and can usually be undone.";
+
+/** CN_FOLDER（資料夾 PR-3d，逐字照 plan「待確認字串」）。 */
+export const CN_FOLDER =
+  "The id of a folder to create the note in, from list_folders; leave it out for the top level. One of your personal folders makes a " +
+  "personal note, so leave out `group_id`; one of a group's folders needs that group's id as `group_id` and a role there that can both " +
+  "create and edit notes. Your folders for notes shared with you can't hold new notes.";
 
 export const createNoteInput = {
   title: TITLE.optional()
@@ -99,6 +114,7 @@ export const createNoteInput = {
       "Markdown for the new note. Leave it out to create an empty note. Some deployments cannot store content this way and answer `invalid_body`; create the note without it and the note still exists. Colors, side-by-side columns and sizes work as in edit_note. " +
         WRITE_NOTE_LINK_SENTENCE,
     ),
+  folder_id: FOLDER_ID.optional().describe(CN_FOLDER),
 };
 
 export const createNoteOutput = {
@@ -109,6 +125,7 @@ export interface CreateNoteArgs {
   title?: string;
   content?: string;
   group_id?: string;
+  folder_id?: string;
 }
 
 /** spec §9.2 兩句專用訊息（逐字；`docs/mcp.md` Errors 段描述同一條件）。**不得**重用 `NOTE_NOT_FOUND_MESSAGE`——
@@ -150,20 +167,35 @@ export async function createNote(args: CreateNoteArgs, ctx: McpToolCtx): Promise
   //    不保證，spec §15 第 5 條）。
   //    非成員（含站台 admin，§5.5 無豁免）與不存在同一條 `group_not_found`；成員但沒有新建旗標 → `forbidden`。
   //    `role` 照旗標算、不假設 editor：0013 起 create-only 角色（能建不能編）得 `viewer`。
+  // 2b. 資料夾 PR-3d（spec §5.7.6、§5.5 I2，與 REST `POST /api/notes` 同順序）：資料夾可見性（看不到＝不存在，FM1）→
+  //    空間一致性（FM14）→ 下面既有的群組判準 → 群組資料夾另要 `can_edit`（FM13，D13）。都在任何寫入之前。
+  let folderId: string | null = null;
+  if (args.folder_id !== undefined) {
+    const folder = await resolveFolderAccess(ctx.db, ctx.userId, args.folder_id);
+    if (folder === null) return toolError("not_found", FOLDER_NOT_FOUND_MESSAGE);
+    if (!newNoteFolderConsistent(folder.space, args.group_id)) return toolError("invalid_body", NEW_NOTE_FOLDER_CROSS_SPACE_MESSAGE);
+    folderId = folder.folder.id;
+  }
+
   let target: { scope: SlugScope; ownerHandle: string | null; groupName: string | null; role: string };
   if (args.group_id !== undefined) {
     const m = await loadCreateTarget(ctx.db, ctx.userId, args.group_id);
     if (!m) return toolError("group_not_found", GROUP_NOT_FOUND_MESSAGE);
     if (!m.canCreate) return toolError("forbidden", CREATE_IN_GROUP_FORBIDDEN_MESSAGE);
+    if (folderId !== null && !m.canEdit) return toolError("forbidden", FOLDER_NEEDS_EDIT_MESSAGE);
     await ctx.groupTestHook?.("membership-checked", { groupId: args.group_id });
     target = { scope: { groupId: args.group_id }, ownerHandle: null, groupName: m.name, role: roleFromGroupFlags(m) };
   } else {
     target = { scope: { ownerId: ctx.userId }, ownerHandle: ctx.userHandle, groupName: null, role: "owner" };
   }
-  // 檢查之後群組被刪：建列那一發撞 FK 23503（REST `routes/notes.ts` 同形映射；建列在 service 的 try 之外，所以
-  // 原樣拋到這裡）。**只在群組分支映射**——個人分支的 23503 只可能來自 `owner_id → users`，而 `src/` 內沒有硬刪
-  // users 的路徑，不擴大映射面。
-  const mapGroupFk = (err: unknown): CallToolResult => {
+  // 建列失敗（兩條路共用；與 REST `sendCreateInsertFailure` 同判準）。建列在 service 的 try 之外，所以原樣拋到這裡：
+  // - 可重試錯誤（40P01／40001／55P03）→ server_busy，不論帶不帶資料夾（plan 讀碼發現 9；原本是 internal）。
+  // - 帶資料夾：確認之後資料夾被刪（`notes_folder_fk`）、換了空間（KF001：群組剛被轉移）、或群組被刪（群組 FK 可能先報）→ 與看不到同形（FM1）。
+  // - 不帶資料夾：檢查之後群組被刪 → FK 23503 → group_not_found。**只在群組分支映射**——個人分支的 23503 只可能來自
+  //   `owner_id → users`，而 `src/` 內沒有硬刪 users 的路徑，不擴大映射面。
+  const mapCreateInsertFailure = (err: unknown): CallToolResult => {
+    if (isRetryableTxError(err)) return toolError("server_busy", CREATE_BUSY_MESSAGE);
+    if (folderId !== null && (isNoteFolderSpaceViolation(err) || isForeignKeyViolation(err))) return toolError("not_found", FOLDER_NOT_FOUND_MESSAGE);
     if (args.group_id !== undefined && isForeignKeyViolation(err)) return toolError("group_not_found", GROUP_NOT_FOUND_MESSAGE);
     throw err;
   };
@@ -188,9 +220,10 @@ export async function createNote(args: CreateNoteArgs, ctx: McpToolCtx): Promise
         title: args.title,
         content: args.content,
         scope: target.scope,
+        folderId,
       });
     } catch (err) {
-      return mapGroupFk(err);
+      return mapCreateInsertFailure(err);
     }
     if (!out.ok) {
       // 解析失敗＝一列都沒建（「解析在建列之前」是契約）；`internal` ＝套用失敗，service 已經
@@ -199,18 +232,21 @@ export async function createNote(args: CreateNoteArgs, ctx: McpToolCtx): Promise
       return toolError("internal", CREATE_FAILED_MESSAGE);
     }
     const fresh = await rereadVisibleNote(ctx, out.noteId, target.scope);
-    return toolResult({ note: toNoteSummary(fresh ?? insertedRow(out.inserted, target), fresh?.role ?? target.role) });
+    const [note] = await noteSummariesForModel(ctx.db, [fresh ?? { ...insertedRow(out.inserted, target), role: target.role }]);
+    return toolResult({ note });
   }
 
   // 5. 不帶 `content`：只建一列（`notes/create.ts`），不碰 live doc、不吃 `edit` 桶、不重讀
   //    （`last_edited_*` 四欄還是 insert 的預設值，`toNoteSummary` 於是把 `lastEdited` 給
   //    null——不必為了一個必然落空的 JOIN 多發一次查詢）。帶 `title` 時 slug 在這一刻就跟
   //    標題走（#145），所以回應裡的 `url` 不必二次寫入就已經是最終網址。
+  //    `ctx.noteCreateHooks`（測試縫，生產不注入）：`beforeInsert` 在 `insertNoteWithAutoSlug` 的 try 之外，丟出的錯誤原樣到這裡的 catch。
   let created;
   try {
-    created = await insertNoteWithAutoSlug(ctx.db, { scope: target.scope, folderId: null }, args.title);
+    created = await insertNoteWithAutoSlug(ctx.db, { scope: target.scope, folderId }, args.title, ctx.noteCreateHooks);
   } catch (err) {
-    return mapGroupFk(err);
+    return mapCreateInsertFailure(err);
   }
-  return toolResult({ note: toNoteSummary(insertedRow(created, target), target.role) });
+  const [note] = await noteSummariesForModel(ctx.db, [{ ...insertedRow(created, target), role: target.role }]);
+  return toolResult({ note });
 }

@@ -54,9 +54,14 @@ describe("TR-L1 兩區與排序", () => {
     const a = await seedNote(db, { ownerId: owner.id });
     const b = await seedNote(db, { ownerId: owner.id });
     const g = await seedNote(db, { groupId: grp.id });
+    // 資料夾 PR-3d Q3：同一毫秒改依 id 排，所以每次移入後把剛移入那篇的 deleted_at 設成前一篇＋2 ms（順序不靠微秒）。
+    const spaceAfter = (id: string, prev: string) =>
+      db.$client.query(`update notes set deleted_at = (select deleted_at from notes where id = $2) + interval '2 milliseconds' where id = $1`, [id, prev]);
     await expect204(del(app, a.id, owner.id));
     await expect204(del(app, b.id, owner.id));
+    await spaceAfter(b.id, a.id);
     await expect204(del(app, g.id, owner.id));
+    await spaceAfter(g.id, b.id);
 
     const body = await listOf(app, owner.id);
     expect(body.items.map(i => i.id)).toEqual([g.id, b.id, a.id]);
@@ -76,6 +81,26 @@ describe("TR-L1 兩區與排序", () => {
     expect(rows[0]!.n).toBe(1);
 
     expect(await listIds(app, owner.id)).toEqual([...ids].sort().reverse());
+  });
+
+  it("TR-MS（資料夾 PR-3d Q3）：同一毫秒、差 1 µs，µs 序與 id 序相反（µs 較大的給 id 較小者）→ 依 id DESC；回應 key 集合逐字不變", async () => {
+    const { app, db } = await buildTestApp();
+    const owner = await seedUser(db);
+    const x = await seedNote(db, { ownerId: owner.id });
+    const y = await seedNote(db, { ownerId: owner.id });
+    const [small, large] = [x.id, y.id].sort() as [string, string];
+    const ms = "2026-10-01T00:00:00.123Z";
+    await db.$client.query(`update notes set deleted_at = $2::timestamptz + interval '501 microseconds', deleted_by = $3 where id = $1`, [small, ms, owner.id]);
+    await db.$client.query(`update notes set deleted_at = $2::timestamptz + interval '500 microseconds', deleted_by = $3 where id = $1`, [large, ms, owner.id]);
+    const { rows } = await db.$client.query<{ n: number }>(`select count(*)::int n from notes where date_trunc('milliseconds', deleted_at) = $1::timestamptz`, [ms]);
+    expect(rows[0]!.n).toBe(2); // 前提：同一毫秒
+
+    const body = await listOf(app, owner.id);
+    expect(body.items.map(i => i.id)).toEqual([large, small]);
+    expect(Object.keys(body)).toEqual(["retentionDays", "items", "truncated"]);
+    for (const item of body.items) {
+      expect(Object.keys(item)).toEqual(["id", "title", "deletedAt", "purgeAt", "deletedBy", "group", "folderPath"]);
+    }
   });
 });
 
