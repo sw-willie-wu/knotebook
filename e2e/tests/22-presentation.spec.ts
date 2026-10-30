@@ -1,6 +1,6 @@
 import { deflateSync } from "node:zlib";
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { ADMIN, createNote, editorLocator, loginAs } from "./helpers.js";
+import { ADMIN, createNote, editorLocator, loginAs, waitForEditorSelection } from "./helpers.js";
 
 /**
  * #229 簡報模式（spec §13.4）：E1 入口與導覽、E2 即時更新保位、E3 公開連結、E4 CSP、E5 改名不斷簡報、
@@ -20,6 +20,8 @@ async function pasteMarkdown(page: Page, markdown: string): Promise<void> {
   const editor = editorLocator(page);
   await editor.click();
   await page.keyboard.press("ControlOrMeta+End");
+  // 同 34-columns 的 pasteMarkdown：Ctrl+End 後等 ProseMirror 讀回選取再貼（E6 第二次貼在已有內容的筆記上，沒等會貼在點擊處）
+  await waitForEditorSelection(page);
   await page.evaluate((text) => navigator.clipboard.writeText(text), markdown);
   await page.keyboard.press("ControlOrMeta+v");
 }
@@ -124,6 +126,7 @@ test("E1：⋮ 進入、換頁寫 hash 不增 history、O 總覽／Esc 只關總
     // spec §13.4-1「剛打的字還在」：進入簡報前另外打一段，回來後斷言它還在（r2-p3 MINOR 6）
     await editorLocator(page).getByText("b2 text").click();
     await page.keyboard.press("End");
+    await waitForEditorSelection(page); // click→End 後等 PM 讀回選取再打字（helpers 註解：不等會打在點擊處）
     await page.keyboard.type(" typed-before-present");
     await expect(editorLocator(page).getByText("b2 text typed-before-present")).toBeVisible();
     await page.evaluate(() => { (document.querySelector('[data-testid="note-editor"]') as HTMLElement & { __kn?: number }).__kn = 1; });
@@ -195,6 +198,8 @@ test("E2：A 播放中、B 編輯——A 3 s 內看到變動且停在同一張�
     // B 在第一章加字
     await editorLocator(pageB).getByText("alpha text").click();
     await pageB.keyboard.press("End");
+    // 不等的話 " plus" 會打在點擊處（CI 4 次失敗的快照都是 "alph plus admin a text"：字中間＋游標名牌）
+    await waitForEditorSelection(pageB);
     await pageB.keyboard.type(" plus");
     await expect(pageA.locator(".reveal .slides").getByText("alpha text plus")).toBeAttached({ timeout: 3_000 });
     expect(await currentSlideId(pageA)).toBe(b2);
@@ -202,7 +207,10 @@ test("E2：A 播放中、B 編輯——A 3 s 內看到變動且停在同一張�
     // B 把 A 目前那張的起始標題（### Section B2）改成段落（Q2 的解讀）→ 那張消失 → A 到前一張（Chapter B）
     await editorLocator(pageB).getByText("Section B2").click();
     await pageB.keyboard.press("Home");
-    // S-E2：Ctrl+Alt+0 在 headless chromium 約五成不生效（B 端標題仍是 heading）；改為 block 開頭按 Backspace（BlockNote 會把非段落 block 轉成段落）。
+    await waitForEditorSelection(pageB);
+    // S-E2：當初記「Ctrl+Alt+0 在 headless chromium 約五成不生效（B 端標題仍是 heading）」，改成在 block 開頭按 Backspace（BlockNote 會把
+    // 非段落 block 轉成段落）。那個症狀多半就是上面這個競態：快捷鍵吃的是 PM 的 state.selection，還停在前一段（alpha text plus，本來就是段落）
+    // 時 Ctrl+Alt+0 等於沒做——Backspace 一樣會落在舊位置，所以光換鍵不能修，要靠上一行的等待（讀碼推論，未重跑 Ctrl+Alt+0 驗證；Backspace 保留）。
     await pageB.keyboard.press("Backspace");
     await expect(editorLocator(pageB).locator('[data-content-type="heading"]', { hasText: "Section B2" })).toHaveCount(0);
     const chapterB = await slideIdContaining(pageA, "Chapter B");
@@ -241,6 +249,7 @@ test("E3：匿名開公開連結簡報——wikilink 純文字、圖片載得出
     // wikilink：在 Slide Two 內文後打 [[ ＋目標標題前綴，選第一個建議（Step 2 S-E3 判準）
     await editorLocator(owner).getByText("two text").click();
     await owner.keyboard.press("End");
+    await waitForEditorSelection(owner);
     await owner.keyboard.type(" see [[");
     await owner.keyboard.type(stamp);
     await expect(owner.locator(".bn-suggestion-menu")).toBeVisible({ timeout: 10_000 });
@@ -294,6 +303,7 @@ test("E3：匿名開公開連結簡報——wikilink 純文字、圖片載得出
     await expect.poll(() => currentSlideId(anon)).toBe(twoId);
     await editorLocator(owner).getByText("one text").click();
     await owner.keyboard.press("End");
+    await waitForEditorSelection(owner);
     await owner.keyboard.type(" updated");
     await expect(async () => {
       await anon.evaluate(() => window.dispatchEvent(new Event("visibilitychange")));
@@ -338,6 +348,7 @@ test("E4：簡報 chunk／CSS、mermaid、程式碼、總覽、全螢幕切換 �
   const editor = editorLocator(page);
   await editor.getByText("Diagram").click();
   await page.keyboard.press("End");
+  await waitForEditorSelection(page); // 不等的話 Enter 落在點擊處、把標題從中間拆開（見下方「影片落在哪一張」）
   await page.keyboard.press("Enter");
   await editor.pressSequentially("/diagram");
   await page.getByText("Flowcharts and diagrams with Mermaid").click();
@@ -360,6 +371,7 @@ test("E4：簡報 chunk／CSS、mermaid、程式碼、總覽、全螢幕切換 �
   await page.keyboard.press("Escape");
   await editor.getByText("Video").click();
   await page.keyboard.press("End");
+  await waitForEditorSelection(page);
   await page.keyboard.press("Enter");
   await editor.pressSequentially("/video");
   await page.getByText("Resizable video with caption").click();
@@ -377,6 +389,7 @@ test("E4：簡報 chunk／CSS、mermaid、程式碼、總覽、全螢幕切換 �
   await page.keyboard.press("f");
   // 影片落在哪一張取決於前面點擊把游標放在字中間的位置（重複跑時標題會被拆開、block 次序也會變），所以不假設「含 Video 字樣的那張」，
   // 改找「含 <video> 的那張」再逐張往右走過去（這份牌組全是 H2，沒有縱向堆疊）。
+  // （標題被拆開多半是 click→End 後 PM 還沒讀回選取、Enter 落在點擊處；上面已加 waitForEditorSelection，這個不假設位置的找法照留。）
   const videoSlide = await page.evaluate(() => document.querySelector(".reveal .slides section[data-kn-slide-id]:has(video)")?.getAttribute("data-kn-slide-id") ?? null);
   expect(videoSlide, "簡報裡找不到含 <video> 的投影片").not.toBeNull();
   for (let i = 0; i < 8 && (await currentSlideId(page)) !== videoSlide; i++) await page.keyboard.press("ArrowRight");

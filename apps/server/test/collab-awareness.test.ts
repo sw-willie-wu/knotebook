@@ -67,7 +67,7 @@ describe("collab awareness（#293）", () => {
     console.log("[P6] abrupt close removal ms", ms);
     expect(ms).toBeLessThan(35_000);
     s.viewerClient.disconnect();
-  }, 60_000);
+  }); // CA2／CA3 不另設 per-test 逾時、沿用全域 120 s：要等滿 awareness 的 30 s 逾時，加上建場景與各段 waitFor，60 s 太貼
 
   it("CA3 重連的重送被忽略、clock＋1 重寫才回來；之後不正常斷線仍在 35 s 內移除（P6、N-4）", async () => {
     const s = await scene("ca3");
@@ -89,7 +89,7 @@ describe("collab awareness（#293）", () => {
     console.log("[P6] reconnected abrupt close removal ms", ms);
     expect(ms).toBeLessThan(35_000);
     s.viewerClient.disconnect();
-  }, 60_000);
+  });
 
   it("CA4 觀察者自己重連：onClose 清掉遠端舊 meta → 重連後立即看到原本在場的人", async () => {
     const s = await scene("ca4");

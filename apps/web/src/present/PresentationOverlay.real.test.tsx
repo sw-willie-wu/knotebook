@@ -201,7 +201,6 @@ describe("PresentationOverlay（真 reveal.js 6.0.2）", () => {
           expect(current).not.toBe(before);
           expect(current!.hasAttribute("data-stacked")).toBe(true);
         },
-        { timeout: 3000 },
       );
       unmount();
     });

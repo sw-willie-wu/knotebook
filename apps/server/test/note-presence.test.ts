@@ -184,7 +184,7 @@ describe("presence", () => {
     await new Promise(r => setTimeout(r, 35_000));
     expect(s.remote()?.user?.name).toBe(s.expectedName);
     s.client.disconnect();
-  }, 60_000);
+  }); // 不另設 per-test 逾時、沿用全域 120 s：固定等 35 s，60 s 只留給建場景約 25 s，機器忙時太貼
 
   it("#240 R2 Bearer 以大寫 id 讀 → presence 以小寫 id 現身、名牌正確", async () => {
     const s = await scene();

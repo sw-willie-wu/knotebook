@@ -1,4 +1,5 @@
-import { expect, test, type Browser, type BrowserContext, type Locator, type Page } from "@playwright/test";
+import { writeFileSync } from "node:fs";
+import { expect, test, type Browser, type BrowserContext, type Frame, type Locator, type Page } from "@playwright/test";
 import { ADMIN, createNote, createUserViaInvite, editorLocator, loginAs, noteIdFromUrl, randomEmail, reEscape, waitForEditorSelection } from "./helpers.js";
 
 /**
@@ -26,10 +27,11 @@ async function pasteAtCaret(page: Page, text: string): Promise<void> {
   await page.keyboard.press("ControlOrMeta+v");
 }
 
-/** 在筆記最後貼上 markdown（22-presentation 的 pasteMarkdown 同形）。 */
+/** 在筆記最後貼上 markdown（22-presentation 的 pasteMarkdown 同形；Ctrl+End 後等 ProseMirror 讀回選取再貼，同 34-columns）。 */
 async function appendMarkdown(page: Page, markdown: string): Promise<void> {
   await editorLocator(page).click();
   await page.keyboard.press("ControlOrMeta+End");
+  await waitForEditorSelection(page);
   await pasteAtCaret(page, markdown);
 }
 
@@ -203,9 +205,74 @@ test("E1：讀者一般點擊同分頁導航；Ctrl+Click 與中鍵開新分頁�
 
     // 編輯者：Ctrl/Cmd+Click（contenteditable 內的 contentEditable=false 島——spec §7.2【推】的量測點）⇒ 新分頁、原分頁不動
     // （滑鼠停在連結上，hover 工具列可能出現——那是 hover 的行為，不在這裡斷言）
-    const editorCtrlPromise = adminContext.waitForEvent("page", { timeout: 10_000 });
-    await adminLink.locator("a").click({ modifiers: ["ControlOrMeta"] });
-    const editorCtrlPage = await editorCtrlPromise;
+    // 雲端偶發等不到新分頁（run 40182358217：trace 裡點擊落在 <a> 上、點擊後編輯器失焦，卻沒有 page 事件；根因未明）。
+    // 只在失敗時輸出診斷（console＋test-results 下的 e1-ctrl-click-diagnostics.txt）：page／popup／導航事件、點擊事件有沒有到、
+    // 有沒有被 preventDefault、點擊後的焦點與選取、連結中心點上是什麼元素。成功時不輸出、不改變行為（監聽都是被動的）。
+    const diag: string[] = [];
+    const diagStart = Date.now();
+    const note = (line: string) => diag.push(`+${Date.now() - diagStart}ms ${line}`);
+    const onContextPage = (p: Page) => note(`context "page": ${p.url()}`);
+    const onPopup = (p: Page) => note(`admin "popup": ${p.url()}`);
+    const onNavigated = (f: Frame) => {
+      if (f === admin.mainFrame()) note(`admin framenavigated: ${f.url()}`);
+    };
+    adminContext.on("page", onContextPage);
+    admin.on("popup", onPopup);
+    admin.on("framenavigated", onNavigated);
+    // 裝監聽本身不得改變測試結果：頁面正在導航等原因讓 evaluate 拋錯時吞掉、記一行（那次的診斷就少了點擊事件那段，events 會是 null）
+    await admin
+      .evaluate(() => {
+        const log: string[] = [];
+        (window as unknown as { __e1Events: string[] }).__e1Events = log;
+        const describe = (t: EventTarget | null) => (t instanceof Element ? `${t.tagName}.${String(t.className).slice(0, 30)}` : String(t));
+        for (const type of ["pointerdown", "mousedown", "mouseup", "click", "auxclick"]) {
+          // capture＝事件有沒有到；bubble（window 最後一站）＝有沒有被攔（沒記到就是被 stopPropagation）、有沒有 preventDefault
+          window.addEventListener(type, (e) => log.push(`${type} capture target=${describe(e.target)} ctrl=${(e as MouseEvent).ctrlKey}`), { capture: true, passive: true });
+          window.addEventListener(type, (e) => log.push(`${type} bubble defaultPrevented=${e.defaultPrevented}`), { passive: true });
+        }
+        window.addEventListener("blur", () => log.push("window blur"));
+      })
+      .catch((e: unknown) => note(`listener install failed (no event log): ${String(e)}`));
+    let editorCtrlPage: Page;
+    try {
+      const editorCtrlPromise = adminContext.waitForEvent("page", { timeout: 10_000 });
+      // click 自己拋錯時這個 promise 沒人 await，10 s 後的逾時會變成未處理的 rejection：先掛一個空 catch（下面照常 await，失敗仍會拋）
+      editorCtrlPromise.catch(() => undefined);
+      await adminLink.locator("a").click({ modifiers: ["ControlOrMeta"] });
+      note(`click returned: admin.url=${admin.url()}`);
+      editorCtrlPage = await editorCtrlPromise;
+    } catch (err) {
+      note(`failed: admin.url=${admin.url()} contextPages=${JSON.stringify(adminContext.pages().map((p) => p.url()))} pagesPerContext=${JSON.stringify(browser.contexts().map((c) => c.pages().length))}`);
+      const state = await admin
+        .evaluate(() => {
+          const link = document.querySelector('[data-testid="note-editor"] [data-inline-content-type="wikilink"] a');
+          const rect = link?.getBoundingClientRect();
+          const atCenter = rect ? document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2) : null;
+          const ce = document.querySelector('[data-testid="note-editor"] [contenteditable="true"]') as (Element & { editor?: { view?: { state: { selection: { toJSON(): unknown } } } } }) | null;
+          const active = document.activeElement;
+          return {
+            events: (window as unknown as { __e1Events?: string[] }).__e1Events ?? null,
+            hasFocus: document.hasFocus(),
+            visibility: document.visibilityState,
+            activeElement: active ? `${active.tagName}.${String(active.className).slice(0, 40)}` : null,
+            pmFocused: document.querySelector(".ProseMirror-focused") !== null,
+            pmSelection: ce?.editor?.view?.state.selection.toJSON() ?? null,
+            openToolbars: document.querySelectorAll('[role="dialog"][aria-label="Note link"][data-state="open"]').length,
+            elementAtLinkCenter: atCenter ? `${atCenter.tagName}.${String(atCenter.className).slice(0, 40)}` : null,
+            linkIsAtCenter: !!link && !!atCenter && (atCenter === link || link.contains(atCenter)),
+          };
+        })
+        .catch((e: unknown) => `evaluate failed: ${String(e)}`);
+      note(`page state: ${JSON.stringify(state)}`);
+      const report = `[E1 Ctrl+Click 診斷]\n${diag.join("\n")}`;
+      console.log(report);
+      writeFileSync(test.info().outputPath("e1-ctrl-click-diagnostics.txt"), report, "utf8");
+      throw err;
+    } finally {
+      adminContext.off("page", onContextPage);
+      admin.off("popup", onPopup);
+      admin.off("framenavigated", onNavigated);
+    }
     await editorCtrlPage.waitForURL((u) => u.pathname === targetPath, { timeout: 15_000 });
     expect(admin.url()).toBe(sourceUrl);
     await editorCtrlPage.close();
@@ -691,9 +758,14 @@ test("C2：hover A 出工具列 → 移進工具列不關 → 真滑鼠移到 B 
     await expect(toolbars).toHaveAttribute("data-state", "open");
     await page.keyboard.press("Escape");
     await expect(toolbars).toHaveCount(0);
+    // Esc 關閉後焦點會還給編輯器，但那是 Radix FocusScope 卸載時另排 setTimeout(0) 才跑的 onCloseAutoFocus：toHaveCount(0) 過了它可能還沒跑，
+    // 這時 blur 會被它晚到的 editor.focus() 蓋掉（下一段 hover 開工具列時又把「開啟當下編輯器有焦點」記成真，最後焦點留在編輯器）。
+    // 先等焦點真的回到編輯器，再 blur。
+    await expect.poll(() => page.evaluate(() => document.activeElement?.closest('[data-testid="note-editor"]') != null)).toBe(true);
 
     // 純 hover 開、純移開：關閉，焦點不被拉進編輯器（先讓焦點落在 body——Esc 等關法在這種情況會把焦點還給編輯器）
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
     await page.mouse.move(a.x, a.y, { steps: 5 });
     await expect(toolbars).toHaveAttribute("data-state", "open");
     await page.mouse.move(a.x, a.y + 200, { steps: 5 });

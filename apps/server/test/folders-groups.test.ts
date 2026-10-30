@@ -3,7 +3,7 @@
  * A3-12、§7【推-4】）——轉移把群組資料夾整棵收進接收者個人根層的新頂層、全刪取結構鎖、舊碼在新 schema 上照跑。
  * 控制字元與組合字元一律以 `String.fromCharCode` 組字。
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { FastifyInstance, LightMyRequestResponse } from "fastify";
 import type { Pool } from "pg";
 import type { FolderDto, FolderListDto, TrashRestoreResultDto } from "@knotebook/shared";
@@ -19,6 +19,13 @@ import {
   legacyRestoreNotesInTx,
   legacyTransferGroupInTx,
 } from "./legacy-tx-fixtures.js";
+import { INJECTED_LOCK_TIMEOUT_BOUND_MS } from "./lock-timeout-bound.js";
+
+// 預設空間鎖上限在本檔換成 60 s（產品值 5000），「注入的短上限有生效」的牆鐘界線才能離兩邊都遠——見 ./lock-timeout-bound.ts。
+vi.mock("../src/storage/tx/quota.js", async () => ({
+  ...(await vi.importActual<typeof import("../src/storage/tx/quota.js")>("../src/storage/tx/quota.js")),
+  DEFAULT_STORAGE_LOCK_TIMEOUT_MS: (await import("./lock-timeout-bound.js")).SLOW_DEFAULT_LOCK_TIMEOUT_MS,
+}));
 
 const COMBINING_ACUTE = String.fromCharCode(0x301);
 const E_ACUTE = String.fromCharCode(0xe9);
@@ -360,11 +367,11 @@ describe("刪群組：結構鎖等太久 → 409 server_busy", () => {
     const ms = Date.now() - t0;
     expect(r.statusCode, r.body).toBe(409);
     expect(r.json()).toEqual({ error: { code: "server_busy", message: "伺服器忙碌，請稍後再試" } });
-    expect(ms).toBeLessThan(3000);
+    expect(ms).toBeLessThan(INJECTED_LOCK_TIMEOUT_BOUND_MS); // 注入值（300 ms）有生效，不是本檔預設 60 s
   }
   const groupExists = async (pool: Pool, id: string) => (await pool.query("select 1 from groups where id = $1", [id])).rowCount === 1;
 
-  it("FG-9 轉移（另一位管理員 q 發動、轉給 r）：群組空間的鎖、接收者 r 個人空間的鎖各被持住（lock_timeout 300 ms）→ 409 server_busy（< 3000 ms）、群組與資料夾原封；放掉後 204", async () => {
+  it("FG-9 轉移（另一位管理員 q 發動、轉給 r）：群組空間的鎖、接收者 r 個人空間的鎖各被持住（lock_timeout 300 ms）→ 409 server_busy（< 20 s）、群組與資料夾原封；放掉後 204", async () => {
     const { app, db } = await buildTestApp({ storageLockTimeoutMs: 300 });
     const pool = db.$client;
     const [r, q] = [await seedUser(db), await seedUser(db)];
@@ -383,7 +390,7 @@ describe("刪群組：結構鎖等太久 → 409 server_busy", () => {
     await transferOk(app, g.id, r.id, r.id);
   });
 
-  it("FG-10 全刪：群組空間的鎖被持住（lock_timeout 300 ms）→ 409 server_busy（< 3000 ms）、群組、資料夾、筆記原封；放掉後 204", async () => {
+  it("FG-10 全刪：群組空間的鎖被持住（lock_timeout 300 ms）→ 409 server_busy（< 20 s）、群組、資料夾、筆記原封；放掉後 204", async () => {
     const { app, db } = await buildTestApp({ storageLockTimeoutMs: 300 });
     const pool = db.$client;
     const r = await seedUser(db);

@@ -47,8 +47,11 @@ function Harness({ onSubmit, exclude, inDialog = false }: { onSubmit: (email: st
   );
 }
 
-function renderHarness(props: Parameters<typeof Harness>[0]) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+/** 預設 harness 關 retry；要守 `useUserSuggestions` 自己的 `retry: false` 的案傳 `new QueryClient()`（不關 retry）進來。 */
+function renderHarness(
+  props: Parameters<typeof Harness>[0],
+  queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+) {
   return render(
     <QueryClientProvider client={queryClient}>
       <Harness {...props} />
@@ -162,13 +165,19 @@ describe("UserEmailCombobox", () => {
     expect(within(list).getAllByRole("option").map((o) => o.textContent)).toEqual(["Andy Exampleandy@example.com"]);
   });
 
-  it("查詢失敗 → 沒有清單，輸入框照常可用", async () => {
+  it("查詢失敗 → 沒有清單，輸入框照常可用；不重試（恰打一次）", async () => {
     const fetchMock = vi.fn(() => Promise.resolve({ ok: false, status: 429, json: () => Promise.resolve({ error: { code: "too_many_requests", message: "x" } }) } as unknown as Response));
     vi.stubGlobal("fetch", fetchMock);
-    renderHarness({ onSubmit: vi.fn() });
+    // 這一案刻意用**不關 retry** 的 QueryClient：守的是 `useUserSuggestions` 自己的 `retry: false`（被節流了還重試
+    // 只會更糟）。元件不顯示錯誤，所以等查詢本身進 error 態；拿掉 `retry: false` 的話 query-core 預設重試 3 次
+    //（退避約 7 秒，塞得進全域等待上限），進 error 態時已打 4 次 → 計次紅。
+    const queryClient = new QueryClient();
+    renderHarness({ onSubmit: vi.fn() }, queryClient);
     fireEvent.change(input(), { target: { value: "an" } });
-    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    await new Promise((r) => setTimeout(r, 50));
+    // 掛載時空字串那支（enabled false）也在快取裡、恆 pending，所以找「有任何一支進了 error」。
+    const anyErrored = () => queryClient.getQueryCache().findAll({ queryKey: ["userSuggest"] }).some((q) => q.state.status === "error");
+    await waitFor(() => expect(anyErrored()).toBe(true));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
     expect(input()).toHaveValue("an");
   });

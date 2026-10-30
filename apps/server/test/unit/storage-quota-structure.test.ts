@@ -14,6 +14,9 @@
  *      StorageQuotaExceeded 都引用它；字面散在兩處時，改一處另一處就漂（PR1 review 擱置項）
  *   ⑧ `update(uploads)` 只在 notes/tx/move.ts、恰一次，且在 moveNoteToGroupInTx 內 `writeSlugInTx(…)` 整個呼叫結束之後、
  *      `recordRedirectsInTx(` 之前（#247 §9.2 rev 10：不在會隨撞 slug 重試重跑的 callback 裡；Part 4 Review Focus 1）
+ *   ⑨ 鎖等待上限不寫死數字：`(storage)lockTimeoutMs` 不接數字字面、`lock_timeout` 不設數字或 `'<n>ms'` 字面；唯一的數字是 quota.ts 的
+ *      `DEFAULT_STORAGE_LOCK_TIMEOUT_MS = 5000`。注入值有生效的整合測試（lock-timeout-bound.ts 那一族）只抓得到「落回這個常數」，
+ *      寫死別的數字它們分不出來——由這條補上。
  */
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -152,5 +155,19 @@ describe("儲存配額結構性守衛（spec §11.3）", () => {
     expect(up, "UPDATE uploads 在 moveNoteToGroupInTx 函式體內").toBeGreaterThan(-1);
     const wsEnd = balanced(body, ws + "writeSlugInTx".length).end;
     expect(up > wsEnd && up < rr, "UPDATE uploads 必須在 writeSlugInTx(…) 整個呼叫之後、recordRedirectsInTx 之前").toBe(true);
+  });
+
+  it("⑨ 鎖等待上限不寫死數字：唯一的數字字面是 quota.ts 的 DEFAULT_STORAGE_LOCK_TIMEOUT_MS = 5000", () => {
+    const LITERALS = [
+      /(?<![A-Za-z0-9_])(?:storage)?lockTimeoutMs\s*(?::|=|\?\?|\|\|)\s*\d+/gi, // lockTimeoutMs: 300、storageLockTimeoutMs ?? 5000
+      /lock_timeout[^;\n]*?['"`]\s*\d+\s*(?:ms|s|min)?\s*['"`]/gi, //              set_config('lock_timeout', '300ms', …)、= '2s'
+      /lock_timeout\s*(?:=|to)\s*\d+/gi, //                                         set local lock_timeout = 300
+      /\w*LOCK_TIMEOUT_MS\s*=\s*\d+/g, //                                           常數定義
+    ];
+    const hits = files.flatMap(p => {
+      const src = code(p);
+      return LITERALS.flatMap(re => [...src.matchAll(re)].map(m => `${rel(p)}: ${m[0]}`));
+    });
+    expect(hits).toEqual(["storage/tx/quota.ts: DEFAULT_STORAGE_LOCK_TIMEOUT_MS = 5000"]);
   });
 });

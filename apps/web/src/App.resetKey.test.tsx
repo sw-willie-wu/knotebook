@@ -197,15 +197,13 @@ describe("resetKey 選型守門——錯誤畫面上開/關設定 modal 不觸�
 
     renderNoteRoute();
 
-    await waitFor(() => expect(screen.getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument(), { timeout: 3_000 });
+    await waitFor(() => expect(screen.getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument());
     expect(reload).not.toHaveBeenCalled();
 
     openUserMenu("Plain");
     fireEvent.click(screen.getByText("Settings"));
 
-    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Account info" })).toBeInTheDocument(), {
-      timeout: 3_000,
-    });
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Account info" })).toBeInTheDocument());
     // 開 modal 期間：背景 location（含其 key）被保存原封不動，ref 不變 → 不 reload；
     // 背景錯誤畫面仍在 DOM（Radix aria-hidden 不影響 getByText）
     expect(reload).not.toHaveBeenCalled();
@@ -213,7 +211,7 @@ describe("resetKey 選型守門——錯誤畫面上開/關設定 modal 不觸�
 
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
 
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument(), { timeout: 3_000 });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     // 關鍵斷言：關閉走 navigate(backgroundLocation) → location key 換新、ref 沒變
     // → resetKey（=ref）不動 → 不 reload。resetKey 若改回 location.key，這裡紅。
     expect(reload).not.toHaveBeenCalled();
@@ -232,7 +230,7 @@ describe("resetKey 選型守門——錯誤畫面上開/關設定 modal 不觸�
 
     renderNoteRoute();
 
-    await waitFor(() => expect(reload).toHaveBeenCalledTimes(1), { timeout: 3_000 });
+    await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
     // 載入畫面（reloading 態）而非錯誤畫面——鑑別式斷言（兩畫面都含 AppShell）
     expect(screen.getAllByText(LOADING_TEXT).length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByText(CHUNK_ERROR_TEXT)).not.toBeInTheDocument();
@@ -254,18 +252,16 @@ describe("resetKey 選型守門——錯誤畫面上開/關設定 modal 不觸�
 
     renderNoteRoute();
 
-    await waitFor(() => expect(screen.getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument(), { timeout: 3_000 });
+    await waitFor(() => expect(screen.getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument());
     expect(reload).not.toHaveBeenCalled();
 
     // 側欄清單載入後點另一篇（react-router Link，MemoryRouter 內正常導航）。
     // 側欄是 tab 化的單一面板（預設「我的筆記」），「Other Note」只列一次；
     // 這裡沿用 `getAllByRole` 取第一個，單數也成立。
-    await waitFor(() => expect(screen.getAllByRole("link", { name: /Other Note/ }).length).toBeGreaterThan(0), {
-      timeout: 3_000,
-    });
+    await waitFor(() => expect(screen.getAllByRole("link", { name: /Other Note/ }).length).toBeGreaterThan(0));
     fireEvent.click(screen.getAllByRole("link", { name: /Other Note/ })[0]);
 
-    await waitFor(() => expect(reload).toHaveBeenCalledTimes(1), { timeout: 3_000 });
+    await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
     expect(reload).toHaveBeenCalledTimes(1);
     // 旗標不被清（導航觸發的 reload 不清旗標——spec §resetKey；落地若又失敗直接進 B）
     expect(sessionStorage.getItem(FLAG_KEY)).not.toBeNull();
@@ -280,16 +276,14 @@ describe("resetKey 選型守門——錯誤畫面上開/關設定 modal 不觸�
     // 以新形開頁：出現的是 NotePage 子樹的錯誤畫面（mock 必 throw）＝route 承接證明
     // ——若 /n/a/b 被 `/*` 吃掉，這裡會渲染 HomePage、看不到 CHUNK_ERROR_TEXT。
     renderNoteRoute("/n/plain/my-note");
-    await waitFor(() => expect(screen.getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument(), { timeout: 3_000 });
+    await waitFor(() => expect(screen.getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument());
     expect(reload).not.toHaveBeenCalled();
 
     // 新形之間換筆記：resetKey（`${handle}/${slug}`）變 → 預設 seam reload 恰一次
-    await waitFor(() => expect(screen.getAllByRole("link", { name: /Other Note/ }).length).toBeGreaterThan(0), {
-      timeout: 3_000,
-    });
+    await waitFor(() => expect(screen.getAllByRole("link", { name: /Other Note/ }).length).toBeGreaterThan(0));
     fireEvent.click(screen.getAllByRole("link", { name: /Other Note/ })[0]);
 
-    await waitFor(() => expect(reload).toHaveBeenCalledTimes(1), { timeout: 3_000 });
+    await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
     // waitFor 內那句只保證「曾達到 1」——外面再釘一遍抓晚到的第二次（同檔既有慣例）
     expect(reload).toHaveBeenCalledTimes(1);
   });
@@ -303,19 +297,17 @@ describe("resetKey 選型守門——錯誤畫面上開/關設定 modal 不觸�
 
     // 以 /g/ 形開頁：出現 NotePage 子樹的錯誤畫面＝route 承接證明（被 `/*` 吃掉會渲染 HomePage）。
     renderNoteRoute(`/g/${GROUP_ID}/group-note`);
-    await waitFor(() => expect(screen.getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument(), { timeout: 3_000 });
+    await waitFor(() => expect(screen.getByText(CHUNK_ERROR_TEXT)).toBeInTheDocument());
     expect(reload).not.toHaveBeenCalled();
 
     // 同一群組內換到另一篇：側欄連結是 canonical 的 `/g/<groupId>/<slug>`（群組不在 useGroups → 兜底落
     // 「與我共享」，連結形不受段落影響）。resetKey 若沒有第三形（落到 `ref`＝undefined），兩頁鍵相同、不 reload。
-    await waitFor(() => expect(screen.getAllByRole("link", { name: /Other Group Note/ }).length).toBeGreaterThan(0), {
-      timeout: 3_000,
-    });
+    await waitFor(() => expect(screen.getAllByRole("link", { name: /Other Group Note/ }).length).toBeGreaterThan(0));
     const link = screen.getAllByRole("link", { name: /Other Group Note/ })[0];
     expect(link).toHaveAttribute("href", `/g/${GROUP_ID}/other-group-note`);
     fireEvent.click(link);
 
-    await waitFor(() => expect(reload).toHaveBeenCalledTimes(1), { timeout: 3_000 });
+    await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
     expect(reload).toHaveBeenCalledTimes(1);
   });
 });
